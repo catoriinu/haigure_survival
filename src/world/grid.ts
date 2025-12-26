@@ -9,6 +9,7 @@ export type GridLayout = {
     row: number;
     col: number;
   };
+  noSpawnCells: { row: number; col: number }[];
   cells: CellType[][];
 };
 
@@ -75,37 +76,54 @@ const carveCorridor = (
 
 const buildThreeRoomsLinear = (config: GridConfig): GridLayout => {
   const cells = createFilledCells(config.rows, config.columns, "wall");
-  const roomCount = 3;
-  const roomWidth = 4;
-  const roomHeight = 4;
-  const corridorThickness = 1;
-  const spacing = Math.floor(
-    (config.columns - roomCount * roomWidth) / (roomCount + 1)
-  );
-  const startRow = Math.floor((config.rows - roomHeight) / 2);
-  const corridorRow = startRow + Math.floor(roomHeight / 2);
-  const spawnRow = startRow + Math.floor(roomHeight / 2);
-  const spawnCol = spacing + Math.floor(roomWidth / 2);
-  let previousRoomEndCol = 0;
+  const largeRoomWidth = 4;
+  const largeRoomHeight = 4;
+  const smallRoomWidth = 2;
+  const smallRoomHeight = 3;
+  const corridorWidth = 1;
+  const startRowLarge = Math.floor((config.rows - largeRoomHeight) / 2);
+  const corridorRow = startRowLarge + Math.floor(largeRoomHeight / 2);
+  const startRowSmall = corridorRow - Math.floor(smallRoomHeight / 2);
+  const roomSpecs = [
+    { width: smallRoomWidth, height: smallRoomHeight, kind: "small" as const },
+    { width: largeRoomWidth, height: largeRoomHeight, kind: "large" as const },
+    { width: largeRoomWidth, height: largeRoomHeight, kind: "large" as const },
+    { width: largeRoomWidth, height: largeRoomHeight, kind: "large" as const },
+    { width: smallRoomWidth, height: smallRoomHeight, kind: "small" as const }
+  ];
+  const noSpawnCells: { row: number; col: number }[] = [];
+  let currentCol = 0;
+  let spawnRow = corridorRow;
+  let spawnCol = 0;
 
-  for (let index = 0; index < roomCount; index += 1) {
-    const startCol = spacing + index * (roomWidth + spacing);
-    carveRect(cells, startCol, startRow, roomWidth, roomHeight);
+  for (let index = 0; index < roomSpecs.length; index += 1) {
+    const room = roomSpecs[index];
+    const startRow = room.kind === "small" ? startRowSmall : startRowLarge;
+    carveRect(cells, currentCol, startRow, room.width, room.height);
 
-    if (index > 0) {
-      const corridorStartRow =
-        corridorRow - Math.floor(corridorThickness / 2);
-      for (let offset = 0; offset < corridorThickness; offset += 1) {
-        carveCorridor(
-          cells,
-          corridorStartRow + offset,
-          previousRoomEndCol + 1,
-          startCol - 1
-        );
+    if (room.kind === "small") {
+      for (let row = startRow; row < startRow + room.height; row += 1) {
+        for (let col = currentCol; col < currentCol + room.width; col += 1) {
+          noSpawnCells.push({ row, col });
+        }
       }
     }
 
-    previousRoomEndCol = startCol + roomWidth - 1;
+    if (index === 0) {
+      spawnRow = startRow + Math.floor(room.height / 2);
+      spawnCol = currentCol + Math.floor(room.width / 2);
+    }
+
+    currentCol += room.width;
+    if (index < roomSpecs.length - 1) {
+      carveCorridor(
+        cells,
+        corridorRow,
+        currentCol,
+        currentCol + corridorWidth - 1
+      );
+      currentCol += corridorWidth;
+    }
   }
 
   return {
@@ -117,6 +135,7 @@ const buildThreeRoomsLinear = (config: GridConfig): GridLayout => {
       row: spawnRow,
       col: spawnCol
     },
+    noSpawnCells,
     cells
   };
 };
