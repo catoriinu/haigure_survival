@@ -80,6 +80,17 @@ export type BitMode =
 
 export type BitSpawnPhase = "fade-in" | "hold" | "shrink" | "done";
 
+export type BitFireEffect = {
+  cone: Mesh;
+  coneMaterial: StandardMaterial;
+  conePositions: number[];
+  coneColors: number[];
+  muzzle: Mesh;
+  muzzleMaterial: StandardMaterial;
+  shot: Mesh;
+  shotMaterial: StandardMaterial;
+};
+
 export type Bit = {
   id: string;
   root: TransformNode;
@@ -114,6 +125,10 @@ export type Bit = {
   spawnTimer: number;
   spawnEffect: Mesh | null;
   spawnEffectMaterial: StandardMaterial | null;
+  fireEffect: BitFireEffect | null;
+  fireEffectActive: boolean;
+  fireEffectTimer: number;
+  fireLockDirection: Vector3;
 };
 
 export type BitSoundEvents = {

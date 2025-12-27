@@ -1,9 +1,11 @@
 import {
   Color3,
+  Mesh,
   MeshBuilder,
   Scene,
   StandardMaterial,
   TransformNode,
+  VertexBuffer,
   Vector3
 } from "@babylonjs/core";
 import { GridLayout } from "../world/grid";
@@ -24,6 +26,7 @@ import {
   pickRandomHorizontalDirection
 } from "./gridUtils";
 import { findTargetById } from "./targetUtils";
+import { beamTipDiameter } from "./beams";
 
 const bitVisionRange = 80;
 const bitBaseSpeed = 2.4;
@@ -69,6 +72,30 @@ const spawnShrinkDuration = 0.5;
 const spawnSphereStartDiameter = 2.6;
 const spawnSphereEndDiameter = 0.45;
 const spawnSphereEndScale = spawnSphereEndDiameter / spawnSphereStartDiameter;
+const bitBodyHeight = 1.8;
+const bitMuzzleDiameter = 0.35;
+const bitMuzzleOffsetZ = bitBodyHeight / 2 + 0.25;
+const bitFireEffectDuration = 0.32;
+const bitFireConeSweepDuration = 0.07;
+const bitFireConeFadeDuration = 0.06;
+const bitFireConeBandWidth = 0.22;
+const bitFireConeFadeSoftness = 0.1;
+const bitFireMuzzleLensDuration = 0.09;
+const bitFireMuzzleInflateDuration = 0.04;
+const bitFireMuzzleHoldDuration = 0.02;
+const bitFireShotGrowDuration = 0.1;
+const bitFireShotTravelDistance = 1.1;
+const bitFireMuzzleSphereScale = 2.1;
+const bitFireLensScale = new Vector3(2.1, 2.1, 1.0);
+const bitFireColor = new Color3(1, 0.18, 0.74);
+const bitFireEffectAlpha = 0.9;
+const bitFireMuzzleSequenceDuration =
+  bitFireMuzzleLensDuration +
+  bitFireMuzzleInflateDuration +
+  bitFireMuzzleHoldDuration;
+const bitFireShotStart =
+  bitFireConeSweepDuration + bitFireMuzzleSequenceDuration;
+const bitFireShotMaxScale = beamTipDiameter / bitMuzzleDiameter;
 
 const pickBitWanderDirection = () => {
   const angle = Math.random() * Math.PI * 2;
@@ -360,19 +387,276 @@ export const createBitMaterials = (scene: Scene): BitMaterials => {
   return { body, nozzle };
 };
 
+const createBitFireMaterial = (scene: Scene, name: string) => {
+  const material = new StandardMaterial(name, scene);
+  material.diffuseColor = bitFireColor.clone();
+  material.emissiveColor = bitFireColor.clone();
+  material.alpha = bitFireEffectAlpha;
+  material.backFaceCulling = false;
+  return material;
+};
+
+const createBitFireEffect = (
+  scene: Scene,
+  root: TransformNode,
+  id: string
+) => {
+  const cone = MeshBuilder.CreateCylinder(
+    `bitFireCone_${id}`,
+    {
+      diameterTop: 0,
+      diameterBottom: 1.4,
+      height: bitBodyHeight,
+      tessellation: 24,
+      sideOrientation: Mesh.DOUBLESIDE
+    },
+    scene
+  );
+  const coneMaterial = createBitFireMaterial(scene, `bitFireConeMat_${id}`);
+  cone.parent = root;
+  cone.rotation.x = Math.PI / 2;
+  cone.material = coneMaterial;
+  cone.isPickable = false;
+  cone.setEnabled(false);
+
+  const positions = cone.getVerticesData(VertexBuffer.PositionKind)!;
+  const colors = new Array((positions.length / 3) * 4).fill(0);
+  cone.setVerticesData(VertexBuffer.ColorKind, colors, true);
+  cone.useVertexColors = true;
+  cone.hasVertexAlpha = true;
+
+  const muzzle = MeshBuilder.CreateSphere(
+    `bitFireMuzzle_${id}`,
+    { diameter: bitMuzzleDiameter, segments: 16 },
+    scene
+  );
+  const muzzleMaterial = createBitFireMaterial(
+    scene,
+    `bitFireMuzzleMat_${id}`
+  );
+  muzzle.parent = root;
+  muzzle.position.z = bitMuzzleOffsetZ;
+  muzzle.material = muzzleMaterial;
+  muzzle.isPickable = false;
+  muzzle.setEnabled(false);
+
+  const shot = MeshBuilder.CreateSphere(
+    `bitFireShot_${id}`,
+    { diameter: bitMuzzleDiameter, segments: 16 },
+    scene
+  );
+  const shotMaterial = createBitFireMaterial(scene, `bitFireShotMat_${id}`);
+  shot.parent = root;
+  shot.position.z = bitMuzzleOffsetZ;
+  shot.material = shotMaterial;
+  shot.isPickable = false;
+  shot.setEnabled(false);
+
+  return {
+    cone,
+    coneMaterial,
+    conePositions: positions,
+    coneColors: colors,
+    muzzle,
+    muzzleMaterial,
+    shot,
+    shotMaterial
+  };
+};
+
+const updateBitFireCone = (bit: Bit, time: number) => {
+  if (!bit.fireEffect) {
+    return;
+  }
+  const { cone, conePositions, coneColors } = bit.fireEffect;
+  if (time > bitFireConeSweepDuration + bitFireConeFadeDuration) {
+    cone.setEnabled(false);
+    return;
+  }
+
+  cone.setEnabled(true);
+  const halfHeight = bitBodyHeight / 2;
+  const getProfileAlpha = (t: number) => {
+    if (t >= 0.5) {
+      return 1;
+    }
+    if (t >= 0.25) {
+      return (t - 0.25) / 0.25;
+    }
+    return 0;
+  };
+  if (time <= bitFireConeSweepDuration) {
+    const sweep = time / bitFireConeSweepDuration;
+    const center = sweep;
+    const halfBand = bitFireConeBandWidth / 2;
+    for (let index = 0, colorIndex = 0; index < conePositions.length; index += 3, colorIndex += 4) {
+      const y = conePositions[index + 1];
+      const t = (y + halfHeight) / bitBodyHeight;
+      const distance = Math.abs(t - center);
+      const bandAlpha = distance <= halfBand ? 1 - distance / halfBand : 0;
+      const alpha = bandAlpha * getProfileAlpha(t);
+      coneColors[colorIndex] = 1;
+      coneColors[colorIndex + 1] = 1;
+      coneColors[colorIndex + 2] = 1;
+      coneColors[colorIndex + 3] = alpha;
+    }
+    cone.updateVerticesData(VertexBuffer.ColorKind, coneColors);
+    return;
+  }
+
+  const fadeTime = time - bitFireConeSweepDuration;
+  const fade = fadeTime / bitFireConeFadeDuration;
+  const cutoff = fade;
+  for (let index = 0, colorIndex = 0; index < conePositions.length; index += 3, colorIndex += 4) {
+    const y = conePositions[index + 1];
+    const t = (y + halfHeight) / bitBodyHeight;
+    const fadeAlpha = Math.min(
+      1,
+      Math.max(0, (t - cutoff) / bitFireConeFadeSoftness)
+    );
+    const alpha = fadeAlpha * getProfileAlpha(t);
+    coneColors[colorIndex] = 1;
+    coneColors[colorIndex + 1] = 1;
+    coneColors[colorIndex + 2] = 1;
+    coneColors[colorIndex + 3] = alpha;
+  }
+  cone.updateVerticesData(VertexBuffer.ColorKind, coneColors);
+};
+
+const updateBitFireMuzzle = (bit: Bit, time: number) => {
+  if (!bit.fireEffect) {
+    return;
+  }
+  const { muzzle, muzzleMaterial } = bit.fireEffect;
+  if (time < bitFireConeSweepDuration) {
+    muzzle.setEnabled(false);
+    return;
+  }
+
+  muzzle.setEnabled(true);
+  const muzzleTime = time - bitFireConeSweepDuration;
+  if (muzzleTime < bitFireMuzzleLensDuration) {
+    muzzle.scaling.copyFrom(bitFireLensScale);
+    muzzleMaterial.alpha = bitFireEffectAlpha;
+    return;
+  }
+  const inflateTime = muzzleTime - bitFireMuzzleLensDuration;
+  if (inflateTime < bitFireMuzzleInflateDuration) {
+    const progress = inflateTime / bitFireMuzzleInflateDuration;
+    const targetScale = Vector3.Lerp(
+      bitFireLensScale,
+      new Vector3(
+        bitFireMuzzleSphereScale,
+        bitFireMuzzleSphereScale,
+        bitFireMuzzleSphereScale
+      ),
+      progress
+    );
+    muzzle.scaling.copyFrom(targetScale);
+    muzzleMaterial.alpha = bitFireEffectAlpha;
+    return;
+  }
+  const holdTime = inflateTime - bitFireMuzzleInflateDuration;
+  if (holdTime < bitFireMuzzleHoldDuration) {
+    muzzle.scaling.set(
+      bitFireMuzzleSphereScale,
+      bitFireMuzzleSphereScale,
+      bitFireMuzzleSphereScale
+    );
+    muzzleMaterial.alpha = bitFireEffectAlpha;
+    return;
+  }
+
+  const fadeProgress = Math.min(
+    1,
+    (time - bitFireShotStart) / (bitFireEffectDuration - bitFireShotStart)
+  );
+  const scale = bitFireMuzzleSphereScale * (1 - fadeProgress);
+  muzzle.scaling.set(scale, scale, scale);
+  muzzleMaterial.alpha = bitFireEffectAlpha * (1 - fadeProgress);
+  if (fadeProgress >= 1) {
+    muzzle.setEnabled(false);
+  }
+};
+
+const updateBitFireShot = (bit: Bit, time: number) => {
+  if (!bit.fireEffect) {
+    return;
+  }
+  const { shot } = bit.fireEffect;
+  if (time < bitFireShotStart) {
+    shot.setEnabled(false);
+    return;
+  }
+
+  const shotProgress = Math.min(
+    1,
+    (time - bitFireShotStart) / bitFireShotGrowDuration
+  );
+  const travelProgress = Math.min(
+    1,
+    (time - bitFireShotStart) / (bitFireEffectDuration - bitFireShotStart)
+  );
+  const scale = 1 + (bitFireShotMaxScale - 1) * shotProgress;
+  shot.scaling.set(scale, scale, scale);
+  shot.position.z = bitMuzzleOffsetZ + bitFireShotTravelDistance * travelProgress;
+  shot.setEnabled(true);
+  if (time >= bitFireEffectDuration) {
+    shot.setEnabled(false);
+  }
+};
+
+const updateBitFireEffect = (bit: Bit, delta: number) => {
+  if (!bit.fireEffectActive || !bit.fireEffect) {
+    return;
+  }
+  bit.fireEffectTimer = Math.min(
+    bitFireEffectDuration,
+    bit.fireEffectTimer + delta
+  );
+  const time = bit.fireEffectTimer;
+  updateBitFireCone(bit, time);
+  updateBitFireMuzzle(bit, time);
+  updateBitFireShot(bit, time);
+};
+
+const startBitFireEffect = (bit: Bit) => {
+  if (!bit.fireEffect) {
+    bit.fireEffect = createBitFireEffect(
+      bit.root.getScene(),
+      bit.root,
+      bit.id
+    );
+  }
+  bit.fireEffectActive = true;
+  bit.fireEffectTimer = 0;
+  bit.fireEffect.cone.setEnabled(true);
+  bit.fireEffect.muzzle.setEnabled(true);
+  bit.fireEffect.shot.setEnabled(false);
+};
+
+const stopBitFireEffect = (bit: Bit) => {
+  bit.fireEffectActive = false;
+  bit.fireEffectTimer = 0;
+  if (bit.fireEffect) {
+    bit.fireEffect.cone.setEnabled(false);
+    bit.fireEffect.muzzle.setEnabled(false);
+    bit.fireEffect.shot.setEnabled(false);
+  }
+};
+
 const createBitRoot = (
   scene: Scene,
   materials: BitMaterials,
   index: number
 ) => {
   const root = new TransformNode(`bit_${index}`, scene);
-  const bodyHeight = 1.8;
   const body = MeshBuilder.CreateCylinder(
     `bitBody_${index}`,
     {
       diameterTop: 0,
       diameterBottom: 1.4,
-      height: bodyHeight,
+      height: bitBodyHeight,
       tessellation: 24
     },
     scene
@@ -383,11 +667,11 @@ const createBitRoot = (
 
   const muzzle = MeshBuilder.CreateSphere(
     `bitMuzzle_${index}`,
-    { diameter: 0.45, segments: 16 },
+    { diameter: bitMuzzleDiameter, segments: 16 },
     scene
   );
   muzzle.parent = root;
-  muzzle.position.z = bodyHeight / 2 + 0.25;
+  muzzle.position.z = bitMuzzleOffsetZ;
   muzzle.material = materials.nozzle;
 
   return { root, body, muzzle };
@@ -470,12 +754,16 @@ export const createBit = (
     baseHeight,
     isMoving: false,
     despawnTimer: 0,
-    spawnPhase: "fade-in",
-    spawnTimer: 0,
-    spawnEffect: spawnEffect.effect,
-    spawnEffectMaterial: spawnEffect.material
+      spawnPhase: "fade-in",
+      spawnTimer: 0,
+      spawnEffect: spawnEffect.effect,
+      spawnEffectMaterial: spawnEffect.material,
+      fireEffect: null,
+      fireEffectActive: false,
+      fireEffectTimer: 0,
+      fireLockDirection: new Vector3(0, 0, 1)
+    };
   };
-};
 
 export const createBitAt = (
   scene: Scene,
@@ -533,12 +821,16 @@ export const createBitAt = (
     baseHeight: position.y,
     isMoving: false,
     despawnTimer: 0,
-    spawnPhase: "fade-in",
-    spawnTimer: 0,
-    spawnEffect: spawnEffect.effect,
-    spawnEffectMaterial: spawnEffect.material
+      spawnPhase: "fade-in",
+      spawnTimer: 0,
+      spawnEffect: spawnEffect.effect,
+      spawnEffectMaterial: spawnEffect.material,
+      fireEffect: null,
+      fireEffectActive: false,
+      fireEffectTimer: 0,
+      fireLockDirection: new Vector3(0, 0, 1)
+    };
   };
-};
 
 export const spawnBits = (
   scene: Scene,
@@ -1448,19 +1740,50 @@ export const updateBits = (
     bit.baseHeight = clampedBase;
     bit.root.position.y = bit.baseHeight + bob;
 
+    if (bit.fireEffectActive) {
+      aimDirection = bit.fireLockDirection;
+    }
+
     if (aimDirection.length() > 0.001) {
       updateBitRotation(bit, aimDirection, delta);
     }
 
     if (!spawnActive && bit.fireInterval > 0) {
       bit.fireTimer -= delta;
-      if (bit.fireTimer <= 0 && canFire) {
+      if (bit.fireEffectActive) {
+        updateBitFireEffect(bit, delta);
+      }
+      if (
+        bit.fireEffectActive &&
+        !canFire &&
+        bit.fireEffectTimer >= bitFireEffectDuration
+      ) {
+        stopBitFireEffect(bit);
+      }
+      if (
+        canFire &&
+        !bit.fireEffectActive &&
+        bit.fireTimer <= bitFireEffectDuration
+      ) {
+        const lockDirection = bit.root.getDirection(new Vector3(0, 0, 1));
+        if (lockDirection.length() > 0.001) {
+          bit.fireLockDirection.copyFrom(lockDirection.normalize());
+          startBitFireEffect(bit);
+        }
+      }
+      const effectReady =
+        !bit.fireEffectActive ||
+        bit.fireEffectTimer >= bitFireEffectDuration;
+      if (bit.fireTimer <= 0 && canFire && effectReady) {
         const muzzlePosition = bit.muzzle.getAbsolutePosition();
-        const beamDirection = bit.root.getDirection(new Vector3(0, 0, 1));
+        const beamDirection = bit.fireEffectActive
+          ? bit.fireLockDirection
+          : bit.root.getDirection(new Vector3(0, 0, 1)).normalize();
         if (beamDirection.length() > 0.001) {
           soundEvents.onBeamFire(bit, bit.targetId === "player");
-          spawnBeam(muzzlePosition, beamDirection.normalize(), bit.id);
+          spawnBeam(muzzlePosition, beamDirection, bit.id);
         }
+        stopBitFireEffect(bit);
         if (bit.mode === "carpet-bomb") {
           bit.fireInterval =
             (carpetBombFireIntervalMin +
@@ -1486,15 +1809,24 @@ export const updateBits = (
 
   if (bitsToRemove.length > 0) {
     const removeIds = new Set(bitsToRemove.map((bit) => bit.id));
-    for (const bit of bitsToRemove) {
-      if (bit.spawnEffect) {
-        bit.spawnEffect.dispose();
+      for (const bit of bitsToRemove) {
+        if (bit.spawnEffect) {
+          bit.spawnEffect.dispose();
+        }
+        if (bit.spawnEffectMaterial) {
+          bit.spawnEffectMaterial.dispose();
+        }
+        if (bit.fireEffect) {
+          bit.fireEffect.cone.dispose();
+          bit.fireEffect.coneMaterial.dispose();
+          bit.fireEffect.muzzle.dispose();
+          bit.fireEffect.muzzleMaterial.dispose();
+          bit.fireEffect.shot.dispose();
+          bit.fireEffect.shotMaterial.dispose();
+          bit.fireEffect = null;
+        }
+        bit.root.dispose();
       }
-      if (bit.spawnEffectMaterial) {
-        bit.spawnEffectMaterial.dispose();
-      }
-      bit.root.dispose();
-    }
     for (let index = bits.length - 1; index >= 0; index -= 1) {
       if (removeIds.has(bits[index].id)) {
         bits.splice(index, 1);

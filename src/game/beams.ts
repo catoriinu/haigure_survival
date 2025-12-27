@@ -18,6 +18,7 @@ const beamTipScaleMultiplier = 4;
 const beamDiameter = beamDiameterBase * beamDiameterScale;
 const beamTipScale =
   (beamTipScaleBase * beamTipScaleMultiplier) / beamDiameterScale;
+export const beamTipDiameter = beamDiameter * beamTipScale;
 const beamFrontDiameterScale = 0.8;
 const beamBackDiameterScale = 3.0;
 const beamFrontRadius = (beamDiameter * beamFrontDiameterScale) / 2;
@@ -167,7 +168,7 @@ export const createBeam = (
   beam.isPickable = false;
   applyBeamBackFade(beam, beamLength);
 
-  const tipDiameter = beamDiameter * beamTipScale;
+  const tipDiameter = beamTipDiameter;
   const tip = MeshBuilder.CreateSphere(
     "beamTip",
     { diameter: tipDiameter, segments: 12 },
