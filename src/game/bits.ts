@@ -38,7 +38,7 @@ const bitFixedDuration = 5;
 const alertGatherTargetCount = 4;
 const alertGatherRadius = 6;
 const alertGiveUpDuration = 20;
-const alertReceiveSpeedMultiplier = 3;
+const alertReceiveSpeedMultiplier = 5;
 const alertSpawnRadius = 2.4;
 const bitRandomDuration = 5;
 const bitInitialFireDelayFactor = 0.35;
@@ -48,14 +48,16 @@ const bitWanderTimerMin = 0.6;
 const bitWanderTimerMax = 1.2;
 const bitBobAmplitude = 0.25;
 const carpetFormationSpacing = 3;
-const carpetBombSpeed = 4.5;
+const carpetBombSpeed = 10;
 const carpetBombSpread = 0.4;
 const carpetBombFireIntervalMin = 0.225;
 const carpetBombFireIntervalMax = 0.425;
 const carpetBombPassDelay = 2.5;
-const carpetBombSteerStrength = 0.12;
+const carpetBombAscendSpeed = 4.2;
+const carpetBombTurnRate = Math.PI * 0.35;
+const carpetBombWallCooldown = 2.5;
+const carpetBombSteerStrength = 0.18;
 const carpetBombAimScatter = 0.35;
-const carpetBombAimRange = 10;
 const carpetBombAimBlend = 0.2;
 const carpetAimTurnDuration = 1;
 const carpetDespawnDuration = 1;
@@ -280,6 +282,30 @@ const updateBitRotation = (
   bit.root.lookAt(bit.root.position.add(next));
 };
 
+const steerCarpetDirection = (
+  current: Vector3,
+  desired: Vector3,
+  delta: number
+) => {
+  const dot = Math.min(1, Math.max(-1, Vector3.Dot(current, desired)));
+  if (dot <= 0) {
+    return current;
+  }
+  const angle = Math.acos(dot);
+  if (angle <= 0.0001) {
+    return current;
+  }
+  const maxStep = carpetBombTurnRate * delta;
+  const t = Math.min(1, maxStep / angle);
+  const sin = Math.sin(angle);
+  const startScale = Math.sin((1 - t) * angle) / sin;
+  const endScale = Math.sin(t * angle) / sin;
+  const next = current.scale(startScale).add(desired.scale(endScale));
+  const blended = Vector3.Lerp(current, next, carpetBombSteerStrength);
+  blended.y = 0;
+  return blended.lengthSquared() > 0.0001 ? blended.normalize() : current;
+};
+
 const updateSpawnEffect = (bit: Bit, delta: number) => {
   if (bit.spawnPhase === "done") {
     return;
@@ -428,6 +454,7 @@ export const createBit = (
     carpetPassTimer: 0,
     carpetAimTimer: 0,
     carpetAimStart: new Vector3(0, 0, 1),
+    carpetCooldown: 0,
     lockedDirection: new Vector3(0, 0, 1),
     holdDirection: new Vector3(0, 0, 1),
     modeTimer: 0,
@@ -490,6 +517,7 @@ export const createBitAt = (
     carpetPassTimer: 0,
     carpetAimTimer: 0,
     carpetAimStart: new Vector3(0, 0, 1),
+    carpetCooldown: 0,
     lockedDirection: new Vector3(0, 0, 1),
     holdDirection: new Vector3(0, 0, 1),
     modeTimer: 0,
@@ -811,6 +839,10 @@ export const updateBits = (
     clearAlertSignal();
   };
   const startCarpetBomb = (bit: Bit, target: TargetInfo) => {
+    if (bit.carpetCooldown > 0 || isWallNear(bit.root.position)) {
+      setBitMode(bit, "attack-chase", target, alertSignal, soundEvents);
+      return;
+    }
     if (target.id === "player" && bit.targetId !== "player") {
       soundEvents.onTargetPlayer(bit);
     }
@@ -910,6 +942,9 @@ export const updateBits = (
     const hitTarget = targets.find(
       (target) => target.hitById === bit.id && isHitState(target.state)
     );
+    if (bit.carpetCooldown > 0) {
+      bit.carpetCooldown = Math.max(0, bit.carpetCooldown - delta);
+    }
     if (bit.despawnTimer > 0) {
       if (updateCarpetFollowerDespawn(bit, delta)) {
         bitsToRemove.push(bit);
@@ -1015,8 +1050,8 @@ export const updateBits = (
           aimDirection = new Vector3(0, 1, 0);
           canFire = false;
         } else {
-          const receiveMultiplier = bit.isRed ? 1 : alertReceiveSpeedMultiplier;
-          moveSpeed = bitSearchSpeed * bit.statMultiplier * receiveMultiplier;
+          moveSpeed =
+            bitSearchSpeed * bit.statMultiplier * alertReceiveSpeedMultiplier;
           if (distance <= alertGatherRadius) {
             if (!alertSignal.gatheredIds.has(bit.id)) {
               alertSignal.gatheredIds.add(bit.id);
@@ -1192,30 +1227,33 @@ export const updateBits = (
             setBitMode(bit, "search", null, alertSignal, soundEvents);
             continue;
           }
-          const leaderDirection =
+          let leaderDirection =
             leader.carpetDirection.lengthSquared() > 0.0001
               ? leader.carpetDirection.normalize()
               : leader.root.getDirection(new Vector3(0, 0, 1));
-          const right = new Vector3(-leaderDirection.z, 0, leaderDirection.x);
 
           if (leader.id === bit.id) {
             const toTarget = carpetTarget.position.subtract(bit.root.position);
             toTarget.y = 0;
+            let passDot = 0;
             if (toTarget.lengthSquared() > 0.0001) {
               const targetDirection = toTarget.normalize();
-              const blended = Vector3.Lerp(
-                leaderDirection,
-                targetDirection,
-                carpetBombSteerStrength
-              );
-              blended.y = 0;
-              if (blended.lengthSquared() > 0.0001) {
-                leader.carpetDirection.copyFrom(blended.normalize());
+              passDot =
+                leaderDirection.x * toTarget.x +
+                leaderDirection.z * toTarget.z;
+              if (passDot >= 0) {
+                const steered = steerCarpetDirection(
+                  leaderDirection,
+                  targetDirection,
+                  delta
+                );
+                leader.carpetDirection.copyFrom(steered);
+                leaderDirection = leader.carpetDirection.normalize();
+                passDot =
+                  leader.carpetDirection.x * toTarget.x +
+                  leader.carpetDirection.z * toTarget.z;
               }
             }
-            const passDot =
-              leader.carpetDirection.x * toTarget.x +
-              leader.carpetDirection.z * toTarget.z;
             if (passDot < 0) {
               leader.carpetPassTimer += delta;
             } else {
@@ -1226,6 +1264,10 @@ export const updateBits = (
               setBitMode(bit, "search", null, alertSignal, soundEvents);
               continue;
             }
+          }
+          const right = new Vector3(-leaderDirection.z, 0, leaderDirection.x);
+
+          if (leader.id === bit.id) {
             moveDirection = leader.carpetDirection;
           } else {
             if (leader.carpetPassTimer >= carpetBombPassDelay) {
@@ -1244,26 +1286,16 @@ export const updateBits = (
               moveDirection = leader.carpetDirection;
             }
           }
-          let aimBase = new Vector3(0, -1, 0);
-          const toTarget = carpetTarget.position.subtract(bit.root.position);
-          toTarget.y = 0;
-          const horizontalDistance = Math.hypot(toTarget.x, toTarget.z);
-          if (
-            horizontalDistance > 0.001 &&
-            horizontalDistance <= carpetBombAimRange
-          ) {
-            const horizontalDirection = toTarget.normalize();
-            const tiltDirection = new Vector3(
-              horizontalDirection.x,
-              -1,
-              horizontalDirection.z
-            ).normalize();
-            aimBase = Vector3.Lerp(
-              new Vector3(0, -1, 0),
-              tiltDirection,
-              carpetBombAimBlend
-            );
-          }
+          const tiltDirection = new Vector3(
+            leaderDirection.x,
+            -1,
+            leaderDirection.z
+          ).normalize();
+          let aimBase = Vector3.Lerp(
+            new Vector3(0, -1, 0),
+            tiltDirection,
+            carpetBombAimBlend
+          );
           if (
             leader.id === bit.id &&
             bit.carpetAimTimer < carpetAimTurnDuration
@@ -1335,9 +1367,15 @@ export const updateBits = (
       hitWall = true;
     }
 
-    bit.baseHeight += moveStep.y;
     if (bit.mode === "carpet-bomb") {
-      bit.baseHeight = maxY;
+      const heightStep = carpetBombAscendSpeed * delta;
+      if (bit.baseHeight < maxY) {
+        bit.baseHeight = Math.min(maxY, bit.baseHeight + heightStep);
+      } else if (bit.baseHeight > maxY) {
+        bit.baseHeight = Math.max(maxY, bit.baseHeight - heightStep);
+      }
+    } else {
+      bit.baseHeight += moveStep.y;
     }
 
     if (bit.root.position.x < minX) {
@@ -1369,6 +1407,7 @@ export const updateBits = (
         startCarpetFollowerDespawn(bit);
         continue;
       }
+      bit.carpetCooldown = carpetBombWallCooldown;
       clearCarpetState(bit);
       setBitMode(bit, "search", null, alertSignal, soundEvents);
       continue;
