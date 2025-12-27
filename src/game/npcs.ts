@@ -23,6 +23,7 @@ import {
   HitFadeOrbConfig,
   updateHitFadeOrbs
 } from "./hitEffects";
+import { beginBeamRetract } from "./beams";
 
 const npcCellSize = 128;
 const npcFrameCount = 3;
@@ -348,9 +349,10 @@ export const updateNpcs = (
             const hitScale = isRedSource(beam.sourceId)
               ? redHitDurationScale
               : 1;
-          beam.active = false;
-          beam.tip.dispose();
-          beam.mesh.dispose();
+          const impactPosition = beam.tip.position.add(
+            Vector3.Normalize(beam.velocity).scale(beam.tipRadius)
+          );
+          beginBeamRetract(beam, impactPosition);
           npc.state = "hit-a";
           npc.sprite.cellIndex = 1;
           npc.hitTimer = npcHitDuration * hitScale;

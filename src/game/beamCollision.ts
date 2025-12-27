@@ -4,6 +4,7 @@ export type BeamCollisionShape = {
   mesh: Mesh;
   velocity: Vector3;
   length: number;
+  currentLength: number;
   tip: Mesh;
   tipRadius: number;
 };
@@ -14,7 +15,7 @@ export const isBeamHittingTarget = (
   targetRadius: number
 ) => {
   const direction = Vector3.Normalize(beam.velocity);
-  const halfLength = beam.length / 2;
+  const halfLength = beam.currentLength / 2;
   const toTarget = targetPosition.subtract(beam.mesh.position);
   const projection =
     toTarget.x * direction.x +

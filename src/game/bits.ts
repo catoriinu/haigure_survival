@@ -39,6 +39,7 @@ const alertGatherTargetCount = 4;
 const alertGatherRadius = 6;
 const alertGiveUpDuration = 20;
 const alertReceiveSpeedMultiplier = 3;
+const alertSpawnRadius = 2.4;
 const bitRandomDuration = 5;
 const bitInitialFireDelayFactor = 0.35;
 const bitWallProximityRadius = 0.9;
@@ -56,6 +57,16 @@ const carpetBombSteerStrength = 0.12;
 const carpetBombAimScatter = 0.35;
 const carpetBombAimRange = 10;
 const carpetBombAimBlend = 0.2;
+const carpetAimTurnDuration = 1;
+const carpetDespawnDuration = 1;
+const bitTurnSpeed = Math.PI * 1.2;
+const redBitTurnSpeed = Math.PI * 1.6;
+const spawnFadeDuration = 0.5;
+const spawnHoldDuration = 0.5;
+const spawnShrinkDuration = 0.5;
+const spawnSphereStartDiameter = 2.6;
+const spawnSphereEndDiameter = 0.45;
+const spawnSphereEndScale = spawnSphereEndDiameter / spawnSphereStartDiameter;
 
 const pickBitWanderDirection = () => {
   const angle = Math.random() * Math.PI * 2;
@@ -204,6 +215,11 @@ const initializeCarpetBit = (
   bit.carpetDirection.copyFrom(direction);
   bit.carpetOffset.copyFrom(offset);
   bit.carpetPassTimer = 0;
+  bit.carpetAimTimer = 0;
+  bit.carpetAimStart.copyFrom(bit.root.getDirection(new Vector3(0, 0, 1)));
+  if (leaderId !== bit.id) {
+    bit.root.lookAt(bit.root.position.add(new Vector3(0, -1, 0)));
+  }
   bit.fireInterval =
     (carpetBombFireIntervalMin +
       Math.random() * (carpetBombFireIntervalMax - carpetBombFireIntervalMin)) /
@@ -218,6 +234,92 @@ const clearCarpetState = (bit: Bit) => {
   bit.carpetPassTimer = 0;
   bit.carpetOffset = new Vector3(0, 0, 0);
   bit.canSpawnCarpet = true;
+};
+
+const isCarpetFollower = (bit: Bit) =>
+  bit.carpetLeaderId !== null && bit.carpetLeaderId !== bit.id;
+
+const startCarpetFollowerDespawn = (bit: Bit) => {
+  if (bit.despawnTimer > 0) {
+    return;
+  }
+  bit.despawnTimer = carpetDespawnDuration;
+};
+
+const updateCarpetFollowerDespawn = (bit: Bit, delta: number) => {
+  bit.despawnTimer = Math.max(0, bit.despawnTimer - delta);
+  const alpha = bit.despawnTimer / carpetDespawnDuration;
+  bit.body.visibility = alpha;
+  bit.muzzle.visibility = alpha;
+  if (bit.spawnEffectMaterial) {
+    bit.spawnEffectMaterial.alpha = alpha;
+  }
+  return bit.despawnTimer <= 0;
+};
+
+const updateBitRotation = (
+  bit: Bit,
+  desiredDirection: Vector3,
+  delta: number
+) => {
+  const desired = desiredDirection.normalize();
+  const current = bit.root.getDirection(new Vector3(0, 0, 1));
+  const dot = Math.min(1, Math.max(-1, Vector3.Dot(current, desired)));
+  const angle = Math.acos(dot);
+  if (angle <= 0.0001) {
+    bit.root.lookAt(bit.root.position.add(desired));
+    return;
+  }
+  const turnSpeed = bit.isRed ? redBitTurnSpeed : bitTurnSpeed;
+  const maxStep = turnSpeed * delta;
+  const t = Math.min(1, maxStep / angle);
+  const sin = Math.sin(angle);
+  const startScale = Math.sin((1 - t) * angle) / sin;
+  const endScale = Math.sin(t * angle) / sin;
+  const next = current.scale(startScale).add(desired.scale(endScale));
+  bit.root.lookAt(bit.root.position.add(next));
+};
+
+const updateSpawnEffect = (bit: Bit, delta: number) => {
+  if (bit.spawnPhase === "done") {
+    return;
+  }
+  bit.spawnTimer += delta;
+  if (bit.spawnPhase === "fade-in") {
+    const progress = Math.min(1, bit.spawnTimer / spawnFadeDuration);
+    bit.spawnEffectMaterial!.alpha = progress;
+    if (progress >= 1) {
+      bit.spawnPhase = "hold";
+      bit.spawnTimer = 0;
+      bit.body.isVisible = true;
+      bit.body.scaling = new Vector3(1, 1, 1);
+    }
+    return;
+  }
+  if (bit.spawnPhase === "hold") {
+    if (bit.spawnTimer >= spawnHoldDuration) {
+      bit.spawnPhase = "shrink";
+      bit.spawnTimer = 0;
+    }
+    return;
+  }
+  const progress = Math.min(1, bit.spawnTimer / spawnShrinkDuration);
+  const sphereScale = 1 - (1 - spawnSphereEndScale) * progress;
+  bit.spawnEffect!.scaling = new Vector3(
+    sphereScale,
+    sphereScale,
+    sphereScale
+  );
+  bit.spawnEffect!.position.z = bit.muzzle.position.z * progress;
+  if (progress >= 1) {
+    bit.muzzle.isVisible = true;
+    bit.muzzle.scaling = new Vector3(1, 1, 1);
+    bit.spawnPhase = "done";
+    bit.spawnEffect!.dispose();
+    bit.spawnEffectMaterial!.dispose();
+    bit.spawnEffect = null;
+    bit.spawnEffectMaterial = null;
+  }
 };
 
 export const createBitMaterials = (scene: Scene): BitMaterials => {
@@ -262,7 +364,27 @@ const createBitRoot = (
   muzzle.position.z = bodyHeight / 2 + 0.25;
   muzzle.material = materials.nozzle;
 
-  return { root, muzzle };
+  return { root, body, muzzle };
+};
+
+const createSpawnEffect = (
+  scene: Scene,
+  bodyMaterial: StandardMaterial,
+  index: number,
+  root: TransformNode
+) => {
+  const effect = MeshBuilder.CreateSphere(
+    `bitSpawn_${index}`,
+    { diameter: spawnSphereStartDiameter, segments: 24 },
+    scene
+  );
+  effect.parent = root;
+  const material = new StandardMaterial(`bitSpawnMaterial_${index}`, scene);
+  material.diffuseColor.copyFrom(bodyMaterial.diffuseColor);
+  material.emissiveColor.copyFrom(bodyMaterial.emissiveColor);
+  material.alpha = 0;
+  effect.material = material;
+  return { effect, material };
 };
 
 export const createBit = (
@@ -275,14 +397,25 @@ export const createBit = (
   const cell = pickRandomCell(floorCells);
   const baseHeight = 3 + Math.random() * 2.5;
   const position = cellToWorld(layout, cell, baseHeight);
-  const { root, muzzle } = createBitRoot(scene, materials, index);
+  const { root, body, muzzle } = createBitRoot(scene, materials, index);
   root.position = position;
+  body.isVisible = false;
+  muzzle.isVisible = false;
+  body.scaling = new Vector3(0, 0, 0);
+  muzzle.scaling = new Vector3(0, 0, 0);
+  const spawnEffect = createSpawnEffect(
+    scene,
+    body.material as StandardMaterial,
+    index,
+    root
+  );
 
   const wanderDirection = pickBitWanderDirection();
 
   return {
     id: root.name,
     root,
+    body,
     muzzle,
     mode: "search",
     targetId: null,
@@ -293,6 +426,8 @@ export const createBit = (
     carpetTargetId: null,
     carpetDirection: new Vector3(0, 0, 1),
     carpetPassTimer: 0,
+    carpetAimTimer: 0,
+    carpetAimStart: new Vector3(0, 0, 1),
     lockedDirection: new Vector3(0, 0, 1),
     holdDirection: new Vector3(0, 0, 1),
     modeTimer: 0,
@@ -306,7 +441,12 @@ export const createBit = (
     fireInterval: 1.1 + Math.random() * 1.4,
     floatOffset: Math.random() * Math.PI * 2,
     baseHeight,
-    isMoving: false
+    isMoving: false,
+    despawnTimer: 0,
+    spawnPhase: "fade-in",
+    spawnTimer: 0,
+    spawnEffect: spawnEffect.effect,
+    spawnEffectMaterial: spawnEffect.material
   };
 };
 
@@ -317,8 +457,18 @@ export const createBitAt = (
   position: Vector3,
   direction?: Vector3
 ): Bit => {
-  const { root, muzzle } = createBitRoot(scene, materials, index);
+  const { root, body, muzzle } = createBitRoot(scene, materials, index);
   root.position.copyFrom(position);
+  body.isVisible = false;
+  muzzle.isVisible = false;
+  body.scaling = new Vector3(0, 0, 0);
+  muzzle.scaling = new Vector3(0, 0, 0);
+  const spawnEffect = createSpawnEffect(
+    scene,
+    body.material as StandardMaterial,
+    index,
+    root
+  );
   const wanderDirection =
     direction && direction.lengthSquared() > 0.0001
       ? direction.normalize()
@@ -327,6 +477,7 @@ export const createBitAt = (
   return {
     id: root.name,
     root,
+    body,
     muzzle,
     mode: "search",
     targetId: null,
@@ -337,6 +488,8 @@ export const createBitAt = (
     carpetTargetId: null,
     carpetDirection: new Vector3(0, 0, 1),
     carpetPassTimer: 0,
+    carpetAimTimer: 0,
+    carpetAimStart: new Vector3(0, 0, 1),
     lockedDirection: new Vector3(0, 0, 1),
     holdDirection: new Vector3(0, 0, 1),
     modeTimer: 0,
@@ -350,7 +503,12 @@ export const createBitAt = (
     fireInterval: 1.1 + Math.random() * 1.4,
     floatOffset: Math.random() * Math.PI * 2,
     baseHeight: position.y,
-    isMoving: false
+    isMoving: false,
+    despawnTimer: 0,
+    spawnPhase: "fade-in",
+    spawnTimer: 0,
+    spawnEffect: spawnEffect.effect,
+    spawnEffectMaterial: spawnEffect.material
   };
 };
 
@@ -377,7 +535,8 @@ export const updateBits = (
   bounds: StageBounds,
   alertSignal: AlertSignal,
   alertRequests: string[],
-  spawnCarpetBit: (position: Vector3, direction: Vector3) => Bit | null,
+  spawnAlertBit: (position: Vector3, direction: Vector3) => Bit | null,
+  spawnCarpetBit: (position: Vector3, direction: Vector3) => Bit,
   spawnBeam: (position: Vector3, direction: Vector3, sourceId: string) => void,
   soundEvents: BitSoundEvents
 ) => {
@@ -553,6 +712,7 @@ export const updateBits = (
 
   const aliveTargets = targets.filter((target) => target.alive);
   const spawnedBits: Bit[] = [];
+  const bitsToRemove: Bit[] = [];
   let alertLeader = alertSignal.leaderId
     ? bits.find((candidate) => candidate.id === alertSignal.leaderId) ?? null
     : null;
@@ -592,7 +752,10 @@ export const updateBits = (
       return false;
     }
     const candidates = bits.filter(
-      (candidate) => candidate.id !== bit.id && candidate.mode !== "alert"
+      (candidate) =>
+        candidate.id !== bit.id &&
+        candidate.mode !== "alert" &&
+        !isCarpetFollower(candidate)
     );
     candidates.sort((a, b) => {
       const aDistance = Vector3.DistanceSquared(
@@ -605,14 +768,26 @@ export const updateBits = (
       );
       return aDistance - bDistance;
     });
-    const receiverCount = Math.min(
-      alertGatherTargetCount,
-      candidates.length
+    const spawnDirection = bit.root.getDirection(new Vector3(0, 0, 1));
+    const spawnOffset = new Vector3(
+      (Math.random() - 0.5) * alertSpawnRadius * 2,
+      0,
+      (Math.random() - 0.5) * alertSpawnRadius * 2
     );
-    if (receiverCount === 0) {
+    const spawnPosition = bit.root.position.add(spawnOffset);
+    const spawned = spawnAlertBit(spawnPosition, spawnDirection);
+    const receiverLimit = spawned
+      ? alertGatherTargetCount - 1
+      : alertGatherTargetCount;
+    const receiverCount = Math.min(receiverLimit, candidates.length);
+    const receivers = candidates.slice(0, receiverCount);
+    if (spawned) {
+      spawnedBits.push(spawned);
+      receivers.unshift(spawned);
+    }
+    if (receivers.length === 0) {
       return false;
     }
-    const receivers = candidates.slice(0, receiverCount);
     alertSignal.leaderId = bit.id;
     alertSignal.targetId = target.id;
     alertSignal.receiverIds = receivers.map((receiver) => receiver.id);
@@ -667,10 +842,10 @@ export const updateBits = (
     for (const offset of offsets) {
       const spawnPosition = bit.root.position.add(right.scale(offset));
       const newBit = spawnCarpetBit(spawnPosition, forward);
-      if (!newBit) {
-        continue;
-      }
       newBit.canSpawnCarpet = false;
+      newBit.isRed = bit.isRed;
+      newBit.statMultiplier = bit.statMultiplier;
+      newBit.speed = bit.speed;
       initializeCarpetBit(
         newBit,
         bit.id,
@@ -688,7 +863,10 @@ export const updateBits = (
       if (!alertTargetCandidate) {
         continue;
       }
-      const candidates = bits.filter((candidate) => candidate.mode !== "alert");
+      const candidates = bits.filter(
+        (candidate) =>
+          candidate.mode !== "alert" && !isCarpetFollower(candidate)
+      );
       if (candidates.length === 0) {
         break;
       }
@@ -728,12 +906,48 @@ export const updateBits = (
     let aimDirection = bit.wanderDirection.clone();
     let canFire = false;
     let moveSpeed = bit.speed;
+    const carpetFollower = isCarpetFollower(bit);
     const hitTarget = targets.find(
       (target) => target.hitById === bit.id && isHitState(target.state)
     );
+    if (bit.despawnTimer > 0) {
+      if (updateCarpetFollowerDespawn(bit, delta)) {
+        bitsToRemove.push(bit);
+      }
+      continue;
+    }
+    const spawnActive = bit.spawnPhase !== "done";
+    if (spawnActive) {
+      updateSpawnEffect(bit, delta);
+      if (bit.mode === "carpet-bomb" && carpetFollower) {
+        const leaderId = bit.carpetLeaderId ?? bit.id;
+        const leader =
+          bits.find((candidate) => candidate.id === leaderId) ?? null;
+        if (!leader || leader.mode !== "carpet-bomb") {
+          startCarpetFollowerDespawn(bit);
+          continue;
+        }
+      }
+    }
 
-    if (bit.mode !== "alert") {
+    if (carpetFollower && bit.mode !== "carpet-bomb") {
+      startCarpetFollowerDespawn(bit);
+      continue;
+    }
+
+    if (spawnActive) {
+      moveDirection = new Vector3(0, 0, 0);
+      aimDirection =
+        bit.mode === "carpet-bomb"
+          ? new Vector3(0, -1, 0)
+          : bit.root.getDirection(new Vector3(0, 0, 1));
+      canFire = false;
+    } else if (bit.mode !== "alert") {
       if (hitTarget && bit.mode !== "hold") {
+        if (carpetFollower && bit.mode === "carpet-bomb") {
+          startCarpetFollowerDespawn(bit);
+          continue;
+        }
         bit.mode = "hold";
         bit.targetId = hitTarget.id;
         bit.holdDirection = bit.root.getDirection(new Vector3(0, 0, 1));
@@ -742,283 +956,335 @@ export const updateBits = (
       }
     }
 
-    if (bit.mode === "hold") {
-      moveDirection = new Vector3(0, 0, 0);
-      aimDirection = bit.holdDirection.clone();
-      canFire = false;
-    } else if (bit.mode === "search") {
-      bit.wanderTimer -= delta;
-      if (bit.wanderTimer <= 0) {
-        bit.wanderDirection = pickBitWanderDirection();
-        bit.wanderTimer =
-          bitWanderTimerMin +
-          Math.random() * (bitWanderTimerMax - bitWanderTimerMin);
-      }
-      moveDirection = bit.wanderDirection;
-      aimDirection = bit.wanderDirection.clone();
-      moveSpeed = bitSearchSpeed * bit.statMultiplier;
-
-      const visibleTarget = findVisibleTarget(bit, aliveTargets);
-      if (visibleTarget) {
-        const nextMode = chooseAttackMode(bit);
-        if (nextMode === "alert") {
-          if (!startAlert(bit, visibleTarget)) {
-            setBitMode(
-              bit,
-              "attack-chase",
-              visibleTarget,
-              alertSignal,
-              soundEvents
-            );
-          }
-        } else if (nextMode === "carpet-bomb") {
-          startCarpetBomb(bit, visibleTarget);
-        } else {
-          setBitMode(bit, nextMode, visibleTarget, alertSignal, soundEvents);
-        }
-        continue;
-      }
-    } else if (bit.mode === "alert") {
-      bit.modeTimer -= delta;
-      if (bit.modeTimer <= 0) {
-        if (bit.id === alertSignal.leaderId) {
-          cancelAlert();
-          continue;
-        }
-        setBitMode(bit, "search", null, alertSignal, soundEvents);
-        continue;
-      }
-      if (!alertActive || !alertLeader || !alertTarget) {
-        setBitMode(bit, "search", null, alertSignal, soundEvents);
-        continue;
-      }
-      const toLeader = alertLeader.root.position.subtract(bit.root.position);
-      toLeader.y = 0;
-      const distance = Math.hypot(toLeader.x, toLeader.z);
-      if (bit.id === alertLeader.id) {
+    if (!spawnActive) {
+      if (bit.mode === "hold") {
         moveDirection = new Vector3(0, 0, 0);
-        aimDirection = new Vector3(0, 1, 0);
+        aimDirection = bit.holdDirection.clone();
         canFire = false;
-      } else {
-        const receiveMultiplier = bit.isRed ? 1 : alertReceiveSpeedMultiplier;
-        moveSpeed = bitSearchSpeed * bit.statMultiplier * receiveMultiplier;
-        if (distance <= alertGatherRadius) {
-          if (!alertSignal.gatheredIds.has(bit.id)) {
-            alertSignal.gatheredIds.add(bit.id);
-          }
-          const nextMode = chooseAlertFollowMode(bit);
-          if (nextMode === "carpet-bomb") {
-            startCarpetBomb(bit, alertTarget);
+      } else if (bit.mode === "search") {
+        bit.wanderTimer -= delta;
+        if (bit.wanderTimer <= 0) {
+          bit.wanderDirection = pickBitWanderDirection();
+          bit.wanderTimer =
+            bitWanderTimerMin +
+            Math.random() * (bitWanderTimerMax - bitWanderTimerMin);
+        }
+        moveDirection = bit.wanderDirection;
+        aimDirection = bit.wanderDirection.clone();
+        moveSpeed = bitSearchSpeed * bit.statMultiplier;
+
+        const visibleTarget = findVisibleTarget(bit, aliveTargets);
+        if (visibleTarget) {
+          const nextMode = chooseAttackMode(bit);
+          if (nextMode === "alert") {
+            if (!startAlert(bit, visibleTarget)) {
+              setBitMode(
+                bit,
+                "attack-chase",
+                visibleTarget,
+                alertSignal,
+                soundEvents
+              );
+            }
+          } else if (nextMode === "carpet-bomb") {
+            startCarpetBomb(bit, visibleTarget);
           } else {
-            setBitMode(bit, nextMode, alertTarget, alertSignal, soundEvents);
+            setBitMode(bit, nextMode, visibleTarget, alertSignal, soundEvents);
           }
           continue;
         }
-        moveDirection = getChaseDirection(
-          bit.root.position,
-          alertLeader.root.position
-        );
-        if (distance > 0.001) {
-          aimDirection = toLeader.normalize();
-        } else {
-          const forward = bit.root.getDirection(new Vector3(0, 0, 1));
-          forward.y = 0;
-          aimDirection =
-            forward.lengthSquared() > 0.0001 ? forward.normalize() : forward;
+      } else if (bit.mode === "alert") {
+        bit.modeTimer -= delta;
+        if (bit.modeTimer <= 0) {
+          if (bit.id === alertSignal.leaderId) {
+            cancelAlert();
+            continue;
+          }
+          setBitMode(bit, "search", null, alertSignal, soundEvents);
+          continue;
         }
-        canFire = false;
-      }
-    } else if (bit.mode === "attack-chase") {
-      moveSpeed = bitChaseSpeed * bit.statMultiplier;
-      bit.modeTimer -= delta;
-      if (bit.modeTimer <= 0) {
-        setBitMode(bit, "search", null, alertSignal, soundEvents);
-        continue;
-      }
-      const target = findTargetById(aliveTargets, bit.targetId);
-      if (!target) {
-        setBitMode(bit, "search", null, alertSignal, soundEvents);
-        continue;
-      }
-      const distanceSq = Vector3.DistanceSquared(
-        bit.root.position,
-        target.position
-      );
-      const distance = Math.sqrt(distanceSq);
-      if (distance > bitChaseLoseRange) {
-        setBitMode(bit, "search", null, alertSignal, soundEvents);
-        continue;
-      }
-      const targetDirection = target.position
-        .subtract(bit.root.position)
-        .normalize();
-      const chaseDirection = getChaseDirection(
-        bit.root.position,
-        target.position
-      );
-      moveDirection = chaseDirection;
-      aimDirection = chaseDirection;
-      const forward = bit.root.getDirection(new Vector3(0, 0, 1));
-      const dot =
-        forward.x * targetDirection.x +
-        forward.y * targetDirection.y +
-        forward.z * targetDirection.z;
-      canFire = dot >= bitVisionCos || distance <= bitChaseFireRange;
-    } else if (bit.mode === "attack-fixed") {
-      bit.modeTimer -= delta;
-      if (bit.modeTimer <= 0) {
-        setBitMode(bit, "search", null, alertSignal, soundEvents);
-        continue;
-      }
-      const lockedTarget = findTargetById(aliveTargets, bit.targetId);
-      if (!lockedTarget) {
-        setBitMode(bit, "search", null, alertSignal, soundEvents);
-        continue;
-      }
-      const distanceSq = Vector3.DistanceSquared(
-        bit.root.position,
-        lockedTarget.position
-      );
-      const distance = Math.sqrt(distanceSq);
-      if (distance > bitFixedLoseRange || distance < avoidRadius) {
-        setBitMode(bit, "search", null, alertSignal, soundEvents);
-        continue;
-      }
-      moveDirection = new Vector3(0, 0, 0);
-      const targetDirection = lockedTarget.position
-        .subtract(bit.root.position)
-        .normalize();
-      const lockedDirection = bit.lockedDirection.clone();
-      lockedDirection.y = 0;
-      aimDirection = new Vector3(
-        lockedDirection.x,
-        targetDirection.y,
-        lockedDirection.z
-      ).normalize();
-      canFire = true;
-    } else if (bit.mode === "attack-random") {
-      const randomTarget = findTargetById(aliveTargets, bit.targetId);
-      if (!randomTarget) {
-        setBitMode(bit, "search", null, alertSignal, soundEvents);
-        continue;
-      }
-      bit.modeTimer -= delta;
-      if (bit.modeTimer <= 0) {
-        setBitMode(bit, "search", null, alertSignal, soundEvents);
-        continue;
-      }
-      bit.wanderTimer -= delta;
-      if (bit.wanderTimer <= 0) {
-        bit.wanderDirection = pickBitWanderDirection();
-        bit.wanderTimer =
-          bitWanderTimerMin +
-          Math.random() * (bitWanderTimerMax - bitWanderTimerMin);
-      }
-      moveDirection = bit.wanderDirection;
-      aimDirection = bit.wanderDirection.clone();
-      canFire = true;
-    } else if (bit.mode === "carpet-bomb") {
-      moveSpeed = carpetBombSpeed * bit.statMultiplier;
-      const leaderId = bit.carpetLeaderId ?? bit.id;
-      const leader =
-        bits.find((candidate) => candidate.id === leaderId) ?? null;
-      if (!leader || leader.mode !== "carpet-bomb") {
-        clearCarpetState(bit);
-        setBitMode(bit, "search", null, alertSignal, soundEvents);
-        continue;
-      }
-      const carpetTarget = findTargetById(
-        aliveTargets,
-        leader.carpetTargetId
-      );
-      if (!carpetTarget) {
-        clearCarpetState(bit);
-        setBitMode(bit, "search", null, alertSignal, soundEvents);
-        continue;
-      }
-      const leaderDirection =
-        leader.carpetDirection.lengthSquared() > 0.0001
-          ? leader.carpetDirection.normalize()
-          : leader.root.getDirection(new Vector3(0, 0, 1));
-      const right = new Vector3(-leaderDirection.z, 0, leaderDirection.x);
+        if (!alertActive || !alertLeader || !alertTarget) {
+          setBitMode(bit, "search", null, alertSignal, soundEvents);
+          continue;
+        }
+        const toLeader = alertLeader.root.position.subtract(bit.root.position);
+        toLeader.y = 0;
+        const distance = Math.hypot(toLeader.x, toLeader.z);
+        if (bit.id === alertLeader.id) {
+          moveDirection = new Vector3(0, 0, 0);
+          aimDirection = new Vector3(0, 1, 0);
+          canFire = false;
+        } else {
+          const receiveMultiplier = bit.isRed ? 1 : alertReceiveSpeedMultiplier;
+          moveSpeed = bitSearchSpeed * bit.statMultiplier * receiveMultiplier;
+          if (distance <= alertGatherRadius) {
+            if (!alertSignal.gatheredIds.has(bit.id)) {
+              alertSignal.gatheredIds.add(bit.id);
+            }
+            const nextMode = chooseAlertFollowMode(bit);
+            if (nextMode === "carpet-bomb") {
+              startCarpetBomb(bit, alertTarget);
+            } else {
+              setBitMode(bit, nextMode, alertTarget, alertSignal, soundEvents);
+            }
+            continue;
+          }
+          moveDirection = getChaseDirection(
+            bit.root.position,
+            alertLeader.root.position
+          );
+          if (distance > 0.001) {
+            aimDirection = toLeader.normalize();
+          } else {
+            const forward = bit.root.getDirection(new Vector3(0, 0, 1));
+            forward.y = 0;
+            aimDirection =
+              forward.lengthSquared() > 0.0001 ? forward.normalize() : forward;
+          }
+          canFire = false;
+        }
+      } else if (bit.mode === "attack-chase") {
+        moveSpeed = bitChaseSpeed * bit.statMultiplier;
+        bit.modeTimer -= delta;
+        if (bit.modeTimer <= 0) {
+          setBitMode(bit, "search", null, alertSignal, soundEvents);
+          continue;
+        }
+        const target = findTargetById(aliveTargets, bit.targetId);
+        if (!target) {
+          setBitMode(bit, "search", null, alertSignal, soundEvents);
+          continue;
+        }
+        const distanceSq = Vector3.DistanceSquared(
+          bit.root.position,
+          target.position
+        );
+        const distance = Math.sqrt(distanceSq);
+        if (distance > bitChaseLoseRange) {
+          setBitMode(bit, "search", null, alertSignal, soundEvents);
+          continue;
+        }
+        const targetDirection = target.position
+          .subtract(bit.root.position)
+          .normalize();
+        const chaseDirection = getChaseDirection(
+          bit.root.position,
+          target.position
+        );
+        moveDirection = chaseDirection;
+        aimDirection = chaseDirection;
+        const forward = bit.root.getDirection(new Vector3(0, 0, 1));
+        const dot =
+          forward.x * targetDirection.x +
+          forward.y * targetDirection.y +
+          forward.z * targetDirection.z;
+        canFire = dot >= bitVisionCos || distance <= bitChaseFireRange;
+      } else if (bit.mode === "attack-fixed") {
+        bit.modeTimer -= delta;
+        if (bit.modeTimer <= 0) {
+          setBitMode(bit, "search", null, alertSignal, soundEvents);
+          continue;
+        }
+        const lockedTarget = findTargetById(aliveTargets, bit.targetId);
+        if (!lockedTarget) {
+          setBitMode(bit, "search", null, alertSignal, soundEvents);
+          continue;
+        }
+        const distanceSq = Vector3.DistanceSquared(
+          bit.root.position,
+          lockedTarget.position
+        );
+        const distance = Math.sqrt(distanceSq);
+        if (distance > bitFixedLoseRange || distance < avoidRadius) {
+          setBitMode(bit, "search", null, alertSignal, soundEvents);
+          continue;
+        }
+        moveDirection = new Vector3(0, 0, 0);
+        const targetDirection = lockedTarget.position
+          .subtract(bit.root.position)
+          .normalize();
+        const lockedDirection = bit.lockedDirection.clone();
+        lockedDirection.y = 0;
+        aimDirection = new Vector3(
+          lockedDirection.x,
+          targetDirection.y,
+          lockedDirection.z
+        ).normalize();
+        canFire = true;
+      } else if (bit.mode === "attack-random") {
+        const randomTarget = findTargetById(aliveTargets, bit.targetId);
+        if (!randomTarget) {
+          setBitMode(bit, "search", null, alertSignal, soundEvents);
+          continue;
+        }
+        bit.modeTimer -= delta;
+        if (bit.modeTimer <= 0) {
+          setBitMode(bit, "search", null, alertSignal, soundEvents);
+          continue;
+        }
+        bit.wanderTimer -= delta;
+        if (bit.wanderTimer <= 0) {
+          bit.wanderDirection = pickBitWanderDirection();
+          bit.wanderTimer =
+            bitWanderTimerMin +
+            Math.random() * (bitWanderTimerMax - bitWanderTimerMin);
+        }
+        moveDirection = bit.wanderDirection;
+        aimDirection = bit.wanderDirection.clone();
+        canFire = true;
+      } else if (bit.mode === "carpet-bomb") {
+        moveSpeed = carpetBombSpeed * bit.statMultiplier;
+        const leaderId = bit.carpetLeaderId ?? bit.id;
+        const leader =
+          bits.find((candidate) => candidate.id === leaderId) ?? null;
+        if (!leader || leader.mode !== "carpet-bomb") {
+          if (carpetFollower) {
+            startCarpetFollowerDespawn(bit);
+            continue;
+          }
+          clearCarpetState(bit);
+          setBitMode(bit, "search", null, alertSignal, soundEvents);
+          continue;
+        }
+        const leaderPending =
+          bits.some(
+            (candidate) =>
+              isCarpetFollower(candidate) &&
+              candidate.carpetLeaderId === leader.id &&
+              candidate.spawnPhase !== "done"
+          ) ||
+          spawnedBits.some(
+            (candidate) =>
+              isCarpetFollower(candidate) &&
+              candidate.carpetLeaderId === leader.id &&
+              candidate.spawnPhase !== "done"
+          );
+        if (leaderPending) {
+          moveDirection = new Vector3(0, 0, 0);
+          if (leader.id === bit.id) {
+            const aimBase = new Vector3(0, -1, 0);
+            if (bit.carpetAimTimer < carpetAimTurnDuration) {
+              bit.carpetAimTimer = Math.min(
+                carpetAimTurnDuration,
+                bit.carpetAimTimer + delta
+              );
+              const progress = bit.carpetAimTimer / carpetAimTurnDuration;
+              const blended = Vector3.Lerp(bit.carpetAimStart, aimBase, progress);
+              aimDirection = blended.normalize();
+            } else {
+              aimDirection = aimBase;
+            }
+          } else {
+            aimDirection = new Vector3(0, -1, 0);
+          }
+          canFire = false;
+        } else {
+          const carpetTarget = findTargetById(
+            aliveTargets,
+            leader.carpetTargetId
+          );
+          if (!carpetTarget) {
+            if (carpetFollower) {
+              startCarpetFollowerDespawn(bit);
+              continue;
+            }
+            clearCarpetState(bit);
+            setBitMode(bit, "search", null, alertSignal, soundEvents);
+            continue;
+          }
+          const leaderDirection =
+            leader.carpetDirection.lengthSquared() > 0.0001
+              ? leader.carpetDirection.normalize()
+              : leader.root.getDirection(new Vector3(0, 0, 1));
+          const right = new Vector3(-leaderDirection.z, 0, leaderDirection.x);
 
-      if (leader.id === bit.id) {
-        if (carpetTarget) {
-          const toTarget = carpetTarget.position.subtract(bit.root.position);
-          toTarget.y = 0;
-          if (toTarget.lengthSquared() > 0.0001) {
-            const targetDirection = toTarget.normalize();
-            const blended = Vector3.Lerp(
-              leaderDirection,
-              targetDirection,
-              carpetBombSteerStrength
-            );
-            blended.y = 0;
-            if (blended.lengthSquared() > 0.0001) {
-              leader.carpetDirection.copyFrom(blended.normalize());
+          if (leader.id === bit.id) {
+            const toTarget = carpetTarget.position.subtract(bit.root.position);
+            toTarget.y = 0;
+            if (toTarget.lengthSquared() > 0.0001) {
+              const targetDirection = toTarget.normalize();
+              const blended = Vector3.Lerp(
+                leaderDirection,
+                targetDirection,
+                carpetBombSteerStrength
+              );
+              blended.y = 0;
+              if (blended.lengthSquared() > 0.0001) {
+                leader.carpetDirection.copyFrom(blended.normalize());
+              }
+            }
+            const passDot =
+              leader.carpetDirection.x * toTarget.x +
+              leader.carpetDirection.z * toTarget.z;
+            if (passDot < 0) {
+              leader.carpetPassTimer += delta;
+            } else {
+              leader.carpetPassTimer = 0;
+            }
+            if (leader.carpetPassTimer >= carpetBombPassDelay) {
+              clearCarpetState(bit);
+              setBitMode(bit, "search", null, alertSignal, soundEvents);
+              continue;
+            }
+            moveDirection = leader.carpetDirection;
+          } else {
+            if (leader.carpetPassTimer >= carpetBombPassDelay) {
+              startCarpetFollowerDespawn(bit);
+              continue;
+            }
+            const offset = right
+              .scale(bit.carpetOffset.x)
+              .add(leader.carpetDirection.scale(bit.carpetOffset.z));
+            const desiredPosition = leader.root.position.add(offset);
+            const toDesired = desiredPosition.subtract(bit.root.position);
+            toDesired.y = 0;
+            if (toDesired.lengthSquared() > 0.0001) {
+              moveDirection = toDesired.normalize();
+            } else {
+              moveDirection = leader.carpetDirection;
             }
           }
-          const passDot =
-            leader.carpetDirection.x * toTarget.x +
-            leader.carpetDirection.z * toTarget.z;
-          if (passDot < 0) {
-            leader.carpetPassTimer += delta;
-          } else {
-            leader.carpetPassTimer = 0;
+          let aimBase = new Vector3(0, -1, 0);
+          const toTarget = carpetTarget.position.subtract(bit.root.position);
+          toTarget.y = 0;
+          const horizontalDistance = Math.hypot(toTarget.x, toTarget.z);
+          if (
+            horizontalDistance > 0.001 &&
+            horizontalDistance <= carpetBombAimRange
+          ) {
+            const horizontalDirection = toTarget.normalize();
+            const tiltDirection = new Vector3(
+              horizontalDirection.x,
+              -1,
+              horizontalDirection.z
+            ).normalize();
+            aimBase = Vector3.Lerp(
+              new Vector3(0, -1, 0),
+              tiltDirection,
+              carpetBombAimBlend
+            );
           }
-        } else {
-          leader.carpetPassTimer += delta;
-        }
-        if (leader.carpetPassTimer >= carpetBombPassDelay) {
-          clearCarpetState(bit);
-          setBitMode(bit, "search", null, alertSignal, soundEvents);
-          continue;
-        }
-        moveDirection = leader.carpetDirection;
-      } else {
-        if (leader.carpetPassTimer >= carpetBombPassDelay) {
-          clearCarpetState(bit);
-          setBitMode(bit, "search", null, alertSignal, soundEvents);
-          continue;
-        }
-        const offset = right
-          .scale(bit.carpetOffset.x)
-          .add(leader.carpetDirection.scale(bit.carpetOffset.z));
-        const desiredPosition = leader.root.position.add(offset);
-        const toDesired = desiredPosition.subtract(bit.root.position);
-        toDesired.y = 0;
-        if (toDesired.lengthSquared() > 0.0001) {
-          moveDirection = toDesired.normalize();
-        } else {
-          moveDirection = leader.carpetDirection;
+          if (
+            leader.id === bit.id &&
+            bit.carpetAimTimer < carpetAimTurnDuration
+          ) {
+            bit.carpetAimTimer = Math.min(
+              carpetAimTurnDuration,
+              bit.carpetAimTimer + delta
+            );
+            const progress = bit.carpetAimTimer / carpetAimTurnDuration;
+            const blended = Vector3.Lerp(bit.carpetAimStart, aimBase, progress);
+            aimDirection = blended.normalize();
+          } else {
+            aimDirection = aimBase;
+          }
+          canFire = true;
         }
       }
-      aimDirection = new Vector3(0, -1, 0);
-      if (carpetTarget) {
-        const toTarget = carpetTarget.position.subtract(bit.root.position);
-        toTarget.y = 0;
-        const horizontalDistance = Math.hypot(toTarget.x, toTarget.z);
-        if (
-          horizontalDistance > 0.001 &&
-          horizontalDistance <= carpetBombAimRange
-        ) {
-          const horizontalDirection = toTarget.normalize();
-          const tiltDirection = new Vector3(
-            horizontalDirection.x,
-            -1,
-            horizontalDirection.z
-          ).normalize();
-          aimDirection = Vector3.Lerp(
-            new Vector3(0, -1, 0),
-            tiltDirection,
-            carpetBombAimBlend
-          );
-        }
-      }
-      canFire = true;
     }
 
     if (
+      !spawnActive &&
       bit.mode !== "attack-fixed" &&
       bit.mode !== "hold" &&
       bit.mode !== "carpet-bomb" &&
@@ -1099,6 +1365,10 @@ export const updateBits = (
       bit.mode === "carpet-bomb" &&
       (hitWall || isWallNear(bit.root.position))
     ) {
+      if (carpetFollower) {
+        startCarpetFollowerDespawn(bit);
+        continue;
+      }
       clearCarpetState(bit);
       setBitMode(bit, "search", null, alertSignal, soundEvents);
       continue;
@@ -1140,10 +1410,10 @@ export const updateBits = (
     bit.root.position.y = bit.baseHeight + bob;
 
     if (aimDirection.length() > 0.001) {
-      bit.root.lookAt(bit.root.position.add(aimDirection));
+      updateBitRotation(bit, aimDirection, delta);
     }
 
-    if (bit.fireInterval > 0) {
+    if (!spawnActive && bit.fireInterval > 0) {
       bit.fireTimer -= delta;
       if (bit.fireTimer <= 0 && canFire) {
         const muzzlePosition = bit.muzzle.getAbsolutePosition();
@@ -1173,6 +1443,24 @@ export const updateBits = (
   ) {
     setBitMode(alertLeader, "search", null, alertSignal, soundEvents);
     clearAlertSignal();
+  }
+
+  if (bitsToRemove.length > 0) {
+    const removeIds = new Set(bitsToRemove.map((bit) => bit.id));
+    for (const bit of bitsToRemove) {
+      if (bit.spawnEffect) {
+        bit.spawnEffect.dispose();
+      }
+      if (bit.spawnEffectMaterial) {
+        bit.spawnEffectMaterial.dispose();
+      }
+      bit.root.dispose();
+    }
+    for (let index = bits.length - 1; index >= 0; index -= 1) {
+      if (removeIds.has(bits[index].id)) {
+        bits.splice(index, 1);
+      }
+    }
   }
 
   if (spawnedBits.length > 0) {

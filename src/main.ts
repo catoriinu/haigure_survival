@@ -19,6 +19,7 @@ import {
   CharacterState,
   collectFloorCells,
   createBeam,
+  beginBeamRetract,
   createBitAt,
   createBeamMaterial,
   createBit,
@@ -80,7 +81,7 @@ const spawnPosition = new Vector3(
 const spawnForward = new Vector3(1, 0, 0);
 const camera = new FreeCamera(
   "camera",
-  spawnPosition,
+  spawnPosition.clone(),
   scene
 );
 camera.setTarget(spawnPosition.add(spawnForward));
@@ -317,6 +318,11 @@ redBitMaterials.body.diffuseColor = new Color3(0.7, 0.08, 0.08);
 redBitMaterials.body.emissiveColor = new Color3(0.25, 0.04, 0.04);
 redBitMaterials.nozzle.diffuseColor = new Color3(0.8, 0.15, 0.15);
 redBitMaterials.nozzle.emissiveColor = new Color3(0.35, 0.08, 0.08);
+const carpetBitMaterials = createBitMaterials(scene);
+carpetBitMaterials.body.diffuseColor = new Color3(0.32, 0.32, 0.32);
+carpetBitMaterials.body.emissiveColor = new Color3(0.08, 0.08, 0.08);
+carpetBitMaterials.nozzle.diffuseColor = new Color3(0.22, 0.22, 0.22);
+carpetBitMaterials.nozzle.emissiveColor = new Color3(0.1, 0.1, 0.1);
 
 const redBitSpawnChance = 0.05;
 const redBitStatMultiplier = 3;
@@ -349,6 +355,11 @@ const createSpawnedBitAt = (
   }
   return bit;
 };
+const createCarpetFollowerBitAt = (
+  index: number,
+  position: Vector3,
+  direction?: Vector3
+) => createBitAt(scene, carpetBitMaterials, index, position, direction);
 
 const beamMaterial = createBeamMaterial(scene);
 const bits = Array.from({ length: 3 }, (_, index) => createRandomBit(index));
@@ -443,6 +454,45 @@ const clearBeams = () => {
     orb.mesh.dispose();
   }
   beamImpactOrbs.length = 0;
+};
+
+const isCarpetFollower = (bit: Bit) =>
+  bit.carpetLeaderId !== null && bit.carpetLeaderId !== bit.id;
+
+const countNonFollowerBits = () => {
+  let count = 0;
+  for (const bit of bits) {
+    if (!isCarpetFollower(bit)) {
+      count += 1;
+    }
+  }
+  return count;
+};
+
+const removeCarpetFollowers = () => {
+  const followerIds = new Set(
+    bits
+      .filter(
+        (bit) => isCarpetFollower(bit)
+      )
+      .map((bit) => bit.id)
+  );
+  for (const bit of bits) {
+    if (followerIds.has(bit.id)) {
+      if (bit.spawnEffect) {
+        bit.spawnEffect.dispose();
+      }
+      if (bit.spawnEffectMaterial) {
+        bit.spawnEffectMaterial.dispose();
+      }
+      bit.root.dispose();
+    }
+  }
+  for (let index = bits.length - 1; index >= 0; index -= 1) {
+    if (followerIds.has(bits[index].id)) {
+      bits.splice(index, 1);
+    }
+  }
 };
 
 const setBitSpawnEnabled = (enabled: boolean) => {
@@ -549,9 +599,10 @@ const updatePlayerState = (delta: number, elapsed: number) => {
         const hitScale = isRedBitSource(beam.sourceId)
           ? redHitDurationScale
           : 1;
-        beam.active = false;
-        beam.tip.dispose();
-        beam.mesh.dispose();
+        const impactPosition = beam.tip.position.add(
+          Vector3.Normalize(beam.velocity).scale(beam.tipRadius)
+        );
+        beginBeamRetract(beam, impactPosition);
         playerState = "hit-a";
         playerHitTimer = playerHitDuration * hitScale;
         playerFadeTimer = 0;
@@ -655,6 +706,12 @@ const resetGame = () => {
   clearBeams();
 
   for (const bit of bits) {
+    if (bit.spawnEffect) {
+      bit.spawnEffect.dispose();
+    }
+    if (bit.spawnEffectMaterial) {
+      bit.spawnEffectMaterial.dispose();
+    }
     bit.root.dispose();
   }
   bits.length = 0;
@@ -756,7 +813,10 @@ setupInputHandlers({
   onEnterEpilogue: () => {
     gamePhase = "transition";
     hud.setHudVisible(false);
-    gameFlow.beginFadeOut(() => gameFlow.enterAssembly("instant"));
+    gameFlow.beginFadeOut(() => {
+      removeCarpetFollowers();
+      gameFlow.enterAssembly("instant");
+    });
   },
   onReturnToTitle: () => {
     returnToTitle();
@@ -845,6 +905,7 @@ engine.runRenderLoop(() => {
         allDownTime = elapsedTime;
       }
       if (elapsedTime - allDownTime >= allDownTransitionDelay) {
+        removeCarpetFollowers();
         gameFlow.enterAssembly("move");
       }
     }
@@ -852,7 +913,7 @@ engine.runRenderLoop(() => {
     if (gamePhase === "playing") {
       if (bitSpawnEnabled) {
         bitSpawnTimer -= delta;
-        if (bitSpawnTimer <= 0 && bits.length < maxBitCount) {
+        if (bitSpawnTimer <= 0 && countNonFollowerBits() < maxBitCount) {
           bits.push(
             createRandomBit(bitIndex)
           );
@@ -877,14 +938,17 @@ engine.runRenderLoop(() => {
           hitById: npc.hitById
         }))
       ];
-      let carpetSpawned = 0;
-      const spawnCarpetBit = (position: Vector3, direction: Vector3) => {
-        if (bits.length + carpetSpawned >= maxBitCount) {
+      const spawnAlertBit = (position: Vector3, direction: Vector3) => {
+        if (countNonFollowerBits() >= maxBitCount) {
           return null;
         }
         const bit = createSpawnedBitAt(bitIndex, position, direction);
         bitIndex += 1;
-        carpetSpawned += 1;
+        return bit;
+      };
+      const spawnCarpetBit = (position: Vector3, direction: Vector3) => {
+        const bit = createCarpetFollowerBitAt(bitIndex, position, direction);
+        bitIndex += 1;
         return bit;
       };
       updateBits(
@@ -896,6 +960,7 @@ engine.runRenderLoop(() => {
         bounds,
         alertSignal,
         npcUpdate.alertRequests,
+        spawnAlertBit,
         spawnCarpetBit,
         (pos, dir, sourceId) => {
           beams.push(createBeam(scene, pos, dir, beamMaterial, sourceId));

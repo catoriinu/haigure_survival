@@ -20,28 +20,48 @@ const beamTipScale =
 const beamTrailDiameter = 0.22;
 const beamTrailLifetime = 0.25;
 const beamTrailInterval = 0.12;
-const beamImpactOrbCount = 5;
+const beamImpactOrbCountMin = 2;
+const beamImpactOrbCountMax = 5;
 const beamImpactOrbDiameter = 0.24;
-const beamImpactOrbLifetime = 2;
-const beamImpactOrbSpeedMin = 0.12;
-const beamImpactOrbSpeedMax = 0.32;
+const beamImpactOrbLifetime = 1.6;
+const beamImpactOrbSpeedMin = 0.35;
+const beamImpactOrbSpeedMax = 0.9;
+const beamImpactBounceJitter = 1.35;
+const beamImpactBounceLift = 0.7;
+const beamImpactReflectBoost = 1;
 const beamHitColor = new Color3(1, 0.18, 0.74);
-const beamHitEffectAlpha = 0.45;
+const beamHitEffectAlpha = 0.55;
 
 export const createBeamImpactOrbs = (
   scene: Scene,
-  center: Vector3
+  center: Vector3,
+  incomingDirection: Vector3,
+  surfaceNormal: Vector3
 ) => {
   const orbs: BeamImpactOrb[] = [];
+  const normal = surfaceNormal.clone().normalize();
+  const incoming = incomingDirection.clone().normalize();
+  const dot = Vector3.Dot(incoming, normal);
+  const reflected = incoming.subtract(normal.scale(2 * dot)).normalize();
+  const count =
+    beamImpactOrbCountMin +
+    Math.floor(
+      Math.random() * (beamImpactOrbCountMax - beamImpactOrbCountMin + 1)
+    );
 
-  for (let index = 0; index < beamImpactOrbCount; index += 1) {
-    const angle = Math.random() * Math.PI * 2;
-    const vertical = (Math.random() - 0.5) * 0.4;
-    const direction = new Vector3(
-      Math.cos(angle),
-      vertical,
-      Math.sin(angle)
-    ).normalize();
+  for (let index = 0; index < count; index += 1) {
+    const jitter = new Vector3(
+      Math.random() * 2 - 1,
+      Math.random() * 2 - 1,
+      Math.random() * 2 - 1
+    )
+      .normalize()
+      .scale(beamImpactBounceJitter);
+    const direction = reflected
+      .scale(beamImpactReflectBoost)
+      .add(jitter)
+      .add(normal.scale(beamImpactBounceLift * (0.7 + Math.random() * 0.6)))
+      .normalize();
     const speed =
       beamImpactOrbSpeedMin +
       Math.random() * (beamImpactOrbSpeedMax - beamImpactOrbSpeedMin);
@@ -106,24 +126,53 @@ export const createBeam = (
   );
   tip.material = material;
   tip.isPickable = false;
-  tip.parent = beam;
-  tip.position.y = beamLength / 2 + tipDiameter / 2;
+  tip.position.copyFrom(position);
 
   const rotation = new Quaternion();
   Quaternion.FromUnitVectorsToRef(Vector3.Up(), direction, rotation);
   beam.rotationQuaternion = rotation;
-  beam.position = position.add(direction.scale(beamLength / 2));
+  beam.position = position.clone();
+  beam.scaling.y = 0;
 
   return {
     mesh: beam,
     velocity: direction.scale(19),
+    startPosition: position.clone(),
+    travelDistance: 0,
     length: beamLength,
+    currentLength: 0,
+    retracting: false,
+    retractLeadRemaining: 0,
+    impactPosition: position.clone(),
     active: true,
     sourceId,
     tip,
     tipRadius: tipDiameter / 2,
     trailTimer: Math.random() * beamTrailInterval
   };
+};
+
+export const beginBeamRetract = (
+  beam: Beam,
+  impactPosition: Vector3
+) => {
+  beam.active = false;
+  beam.retracting = true;
+  beam.impactPosition.copyFrom(impactPosition);
+  const direction = Vector3.Normalize(beam.velocity);
+  const tailDistance = Math.max(0, beam.travelDistance - beam.length);
+  const tailPosition = beam.startPosition.add(
+    direction.scale(tailDistance)
+  );
+  const frontPosition = tailPosition.add(
+    direction.scale(beam.currentLength)
+  );
+  const leadDistance = Vector3.Dot(
+    impactPosition.subtract(frontPosition),
+    direction
+  );
+  beam.retractLeadRemaining = Math.max(0, leadDistance);
+  beam.tip.isVisible = false;
 };
 
 export const updateBeams = (
@@ -134,20 +183,19 @@ export const updateBeams = (
   trails: BeamTrail[],
   impacts: BeamImpactOrb[]
 ) => {
-  const margin = 6;
   const halfWidth = (layout.columns * layout.cellSize) / 2;
   const halfDepth = (layout.rows * layout.cellSize) / 2;
+  const cellSize = layout.cellSize;
   const survivors: Beam[] = [];
   const activeTrails: BeamTrail[] = [];
   const activeImpacts: BeamImpactOrb[] = [];
-  const isFloorAt = (x: number, z: number) => {
-    const col = Math.floor((x + halfWidth) / layout.cellSize);
-    const row = Math.floor((z + halfDepth) / layout.cellSize);
-    if (row < 0 || row >= layout.rows || col < 0 || col >= layout.columns) {
-      return false;
-    }
-    return layout.cells[row][col] === "floor";
+  const toCell = (x: number, z: number) => {
+    const col = Math.floor((x + halfWidth) / cellSize);
+    const row = Math.floor((z + halfDepth) / cellSize);
+    return { row, col };
   };
+  const isInsideGrid = (row: number, col: number) =>
+    row >= 0 && row < layout.rows && col >= 0 && col < layout.columns;
 
   for (const trail of trails) {
     trail.timer -= delta;
@@ -171,16 +219,56 @@ export const updateBeams = (
   }
 
   for (const beam of beams) {
+    if (beam.retracting) {
+      const direction = Vector3.Normalize(beam.velocity);
+      const speed = beam.velocity.length();
+      const shrink = speed * delta;
+      beam.currentLength = Math.max(0, beam.currentLength - shrink);
+      beam.retractLeadRemaining = Math.max(
+        0,
+        beam.retractLeadRemaining - shrink
+      );
+      const frontPosition = beam.impactPosition.subtract(
+        direction.scale(beam.retractLeadRemaining)
+      );
+      const centerPosition = frontPosition.subtract(
+        direction.scale(beam.currentLength / 2)
+      );
+      beam.mesh.position.copyFrom(centerPosition);
+      beam.mesh.scaling.y = beam.currentLength / beam.length;
+      if (beam.currentLength <= 0) {
+        beam.tip.dispose();
+        beam.mesh.dispose();
+        continue;
+      }
+      survivors.push(beam);
+      continue;
+    }
+
     if (!beam.active) {
       continue;
     }
     const direction = Vector3.Normalize(beam.velocity);
-    beam.mesh.position.addInPlace(beam.velocity.scale(delta));
+    const speed = beam.velocity.length();
+    beam.travelDistance += speed * delta;
+    const currentLength = Math.min(beam.length, beam.travelDistance);
+    beam.currentLength = currentLength;
+    const tailDistance = Math.max(0, beam.travelDistance - beam.length);
+    const tailPosition = beam.startPosition.add(
+      direction.scale(tailDistance)
+    );
+    const centerPosition = tailPosition.add(
+      direction.scale(currentLength / 2)
+    );
+    beam.mesh.position.copyFrom(centerPosition);
+    beam.mesh.scaling.y = currentLength / beam.length;
+    const tipPosition = tailPosition.add(
+      direction.scale(currentLength + beam.tipRadius)
+    );
+    beam.tip.position.copyFrom(tipPosition);
     beam.trailTimer -= delta;
     if (beam.trailTimer <= 0) {
-      const trailPosition = beam.mesh.position.subtract(
-        direction.scale(beam.length / 2)
-      );
+      const trailPosition = tailPosition.clone();
       const trail = MeshBuilder.CreateSphere(
         "beamTrail",
         { diameter: beamTrailDiameter, segments: 10 },
@@ -192,38 +280,64 @@ export const updateBeams = (
       activeTrails.push({ mesh: trail, timer: beamTrailLifetime });
       beam.trailTimer = beamTrailInterval;
     }
-    const front = beam.mesh.position.add(
-      direction.scale(beam.length / 2)
+    const front = tipPosition.add(
+      direction.scale(beam.tipRadius)
     );
+    const frontCell = toCell(front.x, front.z);
+    const insideGrid = isInsideGrid(frontCell.row, frontCell.col);
+    const floorAt =
+      insideGrid && layout.cells[frontCell.row][frontCell.col] === "floor";
 
     if (
       front.y <= bounds.minY ||
       front.y >= bounds.maxY ||
-      !isFloorAt(front.x, front.z)
+      !floorAt
     ) {
+      const impactPosition = front.clone();
+      let impactNormal = new Vector3(0, 1, 0);
+      if (front.y <= bounds.minY) {
+        impactPosition.y = bounds.minY;
+      } else if (front.y >= bounds.maxY) {
+        impactPosition.y = bounds.maxY;
+        impactNormal = new Vector3(0, -1, 0);
+      } else if (!insideGrid) {
+        if (front.x <= bounds.minX) {
+          impactPosition.x = bounds.minX;
+          impactNormal = new Vector3(1, 0, 0);
+        } else if (front.x >= bounds.maxX) {
+          impactPosition.x = bounds.maxX;
+          impactNormal = new Vector3(-1, 0, 0);
+        } else if (front.z <= bounds.minZ) {
+          impactPosition.z = bounds.minZ;
+          impactNormal = new Vector3(0, 0, 1);
+        } else {
+          impactPosition.z = bounds.maxZ;
+          impactNormal = new Vector3(0, 0, -1);
+        }
+      } else {
+        const useX = Math.abs(direction.x) >= Math.abs(direction.z);
+        if (useX) {
+          impactPosition.x =
+            -halfWidth +
+            Math.round((front.x + halfWidth) / cellSize) * cellSize;
+          impactNormal = new Vector3(direction.x > 0 ? -1 : 1, 0, 0);
+        } else {
+          impactPosition.z =
+            -halfDepth +
+            Math.round((front.z + halfDepth) / cellSize) * cellSize;
+          impactNormal = new Vector3(0, 0, direction.z > 0 ? -1 : 1);
+        }
+      }
       activeImpacts.push(
-        ...createBeamImpactOrbs(beam.mesh.getScene(), front)
+        ...createBeamImpactOrbs(
+          beam.mesh.getScene(),
+          impactPosition,
+          direction,
+          impactNormal
+        )
       );
-      beam.tip.dispose();
-      beam.mesh.dispose();
-      beam.active = false;
-      continue;
-    }
-
-    if (
-      front.x < bounds.minX - margin ||
-      front.x > bounds.maxX + margin ||
-      front.z < bounds.minZ - margin ||
-      front.z > bounds.maxZ + margin ||
-      front.y < bounds.minY - margin ||
-      front.y > bounds.maxY + margin
-    ) {
-      activeImpacts.push(
-        ...createBeamImpactOrbs(beam.mesh.getScene(), front)
-      );
-      beam.tip.dispose();
-      beam.mesh.dispose();
-      beam.active = false;
+      beginBeamRetract(beam, impactPosition);
+      survivors.push(beam);
       continue;
     }
 

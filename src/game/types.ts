@@ -78,9 +78,12 @@ export type BitMode =
   | "carpet-bomb"
   | "hold";
 
+export type BitSpawnPhase = "fade-in" | "hold" | "shrink" | "done";
+
 export type Bit = {
   id: string;
   root: TransformNode;
+  body: Mesh;
   muzzle: Mesh;
   mode: BitMode;
   targetId: string | null;
@@ -91,6 +94,8 @@ export type Bit = {
   carpetTargetId: string | null;
   carpetDirection: Vector3;
   carpetPassTimer: number;
+  carpetAimTimer: number;
+  carpetAimStart: Vector3;
   lockedDirection: Vector3;
   holdDirection: Vector3;
   modeTimer: number;
@@ -103,6 +108,11 @@ export type Bit = {
   floatOffset: number;
   baseHeight: number;
   isMoving: boolean;
+  despawnTimer: number;
+  spawnPhase: BitSpawnPhase;
+  spawnTimer: number;
+  spawnEffect: Mesh | null;
+  spawnEffectMaterial: StandardMaterial | null;
 };
 
 export type BitSoundEvents = {
@@ -115,7 +125,13 @@ export type BitSoundEvents = {
 export type Beam = {
   mesh: Mesh;
   velocity: Vector3;
+  startPosition: Vector3;
+  travelDistance: number;
   length: number;
+  currentLength: number;
+  retracting: boolean;
+  retractLeadRemaining: number;
+  impactPosition: Vector3;
   active: boolean;
   sourceId: string | null;
   tip: Mesh;
