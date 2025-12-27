@@ -5,6 +5,7 @@ import {
   Quaternion,
   Scene,
   StandardMaterial,
+  VertexBuffer,
   Vector3
 } from "@babylonjs/core";
 import { GridLayout } from "../world/grid";
@@ -17,13 +18,23 @@ const beamTipScaleMultiplier = 4;
 const beamDiameter = beamDiameterBase * beamDiameterScale;
 const beamTipScale =
   (beamTipScaleBase * beamTipScaleMultiplier) / beamDiameterScale;
-const beamTrailDiameter = 0.22;
-const beamTrailLifetime = 0.25;
-const beamTrailInterval = 0.12;
+const beamFrontDiameterScale = 0.8;
+const beamBackDiameterScale = 3.0;
+const beamFrontRadius = (beamDiameter * beamFrontDiameterScale) / 2;
+const beamBackRadius = (beamDiameter * beamBackDiameterScale) / 2;
+const beamTrailDiameterMin = 0.12;
+const beamTrailDiameterMax = 0.6;
+const beamTrailLifetime = 0.3;
+const beamTrailIntervalMin = 0.025;
+const beamTrailIntervalMax = 0.085;
+const beamTrailDrag = 8.5;
+const beamTrailMinScale = 0.08;
+const beamTrailFadeInDuration = 0.05;
 const beamImpactOrbCountMin = 2;
 const beamImpactOrbCountMax = 5;
 const beamImpactOrbDiameter = 0.24;
 const beamImpactOrbLifetime = 1.6;
+const beamImpactMinScale = 0.08;
 const beamImpactOrbSpeedMin = 0.35;
 const beamImpactOrbSpeedMax = 0.9;
 const beamImpactBounceJitter = 1.35;
@@ -31,6 +42,41 @@ const beamImpactBounceLift = 0.7;
 const beamImpactReflectBoost = 1;
 const beamHitColor = new Color3(1, 0.18, 0.74);
 const beamHitEffectAlpha = 0.55;
+const randomInRange = (min: number, max: number) =>
+  min + Math.random() * (max - min);
+const getRandomTrailInterval = () =>
+  randomInRange(beamTrailIntervalMin, beamTrailIntervalMax);
+const getRandomTrailDiameter = () =>
+  randomInRange(beamTrailDiameterMin, beamTrailDiameterMax);
+const getRandomTrailOffset = (direction: Vector3, radius: number) => {
+  const angle = Math.random() * Math.PI * 2;
+  const distance = Math.sqrt(Math.random()) * radius;
+  const basis =
+    Math.abs(direction.y) < 0.99 ? Vector3.Up() : Vector3.Right();
+  const tangent = Vector3.Cross(direction, basis).normalize();
+  const bitangent = Vector3.Cross(tangent, direction).normalize();
+  return tangent
+    .scale(Math.cos(angle) * distance)
+    .add(bitangent.scale(Math.sin(angle) * distance));
+};
+const applyBeamBackFade = (beam: Mesh, length: number) => {
+  const positions = beam.getVerticesData(VertexBuffer.PositionKind)!;
+  const colors: number[] = [];
+  const halfLength = length / 2;
+  const fadeStart = -halfLength + length / 3;
+  const fadeRange = length / 3;
+
+  for (let index = 0; index < positions.length; index += 3) {
+    const y = positions[index + 1];
+    const alpha =
+      y >= fadeStart ? 1 : (y + halfLength) / fadeRange;
+    colors.push(1, 1, 1, alpha);
+  }
+
+  beam.setVerticesData(VertexBuffer.ColorKind, colors);
+  beam.useVertexColors = true;
+  beam.hasVertexAlpha = true;
+};
 
 export const createBeamImpactOrbs = (
   scene: Scene,
@@ -80,8 +126,7 @@ export const createBeamImpactOrbs = (
     orbs.push({
       mesh: orb,
       velocity: direction.scale(speed),
-      timer: beamImpactOrbLifetime,
-      baseAlpha: beamHitEffectAlpha
+      timer: beamImpactOrbLifetime
     });
   }
 
@@ -104,11 +149,14 @@ export const createBeam = (
   material: StandardMaterial,
   sourceId: string | null
 ): Beam => {
-  const beamLength = 4.8;
+  const beamLength = 9.0;
+  const beamFrontDiameter = beamDiameter * beamFrontDiameterScale;
+  const beamBackDiameter = beamDiameter * beamBackDiameterScale;
   const beam = MeshBuilder.CreateCylinder(
     "beam",
     {
-      diameter: beamDiameter,
+      diameterTop: beamFrontDiameter,
+      diameterBottom: beamBackDiameter,
       height: beamLength,
       tessellation: 12,
       sideOrientation: Mesh.DOUBLESIDE
@@ -117,6 +165,7 @@ export const createBeam = (
   );
   beam.material = material;
   beam.isPickable = false;
+  applyBeamBackFade(beam, beamLength);
 
   const tipDiameter = beamDiameter * beamTipScale;
   const tip = MeshBuilder.CreateSphere(
@@ -148,7 +197,7 @@ export const createBeam = (
     sourceId,
     tip,
     tipRadius: tipDiameter / 2,
-    trailTimer: Math.random() * beamTrailInterval
+    trailTimer: Math.random() * beamTrailIntervalMax
   };
 };
 
@@ -203,6 +252,20 @@ export const updateBeams = (
       trail.mesh.dispose();
       continue;
     }
+    trail.age += delta;
+    trail.mesh.position.addInPlace(trail.velocity.scale(delta));
+    trail.velocity.scaleInPlace(Math.exp(-beamTrailDrag * delta));
+    const trailScale = trail.timer / beamTrailLifetime;
+    if (trailScale <= beamTrailMinScale) {
+      trail.mesh.dispose();
+      continue;
+    }
+    const fadeIn = Math.min(
+      1,
+      trail.age / beamTrailFadeInDuration
+    );
+    trail.mesh.scaling.set(trailScale, trailScale, trailScale);
+    trail.mesh.visibility = fadeIn;
     activeTrails.push(trail);
   }
 
@@ -213,8 +276,12 @@ export const updateBeams = (
       continue;
     }
     orb.mesh.position.addInPlace(orb.velocity.scale(delta));
-    const material = orb.mesh.material as StandardMaterial;
-    material.alpha = orb.baseAlpha * (orb.timer / beamImpactOrbLifetime);
+    const impactScale = orb.timer / beamImpactOrbLifetime;
+    if (impactScale <= beamImpactMinScale) {
+      orb.mesh.dispose();
+      continue;
+    }
+    orb.mesh.scaling.set(impactScale, impactScale, impactScale);
     activeImpacts.push(orb);
   }
 
@@ -268,17 +335,34 @@ export const updateBeams = (
     beam.tip.position.copyFrom(tipPosition);
     beam.trailTimer -= delta;
     if (beam.trailTimer <= 0) {
-      const trailPosition = tailPosition.clone();
+      const trailRange = beam.currentLength / 2;
+      const trailAdvance = randomInRange(0, trailRange);
+      const trailRatio = trailAdvance / beam.length;
+      const trailRadius =
+        beamBackRadius +
+        (beamFrontRadius - beamBackRadius) * trailRatio;
+      const trailOffset = getRandomTrailOffset(
+        direction,
+        trailRadius
+      );
+      const trailPosition = tailPosition
+        .add(direction.scale(trailAdvance))
+        .add(trailOffset);
       const trail = MeshBuilder.CreateSphere(
         "beamTrail",
-        { diameter: beamTrailDiameter, segments: 10 },
+        { diameter: getRandomTrailDiameter(), segments: 10 },
         beam.mesh.getScene()
       );
       trail.material = beam.mesh.material;
       trail.isPickable = false;
       trail.position.copyFrom(trailPosition);
-      activeTrails.push({ mesh: trail, timer: beamTrailLifetime });
-      beam.trailTimer = beamTrailInterval;
+      activeTrails.push({
+        mesh: trail,
+        timer: beamTrailLifetime,
+        velocity: beam.velocity.scale(0.5),
+        age: 0
+      });
+      beam.trailTimer = getRandomTrailInterval();
     }
     const front = tipPosition.add(
       direction.scale(beam.tipRadius)

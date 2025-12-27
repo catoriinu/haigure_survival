@@ -143,13 +143,14 @@ export type Beam = {
 export type BeamTrail = {
   mesh: Mesh;
   timer: number;
+  velocity: Vector3;
+  age: number;
 };
 
 export type BeamImpactOrb = {
   mesh: Mesh;
   velocity: Vector3;
   timer: number;
-  baseAlpha: number;
 };
 
 export type TargetInfo = {

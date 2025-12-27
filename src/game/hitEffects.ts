@@ -12,6 +12,8 @@ export type HitFadeOrb = {
   velocity: Vector3;
 };
 
+const hitFadeOrbMinScale = 0.08;
+
 export type HitFadeOrbConfig = {
   minCount: number;
   maxCount: number;
@@ -107,8 +109,21 @@ export const createHitFadeOrbs = (
   return orbs;
 };
 
-export const updateHitFadeOrbs = (orbs: HitFadeOrb[], delta: number) => {
+export const updateHitFadeOrbs = (
+  orbs: HitFadeOrb[],
+  delta: number,
+  scale: number
+) => {
+  if (scale <= hitFadeOrbMinScale) {
+    for (const orb of orbs) {
+      orb.mesh.setEnabled(false);
+    }
+    return;
+  }
+
+  const clampedScale = Math.max(scale, 0);
   for (const orb of orbs) {
     orb.mesh.position.addInPlace(orb.velocity.scale(delta));
+    orb.mesh.scaling.set(clampedScale, clampedScale, clampedScale);
   }
 };

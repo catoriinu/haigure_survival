@@ -416,7 +416,8 @@ export const updateNpcs = (
           npc.hitEffectMaterial.alpha =
             npcHitEffectAlpha * (npc.fadeTimer / npc.hitFadeDuration);
         }
-        updateHitFadeOrbs(npc.fadeOrbs, delta);
+        const fadeScale = npc.fadeTimer / npc.hitFadeDuration;
+        updateHitFadeOrbs(npc.fadeOrbs, delta, fadeScale);
         if (npc.fadeTimer <= 0) {
           npc.state = "brainwash-in-progress";
         npc.brainwashTimer = 0;
