@@ -13,19 +13,36 @@ import {
 } from "@babylonjs/core";
 import {
   Beam,
+  BeamImpactOrb,
+  BeamTrail,
+  Bit,
+  BitSoundEvents,
+  CharacterState,
   collectFloorCells,
   createBeam,
+  createBitAt,
+  createBeamImpactOrbs,
   createBeamMaterial,
   createBit,
   createBitMaterials,
   createNpcManager,
-  spawnBits,
+  isAliveState,
+  isBrainwashState,
+  isHitState,
   spawnNpcs,
   StageBounds,
   updateBeams,
   updateBits,
   updateNpcs
 } from "./game/entities";
+import { createAudioManager, SpatialHandle, SpatialPlayOptions } from "./audio/audio";
+import {
+  createVoiceActor,
+  stopVoiceActor,
+  updateVoiceActor,
+  voiceProfiles,
+  VoiceActor
+} from "./audio/voice";
 import { createGridLayout } from "./world/grid";
 import { createStageFromGrid } from "./world/stage";
 
@@ -118,6 +135,223 @@ canvas.addEventListener("click", () => {
   canvas.requestPointerLock();
 });
 
+const audioManager = createAudioManager(camera);
+const bgmUrl = "/audio/bgm/研究所劇伴MP3.mp3";
+const bitSeMove = "/audio/se/FlyingObject.mp3";
+const bitSeAlert = "/audio/se/BeamShot_WavingPart.mp3";
+const bitSeTarget = "/audio/se/銃火器・構える02.mp3";
+const bitSeBeamNonTarget = [
+  "/audio/se/BeamShotR_DownLong.mp3",
+  "/audio/se/BeamShotR_Down.mp3",
+  "/audio/se/BeamShotR_DownShort.mp3"
+];
+const bitSeBeamTarget = [
+  "/audio/se/BeamShotR_Up.mp3",
+  "/audio/se/BeamShotR_UpShort.mp3",
+  "/audio/se/BeamShotR_UpHighShort.mp3"
+];
+const hitSeVariants = [
+  "/audio/se/BeamHit_Rev.mp3",
+  "/audio/se/BeamHit_RevLong.mp3",
+  "/audio/se/BeamHit_RevLongFast.mp3"
+];
+const seBaseOptions: SpatialPlayOptions = {
+  volume: 0.95,
+  maxDistance: 45,
+  loop: false
+};
+const alertLoopOptions: SpatialPlayOptions = {
+  volume: 0.95,
+  maxDistance: 45,
+  loop: true
+};
+const beamSeOptions: SpatialPlayOptions = {
+  volume: 0.8,
+  maxDistance: 60,
+  loop: false
+};
+const hitSeOptions: SpatialPlayOptions = {
+  volume: 1,
+  maxDistance: 65,
+  loop: false
+};
+const voiceBaseOptions: SpatialPlayOptions = {
+  volume: 0.72,
+  maxDistance: 50,
+  loop: false
+};
+const voiceLoopOptions: SpatialPlayOptions = {
+  volume: 0.72,
+  maxDistance: 50,
+  loop: true
+};
+const beamSeFarDistance = 28;
+const beamSeMidDistance = 16;
+
+const pickVariantByDistance = (distance: number, variants: string[]) => {
+  if (distance >= beamSeFarDistance) {
+    return variants[0];
+  }
+  if (distance >= beamSeMidDistance) {
+    return variants[1];
+  }
+  return variants[2];
+};
+
+const pickRandomVariant = (variants: string[]) =>
+  variants[Math.floor(Math.random() * variants.length)];
+
+const createHitFadeOrbs = (
+  center: Vector3,
+  material: StandardMaterial,
+  effectRadius: number
+) => {
+  const count =
+    playerHitOrbMinCount +
+    Math.floor(
+      Math.random() * (playerHitOrbMaxCount - playerHitOrbMinCount + 1)
+    );
+  const orbs: HitFadeOrb[] = [];
+
+  for (let index = 0; index < count; index += 1) {
+    const theta = Math.random() * Math.PI * 2;
+    const u = Math.random() * 2 - 1;
+    const base = Math.sqrt(1 - u * u);
+    const direction = new Vector3(
+      base * Math.cos(theta),
+      u,
+      base * Math.sin(theta)
+    );
+    const offset =
+      playerHitOrbSurfaceOffsetMin +
+      Math.random() *
+        (playerHitOrbSurfaceOffsetMax - playerHitOrbSurfaceOffsetMin);
+    const position = center.add(direction.scale(effectRadius + offset));
+    const orb = MeshBuilder.CreateSphere(
+      "playerHitOrb",
+      { diameter: playerHitOrbDiameter, segments: 10 },
+      scene
+    );
+    orb.material = material;
+    orb.isPickable = false;
+    orb.position.copyFrom(position);
+    const speed =
+      playerHitOrbSpeedMin +
+      Math.random() * (playerHitOrbSpeedMax - playerHitOrbSpeedMin);
+    const velocity = direction.scale(speed);
+    orbs.push({ mesh: orb, velocity });
+  }
+
+  return orbs;
+};
+
+const voiceIdPool = [
+  "01",
+  "02",
+  "03",
+  "04",
+  "05",
+  "06",
+  "07",
+  "08",
+  "09",
+  "10",
+  "11",
+  "12"
+];
+const pickVoiceProfileById = (id: string) =>
+  voiceProfiles.find((profile) => profile.id === id)!;
+const shuffleVoiceIds = (ids: string[]) => {
+  for (let index = ids.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(Math.random() * (index + 1));
+    const temp = ids[index];
+    ids[index] = ids[swap];
+    ids[swap] = temp;
+  }
+};
+const pickRandomVoiceId = () =>
+  voiceIdPool[Math.floor(Math.random() * voiceIdPool.length)];
+
+let playerVoiceId = "00";
+let playerVoiceActor: VoiceActor | null = null;
+let npcVoiceActors: VoiceActor[] = [];
+
+const stopAllVoices = () => {
+  if (playerVoiceActor) {
+    stopVoiceActor(playerVoiceActor);
+  }
+  for (const actor of npcVoiceActors) {
+    stopVoiceActor(actor);
+  }
+  playerVoiceActor = null;
+  npcVoiceActors = [];
+};
+
+const assignVoiceActors = () => {
+  stopAllVoices();
+  const ids = [...voiceIdPool];
+  shuffleVoiceIds(ids);
+  playerVoiceId = ids.shift()!;
+  const playerProfile = pickVoiceProfileById(playerVoiceId);
+  playerVoiceActor = createVoiceActor(
+    playerProfile,
+    () => camera.position,
+    () => playerState
+  );
+  npcVoiceActors = npcs.map((npc) => {
+    npc.voiceId = ids.length > 0 ? ids.shift()! : pickRandomVoiceId();
+    const profile = pickVoiceProfileById(npc.voiceId);
+    return createVoiceActor(
+      profile,
+      () => npc.sprite.position,
+      () => npc.state
+    );
+  });
+};
+
+const bitSoundEvents: BitSoundEvents = {
+  onMoveStart: (bit) => {
+    audioManager.playSe(bitSeMove, () => bit.root.position, seBaseOptions);
+  },
+  onAlert: (bit) => {
+    startAlertLoop(bit);
+  },
+  onTargetPlayer: (bit) => {
+    audioManager.playSe(bitSeTarget, () => bit.root.position, seBaseOptions);
+  },
+  onBeamFire: (bit, targetingPlayer) => {
+    const distance = Vector3.Distance(camera.position, bit.root.position);
+    const variants = targetingPlayer ? bitSeBeamTarget : bitSeBeamNonTarget;
+    const file = pickVariantByDistance(distance, variants);
+    audioManager.playSe(file, () => bit.root.position, beamSeOptions);
+  }
+};
+
+let alertSeHandle: SpatialHandle | null = null;
+let alertSeLeaderId: string | null = null;
+const stopAlertLoop = () => {
+  if (!alertSeHandle) {
+    return;
+  }
+  alertSeHandle.stop();
+  alertSeHandle = null;
+  alertSeLeaderId = null;
+};
+const startAlertLoop = (bit: Bit) => {
+  if (alertSeLeaderId === bit.id && alertSeHandle?.isActive()) {
+    return;
+  }
+  if (alertSeHandle) {
+    alertSeHandle.stop();
+  }
+  alertSeLeaderId = bit.id;
+  alertSeHandle = audioManager.playSe(
+    bitSeAlert,
+    () => bit.root.position,
+    alertLoopOptions
+  );
+};
+
 const light = new HemisphericLight("light", new Vector3(0, 1, 0), scene);
 light.intensity = 1.2;
 scene.ambientColor = new Color3(0.45, 0.45, 0.45);
@@ -155,13 +389,56 @@ playerAvatar.position = new Vector3(
   playerCenterHeight,
   spawnPosition.z
 );
-const npcCount = 9;
+const npcCount = 11;
 const npcs = spawnNpcs(layout, spawnableCells, npcManager, npcCount);
 
 const bitMaterials = createBitMaterials(scene);
+const redBitMaterials = createBitMaterials(scene);
+redBitMaterials.body.diffuseColor = new Color3(0.7, 0.08, 0.08);
+redBitMaterials.body.emissiveColor = new Color3(0.25, 0.04, 0.04);
+redBitMaterials.nozzle.diffuseColor = new Color3(0.8, 0.15, 0.15);
+redBitMaterials.nozzle.emissiveColor = new Color3(0.35, 0.08, 0.08);
+
+const redBitSpawnChance = 0.05;
+const redBitStatMultiplier = 3;
+const applyRedBit = (bit: Bit) => {
+  bit.isRed = true;
+  bit.statMultiplier = redBitStatMultiplier;
+  bit.speed *= redBitStatMultiplier;
+  bit.fireInterval /= redBitStatMultiplier;
+  bit.fireTimer /= redBitStatMultiplier;
+};
+const createRandomBit = (index: number) => {
+  const isRed = Math.random() < redBitSpawnChance;
+  const materials = isRed ? redBitMaterials : bitMaterials;
+  const bit = createBit(scene, layout, spawnableCells, materials, index);
+  if (isRed) {
+    applyRedBit(bit);
+  }
+  return bit;
+};
+const createSpawnedBitAt = (
+  index: number,
+  position: Vector3,
+  direction?: Vector3
+) => {
+  const isRed = Math.random() < redBitSpawnChance;
+  const materials = isRed ? redBitMaterials : bitMaterials;
+  const bit = createBitAt(scene, materials, index, position, direction);
+  if (isRed) {
+    applyRedBit(bit);
+  }
+  return bit;
+};
+
 const beamMaterial = createBeamMaterial(scene);
-const bits = spawnBits(scene, layout, spawnableCells, bitMaterials, 3);
+const bits = Array.from({ length: 3 }, (_, index) => createRandomBit(index));
+const isRedBitSource = (sourceId: string | null) =>
+  sourceId !== null &&
+  bits.some((bit) => bit.id === sourceId && bit.isRed);
 const beams: Beam[] = [];
+const beamTrails: BeamTrail[] = [];
+const beamImpactOrbs: BeamImpactOrb[] = [];
 
 const bounds: StageBounds = {
   minX: -halfWidth,
@@ -171,26 +448,51 @@ const bounds: StageBounds = {
   minY: 0,
   maxY: room.height
 };
-const alertSignal = { position: new Vector3(0, 0, 0), timer: 0 };
-const bitSpawnInterval = 5;
+const alertSignal = {
+  leaderId: null as string | null,
+  targetId: null as string | null,
+  requiredCount: 0,
+  receiverIds: [] as string[],
+  gatheredIds: new Set<string>()
+};
+const bitSpawnInterval = 10;
 const playerHitDuration = 3;
 const playerHitFadeDuration = 1;
+const redHitDurationScale = 0.25;
 const playerHitRadius = playerWidth * 0.5;
 const playerHitEffectDiameter = playerHeight * 1.2;
 const playerHitFlickerInterval = 0.12;
 const playerHitColorA = new Color3(1, 0.18, 0.74);
 const playerHitColorB = new Color3(0.2, 0.96, 1);
 const playerHitEffectAlpha = 0.45;
+const playerHitOrbDiameter = 0.22;
+const playerHitOrbMinCount = 5;
+const playerHitOrbMaxCount = 20;
+const playerHitOrbSurfaceOffsetMin = 0.05;
+const playerHitOrbSurfaceOffsetMax = 0.4;
+const playerHitOrbSpeedMin = 0.25;
+const playerHitOrbSpeedMax = 0.65;
 
-type PlayerState = "run" | "hit" | "down";
-let playerState: PlayerState = "run";
+type HitFadeOrb = {
+  mesh: Mesh;
+  velocity: Vector3;
+};
+const playerBlockRadius = playerWidth * 0.5 + 1.1;
+
+type PlayerState = CharacterState;
+let playerState: PlayerState = "normal";
 let playerHitTimer = 0;
 let playerFadeTimer = 0;
 let playerHitById: string | null = null;
 let playerHitEffect: Mesh | null = null;
 let playerHitEffectMaterial: StandardMaterial | null = null;
 let playerHitTime = 0;
+let playerHitOrbs: HitFadeOrb[] = [];
+let playerHitFadeDurationCurrent = playerHitFadeDuration;
 let allDownTime: number | null = null;
+let brainwashChoiceStarted = false;
+let brainwashChoiceTimer = 0;
+let brainwashChoiceUnlocked = false;
 
 type GamePhase =
   | "title"
@@ -215,7 +517,7 @@ let fadeNext: (() => void) | null = null;
 let elapsedTime = 0;
 let bitSpawnTimer = bitSpawnInterval;
 let bitIndex = bits.length;
-const maxBitCount = 10;
+const maxBitCount = 25;
 
 const minimapCanvas = document.getElementById(
   "minimapCanvas"
@@ -229,6 +531,7 @@ const retryInfo = document.getElementById("retryInfo") as HTMLDivElement;
 const titleScreen = document.getElementById("titleScreen") as HTMLDivElement;
 const stateInfo = document.getElementById("stateInfo") as HTMLDivElement;
 const fadeOverlay = document.getElementById("fadeOverlay") as HTMLDivElement;
+const crosshair = document.getElementById("crosshair") as HTMLDivElement;
 const minimapContext = minimapCanvas.getContext(
   "2d"
 ) as CanvasRenderingContext2D;
@@ -249,6 +552,7 @@ const setHudVisible = (visible: boolean) => {
   timeInfo.style.display = display;
   aliveInfo.style.display = display;
   retryInfo.style.display = "none";
+  crosshair.style.display = "none";
 };
 
 const setTitleVisible = (visible: boolean) => {
@@ -380,9 +684,18 @@ const buildAssemblyRoute = (start: Vector3, goal: Vector3): AssemblyRoute => {
 
 const clearBeams = () => {
   for (const beam of beams) {
+    beam.tip.dispose();
     beam.mesh.dispose();
   }
   beams.length = 0;
+  for (const trail of beamTrails) {
+    trail.mesh.dispose();
+  }
+  beamTrails.length = 0;
+  for (const orb of beamImpactOrbs) {
+    orb.mesh.dispose();
+  }
+  beamImpactOrbs.length = 0;
 };
 
 const moveSpriteToTarget = (
@@ -450,13 +763,14 @@ const updateBitsOrbit = (delta: number) => {
 };
 
 const enterAssembly = (mode: "move" | "instant") => {
+  stopAlertLoop();
   bitSpawnEnabled = false;
   clearBeams();
   assemblyElapsed = 0;
   setHudVisible(false);
   setTitleVisible(false);
   setStateInfo("press Enter to title");
-  playerState = "down";
+  playerState = "brainwash-complete-haigure-formation";
   const playerStartPosition = new Vector3(
     camera.position.x,
     playerCenterHeight,
@@ -471,7 +785,7 @@ const enterAssembly = (mode: "move" | "instant") => {
   assemblyNpcTargets = assemblyTargets.npcTargets;
 
   for (const npc of npcs) {
-    npc.state = "down";
+    npc.state = "brainwash-complete-haigure-formation";
     npc.sprite.cellIndex = 2;
     npc.sprite.position.y = playerCenterHeight;
     if (npc.hitEffect) {
@@ -479,6 +793,10 @@ const enterAssembly = (mode: "move" | "instant") => {
       npc.hitEffect = null;
       npc.hitEffectMaterial = null;
     }
+    for (const orb of npc.fadeOrbs) {
+      orb.mesh.dispose();
+    }
+    npc.fadeOrbs = [];
   }
 
   if (playerHitEffect) {
@@ -486,6 +804,10 @@ const enterAssembly = (mode: "move" | "instant") => {
     playerHitEffect = null;
     playerHitEffectMaterial = null;
   }
+  for (const orb of playerHitOrbs) {
+    orb.mesh.dispose();
+  }
+  playerHitOrbs = [];
 
   if (mode === "instant") {
     assemblyPlayerRoute = null;
@@ -590,9 +912,9 @@ const drawMinimap = () => {
   const infoZ = Math.round(camera.position.z * 10) / 10;
   minimapInfo.textContent = `X:${infoX}  Z:${infoZ}\nCell:${centerRow},${centerCol}`;
   timeInfo.textContent = `Time: ${elapsedTime.toFixed(1)}s`;
-  let aliveCount = playerState === "run" ? 1 : 0;
+  let aliveCount = isAliveState(playerState) ? 1 : 0;
   for (const npc of npcs) {
-    if (npc.state === "run") {
+    if (isAliveState(npc.state)) {
       aliveCount += 1;
     }
   }
@@ -665,11 +987,19 @@ const drawMinimap = () => {
   minimapContext.lineWidth = 2;
   minimapContext.strokeRect(0, 0, minimapSize, minimapSize);
 
-  retryInfo.style.display = playerState === "down" ? "block" : "none";
-  if (playerState === "down") {
+  retryInfo.style.display = brainwashChoiceStarted ? "block" : "none";
+  if (brainwashChoiceStarted) {
     const surviveText = `生存時間: ${playerHitTime.toFixed(1)}s`;
-    retryInfo.textContent = `${surviveText}\npress R to retry\npress Enter to epilogue`;
+    let promptText = `${surviveText}\npress R to retry\npress Enter to epilogue`;
+    if (brainwashChoiceUnlocked) {
+      promptText +=
+        "\npress G to move with gun\npress N to move without gun\npress H to haigure";
+    }
+    retryInfo.textContent = promptText;
   }
+
+  crosshair.style.display =
+    playerState === "brainwash-complete-gun" ? "block" : "none";
 };
 
 scene.onBeforeRenderObservable.add(() => {
@@ -686,9 +1016,12 @@ const updatePlayerState = (delta: number, elapsed: number) => {
     camera.position.z
   );
 
-  if (playerState === "run") {
+  if (isAliveState(playerState)) {
     for (const beam of beams) {
       if (!beam.active) {
+        continue;
+      }
+      if (beam.sourceId === "player") {
         continue;
       }
       const direction = Vector3.Normalize(beam.velocity);
@@ -701,14 +1034,28 @@ const updatePlayerState = (delta: number, elapsed: number) => {
       const clamped = Math.max(-halfLength, Math.min(halfLength, projection));
       const closest = beam.mesh.position.add(direction.scale(clamped));
       const distanceSq = Vector3.DistanceSquared(centerPosition, closest);
-      if (distanceSq <= playerHitRadius * playerHitRadius) {
+      const tipPosition = beam.tip.getAbsolutePosition();
+      const tipRadius = playerHitRadius + beam.tipRadius;
+      const tipDistanceSq = Vector3.DistanceSquared(
+        centerPosition,
+        tipPosition
+      );
+      if (
+        distanceSq <= playerHitRadius * playerHitRadius ||
+        tipDistanceSq <= tipRadius * tipRadius
+      ) {
+        const hitScale = isRedBitSource(beam.sourceId)
+          ? redHitDurationScale
+          : 1;
         beam.active = false;
+        beam.tip.dispose();
         beam.mesh.dispose();
-        playerState = "hit";
-        playerHitTimer = playerHitDuration;
+        playerState = "hit-a";
+        playerHitTimer = playerHitDuration * hitScale;
         playerFadeTimer = 0;
         playerHitById = beam.sourceId;
         playerHitTime = elapsed;
+        playerHitFadeDurationCurrent = playerHitFadeDuration * hitScale;
         const effect = MeshBuilder.CreateSphere(
           "playerHitEffect",
           {
@@ -728,67 +1075,100 @@ const updatePlayerState = (delta: number, elapsed: number) => {
         effect.position.copyFrom(centerPosition);
         playerHitEffect = effect;
         playerHitEffectMaterial = material;
+        const hitSe = pickRandomVariant(hitSeVariants);
+        const hitPosition = centerPosition.clone();
+        audioManager.playSe(hitSe, () => hitPosition, hitSeOptions);
         break;
       }
     }
   }
 
-  if (playerState === "hit") {
+  if (isHitState(playerState)) {
     playerHitTimer -= delta;
-    if (playerHitEffect) {
-      playerHitEffect.position.copyFrom(centerPosition);
-      if (playerHitEffectMaterial) {
-        const phase =
-          Math.floor(elapsed / playerHitFlickerInterval) % 2 === 0;
-        const color = phase ? playerHitColorA : playerHitColorB;
-        playerHitEffectMaterial.emissiveColor.copyFrom(color);
-        playerHitEffectMaterial.diffuseColor.copyFrom(color);
-        playerHitEffectMaterial.alpha = playerHitEffectAlpha;
+    if (playerHitTimer > 0) {
+      const phase =
+        Math.floor(elapsed / playerHitFlickerInterval) % 2 === 0;
+      const color = phase ? playerHitColorA : playerHitColorB;
+      playerState = phase ? "hit-a" : "hit-b";
+      if (playerHitEffect) {
+        playerHitEffect.position.copyFrom(centerPosition);
+        if (playerHitEffectMaterial) {
+          playerHitEffectMaterial.emissiveColor.copyFrom(color);
+          playerHitEffectMaterial.diffuseColor.copyFrom(color);
+          playerHitEffectMaterial.alpha = playerHitEffectAlpha;
+        }
+      }
+    } else {
+      if (playerFadeTimer === 0) {
+        playerFadeTimer = playerHitFadeDurationCurrent;
+        playerHitOrbs = createHitFadeOrbs(
+          centerPosition.clone(),
+          playerHitEffectMaterial!,
+          playerHitEffectDiameter / 2
+        );
+      }
+      playerState = "hit-a";
+      playerFadeTimer = Math.max(0, playerFadeTimer - delta);
+      if (playerHitEffect) {
+        playerHitEffect.position.copyFrom(centerPosition);
+        if (playerHitEffectMaterial) {
+          playerHitEffectMaterial.emissiveColor.copyFrom(playerHitColorA);
+          playerHitEffectMaterial.diffuseColor.copyFrom(playerHitColorA);
+          playerHitEffectMaterial.alpha =
+            playerHitEffectAlpha *
+            (playerFadeTimer / playerHitFadeDurationCurrent);
+        }
+      }
+      for (const orb of playerHitOrbs) {
+        orb.mesh.position.addInPlace(orb.velocity.scale(delta));
+      }
+      if (playerFadeTimer <= 0) {
+        playerState = "brainwash-in-progress";
+        if (!brainwashChoiceStarted) {
+          brainwashChoiceStarted = true;
+          brainwashChoiceTimer = 0;
+        }
+        if (playerHitEffect) {
+          playerHitEffect.dispose();
+          playerHitEffect = null;
+          playerHitEffectMaterial = null;
+        }
+        for (const orb of playerHitOrbs) {
+          orb.mesh.dispose();
+        }
+        playerHitOrbs = [];
       }
     }
-    if (playerHitTimer <= 0) {
-      playerState = "down";
-      playerFadeTimer = playerHitFadeDuration;
-    }
   }
 
-  if (playerState === "down" && playerFadeTimer > 0) {
-    playerFadeTimer = Math.max(0, playerFadeTimer - delta);
-    if (playerHitEffect) {
-      playerHitEffect.position.copyFrom(centerPosition);
-    }
-    if (playerHitEffectMaterial) {
-      playerHitEffectMaterial.emissiveColor.copyFrom(playerHitColorA);
-      playerHitEffectMaterial.diffuseColor.copyFrom(playerHitColorA);
-      playerHitEffectMaterial.alpha =
-        playerHitEffectAlpha * (playerFadeTimer / playerHitFadeDuration);
-    }
-    if (playerFadeTimer <= 0 && playerHitEffect) {
-      playerHitEffect.dispose();
-      playerHitEffect = null;
-      playerHitEffectMaterial = null;
-    }
-  }
-
-  camera.speed = playerState === "run" ? baseCameraSpeed : 0;
 };
 
 const resetGame = () => {
-  playerState = "run";
+  stopAllVoices();
+  playerState = "normal";
   playerHitTimer = 0;
   playerFadeTimer = 0;
   playerHitById = null;
   playerHitTime = 0;
+  playerHitFadeDurationCurrent = playerHitFadeDuration;
+  brainwashChoiceStarted = false;
+  brainwashChoiceTimer = 0;
+  brainwashChoiceUnlocked = false;
   allDownTime = null;
   assemblyElapsed = 0;
   bitSpawnEnabled = true;
   assemblyPlayerRoute = null;
   assemblyNpcRoutes = [];
+  stopAlertLoop();
   if (playerHitEffect) {
     playerHitEffect.dispose();
     playerHitEffect = null;
     playerHitEffectMaterial = null;
   }
+  for (const orb of playerHitOrbs) {
+    orb.mesh.dispose();
+  }
+  playerHitOrbs = [];
 
   clearBeams();
 
@@ -796,8 +1176,9 @@ const resetGame = () => {
     bit.root.dispose();
   }
   bits.length = 0;
-  bits.push(...spawnBits(scene, layout, spawnableCells, bitMaterials, 1));
-  bitIndex = bits.length;
+  bitIndex = 0;
+  bits.push(createRandomBit(bitIndex));
+  bitIndex += 1;
   bitSpawnTimer = bitSpawnInterval;
 
   for (const npc of npcs) {
@@ -805,11 +1186,18 @@ const resetGame = () => {
     if (npc.hitEffect) {
       npc.hitEffect.dispose();
     }
+    for (const orb of npc.fadeOrbs) {
+      orb.mesh.dispose();
+    }
   }
   npcs.length = 0;
   npcs.push(...spawnNpcs(layout, spawnableCells, npcManager, npcCount));
 
-  alertSignal.timer = 0;
+  alertSignal.leaderId = null;
+  alertSignal.targetId = null;
+  alertSignal.requiredCount = 0;
+  alertSignal.receiverIds = [];
+  alertSignal.gatheredIds = new Set();
   elapsedTime = 0;
   camera.position.copyFrom(spawnPosition);
   camera.rotation = new Vector3(0, 0, 0);
@@ -820,10 +1208,12 @@ const resetGame = () => {
     playerCenterHeight,
     spawnPosition.z
   );
+  assignVoiceActors();
 };
 
 const startGame = () => {
   resetGame();
+  audioManager.startBgm(bgmUrl);
   gamePhase = "playing";
   setTitleVisible(false);
   setHudVisible(true);
@@ -836,6 +1226,7 @@ const startGame = () => {
 
 const returnToTitle = () => {
   resetGame();
+  audioManager.stopBgm();
   gamePhase = "title";
   setTitleVisible(true);
   setHudVisible(false);
@@ -845,22 +1236,89 @@ const returnToTitle = () => {
   setFadeOpacity(0);
 };
 
+const updateVoices = (delta: number) => {
+  if (!playerVoiceActor) {
+    return;
+  }
+  const allowIdle = gamePhase === "playing";
+  updateVoiceActor(
+    playerVoiceActor,
+    audioManager,
+    delta,
+    allowIdle,
+    voiceBaseOptions,
+    voiceLoopOptions
+  );
+  for (const actor of npcVoiceActors) {
+    updateVoiceActor(
+      actor,
+      audioManager,
+      delta,
+      allowIdle,
+      voiceBaseOptions,
+      voiceLoopOptions
+    );
+  }
+};
+
 window.addEventListener("keydown", (event) => {
   if (event.code === "Enter") {
-    if (gamePhase === "title") {
-      startGame();
-      return;
-    }
-    if (gamePhase === "playing" && playerState === "down") {
+    if (gamePhase === "playing" && isBrainwashState(playerState)) {
       gamePhase = "transition";
       setHudVisible(false);
       beginFadeOut(() => enterAssembly("instant"));
       return;
     }
-    if (gamePhase === "assemblyHold") {
+    if (gamePhase === "assemblyMove" || gamePhase === "assemblyHold") {
       returnToTitle();
     }
   }
+
+  if (event.code === "KeyR") {
+    if (gamePhase === "playing" && brainwashChoiceStarted) {
+      startGame();
+    }
+  }
+
+  if (gamePhase === "playing" && brainwashChoiceUnlocked) {
+    if (event.code === "KeyG") {
+      playerState = "brainwash-complete-gun";
+      return;
+    }
+    if (event.code === "KeyN") {
+      playerState = "brainwash-complete-no-gun";
+      return;
+    }
+    if (event.code === "KeyH") {
+      playerState = "brainwash-complete-haigure";
+    }
+  }
+});
+
+window.addEventListener("mousedown", (event) => {
+  if (event.button !== 0) {
+    return;
+  }
+  if (gamePhase === "title") {
+    startGame();
+    return;
+  }
+  if (gamePhase !== "playing") {
+    return;
+  }
+  if (playerState !== "brainwash-complete-gun") {
+    return;
+  }
+  const ray = camera.getForwardRay();
+  const direction = ray.direction.normalize();
+  if (direction.length() < 0.001) {
+    return;
+  }
+  const origin = ray.origin.add(direction.scale(1.2));
+  beams.push(createBeam(scene, origin, direction, beamMaterial, "player"));
+  const beamSe = pickRandomVariant(bitSeBeamNonTarget);
+  const firePosition = origin.clone();
+  audioManager.playSe(beamSe, () => firePosition, beamSeOptions);
 });
 
 engine.runRenderLoop(() => {
@@ -868,19 +1326,73 @@ engine.runRenderLoop(() => {
   if (gamePhase === "playing") {
     elapsedTime += delta;
 
-    updateBeams(layout, beams, bounds, delta);
+    if (brainwashChoiceStarted && !brainwashChoiceUnlocked) {
+      brainwashChoiceTimer += delta;
+      if (brainwashChoiceTimer >= 10) {
+        brainwashChoiceUnlocked = true;
+      }
+    }
+
+    updateBeams(layout, beams, bounds, delta, beamTrails, beamImpactOrbs);
     updatePlayerState(delta, elapsedTime);
-    updateNpcs(layout, floorCells, npcs, beams, delta, elapsedTime);
+    const npcBlockers =
+      playerState === "brainwash-complete-no-gun"
+        ? [{ position: camera.position, radius: playerBlockRadius, sourceId: "player" }]
+        : [];
+    const npcTargets = [
+      {
+        id: "player",
+        position: camera.position,
+        alive: isAliveState(playerState),
+        state: playerState,
+        hitById: playerHitById
+      },
+      ...npcs.map((npc, index) => ({
+        id: `npc_${index}`,
+        position: npc.sprite.position,
+        alive: isAliveState(npc.state),
+        state: npc.state,
+        hitById: npc.hitById
+      }))
+    ];
+    const npcUpdate = updateNpcs(
+      layout,
+      floorCells,
+      npcs,
+      beams,
+      delta,
+      elapsedTime,
+      npcTargets,
+      (position) => {
+        const hitSe = pickRandomVariant(hitSeVariants);
+        audioManager.playSe(hitSe, () => position, hitSeOptions);
+      },
+      (position, direction, sourceId) => {
+        beams.push(createBeam(scene, position, direction, beamMaterial, sourceId));
+        const beamSe = pickRandomVariant(bitSeBeamNonTarget);
+        audioManager.playSe(beamSe, () => position, beamSeOptions);
+      },
+      isRedBitSource,
+      beamImpactOrbs,
+      npcBlockers
+    );
+    const playerBlockedByNpc = npcUpdate.playerBlocked;
+    const canMove =
+      isAliveState(playerState) ||
+      playerState === "brainwash-complete-gun" ||
+      playerState === "brainwash-complete-no-gun";
+    camera.speed =
+      canMove && !playerBlockedByNpc ? baseCameraSpeed : 0;
 
     let npcAlive = false;
     for (const npc of npcs) {
-      if (npc.state !== "down") {
+      if (isAliveState(npc.state)) {
         npcAlive = true;
         break;
       }
     }
 
-    if (playerState === "down" && !npcAlive) {
+    if (isBrainwashState(playerState) && !npcAlive) {
       if (allDownTime === null) {
         allDownTime = elapsedTime;
       }
@@ -894,7 +1406,7 @@ engine.runRenderLoop(() => {
         bitSpawnTimer -= delta;
         if (bitSpawnTimer <= 0 && bits.length < maxBitCount) {
           bits.push(
-            createBit(scene, layout, spawnableCells, bitMaterials, bitIndex)
+            createRandomBit(bitIndex)
           );
           bitIndex += 1;
           bitSpawnTimer = bitSpawnInterval;
@@ -905,18 +1417,28 @@ engine.runRenderLoop(() => {
         {
           id: "player",
           position: camera.position,
-          alive: playerState === "run",
+          alive: isAliveState(playerState),
           state: playerState,
           hitById: playerHitById
         },
         ...npcs.map((npc, index) => ({
           id: `npc_${index}`,
           position: npc.sprite.position,
-          alive: npc.state === "run",
+          alive: isAliveState(npc.state),
           state: npc.state,
           hitById: npc.hitById
         }))
       ];
+      let carpetSpawned = 0;
+      const spawnCarpetBit = (position: Vector3, direction: Vector3) => {
+        if (bits.length + carpetSpawned >= maxBitCount) {
+          return null;
+        }
+        const bit = createSpawnedBitAt(bitIndex, position, direction);
+        bitIndex += 1;
+        carpetSpawned += 1;
+        return bit;
+      };
       updateBits(
         layout,
         bits,
@@ -925,10 +1447,48 @@ engine.runRenderLoop(() => {
         targets,
         bounds,
         alertSignal,
+        npcUpdate.alertRequests,
+        spawnCarpetBit,
         (pos, dir, sourceId) => {
           beams.push(createBeam(scene, pos, dir, beamMaterial, sourceId));
-        }
+        },
+        bitSoundEvents
       );
+      const alertLeaderId = alertSignal.leaderId;
+      if (!alertLeaderId) {
+        stopAlertLoop();
+      } else if (
+        alertSeLeaderId !== alertLeaderId ||
+        !alertSeHandle?.isActive()
+      ) {
+        const leader = bits.find((bit) => bit.id === alertLeaderId) ?? null;
+        if (leader) {
+          startAlertLoop(leader);
+        } else {
+          stopAlertLoop();
+        }
+      }
+
+      const targetedIds = new Set<string>();
+      for (const bit of bits) {
+        if (bit.targetId) {
+          targetedIds.add(bit.targetId);
+        }
+      }
+      if (isAliveState(playerState)) {
+        playerState = targetedIds.has("player") ? "evade" : "normal";
+      }
+      for (let index = 0; index < npcs.length; index += 1) {
+        const npc = npcs[index];
+        if (!isAliveState(npc.state)) {
+          continue;
+        }
+        const npcId = `npc_${index}`;
+        npc.state =
+          targetedIds.has(npcId) || npcUpdate.targetedIds.has(npcId)
+            ? "evade"
+            : "normal";
+      }
     }
   }
 
@@ -936,7 +1496,9 @@ engine.runRenderLoop(() => {
     updateAssembly(delta);
   }
 
+  updateVoices(delta);
   updateFade(delta);
+  audioManager.updateSpatial();
   scene.render();
 });
 
