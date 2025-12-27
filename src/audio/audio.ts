@@ -25,55 +25,72 @@ export type SpatialHandle = {
   isActive: () => boolean;
 };
 
-export const createAudioManager = (camera: FreeCamera) => {
-  const context = new AudioContext();
-  const bgmGain = context.createGain();
-  const seGain = context.createGain();
-  const voiceGain = context.createGain();
-  bgmGain.gain.value = 0.325;
-  seGain.gain.value = 0.9;
-  voiceGain.gain.value = 1;
-  bgmGain.connect(context.destination);
-  seGain.connect(context.destination);
-  voiceGain.connect(context.destination);
+export type AudioCategory = "bgm" | "se" | "voice";
 
-  let bgmAudio: HTMLAudioElement | null = null;
-  const activeSlots: SpatialSlot[] = [];
-  const sePoolSize = 32;
-  const voicePoolSize = 16;
+export class AudioManager {
+  private context: AudioContext;
+  private bgmGain: GainNode;
+  private seGain: GainNode;
+  private voiceGain: GainNode;
+  private bgmAudio: HTMLAudioElement | null;
+  private activeSlots: SpatialSlot[];
+  private sePool: SpatialSlot[];
+  private voicePool: SpatialSlot[];
+  private camera: FreeCamera;
 
-  const ensureRunning = () => {
-    if (context.state !== "running") {
-      context.resume();
+  constructor(camera: FreeCamera) {
+    this.camera = camera;
+    this.context = new AudioContext();
+    this.bgmGain = this.context.createGain();
+    this.seGain = this.context.createGain();
+    this.voiceGain = this.context.createGain();
+    this.bgmGain.gain.value = 0.325;
+    this.seGain.gain.value = 0.9;
+    this.voiceGain.gain.value = 1;
+    this.bgmGain.connect(this.context.destination);
+    this.seGain.connect(this.context.destination);
+    this.voiceGain.connect(this.context.destination);
+
+    this.bgmAudio = null;
+    this.activeSlots = [];
+    const sePoolSize = 32;
+    const voicePoolSize = 16;
+    this.sePool = this.createPool(sePoolSize, this.seGain);
+    this.voicePool = this.createPool(voicePoolSize, this.voiceGain);
+  }
+
+  private ensureRunning() {
+    if (this.context.state !== "running") {
+      this.context.resume();
     }
-  };
+  }
 
-  const stopSlot = (slot: SpatialSlot, callEnded: boolean) => {
+  private stopSlot(slot: SpatialSlot, callEnded: boolean) {
     if (!slot.active) {
       return;
     }
     slot.active = false;
     slot.audio.pause();
     slot.audio.currentTime = 0;
-    const index = activeSlots.indexOf(slot);
+    const index = this.activeSlots.indexOf(slot);
     if (index >= 0) {
-      activeSlots.splice(index, 1);
+      this.activeSlots.splice(index, 1);
     }
     const onEnded = slot.onEnded;
     slot.onEnded = undefined;
     if (callEnded && onEnded) {
       onEnded();
     }
-  };
+  }
 
-  const createPool = (size: number, output: GainNode) => {
+  private createPool(size: number, output: GainNode) {
     const slots: SpatialSlot[] = [];
     for (let index = 0; index < size; index += 1) {
       const audio = new Audio();
       audio.preload = "auto";
-      const source = context.createMediaElementSource(audio);
-      const pan = context.createStereoPanner();
-      const gain = context.createGain();
+      const source = this.context.createMediaElementSource(audio);
+      const pan = this.context.createStereoPanner();
+      const gain = this.context.createGain();
       source.connect(pan);
       pan.connect(gain);
       gain.connect(output);
@@ -89,17 +106,14 @@ export const createAudioManager = (camera: FreeCamera) => {
         lastUsed: 0
       };
       audio.addEventListener("ended", () => {
-        stopSlot(slot, true);
+        this.stopSlot(slot, true);
       });
       slots.push(slot);
     }
     return slots;
-  };
+  }
 
-  const sePool = createPool(sePoolSize, seGain);
-  const voicePool = createPool(voicePoolSize, voiceGain);
-
-  const acquireSlot = (pool: SpatialSlot[]) => {
+  private acquireSlot(pool: SpatialSlot[]) {
     const idle = pool.find((slot) => !slot.active);
     if (idle) {
       return idle;
@@ -110,38 +124,56 @@ export const createAudioManager = (camera: FreeCamera) => {
         oldest = slot;
       }
     }
-    stopSlot(oldest, false);
+    this.stopSlot(oldest, false);
     return oldest;
-  };
+  }
 
-  const startBgm = (url: string) => {
-    ensureRunning();
-    if (!bgmAudio) {
-      bgmAudio = new Audio(url);
-      bgmAudio.loop = true;
-      const source = context.createMediaElementSource(bgmAudio);
-      source.connect(bgmGain);
+  private getGain(category: AudioCategory) {
+    if (category === "bgm") {
+      return this.bgmGain;
     }
-    bgmAudio.currentTime = 0;
-    bgmAudio.play();
-  };
+    if (category === "se") {
+      return this.seGain;
+    }
+    return this.voiceGain;
+  }
 
-  const stopBgm = () => {
-    if (!bgmAudio) {
+  setCategoryVolume(category: AudioCategory, volume: number) {
+    this.getGain(category).gain.value = volume;
+  }
+
+  getCategoryVolume(category: AudioCategory) {
+    return this.getGain(category).gain.value;
+  }
+
+  startBgm(url: string) {
+    this.ensureRunning();
+    if (!this.bgmAudio) {
+      this.bgmAudio = new Audio(url);
+      this.bgmAudio.loop = true;
+      const source = this.context.createMediaElementSource(this.bgmAudio);
+      source.connect(this.bgmGain);
+    }
+    this.bgmAudio.currentTime = 0;
+    this.bgmAudio.play();
+  }
+
+  stopBgm() {
+    if (!this.bgmAudio) {
       return;
     }
-    bgmAudio.pause();
-    bgmAudio.currentTime = 0;
-  };
+    this.bgmAudio.pause();
+    this.bgmAudio.currentTime = 0;
+  }
 
-  const playSpatial = (
+  private playSpatial(
     url: string,
     getPosition: () => Vector3,
     options: SpatialPlayOptions,
     pool: SpatialSlot[]
-  ): SpatialHandle => {
-    ensureRunning();
-    const slot = acquireSlot(pool);
+  ): SpatialHandle {
+    this.ensureRunning();
+    const slot = this.acquireSlot(pool);
     slot.audio.src = url;
     slot.audio.loop = options.loop;
     slot.audio.currentTime = 0;
@@ -152,37 +184,41 @@ export const createAudioManager = (camera: FreeCamera) => {
     slot.onEnded = options.onEnded;
     slot.active = true;
     slot.lastUsed = performance.now();
-    activeSlots.push(slot);
+    this.activeSlots.push(slot);
     slot.audio.play();
     return {
       stop: () => {
-        stopSlot(slot, false);
+        this.stopSlot(slot, false);
       },
       isActive: () => slot.active
     };
-  };
+  }
 
-  const playSe = (
+  playSe(
     url: string,
     getPosition: () => Vector3,
     options: SpatialPlayOptions
-  ) => playSpatial(url, getPosition, options, sePool);
+  ) {
+    return this.playSpatial(url, getPosition, options, this.sePool);
+  }
 
-  const playVoice = (
+  playVoice(
     url: string,
     getPosition: () => Vector3,
     options: SpatialPlayOptions
-  ) => playSpatial(url, getPosition, options, voicePool);
+  ) {
+    return this.playSpatial(url, getPosition, options, this.voicePool);
+  }
 
-  const updateSpatial = () => {
-    if (activeSlots.length === 0) {
+  updateSpatial() {
+    if (this.activeSlots.length === 0) {
       return;
     }
-    const cameraPosition = camera.position;
-    const forward = camera.getDirection(new Vector3(0, 0, 1)).normalize();
+    const cameraPosition = this.camera.position;
+    const forward = this.camera.getDirection(new Vector3(0, 0, 1)).normalize();
     const right = Vector3.Cross(Vector3.Up(), forward).normalize();
 
-    for (const handle of activeSlots) {
+    for (const handle of this.activeSlots) {
       const sourcePosition = handle.getPosition();
       const toSource = sourcePosition.subtract(cameraPosition);
       const distance = toSource.length();
@@ -197,7 +233,5 @@ export const createAudioManager = (camera: FreeCamera) => {
       handle.pan.pan.value = pan;
       handle.gain.gain.value = volume * handle.baseVolume;
     }
-  };
-
-  return { startBgm, stopBgm, playSe, playVoice, updateSpatial };
-};
+  }
+}

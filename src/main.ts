@@ -8,7 +8,6 @@ import {
   Color3,
   Sprite,
   Mesh,
-  MeshBuilder,
   StandardMaterial
 } from "@babylonjs/core";
 import {
@@ -21,7 +20,6 @@ import {
   collectFloorCells,
   createBeam,
   createBitAt,
-  createBeamImpactOrbs,
   createBeamMaterial,
   createBit,
   createBitMaterials,
@@ -35,7 +33,15 @@ import {
   updateBits,
   updateNpcs
 } from "./game/entities";
-import { createAudioManager, SpatialHandle, SpatialPlayOptions } from "./audio/audio";
+import { isBeamHittingTarget } from "./game/beamCollision";
+import {
+  createHitEffectMesh,
+  createHitFadeOrbs,
+  HitFadeOrb,
+  HitFadeOrbConfig,
+  updateHitFadeOrbs
+} from "./game/hitEffects";
+import { AudioManager, SpatialHandle, SpatialPlayOptions } from "./audio/audio";
 import {
   createVoiceActor,
   stopVoiceActor,
@@ -43,8 +49,12 @@ import {
   voiceProfiles,
   VoiceActor
 } from "./audio/voice";
+import { SfxDirector } from "./audio/sfxDirector";
+import { createGameFlow, type GamePhase } from "./game/flow";
 import { createGridLayout } from "./world/grid";
 import { createStageFromGrid } from "./world/stage";
+import { createHud } from "./ui/hud";
+import { setupInputHandlers } from "./ui/input";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const engine = new Engine(canvas, true);
@@ -68,52 +78,6 @@ const spawnPosition = new Vector3(
   -halfDepth + layout.cellSize / 2 + layout.spawn.row * layout.cellSize
 );
 const spawnForward = new Vector3(1, 0, 0);
-const assemblyRoom = {
-  startCol: 8,
-  startRow: 8,
-  width: 4,
-  height: 4
-};
-const assemblyMaxColumns = 5;
-const assemblySpacingX = 6;
-const assemblySpacingZ = 4;
-const assemblyCenter = new Vector3(
-  -halfWidth +
-    layout.cellSize * (assemblyRoom.startCol + assemblyRoom.width / 2),
-  playerCenterHeight,
-  -halfDepth +
-    layout.cellSize * (assemblyRoom.startRow + assemblyRoom.height / 2)
-);
-const createAssemblyTargets = (totalCount: number) => {
-  const columns = Math.min(assemblyMaxColumns, totalCount);
-  const rows = Math.ceil(totalCount / columns);
-  const totalWidth = (columns - 1) * assemblySpacingX;
-  const totalDepth = (rows - 1) * assemblySpacingZ;
-  const slots: Vector3[] = [];
-
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < columns; col += 1) {
-      if (slots.length >= totalCount) {
-        break;
-      }
-      slots.push(
-        new Vector3(
-          assemblyCenter.x - totalWidth / 2 + col * assemblySpacingX,
-          playerCenterHeight,
-          assemblyCenter.z - totalDepth / 2 + row * assemblySpacingZ
-        )
-      );
-    }
-  }
-
-  const playerIndex = Math.floor((columns - 1) / 2);
-  const playerTarget = slots[playerIndex];
-  const npcTargets = slots.filter((_, index) => index !== playerIndex);
-  return { playerTarget, npcTargets };
-};
-let assemblyPlayerTarget = assemblyCenter.clone();
-let assemblyNpcTargets: Vector3[] = [];
-
 const camera = new FreeCamera(
   "camera",
   spawnPosition,
@@ -131,11 +95,7 @@ camera.keysRight = [68];
 camera.checkCollisions = true;
 camera.ellipsoid = new Vector3(0.5, playerHeight * 0.4, 0.5);
 
-canvas.addEventListener("click", () => {
-  canvas.requestPointerLock();
-});
-
-const audioManager = createAudioManager(camera);
+const audioManager = new AudioManager(camera);
 const bgmUrl = "/audio/bgm/研究所劇伴MP3.mp3";
 const bitSeMove = "/audio/se/FlyingObject.mp3";
 const bitSeAlert = "/audio/se/BeamShot_WavingPart.mp3";
@@ -188,62 +148,28 @@ const voiceLoopOptions: SpatialPlayOptions = {
 const beamSeFarDistance = 28;
 const beamSeMidDistance = 16;
 
-const pickVariantByDistance = (distance: number, variants: string[]) => {
-  if (distance >= beamSeFarDistance) {
-    return variants[0];
+const sfxDirector = new SfxDirector(
+  audioManager,
+  () => camera.position,
+  {
+    bitMove: bitSeMove,
+    bitAlert: bitSeAlert,
+    bitTarget: bitSeTarget,
+    beamNonTarget: bitSeBeamNonTarget,
+    beamTarget: bitSeBeamTarget,
+    hit: hitSeVariants
+  },
+  {
+    base: seBaseOptions,
+    alertLoop: alertLoopOptions,
+    beam: beamSeOptions,
+    hit: hitSeOptions
+  },
+  {
+    far: beamSeFarDistance,
+    mid: beamSeMidDistance
   }
-  if (distance >= beamSeMidDistance) {
-    return variants[1];
-  }
-  return variants[2];
-};
-
-const pickRandomVariant = (variants: string[]) =>
-  variants[Math.floor(Math.random() * variants.length)];
-
-const createHitFadeOrbs = (
-  center: Vector3,
-  material: StandardMaterial,
-  effectRadius: number
-) => {
-  const count =
-    playerHitOrbMinCount +
-    Math.floor(
-      Math.random() * (playerHitOrbMaxCount - playerHitOrbMinCount + 1)
-    );
-  const orbs: HitFadeOrb[] = [];
-
-  for (let index = 0; index < count; index += 1) {
-    const theta = Math.random() * Math.PI * 2;
-    const u = Math.random() * 2 - 1;
-    const base = Math.sqrt(1 - u * u);
-    const direction = new Vector3(
-      base * Math.cos(theta),
-      u,
-      base * Math.sin(theta)
-    );
-    const offset =
-      playerHitOrbSurfaceOffsetMin +
-      Math.random() *
-        (playerHitOrbSurfaceOffsetMax - playerHitOrbSurfaceOffsetMin);
-    const position = center.add(direction.scale(effectRadius + offset));
-    const orb = MeshBuilder.CreateSphere(
-      "playerHitOrb",
-      { diameter: playerHitOrbDiameter, segments: 10 },
-      scene
-    );
-    orb.material = material;
-    orb.isPickable = false;
-    orb.position.copyFrom(position);
-    const speed =
-      playerHitOrbSpeedMin +
-      Math.random() * (playerHitOrbSpeedMax - playerHitOrbSpeedMin);
-    const velocity = direction.scale(speed);
-    orbs.push({ mesh: orb, velocity });
-  }
-
-  return orbs;
-};
+);
 
 const voiceIdPool = [
   "01",
@@ -311,19 +237,16 @@ const assignVoiceActors = () => {
 
 const bitSoundEvents: BitSoundEvents = {
   onMoveStart: (bit) => {
-    audioManager.playSe(bitSeMove, () => bit.root.position, seBaseOptions);
+    sfxDirector.playBitMove(() => bit.root.position);
   },
   onAlert: (bit) => {
     startAlertLoop(bit);
   },
   onTargetPlayer: (bit) => {
-    audioManager.playSe(bitSeTarget, () => bit.root.position, seBaseOptions);
+    sfxDirector.playBitTarget(() => bit.root.position);
   },
   onBeamFire: (bit, targetingPlayer) => {
-    const distance = Vector3.Distance(camera.position, bit.root.position);
-    const variants = targetingPlayer ? bitSeBeamTarget : bitSeBeamNonTarget;
-    const file = pickVariantByDistance(distance, variants);
-    audioManager.playSe(file, () => bit.root.position, beamSeOptions);
+    sfxDirector.playBitBeam(() => bit.root.position, targetingPlayer);
   }
 };
 
@@ -345,11 +268,7 @@ const startAlertLoop = (bit: Bit) => {
     alertSeHandle.stop();
   }
   alertSeLeaderId = bit.id;
-  alertSeHandle = audioManager.playSe(
-    bitSeAlert,
-    () => bit.root.position,
-    alertLoopOptions
-  );
+  alertSeHandle = sfxDirector.playAlertLoop(() => bit.root.position);
 };
 
 const light = new HemisphericLight("light", new Vector3(0, 1, 0), scene);
@@ -472,11 +391,16 @@ const playerHitOrbSurfaceOffsetMin = 0.05;
 const playerHitOrbSurfaceOffsetMax = 0.4;
 const playerHitOrbSpeedMin = 0.25;
 const playerHitOrbSpeedMax = 0.65;
-
-type HitFadeOrb = {
-  mesh: Mesh;
-  velocity: Vector3;
+const playerHitFadeOrbConfig: HitFadeOrbConfig = {
+  minCount: playerHitOrbMinCount,
+  maxCount: playerHitOrbMaxCount,
+  diameter: playerHitOrbDiameter,
+  surfaceOffsetMin: playerHitOrbSurfaceOffsetMin,
+  surfaceOffsetMax: playerHitOrbSurfaceOffsetMax,
+  speedMin: playerHitOrbSpeedMin,
+  speedMax: playerHitOrbSpeedMax
 };
+
 const playerBlockRadius = playerWidth * 0.5 + 1.1;
 
 type PlayerState = CharacterState;
@@ -494,193 +418,16 @@ let brainwashChoiceStarted = false;
 let brainwashChoiceTimer = 0;
 let brainwashChoiceUnlocked = false;
 
-type GamePhase =
-  | "title"
-  | "playing"
-  | "transition"
-  | "assemblyMove"
-  | "assemblyHold";
 let gamePhase: GamePhase = "title";
 const allDownTransitionDelay = 3;
-const assemblyMoveSpeed = 3.2;
-const assemblyArriveDistance = 0.2;
-const assemblyOrbitRadius = 12;
-const assemblyOrbitSpeed = 0.7;
-const assemblyOrbitHeight = 4;
-let assemblyElapsed = 0;
 let bitSpawnEnabled = true;
-const fadeDuration = 0.8;
-let fadeOpacity = 0;
-let fadePhase: "none" | "out" | "in" = "none";
-let fadeNext: (() => void) | null = null;
 
 let elapsedTime = 0;
 let bitSpawnTimer = bitSpawnInterval;
 let bitIndex = bits.length;
 const maxBitCount = 25;
 
-const minimapCanvas = document.getElementById(
-  "minimapCanvas"
-) as HTMLCanvasElement;
-const minimapInfo = document.getElementById(
-  "minimapInfo"
-) as HTMLDivElement;
-const timeInfo = document.getElementById("timeInfo") as HTMLDivElement;
-const aliveInfo = document.getElementById("aliveInfo") as HTMLDivElement;
-const retryInfo = document.getElementById("retryInfo") as HTMLDivElement;
-const titleScreen = document.getElementById("titleScreen") as HTMLDivElement;
-const stateInfo = document.getElementById("stateInfo") as HTMLDivElement;
-const fadeOverlay = document.getElementById("fadeOverlay") as HTMLDivElement;
-const crosshair = document.getElementById("crosshair") as HTMLDivElement;
-const minimapContext = minimapCanvas.getContext(
-  "2d"
-) as CanvasRenderingContext2D;
-const minimap = {
-  cells: 11,
-  cellPixels: 12,
-  fanRadius: 30,
-  fanHalfAngle: Math.PI / 7
-};
-const minimapSize = minimap.cells * minimap.cellPixels;
-minimapCanvas.width = minimapSize;
-minimapCanvas.height = minimapSize;
-
-const setHudVisible = (visible: boolean) => {
-  const display = visible ? "block" : "none";
-  minimapCanvas.style.display = display;
-  minimapInfo.style.display = display;
-  timeInfo.style.display = display;
-  aliveInfo.style.display = display;
-  retryInfo.style.display = "none";
-  crosshair.style.display = "none";
-};
-
-const setTitleVisible = (visible: boolean) => {
-  titleScreen.style.display = visible ? "flex" : "none";
-};
-
-const setStateInfo = (text: string | null) => {
-  if (text) {
-    stateInfo.textContent = text;
-    stateInfo.style.display = "block";
-  } else {
-    stateInfo.textContent = "";
-    stateInfo.style.display = "none";
-  }
-};
-
-const setFadeOpacity = (value: number) => {
-  fadeOverlay.style.opacity = value.toFixed(2);
-};
-
-type GridCell = {
-  row: number;
-  col: number;
-};
-
-const cellToWorld = (cell: GridCell, y: number) =>
-  new Vector3(
-    -halfWidth + layout.cellSize / 2 + cell.col * layout.cellSize,
-    y,
-    -halfDepth + layout.cellSize / 2 + cell.row * layout.cellSize
-  );
-
-const worldToCell = (position: Vector3): GridCell => ({
-  row: Math.floor((position.z + halfDepth) / layout.cellSize),
-  col: Math.floor((position.x + halfWidth) / layout.cellSize)
-});
-
-const buildShortestPath = (start: GridCell, goal: GridCell) => {
-  const visited = Array.from({ length: layout.rows }, () =>
-    Array.from({ length: layout.columns }, () => false)
-  );
-  const prevRow = Array.from({ length: layout.rows }, () =>
-    Array.from({ length: layout.columns }, () => -1)
-  );
-  const prevCol = Array.from({ length: layout.rows }, () =>
-    Array.from({ length: layout.columns }, () => -1)
-  );
-  const queueRow: number[] = [];
-  const queueCol: number[] = [];
-  let head = 0;
-
-  visited[start.row][start.col] = true;
-  queueRow.push(start.row);
-  queueCol.push(start.col);
-
-  while (head < queueRow.length) {
-    const row = queueRow[head];
-    const col = queueCol[head];
-    head += 1;
-    if (row === goal.row && col === goal.col) {
-      break;
-    }
-
-    const neighbors = [
-      { row: row - 1, col },
-      { row: row + 1, col },
-      { row, col: col - 1 },
-      { row, col: col + 1 }
-    ];
-    for (const neighbor of neighbors) {
-      if (
-        neighbor.row < 0 ||
-        neighbor.row >= layout.rows ||
-        neighbor.col < 0 ||
-        neighbor.col >= layout.columns
-      ) {
-        continue;
-      }
-      if (layout.cells[neighbor.row][neighbor.col] !== "floor") {
-        continue;
-      }
-      if (visited[neighbor.row][neighbor.col]) {
-        continue;
-      }
-      visited[neighbor.row][neighbor.col] = true;
-      prevRow[neighbor.row][neighbor.col] = row;
-      prevCol[neighbor.row][neighbor.col] = col;
-      queueRow.push(neighbor.row);
-      queueCol.push(neighbor.col);
-    }
-  }
-
-  const path: GridCell[] = [];
-  let row = goal.row;
-  let col = goal.col;
-  path.push({ row, col });
-  while (row !== start.row || col !== start.col) {
-    const prevR = prevRow[row][col];
-    const prevC = prevCol[row][col];
-    row = prevR;
-    col = prevC;
-    path.push({ row, col });
-  }
-  path.reverse();
-  return path;
-};
-
-type AssemblyRoute = {
-  waypoints: Vector3[];
-  index: number;
-};
-
-let assemblyPlayerRoute: AssemblyRoute | null = null;
-let assemblyNpcRoutes: AssemblyRoute[] = [];
-
-const buildAssemblyRoute = (start: Vector3, goal: Vector3): AssemblyRoute => {
-  const startCell = worldToCell(start);
-  const goalCell = worldToCell(goal);
-  const cellPath = buildShortestPath(startCell, goalCell);
-  const waypoints: Vector3[] = [
-    new Vector3(start.x, playerCenterHeight, start.z)
-  ];
-  for (let index = 1; index < cellPath.length; index += 1) {
-    waypoints.push(cellToWorld(cellPath[index], playerCenterHeight));
-  }
-  waypoints.push(new Vector3(goal.x, playerCenterHeight, goal.z));
-  return { waypoints, index: 0 };
-};
+const hud = createHud();
 
 const clearBeams = () => {
   for (const beam of beams) {
@@ -698,107 +445,11 @@ const clearBeams = () => {
   beamImpactOrbs.length = 0;
 };
 
-const moveSpriteToTarget = (
-  sprite: Sprite,
-  target: Vector3,
-  speed: number,
-  delta: number
-) => {
-  const toTarget = target.subtract(sprite.position);
-  toTarget.y = 0;
-  const distance = Math.hypot(toTarget.x, toTarget.z);
-  if (distance <= assemblyArriveDistance) {
-    sprite.position.x = target.x;
-    sprite.position.y = target.y;
-    sprite.position.z = target.z;
-    return true;
-  }
-  const step = Math.min(distance, speed * delta);
-  sprite.position.x += (toTarget.x / distance) * step;
-  sprite.position.z += (toTarget.z / distance) * step;
-  sprite.position.y = target.y;
-  return false;
+const setBitSpawnEnabled = (enabled: boolean) => {
+  bitSpawnEnabled = enabled;
 };
 
-const moveSpriteAlongRoute = (
-  sprite: Sprite,
-  route: AssemblyRoute,
-  speed: number,
-  delta: number
-) => {
-  while (route.index < route.waypoints.length) {
-    const arrived = moveSpriteToTarget(
-      sprite,
-      route.waypoints[route.index],
-      speed,
-      delta
-    );
-    if (!arrived) {
-      return false;
-    }
-    route.index += 1;
-  }
-  return true;
-};
-
-const updateBitsOrbit = (delta: number) => {
-  if (bits.length === 0) {
-    return;
-  }
-  assemblyElapsed += delta;
-  const angleStep = (Math.PI * 2) / bits.length;
-  const bobSpeed = 1.2;
-  for (let index = 0; index < bits.length; index += 1) {
-    const bit = bits[index];
-    const angle = assemblyElapsed * assemblyOrbitSpeed + angleStep * index;
-    const x = assemblyCenter.x + Math.cos(angle) * assemblyOrbitRadius;
-    const z = assemblyCenter.z + Math.sin(angle) * assemblyOrbitRadius;
-    const bob = Math.sin(assemblyElapsed * bobSpeed + bit.floatOffset) * 0.4;
-    bit.root.position.x = x;
-    bit.root.position.y = assemblyOrbitHeight + bob;
-    bit.root.position.z = z;
-    bit.baseHeight = assemblyOrbitHeight;
-    bit.root.lookAt(assemblyCenter);
-  }
-};
-
-const enterAssembly = (mode: "move" | "instant") => {
-  stopAlertLoop();
-  bitSpawnEnabled = false;
-  clearBeams();
-  assemblyElapsed = 0;
-  setHudVisible(false);
-  setTitleVisible(false);
-  setStateInfo("press Enter to title");
-  playerState = "brainwash-complete-haigure-formation";
-  const playerStartPosition = new Vector3(
-    camera.position.x,
-    playerCenterHeight,
-    camera.position.z
-  );
-  playerAvatar.isVisible = true;
-  playerAvatar.cellIndex = 2;
-  playerAvatar.position.copyFrom(playerStartPosition);
-
-  const assemblyTargets = createAssemblyTargets(npcs.length + 1);
-  assemblyPlayerTarget = assemblyTargets.playerTarget;
-  assemblyNpcTargets = assemblyTargets.npcTargets;
-
-  for (const npc of npcs) {
-    npc.state = "brainwash-complete-haigure-formation";
-    npc.sprite.cellIndex = 2;
-    npc.sprite.position.y = playerCenterHeight;
-    if (npc.hitEffect) {
-      npc.hitEffect.dispose();
-      npc.hitEffect = null;
-      npc.hitEffectMaterial = null;
-    }
-    for (const orb of npc.fadeOrbs) {
-      orb.mesh.dispose();
-    }
-    npc.fadeOrbs = [];
-  }
-
+const disposePlayerHitEffects = () => {
   if (playerHitEffect) {
     playerHitEffect.dispose();
     playerHitEffect = null;
@@ -808,186 +459,47 @@ const enterAssembly = (mode: "move" | "instant") => {
     orb.mesh.dispose();
   }
   playerHitOrbs = [];
-
-  if (mode === "instant") {
-    assemblyPlayerRoute = null;
-    assemblyNpcRoutes = [];
-    playerAvatar.position.copyFrom(assemblyPlayerTarget);
-    for (let index = 0; index < npcs.length; index += 1) {
-      npcs[index].sprite.position.copyFrom(assemblyNpcTargets[index]);
-    }
-    gamePhase = "assemblyHold";
-    return;
-  }
-
-  assemblyPlayerRoute = buildAssemblyRoute(
-    playerAvatar.position,
-    assemblyPlayerTarget
-  );
-  assemblyNpcRoutes = npcs.map((npc, index) =>
-    buildAssemblyRoute(npc.sprite.position, assemblyNpcTargets[index])
-  );
-  gamePhase = "assemblyMove";
 };
 
-const updateAssembly = (delta: number) => {
-  updateBitsOrbit(delta);
-  camera.position.x = playerAvatar.position.x;
-  camera.position.z = playerAvatar.position.z;
-  camera.position.y = eyeHeight;
-  if (gamePhase !== "assemblyMove") {
-    return;
-  }
-  const playerRoute = assemblyPlayerRoute!;
-  let allArrived = moveSpriteAlongRoute(
-    playerAvatar,
-    playerRoute,
-    assemblyMoveSpeed,
-    delta
-  );
-  for (let index = 0; index < npcs.length; index += 1) {
-    const npcRoute = assemblyNpcRoutes[index];
-    const arrived = moveSpriteAlongRoute(
-      npcs[index].sprite,
-      npcRoute,
-      assemblyMoveSpeed,
-      delta
-    );
-    allArrived = allArrived && arrived;
-  }
-  if (allArrived) {
-    gamePhase = "assemblyHold";
-  }
-};
+const gameFlow = createGameFlow({
+  layout,
+  camera,
+  bits,
+  npcs,
+  playerAvatar,
+  playerCenterHeight,
+  eyeHeight,
+  hud,
+  getGamePhase: () => gamePhase,
+  setGamePhase: (phase) => {
+    gamePhase = phase;
+  },
+  setPlayerState: (state) => {
+    playerState = state;
+  },
+  clearBeams,
+  stopAlertLoop,
+  setBitSpawnEnabled,
+  disposePlayerHitEffects
+});
 
-const beginFadeOut = (next: () => void) => {
-  fadePhase = "out";
-  fadeOpacity = 0;
-  fadeNext = next;
-  setFadeOpacity(fadeOpacity);
-};
-
-const updateFade = (delta: number) => {
-  if (fadePhase === "none") {
-    return;
-  }
-  const step = delta / fadeDuration;
-  if (fadePhase === "out") {
-    fadeOpacity = Math.min(1, fadeOpacity + step);
-    setFadeOpacity(fadeOpacity);
-    if (fadeOpacity >= 1) {
-      if (fadeNext) {
-        const next = fadeNext;
-        fadeNext = null;
-        next();
-      }
-      fadePhase = "in";
-    }
-    return;
-  }
-  fadeOpacity = Math.max(0, fadeOpacity - step);
-  setFadeOpacity(fadeOpacity);
-  if (fadeOpacity <= 0) {
-    fadePhase = "none";
-  }
-};
-
-setHudVisible(false);
-setTitleVisible(true);
-setStateInfo(null);
-setFadeOpacity(0);
+hud.setHudVisible(false);
+hud.setTitleVisible(true);
+hud.setStateInfo(null);
+gameFlow.resetFade();
 
 const drawMinimap = () => {
   if (gamePhase !== "playing") {
     return;
   }
-  const halfCells = Math.floor(minimap.cells / 2);
-  const centerCol = Math.floor(
-    (camera.position.x + halfWidth) / layout.cellSize
-  );
-  const centerRow = Math.floor(
-    (camera.position.z + halfDepth) / layout.cellSize
-  );
-  const infoX = Math.round(camera.position.x * 10) / 10;
-  const infoZ = Math.round(camera.position.z * 10) / 10;
-  minimapInfo.textContent = `X:${infoX}  Z:${infoZ}\nCell:${centerRow},${centerCol}`;
-  timeInfo.textContent = `Time: ${elapsedTime.toFixed(1)}s`;
   let aliveCount = isAliveState(playerState) ? 1 : 0;
   for (const npc of npcs) {
     if (isAliveState(npc.state)) {
       aliveCount += 1;
     }
   }
-  aliveInfo.textContent = `Alive: ${aliveCount}`;
 
-  minimapContext.clearRect(0, 0, minimapSize, minimapSize);
-
-  const forward = camera.getDirection(new Vector3(0, 0, 1));
-  const theta = Math.atan2(forward.z, forward.x);
-  const rotation = -Math.PI / 2 - theta;
-  const centerX = halfCells * minimap.cellPixels + minimap.cellPixels / 2;
-  const centerY = halfCells * minimap.cellPixels + minimap.cellPixels / 2;
-
-  minimapContext.save();
-  minimapContext.translate(centerX, centerY);
-  minimapContext.rotate(rotation);
-  minimapContext.translate(-centerX, -centerY);
-
-  for (let rowOffset = -halfCells; rowOffset <= halfCells; rowOffset += 1) {
-    for (let colOffset = -halfCells; colOffset <= halfCells; colOffset += 1) {
-      const row = centerRow + rowOffset;
-      const col = centerCol + colOffset;
-      const isFloor =
-        row >= 0 &&
-        row < layout.rows &&
-        col >= 0 &&
-        col < layout.columns &&
-        layout.cells[row][col] === "floor";
-
-      minimapContext.fillStyle = isFloor ? "#a57bc4" : "#1b1b1b";
-      minimapContext.fillRect(
-        (colOffset + halfCells) * minimap.cellPixels,
-        (halfCells - rowOffset) * minimap.cellPixels,
-        minimap.cellPixels,
-        minimap.cellPixels
-      );
-    }
-  }
-
-  minimapContext.restore();
-
-  const angle = -Math.PI / 2;
-  minimapContext.beginPath();
-  minimapContext.moveTo(centerX, centerY);
-  minimapContext.arc(
-    centerX,
-    centerY,
-    minimap.fanRadius,
-    angle - minimap.fanHalfAngle,
-    angle + minimap.fanHalfAngle
-  );
-  minimapContext.closePath();
-  minimapContext.fillStyle = "rgba(245, 245, 245, 0.25)";
-  minimapContext.fill();
-  minimapContext.strokeStyle = "rgba(20, 20, 20, 0.6)";
-  minimapContext.lineWidth = 1;
-  minimapContext.stroke();
-
-  const markerSize = Math.max(4, Math.floor(minimap.cellPixels * 0.4));
-  const markerOffset = (minimap.cellPixels - markerSize) / 2;
-  minimapContext.fillStyle = "#f5f5f5";
-  minimapContext.fillRect(
-    halfCells * minimap.cellPixels + markerOffset,
-    halfCells * minimap.cellPixels + markerOffset,
-    markerSize,
-    markerSize
-  );
-
-  minimapContext.strokeStyle = "#000000";
-  minimapContext.lineWidth = 2;
-  minimapContext.strokeRect(0, 0, minimapSize, minimapSize);
-
-  retryInfo.style.display = brainwashChoiceStarted ? "block" : "none";
+  let retryText: string | null = null;
   if (brainwashChoiceStarted) {
     const surviveText = `生存時間: ${playerHitTime.toFixed(1)}s`;
     let promptText = `${surviveText}\npress R to retry\npress Enter to epilogue`;
@@ -995,11 +507,20 @@ const drawMinimap = () => {
       promptText +=
         "\npress G to move with gun\npress N to move without gun\npress H to haigure";
     }
-    retryInfo.textContent = promptText;
+    retryText = promptText;
   }
 
-  crosshair.style.display =
-    playerState === "brainwash-complete-gun" ? "block" : "none";
+  hud.drawMinimap({
+    cameraPosition: camera.position,
+    cameraForward: camera.getDirection(new Vector3(0, 0, 1)),
+    layout,
+    halfWidth,
+    halfDepth,
+    elapsedTime,
+    aliveCount,
+    retryText,
+    showCrosshair: playerState === "brainwash-complete-gun"
+  });
 };
 
 scene.onBeforeRenderObservable.add(() => {
@@ -1024,26 +545,7 @@ const updatePlayerState = (delta: number, elapsed: number) => {
       if (beam.sourceId === "player") {
         continue;
       }
-      const direction = Vector3.Normalize(beam.velocity);
-      const halfLength = beam.length / 2;
-      const toPlayer = centerPosition.subtract(beam.mesh.position);
-      const projection =
-        toPlayer.x * direction.x +
-        toPlayer.y * direction.y +
-        toPlayer.z * direction.z;
-      const clamped = Math.max(-halfLength, Math.min(halfLength, projection));
-      const closest = beam.mesh.position.add(direction.scale(clamped));
-      const distanceSq = Vector3.DistanceSquared(centerPosition, closest);
-      const tipPosition = beam.tip.getAbsolutePosition();
-      const tipRadius = playerHitRadius + beam.tipRadius;
-      const tipDistanceSq = Vector3.DistanceSquared(
-        centerPosition,
-        tipPosition
-      );
-      if (
-        distanceSq <= playerHitRadius * playerHitRadius ||
-        tipDistanceSq <= tipRadius * tipRadius
-      ) {
+      if (isBeamHittingTarget(beam, centerPosition, playerHitRadius)) {
         const hitScale = isRedBitSource(beam.sourceId)
           ? redHitDurationScale
           : 1;
@@ -1056,28 +558,19 @@ const updatePlayerState = (delta: number, elapsed: number) => {
         playerHitById = beam.sourceId;
         playerHitTime = elapsed;
         playerHitFadeDurationCurrent = playerHitFadeDuration * hitScale;
-        const effect = MeshBuilder.CreateSphere(
-          "playerHitEffect",
-          {
-            diameter: playerHitEffectDiameter,
-            segments: 18,
-            sideOrientation: Mesh.DOUBLESIDE
-          },
-          scene
-        );
-        effect.isPickable = false;
-        const material = new StandardMaterial("playerHitMaterial", scene);
-        material.alpha = playerHitEffectAlpha;
-        material.emissiveColor = playerHitColorA.clone();
-        material.diffuseColor = playerHitColorA.clone();
-        material.backFaceCulling = false;
-        effect.material = material;
+        const { mesh: effect, material } = createHitEffectMesh(scene, {
+          name: "playerHitEffect",
+          diameter: playerHitEffectDiameter,
+          color: playerHitColorA,
+          alpha: playerHitEffectAlpha,
+          sideOrientation: Mesh.DOUBLESIDE,
+          backFaceCulling: false
+        });
         effect.position.copyFrom(centerPosition);
         playerHitEffect = effect;
         playerHitEffectMaterial = material;
-        const hitSe = pickRandomVariant(hitSeVariants);
         const hitPosition = centerPosition.clone();
-        audioManager.playSe(hitSe, () => hitPosition, hitSeOptions);
+        sfxDirector.playHit(() => hitPosition);
         break;
       }
     }
@@ -1102,9 +595,11 @@ const updatePlayerState = (delta: number, elapsed: number) => {
       if (playerFadeTimer === 0) {
         playerFadeTimer = playerHitFadeDurationCurrent;
         playerHitOrbs = createHitFadeOrbs(
+          scene,
           centerPosition.clone(),
           playerHitEffectMaterial!,
-          playerHitEffectDiameter / 2
+          playerHitEffectDiameter / 2,
+          playerHitFadeOrbConfig
         );
       }
       playerState = "hit-a";
@@ -1119,9 +614,7 @@ const updatePlayerState = (delta: number, elapsed: number) => {
             (playerFadeTimer / playerHitFadeDurationCurrent);
         }
       }
-      for (const orb of playerHitOrbs) {
-        orb.mesh.position.addInPlace(orb.velocity.scale(delta));
-      }
+      updateHitFadeOrbs(playerHitOrbs, delta);
       if (playerFadeTimer <= 0) {
         playerState = "brainwash-in-progress";
         if (!brainwashChoiceStarted) {
@@ -1155,20 +648,9 @@ const resetGame = () => {
   brainwashChoiceTimer = 0;
   brainwashChoiceUnlocked = false;
   allDownTime = null;
-  assemblyElapsed = 0;
   bitSpawnEnabled = true;
-  assemblyPlayerRoute = null;
-  assemblyNpcRoutes = [];
   stopAlertLoop();
-  if (playerHitEffect) {
-    playerHitEffect.dispose();
-    playerHitEffect = null;
-    playerHitEffectMaterial = null;
-  }
-  for (const orb of playerHitOrbs) {
-    orb.mesh.dispose();
-  }
-  playerHitOrbs = [];
+  disposePlayerHitEffects();
 
   clearBeams();
 
@@ -1215,12 +697,10 @@ const startGame = () => {
   resetGame();
   audioManager.startBgm(bgmUrl);
   gamePhase = "playing";
-  setTitleVisible(false);
-  setHudVisible(true);
-  setStateInfo(null);
-  fadePhase = "none";
-  fadeOpacity = 0;
-  setFadeOpacity(0);
+  hud.setTitleVisible(false);
+  hud.setHudVisible(true);
+  hud.setStateInfo(null);
+  gameFlow.resetFade();
   canvas.requestPointerLock();
 };
 
@@ -1228,12 +708,10 @@ const returnToTitle = () => {
   resetGame();
   audioManager.stopBgm();
   gamePhase = "title";
-  setTitleVisible(true);
-  setHudVisible(false);
-  setStateInfo(null);
-  fadePhase = "none";
-  fadeOpacity = 0;
-  setFadeOpacity(0);
+  hud.setTitleVisible(true);
+  hud.setHudVisible(false);
+  hud.setStateInfo(null);
+  gameFlow.resetFade();
 };
 
 const updateVoices = (delta: number) => {
@@ -1258,67 +736,39 @@ const updateVoices = (delta: number) => {
       voiceBaseOptions,
       voiceLoopOptions
     );
-  }
+}
 };
 
-window.addEventListener("keydown", (event) => {
-  if (event.code === "Enter") {
-    if (gamePhase === "playing" && isBrainwashState(playerState)) {
-      gamePhase = "transition";
-      setHudVisible(false);
-      beginFadeOut(() => enterAssembly("instant"));
-      return;
-    }
-    if (gamePhase === "assemblyMove" || gamePhase === "assemblyHold") {
-      returnToTitle();
-    }
-  }
-
-  if (event.code === "KeyR") {
-    if (gamePhase === "playing" && brainwashChoiceStarted) {
-      startGame();
-    }
-  }
-
-  if (gamePhase === "playing" && brainwashChoiceUnlocked) {
-    if (event.code === "KeyG") {
-      playerState = "brainwash-complete-gun";
-      return;
-    }
-    if (event.code === "KeyN") {
-      playerState = "brainwash-complete-no-gun";
-      return;
-    }
-    if (event.code === "KeyH") {
-      playerState = "brainwash-complete-haigure";
-    }
-  }
-});
-
-window.addEventListener("mousedown", (event) => {
-  if (event.button !== 0) {
-    return;
-  }
-  if (gamePhase === "title") {
+setupInputHandlers({
+  canvas,
+  camera,
+  getGamePhase: () => gamePhase,
+  getPlayerState: () => playerState,
+  isBrainwashState,
+  getBrainwashChoiceStarted: () => brainwashChoiceStarted,
+  getBrainwashChoiceUnlocked: () => brainwashChoiceUnlocked,
+  onPointerLockRequest: () => {
+    canvas.requestPointerLock();
+  },
+  onStartGame: () => {
     startGame();
-    return;
+  },
+  onEnterEpilogue: () => {
+    gamePhase = "transition";
+    hud.setHudVisible(false);
+    gameFlow.beginFadeOut(() => gameFlow.enterAssembly("instant"));
+  },
+  onReturnToTitle: () => {
+    returnToTitle();
+  },
+  onSelectBrainwashOption: (state) => {
+    playerState = state;
+  },
+  onPlayerFire: (origin, direction) => {
+    beams.push(createBeam(scene, origin, direction, beamMaterial, "player"));
+    const firePosition = origin.clone();
+    sfxDirector.playBeamNonTarget(() => firePosition);
   }
-  if (gamePhase !== "playing") {
-    return;
-  }
-  if (playerState !== "brainwash-complete-gun") {
-    return;
-  }
-  const ray = camera.getForwardRay();
-  const direction = ray.direction.normalize();
-  if (direction.length() < 0.001) {
-    return;
-  }
-  const origin = ray.origin.add(direction.scale(1.2));
-  beams.push(createBeam(scene, origin, direction, beamMaterial, "player"));
-  const beamSe = pickRandomVariant(bitSeBeamNonTarget);
-  const firePosition = origin.clone();
-  audioManager.playSe(beamSe, () => firePosition, beamSeOptions);
 });
 
 engine.runRenderLoop(() => {
@@ -1364,13 +814,11 @@ engine.runRenderLoop(() => {
       elapsedTime,
       npcTargets,
       (position) => {
-        const hitSe = pickRandomVariant(hitSeVariants);
-        audioManager.playSe(hitSe, () => position, hitSeOptions);
+        sfxDirector.playHit(() => position);
       },
       (position, direction, sourceId) => {
         beams.push(createBeam(scene, position, direction, beamMaterial, sourceId));
-        const beamSe = pickRandomVariant(bitSeBeamNonTarget);
-        audioManager.playSe(beamSe, () => position, beamSeOptions);
+        sfxDirector.playBeamNonTarget(() => position);
       },
       isRedBitSource,
       beamImpactOrbs,
@@ -1397,7 +845,7 @@ engine.runRenderLoop(() => {
         allDownTime = elapsedTime;
       }
       if (elapsedTime - allDownTime >= allDownTransitionDelay) {
-        enterAssembly("move");
+        gameFlow.enterAssembly("move");
       }
     }
 
@@ -1493,11 +941,11 @@ engine.runRenderLoop(() => {
   }
 
   if (gamePhase === "assemblyMove" || gamePhase === "assemblyHold") {
-    updateAssembly(delta);
+    gameFlow.updateAssembly(delta);
   }
 
   updateVoices(delta);
-  updateFade(delta);
+  gameFlow.updateFade(delta);
   audioManager.updateSpatial();
   scene.render();
 });
