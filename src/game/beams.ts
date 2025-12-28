@@ -120,6 +120,7 @@ export const createBeamImpactOrbs = (
     const material = new StandardMaterial("beamImpactMat", scene);
     material.emissiveColor = beamHitColor.clone();
     material.diffuseColor = beamHitColor.clone();
+    material.specularColor = Color3.Black();
     material.alpha = beamHitEffectAlpha;
     orb.material = material;
     orb.isPickable = false;
@@ -138,6 +139,7 @@ export const createBeamMaterial = (scene: Scene) => {
   const material = new StandardMaterial("beamMaterial", scene);
   material.emissiveColor = beamHitColor.clone();
   material.diffuseColor = beamHitColor.clone();
+  material.specularColor = Color3.Black();
   material.alpha = beamHitEffectAlpha;
   material.backFaceCulling = false;
   return material;

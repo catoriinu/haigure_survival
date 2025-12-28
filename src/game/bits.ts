@@ -560,6 +560,7 @@ const createBitFireMaterial = (scene: Scene, name: string) => {
   const material = new StandardMaterial(name, scene);
   material.diffuseColor = bitFireColor.clone();
   material.emissiveColor = bitFireColor.clone();
+  material.specularColor = Color3.Black();
   material.alpha = bitFireEffectAlpha;
   material.backFaceCulling = false;
   return material;
