@@ -11,6 +11,7 @@
 import { GridLayout } from "../world/grid";
 import {
   AlertSignal,
+  ExternalAlert,
   Bit,
   BitMaterials,
   BitMode,
@@ -68,6 +69,15 @@ const bitWanderTimerMin = 1.2;
 const bitWanderTimerMax = 2.4;
 const bitBobAmplitudeNormal = 0.35;
 const bitBobAmplitudeUrgent = 0;
+const bitModeMuzzleColors: Record<Exclude<BitMode, "search">, Color3> = {
+  "attack-chase": new Color3(0.18, 0.9, 0.28),
+  "attack-fixed": new Color3(0.2, 0.9, 0.95),
+  "attack-random": new Color3(0.95, 0.85, 0.2),
+  "alert-send": new Color3(1.0, 0.6, 0.15),
+  "alert-receive": new Color3(0.2, 0.45, 1.0),
+  "attack-carpet-bomb": new Color3(1.0, 0.25, 0.9),
+  "hold": new Color3(1.0, 1.0, 1.0)
+};
 const bitScanIntervalMin = 4.2;
 const bitScanIntervalMax = 7.2;
 const bitScanDurationMin = 0.7;
@@ -333,7 +343,7 @@ const chooseAttackMode = (bit: Bit): BitMode => {
     return "attack-random";
   }
   if (roll < 0.9) {
-    return "alert";
+    return "alert-send";
   }
   return "attack-carpet-bomb";
 };
@@ -356,12 +366,6 @@ const setBitMode = (
   alertSignal: AlertSignal,
   soundEvents: BitSoundEvents
 ) => {
-  if (mode === "alert" && bit.mode !== "alert") {
-    soundEvents.onAlert(bit);
-    bit.alertRecovering = false;
-    bit.alertRecoverYaw = getYawFromDirection(getHorizontalForward(bit));
-    bit.alertCooldownPending = false;
-  }
   if (target?.id === "player" && bit.targetId !== "player") {
     soundEvents.onTargetPlayer(bit);
   }
@@ -384,13 +388,6 @@ const setBitMode = (
 
   if (mode === "attack-random") {
     applyAttackModeTimers(bit, mode);
-    return;
-  }
-
-  if (mode === "alert") {
-    bit.fireInterval = 0;
-    bit.fireTimer = 0;
-    bit.modeTimer = alertGiveUpDuration;
     return;
   }
 
@@ -554,6 +551,19 @@ export const createBitMaterials = (scene: Scene): BitMaterials => {
   nozzle.emissiveColor = new Color3(0.06, 0.06, 0.06);
 
   return { body, nozzle };
+};
+
+const setBitMuzzleColor = (bit: Bit) => {
+  const muzzleMaterial = bit.muzzle.material as StandardMaterial;
+  if (bit.mode === "search") {
+    const bodyMaterial = bit.body.material as StandardMaterial;
+    muzzleMaterial.diffuseColor.copyFrom(bodyMaterial.diffuseColor);
+    muzzleMaterial.emissiveColor.copyFrom(bodyMaterial.emissiveColor);
+    return;
+  }
+  const color = bitModeMuzzleColors[bit.mode];
+  muzzleMaterial.diffuseColor.copyFrom(color);
+  muzzleMaterial.emissiveColor.copyFrom(color);
 };
 
 const createBitFireMaterial = (scene: Scene, name: string) => {
@@ -860,7 +870,13 @@ const createBitRoot = (
   );
   muzzle.parent = root;
   muzzle.position.z = bitMuzzleOffsetZ;
-  muzzle.material = materials.nozzle;
+  const muzzleMaterial = new StandardMaterial(
+    `bitNozzleMaterial_${index}`,
+    scene
+  );
+  muzzleMaterial.diffuseColor.copyFrom(materials.nozzle.diffuseColor);
+  muzzleMaterial.emissiveColor.copyFrom(materials.nozzle.emissiveColor);
+  muzzle.material = muzzleMaterial;
 
   return { root, body, muzzle };
 };
@@ -954,6 +970,8 @@ export const createBit = (
     alertRecovering: false,
     alertRecoverYaw: 0,
     alertCooldownPending: false,
+    alertReturnMode: null,
+    alertReturnTargetId: null,
     attackCooldown: 0,
     fireTimer: 0.6 + Math.random() * 1.2,
     fireInterval: 1.1 + Math.random() * 1.4,
@@ -1041,6 +1059,8 @@ export const createBitAt = (
     alertRecovering: false,
     alertRecoverYaw: 0,
     alertCooldownPending: false,
+    alertReturnMode: null,
+    alertReturnTargetId: null,
     attackCooldown: 0,
     fireTimer: 0.6 + Math.random() * 1.2,
     fireInterval: 1.1 + Math.random() * 1.4,
@@ -1081,7 +1101,7 @@ export const updateBits = (
   targets: TargetInfo[],
   bounds: StageBounds,
   alertSignal: AlertSignal,
-  alertRequests: string[],
+  externalAlert: ExternalAlert | null,
   spawnAlertBit: (position: Vector3, direction: Vector3) => Bit | null,
   spawnCarpetBit: (position: Vector3, direction: Vector3) => Bit,
   spawnBeam: (position: Vector3, direction: Vector3, sourceId: string) => void,
@@ -1270,11 +1290,19 @@ export const updateBits = (
   let alertLeader = alertSignal.leaderId
     ? bits.find((candidate) => candidate.id === alertSignal.leaderId) ?? null
     : null;
+  let alertLeaderTarget =
+    !alertLeader && alertSignal.leaderId
+      ? findTargetById(targets, alertSignal.leaderId)
+      : null;
   let alertTarget = alertSignal.targetId
-    ? findTargetById(targets, alertSignal.targetId)
+    ? findTargetById(aliveTargets, alertSignal.targetId)
     : null;
-  let alertActive =
-    alertLeader !== null && alertTarget !== null && alertTarget.alive;
+  let alertLeaderPosition = alertLeader
+    ? alertLeader.root.position
+    : alertLeaderTarget
+      ? alertLeaderTarget.position
+      : null;
+  let alertActive = alertLeaderPosition !== null && alertTarget !== null;
   const clearAlertSignal = () => {
     alertSignal.leaderId = null;
     alertSignal.targetId = null;
@@ -1282,20 +1310,44 @@ export const updateBits = (
     alertSignal.receiverIds = [];
     alertSignal.gatheredIds = new Set();
     alertLeader = null;
+    alertLeaderTarget = null;
     alertTarget = null;
+    alertLeaderPosition = null;
     alertActive = false;
   };
-  const enterAlert = (bit: Bit, target: TargetInfo, isLeader: boolean) => {
-    if (isLeader) {
-      soundEvents.onAlert(bit);
-    }
+  const isAlertMode = (mode: BitMode) =>
+    mode === "alert-send" || mode === "alert-receive";
+  const enterAlertSend = (bit: Bit, target: TargetInfo) => {
+    soundEvents.onAlert(bit);
     if (target.id === "player" && bit.targetId !== "player") {
       soundEvents.onTargetPlayer(bit);
     }
     if (bit.mode === "attack-carpet-bomb") {
       clearCarpetState(bit);
     }
-    bit.mode = "alert";
+    bit.alertReturnMode = null;
+    bit.alertReturnTargetId = null;
+    bit.mode = "alert-send";
+    bit.targetId = target.id;
+    bit.alertRecovering = false;
+    bit.alertRecoverYaw = getYawFromDirection(getHorizontalForward(bit));
+    bit.alertCooldownPending = false;
+    bit.modeTimer = alertGiveUpDuration;
+    bit.fireInterval = 0;
+    bit.fireTimer = 0;
+  };
+  const enterAlertReceive = (bit: Bit, target: TargetInfo) => {
+    if (target.id === "player" && bit.targetId !== "player") {
+      soundEvents.onTargetPlayer(bit);
+    }
+    if (bit.mode === "attack-carpet-bomb") {
+      clearCarpetState(bit);
+    }
+    if (bit.mode !== "alert-receive") {
+      bit.alertReturnMode = bit.mode;
+      bit.alertReturnTargetId = bit.targetId;
+    }
+    bit.mode = "alert-receive";
     bit.targetId = target.id;
     bit.alertRecovering = false;
     bit.alertRecoverYaw = getYawFromDirection(getHorizontalForward(bit));
@@ -1311,7 +1363,7 @@ export const updateBits = (
     const candidates = bits.filter(
       (candidate) =>
         candidate.id !== bit.id &&
-        candidate.mode !== "alert" &&
+        !isAlertMode(candidate.mode) &&
         !isCarpetFollower(candidate) &&
         candidate.attackCooldown <= 0
     );
@@ -1352,17 +1404,19 @@ export const updateBits = (
     alertSignal.gatheredIds = new Set();
     alertSignal.requiredCount = receivers.length;
     alertLeader = bit;
+    alertLeaderTarget = null;
     alertTarget = target;
-    alertActive = true;
-    enterAlert(bit, target, true);
+    alertLeaderPosition = bit.root.position;
+    alertActive = alertLeaderPosition !== null && alertTarget !== null;
+    enterAlertSend(bit, target);
     for (const receiver of receivers) {
-      enterAlert(receiver, target, false);
+      enterAlertReceive(receiver, target);
     }
     return true;
   };
   const cancelAlert = () => {
     for (const bit of bits) {
-      if (bit.mode === "alert") {
+      if (isAlertMode(bit.mode)) {
         setBitMode(bit, "search", null, alertSignal, soundEvents);
       }
     }
@@ -1419,50 +1473,49 @@ export const updateBits = (
     }
   };
 
-  if (!alertSignal.leaderId && alertRequests.length > 0) {
-    for (const requestId of alertRequests) {
-      const alertTargetCandidate = findTargetById(aliveTargets, requestId);
-      if (!alertTargetCandidate) {
-        continue;
-      }
-      const candidates = bits.filter(
-        (candidate) =>
-          candidate.mode !== "alert" &&
-          !isCarpetFollower(candidate) &&
-          candidate.attackCooldown <= 0
-      );
-      if (candidates.length === 0) {
-        break;
-      }
-      let leader = candidates[0];
-      let bestDistanceSq = Vector3.DistanceSquared(
-        leader.root.position,
-        alertTargetCandidate.position
-      );
-      for (let index = 1; index < candidates.length; index += 1) {
-        const candidate = candidates[index];
-        const distanceSq = Vector3.DistanceSquared(
-          candidate.root.position,
-          alertTargetCandidate.position
-        );
-        if (distanceSq < bestDistanceSq) {
-          bestDistanceSq = distanceSq;
-          leader = candidate;
-        }
-      }
-      if (startAlert(leader, alertTargetCandidate)) {
-        break;
+  if (
+    !alertSignal.leaderId &&
+    externalAlert &&
+    externalAlert.receiverIds.length > 0
+  ) {
+    const alertTargetCandidate = findTargetById(
+      aliveTargets,
+      externalAlert.targetId
+    );
+    if (alertTargetCandidate) {
+      alertSignal.leaderId = externalAlert.leaderId;
+      alertSignal.targetId = externalAlert.targetId;
+      alertSignal.receiverIds = [...externalAlert.receiverIds];
+      alertSignal.gatheredIds = new Set();
+      alertSignal.requiredCount = externalAlert.receiverIds.length;
+      alertLeader = bits.find(
+        (candidate) => candidate.id === alertSignal.leaderId
+      ) ?? null;
+      alertLeaderTarget =
+        !alertLeader && alertSignal.leaderId
+          ? findTargetById(targets, alertSignal.leaderId)
+          : null;
+      alertTarget = alertTargetCandidate;
+      alertLeaderPosition = alertLeader
+        ? alertLeader.root.position
+        : alertLeaderTarget
+          ? alertLeaderTarget.position
+          : null;
+      alertActive = alertLeaderPosition !== null && alertTarget !== null;
+      for (const receiverId of externalAlert.receiverIds) {
+        const receiver = bits.find(
+          (candidate) => candidate.id === receiverId
+        )!;
+        enterAlertReceive(receiver, alertTargetCandidate);
       }
     }
   }
 
-  alertActive = alertLeader !== null && alertTarget !== null && alertTarget.alive;
+  alertActive = alertLeaderPosition !== null && alertTarget !== null;
   const alertReadyToResolve =
-    alertLeader !== null &&
-    alertLeader.mode === "alert" &&
     alertSignal.requiredCount > 0 &&
     alertSignal.gatheredIds.size >= alertSignal.requiredCount;
-  if (alertLeader && alertTarget && alertLeader.mode === "alert") {
+  if (alertLeader && alertTarget && alertLeader.mode === "alert-send") {
     const maxDistance = getBitVisionRange(alertLeader, visionRangeBoost) * 1.5;
     const maxDistanceSq = maxDistance * maxDistance;
     const distanceSq = Vector3.DistanceSquared(
@@ -1652,7 +1705,7 @@ export const updateBits = (
     );
     if (visibleTarget && bit.attackCooldown <= 0) {
       const nextMode = chooseAttackMode(bit);
-      if (nextMode === "alert") {
+      if (nextMode === "alert-send") {
         if (!startAlert(bit, visibleTarget)) {
           setBitMode(
             bit,
@@ -1672,21 +1725,39 @@ export const updateBits = (
     return false;
   };
 
-  const updateAlertMode = (bit: Bit, frame: ModeFrame) => {
+  const restoreBitFromAlert = (bit: Bit) => {
+    const returnMode = bit.alertReturnMode;
+    const returnTargetId = bit.alertReturnTargetId;
+    bit.alertReturnMode = null;
+    bit.alertReturnTargetId = null;
+    if (returnMode && !isAlertMode(returnMode)) {
+      const target = returnTargetId
+        ? findTargetById(aliveTargets, returnTargetId)
+        : null;
+      if (target || returnMode === "search") {
+        setBitMode(bit, returnMode, target, alertSignal, soundEvents);
+        return;
+      }
+    }
+    setBitMode(bit, "search", null, alertSignal, soundEvents);
+  };
+
+  const updateAlertSendMode = (bit: Bit, frame: ModeFrame) => {
     bit.modeTimer -= delta;
-    const isAlertLeader =
-      alertSignal.leaderId !== null && bit.id === alertSignal.leaderId;
     const shouldRecover =
       bit.alertRecovering ||
       bit.modeTimer <= 0 ||
       !alertActive ||
-      !alertLeader ||
+      !alertLeaderPosition ||
       !alertTarget ||
-      (alertReadyToResolve && isAlertLeader);
+      alertReadyToResolve;
     if (shouldRecover) {
       if (!bit.alertRecovering) {
         bit.alertCooldownPending =
-          bit.modeTimer <= 0 || !alertActive || !alertLeader || !alertTarget;
+          bit.modeTimer <= 0 ||
+          !alertActive ||
+          !alertLeaderPosition ||
+          !alertTarget;
       }
       bit.alertRecovering = true;
       frame.moveDirection = new Vector3(0, 0, 0);
@@ -1700,21 +1771,50 @@ export const updateBits = (
           bit.alertCooldownPending = false;
         }
         setBitMode(bit, "search", null, alertSignal, soundEvents);
-        if (isAlertLeader) {
-          clearAlertSignal();
-        }
+        clearAlertSignal();
       }
       return true;
     }
-    const toLeader = alertLeader.root.position.subtract(bit.root.position);
+    frame.moveDirection = new Vector3(0, 0, 0);
+    frame.aimDirection = new Vector3(0, 1, 0);
+    frame.canFire = false;
+    return false;
+  };
+
+  const updateAlertReceiveMode = (bit: Bit, frame: ModeFrame) => {
+    bit.modeTimer -= delta;
+    const shouldRecover =
+      bit.alertRecovering ||
+      bit.modeTimer <= 0 ||
+      !alertActive ||
+      !alertLeaderPosition ||
+      !alertTarget;
+    if (shouldRecover) {
+      if (!bit.alertRecovering) {
+        bit.alertCooldownPending =
+          bit.modeTimer <= 0 ||
+          !alertActive ||
+          !alertLeaderPosition ||
+          !alertTarget;
+      }
+      bit.alertRecovering = true;
+      frame.moveDirection = new Vector3(0, 0, 0);
+      frame.aimDirection = getDirectionFromYaw(bit.alertRecoverYaw);
+      frame.canFire = false;
+      const forward = bit.root.getDirection(new Vector3(0, 0, 1));
+      if (Math.abs(forward.y) <= alertRecoverPitchThreshold) {
+        bit.alertRecovering = false;
+        if (bit.alertCooldownPending) {
+          startAttackCooldown(bit);
+          bit.alertCooldownPending = false;
+        }
+        restoreBitFromAlert(bit);
+      }
+      return true;
+    }
+    const toLeader = alertLeaderPosition.subtract(bit.root.position);
     toLeader.y = 0;
     const distance = Math.hypot(toLeader.x, toLeader.z);
-    if (bit.id === alertLeader.id) {
-      frame.moveDirection = new Vector3(0, 0, 0);
-      frame.aimDirection = new Vector3(0, 1, 0);
-      frame.canFire = false;
-      return false;
-    }
     const spottedTarget = findVisibleTarget(
       bit,
       aliveTargets,
@@ -1749,7 +1849,7 @@ export const updateBits = (
     }
     frame.moveDirection = getChaseDirection(
       bit.root.position,
-      alertLeader.root.position
+      alertLeaderPosition
     );
     if (distance > 0.001) {
       frame.aimDirection = toLeader.normalize();
@@ -1955,7 +2055,7 @@ export const updateBits = (
           ? new Vector3(0, -1, 0)
           : bit.root.getDirection(new Vector3(0, 0, 1));
       frame.canFire = false;
-    } else if (bit.mode !== "alert") {
+    } else if (!isAlertMode(bit.mode)) {
       if (hitTarget && bit.mode !== "hold") {
         if (carpetFollower && bit.mode === "attack-carpet-bomb") {
           startCarpetFollowerDespawn(bit);
@@ -1978,8 +2078,12 @@ export const updateBits = (
         if (updateSearchMode(bit, frame)) {
           continue;
         }
-      } else if (bit.mode === "alert") {
-        if (updateAlertMode(bit, frame)) {
+      } else if (bit.mode === "alert-send") {
+        if (updateAlertSendMode(bit, frame)) {
+          continue;
+        }
+      } else if (bit.mode === "alert-receive") {
+        if (updateAlertReceiveMode(bit, frame)) {
           continue;
         }
       } else if (bit.mode === "attack-chase") {
@@ -2001,6 +2105,8 @@ export const updateBits = (
       }
     }
 
+    setBitMuzzleColor(bit);
+
     if (bit.fireEffectActive && !frame.canFire) {
       stopBitFireEffect(bit);
     }
@@ -2010,7 +2116,7 @@ export const updateBits = (
       bit.mode !== "attack-fixed" &&
       bit.mode !== "hold" &&
       bit.mode !== "attack-carpet-bomb" &&
-      bit.mode !== "alert" &&
+      !isAlertMode(bit.mode) &&
       !frame.lockMovement
     ) {
       const avoidVector = new Vector3(0, 0, 0);
@@ -2132,7 +2238,7 @@ export const updateBits = (
     }
 
     const bobAmplitude =
-      bit.mode === "alert" || bit.mode === "attack-carpet-bomb"
+      isAlertMode(bit.mode) || bit.mode === "attack-carpet-bomb"
         ? bitBobAmplitudeUrgent
         : bitBobAmplitudeNormal;
     const bob = Math.sin(elapsed * 0.9 + bit.floatOffset) * bobAmplitude;
@@ -2189,7 +2295,7 @@ export const updateBits = (
 
   }
 
-  if (alertSignal.leaderId && bits.every((bit) => bit.mode !== "alert")) {
+  if (alertSignal.leaderId && bits.every((bit) => !isAlertMode(bit.mode))) {
     clearAlertSignal();
   }
 
@@ -2211,6 +2317,8 @@ export const updateBits = (
           bit.fireEffect.shotMaterial.dispose();
           bit.fireEffect = null;
         }
+        const muzzleMaterial = bit.muzzle.material as StandardMaterial;
+        muzzleMaterial.dispose();
         bit.root.dispose();
       }
     for (let index = bits.length - 1; index >= 0; index -= 1) {

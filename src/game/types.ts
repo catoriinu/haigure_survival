@@ -40,6 +40,8 @@ export const isBrainwashState = (state: CharacterState) =>
 
 export type NpcBrainwashMode = "search" | "chase";
 
+export type NpcAlertState = "none" | "send" | "receive";
+
 export type Npc = {
   sprite: Sprite;
   state: NpcState;
@@ -67,6 +69,9 @@ export type Npc = {
   breakAwayTimer: number;
   breakAwayDirection: Vector3;
   blockedByPlayer: boolean;
+  alertState: NpcAlertState;
+  alertReturnBrainwashMode: NpcBrainwashMode | null;
+  alertReturnTargetId: string | null;
 };
 
 export type BitMode =
@@ -74,7 +79,8 @@ export type BitMode =
   | "attack-chase"
   | "attack-fixed"
   | "attack-random"
-  | "alert"
+  | "alert-send"
+  | "alert-receive"
   | "attack-carpet-bomb"
   | "hold";
 
@@ -127,6 +133,8 @@ export type Bit = {
   alertRecovering: boolean;
   alertRecoverYaw: number;
   alertCooldownPending: boolean;
+  alertReturnMode: BitMode | null;
+  alertReturnTargetId: string | null;
   attackCooldown: number;
   fireTimer: number;
   fireInterval: number;
@@ -195,6 +203,17 @@ export type AlertSignal = {
   requiredCount: number;
   receiverIds: string[];
   gatheredIds: Set<string>;
+};
+
+export type AlertRequest = {
+  targetId: string;
+  blockerId: string;
+};
+
+export type ExternalAlert = {
+  leaderId: string;
+  targetId: string;
+  receiverIds: string[];
 };
 
 export type BitMaterials = {

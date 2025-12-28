@@ -361,3 +361,45 @@ NPCの一枚絵は、以下の少なくとも3状態で切り替える。
 - 経過時間をリアルタイム表示する
 - プレイヤーがbrainwash系状態のとき、生存時間と「press Enter to epilogue」を表示する
 - 全滅シーンではHUDを非表示とし、「press Enter to title」を表示する
+
+## 19. もし3Dモデル化するなら（明示的な指示があるまでこのセクションは無視すること）
+- 優先順はNPC → PCの順とする（NPCでの動作/切替が安定してからPCへ拡張）
+- NPC/PCともに同一フォーマットのスケルトン付きモデルを前提にする
+- アニメーションはIdle/Walk/Hit/Brainwash系の最低限を想定する
+
+### 19.1 モデル形式・制作条件
+- 形式はglTF/GLBを採用する
+- スケルトン付きのスキンドメッシュであること
+- 1ユニット=1mを基準に、NPC/PCの身長は現行のスプライト相当（高さ3.3）に合わせる
+- アニメーションは同一リグ前提で、同一GLBに内包する
+- 必須アニメーション名は以下で統一する
+  - Idle
+  - Walk
+  - Hit
+  - Brainwash
+
+### 19.2 Babylon.js側の読み込み方針
+- `@babylonjs/loaders` を導入し、glTF読み込みを有効化する
+- `SceneLoader.LoadAssetContainerAsync` でベースモデルを読み込み、NPCごとに `instantiateModelsToScene()` で複製する
+- NPCの各インスタンスは「root TransformNode + skinned mesh + AnimationGroup群」を1セットとして管理する
+
+### 19.3 NPCの置き換え方針
+- `Sprite` ベースの管理を廃止し、3DモデルのrootノードをNPC位置の基準とする
+- `npc.sprite.position` を `npc.root.position` に置き換え、移動/被弾/ビーム発射位置を統一する
+- 既存の当たり判定（円柱相当）はモデルの見た目サイズに合わせて固定値で運用する
+- 状態遷移とアニメーションの対応を以下に固定する
+  - normal/evade: Walk（移動中）/ Idle（停止中）
+  - hit-a/hit-b: Hit
+  - brainwash-in-progress: Brainwash
+  - brainwash-complete-* : Walk/Idle
+
+### 19.4 PCの置き換え方針
+- FPS視点は維持し、PCモデルは視界用途ではなく「他者から見える体」として扱う
+- 通常プレイ中はカメラ位置に追従させる（assembly演出時のみ独立移動）
+- 現行の `playerAvatar` を3Dモデルに置き換え、`GameFlow` の整列演出で可視化する
+- 状態遷移とアニメーションの対応はNPCと同一とする
+
+### 19.5 アニメーション切替の運用
+- 移動量（速度）に応じてIdle/Walkを切替する
+- Hit/Brainwash系は状態遷移時に即時再生し、終了後は状態に応じたIdle/Walkへ戻す
+- 切替はAnimationGroup単位で制御し、同時再生は行わない

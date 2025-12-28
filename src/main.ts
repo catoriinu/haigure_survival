@@ -14,7 +14,10 @@ import {
   Beam,
   BeamImpactOrb,
   BeamTrail,
+  AlertRequest,
+  ExternalAlert,
   Bit,
+  Npc,
   BitSoundEvents,
   CharacterState,
   collectFloorCells,
@@ -28,6 +31,7 @@ import {
   isAliveState,
   isBrainwashState,
   isHitState,
+  promoteHaigureNpc,
   spawnNpcs,
   StageBounds,
   updateBeams,
@@ -271,6 +275,8 @@ const startAlertLoop = (bit: Bit) => {
   alertSeLeaderId = bit.id;
   alertSeHandle = sfxDirector.playAlertLoop(() => bit.root.position);
 };
+const isAlertBitMode = (mode: Bit["mode"]) =>
+  mode === "alert-send" || mode === "alert-receive";
 
 const light = new HemisphericLight("light", new Vector3(0, 1, 0), scene);
 light.intensity = 1.2;
@@ -426,7 +432,6 @@ let playerHitOrbs: HitFadeOrb[] = [];
 let playerHitFadeDurationCurrent = playerHitFadeDuration;
 let allDownTime: number | null = null;
 let brainwashChoiceStarted = false;
-let brainwashChoiceTimer = 0;
 let brainwashChoiceUnlocked = false;
 
 let gamePhase: GamePhase = "title";
@@ -485,6 +490,8 @@ const removeCarpetFollowers = () => {
       if (bit.spawnEffectMaterial) {
         bit.spawnEffectMaterial.dispose();
       }
+      const muzzleMaterial = bit.muzzle.material as StandardMaterial;
+      muzzleMaterial.dispose();
       bit.root.dispose();
     }
   }
@@ -537,6 +544,105 @@ hud.setHudVisible(false);
 hud.setTitleVisible(true);
 hud.setStateInfo(null);
 gameFlow.resetFade();
+
+const isInterruptibleBit = (bit: Bit) => {
+  if (bit.spawnPhase !== "done") {
+    return false;
+  }
+  if (bit.despawnTimer > 0) {
+    return false;
+  }
+  if (isAlertBitMode(bit.mode) || bit.mode === "attack-carpet-bomb") {
+    return false;
+  }
+  if (bit.mode === "hold") {
+    return false;
+  }
+  if (bit.carpetLeaderId && bit.carpetLeaderId !== bit.id) {
+    return false;
+  }
+  return true;
+};
+
+const applyAlertRequests = (
+  requests: AlertRequest[],
+  targets: { id: string; position: Vector3 }[],
+  npcs: Npc[],
+  bits: Bit[]
+): ExternalAlert | null => {
+  for (const request of requests) {
+    const target = targets.find(
+      (candidate) => candidate.id === request.targetId
+    )!;
+    const candidates: (
+      | { type: "npc"; distanceSq: number; npc: Npc }
+      | { type: "bit"; distanceSq: number; bit: Bit }
+    )[] = [];
+    for (const npc of npcs) {
+      const npcId = npc.sprite.name;
+      if (npcId === request.blockerId) {
+        continue;
+      }
+      if (
+        npc.state !== "brainwash-complete-gun" &&
+        npc.state !== "brainwash-complete-no-gun" &&
+        npc.state !== "brainwash-complete-haigure"
+      ) {
+        continue;
+      }
+      const distanceSq = Vector3.DistanceSquared(
+        npc.sprite.position,
+        target.position
+      );
+      candidates.push({ type: "npc", distanceSq, npc });
+    }
+    for (const bit of bits) {
+      if (bit.id === request.blockerId) {
+        continue;
+      }
+      if (!isInterruptibleBit(bit)) {
+        continue;
+      }
+      const distanceSq = Vector3.DistanceSquared(
+        bit.root.position,
+        target.position
+      );
+      candidates.push({ type: "bit", distanceSq, bit });
+    }
+    candidates.sort((a, b) => a.distanceSq - b.distanceSq);
+    const selected = candidates.slice(0, 4);
+    const receiverIds: string[] = [];
+    for (const candidate of selected) {
+      if (candidate.type === "npc") {
+        const npc = candidate.npc;
+        if (npc.state === "brainwash-complete-haigure") {
+          promoteHaigureNpc(npc);
+        }
+        if (npc.alertState !== "receive") {
+          npc.alertReturnBrainwashMode = npc.brainwashMode;
+          npc.alertReturnTargetId = npc.brainwashTargetId;
+        }
+        npc.alertState = "receive";
+        npc.brainwashMode = "chase";
+        npc.brainwashTargetId = request.blockerId;
+        npc.blockTimer = 0;
+        npc.blockTargetId = null;
+        npc.breakAwayTimer = 0;
+        continue;
+      }
+      receiverIds.push(candidate.bit.id);
+    }
+    if (receiverIds.length > 0) {
+      return {
+        leaderId: request.blockerId,
+        targetId: request.blockerId,
+        receiverIds
+      };
+    }
+    return null;
+  }
+  return null;
+};
 
 const drawMinimap = () => {
   if (gamePhase !== "playing") {
@@ -670,7 +776,7 @@ const updatePlayerState = (delta: number, elapsed: number) => {
         playerState = "brainwash-in-progress";
         if (!brainwashChoiceStarted) {
           brainwashChoiceStarted = true;
-          brainwashChoiceTimer = 0;
+          brainwashChoiceUnlocked = true;
         }
         if (playerHitEffect) {
           playerHitEffect.dispose();
@@ -696,7 +802,6 @@ const resetGame = () => {
   playerHitTime = 0;
   playerHitFadeDurationCurrent = playerHitFadeDuration;
   brainwashChoiceStarted = false;
-  brainwashChoiceTimer = 0;
   brainwashChoiceUnlocked = false;
   allDownTime = null;
   bitSpawnEnabled = true;
@@ -712,6 +817,8 @@ const resetGame = () => {
     if (bit.spawnEffectMaterial) {
       bit.spawnEffectMaterial.dispose();
     }
+    const muzzleMaterial = bit.muzzle.material as StandardMaterial;
+    muzzleMaterial.dispose();
     bit.root.dispose();
   }
   bits.length = 0;
@@ -836,13 +943,6 @@ engine.runRenderLoop(() => {
   if (gamePhase === "playing") {
     elapsedTime += delta;
 
-    if (brainwashChoiceStarted && !brainwashChoiceUnlocked) {
-      brainwashChoiceTimer += delta;
-      if (brainwashChoiceTimer >= 10) {
-        brainwashChoiceUnlocked = true;
-      }
-    }
-
     updateBeams(layout, beams, bounds, delta, beamTrails, beamImpactOrbs);
     updatePlayerState(delta, elapsedTime);
     const npcBlockers =
@@ -884,7 +984,8 @@ engine.runRenderLoop(() => {
       beamImpactOrbs,
       npcBlockers
     );
-    const playerBlockedByNpc = npcUpdate.playerBlocked;
+    const playerBlockedByNpc =
+      npcUpdate.playerBlocked && isAliveState(playerState);
     const canMove =
       isAliveState(playerState) ||
       playerState === "brainwash-complete-gun" ||
@@ -951,6 +1052,10 @@ engine.runRenderLoop(() => {
         bitIndex += 1;
         return bit;
       };
+      const externalAlert =
+        alertSignal.leaderId === null
+          ? applyAlertRequests(npcUpdate.alertRequests, targets, npcs, bits)
+          : null;
       updateBits(
         layout,
         bits,
@@ -959,7 +1064,7 @@ engine.runRenderLoop(() => {
         targets,
         bounds,
         alertSignal,
-        npcUpdate.alertRequests,
+        externalAlert,
         spawnAlertBit,
         spawnCarpetBit,
         (pos, dir, sourceId) => {
@@ -967,19 +1072,16 @@ engine.runRenderLoop(() => {
         },
         bitSoundEvents
       );
-      const alertLeaderId = alertSignal.leaderId;
-      if (!alertLeaderId) {
+      const alertLeader = bits.find(
+        (bit) => bit.mode === "alert-send"
+      ) ?? null;
+      if (!alertLeader) {
         stopAlertLoop();
       } else if (
-        alertSeLeaderId !== alertLeaderId ||
+        alertSeLeaderId !== alertLeader.id ||
         !alertSeHandle?.isActive()
       ) {
-        const leader = bits.find((bit) => bit.id === alertLeaderId) ?? null;
-        if (leader) {
-          startAlertLoop(leader);
-        } else {
-          stopAlertLoop();
-        }
+        startAlertLoop(alertLeader);
       }
 
       const targetedIds = new Set<string>();
@@ -989,7 +1091,10 @@ engine.runRenderLoop(() => {
         }
       }
       if (isAliveState(playerState)) {
-        playerState = targetedIds.has("player") ? "evade" : "normal";
+        playerState =
+          targetedIds.has("player") || npcUpdate.targetedIds.has("player")
+            ? "evade"
+            : "normal";
       }
       for (let index = 0; index < npcs.length; index += 1) {
         const npc = npcs[index];
