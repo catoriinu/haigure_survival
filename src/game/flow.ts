@@ -2,6 +2,7 @@ import { FreeCamera, Sprite, Vector3 } from "@babylonjs/core";
 import { GridLayout } from "../world/grid";
 import { Hud } from "../ui/hud";
 import { Bit, CharacterState, Npc } from "./types";
+import { finalizeBitVisuals } from "./bits";
 
 export type GamePhase =
   | "title"
@@ -63,8 +64,8 @@ export const createGameFlow = ({
   const assemblySpacingZ = 4;
   const assemblyMoveSpeed = 3.2;
   const assemblyArriveDistance = 0.2;
-  const assemblyOrbitRadius = 12;
-  const assemblyOrbitSpeed = 0.7;
+  const assemblyOrbitRadius = 14;
+  const assemblyOrbitSpeed = 0.4;
   const assemblyOrbitHeight = 4;
   const fadeDuration = 0.8;
   const halfWidth = (layout.columns * layout.cellSize) / 2;
@@ -317,6 +318,9 @@ export const createGameFlow = ({
     }
 
     disposePlayerHitEffects();
+    for (const bit of bits) {
+      finalizeBitVisuals(bit);
+    }
 
     if (mode === "instant") {
       assemblyPlayerRoute = null;

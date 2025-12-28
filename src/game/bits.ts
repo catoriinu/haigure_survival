@@ -272,6 +272,7 @@ const startCarpetFollowerDespawn = (bit: Bit) => {
   if (bit.despawnTimer > 0) {
     return;
   }
+  stopBitFireEffect(bit);
   bit.despawnTimer = carpetDespawnDuration;
 };
 
@@ -643,6 +644,24 @@ const stopBitFireEffect = (bit: Bit) => {
     bit.fireEffect.muzzle.setEnabled(false);
     bit.fireEffect.shot.setEnabled(false);
   }
+};
+
+export const finalizeBitVisuals = (bit: Bit) => {
+  stopBitFireEffect(bit);
+  if (bit.spawnEffect) {
+    bit.spawnEffect.dispose();
+    bit.spawnEffect = null;
+  }
+  if (bit.spawnEffectMaterial) {
+    bit.spawnEffectMaterial.dispose();
+    bit.spawnEffectMaterial = null;
+  }
+  bit.spawnPhase = "done";
+  bit.spawnTimer = 0;
+  bit.body.isVisible = true;
+  bit.body.scaling.set(1, 1, 1);
+  bit.muzzle.isVisible = true;
+  bit.muzzle.scaling.set(1, 1, 1);
 };
 
 const createBitRoot = (
@@ -1607,6 +1626,10 @@ export const updateBits = (
       }
     }
 
+    if (bit.fireEffectActive && !canFire) {
+      stopBitFireEffect(bit);
+    }
+
     if (
       !spawnActive &&
       bit.mode !== "attack-fixed" &&
@@ -1752,13 +1775,6 @@ export const updateBits = (
       bit.fireTimer -= delta;
       if (bit.fireEffectActive) {
         updateBitFireEffect(bit, delta);
-      }
-      if (
-        bit.fireEffectActive &&
-        !canFire &&
-        bit.fireEffectTimer >= bitFireEffectDuration
-      ) {
-        stopBitFireEffect(bit);
       }
       if (
         canFire &&
