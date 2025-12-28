@@ -78,6 +78,8 @@ export type BitMode =
   | "carpet-bomb"
   | "hold";
 
+export type BitWanderMode = "forward" | "vertical" | "diagonal";
+
 export type BitSpawnPhase = "fade-in" | "hold" | "shrink" | "done";
 
 export type BitFireEffect = {
@@ -113,8 +115,19 @@ export type Bit = {
   modeTimer: number;
   speed: number;
   canSpawnCarpet: boolean;
+  wanderMode: BitWanderMode;
   wanderDirection: Vector3;
   wanderTimer: number;
+  scanTimer: number;
+  scanDuration: number;
+  scanCooldown: number;
+  scanBaseYaw: number;
+  scanYawOffset: number;
+  scanPitch: number;
+  alertRecovering: boolean;
+  alertRecoverYaw: number;
+  alertCooldownPending: boolean;
+  attackCooldown: number;
   fireTimer: number;
   fireInterval: number;
   floatOffset: number;
