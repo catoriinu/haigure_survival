@@ -66,13 +66,14 @@ const engine = new Engine(canvas, true);
 const scene = new Scene(engine);
 
 const layout = createGridLayout();
+const unitScale = 0.5;
 const room = {
   width: layout.columns * layout.cellSize,
   depth: layout.rows * layout.cellSize,
   height: layout.height
 };
-const playerWidth = 2.2;
-const playerHeight = 3.3;
+const playerWidth = 2.2 * unitScale;
+const playerHeight = 3.3 * unitScale;
 const playerCenterHeight = playerHeight / 2;
 const eyeHeight = playerHeight * 0.75;
 const halfWidth = room.width / 2;
@@ -90,7 +91,7 @@ const camera = new FreeCamera(
 );
 camera.setTarget(spawnPosition.add(spawnForward));
 camera.attachControl(canvas, true);
-const baseCameraSpeed = 0.25;
+const baseCameraSpeed = 0.25 * unitScale;
 const playerMoveSpeed = baseCameraSpeed * Math.sqrt(10);
 camera.speed = 0;
 camera.angularSensibility = 1500;
@@ -99,7 +100,7 @@ camera.keysDown = [83];
 camera.keysLeft = [65];
 camera.keysRight = [68];
 camera.checkCollisions = true;
-camera.ellipsoid = new Vector3(0.5, playerHeight * 0.4, 0.5);
+camera.ellipsoid = new Vector3(0.5 * unitScale, playerHeight * 0.4, 0.5 * unitScale);
 camera.inputs.removeByType("FreeCameraKeyboardMoveInput");
 
 const audioManager = new AudioManager(camera);
@@ -124,36 +125,36 @@ const hitSeVariants = [
 ];
 const seBaseOptions: SpatialPlayOptions = {
   volume: 0.95,
-  maxDistance: 45,
+  maxDistance: 45 * unitScale,
   loop: false
 };
 const alertLoopOptions: SpatialPlayOptions = {
   volume: 0.95,
-  maxDistance: 45,
+  maxDistance: 45 * unitScale,
   loop: true
 };
 const beamSeOptions: SpatialPlayOptions = {
   volume: 0.8,
-  maxDistance: 60,
+  maxDistance: 60 * unitScale,
   loop: false
 };
 const hitSeOptions: SpatialPlayOptions = {
   volume: 1,
-  maxDistance: 65,
+  maxDistance: 65 * unitScale,
   loop: false
 };
 const voiceBaseOptions: SpatialPlayOptions = {
   volume: 0.72,
-  maxDistance: 50,
+  maxDistance: 50 * unitScale,
   loop: false
 };
 const voiceLoopOptions: SpatialPlayOptions = {
   volume: 0.72,
-  maxDistance: 50,
+  maxDistance: 50 * unitScale,
   loop: true
 };
-const beamSeFarDistance = 28;
-const beamSeMidDistance = 16;
+const beamSeFarDistance = 28 * unitScale;
+const beamSeMidDistance = 16 * unitScale;
 
 const sfxDirector = new SfxDirector(
   audioManager,
@@ -291,7 +292,7 @@ createStageFromGrid(scene, layout, {
   wallBaseColor: new Color3(0.88, 0.88, 0.88),
   floorGridColor: new Color3(0.07, 0.07, 0.07),
   wallGridColor: new Color3(0.07, 0.07, 0.07),
-  gridSpacingWorld: 2,
+  gridSpacingWorld: 2 * unitScale,
   gridCellsPerTexture: 8,
   gridLineWidthPx: 3,
   gridTextureSize: 512,
@@ -398,7 +399,7 @@ const playerHitDuration = 3;
 const playerHitFadeDuration = 1;
 const redHitDurationScale = 0.25;
 const playerHitRadius = playerWidth * 0.5;
-const playerHitEffectDiameter = playerHeight * 1.2;
+const playerHitEffectDiameter = (playerHeight / unitScale) * 1.2;
 const playerHitFlickerInterval = 0.12;
 const playerHitColorA = new Color3(1, 0.18, 0.74);
 const playerHitColorB = new Color3(0.2, 0.96, 1);
@@ -420,7 +421,7 @@ const playerHitFadeOrbConfig: HitFadeOrbConfig = {
   speedMax: playerHitOrbSpeedMax
 };
 
-const playerBlockRadius = playerWidth * 0.5 + 1.1;
+const playerBlockRadius = playerWidth * 0.5 + 1.1 * unitScale;
 
 type MoveKey = "forward" | "back" | "left" | "right";
 const playerMoveInput: Record<MoveKey, boolean> = {

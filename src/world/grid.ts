@@ -26,8 +26,8 @@ export type GridConfig = {
 export const DEFAULT_GRID_CONFIG: GridConfig = {
   columns: 20,
   rows: 20,
-  cellSize: 12,
-  height: 8,
+  cellSize: 6,
+  height: 4,
   rule: "three-rooms-linear"
 };
 

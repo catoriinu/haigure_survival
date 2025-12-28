@@ -136,7 +136,7 @@ export const createStageFromGrid = (
 
   const floors: Mesh[] = [];
   const walls: Mesh[] = [];
-  const wallThickness = 0.6;
+  const wallThickness = 0.3;
 
   for (let row = 0; row < layout.rows; row += 1) {
     for (let col = 0; col < layout.columns; col += 1) {

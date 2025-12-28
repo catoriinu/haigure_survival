@@ -30,44 +30,45 @@ import {
 import { findTargetById } from "./targetUtils";
 import { beamTipDiameter } from "./beams";
 
-const bitVisionRangeBase = 32;
+const unitScale = 0.5;
+const bitVisionRangeBase = 32 * unitScale;
 const bitVisionRangeRedMultiplier = 2;
 const bitVisionRangeBoostMultiplier = 1;
-const bitBaseSpeed = 2.4;
-const bitSearchSpeed = 3;
-const bitChaseSpeed = 1.8;
+const bitBaseSpeed = 2.4 * unitScale;
+const bitSearchSpeed = 3 * unitScale;
+const bitChaseSpeed = 1.8 * unitScale;
 const bitVisionAngleBase = 100;
 const bitVisionAngleRedMultiplier = 1.5;
 const bitVisionAngleBoostMultiplier = 1;
-const bitChaseFireRange = 12;
-const bitChaseLoseRange = 24;
+const bitChaseFireRange = 12 * unitScale;
+const bitChaseLoseRange = 24 * unitScale;
 const bitChaseDuration = 15;
 const bitChaseFireIntervalMin = 3.0;
 const bitChaseFireIntervalMax = 4.0;
 const bitFixedDuration = 10;
 const alertGatherTargetCount = 4;
-const alertGatherRadius = 6;
+const alertGatherRadius = 6 * unitScale;
 const alertGiveUpDuration = 15;
 const alertReceiveSpeedMultiplier = 5;
-const alertSpawnRadius = 2.4;
+const alertSpawnRadius = 2.4 * unitScale;
 const bitRandomDuration = 10;
 const bitRandomFireIntervalMin = 0.8;
 const bitRandomFireIntervalMax = 1.4;
-const bitRandomSpeed = 3.4;
+const bitRandomSpeed = 3.4 * unitScale;
 const bitRandomTurnSpeedMultiplier = 1.35;
 const bitRandomWanderTimerMin = 0.35;
 const bitRandomWanderTimerMax = 0.8;
 const bitInitialFireDelayFactor = 0.35;
-const bitWallProximityRadius = 0.9;
+const bitWallProximityRadius = 0.9 * unitScale;
 const bitWanderVerticalAmplitude = 0.18;
 const bitWanderVerticalChance = 0.2;
 const bitWanderDiagonalChance = 0.25;
-const bitWanderVerticalSpeed = 0.75;
+const bitWanderVerticalSpeed = 0.75 * unitScale;
 const bitWanderDiagonalMin = 0.2;
 const bitWanderDiagonalMax = 0.45;
 const bitWanderTimerMin = 1.2;
 const bitWanderTimerMax = 2.4;
-const bitBobAmplitudeNormal = 0.35;
+const bitBobAmplitudeNormal = 0.35 * unitScale;
 const bitBobAmplitudeUrgent = 0;
 const bitModeMuzzleColors: Record<Exclude<BitMode, "search">, Color3> = {
   "attack-chase": new Color3(0.18, 0.9, 0.28),
@@ -87,16 +88,16 @@ const bitScanPitchDown = Math.PI * 0.22;
 const bitScanPitchHeightThreshold = 0.6;
 const alertRecoverPitchThreshold = 0.12;
 const attackModeCooldownDuration = 3;
-const bitChaseDescendSpeed = 2.1;
-const carpetFormationSpacing = 3;
-const carpetBombSpeed = 9;
+const bitChaseDescendSpeed = 2.1 * unitScale;
+const carpetFormationSpacing = 3 * unitScale;
+const carpetBombSpeed = 9 * unitScale;
 const carpetBombSpeedRedMultiplier = 0.92;
-const carpetBombSpread = 0.4;
+const carpetBombSpread = 0.4 * unitScale;
 const carpetBombFireIntervalMin = 0.25;
 const carpetBombFireIntervalMax = 0.25;
 const carpetBombFireRateRedDivisor = 1.3;
 const carpetBombPassDelay = 3.0;
-const carpetBombAscendSpeed = 4.2;
+const carpetBombAscendSpeed = 4.2 * unitScale;
 const carpetBombTurnRate = Math.PI * 0.35;
 const carpetBombWallCooldown = 2.5;
 const carpetBombSteerStrength = 0.18;
@@ -109,12 +110,13 @@ const redBitTurnSpeed = Math.PI * 1.6;
 const spawnFadeDuration = 0.5;
 const spawnHoldDuration = 0.5;
 const spawnShrinkDuration = 0.5;
-const spawnSphereStartDiameter = 2.6;
-const spawnSphereEndDiameter = 0.45;
+const spawnSphereStartDiameter = 2.6 * unitScale;
+const spawnSphereEndDiameter = 0.45 * unitScale;
 const spawnSphereEndScale = spawnSphereEndDiameter / spawnSphereStartDiameter;
-const bitBodyHeight = 1.8;
-const bitMuzzleDiameter = 0.35;
-const bitMuzzleOffsetZ = bitBodyHeight / 2 + 0.25;
+const bitBodyHeight = 1.8 * unitScale;
+const bitBodyDiameter = 1.4 * unitScale;
+const bitMuzzleDiameter = 0.35 * unitScale;
+const bitMuzzleOffsetZ = bitBodyHeight / 2 + 0.25 * unitScale;
 const bitFireEffectDuration = 0.32;
 const bitFireConeSweepDuration = 0.07;
 const bitFireConeFadeDuration = 0.06;
@@ -124,7 +126,7 @@ const bitFireMuzzleLensDuration = 0.09;
 const bitFireMuzzleInflateDuration = 0.04;
 const bitFireMuzzleHoldDuration = 0.02;
 const bitFireShotGrowDuration = 0.1;
-const bitFireShotTravelDistance = 1.1;
+const bitFireShotTravelDistance = 1.1 * unitScale;
 const bitFireMuzzleSphereScale = 2.1;
 const bitFireLensScale = new Vector3(2.1, 2.1, 1.0);
 const bitFireColor = new Color3(1, 0.18, 0.74);
@@ -585,7 +587,7 @@ const createBitFireEffect = (
     `bitFireCone_${id}`,
     {
       diameterTop: 0,
-      diameterBottom: 1.4,
+      diameterBottom: bitBodyDiameter,
       height: bitBodyHeight,
       tessellation: 24,
       sideOrientation: Mesh.DOUBLESIDE
@@ -853,7 +855,7 @@ const createBitRoot = (
     `bitBody_${index}`,
     {
       diameterTop: 0,
-      diameterBottom: 1.4,
+      diameterBottom: bitBodyDiameter,
       height: bitBodyHeight,
       tessellation: 24
     },
@@ -909,7 +911,7 @@ export const createBit = (
   index: number
 ): Bit => {
   const cell = pickRandomCell(floorCells);
-  const baseHeight = 3 + Math.random() * 2.5;
+    const baseHeight = (3 + Math.random() * 2.5) * unitScale;
   const position = cellToWorld(layout, cell, baseHeight);
   const { root, body, muzzle } = createBitRoot(scene, materials, index);
   root.position = position;
@@ -1115,7 +1117,7 @@ export const updateBits = (
   const maxY = bounds.maxY - 1.4;
   const halfWidth = (layout.columns * layout.cellSize) / 2;
   const halfDepth = (layout.rows * layout.cellSize) / 2;
-  const avoidRadius = 3;
+    const avoidRadius = 3 * unitScale;
   const avoidRadiusSq = avoidRadius * avoidRadius;
   const wallRadius = bitWallProximityRadius;
   const wallRadiusSq = wallRadius * wallRadius;
