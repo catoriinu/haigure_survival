@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   Mesh,
   Sprite,
   StandardMaterial,
@@ -75,7 +75,7 @@ export type BitMode =
   | "attack-fixed"
   | "attack-random"
   | "alert"
-  | "carpet-bomb"
+  | "attack-carpet-bomb"
   | "hold";
 
 export type BitWanderMode = "forward" | "vertical" | "diagonal";

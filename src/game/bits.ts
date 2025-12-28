@@ -1,4 +1,4 @@
-import {
+﻿import {
   Color3,
   Mesh,
   MeshBuilder,
@@ -127,6 +127,42 @@ const bitFireShotStart =
   bitFireConeSweepDuration + bitFireMuzzleSequenceDuration;
 const bitFireShotMaxScale = beamTipDiameter / bitMuzzleDiameter;
 
+type AttackModeId = "attack-chase" | "attack-fixed" | "attack-random";
+
+type AttackModeConfig = {
+  duration: number;
+  fireIntervalMin: number;
+  fireIntervalMax: number;
+};
+
+const attackModeConfigs: Record<AttackModeId, AttackModeConfig> = {
+  "attack-chase": {
+    duration: bitChaseDuration,
+    fireIntervalMin: bitChaseFireIntervalMin,
+    fireIntervalMax: bitChaseFireIntervalMax
+  },
+  "attack-fixed": {
+    duration: bitFixedDuration,
+    fireIntervalMin: 1.0,
+    fireIntervalMax: 1.6
+  },
+  "attack-random": {
+    duration: bitRandomDuration,
+    fireIntervalMin: bitRandomFireIntervalMin,
+    fireIntervalMax: bitRandomFireIntervalMax
+  }
+};
+
+type ModeFrame = {
+  moveDirection: Vector3;
+  aimDirection: Vector3;
+  moveSpeed: number;
+  turnSpeedScale: number;
+  canFire: boolean;
+  extraHeightStep: number;
+  lockMovement: boolean;
+};
+
 const pickBitWanderDirection = () => {
   const angle = Math.random() * Math.PI * 2;
   return new Vector3(
@@ -187,8 +223,28 @@ const getYawFromDirection = (direction: Vector3) =>
 const getDirectionFromYaw = (yaw: number) =>
   new Vector3(Math.cos(yaw), 0, Math.sin(yaw));
 
+const createModeFrame = (bit: Bit): ModeFrame => ({
+  moveDirection: bit.wanderDirection,
+  aimDirection: bit.wanderDirection.clone(),
+  moveSpeed: bit.speed,
+  turnSpeedScale: 1,
+  canFire: false,
+  extraHeightStep: 0,
+  lockMovement: false
+});
+
 const startAttackCooldown = (bit: Bit) => {
   bit.attackCooldown = attackModeCooldownDuration;
+};
+
+const applyAttackModeTimers = (bit: Bit, mode: AttackModeId) => {
+  const config = attackModeConfigs[mode];
+  bit.fireInterval =
+    (config.fireIntervalMin +
+      Math.random() * (config.fireIntervalMax - config.fireIntervalMin)) /
+    bit.statMultiplier;
+  bit.fireTimer = bit.fireInterval * bitInitialFireDelayFactor;
+  bit.modeTimer = config.duration;
 };
 
 const getCarpetBombSpeed = (bit: Bit) =>
@@ -265,7 +321,7 @@ const chooseAttackMode = (bit: Bit): BitMode => {
     if (roll < 0.9) {
       return "attack-fixed";
     }
-    return "carpet-bomb";
+    return "attack-carpet-bomb";
   }
   if (roll < 0.45) {
     return "attack-chase";
@@ -279,7 +335,7 @@ const chooseAttackMode = (bit: Bit): BitMode => {
   if (roll < 0.9) {
     return "alert";
   }
-  return "carpet-bomb";
+  return "attack-carpet-bomb";
 };
 
 const chooseAlertFollowMode = (bit: Bit): BitMode => {
@@ -290,7 +346,7 @@ const chooseAlertFollowMode = (bit: Bit): BitMode => {
   if (roll < 0.8) {
     return "attack-fixed";
   }
-  return "carpet-bomb";
+  return "attack-carpet-bomb";
 };
 
 const setBitMode = (
@@ -313,13 +369,7 @@ const setBitMode = (
   bit.targetId = target ? target.id : null;
 
   if (mode === "attack-chase") {
-    bit.fireInterval =
-      (bitChaseFireIntervalMin +
-        Math.random() *
-          (bitChaseFireIntervalMax - bitChaseFireIntervalMin)) /
-      bit.statMultiplier;
-    bit.fireTimer = bit.fireInterval * bitInitialFireDelayFactor;
-    bit.modeTimer = bitChaseDuration;
+    applyAttackModeTimers(bit, mode);
     return;
   }
 
@@ -328,20 +378,12 @@ const setBitMode = (
       const locked = target.position.subtract(bit.root.position);
       bit.lockedDirection = locked.normalize();
     }
-    bit.fireInterval = (1.0 + Math.random() * 0.6) / bit.statMultiplier;
-    bit.fireTimer = bit.fireInterval * bitInitialFireDelayFactor;
-    bit.modeTimer = bitFixedDuration;
+    applyAttackModeTimers(bit, mode);
     return;
   }
 
   if (mode === "attack-random") {
-    bit.fireInterval =
-      (bitRandomFireIntervalMin +
-        Math.random() *
-          (bitRandomFireIntervalMax - bitRandomFireIntervalMin)) /
-      bit.statMultiplier;
-    bit.fireTimer = bit.fireInterval * bitInitialFireDelayFactor;
-    bit.modeTimer = bitRandomDuration;
+    applyAttackModeTimers(bit, mode);
     return;
   }
 
@@ -364,7 +406,7 @@ const initializeCarpetBit = (
   direction: Vector3,
   offset: Vector3
 ) => {
-  bit.mode = "carpet-bomb";
+  bit.mode = "attack-carpet-bomb";
   bit.targetId = targetId;
   bit.carpetLeaderId = leaderId;
   bit.carpetTargetId = targetId;
@@ -1249,7 +1291,7 @@ export const updateBits = (
     if (target.id === "player" && bit.targetId !== "player") {
       soundEvents.onTargetPlayer(bit);
     }
-    if (bit.mode === "carpet-bomb") {
+    if (bit.mode === "attack-carpet-bomb") {
       clearCarpetState(bit);
     }
     bit.mode = "alert";
@@ -1431,14 +1473,445 @@ export const updateBits = (
     }
   }
 
+  const updateAttackChaseMode = (bit: Bit, frame: ModeFrame) => {
+    bit.modeTimer -= delta;
+    if (bit.modeTimer <= 0) {
+      startAttackCooldown(bit);
+      setBitMode(bit, "search", null, alertSignal, soundEvents);
+      return true;
+    }
+    const target = findTargetById(aliveTargets, bit.targetId);
+    if (!target) {
+      startAttackCooldown(bit);
+      setBitMode(bit, "search", null, alertSignal, soundEvents);
+      return true;
+    }
+    const distanceSq = Vector3.DistanceSquared(
+      bit.root.position,
+      target.position
+    );
+    const distance = Math.sqrt(distanceSq);
+    const withinFireRange = distance <= bitChaseFireRange;
+    frame.moveSpeed = withinFireRange
+      ? bitChaseSpeed * bit.statMultiplier
+      : bitSearchSpeed * bit.statMultiplier;
+    if (distance > bitChaseLoseRange) {
+      startAttackCooldown(bit);
+      setBitMode(bit, "search", null, alertSignal, soundEvents);
+      return true;
+    }
+    const targetDirection = target.position
+      .subtract(bit.root.position)
+      .normalize();
+    const chaseDirection = getChaseDirection(
+      bit.root.position,
+      target.position
+    );
+    const heightDelta = target.position.y - bit.root.position.y;
+    if (heightDelta < 0) {
+      frame.extraHeightStep = Math.max(
+        -bitChaseDescendSpeed * bit.statMultiplier * delta,
+        heightDelta
+      );
+    }
+    frame.moveDirection = chaseDirection;
+    frame.aimDirection = targetDirection;
+    const forward = bit.root.getDirection(new Vector3(0, 0, 1));
+    const dot =
+      forward.x * targetDirection.x +
+      forward.y * targetDirection.y +
+      forward.z * targetDirection.z;
+    const visionCos = getBitVisionCos(bit, visionAngleBoost);
+    frame.canFire = dot >= visionCos && withinFireRange;
+    return false;
+  };
+
+  const updateAttackFixedMode = (bit: Bit, frame: ModeFrame) => {
+    bit.modeTimer -= delta;
+    if (bit.modeTimer <= 0) {
+      startAttackCooldown(bit);
+      setBitMode(bit, "search", null, alertSignal, soundEvents);
+      return true;
+    }
+    const lockedTarget = findTargetById(aliveTargets, bit.targetId);
+    if (
+      lockedTarget &&
+      bit.isRed &&
+      (bit.fireEffectActive ||
+        bit.fireTimer - delta <= bitFireEffectDuration)
+    ) {
+      bit.lockedDirection = lockedTarget.position
+        .subtract(bit.root.position)
+        .normalize();
+    }
+    frame.moveDirection = new Vector3(0, 0, 0);
+    frame.aimDirection = bit.lockedDirection.clone();
+    frame.canFire = true;
+    return false;
+  };
+
+  const updateAttackRandomMode = (bit: Bit, frame: ModeFrame) => {
+    bit.modeTimer -= delta;
+    if (bit.modeTimer <= 0) {
+      startAttackCooldown(bit);
+      setBitMode(bit, "search", null, alertSignal, soundEvents);
+      return true;
+    }
+    const randomFireLock =
+      bit.fireEffectActive ||
+      (bit.fireInterval > 0 &&
+        bit.fireTimer - delta <= bitFireEffectDuration);
+    if (randomFireLock) {
+      frame.lockMovement = true;
+      frame.moveDirection = new Vector3(0, 0, 0);
+      frame.aimDirection = bit.root.getDirection(new Vector3(0, 0, 1));
+    } else {
+      bit.wanderTimer -= delta;
+      if (bit.wanderTimer <= 0) {
+        resetBitWander(bit, bitRandomWanderTimerMin, bitRandomWanderTimerMax);
+      }
+      if (bit.wanderMode === "vertical") {
+        frame.moveSpeed =
+          bitWanderVerticalSpeed *
+          (bitRandomSpeed / bitSearchSpeed) *
+          bit.statMultiplier;
+        frame.moveDirection = bit.wanderDirection;
+        frame.aimDirection = getHorizontalForward(bit);
+      } else {
+        frame.moveSpeed = bitRandomSpeed * bit.statMultiplier;
+        frame.moveDirection = bit.wanderDirection;
+        frame.aimDirection = bit.wanderDirection.clone();
+      }
+    }
+    frame.turnSpeedScale = bitRandomTurnSpeedMultiplier;
+    frame.canFire = true;
+    return false;
+  };
+
+  const updateSearchMode = (bit: Bit, frame: ModeFrame) => {
+    if (bit.scanDuration > 0) {
+      bit.scanTimer = Math.min(
+        bit.scanDuration,
+        bit.scanTimer + delta
+      );
+      const progress = bit.scanTimer / bit.scanDuration;
+      const sweep =
+        Math.sin(progress * Math.PI * 2 + bit.scanYawOffset) * bitScanYawRange;
+      const yaw = bit.scanBaseYaw + sweep;
+      const pitch = bit.scanPitch;
+      const horizontal = Math.cos(pitch);
+      frame.moveDirection = new Vector3(0, 0, 0);
+      frame.aimDirection = new Vector3(
+        Math.cos(yaw) * horizontal,
+        -Math.sin(pitch),
+        Math.sin(yaw) * horizontal
+      );
+      if (bit.scanTimer >= bit.scanDuration) {
+        bit.scanDuration = 0;
+        bit.scanTimer = 0;
+      }
+    } else {
+      bit.scanCooldown -= delta;
+      if (bit.scanCooldown <= 0) {
+        const forward = getHorizontalForward(bit);
+        bit.scanBaseYaw = getYawFromDirection(forward);
+        const heightDelta = bit.root.position.y - averageTargetY;
+        bit.scanPitch =
+          heightDelta > bitScanPitchHeightThreshold ? bitScanPitchDown : 0;
+        bit.scanYawOffset = Math.random() * Math.PI * 2;
+        bit.scanDuration =
+          bitScanDurationMin +
+          Math.random() * (bitScanDurationMax - bitScanDurationMin);
+        bit.scanTimer = 0;
+        bit.scanCooldown =
+          bitScanIntervalMin +
+          Math.random() * (bitScanIntervalMax - bitScanIntervalMin);
+      }
+
+      bit.wanderTimer -= delta;
+      if (bit.wanderTimer <= 0) {
+        resetBitWander(bit, bitWanderTimerMin, bitWanderTimerMax);
+      }
+      if (bit.wanderMode === "vertical") {
+        frame.moveSpeed = bitWanderVerticalSpeed * bit.statMultiplier;
+        frame.moveDirection = bit.wanderDirection;
+        frame.aimDirection = getHorizontalForward(bit);
+      } else {
+        frame.moveDirection = bit.wanderDirection;
+        frame.aimDirection = bit.wanderDirection.clone();
+        frame.moveSpeed = bitSearchSpeed * bit.statMultiplier;
+      }
+    }
+
+    const visibleTarget = findVisibleTarget(
+      bit,
+      aliveTargets,
+      visionRangeBoost,
+      visionAngleBoost
+    );
+    if (visibleTarget && bit.attackCooldown <= 0) {
+      const nextMode = chooseAttackMode(bit);
+      if (nextMode === "alert") {
+        if (!startAlert(bit, visibleTarget)) {
+          setBitMode(
+            bit,
+            "attack-chase",
+            visibleTarget,
+            alertSignal,
+            soundEvents
+          );
+        }
+      } else if (nextMode === "attack-carpet-bomb") {
+        startCarpetBomb(bit, visibleTarget);
+      } else {
+        setBitMode(bit, nextMode, visibleTarget, alertSignal, soundEvents);
+      }
+      return true;
+    }
+    return false;
+  };
+
+  const updateAlertMode = (bit: Bit, frame: ModeFrame) => {
+    bit.modeTimer -= delta;
+    const isAlertLeader =
+      alertSignal.leaderId !== null && bit.id === alertSignal.leaderId;
+    const shouldRecover =
+      bit.alertRecovering ||
+      bit.modeTimer <= 0 ||
+      !alertActive ||
+      !alertLeader ||
+      !alertTarget ||
+      (alertReadyToResolve && isAlertLeader);
+    if (shouldRecover) {
+      if (!bit.alertRecovering) {
+        bit.alertCooldownPending =
+          bit.modeTimer <= 0 || !alertActive || !alertLeader || !alertTarget;
+      }
+      bit.alertRecovering = true;
+      frame.moveDirection = new Vector3(0, 0, 0);
+      frame.aimDirection = getDirectionFromYaw(bit.alertRecoverYaw);
+      frame.canFire = false;
+      const forward = bit.root.getDirection(new Vector3(0, 0, 1));
+      if (Math.abs(forward.y) <= alertRecoverPitchThreshold) {
+        bit.alertRecovering = false;
+        if (bit.alertCooldownPending) {
+          startAttackCooldown(bit);
+          bit.alertCooldownPending = false;
+        }
+        setBitMode(bit, "search", null, alertSignal, soundEvents);
+        if (isAlertLeader) {
+          clearAlertSignal();
+        }
+      }
+      return true;
+    }
+    const toLeader = alertLeader.root.position.subtract(bit.root.position);
+    toLeader.y = 0;
+    const distance = Math.hypot(toLeader.x, toLeader.z);
+    if (bit.id === alertLeader.id) {
+      frame.moveDirection = new Vector3(0, 0, 0);
+      frame.aimDirection = new Vector3(0, 1, 0);
+      frame.canFire = false;
+      return false;
+    }
+    const spottedTarget = findVisibleTarget(
+      bit,
+      aliveTargets,
+      visionRangeBoost,
+      visionAngleBoost
+    );
+    if (spottedTarget) {
+      if (!alertSignal.gatheredIds.has(bit.id)) {
+        alertSignal.gatheredIds.add(bit.id);
+      }
+      const nextMode = chooseAlertFollowMode(bit);
+      if (nextMode === "attack-carpet-bomb") {
+        startCarpetBomb(bit, spottedTarget);
+      } else {
+        setBitMode(bit, nextMode, spottedTarget, alertSignal, soundEvents);
+      }
+      return true;
+    }
+    frame.moveSpeed =
+      bitSearchSpeed * bit.statMultiplier * alertReceiveSpeedMultiplier;
+    if (distance <= alertGatherRadius) {
+      if (!alertSignal.gatheredIds.has(bit.id)) {
+        alertSignal.gatheredIds.add(bit.id);
+      }
+      const nextMode = chooseAlertFollowMode(bit);
+      if (nextMode === "attack-carpet-bomb") {
+        startCarpetBomb(bit, alertTarget);
+      } else {
+        setBitMode(bit, nextMode, alertTarget, alertSignal, soundEvents);
+      }
+      return true;
+    }
+    frame.moveDirection = getChaseDirection(
+      bit.root.position,
+      alertLeader.root.position
+    );
+    if (distance > 0.001) {
+      frame.aimDirection = toLeader.normalize();
+    } else {
+      const forward = bit.root.getDirection(new Vector3(0, 0, 1));
+      forward.y = 0;
+      frame.aimDirection =
+        forward.lengthSquared() > 0.0001 ? forward.normalize() : forward;
+    }
+    frame.canFire = false;
+    return false;
+  };
+
+  const updateCarpetBombMode = (
+    bit: Bit,
+    frame: ModeFrame,
+    carpetFollower: boolean
+  ) => {
+    frame.moveSpeed = getCarpetBombSpeed(bit);
+    const leaderId = bit.carpetLeaderId ?? bit.id;
+    const leader =
+      bits.find((candidate) => candidate.id === leaderId) ?? null;
+    if (!leader || leader.mode !== "attack-carpet-bomb") {
+      if (carpetFollower) {
+        startCarpetFollowerDespawn(bit);
+        return true;
+      }
+      clearCarpetState(bit);
+      startAttackCooldown(bit);
+      setBitMode(bit, "search", null, alertSignal, soundEvents);
+      return true;
+    }
+    const leaderPending =
+      bits.some(
+        (candidate) =>
+          isCarpetFollower(candidate) &&
+          candidate.carpetLeaderId === leader.id &&
+          candidate.spawnPhase !== "done"
+      ) ||
+      spawnedBits.some(
+        (candidate) =>
+          isCarpetFollower(candidate) &&
+          candidate.carpetLeaderId === leader.id &&
+          candidate.spawnPhase !== "done"
+      );
+    if (leaderPending) {
+      frame.moveDirection = new Vector3(0, 0, 0);
+      if (leader.id === bit.id) {
+        const aimBase = new Vector3(0, -1, 0);
+        if (bit.carpetAimTimer < carpetAimTurnDuration) {
+          bit.carpetAimTimer = Math.min(
+            carpetAimTurnDuration,
+            bit.carpetAimTimer + delta
+          );
+          const progress = bit.carpetAimTimer / carpetAimTurnDuration;
+          const blended = Vector3.Lerp(bit.carpetAimStart, aimBase, progress);
+          frame.aimDirection = blended.normalize();
+        } else {
+          frame.aimDirection = aimBase;
+        }
+      } else {
+        frame.aimDirection = new Vector3(0, -1, 0);
+      }
+      frame.canFire = false;
+      return false;
+    }
+    const carpetTarget = findTargetById(aliveTargets, leader.carpetTargetId);
+    if (!carpetTarget) {
+      if (carpetFollower) {
+        startCarpetFollowerDespawn(bit);
+        return true;
+      }
+      clearCarpetState(bit);
+      startAttackCooldown(bit);
+      setBitMode(bit, "search", null, alertSignal, soundEvents);
+      return true;
+    }
+    let leaderDirection =
+      leader.carpetDirection.lengthSquared() > 0.0001
+        ? leader.carpetDirection.normalize()
+        : leader.root.getDirection(new Vector3(0, 0, 1));
+
+    if (leader.id === bit.id) {
+      const toTarget = carpetTarget.position.subtract(bit.root.position);
+      toTarget.y = 0;
+      let passDot = 0;
+      if (toTarget.lengthSquared() > 0.0001) {
+        const targetDirection = toTarget.normalize();
+        passDot =
+          leaderDirection.x * toTarget.x + leaderDirection.z * toTarget.z;
+        if (passDot >= 0) {
+          const steered = steerCarpetDirection(
+            leaderDirection,
+            targetDirection,
+            delta
+          );
+          leader.carpetDirection.copyFrom(steered);
+          leaderDirection = leader.carpetDirection.normalize();
+          passDot =
+            leader.carpetDirection.x * toTarget.x +
+            leader.carpetDirection.z * toTarget.z;
+        }
+      }
+      if (passDot < 0) {
+        leader.carpetPassTimer += delta;
+      } else {
+        leader.carpetPassTimer = 0;
+      }
+      if (leader.carpetPassTimer >= carpetBombPassDelay) {
+        clearCarpetState(bit);
+        startAttackCooldown(bit);
+        setBitMode(bit, "search", null, alertSignal, soundEvents);
+        return true;
+      }
+    }
+    const right = new Vector3(-leaderDirection.z, 0, leaderDirection.x);
+
+    if (leader.id === bit.id) {
+      frame.moveDirection = leader.carpetDirection;
+    } else {
+      if (leader.carpetPassTimer >= carpetBombPassDelay) {
+        startCarpetFollowerDespawn(bit);
+        return true;
+      }
+      const offset = right
+        .scale(bit.carpetOffset.x)
+        .add(leader.carpetDirection.scale(bit.carpetOffset.z));
+      const desiredPosition = leader.root.position.add(offset);
+      const toDesired = desiredPosition.subtract(bit.root.position);
+      toDesired.y = 0;
+      if (toDesired.lengthSquared() > 0.0001) {
+        frame.moveDirection = toDesired.normalize();
+      } else {
+        frame.moveDirection = leader.carpetDirection;
+      }
+    }
+    const tiltDirection = new Vector3(
+      leaderDirection.x,
+      -1,
+      leaderDirection.z
+    ).normalize();
+    const aimBase = Vector3.Lerp(
+      new Vector3(0, -1, 0),
+      tiltDirection,
+      carpetBombAimBlend
+    );
+    if (leader.id === bit.id && bit.carpetAimTimer < carpetAimTurnDuration) {
+      bit.carpetAimTimer = Math.min(
+        carpetAimTurnDuration,
+        bit.carpetAimTimer + delta
+      );
+      const progress = bit.carpetAimTimer / carpetAimTurnDuration;
+      const blended = Vector3.Lerp(bit.carpetAimStart, aimBase, progress);
+      frame.aimDirection = blended.normalize();
+    } else {
+      frame.aimDirection = aimBase;
+    }
+    frame.canFire = true;
+    return false;
+  };
+
   for (const bit of bits) {
-    let moveDirection = bit.wanderDirection;
-    let aimDirection = bit.wanderDirection.clone();
-    let canFire = false;
-    let moveSpeed = bit.speed;
-    let turnSpeedScale = 1;
-    let extraHeightStep = 0;
-    let lockMovement = false;
+    const frame = createModeFrame(bit);
     const carpetFollower = isCarpetFollower(bit);
     const hitTarget = targets.find(
       (target) => target.hitById === bit.id && isHitState(target.state)
@@ -1458,32 +1931,32 @@ export const updateBits = (
     const spawnActive = bit.spawnPhase !== "done";
     if (spawnActive) {
       updateSpawnEffect(bit, delta);
-      if (bit.mode === "carpet-bomb" && carpetFollower) {
+      if (bit.mode === "attack-carpet-bomb" && carpetFollower) {
         const leaderId = bit.carpetLeaderId ?? bit.id;
         const leader =
           bits.find((candidate) => candidate.id === leaderId) ?? null;
-        if (!leader || leader.mode !== "carpet-bomb") {
+        if (!leader || leader.mode !== "attack-carpet-bomb") {
           startCarpetFollowerDespawn(bit);
           continue;
         }
       }
     }
 
-    if (carpetFollower && bit.mode !== "carpet-bomb") {
+    if (carpetFollower && bit.mode !== "attack-carpet-bomb") {
       startCarpetFollowerDespawn(bit);
       continue;
     }
 
     if (spawnActive) {
-      moveDirection = new Vector3(0, 0, 0);
-      aimDirection =
-        bit.mode === "carpet-bomb"
+      frame.moveDirection = new Vector3(0, 0, 0);
+      frame.aimDirection =
+        bit.mode === "attack-carpet-bomb"
           ? new Vector3(0, -1, 0)
           : bit.root.getDirection(new Vector3(0, 0, 1));
-      canFire = false;
+      frame.canFire = false;
     } else if (bit.mode !== "alert") {
       if (hitTarget && bit.mode !== "hold") {
-        if (carpetFollower && bit.mode === "carpet-bomb") {
+        if (carpetFollower && bit.mode === "attack-carpet-bomb") {
           startCarpetFollowerDespawn(bit);
           continue;
         }
@@ -1497,437 +1970,37 @@ export const updateBits = (
 
     if (!spawnActive) {
       if (bit.mode === "hold") {
-        moveDirection = new Vector3(0, 0, 0);
-        aimDirection = bit.holdDirection.clone();
-        canFire = false;
+        frame.moveDirection = new Vector3(0, 0, 0);
+        frame.aimDirection = bit.holdDirection.clone();
+        frame.canFire = false;
       } else if (bit.mode === "search") {
-        if (bit.scanDuration > 0) {
-          bit.scanTimer = Math.min(
-            bit.scanDuration,
-            bit.scanTimer + delta
-          );
-          const progress = bit.scanTimer / bit.scanDuration;
-          const sweep =
-            Math.sin(progress * Math.PI * 2 + bit.scanYawOffset) *
-            bitScanYawRange;
-          const yaw = bit.scanBaseYaw + sweep;
-          const pitch = bit.scanPitch;
-          const horizontal = Math.cos(pitch);
-          moveDirection = new Vector3(0, 0, 0);
-          aimDirection = new Vector3(
-            Math.cos(yaw) * horizontal,
-            -Math.sin(pitch),
-            Math.sin(yaw) * horizontal
-          );
-          if (bit.scanTimer >= bit.scanDuration) {
-            bit.scanDuration = 0;
-            bit.scanTimer = 0;
-          }
-        } else {
-          bit.scanCooldown -= delta;
-          if (bit.scanCooldown <= 0) {
-            const forward = getHorizontalForward(bit);
-            bit.scanBaseYaw = getYawFromDirection(forward);
-            const heightDelta = bit.root.position.y - averageTargetY;
-            bit.scanPitch =
-              heightDelta > bitScanPitchHeightThreshold ? bitScanPitchDown : 0;
-            bit.scanYawOffset = Math.random() * Math.PI * 2;
-            bit.scanDuration =
-              bitScanDurationMin +
-              Math.random() * (bitScanDurationMax - bitScanDurationMin);
-            bit.scanTimer = 0;
-            bit.scanCooldown =
-              bitScanIntervalMin +
-              Math.random() * (bitScanIntervalMax - bitScanIntervalMin);
-          }
-
-          bit.wanderTimer -= delta;
-          if (bit.wanderTimer <= 0) {
-            resetBitWander(bit, bitWanderTimerMin, bitWanderTimerMax);
-          }
-          if (bit.wanderMode === "vertical") {
-            moveSpeed = bitWanderVerticalSpeed * bit.statMultiplier;
-            moveDirection = bit.wanderDirection;
-            aimDirection = getHorizontalForward(bit);
-          } else {
-            moveDirection = bit.wanderDirection;
-            aimDirection = bit.wanderDirection.clone();
-            moveSpeed = bitSearchSpeed * bit.statMultiplier;
-          }
-        }
-
-        const visibleTarget = findVisibleTarget(
-          bit,
-          aliveTargets,
-          visionRangeBoost,
-          visionAngleBoost
-        );
-        if (visibleTarget && bit.attackCooldown <= 0) {
-          const nextMode = chooseAttackMode(bit);
-          if (nextMode === "alert") {
-            if (!startAlert(bit, visibleTarget)) {
-              setBitMode(
-                bit,
-                "attack-chase",
-                visibleTarget,
-                alertSignal,
-                soundEvents
-              );
-            }
-          } else if (nextMode === "carpet-bomb") {
-            startCarpetBomb(bit, visibleTarget);
-          } else {
-            setBitMode(bit, nextMode, visibleTarget, alertSignal, soundEvents);
-          }
+        if (updateSearchMode(bit, frame)) {
           continue;
         }
       } else if (bit.mode === "alert") {
-        bit.modeTimer -= delta;
-        const isAlertLeader =
-          alertSignal.leaderId !== null &&
-          bit.id === alertSignal.leaderId;
-        const shouldRecover =
-          bit.alertRecovering ||
-          bit.modeTimer <= 0 ||
-          !alertActive ||
-          !alertLeader ||
-          !alertTarget ||
-          (alertReadyToResolve && isAlertLeader);
-        if (shouldRecover) {
-          if (!bit.alertRecovering) {
-            bit.alertCooldownPending =
-              bit.modeTimer <= 0 || !alertActive || !alertLeader || !alertTarget;
-          }
-          bit.alertRecovering = true;
-          moveDirection = new Vector3(0, 0, 0);
-          aimDirection = getDirectionFromYaw(bit.alertRecoverYaw);
-          canFire = false;
-          const forward = bit.root.getDirection(new Vector3(0, 0, 1));
-          if (Math.abs(forward.y) <= alertRecoverPitchThreshold) {
-            bit.alertRecovering = false;
-            if (bit.alertCooldownPending) {
-              startAttackCooldown(bit);
-              bit.alertCooldownPending = false;
-            }
-            setBitMode(bit, "search", null, alertSignal, soundEvents);
-            if (isAlertLeader) {
-              clearAlertSignal();
-            }
-          }
+        if (updateAlertMode(bit, frame)) {
           continue;
-        }
-        const toLeader = alertLeader.root.position.subtract(bit.root.position);
-        toLeader.y = 0;
-        const distance = Math.hypot(toLeader.x, toLeader.z);
-        if (bit.id === alertLeader.id) {
-          moveDirection = new Vector3(0, 0, 0);
-          aimDirection = new Vector3(0, 1, 0);
-          canFire = false;
-        } else {
-          const spottedTarget = findVisibleTarget(
-            bit,
-            aliveTargets,
-            visionRangeBoost,
-            visionAngleBoost
-          );
-          if (spottedTarget) {
-            if (!alertSignal.gatheredIds.has(bit.id)) {
-              alertSignal.gatheredIds.add(bit.id);
-            }
-            const nextMode = chooseAlertFollowMode(bit);
-            if (nextMode === "carpet-bomb") {
-              startCarpetBomb(bit, spottedTarget);
-            } else {
-              setBitMode(bit, nextMode, spottedTarget, alertSignal, soundEvents);
-            }
-            continue;
-          }
-          moveSpeed =
-            bitSearchSpeed * bit.statMultiplier * alertReceiveSpeedMultiplier;
-          if (distance <= alertGatherRadius) {
-            if (!alertSignal.gatheredIds.has(bit.id)) {
-              alertSignal.gatheredIds.add(bit.id);
-            }
-            const nextMode = chooseAlertFollowMode(bit);
-            if (nextMode === "carpet-bomb") {
-              startCarpetBomb(bit, alertTarget);
-            } else {
-              setBitMode(bit, nextMode, alertTarget, alertSignal, soundEvents);
-            }
-            continue;
-          }
-          moveDirection = getChaseDirection(
-            bit.root.position,
-            alertLeader.root.position
-          );
-          if (distance > 0.001) {
-            aimDirection = toLeader.normalize();
-          } else {
-            const forward = bit.root.getDirection(new Vector3(0, 0, 1));
-            forward.y = 0;
-            aimDirection =
-              forward.lengthSquared() > 0.0001 ? forward.normalize() : forward;
-          }
-          canFire = false;
         }
       } else if (bit.mode === "attack-chase") {
-        bit.modeTimer -= delta;
-        if (bit.modeTimer <= 0) {
-          startAttackCooldown(bit);
-          setBitMode(bit, "search", null, alertSignal, soundEvents);
+        if (updateAttackChaseMode(bit, frame)) {
           continue;
         }
-        const target = findTargetById(aliveTargets, bit.targetId);
-        if (!target) {
-          startAttackCooldown(bit);
-          setBitMode(bit, "search", null, alertSignal, soundEvents);
-          continue;
-        }
-        const distanceSq = Vector3.DistanceSquared(
-          bit.root.position,
-          target.position
-        );
-        const distance = Math.sqrt(distanceSq);
-        const withinFireRange = distance <= bitChaseFireRange;
-        moveSpeed = withinFireRange
-          ? bitChaseSpeed * bit.statMultiplier
-          : bitSearchSpeed * bit.statMultiplier;
-        if (distance > bitChaseLoseRange) {
-          startAttackCooldown(bit);
-          setBitMode(bit, "search", null, alertSignal, soundEvents);
-          continue;
-        }
-        const targetDirection = target.position
-          .subtract(bit.root.position)
-          .normalize();
-        const chaseDirection = getChaseDirection(
-          bit.root.position,
-          target.position
-        );
-        const heightDelta = target.position.y - bit.root.position.y;
-        if (heightDelta < 0) {
-          extraHeightStep = Math.max(
-            -bitChaseDescendSpeed * bit.statMultiplier * delta,
-            heightDelta
-          );
-        }
-        moveDirection = chaseDirection;
-        aimDirection = targetDirection;
-        const forward = bit.root.getDirection(new Vector3(0, 0, 1));
-        const dot =
-          forward.x * targetDirection.x +
-          forward.y * targetDirection.y +
-          forward.z * targetDirection.z;
-        const visionCos = getBitVisionCos(bit, visionAngleBoost);
-        canFire = dot >= visionCos && withinFireRange;
       } else if (bit.mode === "attack-fixed") {
-        bit.modeTimer -= delta;
-        if (bit.modeTimer <= 0) {
-          startAttackCooldown(bit);
-          setBitMode(bit, "search", null, alertSignal, soundEvents);
+        if (updateAttackFixedMode(bit, frame)) {
           continue;
         }
-        const lockedTarget = findTargetById(aliveTargets, bit.targetId);
-        if (
-          lockedTarget &&
-          bit.isRed &&
-          (bit.fireEffectActive ||
-            bit.fireTimer - delta <= bitFireEffectDuration)
-        ) {
-          bit.lockedDirection = lockedTarget.position
-            .subtract(bit.root.position)
-            .normalize();
-        }
-        moveDirection = new Vector3(0, 0, 0);
-        aimDirection = bit.lockedDirection.clone();
-        canFire = true;
       } else if (bit.mode === "attack-random") {
-        bit.modeTimer -= delta;
-        if (bit.modeTimer <= 0) {
-          startAttackCooldown(bit);
-          setBitMode(bit, "search", null, alertSignal, soundEvents);
+        if (updateAttackRandomMode(bit, frame)) {
           continue;
         }
-        const randomFireLock =
-          bit.fireEffectActive ||
-          (bit.fireInterval > 0 &&
-            bit.fireTimer - delta <= bitFireEffectDuration);
-        if (randomFireLock) {
-          lockMovement = true;
-          moveDirection = new Vector3(0, 0, 0);
-          aimDirection = bit.root.getDirection(new Vector3(0, 0, 1));
-        } else {
-          bit.wanderTimer -= delta;
-          if (bit.wanderTimer <= 0) {
-            resetBitWander(bit, bitRandomWanderTimerMin, bitRandomWanderTimerMax);
-          }
-          if (bit.wanderMode === "vertical") {
-            moveSpeed =
-              bitWanderVerticalSpeed *
-              (bitRandomSpeed / bitSearchSpeed) *
-              bit.statMultiplier;
-            moveDirection = bit.wanderDirection;
-            aimDirection = getHorizontalForward(bit);
-          } else {
-            moveSpeed = bitRandomSpeed * bit.statMultiplier;
-            moveDirection = bit.wanderDirection;
-            aimDirection = bit.wanderDirection.clone();
-          }
-        }
-        turnSpeedScale = bitRandomTurnSpeedMultiplier;
-        canFire = true;
-      } else if (bit.mode === "carpet-bomb") {
-        moveSpeed = getCarpetBombSpeed(bit);
-        const leaderId = bit.carpetLeaderId ?? bit.id;
-        const leader =
-          bits.find((candidate) => candidate.id === leaderId) ?? null;
-        if (!leader || leader.mode !== "carpet-bomb") {
-          if (carpetFollower) {
-            startCarpetFollowerDespawn(bit);
-            continue;
-          }
-          clearCarpetState(bit);
-          startAttackCooldown(bit);
-          setBitMode(bit, "search", null, alertSignal, soundEvents);
+      } else if (bit.mode === "attack-carpet-bomb") {
+        if (updateCarpetBombMode(bit, frame, carpetFollower)) {
           continue;
-        }
-        const leaderPending =
-          bits.some(
-            (candidate) =>
-              isCarpetFollower(candidate) &&
-              candidate.carpetLeaderId === leader.id &&
-              candidate.spawnPhase !== "done"
-          ) ||
-          spawnedBits.some(
-            (candidate) =>
-              isCarpetFollower(candidate) &&
-              candidate.carpetLeaderId === leader.id &&
-              candidate.spawnPhase !== "done"
-          );
-        if (leaderPending) {
-          moveDirection = new Vector3(0, 0, 0);
-          if (leader.id === bit.id) {
-            const aimBase = new Vector3(0, -1, 0);
-            if (bit.carpetAimTimer < carpetAimTurnDuration) {
-              bit.carpetAimTimer = Math.min(
-                carpetAimTurnDuration,
-                bit.carpetAimTimer + delta
-              );
-              const progress = bit.carpetAimTimer / carpetAimTurnDuration;
-              const blended = Vector3.Lerp(bit.carpetAimStart, aimBase, progress);
-              aimDirection = blended.normalize();
-            } else {
-              aimDirection = aimBase;
-            }
-          } else {
-            aimDirection = new Vector3(0, -1, 0);
-          }
-          canFire = false;
-        } else {
-          const carpetTarget = findTargetById(
-            aliveTargets,
-            leader.carpetTargetId
-          );
-          if (!carpetTarget) {
-            if (carpetFollower) {
-              startCarpetFollowerDespawn(bit);
-              continue;
-            }
-            clearCarpetState(bit);
-            startAttackCooldown(bit);
-            setBitMode(bit, "search", null, alertSignal, soundEvents);
-            continue;
-          }
-          let leaderDirection =
-            leader.carpetDirection.lengthSquared() > 0.0001
-              ? leader.carpetDirection.normalize()
-              : leader.root.getDirection(new Vector3(0, 0, 1));
-
-          if (leader.id === bit.id) {
-            const toTarget = carpetTarget.position.subtract(bit.root.position);
-            toTarget.y = 0;
-            let passDot = 0;
-            if (toTarget.lengthSquared() > 0.0001) {
-              const targetDirection = toTarget.normalize();
-              passDot =
-                leaderDirection.x * toTarget.x +
-                leaderDirection.z * toTarget.z;
-              if (passDot >= 0) {
-                const steered = steerCarpetDirection(
-                  leaderDirection,
-                  targetDirection,
-                  delta
-                );
-                leader.carpetDirection.copyFrom(steered);
-                leaderDirection = leader.carpetDirection.normalize();
-                passDot =
-                  leader.carpetDirection.x * toTarget.x +
-                  leader.carpetDirection.z * toTarget.z;
-              }
-            }
-            if (passDot < 0) {
-              leader.carpetPassTimer += delta;
-            } else {
-              leader.carpetPassTimer = 0;
-            }
-            if (leader.carpetPassTimer >= carpetBombPassDelay) {
-              clearCarpetState(bit);
-              startAttackCooldown(bit);
-              setBitMode(bit, "search", null, alertSignal, soundEvents);
-              continue;
-            }
-          }
-          const right = new Vector3(-leaderDirection.z, 0, leaderDirection.x);
-
-          if (leader.id === bit.id) {
-            moveDirection = leader.carpetDirection;
-          } else {
-            if (leader.carpetPassTimer >= carpetBombPassDelay) {
-              startCarpetFollowerDespawn(bit);
-              continue;
-            }
-            const offset = right
-              .scale(bit.carpetOffset.x)
-              .add(leader.carpetDirection.scale(bit.carpetOffset.z));
-            const desiredPosition = leader.root.position.add(offset);
-            const toDesired = desiredPosition.subtract(bit.root.position);
-            toDesired.y = 0;
-            if (toDesired.lengthSquared() > 0.0001) {
-              moveDirection = toDesired.normalize();
-            } else {
-              moveDirection = leader.carpetDirection;
-            }
-          }
-          const tiltDirection = new Vector3(
-            leaderDirection.x,
-            -1,
-            leaderDirection.z
-          ).normalize();
-          let aimBase = Vector3.Lerp(
-            new Vector3(0, -1, 0),
-            tiltDirection,
-            carpetBombAimBlend
-          );
-          if (
-            leader.id === bit.id &&
-            bit.carpetAimTimer < carpetAimTurnDuration
-          ) {
-            bit.carpetAimTimer = Math.min(
-              carpetAimTurnDuration,
-              bit.carpetAimTimer + delta
-            );
-            const progress = bit.carpetAimTimer / carpetAimTurnDuration;
-            const blended = Vector3.Lerp(bit.carpetAimStart, aimBase, progress);
-            aimDirection = blended.normalize();
-          } else {
-            aimDirection = aimBase;
-          }
-          canFire = true;
         }
       }
     }
 
-    if (bit.fireEffectActive && !canFire) {
+    if (bit.fireEffectActive && !frame.canFire) {
       stopBitFireEffect(bit);
     }
 
@@ -1935,9 +2008,9 @@ export const updateBits = (
       !spawnActive &&
       bit.mode !== "attack-fixed" &&
       bit.mode !== "hold" &&
-      bit.mode !== "carpet-bomb" &&
+      bit.mode !== "attack-carpet-bomb" &&
       bit.mode !== "alert" &&
-      !lockMovement
+      !frame.lockMovement
     ) {
       const avoidVector = new Vector3(0, 0, 0);
       for (const target of aliveTargets) {
@@ -1954,18 +2027,18 @@ export const updateBits = (
       }
 
       if (avoidVector.length() > 0.001) {
-        moveDirection = moveDirection.add(avoidVector).normalize();
-        aimDirection = moveDirection.clone();
+        frame.moveDirection = frame.moveDirection.add(avoidVector).normalize();
+        frame.aimDirection = frame.moveDirection.clone();
       }
     }
 
-    const movingNow = moveDirection.length() > 0.001;
+    const movingNow = frame.moveDirection.length() > 0.001;
     if (movingNow && !bit.isMoving) {
       soundEvents.onMoveStart(bit);
     }
     bit.isMoving = movingNow;
 
-    const moveStep = moveDirection.scale(moveSpeed * delta);
+    const moveStep = frame.moveDirection.scale(frame.moveSpeed * delta);
     const nextX = bit.root.position.x + moveStep.x;
     const nextZ = bit.root.position.z + moveStep.z;
     let hitWall = false;
@@ -1984,7 +2057,7 @@ export const updateBits = (
       hitWall = true;
     }
 
-    if (bit.mode === "carpet-bomb") {
+    if (bit.mode === "attack-carpet-bomb") {
       const heightStep = carpetBombAscendSpeed * delta;
       if (bit.baseHeight < maxY) {
         bit.baseHeight = Math.min(maxY, bit.baseHeight + heightStep);
@@ -1992,7 +2065,7 @@ export const updateBits = (
         bit.baseHeight = Math.max(maxY, bit.baseHeight - heightStep);
       }
     } else {
-      bit.baseHeight += moveStep.y + extraHeightStep;
+      bit.baseHeight += moveStep.y + frame.extraHeightStep;
     }
 
     if (bit.root.position.x < minX) {
@@ -2017,7 +2090,7 @@ export const updateBits = (
     }
 
     if (
-      bit.mode === "carpet-bomb" &&
+      bit.mode === "attack-carpet-bomb" &&
       (hitWall || isWallNear(bit.root.position))
     ) {
       if (carpetFollower) {
@@ -2037,7 +2110,7 @@ export const updateBits = (
       if (
         distanceSq < avoidRadiusSq &&
         bit.mode !== "attack-fixed" &&
-        bit.mode !== "carpet-bomb"
+        bit.mode !== "attack-carpet-bomb"
       ) {
         const distance = Math.sqrt(distanceSq);
         const invDistance = distance === 0 ? 1 : 1 / distance;
@@ -2052,13 +2125,13 @@ export const updateBits = (
     }
     if (bit.baseHeight > maxY) {
       bit.baseHeight = maxY;
-      if (bit.mode !== "carpet-bomb") {
+      if (bit.mode !== "attack-carpet-bomb") {
         bit.wanderDirection.y *= -1;
       }
     }
 
     const bobAmplitude =
-      bit.mode === "alert" || bit.mode === "carpet-bomb"
+      bit.mode === "alert" || bit.mode === "attack-carpet-bomb"
         ? bitBobAmplitudeUrgent
         : bitBobAmplitudeNormal;
     const bob = Math.sin(elapsed * 0.9 + bit.floatOffset) * bobAmplitude;
@@ -2070,11 +2143,11 @@ export const updateBits = (
     bit.root.position.y = bit.baseHeight + bob;
 
     if (bit.fireEffectActive) {
-      aimDirection = bit.fireLockDirection;
+      frame.aimDirection = bit.fireLockDirection;
     }
 
-    if (aimDirection.length() > 0.001) {
-      updateBitRotation(bit, aimDirection, delta, turnSpeedScale);
+    if (frame.aimDirection.length() > 0.001) {
+      updateBitRotation(bit, frame.aimDirection, delta, frame.turnSpeedScale);
     }
 
     if (!spawnActive && bit.fireInterval > 0) {
@@ -2083,7 +2156,7 @@ export const updateBits = (
         updateBitFireEffect(bit, delta);
       }
       if (
-        canFire &&
+        frame.canFire &&
         !bit.fireEffectActive &&
         bit.fireTimer <= bitFireEffectDuration
       ) {
@@ -2096,7 +2169,7 @@ export const updateBits = (
       const effectReady =
         !bit.fireEffectActive ||
         bit.fireEffectTimer >= bitFireEffectDuration;
-      if (bit.fireTimer <= 0 && canFire && effectReady) {
+      if (bit.fireTimer <= 0 && frame.canFire && effectReady) {
         const muzzlePosition = bit.muzzle.getAbsolutePosition();
         const beamDirection = bit.fireEffectActive
           ? bit.fireLockDirection
@@ -2106,7 +2179,7 @@ export const updateBits = (
           spawnBeam(muzzlePosition, beamDirection, bit.id);
         }
         stopBitFireEffect(bit);
-        if (bit.mode === "carpet-bomb") {
+        if (bit.mode === "attack-carpet-bomb") {
           bit.fireInterval = getCarpetBombFireInterval(bit);
         }
         bit.fireTimer = bit.fireInterval;
