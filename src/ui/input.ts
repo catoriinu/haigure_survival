@@ -15,6 +15,10 @@ export type InputHandlerOptions = {
   onEnterEpilogue: () => void;
   onReturnToTitle: () => void;
   onSelectBrainwashOption: (state: CharacterState) => void;
+  onMoveKey: (
+    key: "forward" | "back" | "left" | "right",
+    pressed: boolean
+  ) => void;
   onPlayerFire: (origin: Vector3, direction: Vector3) => void;
 };
 
@@ -31,13 +35,39 @@ export const setupInputHandlers = ({
   onEnterEpilogue,
   onReturnToTitle,
   onSelectBrainwashOption,
+  onMoveKey,
   onPlayerFire
 }: InputHandlerOptions) => {
+  const handleMoveKey = (code: string, pressed: boolean) => {
+    if (code === "KeyW") {
+      onMoveKey("forward", pressed);
+      return;
+    }
+    if (code === "KeyS") {
+      onMoveKey("back", pressed);
+      return;
+    }
+    if (code === "KeyA") {
+      onMoveKey("left", pressed);
+      return;
+    }
+    if (code === "KeyD") {
+      onMoveKey("right", pressed);
+    }
+  };
+  const releaseMoveKeys = () => {
+    onMoveKey("forward", false);
+    onMoveKey("back", false);
+    onMoveKey("left", false);
+    onMoveKey("right", false);
+  };
+
   canvas.addEventListener("click", () => {
     onPointerLockRequest();
   });
 
   window.addEventListener("keydown", (event) => {
+    handleMoveKey(event.code, true);
     const gamePhase = getGamePhase();
     const playerState = getPlayerState();
     if (event.code === "Enter") {
@@ -69,6 +99,13 @@ export const setupInputHandlers = ({
         onSelectBrainwashOption("brainwash-complete-haigure");
       }
     }
+  });
+
+  window.addEventListener("keyup", (event) => {
+    handleMoveKey(event.code, false);
+  });
+  window.addEventListener("blur", () => {
+    releaseMoveKeys();
   });
 
   window.addEventListener("mousedown", (event) => {

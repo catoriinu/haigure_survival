@@ -1,20 +1,19 @@
-﻿# alert送信/受信の分離実装計画
+﻿# プレイヤー移動のdelta基準統一 計画
 
 更新日: 2025-12-28
 
 ## 目的
-- Bitのalert送信/受信を明示的なモードに分離する
-- NPCのalert送信/受信を明示的なstateに分離する
-- 非Aliveターゲット時は送信/受信を解除し、元の行動へ戻す
+- プレイヤー移動をdelta基準に統一し、NPC/ビットと同一の単位系で調整できる状態にする
+- 既存の操作感・当たり判定を維持しつつ、fps依存の移動スケールを排除する
 
-## 分離方針
-- Bit: `BitMode`に`alert-send`/`alert-receive`を追加し、既存`alert`を`alert-receive`へ置換。ビット起点のalertは送信者=leaderが`alert-send`、受信者は`alert-receive`。ブロッカー起点のalertはビット送信なし（受信者のみ`alert-receive`）。
-- NPC: `Npc`に`alertState: "none" | "send" | "receive"`を追加し、stateとして分離。`receive`時は`brainwashMode`/`brainwashTargetId`を保存して追従を上書きし、解除時に元へ戻す。`send`はalertRequests発生時に付与。
-- 復帰: Bitは`alertReturnMode`/`alertReturnTargetId`を保持、NPCは`alertReturnBrainwashMode`/`alertReturnTargetId`を保持し、ターゲット非Aliveで復帰。
+## 方針
+- FreeCameraの`speed`依存をやめ、入力状態（WASD）から移動ベクトルを自前で算出する
+- 移動は`camera.moveWithCollisions()`を使い、既存のコリジョン挙動を維持する
+- 速度は「ユニット/秒」の単位で定義し、`delta`で積分する
 
 ## ステップ
-- [x] 分離方針の確定: Bitモード（alert-send/alert-receive）とNPC state（alertState）の追加範囲と遷移条件を整理
-- [x] updateBits/updateNpcsの分岐修正と既存効果音/演出の影響確認について、具体的な修正案を提示し承認を得る（承認後に実装へ進む）
-- [x] types.tsの型追加・遷移処理の実装（モード/state切替、解除条件）
-- [x] alert送信/受信の挙動差を反映（送信者は集合要求のみ、受信者は集合・攻撃遷移）
-- [x] 既存挙動の確認（射撃停止、search復帰、alert SE/演出の発火条件）
+- [x] 現状のプレイヤー移動経路（`src/main.ts`/`src/ui/input.ts`）を整理し、置換対象の処理を確定
+- [x] プレイヤー移動の入力状態管理（WASDの押下/解放）を追加し、メインループから参照できる形にする
+- [x] `delta`基準の移動計算を実装し、`camera.speed`の利用を停止する
+- [x] NPCブロック中/brainwash状態の移動停止など既存条件を新ロジックへ移植する
+- [x] 手動動作確認（体感速度、衝突、斜め移動の正規化）

@@ -91,7 +91,8 @@ const camera = new FreeCamera(
 camera.setTarget(spawnPosition.add(spawnForward));
 camera.attachControl(canvas, true);
 const baseCameraSpeed = 0.25;
-camera.speed = baseCameraSpeed;
+const playerMoveSpeed = baseCameraSpeed * Math.sqrt(10);
+camera.speed = 0;
 camera.angularSensibility = 1500;
 camera.keysUp = [87];
 camera.keysDown = [83];
@@ -99,6 +100,7 @@ camera.keysLeft = [65];
 camera.keysRight = [68];
 camera.checkCollisions = true;
 camera.ellipsoid = new Vector3(0.5, playerHeight * 0.4, 0.5);
+camera.inputs.removeByType("FreeCameraKeyboardMoveInput");
 
 const audioManager = new AudioManager(camera);
 const bgmUrl = "/audio/bgm/研究所劇伴MP3.mp3";
@@ -419,6 +421,14 @@ const playerHitFadeOrbConfig: HitFadeOrbConfig = {
 };
 
 const playerBlockRadius = playerWidth * 0.5 + 1.1;
+
+type MoveKey = "forward" | "back" | "left" | "right";
+const playerMoveInput: Record<MoveKey, boolean> = {
+  forward: false,
+  back: false,
+  left: false,
+  right: false
+};
 
 type PlayerState = CharacterState;
 let playerState: PlayerState = "normal";
@@ -931,6 +941,9 @@ setupInputHandlers({
   onSelectBrainwashOption: (state) => {
     playerState = state;
   },
+  onMoveKey: (key, pressed) => {
+    playerMoveInput[key] = pressed;
+  },
   onPlayerFire: (origin, direction) => {
     beams.push(createBeam(scene, origin, direction, beamMaterial, "player"));
     const firePosition = origin.clone();
@@ -990,8 +1003,41 @@ engine.runRenderLoop(() => {
       isAliveState(playerState) ||
       playerState === "brainwash-complete-gun" ||
       playerState === "brainwash-complete-no-gun";
-    camera.speed =
-      canMove && !playerBlockedByNpc ? baseCameraSpeed : 0;
+    const allowMove = canMove && !playerBlockedByNpc;
+    if (allowMove) {
+      let moveX = 0;
+      let moveZ = 0;
+      if (playerMoveInput.forward) {
+        moveZ += 1;
+      }
+      if (playerMoveInput.back) {
+        moveZ -= 1;
+      }
+      if (playerMoveInput.right) {
+        moveX += 1;
+      }
+      if (playerMoveInput.left) {
+        moveX -= 1;
+      }
+      if (moveX !== 0 || moveZ !== 0) {
+        const forward = camera.getDirection(new Vector3(0, 0, 1));
+        forward.y = 0;
+        const right = camera.getDirection(new Vector3(1, 0, 0));
+        right.y = 0;
+        const moveDirection = new Vector3(0, 0, 0);
+        if (moveZ !== 0 && forward.lengthSquared() > 0.0001) {
+          moveDirection.addInPlace(forward.scale(moveZ));
+        }
+        if (moveX !== 0 && right.lengthSquared() > 0.0001) {
+          moveDirection.addInPlace(right.scale(moveX));
+        }
+        if (moveDirection.lengthSquared() > 0.0001) {
+          camera.cameraDirection.addInPlace(
+            moveDirection.scale(playerMoveSpeed * delta)
+          );
+        }
+      }
+    }
 
     let npcAlive = false;
     for (const npc of npcs) {

@@ -4,3 +4,4 @@ dist-electron
 release
 *.log
 public/
+gpt_image/
