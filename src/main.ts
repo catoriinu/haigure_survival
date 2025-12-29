@@ -30,7 +30,19 @@ import {
   createNpcManager,
   isAliveState,
   isBrainwashState,
-  isHitState,
+  bitFireEffectDuration,
+  npcHitColorA,
+  npcHitColorB,
+  npcHitDuration,
+  npcHitEffectAlpha,
+  npcHitEffectDiameter,
+  npcHitFadeDuration,
+  npcHitFadeOrbConfig,
+  npcHitFlickerInterval,
+  npcHitRadius,
+  startBitFireEffect,
+  stopBitFireEffect,
+  updateBitFireEffect,
   promoteHaigureNpc,
   spawnNpcs,
   StageBounds,
@@ -40,11 +52,12 @@ import {
 } from "./game/entities";
 import { isBeamHittingTarget } from "./game/beamCollision";
 import {
-  createHitEffectMesh,
-  createHitFadeOrbs,
-  HitFadeOrb,
   HitFadeOrbConfig,
-  updateHitFadeOrbs
+  HitSequenceConfig,
+  createHitSequenceState,
+  resetHitSequenceState,
+  startHitSequence,
+  updateHitSequence
 } from "./game/hitEffects";
 import { AudioManager, SpatialHandle, SpatialPlayOptions } from "./audio/audio";
 import {
@@ -55,7 +68,7 @@ import {
   VoiceActor
 } from "./audio/voice";
 import { SfxDirector } from "./audio/sfxDirector";
-import { createGameFlow, type GamePhase } from "./game/flow";
+import { createGameFlow, type GamePhase, type ExecutionConfig } from "./game/flow";
 import { createGridLayout } from "./world/grid";
 import { createStageFromGrid } from "./world/stage";
 import { createHud } from "./ui/hud";
@@ -67,13 +80,16 @@ const scene = new Scene(engine);
 
 const layout = createGridLayout();
 const unitScale = 0.5;
+const playerSpriteImageWidth = 330;
+const playerSpriteImageHeight = 700;
+const playerWidth = 1.2;
+const playerHeight =
+  (playerSpriteImageHeight / playerSpriteImageWidth) * playerWidth;
 const room = {
   width: layout.columns * layout.cellSize,
   depth: layout.rows * layout.cellSize,
   height: layout.height
 };
-const playerWidth = 2.2 * unitScale;
-const playerHeight = 3.3 * unitScale;
 const playerCenterHeight = playerHeight / 2;
 const eyeHeight = playerHeight * 0.75;
 const halfWidth = room.width / 2;
@@ -100,7 +116,11 @@ camera.keysDown = [83];
 camera.keysLeft = [65];
 camera.keysRight = [68];
 camera.checkCollisions = true;
-camera.ellipsoid = new Vector3(0.5 * unitScale, playerHeight * 0.4, 0.5 * unitScale);
+camera.ellipsoid = new Vector3(
+  playerWidth * 0.5,
+  playerHeight * 0.5,
+  playerWidth * 0.5
+);
 camera.inputs.removeByType("FreeCameraKeyboardMoveInput");
 
 const audioManager = new AudioManager(camera);
@@ -375,6 +395,8 @@ const bits = Array.from({ length: 3 }, (_, index) => createRandomBit(index));
 const isRedBitSource = (sourceId: string | null) =>
   sourceId !== null &&
   bits.some((bit) => bit.id === sourceId && bit.isRed);
+const isBitSource = (sourceId: string | null) =>
+  sourceId !== null && bits.some((bit) => bit.id === sourceId);
 const beams: Beam[] = [];
 const beamTrails: BeamTrail[] = [];
 const beamImpactOrbs: BeamImpactOrb[] = [];
@@ -399,7 +421,7 @@ const playerHitDuration = 3;
 const playerHitFadeDuration = 1;
 const redHitDurationScale = 0.25;
 const playerHitRadius = playerWidth * 0.5;
-const playerHitEffectDiameter = (playerHeight / unitScale) * 1.2;
+const playerHitEffectDiameter = playerHeight * 1.5;
 const playerHitFlickerInterval = 0.12;
 const playerHitColorA = new Color3(1, 0.18, 0.74);
 const playerHitColorB = new Color3(0.2, 0.96, 1);
@@ -420,8 +442,12 @@ const playerHitFadeOrbConfig: HitFadeOrbConfig = {
   speedMin: playerHitOrbSpeedMin,
   speedMax: playerHitOrbSpeedMax
 };
+const publicExecutionTransitionDelay = 1;
+const publicExecutionBeamDelayMin = 2;
+const publicExecutionBeamDelayMax = 10;
+const executionHitFadeDuration = playerHitFadeDuration;
 
-const playerBlockRadius = playerWidth * 0.5 + 1.1 * unitScale;
+const playerBlockRadius = playerWidth;
 
 type MoveKey = "forward" | "back" | "left" | "right";
 const playerMoveInput: Record<MoveKey, boolean> = {
@@ -431,19 +457,43 @@ const playerMoveInput: Record<MoveKey, boolean> = {
   right: false
 };
 
+const resetPlayerMoveInput = () => {
+  playerMoveInput.forward = false;
+  playerMoveInput.back = false;
+  playerMoveInput.left = false;
+  playerMoveInput.right = false;
+};
+
 type PlayerState = CharacterState;
+type PublicExecutionScenario = ExecutionConfig;
 let playerState: PlayerState = "normal";
-let playerHitTimer = 0;
-let playerFadeTimer = 0;
-let playerHitById: string | null = null;
-let playerHitEffect: Mesh | null = null;
-let playerHitEffectMaterial: StandardMaterial | null = null;
-let playerHitTime = 0;
-let playerHitOrbs: HitFadeOrb[] = [];
+const playerHitSequence = createHitSequenceState();
+let playerHitDurationCurrent = playerHitDuration;
 let playerHitFadeDurationCurrent = playerHitFadeDuration;
+let playerHitById: string | null = null;
+let playerHitTime = 0;
 let allDownTime: number | null = null;
 let brainwashChoiceStarted = false;
 let brainwashChoiceUnlocked = false;
+let publicExecutionTriggerKey: string | null = null;
+let publicExecutionTriggerTimer = 0;
+let executionScenario: PublicExecutionScenario | null = null;
+let executionWaitForFade = false;
+let executionFireCountdown = 0;
+let executionFirePending = false;
+let executionFireEffectActive = false;
+let executionFireEffectTimer = 0;
+const executionFireTargetPosition = new Vector3(0, 0, 0);
+let executionVolleyFired = false;
+let executionResolved = false;
+let executionAllowPlayerMove = false;
+const executionHitSequence = createHitSequenceState();
+let executionHitDurationCurrent = playerHitDuration;
+let executionHitFadeDurationCurrent = executionHitFadeDuration;
+let executionHitTargetKind: "player" | "npc" | null = null;
+let executionHitNpcIndex: number | null = null;
+const executionHitTargetPosition = new Vector3(0, 0, 0);
+const executionCollisionPosition = new Vector3(0, 0, 0);
 
 let gamePhase: GamePhase = "title";
 const allDownTransitionDelay = 3;
@@ -518,15 +568,571 @@ const setBitSpawnEnabled = (enabled: boolean) => {
 };
 
 const disposePlayerHitEffects = () => {
-  if (playerHitEffect) {
-    playerHitEffect.dispose();
-    playerHitEffect = null;
-    playerHitEffectMaterial = null;
+  resetHitSequenceState(playerHitSequence);
+};
+
+const disposeExecutionHitEffects = () => {
+  resetHitSequenceState(executionHitSequence);
+};
+
+const updateExecutionHitTargetPosition = () => {
+  if (executionHitTargetKind === "player") {
+    executionHitTargetPosition.set(
+      camera.position.x,
+      playerCenterHeight,
+      camera.position.z
+    );
+    return;
   }
-  for (const orb of playerHitOrbs) {
-    orb.mesh.dispose();
+  if (executionHitTargetKind === "npc" && executionHitNpcIndex !== null) {
+    executionHitTargetPosition.copyFrom(
+      npcs[executionHitNpcIndex].sprite.position
+    );
   }
-  playerHitOrbs = [];
+};
+
+const buildPlayerHitSequenceConfig = (
+  effectName: string,
+  hitDuration: number,
+  fadeDuration: number
+): HitSequenceConfig => ({
+  hitDuration,
+  fadeDuration,
+  flickerInterval: playerHitFlickerInterval,
+  colorA: playerHitColorA,
+  colorB: playerHitColorB,
+  effectAlpha: playerHitEffectAlpha,
+  effectDiameter: playerHitEffectDiameter,
+  fadeOrbConfig: playerHitFadeOrbConfig,
+  effectName,
+  sideOrientation: Mesh.DOUBLESIDE,
+  backFaceCulling: false
+});
+
+const buildNpcHitSequenceConfig = (
+  effectName: string,
+  hitDuration: number,
+  fadeDuration: number
+): HitSequenceConfig => ({
+  hitDuration,
+  fadeDuration,
+  flickerInterval: npcHitFlickerInterval,
+  colorA: npcHitColorA,
+  colorB: npcHitColorB,
+  effectAlpha: npcHitEffectAlpha,
+  effectDiameter: npcHitEffectDiameter,
+  fadeOrbConfig: npcHitFadeOrbConfig,
+  effectName
+});
+
+const beginExecutionHit = (
+  targetKind: "player" | "npc",
+  npcIndex: number | null,
+  hitScale: number
+) => {
+  if (executionHitSequence.phase !== "none") {
+    return;
+  }
+  executionHitTargetKind = targetKind;
+  executionHitNpcIndex = npcIndex;
+  updateExecutionHitTargetPosition();
+  if (targetKind === "player") {
+    executionHitDurationCurrent = playerHitDuration * hitScale;
+    executionHitFadeDurationCurrent = playerHitFadeDuration * hitScale;
+    startHitSequence(
+      executionHitSequence,
+      scene,
+      executionHitTargetPosition,
+      buildPlayerHitSequenceConfig(
+        "executionHitEffect",
+        executionHitDurationCurrent,
+        executionHitFadeDurationCurrent
+      )
+    );
+    playerState = "hit-a";
+    return;
+  }
+  executionHitDurationCurrent = npcHitDuration * hitScale;
+  executionHitFadeDurationCurrent = npcHitFadeDuration * hitScale;
+  startHitSequence(
+    executionHitSequence,
+    scene,
+    executionHitTargetPosition,
+    buildNpcHitSequenceConfig(
+      "executionHitEffect",
+      executionHitDurationCurrent,
+      executionHitFadeDurationCurrent
+    )
+  );
+  const npc = npcs[npcIndex!];
+  npc.state = "hit-a";
+  npc.sprite.cellIndex = 1;
+};
+
+const updateExecutionHitEffect = (delta: number) => {
+  if (executionHitSequence.phase === "none") {
+    return;
+  }
+  updateExecutionHitTargetPosition();
+  const config =
+    executionHitTargetKind === "player"
+      ? buildPlayerHitSequenceConfig(
+          "executionHitEffect",
+          executionHitDurationCurrent,
+          executionHitFadeDurationCurrent
+        )
+      : buildNpcHitSequenceConfig(
+          "executionHitEffect",
+          executionHitDurationCurrent,
+          executionHitFadeDurationCurrent
+        );
+  updateHitSequence(
+    executionHitSequence,
+    delta,
+    executionHitTargetPosition,
+    config,
+    (isColorA) => {
+      if (executionHitTargetKind === "player") {
+        playerState = isColorA ? "hit-a" : "hit-b";
+        return;
+      }
+      const npc = npcs[executionHitNpcIndex!];
+      npc.state = isColorA ? "hit-a" : "hit-b";
+    },
+    () => {
+      if (executionHitTargetKind === "player") {
+        playerState = "hit-a";
+        return;
+      }
+      const npc = npcs[executionHitNpcIndex!];
+      npc.state = "hit-a";
+      npc.sprite.cellIndex = 2;
+    },
+    () => {
+      if (executionHitTargetKind === "player") {
+        playerState = "brainwash-complete-haigure-formation";
+      } else {
+        const npc = npcs[executionHitNpcIndex!];
+        npc.state = "brainwash-complete-haigure-formation";
+        npc.sprite.cellIndex = 2;
+      }
+      executionResolved = true;
+      executionHitTargetKind = null;
+      executionHitNpcIndex = null;
+    }
+  );
+};
+
+const resetExecutionState = () => {
+  publicExecutionTriggerKey = null;
+  publicExecutionTriggerTimer = 0;
+  executionScenario = null;
+  executionWaitForFade = false;
+  executionFireCountdown = 0;
+  executionFirePending = false;
+  executionFireEffectActive = false;
+  executionFireEffectTimer = 0;
+  executionVolleyFired = false;
+  executionResolved = false;
+  executionAllowPlayerMove = false;
+  executionHitTargetKind = null;
+  executionHitNpcIndex = null;
+  executionHitDurationCurrent = playerHitDuration;
+  executionHitFadeDurationCurrent = executionHitFadeDuration;
+  disposeExecutionHitEffects();
+};
+
+const isExecutionBitVolley = (scenario: PublicExecutionScenario) =>
+  scenario.variant === "player-survivor" ||
+  scenario.variant === "npc-survivor-npc-block";
+
+const getExecutionTriggerKey = (scenario: PublicExecutionScenario) => {
+  if (scenario.variant === "player-survivor") {
+    return "player-survivor";
+  }
+  return `${scenario.variant}:${scenario.survivorNpcIndex}`;
+};
+
+const findPublicExecutionCandidate = () => {
+  const aliveNpcIndices: number[] = [];
+  for (let index = 0; index < npcs.length; index += 1) {
+    if (isAliveState(npcs[index].state)) {
+      aliveNpcIndices.push(index);
+    }
+  }
+  const playerAlive = isAliveState(playerState);
+  const aliveCount = aliveNpcIndices.length + (playerAlive ? 1 : 0);
+  if (aliveCount !== 1) {
+    return null;
+  }
+  if (playerAlive) {
+    for (const npc of npcs) {
+      if (
+        npc.state === "brainwash-complete-no-gun" &&
+        npc.blockTargetId === "player"
+      ) {
+        return { variant: "player-survivor" } as const;
+      }
+    }
+    return null;
+  }
+
+  const survivorNpcIndex = aliveNpcIndices[0];
+  const survivorNpc = npcs[survivorNpcIndex];
+  if (survivorNpc.blockedByPlayer) {
+    return {
+      variant: "npc-survivor-player-block",
+      survivorNpcIndex
+    } as const;
+  }
+
+  const targetId = `npc_${survivorNpcIndex}`;
+  for (const npc of npcs) {
+    if (
+      npc.state === "brainwash-complete-no-gun" &&
+      npc.blockTargetId === targetId
+    ) {
+      return { variant: "npc-survivor-npc-block", survivorNpcIndex } as const;
+    }
+  }
+  return null;
+};
+
+const enterPublicExecution = (scenario: PublicExecutionScenario) => {
+  executionScenario = scenario;
+  executionWaitForFade = true;
+  executionFireCountdown = 0;
+  executionFirePending = false;
+  executionFireEffectActive = false;
+  executionFireEffectTimer = 0;
+  executionVolleyFired = false;
+  executionResolved = false;
+  executionAllowPlayerMove = scenario.variant === "npc-survivor-player-block";
+  executionHitTargetKind = null;
+  executionHitNpcIndex = null;
+  executionHitDurationCurrent = playerHitDuration;
+  executionHitFadeDurationCurrent = executionHitFadeDuration;
+  disposeExecutionHitEffects();
+  if (!executionAllowPlayerMove) {
+    resetPlayerMoveInput();
+    camera.cameraDirection.set(0, 0, 0);
+  }
+  gameFlow.enterExecution(scenario);
+};
+
+const startPublicExecutionTransition = (scenario: PublicExecutionScenario) => {
+  publicExecutionTriggerKey = null;
+  publicExecutionTriggerTimer = 0;
+  gamePhase = "transition";
+  hud.setHudVisible(false);
+  gameFlow.beginFadeOut(() => {
+    removeCarpetFollowers();
+    enterPublicExecution(scenario);
+  });
+};
+
+const setExecutionAimPosition = (
+  scenario: PublicExecutionScenario,
+  out: Vector3
+) => {
+  if (scenario.variant === "player-survivor") {
+    out.set(camera.position.x, eyeHeight, camera.position.z);
+    return;
+  }
+  const survivorNpc = npcs[scenario.survivorNpcIndex];
+  out.set(
+    survivorNpc.sprite.position.x,
+    eyeHeight,
+    survivorNpc.sprite.position.z
+  );
+};
+
+const startExecutionBitFireEffects = (targetPosition: Vector3) => {
+  for (const bit of bits) {
+    bit.root.lookAt(targetPosition);
+    const muzzlePosition = bit.muzzle.getAbsolutePosition();
+    const direction = targetPosition.subtract(muzzlePosition);
+    if (direction.lengthSquared() <= 0.0001) {
+      continue;
+    }
+    bit.fireLockDirection.copyFrom(direction.normalize());
+    startBitFireEffect(bit);
+  }
+};
+
+const updateExecutionBitFireEffects = (delta: number) => {
+  for (const bit of bits) {
+    updateBitFireEffect(bit, delta);
+  }
+};
+
+const spawnExecutionBeamVolley = (
+  scenario: PublicExecutionScenario,
+  targetPosition: Vector3
+) => {
+  const targetingPlayer = scenario.variant === "player-survivor";
+  for (const bit of bits) {
+    const muzzlePosition = bit.muzzle.getAbsolutePosition();
+    const direction = targetPosition.subtract(muzzlePosition);
+    if (direction.lengthSquared() <= 0.0001) {
+      continue;
+    }
+    const normalized = direction.normalize();
+    beams.push(
+      createBeam(
+        scene,
+        muzzlePosition.clone(),
+        normalized,
+        beamMaterial,
+        bit.id
+      )
+    );
+    bitSoundEvents.onBeamFire(bit, targetingPlayer);
+    stopBitFireEffect(bit);
+  }
+};
+
+const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
+  if (!isExecutionBitVolley(scenario)) {
+    return;
+  }
+  if (!executionVolleyFired) {
+    return;
+  }
+  const skipNpcIndex =
+    scenario.variant === "player-survivor" ? -1 : scenario.survivorNpcIndex;
+  for (const beam of beams) {
+    if (!beam.active) {
+      continue;
+    }
+    if (!isBitSource(beam.sourceId)) {
+      continue;
+    }
+
+    let hitTarget = false;
+    let hitAny = false;
+
+    if (scenario.variant === "player-survivor") {
+      executionCollisionPosition.set(
+        camera.position.x,
+        eyeHeight,
+        camera.position.z
+      );
+      if (
+        isBeamHittingTarget(
+          beam,
+          executionCollisionPosition,
+          playerHitRadius
+        )
+      ) {
+        hitAny = true;
+        hitTarget = true;
+      }
+    } else {
+      const survivorNpc = npcs[scenario.survivorNpcIndex];
+      executionCollisionPosition.set(
+        survivorNpc.sprite.position.x,
+        eyeHeight,
+        survivorNpc.sprite.position.z
+      );
+      if (
+        isBeamHittingTarget(
+          beam,
+          executionCollisionPosition,
+          npcHitRadius
+        )
+      ) {
+        hitAny = true;
+        hitTarget = true;
+      }
+    }
+
+    if (
+      !hitAny &&
+      scenario.variant === "npc-survivor-npc-block"
+    ) {
+      executionCollisionPosition.set(
+        playerAvatar.position.x,
+        eyeHeight,
+        playerAvatar.position.z
+      );
+      if (
+        isBeamHittingTarget(
+          beam,
+          executionCollisionPosition,
+          playerHitRadius
+        )
+      ) {
+        hitAny = true;
+      }
+    }
+
+    if (!hitAny) {
+      for (let index = 0; index < npcs.length; index += 1) {
+        if (index === skipNpcIndex) {
+          continue;
+        }
+        const npc = npcs[index];
+        executionCollisionPosition.set(
+          npc.sprite.position.x,
+          eyeHeight,
+          npc.sprite.position.z
+        );
+        if (
+          isBeamHittingTarget(
+            beam,
+            executionCollisionPosition,
+            npcHitRadius
+          )
+        ) {
+          hitAny = true;
+          break;
+        }
+      }
+    }
+
+    if (!hitAny) {
+      continue;
+    }
+
+    const impactPosition = getBeamImpactPosition(beam);
+    beginBeamRetract(beam, impactPosition);
+    if (hitTarget && executionHitSequence.phase === "none") {
+      const hitScale = isRedBitSource(beam.sourceId)
+        ? redHitDurationScale
+        : 1;
+      if (scenario.variant === "player-survivor") {
+        beginExecutionHit("player", null, hitScale);
+      } else {
+        beginExecutionHit("npc", scenario.survivorNpcIndex, hitScale);
+      }
+    }
+  }
+};
+
+const updatePlayerMovement = (delta: number, allowMove: boolean) => {
+  if (!allowMove) {
+    return;
+  }
+  let moveX = 0;
+  let moveZ = 0;
+  if (playerMoveInput.forward) {
+    moveZ += 1;
+  }
+  if (playerMoveInput.back) {
+    moveZ -= 1;
+  }
+  if (playerMoveInput.right) {
+    moveX += 1;
+  }
+  if (playerMoveInput.left) {
+    moveX -= 1;
+  }
+  if (moveX !== 0 || moveZ !== 0) {
+    const forward = camera.getDirection(new Vector3(0, 0, 1));
+    forward.y = 0;
+    const right = camera.getDirection(new Vector3(1, 0, 0));
+    right.y = 0;
+    const moveDirection = new Vector3(0, 0, 0);
+    if (moveZ !== 0 && forward.lengthSquared() > 0.0001) {
+      moveDirection.addInPlace(forward.scale(moveZ));
+    }
+    if (moveX !== 0 && right.lengthSquared() > 0.0001) {
+      moveDirection.addInPlace(right.scale(moveX));
+    }
+    if (moveDirection.lengthSquared() > 0.0001) {
+      camera.cameraDirection.addInPlace(
+        moveDirection.scale(playerMoveSpeed * delta)
+      );
+    }
+  }
+};
+
+const getBeamImpactPosition = (beam: Beam) =>
+  beam.tip.position.add(
+    Vector3.Normalize(beam.velocity).scale(beam.tipRadius)
+  );
+
+const updateExecutionScene = (delta: number) => {
+  updateBeams(layout, beams, bounds, delta, beamTrails, beamImpactOrbs);
+  gameFlow.updateExecution();
+  updateExecutionHitEffect(delta);
+
+  const scenario = executionScenario!;
+  if (executionFireEffectActive) {
+    executionFireEffectTimer = Math.max(
+      0,
+      executionFireEffectTimer - delta
+    );
+    updateExecutionBitFireEffects(delta);
+    if (executionFireEffectTimer <= 0) {
+      executionFireEffectActive = false;
+      executionVolleyFired = true;
+      spawnExecutionBeamVolley(scenario, executionFireTargetPosition);
+    }
+  }
+  handleExecutionBeamCollisions(scenario);
+  if (executionResolved) {
+    return;
+  }
+  if (executionHitSequence.phase !== "none") {
+    return;
+  }
+
+  if (executionAllowPlayerMove) {
+    updatePlayerMovement(delta, true);
+  }
+
+  if (executionWaitForFade && !gameFlow.isFading()) {
+    executionWaitForFade = false;
+    if (isExecutionBitVolley(scenario)) {
+      executionFireCountdown =
+        publicExecutionBeamDelayMin +
+        Math.random() *
+          (publicExecutionBeamDelayMax - publicExecutionBeamDelayMin);
+      executionFirePending = true;
+    }
+  }
+
+  if (executionFirePending) {
+    executionFireCountdown -= delta;
+    if (executionFireCountdown <= 0) {
+      executionFirePending = false;
+      executionFireEffectActive = true;
+      executionFireEffectTimer = bitFireEffectDuration;
+      setExecutionAimPosition(scenario, executionFireTargetPosition);
+      startExecutionBitFireEffects(executionFireTargetPosition);
+    }
+  }
+
+  if (scenario.variant === "npc-survivor-player-block") {
+    const survivorNpc = npcs[scenario.survivorNpcIndex];
+    const targetPosition = survivorNpc.sprite.position;
+    for (const beam of beams) {
+      if (!beam.active) {
+        continue;
+      }
+      if (beam.sourceId !== "player") {
+        continue;
+      }
+      if (isBeamHittingTarget(beam, targetPosition, npcHitRadius)) {
+        const impactPosition = getBeamImpactPosition(beam);
+        beginBeamRetract(beam, impactPosition);
+        beginExecutionHit("npc", scenario.survivorNpcIndex, 1);
+        playerState = "brainwash-complete-haigure-formation";
+        executionAllowPlayerMove = false;
+        resetPlayerMoveInput();
+        camera.cameraDirection.set(0, 0, 0);
+        hud.setCrosshairVisible(false);
+        break;
+      }
+    }
+    return;
+  }
+
+  if (isExecutionBitVolley(scenario)) {
+    return;
+  }
 };
 
 const gameFlow = createGameFlow({
@@ -721,22 +1327,20 @@ const updatePlayerState = (delta: number, elapsed: number) => {
         );
         beginBeamRetract(beam, impactPosition);
         playerState = "hit-a";
-        playerHitTimer = playerHitDuration * hitScale;
-        playerFadeTimer = 0;
         playerHitById = beam.sourceId;
         playerHitTime = elapsed;
+        playerHitDurationCurrent = playerHitDuration * hitScale;
         playerHitFadeDurationCurrent = playerHitFadeDuration * hitScale;
-        const { mesh: effect, material } = createHitEffectMesh(scene, {
-          name: "playerHitEffect",
-          diameter: playerHitEffectDiameter,
-          color: playerHitColorA,
-          alpha: playerHitEffectAlpha,
-          sideOrientation: Mesh.DOUBLESIDE,
-          backFaceCulling: false
-        });
-        effect.position.copyFrom(centerPosition);
-        playerHitEffect = effect;
-        playerHitEffectMaterial = material;
+        startHitSequence(
+          playerHitSequence,
+          scene,
+          centerPosition,
+          buildPlayerHitSequenceConfig(
+            "playerHitEffect",
+            playerHitDurationCurrent,
+            playerHitFadeDurationCurrent
+          )
+        );
         const hitPosition = centerPosition.clone();
         sfxDirector.playHit(() => hitPosition);
         break;
@@ -744,73 +1348,42 @@ const updatePlayerState = (delta: number, elapsed: number) => {
     }
   }
 
-  if (isHitState(playerState)) {
-    playerHitTimer -= delta;
-    if (playerHitTimer > 0) {
-      const phase =
-        Math.floor(elapsed / playerHitFlickerInterval) % 2 === 0;
-      const color = phase ? playerHitColorA : playerHitColorB;
-      playerState = phase ? "hit-a" : "hit-b";
-      if (playerHitEffect) {
-        playerHitEffect.position.copyFrom(centerPosition);
-        if (playerHitEffectMaterial) {
-          playerHitEffectMaterial.emissiveColor.copyFrom(color);
-          playerHitEffectMaterial.diffuseColor.copyFrom(color);
-          playerHitEffectMaterial.alpha = playerHitEffectAlpha;
-        }
-      }
-    } else {
-      if (playerFadeTimer === 0) {
-        playerFadeTimer = playerHitFadeDurationCurrent;
-        playerHitOrbs = createHitFadeOrbs(
-          scene,
-          centerPosition.clone(),
-          playerHitEffectMaterial!,
-          playerHitEffectDiameter / 2,
-          playerHitFadeOrbConfig
-        );
-      }
-      playerState = "hit-a";
-      playerFadeTimer = Math.max(0, playerFadeTimer - delta);
-      if (playerHitEffect) {
-        playerHitEffect.position.copyFrom(centerPosition);
-        if (playerHitEffectMaterial) {
-          playerHitEffectMaterial.emissiveColor.copyFrom(playerHitColorA);
-          playerHitEffectMaterial.diffuseColor.copyFrom(playerHitColorA);
-          playerHitEffectMaterial.alpha =
-            playerHitEffectAlpha *
-            (playerFadeTimer / playerHitFadeDurationCurrent);
-        }
-      }
-      updateHitFadeOrbs(playerHitOrbs, delta);
-      if (playerFadeTimer <= 0) {
+  if (playerHitSequence.phase !== "none") {
+    updateHitSequence(
+      playerHitSequence,
+      delta,
+      centerPosition,
+      buildPlayerHitSequenceConfig(
+        "playerHitEffect",
+        playerHitDurationCurrent,
+        playerHitFadeDurationCurrent
+      ),
+      (isColorA) => {
+        playerState = isColorA ? "hit-a" : "hit-b";
+      },
+      () => {
+        playerState = "hit-a";
+      },
+      () => {
         playerState = "brainwash-in-progress";
         if (!brainwashChoiceStarted) {
           brainwashChoiceStarted = true;
           brainwashChoiceUnlocked = true;
         }
-        if (playerHitEffect) {
-          playerHitEffect.dispose();
-          playerHitEffect = null;
-          playerHitEffectMaterial = null;
-        }
-        for (const orb of playerHitOrbs) {
-          orb.mesh.dispose();
-        }
-        playerHitOrbs = [];
-      }
-    }
+      },
+      elapsed
+    );
   }
 
 };
 
 const resetGame = () => {
   stopAllVoices();
+  resetExecutionState();
   playerState = "normal";
-  playerHitTimer = 0;
-  playerFadeTimer = 0;
   playerHitById = null;
   playerHitTime = 0;
+  playerHitDurationCurrent = playerHitDuration;
   playerHitFadeDurationCurrent = playerHitFadeDuration;
   brainwashChoiceStarted = false;
   brainwashChoiceUnlocked = false;
@@ -939,6 +1512,13 @@ setupInputHandlers({
   onReturnToTitle: () => {
     returnToTitle();
   },
+  onReplayExecution: () => {
+    gamePhase = "transition";
+    hud.setHudVisible(false);
+    gameFlow.beginFadeOut(() => {
+      enterPublicExecution(executionScenario!);
+    });
+  },
   onSelectBrainwashOption: (state) => {
     playerState = state;
   },
@@ -1005,39 +1585,22 @@ engine.runRenderLoop(() => {
       playerState === "brainwash-complete-gun" ||
       playerState === "brainwash-complete-no-gun";
     const allowMove = canMove && !playerBlockedByNpc;
-    if (allowMove) {
-      let moveX = 0;
-      let moveZ = 0;
-      if (playerMoveInput.forward) {
-        moveZ += 1;
+    updatePlayerMovement(delta, allowMove);
+
+    const executionCandidate = findPublicExecutionCandidate();
+    if (executionCandidate) {
+      const candidateKey = getExecutionTriggerKey(executionCandidate);
+      if (publicExecutionTriggerKey !== candidateKey) {
+        publicExecutionTriggerKey = candidateKey;
+        publicExecutionTriggerTimer = 0;
       }
-      if (playerMoveInput.back) {
-        moveZ -= 1;
+      publicExecutionTriggerTimer += delta;
+      if (publicExecutionTriggerTimer >= publicExecutionTransitionDelay) {
+        startPublicExecutionTransition(executionCandidate);
       }
-      if (playerMoveInput.right) {
-        moveX += 1;
-      }
-      if (playerMoveInput.left) {
-        moveX -= 1;
-      }
-      if (moveX !== 0 || moveZ !== 0) {
-        const forward = camera.getDirection(new Vector3(0, 0, 1));
-        forward.y = 0;
-        const right = camera.getDirection(new Vector3(1, 0, 0));
-        right.y = 0;
-        const moveDirection = new Vector3(0, 0, 0);
-        if (moveZ !== 0 && forward.lengthSquared() > 0.0001) {
-          moveDirection.addInPlace(forward.scale(moveZ));
-        }
-        if (moveX !== 0 && right.lengthSquared() > 0.0001) {
-          moveDirection.addInPlace(right.scale(moveX));
-        }
-        if (moveDirection.lengthSquared() > 0.0001) {
-          camera.cameraDirection.addInPlace(
-            moveDirection.scale(playerMoveSpeed * delta)
-          );
-        }
-      }
+    } else {
+      publicExecutionTriggerKey = null;
+      publicExecutionTriggerTimer = 0;
     }
 
     let npcAlive = false;
@@ -1155,6 +1718,10 @@ engine.runRenderLoop(() => {
             : "normal";
       }
     }
+  }
+
+  if (gamePhase === "execution") {
+    updateExecutionScene(delta);
   }
 
   if (gamePhase === "assemblyMove" || gamePhase === "assemblyHold") {

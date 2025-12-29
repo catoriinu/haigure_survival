@@ -16,6 +16,7 @@ export type InputHandlerOptions = {
   onStartGame: () => void;
   onEnterEpilogue: () => void;
   onReturnToTitle: () => void;
+  onReplayExecution: () => void;
   onSelectBrainwashOption: (state: CharacterState) => void;
   onMoveKey: (
     key: "forward" | "back" | "left" | "right",
@@ -36,6 +37,7 @@ export const setupInputHandlers = ({
   onStartGame,
   onEnterEpilogue,
   onReturnToTitle,
+  onReplayExecution,
   onSelectBrainwashOption,
   onMoveKey,
   onPlayerFire
@@ -77,7 +79,11 @@ export const setupInputHandlers = ({
         onEnterEpilogue();
         return;
       }
-      if (gamePhase === "assemblyMove" || gamePhase === "assemblyHold") {
+      if (
+        gamePhase === "assemblyMove" ||
+        gamePhase === "assemblyHold" ||
+        gamePhase === "execution"
+      ) {
         onReturnToTitle();
       }
     }
@@ -101,6 +107,10 @@ export const setupInputHandlers = ({
         onSelectBrainwashOption("brainwash-complete-haigure");
       }
     }
+
+    if (gamePhase === "execution" && event.code === "Digit1") {
+      onReplayExecution();
+    }
   });
 
   window.addEventListener("keyup", (event) => {
@@ -119,7 +129,7 @@ export const setupInputHandlers = ({
       onStartGame();
       return;
     }
-    if (gamePhase !== "playing") {
+    if (gamePhase !== "playing" && gamePhase !== "execution") {
       return;
     }
     if (getPlayerState() !== "brainwash-complete-gun") {

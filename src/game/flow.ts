@@ -9,9 +9,15 @@ export type GamePhase =
   | "playing"
   | "transition"
   | "assemblyMove"
-  | "assemblyHold";
+  | "assemblyHold"
+  | "execution";
 
 export type AssemblyMode = "move" | "instant";
+
+export type ExecutionConfig =
+  | { variant: "player-survivor" }
+  | { variant: "npc-survivor-player-block"; survivorNpcIndex: number }
+  | { variant: "npc-survivor-npc-block"; survivorNpcIndex: number };
 
 type AssemblyRoute = {
   waypoints: Vector3[];
@@ -68,6 +74,17 @@ export const createGameFlow = ({
   const assemblyOrbitRadius = 14 * unitScale;
   const assemblyOrbitSpeed = 0.4;
   const assemblyOrbitHeight = 4 * unitScale;
+  const executionOrbitRadius = assemblyOrbitRadius;
+  const executionOrbitHeight = eyeHeight;
+  const executionNpcRingPadding = layout.cellSize * 0.4;
+  const executionNpcRingMaxRadius = Math.min(
+    ((assemblyRoom.width - 1) * layout.cellSize) / 2,
+    ((assemblyRoom.height - 1) * layout.cellSize) / 2
+  );
+  const executionNpcRingRadius = Math.min(
+    executionNpcRingMaxRadius,
+    executionOrbitRadius + executionNpcRingPadding
+  );
   const fadeDuration = 0.8;
   const halfWidth = (layout.columns * layout.cellSize) / 2;
   const halfDepth = (layout.rows * layout.cellSize) / 2;
@@ -78,6 +95,14 @@ export const createGameFlow = ({
     -halfDepth +
       layout.cellSize * (assemblyRoom.startRow + assemblyRoom.height / 2)
   );
+  const assemblyRoomRows = Array.from(
+    { length: assemblyRoom.height },
+    (_, index) => assemblyRoom.startRow + index
+  );
+  const assemblyRoomCols = Array.from(
+    { length: assemblyRoom.width },
+    (_, index) => assemblyRoom.startCol + index
+  );
 
   let assemblyPlayerTarget = assemblyCenter.clone();
   let assemblyNpcTargets: Vector3[] = [];
@@ -87,6 +112,7 @@ export const createGameFlow = ({
   let fadeOpacity = 0;
   let fadePhase: "none" | "out" | "in" = "none";
   let fadeNext: (() => void) | null = null;
+  let executionCameraFollowAvatar = false;
 
   type GridCell = {
     row: number;
@@ -217,6 +243,35 @@ export const createGameFlow = ({
     return { waypoints, index: 0 };
   };
 
+  const createRoomSlots = (rowOrder: number[]) => {
+    const slots: Vector3[] = [];
+    for (const row of rowOrder) {
+      for (const col of assemblyRoomCols) {
+        slots.push(cellToWorld({ row, col }, playerCenterHeight));
+      }
+    }
+    return slots;
+  };
+
+  const createExecutionRingSlots = (center: Vector3, count: number) => {
+    if (count <= 0) {
+      return [];
+    }
+    const slots: Vector3[] = [];
+    const angleStep = (Math.PI * 2) / count;
+    for (let index = 0; index < count; index += 1) {
+      const angle = angleStep * index;
+      slots.push(
+        new Vector3(
+          center.x + Math.cos(angle) * executionNpcRingRadius,
+          playerCenterHeight,
+          center.z + Math.sin(angle) * executionNpcRingRadius
+        )
+      );
+    }
+    return slots;
+  };
+
   const moveSpriteToTarget = (
     sprite: Sprite,
     target: Vector3,
@@ -260,6 +315,18 @@ export const createGameFlow = ({
     return true;
   };
 
+  const finalizeNpcEffects = (npc: Npc) => {
+    if (npc.hitEffect) {
+      npc.hitEffect.dispose();
+      npc.hitEffect = null;
+      npc.hitEffectMaterial = null;
+    }
+    for (const orb of npc.fadeOrbs) {
+      orb.mesh.dispose();
+    }
+    npc.fadeOrbs = [];
+  };
+
   const updateBitsOrbit = (delta: number) => {
     if (bits.length === 0) {
       return;
@@ -282,6 +349,29 @@ export const createGameFlow = ({
     }
   };
 
+  const placeBitsAround = (center: Vector3) => {
+    if (bits.length === 0) {
+      return;
+    }
+    const angleStep = (Math.PI * 2) / bits.length;
+    for (let index = 0; index < bits.length; index += 1) {
+      const bit = bits[index];
+      const angle = angleStep * index;
+      bit.root.setEnabled(true);
+      bit.root.position.x = center.x + Math.cos(angle) * executionOrbitRadius;
+      bit.root.position.z = center.z + Math.sin(angle) * executionOrbitRadius;
+      bit.root.position.y = executionOrbitHeight;
+      bit.baseHeight = executionOrbitHeight;
+      bit.root.lookAt(center);
+    }
+  };
+
+  const setBitsEnabled = (enabled: boolean) => {
+    for (const bit of bits) {
+      bit.root.setEnabled(enabled);
+    }
+  };
+
   const enterAssembly = (mode: AssemblyMode) => {
     stopAlertLoop();
     setBitSpawnEnabled(false);
@@ -290,6 +380,7 @@ export const createGameFlow = ({
     hud.setHudVisible(false);
     hud.setTitleVisible(false);
     hud.setStateInfo("press Enter to title");
+    hud.setCrosshairVisible(false);
     setPlayerState("brainwash-complete-haigure-formation");
     const playerStartPosition = new Vector3(
       camera.position.x,
@@ -308,15 +399,7 @@ export const createGameFlow = ({
       npc.state = "brainwash-complete-haigure-formation";
       npc.sprite.cellIndex = 2;
       npc.sprite.position.y = playerCenterHeight;
-      if (npc.hitEffect) {
-        npc.hitEffect.dispose();
-        npc.hitEffect = null;
-        npc.hitEffectMaterial = null;
-      }
-      for (const orb of npc.fadeOrbs) {
-        orb.mesh.dispose();
-      }
-      npc.fadeOrbs = [];
+      finalizeNpcEffects(npc);
     }
 
     disposePlayerHitEffects();
@@ -343,6 +426,110 @@ export const createGameFlow = ({
       buildAssemblyRoute(npc.sprite.position, assemblyNpcTargets[index])
     );
     setGamePhase("assemblyMove");
+  };
+
+  const enterExecution = (config: ExecutionConfig) => {
+    stopAlertLoop();
+    setBitSpawnEnabled(false);
+    clearBeams();
+    assemblyElapsed = 0;
+    hud.setHudVisible(false);
+    hud.setTitleVisible(false);
+    hud.setStateInfo("press Enter to title");
+    hud.setCrosshairVisible(config.variant === "npc-survivor-player-block");
+
+    disposePlayerHitEffects();
+    for (const bit of bits) {
+      finalizeBitVisuals(bit);
+    }
+
+    for (const npc of npcs) {
+      npc.sprite.position.y = playerCenterHeight;
+      finalizeNpcEffects(npc);
+    }
+
+    const executionCenter = new Vector3(
+      assemblyCenter.x,
+      playerCenterHeight,
+      assemblyCenter.z
+    );
+    const frontRowOrder = [...assemblyRoomRows];
+    const frontRowCenterIndex = Math.floor((assemblyRoomCols.length - 1) / 2);
+    const frontSlots = createRoomSlots(frontRowOrder);
+    const placeNpcRing = (npcIndices: number[]) => {
+      const ringSlots = createExecutionRingSlots(
+        executionCenter,
+        npcIndices.length
+      );
+      for (let index = 0; index < npcIndices.length; index += 1) {
+        const npc = npcs[npcIndices[index]];
+        npc.state = "brainwash-complete-haigure-formation";
+        npc.sprite.cellIndex = 2;
+        npc.sprite.position.copyFrom(ringSlots[index]);
+      }
+    };
+
+    if (config.variant === "player-survivor") {
+      executionCameraFollowAvatar = false;
+      setPlayerState("evade");
+      playerAvatar.isVisible = false;
+      camera.position.set(
+        executionCenter.x,
+        eyeHeight,
+        executionCenter.z
+      );
+      camera.setTarget(
+        new Vector3(executionCenter.x, eyeHeight, executionCenter.z + 1)
+      );
+
+      placeNpcRing(npcs.map((_, index) => index));
+      setBitsEnabled(true);
+      placeBitsAround(executionCenter);
+      setGamePhase("execution");
+      return;
+    }
+
+    const survivorNpc = npcs[config.survivorNpcIndex];
+    survivorNpc.state = "evade";
+    survivorNpc.sprite.cellIndex = 0;
+    survivorNpc.sprite.position.copyFrom(executionCenter);
+
+    if (config.variant === "npc-survivor-player-block") {
+      executionCameraFollowAvatar = false;
+      setPlayerState("brainwash-complete-gun");
+      playerAvatar.isVisible = false;
+      const playerTarget = frontSlots[frontRowCenterIndex];
+      camera.position.set(playerTarget.x, eyeHeight, playerTarget.z);
+      camera.setTarget(executionCenter);
+
+      const npcIndices = npcs
+        .map((_, index) => index)
+        .filter((index) => index !== config.survivorNpcIndex);
+      placeNpcRing(npcIndices);
+      setBitsEnabled(false);
+      setGamePhase("execution");
+      return;
+    }
+
+    executionCameraFollowAvatar = true;
+    setPlayerState("brainwash-complete-haigure-formation");
+    playerAvatar.isVisible = true;
+    playerAvatar.cellIndex = 2;
+    playerAvatar.position.copyFrom(frontSlots[frontRowCenterIndex]);
+    camera.position.set(
+      playerAvatar.position.x,
+      eyeHeight,
+      playerAvatar.position.z
+    );
+    camera.setTarget(executionCenter);
+
+    const npcIndices = npcs
+      .map((_, index) => index)
+      .filter((index) => index !== config.survivorNpcIndex);
+    placeNpcRing(npcIndices);
+    setBitsEnabled(true);
+    placeBitsAround(executionCenter);
+    setGamePhase("execution");
   };
 
   const updateAssembly = (delta: number) => {
@@ -373,6 +560,15 @@ export const createGameFlow = ({
     if (allArrived) {
       setGamePhase("assemblyHold");
     }
+  };
+
+  const updateExecution = () => {
+    if (!executionCameraFollowAvatar) {
+      return;
+    }
+    camera.position.x = playerAvatar.position.x;
+    camera.position.z = playerAvatar.position.z;
+    camera.position.y = eyeHeight;
   };
 
   const beginFadeOut = (next: () => void) => {
@@ -416,9 +612,12 @@ export const createGameFlow = ({
 
   return {
     enterAssembly,
+    enterExecution,
     updateAssembly,
+    updateExecution,
     beginFadeOut,
     updateFade,
-    resetFade
+    resetFade,
+    isFading: () => fadePhase !== "none"
   };
 };

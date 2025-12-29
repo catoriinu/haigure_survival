@@ -18,6 +18,7 @@ export type Hud = {
   setTitleVisible: (visible: boolean) => void;
   setStateInfo: (text: string | null) => void;
   setFadeOpacity: (value: number) => void;
+  setCrosshairVisible: (visible: boolean) => void;
   drawMinimap: (params: DrawMinimapParams) => void;
 };
 
@@ -74,6 +75,10 @@ export const createHud = (): Hud => {
 
   const setFadeOpacity = (value: number) => {
     fadeOverlay.style.opacity = value.toFixed(2);
+  };
+
+  const setCrosshairVisible = (visible: boolean) => {
+    crosshair.style.display = visible ? "block" : "none";
   };
 
   const drawMinimap = ({
@@ -172,5 +177,12 @@ export const createHud = (): Hud => {
     crosshair.style.display = showCrosshair ? "block" : "none";
   };
 
-  return { setHudVisible, setTitleVisible, setStateInfo, setFadeOpacity, drawMinimap };
+  return {
+    setHudVisible,
+    setTitleVisible,
+    setStateInfo,
+    setFadeOpacity,
+    setCrosshairVisible,
+    drawMinimap
+  };
 };

@@ -117,7 +117,7 @@ const bitBodyHeight = 1.8 * unitScale;
 const bitBodyDiameter = 1.4 * unitScale;
 const bitMuzzleDiameter = 0.35 * unitScale;
 const bitMuzzleOffsetZ = bitBodyHeight / 2 + 0.25 * unitScale;
-const bitFireEffectDuration = 0.32;
+export const bitFireEffectDuration = 0.32;
 const bitFireConeSweepDuration = 0.07;
 const bitFireConeFadeDuration = 0.06;
 const bitFireConeBandWidth = 0.22;
@@ -788,7 +788,7 @@ const updateBitFireShot = (bit: Bit, time: number) => {
   }
 };
 
-const updateBitFireEffect = (bit: Bit, delta: number) => {
+export const updateBitFireEffect = (bit: Bit, delta: number) => {
   if (!bit.fireEffectActive || !bit.fireEffect) {
     return;
   }
@@ -802,7 +802,7 @@ const updateBitFireEffect = (bit: Bit, delta: number) => {
   updateBitFireShot(bit, time);
 };
 
-const startBitFireEffect = (bit: Bit) => {
+export const startBitFireEffect = (bit: Bit) => {
   if (!bit.fireEffect) {
     bit.fireEffect = createBitFireEffect(
       bit.root.getScene(),
@@ -817,7 +817,7 @@ const startBitFireEffect = (bit: Bit) => {
   bit.fireEffect.shot.setEnabled(false);
 };
 
-const stopBitFireEffect = (bit: Bit) => {
+export const stopBitFireEffect = (bit: Bit) => {
   bit.fireEffectActive = false;
   bit.fireEffectTimer = 0;
   if (bit.fireEffect) {

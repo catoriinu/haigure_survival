@@ -127,3 +127,139 @@ export const updateHitFadeOrbs = (
     orb.mesh.scaling.set(clampedScale, clampedScale, clampedScale);
   }
 };
+
+export type HitSequenceState = {
+  phase: "none" | "flicker" | "fade";
+  timer: number;
+  elapsed: number;
+  effect: Mesh | null;
+  material: StandardMaterial | null;
+  orbs: HitFadeOrb[];
+};
+
+export type HitSequenceConfig = {
+  hitDuration: number;
+  fadeDuration: number;
+  flickerInterval: number;
+  colorA: Color3;
+  colorB: Color3;
+  effectAlpha: number;
+  effectDiameter: number;
+  fadeOrbConfig: HitFadeOrbConfig;
+  effectName: string;
+  sideOrientation?: number;
+  backFaceCulling?: boolean;
+};
+
+export const createHitSequenceState = (): HitSequenceState => ({
+  phase: "none",
+  timer: 0,
+  elapsed: 0,
+  effect: null,
+  material: null,
+  orbs: []
+});
+
+export const resetHitSequenceState = (state: HitSequenceState) => {
+  if (state.effect) {
+    state.effect.dispose();
+    state.effect = null;
+  }
+  state.material = null;
+  for (const orb of state.orbs) {
+    orb.mesh.dispose();
+  }
+  state.orbs = [];
+  state.timer = 0;
+  state.elapsed = 0;
+  state.phase = "none";
+};
+
+export const startHitSequence = (
+  state: HitSequenceState,
+  scene: Scene,
+  position: Vector3,
+  config: HitSequenceConfig
+) => {
+  resetHitSequenceState(state);
+  const options: HitEffectMeshOptions = {
+    name: config.effectName,
+    diameter: config.effectDiameter,
+    color: config.colorA,
+    alpha: config.effectAlpha
+  };
+  if (config.sideOrientation !== undefined) {
+    options.sideOrientation = config.sideOrientation;
+  }
+  if (config.backFaceCulling !== undefined) {
+    options.backFaceCulling = config.backFaceCulling;
+  }
+  const { mesh: effect, material } = createHitEffectMesh(scene, options);
+  effect.position.copyFrom(position);
+  state.effect = effect;
+  state.material = material;
+  state.phase = "flicker";
+  state.timer = config.hitDuration;
+  state.elapsed = 0;
+};
+
+export const updateHitSequence = (
+  state: HitSequenceState,
+  delta: number,
+  position: Vector3,
+  config: HitSequenceConfig,
+  onFlicker: (isColorA: boolean) => void,
+  onFadeStart: (() => void) | null,
+  onComplete: (() => void) | null,
+  flickerElapsed?: number
+) => {
+  if (state.phase === "none") {
+    return;
+  }
+  state.effect!.position.copyFrom(position);
+
+  if (state.phase === "flicker") {
+    if (flickerElapsed === undefined) {
+      state.elapsed += delta;
+    } else {
+      state.elapsed = flickerElapsed;
+    }
+    state.timer -= delta;
+    const isColorA =
+      Math.floor(state.elapsed / config.flickerInterval) % 2 === 0;
+    const color = isColorA ? config.colorA : config.colorB;
+    state.material!.emissiveColor.copyFrom(color);
+    state.material!.diffuseColor.copyFrom(color);
+    state.material!.alpha = config.effectAlpha;
+    onFlicker(isColorA);
+    if (state.timer > 0) {
+      return;
+    }
+    state.phase = "fade";
+    state.timer = config.fadeDuration;
+    state.orbs = createHitFadeOrbs(
+      state.effect!.getScene(),
+      position.clone(),
+      state.material!,
+      config.effectDiameter / 2,
+      config.fadeOrbConfig
+    );
+    state.material!.emissiveColor.copyFrom(config.colorA);
+    state.material!.diffuseColor.copyFrom(config.colorA);
+    state.material!.alpha = config.effectAlpha;
+    if (onFadeStart) {
+      onFadeStart();
+    }
+  }
+
+  state.timer = Math.max(0, state.timer - delta);
+  const fadeScale = state.timer / config.fadeDuration;
+  state.material!.alpha = config.effectAlpha * fadeScale;
+  updateHitFadeOrbs(state.orbs, delta, fadeScale);
+  if (state.timer <= 0) {
+    if (onComplete) {
+      onComplete();
+    }
+    resetHitSequenceState(state);
+  }
+};

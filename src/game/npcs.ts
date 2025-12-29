@@ -29,21 +29,24 @@ import { beginBeamRetract } from "./beams";
 const unitScale = 0.5;
 const npcCellSize = 128;
 const npcFrameCount = 4;
-const npcSpriteWidth = 2.2 * unitScale;
-const npcSpriteHeight = 3.3 * unitScale;
+const npcSpriteImageWidth = 330;
+const npcSpriteImageHeight = 700;
+const npcSpriteWidth = 1.2;
+const npcSpriteHeight =
+  (npcSpriteImageHeight / npcSpriteImageWidth) * npcSpriteWidth;
 const npcSpriteCenterHeight = npcSpriteHeight / 2;
 const npcSearchSpeed = 2.4 * unitScale;
 const npcEvadeSpeed = 3.0 * unitScale;
 const npcChaseSpeed = 3.6 * unitScale;
 const redHitDurationScale = 0.25;
-const npcHitDuration = 3;
-const npcHitFadeDuration = 1;
-const npcHitRadius = npcSpriteWidth * 0.5;
-const npcHitEffectDiameter = npcSpriteHeight * 1.2;
-const npcHitFlickerInterval = 0.12;
-const npcHitColorA = new Color3(1, 0.18, 0.74);
-const npcHitColorB = new Color3(0.2, 0.96, 1);
-const npcHitEffectAlpha = 0.45;
+export const npcHitDuration = 3;
+export const npcHitFadeDuration = 1;
+export const npcHitRadius = npcSpriteWidth * 0.5;
+export const npcHitEffectDiameter = npcSpriteHeight * 1.2;
+export const npcHitFlickerInterval = 0.12;
+export const npcHitColorA = new Color3(1, 0.18, 0.74);
+export const npcHitColorB = new Color3(0.2, 0.96, 1);
+export const npcHitEffectAlpha = 0.45;
 const npcBrainwashDecisionDelay = 10;
 const npcBrainwashStayChance = 0.5;
 const npcBrainwashVisionRange = 36 * unitScale;
@@ -67,7 +70,7 @@ const hitFadeOrbSurfaceOffsetMin = 0.05 * unitScale;
 const hitFadeOrbSurfaceOffsetMax = 0.4 * unitScale;
 const hitFadeOrbSpeedMin = 0.25 * unitScale;
 const hitFadeOrbSpeedMax = 0.65 * unitScale;
-const npcHitFadeOrbConfig: HitFadeOrbConfig = {
+export const npcHitFadeOrbConfig: HitFadeOrbConfig = {
   minCount: hitFadeOrbMinCount,
   maxCount: hitFadeOrbMaxCount,
   diameter: hitFadeOrbDiameter,
