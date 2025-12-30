@@ -7,6 +7,7 @@ import {
   Vector3,
   HemisphericLight,
   Color3,
+  Color4,
   Sprite,
   Mesh,
   StandardMaterial
@@ -452,8 +453,21 @@ const playerHitFlickerInterval = 0.12;
 const playerHitColorA = new Color3(1, 0.18, 0.74);
 const playerHitColorB = new Color3(0.2, 0.96, 1);
 const playerHitEffectAlpha = 0.45;
+const playerHitSpriteColorMix = 0.6;
+const toPlayerSpriteFlickerColor = (color: Color3) =>
+  new Color4(
+    color.r + (1 - color.r) * playerHitSpriteColorMix,
+    color.g + (1 - color.g) * playerHitSpriteColorMix,
+    color.b + (1 - color.b) * playerHitSpriteColorMix,
+    1
+  );
+const playerHitColorA4 = toPlayerSpriteFlickerColor(playerHitColorA);
+const playerHitColorB4 = toPlayerSpriteFlickerColor(playerHitColorB);
+const npcSpriteColorNormal = new Color4(1, 1, 1, 1);
 const playerHitLightIntensity = 1.1;
 const playerHitLightRange = playerHitEffectDiameter * 1.2;
+const playerHitEffectRadius = playerHitEffectDiameter / 2;
+const playerHitEffectRadiusSq = playerHitEffectRadius * playerHitEffectRadius;
 const playerHitOrbDiameter = 0.22;
 const playerHitOrbMinCount = 5;
 const playerHitOrbMaxCount = 20;
@@ -1424,6 +1438,27 @@ const updatePlayerState = (
     );
   }
 
+  const shouldFlickerNpcSprite =
+    playerHitSequence.phase === "flicker";
+  for (const npc of npcs) {
+    if (npc.state === "hit-a" || npc.state === "hit-b") {
+      continue;
+    }
+    const dx = npc.sprite.position.x - centerPosition.x;
+    const dy = npc.sprite.position.y - centerPosition.y;
+    const dz = npc.sprite.position.z - centerPosition.z;
+    const inside = dx * dx + dy * dy + dz * dz <= playerHitEffectRadiusSq;
+    if (shouldFlickerNpcSprite && inside) {
+      const isColorA =
+        Math.floor(elapsed / playerHitFlickerInterval) % 2 === 0;
+      npc.sprite.color.copyFrom(
+        isColorA ? playerHitColorA4 : playerHitColorB4
+      );
+    } else {
+      npc.sprite.color.copyFrom(npcSpriteColorNormal);
+    }
+  }
+
 };
 
 const resetGame = () => {
@@ -1467,12 +1502,6 @@ const resetGame = () => {
     }
     if (npc.hitLight) {
       npc.hitLight.dispose();
-    }
-    if (npc.hitOverlay) {
-      npc.hitOverlay.dispose();
-    }
-    if (npc.hitOverlayMaterial) {
-      npc.hitOverlayMaterial.dispose();
     }
     for (const orb of npc.fadeOrbs) {
       orb.mesh.dispose();
