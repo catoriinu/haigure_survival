@@ -91,11 +91,11 @@ const attackModeCooldownDuration = 3;
 const bitChaseDescendSpeed = 2.1 * unitScale;
 const carpetFormationSpacing = 3 * unitScale;
 const carpetBombSpeed = 9 * unitScale;
-const carpetBombSpeedRedMultiplier = 0.92;
+const carpetBombSpeedRedMultiplier = 0.45;
 const carpetBombSpread = 0.4 * unitScale;
 const carpetBombFireIntervalMin = 0.25;
 const carpetBombFireIntervalMax = 0.25;
-const carpetBombFireRateRedDivisor = 1.3;
+const carpetBombFireRateRedDivisor = 3.2;
 const carpetBombPassDelay = 3.0;
 const carpetBombAscendSpeed = 4.2 * unitScale;
 const carpetBombTurnRate = Math.PI * 0.35;
@@ -105,6 +105,7 @@ const carpetBombAimScatter = 0.35;
 const carpetBombAimBlend = 0.2;
 const carpetAimTurnDuration = 1;
 const carpetDespawnDuration = 1;
+const redBitHoldDuration = 1.0;
 const bitTurnSpeed = Math.PI * 1.2;
 const redBitTurnSpeed = Math.PI * 1.6;
 const spawnFadeDuration = 0.5;
@@ -953,6 +954,8 @@ export const createBit = (
     carpetCooldown: 0,
     lockedDirection: new Vector3(0, 0, 1),
     holdDirection: new Vector3(0, 0, 1),
+    holdTimer: 0,
+    lastHoldTargetId: null,
     modeTimer: 0,
     speed: bitBaseSpeed,
     canSpawnCarpet: true,
@@ -1042,6 +1045,8 @@ export const createBitAt = (
     carpetCooldown: 0,
     lockedDirection: new Vector3(0, 0, 1),
     holdDirection: new Vector3(0, 0, 1),
+    holdTimer: 0,
+    lastHoldTargetId: null,
     modeTimer: 0,
     speed: bitBaseSpeed,
     canSpawnCarpet: true,
@@ -2052,16 +2057,28 @@ export const updateBits = (
           startCarpetFollowerDespawn(bit);
           continue;
         }
-        bit.mode = "hold";
-        bit.targetId = hitTarget.id;
-        bit.holdDirection = bit.root.getDirection(new Vector3(0, 0, 1));
+        if (!bit.isRed || hitTarget.id !== bit.lastHoldTargetId) {
+          bit.mode = "hold";
+          bit.targetId = hitTarget.id;
+          bit.holdDirection = bit.root.getDirection(new Vector3(0, 0, 1));
+          bit.holdTimer = bit.isRed ? redBitHoldDuration : 0;
+        }
       } else if (!hitTarget && bit.mode === "hold") {
+        bit.lastHoldTargetId = bit.targetId;
         setBitMode(bit, "search", null, alertSignal, soundEvents);
       }
     }
 
     if (!spawnActive) {
       if (bit.mode === "hold") {
+        if (bit.isRed) {
+          bit.holdTimer -= delta;
+          if (bit.holdTimer <= 0) {
+            bit.lastHoldTargetId = bit.targetId;
+            setBitMode(bit, "search", null, alertSignal, soundEvents);
+            continue;
+          }
+        }
         frame.moveDirection = new Vector3(0, 0, 0);
         frame.aimDirection = bit.holdDirection.clone();
         frame.canFire = false;

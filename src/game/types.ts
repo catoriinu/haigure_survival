@@ -120,6 +120,8 @@ export type Bit = {
   carpetCooldown: number;
   lockedDirection: Vector3;
   holdDirection: Vector3;
+  holdTimer: number;
+  lastHoldTargetId: string | null;
   modeTimer: number;
   speed: number;
   canSpawnCarpet: boolean;
