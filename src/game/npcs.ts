@@ -387,7 +387,8 @@ export const updateNpcs = (
   spawnNpcBeam: (position: Vector3, direction: Vector3, sourceId: string) => void,
   isRedSource: (sourceId: string | null) => boolean,
   impactOrbs: BeamImpactOrb[],
-  blockers: MovementBlocker[]
+  blockers: MovementBlocker[],
+  shouldProcessOrb: (position: Vector3) => boolean
 ) => {
   const aliveTargets = targets.filter((target) => target.alive);
   const activeBlockers: MovementBlocker[] = [...blockers];
@@ -515,9 +516,10 @@ export const updateNpcs = (
         continue;
       }
 
-        if (npc.fadeTimer === 0) {
-          npc.fadeTimer = npc.hitFadeDuration;
-          npc.sprite.cellIndex = 2;
+      if (npc.fadeTimer === 0) {
+        npc.fadeTimer = npc.hitFadeDuration;
+        npc.sprite.cellIndex = 2;
+        if (shouldProcessOrb(npc.sprite.position)) {
           npc.fadeOrbs = createHitFadeOrbs(
             npc.sprite.manager.scene,
             npc.sprite.position.clone(),
@@ -525,7 +527,10 @@ export const updateNpcs = (
             npcHitEffectDiameter / 2,
             npcHitFadeOrbConfig
           );
+        } else {
+          npc.fadeOrbs = [];
         }
+      }
       npc.state = "hit-a";
 
       npc.fadeTimer = Math.max(0, npc.fadeTimer - delta);
@@ -538,8 +543,8 @@ export const updateNpcs = (
           npc.hitEffectMaterial.alpha =
             npcHitEffectAlpha * (npc.fadeTimer / npc.hitFadeDuration);
         }
-        const fadeScale = npc.fadeTimer / npc.hitFadeDuration;
-        updateHitFadeOrbs(npc.fadeOrbs, delta, fadeScale);
+      const fadeScale = npc.fadeTimer / npc.hitFadeDuration;
+      updateHitFadeOrbs(npc.fadeOrbs, delta, fadeScale, shouldProcessOrb);
         if (npc.fadeTimer <= 0) {
           npc.state = "brainwash-in-progress";
         npc.brainwashTimer = 0;

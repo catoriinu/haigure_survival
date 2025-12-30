@@ -234,7 +234,8 @@ export const updateBeams = (
   bounds: StageBounds,
   delta: number,
   trails: BeamTrail[],
-  impacts: BeamImpactOrb[]
+  impacts: BeamImpactOrb[],
+  shouldProcessOrb: (position: Vector3) => boolean
 ) => {
   const halfWidth = (layout.columns * layout.cellSize) / 2;
   const halfDepth = (layout.rows * layout.cellSize) / 2;
@@ -251,6 +252,10 @@ export const updateBeams = (
     row >= 0 && row < layout.rows && col >= 0 && col < layout.columns;
 
   for (const trail of trails) {
+    if (!shouldProcessOrb(trail.mesh.position)) {
+      trail.mesh.dispose();
+      continue;
+    }
     trail.timer -= delta;
     if (trail.timer <= 0) {
       trail.mesh.dispose();
@@ -274,6 +279,10 @@ export const updateBeams = (
   }
 
   for (const orb of impacts) {
+    if (!shouldProcessOrb(orb.mesh.position)) {
+      orb.mesh.dispose();
+      continue;
+    }
     orb.timer -= delta;
     if (orb.timer <= 0) {
       orb.mesh.dispose();
@@ -352,20 +361,22 @@ export const updateBeams = (
       const trailPosition = tailPosition
         .add(direction.scale(trailAdvance))
         .add(trailOffset);
-      const trail = MeshBuilder.CreateSphere(
-        "beamTrail",
-        { diameter: getRandomTrailDiameter(), segments: 10 },
-        beam.mesh.getScene()
-      );
-      trail.material = beam.mesh.material;
-      trail.isPickable = false;
-      trail.position.copyFrom(trailPosition);
-      activeTrails.push({
-        mesh: trail,
-        timer: beamTrailLifetime,
-        velocity: beam.velocity.scale(0.5),
-        age: 0
-      });
+      if (shouldProcessOrb(trailPosition)) {
+        const trail = MeshBuilder.CreateSphere(
+          "beamTrail",
+          { diameter: getRandomTrailDiameter(), segments: 10 },
+          beam.mesh.getScene()
+        );
+        trail.material = beam.mesh.material;
+        trail.isPickable = false;
+        trail.position.copyFrom(trailPosition);
+        activeTrails.push({
+          mesh: trail,
+          timer: beamTrailLifetime,
+          velocity: beam.velocity.scale(0.5),
+          age: 0
+        });
+      }
       beam.trailTimer = getRandomTrailInterval();
     }
     const front = tipPosition.add(
@@ -416,14 +427,16 @@ export const updateBeams = (
           impactNormal = new Vector3(0, 0, direction.z > 0 ? -1 : 1);
         }
       }
-      activeImpacts.push(
-        ...createBeamImpactOrbs(
-          beam.mesh.getScene(),
-          impactPosition,
-          direction,
-          impactNormal
-        )
-      );
+      if (shouldProcessOrb(impactPosition)) {
+        activeImpacts.push(
+          ...createBeamImpactOrbs(
+            beam.mesh.getScene(),
+            impactPosition,
+            direction,
+            impactNormal
+          )
+        );
+      }
       beginBeamRetract(beam, impactPosition);
       survivors.push(beam);
       continue;

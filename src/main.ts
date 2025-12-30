@@ -3,6 +3,7 @@ import {
   Engine,
   Scene,
   FreeCamera,
+  Frustum,
   Vector3,
   HemisphericLight,
   Color3,
@@ -122,6 +123,29 @@ camera.ellipsoid = new Vector3(
   playerWidth * 0.5
 );
 camera.inputs.removeByType("FreeCameraKeyboardMoveInput");
+
+const orbCullDistance = 60 * unitScale;
+const orbCullDistanceSq = orbCullDistance * orbCullDistance;
+const orbCullCenter = new Vector3(0, 0, 0);
+const buildOrbCullingCheck = () => {
+  orbCullCenter.set(
+    camera.position.x,
+    playerCenterHeight,
+    camera.position.z
+  );
+  const frustumPlanes = Frustum.GetPlanes(
+    camera.getTransformationMatrix()
+  );
+  return (position: Vector3) => {
+    const dx = position.x - orbCullCenter.x;
+    const dy = position.y - orbCullCenter.y;
+    const dz = position.z - orbCullCenter.z;
+    if (dx * dx + dy * dy + dz * dz > orbCullDistanceSq) {
+      return false;
+    }
+    return Frustum.IsPointInFrustum(position, frustumPlanes);
+  };
+};
 
 const audioManager = new AudioManager(camera);
 const bgmUrl = "/audio/bgm/研究所劇伴MP3.mp3";
@@ -669,7 +693,10 @@ const beginExecutionHit = (
   npc.sprite.cellIndex = 1;
 };
 
-const updateExecutionHitEffect = (delta: number) => {
+const updateExecutionHitEffect = (
+  delta: number,
+  shouldProcessOrb: (position: Vector3) => boolean
+) => {
   if (executionHitSequence.phase === "none") {
     return;
   }
@@ -719,7 +746,8 @@ const updateExecutionHitEffect = (delta: number) => {
       executionResolved = true;
       executionHitTargetKind = null;
       executionHitNpcIndex = null;
-    }
+    },
+    shouldProcessOrb
   );
 };
 
@@ -998,13 +1026,10 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
     const impactPosition = getBeamImpactPosition(beam);
     beginBeamRetract(beam, impactPosition);
     if (hitTarget && executionHitSequence.phase === "none") {
-      const hitScale = isRedBitSource(beam.sourceId)
-        ? redHitDurationScale
-        : 1;
       if (scenario.variant === "player-survivor") {
-        beginExecutionHit("player", null, hitScale);
+        beginExecutionHit("player", null, 1);
       } else {
-        beginExecutionHit("npc", scenario.survivorNpcIndex, hitScale);
+        beginExecutionHit("npc", scenario.survivorNpcIndex, 1);
       }
     }
   }
@@ -1053,10 +1078,21 @@ const getBeamImpactPosition = (beam: Beam) =>
     Vector3.Normalize(beam.velocity).scale(beam.tipRadius)
   );
 
-const updateExecutionScene = (delta: number) => {
-  updateBeams(layout, beams, bounds, delta, beamTrails, beamImpactOrbs);
+const updateExecutionScene = (
+  delta: number,
+  shouldProcessOrb: (position: Vector3) => boolean
+) => {
+  updateBeams(
+    layout,
+    beams,
+    bounds,
+    delta,
+    beamTrails,
+    beamImpactOrbs,
+    shouldProcessOrb
+  );
   gameFlow.updateExecution();
-  updateExecutionHitEffect(delta);
+  updateExecutionHitEffect(delta, shouldProcessOrb);
 
   const scenario = executionScenario!;
   if (executionFireEffectActive) {
@@ -1303,7 +1339,11 @@ scene.onBeforeRenderObservable.add(() => {
   }
 });
 
-const updatePlayerState = (delta: number, elapsed: number) => {
+const updatePlayerState = (
+  delta: number,
+  elapsed: number,
+  shouldProcessOrb: (position: Vector3) => boolean
+) => {
   const centerPosition = new Vector3(
     camera.position.x,
     playerCenterHeight,
@@ -1371,6 +1411,7 @@ const updatePlayerState = (delta: number, elapsed: number) => {
           brainwashChoiceUnlocked = true;
         }
       },
+      shouldProcessOrb,
       elapsed
     );
   }
@@ -1537,8 +1578,17 @@ engine.runRenderLoop(() => {
   if (gamePhase === "playing") {
     elapsedTime += delta;
 
-    updateBeams(layout, beams, bounds, delta, beamTrails, beamImpactOrbs);
-    updatePlayerState(delta, elapsedTime);
+    const shouldProcessOrb = buildOrbCullingCheck();
+    updateBeams(
+      layout,
+      beams,
+      bounds,
+      delta,
+      beamTrails,
+      beamImpactOrbs,
+      shouldProcessOrb
+    );
+    updatePlayerState(delta, elapsedTime, shouldProcessOrb);
     const npcBlockers =
       playerState === "brainwash-complete-no-gun"
         ? [{ position: camera.position, radius: playerBlockRadius, sourceId: "player" }]
@@ -1576,7 +1626,8 @@ engine.runRenderLoop(() => {
       },
       isRedBitSource,
       beamImpactOrbs,
-      npcBlockers
+      npcBlockers,
+      shouldProcessOrb
     );
     const playerBlockedByNpc =
       npcUpdate.playerBlocked && isAliveState(playerState);
@@ -1721,7 +1772,8 @@ engine.runRenderLoop(() => {
   }
 
   if (gamePhase === "execution") {
-    updateExecutionScene(delta);
+    const shouldProcessOrb = buildOrbCullingCheck();
+    updateExecutionScene(delta, shouldProcessOrb);
   }
 
   if (gamePhase === "assemblyMove" || gamePhase === "assemblyHold") {

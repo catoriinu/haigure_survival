@@ -112,7 +112,8 @@ export const createHitFadeOrbs = (
 export const updateHitFadeOrbs = (
   orbs: HitFadeOrb[],
   delta: number,
-  scale: number
+  scale: number,
+  shouldProcessOrb: (position: Vector3) => boolean
 ) => {
   if (scale <= hitFadeOrbMinScale) {
     for (const orb of orbs) {
@@ -122,10 +123,18 @@ export const updateHitFadeOrbs = (
   }
 
   const clampedScale = Math.max(scale, 0);
+  const activeOrbs: HitFadeOrb[] = [];
   for (const orb of orbs) {
+    if (!shouldProcessOrb(orb.mesh.position)) {
+      orb.mesh.dispose();
+      continue;
+    }
     orb.mesh.position.addInPlace(orb.velocity.scale(delta));
     orb.mesh.scaling.set(clampedScale, clampedScale, clampedScale);
+    activeOrbs.push(orb);
   }
+  orbs.length = 0;
+  orbs.push(...activeOrbs);
 };
 
 export type HitSequenceState = {
@@ -211,6 +220,7 @@ export const updateHitSequence = (
   onFlicker: (isColorA: boolean) => void,
   onFadeStart: (() => void) | null,
   onComplete: (() => void) | null,
+  shouldProcessOrb: (position: Vector3) => boolean,
   flickerElapsed?: number
 ) => {
   if (state.phase === "none") {
@@ -237,13 +247,17 @@ export const updateHitSequence = (
     }
     state.phase = "fade";
     state.timer = config.fadeDuration;
-    state.orbs = createHitFadeOrbs(
-      state.effect!.getScene(),
-      position.clone(),
-      state.material!,
-      config.effectDiameter / 2,
-      config.fadeOrbConfig
-    );
+    if (shouldProcessOrb(position)) {
+      state.orbs = createHitFadeOrbs(
+        state.effect!.getScene(),
+        position.clone(),
+        state.material!,
+        config.effectDiameter / 2,
+        config.fadeOrbConfig
+      );
+    } else {
+      state.orbs = [];
+    }
     state.material!.emissiveColor.copyFrom(config.colorA);
     state.material!.diffuseColor.copyFrom(config.colorA);
     state.material!.alpha = config.effectAlpha;
@@ -255,7 +269,7 @@ export const updateHitSequence = (
   state.timer = Math.max(0, state.timer - delta);
   const fadeScale = state.timer / config.fadeDuration;
   state.material!.alpha = config.effectAlpha * fadeScale;
-  updateHitFadeOrbs(state.orbs, delta, fadeScale);
+  updateHitFadeOrbs(state.orbs, delta, fadeScale, shouldProcessOrb);
   if (state.timer <= 0) {
     if (onComplete) {
       onComplete();
