@@ -1317,6 +1317,9 @@ export const updateBits = (
     alertLeaderPosition = null;
     alertActive = false;
   };
+  if (alertSignal.leaderId && !alertTarget) {
+    clearAlertSignal();
+  }
   const isAlertMode = (mode: BitMode) =>
     mode === "alert-send" || mode === "alert-receive";
   const enterAlertSend = (bit: Bit, target: TargetInfo) => {
@@ -1774,8 +1777,9 @@ export const updateBits = (
         }
         setBitMode(bit, "search", null, alertSignal, soundEvents);
         clearAlertSignal();
+        return true;
       }
-      return true;
+      return false;
     }
     frame.moveDirection = new Vector3(0, 0, 0);
     frame.aimDirection = new Vector3(0, 1, 0);
@@ -1786,32 +1790,17 @@ export const updateBits = (
   const updateAlertReceiveMode = (bit: Bit, frame: ModeFrame) => {
     bit.modeTimer -= delta;
     const shouldRecover =
-      bit.alertRecovering ||
       bit.modeTimer <= 0 ||
       !alertActive ||
       !alertLeaderPosition ||
       !alertTarget;
     if (shouldRecover) {
-      if (!bit.alertRecovering) {
-        bit.alertCooldownPending =
-          bit.modeTimer <= 0 ||
-          !alertActive ||
-          !alertLeaderPosition ||
-          !alertTarget;
-      }
-      bit.alertRecovering = true;
-      frame.moveDirection = new Vector3(0, 0, 0);
-      frame.aimDirection = getDirectionFromYaw(bit.alertRecoverYaw);
-      frame.canFire = false;
-      const forward = bit.root.getDirection(new Vector3(0, 0, 1));
-      if (Math.abs(forward.y) <= alertRecoverPitchThreshold) {
-        bit.alertRecovering = false;
-        if (bit.alertCooldownPending) {
-          startAttackCooldown(bit);
-          bit.alertCooldownPending = false;
-        }
-        restoreBitFromAlert(bit);
-      }
+      bit.alertRecovering = false;
+      bit.alertCooldownPending = false;
+      bit.alertReturnMode = null;
+      bit.alertReturnTargetId = null;
+      startAttackCooldown(bit);
+      setBitMode(bit, "search", null, alertSignal, soundEvents);
       return true;
     }
     const toLeader = alertLeaderPosition.subtract(bit.root.position);

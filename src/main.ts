@@ -1714,6 +1714,9 @@ engine.runRenderLoop(() => {
         allDownTime = elapsedTime;
       }
       if (elapsedTime - allDownTime >= allDownTransitionDelay) {
+        for (const npc of npcs) {
+          npc.sprite.color.copyFrom(npcSpriteColorNormal);
+        }
         removeCarpetFollowers();
         gameFlow.enterAssembly("move");
       }
