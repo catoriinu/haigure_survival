@@ -1,4 +1,14 @@
-import { Color3, Scene, Sprite, SpriteManager, Vector3 } from "@babylonjs/core";
+import {
+  Color3,
+  Mesh,
+  MeshBuilder,
+  PointLight,
+  Scene,
+  Sprite,
+  SpriteManager,
+  StandardMaterial,
+  Vector3
+} from "@babylonjs/core";
 import { GridLayout } from "../world/grid";
 import {
   Beam,
@@ -47,6 +57,11 @@ export const npcHitFlickerInterval = 0.12;
 export const npcHitColorA = new Color3(1, 0.18, 0.74);
 export const npcHitColorB = new Color3(0.2, 0.96, 1);
 export const npcHitEffectAlpha = 0.45;
+export const npcHitLightIntensity = 1.1;
+export const npcHitLightRange = npcHitEffectDiameter * 1.2;
+const npcHitOverlayAlpha = 0.85;
+const npcHitEffectRadius = npcHitEffectDiameter / 2;
+const npcHitEffectRadiusSq = npcHitEffectRadius * npcHitEffectRadius;
 const npcBrainwashDecisionDelay = 10;
 const npcBrainwashStayChance = 0.5;
 const npcBrainwashVisionRange = 36 * unitScale;
@@ -352,6 +367,9 @@ export const spawnNpcs = (
       hitById: null,
       hitEffect: null,
       hitEffectMaterial: null,
+      hitLight: null,
+      hitOverlay: null,
+      hitOverlayMaterial: null,
       fadeOrbs: [],
       brainwashTimer: 0,
       brainwashMode: "search",
@@ -388,6 +406,7 @@ export const updateNpcs = (
   isRedSource: (sourceId: string | null) => boolean,
   impactOrbs: BeamImpactOrb[],
   blockers: MovementBlocker[],
+  cameraPosition: Vector3,
   shouldProcessOrb: (position: Vector3) => boolean
 ) => {
   const aliveTargets = targets.filter((target) => target.alive);
@@ -492,6 +511,37 @@ export const updateNpcs = (
             effect.position.copyFrom(npc.sprite.position);
             npc.hitEffect = effect;
             npc.hitEffectMaterial = material;
+            const hitLight = new PointLight(
+              `npcHitLight_${npc.sprite.name}`,
+              npc.sprite.position.clone(),
+              scene
+            );
+            hitLight.diffuse = npcHitColorA.clone();
+            hitLight.specular = npcHitColorA.clone();
+            hitLight.intensity = npcHitLightIntensity;
+            hitLight.range = npcHitLightRange;
+            npc.hitLight = hitLight;
+            const overlay = MeshBuilder.CreatePlane(
+              `npcHitOverlay_${npc.sprite.name}`,
+              { width: npcSpriteWidth, height: npcSpriteHeight },
+              scene
+            );
+            overlay.billboardMode = Mesh.BILLBOARDMODE_ALL;
+            overlay.position.copyFrom(npc.sprite.position);
+            overlay.isPickable = false;
+            const overlayMaterial = new StandardMaterial(
+              `npcHitOverlayMat_${npc.sprite.name}`,
+              scene
+            );
+            overlayMaterial.emissiveColor = npcHitColorA.clone();
+            overlayMaterial.diffuseColor = npcHitColorA.clone();
+            overlayMaterial.specularColor = Color3.Black();
+            overlayMaterial.alpha = npcHitOverlayAlpha;
+            overlayMaterial.backFaceCulling = false;
+            overlay.material = overlayMaterial;
+            overlay.setEnabled(false);
+            npc.hitOverlay = overlay;
+            npc.hitOverlayMaterial = overlayMaterial;
             onNpcHit(npc.sprite.position);
             break;
           }
@@ -501,24 +551,47 @@ export const updateNpcs = (
     if (isHitState(npc.state)) {
       npc.hitTimer -= delta;
       if (npc.hitTimer > 0) {
+        const toCamera = cameraPosition.subtract(npc.sprite.position);
+        const isCameraInside =
+          toCamera.lengthSquared() <= npcHitEffectRadiusSq;
         if (npc.hitEffect) {
           npc.hitEffect.position.copyFrom(npc.sprite.position);
-          if (npc.hitEffectMaterial) {
-            const phase =
-              Math.floor(elapsed / npcHitFlickerInterval) % 2 === 0;
-            const color = phase ? npcHitColorA : npcHitColorB;
-            npc.hitEffectMaterial.emissiveColor.copyFrom(color);
-            npc.hitEffectMaterial.diffuseColor.copyFrom(color);
-            npc.hitEffectMaterial.alpha = npcHitEffectAlpha;
-            npc.state = phase ? "hit-a" : "hit-b";
-          }
         }
+        if (npc.hitLight) {
+          npc.hitLight.position.copyFrom(npc.sprite.position);
+        }
+        if (npc.hitOverlay) {
+          npc.hitOverlay.position.copyFrom(npc.sprite.position);
+          npc.hitOverlay.setEnabled(isCameraInside);
+        }
+        const phase =
+          Math.floor(elapsed / npcHitFlickerInterval) % 2 === 0;
+        const color = phase ? npcHitColorA : npcHitColorB;
+        if (npc.hitEffectMaterial) {
+          npc.hitEffectMaterial.emissiveColor.copyFrom(color);
+          npc.hitEffectMaterial.diffuseColor.copyFrom(color);
+          npc.hitEffectMaterial.alpha = npcHitEffectAlpha;
+        }
+        if (npc.hitLight) {
+          npc.hitLight.diffuse.copyFrom(color);
+          npc.hitLight.specular.copyFrom(color);
+          npc.hitLight.intensity = npcHitLightIntensity;
+        }
+        if (npc.hitOverlayMaterial) {
+          npc.hitOverlayMaterial.emissiveColor.copyFrom(color);
+          npc.hitOverlayMaterial.diffuseColor.copyFrom(color);
+          npc.hitOverlayMaterial.alpha = npcHitOverlayAlpha;
+        }
+        npc.state = phase ? "hit-a" : "hit-b";
         continue;
       }
 
       if (npc.fadeTimer === 0) {
         npc.fadeTimer = npc.hitFadeDuration;
         npc.sprite.cellIndex = 2;
+        if (npc.hitOverlay) {
+          npc.hitOverlay.setEnabled(false);
+        }
         if (shouldProcessOrb(npc.sprite.position)) {
           npc.fadeOrbs = createHitFadeOrbs(
             npc.sprite.manager.scene,
@@ -537,13 +610,21 @@ export const updateNpcs = (
       if (npc.hitEffect) {
         npc.hitEffect.position.copyFrom(npc.sprite.position);
       }
-        if (npc.hitEffectMaterial) {
-          npc.hitEffectMaterial.emissiveColor.copyFrom(npcHitColorA);
-          npc.hitEffectMaterial.diffuseColor.copyFrom(npcHitColorA);
-          npc.hitEffectMaterial.alpha =
-            npcHitEffectAlpha * (npc.fadeTimer / npc.hitFadeDuration);
-        }
+      if (npc.hitLight) {
+        npc.hitLight.position.copyFrom(npc.sprite.position);
+      }
+      if (npc.hitEffectMaterial) {
+        npc.hitEffectMaterial.emissiveColor.copyFrom(npcHitColorA);
+        npc.hitEffectMaterial.diffuseColor.copyFrom(npcHitColorA);
+        npc.hitEffectMaterial.alpha =
+          npcHitEffectAlpha * (npc.fadeTimer / npc.hitFadeDuration);
+      }
       const fadeScale = npc.fadeTimer / npc.hitFadeDuration;
+      if (npc.hitLight) {
+        npc.hitLight.diffuse.copyFrom(npcHitColorA);
+        npc.hitLight.specular.copyFrom(npcHitColorA);
+        npc.hitLight.intensity = npcHitLightIntensity * fadeScale;
+      }
       updateHitFadeOrbs(npc.fadeOrbs, delta, fadeScale, shouldProcessOrb);
         if (npc.fadeTimer <= 0) {
           npc.state = "brainwash-in-progress";
@@ -560,6 +641,18 @@ export const updateNpcs = (
           npc.hitEffect.dispose();
           npc.hitEffect = null;
           npc.hitEffectMaterial = null;
+        }
+        if (npc.hitLight) {
+          npc.hitLight.dispose();
+          npc.hitLight = null;
+        }
+        if (npc.hitOverlay) {
+          npc.hitOverlay.dispose();
+          npc.hitOverlay = null;
+        }
+        if (npc.hitOverlayMaterial) {
+          npc.hitOverlayMaterial.dispose();
+          npc.hitOverlayMaterial = null;
         }
         for (const orb of npc.fadeOrbs) {
           orb.mesh.dispose();

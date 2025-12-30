@@ -37,6 +37,8 @@ import {
   npcHitDuration,
   npcHitEffectAlpha,
   npcHitEffectDiameter,
+  npcHitLightIntensity,
+  npcHitLightRange,
   npcHitFadeDuration,
   npcHitFadeOrbConfig,
   npcHitFlickerInterval,
@@ -450,6 +452,8 @@ const playerHitFlickerInterval = 0.12;
 const playerHitColorA = new Color3(1, 0.18, 0.74);
 const playerHitColorB = new Color3(0.2, 0.96, 1);
 const playerHitEffectAlpha = 0.45;
+const playerHitLightIntensity = 1.1;
+const playerHitLightRange = playerHitEffectDiameter * 1.2;
 const playerHitOrbDiameter = 0.22;
 const playerHitOrbMinCount = 5;
 const playerHitOrbMaxCount = 20;
@@ -627,6 +631,8 @@ const buildPlayerHitSequenceConfig = (
   colorB: playerHitColorB,
   effectAlpha: playerHitEffectAlpha,
   effectDiameter: playerHitEffectDiameter,
+  lightIntensity: playerHitLightIntensity,
+  lightRange: playerHitLightRange,
   fadeOrbConfig: playerHitFadeOrbConfig,
   effectName,
   sideOrientation: Mesh.DOUBLESIDE,
@@ -645,6 +651,8 @@ const buildNpcHitSequenceConfig = (
   colorB: npcHitColorB,
   effectAlpha: npcHitEffectAlpha,
   effectDiameter: npcHitEffectDiameter,
+  lightIntensity: npcHitLightIntensity,
+  lightRange: npcHitLightRange,
   fadeOrbConfig: npcHitFadeOrbConfig,
   effectName
 });
@@ -1457,6 +1465,15 @@ const resetGame = () => {
     if (npc.hitEffect) {
       npc.hitEffect.dispose();
     }
+    if (npc.hitLight) {
+      npc.hitLight.dispose();
+    }
+    if (npc.hitOverlay) {
+      npc.hitOverlay.dispose();
+    }
+    if (npc.hitOverlayMaterial) {
+      npc.hitOverlayMaterial.dispose();
+    }
     for (const orb of npc.fadeOrbs) {
       orb.mesh.dispose();
     }
@@ -1627,6 +1644,7 @@ engine.runRenderLoop(() => {
       isRedBitSource,
       beamImpactOrbs,
       npcBlockers,
+      camera.position,
       shouldProcessOrb
     );
     const playerBlockedByNpc =

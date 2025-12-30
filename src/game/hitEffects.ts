@@ -2,6 +2,7 @@ import {
   Color3,
   Mesh,
   MeshBuilder,
+  PointLight,
   Scene,
   StandardMaterial,
   Vector3
@@ -143,6 +144,7 @@ export type HitSequenceState = {
   elapsed: number;
   effect: Mesh | null;
   material: StandardMaterial | null;
+  light: PointLight | null;
   orbs: HitFadeOrb[];
 };
 
@@ -154,6 +156,8 @@ export type HitSequenceConfig = {
   colorB: Color3;
   effectAlpha: number;
   effectDiameter: number;
+  lightIntensity: number;
+  lightRange: number;
   fadeOrbConfig: HitFadeOrbConfig;
   effectName: string;
   sideOrientation?: number;
@@ -166,6 +170,7 @@ export const createHitSequenceState = (): HitSequenceState => ({
   elapsed: 0,
   effect: null,
   material: null,
+  light: null,
   orbs: []
 });
 
@@ -175,6 +180,10 @@ export const resetHitSequenceState = (state: HitSequenceState) => {
     state.effect = null;
   }
   state.material = null;
+  if (state.light) {
+    state.light.dispose();
+    state.light = null;
+  }
   for (const orb of state.orbs) {
     orb.mesh.dispose();
   }
@@ -207,6 +216,16 @@ export const startHitSequence = (
   effect.position.copyFrom(position);
   state.effect = effect;
   state.material = material;
+  const light = new PointLight(
+    `${config.effectName}_light`,
+    position.clone(),
+    scene
+  );
+  light.diffuse = config.colorA.clone();
+  light.specular = config.colorA.clone();
+  light.intensity = config.lightIntensity;
+  light.range = config.lightRange;
+  state.light = light;
   state.phase = "flicker";
   state.timer = config.hitDuration;
   state.elapsed = 0;
@@ -227,6 +246,9 @@ export const updateHitSequence = (
     return;
   }
   state.effect!.position.copyFrom(position);
+  if (state.light) {
+    state.light.position.copyFrom(position);
+  }
 
   if (state.phase === "flicker") {
     if (flickerElapsed === undefined) {
@@ -241,6 +263,11 @@ export const updateHitSequence = (
     state.material!.emissiveColor.copyFrom(color);
     state.material!.diffuseColor.copyFrom(color);
     state.material!.alpha = config.effectAlpha;
+    if (state.light) {
+      state.light.diffuse.copyFrom(color);
+      state.light.specular.copyFrom(color);
+      state.light.intensity = config.lightIntensity;
+    }
     onFlicker(isColorA);
     if (state.timer > 0) {
       return;
@@ -261,6 +288,10 @@ export const updateHitSequence = (
     state.material!.emissiveColor.copyFrom(config.colorA);
     state.material!.diffuseColor.copyFrom(config.colorA);
     state.material!.alpha = config.effectAlpha;
+    if (state.light) {
+      state.light.diffuse.copyFrom(config.colorA);
+      state.light.specular.copyFrom(config.colorA);
+    }
     if (onFadeStart) {
       onFadeStart();
     }
@@ -269,6 +300,9 @@ export const updateHitSequence = (
   state.timer = Math.max(0, state.timer - delta);
   const fadeScale = state.timer / config.fadeDuration;
   state.material!.alpha = config.effectAlpha * fadeScale;
+  if (state.light) {
+    state.light.intensity = config.lightIntensity * fadeScale;
+  }
   updateHitFadeOrbs(state.orbs, delta, fadeScale, shouldProcessOrb);
   if (state.timer <= 0) {
     if (onComplete) {

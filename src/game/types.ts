@@ -1,5 +1,6 @@
-﻿import type {
+import type {
   Mesh,
+  PointLight,
   Sprite,
   StandardMaterial,
   TransformNode,
@@ -55,6 +56,9 @@ export type Npc = {
   hitById: string | null;
   hitEffect: Mesh | null;
   hitEffectMaterial: StandardMaterial | null;
+  hitLight: PointLight | null;
+  hitOverlay: Mesh | null;
+  hitOverlayMaterial: StandardMaterial | null;
   fadeOrbs: HitFadeOrb[];
   brainwashTimer: number;
   brainwashMode: NpcBrainwashMode;
