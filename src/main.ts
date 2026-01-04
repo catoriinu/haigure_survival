@@ -1648,6 +1648,49 @@ engine.runRenderLoop(() => {
       playerState === "brainwash-complete-no-gun"
         ? [{ position: camera.position, radius: playerBlockRadius, sourceId: "player" }]
         : [];
+    const npcEvadeThreats = npcs.map(() => [] as Vector3[]);
+    for (const bit of bits) {
+      if (!bit.targetId) {
+        continue;
+      }
+      if (!bit.targetId.startsWith("npc_")) {
+        continue;
+      }
+      const targetIndex = Number(bit.targetId.slice(4));
+      npcEvadeThreats[targetIndex].push(bit.root.position);
+    }
+    const aimRay = camera.getForwardRay();
+    const aimDirection = aimRay.direction.normalize();
+    let aimedNpcIndex = -1;
+    let aimedNpcDistance = Infinity;
+    for (let index = 0; index < npcs.length; index += 1) {
+      const npc = npcs[index];
+      if (!isAliveState(npc.state)) {
+        continue;
+      }
+      const toCenter = aimRay.origin.subtract(npc.sprite.position);
+      const b = Vector3.Dot(toCenter, aimDirection);
+      const c = Vector3.Dot(toCenter, toCenter) - npcHitRadius * npcHitRadius;
+      const discriminant = b * b - c;
+      if (discriminant < 0) {
+        continue;
+      }
+      const sqrt = Math.sqrt(discriminant);
+      let t = -b - sqrt;
+      if (t < 0) {
+        t = -b + sqrt;
+      }
+      if (t < 0) {
+        continue;
+      }
+      if (t < aimedNpcDistance) {
+        aimedNpcDistance = t;
+        aimedNpcIndex = index;
+      }
+    }
+    if (aimedNpcIndex >= 0) {
+      npcEvadeThreats[aimedNpcIndex].push(camera.position);
+    }
     const npcTargets = [
       {
         id: "player",
@@ -1682,6 +1725,7 @@ engine.runRenderLoop(() => {
       isRedBitSource,
       beamImpactOrbs,
       npcBlockers,
+      npcEvadeThreats,
       camera.position,
       shouldProcessOrb
     );

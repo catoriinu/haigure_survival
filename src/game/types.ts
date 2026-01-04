@@ -48,6 +48,7 @@ export type Npc = {
   state: NpcState;
   voiceId: string;
   cell: FloorCell;
+  goalCell: FloorCell;
   target: Vector3;
   speed: number;
   hitTimer: number;
@@ -64,6 +65,9 @@ export type Npc = {
   wanderDirection: Vector3;
   wanderTimer: number;
   moveDirection: Vector3;
+  path: Vector3[];
+  pathIndex: number;
+  evadeTimer: number;
   fireTimer: number;
   fireInterval: number;
   blockTimer: number;
