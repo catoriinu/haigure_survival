@@ -83,10 +83,9 @@ const engine = new Engine(canvas, true);
 const scene = new Scene(engine);
 
 const layout = createGridLayout();
-const unitScale = 0.5;
 const playerSpriteImageWidth = 330;
 const playerSpriteImageHeight = 700;
-const playerWidth = 1.2;
+const playerWidth = 0.2;
 const playerHeight =
   (playerSpriteImageHeight / playerSpriteImageWidth) * playerWidth;
 const room = {
@@ -111,7 +110,8 @@ const camera = new FreeCamera(
 );
 camera.setTarget(spawnPosition.add(spawnForward));
 camera.attachControl(canvas, true);
-const baseCameraSpeed = 0.25 * unitScale;
+camera.minZ = 0.02;
+const baseCameraSpeed = 0.02;
 const playerMoveSpeed = baseCameraSpeed * Math.sqrt(10);
 camera.speed = 0;
 camera.angularSensibility = 1500;
@@ -127,7 +127,7 @@ camera.ellipsoid = new Vector3(
 );
 camera.inputs.removeByType("FreeCameraKeyboardMoveInput");
 
-const orbCullDistance = 60 * unitScale;
+const orbCullDistance = 5;
 const orbCullDistanceSq = orbCullDistance * orbCullDistance;
 const orbCullCenter = new Vector3(0, 0, 0);
 const buildOrbCullingCheck = () => {
@@ -172,36 +172,36 @@ const hitSeVariants = [
 ];
 const seBaseOptions: SpatialPlayOptions = {
   volume: 0.95,
-  maxDistance: 45 * unitScale,
+  maxDistance: 3.75,
   loop: false
 };
 const alertLoopOptions: SpatialPlayOptions = {
   volume: 0.95,
-  maxDistance: 45 * unitScale,
+  maxDistance: 3.75,
   loop: true
 };
 const beamSeOptions: SpatialPlayOptions = {
   volume: 0.8,
-  maxDistance: 60 * unitScale,
+  maxDistance: 5,
   loop: false
 };
 const hitSeOptions: SpatialPlayOptions = {
   volume: 1,
-  maxDistance: 65 * unitScale,
+  maxDistance: 5.42,
   loop: false
 };
 const voiceBaseOptions: SpatialPlayOptions = {
   volume: 0.72,
-  maxDistance: 50 * unitScale,
+  maxDistance: 4.17,
   loop: false
 };
 const voiceLoopOptions: SpatialPlayOptions = {
   volume: 0.72,
-  maxDistance: 50 * unitScale,
+  maxDistance: 4.17,
   loop: true
 };
-const beamSeFarDistance = 28 * unitScale;
-const beamSeMidDistance = 16 * unitScale;
+const beamSeFarDistance = 2.33;
+const beamSeMidDistance = 1.33;
 
 const sfxDirector = new SfxDirector(
   audioManager,
@@ -333,18 +333,25 @@ light.intensity = 1.2;
 scene.ambientColor = new Color3(0.45, 0.45, 0.45);
 scene.collisionsEnabled = true;
 
-createStageFromGrid(scene, layout, {
+const stageStyle = {
   floorColor: new Color3(0.55, 0.2, 0.75),
   ceilingColor: new Color3(0.88, 0.88, 0.88),
   wallBaseColor: new Color3(0.88, 0.88, 0.88),
   floorGridColor: new Color3(0.07, 0.07, 0.07),
   wallGridColor: new Color3(0.07, 0.07, 0.07),
-  gridSpacingWorld: 2 * unitScale,
+  gridSpacingWorld: 0.17,
   gridCellsPerTexture: 8,
   gridLineWidthPx: 3,
   gridTextureSize: 512,
   enableCollisions: true
-});
+};
+
+const minimapCellDivisor = Math.round(
+  layout.cellSize / stageStyle.gridSpacingWorld
+);
+const minimapCellSize = layout.cellSize / minimapCellDivisor;
+
+createStageFromGrid(scene, layout, stageStyle);
 
 const floorCells = collectFloorCells(layout);
 const noSpawnKeys = new Set(
@@ -468,13 +475,13 @@ const playerHitLightIntensity = 1.1;
 const playerHitLightRange = playerHitEffectDiameter * 1.2;
 const playerHitEffectRadius = playerHitEffectDiameter / 2;
 const playerHitEffectRadiusSq = playerHitEffectRadius * playerHitEffectRadius;
-const playerHitOrbDiameter = 0.22;
+const playerHitOrbDiameter = 0.04;
 const playerHitOrbMinCount = 5;
 const playerHitOrbMaxCount = 20;
-const playerHitOrbSurfaceOffsetMin = 0.05;
-const playerHitOrbSurfaceOffsetMax = 0.4;
-const playerHitOrbSpeedMin = 0.25;
-const playerHitOrbSpeedMax = 0.65;
+const playerHitOrbSurfaceOffsetMin = 0.01;
+const playerHitOrbSurfaceOffsetMax = 0.07;
+const playerHitOrbSpeedMin = 0.04;
+const playerHitOrbSpeedMax = 0.11;
 const playerHitFadeOrbConfig: HitFadeOrbConfig = {
   minCount: playerHitOrbMinCount,
   maxCount: playerHitOrbMaxCount,
@@ -1344,7 +1351,9 @@ const drawMinimap = () => {
   hud.drawMinimap({
     cameraPosition: camera.position,
     cameraForward: camera.getDirection(new Vector3(0, 0, 1)),
+    cameraFov: camera.fov,
     layout,
+    minimapCellSize,
     halfWidth,
     halfDepth,
     elapsedTime,

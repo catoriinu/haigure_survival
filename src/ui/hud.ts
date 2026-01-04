@@ -4,7 +4,9 @@ import { GridLayout } from "../world/grid";
 export type DrawMinimapParams = {
   cameraPosition: Vector3;
   cameraForward: Vector3;
+  cameraFov: number;
   layout: GridLayout;
+  minimapCellSize: number;
   halfWidth: number;
   halfDepth: number;
   elapsedTime: number;
@@ -39,13 +41,14 @@ export const createHud = (): Hud => {
   const minimapContext = minimapCanvas.getContext(
     "2d"
   ) as CanvasRenderingContext2D;
+  minimapContext.imageSmoothingEnabled = true;
+  minimapContext.imageSmoothingQuality = "high";
   const minimap = {
-    cells: 11,
-    cellPixels: 12,
-    fanRadius: 30,
-    fanHalfAngle: Math.PI / 7
+    sizePixels: 132,
+    windowCells: 40,
+    fanCells: 12
   };
-  const minimapSize = minimap.cells * minimap.cellPixels;
+  const minimapSize = minimap.sizePixels;
   minimapCanvas.width = minimapSize;
   minimapCanvas.height = minimapSize;
 
@@ -84,7 +87,9 @@ export const createHud = (): Hud => {
   const drawMinimap = ({
     cameraPosition,
     cameraForward,
+    cameraFov,
     layout,
+    minimapCellSize,
     halfWidth,
     halfDepth,
     elapsedTime,
@@ -92,15 +97,16 @@ export const createHud = (): Hud => {
     retryText,
     showCrosshair
   }: DrawMinimapParams) => {
-    const halfCells = Math.floor(minimap.cells / 2);
+    const cellPixels = minimapSize / minimap.windowCells;
+    const halfCells = Math.floor(minimap.windowCells / 2);
     const centerCol = Math.floor(
-      (cameraPosition.x + halfWidth) / layout.cellSize
+      (cameraPosition.x + halfWidth) / minimapCellSize
     );
     const centerRow = Math.floor(
-      (cameraPosition.z + halfDepth) / layout.cellSize
+      (cameraPosition.z + halfDepth) / minimapCellSize
     );
-    const infoX = Math.round(cameraPosition.x * 10) / 10;
-    const infoZ = Math.round(cameraPosition.z * 10) / 10;
+    const infoX = Math.round(cameraPosition.x / minimapCellSize);
+    const infoZ = Math.round(cameraPosition.z / minimapCellSize);
     minimapInfo.textContent = `X:${infoX}  Z:${infoZ}\nCell:${centerRow},${centerCol}`;
     timeInfo.textContent = `Time: ${elapsedTime.toFixed(1)}s`;
     aliveInfo.textContent = `Alive: ${aliveCount}`;
@@ -108,32 +114,46 @@ export const createHud = (): Hud => {
     minimapContext.clearRect(0, 0, minimapSize, minimapSize);
 
     const theta = Math.atan2(cameraForward.z, cameraForward.x);
-    const rotation = -Math.PI / 2 - theta;
-    const centerX = halfCells * minimap.cellPixels + minimap.cellPixels / 2;
-    const centerY = halfCells * minimap.cellPixels + minimap.cellPixels / 2;
+    const rotation = -Math.PI / 2 + theta;
+    const centerX = minimapSize / 2;
+    const centerY = minimapSize / 2;
 
     minimapContext.save();
     minimapContext.translate(centerX, centerY);
     minimapContext.rotate(rotation);
     minimapContext.translate(-centerX, -centerY);
 
-    for (let rowOffset = -halfCells; rowOffset <= halfCells; rowOffset += 1) {
-      for (let colOffset = -halfCells; colOffset <= halfCells; colOffset += 1) {
-        const row = centerRow + rowOffset;
+    const minOffset = -halfCells;
+    const maxOffset = minOffset + minimap.windowCells - 1;
+    const cellOverlap = 0.6;
+    const cellDrawSize = cellPixels + cellOverlap;
+    const cellDrawOffset = cellDrawSize / 2;
+    for (let rowOffset = minOffset; rowOffset <= maxOffset; rowOffset += 1) {
+      const row = centerRow + rowOffset;
+      const worldZ = -halfDepth + minimapCellSize / 2 + row * minimapCellSize;
+      const layoutRow = Math.floor(
+        (worldZ + halfDepth) / layout.cellSize
+      );
+      for (let colOffset = minOffset; colOffset <= maxOffset; colOffset += 1) {
         const col = centerCol + colOffset;
+        const worldX =
+          -halfWidth + minimapCellSize / 2 + col * minimapCellSize;
+        const layoutCol = Math.floor(
+          (worldX + halfWidth) / layout.cellSize
+        );
         const isFloor =
-          row >= 0 &&
-          row < layout.rows &&
-          col >= 0 &&
-          col < layout.columns &&
-          layout.cells[row][col] === "floor";
+          layoutRow >= 0 &&
+          layoutRow < layout.rows &&
+          layoutCol >= 0 &&
+          layoutCol < layout.columns &&
+          layout.cells[layoutRow][layoutCol] === "floor";
 
         minimapContext.fillStyle = isFloor ? "#a57bc4" : "#1b1b1b";
         minimapContext.fillRect(
-          (colOffset + halfCells) * minimap.cellPixels,
-          (halfCells - rowOffset) * minimap.cellPixels,
-          minimap.cellPixels,
-          minimap.cellPixels
+          centerX + colOffset * cellPixels - cellDrawOffset,
+          centerY - rowOffset * cellPixels - cellDrawOffset,
+          cellDrawSize,
+          cellDrawSize
         );
       }
     }
@@ -141,14 +161,16 @@ export const createHud = (): Hud => {
     minimapContext.restore();
 
     const angle = -Math.PI / 2;
+    const fanHalfAngle = cameraFov / 2;
+    const fanRadius = minimap.fanCells * cellPixels;
     minimapContext.beginPath();
     minimapContext.moveTo(centerX, centerY);
     minimapContext.arc(
       centerX,
       centerY,
-      minimap.fanRadius,
-      angle - minimap.fanHalfAngle,
-      angle + minimap.fanHalfAngle
+      fanRadius,
+      angle - fanHalfAngle,
+      angle + fanHalfAngle
     );
     minimapContext.closePath();
     minimapContext.fillStyle = "rgba(245, 245, 245, 0.25)";
@@ -157,12 +179,13 @@ export const createHud = (): Hud => {
     minimapContext.lineWidth = 1;
     minimapContext.stroke();
 
-    const markerSize = Math.max(4, Math.floor(minimap.cellPixels * 0.4));
-    const markerOffset = (minimap.cellPixels - markerSize) / 2;
+    const markerBase = cellPixels;
+    const markerSize = Math.max(4, Math.floor(markerBase * 0.4));
+    const markerOffset = markerSize / 2;
     minimapContext.fillStyle = "#f5f5f5";
     minimapContext.fillRect(
-      halfCells * minimap.cellPixels + markerOffset,
-      halfCells * minimap.cellPixels + markerOffset,
+      centerX - markerOffset,
+      centerY - markerOffset,
       markerSize,
       markerSize
     );

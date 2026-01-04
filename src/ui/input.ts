@@ -2,8 +2,6 @@ import { FreeCamera, Vector3 } from "@babylonjs/core";
 import { CharacterState } from "../game/types";
 import type { GamePhase } from "../game/flow";
 
-const unitScale = 0.5;
-
 export type InputHandlerOptions = {
   canvas: HTMLCanvasElement;
   camera: FreeCamera;
@@ -140,7 +138,7 @@ export const setupInputHandlers = ({
     if (direction.length() < 0.001) {
       return;
     }
-    const origin = ray.origin.add(direction.scale(1.2 * unitScale));
+    const origin = ray.origin.add(direction.scale(0.1));
     onPlayerFire(origin, direction);
   });
 };

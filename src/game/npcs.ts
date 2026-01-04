@@ -33,19 +33,17 @@ import {
   updateHitFadeOrbs
 } from "./hitEffects";
 import { beginBeamRetract } from "./beams";
-
-const unitScale = 0.5;
 const npcCellSize = 128;
 const npcFrameCount = 4;
 const npcSpriteImageWidth = 330;
 const npcSpriteImageHeight = 700;
-const npcSpriteWidth = 1.2;
+const npcSpriteWidth = 0.2;
 const npcSpriteHeight =
   (npcSpriteImageHeight / npcSpriteImageWidth) * npcSpriteWidth;
 const npcSpriteCenterHeight = npcSpriteHeight / 2;
-const npcSearchSpeed = 2.4 * unitScale;
-const npcEvadeSpeed = 3.0 * unitScale;
-const npcChaseSpeed = 3.6 * unitScale;
+const npcSearchSpeed = 0.2;
+const npcEvadeSpeed = 0.25;
+const npcChaseSpeed = 0.3;
 const redHitDurationScale = 1;
 export const npcHitDuration = 3;
 export const npcHitFadeDuration = 1;
@@ -72,27 +70,27 @@ const npcHitEffectRadius = npcHitEffectDiameter * 0.85;
 const npcHitEffectRadiusSq = npcHitEffectRadius * npcHitEffectRadius;
 const npcBrainwashDecisionDelay = 10;
 const npcBrainwashStayChance = 0.5;
-const npcBrainwashVisionRange = 36 * unitScale;
+const npcBrainwashVisionRange = 3;
 const npcBrainwashVisionRangeSq = npcBrainwashVisionRange * npcBrainwashVisionRange;
 const npcBrainwashVisionCos = Math.cos((95 * Math.PI) / 180);
-const npcBrainwashLoseRange = 30 * unitScale;
+const npcBrainwashLoseRange = 2.5;
 const npcBrainwashLoseRangeSq = npcBrainwashLoseRange * npcBrainwashLoseRange;
-const npcBrainwashFireRange = 18 * unitScale;
+const npcBrainwashFireRange = 1.5;
 const npcBrainwashFireRangeSq = npcBrainwashFireRange * npcBrainwashFireRange;
 const npcBrainwashFireIntervalMin = 1.4;
 const npcBrainwashFireIntervalMax = 2.2;
 const npcBrainwashBlockRadius = npcSpriteWidth * 0.7;
 const npcBrainwashBlockDuration = 20;
 const npcBrainwashBreakAwayDuration = 2.5;
-const npcBrainwashBreakAwaySpeed = 3.2 * unitScale;
-const npcTargetArrivalDistance = 0.3 * unitScale;
+const npcBrainwashBreakAwaySpeed = 0.27;
+const npcTargetArrivalDistance = 0.025;
 const hitFadeOrbMinCount = 5;
 const hitFadeOrbMaxCount = 20;
-const hitFadeOrbDiameter = 0.22 * unitScale;
-const hitFadeOrbSurfaceOffsetMin = 0.05 * unitScale;
-const hitFadeOrbSurfaceOffsetMax = 0.4 * unitScale;
-const hitFadeOrbSpeedMin = 0.25 * unitScale;
-const hitFadeOrbSpeedMax = 0.65 * unitScale;
+const hitFadeOrbDiameter = 0.02;
+const hitFadeOrbSurfaceOffsetMin = 0.005;
+const hitFadeOrbSurfaceOffsetMax = 0.03;
+const hitFadeOrbSpeedMin = 0.02;
+const hitFadeOrbSpeedMax = 0.05;
 export const npcHitFadeOrbConfig: HitFadeOrbConfig = {
   minCount: hitFadeOrbMinCount,
   maxCount: hitFadeOrbMaxCount,

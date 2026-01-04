@@ -59,7 +59,6 @@ export const createGameFlow = ({
   setBitSpawnEnabled,
   disposePlayerHitEffects
 }: GameFlowOptions) => {
-  const unitScale = 0.5;
   const assemblyRoom = {
     startCol: 8,
     startRow: 8,
@@ -67,13 +66,13 @@ export const createGameFlow = ({
     height: 4
   };
   const assemblyMaxColumns = 5;
-  const assemblySpacingX = 6 * unitScale;
-  const assemblySpacingZ = 4 * unitScale;
-  const assemblyMoveSpeed = 3.2 * unitScale;
-  const assemblyArriveDistance = 0.2 * unitScale;
-  const assemblyOrbitRadius = 14 * unitScale;
+  const assemblySpacingX = 0.5;
+  const assemblySpacingZ = 0.33;
+  const assemblyMoveSpeed = 0.27;
+  const assemblyArriveDistance = 0.02;
+  const assemblyOrbitRadius = 1.17;
   const assemblyOrbitSpeed = 0.4;
-  const assemblyOrbitHeight = 4 * unitScale;
+  const assemblyOrbitHeight = 0.33;
   const executionOrbitRadius = assemblyOrbitRadius;
   const executionOrbitHeight = eyeHeight;
   const executionNpcRingPadding = layout.cellSize * 0.4;
@@ -340,7 +339,7 @@ export const createGameFlow = ({
       const x = assemblyCenter.x + Math.cos(angle) * assemblyOrbitRadius;
       const z = assemblyCenter.z + Math.sin(angle) * assemblyOrbitRadius;
       const bob =
-        Math.sin(assemblyElapsed * bobSpeed + bit.floatOffset) * 0.4 * unitScale;
+        Math.sin(assemblyElapsed * bobSpeed + bit.floatOffset) * 0.03;
       bit.root.position.x = x;
       bit.root.position.y = assemblyOrbitHeight + bob;
       bit.root.position.z = z;

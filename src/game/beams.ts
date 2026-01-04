@@ -11,8 +11,7 @@ import {
 import { GridLayout } from "../world/grid";
 import { Beam, BeamImpactOrb, BeamTrail, StageBounds } from "./types";
 
-const unitScale = 0.5;
-const beamDiameterBase = 0.18 * unitScale;
+const beamDiameterBase = 0.015;
 const beamDiameterScale = 1.2;
 const beamTipScaleBase = 1.25;
 const beamTipScaleMultiplier = 4;
@@ -24,8 +23,8 @@ const beamFrontDiameterScale = 0.8;
 const beamBackDiameterScale = 3.0;
 const beamFrontRadius = (beamDiameter * beamFrontDiameterScale) / 2;
 const beamBackRadius = (beamDiameter * beamBackDiameterScale) / 2;
-const beamTrailDiameterMin = 0.12 * unitScale;
-const beamTrailDiameterMax = 0.6 * unitScale;
+const beamTrailDiameterMin = 0.01;
+const beamTrailDiameterMax = 0.05;
 const beamTrailLifetime = 0.3;
 const beamTrailIntervalMin = 0.025;
 const beamTrailIntervalMax = 0.085;
@@ -34,11 +33,11 @@ const beamTrailMinScale = 0.08;
 const beamTrailFadeInDuration = 0.05;
 const beamImpactOrbCountMin = 2;
 const beamImpactOrbCountMax = 5;
-const beamImpactOrbDiameter = 0.24 * unitScale;
+const beamImpactOrbDiameter = 0.02;
 const beamImpactOrbLifetime = 1.6;
 const beamImpactMinScale = 0.08;
-const beamImpactOrbSpeedMin = 0.35 * unitScale;
-const beamImpactOrbSpeedMax = 0.9 * unitScale;
+const beamImpactOrbSpeedMin = 0.03;
+const beamImpactOrbSpeedMax = 0.075;
 const beamImpactBounceJitter = 1.35;
 const beamImpactBounceLift = 0.7;
 const beamImpactReflectBoost = 1;
@@ -153,7 +152,7 @@ export const createBeam = (
   material: StandardMaterial,
   sourceId: string | null
 ): Beam => {
-  const beamLength = 9.0 * unitScale;
+  const beamLength = 0.75;
   const beamFrontDiameter = beamDiameter * beamFrontDiameterScale;
   const beamBackDiameter = beamDiameter * beamBackDiameterScale;
   const beam = MeshBuilder.CreateCylinder(
@@ -189,7 +188,7 @@ export const createBeam = (
 
   return {
     mesh: beam,
-    velocity: direction.scale(19 * unitScale),
+    velocity: direction.scale(1.58),
     startPosition: position.clone(),
     travelDistance: 0,
     length: beamLength,
