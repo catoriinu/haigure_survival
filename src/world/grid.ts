@@ -83,6 +83,7 @@ const buildThreeRoomsLinear = (config: GridConfig): GridLayout => {
   const cells = createFilledCells(config.rows, config.columns, "wall");
   const largeRoomWidth = 5 * CELL_SCALE;
   const largeRoomHeight = 3 * CELL_SCALE;
+  const centralLargeRoomHeight = 4 * CELL_SCALE;
   const smallRoomWidth = 3 * CELL_SCALE;
   const smallRoomHeight = 2 * CELL_SCALE;
   const corridorWidth = 1 * CELL_SCALE;
@@ -94,7 +95,11 @@ const buildThreeRoomsLinear = (config: GridConfig): GridLayout => {
   const roomSpecs = [
     { width: smallRoomWidth, height: smallRoomHeight, kind: "small" as const },
     { width: largeRoomWidth, height: largeRoomHeight, kind: "large" as const },
-    { width: largeRoomWidth, height: largeRoomHeight, kind: "large" as const },
+    {
+      width: largeRoomWidth,
+      height: centralLargeRoomHeight,
+      kind: "large" as const
+    },
     { width: largeRoomWidth, height: largeRoomHeight, kind: "large" as const },
     { width: smallRoomWidth, height: smallRoomHeight, kind: "small" as const }
   ];

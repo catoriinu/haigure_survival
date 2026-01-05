@@ -112,6 +112,7 @@ export const createGameFlow = ({
   let fadePhase: "none" | "out" | "in" = "none";
   let fadeNext: (() => void) | null = null;
   let executionCameraFollowAvatar = false;
+  const followCameraOffset = playerAvatar.width * 0.9;
 
   type GridCell = {
     row: number;
@@ -371,6 +372,13 @@ export const createGameFlow = ({
     }
   };
 
+  const updateCameraFollowAvatar = () => {
+    const forward = camera.getDirection(new Vector3(0, 0, 1));
+    camera.position.x = playerAvatar.position.x + forward.x * followCameraOffset;
+    camera.position.z = playerAvatar.position.z + forward.z * followCameraOffset;
+    camera.position.y = eyeHeight;
+  };
+
   const enterAssembly = (mode: AssemblyMode) => {
     stopAlertLoop();
     setBitSpawnEnabled(false);
@@ -533,10 +541,8 @@ export const createGameFlow = ({
 
   const updateAssembly = (delta: number) => {
     updateBitsOrbit(delta);
-    camera.position.x = playerAvatar.position.x;
-    camera.position.z = playerAvatar.position.z;
-    camera.position.y = eyeHeight;
     if (getGamePhase() !== "assemblyMove") {
+      updateCameraFollowAvatar();
       return;
     }
     const playerRoute = assemblyPlayerRoute!;
@@ -559,15 +565,14 @@ export const createGameFlow = ({
     if (allArrived) {
       setGamePhase("assemblyHold");
     }
+    updateCameraFollowAvatar();
   };
 
   const updateExecution = () => {
     if (!executionCameraFollowAvatar) {
       return;
     }
-    camera.position.x = playerAvatar.position.x;
-    camera.position.z = playerAvatar.position.z;
-    camera.position.y = eyeHeight;
+    updateCameraFollowAvatar();
   };
 
   const beginFadeOut = (next: () => void) => {
