@@ -1,4 +1,4 @@
-import { Vector3 } from "@babylonjs/core";
+﻿import { Vector3 } from "@babylonjs/core";
 import { CELL_SCALE, GridLayout } from "../world/grid";
 
 export type DrawMinimapParams = {
@@ -44,9 +44,9 @@ export const createHud = (): Hud => {
   minimapContext.imageSmoothingEnabled = true;
   minimapContext.imageSmoothingQuality = "high";
   const minimap = {
-    sizePixels: 132,
-    windowCells: 40 * CELL_SCALE,
-    fanCells: 12 * CELL_SCALE
+    sizePixels: 180,
+    windowCells: 18 * CELL_SCALE,
+    fanCells: 6 * CELL_SCALE
   };
   const minimapSize = minimap.sizePixels;
   minimapCanvas.width = minimapSize;
@@ -99,6 +99,7 @@ export const createHud = (): Hud => {
   }: DrawMinimapParams) => {
     const cellPixels = minimapSize / minimap.windowCells;
     const halfCells = Math.floor(minimap.windowCells / 2);
+    const drawHalfCells = Math.ceil(halfCells * Math.SQRT2) + 1;
     const centerCol = Math.floor(
       (cameraPosition.x + halfWidth) / minimapCellSize
     );
@@ -117,14 +118,27 @@ export const createHud = (): Hud => {
     const rotation = -Math.PI / 2 + theta;
     const centerX = minimapSize / 2;
     const centerY = minimapSize / 2;
+    const borderWidth = 2;
+    const minimapRadius = minimapSize / 2 - borderWidth * 0.5;
+
+    minimapContext.save();
+    minimapContext.beginPath();
+    minimapContext.arc(
+      centerX,
+      centerY,
+      minimapRadius,
+      0,
+      Math.PI * 2
+    );
+    minimapContext.clip();
 
     minimapContext.save();
     minimapContext.translate(centerX, centerY);
     minimapContext.rotate(rotation);
     minimapContext.translate(-centerX, -centerY);
 
-    const minOffset = -halfCells;
-    const maxOffset = minOffset + minimap.windowCells - 1;
+    const minOffset = -drawHalfCells;
+    const maxOffset = drawHalfCells;
     const cellOverlap = 0.6;
     const cellDrawSize = cellPixels + cellOverlap;
     const cellDrawOffset = cellDrawSize / 2;
@@ -190,9 +204,19 @@ export const createHud = (): Hud => {
       markerSize
     );
 
+    minimapContext.restore();
+
     minimapContext.strokeStyle = "#000000";
-    minimapContext.lineWidth = 2;
-    minimapContext.strokeRect(0, 0, minimapSize, minimapSize);
+    minimapContext.lineWidth = borderWidth;
+    minimapContext.beginPath();
+    minimapContext.arc(
+      centerX,
+      centerY,
+      minimapRadius,
+      0,
+      Math.PI * 2
+    );
+    minimapContext.stroke();
 
     retryInfo.style.display = retryText ? "block" : "none";
     retryInfo.textContent = retryText ?? "";
