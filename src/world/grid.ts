@@ -23,10 +23,12 @@ export type GridConfig = {
   rule: GridRule;
 };
 
+export const CELL_SCALE = 3;
+
 export const DEFAULT_GRID_CONFIG: GridConfig = {
-  columns: 20,
-  rows: 20,
-  cellSize: 1,
+  columns: 20 * CELL_SCALE,
+  rows: 20 * CELL_SCALE,
+  cellSize: 1 / CELL_SCALE,
   height: 1,
   rule: "three-rooms-linear"
 };
@@ -65,25 +67,30 @@ const carveRect = (
 
 const carveCorridor = (
   cells: CellType[][],
-  row: number,
+  startRow: number,
+  height: number,
   startCol: number,
   endCol: number
 ) => {
-  for (let col = startCol; col <= endCol; col += 1) {
-    cells[row][col] = "floor";
+  for (let row = startRow; row < startRow + height; row += 1) {
+    for (let col = startCol; col <= endCol; col += 1) {
+      cells[row][col] = "floor";
+    }
   }
 };
 
 const buildThreeRoomsLinear = (config: GridConfig): GridLayout => {
   const cells = createFilledCells(config.rows, config.columns, "wall");
-  const largeRoomWidth = 4;
-  const largeRoomHeight = 4;
-  const smallRoomWidth = 2;
-  const smallRoomHeight = 3;
-  const corridorWidth = 1;
-  const startRowLarge = Math.floor((config.rows - largeRoomHeight) / 2);
-  const corridorRow = startRowLarge + Math.floor(largeRoomHeight / 2);
-  const startRowSmall = corridorRow - Math.floor(smallRoomHeight / 2);
+  const largeRoomWidth = 5 * CELL_SCALE;
+  const largeRoomHeight = 3 * CELL_SCALE;
+  const smallRoomWidth = 3 * CELL_SCALE;
+  const smallRoomHeight = 2 * CELL_SCALE;
+  const corridorWidth = 1 * CELL_SCALE;
+  const corridorHeight = 1 * CELL_SCALE;
+  const startColLarge = Math.floor((config.columns - largeRoomWidth) / 2);
+  const corridorStartColDefault = startColLarge + 1 * CELL_SCALE;
+  const corridorStartColShifted = startColLarge + 3 * CELL_SCALE;
+  const startColSmallShifted = corridorStartColShifted - 1 * CELL_SCALE;
   const roomSpecs = [
     { width: smallRoomWidth, height: smallRoomHeight, kind: "small" as const },
     { width: largeRoomWidth, height: largeRoomHeight, kind: "large" as const },
@@ -91,19 +98,24 @@ const buildThreeRoomsLinear = (config: GridConfig): GridLayout => {
     { width: largeRoomWidth, height: largeRoomHeight, kind: "large" as const },
     { width: smallRoomWidth, height: smallRoomHeight, kind: "small" as const }
   ];
+  const totalHeight =
+    roomSpecs.reduce((sum, room) => sum + room.height, 0) +
+    (roomSpecs.length - 1) * corridorHeight;
   const noSpawnCells: { row: number; col: number }[] = [];
-  let currentCol = 0;
-  let spawnRow = corridorRow;
+  let currentRow = Math.floor((config.rows - totalHeight) / 2);
+  let spawnRow = 0;
   let spawnCol = 0;
 
   for (let index = 0; index < roomSpecs.length; index += 1) {
     const room = roomSpecs[index];
-    const startRow = room.kind === "small" ? startRowSmall : startRowLarge;
-    carveRect(cells, currentCol, startRow, room.width, room.height);
+    const startRow = currentRow;
+    const startCol =
+      room.kind === "small" && index === 0 ? startColSmallShifted : startColLarge;
+    carveRect(cells, startCol, startRow, room.width, room.height);
 
     if (room.kind === "small") {
       for (let row = startRow; row < startRow + room.height; row += 1) {
-        for (let col = currentCol; col < currentCol + room.width; col += 1) {
+        for (let col = startCol; col < startCol + room.width; col += 1) {
           noSpawnCells.push({ row, col });
         }
       }
@@ -111,18 +123,21 @@ const buildThreeRoomsLinear = (config: GridConfig): GridLayout => {
 
     if (index === 0) {
       spawnRow = startRow + Math.floor(room.height / 2);
-      spawnCol = currentCol + Math.floor(room.width / 2);
+      spawnCol = startCol + Math.floor(room.width / 2);
     }
 
-    currentCol += room.width;
+    currentRow += room.height;
     if (index < roomSpecs.length - 1) {
+      const corridorStartCol =
+        index <= 1 ? corridorStartColShifted : corridorStartColDefault;
       carveCorridor(
         cells,
-        corridorRow,
-        currentCol,
-        currentCol + corridorWidth - 1
+        currentRow,
+        corridorHeight,
+        corridorStartCol,
+        corridorStartCol + corridorWidth - 1
       );
-      currentCol += corridorWidth;
+      currentRow += corridorHeight;
     }
   }
 

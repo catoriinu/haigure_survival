@@ -102,7 +102,7 @@ const spawnPosition = new Vector3(
   eyeHeight,
   -halfDepth + layout.cellSize / 2 + layout.spawn.row * layout.cellSize
 );
-const spawnForward = new Vector3(1, 0, 0);
+const spawnForward = new Vector3(0, 0, 1);
 const camera = new FreeCamera(
   "camera",
   spawnPosition.clone(),
@@ -333,17 +333,17 @@ light.intensity = 1.2;
 scene.ambientColor = new Color3(0.45, 0.45, 0.45);
 scene.collisionsEnabled = true;
 
-const stageStyle = {
-  floorColor: new Color3(0.55, 0.2, 0.75),
-  ceilingColor: new Color3(0.88, 0.88, 0.88),
-  wallBaseColor: new Color3(0.88, 0.88, 0.88),
-  floorGridColor: new Color3(0.07, 0.07, 0.07),
-  wallGridColor: new Color3(0.07, 0.07, 0.07),
-  gridSpacingWorld: 0.17,
-  gridCellsPerTexture: 8,
-  gridLineWidthPx: 3,
-  gridTextureSize: 512,
-  enableCollisions: true
+  const stageStyle = {
+    floorColor: new Color3(0.55, 0.2, 0.75),
+    ceilingColor: new Color3(0.88, 0.88, 0.88),
+    wallBaseColor: new Color3(0.88, 0.88, 0.88),
+    floorGridColor: new Color3(0.07, 0.07, 0.07),
+    wallGridColor: new Color3(0.07, 0.07, 0.07),
+    gridSpacingWorld: layout.cellSize,
+    gridCellsPerTexture: 8,
+    gridLineWidthPx: 3,
+    gridTextureSize: 512,
+    enableCollisions: true
 };
 
 const minimapCellDivisor = Math.round(

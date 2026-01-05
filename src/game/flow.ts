@@ -1,5 +1,5 @@
 import { FreeCamera, Sprite, Vector3 } from "@babylonjs/core";
-import { GridLayout } from "../world/grid";
+import { CELL_SCALE, GridLayout } from "../world/grid";
 import { Hud } from "../ui/hud";
 import { Bit, CharacterState, Npc } from "./types";
 import { finalizeBitVisuals } from "./bits";
@@ -59,12 +59,12 @@ export const createGameFlow = ({
   setBitSpawnEnabled,
   disposePlayerHitEffects
 }: GameFlowOptions) => {
-  const assemblyRoom = {
-    startCol: 8,
-    startRow: 8,
-    width: 4,
-    height: 4
-  };
+    const stageArea = {
+      startCol: 8 * CELL_SCALE,
+      startRow: 8 * CELL_SCALE,
+      width: 4 * CELL_SCALE,
+      height: 4 * CELL_SCALE
+    };
   const assemblyMaxColumns = 5;
   const assemblySpacingX = 0.5;
   const assemblySpacingZ = 0.33;
@@ -75,11 +75,11 @@ export const createGameFlow = ({
   const assemblyOrbitHeight = 0.33;
   const executionOrbitRadius = assemblyOrbitRadius;
   const executionOrbitHeight = eyeHeight;
-  const executionNpcRingPadding = layout.cellSize * 0.4;
-  const executionNpcRingMaxRadius = Math.min(
-    ((assemblyRoom.width - 1) * layout.cellSize) / 2,
-    ((assemblyRoom.height - 1) * layout.cellSize) / 2
-  );
+    const executionNpcRingPadding = layout.cellSize * 0.4 * CELL_SCALE;
+    const executionNpcRingMaxRadius = Math.min(
+      ((stageArea.width - CELL_SCALE) * layout.cellSize) / 2,
+      ((stageArea.height - CELL_SCALE) * layout.cellSize) / 2
+    );
   const executionNpcRingRadius = Math.min(
     executionNpcRingMaxRadius,
     executionOrbitRadius + executionNpcRingPadding
@@ -87,23 +87,23 @@ export const createGameFlow = ({
   const fadeDuration = 0.8;
   const halfWidth = (layout.columns * layout.cellSize) / 2;
   const halfDepth = (layout.rows * layout.cellSize) / 2;
-  const assemblyCenter = new Vector3(
+  const stageCenter = new Vector3(
     -halfWidth +
-      layout.cellSize * (assemblyRoom.startCol + assemblyRoom.width / 2),
+      layout.cellSize * (stageArea.startCol + stageArea.width / 2),
     playerCenterHeight,
     -halfDepth +
-      layout.cellSize * (assemblyRoom.startRow + assemblyRoom.height / 2)
+      layout.cellSize * (stageArea.startRow + stageArea.height / 2)
   );
-  const assemblyRoomRows = Array.from(
-    { length: assemblyRoom.height },
-    (_, index) => assemblyRoom.startRow + index
+  const stageRows = Array.from(
+    { length: stageArea.height },
+    (_, index) => stageArea.startRow + index
   );
-  const assemblyRoomCols = Array.from(
-    { length: assemblyRoom.width },
-    (_, index) => assemblyRoom.startCol + index
+  const stageCols = Array.from(
+    { length: stageArea.width },
+    (_, index) => stageArea.startCol + index
   );
 
-  let assemblyPlayerTarget = assemblyCenter.clone();
+  let assemblyPlayerTarget = stageCenter.clone();
   let assemblyNpcTargets: Vector3[] = [];
   let assemblyPlayerRoute: AssemblyRoute | null = null;
   let assemblyNpcRoutes: AssemblyRoute[] = [];
@@ -144,9 +144,9 @@ export const createGameFlow = ({
         }
         slots.push(
           new Vector3(
-            assemblyCenter.x - totalWidth / 2 + col * assemblySpacingX,
+            stageCenter.x - totalWidth / 2 + col * assemblySpacingX,
             playerCenterHeight,
-            assemblyCenter.z - totalDepth / 2 + row * assemblySpacingZ
+            stageCenter.z - totalDepth / 2 + row * assemblySpacingZ
           )
         );
       }
@@ -242,10 +242,10 @@ export const createGameFlow = ({
     return { waypoints, index: 0 };
   };
 
-  const createRoomSlots = (rowOrder: number[]) => {
+  const createStageSlots = (rowOrder: number[]) => {
     const slots: Vector3[] = [];
     for (const row of rowOrder) {
-      for (const col of assemblyRoomCols) {
+      for (const col of stageCols) {
         slots.push(cellToWorld({ row, col }, playerCenterHeight));
       }
     }
@@ -336,15 +336,15 @@ export const createGameFlow = ({
     for (let index = 0; index < bits.length; index += 1) {
       const bit = bits[index];
       const angle = assemblyElapsed * assemblyOrbitSpeed + angleStep * index;
-      const x = assemblyCenter.x + Math.cos(angle) * assemblyOrbitRadius;
-      const z = assemblyCenter.z + Math.sin(angle) * assemblyOrbitRadius;
+      const x = stageCenter.x + Math.cos(angle) * assemblyOrbitRadius;
+      const z = stageCenter.z + Math.sin(angle) * assemblyOrbitRadius;
       const bob =
         Math.sin(assemblyElapsed * bobSpeed + bit.floatOffset) * 0.03;
       bit.root.position.x = x;
       bit.root.position.y = assemblyOrbitHeight + bob;
       bit.root.position.z = z;
       bit.baseHeight = assemblyOrbitHeight;
-      bit.root.lookAt(assemblyCenter);
+      bit.root.lookAt(stageCenter);
     }
   };
 
@@ -448,13 +448,13 @@ export const createGameFlow = ({
     }
 
     const executionCenter = new Vector3(
-      assemblyCenter.x,
+      stageCenter.x,
       playerCenterHeight,
-      assemblyCenter.z
+      stageCenter.z
     );
-    const frontRowOrder = [...assemblyRoomRows];
-    const frontRowCenterIndex = Math.floor((assemblyRoomCols.length - 1) / 2);
-    const frontSlots = createRoomSlots(frontRowOrder);
+    const frontRowOrder = [...stageRows];
+    const frontRowCenterIndex = Math.floor((stageCols.length - 1) / 2);
+    const frontSlots = createStageSlots(frontRowOrder);
     const placeNpcRing = (npcIndices: number[]) => {
       const ringSlots = createExecutionRingSlots(
         executionCenter,

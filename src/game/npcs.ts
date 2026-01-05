@@ -7,7 +7,7 @@ import {
   SpriteManager,
   Vector3
 } from "@babylonjs/core";
-import { GridLayout } from "../world/grid";
+import { CELL_SCALE, GridLayout } from "../world/grid";
 import {
   Beam,
   BeamImpactOrb,
@@ -44,7 +44,7 @@ const npcSpriteCenterHeight = npcSpriteHeight / 2;
 const npcSearchSpeed = 0.2;
 const npcEvadeSpeed = 0.25;
 const npcChaseSpeed = 0.3;
-const npcMovePower = 12;
+const npcMovePower = 12 * CELL_SCALE;
 const npcEvadeRetargetInterval = 1;
 const redHitDurationScale = 1;
 export const npcHitDuration = 3;
@@ -892,15 +892,19 @@ export const updateNpcs = (
         npc.hitLight.specular.copyFrom(npcHitColorA);
         npc.hitLight.intensity = npcHitLightIntensity * fadeScale;
       }
-      updateHitFadeOrbs(npc.fadeOrbs, delta, fadeScale, shouldProcessOrb);
+        updateHitFadeOrbs(npc.fadeOrbs, delta, fadeScale, shouldProcessOrb);
         if (npc.fadeTimer <= 0) {
           npc.state = "brainwash-in-progress";
-        npc.brainwashTimer = 0;
-        npc.brainwashMode = "search";
-        npc.brainwashTargetId = null;
-        npc.blockTimer = 0;
-        npc.blockTargetId = null;
-        npc.breakAwayTimer = 0;
+          npc.brainwashTimer = 0;
+          npc.brainwashMode = "search";
+          npc.brainwashTargetId = null;
+          npc.goalCell = npc.cell;
+          npc.target = cellToWorld(layout, npc.cell, npcSpriteCenterHeight);
+          npc.path = [];
+          npc.pathIndex = 0;
+          npc.blockTimer = 0;
+          npc.blockTargetId = null;
+          npc.breakAwayTimer = 0;
         npc.alertState = "none";
         npc.alertReturnBrainwashMode = null;
         npc.alertReturnTargetId = null;
@@ -990,7 +994,10 @@ export const updateNpcs = (
             ...npcThreatsFromNpcs[npcIndex],
             ...evadeThreats[npcIndex]
           ];
-          const destination = pickEvadeCell(layout, candidates, threats);
+          const destination =
+            threats.length > 0
+              ? pickEvadeCell(layout, candidates, threats)
+              : pickWeightedCell(candidates, npcMovePower);
           setNpcDestination(
             layout,
             npc,

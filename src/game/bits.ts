@@ -8,7 +8,7 @@
   VertexBuffer,
   Vector3
 } from "@babylonjs/core";
-import { GridLayout } from "../world/grid";
+import { CELL_SCALE, GridLayout } from "../world/grid";
 import {
   AlertSignal,
   ExternalAlert,
@@ -1113,10 +1113,11 @@ export const updateBits = (
   spawnBeam: (position: Vector3, direction: Vector3, sourceId: string) => void,
   soundEvents: BitSoundEvents
 ) => {
-  const minX = bounds.minX + layout.cellSize;
-  const maxX = bounds.maxX - layout.cellSize;
-  const minZ = bounds.minZ + layout.cellSize;
-  const maxZ = bounds.maxZ - layout.cellSize;
+    const wallMargin = layout.cellSize * CELL_SCALE;
+    const minX = bounds.minX + wallMargin;
+    const maxX = bounds.maxX - wallMargin;
+    const minZ = bounds.minZ + wallMargin;
+    const maxZ = bounds.maxZ - wallMargin;
   const minY = bounds.minY + 0.27;
   const maxY = bounds.maxY - 0.23;
   const halfWidth = (layout.columns * layout.cellSize) / 2;

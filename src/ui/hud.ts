@@ -1,5 +1,5 @@
 import { Vector3 } from "@babylonjs/core";
-import { GridLayout } from "../world/grid";
+import { CELL_SCALE, GridLayout } from "../world/grid";
 
 export type DrawMinimapParams = {
   cameraPosition: Vector3;
@@ -45,8 +45,8 @@ export const createHud = (): Hud => {
   minimapContext.imageSmoothingQuality = "high";
   const minimap = {
     sizePixels: 132,
-    windowCells: 40,
-    fanCells: 12
+    windowCells: 40 * CELL_SCALE,
+    fanCells: 12 * CELL_SCALE
   };
   const minimapSize = minimap.sizePixels;
   minimapCanvas.width = minimapSize;
