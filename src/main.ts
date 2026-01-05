@@ -9,6 +9,7 @@ import {
   Color3,
   Color4,
   Sprite,
+  SpriteManager,
   Mesh,
   StandardMaterial
 } from "@babylonjs/core";
@@ -73,35 +74,100 @@ import {
 } from "./audio/voice";
 import { SfxDirector } from "./audio/sfxDirector";
 import { createGameFlow, type GamePhase, type ExecutionConfig } from "./game/flow";
-import { createGridLayout } from "./world/grid";
-import { createStageFromGrid } from "./world/stage";
+import { buildStageContext, disposeStageParts } from "./world/stageContext";
+import {
+  createStageSelector,
+  loadStageJson,
+  STAGE_CATALOG,
+  type StageSelection
+} from "./world/stageSelection";
 import { createHud } from "./ui/hud";
 import { setupInputHandlers } from "./ui/input";
+import {
+  NPC_SPRITE_MODES,
+  PLAYER_EYE_HEIGHT,
+  PLAYER_SPRITE_CENTER_HEIGHT,
+  PLAYER_SPRITE_HEIGHT,
+  PLAYER_SPRITE_MODES,
+  PLAYER_SPRITE_WIDTH,
+  createDefaultCharacterSpritesheet,
+  loadCharacterSpriteSheet
+} from "./game/characterSprites";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const engine = new Engine(canvas, true);
 const scene = new Scene(engine);
 
-const layout = createGridLayout();
-const playerSpriteImageWidth = 330;
-const playerSpriteImageHeight = 700;
-const playerWidth = 0.2;
-const playerHeight =
-  (playerSpriteImageHeight / playerSpriteImageWidth) * playerWidth;
-const room = {
-  width: layout.columns * layout.cellSize,
-  depth: layout.rows * layout.cellSize,
-  height: layout.height
+const playerWidth = PLAYER_SPRITE_WIDTH;
+const playerHeight = PLAYER_SPRITE_HEIGHT;
+const playerCenterHeight = PLAYER_SPRITE_CENTER_HEIGHT;
+const eyeHeight = PLAYER_EYE_HEIGHT;
+
+const defaultSpriteSheet = createDefaultCharacterSpritesheet();
+const [npcSpriteSheet, playerSpriteSheet] = await Promise.all([
+  loadCharacterSpriteSheet("npc", NPC_SPRITE_MODES, defaultSpriteSheet),
+  loadCharacterSpriteSheet("player", PLAYER_SPRITE_MODES, defaultSpriteSheet)
+]);
+
+const stageSelector = createStageSelector(STAGE_CATALOG);
+let stageSelection = stageSelector.getCurrent();
+let stageSelectionRequestId = 0;
+let stageSelectionInProgress = false;
+let stageJson = await loadStageJson(stageSelection);
+let stageContext = buildStageContext(scene, stageJson);
+let layout = stageContext.layout;
+let stageStyle = stageContext.style;
+let stageParts = stageContext.parts;
+let room = stageContext.room;
+let halfWidth = room.width / 2;
+let halfDepth = room.depth / 2;
+let minimapCellSize = layout.cellSize;
+let spawnPosition = new Vector3(0, 0, 0);
+let floorCells = collectFloorCells(layout);
+let spawnableCells = floorCells;
+let bounds: StageBounds = {
+  minX: -halfWidth,
+  maxX: halfWidth,
+  minZ: -halfDepth,
+  maxZ: halfDepth,
+  minY: 0,
+  maxY: room.height
 };
-const playerCenterHeight = playerHeight / 2;
-const eyeHeight = playerHeight * 0.75;
-const halfWidth = room.width / 2;
-const halfDepth = room.depth / 2;
-const spawnPosition = new Vector3(
-  -halfWidth + layout.cellSize / 2 + layout.spawn.col * layout.cellSize,
-  eyeHeight,
-  -halfDepth + layout.cellSize / 2 + layout.spawn.row * layout.cellSize
-);
+
+const updateStageState = () => {
+  layout = stageContext.layout;
+  stageStyle = stageContext.style;
+  stageParts = stageContext.parts;
+  room = stageContext.room;
+  halfWidth = room.width / 2;
+  halfDepth = room.depth / 2;
+  spawnPosition = new Vector3(
+    -halfWidth + layout.cellSize / 2 + layout.spawn.col * layout.cellSize,
+    eyeHeight,
+    -halfDepth + layout.cellSize / 2 + layout.spawn.row * layout.cellSize
+  );
+  const minimapCellDivisor = Math.round(
+    layout.cellSize / stageStyle.gridSpacingWorld
+  );
+  minimapCellSize = layout.cellSize / minimapCellDivisor;
+  floorCells = collectFloorCells(layout);
+  const noSpawnKeys = new Set(
+    layout.noSpawnCells.map((cell) => `${cell.row},${cell.col}`)
+  );
+  spawnableCells = floorCells.filter(
+    (cell) => !noSpawnKeys.has(`${cell.row},${cell.col}`)
+  );
+  bounds = {
+    minX: -halfWidth,
+    maxX: halfWidth,
+    minZ: -halfDepth,
+    maxZ: halfDepth,
+    minY: 0,
+    maxY: room.height
+  };
+};
+
+updateStageState();
 const spawnForward = new Vector3(0, 0, 1);
 const camera = new FreeCamera(
   "camera",
@@ -332,36 +398,15 @@ const light = new HemisphericLight("light", new Vector3(0, 1, 0), scene);
 light.intensity = 1.2;
 scene.ambientColor = new Color3(0.45, 0.45, 0.45);
 scene.collisionsEnabled = true;
-
-  const stageStyle = {
-    floorColor: new Color3(0.55, 0.2, 0.75),
-    ceilingColor: new Color3(0.88, 0.88, 0.88),
-    wallBaseColor: new Color3(0.88, 0.88, 0.88),
-    floorGridColor: new Color3(0.07, 0.07, 0.07),
-    wallGridColor: new Color3(0.07, 0.07, 0.07),
-    gridSpacingWorld: layout.cellSize,
-    gridCellsPerTexture: 8,
-    gridLineWidthPx: 3,
-    gridTextureSize: 512,
-    enableCollisions: true
-};
-
-const minimapCellDivisor = Math.round(
-  layout.cellSize / stageStyle.gridSpacingWorld
+const npcManager = createNpcManager(scene, 32, npcSpriteSheet.url);
+const playerManager = new SpriteManager(
+  "playerManager",
+  playerSpriteSheet.url,
+  1,
+  { width: playerSpriteSheet.cellSize, height: playerSpriteSheet.cellSize },
+  scene
 );
-const minimapCellSize = layout.cellSize / minimapCellDivisor;
-
-createStageFromGrid(scene, layout, stageStyle);
-
-const floorCells = collectFloorCells(layout);
-const noSpawnKeys = new Set(
-  layout.noSpawnCells.map((cell) => `${cell.row},${cell.col}`)
-);
-const spawnableCells = floorCells.filter(
-  (cell) => !noSpawnKeys.has(`${cell.row},${cell.col}`)
-);
-const npcManager = createNpcManager(scene, 32);
-const playerAvatar = new Sprite("playerAvatar", npcManager);
+const playerAvatar = new Sprite("playerAvatar", playerManager);
 playerAvatar.width = playerWidth;
 playerAvatar.height = playerHeight;
 playerAvatar.isPickable = false;
@@ -435,14 +480,6 @@ const beams: Beam[] = [];
 const beamTrails: BeamTrail[] = [];
 const beamImpactOrbs: BeamImpactOrb[] = [];
 
-const bounds: StageBounds = {
-  minX: -halfWidth,
-  maxX: halfWidth,
-  minZ: -halfDepth,
-  maxZ: halfDepth,
-  minY: 0,
-  maxY: room.height
-};
 const alertSignal = {
   leaderId: null as string | null,
   targetId: null as string | null,
@@ -554,6 +591,39 @@ let bitIndex = bits.length;
 const maxBitCount = 25;
 
 const hud = createHud();
+const buildTitleText = (selection: StageSelection) =>
+  `left click to start\nright click to select stage\nstage: ${selection.label}`;
+const applyStageSelection = async (selection: StageSelection) => {
+  const requestId = stageSelectionRequestId + 1;
+  stageSelectionRequestId = requestId;
+  stageSelectionInProgress = true;
+  stageSelection = selection;
+  hud.setTitleText(buildTitleText(selection));
+  const loadedStageJson = await loadStageJson(selection);
+  if (requestId !== stageSelectionRequestId) {
+    return;
+  }
+  stageSelectionInProgress = false;
+  if (gamePhase !== "title") {
+    return;
+  }
+  stageJson = loadedStageJson;
+  disposeStageParts(stageParts);
+  stageContext = buildStageContext(scene, stageJson);
+  updateStageState();
+  camera.position.copyFrom(spawnPosition);
+  camera.rotation = new Vector3(0, 0, 0);
+  camera.setTarget(spawnPosition.add(spawnForward));
+  rebuildGameFlow();
+  if (gamePhase === "title") {
+    resetGame();
+    hud.setTitleVisible(true);
+    hud.setHudVisible(false);
+    hud.setStateInfo(null);
+    gameFlow.resetFade();
+  }
+};
+hud.setTitleText(buildTitleText(stageSelection));
 
 const clearBeams = () => {
   for (const beam of beams) {
@@ -1200,27 +1270,32 @@ const updateExecutionScene = (
   }
 };
 
-const gameFlow = createGameFlow({
-  layout,
-  camera,
-  bits,
-  npcs,
-  playerAvatar,
-  playerCenterHeight,
-  eyeHeight,
-  hud,
-  getGamePhase: () => gamePhase,
-  setGamePhase: (phase) => {
-    gamePhase = phase;
-  },
-  setPlayerState: (state) => {
-    playerState = state;
-  },
-  clearBeams,
-  stopAlertLoop,
-  setBitSpawnEnabled,
-  disposePlayerHitEffects
-});
+const createGameFlowInstance = () =>
+  createGameFlow({
+    layout,
+    camera,
+    bits,
+    npcs,
+    playerAvatar,
+    playerCenterHeight,
+    eyeHeight,
+    hud,
+    getGamePhase: () => gamePhase,
+    setGamePhase: (phase) => {
+      gamePhase = phase;
+    },
+    setPlayerState: (state) => {
+      playerState = state;
+    },
+    clearBeams,
+    stopAlertLoop,
+    setBitSpawnEnabled,
+    disposePlayerHitEffects
+  });
+let gameFlow = createGameFlowInstance();
+const rebuildGameFlow = () => {
+  gameFlow = createGameFlowInstance();
+};
 
 hud.setHudVisible(false);
 hud.setTitleVisible(true);
@@ -1538,6 +1613,9 @@ const resetGame = () => {
 };
 
 const startGame = () => {
+  if (gamePhase === "title" && stageSelectionInProgress) {
+    return;
+  }
   resetGame();
   audioManager.startBgm(bgmUrl);
   gamePhase = "playing";
@@ -1614,6 +1692,10 @@ setupInputHandlers({
     gameFlow.beginFadeOut(() => {
       enterPublicExecution(executionScenario!);
     });
+  },
+  onSelectStage: () => {
+    const nextSelection = stageSelector.next();
+    void applyStageSelection(nextSelection);
   },
   onSelectBrainwashOption: (state) => {
     playerState = state;

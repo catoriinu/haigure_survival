@@ -18,6 +18,7 @@ export type DrawMinimapParams = {
 export type Hud = {
   setHudVisible: (visible: boolean) => void;
   setTitleVisible: (visible: boolean) => void;
+  setTitleText: (text: string) => void;
   setStateInfo: (text: string | null) => void;
   setFadeOpacity: (value: number) => void;
   setCrosshairVisible: (visible: boolean) => void;
@@ -35,6 +36,7 @@ export const createHud = (): Hud => {
   const aliveInfo = document.getElementById("aliveInfo") as HTMLDivElement;
   const retryInfo = document.getElementById("retryInfo") as HTMLDivElement;
   const titleScreen = document.getElementById("titleScreen") as HTMLDivElement;
+  const titleText = document.getElementById("titleText") as HTMLDivElement;
   const stateInfo = document.getElementById("stateInfo") as HTMLDivElement;
   const fadeOverlay = document.getElementById("fadeOverlay") as HTMLDivElement;
   const crosshair = document.getElementById("crosshair") as HTMLDivElement;
@@ -64,6 +66,10 @@ export const createHud = (): Hud => {
 
   const setTitleVisible = (visible: boolean) => {
     titleScreen.style.display = visible ? "flex" : "none";
+  };
+
+  const setTitleText = (text: string) => {
+    titleText.textContent = text;
   };
 
   const setStateInfo = (text: string | null) => {
@@ -227,6 +233,7 @@ export const createHud = (): Hud => {
   return {
     setHudVisible,
     setTitleVisible,
+    setTitleText,
     setStateInfo,
     setFadeOpacity,
     setCrosshairVisible,

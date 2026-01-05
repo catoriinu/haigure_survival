@@ -15,6 +15,7 @@ export type InputHandlerOptions = {
   onEnterEpilogue: () => void;
   onReturnToTitle: () => void;
   onReplayExecution: () => void;
+  onSelectStage: () => void;
   onSelectBrainwashOption: (state: CharacterState) => void;
   onMoveKey: (
     key: "forward" | "back" | "left" | "right",
@@ -36,6 +37,7 @@ export const setupInputHandlers = ({
   onEnterEpilogue,
   onReturnToTitle,
   onReplayExecution,
+  onSelectStage,
   onSelectBrainwashOption,
   onMoveKey,
   onPlayerFire
@@ -66,6 +68,12 @@ export const setupInputHandlers = ({
 
   canvas.addEventListener("click", () => {
     onPointerLockRequest();
+  });
+  canvas.addEventListener("contextmenu", (event) => {
+    if (getGamePhase() !== "title") {
+      return;
+    }
+    event.preventDefault();
   });
 
   window.addEventListener("keydown", (event) => {
@@ -119,6 +127,13 @@ export const setupInputHandlers = ({
   });
 
   window.addEventListener("mousedown", (event) => {
+    if (event.button === 2) {
+      if (getGamePhase() === "title") {
+        event.preventDefault();
+        onSelectStage();
+      }
+      return;
+    }
     if (event.button !== 0) {
       return;
     }

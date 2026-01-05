@@ -33,14 +33,13 @@ import {
   updateHitFadeOrbs
 } from "./hitEffects";
 import { beginBeamRetract } from "./beams";
-const npcCellSize = 128;
-const npcFrameCount = 4;
-const npcSpriteImageWidth = 330;
-const npcSpriteImageHeight = 700;
-const npcSpriteWidth = 0.2;
-const npcSpriteHeight =
-  (npcSpriteImageHeight / npcSpriteImageWidth) * npcSpriteWidth;
-const npcSpriteCenterHeight = npcSpriteHeight / 2;
+import {
+  CHARACTER_SPRITE_CELL_SIZE,
+  NPC_SPRITE_CENTER_HEIGHT,
+  NPC_SPRITE_HEIGHT,
+  NPC_SPRITE_WIDTH,
+  createDefaultCharacterSpritesheet
+} from "./characterSprites";
 const npcSearchSpeed = 0.2;
 const npcEvadeSpeed = 0.25;
 const npcChaseSpeed = 0.3;
@@ -49,8 +48,8 @@ const npcEvadeRetargetInterval = 1;
 const redHitDurationScale = 1;
 export const npcHitDuration = 3;
 export const npcHitFadeDuration = 1;
-export const npcHitRadius = npcSpriteWidth * 0.5;
-export const npcHitEffectDiameter = npcSpriteHeight * 1.2;
+export const npcHitRadius = NPC_SPRITE_WIDTH * 0.5;
+export const npcHitEffectDiameter = NPC_SPRITE_HEIGHT * 1.2;
 export const npcHitFlickerInterval = 0.12;
 export const npcHitColorA = new Color3(1, 0.18, 0.74);
 export const npcHitColorB = new Color3(0.2, 0.96, 1);
@@ -81,7 +80,7 @@ const npcBrainwashFireRange = 1.5;
 const npcBrainwashFireRangeSq = npcBrainwashFireRange * npcBrainwashFireRange;
 const npcBrainwashFireIntervalMin = 1.4;
 const npcBrainwashFireIntervalMax = 2.2;
-const npcBrainwashBlockRadius = npcSpriteWidth * 0.7;
+const npcBrainwashBlockRadius = NPC_SPRITE_WIDTH * 0.7;
 const npcBrainwashBlockDuration = 20;
 const npcBrainwashBreakAwayDuration = 2.5;
 const npcBrainwashBreakAwaySpeed = 0.27;
@@ -101,41 +100,6 @@ export const npcHitFadeOrbConfig: HitFadeOrbConfig = {
   surfaceOffsetMax: hitFadeOrbSurfaceOffsetMax,
   speedMin: hitFadeOrbSpeedMin,
   speedMax: hitFadeOrbSpeedMax
-};
-
-const createNpcSpritesheet = () => {
-  const canvas = document.createElement("canvas");
-  canvas.width = npcCellSize * npcFrameCount;
-  canvas.height = npcCellSize;
-  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
-
-  const drawFrame = (
-    index: number,
-    color: string,
-    accent: string,
-    gunDot = false
-  ) => {
-    const offsetX = index * npcCellSize;
-    ctx.fillStyle = color;
-    ctx.fillRect(offsetX, 0, npcCellSize, npcCellSize);
-    ctx.fillStyle = accent;
-    ctx.fillRect(offsetX + 24, 22, 80, 84);
-    ctx.fillStyle = "#111111";
-    ctx.fillRect(offsetX + 42, 44, 12, 12);
-    ctx.fillRect(offsetX + 74, 44, 12, 12);
-    if (gunDot) {
-      ctx.beginPath();
-      ctx.arc(offsetX + 96, 86, 6, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  };
-
-  drawFrame(0, "#3b5fbf", "#f1f1f1");
-  drawFrame(1, "#d4a21f", "#f8f2c2");
-  drawFrame(2, "#5c5c5c", "#c7c7c7");
-  drawFrame(3, "#5c5c5c", "#c7c7c7", true);
-
-  return canvas.toDataURL("image/png");
 };
 
 const getNeighborCells = (layout: GridLayout, cell: FloorCell) => {
@@ -175,14 +139,14 @@ const pickNeighborCellClosestTo = (
   const neighbors = getNeighborCells(layout, cell);
   let bestCell = neighbors[0];
   let bestDistanceSq = Vector3.DistanceSquared(
-    cellToWorld(layout, bestCell, npcSpriteCenterHeight),
+    cellToWorld(layout, bestCell, NPC_SPRITE_CENTER_HEIGHT),
     targetPosition
   );
 
   for (let index = 1; index < neighbors.length; index += 1) {
     const candidate = neighbors[index];
     const distanceSq = Vector3.DistanceSquared(
-      cellToWorld(layout, candidate, npcSpriteCenterHeight),
+      cellToWorld(layout, candidate, NPC_SPRITE_CENTER_HEIGHT),
       targetPosition
     );
     if (distanceSq < bestDistanceSq) {
@@ -313,7 +277,7 @@ const pickEvadeCell = (
   const bestCells: FloorCell[] = [];
 
   for (const candidate of candidates) {
-    const position = cellToWorld(layout, candidate.cell, npcSpriteCenterHeight);
+    const position = cellToWorld(layout, candidate.cell, NPC_SPRITE_CENTER_HEIGHT);
     const dx = position.x - centerX;
     const dz = position.z - centerZ;
     const distanceSq = dx * dx + dz * dz;
@@ -353,7 +317,7 @@ const buildPathFromPrev = (
 const buildPathWaypoints = (layout: GridLayout, path: FloorCell[]) => {
   const waypoints: Vector3[] = [];
   for (let index = 1; index < path.length; index += 1) {
-    waypoints.push(cellToWorld(layout, path[index], npcSpriteCenterHeight));
+    waypoints.push(cellToWorld(layout, path[index], NPC_SPRITE_CENTER_HEIGHT));
   }
   return waypoints;
 };
@@ -459,7 +423,7 @@ const setNpcDestination = (
   prevCol: number[][]
 ) => {
   npc.goalCell = destinationCell;
-  npc.target = cellToWorld(layout, destinationCell, npcSpriteCenterHeight);
+  npc.target = cellToWorld(layout, destinationCell, NPC_SPRITE_CENTER_HEIGHT);
   npc.pathIndex = 0;
   if (hasWallOnLine(layout, npc.sprite.position, npc.target)) {
     const path = buildPathFromPrev(originCell, destinationCell, prevRow, prevCol);
@@ -483,14 +447,14 @@ const pickNeighborCellClosestToAvoid = (
   }
   let bestCell = neighbors[0];
   let bestDistanceSq = Vector3.DistanceSquared(
-    cellToWorld(layout, bestCell, npcSpriteCenterHeight),
+    cellToWorld(layout, bestCell, NPC_SPRITE_CENTER_HEIGHT),
     targetPosition
   );
 
   for (let index = 1; index < neighbors.length; index += 1) {
     const candidate = neighbors[index];
     const distanceSq = Vector3.DistanceSquared(
-      cellToWorld(layout, candidate, npcSpriteCenterHeight),
+      cellToWorld(layout, candidate, NPC_SPRITE_CENTER_HEIGHT),
       targetPosition
     );
     if (distanceSq < bestDistanceSq) {
@@ -508,7 +472,7 @@ const pickNeighborCellInDirection = (
   direction: Vector3
 ) => {
   const neighbors = getNeighborCells(layout, cell);
-  const base = cellToWorld(layout, cell, npcSpriteCenterHeight);
+  const base = cellToWorld(layout, cell, NPC_SPRITE_CENTER_HEIGHT);
   let bestCell = neighbors[0];
   let bestDot = -Infinity;
 
@@ -516,7 +480,7 @@ const pickNeighborCellInDirection = (
     const candidatePosition = cellToWorld(
       layout,
       candidate,
-      npcSpriteCenterHeight
+      NPC_SPRITE_CENTER_HEIGHT
     );
     const toCandidate = candidatePosition.subtract(base);
     toCandidate.y = 0;
@@ -600,9 +564,9 @@ export const createNpcManager = (
 ) =>
   new SpriteManager(
     "npcManager",
-    spriteSheetUrl ?? createNpcSpritesheet(),
+    spriteSheetUrl ?? createDefaultCharacterSpritesheet(),
     capacity,
-    { width: npcCellSize, height: npcCellSize },
+    { width: CHARACTER_SPRITE_CELL_SIZE, height: CHARACTER_SPRITE_CELL_SIZE },
     scene
   );
 
@@ -616,11 +580,11 @@ export const spawnNpcs = (
 
   for (let index = 0; index < count; index += 1) {
     const cell = pickRandomCell(floorCells);
-    const position = cellToWorld(layout, cell, npcSpriteCenterHeight);
+    const position = cellToWorld(layout, cell, NPC_SPRITE_CENTER_HEIGHT);
     const sprite = new Sprite(`npc_${index}`, manager);
     sprite.position = position;
-    sprite.width = npcSpriteWidth;
-    sprite.height = npcSpriteHeight;
+    sprite.width = NPC_SPRITE_WIDTH;
+    sprite.height = NPC_SPRITE_HEIGHT;
     sprite.isPickable = false;
     sprite.cellIndex = 0;
     const wanderDirection = pickRandomHorizontalDirection();
@@ -751,7 +715,7 @@ export const updateNpcs = (
 
   for (const npc of npcs) {
     const npcId = npc.sprite.name;
-    npc.sprite.position.y = npcSpriteCenterHeight;
+    npc.sprite.position.y = NPC_SPRITE_CENTER_HEIGHT;
     npc.cell = worldToCell(layout, npc.sprite.position);
     const npcIndex = Number(npcId.slice(4));
     if (npc.state === "brainwash-complete-gun") {
@@ -899,7 +863,7 @@ export const updateNpcs = (
           npc.brainwashMode = "search";
           npc.brainwashTargetId = null;
           npc.goalCell = npc.cell;
-          npc.target = cellToWorld(layout, npc.cell, npcSpriteCenterHeight);
+          npc.target = cellToWorld(layout, npc.cell, NPC_SPRITE_CENTER_HEIGHT);
           npc.path = [];
           npc.pathIndex = 0;
           npc.blockTimer = 0;
@@ -1075,7 +1039,7 @@ export const updateNpcs = (
               npc.cell,
               npc.breakAwayDirection
             );
-            npc.target = cellToWorld(layout, npc.cell, npcSpriteCenterHeight);
+            npc.target = cellToWorld(layout, npc.cell, NPC_SPRITE_CENTER_HEIGHT);
           }
         }
         continue;
@@ -1095,7 +1059,7 @@ export const updateNpcs = (
             npc.cell,
             npc.breakAwayDirection
           );
-          npc.target = cellToWorld(layout, npc.cell, npcSpriteCenterHeight);
+          npc.target = cellToWorld(layout, npc.cell, NPC_SPRITE_CENTER_HEIGHT);
           toTarget = npc.target.subtract(npc.sprite.position);
           toTarget.y = 0;
           distance = Math.hypot(toTarget.x, toTarget.z);
@@ -1177,7 +1141,7 @@ export const updateNpcs = (
       } else {
         npc.cell = pickRandomNeighborCell(layout, npc.cell);
       }
-      npc.target = cellToWorld(layout, npc.cell, npcSpriteCenterHeight);
+      npc.target = cellToWorld(layout, npc.cell, NPC_SPRITE_CENTER_HEIGHT);
       toTarget = npc.target.subtract(npc.sprite.position);
       toTarget.y = 0;
       distance = Math.hypot(toTarget.x, toTarget.z);

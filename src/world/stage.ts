@@ -26,7 +26,10 @@ export type StageStyle = {
 export type StageParts = {
   floors: Mesh[];
   walls: Mesh[];
+  colliders: Mesh[];
   ceiling: Mesh;
+  floorMaterial: StandardMaterial;
+  ceilingMaterial: StandardMaterial;
   wallMaterial: StandardMaterial;
 };
 
@@ -136,6 +139,7 @@ export const createStageFromGrid = (
 
   const floors: Mesh[] = [];
   const walls: Mesh[] = [];
+  const colliders: Mesh[] = [];
   const wallThickness = 0.05;
 
   for (let row = 0; row < layout.rows; row += 1) {
@@ -187,6 +191,7 @@ export const createStageFromGrid = (
           collider.position = wall.position.clone();
           collider.checkCollisions = true;
           collider.isVisible = false;
+          colliders.push(collider);
         }
       }
 
@@ -222,6 +227,7 @@ export const createStageFromGrid = (
           collider.position = wall.position.clone();
           collider.checkCollisions = true;
           collider.isVisible = false;
+          colliders.push(collider);
         }
       }
 
@@ -257,6 +263,7 @@ export const createStageFromGrid = (
           collider.position = wall.position.clone();
           collider.checkCollisions = true;
           collider.isVisible = false;
+          colliders.push(collider);
         }
       }
 
@@ -292,6 +299,7 @@ export const createStageFromGrid = (
           collider.position = wall.position.clone();
           collider.checkCollisions = true;
           collider.isVisible = false;
+          colliders.push(collider);
         }
       }
     }
@@ -312,7 +320,10 @@ export const createStageFromGrid = (
   return {
     floors,
     walls,
+    colliders,
     ceiling,
+    floorMaterial,
+    ceilingMaterial,
     wallMaterial
   };
 };
