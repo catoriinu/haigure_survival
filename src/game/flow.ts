@@ -1,5 +1,6 @@
 import { FreeCamera, Sprite, Vector3 } from "@babylonjs/core";
 import { CELL_SCALE, GridLayout } from "../world/grid";
+import { type StageArea } from "../world/stageJson";
 import { Hud } from "../ui/hud";
 import { Bit, CharacterState, Npc } from "./types";
 import { finalizeBitVisuals } from "./bits";
@@ -26,6 +27,7 @@ type AssemblyRoute = {
 
 type GameFlowOptions = {
   layout: GridLayout;
+  assemblyArea: StageArea;
   camera: FreeCamera;
   bits: Bit[];
   npcs: Npc[];
@@ -44,6 +46,7 @@ type GameFlowOptions = {
 
 export const createGameFlow = ({
   layout,
+  assemblyArea,
   camera,
   bits,
   npcs,
@@ -59,12 +62,7 @@ export const createGameFlow = ({
   setBitSpawnEnabled,
   disposePlayerHitEffects
 }: GameFlowOptions) => {
-    const stageArea = {
-      startCol: 8 * CELL_SCALE,
-      startRow: 8 * CELL_SCALE,
-      width: 4 * CELL_SCALE,
-      height: 4 * CELL_SCALE
-    };
+    const stageArea = assemblyArea;
   const assemblyMaxColumns = 5;
   const assemblySpacingX = 0.5;
   const assemblySpacingZ = 0.33;

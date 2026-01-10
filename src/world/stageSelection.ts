@@ -1,3 +1,5 @@
+import { type StageJson } from "./stageJson";
+
 export type StageSelection = {
   id: string;
   label: string;
@@ -6,9 +8,9 @@ export type StageSelection = {
 
 export const STAGE_CATALOG: StageSelection[] = [
   {
-    id: "default",
-    label: "default",
-    jsonPath: "/stage/default.json"
+    id: "laboratory",
+    label: "laboratory",
+    jsonPath: "/stage/laboratory.json"
   }
 ];
 
@@ -25,13 +27,13 @@ export const createStageSelector = (stages: StageSelection[]) => {
 
 export const loadStageJson = async (
   selection: StageSelection
-): Promise<unknown | null> => {
+): Promise<StageJson | null> => {
   try {
     const response = await fetch(selection.jsonPath, { cache: "no-store" });
     if (!response.ok) {
       return null;
     }
-    return await response.json();
+    return (await response.json()) as StageJson;
   } catch (error) {
     return null;
   }

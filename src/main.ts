@@ -119,6 +119,7 @@ let layout = stageContext.layout;
 let stageStyle = stageContext.style;
 let stageParts = stageContext.parts;
 let room = stageContext.room;
+let assemblyArea = stageContext.assemblyArea;
 let halfWidth = room.width / 2;
 let halfDepth = room.depth / 2;
 let minimapCellSize = layout.cellSize;
@@ -139,6 +140,7 @@ const updateStageState = () => {
   stageStyle = stageContext.style;
   stageParts = stageContext.parts;
   room = stageContext.room;
+  assemblyArea = stageContext.assemblyArea;
   halfWidth = room.width / 2;
   halfDepth = room.depth / 2;
   spawnPosition = new Vector3(
@@ -417,7 +419,7 @@ playerAvatar.position = new Vector3(
   playerCenterHeight,
   spawnPosition.z
 );
-const npcCount = 11;
+const npcCount = 2;
 const npcs = spawnNpcs(layout, spawnableCells, npcManager, npcCount);
 
 const bitMaterials = createBitMaterials(scene);
@@ -432,7 +434,7 @@ carpetBitMaterials.body.emissiveColor = new Color3(0.08, 0.08, 0.08);
 carpetBitMaterials.nozzle.diffuseColor = new Color3(0.22, 0.22, 0.22);
 carpetBitMaterials.nozzle.emissiveColor = new Color3(0.1, 0.1, 0.1);
 
-const redBitSpawnChance = 0.05;
+const redBitSpawnChance = 0.9;
 const redBitStatMultiplier = 3;
 const applyRedBit = (bit: Bit) => {
   bit.isRed = true;
@@ -1273,6 +1275,7 @@ const updateExecutionScene = (
 const createGameFlowInstance = () =>
   createGameFlow({
     layout,
+    assemblyArea,
     camera,
     bits,
     npcs,

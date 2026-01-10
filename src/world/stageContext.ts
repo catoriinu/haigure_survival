@@ -1,6 +1,12 @@
 import { Color3, Scene } from "@babylonjs/core";
-import { createGridLayout, type GridLayout } from "./grid";
+import { CELL_SCALE, createGridLayout, type GridLayout } from "./grid";
 import { createStageFromGrid, type StageParts, type StageStyle } from "./stage";
+import {
+  createGridLayoutFromStageJson,
+  getAssemblyAreaFromStageJson,
+  type StageArea,
+  type StageJson
+} from "./stageJson";
 
 export type StageContext = {
   layout: GridLayout;
@@ -11,6 +17,14 @@ export type StageContext = {
     depth: number;
     height: number;
   };
+  assemblyArea: StageArea;
+};
+
+const defaultAssemblyArea: StageArea = {
+  startCol: 8 * CELL_SCALE,
+  startRow: 8 * CELL_SCALE,
+  width: 4 * CELL_SCALE,
+  height: 4 * CELL_SCALE
 };
 
 export const buildStageStyle = (layout: GridLayout): StageStyle => ({
@@ -28,9 +42,14 @@ export const buildStageStyle = (layout: GridLayout): StageStyle => ({
 
 export const buildStageContext = (
   scene: Scene,
-  stageJson: unknown | null
+  stageJson: StageJson | null
 ): StageContext => {
-  const layout = createGridLayout();
+  const layout = stageJson
+    ? createGridLayoutFromStageJson(stageJson)
+    : createGridLayout();
+  const assemblyArea = stageJson
+    ? getAssemblyAreaFromStageJson(stageJson)
+    : defaultAssemblyArea;
   const style = buildStageStyle(layout);
   const parts = createStageFromGrid(scene, layout, style);
   const room = {
@@ -39,7 +58,7 @@ export const buildStageContext = (
     height: layout.height
   };
 
-  return { layout, style, parts, room };
+  return { layout, style, parts, room, assemblyArea };
 };
 
 export const disposeStageParts = (parts: StageParts) => {
