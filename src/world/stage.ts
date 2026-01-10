@@ -24,6 +24,10 @@ export type StageStyle = {
   enableCollisions: boolean;
 };
 
+export type StageEnvironment = {
+  envMap: string[][] | null;
+};
+
 export type StageParts = {
   floors: Mesh[];
   walls: Mesh[];
@@ -103,6 +107,21 @@ const isFloorCell = (layout: GridLayout, row: number, col: number) => {
   return layout.cells[row][col] === "floor";
 };
 
+const resolveFloorMaterial = (
+  environment: StageEnvironment,
+  row: number,
+  col: number,
+  floorMaterial: StandardMaterial,
+  floorMaterialOutdoor: StandardMaterial | null
+) => {
+  if (!environment.envMap || !floorMaterialOutdoor) {
+    return floorMaterial;
+  }
+  return environment.envMap[row][col] === "O"
+    ? floorMaterialOutdoor
+    : floorMaterial;
+};
+
 const getWallHeight = (layout: GridLayout, row: number, col: number) => {
   if (row < 0 || row >= layout.rows) {
     return layout.height;
@@ -125,12 +144,69 @@ const isNoRenderCell = (layout: GridLayout, row: number, col: number) => {
   return layout.cellNoRender[row][col];
 };
 
+type WallSegment = {
+  name: string;
+  colliderName: string;
+  planeWidth: number;
+  planeHeight: number;
+  colliderWidth: number;
+  colliderHeight: number;
+  colliderDepth: number;
+  position: Vector3;
+  rotationY?: number;
+  render: boolean;
+};
+
+const addWallSegment = (
+  scene: Scene,
+  wallMaterial: StandardMaterial,
+  segment: WallSegment,
+  walls: Mesh[],
+  colliders: Mesh[],
+  enableCollisions: boolean
+) => {
+  if (segment.render) {
+    const wall = MeshBuilder.CreatePlane(
+      segment.name,
+      {
+        width: segment.planeWidth,
+        height: segment.planeHeight,
+        sideOrientation: Mesh.DOUBLESIDE
+      },
+      scene
+    );
+    wall.position = segment.position;
+    if (segment.rotationY !== undefined) {
+      wall.rotation.y = segment.rotationY;
+    }
+    wall.material = wallMaterial;
+    walls.push(wall);
+  }
+
+  if (enableCollisions) {
+    const collider = MeshBuilder.CreateBox(
+      segment.colliderName,
+      {
+        width: segment.colliderWidth,
+        height: segment.colliderHeight,
+        depth: segment.colliderDepth
+      },
+      scene
+    );
+    collider.position = segment.position.clone();
+    collider.checkCollisions = true;
+    collider.isVisible = false;
+    colliders.push(collider);
+  }
+};
+
 export const createStageFromGrid = (
   scene: Scene,
   layout: GridLayout,
   style: StageStyle,
-  envMap: string[][] | null = null
+  environment: StageEnvironment
 ): StageParts => {
+  const envMap = environment.envMap;
   const gridWidth = layout.columns * layout.cellSize;
   const gridDepth = layout.rows * layout.cellSize;
   const halfWidth = gridWidth / 2;
@@ -195,9 +271,13 @@ export const createStageFromGrid = (
         scene
       );
       floor.position = new Vector3(centerX, 0, centerZ);
-      const isOutdoorCell = envMap ? envMap[row][col] === "O" : false;
-      floor.material =
-        isOutdoorCell && floorMaterialOutdoor ? floorMaterialOutdoor : floorMaterial;
+      floor.material = resolveFloorMaterial(
+        environment,
+        row,
+        col,
+        floorMaterial,
+        floorMaterialOutdoor
+      );
       floors.push(floor);
 
       if (!isFloorCell(layout, row - 1, col)) {
@@ -207,36 +287,24 @@ export const createStageFromGrid = (
           wallHeight / 2,
           centerZ - layout.cellSize / 2
         );
-        if (!isNoRenderCell(layout, row - 1, col)) {
-          const wall = MeshBuilder.CreatePlane(
-            `wall_south_${row}_${col}`,
-            {
-              width: layout.cellSize,
-              height: wallHeight,
-              sideOrientation: Mesh.DOUBLESIDE
-            },
-            scene
-          );
-          wall.position = wallPosition;
-          wall.material = wallMaterial;
-          walls.push(wall);
-        }
-
-        if (style.enableCollisions) {
-          const collider = MeshBuilder.CreateBox(
-            `wall_south_collider_${row}_${col}`,
-            {
-              width: layout.cellSize,
-              height: wallHeight,
-              depth: wallThickness
-            },
-            scene
-          );
-          collider.position = wallPosition.clone();
-          collider.checkCollisions = true;
-          collider.isVisible = false;
-          colliders.push(collider);
-        }
+        addWallSegment(
+          scene,
+          wallMaterial,
+          {
+            name: `wall_south_${row}_${col}`,
+            colliderName: `wall_south_collider_${row}_${col}`,
+            planeWidth: layout.cellSize,
+            planeHeight: wallHeight,
+            colliderWidth: layout.cellSize,
+            colliderHeight: wallHeight,
+            colliderDepth: wallThickness,
+            position: wallPosition,
+            render: !isNoRenderCell(layout, row - 1, col)
+          },
+          walls,
+          colliders,
+          style.enableCollisions
+        );
       }
 
       if (!isFloorCell(layout, row + 1, col)) {
@@ -246,37 +314,25 @@ export const createStageFromGrid = (
           wallHeight / 2,
           centerZ + layout.cellSize / 2
         );
-        if (!isNoRenderCell(layout, row + 1, col)) {
-          const wall = MeshBuilder.CreatePlane(
-            `wall_north_${row}_${col}`,
-            {
-              width: layout.cellSize,
-              height: wallHeight,
-              sideOrientation: Mesh.DOUBLESIDE
-            },
-            scene
-          );
-          wall.position = wallPosition;
-          wall.rotation.y = Math.PI;
-          wall.material = wallMaterial;
-          walls.push(wall);
-        }
-
-        if (style.enableCollisions) {
-          const collider = MeshBuilder.CreateBox(
-            `wall_north_collider_${row}_${col}`,
-            {
-              width: layout.cellSize,
-              height: wallHeight,
-              depth: wallThickness
-            },
-            scene
-          );
-          collider.position = wallPosition.clone();
-          collider.checkCollisions = true;
-          collider.isVisible = false;
-          colliders.push(collider);
-        }
+        addWallSegment(
+          scene,
+          wallMaterial,
+          {
+            name: `wall_north_${row}_${col}`,
+            colliderName: `wall_north_collider_${row}_${col}`,
+            planeWidth: layout.cellSize,
+            planeHeight: wallHeight,
+            colliderWidth: layout.cellSize,
+            colliderHeight: wallHeight,
+            colliderDepth: wallThickness,
+            position: wallPosition,
+            rotationY: Math.PI,
+            render: !isNoRenderCell(layout, row + 1, col)
+          },
+          walls,
+          colliders,
+          style.enableCollisions
+        );
       }
 
       if (!isFloorCell(layout, row, col - 1)) {
@@ -286,37 +342,25 @@ export const createStageFromGrid = (
           wallHeight / 2,
           centerZ
         );
-        if (!isNoRenderCell(layout, row, col - 1)) {
-          const wall = MeshBuilder.CreatePlane(
-            `wall_west_${row}_${col}`,
-            {
-              width: layout.cellSize,
-              height: wallHeight,
-              sideOrientation: Mesh.DOUBLESIDE
-            },
-            scene
-          );
-          wall.position = wallPosition;
-          wall.rotation.y = Math.PI / 2;
-          wall.material = wallMaterial;
-          walls.push(wall);
-        }
-
-        if (style.enableCollisions) {
-          const collider = MeshBuilder.CreateBox(
-            `wall_west_collider_${row}_${col}`,
-            {
-              width: wallThickness,
-              height: wallHeight,
-              depth: layout.cellSize
-            },
-            scene
-          );
-          collider.position = wallPosition.clone();
-          collider.checkCollisions = true;
-          collider.isVisible = false;
-          colliders.push(collider);
-        }
+        addWallSegment(
+          scene,
+          wallMaterial,
+          {
+            name: `wall_west_${row}_${col}`,
+            colliderName: `wall_west_collider_${row}_${col}`,
+            planeWidth: layout.cellSize,
+            planeHeight: wallHeight,
+            colliderWidth: wallThickness,
+            colliderHeight: wallHeight,
+            colliderDepth: layout.cellSize,
+            position: wallPosition,
+            rotationY: Math.PI / 2,
+            render: !isNoRenderCell(layout, row, col - 1)
+          },
+          walls,
+          colliders,
+          style.enableCollisions
+        );
       }
 
       if (!isFloorCell(layout, row, col + 1)) {
@@ -326,37 +370,25 @@ export const createStageFromGrid = (
           wallHeight / 2,
           centerZ
         );
-        if (!isNoRenderCell(layout, row, col + 1)) {
-          const wall = MeshBuilder.CreatePlane(
-            `wall_east_${row}_${col}`,
-            {
-              width: layout.cellSize,
-              height: wallHeight,
-              sideOrientation: Mesh.DOUBLESIDE
-            },
-            scene
-          );
-          wall.position = wallPosition;
-          wall.rotation.y = -Math.PI / 2;
-          wall.material = wallMaterial;
-          walls.push(wall);
-        }
-
-        if (style.enableCollisions) {
-          const collider = MeshBuilder.CreateBox(
-            `wall_east_collider_${row}_${col}`,
-            {
-              width: wallThickness,
-              height: wallHeight,
-              depth: layout.cellSize
-            },
-            scene
-          );
-          collider.position = wallPosition.clone();
-          collider.checkCollisions = true;
-          collider.isVisible = false;
-          colliders.push(collider);
-        }
+        addWallSegment(
+          scene,
+          wallMaterial,
+          {
+            name: `wall_east_${row}_${col}`,
+            colliderName: `wall_east_collider_${row}_${col}`,
+            planeWidth: layout.cellSize,
+            planeHeight: wallHeight,
+            colliderWidth: wallThickness,
+            colliderHeight: wallHeight,
+            colliderDepth: layout.cellSize,
+            position: wallPosition,
+            rotationY: -Math.PI / 2,
+            render: !isNoRenderCell(layout, row, col + 1)
+          },
+          walls,
+          colliders,
+          style.enableCollisions
+        );
       }
     }
   }

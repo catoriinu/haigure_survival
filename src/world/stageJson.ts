@@ -106,6 +106,66 @@ export type StageJson = {
   overrides: unknown;
 };
 
+type StageMapScale = StageJson["meta"]["mapScale"];
+
+const expandSymbolMap = (
+  rows: string[],
+  mapScale: StageMapScale
+): string[][] => {
+  const baseRows = rows.length;
+  const baseColumns = rows[0].length;
+  const expanded: string[][] = [];
+
+  for (let row = 0; row < baseRows; row += 1) {
+    const rowText = rows[row];
+    const expandedSymbols: string[] = [];
+    for (let col = 0; col < baseColumns; col += 1) {
+      const cellSymbol = rowText[col];
+      for (let x = 0; x < mapScale.x; x += 1) {
+        expandedSymbols.push(cellSymbol);
+      }
+    }
+    for (let z = 0; z < mapScale.z; z += 1) {
+      expanded.push([...expandedSymbols]);
+    }
+  }
+
+  return expanded;
+};
+
+const createCellDataFromSymbolMap = (
+  symbolMap: string[][],
+  cellPhysics: Record<string, StageCellPhysicsDef>,
+  cellSize: number,
+  fallbackWallHeightCells: number
+) => {
+  const cells: CellType[][] = [];
+  const cellHeights: number[][] = [];
+  const cellNoRender: boolean[][] = [];
+
+  for (const rowSymbols of symbolMap) {
+    const rowCells: CellType[] = [];
+    const rowHeights: number[] = [];
+    const rowNoRender: boolean[] = [];
+    for (const cellSymbol of rowSymbols) {
+      const cellDefinition = cellPhysics[cellSymbol] as StageCellPhysicsDef;
+      const isWall = cellDefinition.solid;
+      rowCells.push(isWall ? "wall" : "floor");
+      rowNoRender.push(cellDefinition.noRender === true);
+      const wallHeightCells =
+        isWall && cellDefinition.heightCells === 0
+          ? fallbackWallHeightCells
+          : cellDefinition.heightCells;
+      rowHeights.push(wallHeightCells * cellSize);
+    }
+    cells.push(rowCells);
+    cellHeights.push(rowHeights);
+    cellNoRender.push(rowNoRender);
+  }
+
+  return { cells, cellHeights, cellNoRender };
+};
+
 export const getAssemblyAreaFromStageJson = (stageJson: StageJson): StageArea => {
   const assemblyZone = stageJson.gameplay.zones.find(
     (zone) => zone.id === "assembly_area"
@@ -123,45 +183,33 @@ export const getAssemblyAreaFromStageJson = (stageJson: StageJson): StageArea =>
 export const createEnvMapFromStageJson = (
   stageJson: StageJson
 ): string[][] => {
-  const baseRows = stageJson.semantics.channels.env.length;
-  const baseColumns = stageJson.semantics.channels.env[0].length;
-  const scaleX = stageJson.meta.mapScale.x;
-  const scaleZ = stageJson.meta.mapScale.z;
-  const envMap: string[][] = [];
-
-  for (let row = 0; row < baseRows; row += 1) {
-    const rowText = stageJson.semantics.channels.env[row];
-    const expandedSymbols: string[] = [];
-    for (let col = 0; col < baseColumns; col += 1) {
-      const cellSymbol = rowText[col];
-      for (let x = 0; x < scaleX; x += 1) {
-        expandedSymbols.push(cellSymbol);
-      }
-    }
-    for (let z = 0; z < scaleZ; z += 1) {
-      envMap.push([...expandedSymbols]);
-    }
-  }
-
-  return envMap;
+  return expandSymbolMap(
+    stageJson.semantics.channels.env,
+    stageJson.meta.mapScale
+  );
 };
 
 export const getSkyColorFromStageJson = (
   stageJson: StageJson
 ): string | null => stageJson.generationRules.env.O?.sky?.color ?? null;
 
+export type StageEnvironmentData = {
+  envMap: string[][];
+  skyColor: string | null;
+};
+
+export const createStageEnvironmentFromStageJson = (
+  stageJson: StageJson
+): StageEnvironmentData => ({
+  envMap: createEnvMapFromStageJson(stageJson),
+  skyColor: getSkyColorFromStageJson(stageJson)
+});
+
 export const createGridLayoutFromStageJson = (
   stageJson: StageJson
 ): GridLayout => {
-  const baseRows = stageJson.mainMap.length;
-  const baseColumns = stageJson.mainMap[0].length;
   const scaleX = stageJson.meta.mapScale.x;
   const scaleZ = stageJson.meta.mapScale.z;
-  const rows = baseRows * scaleZ;
-  const columns = baseColumns * scaleX;
-  const cells: CellType[][] = [];
-  const cellHeights: number[][] = [];
-  const cellNoRender: boolean[][] = [];
   const maxHeightCells = Math.max(
     ...Object.values(stageJson.cellPhysics).map(
       (definition) => definition.heightCells
@@ -169,38 +217,15 @@ export const createGridLayoutFromStageJson = (
   );
   const fallbackWallHeightCells = maxHeightCells;
   const cellSize = DEFAULT_GRID_CONFIG.cellSize;
-
-  for (let row = 0; row < baseRows; row += 1) {
-    const rowText = stageJson.mainMap[row];
-    const expandedSymbols: string[] = [];
-    for (let col = 0; col < baseColumns; col += 1) {
-      const cellSymbol = rowText[col];
-      for (let x = 0; x < scaleX; x += 1) {
-        expandedSymbols.push(cellSymbol);
-      }
-    }
-    for (let z = 0; z < scaleZ; z += 1) {
-      const rowCells: CellType[] = [];
-      const rowHeights: number[] = [];
-      const rowNoRender: boolean[] = [];
-      for (const cellSymbol of expandedSymbols) {
-        const cellDefinition = stageJson.cellPhysics[
-          cellSymbol
-        ] as StageCellPhysicsDef;
-        const isWall = cellDefinition.solid;
-        rowCells.push(isWall ? "wall" : "floor");
-        rowNoRender.push(cellDefinition.noRender === true);
-        const wallHeightCells =
-          isWall && cellDefinition.heightCells === 0
-            ? fallbackWallHeightCells
-            : cellDefinition.heightCells;
-        rowHeights.push(wallHeightCells * cellSize);
-      }
-      cells.push(rowCells);
-      cellHeights.push(rowHeights);
-      cellNoRender.push(rowNoRender);
-    }
-  }
+  const symbolMap = expandSymbolMap(stageJson.mainMap, stageJson.meta.mapScale);
+  const rows = symbolMap.length;
+  const columns = symbolMap[0].length;
+  const { cells, cellHeights, cellNoRender } = createCellDataFromSymbolMap(
+    symbolMap,
+    stageJson.cellPhysics,
+    cellSize,
+    fallbackWallHeightCells
+  );
 
   const ceiling = Object.values(stageJson.generationRules.env)[0].ceiling;
   const ceilingHeight =

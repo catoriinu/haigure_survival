@@ -142,7 +142,7 @@ const updateStageState = () => {
   stageStyle = stageContext.style;
   stageParts = stageContext.parts;
   room = stageContext.room;
-  scene.clearColor = stageContext.skyColor ?? defaultClearColor.clone();
+  scene.clearColor = stageContext.environment.skyColor ?? defaultClearColor.clone();
   assemblyArea = stageContext.assemblyArea;
   skipAssembly = stageContext.skipAssembly;
   halfWidth = room.width / 2;

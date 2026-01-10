@@ -1,14 +1,23 @@
 import { Color3, Color4, Scene } from "@babylonjs/core";
 import { CELL_SCALE, createGridLayout, type GridLayout } from "./grid";
-import { createStageFromGrid, type StageParts, type StageStyle } from "./stage";
+import {
+  createStageFromGrid,
+  type StageEnvironment,
+  type StageParts,
+  type StageStyle
+} from "./stage";
 import {
   createGridLayoutFromStageJson,
-  createEnvMapFromStageJson,
-  getSkyColorFromStageJson,
+  createStageEnvironmentFromStageJson,
   getAssemblyAreaFromStageJson,
   type StageArea,
   type StageJson
 } from "./stageJson";
+
+export type StageContextEnvironment = StageEnvironment & {
+  skyColor: Color4 | null;
+  ceilingHeight: number | null;
+};
 
 export type StageContext = {
   layout: GridLayout;
@@ -19,7 +28,7 @@ export type StageContext = {
     depth: number;
     height: number;
   };
-  skyColor: Color4 | null;
+  environment: StageContextEnvironment;
   assemblyArea: StageArea;
   skipAssembly: boolean;
 };
@@ -50,6 +59,22 @@ const buildSkyColor = (hexColor: string): Color4 => {
   return new Color4(color.r, color.g, color.b, 1);
 };
 
+const buildStageEnvironment = (
+  layout: GridLayout,
+  stageJson: StageJson | null
+): StageContextEnvironment => {
+  if (!stageJson) {
+    return { envMap: null, skyColor: null, ceilingHeight: layout.ceilingHeight };
+  }
+
+  const environment = createStageEnvironmentFromStageJson(stageJson);
+  return {
+    envMap: environment.envMap,
+    skyColor: environment.skyColor ? buildSkyColor(environment.skyColor) : null,
+    ceilingHeight: layout.ceilingHeight
+  };
+};
+
 export const buildStageContext = (
   scene: Scene,
   stageJson: StageJson | null
@@ -57,22 +82,20 @@ export const buildStageContext = (
   const layout = stageJson
     ? createGridLayoutFromStageJson(stageJson)
     : createGridLayout();
-  const envMap = stageJson ? createEnvMapFromStageJson(stageJson) : null;
-  const skyColorHex = stageJson ? getSkyColorFromStageJson(stageJson) : null;
-  const skyColor = skyColorHex ? buildSkyColor(skyColorHex) : null;
+  const environment = buildStageEnvironment(layout, stageJson);
   const assemblyArea = stageJson
     ? getAssemblyAreaFromStageJson(stageJson)
     : defaultAssemblyArea;
   const skipAssembly = stageJson ? stageJson.gameplay.options.skipAssembly : false;
   const style = buildStageStyle(layout);
-  const parts = createStageFromGrid(scene, layout, style, envMap);
+  const parts = createStageFromGrid(scene, layout, style, environment);
   const room = {
     width: layout.columns * layout.cellSize,
     depth: layout.rows * layout.cellSize,
     height: layout.height
   };
 
-  return { layout, style, parts, room, skyColor, assemblyArea, skipAssembly };
+  return { layout, style, parts, room, environment, assemblyArea, skipAssembly };
 };
 
 export const disposeStageParts = (parts: StageParts) => {

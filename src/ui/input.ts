@@ -69,7 +69,7 @@ export const setupInputHandlers = ({
   canvas.addEventListener("click", () => {
     onPointerLockRequest();
   });
-  canvas.addEventListener("contextmenu", (event) => {
+  window.addEventListener("contextmenu", (event) => {
     if (getGamePhase() !== "title") {
       return;
     }
@@ -126,34 +126,38 @@ export const setupInputHandlers = ({
     releaseMoveKeys();
   });
 
-  window.addEventListener("mousedown", (event) => {
-    if (event.button === 2) {
-      if (getGamePhase() === "title") {
-        event.preventDefault();
-        onSelectStage();
+  window.addEventListener(
+    "pointerdown",
+    (event) => {
+      if (event.button === 2) {
+        if (getGamePhase() === "title") {
+          event.preventDefault();
+          onSelectStage();
+        }
+        return;
       }
-      return;
-    }
-    if (event.button !== 0) {
-      return;
-    }
-    const gamePhase = getGamePhase();
-    if (gamePhase === "title") {
-      onStartGame();
-      return;
-    }
-    if (gamePhase !== "playing" && gamePhase !== "execution") {
-      return;
-    }
-    if (getPlayerState() !== "brainwash-complete-gun") {
-      return;
-    }
-    const ray = camera.getForwardRay();
-    const direction = ray.direction.normalize();
-    if (direction.length() < 0.001) {
-      return;
-    }
-    const origin = ray.origin.add(direction.scale(0.1));
-    onPlayerFire(origin, direction);
-  });
+      if (event.button !== 0) {
+        return;
+      }
+      const gamePhase = getGamePhase();
+      if (gamePhase === "title") {
+        onStartGame();
+        return;
+      }
+      if (gamePhase !== "playing" && gamePhase !== "execution") {
+        return;
+      }
+      if (getPlayerState() !== "brainwash-complete-gun") {
+        return;
+      }
+      const ray = camera.getForwardRay();
+      const direction = ray.direction.normalize();
+      if (direction.length() < 0.001) {
+        return;
+      }
+      const origin = ray.origin.add(direction.scale(0.1));
+      onPlayerFire(origin, direction);
+    },
+    { capture: true }
+  );
 };
