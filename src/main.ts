@@ -97,6 +97,7 @@ import {
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const engine = new Engine(canvas, true);
 const scene = new Scene(engine);
+const defaultClearColor = scene.clearColor.clone();
 
 const playerWidth = PLAYER_SPRITE_WIDTH;
 const playerHeight = PLAYER_SPRITE_HEIGHT;
@@ -141,6 +142,7 @@ const updateStageState = () => {
   stageStyle = stageContext.style;
   stageParts = stageContext.parts;
   room = stageContext.room;
+  scene.clearColor = stageContext.skyColor ?? defaultClearColor.clone();
   assemblyArea = stageContext.assemblyArea;
   skipAssembly = stageContext.skipAssembly;
   halfWidth = room.width / 2;
@@ -421,7 +423,7 @@ playerAvatar.position = new Vector3(
   playerCenterHeight,
   spawnPosition.z
 );
-const npcCount = 6;
+const npcCount = 12;
 const npcs = spawnNpcs(layout, spawnableCells, npcManager, npcCount);
 
 const bitMaterials = createBitMaterials(scene);
@@ -436,7 +438,7 @@ carpetBitMaterials.body.emissiveColor = new Color3(0.08, 0.08, 0.08);
 carpetBitMaterials.nozzle.diffuseColor = new Color3(0.22, 0.22, 0.22);
 carpetBitMaterials.nozzle.emissiveColor = new Color3(0.1, 0.1, 0.1);
 
-const redBitSpawnChance = 0.9;
+const redBitSpawnChance = 0.05;
 const redBitStatMultiplier = 3;
 const applyRedBit = (bit: Bit) => {
   bit.isRed = true;

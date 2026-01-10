@@ -1,8 +1,10 @@
-import { Color3, Scene } from "@babylonjs/core";
+import { Color3, Color4, Scene } from "@babylonjs/core";
 import { CELL_SCALE, createGridLayout, type GridLayout } from "./grid";
 import { createStageFromGrid, type StageParts, type StageStyle } from "./stage";
 import {
   createGridLayoutFromStageJson,
+  createEnvMapFromStageJson,
+  getSkyColorFromStageJson,
   getAssemblyAreaFromStageJson,
   type StageArea,
   type StageJson
@@ -17,6 +19,7 @@ export type StageContext = {
     depth: number;
     height: number;
   };
+  skyColor: Color4 | null;
   assemblyArea: StageArea;
   skipAssembly: boolean;
 };
@@ -30,6 +33,7 @@ const defaultAssemblyArea: StageArea = {
 
 export const buildStageStyle = (layout: GridLayout): StageStyle => ({
   floorColor: new Color3(0.55, 0.2, 0.75),
+  floorColorOutdoor: new Color3(0.18, 0.18, 0.18),
   ceilingColor: new Color3(0.88, 0.88, 0.88),
   wallBaseColor: new Color3(0.88, 0.88, 0.88),
   floorGridColor: new Color3(0.07, 0.07, 0.07),
@@ -41,6 +45,11 @@ export const buildStageStyle = (layout: GridLayout): StageStyle => ({
   enableCollisions: true
 });
 
+const buildSkyColor = (hexColor: string): Color4 => {
+  const color = Color3.FromHexString(hexColor);
+  return new Color4(color.r, color.g, color.b, 1);
+};
+
 export const buildStageContext = (
   scene: Scene,
   stageJson: StageJson | null
@@ -48,19 +57,22 @@ export const buildStageContext = (
   const layout = stageJson
     ? createGridLayoutFromStageJson(stageJson)
     : createGridLayout();
+  const envMap = stageJson ? createEnvMapFromStageJson(stageJson) : null;
+  const skyColorHex = stageJson ? getSkyColorFromStageJson(stageJson) : null;
+  const skyColor = skyColorHex ? buildSkyColor(skyColorHex) : null;
   const assemblyArea = stageJson
     ? getAssemblyAreaFromStageJson(stageJson)
     : defaultAssemblyArea;
   const skipAssembly = stageJson ? stageJson.gameplay.options.skipAssembly : false;
   const style = buildStageStyle(layout);
-  const parts = createStageFromGrid(scene, layout, style);
+  const parts = createStageFromGrid(scene, layout, style, envMap);
   const room = {
     width: layout.columns * layout.cellSize,
     depth: layout.rows * layout.cellSize,
     height: layout.height
   };
 
-  return { layout, style, parts, room, assemblyArea, skipAssembly };
+  return { layout, style, parts, room, skyColor, assemblyArea, skipAssembly };
 };
 
 export const disposeStageParts = (parts: StageParts) => {
@@ -79,6 +91,9 @@ export const disposeStageParts = (parts: StageParts) => {
   parts.floorMaterial.dispose();
   if (parts.ceilingMaterial) {
     parts.ceilingMaterial.dispose();
+  }
+  if (parts.floorMaterialOutdoor) {
+    parts.floorMaterialOutdoor.dispose();
   }
   parts.wallMaterial.dispose();
 };

@@ -6,6 +6,27 @@ export type StageCellPhysicsDef = {
   noRender?: boolean;
 };
 
+export type StageSurfaceStyle = {
+  tileId?: string;
+};
+
+export type StageCeilingRule = {
+  heightCells: number;
+  collision: boolean;
+  style?: StageSurfaceStyle;
+};
+
+export type StageSkyRule = {
+  color: string;
+};
+
+export type StageEnvRule = {
+  floor?: StageSurfaceStyle;
+  obstacle?: StageSurfaceStyle;
+  ceiling: StageCeilingRule | null;
+  sky?: StageSkyRule;
+};
+
 export type StageMarker = {
   id: string;
   type: "spawn" | "goal" | "checkpoint" | "loot" | "poi";
@@ -43,6 +64,17 @@ export type StageArea = {
   height: number;
 };
 
+export type StageSemantics = {
+  channels: {
+    env: string[];
+    zone?: string[];
+  };
+  brief?: {
+    env?: Record<string, string>;
+    zone?: Record<string, string>;
+  };
+};
+
 export type StageJson = {
   meta: {
     name: string;
@@ -58,20 +90,9 @@ export type StageJson = {
   };
   cellPhysics: Record<string, StageCellPhysicsDef>;
   mainMap: string[];
-  semantics: unknown;
+  semantics: StageSemantics;
   generationRules: {
-    env: Record<
-      string,
-      {
-        ceiling: {
-          heightCells: number;
-          collision: boolean;
-          style?: {
-            tileId?: string;
-          };
-        } | null;
-      }
-    >;
+    env: Record<string, StageEnvRule>;
   };
   entities: unknown[];
   decals: unknown[];
@@ -98,6 +119,36 @@ export const getAssemblyAreaFromStageJson = (stageJson: StageJson): StageArea =>
     height: assemblyZone.h * scaleZ
   };
 };
+
+export const createEnvMapFromStageJson = (
+  stageJson: StageJson
+): string[][] => {
+  const baseRows = stageJson.semantics.channels.env.length;
+  const baseColumns = stageJson.semantics.channels.env[0].length;
+  const scaleX = stageJson.meta.mapScale.x;
+  const scaleZ = stageJson.meta.mapScale.z;
+  const envMap: string[][] = [];
+
+  for (let row = 0; row < baseRows; row += 1) {
+    const rowText = stageJson.semantics.channels.env[row];
+    const expandedSymbols: string[] = [];
+    for (let col = 0; col < baseColumns; col += 1) {
+      const cellSymbol = rowText[col];
+      for (let x = 0; x < scaleX; x += 1) {
+        expandedSymbols.push(cellSymbol);
+      }
+    }
+    for (let z = 0; z < scaleZ; z += 1) {
+      envMap.push([...expandedSymbols]);
+    }
+  }
+
+  return envMap;
+};
+
+export const getSkyColorFromStageJson = (
+  stageJson: StageJson
+): string | null => stageJson.generationRules.env.O?.sky?.color ?? null;
 
 export const createGridLayoutFromStageJson = (
   stageJson: StageJson

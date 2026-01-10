@@ -12,6 +12,7 @@ import { GridLayout } from "./grid";
 
 export type StageStyle = {
   floorColor: Color3;
+  floorColorOutdoor: Color3;
   ceilingColor: Color3;
   wallBaseColor: Color3;
   floorGridColor: Color3;
@@ -29,6 +30,7 @@ export type StageParts = {
   colliders: Mesh[];
   ceiling: Mesh | null;
   floorMaterial: StandardMaterial;
+  floorMaterialOutdoor: StandardMaterial | null;
   ceilingMaterial: StandardMaterial | null;
   wallMaterial: StandardMaterial;
 };
@@ -126,7 +128,8 @@ const isNoRenderCell = (layout: GridLayout, row: number, col: number) => {
 export const createStageFromGrid = (
   scene: Scene,
   layout: GridLayout,
-  style: StageStyle
+  style: StageStyle,
+  envMap: string[][] | null = null
 ): StageParts => {
   const gridWidth = layout.columns * layout.cellSize;
   const gridDepth = layout.rows * layout.cellSize;
@@ -143,6 +146,20 @@ export const createStageFromGrid = (
     layout.cellSize,
     "floorGridTexture"
   );
+  const floorMaterialOutdoor = envMap
+    ? new StandardMaterial("floorMaterialOutdoor", scene)
+    : null;
+  if (floorMaterialOutdoor) {
+    floorMaterialOutdoor.diffuseTexture = createGridTexture(
+      scene,
+      style,
+      style.floorColorOutdoor,
+      style.floorGridColor,
+      layout.cellSize,
+      layout.cellSize,
+      "floorGridTextureOutdoor"
+    );
+  }
 
   let ceilingMaterial: StandardMaterial | null = null;
 
@@ -178,7 +195,9 @@ export const createStageFromGrid = (
         scene
       );
       floor.position = new Vector3(centerX, 0, centerZ);
-      floor.material = floorMaterial;
+      const isOutdoorCell = envMap ? envMap[row][col] === "O" : false;
+      floor.material =
+        isOutdoorCell && floorMaterialOutdoor ? floorMaterialOutdoor : floorMaterial;
       floors.push(floor);
 
       if (!isFloorCell(layout, row - 1, col)) {
@@ -365,6 +384,7 @@ export const createStageFromGrid = (
     colliders,
     ceiling,
     floorMaterial,
+    floorMaterialOutdoor,
     ceilingMaterial,
     wallMaterial
   };
