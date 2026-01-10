@@ -8,6 +8,11 @@ export type StageSelection = {
 
 export const STAGE_CATALOG: StageSelection[] = [
   {
+    id: "city_center",
+    label: "city_center",
+    jsonPath: "/stage/city \u200b_center.json"
+  },
+  {
     id: "laboratory",
     label: "laboratory",
     jsonPath: "/stage/laboratory.json"

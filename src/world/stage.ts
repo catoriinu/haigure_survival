@@ -27,9 +27,9 @@ export type StageParts = {
   floors: Mesh[];
   walls: Mesh[];
   colliders: Mesh[];
-  ceiling: Mesh;
+  ceiling: Mesh | null;
   floorMaterial: StandardMaterial;
-  ceilingMaterial: StandardMaterial;
+  ceilingMaterial: StandardMaterial | null;
   wallMaterial: StandardMaterial;
 };
 
@@ -101,6 +101,28 @@ const isFloorCell = (layout: GridLayout, row: number, col: number) => {
   return layout.cells[row][col] === "floor";
 };
 
+const getWallHeight = (layout: GridLayout, row: number, col: number) => {
+  if (row < 0 || row >= layout.rows) {
+    return layout.height;
+  }
+  if (col < 0 || col >= layout.columns) {
+    return layout.height;
+  }
+
+  return layout.cellHeights[row][col];
+};
+
+const isNoRenderCell = (layout: GridLayout, row: number, col: number) => {
+  if (row < 0 || row >= layout.rows) {
+    return false;
+  }
+  if (col < 0 || col >= layout.columns) {
+    return false;
+  }
+
+  return layout.cellNoRender[row][col];
+};
+
 export const createStageFromGrid = (
   scene: Scene,
   layout: GridLayout,
@@ -122,8 +144,7 @@ export const createStageFromGrid = (
     "floorGridTexture"
   );
 
-  const ceilingMaterial = new StandardMaterial("ceilingMaterial", scene);
-  ceilingMaterial.diffuseColor = style.ceilingColor;
+  let ceilingMaterial: StandardMaterial | null = null;
 
   const wallMaterial = new StandardMaterial("wallMaterial", scene);
   wallMaterial.diffuseTexture = createGridTexture(
@@ -161,34 +182,38 @@ export const createStageFromGrid = (
       floors.push(floor);
 
       if (!isFloorCell(layout, row - 1, col)) {
-        const wall = MeshBuilder.CreatePlane(
-          `wall_south_${row}_${col}`,
-          {
-            width: layout.cellSize,
-            height: layout.height,
-            sideOrientation: Mesh.DOUBLESIDE
-          },
-          scene
-        );
-        wall.position = new Vector3(
+        const wallHeight = getWallHeight(layout, row - 1, col);
+        const wallPosition = new Vector3(
           centerX,
-          layout.height / 2,
+          wallHeight / 2,
           centerZ - layout.cellSize / 2
         );
-        wall.material = wallMaterial;
-        walls.push(wall);
+        if (!isNoRenderCell(layout, row - 1, col)) {
+          const wall = MeshBuilder.CreatePlane(
+            `wall_south_${row}_${col}`,
+            {
+              width: layout.cellSize,
+              height: wallHeight,
+              sideOrientation: Mesh.DOUBLESIDE
+            },
+            scene
+          );
+          wall.position = wallPosition;
+          wall.material = wallMaterial;
+          walls.push(wall);
+        }
 
         if (style.enableCollisions) {
           const collider = MeshBuilder.CreateBox(
             `wall_south_collider_${row}_${col}`,
             {
               width: layout.cellSize,
-              height: layout.height,
+              height: wallHeight,
               depth: wallThickness
             },
             scene
           );
-          collider.position = wall.position.clone();
+          collider.position = wallPosition.clone();
           collider.checkCollisions = true;
           collider.isVisible = false;
           colliders.push(collider);
@@ -196,35 +221,39 @@ export const createStageFromGrid = (
       }
 
       if (!isFloorCell(layout, row + 1, col)) {
-        const wall = MeshBuilder.CreatePlane(
-          `wall_north_${row}_${col}`,
-          {
-            width: layout.cellSize,
-            height: layout.height,
-            sideOrientation: Mesh.DOUBLESIDE
-          },
-          scene
-        );
-        wall.position = new Vector3(
+        const wallHeight = getWallHeight(layout, row + 1, col);
+        const wallPosition = new Vector3(
           centerX,
-          layout.height / 2,
+          wallHeight / 2,
           centerZ + layout.cellSize / 2
         );
-        wall.rotation.y = Math.PI;
-        wall.material = wallMaterial;
-        walls.push(wall);
+        if (!isNoRenderCell(layout, row + 1, col)) {
+          const wall = MeshBuilder.CreatePlane(
+            `wall_north_${row}_${col}`,
+            {
+              width: layout.cellSize,
+              height: wallHeight,
+              sideOrientation: Mesh.DOUBLESIDE
+            },
+            scene
+          );
+          wall.position = wallPosition;
+          wall.rotation.y = Math.PI;
+          wall.material = wallMaterial;
+          walls.push(wall);
+        }
 
         if (style.enableCollisions) {
           const collider = MeshBuilder.CreateBox(
             `wall_north_collider_${row}_${col}`,
             {
               width: layout.cellSize,
-              height: layout.height,
+              height: wallHeight,
               depth: wallThickness
             },
             scene
           );
-          collider.position = wall.position.clone();
+          collider.position = wallPosition.clone();
           collider.checkCollisions = true;
           collider.isVisible = false;
           colliders.push(collider);
@@ -232,35 +261,39 @@ export const createStageFromGrid = (
       }
 
       if (!isFloorCell(layout, row, col - 1)) {
-        const wall = MeshBuilder.CreatePlane(
-          `wall_west_${row}_${col}`,
-          {
-            width: layout.cellSize,
-            height: layout.height,
-            sideOrientation: Mesh.DOUBLESIDE
-          },
-          scene
-        );
-        wall.position = new Vector3(
+        const wallHeight = getWallHeight(layout, row, col - 1);
+        const wallPosition = new Vector3(
           centerX - layout.cellSize / 2,
-          layout.height / 2,
+          wallHeight / 2,
           centerZ
         );
-        wall.rotation.y = Math.PI / 2;
-        wall.material = wallMaterial;
-        walls.push(wall);
+        if (!isNoRenderCell(layout, row, col - 1)) {
+          const wall = MeshBuilder.CreatePlane(
+            `wall_west_${row}_${col}`,
+            {
+              width: layout.cellSize,
+              height: wallHeight,
+              sideOrientation: Mesh.DOUBLESIDE
+            },
+            scene
+          );
+          wall.position = wallPosition;
+          wall.rotation.y = Math.PI / 2;
+          wall.material = wallMaterial;
+          walls.push(wall);
+        }
 
         if (style.enableCollisions) {
           const collider = MeshBuilder.CreateBox(
             `wall_west_collider_${row}_${col}`,
             {
               width: wallThickness,
-              height: layout.height,
+              height: wallHeight,
               depth: layout.cellSize
             },
             scene
           );
-          collider.position = wall.position.clone();
+          collider.position = wallPosition.clone();
           collider.checkCollisions = true;
           collider.isVisible = false;
           colliders.push(collider);
@@ -268,35 +301,39 @@ export const createStageFromGrid = (
       }
 
       if (!isFloorCell(layout, row, col + 1)) {
-        const wall = MeshBuilder.CreatePlane(
-          `wall_east_${row}_${col}`,
-          {
-            width: layout.cellSize,
-            height: layout.height,
-            sideOrientation: Mesh.DOUBLESIDE
-          },
-          scene
-        );
-        wall.position = new Vector3(
+        const wallHeight = getWallHeight(layout, row, col + 1);
+        const wallPosition = new Vector3(
           centerX + layout.cellSize / 2,
-          layout.height / 2,
+          wallHeight / 2,
           centerZ
         );
-        wall.rotation.y = -Math.PI / 2;
-        wall.material = wallMaterial;
-        walls.push(wall);
+        if (!isNoRenderCell(layout, row, col + 1)) {
+          const wall = MeshBuilder.CreatePlane(
+            `wall_east_${row}_${col}`,
+            {
+              width: layout.cellSize,
+              height: wallHeight,
+              sideOrientation: Mesh.DOUBLESIDE
+            },
+            scene
+          );
+          wall.position = wallPosition;
+          wall.rotation.y = -Math.PI / 2;
+          wall.material = wallMaterial;
+          walls.push(wall);
+        }
 
         if (style.enableCollisions) {
           const collider = MeshBuilder.CreateBox(
             `wall_east_collider_${row}_${col}`,
             {
               width: wallThickness,
-              height: layout.height,
+              height: wallHeight,
               depth: layout.cellSize
             },
             scene
           );
-          collider.position = wall.position.clone();
+          collider.position = wallPosition.clone();
           collider.checkCollisions = true;
           collider.isVisible = false;
           colliders.push(collider);
@@ -305,16 +342,21 @@ export const createStageFromGrid = (
     }
   }
 
-  const ceiling = MeshBuilder.CreatePlane(
-    "ceiling",
-    { width: gridWidth, height: gridDepth, sideOrientation: Mesh.DOUBLESIDE },
-    scene
-  );
-  ceiling.position = new Vector3(0, layout.height, 0);
-  ceiling.rotation.x = Math.PI / 2;
-  ceiling.material = ceilingMaterial;
-  if (style.enableCollisions) {
-    ceiling.checkCollisions = true;
+  let ceiling: Mesh | null = null;
+  if (layout.ceilingHeight !== null) {
+    ceilingMaterial = new StandardMaterial("ceilingMaterial", scene);
+    ceilingMaterial.diffuseColor = style.ceilingColor;
+    ceiling = MeshBuilder.CreatePlane(
+      "ceiling",
+      { width: gridWidth, height: gridDepth, sideOrientation: Mesh.DOUBLESIDE },
+      scene
+    );
+    ceiling.position = new Vector3(0, layout.ceilingHeight, 0);
+    ceiling.rotation.x = Math.PI / 2;
+    ceiling.material = ceilingMaterial;
+    if (style.enableCollisions) {
+      ceiling.checkCollisions = true;
+    }
   }
 
   return {

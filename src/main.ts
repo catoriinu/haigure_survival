@@ -120,6 +120,7 @@ let stageStyle = stageContext.style;
 let stageParts = stageContext.parts;
 let room = stageContext.room;
 let assemblyArea = stageContext.assemblyArea;
+let skipAssembly = stageContext.skipAssembly;
 let halfWidth = room.width / 2;
 let halfDepth = room.depth / 2;
 let minimapCellSize = layout.cellSize;
@@ -141,6 +142,7 @@ const updateStageState = () => {
   stageParts = stageContext.parts;
   room = stageContext.room;
   assemblyArea = stageContext.assemblyArea;
+  skipAssembly = stageContext.skipAssembly;
   halfWidth = room.width / 2;
   halfDepth = room.depth / 2;
   spawnPosition = new Vector3(
@@ -419,7 +421,7 @@ playerAvatar.position = new Vector3(
   playerCenterHeight,
   spawnPosition.z
 );
-const npcCount = 2;
+const npcCount = 6;
 const npcs = spawnNpcs(layout, spawnableCells, npcManager, npcCount);
 
 const bitMaterials = createBitMaterials(scene);
@@ -1847,7 +1849,7 @@ engine.runRenderLoop(() => {
       }
     }
 
-    if (isBrainwashState(playerState) && !npcAlive) {
+    if (gamePhase === "playing" && isBrainwashState(playerState) && !npcAlive) {
       if (allDownTime === null) {
         allDownTime = elapsedTime;
       }
@@ -1855,8 +1857,17 @@ engine.runRenderLoop(() => {
         for (const npc of npcs) {
           npc.sprite.color.copyFrom(npcSpriteColorNormal);
         }
-        removeCarpetFollowers();
-        gameFlow.enterAssembly("move");
+        if (skipAssembly) {
+          gamePhase = "transition";
+          hud.setHudVisible(false);
+          gameFlow.beginFadeOut(() => {
+            removeCarpetFollowers();
+            gameFlow.enterAssembly("instant");
+          });
+        } else {
+          removeCarpetFollowers();
+          gameFlow.enterAssembly("move");
+        }
       }
     }
 

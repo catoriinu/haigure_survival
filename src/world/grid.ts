@@ -5,12 +5,15 @@ export type GridLayout = {
   rows: number;
   cellSize: number;
   height: number;
+  ceilingHeight: number | null;
+  cellNoRender: boolean[][];
   spawn: {
     row: number;
     col: number;
   };
   noSpawnCells: { row: number; col: number }[];
   cells: CellType[][];
+  cellHeights: number[][];
 };
 
 export type GridRule = "three-rooms-linear";
@@ -107,6 +110,8 @@ const buildThreeRoomsLinear = (config: GridConfig): GridLayout => {
     roomSpecs.reduce((sum, room) => sum + room.height, 0) +
     (roomSpecs.length - 1) * corridorHeight;
   const noSpawnCells: { row: number; col: number }[] = [];
+  const cellNoRender: boolean[][] = [];
+  const cellHeights: number[][] = [];
   let currentRow = Math.floor((config.rows - totalHeight) / 2);
   let spawnRow = 0;
   let spawnCol = 0;
@@ -146,17 +151,31 @@ const buildThreeRoomsLinear = (config: GridConfig): GridLayout => {
     }
   }
 
+  for (let row = 0; row < config.rows; row += 1) {
+    const rowHeights: number[] = [];
+    const rowNoRender: boolean[] = [];
+    for (let col = 0; col < config.columns; col += 1) {
+      rowHeights.push(cells[row][col] === "wall" ? config.height : 0);
+      rowNoRender.push(false);
+    }
+    cellHeights.push(rowHeights);
+    cellNoRender.push(rowNoRender);
+  }
+
   return {
     columns: config.columns,
     rows: config.rows,
     cellSize: config.cellSize,
     height: config.height,
+    ceilingHeight: config.height,
+    cellNoRender,
     spawn: {
       row: spawnRow,
       col: spawnCol
     },
     noSpawnCells,
-    cells
+    cells,
+    cellHeights
   };
 };
 

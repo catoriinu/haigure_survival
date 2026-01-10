@@ -18,6 +18,7 @@ export type StageContext = {
     height: number;
   };
   assemblyArea: StageArea;
+  skipAssembly: boolean;
 };
 
 const defaultAssemblyArea: StageArea = {
@@ -50,6 +51,7 @@ export const buildStageContext = (
   const assemblyArea = stageJson
     ? getAssemblyAreaFromStageJson(stageJson)
     : defaultAssemblyArea;
+  const skipAssembly = stageJson ? stageJson.gameplay.options.skipAssembly : false;
   const style = buildStageStyle(layout);
   const parts = createStageFromGrid(scene, layout, style);
   const room = {
@@ -58,7 +60,7 @@ export const buildStageContext = (
     height: layout.height
   };
 
-  return { layout, style, parts, room, assemblyArea };
+  return { layout, style, parts, room, assemblyArea, skipAssembly };
 };
 
 export const disposeStageParts = (parts: StageParts) => {
@@ -71,8 +73,12 @@ export const disposeStageParts = (parts: StageParts) => {
   for (const collider of parts.colliders) {
     collider.dispose();
   }
-  parts.ceiling.dispose();
+  if (parts.ceiling) {
+    parts.ceiling.dispose();
+  }
   parts.floorMaterial.dispose();
-  parts.ceilingMaterial.dispose();
+  if (parts.ceilingMaterial) {
+    parts.ceilingMaterial.dispose();
+  }
   parts.wallMaterial.dispose();
 };
