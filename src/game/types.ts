@@ -161,7 +161,6 @@ export type Bit = {
   fireLockDirection: Vector3;
   bruteforceActive: boolean;
   bruteforceCheckTimer: number;
-  bruteforceVisitedAt: Map<string, number>;
   bruteforcePath: FloorCell[];
   bruteforcePathIndex: number;
 };

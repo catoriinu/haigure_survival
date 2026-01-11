@@ -80,6 +80,7 @@ const bitModeMuzzleColors: Record<Exclude<BitMode, "search">, Color3> = {
   "attack-carpet-bomb": new Color3(1.0, 0.25, 0.9),
   "hold": new Color3(1.0, 1.0, 1.0)
 };
+const bruteforceVisitedShared = new Map<string, number>();
 const bitScanIntervalMin = 4.2;
 const bitScanIntervalMax = 7.2;
 const bitScanDurationMin = 0.7;
@@ -134,11 +135,12 @@ const bitSearchScaleStartSeconds = 60;
 const bitSearchDistanceScaleInterval = 20;
 const bitSearchSpeedScaleInterval = 20;
 const bitSearchSpeedScalePerInterval = 0.1;
-const bitBruteforceStartSeconds = 60;
+const bitBruteforceStartSeconds = 40;
 const bitBruteforceEnterInterval = 10;
-const bitBruteforceEnterChance = 0.2;
+const bitBruteforceEnterChance = 0.25;
 const bitBruteforceVisitRadius = 3;
 const bitBruteforceVisitedKeepSeconds = 60;
+const bitBruteforceMaxHeight = 3;
 const bitFireMuzzleSphereScale = 2.1;
 const bitFireLensScale = new Vector3(2.1, 2.1, 1.0);
 const bitFireColor = new Color3(1, 0.18, 0.74);
@@ -1013,7 +1015,6 @@ export const createBit = (
       fireLockDirection: new Vector3(0, 0, 1),
       bruteforceActive: false,
       bruteforceCheckTimer: bitBruteforceEnterInterval,
-      bruteforceVisitedAt: new Map(),
       bruteforcePath: [],
       bruteforcePathIndex: 0
     };
@@ -1109,7 +1110,6 @@ export const createBitAt = (
       fireLockDirection: new Vector3(0, 0, 1),
       bruteforceActive: false,
       bruteforceCheckTimer: bitBruteforceEnterInterval,
-      bruteforceVisitedAt: new Map(),
       bruteforcePath: [],
       bruteforcePathIndex: 0
     };
@@ -1251,14 +1251,14 @@ export const updateBits = (
     );
   };
   const getBruteforceKey = (row: number, col: number) => `${row},${col}`;
-  const isBruteforceRecent = (bit: Bit, row: number, col: number) => {
-    const last = bit.bruteforceVisitedAt.get(getBruteforceKey(row, col));
+  const isBruteforceRecent = (row: number, col: number) => {
+    const last = bruteforceVisitedShared.get(getBruteforceKey(row, col));
     return (
       last !== undefined &&
       elapsed - last < bitBruteforceVisitedKeepSeconds
     );
   };
-  const markBruteforceVisited = (bit: Bit, center: FloorCell) => {
+  const markBruteforceVisited = (center: FloorCell) => {
     const minRow = Math.max(0, center.row - bitBruteforceVisitRadius);
     const maxRow = Math.min(
       layout.rows - 1,
@@ -1277,11 +1277,11 @@ export const updateBits = (
         if (layout.cells[row][col] !== "floor") {
           continue;
         }
-        bit.bruteforceVisitedAt.set(getBruteforceKey(row, col), elapsed);
+        bruteforceVisitedShared.set(getBruteforceKey(row, col), elapsed);
       }
     }
   };
-  const buildBruteforcePath = (start: FloorCell, bit: Bit) => {
+  const buildBruteforcePath = (start: FloorCell) => {
     if (!isCellWithinBounds(start.row, start.col)) {
       return null;
     }
@@ -1309,7 +1309,7 @@ export const updateBits = (
       head += 1;
       if (
         (row !== start.row || col !== start.col) &&
-        !isBruteforceRecent(bit, row, col)
+        !isBruteforceRecent(row, col)
       ) {
         target = { row, col };
         break;
@@ -1460,6 +1460,10 @@ export const updateBits = (
       : 0;
   const spawnedBits: Bit[] = [];
   const bitsToRemove: Bit[] = [];
+  const hasActiveBruteforce = bits.some((bit) => bit.bruteforceActive);
+  if (!hasActiveBruteforce && bruteforceVisitedShared.size > 0) {
+    bruteforceVisitedShared.clear();
+  }
   let alertLeader = alertSignal.leaderId
     ? bits.find((candidate) => candidate.id === alertSignal.leaderId) ?? null
     : null;
@@ -1818,40 +1822,66 @@ export const updateBits = (
     return false;
   };
 
+  const resetBruteforceSession = () => {
+    bruteforceVisitedShared.clear();
+    for (const candidate of bits) {
+      candidate.bruteforceActive = false;
+      candidate.bruteforcePath = [];
+      candidate.bruteforcePathIndex = 0;
+      candidate.bruteforceCheckTimer = bitBruteforceEnterInterval;
+      if (candidate.alertReturnMode === "search-bruteforce") {
+        candidate.alertReturnMode = null;
+        candidate.alertReturnTargetId = null;
+      }
+      if (candidate.mode === "search-bruteforce") {
+        setBitMode(candidate, "search", null, alertSignal, soundEvents);
+      }
+    }
+  };
+
   const updateBruteforceMode = (bit: Bit, frame: ModeFrame) => {
     const currentCell = worldToCell(bit.root.position);
-    markBruteforceVisited(bit, currentCell);
-    if (bit.bruteforcePathIndex >= bit.bruteforcePath.length) {
-      const path = buildBruteforcePath(currentCell, bit);
-      if (!path) {
-        bit.bruteforceActive = false;
-        bit.bruteforceVisitedAt.clear();
-        bit.bruteforcePath = [];
-        bit.bruteforcePathIndex = 0;
-        bit.bruteforceCheckTimer = bitBruteforceEnterInterval;
-        setBitMode(bit, "search", null, alertSignal, soundEvents);
-        return true;
-      }
-      bit.bruteforcePath = path;
-      bit.bruteforcePathIndex = 0;
-    }
-
-    const targetCell = bit.bruteforcePath[bit.bruteforcePathIndex];
-    const targetPosition = cellToWorld(layout, targetCell, bit.baseHeight);
-    const toTarget = targetPosition.subtract(bit.root.position);
-    toTarget.y = 0;
-    const arriveDistance = layout.cellSize * 0.2;
-    if (toTarget.lengthSquared() <= arriveDistance * arriveDistance) {
-      bit.bruteforcePathIndex += 1;
-    }
-    if (toTarget.lengthSquared() > 0.0001) {
-      frame.moveDirection = toTarget.normalize();
-      frame.aimDirection = frame.moveDirection.clone();
-      frame.moveSpeed = bitSearchSpeed * bit.statMultiplier * searchSpeedScale;
-    } else {
+    markBruteforceVisited(currentCell);
+    if (bit.baseHeight > bitBruteforceMaxHeight) {
+      const descendStep =
+        bitWanderVerticalSpeed * bit.statMultiplier * searchSpeedScale * delta;
+      bit.baseHeight = Math.max(
+        bitBruteforceMaxHeight,
+        bit.baseHeight - descendStep
+      );
       frame.moveDirection = new Vector3(0, 0, 0);
       frame.aimDirection = bit.root.getDirection(new Vector3(0, 0, 1));
-      frame.moveSpeed = bitSearchSpeed * bit.statMultiplier * searchSpeedScale;
+      frame.moveSpeed = 0;
+    } else {
+      if (bit.bruteforcePathIndex >= bit.bruteforcePath.length) {
+        const path = buildBruteforcePath(currentCell);
+        if (!path) {
+          resetBruteforceSession();
+          return true;
+        }
+        bit.bruteforcePath = path;
+        bit.bruteforcePathIndex = 0;
+      }
+
+      const targetCell = bit.bruteforcePath[bit.bruteforcePathIndex];
+      const targetPosition = cellToWorld(layout, targetCell, bit.baseHeight);
+      const toTarget = targetPosition.subtract(bit.root.position);
+      toTarget.y = 0;
+      const arriveDistance = layout.cellSize * 0.2;
+      if (toTarget.lengthSquared() <= arriveDistance * arriveDistance) {
+        bit.bruteforcePathIndex += 1;
+      }
+      if (toTarget.lengthSquared() > 0.0001) {
+        frame.moveDirection = toTarget.normalize();
+        frame.aimDirection = frame.moveDirection.clone();
+        frame.moveSpeed =
+          bitSearchSpeed * bit.statMultiplier * searchSpeedScale;
+      } else {
+        frame.moveDirection = new Vector3(0, 0, 0);
+        frame.aimDirection = bit.root.getDirection(new Vector3(0, 0, 1));
+        frame.moveSpeed =
+          bitSearchSpeed * bit.statMultiplier * searchSpeedScale;
+      }
     }
 
     const visibleTarget = findVisibleTarget(
@@ -1893,8 +1923,10 @@ export const updateBits = (
       if (bit.bruteforceCheckTimer <= 0) {
         bit.bruteforceCheckTimer = bitBruteforceEnterInterval;
         if (Math.random() < bitBruteforceEnterChance) {
+          if (!hasActiveBruteforce) {
+            bruteforceVisitedShared.clear();
+          }
           bit.bruteforceActive = true;
-          bit.bruteforceVisitedAt.clear();
           bit.bruteforcePath = [];
           bit.bruteforcePathIndex = 0;
           setBitMode(bit, "search", null, alertSignal, soundEvents);
@@ -2493,12 +2525,16 @@ export const updateBits = (
       }
     }
 
+    const maxYForBit =
+      bit.mode === "search-bruteforce"
+        ? Math.min(maxY, bitBruteforceMaxHeight)
+        : maxY;
     if (bit.baseHeight < minY) {
       bit.baseHeight = minY;
       bit.wanderDirection.y *= -1;
     }
-    if (bit.baseHeight > maxY) {
-      bit.baseHeight = maxY;
+    if (bit.baseHeight > maxYForBit) {
+      bit.baseHeight = maxYForBit;
       if (bit.mode !== "attack-carpet-bomb") {
         bit.wanderDirection.y *= -1;
       }
@@ -2511,7 +2547,7 @@ export const updateBits = (
     const bob = Math.sin(elapsed * 0.9 + bit.floatOffset) * bobAmplitude;
     const clampedBase = Math.min(
       Math.max(bit.baseHeight, minY - bob),
-      maxY - bob
+      maxYForBit - bob
     );
     bit.baseHeight = clampedBase;
     bit.root.position.y = bit.baseHeight + bob;
