@@ -82,6 +82,7 @@ export type Npc = {
 
 export type BitMode =
   | "search"
+  | "search-bruteforce"
   | "attack-chase"
   | "attack-fixed"
   | "attack-random"
@@ -158,6 +159,11 @@ export type Bit = {
   fireEffectActive: boolean;
   fireEffectTimer: number;
   fireLockDirection: Vector3;
+  bruteforceActive: boolean;
+  bruteforceCheckTimer: number;
+  bruteforceVisitedAt: Map<string, number>;
+  bruteforcePath: FloorCell[];
+  bruteforcePathIndex: number;
 };
 
 export type BitSoundEvents = {
