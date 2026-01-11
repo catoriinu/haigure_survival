@@ -224,6 +224,20 @@ export const createHud = (): Hud => {
     );
     minimapContext.stroke();
 
+    const northAngle = theta;
+    const northFontSize = 12;
+    const northRadius = minimapRadius - northFontSize * 0.5;
+    const northX = centerX + Math.cos(northAngle) * northRadius;
+    const northY = centerY + Math.sin(northAngle) * northRadius;
+    minimapContext.font = `bold ${northFontSize}px ui-monospace, monospace`;
+    minimapContext.textAlign = "center";
+    minimapContext.textBaseline = "middle";
+    minimapContext.lineWidth = 2;
+    minimapContext.strokeStyle = "rgba(0, 0, 0, 0.7)";
+    minimapContext.strokeText("N", northX, northY);
+    minimapContext.fillStyle = "#f5f5f5";
+    minimapContext.fillText("N", northX, northY);
+
     retryInfo.style.display = retryText ? "block" : "none";
     retryInfo.textContent = retryText ?? "";
 

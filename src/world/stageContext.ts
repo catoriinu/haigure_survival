@@ -118,5 +118,7 @@ export const disposeStageParts = (parts: StageParts) => {
   if (parts.floorMaterialOutdoor) {
     parts.floorMaterialOutdoor.dispose();
   }
-  parts.wallMaterial.dispose();
+  for (const wallMaterial of parts.wallMaterials) {
+    wallMaterial.dispose();
+  }
 };

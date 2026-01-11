@@ -36,7 +36,7 @@ export type StageParts = {
   floorMaterial: StandardMaterial;
   floorMaterialOutdoor: StandardMaterial | null;
   ceilingMaterial: StandardMaterial | null;
-  wallMaterial: StandardMaterial;
+  wallMaterials: StandardMaterial[];
 };
 
 const colorToHex = (color: Color3) => {
@@ -239,17 +239,30 @@ export const createStageFromGrid = (
 
   let ceilingMaterial: StandardMaterial | null = null;
 
-  const wallMaterial = new StandardMaterial("wallMaterial", scene);
-  wallMaterial.diffuseTexture = createGridTexture(
-    scene,
-    style,
-    style.wallBaseColor,
-    style.wallGridColor,
-    layout.cellSize,
-    layout.height,
-    "wallGridTexture"
-  );
-  wallMaterial.specularColor = new Color3(0.1, 0.1, 0.1);
+  const wallMaterialsByHeight = new Map<number, StandardMaterial>();
+  const getWallMaterial = (wallHeight: number) => {
+    const cached = wallMaterialsByHeight.get(wallHeight);
+    if (cached) {
+      return cached;
+    }
+
+    const wallMaterial = new StandardMaterial(
+      `wallMaterial_${wallHeight}`,
+      scene
+    );
+    wallMaterial.diffuseTexture = createGridTexture(
+      scene,
+      style,
+      style.wallBaseColor,
+      style.wallGridColor,
+      layout.cellSize,
+      wallHeight,
+      `wallGridTexture_${wallHeight}`
+    );
+    wallMaterial.specularColor = new Color3(0.1, 0.1, 0.1);
+    wallMaterialsByHeight.set(wallHeight, wallMaterial);
+    return wallMaterial;
+  };
 
   const floors: Mesh[] = [];
   const walls: Mesh[] = [];
@@ -282,6 +295,7 @@ export const createStageFromGrid = (
 
       if (!isFloorCell(layout, row - 1, col)) {
         const wallHeight = getWallHeight(layout, row - 1, col);
+        const wallMaterial = getWallMaterial(wallHeight);
         const wallPosition = new Vector3(
           centerX,
           wallHeight / 2,
@@ -309,6 +323,7 @@ export const createStageFromGrid = (
 
       if (!isFloorCell(layout, row + 1, col)) {
         const wallHeight = getWallHeight(layout, row + 1, col);
+        const wallMaterial = getWallMaterial(wallHeight);
         const wallPosition = new Vector3(
           centerX,
           wallHeight / 2,
@@ -337,6 +352,7 @@ export const createStageFromGrid = (
 
       if (!isFloorCell(layout, row, col - 1)) {
         const wallHeight = getWallHeight(layout, row, col - 1);
+        const wallMaterial = getWallMaterial(wallHeight);
         const wallPosition = new Vector3(
           centerX - layout.cellSize / 2,
           wallHeight / 2,
@@ -365,6 +381,7 @@ export const createStageFromGrid = (
 
       if (!isFloorCell(layout, row, col + 1)) {
         const wallHeight = getWallHeight(layout, row, col + 1);
+        const wallMaterial = getWallMaterial(wallHeight);
         const wallPosition = new Vector3(
           centerX + layout.cellSize / 2,
           wallHeight / 2,
@@ -418,6 +435,6 @@ export const createStageFromGrid = (
     floorMaterial,
     floorMaterialOutdoor,
     ceilingMaterial,
-    wallMaterial
+    wallMaterials: [...wallMaterialsByHeight.values()]
   };
 };

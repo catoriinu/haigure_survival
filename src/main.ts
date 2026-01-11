@@ -137,6 +137,13 @@ let bounds: StageBounds = {
   maxY: room.height
 };
 
+const buildSpawnForward = (selection: StageSelection) =>
+  selection.id === "city_center"
+    ? new Vector3(0, 0, -1)
+    : new Vector3(0, 0, 1);
+
+let spawnForward = buildSpawnForward(stageSelection);
+
 const updateStageState = () => {
   layout = stageContext.layout;
   stageStyle = stageContext.style;
@@ -152,6 +159,7 @@ const updateStageState = () => {
     eyeHeight,
     -halfDepth + layout.cellSize / 2 + layout.spawn.row * layout.cellSize
   );
+  spawnForward = buildSpawnForward(stageSelection);
   const minimapCellDivisor = Math.round(
     layout.cellSize / stageStyle.gridSpacingWorld
   );
@@ -174,7 +182,6 @@ const updateStageState = () => {
 };
 
 updateStageState();
-const spawnForward = new Vector3(0, 0, 1);
 const camera = new FreeCamera(
   "camera",
   spawnPosition.clone(),

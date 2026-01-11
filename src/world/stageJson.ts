@@ -107,6 +107,29 @@ export type StageJson = {
 };
 
 type StageMapScale = StageJson["meta"]["mapScale"];
+type StageMapWidth = {
+  width: number;
+};
+
+const getStageMapWidth = (rows: string[]): StageMapWidth => ({
+  width: rows[0].length
+});
+
+const flipStageColumns = (rows: string[]): string[] =>
+  rows.map((row) => row.split("").reverse().join(""));
+
+const flipStageMarkerX = (
+  marker: StageMarker,
+  mapSize: StageMapWidth
+): StageMarker => ({
+  ...marker,
+  x: mapSize.width - 1 - marker.x
+});
+
+const flipStageZoneX = (zone: StageZone, mapSize: StageMapWidth): StageZone => ({
+  ...zone,
+  x: mapSize.width - zone.x - zone.w
+});
 
 const expandSymbolMap = (
   rows: string[],
@@ -167,9 +190,13 @@ const createCellDataFromSymbolMap = (
 };
 
 export const getAssemblyAreaFromStageJson = (stageJson: StageJson): StageArea => {
-  const assemblyZone = stageJson.gameplay.zones.find(
-    (zone) => zone.id === "assembly_area"
-  ) as StageZone;
+  const mapSize = getStageMapWidth(stageJson.mainMap);
+  const assemblyZone = flipStageZoneX(
+    stageJson.gameplay.zones.find(
+      (zone) => zone.id === "assembly_area"
+    ) as StageZone,
+    mapSize
+  );
   const scaleX = stageJson.meta.mapScale.x;
   const scaleZ = stageJson.meta.mapScale.z;
   return {
@@ -184,7 +211,7 @@ export const createEnvMapFromStageJson = (
   stageJson: StageJson
 ): string[][] => {
   return expandSymbolMap(
-    stageJson.semantics.channels.env,
+    flipStageColumns(stageJson.semantics.channels.env),
     stageJson.meta.mapScale
   );
 };
@@ -210,6 +237,7 @@ export const createGridLayoutFromStageJson = (
 ): GridLayout => {
   const scaleX = stageJson.meta.mapScale.x;
   const scaleZ = stageJson.meta.mapScale.z;
+  const mapSize = getStageMapWidth(stageJson.mainMap);
   const maxHeightCells = Math.max(
     ...Object.values(stageJson.cellPhysics).map(
       (definition) => definition.heightCells
@@ -217,7 +245,10 @@ export const createGridLayoutFromStageJson = (
   );
   const fallbackWallHeightCells = maxHeightCells;
   const cellSize = DEFAULT_GRID_CONFIG.cellSize;
-  const symbolMap = expandSymbolMap(stageJson.mainMap, stageJson.meta.mapScale);
+  const symbolMap = expandSymbolMap(
+    flipStageColumns(stageJson.mainMap),
+    stageJson.meta.mapScale
+  );
   const rows = symbolMap.length;
   const columns = symbolMap[0].length;
   const { cells, cellHeights, cellNoRender } = createCellDataFromSymbolMap(
@@ -232,9 +263,12 @@ export const createGridLayoutFromStageJson = (
     ceiling === null ? null : ceiling.heightCells * cellSize;
   const maxWallHeight = maxHeightCells * cellSize;
   const height = Math.max(maxWallHeight, ceilingHeight ?? 0);
-  const spawnMarker = stageJson.gameplay.markers.find(
-    (marker) => marker.type === "spawn"
-  ) as StageMarker;
+  const spawnMarker = flipStageMarkerX(
+    stageJson.gameplay.markers.find(
+      (marker) => marker.type === "spawn"
+    ) as StageMarker,
+    mapSize
+  );
   const spawn = {
     row: spawnMarker.z * scaleZ + Math.floor(scaleZ / 2),
     col: spawnMarker.x * scaleX + Math.floor(scaleX / 2)
@@ -245,10 +279,11 @@ export const createGridLayoutFromStageJson = (
     if (zone.type !== "noEnemySpawn") {
       continue;
     }
-    const startRow = zone.z * scaleZ;
-    const startCol = zone.x * scaleX;
-    const zoneHeight = zone.h * scaleZ;
-    const zoneWidth = zone.w * scaleX;
+    const flippedZone = flipStageZoneX(zone, mapSize);
+    const startRow = flippedZone.z * scaleZ;
+    const startCol = flippedZone.x * scaleX;
+    const zoneHeight = flippedZone.h * scaleZ;
+    const zoneWidth = flippedZone.w * scaleX;
     for (let row = startRow; row < startRow + zoneHeight; row += 1) {
       for (let col = startCol; col < startCol + zoneWidth; col += 1) {
         noSpawnCells.push({ row, col });
