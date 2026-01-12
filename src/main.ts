@@ -30,7 +30,6 @@ import {
   createBeamMaterial,
   createBit,
   createBitMaterials,
-  createNpcManager,
   isAliveState,
   isBrainwashState,
   bitFireEffectDuration,
@@ -84,15 +83,19 @@ import {
 import { createHud } from "./ui/hud";
 import { setupInputHandlers } from "./ui/input";
 import {
-  NPC_SPRITE_MODES,
   PLAYER_EYE_HEIGHT,
   PLAYER_SPRITE_CENTER_HEIGHT,
   PLAYER_SPRITE_HEIGHT,
-  PLAYER_SPRITE_MODES,
-  PLAYER_SPRITE_WIDTH,
-  createDefaultCharacterSpritesheet,
-  loadCharacterSpriteSheet
+  PLAYER_SPRITE_WIDTH
 } from "./game/characterSprites";
+import {
+  assignPortraitDirectories,
+  calculatePortraitSpriteSize,
+  getPortraitCellIndex,
+  getPortraitDirectories,
+  loadPortraitSpriteSheet,
+  type PortraitSpriteSheet
+} from "./game/portraitSprites";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const engine = new Engine(canvas, true);
@@ -103,12 +106,33 @@ const playerWidth = PLAYER_SPRITE_WIDTH;
 const playerHeight = PLAYER_SPRITE_HEIGHT;
 const playerCenterHeight = PLAYER_SPRITE_CENTER_HEIGHT;
 const eyeHeight = PLAYER_EYE_HEIGHT;
+const npcCount = 12;
+const portraitMaxWidthCells = 1;
+const portraitMaxHeightCells = 2;
 
-const defaultSpriteSheet = createDefaultCharacterSpritesheet();
-const [npcSpriteSheet, playerSpriteSheet] = await Promise.all([
-  loadCharacterSpriteSheet("npc", NPC_SPRITE_MODES, defaultSpriteSheet),
-  loadCharacterSpriteSheet("player", PLAYER_SPRITE_MODES, defaultSpriteSheet)
-]);
+const portraitDirectories = getPortraitDirectories();
+const portraitSpriteSheets = new Map<string, PortraitSpriteSheet>();
+await Promise.all(
+  portraitDirectories.map(async (directory) => {
+    const sheet = await loadPortraitSpriteSheet(directory);
+    portraitSpriteSheets.set(directory, sheet);
+  })
+);
+const portraitManagers = new Map<string, SpriteManager>();
+const spriteManagerCapacity = npcCount + 1;
+for (const directory of portraitDirectories) {
+  const sheet = portraitSpriteSheets.get(directory)!;
+  portraitManagers.set(
+    directory,
+    new SpriteManager(
+      `portrait_${directory}`,
+      sheet.url,
+      spriteManagerCapacity,
+      { width: sheet.cellWidth, height: sheet.cellHeight },
+      scene
+    )
+  );
+}
 
 const stageSelector = createStageSelector(STAGE_CATALOG);
 let stageSelection = stageSelector.getCurrent();
@@ -143,6 +167,7 @@ const buildSpawnForward = (selection: StageSelection) =>
     : new Vector3(0, 0, 1);
 
 let spawnForward = buildSpawnForward(stageSelection);
+let portraitCellSize = layout.cellSize;
 
 const updateStageState = () => {
   layout = stageContext.layout;
@@ -179,6 +204,7 @@ const updateStageState = () => {
     minY: 0,
     maxY: room.height
   };
+  portraitCellSize = layout.cellSize;
 };
 
 updateStageState();
@@ -331,8 +357,19 @@ const shuffleVoiceIds = (ids: string[]) => {
 };
 const pickRandomVoiceId = () =>
   voiceIdPool[Math.floor(Math.random() * voiceIdPool.length)];
+const allocateVoiceIds = (count: number) => {
+  const ids = [...voiceIdPool];
+  shuffleVoiceIds(ids);
+  const playerId = ids.shift()!;
+  const npcIds = Array.from(
+    { length: count },
+    () => (ids.length > 0 ? ids.shift()! : pickRandomVoiceId())
+  );
+  return { playerId, npcIds };
+};
 
 let playerVoiceId = "00";
+let npcVoiceIds: string[] = [];
 let playerVoiceActor: VoiceActor | null = null;
 let npcVoiceActors: VoiceActor[] = [];
 
@@ -349,9 +386,6 @@ const stopAllVoices = () => {
 
 const assignVoiceActors = () => {
   stopAllVoices();
-  const ids = [...voiceIdPool];
-  shuffleVoiceIds(ids);
-  playerVoiceId = ids.shift()!;
   const playerProfile = pickVoiceProfileById(playerVoiceId);
   playerVoiceActor = createVoiceActor(
     playerProfile,
@@ -359,7 +393,6 @@ const assignVoiceActors = () => {
     () => playerState
   );
   npcVoiceActors = npcs.map((npc) => {
-    npc.voiceId = ids.length > 0 ? ids.shift()! : pickRandomVoiceId();
     const profile = pickVoiceProfileById(npc.voiceId);
     return createVoiceActor(
       profile,
@@ -411,27 +444,97 @@ const light = new HemisphericLight("light", new Vector3(0, 1, 0), scene);
 light.intensity = 1.2;
 scene.ambientColor = new Color3(0.45, 0.45, 0.45);
 scene.collisionsEnabled = true;
-const npcManager = createNpcManager(scene, 32, npcSpriteSheet.url);
-const playerManager = new SpriteManager(
-  "playerManager",
-  playerSpriteSheet.url,
-  1,
-  { width: playerSpriteSheet.cellSize, height: playerSpriteSheet.cellSize },
-  scene
-);
-const playerAvatar = new Sprite("playerAvatar", playerManager);
-playerAvatar.width = playerWidth;
-playerAvatar.height = playerHeight;
-playerAvatar.isPickable = false;
-playerAvatar.cellIndex = 0;
-playerAvatar.isVisible = false;
-playerAvatar.position = new Vector3(
-  spawnPosition.x,
-  playerCenterHeight,
-  spawnPosition.z
-);
-const npcCount = 12;
-const npcs = spawnNpcs(layout, spawnableCells, npcManager, npcCount);
+let playerAvatar: Sprite;
+const npcs: Npc[] = [];
+let portraitAssignments = new Map<string, string>();
+const portraitScaleCache = new Map<string, { width: number; height: number }>();
+const getPortraitManagerByVoiceId = (voiceId: string) => {
+  const directory = portraitAssignments.get(voiceId)!;
+  return portraitManagers.get(directory)!;
+};
+const createPlayerAvatar = (manager: SpriteManager) => {
+  const avatar = new Sprite("playerAvatar", manager);
+  avatar.width = playerWidth;
+  avatar.height = playerHeight;
+  avatar.isPickable = false;
+  avatar.cellIndex = 0;
+  avatar.isVisible = false;
+  return avatar;
+};
+
+const computePortraitSpriteSize = (voiceId: string) => {
+  const cached = portraitScaleCache.get(voiceId);
+  if (cached) {
+    return cached;
+  }
+  const directory = portraitAssignments.get(voiceId)!;
+  const sheet = portraitSpriteSheets.get(directory)!;
+  const size = calculatePortraitSpriteSize(
+    sheet.imageWidth,
+    sheet.imageHeight,
+    portraitCellSize,
+    portraitMaxWidthCells,
+    portraitMaxHeightCells
+  );
+  portraitScaleCache.set(voiceId, size);
+  return size;
+};
+
+const applyPortraitSize = (sprite: Sprite, voiceId: string) => {
+  const size = computePortraitSpriteSize(voiceId);
+  sprite.width = size.width;
+  sprite.height = size.height;
+};
+
+const applyPortraitSizesToAll = () => {
+  applyPortraitSize(playerAvatar, playerVoiceId);
+  for (const npc of npcs) {
+    applyPortraitSize(npc.sprite, npc.voiceId);
+  }
+};
+
+const refreshPortraitSizes = () => {
+  portraitScaleCache.clear();
+  applyPortraitSizesToAll();
+};
+
+const assignVoiceIds = () => {
+  const { playerId, npcIds } = allocateVoiceIds(npcCount);
+  playerVoiceId = playerId;
+  npcVoiceIds = npcIds;
+  portraitAssignments = assignPortraitDirectories([playerVoiceId, ...npcVoiceIds]);
+  portraitScaleCache.clear();
+};
+
+const createCharacters = () => {
+  playerAvatar = createPlayerAvatar(
+    getPortraitManagerByVoiceId(playerVoiceId)
+  );
+  playerAvatar.position = new Vector3(
+    spawnPosition.x,
+    playerCenterHeight,
+    spawnPosition.z
+  );
+  npcs.push(
+    ...spawnNpcs(
+      layout,
+      spawnableCells,
+      getPortraitManagerByVoiceId,
+      npcVoiceIds
+    )
+  );
+  applyPortraitSizesToAll();
+};
+
+const rebuildCharacters = () => {
+  assignVoiceIds();
+  playerAvatar.dispose();
+  npcs.length = 0;
+  createCharacters();
+};
+
+assignVoiceIds();
+createCharacters();
 
 const bitMaterials = createBitMaterials(scene);
 const redBitMaterials = createBitMaterials(scene);
@@ -627,6 +730,7 @@ const applyStageSelection = async (selection: StageSelection) => {
   camera.position.copyFrom(spawnPosition);
   camera.rotation = new Vector3(0, 0, 0);
   camera.setTarget(spawnPosition.add(spawnForward));
+  refreshPortraitSizes();
   rebuildGameFlow();
   if (gamePhase === "title") {
     resetGame();
@@ -1559,6 +1663,13 @@ const updatePlayerState = (
 
 };
 
+const updateCharacterSpriteCells = () => {
+  playerAvatar.cellIndex = getPortraitCellIndex(playerState);
+  for (const npc of npcs) {
+    npc.sprite.cellIndex = getPortraitCellIndex(npc.state);
+  }
+};
+
 const resetGame = () => {
   stopAllVoices();
   resetExecutionState();
@@ -1605,8 +1716,7 @@ const resetGame = () => {
       orb.mesh.dispose();
     }
   }
-  npcs.length = 0;
-  npcs.push(...spawnNpcs(layout, spawnableCells, npcManager, npcCount));
+  rebuildCharacters();
 
   alertSignal.leaderId = null;
   alertSignal.targetId = null;
@@ -1623,6 +1733,7 @@ const resetGame = () => {
     playerCenterHeight,
     spawnPosition.z
   );
+  rebuildGameFlow();
   assignVoiceActors();
 };
 
@@ -1988,6 +2099,7 @@ engine.runRenderLoop(() => {
     gameFlow.updateAssembly(delta);
   }
 
+  updateCharacterSpriteCells();
   updateVoices(delta);
   gameFlow.updateFade(delta);
   audioManager.updateSpatial();

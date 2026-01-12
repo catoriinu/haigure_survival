@@ -1,21 +1,18 @@
-# 直近3コミット分リファクタリング 計画
+# 立ち絵リファクタリング 計画
 
-更新日: 2026-01-11
+更新日: 2026-01-12
 
 ## プロンプト
-直近3コミット分の差分を読み込み、リファクタリング計画を立案してください。
-また、spec.md, spec_stage_json.mdへの仕様追加・更新箇所があるかも確認してください。
+立ち絵が変わる機能についてはOKです。
+ちなみにリファクタリングの余地はありますか？
+着手しやすい順番にそれぞれ修正していってください
 
 ## ステップ
-- [x] 変更点の依存関係を整理し、StageJson→GridLayout→Stage生成の責務境界を確定する
-- [x] mapScale/semanticsの拡張処理を共通化し、Grid/Env生成の重複実装を解消する
-- [x] createStageFromGridの壁生成・床材切替をヘルパー化して重複を削減する
-- [x] StageContextに環境情報（envMap/skyColor/ceiling）を集約し、呼び出し側の引数を整理する
-- [x] spec_stage_json.md/spec.mdの更新点を反映する
+- [x] 立ち絵サイズ適用処理を共通化し、重複ループをまとめる
+- [x] キャラ再生成のフローを関数化して初期化/リセットの重複を整理する
+- [x] 立ち絵サイズの算出ロジックをportraitSprites側に寄せる
 
 ## 結果
-- docs/spec_stage_json.mdにmapScale/sky/ceiling null/option/noRenderの記述を追加
-- docs/spec.mdに屋外/天井の扱いとNPC初期人数の更新を反映
-- stageJsonのmapScale拡張処理を共通化してmainMap/envの重複ループを整理
-- stageJsonで環境データ生成をまとめ、StageContextで環境情報を集約
-- stage.tsの壁生成と床材選択をヘルパー化して重複を削減
+- 立ち絵サイズ適用を共通関数にまとめて重複を削減
+- キャラ再生成フローを関数化して初期化/リセットの処理を整理
+- 立ち絵サイズの算出ロジックをportraitSprites側へ移動
