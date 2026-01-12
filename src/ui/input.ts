@@ -10,6 +10,7 @@ export type InputHandlerOptions = {
   isBrainwashState: (state: CharacterState) => boolean;
   getBrainwashChoiceStarted: () => boolean;
   getBrainwashChoiceUnlocked: () => boolean;
+  isUiPointerTarget: (target: EventTarget | null) => boolean;
   onPointerLockRequest: () => void;
   onStartGame: () => void;
   onEnterEpilogue: () => void;
@@ -32,6 +33,7 @@ export const setupInputHandlers = ({
   isBrainwashState,
   getBrainwashChoiceStarted,
   getBrainwashChoiceUnlocked,
+  isUiPointerTarget,
   onPointerLockRequest,
   onStartGame,
   onEnterEpilogue,
@@ -129,6 +131,9 @@ export const setupInputHandlers = ({
   window.addEventListener(
     "pointerdown",
     (event) => {
+      if (isUiPointerTarget(event.target)) {
+        return;
+      }
       if (event.button === 2) {
         if (getGamePhase() === "title") {
           event.preventDefault();

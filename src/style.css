@@ -114,6 +114,72 @@ body {
   white-space: pre-line;
 }
 
+.volume-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #111111;
+  background: rgba(0, 0, 0, 0.65);
+  color: #f5f5f5;
+  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  pointer-events: auto;
+}
+
+.volume-panel--title {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 35;
+}
+
+.volume-panel__title {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: #f0f0f0;
+}
+
+.volume-row {
+  display: grid;
+  grid-template-columns: 54px 28px 54px 28px 54px;
+  align-items: center;
+  gap: 6px;
+}
+
+.volume-label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.volume-value {
+  text-align: center;
+  min-width: 54px;
+}
+
+.volume-btn {
+  border: 1px solid #2a2a2a;
+  background: #141414;
+  color: #f5f5f5;
+  font: inherit;
+  border-radius: 4px;
+  height: 24px;
+  cursor: pointer;
+}
+
+.volume-btn:hover {
+  background: #1f1f1f;
+}
+
+.volume-btn:active {
+  transform: translateY(1px);
+}
+
+.volume-mute {
+  letter-spacing: 0.08em;
+}
+
 #stateInfo {
   position: absolute;
   left: 50%;

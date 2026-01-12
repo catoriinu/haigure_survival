@@ -63,7 +63,12 @@ import {
   startHitSequence,
   updateHitSequence
 } from "./game/hitEffects";
-import { AudioManager, SpatialHandle, SpatialPlayOptions } from "./audio/audio";
+import {
+  AudioManager,
+  SpatialHandle,
+  SpatialPlayOptions,
+  type AudioCategory
+} from "./audio/audio";
 import {
   createVoiceActor,
   stopVoiceActor,
@@ -82,6 +87,7 @@ import {
 } from "./world/stageSelection";
 import { createHud } from "./ui/hud";
 import { setupInputHandlers } from "./ui/input";
+import { createVolumePanel, type VolumeLevels } from "./ui/volumePanel";
 import {
   PLAYER_EYE_HEIGHT,
   PLAYER_SPRITE_CENTER_HEIGHT,
@@ -256,6 +262,39 @@ const buildOrbCullingCheck = () => {
 };
 
 const audioManager = new AudioManager(camera);
+const volumeBase: Record<AudioCategory, number> = {
+  bgm: audioManager.getCategoryVolume("bgm"),
+  se: audioManager.getCategoryVolume("se"),
+  voice: audioManager.getCategoryVolume("voice")
+};
+const volumeLevels: VolumeLevels = {
+  bgm: 5,
+  se: 5,
+  voice: 5
+};
+const applyVolumeLevel = (category: AudioCategory, level: number) => {
+  volumeLevels[category] = level;
+  audioManager.setCategoryVolume(category, volumeBase[category] * (level / 10));
+};
+const titleVolumePanel = createVolumePanel({
+  parent: document.body,
+  initialLevels: volumeLevels,
+  className: "volume-panel--title",
+  onChange: (category, level) => {
+    applyVolumeLevel(category, level);
+  }
+});
+const volumeCategories: AudioCategory[] = ["voice", "bgm", "se"];
+for (const category of volumeCategories) {
+  applyVolumeLevel(category, volumeLevels[category]);
+}
+titleVolumePanel.setVisible(true);
+const isVolumePanelTarget = (target: EventTarget | null) => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  return target.closest("[data-ui=\"volume-panel\"]") !== null;
+};
 const bgmUrl = "/audio/bgm/研究所劇伴MP3.mp3";
 const bitSeMove = "/audio/se/FlyingObject.mp3";
 const bitSeAlert = "/audio/se/BeamShot_WavingPart.mp3";
@@ -1745,6 +1784,7 @@ const startGame = () => {
   audioManager.startBgm(bgmUrl);
   gamePhase = "playing";
   hud.setTitleVisible(false);
+  titleVolumePanel.setVisible(false);
   hud.setHudVisible(true);
   hud.setStateInfo(null);
   gameFlow.resetFade();
@@ -1756,6 +1796,7 @@ const returnToTitle = () => {
   audioManager.stopBgm();
   gamePhase = "title";
   hud.setTitleVisible(true);
+  titleVolumePanel.setVisible(true);
   hud.setHudVisible(false);
   hud.setStateInfo(null);
   gameFlow.resetFade();
@@ -1794,6 +1835,7 @@ setupInputHandlers({
   isBrainwashState,
   getBrainwashChoiceStarted: () => brainwashChoiceStarted,
   getBrainwashChoiceUnlocked: () => brainwashChoiceUnlocked,
+  isUiPointerTarget: isVolumePanelTarget,
   onPointerLockRequest: () => {
     canvas.requestPointerLock();
   },
