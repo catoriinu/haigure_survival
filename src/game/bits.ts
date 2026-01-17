@@ -30,46 +30,160 @@ import {
 import { findTargetById } from "./targetUtils";
 import { beamTipDiameter } from "./beams";
 
-const bitVisionRangeBase = 2.67;
-const bitVisionRangeRedMultiplier = 2;
-const bitVisionRangeBoostMultiplier = 1;
-const bitBaseSpeed = 0.2;
-const bitSearchSpeed = 0.25;
-const bitChaseSpeed = 0.22;
-const bitVisionAngleBase = 100;
-const bitVisionAngleRedMultiplier = 1.5;
-const bitVisionAngleBoostMultiplier = 1;
-const bitChaseFireRange = 1.2;
-const bitChaseLoseRange = 2.6;
-const bitChaseDuration = 18;
-const bitChaseFireIntervalMin = 2.4;
-const bitChaseFireIntervalMax = 3.2;
-const bitFixedDuration = 10;
-const alertGatherTargetCount = 4;
-const alertGatherRadius = 0.5;
-const alertGiveUpDuration = 15;
-const alertReceiveSpeedMultiplier = 5;
-const alertSpawnRadius = 0.2;
-const bitRandomDuration = 10;
-const bitRandomFireIntervalMin = 0.8;
-const bitRandomFireIntervalMax = 1.4;
-const bitRandomSpeed = 0.28;
-const bitRandomTurnSpeedMultiplier = 1.35;
-const bitRandomWanderTimerMin = 0.35;
-const bitRandomWanderTimerMax = 0.8;
-const bitInitialFireDelayFactor = 0.3;
-const bitWallProximityRadius = 0.075;
-const bitWanderVerticalAmplitude = 0.18;
-const bitWanderVerticalChance = 0.15;
-const bitWanderDiagonalChance = 0.2;
-const bitWanderVerticalDownChance = 0.65;
-const bitWanderVerticalSpeed = 0.06;
-const bitWanderDiagonalMin = 0.2;
-const bitWanderDiagonalMax = 0.45;
-const bitWanderTimerMin = 1.2;
-const bitWanderTimerMax = 2.4;
-const bitBobAmplitudeNormal = 0.03;
-const bitBobAmplitudeUrgent = 0;
+const bitModeSettings = {
+  base: {
+    speed: 0.2,
+    wallProximityRadius: 0.075,
+    bobAmplitudeNormal: 0.03,
+    bobAmplitudeUrgent: 0,
+    turnSpeed: Math.PI * 1.2,
+    redTurnSpeed: Math.PI * 1.6,
+    maxHeightCells: 9
+  },
+  vision: {
+    rangeBase: 2.67,
+    rangeRedMultiplier: 2,
+    rangeBoostMultiplier: 1,
+    angleBase: 100,
+    angleRedMultiplier: 1.5,
+    angleBoostMultiplier: 1
+  },
+  search: {
+    speed: 0.25,
+    scaleStartSeconds: 60,
+    distanceScaleInterval: 20,
+    speedScaleInterval: 20,
+    speedScalePerInterval: 0.1,
+    scan: {
+      intervalMin: 4.2,
+      intervalMax: 7.2,
+      durationMin: 0.7,
+      durationMax: 1.1,
+      yawRange: Math.PI * 0.55,
+      pitchDown: Math.PI * 0.22,
+      pitchHeightThreshold: 0.1
+    },
+    wander: {
+      verticalAmplitude: 0.18,
+      verticalChance: 0.15,
+      diagonalChance: 0.2,
+      verticalDownChance: 0.65,
+      verticalSpeed: 0.06,
+      diagonalMin: 0.2,
+      diagonalMax: 0.45,
+      timerMin: 1.2,
+      timerMax: 2.4
+    }
+  },
+  attack: {
+    cooldownDuration: 3,
+    initialFireDelayFactor: 0.3,
+    chase: {
+      speed: 0.22,
+      fireRange: 1.2,
+      loseRange: 2.6,
+      duration: 18,
+      fireIntervalMin: 2.4,
+      fireIntervalMax: 3.2,
+      descendSpeed: 0.175
+    },
+    fixed: {
+      duration: 10,
+      fireIntervalMin: 1.0,
+      fireIntervalMax: 1.6
+    },
+    random: {
+      duration: 10,
+      fireIntervalMin: 0.8,
+      fireIntervalMax: 1.4,
+      speed: 0.28,
+      turnSpeedMultiplier: 1.35,
+      wanderTimerMin: 0.35,
+      wanderTimerMax: 0.8
+    },
+    redHoldDuration: 1.0
+  },
+  alert: {
+    gatherTargetCount: 4,
+    gatherRadius: 0.5,
+    giveUpDuration: 15,
+    receiveSpeedMultiplier: 5,
+    spawnRadius: 0.2,
+    recoverPitchThreshold: 0.12
+  },
+  carpet: {
+    formationSpacing: 0.25,
+    speed: 0.75,
+    speedRedMultiplier: 0.45,
+    spread: 0.03,
+    fireIntervalMin: 0.25,
+    fireIntervalMax: 0.25,
+    fireRateRedDivisor: 3.2,
+    passDelay: 3.0,
+    ascendSpeed: 0.35,
+    heightOffset: 1.2,
+    turnRate: Math.PI * 0.35,
+    wallCooldown: 2.5,
+    steerStrength: 0.18,
+    aimScatter: 0.35,
+    aimBlend: 0.2,
+    aimTurnDuration: 1,
+    despawnDuration: 1
+  },
+  bruteforce: {
+    startSeconds: 40,
+    enterInterval: 10,
+    enterChance: 0.25,
+    visitRadius: 3,
+    visitedKeepSeconds: 60,
+    maxHeight: 3
+  }
+};
+
+const bitVisionRangeBase = bitModeSettings.vision.rangeBase;
+const bitVisionRangeRedMultiplier = bitModeSettings.vision.rangeRedMultiplier;
+const bitVisionRangeBoostMultiplier = bitModeSettings.vision.rangeBoostMultiplier;
+const bitBaseSpeed = bitModeSettings.base.speed;
+const bitSearchSpeed = bitModeSettings.search.speed;
+const bitChaseSpeed = bitModeSettings.attack.chase.speed;
+const bitVisionAngleBase = bitModeSettings.vision.angleBase;
+const bitVisionAngleRedMultiplier = bitModeSettings.vision.angleRedMultiplier;
+const bitVisionAngleBoostMultiplier = bitModeSettings.vision.angleBoostMultiplier;
+const bitChaseFireRange = bitModeSettings.attack.chase.fireRange;
+const bitChaseLoseRange = bitModeSettings.attack.chase.loseRange;
+const bitChaseDuration = bitModeSettings.attack.chase.duration;
+const bitChaseFireIntervalMin = bitModeSettings.attack.chase.fireIntervalMin;
+const bitChaseFireIntervalMax = bitModeSettings.attack.chase.fireIntervalMax;
+const bitFixedDuration = bitModeSettings.attack.fixed.duration;
+const bitFixedFireIntervalMin = bitModeSettings.attack.fixed.fireIntervalMin;
+const bitFixedFireIntervalMax = bitModeSettings.attack.fixed.fireIntervalMax;
+const alertGatherTargetCount = bitModeSettings.alert.gatherTargetCount;
+const alertGatherRadius = bitModeSettings.alert.gatherRadius;
+const alertGiveUpDuration = bitModeSettings.alert.giveUpDuration;
+const alertReceiveSpeedMultiplier = bitModeSettings.alert.receiveSpeedMultiplier;
+const alertSpawnRadius = bitModeSettings.alert.spawnRadius;
+const bitRandomDuration = bitModeSettings.attack.random.duration;
+const bitRandomFireIntervalMin = bitModeSettings.attack.random.fireIntervalMin;
+const bitRandomFireIntervalMax = bitModeSettings.attack.random.fireIntervalMax;
+const bitRandomSpeed = bitModeSettings.attack.random.speed;
+const bitRandomTurnSpeedMultiplier =
+  bitModeSettings.attack.random.turnSpeedMultiplier;
+const bitRandomWanderTimerMin = bitModeSettings.attack.random.wanderTimerMin;
+const bitRandomWanderTimerMax = bitModeSettings.attack.random.wanderTimerMax;
+const bitInitialFireDelayFactor = bitModeSettings.attack.initialFireDelayFactor;
+const bitWallProximityRadius = bitModeSettings.base.wallProximityRadius;
+const bitWanderVerticalAmplitude = bitModeSettings.search.wander.verticalAmplitude;
+const bitWanderVerticalChance = bitModeSettings.search.wander.verticalChance;
+const bitWanderDiagonalChance = bitModeSettings.search.wander.diagonalChance;
+const bitWanderVerticalDownChance =
+  bitModeSettings.search.wander.verticalDownChance;
+const bitWanderVerticalSpeed = bitModeSettings.search.wander.verticalSpeed;
+const bitWanderDiagonalMin = bitModeSettings.search.wander.diagonalMin;
+const bitWanderDiagonalMax = bitModeSettings.search.wander.diagonalMax;
+const bitWanderTimerMin = bitModeSettings.search.wander.timerMin;
+const bitWanderTimerMax = bitModeSettings.search.wander.timerMax;
+const bitBobAmplitudeNormal = bitModeSettings.base.bobAmplitudeNormal;
+const bitBobAmplitudeUrgent = bitModeSettings.base.bobAmplitudeUrgent;
 const bitModeMuzzleColors: Record<Exclude<BitMode, "search">, Color3> = {
   "search-bruteforce": new Color3(0.35, 0.9, 0.85),
   "attack-chase": new Color3(0.18, 0.9, 0.28),
@@ -81,36 +195,36 @@ const bitModeMuzzleColors: Record<Exclude<BitMode, "search">, Color3> = {
   "hold": new Color3(1.0, 1.0, 1.0)
 };
 const bruteforceVisitedShared = new Map<string, number>();
-const bitScanIntervalMin = 4.2;
-const bitScanIntervalMax = 7.2;
-const bitScanDurationMin = 0.7;
-const bitScanDurationMax = 1.1;
-const bitScanYawRange = Math.PI * 0.55;
-const bitScanPitchDown = Math.PI * 0.22;
-const bitScanPitchHeightThreshold = 0.1;
-const alertRecoverPitchThreshold = 0.12;
-const attackModeCooldownDuration = 3;
-const bitChaseDescendSpeed = 0.175;
-const carpetFormationSpacing = 0.25;
-const carpetBombSpeed = 0.75;
-const carpetBombSpeedRedMultiplier = 0.45;
-const carpetBombSpread = 0.03;
-const carpetBombFireIntervalMin = 0.25;
-const carpetBombFireIntervalMax = 0.25;
-const carpetBombFireRateRedDivisor = 3.2;
-const carpetBombPassDelay = 3.0;
-const carpetBombAscendSpeed = 0.35;
-const carpetBombHeightOffset = 1.2;
-const carpetBombTurnRate = Math.PI * 0.35;
-const carpetBombWallCooldown = 2.5;
-const carpetBombSteerStrength = 0.18;
-const carpetBombAimScatter = 0.35;
-const carpetBombAimBlend = 0.2;
-const carpetAimTurnDuration = 1;
-const carpetDespawnDuration = 1;
-const redBitHoldDuration = 1.0;
-const bitTurnSpeed = Math.PI * 1.2;
-const redBitTurnSpeed = Math.PI * 1.6;
+const bitScanIntervalMin = bitModeSettings.search.scan.intervalMin;
+const bitScanIntervalMax = bitModeSettings.search.scan.intervalMax;
+const bitScanDurationMin = bitModeSettings.search.scan.durationMin;
+const bitScanDurationMax = bitModeSettings.search.scan.durationMax;
+const bitScanYawRange = bitModeSettings.search.scan.yawRange;
+const bitScanPitchDown = bitModeSettings.search.scan.pitchDown;
+const bitScanPitchHeightThreshold = bitModeSettings.search.scan.pitchHeightThreshold;
+const alertRecoverPitchThreshold = bitModeSettings.alert.recoverPitchThreshold;
+const attackModeCooldownDuration = bitModeSettings.attack.cooldownDuration;
+const bitChaseDescendSpeed = bitModeSettings.attack.chase.descendSpeed;
+const carpetFormationSpacing = bitModeSettings.carpet.formationSpacing;
+const carpetBombSpeed = bitModeSettings.carpet.speed;
+const carpetBombSpeedRedMultiplier = bitModeSettings.carpet.speedRedMultiplier;
+const carpetBombSpread = bitModeSettings.carpet.spread;
+const carpetBombFireIntervalMin = bitModeSettings.carpet.fireIntervalMin;
+const carpetBombFireIntervalMax = bitModeSettings.carpet.fireIntervalMax;
+const carpetBombFireRateRedDivisor = bitModeSettings.carpet.fireRateRedDivisor;
+const carpetBombPassDelay = bitModeSettings.carpet.passDelay;
+const carpetBombAscendSpeed = bitModeSettings.carpet.ascendSpeed;
+const carpetBombHeightOffset = bitModeSettings.carpet.heightOffset;
+const carpetBombTurnRate = bitModeSettings.carpet.turnRate;
+const carpetBombWallCooldown = bitModeSettings.carpet.wallCooldown;
+const carpetBombSteerStrength = bitModeSettings.carpet.steerStrength;
+const carpetBombAimScatter = bitModeSettings.carpet.aimScatter;
+const carpetBombAimBlend = bitModeSettings.carpet.aimBlend;
+const carpetAimTurnDuration = bitModeSettings.carpet.aimTurnDuration;
+const carpetDespawnDuration = bitModeSettings.carpet.despawnDuration;
+const redBitHoldDuration = bitModeSettings.attack.redHoldDuration;
+const bitTurnSpeed = bitModeSettings.base.turnSpeed;
+const redBitTurnSpeed = bitModeSettings.base.redTurnSpeed;
 const spawnFadeDuration = 0.5;
 const spawnHoldDuration = 0.5;
 const spawnShrinkDuration = 0.5;
@@ -131,17 +245,20 @@ const bitFireMuzzleInflateDuration = 0.04;
 const bitFireMuzzleHoldDuration = 0.02;
 const bitFireShotGrowDuration = 0.1;
 const bitFireShotTravelDistance = 0.09;
-const bitMaxHeightCells = 9;
-const bitSearchScaleStartSeconds = 60;
-const bitSearchDistanceScaleInterval = 20;
-const bitSearchSpeedScaleInterval = 20;
-const bitSearchSpeedScalePerInterval = 0.1;
-const bitBruteforceStartSeconds = 40;
-const bitBruteforceEnterInterval = 10;
-const bitBruteforceEnterChance = 0.25;
-const bitBruteforceVisitRadius = 3;
-const bitBruteforceVisitedKeepSeconds = 60;
-const bitBruteforceMaxHeight = 3;
+const bitMaxHeightCells = bitModeSettings.base.maxHeightCells;
+const bitSearchScaleStartSeconds = bitModeSettings.search.scaleStartSeconds;
+const bitSearchDistanceScaleInterval =
+  bitModeSettings.search.distanceScaleInterval;
+const bitSearchSpeedScaleInterval = bitModeSettings.search.speedScaleInterval;
+const bitSearchSpeedScalePerInterval =
+  bitModeSettings.search.speedScalePerInterval;
+const bitBruteforceStartSeconds = bitModeSettings.bruteforce.startSeconds;
+const bitBruteforceEnterInterval = bitModeSettings.bruteforce.enterInterval;
+const bitBruteforceEnterChance = bitModeSettings.bruteforce.enterChance;
+const bitBruteforceVisitRadius = bitModeSettings.bruteforce.visitRadius;
+const bitBruteforceVisitedKeepSeconds =
+  bitModeSettings.bruteforce.visitedKeepSeconds;
+const bitBruteforceMaxHeight = bitModeSettings.bruteforce.maxHeight;
 const bitFireMuzzleSphereScale = 2.1;
 const bitFireLensScale = new Vector3(2.1, 2.1, 1.0);
 const bitFireColor = new Color3(1, 0.18, 0.74);
@@ -170,8 +287,8 @@ const attackModeConfigs: Record<AttackModeId, AttackModeConfig> = {
   },
   "attack-fixed": {
     duration: bitFixedDuration,
-    fireIntervalMin: 1.0,
-    fireIntervalMax: 1.6
+    fireIntervalMin: bitFixedFireIntervalMin,
+    fireIntervalMax: bitFixedFireIntervalMax
   },
   "attack-random": {
     duration: bitRandomDuration,
@@ -478,6 +595,38 @@ const updateCarpetFollowerDespawn = (bit: Bit, delta: number) => {
     bit.spawnEffectMaterial.alpha = alpha;
   }
   return bit.despawnTimer <= 0;
+};
+
+const updateCarpetHeight = (bit: Bit, delta: number) => {
+  const heightStep = carpetBombAscendSpeed * delta;
+  const targetHeight = bit.carpetTargetHeight;
+  if (bit.baseHeight < targetHeight) {
+    bit.baseHeight = Math.min(targetHeight, bit.baseHeight + heightStep);
+  } else if (bit.baseHeight > targetHeight) {
+    bit.baseHeight = Math.max(targetHeight, bit.baseHeight - heightStep);
+  }
+};
+
+const updateCarpetReturnHeight = (bit: Bit, delta: number) => {
+  if (!bit.carpetReturnActive) {
+    return;
+  }
+  const returnStep = carpetBombAscendSpeed * delta;
+  if (bit.baseHeight > bit.carpetReturnHeight) {
+    bit.baseHeight = Math.max(
+      bit.carpetReturnHeight,
+      bit.baseHeight - returnStep
+    );
+  } else if (bit.baseHeight < bit.carpetReturnHeight) {
+    bit.baseHeight = Math.min(
+      bit.carpetReturnHeight,
+      bit.baseHeight + returnStep
+    );
+  }
+  if (Math.abs(bit.baseHeight - bit.carpetReturnHeight) <= 0.001) {
+    bit.baseHeight = bit.carpetReturnHeight;
+    bit.carpetReturnActive = false;
+  }
 };
 
 const updateBitRotation = (
@@ -1504,6 +1653,8 @@ export const updateBits = (
     alertLeaderPosition = null;
     alertActive = false;
   };
+  const getCarpetTargetHeight = (targetY: number) =>
+    Math.min(maxY, targetY + carpetBombHeightOffset);
   if (alertSignal.leaderId && !alertTarget) {
     clearAlertSignal();
   }
@@ -1634,10 +1785,7 @@ export const updateBits = (
     const initialRight = new Vector3(-forward.z, 0, forward.x);
     forward = forward.add(initialRight.scale(scatter)).normalize();
     const right = new Vector3(-forward.z, 0, forward.x);
-    const carpetTargetHeight = Math.min(
-      maxY,
-      target.position.y + carpetBombHeightOffset
-    );
+    const carpetTargetHeight = getCarpetTargetHeight(target.position.y);
 
     initializeCarpetBit(
       bit,
@@ -1669,6 +1817,28 @@ export const updateBits = (
       );
       spawnedBits.push(newBit);
     }
+  };
+  const tryStartCombatFromVisibleTarget = (
+    bit: Bit,
+    target: TargetInfo,
+    beforeTransition?: () => void
+  ) => {
+    if (beforeTransition) {
+      beforeTransition();
+    }
+    const nextMode = chooseAttackMode(bit);
+    if (nextMode === "alert-send") {
+      if (!startAlert(bit, target)) {
+        setBitMode(bit, "attack-chase", target, alertSignal, soundEvents);
+      }
+      return true;
+    }
+    if (nextMode === "attack-carpet-bomb") {
+      startCarpetBomb(bit, target);
+      return true;
+    }
+    setBitMode(bit, nextMode, target, alertSignal, soundEvents);
+    return true;
   };
 
   if (
@@ -1909,28 +2079,14 @@ export const updateBits = (
       visionAngleBoost
     );
     if (visibleTarget && bit.attackCooldown <= 0) {
-      bit.bruteforcePath = [];
-      bit.bruteforcePathIndex = 0;
-      const nextMode = chooseAttackMode(bit);
-      if (nextMode === "alert-send") {
-        if (!startAlert(bit, visibleTarget)) {
-          setBitMode(
-            bit,
-            "attack-chase",
-            visibleTarget,
-            alertSignal,
-            soundEvents
-          );
-          return true;
+      return tryStartCombatFromVisibleTarget(
+        bit,
+        visibleTarget,
+        () => {
+          bit.bruteforcePath = [];
+          bit.bruteforcePathIndex = 0;
         }
-        return true;
-      }
-      if (nextMode === "attack-carpet-bomb") {
-        startCarpetBomb(bit, visibleTarget);
-        return true;
-      }
-      setBitMode(bit, nextMode, visibleTarget, alertSignal, soundEvents);
-      return true;
+      );
     }
     return false;
   };
@@ -2019,23 +2175,7 @@ export const updateBits = (
       visionAngleBoost
     );
     if (visibleTarget && bit.attackCooldown <= 0) {
-      const nextMode = chooseAttackMode(bit);
-      if (nextMode === "alert-send") {
-        if (!startAlert(bit, visibleTarget)) {
-          setBitMode(
-            bit,
-            "attack-chase",
-            visibleTarget,
-            alertSignal,
-            soundEvents
-          );
-        }
-      } else if (nextMode === "attack-carpet-bomb") {
-        startCarpetBomb(bit, visibleTarget);
-      } else {
-        setBitMode(bit, nextMode, visibleTarget, alertSignal, soundEvents);
-      }
-      return true;
+      return tryStartCombatFromVisibleTarget(bit, visibleTarget);
     }
     return false;
   };
@@ -2194,10 +2334,7 @@ export const updateBits = (
       setBitMode(bit, "search", null, alertSignal, soundEvents);
       return true;
     }
-    const carpetTargetHeight = Math.min(
-      maxY,
-      carpetTarget.position.y + carpetBombHeightOffset
-    );
+    const carpetTargetHeight = getCarpetTargetHeight(carpetTarget.position.y);
     bit.carpetTargetHeight = carpetTargetHeight;
     const leaderPending =
       bits.some(
@@ -2487,33 +2624,10 @@ export const updateBits = (
     }
 
     if (bit.mode === "attack-carpet-bomb") {
-      const heightStep = carpetBombAscendSpeed * delta;
-      const targetHeight = bit.carpetTargetHeight;
-      if (bit.baseHeight < targetHeight) {
-        bit.baseHeight = Math.min(targetHeight, bit.baseHeight + heightStep);
-      } else if (bit.baseHeight > targetHeight) {
-        bit.baseHeight = Math.max(targetHeight, bit.baseHeight - heightStep);
-      }
+      updateCarpetHeight(bit, delta);
     } else {
       bit.baseHeight += moveStep.y + frame.extraHeightStep;
-      if (bit.carpetReturnActive) {
-        const returnStep = carpetBombAscendSpeed * delta;
-        if (bit.baseHeight > bit.carpetReturnHeight) {
-          bit.baseHeight = Math.max(
-            bit.carpetReturnHeight,
-            bit.baseHeight - returnStep
-          );
-        } else if (bit.baseHeight < bit.carpetReturnHeight) {
-          bit.baseHeight = Math.min(
-            bit.carpetReturnHeight,
-            bit.baseHeight + returnStep
-          );
-        }
-        if (Math.abs(bit.baseHeight - bit.carpetReturnHeight) <= 0.001) {
-          bit.baseHeight = bit.carpetReturnHeight;
-          bit.carpetReturnActive = false;
-        }
-      }
+      updateCarpetReturnHeight(bit, delta);
     }
 
     if (bit.root.position.x < minX) {
