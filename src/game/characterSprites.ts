@@ -16,6 +16,22 @@ export const PLAYER_SPRITE_HEIGHT =
 export const PLAYER_SPRITE_CENTER_HEIGHT = PLAYER_SPRITE_HEIGHT / 2;
 export const PLAYER_EYE_HEIGHT = PLAYER_SPRITE_HEIGHT * 0.75;
 
+const characterSpriteExtensions = [
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+  "gif",
+  "bmp",
+  "avif",
+  "svg"
+] as const;
+
+export const getCharacterModeImageBaseUrl = (
+  characterId: string,
+  modeName: string
+) => `/character/${characterId}/${modeName}`;
+
 export const NPC_SPRITE_MODES = [
   "normal",
   "hit",
@@ -72,11 +88,6 @@ export type CharacterSpriteSheet = {
   source: "default" | "mode-images";
 };
 
-export const getCharacterModeImageUrl = (
-  characterId: string,
-  modeName: string
-) => `/character/${characterId}/${modeName}.png`;
-
 const loadImage = (url: string) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
@@ -85,6 +96,23 @@ const loadImage = (url: string) =>
     image.onerror = () => reject(new Error(`Failed to load ${url}`));
     image.src = url;
   });
+
+const loadCharacterModeImage = async (
+  characterId: string,
+  modeName: string
+) => {
+  const baseUrl = getCharacterModeImageBaseUrl(characterId, modeName);
+  for (const extension of characterSpriteExtensions) {
+    try {
+      return await loadImage(`${baseUrl}.${extension}`);
+    } catch (error) {
+      continue;
+    }
+  }
+  throw new Error(
+    `Failed to load ${baseUrl}.[${characterSpriteExtensions.join(",")}]`
+  );
+};
 
 const buildSpritesheetFromModeImages = (
   images: HTMLImageElement[],
@@ -114,12 +142,12 @@ export const loadCharacterSpriteSheet = async (
   modeNames: readonly string[],
   fallbackUrl: string
 ): Promise<CharacterSpriteSheet> => {
-  const modeUrls = modeNames.map((modeName) =>
-    getCharacterModeImageUrl(characterId, modeName)
-  );
-
   try {
-    const images = await Promise.all(modeUrls.map((url) => loadImage(url)));
+    const images = await Promise.all(
+      modeNames.map((modeName) =>
+        loadCharacterModeImage(characterId, modeName)
+      )
+    );
     return {
       url: buildSpritesheetFromModeImages(
         images,

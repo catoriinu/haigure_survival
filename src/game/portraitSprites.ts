@@ -1,7 +1,18 @@
 import { CharacterState } from "./types";
 
+const portraitExtensions = [
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+  "gif",
+  "bmp",
+  "avif",
+  "svg"
+] as const;
+
 const portraitFiles = import.meta.glob(
-  "/public/picture/chara/*/*.png"
+  "/public/picture/chara/*/*.{png,jpg,jpeg,webp,gif,bmp,avif,svg}"
 );
 const portraitDirectories = Array.from(
   new Set(
@@ -21,16 +32,16 @@ const portraitStateOrder: CharacterState[] = [
   "brainwash-complete-haigure-formation"
 ];
 
-const portraitFileByState: Record<CharacterState, string> = {
-  normal: "normal.png",
-  evade: "evade.png",
-  "hit-a": "hit-a.png",
-  "hit-b": "hit-b.png",
-  "brainwash-in-progress": "bw-in-progress.png",
-  "brainwash-complete-gun": "bw-complete-gun.png",
-  "brainwash-complete-no-gun": "bw-complete-no-gun.png",
-  "brainwash-complete-haigure": "bw-complete-pose.png",
-  "brainwash-complete-haigure-formation": "bw-complete-pose.png"
+const portraitBaseNameByState: Record<CharacterState, string> = {
+  normal: "normal",
+  evade: "evade",
+  "hit-a": "hit-a",
+  "hit-b": "hit-b",
+  "brainwash-in-progress": "bw-in-progress",
+  "brainwash-complete-gun": "bw-complete-gun",
+  "brainwash-complete-no-gun": "bw-complete-no-gun",
+  "brainwash-complete-haigure": "bw-complete-pose",
+  "brainwash-complete-haigure-formation": "bw-complete-pose"
 };
 
 const portraitStateIndex = portraitStateOrder.reduce(
@@ -40,6 +51,19 @@ const portraitStateIndex = portraitStateOrder.reduce(
   },
   {} as Record<CharacterState, number>
 );
+
+const getPortraitFileName = (directory: string, baseName: string) => {
+  for (const extension of portraitExtensions) {
+    const filePath = `/public/picture/chara/${directory}/${baseName}.${extension}`;
+    if (portraitFiles[filePath]) {
+      return `${baseName}.${extension}`;
+    }
+  }
+  throw new Error(`Missing portrait image: ${directory}/${baseName}.*`);
+};
+
+const getPortraitFileUrl = (directory: string, baseName: string) =>
+  `/picture/chara/${directory}/${getPortraitFileName(directory, baseName)}`;
 
 export type PortraitSpriteSheet = {
   url: string;
@@ -148,11 +172,11 @@ export const assignPortraitDirectories = (voiceIds: string[]) => {
 export const loadPortraitSpriteSheet = async (
   directory: string
 ): Promise<PortraitSpriteSheet> => {
-  const modeFiles = portraitStateOrder.map(
-    (state) => portraitFileByState[state]
+  const modeBaseNames = portraitStateOrder.map(
+    (state) => portraitBaseNameByState[state]
   );
-  const modeUrls = modeFiles.map(
-    (fileName) => `/picture/chara/${directory}/${fileName}`
+  const modeUrls = modeBaseNames.map((baseName) =>
+    getPortraitFileUrl(directory, baseName)
   );
   const images = await Promise.all(modeUrls.map((url) => loadImage(url)));
   const cellWidth = images[0].naturalWidth;
