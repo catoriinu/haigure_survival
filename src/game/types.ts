@@ -122,6 +122,9 @@ export type Bit = {
   carpetPassTimer: number;
   carpetAimTimer: number;
   carpetAimStart: Vector3;
+  carpetTargetHeight: number;
+  carpetReturnHeight: number;
+  carpetReturnActive: boolean;
   carpetCooldown: number;
   lockedDirection: Vector3;
   holdDirection: Vector3;

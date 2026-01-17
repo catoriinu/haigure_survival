@@ -100,6 +100,7 @@ const carpetBombFireIntervalMax = 0.25;
 const carpetBombFireRateRedDivisor = 3.2;
 const carpetBombPassDelay = 3.0;
 const carpetBombAscendSpeed = 0.35;
+const carpetBombHeightOffset = 1.2;
 const carpetBombTurnRate = Math.PI * 0.35;
 const carpetBombWallCooldown = 2.5;
 const carpetBombSteerStrength = 0.18;
@@ -425,7 +426,8 @@ const initializeCarpetBit = (
   leaderId: string,
   targetId: string,
   direction: Vector3,
-  offset: Vector3
+  offset: Vector3,
+  targetHeight: number
 ) => {
   bit.mode = "attack-carpet-bomb";
   bit.targetId = targetId;
@@ -436,6 +438,9 @@ const initializeCarpetBit = (
   bit.carpetPassTimer = 0;
   bit.carpetAimTimer = 0;
   bit.carpetAimStart.copyFrom(bit.root.getDirection(new Vector3(0, 0, 1)));
+  bit.carpetTargetHeight = targetHeight;
+  bit.carpetReturnHeight = bit.baseHeight;
+  bit.carpetReturnActive = false;
   if (leaderId !== bit.id) {
     bit.root.lookAt(bit.root.position.add(new Vector3(0, -1, 0)));
   }
@@ -450,6 +455,7 @@ const clearCarpetState = (bit: Bit) => {
   bit.carpetPassTimer = 0;
   bit.carpetOffset = new Vector3(0, 0, 0);
   bit.canSpawnCarpet = true;
+  bit.carpetReturnActive = true;
 };
 
 const isCarpetFollower = (bit: Bit) =>
@@ -972,6 +978,9 @@ export const createBit = (
     carpetPassTimer: 0,
     carpetAimTimer: 0,
     carpetAimStart: new Vector3(0, 0, 1),
+    carpetTargetHeight: baseHeight,
+    carpetReturnHeight: baseHeight,
+    carpetReturnActive: false,
     carpetCooldown: 0,
     lockedDirection: new Vector3(0, 0, 1),
     holdDirection: new Vector3(0, 0, 1),
@@ -1067,6 +1076,9 @@ export const createBitAt = (
     carpetPassTimer: 0,
     carpetAimTimer: 0,
     carpetAimStart: new Vector3(0, 0, 1),
+    carpetTargetHeight: position.y,
+    carpetReturnHeight: position.y,
+    carpetReturnActive: false,
     carpetCooldown: 0,
     lockedDirection: new Vector3(0, 0, 1),
     holdDirection: new Vector3(0, 0, 1),
@@ -1622,13 +1634,18 @@ export const updateBits = (
     const initialRight = new Vector3(-forward.z, 0, forward.x);
     forward = forward.add(initialRight.scale(scatter)).normalize();
     const right = new Vector3(-forward.z, 0, forward.x);
+    const carpetTargetHeight = Math.min(
+      maxY,
+      target.position.y + carpetBombHeightOffset
+    );
 
     initializeCarpetBit(
       bit,
       bit.id,
       target.id,
       forward,
-      new Vector3(0, 0, 0)
+      new Vector3(0, 0, 0),
+      carpetTargetHeight
     );
     if (!bit.canSpawnCarpet) {
       return;
@@ -1647,7 +1664,8 @@ export const updateBits = (
         bit.id,
         target.id,
         forward,
-        new Vector3(offset, 0, 0)
+        new Vector3(offset, 0, 0),
+        carpetTargetHeight
       );
       spawnedBits.push(newBit);
     }
@@ -2165,6 +2183,22 @@ export const updateBits = (
       setBitMode(bit, "search", null, alertSignal, soundEvents);
       return true;
     }
+    const carpetTarget = findTargetById(aliveTargets, leader.carpetTargetId);
+    if (!carpetTarget) {
+      if (carpetFollower) {
+        startCarpetFollowerDespawn(bit);
+        return true;
+      }
+      clearCarpetState(bit);
+      startAttackCooldown(bit);
+      setBitMode(bit, "search", null, alertSignal, soundEvents);
+      return true;
+    }
+    const carpetTargetHeight = Math.min(
+      maxY,
+      carpetTarget.position.y + carpetBombHeightOffset
+    );
+    bit.carpetTargetHeight = carpetTargetHeight;
     const leaderPending =
       bits.some(
         (candidate) =>
@@ -2198,17 +2232,6 @@ export const updateBits = (
       }
       frame.canFire = false;
       return false;
-    }
-    const carpetTarget = findTargetById(aliveTargets, leader.carpetTargetId);
-    if (!carpetTarget) {
-      if (carpetFollower) {
-        startCarpetFollowerDespawn(bit);
-        return true;
-      }
-      clearCarpetState(bit);
-      startAttackCooldown(bit);
-      setBitMode(bit, "search", null, alertSignal, soundEvents);
-      return true;
     }
     let leaderDirection =
       leader.carpetDirection.lengthSquared() > 0.0001
@@ -2465,13 +2488,32 @@ export const updateBits = (
 
     if (bit.mode === "attack-carpet-bomb") {
       const heightStep = carpetBombAscendSpeed * delta;
-      if (bit.baseHeight < maxY) {
-        bit.baseHeight = Math.min(maxY, bit.baseHeight + heightStep);
-      } else if (bit.baseHeight > maxY) {
-        bit.baseHeight = Math.max(maxY, bit.baseHeight - heightStep);
+      const targetHeight = bit.carpetTargetHeight;
+      if (bit.baseHeight < targetHeight) {
+        bit.baseHeight = Math.min(targetHeight, bit.baseHeight + heightStep);
+      } else if (bit.baseHeight > targetHeight) {
+        bit.baseHeight = Math.max(targetHeight, bit.baseHeight - heightStep);
       }
     } else {
       bit.baseHeight += moveStep.y + frame.extraHeightStep;
+      if (bit.carpetReturnActive) {
+        const returnStep = carpetBombAscendSpeed * delta;
+        if (bit.baseHeight > bit.carpetReturnHeight) {
+          bit.baseHeight = Math.max(
+            bit.carpetReturnHeight,
+            bit.baseHeight - returnStep
+          );
+        } else if (bit.baseHeight < bit.carpetReturnHeight) {
+          bit.baseHeight = Math.min(
+            bit.carpetReturnHeight,
+            bit.baseHeight + returnStep
+          );
+        }
+        if (Math.abs(bit.baseHeight - bit.carpetReturnHeight) <= 0.001) {
+          bit.baseHeight = bit.carpetReturnHeight;
+          bit.carpetReturnActive = false;
+        }
+      }
     }
 
     if (bit.root.position.x < minX) {
