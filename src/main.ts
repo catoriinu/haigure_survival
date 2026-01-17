@@ -295,10 +295,38 @@ const isVolumePanelTarget = (target: EventTarget | null) => {
   }
   return target.closest("[data-ui=\"volume-panel\"]") !== null;
 };
-const bgmUrl = "/audio/bgm/研究所劇伴MP3.mp3";
+const bgmFiles = import.meta.glob("/public/audio/bgm/*.mp3");
+const bgmFilePaths = Object.keys(bgmFiles);
+const bgmUrls = bgmFilePaths.map((path) => path.replace("/public", ""));
+const pickRandomBgmUrl = () => {
+  if (bgmUrls.length === 0) {
+    return null;
+  }
+  return bgmUrls[Math.floor(Math.random() * bgmUrls.length)];
+};
+const getStageBgmUrl = (stageName: string) => {
+  const filePath = `/public/audio/bgm/${stageName}.mp3`;
+  if (bgmFiles[filePath]) {
+    return `/audio/bgm/${stageName}.mp3`;
+  }
+  return null;
+};
+const selectBgmUrl = (stageName: string | null) => {
+  if (stageName) {
+    const matched = getStageBgmUrl(stageName);
+    if (matched) {
+      return matched;
+    }
+  }
+  return pickRandomBgmUrl();
+};
+const seFiles = import.meta.glob("/public/audio/se/*.mp3");
+const seFilePaths = Object.keys(seFiles);
+const seUrls = new Set(seFilePaths.map((path) => path.replace("/public", "")));
+const isSeAvailable = (url: string) => seUrls.has(url);
 const bitSeMove = "/audio/se/FlyingObject.mp3";
 const bitSeAlert = "/audio/se/BeamShot_WavingPart.mp3";
-const bitSeTarget = "/audio/se/銃火器・構える02.mp3";
+const bitSeTarget = "/audio/se/aim.mp3";
 const bitSeBeamNonTarget = [
   "/audio/se/BeamShotR_DownLong.mp3",
   "/audio/se/BeamShotR_Down.mp3",
@@ -367,7 +395,8 @@ const sfxDirector = new SfxDirector(
   {
     far: beamSeFarDistance,
     mid: beamSeMidDistance
-  }
+  },
+  isSeAvailable
 );
 
 const voiceIdPool = [
@@ -1781,7 +1810,10 @@ const startGame = () => {
     return;
   }
   resetGame();
-  audioManager.startBgm(bgmUrl);
+  const bgmUrl = selectBgmUrl(stageJson ? stageJson.meta.name : null);
+  if (bgmUrl) {
+    audioManager.startBgm(bgmUrl);
+  }
   gamePhase = "playing";
   hud.setTitleVisible(false);
   titleVolumePanel.setVisible(false);

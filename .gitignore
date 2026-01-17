@@ -3,5 +3,8 @@ dist
 dist-electron
 release
 *.log
-public/
 gpt_image/
+public/audio/bgm/**
+public/audio/se/**
+public/audio/voice/**
+public/picture/chara/**

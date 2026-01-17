@@ -149,11 +149,12 @@ export class AudioManager {
   startBgm(url: string) {
     this.ensureRunning();
     if (!this.bgmAudio) {
-      this.bgmAudio = new Audio(url);
+      this.bgmAudio = new Audio();
       this.bgmAudio.loop = true;
       const source = this.context.createMediaElementSource(this.bgmAudio);
       source.connect(this.bgmGain);
     }
+    this.bgmAudio.src = url;
     this.bgmAudio.currentTime = 0;
     this.bgmAudio.play();
   }
