@@ -1,4 +1,5 @@
 import type {
+  FloatArray,
   Mesh,
   PointLight,
   Sprite,
@@ -99,7 +100,7 @@ export type BitSpawnPhase = "fade-in" | "hold" | "shrink" | "done";
 export type BitFireEffect = {
   cone: Mesh;
   coneMaterial: StandardMaterial;
-  conePositions: number[];
+  conePositions: FloatArray;
   coneColors: number[];
   muzzle: Mesh;
   muzzleMaterial: StandardMaterial;

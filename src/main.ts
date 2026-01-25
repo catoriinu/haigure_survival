@@ -104,7 +104,8 @@ import {
   type PortraitSpriteSheet
 } from "./game/portraitSprites";
 
-const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
+const canvas =
+  document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
 const engine = new Engine(canvas, true);
 const scene = new Scene(engine);
 const defaultClearColor = scene.clearColor.clone();

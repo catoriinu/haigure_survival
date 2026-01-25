@@ -985,18 +985,15 @@ export const updateBitFireEffect = (bit: Bit, delta: number) => {
 };
 
 export const startBitFireEffect = (bit: Bit) => {
-  if (!bit.fireEffect) {
-    bit.fireEffect = createBitFireEffect(
-      bit.root.getScene(),
-      bit.root,
-      bit.id
-    );
-  }
+  const fireEffect =
+    bit.fireEffect ??
+    createBitFireEffect(bit.root.getScene(), bit.root, bit.id);
+  bit.fireEffect = fireEffect;
   bit.fireEffectActive = true;
   bit.fireEffectTimer = 0;
-  bit.fireEffect.cone.setEnabled(true);
-  bit.fireEffect.muzzle.setEnabled(true);
-  bit.fireEffect.shot.setEnabled(false);
+  fireEffect.cone.setEnabled(true);
+  fireEffect.muzzle.setEnabled(true);
+  fireEffect.shot.setEnabled(false);
 };
 
 export const stopBitFireEffect = (bit: Bit) => {
@@ -2241,7 +2238,9 @@ export const updateBits = (
       setBitMode(bit, "search", null, alertSignal, soundEvents);
       return true;
     }
-    const toLeader = alertLeaderPosition.subtract(bit.root.position);
+    const leaderPosition = alertLeaderPosition!;
+    const currentAlertTarget = alertTarget!;
+    const toLeader = leaderPosition.subtract(bit.root.position);
     toLeader.y = 0;
     const distance = Math.hypot(toLeader.x, toLeader.z);
     const spottedTarget = findVisibleTarget(
@@ -2270,15 +2269,15 @@ export const updateBits = (
       }
       const nextMode = chooseAlertFollowMode(bit);
       if (nextMode === "attack-carpet-bomb") {
-        startCarpetBomb(bit, alertTarget);
+        startCarpetBomb(bit, currentAlertTarget);
       } else {
-        setBitMode(bit, nextMode, alertTarget, alertSignal, soundEvents);
+        setBitMode(bit, nextMode, currentAlertTarget, alertSignal, soundEvents);
       }
       return true;
     }
     frame.moveDirection = getChaseDirection(
       bit.root.position,
-      alertLeaderPosition
+      leaderPosition
     );
     if (distance > 0.001) {
       frame.aimDirection = toLeader.normalize();

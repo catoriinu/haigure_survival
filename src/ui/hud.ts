@@ -28,19 +28,24 @@ export type Hud = {
 };
 
 export const createHud = (): Hud => {
-  const minimapCanvas = document.getElementById(
-    "minimapCanvas"
-  ) as HTMLCanvasElement;
-  const minimapReadout = document.getElementById(
-    "minimapReadout"
-  ) as HTMLDivElement;
-  const statusInfo = document.getElementById("statusInfo") as HTMLDivElement;
-  const helpPanel = document.getElementById("helpPanel") as HTMLDivElement;
-  const titleOverlay = document.getElementById("titleOverlay") as HTMLDivElement;
-  const titleMessage = document.getElementById("titleMessage") as HTMLDivElement;
-  const overlayHelp = document.getElementById("overlayHelp") as HTMLDivElement;
-  const fadeOverlay = document.getElementById("fadeOverlay") as HTMLDivElement;
-  const crosshair = document.getElementById("crosshair") as HTMLDivElement;
+  const minimapCanvas =
+    document.getElementById("minimapCanvas") as unknown as HTMLCanvasElement;
+  const minimapReadout =
+    document.getElementById("minimapReadout") as unknown as HTMLDivElement;
+  const statusInfo =
+    document.getElementById("statusInfo") as unknown as HTMLDivElement;
+  const helpPanel =
+    document.getElementById("helpPanel") as unknown as HTMLDivElement;
+  const titleOverlay =
+    document.getElementById("titleOverlay") as unknown as HTMLDivElement;
+  const titleMessage =
+    document.getElementById("titleMessage") as unknown as HTMLDivElement;
+  const overlayHelp =
+    document.getElementById("overlayHelp") as unknown as HTMLDivElement;
+  const fadeOverlay =
+    document.getElementById("fadeOverlay") as unknown as HTMLDivElement;
+  const crosshair =
+    document.getElementById("crosshair") as unknown as HTMLDivElement;
   const minimapContext = minimapCanvas.getContext(
     "2d"
   ) as CanvasRenderingContext2D;
