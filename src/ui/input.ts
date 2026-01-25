@@ -72,21 +72,6 @@ export const setupInputHandlers = ({
     onPointerLockRequest();
   });
   window.addEventListener("contextmenu", (event) => {
-    const gamePhase = getGamePhase();
-    if (
-      gamePhase === "title" ||
-      gamePhase === "assemblyMove" ||
-      gamePhase === "assemblyHold" ||
-      gamePhase === "execution"
-    ) {
-      event.preventDefault();
-    }
-  });
-
-  window.addEventListener("mousedown", (event) => {
-    if (event.button !== 2) {
-      return;
-    }
     if (isUiPointerTarget(event.target)) {
       return;
     }
@@ -94,6 +79,14 @@ export const setupInputHandlers = ({
     if (gamePhase === "title") {
       event.preventDefault();
       onSelectStage();
+      return;
+    }
+    if (
+      gamePhase === "assemblyMove" ||
+      gamePhase === "assemblyHold" ||
+      gamePhase === "execution"
+    ) {
+      event.preventDefault();
     }
   });
 

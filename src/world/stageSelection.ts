@@ -6,16 +6,19 @@ export type StageSelection = {
   jsonPath: string;
 };
 
+const buildStageJsonPath = (filename: string) =>
+  `${import.meta.env.BASE_URL}stage/${filename}`;
+
 export const STAGE_CATALOG: StageSelection[] = [
   {
     id: "laboratory",
     label: "laboratory",
-    jsonPath: "/stage/laboratory.json"
+    jsonPath: buildStageJsonPath("laboratory.json")
   },
   {
     id: "city_center",
     label: "city_center",
-    jsonPath: "/stage/city_center.json"
+    jsonPath: buildStageJsonPath("city_center.json")
   }
 ];
 
