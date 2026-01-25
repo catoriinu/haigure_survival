@@ -1,4 +1,4 @@
-# haigure-survival
+# HAIGURE SURVIVAL
 
 ## 起動準備
 

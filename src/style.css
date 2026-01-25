@@ -111,6 +111,17 @@ body {
   transform: translateY(10px);
 }
 
+#titleVersion {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  color: #f5f5f5;
+  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  opacity: 0.8;
+}
+
 .volume-panel {
   display: flex;
   flex-direction: column;

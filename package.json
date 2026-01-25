@@ -1,6 +1,6 @@
 {
-  "name": "fps-survival-20251226",
-  "version": "0.1.0",
+  "name": "haigure-survival",
+  "version": "1.0.0",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -27,8 +27,8 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.example.fpssurvival",
-    "productName": "BeamAvoidFPS",
+    "appId": "com.example.haiguresurvival",
+    "productName": "HAIGURE SURVIVAL",
     "directories": {
       "output": "release"
     },

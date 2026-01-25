@@ -2,6 +2,7 @@ node_modules
 dist
 dist-electron
 release
+*.code-workspace
 *.log
 gpt_image/
 public/audio/bgm/**
