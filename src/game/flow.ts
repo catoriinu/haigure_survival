@@ -319,6 +319,10 @@ export const createGameFlow = ({
       npc.hitEffect = null;
       npc.hitEffectMaterial = null;
     }
+    if (npc.hitLight) {
+      npc.hitLight.dispose();
+      npc.hitLight = null;
+    }
     for (const orb of npc.fadeOrbs) {
       orb.mesh.dispose();
     }
