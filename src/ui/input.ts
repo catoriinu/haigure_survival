@@ -104,6 +104,14 @@ export const setupInputHandlers = ({
     if (event.code === "Enter") {
       if (gamePhase === "playing" && isBrainwashState(playerState)) {
         onEnterEpilogue();
+        return;
+      }
+      if (
+        gamePhase === "assemblyMove" ||
+        gamePhase === "assemblyHold" ||
+        gamePhase === "execution"
+      ) {
+        onReturnToTitle();
       }
     }
 
@@ -152,14 +160,6 @@ export const setupInputHandlers = ({
       const gamePhase = getGamePhase();
       if (gamePhase === "title") {
         onStartGame();
-        return;
-      }
-      if (
-        gamePhase === "assemblyMove" ||
-        gamePhase === "assemblyHold" ||
-        gamePhase === "execution"
-      ) {
-        onReturnToTitle();
         return;
       }
       if (gamePhase !== "playing" && gamePhase !== "execution") {

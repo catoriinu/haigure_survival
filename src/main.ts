@@ -784,7 +784,7 @@ const maxBitCount = 25;
 const hud = createHud();
 hud.setMinimapReadoutVisible(minimapReadoutVisible);
 const buildTitleText = (selection: StageSelection) =>
-  `左クリックで開始\n右クリックでステージ選択\nステージ: ${selection.label}`;
+  `左クリック: 開始\n右クリック: ステージ選択\nステージ: ${selection.label}`;
 const applyStageSelection = async (selection: StageSelection) => {
   const requestId = stageSelectionRequestId + 1;
   stageSelectionRequestId = requestId;
@@ -1623,6 +1623,9 @@ const drawMinimap = () => {
         "N: 銃なしで移動",
         "H: ハイグレポーズ"
       );
+    }
+    if (playerState === "brainwash-complete-gun") {
+      promptLines.push("左クリック: 発射");
     }
     promptLines.push("R: リトライ", "Enter: エピローグへ");
     retryText = promptLines.join("\n");
