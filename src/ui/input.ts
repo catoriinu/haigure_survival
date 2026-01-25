@@ -72,10 +72,29 @@ export const setupInputHandlers = ({
     onPointerLockRequest();
   });
   window.addEventListener("contextmenu", (event) => {
-    if (getGamePhase() !== "title") {
+    const gamePhase = getGamePhase();
+    if (
+      gamePhase === "title" ||
+      gamePhase === "assemblyMove" ||
+      gamePhase === "assemblyHold" ||
+      gamePhase === "execution"
+    ) {
+      event.preventDefault();
+    }
+  });
+
+  window.addEventListener("mousedown", (event) => {
+    if (event.button !== 2) {
       return;
     }
-    event.preventDefault();
+    if (isUiPointerTarget(event.target)) {
+      return;
+    }
+    const gamePhase = getGamePhase();
+    if (gamePhase === "title") {
+      event.preventDefault();
+      onSelectStage();
+    }
   });
 
   window.addEventListener("keydown", (event) => {
@@ -85,20 +104,16 @@ export const setupInputHandlers = ({
     if (event.code === "Enter") {
       if (gamePhase === "playing" && isBrainwashState(playerState)) {
         onEnterEpilogue();
-        return;
-      }
-      if (
-        gamePhase === "assemblyMove" ||
-        gamePhase === "assemblyHold" ||
-        gamePhase === "execution"
-      ) {
-        onReturnToTitle();
       }
     }
 
     if (event.code === "KeyR") {
       if (gamePhase === "playing" && getBrainwashChoiceStarted()) {
         onStartGame();
+        return;
+      }
+      if (gamePhase === "execution") {
+        onReplayExecution();
       }
     }
 
@@ -116,9 +131,6 @@ export const setupInputHandlers = ({
       }
     }
 
-    if (gamePhase === "execution" && event.code === "Digit1") {
-      onReplayExecution();
-    }
   });
 
   window.addEventListener("keyup", (event) => {
@@ -134,19 +146,20 @@ export const setupInputHandlers = ({
       if (isUiPointerTarget(event.target)) {
         return;
       }
-      if (event.button === 2) {
-        if (getGamePhase() === "title") {
-          event.preventDefault();
-          onSelectStage();
-        }
-        return;
-      }
       if (event.button !== 0) {
         return;
       }
       const gamePhase = getGamePhase();
       if (gamePhase === "title") {
         onStartGame();
+        return;
+      }
+      if (
+        gamePhase === "assemblyMove" ||
+        gamePhase === "assemblyHold" ||
+        gamePhase === "execution"
+      ) {
+        onReturnToTitle();
         return;
       }
       if (gamePhase !== "playing" && gamePhase !== "execution") {

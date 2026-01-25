@@ -782,7 +782,7 @@ const maxBitCount = 25;
 
 const hud = createHud();
 const buildTitleText = (selection: StageSelection) =>
-  `left click to start\nright click to select stage\nstage: ${selection.label}`;
+  `左クリックで開始\n右クリックでステージ選択\nステージ: ${selection.label}`;
 const applyStageSelection = async (selection: StageSelection) => {
   const requestId = stageSelectionRequestId + 1;
   stageSelectionRequestId = requestId;
@@ -1604,15 +1604,28 @@ const drawMinimap = () => {
     }
   }
 
+  const canMove =
+    isAliveState(playerState) ||
+    playerState === "brainwash-complete-gun" ||
+    playerState === "brainwash-complete-no-gun";
+  const surviveTime = brainwashChoiceStarted ? playerHitTime : null;
   let retryText: string | null = null;
   if (brainwashChoiceStarted) {
-    const surviveText = `生存時間: ${playerHitTime.toFixed(1)}s`;
-    let promptText = `${surviveText}\npress R to retry\npress Enter to epilogue`;
-    if (brainwashChoiceUnlocked) {
-      promptText +=
-        "\npress G to move with gun\npress N to move without gun\npress H to haigure";
+    const promptLines: string[] = ["操作説明"];
+    if (canMove) {
+      promptLines.push("WASD: 移動");
     }
-    retryText = promptText;
+    if (brainwashChoiceUnlocked) {
+      promptLines.push(
+        "G: 銃ありで移動",
+        "N: 銃なしで移動",
+        "H: ハイグレポーズ"
+      );
+    }
+    promptLines.push("R: リトライ", "Enter: エピローグへ");
+    retryText = promptLines.join("\n");
+  } else if (canMove) {
+    retryText = "操作説明\nWASD: 移動";
   }
 
   hud.drawMinimap({
@@ -1624,6 +1637,7 @@ const drawMinimap = () => {
     halfWidth,
     halfDepth,
     elapsedTime,
+    surviveTime,
     aliveCount,
     retryText,
     showCrosshair: playerState === "brainwash-complete-gun"

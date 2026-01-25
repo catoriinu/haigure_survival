@@ -388,7 +388,7 @@ export const createGameFlow = ({
     assemblyElapsed = 0;
     hud.setHudVisible(false);
     hud.setTitleVisible(false);
-    hud.setStateInfo("press Enter to title");
+    hud.setStateInfo("操作説明\n左クリック: タイトルへ");
     hud.setCrosshairVisible(false);
     setPlayerState("brainwash-complete-haigure-formation");
     const playerStartPosition = new Vector3(
@@ -444,7 +444,13 @@ export const createGameFlow = ({
     assemblyElapsed = 0;
     hud.setHudVisible(false);
     hud.setTitleVisible(false);
-    hud.setStateInfo("press Enter to title");
+    if (config.variant === "npc-survivor-player-block") {
+      hud.setStateInfo(
+        "操作説明\nWASD: 移動\n左クリック: タイトルへ\nR: リプレイ"
+      );
+    } else {
+      hud.setStateInfo("操作説明\n左クリック: タイトルへ\nR: リプレイ");
+    }
     hud.setCrosshairVisible(config.variant === "npc-survivor-player-block");
 
     disposePlayerHitEffects();

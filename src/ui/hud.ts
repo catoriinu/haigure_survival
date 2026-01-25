@@ -10,6 +10,7 @@ export type DrawMinimapParams = {
   halfWidth: number;
   halfDepth: number;
   elapsedTime: number;
+  surviveTime: number | null;
   aliveCount: number;
   retryText: string | null;
   showCrosshair: boolean;
@@ -29,15 +30,14 @@ export const createHud = (): Hud => {
   const minimapCanvas = document.getElementById(
     "minimapCanvas"
   ) as HTMLCanvasElement;
-  const minimapInfo = document.getElementById(
-    "minimapInfo"
+  const minimapReadout = document.getElementById(
+    "minimapReadout"
   ) as HTMLDivElement;
-  const timeInfo = document.getElementById("timeInfo") as HTMLDivElement;
-  const aliveInfo = document.getElementById("aliveInfo") as HTMLDivElement;
-  const retryInfo = document.getElementById("retryInfo") as HTMLDivElement;
-  const titleScreen = document.getElementById("titleScreen") as HTMLDivElement;
-  const titleText = document.getElementById("titleText") as HTMLDivElement;
-  const stateInfo = document.getElementById("stateInfo") as HTMLDivElement;
+  const statusInfo = document.getElementById("statusInfo") as HTMLDivElement;
+  const helpPanel = document.getElementById("helpPanel") as HTMLDivElement;
+  const titleOverlay = document.getElementById("titleOverlay") as HTMLDivElement;
+  const titleMessage = document.getElementById("titleMessage") as HTMLDivElement;
+  const overlayHelp = document.getElementById("overlayHelp") as HTMLDivElement;
   const fadeOverlay = document.getElementById("fadeOverlay") as HTMLDivElement;
   const crosshair = document.getElementById("crosshair") as HTMLDivElement;
   const minimapContext = minimapCanvas.getContext(
@@ -57,28 +57,27 @@ export const createHud = (): Hud => {
   const setHudVisible = (visible: boolean) => {
     const display = visible ? "block" : "none";
     minimapCanvas.style.display = display;
-    minimapInfo.style.display = display;
-    timeInfo.style.display = display;
-    aliveInfo.style.display = display;
-    retryInfo.style.display = "none";
+    minimapReadout.style.display = display;
+    statusInfo.style.display = display;
+    helpPanel.style.display = "none";
     crosshair.style.display = "none";
   };
 
   const setTitleVisible = (visible: boolean) => {
-    titleScreen.style.display = visible ? "flex" : "none";
+    titleOverlay.style.display = visible ? "flex" : "none";
   };
 
   const setTitleText = (text: string) => {
-    titleText.textContent = text;
+    titleMessage.textContent = text;
   };
 
   const setStateInfo = (text: string | null) => {
     if (text) {
-      stateInfo.textContent = text;
-      stateInfo.style.display = "block";
+      overlayHelp.textContent = text;
+      overlayHelp.style.display = "block";
     } else {
-      stateInfo.textContent = "";
-      stateInfo.style.display = "none";
+      overlayHelp.textContent = "";
+      overlayHelp.style.display = "none";
     }
   };
 
@@ -99,6 +98,7 @@ export const createHud = (): Hud => {
     halfWidth,
     halfDepth,
     elapsedTime,
+    surviveTime,
     aliveCount,
     retryText,
     showCrosshair
@@ -114,9 +114,14 @@ export const createHud = (): Hud => {
     );
     const infoX = Math.round(cameraPosition.x / minimapCellSize);
     const infoZ = Math.round(cameraPosition.z / minimapCellSize);
-    minimapInfo.textContent = `X:${infoX}  Z:${infoZ}\nCell:${centerRow},${centerCol}`;
-    timeInfo.textContent = `Time: ${elapsedTime.toFixed(1)}s`;
-    aliveInfo.textContent = `Alive: ${aliveCount}`;
+    minimapReadout.textContent = `X:${infoX}  Z:${infoZ}\nCell:${centerRow},${centerCol}`;
+    const infoLines = [`未洗脳者数: ${aliveCount}人`];
+    let timeLine = `経過時間: ${elapsedTime.toFixed(1)}秒`;
+    if (surviveTime !== null) {
+      timeLine += `  生存時間: ${surviveTime.toFixed(1)}秒`;
+    }
+    infoLines.push(timeLine);
+    statusInfo.textContent = infoLines.join("\n");
 
     minimapContext.clearRect(0, 0, minimapSize, minimapSize);
 
@@ -238,8 +243,8 @@ export const createHud = (): Hud => {
     minimapContext.fillStyle = "#f5f5f5";
     minimapContext.fillText("N", northX, northY);
 
-    retryInfo.style.display = retryText ? "block" : "none";
-    retryInfo.textContent = retryText ?? "";
+    helpPanel.style.display = retryText ? "block" : "none";
+    helpPanel.textContent = retryText ?? "";
 
     crosshair.style.display = showCrosshair ? "block" : "none";
   };
