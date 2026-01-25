@@ -184,6 +184,7 @@ const bitWanderTimerMin = bitModeSettings.search.wander.timerMin;
 const bitWanderTimerMax = bitModeSettings.search.wander.timerMax;
 const bitBobAmplitudeNormal = bitModeSettings.base.bobAmplitudeNormal;
 const bitBobAmplitudeUrgent = bitModeSettings.base.bobAmplitudeUrgent;
+const bitModeMuzzleColorEnabled = false;
 const bitModeMuzzleColors: Record<Exclude<BitMode, "search">, Color3> = {
   "search-bruteforce": new Color3(0.35, 0.9, 0.85),
   "attack-chase": new Color3(0.18, 0.9, 0.28),
@@ -733,6 +734,9 @@ export const createBitMaterials = (scene: Scene): BitMaterials => {
 };
 
 const setBitMuzzleColor = (bit: Bit) => {
+  if (!bitModeMuzzleColorEnabled) {
+    return;
+  }
   const muzzleMaterial = bit.muzzle.material as StandardMaterial;
   if (bit.mode === "search") {
     const bodyMaterial = bit.body.material as StandardMaterial;

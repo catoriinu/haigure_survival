@@ -112,7 +112,7 @@ const playerWidth = PLAYER_SPRITE_WIDTH;
 const playerHeight = PLAYER_SPRITE_HEIGHT;
 const playerCenterHeight = PLAYER_SPRITE_CENTER_HEIGHT;
 const eyeHeight = PLAYER_EYE_HEIGHT;
-const npcCount = 12;
+const npcCount = 11;
 const portraitMaxWidthCells = 1;
 const portraitMaxHeightCells = 2;
 
