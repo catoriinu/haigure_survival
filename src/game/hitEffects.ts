@@ -14,6 +14,10 @@ export type HitFadeOrb = {
 };
 
 const hitFadeOrbMinScale = 0.08;
+const hitEffectMarginRate = 1.05;
+
+export const calculateHitEffectDiameter = (width: number, height: number) =>
+  Math.hypot(width, height) * hitEffectMarginRate;
 
 export type HitFadeOrbConfig = {
   minCount: number;

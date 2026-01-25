@@ -45,6 +45,7 @@ import { isBeamHittingTarget } from "./beamCollision";
 import {
   createHitEffectMesh,
   createHitFadeOrbs,
+  calculateHitEffectDiameter,
   HitFadeOrbConfig,
   updateHitFadeOrbs
 } from "./hitEffects";
@@ -65,7 +66,6 @@ const redHitDurationScale = 1;
 export const npcHitDuration = 3;
 export const npcHitFadeDuration = 1;
 export const npcHitRadius = NPC_SPRITE_WIDTH * 0.5;
-export const npcHitEffectDiameter = NPC_SPRITE_HEIGHT * 1.2;
 export const npcHitFlickerInterval = 0.12;
 export const npcHitColorA = new Color3(1, 0.18, 0.74);
 export const npcHitColorB = new Color3(0.2, 0.96, 1);
@@ -82,9 +82,8 @@ const npcHitColorA4 = toSpriteFlickerColor(npcHitColorA);
 const npcHitColorB4 = toSpriteFlickerColor(npcHitColorB);
 const npcSpriteColorNormal = new Color4(1, 1, 1, 1);
 export const npcHitLightIntensity = 1.1;
-export const npcHitLightRange = npcHitEffectDiameter * 1.2;
-const npcHitEffectRadius = npcHitEffectDiameter * 0.85;
-const npcHitEffectRadiusSq = npcHitEffectRadius * npcHitEffectRadius;
+const getNpcHitEffectDiameter = (sprite: Sprite) =>
+  calculateHitEffectDiameter(sprite.width, sprite.height);
 const npcBrainwashDecisionDelay = 10;
 const npcBrainwashStayChance = 0.5;
 const npcBrainwashVisionRange = 3;
@@ -361,9 +360,10 @@ export const updateNpcs = (
         npc.fadeTimer = 0;
         npc.hitById = beam.sourceId;
         const scene = npc.sprite.manager.scene;
+        const hitEffectDiameter = getNpcHitEffectDiameter(npc.sprite);
         const { mesh: effect, material } = createHitEffectMesh(scene, {
           name: `npcHit_${npc.sprite.name}`,
-          diameter: npcHitEffectDiameter,
+          diameter: hitEffectDiameter,
           color: npcHitColorA,
           alpha: npcHitEffectAlpha
         });
@@ -378,7 +378,7 @@ export const updateNpcs = (
         hitLight.diffuse = npcHitColorA.clone();
         hitLight.specular = npcHitColorA.clone();
         hitLight.intensity = npcHitLightIntensity;
-        hitLight.range = npcHitLightRange;
+        hitLight.range = hitEffectDiameter * 1.2;
         npc.hitLight = hitLight;
         onNpcHit(npc.sprite.position);
         break;
@@ -395,8 +395,11 @@ export const updateNpcs = (
       const dx = cameraPosition.x - npc.sprite.position.x;
       const dy = cameraPosition.y - npc.sprite.position.y;
       const dz = cameraPosition.z - npc.sprite.position.z;
+      const hitEffectRadius =
+        getNpcHitEffectDiameter(npc.sprite) / 2;
+      const hitEffectRadiusSq = hitEffectRadius * hitEffectRadius;
       const isCameraInside =
-        dx * dx + dy * dy + dz * dz <= npcHitEffectRadiusSq;
+        dx * dx + dy * dy + dz * dz <= hitEffectRadiusSq;
       if (npc.hitEffect) {
         npc.hitEffect.position.copyFrom(npc.sprite.position);
       }
@@ -429,12 +432,14 @@ export const updateNpcs = (
       npc.fadeTimer = npc.hitFadeDuration;
       npc.sprite.cellIndex = 2;
       npc.sprite.color.copyFrom(npcSpriteColorNormal);
+      const hitEffectRadius =
+        getNpcHitEffectDiameter(npc.sprite) / 2;
       if (shouldProcessOrb(npc.sprite.position)) {
         npc.fadeOrbs = createHitFadeOrbs(
           npc.sprite.manager.scene,
           npc.sprite.position.clone(),
           npc.hitEffectMaterial!,
-          npcHitEffectDiameter / 2,
+          hitEffectRadius,
           npcHitFadeOrbConfig
         );
       } else {

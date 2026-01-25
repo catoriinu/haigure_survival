@@ -37,9 +37,7 @@ import {
   npcHitColorB,
   npcHitDuration,
   npcHitEffectAlpha,
-  npcHitEffectDiameter,
   npcHitLightIntensity,
-  npcHitLightRange,
   npcHitFadeDuration,
   npcHitFadeOrbConfig,
   npcHitFlickerInterval,
@@ -59,6 +57,7 @@ import { isBeamHittingTarget } from "./game/beamCollision";
 import {
   HitFadeOrbConfig,
   HitSequenceConfig,
+  calculateHitEffectDiameter,
   createHitSequenceState,
   resetHitSequenceState,
   startHitSequence,
@@ -687,7 +686,6 @@ const playerHitDuration = 3;
 const playerHitFadeDuration = 1;
 const redHitDurationScale = 1;
 const playerHitRadius = playerWidth * 0.5;
-const playerHitEffectDiameter = playerHeight * 1.5;
 const playerHitFlickerInterval = 0.12;
 const playerHitColorA = new Color3(1, 0.18, 0.74);
 const playerHitColorB = new Color3(0.2, 0.96, 1);
@@ -704,9 +702,6 @@ const playerHitColorA4 = toPlayerSpriteFlickerColor(playerHitColorA);
 const playerHitColorB4 = toPlayerSpriteFlickerColor(playerHitColorB);
 const npcSpriteColorNormal = new Color4(1, 1, 1, 1);
 const playerHitLightIntensity = 1.1;
-const playerHitLightRange = playerHitEffectDiameter * 1.2;
-const playerHitEffectRadius = playerHitEffectDiameter / 2;
-const playerHitEffectRadiusSq = playerHitEffectRadius * playerHitEffectRadius;
 const playerHitOrbDiameter = 0.04;
 const playerHitOrbMinCount = 5;
 const playerHitOrbMaxCount = 20;
@@ -895,7 +890,7 @@ const updateExecutionHitTargetPosition = () => {
   if (executionHitTargetKind === "player") {
     executionHitTargetPosition.set(
       camera.position.x,
-      playerCenterHeight,
+      playerAvatar.height * 0.5,
       camera.position.z
     );
     return;
@@ -911,39 +906,52 @@ const buildPlayerHitSequenceConfig = (
   effectName: string,
   hitDuration: number,
   fadeDuration: number
-): HitSequenceConfig => ({
-  hitDuration,
-  fadeDuration,
-  flickerInterval: playerHitFlickerInterval,
-  colorA: playerHitColorA,
-  colorB: playerHitColorB,
-  effectAlpha: playerHitEffectAlpha,
-  effectDiameter: playerHitEffectDiameter,
-  lightIntensity: playerHitLightIntensity,
-  lightRange: playerHitLightRange,
-  fadeOrbConfig: playerHitFadeOrbConfig,
-  effectName,
-  sideOrientation: Mesh.DOUBLESIDE,
-  backFaceCulling: false
-});
+): HitSequenceConfig => {
+  const effectDiameter = calculateHitEffectDiameter(
+    playerAvatar.width,
+    playerAvatar.height
+  );
+  return {
+    hitDuration,
+    fadeDuration,
+    flickerInterval: playerHitFlickerInterval,
+    colorA: playerHitColorA,
+    colorB: playerHitColorB,
+    effectAlpha: playerHitEffectAlpha,
+    effectDiameter,
+    lightIntensity: playerHitLightIntensity,
+    lightRange: effectDiameter * 1.2,
+    fadeOrbConfig: playerHitFadeOrbConfig,
+    effectName,
+    sideOrientation: Mesh.DOUBLESIDE,
+    backFaceCulling: false
+  };
+};
 
 const buildNpcHitSequenceConfig = (
   effectName: string,
   hitDuration: number,
-  fadeDuration: number
-): HitSequenceConfig => ({
-  hitDuration,
-  fadeDuration,
-  flickerInterval: npcHitFlickerInterval,
-  colorA: npcHitColorA,
-  colorB: npcHitColorB,
-  effectAlpha: npcHitEffectAlpha,
-  effectDiameter: npcHitEffectDiameter,
-  lightIntensity: npcHitLightIntensity,
-  lightRange: npcHitLightRange,
-  fadeOrbConfig: npcHitFadeOrbConfig,
-  effectName
-});
+  fadeDuration: number,
+  sprite: Sprite
+): HitSequenceConfig => {
+  const effectDiameter = calculateHitEffectDiameter(
+    sprite.width,
+    sprite.height
+  );
+  return {
+    hitDuration,
+    fadeDuration,
+    flickerInterval: npcHitFlickerInterval,
+    colorA: npcHitColorA,
+    colorB: npcHitColorB,
+    effectAlpha: npcHitEffectAlpha,
+    effectDiameter,
+    lightIntensity: npcHitLightIntensity,
+    lightRange: effectDiameter * 1.2,
+    fadeOrbConfig: npcHitFadeOrbConfig,
+    effectName
+  };
+};
 
 const beginExecutionHit = (
   targetKind: "player" | "npc",
@@ -981,7 +989,8 @@ const beginExecutionHit = (
     buildNpcHitSequenceConfig(
       "executionHitEffect",
       executionHitDurationCurrent,
-      executionHitFadeDurationCurrent
+      executionHitFadeDurationCurrent,
+      npcs[npcIndex!].sprite
     )
   );
   const npc = npcs[npcIndex!];
@@ -1007,7 +1016,8 @@ const updateExecutionHitEffect = (
       : buildNpcHitSequenceConfig(
           "executionHitEffect",
           executionHitDurationCurrent,
-          executionHitFadeDurationCurrent
+          executionHitFadeDurationCurrent,
+          npcs[executionHitNpcIndex!].sprite
         );
   updateHitSequence(
     executionHitSequence,
@@ -1665,11 +1675,15 @@ const updatePlayerState = (
   elapsed: number,
   shouldProcessOrb: (position: Vector3) => boolean
 ) => {
+  const playerCenterY = playerAvatar.height * 0.5;
   const centerPosition = new Vector3(
     camera.position.x,
-    playerCenterHeight,
+    playerCenterY,
     camera.position.z
   );
+  const hitEffectRadius =
+    calculateHitEffectDiameter(playerAvatar.width, playerAvatar.height) / 2;
+  const hitEffectRadiusSq = hitEffectRadius * hitEffectRadius;
 
   if (isAliveState(playerState)) {
     for (const beam of beams) {
@@ -1746,7 +1760,7 @@ const updatePlayerState = (
     const dx = npc.sprite.position.x - centerPosition.x;
     const dy = npc.sprite.position.y - centerPosition.y;
     const dz = npc.sprite.position.z - centerPosition.z;
-    const inside = dx * dx + dy * dy + dz * dz <= playerHitEffectRadiusSq;
+    const inside = dx * dx + dy * dy + dz * dz <= hitEffectRadiusSq;
     if (shouldFlickerNpcSprite && inside) {
       const isColorA =
         Math.floor(elapsed / playerHitFlickerInterval) % 2 === 0;
