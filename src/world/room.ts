@@ -1,13 +1,12 @@
 import {
   Color3,
-  DynamicTexture,
   Mesh,
   MeshBuilder,
   Scene,
   StandardMaterial,
-  Texture,
   Vector3
 } from "@babylonjs/core";
+import { createGridTexture } from "./textureUtils";
 
 export type RoomConfig = {
   name: string;
@@ -34,47 +33,18 @@ export type RoomParts = {
   wallMaterial: StandardMaterial;
 };
 
-const colorToHex = (color: Color3) => {
-  const r = Math.round(color.r * 255)
-    .toString(16)
-    .padStart(2, "0");
-  const g = Math.round(color.g * 255)
-    .toString(16)
-    .padStart(2, "0");
-  const b = Math.round(color.b * 255)
-    .toString(16)
-    .padStart(2, "0");
-
-  return `#${r}${g}${b}`;
-};
-
 const createWallTexture = (scene: Scene, config: RoomConfig) => {
-  const wallTexture = new DynamicTexture(
-    `${config.name}_wallTexture`,
-    { width: config.wallTextureSize, height: config.wallTextureSize },
+  const wallTexture = createGridTexture(
     scene,
-    false
+    `${config.name}_wallTexture`,
+    config.wallTextureSize,
+    {
+      baseColor: config.wallBaseColor,
+      lineColor: config.wallGridColor,
+      lineWidth: config.wallGridLineWidth,
+      lineSpacing: config.wallGridSpacing
+    }
   );
-  const ctx = wallTexture.getContext();
-  ctx.fillStyle = colorToHex(config.wallBaseColor);
-  ctx.fillRect(0, 0, config.wallTextureSize, config.wallTextureSize);
-  ctx.strokeStyle = colorToHex(config.wallGridColor);
-  ctx.lineWidth = config.wallGridLineWidth;
-
-  for (let i = 0; i <= config.wallTextureSize; i += config.wallGridSpacing) {
-    ctx.beginPath();
-    ctx.moveTo(i, 0);
-    ctx.lineTo(i, config.wallTextureSize);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(0, i);
-    ctx.lineTo(config.wallTextureSize, i);
-    ctx.stroke();
-  }
-
-  wallTexture.update();
-  wallTexture.wrapU = Texture.WRAP_ADDRESSMODE;
-  wallTexture.wrapV = Texture.WRAP_ADDRESSMODE;
   wallTexture.uScale = config.wallTextureScaleU;
   wallTexture.vScale = config.wallTextureScaleV;
 

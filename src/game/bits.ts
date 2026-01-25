@@ -25,7 +25,8 @@ import {
 import {
   cellToWorld,
   pickRandomCell,
-  pickRandomHorizontalDirection
+  pickRandomHorizontalDirection,
+  worldToCellClamped
 } from "./gridUtils";
 import { findTargetById } from "./targetUtils";
 import { beamTipDiameter } from "./beams";
@@ -1332,23 +1333,6 @@ export const updateBits = (
   const avoidRadiusSq = avoidRadius * avoidRadius;
   const wallRadius = bitWallProximityRadius;
   const wallRadiusSq = wallRadius * wallRadius;
-  const worldToCell = (position: Vector3) => {
-    const row = Math.max(
-      0,
-      Math.min(
-        layout.rows - 1,
-        Math.floor((position.z + halfDepth) / layout.cellSize)
-      )
-    );
-    const col = Math.max(
-      0,
-      Math.min(
-        layout.columns - 1,
-        Math.floor((position.x + halfWidth) / layout.cellSize)
-      )
-    );
-    return { row, col };
-  };
   const isFloorAt = (x: number, z: number) => {
     const col = Math.floor((x + halfWidth) / layout.cellSize);
     const row = Math.floor((z + halfDepth) / layout.cellSize);
@@ -1529,8 +1513,8 @@ export const updateBits = (
     return path;
   };
   const getChaseDirection = (from: Vector3, to: Vector3) => {
-    const start = worldToCell(from);
-    const goal = worldToCell(to);
+    const start = worldToCellClamped(layout, from);
+    const goal = worldToCellClamped(layout, to);
     if (start.row === goal.row && start.col === goal.col) {
       return to.subtract(from).normalize();
     }
@@ -2032,7 +2016,7 @@ export const updateBits = (
   };
 
   const updateBruteforceMode = (bit: Bit, frame: ModeFrame) => {
-    const currentCell = worldToCell(bit.root.position);
+    const currentCell = worldToCellClamped(layout, bit.root.position);
     markBruteforceVisited(currentCell);
     if (bit.baseHeight > bitBruteforceMaxHeight) {
       const descendStep =

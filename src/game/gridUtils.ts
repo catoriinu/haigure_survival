@@ -28,6 +28,42 @@ export const cellToWorld = (
   );
 };
 
+export const worldToCell = (
+  layout: GridLayout,
+  position: Vector3
+): FloorCell => {
+  const halfWidth = (layout.columns * layout.cellSize) / 2;
+  const halfDepth = (layout.rows * layout.cellSize) / 2;
+  return {
+    row: Math.floor((position.z + halfDepth) / layout.cellSize),
+    col: Math.floor((position.x + halfWidth) / layout.cellSize)
+  };
+};
+
+export const worldToCellClamped = (
+  layout: GridLayout,
+  position: Vector3
+): FloorCell => {
+  const halfWidth = (layout.columns * layout.cellSize) / 2;
+  const halfDepth = (layout.rows * layout.cellSize) / 2;
+  return {
+    row: Math.max(
+      0,
+      Math.min(
+        layout.rows - 1,
+        Math.floor((position.z + halfDepth) / layout.cellSize)
+      )
+    ),
+    col: Math.max(
+      0,
+      Math.min(
+        layout.columns - 1,
+        Math.floor((position.x + halfWidth) / layout.cellSize)
+      )
+    )
+  };
+};
+
 export const pickRandomCell = (cells: FloorCell[]) =>
   cells[Math.floor(Math.random() * cells.length)];
 

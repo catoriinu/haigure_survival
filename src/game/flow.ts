@@ -2,8 +2,11 @@ import { FreeCamera, Sprite, Vector3 } from "@babylonjs/core";
 import { CELL_SCALE, GridLayout } from "../world/grid";
 import { type StageArea } from "../world/stageJson";
 import { Hud } from "../ui/hud";
-import { Bit, CharacterState, Npc } from "./types";
+import { Bit, CharacterState, FloorCell, Npc } from "./types";
 import { finalizeBitVisuals } from "./bits";
+import { cellToWorld, worldToCell } from "./gridUtils";
+import { alignSpriteToGround } from "./spriteUtils";
+import { createFadeController } from "./flowFade";
 
 export type GamePhase =
   | "title"
@@ -83,6 +86,8 @@ export const createGameFlow = ({
     executionOrbitRadius + executionNpcRingPadding
   );
   const fadeDuration = 0.8;
+  const { beginFadeOut, updateFade, resetFade, isFading } =
+    createFadeController(hud, fadeDuration);
   const halfWidth = (layout.columns * layout.cellSize) / 2;
   const halfDepth = (layout.rows * layout.cellSize) / 2;
   const stageCenter = new Vector3(
@@ -106,28 +111,8 @@ export const createGameFlow = ({
   let assemblyPlayerRoute: AssemblyRoute | null = null;
   let assemblyNpcRoutes: AssemblyRoute[] = [];
   let assemblyElapsed = 0;
-  let fadeOpacity = 0;
-  let fadePhase: "none" | "out" | "in" = "none";
-  let fadeNext: (() => void) | null = null;
   let executionCameraFollowAvatar = false;
   const followCameraOffset = playerAvatar.width * 0.9;
-
-  type GridCell = {
-    row: number;
-    col: number;
-  };
-
-  const cellToWorld = (cell: GridCell, y: number) =>
-    new Vector3(
-      -halfWidth + layout.cellSize / 2 + cell.col * layout.cellSize,
-      y,
-      -halfDepth + layout.cellSize / 2 + cell.row * layout.cellSize
-    );
-
-  const worldToCell = (position: Vector3): GridCell => ({
-    row: Math.floor((position.z + halfDepth) / layout.cellSize),
-    col: Math.floor((position.x + halfWidth) / layout.cellSize)
-  });
 
   const createAssemblyTargets = (totalCount: number) => {
     const columns = Math.min(assemblyMaxColumns, totalCount);
@@ -157,7 +142,7 @@ export const createGameFlow = ({
     return { playerTarget, npcTargets };
   };
 
-  const buildShortestPath = (start: GridCell, goal: GridCell) => {
+  const buildShortestPath = (start: FloorCell, goal: FloorCell) => {
     const visited = Array.from({ length: layout.rows }, () =>
       Array.from({ length: layout.columns }, () => false)
     );
@@ -212,7 +197,7 @@ export const createGameFlow = ({
       }
     }
 
-    const path: GridCell[] = [];
+    const path: FloorCell[] = [];
     let row = goal.row;
     let col = goal.col;
     path.push({ row, col });
@@ -228,14 +213,16 @@ export const createGameFlow = ({
   };
 
   const buildAssemblyRoute = (start: Vector3, goal: Vector3): AssemblyRoute => {
-    const startCell = worldToCell(start);
-    const goalCell = worldToCell(goal);
+    const startCell = worldToCell(layout, start);
+    const goalCell = worldToCell(layout, goal);
     const cellPath = buildShortestPath(startCell, goalCell);
     const waypoints: Vector3[] = [
       new Vector3(start.x, playerCenterHeight, start.z)
     ];
     for (let index = 1; index < cellPath.length; index += 1) {
-      waypoints.push(cellToWorld(cellPath[index], playerCenterHeight));
+      waypoints.push(
+        cellToWorld(layout, cellPath[index], playerCenterHeight)
+      );
     }
     waypoints.push(new Vector3(goal.x, playerCenterHeight, goal.z));
     return { waypoints, index: 0 };
@@ -245,7 +232,9 @@ export const createGameFlow = ({
     const slots: Vector3[] = [];
     for (const row of rowOrder) {
       for (const col of stageCols) {
-        slots.push(cellToWorld({ row, col }, playerCenterHeight));
+        slots.push(
+          cellToWorld(layout, { row, col }, playerCenterHeight)
+        );
       }
     }
     return slots;
@@ -268,10 +257,6 @@ export const createGameFlow = ({
       );
     }
     return slots;
-  };
-
-  const alignSpriteToGround = (sprite: Sprite) => {
-    sprite.position.y = sprite.height * 0.5;
   };
 
   const moveSpriteToTarget = (
@@ -593,45 +578,6 @@ export const createGameFlow = ({
     updateCameraFollowAvatar();
   };
 
-  const beginFadeOut = (next: () => void) => {
-    fadePhase = "out";
-    fadeOpacity = 0;
-    fadeNext = next;
-    hud.setFadeOpacity(fadeOpacity);
-  };
-
-  const updateFade = (delta: number) => {
-    if (fadePhase === "none") {
-      return;
-    }
-    const step = delta / fadeDuration;
-    if (fadePhase === "out") {
-      fadeOpacity = Math.min(1, fadeOpacity + step);
-      hud.setFadeOpacity(fadeOpacity);
-      if (fadeOpacity >= 1) {
-        if (fadeNext) {
-          const next = fadeNext;
-          fadeNext = null;
-          next();
-        }
-        fadePhase = "in";
-      }
-      return;
-    }
-    fadeOpacity = Math.max(0, fadeOpacity - step);
-    hud.setFadeOpacity(fadeOpacity);
-    if (fadeOpacity <= 0) {
-      fadePhase = "none";
-    }
-  };
-
-  const resetFade = () => {
-    fadePhase = "none";
-    fadeOpacity = 0;
-    fadeNext = null;
-    hud.setFadeOpacity(0);
-  };
-
   return {
     enterAssembly,
     enterExecution,
@@ -640,6 +586,6 @@ export const createGameFlow = ({
     beginFadeOut,
     updateFade,
     resetFade,
-    isFading: () => fadePhase !== "none"
+    isFading
   };
 };

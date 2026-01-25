@@ -1,14 +1,13 @@
 import {
   Color3,
-  DynamicTexture,
   Mesh,
   MeshBuilder,
   Scene,
   StandardMaterial,
-  Texture,
   Vector3
 } from "@babylonjs/core";
 import { GridLayout } from "./grid";
+import { createGridTexture } from "./textureUtils";
 
 export type StageStyle = {
   floorColor: Color3;
@@ -39,21 +38,7 @@ export type StageParts = {
   wallMaterials: StandardMaterial[];
 };
 
-const colorToHex = (color: Color3) => {
-  const r = Math.round(color.r * 255)
-    .toString(16)
-    .padStart(2, "0");
-  const g = Math.round(color.g * 255)
-    .toString(16)
-    .padStart(2, "0");
-  const b = Math.round(color.b * 255)
-    .toString(16)
-    .padStart(2, "0");
-
-  return `#${r}${g}${b}`;
-};
-
-const createGridTexture = (
+const createStageGridTexture = (
   scene: Scene,
   style: StageStyle,
   baseColor: Color3,
@@ -62,33 +47,17 @@ const createGridTexture = (
   surfaceHeight: number,
   textureName: string
 ) => {
-  const texture = new DynamicTexture(
-    textureName,
-    { width: style.gridTextureSize, height: style.gridTextureSize },
+  const texture = createGridTexture(
     scene,
-    false
+    textureName,
+    style.gridTextureSize,
+    {
+      baseColor,
+      lineColor,
+      lineWidth: style.gridLineWidthPx,
+      lineSpacing: style.gridTextureSize / style.gridCellsPerTexture
+    }
   );
-  const ctx = texture.getContext();
-  ctx.fillStyle = colorToHex(baseColor);
-  ctx.fillRect(0, 0, style.gridTextureSize, style.gridTextureSize);
-  ctx.strokeStyle = colorToHex(lineColor);
-  ctx.lineWidth = style.gridLineWidthPx;
-  const gridSpacingPx = style.gridTextureSize / style.gridCellsPerTexture;
-
-  for (let i = 0; i <= style.gridTextureSize; i += gridSpacingPx) {
-    ctx.beginPath();
-    ctx.moveTo(i, 0);
-    ctx.lineTo(i, style.gridTextureSize);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(0, i);
-    ctx.lineTo(style.gridTextureSize, i);
-    ctx.stroke();
-  }
-
-  texture.update();
-  texture.wrapU = Texture.WRAP_ADDRESSMODE;
-  texture.wrapV = Texture.WRAP_ADDRESSMODE;
   const gridTileWorldSize = style.gridSpacingWorld * style.gridCellsPerTexture;
   texture.uScale = surfaceWidth / gridTileWorldSize;
   texture.vScale = surfaceHeight / gridTileWorldSize;
@@ -213,7 +182,7 @@ export const createStageFromGrid = (
   const halfDepth = gridDepth / 2;
 
   const floorMaterial = new StandardMaterial("floorMaterial", scene);
-  floorMaterial.diffuseTexture = createGridTexture(
+  floorMaterial.diffuseTexture = createStageGridTexture(
     scene,
     style,
     style.floorColor,
@@ -226,7 +195,7 @@ export const createStageFromGrid = (
     ? new StandardMaterial("floorMaterialOutdoor", scene)
     : null;
   if (floorMaterialOutdoor) {
-    floorMaterialOutdoor.diffuseTexture = createGridTexture(
+    floorMaterialOutdoor.diffuseTexture = createStageGridTexture(
       scene,
       style,
       style.floorColorOutdoor,
@@ -250,7 +219,7 @@ export const createStageFromGrid = (
       `wallMaterial_${wallHeight}`,
       scene
     );
-    wallMaterial.diffuseTexture = createGridTexture(
+    wallMaterial.diffuseTexture = createStageGridTexture(
       scene,
       style,
       style.wallBaseColor,

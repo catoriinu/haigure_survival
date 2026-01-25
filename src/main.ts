@@ -54,6 +54,7 @@ import {
   updateBits,
   updateNpcs
 } from "./game/entities";
+import { alignSpriteToGround } from "./game/spriteUtils";
 import { isBeamHittingTarget } from "./game/beamCollision";
 import {
   HitFadeOrbConfig,
@@ -557,10 +558,10 @@ const applyPortraitSize = (sprite: Sprite, directory: string) => {
 
 const applyPortraitSizesToAll = () => {
   applyPortraitSize(playerAvatar, playerPortraitDirectory);
-  playerAvatar.position.y = playerAvatar.height * 0.5;
+  alignSpriteToGround(playerAvatar);
   for (const npc of npcs) {
     applyPortraitSize(npc.sprite, npc.portraitDirectory);
-    npc.sprite.position.y = npc.sprite.height * 0.5;
+    alignSpriteToGround(npc.sprite);
   }
 };
 
