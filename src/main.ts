@@ -113,6 +113,7 @@ const playerHeight = PLAYER_SPRITE_HEIGHT;
 const playerCenterHeight = PLAYER_SPRITE_CENTER_HEIGHT;
 const eyeHeight = PLAYER_EYE_HEIGHT;
 const npcCount = 11;
+const minimapReadoutVisible = false;
 const portraitMaxWidthCells = 1;
 const portraitMaxHeightCells = 2;
 
@@ -781,6 +782,7 @@ let bitIndex = bits.length;
 const maxBitCount = 25;
 
 const hud = createHud();
+hud.setMinimapReadoutVisible(minimapReadoutVisible);
 const buildTitleText = (selection: StageSelection) =>
   `左クリックで開始\n右クリックでステージ選択\nステージ: ${selection.label}`;
 const applyStageSelection = async (selection: StageSelection) => {

@@ -22,6 +22,7 @@ export type Hud = {
   setTitleText: (text: string) => void;
   setStateInfo: (text: string | null) => void;
   setFadeOpacity: (value: number) => void;
+  setMinimapReadoutVisible: (visible: boolean) => void;
   setCrosshairVisible: (visible: boolean) => void;
   drawMinimap: (params: DrawMinimapParams) => void;
 };
@@ -45,6 +46,8 @@ export const createHud = (): Hud => {
   ) as CanvasRenderingContext2D;
   minimapContext.imageSmoothingEnabled = true;
   minimapContext.imageSmoothingQuality = "high";
+  let hudVisible = true;
+  let minimapReadoutVisible = false;
   const minimap = {
     sizePixels: 180,
     windowCells: 18 * CELL_SCALE,
@@ -54,13 +57,19 @@ export const createHud = (): Hud => {
   minimapCanvas.width = minimapSize;
   minimapCanvas.height = minimapSize;
 
+  const applyMinimapReadoutDisplay = () => {
+    minimapReadout.style.display =
+      hudVisible && minimapReadoutVisible ? "block" : "none";
+  };
+
   const setHudVisible = (visible: boolean) => {
+    hudVisible = visible;
     const display = visible ? "block" : "none";
     minimapCanvas.style.display = display;
-    minimapReadout.style.display = display;
     statusInfo.style.display = display;
     helpPanel.style.display = "none";
     crosshair.style.display = "none";
+    applyMinimapReadoutDisplay();
   };
 
   const setTitleVisible = (visible: boolean) => {
@@ -83,6 +92,11 @@ export const createHud = (): Hud => {
 
   const setFadeOpacity = (value: number) => {
     fadeOverlay.style.opacity = value.toFixed(2);
+  };
+
+  const setMinimapReadoutVisible = (visible: boolean) => {
+    minimapReadoutVisible = visible;
+    applyMinimapReadoutDisplay();
   };
 
   const setCrosshairVisible = (visible: boolean) => {
@@ -249,12 +263,15 @@ export const createHud = (): Hud => {
     crosshair.style.display = showCrosshair ? "block" : "none";
   };
 
+  applyMinimapReadoutDisplay();
+
   return {
     setHudVisible,
     setTitleVisible,
     setTitleText,
     setStateInfo,
     setFadeOpacity,
+    setMinimapReadoutVisible,
     setCrosshairVisible,
     drawMinimap
   };
