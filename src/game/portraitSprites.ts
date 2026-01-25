@@ -14,11 +14,17 @@ const portraitExtensions = [
 const portraitFiles = import.meta.glob(
   "/public/picture/chara/*/*.{png,jpg,jpeg,webp,gif,bmp,avif,svg}"
 );
-const portraitDirectories = Array.from(
+const portraitFilePaths = Object.keys(portraitFiles);
+const portraitDirectoriesFromFiles = Array.from(
   new Set(
-    Object.keys(portraitFiles).map((path) => path.split("/").slice(-2, -1)[0])
+    portraitFilePaths.map((path) => path.split("/").slice(-2, -1)[0])
   )
 ).sort();
+const hasPortraitAssets = portraitFilePaths.length > 0;
+const fallbackPortraitDirectory = "00_placeholder";
+const portraitDirectories = hasPortraitAssets
+  ? portraitDirectoriesFromFiles
+  : [fallbackPortraitDirectory];
 
 const portraitStateOrder: CharacterState[] = [
   "normal",
@@ -42,6 +48,42 @@ const portraitBaseNameByState: Record<CharacterState, string> = {
   "brainwash-complete-no-gun": "bw-complete-no-gun",
   "brainwash-complete-haigure": "bw-complete-pose",
   "brainwash-complete-haigure-formation": "bw-complete-pose"
+};
+
+const placeholderCellWidth = 256;
+const placeholderCellHeight = 512;
+const createPlaceholderPortraitSpriteSheet = (): PortraitSpriteSheet => {
+  const canvas = document.createElement("canvas");
+  canvas.width = placeholderCellWidth * portraitStateOrder.length;
+  canvas.height = placeholderCellHeight;
+  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "bold 32px sans-serif";
+  ctx.fillStyle = "#f0f0f0";
+  ctx.strokeStyle = "#1f1f1f";
+  ctx.lineWidth = 6;
+
+  for (let index = 0; index < portraitStateOrder.length; index += 1) {
+    const state = portraitStateOrder[index];
+    const label = portraitBaseNameByState[state].toUpperCase();
+    const x = index * placeholderCellWidth;
+    ctx.fillStyle = index % 2 === 0 ? "#2b2b2b" : "#3b3b3b";
+    ctx.fillRect(x, 0, placeholderCellWidth, placeholderCellHeight);
+    ctx.strokeRect(x + 6, 6, placeholderCellWidth - 12, placeholderCellHeight - 12);
+    ctx.fillStyle = "#f0f0f0";
+    ctx.fillText("NO IMAGE", x + placeholderCellWidth / 2, placeholderCellHeight / 2 - 22);
+    ctx.fillText(label, x + placeholderCellWidth / 2, placeholderCellHeight / 2 + 22);
+  }
+
+  return {
+    url: canvas.toDataURL("image/png"),
+    cellWidth: placeholderCellWidth,
+    cellHeight: placeholderCellHeight,
+    frameCount: portraitStateOrder.length,
+    imageWidth: placeholderCellWidth,
+    imageHeight: placeholderCellHeight
+  };
 };
 
 const portraitStateIndex = portraitStateOrder.reduce(
@@ -155,6 +197,9 @@ export const assignPortraitDirectories = (voiceIds: string[]) => {
 export const loadPortraitSpriteSheet = async (
   directory: string
 ): Promise<PortraitSpriteSheet> => {
+  if (!hasPortraitAssets && directory === fallbackPortraitDirectory) {
+    return createPlaceholderPortraitSpriteSheet();
+  }
   const modeBaseNames = portraitStateOrder.map(
     (state) => portraitBaseNameByState[state]
   );

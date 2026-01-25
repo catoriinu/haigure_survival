@@ -11,17 +11,17 @@
 
 ### 必須手順（ゲームをブラウザで起動するまで）
 1. Node.js 18 以上（npm 同梱）をインストールする。
-   - 公式サイト（https://nodejs.org/）から LTS をダウンロードして実行する。
+   - 公式サイト（https://nodejs.org/ ）から LTS をダウンロードして実行する。
    - 画面の指示に従ってインストールを完了する。
 2. このリポジトリのソースコードをダウンロードし、解凍する。
    - GitHubの`Code`ボタン → `Download ZIP`ボタンでダウンロード可能。もちろん`git clone`でも可
    - フォルダごと任意の場所へコピーする。
-   - 例: `D:\games\haigure-survival`
+   - 例: `D:\games\haigure_survival-main`
 3. ターミナルを開き、プロジェクトフォルダへ移動する。
    - Windows の場合: PowerShell を開く
-     例: `cd D:\games\haigure-survival`
+     例: `cd D:\games\haigure_survival-main`
    - mac の場合: ターミナルを開く
-     例: `cd /Users/<ユーザー名>/games/haigure-survival`
+     例: `cd /Users/<ユーザー名>/games/haigure_survival-main`
 4. 依存関係をインストールする。
    - `npm install` コマンドを実行する
 5. 開発サーバーを起動する。
