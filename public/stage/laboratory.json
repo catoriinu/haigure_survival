@@ -2,7 +2,7 @@
   "meta": {
     "name": "laboratory",
     "description": "研究所（屋内、シンプル）",
-    "size": { "width": 17, "height": 53 },
+    "size": { "width": 17, "height": 56 },
     "mapScale": { "x": 1, "z": 1 }
   },
   "cellPhysics": {
@@ -63,6 +63,9 @@
     "      $.........$",
     "      $.........$",
     "      $.........$",
+    "      $.........$",
+    "      $.........$",
+    "      $.........$",
     "      $$$$$$$$$$$"
   ],
   "semantics": {
@@ -120,9 +123,15 @@
         "IIIIIIIIIIIIIIIII",
         "IIIIIIIIIIIIIIIII",
         "IIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIII",
         "IIIIIIIIIIIIIIIII"
       ],
       "zone": [
+        "LLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLL",
         "LLLLLLLLLLLLLLLLL",
         "LLLLLLLLLLLLLLLLL",
         "LLLLLLLLLLLLLLLLL",
