@@ -1,4 +1,5 @@
 import { CharacterState } from "./types";
+import { CHARACTER_SPRITE_CELL_SIZE } from "./characterSprites";
 
 const portraitExtensions = [
   "png",
@@ -21,10 +22,10 @@ const portraitDirectoriesFromFiles = Array.from(
   )
 ).sort();
 const hasPortraitAssets = portraitFilePaths.length > 0;
-const fallbackPortraitDirectory = "00_placeholder";
+const defaultPortraitDirectory = "00_default";
 const portraitDirectories = hasPortraitAssets
   ? portraitDirectoriesFromFiles
-  : [fallbackPortraitDirectory];
+  : [defaultPortraitDirectory];
 
 const portraitStateOrder: CharacterState[] = [
   "normal",
@@ -40,7 +41,7 @@ const portraitStateOrder: CharacterState[] = [
 
 const portraitBaseNameByState: Record<CharacterState, string> = {
   normal: "normal",
-  evade: "evade",
+  evade: "normal",
   "hit-a": "hit-a",
   "hit-b": "hit-b",
   "brainwash-in-progress": "bw-in-progress",
@@ -48,42 +49,6 @@ const portraitBaseNameByState: Record<CharacterState, string> = {
   "brainwash-complete-no-gun": "bw-complete-no-gun",
   "brainwash-complete-haigure": "bw-complete-pose",
   "brainwash-complete-haigure-formation": "bw-complete-pose"
-};
-
-const placeholderCellWidth = 256;
-const placeholderCellHeight = 512;
-const createPlaceholderPortraitSpriteSheet = (): PortraitSpriteSheet => {
-  const canvas = document.createElement("canvas");
-  canvas.width = placeholderCellWidth * portraitStateOrder.length;
-  canvas.height = placeholderCellHeight;
-  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.font = "bold 32px sans-serif";
-  ctx.fillStyle = "#f0f0f0";
-  ctx.strokeStyle = "#1f1f1f";
-  ctx.lineWidth = 6;
-
-  for (let index = 0; index < portraitStateOrder.length; index += 1) {
-    const state = portraitStateOrder[index];
-    const label = portraitBaseNameByState[state].toUpperCase();
-    const x = index * placeholderCellWidth;
-    ctx.fillStyle = index % 2 === 0 ? "#2b2b2b" : "#3b3b3b";
-    ctx.fillRect(x, 0, placeholderCellWidth, placeholderCellHeight);
-    ctx.strokeRect(x + 6, 6, placeholderCellWidth - 12, placeholderCellHeight - 12);
-    ctx.fillStyle = "#f0f0f0";
-    ctx.fillText("NO IMAGE", x + placeholderCellWidth / 2, placeholderCellHeight / 2 - 22);
-    ctx.fillText(label, x + placeholderCellWidth / 2, placeholderCellHeight / 2 + 22);
-  }
-
-  return {
-    url: canvas.toDataURL("image/png"),
-    cellWidth: placeholderCellWidth,
-    cellHeight: placeholderCellHeight,
-    frameCount: portraitStateOrder.length,
-    imageWidth: placeholderCellWidth,
-    imageHeight: placeholderCellHeight
-  };
 };
 
 const portraitStateIndex = portraitStateOrder.reduce(
@@ -129,6 +94,114 @@ const loadImage = (url: string) =>
     image.onerror = () => reject(new Error(`Failed to load ${url}`));
     image.src = url;
   });
+
+const defaultPortraitFrameByState: Record<CharacterState, number> = {
+  normal: 0,
+  evade: 0,
+  "hit-a": 1,
+  "hit-b": 1,
+  "brainwash-in-progress": 2,
+  "brainwash-complete-gun": 3,
+  "brainwash-complete-no-gun": 2,
+  "brainwash-complete-haigure": 2,
+  "brainwash-complete-haigure-formation": 2
+};
+
+const createDefaultPortraitSpriteSheet = (): PortraitSpriteSheet => {
+  const heightScale = 1.4;
+  const cellWidth = CHARACTER_SPRITE_CELL_SIZE;
+  const cellHeight = Math.round(CHARACTER_SPRITE_CELL_SIZE * heightScale);
+  const bodyWidth = 80;
+  const bodyMargin = Math.round((cellWidth - bodyWidth) / 2);
+  const bodyHeight = cellHeight - bodyMargin * 2;
+  const bodyTop = bodyMargin;
+  const bodyLeft = bodyMargin;
+  const eyeOffsetX = 18;
+  const eyeOffsetY = 22;
+  const eyeSize = 12;
+  const gunDotOffsetX = 72;
+  const gunDotOffsetY = Math.round(64 * heightScale);
+  const gunDotRadius = 6;
+  const canvas = document.createElement("canvas");
+  canvas.width = cellWidth * portraitStateOrder.length;
+  canvas.height = cellHeight;
+  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+
+  const drawFrame = (
+    index: number,
+    color: string,
+    accent: string,
+    gunDot = false
+  ) => {
+    const offsetX = index * cellWidth;
+    ctx.fillStyle = color;
+    ctx.fillRect(offsetX, 0, cellWidth, cellHeight);
+    ctx.fillStyle = accent;
+    ctx.fillRect(
+      offsetX + bodyLeft,
+      bodyTop,
+      bodyWidth,
+      bodyHeight
+    );
+    ctx.fillStyle = "#111111";
+    const eyeY = bodyTop + eyeOffsetY;
+    ctx.fillRect(
+      offsetX + bodyLeft + eyeOffsetX,
+      eyeY,
+      eyeSize,
+      eyeSize
+    );
+    ctx.fillRect(
+      offsetX + bodyLeft + eyeOffsetX + 32,
+      eyeY,
+      eyeSize,
+      eyeSize
+    );
+    if (gunDot) {
+      ctx.beginPath();
+      ctx.arc(
+        offsetX + bodyLeft + gunDotOffsetX,
+        bodyTop + gunDotOffsetY,
+        gunDotRadius,
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+    }
+  };
+
+  const drawIndexForState = (state: CharacterState) =>
+    defaultPortraitFrameByState[state];
+  const drawOrder = portraitStateOrder.map((state) =>
+    drawIndexForState(state)
+  );
+
+  for (let index = 0; index < drawOrder.length; index += 1) {
+    const frameIndex = drawOrder[index];
+    if (frameIndex === 0) {
+      drawFrame(index, "#3b5fbf", "#f1f1f1");
+      continue;
+    }
+    if (frameIndex === 1) {
+      drawFrame(index, "#d4a21f", "#f8f2c2");
+      continue;
+    }
+    if (frameIndex === 2) {
+      drawFrame(index, "#5c5c5c", "#c7c7c7");
+      continue;
+    }
+    drawFrame(index, "#5c5c5c", "#c7c7c7", true);
+  }
+
+  return {
+    url: canvas.toDataURL("image/png"),
+    cellWidth,
+    cellHeight,
+    frameCount: portraitStateOrder.length,
+    imageWidth: cellWidth,
+    imageHeight: cellHeight
+  };
+};
 
 const buildSpritesheetFromModeImages = (
   images: HTMLImageElement[],
@@ -197,8 +270,8 @@ export const assignPortraitDirectories = (voiceIds: string[]) => {
 export const loadPortraitSpriteSheet = async (
   directory: string
 ): Promise<PortraitSpriteSheet> => {
-  if (!hasPortraitAssets && directory === fallbackPortraitDirectory) {
-    return createPlaceholderPortraitSpriteSheet();
+  if (!hasPortraitAssets && directory === defaultPortraitDirectory) {
+    return createDefaultPortraitSpriteSheet();
   }
   const modeBaseNames = portraitStateOrder.map(
     (state) => portraitBaseNameByState[state]

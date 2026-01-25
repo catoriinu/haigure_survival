@@ -557,8 +557,10 @@ const applyPortraitSize = (sprite: Sprite, directory: string) => {
 
 const applyPortraitSizesToAll = () => {
   applyPortraitSize(playerAvatar, playerPortraitDirectory);
+  playerAvatar.position.y = playerAvatar.height * 0.5;
   for (const npc of npcs) {
     applyPortraitSize(npc.sprite, npc.portraitDirectory);
+    npc.sprite.position.y = npc.sprite.height * 0.5;
   }
 };
 
@@ -586,7 +588,7 @@ const createCharacters = () => {
   );
   playerAvatar.position = new Vector3(
     spawnPosition.x,
-    playerCenterHeight,
+    playerAvatar.height * 0.5,
     spawnPosition.z
   );
   npcs.push(
@@ -1823,7 +1825,7 @@ const resetGame = () => {
   playerAvatar.isVisible = false;
   playerAvatar.position = new Vector3(
     spawnPosition.x,
-    playerCenterHeight,
+    playerAvatar.height * 0.5,
     spawnPosition.z
   );
   rebuildGameFlow();

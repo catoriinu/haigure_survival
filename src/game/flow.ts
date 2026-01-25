@@ -270,6 +270,10 @@ export const createGameFlow = ({
     return slots;
   };
 
+  const alignSpriteToGround = (sprite: Sprite) => {
+    sprite.position.y = sprite.height * 0.5;
+  };
+
   const moveSpriteToTarget = (
     sprite: Sprite,
     target: Vector3,
@@ -281,14 +285,14 @@ export const createGameFlow = ({
     const distance = Math.hypot(toTarget.x, toTarget.z);
     if (distance <= assemblyArriveDistance) {
       sprite.position.x = target.x;
-      sprite.position.y = target.y;
       sprite.position.z = target.z;
+      alignSpriteToGround(sprite);
       return true;
     }
     const step = Math.min(distance, speed * delta);
     sprite.position.x += (toTarget.x / distance) * step;
     sprite.position.z += (toTarget.z / distance) * step;
-    sprite.position.y = target.y;
+    alignSpriteToGround(sprite);
     return false;
   };
 
@@ -399,6 +403,7 @@ export const createGameFlow = ({
     playerAvatar.isVisible = true;
     playerAvatar.cellIndex = 2;
     playerAvatar.position.copyFrom(playerStartPosition);
+    alignSpriteToGround(playerAvatar);
 
     const assemblyTargets = createAssemblyTargets(npcs.length + 1);
     assemblyPlayerTarget = assemblyTargets.playerTarget;
@@ -407,7 +412,7 @@ export const createGameFlow = ({
     for (const npc of npcs) {
       npc.state = "brainwash-complete-haigure-formation";
       npc.sprite.cellIndex = 2;
-      npc.sprite.position.y = playerCenterHeight;
+      alignSpriteToGround(npc.sprite);
       finalizeNpcEffects(npc);
     }
 
@@ -420,8 +425,10 @@ export const createGameFlow = ({
       assemblyPlayerRoute = null;
       assemblyNpcRoutes = [];
       playerAvatar.position.copyFrom(assemblyPlayerTarget);
+      alignSpriteToGround(playerAvatar);
       for (let index = 0; index < npcs.length; index += 1) {
         npcs[index].sprite.position.copyFrom(assemblyNpcTargets[index]);
+        alignSpriteToGround(npcs[index].sprite);
       }
       setGamePhase("assemblyHold");
       return;
@@ -459,7 +466,7 @@ export const createGameFlow = ({
     }
 
     for (const npc of npcs) {
-      npc.sprite.position.y = playerCenterHeight;
+      alignSpriteToGround(npc.sprite);
       finalizeNpcEffects(npc);
     }
 
@@ -481,6 +488,7 @@ export const createGameFlow = ({
         npc.state = "brainwash-complete-haigure-formation";
         npc.sprite.cellIndex = 2;
         npc.sprite.position.copyFrom(ringSlots[index]);
+        alignSpriteToGround(npc.sprite);
       }
     };
 
@@ -508,6 +516,7 @@ export const createGameFlow = ({
     survivorNpc.state = "evade";
     survivorNpc.sprite.cellIndex = 0;
     survivorNpc.sprite.position.copyFrom(executionCenter);
+    alignSpriteToGround(survivorNpc.sprite);
 
     if (config.variant === "npc-survivor-player-block") {
       executionCameraFollowAvatar = false;
@@ -531,6 +540,7 @@ export const createGameFlow = ({
     playerAvatar.isVisible = true;
     playerAvatar.cellIndex = 2;
     playerAvatar.position.copyFrom(frontSlots[frontRowCenterIndex]);
+    alignSpriteToGround(playerAvatar);
     camera.position.set(
       playerAvatar.position.x,
       eyeHeight,

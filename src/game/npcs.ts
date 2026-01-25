@@ -723,7 +723,7 @@ export const updateNpcs = (
 
   for (const npc of npcs) {
     const npcId = npc.sprite.name;
-    npc.sprite.position.y = NPC_SPRITE_CENTER_HEIGHT;
+    npc.sprite.position.y = npc.sprite.height * 0.5;
     npc.cell = worldToCell(layout, npc.sprite.position);
     const npcIndex = Number(npcId.slice(4));
     if (npc.state === "brainwash-complete-gun") {
