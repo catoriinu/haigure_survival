@@ -1867,6 +1867,7 @@ const startGame = () => {
 };
 
 const returnToTitle = () => {
+  document.exitPointerLock();
   resetGame();
   audioManager.stopBgm();
   gamePhase = "title";
