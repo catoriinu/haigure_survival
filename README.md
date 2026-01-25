@@ -1,19 +1,19 @@
-# fps-survival-20251226
+# haigure-survival
 
 ## 起動準備
 
-### 必須手順（ブラウザで起動）
+### 必須手順（ゲームをブラウザで起動するまで）
 1. Node.js 18 以上（npm 同梱）をインストールする。
    - 公式サイト（https://nodejs.org/）から LTS をダウンロードして実行する。
    - 画面の指示に従ってインストールを完了する。
 2. このリポジトリを別PCへ配置する（`public/` は任意）。
    - フォルダごと任意の場所へコピーする。
-   - 例: `D:\games\fps-survival-20251226`
+   - 例: `D:\games\haigure-survival`
 3. ターミナルを開き、プロジェクトフォルダへ移動する。
-   - Windows の場合: PowerShell を開く  
-     例: `cd D:\games\fps-survival-20251226`
-   - mac の場合: ターミナルを開く  
-     例: `cd /Users/<ユーザー名>/games/fps-survival-20251226`
+   - Windows の場合: PowerShell を開く
+     例: `cd D:\games\haigure-survival`
+   - mac の場合: ターミナルを開く
+     例: `cd /Users/<ユーザー名>/games/haigure-survival`
 4. 依存関係をインストールする。
    - `npm install`
 5. 開発サーバーを起動する。
@@ -21,32 +21,91 @@
 6. ブラウザでアクセスする。
    - `http://localhost:5175`
 7. 終了する。
-   - PowerShell で `Ctrl + C`
+   - PowerShellまたはターミナルで `Ctrl + C`
 
 ### 任意手順
-- `public/` 配下のステージデータやアセットを使う場合は、`public/` フォルダもコピーする。
-- BGM を差し替える場合は、`public/audio/bgm/` に `mp3` を配置する。
+
+#### 素材用フォルダ構成
+- `public/` 配下には任意でステージデータや各種素材を置くことができる。
+  - フォルダ構成:
+    ```
+    public/
+    ├─ audio/
+    │  ├─ bgm/
+    │  ├─ se/
+    │  └─ voice/
+    ├─ picture/
+    │  └─ chara/
+    └─ stage/
+    ```
+  - キャラクターフォルダ名の命名規則（実装準拠）:
+    - `public/picture/chara/` は先頭2文字が音声ID（2桁）と一致するフォルダだけが優先割り当て対象（例: `05_big_sister`）。一致させない場合は任意名でよい。
+    - `public/audio/voice/` はフォルダ名を参照しないため任意（管理上は「2桁ID + 任意文字列」にしておくと分かりやすい）。
+    - `public/audio/bgm/` / `public/audio/se/` / `public/stage/` はキャラクターフォルダ不要。
+
+#### BGM
+- `public/audio/bgm/` に `mp3` を配置する。
   - ステージ JSON の `meta.name` と同名の `<name>.mp3` があれば、それを優先再生する。
     - 例: `public/stage/laboratory.json` の `meta.name` が `laboratory` の場合は `public/audio/bgm/laboratory.mp3`
   - 一致するファイルがない場合は、`public/audio/bgm/` 内の `mp3` からランダム再生する。
   - `public/audio/bgm/` に `mp3` が一つもない場合は再生しない。
-- SE を差し替える場合は、`public/audio/se/` に以下のファイル名で配置する（形式: `mp3`）。
+
+#### SE
+- `public/audio/se/` に以下のファイル名で配置する（形式: `mp3`）。
   - ビットの浮遊音: `FlyingObject.mp3`
   - ビットの警告音: `BeamShot_WavingPart.mp3`
   - ビットが狙いを定める音: `aim.mp3`
   - ビームの発射音: `BeamShotR_DownLong.mp3` / `BeamShotR_Down.mp3` / `BeamShotR_DownShort.mp3` / `BeamShotR_Up.mp3` / `BeamShotR_UpShort.mp3` / `BeamShotR_UpHighShort.mp3`
   - ビームの命中音: `BeamHit_Rev.mp3` / `BeamHit_RevLong.mp3` / `BeamHit_RevLongFast.mp3`
-- VOICE を差し替える場合は、`public/audio/voice/` に配置し、`src/audio/voiceManifest.json` に記載されているパスと完全一致するファイル名にする（形式: `wav`）。
-  - 例: `public/audio/voice/01_devil/悪_110ハイグレ.wav`
+  - ファイルが存在しない場合はエラー無しで再生しない。
+
+#### VOICE
+- `public/audio/voice/` 配下に `wav` を配置し、`src/audio/voiceManifest.json` にキャラクターIDと状態ごとの配列で登録する。
+  - キャラクターフォルダ名は任意（実装では参照しない）。管理上は「2桁ID + 任意文字列」にしておくと分かりやすい（例: `public/audio/voice/01_devil/`）。JSONのキーは2桁IDのみを使う（例: `"01"`）。
+  - JSONのパスは `/audio/voice/` を省いた相対パスで記載する（例: `public/audio/voice/01_devil/悪_110ハイグレ.wav` → `01_devil/悪_110ハイグレ.wav`）。
+  - 実装側で `/audio/voice/` を補完して再生する。
+  - 状態ごとの配列が空、または項目が無い場合は無音でスキップする（フォールバックなし）。
+  - `brainwash-complete-haigure` は `enter`（ワンショット）と `loop`（ループ）を分けて登録する。
+  - JSON構成の例:
+    ```json
+    {
+      "01": {
+        "normal": ["01_devil/悪_Bいや….wav"],
+        "evade": ["01_devil/悪_Bこ、こっち来ないで！.wav"],
+        "hit-a": ["01_devil/悪_Cいやああああ！.wav"],
+        "hit-b": [],
+        "brainwash-in-progress": ["01_devil/悪_110ハイグレ.wav"],
+        "brainwash-complete-gun": ["01_devil/悪_A洗脳完了よ！.wav"],
+        "brainwash-complete-no-gun": ["01_devil/悪_A洗脳完了よ！.wav"],
+        "brainwash-complete-haigure": {
+          "enter": ["01_devil/悪_A洗脳完了よ！.wav"],
+          "loop": ["01_devil/悪_410ハイグレ.wav"]
+        },
+        "brainwash-complete-haigure-formation": ["01_devil/悪_410ハイグレ揃.wav"]
+      }
+    }
+    ```
+  - 再生契機:
+    - `normal`: 通常状態で一定時間経過し、再生中のVOICEが無いときにワンショット再生（アイドル再生）。
+    - `evade`: `evade` に遷移した瞬間にワンショット再生。
+    - `hit-a`: `hit-a` （光線命中状態、ハイレグ姿）に遷移した瞬間にワンショット再生。
+    - `hit-b`: 現状の実装ではVOICE再生に未使用。
+    - `brainwash-in-progress`: `brainwash-in-progress` に遷移した瞬間からループ再生。
+    - `brainwash-complete-gun` / `brainwash-complete-no-gun`: それぞれの状態に遷移した瞬間にワンショット再生。
+    - `brainwash-complete-haigure`: `enter` をワンショット再生し、終了時も同状態なら `loop` をループ再生。
+    - `brainwash-complete-haigure-formation`: その状態に遷移した瞬間からループ再生。
+
+#### キャラクター画像
 - キャラクター画像（立ち絵）を差し替える場合は、`public/picture/chara/<キャラディレクトリ>/` に配置する（形式: `png`/`jpg`/`jpeg`/`webp`/`gif`/`bmp`/`avif`/`svg`）。
   - ファイル名は以下の8種類を用意する。
-    - `normal`
-    - `evade`
-    - `hit-a`
-    - `hit-b`
-    - `bw-in-progress`
-    - `bw-complete-gun`
-    - `bw-complete-no-gun`
-    - `bw-complete-pose`
+    - `normal`（通常：普段着）
+    - `evade`（敵にターゲッティングされ、逃げている状態：普段着）
+    - `hit-a`（光線命中：ハイレグ姿）
+    - `hit-b`（光線命中：普段着）
+    - `bw-in-progress`（洗脳進行中：ハイレグ姿）
+    - `bw-complete-gun`（洗脳完了、光線銃で未洗脳者を狙う：ハイレグ姿）
+    - `bw-complete-no-gun`（洗脳完了、未洗脳者を捕獲しようとする：ハイレグ姿）
+    - `bw-complete-pose`（洗脳完了、ハイグレポーズ：ハイレグ姿）
   - 例: `public/picture/chara/05_big_sister/normal.png`
-  - キャラディレクトリ名の先頭2文字が音声IDと一致すると、そのVOICEのキャラとして割り当てられる（例: `05_big_sister`）。
+  - キャラディレクトリ名の先頭2文字（2桁ID）が音声IDと一致する場合は、そのIDに対して1キャラ分だけ優先割り当てする。
+  - 画像の使い回しが発生する場合はランダム割り当てになり、同じIDが一致するかどうかは抽選結果次第（一致しても問題なし）。

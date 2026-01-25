@@ -47,6 +47,7 @@ export type Npc = {
   sprite: Sprite;
   state: NpcState;
   voiceId: string;
+  portraitDirectory: string;
   cell: FloorCell;
   goalCell: FloorCell;
   target: Vector3;

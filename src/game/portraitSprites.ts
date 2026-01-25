@@ -114,22 +114,8 @@ const buildSpritesheetFromModeImages = (
 
 const getDirectoryId = (directory: string) => directory.slice(0, 2);
 
-const pickLeastUsedDirectory = (
-  usage: Map<string, number>,
-  directories: string[]
-) => {
-  let selected = directories[0];
-  let minCount = usage.get(selected)!;
-  for (let index = 1; index < directories.length; index += 1) {
-    const candidate = directories[index];
-    const count = usage.get(candidate)!;
-    if (count < minCount) {
-      selected = candidate;
-      minCount = count;
-    }
-  }
-  return selected;
-};
+const pickRandomDirectory = (directories: string[]) =>
+  directories[Math.floor(Math.random() * directories.length)];
 
 export const getPortraitDirectories = () => portraitDirectories;
 
@@ -137,33 +123,30 @@ export const getPortraitCellIndex = (state: CharacterState) =>
   portraitStateIndex[state];
 
 export const assignPortraitDirectories = (voiceIds: string[]) => {
-  const uniqueVoiceIds = Array.from(new Set(voiceIds));
-  const usage = new Map<string, number>();
-  for (const directory of portraitDirectories) {
-    usage.set(directory, 0);
-  }
-  const assignments = new Map<string, string>();
+  const assignments: string[] = Array.from(
+    { length: voiceIds.length }
+  );
+  const matchedIds = new Set<string>();
 
-  for (const voiceId of uniqueVoiceIds) {
+  for (let index = 0; index < voiceIds.length; index += 1) {
+    const voiceId = voiceIds[index];
+    if (matchedIds.has(voiceId)) {
+      continue;
+    }
     const matched = portraitDirectories.find(
       (directory) => getDirectoryId(directory) === voiceId
     );
     if (matched) {
-      assignments.set(voiceId, matched);
-      usage.set(matched, usage.get(matched)! + 1);
+      assignments[index] = matched;
+      matchedIds.add(voiceId);
     }
   }
 
-  for (const voiceId of uniqueVoiceIds) {
-    if (assignments.has(voiceId)) {
+  for (let index = 0; index < voiceIds.length; index += 1) {
+    if (assignments[index]) {
       continue;
     }
-    const unused = portraitDirectories.find(
-      (directory) => usage.get(directory)! === 0
-    );
-    const selected = unused ?? pickLeastUsedDirectory(usage, portraitDirectories);
-    assignments.set(voiceId, selected);
-    usage.set(selected, usage.get(selected)! + 1);
+    assignments[index] = pickRandomDirectory(portraitDirectories);
   }
 
   return assignments;

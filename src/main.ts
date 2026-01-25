@@ -514,12 +514,13 @@ scene.ambientColor = new Color3(0.45, 0.45, 0.45);
 scene.collisionsEnabled = true;
 let playerAvatar: Sprite;
 const npcs: Npc[] = [];
-let portraitAssignments = new Map<string, string>();
+let playerPortraitDirectory = "";
+let npcPortraitDirectories: string[] = [];
 const portraitScaleCache = new Map<string, { width: number; height: number }>();
-const getPortraitManagerByVoiceId = (voiceId: string) => {
-  const directory = portraitAssignments.get(voiceId)!;
-  return portraitManagers.get(directory)!;
-};
+const getPortraitManagerByDirectory = (directory: string) =>
+  portraitManagers.get(directory)!;
+const getNpcPortraitManager = (directory: string, _index: number) =>
+  getPortraitManagerByDirectory(directory);
 const createPlayerAvatar = (manager: SpriteManager) => {
   const avatar = new Sprite("playerAvatar", manager);
   avatar.width = playerWidth;
@@ -530,12 +531,11 @@ const createPlayerAvatar = (manager: SpriteManager) => {
   return avatar;
 };
 
-const computePortraitSpriteSize = (voiceId: string) => {
-  const cached = portraitScaleCache.get(voiceId);
+const computePortraitSpriteSize = (directory: string) => {
+  const cached = portraitScaleCache.get(directory);
   if (cached) {
     return cached;
   }
-  const directory = portraitAssignments.get(voiceId)!;
   const sheet = portraitSpriteSheets.get(directory)!;
   const size = calculatePortraitSpriteSize(
     sheet.imageWidth,
@@ -544,20 +544,20 @@ const computePortraitSpriteSize = (voiceId: string) => {
     portraitMaxWidthCells,
     portraitMaxHeightCells
   );
-  portraitScaleCache.set(voiceId, size);
+  portraitScaleCache.set(directory, size);
   return size;
 };
 
-const applyPortraitSize = (sprite: Sprite, voiceId: string) => {
-  const size = computePortraitSpriteSize(voiceId);
+const applyPortraitSize = (sprite: Sprite, directory: string) => {
+  const size = computePortraitSpriteSize(directory);
   sprite.width = size.width;
   sprite.height = size.height;
 };
 
 const applyPortraitSizesToAll = () => {
-  applyPortraitSize(playerAvatar, playerVoiceId);
+  applyPortraitSize(playerAvatar, playerPortraitDirectory);
   for (const npc of npcs) {
-    applyPortraitSize(npc.sprite, npc.voiceId);
+    applyPortraitSize(npc.sprite, npc.portraitDirectory);
   }
 };
 
@@ -570,13 +570,18 @@ const assignVoiceIds = () => {
   const { playerId, npcIds } = allocateVoiceIds(npcCount);
   playerVoiceId = playerId;
   npcVoiceIds = npcIds;
-  portraitAssignments = assignPortraitDirectories([playerVoiceId, ...npcVoiceIds]);
+  const assignments = assignPortraitDirectories([
+    playerVoiceId,
+    ...npcVoiceIds
+  ]);
+  playerPortraitDirectory = assignments[0];
+  npcPortraitDirectories = assignments.slice(1);
   portraitScaleCache.clear();
 };
 
 const createCharacters = () => {
   playerAvatar = createPlayerAvatar(
-    getPortraitManagerByVoiceId(playerVoiceId)
+    getPortraitManagerByDirectory(playerPortraitDirectory)
   );
   playerAvatar.position = new Vector3(
     spawnPosition.x,
@@ -587,8 +592,9 @@ const createCharacters = () => {
     ...spawnNpcs(
       layout,
       spawnableCells,
-      getPortraitManagerByVoiceId,
-      npcVoiceIds
+      getNpcPortraitManager,
+      npcVoiceIds,
+      npcPortraitDirectories
     )
   );
   applyPortraitSizesToAll();

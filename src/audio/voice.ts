@@ -3,19 +3,28 @@ import { CharacterState, isHitState } from "../game/entities";
 import { SpatialHandle, SpatialPlayOptions } from "./audio";
 import voiceManifest from "./voiceManifest.json";
 
-type VoiceTags = {
-  a: string[];
-  b: string[];
-  c: string[];
-  tag110: string[];
-  tag410: string[];
-  tag410Lineup: string[];
+type VoiceHaigureState = {
+  enter: string[];
+  loop: string[];
 };
+
+type VoiceStates = {
+  normal: string[];
+  evade: string[];
+  "hit-a": string[];
+  "hit-b": string[];
+  "brainwash-in-progress": string[];
+  "brainwash-complete-gun": string[];
+  "brainwash-complete-no-gun": string[];
+  "brainwash-complete-haigure": VoiceHaigureState;
+  "brainwash-complete-haigure-formation": string[];
+};
+
+type VoiceManifest = Record<string, VoiceStates>;
 
 export type VoiceProfile = {
   id: string;
-  folder: string;
-  tags: VoiceTags;
+  states: VoiceStates;
 };
 
 export type VoiceActor = {
@@ -36,56 +45,29 @@ export type VoiceAudio = {
 };
 
 const buildVoiceProfiles = () => {
-  const byFolder = new Map<string, VoiceProfile>();
-
-  for (const path of voiceManifest) {
-    const parts = path.split("/");
-    const folder = parts[parts.length - 2];
-    const file = parts[parts.length - 1];
-    const id = folder.slice(0, 2);
-    let profile = byFolder.get(folder);
-    if (!profile) {
-      profile = {
-        id,
-        folder,
-        tags: {
-          a: [],
-          b: [],
-          c: [],
-          tag110: [],
-          tag410: [],
-          tag410Lineup: []
-        }
-      };
-      byFolder.set(folder, profile);
-    }
-
-    if (file.includes("_410ハイグレ揃")) {
-      profile.tags.tag410Lineup.push(path);
-    } else if (file.includes("_410")) {
-      profile.tags.tag410.push(path);
-    }
-    if (file.includes("_110")) {
-      profile.tags.tag110.push(path);
-    }
-    if (file.includes("_A")) {
-      profile.tags.a.push(path);
-    }
-    if (file.includes("_B")) {
-      profile.tags.b.push(path);
-    }
-    if (file.includes("_C")) {
-      profile.tags.c.push(path);
-    }
+  const profiles: VoiceProfile[] = [];
+  const manifest = voiceManifest as VoiceManifest;
+  for (const [id, states] of Object.entries(manifest)) {
+    profiles.push({
+      id,
+      states
+    });
   }
-
-  return Array.from(byFolder.values());
+  return profiles;
 };
 
 export const voiceProfiles = buildVoiceProfiles();
 
-const pickRandom = (items: string[]) =>
-  items[Math.floor(Math.random() * items.length)]!;
+const voiceBasePath = "/audio/voice/";
+
+const pickRandom = (items: string[]) => {
+  if (items.length === 0) {
+    return null;
+  }
+  return items[Math.floor(Math.random() * items.length)];
+};
+
+const resolveVoiceUrl = (path: string) => `${voiceBasePath}${path}`;
 
 const rollIdleTimer = () => 8 + Math.random() * 8;
 
@@ -119,12 +101,17 @@ export const updateVoiceActor = (
 ) => {
   const currentState = actor.getState();
   const previousState = actor.lastState;
-  const tags = actor.profile.tags;
+  const states = actor.profile.states;
+  const haigureState = states["brainwash-complete-haigure"];
 
-  const playOneShot = (file: string, onEnded?: () => void) => {
+  const playOneShot = (files: string[], onEnded?: () => void) => {
+    const file = pickRandom(files);
     stopVoiceActor(actor);
+    if (!file) {
+      return;
+    }
     actor.voiceHandle = audio.playVoice(
-      file,
+      resolveVoiceUrl(file),
       actor.getPosition,
       {
         ...baseOptions,
@@ -138,10 +125,14 @@ export const updateVoiceActor = (
     );
   };
 
-  const startLoop = (file: string) => {
+  const startLoop = (files: string[]) => {
+    const file = pickRandom(files);
     stopVoiceActor(actor);
+    if (!file) {
+      return;
+    }
     actor.voiceHandle = audio.playVoice(
-      file,
+      resolveVoiceUrl(file),
       actor.getPosition,
       loopOptions
     );
@@ -157,36 +148,40 @@ export const updateVoiceActor = (
     }
 
     if (currentState === "brainwash-complete-haigure-formation") {
-      startLoop(pickRandom(tags.tag410Lineup));
+      startLoop(states["brainwash-complete-haigure-formation"]);
       actor.lastState = currentState;
       return;
     }
 
     if (currentState === "brainwash-in-progress") {
-      startLoop(pickRandom(tags.tag110));
+      startLoop(states["brainwash-in-progress"]);
     }
 
     if (
       currentState === "brainwash-complete-gun" ||
       currentState === "brainwash-complete-no-gun"
     ) {
-      playOneShot(pickRandom(tags.a));
+      playOneShot(
+        currentState === "brainwash-complete-gun"
+          ? states["brainwash-complete-gun"]
+          : states["brainwash-complete-no-gun"]
+      );
     }
 
     if (currentState === "brainwash-complete-haigure") {
-      playOneShot(pickRandom(tags.a), () => {
+      playOneShot(haigureState.enter, () => {
         if (actor.getState() === "brainwash-complete-haigure") {
-          startLoop(pickRandom(tags.tag410));
+          startLoop(haigureState.loop);
         }
       });
     }
 
     if (currentState === "hit-a" && !isHitState(previousState)) {
-      playOneShot(pickRandom(tags.c));
+      playOneShot(states["hit-a"]);
     }
 
     if (currentState === "evade" && previousState !== "evade") {
-      playOneShot(pickRandom(tags.b));
+      playOneShot(states.evade);
     }
   }
 
@@ -197,7 +192,7 @@ export const updateVoiceActor = (
   if (allowIdle && currentState === "normal") {
     actor.idleTimer -= delta;
     if (actor.idleTimer <= 0 && !actor.voiceHandle) {
-      playOneShot(pickRandom(tags.b));
+      playOneShot(states.normal);
       actor.idleTimer = rollIdleTimer();
     }
   }

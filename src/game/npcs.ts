@@ -573,8 +573,9 @@ export const createNpcManager = (
 export const spawnNpcs = (
   layout: GridLayout,
   floorCells: FloorCell[],
-  getManager: (voiceId: string, index: number) => SpriteManager,
-  voiceIds: string[]
+  getManager: (portraitDirectory: string, index: number) => SpriteManager,
+  voiceIds: string[],
+  portraitDirectories: string[]
 ) => {
   const npcs: Npc[] = [];
   const count = voiceIds.length;
@@ -583,9 +584,10 @@ export const spawnNpcs = (
     const cell = pickRandomCell(floorCells);
     const position = cellToWorld(layout, cell, NPC_SPRITE_CENTER_HEIGHT);
     const voiceId = voiceIds[index];
+    const portraitDirectory = portraitDirectories[index];
     const sprite = new Sprite(
       `npc_${index}`,
-      getManager(voiceId, index)
+      getManager(portraitDirectory, index)
     );
     sprite.position = position;
     sprite.width = NPC_SPRITE_WIDTH;
@@ -601,6 +603,7 @@ export const spawnNpcs = (
       sprite,
       state: "normal",
       voiceId,
+      portraitDirectory,
       cell,
       goalCell: cell,
       target: position.clone(),

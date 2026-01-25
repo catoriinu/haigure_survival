@@ -1,203 +1,596 @@
-[
-    "/audio/voice/01_devil/悪_110ハイグレ.wav",
-    "/audio/voice/01_devil/悪_210ハイグレ.wav",
-    "/audio/voice/01_devil/悪_310ハイグレ.wav",
-    "/audio/voice/01_devil/悪_410ハイグレ.wav",
-    "/audio/voice/01_devil/悪_410ハイグレ揃.wav",
-    "/audio/voice/01_devil/悪_Aほら、みんなもハイグレを着なさい！.wav",
-    "/audio/voice/01_devil/悪_Aハイグレ最高！.wav",
-    "/audio/voice/01_devil/悪_A洗脳完了よ！.wav",
-    "/audio/voice/01_devil/悪_Bいや….wav",
-    "/audio/voice/01_devil/悪_Bこ、こっち来ないで！.wav",
-    "/audio/voice/01_devil/悪_Bこの変態！.wav",
-    "/audio/voice/01_devil/悪_B嘘！.wav",
-    "/audio/voice/01_devil/悪_B気持ち悪い！.wav",
-    "/audio/voice/01_devil/悪_B誰かぁ….wav",
-    "/audio/voice/01_devil/悪_Cいやああああ！.wav",
-    "/audio/voice/01_devil/悪_Cきゃああああ！.wav",
-    "/audio/voice/01_devil/悪_Cはああああん！.wav",
-    "/audio/voice/02_cool/ク_110ハイグレ.wav",
-    "/audio/voice/02_cool/ク_210ハイグレ.wav",
-    "/audio/voice/02_cool/ク_310ハイグレ.wav",
-    "/audio/voice/02_cool/ク_410ハイグレ.wav",
-    "/audio/voice/02_cool/ク_410ハイグレ揃.wav",
-    "/audio/voice/02_cool/ク_Aあなたも、抵抗しないでハイグレになりましょう.wav",
-    "/audio/voice/02_cool/ク_Aハイグレ最高です.wav",
-    "/audio/voice/02_cool/ク_A洗脳完了しました.wav",
-    "/audio/voice/02_cool/ク_Bあ…あ….wav",
-    "/audio/voice/02_cool/ク_Bここは危険です.wav",
-    "/audio/voice/02_cool/ク_Bここまで頑張ったのに….wav",
-    "/audio/voice/02_cool/ク_B助けて….wav",
-    "/audio/voice/02_cool/ク_B逃げて！.wav",
-    "/audio/voice/02_cool/ク_B逃げられない….wav",
-    "/audio/voice/02_cool/ク_Cあああああん！.wav",
-    "/audio/voice/02_cool/ク_Cうわああああ！.wav",
-    "/audio/voice/02_cool/ク_Cきゃああああ！.wav",
-    "/audio/voice/03_loli/ロ_110ハイグレ.wav",
-    "/audio/voice/03_loli/ロ_210ハイグレ.wav",
-    "/audio/voice/03_loli/ロ_310ハイグレ.wav",
-    "/audio/voice/03_loli/ロ_410ハイグレ.wav",
-    "/audio/voice/03_loli/ロ_410ハイグレ揃.wav",
-    "/audio/voice/03_loli/ロ_Aえへへ、ハイグレ楽しー！.wav",
-    "/audio/voice/03_loli/ロ_Aせんのーかんりょー！.wav",
-    "/audio/voice/03_loli/ロ_Aハイグレ皇女様のしもべになりました！.wav",
-    "/audio/voice/03_loli/ロ_Bうぇぇ、ぐすっ、ひっく.wav",
-    "/audio/voice/03_loli/ロ_Bきゃっ！.wav",
-    "/audio/voice/03_loli/ロ_Bこんなのイヤ！.wav",
-    "/audio/voice/03_loli/ロ_Bやだやだ！.wav",
-    "/audio/voice/03_loli/ロ_B助けて….wav",
-    "/audio/voice/03_loli/ロ_B怖いよぉ！.wav",
-    "/audio/voice/03_loli/ロ_Cああああああ！.wav",
-    "/audio/voice/03_loli/ロ_Cいやあああん！.wav",
-    "/audio/voice/03_loli/ロ_Cきゃああああ！.wav",
-    "/audio/voice/04_knight/騎_110ハイグレ.wav",
-    "/audio/voice/04_knight/騎_210ハイグレ.wav",
-    "/audio/voice/04_knight/騎_310ハイグレ.wav",
-    "/audio/voice/04_knight/騎_410ハイグレ.wav",
-    "/audio/voice/04_knight/騎_410ハイグレ揃.wav",
-    "/audio/voice/04_knight/騎_Aみんな、ハイグレを着よう！.wav",
-    "/audio/voice/04_knight/騎_Aハイグレ皇女様に忠誠を誓います.wav",
-    "/audio/voice/04_knight/騎_A洗脳完了しました！.wav",
-    "/audio/voice/04_knight/騎_Bくそぉ！.wav",
-    "/audio/voice/04_knight/騎_Bここは通さない！.wav",
-    "/audio/voice/04_knight/騎_Bま、待て！.wav",
-    "/audio/voice/04_knight/騎_B助、けて….wav",
-    "/audio/voice/04_knight/騎_B早く逃げろ！.wav",
-    "/audio/voice/04_knight/騎_B負けるものか！.wav",
-    "/audio/voice/04_knight/騎_Cうわああああ！.wav",
-    "/audio/voice/04_knight/騎_Cおほおおおお！.wav",
-    "/audio/voice/04_knight/騎_Cぐあああああ！.wav",
-    "/audio/voice/05_big_sister/姉_110ハイグレ.wav",
-    "/audio/voice/05_big_sister/姉_210ハイグレ.wav",
-    "/audio/voice/05_big_sister/姉_310ハイグレ.wav",
-    "/audio/voice/05_big_sister/姉_410ハイグレ.wav",
-    "/audio/voice/05_big_sister/姉_410ハイグレ揃.wav",
-    "/audio/voice/05_big_sister/姉_Aさあ、あなたもハイグレ人間になるのよ.wav",
-    "/audio/voice/05_big_sister/姉_Aハイグレ気持ちいい…！.wav",
-    "/audio/voice/05_big_sister/姉_A洗脳完了しました！.wav",
-    "/audio/voice/05_big_sister/姉_B…ごめんなさい.wav",
-    "/audio/voice/05_big_sister/姉_Bこんな所で….wav",
-    "/audio/voice/05_big_sister/姉_Bハイグレなんてならない！.wav",
-    "/audio/voice/05_big_sister/姉_B可哀相に….wav",
-    "/audio/voice/05_big_sister/姉_B早く逃げないと！.wav",
-    "/audio/voice/05_big_sister/姉_B私は、私は…っ！.wav",
-    "/audio/voice/05_big_sister/姉_Cいやああああ！.wav",
-    "/audio/voice/05_big_sister/姉_Cきゃああああ！.wav",
-    "/audio/voice/05_big_sister/姉_Cはああああん！.wav",
-    "/audio/voice/06_fine/元_110ハイグレ.wav",
-    "/audio/voice/06_fine/元_210ハイグレ.wav",
-    "/audio/voice/06_fine/元_310ハイグレ.wav",
-    "/audio/voice/06_fine/元_410ハイグレ.wav",
-    "/audio/voice/06_fine/元_410ハイグレ揃.wav",
-    "/audio/voice/06_fine/元_Aハイグレ人間になれてよかったぁ.wav",
-    "/audio/voice/06_fine/元_A洗脳完了しましたー！.wav",
-    "/audio/voice/06_fine/元_A私はハイグレ皇女様のしもべです！.wav",
-    "/audio/voice/06_fine/元_Bあはは….wav",
-    "/audio/voice/06_fine/元_Bちょ、ちょっと待って！.wav",
-    "/audio/voice/06_fine/元_B冗談、だよね？.wav",
-    "/audio/voice/06_fine/元_B助け…！.wav",
-    "/audio/voice/06_fine/元_B嫌嫌嫌ぁっ！.wav",
-    "/audio/voice/06_fine/元_B置いてかないで！.wav",
-    "/audio/voice/06_fine/元_Cああああああ！.wav",
-    "/audio/voice/06_fine/元_Cいやあああん！.wav",
-    "/audio/voice/06_fine/元_Cきゃああああ！.wav",
-    "/audio/voice/07_girl/ギ_110ハイグレ.wav",
-    "/audio/voice/07_girl/ギ_210ハイグレ.wav",
-    "/audio/voice/07_girl/ギ_330ハイグレ.wav",
-    "/audio/voice/07_girl/ギ_410ハイグレ.wav",
-    "/audio/voice/07_girl/ギ_410ハイグレ揃.wav",
-    "/audio/voice/07_girl/ギ_Aお前もハイグレになるんだよ！.wav",
-    "/audio/voice/07_girl/ギ_Aやべっ、ハイグレ気持ちいい…っ.wav",
-    "/audio/voice/07_girl/ギ_A洗脳完了だ！.wav",
-    "/audio/voice/07_girl/ギ_Bあんな変態になりたくねぇよ！.wav",
-    "/audio/voice/07_girl/ギ_Bう、あぁ….wav",
-    "/audio/voice/07_girl/ギ_Bおいおい、やべぇよ….wav",
-    "/audio/voice/07_girl/ギ_Bここは安全なはずだろ！？.wav",
-    "/audio/voice/07_girl/ギ_Bや、やめろ！.wav",
-    "/audio/voice/07_girl/ギ_Bキモいんだよ！.wav",
-    "/audio/voice/07_girl/ギ_Cうわああああ！.wav",
-    "/audio/voice/07_girl/ギ_Cくそおおおお！.wav",
-    "/audio/voice/07_girl/ギ_Cはああああん！.wav",
-    "/audio/voice/08_syota/シ_110ハイグレ.wav",
-    "/audio/voice/08_syota/シ_210ハイグレ.wav",
-    "/audio/voice/08_syota/シ_310ハイグレ.wav",
-    "/audio/voice/08_syota/シ_410ハイグレ.wav",
-    "/audio/voice/08_syota/シ_410ハイグレ揃.wav",
-    "/audio/voice/08_syota/シ_A僕、ハイグレ姿になれて嬉しいよ！.wav",
-    "/audio/voice/08_syota/シ_A僕と一緒にハイグレを着よう！.wav",
-    "/audio/voice/08_syota/シ_A洗脳完了！.wav",
-    "/audio/voice/08_syota/シ_B…嫌だ.wav",
-    "/audio/voice/08_syota/シ_Bあ…あぁっ.wav",
-    "/audio/voice/08_syota/シ_Bこ、こっち来るな！.wav",
-    "/audio/voice/08_syota/シ_Bそんなの着たくない！.wav",
-    "/audio/voice/08_syota/シ_Bやめろ！.wav",
-    "/audio/voice/08_syota/シ_B僕、男なのに….wav",
-    "/audio/voice/08_syota/シ_Cうわああああ！.wav",
-    "/audio/voice/08_syota/シ_Cだあああああ！.wav",
-    "/audio/voice/08_syota/シ_Cんなああああ！.wav",
-    "/audio/voice/09_little_sister/妹_110ハイグレ.wav",
-    "/audio/voice/09_little_sister/妹_210ハイグレ.wav",
-    "/audio/voice/09_little_sister/妹_310ハイグレ.wav",
-    "/audio/voice/09_little_sister/妹_410ハイグレ.wav",
-    "/audio/voice/09_little_sister/妹_410ハイグレ揃.wav",
-    "/audio/voice/09_little_sister/妹_Aこれがハイグレなんだ…！.wav",
-    "/audio/voice/09_little_sister/妹_Aハイグレはとっても気持ちいいよ？.wav",
-    "/audio/voice/09_little_sister/妹_A洗脳完了しました！.wav",
-    "/audio/voice/09_little_sister/妹_Bお姉ちゃん…！.wav",
-    "/audio/voice/09_little_sister/妹_Bごめんなさい….wav",
-    "/audio/voice/09_little_sister/妹_Bせめて一緒に…！.wav",
-    "/audio/voice/09_little_sister/妹_Bみんな…！.wav",
-    "/audio/voice/09_little_sister/妹_B助けて！.wav",
-    "/audio/voice/09_little_sister/妹_B嫌っ….wav",
-    "/audio/voice/09_little_sister/妹_Cいやああああ！.wav",
-    "/audio/voice/09_little_sister/妹_Cきゃああああ！.wav",
-    "/audio/voice/09_little_sister/妹_Cはああああん！.wav",
-    "/audio/voice/10_mother/母_110ハイグレ.wav",
-    "/audio/voice/10_mother/母_210ハイグレ.wav",
-    "/audio/voice/10_mother/母_310ハイグレ.wav",
-    "/audio/voice/10_mother/母_410ハイグレ.wav",
-    "/audio/voice/10_mother/母_410ハイグレ揃.wav",
-    "/audio/voice/10_mother/母_Aほら、あなたもハイグレ皇女様のしもべになりなさい.wav",
-    "/audio/voice/10_mother/母_Aハイグレがこんなに素晴らしいなんて…！.wav",
-    "/audio/voice/10_mother/母_A洗脳完了しました！.wav",
-    "/audio/voice/10_mother/母_Bお願いします、娘だけは！.wav",
-    "/audio/voice/10_mother/母_Bこっちよ！.wav",
-    "/audio/voice/10_mother/母_Bせめて、娘のそばで….wav",
-    "/audio/voice/10_mother/母_Bそんな…！.wav",
-    "/audio/voice/10_mother/母_Bハイグレ人間にしてください….wav",
-    "/audio/voice/10_mother/母_B私が代わりになりますから！.wav",
-    "/audio/voice/10_mother/母_Cああああああ！.wav",
-    "/audio/voice/10_mother/母_Cきゃああああ！.wav",
-    "/audio/voice/10_mother/母_Cはああああん！.wav",
-    "/audio/voice/11_poor/天_110ハイグレ.wav",
-    "/audio/voice/11_poor/天_210ハイグレ.wav",
-    "/audio/voice/11_poor/天_310ハイグレ.wav",
-    "/audio/voice/11_poor/天_410ハイグレ.wav",
-    "/audio/voice/11_poor/天_410ハイグレ揃.wav",
-    "/audio/voice/11_poor/天_Aあなたも、着てみる？.wav",
-    "/audio/voice/11_poor/天_Aえへ、せんのーかんりょー.wav",
-    "/audio/voice/11_poor/天_Aハイグレ人間になっちゃったぁ.wav",
-    "/audio/voice/11_poor/天_Bあなた、誰ー？.wav",
-    "/audio/voice/11_poor/天_Bうん、分かったぁ.wav",
-    "/audio/voice/11_poor/天_Bどうしたの？.wav",
-    "/audio/voice/11_poor/天_Bふぇ？.wav",
-    "/audio/voice/11_poor/天_Bみんな忙しそうだねぇ.wav",
-    "/audio/voice/11_poor/天_Bわ。びっくりした.wav",
-    "/audio/voice/11_poor/天_Cあうううっ.wav",
-    "/audio/voice/11_poor/天_Cひゃううっ.wav",
-    "/audio/voice/11_poor/天_Cふわああっ.wav",
-    "/audio/voice/12_anauncer/ア_110ハイグレ.wav",
-    "/audio/voice/12_anauncer/ア_210ハイグレ.wav",
-    "/audio/voice/12_anauncer/ア_310ハイグレ.wav",
-    "/audio/voice/12_anauncer/ア_410ハイグレ.wav",
-    "/audio/voice/12_anauncer/ア_410ハイグレ揃.wav",
-    "/audio/voice/12_anauncer/ア_A洗脳完了です！.wav",
-    "/audio/voice/12_anauncer/ア_A皆さんも、ハイグレを着ましょう！.wav",
-    "/audio/voice/12_anauncer/ア_A私はたった今、ハイグレ人間に転向いたしました！.wav",
-    "/audio/voice/12_anauncer/ア_Bあぁっ！見つかった！？.wav",
-    "/audio/voice/12_anauncer/ア_Bこんな所もう嫌！.wav",
-    "/audio/voice/12_anauncer/ア_B誰か助けてえぇぇ！.wav",
-    "/audio/voice/12_anauncer/ア_Cうわああああ！.wav",
-    "/audio/voice/12_anauncer/ア_Cきゃああああ！.wav",
-    "/audio/voice/12_anauncer/ア_Cはああああん！.wav"
-]
+{
+  "01": {
+    "normal": [
+      "01_devil/悪_Bいや….wav",
+      "01_devil/悪_Bこ、こっち来ないで！.wav",
+      "01_devil/悪_Bこの変態！.wav",
+      "01_devil/悪_B嘘！.wav",
+      "01_devil/悪_B気持ち悪い！.wav",
+      "01_devil/悪_B誰かぁ….wav"
+    ],
+    "evade": [
+      "01_devil/悪_Bいや….wav",
+      "01_devil/悪_Bこ、こっち来ないで！.wav",
+      "01_devil/悪_Bこの変態！.wav",
+      "01_devil/悪_B嘘！.wav",
+      "01_devil/悪_B気持ち悪い！.wav",
+      "01_devil/悪_B誰かぁ….wav"
+    ],
+    "hit-a": [
+      "01_devil/悪_Cいやああああ！.wav",
+      "01_devil/悪_Cきゃああああ！.wav",
+      "01_devil/悪_Cはああああん！.wav"
+    ],
+    "hit-b": [],
+    "brainwash-in-progress": [
+      "01_devil/悪_110ハイグレ.wav"
+    ],
+    "brainwash-complete-gun": [
+      "01_devil/悪_Aほら、みんなもハイグレを着なさい！.wav",
+      "01_devil/悪_Aハイグレ最高！.wav",
+      "01_devil/悪_A洗脳完了よ！.wav"
+    ],
+    "brainwash-complete-no-gun": [
+      "01_devil/悪_Aほら、みんなもハイグレを着なさい！.wav",
+      "01_devil/悪_Aハイグレ最高！.wav",
+      "01_devil/悪_A洗脳完了よ！.wav"
+    ],
+    "brainwash-complete-haigure": {
+      "enter": [
+        "01_devil/悪_Aほら、みんなもハイグレを着なさい！.wav",
+        "01_devil/悪_Aハイグレ最高！.wav",
+        "01_devil/悪_A洗脳完了よ！.wav"
+      ],
+      "loop": [
+        "01_devil/悪_410ハイグレ.wav"
+      ]
+    },
+    "brainwash-complete-haigure-formation": [
+      "01_devil/悪_410ハイグレ揃.wav"
+    ]
+  },
+  "02": {
+    "normal": [
+      "02_cool/ク_Bあ…あ….wav",
+      "02_cool/ク_Bここは危険です.wav",
+      "02_cool/ク_Bここまで頑張ったのに….wav",
+      "02_cool/ク_B助けて….wav",
+      "02_cool/ク_B逃げて！.wav",
+      "02_cool/ク_B逃げられない….wav"
+    ],
+    "evade": [
+      "02_cool/ク_Bあ…あ….wav",
+      "02_cool/ク_Bここは危険です.wav",
+      "02_cool/ク_Bここまで頑張ったのに….wav",
+      "02_cool/ク_B助けて….wav",
+      "02_cool/ク_B逃げて！.wav",
+      "02_cool/ク_B逃げられない….wav"
+    ],
+    "hit-a": [
+      "02_cool/ク_Cあああああん！.wav",
+      "02_cool/ク_Cうわああああ！.wav",
+      "02_cool/ク_Cきゃああああ！.wav"
+    ],
+    "hit-b": [],
+    "brainwash-in-progress": [
+      "02_cool/ク_110ハイグレ.wav"
+    ],
+    "brainwash-complete-gun": [
+      "02_cool/ク_Aあなたも、抵抗しないでハイグレになりましょう.wav",
+      "02_cool/ク_Aハイグレ最高です.wav",
+      "02_cool/ク_A洗脳完了しました.wav"
+    ],
+    "brainwash-complete-no-gun": [
+      "02_cool/ク_Aあなたも、抵抗しないでハイグレになりましょう.wav",
+      "02_cool/ク_Aハイグレ最高です.wav",
+      "02_cool/ク_A洗脳完了しました.wav"
+    ],
+    "brainwash-complete-haigure": {
+      "enter": [
+        "02_cool/ク_Aあなたも、抵抗しないでハイグレになりましょう.wav",
+        "02_cool/ク_Aハイグレ最高です.wav",
+        "02_cool/ク_A洗脳完了しました.wav"
+      ],
+      "loop": [
+        "02_cool/ク_410ハイグレ.wav"
+      ]
+    },
+    "brainwash-complete-haigure-formation": [
+      "02_cool/ク_410ハイグレ揃.wav"
+    ]
+  },
+  "03": {
+    "normal": [
+      "03_loli/ロ_Bうぇぇ、ぐすっ、ひっく.wav",
+      "03_loli/ロ_Bきゃっ！.wav",
+      "03_loli/ロ_Bこんなのイヤ！.wav",
+      "03_loli/ロ_Bやだやだ！.wav",
+      "03_loli/ロ_B助けて….wav",
+      "03_loli/ロ_B怖いよぉ！.wav"
+    ],
+    "evade": [
+      "03_loli/ロ_Bうぇぇ、ぐすっ、ひっく.wav",
+      "03_loli/ロ_Bきゃっ！.wav",
+      "03_loli/ロ_Bこんなのイヤ！.wav",
+      "03_loli/ロ_Bやだやだ！.wav",
+      "03_loli/ロ_B助けて….wav",
+      "03_loli/ロ_B怖いよぉ！.wav"
+    ],
+    "hit-a": [
+      "03_loli/ロ_Cああああああ！.wav",
+      "03_loli/ロ_Cいやあああん！.wav",
+      "03_loli/ロ_Cきゃああああ！.wav"
+    ],
+    "hit-b": [],
+    "brainwash-in-progress": [
+      "03_loli/ロ_110ハイグレ.wav"
+    ],
+    "brainwash-complete-gun": [
+      "03_loli/ロ_Aえへへ、ハイグレ楽しー！.wav",
+      "03_loli/ロ_Aせんのーかんりょー！.wav",
+      "03_loli/ロ_Aハイグレ皇女様のしもべになりました！.wav"
+    ],
+    "brainwash-complete-no-gun": [
+      "03_loli/ロ_Aえへへ、ハイグレ楽しー！.wav",
+      "03_loli/ロ_Aせんのーかんりょー！.wav",
+      "03_loli/ロ_Aハイグレ皇女様のしもべになりました！.wav"
+    ],
+    "brainwash-complete-haigure": {
+      "enter": [
+        "03_loli/ロ_Aえへへ、ハイグレ楽しー！.wav",
+        "03_loli/ロ_Aせんのーかんりょー！.wav",
+        "03_loli/ロ_Aハイグレ皇女様のしもべになりました！.wav"
+      ],
+      "loop": [
+        "03_loli/ロ_410ハイグレ.wav"
+      ]
+    },
+    "brainwash-complete-haigure-formation": [
+      "03_loli/ロ_410ハイグレ揃.wav"
+    ]
+  },
+  "04": {
+    "normal": [
+      "04_knight/騎_Bくそぉ！.wav",
+      "04_knight/騎_Bここは通さない！.wav",
+      "04_knight/騎_Bま、待て！.wav",
+      "04_knight/騎_B助、けて….wav",
+      "04_knight/騎_B早く逃げろ！.wav",
+      "04_knight/騎_B負けるものか！.wav"
+    ],
+    "evade": [
+      "04_knight/騎_Bくそぉ！.wav",
+      "04_knight/騎_Bここは通さない！.wav",
+      "04_knight/騎_Bま、待て！.wav",
+      "04_knight/騎_B助、けて….wav",
+      "04_knight/騎_B早く逃げろ！.wav",
+      "04_knight/騎_B負けるものか！.wav"
+    ],
+    "hit-a": [
+      "04_knight/騎_Cうわああああ！.wav",
+      "04_knight/騎_Cおほおおおお！.wav",
+      "04_knight/騎_Cぐあああああ！.wav"
+    ],
+    "hit-b": [],
+    "brainwash-in-progress": [
+      "04_knight/騎_110ハイグレ.wav"
+    ],
+    "brainwash-complete-gun": [
+      "04_knight/騎_Aみんな、ハイグレを着よう！.wav",
+      "04_knight/騎_Aハイグレ皇女様に忠誠を誓います.wav",
+      "04_knight/騎_A洗脳完了しました！.wav"
+    ],
+    "brainwash-complete-no-gun": [
+      "04_knight/騎_Aみんな、ハイグレを着よう！.wav",
+      "04_knight/騎_Aハイグレ皇女様に忠誠を誓います.wav",
+      "04_knight/騎_A洗脳完了しました！.wav"
+    ],
+    "brainwash-complete-haigure": {
+      "enter": [
+        "04_knight/騎_Aみんな、ハイグレを着よう！.wav",
+        "04_knight/騎_Aハイグレ皇女様に忠誠を誓います.wav",
+        "04_knight/騎_A洗脳完了しました！.wav"
+      ],
+      "loop": [
+        "04_knight/騎_410ハイグレ.wav"
+      ]
+    },
+    "brainwash-complete-haigure-formation": [
+      "04_knight/騎_410ハイグレ揃.wav"
+    ]
+  },
+  "05": {
+    "normal": [
+      "05_big_sister/姉_B…ごめんなさい.wav",
+      "05_big_sister/姉_Bこんな所で….wav",
+      "05_big_sister/姉_Bハイグレなんてならない！.wav",
+      "05_big_sister/姉_B可哀相に….wav",
+      "05_big_sister/姉_B早く逃げないと！.wav",
+      "05_big_sister/姉_B私は、私は…っ！.wav"
+    ],
+    "evade": [
+      "05_big_sister/姉_B…ごめんなさい.wav",
+      "05_big_sister/姉_Bこんな所で….wav",
+      "05_big_sister/姉_Bハイグレなんてならない！.wav",
+      "05_big_sister/姉_B可哀相に….wav",
+      "05_big_sister/姉_B早く逃げないと！.wav",
+      "05_big_sister/姉_B私は、私は…っ！.wav"
+    ],
+    "hit-a": [
+      "05_big_sister/姉_Cいやああああ！.wav",
+      "05_big_sister/姉_Cきゃああああ！.wav",
+      "05_big_sister/姉_Cはああああん！.wav"
+    ],
+    "hit-b": [],
+    "brainwash-in-progress": [
+      "05_big_sister/姉_110ハイグレ.wav"
+    ],
+    "brainwash-complete-gun": [
+      "05_big_sister/姉_Aさあ、あなたもハイグレ人間になるのよ.wav",
+      "05_big_sister/姉_Aハイグレ気持ちいい…！.wav",
+      "05_big_sister/姉_A洗脳完了しました！.wav"
+    ],
+    "brainwash-complete-no-gun": [
+      "05_big_sister/姉_Aさあ、あなたもハイグレ人間になるのよ.wav",
+      "05_big_sister/姉_Aハイグレ気持ちいい…！.wav",
+      "05_big_sister/姉_A洗脳完了しました！.wav"
+    ],
+    "brainwash-complete-haigure": {
+      "enter": [
+        "05_big_sister/姉_Aさあ、あなたもハイグレ人間になるのよ.wav",
+        "05_big_sister/姉_Aハイグレ気持ちいい…！.wav",
+        "05_big_sister/姉_A洗脳完了しました！.wav"
+      ],
+      "loop": [
+        "05_big_sister/姉_410ハイグレ.wav"
+      ]
+    },
+    "brainwash-complete-haigure-formation": [
+      "05_big_sister/姉_410ハイグレ揃.wav"
+    ]
+  },
+  "06": {
+    "normal": [
+      "06_fine/元_Bあはは….wav",
+      "06_fine/元_Bちょ、ちょっと待って！.wav",
+      "06_fine/元_B冗談、だよね？.wav",
+      "06_fine/元_B助け…！.wav",
+      "06_fine/元_B嫌嫌嫌ぁっ！.wav",
+      "06_fine/元_B置いてかないで！.wav"
+    ],
+    "evade": [
+      "06_fine/元_Bあはは….wav",
+      "06_fine/元_Bちょ、ちょっと待って！.wav",
+      "06_fine/元_B冗談、だよね？.wav",
+      "06_fine/元_B助け…！.wav",
+      "06_fine/元_B嫌嫌嫌ぁっ！.wav",
+      "06_fine/元_B置いてかないで！.wav"
+    ],
+    "hit-a": [
+      "06_fine/元_Cああああああ！.wav",
+      "06_fine/元_Cいやあああん！.wav",
+      "06_fine/元_Cきゃああああ！.wav"
+    ],
+    "hit-b": [],
+    "brainwash-in-progress": [
+      "06_fine/元_110ハイグレ.wav"
+    ],
+    "brainwash-complete-gun": [
+      "06_fine/元_Aハイグレ人間になれてよかったぁ.wav",
+      "06_fine/元_A洗脳完了しましたー！.wav",
+      "06_fine/元_A私はハイグレ皇女様のしもべです！.wav"
+    ],
+    "brainwash-complete-no-gun": [
+      "06_fine/元_Aハイグレ人間になれてよかったぁ.wav",
+      "06_fine/元_A洗脳完了しましたー！.wav",
+      "06_fine/元_A私はハイグレ皇女様のしもべです！.wav"
+    ],
+    "brainwash-complete-haigure": {
+      "enter": [
+        "06_fine/元_Aハイグレ人間になれてよかったぁ.wav",
+        "06_fine/元_A洗脳完了しましたー！.wav",
+        "06_fine/元_A私はハイグレ皇女様のしもべです！.wav"
+      ],
+      "loop": [
+        "06_fine/元_410ハイグレ.wav"
+      ]
+    },
+    "brainwash-complete-haigure-formation": [
+      "06_fine/元_410ハイグレ揃.wav"
+    ]
+  },
+  "07": {
+    "normal": [
+      "07_girl/ギ_Bあんな変態になりたくねぇよ！.wav",
+      "07_girl/ギ_Bう、あぁ….wav",
+      "07_girl/ギ_Bおいおい、やべぇよ….wav",
+      "07_girl/ギ_Bここは安全なはずだろ！？.wav",
+      "07_girl/ギ_Bや、やめろ！.wav",
+      "07_girl/ギ_Bキモいんだよ！.wav"
+    ],
+    "evade": [
+      "07_girl/ギ_Bあんな変態になりたくねぇよ！.wav",
+      "07_girl/ギ_Bう、あぁ….wav",
+      "07_girl/ギ_Bおいおい、やべぇよ….wav",
+      "07_girl/ギ_Bここは安全なはずだろ！？.wav",
+      "07_girl/ギ_Bや、やめろ！.wav",
+      "07_girl/ギ_Bキモいんだよ！.wav"
+    ],
+    "hit-a": [
+      "07_girl/ギ_Cうわああああ！.wav",
+      "07_girl/ギ_Cくそおおおお！.wav",
+      "07_girl/ギ_Cはああああん！.wav"
+    ],
+    "hit-b": [],
+    "brainwash-in-progress": [
+      "07_girl/ギ_110ハイグレ.wav"
+    ],
+    "brainwash-complete-gun": [
+      "07_girl/ギ_Aお前もハイグレになるんだよ！.wav",
+      "07_girl/ギ_Aやべっ、ハイグレ気持ちいい…っ.wav",
+      "07_girl/ギ_A洗脳完了だ！.wav"
+    ],
+    "brainwash-complete-no-gun": [
+      "07_girl/ギ_Aお前もハイグレになるんだよ！.wav",
+      "07_girl/ギ_Aやべっ、ハイグレ気持ちいい…っ.wav",
+      "07_girl/ギ_A洗脳完了だ！.wav"
+    ],
+    "brainwash-complete-haigure": {
+      "enter": [
+        "07_girl/ギ_Aお前もハイグレになるんだよ！.wav",
+        "07_girl/ギ_Aやべっ、ハイグレ気持ちいい…っ.wav",
+        "07_girl/ギ_A洗脳完了だ！.wav"
+      ],
+      "loop": [
+        "07_girl/ギ_410ハイグレ.wav"
+      ]
+    },
+    "brainwash-complete-haigure-formation": [
+      "07_girl/ギ_410ハイグレ揃.wav"
+    ]
+  },
+  "08": {
+    "normal": [
+      "08_syota/シ_B…嫌だ.wav",
+      "08_syota/シ_Bあ…あぁっ.wav",
+      "08_syota/シ_Bこ、こっち来るな！.wav",
+      "08_syota/シ_Bそんなの着たくない！.wav",
+      "08_syota/シ_Bやめろ！.wav",
+      "08_syota/シ_B僕、男なのに….wav"
+    ],
+    "evade": [
+      "08_syota/シ_B…嫌だ.wav",
+      "08_syota/シ_Bあ…あぁっ.wav",
+      "08_syota/シ_Bこ、こっち来るな！.wav",
+      "08_syota/シ_Bそんなの着たくない！.wav",
+      "08_syota/シ_Bやめろ！.wav",
+      "08_syota/シ_B僕、男なのに….wav"
+    ],
+    "hit-a": [
+      "08_syota/シ_Cうわああああ！.wav",
+      "08_syota/シ_Cだあああああ！.wav",
+      "08_syota/シ_Cんなああああ！.wav"
+    ],
+    "hit-b": [],
+    "brainwash-in-progress": [
+      "08_syota/シ_110ハイグレ.wav"
+    ],
+    "brainwash-complete-gun": [
+      "08_syota/シ_A僕、ハイグレ姿になれて嬉しいよ！.wav",
+      "08_syota/シ_A僕と一緒にハイグレを着よう！.wav",
+      "08_syota/シ_A洗脳完了！.wav"
+    ],
+    "brainwash-complete-no-gun": [
+      "08_syota/シ_A僕、ハイグレ姿になれて嬉しいよ！.wav",
+      "08_syota/シ_A僕と一緒にハイグレを着よう！.wav",
+      "08_syota/シ_A洗脳完了！.wav"
+    ],
+    "brainwash-complete-haigure": {
+      "enter": [
+        "08_syota/シ_A僕、ハイグレ姿になれて嬉しいよ！.wav",
+        "08_syota/シ_A僕と一緒にハイグレを着よう！.wav",
+        "08_syota/シ_A洗脳完了！.wav"
+      ],
+      "loop": [
+        "08_syota/シ_410ハイグレ.wav"
+      ]
+    },
+    "brainwash-complete-haigure-formation": [
+      "08_syota/シ_410ハイグレ揃.wav"
+    ]
+  },
+  "09": {
+    "normal": [
+      "09_little_sister/妹_Bお姉ちゃん…！.wav",
+      "09_little_sister/妹_Bごめんなさい….wav",
+      "09_little_sister/妹_Bせめて一緒に…！.wav",
+      "09_little_sister/妹_Bみんな…！.wav",
+      "09_little_sister/妹_B助けて！.wav",
+      "09_little_sister/妹_B嫌っ….wav"
+    ],
+    "evade": [
+      "09_little_sister/妹_Bお姉ちゃん…！.wav",
+      "09_little_sister/妹_Bごめんなさい….wav",
+      "09_little_sister/妹_Bせめて一緒に…！.wav",
+      "09_little_sister/妹_Bみんな…！.wav",
+      "09_little_sister/妹_B助けて！.wav",
+      "09_little_sister/妹_B嫌っ….wav"
+    ],
+    "hit-a": [
+      "09_little_sister/妹_Cいやああああ！.wav",
+      "09_little_sister/妹_Cきゃああああ！.wav",
+      "09_little_sister/妹_Cはああああん！.wav"
+    ],
+    "hit-b": [],
+    "brainwash-in-progress": [
+      "09_little_sister/妹_110ハイグレ.wav"
+    ],
+    "brainwash-complete-gun": [
+      "09_little_sister/妹_Aこれがハイグレなんだ…！.wav",
+      "09_little_sister/妹_Aハイグレはとっても気持ちいいよ？.wav",
+      "09_little_sister/妹_A洗脳完了しました！.wav"
+    ],
+    "brainwash-complete-no-gun": [
+      "09_little_sister/妹_Aこれがハイグレなんだ…！.wav",
+      "09_little_sister/妹_Aハイグレはとっても気持ちいいよ？.wav",
+      "09_little_sister/妹_A洗脳完了しました！.wav"
+    ],
+    "brainwash-complete-haigure": {
+      "enter": [
+        "09_little_sister/妹_Aこれがハイグレなんだ…！.wav",
+        "09_little_sister/妹_Aハイグレはとっても気持ちいいよ？.wav",
+        "09_little_sister/妹_A洗脳完了しました！.wav"
+      ],
+      "loop": [
+        "09_little_sister/妹_410ハイグレ.wav"
+      ]
+    },
+    "brainwash-complete-haigure-formation": [
+      "09_little_sister/妹_410ハイグレ揃.wav"
+    ]
+  },
+  "10": {
+    "normal": [
+      "10_mother/母_Bお願いします、娘だけは！.wav",
+      "10_mother/母_Bこっちよ！.wav",
+      "10_mother/母_Bせめて、娘のそばで….wav",
+      "10_mother/母_Bそんな…！.wav",
+      "10_mother/母_Bハイグレ人間にしてください….wav",
+      "10_mother/母_B私が代わりになりますから！.wav"
+    ],
+    "evade": [
+      "10_mother/母_Bお願いします、娘だけは！.wav",
+      "10_mother/母_Bこっちよ！.wav",
+      "10_mother/母_Bせめて、娘のそばで….wav",
+      "10_mother/母_Bそんな…！.wav",
+      "10_mother/母_Bハイグレ人間にしてください….wav",
+      "10_mother/母_B私が代わりになりますから！.wav"
+    ],
+    "hit-a": [
+      "10_mother/母_Cああああああ！.wav",
+      "10_mother/母_Cきゃああああ！.wav",
+      "10_mother/母_Cはああああん！.wav"
+    ],
+    "hit-b": [],
+    "brainwash-in-progress": [
+      "10_mother/母_110ハイグレ.wav"
+    ],
+    "brainwash-complete-gun": [
+      "10_mother/母_Aほら、あなたもハイグレ皇女様のしもべになりなさい.wav",
+      "10_mother/母_Aハイグレがこんなに素晴らしいなんて…！.wav",
+      "10_mother/母_A洗脳完了しました！.wav"
+    ],
+    "brainwash-complete-no-gun": [
+      "10_mother/母_Aほら、あなたもハイグレ皇女様のしもべになりなさい.wav",
+      "10_mother/母_Aハイグレがこんなに素晴らしいなんて…！.wav",
+      "10_mother/母_A洗脳完了しました！.wav"
+    ],
+    "brainwash-complete-haigure": {
+      "enter": [
+        "10_mother/母_Aほら、あなたもハイグレ皇女様のしもべになりなさい.wav",
+        "10_mother/母_Aハイグレがこんなに素晴らしいなんて…！.wav",
+        "10_mother/母_A洗脳完了しました！.wav"
+      ],
+      "loop": [
+        "10_mother/母_410ハイグレ.wav"
+      ]
+    },
+    "brainwash-complete-haigure-formation": [
+      "10_mother/母_410ハイグレ揃.wav"
+    ]
+  },
+  "11": {
+    "normal": [
+      "11_poor/天_Bあなた、誰ー？.wav",
+      "11_poor/天_Bうん、分かったぁ.wav",
+      "11_poor/天_Bどうしたの？.wav",
+      "11_poor/天_Bふぇ？.wav",
+      "11_poor/天_Bみんな忙しそうだねぇ.wav",
+      "11_poor/天_Bわ。びっくりした.wav"
+    ],
+    "evade": [
+      "11_poor/天_Bあなた、誰ー？.wav",
+      "11_poor/天_Bうん、分かったぁ.wav",
+      "11_poor/天_Bどうしたの？.wav",
+      "11_poor/天_Bふぇ？.wav",
+      "11_poor/天_Bみんな忙しそうだねぇ.wav",
+      "11_poor/天_Bわ。びっくりした.wav"
+    ],
+    "hit-a": [
+      "11_poor/天_Cあうううっ.wav",
+      "11_poor/天_Cひゃううっ.wav",
+      "11_poor/天_Cふわああっ.wav"
+    ],
+    "hit-b": [],
+    "brainwash-in-progress": [
+      "11_poor/天_110ハイグレ.wav"
+    ],
+    "brainwash-complete-gun": [
+      "11_poor/天_Aあなたも、着てみる？.wav",
+      "11_poor/天_Aえへ、せんのーかんりょー.wav",
+      "11_poor/天_Aハイグレ人間になっちゃったぁ.wav"
+    ],
+    "brainwash-complete-no-gun": [
+      "11_poor/天_Aあなたも、着てみる？.wav",
+      "11_poor/天_Aえへ、せんのーかんりょー.wav",
+      "11_poor/天_Aハイグレ人間になっちゃったぁ.wav"
+    ],
+    "brainwash-complete-haigure": {
+      "enter": [
+        "11_poor/天_Aあなたも、着てみる？.wav",
+        "11_poor/天_Aえへ、せんのーかんりょー.wav",
+        "11_poor/天_Aハイグレ人間になっちゃったぁ.wav"
+      ],
+      "loop": [
+        "11_poor/天_410ハイグレ.wav"
+      ]
+    },
+    "brainwash-complete-haigure-formation": [
+      "11_poor/天_410ハイグレ揃.wav"
+    ]
+  },
+  "12": {
+    "normal": [
+      "12_anauncer/ア_Bあぁっ！見つかった！？.wav",
+      "12_anauncer/ア_Bこんな所もう嫌！.wav",
+      "12_anauncer/ア_B誰か助けてえぇぇ！.wav"
+    ],
+    "evade": [
+      "12_anauncer/ア_Bあぁっ！見つかった！？.wav",
+      "12_anauncer/ア_Bこんな所もう嫌！.wav",
+      "12_anauncer/ア_B誰か助けてえぇぇ！.wav"
+    ],
+    "hit-a": [
+      "12_anauncer/ア_Cうわああああ！.wav",
+      "12_anauncer/ア_Cきゃああああ！.wav",
+      "12_anauncer/ア_Cはああああん！.wav"
+    ],
+    "hit-b": [],
+    "brainwash-in-progress": [
+      "12_anauncer/ア_110ハイグレ.wav"
+    ],
+    "brainwash-complete-gun": [
+      "12_anauncer/ア_A洗脳完了です！.wav",
+      "12_anauncer/ア_A皆さんも、ハイグレを着ましょう！.wav",
+      "12_anauncer/ア_A私はたった今、ハイグレ人間に転向いたしました！.wav"
+    ],
+    "brainwash-complete-no-gun": [
+      "12_anauncer/ア_A洗脳完了です！.wav",
+      "12_anauncer/ア_A皆さんも、ハイグレを着ましょう！.wav",
+      "12_anauncer/ア_A私はたった今、ハイグレ人間に転向いたしました！.wav"
+    ],
+    "brainwash-complete-haigure": {
+      "enter": [
+        "12_anauncer/ア_A洗脳完了です！.wav",
+        "12_anauncer/ア_A皆さんも、ハイグレを着ましょう！.wav",
+        "12_anauncer/ア_A私はたった今、ハイグレ人間に転向いたしました！.wav"
+      ],
+      "loop": [
+        "12_anauncer/ア_410ハイグレ.wav"
+      ]
+    },
+    "brainwash-complete-haigure-formation": [
+      "12_anauncer/ア_410ハイグレ揃.wav"
+    ]
+  }
+}
