@@ -63,6 +63,7 @@ export const createHitEffectMesh = (
   material.alpha = options.alpha;
   material.emissiveColor = options.color.clone();
   material.diffuseColor = options.color.clone();
+  material.specularColor = Color3.Black();
   if (options.backFaceCulling !== undefined) {
     material.backFaceCulling = options.backFaceCulling;
   }
