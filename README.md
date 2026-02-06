@@ -28,7 +28,7 @@
    - インストールに成功していても、何らかの注意文が表示されることがあります。明らかなエラーではない限り、一旦次に進んでみてください。
    - 【Windows, PowerShell】エラー`npm : このシステムではスクリプトの実行が無効になっているため、ファイル ～ を読み込むことができません。`が発生したら
      - スクリプトの実行ポリシーを一時的に変更すると解決するかもしれません。
-     - 変更コマンド例：`Set-ExecutionPolicy -ExecutionPolicy Restricted -Scope Process`
+     - 変更コマンド例：`Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process`
 5. 開発用のサーバーを起動する。
    - `npm run dev` コマンドを実行する。
 6. ブラウザで以下の動作確認用URLにアクセスする。
