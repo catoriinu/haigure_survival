@@ -3,6 +3,7 @@
 ハイグレ洗脳されたい人向け一人称視点サバイバルゲームです。
 
 ソースコードのみ配布しています。
+ゲームはウェブブラウザ上で起動します（推奨：Google Chrome）。起動方法は「必須手順」を参照してください。
 各種素材は各自でご用意ください。導入方法はREADMEの「任意手順」を参照してください。
 
 バグ報告、機能追加提案などがありましたらissueを立ててください。
@@ -14,23 +15,33 @@
    - 公式サイト（https://nodejs.org/ ）から LTS をダウンロードして実行する。
    - 画面の指示に従ってインストールを完了する。
 2. このリポジトリのソースコードをダウンロードし、解凍する。
-   - GitHubの`Code`ボタン → `Download ZIP`ボタンでダウンロード可能。もちろん`git clone`でも可
+   - GitHub画面内の`Code`ボタン → `Download ZIP`ボタンでダウンロード可能。gitコマンドが使えるなら`git clone`でも可
    - フォルダごと任意の場所へコピーする。
    - 例: `D:\games\haigure_survival-main`
 3. ターミナルを開き、プロジェクトフォルダへ移動する。
-   - Windows の場合: PowerShell を開く
+   - Windows の場合: PowerShell を開き、移動コマンドを実行。
      例: `cd D:\games\haigure_survival-main`
-   - mac の場合: ターミナルを開く
+   - mac の場合: ターミナルを開き、移動コマンドを実行。
      例: `cd /Users/<ユーザー名>/games/haigure_survival-main`
 4. 依存関係をインストールする。
-   - `npm install` コマンドを実行する
+   - `npm install` コマンドを実行する。
    - インストールに成功していても、何らかの注意文が表示されることがあります。明らかなエラーではない限り、一旦次に進んでみてください。
-5. 開発サーバーを起動する。
-   - `npm run dev` コマンドを実行する
-6. ブラウザでアクセスする。
-   - `http://localhost:5175`
-7. 終了する。
+   - 【Windows, PowerShell】エラー`npm : このシステムではスクリプトの実行が無効になっているため、ファイル ～ を読み込むことができません。`が発生したら
+     - スクリプトの実行ポリシーを一時的に変更すると解決するかもしれません。
+     - 変更コマンド例：`Set-ExecutionPolicy -ExecutionPolicy Restricted -Scope Process`
+5. 開発用のサーバーを起動する。
+   - `npm run dev` コマンドを実行する。
+6. ブラウザで以下の動作確認用URLにアクセスする。
+   - http://localhost:5175
+7. ゲーム終了時には、開発用のサーバーを停止する。
    - PowerShellまたはターミナルで `Ctrl + C`
+
+#### その他、エラーやトラブルが発生したら
+
+上記の「必須手順」は、あくまで一般的なNode.jsおよびnpmのインストール手順です。本ゲーム特有の手順はほとんどありません。
+表示されたエラー文や実行したコマンド等でググる、またはAIに質問すればほぼ確実に解決方法にたどり着けるはずです。
+
+なお、香取犬は起動準備に関してのサポートやトラブルの対応はいたしかねますのでご了承ください。
 
 ### 任意手順（準備した素材をゲームに読み込ませるには）
 
@@ -74,7 +85,7 @@
   - JSONのパスは `/audio/voice/` を省いた相対パスで記載する（例: `public/audio/voice/01_devil/悪_110ハイグレ.wav` → `01_devil/悪_110ハイグレ.wav`）。
   - 実装側で `/audio/voice/` を補完して再生する。
   - 状態ごとの配列が空、または項目が無い場合は無音でスキップする（フォールバックなし）。
-  - `brainwash-complete-haigure` は `enter`（ワンショット）と `loop`（ループ）を分けて登録する。
+  - `brainwash-complete-haigure` は `enter`（一回のみ）と `loop`（ループ）を分けて登録する。
   - JSON構成の例:
     ```json
     {
@@ -95,13 +106,13 @@
     }
     ```
   - 再生契機:
-    - `normal`: 通常状態で一定時間経過し、再生中のVOICEが無いときにワンショット再生（アイドル再生）。
-    - `evade`: `evade` に遷移した瞬間にワンショット再生。
-    - `hit-a`: `hit-a` （光線命中状態、ハイレグ姿）に遷移した瞬間にワンショット再生。
+    - `normal`: 通常状態で一定時間経過し、再生中のVOICEが無いときに一回のみ再生（アイドル再生）。
+    - `evade`: `evade` に遷移した瞬間に一回のみ再生。
+    - `hit-a`: `hit-a` （光線命中状態、ハイレグ姿）に遷移した瞬間に一回のみ再生。
     - `hit-b`: 現状の実装ではVOICE再生に未使用。
     - `brainwash-in-progress`: `brainwash-in-progress` に遷移した瞬間からループ再生。
-    - `brainwash-complete-gun` / `brainwash-complete-no-gun`: それぞれの状態に遷移した瞬間にワンショット再生。
-    - `brainwash-complete-haigure`: `enter` をワンショット再生し、終了時も同状態なら `loop` をループ再生。
+    - `brainwash-complete-gun` / `brainwash-complete-no-gun`: それぞれの状態に遷移した瞬間に一回のみ再生。
+    - `brainwash-complete-haigure`: `enter` を一回のみ再生し、終了時も同状態なら `loop` をループ再生。
     - `brainwash-complete-haigure-formation`: その状態に遷移した瞬間からループ再生。
 
 #### キャラクター画像
@@ -127,3 +138,4 @@
 - `src/main.ts`: `playerHitFlickerInterval`（プレイヤー光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
 - `src/game/npcs.ts`: `npcHitFlickerInterval`（NPC光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
 - `src/game/bits.ts`: `bitModeMuzzleColorEnabled`（ビットの先端球のモード別色変更。true=モードに応じて色が変わる、false=初期色のまま固定（デフォルト））
+- `src/game/characterSprites.ts`: `PLAYER_EYE_HEIGHT`（プレイヤーのカメラの高さ。係数が大きいほど高くなる。デフォルトは`PLAYER_SPRITE_HEIGHT * 0.75`）
