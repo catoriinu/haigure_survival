@@ -160,10 +160,16 @@
 stateDiagram-v2
     [*] --> BrainwashInProgress
 
-    BrainwashInProgress --> BrainwashInProgress: npcBrainwashInProgressDecisionDelay秒ごと判定\nMath.random() < npcBrainwashStayChance\n(デフォルト 0.5)
-    BrainwashInProgress --> BrainwashCompleteHaigure: npcBrainwashInProgressDecisionDelay秒ごと判定\nMath.random() >= npcBrainwashStayChance\n(デフォルト 0.5)
+    BrainwashInProgress --> InProgressDecision: npcBrainwashInProgressDecisionDelay秒ごと判定
+    state InProgressDecision <<choice>>
+    InProgressDecision --> BrainwashInProgress: 継続\nMath.random() < npcBrainwashStayChance\n(デフォルト 0.5)
+    InProgressDecision --> BrainwashCompleteHaigure: 遷移\nMath.random() >= npcBrainwashStayChance\n(デフォルト 0.5)
 
-    BrainwashCompleteHaigure --> BrainwashCompleteHaigure: npcBrainwashCompleteHaigureDecisionDelay秒ごと判定\nMath.random() < npcBrainwashCompleteHaigureStayChance\n(デフォルト 0.2)
-    BrainwashCompleteHaigure --> BrainwashCompleteGun: npcBrainwashCompleteHaigureDecisionDelay秒ごと判定\nMath.random() >= npcBrainwashCompleteHaigureStayChance\nかつ toGun = (Math.random() < 0.5)
-    BrainwashCompleteHaigure --> BrainwashCompleteNoGun: npcBrainwashCompleteHaigureDecisionDelay秒ごと判定\nMath.random() >= npcBrainwashCompleteHaigureStayChance\nかつ toGun = false (>= 0.5)
+    BrainwashCompleteHaigure --> HaigureStayDecision: npcBrainwashCompleteHaigureDecisionDelay秒ごと判定
+    state HaigureStayDecision <<choice>>
+    HaigureStayDecision --> BrainwashCompleteHaigure: 継続\nMath.random() < npcBrainwashCompleteHaigureStayChance\n(デフォルト 0.2)
+    HaigureStayDecision --> GunNoGunDecision: 分岐へ\nMath.random() >= npcBrainwashCompleteHaigureStayChance
+    state GunNoGunDecision <<choice>>
+    GunNoGunDecision --> BrainwashCompleteGun: toGun = true\n(Math.random() < 0.5)
+    GunNoGunDecision --> BrainwashCompleteNoGun: toGun = false\n(>= 0.5)
 ```
