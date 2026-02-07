@@ -111,7 +111,7 @@
     - `hit-a`: `hit-a` （光線命中状態、ハイレグ姿）に遷移した瞬間に一回のみ再生。
     - `hit-b`: 現状の実装ではVOICE再生に未使用。
     - `brainwash-in-progress`: `brainwash-in-progress` に遷移した瞬間からループ再生。
-    - `brainwash-complete-gun` / `brainwash-complete-no-gun`: それぞれの状態に遷移した瞬間に一回のみ再生。
+    - `brainwash-complete-gun` / `brainwash-complete-no-gun`: それぞれの状態で一定時間経過し、再生中のVOICEが無いときに一回のみ再生（アイドル再生）。
     - `brainwash-complete-haigure`: `enter` を一回のみ再生し、終了時も同状態なら `loop` をループ再生。
     - `brainwash-complete-haigure-formation`: その状態に遷移した瞬間からループ再生。
 

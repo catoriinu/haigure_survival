@@ -70,6 +70,10 @@ const pickRandom = (items: string[]) => {
 const resolveVoiceUrl = (path: string) => `${voiceBasePath}${path}`;
 
 const rollIdleTimer = () => 8 + Math.random() * 8;
+const isIdleVoiceState = (state: CharacterState) =>
+  state === "normal" ||
+  state === "brainwash-complete-gun" ||
+  state === "brainwash-complete-no-gun";
 
 export const createVoiceActor = (
   profile: VoiceProfile,
@@ -157,17 +161,6 @@ export const updateVoiceActor = (
       startLoop(states["brainwash-in-progress"]);
     }
 
-    if (
-      currentState === "brainwash-complete-gun" ||
-      currentState === "brainwash-complete-no-gun"
-    ) {
-      playOneShot(
-        currentState === "brainwash-complete-gun"
-          ? states["brainwash-complete-gun"]
-          : states["brainwash-complete-no-gun"]
-      );
-    }
-
     if (currentState === "brainwash-complete-haigure") {
       playOneShot(haigureState.enter, () => {
         if (actor.getState() === "brainwash-complete-haigure") {
@@ -185,14 +178,20 @@ export const updateVoiceActor = (
     }
   }
 
-  if (currentState !== "normal") {
+  if (!isIdleVoiceState(currentState)) {
     actor.idleTimer = rollIdleTimer();
   }
 
-  if (allowIdle && currentState === "normal") {
+  if (allowIdle && isIdleVoiceState(currentState)) {
     actor.idleTimer -= delta;
     if (actor.idleTimer <= 0 && !actor.voiceHandle) {
-      playOneShot(states.normal);
+      if (currentState === "normal") {
+        playOneShot(states.normal);
+      } else if (currentState === "brainwash-complete-gun") {
+        playOneShot(states["brainwash-complete-gun"]);
+      } else {
+        playOneShot(states["brainwash-complete-no-gun"]);
+      }
       actor.idleTimer = rollIdleTimer();
     }
   }
