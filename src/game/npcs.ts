@@ -84,8 +84,10 @@ const npcSpriteColorNormal = new Color4(1, 1, 1, 1);
 export const npcHitLightIntensity = 1.1;
 const getNpcHitEffectDiameter = (sprite: Sprite) =>
   calculateHitEffectDiameter(sprite.width, sprite.height);
-const npcBrainwashDecisionDelay = 10;
+const npcBrainwashInProgressDecisionDelay = 10;
+const npcBrainwashCompleteHaigureDecisionDelay = 10;
 const npcBrainwashStayChance = 0.5;
+const npcBrainwashCompleteHaigureStayChance = 0.2;
 const npcBrainwashVisionRange = 3;
 const npcBrainwashVisionRangeSq = npcBrainwashVisionRange * npcBrainwashVisionRange;
 const npcBrainwashVisionCos = Math.cos((95 * Math.PI) / 180);
@@ -504,7 +506,7 @@ export const updateNpcs = (
   const handleNpcBrainwashTransition = (npc: Npc) => {
     if (npc.state === "brainwash-in-progress") {
       npc.brainwashTimer += delta;
-      if (npc.brainwashTimer >= npcBrainwashDecisionDelay) {
+      if (npc.brainwashTimer >= npcBrainwashInProgressDecisionDelay) {
         if (Math.random() < npcBrainwashStayChance) {
           npc.brainwashTimer = 0;
         } else {
@@ -517,8 +519,12 @@ export const updateNpcs = (
 
     if (npc.state === "brainwash-complete-haigure") {
       npc.brainwashTimer += delta;
-      if (npc.brainwashTimer >= npcBrainwashDecisionDelay) {
-        promoteHaigureNpc(npc);
+      if (npc.brainwashTimer >= npcBrainwashCompleteHaigureDecisionDelay) {
+        if (Math.random() < npcBrainwashCompleteHaigureStayChance) {
+          npc.brainwashTimer = 0;
+        } else {
+          promoteHaigureNpc(npc);
+        }
       }
       return true;
     }
