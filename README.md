@@ -106,12 +106,12 @@
     }
     ```
   - 再生契機:
-    - `normal`: 通常状態で一定時間経過し、再生中のVOICEが無いときに一回のみ再生（アイドル再生）。
+    - `normal`: 通常状態で一定時間経過するごとに再生。
     - `evade`: `evade` に遷移した瞬間に一回のみ再生。
     - `hit-a`: `hit-a` （光線命中状態、ハイレグ姿）に遷移した瞬間に一回のみ再生。
     - `hit-b`: 現状の実装ではVOICE再生に未使用。
     - `brainwash-in-progress`: `brainwash-in-progress` に遷移した瞬間からループ再生。
-    - `brainwash-complete-gun` / `brainwash-complete-no-gun`: それぞれの状態で一定時間経過し、再生中のVOICEが無いときに一回のみ再生（アイドル再生）。
+    - `brainwash-complete-gun` / `brainwash-complete-no-gun`: それぞれの状態で一定時間経過するごとに再生。
     - `brainwash-complete-haigure`: `enter` を一回のみ再生し、終了時も同状態なら `loop` をループ再生。
     - `brainwash-complete-haigure-formation`: その状態に遷移した瞬間からループ再生。
 
@@ -123,8 +123,8 @@
     - `hit-a`（光線命中：ハイレグ姿）
     - `hit-b`（光線命中：普段着）
     - `bw-in-progress`（洗脳進行中：ハイレグ姿）
-    - `bw-complete-gun`（洗脳完了、光線銃で未洗脳者を狙う：ハイレグ姿）
-    - `bw-complete-no-gun`（洗脳完了、未洗脳者を捕獲しようとする：ハイレグ姿）
+    - `bw-complete-gun`（洗脳完了、光線銃を持ち未洗脳者を狙う：ハイレグ姿）
+    - `bw-complete-no-gun`（洗脳完了、光線銃なしで未洗脳者を捕獲しようとする：ハイレグ姿）
     - `bw-complete-pose`（洗脳完了、ハイグレポーズ：ハイレグ姿）
   - 例: `public/picture/chara/05_big_sister/normal.png`
   - 画像サイズは、横1:縦2の比率を基準とする。基準よりも長い辺がある場合はそれを基準に、画像比率を保って縮小する。
