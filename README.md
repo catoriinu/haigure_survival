@@ -163,9 +163,19 @@ stateDiagram-v2
     state "brainwash-complete-gun" as brainwashCompleteGun
     state "brainwash-complete-no-gun" as brainwashCompleteNoGun
 
-    state "洗脳進行中からの遷移判定" as inProgressDecision <<choice>>
-    state "洗脳完了を継続するかの判定" as haigureStayDecision <<choice>>
-    state "銃持ちまたは銃なしへの遷移判定" as gunNoGunDecision <<choice>>
+    state inProgressDecision <<choice>>
+    state haigureStayDecision <<choice>>
+    state gunNoGunDecision <<choice>>
+
+    note right of inProgressDecision
+      洗脳進行中からの遷移判定
+    end note
+    note right of haigureStayDecision
+      洗脳完了を継続するかの判定
+    end note
+    note right of gunNoGunDecision
+      銃持ちまたは銃なしへの遷移判定
+    end note
 
     [*] --> brainwashInProgress
 
