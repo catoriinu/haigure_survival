@@ -140,7 +140,7 @@
 - `src/game/bits.ts`: `bitModeMuzzleColorEnabled`（ビットの先端球のモード別色変更。true=モードに応じて色が変わる、false=初期色のまま固定（デフォルト））
 - `src/game/characterSprites.ts`: `PLAYER_EYE_HEIGHT`（プレイヤーのカメラの高さ。係数が大きいほど高くなる。デフォルトは`PLAYER_SPRITE_HEIGHT * 0.75`）
 
-## プレイヤー、NPCの光線命中時の設定
+### プレイヤー、NPCの光線命中時の設定
 - `src/main.ts`: `playerHitDuration`（プレイヤーが光線命中後に点滅状態を繰り返す継続時間（秒）。デフォルトは3）
 - `src/game/npcs.ts`: `npcHitDuration`（NPCが光線命中後に点滅状態を繰り返す継続時間（秒）。デフォルトは3）
 - `src/main.ts`: `playerHitFadeDuration`（プレイヤーの点滅状態後、`hit-a`（光線命中：ハイレグ姿）のまま光がフェードする時間（秒）。デフォルトは1）
@@ -148,14 +148,14 @@
 - `src/main.ts`: `playerHitFlickerInterval`（プレイヤー光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
 - `src/game/npcs.ts`: `npcHitFlickerInterval`（NPC光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
 
-## NPCの洗脳後の状態遷移の設定
+### NPCの洗脳後の状態遷移の設定
 - `src/game/npcs.ts`: `npcBrainwashInProgressDecisionDelay`（`brainwash-in-progress` の遷移判定を行う間隔（秒）。デフォルトは10）
 - `src/game/npcs.ts`: `npcBrainwashCompleteHaigureDecisionDelay`（`brainwash-complete-haigure` から次状態への遷移判定間隔（秒）。デフォルトは10）
 - `src/game/npcs.ts`: `npcBrainwashStayChance`（`brainwash-in-progress` の判定時に同状態を継続する確率。`1 - npcBrainwashStayChance` の確率で `brainwash-complete-haigure` へ遷移。デフォルトは0.5）
 - `src/game/npcs.ts`: `npcBrainwashCompleteHaigureStayChance`（`brainwash-complete-haigure` の判定時に同状態を継続する確率。`1 - npcBrainwashCompleteHaigureStayChance` の確率で次状態分岐の抽選へ進む。デフォルトは0.2）
 - `src/game/npcs.ts`: `toGun`（`brainwash-complete-haigure` の判定で継続しなかったときに、`brainwash-complete-gun` / `brainwash-complete-no-gun` へ分岐するための内部判定値。`Math.random() < 0.5` で計算し、分岐しきい値のデフォルトは0.5）
 
-### 遷移図
+#### 遷移図
 ```mermaid
 stateDiagram-v2
     state "brainwash-in-progress" as brainwashInProgress
