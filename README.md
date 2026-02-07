@@ -158,18 +158,24 @@
 ### 遷移図
 ```mermaid
 stateDiagram-v2
-    [*] --> BrainwashInProgress
+    state "brainwash-in-progress" as brainwashInProgress
+    state "brainwash-complete-haigure" as brainwashCompleteHaigure
+    state "brainwash-complete-gun" as brainwashCompleteGun
+    state "brainwash-complete-no-gun" as brainwashCompleteNoGun
 
-    BrainwashInProgress --> InProgressDecision: npcBrainwashInProgressDecisionDelay秒ごと判定
-    state InProgressDecision <<choice>>
-    InProgressDecision --> BrainwashInProgress: 継続\nMath.random() < npcBrainwashStayChance\n(デフォルト 0.5)
-    InProgressDecision --> BrainwashCompleteHaigure: 遷移\nMath.random() >= npcBrainwashStayChance\n(デフォルト 0.5)
+    state "洗脳進行中からの遷移判定" as inProgressDecision <<choice>>
+    state "洗脳完了を継続するかの判定" as haigureStayDecision <<choice>>
+    state "銃持ちまたは銃なしへの遷移判定" as gunNoGunDecision <<choice>>
 
-    BrainwashCompleteHaigure --> HaigureStayDecision: npcBrainwashCompleteHaigureDecisionDelay秒ごと判定
-    state HaigureStayDecision <<choice>>
-    HaigureStayDecision --> BrainwashCompleteHaigure: 継続\nMath.random() < npcBrainwashCompleteHaigureStayChance\n(デフォルト 0.2)
-    HaigureStayDecision --> GunNoGunDecision: 分岐へ\nMath.random() >= npcBrainwashCompleteHaigureStayChance
-    state GunNoGunDecision <<choice>>
-    GunNoGunDecision --> BrainwashCompleteGun: toGun = true\n(Math.random() < 0.5)
-    GunNoGunDecision --> BrainwashCompleteNoGun: toGun = false\n(>= 0.5)
+    [*] --> brainwashInProgress
+
+    brainwashInProgress --> inProgressDecision: npcBrainwashInProgressDecisionDelay秒ごと判定
+    inProgressDecision --> brainwashInProgress: 継続<br/>Math.random() < npcBrainwashStayChance<br/>(デフォルト 0.5)
+    inProgressDecision --> brainwashCompleteHaigure: 遷移<br/>Math.random() >= npcBrainwashStayChance<br/>(デフォルト 0.5)
+
+    brainwashCompleteHaigure --> haigureStayDecision: npcBrainwashCompleteHaigureDecisionDelay秒ごと判定
+    haigureStayDecision --> brainwashCompleteHaigure: 継続<br/>Math.random() < npcBrainwashCompleteHaigureStayChance<br/>(デフォルト 0.2)
+    haigureStayDecision --> gunNoGunDecision: 分岐へ<br/>Math.random() >= npcBrainwashCompleteHaigureStayChance
+    gunNoGunDecision --> brainwashCompleteGun: toGun = true<br/>(Math.random() < 0.5)
+    gunNoGunDecision --> brainwashCompleteNoGun: toGun = false<br/>(>= 0.5)
 ```
