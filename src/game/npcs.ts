@@ -87,7 +87,7 @@ const getNpcHitEffectDiameter = (sprite: Sprite) =>
 const npcBrainwashInProgressDecisionDelay = 10;
 const npcBrainwashCompleteHaigureDecisionDelay = 10;
 const npcBrainwashStayChance = 0.5;
-const npcBrainwashCompleteHaigureStayChance = 0.2;
+const npcBrainwashCompleteHaigureStayChance = 0.1;
 const npcBrainwashVisionRange = 3;
 const npcBrainwashVisionRangeSq = npcBrainwashVisionRange * npcBrainwashVisionRange;
 const npcBrainwashVisionCos = Math.cos((95 * Math.PI) / 180);
