@@ -125,13 +125,13 @@ body {
 .volume-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 9px;
+  padding: 12px 14px;
   border: 1px solid #111111;
   background: rgba(0, 0, 0, 0.65);
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.04em;
   pointer-events: auto;
 }
@@ -144,20 +144,20 @@ body {
 }
 
 .volume-panel__title {
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.14em;
   color: #f0f0f0;
 }
 
 .volume-row {
   display: grid;
-  grid-template-columns: 54px 28px 54px 28px 54px;
+  grid-template-columns: 58px 30px 58px 30px 58px;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
 }
 
 .volume-label {
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.08em;
 }
 
@@ -172,7 +172,7 @@ body {
   color: #f5f5f5;
   font: inherit;
   border-radius: 4px;
-  height: 24px;
+  height: 26px;
   cursor: pointer;
 }
 
@@ -186,6 +186,77 @@ body {
 
 .volume-mute {
   letter-spacing: 0.08em;
+}
+
+.bit-spawn-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px 14px;
+  border: 1px solid #111111;
+  background: rgba(0, 0, 0, 0.65);
+  color: #f5f5f5;
+  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  pointer-events: auto;
+}
+
+.bit-spawn-panel--title {
+  position: absolute;
+  right: 16px;
+  bottom: 42px;
+  z-index: 35;
+}
+
+.bit-spawn-panel__title {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: #f0f0f0;
+}
+
+.bit-spawn-panel__row {
+  display: grid;
+  grid-template-columns: 96px 74px;
+  align-items: center;
+  gap: 9px;
+}
+
+.bit-spawn-panel__label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.bit-spawn-panel__input {
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  background: #141414;
+  color: #f5f5f5;
+  font: inherit;
+}
+
+.bit-spawn-panel__input:disabled {
+  background: #262626;
+  color: #8a8a8a;
+  border-color: #3a3a3a;
+}
+
+.bit-spawn-panel__checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.bit-spawn-panel__checkbox {
+  margin: 0;
+}
+
+.bit-spawn-panel__checkbox-label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
 }
 
 #overlayHelp {

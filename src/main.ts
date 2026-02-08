@@ -89,6 +89,10 @@ import { createHud } from "./ui/hud";
 import { setupInputHandlers } from "./ui/input";
 import { createVolumePanel, type VolumeLevels } from "./ui/volumePanel";
 import {
+  createBitSpawnPanel,
+  type BitSpawnSettings
+} from "./ui/bitSpawnPanel";
+import {
   PLAYER_EYE_HEIGHT,
   PLAYER_SPRITE_CENTER_HEIGHT,
   PLAYER_SPRITE_HEIGHT,
@@ -119,6 +123,14 @@ const npcCount = 11;
 const minimapReadoutVisible = false;
 const portraitMaxWidthCells = 1;
 const portraitMaxHeightCells = 2;
+const defaultBitSpawnSettings: BitSpawnSettings = {
+  bitSpawnInterval: 10,  // ビットの通常出現間隔（秒）。1〜99。デフォルトは10
+  maxBitCount: 25,       // ビットの同時出現上限。1〜99。デフォルトは25
+  disableBitSpawn: false // true で「ビットを出現させない」。デフォルトは false
+};
+let titleBitSpawnSettings: BitSpawnSettings = { ...defaultBitSpawnSettings };
+let runtimeBitSpawnInterval = defaultBitSpawnSettings.bitSpawnInterval;
+let runtimeMaxBitCount = defaultBitSpawnSettings.maxBitCount;
 
 const portraitDirectories = getPortraitDirectories();
 const portraitSpriteSheets = new Map<string, PortraitSpriteSheet>();
@@ -288,16 +300,28 @@ const titleVolumePanel = createVolumePanel({
     applyVolumeLevel(category, level);
   }
 });
+const titleBitSpawnPanel = createBitSpawnPanel({
+  parent: document.body,
+  initialSettings: titleBitSpawnSettings,
+  className: "bit-spawn-panel--title",
+  onChange: (settings) => {
+    titleBitSpawnSettings = settings;
+  }
+});
 const volumeCategories: AudioCategory[] = ["voice", "bgm", "se"];
 for (const category of volumeCategories) {
   applyVolumeLevel(category, volumeLevels[category]);
 }
 titleVolumePanel.setVisible(true);
-const isVolumePanelTarget = (target: EventTarget | null) => {
+titleBitSpawnPanel.setVisible(true);
+const isTitleUiTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
     return false;
   }
-  return target.closest("[data-ui=\"volume-panel\"]") !== null;
+  return (
+    target.closest("[data-ui=\"volume-panel\"], [data-ui=\"bit-spawn-panel\"]") !==
+    null
+  );
 };
 const bgmFiles = import.meta.glob("/public/audio/bgm/*.mp3");
 const bgmFilePaths = Object.keys(bgmFiles);
@@ -684,7 +708,6 @@ const alertSignal = {
   receiverIds: [] as string[],
   gatheredIds: new Set<string>()
 };
-const bitSpawnInterval = 10;
 // プレイヤーが光線命中後に点滅状態を繰り返す継続時間（秒）。デフォルトは3
 const playerHitDuration = 3;
 // プレイヤーの点滅状態後、`hit-a`（光線命中：ハイレグ姿）のまま光がフェードする時間（秒）。デフォルトは1
@@ -782,9 +805,8 @@ const allDownTransitionDelay = 3;
 let bitSpawnEnabled = true;
 
 let elapsedTime = 0;
-let bitSpawnTimer = bitSpawnInterval;
+let bitSpawnTimer = runtimeBitSpawnInterval;
 let bitIndex = bits.length;
-const maxBitCount = 25;
 
 const hud = createHud();
 hud.setMinimapReadoutVisible(minimapReadoutVisible);
@@ -1817,9 +1839,11 @@ const resetGame = () => {
   }
   bits.length = 0;
   bitIndex = 0;
-  bits.push(createRandomBit(bitIndex));
-  bitIndex += 1;
-  bitSpawnTimer = bitSpawnInterval;
+  if (runtimeMaxBitCount > 0) {
+    bits.push(createRandomBit(bitIndex));
+    bitIndex += 1;
+  }
+  bitSpawnTimer = runtimeBitSpawnInterval;
 
   for (const npc of npcs) {
     npc.sprite.dispose();
@@ -1858,6 +1882,11 @@ const startGame = () => {
   if (gamePhase === "title" && stageSelectionInProgress) {
     return;
   }
+  titleBitSpawnSettings = titleBitSpawnPanel.getSettings();
+  runtimeBitSpawnInterval = titleBitSpawnSettings.bitSpawnInterval;
+  runtimeMaxBitCount = titleBitSpawnSettings.disableBitSpawn
+    ? 0
+    : titleBitSpawnSettings.maxBitCount;
   resetGame();
   const bgmUrl = selectBgmUrl(stageJson ? stageJson.meta.name : null);
   if (bgmUrl) {
@@ -1866,6 +1895,7 @@ const startGame = () => {
   gamePhase = "playing";
   hud.setTitleVisible(false);
   titleVolumePanel.setVisible(false);
+  titleBitSpawnPanel.setVisible(false);
   hud.setHudVisible(true);
   hud.setStateInfo(null);
   gameFlow.resetFade();
@@ -1879,6 +1909,7 @@ const returnToTitle = () => {
   gamePhase = "title";
   hud.setTitleVisible(true);
   titleVolumePanel.setVisible(true);
+  titleBitSpawnPanel.setVisible(true);
   hud.setHudVisible(false);
   hud.setStateInfo(null);
   gameFlow.resetFade();
@@ -1917,7 +1948,7 @@ setupInputHandlers({
   isBrainwashState,
   getBrainwashChoiceStarted: () => brainwashChoiceStarted,
   getBrainwashChoiceUnlocked: () => brainwashChoiceUnlocked,
-  isUiPointerTarget: isVolumePanelTarget,
+  isUiPointerTarget: isTitleUiTarget,
   onPointerLockRequest: () => {
     canvas.requestPointerLock();
   },
@@ -2118,12 +2149,12 @@ engine.runRenderLoop(() => {
     if (gamePhase === "playing") {
       if (bitSpawnEnabled) {
         bitSpawnTimer -= delta;
-        if (bitSpawnTimer <= 0 && countNonFollowerBits() < maxBitCount) {
+        if (bitSpawnTimer <= 0 && countNonFollowerBits() < runtimeMaxBitCount) {
           bits.push(
             createRandomBit(bitIndex)
           );
           bitIndex += 1;
-          bitSpawnTimer = bitSpawnInterval;
+          bitSpawnTimer = runtimeBitSpawnInterval;
         }
       }
 
@@ -2144,7 +2175,7 @@ engine.runRenderLoop(() => {
         }))
       ];
       const spawnAlertBit = (position: Vector3, direction: Vector3) => {
-        if (countNonFollowerBits() >= maxBitCount) {
+        if (countNonFollowerBits() >= runtimeMaxBitCount) {
           return null;
         }
         const bit = createSpawnedBitAt(bitIndex, position, direction);
