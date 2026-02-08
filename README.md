@@ -14,6 +14,7 @@
 1. Node.js 18 以上（npm 同梱）をインストールする。
    - 公式サイト（https://nodejs.org/ ）から LTS をダウンロードして実行する。
    - 画面の指示に従ってインストールを完了する。
+   - 既にインストール済みであれば、この手順はスキップしてよい。
 2. このリポジトリのソースコードをダウンロードし、解凍する。
    - GitHub画面内の`Code`ボタン → `Download ZIP`ボタンでダウンロード可能。gitコマンドが使えるなら`git clone`でも可
    - フォルダごと任意の場所へコピーする。
@@ -106,12 +107,12 @@
     }
     ```
   - 再生契機:
-    - `normal`: 通常状態で一定時間経過し、再生中のVOICEが無いときに一回のみ再生（アイドル再生）。
+    - `normal`: 通常状態で一定時間経過するごとに再生。
     - `evade`: `evade` に遷移した瞬間に一回のみ再生。
     - `hit-a`: `hit-a` （光線命中状態、ハイレグ姿）に遷移した瞬間に一回のみ再生。
     - `hit-b`: 現状の実装ではVOICE再生に未使用。
     - `brainwash-in-progress`: `brainwash-in-progress` に遷移した瞬間からループ再生。
-    - `brainwash-complete-gun` / `brainwash-complete-no-gun`: それぞれの状態に遷移した瞬間に一回のみ再生。
+    - `brainwash-complete-gun` / `brainwash-complete-no-gun`: それぞれの状態で一定時間経過するごとに再生。
     - `brainwash-complete-haigure`: `enter` を一回のみ再生し、終了時も同状態なら `loop` をループ再生。
     - `brainwash-complete-haigure-formation`: その状態に遷移した瞬間からループ再生。
 
@@ -123,8 +124,8 @@
     - `hit-a`（光線命中：ハイレグ姿）
     - `hit-b`（光線命中：普段着）
     - `bw-in-progress`（洗脳進行中：ハイレグ姿）
-    - `bw-complete-gun`（洗脳完了、光線銃で未洗脳者を狙う：ハイレグ姿）
-    - `bw-complete-no-gun`（洗脳完了、未洗脳者を捕獲しようとする：ハイレグ姿）
+    - `bw-complete-gun`（洗脳完了、光線銃を持ち未洗脳者を狙う：ハイレグ姿）
+    - `bw-complete-no-gun`（洗脳完了、光線銃なしで未洗脳者を捕獲しようとする：ハイレグ姿）
     - `bw-complete-pose`（洗脳完了、ハイグレポーズ：ハイレグ姿）
   - 例: `public/picture/chara/05_big_sister/normal.png`
   - 画像サイズは、横1:縦2の比率を基準とする。基準よりも長い辺がある場合はそれを基準に、画像比率を保って縮小する。
@@ -132,10 +133,67 @@
   - 画像の使い回しが発生する場合はランダム割り当てになり、同じIDが一致するかどうかは抽選結果次第（一致しても問題なし）。
 
 ## 調整可能項目
-- `src/main.ts`: `npcCount`（ステージ開始時のNPC人数。デフォルトはプレイヤー1人 + NPC11人で合計12人）
+
+### ゲーム全体の設定
+- `src/main.ts`: `defaultDefaultStartSettings.initialNpcCount`（ステージ開始時のNPC人数。0〜99。デフォルトは11）
 - `src/main.ts`: `minimapReadoutVisible`（ミニマップ座標表示ボックスの表示切替。true=表示、false=非表示（デフォルト））
+- `src/game/characterSprites.ts`: `PLAYER_EYE_HEIGHT`（プレイヤーのカメラの高さ。係数が大きいほど高くなる。デフォルトは`PLAYER_SPRITE_HEIGHT * 0.75`）
+
+### ビット関連の設定
 - `src/main.ts`: `redBitSpawnChance`（赤ビット（通常の3倍の性能を持つビット）の出現確率。0-1の確率で判定し、デフォルトは0.05）
+- `src/main.ts`: `defaultBitSpawnSettings.bitSpawnInterval`（ビットの通常出現間隔。1〜99秒。デフォルトは10秒）
+- `src/main.ts`: `defaultBitSpawnSettings.maxBitCount`（ビットの同時出現上限。1〜99。デフォルトは25）
+- `src/main.ts`: `defaultBitSpawnSettings.disableBitSpawn`（`ビットを出現させない`チェックの初期値。`true`でビットを一切出現させない。デフォルトは`false`）
+- `src/game/bits.ts`: `bitModeMuzzleColorEnabled`（ビットの先端球のモード別色変更。true=モードに応じて色が変わる、false=初期色のまま固定（デフォルト））
+
+### プレイヤー、NPCの光線命中時の設定
+- `src/main.ts`: `playerHitDuration`（プレイヤーが光線命中後に点滅状態を繰り返す継続時間（秒）。デフォルトは3）
+- `src/game/npcs.ts`: `npcHitDuration`（NPCが光線命中後に点滅状態を繰り返す継続時間（秒）。デフォルトは3）
+- `src/main.ts`: `playerHitFadeDuration`（プレイヤーの点滅状態後、`hit-a`（光線命中：ハイレグ姿）のまま光がフェードする時間（秒）。デフォルトは1）
+- `src/game/npcs.ts`: `npcHitFadeDuration`（NPCの点滅状態後、`hit-a`（光線命中：ハイレグ姿）のまま光がフェードする時間（秒）。デフォルトは1）
 - `src/main.ts`: `playerHitFlickerInterval`（プレイヤー光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
 - `src/game/npcs.ts`: `npcHitFlickerInterval`（NPC光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
-- `src/game/bits.ts`: `bitModeMuzzleColorEnabled`（ビットの先端球のモード別色変更。true=モードに応じて色が変わる、false=初期色のまま固定（デフォルト））
-- `src/game/characterSprites.ts`: `PLAYER_EYE_HEIGHT`（プレイヤーのカメラの高さ。係数が大きいほど高くなる。デフォルトは`PLAYER_SPRITE_HEIGHT * 0.75`）
+
+### NPCの洗脳後の状態遷移の設定
+- `src/game/npcs.ts`: `npcBrainwashInProgressTransitionConfig.decisionDelay`（`brainwash-in-progress` の遷移判定を行う間隔（秒）。デフォルトは10。「光線命中後、即洗脳」ON時は強制的に0となる）
+- `src/game/npcs.ts`: `npcBrainwashInProgressTransitionConfig.stayChance`（`brainwash-in-progress` の判定時に同状態を継続する確率。`1 - npcBrainwashInProgressTransitionConfig.stayChance` の確率で `brainwash-complete-haigure` へ遷移。デフォルトは0.5。「光線命中後、即洗脳」ON時は強制的に0となる）
+- `src/game/npcs.ts`: `npcBrainwashCompleteHaigureDecisionDelay`（`brainwash-complete-haigure` から次状態への遷移判定間隔（秒）。デフォルトは10）
+
+#### 遷移図
+```mermaid
+stateDiagram-v2
+    state "brainwash-in-progress" as brainwashInProgress
+    state "brainwash-complete-haigure" as brainwashCompleteHaigure
+    state "brainwash-complete-gun" as brainwashCompleteGun
+    state "brainwash-complete-no-gun" as brainwashCompleteNoGun
+
+    state inProgressDecision <<choice>>
+    state haigureStayDecision <<choice>>
+    state gunNoGunDecision <<choice>>
+
+    note right of inProgressDecision
+      洗脳進行中からの遷移判定
+    end note
+    note right of haigureStayDecision
+      洗脳完了を継続するかの判定
+    end note
+    note right of gunNoGunDecision
+      銃持ちまたは銃なしへの遷移判定
+    end note
+
+    [*] --> brainwashInProgress
+
+    brainwashInProgress --> inProgressDecision: npcBrainwashInProgressTransitionConfig.decisionDelay秒ごと判定
+    inProgressDecision --> brainwashInProgress: 継続<br/>Math.random() < npcBrainwashInProgressTransitionConfig.stayChance<br/>(デフォルト 0.5)
+    inProgressDecision --> brainwashCompleteHaigure: 遷移<br/>Math.random() >= npcBrainwashInProgressTransitionConfig.stayChance<br/>(デフォルト 0.5)
+
+    brainwashCompleteHaigure --> haigureStayDecision: npcBrainwashCompleteHaigureDecisionDelay秒ごと判定
+    haigureStayDecision --> brainwashCompleteHaigure: 継続<br/>Math.random() < stayChance<br/>(BRAINWASH SETTINGS のポーズ% / 100)
+    haigureStayDecision --> gunNoGunDecision: 分岐へ<br/>Math.random() >= stayChance
+    gunNoGunDecision --> brainwashCompleteGun: toGun = true<br/>(Math.random() < toGunChance)
+    gunNoGunDecision --> brainwashCompleteNoGun: toGun = false<br/>(>= toGunChance)
+```
+
+### トラップルーム用設定
+- `src/game/trap/system.ts`: `trapInitialVolleyCount`（トラップ光線の初回値。`1`なら回を追うごとに`1,3,6,10,15...`と増加していく。デフォルトは`1`）
+- `src/game/trap/system.ts`: `trapWallSelectionWeight`（発射セル抽選で壁セルに掛ける重み。床セルの重みは常に`1`。値を小さくするほど壁が選ばれにくくなり、`0`で壁は抽選対象外。デフォルトは`0.5`）

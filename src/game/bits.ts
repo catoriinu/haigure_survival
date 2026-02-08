@@ -185,6 +185,7 @@ const bitWanderTimerMin = bitModeSettings.search.wander.timerMin;
 const bitWanderTimerMax = bitModeSettings.search.wander.timerMax;
 const bitBobAmplitudeNormal = bitModeSettings.base.bobAmplitudeNormal;
 const bitBobAmplitudeUrgent = bitModeSettings.base.bobAmplitudeUrgent;
+// ビットの先端球のモード別色変更。true=モードに応じて色が変わる、false=初期色のまま固定（デフォルト）
 const bitModeMuzzleColorEnabled = false;
 const bitModeMuzzleColors: Record<Exclude<BitMode, "search">, Color3> = {
   "search-bruteforce": new Color3(0.35, 0.9, 0.85),

@@ -41,7 +41,7 @@ import {
 } from "./npcNavigation";
 import { alignSpriteToGround } from "./spriteUtils";
 import { findTargetById } from "./targetUtils";
-import { isBeamHittingTarget } from "./beamCollision";
+import { isBeamHittingTargetExcludingSource } from "./beamCollision";
 import {
   createHitEffectMesh,
   createHitFadeOrbs,
@@ -63,9 +63,12 @@ const npcChaseSpeed = 0.3;
 const npcMovePower = 12 * CELL_SCALE;
 const npcEvadeRetargetInterval = 1;
 const redHitDurationScale = 1;
+// NPCが光線命中後に点滅状態を繰り返す継続時間（秒）。デフォルトは3
 export const npcHitDuration = 3;
+// NPCの点滅状態後、`hit-a`（光線命中：ハイレグ姿）のまま光がフェードする時間（秒）。デフォルトは1
 export const npcHitFadeDuration = 1;
 export const npcHitRadius = NPC_SPRITE_WIDTH * 0.5;
+// NPC光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12
 export const npcHitFlickerInterval = 0.12;
 export const npcHitColorA = new Color3(1, 0.18, 0.74);
 export const npcHitColorB = new Color3(0.2, 0.96, 1);
@@ -84,8 +87,34 @@ const npcSpriteColorNormal = new Color4(1, 1, 1, 1);
 export const npcHitLightIntensity = 1.1;
 const getNpcHitEffectDiameter = (sprite: Sprite) =>
   calculateHitEffectDiameter(sprite.width, sprite.height);
-const npcBrainwashDecisionDelay = 10;
-const npcBrainwashStayChance = 0.5;
+export type NpcBrainwashInProgressTransitionConfig = {
+  decisionDelay: number;
+  stayChance: number;
+};
+const defaultNpcBrainwashInProgressTransitionConfig: NpcBrainwashInProgressTransitionConfig =
+  {
+    // `brainwash-in-progress` の遷移判定を行う間隔（秒）。デフォルトは10
+    decisionDelay: 10,
+    // `brainwash-in-progress` の判定時に同状態を継続する確率。`1 - stayChance` の確率で `brainwash-complete-haigure` へ遷移。デフォルトは0.5
+    stayChance: 0.5
+  };
+let npcBrainwashInProgressTransitionConfig: NpcBrainwashInProgressTransitionConfig =
+  { ...defaultNpcBrainwashInProgressTransitionConfig };
+// `brainwash-complete-haigure` から次状態への遷移判定間隔（秒）。デフォルトは10
+const npcBrainwashCompleteHaigureDecisionDelay = 10;
+export type NpcBrainwashCompleteTransitionConfig = {
+  stayChance: number;
+  toGunChance: number;
+};
+const defaultNpcBrainwashCompleteTransitionConfig: NpcBrainwashCompleteTransitionConfig =
+  {
+    // `brainwash-complete-haigure` の判定時に同状態を継続する確率。`1 - stayChance` の確率で次状態分岐の抽選へ進む。デフォルトは0.1
+    stayChance: 0.1,
+    // `brainwash-complete-haigure` の判定で継続しなかったときに、`brainwash-complete-gun`に遷移する確率。外れた場合は`brainwash-complete-no-gun`に遷移する。デフォルトは0.5
+    toGunChance: 0.5
+  };
+let npcBrainwashCompleteTransitionConfig: NpcBrainwashCompleteTransitionConfig =
+  { ...defaultNpcBrainwashCompleteTransitionConfig };
 const npcBrainwashVisionRange = 3;
 const npcBrainwashVisionRangeSq = npcBrainwashVisionRange * npcBrainwashVisionRange;
 const npcBrainwashVisionCos = Math.cos((95 * Math.PI) / 180);
@@ -116,8 +145,20 @@ export const npcHitFadeOrbConfig: HitFadeOrbConfig = {
   speedMax: hitFadeOrbSpeedMax
 };
 
+export const setNpcBrainwashCompleteTransitionConfig = (
+  config: NpcBrainwashCompleteTransitionConfig
+) => {
+  npcBrainwashCompleteTransitionConfig = { ...config };
+};
+
+export const setNpcBrainwashInProgressTransitionConfig = (
+  config: NpcBrainwashInProgressTransitionConfig
+) => {
+  npcBrainwashInProgressTransitionConfig = { ...config };
+};
+
 export const promoteHaigureNpc = (npc: Npc) => {
-  const toGun = Math.random() < 0.5;
+  const toGun = Math.random() < npcBrainwashCompleteTransitionConfig.toGunChance;
   npc.state = toGun
     ? "brainwash-complete-gun"
     : "brainwash-complete-no-gun";
@@ -138,6 +179,15 @@ export const promoteHaigureNpc = (npc: Npc) => {
         (npcBrainwashFireIntervalMax - npcBrainwashFireIntervalMin);
     npc.fireTimer = npc.fireInterval * Math.random();
   }
+};
+
+export const applyNpcDefaultHaigureState = (npc: Npc) => {
+  if (Math.random() < npcBrainwashCompleteTransitionConfig.stayChance) {
+    npc.state = "brainwash-complete-haigure";
+    npc.brainwashTimer = 0;
+    return;
+  }
+  promoteHaigureNpc(npc);
 };
 
 const findVisibleNpcTarget = (npc: Npc, targets: TargetInfo[]) => {
@@ -274,13 +324,15 @@ export const updateNpcs = (
   blockers: MovementBlocker[],
   evadeThreats: Vector3[][],
   cameraPosition: Vector3,
-  shouldProcessOrb: (position: Vector3) => boolean
+  shouldProcessOrb: (position: Vector3) => boolean,
+  shouldFreezeAliveMovement: (npc: Npc, npcId: string) => boolean
 ) => {
   const aliveTargets = targets.filter((target) => target.alive);
   const activeBlockers: MovementBlocker[] = [...blockers];
   let playerBlocked = false;
   const targetedIds = new Set<string>();
   const alertRequests: AlertRequest[] = [];
+  const isAliveMovementFrozen = shouldFreezeAliveMovement;
   const restoreNpcFromAlert = (npc: Npc) => {
     const returnMode = npc.alertReturnBrainwashMode;
     const returnTargetId = npc.alertReturnTargetId;
@@ -344,10 +396,15 @@ export const updateNpcs = (
       if (!beam.active) {
         continue;
       }
-      if (beam.sourceId === npcId) {
-        continue;
-      }
-      if (isBeamHittingTarget(beam, npc.sprite.position, npcHitRadius)) {
+      if (
+        isBeamHittingTargetExcludingSource(
+          beam,
+          beam.sourceId,
+          npcId,
+          npc.sprite.position,
+          npcHitRadius
+        )
+      ) {
         const hitScale = isRedSource(beam.sourceId) ? redHitDurationScale : 1;
         const impactPosition = beam.tip.position.add(
           Vector3.Normalize(beam.velocity).scale(beam.tipRadius)
@@ -504,8 +561,11 @@ export const updateNpcs = (
   const handleNpcBrainwashTransition = (npc: Npc) => {
     if (npc.state === "brainwash-in-progress") {
       npc.brainwashTimer += delta;
-      if (npc.brainwashTimer >= npcBrainwashDecisionDelay) {
-        if (Math.random() < npcBrainwashStayChance) {
+      if (
+        npc.brainwashTimer >=
+        npcBrainwashInProgressTransitionConfig.decisionDelay
+      ) {
+        if (Math.random() < npcBrainwashInProgressTransitionConfig.stayChance) {
           npc.brainwashTimer = 0;
         } else {
           npc.state = "brainwash-complete-haigure";
@@ -517,8 +577,12 @@ export const updateNpcs = (
 
     if (npc.state === "brainwash-complete-haigure") {
       npc.brainwashTimer += delta;
-      if (npc.brainwashTimer >= npcBrainwashDecisionDelay) {
-        promoteHaigureNpc(npc);
+      if (npc.brainwashTimer >= npcBrainwashCompleteHaigureDecisionDelay) {
+        if (Math.random() < npcBrainwashCompleteTransitionConfig.stayChance) {
+          npc.brainwashTimer = 0;
+        } else {
+          promoteHaigureNpc(npc);
+        }
       }
       return true;
     }
@@ -558,6 +622,9 @@ export const updateNpcs = (
     }
     npc.blockedByPlayer = blockedByPlayer;
     if (blocked) {
+      return true;
+    }
+    if (isAliveMovementFrozen(npc, npcId)) {
       return true;
     }
 

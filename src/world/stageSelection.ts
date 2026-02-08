@@ -1,4 +1,5 @@
 import { type StageJson } from "./stageJson";
+import { TRAP_STAGE_ID } from "./stageIds";
 
 export type StageSelection = {
   id: string;
@@ -19,6 +20,16 @@ export const STAGE_CATALOG: StageSelection[] = [
     id: "city_center",
     label: "city_center",
     jsonPath: buildStageJsonPath("city_center.json")
+  },
+  {
+    id: "arena",
+    label: "arena",
+    jsonPath: buildStageJsonPath("arena.json")
+  },
+  {
+    id: TRAP_STAGE_ID,
+    label: TRAP_STAGE_ID,
+    jsonPath: buildStageJsonPath("arena_trap_room.json")
   }
 ];
 

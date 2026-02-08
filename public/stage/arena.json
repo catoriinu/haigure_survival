@@ -1,0 +1,150 @@
+{
+  "meta": {
+    "name": "arena",
+    "description": "アリーナ",
+    "size": { "width": 27, "height": 27 },
+    "mapScale": { "x": 1, "z": 1 }
+  },
+  "cellPhysics": {
+    " ": { "solid": true,  "heightCells": 0, "noRender": true },
+    ".": { "solid": false, "heightCells": 0 },
+    "$": { "solid": true,  "heightCells": 3 }
+  },
+  "mainMap": [
+    "$$$$$$$$$$$$$$$$$$$$$$$$$$$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$.........................$",
+    "$$$$$$$$$$$$$$$$$$$$$$$$$$$"
+  ],
+  "semantics": {
+    "channels": {
+      "env": [
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII"
+      ],
+      "zone": [
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "LLLLLLLLLLLLLLLLLLLLLLLLLLL"
+      ]
+    },
+    "brief": {
+      "env": { "I": "屋内" },
+      "zone": { "L": "汎用屋内エリア" }
+    }
+  },
+  "generationRules": {
+    "env": {
+      "I": {
+        "floor": { "tileId": "floor_arena_amber" },
+        "obstacle": { "tileId": "wall_arena_plain" },
+        "ceiling": {
+          "heightCells": 3,
+          "collision": true,
+          "style": { "tileId": "ceiling_arena_plain" }
+        }
+      }
+    },
+    "zone": {
+      "L": {
+        "entity": {
+          "density": "low"
+        }
+      }
+    }
+  },
+  "entities": [],
+  "decals": [],
+  "gameplay": {
+    "markers": [
+        { "id": "spawn_player", "type": "spawn", "x": 5, "z": 4, "rotY": 0 }
+    ],
+    "zones": [
+        {
+          "id": "assembly_area",
+          "type": "safeZone",
+          "x": 8,
+          "z": 8,
+          "w": 11,
+          "h": 11,
+          "tags": ["all_down", "execution"]
+        }
+    ],
+    "spawners": [],
+    "triggers": [],
+    "options": { "skipAssembly": false }
+  },
+  "overrides": {}
+}
