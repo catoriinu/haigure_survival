@@ -1186,6 +1186,8 @@ const pickTrapCandidates = (count: number): TrapCandidate[] => {
 const countTrapBeamsInFlight = () =>
   beams.filter((beam) => beam.group === "trap").length;
 
+const getTrapBeamCount = () => Math.max(0, trapVolleyCount - 1);
+
 const isTrapNpcFreezeWindow = () =>
   trapPhase === "charging" || countTrapBeamsInFlight() > 0;
 
@@ -1363,6 +1365,7 @@ let playerHitDurationCurrent = playerHitDuration;
 let playerHitFadeDurationCurrent = playerHitFadeDuration;
 let playerHitById: string | null = null;
 let playerHitTime = 0;
+let trapSurviveCountAtBrainwash: number | null = null;
 let allDownTime: number | null = null;
 let brainwashChoiceStarted = false;
 let brainwashChoiceUnlocked = false;
@@ -2361,6 +2364,11 @@ const drawMinimap = () => {
     isAliveState(playerState) ||
     playerState === "brainwash-complete-gun" ||
     playerState === "brainwash-complete-no-gun";
+  const trapBeamCount = isTrapStageSelected() ? getTrapBeamCount() : null;
+  const trapSurviveCount =
+    isTrapStageSelected() && brainwashChoiceStarted
+      ? trapSurviveCountAtBrainwash ?? trapBeamCount
+      : null;
   const surviveTime = brainwashChoiceStarted ? playerHitTime : null;
   let retryText: string | null = null;
   if (brainwashChoiceStarted) {
@@ -2394,6 +2402,8 @@ const drawMinimap = () => {
     halfDepth,
     elapsedTime,
     surviveTime,
+    trapBeamCount,
+    trapSurviveCount,
     aliveCount,
     retryText,
     showCrosshair: playerState === "brainwash-complete-gun"
@@ -2441,6 +2451,9 @@ const updatePlayerState = (
         playerState = "hit-a";
         playerHitById = beam.sourceId;
         playerHitTime = elapsed;
+        if (isTrapStageSelected() && trapSurviveCountAtBrainwash === null) {
+          trapSurviveCountAtBrainwash = getTrapBeamCount();
+        }
         playerHitDurationCurrent = playerHitDuration * hitScale;
         playerHitFadeDurationCurrent = playerHitFadeDuration * hitScale;
         startHitSequence(
@@ -2530,6 +2543,7 @@ const resetGame = () => {
     : "normal";
   playerHitById = null;
   playerHitTime = 0;
+  trapSurviveCountAtBrainwash = null;
   playerHitDurationCurrent = playerHitDuration;
   playerHitFadeDurationCurrent = playerHitFadeDuration;
   brainwashChoiceStarted =
