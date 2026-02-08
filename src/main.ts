@@ -907,6 +907,8 @@ const trapBlinkIntervalStart = 0.8;
 const trapBlinkIntervalEnd = 0.08;
 const trapBlinkEaseExponent = 1.35;
 const trapWallCellCount = 3;
+// トラップルームの発射セル抽選で壁セルに掛ける重み。床セルの重みは常に1。値を小さくするほど壁が選ばれにくくなり、0で壁は抽選対象外。デフォルトは0.5
+const trapWallSelectionWeight = 0.5;
 const trapFloorWarningYOffset = 0.002;
 const trapWallWarningInset = 0.001;
 const trapBeamSpawnInset = 0.01;
@@ -1147,19 +1149,38 @@ const createTrapTelegraphMesh = (candidate: TrapCandidate) => {
   return wallMesh;
 };
 
+const getTrapCandidateSelectionWeight = (candidate: TrapCandidate) =>
+  candidate.kind === "wall" ? trapWallSelectionWeight : 1;
+
 const pickTrapCandidates = (count: number): TrapCandidate[] => {
   if (count <= 0) {
     return [];
   }
-  const selected = [...trapCandidates];
-  for (let index = 0; index < count; index += 1) {
-    const swapIndex =
-      index + Math.floor(Math.random() * (selected.length - index));
-    const current = selected[index];
-    selected[index] = selected[swapIndex];
-    selected[swapIndex] = current;
+  const pool = [...trapCandidates];
+  const selected: TrapCandidate[] = [];
+  const selectionCount = Math.min(count, pool.length);
+  for (let index = 0; index < selectionCount; index += 1) {
+    let totalWeight = 0;
+    for (const candidate of pool) {
+      totalWeight += getTrapCandidateSelectionWeight(candidate);
+    }
+    let threshold = Math.random() * totalWeight;
+    let selectedIndex = pool.length - 1;
+    for (
+      let candidateIndex = 0;
+      candidateIndex < pool.length;
+      candidateIndex += 1
+    ) {
+      threshold -= getTrapCandidateSelectionWeight(pool[candidateIndex]);
+      if (threshold <= 0) {
+        selectedIndex = candidateIndex;
+        break;
+      }
+    }
+    const picked = pool.splice(selectedIndex, 1)[0];
+    selected.push(picked);
   }
-  return selected.slice(0, count);
+  return selected;
 };
 
 const countTrapBeamsInFlight = () =>

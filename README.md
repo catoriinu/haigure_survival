@@ -192,3 +192,6 @@ stateDiagram-v2
     gunNoGunDecision --> brainwashCompleteGun: toGun = true<br/>(Math.random() < toGunChance)
     gunNoGunDecision --> brainwashCompleteNoGun: toGun = false<br/>(>= toGunChance)
 ```
+
+### トラップルーム用設定
+- `src/main.ts`: `trapWallSelectionWeight`（トラップルームの発射セル抽選で壁セルに掛ける重み。床セルの重みは常に`1`。値を小さくするほど壁が選ばれにくくなり、`0`で壁は抽選対象外。デフォルトは`0.5`）
