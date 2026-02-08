@@ -23,6 +23,7 @@ import {
   Npc,
   BitSoundEvents,
   CharacterState,
+  cellToWorld,
   collectFloorCells,
   createBeam,
   beginBeamRetract,
@@ -47,6 +48,7 @@ import {
   updateBitFireEffect,
   promoteHaigureNpc,
   applyNpcDefaultHaigureState,
+  pickRandomCell,
   setNpcBrainwashInProgressTransitionConfig,
   setNpcBrainwashCompleteTransitionConfig,
   spawnNpcs,
@@ -265,13 +267,33 @@ let bounds: StageBounds = {
   maxY: room.height
 };
 
-const buildSpawnForward = (selection: StageSelection) =>
+const buildFixedSpawnForward = (selection: StageSelection) =>
   selection.id === "city_center"
     ? new Vector3(0, 0, -1)
     : new Vector3(0, 0, 1);
 
-let spawnForward = buildSpawnForward(stageSelection);
+const buildArenaSpawnForward = (position: Vector3) => {
+  const towardCenter = new Vector3(-position.x, 0, -position.z);
+  if (towardCenter.lengthSquared() <= 0.0001) {
+    return new Vector3(0, 0, 1);
+  }
+  return towardCenter.normalize();
+};
+
+let spawnForward = new Vector3(0, 0, 1);
 let portraitCellSize = layout.cellSize;
+
+const updateSpawnPoint = () => {
+  const spawnCell =
+    stageSelection.id === "arena"
+      ? pickRandomCell(spawnableCells)
+      : { row: layout.spawn.row, col: layout.spawn.col };
+  spawnPosition = cellToWorld(layout, spawnCell, eyeHeight);
+  spawnForward =
+    stageSelection.id === "arena"
+      ? buildArenaSpawnForward(spawnPosition)
+      : buildFixedSpawnForward(stageSelection);
+};
 
 const updateStageState = () => {
   layout = stageContext.layout;
@@ -283,12 +305,6 @@ const updateStageState = () => {
   skipAssembly = stageContext.skipAssembly;
   halfWidth = room.width / 2;
   halfDepth = room.depth / 2;
-  spawnPosition = new Vector3(
-    -halfWidth + layout.cellSize / 2 + layout.spawn.col * layout.cellSize,
-    eyeHeight,
-    -halfDepth + layout.cellSize / 2 + layout.spawn.row * layout.cellSize
-  );
-  spawnForward = buildSpawnForward(stageSelection);
   const minimapCellDivisor = Math.round(
     layout.cellSize / stageStyle.gridSpacingWorld
   );
@@ -300,6 +316,7 @@ const updateStageState = () => {
   spawnableCells = floorCells.filter(
     (cell) => !noSpawnKeys.has(`${cell.row},${cell.col}`)
   );
+  updateSpawnPoint();
   bounds = {
     minX: -halfWidth,
     maxX: halfWidth,
@@ -335,6 +352,11 @@ camera.ellipsoid = new Vector3(
   playerWidth * 0.5
 );
 camera.inputs.removeByType("FreeCameraKeyboardMoveInput");
+const applyCameraSpawnTransform = () => {
+  camera.position.copyFrom(spawnPosition);
+  camera.rotation = new Vector3(0, 0, 0);
+  camera.setTarget(spawnPosition.add(spawnForward));
+};
 
 const orbCullDistance = 5;
 const orbCullDistanceSq = orbCullDistance * orbCullDistance;
@@ -960,9 +982,7 @@ const applyStageSelection = async (selection: StageSelection) => {
   disposeStageParts(stageParts);
   stageContext = buildStageContext(scene, stageJson);
   updateStageState();
-  camera.position.copyFrom(spawnPosition);
-  camera.rotation = new Vector3(0, 0, 0);
-  camera.setTarget(spawnPosition.add(spawnForward));
+  applyCameraSpawnTransform();
   refreshPortraitSizes();
   rebuildGameFlow();
   if (gamePhase === "title") {
@@ -2098,6 +2118,7 @@ const resetGame = () => {
     bitIndex += 1;
   }
   bitSpawnTimer = runtimeBitSpawnInterval;
+  updateSpawnPoint();
 
   for (const npc of npcs) {
     npc.sprite.dispose();
@@ -2119,9 +2140,7 @@ const resetGame = () => {
   alertSignal.receiverIds = [];
   alertSignal.gatheredIds = new Set();
   elapsedTime = 0;
-  camera.position.copyFrom(spawnPosition);
-  camera.rotation = new Vector3(0, 0, 0);
-  camera.setTarget(spawnPosition.add(spawnForward));
+  applyCameraSpawnTransform();
   playerAvatar.isVisible = false;
   playerAvatar.position = new Vector3(
     spawnPosition.x,
