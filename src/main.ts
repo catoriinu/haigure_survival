@@ -113,7 +113,9 @@ const playerWidth = PLAYER_SPRITE_WIDTH;
 const playerHeight = PLAYER_SPRITE_HEIGHT;
 const playerCenterHeight = PLAYER_SPRITE_CENTER_HEIGHT;
 const eyeHeight = PLAYER_EYE_HEIGHT;
+// ステージ開始時のNPC人数。デフォルトはプレイヤー1人 + NPC11人で合計12人
 const npcCount = 11;
+// ミニマップ座標表示ボックスの表示切替。true=表示、false=非表示（デフォルト）
 const minimapReadoutVisible = false;
 const portraitMaxWidthCells = 1;
 const portraitMaxHeightCells = 2;
@@ -626,6 +628,7 @@ carpetBitMaterials.body.emissiveColor = new Color3(0.08, 0.08, 0.08);
 carpetBitMaterials.nozzle.diffuseColor = new Color3(0.22, 0.22, 0.22);
 carpetBitMaterials.nozzle.emissiveColor = new Color3(0.1, 0.1, 0.1);
 
+// 赤ビット（通常の3倍の性能を持つビット）の出現確率。0-1の確率で判定し、デフォルトは0.05
 const redBitSpawnChance = 0.05;
 const redBitStatMultiplier = 3;
 const applyRedBit = (bit: Bit) => {
@@ -682,10 +685,13 @@ const alertSignal = {
   gatheredIds: new Set<string>()
 };
 const bitSpawnInterval = 10;
+// プレイヤーが光線命中後に点滅状態を繰り返す継続時間（秒）。デフォルトは3
 const playerHitDuration = 3;
+// プレイヤーの点滅状態後、`hit-a`（光線命中：ハイレグ姿）のまま光がフェードする時間（秒）。デフォルトは1
 const playerHitFadeDuration = 1;
 const redHitDurationScale = 1;
 const playerHitRadius = playerWidth * 0.5;
+// プレイヤー光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12
 const playerHitFlickerInterval = 0.12;
 const playerHitColorA = new Color3(1, 0.18, 0.74);
 const playerHitColorB = new Color3(0.2, 0.96, 1);

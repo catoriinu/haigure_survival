@@ -106,12 +106,12 @@
     }
     ```
   - 再生契機:
-    - `normal`: 通常状態で一定時間経過し、再生中のVOICEが無いときに一回のみ再生（アイドル再生）。
+    - `normal`: 通常状態で一定時間経過するごとに再生。
     - `evade`: `evade` に遷移した瞬間に一回のみ再生。
     - `hit-a`: `hit-a` （光線命中状態、ハイレグ姿）に遷移した瞬間に一回のみ再生。
     - `hit-b`: 現状の実装ではVOICE再生に未使用。
     - `brainwash-in-progress`: `brainwash-in-progress` に遷移した瞬間からループ再生。
-    - `brainwash-complete-gun` / `brainwash-complete-no-gun`: それぞれの状態に遷移した瞬間に一回のみ再生。
+    - `brainwash-complete-gun` / `brainwash-complete-no-gun`: それぞれの状態で一定時間経過するごとに再生。
     - `brainwash-complete-haigure`: `enter` を一回のみ再生し、終了時も同状態なら `loop` をループ再生。
     - `brainwash-complete-haigure-formation`: その状態に遷移した瞬間からループ再生。
 
@@ -123,8 +123,8 @@
     - `hit-a`（光線命中：ハイレグ姿）
     - `hit-b`（光線命中：普段着）
     - `bw-in-progress`（洗脳進行中：ハイレグ姿）
-    - `bw-complete-gun`（洗脳完了、光線銃で未洗脳者を狙う：ハイレグ姿）
-    - `bw-complete-no-gun`（洗脳完了、未洗脳者を捕獲しようとする：ハイレグ姿）
+    - `bw-complete-gun`（洗脳完了、光線銃を持ち未洗脳者を狙う：ハイレグ姿）
+    - `bw-complete-no-gun`（洗脳完了、光線銃なしで未洗脳者を捕獲しようとする：ハイレグ姿）
     - `bw-complete-pose`（洗脳完了、ハイグレポーズ：ハイレグ姿）
   - 例: `public/picture/chara/05_big_sister/normal.png`
   - 画像サイズは、横1:縦2の比率を基準とする。基準よりも長い辺がある場合はそれを基準に、画像比率を保って縮小する。
@@ -132,10 +132,60 @@
   - 画像の使い回しが発生する場合はランダム割り当てになり、同じIDが一致するかどうかは抽選結果次第（一致しても問題なし）。
 
 ## 調整可能項目
+
+### ゲーム全体の設定
 - `src/main.ts`: `npcCount`（ステージ開始時のNPC人数。デフォルトはプレイヤー1人 + NPC11人で合計12人）
 - `src/main.ts`: `minimapReadoutVisible`（ミニマップ座標表示ボックスの表示切替。true=表示、false=非表示（デフォルト））
 - `src/main.ts`: `redBitSpawnChance`（赤ビット（通常の3倍の性能を持つビット）の出現確率。0-1の確率で判定し、デフォルトは0.05）
-- `src/main.ts`: `playerHitFlickerInterval`（プレイヤー光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
-- `src/game/npcs.ts`: `npcHitFlickerInterval`（NPC光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
 - `src/game/bits.ts`: `bitModeMuzzleColorEnabled`（ビットの先端球のモード別色変更。true=モードに応じて色が変わる、false=初期色のまま固定（デフォルト））
 - `src/game/characterSprites.ts`: `PLAYER_EYE_HEIGHT`（プレイヤーのカメラの高さ。係数が大きいほど高くなる。デフォルトは`PLAYER_SPRITE_HEIGHT * 0.75`）
+
+### プレイヤー、NPCの光線命中時の設定
+- `src/main.ts`: `playerHitDuration`（プレイヤーが光線命中後に点滅状態を繰り返す継続時間（秒）。デフォルトは3）
+- `src/game/npcs.ts`: `npcHitDuration`（NPCが光線命中後に点滅状態を繰り返す継続時間（秒）。デフォルトは3）
+- `src/main.ts`: `playerHitFadeDuration`（プレイヤーの点滅状態後、`hit-a`（光線命中：ハイレグ姿）のまま光がフェードする時間（秒）。デフォルトは1）
+- `src/game/npcs.ts`: `npcHitFadeDuration`（NPCの点滅状態後、`hit-a`（光線命中：ハイレグ姿）のまま光がフェードする時間（秒）。デフォルトは1）
+- `src/main.ts`: `playerHitFlickerInterval`（プレイヤー光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
+- `src/game/npcs.ts`: `npcHitFlickerInterval`（NPC光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
+
+### NPCの洗脳後の状態遷移の設定
+- `src/game/npcs.ts`: `npcBrainwashInProgressDecisionDelay`（`brainwash-in-progress` の遷移判定を行う間隔（秒）。デフォルトは10）
+- `src/game/npcs.ts`: `npcBrainwashCompleteHaigureDecisionDelay`（`brainwash-complete-haigure` から次状態への遷移判定間隔（秒）。デフォルトは10）
+- `src/game/npcs.ts`: `npcBrainwashStayChance`（`brainwash-in-progress` の判定時に同状態を継続する確率。`1 - npcBrainwashStayChance` の確率で `brainwash-complete-haigure` へ遷移。デフォルトは0.5）
+- `src/game/npcs.ts`: `npcBrainwashCompleteHaigureStayChance`（`brainwash-complete-haigure` の判定時に同状態を継続する確率。`1 - npcBrainwashCompleteHaigureStayChance` の確率で次状態分岐の抽選へ進む。デフォルトは0.1）
+- `src/game/npcs.ts`: `toGun`（`brainwash-complete-haigure` の判定で継続しなかったときに、`brainwash-complete-gun` / `brainwash-complete-no-gun` へ分岐するための内部判定値。`Math.random() < 0.5` で計算し、分岐しきい値のデフォルトは0.5）
+
+#### 遷移図
+```mermaid
+stateDiagram-v2
+    state "brainwash-in-progress" as brainwashInProgress
+    state "brainwash-complete-haigure" as brainwashCompleteHaigure
+    state "brainwash-complete-gun" as brainwashCompleteGun
+    state "brainwash-complete-no-gun" as brainwashCompleteNoGun
+
+    state inProgressDecision <<choice>>
+    state haigureStayDecision <<choice>>
+    state gunNoGunDecision <<choice>>
+
+    note right of inProgressDecision
+      洗脳進行中からの遷移判定
+    end note
+    note right of haigureStayDecision
+      洗脳完了を継続するかの判定
+    end note
+    note right of gunNoGunDecision
+      銃持ちまたは銃なしへの遷移判定
+    end note
+
+    [*] --> brainwashInProgress
+
+    brainwashInProgress --> inProgressDecision: npcBrainwashInProgressDecisionDelay秒ごと判定
+    inProgressDecision --> brainwashInProgress: 継続<br/>Math.random() < npcBrainwashStayChance<br/>(デフォルト 0.5)
+    inProgressDecision --> brainwashCompleteHaigure: 遷移<br/>Math.random() >= npcBrainwashStayChance<br/>(デフォルト 0.5)
+
+    brainwashCompleteHaigure --> haigureStayDecision: npcBrainwashCompleteHaigureDecisionDelay秒ごと判定
+    haigureStayDecision --> brainwashCompleteHaigure: 継続<br/>Math.random() < npcBrainwashCompleteHaigureStayChance<br/>(デフォルト 0.1)
+    haigureStayDecision --> gunNoGunDecision: 分岐へ<br/>Math.random() >= npcBrainwashCompleteHaigureStayChance
+    gunNoGunDecision --> brainwashCompleteGun: toGun = true<br/>(Math.random() < 0.5)
+    gunNoGunDecision --> brainwashCompleteNoGun: toGun = false<br/>(>= 0.5)
+```
