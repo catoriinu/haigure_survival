@@ -18,6 +18,8 @@ const trapBlinkIntervalStart = 0.8;
 const trapBlinkIntervalEnd = 0.08;
 const trapBlinkEaseExponent = 1.35;
 const trapWallCellCount = 3;
+// トラップルームの初回ボレー値。1で初回候補数は1、2で初回候補数は3。デフォルトは1
+export const trapInitialVolleyCount = 1;
 // トラップルームの発射セル抽選で壁セルに掛ける重み。床セルの重みは常に1。値を小さくするほど壁が選ばれにくくなり、0で壁は抽選対象外。デフォルトは0.5
 export const trapWallSelectionWeight = 0.5;
 const trapFloorWarningYOffset = 0.002;
@@ -68,7 +70,7 @@ export const createTrapSystem = ({
   let trapPhaseTimer = 0;
   let trapBlinkTimer = 0;
   let trapBlinkVisible = false;
-  let trapVolleyCount = 1;
+  let trapVolleyCount = trapInitialVolleyCount;
   let trapNpcFreezeWindowActive = false;
   let trapNpcFreezeElapsed = 0;
   const trapNpcStopDelayById = new Map<string, number>();
@@ -177,7 +179,7 @@ export const createTrapSystem = ({
     trapPhaseTimer = 0;
     trapBlinkTimer = 0;
     trapBlinkVisible = false;
-    trapVolleyCount = 1;
+    trapVolleyCount = trapInitialVolleyCount;
     trapNpcFreezeWindowActive = false;
     trapNpcFreezeElapsed = 0;
     trapNpcStopDelayById.clear();
