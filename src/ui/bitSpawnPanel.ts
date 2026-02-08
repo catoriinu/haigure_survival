@@ -41,7 +41,7 @@ export const createBitSpawnPanel = ({
   intervalRow.className = "bit-spawn-panel__row";
   const intervalLabel = document.createElement("span");
   intervalLabel.className = "bit-spawn-panel__label";
-  intervalLabel.textContent = "間隔(秒)";
+  intervalLabel.textContent = "出現間隔(秒)";
   intervalRow.appendChild(intervalLabel);
   const intervalInput = document.createElement("input");
   intervalInput.className = "bit-spawn-panel__input";
