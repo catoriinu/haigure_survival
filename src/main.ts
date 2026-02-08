@@ -11,6 +11,7 @@ import {
   Sprite,
   SpriteManager,
   Mesh,
+  MeshBuilder,
   StandardMaterial
 } from "@babylonjs/core";
 import {
@@ -26,6 +27,7 @@ import {
   cellToWorld,
   collectFloorCells,
   createBeam,
+  createTrapBeam,
   beginBeamRetract,
   createBitAt,
   createBeamMaterial,
@@ -850,6 +852,60 @@ const beams: Beam[] = [];
 const beamTrails: BeamTrail[] = [];
 const beamImpactOrbs: BeamImpactOrb[] = [];
 
+type TrapWallSide = "north" | "south" | "west" | "east";
+type TrapFloorCandidate = {
+  kind: "floor";
+  row: number;
+  col: number;
+  centerX: number;
+  centerZ: number;
+};
+type TrapWallCandidate = {
+  kind: "wall";
+  row: number;
+  col: number;
+  side: TrapWallSide;
+  boundaryX: number;
+  boundaryZ: number;
+  direction: Vector3;
+  rotationY: number;
+};
+type TrapCandidate = TrapFloorCandidate | TrapWallCandidate;
+type TrapPhase = "inactive" | "charging" | "waiting_clear" | "interval";
+const trapStageId = "arena_trap_room";
+const trapSourceId = "trap";
+const trapWarningDuration = 5;
+const trapIntervalDuration = 2;
+const trapBlinkIntervalStart = 0.8;
+const trapBlinkIntervalEnd = 0.08;
+const trapBlinkEaseExponent = 1.35;
+const trapWallCellCount = 3;
+const trapFloorWarningYOffset = 0.002;
+const trapWallWarningInset = 0.001;
+const trapBeamSpawnInset = 0.01;
+const trapNpcStopDelayMax = 6.0;
+const trapNpcStopDelayStep = 0.1;
+const trapTelegraphMaterial = new StandardMaterial(
+  "trapTelegraphMaterial",
+  scene
+);
+trapTelegraphMaterial.diffuseColor = new Color3(1, 0.18, 0.74);
+trapTelegraphMaterial.emissiveColor = new Color3(1, 0.18, 0.74);
+trapTelegraphMaterial.specularColor = Color3.Black();
+trapTelegraphMaterial.alpha = 0.9;
+trapTelegraphMaterial.backFaceCulling = false;
+let trapCandidates: TrapCandidate[] = [];
+let trapSelectedCandidates: TrapCandidate[] = [];
+let trapTelegraphMeshes: Mesh[] = [];
+let trapPhase: TrapPhase = "inactive";
+let trapPhaseTimer = 0;
+let trapBlinkTimer = 0;
+let trapBlinkVisible = false;
+let trapVolleyCount = 1;
+let trapNpcFreezeWindowActive = false;
+let trapNpcFreezeElapsed = 0;
+const trapNpcStopDelayById = new Map<string, number>();
+
 const alertSignal = {
   leaderId: null as string | null,
   targetId: null as string | null,
@@ -918,6 +974,324 @@ const resetPlayerMoveInput = () => {
   playerMoveInput.right = false;
 };
 
+const isTrapStageSelected = () => stageSelection.id === trapStageId;
+
+const setTrapTelegraphVisible = (visible: boolean) => {
+  const visibility = visible ? 1 : 0;
+  for (const mesh of trapTelegraphMeshes) {
+    mesh.visibility = visibility;
+  }
+};
+
+const clearTrapTelegraphMeshes = () => {
+  for (const mesh of trapTelegraphMeshes) {
+    mesh.dispose();
+  }
+  trapTelegraphMeshes = [];
+  trapSelectedCandidates = [];
+  trapBlinkVisible = false;
+};
+
+const resetTrapRuntimeState = () => {
+  clearTrapTelegraphMeshes();
+  trapPhase = "inactive";
+  trapPhaseTimer = 0;
+  trapBlinkTimer = 0;
+  trapBlinkVisible = false;
+  trapVolleyCount = 1;
+  trapNpcFreezeWindowActive = false;
+  trapNpcFreezeElapsed = 0;
+  trapNpcStopDelayById.clear();
+};
+
+const getCellCenterXZ = (row: number, col: number) => ({
+  x: -halfWidth + layout.cellSize / 2 + col * layout.cellSize,
+  z: -halfDepth + layout.cellSize / 2 + row * layout.cellSize
+});
+
+const buildTrapCandidatesForStage = (): TrapCandidate[] => {
+  if (!isTrapStageSelected()) {
+    return [];
+  }
+  const candidates: TrapCandidate[] = [];
+  for (let row = 0; row < layout.rows; row += 1) {
+    for (let col = 0; col < layout.columns; col += 1) {
+      if (layout.cells[row][col] !== "floor") {
+        continue;
+      }
+      const center = getCellCenterXZ(row, col);
+      candidates.push({
+        kind: "floor",
+        row,
+        col,
+        centerX: center.x,
+        centerZ: center.z
+      });
+      if (row > 0 && layout.cells[row - 1][col] === "wall") {
+        candidates.push({
+          kind: "wall",
+          row,
+          col,
+          side: "north",
+          boundaryX: center.x,
+          boundaryZ: center.z - layout.cellSize / 2,
+          direction: new Vector3(0, 0, 1),
+          rotationY: 0
+        });
+      }
+      if (row < layout.rows - 1 && layout.cells[row + 1][col] === "wall") {
+        candidates.push({
+          kind: "wall",
+          row,
+          col,
+          side: "south",
+          boundaryX: center.x,
+          boundaryZ: center.z + layout.cellSize / 2,
+          direction: new Vector3(0, 0, -1),
+          rotationY: Math.PI
+        });
+      }
+      if (col > 0 && layout.cells[row][col - 1] === "wall") {
+        candidates.push({
+          kind: "wall",
+          row,
+          col,
+          side: "west",
+          boundaryX: center.x - layout.cellSize / 2,
+          boundaryZ: center.z,
+          direction: new Vector3(1, 0, 0),
+          rotationY: -Math.PI / 2
+        });
+      }
+      if (col < layout.columns - 1 && layout.cells[row][col + 1] === "wall") {
+        candidates.push({
+          kind: "wall",
+          row,
+          col,
+          side: "east",
+          boundaryX: center.x + layout.cellSize / 2,
+          boundaryZ: center.z,
+          direction: new Vector3(-1, 0, 0),
+          rotationY: Math.PI / 2
+        });
+      }
+    }
+  }
+  return candidates;
+};
+
+const syncTrapStageContext = () => {
+  trapCandidates = buildTrapCandidatesForStage();
+};
+
+const createTrapTelegraphMesh = (candidate: TrapCandidate) => {
+  if (candidate.kind === "floor") {
+    const floorMesh = MeshBuilder.CreateGround(
+      `trapTelegraphFloor_${candidate.row}_${candidate.col}`,
+      { width: layout.cellSize, height: layout.cellSize },
+      scene
+    );
+    floorMesh.position.set(
+      candidate.centerX,
+      trapFloorWarningYOffset,
+      candidate.centerZ
+    );
+    floorMesh.material = trapTelegraphMaterial;
+    floorMesh.isPickable = false;
+    return floorMesh;
+  }
+  const wallMesh = MeshBuilder.CreatePlane(
+    `trapTelegraphWall_${candidate.row}_${candidate.col}_${candidate.side}`,
+    {
+      width: layout.cellSize,
+      height: layout.cellSize * trapWallCellCount,
+      sideOrientation: Mesh.DOUBLESIDE
+    },
+    scene
+  );
+  wallMesh.position.set(
+    candidate.boundaryX + candidate.direction.x * trapWallWarningInset,
+    (layout.cellSize * trapWallCellCount) / 2,
+    candidate.boundaryZ + candidate.direction.z * trapWallWarningInset
+  );
+  wallMesh.rotation.y = candidate.rotationY;
+  wallMesh.material = trapTelegraphMaterial;
+  wallMesh.isPickable = false;
+  return wallMesh;
+};
+
+const pickTrapCandidates = (count: number): TrapCandidate[] => {
+  if (count <= 0) {
+    return [];
+  }
+  const selected = [...trapCandidates];
+  for (let index = 0; index < count; index += 1) {
+    const swapIndex =
+      index + Math.floor(Math.random() * (selected.length - index));
+    const current = selected[index];
+    selected[index] = selected[swapIndex];
+    selected[swapIndex] = current;
+  }
+  return selected.slice(0, count);
+};
+
+const countTrapBeamsInFlight = () =>
+  beams.filter((beam) => beam.group === "trap").length;
+
+const isTrapNpcFreezeWindow = () =>
+  trapPhase === "charging" || countTrapBeamsInFlight() > 0;
+
+const assignTrapNpcStopDelays = () => {
+  trapNpcStopDelayById.clear();
+  const maxStep = Math.floor(trapNpcStopDelayMax / trapNpcStopDelayStep);
+  for (const npc of npcs) {
+    const step = Math.floor(Math.random() * (maxStep + 1));
+    const delay = Number((step * trapNpcStopDelayStep).toFixed(1));
+    trapNpcStopDelayById.set(npc.sprite.name, delay);
+  }
+};
+
+const beginTrapNpcFreezeWindow = () => {
+  trapNpcFreezeWindowActive = true;
+  trapNpcFreezeElapsed = 0;
+  assignTrapNpcStopDelays();
+};
+
+const updateTrapNpcMovementControl = (delta: number) => {
+  const shouldApply =
+    gamePhase === "playing" &&
+    isTrapStageSelected() &&
+    isTrapNpcFreezeWindow();
+  if (!shouldApply) {
+    trapNpcFreezeWindowActive = false;
+    trapNpcFreezeElapsed = 0;
+    trapNpcStopDelayById.clear();
+    return;
+  }
+  if (!trapNpcFreezeWindowActive) {
+    beginTrapNpcFreezeWindow();
+  }
+  trapNpcFreezeElapsed += delta;
+};
+
+const shouldFreezeTrapNpcMovement = (npc: Npc, npcId: string) =>
+  trapNpcFreezeWindowActive &&
+  (npc.state === "normal" || npc.state === "evade") &&
+  trapNpcFreezeElapsed + 0.0001 >= trapNpcStopDelayById.get(npcId)!;
+
+const startTrapChargingPhase = () => {
+  clearTrapTelegraphMeshes();
+  if (trapCandidates.length === 0) {
+    trapPhase = "inactive";
+    return;
+  }
+  const countLimit =
+    (trapVolleyCount * (trapVolleyCount + 1)) / 2;
+  const selectionCount = Math.min(trapCandidates.length, countLimit);
+  trapSelectedCandidates = pickTrapCandidates(selectionCount);
+  for (const candidate of trapSelectedCandidates) {
+    trapTelegraphMeshes.push(createTrapTelegraphMesh(candidate));
+  }
+  trapBlinkVisible = true;
+  setTrapTelegraphVisible(true);
+  trapBlinkTimer = 0;
+  trapPhaseTimer = 0;
+  trapPhase = "charging";
+  beginTrapNpcFreezeWindow();
+};
+
+const fireTrapVolley = () => {
+  if (trapSelectedCandidates.length === 0) {
+    return;
+  }
+  for (const candidate of trapSelectedCandidates) {
+    if (candidate.kind === "floor") {
+      beams.push(
+        createTrapBeam(
+          scene,
+          new Vector3(candidate.centerX, bounds.minY + 0.001, candidate.centerZ),
+          new Vector3(0, 1, 0),
+          beamMaterial,
+          trapSourceId,
+          layout.cellSize,
+          layout,
+          bounds
+        )
+      );
+      continue;
+    }
+    for (let level = 0; level < trapWallCellCount; level += 1) {
+      beams.push(
+        createTrapBeam(
+          scene,
+          new Vector3(
+            candidate.boundaryX + candidate.direction.x * trapBeamSpawnInset,
+            layout.cellSize * (0.5 + level),
+            candidate.boundaryZ + candidate.direction.z * trapBeamSpawnInset
+          ),
+          candidate.direction,
+          beamMaterial,
+          trapSourceId,
+          layout.cellSize,
+          layout,
+          bounds
+        )
+      );
+    }
+  }
+  trapVolleyCount += 1;
+};
+
+const updateTrapSystem = (delta: number) => {
+  if (gamePhase !== "playing" || !isTrapStageSelected()) {
+    if (trapPhase !== "inactive" || trapTelegraphMeshes.length > 0) {
+      resetTrapRuntimeState();
+    }
+    return;
+  }
+
+  if (trapPhase === "inactive") {
+    startTrapChargingPhase();
+    return;
+  }
+
+  if (trapPhase === "charging") {
+    trapPhaseTimer += delta;
+    const progress = Math.min(1, trapPhaseTimer / trapWarningDuration);
+    const blend = Math.pow(progress, trapBlinkEaseExponent);
+    const blinkInterval =
+      trapBlinkIntervalStart +
+      (trapBlinkIntervalEnd - trapBlinkIntervalStart) * blend;
+    trapBlinkTimer += delta;
+    while (trapBlinkTimer >= blinkInterval) {
+      trapBlinkTimer -= blinkInterval;
+      trapBlinkVisible = !trapBlinkVisible;
+      setTrapTelegraphVisible(trapBlinkVisible);
+    }
+    if (trapPhaseTimer >= trapWarningDuration) {
+      fireTrapVolley();
+      clearTrapTelegraphMeshes();
+      trapPhase = "waiting_clear";
+    }
+    return;
+  }
+
+  if (trapPhase === "waiting_clear") {
+    if (countTrapBeamsInFlight() === 0) {
+      trapPhase = "interval";
+      trapPhaseTimer = trapIntervalDuration;
+    }
+    return;
+  }
+
+  if (trapPhase === "interval") {
+    trapPhaseTimer -= delta;
+    if (trapPhaseTimer <= 0) {
+      startTrapChargingPhase();
+    }
+  }
+};
+
 type PlayerState = CharacterState;
 type PublicExecutionScenario = ExecutionConfig;
 let playerState: PlayerState = "normal";
@@ -982,6 +1356,8 @@ const applyStageSelection = async (selection: StageSelection) => {
   disposeStageParts(stageParts);
   stageContext = buildStageContext(scene, stageJson);
   updateStageState();
+  syncTrapStageContext();
+  resetTrapRuntimeState();
   applyCameraSpawnTransform();
   refreshPortraitSizes();
   rebuildGameFlow();
@@ -2081,6 +2457,8 @@ const updateCharacterSpriteCells = () => {
 
 const resetGame = () => {
   stopAllVoices();
+  syncTrapStageContext();
+  resetTrapRuntimeState();
   resetExecutionState();
   playerState = runtimeDefaultStartSettings.startPlayerAsBrainwashCompleteGun
     ? "brainwash-complete-gun"
@@ -2281,6 +2659,7 @@ setupInputHandlers({
 
 engine.runRenderLoop(() => {
   const delta = engine.getDeltaTime() / 1000;
+  updateTrapSystem(delta);
   if (gamePhase === "playing") {
     elapsedTime += delta;
 
@@ -2294,6 +2673,7 @@ engine.runRenderLoop(() => {
       beamImpactOrbs,
       shouldProcessOrb
     );
+    updateTrapNpcMovementControl(delta);
     updatePlayerState(delta, elapsedTime, shouldProcessOrb);
     const npcBlockers =
       playerState === "brainwash-complete-no-gun"
@@ -2378,7 +2758,8 @@ engine.runRenderLoop(() => {
       npcBlockers,
       npcEvadeThreats,
       camera.position,
-      shouldProcessOrb
+      shouldProcessOrb,
+      shouldFreezeTrapNpcMovement
     );
     const playerBlockedByNpc =
       npcUpdate.playerBlocked && isAliveState(playerState);
@@ -2532,6 +2913,9 @@ engine.runRenderLoop(() => {
             : "normal";
       }
     }
+  }
+  if (gamePhase !== "playing") {
+    updateTrapNpcMovementControl(delta);
   }
 
   if (gamePhase === "execution") {

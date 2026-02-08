@@ -179,7 +179,11 @@ export type BitSoundEvents = {
 
 export type Beam = {
   mesh: Mesh;
+  group: "normal" | "trap";
+  persistent: boolean;
+  persistentTimer: number;
   velocity: Vector3;
+  bodyRadius: number;
   startPosition: Vector3;
   travelDistance: number;
   length: number;
@@ -192,6 +196,8 @@ export type Beam = {
   tip: Mesh;
   tipRadius: number;
   trailTimer: number;
+  trailEnabled: boolean;
+  impactEnabled: boolean;
 };
 
 export type BeamTrail = {

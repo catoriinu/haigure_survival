@@ -3,6 +3,7 @@ import { Mesh, Vector3 } from "@babylonjs/core";
 export type BeamCollisionShape = {
   mesh: Mesh;
   velocity: Vector3;
+  bodyRadius: number;
   length: number;
   currentLength: number;
   tip: Mesh;
@@ -24,12 +25,13 @@ export const isBeamHittingTarget = (
   const clamped = Math.max(-halfLength, Math.min(halfLength, projection));
   const closest = beam.mesh.position.add(direction.scale(clamped));
   const distanceSq = Vector3.DistanceSquared(targetPosition, closest);
+  const bodyRadius = targetRadius + beam.bodyRadius;
   const tipPosition = beam.tip.getAbsolutePosition();
   const tipRadius = targetRadius + beam.tipRadius;
   const tipDistanceSq = Vector3.DistanceSquared(targetPosition, tipPosition);
 
   return (
-    distanceSq <= targetRadius * targetRadius ||
+    distanceSq <= bodyRadius * bodyRadius ||
     tipDistanceSq <= tipRadius * tipRadius
   );
 };

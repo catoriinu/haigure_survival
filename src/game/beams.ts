@@ -43,6 +43,13 @@ const beamImpactBounceLift = 0.7;
 const beamImpactReflectBoost = 1;
 const beamHitColor = new Color3(1, 0.18, 0.74);
 const beamHitEffectAlpha = 0.55;
+const normalBeamSpeed = 1.58;
+const trapBeamSpeedScale = 2;
+const trapBeamThicknessScale = 0.9;
+const trapBeamBodyRadiusScale = 0.5;
+const trapBeamSustainDuration = 4;
+const trapBeamFadeOutDuration = 1;
+const beamLength = 0.75;
 const randomInRange = (min: number, max: number) =>
   min + Math.random() * (max - min);
 const getRandomTrailInterval = () =>
@@ -145,21 +152,34 @@ export const createBeamMaterial = (scene: Scene) => {
   return material;
 };
 
-export const createBeam = (
+type BeamBuildConfig = {
+  sourceId: string | null;
+  speed: number;
+  diameterTop: number;
+  diameterBottom: number;
+  tipDiameter: number;
+  tipVisible: boolean;
+  bodyRadius: number;
+  group: "normal" | "trap";
+  persistent: boolean;
+  persistentTimer: number;
+  trailEnabled: boolean;
+  impactEnabled: boolean;
+  backFadeEnabled: boolean;
+};
+
+const createBeamInternal = (
   scene: Scene,
   position: Vector3,
   direction: Vector3,
   material: StandardMaterial,
-  sourceId: string | null
+  config: BeamBuildConfig
 ): Beam => {
-  const beamLength = 0.75;
-  const beamFrontDiameter = beamDiameter * beamFrontDiameterScale;
-  const beamBackDiameter = beamDiameter * beamBackDiameterScale;
   const beam = MeshBuilder.CreateCylinder(
     "beam",
     {
-      diameterTop: beamFrontDiameter,
-      diameterBottom: beamBackDiameter,
+      diameterTop: config.diameterTop,
+      diameterBottom: config.diameterBottom,
       height: beamLength,
       tessellation: 12,
       sideOrientation: Mesh.DOUBLESIDE
@@ -168,27 +188,39 @@ export const createBeam = (
   );
   beam.material = material;
   beam.isPickable = false;
-  applyBeamBackFade(beam, beamLength);
+  if (config.backFadeEnabled) {
+    applyBeamBackFade(beam, beamLength);
+  }
 
-  const tipDiameter = beamTipDiameter;
   const tip = MeshBuilder.CreateSphere(
     "beamTip",
-    { diameter: tipDiameter, segments: 12 },
+    { diameter: config.tipDiameter, segments: 12 },
     scene
   );
   tip.material = material;
   tip.isPickable = false;
   tip.position.copyFrom(position);
+  tip.isVisible = config.tipVisible;
 
+  const normalizedDirection = direction.clone().normalize();
   const rotation = new Quaternion();
-  Quaternion.FromUnitVectorsToRef(Vector3.Up(), direction, rotation);
+  Quaternion.FromUnitVectorsToRef(
+    Vector3.Up(),
+    normalizedDirection,
+    rotation
+  );
   beam.rotationQuaternion = rotation;
   beam.position = position.clone();
   beam.scaling.y = 0;
+  beam.visibility = 1;
 
   return {
     mesh: beam,
-    velocity: direction.scale(1.58),
+    group: config.group,
+    persistent: config.persistent,
+    persistentTimer: config.persistentTimer,
+    velocity: normalizedDirection.scale(config.speed),
+    bodyRadius: config.bodyRadius,
     startPosition: position.clone(),
     travelDistance: 0,
     length: beamLength,
@@ -197,17 +229,133 @@ export const createBeam = (
     retractLeadRemaining: 0,
     impactPosition: position.clone(),
     active: true,
-    sourceId,
+    sourceId: config.sourceId,
     tip,
-    tipRadius: tipDiameter / 2,
-    trailTimer: Math.random() * beamTrailIntervalMax
+    tipRadius: config.tipDiameter / 2,
+    trailTimer: config.trailEnabled
+      ? Math.random() * beamTrailIntervalMax
+      : Number.POSITIVE_INFINITY,
+    trailEnabled: config.trailEnabled,
+    impactEnabled: config.impactEnabled
   };
+};
+
+export const createBeam = (
+  scene: Scene,
+  position: Vector3,
+  direction: Vector3,
+  material: StandardMaterial,
+  sourceId: string | null
+): Beam => {
+  const beamFrontDiameter = beamDiameter * beamFrontDiameterScale;
+  const beamBackDiameter = beamDiameter * beamBackDiameterScale;
+  return createBeamInternal(scene, position, direction, material, {
+    sourceId,
+    speed: normalBeamSpeed,
+    diameterTop: beamFrontDiameter,
+    diameterBottom: beamBackDiameter,
+    tipDiameter: beamTipDiameter,
+    tipVisible: true,
+    bodyRadius: 0,
+    group: "normal",
+    persistent: false,
+    persistentTimer: 0,
+    trailEnabled: true,
+    impactEnabled: true,
+    backFadeEnabled: true
+  });
+};
+
+export const createTrapBeam = (
+  scene: Scene,
+  position: Vector3,
+  direction: Vector3,
+  material: StandardMaterial,
+  sourceId: string | null,
+  cellSize: number,
+  layout: GridLayout,
+  bounds: StageBounds
+): Beam => {
+  const halfWidth = (layout.columns * layout.cellSize) / 2;
+  const halfDepth = (layout.rows * layout.cellSize) / 2;
+  const toCell = (x: number, z: number) => {
+    const col = Math.floor((x + halfWidth) / layout.cellSize);
+    const row = Math.floor((z + halfDepth) / layout.cellSize);
+    return { row, col };
+  };
+  const isInsideGrid = (row: number, col: number) =>
+    row >= 0 && row < layout.rows && col >= 0 && col < layout.columns;
+  const computeTravelDistance = () => {
+    const normalized = direction.clone().normalize();
+    const step = Math.max(layout.cellSize * 0.2, 0.02);
+    // 床→天井の垂直ビームは、天井までの距離を厳密に使う。
+    if (Math.abs(normalized.x) < 0.0001 && Math.abs(normalized.z) < 0.0001) {
+      if (normalized.y > 0) {
+        return Math.max(bounds.maxY - position.y, step);
+      }
+      return Math.max(position.y - bounds.minY, step);
+    }
+    const maxDistance =
+      (layout.columns + layout.rows) * layout.cellSize +
+      (bounds.maxY - bounds.minY) +
+      2;
+    let travel = 0;
+    while (travel <= maxDistance) {
+      const front = position.add(normalized.scale(travel));
+      const frontCell = toCell(front.x, front.z);
+      const insideGrid = isInsideGrid(frontCell.row, frontCell.col);
+      const floorAt =
+        insideGrid && layout.cells[frontCell.row][frontCell.col] === "floor";
+      if (
+        front.y <= bounds.minY ||
+        front.y >= bounds.maxY ||
+        !floorAt
+      ) {
+        return Math.max(travel, step);
+      }
+      travel += step;
+    }
+    return maxDistance;
+  };
+  const thickness = cellSize * trapBeamThicknessScale;
+  const beam = createBeamInternal(scene, position, direction, material, {
+    sourceId,
+    speed: normalBeamSpeed * trapBeamSpeedScale,
+    diameterTop: thickness,
+    diameterBottom: thickness,
+    tipDiameter: thickness,
+    tipVisible: false,
+    bodyRadius: cellSize * trapBeamBodyRadiusScale,
+    group: "trap",
+    persistent: true,
+    persistentTimer: trapBeamSustainDuration,
+    trailEnabled: false,
+    impactEnabled: false,
+    backFadeEnabled: false
+  });
+  const normalized = direction.clone().normalize();
+  const travelDistance = computeTravelDistance();
+  beam.travelDistance = travelDistance;
+  beam.currentLength = travelDistance;
+  beam.tipRadius = 0;
+  const centerPosition = position.add(
+    normalized.scale(travelDistance / 2)
+  );
+  beam.mesh.position.copyFrom(centerPosition);
+  beam.mesh.scaling.y = travelDistance / beam.length;
+  beam.tip.position.copyFrom(
+    position.add(normalized.scale(travelDistance))
+  );
+  return beam;
 };
 
 export const beginBeamRetract = (
   beam: Beam,
   impactPosition: Vector3
 ) => {
+  if (beam.persistent) {
+    return;
+  }
   beam.active = false;
   beam.retracting = true;
   beam.impactPosition.copyFrom(impactPosition);
@@ -324,6 +472,23 @@ export const updateBeams = (
       continue;
     }
 
+    if (beam.persistent) {
+      beam.persistentTimer -= delta;
+      if (beam.persistentTimer <= 0) {
+        beam.tip.dispose();
+        beam.mesh.dispose();
+        continue;
+      }
+      if (beam.persistentTimer <= trapBeamFadeOutDuration) {
+        beam.mesh.visibility = beam.persistentTimer / trapBeamFadeOutDuration;
+        beam.active = false;
+      } else {
+        beam.mesh.visibility = 1;
+        beam.active = true;
+      }
+      survivors.push(beam);
+      continue;
+    }
     if (!beam.active) {
       continue;
     }
@@ -345,8 +510,10 @@ export const updateBeams = (
       direction.scale(currentLength + beam.tipRadius)
     );
     beam.tip.position.copyFrom(tipPosition);
-    beam.trailTimer -= delta;
-    if (beam.trailTimer <= 0) {
+    if (beam.trailEnabled) {
+      beam.trailTimer -= delta;
+    }
+    if (beam.trailEnabled && beam.trailTimer <= 0) {
       const trailRange = beam.currentLength / 2;
       const trailAdvance = randomInRange(0, trailRange);
       const trailRatio = trailAdvance / beam.length;
@@ -426,7 +593,7 @@ export const updateBeams = (
           impactNormal = new Vector3(0, 0, direction.z > 0 ? -1 : 1);
         }
       }
-      if (shouldProcessOrb(impactPosition)) {
+      if (beam.impactEnabled && shouldProcessOrb(impactPosition)) {
         activeImpacts.push(
           ...createBeamImpactOrbs(
             beam.mesh.getScene(),
