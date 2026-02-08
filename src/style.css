@@ -154,6 +154,48 @@ body {
   align-items: flex-end;
 }
 
+.stage-select-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 220px;
+  padding: 12px 14px;
+  border: 1px solid #111111;
+  background: rgba(0, 0, 0, 0.65);
+  color: #f5f5f5;
+  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
+  letter-spacing: 0.04em;
+  pointer-events: auto;
+}
+
+.stage-select-control__title {
+  font-size: 17px;
+  letter-spacing: 0.14em;
+  color: #f0f0f0;
+}
+
+.stage-select-control__select {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  background: #141414;
+  color: #f5f5f5;
+  font-family: inherit;
+  font-size: 17px;
+  letter-spacing: 0.04em;
+}
+
+.stage-select-control__select:focus {
+  outline: 1px solid #646464;
+  outline-offset: 1px;
+}
+
+.stage-select-control--title-overlay {
+  margin-top: 26px;
+  z-index: 31;
+}
+
 .title-gameover-warning {
   display: none;
   max-width: 290px;

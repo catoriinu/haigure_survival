@@ -113,6 +113,7 @@ import {
   type BrainwashSettings
 } from "./ui/brainwashSettingsPanel";
 import { createTrapRoomRecommendControl } from "./ui/trapRoomRecommendControl";
+import { createStageSelectControl } from "./ui/stageSelectControl";
 import {
   PLAYER_EYE_HEIGHT,
   PLAYER_SPRITE_CENTER_HEIGHT,
@@ -413,6 +414,20 @@ const titleVolumePanel = createVolumePanel({
 const titleRightPanels = document.createElement("div");
 titleRightPanels.className = "title-right-panels";
 document.body.appendChild(titleRightPanels);
+const titleOverlayElement =
+  document.getElementById("titleOverlay") as unknown as HTMLDivElement;
+const titleStageSelectControl = createStageSelectControl({
+  parent: titleOverlayElement,
+  stages: STAGE_CATALOG,
+  initialStageId: stageSelection.id,
+  className: "stage-select-control--title-overlay",
+  onChange: (stageId) => {
+    const nextSelection = STAGE_CATALOG.find(
+      (selection) => selection.id === stageId
+    )!;
+    void applyStageSelection(nextSelection);
+  }
+});
 const titleGameOverWarning = document.createElement("div");
 titleGameOverWarning.className = "title-gameover-warning";
 titleGameOverWarning.textContent =
@@ -479,6 +494,7 @@ for (const category of volumeCategories) {
   applyVolumeLevel(category, volumeLevels[category]);
 }
 titleVolumePanel.setVisible(true);
+titleStageSelectControl.setVisible(true);
 titleDefaultSettingsPanel.setVisible(true);
 titleBrainwashSettingsPanel.setVisible(true);
 titleBitSpawnPanel.setVisible(true);
@@ -490,7 +506,7 @@ const isTitleUiTarget = (target: EventTarget | null) => {
   }
   return (
     target.closest(
-      "[data-ui=\"volume-panel\"], [data-ui=\"default-settings-panel\"], [data-ui=\"brainwash-settings-panel\"], [data-ui=\"bit-spawn-panel\"], [data-ui=\"trap-room-recommend-button\"]"
+      "[data-ui=\"volume-panel\"], [data-ui=\"stage-select-control\"], [data-ui=\"default-settings-panel\"], [data-ui=\"brainwash-settings-panel\"], [data-ui=\"bit-spawn-panel\"], [data-ui=\"trap-room-recommend-button\"]"
     ) !== null
   );
 };
@@ -1020,16 +1036,16 @@ let bitIndex = bits.length;
 
 const hud = createHud();
 hud.setMinimapReadoutVisible(minimapReadoutVisible);
-const buildTitleText = (selection: StageSelection) =>
-  `左クリック: 開始\n右クリック: ステージ選択\nステージ: ${selection.label}`;
+const buildTitleText = () => "左クリック: 開始";
 const applyStageSelection = async (selection: StageSelection) => {
   const requestId = stageSelectionRequestId + 1;
   stageSelectionRequestId = requestId;
   stageSelectionInProgress = true;
   stageSelection = selection;
+  titleStageSelectControl.setSelectedStageId(selection.id);
   updateTrapRoomRecommendButtonVisibility();
   updateTitleGameOverWarning();
-  hud.setTitleText(buildTitleText(selection));
+  hud.setTitleText(buildTitleText());
   const loadedStageJson = await loadStageJson(selection);
   if (requestId !== stageSelectionRequestId) {
     return;
@@ -1055,7 +1071,7 @@ const applyStageSelection = async (selection: StageSelection) => {
     gameFlow.resetFade();
   }
 };
-hud.setTitleText(buildTitleText(stageSelection));
+hud.setTitleText(buildTitleText());
 
 const clearBeams = () => {
   for (const beam of beams) {
@@ -2253,6 +2269,7 @@ const startGame = () => {
   gamePhase = "playing";
   hud.setTitleVisible(false);
   titleVolumePanel.setVisible(false);
+  titleStageSelectControl.setVisible(false);
   titleDefaultSettingsPanel.setVisible(false);
   titleBrainwashSettingsPanel.setVisible(false);
   titleBitSpawnPanel.setVisible(false);
@@ -2271,6 +2288,7 @@ const returnToTitle = () => {
   gamePhase = "title";
   hud.setTitleVisible(true);
   titleVolumePanel.setVisible(true);
+  titleStageSelectControl.setVisible(true);
   titleDefaultSettingsPanel.setVisible(true);
   titleBrainwashSettingsPanel.setVisible(true);
   titleBitSpawnPanel.setVisible(true);
@@ -2338,10 +2356,6 @@ setupInputHandlers({
     gameFlow.beginFadeOut(() => {
       enterPublicExecution(executionScenario!);
     });
-  },
-  onSelectStage: () => {
-    const nextSelection = stageSelector.next();
-    void applyStageSelection(nextSelection);
   },
   onSelectBrainwashOption: (state) => {
     playerState = state;
