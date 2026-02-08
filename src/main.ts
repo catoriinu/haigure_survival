@@ -1252,38 +1252,53 @@ const fireTrapVolley = () => {
   if (trapSelectedCandidates.length === 0) {
     return;
   }
+  const spawnTrapBeam = (
+    position: Vector3,
+    direction: Vector3
+  ) => {
+    beams.push(
+      createTrapBeam(
+        scene,
+        position,
+        direction,
+        beamMaterial,
+        trapSourceId,
+        layout.cellSize,
+        layout,
+        bounds
+      )
+    );
+  };
+  const playTrapBeamSe = (position: Vector3) => {
+    const firePosition = position.clone();
+    sfxDirector.playBeamNonTarget(() => firePosition);
+  };
   for (const candidate of trapSelectedCandidates) {
     if (candidate.kind === "floor") {
-      beams.push(
-        createTrapBeam(
-          scene,
-          new Vector3(candidate.centerX, bounds.minY + 0.001, candidate.centerZ),
-          new Vector3(0, 1, 0),
-          beamMaterial,
-          trapSourceId,
-          layout.cellSize,
-          layout,
-          bounds
-        )
+      const position = new Vector3(
+        candidate.centerX,
+        bounds.minY + 0.001,
+        candidate.centerZ
       );
+      spawnTrapBeam(position, new Vector3(0, 1, 0));
+      playTrapBeamSe(position);
       continue;
     }
+    playTrapBeamSe(
+      new Vector3(
+        candidate.boundaryX + candidate.direction.x * trapBeamSpawnInset,
+        layout.cellSize * (trapWallCellCount / 2),
+        candidate.boundaryZ + candidate.direction.z * trapBeamSpawnInset
+      )
+    );
     for (let level = 0; level < trapWallCellCount; level += 1) {
-      beams.push(
-        createTrapBeam(
-          scene,
-          new Vector3(
-            candidate.boundaryX + candidate.direction.x * trapBeamSpawnInset,
-            layout.cellSize * (0.5 + level),
-            candidate.boundaryZ + candidate.direction.z * trapBeamSpawnInset
-          ),
-          candidate.direction,
-          beamMaterial,
-          trapSourceId,
-          layout.cellSize,
-          layout,
-          bounds
-        )
+      spawnTrapBeam(
+        new Vector3(
+          candidate.boundaryX + candidate.direction.x * trapBeamSpawnInset,
+          layout.cellSize * (0.5 + level),
+          candidate.boundaryZ + candidate.direction.z * trapBeamSpawnInset
+        ),
+        candidate.direction
       );
     }
   }
