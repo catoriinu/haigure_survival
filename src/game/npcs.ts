@@ -89,12 +89,14 @@ const getNpcHitEffectDiameter = (sprite: Sprite) =>
   calculateHitEffectDiameter(sprite.width, sprite.height);
 // `brainwash-in-progress` の遷移判定を行う間隔（秒）。デフォルトは10
 const npcBrainwashInProgressDecisionDelay = 10;
-// `brainwash-complete-haigure` から次状態への遷移判定間隔（秒）。デフォルトは10
-const npcBrainwashCompleteHaigureDecisionDelay = 10;
 // `brainwash-in-progress` の判定時に同状態を継続する確率。`1 - npcBrainwashStayChance` の確率で `brainwash-complete-haigure` へ遷移。デフォルトは0.5
 const npcBrainwashStayChance = 0.5;
+// `brainwash-complete-haigure` から次状態への遷移判定間隔（秒）。デフォルトは10
+const npcBrainwashCompleteHaigureDecisionDelay = 10;
 // `brainwash-complete-haigure` の判定時に同状態を継続する確率。`1 - npcBrainwashCompleteHaigureStayChance` の確率で次状態分岐の抽選へ進む。デフォルトは0.1
 const npcBrainwashCompleteHaigureStayChance = 0.1;
+// `brainwash-complete-haigure` の判定で継続しなかったときに、`brainwash-complete-gun`に遷移する確率。外れた場合は`brainwash-complete-no-gun`に遷移する。デフォルトは0.5
+const npcBrainwashToGunChance = 0.5;
 const npcBrainwashVisionRange = 3;
 const npcBrainwashVisionRangeSq = npcBrainwashVisionRange * npcBrainwashVisionRange;
 const npcBrainwashVisionCos = Math.cos((95 * Math.PI) / 180);
@@ -126,8 +128,7 @@ export const npcHitFadeOrbConfig: HitFadeOrbConfig = {
 };
 
 export const promoteHaigureNpc = (npc: Npc) => {
-  // `brainwash-complete-haigure` の判定で継続しなかったときに、`brainwash-complete-gun` / `brainwash-complete-no-gun` へ分岐するための内部判定値。`Math.random() < 0.5` で計算し、分岐しきい値のデフォルトは0.5
-  const toGun = Math.random() < 0.5;
+  const toGun = Math.random() < npcBrainwashToGunChance;
   npc.state = toGun
     ? "brainwash-complete-gun"
     : "brainwash-complete-no-gun";

@@ -150,10 +150,10 @@
 
 ### NPCの洗脳後の状態遷移の設定
 - `src/game/npcs.ts`: `npcBrainwashInProgressDecisionDelay`（`brainwash-in-progress` の遷移判定を行う間隔（秒）。デフォルトは10）
-- `src/game/npcs.ts`: `npcBrainwashCompleteHaigureDecisionDelay`（`brainwash-complete-haigure` から次状態への遷移判定間隔（秒）。デフォルトは10）
 - `src/game/npcs.ts`: `npcBrainwashStayChance`（`brainwash-in-progress` の判定時に同状態を継続する確率。`1 - npcBrainwashStayChance` の確率で `brainwash-complete-haigure` へ遷移。デフォルトは0.5）
+- `src/game/npcs.ts`: `npcBrainwashCompleteHaigureDecisionDelay`（`brainwash-complete-haigure` から次状態への遷移判定間隔（秒）。デフォルトは10）
 - `src/game/npcs.ts`: `npcBrainwashCompleteHaigureStayChance`（`brainwash-complete-haigure` の判定時に同状態を継続する確率。`1 - npcBrainwashCompleteHaigureStayChance` の確率で次状態分岐の抽選へ進む。デフォルトは0.1）
-- `src/game/npcs.ts`: `toGun`（`brainwash-complete-haigure` の判定で継続しなかったときに、`brainwash-complete-gun` / `brainwash-complete-no-gun` へ分岐するための内部判定値。`Math.random() < 0.5` で計算し、分岐しきい値のデフォルトは0.5）
+- `src/game/npcs.ts`: `npcBrainwashToGunChance`（`brainwash-complete-haigure` の判定で継続しなかったときに、`brainwash-complete-gun`に遷移する確率。外れた場合は`brainwash-complete-no-gun`に遷移する。デフォルトは0.5）
 
 #### 遷移図
 ```mermaid
@@ -186,6 +186,6 @@ stateDiagram-v2
     brainwashCompleteHaigure --> haigureStayDecision: npcBrainwashCompleteHaigureDecisionDelay秒ごと判定
     haigureStayDecision --> brainwashCompleteHaigure: 継続<br/>Math.random() < npcBrainwashCompleteHaigureStayChance<br/>(デフォルト 0.1)
     haigureStayDecision --> gunNoGunDecision: 分岐へ<br/>Math.random() >= npcBrainwashCompleteHaigureStayChance
-    gunNoGunDecision --> brainwashCompleteGun: toGun = true<br/>(Math.random() < 0.5)
-    gunNoGunDecision --> brainwashCompleteNoGun: toGun = false<br/>(>= 0.5)
+    gunNoGunDecision --> brainwashCompleteGun: toGun = true<br/>(Math.random() < npcBrainwashToGunChance)
+    gunNoGunDecision --> brainwashCompleteNoGun: toGun = false<br/>(>= npcBrainwashToGunChance)
 ```
