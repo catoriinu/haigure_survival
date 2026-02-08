@@ -46,6 +46,7 @@ import {
   stopBitFireEffect,
   updateBitFireEffect,
   promoteHaigureNpc,
+  applyNpcDefaultHaigureState,
   spawnNpcs,
   StageBounds,
   updateBeams,
@@ -53,7 +54,10 @@ import {
   updateNpcs
 } from "./game/entities";
 import { alignSpriteToGround } from "./game/spriteUtils";
-import { isBeamHittingTarget } from "./game/beamCollision";
+import {
+  isBeamHittingTarget,
+  isBeamHittingTargetExcludingSource
+} from "./game/beamCollision";
 import {
   HitFadeOrbConfig,
   HitSequenceConfig,
@@ -93,6 +97,10 @@ import {
   type BitSpawnSettings
 } from "./ui/bitSpawnPanel";
 import {
+  createDefaultSettingsPanel,
+  type DefaultStartSettings
+} from "./ui/defaultSettingsPanel";
+import {
   PLAYER_EYE_HEIGHT,
   PLAYER_SPRITE_CENTER_HEIGHT,
   PLAYER_SPRITE_HEIGHT,
@@ -128,9 +136,19 @@ const defaultBitSpawnSettings: BitSpawnSettings = {
   maxBitCount: 25,       // ビットの同時出現上限。1〜99。デフォルトは25
   disableBitSpawn: false // true で「ビットを出現させない」。デフォルトは false
 };
+const defaultDefaultStartSettings: DefaultStartSettings = {
+  startPlayerAsBrainwashCompleteGun: false,
+  startAllNpcsAsHaigure: false
+};
 let titleBitSpawnSettings: BitSpawnSettings = { ...defaultBitSpawnSettings };
+let titleDefaultStartSettings: DefaultStartSettings = {
+  ...defaultDefaultStartSettings
+};
 let runtimeBitSpawnInterval = defaultBitSpawnSettings.bitSpawnInterval;
 let runtimeMaxBitCount = defaultBitSpawnSettings.maxBitCount;
+let runtimeDefaultStartSettings: DefaultStartSettings = {
+  ...defaultDefaultStartSettings
+};
 
 const portraitDirectories = getPortraitDirectories();
 const portraitSpriteSheets = new Map<string, PortraitSpriteSheet>();
@@ -300,8 +318,19 @@ const titleVolumePanel = createVolumePanel({
     applyVolumeLevel(category, level);
   }
 });
+const titleRightPanels = document.createElement("div");
+titleRightPanels.className = "title-right-panels";
+document.body.appendChild(titleRightPanels);
+const titleDefaultSettingsPanel = createDefaultSettingsPanel({
+  parent: titleRightPanels,
+  initialSettings: titleDefaultStartSettings,
+  className: "default-settings-panel--title",
+  onChange: (settings) => {
+    titleDefaultStartSettings = settings;
+  }
+});
 const titleBitSpawnPanel = createBitSpawnPanel({
-  parent: document.body,
+  parent: titleRightPanels,
   initialSettings: titleBitSpawnSettings,
   className: "bit-spawn-panel--title",
   onChange: (settings) => {
@@ -313,14 +342,16 @@ for (const category of volumeCategories) {
   applyVolumeLevel(category, volumeLevels[category]);
 }
 titleVolumePanel.setVisible(true);
+titleDefaultSettingsPanel.setVisible(true);
 titleBitSpawnPanel.setVisible(true);
 const isTitleUiTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
     return false;
   }
   return (
-    target.closest("[data-ui=\"volume-panel\"], [data-ui=\"bit-spawn-panel\"]") !==
-    null
+    target.closest(
+      "[data-ui=\"volume-panel\"], [data-ui=\"default-settings-panel\"], [data-ui=\"bit-spawn-panel\"]"
+    ) !== null
   );
 };
 const bgmFiles = import.meta.glob("/public/audio/bgm/*.mp3");
@@ -493,7 +524,8 @@ const assignVoiceActors = () => {
     return createVoiceActor(
       profile,
       () => npc.sprite.position,
-      () => npc.state
+      () =>
+        executionNpcVoiceStateOverrides.get(npc.sprite.name) ?? npc.state
     );
   });
 };
@@ -627,6 +659,11 @@ const createCharacters = () => {
       npcPortraitDirectories
     )
   );
+  if (runtimeDefaultStartSettings.startAllNpcsAsHaigure) {
+    for (const npc of npcs) {
+      applyNpcDefaultHaigureState(npc);
+    }
+  }
   applyPortraitSizesToAll();
 };
 
@@ -792,6 +829,9 @@ const executionFireTargetPosition = new Vector3(0, 0, 0);
 let executionVolleyFired = false;
 let executionResolved = false;
 let executionAllowPlayerMove = false;
+let executionNpcShooterIndices: number[] = [];
+const executionNpcShooterIds = new Set<string>();
+const executionNpcVoiceStateOverrides = new Map<string, CharacterState>();
 const executionHitSequence = createHitSequenceState();
 let executionHitDurationCurrent = playerHitDuration;
 let executionHitFadeDurationCurrent = executionHitFadeDuration;
@@ -1097,6 +1137,9 @@ const resetExecutionState = () => {
   executionVolleyFired = false;
   executionResolved = false;
   executionAllowPlayerMove = false;
+  executionNpcShooterIndices = [];
+  executionNpcShooterIds.clear();
+  executionNpcVoiceStateOverrides.clear();
   executionHitTargetKind = null;
   executionHitNpcIndex = null;
   executionHitDurationCurrent = playerHitDuration;
@@ -1108,11 +1151,26 @@ const isExecutionBitVolley = (scenario: PublicExecutionScenario) =>
   scenario.variant === "player-survivor" ||
   scenario.variant === "npc-survivor-npc-block";
 
+const isExecutionNpcVolley = (scenario: PublicExecutionScenario) =>
+  isExecutionBitVolley(scenario) && bits.length === 0;
+
 const getExecutionTriggerKey = (scenario: PublicExecutionScenario) => {
   if (scenario.variant === "player-survivor") {
     return "player-survivor";
   }
   return `${scenario.variant}:${scenario.survivorNpcIndex}`;
+};
+
+const applyExecutionNpcShooterPresentation = () => {
+  for (const index of executionNpcShooterIndices) {
+    const npc = npcs[index];
+    npc.state = "brainwash-complete-gun";
+    npc.sprite.cellIndex = getPortraitCellIndex(npc.state);
+    executionNpcVoiceStateOverrides.set(
+      npc.sprite.name,
+      "brainwash-complete-haigure-formation"
+    );
+  }
 };
 
 const findPublicExecutionCandidate = () => {
@@ -1170,6 +1228,21 @@ const enterPublicExecution = (scenario: PublicExecutionScenario) => {
   executionVolleyFired = false;
   executionResolved = false;
   executionAllowPlayerMove = scenario.variant === "npc-survivor-player-block";
+  executionNpcShooterIndices = [];
+  executionNpcShooterIds.clear();
+  executionNpcVoiceStateOverrides.clear();
+  if (isExecutionNpcVolley(scenario)) {
+    for (let index = 0; index < npcs.length; index += 1) {
+      if (
+        scenario.variant === "npc-survivor-npc-block" &&
+        index === scenario.survivorNpcIndex
+      ) {
+        continue;
+      }
+      executionNpcShooterIndices.push(index);
+      executionNpcShooterIds.add(npcs[index].sprite.name);
+    }
+  }
   executionHitTargetKind = null;
   executionHitNpcIndex = null;
   executionHitDurationCurrent = playerHitDuration;
@@ -1180,6 +1253,9 @@ const enterPublicExecution = (scenario: PublicExecutionScenario) => {
     camera.cameraDirection.set(0, 0, 0);
   }
   gameFlow.enterExecution(scenario);
+  if (isExecutionNpcVolley(scenario)) {
+    applyExecutionNpcShooterPresentation();
+  }
 };
 
 const startPublicExecutionTransition = (scenario: PublicExecutionScenario) => {
@@ -1222,9 +1298,69 @@ const startExecutionBitFireEffects = (targetPosition: Vector3) => {
   }
 };
 
+const startExecutionNpcFireEffects = () => {
+  for (const index of executionNpcShooterIndices) {
+    const npc = npcs[index];
+    npc.state = "brainwash-complete-gun";
+    npc.sprite.cellIndex = getPortraitCellIndex(npc.state);
+  }
+};
+
+const startExecutionVolleyFireEffects = (
+  scenario: PublicExecutionScenario,
+  targetPosition: Vector3
+) => {
+  if (isExecutionNpcVolley(scenario)) {
+    startExecutionNpcFireEffects();
+    return;
+  }
+  startExecutionBitFireEffects(targetPosition);
+};
+
 const updateExecutionBitFireEffects = (delta: number) => {
   for (const bit of bits) {
     updateBitFireEffect(bit, delta);
+  }
+};
+
+const updateExecutionVolleyFireEffects = (
+  scenario: PublicExecutionScenario,
+  delta: number
+) => {
+  if (isExecutionNpcVolley(scenario)) {
+    return;
+  }
+  updateExecutionBitFireEffects(delta);
+};
+
+const spawnExecutionNpcBeamVolley = (
+  targetPosition: Vector3
+) => {
+  for (const index of executionNpcShooterIndices) {
+    const npc = npcs[index];
+    npc.state = "brainwash-complete-gun";
+    npc.sprite.cellIndex = getPortraitCellIndex(npc.state);
+    const muzzlePosition = new Vector3(
+      npc.sprite.position.x,
+      eyeHeight,
+      npc.sprite.position.z
+    );
+    const direction = targetPosition.subtract(muzzlePosition);
+    if (direction.lengthSquared() <= 0.0001) {
+      continue;
+    }
+    const normalized = direction.normalize();
+    beams.push(
+      createBeam(
+        scene,
+        muzzlePosition.clone(),
+        normalized,
+        beamMaterial,
+        npc.sprite.name
+      )
+    );
+    const firePosition = muzzlePosition.clone();
+    sfxDirector.playBeamNonTarget(() => firePosition);
   }
 };
 
@@ -1232,6 +1368,10 @@ const spawnExecutionBeamVolley = (
   scenario: PublicExecutionScenario,
   targetPosition: Vector3
 ) => {
+  if (isExecutionNpcVolley(scenario)) {
+    spawnExecutionNpcBeamVolley(targetPosition);
+    return;
+  }
   const targetingPlayer = scenario.variant === "player-survivor";
   for (const bit of bits) {
     const muzzlePosition = bit.muzzle.getAbsolutePosition();
@@ -1267,7 +1407,11 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
     if (!beam.active) {
       continue;
     }
-    if (!isBitSource(beam.sourceId)) {
+    if (isExecutionNpcVolley(scenario)) {
+      if (!beam.sourceId || !executionNpcShooterIds.has(beam.sourceId)) {
+        continue;
+      }
+    } else if (!isBitSource(beam.sourceId)) {
       continue;
     }
 
@@ -1281,8 +1425,10 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
         camera.position.z
       );
       if (
-        isBeamHittingTarget(
+        isBeamHittingTargetExcludingSource(
           beam,
+          beam.sourceId,
+          "player",
           executionCollisionPosition,
           playerHitRadius
         )
@@ -1298,8 +1444,10 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
         survivorNpc.sprite.position.z
       );
       if (
-        isBeamHittingTarget(
+        isBeamHittingTargetExcludingSource(
           beam,
+          beam.sourceId,
+          `npc_${scenario.survivorNpcIndex}`,
           executionCollisionPosition,
           npcHitRadius
         )
@@ -1319,8 +1467,10 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
         playerAvatar.position.z
       );
       if (
-        isBeamHittingTarget(
+        isBeamHittingTargetExcludingSource(
           beam,
+          beam.sourceId,
+          "player",
           executionCollisionPosition,
           playerHitRadius
         )
@@ -1335,14 +1485,17 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
           continue;
         }
         const npc = npcs[index];
+        const npcId = npc.sprite.name;
         executionCollisionPosition.set(
           npc.sprite.position.x,
           eyeHeight,
           npc.sprite.position.z
         );
         if (
-          isBeamHittingTarget(
+          isBeamHittingTargetExcludingSource(
             beam,
+            beam.sourceId,
+            npcId,
             executionCollisionPosition,
             npcHitRadius
           )
@@ -1434,7 +1587,7 @@ const updateExecutionScene = (
       0,
       executionFireEffectTimer - delta
     );
-    updateExecutionBitFireEffects(delta);
+    updateExecutionVolleyFireEffects(scenario, delta);
     if (executionFireEffectTimer <= 0) {
       executionFireEffectActive = false;
       executionVolleyFired = true;
@@ -1468,10 +1621,15 @@ const updateExecutionScene = (
     executionFireCountdown -= delta;
     if (executionFireCountdown <= 0) {
       executionFirePending = false;
-      executionFireEffectActive = true;
-      executionFireEffectTimer = bitFireEffectDuration;
       setExecutionAimPosition(scenario, executionFireTargetPosition);
-      startExecutionBitFireEffects(executionFireTargetPosition);
+      if (isExecutionNpcVolley(scenario)) {
+        executionVolleyFired = true;
+        spawnExecutionBeamVolley(scenario, executionFireTargetPosition);
+      } else {
+        executionFireEffectActive = true;
+        executionFireEffectTimer = bitFireEffectDuration;
+        startExecutionVolleyFireEffects(scenario, executionFireTargetPosition);
+      }
     }
   }
 
@@ -1812,13 +1970,17 @@ const updateCharacterSpriteCells = () => {
 const resetGame = () => {
   stopAllVoices();
   resetExecutionState();
-  playerState = "normal";
+  playerState = runtimeDefaultStartSettings.startPlayerAsBrainwashCompleteGun
+    ? "brainwash-complete-gun"
+    : "normal";
   playerHitById = null;
   playerHitTime = 0;
   playerHitDurationCurrent = playerHitDuration;
   playerHitFadeDurationCurrent = playerHitFadeDuration;
-  brainwashChoiceStarted = false;
-  brainwashChoiceUnlocked = false;
+  brainwashChoiceStarted =
+    runtimeDefaultStartSettings.startPlayerAsBrainwashCompleteGun;
+  brainwashChoiceUnlocked =
+    runtimeDefaultStartSettings.startPlayerAsBrainwashCompleteGun;
   allDownTime = null;
   bitSpawnEnabled = true;
   stopAlertLoop();
@@ -1882,6 +2044,8 @@ const startGame = () => {
   if (gamePhase === "title" && stageSelectionInProgress) {
     return;
   }
+  titleDefaultStartSettings = titleDefaultSettingsPanel.getSettings();
+  runtimeDefaultStartSettings = { ...titleDefaultStartSettings };
   titleBitSpawnSettings = titleBitSpawnPanel.getSettings();
   runtimeBitSpawnInterval = titleBitSpawnSettings.bitSpawnInterval;
   runtimeMaxBitCount = titleBitSpawnSettings.disableBitSpawn
@@ -1895,6 +2059,7 @@ const startGame = () => {
   gamePhase = "playing";
   hud.setTitleVisible(false);
   titleVolumePanel.setVisible(false);
+  titleDefaultSettingsPanel.setVisible(false);
   titleBitSpawnPanel.setVisible(false);
   hud.setHudVisible(true);
   hud.setStateInfo(null);
@@ -1909,6 +2074,7 @@ const returnToTitle = () => {
   gamePhase = "title";
   hud.setTitleVisible(true);
   titleVolumePanel.setVisible(true);
+  titleDefaultSettingsPanel.setVisible(true);
   titleBitSpawnPanel.setVisible(true);
   hud.setHudVisible(false);
   hud.setStateInfo(null);

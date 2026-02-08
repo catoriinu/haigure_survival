@@ -41,7 +41,7 @@ import {
 } from "./npcNavigation";
 import { alignSpriteToGround } from "./spriteUtils";
 import { findTargetById } from "./targetUtils";
-import { isBeamHittingTarget } from "./beamCollision";
+import { isBeamHittingTargetExcludingSource } from "./beamCollision";
 import {
   createHitEffectMesh,
   createHitFadeOrbs,
@@ -149,6 +149,15 @@ export const promoteHaigureNpc = (npc: Npc) => {
         (npcBrainwashFireIntervalMax - npcBrainwashFireIntervalMin);
     npc.fireTimer = npc.fireInterval * Math.random();
   }
+};
+
+export const applyNpcDefaultHaigureState = (npc: Npc) => {
+  if (Math.random() < npcBrainwashCompleteHaigureStayChance) {
+    npc.state = "brainwash-complete-haigure";
+    npc.brainwashTimer = 0;
+    return;
+  }
+  promoteHaigureNpc(npc);
 };
 
 const findVisibleNpcTarget = (npc: Npc, targets: TargetInfo[]) => {
@@ -355,10 +364,15 @@ export const updateNpcs = (
       if (!beam.active) {
         continue;
       }
-      if (beam.sourceId === npcId) {
-        continue;
-      }
-      if (isBeamHittingTarget(beam, npc.sprite.position, npcHitRadius)) {
+      if (
+        isBeamHittingTargetExcludingSource(
+          beam,
+          beam.sourceId,
+          npcId,
+          npc.sprite.position,
+          npcHitRadius
+        )
+      ) {
         const hitScale = isRedSource(beam.sourceId) ? redHitDurationScale : 1;
         const impactPosition = beam.tip.position.add(
           Vector3.Normalize(beam.velocity).scale(beam.tipRadius)

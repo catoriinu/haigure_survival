@@ -143,6 +143,17 @@ body {
   z-index: 35;
 }
 
+.title-right-panels {
+  position: absolute;
+  right: 16px;
+  bottom: 42px;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+}
+
 .volume-panel__title {
   font-size: 12px;
   letter-spacing: 0.14em;
@@ -188,6 +199,45 @@ body {
   letter-spacing: 0.08em;
 }
 
+.default-settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px 14px;
+  border: 1px solid #111111;
+  background: rgba(0, 0, 0, 0.65);
+  color: #f5f5f5;
+  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  pointer-events: auto;
+}
+
+.default-settings-panel--title {
+  position: static;
+}
+
+.default-settings-panel__title {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: #f0f0f0;
+}
+
+.default-settings-panel__checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.default-settings-panel__checkbox {
+  margin: 0;
+}
+
+.default-settings-panel__checkbox-label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
 .bit-spawn-panel {
   display: flex;
   flex-direction: column;
@@ -203,10 +253,7 @@ body {
 }
 
 .bit-spawn-panel--title {
-  position: absolute;
-  right: 16px;
-  bottom: 42px;
-  z-index: 35;
+  position: static;
 }
 
 .bit-spawn-panel__title {
