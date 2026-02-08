@@ -154,6 +154,20 @@ body {
   align-items: flex-end;
 }
 
+.title-gameover-warning {
+  display: none;
+  max-width: 290px;
+  padding: 8px 10px;
+  border: 1px solid #6e1b1b;
+  background: rgba(60, 8, 8, 0.75);
+  color: #ffd2d2;
+  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 0.03em;
+  pointer-events: none;
+}
+
 .volume-panel__title {
   font-size: 12px;
   letter-spacing: 0.14em;

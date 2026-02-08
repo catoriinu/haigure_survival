@@ -190,6 +190,28 @@ const buildNpcBrainwashInProgressTransitionConfig = (
         decisionDelay: 10,
         stayChance: 0.5
       };
+const hasNeverGameOverRisk = (
+  defaultSettings: DefaultStartSettings,
+  brainwashSettings: BrainwashSettings,
+  bitSpawnSettings: BitSpawnSettings
+) => {
+  if (defaultSettings.startPlayerAsBrainwashCompleteGun) {
+    return false;
+  }
+  if (!bitSpawnSettings.disableBitSpawn) {
+    return false;
+  }
+  if (!defaultSettings.startAllNpcsAsHaigure) {
+    return true;
+  }
+  if (defaultSettings.initialNpcCount <= 0) {
+    return true;
+  }
+  return (
+    brainwashSettings.npcBrainwashCompleteGunPercent === 0 &&
+    brainwashSettings.npcBrainwashCompleteNoGunPercent === 0
+  );
+};
 
 const portraitDirectories = getPortraitDirectories();
 const portraitSpriteSheets = new Map<string, PortraitSpriteSheet>();
@@ -363,12 +385,26 @@ const titleVolumePanel = createVolumePanel({
 const titleRightPanels = document.createElement("div");
 titleRightPanels.className = "title-right-panels";
 document.body.appendChild(titleRightPanels);
+const titleGameOverWarning = document.createElement("div");
+titleGameOverWarning.className = "title-gameover-warning";
+titleGameOverWarning.textContent =
+  "※現在の設定ではゲームオーバーにならない可能性があります。設定の変更を推奨します。";
+titleRightPanels.appendChild(titleGameOverWarning);
+const updateTitleGameOverWarning = () => {
+  const shouldWarn = hasNeverGameOverRisk(
+    titleDefaultStartSettings,
+    titleBrainwashSettings,
+    titleBitSpawnSettings
+  );
+  titleGameOverWarning.style.display = shouldWarn ? "block" : "none";
+};
 const titleDefaultSettingsPanel = createDefaultSettingsPanel({
   parent: titleRightPanels,
   initialSettings: titleDefaultStartSettings,
   className: "default-settings-panel--title",
   onChange: (settings) => {
     titleDefaultStartSettings = settings;
+    updateTitleGameOverWarning();
   }
 });
 const titleBrainwashSettingsPanel = createBrainwashSettingsPanel({
@@ -377,6 +413,7 @@ const titleBrainwashSettingsPanel = createBrainwashSettingsPanel({
   className: "brainwash-settings-panel--title",
   onChange: (settings) => {
     titleBrainwashSettings = settings;
+    updateTitleGameOverWarning();
   }
 });
 const titleBitSpawnPanel = createBitSpawnPanel({
@@ -385,6 +422,7 @@ const titleBitSpawnPanel = createBitSpawnPanel({
   className: "bit-spawn-panel--title",
   onChange: (settings) => {
     titleBitSpawnSettings = settings;
+    updateTitleGameOverWarning();
   }
 });
 const volumeCategories: AudioCategory[] = ["voice", "bgm", "se"];
@@ -395,6 +433,7 @@ titleVolumePanel.setVisible(true);
 titleDefaultSettingsPanel.setVisible(true);
 titleBrainwashSettingsPanel.setVisible(true);
 titleBitSpawnPanel.setVisible(true);
+updateTitleGameOverWarning();
 const isTitleUiTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -2123,6 +2162,7 @@ const startGame = () => {
   titleDefaultSettingsPanel.setVisible(false);
   titleBrainwashSettingsPanel.setVisible(false);
   titleBitSpawnPanel.setVisible(false);
+  titleGameOverWarning.style.display = "none";
   hud.setHudVisible(true);
   hud.setStateInfo(null);
   gameFlow.resetFade();
@@ -2139,6 +2179,7 @@ const returnToTitle = () => {
   titleDefaultSettingsPanel.setVisible(true);
   titleBrainwashSettingsPanel.setVisible(true);
   titleBitSpawnPanel.setVisible(true);
+  updateTitleGameOverWarning();
   hud.setHudVisible(false);
   hud.setStateInfo(null);
   gameFlow.resetFade();
