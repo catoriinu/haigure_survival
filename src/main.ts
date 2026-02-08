@@ -124,9 +124,9 @@ const minimapReadoutVisible = false;
 const portraitMaxWidthCells = 1;
 const portraitMaxHeightCells = 2;
 const defaultBitSpawnSettings: BitSpawnSettings = {
-  bitSpawnInterval: 10,
-  maxBitCount: 25,
-  disableBitSpawn: false
+  bitSpawnInterval: 10,  // ビットの通常出現間隔（秒）。1〜99。デフォルトは10
+  maxBitCount: 25,       // ビットの同時出現上限。1〜99。デフォルトは25
+  disableBitSpawn: false // true で「ビットを出現させない」。デフォルトは false
 };
 let titleBitSpawnSettings: BitSpawnSettings = { ...defaultBitSpawnSettings };
 let runtimeBitSpawnInterval = defaultBitSpawnSettings.bitSpawnInterval;
