@@ -88,7 +88,9 @@ import {
 } from "./audio/voice";
 import { SfxDirector } from "./audio/sfxDirector";
 import { createGameFlow, type GamePhase, type ExecutionConfig } from "./game/flow";
+import { createTrapSystem } from "./game/trap/system";
 import { buildStageContext, disposeStageParts } from "./world/stageContext";
+import { TRAP_STAGE_ID } from "./world/stageIds";
 import {
   createStageSelector,
   loadStageJson,
@@ -110,6 +112,7 @@ import {
   createBrainwashSettingsPanel,
   type BrainwashSettings
 } from "./ui/brainwashSettingsPanel";
+import { createTrapRoomRecommendControl } from "./ui/trapRoomRecommendControl";
 import {
   PLAYER_EYE_HEIGHT,
   PLAYER_SPRITE_CENTER_HEIGHT,
@@ -139,7 +142,7 @@ const eyeHeight = PLAYER_EYE_HEIGHT;
 const minimapReadoutVisible = false;
 const portraitMaxWidthCells = 1;
 const portraitMaxHeightCells = 2;
-const trapStageId = "arena_trap_room";
+
 const defaultBitSpawnSettings: BitSpawnSettings = {
   bitSpawnInterval: 10,  // ビットの通常出現間隔（秒）。1〜99。デフォルトは10
   maxBitCount: 25,       // ビットの同時出現上限。1〜99。デフォルトは25
@@ -415,15 +418,8 @@ titleGameOverWarning.className = "title-gameover-warning";
 titleGameOverWarning.textContent =
   "※現在の設定ではゲームオーバーにならない可能性があります。設定の変更を推奨します。";
 titleRightPanels.appendChild(titleGameOverWarning);
-const titleTrapRoomRecommendButton = document.createElement("button");
-titleTrapRoomRecommendButton.className = "title-trap-room-recommend-button";
-titleTrapRoomRecommendButton.type = "button";
-titleTrapRoomRecommendButton.dataset.ui = "trap-room-recommend-button";
-titleTrapRoomRecommendButton.textContent =
-  "トラップルーム推奨設定を適用する";
-titleRightPanels.appendChild(titleTrapRoomRecommendButton);
 const updateTitleGameOverWarning = () => {
-  if (stageSelection.id === trapStageId) {
+  if (stageSelection.id === TRAP_STAGE_ID) {
     titleGameOverWarning.style.display = "none";
     return;
   }
@@ -433,10 +429,6 @@ const updateTitleGameOverWarning = () => {
     titleBitSpawnSettings
   );
   titleGameOverWarning.style.display = shouldWarn ? "block" : "none";
-};
-const updateTrapRoomRecommendButtonVisibility = () => {
-  titleTrapRoomRecommendButton.style.display =
-    stageSelection.id === trapStageId ? "block" : "none";
 };
 const titleDefaultSettingsPanel = createDefaultSettingsPanel({
   parent: titleRightPanels,
@@ -465,17 +457,23 @@ const titleBitSpawnPanel = createBitSpawnPanel({
     updateTitleGameOverWarning();
   }
 });
-titleTrapRoomRecommendButton.addEventListener("click", () => {
-  titleBrainwashSettingsPanel.setSettings({
-    ...titleBrainwashSettingsPanel.getSettings(),
-    npcBrainwashCompleteGunPercent: 0,
-    npcBrainwashCompleteNoGunPercent: 0
-  });
-  titleBitSpawnPanel.setSettings({
-    ...titleBitSpawnPanel.getSettings(),
-    disableBitSpawn: true
-  });
+const trapRoomRecommendControl = createTrapRoomRecommendControl({
+  parent: titleRightPanels,
+  onApply: () => {
+    titleBrainwashSettingsPanel.setSettings({
+      ...titleBrainwashSettingsPanel.getSettings(),
+      npcBrainwashCompleteGunPercent: 0,
+      npcBrainwashCompleteNoGunPercent: 0
+    });
+    titleBitSpawnPanel.setSettings({
+      ...titleBitSpawnPanel.getSettings(),
+      disableBitSpawn: true
+    });
+  }
 });
+const updateTrapRoomRecommendButtonVisibility = () => {
+  trapRoomRecommendControl.setVisible(stageSelection.id === TRAP_STAGE_ID);
+};
 const volumeCategories: AudioCategory[] = ["voice", "bgm", "se"];
 for (const category of volumeCategories) {
   applyVolumeLevel(category, volumeLevels[category]);
@@ -880,60 +878,33 @@ const beams: Beam[] = [];
 const beamTrails: BeamTrail[] = [];
 const beamImpactOrbs: BeamImpactOrb[] = [];
 
-type TrapWallSide = "north" | "south" | "west" | "east";
-type TrapFloorCandidate = {
-  kind: "floor";
-  row: number;
-  col: number;
-  centerX: number;
-  centerZ: number;
-};
-type TrapWallCandidate = {
-  kind: "wall";
-  row: number;
-  col: number;
-  side: TrapWallSide;
-  boundaryX: number;
-  boundaryZ: number;
-  direction: Vector3;
-  rotationY: number;
-};
-type TrapCandidate = TrapFloorCandidate | TrapWallCandidate;
-type TrapPhase = "inactive" | "charging" | "waiting_clear" | "interval";
 const trapSourceId = "trap";
-const trapWarningDuration = 5;
-const trapIntervalDuration = 2;
-const trapBlinkIntervalStart = 0.8;
-const trapBlinkIntervalEnd = 0.08;
-const trapBlinkEaseExponent = 1.35;
-const trapWallCellCount = 3;
-// トラップルームの発射セル抽選で壁セルに掛ける重み。床セルの重みは常に1。値を小さくするほど壁が選ばれにくくなり、0で壁は抽選対象外。デフォルトは0.5
-const trapWallSelectionWeight = 0.5;
-const trapFloorWarningYOffset = 0.002;
-const trapWallWarningInset = 0.001;
-const trapBeamSpawnInset = 0.01;
-const trapNpcStopDelayMax = 6.0;
-const trapNpcStopDelayStep = 0.1;
-const trapTelegraphMaterial = new StandardMaterial(
-  "trapTelegraphMaterial",
-  scene
-);
-trapTelegraphMaterial.diffuseColor = new Color3(1, 0.18, 0.74);
-trapTelegraphMaterial.emissiveColor = new Color3(1, 0.18, 0.74);
-trapTelegraphMaterial.specularColor = Color3.Black();
-trapTelegraphMaterial.alpha = 0.9;
-trapTelegraphMaterial.backFaceCulling = false;
-let trapCandidates: TrapCandidate[] = [];
-let trapSelectedCandidates: TrapCandidate[] = [];
-let trapTelegraphMeshes: Mesh[] = [];
-let trapPhase: TrapPhase = "inactive";
-let trapPhaseTimer = 0;
-let trapBlinkTimer = 0;
-let trapBlinkVisible = false;
-let trapVolleyCount = 1;
-let trapNpcFreezeWindowActive = false;
-let trapNpcFreezeElapsed = 0;
-const trapNpcStopDelayById = new Map<string, number>();
+const isTrapStageSelected = () => stageSelection.id === TRAP_STAGE_ID;
+const trapSystem = createTrapSystem({
+  scene,
+  beams,
+  npcs,
+  isTrapStageSelected,
+  spawnTrapBeam: (position, direction) => {
+    beams.push(
+      createTrapBeam(
+        scene,
+        position,
+        direction,
+        beamMaterial,
+        trapSourceId,
+        layout.cellSize,
+        layout,
+        bounds
+      )
+    );
+  },
+  playTrapBeamSe: (position) => {
+    const firePosition = position.clone();
+    sfxDirector.playBeamNonTarget(() => firePosition);
+  }
+});
+trapSystem.syncStageContext({ layout, bounds });
 
 const alertSignal = {
   leaderId: null as string | null,
@@ -1003,359 +974,6 @@ const resetPlayerMoveInput = () => {
   playerMoveInput.right = false;
 };
 
-const isTrapStageSelected = () => stageSelection.id === trapStageId;
-
-const setTrapTelegraphVisible = (visible: boolean) => {
-  const visibility = visible ? 1 : 0;
-  for (const mesh of trapTelegraphMeshes) {
-    mesh.visibility = visibility;
-  }
-};
-
-const clearTrapTelegraphMeshes = () => {
-  for (const mesh of trapTelegraphMeshes) {
-    mesh.dispose();
-  }
-  trapTelegraphMeshes = [];
-  trapSelectedCandidates = [];
-  trapBlinkVisible = false;
-};
-
-const resetTrapRuntimeState = () => {
-  clearTrapTelegraphMeshes();
-  trapPhase = "inactive";
-  trapPhaseTimer = 0;
-  trapBlinkTimer = 0;
-  trapBlinkVisible = false;
-  trapVolleyCount = 1;
-  trapNpcFreezeWindowActive = false;
-  trapNpcFreezeElapsed = 0;
-  trapNpcStopDelayById.clear();
-};
-
-const getCellCenterXZ = (row: number, col: number) => ({
-  x: -halfWidth + layout.cellSize / 2 + col * layout.cellSize,
-  z: -halfDepth + layout.cellSize / 2 + row * layout.cellSize
-});
-
-const buildTrapCandidatesForStage = (): TrapCandidate[] => {
-  if (!isTrapStageSelected()) {
-    return [];
-  }
-  const candidates: TrapCandidate[] = [];
-  for (let row = 0; row < layout.rows; row += 1) {
-    for (let col = 0; col < layout.columns; col += 1) {
-      if (layout.cells[row][col] !== "floor") {
-        continue;
-      }
-      const center = getCellCenterXZ(row, col);
-      candidates.push({
-        kind: "floor",
-        row,
-        col,
-        centerX: center.x,
-        centerZ: center.z
-      });
-      if (row > 0 && layout.cells[row - 1][col] === "wall") {
-        candidates.push({
-          kind: "wall",
-          row,
-          col,
-          side: "north",
-          boundaryX: center.x,
-          boundaryZ: center.z - layout.cellSize / 2,
-          direction: new Vector3(0, 0, 1),
-          rotationY: 0
-        });
-      }
-      if (row < layout.rows - 1 && layout.cells[row + 1][col] === "wall") {
-        candidates.push({
-          kind: "wall",
-          row,
-          col,
-          side: "south",
-          boundaryX: center.x,
-          boundaryZ: center.z + layout.cellSize / 2,
-          direction: new Vector3(0, 0, -1),
-          rotationY: Math.PI
-        });
-      }
-      if (col > 0 && layout.cells[row][col - 1] === "wall") {
-        candidates.push({
-          kind: "wall",
-          row,
-          col,
-          side: "west",
-          boundaryX: center.x - layout.cellSize / 2,
-          boundaryZ: center.z,
-          direction: new Vector3(1, 0, 0),
-          rotationY: -Math.PI / 2
-        });
-      }
-      if (col < layout.columns - 1 && layout.cells[row][col + 1] === "wall") {
-        candidates.push({
-          kind: "wall",
-          row,
-          col,
-          side: "east",
-          boundaryX: center.x + layout.cellSize / 2,
-          boundaryZ: center.z,
-          direction: new Vector3(-1, 0, 0),
-          rotationY: Math.PI / 2
-        });
-      }
-    }
-  }
-  return candidates;
-};
-
-const syncTrapStageContext = () => {
-  trapCandidates = buildTrapCandidatesForStage();
-};
-
-const createTrapTelegraphMesh = (candidate: TrapCandidate) => {
-  if (candidate.kind === "floor") {
-    const floorMesh = MeshBuilder.CreateGround(
-      `trapTelegraphFloor_${candidate.row}_${candidate.col}`,
-      { width: layout.cellSize, height: layout.cellSize },
-      scene
-    );
-    floorMesh.position.set(
-      candidate.centerX,
-      trapFloorWarningYOffset,
-      candidate.centerZ
-    );
-    floorMesh.material = trapTelegraphMaterial;
-    floorMesh.isPickable = false;
-    return floorMesh;
-  }
-  const wallMesh = MeshBuilder.CreatePlane(
-    `trapTelegraphWall_${candidate.row}_${candidate.col}_${candidate.side}`,
-    {
-      width: layout.cellSize,
-      height: layout.cellSize * trapWallCellCount,
-      sideOrientation: Mesh.DOUBLESIDE
-    },
-    scene
-  );
-  wallMesh.position.set(
-    candidate.boundaryX + candidate.direction.x * trapWallWarningInset,
-    (layout.cellSize * trapWallCellCount) / 2,
-    candidate.boundaryZ + candidate.direction.z * trapWallWarningInset
-  );
-  wallMesh.rotation.y = candidate.rotationY;
-  wallMesh.material = trapTelegraphMaterial;
-  wallMesh.isPickable = false;
-  return wallMesh;
-};
-
-const getTrapCandidateSelectionWeight = (candidate: TrapCandidate) =>
-  candidate.kind === "wall" ? trapWallSelectionWeight : 1;
-
-const pickTrapCandidates = (count: number): TrapCandidate[] => {
-  if (count <= 0) {
-    return [];
-  }
-  const pool = [...trapCandidates];
-  const selected: TrapCandidate[] = [];
-  const selectionCount = Math.min(count, pool.length);
-  for (let index = 0; index < selectionCount; index += 1) {
-    let totalWeight = 0;
-    for (const candidate of pool) {
-      totalWeight += getTrapCandidateSelectionWeight(candidate);
-    }
-    let threshold = Math.random() * totalWeight;
-    let selectedIndex = pool.length - 1;
-    for (
-      let candidateIndex = 0;
-      candidateIndex < pool.length;
-      candidateIndex += 1
-    ) {
-      threshold -= getTrapCandidateSelectionWeight(pool[candidateIndex]);
-      if (threshold <= 0) {
-        selectedIndex = candidateIndex;
-        break;
-      }
-    }
-    const picked = pool.splice(selectedIndex, 1)[0];
-    selected.push(picked);
-  }
-  return selected;
-};
-
-const countTrapBeamsInFlight = () =>
-  beams.filter((beam) => beam.group === "trap").length;
-
-const getTrapBeamCount = () => Math.max(0, trapVolleyCount - 1);
-
-const isTrapNpcFreezeWindow = () =>
-  trapPhase === "charging" || countTrapBeamsInFlight() > 0;
-
-const assignTrapNpcStopDelays = () => {
-  trapNpcStopDelayById.clear();
-  const maxStep = Math.floor(trapNpcStopDelayMax / trapNpcStopDelayStep);
-  for (const npc of npcs) {
-    const step = Math.floor(Math.random() * (maxStep + 1));
-    const delay = Number((step * trapNpcStopDelayStep).toFixed(1));
-    trapNpcStopDelayById.set(npc.sprite.name, delay);
-  }
-};
-
-const beginTrapNpcFreezeWindow = () => {
-  trapNpcFreezeWindowActive = true;
-  trapNpcFreezeElapsed = 0;
-  assignTrapNpcStopDelays();
-};
-
-const updateTrapNpcMovementControl = (delta: number) => {
-  const shouldApply =
-    gamePhase === "playing" &&
-    isTrapStageSelected() &&
-    isTrapNpcFreezeWindow();
-  if (!shouldApply) {
-    trapNpcFreezeWindowActive = false;
-    trapNpcFreezeElapsed = 0;
-    trapNpcStopDelayById.clear();
-    return;
-  }
-  if (!trapNpcFreezeWindowActive) {
-    beginTrapNpcFreezeWindow();
-  }
-  trapNpcFreezeElapsed += delta;
-};
-
-const shouldFreezeTrapNpcMovement = (npc: Npc, npcId: string) =>
-  trapNpcFreezeWindowActive &&
-  (npc.state === "normal" || npc.state === "evade") &&
-  trapNpcFreezeElapsed + 0.0001 >= trapNpcStopDelayById.get(npcId)!;
-
-const startTrapChargingPhase = () => {
-  clearTrapTelegraphMeshes();
-  if (trapCandidates.length === 0) {
-    trapPhase = "inactive";
-    return;
-  }
-  const countLimit =
-    (trapVolleyCount * (trapVolleyCount + 1)) / 2;
-  const selectionCount = Math.min(trapCandidates.length, countLimit);
-  trapSelectedCandidates = pickTrapCandidates(selectionCount);
-  for (const candidate of trapSelectedCandidates) {
-    trapTelegraphMeshes.push(createTrapTelegraphMesh(candidate));
-  }
-  trapBlinkVisible = true;
-  setTrapTelegraphVisible(true);
-  trapBlinkTimer = 0;
-  trapPhaseTimer = 0;
-  trapPhase = "charging";
-  beginTrapNpcFreezeWindow();
-};
-
-const fireTrapVolley = () => {
-  if (trapSelectedCandidates.length === 0) {
-    return;
-  }
-  const spawnTrapBeam = (
-    position: Vector3,
-    direction: Vector3
-  ) => {
-    beams.push(
-      createTrapBeam(
-        scene,
-        position,
-        direction,
-        beamMaterial,
-        trapSourceId,
-        layout.cellSize,
-        layout,
-        bounds
-      )
-    );
-  };
-  const playTrapBeamSe = (position: Vector3) => {
-    const firePosition = position.clone();
-    sfxDirector.playBeamNonTarget(() => firePosition);
-  };
-  for (const candidate of trapSelectedCandidates) {
-    if (candidate.kind === "floor") {
-      const position = new Vector3(
-        candidate.centerX,
-        bounds.minY + 0.001,
-        candidate.centerZ
-      );
-      spawnTrapBeam(position, new Vector3(0, 1, 0));
-      playTrapBeamSe(position);
-      continue;
-    }
-    playTrapBeamSe(
-      new Vector3(
-        candidate.boundaryX + candidate.direction.x * trapBeamSpawnInset,
-        layout.cellSize * (trapWallCellCount / 2),
-        candidate.boundaryZ + candidate.direction.z * trapBeamSpawnInset
-      )
-    );
-    for (let level = 0; level < trapWallCellCount; level += 1) {
-      spawnTrapBeam(
-        new Vector3(
-          candidate.boundaryX + candidate.direction.x * trapBeamSpawnInset,
-          layout.cellSize * (0.5 + level),
-          candidate.boundaryZ + candidate.direction.z * trapBeamSpawnInset
-        ),
-        candidate.direction
-      );
-    }
-  }
-  trapVolleyCount += 1;
-};
-
-const updateTrapSystem = (delta: number) => {
-  if (gamePhase !== "playing" || !isTrapStageSelected()) {
-    if (trapPhase !== "inactive" || trapTelegraphMeshes.length > 0) {
-      resetTrapRuntimeState();
-    }
-    return;
-  }
-
-  if (trapPhase === "inactive") {
-    startTrapChargingPhase();
-    return;
-  }
-
-  if (trapPhase === "charging") {
-    trapPhaseTimer += delta;
-    const progress = Math.min(1, trapPhaseTimer / trapWarningDuration);
-    const blend = Math.pow(progress, trapBlinkEaseExponent);
-    const blinkInterval =
-      trapBlinkIntervalStart +
-      (trapBlinkIntervalEnd - trapBlinkIntervalStart) * blend;
-    trapBlinkTimer += delta;
-    while (trapBlinkTimer >= blinkInterval) {
-      trapBlinkTimer -= blinkInterval;
-      trapBlinkVisible = !trapBlinkVisible;
-      setTrapTelegraphVisible(trapBlinkVisible);
-    }
-    if (trapPhaseTimer >= trapWarningDuration) {
-      fireTrapVolley();
-      clearTrapTelegraphMeshes();
-      trapPhase = "waiting_clear";
-    }
-    return;
-  }
-
-  if (trapPhase === "waiting_clear") {
-    if (countTrapBeamsInFlight() === 0) {
-      trapPhase = "interval";
-      trapPhaseTimer = trapIntervalDuration;
-    }
-    return;
-  }
-
-  if (trapPhase === "interval") {
-    trapPhaseTimer -= delta;
-    if (trapPhaseTimer <= 0) {
-      startTrapChargingPhase();
-    }
-  }
-};
 
 type PlayerState = CharacterState;
 type PublicExecutionScenario = ExecutionConfig;
@@ -1424,8 +1042,8 @@ const applyStageSelection = async (selection: StageSelection) => {
   disposeStageParts(stageParts);
   stageContext = buildStageContext(scene, stageJson);
   updateStageState();
-  syncTrapStageContext();
-  resetTrapRuntimeState();
+  trapSystem.syncStageContext({ layout, bounds });
+  trapSystem.resetRuntimeState();
   applyCameraSpawnTransform();
   refreshPortraitSizes();
   rebuildGameFlow();
@@ -2364,7 +1982,7 @@ const drawMinimap = () => {
     isAliveState(playerState) ||
     playerState === "brainwash-complete-gun" ||
     playerState === "brainwash-complete-no-gun";
-  const trapBeamCount = isTrapStageSelected() ? getTrapBeamCount() : null;
+  const trapBeamCount = isTrapStageSelected() ? trapSystem.getBeamCount() : null;
   const trapSurviveCount =
     isTrapStageSelected() && brainwashChoiceStarted
       ? trapSurviveCountAtBrainwash ?? trapBeamCount
@@ -2452,7 +2070,7 @@ const updatePlayerState = (
         playerHitById = beam.sourceId;
         playerHitTime = elapsed;
         if (isTrapStageSelected() && trapSurviveCountAtBrainwash === null) {
-          trapSurviveCountAtBrainwash = getTrapBeamCount();
+          trapSurviveCountAtBrainwash = trapSystem.getBeamCount();
         }
         playerHitDurationCurrent = playerHitDuration * hitScale;
         playerHitFadeDurationCurrent = playerHitFadeDuration * hitScale;
@@ -2535,8 +2153,8 @@ const updateCharacterSpriteCells = () => {
 
 const resetGame = () => {
   stopAllVoices();
-  syncTrapStageContext();
-  resetTrapRuntimeState();
+  trapSystem.syncStageContext({ layout, bounds });
+  trapSystem.resetRuntimeState();
   resetExecutionState();
   playerState = runtimeDefaultStartSettings.startPlayerAsBrainwashCompleteGun
     ? "brainwash-complete-gun"
@@ -2638,7 +2256,7 @@ const startGame = () => {
   titleDefaultSettingsPanel.setVisible(false);
   titleBrainwashSettingsPanel.setVisible(false);
   titleBitSpawnPanel.setVisible(false);
-  titleTrapRoomRecommendButton.style.display = "none";
+  trapRoomRecommendControl.setVisible(false);
   titleGameOverWarning.style.display = "none";
   hud.setHudVisible(true);
   hud.setStateInfo(null);
@@ -2740,7 +2358,7 @@ setupInputHandlers({
 
 engine.runRenderLoop(() => {
   const delta = engine.getDeltaTime() / 1000;
-  updateTrapSystem(delta);
+  trapSystem.update(delta, gamePhase);
   if (gamePhase === "playing") {
     elapsedTime += delta;
 
@@ -2754,7 +2372,7 @@ engine.runRenderLoop(() => {
       beamImpactOrbs,
       shouldProcessOrb
     );
-    updateTrapNpcMovementControl(delta);
+    trapSystem.updateNpcFreezeControl(delta, gamePhase);
     updatePlayerState(delta, elapsedTime, shouldProcessOrb);
     const npcBlockers =
       playerState === "brainwash-complete-no-gun"
@@ -2840,7 +2458,7 @@ engine.runRenderLoop(() => {
       npcEvadeThreats,
       camera.position,
       shouldProcessOrb,
-      shouldFreezeTrapNpcMovement
+      trapSystem.shouldFreezeNpcMovement
     );
     const playerBlockedByNpc =
       npcUpdate.playerBlocked && isAliveState(playerState);
@@ -2996,7 +2614,7 @@ engine.runRenderLoop(() => {
     }
   }
   if (gamePhase !== "playing") {
-    updateTrapNpcMovementControl(delta);
+    trapSystem.updateNpcFreezeControl(delta, gamePhase);
   }
 
   if (gamePhase === "execution") {

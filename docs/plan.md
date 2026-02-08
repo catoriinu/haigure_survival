@@ -1,28 +1,31 @@
-# arena_trap_room NPC停止タイミング化 計画
+# トラップルーム実装リファクタリング 計画
 
 更新日: 2026-02-08
 
 ## プロンプト
-再起動で直りました。
+トラップルームの実装について、リファクタリングできる余地があるか確認して、リファクタ計画を立ててください。
+共通化できるところはなるべく共通化し、ファイルを分けるべきところは分けてください。
 
-実装修正に戻ります。
-「NPC一時停止」ロジックを変更したいです。
-- 全てのNPCは点滅が始まったときに、「点滅が始まってから光線の発射が始まるまでの秒数（5秒）」+「固定値0.5秒」=6.0秒の中から、自分がどのタイミングで停止するかをランダムで決定する。その秒数後に動きを止める。（計算は0.1秒刻み）
-にしてください。これにより、一定数は足を止めきれないNPCがいるが、多数のNPCは徐々に足を止められる（不自然に一斉に止まらない）ようになる想定です。
+修正する際は、READMEの記述に差分が発生していたら常に追従するようにしてください。
+
+OKです。ステップ通り進めてください
 
 ## ステップ
-- [x] 既存のNPC一時停止実装（5%継続移動）を確認
-- [x] 点滅開始時にNPC停止タイミング（0.1秒刻み、0〜6.0秒）を割り当てる実装へ置換
-- [x] 凍結窓（点滅開始〜持続ビーム終了）で、割当秒到達後のみ `normal/evade` を停止
-- [x] `arena_trap_room` 限定適用を維持
-- [x] 型チェック
+- [x] `docs/plan.md` の作成と対象範囲の固定（トラップ全体、軽微調整許容、段階分割）
+- [x] `TRAP_STAGE_ID` の共通化（`src/world/stageIds.ts` 追加、参照側置換）
+- [x] 重み付き抽選の共通化（`src/game/random/weighted.ts` 追加、既存抽選の統一）
+- [x] トラップ候補生成・テレグラフ描画の分離（`src/game/trap/candidates.ts` / `src/game/trap/telegraph.ts`）
+- [x] トラップシステム本体の分離（`src/game/trap/system.ts`）
+- [x] タイトルのトラップ推奨ボタン管理を分離（`src/ui/trapRoomRecommendControl.ts`）
+- [x] `src/main.ts` の統合置換（トラップ処理を新モジュール経由に移行）
+- [x] README追従更新（設定の記載場所を最新構成へ更新）
+- [x] 型チェック（`npx tsc -p tsconfig.json --noEmit`）
 
 ## 結果
-- `src/main.ts` のNPC一時停止特例を、以下へ置換した。
-  - 旧仕様: 凍結窓に入るとNPCごとに5%で継続移動抽選
-  - 新仕様: 点滅開始時に全NPCへ停止遅延秒数を割り当て（`0.0`〜`6.0` 秒、`0.1` 秒刻み）
-- 凍結窓（`charging` またはトラップビーム残存中）では、`normal` / `evade` のNPCだけを対象に、
-  `trapNpcFreezeElapsed >= 割当秒数` になった個体から順次停止するようにした。
-- 停止はモード遷移ではなく、既存と同様に移動処理だけを特例でスキップする実装を維持した。
-- `arena_trap_room` かつ `playing` 時のみ有効で、その他の状態では管理情報をクリアする。
+- トラップルームの責務を `src/main.ts` から分離し、`src/game/trap/system.ts` を中核として候補生成・テレグラフ描画・フェーズ進行・NPC停止制御をモジュール化した。
+- トラップ候補生成は `src/game/trap/candidates.ts`、テレグラフ描画は `src/game/trap/telegraph.ts`、型定義は `src/game/trap/types.ts` に分割した。
+- 重み付き抽選を `src/game/random/weighted.ts` に共通化し、`src/game/npcNavigation.ts` の抽選処理を統一した。
+- タイトル画面の「トラップルーム推奨設定」ボタンを `src/ui/trapRoomRecommendControl.ts` に分離した。
+- `TRAP_STAGE_ID` を `src/world/stageIds.ts` に集約し、`src/world/stageSelection.ts` と `src/main.ts` の参照を統一した。
+- READMEのトラップ設定参照先を `src/game/trap/system.ts` に追従更新した。
 - 検証として `npx tsc -p tsconfig.json --noEmit` を実行し、成功した。
