@@ -324,13 +324,15 @@ export const updateNpcs = (
   blockers: MovementBlocker[],
   evadeThreats: Vector3[][],
   cameraPosition: Vector3,
-  shouldProcessOrb: (position: Vector3) => boolean
+  shouldProcessOrb: (position: Vector3) => boolean,
+  shouldFreezeAliveMovement: (npc: Npc, npcId: string) => boolean
 ) => {
   const aliveTargets = targets.filter((target) => target.alive);
   const activeBlockers: MovementBlocker[] = [...blockers];
   let playerBlocked = false;
   const targetedIds = new Set<string>();
   const alertRequests: AlertRequest[] = [];
+  const isAliveMovementFrozen = shouldFreezeAliveMovement;
   const restoreNpcFromAlert = (npc: Npc) => {
     const returnMode = npc.alertReturnBrainwashMode;
     const returnTargetId = npc.alertReturnTargetId;
@@ -620,6 +622,9 @@ export const updateNpcs = (
     }
     npc.blockedByPlayer = blockedByPlayer;
     if (blocked) {
+      return true;
+    }
+    if (isAliveMovementFrozen(npc, npcId)) {
       return true;
     }
 

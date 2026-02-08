@@ -15,6 +15,7 @@ export type BitSpawnPanel = {
   root: HTMLDivElement;
   setVisible: (visible: boolean) => void;
   getSettings: () => BitSpawnSettings;
+  setSettings: (nextSettings: BitSpawnSettings) => void;
 };
 
 const clampInteger = (value: number, min: number, max: number) =>
@@ -136,6 +137,13 @@ export const createBitSpawnPanel = ({
     setVisible: (visible) => {
       root.style.display = visible ? "" : "none";
     },
-    getSettings: () => ({ ...settings })
+    getSettings: () => ({ ...settings }),
+    setSettings: (nextSettings) => {
+      settings.bitSpawnInterval = nextSettings.bitSpawnInterval;
+      settings.maxBitCount = nextSettings.maxBitCount;
+      settings.disableBitSpawn = nextSettings.disableBitSpawn;
+      render();
+      emit();
+    }
   };
 };

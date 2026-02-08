@@ -65,7 +65,7 @@ body {
 
 #helpPanel {
   position: absolute;
-  top: 250px;
+  top: 258px;
   left: 12px;
   padding: 6px 8px;
   border: 1px solid #111111;
@@ -166,6 +166,30 @@ body {
   line-height: 1.4;
   letter-spacing: 0.03em;
   pointer-events: none;
+}
+
+.title-trap-room-recommend-button {
+  display: none;
+  width: fit-content;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  background: #141414;
+  color: #f5f5f5;
+  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.title-trap-room-recommend-button:hover {
+  background: #1f1f1f;
+}
+
+.title-trap-room-recommend-button:active {
+  transform: translateY(1px);
 }
 
 .volume-panel__title {

@@ -2,6 +2,7 @@ import { Vector3 } from "@babylonjs/core";
 import { GridLayout } from "../world/grid";
 import { cellToWorld } from "./gridUtils";
 import { NPC_SPRITE_CENTER_HEIGHT } from "./characterSprites";
+import { pickWeightedOneIndex } from "./random/weighted";
 import { FloorCell, Npc } from "./types";
 
 export const npcTargetArrivalDistance = 0.025;
@@ -139,23 +140,11 @@ export const pickWeightedCell = (
   candidates: ReachableCell[],
   maxDistance: number
 ) => {
-  let totalWeight = 0;
-  const weights = new Array(candidates.length).fill(0);
-  for (let index = 0; index < candidates.length; index += 1) {
-    const distance = candidates[index].distance;
-    const weight = 1 + ((distance - 1) / (maxDistance - 1)) * 2;
-    weights[index] = weight;
-    totalWeight += weight;
-  }
-  let roll = Math.random() * totalWeight;
-  for (let index = 0; index < candidates.length; index += 1) {
-    const weight = weights[index];
-    if (roll <= weight) {
-      return candidates[index].cell;
-    }
-    roll -= weight;
-  }
-  return candidates[candidates.length - 1].cell;
+  const weights = candidates.map(
+    (candidate) => 1 + ((candidate.distance - 1) / (maxDistance - 1)) * 2
+  );
+  const pickedIndex = pickWeightedOneIndex(weights);
+  return candidates[pickedIndex].cell;
 };
 
 export const pickEvadeCell = (

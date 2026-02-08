@@ -11,6 +11,8 @@ export type DrawMinimapParams = {
   halfDepth: number;
   elapsedTime: number;
   surviveTime: number | null;
+  trapBeamCount: number | null;
+  trapSurviveCount: number | null;
   aliveCount: number;
   retryText: string | null;
   showCrosshair: boolean;
@@ -118,6 +120,8 @@ export const createHud = (): Hud => {
     halfDepth,
     elapsedTime,
     surviveTime,
+    trapBeamCount,
+    trapSurviveCount,
     aliveCount,
     retryText,
     showCrosshair
@@ -140,6 +144,13 @@ export const createHud = (): Hud => {
       timeLine += `  生存時間: ${surviveTime.toFixed(1)}秒`;
     }
     infoLines.push(timeLine);
+    if (trapBeamCount !== null) {
+      let trapLine = `トラップ発射回数: ${trapBeamCount}回`;
+      if (trapSurviveCount !== null) {
+        trapLine += `  生存回数: ${trapSurviveCount}回`;
+      }
+      infoLines.push(trapLine);
+    }
     statusInfo.textContent = infoLines.join("\n");
 
     minimapContext.clearRect(0, 0, minimapSize, minimapSize);

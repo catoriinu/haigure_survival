@@ -1,23 +1,31 @@
-# 即洗脳ON時のプレイヤー遷移修正 計画
+# トラップルーム実装リファクタリング 計画
 
 更新日: 2026-02-08
 
 ## プロンプト
-「即洗脳」ON時、プレイヤーに光線命中したときも、in-progressではなく`brainwash-complete-haigure`状態に即遷移してください。
+トラップルームの実装について、リファクタリングできる余地があるか確認して、リファクタ計画を立ててください。
+共通化できるところはなるべく共通化し、ファイルを分けるべきところは分けてください。
+
+修正する際は、READMEの記述に差分が発生していたら常に追従するようにしてください。
+
+OKです。ステップ通り進めてください
 
 ## ステップ
-- [x] 既存 `docs/plan.md` を退避し、新規 `docs/plan.md` を作成
-- [x] `src/main.ts` のプレイヤー被弾後遷移を `instantBrainwash` 設定で分岐
-- [x] 型チェックとビルドで検証
-- [x] `docs/plan.md` の結果欄を更新
+- [x] `docs/plan.md` の作成と対象範囲の固定（トラップ全体、軽微調整許容、段階分割）
+- [x] `TRAP_STAGE_ID` の共通化（`src/world/stageIds.ts` 追加、参照側置換）
+- [x] 重み付き抽選の共通化（`src/game/random/weighted.ts` 追加、既存抽選の統一）
+- [x] トラップ候補生成・テレグラフ描画の分離（`src/game/trap/candidates.ts` / `src/game/trap/telegraph.ts`）
+- [x] トラップシステム本体の分離（`src/game/trap/system.ts`）
+- [x] タイトルのトラップ推奨ボタン管理を分離（`src/ui/trapRoomRecommendControl.ts`）
+- [x] `src/main.ts` の統合置換（トラップ処理を新モジュール経由に移行）
+- [x] README追従更新（設定の記載場所を最新構成へ更新）
+- [x] 型チェック（`npx tsc -p tsconfig.json --noEmit`）
 
 ## 結果
-`src/main.ts` のプレイヤー被弾シーケンス完了時の遷移を分岐化した。
-`runtimeBrainwashSettings.instantBrainwash` が ON のときは
-`brainwash-in-progress` へ遷移せず、`brainwash-complete-haigure` へ即遷移するようにした。
-OFF のときは従来どおり `brainwash-in-progress` へ遷移する。
-
-既存の `brainwashChoiceStarted` / `brainwashChoiceUnlocked` の更新は維持しているため、
-従来の選択入力やHUD表示の開始条件は崩さない。
-
-検証として `npx tsc -p tsconfig.json --noEmit` と `npm run build:renderer` を実行し、どちらも成功した。
+- トラップルームの責務を `src/main.ts` から分離し、`src/game/trap/system.ts` を中核として候補生成・テレグラフ描画・フェーズ進行・NPC停止制御をモジュール化した。
+- トラップ候補生成は `src/game/trap/candidates.ts`、テレグラフ描画は `src/game/trap/telegraph.ts`、型定義は `src/game/trap/types.ts` に分割した。
+- 重み付き抽選を `src/game/random/weighted.ts` に共通化し、`src/game/npcNavigation.ts` の抽選処理を統一した。
+- タイトル画面の「トラップルーム推奨設定」ボタンを `src/ui/trapRoomRecommendControl.ts` に分離した。
+- `TRAP_STAGE_ID` を `src/world/stageIds.ts` に集約し、`src/world/stageSelection.ts` と `src/main.ts` の参照を統一した。
+- READMEのトラップ設定参照先を `src/game/trap/system.ts` に追従更新した。
+- 検証として `npx tsc -p tsconfig.json --noEmit` を実行し、成功した。
