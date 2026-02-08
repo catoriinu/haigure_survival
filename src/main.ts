@@ -252,6 +252,18 @@ let stageSelection = stageSelector.getCurrent();
 let stageSelectionRequestId = 0;
 let stageSelectionInProgress = false;
 let stageJson = await loadStageJson(stageSelection);
+const stageSelectionsForMenu: StageSelection[] = await Promise.all(
+  STAGE_CATALOG.map(async (selection) => {
+    const loadedStageJson =
+      selection.id === stageSelection.id
+        ? stageJson
+        : await loadStageJson(selection);
+    return {
+      ...selection,
+      label: loadedStageJson!.meta.description!
+    };
+  })
+);
 let stageContext = buildStageContext(scene, stageJson);
 let layout = stageContext.layout;
 let stageStyle = stageContext.style;
@@ -418,11 +430,11 @@ const titleOverlayElement =
   document.getElementById("titleOverlay") as unknown as HTMLDivElement;
 const titleStageSelectControl = createStageSelectControl({
   parent: titleOverlayElement,
-  stages: STAGE_CATALOG,
+  stages: stageSelectionsForMenu,
   initialStageId: stageSelection.id,
   className: "stage-select-control--title-overlay",
   onChange: (stageId) => {
-    const nextSelection = STAGE_CATALOG.find(
+    const nextSelection = stageSelectionsForMenu.find(
       (selection) => selection.id === stageId
     )!;
     void applyStageSelection(nextSelection);
