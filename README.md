@@ -137,6 +137,9 @@
 - `src/main.ts`: `npcCount`（ステージ開始時のNPC人数。デフォルトはプレイヤー1人 + NPC11人で合計12人）
 - `src/main.ts`: `minimapReadoutVisible`（ミニマップ座標表示ボックスの表示切替。true=表示、false=非表示（デフォルト））
 - `src/main.ts`: `redBitSpawnChance`（赤ビット（通常の3倍の性能を持つビット）の出現確率。0-1の確率で判定し、デフォルトは0.05）
+- タイトル画面の `BIT SETTINGS`: `bitSpawnInterval`（ビットの通常出現間隔。`1`〜`99` 秒）
+- タイトル画面の `BIT SETTINGS`: `maxBitCount`（ビットの同時出現上限。`1`〜`99`）
+- タイトル画面の `BIT SETTINGS`: `ビットを出現させない`（ON時は開始時の内部 `maxBitCount` を `0` として、ビットを一切出現させない）
 - `src/game/bits.ts`: `bitModeMuzzleColorEnabled`（ビットの先端球のモード別色変更。true=モードに応じて色が変わる、false=初期色のまま固定（デフォルト））
 - `src/game/characterSprites.ts`: `PLAYER_EYE_HEIGHT`（プレイヤーのカメラの高さ。係数が大きいほど高くなる。デフォルトは`PLAYER_SPRITE_HEIGHT * 0.75`）
 
