@@ -299,17 +299,20 @@ const buildArenaSpawnForward = (position: Vector3) => {
   return towardCenter.normalize();
 };
 
+const isArenaLikeSpawnStage = (selection: StageSelection) =>
+  selection.id === "arena" || selection.id === TRAP_STAGE_ID;
+
 let spawnForward = new Vector3(0, 0, 1);
 let portraitCellSize = layout.cellSize;
 
 const updateSpawnPoint = () => {
   const spawnCell =
-    stageSelection.id === "arena"
+    isArenaLikeSpawnStage(stageSelection)
       ? pickRandomCell(spawnableCells)
       : { row: layout.spawn.row, col: layout.spawn.col };
   spawnPosition = cellToWorld(layout, spawnCell, eyeHeight);
   spawnForward =
-    stageSelection.id === "arena"
+    isArenaLikeSpawnStage(stageSelection)
       ? buildArenaSpawnForward(spawnPosition)
       : buildFixedSpawnForward(stageSelection);
 };
