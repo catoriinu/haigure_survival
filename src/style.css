@@ -223,6 +223,28 @@ body {
   color: #f0f0f0;
 }
 
+.default-settings-panel__row {
+  display: grid;
+  grid-template-columns: 96px 74px;
+  align-items: center;
+  gap: 9px;
+}
+
+.default-settings-panel__label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.default-settings-panel__input {
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  background: #141414;
+  color: #f5f5f5;
+  font: inherit;
+}
+
 .default-settings-panel__checkbox-row {
   display: flex;
   align-items: center;

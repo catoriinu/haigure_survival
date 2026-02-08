@@ -125,8 +125,6 @@ const playerWidth = PLAYER_SPRITE_WIDTH;
 const playerHeight = PLAYER_SPRITE_HEIGHT;
 const playerCenterHeight = PLAYER_SPRITE_CENTER_HEIGHT;
 const eyeHeight = PLAYER_EYE_HEIGHT;
-// ステージ開始時のNPC人数。デフォルトはプレイヤー1人 + NPC11人で合計12人
-const npcCount = 11;
 // ミニマップ座標表示ボックスの表示切替。true=表示、false=非表示（デフォルト）
 const minimapReadoutVisible = false;
 const portraitMaxWidthCells = 1;
@@ -138,7 +136,9 @@ const defaultBitSpawnSettings: BitSpawnSettings = {
 };
 const defaultDefaultStartSettings: DefaultStartSettings = {
   startPlayerAsBrainwashCompleteGun: false,
-  startAllNpcsAsHaigure: false
+  startAllNpcsAsHaigure: false,
+  // ステージ開始時のNPC人数。0〜99。デフォルトは11
+  initialNpcCount: 11
 };
 let titleBitSpawnSettings: BitSpawnSettings = { ...defaultBitSpawnSettings };
 let titleDefaultStartSettings: DefaultStartSettings = {
@@ -159,7 +159,8 @@ await Promise.all(
   })
 );
 const portraitManagers = new Map<string, SpriteManager>();
-const spriteManagerCapacity = npcCount + 1;
+// プレイヤー1人 + NPC最大99人
+const spriteManagerCapacity = 100;
 for (const directory of portraitDirectories) {
   const sheet = portraitSpriteSheets.get(directory)!;
   portraitManagers.set(
@@ -628,7 +629,7 @@ const refreshPortraitSizes = () => {
   applyPortraitSizesToAll();
 };
 
-const assignVoiceIds = () => {
+const assignVoiceIds = (npcCount: number) => {
   const { playerId, npcIds } = allocateVoiceIds(npcCount);
   playerVoiceId = playerId;
   npcVoiceIds = npcIds;
@@ -668,13 +669,13 @@ const createCharacters = () => {
 };
 
 const rebuildCharacters = () => {
-  assignVoiceIds();
+  assignVoiceIds(runtimeDefaultStartSettings.initialNpcCount);
   playerAvatar.dispose();
   npcs.length = 0;
   createCharacters();
 };
 
-assignVoiceIds();
+assignVoiceIds(runtimeDefaultStartSettings.initialNpcCount);
 createCharacters();
 
 const bitMaterials = createBitMaterials(scene);

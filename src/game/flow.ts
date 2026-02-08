@@ -4,7 +4,7 @@ import { type StageArea } from "../world/stageJson";
 import { Hud } from "../ui/hud";
 import { Bit, CharacterState, FloorCell, Npc } from "./types";
 import { finalizeBitVisuals } from "./bits";
-import { cellToWorld, worldToCell } from "./gridUtils";
+import { cellToWorld, worldToCellClamped } from "./gridUtils";
 import { alignSpriteToGround } from "./spriteUtils";
 import { createFadeController } from "./flowFade";
 
@@ -65,10 +65,7 @@ export const createGameFlow = ({
   setBitSpawnEnabled,
   disposePlayerHitEffects
 }: GameFlowOptions) => {
-    const stageArea = assemblyArea;
-  const assemblyMaxColumns = 5;
-  const assemblySpacingX = 0.5;
-  const assemblySpacingZ = 0.33;
+  const stageArea = assemblyArea;
   const assemblyMoveSpeed = 0.27;
   const assemblyArriveDistance = 0.02;
   const assemblyOrbitRadius = 1.17;
@@ -76,11 +73,11 @@ export const createGameFlow = ({
   const assemblyOrbitHeight = 0.33;
   const executionOrbitRadius = assemblyOrbitRadius;
   const executionOrbitHeight = eyeHeight;
-    const executionNpcRingPadding = layout.cellSize * 0.4 * CELL_SCALE;
-    const executionNpcRingMaxRadius = Math.min(
-      ((stageArea.width - CELL_SCALE) * layout.cellSize) / 2,
-      ((stageArea.height - CELL_SCALE) * layout.cellSize) / 2
-    );
+  const executionNpcRingPadding = layout.cellSize * 0.4 * CELL_SCALE;
+  const executionNpcRingMaxRadius = Math.min(
+    ((stageArea.width - CELL_SCALE) * layout.cellSize) / 2,
+    ((stageArea.height - CELL_SCALE) * layout.cellSize) / 2
+  );
   const executionNpcRingRadius = Math.min(
     executionNpcRingMaxRadius,
     executionOrbitRadius + executionNpcRingPadding
@@ -105,6 +102,64 @@ export const createGameFlow = ({
     { length: stageArea.width },
     (_, index) => stageArea.startCol + index
   );
+  const isCellInBounds = (cell: FloorCell) =>
+    cell.row >= 0 &&
+    cell.row < layout.rows &&
+    cell.col >= 0 &&
+    cell.col < layout.columns;
+  const isFloorCell = (cell: FloorCell) =>
+    isCellInBounds(cell) && layout.cells[cell.row][cell.col] === "floor";
+  const collectAssemblyAreaFloorCells = () => {
+    const cells: FloorCell[] = [];
+    for (const row of stageRows) {
+      for (const col of stageCols) {
+        const cell = { row, col };
+        if (isFloorCell(cell)) {
+          cells.push(cell);
+        }
+      }
+    }
+    return cells;
+  };
+  const collectAllFloorCells = () => {
+    const cells: FloorCell[] = [];
+    for (let row = 0; row < layout.rows; row += 1) {
+      for (let col = 0; col < layout.columns; col += 1) {
+        if (layout.cells[row][col] === "floor") {
+          cells.push({ row, col });
+        }
+      }
+    }
+    return cells;
+  };
+  const toStageCenterDistanceSq = (cell: FloorCell) => {
+    const position = cellToWorld(layout, cell, playerCenterHeight);
+    const dx = position.x - stageCenter.x;
+    const dz = position.z - stageCenter.z;
+    return dx * dx + dz * dz;
+  };
+  const assemblyFloorCellsBase = collectAssemblyAreaFloorCells();
+  const assemblyFloorCells =
+    assemblyFloorCellsBase.length > 0
+      ? assemblyFloorCellsBase
+      : collectAllFloorCells();
+  if (assemblyFloorCells.length === 0) {
+    assemblyFloorCells.push({
+      row: layout.spawn.row,
+      col: layout.spawn.col
+    });
+  }
+  const orderedAssemblyFloorCells = [...assemblyFloorCells].sort((a, b) => {
+    const distanceDiff = toStageCenterDistanceSq(a) - toStageCenterDistanceSq(b);
+    if (distanceDiff !== 0) {
+      return distanceDiff;
+    }
+    const rowDiff = a.row - b.row;
+    if (rowDiff !== 0) {
+      return rowDiff;
+    }
+    return a.col - b.col;
+  });
 
   let assemblyPlayerTarget = stageCenter.clone();
   let assemblyNpcTargets: Vector3[] = [];
@@ -114,35 +169,70 @@ export const createGameFlow = ({
   let executionCameraFollowAvatar = false;
   const followCameraOffset = playerAvatar.width * 0.9;
 
-  const createAssemblyTargets = (totalCount: number) => {
-    const columns = Math.min(assemblyMaxColumns, totalCount);
-    const rows = Math.ceil(totalCount / columns);
-    const totalWidth = (columns - 1) * assemblySpacingX;
-    const totalDepth = (rows - 1) * assemblySpacingZ;
-    const slots: Vector3[] = [];
-
-    for (let row = 0; row < rows; row += 1) {
-      for (let col = 0; col < columns; col += 1) {
-        if (slots.length >= totalCount) {
-          break;
+  const buildReachableFloorMap = (start: FloorCell) => {
+    const reachable = Array.from({ length: layout.rows }, () =>
+      Array.from({ length: layout.columns }, () => false)
+    );
+    if (!isFloorCell(start)) {
+      return reachable;
+    }
+    const queueRow: number[] = [start.row];
+    const queueCol: number[] = [start.col];
+    let head = 0;
+    reachable[start.row][start.col] = true;
+    while (head < queueRow.length) {
+      const row = queueRow[head];
+      const col = queueCol[head];
+      head += 1;
+      const neighbors = [
+        { row: row - 1, col },
+        { row: row + 1, col },
+        { row, col: col - 1 },
+        { row, col: col + 1 }
+      ];
+      for (const neighbor of neighbors) {
+        if (!isFloorCell(neighbor)) {
+          continue;
         }
-        slots.push(
-          new Vector3(
-            stageCenter.x - totalWidth / 2 + col * assemblySpacingX,
-            playerCenterHeight,
-            stageCenter.z - totalDepth / 2 + row * assemblySpacingZ
-          )
-        );
+        if (reachable[neighbor.row][neighbor.col]) {
+          continue;
+        }
+        reachable[neighbor.row][neighbor.col] = true;
+        queueRow.push(neighbor.row);
+        queueCol.push(neighbor.col);
       }
     }
-
-    const playerIndex = Math.floor((columns - 1) / 2);
-    const playerTarget = slots[playerIndex];
-    const npcTargets = slots.filter((_, index) => index !== playerIndex);
+    return reachable;
+  };
+  const pickAssemblyTargetCell = (start: FloorCell, preferredIndex: number) => {
+    const reachable = buildReachableFloorMap(start);
+    for (let offset = 0; offset < orderedAssemblyFloorCells.length; offset += 1) {
+      const index = (preferredIndex + offset) % orderedAssemblyFloorCells.length;
+      const candidate = orderedAssemblyFloorCells[index];
+      if (reachable[candidate.row][candidate.col]) {
+        return candidate;
+      }
+    }
+    return isFloorCell(start)
+      ? start
+      : { row: layout.spawn.row, col: layout.spawn.col };
+  };
+  const createAssemblyTargets = (startPositions: Vector3[]) => {
+    const targetCells = startPositions.map((start, index) => {
+      const startCell = worldToCellClamped(layout, start);
+      return pickAssemblyTargetCell(startCell, index);
+    });
+    const playerTarget = cellToWorld(layout, targetCells[0], playerCenterHeight);
+    const npcTargets = targetCells
+      .slice(1)
+      .map((cell) => cellToWorld(layout, cell, playerCenterHeight));
     return { playerTarget, npcTargets };
   };
 
   const buildShortestPath = (start: FloorCell, goal: FloorCell) => {
+    if (!isFloorCell(start) || !isFloorCell(goal)) {
+      return null;
+    }
     const visited = Array.from({ length: layout.rows }, () =>
       Array.from({ length: layout.columns }, () => false)
     );
@@ -196,6 +286,9 @@ export const createGameFlow = ({
         queueCol.push(neighbor.col);
       }
     }
+    if (!visited[goal.row][goal.col]) {
+      return null;
+    }
 
     const path: FloorCell[] = [];
     let row = goal.row;
@@ -204,6 +297,9 @@ export const createGameFlow = ({
     while (row !== start.row || col !== start.col) {
       const prevR = prevRow[row][col];
       const prevC = prevCol[row][col];
+      if (prevR < 0 || prevC < 0) {
+        return null;
+      }
       row = prevR;
       col = prevC;
       path.push({ row, col });
@@ -213,9 +309,15 @@ export const createGameFlow = ({
   };
 
   const buildAssemblyRoute = (start: Vector3, goal: Vector3): AssemblyRoute => {
-    const startCell = worldToCell(layout, start);
-    const goalCell = worldToCell(layout, goal);
+    const startCell = worldToCellClamped(layout, start);
+    const goalCell = worldToCellClamped(layout, goal);
     const cellPath = buildShortestPath(startCell, goalCell);
+    if (!cellPath) {
+      return {
+        waypoints: [new Vector3(start.x, playerCenterHeight, start.z)],
+        index: 0
+      };
+    }
     const waypoints: Vector3[] = [
       new Vector3(start.x, playerCenterHeight, start.z)
     ];
@@ -390,7 +492,10 @@ export const createGameFlow = ({
     playerAvatar.position.copyFrom(playerStartPosition);
     alignSpriteToGround(playerAvatar);
 
-    const assemblyTargets = createAssemblyTargets(npcs.length + 1);
+    const assemblyTargets = createAssemblyTargets([
+      playerAvatar.position,
+      ...npcs.map((npc) => npc.sprite.position)
+    ]);
     assemblyPlayerTarget = assemblyTargets.playerTarget;
     assemblyNpcTargets = assemblyTargets.npcTargets;
 

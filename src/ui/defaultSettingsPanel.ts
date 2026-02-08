@@ -1,6 +1,7 @@
 export type DefaultStartSettings = {
   startPlayerAsBrainwashCompleteGun: boolean;
   startAllNpcsAsHaigure: boolean;
+  initialNpcCount: number;
 };
 
 type DefaultSettingsPanelOptions = {
@@ -15,6 +16,9 @@ export type DefaultSettingsPanel = {
   setVisible: (visible: boolean) => void;
   getSettings: () => DefaultStartSettings;
 };
+
+const clampInteger = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, Math.round(value)));
 
 export const createDefaultSettingsPanel = ({
   parent,
@@ -34,6 +38,21 @@ export const createDefaultSettingsPanel = ({
   root.appendChild(title);
 
   const settings: DefaultStartSettings = { ...initialSettings };
+
+  const npcCountRow = document.createElement("label");
+  npcCountRow.className = "default-settings-panel__row";
+  const npcCountLabel = document.createElement("span");
+  npcCountLabel.className = "default-settings-panel__label";
+  npcCountLabel.textContent = "NPC初期人数";
+  npcCountRow.appendChild(npcCountLabel);
+  const npcCountInput = document.createElement("input");
+  npcCountInput.className = "default-settings-panel__input";
+  npcCountInput.type = "number";
+  npcCountInput.min = "0";
+  npcCountInput.max = "99";
+  npcCountInput.step = "1";
+  npcCountRow.appendChild(npcCountInput);
+  root.appendChild(npcCountRow);
 
   const playerRow = document.createElement("label");
   playerRow.className = "default-settings-panel__checkbox-row";
@@ -63,10 +82,29 @@ export const createDefaultSettingsPanel = ({
     onChange({ ...settings });
   };
 
+  const updateNpcCount = () => {
+    const parsed = Number(npcCountInput.value);
+    const fallback = settings.initialNpcCount;
+    const next = Number.isFinite(parsed)
+      ? clampInteger(parsed, 0, 99)
+      : fallback;
+    settings.initialNpcCount = next;
+    npcCountInput.value = String(next);
+    emit();
+  };
+
   const render = () => {
+    npcCountInput.value = String(clampInteger(settings.initialNpcCount, 0, 99));
     playerCheckbox.checked = settings.startPlayerAsBrainwashCompleteGun;
     npcCheckbox.checked = settings.startAllNpcsAsHaigure;
   };
+
+  npcCountInput.addEventListener("change", () => {
+    updateNpcCount();
+  });
+  npcCountInput.addEventListener("blur", () => {
+    updateNpcCount();
+  });
 
   playerCheckbox.addEventListener("change", () => {
     settings.startPlayerAsBrainwashCompleteGun = playerCheckbox.checked;
