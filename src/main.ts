@@ -47,6 +47,8 @@ import {
   updateBitFireEffect,
   promoteHaigureNpc,
   applyNpcDefaultHaigureState,
+  setNpcBrainwashInProgressTransitionConfig,
+  setNpcBrainwashCompleteTransitionConfig,
   spawnNpcs,
   StageBounds,
   updateBeams,
@@ -101,6 +103,10 @@ import {
   type DefaultStartSettings
 } from "./ui/defaultSettingsPanel";
 import {
+  createBrainwashSettingsPanel,
+  type BrainwashSettings
+} from "./ui/brainwashSettingsPanel";
+import {
   PLAYER_EYE_HEIGHT,
   PLAYER_SPRITE_CENTER_HEIGHT,
   PLAYER_SPRITE_HEIGHT,
@@ -140,15 +146,50 @@ const defaultDefaultStartSettings: DefaultStartSettings = {
   // ステージ開始時のNPC人数。0〜99。デフォルトは11
   initialNpcCount: 11
 };
+const defaultBrainwashSettings: BrainwashSettings = {
+  instantBrainwash: false,
+  // NPC洗脳完了後の行動遷移確率（表示値）。ポーズは100 - 銃あり - 銃なし
+  npcBrainwashCompleteGunPercent: 45,
+  npcBrainwashCompleteNoGunPercent: 45
+};
 let titleBitSpawnSettings: BitSpawnSettings = { ...defaultBitSpawnSettings };
 let titleDefaultStartSettings: DefaultStartSettings = {
   ...defaultDefaultStartSettings
+};
+let titleBrainwashSettings: BrainwashSettings = {
+  ...defaultBrainwashSettings
 };
 let runtimeBitSpawnInterval = defaultBitSpawnSettings.bitSpawnInterval;
 let runtimeMaxBitCount = defaultBitSpawnSettings.maxBitCount;
 let runtimeDefaultStartSettings: DefaultStartSettings = {
   ...defaultDefaultStartSettings
 };
+let runtimeBrainwashSettings: BrainwashSettings = {
+  ...defaultBrainwashSettings
+};
+const buildNpcBrainwashCompleteTransitionConfig = (
+  settings: BrainwashSettings
+) => {
+  const gunPercent = settings.npcBrainwashCompleteGunPercent;
+  const noGunPercent = settings.npcBrainwashCompleteNoGunPercent;
+  const posePercent = 100 - gunPercent - noGunPercent;
+  const stayChance = posePercent / 100;
+  const gunNoGunTotal = gunPercent + noGunPercent;
+  const toGunChance = gunNoGunTotal === 0 ? 0 : gunPercent / gunNoGunTotal;
+  return { stayChance, toGunChance };
+};
+const buildNpcBrainwashInProgressTransitionConfig = (
+  settings: BrainwashSettings
+) =>
+  settings.instantBrainwash
+    ? {
+        decisionDelay: 0,
+        stayChance: 0
+      }
+    : {
+        decisionDelay: 10,
+        stayChance: 0.5
+      };
 
 const portraitDirectories = getPortraitDirectories();
 const portraitSpriteSheets = new Map<string, PortraitSpriteSheet>();
@@ -330,6 +371,14 @@ const titleDefaultSettingsPanel = createDefaultSettingsPanel({
     titleDefaultStartSettings = settings;
   }
 });
+const titleBrainwashSettingsPanel = createBrainwashSettingsPanel({
+  parent: titleRightPanels,
+  initialSettings: titleBrainwashSettings,
+  className: "brainwash-settings-panel--title",
+  onChange: (settings) => {
+    titleBrainwashSettings = settings;
+  }
+});
 const titleBitSpawnPanel = createBitSpawnPanel({
   parent: titleRightPanels,
   initialSettings: titleBitSpawnSettings,
@@ -344,6 +393,7 @@ for (const category of volumeCategories) {
 }
 titleVolumePanel.setVisible(true);
 titleDefaultSettingsPanel.setVisible(true);
+titleBrainwashSettingsPanel.setVisible(true);
 titleBitSpawnPanel.setVisible(true);
 const isTitleUiTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
@@ -351,7 +401,7 @@ const isTitleUiTarget = (target: EventTarget | null) => {
   }
   return (
     target.closest(
-      "[data-ui=\"volume-panel\"], [data-ui=\"default-settings-panel\"], [data-ui=\"bit-spawn-panel\"]"
+      "[data-ui=\"volume-panel\"], [data-ui=\"default-settings-panel\"], [data-ui=\"brainwash-settings-panel\"], [data-ui=\"bit-spawn-panel\"]"
     ) !== null
   );
 };
@@ -1927,7 +1977,9 @@ const updatePlayerState = (
         playerState = "hit-a";
       },
       () => {
-        playerState = "brainwash-in-progress";
+        playerState = runtimeBrainwashSettings.instantBrainwash
+          ? "brainwash-complete-haigure"
+          : "brainwash-in-progress";
         if (!brainwashChoiceStarted) {
           brainwashChoiceStarted = true;
           brainwashChoiceUnlocked = true;
@@ -2047,6 +2099,14 @@ const startGame = () => {
   }
   titleDefaultStartSettings = titleDefaultSettingsPanel.getSettings();
   runtimeDefaultStartSettings = { ...titleDefaultStartSettings };
+  titleBrainwashSettings = titleBrainwashSettingsPanel.getSettings();
+  runtimeBrainwashSettings = { ...titleBrainwashSettings };
+  setNpcBrainwashInProgressTransitionConfig(
+    buildNpcBrainwashInProgressTransitionConfig(runtimeBrainwashSettings)
+  );
+  setNpcBrainwashCompleteTransitionConfig(
+    buildNpcBrainwashCompleteTransitionConfig(runtimeBrainwashSettings)
+  );
   titleBitSpawnSettings = titleBitSpawnPanel.getSettings();
   runtimeBitSpawnInterval = titleBitSpawnSettings.bitSpawnInterval;
   runtimeMaxBitCount = titleBitSpawnSettings.disableBitSpawn
@@ -2061,6 +2121,7 @@ const startGame = () => {
   hud.setTitleVisible(false);
   titleVolumePanel.setVisible(false);
   titleDefaultSettingsPanel.setVisible(false);
+  titleBrainwashSettingsPanel.setVisible(false);
   titleBitSpawnPanel.setVisible(false);
   hud.setHudVisible(true);
   hud.setStateInfo(null);
@@ -2076,6 +2137,7 @@ const returnToTitle = () => {
   hud.setTitleVisible(true);
   titleVolumePanel.setVisible(true);
   titleDefaultSettingsPanel.setVisible(true);
+  titleBrainwashSettingsPanel.setVisible(true);
   titleBitSpawnPanel.setVisible(true);
   hud.setHudVisible(false);
   hud.setStateInfo(null);

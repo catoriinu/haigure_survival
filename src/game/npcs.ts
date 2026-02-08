@@ -87,16 +87,34 @@ const npcSpriteColorNormal = new Color4(1, 1, 1, 1);
 export const npcHitLightIntensity = 1.1;
 const getNpcHitEffectDiameter = (sprite: Sprite) =>
   calculateHitEffectDiameter(sprite.width, sprite.height);
-// `brainwash-in-progress` の遷移判定を行う間隔（秒）。デフォルトは10
-const npcBrainwashInProgressDecisionDelay = 10;
-// `brainwash-in-progress` の判定時に同状態を継続する確率。`1 - npcBrainwashStayChance` の確率で `brainwash-complete-haigure` へ遷移。デフォルトは0.5
-const npcBrainwashStayChance = 0.5;
+export type NpcBrainwashInProgressTransitionConfig = {
+  decisionDelay: number;
+  stayChance: number;
+};
+const defaultNpcBrainwashInProgressTransitionConfig: NpcBrainwashInProgressTransitionConfig =
+  {
+    // `brainwash-in-progress` の遷移判定を行う間隔（秒）。デフォルトは10
+    decisionDelay: 10,
+    // `brainwash-in-progress` の判定時に同状態を継続する確率。`1 - stayChance` の確率で `brainwash-complete-haigure` へ遷移。デフォルトは0.5
+    stayChance: 0.5
+  };
+let npcBrainwashInProgressTransitionConfig: NpcBrainwashInProgressTransitionConfig =
+  { ...defaultNpcBrainwashInProgressTransitionConfig };
 // `brainwash-complete-haigure` から次状態への遷移判定間隔（秒）。デフォルトは10
 const npcBrainwashCompleteHaigureDecisionDelay = 10;
-// `brainwash-complete-haigure` の判定時に同状態を継続する確率。`1 - npcBrainwashCompleteHaigureStayChance` の確率で次状態分岐の抽選へ進む。デフォルトは0.1
-const npcBrainwashCompleteHaigureStayChance = 0.1;
-// `brainwash-complete-haigure` の判定で継続しなかったときに、`brainwash-complete-gun`に遷移する確率。外れた場合は`brainwash-complete-no-gun`に遷移する。デフォルトは0.5
-const npcBrainwashToGunChance = 0.5;
+export type NpcBrainwashCompleteTransitionConfig = {
+  stayChance: number;
+  toGunChance: number;
+};
+const defaultNpcBrainwashCompleteTransitionConfig: NpcBrainwashCompleteTransitionConfig =
+  {
+    // `brainwash-complete-haigure` の判定時に同状態を継続する確率。`1 - stayChance` の確率で次状態分岐の抽選へ進む。デフォルトは0.1
+    stayChance: 0.1,
+    // `brainwash-complete-haigure` の判定で継続しなかったときに、`brainwash-complete-gun`に遷移する確率。外れた場合は`brainwash-complete-no-gun`に遷移する。デフォルトは0.5
+    toGunChance: 0.5
+  };
+let npcBrainwashCompleteTransitionConfig: NpcBrainwashCompleteTransitionConfig =
+  { ...defaultNpcBrainwashCompleteTransitionConfig };
 const npcBrainwashVisionRange = 3;
 const npcBrainwashVisionRangeSq = npcBrainwashVisionRange * npcBrainwashVisionRange;
 const npcBrainwashVisionCos = Math.cos((95 * Math.PI) / 180);
@@ -127,8 +145,20 @@ export const npcHitFadeOrbConfig: HitFadeOrbConfig = {
   speedMax: hitFadeOrbSpeedMax
 };
 
+export const setNpcBrainwashCompleteTransitionConfig = (
+  config: NpcBrainwashCompleteTransitionConfig
+) => {
+  npcBrainwashCompleteTransitionConfig = { ...config };
+};
+
+export const setNpcBrainwashInProgressTransitionConfig = (
+  config: NpcBrainwashInProgressTransitionConfig
+) => {
+  npcBrainwashInProgressTransitionConfig = { ...config };
+};
+
 export const promoteHaigureNpc = (npc: Npc) => {
-  const toGun = Math.random() < npcBrainwashToGunChance;
+  const toGun = Math.random() < npcBrainwashCompleteTransitionConfig.toGunChance;
   npc.state = toGun
     ? "brainwash-complete-gun"
     : "brainwash-complete-no-gun";
@@ -152,7 +182,7 @@ export const promoteHaigureNpc = (npc: Npc) => {
 };
 
 export const applyNpcDefaultHaigureState = (npc: Npc) => {
-  if (Math.random() < npcBrainwashCompleteHaigureStayChance) {
+  if (Math.random() < npcBrainwashCompleteTransitionConfig.stayChance) {
     npc.state = "brainwash-complete-haigure";
     npc.brainwashTimer = 0;
     return;
@@ -529,8 +559,11 @@ export const updateNpcs = (
   const handleNpcBrainwashTransition = (npc: Npc) => {
     if (npc.state === "brainwash-in-progress") {
       npc.brainwashTimer += delta;
-      if (npc.brainwashTimer >= npcBrainwashInProgressDecisionDelay) {
-        if (Math.random() < npcBrainwashStayChance) {
+      if (
+        npc.brainwashTimer >=
+        npcBrainwashInProgressTransitionConfig.decisionDelay
+      ) {
+        if (Math.random() < npcBrainwashInProgressTransitionConfig.stayChance) {
           npc.brainwashTimer = 0;
         } else {
           npc.state = "brainwash-complete-haigure";
@@ -543,7 +576,7 @@ export const updateNpcs = (
     if (npc.state === "brainwash-complete-haigure") {
       npc.brainwashTimer += delta;
       if (npc.brainwashTimer >= npcBrainwashCompleteHaigureDecisionDelay) {
-        if (Math.random() < npcBrainwashCompleteHaigureStayChance) {
+        if (Math.random() < npcBrainwashCompleteTransitionConfig.stayChance) {
           npc.brainwashTimer = 0;
         } else {
           promoteHaigureNpc(npc);

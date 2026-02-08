@@ -1,30 +1,23 @@
-# NPC99整列クラッシュ修正 計画
+# 即洗脳ON時のプレイヤー遷移修正 計画
 
 更新日: 2026-02-08
 
 ## プロンプト
-NPCを99人にしたとき、全滅（光線命中）して整列するときに以下のエラーが出ました。
-flow.ts:205 Uncaught TypeError: Cannot read properties of undefined (reading '-1')
-...
-案1は直線移動ということは、壁を突き抜けてしまうということですよね？それはNGです。
-前提として、必ず全キャラをステージの床の上に整列するように配置してください。壁の向こうや、壁をすり抜けるのはNGです。
-YES
+「即洗脳」ON時、プレイヤーに光線命中したときも、in-progressではなく`brainwash-complete-haigure`状態に即遷移してください。
 
 ## ステップ
 - [x] 既存 `docs/plan.md` を退避し、新規 `docs/plan.md` を作成
-- [x] `src/game/flow.ts` を床セルベース整列に変更（整列先をfloorセル限定）
-- [x] 到達不能でクラッシュしないよう、整列経路計算を安全化
-- [x] 型チェックとビルドを実行して確認
+- [x] `src/main.ts` のプレイヤー被弾後遷移を `instantBrainwash` 設定で分岐
+- [x] 型チェックとビルドで検証
 - [x] `docs/plan.md` の結果欄を更新
 
 ## 結果
-`src/game/flow.ts` の整列ロジックを床セルベースに変更した。
-整列先は `assemblyArea` 内の `floor` セルを優先し、存在しない場合はステージ全体の `floor` セルを利用する。
-人数がセル数を超える場合はセルを再利用して割り当てるため、重なりは発生し得るが、全員を床上に配置できる。
+`src/main.ts` のプレイヤー被弾シーケンス完了時の遷移を分岐化した。
+`runtimeBrainwashSettings.instantBrainwash` が ON のときは
+`brainwash-in-progress` へ遷移せず、`brainwash-complete-haigure` へ即遷移するようにした。
+OFF のときは従来どおり `brainwash-in-progress` へ遷移する。
 
-各キャラクターの開始セルから到達可能な床セルのみを整列先候補として選ぶようにし、
-壁の向こう側や壁すり抜け前提の目標位置は選ばれないようにした。
-経路探索 `buildShortestPath` は到達不能時に `null` を返し、`-1` インデックス参照で落ちるクラッシュを解消した。
-整列ルート生成は `worldToCellClamped` を使ってセル参照の範囲外アクセスも防止した。
+既存の `brainwashChoiceStarted` / `brainwashChoiceUnlocked` の更新は維持しているため、
+従来の選択入力やHUD表示の開始条件は崩さない。
 
-検証として `npx tsc -p tsconfig.json --noEmit` と `npm run build:renderer` を実行し、いずれも成功した。
+検証として `npx tsc -p tsconfig.json --noEmit` と `npm run build:renderer` を実行し、どちらも成功した。
