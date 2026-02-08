@@ -143,6 +143,31 @@ body {
   z-index: 35;
 }
 
+.title-right-panels {
+  position: absolute;
+  right: 16px;
+  bottom: 42px;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.title-gameover-warning {
+  display: none;
+  max-width: 290px;
+  padding: 8px 10px;
+  border: 1px solid #6e1b1b;
+  background: rgba(60, 8, 8, 0.75);
+  color: #ffd2d2;
+  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 0.03em;
+  pointer-events: none;
+}
+
 .volume-panel__title {
   font-size: 12px;
   letter-spacing: 0.14em;
@@ -188,6 +213,149 @@ body {
   letter-spacing: 0.08em;
 }
 
+.default-settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px 14px;
+  border: 1px solid #111111;
+  background: rgba(0, 0, 0, 0.65);
+  color: #f5f5f5;
+  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  pointer-events: auto;
+}
+
+.default-settings-panel--title {
+  position: static;
+}
+
+.default-settings-panel__title {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: #f0f0f0;
+}
+
+.default-settings-panel__row {
+  display: grid;
+  grid-template-columns: 96px 74px;
+  align-items: center;
+  gap: 9px;
+}
+
+.default-settings-panel__label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.default-settings-panel__input {
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  background: #141414;
+  color: #f5f5f5;
+  font: inherit;
+}
+
+.default-settings-panel__checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.default-settings-panel__checkbox {
+  margin: 0;
+}
+
+.default-settings-panel__checkbox-label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.brainwash-settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px 14px;
+  border: 1px solid #111111;
+  background: rgba(0, 0, 0, 0.65);
+  color: #f5f5f5;
+  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  pointer-events: auto;
+}
+
+.brainwash-settings-panel--title {
+  position: static;
+}
+
+.brainwash-settings-panel__title {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: #f0f0f0;
+}
+
+.brainwash-settings-panel__label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.brainwash-settings-panel__checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brainwash-settings-panel__checkbox {
+  margin: 0;
+}
+
+.brainwash-settings-panel__checkbox-label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.brainwash-settings-panel__section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.brainwash-settings-panel__section-title {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: #f0f0f0;
+}
+
+.brainwash-settings-panel__slider-row {
+  display: grid;
+  grid-template-columns: 56px calc(4ch + 6px) 1fr;
+  align-items: center;
+  gap: 4px;
+}
+
+.brainwash-settings-panel__slider-value {
+  text-align: right;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #f0f0f0;
+}
+
+.brainwash-settings-panel__slider {
+  width: 100%;
+  margin: 0;
+}
+
+.brainwash-settings-panel__slider-hint {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: #bcbcbc;
+}
+
 .bit-spawn-panel {
   display: flex;
   flex-direction: column;
@@ -203,10 +371,7 @@ body {
 }
 
 .bit-spawn-panel--title {
-  position: absolute;
-  right: 16px;
-  bottom: 42px;
-  z-index: 35;
+  position: static;
 }
 
 .bit-spawn-panel__title {

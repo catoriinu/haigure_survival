@@ -33,3 +33,16 @@ export const isBeamHittingTarget = (
     tipDistanceSq <= tipRadius * tipRadius
   );
 };
+
+export const isBeamHittingTargetExcludingSource = (
+  beam: BeamCollisionShape,
+  beamSourceId: string | null,
+  targetId: string,
+  targetPosition: Vector3,
+  targetRadius: number
+) => {
+  if (beamSourceId === targetId) {
+    return false;
+  }
+  return isBeamHittingTarget(beam, targetPosition, targetRadius);
+};

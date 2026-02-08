@@ -19,6 +19,11 @@ export const STAGE_CATALOG: StageSelection[] = [
     id: "city_center",
     label: "city_center",
     jsonPath: buildStageJsonPath("city_center.json")
+  },
+  {
+    id: "arena",
+    label: "arena",
+    jsonPath: buildStageJsonPath("arena.json")
   }
 ];
 

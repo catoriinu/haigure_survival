@@ -134,7 +134,7 @@
 ## 調整可能項目
 
 ### ゲーム全体の設定
-- `src/main.ts`: `npcCount`（ステージ開始時のNPC人数。デフォルトはプレイヤー1人 + NPC11人で合計12人）
+- `src/main.ts`: `defaultDefaultStartSettings.initialNpcCount`（ステージ開始時のNPC人数。0〜99。デフォルトは11）
 - `src/main.ts`: `minimapReadoutVisible`（ミニマップ座標表示ボックスの表示切替。true=表示、false=非表示（デフォルト））
 - `src/game/characterSprites.ts`: `PLAYER_EYE_HEIGHT`（プレイヤーのカメラの高さ。係数が大きいほど高くなる。デフォルトは`PLAYER_SPRITE_HEIGHT * 0.75`）
 
@@ -154,11 +154,9 @@
 - `src/game/npcs.ts`: `npcHitFlickerInterval`（NPC光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
 
 ### NPCの洗脳後の状態遷移の設定
-- `src/game/npcs.ts`: `npcBrainwashInProgressDecisionDelay`（`brainwash-in-progress` の遷移判定を行う間隔（秒）。デフォルトは10）
-- `src/game/npcs.ts`: `npcBrainwashStayChance`（`brainwash-in-progress` の判定時に同状態を継続する確率。`1 - npcBrainwashStayChance` の確率で `brainwash-complete-haigure` へ遷移。デフォルトは0.5）
+- `src/game/npcs.ts`: `npcBrainwashInProgressDecisionDelay`（`brainwash-in-progress` の遷移判定を行う間隔（秒）。デフォルトは10。「光線命中後、即洗脳」ON時は強制的に0となる）
+- `src/game/npcs.ts`: `npcBrainwashStayChance`（`brainwash-in-progress` の判定時に同状態を継続する確率。`1 - npcBrainwashStayChance` の確率で `brainwash-complete-haigure` へ遷移。デフォルトは0.5。「光線命中後、即洗脳」ON時は強制的に0となる）
 - `src/game/npcs.ts`: `npcBrainwashCompleteHaigureDecisionDelay`（`brainwash-complete-haigure` から次状態への遷移判定間隔（秒）。デフォルトは10）
-- `src/game/npcs.ts`: `npcBrainwashCompleteHaigureStayChance`（`brainwash-complete-haigure` の判定時に同状態を継続する確率。`1 - npcBrainwashCompleteHaigureStayChance` の確率で次状態分岐の抽選へ進む。デフォルトは0.1）
-- `src/game/npcs.ts`: `npcBrainwashToGunChance`（`brainwash-complete-haigure` の判定で継続しなかったときに、`brainwash-complete-gun`に遷移する確率。外れた場合は`brainwash-complete-no-gun`に遷移する。デフォルトは0.5）
 
 #### 遷移図
 ```mermaid
@@ -189,8 +187,8 @@ stateDiagram-v2
     inProgressDecision --> brainwashCompleteHaigure: 遷移<br/>Math.random() >= npcBrainwashStayChance<br/>(デフォルト 0.5)
 
     brainwashCompleteHaigure --> haigureStayDecision: npcBrainwashCompleteHaigureDecisionDelay秒ごと判定
-    haigureStayDecision --> brainwashCompleteHaigure: 継続<br/>Math.random() < npcBrainwashCompleteHaigureStayChance<br/>(デフォルト 0.1)
-    haigureStayDecision --> gunNoGunDecision: 分岐へ<br/>Math.random() >= npcBrainwashCompleteHaigureStayChance
-    gunNoGunDecision --> brainwashCompleteGun: toGun = true<br/>(Math.random() < npcBrainwashToGunChance)
-    gunNoGunDecision --> brainwashCompleteNoGun: toGun = false<br/>(>= npcBrainwashToGunChance)
+    haigureStayDecision --> brainwashCompleteHaigure: 継続<br/>Math.random() < stayChance<br/>(BRAINWASH SETTINGS のポーズ% / 100)
+    haigureStayDecision --> gunNoGunDecision: 分岐へ<br/>Math.random() >= stayChance
+    gunNoGunDecision --> brainwashCompleteGun: toGun = true<br/>(Math.random() < toGunChance)
+    gunNoGunDecision --> brainwashCompleteNoGun: toGun = false<br/>(>= toGunChance)
 ```
