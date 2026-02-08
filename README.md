@@ -155,8 +155,8 @@
 - `src/game/npcs.ts`: `npcHitFlickerInterval`（NPC光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
 
 ### NPCの洗脳後の状態遷移の設定
-- `src/game/npcs.ts`: `npcBrainwashInProgressDecisionDelay`（`brainwash-in-progress` の遷移判定を行う間隔（秒）。デフォルトは10。「光線命中後、即洗脳」ON時は強制的に0となる）
-- `src/game/npcs.ts`: `npcBrainwashStayChance`（`brainwash-in-progress` の判定時に同状態を継続する確率。`1 - npcBrainwashStayChance` の確率で `brainwash-complete-haigure` へ遷移。デフォルトは0.5。「光線命中後、即洗脳」ON時は強制的に0となる）
+- `src/game/npcs.ts`: `npcBrainwashInProgressTransitionConfig.decisionDelay`（`brainwash-in-progress` の遷移判定を行う間隔（秒）。デフォルトは10。「光線命中後、即洗脳」ON時は強制的に0となる）
+- `src/game/npcs.ts`: `npcBrainwashInProgressTransitionConfig.stayChance`（`brainwash-in-progress` の判定時に同状態を継続する確率。`1 - npcBrainwashInProgressTransitionConfig.stayChance` の確率で `brainwash-complete-haigure` へ遷移。デフォルトは0.5。「光線命中後、即洗脳」ON時は強制的に0となる）
 - `src/game/npcs.ts`: `npcBrainwashCompleteHaigureDecisionDelay`（`brainwash-complete-haigure` から次状態への遷移判定間隔（秒）。デフォルトは10）
 
 #### 遷移図
@@ -183,9 +183,9 @@ stateDiagram-v2
 
     [*] --> brainwashInProgress
 
-    brainwashInProgress --> inProgressDecision: npcBrainwashInProgressDecisionDelay秒ごと判定
-    inProgressDecision --> brainwashInProgress: 継続<br/>Math.random() < npcBrainwashStayChance<br/>(デフォルト 0.5)
-    inProgressDecision --> brainwashCompleteHaigure: 遷移<br/>Math.random() >= npcBrainwashStayChance<br/>(デフォルト 0.5)
+    brainwashInProgress --> inProgressDecision: npcBrainwashInProgressTransitionConfig.decisionDelay秒ごと判定
+    inProgressDecision --> brainwashInProgress: 継続<br/>Math.random() < npcBrainwashInProgressTransitionConfig.stayChance<br/>(デフォルト 0.5)
+    inProgressDecision --> brainwashCompleteHaigure: 遷移<br/>Math.random() >= npcBrainwashInProgressTransitionConfig.stayChance<br/>(デフォルト 0.5)
 
     brainwashCompleteHaigure --> haigureStayDecision: npcBrainwashCompleteHaigureDecisionDelay秒ごと判定
     haigureStayDecision --> brainwashCompleteHaigure: 継続<br/>Math.random() < stayChance<br/>(BRAINWASH SETTINGS のポーズ% / 100)
