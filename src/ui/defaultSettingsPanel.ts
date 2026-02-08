@@ -62,7 +62,7 @@ export const createDefaultSettingsPanel = ({
   playerRow.appendChild(playerCheckbox);
   const playerLabel = document.createElement("span");
   playerLabel.className = "default-settings-panel__checkbox-label";
-  playerLabel.textContent = "プレイヤーがハイグレ人間";
+  playerLabel.textContent = "プレイヤーが洗脳完了済み";
   playerRow.appendChild(playerLabel);
   root.appendChild(playerRow);
 
@@ -74,7 +74,7 @@ export const createDefaultSettingsPanel = ({
   npcRow.appendChild(npcCheckbox);
   const npcLabel = document.createElement("span");
   npcLabel.className = "default-settings-panel__checkbox-label";
-  npcLabel.textContent = "全NPCがハイグレ人間";
+  npcLabel.textContent = "全NPCが洗脳完了済み";
   npcRow.appendChild(npcLabel);
   root.appendChild(npcRow);
 

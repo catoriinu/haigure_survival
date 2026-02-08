@@ -41,7 +41,7 @@ const portraitStateOrder: CharacterState[] = [
 
 const portraitBaseNameByState: Record<CharacterState, string> = {
   normal: "normal",
-  evade: "normal",
+  evade: "evade",
   "hit-a": "hit-a",
   "hit-b": "hit-b",
   "brainwash-in-progress": "bw-in-progress",

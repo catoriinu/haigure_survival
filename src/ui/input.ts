@@ -16,7 +16,6 @@ export type InputHandlerOptions = {
   onEnterEpilogue: () => void;
   onReturnToTitle: () => void;
   onReplayExecution: () => void;
-  onSelectStage: () => void;
   onSelectBrainwashOption: (state: CharacterState) => void;
   onMoveKey: (
     key: "forward" | "back" | "left" | "right",
@@ -39,7 +38,6 @@ export const setupInputHandlers = ({
   onEnterEpilogue,
   onReturnToTitle,
   onReplayExecution,
-  onSelectStage,
   onSelectBrainwashOption,
   onMoveKey,
   onPlayerFire
@@ -78,7 +76,6 @@ export const setupInputHandlers = ({
     const gamePhase = getGamePhase();
     if (gamePhase === "title") {
       event.preventDefault();
-      onSelectStage();
       return;
     }
     if (

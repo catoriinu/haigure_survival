@@ -1,7 +1,7 @@
 {
   "meta": {
     "name": "laboratory",
-    "description": "研究所（屋内、シンプル）",
+    "description": "研究所",
     "size": { "width": 17, "height": 56 },
     "mapScale": { "x": 1, "z": 1 }
   },

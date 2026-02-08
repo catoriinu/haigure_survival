@@ -40,7 +40,7 @@ body {
   background: rgba(0, 0, 0, 0.55);
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.02em;
   z-index: 10;
   pointer-events: none;
@@ -56,7 +56,7 @@ body {
   background: rgba(0, 0, 0, 0.55);
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.02em;
   z-index: 10;
   pointer-events: none;
@@ -65,14 +65,14 @@ body {
 
 #helpPanel {
   position: absolute;
-  top: 258px;
+  top: 270px;
   left: 12px;
   padding: 6px 8px;
   border: 1px solid #111111;
   background: rgba(0, 0, 0, 0.65);
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.02em;
   z-index: 10;
   pointer-events: none;
@@ -117,7 +117,7 @@ body {
   bottom: 16px;
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.04em;
   opacity: 0.8;
 }
@@ -154,15 +154,57 @@ body {
   align-items: flex-end;
 }
 
+.stage-select-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 220px;
+  padding: 12px 14px;
+  border: 1px solid #111111;
+  background: rgba(0, 0, 0, 0.65);
+  color: #f5f5f5;
+  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
+  letter-spacing: 0.04em;
+  pointer-events: auto;
+}
+
+.stage-select-control__title {
+  font-size: 17px;
+  letter-spacing: 0.14em;
+  color: #f0f0f0;
+}
+
+.stage-select-control__select {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  background: #141414;
+  color: #f5f5f5;
+  font-family: inherit;
+  font-size: 17px;
+  letter-spacing: 0.04em;
+}
+
+.stage-select-control__select:focus {
+  outline: 1px solid #646464;
+  outline-offset: 1px;
+}
+
+.stage-select-control--title-overlay {
+  margin-top: 26px;
+  z-index: 31;
+}
+
 .title-gameover-warning {
   display: none;
-  max-width: 290px;
+  max-width: 305px;
   padding: 8px 10px;
   border: 1px solid #6e1b1b;
   background: rgba(60, 8, 8, 0.75);
   color: #ffd2d2;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.4;
   letter-spacing: 0.03em;
   pointer-events: none;
@@ -171,14 +213,14 @@ body {
 .title-trap-room-recommend-button {
   display: none;
   width: fit-content;
-  height: 30px;
+  height: 34px;
   padding: 0 10px;
   border: 1px solid #2a2a2a;
   border-radius: 4px;
   background: #141414;
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.04em;
   white-space: nowrap;
   cursor: pointer;
@@ -193,7 +235,7 @@ body {
 }
 
 .volume-panel__title {
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.14em;
   color: #f0f0f0;
 }
@@ -256,7 +298,7 @@ body {
 }
 
 .default-settings-panel__title {
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.14em;
   color: #f0f0f0;
 }
@@ -317,7 +359,7 @@ body {
 }
 
 .brainwash-settings-panel__title {
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.14em;
   color: #f0f0f0;
 }
@@ -350,7 +392,7 @@ body {
 }
 
 .brainwash-settings-panel__section-title {
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.08em;
   color: #f0f0f0;
 }
@@ -364,7 +406,7 @@ body {
 
 .brainwash-settings-panel__slider-value {
   text-align: right;
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.04em;
   color: #f0f0f0;
 }
@@ -399,7 +441,7 @@ body {
 }
 
 .bit-spawn-panel__title {
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.14em;
   color: #f0f0f0;
 }
@@ -457,7 +499,7 @@ body {
   background: rgba(0, 0, 0, 0.65);
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.06em;
   z-index: 25;
   pointer-events: none;

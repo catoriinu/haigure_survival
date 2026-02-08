@@ -1,7 +1,7 @@
 {
   "meta": {
     "name": "arena_trap_room",
-    "description": "アリーナ（屋内、超シンプル、トラップ部屋）",
+    "description": "アリーナ（トラップルーム）",
     "size": { "width": 27, "height": 27 },
     "mapScale": { "x": 1, "z": 1 }
   },

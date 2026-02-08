@@ -1,7 +1,7 @@
 ﻿{
   "meta": {
     "name": "city_center",
-    "description": "都心部（屋外・広大、ビル群と大通り、裏路地を含む）",
+    "description": "都心部",
     "size": { "width": 56, "height": 58 },
     "mapScale": { "x": 2, "z": 2 }
   },
