@@ -15,6 +15,7 @@ export type BrainwashSettingsPanel = {
   root: HTMLDivElement;
   setVisible: (visible: boolean) => void;
   getSettings: () => BrainwashSettings;
+  setSettings: (nextSettings: BrainwashSettings) => void;
 };
 
 const clampInteger = (value: number, min: number, max: number) =>
@@ -187,6 +188,20 @@ export const createBrainwashSettingsPanel = ({
     setVisible: (visible) => {
       root.style.display = visible ? "" : "none";
     },
-    getSettings: () => ({ ...settings })
+    getSettings: () => ({ ...settings }),
+    setSettings: (nextSettings) => {
+      settings.instantBrainwash = nextSettings.instantBrainwash;
+      settings.npcBrainwashCompleteGunPercent =
+        nextSettings.npcBrainwashCompleteGunPercent;
+      settings.npcBrainwashCompleteNoGunPercent =
+        nextSettings.npcBrainwashCompleteNoGunPercent;
+      applyBrainwashSliderChange(
+        settings,
+        "npcBrainwashCompleteGunPercent",
+        settings.npcBrainwashCompleteGunPercent
+      );
+      render();
+      emit();
+    }
   };
 };

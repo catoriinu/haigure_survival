@@ -139,6 +139,7 @@ const eyeHeight = PLAYER_EYE_HEIGHT;
 const minimapReadoutVisible = false;
 const portraitMaxWidthCells = 1;
 const portraitMaxHeightCells = 2;
+const trapStageId = "arena_trap_room";
 const defaultBitSpawnSettings: BitSpawnSettings = {
   bitSpawnInterval: 10,  // ビットの通常出現間隔（秒）。1〜99。デフォルトは10
   maxBitCount: 25,       // ビットの同時出現上限。1〜99。デフォルトは25
@@ -414,13 +415,28 @@ titleGameOverWarning.className = "title-gameover-warning";
 titleGameOverWarning.textContent =
   "※現在の設定ではゲームオーバーにならない可能性があります。設定の変更を推奨します。";
 titleRightPanels.appendChild(titleGameOverWarning);
+const titleTrapRoomRecommendButton = document.createElement("button");
+titleTrapRoomRecommendButton.className = "title-trap-room-recommend-button";
+titleTrapRoomRecommendButton.type = "button";
+titleTrapRoomRecommendButton.dataset.ui = "trap-room-recommend-button";
+titleTrapRoomRecommendButton.textContent =
+  "トラップルーム推奨設定を適用する";
+titleRightPanels.appendChild(titleTrapRoomRecommendButton);
 const updateTitleGameOverWarning = () => {
+  if (stageSelection.id === trapStageId) {
+    titleGameOverWarning.style.display = "none";
+    return;
+  }
   const shouldWarn = hasNeverGameOverRisk(
     titleDefaultStartSettings,
     titleBrainwashSettings,
     titleBitSpawnSettings
   );
   titleGameOverWarning.style.display = shouldWarn ? "block" : "none";
+};
+const updateTrapRoomRecommendButtonVisibility = () => {
+  titleTrapRoomRecommendButton.style.display =
+    stageSelection.id === trapStageId ? "block" : "none";
 };
 const titleDefaultSettingsPanel = createDefaultSettingsPanel({
   parent: titleRightPanels,
@@ -449,6 +465,17 @@ const titleBitSpawnPanel = createBitSpawnPanel({
     updateTitleGameOverWarning();
   }
 });
+titleTrapRoomRecommendButton.addEventListener("click", () => {
+  titleBrainwashSettingsPanel.setSettings({
+    ...titleBrainwashSettingsPanel.getSettings(),
+    npcBrainwashCompleteGunPercent: 0,
+    npcBrainwashCompleteNoGunPercent: 0
+  });
+  titleBitSpawnPanel.setSettings({
+    ...titleBitSpawnPanel.getSettings(),
+    disableBitSpawn: true
+  });
+});
 const volumeCategories: AudioCategory[] = ["voice", "bgm", "se"];
 for (const category of volumeCategories) {
   applyVolumeLevel(category, volumeLevels[category]);
@@ -457,6 +484,7 @@ titleVolumePanel.setVisible(true);
 titleDefaultSettingsPanel.setVisible(true);
 titleBrainwashSettingsPanel.setVisible(true);
 titleBitSpawnPanel.setVisible(true);
+updateTrapRoomRecommendButtonVisibility();
 updateTitleGameOverWarning();
 const isTitleUiTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
@@ -464,7 +492,7 @@ const isTitleUiTarget = (target: EventTarget | null) => {
   }
   return (
     target.closest(
-      "[data-ui=\"volume-panel\"], [data-ui=\"default-settings-panel\"], [data-ui=\"brainwash-settings-panel\"], [data-ui=\"bit-spawn-panel\"]"
+      "[data-ui=\"volume-panel\"], [data-ui=\"default-settings-panel\"], [data-ui=\"brainwash-settings-panel\"], [data-ui=\"bit-spawn-panel\"], [data-ui=\"trap-room-recommend-button\"]"
     ) !== null
   );
 };
@@ -872,7 +900,6 @@ type TrapWallCandidate = {
 };
 type TrapCandidate = TrapFloorCandidate | TrapWallCandidate;
 type TrapPhase = "inactive" | "charging" | "waiting_clear" | "interval";
-const trapStageId = "arena_trap_room";
 const trapSourceId = "trap";
 const trapWarningDuration = 5;
 const trapIntervalDuration = 2;
@@ -1343,6 +1370,8 @@ const applyStageSelection = async (selection: StageSelection) => {
   stageSelectionRequestId = requestId;
   stageSelectionInProgress = true;
   stageSelection = selection;
+  updateTrapRoomRecommendButtonVisibility();
+  updateTitleGameOverWarning();
   hud.setTitleText(buildTitleText(selection));
   const loadedStageJson = await loadStageJson(selection);
   if (requestId !== stageSelectionRequestId) {
@@ -2559,6 +2588,7 @@ const startGame = () => {
   titleDefaultSettingsPanel.setVisible(false);
   titleBrainwashSettingsPanel.setVisible(false);
   titleBitSpawnPanel.setVisible(false);
+  titleTrapRoomRecommendButton.style.display = "none";
   titleGameOverWarning.style.display = "none";
   hud.setHudVisible(true);
   hud.setStateInfo(null);
@@ -2576,6 +2606,7 @@ const returnToTitle = () => {
   titleDefaultSettingsPanel.setVisible(true);
   titleBrainwashSettingsPanel.setVisible(true);
   titleBitSpawnPanel.setVisible(true);
+  updateTrapRoomRecommendButtonVisibility();
   updateTitleGameOverWarning();
   hud.setHudVisible(false);
   hud.setStateInfo(null);
