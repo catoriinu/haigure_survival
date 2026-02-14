@@ -303,8 +303,6 @@ export const spawnNpcs = (
       breakAwayDirection: pickRandomHorizontalDirection(),
       blockedByPlayer: false,
       alertState: "none",
-      alertReturnBrainwashMode: null,
-      alertReturnTargetId: null,
       noGunTouchBrainwashTimer: 0
     });
   }
@@ -341,25 +339,6 @@ export const updateNpcs = (
   let playerNoGunTouchBrainwashRequested = false;
   const isAliveMovementFrozen = shouldFreezeAliveMovement;
   const isAliveMovementCellForbidden = isAliveNpcForbiddenCell;
-  const restoreNpcFromAlert = (npc: Npc) => {
-    const returnMode = npc.alertReturnBrainwashMode;
-    const returnTargetId = npc.alertReturnTargetId;
-    npc.alertReturnBrainwashMode = null;
-    npc.alertReturnTargetId = null;
-    npc.alertState = "none";
-    if (returnMode) {
-      const target = returnTargetId
-        ? findTargetById(aliveTargets, returnTargetId)
-        : null;
-      if (target || returnMode === "search") {
-        npc.brainwashMode = returnMode;
-        npc.brainwashTargetId = target ? target.id : null;
-        return;
-      }
-    }
-    npc.brainwashMode = "search";
-    npc.brainwashTargetId = null;
-  };
   const npcThreatsFromNpcs = npcs.map(() => [] as Vector3[]);
   for (const npc of npcs) {
     if (npc.brainwashMode !== "chase" || !npc.brainwashTargetId) {
@@ -471,8 +450,6 @@ export const updateNpcs = (
     npc.blockTargetId = null;
     npc.breakAwayTimer = 0;
     npc.alertState = "none";
-    npc.alertReturnBrainwashMode = null;
-    npc.alertReturnTargetId = null;
     if (npc.hitEffect) {
       npc.hitEffect.dispose();
       npc.hitEffect = null;
@@ -505,8 +482,6 @@ export const updateNpcs = (
     npc.blockTargetId = null;
     npc.breakAwayTimer = 0;
     npc.alertState = "none";
-    npc.alertReturnBrainwashMode = null;
-    npc.alertReturnTargetId = null;
     npc.blockedByPlayer = false;
   };
 
@@ -670,17 +645,13 @@ export const updateNpcs = (
     }
     if (blockedByPlayer && brainwashOnNoGunTouch) {
       startNpcNoGunTouchBrainwash(npc);
-      if (npc.alertState !== "receive") {
-        npc.alertState = "none";
-      }
+      npc.alertState = "none";
       return true;
     }
     if (blockedByPlayer && !npc.blockedByPlayer) {
       alertRequests.push({ targetId: npcId, blockerId: "player" });
     }
-    if (npc.alertState !== "receive") {
-      npc.alertState = blockedByPlayer ? "send" : "none";
-    }
+    npc.alertState = blockedByPlayer ? "send" : "none";
     npc.blockedByPlayer = blockedByPlayer;
     if (blocked) {
       return true;
@@ -785,8 +756,6 @@ export const updateNpcs = (
 
     if (hasForcedTarget) {
       npc.alertState = "none";
-      npc.alertReturnBrainwashMode = null;
-      npc.alertReturnTargetId = null;
       npc.blockTargetId = null;
       npc.blockTimer = 0;
       npc.breakAwayTimer = 0;
@@ -796,9 +765,7 @@ export const updateNpcs = (
 
     if (!hasForcedTarget && npc.state === "brainwash-complete-no-gun") {
       if (npc.blockTargetId) {
-        if (npc.alertState !== "receive") {
-          npc.alertState = "send";
-        }
+        npc.alertState = "send";
         const blockedTarget = findTargetById(targets, npc.blockTargetId);
         if (!blockedTarget || !blockedTarget.alive) {
           npc.blockTargetId = null;
@@ -818,9 +785,7 @@ export const updateNpcs = (
             npc.breakAwayTimer = npcBrainwashBreakAwayDuration;
             npc.blockTimer = 0;
             npc.blockTargetId = null;
-            if (npc.alertState === "send") {
-              npc.alertState = "none";
-            }
+            npc.alertState = "none";
             npc.brainwashMode = "search";
             npc.brainwashTargetId = null;
             npc.cell = pickNeighborCellInDirection(
@@ -1001,17 +966,13 @@ export const updateNpcs = (
             }
             npc.blockTimer = 0;
             npc.blockTargetId = null;
-            if (npc.alertState !== "receive") {
-              npc.alertState = "none";
-            }
+            npc.alertState = "none";
             return;
           }
           if (hasForcedTarget) {
             return;
           }
-          if (npc.alertState !== "receive") {
-            npc.alertState = "send";
-          }
+          npc.alertState = "send";
           npc.blockTargetId = currentTarget.id;
           npc.blockTimer = 0;
           alertRequests.push({
@@ -1031,19 +992,6 @@ export const updateNpcs = (
     const npcIndex = Number(npcId.slice(4));
     if (npc.state === "brainwash-complete-gun") {
       npc.sprite.cellIndex = 3;
-    }
-    if (
-      (npc.state === "brainwash-complete-gun" ||
-        npc.state === "brainwash-complete-no-gun") &&
-      npc.alertState === "receive" &&
-      forcedAlarmTargetId === null &&
-      npc.brainwashTargetId
-    ) {
-      const alertTarget = findTargetById(targets, npc.brainwashTargetId);
-      if (!alertTarget || !alertTarget.alive) {
-        restoreNpcFromAlert(npc);
-        continue;
-      }
     }
 
     if (isAliveState(npc.state)) {

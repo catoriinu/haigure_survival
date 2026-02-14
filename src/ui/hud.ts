@@ -16,6 +16,7 @@ export type DrawMinimapParams = {
   aliveCount: number;
   retryText: string | null;
   showCrosshair: boolean;
+  trackedNpcPositions: Vector3[];
 };
 
 export type Hud = {
@@ -124,7 +125,8 @@ export const createHud = (): Hud => {
     trapSurviveCount,
     aliveCount,
     retryText,
-    showCrosshair
+    showCrosshair,
+    trackedNpcPositions
   }: DrawMinimapParams) => {
     const cellPixels = minimapSize / minimap.windowCells;
     const halfCells = Math.floor(minimap.windowCells / 2);
@@ -211,6 +213,26 @@ export const createHud = (): Hud => {
           cellDrawSize
         );
       }
+    }
+
+    const trackedMarkerSize = Math.max(3, Math.floor(cellPixels * 0.35));
+    const trackedMarkerOffset = trackedMarkerSize / 2;
+    minimapContext.fillStyle = "#66e8ff";
+    for (const npcPosition of trackedNpcPositions) {
+      const trackedCol = Math.floor(
+        (npcPosition.x + halfWidth) / minimapCellSize
+      );
+      const trackedRow = Math.floor(
+        (npcPosition.z + halfDepth) / minimapCellSize
+      );
+      const colOffset = trackedCol - centerCol;
+      const rowOffset = trackedRow - centerRow;
+      minimapContext.fillRect(
+        centerX + colOffset * cellPixels - trackedMarkerOffset,
+        centerY - rowOffset * cellPixels - trackedMarkerOffset,
+        trackedMarkerSize,
+        trackedMarkerSize
+      );
     }
 
     minimapContext.restore();

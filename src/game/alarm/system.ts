@@ -21,6 +21,7 @@ const alarmFloorWarningYOffset = 0.002;
 type AlarmSystemParams = {
   scene: Scene;
   isAlarmEnabled: () => boolean;
+  onNpcTriggerAlarmCell?: (npcId: string) => void;
 };
 
 type AlarmStageContext = {
@@ -58,6 +59,7 @@ const toCellKey = (row: number, col: number) => `${row},${col}`;
 export const createAlarmSystem = ({
   scene,
   isAlarmEnabled,
+  onNpcTriggerAlarmCell,
 }: AlarmSystemParams): AlarmSystem => {
   let layout: GridLayout;
   const alarmTelegraphMaterial = new StandardMaterial("alarmTelegraphMaterial", scene);
@@ -164,6 +166,9 @@ export const createAlarmSystem = ({
     }
     activeAlarmKeys.delete(cellKey);
     startBlinkingCell(cellKey);
+    if (triggerTargetId.startsWith("npc_")) {
+      onNpcTriggerAlarmCell?.(triggerTargetId);
+    }
     applyForcedTargetsByAlarmTrigger(cellKey, triggerTargetId, targets);
   };
 
