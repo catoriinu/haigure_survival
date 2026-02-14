@@ -950,6 +950,32 @@ export const updateNpcs = (
     }
 
     if (npc.state === "brainwash-complete-no-gun") {
+      let touchTarget: TargetInfo | null = null;
+      let touchDistanceSq = npcBrainwashBlockRadius * npcBrainwashBlockRadius;
+      for (const candidate of brainwashTargets) {
+        const candidateDistanceSq = Vector3.DistanceSquared(
+          npc.sprite.position,
+          candidate.position
+        );
+        if (candidateDistanceSq > touchDistanceSq) {
+          continue;
+        }
+        touchDistanceSq = candidateDistanceSq;
+        touchTarget = candidate;
+      }
+      if (brainwashOnNoGunTouch && touchTarget) {
+        if (touchTarget.id === "player") {
+          playerNoGunTouchBrainwashRequested = true;
+        } else if (touchTarget.id.startsWith("npc_")) {
+          const targetNpcIndex = Number(touchTarget.id.slice(4));
+          const targetNpc = npcs[targetNpcIndex];
+          startNpcNoGunTouchBrainwash(targetNpc);
+        }
+        npc.blockTimer = 0;
+        npc.blockTargetId = null;
+        npc.alertState = "none";
+        return;
+      }
       if (npc.brainwashMode === "chase" && currentTarget) {
         const distanceSq = Vector3.DistanceSquared(
           npc.sprite.position,
@@ -957,16 +983,6 @@ export const updateNpcs = (
         );
         if (distanceSq <= npcBrainwashBlockRadius * npcBrainwashBlockRadius) {
           if (brainwashOnNoGunTouch) {
-            if (currentTarget.id === "player") {
-              playerNoGunTouchBrainwashRequested = true;
-            } else if (currentTarget.id.startsWith("npc_")) {
-              const targetNpcIndex = Number(currentTarget.id.slice(4));
-              const targetNpc = npcs[targetNpcIndex];
-              startNpcNoGunTouchBrainwash(targetNpc);
-            }
-            npc.blockTimer = 0;
-            npc.blockTargetId = null;
-            npc.alertState = "none";
             return;
           }
           if (hasForcedTarget) {
