@@ -289,12 +289,7 @@ let bounds: StageBounds = {
   maxY: room.height
 };
 
-const buildFixedSpawnForward = (selection: StageSelection) =>
-  selection.id === "city_center"
-    ? new Vector3(0, 0, -1)
-    : new Vector3(0, 0, 1);
-
-const buildArenaSpawnForward = (position: Vector3) => {
+const buildSpawnForwardTowardCenter = (position: Vector3) => {
   const towardCenter = new Vector3(-position.x, 0, -position.z);
   if (towardCenter.lengthSquared() <= 0.0001) {
     return new Vector3(0, 0, 1);
@@ -302,22 +297,38 @@ const buildArenaSpawnForward = (position: Vector3) => {
   return towardCenter.normalize();
 };
 
-const isArenaLikeSpawnStage = (selection: StageSelection) =>
-  selection.id === "arena" || selection.id === TRAP_STAGE_ID;
+const getPlayerSpawnMarker = () =>
+  stageJson?.gameplay.markers.find(
+    (marker) => marker.id === "spawn_player" && marker.type === "spawn"
+  ) ?? null;
+
+const hasPlayerSpawnTag = (tag: string) =>
+  getPlayerSpawnMarker()?.tags?.includes(tag) === true;
+
+const buildSpawnForwardFromMarker = () => {
+  const marker = getPlayerSpawnMarker();
+  const rotationY = marker?.rotY ?? 0;
+  const radians = (rotationY * Math.PI) / 180;
+  return new Vector3(Math.sin(radians), 0, Math.cos(radians)).normalize();
+};
 
 let spawnForward = new Vector3(0, 0, 1);
 let portraitCellSize = layout.cellSize;
 
 const updateSpawnPoint = () => {
+  const randomSpawnable = hasPlayerSpawnTag("random_spawnable");
+  const randomFloor = hasPlayerSpawnTag("random_floor");
+  const lookAtCenter = hasPlayerSpawnTag("look_at_center");
   const spawnCell =
-    isArenaLikeSpawnStage(stageSelection)
+    randomSpawnable
       ? pickRandomCell(spawnableCells)
-      : { row: layout.spawn.row, col: layout.spawn.col };
+      : randomFloor
+        ? pickRandomCell(floorCells)
+        : { row: layout.spawn.row, col: layout.spawn.col };
   spawnPosition = cellToWorld(layout, spawnCell, eyeHeight);
-  spawnForward =
-    isArenaLikeSpawnStage(stageSelection)
-      ? buildArenaSpawnForward(spawnPosition)
-      : buildFixedSpawnForward(stageSelection);
+  spawnForward = lookAtCenter
+    ? buildSpawnForwardTowardCenter(spawnPosition)
+    : buildSpawnForwardFromMarker();
 };
 
 const updateStageState = () => {

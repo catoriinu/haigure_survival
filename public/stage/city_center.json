@@ -1,4 +1,4 @@
-﻿{
+{
   "meta": {
     "name": "city_center",
     "description": "都心部",
@@ -157,7 +157,7 @@
   "decals": [],
   "gameplay": {
     "markers": [
-      { "id": "spawn_player", "type": "spawn", "x": 27.5, "z": 41.25, "rotY": 0 }
+      { "id": "spawn_player", "type": "spawn", "x": 27.5, "z": 41.25, "rotY": 180 }
     ],
     "zones": [
       {
