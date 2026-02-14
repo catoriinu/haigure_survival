@@ -240,22 +240,29 @@
   "decals": [],
   "gameplay": {
     "markers": [
-        { "id": "spawn_player", "type": "spawn", "x": 5, "z": 4, "rotY": 0 }
+        {
+          "id": "spawn_player",
+          "type": "spawn",
+          "x": 5,
+          "z": 4,
+          "rotY": 0,
+          "tags": ["random_floor"]
+        }
     ],
     "zones": [
         {
           "id": "assembly_area",
           "type": "safeZone",
-          "x": 8,
-          "z": 8,
-          "w": 11,
-          "h": 11,
+          "x": 25,
+          "z": 28,
+          "w": 26,
+          "h": 8,
           "tags": ["all_down", "execution"]
         }
     ],
     "spawners": [],
     "triggers": [],
-    "options": { "skipAssembly": false }
+    "options": { "skipAssembly": true }
   },
   "overrides": {}
 }
