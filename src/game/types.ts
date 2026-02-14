@@ -80,6 +80,7 @@ export type Npc = {
   alertState: NpcAlertState;
   alertReturnBrainwashMode: NpcBrainwashMode | null;
   alertReturnTargetId: string | null;
+  noGunTouchBrainwashTimer: number;
 };
 
 export type BitMode =

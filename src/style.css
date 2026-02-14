@@ -294,7 +294,8 @@ body {
 }
 
 .default-settings-panel--title {
-  position: static;
+  position: relative;
+  top: -24px;
 }
 
 .default-settings-panel__title {
@@ -355,7 +356,8 @@ body {
 }
 
 .brainwash-settings-panel--title {
-  position: static;
+  position: relative;
+  top: -24px;
 }
 
 .brainwash-settings-panel__title {
