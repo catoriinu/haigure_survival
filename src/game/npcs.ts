@@ -329,6 +329,7 @@ export const updateNpcs = (
   cameraPosition: Vector3,
   shouldProcessOrb: (position: Vector3) => boolean,
   shouldFreezeAliveMovement: (npc: Npc, npcId: string) => boolean,
+  isAliveNpcForbiddenCell: (cell: FloorCell) => boolean,
   brainwashOnNoGunTouch: boolean
 ) => {
   const aliveTargets = targets.filter((target) => target.alive);
@@ -338,6 +339,7 @@ export const updateNpcs = (
   const alertRequests: AlertRequest[] = [];
   let playerNoGunTouchBrainwashRequested = false;
   const isAliveMovementFrozen = shouldFreezeAliveMovement;
+  const isAliveMovementCellForbidden = isAliveNpcForbiddenCell;
   const restoreNpcFromAlert = (npc: Npc) => {
     const returnMode = npc.alertReturnBrainwashMode;
     const returnTargetId = npc.alertReturnTargetId;
@@ -682,40 +684,39 @@ export const updateNpcs = (
 
     const moveSpeed = npc.state === "evade" ? npcEvadeSpeed : npc.speed;
     const originCell = npc.cell;
-    const destinationArrived = isNpcAtDestination(npc);
-    if (npc.state === "evade") {
-      npc.evadeTimer = Math.max(0, npc.evadeTimer - delta);
-      if (npc.evadeTimer <= 0 || destinationArrived) {
-        const reachableMap = buildReachableMap(layout, originCell, npcMovePower);
-        const candidates = collectReachableCells(
-          layout,
-          reachableMap.distances
-        );
-        const threats = [
-          ...npcThreatsFromNpcs[npcIndex],
-          ...evadeThreats[npcIndex]
-        ];
-        const destination =
-          threats.length > 0
-            ? pickEvadeCell(layout, candidates, threats)
-            : pickWeightedCell(candidates, npcMovePower);
-        setNpcDestination(
-          layout,
-          npc,
-          originCell,
-          destination,
-          reachableMap.prevRow,
-          reachableMap.prevCol
-        );
-        npc.evadeTimer = npcEvadeRetargetInterval;
-        if (destinationArrived) {
-          return true;
-        }
-      }
-    } else if (destinationArrived) {
+    const buildSafeReachable = () => {
       const reachableMap = buildReachableMap(layout, originCell, npcMovePower);
-      const candidates = collectReachableCells(layout, reachableMap.distances);
-      const destination = pickWeightedCell(candidates, npcMovePower);
+      const candidates = collectReachableCells(
+        layout,
+        reachableMap.distances
+      ).filter(
+        (candidate) =>
+          !isAliveMovementCellForbidden(candidate.cell)
+      );
+      return { reachableMap, candidates };
+    };
+    const setStayTarget = () => {
+      npc.goalCell = originCell;
+      npc.target = cellToWorld(layout, originCell, NPC_SPRITE_CENTER_HEIGHT);
+      npc.path = [];
+      npc.pathIndex = 0;
+    };
+    const setAliveDestination = (preferEvade: boolean) => {
+      const { reachableMap, candidates } = buildSafeReachable();
+      if (candidates.length <= 0) {
+        setStayTarget();
+        return false;
+      }
+      const threats = preferEvade
+        ? [
+            ...npcThreatsFromNpcs[npcIndex],
+            ...evadeThreats[npcIndex]
+          ]
+        : [];
+      const destination =
+        threats.length > 0
+          ? pickEvadeCell(layout, candidates, threats)
+          : pickWeightedCell(candidates, npcMovePower);
       setNpcDestination(
         layout,
         npc,
@@ -724,6 +725,34 @@ export const updateNpcs = (
         reachableMap.prevRow,
         reachableMap.prevCol
       );
+      if (preferEvade) {
+        npc.evadeTimer = npcEvadeRetargetInterval;
+      }
+      return true;
+    };
+    const getNextMoveCell = () => {
+      const nextTarget =
+        npc.pathIndex < npc.path.length
+          ? npc.path[npc.pathIndex]
+          : npc.target;
+      return worldToCell(layout, nextTarget);
+    };
+    const destinationArrived = isNpcAtDestination(npc);
+    if (npc.state === "evade") {
+      npc.evadeTimer = Math.max(0, npc.evadeTimer - delta);
+      if (npc.evadeTimer <= 0 || destinationArrived) {
+        setAliveDestination(true);
+        if (destinationArrived) {
+          return true;
+        }
+      }
+    } else if (destinationArrived) {
+      setAliveDestination(false);
+      return true;
+    }
+
+    if (isAliveMovementCellForbidden(getNextMoveCell())) {
+      setAliveDestination(npc.state === "evade");
       return true;
     }
 

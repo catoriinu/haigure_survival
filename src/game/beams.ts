@@ -274,7 +274,8 @@ export const createTrapBeam = (
   sourceId: string | null,
   cellSize: number,
   layout: GridLayout,
-  bounds: StageBounds
+  bounds: StageBounds,
+  sustainDurationSec = trapBeamSustainDuration
 ): Beam => {
   const halfWidth = (layout.columns * layout.cellSize) / 2;
   const halfDepth = (layout.rows * layout.cellSize) / 2;
@@ -328,7 +329,7 @@ export const createTrapBeam = (
     bodyRadius: cellSize * trapBeamBodyRadiusScale,
     group: "trap",
     persistent: true,
-    persistentTimer: trapBeamSustainDuration,
+    persistentTimer: sustainDurationSec,
     trailEnabled: false,
     impactEnabled: false,
     backFadeEnabled: false

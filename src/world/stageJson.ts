@@ -216,6 +216,19 @@ export const createEnvMapFromStageJson = (
   );
 };
 
+export const createZoneMapFromStageJson = (
+  stageJson: StageJson
+): string[][] | null => {
+  const zone = stageJson.semantics.channels.zone;
+  if (!zone) {
+    return null;
+  }
+  return expandSymbolMap(
+    flipStageColumns(zone),
+    stageJson.meta.mapScale
+  );
+};
+
 export const getSkyColorFromStageJson = (
   stageJson: StageJson
 ): string | null => stageJson.generationRules.env.O?.sky?.color ?? null;

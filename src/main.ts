@@ -26,6 +26,7 @@ import {
   CharacterState,
   cellToWorld,
   collectFloorCells,
+  worldToCell,
   createBeam,
   createTrapBeam,
   beginBeamRetract,
@@ -89,9 +90,11 @@ import {
 } from "./audio/voice";
 import { SfxDirector } from "./audio/sfxDirector";
 import { createGameFlow, type GamePhase, type ExecutionConfig } from "./game/flow";
+import { createDynamicBeamSystem } from "./game/dynamicBeam/system";
 import { createTrapSystem } from "./game/trap/system";
 import { buildStageContext, disposeStageParts } from "./world/stageContext";
-import { TRAP_STAGE_ID } from "./world/stageIds";
+import { createZoneMapFromStageJson } from "./world/stageJson";
+import { LABYRINTH_DYNAMIC_STAGE_ID, TRAP_STAGE_ID } from "./world/stageIds";
 import {
   createStageSelector,
   loadStageJson,
@@ -255,6 +258,7 @@ let stageSelection = stageSelector.getCurrent();
 let stageSelectionRequestId = 0;
 let stageSelectionInProgress = false;
 let stageJson = await loadStageJson(stageSelection);
+let stageZoneMap = stageJson ? createZoneMapFromStageJson(stageJson) : null;
 const stageSelectionsForMenu: StageSelection[] = await Promise.all(
   STAGE_CATALOG.map(async (selection) => {
     const loadedStageJson =
@@ -333,6 +337,7 @@ const updateSpawnPoint = () => {
 
 const updateStageState = () => {
   layout = stageContext.layout;
+  stageZoneMap = stageJson ? createZoneMapFromStageJson(stageJson) : null;
   stageStyle = stageContext.style;
   stageParts = stageContext.parts;
   room = stageContext.room;
@@ -924,7 +929,10 @@ const beamTrails: BeamTrail[] = [];
 const beamImpactOrbs: BeamImpactOrb[] = [];
 
 const trapSourceId = "trap";
+const dynamicBeamSourceId = "dynamic_beam";
 const isTrapStageSelected = () => stageSelection.id === TRAP_STAGE_ID;
+const isDynamicStageSelected = () =>
+  stageSelection.id === LABYRINTH_DYNAMIC_STAGE_ID;
 const trapSystem = createTrapSystem({
   scene,
   beams,
@@ -950,6 +958,33 @@ const trapSystem = createTrapSystem({
   }
 });
 trapSystem.syncStageContext({ layout, bounds });
+const dynamicBeamSystem = createDynamicBeamSystem({
+  scene,
+  isDynamicStageSelected,
+  spawnDynamicBeam: (position, direction) => {
+    beams.push(
+      createTrapBeam(
+        scene,
+        position,
+        direction,
+        beamMaterial,
+        dynamicBeamSourceId,
+        layout.cellSize,
+        layout,
+        bounds,
+        20
+      )
+    );
+  },
+  playDynamicBeamSe: (position) => {
+    const firePosition = position.clone();
+    sfxDirector.playBeamNonTarget(() => firePosition);
+  }
+});
+dynamicBeamSystem.syncStageContext({
+  layout,
+  zoneMap: stageZoneMap
+});
 
 const alertSignal = {
   leaderId: null as string | null,
@@ -1090,6 +1125,11 @@ const applyStageSelection = async (selection: StageSelection) => {
   updateStageState();
   trapSystem.syncStageContext({ layout, bounds });
   trapSystem.resetRuntimeState();
+  dynamicBeamSystem.syncStageContext({
+    layout,
+    zoneMap: stageZoneMap
+  });
+  dynamicBeamSystem.resetRuntimeState();
   applyCameraSpawnTransform();
   refreshPortraitSizes();
   rebuildGameFlow();
@@ -2239,6 +2279,11 @@ const resetGame = () => {
   stopAllVoices();
   trapSystem.syncStageContext({ layout, bounds });
   trapSystem.resetRuntimeState();
+  dynamicBeamSystem.syncStageContext({
+    layout,
+    zoneMap: stageZoneMap
+  });
+  dynamicBeamSystem.resetRuntimeState();
   resetExecutionState();
   playerState = runtimeDefaultStartSettings.startPlayerAsBrainwashCompleteGun
     ? "brainwash-complete-gun"
@@ -2442,6 +2487,7 @@ setupInputHandlers({
 engine.runRenderLoop(() => {
   const delta = engine.getDeltaTime() / 1000;
   trapSystem.update(delta, gamePhase);
+  dynamicBeamSystem.update(delta, gamePhase);
   if (gamePhase === "playing") {
     elapsedTime += delta;
 
@@ -2520,6 +2566,16 @@ engine.runRenderLoop(() => {
         hitById: npc.hitById
       }))
     ];
+    const activeDynamicBeamCells = new Set<string>();
+    if (isDynamicStageSelected()) {
+      for (const beam of beams) {
+        if (!beam.active || beam.sourceId !== dynamicBeamSourceId) {
+          continue;
+        }
+        const beamCell = worldToCell(layout, beam.startPosition);
+        activeDynamicBeamCells.add(`${beamCell.row},${beamCell.col}`);
+      }
+    }
     const npcUpdate = updateNpcs(
       layout,
       floorCells,
@@ -2542,6 +2598,7 @@ engine.runRenderLoop(() => {
       camera.position,
       shouldProcessOrb,
       trapSystem.shouldFreezeNpcMovement,
+      (cell) => activeDynamicBeamCells.has(`${cell.row},${cell.col}`),
       runtimeBrainwashSettings.brainwashOnNoGunTouch
     );
     if (npcUpdate.playerNoGunTouchBrainwashRequested) {
