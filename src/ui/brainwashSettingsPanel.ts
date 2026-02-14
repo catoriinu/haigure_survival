@@ -1,5 +1,6 @@
 export type BrainwashSettings = {
   instantBrainwash: boolean;
+  brainwashOnNoGunTouch: boolean;
   npcBrainwashCompleteGunPercent: number;
   npcBrainwashCompleteNoGunPercent: number;
 };
@@ -84,9 +85,21 @@ export const createBrainwashSettingsPanel = ({
   instantBrainwashRow.appendChild(instantBrainwashCheckbox);
   const instantBrainwashLabel = document.createElement("span");
   instantBrainwashLabel.className = "brainwash-settings-panel__checkbox-label";
-  instantBrainwashLabel.textContent = "光線命中後、即洗脳";
+  instantBrainwashLabel.textContent = "洗脳進行中を経ずに即洗脳";
   instantBrainwashRow.appendChild(instantBrainwashLabel);
   root.appendChild(instantBrainwashRow);
+
+  const noGunTouchBrainwashRow = document.createElement("label");
+  noGunTouchBrainwashRow.className = "brainwash-settings-panel__checkbox-row";
+  const noGunTouchBrainwashCheckbox = document.createElement("input");
+  noGunTouchBrainwashCheckbox.className = "brainwash-settings-panel__checkbox";
+  noGunTouchBrainwashCheckbox.type = "checkbox";
+  noGunTouchBrainwashRow.appendChild(noGunTouchBrainwashCheckbox);
+  const noGunTouchBrainwashLabel = document.createElement("span");
+  noGunTouchBrainwashLabel.className = "brainwash-settings-panel__checkbox-label";
+  noGunTouchBrainwashLabel.textContent = "銃なしに触れたら洗脳";
+  noGunTouchBrainwashRow.appendChild(noGunTouchBrainwashLabel);
+  root.appendChild(noGunTouchBrainwashRow);
 
   const poseRow = document.createElement("div");
   poseRow.className = "brainwash-settings-panel__slider-row";
@@ -157,6 +170,7 @@ export const createBrainwashSettingsPanel = ({
   const render = () => {
     const posePercent = calculatePosePercent(settings);
     instantBrainwashCheckbox.checked = settings.instantBrainwash;
+    noGunTouchBrainwashCheckbox.checked = settings.brainwashOnNoGunTouch;
     poseValue.textContent = `${posePercent}%`;
     gunValue.textContent = `${settings.npcBrainwashCompleteGunPercent}%`;
     noGunValue.textContent = `${settings.npcBrainwashCompleteNoGunPercent}%`;
@@ -166,6 +180,10 @@ export const createBrainwashSettingsPanel = ({
 
   instantBrainwashCheckbox.addEventListener("change", () => {
     settings.instantBrainwash = instantBrainwashCheckbox.checked;
+    emit();
+  });
+  noGunTouchBrainwashCheckbox.addEventListener("change", () => {
+    settings.brainwashOnNoGunTouch = noGunTouchBrainwashCheckbox.checked;
     emit();
   });
   gunInput.addEventListener("input", () => {
@@ -191,6 +209,7 @@ export const createBrainwashSettingsPanel = ({
     getSettings: () => ({ ...settings }),
     setSettings: (nextSettings) => {
       settings.instantBrainwash = nextSettings.instantBrainwash;
+      settings.brainwashOnNoGunTouch = nextSettings.brainwashOnNoGunTouch;
       settings.npcBrainwashCompleteGunPercent =
         nextSettings.npcBrainwashCompleteGunPercent;
       settings.npcBrainwashCompleteNoGunPercent =

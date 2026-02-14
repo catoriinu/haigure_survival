@@ -45,6 +45,7 @@ import {
   npcHitFadeOrbConfig,
   npcHitFlickerInterval,
   npcHitRadius,
+  noGunTouchBrainwashDuration,
   startBitFireEffect,
   stopBitFireEffect,
   updateBitFireEffect,
@@ -123,6 +124,7 @@ import {
 import {
   assignPortraitDirectories,
   calculatePortraitSpriteSize,
+  getNoGunTouchBrainwashCellIndex,
   getPortraitCellIndex,
   getPortraitDirectories,
   loadPortraitSpriteSheet,
@@ -157,6 +159,7 @@ const defaultDefaultStartSettings: DefaultStartSettings = {
 };
 const defaultBrainwashSettings: BrainwashSettings = {
   instantBrainwash: false,
+  brainwashOnNoGunTouch: false,
   // NPC洗脳完了後の行動遷移確率（表示値）。ポーズは100 - 銃あり - 銃なし
   npcBrainwashCompleteGunPercent: 45,
   npcBrainwashCompleteNoGunPercent: 45
@@ -1012,6 +1015,7 @@ let playerState: PlayerState = "normal";
 const playerHitSequence = createHitSequenceState();
 let playerHitDurationCurrent = playerHitDuration;
 let playerHitFadeDurationCurrent = playerHitFadeDuration;
+let playerNoGunTouchBrainwashTimer = 0;
 let playerHitById: string | null = null;
 let playerHitTime = 0;
 let trapSurviveCountAtBrainwash: number | null = null;
@@ -2066,6 +2070,30 @@ scene.onBeforeRenderObservable.add(() => {
   }
 });
 
+const enterPlayerPostHitBrainwashState = () => {
+  playerState = runtimeBrainwashSettings.instantBrainwash
+    ? "brainwash-complete-haigure"
+    : "brainwash-in-progress";
+  if (!brainwashChoiceStarted) {
+    brainwashChoiceStarted = true;
+    brainwashChoiceUnlocked = true;
+  }
+};
+
+const startPlayerNoGunTouchBrainwash = () => {
+  if (!isAliveState(playerState)) {
+    return;
+  }
+  if (playerNoGunTouchBrainwashTimer > 0) {
+    return;
+  }
+  resetHitSequenceState(playerHitSequence);
+  playerState = "hit-a";
+  playerNoGunTouchBrainwashTimer = noGunTouchBrainwashDuration;
+  playerHitTime = elapsedTime;
+  playerHitById = null;
+};
+
 const updatePlayerState = (
   delta: number,
   elapsed: number,
@@ -2080,6 +2108,16 @@ const updatePlayerState = (
   const hitEffectRadius =
     calculateHitEffectDiameter(playerAvatar.width, playerAvatar.height) / 2;
   const hitEffectRadiusSq = hitEffectRadius * hitEffectRadius;
+
+  if (playerNoGunTouchBrainwashTimer > 0) {
+    playerNoGunTouchBrainwashTimer = Math.max(
+      0,
+      playerNoGunTouchBrainwashTimer - delta
+    );
+    if (playerNoGunTouchBrainwashTimer <= 0) {
+      enterPlayerPostHitBrainwashState();
+    }
+  }
 
   if (isAliveState(playerState)) {
     for (const beam of beams) {
@@ -2139,13 +2177,7 @@ const updatePlayerState = (
         playerState = "hit-a";
       },
       () => {
-        playerState = runtimeBrainwashSettings.instantBrainwash
-          ? "brainwash-complete-haigure"
-          : "brainwash-in-progress";
-        if (!brainwashChoiceStarted) {
-          brainwashChoiceStarted = true;
-          brainwashChoiceUnlocked = true;
-        }
+        enterPlayerPostHitBrainwashState();
       },
       shouldProcessOrb,
       elapsed
@@ -2177,8 +2209,18 @@ const updatePlayerState = (
 
 const updateCharacterSpriteCells = () => {
   playerAvatar.cellIndex = getPortraitCellIndex(playerState);
+  if (playerNoGunTouchBrainwashTimer > 0) {
+    const progress =
+      1 - playerNoGunTouchBrainwashTimer / noGunTouchBrainwashDuration;
+    playerAvatar.cellIndex = getNoGunTouchBrainwashCellIndex(progress);
+  }
   for (const npc of npcs) {
     npc.sprite.cellIndex = getPortraitCellIndex(npc.state);
+    if (npc.noGunTouchBrainwashTimer > 0) {
+      const progress =
+        1 - npc.noGunTouchBrainwashTimer / noGunTouchBrainwashDuration;
+      npc.sprite.cellIndex = getNoGunTouchBrainwashCellIndex(progress);
+    }
   }
 };
 
@@ -2195,6 +2237,7 @@ const resetGame = () => {
   trapSurviveCountAtBrainwash = null;
   playerHitDurationCurrent = playerHitDuration;
   playerHitFadeDurationCurrent = playerHitFadeDuration;
+  playerNoGunTouchBrainwashTimer = 0;
   brainwashChoiceStarted =
     runtimeDefaultStartSettings.startPlayerAsBrainwashCompleteGun;
   brainwashChoiceUnlocked =
@@ -2487,8 +2530,12 @@ engine.runRenderLoop(() => {
       npcEvadeThreats,
       camera.position,
       shouldProcessOrb,
-      trapSystem.shouldFreezeNpcMovement
+      trapSystem.shouldFreezeNpcMovement,
+      runtimeBrainwashSettings.brainwashOnNoGunTouch
     );
+    if (npcUpdate.playerNoGunTouchBrainwashRequested) {
+      startPlayerNoGunTouchBrainwash();
+    }
     const playerBlockedByNpc =
       npcUpdate.playerBlocked && isAliveState(playerState);
     const canMove =
@@ -2515,14 +2562,25 @@ engine.runRenderLoop(() => {
     }
 
     let npcAlive = false;
+    let noGunTouchBrainwashActive = playerNoGunTouchBrainwashTimer > 0;
     for (const npc of npcs) {
       if (isAliveState(npc.state)) {
         npcAlive = true;
+      }
+      if (npc.noGunTouchBrainwashTimer > 0) {
+        noGunTouchBrainwashActive = true;
+      }
+      if (npcAlive && noGunTouchBrainwashActive) {
         break;
       }
     }
 
-    if (gamePhase === "playing" && isBrainwashState(playerState) && !npcAlive) {
+    if (
+      gamePhase === "playing" &&
+      isBrainwashState(playerState) &&
+      !npcAlive &&
+      !noGunTouchBrainwashActive
+    ) {
       if (allDownTime === null) {
         allDownTime = elapsedTime;
       }
@@ -2542,6 +2600,8 @@ engine.runRenderLoop(() => {
           gameFlow.enterAssembly("move");
         }
       }
+    } else {
+      allDownTime = null;
     }
 
     if (gamePhase === "playing") {
