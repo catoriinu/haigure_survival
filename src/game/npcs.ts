@@ -330,6 +330,7 @@ export const updateNpcs = (
   shouldProcessOrb: (position: Vector3) => boolean,
   shouldFreezeAliveMovement: (npc: Npc, npcId: string) => boolean,
   isAliveNpcForbiddenCell: (cell: FloorCell) => boolean,
+  getForcedAlarmTargetId: (npcId: string) => string | null,
   brainwashOnNoGunTouch: boolean
 ) => {
   const aliveTargets = targets.filter((target) => target.alive);
@@ -373,6 +374,12 @@ export const updateNpcs = (
   }
 
   for (const npc of npcs) {
+    if (getForcedAlarmTargetId(npc.sprite.name)) {
+      npc.blockTargetId = null;
+      npc.blockTimer = 0;
+      npc.breakAwayTimer = 0;
+      continue;
+    }
     if (npc.state !== "brainwash-complete-no-gun") {
       continue;
     }
@@ -760,12 +767,34 @@ export const updateNpcs = (
     return true;
   };
 
-  const handleNpcBrainwashComplete = (npc: Npc, npcId: string) => {
+  const handleNpcBrainwashComplete = (
+    npc: Npc,
+    npcId: string,
+    forcedAlarmTargetId: string | null
+  ) => {
     const brainwashTargets = aliveTargets.filter(
       (target) => target.id !== npcId
     );
+    const forcedTarget =
+      forcedAlarmTargetId &&
+      (npc.state === "brainwash-complete-gun" ||
+        npc.state === "brainwash-complete-no-gun")
+        ? findTargetById(targets, forcedAlarmTargetId)
+        : null;
+    const hasForcedTarget = forcedTarget !== null && forcedTarget.id !== npcId;
 
-    if (npc.state === "brainwash-complete-no-gun") {
+    if (hasForcedTarget) {
+      npc.alertState = "none";
+      npc.alertReturnBrainwashMode = null;
+      npc.alertReturnTargetId = null;
+      npc.blockTargetId = null;
+      npc.blockTimer = 0;
+      npc.breakAwayTimer = 0;
+      npc.brainwashMode = "chase";
+      npc.brainwashTargetId = forcedTarget.id;
+    }
+
+    if (!hasForcedTarget && npc.state === "brainwash-complete-no-gun") {
       if (npc.blockTargetId) {
         if (npc.alertState !== "receive") {
           npc.alertState = "send";
@@ -839,12 +868,21 @@ export const updateNpcs = (
       }
     }
 
-    let currentTarget = findTargetById(targets, npc.brainwashTargetId);
-    if (!currentTarget || !currentTarget.alive || currentTarget.id === npcId) {
+    let currentTarget = hasForcedTarget
+      ? forcedTarget
+      : findTargetById(targets, npc.brainwashTargetId);
+    if (
+      !hasForcedTarget &&
+      (!currentTarget || !currentTarget.alive || currentTarget.id === npcId)
+    ) {
       currentTarget = null;
     }
 
-    if (npc.brainwashMode === "search") {
+    if (hasForcedTarget && forcedTarget) {
+      npc.brainwashMode = "chase";
+      npc.brainwashTargetId = forcedTarget.id;
+      currentTarget = forcedTarget;
+    } else if (npc.brainwashMode === "search") {
       if (brainwashTargets.length > 0) {
         const visibleTarget = findVisibleNpcTarget(npc, brainwashTargets);
         if (visibleTarget) {
@@ -968,6 +1006,9 @@ export const updateNpcs = (
             }
             return;
           }
+          if (hasForcedTarget) {
+            return;
+          }
           if (npc.alertState !== "receive") {
             npc.alertState = "send";
           }
@@ -984,6 +1025,7 @@ export const updateNpcs = (
 
   for (const npc of npcs) {
     const npcId = npc.sprite.name;
+    const forcedAlarmTargetId = getForcedAlarmTargetId(npcId);
     alignSpriteToGround(npc.sprite);
     npc.cell = worldToCell(layout, npc.sprite.position);
     const npcIndex = Number(npcId.slice(4));
@@ -994,6 +1036,7 @@ export const updateNpcs = (
       (npc.state === "brainwash-complete-gun" ||
         npc.state === "brainwash-complete-no-gun") &&
       npc.alertState === "receive" &&
+      forcedAlarmTargetId === null &&
       npc.brainwashTargetId
     ) {
       const alertTarget = findTargetById(targets, npc.brainwashTargetId);
@@ -1023,7 +1066,7 @@ export const updateNpcs = (
       continue;
     }
 
-    handleNpcBrainwashComplete(npc, npcId);
+    handleNpcBrainwashComplete(npc, npcId, forcedAlarmTargetId);
   }
 
   return {

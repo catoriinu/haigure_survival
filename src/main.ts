@@ -92,6 +92,7 @@ import { SfxDirector } from "./audio/sfxDirector";
 import { createGameFlow, type GamePhase, type ExecutionConfig } from "./game/flow";
 import { createDynamicBeamSystem } from "./game/dynamicBeam/system";
 import { createTrapSystem } from "./game/trap/system";
+import { createAlarmSystem } from "./game/alarm/system";
 import { buildStageContext, disposeStageParts } from "./world/stageContext";
 import { createZoneMapFromStageJson } from "./world/stageJson";
 import { LABYRINTH_DYNAMIC_STAGE_ID, TRAP_STAGE_ID } from "./world/stageIds";
@@ -182,6 +183,8 @@ let runtimeDefaultStartSettings: DefaultStartSettings = {
 let runtimeBrainwashSettings: BrainwashSettings = {
   ...defaultBrainwashSettings
 };
+let titleAlarmTrapEnabled = false;
+let runtimeAlarmTrapEnabled = false;
 const buildNpcBrainwashCompleteTransitionConfig = (
   settings: BrainwashSettings
 ) => {
@@ -454,12 +457,16 @@ const titleStageSelectControl = createStageSelectControl({
   parent: titleOverlayElement,
   stages: stageSelectionsForMenu,
   initialStageId: stageSelection.id,
+  initialAlarmTrapEnabled: titleAlarmTrapEnabled,
   className: "stage-select-control--title-overlay",
   onChange: (stageId) => {
     const nextSelection = stageSelectionsForMenu.find(
       (selection) => selection.id === stageId
     )!;
     void applyStageSelection(nextSelection);
+  },
+  onAlarmTrapEnabledChange: (enabled) => {
+    titleAlarmTrapEnabled = enabled;
   }
 });
 const titleGameOverWarning = document.createElement("div");
@@ -985,6 +992,14 @@ dynamicBeamSystem.syncStageContext({
   layout,
   zoneMap: stageZoneMap
 });
+const alarmSystem = createAlarmSystem({
+  scene,
+  isAlarmEnabled: () => runtimeAlarmTrapEnabled
+});
+alarmSystem.syncStageContext({
+  layout,
+  floorCells
+});
 
 const alertSignal = {
   leaderId: null as string | null,
@@ -1130,6 +1145,11 @@ const applyStageSelection = async (selection: StageSelection) => {
     zoneMap: stageZoneMap
   });
   dynamicBeamSystem.resetRuntimeState();
+  alarmSystem.syncStageContext({
+    layout,
+    floorCells
+  });
+  alarmSystem.resetRuntimeState();
   applyCameraSpawnTransform();
   refreshPortraitSizes();
   rebuildGameFlow();
@@ -2284,6 +2304,11 @@ const resetGame = () => {
     zoneMap: stageZoneMap
   });
   dynamicBeamSystem.resetRuntimeState();
+  alarmSystem.syncStageContext({
+    layout,
+    floorCells
+  });
+  alarmSystem.resetRuntimeState();
   resetExecutionState();
   playerState = runtimeDefaultStartSettings.startPlayerAsBrainwashCompleteGun
     ? "brainwash-complete-gun"
@@ -2371,6 +2396,8 @@ const startGame = () => {
     buildNpcBrainwashCompleteTransitionConfig(runtimeBrainwashSettings)
   );
   titleBitSpawnSettings = titleBitSpawnPanel.getSettings();
+  titleAlarmTrapEnabled = titleStageSelectControl.getAlarmTrapEnabled();
+  runtimeAlarmTrapEnabled = titleAlarmTrapEnabled;
   runtimeBitSpawnInterval = titleBitSpawnSettings.bitSpawnInterval;
   runtimeMaxBitCount = titleBitSpawnSettings.disableBitSpawn
     ? 0
@@ -2566,6 +2593,7 @@ engine.runRenderLoop(() => {
         hitById: npc.hitById
       }))
     ];
+    alarmSystem.update(delta, gamePhase, npcTargets);
     const activeDynamicBeamCells = new Set<string>();
     if (isDynamicStageSelected()) {
       for (const beam of beams) {
@@ -2599,6 +2627,7 @@ engine.runRenderLoop(() => {
       shouldProcessOrb,
       trapSystem.shouldFreezeNpcMovement,
       (cell) => activeDynamicBeamCells.has(`${cell.row},${cell.col}`),
+      (npcId) => alarmSystem.getForcedTargetId(npcId),
       runtimeBrainwashSettings.brainwashOnNoGunTouch
     );
     if (npcUpdate.playerNoGunTouchBrainwashRequested) {
