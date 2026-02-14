@@ -2635,7 +2635,7 @@ engine.runRenderLoop(() => {
       shouldProcessOrb,
       trapSystem.shouldFreezeNpcMovement,
       (cell) => activeDynamicBeamCells.has(`${cell.row},${cell.col}`),
-      (npcId) => alarmSystem.getForcedTargetId(npcId),
+      (npcId) => alarmSystem.getAlarmTargetStack(npcId),
       runtimeBrainwashSettings.brainwashOnNoGunTouch
     );
     if (npcUpdate.playerNoGunTouchBrainwashRequested) {

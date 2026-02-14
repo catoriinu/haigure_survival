@@ -47,7 +47,7 @@ export type AlarmSystem = {
   syncStageContext: (context: AlarmStageContext) => void;
   resetRuntimeState: () => void;
   update: (delta: number, gamePhase: GamePhase, targets: TargetInfo[]) => void;
-  getForcedTargetId: (npcId: string) => string | null;
+  getAlarmTargetStack: (npcId: string) => readonly string[];
   dispose: () => void;
 };
 
@@ -55,6 +55,7 @@ const isBrainwashedNpcState = (state: TargetInfo["state"]) =>
   state === "brainwash-complete-gun" || state === "brainwash-complete-no-gun";
 
 const toCellKey = (row: number, col: number) => `${row},${col}`;
+const emptyAlarmTargetStack: readonly string[] = [];
 
 export const createAlarmSystem = ({
   scene,
@@ -72,7 +73,7 @@ export const createAlarmSystem = ({
   let floorCellByKey = new Map<string, AlarmFloorCell>();
   let activeAlarmKeys = new Set<string>();
   let blinkingByKey = new Map<string, BlinkState>();
-  let forcedTargetByNpcId = new Map<string, string>();
+  let alarmTargetQueueByNpcId = new Map<string, string[]>();
   let prevAliveCellByTargetId = new Map<string, string>();
   let selectionTimerSec = 0;
 
@@ -85,7 +86,7 @@ export const createAlarmSystem = ({
   const clearRuntimeState = () => {
     activeAlarmKeys.clear();
     clearBlinkingMeshes();
-    forcedTargetByNpcId.clear();
+    alarmTargetQueueByNpcId.clear();
     prevAliveCellByTargetId.clear();
     selectionTimerSec = 0;
   };
@@ -132,7 +133,7 @@ export const createAlarmSystem = ({
     });
   };
 
-  const applyForcedTargetsByAlarmTrigger = (
+  const enqueueAlarmTargetsByTrigger = (
     cellKey: string,
     triggerTargetId: string,
     targets: TargetInfo[]
@@ -152,7 +153,15 @@ export const createAlarmSystem = ({
       if (dx * dx + dz * dz > radiusSq) {
         continue;
       }
-      forcedTargetByNpcId.set(target.id, triggerTargetId);
+      const queue = alarmTargetQueueByNpcId.get(target.id);
+      if (!queue) {
+        alarmTargetQueueByNpcId.set(target.id, [triggerTargetId]);
+        continue;
+      }
+      if (queue.includes(triggerTargetId)) {
+        continue;
+      }
+      queue.push(triggerTargetId);
     }
   };
 
@@ -169,7 +178,7 @@ export const createAlarmSystem = ({
     if (triggerTargetId.startsWith("npc_")) {
       onNpcTriggerAlarmCell?.(triggerTargetId);
     }
-    applyForcedTargetsByAlarmTrigger(cellKey, triggerTargetId, targets);
+    enqueueAlarmTargetsByTrigger(cellKey, triggerTargetId, targets);
   };
 
   const updateBlinking = (delta: number) => {
@@ -193,21 +202,26 @@ export const createAlarmSystem = ({
     }
   };
 
-  const updateForcedTargets = (targets: TargetInfo[]) => {
+  const updateAlarmTargetQueues = (targets: TargetInfo[]) => {
     const targetById = new Map<string, TargetInfo>();
     for (const target of targets) {
       targetById.set(target.id, target);
     }
-    for (const [npcId, targetId] of forcedTargetByNpcId) {
+    for (const [npcId, queue] of alarmTargetQueueByNpcId) {
       const npcTarget = targetById.get(npcId);
       if (!npcTarget || !isBrainwashedNpcState(npcTarget.state)) {
-        forcedTargetByNpcId.delete(npcId);
+        alarmTargetQueueByNpcId.delete(npcId);
         continue;
       }
-      const chaseTarget = targetById.get(targetId);
-      if (!chaseTarget || isBrainwashState(chaseTarget.state)) {
-        forcedTargetByNpcId.delete(npcId);
+      const filteredQueue = queue.filter((targetId) => {
+        const chaseTarget = targetById.get(targetId);
+        return Boolean(chaseTarget && !isBrainwashState(chaseTarget.state));
+      });
+      if (filteredQueue.length <= 0) {
+        alarmTargetQueueByNpcId.delete(npcId);
+        continue;
       }
+      alarmTargetQueueByNpcId.set(npcId, filteredQueue);
     }
   };
 
@@ -270,11 +284,12 @@ export const createAlarmSystem = ({
         pickAndAddOneAlarmCell();
       }
 
-      updateForcedTargets(targets);
+      updateAlarmTargetQueues(targets);
       updateAliveCellTracking(targets);
       updateBlinking(delta);
     },
-    getForcedTargetId: (npcId) => forcedTargetByNpcId.get(npcId) ?? null,
+    getAlarmTargetStack: (npcId) =>
+      alarmTargetQueueByNpcId.get(npcId) ?? emptyAlarmTargetStack,
     dispose: () => {
       clearRuntimeState();
       alarmTelegraphMaterial.dispose();

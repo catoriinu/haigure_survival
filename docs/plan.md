@@ -154,6 +154,13 @@ PLEASE IMPLEMENT THIS PLAN:
 - [x] 対象NPCが非aliveになったら追跡表示対象から除外する
 - [x] `npx tsc -p tsconfig.json --noEmit` を実行して型チェック
 
+## 追加ステップ（アラーム優先度修正版）
+- [x] `src/game/alarm/system.ts` の強制単一ターゲット管理をFIFOキュー管理へ変更
+- [x] `src/game/npcs.ts` のターゲット解決順を「アラームキュー先頭 -> 視界内最寄り -> なし」に変更
+- [x] `src/game/npcs.ts` の追跡移動をBFS経路追従へ変更（壁回り込み）
+- [x] `src/main.ts` の `updateNpcs` 連携を新API `getAlarmTargetStack` に更新
+- [x] `npx tsc -p tsconfig.json --noEmit` を実行して型チェック
+
 ## 結果
 - `docs/plan.md` を旧計画から切替し、前回計画を `docs/plan_2026-02-14_dynamic-beam-prev-current.md` に退避した。
 - `src/ui/stageSelectControl.ts` に「アラームトラップ有効化」チェックボックスと設定取得/設定反映APIを追加した。
@@ -176,4 +183,11 @@ PLEASE IMPLEMENT THIS PLAN:
   - プレイヤーが洗脳状態（`isBrainwashState(playerState)`）の間のみ、追跡対象NPCの現在位置をミニマップ描画へ渡すようにした。
   - 追跡対象NPCが非aliveになった時点で追跡集合から除外するようにした。
   - `src/ui/hud.ts` に `trackedNpcPositions` 描画を追加し、水色（`#66e8ff`）ドットとして常時表示するようにした。
+  - `npx tsc -p tsconfig.json --noEmit` は成功した。
+- 追加指示対応として、アラーム優先度修正版を実装した。
+  - `src/game/alarm/system.ts` のNPCターゲット保持を単一IDからFIFOキューへ変更し、新規アラーム候補を末尾挿入・重複は位置維持にした。
+  - ターゲット取得APIを `getForcedTargetId(...)` から `getAlarmTargetStack(...)` に変更した。
+  - `src/game/npcs.ts` でターゲット解決順を「アラームキュー先頭 -> 視界内最寄り -> なし」に変更した。
+  - `src/game/npcs.ts` の追跡移動を、`buildReachableMap` + `setNpcDestination` によるBFS経路追従へ変更した（壁回り込み）。
+  - `src/main.ts` の `updateNpcs` 連携を新APIへ更新した。
   - `npx tsc -p tsconfig.json --noEmit` は成功した。
