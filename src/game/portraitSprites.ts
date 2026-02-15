@@ -39,7 +39,7 @@ const portraitStateOrder: CharacterState[] = [
   "brainwash-complete-haigure-formation"
 ];
 
-const noGunTouchBrainwashBlendStepCount = 64;
+const noGunTouchBrainwashBlendStepCount = 16;
 const noGunTouchBrainwashBlendProgresses = Array.from(
   { length: noGunTouchBrainwashBlendStepCount + 1 },
   (_, index) => index / noGunTouchBrainwashBlendStepCount

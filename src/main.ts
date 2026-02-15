@@ -232,28 +232,62 @@ const hasNeverGameOverRisk = (
 
 const portraitDirectories = getPortraitDirectories();
 const portraitSpriteSheets = new Map<string, PortraitSpriteSheet>();
-await Promise.all(
-  portraitDirectories.map(async (directory) => {
-    const sheet = await loadPortraitSpriteSheet(directory);
-    portraitSpriteSheets.set(directory, sheet);
-  })
-);
+const portraitSpriteSheetPromises = new Map<
+  string,
+  Promise<PortraitSpriteSheet>
+>();
 const portraitManagers = new Map<string, SpriteManager>();
+const portraitManagerPromises = new Map<string, Promise<SpriteManager>>();
 // プレイヤー1人 + NPC最大99人
 const spriteManagerCapacity = 100;
-for (const directory of portraitDirectories) {
-  const sheet = portraitSpriteSheets.get(directory)!;
-  portraitManagers.set(
-    directory,
-    new SpriteManager(
+const loadPortraitSpriteSheetOnce = (directory: string) => {
+  const cachedPromise = portraitSpriteSheetPromises.get(directory);
+  if (cachedPromise) {
+    return cachedPromise;
+  }
+  const promise = loadPortraitSpriteSheet(directory).then((sheet) => {
+    portraitSpriteSheets.set(directory, sheet);
+    return sheet;
+  });
+  portraitSpriteSheetPromises.set(directory, promise);
+  return promise;
+};
+const ensurePortraitManager = async (directory: string) => {
+  const cachedManager = portraitManagers.get(directory);
+  if (cachedManager) {
+    return cachedManager;
+  }
+  const cachedPromise = portraitManagerPromises.get(directory);
+  if (cachedPromise) {
+    return cachedPromise;
+  }
+  const promise = (async () => {
+    const sheet = await loadPortraitSpriteSheetOnce(directory);
+    const manager = new SpriteManager(
       `portrait_${directory}`,
       sheet.url,
       spriteManagerCapacity,
       { width: sheet.cellWidth, height: sheet.cellHeight },
       scene
-    )
+    );
+    portraitManagers.set(directory, manager);
+    return manager;
+  })();
+  portraitManagerPromises.set(directory, promise);
+  try {
+    return await promise;
+  } finally {
+    portraitManagerPromises.delete(directory);
+  }
+};
+const ensurePortraitManagers = async (directories: string[]) => {
+  const uniqueDirectories = Array.from(new Set(directories));
+  await Promise.all(
+    uniqueDirectories.map(async (directory) => {
+      await ensurePortraitManager(directory);
+    })
   );
-}
+};
 
 const stageSelector = createStageSelector(STAGE_CATALOG);
 let stageSelection = stageSelector.getCurrent();
@@ -836,6 +870,10 @@ const assignVoiceIds = (npcCount: number) => {
   npcPortraitDirectories = assignments.slice(1);
   portraitScaleCache.clear();
 };
+const getAssignedPortraitDirectories = () => [
+  playerPortraitDirectory,
+  ...npcPortraitDirectories
+];
 
 const createCharacters = () => {
   playerAvatar = createPlayerAvatar(
@@ -863,14 +901,16 @@ const createCharacters = () => {
   applyPortraitSizesToAll();
 };
 
-const rebuildCharacters = () => {
+const rebuildCharacters = async () => {
   assignVoiceIds(runtimeDefaultStartSettings.initialNpcCount);
+  await ensurePortraitManagers(getAssignedPortraitDirectories());
   playerAvatar.dispose();
   npcs.length = 0;
   createCharacters();
 };
 
 assignVoiceIds(runtimeDefaultStartSettings.initialNpcCount);
+await ensurePortraitManagers(getAssignedPortraitDirectories());
 createCharacters();
 
 const bitMaterials = createBitMaterials(scene);
@@ -1134,8 +1174,8 @@ const applyStageSelection = async (selection: StageSelection) => {
   if (requestId !== stageSelectionRequestId) {
     return;
   }
-  stageSelectionInProgress = false;
   if (gamePhase !== "title") {
+    stageSelectionInProgress = false;
     return;
   }
   stageJson = loadedStageJson;
@@ -1158,12 +1198,13 @@ const applyStageSelection = async (selection: StageSelection) => {
   refreshPortraitSizes();
   rebuildGameFlow();
   if (gamePhase === "title") {
-    resetGame();
+    await resetGame();
     hud.setTitleVisible(true);
     hud.setHudVisible(false);
     hud.setStateInfo(null);
     gameFlow.resetFade();
   }
+  stageSelectionInProgress = false;
 };
 hud.setTitleText(buildTitleText());
 
@@ -2301,7 +2342,7 @@ const updateCharacterSpriteCells = () => {
   }
 };
 
-const resetGame = () => {
+const resetGame = async () => {
   alarmTriggeredNpcIds.clear();
   bitAlertTargetedNpcIds.clear();
   stopAllVoices();
@@ -2370,7 +2411,7 @@ const resetGame = () => {
       orb.mesh.dispose();
     }
   }
-  rebuildCharacters();
+  await rebuildCharacters();
 
   alertSignal.leaderId = null;
   alertSignal.targetId = null;
@@ -2389,7 +2430,7 @@ const resetGame = () => {
   assignVoiceActors();
 };
 
-const startGame = () => {
+const startGame = async () => {
   if (gamePhase === "title" && stageSelectionInProgress) {
     return;
   }
@@ -2410,7 +2451,7 @@ const startGame = () => {
   runtimeMaxBitCount = titleBitSpawnSettings.disableBitSpawn
     ? 0
     : titleBitSpawnSettings.maxBitCount;
-  resetGame();
+  await resetGame();
   const bgmUrl = selectBgmUrl(stageJson ? stageJson.meta.name : null);
   if (bgmUrl) {
     audioManager.startBgm(bgmUrl);
@@ -2430,9 +2471,9 @@ const startGame = () => {
   canvas.requestPointerLock();
 };
 
-const returnToTitle = () => {
+const returnToTitle = async () => {
   document.exitPointerLock();
-  resetGame();
+  await resetGame();
   audioManager.stopBgm();
   gamePhase = "title";
   hud.setTitleVisible(true);
@@ -2486,7 +2527,7 @@ setupInputHandlers({
     canvas.requestPointerLock();
   },
   onStartGame: () => {
-    startGame();
+    void startGame();
   },
   onEnterEpilogue: () => {
     gamePhase = "transition";
@@ -2497,7 +2538,7 @@ setupInputHandlers({
     });
   },
   onReturnToTitle: () => {
-    returnToTitle();
+    void returnToTitle();
   },
   onReplayExecution: () => {
     gamePhase = "transition";

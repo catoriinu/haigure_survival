@@ -155,6 +155,7 @@
 - `src/game/npcs.ts`: `npcHitFlickerInterval`（NPC光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
 - `src/main.ts`: `defaultBrainwashSettings.brainwashOnNoGunTouch`（`BRAINWASH SETTINGS` の `銃なしに触れたら洗脳` チェック初期値。デフォルトは`false`）
 - `src/game/npcs.ts`: `noGunTouchBrainwashDuration`（`銃なしに触れたら洗脳` ON時の接触洗脳演出時間（秒）。デフォルトは4）
+- `src/game/portraitSprites.ts`: `noGunTouchBrainwashBlendStepCount`（`銃なしに触れたら洗脳` 演出の `hit-b`→`hit-a` 切り替え段階数。値を上げるほど切り替わりは滑らかになるが、起動時の読み込み時間は長くなる。デフォルトは16）
 
 ### NPCの洗脳後の状態遷移の設定
 - `src/game/npcs.ts`: `npcBrainwashInProgressTransitionConfig.decisionDelay`（`brainwash-in-progress` の遷移判定を行う間隔（秒）。デフォルトは10。「洗脳進行中を経ずに即洗脳」ON時は強制的に0となる）
