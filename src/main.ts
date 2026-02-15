@@ -26,6 +26,7 @@ import {
   CharacterState,
   cellToWorld,
   collectFloorCells,
+  worldToCell,
   createBeam,
   createTrapBeam,
   beginBeamRetract,
@@ -49,7 +50,6 @@ import {
   startBitFireEffect,
   stopBitFireEffect,
   updateBitFireEffect,
-  promoteHaigureNpc,
   applyNpcDefaultHaigureState,
   pickRandomCell,
   setNpcBrainwashInProgressTransitionConfig,
@@ -89,9 +89,12 @@ import {
 } from "./audio/voice";
 import { SfxDirector } from "./audio/sfxDirector";
 import { createGameFlow, type GamePhase, type ExecutionConfig } from "./game/flow";
+import { createDynamicBeamSystem } from "./game/dynamicBeam/system";
 import { createTrapSystem } from "./game/trap/system";
+import { createAlarmSystem } from "./game/alarm/system";
 import { buildStageContext, disposeStageParts } from "./world/stageContext";
-import { TRAP_STAGE_ID } from "./world/stageIds";
+import { createZoneMapFromStageJson } from "./world/stageJson";
+import { LABYRINTH_DYNAMIC_STAGE_ID, TRAP_STAGE_ID } from "./world/stageIds";
 import {
   createStageSelector,
   loadStageJson,
@@ -179,6 +182,8 @@ let runtimeDefaultStartSettings: DefaultStartSettings = {
 let runtimeBrainwashSettings: BrainwashSettings = {
   ...defaultBrainwashSettings
 };
+let titleAlarmTrapEnabled = false;
+let runtimeAlarmTrapEnabled = false;
 const buildNpcBrainwashCompleteTransitionConfig = (
   settings: BrainwashSettings
 ) => {
@@ -255,6 +260,7 @@ let stageSelection = stageSelector.getCurrent();
 let stageSelectionRequestId = 0;
 let stageSelectionInProgress = false;
 let stageJson = await loadStageJson(stageSelection);
+let stageZoneMap = stageJson ? createZoneMapFromStageJson(stageJson) : null;
 const stageSelectionsForMenu: StageSelection[] = await Promise.all(
   STAGE_CATALOG.map(async (selection) => {
     const loadedStageJson =
@@ -289,12 +295,7 @@ let bounds: StageBounds = {
   maxY: room.height
 };
 
-const buildFixedSpawnForward = (selection: StageSelection) =>
-  selection.id === "city_center"
-    ? new Vector3(0, 0, -1)
-    : new Vector3(0, 0, 1);
-
-const buildArenaSpawnForward = (position: Vector3) => {
+const buildSpawnForwardTowardCenter = (position: Vector3) => {
   const towardCenter = new Vector3(-position.x, 0, -position.z);
   if (towardCenter.lengthSquared() <= 0.0001) {
     return new Vector3(0, 0, 1);
@@ -302,26 +303,43 @@ const buildArenaSpawnForward = (position: Vector3) => {
   return towardCenter.normalize();
 };
 
-const isArenaLikeSpawnStage = (selection: StageSelection) =>
-  selection.id === "arena" || selection.id === TRAP_STAGE_ID;
+const getPlayerSpawnMarker = () =>
+  stageJson?.gameplay.markers.find(
+    (marker) => marker.id === "spawn_player" && marker.type === "spawn"
+  ) ?? null;
+
+const hasPlayerSpawnTag = (tag: string) =>
+  getPlayerSpawnMarker()?.tags?.includes(tag) === true;
+
+const buildSpawnForwardFromMarker = () => {
+  const marker = getPlayerSpawnMarker();
+  const rotationY = marker?.rotY ?? 0;
+  const radians = (rotationY * Math.PI) / 180;
+  return new Vector3(Math.sin(radians), 0, Math.cos(radians)).normalize();
+};
 
 let spawnForward = new Vector3(0, 0, 1);
 let portraitCellSize = layout.cellSize;
 
 const updateSpawnPoint = () => {
+  const randomSpawnable = hasPlayerSpawnTag("random_spawnable");
+  const randomFloor = hasPlayerSpawnTag("random_floor");
+  const lookAtCenter = hasPlayerSpawnTag("look_at_center");
   const spawnCell =
-    isArenaLikeSpawnStage(stageSelection)
+    randomSpawnable
       ? pickRandomCell(spawnableCells)
-      : { row: layout.spawn.row, col: layout.spawn.col };
+      : randomFloor
+        ? pickRandomCell(floorCells)
+        : { row: layout.spawn.row, col: layout.spawn.col };
   spawnPosition = cellToWorld(layout, spawnCell, eyeHeight);
-  spawnForward =
-    isArenaLikeSpawnStage(stageSelection)
-      ? buildArenaSpawnForward(spawnPosition)
-      : buildFixedSpawnForward(stageSelection);
+  spawnForward = lookAtCenter
+    ? buildSpawnForwardTowardCenter(spawnPosition)
+    : buildSpawnForwardFromMarker();
 };
 
 const updateStageState = () => {
   layout = stageContext.layout;
+  stageZoneMap = stageJson ? createZoneMapFromStageJson(stageJson) : null;
   stageStyle = stageContext.style;
   stageParts = stageContext.parts;
   room = stageContext.room;
@@ -438,12 +456,16 @@ const titleStageSelectControl = createStageSelectControl({
   parent: titleOverlayElement,
   stages: stageSelectionsForMenu,
   initialStageId: stageSelection.id,
+  initialAlarmTrapEnabled: titleAlarmTrapEnabled,
   className: "stage-select-control--title-overlay",
   onChange: (stageId) => {
     const nextSelection = stageSelectionsForMenu.find(
       (selection) => selection.id === stageId
     )!;
     void applyStageSelection(nextSelection);
+  },
+  onAlarmTrapEnabledChange: (enabled) => {
+    titleAlarmTrapEnabled = enabled;
   }
 });
 const titleGameOverWarning = document.createElement("div");
@@ -911,9 +933,14 @@ const isBitSource = (sourceId: string | null) =>
 const beams: Beam[] = [];
 const beamTrails: BeamTrail[] = [];
 const beamImpactOrbs: BeamImpactOrb[] = [];
+const alarmTriggeredNpcIds = new Set<string>();
+const bitAlertTargetedNpcIds = new Set<string>();
 
 const trapSourceId = "trap";
+const dynamicBeamSourceId = "dynamic_beam";
 const isTrapStageSelected = () => stageSelection.id === TRAP_STAGE_ID;
+const isDynamicStageSelected = () =>
+  stageSelection.id === LABYRINTH_DYNAMIC_STAGE_ID;
 const trapSystem = createTrapSystem({
   scene,
   beams,
@@ -939,6 +966,44 @@ const trapSystem = createTrapSystem({
   }
 });
 trapSystem.syncStageContext({ layout, bounds });
+const dynamicBeamSystem = createDynamicBeamSystem({
+  scene,
+  isDynamicStageSelected,
+  spawnDynamicBeam: (position, direction) => {
+    beams.push(
+      createTrapBeam(
+        scene,
+        position,
+        direction,
+        beamMaterial,
+        dynamicBeamSourceId,
+        layout.cellSize,
+        layout,
+        bounds,
+        20
+      )
+    );
+  },
+  playDynamicBeamSe: (position) => {
+    const firePosition = position.clone();
+    sfxDirector.playBeamNonTarget(() => firePosition);
+  }
+});
+dynamicBeamSystem.syncStageContext({
+  layout,
+  zoneMap: stageZoneMap
+});
+const alarmSystem = createAlarmSystem({
+  scene,
+  isAlarmEnabled: () => runtimeAlarmTrapEnabled,
+  onNpcTriggerAlarmCell: (npcId) => {
+    alarmTriggeredNpcIds.add(npcId);
+  }
+});
+alarmSystem.syncStageContext({
+  layout,
+  floorCells
+});
 
 const alertSignal = {
   leaderId: null as string | null,
@@ -1079,6 +1144,16 @@ const applyStageSelection = async (selection: StageSelection) => {
   updateStageState();
   trapSystem.syncStageContext({ layout, bounds });
   trapSystem.resetRuntimeState();
+  dynamicBeamSystem.syncStageContext({
+    layout,
+    zoneMap: stageZoneMap
+  });
+  dynamicBeamSystem.resetRuntimeState();
+  alarmSystem.syncStageContext({
+    layout,
+    floorCells
+  });
+  alarmSystem.resetRuntimeState();
   applyCameraSpawnTransform();
   refreshPortraitSizes();
   rebuildGameFlow();
@@ -1925,35 +2000,13 @@ const isInterruptibleBit = (bit: Bit) => {
 const applyAlertRequests = (
   requests: AlertRequest[],
   targets: { id: string; position: Vector3 }[],
-  npcs: Npc[],
   bits: Bit[]
 ): ExternalAlert | null => {
   for (const request of requests) {
     const target = targets.find(
       (candidate) => candidate.id === request.targetId
     )!;
-    const candidates: (
-      | { type: "npc"; distanceSq: number; npc: Npc }
-      | { type: "bit"; distanceSq: number; bit: Bit }
-    )[] = [];
-    for (const npc of npcs) {
-      const npcId = npc.sprite.name;
-      if (npcId === request.blockerId) {
-        continue;
-      }
-      if (
-        npc.state !== "brainwash-complete-gun" &&
-        npc.state !== "brainwash-complete-no-gun" &&
-        npc.state !== "brainwash-complete-haigure"
-      ) {
-        continue;
-      }
-      const distanceSq = Vector3.DistanceSquared(
-        npc.sprite.position,
-        target.position
-      );
-      candidates.push({ type: "npc", distanceSq, npc });
-    }
+    const candidates: { distanceSq: number; bit: Bit }[] = [];
     for (const bit of bits) {
       if (bit.id === request.blockerId) {
         continue;
@@ -1965,31 +2018,11 @@ const applyAlertRequests = (
         bit.root.position,
         target.position
       );
-      candidates.push({ type: "bit", distanceSq, bit });
+      candidates.push({ distanceSq, bit });
     }
     candidates.sort((a, b) => a.distanceSq - b.distanceSq);
     const selected = candidates.slice(0, 4);
-    const receiverIds: string[] = [];
-    for (const candidate of selected) {
-      if (candidate.type === "npc") {
-        const npc = candidate.npc;
-        if (npc.state === "brainwash-complete-haigure") {
-          promoteHaigureNpc(npc);
-        }
-        if (npc.alertState !== "receive") {
-          npc.alertReturnBrainwashMode = npc.brainwashMode;
-          npc.alertReturnTargetId = npc.brainwashTargetId;
-        }
-        npc.alertState = "receive";
-        npc.brainwashMode = "chase";
-        npc.brainwashTargetId = request.blockerId;
-        npc.blockTimer = 0;
-        npc.blockTargetId = null;
-        npc.breakAwayTimer = 0;
-        continue;
-      }
-      receiverIds.push(candidate.bit.id);
-    }
+    const receiverIds = selected.map((candidate) => candidate.bit.id);
     if (receiverIds.length > 0) {
       return {
         leaderId: request.blockerId,
@@ -2006,6 +2039,49 @@ const drawMinimap = () => {
   if (gamePhase !== "playing") {
     return;
   }
+  const getNpcById = (npcId: string) => {
+    if (!npcId.startsWith("npc_")) {
+      return null;
+    }
+    const index = Number(npcId.slice(4));
+    if (!Number.isInteger(index) || index < 0 || index >= npcs.length) {
+      return null;
+    }
+    return npcs[index];
+  };
+  const pruneTrackedNpcIds = () => {
+    for (const npcId of alarmTriggeredNpcIds) {
+      const npc = getNpcById(npcId);
+      if (!npc || !isAliveState(npc.state)) {
+        alarmTriggeredNpcIds.delete(npcId);
+      }
+    }
+    for (const npcId of bitAlertTargetedNpcIds) {
+      const npc = getNpcById(npcId);
+      if (!npc || !isAliveState(npc.state)) {
+        bitAlertTargetedNpcIds.delete(npcId);
+      }
+    }
+  };
+  const collectTrackedNpcPositions = () => {
+    const tracked = new Set<string>([
+      ...alarmTriggeredNpcIds,
+      ...bitAlertTargetedNpcIds
+    ]);
+    const positions: Vector3[] = [];
+    for (const npcId of tracked) {
+      const npc = getNpcById(npcId);
+      if (!npc || !isAliveState(npc.state)) {
+        continue;
+      }
+      positions.push(npc.sprite.position);
+    }
+    return positions;
+  };
+  pruneTrackedNpcIds();
+  const trackedNpcPositions = isBrainwashState(playerState)
+    ? collectTrackedNpcPositions()
+    : [];
   let aliveCount = isAliveState(playerState) ? 1 : 0;
   for (const npc of npcs) {
     if (isAliveState(npc.state)) {
@@ -2059,7 +2135,8 @@ const drawMinimap = () => {
     trapSurviveCount,
     aliveCount,
     retryText,
-    showCrosshair: playerState === "brainwash-complete-gun"
+    showCrosshair: playerState === "brainwash-complete-gun",
+    trackedNpcPositions
   });
 };
 
@@ -2225,9 +2302,21 @@ const updateCharacterSpriteCells = () => {
 };
 
 const resetGame = () => {
+  alarmTriggeredNpcIds.clear();
+  bitAlertTargetedNpcIds.clear();
   stopAllVoices();
   trapSystem.syncStageContext({ layout, bounds });
   trapSystem.resetRuntimeState();
+  dynamicBeamSystem.syncStageContext({
+    layout,
+    zoneMap: stageZoneMap
+  });
+  dynamicBeamSystem.resetRuntimeState();
+  alarmSystem.syncStageContext({
+    layout,
+    floorCells
+  });
+  alarmSystem.resetRuntimeState();
   resetExecutionState();
   playerState = runtimeDefaultStartSettings.startPlayerAsBrainwashCompleteGun
     ? "brainwash-complete-gun"
@@ -2315,6 +2404,8 @@ const startGame = () => {
     buildNpcBrainwashCompleteTransitionConfig(runtimeBrainwashSettings)
   );
   titleBitSpawnSettings = titleBitSpawnPanel.getSettings();
+  titleAlarmTrapEnabled = titleStageSelectControl.getAlarmTrapEnabled();
+  runtimeAlarmTrapEnabled = titleAlarmTrapEnabled;
   runtimeBitSpawnInterval = titleBitSpawnSettings.bitSpawnInterval;
   runtimeMaxBitCount = titleBitSpawnSettings.disableBitSpawn
     ? 0
@@ -2431,6 +2522,7 @@ setupInputHandlers({
 engine.runRenderLoop(() => {
   const delta = engine.getDeltaTime() / 1000;
   trapSystem.update(delta, gamePhase);
+  dynamicBeamSystem.update(delta, gamePhase);
   if (gamePhase === "playing") {
     elapsedTime += delta;
 
@@ -2509,6 +2601,17 @@ engine.runRenderLoop(() => {
         hitById: npc.hitById
       }))
     ];
+    alarmSystem.update(delta, gamePhase, npcTargets);
+    const activeDynamicBeamCells = new Set<string>();
+    if (isDynamicStageSelected()) {
+      for (const beam of beams) {
+        if (!beam.active || beam.sourceId !== dynamicBeamSourceId) {
+          continue;
+        }
+        const beamCell = worldToCell(layout, beam.startPosition);
+        activeDynamicBeamCells.add(`${beamCell.row},${beamCell.col}`);
+      }
+    }
     const npcUpdate = updateNpcs(
       layout,
       floorCells,
@@ -2531,6 +2634,8 @@ engine.runRenderLoop(() => {
       camera.position,
       shouldProcessOrb,
       trapSystem.shouldFreezeNpcMovement,
+      (cell) => activeDynamicBeamCells.has(`${cell.row},${cell.col}`),
+      (npcId) => alarmSystem.getAlarmTargetStack(npcId),
       runtimeBrainwashSettings.brainwashOnNoGunTouch
     );
     if (npcUpdate.playerNoGunTouchBrainwashRequested) {
@@ -2647,7 +2752,7 @@ engine.runRenderLoop(() => {
       };
       const externalAlert =
         alertSignal.leaderId === null
-          ? applyAlertRequests(npcUpdate.alertRequests, targets, npcs, bits)
+          ? applyAlertRequests(npcUpdate.alertRequests, targets, bits)
           : null;
       updateBits(
         layout,
@@ -2665,6 +2770,9 @@ engine.runRenderLoop(() => {
         },
         bitSoundEvents
       );
+      if (alertSignal.targetId?.startsWith("npc_")) {
+        bitAlertTargetedNpcIds.add(alertSignal.targetId);
+      }
       const alertLeader = bits.find(
         (bit) => bit.mode === "alert-send"
       ) ?? null;

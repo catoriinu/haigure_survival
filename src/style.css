@@ -191,6 +191,21 @@ body {
   outline-offset: 1px;
 }
 
+.stage-select-control__checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stage-select-control__checkbox {
+  margin: 0;
+}
+
+.stage-select-control__checkbox-label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
 .stage-select-control--title-overlay {
   margin-top: 26px;
   z-index: 31;

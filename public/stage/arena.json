@@ -129,7 +129,14 @@
   "decals": [],
   "gameplay": {
     "markers": [
-        { "id": "spawn_player", "type": "spawn", "x": 5, "z": 4, "rotY": 0 }
+        {
+          "id": "spawn_player",
+          "type": "spawn",
+          "x": 5,
+          "z": 4,
+          "rotY": 0,
+          "tags": ["random_spawnable", "look_at_center"]
+        }
     ],
     "zones": [
         {

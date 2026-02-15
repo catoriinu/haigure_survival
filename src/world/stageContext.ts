@@ -40,6 +40,9 @@ const resolveFloorColorFromTileId = (
   if (tileId === "floor_arena_amber") {
     return new Color3(0.56, 0.41, 0.2);
   }
+  if (tileId === "floor_labyrinth_amber") {
+    return new Color3(0.07, 0.12, 0.32);
+  }
   return fallbackColor;
 };
 
