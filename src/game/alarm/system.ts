@@ -11,7 +11,7 @@ import {
 import { TrapFloorCandidate } from "../trap/types";
 
 const alarmBlinkDuration = 5;
-const alarmSelectionInterval = 2;
+const alarmSelectionInterval = 5;
 const alarmInfluenceRadiusCells = 50;
 const alarmBlinkIntervalStart = 0.8;
 const alarmBlinkIntervalEnd = 0.08;

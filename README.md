@@ -201,5 +201,5 @@ stateDiagram-v2
 - `src/game/trap/system.ts`: `trapWallSelectionWeight`（発射セル抽選で壁セルに掛ける重み。床セルの重みは常に`1`。値を小さくするほど壁が選ばれにくくなり、`0`で壁は抽選対象外。デフォルトは`0.5`）
 
 ### アラームセル用設定
-- `src/game/alarm/system.ts`: `alarmSelectionInterval`（アラームセルを追加抽選する間隔（秒）。デフォルトは`2`）
+- `src/game/alarm/system.ts`: `alarmSelectionInterval`（アラームセルを追加抽選する間隔（秒）。デフォルトは`5`）
 - `src/game/alarm/system.ts`: `alarmInfluenceRadiusCells`（アラーム発動時に強制追跡対象とする洗脳済みNPCの判定半径（セル数）。`layout.cellSize * alarmInfluenceRadiusCells` の平面距離で判定。デフォルトは`50`）
