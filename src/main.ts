@@ -209,10 +209,17 @@ const buildNpcBrainwashInProgressTransitionConfig = (
         stayChance: 0.5
       };
 const hasNeverGameOverRisk = (
+  stageId: string,
   defaultSettings: DefaultStartSettings,
   brainwashSettings: BrainwashSettings,
   bitSpawnSettings: BitSpawnSettings
 ) => {
+  if (
+    stageId === TRAP_STAGE_ID ||
+    stageId === LABYRINTH_DYNAMIC_STAGE_ID
+  ) {
+    return false;
+  }
   if (defaultSettings.startPlayerAsBrainwashCompleteGun) {
     return false;
   }
@@ -227,10 +234,11 @@ const hasNeverGameOverRisk = (
   if (initialBrainwashedNpcCount <= 0) {
     return true;
   }
-  return (
-    brainwashSettings.npcBrainwashCompleteGunPercent === 0 &&
-    brainwashSettings.npcBrainwashCompleteNoGunPercent === 0
-  );
+  const hasGunRoute = brainwashSettings.npcBrainwashCompleteGunPercent > 0;
+  const hasNoGunTouchRoute =
+    brainwashSettings.npcBrainwashCompleteNoGunPercent > 0 &&
+    brainwashSettings.brainwashOnNoGunTouch;
+  return !(hasGunRoute || hasNoGunTouchRoute);
 };
 
 const portraitDirectories = getPortraitDirectories();
@@ -511,11 +519,8 @@ titleGameOverWarning.textContent =
   "※現在の設定ではゲームオーバーにならない可能性があります。設定の変更を推奨します。";
 titleRightPanels.appendChild(titleGameOverWarning);
 const updateTitleGameOverWarning = () => {
-  if (stageSelection.id === TRAP_STAGE_ID) {
-    titleGameOverWarning.style.display = "none";
-    return;
-  }
   const shouldWarn = hasNeverGameOverRisk(
+    stageSelection.id,
     titleDefaultStartSettings,
     titleBrainwashSettings,
     titleBitSpawnSettings
