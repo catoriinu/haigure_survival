@@ -127,11 +127,19 @@ body {
   flex-direction: column;
   gap: 9px;
   padding: 12px 14px;
+  font-size: 13px;
+}
+
+.volume-panel,
+.title-settings-combined-panel,
+.stage-select-control,
+.default-settings-panel,
+.brainwash-settings-panel,
+.bit-spawn-panel {
   border: 1px solid #111111;
   background: rgba(0, 0, 0, 0.65);
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 13px;
   letter-spacing: 0.04em;
   pointer-events: auto;
 }
@@ -160,10 +168,7 @@ body {
   gap: 30px;
   width: max-content;
   padding: 12px 14px;
-  border: 1px solid #111111;
-  background: rgba(0, 0, 0, 0.65);
   text-align: left;
-  pointer-events: auto;
 }
 
 .stage-select-control {
@@ -172,12 +177,6 @@ body {
   gap: 8px;
   min-width: 220px;
   padding: 12px 14px;
-  border: 1px solid #111111;
-  background: rgba(0, 0, 0, 0.65);
-  color: #f5f5f5;
-  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  letter-spacing: 0.04em;
-  pointer-events: auto;
 }
 
 .stage-select-control__title {
@@ -238,37 +237,18 @@ body {
 }
 
 .title-trap-room-recommend-button {
-  display: none;
-  width: fit-content;
-  height: 34px;
-  padding: 0 10px;
   border: 1px solid #2a2a2a;
-  border-radius: 4px;
   background: #141414;
   color: #f5f5f5;
-  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 14px;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  cursor: pointer;
+  display: none;
 }
 
-.title-trap-room-recommend-button:hover {
-  background: #1f1f1f;
-}
-
-.title-trap-room-recommend-button:active {
-  transform: translateY(1px);
-}
-
+.title-trap-room-recommend-button,
 .title-reset-settings-button {
   width: fit-content;
   height: 34px;
   padding: 0 10px;
-  border: 1px solid #4c2a2a;
   border-radius: 4px;
-  background: #1d1111;
-  color: #ffdede;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
   font-size: 14px;
   letter-spacing: 0.04em;
@@ -277,10 +257,21 @@ body {
   pointer-events: auto;
 }
 
+.title-trap-room-recommend-button:hover {
+  background: #1f1f1f;
+}
+
+.title-reset-settings-button {
+  border: 1px solid #4c2a2a;
+  background: #1d1111;
+  color: #ffdede;
+}
+
 .title-reset-settings-button:hover {
   background: #2a1717;
 }
 
+.title-trap-room-recommend-button:active,
 .title-reset-settings-button:active {
   transform: translateY(1px);
 }
@@ -335,13 +326,7 @@ body {
   flex-direction: column;
   gap: 9px;
   padding: 12px 14px;
-  border: 1px solid #111111;
-  background: rgba(0, 0, 0, 0.65);
-  color: #f5f5f5;
-  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
   font-size: 13px;
-  letter-spacing: 0.04em;
-  pointer-events: auto;
 }
 
 .default-settings-panel--title {
@@ -416,13 +401,7 @@ body {
   flex-direction: column;
   gap: 9px;
   padding: 12px 14px;
-  border: 1px solid #111111;
-  background: rgba(0, 0, 0, 0.65);
-  color: #f5f5f5;
-  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
   font-size: 13px;
-  letter-spacing: 0.04em;
-  pointer-events: auto;
 }
 
 .brainwash-settings-panel--title {
@@ -502,13 +481,7 @@ body {
   flex-direction: column;
   gap: 9px;
   padding: 12px 14px;
-  border: 1px solid #111111;
-  background: rgba(0, 0, 0, 0.65);
-  color: #f5f5f5;
-  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
   font-size: 13px;
-  letter-spacing: 0.04em;
-  pointer-events: auto;
 }
 
 .bit-spawn-panel--title {
