@@ -518,6 +518,9 @@ titleGameOverWarning.className = "title-gameover-warning";
 titleGameOverWarning.textContent =
   "※現在の設定ではゲームオーバーにならない可能性があります。設定の変更を推奨します。";
 titleRightPanels.appendChild(titleGameOverWarning);
+const titleSettingsCombinedPanel = document.createElement("div");
+titleSettingsCombinedPanel.className = "title-settings-combined-panel";
+titleRightPanels.appendChild(titleSettingsCombinedPanel);
 let titleGameOverWarningEnabled = true;
 const updateTitleGameOverWarning = () => {
   if (!titleGameOverWarningEnabled) {
@@ -533,7 +536,7 @@ const updateTitleGameOverWarning = () => {
   titleGameOverWarning.style.display = shouldWarn ? "block" : "none";
 };
 const titleDefaultSettingsPanel = createDefaultSettingsPanel({
-  parent: titleRightPanels,
+  parent: titleSettingsCombinedPanel,
   initialSettings: titleDefaultStartSettings,
   className: "default-settings-panel--title",
   onChange: (settings) => {
@@ -542,7 +545,7 @@ const titleDefaultSettingsPanel = createDefaultSettingsPanel({
   }
 });
 const titleBrainwashSettingsPanel = createBrainwashSettingsPanel({
-  parent: titleRightPanels,
+  parent: titleSettingsCombinedPanel,
   initialSettings: titleBrainwashSettings,
   className: "brainwash-settings-panel--title",
   onChange: (settings) => {
@@ -551,7 +554,7 @@ const titleBrainwashSettingsPanel = createBrainwashSettingsPanel({
   }
 });
 const titleBitSpawnPanel = createBitSpawnPanel({
-  parent: titleRightPanels,
+  parent: titleSettingsCombinedPanel,
   initialSettings: titleBitSpawnSettings,
   className: "bit-spawn-panel--title",
   onChange: (settings) => {
@@ -559,6 +562,12 @@ const titleBitSpawnPanel = createBitSpawnPanel({
     updateTitleGameOverWarning();
   }
 });
+const setTitleSettingsPanelsVisible = (visible: boolean) => {
+  titleSettingsCombinedPanel.style.display = visible ? "flex" : "none";
+  titleDefaultSettingsPanel.setVisible(visible);
+  titleBrainwashSettingsPanel.setVisible(visible);
+  titleBitSpawnPanel.setVisible(visible);
+};
 const trapRoomRecommendControl = createTrapRoomRecommendControl({
   parent: titleRightPanels,
   onApply: () => {
@@ -582,9 +591,7 @@ for (const category of volumeCategories) {
 }
 titleVolumePanel.setVisible(true);
 titleStageSelectControl.setVisible(true);
-titleDefaultSettingsPanel.setVisible(true);
-titleBrainwashSettingsPanel.setVisible(true);
-titleBitSpawnPanel.setVisible(true);
+setTitleSettingsPanelsVisible(true);
 updateTrapRoomRecommendButtonVisibility();
 updateTitleGameOverWarning();
 const isTitleUiTarget = (target: EventTarget | null) => {
@@ -2485,9 +2492,7 @@ const startGame = async () => {
   hud.setTitleVisible(false);
   titleVolumePanel.setVisible(false);
   titleStageSelectControl.setVisible(false);
-  titleDefaultSettingsPanel.setVisible(false);
-  titleBrainwashSettingsPanel.setVisible(false);
-  titleBitSpawnPanel.setVisible(false);
+  setTitleSettingsPanelsVisible(false);
   trapRoomRecommendControl.setVisible(false);
   titleGameOverWarning.style.display = "none";
   hud.setHudVisible(true);
@@ -2505,9 +2510,7 @@ const returnToTitle = async () => {
   hud.setTitleVisible(true);
   titleVolumePanel.setVisible(true);
   titleStageSelectControl.setVisible(true);
-  titleDefaultSettingsPanel.setVisible(true);
-  titleBrainwashSettingsPanel.setVisible(true);
-  titleBitSpawnPanel.setVisible(true);
+  setTitleSettingsPanelsVisible(true);
   updateTrapRoomRecommendButtonVisibility();
   updateTitleGameOverWarning();
   hud.setHudVisible(false);

@@ -113,7 +113,7 @@ body {
 
 #titleVersion {
   position: absolute;
-  right: 16px;
+  left: 16px;
   bottom: 16px;
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
@@ -139,7 +139,7 @@ body {
 .volume-panel--title {
   position: absolute;
   left: 16px;
-  bottom: 16px;
+  bottom: 40px;
   z-index: 35;
 }
 
@@ -152,6 +152,18 @@ body {
   flex-direction: column;
   gap: 10px;
   align-items: flex-end;
+}
+
+.title-settings-combined-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  width: max-content;
+  padding: 12px 14px;
+  border: 1px solid #111111;
+  background: rgba(0, 0, 0, 0.65);
+  text-align: left;
+  pointer-events: auto;
 }
 
 .stage-select-control {
@@ -309,8 +321,11 @@ body {
 }
 
 .default-settings-panel--title {
-  position: relative;
-  top: -24px;
+  position: static;
+  top: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .default-settings-panel__title {
@@ -387,8 +402,11 @@ body {
 }
 
 .brainwash-settings-panel--title {
-  position: relative;
-  top: -24px;
+  position: static;
+  top: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .brainwash-settings-panel__title {
@@ -450,7 +468,7 @@ body {
 }
 
 .brainwash-settings-panel__slider-hint {
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.06em;
   color: #bcbcbc;
 }
@@ -471,6 +489,9 @@ body {
 
 .bit-spawn-panel--title {
   position: static;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .bit-spawn-panel__title {
