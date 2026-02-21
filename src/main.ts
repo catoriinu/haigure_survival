@@ -417,6 +417,9 @@ const normalizePersistedTitleSettings = (raw: unknown) => {
 const savePersistedTitleSettings = (settings: PersistedTitleSettings) => {
   localStorage.setItem(TITLE_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
 };
+const clearPersistedTitleSettings = () => {
+  localStorage.removeItem(TITLE_SETTINGS_STORAGE_KEY);
+};
 const loadPersistedTitleSettings = () => {
   const stored = localStorage.getItem(TITLE_SETTINGS_STORAGE_KEY);
   if (stored === null) {
@@ -879,10 +882,37 @@ const trapRoomRecommendControl = createTrapRoomRecommendControl({
     });
   }
 });
+const titleResetSettingsButton = document.createElement("button");
+titleResetSettingsButton.type = "button";
+titleResetSettingsButton.className = "title-reset-settings-button";
+titleResetSettingsButton.dataset.ui = "title-reset-settings-button";
+titleResetSettingsButton.textContent = "デフォルトに戻す";
+titleRightPanels.appendChild(titleResetSettingsButton);
 const updateTrapRoomRecommendButtonVisibility = () => {
   trapRoomRecommendControl.setVisible(stageSelection.id === TRAP_STAGE_ID);
 };
 const volumeCategories: AudioCategory[] = ["voice", "bgm", "se"];
+const resetTitleSettingsToDefault = async () => {
+  const defaults = buildDefaultPersistedTitleSettings();
+  clearPersistedTitleSettings();
+  for (const category of volumeCategories) {
+    const level = defaults.volumeLevels[category];
+    titleVolumePanel.setLevel(category, level);
+    applyVolumeLevel(category, level);
+  }
+  titleDefaultSettingsPanel.setSettings(defaults.defaultStartSettings);
+  titleBrainwashSettingsPanel.setSettings(defaults.brainwashSettings);
+  titleBitSpawnPanel.setSettings(defaults.bitSpawnSettings);
+  titleStageSelectControl.setAlarmTrapEnabled(defaults.alarmTrapEnabled);
+  const defaultSelection = STAGE_CATALOG.find(
+    (selection) => selection.id === defaults.stageId
+  )!;
+  await applyStageSelection(defaultSelection);
+  clearPersistedTitleSettings();
+};
+titleResetSettingsButton.addEventListener("click", () => {
+  void resetTitleSettingsToDefault();
+});
 for (const category of volumeCategories) {
   applyVolumeLevel(category, volumeLevels[category]);
 }
@@ -897,7 +927,7 @@ const isTitleUiTarget = (target: EventTarget | null) => {
   }
   return (
     target.closest(
-      "[data-ui=\"volume-panel\"], [data-ui=\"stage-select-control\"], [data-ui=\"default-settings-panel\"], [data-ui=\"brainwash-settings-panel\"], [data-ui=\"bit-spawn-panel\"], [data-ui=\"trap-room-recommend-button\"]"
+      "[data-ui=\"volume-panel\"], [data-ui=\"stage-select-control\"], [data-ui=\"default-settings-panel\"], [data-ui=\"brainwash-settings-panel\"], [data-ui=\"bit-spawn-panel\"], [data-ui=\"trap-room-recommend-button\"], [data-ui=\"title-reset-settings-button\"]"
     ) !== null
   );
 };
@@ -2792,6 +2822,7 @@ const startGame = async () => {
   titleStageSelectControl.setVisible(false);
   setTitleSettingsPanelsVisible(false);
   trapRoomRecommendControl.setVisible(false);
+  titleResetSettingsButton.style.display = "none";
   titleGameOverWarning.style.display = "none";
   hud.setHudVisible(true);
   hud.setStateInfo(null);
@@ -2810,6 +2841,7 @@ const returnToTitle = async () => {
   titleStageSelectControl.setVisible(true);
   setTitleSettingsPanelsVisible(true);
   updateTrapRoomRecommendButtonVisibility();
+  titleResetSettingsButton.style.display = "";
   updateTitleGameOverWarning();
   hud.setHudVisible(false);
   hud.setStateInfo(null);

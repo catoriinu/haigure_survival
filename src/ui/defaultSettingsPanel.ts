@@ -15,6 +15,7 @@ export type DefaultSettingsPanel = {
   root: HTMLDivElement;
   setVisible: (visible: boolean) => void;
   getSettings: () => DefaultStartSettings;
+  setSettings: (nextSettings: DefaultStartSettings) => void;
 };
 
 const clampInteger = (value: number, min: number, max: number) =>
@@ -144,6 +145,16 @@ export const createDefaultSettingsPanel = ({
     setVisible: (visible) => {
       root.style.display = visible ? "" : "none";
     },
-    getSettings: () => ({ ...settings })
+    getSettings: () => ({ ...settings }),
+    setSettings: (nextSettings) => {
+      settings.startPlayerAsBrainwashCompleteGun =
+        nextSettings.startPlayerAsBrainwashCompleteGun;
+      settings.initialNpcCount = clampInteger(nextSettings.initialNpcCount, 0, 99);
+      settings.initialBrainwashedNpcPercent = clampPercent(
+        nextSettings.initialBrainwashedNpcPercent
+      );
+      render();
+      emit();
+    }
   };
 };
