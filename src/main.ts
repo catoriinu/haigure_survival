@@ -96,7 +96,6 @@ import { buildStageContext, disposeStageParts } from "./world/stageContext";
 import { createZoneMapFromStageJson } from "./world/stageJson";
 import { LABYRINTH_DYNAMIC_STAGE_ID, TRAP_STAGE_ID } from "./world/stageIds";
 import {
-  createStageSelector,
   loadStageJson,
   STAGE_CATALOG,
   type StageSelection
@@ -116,6 +115,13 @@ import {
   createBrainwashSettingsPanel,
   type BrainwashSettings
 } from "./ui/brainwashSettingsPanel";
+import {
+  buildDefaultPersistedTitleSettings,
+  clearPersistedTitleSettings,
+  loadPersistedTitleSettings,
+  savePersistedTitleSettings,
+  type TitleSettingsDefaults
+} from "./ui/titleSettingsStorage";
 import { createTrapRoomRecommendControl } from "./ui/trapRoomRecommendControl";
 import { createStageSelectControl } from "./ui/stageSelectControl";
 import {
@@ -156,9 +162,10 @@ const defaultBitSpawnSettings: BitSpawnSettings = {
 };
 const defaultDefaultStartSettings: DefaultStartSettings = {
   startPlayerAsBrainwashCompleteGun: false,
-  startAllNpcsAsHaigure: false,
   // ステージ開始時のNPC人数。0〜99。デフォルトは11
-  initialNpcCount: 11
+  initialNpcCount: 11,
+  // ステージ開始時に洗脳完了済みとして開始するNPC割合。0〜100%。デフォルトは0
+  initialBrainwashedNpcPercent: 0
 };
 const defaultBrainwashSettings: BrainwashSettings = {
   instantBrainwash: false,
@@ -167,12 +174,44 @@ const defaultBrainwashSettings: BrainwashSettings = {
   npcBrainwashCompleteGunPercent: 45,
   npcBrainwashCompleteNoGunPercent: 45
 };
-let titleBitSpawnSettings: BitSpawnSettings = { ...defaultBitSpawnSettings };
+const TITLE_SETTINGS_STORAGE_KEY = "haigure-survival.title-settings";
+const TITLE_SETTINGS_STORAGE_VERSION = 1;
+const defaultVolumeLevels: VolumeLevels = {
+  bgm: 5,
+  se: 5,
+  voice: 5
+};
+const titleSettingsDefaults: TitleSettingsDefaults = {
+  volumeLevels: defaultVolumeLevels,
+  stageId: STAGE_CATALOG[0].id,
+  alarmTrapEnabled: false,
+  defaultStartSettings: defaultDefaultStartSettings,
+  brainwashSettings: defaultBrainwashSettings,
+  bitSpawnSettings: defaultBitSpawnSettings
+};
+const stageIds = new Set(STAGE_CATALOG.map((selection) => selection.id));
+const persistedTitleSettings = loadPersistedTitleSettings(
+  TITLE_SETTINGS_STORAGE_KEY,
+  TITLE_SETTINGS_STORAGE_VERSION,
+  titleSettingsDefaults,
+  stageIds
+);
+const initialVolumeLevels: VolumeLevels = persistedTitleSettings
+  ? { ...persistedTitleSettings.volumeLevels }
+  : { ...defaultVolumeLevels };
+
+let titleBitSpawnSettings: BitSpawnSettings = persistedTitleSettings
+  ? { ...persistedTitleSettings.bitSpawnSettings }
+  : { ...defaultBitSpawnSettings };
 let titleDefaultStartSettings: DefaultStartSettings = {
-  ...defaultDefaultStartSettings
+  ...(persistedTitleSettings
+    ? persistedTitleSettings.defaultStartSettings
+    : defaultDefaultStartSettings)
 };
 let titleBrainwashSettings: BrainwashSettings = {
-  ...defaultBrainwashSettings
+  ...(persistedTitleSettings
+    ? persistedTitleSettings.brainwashSettings
+    : defaultBrainwashSettings)
 };
 let runtimeBitSpawnInterval = defaultBitSpawnSettings.bitSpawnInterval;
 let runtimeMaxBitCount = defaultBitSpawnSettings.maxBitCount;
@@ -182,7 +221,9 @@ let runtimeDefaultStartSettings: DefaultStartSettings = {
 let runtimeBrainwashSettings: BrainwashSettings = {
   ...defaultBrainwashSettings
 };
-let titleAlarmTrapEnabled = false;
+let titleAlarmTrapEnabled = persistedTitleSettings
+  ? persistedTitleSettings.alarmTrapEnabled
+  : false;
 let runtimeAlarmTrapEnabled = false;
 const buildNpcBrainwashCompleteTransitionConfig = (
   settings: BrainwashSettings
@@ -208,57 +249,106 @@ const buildNpcBrainwashInProgressTransitionConfig = (
         stayChance: 0.5
       };
 const hasNeverGameOverRisk = (
+  stageId: string,
   defaultSettings: DefaultStartSettings,
   brainwashSettings: BrainwashSettings,
   bitSpawnSettings: BitSpawnSettings
 ) => {
+  if (
+    stageId === TRAP_STAGE_ID ||
+    stageId === LABYRINTH_DYNAMIC_STAGE_ID
+  ) {
+    return false;
+  }
   if (defaultSettings.startPlayerAsBrainwashCompleteGun) {
     return false;
   }
   if (!bitSpawnSettings.disableBitSpawn) {
     return false;
   }
-  if (!defaultSettings.startAllNpcsAsHaigure) {
-    return true;
-  }
-  if (defaultSettings.initialNpcCount <= 0) {
-    return true;
-  }
-  return (
-    brainwashSettings.npcBrainwashCompleteGunPercent === 0 &&
-    brainwashSettings.npcBrainwashCompleteNoGunPercent === 0
+  const initialBrainwashedNpcCount = Math.floor(
+    defaultSettings.initialNpcCount *
+      defaultSettings.initialBrainwashedNpcPercent *
+      0.01
   );
+  if (initialBrainwashedNpcCount <= 0) {
+    return true;
+  }
+  const hasGunRoute = brainwashSettings.npcBrainwashCompleteGunPercent > 0;
+  const hasNoGunTouchRoute =
+    brainwashSettings.npcBrainwashCompleteNoGunPercent > 0 &&
+    brainwashSettings.brainwashOnNoGunTouch;
+  return !(hasGunRoute || hasNoGunTouchRoute);
 };
 
 const portraitDirectories = getPortraitDirectories();
 const portraitSpriteSheets = new Map<string, PortraitSpriteSheet>();
-await Promise.all(
-  portraitDirectories.map(async (directory) => {
-    const sheet = await loadPortraitSpriteSheet(directory);
-    portraitSpriteSheets.set(directory, sheet);
-  })
-);
+const portraitSpriteSheetPromises = new Map<
+  string,
+  Promise<PortraitSpriteSheet>
+>();
 const portraitManagers = new Map<string, SpriteManager>();
+const portraitManagerPromises = new Map<string, Promise<SpriteManager>>();
 // プレイヤー1人 + NPC最大99人
 const spriteManagerCapacity = 100;
-for (const directory of portraitDirectories) {
-  const sheet = portraitSpriteSheets.get(directory)!;
-  portraitManagers.set(
-    directory,
-    new SpriteManager(
+const loadPortraitSpriteSheetOnce = (directory: string) => {
+  const cachedPromise = portraitSpriteSheetPromises.get(directory);
+  if (cachedPromise) {
+    return cachedPromise;
+  }
+  const promise = loadPortraitSpriteSheet(directory).then((sheet) => {
+    portraitSpriteSheets.set(directory, sheet);
+    return sheet;
+  });
+  portraitSpriteSheetPromises.set(directory, promise);
+  return promise;
+};
+const ensurePortraitManager = async (directory: string) => {
+  const cachedManager = portraitManagers.get(directory);
+  if (cachedManager) {
+    return cachedManager;
+  }
+  const cachedPromise = portraitManagerPromises.get(directory);
+  if (cachedPromise) {
+    return cachedPromise;
+  }
+  const promise = (async () => {
+    const sheet = await loadPortraitSpriteSheetOnce(directory);
+    const manager = new SpriteManager(
       `portrait_${directory}`,
       sheet.url,
       spriteManagerCapacity,
       { width: sheet.cellWidth, height: sheet.cellHeight },
       scene
-    )
+    );
+    portraitManagers.set(directory, manager);
+    return manager;
+  })();
+  portraitManagerPromises.set(directory, promise);
+  try {
+    return await promise;
+  } finally {
+    portraitManagerPromises.delete(directory);
+  }
+};
+const ensurePortraitManagers = async (directories: string[]) => {
+  const uniqueDirectories = Array.from(new Set(directories));
+  await Promise.all(
+    uniqueDirectories.map(async (directory) => {
+      await ensurePortraitManager(directory);
+    })
   );
-}
+};
 
-const stageSelector = createStageSelector(STAGE_CATALOG);
-let stageSelection = stageSelector.getCurrent();
+const initialStageSelectionId = persistedTitleSettings
+  ? persistedTitleSettings.stageId
+  : STAGE_CATALOG[0].id;
+let stageSelection = STAGE_CATALOG.find(
+  (selection) => selection.id === initialStageSelectionId
+)!;
 let stageSelectionRequestId = 0;
 let stageSelectionInProgress = false;
+let titleTransitionInProgress = false;
 let stageJson = await loadStageJson(stageSelection);
 let stageZoneMap = stageJson ? createZoneMapFromStageJson(stageJson) : null;
 const stageSelectionsForMenu: StageSelection[] = await Promise.all(
@@ -430,14 +520,21 @@ const volumeBase: Record<AudioCategory, number> = {
   se: audioManager.getCategoryVolume("se"),
   voice: audioManager.getCategoryVolume("voice")
 };
-const volumeLevels: VolumeLevels = {
-  bgm: 5,
-  se: 5,
-  voice: 5
-};
+const volumeLevels: VolumeLevels = { ...initialVolumeLevels };
 const applyVolumeLevel = (category: AudioCategory, level: number) => {
   volumeLevels[category] = level;
   audioManager.setCategoryVolume(category, volumeBase[category] * (level / 10));
+};
+const saveTitleSettings = () => {
+  savePersistedTitleSettings(TITLE_SETTINGS_STORAGE_KEY, {
+    version: TITLE_SETTINGS_STORAGE_VERSION,
+    volumeLevels: { ...volumeLevels },
+    stageId: stageSelection.id,
+    alarmTrapEnabled: titleAlarmTrapEnabled,
+    defaultStartSettings: { ...titleDefaultStartSettings },
+    brainwashSettings: { ...titleBrainwashSettings },
+    bitSpawnSettings: { ...titleBitSpawnSettings }
+  });
 };
 const titleVolumePanel = createVolumePanel({
   parent: document.body,
@@ -445,6 +542,7 @@ const titleVolumePanel = createVolumePanel({
   className: "volume-panel--title",
   onChange: (category, level) => {
     applyVolumeLevel(category, level);
+    saveTitleSettings();
   }
 });
 const titleRightPanels = document.createElement("div");
@@ -466,6 +564,7 @@ const titleStageSelectControl = createStageSelectControl({
   },
   onAlarmTrapEnabledChange: (enabled) => {
     titleAlarmTrapEnabled = enabled;
+    saveTitleSettings();
   }
 });
 const titleGameOverWarning = document.createElement("div");
@@ -473,12 +572,17 @@ titleGameOverWarning.className = "title-gameover-warning";
 titleGameOverWarning.textContent =
   "※現在の設定ではゲームオーバーにならない可能性があります。設定の変更を推奨します。";
 titleRightPanels.appendChild(titleGameOverWarning);
+const titleSettingsCombinedPanel = document.createElement("div");
+titleSettingsCombinedPanel.className = "title-settings-combined-panel";
+titleRightPanels.appendChild(titleSettingsCombinedPanel);
+let titleGameOverWarningEnabled = true;
 const updateTitleGameOverWarning = () => {
-  if (stageSelection.id === TRAP_STAGE_ID) {
+  if (!titleGameOverWarningEnabled) {
     titleGameOverWarning.style.display = "none";
     return;
   }
   const shouldWarn = hasNeverGameOverRisk(
+    stageSelection.id,
     titleDefaultStartSettings,
     titleBrainwashSettings,
     titleBitSpawnSettings
@@ -486,32 +590,41 @@ const updateTitleGameOverWarning = () => {
   titleGameOverWarning.style.display = shouldWarn ? "block" : "none";
 };
 const titleDefaultSettingsPanel = createDefaultSettingsPanel({
-  parent: titleRightPanels,
+  parent: titleSettingsCombinedPanel,
   initialSettings: titleDefaultStartSettings,
   className: "default-settings-panel--title",
   onChange: (settings) => {
     titleDefaultStartSettings = settings;
     updateTitleGameOverWarning();
+    saveTitleSettings();
   }
 });
 const titleBrainwashSettingsPanel = createBrainwashSettingsPanel({
-  parent: titleRightPanels,
+  parent: titleSettingsCombinedPanel,
   initialSettings: titleBrainwashSettings,
   className: "brainwash-settings-panel--title",
   onChange: (settings) => {
     titleBrainwashSettings = settings;
     updateTitleGameOverWarning();
+    saveTitleSettings();
   }
 });
 const titleBitSpawnPanel = createBitSpawnPanel({
-  parent: titleRightPanels,
+  parent: titleSettingsCombinedPanel,
   initialSettings: titleBitSpawnSettings,
   className: "bit-spawn-panel--title",
   onChange: (settings) => {
     titleBitSpawnSettings = settings;
     updateTitleGameOverWarning();
+    saveTitleSettings();
   }
 });
+const setTitleSettingsPanelsVisible = (visible: boolean) => {
+  titleSettingsCombinedPanel.style.display = visible ? "flex" : "none";
+  titleDefaultSettingsPanel.setVisible(visible);
+  titleBrainwashSettingsPanel.setVisible(visible);
+  titleBitSpawnPanel.setVisible(visible);
+};
 const trapRoomRecommendControl = createTrapRoomRecommendControl({
   parent: titleRightPanels,
   onApply: () => {
@@ -526,18 +639,46 @@ const trapRoomRecommendControl = createTrapRoomRecommendControl({
     });
   }
 });
+const titleResetSettingsButton = document.createElement("button");
+titleResetSettingsButton.type = "button";
+titleResetSettingsButton.className = "title-reset-settings-button";
+titleResetSettingsButton.dataset.ui = "title-reset-settings-button";
+titleResetSettingsButton.textContent = "デフォルトに戻す";
+titleRightPanels.appendChild(titleResetSettingsButton);
 const updateTrapRoomRecommendButtonVisibility = () => {
   trapRoomRecommendControl.setVisible(stageSelection.id === TRAP_STAGE_ID);
 };
 const volumeCategories: AudioCategory[] = ["voice", "bgm", "se"];
+const resetTitleSettingsToDefault = async () => {
+  const defaults = buildDefaultPersistedTitleSettings(
+    TITLE_SETTINGS_STORAGE_VERSION,
+    titleSettingsDefaults
+  );
+  clearPersistedTitleSettings(TITLE_SETTINGS_STORAGE_KEY);
+  for (const category of volumeCategories) {
+    const level = defaults.volumeLevels[category];
+    titleVolumePanel.setLevel(category, level);
+    applyVolumeLevel(category, level);
+  }
+  titleDefaultSettingsPanel.setSettings(defaults.defaultStartSettings);
+  titleBrainwashSettingsPanel.setSettings(defaults.brainwashSettings);
+  titleBitSpawnPanel.setSettings(defaults.bitSpawnSettings);
+  titleStageSelectControl.setAlarmTrapEnabled(defaults.alarmTrapEnabled);
+  const defaultSelection = STAGE_CATALOG.find(
+    (selection) => selection.id === defaults.stageId
+  )!;
+  await applyStageSelection(defaultSelection);
+  clearPersistedTitleSettings(TITLE_SETTINGS_STORAGE_KEY);
+};
+titleResetSettingsButton.addEventListener("click", () => {
+  void resetTitleSettingsToDefault();
+});
 for (const category of volumeCategories) {
   applyVolumeLevel(category, volumeLevels[category]);
 }
 titleVolumePanel.setVisible(true);
 titleStageSelectControl.setVisible(true);
-titleDefaultSettingsPanel.setVisible(true);
-titleBrainwashSettingsPanel.setVisible(true);
-titleBitSpawnPanel.setVisible(true);
+setTitleSettingsPanelsVisible(true);
 updateTrapRoomRecommendButtonVisibility();
 updateTitleGameOverWarning();
 const isTitleUiTarget = (target: EventTarget | null) => {
@@ -546,7 +687,7 @@ const isTitleUiTarget = (target: EventTarget | null) => {
   }
   return (
     target.closest(
-      "[data-ui=\"volume-panel\"], [data-ui=\"stage-select-control\"], [data-ui=\"default-settings-panel\"], [data-ui=\"brainwash-settings-panel\"], [data-ui=\"bit-spawn-panel\"], [data-ui=\"trap-room-recommend-button\"]"
+      "[data-ui=\"volume-panel\"], [data-ui=\"stage-select-control\"], [data-ui=\"default-settings-panel\"], [data-ui=\"brainwash-settings-panel\"], [data-ui=\"bit-spawn-panel\"], [data-ui=\"trap-room-recommend-button\"], [data-ui=\"title-reset-settings-button\"]"
     ) !== null
   );
 };
@@ -836,6 +977,10 @@ const assignVoiceIds = (npcCount: number) => {
   npcPortraitDirectories = assignments.slice(1);
   portraitScaleCache.clear();
 };
+const getAssignedPortraitDirectories = () => [
+  playerPortraitDirectory,
+  ...npcPortraitDirectories
+];
 
 const createCharacters = () => {
   playerAvatar = createPlayerAvatar(
@@ -855,22 +1000,34 @@ const createCharacters = () => {
       npcPortraitDirectories
     )
   );
-  if (runtimeDefaultStartSettings.startAllNpcsAsHaigure) {
-    for (const npc of npcs) {
-      applyNpcDefaultHaigureState(npc);
-    }
+  const initialBrainwashedNpcCount = Math.floor(
+    runtimeDefaultStartSettings.initialNpcCount *
+      runtimeDefaultStartSettings.initialBrainwashedNpcPercent *
+      0.01
+  );
+  const shuffledNpcs = [...npcs];
+  for (let index = shuffledNpcs.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(Math.random() * (index + 1));
+    const temp = shuffledNpcs[index];
+    shuffledNpcs[index] = shuffledNpcs[swap];
+    shuffledNpcs[swap] = temp;
+  }
+  for (let index = 0; index < initialBrainwashedNpcCount; index += 1) {
+    applyNpcDefaultHaigureState(shuffledNpcs[index]);
   }
   applyPortraitSizesToAll();
 };
 
-const rebuildCharacters = () => {
+const rebuildCharacters = async () => {
   assignVoiceIds(runtimeDefaultStartSettings.initialNpcCount);
+  await ensurePortraitManagers(getAssignedPortraitDirectories());
   playerAvatar.dispose();
   npcs.length = 0;
   createCharacters();
 };
 
 assignVoiceIds(runtimeDefaultStartSettings.initialNpcCount);
+await ensurePortraitManagers(getAssignedPortraitDirectories());
 createCharacters();
 
 const bitMaterials = createBitMaterials(scene);
@@ -1126,6 +1283,7 @@ const applyStageSelection = async (selection: StageSelection) => {
   stageSelectionRequestId = requestId;
   stageSelectionInProgress = true;
   stageSelection = selection;
+  saveTitleSettings();
   titleStageSelectControl.setSelectedStageId(selection.id);
   updateTrapRoomRecommendButtonVisibility();
   updateTitleGameOverWarning();
@@ -1134,8 +1292,8 @@ const applyStageSelection = async (selection: StageSelection) => {
   if (requestId !== stageSelectionRequestId) {
     return;
   }
-  stageSelectionInProgress = false;
   if (gamePhase !== "title") {
+    stageSelectionInProgress = false;
     return;
   }
   stageJson = loadedStageJson;
@@ -1158,12 +1316,20 @@ const applyStageSelection = async (selection: StageSelection) => {
   refreshPortraitSizes();
   rebuildGameFlow();
   if (gamePhase === "title") {
-    resetGame();
+    await resetGame();
+    if (requestId !== stageSelectionRequestId) {
+      return;
+    }
+    if (gamePhase !== "title") {
+      stageSelectionInProgress = false;
+      return;
+    }
     hud.setTitleVisible(true);
     hud.setHudVisible(false);
     hud.setStateInfo(null);
     gameFlow.resetFade();
   }
+  stageSelectionInProgress = false;
 };
 hud.setTitleText(buildTitleText());
 
@@ -2301,7 +2467,7 @@ const updateCharacterSpriteCells = () => {
   }
 };
 
-const resetGame = () => {
+const resetGame = async () => {
   alarmTriggeredNpcIds.clear();
   bitAlertTargetedNpcIds.clear();
   stopAllVoices();
@@ -2370,7 +2536,7 @@ const resetGame = () => {
       orb.mesh.dispose();
     }
   }
-  rebuildCharacters();
+  await rebuildCharacters();
 
   alertSignal.leaderId = null;
   alertSignal.targetId = null;
@@ -2389,63 +2555,80 @@ const resetGame = () => {
   assignVoiceActors();
 };
 
-const startGame = () => {
+const startGame = async () => {
+  if (titleTransitionInProgress) {
+    return;
+  }
   if (gamePhase === "title" && stageSelectionInProgress) {
     return;
   }
-  titleDefaultStartSettings = titleDefaultSettingsPanel.getSettings();
-  runtimeDefaultStartSettings = { ...titleDefaultStartSettings };
-  titleBrainwashSettings = titleBrainwashSettingsPanel.getSettings();
-  runtimeBrainwashSettings = { ...titleBrainwashSettings };
-  setNpcBrainwashInProgressTransitionConfig(
-    buildNpcBrainwashInProgressTransitionConfig(runtimeBrainwashSettings)
-  );
-  setNpcBrainwashCompleteTransitionConfig(
-    buildNpcBrainwashCompleteTransitionConfig(runtimeBrainwashSettings)
-  );
-  titleBitSpawnSettings = titleBitSpawnPanel.getSettings();
-  titleAlarmTrapEnabled = titleStageSelectControl.getAlarmTrapEnabled();
-  runtimeAlarmTrapEnabled = titleAlarmTrapEnabled;
-  runtimeBitSpawnInterval = titleBitSpawnSettings.bitSpawnInterval;
-  runtimeMaxBitCount = titleBitSpawnSettings.disableBitSpawn
-    ? 0
-    : titleBitSpawnSettings.maxBitCount;
-  resetGame();
-  const bgmUrl = selectBgmUrl(stageJson ? stageJson.meta.name : null);
-  if (bgmUrl) {
-    audioManager.startBgm(bgmUrl);
+  titleTransitionInProgress = true;
+  try {
+    titleGameOverWarningEnabled = false;
+    titleGameOverWarning.style.display = "none";
+    titleDefaultStartSettings = titleDefaultSettingsPanel.getSettings();
+    runtimeDefaultStartSettings = { ...titleDefaultStartSettings };
+    titleBrainwashSettings = titleBrainwashSettingsPanel.getSettings();
+    runtimeBrainwashSettings = { ...titleBrainwashSettings };
+    setNpcBrainwashInProgressTransitionConfig(
+      buildNpcBrainwashInProgressTransitionConfig(runtimeBrainwashSettings)
+    );
+    setNpcBrainwashCompleteTransitionConfig(
+      buildNpcBrainwashCompleteTransitionConfig(runtimeBrainwashSettings)
+    );
+    titleBitSpawnSettings = titleBitSpawnPanel.getSettings();
+    titleAlarmTrapEnabled = titleStageSelectControl.getAlarmTrapEnabled();
+    runtimeAlarmTrapEnabled = titleAlarmTrapEnabled;
+    runtimeBitSpawnInterval = titleBitSpawnSettings.bitSpawnInterval;
+    runtimeMaxBitCount = titleBitSpawnSettings.disableBitSpawn
+      ? 0
+      : titleBitSpawnSettings.maxBitCount;
+    await resetGame();
+    const bgmUrl = selectBgmUrl(stageJson ? stageJson.meta.name : null);
+    if (bgmUrl) {
+      audioManager.startBgm(bgmUrl);
+    }
+    gamePhase = "playing";
+    hud.setTitleVisible(false);
+    titleVolumePanel.setVisible(false);
+    titleStageSelectControl.setVisible(false);
+    setTitleSettingsPanelsVisible(false);
+    trapRoomRecommendControl.setVisible(false);
+    titleResetSettingsButton.style.display = "none";
+    titleGameOverWarning.style.display = "none";
+    hud.setHudVisible(true);
+    hud.setStateInfo(null);
+    gameFlow.resetFade();
+    canvas.requestPointerLock();
+  } finally {
+    titleTransitionInProgress = false;
   }
-  gamePhase = "playing";
-  hud.setTitleVisible(false);
-  titleVolumePanel.setVisible(false);
-  titleStageSelectControl.setVisible(false);
-  titleDefaultSettingsPanel.setVisible(false);
-  titleBrainwashSettingsPanel.setVisible(false);
-  titleBitSpawnPanel.setVisible(false);
-  trapRoomRecommendControl.setVisible(false);
-  titleGameOverWarning.style.display = "none";
-  hud.setHudVisible(true);
-  hud.setStateInfo(null);
-  gameFlow.resetFade();
-  canvas.requestPointerLock();
 };
 
-const returnToTitle = () => {
-  document.exitPointerLock();
-  resetGame();
-  audioManager.stopBgm();
-  gamePhase = "title";
-  hud.setTitleVisible(true);
-  titleVolumePanel.setVisible(true);
-  titleStageSelectControl.setVisible(true);
-  titleDefaultSettingsPanel.setVisible(true);
-  titleBrainwashSettingsPanel.setVisible(true);
-  titleBitSpawnPanel.setVisible(true);
-  updateTrapRoomRecommendButtonVisibility();
-  updateTitleGameOverWarning();
-  hud.setHudVisible(false);
-  hud.setStateInfo(null);
-  gameFlow.resetFade();
+const returnToTitle = async () => {
+  if (titleTransitionInProgress) {
+    return;
+  }
+  titleTransitionInProgress = true;
+  try {
+    document.exitPointerLock();
+    await resetGame();
+    audioManager.stopBgm();
+    gamePhase = "title";
+    titleGameOverWarningEnabled = true;
+    hud.setTitleVisible(true);
+    titleVolumePanel.setVisible(true);
+    titleStageSelectControl.setVisible(true);
+    setTitleSettingsPanelsVisible(true);
+    updateTrapRoomRecommendButtonVisibility();
+    titleResetSettingsButton.style.display = "";
+    updateTitleGameOverWarning();
+    hud.setHudVisible(false);
+    hud.setStateInfo(null);
+    gameFlow.resetFade();
+  } finally {
+    titleTransitionInProgress = false;
+  }
 };
 
 const updateVoices = (delta: number) => {
@@ -2486,7 +2669,7 @@ setupInputHandlers({
     canvas.requestPointerLock();
   },
   onStartGame: () => {
-    startGame();
+    void startGame();
   },
   onEnterEpilogue: () => {
     gamePhase = "transition";
@@ -2497,7 +2680,7 @@ setupInputHandlers({
     });
   },
   onReturnToTitle: () => {
-    returnToTitle();
+    void returnToTitle();
   },
   onReplayExecution: () => {
     gamePhase = "transition";

@@ -1,4 +1,4 @@
-# `feature_fix_title` マージ前リファクタリング計画
+# `feature_fix_title` マージ前リファクタリング計画 計画
 
 更新日: 2026-02-21
 
@@ -86,19 +86,14 @@ PLEASE IMPLEMENT THIS PLAN:
 - 防御的プログラミングは追加しない（今回の修正は実際の競合経路に限定）。
 
 ## ステップ
-- [x] `src/main.ts` にタイトル遷移の非同期競合対策（遷移フラグ + `try/finally` + ステージ再検証）を実装
-- [x] コミット1（`fix: タイトル遷移時の非同期競合を解消`）を作成
-- [x] 永続化ロジックを `src/ui/titleSettingsStorage.ts` へ抽出し、`src/main.ts` を接続
-- [x] `src/world/stageSelection.ts` から未使用 `createStageSelector` を削除
-- [x] `src/style.css` の重複スタイルを共通化（見た目不変）
-- [x] ビルド確認（`npm run build`）を実施
-- [x] コミット2（`refactor: タイトル設定永続化とタイトルUIスタイルを整理`）を作成
-- [x] 実装結果を `docs/plan.md` の結果へ反映
+- [ ] `src/main.ts` にタイトル遷移の非同期競合対策（遷移フラグ + `try/finally` + ステージ再検証）を実装
+- [ ] コミット1（`fix: タイトル遷移時の非同期競合を解消`）を作成
+- [ ] 永続化ロジックを `src/ui/titleSettingsStorage.ts` へ抽出し、`src/main.ts` を接続
+- [ ] `src/world/stageSelection.ts` から未使用 `createStageSelector` を削除
+- [ ] `src/style.css` の重複スタイルを共通化（見た目不変）
+- [ ] ビルド確認（`npm run build`）を実施
+- [ ] コミット2（`refactor: タイトル設定永続化とタイトルUIスタイルを整理`）を作成
+- [ ] 実装結果を `docs/plan.md` の結果へ反映
 
 ## 結果
-- `src/main.ts` にタイトル遷移中フラグ `titleTransitionInProgress` を導入し、`startGame` / `returnToTitle` の多重実行を抑止した。
-- `applyStageSelection` は `await resetGame()` 後に `requestId` と `gamePhase` を再検証するようにし、古いステージ選択要求の後勝ち更新を防止した。
-- タイトル設定永続化ロジックを新規 `src/ui/titleSettingsStorage.ts` へ抽出し、`src/main.ts` は UI 制御とゲーム状態遷移に集中させた。
-- `src/world/stageSelection.ts` から未使用 `createStageSelector` を削除した。
-- `src/style.css` はパネル共通スタイルとタイトルボタン共通スタイルをセレクタグループへ集約し、見た目を変えずに重複を削減した。
-- `npm run build` は成功した（renderer/electron ともに完了）。
+- 実装中

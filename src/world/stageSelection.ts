@@ -43,17 +43,6 @@ export const STAGE_CATALOG: StageSelection[] = [
   }
 ];
 
-export const createStageSelector = (stages: StageSelection[]) => {
-  let index = 0;
-  return {
-    getCurrent: () => stages[index],
-    next: () => {
-      index = (index + 1) % stages.length;
-      return stages[index];
-    }
-  };
-};
-
 export const loadStageJson = async (
   selection: StageSelection
 ): Promise<StageJson | null> => {
