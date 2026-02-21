@@ -518,7 +518,12 @@ titleGameOverWarning.className = "title-gameover-warning";
 titleGameOverWarning.textContent =
   "※現在の設定ではゲームオーバーにならない可能性があります。設定の変更を推奨します。";
 titleRightPanels.appendChild(titleGameOverWarning);
+let titleGameOverWarningEnabled = true;
 const updateTitleGameOverWarning = () => {
+  if (!titleGameOverWarningEnabled) {
+    titleGameOverWarning.style.display = "none";
+    return;
+  }
   const shouldWarn = hasNeverGameOverRisk(
     stageSelection.id,
     titleDefaultStartSettings,
@@ -2452,6 +2457,8 @@ const startGame = async () => {
   if (gamePhase === "title" && stageSelectionInProgress) {
     return;
   }
+  titleGameOverWarningEnabled = false;
+  titleGameOverWarning.style.display = "none";
   titleDefaultStartSettings = titleDefaultSettingsPanel.getSettings();
   runtimeDefaultStartSettings = { ...titleDefaultStartSettings };
   titleBrainwashSettings = titleBrainwashSettingsPanel.getSettings();
@@ -2494,6 +2501,7 @@ const returnToTitle = async () => {
   await resetGame();
   audioManager.stopBgm();
   gamePhase = "title";
+  titleGameOverWarningEnabled = true;
   hud.setTitleVisible(true);
   titleVolumePanel.setVisible(true);
   titleStageSelectControl.setVisible(true);

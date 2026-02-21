@@ -70,10 +70,12 @@ PLEASE IMPLEMENT THIS PLAN:
 - [x] 既存 `docs/plan.md` を `docs/plan_2026-02-21_npc-brainwashed-slider-prev.md` へ改名し、新規 `docs/plan.md` を作成
 - [x] `src/main.ts` の `hasNeverGameOverRisk` を新仕様へ更新（`stageId` 引数追加、判定順序反映）
 - [x] `updateTitleGameOverWarning` を新シグネチャへ接続（`stageSelection.id` を渡す）
+- [x] タイトル画面以外で警告が再表示されないように `updateTitleGameOverWarning` に表示ガードを追加
 - [x] `npx tsc -p tsconfig.json --noEmit` で型チェック
 
 ## 結果
 - `hasNeverGameOverRisk` に `stageId` 引数を追加し、`TRAP` / `LABYRINTH_DYNAMIC` のステージ例外を先頭判定に実装した。
 - プレイヤー初期状態、ビット出現設定、初期洗脳済みNPC人数 `n`、および実効攻撃手段（`gun%` / `noGun% + 接触洗脳ON`）を判定順序どおり反映した。
 - `updateTitleGameOverWarning` の呼び出しを更新し、`stageSelection.id` を渡してステージ依存判定を有効化した。
+- `titleGameOverWarningEnabled` フラグを追加し、`startGame` でOFF、`returnToTitle` でONに切り替えることで、ゲーム開始後の `blur/change` による警告再表示経路を無効化した。
 - `npx tsc -p tsconfig.json --noEmit` は成功した。
