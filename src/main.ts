@@ -96,7 +96,6 @@ import { buildStageContext, disposeStageParts } from "./world/stageContext";
 import { createZoneMapFromStageJson } from "./world/stageJson";
 import { LABYRINTH_DYNAMIC_STAGE_ID, TRAP_STAGE_ID } from "./world/stageIds";
 import {
-  createStageSelector,
   loadStageJson,
   STAGE_CATALOG,
   type StageSelection
@@ -168,12 +167,292 @@ const defaultBrainwashSettings: BrainwashSettings = {
   npcBrainwashCompleteGunPercent: 45,
   npcBrainwashCompleteNoGunPercent: 45
 };
-let titleBitSpawnSettings: BitSpawnSettings = { ...defaultBitSpawnSettings };
+type PersistedTitleSettings = {
+  version: number;
+  volumeLevels: VolumeLevels;
+  stageId: string;
+  alarmTrapEnabled: boolean;
+  defaultStartSettings: DefaultStartSettings;
+  brainwashSettings: BrainwashSettings;
+  bitSpawnSettings: BitSpawnSettings;
+};
+
+const TITLE_SETTINGS_STORAGE_KEY = "haigure-survival.title-settings";
+const TITLE_SETTINGS_STORAGE_VERSION = 1;
+const defaultVolumeLevels: VolumeLevels = {
+  bgm: 5,
+  se: 5,
+  voice: 5
+};
+const clampInteger = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, Math.round(value)));
+const readClampedInteger = (
+  source: Record<string, unknown>,
+  key: string,
+  min: number,
+  max: number,
+  fallback: number
+) => {
+  const rawValue = source[key];
+  if (typeof rawValue !== "number" || !Number.isFinite(rawValue)) {
+    return { value: fallback, changed: true };
+  }
+  const value = clampInteger(rawValue, min, max);
+  return { value, changed: value !== rawValue };
+};
+const readBoolean = (
+  source: Record<string, unknown>,
+  key: string,
+  fallback: boolean
+) => {
+  const rawValue = source[key];
+  if (typeof rawValue !== "boolean") {
+    return { value: fallback, changed: true };
+  }
+  return { value: rawValue, changed: false };
+};
+const readObject = (source: Record<string, unknown>, key: string) => {
+  const rawValue = source[key];
+  if (rawValue && typeof rawValue === "object" && !Array.isArray(rawValue)) {
+    return { value: rawValue as Record<string, unknown>, changed: false };
+  }
+  return { value: {}, changed: true };
+};
+const normalizeBrainwashPercentPair = (gunPercent: number, noGunPercent: number) => {
+  const overflow = gunPercent + noGunPercent - 100;
+  if (overflow <= 0) {
+    return { gunPercent, noGunPercent, changed: false };
+  }
+  return {
+    gunPercent,
+    noGunPercent: noGunPercent - overflow,
+    changed: true
+  };
+};
+const buildDefaultPersistedTitleSettings = (): PersistedTitleSettings => ({
+  version: TITLE_SETTINGS_STORAGE_VERSION,
+  volumeLevels: { ...defaultVolumeLevels },
+  stageId: STAGE_CATALOG[0].id,
+  alarmTrapEnabled: false,
+  defaultStartSettings: { ...defaultDefaultStartSettings },
+  brainwashSettings: { ...defaultBrainwashSettings },
+  bitSpawnSettings: { ...defaultBitSpawnSettings }
+});
+const normalizePersistedTitleSettings = (raw: unknown) => {
+  const defaults = buildDefaultPersistedTitleSettings();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { settings: defaults, changed: true };
+  }
+  const source = raw as Record<string, unknown>;
+  if (source.version !== TITLE_SETTINGS_STORAGE_VERSION) {
+    return { settings: defaults, changed: true };
+  }
+
+  let changed = false;
+  const stageIds = new Set(STAGE_CATALOG.map((selection) => selection.id));
+  const stageId =
+    typeof source.stageId === "string" && stageIds.has(source.stageId)
+      ? source.stageId
+      : defaults.stageId;
+  if (stageId !== source.stageId) {
+    changed = true;
+  }
+
+  const volumeObject = readObject(source, "volumeLevels");
+  changed ||= volumeObject.changed;
+  const volumeVoice = readClampedInteger(
+    volumeObject.value,
+    "voice",
+    0,
+    10,
+    defaults.volumeLevels.voice
+  );
+  const volumeBgm = readClampedInteger(
+    volumeObject.value,
+    "bgm",
+    0,
+    10,
+    defaults.volumeLevels.bgm
+  );
+  const volumeSe = readClampedInteger(
+    volumeObject.value,
+    "se",
+    0,
+    10,
+    defaults.volumeLevels.se
+  );
+  changed ||= volumeVoice.changed || volumeBgm.changed || volumeSe.changed;
+  const volumeLevels: VolumeLevels = {
+    voice: volumeVoice.value,
+    bgm: volumeBgm.value,
+    se: volumeSe.value
+  };
+
+  const alarmTrapEnabledValue = readBoolean(
+    source,
+    "alarmTrapEnabled",
+    defaults.alarmTrapEnabled
+  );
+  changed ||= alarmTrapEnabledValue.changed;
+
+  const defaultSettingsObject = readObject(source, "defaultStartSettings");
+  changed ||= defaultSettingsObject.changed;
+  const startPlayerAsBrainwashCompleteGunValue = readBoolean(
+    defaultSettingsObject.value,
+    "startPlayerAsBrainwashCompleteGun",
+    defaults.defaultStartSettings.startPlayerAsBrainwashCompleteGun
+  );
+  const initialNpcCountValue = readClampedInteger(
+    defaultSettingsObject.value,
+    "initialNpcCount",
+    0,
+    99,
+    defaults.defaultStartSettings.initialNpcCount
+  );
+  const initialBrainwashedNpcPercentValue = readClampedInteger(
+    defaultSettingsObject.value,
+    "initialBrainwashedNpcPercent",
+    0,
+    100,
+    defaults.defaultStartSettings.initialBrainwashedNpcPercent
+  );
+  changed ||=
+    startPlayerAsBrainwashCompleteGunValue.changed ||
+    initialNpcCountValue.changed ||
+    initialBrainwashedNpcPercentValue.changed;
+  const defaultStartSettings: DefaultStartSettings = {
+    startPlayerAsBrainwashCompleteGun:
+      startPlayerAsBrainwashCompleteGunValue.value,
+    initialNpcCount: initialNpcCountValue.value,
+    initialBrainwashedNpcPercent: initialBrainwashedNpcPercentValue.value
+  };
+
+  const brainwashSettingsObject = readObject(source, "brainwashSettings");
+  changed ||= brainwashSettingsObject.changed;
+  const instantBrainwashValue = readBoolean(
+    brainwashSettingsObject.value,
+    "instantBrainwash",
+    defaults.brainwashSettings.instantBrainwash
+  );
+  const brainwashOnNoGunTouchValue = readBoolean(
+    brainwashSettingsObject.value,
+    "brainwashOnNoGunTouch",
+    defaults.brainwashSettings.brainwashOnNoGunTouch
+  );
+  const npcBrainwashCompleteGunPercentValue = readClampedInteger(
+    brainwashSettingsObject.value,
+    "npcBrainwashCompleteGunPercent",
+    0,
+    100,
+    defaults.brainwashSettings.npcBrainwashCompleteGunPercent
+  );
+  const npcBrainwashCompleteNoGunPercentValue = readClampedInteger(
+    brainwashSettingsObject.value,
+    "npcBrainwashCompleteNoGunPercent",
+    0,
+    100,
+    defaults.brainwashSettings.npcBrainwashCompleteNoGunPercent
+  );
+  changed ||=
+    instantBrainwashValue.changed ||
+    brainwashOnNoGunTouchValue.changed ||
+    npcBrainwashCompleteGunPercentValue.changed ||
+    npcBrainwashCompleteNoGunPercentValue.changed;
+  const normalizedPercentPair = normalizeBrainwashPercentPair(
+    npcBrainwashCompleteGunPercentValue.value,
+    npcBrainwashCompleteNoGunPercentValue.value
+  );
+  changed ||= normalizedPercentPair.changed;
+  const brainwashSettings: BrainwashSettings = {
+    instantBrainwash: instantBrainwashValue.value,
+    brainwashOnNoGunTouch: brainwashOnNoGunTouchValue.value,
+    npcBrainwashCompleteGunPercent: normalizedPercentPair.gunPercent,
+    npcBrainwashCompleteNoGunPercent: normalizedPercentPair.noGunPercent
+  };
+
+  const bitSpawnSettingsObject = readObject(source, "bitSpawnSettings");
+  changed ||= bitSpawnSettingsObject.changed;
+  const bitSpawnIntervalValue = readClampedInteger(
+    bitSpawnSettingsObject.value,
+    "bitSpawnInterval",
+    1,
+    99,
+    defaults.bitSpawnSettings.bitSpawnInterval
+  );
+  const maxBitCountValue = readClampedInteger(
+    bitSpawnSettingsObject.value,
+    "maxBitCount",
+    1,
+    99,
+    defaults.bitSpawnSettings.maxBitCount
+  );
+  const disableBitSpawnValue = readBoolean(
+    bitSpawnSettingsObject.value,
+    "disableBitSpawn",
+    defaults.bitSpawnSettings.disableBitSpawn
+  );
+  changed ||=
+    bitSpawnIntervalValue.changed ||
+    maxBitCountValue.changed ||
+    disableBitSpawnValue.changed;
+  const bitSpawnSettings: BitSpawnSettings = {
+    bitSpawnInterval: bitSpawnIntervalValue.value,
+    maxBitCount: maxBitCountValue.value,
+    disableBitSpawn: disableBitSpawnValue.value
+  };
+
+  return {
+    settings: {
+      version: TITLE_SETTINGS_STORAGE_VERSION,
+      volumeLevels,
+      stageId,
+      alarmTrapEnabled: alarmTrapEnabledValue.value,
+      defaultStartSettings,
+      brainwashSettings,
+      bitSpawnSettings
+    },
+    changed
+  };
+};
+const savePersistedTitleSettings = (settings: PersistedTitleSettings) => {
+  localStorage.setItem(TITLE_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+};
+const loadPersistedTitleSettings = () => {
+  const stored = localStorage.getItem(TITLE_SETTINGS_STORAGE_KEY);
+  if (stored === null) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stored);
+  } catch {
+    const defaults = buildDefaultPersistedTitleSettings();
+    savePersistedTitleSettings(defaults);
+    return defaults;
+  }
+  const normalized = normalizePersistedTitleSettings(parsed);
+  if (normalized.changed) {
+    savePersistedTitleSettings(normalized.settings);
+  }
+  return normalized.settings;
+};
+const persistedTitleSettings = loadPersistedTitleSettings();
+const initialVolumeLevels: VolumeLevels = persistedTitleSettings
+  ? { ...persistedTitleSettings.volumeLevels }
+  : { ...defaultVolumeLevels };
+
+let titleBitSpawnSettings: BitSpawnSettings = persistedTitleSettings
+  ? { ...persistedTitleSettings.bitSpawnSettings }
+  : { ...defaultBitSpawnSettings };
 let titleDefaultStartSettings: DefaultStartSettings = {
-  ...defaultDefaultStartSettings
+  ...(persistedTitleSettings
+    ? persistedTitleSettings.defaultStartSettings
+    : defaultDefaultStartSettings)
 };
 let titleBrainwashSettings: BrainwashSettings = {
-  ...defaultBrainwashSettings
+  ...(persistedTitleSettings
+    ? persistedTitleSettings.brainwashSettings
+    : defaultBrainwashSettings)
 };
 let runtimeBitSpawnInterval = defaultBitSpawnSettings.bitSpawnInterval;
 let runtimeMaxBitCount = defaultBitSpawnSettings.maxBitCount;
@@ -183,7 +462,9 @@ let runtimeDefaultStartSettings: DefaultStartSettings = {
 let runtimeBrainwashSettings: BrainwashSettings = {
   ...defaultBrainwashSettings
 };
-let titleAlarmTrapEnabled = false;
+let titleAlarmTrapEnabled = persistedTitleSettings
+  ? persistedTitleSettings.alarmTrapEnabled
+  : false;
 let runtimeAlarmTrapEnabled = false;
 const buildNpcBrainwashCompleteTransitionConfig = (
   settings: BrainwashSettings
@@ -300,8 +581,12 @@ const ensurePortraitManagers = async (directories: string[]) => {
   );
 };
 
-const stageSelector = createStageSelector(STAGE_CATALOG);
-let stageSelection = stageSelector.getCurrent();
+const initialStageSelectionId = persistedTitleSettings
+  ? persistedTitleSettings.stageId
+  : STAGE_CATALOG[0].id;
+let stageSelection = STAGE_CATALOG.find(
+  (selection) => selection.id === initialStageSelectionId
+)!;
 let stageSelectionRequestId = 0;
 let stageSelectionInProgress = false;
 let stageJson = await loadStageJson(stageSelection);
@@ -475,14 +760,21 @@ const volumeBase: Record<AudioCategory, number> = {
   se: audioManager.getCategoryVolume("se"),
   voice: audioManager.getCategoryVolume("voice")
 };
-const volumeLevels: VolumeLevels = {
-  bgm: 5,
-  se: 5,
-  voice: 5
-};
+const volumeLevels: VolumeLevels = { ...initialVolumeLevels };
 const applyVolumeLevel = (category: AudioCategory, level: number) => {
   volumeLevels[category] = level;
   audioManager.setCategoryVolume(category, volumeBase[category] * (level / 10));
+};
+const saveTitleSettings = () => {
+  savePersistedTitleSettings({
+    version: TITLE_SETTINGS_STORAGE_VERSION,
+    volumeLevels: { ...volumeLevels },
+    stageId: stageSelection.id,
+    alarmTrapEnabled: titleAlarmTrapEnabled,
+    defaultStartSettings: { ...titleDefaultStartSettings },
+    brainwashSettings: { ...titleBrainwashSettings },
+    bitSpawnSettings: { ...titleBitSpawnSettings }
+  });
 };
 const titleVolumePanel = createVolumePanel({
   parent: document.body,
@@ -490,6 +782,7 @@ const titleVolumePanel = createVolumePanel({
   className: "volume-panel--title",
   onChange: (category, level) => {
     applyVolumeLevel(category, level);
+    saveTitleSettings();
   }
 });
 const titleRightPanels = document.createElement("div");
@@ -511,6 +804,7 @@ const titleStageSelectControl = createStageSelectControl({
   },
   onAlarmTrapEnabledChange: (enabled) => {
     titleAlarmTrapEnabled = enabled;
+    saveTitleSettings();
   }
 });
 const titleGameOverWarning = document.createElement("div");
@@ -542,6 +836,7 @@ const titleDefaultSettingsPanel = createDefaultSettingsPanel({
   onChange: (settings) => {
     titleDefaultStartSettings = settings;
     updateTitleGameOverWarning();
+    saveTitleSettings();
   }
 });
 const titleBrainwashSettingsPanel = createBrainwashSettingsPanel({
@@ -551,6 +846,7 @@ const titleBrainwashSettingsPanel = createBrainwashSettingsPanel({
   onChange: (settings) => {
     titleBrainwashSettings = settings;
     updateTitleGameOverWarning();
+    saveTitleSettings();
   }
 });
 const titleBitSpawnPanel = createBitSpawnPanel({
@@ -560,6 +856,7 @@ const titleBitSpawnPanel = createBitSpawnPanel({
   onChange: (settings) => {
     titleBitSpawnSettings = settings;
     updateTitleGameOverWarning();
+    saveTitleSettings();
   }
 });
 const setTitleSettingsPanelsVisible = (visible: boolean) => {
@@ -1196,6 +1493,7 @@ const applyStageSelection = async (selection: StageSelection) => {
   stageSelectionRequestId = requestId;
   stageSelectionInProgress = true;
   stageSelection = selection;
+  saveTitleSettings();
   titleStageSelectControl.setSelectedStageId(selection.id);
   updateTrapRoomRecommendButtonVisibility();
   updateTitleGameOverWarning();
