@@ -1,7 +1,7 @@
 export type DefaultStartSettings = {
   startPlayerAsBrainwashCompleteGun: boolean;
-  startAllNpcsAsHaigure: boolean;
   initialNpcCount: number;
+  initialBrainwashedNpcPercent: number;
 };
 
 type DefaultSettingsPanelOptions = {
@@ -19,6 +19,7 @@ export type DefaultSettingsPanel = {
 
 const clampInteger = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, Math.round(value)));
+const clampPercent = (value: number) => clampInteger(value, 0, 100);
 
 export const createDefaultSettingsPanel = ({
   parent,
@@ -54,6 +55,20 @@ export const createDefaultSettingsPanel = ({
   npcCountRow.appendChild(npcCountInput);
   root.appendChild(npcCountRow);
 
+  const brainwashedNpcGroup = document.createElement("div");
+  brainwashedNpcGroup.className = "default-settings-panel__brainwashed-group";
+  const brainwashedNpcLabel = document.createElement("div");
+  brainwashedNpcLabel.className = "default-settings-panel__brainwashed-label";
+  brainwashedNpcGroup.appendChild(brainwashedNpcLabel);
+  const brainwashedNpcSlider = document.createElement("input");
+  brainwashedNpcSlider.className = "default-settings-panel__brainwashed-slider";
+  brainwashedNpcSlider.type = "range";
+  brainwashedNpcSlider.min = "0";
+  brainwashedNpcSlider.max = "100";
+  brainwashedNpcSlider.step = "1";
+  brainwashedNpcGroup.appendChild(brainwashedNpcSlider);
+  root.appendChild(brainwashedNpcGroup);
+
   const playerRow = document.createElement("label");
   playerRow.className = "default-settings-panel__checkbox-row";
   const playerCheckbox = document.createElement("input");
@@ -66,21 +81,13 @@ export const createDefaultSettingsPanel = ({
   playerRow.appendChild(playerLabel);
   root.appendChild(playerRow);
 
-  const npcRow = document.createElement("label");
-  npcRow.className = "default-settings-panel__checkbox-row";
-  const npcCheckbox = document.createElement("input");
-  npcCheckbox.className = "default-settings-panel__checkbox";
-  npcCheckbox.type = "checkbox";
-  npcRow.appendChild(npcCheckbox);
-  const npcLabel = document.createElement("span");
-  npcLabel.className = "default-settings-panel__checkbox-label";
-  npcLabel.textContent = "全NPCが洗脳完了済み";
-  npcRow.appendChild(npcLabel);
-  root.appendChild(npcRow);
-
   const emit = () => {
     onChange({ ...settings });
   };
+  const calculateInitialBrainwashedNpcCount = () =>
+    Math.floor(
+      settings.initialNpcCount * settings.initialBrainwashedNpcPercent * 0.01
+    );
 
   const updateNpcCount = () => {
     const parsed = Number(npcCountInput.value);
@@ -89,14 +96,25 @@ export const createDefaultSettingsPanel = ({
       ? clampInteger(parsed, 0, 99)
       : fallback;
     settings.initialNpcCount = next;
-    npcCountInput.value = String(next);
+    render();
+    emit();
+  };
+
+  const updateInitialBrainwashedNpcPercent = () => {
+    settings.initialBrainwashedNpcPercent = clampPercent(
+      Number(brainwashedNpcSlider.value)
+    );
+    render();
     emit();
   };
 
   const render = () => {
     npcCountInput.value = String(clampInteger(settings.initialNpcCount, 0, 99));
+    brainwashedNpcLabel.textContent = `NPC洗脳完了済み人数 ${calculateInitialBrainwashedNpcCount()}人`;
+    brainwashedNpcSlider.value = String(
+      clampPercent(settings.initialBrainwashedNpcPercent)
+    );
     playerCheckbox.checked = settings.startPlayerAsBrainwashCompleteGun;
-    npcCheckbox.checked = settings.startAllNpcsAsHaigure;
   };
 
   npcCountInput.addEventListener("change", () => {
@@ -105,25 +123,19 @@ export const createDefaultSettingsPanel = ({
   npcCountInput.addEventListener("blur", () => {
     updateNpcCount();
   });
+  brainwashedNpcSlider.addEventListener("input", () => {
+    updateInitialBrainwashedNpcPercent();
+  });
 
   playerCheckbox.addEventListener("change", () => {
     settings.startPlayerAsBrainwashCompleteGun = playerCheckbox.checked;
-    if (settings.startPlayerAsBrainwashCompleteGun) {
-      settings.startAllNpcsAsHaigure = false;
-    }
     render();
     emit();
   });
 
-  npcCheckbox.addEventListener("change", () => {
-    settings.startAllNpcsAsHaigure = npcCheckbox.checked;
-    if (settings.startAllNpcsAsHaigure) {
-      settings.startPlayerAsBrainwashCompleteGun = false;
-    }
-    render();
-    emit();
-  });
-
+  settings.initialBrainwashedNpcPercent = clampPercent(
+    settings.initialBrainwashedNpcPercent
+  );
   render();
   parent.appendChild(root);
 

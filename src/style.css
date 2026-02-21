@@ -341,6 +341,22 @@ body {
   font: inherit;
 }
 
+.default-settings-panel__brainwashed-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.default-settings-panel__brainwashed-label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.default-settings-panel__brainwashed-slider {
+  width: 100%;
+  margin: 0;
+}
+
 .default-settings-panel__checkbox-row {
   display: flex;
   align-items: center;

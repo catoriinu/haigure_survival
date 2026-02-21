@@ -156,9 +156,10 @@ const defaultBitSpawnSettings: BitSpawnSettings = {
 };
 const defaultDefaultStartSettings: DefaultStartSettings = {
   startPlayerAsBrainwashCompleteGun: false,
-  startAllNpcsAsHaigure: false,
   // ステージ開始時のNPC人数。0〜99。デフォルトは11
-  initialNpcCount: 11
+  initialNpcCount: 11,
+  // ステージ開始時に洗脳完了済みとして開始するNPC割合。0〜100%。デフォルトは0
+  initialBrainwashedNpcPercent: 0
 };
 const defaultBrainwashSettings: BrainwashSettings = {
   instantBrainwash: false,
@@ -218,10 +219,12 @@ const hasNeverGameOverRisk = (
   if (!bitSpawnSettings.disableBitSpawn) {
     return false;
   }
-  if (!defaultSettings.startAllNpcsAsHaigure) {
-    return true;
-  }
-  if (defaultSettings.initialNpcCount <= 0) {
+  const initialBrainwashedNpcCount = Math.floor(
+    defaultSettings.initialNpcCount *
+      defaultSettings.initialBrainwashedNpcPercent *
+      0.01
+  );
+  if (initialBrainwashedNpcCount <= 0) {
     return true;
   }
   return (
@@ -893,10 +896,20 @@ const createCharacters = () => {
       npcPortraitDirectories
     )
   );
-  if (runtimeDefaultStartSettings.startAllNpcsAsHaigure) {
-    for (const npc of npcs) {
-      applyNpcDefaultHaigureState(npc);
-    }
+  const initialBrainwashedNpcCount = Math.floor(
+    runtimeDefaultStartSettings.initialNpcCount *
+      runtimeDefaultStartSettings.initialBrainwashedNpcPercent *
+      0.01
+  );
+  const shuffledNpcs = [...npcs];
+  for (let index = shuffledNpcs.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(Math.random() * (index + 1));
+    const temp = shuffledNpcs[index];
+    shuffledNpcs[index] = shuffledNpcs[swap];
+    shuffledNpcs[swap] = temp;
+  }
+  for (let index = 0; index < initialBrainwashedNpcCount; index += 1) {
+    applyNpcDefaultHaigureState(shuffledNpcs[index]);
   }
   applyPortraitSizesToAll();
 };
