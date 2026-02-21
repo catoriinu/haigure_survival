@@ -592,6 +592,7 @@ let stageSelection = STAGE_CATALOG.find(
 )!;
 let stageSelectionRequestId = 0;
 let stageSelectionInProgress = false;
+let titleTransitionInProgress = false;
 let stageJson = await loadStageJson(stageSelection);
 let stageZoneMap = stageJson ? createZoneMapFromStageJson(stageJson) : null;
 const stageSelectionsForMenu: StageSelection[] = await Promise.all(
@@ -1557,6 +1558,13 @@ const applyStageSelection = async (selection: StageSelection) => {
   rebuildGameFlow();
   if (gamePhase === "title") {
     await resetGame();
+    if (requestId !== stageSelectionRequestId) {
+      return;
+    }
+    if (gamePhase !== "title") {
+      stageSelectionInProgress = false;
+      return;
+    }
     hud.setTitleVisible(true);
     hud.setHudVisible(false);
     hud.setStateInfo(null);
@@ -2789,63 +2797,79 @@ const resetGame = async () => {
 };
 
 const startGame = async () => {
+  if (titleTransitionInProgress) {
+    return;
+  }
   if (gamePhase === "title" && stageSelectionInProgress) {
     return;
   }
-  titleGameOverWarningEnabled = false;
-  titleGameOverWarning.style.display = "none";
-  titleDefaultStartSettings = titleDefaultSettingsPanel.getSettings();
-  runtimeDefaultStartSettings = { ...titleDefaultStartSettings };
-  titleBrainwashSettings = titleBrainwashSettingsPanel.getSettings();
-  runtimeBrainwashSettings = { ...titleBrainwashSettings };
-  setNpcBrainwashInProgressTransitionConfig(
-    buildNpcBrainwashInProgressTransitionConfig(runtimeBrainwashSettings)
-  );
-  setNpcBrainwashCompleteTransitionConfig(
-    buildNpcBrainwashCompleteTransitionConfig(runtimeBrainwashSettings)
-  );
-  titleBitSpawnSettings = titleBitSpawnPanel.getSettings();
-  titleAlarmTrapEnabled = titleStageSelectControl.getAlarmTrapEnabled();
-  runtimeAlarmTrapEnabled = titleAlarmTrapEnabled;
-  runtimeBitSpawnInterval = titleBitSpawnSettings.bitSpawnInterval;
-  runtimeMaxBitCount = titleBitSpawnSettings.disableBitSpawn
-    ? 0
-    : titleBitSpawnSettings.maxBitCount;
-  await resetGame();
-  const bgmUrl = selectBgmUrl(stageJson ? stageJson.meta.name : null);
-  if (bgmUrl) {
-    audioManager.startBgm(bgmUrl);
+  titleTransitionInProgress = true;
+  try {
+    titleGameOverWarningEnabled = false;
+    titleGameOverWarning.style.display = "none";
+    titleDefaultStartSettings = titleDefaultSettingsPanel.getSettings();
+    runtimeDefaultStartSettings = { ...titleDefaultStartSettings };
+    titleBrainwashSettings = titleBrainwashSettingsPanel.getSettings();
+    runtimeBrainwashSettings = { ...titleBrainwashSettings };
+    setNpcBrainwashInProgressTransitionConfig(
+      buildNpcBrainwashInProgressTransitionConfig(runtimeBrainwashSettings)
+    );
+    setNpcBrainwashCompleteTransitionConfig(
+      buildNpcBrainwashCompleteTransitionConfig(runtimeBrainwashSettings)
+    );
+    titleBitSpawnSettings = titleBitSpawnPanel.getSettings();
+    titleAlarmTrapEnabled = titleStageSelectControl.getAlarmTrapEnabled();
+    runtimeAlarmTrapEnabled = titleAlarmTrapEnabled;
+    runtimeBitSpawnInterval = titleBitSpawnSettings.bitSpawnInterval;
+    runtimeMaxBitCount = titleBitSpawnSettings.disableBitSpawn
+      ? 0
+      : titleBitSpawnSettings.maxBitCount;
+    await resetGame();
+    const bgmUrl = selectBgmUrl(stageJson ? stageJson.meta.name : null);
+    if (bgmUrl) {
+      audioManager.startBgm(bgmUrl);
+    }
+    gamePhase = "playing";
+    hud.setTitleVisible(false);
+    titleVolumePanel.setVisible(false);
+    titleStageSelectControl.setVisible(false);
+    setTitleSettingsPanelsVisible(false);
+    trapRoomRecommendControl.setVisible(false);
+    titleResetSettingsButton.style.display = "none";
+    titleGameOverWarning.style.display = "none";
+    hud.setHudVisible(true);
+    hud.setStateInfo(null);
+    gameFlow.resetFade();
+    canvas.requestPointerLock();
+  } finally {
+    titleTransitionInProgress = false;
   }
-  gamePhase = "playing";
-  hud.setTitleVisible(false);
-  titleVolumePanel.setVisible(false);
-  titleStageSelectControl.setVisible(false);
-  setTitleSettingsPanelsVisible(false);
-  trapRoomRecommendControl.setVisible(false);
-  titleResetSettingsButton.style.display = "none";
-  titleGameOverWarning.style.display = "none";
-  hud.setHudVisible(true);
-  hud.setStateInfo(null);
-  gameFlow.resetFade();
-  canvas.requestPointerLock();
 };
 
 const returnToTitle = async () => {
-  document.exitPointerLock();
-  await resetGame();
-  audioManager.stopBgm();
-  gamePhase = "title";
-  titleGameOverWarningEnabled = true;
-  hud.setTitleVisible(true);
-  titleVolumePanel.setVisible(true);
-  titleStageSelectControl.setVisible(true);
-  setTitleSettingsPanelsVisible(true);
-  updateTrapRoomRecommendButtonVisibility();
-  titleResetSettingsButton.style.display = "";
-  updateTitleGameOverWarning();
-  hud.setHudVisible(false);
-  hud.setStateInfo(null);
-  gameFlow.resetFade();
+  if (titleTransitionInProgress) {
+    return;
+  }
+  titleTransitionInProgress = true;
+  try {
+    document.exitPointerLock();
+    await resetGame();
+    audioManager.stopBgm();
+    gamePhase = "title";
+    titleGameOverWarningEnabled = true;
+    hud.setTitleVisible(true);
+    titleVolumePanel.setVisible(true);
+    titleStageSelectControl.setVisible(true);
+    setTitleSettingsPanelsVisible(true);
+    updateTrapRoomRecommendButtonVisibility();
+    titleResetSettingsButton.style.display = "";
+    updateTitleGameOverWarning();
+    hud.setHudVisible(false);
+    hud.setStateInfo(null);
+    gameFlow.resetFade();
+  } finally {
+    titleTransitionInProgress = false;
+  }
 };
 
 const updateVoices = (delta: number) => {
