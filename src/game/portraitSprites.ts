@@ -133,6 +133,9 @@ const createDefaultPortraitSpriteSheet = (): PortraitSpriteSheet => {
   const eyeOffsetX = 18;
   const eyeOffsetY = 22;
   const eyeSize = 12;
+  const sweatOffsetX = eyeOffsetX + 32 + eyeSize + 10;
+  const sweatOffsetY = eyeOffsetY + 2;
+  const sweatRadius = 6;
   const gunDotOffsetX = 72;
   const gunDotOffsetY = Math.round(64 * heightScale);
   const gunDotRadius = 6;
@@ -147,7 +150,8 @@ const createDefaultPortraitSpriteSheet = (): PortraitSpriteSheet => {
     index: number,
     color: string,
     accent: string,
-    gunDot = false
+    gunDot = false,
+    sweatMark = false
   ) => {
     const offsetX = index * cellWidth;
     ctx.fillStyle = color;
@@ -173,7 +177,38 @@ const createDefaultPortraitSpriteSheet = (): PortraitSpriteSheet => {
       eyeSize,
       eyeSize
     );
+    if (sweatMark) {
+      const sweatX = offsetX + bodyLeft + sweatOffsetX;
+      const sweatY = bodyTop + sweatOffsetY;
+      ctx.fillStyle = "#7de7ff";
+      ctx.beginPath();
+      ctx.moveTo(sweatX, sweatY - sweatRadius - 4);
+      ctx.quadraticCurveTo(
+        sweatX + sweatRadius + 1,
+        sweatY - 2,
+        sweatX + sweatRadius - 1,
+        sweatY + sweatRadius
+      );
+      ctx.quadraticCurveTo(
+        sweatX,
+        sweatY + sweatRadius + 4,
+        sweatX - sweatRadius + 1,
+        sweatY + sweatRadius
+      );
+      ctx.quadraticCurveTo(
+        sweatX - sweatRadius - 1,
+        sweatY - 2,
+        sweatX,
+        sweatY - sweatRadius - 4
+      );
+      ctx.fill();
+      ctx.fillStyle = "#d9f8ff";
+      ctx.beginPath();
+      ctx.arc(sweatX + 1, sweatY, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
     if (gunDot) {
+      ctx.fillStyle = "#111111";
       ctx.beginPath();
       ctx.arc(
         offsetX + bodyLeft + gunDotOffsetX,
@@ -193,20 +228,22 @@ const createDefaultPortraitSpriteSheet = (): PortraitSpriteSheet => {
   );
 
   for (let index = 0; index < drawOrder.length; index += 1) {
+    const state = portraitStateOrder[index];
+    const sweatMark = state === "evade";
     const frameIndex = drawOrder[index];
     if (frameIndex === 0) {
-      drawFrame(index, "#3b5fbf", "#f1f1f1");
+      drawFrame(index, "#3b5fbf", "#f1f1f1", false, sweatMark);
       continue;
     }
     if (frameIndex === 1) {
-      drawFrame(index, "#d4a21f", "#f8f2c2");
+      drawFrame(index, "#d4a21f", "#f8f2c2", false, sweatMark);
       continue;
     }
     if (frameIndex === 2) {
-      drawFrame(index, "#5c5c5c", "#c7c7c7");
+      drawFrame(index, "#5c5c5c", "#c7c7c7", false, sweatMark);
       continue;
     }
-    drawFrame(index, "#5c5c5c", "#c7c7c7", true);
+    drawFrame(index, "#5c5c5c", "#c7c7c7", true, sweatMark);
   }
 
   const hitBSourceX = portraitStateIndex["hit-b"] * cellWidth;
