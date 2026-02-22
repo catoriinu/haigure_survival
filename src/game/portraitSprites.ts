@@ -114,7 +114,7 @@ const defaultPortraitFrameByState: Record<CharacterState, number> = {
   evade: 0,
   "hit-a": 1,
   "hit-b": 2,
-  "brainwash-in-progress": 3,
+  "brainwash-in-progress": 1,
   "brainwash-complete-gun": 4,
   "brainwash-complete-no-gun": 3,
   "brainwash-complete-haigure": 3,
@@ -257,7 +257,8 @@ const createDefaultPortraitSpriteSheet = (): PortraitSpriteSheet => {
 
   for (let index = 0; index < drawOrder.length; index += 1) {
     const state = portraitStateOrder[index];
-    const sweatMark = state === "evade";
+    const sweatMark =
+      state === "evade" || state === "brainwash-in-progress";
     const frameIndex = drawOrder[index];
     if (frameIndex === 0) {
       drawFrame(index, "#3b5fbf", "#f1f1f1", false, sweatMark);
