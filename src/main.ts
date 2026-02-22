@@ -1609,6 +1609,21 @@ const getExecutionTriggerKey = (scenario: PublicExecutionScenario) => {
   return `${scenario.variant}:${scenario.survivorNpcIndex}`;
 };
 
+const keepExecutionTargetEvadeUntilHit = (
+  scenario: PublicExecutionScenario
+) => {
+  if (executionResolved || executionHitSequence.phase !== "none") {
+    return;
+  }
+  if (scenario.variant === "player-survivor") {
+    playerState = "evade";
+    return;
+  }
+  const survivorNpc = npcs[scenario.survivorNpcIndex];
+  survivorNpc.state = "evade";
+  survivorNpc.sprite.cellIndex = getPortraitCellIndex("evade");
+};
+
 const applyExecutionNpcShooterPresentation = () => {
   for (const index of executionNpcShooterIndices) {
     const npc = npcs[index];
@@ -1701,6 +1716,7 @@ const enterPublicExecution = (scenario: PublicExecutionScenario) => {
     camera.cameraDirection.set(0, 0, 0);
   }
   gameFlow.enterExecution(scenario);
+  keepExecutionTargetEvadeUntilHit(scenario);
   if (isExecutionNpcVolley(scenario)) {
     applyExecutionNpcShooterPresentation();
   }
@@ -2030,6 +2046,7 @@ const updateExecutionScene = (
   updateExecutionHitEffect(delta, shouldProcessOrb);
 
   const scenario = executionScenario!;
+  keepExecutionTargetEvadeUntilHit(scenario);
   if (executionFireEffectActive) {
     executionFireEffectTimer = Math.max(
       0,
