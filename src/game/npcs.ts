@@ -40,7 +40,10 @@ import {
 } from "./npcNavigation";
 import { alignSpriteToGround } from "./spriteUtils";
 import { findTargetById } from "./targetUtils";
-import { isBeamHittingTargetExcludingSource } from "./beamCollision";
+import {
+  createBeamHitRadii,
+  isBeamHittingTargetExcludingSource
+} from "./beamCollision";
 import {
   createHitEffectMesh,
   createHitFadeOrbs,
@@ -66,7 +69,6 @@ const redHitDurationScale = 1;
 export const npcHitDuration = 3;
 // NPCの点滅状態後、`hit-a`（光線命中：ハイレグ姿）のまま光がフェードする時間（秒）。デフォルトは1
 export const npcHitFadeDuration = 1;
-export const npcHitRadius = NPC_SPRITE_WIDTH * 0.5;
 // NPC光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12
 export const npcHitFlickerInterval = 0.12;
 export const npcHitColorA = new Color3(1, 0.18, 0.74);
@@ -385,6 +387,7 @@ export const updateNpcs = (
   }
 
   const applyNpcBeamHits = (npc: Npc, npcId: string) => {
+    const npcHitRadii = createBeamHitRadii(npc.sprite.width, npc.sprite.height);
     for (const beam of beams) {
       if (!beam.active) {
         continue;
@@ -395,7 +398,7 @@ export const updateNpcs = (
           beam.sourceId,
           npcId,
           npc.sprite.position,
-          npcHitRadius
+          npcHitRadii
         )
       ) {
         const hitScale = isRedSource(beam.sourceId) ? redHitDurationScale : 1;

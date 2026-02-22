@@ -45,7 +45,6 @@ import {
   npcHitFadeDuration,
   npcHitFadeOrbConfig,
   npcHitFlickerInterval,
-  npcHitRadius,
   noGunTouchBrainwashDuration,
   startBitFireEffect,
   stopBitFireEffect,
@@ -62,6 +61,7 @@ import {
 } from "./game/entities";
 import { alignSpriteToGround } from "./game/spriteUtils";
 import {
+  createBeamHitRadii,
   isBeamHittingTarget,
   isBeamHittingTargetExcludingSource
 } from "./game/beamCollision";
@@ -1174,7 +1174,6 @@ const playerHitDuration = 3;
 // プレイヤーの点滅状態後、`hit-a`（光線命中：ハイレグ姿）のまま光がフェードする時間（秒）。デフォルトは1
 const playerHitFadeDuration = 1;
 const redHitDurationScale = 1;
-const playerHitRadius = playerWidth * 0.5;
 // プレイヤー光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12
 const playerHitFlickerInterval = 0.12;
 const playerHitColorA = new Color3(1, 0.18, 0.74);
@@ -1214,6 +1213,8 @@ const publicExecutionBeamDelayMax = 10;
 const executionHitFadeDuration = playerHitFadeDuration;
 
 const playerBlockRadius = playerWidth;
+const getSpriteBeamHitRadii = (sprite: Sprite) =>
+  createBeamHitRadii(sprite.width, sprite.height);
 
 type MoveKey = "forward" | "back" | "left" | "right";
 const playerMoveInput: Record<MoveKey, boolean> = {
@@ -1609,6 +1610,21 @@ const getExecutionTriggerKey = (scenario: PublicExecutionScenario) => {
   return `${scenario.variant}:${scenario.survivorNpcIndex}`;
 };
 
+const keepExecutionTargetEvadeUntilHit = (
+  scenario: PublicExecutionScenario
+) => {
+  if (executionResolved || executionHitSequence.phase !== "none") {
+    return;
+  }
+  if (scenario.variant === "player-survivor") {
+    playerState = "evade";
+    return;
+  }
+  const survivorNpc = npcs[scenario.survivorNpcIndex];
+  survivorNpc.state = "evade";
+  survivorNpc.sprite.cellIndex = getPortraitCellIndex("evade");
+};
+
 const applyExecutionNpcShooterPresentation = () => {
   for (const index of executionNpcShooterIndices) {
     const npc = npcs[index];
@@ -1701,6 +1717,7 @@ const enterPublicExecution = (scenario: PublicExecutionScenario) => {
     camera.cameraDirection.set(0, 0, 0);
   }
   gameFlow.enterExecution(scenario);
+  keepExecutionTargetEvadeUntilHit(scenario);
   if (isExecutionNpcVolley(scenario)) {
     applyExecutionNpcShooterPresentation();
   }
@@ -1851,6 +1868,14 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
   }
   const skipNpcIndex =
     scenario.variant === "player-survivor" ? -1 : scenario.survivorNpcIndex;
+  const playerHitRadii = getSpriteBeamHitRadii(playerAvatar);
+  const survivorNpc =
+    scenario.variant === "player-survivor"
+      ? null
+      : npcs[scenario.survivorNpcIndex];
+  const survivorNpcHitRadii = survivorNpc
+    ? getSpriteBeamHitRadii(survivorNpc.sprite)
+    : null;
   for (const beam of beams) {
     if (!beam.active) {
       continue;
@@ -1878,18 +1903,17 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
           beam.sourceId,
           "player",
           executionCollisionPosition,
-          playerHitRadius
+          playerHitRadii
         )
       ) {
         hitAny = true;
         hitTarget = true;
       }
     } else {
-      const survivorNpc = npcs[scenario.survivorNpcIndex];
       executionCollisionPosition.set(
-        survivorNpc.sprite.position.x,
+        survivorNpc!.sprite.position.x,
         eyeHeight,
-        survivorNpc.sprite.position.z
+        survivorNpc!.sprite.position.z
       );
       if (
         isBeamHittingTargetExcludingSource(
@@ -1897,7 +1921,7 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
           beam.sourceId,
           `npc_${scenario.survivorNpcIndex}`,
           executionCollisionPosition,
-          npcHitRadius
+          survivorNpcHitRadii!
         )
       ) {
         hitAny = true;
@@ -1920,7 +1944,7 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
           beam.sourceId,
           "player",
           executionCollisionPosition,
-          playerHitRadius
+          playerHitRadii
         )
       ) {
         hitAny = true;
@@ -1934,6 +1958,7 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
         }
         const npc = npcs[index];
         const npcId = npc.sprite.name;
+        const npcHitRadii = getSpriteBeamHitRadii(npc.sprite);
         executionCollisionPosition.set(
           npc.sprite.position.x,
           eyeHeight,
@@ -1945,7 +1970,7 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
             beam.sourceId,
             npcId,
             executionCollisionPosition,
-            npcHitRadius
+            npcHitRadii
           )
         ) {
           hitAny = true;
@@ -2030,6 +2055,7 @@ const updateExecutionScene = (
   updateExecutionHitEffect(delta, shouldProcessOrb);
 
   const scenario = executionScenario!;
+  keepExecutionTargetEvadeUntilHit(scenario);
   if (executionFireEffectActive) {
     executionFireEffectTimer = Math.max(
       0,
@@ -2084,6 +2110,7 @@ const updateExecutionScene = (
   if (scenario.variant === "npc-survivor-player-block") {
     const survivorNpc = npcs[scenario.survivorNpcIndex];
     const targetPosition = survivorNpc.sprite.position;
+    const targetHitRadii = getSpriteBeamHitRadii(survivorNpc.sprite);
     for (const beam of beams) {
       if (!beam.active) {
         continue;
@@ -2091,7 +2118,7 @@ const updateExecutionScene = (
       if (beam.sourceId !== "player") {
         continue;
       }
-      if (isBeamHittingTarget(beam, targetPosition, npcHitRadius)) {
+      if (isBeamHittingTarget(beam, targetPosition, targetHitRadii)) {
         const impactPosition = getBeamImpactPosition(beam);
         beginBeamRetract(beam, impactPosition);
         beginExecutionHit("npc", scenario.survivorNpcIndex, 1);
@@ -2343,6 +2370,7 @@ const updatePlayerState = (
   shouldProcessOrb: (position: Vector3) => boolean
 ) => {
   const playerCenterY = playerAvatar.height * 0.5;
+  const playerHitRadii = getSpriteBeamHitRadii(playerAvatar);
   const centerPosition = new Vector3(
     camera.position.x,
     playerCenterY,
@@ -2370,7 +2398,7 @@ const updatePlayerState = (
       if (beam.sourceId === "player") {
         continue;
       }
-      if (isBeamHittingTarget(beam, centerPosition, playerHitRadius)) {
+      if (isBeamHittingTarget(beam, centerPosition, playerHitRadii)) {
         const hitScale = isRedBitSource(beam.sourceId)
           ? redHitDurationScale
           : 1;
@@ -2747,7 +2775,9 @@ engine.runRenderLoop(() => {
       }
       const toCenter = aimRay.origin.subtract(npc.sprite.position);
       const b = Vector3.Dot(toCenter, aimDirection);
-      const c = Vector3.Dot(toCenter, toCenter) - npcHitRadius * npcHitRadius;
+      const npcAimRadius = npc.sprite.width * 0.5;
+      const c =
+        Vector3.Dot(toCenter, toCenter) - npcAimRadius * npcAimRadius;
       const discriminant = b * b - c;
       if (discriminant < 0) {
         continue;
