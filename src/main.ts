@@ -760,6 +760,11 @@ const seBaseOptions: SpatialPlayOptions = {
   maxDistance: 3.75,
   loop: false
 };
+const rouletteSpinLoopOptions: SpatialPlayOptions = {
+  volume: 0.75,
+  maxDistance: 3.75,
+  loop: true
+};
 const alertLoopOptions: SpatialPlayOptions = {
   volume: 0.95,
   maxDistance: 3.75,
@@ -901,6 +906,7 @@ const bitSoundEvents: BitSoundEvents = {
 
 let alertSeHandle: SpatialHandle | null = null;
 let alertSeLeaderId: string | null = null;
+let rouletteSpinSeHandle: SpatialHandle | null = null;
 const stopAlertLoop = () => {
   if (!alertSeHandle) {
     return;
@@ -918,6 +924,26 @@ const startAlertLoop = (bit: Bit) => {
   }
   alertSeLeaderId = bit.id;
   alertSeHandle = sfxDirector.playAlertLoop(() => bit.root.position);
+};
+const stopRouletteSpinLoop = () => {
+  if (!rouletteSpinSeHandle) {
+    return;
+  }
+  rouletteSpinSeHandle.stop();
+  rouletteSpinSeHandle = null;
+};
+const startRouletteSpinLoop = () => {
+  if (rouletteSpinSeHandle?.isActive()) {
+    return;
+  }
+  rouletteSpinSeHandle = audioManager.playSe(
+    bitSeMove,
+    () => {
+      const sourceBit = bits[0];
+      return sourceBit ? sourceBit.root.position : rouletteCenter;
+    },
+    rouletteSpinLoopOptions
+  );
 };
 const isAlertBitMode = (mode: Bit["mode"]) =>
   mode === "alert-send" || mode === "alert-receive";
@@ -2318,6 +2344,7 @@ const applyRouletteSnapshot = (snapshot: RouletteSnapshot) => {
 const resetRouletteState = () => {
   clearRouletteHitEntries();
   clearRouletteBeamTargets();
+  stopRouletteSpinLoop();
   rouletteRoundCount = 0;
   rouletteNoHitRoundCount = 0;
   rouletteSurviveCountAtBrainwash = null;
@@ -2367,6 +2394,35 @@ const updateRouletteBitTransforms = () => {
     bit.baseHeight = eyeHeight;
     bit.root.lookAt(rouletteCenter);
   }
+};
+
+const sampleRouletteSpinSpeedRatio = (elapsed: number) => {
+  const t = Math.max(0, Math.min(rouletteSpinDuration, elapsed));
+  const decelDuration = rouletteSpinGlideStart - rouletteSpinDecelStart;
+  const finalBrakeDuration = rouletteSpinDuration - rouletteSpinFinalBrakeStart;
+  if (t <= rouletteSpinAccelDuration) {
+    return t / rouletteSpinAccelDuration;
+  }
+  if (t <= rouletteSpinDecelStart) {
+    return 1;
+  }
+  if (t <= rouletteSpinGlideStart) {
+    const u = (t - rouletteSpinDecelStart) / decelDuration;
+    return 1 - (1 - rouletteSpinGlideSpeedRatio) * u;
+  }
+  if (t <= rouletteSpinFinalBrakeStart) {
+    return rouletteSpinGlideSpeedRatio;
+  }
+  const v = (t - rouletteSpinFinalBrakeStart) / finalBrakeDuration;
+  return rouletteSpinGlideSpeedRatio * (1 - v);
+};
+
+const updateRouletteSpinLoopVolume = () => {
+  if (!rouletteSpinSeHandle?.isActive()) {
+    return;
+  }
+  const speedRatio = sampleRouletteSpinSpeedRatio(rouletteSpinElapsed);
+  rouletteSpinSeHandle.setBaseVolume(rouletteSpinLoopOptions.volume * speedRatio);
 };
 
 const sampleRouletteSpinAngle = (elapsed: number) => {
@@ -2542,6 +2598,7 @@ const startRouletteBitsDespawn = () => {
 };
 
 const startRouletteSpin = () => {
+  stopRouletteSpinLoop();
   rouletteSpinElapsed = 0;
   rouletteSpinDecelStart =
     rouletteSpinDecelStartMin +
@@ -2567,6 +2624,7 @@ const startRouletteSpin = () => {
     Math.PI * 2 * extraTurns +
     ((Math.PI * 2) / rouletteSlotCount) * rouletteStopShift;
   roulettePhase = "spinning";
+  startRouletteSpinLoop();
 };
 
 const beginRouletteRound = (
@@ -2808,6 +2866,7 @@ const undoRouletteRound = () => {
   }
   rouletteUndoInProgress = true;
   gamePhase = "transition";
+  stopRouletteSpinLoop();
   gameFlow.beginFadeOut(() => {
     clearBeams();
     disposeAllBits();
@@ -2882,10 +2941,12 @@ const updateRouletteScene = (
   if (roulettePhase === "spinning") {
     rouletteSpinElapsed = Math.min(rouletteSpinDuration, rouletteSpinElapsed + delta);
     rouletteBitOffsetAngle = sampleRouletteSpinAngle(rouletteSpinElapsed);
+    updateRouletteSpinLoopVolume();
     if (rouletteSpinElapsed >= rouletteSpinDuration) {
       rouletteBitOffsetAngle = rouletteSpinTotalAngle;
       roulettePhase = "post-spin-wait";
       roulettePhaseTimer = roulettePostSpinWaitDuration;
+      stopRouletteSpinLoop();
     }
     return;
   }
