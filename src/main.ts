@@ -11,8 +11,7 @@ import {
   Sprite,
   SpriteManager,
   Mesh,
-  MeshBuilder,
-  StandardMaterial
+  MeshBuilder
 } from "@babylonjs/core";
 import {
   Beam,
@@ -33,8 +32,8 @@ import {
   createBitAt,
   createBeamMaterial,
   createBit,
-  finalizeBitVisuals,
   createBitMaterials,
+  disposeBit,
   isAliveState,
   isBrainwashState,
   bitFireEffectDuration,
@@ -49,6 +48,7 @@ import {
   noGunTouchBrainwashDuration,
   startBitFireEffect,
   stopBitFireEffect,
+  updateBitSpawnEffect,
   updateBitFireEffect,
   applyNpcDefaultHaigureState,
   pickRandomCell,
@@ -1431,30 +1431,9 @@ const countNonFollowerBits = () => {
   return count;
 };
 
-const disposeBitInstance = (bit: Bit) => {
-  if (bit.spawnEffect) {
-    bit.spawnEffect.dispose();
-  }
-  if (bit.spawnEffectMaterial) {
-    bit.spawnEffectMaterial.dispose();
-  }
-  if (bit.fireEffect) {
-    bit.fireEffect.cone.dispose();
-    bit.fireEffect.coneMaterial.dispose();
-    bit.fireEffect.muzzle.dispose();
-    bit.fireEffect.muzzleMaterial.dispose();
-    bit.fireEffect.shot.dispose();
-    bit.fireEffect.shotMaterial.dispose();
-    bit.fireEffect = null;
-  }
-  const muzzleMaterial = bit.muzzle.material as StandardMaterial;
-  muzzleMaterial.dispose();
-  bit.root.dispose();
-};
-
 const disposeAllBits = () => {
   for (const bit of bits) {
-    disposeBitInstance(bit);
+    disposeBit(bit);
   }
   bits.length = 0;
 };
@@ -1469,7 +1448,7 @@ const removeCarpetFollowers = () => {
   );
   for (const bit of bits) {
     if (followerIds.has(bit.id)) {
-      disposeBitInstance(bit);
+      disposeBit(bit);
     }
   }
   for (let index = bits.length - 1; index >= 0; index -= 1) {
@@ -2475,7 +2454,6 @@ const spawnRouletteBits = () => {
     const bit = createBitAt(scene, bitMaterials, bitIndex, position, direction);
     bitIndex += 1;
     bit.mode = "hold";
-    finalizeBitVisuals(bit);
     bits.push(bit);
   }
   updateRouletteBitTransforms();
@@ -2755,6 +2733,11 @@ const updateRouletteScene = (
     beamImpactOrbs,
     shouldProcessOrb
   );
+  for (const bit of bits) {
+    if (bit.spawnPhase !== "done") {
+      updateBitSpawnEffect(bit, delta);
+    }
+  }
   updateRouletteBeamImpacts();
   updateRouletteBitTransforms();
 
