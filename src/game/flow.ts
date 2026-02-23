@@ -11,6 +11,7 @@ import { createFadeController } from "./flowFade";
 export type GamePhase =
   | "title"
   | "playing"
+  | "roulette"
   | "transition"
   | "assemblyMove"
   | "assemblyHold"

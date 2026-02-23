@@ -94,7 +94,11 @@ import { createTrapSystem } from "./game/trap/system";
 import { createAlarmSystem } from "./game/alarm/system";
 import { buildStageContext, disposeStageParts } from "./world/stageContext";
 import { createZoneMapFromStageJson } from "./world/stageJson";
-import { LABYRINTH_DYNAMIC_STAGE_ID, TRAP_STAGE_ID } from "./world/stageIds";
+import {
+  LABYRINTH_DYNAMIC_STAGE_ID,
+  ROULETTE_STAGE_ID,
+  TRAP_STAGE_ID
+} from "./world/stageIds";
 import {
   loadStageJson,
   STAGE_CATALOG,
@@ -248,7 +252,7 @@ const buildNpcBrainwashInProgressTransitionConfig = (
         decisionDelay: 10,
         stayChance: 0.5
       };
-const isRouletteStageId = (stageId: string) => stageId === "arena_roulette";
+const isRouletteStageId = (stageId: string) => stageId === ROULETTE_STAGE_ID;
 const hasNeverGameOverRisk = (
   stageId: string,
   defaultSettings: DefaultStartSettings,
@@ -2734,6 +2738,7 @@ setupInputHandlers({
   onReturnToTitle: () => {
     void returnToTitle();
   },
+  onUndoRoulette: () => {},
   onReplayExecution: () => {
     gamePhase = "transition";
     hud.setHudVisible(false);
