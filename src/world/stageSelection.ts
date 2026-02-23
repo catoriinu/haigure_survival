@@ -27,6 +27,11 @@ export const STAGE_CATALOG: StageSelection[] = [
     jsonPath: buildStageJsonPath("arena.json")
   },
   {
+    id: "arena_roulette",
+    label: "arena_roulette",
+    jsonPath: buildStageJsonPath("arena_roulette.json")
+  },
+  {
     id: TRAP_STAGE_ID,
     label: TRAP_STAGE_ID,
     jsonPath: buildStageJsonPath("arena_trap_room.json")
