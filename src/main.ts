@@ -1273,6 +1273,7 @@ type RouletteSnapshot = {
   playerState: PlayerState;
   npcStates: CharacterState[];
   rouletteRoundCount: number;
+  rouletteNoHitRoundCount: number;
   rouletteSurviveCountAtBrainwash: number | null;
 };
 let playerState: PlayerState = "normal";
@@ -1337,6 +1338,7 @@ const rouletteBeamTargets = new Map<Beam, RouletteHitTarget>();
 let rouletteUndoHistory: RouletteSnapshot[] = [];
 let rouletteUndoInProgress = false;
 let rouletteRoundCount = 0;
+let rouletteNoHitRoundCount = 0;
 let rouletteSurviveCountAtBrainwash: number | null = null;
 
 let gamePhase: GamePhase = "title";
@@ -2275,6 +2277,7 @@ const captureRouletteSnapshot = (): RouletteSnapshot => ({
   playerState,
   npcStates: npcs.map((npc) => npc.state),
   rouletteRoundCount,
+  rouletteNoHitRoundCount,
   rouletteSurviveCountAtBrainwash
 });
 
@@ -2283,6 +2286,7 @@ const applyRouletteSnapshot = (snapshot: RouletteSnapshot) => {
   playerHitById = null;
   playerHitTime = 0;
   rouletteRoundCount = snapshot.rouletteRoundCount;
+  rouletteNoHitRoundCount = snapshot.rouletteNoHitRoundCount;
   rouletteSurviveCountAtBrainwash = snapshot.rouletteSurviveCountAtBrainwash;
   playerNoGunTouchBrainwashTimer = 0;
   brainwashChoiceStarted = false;
@@ -2299,6 +2303,7 @@ const resetRouletteState = () => {
   clearRouletteHitEntries();
   clearRouletteBeamTargets();
   rouletteRoundCount = 0;
+  rouletteNoHitRoundCount = 0;
   rouletteSurviveCountAtBrainwash = null;
   roulettePhase = "inactive";
   rouletteSlotCount = 0;
@@ -2369,8 +2374,12 @@ const sampleRouletteSpinAngle = (elapsed: number) => {
 
 const pickRouletteBitCount = () => {
   const participantCount = npcs.length + 1;
-  const maxCount = Math.max(1, Math.floor(participantCount / 2));
-  return 1 + Math.floor(Math.random() * maxCount);
+  const baseMin = 1;
+  const baseMax = Math.max(1, Math.floor(participantCount / 2));
+  const bonus = rouletteNoHitRoundCount;
+  const minCount = Math.min(participantCount, baseMin + bonus);
+  const maxCount = Math.min(participantCount, baseMax + bonus);
+  return minCount + Math.floor(Math.random() * (maxCount - minCount + 1));
 };
 
 const pickRouletteBitSlots = (count: number) => {
@@ -2603,6 +2612,7 @@ const fireRouletteBits = () => {
   }
   rouletteBitFireEntries = [];
   if (rouletteHitEntries.length <= 0) {
+    rouletteNoHitRoundCount += 1;
     roulettePhase = "post-hit-wait";
     roulettePhaseTimer = roulettePostHitWaitDuration;
     return;
