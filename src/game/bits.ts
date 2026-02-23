@@ -238,7 +238,7 @@ const bitBodyHeight = 0.15;
 const bitBodyDiameter = 0.12;
 const bitMuzzleDiameter = 0.03;
 const bitMuzzleOffsetZ = bitBodyHeight / 2 + 0.02;
-const bitSpawnWallClearanceRadius = 0.11;
+const bitSpawnWallClearanceRadius = 0.07;
 export const bitFireEffectDuration = 0.32;
 const bitFireConeSweepDuration = 0.07;
 const bitFireConeFadeDuration = 0.06;
@@ -1538,12 +1538,8 @@ export const updateBits = (
     }
     return layout.cells[row][col] === "floor";
   };
-  const isNavigableAt = (x: number, z: number) =>
-    isFloorAt(x, z) &&
-    hasWallClearanceAt(layout, x, z, bitSpawnWallClearanceRadius);
-  const isWallNear = (position: Vector3) => {
+  const isWallNear = (position: Vector3) =>
     !hasWallClearanceAt(layout, position.x, position.z, wallRadius);
-  };
   const isCellWithinBounds = (row: number, col: number) => {
     const centerX =
       -halfWidth + layout.cellSize / 2 + col * layout.cellSize;
@@ -2756,14 +2752,14 @@ export const updateBits = (
     const nextZ = bit.root.position.z + moveStep.z;
     let hitWall = false;
 
-    if (isNavigableAt(nextX, bit.root.position.z)) {
+    if (isFloorAt(nextX, bit.root.position.z)) {
       bit.root.position.x = nextX;
     } else {
       bit.wanderDirection.x *= -1;
       hitWall = true;
     }
 
-    if (isNavigableAt(bit.root.position.x, nextZ)) {
+    if (isFloorAt(bit.root.position.x, nextZ)) {
       bit.root.position.z = nextZ;
     } else {
       bit.wanderDirection.z *= -1;

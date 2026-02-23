@@ -10,6 +10,7 @@ PLEASE IMPLEMENT THIS PLAN:
 - 前より壁にめり込んで出現するケースは減ったと思いますが、まだあります。
 - これ以上の改善は難しいでしょうか？
 - 1で
+- やっぱり一つ前の、曲がりにくくなる修正は元に戻してください。曲がり角のビットの追尾性がかなり悪くなってしまいました。
 
 ## 要約
 1. 主因は「出現位置の妥当性未検証」です。`createBitAt` が渡された座標をそのまま採用しており、床/壁チェックがありません。`src/game/bits.ts:1218` `src/game/bits.ts:1226`
@@ -27,7 +28,7 @@ PLEASE IMPLEMENT THIS PLAN:
 1. `src/game/bits.ts` に出現位置解決ヘルパーを追加します。
 `isFloorPoint` / `hasFloorNeighbor` / `isBitSpawnPointValid` / `resolveNearestValidBitSpawnPosition`
 2. 妥当位置の条件を固定します。
-「床セル上」かつ「隣接4方向に少なくとも1つ床セルがある」かつ「壁クリアランス半径0.11以上」。
+「床セル上」かつ「隣接4方向に少なくとも1つ床セルがある」かつ「壁クリアランス半径0.07以上」。
 3. `resolveNearestValidBitSpawnPosition` は以下で固定します。
 「希望位置が妥当ならそのまま」→「不正なら `worldToCellClamped` 起点で4近傍BFS（探索順: 上→右→下→左）」→「最初に見つかった妥当セル中心へ補正」。
 4. `createBit` でも最終位置を同ヘルパーで確定し、初期ランダム湧きも同じ保証をかけます。`src/game/bits.ts:1120` `src/game/bits.ts:1127`
@@ -54,6 +55,8 @@ PLEASE IMPLEMENT THIS PLAN:
 - [x] `updateBits` の移動可否判定に壁クリアランス判定（0.11）を追加する
 - [x] `npm run build` を再実行して整合を確認する
 - [x] 追加入力分の実装結果を `docs/plan.md` の結果へ反映する
+- [x] 追尾性低下の報告を受け、追加した移動厳格化（`isFloorAt` + クリアランス併用）を取り下げる
+- [x] クリアランス半径を 0.07 に戻す（出現補正ロジックは維持）
 
 ## 結果
 - `src/game/bits.ts` に以下の出現位置検証/補正ヘルパーを追加した。
@@ -61,11 +64,10 @@ PLEASE IMPLEMENT THIS PLAN:
   - `hasFloorNeighbor`
   - `isBitSpawnPointValid`
   - `resolveNearestValidBitSpawnPosition`
-- 妥当位置判定は「床セル上」「隣接4方向に床セルが1つ以上」「壁クリアランス半径 0.11 以上」に統一した。
+- 妥当位置判定は「床セル上」「隣接4方向に床セルが1つ以上」「壁クリアランス半径 0.07 以上」に統一した。
 - `createBit` と `createBitAt` の両方で `resolveNearestValidBitSpawnPosition` を通すように変更し、通常湧き/alert湧き/carpet湧き/roulette湧きを全モードで同一保証に統一した。
 - `createBitAt(scene, layout, materials, index, position, direction?)` へ公開インターフェースを変更し、`src/main.ts` の全呼び出しを更新した。
 - `npm run build` を実行し、renderer/electron のビルド成功を確認した。
-- 追加入力（「1で」）対応として、壁クリアランス半径を `0.11` へ引き上げた。
-- `updateBits` の移動判定を `isFloorAt` 単体から、`isFloorAt` + 壁クリアランス（0.11）併用へ変更した。
-- 壁距離判定を `hasWallClearanceAt` に共通化し、出現時と移動時で同一基準を使うように統一した。
-- 追加入力対応後に `npm run build` を再実行し、renderer/electron のビルド成功を確認した。
+- 追加入力（「1で」）対応として、いったん壁クリアランス半径を `0.11` へ引き上げ、移動判定にもクリアランスを適用した。
+- その後の追加入力（「曲がりにくくなる修正は戻す」）に合わせ、移動判定の厳格化を取り下げ、`isFloorAt` ベースへ戻した。
+- クリアランス半径は `0.07` へ戻し、出現位置補正ロジック（`resolveNearestValidBitSpawnPosition`）は維持した。
