@@ -2423,6 +2423,9 @@ const startRouletteBitsDespawn = () => {
 const beginRouletteHit = (target: RouletteHitTarget) => {
   const sequence = createHitSequenceState();
   const targetCenter = getRouletteTargetCenterPosition(target);
+  if (target.kind === "player" && playerHitTime <= 0) {
+    playerHitTime = rouletteSystem.getStats().elapsed;
+  }
   if (target.kind === "player") {
     startHitSequence(
       sequence,
@@ -2846,10 +2849,15 @@ const drawMinimap = () => {
     rouletteStats && isBrainwashState(playerState)
       ? rouletteStats.surviveCount
       : null;
-  const surviveTime = brainwashChoiceStarted ? playerHitTime : null;
+  const showSurviveTime =
+    brainwashChoiceStarted ||
+    (rouletteMode && isBrainwashState(playerState));
+  const surviveTime = showSurviveTime ? playerHitTime : null;
   const displayElapsedTime = rouletteStats ? rouletteStats.elapsed : elapsedTime;
   let retryText: string | null = null;
-  if (!rouletteMode && brainwashChoiceStarted) {
+  if (rouletteMode) {
+    retryText = "操作説明\nR: 1回分やりなおす\nEnter: タイトルへ";
+  } else if (brainwashChoiceStarted) {
     const promptLines: string[] = ["操作説明"];
     if (canMove) {
       promptLines.push("WASD: 移動");
@@ -2866,7 +2874,7 @@ const drawMinimap = () => {
     }
     promptLines.push("R: リトライ", "Enter: エピローグへ");
     retryText = promptLines.join("\n");
-  } else if (!rouletteMode && canMove) {
+  } else if (canMove) {
     retryText = "操作説明\nWASD: 移動";
   }
 
