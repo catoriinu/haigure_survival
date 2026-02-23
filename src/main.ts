@@ -33,6 +33,7 @@ import {
   createBitAt,
   createBeamMaterial,
   createBit,
+  finalizeBitVisuals,
   createBitMaterials,
   isAliveState,
   isBrainwashState,
