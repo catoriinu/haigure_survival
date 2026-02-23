@@ -1,7 +1,7 @@
 {
   "meta": {
     "name": "labyrinth_dynamic",
-    "description": "迷宮（構造変化）",
+    "description": "迷宮（ビーム壁あり）",
     "size": {
       "width": 76,
       "height": 77
