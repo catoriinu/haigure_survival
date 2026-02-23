@@ -600,6 +600,13 @@ const updateCarpetFollowerDespawn = (bit: Bit, delta: number) => {
   return bit.despawnTimer <= 0;
 };
 
+export const startBitDespawn = (bit: Bit) => {
+  startCarpetFollowerDespawn(bit);
+};
+
+export const updateBitDespawn = (bit: Bit, delta: number) =>
+  updateCarpetFollowerDespawn(bit, delta);
+
 const updateCarpetHeight = (bit: Bit, delta: number) => {
   const heightStep = carpetBombAscendSpeed * delta;
   const targetHeight = bit.carpetTargetHeight;

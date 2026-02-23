@@ -50,6 +50,8 @@ import {
   stopBitFireEffect,
   updateBitSpawnEffect,
   updateBitFireEffect,
+  startBitDespawn,
+  updateBitDespawn,
   applyNpcDefaultHaigureState,
   pickRandomCell,
   setNpcBrainwashInProgressTransitionConfig,
@@ -1251,6 +1253,8 @@ type PlayerState = CharacterState;
 type PublicExecutionScenario = ExecutionConfig;
 type RoulettePhase =
   | "inactive"
+  | "despawn-wait"
+  | "spawn-wait"
   | "spinning"
   | "post-spin-wait"
   | "fire-effect"
@@ -1318,7 +1322,6 @@ const rouletteBitMinTurns = 3;
 const rouletteBitMaxTurns = 6;
 const rouletteBitBobSpeed = 1.2;
 const rouletteBitBobHeight = 0.03;
-const rouletteHelpText = "操作説明\nR: Undo\nEnter: タイトルへ";
 let roulettePhase: RoulettePhase = "inactive";
 const rouletteCenter = new Vector3(0, 0, 0);
 const roulettePlayerPosition = new Vector3(0, 0, 0);
@@ -2457,7 +2460,6 @@ const setupRouletteParticipants = () => {
 };
 
 const spawnRouletteBits = () => {
-  disposeAllBits();
   rouletteBitFireEntries = [];
   const bitCount = pickRouletteBitCount();
   rouletteBitBaseSlots = pickRouletteBitSlots(bitCount);
@@ -2476,6 +2478,18 @@ const spawnRouletteBits = () => {
     bits.push(bit);
   }
   updateRouletteBitTransforms();
+};
+
+const startRouletteBitsDespawn = () => {
+  if (bits.length <= 0) {
+    return false;
+  }
+  rouletteBitFireEntries = [];
+  for (const bit of bits) {
+    startBitDespawn(bit);
+  }
+  roulettePhase = "despawn-wait";
+  return true;
 };
 
 const startRouletteSpin = () => {
@@ -2503,8 +2517,11 @@ const beginRouletteRound = (
   if (recordUndoSnapshot) {
     rouletteUndoHistory.push(captureRouletteSnapshot());
   }
+  if (startRouletteBitsDespawn()) {
+    return;
+  }
   spawnRouletteBits();
-  startRouletteSpin();
+  roulettePhase = "spawn-wait";
 };
 
 const beginRouletteHit = (target: RouletteHitTarget) => {
@@ -2710,7 +2727,7 @@ const startRouletteMode = () => {
   rouletteElapsed = 0;
   setupRouletteParticipants();
   beginRouletteRound(true);
-  hud.setStateInfo(rouletteHelpText);
+  hud.setStateInfo(null);
 };
 
 const undoRouletteRound = () => {
@@ -2741,7 +2758,7 @@ const undoRouletteRound = () => {
     rouletteBitFireEntries = [];
     beginRouletteRound(false, false);
     gamePhase = "roulette";
-    hud.setStateInfo(rouletteHelpText);
+    hud.setStateInfo(null);
     rouletteUndoInProgress = false;
   });
 };
@@ -2762,7 +2779,13 @@ const updateRouletteScene = (
     beamImpactOrbs,
     shouldProcessOrb
   );
+  let rouletteBitDespawning = false;
   for (const bit of bits) {
+    if (bit.despawnTimer > 0) {
+      rouletteBitDespawning = true;
+      updateBitDespawn(bit, delta);
+      continue;
+    }
     if (bit.spawnPhase !== "done") {
       updateBitSpawnEffect(bit, delta);
     }
@@ -2771,6 +2794,24 @@ const updateRouletteScene = (
   updateRouletteBitTransforms();
 
   if (roulettePhase === "inactive" || roulettePhase === "ended") {
+    return;
+  }
+  if (roulettePhase === "despawn-wait") {
+    if (rouletteBitDespawning) {
+      return;
+    }
+    disposeAllBits();
+    spawnRouletteBits();
+    roulettePhase = "spawn-wait";
+    return;
+  }
+  if (roulettePhase === "spawn-wait") {
+    for (const bit of bits) {
+      if (bit.spawnPhase !== "done") {
+        return;
+      }
+    }
+    startRouletteSpin();
     return;
   }
   if (roulettePhase === "spinning") {
@@ -3322,7 +3363,7 @@ const startGame = async () => {
     titleResetSettingsButton.style.display = "none";
     titleGameOverWarning.style.display = "none";
     hud.setHudVisible(true);
-    hud.setStateInfo(rouletteSelected ? rouletteHelpText : null);
+    hud.setStateInfo(null);
     gameFlow.resetFade();
     canvas.requestPointerLock();
   } finally {

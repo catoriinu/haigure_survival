@@ -158,10 +158,11 @@ export const createHud = (): Hud => {
       infoLines.push(trapLine);
     }
     if (rouletteRoundCount !== null) {
-      infoLines.push(`ルーレット回数: ${rouletteRoundCount}回`);
+      let rouletteLine = `ルーレット回数: ${rouletteRoundCount}回`;
       if (rouletteSurviveCount !== null) {
-        infoLines.push(`生存回数: ${rouletteSurviveCount}回`);
+        rouletteLine += `  生存回数: ${rouletteSurviveCount}回`;
       }
+      infoLines.push(rouletteLine);
     }
     statusInfo.textContent = infoLines.join("\n");
 
