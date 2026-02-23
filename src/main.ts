@@ -657,7 +657,7 @@ const titleResetSettingsButton = document.createElement("button");
 titleResetSettingsButton.type = "button";
 titleResetSettingsButton.className = "title-reset-settings-button";
 titleResetSettingsButton.dataset.ui = "title-reset-settings-button";
-titleResetSettingsButton.textContent = "デフォルトに戻す";
+titleResetSettingsButton.textContent = "全てデフォルトに戻す";
 titleRightPanels.appendChild(titleResetSettingsButton);
 const updateTrapRoomRecommendButtonVisibility = () => {
   trapRoomRecommendControl.setVisible(stageSelection.id === TRAP_STAGE_ID);
@@ -745,6 +745,7 @@ const isSeAvailable = (url: string) => seUrls.has(url);
 const bitSeMove = "/audio/se/FlyingObject.mp3";
 const bitSeAlert = "/audio/se/BeamShot_WavingPart.mp3";
 const bitSeTarget = "/audio/se/aim.mp3";
+const alarmSe = "/audio/se/alarm.mp3";
 const bitSeBeamNonTarget = [
   "/audio/se/BeamShotR_DownLong.mp3",
   "/audio/se/BeamShotR_Down.mp3",
@@ -763,6 +764,11 @@ const hitSeVariants = [
 const seBaseOptions: SpatialPlayOptions = {
   volume: 0.95,
   maxDistance: 3.75,
+  loop: false
+};
+const alarmSeOptions: SpatialPlayOptions = {
+  volume: 0.95,
+  maxDistance: 6,
   loop: false
 };
 const rouletteSpinLoopOptions: SpatialPlayOptions = {
@@ -1116,7 +1122,7 @@ const createSpawnedBitAt = (
 ) => {
   const isRed = Math.random() < redBitSpawnChance;
   const materials = isRed ? redBitMaterials : bitMaterials;
-  const bit = createBitAt(scene, materials, index, position, direction);
+  const bit = createBitAt(scene, layout, materials, index, position, direction);
   if (isRed) {
     applyRedBit(bit);
   }
@@ -1126,7 +1132,7 @@ const createCarpetFollowerBitAt = (
   index: number,
   position: Vector3,
   direction?: Vector3
-) => createBitAt(scene, carpetBitMaterials, index, position, direction);
+) => createBitAt(scene, layout, carpetBitMaterials, index, position, direction);
 
 const beamMaterial = createBeamMaterial(scene);
 const bits = Array.from({ length: 3 }, (_, index) => createRandomBit(index));
@@ -1201,6 +1207,13 @@ dynamicBeamSystem.syncStageContext({
 const alarmSystem = createAlarmSystem({
   scene,
   isAlarmEnabled: () => runtimeAlarmTrapEnabled,
+  onTriggerAlarmCell: (_triggerTargetId, centerX, centerZ) => {
+    if (!isSeAvailable(alarmSe)) {
+      return;
+    }
+    const alarmPosition = new Vector3(centerX, playerCenterHeight, centerZ);
+    audioManager.playSe(alarmSe, () => alarmPosition, alarmSeOptions);
+  },
   onNpcTriggerAlarmCell: (npcId) => {
     alarmTriggeredNpcIds.add(npcId);
   }
@@ -2403,7 +2416,14 @@ const spawnRouletteBits = (baseSlots: number[]) => {
       rouletteCenter.z + Math.sin(angle) * rouletteBitRadius
     );
     const direction = rouletteCenter.subtract(position);
-    const bit = createBitAt(scene, bitMaterials, bitIndex, position, direction);
+    const bit = createBitAt(
+      scene,
+      layout,
+      bitMaterials,
+      bitIndex,
+      position,
+      direction
+    );
     bitIndex += 1;
     bit.mode = "hold";
     bits.push(bit);
