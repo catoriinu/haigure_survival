@@ -657,7 +657,7 @@ const titleResetSettingsButton = document.createElement("button");
 titleResetSettingsButton.type = "button";
 titleResetSettingsButton.className = "title-reset-settings-button";
 titleResetSettingsButton.dataset.ui = "title-reset-settings-button";
-titleResetSettingsButton.textContent = "デフォルトに戻す";
+titleResetSettingsButton.textContent = "全てデフォルトに戻す";
 titleRightPanels.appendChild(titleResetSettingsButton);
 const updateTrapRoomRecommendButtonVisibility = () => {
   trapRoomRecommendControl.setVisible(stageSelection.id === TRAP_STAGE_ID);
