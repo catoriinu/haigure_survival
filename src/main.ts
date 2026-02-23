@@ -1116,7 +1116,7 @@ const createSpawnedBitAt = (
 ) => {
   const isRed = Math.random() < redBitSpawnChance;
   const materials = isRed ? redBitMaterials : bitMaterials;
-  const bit = createBitAt(scene, materials, index, position, direction);
+  const bit = createBitAt(scene, layout, materials, index, position, direction);
   if (isRed) {
     applyRedBit(bit);
   }
@@ -1126,7 +1126,7 @@ const createCarpetFollowerBitAt = (
   index: number,
   position: Vector3,
   direction?: Vector3
-) => createBitAt(scene, carpetBitMaterials, index, position, direction);
+) => createBitAt(scene, layout, carpetBitMaterials, index, position, direction);
 
 const beamMaterial = createBeamMaterial(scene);
 const bits = Array.from({ length: 3 }, (_, index) => createRandomBit(index));
@@ -2403,7 +2403,14 @@ const spawnRouletteBits = (baseSlots: number[]) => {
       rouletteCenter.z + Math.sin(angle) * rouletteBitRadius
     );
     const direction = rouletteCenter.subtract(position);
-    const bit = createBitAt(scene, bitMaterials, bitIndex, position, direction);
+    const bit = createBitAt(
+      scene,
+      layout,
+      bitMaterials,
+      bitIndex,
+      position,
+      direction
+    );
     bitIndex += 1;
     bit.mode = "hold";
     bits.push(bit);

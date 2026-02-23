@@ -1,4 +1,4 @@
-﻿import {
+import {
   Color3,
   Mesh,
   MeshBuilder,
@@ -238,6 +238,7 @@ const bitBodyHeight = 0.15;
 const bitBodyDiameter = 0.12;
 const bitMuzzleDiameter = 0.03;
 const bitMuzzleOffsetZ = bitBodyHeight / 2 + 0.02;
+const bitSpawnWallClearanceRadius = 0.11;
 export const bitFireEffectDuration = 0.32;
 const bitFireConeSweepDuration = 0.07;
 const bitFireConeFadeDuration = 0.06;
@@ -1117,6 +1118,166 @@ const createSpawnEffect = (
   return { effect, material };
 };
 
+const isFloorPoint = (layout: GridLayout, x: number, z: number) => {
+  const halfWidth = (layout.columns * layout.cellSize) / 2;
+  const halfDepth = (layout.rows * layout.cellSize) / 2;
+  const col = Math.floor((x + halfWidth) / layout.cellSize);
+  const row = Math.floor((z + halfDepth) / layout.cellSize);
+  if (row < 0 || row >= layout.rows || col < 0 || col >= layout.columns) {
+    return false;
+  }
+  return layout.cells[row][col] === "floor";
+};
+
+const hasFloorNeighbor = (layout: GridLayout, row: number, col: number) => {
+  const neighbors = [
+    { row: row - 1, col },
+    { row, col: col + 1 },
+    { row: row + 1, col },
+    { row, col: col - 1 }
+  ];
+  for (const neighbor of neighbors) {
+    if (
+      neighbor.row < 0 ||
+      neighbor.row >= layout.rows ||
+      neighbor.col < 0 ||
+      neighbor.col >= layout.columns
+    ) {
+      continue;
+    }
+    if (layout.cells[neighbor.row][neighbor.col] === "floor") {
+      return true;
+    }
+  }
+  return false;
+};
+
+const hasWallClearanceAt = (
+  layout: GridLayout,
+  x: number,
+  z: number,
+  radius: number
+) => {
+  const halfWidth = (layout.columns * layout.cellSize) / 2;
+  const halfDepth = (layout.rows * layout.cellSize) / 2;
+  const radiusSq = radius * radius;
+  const minCol = Math.max(
+    0,
+    Math.floor((x - radius + halfWidth) / layout.cellSize)
+  );
+  const maxCol = Math.min(
+    layout.columns - 1,
+    Math.floor((x + radius + halfWidth) / layout.cellSize)
+  );
+  const minRow = Math.max(
+    0,
+    Math.floor((z - radius + halfDepth) / layout.cellSize)
+  );
+  const maxRow = Math.min(
+    layout.rows - 1,
+    Math.floor((z + radius + halfDepth) / layout.cellSize)
+  );
+  for (let row = minRow; row <= maxRow; row += 1) {
+    for (let col = minCol; col <= maxCol; col += 1) {
+      if (layout.cells[row][col] !== "wall") {
+        continue;
+      }
+      const cellMinX = -halfWidth + col * layout.cellSize;
+      const cellMaxX = cellMinX + layout.cellSize;
+      const cellMinZ = -halfDepth + row * layout.cellSize;
+      const cellMaxZ = cellMinZ + layout.cellSize;
+      let dx = 0;
+      if (x < cellMinX) {
+        dx = cellMinX - x;
+      } else if (x > cellMaxX) {
+        dx = x - cellMaxX;
+      }
+      let dz = 0;
+      if (z < cellMinZ) {
+        dz = cellMinZ - z;
+      } else if (z > cellMaxZ) {
+        dz = z - cellMaxZ;
+      }
+      if (dx * dx + dz * dz <= radiusSq) {
+        return false;
+      }
+    }
+  }
+  return true;
+};
+
+const isBitSpawnPointValid = (layout: GridLayout, position: Vector3) => {
+  if (!isFloorPoint(layout, position.x, position.z)) {
+    return false;
+  }
+  const cell = worldToCellClamped(layout, position);
+  if (!hasFloorNeighbor(layout, cell.row, cell.col)) {
+    return false;
+  }
+  return hasWallClearanceAt(
+    layout,
+    position.x,
+    position.z,
+    bitSpawnWallClearanceRadius
+  );
+};
+
+const resolveNearestValidBitSpawnPosition = (
+  layout: GridLayout,
+  desiredPosition: Vector3
+) => {
+  if (isBitSpawnPointValid(layout, desiredPosition)) {
+    return desiredPosition.clone();
+  }
+
+  const start = worldToCellClamped(layout, desiredPosition);
+  const visited = Array.from({ length: layout.rows }, () =>
+    Array.from({ length: layout.columns }, () => false)
+  );
+  const queueRow = [start.row];
+  const queueCol = [start.col];
+  let head = 0;
+  visited[start.row][start.col] = true;
+
+  while (head < queueRow.length) {
+    const row = queueRow[head];
+    const col = queueCol[head];
+    head += 1;
+
+    if (layout.cells[row][col] === "floor") {
+      const candidate = cellToWorld(layout, { row, col }, desiredPosition.y);
+      if (isBitSpawnPointValid(layout, candidate)) {
+        return candidate;
+      }
+    }
+
+    const neighbors = [
+      { row: row - 1, col },
+      { row, col: col + 1 },
+      { row: row + 1, col },
+      { row, col: col - 1 }
+    ];
+    for (const neighbor of neighbors) {
+      if (
+        neighbor.row < 0 ||
+        neighbor.row >= layout.rows ||
+        neighbor.col < 0 ||
+        neighbor.col >= layout.columns
+      ) {
+        continue;
+      }
+      if (visited[neighbor.row][neighbor.col]) {
+        continue;
+      }
+      visited[neighbor.row][neighbor.col] = true;
+      queueRow.push(neighbor.row);
+      queueCol.push(neighbor.col);
+    }
+  }
+
+  throw new Error("有効なビット出現位置が見つかりません。ステージ構成を確認してください。");
+};
+
 export const createBit = (
   scene: Scene,
   layout: GridLayout,
@@ -1126,7 +1287,10 @@ export const createBit = (
 ): Bit => {
   const cell = pickRandomCell(floorCells);
   const baseHeight = 0.25 + Math.random() * 0.21;
-  const position = cellToWorld(layout, cell, baseHeight);
+  const position = resolveNearestValidBitSpawnPosition(
+    layout,
+    cellToWorld(layout, cell, baseHeight)
+  );
   const { root, body, muzzle } = createBitRoot(scene, materials, index);
   root.position = position;
   body.isVisible = false;
@@ -1217,13 +1381,15 @@ export const createBit = (
 
 export const createBitAt = (
   scene: Scene,
+  layout: GridLayout,
   materials: BitMaterials,
   index: number,
   position: Vector3,
   direction?: Vector3
 ): Bit => {
+  const spawnPosition = resolveNearestValidBitSpawnPosition(layout, position);
   const { root, body, muzzle } = createBitRoot(scene, materials, index);
-  root.position.copyFrom(position);
+  root.position.copyFrom(spawnPosition);
   body.isVisible = false;
   muzzle.isVisible = false;
   body.scaling = new Vector3(0, 0, 0);
@@ -1262,8 +1428,8 @@ export const createBitAt = (
     carpetPassTimer: 0,
     carpetAimTimer: 0,
     carpetAimStart: new Vector3(0, 0, 1),
-    carpetTargetHeight: position.y,
-    carpetReturnHeight: position.y,
+    carpetTargetHeight: spawnPosition.y,
+    carpetReturnHeight: spawnPosition.y,
     carpetReturnActive: false,
     carpetCooldown: 0,
     lockedDirection: new Vector3(0, 0, 1),
@@ -1295,7 +1461,7 @@ export const createBitAt = (
     fireTimer: 0.6 + Math.random() * 1.2,
     fireInterval: 1.1 + Math.random() * 1.4,
     floatOffset: Math.random() * Math.PI * 2,
-    baseHeight: position.y,
+    baseHeight: spawnPosition.y,
     isMoving: false,
     despawnTimer: 0,
       spawnPhase: "fade-in",
@@ -1364,7 +1530,6 @@ export const updateBits = (
   const avoidRadius = 0.25;
   const avoidRadiusSq = avoidRadius * avoidRadius;
   const wallRadius = bitWallProximityRadius;
-  const wallRadiusSq = wallRadius * wallRadius;
   const isFloorAt = (x: number, z: number) => {
     const col = Math.floor((x + halfWidth) / layout.cellSize);
     const row = Math.floor((z + halfDepth) / layout.cellSize);
@@ -1373,51 +1538,11 @@ export const updateBits = (
     }
     return layout.cells[row][col] === "floor";
   };
+  const isNavigableAt = (x: number, z: number) =>
+    isFloorAt(x, z) &&
+    hasWallClearanceAt(layout, x, z, bitSpawnWallClearanceRadius);
   const isWallNear = (position: Vector3) => {
-    const minCol = Math.max(
-      0,
-      Math.floor((position.x - wallRadius + halfWidth) / layout.cellSize)
-    );
-    const maxCol = Math.min(
-      layout.columns - 1,
-      Math.floor((position.x + wallRadius + halfWidth) / layout.cellSize)
-    );
-    const minRow = Math.max(
-      0,
-      Math.floor((position.z - wallRadius + halfDepth) / layout.cellSize)
-    );
-    const maxRow = Math.min(
-      layout.rows - 1,
-      Math.floor((position.z + wallRadius + halfDepth) / layout.cellSize)
-    );
-
-    for (let row = minRow; row <= maxRow; row += 1) {
-      for (let col = minCol; col <= maxCol; col += 1) {
-        if (layout.cells[row][col] !== "wall") {
-          continue;
-        }
-        const cellMinX = -halfWidth + col * layout.cellSize;
-        const cellMaxX = cellMinX + layout.cellSize;
-        const cellMinZ = -halfDepth + row * layout.cellSize;
-        const cellMaxZ = cellMinZ + layout.cellSize;
-        let dx = 0;
-        if (position.x < cellMinX) {
-          dx = cellMinX - position.x;
-        } else if (position.x > cellMaxX) {
-          dx = position.x - cellMaxX;
-        }
-        let dz = 0;
-        if (position.z < cellMinZ) {
-          dz = cellMinZ - position.z;
-        } else if (position.z > cellMaxZ) {
-          dz = position.z - cellMaxZ;
-        }
-        if (dx * dx + dz * dz <= wallRadiusSq) {
-          return true;
-        }
-      }
-    }
-    return false;
+    !hasWallClearanceAt(layout, position.x, position.z, wallRadius);
   };
   const isCellWithinBounds = (row: number, col: number) => {
     const centerX =
@@ -2631,14 +2756,14 @@ export const updateBits = (
     const nextZ = bit.root.position.z + moveStep.z;
     let hitWall = false;
 
-    if (isFloorAt(nextX, bit.root.position.z)) {
+    if (isNavigableAt(nextX, bit.root.position.z)) {
       bit.root.position.x = nextX;
     } else {
       bit.wanderDirection.x *= -1;
       hitWall = true;
     }
 
-    if (isFloorAt(bit.root.position.x, nextZ)) {
+    if (isNavigableAt(bit.root.position.x, nextZ)) {
       bit.root.position.z = nextZ;
     } else {
       bit.wanderDirection.z *= -1;
