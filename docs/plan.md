@@ -16,7 +16,7 @@ PLEASE IMPLEMENT THIS PLAN:
 - [x] ルーレット回転プロファイルを純関数化
 - [x] ルーレット状態機械を `RouletteSystem` へ抽出
 - [x] ルーレット回転SE制御を `RouletteSystem` 側へ集約
-- [ ] HUD連携を `RouletteSystem.getStats()` 経由に統一
+- [x] HUD連携を `RouletteSystem.getStats()` 経由に統一
 - [ ] README/docsを現行実装値へ同期し、最終確認を実施
 
 ## 結果
@@ -24,3 +24,4 @@ PLEASE IMPLEMENT THIS PLAN:
 - ステップ2完了: 回転プロファイルを `src/game/roulette/spinProfile.ts` に分離し、`main.ts` 側の角度/音量計算を純関数呼び出しへ移行
 - ステップ3完了: `src/game/roulette/system.ts` を追加し、ラウンド進行/Undo/統計管理を `main.ts` から `RouletteSystem` へ抽出
 - ステップ4完了: 回転SEの音量カーブ計算を `RouletteSystem` 側へ移し、`main.ts` は再生/停止/音量反映のアダプタに整理
+- ステップ5完了: HUD表示値の取得元を `RouletteSystem.getStats()` に統一し、`main.ts` のルーレット統計分岐を整理

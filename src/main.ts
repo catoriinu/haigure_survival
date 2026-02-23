@@ -2414,7 +2414,6 @@ const startRouletteBitsDespawn = () => {
   if (bits.length <= 0) {
     return false;
   }
-  rouletteBitFireEntries = [];
   for (const bit of bits) {
     startBitDespawn(bit);
   }
@@ -2844,8 +2843,8 @@ const drawMinimap = () => {
   const rouletteStats = rouletteMode ? rouletteSystem.getStats() : null;
   const rouletteRoundCountValue = rouletteStats ? rouletteStats.roundCount : null;
   const rouletteSurviveCountValue =
-    rouletteMode && isBrainwashState(playerState)
-      ? rouletteStats?.surviveCount ?? null
+    rouletteStats && isBrainwashState(playerState)
+      ? rouletteStats.surviveCount
       : null;
   const surviveTime = brainwashChoiceStarted ? playerHitTime : null;
   const displayElapsedTime = rouletteStats ? rouletteStats.elapsed : elapsedTime;
