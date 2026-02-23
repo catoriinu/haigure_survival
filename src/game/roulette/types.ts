@@ -15,6 +15,11 @@ export type RouletteHitTarget =
   | { kind: "player" }
   | { kind: "npc"; npcIndex: number };
 
+export type RouletteBitFireEntry = {
+  bitIndex: number;
+  target: RouletteHitTarget;
+};
+
 export type RouletteSnapshot = {
   playerState: CharacterState;
   npcStates: CharacterState[];

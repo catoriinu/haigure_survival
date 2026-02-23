@@ -95,8 +95,9 @@ import { createGameFlow, type GamePhase, type ExecutionConfig } from "./game/flo
 import { createDynamicBeamSystem } from "./game/dynamicBeam/system";
 import { createTrapSystem } from "./game/trap/system";
 import { createAlarmSystem } from "./game/alarm/system";
-import { createRouletteSpinProfile, sampleRouletteSpinAngle, sampleRouletteSpinLoopVolume } from "./game/roulette/spinProfile";
-import { RouletteHitTarget, RoulettePhase, RouletteSnapshot, RouletteSpinProfile } from "./game/roulette/types";
+import { createRouletteSystem } from "./game/roulette/system";
+import { sampleRouletteSpinLoopVolume } from "./game/roulette/spinProfile";
+import { RouletteBitFireEntry, RouletteHitTarget, RouletteSpinProfile } from "./game/roulette/types";
 import { buildStageContext, disposeStageParts } from "./world/stageContext";
 import { createZoneMapFromStageJson } from "./world/stageJson";
 import {
@@ -1282,10 +1283,6 @@ const resetPlayerMoveInput = () => {
 
 type PlayerState = CharacterState;
 type PublicExecutionScenario = ExecutionConfig;
-type RouletteBitFireEntry = {
-  bitIndex: number;
-  target: RouletteHitTarget;
-};
 type RouletteHitEntry = {
   target: RouletteHitTarget;
   sequence: ReturnType<typeof createHitSequenceState>;
@@ -1330,28 +1327,13 @@ const rouletteBitMinTurns = 3;
 const rouletteBitMaxTurns = 6;
 const rouletteBitBobSpeed = 1.2;
 const rouletteBitBobHeight = 0.03;
-let roulettePhase: RoulettePhase = "inactive";
 const rouletteCenter = new Vector3(0, 0, 0);
 const roulettePlayerPosition = new Vector3(0, 0, 0);
 let rouletteCharacterRadius = 0;
 let rouletteBitRadius = 0;
-let rouletteSlotCount = 0;
-let rouletteElapsed = 0;
-let rouletteBitOffsetAngle = 0;
-let rouletteSpinElapsed = 0;
-let rouletteSpinProfile: RouletteSpinProfile = createRouletteSpinProfile(() => 0);
-let rouletteSpinTotalAngle = 0;
-let rouletteStopShift = 0;
-let roulettePhaseTimer = 0;
-let rouletteBitBaseSlots: number[] = [];
-let rouletteBitFireEntries: RouletteBitFireEntry[] = [];
 let rouletteHitEntries: RouletteHitEntry[] = [];
 const rouletteBeamTargets = new Map<Beam, RouletteHitTarget>();
-let rouletteUndoHistory: RouletteSnapshot[] = [];
-let rouletteUndoInProgress = false;
-let rouletteRoundCount = 0;
-let rouletteNoHitRoundCount = 0;
-let rouletteSurviveCountAtBrainwash: number | null = null;
+let rouletteSystem!: ReturnType<typeof createRouletteSystem>;
 
 let gamePhase: GamePhase = "title";
 const allDownTransitionDelay = 3;
@@ -2223,14 +2205,6 @@ const updateExecutionScene = (
   }
 };
 
-const normalizeRouletteSlotIndex = (slotIndex: number) => {
-  if (rouletteSlotCount <= 0) {
-    return 0;
-  }
-  const normalized = slotIndex % rouletteSlotCount;
-  return normalized < 0 ? normalized + rouletteSlotCount : normalized;
-};
-
 const buildRouletteTargetFromSlot = (slotIndex: number): RouletteHitTarget =>
   slotIndex === 0 ? { kind: "player" } : { kind: "npc", npcIndex: slotIndex - 1 };
 
@@ -2285,21 +2259,18 @@ const clearRouletteBeamTargets = () => {
   rouletteBeamTargets.clear();
 };
 
-const captureRouletteSnapshot = (): RouletteSnapshot => ({
+const captureRouletteCharacterSnapshot = () => ({
   playerState,
-  npcStates: npcs.map((npc) => npc.state),
-  rouletteRoundCount,
-  rouletteNoHitRoundCount,
-  rouletteSurviveCountAtBrainwash
+  npcStates: npcs.map((npc) => npc.state)
 });
 
-const applyRouletteSnapshot = (snapshot: RouletteSnapshot) => {
+const applyRouletteCharacterSnapshot = (snapshot: {
+  playerState: CharacterState;
+  npcStates: CharacterState[];
+}) => {
   playerState = snapshot.playerState;
   playerHitById = null;
   playerHitTime = 0;
-  rouletteRoundCount = snapshot.rouletteRoundCount;
-  rouletteNoHitRoundCount = snapshot.rouletteNoHitRoundCount;
-  rouletteSurviveCountAtBrainwash = snapshot.rouletteSurviveCountAtBrainwash;
   playerNoGunTouchBrainwashTimer = 0;
   brainwashChoiceStarted = false;
   brainwashChoiceUnlocked = false;
@@ -2309,28 +2280,6 @@ const applyRouletteSnapshot = (snapshot: RouletteSnapshot) => {
     npc.noGunTouchBrainwashTimer = 0;
     npc.sprite.color.copyFrom(npcSpriteColorNormal);
   }
-};
-
-const resetRouletteState = () => {
-  clearRouletteHitEntries();
-  clearRouletteBeamTargets();
-  stopRouletteSpinLoop();
-  rouletteRoundCount = 0;
-  rouletteNoHitRoundCount = 0;
-  rouletteSurviveCountAtBrainwash = null;
-  roulettePhase = "inactive";
-  rouletteSlotCount = 0;
-  rouletteElapsed = 0;
-  rouletteBitOffsetAngle = 0;
-  rouletteSpinElapsed = 0;
-  rouletteSpinProfile = createRouletteSpinProfile(() => 0);
-  rouletteSpinTotalAngle = 0;
-  rouletteStopShift = 0;
-  roulettePhaseTimer = 0;
-  rouletteBitBaseSlots = [];
-  rouletteBitFireEntries = [];
-  rouletteUndoHistory = [];
-  rouletteUndoInProgress = false;
 };
 
 const isRouletteComplete = () => {
@@ -2345,17 +2294,22 @@ const isRouletteComplete = () => {
   return true;
 };
 
-const updateRouletteBitTransforms = () => {
-  if (rouletteSlotCount <= 0 || bits.length === 0) {
+const updateRouletteBitTransforms = (
+  baseSlots: number[],
+  offsetAngle: number,
+  elapsed: number
+) => {
+  const slotCount = npcs.length + 1;
+  if (slotCount <= 0 || bits.length === 0) {
     return;
   }
-  const angleStep = (Math.PI * 2) / rouletteSlotCount;
+  const angleStep = (Math.PI * 2) / slotCount;
   for (let index = 0; index < bits.length; index += 1) {
     const bit = bits[index];
-    const baseSlot = rouletteBitBaseSlots[index];
-    const angle = angleStep * baseSlot + rouletteBitOffsetAngle;
+    const baseSlot = baseSlots[index];
+    const angle = angleStep * baseSlot + offsetAngle;
     const bob =
-      Math.sin(rouletteElapsed * rouletteBitBobSpeed + bit.floatOffset) *
+      Math.sin(elapsed * rouletteBitBobSpeed + bit.floatOffset) *
       rouletteBitBobHeight;
     bit.root.position.set(
       rouletteCenter.x + Math.cos(angle) * rouletteBitRadius,
@@ -2367,42 +2321,21 @@ const updateRouletteBitTransforms = () => {
   }
 };
 
-const updateRouletteSpinLoopVolume = () => {
+const updateRouletteSpinLoopVolume = (
+  spinProfile: RouletteSpinProfile,
+  spinElapsed: number
+) => {
   if (!rouletteSpinSeHandle?.isActive()) {
     return;
   }
-  const volumeRatio = sampleRouletteSpinLoopVolume(
-    rouletteSpinProfile,
-    rouletteSpinElapsed
-  );
+  const volumeRatio = sampleRouletteSpinLoopVolume(spinProfile, spinElapsed);
   rouletteSpinSeHandle.setBaseVolume(
     rouletteSpinLoopOptions.volume * volumeRatio
   );
 };
 
-const pickRouletteBitCount = () => {
-  const participantCount = npcs.length + 1;
-  const baseMin = 1;
-  const baseMax = Math.max(1, Math.floor(participantCount / 2));
-  const bonus = rouletteNoHitRoundCount;
-  const minCount = Math.min(participantCount, baseMin + bonus);
-  const maxCount = Math.min(participantCount, baseMax + bonus);
-  return minCount + Math.floor(Math.random() * (maxCount - minCount + 1));
-};
-
-const pickRouletteBitSlots = (count: number) => {
-  const slots = Array.from({ length: rouletteSlotCount }, (_, index) => index);
-  for (let index = slots.length - 1; index > 0; index -= 1) {
-    const swap = Math.floor(Math.random() * (index + 1));
-    const temp = slots[index];
-    slots[index] = slots[swap];
-    slots[swap] = temp;
-  }
-  return slots.slice(0, count);
-};
-
 const setupRouletteParticipants = () => {
-  rouletteSlotCount = npcs.length + 1;
+  const slotCount = npcs.length + 1;
   const areaCenterX =
     -halfWidth + layout.cellSize * (assemblyArea.startCol + assemblyArea.width / 2);
   const areaCenterZ =
@@ -2427,7 +2360,7 @@ const setupRouletteParticipants = () => {
     rouletteBitRadius = rouletteCharacterRadius + layout.cellSize * 0.5;
   }
 
-  const angleStep = (Math.PI * 2) / rouletteSlotCount;
+  const angleStep = (Math.PI * 2) / slotCount;
   const playerAngle = 0;
   roulettePlayerPosition.set(
     rouletteCenter.x + Math.cos(playerAngle) * rouletteCharacterRadius,
@@ -2462,15 +2395,13 @@ const setupRouletteParticipants = () => {
     );
     alignSpriteToGround(npc.sprite);
   }
+  return slotCount;
 };
 
-const spawnRouletteBits = () => {
-  rouletteBitFireEntries = [];
-  const bitCount = pickRouletteBitCount();
-  rouletteBitBaseSlots = pickRouletteBitSlots(bitCount);
-  rouletteBitOffsetAngle = 0;
-  for (const slot of rouletteBitBaseSlots) {
-    const angle = (Math.PI * 2 * slot) / rouletteSlotCount;
+const spawnRouletteBits = (baseSlots: number[]) => {
+  const slotCount = npcs.length + 1;
+  for (const slot of baseSlots) {
+    const angle = (Math.PI * 2 * slot) / slotCount;
     const position = new Vector3(
       rouletteCenter.x + Math.cos(angle) * rouletteBitRadius,
       eyeHeight,
@@ -2482,7 +2413,6 @@ const spawnRouletteBits = () => {
     bit.mode = "hold";
     bits.push(bit);
   }
-  updateRouletteBitTransforms();
 };
 
 const startRouletteBitsDespawn = () => {
@@ -2493,51 +2423,12 @@ const startRouletteBitsDespawn = () => {
   for (const bit of bits) {
     startBitDespawn(bit);
   }
-  roulettePhase = "despawn-wait";
   return true;
-};
-
-const startRouletteSpin = () => {
-  stopRouletteSpinLoop();
-  rouletteSpinElapsed = 0;
-  rouletteSpinProfile = createRouletteSpinProfile(Math.random);
-  rouletteStopShift = Math.floor(Math.random() * rouletteSlotCount);
-  const extraTurns =
-    rouletteBitMinTurns +
-    Math.floor(Math.random() * (rouletteBitMaxTurns - rouletteBitMinTurns + 1));
-  rouletteSpinTotalAngle =
-    Math.PI * 2 * extraTurns +
-    ((Math.PI * 2) / rouletteSlotCount) * rouletteStopShift;
-  roulettePhase = "spinning";
-  startRouletteSpinLoop();
-};
-
-const beginRouletteRound = (
-  recordUndoSnapshot: boolean,
-  incrementRoundCount = true
-) => {
-  clearRouletteHitEntries();
-  clearRouletteBeamTargets();
-  roulettePhaseTimer = 0;
-  if (incrementRoundCount) {
-    rouletteRoundCount += 1;
-  }
-  if (recordUndoSnapshot) {
-    rouletteUndoHistory.push(captureRouletteSnapshot());
-  }
-  if (startRouletteBitsDespawn()) {
-    return;
-  }
-  spawnRouletteBits();
-  roulettePhase = "spawn-wait";
 };
 
 const beginRouletteHit = (target: RouletteHitTarget) => {
   const sequence = createHitSequenceState();
   const targetCenter = getRouletteTargetCenterPosition(target);
-  if (target.kind === "player" && rouletteSurviveCountAtBrainwash === null) {
-    rouletteSurviveCountAtBrainwash = rouletteRoundCount;
-  }
   if (target.kind === "player") {
     startHitSequence(
       sequence,
@@ -2573,19 +2464,16 @@ const beginRouletteHit = (target: RouletteHitTarget) => {
   sfxDirector.playHit(() => hitPosition);
 };
 
-const startRouletteFireEffects = () => {
-  rouletteBitFireEntries = [];
+const startRouletteFireEffects = (entries: RouletteBitFireEntry[]) => {
+  const entryByBitIndex = new Map(entries.map((entry) => [entry.bitIndex, entry]));
   for (let index = 0; index < bits.length; index += 1) {
-    const targetSlot = normalizeRouletteSlotIndex(
-      rouletteBitBaseSlots[index] + rouletteStopShift
-    );
-    const target = buildRouletteTargetFromSlot(targetSlot);
-    if (isBrainwashState(getRouletteTargetState(target))) {
-      stopBitFireEffect(bits[index]);
+    const bit = bits[index];
+    const entry = entryByBitIndex.get(index);
+    if (!entry) {
+      stopBitFireEffect(bit);
       continue;
     }
-    const targetPosition = getRouletteTargetEyePosition(target);
-    const bit = bits[index];
+    const targetPosition = getRouletteTargetEyePosition(entry.target);
     bit.root.lookAt(targetPosition);
     const muzzlePosition = bit.muzzle.getAbsolutePosition();
     const direction = targetPosition.subtract(muzzlePosition);
@@ -2593,23 +2481,13 @@ const startRouletteFireEffects = () => {
       bit.fireLockDirection.copyFrom(direction.normalize());
     }
     startBitFireEffect(bit);
-    rouletteBitFireEntries.push({
-      bitIndex: index,
-      target
-    });
   }
-  if (rouletteBitFireEntries.length <= 0) {
-    roulettePhase = "post-hit-wait";
-    roulettePhaseTimer = roulettePostHitWaitDuration;
-    return;
-  }
-  roulettePhase = "fire-effect";
-  roulettePhaseTimer = bitFireEffectDuration;
 };
 
-const fireRouletteBits = () => {
+const fireRouletteBits = (entries: RouletteBitFireEntry[]) => {
   const startedHitTargets = new Set<string>();
-  for (const entry of rouletteBitFireEntries) {
+  let playerHit = false;
+  for (const entry of entries) {
     const bit = bits[entry.bitIndex];
     const targetPosition = getRouletteTargetEyePosition(entry.target);
     const muzzlePosition = bit.muzzle.getAbsolutePosition();
@@ -2633,16 +2511,15 @@ const fireRouletteBits = () => {
     if (!startedHitTargets.has(targetKey)) {
       startedHitTargets.add(targetKey);
       beginRouletteHit(entry.target);
+      if (entry.target.kind === "player") {
+        playerHit = true;
+      }
     }
   }
-  rouletteBitFireEntries = [];
-  if (rouletteHitEntries.length <= 0) {
-    rouletteNoHitRoundCount += 1;
-    roulettePhase = "post-hit-wait";
-    roulettePhaseTimer = roulettePostHitWaitDuration;
-    return;
-  }
-  roulettePhase = "hit-sequence";
+  return {
+    hitCount: startedHitTargets.size,
+    playerHit
+  };
 };
 
 const updateRouletteBeamImpacts = () => {
@@ -2724,17 +2601,52 @@ const updateRouletteHitEntries = (
     );
   }
   rouletteHitEntries = rouletteHitEntries.filter((entry) => !entry.completed);
-  if (rouletteHitEntries.length <= 0) {
-    roulettePhase = "post-hit-wait";
-    roulettePhaseTimer = roulettePostHitWaitDuration;
-  }
+  return rouletteHitEntries.length > 0;
 };
 
+rouletteSystem = createRouletteSystem({
+  random: Math.random,
+  fireTimeFromSpinStart: rouletteFireTimeFromSpinStart,
+  bitFireEffectDuration,
+  postHitWaitDuration: roulettePostHitWaitDuration,
+  bitMinTurns: rouletteBitMinTurns,
+  bitMaxTurns: rouletteBitMaxTurns,
+  clearHitEntries: clearRouletteHitEntries,
+  clearBeamTargets: clearRouletteBeamTargets,
+  startSpinLoop: startRouletteSpinLoop,
+  stopSpinLoop: stopRouletteSpinLoop,
+  updateSpinLoopVolume: updateRouletteSpinLoopVolume,
+  prepareParticipants: setupRouletteParticipants,
+  spawnBits: spawnRouletteBits,
+  startBitsDespawn: startRouletteBitsDespawn,
+  areBitsDespawning: () => bits.some((bit) => bit.despawnTimer > 0),
+  disposeAllBits,
+  areBitSpawnsDone: () => bits.every((bit) => bit.spawnPhase === "done"),
+  beginFireEffects: startRouletteFireEffects,
+  fireBits: fireRouletteBits,
+  updateHitEntries: updateRouletteHitEntries,
+  buildTargetFromSlot: buildRouletteTargetFromSlot,
+  isTargetBrainwashed: (target) => isBrainwashState(getRouletteTargetState(target)),
+  isComplete: isRouletteComplete,
+  updateBitTransforms: updateRouletteBitTransforms,
+  captureCharacterSnapshot: captureRouletteCharacterSnapshot,
+  applyCharacterSnapshot: applyRouletteCharacterSnapshot,
+  beginUndoTransition: (apply) => {
+    gamePhase = "transition";
+    gameFlow.beginFadeOut(() => {
+      apply();
+      gamePhase = "roulette";
+      hud.setStateInfo(null);
+    });
+  },
+  prepareUndoState: () => {
+    clearBeams();
+    disposeAllBits();
+  }
+});
+
 const startRouletteMode = () => {
-  resetRouletteState();
-  rouletteElapsed = 0;
-  setupRouletteParticipants();
-  beginRouletteRound(true);
+  rouletteSystem.start(true);
   hud.setStateInfo(null);
 };
 
@@ -2742,42 +2654,16 @@ const undoRouletteRound = () => {
   if (gamePhase !== "roulette") {
     return;
   }
-  if (rouletteUndoInProgress || gameFlow.isFading()) {
+  if (gameFlow.isFading()) {
     return;
   }
-  const snapshot = rouletteUndoHistory.pop();
-  if (!snapshot) {
-    return;
-  }
-  rouletteUndoInProgress = true;
-  gamePhase = "transition";
-  stopRouletteSpinLoop();
-  gameFlow.beginFadeOut(() => {
-    clearBeams();
-    disposeAllBits();
-    clearRouletteHitEntries();
-    applyRouletteSnapshot(snapshot);
-    rouletteElapsed = 0;
-    rouletteBitOffsetAngle = 0;
-    rouletteSpinElapsed = 0;
-    rouletteSpinProfile = createRouletteSpinProfile(() => 0);
-    rouletteSpinTotalAngle = 0;
-    rouletteStopShift = 0;
-    roulettePhaseTimer = 0;
-    rouletteBitBaseSlots = [];
-    rouletteBitFireEntries = [];
-    beginRouletteRound(false, false);
-    gamePhase = "roulette";
-    hud.setStateInfo(null);
-    rouletteUndoInProgress = false;
-  });
+  rouletteSystem.undo();
 };
 
 const updateRouletteScene = (
   delta: number,
   shouldProcessOrb: (position: Vector3) => boolean
 ) => {
-  rouletteElapsed += delta;
   camera.position.set(roulettePlayerPosition.x, eyeHeight, roulettePlayerPosition.z);
   camera.cameraDirection.set(0, 0, 0);
   updateBeams(
@@ -2789,97 +2675,20 @@ const updateRouletteScene = (
     beamImpactOrbs,
     shouldProcessOrb
   );
-  let rouletteBitDespawning = false;
   for (const bit of bits) {
     if (bit.despawnTimer > 0) {
-      rouletteBitDespawning = true;
       updateBitDespawn(bit, delta);
       continue;
     }
     if (bit.spawnPhase !== "done") {
       updateBitSpawnEffect(bit, delta);
     }
+    if (bit.fireEffectTimer > 0) {
+      updateBitFireEffect(bit, delta);
+    }
   }
   updateRouletteBeamImpacts();
-  updateRouletteBitTransforms();
-
-  if (roulettePhase === "inactive" || roulettePhase === "ended") {
-    return;
-  }
-  if (roulettePhase === "despawn-wait") {
-    if (rouletteBitDespawning) {
-      return;
-    }
-    disposeAllBits();
-    spawnRouletteBits();
-    roulettePhase = "spawn-wait";
-    return;
-  }
-  if (roulettePhase === "spawn-wait") {
-    for (const bit of bits) {
-      if (bit.spawnPhase !== "done") {
-        return;
-      }
-    }
-    startRouletteSpin();
-    return;
-  }
-  if (roulettePhase === "spinning") {
-    rouletteSpinElapsed = Math.min(
-      rouletteSpinProfile.duration,
-      rouletteSpinElapsed + delta
-    );
-    rouletteBitOffsetAngle = sampleRouletteSpinAngle(
-      rouletteSpinProfile,
-      rouletteSpinElapsed,
-      rouletteSpinTotalAngle
-    );
-    updateRouletteSpinLoopVolume();
-    if (rouletteSpinElapsed >= rouletteSpinProfile.duration) {
-      rouletteBitOffsetAngle = rouletteSpinTotalAngle;
-      roulettePhase = "post-spin-wait";
-      roulettePhaseTimer = Math.max(
-        0,
-        rouletteFireTimeFromSpinStart -
-          rouletteSpinProfile.duration -
-          bitFireEffectDuration
-      );
-      stopRouletteSpinLoop();
-    }
-    return;
-  }
-  if (roulettePhase === "post-spin-wait") {
-    roulettePhaseTimer = Math.max(0, roulettePhaseTimer - delta);
-    if (roulettePhaseTimer <= 0) {
-      startRouletteFireEffects();
-    }
-    return;
-  }
-  if (roulettePhase === "fire-effect") {
-    roulettePhaseTimer = Math.max(0, roulettePhaseTimer - delta);
-    for (const entry of rouletteBitFireEntries) {
-      updateBitFireEffect(bits[entry.bitIndex], delta);
-    }
-    if (roulettePhaseTimer <= 0) {
-      fireRouletteBits();
-    }
-    return;
-  }
-  if (roulettePhase === "hit-sequence") {
-    updateRouletteHitEntries(delta, shouldProcessOrb);
-    return;
-  }
-  if (roulettePhase === "post-hit-wait") {
-    roulettePhaseTimer = Math.max(0, roulettePhaseTimer - delta);
-    if (roulettePhaseTimer > 0) {
-      return;
-    }
-    if (isRouletteComplete()) {
-      roulettePhase = "ended";
-      return;
-    }
-    beginRouletteRound(true);
-  }
+  rouletteSystem.update(delta, shouldProcessOrb);
 };
 
 const createGameFlowInstance = () =>
@@ -3037,13 +2846,14 @@ const drawMinimap = () => {
     isTrapStageSelected() && brainwashChoiceStarted
       ? trapSurviveCountAtBrainwash ?? trapBeamCount
       : null;
-  const rouletteRoundCountValue = rouletteMode ? rouletteRoundCount : null;
+  const rouletteStats = rouletteMode ? rouletteSystem.getStats() : null;
+  const rouletteRoundCountValue = rouletteStats ? rouletteStats.roundCount : null;
   const rouletteSurviveCountValue =
     rouletteMode && isBrainwashState(playerState)
-      ? rouletteSurviveCountAtBrainwash
+      ? rouletteStats?.surviveCount ?? null
       : null;
   const surviveTime = brainwashChoiceStarted ? playerHitTime : null;
-  const displayElapsedTime = rouletteMode ? rouletteElapsed : elapsedTime;
+  const displayElapsedTime = rouletteStats ? rouletteStats.elapsed : elapsedTime;
   let retryText: string | null = null;
   if (!rouletteMode && brainwashChoiceStarted) {
     const promptLines: string[] = ["操作説明"];
@@ -3266,7 +3076,7 @@ const resetGame = async () => {
   });
   alarmSystem.resetRuntimeState();
   resetExecutionState();
-  resetRouletteState();
+  rouletteSystem.reset();
   playerState = runtimeDefaultStartSettings.startPlayerAsBrainwashCompleteGun
     ? "brainwash-complete-gun"
     : "normal";
