@@ -761,7 +761,7 @@ const seBaseOptions: SpatialPlayOptions = {
   loop: false
 };
 const rouletteSpinLoopOptions: SpatialPlayOptions = {
-  volume: 0.75,
+  volume: seBaseOptions.volume,
   maxDistance: 3.75,
   loop: true
 };
@@ -2396,33 +2396,22 @@ const updateRouletteBitTransforms = () => {
   }
 };
 
-const sampleRouletteSpinSpeedRatio = (elapsed: number) => {
-  const t = Math.max(0, Math.min(rouletteSpinDuration, elapsed));
-  const decelDuration = rouletteSpinGlideStart - rouletteSpinDecelStart;
-  const finalBrakeDuration = rouletteSpinDuration - rouletteSpinFinalBrakeStart;
-  if (t <= rouletteSpinAccelDuration) {
-    return t / rouletteSpinAccelDuration;
-  }
-  if (t <= rouletteSpinDecelStart) {
-    return 1;
-  }
-  if (t <= rouletteSpinGlideStart) {
-    const u = (t - rouletteSpinDecelStart) / decelDuration;
-    return 1 - (1 - rouletteSpinGlideSpeedRatio) * u;
-  }
-  if (t <= rouletteSpinFinalBrakeStart) {
-    return rouletteSpinGlideSpeedRatio;
-  }
-  const v = (t - rouletteSpinFinalBrakeStart) / finalBrakeDuration;
-  return rouletteSpinGlideSpeedRatio * (1 - v);
-};
-
 const updateRouletteSpinLoopVolume = () => {
   if (!rouletteSpinSeHandle?.isActive()) {
     return;
   }
-  const speedRatio = sampleRouletteSpinSpeedRatio(rouletteSpinElapsed);
-  rouletteSpinSeHandle.setBaseVolume(rouletteSpinLoopOptions.volume * speedRatio);
+  if (rouletteSpinElapsed <= rouletteSpinFinalBrakeStart) {
+    rouletteSpinSeHandle.setBaseVolume(rouletteSpinLoopOptions.volume);
+    return;
+  }
+  const finalBrakeDuration = rouletteSpinDuration - rouletteSpinFinalBrakeStart;
+  const progress = Math.min(
+    1,
+    (rouletteSpinElapsed - rouletteSpinFinalBrakeStart) / finalBrakeDuration
+  );
+  rouletteSpinSeHandle.setBaseVolume(
+    rouletteSpinLoopOptions.volume * (1 - progress)
+  );
 };
 
 const sampleRouletteSpinAngle = (elapsed: number) => {
