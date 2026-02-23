@@ -1331,6 +1331,7 @@ let roulettePhaseTimer = 0;
 let rouletteBitBaseSlots: number[] = [];
 let rouletteBitFireEntries: RouletteBitFireEntry[] = [];
 let rouletteHitEntries: RouletteHitEntry[] = [];
+const rouletteBeamTargets = new Map<Beam, RouletteHitTarget>();
 let rouletteUndoHistory: RouletteSnapshot[] = [];
 let rouletteUndoInProgress = false;
 
@@ -2283,6 +2284,10 @@ const clearRouletteHitEntries = () => {
   rouletteHitEntries = [];
 };
 
+const clearRouletteBeamTargets = () => {
+  rouletteBeamTargets.clear();
+};
+
 const captureRouletteSnapshot = (): RouletteSnapshot => ({
   playerState,
   npcStates: npcs.map((npc) => npc.state)
@@ -2305,6 +2310,7 @@ const applyRouletteSnapshot = (snapshot: RouletteSnapshot) => {
 
 const resetRouletteState = () => {
   clearRouletteHitEntries();
+  clearRouletteBeamTargets();
   roulettePhase = "inactive";
   rouletteSlotCount = 0;
   rouletteElapsed = 0;
@@ -2489,6 +2495,7 @@ const startRouletteSpin = () => {
 
 const beginRouletteRound = (recordUndoSnapshot: boolean) => {
   clearRouletteHitEntries();
+  clearRouletteBeamTargets();
   roulettePhaseTimer = 0;
   if (recordUndoSnapshot) {
     rouletteUndoHistory.push(captureRouletteSnapshot());
@@ -2580,15 +2587,15 @@ const fireRouletteBits = () => {
       stopBitFireEffect(bit);
       continue;
     }
-    beams.push(
-      createBeam(
-        scene,
-        muzzlePosition.clone(),
-        direction.normalize(),
-        beamMaterial,
-        bit.id
-      )
+    const beam = createBeam(
+      scene,
+      muzzlePosition.clone(),
+      direction.normalize(),
+      beamMaterial,
+      bit.id
     );
+    beams.push(beam);
+    rouletteBeamTargets.set(beam, entry.target);
     bitSoundEvents.onBeamFire(bit, entry.target.kind === "player");
     stopBitFireEffect(bit);
     const targetKey = buildRouletteTargetKey(entry.target);
@@ -2604,6 +2611,30 @@ const fireRouletteBits = () => {
     return;
   }
   roulettePhase = "hit-sequence";
+};
+
+const updateRouletteBeamImpacts = () => {
+  for (const beam of beams) {
+    const target = rouletteBeamTargets.get(beam);
+    if (!target) {
+      continue;
+    }
+    if (!beam.active) {
+      rouletteBeamTargets.delete(beam);
+      continue;
+    }
+    const targetPosition = getRouletteTargetCenterPosition(target);
+    const targetRadii =
+      target.kind === "player"
+        ? getSpriteBeamHitRadii(playerAvatar)
+        : getSpriteBeamHitRadii(npcs[target.npcIndex].sprite);
+    if (!isBeamHittingTarget(beam, targetPosition, targetRadii)) {
+      continue;
+    }
+    const impactPosition = getBeamImpactPosition(beam);
+    beginBeamRetract(beam, impactPosition);
+    rouletteBeamTargets.delete(beam);
+  }
 };
 
 const updateRouletteHitEntries = (
@@ -2724,6 +2755,7 @@ const updateRouletteScene = (
     beamImpactOrbs,
     shouldProcessOrb
   );
+  updateRouletteBeamImpacts();
   updateRouletteBitTransforms();
 
   if (roulettePhase === "inactive" || roulettePhase === "ended") {
