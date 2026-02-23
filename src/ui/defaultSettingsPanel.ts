@@ -111,6 +111,12 @@ export const createDefaultSettingsPanel = ({
     emit();
   };
 
+  const applyNpcCountOnlyMode = () => {
+    npcCountInput.disabled = false;
+    brainwashedNpcSlider.disabled = npcCountOnlyMode;
+    playerCheckbox.disabled = npcCountOnlyMode;
+  };
+
   const render = () => {
     npcCountInput.value = String(clampInteger(settings.initialNpcCount, 0, 99));
     brainwashedNpcLabel.textContent = `NPC洗脳完了済み人数 ${calculateInitialBrainwashedNpcCount()}人`;
@@ -165,8 +171,3 @@ export const createDefaultSettingsPanel = ({
     }
   };
 };
-  const applyNpcCountOnlyMode = () => {
-    npcCountInput.disabled = false;
-    brainwashedNpcSlider.disabled = npcCountOnlyMode;
-    playerCheckbox.disabled = npcCountOnlyMode;
-  };
