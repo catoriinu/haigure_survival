@@ -1248,6 +1248,26 @@ const resetPlayerMoveInput = () => {
 
 type PlayerState = CharacterState;
 type PublicExecutionScenario = ExecutionConfig;
+type RoulettePhase =
+  | "inactive"
+  | "spinning"
+  | "post-spin-wait"
+  | "fire-effect"
+  | "hit-sequence"
+  | "post-hit-wait"
+  | "ended";
+type RouletteHitTarget =
+  | { kind: "player" }
+  | { kind: "npc"; npcIndex: number };
+type RouletteBitFireEntry = {
+  bitIndex: number;
+  target: RouletteHitTarget;
+};
+type RouletteHitEntry = {
+  target: RouletteHitTarget;
+  sequence: ReturnType<typeof createHitSequenceState>;
+  completed: boolean;
+};
 let playerState: PlayerState = "normal";
 const playerHitSequence = createHitSequenceState();
 let playerHitDurationCurrent = playerHitDuration;
@@ -1281,6 +1301,31 @@ let executionHitTargetKind: "player" | "npc" | null = null;
 let executionHitNpcIndex: number | null = null;
 const executionHitTargetPosition = new Vector3(0, 0, 0);
 const executionCollisionPosition = new Vector3(0, 0, 0);
+const rouletteSpinDuration = 10;
+const rouletteSpinCruiseStart = 1;
+const rouletteSpinDecelStart = 5;
+const roulettePostSpinWaitDuration = 1;
+const roulettePostHitWaitDuration = 1;
+const rouletteBitMinTurns = 3;
+const rouletteBitMaxTurns = 6;
+const rouletteBitBobSpeed = 1.2;
+const rouletteBitBobHeight = 0.03;
+const rouletteHelpText = "操作説明\nR: Undo\nEnter: タイトルへ";
+let roulettePhase: RoulettePhase = "inactive";
+const rouletteCenter = new Vector3(0, 0, 0);
+const roulettePlayerPosition = new Vector3(0, 0, 0);
+let rouletteCharacterRadius = 0;
+let rouletteBitRadius = 0;
+let rouletteSlotCount = 0;
+let rouletteElapsed = 0;
+let rouletteBitOffsetAngle = 0;
+let rouletteSpinElapsed = 0;
+let rouletteSpinTotalAngle = 0;
+let rouletteStopShift = 0;
+let roulettePhaseTimer = 0;
+let rouletteBitBaseSlots: number[] = [];
+let rouletteBitFireEntries: RouletteBitFireEntry[] = [];
+let rouletteHitEntries: RouletteHitEntry[] = [];
 
 let gamePhase: GamePhase = "title";
 const allDownTransitionDelay = 3;
@@ -1378,6 +1423,34 @@ const countNonFollowerBits = () => {
   return count;
 };
 
+const disposeBitInstance = (bit: Bit) => {
+  if (bit.spawnEffect) {
+    bit.spawnEffect.dispose();
+  }
+  if (bit.spawnEffectMaterial) {
+    bit.spawnEffectMaterial.dispose();
+  }
+  if (bit.fireEffect) {
+    bit.fireEffect.cone.dispose();
+    bit.fireEffect.coneMaterial.dispose();
+    bit.fireEffect.muzzle.dispose();
+    bit.fireEffect.muzzleMaterial.dispose();
+    bit.fireEffect.shot.dispose();
+    bit.fireEffect.shotMaterial.dispose();
+    bit.fireEffect = null;
+  }
+  const muzzleMaterial = bit.muzzle.material as StandardMaterial;
+  muzzleMaterial.dispose();
+  bit.root.dispose();
+};
+
+const disposeAllBits = () => {
+  for (const bit of bits) {
+    disposeBitInstance(bit);
+  }
+  bits.length = 0;
+};
+
 const removeCarpetFollowers = () => {
   const followerIds = new Set(
     bits
@@ -1388,15 +1461,7 @@ const removeCarpetFollowers = () => {
   );
   for (const bit of bits) {
     if (followerIds.has(bit.id)) {
-      if (bit.spawnEffect) {
-        bit.spawnEffect.dispose();
-      }
-      if (bit.spawnEffectMaterial) {
-        bit.spawnEffectMaterial.dispose();
-      }
-      const muzzleMaterial = bit.muzzle.material as StandardMaterial;
-      muzzleMaterial.dispose();
-      bit.root.dispose();
+      disposeBitInstance(bit);
     }
   }
   for (let index = bits.length - 1; index >= 0; index -= 1) {
@@ -2153,6 +2218,496 @@ const updateExecutionScene = (
   }
 };
 
+const normalizeRouletteSlotIndex = (slotIndex: number) => {
+  if (rouletteSlotCount <= 0) {
+    return 0;
+  }
+  const normalized = slotIndex % rouletteSlotCount;
+  return normalized < 0 ? normalized + rouletteSlotCount : normalized;
+};
+
+const buildRouletteTargetFromSlot = (slotIndex: number): RouletteHitTarget =>
+  slotIndex === 0 ? { kind: "player" } : { kind: "npc", npcIndex: slotIndex - 1 };
+
+const buildRouletteTargetKey = (target: RouletteHitTarget) =>
+  target.kind === "player" ? "player" : `npc_${target.npcIndex}`;
+
+const getRouletteTargetState = (target: RouletteHitTarget) =>
+  target.kind === "player" ? playerState : npcs[target.npcIndex].state;
+
+const setRouletteTargetState = (
+  target: RouletteHitTarget,
+  state: CharacterState
+) => {
+  if (target.kind === "player") {
+    playerState = state;
+    return;
+  }
+  npcs[target.npcIndex].state = state;
+};
+
+const getRouletteTargetEyePosition = (
+  target: RouletteHitTarget
+) => {
+  if (target.kind === "player") {
+    return new Vector3(roulettePlayerPosition.x, eyeHeight, roulettePlayerPosition.z);
+  }
+  const sprite = npcs[target.npcIndex].sprite;
+  return new Vector3(sprite.position.x, eyeHeight, sprite.position.z);
+};
+
+const getRouletteTargetCenterPosition = (
+  target: RouletteHitTarget
+) => {
+  if (target.kind === "player") {
+    return new Vector3(
+      roulettePlayerPosition.x,
+      playerAvatar.height * 0.5,
+      roulettePlayerPosition.z
+    );
+  }
+  return npcs[target.npcIndex].sprite.position.clone();
+};
+
+const clearRouletteHitEntries = () => {
+  for (const entry of rouletteHitEntries) {
+    resetHitSequenceState(entry.sequence);
+  }
+  rouletteHitEntries = [];
+};
+
+const resetRouletteState = () => {
+  clearRouletteHitEntries();
+  roulettePhase = "inactive";
+  rouletteSlotCount = 0;
+  rouletteElapsed = 0;
+  rouletteBitOffsetAngle = 0;
+  rouletteSpinElapsed = 0;
+  rouletteSpinTotalAngle = 0;
+  rouletteStopShift = 0;
+  roulettePhaseTimer = 0;
+  rouletteBitBaseSlots = [];
+  rouletteBitFireEntries = [];
+};
+
+const isRouletteComplete = () => {
+  if (!isBrainwashState(playerState)) {
+    return false;
+  }
+  for (const npc of npcs) {
+    if (!isBrainwashState(npc.state)) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const updateRouletteBitTransforms = () => {
+  if (rouletteSlotCount <= 0 || bits.length === 0) {
+    return;
+  }
+  const angleStep = (Math.PI * 2) / rouletteSlotCount;
+  for (let index = 0; index < bits.length; index += 1) {
+    const bit = bits[index];
+    const baseSlot = rouletteBitBaseSlots[index];
+    const angle = angleStep * baseSlot + rouletteBitOffsetAngle;
+    const bob =
+      Math.sin(rouletteElapsed * rouletteBitBobSpeed + bit.floatOffset) *
+      rouletteBitBobHeight;
+    bit.root.position.set(
+      rouletteCenter.x + Math.cos(angle) * rouletteBitRadius,
+      eyeHeight + bob,
+      rouletteCenter.z + Math.sin(angle) * rouletteBitRadius
+    );
+    bit.baseHeight = eyeHeight;
+    bit.root.lookAt(rouletteCenter);
+  }
+};
+
+const sampleRouletteSpinAngle = (elapsed: number) => {
+  const t = Math.max(0, Math.min(rouletteSpinDuration, elapsed));
+  const omegaMax = rouletteSpinTotalAngle / 7;
+  if (t <= rouletteSpinCruiseStart) {
+    return 0.5 * omegaMax * t * t;
+  }
+  if (t <= rouletteSpinDecelStart) {
+    return (
+      0.5 * omegaMax +
+      omegaMax * (t - rouletteSpinCruiseStart)
+    );
+  }
+  const decelElapsed = t - rouletteSpinDecelStart;
+  return (
+    4.5 * omegaMax +
+    omegaMax * (decelElapsed - (decelElapsed * decelElapsed) / 10)
+  );
+};
+
+const pickRouletteBitCount = () => {
+  const participantCount = npcs.length + 1;
+  const maxCount = Math.max(1, Math.floor(participantCount / 2));
+  return 1 + Math.floor(Math.random() * maxCount);
+};
+
+const pickRouletteBitSlots = (count: number) => {
+  const slots = Array.from({ length: rouletteSlotCount }, (_, index) => index);
+  for (let index = slots.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(Math.random() * (index + 1));
+    const temp = slots[index];
+    slots[index] = slots[swap];
+    slots[swap] = temp;
+  }
+  return slots.slice(0, count);
+};
+
+const setupRouletteParticipants = () => {
+  rouletteSlotCount = npcs.length + 1;
+  const areaCenterX =
+    -halfWidth + layout.cellSize * (assemblyArea.startCol + assemblyArea.width / 2);
+  const areaCenterZ =
+    -halfDepth + layout.cellSize * (assemblyArea.startRow + assemblyArea.height / 2);
+  rouletteCenter.set(areaCenterX, playerCenterHeight, areaCenterZ);
+  const maxRadius = Math.max(
+    layout.cellSize * 1.6,
+    Math.min(
+      ((assemblyArea.width - 1) * layout.cellSize) / 2,
+      ((assemblyArea.height - 1) * layout.cellSize) / 2
+    )
+  );
+  rouletteCharacterRadius = Math.max(
+    layout.cellSize * 1.1,
+    Math.min(maxRadius * 0.65, layout.cellSize * 2.8)
+  );
+  rouletteBitRadius = Math.min(
+    maxRadius,
+    rouletteCharacterRadius + layout.cellSize * 1.4
+  );
+  if (rouletteBitRadius <= rouletteCharacterRadius) {
+    rouletteBitRadius = rouletteCharacterRadius + layout.cellSize * 0.5;
+  }
+
+  const angleStep = (Math.PI * 2) / rouletteSlotCount;
+  const playerAngle = 0;
+  roulettePlayerPosition.set(
+    rouletteCenter.x + Math.cos(playerAngle) * rouletteCharacterRadius,
+    eyeHeight,
+    rouletteCenter.z + Math.sin(playerAngle) * rouletteCharacterRadius
+  );
+  camera.position.copyFrom(roulettePlayerPosition);
+  camera.setTarget(new Vector3(rouletteCenter.x, eyeHeight, rouletteCenter.z));
+  camera.cameraDirection.set(0, 0, 0);
+  resetPlayerMoveInput();
+  playerAvatar.isVisible = false;
+  playerAvatar.position.set(
+    roulettePlayerPosition.x,
+    playerAvatar.height * 0.5,
+    roulettePlayerPosition.z
+  );
+  playerState = "evade";
+  playerHitById = null;
+  playerNoGunTouchBrainwashTimer = 0;
+  brainwashChoiceStarted = false;
+  brainwashChoiceUnlocked = false;
+
+  for (let index = 0; index < npcs.length; index += 1) {
+    const slot = index + 1;
+    const angle = angleStep * slot;
+    const npc = npcs[index];
+    npc.state = "evade";
+    npc.sprite.position.set(
+      rouletteCenter.x + Math.cos(angle) * rouletteCharacterRadius,
+      npc.sprite.position.y,
+      rouletteCenter.z + Math.sin(angle) * rouletteCharacterRadius
+    );
+    alignSpriteToGround(npc.sprite);
+  }
+};
+
+const spawnRouletteBits = () => {
+  disposeAllBits();
+  rouletteBitFireEntries = [];
+  const bitCount = pickRouletteBitCount();
+  rouletteBitBaseSlots = pickRouletteBitSlots(bitCount);
+  rouletteBitOffsetAngle = 0;
+  for (const slot of rouletteBitBaseSlots) {
+    const angle = (Math.PI * 2 * slot) / rouletteSlotCount;
+    const position = new Vector3(
+      rouletteCenter.x + Math.cos(angle) * rouletteBitRadius,
+      eyeHeight,
+      rouletteCenter.z + Math.sin(angle) * rouletteBitRadius
+    );
+    const direction = rouletteCenter.subtract(position);
+    const bit = createBitAt(scene, bitMaterials, bitIndex, position, direction);
+    bitIndex += 1;
+    bit.mode = "hold";
+    finalizeBitVisuals(bit);
+    bits.push(bit);
+  }
+  updateRouletteBitTransforms();
+};
+
+const startRouletteSpin = () => {
+  rouletteSpinElapsed = 0;
+  rouletteStopShift = Math.floor(Math.random() * rouletteSlotCount);
+  const extraTurns =
+    rouletteBitMinTurns +
+    Math.floor(Math.random() * (rouletteBitMaxTurns - rouletteBitMinTurns + 1));
+  rouletteSpinTotalAngle =
+    Math.PI * 2 * extraTurns +
+    ((Math.PI * 2) / rouletteSlotCount) * rouletteStopShift;
+  roulettePhase = "spinning";
+};
+
+const beginRouletteRound = () => {
+  clearRouletteHitEntries();
+  roulettePhaseTimer = 0;
+  spawnRouletteBits();
+  startRouletteSpin();
+};
+
+const beginRouletteHit = (target: RouletteHitTarget) => {
+  const sequence = createHitSequenceState();
+  const targetCenter = getRouletteTargetCenterPosition(target);
+  if (target.kind === "player") {
+    startHitSequence(
+      sequence,
+      scene,
+      targetCenter,
+      buildPlayerHitSequenceConfig(
+        `rouletteHitEffect_${buildRouletteTargetKey(target)}`,
+        playerHitDuration,
+        playerHitFadeDuration
+      )
+    );
+  } else {
+    const sprite = npcs[target.npcIndex].sprite;
+    startHitSequence(
+      sequence,
+      scene,
+      targetCenter,
+      buildNpcHitSequenceConfig(
+        `rouletteHitEffect_${buildRouletteTargetKey(target)}`,
+        npcHitDuration,
+        npcHitFadeDuration,
+        sprite
+      )
+    );
+  }
+  setRouletteTargetState(target, "hit-a");
+  rouletteHitEntries.push({
+    target,
+    sequence,
+    completed: false
+  });
+  const hitPosition = targetCenter.clone();
+  sfxDirector.playHit(() => hitPosition);
+};
+
+const startRouletteFireEffects = () => {
+  rouletteBitFireEntries = [];
+  for (let index = 0; index < bits.length; index += 1) {
+    const targetSlot = normalizeRouletteSlotIndex(
+      rouletteBitBaseSlots[index] + rouletteStopShift
+    );
+    const target = buildRouletteTargetFromSlot(targetSlot);
+    if (isBrainwashState(getRouletteTargetState(target))) {
+      stopBitFireEffect(bits[index]);
+      continue;
+    }
+    const targetPosition = getRouletteTargetEyePosition(target);
+    const bit = bits[index];
+    bit.root.lookAt(targetPosition);
+    const muzzlePosition = bit.muzzle.getAbsolutePosition();
+    const direction = targetPosition.subtract(muzzlePosition);
+    if (direction.lengthSquared() > 0.0001) {
+      bit.fireLockDirection.copyFrom(direction.normalize());
+    }
+    startBitFireEffect(bit);
+    rouletteBitFireEntries.push({
+      bitIndex: index,
+      target
+    });
+  }
+  if (rouletteBitFireEntries.length <= 0) {
+    roulettePhase = "post-hit-wait";
+    roulettePhaseTimer = roulettePostHitWaitDuration;
+    return;
+  }
+  roulettePhase = "fire-effect";
+  roulettePhaseTimer = bitFireEffectDuration;
+};
+
+const fireRouletteBits = () => {
+  const startedHitTargets = new Set<string>();
+  for (const entry of rouletteBitFireEntries) {
+    const bit = bits[entry.bitIndex];
+    const targetPosition = getRouletteTargetEyePosition(entry.target);
+    const muzzlePosition = bit.muzzle.getAbsolutePosition();
+    const direction = targetPosition.subtract(muzzlePosition);
+    if (direction.lengthSquared() <= 0.0001) {
+      stopBitFireEffect(bit);
+      continue;
+    }
+    beams.push(
+      createBeam(
+        scene,
+        muzzlePosition.clone(),
+        direction.normalize(),
+        beamMaterial,
+        bit.id
+      )
+    );
+    bitSoundEvents.onBeamFire(bit, entry.target.kind === "player");
+    stopBitFireEffect(bit);
+    const targetKey = buildRouletteTargetKey(entry.target);
+    if (!startedHitTargets.has(targetKey)) {
+      startedHitTargets.add(targetKey);
+      beginRouletteHit(entry.target);
+    }
+  }
+  rouletteBitFireEntries = [];
+  if (rouletteHitEntries.length <= 0) {
+    roulettePhase = "post-hit-wait";
+    roulettePhaseTimer = roulettePostHitWaitDuration;
+    return;
+  }
+  roulettePhase = "hit-sequence";
+};
+
+const updateRouletteHitEntries = (
+  delta: number,
+  shouldProcessOrb: (position: Vector3) => boolean
+) => {
+  for (const entry of rouletteHitEntries) {
+    const targetCenter = getRouletteTargetCenterPosition(entry.target);
+    if (entry.target.kind === "player") {
+      updateHitSequence(
+        entry.sequence,
+        delta,
+        targetCenter,
+        buildPlayerHitSequenceConfig(
+          `rouletteHitEffect_${buildRouletteTargetKey(entry.target)}`,
+          playerHitDuration,
+          playerHitFadeDuration
+        ),
+        (isColorA) => {
+          playerState = isColorA ? "hit-a" : "hit-b";
+        },
+        () => {
+          playerState = "hit-a";
+        },
+        () => {
+          playerState = "brainwash-complete-haigure";
+          entry.completed = true;
+        },
+        shouldProcessOrb
+      );
+      continue;
+    }
+    const npc = npcs[entry.target.npcIndex];
+    updateHitSequence(
+      entry.sequence,
+      delta,
+      targetCenter,
+      buildNpcHitSequenceConfig(
+        `rouletteHitEffect_${buildRouletteTargetKey(entry.target)}`,
+        npcHitDuration,
+        npcHitFadeDuration,
+        npc.sprite
+      ),
+      (isColorA) => {
+        npc.state = isColorA ? "hit-a" : "hit-b";
+      },
+      () => {
+        npc.state = "hit-a";
+      },
+      () => {
+        npc.state = "brainwash-complete-haigure";
+        entry.completed = true;
+      },
+      shouldProcessOrb
+    );
+  }
+  rouletteHitEntries = rouletteHitEntries.filter((entry) => !entry.completed);
+  if (rouletteHitEntries.length <= 0) {
+    roulettePhase = "post-hit-wait";
+    roulettePhaseTimer = roulettePostHitWaitDuration;
+  }
+};
+
+const startRouletteMode = () => {
+  resetRouletteState();
+  rouletteElapsed = 0;
+  setupRouletteParticipants();
+  beginRouletteRound();
+  hud.setStateInfo(rouletteHelpText);
+};
+
+const updateRouletteScene = (
+  delta: number,
+  shouldProcessOrb: (position: Vector3) => boolean
+) => {
+  rouletteElapsed += delta;
+  camera.position.set(roulettePlayerPosition.x, eyeHeight, roulettePlayerPosition.z);
+  camera.cameraDirection.set(0, 0, 0);
+  updateBeams(
+    layout,
+    beams,
+    bounds,
+    delta,
+    beamTrails,
+    beamImpactOrbs,
+    shouldProcessOrb
+  );
+  updateRouletteBitTransforms();
+
+  if (roulettePhase === "inactive" || roulettePhase === "ended") {
+    return;
+  }
+  if (roulettePhase === "spinning") {
+    rouletteSpinElapsed = Math.min(rouletteSpinDuration, rouletteSpinElapsed + delta);
+    rouletteBitOffsetAngle = sampleRouletteSpinAngle(rouletteSpinElapsed);
+    if (rouletteSpinElapsed >= rouletteSpinDuration) {
+      rouletteBitOffsetAngle = rouletteSpinTotalAngle;
+      roulettePhase = "post-spin-wait";
+      roulettePhaseTimer = roulettePostSpinWaitDuration;
+    }
+    return;
+  }
+  if (roulettePhase === "post-spin-wait") {
+    roulettePhaseTimer = Math.max(0, roulettePhaseTimer - delta);
+    if (roulettePhaseTimer <= 0) {
+      startRouletteFireEffects();
+    }
+    return;
+  }
+  if (roulettePhase === "fire-effect") {
+    roulettePhaseTimer = Math.max(0, roulettePhaseTimer - delta);
+    for (const entry of rouletteBitFireEntries) {
+      updateBitFireEffect(bits[entry.bitIndex], delta);
+    }
+    if (roulettePhaseTimer <= 0) {
+      fireRouletteBits();
+    }
+    return;
+  }
+  if (roulettePhase === "hit-sequence") {
+    updateRouletteHitEntries(delta, shouldProcessOrb);
+    return;
+  }
+  if (roulettePhase === "post-hit-wait") {
+    roulettePhaseTimer = Math.max(0, roulettePhaseTimer - delta);
+    if (roulettePhaseTimer > 0) {
+      return;
+    }
+    if (isRouletteComplete()) {
+      roulettePhase = "ended";
+      return;
+    }
+    beginRouletteRound();
+  }
+};
+
 const createGameFlowInstance = () =>
   createGameFlow({
     layout,
@@ -2527,6 +3082,7 @@ const resetGame = async () => {
   });
   alarmSystem.resetRuntimeState();
   resetExecutionState();
+  resetRouletteState();
   playerState = runtimeDefaultStartSettings.startPlayerAsBrainwashCompleteGun
     ? "brainwash-complete-gun"
     : "normal";
@@ -2547,18 +3103,7 @@ const resetGame = async () => {
 
   clearBeams();
 
-  for (const bit of bits) {
-    if (bit.spawnEffect) {
-      bit.spawnEffect.dispose();
-    }
-    if (bit.spawnEffectMaterial) {
-      bit.spawnEffectMaterial.dispose();
-    }
-    const muzzleMaterial = bit.muzzle.material as StandardMaterial;
-    muzzleMaterial.dispose();
-    bit.root.dispose();
-  }
-  bits.length = 0;
+  disposeAllBits();
   bitIndex = 0;
   if (runtimeMaxBitCount > 0) {
     bits.push(createRandomBit(bitIndex));
@@ -2644,7 +3189,12 @@ const startGame = async () => {
     if (bgmUrl) {
       audioManager.startBgm(bgmUrl);
     }
-    gamePhase = "playing";
+    if (rouletteSelected) {
+      startRouletteMode();
+      gamePhase = "roulette";
+    } else {
+      gamePhase = "playing";
+    }
     hud.setTitleVisible(false);
     titleVolumePanel.setVisible(false);
     titleStageSelectControl.setVisible(false);
@@ -2652,8 +3202,8 @@ const startGame = async () => {
     trapRoomRecommendControl.setVisible(false);
     titleResetSettingsButton.style.display = "none";
     titleGameOverWarning.style.display = "none";
-    hud.setHudVisible(true);
-    hud.setStateInfo(null);
+    hud.setHudVisible(!rouletteSelected);
+    hud.setStateInfo(rouletteSelected ? rouletteHelpText : null);
     gameFlow.resetFade();
     canvas.requestPointerLock();
   } finally {
@@ -3051,6 +3601,10 @@ engine.runRenderLoop(() => {
             : "normal";
       }
     }
+  }
+  if (gamePhase === "roulette") {
+    const shouldProcessOrb = buildOrbCullingCheck();
+    updateRouletteScene(delta, shouldProcessOrb);
   }
   if (gamePhase !== "playing") {
     trapSystem.updateNpcFreezeControl(delta, gamePhase);
