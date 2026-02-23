@@ -15,6 +15,7 @@ export type InputHandlerOptions = {
   onStartGame: () => void;
   onEnterEpilogue: () => void;
   onReturnToTitle: () => void;
+  onUndoRoulette: () => void;
   onReplayExecution: () => void;
   onSelectBrainwashOption: (state: CharacterState) => void;
   onMoveKey: (
@@ -37,6 +38,7 @@ export const setupInputHandlers = ({
   onStartGame,
   onEnterEpilogue,
   onReturnToTitle,
+  onUndoRoulette,
   onReplayExecution,
   onSelectBrainwashOption,
   onMoveKey,
@@ -99,13 +101,18 @@ export const setupInputHandlers = ({
       if (
         gamePhase === "assemblyMove" ||
         gamePhase === "assemblyHold" ||
-        gamePhase === "execution"
+        gamePhase === "execution" ||
+        gamePhase === "roulette"
       ) {
         onReturnToTitle();
       }
     }
 
     if (event.code === "KeyR") {
+      if (gamePhase === "roulette") {
+        onUndoRoulette();
+        return;
+      }
       if (gamePhase === "playing" && getBrainwashChoiceStarted()) {
         onStartGame();
         return;

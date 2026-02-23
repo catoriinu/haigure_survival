@@ -113,7 +113,7 @@ body {
 
 #titleVersion {
   position: absolute;
-  right: 16px;
+  left: 16px;
   bottom: 16px;
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
@@ -127,11 +127,19 @@ body {
   flex-direction: column;
   gap: 9px;
   padding: 12px 14px;
+  font-size: 13px;
+}
+
+.volume-panel,
+.title-settings-combined-panel,
+.stage-select-control,
+.default-settings-panel,
+.brainwash-settings-panel,
+.bit-spawn-panel {
   border: 1px solid #111111;
   background: rgba(0, 0, 0, 0.65);
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 13px;
   letter-spacing: 0.04em;
   pointer-events: auto;
 }
@@ -139,19 +147,28 @@ body {
 .volume-panel--title {
   position: absolute;
   left: 16px;
-  bottom: 16px;
+  bottom: 40px;
   z-index: 35;
 }
 
 .title-right-panels {
   position: absolute;
   right: 16px;
-  bottom: 42px;
+  bottom: 16px;
   z-index: 35;
   display: flex;
   flex-direction: column;
   gap: 10px;
   align-items: flex-end;
+}
+
+.title-settings-combined-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  width: max-content;
+  padding: 12px 14px;
+  text-align: left;
 }
 
 .stage-select-control {
@@ -160,12 +177,6 @@ body {
   gap: 8px;
   min-width: 220px;
   padding: 12px 14px;
-  border: 1px solid #111111;
-  background: rgba(0, 0, 0, 0.65);
-  color: #f5f5f5;
-  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  letter-spacing: 0.04em;
-  pointer-events: auto;
 }
 
 .stage-select-control__title {
@@ -191,6 +202,21 @@ body {
   outline-offset: 1px;
 }
 
+.stage-select-control__checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stage-select-control__checkbox {
+  margin: 0;
+}
+
+.stage-select-control__checkbox-label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
 .stage-select-control--title-overlay {
   margin-top: 26px;
   z-index: 31;
@@ -211,26 +237,42 @@ body {
 }
 
 .title-trap-room-recommend-button {
+  border: 1px solid #2a2a2a;
+  background: #141414;
+  color: #f5f5f5;
   display: none;
+}
+
+.title-trap-room-recommend-button,
+.title-reset-settings-button {
   width: fit-content;
   height: 34px;
   padding: 0 10px;
-  border: 1px solid #2a2a2a;
   border-radius: 4px;
-  background: #141414;
-  color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
   font-size: 14px;
   letter-spacing: 0.04em;
   white-space: nowrap;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .title-trap-room-recommend-button:hover {
   background: #1f1f1f;
 }
 
-.title-trap-room-recommend-button:active {
+.title-reset-settings-button {
+  border: 1px solid #4c2a2a;
+  background: #1d1111;
+  color: #ffdede;
+}
+
+.title-reset-settings-button:hover {
+  background: #2a1717;
+}
+
+.title-trap-room-recommend-button:active,
+.title-reset-settings-button:active {
   transform: translateY(1px);
 }
 
@@ -284,17 +326,15 @@ body {
   flex-direction: column;
   gap: 9px;
   padding: 12px 14px;
-  border: 1px solid #111111;
-  background: rgba(0, 0, 0, 0.65);
-  color: #f5f5f5;
-  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
   font-size: 13px;
-  letter-spacing: 0.04em;
-  pointer-events: auto;
 }
 
 .default-settings-panel--title {
   position: static;
+  top: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .default-settings-panel__title {
@@ -325,6 +365,22 @@ body {
   font: inherit;
 }
 
+.default-settings-panel__brainwashed-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.default-settings-panel__brainwashed-label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.default-settings-panel__brainwashed-slider {
+  width: 100%;
+  margin: 0;
+}
+
 .default-settings-panel__checkbox-row {
   display: flex;
   align-items: center;
@@ -345,17 +401,15 @@ body {
   flex-direction: column;
   gap: 9px;
   padding: 12px 14px;
-  border: 1px solid #111111;
-  background: rgba(0, 0, 0, 0.65);
-  color: #f5f5f5;
-  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
   font-size: 13px;
-  letter-spacing: 0.04em;
-  pointer-events: auto;
 }
 
 .brainwash-settings-panel--title {
   position: static;
+  top: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .brainwash-settings-panel__title {
@@ -417,7 +471,7 @@ body {
 }
 
 .brainwash-settings-panel__slider-hint {
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.06em;
   color: #bcbcbc;
 }
@@ -427,17 +481,14 @@ body {
   flex-direction: column;
   gap: 9px;
   padding: 12px 14px;
-  border: 1px solid #111111;
-  background: rgba(0, 0, 0, 0.65);
-  color: #f5f5f5;
-  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
   font-size: 13px;
-  letter-spacing: 0.04em;
-  pointer-events: auto;
 }
 
 .bit-spawn-panel--title {
   position: static;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .bit-spawn-panel__title {

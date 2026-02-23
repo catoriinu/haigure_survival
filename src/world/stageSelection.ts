@@ -1,5 +1,5 @@
 import { type StageJson } from "./stageJson";
-import { TRAP_STAGE_ID } from "./stageIds";
+import { LABYRINTH_DYNAMIC_STAGE_ID, TRAP_STAGE_ID } from "./stageIds";
 
 export type StageSelection = {
   id: string;
@@ -30,19 +30,23 @@ export const STAGE_CATALOG: StageSelection[] = [
     id: TRAP_STAGE_ID,
     label: TRAP_STAGE_ID,
     jsonPath: buildStageJsonPath("arena_trap_room.json")
+  },
+  {
+    id: "arena_roulette",
+    label: "arena_roulette",
+    jsonPath: buildStageJsonPath("arena_roulette.json")
+  },
+  {
+    id: "labyrinth",
+    label: "labyrinth",
+    jsonPath: buildStageJsonPath("labyrinth.json")
+  },
+  {
+    id: LABYRINTH_DYNAMIC_STAGE_ID,
+    label: LABYRINTH_DYNAMIC_STAGE_ID,
+    jsonPath: buildStageJsonPath("labyrinth_dynamic.json")
   }
 ];
-
-export const createStageSelector = (stages: StageSelection[]) => {
-  let index = 0;
-  return {
-    getCurrent: () => stages[index],
-    next: () => {
-      index = (index + 1) % stages.length;
-      return stages[index];
-    }
-  };
-};
 
 export const loadStageJson = async (
   selection: StageSelection

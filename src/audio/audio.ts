@@ -23,6 +23,7 @@ type SpatialSlot = {
 export type SpatialHandle = {
   stop: () => void;
   isActive: () => boolean;
+  setBaseVolume: (volume: number) => void;
 };
 
 export type AudioCategory = "bgm" | "se" | "voice";
@@ -191,7 +192,10 @@ export class AudioManager {
       stop: () => {
         this.stopSlot(slot, false);
       },
-      isActive: () => slot.active
+      isActive: () => slot.active,
+      setBaseVolume: (volume: number) => {
+        slot.baseVolume = Math.max(0, volume);
+      }
     };
   }
 

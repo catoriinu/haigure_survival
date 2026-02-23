@@ -42,7 +42,7 @@ export const isBrainwashState = (state: CharacterState) =>
 
 export type NpcBrainwashMode = "search" | "chase";
 
-export type NpcAlertState = "none" | "send" | "receive";
+export type NpcAlertState = "none" | "send";
 
 export type Npc = {
   sprite: Sprite;
@@ -78,8 +78,7 @@ export type Npc = {
   breakAwayDirection: Vector3;
   blockedByPlayer: boolean;
   alertState: NpcAlertState;
-  alertReturnBrainwashMode: NpcBrainwashMode | null;
-  alertReturnTargetId: string | null;
+  noGunTouchBrainwashTimer: number;
 };
 
 export type BitMode =

@@ -39,6 +39,12 @@ const portraitStateOrder: CharacterState[] = [
   "brainwash-complete-haigure-formation"
 ];
 
+const noGunTouchBrainwashBlendStepCount = 16;
+const noGunTouchBrainwashBlendProgresses = Array.from(
+  { length: noGunTouchBrainwashBlendStepCount + 1 },
+  (_, index) => index / noGunTouchBrainwashBlendStepCount
+);
+
 const portraitBaseNameByState: Record<CharacterState, string> = {
   normal: "normal",
   evade: "evade",
@@ -58,6 +64,14 @@ const portraitStateIndex = portraitStateOrder.reduce(
   },
   {} as Record<CharacterState, number>
 );
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, value));
+
+const getNoGunTouchBrainwashBlendStep = (progress: number) =>
+  Math.floor(
+    clamp(progress, 0, 1) * noGunTouchBrainwashBlendStepCount
+  );
 
 const getPortraitFileName = (directory: string, baseName: string) => {
   for (const extension of portraitExtensions) {
@@ -99,12 +113,12 @@ const defaultPortraitFrameByState: Record<CharacterState, number> = {
   normal: 0,
   evade: 0,
   "hit-a": 1,
-  "hit-b": 1,
-  "brainwash-in-progress": 2,
-  "brainwash-complete-gun": 3,
-  "brainwash-complete-no-gun": 2,
-  "brainwash-complete-haigure": 2,
-  "brainwash-complete-haigure-formation": 2
+  "hit-b": 2,
+  "brainwash-in-progress": 1,
+  "brainwash-complete-gun": 4,
+  "brainwash-complete-no-gun": 3,
+  "brainwash-complete-haigure": 3,
+  "brainwash-complete-haigure-formation": 3
 };
 
 const createDefaultPortraitSpriteSheet = (): PortraitSpriteSheet => {
@@ -119,11 +133,20 @@ const createDefaultPortraitSpriteSheet = (): PortraitSpriteSheet => {
   const eyeOffsetX = 18;
   const eyeOffsetY = 22;
   const eyeSize = 12;
+  const eyeGapX = 32;
+  const closedEyeWidth = 10;
+  const closedEyeHeight = 8;
+  const closedEyeLineWidth = 3;
+  const sweatOffsetX = eyeOffsetX + 32 + eyeSize + 10;
+  const sweatOffsetY = eyeOffsetY + 2;
+  const sweatRadius = 6;
   const gunDotOffsetX = 72;
   const gunDotOffsetY = Math.round(64 * heightScale);
   const gunDotRadius = 6;
+  const totalFrameCount =
+    portraitStateOrder.length + noGunTouchBrainwashBlendProgresses.length;
   const canvas = document.createElement("canvas");
-  canvas.width = cellWidth * portraitStateOrder.length;
+  canvas.width = cellWidth * totalFrameCount;
   canvas.height = cellHeight;
   const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
 
@@ -131,7 +154,9 @@ const createDefaultPortraitSpriteSheet = (): PortraitSpriteSheet => {
     index: number,
     color: string,
     accent: string,
-    gunDot = false
+    gunDot = false,
+    sweatMark = false,
+    eyeStyle: "open" | "closed" = "open"
   ) => {
     const offsetX = index * cellWidth;
     ctx.fillStyle = color;
@@ -143,21 +168,75 @@ const createDefaultPortraitSpriteSheet = (): PortraitSpriteSheet => {
       bodyWidth,
       bodyHeight
     );
-    ctx.fillStyle = "#111111";
     const eyeY = bodyTop + eyeOffsetY;
-    ctx.fillRect(
-      offsetX + bodyLeft + eyeOffsetX,
-      eyeY,
-      eyeSize,
-      eyeSize
-    );
-    ctx.fillRect(
-      offsetX + bodyLeft + eyeOffsetX + 32,
-      eyeY,
-      eyeSize,
-      eyeSize
-    );
+    const leftEyeX = offsetX + bodyLeft + eyeOffsetX;
+    const rightEyeX = leftEyeX + eyeGapX;
+    if (eyeStyle === "closed") {
+      const eyeCenterY = eyeY + eyeSize * 0.5;
+      const halfClosedEyeWidth = closedEyeWidth * 0.5;
+      const halfClosedEyeHeight = closedEyeHeight * 0.5;
+      const drawClosedEye = (
+        centerX: number,
+        centerY: number,
+        inward: boolean
+      ) => {
+        const startX = inward
+          ? centerX - halfClosedEyeWidth
+          : centerX + halfClosedEyeWidth;
+        const endX = inward
+          ? centerX - halfClosedEyeWidth
+          : centerX + halfClosedEyeWidth;
+        const middleX = inward
+          ? centerX + halfClosedEyeWidth
+          : centerX - halfClosedEyeWidth;
+        ctx.strokeStyle = "#111111";
+        ctx.lineWidth = closedEyeLineWidth;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(startX, centerY - halfClosedEyeHeight);
+        ctx.lineTo(middleX, centerY);
+        ctx.lineTo(endX, centerY + halfClosedEyeHeight);
+        ctx.stroke();
+      };
+      drawClosedEye(leftEyeX + eyeSize * 0.5, eyeCenterY, true);
+      drawClosedEye(rightEyeX + eyeSize * 0.5, eyeCenterY, false);
+    } else {
+      ctx.fillStyle = "#111111";
+      ctx.fillRect(leftEyeX, eyeY, eyeSize, eyeSize);
+      ctx.fillRect(rightEyeX, eyeY, eyeSize, eyeSize);
+    }
+    if (sweatMark) {
+      const sweatX = offsetX + bodyLeft + sweatOffsetX;
+      const sweatY = bodyTop + sweatOffsetY;
+      ctx.fillStyle = "#7de7ff";
+      ctx.beginPath();
+      ctx.moveTo(sweatX, sweatY - sweatRadius - 4);
+      ctx.quadraticCurveTo(
+        sweatX + sweatRadius + 1,
+        sweatY - 2,
+        sweatX + sweatRadius - 1,
+        sweatY + sweatRadius
+      );
+      ctx.quadraticCurveTo(
+        sweatX,
+        sweatY + sweatRadius + 4,
+        sweatX - sweatRadius + 1,
+        sweatY + sweatRadius
+      );
+      ctx.quadraticCurveTo(
+        sweatX - sweatRadius - 1,
+        sweatY - 2,
+        sweatX,
+        sweatY - sweatRadius - 4
+      );
+      ctx.fill();
+      ctx.fillStyle = "#d9f8ff";
+      ctx.beginPath();
+      ctx.arc(sweatX + 1, sweatY, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
     if (gunDot) {
+      ctx.fillStyle = "#111111";
       ctx.beginPath();
       ctx.arc(
         offsetX + bodyLeft + gunDotOffsetX,
@@ -177,34 +256,81 @@ const createDefaultPortraitSpriteSheet = (): PortraitSpriteSheet => {
   );
 
   for (let index = 0; index < drawOrder.length; index += 1) {
+    const state = portraitStateOrder[index];
+    const sweatMark =
+      state === "evade" || state === "hit-a" || state === "hit-b";
     const frameIndex = drawOrder[index];
     if (frameIndex === 0) {
-      drawFrame(index, "#3b5fbf", "#f1f1f1");
+      drawFrame(index, "#3b5fbf", "#f1f1f1", false, sweatMark);
       continue;
     }
     if (frameIndex === 1) {
-      drawFrame(index, "#d4a21f", "#f8f2c2");
+      drawFrame(index, "#5c5c5c", "#f1f1f1", false, sweatMark, "closed");
       continue;
     }
     if (frameIndex === 2) {
-      drawFrame(index, "#5c5c5c", "#c7c7c7");
+      drawFrame(index, "#3b5fbf", "#f1f1f1", false, sweatMark, "closed");
       continue;
     }
-    drawFrame(index, "#5c5c5c", "#c7c7c7", true);
+    if (frameIndex === 3) {
+      drawFrame(index, "#5c5c5c", "#c7c7c7", false, sweatMark);
+      continue;
+    }
+    drawFrame(index, "#5c5c5c", "#c7c7c7", true, sweatMark);
+  }
+
+  const hitBSourceX = portraitStateIndex["hit-b"] * cellWidth;
+  const hitASourceX = portraitStateIndex["hit-a"] * cellWidth;
+  for (
+    let blendIndex = 0;
+    blendIndex < noGunTouchBrainwashBlendProgresses.length;
+    blendIndex += 1
+  ) {
+    const progress = noGunTouchBrainwashBlendProgresses[blendIndex];
+    const destinationX = (portraitStateOrder.length + blendIndex) * cellWidth;
+    ctx.drawImage(
+      canvas,
+      hitBSourceX,
+      0,
+      cellWidth,
+      cellHeight,
+      destinationX,
+      0,
+      cellWidth,
+      cellHeight
+    );
+    const revealedHeight = Math.round(cellHeight * progress);
+    if (revealedHeight <= 0) {
+      continue;
+    }
+    const sourceY = cellHeight - revealedHeight;
+    // 切り替え済み領域のhit-bを消してからhit-aを描画する
+    ctx.clearRect(destinationX, sourceY, cellWidth, revealedHeight);
+    ctx.drawImage(
+      canvas,
+      hitASourceX,
+      sourceY,
+      cellWidth,
+      revealedHeight,
+      destinationX,
+      sourceY,
+      cellWidth,
+      revealedHeight
+    );
   }
 
   return {
     url: canvas.toDataURL("image/png"),
     cellWidth,
     cellHeight,
-    frameCount: portraitStateOrder.length,
+    frameCount: totalFrameCount,
     imageWidth: cellWidth,
     imageHeight: cellHeight
   };
 };
 
 const buildSpritesheetFromModeImages = (
-  images: HTMLImageElement[],
+  images: (HTMLImageElement | HTMLCanvasElement)[],
   cellWidth: number,
   cellHeight: number
 ) => {
@@ -227,6 +353,39 @@ const buildSpritesheetFromModeImages = (
   return canvas.toDataURL("image/png");
 };
 
+const buildNoGunTouchBrainwashBlendFrames = (
+  hitBImage: HTMLImageElement,
+  hitAImage: HTMLImageElement
+) => {
+  const cellWidth = hitBImage.naturalWidth;
+  const cellHeight = hitBImage.naturalHeight;
+  return noGunTouchBrainwashBlendProgresses.map((progress) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = cellWidth;
+    canvas.height = cellHeight;
+    const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+    ctx.drawImage(hitBImage, 0, 0, cellWidth, cellHeight);
+    const revealedHeight = Math.round(cellHeight * progress);
+    if (revealedHeight > 0) {
+      const sourceY = cellHeight - revealedHeight;
+      // 切り替え済み領域のhit-bを消してからhit-aを描画する
+      ctx.clearRect(0, sourceY, cellWidth, revealedHeight);
+      ctx.drawImage(
+        hitAImage,
+        0,
+        sourceY,
+        cellWidth,
+        revealedHeight,
+        0,
+        sourceY,
+        cellWidth,
+        revealedHeight
+      );
+    }
+    return canvas;
+  });
+};
+
 const getDirectoryId = (directory: string) => directory.slice(0, 2);
 
 const pickRandomDirectory = (directories: string[]) =>
@@ -236,6 +395,9 @@ export const getPortraitDirectories = () => portraitDirectories;
 
 export const getPortraitCellIndex = (state: CharacterState) =>
   portraitStateIndex[state];
+
+export const getNoGunTouchBrainwashCellIndex = (progress: number) =>
+  portraitStateOrder.length + getNoGunTouchBrainwashBlendStep(progress);
 
 export const assignPortraitDirectories = (voiceIds: string[]) => {
   const assignments: string[] = Array.from(
@@ -280,17 +442,24 @@ export const loadPortraitSpriteSheet = async (
     getPortraitFileUrl(directory, baseName)
   );
   const images = await Promise.all(modeUrls.map((url) => loadImage(url)));
+  const hitBImage = images[portraitStateIndex["hit-b"]];
+  const hitAImage = images[portraitStateIndex["hit-a"]];
+  const noGunTouchBlendFrames = buildNoGunTouchBrainwashBlendFrames(
+    hitBImage,
+    hitAImage
+  );
+  const imagesWithNoGunTouchBlend = [...images, ...noGunTouchBlendFrames];
   const cellWidth = images[0].naturalWidth;
   const cellHeight = images[0].naturalHeight;
   return {
     url: buildSpritesheetFromModeImages(
-      images,
+      imagesWithNoGunTouchBlend,
       cellWidth,
       cellHeight
     ),
     cellWidth,
     cellHeight,
-    frameCount: modeUrls.length,
+    frameCount: imagesWithNoGunTouchBlend.length,
     imageWidth: cellWidth,
     imageHeight: cellHeight
   };

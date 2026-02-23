@@ -1,7 +1,7 @@
 {
   "meta": {
     "name": "arena",
-    "description": "アリーナ",
+    "description": "アリーナ（ルーレット）",
     "size": { "width": 27, "height": 27 },
     "mapScale": { "x": 1, "z": 1 }
   },
