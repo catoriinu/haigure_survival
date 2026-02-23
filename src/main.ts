@@ -1272,6 +1272,8 @@ type RouletteHitEntry = {
 type RouletteSnapshot = {
   playerState: PlayerState;
   npcStates: CharacterState[];
+  rouletteRoundCount: number;
+  rouletteSurviveCountAtBrainwash: number | null;
 };
 let playerState: PlayerState = "normal";
 const playerHitSequence = createHitSequenceState();
@@ -1334,6 +1336,8 @@ let rouletteHitEntries: RouletteHitEntry[] = [];
 const rouletteBeamTargets = new Map<Beam, RouletteHitTarget>();
 let rouletteUndoHistory: RouletteSnapshot[] = [];
 let rouletteUndoInProgress = false;
+let rouletteRoundCount = 0;
+let rouletteSurviveCountAtBrainwash: number | null = null;
 
 let gamePhase: GamePhase = "title";
 const allDownTransitionDelay = 3;
@@ -2269,13 +2273,17 @@ const clearRouletteBeamTargets = () => {
 
 const captureRouletteSnapshot = (): RouletteSnapshot => ({
   playerState,
-  npcStates: npcs.map((npc) => npc.state)
+  npcStates: npcs.map((npc) => npc.state),
+  rouletteRoundCount,
+  rouletteSurviveCountAtBrainwash
 });
 
 const applyRouletteSnapshot = (snapshot: RouletteSnapshot) => {
   playerState = snapshot.playerState;
   playerHitById = null;
   playerHitTime = 0;
+  rouletteRoundCount = snapshot.rouletteRoundCount;
+  rouletteSurviveCountAtBrainwash = snapshot.rouletteSurviveCountAtBrainwash;
   playerNoGunTouchBrainwashTimer = 0;
   brainwashChoiceStarted = false;
   brainwashChoiceUnlocked = false;
@@ -2290,6 +2298,8 @@ const applyRouletteSnapshot = (snapshot: RouletteSnapshot) => {
 const resetRouletteState = () => {
   clearRouletteHitEntries();
   clearRouletteBeamTargets();
+  rouletteRoundCount = 0;
+  rouletteSurviveCountAtBrainwash = null;
   roulettePhase = "inactive";
   rouletteSlotCount = 0;
   rouletteElapsed = 0;
@@ -2471,10 +2481,16 @@ const startRouletteSpin = () => {
   roulettePhase = "spinning";
 };
 
-const beginRouletteRound = (recordUndoSnapshot: boolean) => {
+const beginRouletteRound = (
+  recordUndoSnapshot: boolean,
+  incrementRoundCount = true
+) => {
   clearRouletteHitEntries();
   clearRouletteBeamTargets();
   roulettePhaseTimer = 0;
+  if (incrementRoundCount) {
+    rouletteRoundCount += 1;
+  }
   if (recordUndoSnapshot) {
     rouletteUndoHistory.push(captureRouletteSnapshot());
   }
@@ -2485,6 +2501,9 @@ const beginRouletteRound = (recordUndoSnapshot: boolean) => {
 const beginRouletteHit = (target: RouletteHitTarget) => {
   const sequence = createHitSequenceState();
   const targetCenter = getRouletteTargetCenterPosition(target);
+  if (target.kind === "player" && rouletteSurviveCountAtBrainwash === null) {
+    rouletteSurviveCountAtBrainwash = rouletteRoundCount;
+  }
   if (target.kind === "player") {
     startHitSequence(
       sequence,
@@ -2710,7 +2729,7 @@ const undoRouletteRound = () => {
     roulettePhaseTimer = 0;
     rouletteBitBaseSlots = [];
     rouletteBitFireEntries = [];
-    beginRouletteRound(false);
+    beginRouletteRound(false, false);
     gamePhase = "roulette";
     hud.setStateInfo(rouletteHelpText);
     rouletteUndoInProgress = false;
@@ -2879,9 +2898,10 @@ const applyAlertRequests = (
 };
 
 const drawMinimap = () => {
-  if (gamePhase !== "playing") {
+  if (gamePhase !== "playing" && gamePhase !== "roulette") {
     return;
   }
+  const rouletteMode = gamePhase === "roulette";
   const getNpcById = (npcId: string) => {
     if (!npcId.startsWith("npc_")) {
       return null;
@@ -2933,17 +2953,24 @@ const drawMinimap = () => {
   }
 
   const canMove =
-    isAliveState(playerState) ||
-    playerState === "brainwash-complete-gun" ||
-    playerState === "brainwash-complete-no-gun";
+    !rouletteMode &&
+    (isAliveState(playerState) ||
+      playerState === "brainwash-complete-gun" ||
+      playerState === "brainwash-complete-no-gun");
   const trapBeamCount = isTrapStageSelected() ? trapSystem.getBeamCount() : null;
   const trapSurviveCount =
     isTrapStageSelected() && brainwashChoiceStarted
       ? trapSurviveCountAtBrainwash ?? trapBeamCount
       : null;
+  const rouletteRoundCountValue = rouletteMode ? rouletteRoundCount : null;
+  const rouletteSurviveCountValue =
+    rouletteMode && isBrainwashState(playerState)
+      ? rouletteSurviveCountAtBrainwash
+      : null;
   const surviveTime = brainwashChoiceStarted ? playerHitTime : null;
+  const displayElapsedTime = rouletteMode ? rouletteElapsed : elapsedTime;
   let retryText: string | null = null;
-  if (brainwashChoiceStarted) {
+  if (!rouletteMode && brainwashChoiceStarted) {
     const promptLines: string[] = ["操作説明"];
     if (canMove) {
       promptLines.push("WASD: 移動");
@@ -2960,7 +2987,7 @@ const drawMinimap = () => {
     }
     promptLines.push("R: リトライ", "Enter: エピローグへ");
     retryText = promptLines.join("\n");
-  } else if (canMove) {
+  } else if (!rouletteMode && canMove) {
     retryText = "操作説明\nWASD: 移動";
   }
 
@@ -2972,10 +2999,12 @@ const drawMinimap = () => {
     minimapCellSize,
     halfWidth,
     halfDepth,
-    elapsedTime,
+    elapsedTime: displayElapsedTime,
     surviveTime,
     trapBeamCount,
     trapSurviveCount,
+    rouletteRoundCount: rouletteRoundCountValue,
+    rouletteSurviveCount: rouletteSurviveCountValue,
     aliveCount,
     retryText,
     showCrosshair: playerState === "brainwash-complete-gun",
@@ -2984,7 +3013,7 @@ const drawMinimap = () => {
 };
 
 scene.onBeforeRenderObservable.add(() => {
-  if (gamePhase === "playing") {
+  if (gamePhase === "playing" || gamePhase === "roulette") {
     camera.position.y = eyeHeight;
     drawMinimap();
   }
@@ -3282,7 +3311,7 @@ const startGame = async () => {
     trapRoomRecommendControl.setVisible(false);
     titleResetSettingsButton.style.display = "none";
     titleGameOverWarning.style.display = "none";
-    hud.setHudVisible(!rouletteSelected);
+    hud.setHudVisible(true);
     hud.setStateInfo(rouletteSelected ? rouletteHelpText : null);
     gameFlow.resetFade();
     canvas.requestPointerLock();
