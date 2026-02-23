@@ -1268,6 +1268,10 @@ type RouletteHitEntry = {
   sequence: ReturnType<typeof createHitSequenceState>;
   completed: boolean;
 };
+type RouletteSnapshot = {
+  playerState: PlayerState;
+  npcStates: CharacterState[];
+};
 let playerState: PlayerState = "normal";
 const playerHitSequence = createHitSequenceState();
 let playerHitDurationCurrent = playerHitDuration;
@@ -1326,6 +1330,8 @@ let roulettePhaseTimer = 0;
 let rouletteBitBaseSlots: number[] = [];
 let rouletteBitFireEntries: RouletteBitFireEntry[] = [];
 let rouletteHitEntries: RouletteHitEntry[] = [];
+let rouletteUndoHistory: RouletteSnapshot[] = [];
+let rouletteUndoInProgress = false;
 
 let gamePhase: GamePhase = "title";
 const allDownTransitionDelay = 3;
@@ -2276,6 +2282,26 @@ const clearRouletteHitEntries = () => {
   rouletteHitEntries = [];
 };
 
+const captureRouletteSnapshot = (): RouletteSnapshot => ({
+  playerState,
+  npcStates: npcs.map((npc) => npc.state)
+});
+
+const applyRouletteSnapshot = (snapshot: RouletteSnapshot) => {
+  playerState = snapshot.playerState;
+  playerHitById = null;
+  playerHitTime = 0;
+  playerNoGunTouchBrainwashTimer = 0;
+  brainwashChoiceStarted = false;
+  brainwashChoiceUnlocked = false;
+  for (let index = 0; index < npcs.length; index += 1) {
+    const npc = npcs[index];
+    npc.state = snapshot.npcStates[index];
+    npc.noGunTouchBrainwashTimer = 0;
+    npc.sprite.color.copyFrom(npcSpriteColorNormal);
+  }
+};
+
 const resetRouletteState = () => {
   clearRouletteHitEntries();
   roulettePhase = "inactive";
@@ -2288,6 +2314,8 @@ const resetRouletteState = () => {
   roulettePhaseTimer = 0;
   rouletteBitBaseSlots = [];
   rouletteBitFireEntries = [];
+  rouletteUndoHistory = [];
+  rouletteUndoInProgress = false;
 };
 
 const isRouletteComplete = () => {
@@ -2458,9 +2486,12 @@ const startRouletteSpin = () => {
   roulettePhase = "spinning";
 };
 
-const beginRouletteRound = () => {
+const beginRouletteRound = (recordUndoSnapshot: boolean) => {
   clearRouletteHitEntries();
   roulettePhaseTimer = 0;
+  if (recordUndoSnapshot) {
+    rouletteUndoHistory.push(captureRouletteSnapshot());
+  }
   spawnRouletteBits();
   startRouletteSpin();
 };
@@ -2639,8 +2670,41 @@ const startRouletteMode = () => {
   resetRouletteState();
   rouletteElapsed = 0;
   setupRouletteParticipants();
-  beginRouletteRound();
+  beginRouletteRound(true);
   hud.setStateInfo(rouletteHelpText);
+};
+
+const undoRouletteRound = () => {
+  if (gamePhase !== "roulette") {
+    return;
+  }
+  if (rouletteUndoInProgress || gameFlow.isFading()) {
+    return;
+  }
+  const snapshot = rouletteUndoHistory.pop();
+  if (!snapshot) {
+    return;
+  }
+  rouletteUndoInProgress = true;
+  gamePhase = "transition";
+  gameFlow.beginFadeOut(() => {
+    clearBeams();
+    disposeAllBits();
+    clearRouletteHitEntries();
+    applyRouletteSnapshot(snapshot);
+    rouletteElapsed = 0;
+    rouletteBitOffsetAngle = 0;
+    rouletteSpinElapsed = 0;
+    rouletteSpinTotalAngle = 0;
+    rouletteStopShift = 0;
+    roulettePhaseTimer = 0;
+    rouletteBitBaseSlots = [];
+    rouletteBitFireEntries = [];
+    beginRouletteRound(false);
+    gamePhase = "roulette";
+    hud.setStateInfo(rouletteHelpText);
+    rouletteUndoInProgress = false;
+  });
 };
 
 const updateRouletteScene = (
@@ -2704,7 +2768,7 @@ const updateRouletteScene = (
       roulettePhase = "ended";
       return;
     }
-    beginRouletteRound();
+    beginRouletteRound(true);
   }
 };
 
@@ -3288,7 +3352,9 @@ setupInputHandlers({
   onReturnToTitle: () => {
     void returnToTitle();
   },
-  onUndoRoulette: () => {},
+  onUndoRoulette: () => {
+    undoRouletteRound();
+  },
   onReplayExecution: () => {
     gamePhase = "transition";
     hud.setHudVisible(false);
