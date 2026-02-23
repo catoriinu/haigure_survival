@@ -78,6 +78,7 @@
   - ビットが狙いを定める音: `aim.mp3`
   - ビームの発射音: `BeamShotR_DownLong.mp3` / `BeamShotR_Down.mp3` / `BeamShotR_DownShort.mp3` / `BeamShotR_Up.mp3` / `BeamShotR_UpShort.mp3` / `BeamShotR_UpHighShort.mp3`
   - ビームの命中音: `BeamHit_Rev.mp3` / `BeamHit_RevLong.mp3` / `BeamHit_RevLongFast.mp3`
+  - アラームマス発動音: `alarm.mp3`
   - ファイルが存在しない場合はエラー無しで再生しない。
 
 #### VOICE
