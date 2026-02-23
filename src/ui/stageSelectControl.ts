@@ -16,6 +16,7 @@ export type StageSelectControl = {
   setSelectedStageId: (stageId: string) => void;
   getAlarmTrapEnabled: () => boolean;
   setAlarmTrapEnabled: (enabled: boolean) => void;
+  setAlarmTrapEditable: (enabled: boolean) => void;
 };
 
 export const createStageSelectControl = ({
@@ -83,5 +84,8 @@ export const createStageSelectControl = ({
       alarmCheckbox.checked = enabled;
       onAlarmTrapEnabledChange(enabled);
     },
+    setAlarmTrapEditable: (enabled) => {
+      alarmCheckbox.disabled = !enabled;
+    }
   };
 };

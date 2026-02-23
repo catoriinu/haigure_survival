@@ -16,6 +16,7 @@ export type BitSpawnPanel = {
   setVisible: (visible: boolean) => void;
   getSettings: () => BitSpawnSettings;
   setSettings: (nextSettings: BitSpawnSettings) => void;
+  setEnabled: (enabled: boolean) => void;
 };
 
 const clampInteger = (value: number, min: number, max: number) =>
@@ -37,6 +38,7 @@ export const createBitSpawnPanel = ({
   root.appendChild(title);
 
   const settings: BitSpawnSettings = { ...initialSettings };
+  let panelEnabled = true;
 
   const intervalRow = document.createElement("label");
   intervalRow.className = "bit-spawn-panel__row";
@@ -85,9 +87,10 @@ export const createBitSpawnPanel = ({
   };
 
   const applyDisabledState = () => {
-    const disabled = settings.disableBitSpawn;
+    const disabled = !panelEnabled || settings.disableBitSpawn;
     intervalInput.disabled = disabled;
     maxCountInput.disabled = disabled;
+    disableCheckbox.disabled = !panelEnabled;
   };
 
   const updateNumberSetting = (
@@ -144,6 +147,10 @@ export const createBitSpawnPanel = ({
       settings.disableBitSpawn = nextSettings.disableBitSpawn;
       render();
       emit();
+    },
+    setEnabled: (enabled) => {
+      panelEnabled = enabled;
+      applyDisabledState();
     }
   };
 };

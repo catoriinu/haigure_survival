@@ -17,6 +17,7 @@ export type BrainwashSettingsPanel = {
   setVisible: (visible: boolean) => void;
   getSettings: () => BrainwashSettings;
   setSettings: (nextSettings: BrainwashSettings) => void;
+  setEnabled: (enabled: boolean) => void;
 };
 
 const clampInteger = (value: number, min: number, max: number) =>
@@ -76,6 +77,7 @@ export const createBrainwashSettingsPanel = ({
   root.appendChild(title);
 
   const settings: BrainwashSettings = { ...initialSettings };
+  let panelEnabled = true;
 
   const instantBrainwashRow = document.createElement("label");
   instantBrainwashRow.className = "brainwash-settings-panel__checkbox-row";
@@ -156,6 +158,13 @@ export const createBrainwashSettingsPanel = ({
     onChange({ ...settings });
   };
 
+  const applyEnabledState = () => {
+    instantBrainwashCheckbox.disabled = !panelEnabled;
+    noGunTouchBrainwashCheckbox.disabled = !panelEnabled;
+    gunInput.disabled = !panelEnabled;
+    noGunInput.disabled = !panelEnabled;
+  };
+
   const updateBrainwashSlider = (
     key:
       | "npcBrainwashCompleteGunPercent"
@@ -176,6 +185,7 @@ export const createBrainwashSettingsPanel = ({
     noGunValue.textContent = `${settings.npcBrainwashCompleteNoGunPercent}%`;
     gunInput.value = String(settings.npcBrainwashCompleteGunPercent);
     noGunInput.value = String(settings.npcBrainwashCompleteNoGunPercent);
+    applyEnabledState();
   };
 
   instantBrainwashCheckbox.addEventListener("change", () => {
@@ -221,6 +231,10 @@ export const createBrainwashSettingsPanel = ({
       );
       render();
       emit();
+    },
+    setEnabled: (enabled) => {
+      panelEnabled = enabled;
+      applyEnabledState();
     }
   };
 };

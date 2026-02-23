@@ -248,6 +248,7 @@ const buildNpcBrainwashInProgressTransitionConfig = (
         decisionDelay: 10,
         stayChance: 0.5
       };
+const isRouletteStageId = (stageId: string) => stageId === "arena_roulette";
 const hasNeverGameOverRisk = (
   stageId: string,
   defaultSettings: DefaultStartSettings,
@@ -256,7 +257,8 @@ const hasNeverGameOverRisk = (
 ) => {
   if (
     stageId === TRAP_STAGE_ID ||
-    stageId === LABYRINTH_DYNAMIC_STAGE_ID
+    stageId === LABYRINTH_DYNAMIC_STAGE_ID ||
+    isRouletteStageId(stageId)
   ) {
     return false;
   }
@@ -648,6 +650,13 @@ titleRightPanels.appendChild(titleResetSettingsButton);
 const updateTrapRoomRecommendButtonVisibility = () => {
   trapRoomRecommendControl.setVisible(stageSelection.id === TRAP_STAGE_ID);
 };
+const updateTitleSettingsAvailabilityByStage = () => {
+  const rouletteSelected = isRouletteStageId(stageSelection.id);
+  titleDefaultSettingsPanel.setNpcCountOnlyMode(rouletteSelected);
+  titleBrainwashSettingsPanel.setEnabled(!rouletteSelected);
+  titleBitSpawnPanel.setEnabled(!rouletteSelected);
+  titleStageSelectControl.setAlarmTrapEditable(!rouletteSelected);
+};
 const volumeCategories: AudioCategory[] = ["voice", "bgm", "se"];
 const resetTitleSettingsToDefault = async () => {
   const defaults = buildDefaultPersistedTitleSettings(
@@ -680,6 +689,7 @@ titleVolumePanel.setVisible(true);
 titleStageSelectControl.setVisible(true);
 setTitleSettingsPanelsVisible(true);
 updateTrapRoomRecommendButtonVisibility();
+updateTitleSettingsAvailabilityByStage();
 updateTitleGameOverWarning();
 const isTitleUiTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
@@ -1287,6 +1297,7 @@ const applyStageSelection = async (selection: StageSelection) => {
   saveTitleSettings();
   titleStageSelectControl.setSelectedStageId(selection.id);
   updateTrapRoomRecommendButtonVisibility();
+  updateTitleSettingsAvailabilityByStage();
   updateTitleGameOverWarning();
   hud.setTitleText(buildTitleText());
   const loadedStageJson = await loadStageJson(selection);
@@ -2594,10 +2605,19 @@ const startGame = async () => {
   try {
     titleGameOverWarningEnabled = false;
     titleGameOverWarning.style.display = "none";
+    const rouletteSelected = isRouletteStageId(stageSelection.id);
     titleDefaultStartSettings = titleDefaultSettingsPanel.getSettings();
-    runtimeDefaultStartSettings = { ...titleDefaultStartSettings };
+    runtimeDefaultStartSettings = rouletteSelected
+      ? {
+          ...titleDefaultStartSettings,
+          startPlayerAsBrainwashCompleteGun: false,
+          initialBrainwashedNpcPercent: 0
+        }
+      : { ...titleDefaultStartSettings };
     titleBrainwashSettings = titleBrainwashSettingsPanel.getSettings();
-    runtimeBrainwashSettings = { ...titleBrainwashSettings };
+    runtimeBrainwashSettings = rouletteSelected
+      ? { ...defaultBrainwashSettings }
+      : { ...titleBrainwashSettings };
     setNpcBrainwashInProgressTransitionConfig(
       buildNpcBrainwashInProgressTransitionConfig(runtimeBrainwashSettings)
     );
@@ -2606,11 +2626,15 @@ const startGame = async () => {
     );
     titleBitSpawnSettings = titleBitSpawnPanel.getSettings();
     titleAlarmTrapEnabled = titleStageSelectControl.getAlarmTrapEnabled();
-    runtimeAlarmTrapEnabled = titleAlarmTrapEnabled;
-    runtimeBitSpawnInterval = titleBitSpawnSettings.bitSpawnInterval;
-    runtimeMaxBitCount = titleBitSpawnSettings.disableBitSpawn
-      ? 0
-      : titleBitSpawnSettings.maxBitCount;
+    runtimeAlarmTrapEnabled = rouletteSelected ? false : titleAlarmTrapEnabled;
+    runtimeBitSpawnInterval = rouletteSelected
+      ? defaultBitSpawnSettings.bitSpawnInterval
+      : titleBitSpawnSettings.bitSpawnInterval;
+    runtimeMaxBitCount = rouletteSelected
+      ? defaultBitSpawnSettings.maxBitCount
+      : titleBitSpawnSettings.disableBitSpawn
+        ? 0
+        : titleBitSpawnSettings.maxBitCount;
     await resetGame();
     const bgmUrl = selectBgmUrl(stageJson ? stageJson.meta.name : null);
     if (bgmUrl) {
