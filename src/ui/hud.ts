@@ -13,6 +13,8 @@ export type DrawMinimapParams = {
   surviveTime: number | null;
   trapBeamCount: number | null;
   trapSurviveCount: number | null;
+  rouletteRoundCount: number | null;
+  rouletteSurviveCount: number | null;
   aliveCount: number;
   retryText: string | null;
   showCrosshair: boolean;
@@ -123,6 +125,8 @@ export const createHud = (): Hud => {
     surviveTime,
     trapBeamCount,
     trapSurviveCount,
+    rouletteRoundCount,
+    rouletteSurviveCount,
     aliveCount,
     retryText,
     showCrosshair,
@@ -152,6 +156,13 @@ export const createHud = (): Hud => {
         trapLine += `  生存回数: ${trapSurviveCount}回`;
       }
       infoLines.push(trapLine);
+    }
+    if (rouletteRoundCount !== null) {
+      let rouletteLine = `ルーレット回数: ${rouletteRoundCount}回`;
+      if (rouletteSurviveCount !== null) {
+        rouletteLine += `  生存回数: ${rouletteSurviveCount}回`;
+      }
+      infoLines.push(rouletteLine);
     }
     statusInfo.textContent = infoLines.join("\n");
 

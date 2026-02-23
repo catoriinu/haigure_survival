@@ -16,6 +16,7 @@ export type DefaultSettingsPanel = {
   setVisible: (visible: boolean) => void;
   getSettings: () => DefaultStartSettings;
   setSettings: (nextSettings: DefaultStartSettings) => void;
+  setNpcCountOnlyMode: (enabled: boolean) => void;
 };
 
 const clampInteger = (value: number, min: number, max: number) =>
@@ -40,6 +41,7 @@ export const createDefaultSettingsPanel = ({
   root.appendChild(title);
 
   const settings: DefaultStartSettings = { ...initialSettings };
+  let npcCountOnlyMode = false;
 
   const npcCountRow = document.createElement("label");
   npcCountRow.className = "default-settings-panel__row";
@@ -109,6 +111,12 @@ export const createDefaultSettingsPanel = ({
     emit();
   };
 
+  const applyNpcCountOnlyMode = () => {
+    npcCountInput.disabled = false;
+    brainwashedNpcSlider.disabled = npcCountOnlyMode;
+    playerCheckbox.disabled = npcCountOnlyMode;
+  };
+
   const render = () => {
     npcCountInput.value = String(clampInteger(settings.initialNpcCount, 0, 99));
     brainwashedNpcLabel.textContent = `NPC洗脳完了済み人数 ${calculateInitialBrainwashedNpcCount()}人`;
@@ -116,6 +124,7 @@ export const createDefaultSettingsPanel = ({
       clampPercent(settings.initialBrainwashedNpcPercent)
     );
     playerCheckbox.checked = settings.startPlayerAsBrainwashCompleteGun;
+    applyNpcCountOnlyMode();
   };
 
   npcCountInput.addEventListener("change", () => {
@@ -155,6 +164,10 @@ export const createDefaultSettingsPanel = ({
       );
       render();
       emit();
+    },
+    setNpcCountOnlyMode: (enabled) => {
+      npcCountOnlyMode = enabled;
+      applyNpcCountOnlyMode();
     }
   };
 };

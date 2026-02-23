@@ -11,8 +11,7 @@ import {
   Sprite,
   SpriteManager,
   Mesh,
-  MeshBuilder,
-  StandardMaterial
+  MeshBuilder
 } from "@babylonjs/core";
 import {
   Beam,
@@ -34,6 +33,7 @@ import {
   createBeamMaterial,
   createBit,
   createBitMaterials,
+  disposeBit,
   isAliveState,
   isBrainwashState,
   bitFireEffectDuration,
@@ -48,7 +48,10 @@ import {
   noGunTouchBrainwashDuration,
   startBitFireEffect,
   stopBitFireEffect,
+  updateBitSpawnEffect,
   updateBitFireEffect,
+  startBitDespawn,
+  updateBitDespawn,
   applyNpcDefaultHaigureState,
   pickRandomCell,
   setNpcBrainwashInProgressTransitionConfig,
@@ -92,9 +95,14 @@ import { createGameFlow, type GamePhase, type ExecutionConfig } from "./game/flo
 import { createDynamicBeamSystem } from "./game/dynamicBeam/system";
 import { createTrapSystem } from "./game/trap/system";
 import { createAlarmSystem } from "./game/alarm/system";
+import { createRouletteSystem } from "./game/roulette/system";
+import { RouletteBitFireEntry, RouletteHitTarget } from "./game/roulette/types";
 import { buildStageContext, disposeStageParts } from "./world/stageContext";
 import { createZoneMapFromStageJson } from "./world/stageJson";
-import { LABYRINTH_DYNAMIC_STAGE_ID, TRAP_STAGE_ID } from "./world/stageIds";
+import {
+  LABYRINTH_DYNAMIC_STAGE_ID,
+  TRAP_STAGE_ID
+} from "./world/stageIds";
 import {
   loadStageJson,
   STAGE_CATALOG,
@@ -124,6 +132,11 @@ import {
 } from "./ui/titleSettingsStorage";
 import { createTrapRoomRecommendControl } from "./ui/trapRoomRecommendControl";
 import { createStageSelectControl } from "./ui/stageSelectControl";
+import {
+  getTitleSettingsAvailability,
+  isRouletteStageId,
+  normalizeRuntimeSettingsForStage
+} from "./ui/titleStageRules";
 import {
   PLAYER_EYE_HEIGHT,
   PLAYER_SPRITE_CENTER_HEIGHT,
@@ -256,7 +269,8 @@ const hasNeverGameOverRisk = (
 ) => {
   if (
     stageId === TRAP_STAGE_ID ||
-    stageId === LABYRINTH_DYNAMIC_STAGE_ID
+    stageId === LABYRINTH_DYNAMIC_STAGE_ID ||
+    isRouletteStageId(stageId)
   ) {
     return false;
   }
@@ -648,6 +662,13 @@ titleRightPanels.appendChild(titleResetSettingsButton);
 const updateTrapRoomRecommendButtonVisibility = () => {
   trapRoomRecommendControl.setVisible(stageSelection.id === TRAP_STAGE_ID);
 };
+const updateTitleSettingsAvailabilityByStage = () => {
+  const availability = getTitleSettingsAvailability(stageSelection.id);
+  titleDefaultSettingsPanel.setNpcCountOnlyMode(availability.npcCountOnly);
+  titleBrainwashSettingsPanel.setEnabled(availability.brainwashEnabled);
+  titleBitSpawnPanel.setEnabled(availability.bitSpawnEnabled);
+  titleStageSelectControl.setAlarmTrapEditable(availability.alarmTrapEditable);
+};
 const volumeCategories: AudioCategory[] = ["voice", "bgm", "se"];
 const resetTitleSettingsToDefault = async () => {
   const defaults = buildDefaultPersistedTitleSettings(
@@ -680,6 +701,7 @@ titleVolumePanel.setVisible(true);
 titleStageSelectControl.setVisible(true);
 setTitleSettingsPanelsVisible(true);
 updateTrapRoomRecommendButtonVisibility();
+updateTitleSettingsAvailabilityByStage();
 updateTitleGameOverWarning();
 const isTitleUiTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
@@ -742,6 +764,11 @@ const seBaseOptions: SpatialPlayOptions = {
   volume: 0.95,
   maxDistance: 3.75,
   loop: false
+};
+const rouletteSpinLoopOptions: SpatialPlayOptions = {
+  volume: seBaseOptions.volume,
+  maxDistance: 3.75,
+  loop: true
 };
 const alertLoopOptions: SpatialPlayOptions = {
   volume: 0.95,
@@ -884,6 +911,7 @@ const bitSoundEvents: BitSoundEvents = {
 
 let alertSeHandle: SpatialHandle | null = null;
 let alertSeLeaderId: string | null = null;
+let rouletteSpinSeHandle: SpatialHandle | null = null;
 const stopAlertLoop = () => {
   if (!alertSeHandle) {
     return;
@@ -901,6 +929,26 @@ const startAlertLoop = (bit: Bit) => {
   }
   alertSeLeaderId = bit.id;
   alertSeHandle = sfxDirector.playAlertLoop(() => bit.root.position);
+};
+const stopRouletteSpinLoop = () => {
+  if (!rouletteSpinSeHandle) {
+    return;
+  }
+  rouletteSpinSeHandle.stop();
+  rouletteSpinSeHandle = null;
+};
+const startRouletteSpinLoop = () => {
+  if (rouletteSpinSeHandle?.isActive()) {
+    return;
+  }
+  rouletteSpinSeHandle = audioManager.playSe(
+    bitSeMove,
+    () => {
+      const sourceBit = bits[0];
+      return sourceBit ? sourceBit.root.position : rouletteCenter;
+    },
+    rouletteSpinLoopOptions
+  );
 };
 const isAlertBitMode = (mode: Bit["mode"]) =>
   mode === "alert-send" || mode === "alert-receive";
@@ -1234,6 +1282,11 @@ const resetPlayerMoveInput = () => {
 
 type PlayerState = CharacterState;
 type PublicExecutionScenario = ExecutionConfig;
+type RouletteHitEntry = {
+  target: RouletteHitTarget;
+  sequence: ReturnType<typeof createHitSequenceState>;
+  completed: boolean;
+};
 let playerState: PlayerState = "normal";
 const playerHitSequence = createHitSequenceState();
 let playerHitDurationCurrent = playerHitDuration;
@@ -1267,6 +1320,19 @@ let executionHitTargetKind: "player" | "npc" | null = null;
 let executionHitNpcIndex: number | null = null;
 const executionHitTargetPosition = new Vector3(0, 0, 0);
 const executionCollisionPosition = new Vector3(0, 0, 0);
+const rouletteFireTimeFromSpinStart = 9;
+const roulettePostHitWaitDuration = 1;
+const rouletteBitMinTurns = 3;
+const rouletteBitMaxTurns = 6;
+const rouletteBitBobSpeed = 1.2;
+const rouletteBitBobHeight = 0.03;
+const rouletteCenter = new Vector3(0, 0, 0);
+const roulettePlayerPosition = new Vector3(0, 0, 0);
+let rouletteCharacterRadius = 0;
+let rouletteBitRadius = 0;
+let rouletteHitEntries: RouletteHitEntry[] = [];
+const rouletteBeamTargets = new Map<Beam, RouletteHitTarget>();
+let rouletteSystem!: ReturnType<typeof createRouletteSystem>;
 
 let gamePhase: GamePhase = "title";
 const allDownTransitionDelay = 3;
@@ -1287,6 +1353,7 @@ const applyStageSelection = async (selection: StageSelection) => {
   saveTitleSettings();
   titleStageSelectControl.setSelectedStageId(selection.id);
   updateTrapRoomRecommendButtonVisibility();
+  updateTitleSettingsAvailabilityByStage();
   updateTitleGameOverWarning();
   hud.setTitleText(buildTitleText());
   const loadedStageJson = await loadStageJson(selection);
@@ -1363,6 +1430,13 @@ const countNonFollowerBits = () => {
   return count;
 };
 
+const disposeAllBits = () => {
+  for (const bit of bits) {
+    disposeBit(bit);
+  }
+  bits.length = 0;
+};
+
 const removeCarpetFollowers = () => {
   const followerIds = new Set(
     bits
@@ -1373,15 +1447,7 @@ const removeCarpetFollowers = () => {
   );
   for (const bit of bits) {
     if (followerIds.has(bit.id)) {
-      if (bit.spawnEffect) {
-        bit.spawnEffect.dispose();
-      }
-      if (bit.spawnEffectMaterial) {
-        bit.spawnEffectMaterial.dispose();
-      }
-      const muzzleMaterial = bit.muzzle.material as StandardMaterial;
-      muzzleMaterial.dispose();
-      bit.root.dispose();
+      disposeBit(bit);
     }
   }
   for (let index = bits.length - 1; index >= 0; index -= 1) {
@@ -2138,6 +2204,490 @@ const updateExecutionScene = (
   }
 };
 
+const buildRouletteTargetFromSlot = (slotIndex: number): RouletteHitTarget =>
+  slotIndex === 0 ? { kind: "player" } : { kind: "npc", npcIndex: slotIndex - 1 };
+
+const buildRouletteTargetKey = (target: RouletteHitTarget) =>
+  target.kind === "player" ? "player" : `npc_${target.npcIndex}`;
+
+const getRouletteTargetState = (target: RouletteHitTarget) =>
+  target.kind === "player" ? playerState : npcs[target.npcIndex].state;
+
+const setRouletteTargetState = (
+  target: RouletteHitTarget,
+  state: CharacterState
+) => {
+  if (target.kind === "player") {
+    playerState = state;
+    return;
+  }
+  npcs[target.npcIndex].state = state;
+};
+
+const getRouletteTargetEyePosition = (
+  target: RouletteHitTarget
+) => {
+  if (target.kind === "player") {
+    return new Vector3(roulettePlayerPosition.x, eyeHeight, roulettePlayerPosition.z);
+  }
+  const sprite = npcs[target.npcIndex].sprite;
+  return new Vector3(sprite.position.x, eyeHeight, sprite.position.z);
+};
+
+const getRouletteTargetCenterPosition = (
+  target: RouletteHitTarget
+) => {
+  if (target.kind === "player") {
+    return new Vector3(
+      roulettePlayerPosition.x,
+      playerAvatar.height * 0.5,
+      roulettePlayerPosition.z
+    );
+  }
+  return npcs[target.npcIndex].sprite.position.clone();
+};
+
+const clearRouletteHitEntries = () => {
+  for (const entry of rouletteHitEntries) {
+    resetHitSequenceState(entry.sequence);
+  }
+  rouletteHitEntries = [];
+};
+
+const clearRouletteBeamTargets = () => {
+  rouletteBeamTargets.clear();
+};
+
+const captureRouletteCharacterSnapshot = () => ({
+  playerState,
+  npcStates: npcs.map((npc) => npc.state)
+});
+
+const applyRouletteCharacterSnapshot = (snapshot: {
+  playerState: CharacterState;
+  npcStates: CharacterState[];
+}) => {
+  playerState = snapshot.playerState;
+  playerHitById = null;
+  playerHitTime = 0;
+  playerNoGunTouchBrainwashTimer = 0;
+  brainwashChoiceStarted = false;
+  brainwashChoiceUnlocked = false;
+  for (let index = 0; index < npcs.length; index += 1) {
+    const npc = npcs[index];
+    npc.state = snapshot.npcStates[index];
+    npc.noGunTouchBrainwashTimer = 0;
+    npc.sprite.color.copyFrom(npcSpriteColorNormal);
+  }
+};
+
+const isRouletteComplete = () => {
+  if (!isBrainwashState(playerState)) {
+    return false;
+  }
+  for (const npc of npcs) {
+    if (!isBrainwashState(npc.state)) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const updateRouletteBitTransforms = (
+  baseSlots: number[],
+  offsetAngle: number,
+  elapsed: number
+) => {
+  const slotCount = npcs.length + 1;
+  if (slotCount <= 0 || bits.length === 0) {
+    return;
+  }
+  const angleStep = (Math.PI * 2) / slotCount;
+  for (let index = 0; index < bits.length; index += 1) {
+    const bit = bits[index];
+    const baseSlot = baseSlots[index];
+    const angle = angleStep * baseSlot + offsetAngle;
+    const bob =
+      Math.sin(elapsed * rouletteBitBobSpeed + bit.floatOffset) *
+      rouletteBitBobHeight;
+    bit.root.position.set(
+      rouletteCenter.x + Math.cos(angle) * rouletteBitRadius,
+      eyeHeight + bob,
+      rouletteCenter.z + Math.sin(angle) * rouletteBitRadius
+    );
+    bit.baseHeight = eyeHeight;
+    bit.root.lookAt(rouletteCenter);
+  }
+};
+
+const setRouletteSpinLoopVolumeRatio = (ratio: number) => {
+  if (!rouletteSpinSeHandle?.isActive()) {
+    return;
+  }
+  rouletteSpinSeHandle.setBaseVolume(
+    rouletteSpinLoopOptions.volume * ratio
+  );
+};
+
+const setupRouletteParticipants = () => {
+  const slotCount = npcs.length + 1;
+  const areaCenterX =
+    -halfWidth + layout.cellSize * (assemblyArea.startCol + assemblyArea.width / 2);
+  const areaCenterZ =
+    -halfDepth + layout.cellSize * (assemblyArea.startRow + assemblyArea.height / 2);
+  rouletteCenter.set(areaCenterX, playerCenterHeight, areaCenterZ);
+  const maxRadius = Math.max(
+    layout.cellSize * 1.6,
+    Math.min(
+      ((assemblyArea.width - 1) * layout.cellSize) / 2,
+      ((assemblyArea.height - 1) * layout.cellSize) / 2
+    )
+  );
+  rouletteCharacterRadius = Math.max(
+    layout.cellSize * 1.1,
+    Math.min(maxRadius * 0.65, layout.cellSize * 2.8)
+  );
+  rouletteBitRadius = Math.min(
+    maxRadius,
+    rouletteCharacterRadius + layout.cellSize * 1.4
+  );
+  if (rouletteBitRadius <= rouletteCharacterRadius) {
+    rouletteBitRadius = rouletteCharacterRadius + layout.cellSize * 0.5;
+  }
+
+  const angleStep = (Math.PI * 2) / slotCount;
+  const playerAngle = 0;
+  roulettePlayerPosition.set(
+    rouletteCenter.x + Math.cos(playerAngle) * rouletteCharacterRadius,
+    eyeHeight,
+    rouletteCenter.z + Math.sin(playerAngle) * rouletteCharacterRadius
+  );
+  camera.position.copyFrom(roulettePlayerPosition);
+  camera.setTarget(new Vector3(rouletteCenter.x, eyeHeight, rouletteCenter.z));
+  camera.cameraDirection.set(0, 0, 0);
+  resetPlayerMoveInput();
+  playerAvatar.isVisible = false;
+  playerAvatar.position.set(
+    roulettePlayerPosition.x,
+    playerAvatar.height * 0.5,
+    roulettePlayerPosition.z
+  );
+  playerState = "evade";
+  playerHitById = null;
+  playerNoGunTouchBrainwashTimer = 0;
+  brainwashChoiceStarted = false;
+  brainwashChoiceUnlocked = false;
+
+  for (let index = 0; index < npcs.length; index += 1) {
+    const slot = index + 1;
+    const angle = angleStep * slot;
+    const npc = npcs[index];
+    npc.state = "evade";
+    npc.sprite.position.set(
+      rouletteCenter.x + Math.cos(angle) * rouletteCharacterRadius,
+      npc.sprite.position.y,
+      rouletteCenter.z + Math.sin(angle) * rouletteCharacterRadius
+    );
+    alignSpriteToGround(npc.sprite);
+  }
+  return slotCount;
+};
+
+const spawnRouletteBits = (baseSlots: number[]) => {
+  const slotCount = npcs.length + 1;
+  for (const slot of baseSlots) {
+    const angle = (Math.PI * 2 * slot) / slotCount;
+    const position = new Vector3(
+      rouletteCenter.x + Math.cos(angle) * rouletteBitRadius,
+      eyeHeight,
+      rouletteCenter.z + Math.sin(angle) * rouletteBitRadius
+    );
+    const direction = rouletteCenter.subtract(position);
+    const bit = createBitAt(scene, bitMaterials, bitIndex, position, direction);
+    bitIndex += 1;
+    bit.mode = "hold";
+    bits.push(bit);
+  }
+};
+
+const startRouletteBitsDespawn = () => {
+  if (bits.length <= 0) {
+    return false;
+  }
+  for (const bit of bits) {
+    startBitDespawn(bit);
+  }
+  return true;
+};
+
+const beginRouletteHit = (target: RouletteHitTarget) => {
+  const sequence = createHitSequenceState();
+  const targetCenter = getRouletteTargetCenterPosition(target);
+  if (target.kind === "player" && playerHitTime <= 0) {
+    playerHitTime = rouletteSystem.getStats().elapsed;
+  }
+  if (target.kind === "player") {
+    startHitSequence(
+      sequence,
+      scene,
+      targetCenter,
+      buildPlayerHitSequenceConfig(
+        `rouletteHitEffect_${buildRouletteTargetKey(target)}`,
+        playerHitDuration,
+        playerHitFadeDuration
+      )
+    );
+  } else {
+    const sprite = npcs[target.npcIndex].sprite;
+    startHitSequence(
+      sequence,
+      scene,
+      targetCenter,
+      buildNpcHitSequenceConfig(
+        `rouletteHitEffect_${buildRouletteTargetKey(target)}`,
+        npcHitDuration,
+        npcHitFadeDuration,
+        sprite
+      )
+    );
+  }
+  setRouletteTargetState(target, "hit-a");
+  rouletteHitEntries.push({
+    target,
+    sequence,
+    completed: false
+  });
+  const hitPosition = targetCenter.clone();
+  sfxDirector.playHit(() => hitPosition);
+};
+
+const startRouletteFireEffects = (entries: RouletteBitFireEntry[]) => {
+  const entryByBitIndex = new Map(entries.map((entry) => [entry.bitIndex, entry]));
+  for (let index = 0; index < bits.length; index += 1) {
+    const bit = bits[index];
+    const entry = entryByBitIndex.get(index);
+    if (!entry) {
+      stopBitFireEffect(bit);
+      continue;
+    }
+    const targetPosition = getRouletteTargetEyePosition(entry.target);
+    bit.root.lookAt(targetPosition);
+    const muzzlePosition = bit.muzzle.getAbsolutePosition();
+    const direction = targetPosition.subtract(muzzlePosition);
+    if (direction.lengthSquared() > 0.0001) {
+      bit.fireLockDirection.copyFrom(direction.normalize());
+    }
+    startBitFireEffect(bit);
+  }
+};
+
+const fireRouletteBits = (entries: RouletteBitFireEntry[]) => {
+  const startedHitTargets = new Set<string>();
+  let playerHit = false;
+  for (const entry of entries) {
+    const bit = bits[entry.bitIndex];
+    const targetPosition = getRouletteTargetEyePosition(entry.target);
+    const muzzlePosition = bit.muzzle.getAbsolutePosition();
+    const direction = targetPosition.subtract(muzzlePosition);
+    if (direction.lengthSquared() <= 0.0001) {
+      stopBitFireEffect(bit);
+      continue;
+    }
+    const beam = createBeam(
+      scene,
+      muzzlePosition.clone(),
+      direction.normalize(),
+      beamMaterial,
+      bit.id
+    );
+    beams.push(beam);
+    rouletteBeamTargets.set(beam, entry.target);
+    bitSoundEvents.onBeamFire(bit, entry.target.kind === "player");
+    stopBitFireEffect(bit);
+    const targetKey = buildRouletteTargetKey(entry.target);
+    if (!startedHitTargets.has(targetKey)) {
+      startedHitTargets.add(targetKey);
+      beginRouletteHit(entry.target);
+      if (entry.target.kind === "player") {
+        playerHit = true;
+      }
+    }
+  }
+  return {
+    hitCount: startedHitTargets.size,
+    playerHit
+  };
+};
+
+const updateRouletteBeamImpacts = () => {
+  for (const beam of beams) {
+    const target = rouletteBeamTargets.get(beam);
+    if (!target) {
+      continue;
+    }
+    if (!beam.active) {
+      rouletteBeamTargets.delete(beam);
+      continue;
+    }
+    const targetPosition = getRouletteTargetCenterPosition(target);
+    const targetRadii =
+      target.kind === "player"
+        ? getSpriteBeamHitRadii(playerAvatar)
+        : getSpriteBeamHitRadii(npcs[target.npcIndex].sprite);
+    if (!isBeamHittingTarget(beam, targetPosition, targetRadii)) {
+      continue;
+    }
+    const impactPosition = getBeamImpactPosition(beam);
+    beginBeamRetract(beam, impactPosition);
+    rouletteBeamTargets.delete(beam);
+  }
+};
+
+const updateRouletteHitEntries = (
+  delta: number,
+  shouldProcessOrb: (position: Vector3) => boolean
+) => {
+  for (const entry of rouletteHitEntries) {
+    const targetCenter = getRouletteTargetCenterPosition(entry.target);
+    if (entry.target.kind === "player") {
+      updateHitSequence(
+        entry.sequence,
+        delta,
+        targetCenter,
+        buildPlayerHitSequenceConfig(
+          `rouletteHitEffect_${buildRouletteTargetKey(entry.target)}`,
+          playerHitDuration,
+          playerHitFadeDuration
+        ),
+        (isColorA) => {
+          playerState = isColorA ? "hit-a" : "hit-b";
+        },
+        () => {
+          playerState = "hit-a";
+        },
+        () => {
+          playerState = "brainwash-complete-haigure";
+          entry.completed = true;
+        },
+        shouldProcessOrb
+      );
+      continue;
+    }
+    const npc = npcs[entry.target.npcIndex];
+    updateHitSequence(
+      entry.sequence,
+      delta,
+      targetCenter,
+      buildNpcHitSequenceConfig(
+        `rouletteHitEffect_${buildRouletteTargetKey(entry.target)}`,
+        npcHitDuration,
+        npcHitFadeDuration,
+        npc.sprite
+      ),
+      (isColorA) => {
+        npc.state = isColorA ? "hit-a" : "hit-b";
+      },
+      () => {
+        npc.state = "hit-a";
+      },
+      () => {
+        npc.state = "brainwash-complete-haigure";
+        entry.completed = true;
+      },
+      shouldProcessOrb
+    );
+  }
+  rouletteHitEntries = rouletteHitEntries.filter((entry) => !entry.completed);
+  return rouletteHitEntries.length > 0;
+};
+
+rouletteSystem = createRouletteSystem({
+  random: Math.random,
+  fireTimeFromSpinStart: rouletteFireTimeFromSpinStart,
+  bitFireEffectDuration,
+  postHitWaitDuration: roulettePostHitWaitDuration,
+  bitMinTurns: rouletteBitMinTurns,
+  bitMaxTurns: rouletteBitMaxTurns,
+  clearHitEntries: clearRouletteHitEntries,
+  clearBeamTargets: clearRouletteBeamTargets,
+  startSpinLoop: startRouletteSpinLoop,
+  stopSpinLoop: stopRouletteSpinLoop,
+  setSpinLoopVolumeRatio: setRouletteSpinLoopVolumeRatio,
+  prepareParticipants: setupRouletteParticipants,
+  spawnBits: spawnRouletteBits,
+  startBitsDespawn: startRouletteBitsDespawn,
+  areBitsDespawning: () => bits.some((bit) => bit.despawnTimer > 0),
+  disposeAllBits,
+  areBitSpawnsDone: () => bits.every((bit) => bit.spawnPhase === "done"),
+  beginFireEffects: startRouletteFireEffects,
+  fireBits: fireRouletteBits,
+  updateHitEntries: updateRouletteHitEntries,
+  buildTargetFromSlot: buildRouletteTargetFromSlot,
+  isTargetBrainwashed: (target) => isBrainwashState(getRouletteTargetState(target)),
+  isComplete: isRouletteComplete,
+  updateBitTransforms: updateRouletteBitTransforms,
+  captureCharacterSnapshot: captureRouletteCharacterSnapshot,
+  applyCharacterSnapshot: applyRouletteCharacterSnapshot,
+  beginUndoTransition: (apply) => {
+    gamePhase = "transition";
+    gameFlow.beginFadeOut(() => {
+      apply();
+      gamePhase = "roulette";
+      hud.setStateInfo(null);
+    });
+  },
+  prepareUndoState: () => {
+    clearBeams();
+    disposeAllBits();
+  }
+});
+
+const startRouletteMode = () => {
+  rouletteSystem.start(true);
+  hud.setStateInfo(null);
+};
+
+const undoRouletteRound = () => {
+  if (gamePhase !== "roulette") {
+    return;
+  }
+  if (gameFlow.isFading()) {
+    return;
+  }
+  rouletteSystem.undo();
+};
+
+const updateRouletteScene = (
+  delta: number,
+  shouldProcessOrb: (position: Vector3) => boolean
+) => {
+  camera.position.set(roulettePlayerPosition.x, eyeHeight, roulettePlayerPosition.z);
+  camera.cameraDirection.set(0, 0, 0);
+  updateBeams(
+    layout,
+    beams,
+    bounds,
+    delta,
+    beamTrails,
+    beamImpactOrbs,
+    shouldProcessOrb
+  );
+  for (const bit of bits) {
+    if (bit.despawnTimer > 0) {
+      updateBitDespawn(bit, delta);
+      continue;
+    }
+    if (bit.spawnPhase !== "done") {
+      updateBitSpawnEffect(bit, delta);
+    }
+    if (bit.fireEffectTimer > 0) {
+      updateBitFireEffect(bit, delta);
+    }
+  }
+  updateRouletteBeamImpacts();
+  rouletteSystem.update(delta, shouldProcessOrb);
+};
+
 const createGameFlowInstance = () =>
   createGameFlow({
     layout,
@@ -2229,9 +2779,10 @@ const applyAlertRequests = (
 };
 
 const drawMinimap = () => {
-  if (gamePhase !== "playing") {
+  if (gamePhase !== "playing" && gamePhase !== "roulette") {
     return;
   }
+  const rouletteMode = gamePhase === "roulette";
   const getNpcById = (npcId: string) => {
     if (!npcId.startsWith("npc_")) {
       return null;
@@ -2283,17 +2834,30 @@ const drawMinimap = () => {
   }
 
   const canMove =
-    isAliveState(playerState) ||
-    playerState === "brainwash-complete-gun" ||
-    playerState === "brainwash-complete-no-gun";
+    !rouletteMode &&
+    (isAliveState(playerState) ||
+      playerState === "brainwash-complete-gun" ||
+      playerState === "brainwash-complete-no-gun");
   const trapBeamCount = isTrapStageSelected() ? trapSystem.getBeamCount() : null;
   const trapSurviveCount =
     isTrapStageSelected() && brainwashChoiceStarted
       ? trapSurviveCountAtBrainwash ?? trapBeamCount
       : null;
-  const surviveTime = brainwashChoiceStarted ? playerHitTime : null;
+  const rouletteStats = rouletteMode ? rouletteSystem.getStats() : null;
+  const rouletteRoundCountValue = rouletteStats ? rouletteStats.roundCount : null;
+  const rouletteSurviveCountValue =
+    rouletteStats && isBrainwashState(playerState)
+      ? rouletteStats.surviveCount
+      : null;
+  const showSurviveTime =
+    brainwashChoiceStarted ||
+    (rouletteMode && isBrainwashState(playerState));
+  const surviveTime = showSurviveTime ? playerHitTime : null;
+  const displayElapsedTime = rouletteStats ? rouletteStats.elapsed : elapsedTime;
   let retryText: string | null = null;
-  if (brainwashChoiceStarted) {
+  if (rouletteMode) {
+    retryText = "操作説明\nR: 1回分やりなおす\nEnter: タイトルへ";
+  } else if (brainwashChoiceStarted) {
     const promptLines: string[] = ["操作説明"];
     if (canMove) {
       promptLines.push("WASD: 移動");
@@ -2322,10 +2886,12 @@ const drawMinimap = () => {
     minimapCellSize,
     halfWidth,
     halfDepth,
-    elapsedTime,
+    elapsedTime: displayElapsedTime,
     surviveTime,
     trapBeamCount,
     trapSurviveCount,
+    rouletteRoundCount: rouletteRoundCountValue,
+    rouletteSurviveCount: rouletteSurviveCountValue,
     aliveCount,
     retryText,
     showCrosshair: playerState === "brainwash-complete-gun",
@@ -2334,7 +2900,7 @@ const drawMinimap = () => {
 };
 
 scene.onBeforeRenderObservable.add(() => {
-  if (gamePhase === "playing") {
+  if (gamePhase === "playing" || gamePhase === "roulette") {
     camera.position.y = eyeHeight;
     drawMinimap();
   }
@@ -2512,6 +3078,7 @@ const resetGame = async () => {
   });
   alarmSystem.resetRuntimeState();
   resetExecutionState();
+  rouletteSystem.reset();
   playerState = runtimeDefaultStartSettings.startPlayerAsBrainwashCompleteGun
     ? "brainwash-complete-gun"
     : "normal";
@@ -2532,18 +3099,7 @@ const resetGame = async () => {
 
   clearBeams();
 
-  for (const bit of bits) {
-    if (bit.spawnEffect) {
-      bit.spawnEffect.dispose();
-    }
-    if (bit.spawnEffectMaterial) {
-      bit.spawnEffectMaterial.dispose();
-    }
-    const muzzleMaterial = bit.muzzle.material as StandardMaterial;
-    muzzleMaterial.dispose();
-    bit.root.dispose();
-  }
-  bits.length = 0;
+  disposeAllBits();
   bitIndex = 0;
   if (runtimeMaxBitCount > 0) {
     bits.push(createRandomBit(bitIndex));
@@ -2595,28 +3151,41 @@ const startGame = async () => {
     titleGameOverWarningEnabled = false;
     titleGameOverWarning.style.display = "none";
     titleDefaultStartSettings = titleDefaultSettingsPanel.getSettings();
-    runtimeDefaultStartSettings = { ...titleDefaultStartSettings };
     titleBrainwashSettings = titleBrainwashSettingsPanel.getSettings();
-    runtimeBrainwashSettings = { ...titleBrainwashSettings };
+    titleBitSpawnSettings = titleBitSpawnPanel.getSettings();
+    titleAlarmTrapEnabled = titleStageSelectControl.getAlarmTrapEnabled();
+    const runtimeSettings = normalizeRuntimeSettingsForStage({
+      stageId: stageSelection.id,
+      titleDefaultStartSettings,
+      titleBrainwashSettings,
+      titleBitSpawnSettings,
+      titleAlarmTrapEnabled,
+      defaultBrainwashSettings,
+      defaultBitSpawnSettings
+    });
+    const rouletteSelected = runtimeSettings.rouletteSelected;
+    runtimeDefaultStartSettings = runtimeSettings.runtimeDefaultStartSettings;
+    runtimeBrainwashSettings = runtimeSettings.runtimeBrainwashSettings;
+    runtimeBitSpawnInterval = runtimeSettings.runtimeBitSpawnInterval;
+    runtimeMaxBitCount = runtimeSettings.runtimeMaxBitCount;
+    runtimeAlarmTrapEnabled = runtimeSettings.runtimeAlarmTrapEnabled;
     setNpcBrainwashInProgressTransitionConfig(
       buildNpcBrainwashInProgressTransitionConfig(runtimeBrainwashSettings)
     );
     setNpcBrainwashCompleteTransitionConfig(
       buildNpcBrainwashCompleteTransitionConfig(runtimeBrainwashSettings)
     );
-    titleBitSpawnSettings = titleBitSpawnPanel.getSettings();
-    titleAlarmTrapEnabled = titleStageSelectControl.getAlarmTrapEnabled();
-    runtimeAlarmTrapEnabled = titleAlarmTrapEnabled;
-    runtimeBitSpawnInterval = titleBitSpawnSettings.bitSpawnInterval;
-    runtimeMaxBitCount = titleBitSpawnSettings.disableBitSpawn
-      ? 0
-      : titleBitSpawnSettings.maxBitCount;
     await resetGame();
     const bgmUrl = selectBgmUrl(stageJson ? stageJson.meta.name : null);
     if (bgmUrl) {
       audioManager.startBgm(bgmUrl);
     }
-    gamePhase = "playing";
+    if (rouletteSelected) {
+      startRouletteMode();
+      gamePhase = "roulette";
+    } else {
+      gamePhase = "playing";
+    }
     hud.setTitleVisible(false);
     titleVolumePanel.setVisible(false);
     titleStageSelectControl.setVisible(false);
@@ -2709,6 +3278,9 @@ setupInputHandlers({
   },
   onReturnToTitle: () => {
     void returnToTitle();
+  },
+  onUndoRoulette: () => {
+    undoRouletteRound();
   },
   onReplayExecution: () => {
     gamePhase = "transition";
@@ -3022,6 +3594,10 @@ engine.runRenderLoop(() => {
             : "normal";
       }
     }
+  }
+  if (gamePhase === "roulette") {
+    const shouldProcessOrb = buildOrbCullingCheck();
+    updateRouletteScene(delta, shouldProcessOrb);
   }
   if (gamePhase !== "playing") {
     trapSystem.updateNpcFreezeControl(delta, gamePhase);

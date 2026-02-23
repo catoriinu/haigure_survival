@@ -600,6 +600,13 @@ const updateCarpetFollowerDespawn = (bit: Bit, delta: number) => {
   return bit.despawnTimer <= 0;
 };
 
+export const startBitDespawn = (bit: Bit) => {
+  startCarpetFollowerDespawn(bit);
+};
+
+export const updateBitDespawn = (bit: Bit, delta: number) =>
+  updateCarpetFollowerDespawn(bit, delta);
+
 const updateCarpetHeight = (bit: Bit, delta: number) => {
   const heightStep = carpetBombAscendSpeed * delta;
   const targetHeight = bit.carpetTargetHeight;
@@ -721,6 +728,10 @@ const updateSpawnEffect = (bit: Bit, delta: number) => {
     bit.spawnEffect = null;
     bit.spawnEffectMaterial = null;
   }
+};
+
+export const updateBitSpawnEffect = (bit: Bit, delta: number) => {
+  updateSpawnEffect(bit, delta);
 };
 
 export const createBitMaterials = (scene: Scene): BitMaterials => {
@@ -1005,6 +1016,29 @@ export const stopBitFireEffect = (bit: Bit) => {
     bit.fireEffect.muzzle.setEnabled(false);
     bit.fireEffect.shot.setEnabled(false);
   }
+};
+
+export const disposeBit = (bit: Bit) => {
+  if (bit.spawnEffect) {
+    bit.spawnEffect.dispose();
+    bit.spawnEffect = null;
+  }
+  if (bit.spawnEffectMaterial) {
+    bit.spawnEffectMaterial.dispose();
+    bit.spawnEffectMaterial = null;
+  }
+  if (bit.fireEffect) {
+    bit.fireEffect.cone.dispose();
+    bit.fireEffect.coneMaterial.dispose();
+    bit.fireEffect.muzzle.dispose();
+    bit.fireEffect.muzzleMaterial.dispose();
+    bit.fireEffect.shot.dispose();
+    bit.fireEffect.shotMaterial.dispose();
+    bit.fireEffect = null;
+  }
+  const muzzleMaterial = bit.muzzle.material as StandardMaterial;
+  muzzleMaterial.dispose();
+  bit.root.dispose();
 };
 
 export const finalizeBitVisuals = (bit: Bit) => {
@@ -2462,7 +2496,7 @@ export const updateBits = (
     }
     const spawnActive = bit.spawnPhase !== "done";
     if (spawnActive) {
-      updateSpawnEffect(bit, delta);
+      updateBitSpawnEffect(bit, delta);
       if (bit.mode === "attack-carpet-bomb" && carpetFollower) {
         const leaderId = bit.carpetLeaderId ?? bit.id;
         const leader =
@@ -2748,26 +2782,9 @@ export const updateBits = (
 
   if (bitsToRemove.length > 0) {
     const removeIds = new Set(bitsToRemove.map((bit) => bit.id));
-      for (const bit of bitsToRemove) {
-        if (bit.spawnEffect) {
-          bit.spawnEffect.dispose();
-        }
-        if (bit.spawnEffectMaterial) {
-          bit.spawnEffectMaterial.dispose();
-        }
-        if (bit.fireEffect) {
-          bit.fireEffect.cone.dispose();
-          bit.fireEffect.coneMaterial.dispose();
-          bit.fireEffect.muzzle.dispose();
-          bit.fireEffect.muzzleMaterial.dispose();
-          bit.fireEffect.shot.dispose();
-          bit.fireEffect.shotMaterial.dispose();
-          bit.fireEffect = null;
-        }
-        const muzzleMaterial = bit.muzzle.material as StandardMaterial;
-        muzzleMaterial.dispose();
-        bit.root.dispose();
-      }
+    for (const bit of bitsToRemove) {
+      disposeBit(bit);
+    }
     for (let index = bits.length - 1; index >= 0; index -= 1) {
       if (removeIds.has(bits[index].id)) {
         bits.splice(index, 1);
