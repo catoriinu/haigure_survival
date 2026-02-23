@@ -96,8 +96,7 @@ import { createDynamicBeamSystem } from "./game/dynamicBeam/system";
 import { createTrapSystem } from "./game/trap/system";
 import { createAlarmSystem } from "./game/alarm/system";
 import { createRouletteSystem } from "./game/roulette/system";
-import { sampleRouletteSpinLoopVolume } from "./game/roulette/spinProfile";
-import { RouletteBitFireEntry, RouletteHitTarget, RouletteSpinProfile } from "./game/roulette/types";
+import { RouletteBitFireEntry, RouletteHitTarget } from "./game/roulette/types";
 import { buildStageContext, disposeStageParts } from "./world/stageContext";
 import { createZoneMapFromStageJson } from "./world/stageJson";
 import {
@@ -2321,16 +2320,12 @@ const updateRouletteBitTransforms = (
   }
 };
 
-const updateRouletteSpinLoopVolume = (
-  spinProfile: RouletteSpinProfile,
-  spinElapsed: number
-) => {
+const setRouletteSpinLoopVolumeRatio = (ratio: number) => {
   if (!rouletteSpinSeHandle?.isActive()) {
     return;
   }
-  const volumeRatio = sampleRouletteSpinLoopVolume(spinProfile, spinElapsed);
   rouletteSpinSeHandle.setBaseVolume(
-    rouletteSpinLoopOptions.volume * volumeRatio
+    rouletteSpinLoopOptions.volume * ratio
   );
 };
 
@@ -2615,7 +2610,7 @@ rouletteSystem = createRouletteSystem({
   clearBeamTargets: clearRouletteBeamTargets,
   startSpinLoop: startRouletteSpinLoop,
   stopSpinLoop: stopRouletteSpinLoop,
-  updateSpinLoopVolume: updateRouletteSpinLoopVolume,
+  setSpinLoopVolumeRatio: setRouletteSpinLoopVolumeRatio,
   prepareParticipants: setupRouletteParticipants,
   spawnBits: spawnRouletteBits,
   startBitsDespawn: startRouletteBitsDespawn,

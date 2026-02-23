@@ -1,5 +1,9 @@
 import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { createRouletteSpinProfile, sampleRouletteSpinAngle } from "./spinProfile";
+import {
+  createRouletteSpinProfile,
+  sampleRouletteSpinAngle,
+  sampleRouletteSpinLoopVolume
+} from "./spinProfile";
 import type {
   RouletteBitFireEntry,
   RouletteHitTarget,
@@ -27,7 +31,7 @@ type RouletteSystemDeps = {
   clearBeamTargets: () => void;
   startSpinLoop: () => void;
   stopSpinLoop: () => void;
-  updateSpinLoopVolume: (profile: RouletteSpinProfile, elapsed: number) => void;
+  setSpinLoopVolumeRatio: (ratio: number) => void;
   prepareParticipants: () => number;
   spawnBits: (baseSlots: number[]) => void;
   startBitsDespawn: () => boolean;
@@ -270,7 +274,9 @@ export const createRouletteSystem = (deps: RouletteSystemDeps): RouletteSystem =
         spinElapsed,
         spinTotalAngle
       );
-      deps.updateSpinLoopVolume(spinProfile, spinElapsed);
+      deps.setSpinLoopVolumeRatio(
+        sampleRouletteSpinLoopVolume(spinProfile, spinElapsed)
+      );
       if (spinElapsed >= spinProfile.duration) {
         bitOffsetAngle = spinTotalAngle;
         phase = "post-spin-wait";
