@@ -745,6 +745,7 @@ const isSeAvailable = (url: string) => seUrls.has(url);
 const bitSeMove = "/audio/se/FlyingObject.mp3";
 const bitSeAlert = "/audio/se/BeamShot_WavingPart.mp3";
 const bitSeTarget = "/audio/se/aim.mp3";
+const alarmSe = "/audio/se/alarm.mp3";
 const bitSeBeamNonTarget = [
   "/audio/se/BeamShotR_DownLong.mp3",
   "/audio/se/BeamShotR_Down.mp3",
@@ -763,6 +764,11 @@ const hitSeVariants = [
 const seBaseOptions: SpatialPlayOptions = {
   volume: 0.95,
   maxDistance: 3.75,
+  loop: false
+};
+const alarmSeOptions: SpatialPlayOptions = {
+  volume: 0.95,
+  maxDistance: 6,
   loop: false
 };
 const rouletteSpinLoopOptions: SpatialPlayOptions = {
@@ -1201,6 +1207,13 @@ dynamicBeamSystem.syncStageContext({
 const alarmSystem = createAlarmSystem({
   scene,
   isAlarmEnabled: () => runtimeAlarmTrapEnabled,
+  onTriggerAlarmCell: (_triggerTargetId, centerX, centerZ) => {
+    if (!isSeAvailable(alarmSe)) {
+      return;
+    }
+    const alarmPosition = new Vector3(centerX, playerCenterHeight, centerZ);
+    audioManager.playSe(alarmSe, () => alarmPosition, alarmSeOptions);
+  },
   onNpcTriggerAlarmCell: (npcId) => {
     alarmTriggeredNpcIds.add(npcId);
   }

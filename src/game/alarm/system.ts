@@ -21,6 +21,11 @@ const alarmFloorWarningYOffset = 0.002;
 type AlarmSystemParams = {
   scene: Scene;
   isAlarmEnabled: () => boolean;
+  onTriggerAlarmCell?: (
+    triggerTargetId: string,
+    centerX: number,
+    centerZ: number
+  ) => void;
   onNpcTriggerAlarmCell?: (npcId: string) => void;
 };
 
@@ -60,6 +65,7 @@ const emptyAlarmTargetStack: readonly string[] = [];
 export const createAlarmSystem = ({
   scene,
   isAlarmEnabled,
+  onTriggerAlarmCell,
   onNpcTriggerAlarmCell,
 }: AlarmSystemParams): AlarmSystem => {
   let layout: GridLayout;
@@ -173,8 +179,10 @@ export const createAlarmSystem = ({
     if (!activeAlarmKeys.has(cellKey)) {
       return;
     }
+    const floorCell = floorCellByKey.get(cellKey)!;
     activeAlarmKeys.delete(cellKey);
     startBlinkingCell(cellKey);
+    onTriggerAlarmCell?.(triggerTargetId, floorCell.centerX, floorCell.centerZ);
     if (triggerTargetId.startsWith("npc_")) {
       onNpcTriggerAlarmCell?.(triggerTargetId);
     }
