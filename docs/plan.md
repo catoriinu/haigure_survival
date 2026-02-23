@@ -17,7 +17,7 @@ PLEASE IMPLEMENT THIS PLAN:
 - [x] ルーレット状態機械を `RouletteSystem` へ抽出
 - [x] ルーレット回転SE制御を `RouletteSystem` 側へ集約
 - [x] HUD連携を `RouletteSystem.getStats()` 経由に統一
-- [ ] README/docsを現行実装値へ同期し、最終確認を実施
+- [x] README/docsを現行実装値へ同期し、最終確認を実施
 
 ## 結果
 - ステップ1完了: `src/ui/titleStageRules.ts` を追加し、タイトル設定制限と実行時正規化を `main.ts` から分離
@@ -25,3 +25,4 @@ PLEASE IMPLEMENT THIS PLAN:
 - ステップ3完了: `src/game/roulette/system.ts` を追加し、ラウンド進行/Undo/統計管理を `main.ts` から `RouletteSystem` へ抽出
 - ステップ4完了: 回転SEの音量カーブ計算を `RouletteSystem` 側へ移し、`main.ts` は再生/停止/音量反映のアダプタに整理
 - ステップ5完了: HUD表示値の取得元を `RouletteSystem.getStats()` に統一し、`main.ts` のルーレット統計分岐を整理
+- ステップ6完了: READMEのルーレット仕様（回転/発射タイミング、無命中補正、SE挙動、HUD/Undo）を現行実装値に同期
