@@ -95,6 +95,8 @@ import { createGameFlow, type GamePhase, type ExecutionConfig } from "./game/flo
 import { createDynamicBeamSystem } from "./game/dynamicBeam/system";
 import { createTrapSystem } from "./game/trap/system";
 import { createAlarmSystem } from "./game/alarm/system";
+import { createRouletteSpinProfile, sampleRouletteSpinAngle, sampleRouletteSpinLoopVolume } from "./game/roulette/spinProfile";
+import { RouletteHitTarget, RoulettePhase, RouletteSnapshot, RouletteSpinProfile } from "./game/roulette/types";
 import { buildStageContext, disposeStageParts } from "./world/stageContext";
 import { createZoneMapFromStageJson } from "./world/stageJson";
 import {
@@ -1280,19 +1282,6 @@ const resetPlayerMoveInput = () => {
 
 type PlayerState = CharacterState;
 type PublicExecutionScenario = ExecutionConfig;
-type RoulettePhase =
-  | "inactive"
-  | "despawn-wait"
-  | "spawn-wait"
-  | "spinning"
-  | "post-spin-wait"
-  | "fire-effect"
-  | "hit-sequence"
-  | "post-hit-wait"
-  | "ended";
-type RouletteHitTarget =
-  | { kind: "player" }
-  | { kind: "npc"; npcIndex: number };
 type RouletteBitFireEntry = {
   bitIndex: number;
   target: RouletteHitTarget;
@@ -1301,13 +1290,6 @@ type RouletteHitEntry = {
   target: RouletteHitTarget;
   sequence: ReturnType<typeof createHitSequenceState>;
   completed: boolean;
-};
-type RouletteSnapshot = {
-  playerState: PlayerState;
-  npcStates: CharacterState[];
-  rouletteRoundCount: number;
-  rouletteNoHitRoundCount: number;
-  rouletteSurviveCountAtBrainwash: number | null;
 };
 let playerState: PlayerState = "normal";
 const playerHitSequence = createHitSequenceState();
@@ -1343,18 +1325,6 @@ let executionHitNpcIndex: number | null = null;
 const executionHitTargetPosition = new Vector3(0, 0, 0);
 const executionCollisionPosition = new Vector3(0, 0, 0);
 const rouletteFireTimeFromSpinStart = 9;
-const rouletteSpinDuration = 8;
-const rouletteSpinAccelDuration = 1;
-const rouletteSpinDecelStartMin = 4;
-const rouletteSpinDecelStartMax = 5;
-const rouletteSpinGlideDurationMin = 1.0;
-const rouletteSpinGlideDurationMax = 1.3;
-const rouletteSpinFinalBrakeDurationMin = 0.8;
-const rouletteSpinFinalBrakeDurationMax = 1.1;
-const rouletteSpinGlideSpeedRatioMin = 0.08;
-const rouletteSpinGlideSpeedRatioMax = 0.14;
-const roulettePostSpinWaitDuration =
-  rouletteFireTimeFromSpinStart - rouletteSpinDuration - bitFireEffectDuration;
 const roulettePostHitWaitDuration = 1;
 const rouletteBitMinTurns = 3;
 const rouletteBitMaxTurns = 6;
@@ -1369,11 +1339,8 @@ let rouletteSlotCount = 0;
 let rouletteElapsed = 0;
 let rouletteBitOffsetAngle = 0;
 let rouletteSpinElapsed = 0;
+let rouletteSpinProfile: RouletteSpinProfile = createRouletteSpinProfile(() => 0);
 let rouletteSpinTotalAngle = 0;
-let rouletteSpinDecelStart = rouletteSpinDecelStartMin;
-let rouletteSpinGlideStart = rouletteSpinDecelStartMax;
-let rouletteSpinFinalBrakeStart = rouletteSpinDuration;
-let rouletteSpinGlideSpeedRatio = rouletteSpinGlideSpeedRatioMin;
 let rouletteStopShift = 0;
 let roulettePhaseTimer = 0;
 let rouletteBitBaseSlots: number[] = [];
@@ -2356,6 +2323,7 @@ const resetRouletteState = () => {
   rouletteElapsed = 0;
   rouletteBitOffsetAngle = 0;
   rouletteSpinElapsed = 0;
+  rouletteSpinProfile = createRouletteSpinProfile(() => 0);
   rouletteSpinTotalAngle = 0;
   rouletteStopShift = 0;
   roulettePhaseTimer = 0;
@@ -2403,72 +2371,12 @@ const updateRouletteSpinLoopVolume = () => {
   if (!rouletteSpinSeHandle?.isActive()) {
     return;
   }
-  if (rouletteSpinElapsed <= rouletteSpinFinalBrakeStart) {
-    rouletteSpinSeHandle.setBaseVolume(rouletteSpinLoopOptions.volume);
-    return;
-  }
-  const finalBrakeDuration = rouletteSpinDuration - rouletteSpinFinalBrakeStart;
-  const progress = Math.min(
-    1,
-    (rouletteSpinElapsed - rouletteSpinFinalBrakeStart) / finalBrakeDuration
+  const volumeRatio = sampleRouletteSpinLoopVolume(
+    rouletteSpinProfile,
+    rouletteSpinElapsed
   );
   rouletteSpinSeHandle.setBaseVolume(
-    rouletteSpinLoopOptions.volume * (1 - progress)
-  );
-};
-
-const sampleRouletteSpinAngle = (elapsed: number) => {
-  const t = Math.max(0, Math.min(rouletteSpinDuration, elapsed));
-  const cruiseDuration = rouletteSpinDecelStart - rouletteSpinAccelDuration;
-  const decelDuration = rouletteSpinGlideStart - rouletteSpinDecelStart;
-  const glideDuration = rouletteSpinFinalBrakeStart - rouletteSpinGlideStart;
-  const finalBrakeDuration = rouletteSpinDuration - rouletteSpinFinalBrakeStart;
-  const angleScale =
-    rouletteSpinAccelDuration * 0.5 +
-    cruiseDuration +
-    decelDuration * (1 + rouletteSpinGlideSpeedRatio) * 0.5 +
-    glideDuration * rouletteSpinGlideSpeedRatio +
-    finalBrakeDuration * rouletteSpinGlideSpeedRatio * 0.5;
-  const omegaMax = rouletteSpinTotalAngle / angleScale;
-  const omegaGlide = omegaMax * rouletteSpinGlideSpeedRatio;
-  const accelAngle = omegaMax * rouletteSpinAccelDuration * 0.5;
-  const cruiseAngle = omegaMax * cruiseDuration;
-  const decelAngle = (omegaMax + omegaGlide) * decelDuration * 0.5;
-  const glideAngle = omegaGlide * glideDuration;
-  if (t <= rouletteSpinAccelDuration) {
-    const accel = omegaMax / rouletteSpinAccelDuration;
-    return 0.5 * accel * t * t;
-  }
-  if (t <= rouletteSpinDecelStart) {
-    return accelAngle + omegaMax * (t - rouletteSpinAccelDuration);
-  }
-  if (t <= rouletteSpinGlideStart) {
-    const u = t - rouletteSpinDecelStart;
-    const decelPerSecond = (omegaMax - omegaGlide) / decelDuration;
-    return (
-      accelAngle +
-      cruiseAngle +
-      omegaMax * u -
-      0.5 * decelPerSecond * u * u
-    );
-  }
-  if (t <= rouletteSpinFinalBrakeStart) {
-    return (
-      accelAngle +
-      cruiseAngle +
-      decelAngle +
-      omegaGlide * (t - rouletteSpinGlideStart)
-    );
-  }
-  const v = t - rouletteSpinFinalBrakeStart;
-  const finalBrakePerSecond = omegaGlide / finalBrakeDuration;
-  return (
-    accelAngle +
-    cruiseAngle +
-    decelAngle +
-    glideAngle +
-    omegaGlide * v -
-    0.5 * finalBrakePerSecond * v * v
+    rouletteSpinLoopOptions.volume * volumeRatio
   );
 };
 
@@ -2592,22 +2500,7 @@ const startRouletteBitsDespawn = () => {
 const startRouletteSpin = () => {
   stopRouletteSpinLoop();
   rouletteSpinElapsed = 0;
-  rouletteSpinDecelStart =
-    rouletteSpinDecelStartMin +
-    Math.random() * (rouletteSpinDecelStartMax - rouletteSpinDecelStartMin);
-  const glideDuration =
-    rouletteSpinGlideDurationMin +
-    Math.random() * (rouletteSpinGlideDurationMax - rouletteSpinGlideDurationMin);
-  const finalBrakeDuration =
-    rouletteSpinFinalBrakeDurationMin +
-    Math.random() *
-      (rouletteSpinFinalBrakeDurationMax - rouletteSpinFinalBrakeDurationMin);
-  rouletteSpinGlideSpeedRatio =
-    rouletteSpinGlideSpeedRatioMin +
-    Math.random() *
-      (rouletteSpinGlideSpeedRatioMax - rouletteSpinGlideSpeedRatioMin);
-  rouletteSpinFinalBrakeStart = rouletteSpinDuration - finalBrakeDuration;
-  rouletteSpinGlideStart = rouletteSpinFinalBrakeStart - glideDuration;
+  rouletteSpinProfile = createRouletteSpinProfile(Math.random);
   rouletteStopShift = Math.floor(Math.random() * rouletteSlotCount);
   const extraTurns =
     rouletteBitMinTurns +
@@ -2867,6 +2760,7 @@ const undoRouletteRound = () => {
     rouletteElapsed = 0;
     rouletteBitOffsetAngle = 0;
     rouletteSpinElapsed = 0;
+    rouletteSpinProfile = createRouletteSpinProfile(() => 0);
     rouletteSpinTotalAngle = 0;
     rouletteStopShift = 0;
     roulettePhaseTimer = 0;
@@ -2931,13 +2825,25 @@ const updateRouletteScene = (
     return;
   }
   if (roulettePhase === "spinning") {
-    rouletteSpinElapsed = Math.min(rouletteSpinDuration, rouletteSpinElapsed + delta);
-    rouletteBitOffsetAngle = sampleRouletteSpinAngle(rouletteSpinElapsed);
+    rouletteSpinElapsed = Math.min(
+      rouletteSpinProfile.duration,
+      rouletteSpinElapsed + delta
+    );
+    rouletteBitOffsetAngle = sampleRouletteSpinAngle(
+      rouletteSpinProfile,
+      rouletteSpinElapsed,
+      rouletteSpinTotalAngle
+    );
     updateRouletteSpinLoopVolume();
-    if (rouletteSpinElapsed >= rouletteSpinDuration) {
+    if (rouletteSpinElapsed >= rouletteSpinProfile.duration) {
       rouletteBitOffsetAngle = rouletteSpinTotalAngle;
       roulettePhase = "post-spin-wait";
-      roulettePhaseTimer = roulettePostSpinWaitDuration;
+      roulettePhaseTimer = Math.max(
+        0,
+        rouletteFireTimeFromSpinStart -
+          rouletteSpinProfile.duration -
+          bitFireEffectDuration
+      );
       stopRouletteSpinLoop();
     }
     return;

@@ -13,7 +13,7 @@ PLEASE IMPLEMENT THIS PLAN:
 
 ## ステップ
 - [x] ルーレット用ステージ判定とタイトル設定制限ルールを分離
-- [ ] ルーレット回転プロファイルを純関数化
+- [x] ルーレット回転プロファイルを純関数化
 - [ ] ルーレット状態機械を `RouletteSystem` へ抽出
 - [ ] ルーレット回転SE制御を `RouletteSystem` 側へ集約
 - [ ] HUD連携を `RouletteSystem.getStats()` 経由に統一
@@ -21,3 +21,4 @@ PLEASE IMPLEMENT THIS PLAN:
 
 ## 結果
 - ステップ1完了: `src/ui/titleStageRules.ts` を追加し、タイトル設定制限と実行時正規化を `main.ts` から分離
+- ステップ2完了: 回転プロファイルを `src/game/roulette/spinProfile.ts` に分離し、`main.ts` 側の角度/音量計算を純関数呼び出しへ移行
