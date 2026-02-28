@@ -33,6 +33,7 @@ const registerAppProtocol = () => {
   const distRoot = path.resolve(__dirname, "..", "dist");
   const assetRoot = path.resolve(path.dirname(app.getPath("exe")), "assets");
   const bgmRoot = path.resolve(assetRoot, "audio", "bgm");
+  const charaRoot = path.resolve(assetRoot, "picture", "chara");
   const assetRouteRoots: Record<string, string> = {
     "/audio": path.resolve(assetRoot, "audio"),
     "/picture": path.resolve(assetRoot, "picture"),
@@ -50,12 +51,31 @@ const registerAppProtocol = () => {
       .filter((name) => path.extname(name).toLowerCase() === ".mp3")
       .sort((a, b) => a.localeCompare(b));
   };
+  const getPortraitDirectories = () => {
+    if (!fs.existsSync(charaRoot) || !fs.statSync(charaRoot).isDirectory()) {
+      return [] as string[];
+    }
+    return fs
+      .readdirSync(charaRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort((a, b) => a.localeCompare(b));
+  };
 
   protocol.handle("app", (request) => {
     const requestUrl = new URL(request.url);
     const pathname = decodeURIComponent(requestUrl.pathname);
     if (pathname === "/config/bgm-files.json") {
       const body = JSON.stringify(getBgmFileNames());
+      return new Response(body, {
+        status: 200,
+        headers: {
+          "content-type": "application/json; charset=utf-8"
+        }
+      });
+    }
+    if (pathname === "/config/portrait-directories.json") {
+      const body = JSON.stringify(getPortraitDirectories());
       return new Response(body, {
         status: 200,
         headers: {

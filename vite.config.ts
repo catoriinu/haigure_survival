@@ -40,6 +40,18 @@ const listBgmFileNames = () => {
     .sort((a, b) => a.localeCompare(b));
 };
 
+const listPortraitDirectories = () => {
+  const charaDirectory = path.resolve(assetsRoot, "picture", "chara");
+  if (!fs.existsSync(charaDirectory) || !fs.statSync(charaDirectory).isDirectory()) {
+    return [] as string[];
+  }
+  return fs
+    .readdirSync(charaDirectory, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b));
+};
+
 const resolveExternalAssetPath = (requestPathname: string) => {
   const pathname = decodeURIComponent(requestPathname);
   for (const [routePrefix, directory] of Object.entries(assetRouteMap)) {
@@ -77,6 +89,12 @@ const createExternalAssetsPlugin = (): Plugin => {
       const bgmFileNames = listBgmFileNames();
       res.setHeader("Content-Type", "application/json; charset=utf-8");
       res.end(JSON.stringify(bgmFileNames));
+      return;
+    }
+    if (requestPathname === "/config/portrait-directories.json") {
+      const portraitDirectories = listPortraitDirectories();
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify(portraitDirectories));
       return;
     }
     const filePath = resolveExternalAssetPath(requestPathname);

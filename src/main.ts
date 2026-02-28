@@ -157,6 +157,7 @@ import {
   buildAssetUrl,
   loadBgmFileNames,
   loadGameConfig,
+  loadPortraitDirectories,
   loadVoiceManifest
 } from "./runtimeAssets/loadConfig";
 
@@ -176,10 +177,13 @@ const portraitMaxWidthCells = 1;
 const portraitMaxHeightCells = 2;
 const gameConfig = await loadGameConfig();
 const bgmFileNames = await loadBgmFileNames();
+const portraitDirectoriesFromAssets = await loadPortraitDirectories();
 const stageCatalog = buildStageCatalog(gameConfig);
 const voiceManifest = await loadVoiceManifest(gameConfig);
 const voiceProfiles = buildVoiceProfiles(voiceManifest);
-configurePortraitAssets(gameConfig.portraits);
+configurePortraitAssets({
+  directories: portraitDirectoriesFromAssets
+});
 
 const defaultBitSpawnSettings: BitSpawnSettings = {
   bitSpawnInterval: 10,  // ビットの通常出現間隔（秒）。1〜99。デフォルトは10

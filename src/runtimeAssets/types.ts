@@ -14,18 +14,6 @@ export type SeConfig = {
   hit: string[];
 };
 
-export type PortraitStateBaseNames = {
-  normal: string;
-  evade: string;
-  "hit-a": string;
-  "hit-b": string;
-  "brainwash-in-progress": string;
-  "brainwash-complete-gun": string;
-  "brainwash-complete-no-gun": string;
-  "brainwash-complete-haigure": string;
-  "brainwash-complete-haigure-formation": string;
-};
-
 export type GameConfig = {
   version: string;
   stageCatalog: StageCatalogEntryConfig[];
@@ -35,11 +23,6 @@ export type GameConfig = {
     };
     se: SeConfig;
     voiceManifest: string;
-  };
-  portraits: {
-    directories: string[];
-    extensions: string[];
-    stateBaseNames: PortraitStateBaseNames;
   };
 };
 

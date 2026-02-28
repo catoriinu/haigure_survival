@@ -70,34 +70,6 @@
         "BeamHit_RevLongFast.mp3"
       ]
     },
-    "voiceManifest": "audio/voice/voiceManifest.json"
-  },
-  "portraits": {
-    "directories": [
-      "05_big_sister",
-      "09_little_sister",
-      "13_hakase"
-    ],
-    "extensions": [
-      "png",
-      "jpg",
-      "jpeg",
-      "webp",
-      "gif",
-      "bmp",
-      "avif",
-      "svg"
-    ],
-    "stateBaseNames": {
-      "normal": "normal",
-      "evade": "evade",
-      "hit-a": "hit-a",
-      "hit-b": "hit-b",
-      "brainwash-in-progress": "bw-in-progress",
-      "brainwash-complete-gun": "bw-complete-gun",
-      "brainwash-complete-no-gun": "bw-complete-no-gun",
-      "brainwash-complete-haigure": "bw-complete-pose",
-      "brainwash-complete-haigure-formation": "bw-complete-pose"
-    }
+    "voiceManifest": "audio/voice/voice-manifest.json"
   }
 }

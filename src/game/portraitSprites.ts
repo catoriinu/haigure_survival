@@ -1,15 +1,22 @@
 import { CharacterState } from "./types";
 import { CHARACTER_SPRITE_CELL_SIZE } from "./characterSprites";
 import { buildAssetUrl } from "../runtimeAssets/loadConfig";
-import type { PortraitStateBaseNames } from "../runtimeAssets/types";
 
 type PortraitAssetConfig = {
   directories: string[];
-  extensions: string[];
-  stateBaseNames: PortraitStateBaseNames;
 };
 
 const defaultPortraitDirectory = "00_default";
+const portraitExtensions = [
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+  "gif",
+  "bmp",
+  "avif",
+  "svg"
+];
 let portraitAssetConfig: PortraitAssetConfig | null = null;
 
 const getPortraitAssetConfig = () => {
@@ -19,9 +26,21 @@ const getPortraitAssetConfig = () => {
   return portraitAssetConfig;
 };
 
-const getPortraitExtensions = () => getPortraitAssetConfig().extensions;
+const getPortraitExtensions = () => portraitExtensions;
 
-const getPortraitBaseNameByState = () => getPortraitAssetConfig().stateBaseNames;
+const portraitStateBaseNames: Record<CharacterState, string> = {
+  normal: "normal",
+  evade: "evade",
+  "hit-a": "hit-a",
+  "hit-b": "hit-b",
+  "brainwash-in-progress": "bw-in-progress",
+  "brainwash-complete-gun": "bw-complete-gun",
+  "brainwash-complete-no-gun": "bw-complete-no-gun",
+  "brainwash-complete-haigure": "bw-complete-pose",
+  "brainwash-complete-haigure-formation": "bw-complete-pose"
+};
+
+const getPortraitBaseNameByState = () => portraitStateBaseNames;
 
 const hasPortraitAssets = () => getPortraitAssetConfig().directories.length > 0;
 
@@ -391,9 +410,7 @@ const pickRandomDirectory = (directories: string[]) =>
 
 export const configurePortraitAssets = (config: PortraitAssetConfig) => {
   portraitAssetConfig = {
-    directories: [...config.directories],
-    extensions: [...config.extensions],
-    stateBaseNames: { ...config.stateBaseNames }
+    directories: [...config.directories]
   };
 };
 
