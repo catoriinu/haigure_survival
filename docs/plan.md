@@ -29,8 +29,8 @@ BGM/SE/ステージ/ポートレート/VOICEの参照元をすべて外部設定
 
 ## 外部ファイル仕様（決定版）
 1. `assets/config/game-config.json` を新設し、以下を定義する。  
-`version`, `stageCatalog`, `audio.bgm.byStage`, `audio.bgm.fallback`, `audio.se`, `audio.voiceManifest`, `portraits.directories`, `portraits.extensions`, `portraits.stateBaseNames`
-2. `assets/audio/voice/voiceManifest.json` に現行 `src/audio/voiceManifest.json` と同一スキーマを移設する。  
+`version`, `stageCatalog`, `audio.bgm.byStage`, `audio.se`, `audio.voiceManifest`
+2. `assets/audio/voice/voice-manifest.json` に現行 `src/audio/voiceManifest.json` と同一スキーマを移設する。  
 3. ステージJSONは `assets/stage/*.json`、SEは `assets/audio/se/*.mp3`、BGMは `assets/audio/bgm/*.mp3`、立ち絵は `assets/picture/chara/<dir>/...` を使用する。  
 4. 旧 `public` 参照は全廃する。
 
@@ -47,6 +47,13 @@ BGM/SE/ステージ/ポートレート/VOICEの参照元をすべて外部設定
 - [x] `npm run build` と `npm run dist` を実行し、成果物で外部 `assets` 読み込みを確認する。
 - [x] 括弧対応確認（特に `main.ts` と `portraitSprites.ts` の分岐変更箇所）を最後に実施し、`docs/plan.md` の結果欄を最新化する。
 
+### 追加対応（2026-02-28）
+- [x] トラップ発射SEをランダム選択から距離選択（`beamNonTarget`）へ変更する。
+- [x] NPC発射SEを距離選択へ変更し、プレイヤー狙い時は`beamTarget`を選ぶようにする。
+- [x] READMEのSE説明に`beamNonTarget`/`beamTarget`の距離選択ルールを追記する。
+- [x] 素材フォルダ維持用のダミーファイル（`.gitkeep`）を配置できるようにする。
+- [x] ダミーファイル名（`.gitkeep`）を実装側で読み込み対象から除外する。
+
 ## 結果
 - `docs/plan.md` を今回タスク用に再作成し、旧計画を `docs/plan_2026-02-27_external-assets-prev.md` へ退避した。
 - `assets/config/game-config.json`、`src/runtimeAssets/types.ts`、`src/runtimeAssets/loadConfig.ts` を追加し、外部設定ロードの土台を作成した。
@@ -60,3 +67,22 @@ BGM/SE/ステージ/ポートレート/VOICEの参照元をすべて外部設定
 - `npm run build` / `npm run dist` を実行し成功を確認した。あわせて `npm run dev:web` で `/config/game-config.json` と `/stage/laboratory.json` が `200` で取得できることを確認した。
 - `npx tsc -p tsconfig.json --noEmit` を追加実行して構文/型整合を再確認し、`main.ts` と `portraitSprites.ts` の括弧対応崩れがないことを確認した。
 - 追加修正として、`assets/config/game-config.json` の `audio.bgm.byStage` を空オブジェクトに変更し、存在しない `laboratory.mp3` 参照による 404 を解消した（fallback の `研究所劇伴MP3.mp3` を使用）。
+- 追加入力対応として、`audio.bgm.byStage` を全ステージ `id.mp3` 初期値へ更新し、`audio.bgm.fallback` を廃止した。
+- BGMは `assets/audio/bgm` の実在 `.mp3` 一覧からランダム再生する方式へ変更し、`/config/bgm-files.json` を Vite/Electron 両方で提供するようにした。
+- `game-config.json` の `version` を `2.0.0` に更新し、READMEの `game-config.json（version: 2.0.0時点）` 説明を素材配置向けの簡潔な内容に整理した。
+- README の `SE` 節を実装準拠で整理し、利用者向けに「配置場所・キー形式・配列の書き方・未存在時の扱い」に絞って追記した。
+- README の `SE` 設定例を実ファイル名から用途説明ベースへ変更し、重複していた説明文を削って読みやすく整理した。
+- `SfxDirector` のビームSE再生を距離選択APIへ統一し、トラップ発射SEも `beamNonTarget` の距離選択で再生するように変更した。
+- `updateNpcs` のビーム発射コールバックに `targetingPlayer` を追加し、NPCがプレイヤー狙いで発射した場合は `beamTarget` 側を距離選択するように変更した。
+- README の `SE` 説明に `beamNonTarget` / `beamTarget` の `[遠/中/近]` 順と距離しきい値（2.33 / 1.33）を追記した。
+- ビームSEの距離しきい値を `遠距離: 8セル以上`、`中距離: 4セル以上8セル未満`、`近距離: 4セル未満` へ変更し、実装値はワールド座標単位（`8/3`, `4/3`）に更新した。READMEはセル単位の説明に揃えた。
+- ビームSEの距離しきい値を再調整し、`遠距離: 10セル以上`、`中距離: 5セル以上10セル未満`、`近距離: 5セル未満` に更新した。実装値はワールド座標単位（`10/3`, `5/3`）を使用し、READMEはセル単位表記に揃えた。
+- README の `SE` 節で `beamNonTarget` / `beamTarget` の距離説明を文章から設定例の値へ移し、重複説明を削除した。
+- README の `VOICE` 節を整理し、`audio.voiceManifest` の指定方法と `voice-manifest.json` の必須キー/パス記法に絞った素材配置向けの説明へ更新した。
+- VOICEマニフェストのファイル名を `voiceManifest.json` から `voice-manifest.json` へ統一し、`game-config.json` と README の参照先を新名称へ更新した。
+- `portraits.directories` / `portraits.extensions` を `game-config.json` から削除し、立ち絵ディレクトリ一覧は `/config/portrait-directories.json` で自動取得する方式へ変更した。
+- 立ち絵の拡張子探索順を実装固定（`png`→`jpg`→`jpeg`→`webp`→`gif`→`bmp`→`avif`→`svg`）へ変更し、READMEの説明を新仕様に更新した。
+- `portraits.stateBaseNames` も `game-config.json` から削除し、状態別basenameを実装固定へ変更した。READMEから設定項目説明を削除した。
+- README の「任意手順」セクション全体を再構成し、見出し階層を統一したうえで「配置→設定→素材別」の順に整理した。
+- `assets/audio/bgm` / `assets/audio/se` / `assets/audio/voice` / `assets/picture/chara` / `assets/stage` に `.gitkeep` を追加し、空フォルダ構成をGitで保持できるようにした。
+- `vite.config.ts` と `electron/main.ts` の動的一覧取得で `.gitkeep` を除外するようにし、実行時の素材探索に影響しないようにした。

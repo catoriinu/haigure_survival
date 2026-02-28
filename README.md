@@ -46,6 +46,11 @@
 
 ### 任意手順（準備した素材をゲームに読み込ませるには）
 
+> [!IMPORTANT]  
+> 以下はver2.x.x以上用の手順です。  
+> ver1.x.xをご利用の方は[こちらのリンク先](https://github.com/catoriinu/haigure_survival/blob/a473e759fe35c18b59f2d26fa9a952d67955f999/README.md#%E4%BB%BB%E6%84%8F%E6%89%8B%E9%A0%86%E6%BA%96%E5%82%99%E3%81%97%E3%81%9F%E7%B4%A0%E6%9D%90%E3%82%92%E3%82%B2%E3%83%BC%E3%83%A0%E3%81%AB%E8%AA%AD%E3%81%BF%E8%BE%BC%E3%81%BE%E3%81%9B%E3%82%8B%E3%81%AB%E3%81%AF)
+で手順をご参照ください。
+
 #### 素材用フォルダ構成
 - サーバ起動時はプロジェクト同階層、exe版はexe同階層に `assets/` を配置し、その配下に素材を置く。
   - フォルダ構成:
@@ -61,64 +66,98 @@
     │  └─ chara/
     └─ stage/
     ```
-  - `assets/config/game-config.json` に、ステージ一覧・BGM/SE/VOICE・立ち絵ディレクトリ/拡張子/状態別basenameを記述する。
+  - 空フォルダ維持用の `.gitkeep` は、実装側で素材として読み込まれない。
+  - `assets/config/game-config.json` に、ステージ一覧・BGM/SE/VOICEを記述する。
   - キャラクターフォルダ名の命名規則（実装準拠）:
     - `assets/picture/chara/` は先頭2文字が音声ID（2桁）と一致するフォルダだけが優先割り当て対象（例: `05_big_sister`）。一致させない場合は任意名でよい。
     - `assets/audio/voice/` はフォルダ名を参照しないため任意（管理上は「2桁ID + 任意文字列」にしておくと分かりやすい）。
     - `assets/audio/bgm/` / `assets/audio/se/` / `assets/stage/` はキャラクターフォルダ不要。
 
+#### game-config.json（version: 2.0.0時点）
+- `version`（文字列）
+  - `game-config.json` の版数を記録するための値。
+  - このREADMEの手順は `2.0.0` を前提にしている。
+- `stageCatalog`（配列）
+  - ステージ一覧を決める設定。
+  - 要素ごとに `{ id, label, jsonFile }` を指定する。
+  - `id`: ステージの管理用ID（重複しない値を使う）。
+  - `label`: ステージ名として表示したい文字列。
+  - `jsonFile`: `assets/stage/` 配下のステージJSONファイル名（例: `laboratory.json`）。
+  - 最初の要素（先頭）が初期ステージとして使われる。
+- `audio.bgm` と `audio.se` の詳細は後述のセクションを参照。
+
 #### BGM
 - `assets/audio/bgm/` に `mp3` を配置する。
-  - `assets/config/game-config.json` の `audio.bgm.byStage` で、ステージ名ごとのファイル名を指定する。
-    - 例: `laboratory` ステージを `laboratory.mp3` にする場合は `audio.bgm.byStage.laboratory = "laboratory.mp3"`
-  - ステージ専用BGMが設定されていない/一致しない場合は、`audio.bgm.fallback` の配列からランダム再生する。
-  - `audio.bgm.fallback` が空の場合は再生しない。
+- `assets/config/game-config.json` の `audio.bgm` で再生ルールを設定する。
+  - `byStage`: ステージごとのBGM指定（キーは `stageCatalog` の `id`、値はファイル名）。
+- まず動かす最小設定:
+  - `assets/audio/bgm/` に1曲以上置く。
+  - `byStage` はそのまま使う（ファイルがあるステージは固定再生、ないステージはランダム再生）。
+- ステージごとに分けたい場合:
+  - `byStage` に `"<ステージ識別名>": "<ファイル名>"` を追加する。
+  - 例: `"laboratory": "laboratory.mp3"`
+- 注意:
+  - `byStage` の指定ファイルがないステージは、`assets/audio/bgm/` 内の実在ファイルからランダム再生される。
+  - `assets/audio/bgm/` に `mp3` が1つもない場合はBGMは再生されない。
 
 #### SE
-- `assets/audio/se/` にSEファイルを配置し、`assets/config/game-config.json` の `audio.se` にファイル名を設定する（形式: `mp3`）。
-  - ビットの浮遊音: `FlyingObject.mp3`
-  - ビットの警告音: `BeamShot_WavingPart.mp3`
-  - ビットが狙いを定める音: `aim.mp3`
-  - ビームの発射音: `BeamShotR_DownLong.mp3` / `BeamShotR_Down.mp3` / `BeamShotR_DownShort.mp3` / `BeamShotR_Up.mp3` / `BeamShotR_UpShort.mp3` / `BeamShotR_UpHighShort.mp3`
-  - ビームの命中音: `BeamHit_Rev.mp3` / `BeamHit_RevLong.mp3` / `BeamHit_RevLongFast.mp3`
-  - アラームマス発動音: `alarm.mp3`
-  - `audio.se` に含めたパスだけが再生対象になる。ファイルが存在しない場合は再生されない。
+- `assets/audio/se/` に `mp3` を配置する。
+- `assets/config/game-config.json` の `audio.se` に「ファイル名のみ」を設定する（フォルダ名は不要）。
+- 設定例（値は用途説明の例。実際は手元のファイル名に置き換える）:
+  ```json
+  "se": {
+    "bitMove": "ビットが浮遊しているときのSE.mp3",
+    "bitAlert": "ビットが警告状態のときのSE.mp3",
+    "bitTarget": "ビットが狙いを定めたときのSE.mp3",
+    "alarm": "アラーム発動時のSE.mp3",
+    "beamNonTarget": [
+      "ビーム発射SE_非ターゲット時_遠距離(10セル以上).mp3",
+      "ビーム発射SE_非ターゲット時_中距離(5セル以上10セル未満).mp3",
+      "ビーム発射SE_非ターゲット時_近距離(5セル未満).mp3"
+    ],
+    "beamTarget": [
+      "ビーム発射SE_ターゲット時_遠距離(10セル以上).mp3",
+      "ビーム発射SE_ターゲット時_中距離(5セル以上10セル未満).mp3",
+      "ビーム発射SE_ターゲット時_近距離(5セル未満).mp3"
+    ],
+    "hit": [
+      "ビーム命中時のSE(複数設定してある場合はランダム再生).mp3"
+    ]
+  }
+  ```
+- `beamNonTarget` / `beamTarget` を1種類だけ使う場合は、同じファイル名を3回書いてよい。
+- プレイヤーを狙って発射した場合は `beamTarget`、それ以外（トラップ発射・プレイヤー発射・NPCの非プレイヤー狙い発射など）は `beamNonTarget` が使われる。
+- `audio.se` に書いたファイルが `assets/audio/se/` に存在しない場合、そのSEは再生されない。
 
 #### VOICE
-- `assets/audio/voice/` 配下に `wav` を配置し、`assets/audio/voice/voiceManifest.json` にキャラクターIDと状態ごとの配列で登録する。
-  - キャラクターフォルダ名は任意（実装では参照しない）。管理上は「2桁ID + 任意文字列」にしておくと分かりやすい（例: `assets/audio/voice/01_devil/`）。JSONのキーは2桁IDのみを使う（例: `"01"`）。
-  - JSONのパスは `/audio/voice/` を省いた相対パスで記載する（例: `assets/audio/voice/01_devil/悪_110ハイグレ.wav` → `01_devil/悪_110ハイグレ.wav`）。
-  - 実装側で `/audio/voice/` を補完して再生する。
-  - 状態ごとの配列が空、または項目が無い場合は無音でスキップする（フォールバックなし）。
-  - `brainwash-complete-haigure` は `enter`（一回のみ）と `loop`（ループ）を分けて登録する。
-  - JSON構成の例:
-    ```json
-    {
-      "01": {
-        "normal": ["01_devil/悪_Bいや….wav"],
-        "evade": ["01_devil/悪_Bこ、こっち来ないで！.wav"],
-        "hit-a": ["01_devil/悪_Cいやああああ！.wav"],
-        "hit-b": [],
-        "brainwash-in-progress": ["01_devil/悪_110ハイグレ.wav"],
-        "brainwash-complete-gun": ["01_devil/悪_A洗脳完了よ！.wav"],
-        "brainwash-complete-no-gun": ["01_devil/悪_A洗脳完了よ！.wav"],
-        "brainwash-complete-haigure": {
-          "enter": ["01_devil/悪_A洗脳完了よ！.wav"],
-          "loop": ["01_devil/悪_410ハイグレ.wav"]
-        },
-        "brainwash-complete-haigure-formation": ["01_devil/悪_410ハイグレ揃.wav"]
-      }
+- `assets/config/game-config.json` の `audio.voiceManifest` には、VOICEマニフェストJSONへの相対パスを指定する（例: `"audio/voice/voice-manifest.json"`）
+- `assets/audio/voice/` 配下に音声ファイル（`wav` など）を配置し、`voice-manifest.json` に登録する。
+- `voice-manifest.json` の基本ルール:
+  - 最上位キー: キャラクターID（`"01"` のような2桁ID推奨）
+  - 各ID配下に、後述の設定例に含まれるキーをすべて用意する。  
+    - `brainwash-complete-haigure` だけはオブジェクト形式で `enter` / `loop` を持つ。
+    - それ以外のキーは文字列配列（ファイルパスの配列）で指定する。
+  - パスは `assets/audio/voice/` からの相対パスで書く（例: `01_devil/voice_a.wav`）。
+  - そのカテゴリを鳴らさない場合は空配列 `[]` を指定する。
+- 設定例:
+  ```json
+  {
+    "01": {
+      "normal": ["01_devil/通常ボイス.wav"],
+      "evade": ["01_devil/回避ボイス.wav"],
+      "hit-a": ["01_devil/被弾ボイス.wav"],
+      "hit-b": [],
+      "brainwash-in-progress": ["01_devil/洗脳進行中のハイグレボイス.wav"],
+      "brainwash-complete-gun": ["01_devil/洗脳完了_銃ありに遷移時ボイス.wav"],
+      "brainwash-complete-no-gun": ["01_devil/洗脳完了_銃ありに遷移時ボイス.wav"],
+      "brainwash-complete-haigure": {
+        "enter": ["01_devil/洗脳完了宣言ボイス.wav"],
+        "loop": ["01_devil/洗脳完了後のハイグレボイス.wav"]
+      },
+      "brainwash-complete-haigure-formation": ["01_devil/整列時のハイグレボイス.wav"]
     }
-    ```
-  - 再生契機:
-    - `normal`: 通常状態で一定時間経過するごとに再生。
-    - `evade`: `evade` に遷移した瞬間に一回のみ再生。
-    - `hit-a`: `hit-a` （光線命中状態、ハイレグ姿）に遷移した瞬間に一回のみ再生。
-    - `hit-b`: 現状の実装ではVOICE再生に未使用。
-    - `brainwash-in-progress`: `brainwash-in-progress` に遷移した瞬間からループ再生。
-    - `brainwash-complete-gun` / `brainwash-complete-no-gun`: それぞれの状態で一定時間経過するごとに再生。
-    - `brainwash-complete-haigure`: `enter` を一回のみ再生し、終了時も同状態なら `loop` をループ再生。
-    - `brainwash-complete-haigure-formation`: その状態に遷移した瞬間からループ再生。
+  }
+  ```
 
 #### キャラクター画像
 - キャラクター画像（立ち絵）を差し替える場合は、`assets/picture/chara/<キャラディレクトリ>/` に配置する（形式: `png`/`jpg`/`jpeg`/`webp`/`gif`/`bmp`/`avif`/`svg`）。
@@ -132,9 +171,9 @@
     - `bw-complete-no-gun`（洗脳完了、光線銃なしで未洗脳者を捕獲しようとする：ハイレグ姿）
     - `bw-complete-pose`（洗脳完了、ハイグレポーズ：ハイレグ姿）
   - 例: `assets/picture/chara/05_big_sister/normal.png`
-  - 画像サイズは、横1:縦2の比率を基準とする。基準よりも長い辺がある場合はそれを基準に、画像比率を保って縮小する。
-  - キャラディレクトリ名の先頭2文字（2桁ID）が音声IDと一致する場合は、そのIDに対して1キャラ分だけ優先割り当てする。
-  - 画像の使い回しが発生する場合はランダム割り当てになり、同じIDが一致するかどうかは抽選結果次第（一致しても問題なし）。
+  - 画像は、1セル×2セルの表示枠に収まるよう、縦横比を保って自動で拡大/縮小される。
+  - キャラフォルダ名の先頭2文字（2桁ID）が音声IDと一致する場合、そのIDのキャラ1人だけに優先して割り当てられる。
+  - 優先割り当てされなかったキャラは、`assets/picture/chara/` 配下からランダムに割り当てられる（同じフォルダの重複利用あり）。
 
 ## 調整可能項目
 
