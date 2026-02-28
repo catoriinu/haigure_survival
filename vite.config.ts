@@ -40,6 +40,20 @@ const listBgmFileNames = () => {
     .filter((entry) => entry.isFile())
     .filter((entry) => !isIgnoredPlaceholderName(entry.name))
     .map((entry) => entry.name)
+      .filter((name) => path.extname(name).toLowerCase() === ".mp3")
+      .sort((a, b) => a.localeCompare(b));
+};
+
+const listSeFileNames = () => {
+  const seDirectory = path.resolve(assetsRoot, "audio", "se");
+  if (!fs.existsSync(seDirectory) || !fs.statSync(seDirectory).isDirectory()) {
+    return [] as string[];
+  }
+  return fs
+    .readdirSync(seDirectory, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .filter((entry) => !isIgnoredPlaceholderName(entry.name))
+    .map((entry) => entry.name)
     .filter((name) => path.extname(name).toLowerCase() === ".mp3")
     .sort((a, b) => a.localeCompare(b));
 };
@@ -94,6 +108,12 @@ const createExternalAssetsPlugin = (): Plugin => {
       const bgmFileNames = listBgmFileNames();
       res.setHeader("Content-Type", "application/json; charset=utf-8");
       res.end(JSON.stringify(bgmFileNames));
+      return;
+    }
+    if (requestPathname === "/config/se-files.json") {
+      const seFileNames = listSeFileNames();
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify(seFileNames));
       return;
     }
     if (requestPathname === "/config/portrait-directories.json") {

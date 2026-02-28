@@ -36,6 +36,7 @@ const registerAppProtocol = () => {
   const distRoot = path.resolve(__dirname, "..", "dist");
   const assetRoot = path.resolve(path.dirname(app.getPath("exe")), "assets");
   const bgmRoot = path.resolve(assetRoot, "audio", "bgm");
+  const seRoot = path.resolve(assetRoot, "audio", "se");
   const charaRoot = path.resolve(assetRoot, "picture", "chara");
   const assetRouteRoots: Record<string, string> = {
     "/audio": path.resolve(assetRoot, "audio"),
@@ -49,6 +50,18 @@ const registerAppProtocol = () => {
     }
     return fs
       .readdirSync(bgmRoot, { withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .filter((entry) => !isIgnoredPlaceholderName(entry.name))
+      .map((entry) => entry.name)
+      .filter((name) => path.extname(name).toLowerCase() === ".mp3")
+      .sort((a, b) => a.localeCompare(b));
+  };
+  const getSeFileNames = () => {
+    if (!fs.existsSync(seRoot) || !fs.statSync(seRoot).isDirectory()) {
+      return [] as string[];
+    }
+    return fs
+      .readdirSync(seRoot, { withFileTypes: true })
       .filter((entry) => entry.isFile())
       .filter((entry) => !isIgnoredPlaceholderName(entry.name))
       .map((entry) => entry.name)
@@ -72,6 +85,15 @@ const registerAppProtocol = () => {
     const pathname = decodeURIComponent(requestUrl.pathname);
     if (pathname === "/config/bgm-files.json") {
       const body = JSON.stringify(getBgmFileNames());
+      return new Response(body, {
+        status: 200,
+        headers: {
+          "content-type": "application/json; charset=utf-8"
+        }
+      });
+    }
+    if (pathname === "/config/se-files.json") {
+      const body = JSON.stringify(getSeFileNames());
       return new Response(body, {
         status: 200,
         headers: {

@@ -11,7 +11,7 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "build": "npm run build:renderer && npm run build:electron",
     "preview": "vite preview",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder --win portable"
   },
   "dependencies": {
     "@babylonjs/core": "^6.49.0"
@@ -39,7 +39,7 @@
     ],
     "asar": true,
     "win": {
-      "target": "nsis"
+      "target": "portable"
     }
   }
 }

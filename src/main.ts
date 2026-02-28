@@ -157,6 +157,7 @@ import {
   buildAssetUrl,
   loadBgmFileNames,
   loadGameConfig,
+  loadSeFileNames,
   loadPortraitDirectories,
   loadVoiceManifest
 } from "./runtimeAssets/loadConfig";
@@ -177,6 +178,7 @@ const portraitMaxWidthCells = 1;
 const portraitMaxHeightCells = 2;
 const gameConfig = await loadGameConfig();
 const bgmFileNames = await loadBgmFileNames();
+const seFileNames = await loadSeFileNames();
 const portraitDirectoriesFromAssets = await loadPortraitDirectories();
 const stageCatalog = buildStageCatalog(gameConfig);
 const voiceManifest = await loadVoiceManifest(gameConfig);
@@ -770,15 +772,7 @@ const bitSeBeamTarget = seConfig.beamTarget.map((fileName) =>
   toSeUrl(fileName)
 );
 const hitSeVariants = seConfig.hit.map((fileName) => toSeUrl(fileName));
-const seUrls = new Set([
-  bitSeMove,
-  bitSeAlert,
-  bitSeTarget,
-  alarmSe,
-  ...bitSeBeamNonTarget,
-  ...bitSeBeamTarget,
-  ...hitSeVariants
-]);
+const seUrls = new Set(seFileNames.map((fileName) => toSeUrl(fileName)));
 const isSeAvailable = (url: string) => seUrls.has(url);
 const seBaseOptions: SpatialPlayOptions = {
   volume: 0.95,

@@ -6,6 +6,9 @@
 PLEASE IMPLEMENT THIS PLAN:
 # 外部素材化先行 + Electron EXE化 計画（案1）
 
+PLEASE IMPLEMENT THIS PLAN:
+# Electronポータブルzip配布 + 最小assetsテンプレート化 計画
+
 ## 要約
 `public` 依存を先に除去し、素材と素材ファイル名指定をすべて外部化してから、Electron配布（exe）を確定します。  
 決定済み事項は以下です。  
@@ -54,6 +57,26 @@ BGM/SE/ステージ/ポートレート/VOICEの参照元をすべて外部設定
 - [x] 素材フォルダ維持用のダミーファイル（`.gitkeep`）を配置できるようにする。
 - [x] ダミーファイル名（`.gitkeep`）を実装側で読み込み対象から除外する。
 
+### 追加対応（2026-02-28 ポータブルzip配布 + 最小assetsテンプレート化）
+- [x] `assets-template` を新規作成し、`config/game-config.json`・`audio/voice/voice-manifest.json`・`stage/laboratory.json`・各素材フォルダの`.gitkeep`を配置する。
+- [x] `assets-template/config/game-config.json` を1ステージ固定（`laboratory`）かつ `audio.bgm.byStage = {}` の最小構成にする。
+- [x] `assets-template/audio/voice/voice-manifest.json` に `00` のみを持つ最小スキーマ（各配列空）を定義する。
+- [x] `vite.config.ts` に `/config/se-files.json` ルートを追加し、`assets/audio/se` の実在 `.mp3` 一覧のみ返すようにする。
+- [x] `electron/main.ts` に `/config/se-files.json` ルートを追加し、Viteと同じ条件で `.mp3` 一覧を返すようにする。
+- [x] `src/runtimeAssets/loadConfig.ts` に `loadSeFileNames()` を追加する。
+- [x] `src/main.ts` のSE再生可否判定を `game-config.json` 記述ベースから `se-files.json` 実在一覧ベースへ変更する。
+- [x] `package.json` の配布設定を `portable` ターゲットへ切り替え、`npm run dist` で `dist:portable` + `package:portable` を実行するようにする。
+- [x] `scripts/package-portable.ps1` を追加し、`release` 内の portable exe と `assets-template` をまとめて `*-portable.zip` を生成する。
+- [x] `README.md` に Windowsポータブル配布手順（`npm run dist` / zip構成 / インストーラー不使用 / 削除方法）を追記する。
+- [x] `npm run build` / `npx tsc -p tsconfig.json --noEmit` / `npm run build:electron` / `npm run dist` を実行して成功を確認する。
+
+### 追加対応（2026-02-28 方針簡素化）
+- [x] 後続指示に合わせて、配布は「portable exe単体」を基本とし、zip同梱フローを取りやめる。
+- [x] `package.json` の `dist` を `npm run build && electron-builder --win portable` に簡素化する。
+- [x] `scripts/package-portable.ps1` を削除する。
+- [x] `assets-template` を削除し、exe入手者が `assets/` を手動作成して使う運用に一本化する。
+- [x] `README.md` のWindows配布手順を「portable exe単体配布」前提へ修正する。
+
 ## 結果
 - `docs/plan.md` を今回タスク用に再作成し、旧計画を `docs/plan_2026-02-27_external-assets-prev.md` へ退避した。
 - `assets/config/game-config.json`、`src/runtimeAssets/types.ts`、`src/runtimeAssets/loadConfig.ts` を追加し、外部設定ロードの土台を作成した。
@@ -86,3 +109,11 @@ BGM/SE/ステージ/ポートレート/VOICEの参照元をすべて外部設定
 - README の「任意手順」セクション全体を再構成し、見出し階層を統一したうえで「配置→設定→素材別」の順に整理した。
 - `assets/audio/bgm` / `assets/audio/se` / `assets/audio/voice` / `assets/picture/chara` / `assets/stage` に `.gitkeep` を追加し、空フォルダ構成をGitで保持できるようにした。
 - `vite.config.ts` と `electron/main.ts` の動的一覧取得で `.gitkeep` を除外するようにし、実行時の素材探索に影響しないようにした。
+- `vite.config.ts` と `electron/main.ts` に `/config/se-files.json` を追加し、SEは `assets/audio/se` の実在 `.mp3` 一覧のみ再生対象にするよう統一した。
+- `src/runtimeAssets/loadConfig.ts` に `loadSeFileNames()` を追加し、`src/main.ts` の `isSeAvailable` 判定を実在SE一覧ベースへ変更した。
+- 検証として `npm run build`、`npx tsc -p tsconfig.json --noEmit`、`npm run build:electron`、`npm run dist` を実行し、すべて成功を確認した。
+- `npm run dist` 実行時に新規生成された実行ファイルは `release/HAIGURE SURVIVAL 1.2.0.exe`（portable）であることを確認した（`release` には過去成果物が残存しうる）。
+- 括弧対応確認として、`vite.config.ts` と `electron/main.ts` の分岐追加箇所（`/config/se-files.json` ルート）に構文崩れがないことを `build` / `tsc` 成功で再確認した。
+- 後続指示により方針を簡素化し、`scripts/package-portable.ps1` と `assets-template` は削除した。
+- `npm run dist` は portable exeを1つ作るだけの構成へ戻し、配布時は exe単体を渡して受け取り側が `assets/` を手動作成する運用に統一した。
+- READMEのWindows配布手順は上記運用に合わせて更新した。
