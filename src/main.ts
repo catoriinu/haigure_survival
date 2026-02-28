@@ -816,8 +816,8 @@ const voiceLoopOptions: SpatialPlayOptions = {
   maxDistance: 4.17,
   loop: true
 };
-const beamSeFarDistance = 2.33;
-const beamSeMidDistance = 1.33;
+const beamSeFarDistance = 10 / 3;
+const beamSeMidDistance = 5 / 3;
 
 const sfxDirector = new SfxDirector(
   audioManager,
