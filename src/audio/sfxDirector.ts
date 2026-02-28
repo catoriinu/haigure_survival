@@ -95,7 +95,7 @@ export class SfxDirector {
     );
   }
 
-  playBitBeam(getPosition: () => Vector3, targetingPlayer: boolean) {
+  playBeam(getPosition: () => Vector3, targetingPlayer: boolean) {
     const sourcePosition = getPosition();
     const distance = Vector3.Distance(
       this.getListenerPosition(),
@@ -111,12 +111,8 @@ export class SfxDirector {
     this.audio.playSe(file, getPosition, this.options.beam);
   }
 
-  playBeamNonTarget(getPosition: () => Vector3) {
-    const file = this.pickRandom(this.files.beamNonTarget);
-    if (!file) {
-      return;
-    }
-    this.audio.playSe(file, getPosition, this.options.beam);
+  playBitBeam(getPosition: () => Vector3, targetingPlayer: boolean) {
+    this.playBeam(getPosition, targetingPlayer);
   }
 
   playHit(getPosition: () => Vector3) {

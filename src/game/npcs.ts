@@ -318,7 +318,12 @@ export const updateNpcs = (
   elapsed: number,
   targets: TargetInfo[],
   onNpcHit: (position: Vector3) => void,
-  spawnNpcBeam: (position: Vector3, direction: Vector3, sourceId: string) => void,
+  spawnNpcBeam: (
+    position: Vector3,
+    direction: Vector3,
+    sourceId: string,
+    targetingPlayer: boolean
+  ) => void,
   isRedSource: (sourceId: string | null) => boolean,
   impactOrbs: BeamImpactOrb[],
   blockers: MovementBlocker[],
@@ -970,7 +975,8 @@ export const updateNpcs = (
               spawnNpcBeam(
                 npc.sprite.position.clone(),
                 fireDirection.normalize(),
-                npcId
+                npcId,
+                currentTarget.id === "player"
               );
             }
             npc.fireInterval =

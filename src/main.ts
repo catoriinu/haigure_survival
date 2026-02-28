@@ -1177,7 +1177,7 @@ const trapSystem = createTrapSystem({
   },
   playTrapBeamSe: (position) => {
     const firePosition = position.clone();
-    sfxDirector.playBeamNonTarget(() => firePosition);
+    sfxDirector.playBeam(() => firePosition, false);
   }
 });
 trapSystem.syncStageContext({ layout, bounds });
@@ -1201,7 +1201,7 @@ const dynamicBeamSystem = createDynamicBeamSystem({
   },
   playDynamicBeamSe: (position) => {
     const firePosition = position.clone();
-    sfxDirector.playBeamNonTarget(() => firePosition);
+    sfxDirector.playBeam(() => firePosition, false);
   }
 });
 dynamicBeamSystem.syncStageContext({
@@ -1882,7 +1882,8 @@ const updateExecutionVolleyFireEffects = (
 };
 
 const spawnExecutionNpcBeamVolley = (
-  targetPosition: Vector3
+  targetPosition: Vector3,
+  targetingPlayer: boolean
 ) => {
   for (const index of executionNpcShooterIndices) {
     const npc = npcs[index];
@@ -1908,7 +1909,7 @@ const spawnExecutionNpcBeamVolley = (
       )
     );
     const firePosition = muzzlePosition.clone();
-    sfxDirector.playBeamNonTarget(() => firePosition);
+    sfxDirector.playBeam(() => firePosition, targetingPlayer);
   }
 };
 
@@ -1917,7 +1918,10 @@ const spawnExecutionBeamVolley = (
   targetPosition: Vector3
 ) => {
   if (isExecutionNpcVolley(scenario)) {
-    spawnExecutionNpcBeamVolley(targetPosition);
+    spawnExecutionNpcBeamVolley(
+      targetPosition,
+      scenario.variant === "player-survivor"
+    );
     return;
   }
   const targetingPlayer = scenario.variant === "player-survivor";
@@ -3324,7 +3328,7 @@ setupInputHandlers({
   onPlayerFire: (origin, direction) => {
     beams.push(createBeam(scene, origin, direction, beamMaterial, "player"));
     const firePosition = origin.clone();
-    sfxDirector.playBeamNonTarget(() => firePosition);
+    sfxDirector.playBeam(() => firePosition, false);
   }
 });
 
@@ -3434,9 +3438,9 @@ engine.runRenderLoop(() => {
       (position) => {
         sfxDirector.playHit(() => position);
       },
-      (position, direction, sourceId) => {
+      (position, direction, sourceId, targetingPlayer) => {
         beams.push(createBeam(scene, position, direction, beamMaterial, sourceId));
-        sfxDirector.playBeamNonTarget(() => position);
+        sfxDirector.playBeam(() => position, targetingPlayer);
       },
       isRedBitSource,
       beamImpactOrbs,
