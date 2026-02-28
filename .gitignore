@@ -9,3 +9,7 @@ public/audio/bgm/**
 public/audio/se/**
 public/audio/voice/**
 public/picture/chara/**
+assets/audio/bgm/**
+assets/audio/se/**
+assets/audio/voice/**/*.wav
+assets/picture/chara/**

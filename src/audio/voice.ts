@@ -1,26 +1,7 @@
 import { Vector3 } from "@babylonjs/core";
 import { CharacterState, isHitState } from "../game/entities";
 import { SpatialHandle, SpatialPlayOptions } from "./audio";
-import voiceManifest from "./voiceManifest.json";
-
-type VoiceHaigureState = {
-  enter: string[];
-  loop: string[];
-};
-
-type VoiceStates = {
-  normal: string[];
-  evade: string[];
-  "hit-a": string[];
-  "hit-b": string[];
-  "brainwash-in-progress": string[];
-  "brainwash-complete-gun": string[];
-  "brainwash-complete-no-gun": string[];
-  "brainwash-complete-haigure": VoiceHaigureState;
-  "brainwash-complete-haigure-formation": string[];
-};
-
-type VoiceManifest = Record<string, VoiceStates>;
+import type { VoiceManifest, VoiceStates } from "../runtimeAssets/types";
 
 export type VoiceProfile = {
   id: string;
@@ -44,9 +25,8 @@ export type VoiceAudio = {
   ) => SpatialHandle;
 };
 
-const buildVoiceProfiles = () => {
+export const buildVoiceProfiles = (manifest: VoiceManifest) => {
   const profiles: VoiceProfile[] = [];
-  const manifest = voiceManifest as VoiceManifest;
   for (const [id, states] of Object.entries(manifest)) {
     profiles.push({
       id,
@@ -56,10 +36,6 @@ const buildVoiceProfiles = () => {
   return profiles;
 };
 
-export const voiceProfiles = buildVoiceProfiles();
-
-const voiceBasePath = "/audio/voice/";
-
 const pickRandom = (items: string[]) => {
   if (items.length === 0) {
     return null;
@@ -67,7 +43,8 @@ const pickRandom = (items: string[]) => {
   return items[Math.floor(Math.random() * items.length)];
 };
 
-const resolveVoiceUrl = (path: string) => `${voiceBasePath}${path}`;
+const resolveVoiceUrl = (basePath: string, path: string) =>
+  `${basePath}/${path}`;
 
 const rollIdleTimer = () => 8 + Math.random() * 8;
 const isIdleVoiceState = (state: CharacterState) =>
@@ -98,6 +75,7 @@ export const stopVoiceActor = (actor: VoiceActor) => {
 export const updateVoiceActor = (
   actor: VoiceActor,
   audio: VoiceAudio,
+  voiceBasePath: string,
   delta: number,
   allowIdle: boolean,
   baseOptions: SpatialPlayOptions,
@@ -115,7 +93,7 @@ export const updateVoiceActor = (
       return;
     }
     actor.voiceHandle = audio.playVoice(
-      resolveVoiceUrl(file),
+      resolveVoiceUrl(voiceBasePath, file),
       actor.getPosition,
       {
         ...baseOptions,
@@ -136,7 +114,7 @@ export const updateVoiceActor = (
       return;
     }
     actor.voiceHandle = audio.playVoice(
-      resolveVoiceUrl(file),
+      resolveVoiceUrl(voiceBasePath, file),
       actor.getPosition,
       loopOptions
     );

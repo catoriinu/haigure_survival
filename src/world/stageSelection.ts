@@ -1,5 +1,6 @@
 import { type StageJson } from "./stageJson";
-import { LABYRINTH_DYNAMIC_STAGE_ID, TRAP_STAGE_ID } from "./stageIds";
+import type { GameConfig } from "../runtimeAssets/types";
+import { buildAssetUrl } from "../runtimeAssets/loadConfig";
 
 export type StageSelection = {
   id: string;
@@ -7,46 +8,12 @@ export type StageSelection = {
   jsonPath: string;
 };
 
-const buildStageJsonPath = (filename: string) =>
-  `${import.meta.env.BASE_URL}stage/${filename}`;
-
-export const STAGE_CATALOG: StageSelection[] = [
-  {
-    id: "laboratory",
-    label: "laboratory",
-    jsonPath: buildStageJsonPath("laboratory.json")
-  },
-  {
-    id: "city_center",
-    label: "city_center",
-    jsonPath: buildStageJsonPath("city_center.json")
-  },
-  {
-    id: "arena",
-    label: "arena",
-    jsonPath: buildStageJsonPath("arena.json")
-  },
-  {
-    id: TRAP_STAGE_ID,
-    label: TRAP_STAGE_ID,
-    jsonPath: buildStageJsonPath("arena_trap_room.json")
-  },
-  {
-    id: "arena_roulette",
-    label: "arena_roulette",
-    jsonPath: buildStageJsonPath("arena_roulette.json")
-  },
-  {
-    id: "labyrinth",
-    label: "labyrinth",
-    jsonPath: buildStageJsonPath("labyrinth.json")
-  },
-  {
-    id: LABYRINTH_DYNAMIC_STAGE_ID,
-    label: LABYRINTH_DYNAMIC_STAGE_ID,
-    jsonPath: buildStageJsonPath("labyrinth_dynamic.json")
-  }
-];
+export const buildStageCatalog = (gameConfig: GameConfig): StageSelection[] =>
+  gameConfig.stageCatalog.map((stage) => ({
+    id: stage.id,
+    label: stage.label,
+    jsonPath: buildAssetUrl("stage", stage.jsonFile)
+  }));
 
 export const loadStageJson = async (
   selection: StageSelection

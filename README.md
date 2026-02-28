@@ -47,10 +47,12 @@
 ### 任意手順（準備した素材をゲームに読み込ませるには）
 
 #### 素材用フォルダ構成
-- `public/` 配下には任意でステージデータや各種素材を置くことができる。
+- サーバ起動時はプロジェクト同階層、exe版はexe同階層に `assets/` を配置し、その配下に素材を置く。
   - フォルダ構成:
     ```
-    public/
+    assets/
+    ├─ config/
+    │  └─ game-config.json
     ├─ audio/
     │  ├─ bgm/
     │  ├─ se/
@@ -59,32 +61,33 @@
     │  └─ chara/
     └─ stage/
     ```
+  - `assets/config/game-config.json` に、ステージ一覧・BGM/SE/VOICE・立ち絵ディレクトリ/拡張子/状態別basenameを記述する。
   - キャラクターフォルダ名の命名規則（実装準拠）:
-    - `public/picture/chara/` は先頭2文字が音声ID（2桁）と一致するフォルダだけが優先割り当て対象（例: `05_big_sister`）。一致させない場合は任意名でよい。
-    - `public/audio/voice/` はフォルダ名を参照しないため任意（管理上は「2桁ID + 任意文字列」にしておくと分かりやすい）。
-    - `public/audio/bgm/` / `public/audio/se/` / `public/stage/` はキャラクターフォルダ不要。
+    - `assets/picture/chara/` は先頭2文字が音声ID（2桁）と一致するフォルダだけが優先割り当て対象（例: `05_big_sister`）。一致させない場合は任意名でよい。
+    - `assets/audio/voice/` はフォルダ名を参照しないため任意（管理上は「2桁ID + 任意文字列」にしておくと分かりやすい）。
+    - `assets/audio/bgm/` / `assets/audio/se/` / `assets/stage/` はキャラクターフォルダ不要。
 
 #### BGM
-- `public/audio/bgm/` に `mp3` を配置する。
-  - ステージ JSON の `meta.name` と同名の `<name>.mp3` があれば、それを優先再生する。
-    - 例: `public/stage/laboratory.json` の `meta.name` が `laboratory` の場合は `public/audio/bgm/laboratory.mp3`
-  - 一致するファイルがない場合は、`public/audio/bgm/` 内の `mp3` からランダム再生する。
-  - `public/audio/bgm/` に `mp3` が一つもない場合は再生しない。
+- `assets/audio/bgm/` に `mp3` を配置する。
+  - `assets/config/game-config.json` の `audio.bgm.byStage` で、ステージ名ごとのファイル名を指定する。
+    - 例: `laboratory` ステージを `laboratory.mp3` にする場合は `audio.bgm.byStage.laboratory = "laboratory.mp3"`
+  - ステージ専用BGMが設定されていない/一致しない場合は、`audio.bgm.fallback` の配列からランダム再生する。
+  - `audio.bgm.fallback` が空の場合は再生しない。
 
 #### SE
-- `public/audio/se/` に以下のファイル名で配置する（形式: `mp3`）。
+- `assets/audio/se/` にSEファイルを配置し、`assets/config/game-config.json` の `audio.se` にファイル名を設定する（形式: `mp3`）。
   - ビットの浮遊音: `FlyingObject.mp3`
   - ビットの警告音: `BeamShot_WavingPart.mp3`
   - ビットが狙いを定める音: `aim.mp3`
   - ビームの発射音: `BeamShotR_DownLong.mp3` / `BeamShotR_Down.mp3` / `BeamShotR_DownShort.mp3` / `BeamShotR_Up.mp3` / `BeamShotR_UpShort.mp3` / `BeamShotR_UpHighShort.mp3`
   - ビームの命中音: `BeamHit_Rev.mp3` / `BeamHit_RevLong.mp3` / `BeamHit_RevLongFast.mp3`
   - アラームマス発動音: `alarm.mp3`
-  - ファイルが存在しない場合はエラー無しで再生しない。
+  - `audio.se` に含めたパスだけが再生対象になる。ファイルが存在しない場合は再生されない。
 
 #### VOICE
-- `public/audio/voice/` 配下に `wav` を配置し、`src/audio/voiceManifest.json` にキャラクターIDと状態ごとの配列で登録する。
-  - キャラクターフォルダ名は任意（実装では参照しない）。管理上は「2桁ID + 任意文字列」にしておくと分かりやすい（例: `public/audio/voice/01_devil/`）。JSONのキーは2桁IDのみを使う（例: `"01"`）。
-  - JSONのパスは `/audio/voice/` を省いた相対パスで記載する（例: `public/audio/voice/01_devil/悪_110ハイグレ.wav` → `01_devil/悪_110ハイグレ.wav`）。
+- `assets/audio/voice/` 配下に `wav` を配置し、`assets/audio/voice/voiceManifest.json` にキャラクターIDと状態ごとの配列で登録する。
+  - キャラクターフォルダ名は任意（実装では参照しない）。管理上は「2桁ID + 任意文字列」にしておくと分かりやすい（例: `assets/audio/voice/01_devil/`）。JSONのキーは2桁IDのみを使う（例: `"01"`）。
+  - JSONのパスは `/audio/voice/` を省いた相対パスで記載する（例: `assets/audio/voice/01_devil/悪_110ハイグレ.wav` → `01_devil/悪_110ハイグレ.wav`）。
   - 実装側で `/audio/voice/` を補完して再生する。
   - 状態ごとの配列が空、または項目が無い場合は無音でスキップする（フォールバックなし）。
   - `brainwash-complete-haigure` は `enter`（一回のみ）と `loop`（ループ）を分けて登録する。
@@ -118,7 +121,7 @@
     - `brainwash-complete-haigure-formation`: その状態に遷移した瞬間からループ再生。
 
 #### キャラクター画像
-- キャラクター画像（立ち絵）を差し替える場合は、`public/picture/chara/<キャラディレクトリ>/` に配置する（形式: `png`/`jpg`/`jpeg`/`webp`/`gif`/`bmp`/`avif`/`svg`）。
+- キャラクター画像（立ち絵）を差し替える場合は、`assets/picture/chara/<キャラディレクトリ>/` に配置する（形式: `png`/`jpg`/`jpeg`/`webp`/`gif`/`bmp`/`avif`/`svg`）。
   - ファイル名は以下の8種類を用意する。
     - `normal`（通常：普段着）
     - `evade`（敵にターゲッティングされ、逃げている状態：普段着）
@@ -128,7 +131,7 @@
     - `bw-complete-gun`（洗脳完了、光線銃を持ち未洗脳者を狙う：ハイレグ姿）
     - `bw-complete-no-gun`（洗脳完了、光線銃なしで未洗脳者を捕獲しようとする：ハイレグ姿）
     - `bw-complete-pose`（洗脳完了、ハイグレポーズ：ハイレグ姿）
-  - 例: `public/picture/chara/05_big_sister/normal.png`
+  - 例: `assets/picture/chara/05_big_sister/normal.png`
   - 画像サイズは、横1:縦2の比率を基準とする。基準よりも長い辺がある場合はそれを基準に、画像比率を保って縮小する。
   - キャラディレクトリ名の先頭2文字（2桁ID）が音声IDと一致する場合は、そのIDに対して1キャラ分だけ優先割り当てする。
   - 画像の使い回しが発生する場合はランダム割り当てになり、同じIDが一致するかどうかは抽選結果次第（一致しても問題なし）。

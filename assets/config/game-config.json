@@ -1,0 +1,98 @@
+{
+  "version": "1.0.0",
+  "stageCatalog": [
+    {
+      "id": "laboratory",
+      "label": "laboratory",
+      "jsonFile": "laboratory.json"
+    },
+    {
+      "id": "city_center",
+      "label": "city_center",
+      "jsonFile": "city_center.json"
+    },
+    {
+      "id": "arena",
+      "label": "arena",
+      "jsonFile": "arena.json"
+    },
+    {
+      "id": "arena_trap_room",
+      "label": "arena_trap_room",
+      "jsonFile": "arena_trap_room.json"
+    },
+    {
+      "id": "arena_roulette",
+      "label": "arena_roulette",
+      "jsonFile": "arena_roulette.json"
+    },
+    {
+      "id": "labyrinth",
+      "label": "labyrinth",
+      "jsonFile": "labyrinth.json"
+    },
+    {
+      "id": "labyrinth_dynamic",
+      "label": "labyrinth_dynamic",
+      "jsonFile": "labyrinth_dynamic.json"
+    }
+  ],
+  "audio": {
+    "bgm": {
+      "byStage": {},
+      "fallback": [
+        "研究所劇伴MP3.mp3"
+      ]
+    },
+    "se": {
+      "bitMove": "FlyingObject.mp3",
+      "bitAlert": "BeamShot_WavingPart.mp3",
+      "bitTarget": "aim.mp3",
+      "alarm": "alarm.mp3",
+      "beamNonTarget": [
+        "BeamShotR_DownLong.mp3",
+        "BeamShotR_Down.mp3",
+        "BeamShotR_DownShort.mp3"
+      ],
+      "beamTarget": [
+        "BeamShotR_Up.mp3",
+        "BeamShotR_UpShort.mp3",
+        "BeamShotR_UpHighShort.mp3"
+      ],
+      "hit": [
+        "BeamHit_Rev.mp3",
+        "BeamHit_RevLong.mp3",
+        "BeamHit_RevLongFast.mp3"
+      ]
+    },
+    "voiceManifest": "audio/voice/voiceManifest.json"
+  },
+  "portraits": {
+    "directories": [
+      "05_big_sister",
+      "09_little_sister",
+      "13_hakase"
+    ],
+    "extensions": [
+      "png",
+      "jpg",
+      "jpeg",
+      "webp",
+      "gif",
+      "bmp",
+      "avif",
+      "svg"
+    ],
+    "stateBaseNames": {
+      "normal": "normal",
+      "evade": "evade",
+      "hit-a": "hit-a",
+      "hit-b": "hit-b",
+      "brainwash-in-progress": "bw-in-progress",
+      "brainwash-complete-gun": "bw-complete-gun",
+      "brainwash-complete-no-gun": "bw-complete-no-gun",
+      "brainwash-complete-haigure": "bw-complete-pose",
+      "brainwash-complete-haigure-formation": "bw-complete-pose"
+    }
+  }
+}

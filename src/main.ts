@@ -87,7 +87,7 @@ import {
   createVoiceActor,
   stopVoiceActor,
   updateVoiceActor,
-  voiceProfiles,
+  buildVoiceProfiles,
   VoiceActor
 } from "./audio/voice";
 import { SfxDirector } from "./audio/sfxDirector";
@@ -104,8 +104,8 @@ import {
   TRAP_STAGE_ID
 } from "./world/stageIds";
 import {
+  buildStageCatalog,
   loadStageJson,
-  STAGE_CATALOG,
   type StageSelection
 } from "./world/stageSelection";
 import { createHud } from "./ui/hud";
@@ -145,6 +145,7 @@ import {
 } from "./game/characterSprites";
 import {
   assignPortraitDirectories,
+  configurePortraitAssets,
   calculatePortraitSpriteSize,
   getNoGunTouchBrainwashCellIndex,
   getPortraitCellIndex,
@@ -152,6 +153,11 @@ import {
   loadPortraitSpriteSheet,
   type PortraitSpriteSheet
 } from "./game/portraitSprites";
+import {
+  buildAssetUrl,
+  loadGameConfig,
+  loadVoiceManifest
+} from "./runtimeAssets/loadConfig";
 
 const canvas =
   document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
@@ -167,6 +173,11 @@ const eyeHeight = PLAYER_EYE_HEIGHT;
 const minimapReadoutVisible = false;
 const portraitMaxWidthCells = 1;
 const portraitMaxHeightCells = 2;
+const gameConfig = await loadGameConfig();
+const stageCatalog = buildStageCatalog(gameConfig);
+const voiceManifest = await loadVoiceManifest(gameConfig);
+const voiceProfiles = buildVoiceProfiles(voiceManifest);
+configurePortraitAssets(gameConfig.portraits);
 
 const defaultBitSpawnSettings: BitSpawnSettings = {
   bitSpawnInterval: 10,  // ビットの通常出現間隔（秒）。1〜99。デフォルトは10
@@ -196,13 +207,13 @@ const defaultVolumeLevels: VolumeLevels = {
 };
 const titleSettingsDefaults: TitleSettingsDefaults = {
   volumeLevels: defaultVolumeLevels,
-  stageId: STAGE_CATALOG[0].id,
+  stageId: stageCatalog[0].id,
   alarmTrapEnabled: false,
   defaultStartSettings: defaultDefaultStartSettings,
   brainwashSettings: defaultBrainwashSettings,
   bitSpawnSettings: defaultBitSpawnSettings
 };
-const stageIds = new Set(STAGE_CATALOG.map((selection) => selection.id));
+const stageIds = new Set(stageCatalog.map((selection) => selection.id));
 const persistedTitleSettings = loadPersistedTitleSettings(
   TITLE_SETTINGS_STORAGE_KEY,
   TITLE_SETTINGS_STORAGE_VERSION,
@@ -356,8 +367,8 @@ const ensurePortraitManagers = async (directories: string[]) => {
 
 const initialStageSelectionId = persistedTitleSettings
   ? persistedTitleSettings.stageId
-  : STAGE_CATALOG[0].id;
-let stageSelection = STAGE_CATALOG.find(
+  : stageCatalog[0].id;
+let stageSelection = stageCatalog.find(
   (selection) => selection.id === initialStageSelectionId
 )!;
 let stageSelectionRequestId = 0;
@@ -366,7 +377,7 @@ let titleTransitionInProgress = false;
 let stageJson = await loadStageJson(stageSelection);
 let stageZoneMap = stageJson ? createZoneMapFromStageJson(stageJson) : null;
 const stageSelectionsForMenu: StageSelection[] = await Promise.all(
-  STAGE_CATALOG.map(async (selection) => {
+  stageCatalog.map(async (selection) => {
     const loadedStageJson =
       selection.id === stageSelection.id
         ? stageJson
@@ -685,7 +696,7 @@ const resetTitleSettingsToDefault = async () => {
   titleBrainwashSettingsPanel.setSettings(defaults.brainwashSettings);
   titleBitSpawnPanel.setSettings(defaults.bitSpawnSettings);
   titleStageSelectControl.setAlarmTrapEnabled(defaults.alarmTrapEnabled);
-  const defaultSelection = STAGE_CATALOG.find(
+  const defaultSelection = stageCatalog.find(
     (selection) => selection.id === defaults.stageId
   )!;
   await applyStageSelection(defaultSelection);
@@ -713,9 +724,13 @@ const isTitleUiTarget = (target: EventTarget | null) => {
     ) !== null
   );
 };
-const bgmFiles = import.meta.glob("/public/audio/bgm/*.mp3");
-const bgmFilePaths = Object.keys(bgmFiles);
-const bgmUrls = bgmFilePaths.map((path) => path.replace("/public", ""));
+const toBgmUrl = (fileName: string) => buildAssetUrl("audio", "bgm", fileName);
+const toSeUrl = (fileName: string) => buildAssetUrl("audio", "se", fileName);
+const voiceBasePath = buildAssetUrl("audio", "voice");
+const bgmByStage = gameConfig.audio.bgm.byStage;
+const bgmUrls = gameConfig.audio.bgm.fallback.map((fileName) =>
+  toBgmUrl(fileName)
+);
 const pickRandomBgmUrl = () => {
   if (bgmUrls.length === 0) {
     return null;
@@ -723,9 +738,9 @@ const pickRandomBgmUrl = () => {
   return bgmUrls[Math.floor(Math.random() * bgmUrls.length)];
 };
 const getStageBgmUrl = (stageName: string) => {
-  const filePath = `/public/audio/bgm/${stageName}.mp3`;
-  if (bgmFiles[filePath]) {
-    return `/audio/bgm/${stageName}.mp3`;
+  const fileName = bgmByStage[stageName];
+  if (fileName) {
+    return toBgmUrl(fileName);
   }
   return null;
 };
@@ -738,29 +753,28 @@ const selectBgmUrl = (stageName: string | null) => {
   }
   return pickRandomBgmUrl();
 };
-const seFiles = import.meta.glob("/public/audio/se/*.mp3");
-const seFilePaths = Object.keys(seFiles);
-const seUrls = new Set(seFilePaths.map((path) => path.replace("/public", "")));
+const seConfig = gameConfig.audio.se;
+const bitSeMove = toSeUrl(seConfig.bitMove);
+const bitSeAlert = toSeUrl(seConfig.bitAlert);
+const bitSeTarget = toSeUrl(seConfig.bitTarget);
+const alarmSe = toSeUrl(seConfig.alarm);
+const bitSeBeamNonTarget = seConfig.beamNonTarget.map((fileName) =>
+  toSeUrl(fileName)
+);
+const bitSeBeamTarget = seConfig.beamTarget.map((fileName) =>
+  toSeUrl(fileName)
+);
+const hitSeVariants = seConfig.hit.map((fileName) => toSeUrl(fileName));
+const seUrls = new Set([
+  bitSeMove,
+  bitSeAlert,
+  bitSeTarget,
+  alarmSe,
+  ...bitSeBeamNonTarget,
+  ...bitSeBeamTarget,
+  ...hitSeVariants
+]);
 const isSeAvailable = (url: string) => seUrls.has(url);
-const bitSeMove = "/audio/se/FlyingObject.mp3";
-const bitSeAlert = "/audio/se/BeamShot_WavingPart.mp3";
-const bitSeTarget = "/audio/se/aim.mp3";
-const alarmSe = "/audio/se/alarm.mp3";
-const bitSeBeamNonTarget = [
-  "/audio/se/BeamShotR_DownLong.mp3",
-  "/audio/se/BeamShotR_Down.mp3",
-  "/audio/se/BeamShotR_DownShort.mp3"
-];
-const bitSeBeamTarget = [
-  "/audio/se/BeamShotR_Up.mp3",
-  "/audio/se/BeamShotR_UpShort.mp3",
-  "/audio/se/BeamShotR_UpHighShort.mp3"
-];
-const hitSeVariants = [
-  "/audio/se/BeamHit_Rev.mp3",
-  "/audio/se/BeamHit_RevLong.mp3",
-  "/audio/se/BeamHit_RevLongFast.mp3"
-];
 const seBaseOptions: SpatialPlayOptions = {
   volume: 0.95,
   maxDistance: 3.75,
@@ -828,20 +842,9 @@ const sfxDirector = new SfxDirector(
   isSeAvailable
 );
 
-const voiceIdPool = [
-  "01",
-  "02",
-  "03",
-  "04",
-  "05",
-  "06",
-  "07",
-  "08",
-  "09",
-  "10",
-  "11",
-  "12"
-];
+const voiceIdPool = voiceProfiles
+  .map((profile) => profile.id)
+  .sort((a, b) => a.localeCompare(b));
 const pickVoiceProfileById = (id: string) =>
   voiceProfiles.find((profile) => profile.id === id)!;
 const shuffleVoiceIds = (ids: string[]) => {
@@ -3256,6 +3259,7 @@ const updateVoices = (delta: number) => {
   updateVoiceActor(
     playerVoiceActor,
     audioManager,
+    voiceBasePath,
     delta,
     allowIdle,
     voiceBaseOptions,
@@ -3265,12 +3269,13 @@ const updateVoices = (delta: number) => {
     updateVoiceActor(
       actor,
       audioManager,
+      voiceBasePath,
       delta,
       allowIdle,
       voiceBaseOptions,
       voiceLoopOptions
     );
-}
+  }
 };
 
 setupInputHandlers({

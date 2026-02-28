@@ -1,7 +1,75 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, net, protocol } from "electron";
 import * as path from "path";
+import * as fs from "node:fs";
+import { pathToFileURL } from "node:url";
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "app",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true
+    }
+  }
+]);
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+
+const resolveWithinRoot = (root: string, relativePath: string) => {
+  const absoluteRoot = path.resolve(root);
+  const absolutePath = path.resolve(absoluteRoot, relativePath);
+  if (
+    absolutePath === absoluteRoot ||
+    absolutePath.startsWith(`${absoluteRoot}${path.sep}`)
+  ) {
+    return absolutePath;
+  }
+  return null;
+};
+
+const registerAppProtocol = () => {
+  const distRoot = path.resolve(__dirname, "..", "dist");
+  const assetRoot = path.resolve(path.dirname(app.getPath("exe")), "assets");
+  const assetRouteRoots: Record<string, string> = {
+    "/audio": path.resolve(assetRoot, "audio"),
+    "/picture": path.resolve(assetRoot, "picture"),
+    "/stage": path.resolve(assetRoot, "stage"),
+    "/config": path.resolve(assetRoot, "config")
+  };
+
+  protocol.handle("app", (request) => {
+    const requestUrl = new URL(request.url);
+    const pathname = decodeURIComponent(requestUrl.pathname);
+    if (pathname === "/" || pathname === "/index.html") {
+      const indexPath = path.resolve(distRoot, "index.html");
+      if (!fs.existsSync(indexPath)) {
+        return new Response("Not Found", { status: 404 });
+      }
+      return net.fetch(pathToFileURL(indexPath).toString());
+    }
+
+    for (const [routePrefix, routeRoot] of Object.entries(assetRouteRoots)) {
+      if (pathname !== routePrefix && !pathname.startsWith(`${routePrefix}/`)) {
+        continue;
+      }
+      const relativePath = pathname.slice(routePrefix.length).replace(/^\/+/, "");
+      const filePath = resolveWithinRoot(routeRoot, relativePath);
+      if (!filePath || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+        return new Response("Not Found", { status: 404 });
+      }
+      return net.fetch(pathToFileURL(filePath).toString());
+    }
+
+    const distRelativePath = pathname.replace(/^\/+/, "");
+    const distPath = resolveWithinRoot(distRoot, distRelativePath);
+    if (!distPath || !fs.existsSync(distPath) || fs.statSync(distPath).isDirectory()) {
+      return new Response("Not Found", { status: 404 });
+    }
+    return net.fetch(pathToFileURL(distPath).toString());
+  });
+};
 
 const createWindow = () => {
   const mainWindow = new BrowserWindow({
@@ -18,11 +86,14 @@ const createWindow = () => {
     mainWindow.loadURL(devServerUrl);
     mainWindow.webContents.openDevTools({ mode: "detach" });
   } else {
-    mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+    mainWindow.loadURL("app://-/index.html");
   }
 };
 
 app.whenReady().then(() => {
+  if (!devServerUrl) {
+    registerAppProtocol();
+  }
   createWindow();
 
   app.on("activate", () => {

@@ -1,31 +1,37 @@
 import { CharacterState } from "./types";
 import { CHARACTER_SPRITE_CELL_SIZE } from "./characterSprites";
+import { buildAssetUrl } from "../runtimeAssets/loadConfig";
+import type { PortraitStateBaseNames } from "../runtimeAssets/types";
 
-const portraitExtensions = [
-  "png",
-  "jpg",
-  "jpeg",
-  "webp",
-  "gif",
-  "bmp",
-  "avif",
-  "svg"
-] as const;
+type PortraitAssetConfig = {
+  directories: string[];
+  extensions: string[];
+  stateBaseNames: PortraitStateBaseNames;
+};
 
-const portraitFiles = import.meta.glob(
-  "/public/picture/chara/*/*.{png,jpg,jpeg,webp,gif,bmp,avif,svg}"
-);
-const portraitFilePaths = Object.keys(portraitFiles);
-const portraitDirectoriesFromFiles = Array.from(
-  new Set(
-    portraitFilePaths.map((path) => path.split("/").slice(-2, -1)[0])
-  )
-).sort();
-const hasPortraitAssets = portraitFilePaths.length > 0;
 const defaultPortraitDirectory = "00_default";
-const portraitDirectories = hasPortraitAssets
-  ? portraitDirectoriesFromFiles
-  : [defaultPortraitDirectory];
+let portraitAssetConfig: PortraitAssetConfig | null = null;
+
+const getPortraitAssetConfig = () => {
+  if (!portraitAssetConfig) {
+    throw new Error("Portrait assets are not configured.");
+  }
+  return portraitAssetConfig;
+};
+
+const getPortraitExtensions = () => getPortraitAssetConfig().extensions;
+
+const getPortraitBaseNameByState = () => getPortraitAssetConfig().stateBaseNames;
+
+const hasPortraitAssets = () => getPortraitAssetConfig().directories.length > 0;
+
+const getPortraitDirectoriesInternal = () => {
+  const directories = getPortraitAssetConfig().directories;
+  if (directories.length > 0) {
+    return directories;
+  }
+  return [defaultPortraitDirectory];
+};
 
 const portraitStateOrder: CharacterState[] = [
   "normal",
@@ -45,18 +51,6 @@ const noGunTouchBrainwashBlendProgresses = Array.from(
   (_, index) => index / noGunTouchBrainwashBlendStepCount
 );
 
-const portraitBaseNameByState: Record<CharacterState, string> = {
-  normal: "normal",
-  evade: "evade",
-  "hit-a": "hit-a",
-  "hit-b": "hit-b",
-  "brainwash-in-progress": "bw-in-progress",
-  "brainwash-complete-gun": "bw-complete-gun",
-  "brainwash-complete-no-gun": "bw-complete-no-gun",
-  "brainwash-complete-haigure": "bw-complete-pose",
-  "brainwash-complete-haigure-formation": "bw-complete-pose"
-};
-
 const portraitStateIndex = portraitStateOrder.reduce(
   (map, state, index) => {
     map[state] = index;
@@ -72,19 +66,6 @@ const getNoGunTouchBrainwashBlendStep = (progress: number) =>
   Math.floor(
     clamp(progress, 0, 1) * noGunTouchBrainwashBlendStepCount
   );
-
-const getPortraitFileName = (directory: string, baseName: string) => {
-  for (const extension of portraitExtensions) {
-    const filePath = `/public/picture/chara/${directory}/${baseName}.${extension}`;
-    if (portraitFiles[filePath]) {
-      return `${baseName}.${extension}`;
-    }
-  }
-  throw new Error(`Missing portrait image: ${directory}/${baseName}.*`);
-};
-
-const getPortraitFileUrl = (directory: string, baseName: string) =>
-  `/picture/chara/${directory}/${getPortraitFileName(directory, baseName)}`;
 
 export type PortraitSpriteSheet = {
   url: string;
@@ -108,6 +89,23 @@ const loadImage = (url: string) =>
     image.onerror = () => reject(new Error(`Failed to load ${url}`));
     image.src = url;
   });
+
+const loadPortraitModeImage = async (directory: string, baseName: string) => {
+  for (const extension of getPortraitExtensions()) {
+    const url = buildAssetUrl(
+      "picture",
+      "chara",
+      directory,
+      `${baseName}.${extension}`
+    );
+    try {
+      return await loadImage(url);
+    } catch {
+      // 次の拡張子候補を試す
+    }
+  }
+  throw new Error(`Missing portrait image: ${directory}/${baseName}.*`);
+};
 
 const defaultPortraitFrameByState: Record<CharacterState, number> = {
   normal: 0,
@@ -391,7 +389,15 @@ const getDirectoryId = (directory: string) => directory.slice(0, 2);
 const pickRandomDirectory = (directories: string[]) =>
   directories[Math.floor(Math.random() * directories.length)];
 
-export const getPortraitDirectories = () => portraitDirectories;
+export const configurePortraitAssets = (config: PortraitAssetConfig) => {
+  portraitAssetConfig = {
+    directories: [...config.directories],
+    extensions: [...config.extensions],
+    stateBaseNames: { ...config.stateBaseNames }
+  };
+};
+
+export const getPortraitDirectories = () => getPortraitDirectoriesInternal();
 
 export const getPortraitCellIndex = (state: CharacterState) =>
   portraitStateIndex[state];
@@ -400,6 +406,7 @@ export const getNoGunTouchBrainwashCellIndex = (progress: number) =>
   portraitStateOrder.length + getNoGunTouchBrainwashBlendStep(progress);
 
 export const assignPortraitDirectories = (voiceIds: string[]) => {
+  const portraitDirectories = getPortraitDirectoriesInternal();
   const assignments: string[] = Array.from(
     { length: voiceIds.length }
   );
@@ -432,16 +439,15 @@ export const assignPortraitDirectories = (voiceIds: string[]) => {
 export const loadPortraitSpriteSheet = async (
   directory: string
 ): Promise<PortraitSpriteSheet> => {
-  if (!hasPortraitAssets && directory === defaultPortraitDirectory) {
+  if (!hasPortraitAssets() && directory === defaultPortraitDirectory) {
     return createDefaultPortraitSpriteSheet();
   }
   const modeBaseNames = portraitStateOrder.map(
-    (state) => portraitBaseNameByState[state]
+    (state) => getPortraitBaseNameByState()[state]
   );
-  const modeUrls = modeBaseNames.map((baseName) =>
-    getPortraitFileUrl(directory, baseName)
+  const images = await Promise.all(
+    modeBaseNames.map((baseName) => loadPortraitModeImage(directory, baseName))
   );
-  const images = await Promise.all(modeUrls.map((url) => loadImage(url)));
   const hitBImage = images[portraitStateIndex["hit-b"]];
   const hitAImage = images[portraitStateIndex["hit-a"]];
   const noGunTouchBlendFrames = buildNoGunTouchBrainwashBlendFrames(
