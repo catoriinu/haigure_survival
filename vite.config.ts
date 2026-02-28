@@ -27,6 +27,9 @@ const contentTypeByExtension: Record<string, string> = {
   ".avif": "image/avif"
 };
 
+const isIgnoredPlaceholderName = (name: string) =>
+  name.toLowerCase() === ".gitkeep";
+
 const listBgmFileNames = () => {
   const bgmDirectory = path.resolve(assetsRoot, "audio", "bgm");
   if (!fs.existsSync(bgmDirectory) || !fs.statSync(bgmDirectory).isDirectory()) {
@@ -35,6 +38,7 @@ const listBgmFileNames = () => {
   return fs
     .readdirSync(bgmDirectory, { withFileTypes: true })
     .filter((entry) => entry.isFile())
+    .filter((entry) => !isIgnoredPlaceholderName(entry.name))
     .map((entry) => entry.name)
     .filter((name) => path.extname(name).toLowerCase() === ".mp3")
     .sort((a, b) => a.localeCompare(b));
@@ -48,6 +52,7 @@ const listPortraitDirectories = () => {
   return fs
     .readdirSync(charaDirectory, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
+    .filter((entry) => !isIgnoredPlaceholderName(entry.name))
     .map((entry) => entry.name)
     .sort((a, b) => a.localeCompare(b));
 };

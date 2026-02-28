@@ -13,3 +13,8 @@ assets/audio/bgm/**
 assets/audio/se/**
 assets/audio/voice/**/*.wav
 assets/picture/chara/**
+!assets/audio/bgm/.gitkeep
+!assets/audio/se/.gitkeep
+!assets/audio/voice/.gitkeep
+!assets/picture/chara/.gitkeep
+!assets/stage/.gitkeep

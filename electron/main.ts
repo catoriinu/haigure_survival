@@ -17,6 +17,9 @@ protocol.registerSchemesAsPrivileged([
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 
+const isIgnoredPlaceholderName = (name: string) =>
+  name.toLowerCase() === ".gitkeep";
+
 const resolveWithinRoot = (root: string, relativePath: string) => {
   const absoluteRoot = path.resolve(root);
   const absolutePath = path.resolve(absoluteRoot, relativePath);
@@ -47,6 +50,7 @@ const registerAppProtocol = () => {
     return fs
       .readdirSync(bgmRoot, { withFileTypes: true })
       .filter((entry) => entry.isFile())
+      .filter((entry) => !isIgnoredPlaceholderName(entry.name))
       .map((entry) => entry.name)
       .filter((name) => path.extname(name).toLowerCase() === ".mp3")
       .sort((a, b) => a.localeCompare(b));
@@ -58,6 +62,7 @@ const registerAppProtocol = () => {
     return fs
       .readdirSync(charaRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
+      .filter((entry) => !isIgnoredPlaceholderName(entry.name))
       .map((entry) => entry.name)
       .sort((a, b) => a.localeCompare(b));
   };
