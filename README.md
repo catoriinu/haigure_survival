@@ -47,8 +47,8 @@
 ### 任意手順（準備した素材をゲームに読み込ませるには）
 
 > [!IMPORTANT]  
-> 以下はver2.x.x以上用の手順です。  
-> ver1.x.xをご利用の方は[こちらのリンク先](https://github.com/catoriinu/haigure_survival/blob/a473e759fe35c18b59f2d26fa9a952d67955f999/README.md#%E4%BB%BB%E6%84%8F%E6%89%8B%E9%A0%86%E6%BA%96%E5%82%99%E3%81%97%E3%81%9F%E7%B4%A0%E6%9D%90%E3%82%92%E3%82%B2%E3%83%BC%E3%83%A0%E3%81%AB%E8%AA%AD%E3%81%BF%E8%BE%BC%E3%81%BE%E3%81%9B%E3%82%8B%E3%81%AB%E3%81%AF)
+> 以下は `ver2.x.x` 以上用の手順です。  
+> `ver1.x.x` をご利用の方は[こちらのリンク先](https://github.com/catoriinu/haigure_survival/blob/a473e759fe35c18b59f2d26fa9a952d67955f999/README.md#%E4%BB%BB%E6%84%8F%E6%89%8B%E9%A0%86%E6%BA%96%E5%82%99%E3%81%97%E3%81%9F%E7%B4%A0%E6%9D%90%E3%82%92%E3%82%B2%E3%83%BC%E3%83%A0%E3%81%AB%E8%AA%AD%E3%81%BF%E8%BE%BC%E3%81%BE%E3%81%9B%E3%82%8B%E3%81%AB%E3%81%AF)
 で手順をご参照ください。
 
 #### 素材用フォルダ構成
