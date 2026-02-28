@@ -155,6 +155,7 @@ import {
 } from "./game/portraitSprites";
 import {
   buildAssetUrl,
+  loadBgmFileNames,
   loadGameConfig,
   loadVoiceManifest
 } from "./runtimeAssets/loadConfig";
@@ -174,6 +175,7 @@ const minimapReadoutVisible = false;
 const portraitMaxWidthCells = 1;
 const portraitMaxHeightCells = 2;
 const gameConfig = await loadGameConfig();
+const bgmFileNames = await loadBgmFileNames();
 const stageCatalog = buildStageCatalog(gameConfig);
 const voiceManifest = await loadVoiceManifest(gameConfig);
 const voiceProfiles = buildVoiceProfiles(voiceManifest);
@@ -728,25 +730,24 @@ const toBgmUrl = (fileName: string) => buildAssetUrl("audio", "bgm", fileName);
 const toSeUrl = (fileName: string) => buildAssetUrl("audio", "se", fileName);
 const voiceBasePath = buildAssetUrl("audio", "voice");
 const bgmByStage = gameConfig.audio.bgm.byStage;
-const bgmUrls = gameConfig.audio.bgm.fallback.map((fileName) =>
-  toBgmUrl(fileName)
-);
+const bgmFileNameSet = new Set(bgmFileNames);
 const pickRandomBgmUrl = () => {
-  if (bgmUrls.length === 0) {
+  if (bgmFileNames.length === 0) {
     return null;
   }
-  return bgmUrls[Math.floor(Math.random() * bgmUrls.length)];
+  const fileName = bgmFileNames[Math.floor(Math.random() * bgmFileNames.length)];
+  return toBgmUrl(fileName);
 };
-const getStageBgmUrl = (stageName: string) => {
-  const fileName = bgmByStage[stageName];
-  if (fileName) {
+const getStageBgmUrl = (stageId: string) => {
+  const fileName = bgmByStage[stageId];
+  if (fileName && bgmFileNameSet.has(fileName)) {
     return toBgmUrl(fileName);
   }
   return null;
 };
-const selectBgmUrl = (stageName: string | null) => {
-  if (stageName) {
-    const matched = getStageBgmUrl(stageName);
+const selectBgmUrl = (stageId: string | null) => {
+  if (stageId) {
+    const matched = getStageBgmUrl(stageId);
     if (matched) {
       return matched;
     }
@@ -3199,7 +3200,7 @@ const startGame = async () => {
       buildNpcBrainwashCompleteTransitionConfig(runtimeBrainwashSettings)
     );
     await resetGame();
-    const bgmUrl = selectBgmUrl(stageJson ? stageJson.meta.name : null);
+    const bgmUrl = selectBgmUrl(stageSelection.id);
     if (bgmUrl) {
       audioManager.startBgm(bgmUrl);
     }

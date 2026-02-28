@@ -24,3 +24,6 @@ export const loadGameConfig = () =>
 
 export const loadVoiceManifest = (gameConfig: GameConfig) =>
   loadJson<VoiceManifest>(buildAssetUrl(gameConfig.audio.voiceManifest));
+
+export const loadBgmFileNames = () =>
+  loadJson<string[]>(buildAssetUrl("config", "bgm-files.json"));

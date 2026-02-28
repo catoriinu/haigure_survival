@@ -32,16 +32,37 @@ const resolveWithinRoot = (root: string, relativePath: string) => {
 const registerAppProtocol = () => {
   const distRoot = path.resolve(__dirname, "..", "dist");
   const assetRoot = path.resolve(path.dirname(app.getPath("exe")), "assets");
+  const bgmRoot = path.resolve(assetRoot, "audio", "bgm");
   const assetRouteRoots: Record<string, string> = {
     "/audio": path.resolve(assetRoot, "audio"),
     "/picture": path.resolve(assetRoot, "picture"),
     "/stage": path.resolve(assetRoot, "stage"),
     "/config": path.resolve(assetRoot, "config")
   };
+  const getBgmFileNames = () => {
+    if (!fs.existsSync(bgmRoot) || !fs.statSync(bgmRoot).isDirectory()) {
+      return [] as string[];
+    }
+    return fs
+      .readdirSync(bgmRoot, { withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => entry.name)
+      .filter((name) => path.extname(name).toLowerCase() === ".mp3")
+      .sort((a, b) => a.localeCompare(b));
+  };
 
   protocol.handle("app", (request) => {
     const requestUrl = new URL(request.url);
     const pathname = decodeURIComponent(requestUrl.pathname);
+    if (pathname === "/config/bgm-files.json") {
+      const body = JSON.stringify(getBgmFileNames());
+      return new Response(body, {
+        status: 200,
+        headers: {
+          "content-type": "application/json; charset=utf-8"
+        }
+      });
+    }
     if (pathname === "/" || pathname === "/index.html") {
       const indexPath = path.resolve(distRoot, "index.html");
       if (!fs.existsSync(indexPath)) {

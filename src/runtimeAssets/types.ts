@@ -32,7 +32,6 @@ export type GameConfig = {
   audio: {
     bgm: {
       byStage: Record<string, string>;
-      fallback: string[];
     };
     se: SeConfig;
     voiceManifest: string;

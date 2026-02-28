@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "2.0.0",
   "stageCatalog": [
     {
       "id": "laboratory",
@@ -39,10 +39,15 @@
   ],
   "audio": {
     "bgm": {
-      "byStage": {},
-      "fallback": [
-        "研究所劇伴MP3.mp3"
-      ]
+      "byStage": {
+        "laboratory": "laboratory.mp3",
+        "city_center": "city_center.mp3",
+        "arena": "arena.mp3",
+        "arena_trap_room": "arena_trap_room.mp3",
+        "arena_roulette": "arena_roulette.mp3",
+        "labyrinth": "labyrinth.mp3",
+        "labyrinth_dynamic": "labyrinth_dynamic.mp3"
+      }
     },
     "se": {
       "bitMove": "FlyingObject.mp3",

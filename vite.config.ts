@@ -27,6 +27,19 @@ const contentTypeByExtension: Record<string, string> = {
   ".avif": "image/avif"
 };
 
+const listBgmFileNames = () => {
+  const bgmDirectory = path.resolve(assetsRoot, "audio", "bgm");
+  if (!fs.existsSync(bgmDirectory) || !fs.statSync(bgmDirectory).isDirectory()) {
+    return [] as string[];
+  }
+  return fs
+    .readdirSync(bgmDirectory, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((name) => path.extname(name).toLowerCase() === ".mp3")
+    .sort((a, b) => a.localeCompare(b));
+};
+
 const resolveExternalAssetPath = (requestPathname: string) => {
   const pathname = decodeURIComponent(requestPathname);
   for (const [routePrefix, directory] of Object.entries(assetRouteMap)) {
@@ -60,6 +73,12 @@ const createExternalAssetsPlugin = (): Plugin => {
       return;
     }
     const requestPathname = url.split("?")[0].split("#")[0];
+    if (requestPathname === "/config/bgm-files.json") {
+      const bgmFileNames = listBgmFileNames();
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify(bgmFileNames));
+      return;
+    }
     const filePath = resolveExternalAssetPath(requestPathname);
     if (!filePath) {
       next();
