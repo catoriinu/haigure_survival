@@ -32,9 +32,17 @@ const resolveWithinRoot = (root: string, relativePath: string) => {
   return null;
 };
 
+const resolveAssetRoot = () => {
+  const portableExecutableDir = process.env.PORTABLE_EXECUTABLE_DIR;
+  if (portableExecutableDir && portableExecutableDir.trim().length > 0) {
+    return path.resolve(portableExecutableDir, "assets");
+  }
+  return path.resolve(path.dirname(app.getPath("exe")), "assets");
+};
+
 const registerAppProtocol = () => {
   const distRoot = path.resolve(__dirname, "..", "dist");
-  const assetRoot = path.resolve(path.dirname(app.getPath("exe")), "assets");
+  const assetRoot = resolveAssetRoot();
   const bgmRoot = path.resolve(assetRoot, "audio", "bgm");
   const seRoot = path.resolve(assetRoot, "audio", "se");
   const charaRoot = path.resolve(assetRoot, "picture", "chara");
