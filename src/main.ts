@@ -714,8 +714,13 @@ const isTitleUiTarget = (target: EventTarget | null) => {
   );
 };
 const bgmFiles = import.meta.glob("/public/audio/bgm/*.mp3");
+const resolveAssetUrl = (relativePath: string) =>
+  `${import.meta.env.BASE_URL}${relativePath}`;
+const publicAssetPathPrefix = "/public/";
+const convertPublicPathToAssetUrl = (publicPath: string) =>
+  resolveAssetUrl(publicPath.slice(publicAssetPathPrefix.length));
 const bgmFilePaths = Object.keys(bgmFiles);
-const bgmUrls = bgmFilePaths.map((path) => path.replace("/public", ""));
+const bgmUrls = bgmFilePaths.map((path) => convertPublicPathToAssetUrl(path));
 const pickRandomBgmUrl = () => {
   if (bgmUrls.length === 0) {
     return null;
@@ -725,7 +730,7 @@ const pickRandomBgmUrl = () => {
 const getStageBgmUrl = (stageName: string) => {
   const filePath = `/public/audio/bgm/${stageName}.mp3`;
   if (bgmFiles[filePath]) {
-    return `/audio/bgm/${stageName}.mp3`;
+    return resolveAssetUrl(`audio/bgm/${stageName}.mp3`);
   }
   return null;
 };
@@ -740,26 +745,28 @@ const selectBgmUrl = (stageName: string | null) => {
 };
 const seFiles = import.meta.glob("/public/audio/se/*.mp3");
 const seFilePaths = Object.keys(seFiles);
-const seUrls = new Set(seFilePaths.map((path) => path.replace("/public", "")));
+const seUrls = new Set(
+  seFilePaths.map((path) => convertPublicPathToAssetUrl(path))
+);
 const isSeAvailable = (url: string) => seUrls.has(url);
-const bitSeMove = "/audio/se/FlyingObject.mp3";
-const bitSeAlert = "/audio/se/BeamShot_WavingPart.mp3";
-const bitSeTarget = "/audio/se/aim.mp3";
-const alarmSe = "/audio/se/alarm.mp3";
+const bitSeMove = resolveAssetUrl("audio/se/FlyingObject.mp3");
+const bitSeAlert = resolveAssetUrl("audio/se/BeamShot_WavingPart.mp3");
+const bitSeTarget = resolveAssetUrl("audio/se/aim.mp3");
+const alarmSe = resolveAssetUrl("audio/se/alarm.mp3");
 const bitSeBeamNonTarget = [
-  "/audio/se/BeamShotR_DownLong.mp3",
-  "/audio/se/BeamShotR_Down.mp3",
-  "/audio/se/BeamShotR_DownShort.mp3"
+  resolveAssetUrl("audio/se/BeamShotR_DownLong.mp3"),
+  resolveAssetUrl("audio/se/BeamShotR_Down.mp3"),
+  resolveAssetUrl("audio/se/BeamShotR_DownShort.mp3")
 ];
 const bitSeBeamTarget = [
-  "/audio/se/BeamShotR_Up.mp3",
-  "/audio/se/BeamShotR_UpShort.mp3",
-  "/audio/se/BeamShotR_UpHighShort.mp3"
+  resolveAssetUrl("audio/se/BeamShotR_Up.mp3"),
+  resolveAssetUrl("audio/se/BeamShotR_UpShort.mp3"),
+  resolveAssetUrl("audio/se/BeamShotR_UpHighShort.mp3")
 ];
 const hitSeVariants = [
-  "/audio/se/BeamHit_Rev.mp3",
-  "/audio/se/BeamHit_RevLong.mp3",
-  "/audio/se/BeamHit_RevLongFast.mp3"
+  resolveAssetUrl("audio/se/BeamHit_Rev.mp3"),
+  resolveAssetUrl("audio/se/BeamHit_RevLong.mp3"),
+  resolveAssetUrl("audio/se/BeamHit_RevLongFast.mp3")
 ];
 const seBaseOptions: SpatialPlayOptions = {
   volume: 0.95,

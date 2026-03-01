@@ -15,6 +15,7 @@ const portraitExtensions = [
 const portraitFiles = import.meta.glob(
   "/public/picture/chara/*/*.{png,jpg,jpeg,webp,gif,bmp,avif,svg}"
 );
+const portraitAssetBaseUrl = `${import.meta.env.BASE_URL}picture/chara`;
 const portraitFilePaths = Object.keys(portraitFiles);
 const portraitDirectoriesFromFiles = Array.from(
   new Set(
@@ -84,7 +85,7 @@ const getPortraitFileName = (directory: string, baseName: string) => {
 };
 
 const getPortraitFileUrl = (directory: string, baseName: string) =>
-  `/picture/chara/${directory}/${getPortraitFileName(directory, baseName)}`;
+  `${portraitAssetBaseUrl}/${directory}/${getPortraitFileName(directory, baseName)}`;
 
 export type PortraitSpriteSheet = {
   url: string;
