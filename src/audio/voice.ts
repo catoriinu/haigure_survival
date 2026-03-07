@@ -58,7 +58,7 @@ const buildVoiceProfiles = () => {
 
 export const voiceProfiles = buildVoiceProfiles();
 
-const voiceBasePath = "/audio/voice/";
+const voiceBasePath = `${import.meta.env.BASE_URL}audio/voice/`;
 
 const pickRandom = (items: string[]) => {
   if (items.length === 0) {
