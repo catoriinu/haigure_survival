@@ -1,73 +1,82 @@
-# ビット壁埋まり対策（全モード） 計画
+# タイトル進捗数＋ドット表示 計画
 
-更新日: 2026-02-23
+更新日: 2026-03-10
 
 ## プロンプト
 PLEASE IMPLEMENT THIS PLAN:
-# ビット壁埋まり対策（全モード）計画
-
-追加入力:
-- 前より壁にめり込んで出現するケースは減ったと思いますが、まだあります。
-- これ以上の改善は難しいでしょうか？
-- 1で
-- やっぱり一つ前の、曲がりにくくなる修正は元に戻してください。曲がり角のビットの追尾性がかなり悪くなってしまいました。
+# タイトル進捗数表示 計画
 
 ## 要約
-1. 主因は「出現位置の妥当性未検証」です。`createBitAt` が渡された座標をそのまま採用しており、床/壁チェックがありません。`src/game/bits.ts:1218` `src/game/bits.ts:1226`
-2. 壁埋まりを起こしやすい生成経路が2つあります。`alert` 追加出現のランダムオフセット（±0.2）と、`carpet` 追従出現の左右オフセット（±0.25）です。`src/game/bits.ts:112` `src/game/bits.ts:116` `src/game/bits.ts:1745` `src/game/bits.ts:1822`
-3. 現在のセルサイズは `1/3` なので、狭い通路でオフセットが壁セルに入りやすいです。`src/world/grid.ts:34` `src/world/stageJson.ts:260`
-4. いったん壁セル内に湧くと、移動判定は「次の中心点が床か」だけを見るため、反転を繰り返して実質停止しやすいです。`src/game/bits.ts:1368` `src/game/bits.ts:2634` `src/game/bits.ts:2641`
-5. ローカル試算（迷宮）では、現行ロジックのまま `alert` オフセット起因で約6.79%、`carpet` 追従起因で約21.76%が壁セル座標になります（推定）。
+- タイトル中のローディング文言を `NOW LOADING {completed} / {total}` 方式へ変更する。
+- 進捗数はハードコードせず、毎回その場で必要な読込単位数から計算する。
+- キャラ画像ディレクトリ数は、実際に今回割り当てられたユニークなディレクトリ数と未読込キャッシュ数に応じて可変にする。
 
-## 公開API/インターフェース変更
-1. `createBitAt` の引数に `layout: GridLayout` を追加します。
-`createBitAt(scene, layout, materials, index, position, direction?)`
-2. 呼び出し元を全更新します。`src/main.ts:1119` `src/main.ts:1129` `src/main.ts:2406`
+## 進捗数の定義
+- カウント対象は `stage JSON` と `未読込ポートレートディレクトリ` のみ。
+- 生の画像ファイル枚数、BGM/SE/voice 実ファイル、Babylon のメッシュ生成やローカルCPU処理は数えない。
+- 起動時 total は次で動的算出する。
+  - `stageTaskCount = STAGE_CATALOG.length`
+  - `portraitTaskCount = assignVoiceIds()` 後に得られる `getAssignedPortraitDirectories()` のユニーク数のうち、未読込ディレクトリ数
+  - `total = stageTaskCount + portraitTaskCount`
+- タイトル中のステージ切替時 total は次で動的算出する。
+  - `stageTaskCount = 1`
+  - `portraitTaskCount = 切替後 resetGame で必要になる未読込ポートレートディレクトリ数`
+  - `total = stageTaskCount + portraitTaskCount`
+- タイトル復帰時 total は `未読込ポートレートディレクトリ数` のみ。`0` 件ならローディング表示は出さない。
+- 分子は各論理単位が完了した時点で `1` ずつ増やす。割り当て重複でユニーク数が減る場合も、その実数をそのまま使う。
 
-## 実装仕様（決定版）
-1. `src/game/bits.ts` に出現位置解決ヘルパーを追加します。
-`isFloorPoint` / `hasFloorNeighbor` / `isBitSpawnPointValid` / `resolveNearestValidBitSpawnPosition`
-2. 妥当位置の条件を固定します。
-「床セル上」かつ「隣接4方向に少なくとも1つ床セルがある」かつ「壁クリアランス半径0.07以上」。
-3. `resolveNearestValidBitSpawnPosition` は以下で固定します。
-「希望位置が妥当ならそのまま」→「不正なら `worldToCellClamped` 起点で4近傍BFS（探索順: 上→右→下→左）」→「最初に見つかった妥当セル中心へ補正」。
-4. `createBit` でも最終位置を同ヘルパーで確定し、初期ランダム湧きも同じ保証をかけます。`src/game/bits.ts:1120` `src/game/bits.ts:1127`
-5. `alert`/`carpet` の既存オフセット値は変更しません。無効位置のみ「最寄り有効位置へ補正」します（選択済み方針）。
+## 実装変更
+- `main.ts` に内部用の進捗セッションを追加する。
+  - `total` と `completed` を保持し、`setTotal` / `advance` / `finish` で文言を更新する。
+  - 表示は `NOW LOADING {completed} / {total}` 固定にし、ドットアニメーションは廃止する。
+- 初回起動シーケンスは 1 本の進捗セッションで管理する。
+  - 最初の `loadStageJson(stageSelection)` 完了で `advance`
+  - `Promise.all` で読む残り stage JSON は各完了ごとに `advance`
+  - 初回ポートレート読込は `assignVoiceIds()` 後に未読込ユニークディレクトリ数を求め、その数だけ total に加え、各ディレクトリ完了ごとに `advance`
+- `ensurePortraitManagers` は「配列を並列読込する関数」のまま使い、進捗反映用に「各 directory 完了で `advance` するラッパー」を `main.ts` 側に追加する。
+- `ensurePortraitManagersIfNeeded` / `rebuildCharacters` / `resetGame` は進捗セッションを受け取れるようにして、呼び出し元ごとに total を事前確定する。
+- `applyStageSelection` は `1 + 未読込ポートレートディレクトリ数` を total にして、stage JSON 読込から `resetGame` 完了まで同じセッションで表示する。
+- `returnToTitle` は事前に未読込ポートレートディレクトリ数を計算し、`0` ならローディング表示なし、`>0` ならその数を total にして `resetGame` に渡す。
+- `portraitSprites.ts` の現行の非同期分割合成は維持し、進捗更新点は `SpriteManager` が使える状態になったタイミングに揃える。
 
-## テストケース/受け入れ条件
-1. `npm run build` が成功すること。
-2. `labyrinth` と `labyrinth_dynamic` で、ビット出現間隔最短・最大数多めで連続プレイし、壁埋まり出現と停止再現が起きないこと。
-3. `arena_roulette` でルーレット進行が従来どおり動作し、出現補正により配置が破綻しないこと。
-4. 通常湧き・`alert` 追加湧き・`carpet` 追従湧きのすべてで、出現直後の位置が床判定を満たすこと（デバッグ確認）。
+## 公開API / 型
+- 公開API変更なし。
+- 内部変更として、`main.ts` 内の以下に進捗セッション引数を追加する。
+  - `ensurePortraitManagersIfNeeded(directories, session?)`
+  - `rebuildCharacters(session?)`
+  - `resetGame(session?)`
+- HUD の公開インターフェースは増やさない。
+
+## テスト
+- `npm run build` が成功すること。
+- コールドスタート時、表示が固定値ではなく `STAGE_CATALOG.length + 未読込ポートレート数` から始まること。
+- 同じ設定でも、重複割り当てや既読キャッシュ状況によって total が変動すること。
+- タイトル中のステージ切替で `1 + 未読込ポートレート数` の進捗表示になること。
+- ゲームオーバー後のタイトル復帰で、未読込ポートレートがなければ表示しないこと。
+- 読込失敗や `null` stage JSON でも分子が止まらず、最終的にローディングが閉じること。
 
 ## 前提・既定値
-1. 適用範囲は「全モード」。
-2. 不正位置時の方針は「最寄り有効位置へ補正」。
-3. 出現安全性を優先し、オフセット意図（厳密な左右位置）と衝突する場合は安全側に補正する。
-4. 有効候補が0のステージは不正ステージとして扱う（本件対象ステージでは発生しない前提）。
+- `19` のような固定 total は使わず、毎回ランタイム計算する。
+- キャラ画像ディレクトリは「今回割り当てられたユニーク directory 数」を基準にし、人物や起動回による変動をそのまま表示へ反映する。
+- 実装時は `docs/plan.md` を 2026-03-10 更新として差し替える。
+
+追加入力:
+- . が増減するアニメーションを、進捗表示と併用したいです。
+- 以前同様、NOW LOADINGの後ろにピリオドをアニメーションさせてください。
+- なおアニメーションによって進捗表示の文字位置がずれないようにするため、両者の位置は別管理してください。
+- 分子が2桁になったときにも `NOW LOADING` の位置がずれないようにしてください。
+- 進捗欄は 3 桁 / 3 桁ぶんの幅を確保してください。
 
 ## ステップ
-- [x] `bits.ts` に出現位置検証/補正ヘルパーを追加し、`createBit` と `createBitAt` に適用する
-- [x] `createBitAt` の公開インターフェース変更を `main.ts` の全呼び出しへ反映する
-- [x] `npm run build` を実行して型/ビルド整合を確認する
+- [x] タイトル文言実装とスタイルを確認し、ドット表示追加方針を確定する
+- [x] `main.ts` と `src/style.css` を修正し、ドットアニメーションと進捗表示を別要素で管理する
+- [x] `npm run build` でビルド確認を行う
 - [x] 実装結果を `docs/plan.md` の結果へ反映する
-- [x] クリアランス半径を 0.11 に引き上げる
-- [x] `updateBits` の移動可否判定に壁クリアランス判定（0.11）を追加する
-- [x] `npm run build` を再実行して整合を確認する
-- [x] 追加入力分の実装結果を `docs/plan.md` の結果へ反映する
-- [x] 追尾性低下の報告を受け、追加した移動厳格化（`isFloorAt` + クリアランス併用）を取り下げる
-- [x] クリアランス半径を 0.07 に戻す（出現補正ロジックは維持）
 
 ## 結果
-- `src/game/bits.ts` に以下の出現位置検証/補正ヘルパーを追加した。
-  - `isFloorPoint`
-  - `hasFloorNeighbor`
-  - `isBitSpawnPointValid`
-  - `resolveNearestValidBitSpawnPosition`
-- 妥当位置判定は「床セル上」「隣接4方向に床セルが1つ以上」「壁クリアランス半径 0.07 以上」に統一した。
-- `createBit` と `createBitAt` の両方で `resolveNearestValidBitSpawnPosition` を通すように変更し、通常湧き/alert湧き/carpet湧き/roulette湧きを全モードで同一保証に統一した。
-- `createBitAt(scene, layout, materials, index, position, direction?)` へ公開インターフェースを変更し、`src/main.ts` の全呼び出しを更新した。
-- `npm run build` を実行し、renderer/electron のビルド成功を確認した。
-- 追加入力（「1で」）対応として、いったん壁クリアランス半径を `0.11` へ引き上げ、移動判定にもクリアランスを適用した。
-- その後の追加入力（「曲がりにくくなる修正は戻す」）に合わせ、移動判定の厳格化を取り下げ、`isFloorAt` ベースへ戻した。
-- クリアランス半径は `0.07` へ戻し、出現位置補正ロジック（`resolveNearestValidBitSpawnPosition`）は維持した。
+- タイトル中のローディング文言は引き続き `NOW LOADING {completed} / {total}` ベースとしつつ、`NOW LOADING` の直後にピリオドを `0 → 1 → 2 → 3 → 0` で 0.3 秒ごとに循環表示するようにした。
+- ピリオド部分と進捗数部分は別 DOM 要素で管理し、ピリオド用に 3 文字幅、進捗数用に `999 / 999` 相当の固定幅を確保して、桁数が増えても `NOW LOADING` の位置がずれないようにした。
+- 進捗 total は固定値を使わず、起動時・タイトル中のステージ切替時・タイトル復帰時それぞれで、`stage JSON` 件数と未読込ポートレートディレクトリ件数から動的算出する。
+- ポートレート割り当ては先に 1 回だけ確定し、その同じ割り当てを `resetGame` / `rebuildCharacters` まで引き回すことで、表示中の total と実際の読込対象がずれないようにしている。
+- `loadStageJson()` が `null` を返した場合でも、タイトルのステージ名は既存ラベルを使って進行できる。
+- `npm run build` は成功した。手動での起動確認とタイトル画面での表示確認は未実施。

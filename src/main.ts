@@ -155,9 +155,180 @@ import {
 
 const canvas =
   document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
+const titleOverlayElement =
+  document.getElementById("titleOverlay") as unknown as HTMLDivElement;
+const titleMessageElement =
+  document.getElementById("titleMessage") as unknown as HTMLDivElement;
+const titleMessageStatusElement = document.createElement("span");
+const titleMessageLabelElement = document.createElement("span");
+const titleMessageDotsElement = document.createElement("span");
+const titleMessageProgressElement = document.createElement("span");
 const engine = new Engine(canvas, true);
 const scene = new Scene(engine);
 const defaultClearColor = scene.clearColor.clone();
+const titleReadyMessage = "左クリック: 開始";
+const titleLoadingMessageBase = "NOW LOADING";
+const titleLoadingDotIntervalMs = 300;
+type CharacterAssignments = {
+  playerVoiceId: string;
+  npcVoiceIds: string[];
+  playerPortraitDirectory: string;
+  npcPortraitDirectories: string[];
+};
+type TitleLoadingSession = {
+  setTotal: (count: number) => void;
+  advance: () => void;
+  finish: () => void;
+};
+
+let activeTitleLoadingSessionCount = 0;
+let titleLoadingCompleted = 0;
+let titleLoadingTotal = 0;
+let titleLoadingDotCount = 0;
+let titleLoadingDotTimerId: number | null = null;
+titleMessageStatusElement.className = "title-message__status";
+titleMessageDotsElement.className = "title-message__dots";
+titleMessageProgressElement.className = "title-message__progress";
+titleMessageLabelElement.textContent = titleLoadingMessageBase;
+titleMessageProgressElement.style.display = "none";
+titleMessageStatusElement.append(titleMessageLabelElement, titleMessageDotsElement);
+titleMessageElement.replaceChildren(
+  titleMessageStatusElement,
+  titleMessageProgressElement
+);
+const buildTitleDots = () => ".".repeat(titleLoadingDotCount);
+const buildTitleProgress = () =>
+  `${titleLoadingCompleted} / ${titleLoadingTotal}`;
+const syncTitleMessage = () => {
+  if (activeTitleLoadingSessionCount > 0) {
+    titleMessageLabelElement.textContent = titleLoadingMessageBase;
+    titleMessageDotsElement.textContent = buildTitleDots();
+    titleMessageDotsElement.style.display = "";
+    titleMessageProgressElement.textContent = buildTitleProgress();
+    titleMessageProgressElement.style.display = "";
+    return;
+  }
+  titleMessageLabelElement.textContent = titleReadyMessage;
+  titleMessageDotsElement.textContent = "";
+  titleMessageDotsElement.style.display = "none";
+  titleMessageProgressElement.textContent = "";
+  titleMessageProgressElement.style.display = "none";
+};
+const startTitleLoadingDots = () => {
+  if (titleLoadingDotTimerId !== null) {
+    return;
+  }
+  titleLoadingDotCount = 0;
+  titleLoadingDotTimerId = window.setInterval(() => {
+    titleLoadingDotCount = (titleLoadingDotCount + 1) % 4;
+    syncTitleMessage();
+  }, titleLoadingDotIntervalMs);
+};
+const stopTitleLoadingDots = () => {
+  if (titleLoadingDotTimerId !== null) {
+    window.clearInterval(titleLoadingDotTimerId);
+    titleLoadingDotTimerId = null;
+  }
+  titleLoadingDotCount = 0;
+};
+const shuffleIdsInPlace = (ids: string[]) => {
+  for (let index = ids.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(Math.random() * (index + 1));
+    const temp = ids[index];
+    ids[index] = ids[swap];
+    ids[swap] = temp;
+  }
+};
+const pickRandomIdFromPool = (ids: readonly string[]) =>
+  ids[Math.floor(Math.random() * ids.length)]!;
+const buildCharacterAssignments = (npcCount: number): CharacterAssignments => {
+  const voiceIds = voiceProfiles.map((profile) => profile.id);
+  const remainingVoiceIds = [...voiceIds];
+  shuffleIdsInPlace(remainingVoiceIds);
+  const playerVoiceId = remainingVoiceIds.shift()!;
+  const npcVoiceIds = Array.from(
+    { length: npcCount },
+    () =>
+      remainingVoiceIds.length > 0
+        ? remainingVoiceIds.shift()!
+        : pickRandomIdFromPool(voiceIds)
+  );
+  const portraitAssignments = assignPortraitDirectories([
+    playerVoiceId,
+    ...npcVoiceIds
+  ]);
+  return {
+    playerVoiceId,
+    npcVoiceIds,
+    playerPortraitDirectory: portraitAssignments[0],
+    npcPortraitDirectories: portraitAssignments.slice(1)
+  };
+};
+const getCharacterAssignmentPortraitDirectories = (
+  assignments: CharacterAssignments
+) => [assignments.playerPortraitDirectory, ...assignments.npcPortraitDirectories];
+const createTitleLoadingSession = (initialTotal = 0): TitleLoadingSession => {
+  const wasInactive = activeTitleLoadingSessionCount === 0;
+  activeTitleLoadingSessionCount += 1;
+  titleLoadingCompleted = 0;
+  titleLoadingTotal = initialTotal;
+  if (wasInactive) {
+    startTitleLoadingDots();
+  }
+  syncTitleMessage();
+  let finished = false;
+  return {
+    setTotal: (count: number) => {
+      if (finished || count < 0) {
+        return;
+      }
+      titleLoadingTotal = count;
+      titleLoadingCompleted = Math.min(titleLoadingCompleted, titleLoadingTotal);
+      syncTitleMessage();
+    },
+    advance: () => {
+      if (finished) {
+        return;
+      }
+      titleLoadingCompleted = Math.min(
+        titleLoadingCompleted + 1,
+        titleLoadingTotal
+      );
+      syncTitleMessage();
+    },
+    finish: () => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      activeTitleLoadingSessionCount = Math.max(
+        activeTitleLoadingSessionCount - 1,
+        0
+      );
+      if (activeTitleLoadingSessionCount === 0) {
+        stopTitleLoadingDots();
+        titleLoadingCompleted = 0;
+        titleLoadingTotal = 0;
+      }
+      syncTitleMessage();
+    }
+  };
+};
+const advanceSessionForEach = async <T>(
+  items: readonly T[],
+  worker: (item: T) => Promise<void>,
+  session: TitleLoadingSession
+) => {
+  await Promise.all(
+    items.map(async (item) => {
+      try {
+        await worker(item);
+      } finally {
+        session.advance();
+      }
+    })
+  );
+};
 
 const playerWidth = PLAYER_SPRITE_WIDTH;
 const playerHeight = PLAYER_SPRITE_HEIGHT;
@@ -353,6 +524,38 @@ const ensurePortraitManagers = async (directories: string[]) => {
     })
   );
 };
+const getUnloadedPortraitDirectories = (directories: string[]) => {
+  const uniqueDirectories = Array.from(new Set(directories));
+  return uniqueDirectories.filter(
+    (directory) => !portraitManagers.has(directory)
+  );
+};
+const countUnloadedPortraitDirectoriesForAssignments = (
+  assignments: CharacterAssignments
+) =>
+  getUnloadedPortraitDirectories(
+    getCharacterAssignmentPortraitDirectories(assignments)
+  ).length;
+const ensurePortraitManagersIfNeeded = async (
+  directories: string[],
+  session?: TitleLoadingSession
+) => {
+  const unloadedDirectories = getUnloadedPortraitDirectories(directories);
+  if (unloadedDirectories.length === 0) {
+    return;
+  }
+  if (!session) {
+    await ensurePortraitManagers(unloadedDirectories);
+    return;
+  }
+  await advanceSessionForEach(
+    unloadedDirectories,
+    async (directory) => {
+      await ensurePortraitManager(directory);
+    },
+    session
+  );
+};
 
 const initialStageSelectionId = persistedTitleSettings
   ? persistedTitleSettings.stageId
@@ -363,20 +566,48 @@ let stageSelection = STAGE_CATALOG.find(
 let stageSelectionRequestId = 0;
 let stageSelectionInProgress = false;
 let titleTransitionInProgress = false;
-let stageJson = await loadStageJson(stageSelection);
-let stageZoneMap = stageJson ? createZoneMapFromStageJson(stageJson) : null;
-const stageSelectionsForMenu: StageSelection[] = await Promise.all(
-  STAGE_CATALOG.map(async (selection) => {
-    const loadedStageJson =
-      selection.id === stageSelection.id
-        ? stageJson
-        : await loadStageJson(selection);
-    return {
-      ...selection,
-      label: loadedStageJson!.meta.description!
-    };
-  })
+const buildStageSelectionLabel = (
+  selection: StageSelection,
+  loadedStageJson: Awaited<ReturnType<typeof loadStageJson>>
+) => loadedStageJson?.meta.description ?? selection.label;
+const initialCharacterAssignments = buildCharacterAssignments(
+  runtimeDefaultStartSettings.initialNpcCount
 );
+const initialLoadingSession = createTitleLoadingSession(
+  STAGE_CATALOG.length +
+    countUnloadedPortraitDirectoriesForAssignments(initialCharacterAssignments)
+);
+let stageJson: Awaited<ReturnType<typeof loadStageJson>>;
+try {
+  stageJson = await loadStageJson(stageSelection);
+} finally {
+  initialLoadingSession.advance();
+}
+let stageZoneMap = stageJson ? createZoneMapFromStageJson(stageJson) : null;
+const stageSelectionsForMenu: StageSelection[] = Array.from(
+  { length: STAGE_CATALOG.length }
+) as StageSelection[];
+await advanceSessionForEach(
+  STAGE_CATALOG.filter((selection) => selection.id !== stageSelection.id),
+  async (selection) => {
+    const loadedStageJson = await loadStageJson(selection);
+    const index = STAGE_CATALOG.findIndex(
+      (candidate) => candidate.id === selection.id
+    );
+    stageSelectionsForMenu[index] = {
+      ...selection,
+      label: buildStageSelectionLabel(selection, loadedStageJson)
+    };
+  },
+  initialLoadingSession
+);
+const selectedStageIndex = STAGE_CATALOG.findIndex(
+  (selection) => selection.id === stageSelection.id
+);
+stageSelectionsForMenu[selectedStageIndex] = {
+  ...stageSelection,
+  label: buildStageSelectionLabel(stageSelection, stageJson)
+};
 let stageContext = buildStageContext(scene, stageJson);
 let layout = stageContext.layout;
 let stageStyle = stageContext.style;
@@ -562,8 +793,6 @@ const titleVolumePanel = createVolumePanel({
 const titleRightPanels = document.createElement("div");
 titleRightPanels.className = "title-right-panels";
 document.body.appendChild(titleRightPanels);
-const titleOverlayElement =
-  document.getElementById("titleOverlay") as unknown as HTMLDivElement;
 const titleStageSelectControl = createStageSelectControl({
   parent: titleOverlayElement,
   stages: stageSelectionsForMenu,
@@ -835,43 +1064,8 @@ const sfxDirector = new SfxDirector(
   isSeAvailable
 );
 
-const voiceIdPool = [
-  "01",
-  "02",
-  "03",
-  "04",
-  "05",
-  "06",
-  "07",
-  "08",
-  "09",
-  "10",
-  "11",
-  "12"
-];
 const pickVoiceProfileById = (id: string) =>
   voiceProfiles.find((profile) => profile.id === id)!;
-const shuffleVoiceIds = (ids: string[]) => {
-  for (let index = ids.length - 1; index > 0; index -= 1) {
-    const swap = Math.floor(Math.random() * (index + 1));
-    const temp = ids[index];
-    ids[index] = ids[swap];
-    ids[swap] = temp;
-  }
-};
-const pickRandomVoiceId = () =>
-  voiceIdPool[Math.floor(Math.random() * voiceIdPool.length)];
-const allocateVoiceIds = (count: number) => {
-  const ids = [...voiceIdPool];
-  shuffleVoiceIds(ids);
-  const playerId = ids.shift()!;
-  const npcIds = Array.from(
-    { length: count },
-    () => (ids.length > 0 ? ids.shift()! : pickRandomVoiceId())
-  );
-  return { playerId, npcIds };
-};
-
 let playerVoiceId = "00";
 let npcVoiceIds: string[] = [];
 let playerVoiceActor: VoiceActor | null = null;
@@ -1026,22 +1220,23 @@ const refreshPortraitSizes = () => {
   applyPortraitSizesToAll();
 };
 
-const assignVoiceIds = (npcCount: number) => {
-  const { playerId, npcIds } = allocateVoiceIds(npcCount);
-  playerVoiceId = playerId;
-  npcVoiceIds = npcIds;
-  const assignments = assignPortraitDirectories([
-    playerVoiceId,
-    ...npcVoiceIds
-  ]);
-  playerPortraitDirectory = assignments[0];
-  npcPortraitDirectories = assignments.slice(1);
+const applyCharacterAssignments = (assignments: CharacterAssignments) => {
+  playerVoiceId = assignments.playerVoiceId;
+  npcVoiceIds = [...assignments.npcVoiceIds];
+  playerPortraitDirectory = assignments.playerPortraitDirectory;
+  npcPortraitDirectories = [...assignments.npcPortraitDirectories];
   portraitScaleCache.clear();
 };
-const getAssignedPortraitDirectories = () => [
-  playerPortraitDirectory,
-  ...npcPortraitDirectories
-];
+
+const assignVoiceIds = (npcCount: number) => {
+  const assignments = buildCharacterAssignments(npcCount);
+  applyCharacterAssignments(assignments);
+  return assignments;
+};
+const getAssignedPortraitDirectories = (assignments?: CharacterAssignments) =>
+  assignments
+    ? getCharacterAssignmentPortraitDirectories(assignments)
+    : [playerPortraitDirectory, ...npcPortraitDirectories];
 
 const createCharacters = () => {
   playerAvatar = createPlayerAvatar(
@@ -1079,17 +1274,31 @@ const createCharacters = () => {
   applyPortraitSizesToAll();
 };
 
-const rebuildCharacters = async () => {
-  assignVoiceIds(runtimeDefaultStartSettings.initialNpcCount);
-  await ensurePortraitManagers(getAssignedPortraitDirectories());
+const rebuildCharacters = async (
+  session?: TitleLoadingSession,
+  assignments?: CharacterAssignments
+) => {
+  if (assignments) {
+    applyCharacterAssignments(assignments);
+  } else {
+    assignVoiceIds(runtimeDefaultStartSettings.initialNpcCount);
+  }
+  await ensurePortraitManagersIfNeeded(
+    getAssignedPortraitDirectories(assignments),
+    session
+  );
   playerAvatar.dispose();
   npcs.length = 0;
   createCharacters();
 };
 
-assignVoiceIds(runtimeDefaultStartSettings.initialNpcCount);
-await ensurePortraitManagers(getAssignedPortraitDirectories());
+applyCharacterAssignments(initialCharacterAssignments);
+await ensurePortraitManagersIfNeeded(
+  getAssignedPortraitDirectories(initialCharacterAssignments),
+  initialLoadingSession
+);
 createCharacters();
+initialLoadingSession.finish();
 
 const bitMaterials = createBitMaterials(scene);
 const redBitMaterials = createBitMaterials(scene);
@@ -1364,7 +1573,6 @@ let bitIndex = bits.length;
 
 const hud = createHud();
 hud.setMinimapReadoutVisible(minimapReadoutVisible);
-const buildTitleText = () => "左クリック: 開始";
 const applyStageSelection = async (selection: StageSelection) => {
   const requestId = stageSelectionRequestId + 1;
   stageSelectionRequestId = requestId;
@@ -1375,51 +1583,65 @@ const applyStageSelection = async (selection: StageSelection) => {
   updateTrapRoomRecommendButtonVisibility();
   updateTitleSettingsAvailabilityByStage();
   updateTitleGameOverWarning();
-  hud.setTitleText(buildTitleText());
-  const loadedStageJson = await loadStageJson(selection);
-  if (requestId !== stageSelectionRequestId) {
-    return;
-  }
-  if (gamePhase !== "title") {
-    stageSelectionInProgress = false;
-    return;
-  }
-  stageJson = loadedStageJson;
-  disposeStageParts(stageParts);
-  stageContext = buildStageContext(scene, stageJson);
-  updateStageState();
-  trapSystem.syncStageContext({ layout, bounds });
-  trapSystem.resetRuntimeState();
-  dynamicBeamSystem.syncStageContext({
-    layout,
-    zoneMap: stageZoneMap
-  });
-  dynamicBeamSystem.resetRuntimeState();
-  alarmSystem.syncStageContext({
-    layout,
-    floorCells
-  });
-  alarmSystem.resetRuntimeState();
-  applyCameraSpawnTransform();
-  refreshPortraitSizes();
-  rebuildGameFlow();
-  if (gamePhase === "title") {
-    await resetGame();
+  const nextCharacterAssignments = buildCharacterAssignments(
+    runtimeDefaultStartSettings.initialNpcCount
+  );
+  const loadingSession = createTitleLoadingSession(
+    1 + countUnloadedPortraitDirectoriesForAssignments(nextCharacterAssignments)
+  );
+  try {
+    let loadedStageJson: Awaited<ReturnType<typeof loadStageJson>>;
+    try {
+      loadedStageJson = await loadStageJson(selection);
+    } finally {
+      loadingSession.advance();
+    }
     if (requestId !== stageSelectionRequestId) {
       return;
     }
     if (gamePhase !== "title") {
-      stageSelectionInProgress = false;
       return;
     }
-    hud.setTitleVisible(true);
-    hud.setHudVisible(false);
-    hud.setStateInfo(null);
-    gameFlow.resetFade();
+    stageJson = loadedStageJson;
+    disposeStageParts(stageParts);
+    stageContext = buildStageContext(scene, stageJson);
+    updateStageState();
+    trapSystem.syncStageContext({ layout, bounds });
+    trapSystem.resetRuntimeState();
+    dynamicBeamSystem.syncStageContext({
+      layout,
+      zoneMap: stageZoneMap
+    });
+    dynamicBeamSystem.resetRuntimeState();
+    alarmSystem.syncStageContext({
+      layout,
+      floorCells
+    });
+    alarmSystem.resetRuntimeState();
+    applyCameraSpawnTransform();
+    refreshPortraitSizes();
+    rebuildGameFlow();
+    if (gamePhase === "title") {
+      await resetGame(loadingSession, nextCharacterAssignments);
+      if (requestId !== stageSelectionRequestId) {
+        return;
+      }
+      if (gamePhase !== "title") {
+        return;
+      }
+      hud.setTitleVisible(true);
+      hud.setHudVisible(false);
+      hud.setStateInfo(null);
+      gameFlow.resetFade();
+    }
+  } finally {
+    if (requestId === stageSelectionRequestId) {
+      stageSelectionInProgress = false;
+    }
+    loadingSession.finish();
   }
-  stageSelectionInProgress = false;
 };
-hud.setTitleText(buildTitleText());
+syncTitleMessage();
 
 const clearBeams = () => {
   for (const beam of beams) {
@@ -3088,7 +3310,10 @@ const updateCharacterSpriteCells = () => {
   }
 };
 
-const resetGame = async () => {
+const resetGame = async (
+  session?: TitleLoadingSession,
+  assignments?: CharacterAssignments
+) => {
   alarmTriggeredNpcIds.clear();
   bitAlertTargetedNpcIds.clear();
   stopAllVoices();
@@ -3147,7 +3372,7 @@ const resetGame = async () => {
       orb.mesh.dispose();
     }
   }
-  await rebuildCharacters();
+  await rebuildCharacters(session, assignments);
 
   alertSignal.leaderId = null;
   alertSignal.targetId = null;
@@ -3236,8 +3461,6 @@ const returnToTitle = async () => {
   titleTransitionInProgress = true;
   try {
     document.exitPointerLock();
-    await resetGame();
-    audioManager.stopBgm();
     gamePhase = "title";
     titleGameOverWarningEnabled = true;
     hud.setTitleVisible(true);
@@ -3250,6 +3473,26 @@ const returnToTitle = async () => {
     hud.setHudVisible(false);
     hud.setStateInfo(null);
     gameFlow.resetFade();
+    syncTitleMessage();
+    const nextCharacterAssignments = buildCharacterAssignments(
+      runtimeDefaultStartSettings.initialNpcCount
+    );
+    const unloadedDirectories = countUnloadedPortraitDirectoriesForAssignments(
+      nextCharacterAssignments
+    );
+    const loadingSession =
+      unloadedDirectories > 0
+        ? createTitleLoadingSession(unloadedDirectories)
+        : null;
+    try {
+      await resetGame(
+        loadingSession ?? undefined,
+        nextCharacterAssignments
+      );
+    } finally {
+      loadingSession?.finish();
+    }
+    audioManager.stopBgm();
   } finally {
     titleTransitionInProgress = false;
   }
