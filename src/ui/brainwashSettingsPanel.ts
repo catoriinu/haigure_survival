@@ -9,6 +9,7 @@ type BrainwashSettingsPanelOptions = {
   parent: HTMLElement;
   initialSettings: BrainwashSettings;
   onChange: (settings: BrainwashSettings) => void;
+  onBeforeEnableNoGunTouch?: () => boolean;
   className?: string;
 };
 
@@ -63,6 +64,7 @@ export const createBrainwashSettingsPanel = ({
   parent,
   initialSettings,
   onChange,
+  onBeforeEnableNoGunTouch,
   className
 }: BrainwashSettingsPanelOptions): BrainwashSettingsPanel => {
   const root = document.createElement("div");
@@ -193,6 +195,17 @@ export const createBrainwashSettingsPanel = ({
     emit();
   });
   noGunTouchBrainwashCheckbox.addEventListener("change", () => {
+    const shouldConfirm =
+      noGunTouchBrainwashCheckbox.checked &&
+      !settings.brainwashOnNoGunTouch;
+    if (
+      shouldConfirm &&
+      onBeforeEnableNoGunTouch &&
+      !onBeforeEnableNoGunTouch()
+    ) {
+      noGunTouchBrainwashCheckbox.checked = settings.brainwashOnNoGunTouch;
+      return;
+    }
     settings.brainwashOnNoGunTouch = noGunTouchBrainwashCheckbox.checked;
     emit();
   });

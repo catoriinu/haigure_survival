@@ -169,6 +169,8 @@ const defaultClearColor = scene.clearColor.clone();
 const titleReadyMessage = "左クリック: 開始";
 const titleLoadingMessageBase = "NOW LOADING";
 const titleLoadingDotIntervalMs = 300;
+const enableNoGunTouchBrainwashConfirmMessage =
+  "「銃なしに触れたら洗脳」をオンにすると、ゲーム起動時の読み込み時間が長くなります。\nOKを押すと、オンにしてゲームを再起動します。よろしいですか？";
 type CharacterAssignments = {
   playerVoiceId: string;
   npcVoiceIds: string[];
@@ -481,7 +483,10 @@ const loadPortraitSpriteSheetOnce = (directory: string) => {
   if (cachedPromise) {
     return cachedPromise;
   }
-  const promise = loadPortraitSpriteSheet(directory).then((sheet) => {
+  const promise = loadPortraitSpriteSheet(
+    directory,
+    titleBrainwashSettings.brainwashOnNoGunTouch
+  ).then((sheet) => {
     portraitSpriteSheets.set(directory, sheet);
     return sheet;
   });
@@ -846,10 +851,19 @@ const titleBrainwashSettingsPanel = createBrainwashSettingsPanel({
   parent: titleSettingsCombinedPanel,
   initialSettings: titleBrainwashSettings,
   className: "brainwash-settings-panel--title",
+  onBeforeEnableNoGunTouch: () =>
+    window.confirm(enableNoGunTouchBrainwashConfirmMessage),
   onChange: (settings) => {
+    const shouldReloadForNoGunTouchEnable =
+      settings.brainwashOnNoGunTouch &&
+      !titleBrainwashSettings.brainwashOnNoGunTouch;
     titleBrainwashSettings = settings;
     updateTitleGameOverWarning();
     saveTitleSettings();
+    if (shouldReloadForNoGunTouchEnable) {
+      window.location.reload();
+      return;
+    }
   }
 });
 const titleBitSpawnPanel = createBitSpawnPanel({
