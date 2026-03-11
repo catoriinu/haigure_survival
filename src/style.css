@@ -107,8 +107,28 @@ body {
   font-size: 24px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  white-space: pre-line;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.45em;
   transform: translateY(10px);
+}
+
+.title-message__status {
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.title-message__dots {
+  display: inline-block;
+  width: 3ch;
+  text-align: left;
+}
+
+.title-message__progress {
+  display: inline-block;
+  width: calc(9ch + 8 * 0.08em);
+  text-align: left;
 }
 
 #titleVersion {
