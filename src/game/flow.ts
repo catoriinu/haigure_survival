@@ -37,7 +37,7 @@ type GameFlowOptions = {
   npcs: Npc[];
   playerAvatar: Sprite;
   playerCenterHeight: number;
-  eyeHeight: number;
+  getEyeHeight: () => number;
   hud: Hud;
   getGamePhase: () => GamePhase;
   setGamePhase: (phase: GamePhase) => void;
@@ -56,7 +56,7 @@ export const createGameFlow = ({
   npcs,
   playerAvatar,
   playerCenterHeight,
-  eyeHeight,
+  getEyeHeight,
   hud,
   getGamePhase,
   setGamePhase,
@@ -73,7 +73,6 @@ export const createGameFlow = ({
   const assemblyOrbitSpeed = 0.4;
   const assemblyOrbitHeight = 0.33;
   const executionOrbitRadius = assemblyOrbitRadius;
-  const executionOrbitHeight = eyeHeight;
   const executionNpcRingPadding = layout.cellSize * 0.4 * CELL_SCALE;
   const executionNpcRingMaxRadius = Math.min(
     ((stageArea.width - CELL_SCALE) * layout.cellSize) / 2,
@@ -454,6 +453,7 @@ export const createGameFlow = ({
       bit.root.setEnabled(true);
       bit.root.position.x = center.x + Math.cos(angle) * executionOrbitRadius;
       bit.root.position.z = center.z + Math.sin(angle) * executionOrbitRadius;
+      const executionOrbitHeight = getEyeHeight();
       bit.root.position.y = executionOrbitHeight;
       bit.baseHeight = executionOrbitHeight;
       bit.root.lookAt(center);
@@ -470,7 +470,7 @@ export const createGameFlow = ({
     const forward = camera.getDirection(new Vector3(0, 0, 1));
     camera.position.x = playerAvatar.position.x + forward.x * followCameraOffset;
     camera.position.z = playerAvatar.position.z + forward.z * followCameraOffset;
-    camera.position.y = eyeHeight;
+    camera.position.y = getEyeHeight();
   };
 
   const enterAssembly = (mode: AssemblyMode) => {
@@ -587,6 +587,7 @@ export const createGameFlow = ({
       executionCameraFollowAvatar = false;
       setPlayerState("evade");
       playerAvatar.isVisible = false;
+      const eyeHeight = getEyeHeight();
       camera.position.set(
         executionCenter.x,
         eyeHeight,
@@ -614,6 +615,7 @@ export const createGameFlow = ({
       setPlayerState("brainwash-complete-gun");
       playerAvatar.isVisible = false;
       const playerTarget = frontSlots[frontRowCenterIndex];
+      const eyeHeight = getEyeHeight();
       camera.position.set(playerTarget.x, eyeHeight, playerTarget.z);
       camera.setTarget(executionCenter);
 
@@ -632,6 +634,7 @@ export const createGameFlow = ({
     playerAvatar.cellIndex = 2;
     playerAvatar.position.copyFrom(frontSlots[frontRowCenterIndex]);
     alignSpriteToGround(playerAvatar);
+    const eyeHeight = getEyeHeight();
     camera.position.set(
       playerAvatar.position.x,
       eyeHeight,

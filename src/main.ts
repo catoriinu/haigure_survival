@@ -118,18 +118,10 @@ import {
 import { createHud } from "./ui/hud";
 import { setupInputHandlers } from "./ui/input";
 import { createVolumePanel, type VolumeLevels } from "./ui/volumePanel";
-import {
-  createBitSpawnPanel,
-  type BitSpawnSettings
-} from "./ui/bitSpawnPanel";
-import {
-  createDefaultSettingsPanel,
-  type DefaultStartSettings
-} from "./ui/defaultSettingsPanel";
-import {
-  createBrainwashSettingsPanel,
-  type BrainwashSettings
-} from "./ui/brainwashSettingsPanel";
+import type { BitSpawnSettings } from "./ui/bitSpawnPanel";
+import type { DefaultStartSettings } from "./ui/defaultSettingsPanel";
+import type { BrainwashSettings } from "./ui/brainwashSettingsPanel";
+import type { CameraSettings } from "./ui/cameraSettingsPanel";
 import {
   buildDefaultPersistedTitleSettings,
   clearPersistedTitleSettings,
@@ -137,7 +129,6 @@ import {
   savePersistedTitleSettings,
   type TitleSettingsDefaults
 } from "./ui/titleSettingsStorage";
-import { createTrapRoomRecommendControl } from "./ui/trapRoomRecommendControl";
 import { createStageSelectControl } from "./ui/stageSelectControl";
 import {
   getTitleSettingsAvailability,
@@ -145,7 +136,10 @@ import {
   normalizeRuntimeSettingsForStage
 } from "./ui/titleStageRules";
 import {
-  PLAYER_EYE_HEIGHT,
+  createTitleSettingsSidebar,
+  type TitleSettingsSidebarSettings
+} from "./ui/titleSettingsSidebar";
+import {
   PLAYER_SPRITE_CENTER_HEIGHT,
   PLAYER_SPRITE_HEIGHT,
   PLAYER_SPRITE_WIDTH
@@ -342,7 +336,6 @@ const advanceSessionForEach = async <T>(
 const playerWidth = PLAYER_SPRITE_WIDTH;
 const playerHeight = PLAYER_SPRITE_HEIGHT;
 const playerCenterHeight = PLAYER_SPRITE_CENTER_HEIGHT;
-const eyeHeight = PLAYER_EYE_HEIGHT;
 // ミニマップ座標表示ボックスの表示切替。true=表示、false=非表示（デフォルト）
 const minimapReadoutVisible = false;
 const portraitMaxWidthCells = 1;
@@ -384,8 +377,11 @@ const defaultBrainwashSettings: BrainwashSettings = {
   npcBrainwashCompleteGunPercent: 45,
   npcBrainwashCompleteNoGunPercent: 45
 };
+const defaultCameraSettings: CameraSettings = {
+  heightCells: 1.0
+};
 const TITLE_SETTINGS_STORAGE_KEY = "haigure-survival.title-settings";
-const TITLE_SETTINGS_STORAGE_VERSION = 1;
+const TITLE_SETTINGS_STORAGE_VERSION = 2;
 const defaultVolumeLevels: VolumeLevels = {
   bgm: 5,
   se: 5,
@@ -397,6 +393,7 @@ const titleSettingsDefaults: TitleSettingsDefaults = {
   alarmTrapEnabled: false,
   defaultStartSettings: defaultDefaultStartSettings,
   brainwashSettings: defaultBrainwashSettings,
+  cameraSettings: defaultCameraSettings,
   bitSpawnSettings: defaultBitSpawnSettings
 };
 const stageIds = new Set(STAGE_CATALOG.map((selection) => selection.id));
@@ -422,6 +419,11 @@ let titleBrainwashSettings: BrainwashSettings = {
   ...(persistedTitleSettings
     ? persistedTitleSettings.brainwashSettings
     : defaultBrainwashSettings)
+};
+let titleCameraSettings: CameraSettings = {
+  ...(persistedTitleSettings
+    ? persistedTitleSettings.cameraSettings
+    : defaultCameraSettings)
 };
 let runtimeBitSpawnInterval = defaultBitSpawnSettings.bitSpawnInterval;
 let runtimeMaxBitCount = defaultBitSpawnSettings.maxBitCount;
@@ -684,6 +686,7 @@ const buildSpawnForwardFromMarker = () => {
 
 let spawnForward = new Vector3(0, 0, 1);
 let portraitCellSize = layout.cellSize;
+const getEyeHeight = () => layout.cellSize * titleCameraSettings.heightCells;
 
 const updateSpawnPoint = () => {
   const randomSpawnable = hasPlayerSpawnTag("random_spawnable");
@@ -695,7 +698,7 @@ const updateSpawnPoint = () => {
       : randomFloor
         ? pickRandomCell(floorCells)
         : { row: layout.spawn.row, col: layout.spawn.col };
-  spawnPosition = cellToWorld(layout, spawnCell, eyeHeight);
+  spawnPosition = cellToWorld(layout, spawnCell, getEyeHeight());
   spawnForward = lookAtCenter
     ? buildSpawnForwardTowardCenter(spawnPosition)
     : buildSpawnForwardFromMarker();
@@ -781,6 +784,33 @@ const syncReflectionCamera = () => {
   reflectionCamera.maxZ = camera.maxZ;
 };
 
+const syncTitleCameraHeight = () => {
+  const eyeHeight = getEyeHeight();
+  spawnPosition.y = eyeHeight;
+  if (gamePhase !== "title") {
+    return;
+  }
+  const currentForward = camera.getDirection(new Vector3(0, 0, 1));
+  const horizontalForward = new Vector3(
+    currentForward.x,
+    0,
+    currentForward.z
+  );
+  if (horizontalForward.lengthSquared() <= 0.0001) {
+    horizontalForward.copyFrom(spawnForward);
+  } else {
+    horizontalForward.normalize();
+  }
+  camera.position.y = eyeHeight;
+  camera.setTarget(
+    new Vector3(
+      camera.position.x + horizontalForward.x,
+      eyeHeight,
+      camera.position.z + horizontalForward.z
+    )
+  );
+};
+
 const orbCullDistance = 5;
 const orbCullDistanceSq = orbCullDistance * orbCullDistance;
 const orbCullCenter = new Vector3(0, 0, 0);
@@ -823,8 +853,23 @@ const saveTitleSettings = () => {
     alarmTrapEnabled: titleAlarmTrapEnabled,
     defaultStartSettings: { ...titleDefaultStartSettings },
     brainwashSettings: { ...titleBrainwashSettings },
+    cameraSettings: { ...titleCameraSettings },
     bitSpawnSettings: { ...titleBitSpawnSettings }
   });
+};
+const buildTitleSettingsSidebarSettings = (): TitleSettingsSidebarSettings => ({
+  defaultStartSettings: { ...titleDefaultStartSettings },
+  brainwashSettings: { ...titleBrainwashSettings },
+  cameraSettings: { ...titleCameraSettings },
+  bitSpawnSettings: { ...titleBitSpawnSettings }
+});
+const applyTitleSettingsSidebarSettings = (
+  settings: TitleSettingsSidebarSettings
+) => {
+  titleDefaultStartSettings = { ...settings.defaultStartSettings };
+  titleBrainwashSettings = { ...settings.brainwashSettings };
+  titleCameraSettings = { ...settings.cameraSettings };
+  titleBitSpawnSettings = { ...settings.bitSpawnSettings };
 };
 const titleVolumePanel = createVolumePanel({
   parent: document.body,
@@ -835,9 +880,6 @@ const titleVolumePanel = createVolumePanel({
     saveTitleSettings();
   }
 });
-const titleRightPanels = document.createElement("div");
-titleRightPanels.className = "title-right-panels";
-document.body.appendChild(titleRightPanels);
 const titleStageSelectControl = createStageSelectControl({
   parent: titleOverlayElement,
   stages: stageSelectionsForMenu,
@@ -855,103 +897,39 @@ const titleStageSelectControl = createStageSelectControl({
     saveTitleSettings();
   }
 });
-const titleGameOverWarning = document.createElement("div");
-titleGameOverWarning.className = "title-gameover-warning";
-titleGameOverWarning.textContent =
-  "※現在の設定ではゲームオーバーにならない可能性があります。設定の変更を推奨します。";
-titleRightPanels.appendChild(titleGameOverWarning);
-const titleSettingsCombinedPanel = document.createElement("div");
-titleSettingsCombinedPanel.className = "title-settings-combined-panel";
-titleRightPanels.appendChild(titleSettingsCombinedPanel);
-let titleGameOverWarningEnabled = true;
-const updateTitleGameOverWarning = () => {
-  if (!titleGameOverWarningEnabled) {
-    titleGameOverWarning.style.display = "none";
-    return;
-  }
-  const shouldWarn = hasNeverGameOverRisk(
-    stageSelection.id,
-    titleDefaultStartSettings,
-    titleBrainwashSettings,
-    titleBitSpawnSettings
-  );
-  titleGameOverWarning.style.display = shouldWarn ? "block" : "none";
-};
-const titleDefaultSettingsPanel = createDefaultSettingsPanel({
-  parent: titleSettingsCombinedPanel,
-  initialSettings: titleDefaultStartSettings,
-  className: "default-settings-panel--title",
-  onChange: (settings) => {
-    titleDefaultStartSettings = settings;
-    updateTitleGameOverWarning();
+const titleSettingsSidebar = createTitleSettingsSidebar({
+  parent: document.body,
+  initialSettings: buildTitleSettingsSidebarSettings(),
+  initialStageId: stageSelection.id,
+  onSettingsChange: (settings, event) => {
+    applyTitleSettingsSidebarSettings(settings);
     saveTitleSettings();
-  }
-});
-const titleBrainwashSettingsPanel = createBrainwashSettingsPanel({
-  parent: titleSettingsCombinedPanel,
-  initialSettings: titleBrainwashSettings,
-  className: "brainwash-settings-panel--title",
-  onBeforeEnableNoGunTouch: () =>
-    window.confirm(enableNoGunTouchBrainwashConfirmMessage),
-  onChange: (settings) => {
-    const shouldReloadForNoGunTouchEnable =
-      settings.brainwashOnNoGunTouch &&
-      !titleBrainwashSettings.brainwashOnNoGunTouch;
-    titleBrainwashSettings = settings;
-    updateTitleGameOverWarning();
-    saveTitleSettings();
-    if (shouldReloadForNoGunTouchEnable) {
-      window.location.reload();
-      return;
+    if (event.reason === "camera-settings") {
+      syncTitleCameraHeight();
     }
-  }
+    if (event.shouldReload) {
+      window.location.reload();
+    }
+  },
+  onResetRequested: () => {
+    void resetTitleSettingsToDefault();
+  },
+  onConfirmEnableNoGunTouch: () =>
+    window.confirm(enableNoGunTouchBrainwashConfirmMessage),
+  shouldShowGameOverWarning: (stageId, settings) =>
+    hasNeverGameOverRisk(
+      stageId,
+      settings.defaultStartSettings,
+      settings.brainwashSettings,
+      settings.bitSpawnSettings
+    ),
+  getAvailability: (stageId) => {
+    const availability = getTitleSettingsAvailability(stageId);
+    titleStageSelectControl.setAlarmTrapEditable(availability.alarmTrapEditable);
+    return availability;
+  },
+  isTrapRoomStage: (stageId) => stageId === TRAP_STAGE_ID
 });
-const titleBitSpawnPanel = createBitSpawnPanel({
-  parent: titleSettingsCombinedPanel,
-  initialSettings: titleBitSpawnSettings,
-  className: "bit-spawn-panel--title",
-  onChange: (settings) => {
-    titleBitSpawnSettings = settings;
-    updateTitleGameOverWarning();
-    saveTitleSettings();
-  }
-});
-const setTitleSettingsPanelsVisible = (visible: boolean) => {
-  titleSettingsCombinedPanel.style.display = visible ? "flex" : "none";
-  titleDefaultSettingsPanel.setVisible(visible);
-  titleBrainwashSettingsPanel.setVisible(visible);
-  titleBitSpawnPanel.setVisible(visible);
-};
-const trapRoomRecommendControl = createTrapRoomRecommendControl({
-  parent: titleRightPanels,
-  onApply: () => {
-    titleBrainwashSettingsPanel.setSettings({
-      ...titleBrainwashSettingsPanel.getSettings(),
-      npcBrainwashCompleteGunPercent: 0,
-      npcBrainwashCompleteNoGunPercent: 0
-    });
-    titleBitSpawnPanel.setSettings({
-      ...titleBitSpawnPanel.getSettings(),
-      disableBitSpawn: true
-    });
-  }
-});
-const titleResetSettingsButton = document.createElement("button");
-titleResetSettingsButton.type = "button";
-titleResetSettingsButton.className = "title-reset-settings-button";
-titleResetSettingsButton.dataset.ui = "title-reset-settings-button";
-titleResetSettingsButton.textContent = "全てデフォルトに戻す";
-titleRightPanels.appendChild(titleResetSettingsButton);
-const updateTrapRoomRecommendButtonVisibility = () => {
-  trapRoomRecommendControl.setVisible(stageSelection.id === TRAP_STAGE_ID);
-};
-const updateTitleSettingsAvailabilityByStage = () => {
-  const availability = getTitleSettingsAvailability(stageSelection.id);
-  titleDefaultSettingsPanel.setNpcCountOnlyMode(availability.npcCountOnly);
-  titleBrainwashSettingsPanel.setEnabled(availability.brainwashEnabled);
-  titleBitSpawnPanel.setEnabled(availability.bitSpawnEnabled);
-  titleStageSelectControl.setAlarmTrapEditable(availability.alarmTrapEditable);
-};
 const volumeCategories: AudioCategory[] = ["voice", "bgm", "se"];
 const resetTitleSettingsToDefault = async () => {
   const defaults = buildDefaultPersistedTitleSettings(
@@ -964,9 +942,15 @@ const resetTitleSettingsToDefault = async () => {
     titleVolumePanel.setLevel(category, level);
     applyVolumeLevel(category, level);
   }
-  titleDefaultSettingsPanel.setSettings(defaults.defaultStartSettings);
-  titleBrainwashSettingsPanel.setSettings(defaults.brainwashSettings);
-  titleBitSpawnPanel.setSettings(defaults.bitSpawnSettings);
+  const nextSidebarSettings: TitleSettingsSidebarSettings = {
+    defaultStartSettings: defaults.defaultStartSettings,
+    brainwashSettings: defaults.brainwashSettings,
+    cameraSettings: defaults.cameraSettings,
+    bitSpawnSettings: defaults.bitSpawnSettings
+  };
+  titleSettingsSidebar.setSettings(nextSidebarSettings);
+  applyTitleSettingsSidebarSettings(nextSidebarSettings);
+  syncTitleCameraHeight();
   titleStageSelectControl.setAlarmTrapEnabled(defaults.alarmTrapEnabled);
   const defaultSelection = STAGE_CATALOG.find(
     (selection) => selection.id === defaults.stageId
@@ -974,25 +958,21 @@ const resetTitleSettingsToDefault = async () => {
   await applyStageSelection(defaultSelection);
   clearPersistedTitleSettings(TITLE_SETTINGS_STORAGE_KEY);
 };
-titleResetSettingsButton.addEventListener("click", () => {
-  void resetTitleSettingsToDefault();
-});
 for (const category of volumeCategories) {
   applyVolumeLevel(category, volumeLevels[category]);
 }
 titleVolumePanel.setVisible(true);
 titleStageSelectControl.setVisible(true);
-setTitleSettingsPanelsVisible(true);
-updateTrapRoomRecommendButtonVisibility();
-updateTitleSettingsAvailabilityByStage();
-updateTitleGameOverWarning();
+titleSettingsSidebar.setVisible(true);
+titleSettingsSidebar.syncWarning();
 const isTitleUiTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
     return false;
   }
   return (
+    titleSettingsSidebar.isUiTarget(target) ||
     target.closest(
-      "[data-ui=\"volume-panel\"], [data-ui=\"stage-select-control\"], [data-ui=\"default-settings-panel\"], [data-ui=\"brainwash-settings-panel\"], [data-ui=\"bit-spawn-panel\"], [data-ui=\"trap-room-recommend-button\"], [data-ui=\"title-reset-settings-button\"]"
+      "[data-ui=\"volume-panel\"], [data-ui=\"stage-select-control\"]"
     ) !== null
   );
 };
@@ -1962,9 +1942,7 @@ const applyStageSelection = async (selection: StageSelection) => {
   stageSelection = selection;
   saveTitleSettings();
   titleStageSelectControl.setSelectedStageId(selection.id);
-  updateTrapRoomRecommendButtonVisibility();
-  updateTitleSettingsAvailabilityByStage();
-  updateTitleGameOverWarning();
+  titleSettingsSidebar.setStageId(selection.id);
   const nextCharacterAssignments = buildCharacterAssignments(
     runtimeDefaultStartSettings.initialNpcCount
   );
@@ -2429,6 +2407,7 @@ const setExecutionAimPosition = (
   scenario: PublicExecutionScenario,
   out: Vector3
 ) => {
+  const eyeHeight = getEyeHeight();
   if (scenario.variant === "player-survivor") {
     out.set(camera.position.x, eyeHeight, camera.position.z);
     return;
@@ -2492,6 +2471,7 @@ const updateExecutionVolleyFireEffects = (
 const spawnExecutionNpcBeamVolley = (
   targetPosition: Vector3
 ) => {
+  const eyeHeight = getEyeHeight();
   for (const index of executionNpcShooterIndices) {
     const npc = npcs[index];
     npc.state = "brainwash-complete-gun";
@@ -2557,6 +2537,7 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
   if (!executionVolleyFired) {
     return;
   }
+  const eyeHeight = getEyeHeight();
   const skipNpcIndex =
     scenario.variant === "player-survivor" ? -1 : scenario.survivorNpcIndex;
   const playerHitRadii = getSpriteBeamHitRadii(playerAvatar);
@@ -2852,6 +2833,7 @@ const setRouletteTargetState = (
 const getRouletteTargetEyePosition = (
   target: RouletteHitTarget
 ) => {
+  const eyeHeight = getEyeHeight();
   if (target.kind === "player") {
     return new Vector3(roulettePlayerPosition.x, eyeHeight, roulettePlayerPosition.z);
   }
@@ -2928,6 +2910,7 @@ const updateRouletteBitTransforms = (
     return;
   }
   const angleStep = (Math.PI * 2) / slotCount;
+  const eyeHeight = getEyeHeight();
   for (let index = 0; index < bits.length; index += 1) {
     const bit = bits[index];
     const baseSlot = baseSlots[index];
@@ -2982,6 +2965,7 @@ const setupRouletteParticipants = () => {
 
   const angleStep = (Math.PI * 2) / slotCount;
   const playerAngle = 0;
+  const eyeHeight = getEyeHeight();
   roulettePlayerPosition.set(
     rouletteCenter.x + Math.cos(playerAngle) * rouletteCharacterRadius,
     eyeHeight,
@@ -3020,6 +3004,7 @@ const setupRouletteParticipants = () => {
 
 const spawnRouletteBits = (baseSlots: number[]) => {
   const slotCount = npcs.length + 1;
+  const eyeHeight = getEyeHeight();
   for (const slot of baseSlots) {
     const angle = (Math.PI * 2 * slot) / slotCount;
     const position = new Vector3(
@@ -3293,6 +3278,7 @@ const updateRouletteScene = (
   delta: number,
   shouldProcessOrb: (position: Vector3) => boolean
 ) => {
+  const eyeHeight = getEyeHeight();
   camera.position.set(roulettePlayerPosition.x, eyeHeight, roulettePlayerPosition.z);
   camera.cameraDirection.set(0, 0, 0);
   updateBeams(
@@ -3329,7 +3315,7 @@ const createGameFlowInstance = () =>
     npcs,
     playerAvatar,
     playerCenterHeight,
-    eyeHeight,
+    getEyeHeight,
     hud,
     getGamePhase: () => gamePhase,
     setGamePhase: (phase) => {
@@ -3533,7 +3519,7 @@ const drawMinimap = () => {
 
 scene.onBeforeRenderObservable.add(() => {
   if (gamePhase === "playing" || gamePhase === "roulette") {
-    camera.position.y = eyeHeight;
+    camera.position.y = getEyeHeight();
     drawMinimap();
   }
 });
@@ -3801,11 +3787,8 @@ const startGame = async () => {
   }
   titleTransitionInProgress = true;
   try {
-    titleGameOverWarningEnabled = false;
-    titleGameOverWarning.style.display = "none";
-    titleDefaultStartSettings = titleDefaultSettingsPanel.getSettings();
-    titleBrainwashSettings = titleBrainwashSettingsPanel.getSettings();
-    titleBitSpawnSettings = titleBitSpawnPanel.getSettings();
+    titleSettingsSidebar.setWarningEnabled(false);
+    applyTitleSettingsSidebarSettings(titleSettingsSidebar.getSettings());
     titleAlarmTrapEnabled = titleStageSelectControl.getAlarmTrapEnabled();
     const runtimeSettings = normalizeRuntimeSettingsForStage({
       stageId: stageSelection.id,
@@ -3842,10 +3825,7 @@ const startGame = async () => {
     hud.setTitleVisible(false);
     titleVolumePanel.setVisible(false);
     titleStageSelectControl.setVisible(false);
-    setTitleSettingsPanelsVisible(false);
-    trapRoomRecommendControl.setVisible(false);
-    titleResetSettingsButton.style.display = "none";
-    titleGameOverWarning.style.display = "none";
+    titleSettingsSidebar.setVisible(false);
     hud.setHudVisible(true);
     hud.setStateInfo(null);
     gameFlow.resetFade();
@@ -3863,14 +3843,11 @@ const returnToTitle = async () => {
   try {
     document.exitPointerLock();
     gamePhase = "title";
-    titleGameOverWarningEnabled = true;
+    titleSettingsSidebar.setWarningEnabled(true);
     hud.setTitleVisible(true);
     titleVolumePanel.setVisible(true);
     titleStageSelectControl.setVisible(true);
-    setTitleSettingsPanelsVisible(true);
-    updateTrapRoomRecommendButtonVisibility();
-    titleResetSettingsButton.style.display = "";
-    updateTitleGameOverWarning();
+    titleSettingsSidebar.setVisible(true);
     hud.setHudVisible(false);
     hud.setStateInfo(null);
     gameFlow.resetFade();

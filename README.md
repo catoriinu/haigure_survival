@@ -149,7 +149,6 @@
 ### ゲーム全体の設定
 - `src/main.ts`: `defaultDefaultStartSettings.initialNpcCount`（ステージ開始時のNPC人数。0〜99。デフォルトは11）
 - `src/main.ts`: `minimapReadoutVisible`（ミニマップ座標表示ボックスの表示切替。true=表示、false=非表示（デフォルト））
-- `src/game/characterSprites.ts`: `PLAYER_EYE_HEIGHT`（プレイヤーのカメラの高さ。係数が大きいほど高くなる。デフォルトは`PLAYER_SPRITE_HEIGHT * 0.75`）
 
 ### ビット関連の設定
 - `src/main.ts`: `redBitSpawnChance`（赤ビット（通常の3倍の性能を持つビット）の出現確率。0-1の確率で判定し、デフォルトは0.05）
