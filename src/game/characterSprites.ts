@@ -14,8 +14,6 @@ export const PLAYER_SPRITE_HEIGHT =
   (CHARACTER_SPRITE_IMAGE_HEIGHT / CHARACTER_SPRITE_IMAGE_WIDTH) *
   PLAYER_SPRITE_WIDTH;
 export const PLAYER_SPRITE_CENTER_HEIGHT = PLAYER_SPRITE_HEIGHT / 2;
-// プレイヤーのカメラの高さ。係数が大きいほど高くなる。デフォルトは`PLAYER_SPRITE_HEIGHT * 0.75`
-export const PLAYER_EYE_HEIGHT = PLAYER_SPRITE_HEIGHT * 0.75;
 
 const characterSpriteExtensions = [
   "png",
