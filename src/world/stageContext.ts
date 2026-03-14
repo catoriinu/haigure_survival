@@ -7,6 +7,7 @@ import {
   type StageStyle
 } from "./stage";
 import {
+  createStageDecalsFromStageJson,
   createGridLayoutFromStageJson,
   createStageEnvironmentFromStageJson,
   getAssemblyAreaFromStageJson,
@@ -86,12 +87,20 @@ const buildStageEnvironment = (
   stageJson: StageJson | null
 ): StageContextEnvironment => {
   if (!stageJson) {
-    return { envMap: null, skyColor: null, ceilingHeight: layout.ceilingHeight };
+    return {
+      envMap: null,
+      envRules: null,
+      decals: [],
+      skyColor: null,
+      ceilingHeight: layout.ceilingHeight
+    };
   }
 
   const environment = createStageEnvironmentFromStageJson(stageJson);
   return {
     envMap: environment.envMap,
+    envRules: stageJson.generationRules.env,
+    decals: createStageDecalsFromStageJson(stageJson),
     skyColor: environment.skyColor ? buildSkyColor(environment.skyColor) : null,
     ceilingHeight: layout.ceilingHeight
   };
@@ -124,6 +133,9 @@ export const disposeStageParts = (parts: StageParts) => {
   for (const floor of parts.floors) {
     floor.dispose();
   }
+  for (const reflectiveSurface of parts.reflectiveSurfaces) {
+    reflectiveSurface.mesh.dispose();
+  }
   for (const wall of parts.walls) {
     wall.dispose();
   }
@@ -139,6 +151,12 @@ export const disposeStageParts = (parts: StageParts) => {
   }
   if (parts.floorMaterialOutdoor) {
     parts.floorMaterialOutdoor.dispose();
+  }
+  for (const reflectiveMaterial of parts.reflectiveMaterials) {
+    reflectiveMaterial.dispose();
+  }
+  for (const reflectiveTexture of parts.reflectiveTextures) {
+    reflectiveTexture.dispose();
   }
   for (const wallMaterial of parts.wallMaterials) {
     wallMaterial.dispose();

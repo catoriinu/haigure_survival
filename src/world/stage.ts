@@ -2,12 +2,19 @@ import {
   Color3,
   Mesh,
   MeshBuilder,
+  Plane,
   Scene,
   StandardMaterial,
   Vector3
 } from "@babylonjs/core";
 import { GridLayout } from "./grid";
 import { createGridTexture } from "./textureUtils";
+import type {
+  StageDecal,
+  StageEnvRule,
+  StageReflectionStyle
+} from "./stageJson";
+import type { MirrorTexture } from "@babylonjs/core";
 
 export type StageStyle = {
   floorColor: Color3;
@@ -25,12 +32,26 @@ export type StageStyle = {
 
 export type StageEnvironment = {
   envMap: string[][] | null;
+  envRules: Record<string, StageEnvRule> | null;
+  decals: StageDecal[];
+};
+
+export type ReflectiveSurface = {
+  kind: "puddle" | "mirror";
+  mesh: Mesh;
+  mirrorPlane: Plane;
+  tint: Color3;
+  amount: number;
+  blur: number;
 };
 
 export type StageParts = {
   floors: Mesh[];
   walls: Mesh[];
   colliders: Mesh[];
+  reflectiveSurfaces: ReflectiveSurface[];
+  reflectiveMaterials: StandardMaterial[];
+  reflectiveTextures: MirrorTexture[];
   ceiling: Mesh | null;
   floorMaterial: StandardMaterial;
   floorMaterialOutdoor: StandardMaterial | null;
@@ -111,6 +132,35 @@ const isNoRenderCell = (layout: GridLayout, row: number, col: number) => {
   }
 
   return layout.cellNoRender[row][col];
+};
+
+const puddleInsetRatio = 0.08;
+const reflectiveSurfaceOffset = 0.01;
+
+const toReflectiveSurfaceStyle = (
+  reflection: StageReflectionStyle | undefined
+) => {
+  if (!reflection || reflection.enabled !== true) {
+    return null;
+  }
+  return {
+    tint: Color3.FromHexString(reflection.tint),
+    amount: reflection.amount,
+    blur: reflection.blur
+  };
+};
+
+const resolveFloorReflection = (
+  environment: StageEnvironment,
+  row: number,
+  col: number
+) => {
+  if (!environment.envMap || !environment.envRules) {
+    return null;
+  }
+  const envSymbol = environment.envMap[row][col];
+  const envRule = environment.envRules[envSymbol];
+  return toReflectiveSurfaceStyle(envRule?.floor?.reflection);
 };
 
 type WallSegment = {
@@ -236,6 +286,7 @@ export const createStageFromGrid = (
   const floors: Mesh[] = [];
   const walls: Mesh[] = [];
   const colliders: Mesh[] = [];
+  const reflectiveSurfaces: ReflectiveSurface[] = [];
   const wallThickness = 0.05;
 
   for (let row = 0; row < layout.rows; row += 1) {
@@ -261,6 +312,33 @@ export const createStageFromGrid = (
         floorMaterialOutdoor
       );
       floors.push(floor);
+
+      const floorReflection = resolveFloorReflection(environment, row, col);
+      if (floorReflection) {
+        const puddleSize = layout.cellSize * (1 - puddleInsetRatio * 2);
+        const puddle = MeshBuilder.CreateGround(
+          `puddle_${row}_${col}`,
+          { width: puddleSize, height: puddleSize },
+          scene
+        );
+        puddle.position = new Vector3(
+          centerX,
+          reflectiveSurfaceOffset,
+          centerZ
+        );
+        puddle.isPickable = false;
+        reflectiveSurfaces.push({
+          kind: "puddle",
+          mesh: puddle,
+          mirrorPlane: Plane.FromPositionAndNormal(
+            new Vector3(centerX, 0, centerZ),
+            new Vector3(0, 1, 0)
+          ),
+          tint: floorReflection.tint,
+          amount: floorReflection.amount,
+          blur: floorReflection.blur
+        });
+      }
 
       if (!isFloorCell(layout, row - 1, col)) {
         const wallHeight = getWallHeight(layout, row - 1, col);
@@ -396,10 +474,89 @@ export const createStageFromGrid = (
     }
   }
 
+  for (let index = 0; index < environment.decals.length; index += 1) {
+    const decal = environment.decals[index];
+    if (
+      decal.face !== "wall" ||
+      decal.reflective?.kind !== "mirror" ||
+      !decal.wallDir
+    ) {
+      continue;
+    }
+
+    const widthCells = decal.type === "rect" ? (decal.w ?? 1) : 1;
+    const heightCells = decal.type === "rect" ? (decal.h ?? 1) : 1;
+    const mirrorWidth = widthCells * layout.cellSize;
+    const mirrorHeight = heightCells * layout.cellSize;
+    const startX = -halfWidth + decal.x * layout.cellSize;
+    const startZ = -halfDepth + decal.z * layout.cellSize;
+    let position: Vector3;
+    let rotationY = 0;
+    let normal = new Vector3(0, 0, 1);
+
+    if (decal.wallDir === "N") {
+      position = new Vector3(
+        startX + mirrorWidth / 2,
+        mirrorHeight / 2,
+        startZ + reflectiveSurfaceOffset
+      );
+      rotationY = Math.PI;
+      normal = new Vector3(0, 0, 1);
+    } else if (decal.wallDir === "S") {
+      position = new Vector3(
+        startX + mirrorWidth / 2,
+        mirrorHeight / 2,
+        startZ + layout.cellSize - reflectiveSurfaceOffset
+      );
+      rotationY = 0;
+      normal = new Vector3(0, 0, -1);
+    } else if (decal.wallDir === "W") {
+      position = new Vector3(
+        startX + reflectiveSurfaceOffset,
+        mirrorHeight / 2,
+        startZ + mirrorWidth / 2
+      );
+      rotationY = Math.PI / 2;
+      normal = new Vector3(1, 0, 0);
+    } else {
+      position = new Vector3(
+        startX + layout.cellSize - reflectiveSurfaceOffset,
+        mirrorHeight / 2,
+        startZ + mirrorWidth / 2
+      );
+      rotationY = -Math.PI / 2;
+      normal = new Vector3(-1, 0, 0);
+    }
+
+    const mirror = MeshBuilder.CreatePlane(
+      `mirror_${index}`,
+      {
+        width: mirrorWidth,
+        height: mirrorHeight,
+        sideOrientation: Mesh.DOUBLESIDE
+      },
+      scene
+    );
+    mirror.position = position;
+    mirror.rotation.y = rotationY;
+    mirror.isPickable = false;
+    reflectiveSurfaces.push({
+      kind: "mirror",
+      mesh: mirror,
+      mirrorPlane: Plane.FromPositionAndNormal(position, normal),
+      tint: Color3.FromHexString(decal.reflective.tint),
+      amount: decal.reflective.amount,
+      blur: decal.reflective.blur
+    });
+  }
+
   return {
     floors,
     walls,
     colliders,
+    reflectiveSurfaces,
+    reflectiveMaterials: [],
+    reflectiveTextures: [],
     ceiling,
     floorMaterial,
     floorMaterialOutdoor,
