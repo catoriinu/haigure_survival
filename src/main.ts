@@ -4261,7 +4261,7 @@ engine.runRenderLoop(() => {
   }
 
   if (gamePhase === "playing" || gamePhase === "roulette") {
-    camera.position.y = eyeHeight;
+    camera.position.y = getEyeHeight();
   }
   updateCharacterSpriteCells();
   syncPlayerPresentation();
