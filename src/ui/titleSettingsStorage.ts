@@ -1,5 +1,6 @@
 import type { BitSpawnSettings } from "./bitSpawnPanel";
 import type { BrainwashSettings } from "./brainwashSettingsPanel";
+import type { CameraSettings } from "./cameraSettingsPanel";
 import type { DefaultStartSettings } from "./defaultSettingsPanel";
 import type { VolumeLevels } from "./volumePanel";
 
@@ -10,6 +11,7 @@ export type PersistedTitleSettings = {
   alarmTrapEnabled: boolean;
   defaultStartSettings: DefaultStartSettings;
   brainwashSettings: BrainwashSettings;
+  cameraSettings: CameraSettings;
   bitSpawnSettings: BitSpawnSettings;
 };
 
@@ -19,6 +21,7 @@ export type TitleSettingsDefaults = {
   alarmTrapEnabled: boolean;
   defaultStartSettings: DefaultStartSettings;
   brainwashSettings: BrainwashSettings;
+  cameraSettings: CameraSettings;
   bitSpawnSettings: BitSpawnSettings;
 };
 
@@ -38,6 +41,18 @@ const readClampedInteger = (
   }
   const value = clampInteger(rawValue, min, max);
   return { value, changed: value !== rawValue };
+};
+
+const readNumber = (
+  source: Record<string, unknown>,
+  key: string,
+  fallback: number
+) => {
+  const rawValue = source[key];
+  if (typeof rawValue !== "number" || !Number.isFinite(rawValue)) {
+    return { value: fallback, changed: true };
+  }
+  return { value: rawValue, changed: false };
 };
 
 const readBoolean = (
@@ -85,6 +100,7 @@ export const buildDefaultPersistedTitleSettings = (
   alarmTrapEnabled: defaults.alarmTrapEnabled,
   defaultStartSettings: { ...defaults.defaultStartSettings },
   brainwashSettings: { ...defaults.brainwashSettings },
+  cameraSettings: { ...defaults.cameraSettings },
   bitSpawnSettings: { ...defaults.bitSpawnSettings }
 });
 
@@ -99,11 +115,14 @@ export const normalizePersistedTitleSettings = (
     return { settings: defaultSettings, changed: true };
   }
   const source = raw as Record<string, unknown>;
-  if (source.version !== version) {
+  const sourceVersion = source.version;
+  const isCurrentVersion = sourceVersion === version;
+  const isLegacyVersion = sourceVersion === version - 1;
+  if (!isCurrentVersion && !isLegacyVersion) {
     return { settings: defaultSettings, changed: true };
   }
 
-  let changed = false;
+  let changed = isLegacyVersion;
   const stageId =
     typeof source.stageId === "string" && stageIds.has(source.stageId)
       ? source.stageId
@@ -224,6 +243,18 @@ export const normalizePersistedTitleSettings = (
     npcBrainwashCompleteNoGunPercent: normalizedPercentPair.noGunPercent
   };
 
+  const cameraSettingsObject = readObject(source, "cameraSettings");
+  changed ||= cameraSettingsObject.changed;
+  const cameraHeightCellsValue = readNumber(
+    cameraSettingsObject.value,
+    "heightCells",
+    defaultSettings.cameraSettings.heightCells
+  );
+  changed ||= cameraHeightCellsValue.changed;
+  const cameraSettings: CameraSettings = {
+    heightCells: cameraHeightCellsValue.value
+  };
+
   const bitSpawnSettingsObject = readObject(source, "bitSpawnSettings");
   changed ||= bitSpawnSettingsObject.changed;
   const bitSpawnIntervalValue = readClampedInteger(
@@ -263,6 +294,7 @@ export const normalizePersistedTitleSettings = (
       alarmTrapEnabled: alarmTrapEnabledValue.value,
       defaultStartSettings,
       brainwashSettings,
+      cameraSettings,
       bitSpawnSettings
     },
     changed

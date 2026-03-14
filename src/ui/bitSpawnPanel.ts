@@ -1,3 +1,9 @@
+import {
+  createSettingsPanelControls,
+  createTitledSettingsPanelRoot,
+  type SettingsPanel
+} from "./settingsPanelShared";
+
 export type BitSpawnSettings = {
   bitSpawnInterval: number;
   maxBitCount: number;
@@ -11,11 +17,7 @@ type BitSpawnPanelOptions = {
   className?: string;
 };
 
-export type BitSpawnPanel = {
-  root: HTMLDivElement;
-  setVisible: (visible: boolean) => void;
-  getSettings: () => BitSpawnSettings;
-  setSettings: (nextSettings: BitSpawnSettings) => void;
+export type BitSpawnPanel = SettingsPanel<BitSpawnSettings> & {
   setEnabled: (enabled: boolean) => void;
 };
 
@@ -28,14 +30,11 @@ export const createBitSpawnPanel = ({
   onChange,
   className
 }: BitSpawnPanelOptions): BitSpawnPanel => {
-  const root = document.createElement("div");
-  root.className = className ? `bit-spawn-panel ${className}` : "bit-spawn-panel";
-  root.dataset.ui = "bit-spawn-panel";
-
-  const title = document.createElement("div");
-  title.className = "bit-spawn-panel__title";
-  title.textContent = "BIT SETTINGS";
-  root.appendChild(title);
+  const root = createTitledSettingsPanelRoot({
+    blockClassName: "bit-spawn-panel",
+    className,
+    titleText: "BIT SETTINGS"
+  });
 
   const settings: BitSpawnSettings = { ...initialSettings };
   let panelEnabled = true;
@@ -82,10 +81,6 @@ export const createBitSpawnPanel = ({
   disableRow.appendChild(disableLabel);
   root.appendChild(disableRow);
 
-  const emit = () => {
-    onChange({ ...settings });
-  };
-
   const applyDisabledState = () => {
     const disabled = !panelEnabled || settings.disableBitSpawn;
     intervalInput.disabled = disabled;
@@ -114,6 +109,19 @@ export const createBitSpawnPanel = ({
     applyDisabledState();
   };
 
+  const { emit, setVisible, getSettings, setSettings } =
+    createSettingsPanelControls({
+      root,
+      settings,
+      applySettings: (nextSettings) => {
+        settings.bitSpawnInterval = nextSettings.bitSpawnInterval;
+        settings.maxBitCount = nextSettings.maxBitCount;
+        settings.disableBitSpawn = nextSettings.disableBitSpawn;
+      },
+      render,
+      onChange
+    });
+
   intervalInput.addEventListener("change", () => {
     updateNumberSetting("bitSpawnInterval", intervalInput);
   });
@@ -137,17 +145,9 @@ export const createBitSpawnPanel = ({
 
   return {
     root,
-    setVisible: (visible) => {
-      root.style.display = visible ? "" : "none";
-    },
-    getSettings: () => ({ ...settings }),
-    setSettings: (nextSettings) => {
-      settings.bitSpawnInterval = nextSettings.bitSpawnInterval;
-      settings.maxBitCount = nextSettings.maxBitCount;
-      settings.disableBitSpawn = nextSettings.disableBitSpawn;
-      render();
-      emit();
-    },
+    setVisible,
+    getSettings,
+    setSettings,
     setEnabled: (enabled) => {
       panelEnabled = enabled;
       applyDisabledState();
