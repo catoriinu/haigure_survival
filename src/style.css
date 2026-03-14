@@ -350,6 +350,14 @@ body {
   font-size: 13px;
 }
 
+.camera-settings-panel--title {
+  position: static;
+  top: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
 .camera-settings-panel__title {
   font-size: 14px;
   letter-spacing: 0.14em;
@@ -358,7 +366,7 @@ body {
 
 .camera-settings-panel__slider-row {
   display: grid;
-  grid-template-columns: 72px calc(6ch + 6px) 1fr;
+  grid-template-columns: 56px calc(3.8ch + 1px) 1fr;
   align-items: center;
   gap: 6px;
 }

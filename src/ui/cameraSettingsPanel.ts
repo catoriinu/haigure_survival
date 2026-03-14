@@ -16,7 +16,7 @@ export type CameraSettingsPanel = {
   setSettings: (nextSettings: CameraSettings) => void;
 };
 
-const formatHeightCells = (value: number) => `${value}セル`;
+const formatHeightCells = (value: number) => value.toFixed(2);
 
 export const createCameraSettingsPanel = ({
   parent,

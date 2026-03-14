@@ -363,7 +363,7 @@ const defaultBrainwashSettings: BrainwashSettings = {
   npcBrainwashCompleteNoGunPercent: 45
 };
 const defaultCameraSettings: CameraSettings = {
-  heightCells: 1.2
+  heightCells: 1.0
 };
 const TITLE_SETTINGS_STORAGE_KEY = "haigure-survival.title-settings";
 const TITLE_SETTINGS_STORAGE_VERSION = 2;
@@ -886,15 +886,6 @@ const titleDefaultSettingsPanel = createDefaultSettingsPanel({
     saveTitleSettings();
   }
 });
-const titleCameraSettingsPanel = createCameraSettingsPanel({
-  parent: titleSettingsCombinedPanel,
-  initialSettings: titleCameraSettings,
-  onChange: (settings) => {
-    titleCameraSettings = settings;
-    saveTitleSettings();
-    syncTitleCameraHeight();
-  }
-});
 const titleBrainwashSettingsPanel = createBrainwashSettingsPanel({
   parent: titleSettingsCombinedPanel,
   initialSettings: titleBrainwashSettings,
@@ -924,12 +915,22 @@ const titleBitSpawnPanel = createBitSpawnPanel({
     saveTitleSettings();
   }
 });
+const titleCameraSettingsPanel = createCameraSettingsPanel({
+  parent: titleSettingsCombinedPanel,
+  initialSettings: titleCameraSettings,
+  className: "camera-settings-panel--title",
+  onChange: (settings) => {
+    titleCameraSettings = settings;
+    saveTitleSettings();
+    syncTitleCameraHeight();
+  }
+});
 const setTitleSettingsPanelsVisible = (visible: boolean) => {
   titleSettingsCombinedPanel.style.display = visible ? "flex" : "none";
   titleDefaultSettingsPanel.setVisible(visible);
-  titleCameraSettingsPanel.setVisible(visible);
   titleBrainwashSettingsPanel.setVisible(visible);
   titleBitSpawnPanel.setVisible(visible);
+  titleCameraSettingsPanel.setVisible(visible);
 };
 const trapRoomRecommendControl = createTrapRoomRecommendControl({
   parent: titleRightPanels,
