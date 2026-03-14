@@ -344,19 +344,20 @@ const worldLayerMask = 0x0fffffff;
 const reflectionOnlyLayerMask = 0x10000000;
 const firstPersonBodyLayerMask = 0x20000000;
 const firstPersonBodyBaseAlpha = 1;
-const firstPersonBodyCropTopRatio = 0.35;
+const firstPersonBodyCropTopRatio = 0.3;
+const firstPersonBodyNearRowStretch = 1.28;
 const firstPersonBodyChestRowScreenYStart = -1.78;
-const firstPersonBodyChestRowScreenYEnd = -1.0;
-const firstPersonBodyChestRowHalfWidthStart = 0.88;
-const firstPersonBodyChestRowHalfWidthEnd = 0.86;
-const firstPersonBodyChestRowZStart = 0.22;
-const firstPersonBodyChestRowZEnd = 0.23;
-const firstPersonBodyFeetRowScreenYStart = -1.0;
-const firstPersonBodyFeetRowScreenYEnd = 0;
-const firstPersonBodyFeetRowHalfWidthStart = 0.72;
-const firstPersonBodyFeetRowHalfWidthEnd = 0.68;
-const firstPersonBodyFeetRowZStart = 0.32;
-const firstPersonBodyFeetRowZEnd = 0.36;
+const firstPersonBodyChestRowScreenYEnd = -0.78;
+const firstPersonBodyChestRowHalfWidthStart = 0.9;
+const firstPersonBodyChestRowHalfWidthEnd = 0.88;
+const firstPersonBodyChestRowZStart = 0.2;
+const firstPersonBodyChestRowZEnd = 0.21;
+const firstPersonBodyFeetRowScreenYStart = -1.12;
+const firstPersonBodyFeetRowScreenYEnd = 0.1;
+const firstPersonBodyFeetRowHalfWidthStart = 0.66;
+const firstPersonBodyFeetRowHalfWidthEnd = 0.57;
+const firstPersonBodyFeetRowZStart = 0.41;
+const firstPersonBodyFeetRowZEnd = 0.49;
 
 const defaultBitSpawnSettings: BitSpawnSettings = {
   bitSpawnInterval: 10,  // ビットの通常出現間隔（秒）。1〜99。デフォルトは10
@@ -1217,6 +1218,11 @@ const clampValue = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
 const lerpValue = (start: number, end: number, amount: number) =>
   start + (end - start) * amount;
+const stretchScreenYFromAnchor = (
+  anchorScreenY: number,
+  targetScreenY: number,
+  stretch: number
+) => anchorScreenY + (targetScreenY - anchorScreenY) * stretch;
 const projectScreenYToLocal = (screenY: number, depth: number) =>
   screenY * depth * Math.tan(camera.fov * 0.5);
 const projectHalfWidthToLocal = (halfWidth: number, depth: number) => {
@@ -1292,7 +1298,7 @@ const createFirstPersonBodyMesh = () => {
 };
 const updateFirstPersonBodyMeshGeometry = (visibility: number) => {
   const slideVisibility = visibility;
-  const shapeVisibility = visibility * 0.18;
+  const shapeVisibility = visibility * 0.28;
   const chestRowDepth = lerpValue(
     firstPersonBodyChestRowZStart,
     firstPersonBodyChestRowZEnd,
@@ -1306,12 +1312,22 @@ const updateFirstPersonBodyMeshGeometry = (visibility: number) => {
     ),
     chestRowDepth
   );
-  const chestRowY = projectScreenYToLocal(
+  const feetRowScreenY = lerpValue(
+    firstPersonBodyFeetRowScreenYStart,
+    firstPersonBodyFeetRowScreenYEnd,
+    slideVisibility
+  );
+  const chestRowScreenY = stretchScreenYFromAnchor(
+    feetRowScreenY,
     lerpValue(
       firstPersonBodyChestRowScreenYStart,
       firstPersonBodyChestRowScreenYEnd,
       slideVisibility
     ),
+    firstPersonBodyNearRowStretch
+  );
+  const chestRowY = projectScreenYToLocal(
+    chestRowScreenY,
     chestRowDepth
   );
   const feetRowDepth = lerpValue(
@@ -1328,11 +1344,7 @@ const updateFirstPersonBodyMeshGeometry = (visibility: number) => {
     feetRowDepth
   );
   const feetRowY = projectScreenYToLocal(
-    lerpValue(
-      firstPersonBodyFeetRowScreenYStart,
-      firstPersonBodyFeetRowScreenYEnd,
-      slideVisibility
-    ),
+    feetRowScreenY,
     feetRowDepth
   );
   firstPersonBodyVertexPositions[0] = -feetRowHalfWidth;
@@ -1390,8 +1402,9 @@ const redrawFirstPersonBodyTexture = (cellIndex: number) => {
     firstPersonBodySheetCellHeight * firstPersonBodyCropTopRatio
   );
   const cropHeight = firstPersonBodySheetCellHeight - cropTopPx;
+  const destinationHeight = firstPersonBodyTexture.getSize().height;
   const ctx = firstPersonBodyTexture.getContext();
-  ctx.clearRect(0, 0, firstPersonBodyTexture.getSize().width, cropHeight);
+  ctx.clearRect(0, 0, firstPersonBodyTexture.getSize().width, destinationHeight);
   ctx.drawImage(
     firstPersonBodySheetImage,
     cellIndex * firstPersonBodySheetCellWidth,
@@ -1401,7 +1414,7 @@ const redrawFirstPersonBodyTexture = (cellIndex: number) => {
     0,
     0,
     firstPersonBodySheetCellWidth,
-    cropHeight
+    destinationHeight
   );
   firstPersonBodyTexture.update(false);
   firstPersonBodyLastCellIndex = cellIndex;
