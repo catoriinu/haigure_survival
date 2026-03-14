@@ -1,3 +1,9 @@
+import {
+  createSettingsPanelControls,
+  createTitledSettingsPanelRoot,
+  type SettingsPanel
+} from "./settingsPanelShared";
+
 export type CameraSettings = {
   heightCells: number;
 };
@@ -9,12 +15,7 @@ type CameraSettingsPanelOptions = {
   className?: string;
 };
 
-export type CameraSettingsPanel = {
-  root: HTMLDivElement;
-  setVisible: (visible: boolean) => void;
-  getSettings: () => CameraSettings;
-  setSettings: (nextSettings: CameraSettings) => void;
-};
+export type CameraSettingsPanel = SettingsPanel<CameraSettings>;
 
 const formatHeightCells = (value: number) => value.toFixed(2);
 
@@ -24,16 +25,11 @@ export const createCameraSettingsPanel = ({
   onChange,
   className
 }: CameraSettingsPanelOptions): CameraSettingsPanel => {
-  const root = document.createElement("div");
-  root.className = className
-    ? `camera-settings-panel ${className}`
-    : "camera-settings-panel";
-  root.dataset.ui = "camera-settings-panel";
-
-  const title = document.createElement("div");
-  title.className = "camera-settings-panel__title";
-  title.textContent = "CAMERA SETTINGS";
-  root.appendChild(title);
+  const root = createTitledSettingsPanelRoot({
+    blockClassName: "camera-settings-panel",
+    className,
+    titleText: "CAMERA SETTINGS"
+  });
 
   const settings: CameraSettings = {
     heightCells: initialSettings.heightCells
@@ -57,14 +53,21 @@ export const createCameraSettingsPanel = ({
   heightRow.appendChild(heightInput);
   root.appendChild(heightRow);
 
-  const emit = () => {
-    onChange({ ...settings });
-  };
-
   const render = () => {
     heightInput.value = String(settings.heightCells);
     heightValue.textContent = formatHeightCells(settings.heightCells);
   };
+
+  const { emit, setVisible, getSettings, setSettings } =
+    createSettingsPanelControls({
+      root,
+      settings,
+      applySettings: (nextSettings) => {
+        settings.heightCells = nextSettings.heightCells;
+      },
+      render,
+      onChange
+    });
 
   heightInput.addEventListener("input", () => {
     settings.heightCells = Number(heightInput.value);
@@ -77,14 +80,8 @@ export const createCameraSettingsPanel = ({
 
   return {
     root,
-    setVisible: (visible) => {
-      root.style.display = visible ? "" : "none";
-    },
-    getSettings: () => ({ ...settings }),
-    setSettings: (nextSettings) => {
-      settings.heightCells = nextSettings.heightCells;
-      render();
-      emit();
-    }
+    setVisible,
+    getSettings,
+    setSettings
   };
 };

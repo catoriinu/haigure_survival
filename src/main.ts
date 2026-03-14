@@ -876,14 +876,17 @@ const updateTitleGameOverWarning = () => {
   );
   titleGameOverWarning.style.display = shouldWarn ? "block" : "none";
 };
+const saveTitleSettingsWithWarning = () => {
+  updateTitleGameOverWarning();
+  saveTitleSettings();
+};
 const titleDefaultSettingsPanel = createDefaultSettingsPanel({
   parent: titleSettingsCombinedPanel,
   initialSettings: titleDefaultStartSettings,
   className: "default-settings-panel--title",
   onChange: (settings) => {
     titleDefaultStartSettings = settings;
-    updateTitleGameOverWarning();
-    saveTitleSettings();
+    saveTitleSettingsWithWarning();
   }
 });
 const titleBrainwashSettingsPanel = createBrainwashSettingsPanel({
@@ -897,8 +900,7 @@ const titleBrainwashSettingsPanel = createBrainwashSettingsPanel({
       settings.brainwashOnNoGunTouch &&
       !titleBrainwashSettings.brainwashOnNoGunTouch;
     titleBrainwashSettings = settings;
-    updateTitleGameOverWarning();
-    saveTitleSettings();
+    saveTitleSettingsWithWarning();
     if (shouldReloadForNoGunTouchEnable) {
       window.location.reload();
       return;
@@ -911,8 +913,7 @@ const titleBitSpawnPanel = createBitSpawnPanel({
   className: "bit-spawn-panel--title",
   onChange: (settings) => {
     titleBitSpawnSettings = settings;
-    updateTitleGameOverWarning();
-    saveTitleSettings();
+    saveTitleSettingsWithWarning();
   }
 });
 const titleCameraSettingsPanel = createCameraSettingsPanel({
@@ -925,12 +926,17 @@ const titleCameraSettingsPanel = createCameraSettingsPanel({
     syncTitleCameraHeight();
   }
 });
+const titleSettingsPanels = [
+  titleDefaultSettingsPanel,
+  titleBrainwashSettingsPanel,
+  titleBitSpawnPanel,
+  titleCameraSettingsPanel
+] as const;
 const setTitleSettingsPanelsVisible = (visible: boolean) => {
   titleSettingsCombinedPanel.style.display = visible ? "flex" : "none";
-  titleDefaultSettingsPanel.setVisible(visible);
-  titleBrainwashSettingsPanel.setVisible(visible);
-  titleBitSpawnPanel.setVisible(visible);
-  titleCameraSettingsPanel.setVisible(visible);
+  for (const panel of titleSettingsPanels) {
+    panel.setVisible(visible);
+  }
 };
 const trapRoomRecommendControl = createTrapRoomRecommendControl({
   parent: titleRightPanels,
