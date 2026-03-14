@@ -124,6 +124,10 @@ import {
   type BrainwashSettings
 } from "./ui/brainwashSettingsPanel";
 import {
+  createCameraSettingsPanel,
+  type CameraSettings
+} from "./ui/cameraSettingsPanel";
+import {
   buildDefaultPersistedTitleSettings,
   clearPersistedTitleSettings,
   loadPersistedTitleSettings,
@@ -138,7 +142,6 @@ import {
   normalizeRuntimeSettingsForStage
 } from "./ui/titleStageRules";
 import {
-  PLAYER_EYE_HEIGHT,
   PLAYER_SPRITE_CENTER_HEIGHT,
   PLAYER_SPRITE_HEIGHT,
   PLAYER_SPRITE_WIDTH
@@ -335,7 +338,6 @@ const advanceSessionForEach = async <T>(
 const playerWidth = PLAYER_SPRITE_WIDTH;
 const playerHeight = PLAYER_SPRITE_HEIGHT;
 const playerCenterHeight = PLAYER_SPRITE_CENTER_HEIGHT;
-const eyeHeight = PLAYER_EYE_HEIGHT;
 // ミニマップ座標表示ボックスの表示切替。true=表示、false=非表示（デフォルト）
 const minimapReadoutVisible = false;
 const portraitMaxWidthCells = 1;
@@ -360,8 +362,11 @@ const defaultBrainwashSettings: BrainwashSettings = {
   npcBrainwashCompleteGunPercent: 45,
   npcBrainwashCompleteNoGunPercent: 45
 };
+const defaultCameraSettings: CameraSettings = {
+  heightCells: 1.2
+};
 const TITLE_SETTINGS_STORAGE_KEY = "haigure-survival.title-settings";
-const TITLE_SETTINGS_STORAGE_VERSION = 1;
+const TITLE_SETTINGS_STORAGE_VERSION = 2;
 const defaultVolumeLevels: VolumeLevels = {
   bgm: 5,
   se: 5,
@@ -373,6 +378,7 @@ const titleSettingsDefaults: TitleSettingsDefaults = {
   alarmTrapEnabled: false,
   defaultStartSettings: defaultDefaultStartSettings,
   brainwashSettings: defaultBrainwashSettings,
+  cameraSettings: defaultCameraSettings,
   bitSpawnSettings: defaultBitSpawnSettings
 };
 const stageIds = new Set(STAGE_CATALOG.map((selection) => selection.id));
@@ -398,6 +404,11 @@ let titleBrainwashSettings: BrainwashSettings = {
   ...(persistedTitleSettings
     ? persistedTitleSettings.brainwashSettings
     : defaultBrainwashSettings)
+};
+let titleCameraSettings: CameraSettings = {
+  ...(persistedTitleSettings
+    ? persistedTitleSettings.cameraSettings
+    : defaultCameraSettings)
 };
 let runtimeBitSpawnInterval = defaultBitSpawnSettings.bitSpawnInterval;
 let runtimeMaxBitCount = defaultBitSpawnSettings.maxBitCount;
@@ -660,6 +671,7 @@ const buildSpawnForwardFromMarker = () => {
 
 let spawnForward = new Vector3(0, 0, 1);
 let portraitCellSize = layout.cellSize;
+const getEyeHeight = () => layout.cellSize * titleCameraSettings.heightCells;
 
 const updateSpawnPoint = () => {
   const randomSpawnable = hasPlayerSpawnTag("random_spawnable");
@@ -671,7 +683,7 @@ const updateSpawnPoint = () => {
       : randomFloor
         ? pickRandomCell(floorCells)
         : { row: layout.spawn.row, col: layout.spawn.col };
-  spawnPosition = cellToWorld(layout, spawnCell, eyeHeight);
+  spawnPosition = cellToWorld(layout, spawnCell, getEyeHeight());
   spawnForward = lookAtCenter
     ? buildSpawnForwardTowardCenter(spawnPosition)
     : buildSpawnForwardFromMarker();
@@ -740,6 +752,32 @@ const applyCameraSpawnTransform = () => {
   camera.rotation = new Vector3(0, 0, 0);
   camera.setTarget(spawnPosition.add(spawnForward));
 };
+const syncTitleCameraHeight = () => {
+  const eyeHeight = getEyeHeight();
+  spawnPosition.y = eyeHeight;
+  if (gamePhase !== "title") {
+    return;
+  }
+  const currentForward = camera.getDirection(new Vector3(0, 0, 1));
+  const horizontalForward = new Vector3(
+    currentForward.x,
+    0,
+    currentForward.z
+  );
+  if (horizontalForward.lengthSquared() <= 0.0001) {
+    horizontalForward.copyFrom(spawnForward);
+  } else {
+    horizontalForward.normalize();
+  }
+  camera.position.y = eyeHeight;
+  camera.setTarget(
+    new Vector3(
+      camera.position.x + horizontalForward.x,
+      eyeHeight,
+      camera.position.z + horizontalForward.z
+    )
+  );
+};
 
 const orbCullDistance = 5;
 const orbCullDistanceSq = orbCullDistance * orbCullDistance;
@@ -783,6 +821,7 @@ const saveTitleSettings = () => {
     alarmTrapEnabled: titleAlarmTrapEnabled,
     defaultStartSettings: { ...titleDefaultStartSettings },
     brainwashSettings: { ...titleBrainwashSettings },
+    cameraSettings: { ...titleCameraSettings },
     bitSpawnSettings: { ...titleBitSpawnSettings }
   });
 };
@@ -847,6 +886,15 @@ const titleDefaultSettingsPanel = createDefaultSettingsPanel({
     saveTitleSettings();
   }
 });
+const titleCameraSettingsPanel = createCameraSettingsPanel({
+  parent: titleSettingsCombinedPanel,
+  initialSettings: titleCameraSettings,
+  onChange: (settings) => {
+    titleCameraSettings = settings;
+    saveTitleSettings();
+    syncTitleCameraHeight();
+  }
+});
 const titleBrainwashSettingsPanel = createBrainwashSettingsPanel({
   parent: titleSettingsCombinedPanel,
   initialSettings: titleBrainwashSettings,
@@ -879,6 +927,7 @@ const titleBitSpawnPanel = createBitSpawnPanel({
 const setTitleSettingsPanelsVisible = (visible: boolean) => {
   titleSettingsCombinedPanel.style.display = visible ? "flex" : "none";
   titleDefaultSettingsPanel.setVisible(visible);
+  titleCameraSettingsPanel.setVisible(visible);
   titleBrainwashSettingsPanel.setVisible(visible);
   titleBitSpawnPanel.setVisible(visible);
 };
@@ -925,6 +974,7 @@ const resetTitleSettingsToDefault = async () => {
     applyVolumeLevel(category, level);
   }
   titleDefaultSettingsPanel.setSettings(defaults.defaultStartSettings);
+  titleCameraSettingsPanel.setSettings(defaults.cameraSettings);
   titleBrainwashSettingsPanel.setSettings(defaults.brainwashSettings);
   titleBitSpawnPanel.setSettings(defaults.bitSpawnSettings);
   titleStageSelectControl.setAlarmTrapEnabled(defaults.alarmTrapEnabled);
@@ -952,7 +1002,7 @@ const isTitleUiTarget = (target: EventTarget | null) => {
   }
   return (
     target.closest(
-      "[data-ui=\"volume-panel\"], [data-ui=\"stage-select-control\"], [data-ui=\"default-settings-panel\"], [data-ui=\"brainwash-settings-panel\"], [data-ui=\"bit-spawn-panel\"], [data-ui=\"trap-room-recommend-button\"], [data-ui=\"title-reset-settings-button\"]"
+      "[data-ui=\"volume-panel\"], [data-ui=\"stage-select-control\"], [data-ui=\"default-settings-panel\"], [data-ui=\"camera-settings-panel\"], [data-ui=\"brainwash-settings-panel\"], [data-ui=\"bit-spawn-panel\"], [data-ui=\"trap-room-recommend-button\"], [data-ui=\"title-reset-settings-button\"]"
     ) !== null
   );
 };
@@ -2060,6 +2110,7 @@ const setExecutionAimPosition = (
   scenario: PublicExecutionScenario,
   out: Vector3
 ) => {
+  const eyeHeight = getEyeHeight();
   if (scenario.variant === "player-survivor") {
     out.set(camera.position.x, eyeHeight, camera.position.z);
     return;
@@ -2123,6 +2174,7 @@ const updateExecutionVolleyFireEffects = (
 const spawnExecutionNpcBeamVolley = (
   targetPosition: Vector3
 ) => {
+  const eyeHeight = getEyeHeight();
   for (const index of executionNpcShooterIndices) {
     const npc = npcs[index];
     npc.state = "brainwash-complete-gun";
@@ -2188,6 +2240,7 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
   if (!executionVolleyFired) {
     return;
   }
+  const eyeHeight = getEyeHeight();
   const skipNpcIndex =
     scenario.variant === "player-survivor" ? -1 : scenario.survivorNpcIndex;
   const playerHitRadii = getSpriteBeamHitRadii(playerAvatar);
@@ -2483,6 +2536,7 @@ const setRouletteTargetState = (
 const getRouletteTargetEyePosition = (
   target: RouletteHitTarget
 ) => {
+  const eyeHeight = getEyeHeight();
   if (target.kind === "player") {
     return new Vector3(roulettePlayerPosition.x, eyeHeight, roulettePlayerPosition.z);
   }
@@ -2559,6 +2613,7 @@ const updateRouletteBitTransforms = (
     return;
   }
   const angleStep = (Math.PI * 2) / slotCount;
+  const eyeHeight = getEyeHeight();
   for (let index = 0; index < bits.length; index += 1) {
     const bit = bits[index];
     const baseSlot = baseSlots[index];
@@ -2613,6 +2668,7 @@ const setupRouletteParticipants = () => {
 
   const angleStep = (Math.PI * 2) / slotCount;
   const playerAngle = 0;
+  const eyeHeight = getEyeHeight();
   roulettePlayerPosition.set(
     rouletteCenter.x + Math.cos(playerAngle) * rouletteCharacterRadius,
     eyeHeight,
@@ -2651,6 +2707,7 @@ const setupRouletteParticipants = () => {
 
 const spawnRouletteBits = (baseSlots: number[]) => {
   const slotCount = npcs.length + 1;
+  const eyeHeight = getEyeHeight();
   for (const slot of baseSlots) {
     const angle = (Math.PI * 2 * slot) / slotCount;
     const position = new Vector3(
@@ -2924,6 +2981,7 @@ const updateRouletteScene = (
   delta: number,
   shouldProcessOrb: (position: Vector3) => boolean
 ) => {
+  const eyeHeight = getEyeHeight();
   camera.position.set(roulettePlayerPosition.x, eyeHeight, roulettePlayerPosition.z);
   camera.cameraDirection.set(0, 0, 0);
   updateBeams(
@@ -2960,7 +3018,7 @@ const createGameFlowInstance = () =>
     npcs,
     playerAvatar,
     playerCenterHeight,
-    eyeHeight,
+    getEyeHeight,
     hud,
     getGamePhase: () => gamePhase,
     setGamePhase: (phase) => {
@@ -3164,7 +3222,7 @@ const drawMinimap = () => {
 
 scene.onBeforeRenderObservable.add(() => {
   if (gamePhase === "playing" || gamePhase === "roulette") {
-    camera.position.y = eyeHeight;
+    camera.position.y = getEyeHeight();
     drawMinimap();
   }
 });

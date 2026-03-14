@@ -153,6 +153,7 @@ body {
 .volume-panel,
 .title-settings-combined-panel,
 .stage-select-control,
+.camera-settings-panel,
 .default-settings-panel,
 .brainwash-settings-panel,
 .bit-spawn-panel {
@@ -339,6 +340,44 @@ body {
 
 .volume-mute {
   letter-spacing: 0.08em;
+}
+
+.camera-settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px 14px;
+  font-size: 13px;
+}
+
+.camera-settings-panel__title {
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  color: #f0f0f0;
+}
+
+.camera-settings-panel__slider-row {
+  display: grid;
+  grid-template-columns: 72px calc(6ch + 6px) 1fr;
+  align-items: center;
+  gap: 6px;
+}
+
+.camera-settings-panel__label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.camera-settings-panel__slider-value {
+  text-align: right;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: #f0f0f0;
+}
+
+.camera-settings-panel__slider {
+  width: 100%;
+  margin: 0;
 }
 
 .default-settings-panel {
