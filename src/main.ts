@@ -1652,7 +1652,7 @@ const syncStageReflectiveSurfaces = () => {
       `mirrorReflectionTexture_${index}`,
       reflectiveSurface.mirrorPlane,
       reflectiveSurface.blur,
-      0.75,
+      1,
       excludedReflectiveMeshIds
     );
     stageParts.reflectiveTextures.push(reflectionTexture);
