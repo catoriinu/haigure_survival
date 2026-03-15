@@ -358,6 +358,14 @@ const firstPersonBodyFeetRowHalfWidthStart = 0.66;
 const firstPersonBodyFeetRowHalfWidthEnd = 0.57;
 const firstPersonBodyFeetRowZStart = 0.41;
 const firstPersonBodyFeetRowZEnd = 0.49;
+const isDefeatScenePhase = (phase: GamePhase) =>
+  phase === "assemblyMove" ||
+  phase === "assemblyHold" ||
+  phase === "execution";
+const shouldShowFirstPersonBodyForPhase = (phase: GamePhase) =>
+  phase === "playing" || isDefeatScenePhase(phase);
+const shouldHidePlayerAvatarFromMainCamera = (phase: GamePhase) =>
+  phase === "playing" || isDefeatScenePhase(phase);
 
 const defaultBitSpawnSettings: BitSpawnSettings = {
   bitSpawnInterval: 10,  // ビットの通常出現間隔（秒）。1〜99。デフォルトは10
@@ -1434,7 +1442,7 @@ const ensureFirstPersonBodySheet = async (directory: string) => {
 };
 const syncFirstPersonBodyVisibility = () => {
   if (
-    gamePhase !== "playing" ||
+    !shouldShowFirstPersonBodyForPhase(gamePhase) ||
     !firstPersonBodyTexture ||
     !firstPersonBodySheetImage
   ) {
@@ -3696,7 +3704,9 @@ const updateCharacterSpriteCells = () => {
 const syncPlayerPresentation = () => {
   if (playerPortraitManager) {
     playerPortraitManager.layerMask =
-      gamePhase === "playing" ? reflectionOnlyLayerMask : worldLayerMask;
+      shouldHidePlayerAvatarFromMainCamera(gamePhase)
+        ? reflectionOnlyLayerMask
+        : worldLayerMask;
   }
   if (gamePhase === "playing") {
     playerAvatar.isVisible = true;

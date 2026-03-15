@@ -5,6 +5,7 @@ import { Hud } from "../ui/hud";
 import { Bit, CharacterState, FloorCell, Npc } from "./types";
 import { finalizeBitVisuals } from "./bits";
 import { cellToWorld, worldToCellClamped } from "./gridUtils";
+import { getPortraitCellIndex } from "./portraitSprites";
 import { alignSpriteToGround } from "./spriteUtils";
 import { createFadeController } from "./flowFade";
 
@@ -168,6 +169,10 @@ export const createGameFlow = ({
   let assemblyElapsed = 0;
   let executionCameraFollowAvatar = false;
   const followCameraOffset = playerAvatar.width * 0.9;
+  const setPlayerAvatarState = (state: CharacterState) => {
+    setPlayerState(state);
+    playerAvatar.cellIndex = getPortraitCellIndex(state);
+  };
 
   const buildReachableFloorMap = (start: FloorCell) => {
     const reachable = Array.from({ length: layout.rows }, () =>
@@ -482,14 +487,13 @@ export const createGameFlow = ({
     hud.setTitleVisible(false);
     hud.setStateInfo("操作説明\nEnter: タイトルへ");
     hud.setCrosshairVisible(false);
-    setPlayerState("brainwash-complete-haigure-formation");
+    setPlayerAvatarState("brainwash-complete-haigure-formation");
     const playerStartPosition = new Vector3(
       camera.position.x,
       playerCenterHeight,
       camera.position.z
     );
     playerAvatar.isVisible = true;
-    playerAvatar.cellIndex = 2;
     playerAvatar.position.copyFrom(playerStartPosition);
     alignSpriteToGround(playerAvatar);
 
@@ -585,8 +589,10 @@ export const createGameFlow = ({
 
     if (config.variant === "player-survivor") {
       executionCameraFollowAvatar = false;
-      setPlayerState("evade");
-      playerAvatar.isVisible = false;
+      setPlayerAvatarState("evade");
+      playerAvatar.isVisible = true;
+      playerAvatar.position.copyFrom(executionCenter);
+      alignSpriteToGround(playerAvatar);
       const eyeHeight = getEyeHeight();
       camera.position.set(
         executionCenter.x,
@@ -612,9 +618,11 @@ export const createGameFlow = ({
 
     if (config.variant === "npc-survivor-player-block") {
       executionCameraFollowAvatar = false;
-      setPlayerState("brainwash-complete-gun");
-      playerAvatar.isVisible = false;
+      setPlayerAvatarState("brainwash-complete-gun");
+      playerAvatar.isVisible = true;
       const playerTarget = frontSlots[frontRowCenterIndex];
+      playerAvatar.position.copyFrom(playerTarget);
+      alignSpriteToGround(playerAvatar);
       const eyeHeight = getEyeHeight();
       camera.position.set(playerTarget.x, eyeHeight, playerTarget.z);
       camera.setTarget(executionCenter);
@@ -629,9 +637,8 @@ export const createGameFlow = ({
     }
 
     executionCameraFollowAvatar = true;
-    setPlayerState("brainwash-complete-haigure-formation");
+    setPlayerAvatarState("brainwash-complete-haigure-formation");
     playerAvatar.isVisible = true;
-    playerAvatar.cellIndex = 2;
     playerAvatar.position.copyFrom(frontSlots[frontRowCenterIndex]);
     alignSpriteToGround(playerAvatar);
     const eyeHeight = getEyeHeight();
