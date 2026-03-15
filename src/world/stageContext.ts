@@ -89,7 +89,6 @@ const buildStageEnvironment = (
   if (!stageJson) {
     return {
       envMap: null,
-      envRules: null,
       decals: [],
       skyColor: null,
       ceilingHeight: layout.ceilingHeight
@@ -99,7 +98,6 @@ const buildStageEnvironment = (
   const environment = createStageEnvironmentFromStageJson(stageJson);
   return {
     envMap: environment.envMap,
-    envRules: stageJson.generationRules.env,
     decals: createStageDecalsFromStageJson(stageJson),
     skyColor: environment.skyColor ? buildSkyColor(environment.skyColor) : null,
     ceilingHeight: layout.ceilingHeight

@@ -53,11 +53,11 @@
         "IIIIIIIIIIIIIIIIIIIIIIIIIII",
         "IIIIIIIIIIIIIIIIIIIIIIIIIII",
         "IIIIIIIIIIIIIIIIIIIIIIIIIII",
-        "IIIIIIIIIIIMMMMMIIIIIIIIIII",
-        "IIIIIIIIIIIMMMMMIIIIIIIIIII",
-        "IIIIIIIIIIIMMMMMIIIIIIIIIII",
-        "IIIIIIIIIIIMMMMMIIIIIIIIIII",
-        "IIIIIIIIIIIMMMMMIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIII",
         "IIIIIIIIIIIIIIIIIIIIIIIIIII",
         "IIIIIIIIIIIIIIIIIIIIIIIIIII",
         "IIIIIIIIIIIIIIIIIIIIIIIIIII",
@@ -102,8 +102,7 @@
     },
     "brief": {
       "env": {
-        "I": "屋内",
-        "M": "水たまり"
+        "I": "屋内"
       },
       "zone": {
         "L": "汎用屋内エリア"
@@ -114,23 +113,6 @@
     "env": {
       "I": {
         "floor": { "tileId": "floor_arena_amber" },
-        "obstacle": { "tileId": "wall_arena_plain" },
-        "ceiling": {
-          "heightCells": 3,
-          "collision": true,
-          "style": { "tileId": "ceiling_arena_plain" }
-        }
-      },
-      "M": {
-        "floor": {
-          "tileId": "floor_arena_amber",
-          "reflection": {
-            "enabled": true,
-            "tint": "#9aa0ab",
-            "amount": 0.45,
-            "blur": 8
-          }
-        },
         "obstacle": { "tileId": "wall_arena_plain" },
         "ceiling": {
           "heightCells": 3,

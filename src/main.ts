@@ -1605,13 +1605,16 @@ const createReflectionTexture = (
   name: string,
   mirrorPlane: Plane,
   blur: number,
-  ratio: number
+  ratio: number,
+  excludedMeshIds: ReadonlySet<number>
 ) => {
   const mirrorTexture = new MirrorTexture(name, { ratio }, scene);
   mirrorTexture.mirrorPlane = mirrorPlane;
   mirrorTexture.activeCamera = reflectionCamera;
   mirrorTexture.renderSprites = true;
   mirrorTexture.forceLayerMaskCheck = true;
+  mirrorTexture.renderListPredicate = (mesh) =>
+    !excludedMeshIds.has(mesh.uniqueId);
   if (blur > 0) {
     mirrorTexture.adaptiveBlurKernel = blur;
   }
@@ -1621,18 +1624,16 @@ const createReflectiveMaterial = (
   name: string,
   reflectionTexture: MirrorTexture,
   tint: Color3,
-  amount: number,
-  alpha: number
+  amount: number
 ) => {
   const material = new StandardMaterial(name, scene);
   material.disableLighting = true;
   material.backFaceCulling = false;
   material.specularColor = Color3.Black();
-  material.diffuseTexture = reflectionTexture;
-  material.emissiveTexture = reflectionTexture;
-  material.diffuseColor = tint.scale(amount);
-  material.emissiveColor = tint.scale(amount);
-  material.alpha = alpha;
+  reflectionTexture.level = amount;
+  material.reflectionTexture = reflectionTexture;
+  material.diffuseColor = tint.scale(1 - amount);
+  material.emissiveColor = tint.scale((1 - amount) * 0.35);
   return material;
 };
 const syncStageReflectiveSurfaces = () => {
@@ -1640,42 +1641,26 @@ const syncStageReflectiveSurfaces = () => {
   if (stageParts.reflectiveSurfaces.length === 0) {
     return;
   }
-  let sharedPuddleTexture: MirrorTexture | null = null;
+  const excludedReflectiveMeshIds = new Set(
+    stageParts.reflectiveSurfaces.map(
+      (reflectiveSurface) => reflectiveSurface.mesh.uniqueId
+    )
+  );
   for (let index = 0; index < stageParts.reflectiveSurfaces.length; index += 1) {
     const reflectiveSurface = stageParts.reflectiveSurfaces[index];
-    let reflectionTexture: MirrorTexture;
-    let createdTexture = false;
-    if (reflectiveSurface.kind === "puddle") {
-      if (!sharedPuddleTexture) {
-        sharedPuddleTexture = createReflectionTexture(
-          "puddleReflectionTexture",
-          reflectiveSurface.mirrorPlane,
-          reflectiveSurface.blur,
-          0.5
-        );
-        createdTexture = true;
-      }
-      reflectionTexture = sharedPuddleTexture;
-    } else {
-      reflectionTexture = createReflectionTexture(
-        `mirrorReflectionTexture_${index}`,
-        reflectiveSurface.mirrorPlane,
-        reflectiveSurface.blur,
-        0.75
-      );
-      createdTexture = true;
-    }
-    if (createdTexture) {
-      stageParts.reflectiveTextures.push(reflectionTexture);
-    }
-    const alpha =
-      reflectiveSurface.kind === "puddle" ? reflectiveSurface.amount : 1;
+    const reflectionTexture = createReflectionTexture(
+      `mirrorReflectionTexture_${index}`,
+      reflectiveSurface.mirrorPlane,
+      reflectiveSurface.blur,
+      0.75,
+      excludedReflectiveMeshIds
+    );
+    stageParts.reflectiveTextures.push(reflectionTexture);
     const material = createReflectiveMaterial(
-      `${reflectiveSurface.kind}Material_${index}`,
+      `mirrorMaterial_${index}`,
       reflectionTexture,
       reflectiveSurface.tint,
-      reflectiveSurface.amount,
-      alpha
+      reflectiveSurface.amount
     );
     reflectiveSurface.mesh.material = material;
     stageParts.reflectiveMaterials.push(material);

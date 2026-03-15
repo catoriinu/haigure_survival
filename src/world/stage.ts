@@ -9,11 +9,7 @@ import {
 } from "@babylonjs/core";
 import { GridLayout } from "./grid";
 import { createGridTexture } from "./textureUtils";
-import type {
-  StageDecal,
-  StageEnvRule,
-  StageReflectionStyle
-} from "./stageJson";
+import type { StageDecal } from "./stageJson";
 import type { MirrorTexture } from "@babylonjs/core";
 
 export type StageStyle = {
@@ -32,12 +28,10 @@ export type StageStyle = {
 
 export type StageEnvironment = {
   envMap: string[][] | null;
-  envRules: Record<string, StageEnvRule> | null;
   decals: StageDecal[];
 };
 
 export type ReflectiveSurface = {
-  kind: "puddle" | "mirror";
   mesh: Mesh;
   mirrorPlane: Plane;
   tint: Color3;
@@ -134,34 +128,7 @@ const isNoRenderCell = (layout: GridLayout, row: number, col: number) => {
   return layout.cellNoRender[row][col];
 };
 
-const puddleInsetRatio = 0.08;
 const reflectiveSurfaceOffset = 0.01;
-
-const toReflectiveSurfaceStyle = (
-  reflection: StageReflectionStyle | undefined
-) => {
-  if (!reflection || reflection.enabled !== true) {
-    return null;
-  }
-  return {
-    tint: Color3.FromHexString(reflection.tint),
-    amount: reflection.amount,
-    blur: reflection.blur
-  };
-};
-
-const resolveFloorReflection = (
-  environment: StageEnvironment,
-  row: number,
-  col: number
-) => {
-  if (!environment.envMap || !environment.envRules) {
-    return null;
-  }
-  const envSymbol = environment.envMap[row][col];
-  const envRule = environment.envRules[envSymbol];
-  return toReflectiveSurfaceStyle(envRule?.floor?.reflection);
-};
 
 type WallSegment = {
   name: string;
@@ -312,33 +279,6 @@ export const createStageFromGrid = (
         floorMaterialOutdoor
       );
       floors.push(floor);
-
-      const floorReflection = resolveFloorReflection(environment, row, col);
-      if (floorReflection) {
-        const puddleSize = layout.cellSize * (1 - puddleInsetRatio * 2);
-        const puddle = MeshBuilder.CreateGround(
-          `puddle_${row}_${col}`,
-          { width: puddleSize, height: puddleSize },
-          scene
-        );
-        puddle.position = new Vector3(
-          centerX,
-          reflectiveSurfaceOffset,
-          centerZ
-        );
-        puddle.isPickable = false;
-        reflectiveSurfaces.push({
-          kind: "puddle",
-          mesh: puddle,
-          mirrorPlane: Plane.FromPositionAndNormal(
-            new Vector3(centerX, 0, centerZ),
-            new Vector3(0, 1, 0)
-          ),
-          tint: floorReflection.tint,
-          amount: floorReflection.amount,
-          blur: floorReflection.blur
-        });
-      }
 
       if (!isFloorCell(layout, row - 1, col)) {
         const wallHeight = getWallHeight(layout, row - 1, col);
@@ -501,7 +441,7 @@ export const createStageFromGrid = (
         startZ + reflectiveSurfaceOffset
       );
       rotationY = Math.PI;
-      normal = new Vector3(0, 0, 1);
+      normal = new Vector3(0, 0, -1);
     } else if (decal.wallDir === "S") {
       position = new Vector3(
         startX + mirrorWidth / 2,
@@ -509,7 +449,7 @@ export const createStageFromGrid = (
         startZ + layout.cellSize - reflectiveSurfaceOffset
       );
       rotationY = 0;
-      normal = new Vector3(0, 0, -1);
+      normal = new Vector3(0, 0, 1);
     } else if (decal.wallDir === "W") {
       position = new Vector3(
         startX + reflectiveSurfaceOffset,
@@ -517,7 +457,7 @@ export const createStageFromGrid = (
         startZ + mirrorWidth / 2
       );
       rotationY = Math.PI / 2;
-      normal = new Vector3(1, 0, 0);
+      normal = new Vector3(-1, 0, 0);
     } else {
       position = new Vector3(
         startX + layout.cellSize - reflectiveSurfaceOffset,
@@ -525,7 +465,7 @@ export const createStageFromGrid = (
         startZ + mirrorWidth / 2
       );
       rotationY = -Math.PI / 2;
-      normal = new Vector3(-1, 0, 0);
+      normal = new Vector3(1, 0, 0);
     }
 
     const mirror = MeshBuilder.CreatePlane(
@@ -540,8 +480,8 @@ export const createStageFromGrid = (
     mirror.position = position;
     mirror.rotation.y = rotationY;
     mirror.isPickable = false;
+    // MirrorTexture は clip plane に mirrorPlane を使うため、法線は部屋側と逆向きにする。
     reflectiveSurfaces.push({
-      kind: "mirror",
       mesh: mirror,
       mirrorPlane: Plane.FromPositionAndNormal(position, normal),
       tint: Color3.FromHexString(decal.reflective.tint),

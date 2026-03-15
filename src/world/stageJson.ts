@@ -6,16 +6,8 @@ export type StageCellPhysicsDef = {
   noRender?: boolean;
 };
 
-export type StageReflectionStyle = {
-  enabled: true;
-  tint: string;
-  amount: number;
-  blur: number;
-};
-
 export type StageSurfaceStyle = {
   tileId?: string;
-  reflection?: StageReflectionStyle;
 };
 
 export type StageCeilingRule = {
