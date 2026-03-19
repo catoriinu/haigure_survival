@@ -8,26 +8,26 @@ import {
   type BrainwashSettings
 } from "./brainwashSettingsPanel";
 import {
-  createCameraSettingsPanel,
-  type CameraSettings
-} from "./cameraSettingsPanel";
-import {
   createDefaultSettingsPanel,
   type DefaultStartSettings
 } from "./defaultSettingsPanel";
+import {
+  createPlayerSettingsPanel,
+  type PlayerSettings
+} from "./playerSettingsPanel";
 import { createTrapRoomRecommendControl } from "./trapRoomRecommendControl";
 
 export type TitleSettingsSidebarSettings = {
+  playerSettings: PlayerSettings;
   defaultStartSettings: DefaultStartSettings;
   brainwashSettings: BrainwashSettings;
-  cameraSettings: CameraSettings;
   bitSpawnSettings: BitSpawnSettings;
 };
 
 export type TitleSettingsSidebarChangeReason =
+  | "player-settings"
   | "default-settings"
   | "brainwash-settings"
-  | "camera-settings"
   | "bit-spawn-settings"
   | "trap-room-recommend";
 
@@ -39,6 +39,8 @@ export type TitleSettingsSidebarChangeEvent = {
 type TitleSettingsSidebarOptions = {
   parent: HTMLElement;
   initialSettings: TitleSettingsSidebarSettings;
+  portraitDirectories: readonly string[];
+  voiceDirectories: readonly string[];
   initialStageId: string;
   onSettingsChange: (
     settings: TitleSettingsSidebarSettings,
@@ -71,15 +73,17 @@ const warningMessage =
 const cloneSettings = (
   settings: TitleSettingsSidebarSettings
 ): TitleSettingsSidebarSettings => ({
+  playerSettings: { ...settings.playerSettings },
   defaultStartSettings: { ...settings.defaultStartSettings },
   brainwashSettings: { ...settings.brainwashSettings },
-  cameraSettings: { ...settings.cameraSettings },
   bitSpawnSettings: { ...settings.bitSpawnSettings }
 });
 
 export const createTitleSettingsSidebar = ({
   parent,
   initialSettings,
+  portraitDirectories,
+  voiceDirectories,
   initialStageId,
   onSettingsChange,
   onResetRequested,
@@ -138,6 +142,18 @@ export const createTitleSettingsSidebar = ({
     }
   };
 
+  const playerSettingsPanel = createPlayerSettingsPanel({
+    parent: settingsContainer,
+    initialSettings: settings.playerSettings,
+    portraitDirectories,
+    voiceDirectories,
+    className: "player-settings-panel--title",
+    onChange: (nextSettings) => {
+      settings.playerSettings = { ...nextSettings };
+      emitSettingsChange("player-settings");
+    }
+  });
+
   const defaultSettingsPanel = createDefaultSettingsPanel({
     parent: settingsContainer,
     initialSettings: settings.defaultStartSettings,
@@ -172,27 +188,17 @@ export const createTitleSettingsSidebar = ({
     }
   });
 
-  const cameraSettingsPanel = createCameraSettingsPanel({
-    parent: settingsContainer,
-    initialSettings: settings.cameraSettings,
-    className: "camera-settings-panel--title",
-    onChange: (nextSettings) => {
-      settings.cameraSettings = { ...nextSettings };
-      emitSettingsChange("camera-settings");
-    }
-  });
-
   const trapRoomRecommendControl = createTrapRoomRecommendControl({
     parent: root,
     onApply: () => {
       const nextSettings: TitleSettingsSidebarSettings = {
+        playerSettings: { ...settings.playerSettings },
         defaultStartSettings: { ...settings.defaultStartSettings },
         brainwashSettings: {
           ...settings.brainwashSettings,
           npcBrainwashCompleteGunPercent: 0,
           npcBrainwashCompleteNoGunPercent: 0
         },
-        cameraSettings: { ...settings.cameraSettings },
         bitSpawnSettings: {
           ...settings.bitSpawnSettings,
           disableBitSpawn: true
@@ -234,15 +240,15 @@ export const createTitleSettingsSidebar = ({
   const setSettings = (nextSettings: TitleSettingsSidebarSettings) => {
     const copiedSettings = cloneSettings(nextSettings);
     withSuppressedSettingsChange(() => {
+      playerSettingsPanel.setSettings(copiedSettings.playerSettings);
       defaultSettingsPanel.setSettings(copiedSettings.defaultStartSettings);
       brainwashSettingsPanel.setSettings(copiedSettings.brainwashSettings);
       bitSpawnPanel.setSettings(copiedSettings.bitSpawnSettings);
-      cameraSettingsPanel.setSettings(copiedSettings.cameraSettings);
     });
+    settings.playerSettings = { ...copiedSettings.playerSettings };
     settings.defaultStartSettings = { ...copiedSettings.defaultStartSettings };
     settings.brainwashSettings = { ...copiedSettings.brainwashSettings };
     settings.bitSpawnSettings = { ...copiedSettings.bitSpawnSettings };
-    settings.cameraSettings = { ...copiedSettings.cameraSettings };
     syncWarning();
   };
 

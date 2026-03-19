@@ -153,7 +153,7 @@ body {
 .volume-panel,
 .title-settings-combined-panel,
 .stage-select-control,
-.camera-settings-panel,
+.player-settings-panel,
 .default-settings-panel,
 .brainwash-settings-panel,
 .bit-spawn-panel {
@@ -342,7 +342,7 @@ body {
   letter-spacing: 0.08em;
 }
 
-.camera-settings-panel,
+.player-settings-panel,
 .default-settings-panel,
 .brainwash-settings-panel,
 .bit-spawn-panel {
@@ -353,7 +353,7 @@ body {
   font-size: 13px;
 }
 
-.camera-settings-panel--title,
+.player-settings-panel--title,
 .default-settings-panel--title,
 .brainwash-settings-panel--title,
 .bit-spawn-panel--title {
@@ -364,7 +364,7 @@ body {
   background: transparent;
 }
 
-.camera-settings-panel__title,
+.player-settings-panel__title,
 .default-settings-panel__title,
 .brainwash-settings-panel__title,
 .bit-spawn-panel__title {
@@ -373,26 +373,44 @@ body {
   color: #f0f0f0;
 }
 
-.camera-settings-panel__slider-row {
+.player-settings-panel__row {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.player-settings-panel__slider-row {
   display: grid;
   grid-template-columns: 56px calc(3.8ch + 1px) 1fr;
   align-items: center;
   gap: 6px;
 }
 
-.camera-settings-panel__label {
+.player-settings-panel__label {
   font-size: 13px;
   letter-spacing: 0.06em;
 }
 
-.camera-settings-panel__slider-value {
+.player-settings-panel__select {
+  height: 26px;
+  min-width: 188px;
+  padding: 0 6px;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  background: #141414;
+  color: #f5f5f5;
+  font: inherit;
+}
+
+.player-settings-panel__slider-value {
   text-align: right;
   font-size: 14px;
   letter-spacing: 0.04em;
   color: #f0f0f0;
 }
 
-.camera-settings-panel__slider {
+.player-settings-panel__slider {
   width: 100%;
   margin: 0;
 }

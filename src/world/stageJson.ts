@@ -53,6 +53,27 @@ export type StageZone = {
   props?: Record<string, unknown>;
 };
 
+export type StageDecalReflectiveStyle = {
+  kind: "mirror";
+  tint: string;
+  amount: number;
+  blur: number;
+};
+
+export type StageDecal = {
+  face: "floor" | "wall" | "ceiling";
+  type: "cell" | "rect";
+  x: number;
+  z: number;
+  w?: number;
+  h?: number;
+  wallDir?: "N" | "E" | "S" | "W";
+  texture?: string;
+  tileId?: string;
+  color?: string;
+  reflective?: StageDecalReflectiveStyle;
+};
+
 export type StageGameplayOptions = {
   skipAssembly: boolean;
 };
@@ -95,7 +116,7 @@ export type StageJson = {
     env: Record<string, StageEnvRule>;
   };
   entities: unknown[];
-  decals: unknown[];
+  decals: StageDecal[];
   gameplay: {
     markers: StageMarker[];
     zones: StageZone[];
@@ -130,6 +151,28 @@ const flipStageZoneX = (zone: StageZone, mapSize: StageMapWidth): StageZone => (
   ...zone,
   x: mapSize.width - zone.x - zone.w
 });
+
+const flipStageWallDir = (wallDir: StageDecal["wallDir"]) => {
+  if (wallDir === "E") {
+    return "W";
+  }
+  if (wallDir === "W") {
+    return "E";
+  }
+  return wallDir;
+};
+
+const flipStageDecalX = (
+  decal: StageDecal,
+  mapSize: StageMapWidth
+): StageDecal => {
+  const width = decal.type === "rect" ? (decal.w ?? 1) : 1;
+  return {
+    ...decal,
+    x: mapSize.width - decal.x - width,
+    wallDir: flipStageWallDir(decal.wallDir)
+  };
+};
 
 const expandSymbolMap = (
   rows: string[],
@@ -227,6 +270,13 @@ export const createZoneMapFromStageJson = (
     flipStageColumns(zone),
     stageJson.meta.mapScale
   );
+};
+
+export const createStageDecalsFromStageJson = (
+  stageJson: StageJson
+): StageDecal[] => {
+  const mapSize = getStageMapWidth(stageJson.mainMap);
+  return stageJson.decals.map((decal) => flipStageDecalX(decal, mapSize));
 };
 
 export const getSkyColorFromStageJson = (

@@ -8,10 +8,17 @@ import {
   HemisphericLight,
   Color3,
   Color4,
+  DynamicTexture,
+  MirrorTexture,
+  Plane,
   Sprite,
   SpriteManager,
   Mesh,
-  MeshBuilder
+  MeshBuilder,
+  StandardMaterial,
+  Texture,
+  VertexBuffer,
+  VertexData
 } from "@babylonjs/core";
 import {
   Beam,
@@ -85,6 +92,8 @@ import {
 } from "./audio/audio";
 import {
   createVoiceActor,
+  getVoiceDirectories,
+  getVoiceProfileIdByDirectory,
   stopVoiceActor,
   updateVoiceActor,
   voiceProfiles,
@@ -114,7 +123,7 @@ import { createVolumePanel, type VolumeLevels } from "./ui/volumePanel";
 import type { BitSpawnSettings } from "./ui/bitSpawnPanel";
 import type { DefaultStartSettings } from "./ui/defaultSettingsPanel";
 import type { BrainwashSettings } from "./ui/brainwashSettingsPanel";
-import type { CameraSettings } from "./ui/cameraSettingsPanel";
+import type { PlayerSettings } from "./ui/playerSettingsPanel";
 import {
   buildDefaultPersistedTitleSettings,
   clearPersistedTitleSettings,
@@ -237,26 +246,41 @@ const shuffleIdsInPlace = (ids: string[]) => {
 };
 const pickRandomIdFromPool = (ids: readonly string[]) =>
   ids[Math.floor(Math.random() * ids.length)]!;
-const buildCharacterAssignments = (npcCount: number): CharacterAssignments => {
+const buildCharacterAssignments = (
+  npcCount: number,
+  playerSettings: PlayerSettings
+): CharacterAssignments => {
   const voiceIds = voiceProfiles.map((profile) => profile.id);
   const remainingVoiceIds = [...voiceIds];
   shuffleIdsInPlace(remainingVoiceIds);
-  const playerVoiceId = remainingVoiceIds.shift()!;
+  const fixedPlayerVoiceId =
+    playerSettings.voiceDirectory !== null
+      ? getVoiceProfileIdByDirectory(playerSettings.voiceDirectory)
+      : null;
+  const playerVoiceId = fixedPlayerVoiceId ?? remainingVoiceIds.shift()!;
+  const npcVoiceSourceIds =
+    fixedPlayerVoiceId === null
+      ? remainingVoiceIds
+      : remainingVoiceIds.filter((voiceId) => voiceId !== fixedPlayerVoiceId);
+  const npcVoiceFallbackIds =
+    fixedPlayerVoiceId === null ? voiceIds : [...npcVoiceSourceIds];
   const npcVoiceIds = Array.from(
     { length: npcCount },
     () =>
-      remainingVoiceIds.length > 0
-        ? remainingVoiceIds.shift()!
-        : pickRandomIdFromPool(voiceIds)
+      npcVoiceSourceIds.length > 0
+        ? npcVoiceSourceIds.shift()!
+        : pickRandomIdFromPool(npcVoiceFallbackIds)
   );
   const portraitAssignments = assignPortraitDirectories([
     playerVoiceId,
     ...npcVoiceIds
   ]);
+  const playerPortraitDirectory =
+    playerSettings.portraitDirectory ?? portraitAssignments[0];
   return {
     playerVoiceId,
     npcVoiceIds,
-    playerPortraitDirectory: portraitAssignments[0],
+    playerPortraitDirectory,
     npcPortraitDirectories: portraitAssignments.slice(1)
   };
 };
@@ -333,6 +357,32 @@ const playerCenterHeight = PLAYER_SPRITE_CENTER_HEIGHT;
 const minimapReadoutVisible = false;
 const portraitMaxWidthCells = 1;
 const portraitMaxHeightCells = 2;
+const worldLayerMask = 0x0fffffff;
+const reflectionOnlyLayerMask = 0x10000000;
+const firstPersonBodyLayerMask = 0x20000000;
+const firstPersonBodyBaseAlpha = 1;
+const firstPersonBodyCropTopRatio = 0.3;
+const firstPersonBodyNearRowStretch = 1.28;
+const firstPersonBodyChestRowScreenYStart = -1.78;
+const firstPersonBodyChestRowScreenYEnd = -0.78;
+const firstPersonBodyChestRowHalfWidthStart = 0.9;
+const firstPersonBodyChestRowHalfWidthEnd = 0.88;
+const firstPersonBodyChestRowZStart = 0.2;
+const firstPersonBodyChestRowZEnd = 0.21;
+const firstPersonBodyFeetRowScreenYStart = -1.12;
+const firstPersonBodyFeetRowScreenYEnd = 0.1;
+const firstPersonBodyFeetRowHalfWidthStart = 0.66;
+const firstPersonBodyFeetRowHalfWidthEnd = 0.57;
+const firstPersonBodyFeetRowZStart = 0.41;
+const firstPersonBodyFeetRowZEnd = 0.49;
+const isDefeatScenePhase = (phase: GamePhase) =>
+  phase === "assemblyMove" ||
+  phase === "assemblyHold" ||
+  phase === "execution";
+const shouldShowFirstPersonBodyForPhase = (phase: GamePhase) =>
+  phase === "playing" || isDefeatScenePhase(phase);
+const shouldHidePlayerAvatarFromMainCamera = (phase: GamePhase) =>
+  phase === "playing" || isDefeatScenePhase(phase);
 
 const defaultBitSpawnSettings: BitSpawnSettings = {
   bitSpawnInterval: 10,  // ビットの通常出現間隔（秒）。1〜99。デフォルトは10
@@ -353,23 +403,29 @@ const defaultBrainwashSettings: BrainwashSettings = {
   npcBrainwashCompleteGunPercent: 45,
   npcBrainwashCompleteNoGunPercent: 45
 };
-const defaultCameraSettings: CameraSettings = {
-  heightCells: 1.0
+const defaultPlayerSettings: PlayerSettings = {
+  heightCells: 1.0,
+  portraitDirectory: null,
+  voiceDirectory: null
 };
 const TITLE_SETTINGS_STORAGE_KEY = "haigure-survival.title-settings";
-const TITLE_SETTINGS_STORAGE_VERSION = 2;
+const TITLE_SETTINGS_STORAGE_VERSION = 3;
 const defaultVolumeLevels: VolumeLevels = {
   bgm: 5,
   se: 5,
   voice: 5
 };
+const portraitDirectories = getPortraitDirectories();
+const portraitDirectorySet = new Set(portraitDirectories);
+const voiceDirectories = getVoiceDirectories();
+const voiceDirectorySet = new Set(voiceDirectories);
 const titleSettingsDefaults: TitleSettingsDefaults = {
   volumeLevels: defaultVolumeLevels,
   stageId: STAGE_CATALOG[0].id,
   alarmTrapEnabled: false,
+  playerSettings: defaultPlayerSettings,
   defaultStartSettings: defaultDefaultStartSettings,
   brainwashSettings: defaultBrainwashSettings,
-  cameraSettings: defaultCameraSettings,
   bitSpawnSettings: defaultBitSpawnSettings
 };
 const stageIds = new Set(STAGE_CATALOG.map((selection) => selection.id));
@@ -377,7 +433,9 @@ const persistedTitleSettings = loadPersistedTitleSettings(
   TITLE_SETTINGS_STORAGE_KEY,
   TITLE_SETTINGS_STORAGE_VERSION,
   titleSettingsDefaults,
-  stageIds
+  stageIds,
+  portraitDirectorySet,
+  voiceDirectorySet
 );
 const initialVolumeLevels: VolumeLevels = persistedTitleSettings
   ? { ...persistedTitleSettings.volumeLevels }
@@ -396,10 +454,10 @@ let titleBrainwashSettings: BrainwashSettings = {
     ? persistedTitleSettings.brainwashSettings
     : defaultBrainwashSettings)
 };
-let titleCameraSettings: CameraSettings = {
+let titlePlayerSettings: PlayerSettings = {
   ...(persistedTitleSettings
-    ? persistedTitleSettings.cameraSettings
-    : defaultCameraSettings)
+    ? persistedTitleSettings.playerSettings
+    : defaultPlayerSettings)
 };
 let runtimeBitSpawnInterval = defaultBitSpawnSettings.bitSpawnInterval;
 let runtimeMaxBitCount = defaultBitSpawnSettings.maxBitCount;
@@ -470,7 +528,6 @@ const hasNeverGameOverRisk = (
   return !(hasGunRoute || hasNoGunTouchRoute);
 };
 
-const portraitDirectories = getPortraitDirectories();
 const portraitSpriteSheets = new Map<string, PortraitSpriteSheet>();
 const portraitSpriteSheetPromises = new Map<
   string,
@@ -578,7 +635,8 @@ const buildStageSelectionLabel = (
   loadedStageJson: Awaited<ReturnType<typeof loadStageJson>>
 ) => loadedStageJson?.meta.description ?? selection.label;
 const initialCharacterAssignments = buildCharacterAssignments(
-  runtimeDefaultStartSettings.initialNpcCount
+  runtimeDefaultStartSettings.initialNpcCount,
+  titlePlayerSettings
 );
 const initialLoadingSession = createTitleLoadingSession(
   STAGE_CATALOG.length +
@@ -662,7 +720,7 @@ const buildSpawnForwardFromMarker = () => {
 
 let spawnForward = new Vector3(0, 0, 1);
 let portraitCellSize = layout.cellSize;
-const getEyeHeight = () => layout.cellSize * titleCameraSettings.heightCells;
+const getEyeHeight = () => layout.cellSize * titlePlayerSettings.heightCells;
 
 const updateSpawnPoint = () => {
   const randomSpawnable = hasPlayerSpawnTag("random_spawnable");
@@ -722,6 +780,7 @@ const camera = new FreeCamera(
 );
 camera.setTarget(spawnPosition.add(spawnForward));
 camera.attachControl(canvas, true);
+camera.layerMask = worldLayerMask | firstPersonBodyLayerMask;
 camera.minZ = 0.02;
 const baseCameraSpeed = 0.02;
 const playerMoveSpeed = baseCameraSpeed * Math.sqrt(10);
@@ -738,11 +797,27 @@ camera.ellipsoid = new Vector3(
   playerWidth * 0.5
 );
 camera.inputs.removeByType("FreeCameraKeyboardMoveInput");
+const reflectionCamera = new FreeCamera(
+  "reflectionCamera",
+  spawnPosition.clone(),
+  scene
+);
+reflectionCamera.layerMask = worldLayerMask | reflectionOnlyLayerMask;
+reflectionCamera.minZ = camera.minZ;
+reflectionCamera.fov = camera.fov;
 const applyCameraSpawnTransform = () => {
   camera.position.copyFrom(spawnPosition);
   camera.rotation = new Vector3(0, 0, 0);
   camera.setTarget(spawnPosition.add(spawnForward));
 };
+const syncReflectionCamera = () => {
+  reflectionCamera.position.copyFrom(camera.position);
+  reflectionCamera.rotation.copyFrom(camera.rotation);
+  reflectionCamera.fov = camera.fov;
+  reflectionCamera.minZ = camera.minZ;
+  reflectionCamera.maxZ = camera.maxZ;
+};
+
 const syncTitleCameraHeight = () => {
   const eyeHeight = getEyeHeight();
   spawnPosition.y = eyeHeight;
@@ -810,24 +885,24 @@ const saveTitleSettings = () => {
     volumeLevels: { ...volumeLevels },
     stageId: stageSelection.id,
     alarmTrapEnabled: titleAlarmTrapEnabled,
+    playerSettings: { ...titlePlayerSettings },
     defaultStartSettings: { ...titleDefaultStartSettings },
     brainwashSettings: { ...titleBrainwashSettings },
-    cameraSettings: { ...titleCameraSettings },
     bitSpawnSettings: { ...titleBitSpawnSettings }
   });
 };
 const buildTitleSettingsSidebarSettings = (): TitleSettingsSidebarSettings => ({
+  playerSettings: { ...titlePlayerSettings },
   defaultStartSettings: { ...titleDefaultStartSettings },
   brainwashSettings: { ...titleBrainwashSettings },
-  cameraSettings: { ...titleCameraSettings },
   bitSpawnSettings: { ...titleBitSpawnSettings }
 });
 const applyTitleSettingsSidebarSettings = (
   settings: TitleSettingsSidebarSettings
 ) => {
+  titlePlayerSettings = { ...settings.playerSettings };
   titleDefaultStartSettings = { ...settings.defaultStartSettings };
   titleBrainwashSettings = { ...settings.brainwashSettings };
-  titleCameraSettings = { ...settings.cameraSettings };
   titleBitSpawnSettings = { ...settings.bitSpawnSettings };
 };
 const titleVolumePanel = createVolumePanel({
@@ -859,11 +934,13 @@ const titleStageSelectControl = createStageSelectControl({
 const titleSettingsSidebar = createTitleSettingsSidebar({
   parent: document.body,
   initialSettings: buildTitleSettingsSidebarSettings(),
+  portraitDirectories,
+  voiceDirectories,
   initialStageId: stageSelection.id,
   onSettingsChange: (settings, event) => {
     applyTitleSettingsSidebarSettings(settings);
     saveTitleSettings();
-    if (event.reason === "camera-settings") {
+    if (event.reason === "player-settings") {
       syncTitleCameraHeight();
     }
     if (event.shouldReload) {
@@ -902,9 +979,9 @@ const resetTitleSettingsToDefault = async () => {
     applyVolumeLevel(category, level);
   }
   const nextSidebarSettings: TitleSettingsSidebarSettings = {
+    playerSettings: defaults.playerSettings,
     defaultStartSettings: defaults.defaultStartSettings,
     brainwashSettings: defaults.brainwashSettings,
-    cameraSettings: defaults.cameraSettings,
     bitSpawnSettings: defaults.bitSpawnSettings
   };
   titleSettingsSidebar.setSettings(nextSidebarSettings);
@@ -1158,14 +1235,62 @@ light.intensity = 1.2;
 scene.ambientColor = new Color3(0.45, 0.45, 0.45);
 scene.collisionsEnabled = true;
 let playerAvatar: Sprite;
+let playerPortraitManager: SpriteManager | null = null;
 const npcs: Npc[] = [];
 let playerPortraitDirectory = "";
 let npcPortraitDirectories: string[] = [];
+let firstPersonBodyMesh: Mesh;
+let firstPersonBodyMaterial: StandardMaterial;
+let firstPersonBodyTexture: DynamicTexture | null = null;
+let firstPersonBodySheetImage: HTMLImageElement | null = null;
+let firstPersonBodySheetDirectory = "";
+let firstPersonBodySheetCellWidth = 0;
+let firstPersonBodySheetCellHeight = 0;
+let firstPersonBodyLastCellIndex = -1;
+const firstPersonBodyVertexPositions = new Float32Array(12);
 const portraitScaleCache = new Map<string, { width: number; height: number }>();
+const clampValue = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, value));
+const lerpValue = (start: number, end: number, amount: number) =>
+  start + (end - start) * amount;
+const stretchScreenYFromAnchor = (
+  anchorScreenY: number,
+  targetScreenY: number,
+  stretch: number
+) => anchorScreenY + (targetScreenY - anchorScreenY) * stretch;
+const projectScreenYToLocal = (screenY: number, depth: number) =>
+  screenY * depth * Math.tan(camera.fov * 0.5);
+const projectHalfWidthToLocal = (halfWidth: number, depth: number) => {
+  const aspect =
+    scene.getEngine().getRenderWidth() /
+    scene.getEngine().getRenderHeight();
+  return halfWidth * depth * Math.tan(camera.fov * 0.5) * aspect;
+};
 const getPortraitManagerByDirectory = (directory: string) =>
   portraitManagers.get(directory)!;
 const getNpcPortraitManager = (directory: string, _index: number) =>
   getPortraitManagerByDirectory(directory);
+const loadImageFromUrl = (url: string) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Failed to load ${url}`));
+    image.src = url;
+  });
+const createPlayerPortraitManager = (directory: string) => {
+  playerPortraitManager?.dispose();
+  const sheet = portraitSpriteSheets.get(directory)!;
+  playerPortraitManager = new SpriteManager(
+    `player_portrait_${directory}`,
+    sheet.url,
+    1,
+    { width: sheet.cellWidth, height: sheet.cellHeight },
+    scene
+  );
+  playerPortraitManager.layerMask = worldLayerMask;
+  return playerPortraitManager;
+};
 const createPlayerAvatar = (manager: SpriteManager) => {
   const avatar = new Sprite("playerAvatar", manager);
   avatar.width = playerWidth;
@@ -1175,6 +1300,199 @@ const createPlayerAvatar = (manager: SpriteManager) => {
   avatar.isVisible = false;
   return avatar;
 };
+const createFirstPersonBodyMesh = () => {
+  firstPersonBodyMesh = new Mesh("playerBodyLayer", scene);
+  const vertexData = new VertexData();
+  vertexData.positions = Array.from(firstPersonBodyVertexPositions);
+  vertexData.indices = [0, 1, 2, 0, 2, 3];
+  vertexData.uvs = [
+    0, 1,
+    1, 1,
+    1, 0,
+    0, 0
+  ];
+  const normals = [0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1];
+  vertexData.normals = normals;
+  vertexData.applyToMesh(firstPersonBodyMesh, true);
+  firstPersonBodyMaterial = new StandardMaterial(
+    "playerBodyLayerMaterial",
+    scene
+  );
+  firstPersonBodyMaterial.disableLighting = true;
+  firstPersonBodyMaterial.specularColor = Color3.Black();
+  firstPersonBodyMaterial.backFaceCulling = false;
+  firstPersonBodyMaterial.useAlphaFromDiffuseTexture = true;
+  firstPersonBodyMaterial.alpha = 0;
+  firstPersonBodyMesh.material = firstPersonBodyMaterial;
+  firstPersonBodyMesh.parent = camera;
+  firstPersonBodyMesh.renderingGroupId = 3;
+  firstPersonBodyMesh.layerMask = firstPersonBodyLayerMask;
+  firstPersonBodyMesh.isPickable = false;
+  firstPersonBodyMesh.isVisible = false;
+  firstPersonBodyMesh.alwaysSelectAsActiveMesh = true;
+};
+const updateFirstPersonBodyMeshGeometry = (visibility: number) => {
+  const slideVisibility = visibility;
+  const shapeVisibility = visibility * 0.28;
+  const chestRowDepth = lerpValue(
+    firstPersonBodyChestRowZStart,
+    firstPersonBodyChestRowZEnd,
+    shapeVisibility
+  );
+  const chestRowHalfWidth = projectHalfWidthToLocal(
+    lerpValue(
+      firstPersonBodyChestRowHalfWidthStart,
+      firstPersonBodyChestRowHalfWidthEnd,
+      shapeVisibility
+    ),
+    chestRowDepth
+  );
+  const feetRowScreenY = lerpValue(
+    firstPersonBodyFeetRowScreenYStart,
+    firstPersonBodyFeetRowScreenYEnd,
+    slideVisibility
+  );
+  const chestRowScreenY = stretchScreenYFromAnchor(
+    feetRowScreenY,
+    lerpValue(
+      firstPersonBodyChestRowScreenYStart,
+      firstPersonBodyChestRowScreenYEnd,
+      slideVisibility
+    ),
+    firstPersonBodyNearRowStretch
+  );
+  const chestRowY = projectScreenYToLocal(
+    chestRowScreenY,
+    chestRowDepth
+  );
+  const feetRowDepth = lerpValue(
+    firstPersonBodyFeetRowZStart,
+    firstPersonBodyFeetRowZEnd,
+    shapeVisibility
+  );
+  const feetRowHalfWidth = projectHalfWidthToLocal(
+    lerpValue(
+      firstPersonBodyFeetRowHalfWidthStart,
+      firstPersonBodyFeetRowHalfWidthEnd,
+      shapeVisibility
+    ),
+    feetRowDepth
+  );
+  const feetRowY = projectScreenYToLocal(
+    feetRowScreenY,
+    feetRowDepth
+  );
+  firstPersonBodyVertexPositions[0] = -feetRowHalfWidth;
+  firstPersonBodyVertexPositions[1] = feetRowY;
+  firstPersonBodyVertexPositions[2] = feetRowDepth;
+  firstPersonBodyVertexPositions[3] = feetRowHalfWidth;
+  firstPersonBodyVertexPositions[4] = feetRowY;
+  firstPersonBodyVertexPositions[5] = feetRowDepth;
+  firstPersonBodyVertexPositions[6] = chestRowHalfWidth;
+  firstPersonBodyVertexPositions[7] = chestRowY;
+  firstPersonBodyVertexPositions[8] = chestRowDepth;
+  firstPersonBodyVertexPositions[9] = -chestRowHalfWidth;
+  firstPersonBodyVertexPositions[10] = chestRowY;
+  firstPersonBodyVertexPositions[11] = chestRowDepth;
+  firstPersonBodyMesh.updateVerticesData(
+    VertexBuffer.PositionKind,
+    firstPersonBodyVertexPositions
+  );
+  firstPersonBodyMesh.refreshBoundingInfo(true);
+};
+const disposeFirstPersonBodyTexture = () => {
+  if (firstPersonBodyTexture) {
+    firstPersonBodyTexture.dispose();
+    firstPersonBodyTexture = null;
+  }
+};
+const configureFirstPersonBodyTexture = (
+  cellWidth: number,
+  cellHeight: number
+) => {
+  disposeFirstPersonBodyTexture();
+  const cropTopPx = Math.floor(cellHeight * firstPersonBodyCropTopRatio);
+  const cropHeight = Math.max(1, cellHeight - cropTopPx);
+  firstPersonBodyTexture = new DynamicTexture(
+    "playerBodyLayerTexture",
+    { width: cellWidth, height: cropHeight },
+    scene,
+    true
+  );
+  firstPersonBodyTexture.hasAlpha = true;
+  firstPersonBodyTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
+  firstPersonBodyTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
+  firstPersonBodyMaterial.diffuseTexture = firstPersonBodyTexture;
+  firstPersonBodyMaterial.emissiveTexture = firstPersonBodyTexture;
+};
+const redrawFirstPersonBodyTexture = (cellIndex: number) => {
+  if (
+    !firstPersonBodyTexture ||
+    !firstPersonBodySheetImage ||
+    cellIndex === firstPersonBodyLastCellIndex
+  ) {
+    return;
+  }
+  const cropTopPx = Math.floor(
+    firstPersonBodySheetCellHeight * firstPersonBodyCropTopRatio
+  );
+  const cropHeight = firstPersonBodySheetCellHeight - cropTopPx;
+  const destinationHeight = firstPersonBodyTexture.getSize().height;
+  const ctx = firstPersonBodyTexture.getContext();
+  ctx.clearRect(0, 0, firstPersonBodyTexture.getSize().width, destinationHeight);
+  ctx.drawImage(
+    firstPersonBodySheetImage,
+    cellIndex * firstPersonBodySheetCellWidth,
+    cropTopPx,
+    firstPersonBodySheetCellWidth,
+    cropHeight,
+    0,
+    0,
+    firstPersonBodySheetCellWidth,
+    destinationHeight
+  );
+  firstPersonBodyTexture.update(false);
+  firstPersonBodyLastCellIndex = cellIndex;
+};
+const ensureFirstPersonBodySheet = async (directory: string) => {
+  if (firstPersonBodySheetDirectory === directory && firstPersonBodySheetImage) {
+    return;
+  }
+  const sheet = portraitSpriteSheets.get(directory)!;
+  const image = await loadImageFromUrl(sheet.url);
+  firstPersonBodySheetDirectory = directory;
+  firstPersonBodySheetImage = image;
+  firstPersonBodySheetCellWidth = sheet.cellWidth;
+  firstPersonBodySheetCellHeight = sheet.cellHeight;
+  firstPersonBodyLastCellIndex = -1;
+  configureFirstPersonBodyTexture(sheet.cellWidth, sheet.cellHeight);
+};
+const syncFirstPersonBodyVisibility = () => {
+  if (
+    !shouldShowFirstPersonBodyForPhase(gamePhase) ||
+    !firstPersonBodyTexture ||
+    !firstPersonBodySheetImage
+  ) {
+    firstPersonBodyMesh.isVisible = false;
+    return;
+  }
+  const forward = camera.getDirection(new Vector3(0, 0, 1));
+  const floorUnderPlayerVisibleThreshold = Math.cos(camera.fov * 0.5);
+  const visibility = clampValue(
+    (-forward.y - floorUnderPlayerVisibleThreshold) /
+      (1 - floorUnderPlayerVisibleThreshold),
+    0,
+    1
+  );
+  if (visibility <= 0) {
+    firstPersonBodyMesh.isVisible = false;
+    return;
+  }
+  firstPersonBodyMesh.isVisible = true;
+  updateFirstPersonBodyMeshGeometry(visibility);
+  firstPersonBodyMaterial.alpha = firstPersonBodyBaseAlpha;
+};
+createFirstPersonBodyMesh();
 
 const computePortraitSpriteSize = (directory: string) => {
   const cached = portraitScaleCache.get(directory);
@@ -1222,7 +1540,7 @@ const applyCharacterAssignments = (assignments: CharacterAssignments) => {
 };
 
 const assignVoiceIds = (npcCount: number) => {
-  const assignments = buildCharacterAssignments(npcCount);
+  const assignments = buildCharacterAssignments(npcCount, titlePlayerSettings);
   applyCharacterAssignments(assignments);
   return assignments;
 };
@@ -1233,7 +1551,7 @@ const getAssignedPortraitDirectories = (assignments?: CharacterAssignments) =>
 
 const createCharacters = () => {
   playerAvatar = createPlayerAvatar(
-    getPortraitManagerByDirectory(playerPortraitDirectory)
+    createPlayerPortraitManager(playerPortraitDirectory)
   );
   playerAvatar.position = new Vector3(
     spawnPosition.x,
@@ -1280,7 +1598,10 @@ const rebuildCharacters = async (
     getAssignedPortraitDirectories(assignments),
     session
   );
+  await ensureFirstPersonBodySheet(playerPortraitDirectory);
   playerAvatar.dispose();
+  playerPortraitManager?.dispose();
+  playerPortraitManager = null;
   npcs.length = 0;
   createCharacters();
 };
@@ -1290,8 +1611,89 @@ await ensurePortraitManagersIfNeeded(
   getAssignedPortraitDirectories(initialCharacterAssignments),
   initialLoadingSession
 );
+await ensureFirstPersonBodySheet(playerPortraitDirectory);
 createCharacters();
 initialLoadingSession.finish();
+
+const clearStageReflectiveResources = () => {
+  for (const reflectiveMaterial of stageParts.reflectiveMaterials) {
+    reflectiveMaterial.dispose();
+  }
+  stageParts.reflectiveMaterials.length = 0;
+  for (const reflectiveTexture of stageParts.reflectiveTextures) {
+    reflectiveTexture.dispose();
+  }
+  stageParts.reflectiveTextures.length = 0;
+  for (const reflectiveSurface of stageParts.reflectiveSurfaces) {
+    reflectiveSurface.mesh.material = null;
+  }
+};
+const createReflectionTexture = (
+  name: string,
+  mirrorPlane: Plane,
+  blur: number,
+  ratio: number,
+  excludedMeshIds: ReadonlySet<number>
+) => {
+  const mirrorTexture = new MirrorTexture(name, { ratio }, scene);
+  mirrorTexture.mirrorPlane = mirrorPlane;
+  mirrorTexture.activeCamera = reflectionCamera;
+  mirrorTexture.renderSprites = true;
+  mirrorTexture.forceLayerMaskCheck = true;
+  mirrorTexture.renderListPredicate = (mesh) =>
+    !excludedMeshIds.has(mesh.uniqueId);
+  if (blur > 0) {
+    mirrorTexture.adaptiveBlurKernel = blur;
+  }
+  return mirrorTexture;
+};
+const createReflectiveMaterial = (
+  name: string,
+  reflectionTexture: MirrorTexture,
+  tint: Color3,
+  amount: number
+) => {
+  const material = new StandardMaterial(name, scene);
+  material.disableLighting = true;
+  material.backFaceCulling = false;
+  material.specularColor = Color3.Black();
+  reflectionTexture.level = amount;
+  material.reflectionTexture = reflectionTexture;
+  material.diffuseColor = tint.scale(1 - amount);
+  material.emissiveColor = tint.scale((1 - amount) * 0.35);
+  return material;
+};
+const syncStageReflectiveSurfaces = () => {
+  clearStageReflectiveResources();
+  if (stageParts.reflectiveSurfaces.length === 0) {
+    return;
+  }
+  const excludedReflectiveMeshIds = new Set(
+    stageParts.reflectiveSurfaces.map(
+      (reflectiveSurface) => reflectiveSurface.mesh.uniqueId
+    )
+  );
+  for (let index = 0; index < stageParts.reflectiveSurfaces.length; index += 1) {
+    const reflectiveSurface = stageParts.reflectiveSurfaces[index];
+    const reflectionTexture = createReflectionTexture(
+      `mirrorReflectionTexture_${index}`,
+      reflectiveSurface.mirrorPlane,
+      reflectiveSurface.blur,
+      1,
+      excludedReflectiveMeshIds
+    );
+    stageParts.reflectiveTextures.push(reflectionTexture);
+    const material = createReflectiveMaterial(
+      `mirrorMaterial_${index}`,
+      reflectionTexture,
+      reflectiveSurface.tint,
+      reflectiveSurface.amount
+    );
+    reflectiveSurface.mesh.material = material;
+    stageParts.reflectiveMaterials.push(material);
+  }
+};
+syncStageReflectiveSurfaces();
 
 const bitMaterials = createBitMaterials(scene);
 const redBitMaterials = createBitMaterials(scene);
@@ -1575,7 +1977,8 @@ const applyStageSelection = async (selection: StageSelection) => {
   titleStageSelectControl.setSelectedStageId(selection.id);
   titleSettingsSidebar.setStageId(selection.id);
   const nextCharacterAssignments = buildCharacterAssignments(
-    runtimeDefaultStartSettings.initialNpcCount
+    runtimeDefaultStartSettings.initialNpcCount,
+    titlePlayerSettings
   );
   const loadingSession = createTitleLoadingSession(
     1 + countUnloadedPortraitDirectoriesForAssignments(nextCharacterAssignments)
@@ -1597,6 +2000,7 @@ const applyStageSelection = async (selection: StageSelection) => {
     disposeStageParts(stageParts);
     stageContext = buildStageContext(scene, stageJson);
     updateStageState();
+    syncStageReflectiveSurfaces();
     trapSystem.syncStageContext({ layout, bounds });
     trapSystem.resetRuntimeState();
     dynamicBeamSystem.syncStageContext({
@@ -3299,6 +3703,7 @@ const updateCharacterSpriteCells = () => {
       1 - playerNoGunTouchBrainwashTimer / noGunTouchBrainwashDuration;
     playerAvatar.cellIndex = getNoGunTouchBrainwashCellIndex(progress);
   }
+  redrawFirstPersonBodyTexture(playerAvatar.cellIndex);
   for (const npc of npcs) {
     npc.sprite.cellIndex = getPortraitCellIndex(npc.state);
     if (npc.noGunTouchBrainwashTimer > 0) {
@@ -3307,6 +3712,25 @@ const updateCharacterSpriteCells = () => {
       npc.sprite.cellIndex = getNoGunTouchBrainwashCellIndex(progress);
     }
   }
+};
+
+const syncPlayerPresentation = () => {
+  if (playerPortraitManager) {
+    playerPortraitManager.layerMask =
+      shouldHidePlayerAvatarFromMainCamera(gamePhase)
+        ? reflectionOnlyLayerMask
+        : worldLayerMask;
+  }
+  if (gamePhase === "playing") {
+    playerAvatar.isVisible = true;
+    playerAvatar.position.set(
+      camera.position.x,
+      playerAvatar.height * 0.5,
+      camera.position.z
+    );
+    alignSpriteToGround(playerAvatar);
+  }
+  syncFirstPersonBodyVisibility();
 };
 
 const resetGame = async (
@@ -3465,7 +3889,8 @@ const returnToTitle = async () => {
     gameFlow.resetFade();
     syncTitleMessage();
     const nextCharacterAssignments = buildCharacterAssignments(
-      runtimeDefaultStartSettings.initialNpcCount
+      runtimeDefaultStartSettings.initialNpcCount,
+      titlePlayerSettings
     );
     const unloadedDirectories = countUnloadedPortraitDirectoriesForAssignments(
       nextCharacterAssignments
@@ -3872,7 +4297,12 @@ engine.runRenderLoop(() => {
     gameFlow.updateAssembly(delta);
   }
 
+  if (gamePhase === "playing" || gamePhase === "roulette") {
+    camera.position.y = getEyeHeight();
+  }
   updateCharacterSpriteCells();
+  syncPlayerPresentation();
+  syncReflectionCamera();
   updateVoices(delta);
   gameFlow.updateFade(delta);
   audioManager.updateSpatial();
