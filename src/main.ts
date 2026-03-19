@@ -786,6 +786,10 @@ camera.layerMask = worldLayerMask | firstPersonBodyLayerMask;
 camera.minZ = 0.02;
 const baseCameraSpeed = 0.02;
 const playerMoveSpeed = baseCameraSpeed * Math.sqrt(10);
+const playerDashSpeedMultiplier = 1.7;
+const playerStaminaMaxTenths = 150;
+const playerStaminaDrainInterval = 0.1;
+const playerStaminaRecoverInterval = 0.2;
 camera.speed = 0;
 camera.angularSensibility = 1500;
 camera.keysUp = [87];
@@ -1897,12 +1901,14 @@ const playerMoveInput: Record<MoveKey, boolean> = {
   left: false,
   right: false
 };
+let playerDashPressed = false;
 
 const resetPlayerMoveInput = () => {
   playerMoveInput.forward = false;
   playerMoveInput.back = false;
   playerMoveInput.left = false;
   playerMoveInput.right = false;
+  playerDashPressed = false;
 };
 
 
@@ -1920,6 +1926,9 @@ let playerHitFadeDurationCurrent = playerHitFadeDuration;
 let playerNoGunTouchBrainwashTimer = 0;
 let playerHitById: string | null = null;
 let playerHitTime = 0;
+let playerStaminaTenths = playerStaminaMaxTenths;
+let playerStaminaDrainTimer = 0;
+let playerStaminaRecoverTimer = 0;
 let trapSurviveCountAtBrainwash: number | null = null;
 let allDownTime: number | null = null;
 let brainwashChoiceStarted = false;
@@ -1970,6 +1979,102 @@ let bitIndex = bits.length;
 
 const hud = createHud();
 hud.setMinimapReadoutVisible(minimapReadoutVisible);
+const isPlayerDashState = () => {
+  if (gamePhase !== "playing" || !playerDashPressed) {
+    return false;
+  }
+  if (isBrainwashState(playerState)) {
+    return true;
+  }
+  return playerStaminaTenths > 0;
+};
+const getPlayerMoveAxes = () => {
+  let moveX = 0;
+  let moveZ = 0;
+  if (playerMoveInput.forward) {
+    moveZ += 1;
+  }
+  if (playerMoveInput.back) {
+    moveZ -= 1;
+  }
+  if (playerMoveInput.right) {
+    moveX += 1;
+  }
+  if (playerMoveInput.left) {
+    moveX -= 1;
+  }
+  return { moveX, moveZ };
+};
+const hasPlayerMoveInput = () => {
+  const { moveX, moveZ } = getPlayerMoveAxes();
+  return moveX !== 0 || moveZ !== 0;
+};
+const updatePlayerStamina = (delta: number, moving: boolean) => {
+  if (gamePhase !== "playing") {
+    playerStaminaDrainTimer = 0;
+    playerStaminaRecoverTimer = 0;
+    return;
+  }
+  if (isBrainwashState(playerState)) {
+    playerStaminaTenths = playerStaminaMaxTenths;
+    playerStaminaDrainTimer = 0;
+    playerStaminaRecoverTimer = 0;
+    return;
+  }
+
+  const consumeStamina = playerDashPressed && playerStaminaTenths > 0 && moving;
+  const blockRecovery = playerDashPressed && playerStaminaTenths <= 0 && moving;
+  if (consumeStamina) {
+    playerStaminaRecoverTimer = 0;
+    playerStaminaDrainTimer += delta;
+    while (
+      playerStaminaDrainTimer >= playerStaminaDrainInterval &&
+      playerStaminaTenths > 0
+    ) {
+      playerStaminaDrainTimer -= playerStaminaDrainInterval;
+      playerStaminaTenths -= 1;
+    }
+    if (playerStaminaTenths <= 0) {
+      playerStaminaTenths = 0;
+      playerStaminaDrainTimer = 0;
+    }
+    return;
+  }
+
+  playerStaminaDrainTimer = 0;
+  if (blockRecovery) {
+    playerStaminaRecoverTimer = 0;
+    return;
+  }
+  if (playerStaminaTenths >= playerStaminaMaxTenths) {
+    playerStaminaTenths = playerStaminaMaxTenths;
+    playerStaminaRecoverTimer = 0;
+    return;
+  }
+
+  playerStaminaRecoverTimer += delta;
+  while (
+    playerStaminaRecoverTimer >= playerStaminaRecoverInterval &&
+    playerStaminaTenths < playerStaminaMaxTenths
+  ) {
+    playerStaminaRecoverTimer -= playerStaminaRecoverInterval;
+    playerStaminaTenths += 1;
+  }
+  if (playerStaminaTenths >= playerStaminaMaxTenths) {
+    playerStaminaTenths = playerStaminaMaxTenths;
+    playerStaminaRecoverTimer = 0;
+  }
+};
+const syncPlayerStaminaGauge = () => {
+  const visible = gamePhase === "playing";
+  hud.setStaminaGaugeVisible(visible);
+  if (!visible) {
+    return;
+  }
+  const brainwashed = isBrainwashState(playerState);
+  const current = brainwashed ? playerStaminaMaxTenths : playerStaminaTenths;
+  hud.setStaminaGauge(current, playerStaminaMaxTenths, brainwashed);
+};
 const applyStageSelection = async (selection: StageSelection) => {
   const requestId = stageSelectionRequestId + 1;
   stageSelectionRequestId = requestId;
@@ -2704,24 +2809,15 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
   }
 };
 
-const updatePlayerMovement = (delta: number, allowMove: boolean) => {
+const updatePlayerMovement = (
+  delta: number,
+  allowMove: boolean,
+  moveSpeed: number
+) => {
   if (!allowMove) {
     return;
   }
-  let moveX = 0;
-  let moveZ = 0;
-  if (playerMoveInput.forward) {
-    moveZ += 1;
-  }
-  if (playerMoveInput.back) {
-    moveZ -= 1;
-  }
-  if (playerMoveInput.right) {
-    moveX += 1;
-  }
-  if (playerMoveInput.left) {
-    moveX -= 1;
-  }
+  const { moveX, moveZ } = getPlayerMoveAxes();
   if (moveX !== 0 || moveZ !== 0) {
     const forward = camera.getDirection(new Vector3(0, 0, 1));
     forward.y = 0;
@@ -2736,7 +2832,7 @@ const updatePlayerMovement = (delta: number, allowMove: boolean) => {
     }
     if (moveDirection.lengthSquared() > 0.0001) {
       camera.cameraDirection.addInPlace(
-        moveDirection.scale(playerMoveSpeed * delta)
+        moveDirection.scale(moveSpeed * delta)
       );
     }
   }
@@ -2786,7 +2882,7 @@ const updateExecutionScene = (
   }
 
   if (executionAllowPlayerMove) {
-    updatePlayerMovement(delta, true);
+    updatePlayerMovement(delta, true, playerMoveSpeed);
   }
 
   if (executionWaitForFade && !gameFlow.isFading()) {
@@ -3515,7 +3611,7 @@ const drawMinimap = () => {
   } else if (brainwashChoiceStarted) {
     const promptLines: string[] = ["操作説明"];
     if (canMove) {
-      promptLines.push("WASD: 移動");
+      promptLines.push("WASD: 移動", "Shift: ダッシュ");
     }
     if (brainwashChoiceUnlocked) {
       promptLines.push(
@@ -3530,7 +3626,7 @@ const drawMinimap = () => {
     promptLines.push("R: リトライ", "Enter: エピローグへ");
     helpPanelText = promptLines.join("\n");
   } else if (canMove) {
-    helpPanelText = "操作説明\nWASD: 移動";
+    helpPanelText = "操作説明\nWASD: 移動\nShift: ダッシュ";
   }
   hud.setHelpPanelText(helpPanelText);
 
@@ -3559,6 +3655,7 @@ scene.onBeforeRenderObservable.add(() => {
     camera.position.y = getEyeHeight();
     drawMinimap();
   }
+  syncPlayerStaminaGauge();
 });
 
 const enterPlayerPostHitBrainwashState = () => {
@@ -3762,6 +3859,9 @@ const resetGame = async (
     : "normal";
   playerHitById = null;
   playerHitTime = 0;
+  playerStaminaTenths = playerStaminaMaxTenths;
+  playerStaminaDrainTimer = 0;
+  playerStaminaRecoverTimer = 0;
   trapSurviveCountAtBrainwash = null;
   playerHitDurationCurrent = playerHitDuration;
   playerHitFadeDurationCurrent = playerHitFadeDuration;
@@ -3991,6 +4091,9 @@ setupInputHandlers({
     }
     playerMoveInput[key] = pressed;
   },
+  onDashKey: (pressed) => {
+    playerDashPressed = pressed;
+  },
   onPlayerFire: (origin, direction) => {
     beams.push(createBeam(scene, origin, direction, beamMaterial, "player"));
     const firePosition = origin.clone();
@@ -4135,7 +4238,12 @@ engine.runRenderLoop(() => {
       playerState === "brainwash-complete-gun" ||
       playerState === "brainwash-complete-no-gun";
     const allowMove = canMove && !playerBlockedByNpc;
-    updatePlayerMovement(delta, allowMove);
+    const movingForStamina = allowMove && hasPlayerMoveInput();
+    const playerCurrentMoveSpeed = isPlayerDashState()
+      ? playerMoveSpeed * playerDashSpeedMultiplier
+      : playerMoveSpeed;
+    updatePlayerMovement(delta, allowMove, playerCurrentMoveSpeed);
+    updatePlayerStamina(delta, movingForStamina);
 
     const executionCandidate = findPublicExecutionCandidate();
     if (executionCandidate) {
@@ -4316,7 +4424,7 @@ engine.runRenderLoop(() => {
   }
 
   if (gamePhase === "assemblyFree") {
-    updatePlayerMovement(delta, true);
+    updatePlayerMovement(delta, true, playerMoveSpeed);
   }
 
   if (

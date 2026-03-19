@@ -28,6 +28,12 @@ export type Hud = {
   setFadeOpacity: (value: number) => void;
   setMinimapReadoutVisible: (visible: boolean) => void;
   setCrosshairVisible: (visible: boolean) => void;
+  setStaminaGaugeVisible: (visible: boolean) => void;
+  setStaminaGauge: (
+    current: number,
+    max: number,
+    brainwashed: boolean
+  ) => void;
   drawMinimap: (params: DrawMinimapParams) => void;
 };
 
@@ -40,6 +46,10 @@ export const createHud = (): Hud => {
     document.getElementById("statusInfo") as unknown as HTMLDivElement;
   const helpPanel =
     document.getElementById("helpPanel") as unknown as HTMLDivElement;
+  const staminaGauge =
+    document.getElementById("staminaGauge") as unknown as HTMLDivElement;
+  const staminaGaugeFill =
+    document.getElementById("staminaGaugeFill") as unknown as HTMLDivElement;
   const titleOverlay =
     document.getElementById("titleOverlay") as unknown as HTMLDivElement;
   const titleMessage =
@@ -56,6 +66,7 @@ export const createHud = (): Hud => {
   let hudVisible = true;
   let minimapReadoutVisible = false;
   let helpPanelText: string | null = null;
+  let staminaGaugeVisible = false;
   const minimap = {
     sizePixels: 180,
     windowCells: 18 * CELL_SCALE,
@@ -70,6 +81,11 @@ export const createHud = (): Hud => {
       hudVisible && minimapReadoutVisible ? "block" : "none";
   };
 
+  const applyStaminaGaugeDisplay = () => {
+    staminaGauge.style.display =
+      hudVisible && staminaGaugeVisible ? "block" : "none";
+  };
+
   const applyHelpPanelDisplay = () => {
     helpPanel.textContent = helpPanelText ?? "";
     helpPanel.style.display = helpPanelText ? "block" : "none";
@@ -82,6 +98,7 @@ export const createHud = (): Hud => {
     statusInfo.style.display = display;
     crosshair.style.display = "none";
     applyMinimapReadoutDisplay();
+    applyStaminaGaugeDisplay();
   };
 
   const setTitleVisible = (visible: boolean) => {
@@ -108,6 +125,22 @@ export const createHud = (): Hud => {
 
   const setCrosshairVisible = (visible: boolean) => {
     crosshair.style.display = visible ? "block" : "none";
+  };
+
+  const setStaminaGaugeVisible = (visible: boolean) => {
+    staminaGaugeVisible = visible;
+    applyStaminaGaugeDisplay();
+  };
+
+  const setStaminaGauge = (
+    current: number,
+    max: number,
+    brainwashed: boolean
+  ) => {
+    const fillRatio =
+      max > 0 ? Math.max(0, Math.min(current, max)) / max : 0;
+    staminaGaugeFill.style.height = `${(fillRatio * 100).toFixed(1)}%`;
+    staminaGaugeFill.style.background = brainwashed ? "#ff66b5" : "#f5f5f5";
   };
 
   const drawMinimap = ({
@@ -307,6 +340,8 @@ export const createHud = (): Hud => {
 
   applyMinimapReadoutDisplay();
   applyHelpPanelDisplay();
+  applyStaminaGaugeDisplay();
+  setStaminaGauge(0, 1, false);
 
   return {
     setHudVisible,
@@ -316,6 +351,8 @@ export const createHud = (): Hud => {
     setFadeOpacity,
     setMinimapReadoutVisible,
     setCrosshairVisible,
+    setStaminaGaugeVisible,
+    setStaminaGauge,
     drawMinimap
   };
 };
