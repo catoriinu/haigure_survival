@@ -1886,7 +1886,7 @@ const publicExecutionBeamDelayMin = 2;
 const publicExecutionBeamDelayMax = 10;
 const executionHitFadeDuration = playerHitFadeDuration;
 
-const playerBlockRadius = playerWidth;
+const playerNoGunTouchContactRadius = 0.5;
 const getSpriteBeamHitRadii = (sprite: Sprite) =>
   createBeamHitRadii(sprite.width, sprite.height);
 
@@ -4019,7 +4019,13 @@ engine.runRenderLoop(() => {
     updatePlayerState(delta, elapsedTime, shouldProcessOrb);
     const npcBlockers =
       playerState === "brainwash-complete-no-gun"
-        ? [{ position: camera.position, radius: playerBlockRadius, sourceId: "player" }]
+        ? [
+            {
+              position: camera.position,
+              radius: playerNoGunTouchContactRadius,
+              sourceId: "player"
+            }
+          ]
         : [];
     const npcEvadeThreats = npcs.map(() => [] as Vector3[]);
     for (const bit of bits) {

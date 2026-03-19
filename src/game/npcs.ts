@@ -123,7 +123,7 @@ const npcBrainwashFireRange = 1.5;
 const npcBrainwashFireRangeSq = npcBrainwashFireRange * npcBrainwashFireRange;
 const npcBrainwashFireIntervalMin = 1.4;
 const npcBrainwashFireIntervalMax = 2.2;
-const npcBrainwashBlockRadius = NPC_SPRITE_WIDTH * 0.7;
+const npcNoGunTouchContactRadius = 0.17;
 const npcBrainwashBlockDuration = 20;
 const npcBrainwashBreakAwayDuration = 2.5;
 const npcBrainwashBreakAwaySpeed = 0.27;
@@ -372,7 +372,7 @@ export const updateNpcs = (
     }
     activeBlockers.push({
       position: blockedTarget.position,
-      radius: npcBrainwashBlockRadius,
+      radius: npcNoGunTouchContactRadius,
       sourceId: npc.sprite.name
     });
     if (blockedTarget.id === "player") {
@@ -748,7 +748,8 @@ export const updateNpcs = (
         return null;
       }
       let candidateTarget: TargetInfo | null = null;
-      let candidateDistanceSq = npcBrainwashBlockRadius * npcBrainwashBlockRadius;
+      let candidateDistanceSq =
+        npcNoGunTouchContactRadius * npcNoGunTouchContactRadius;
       for (const candidate of brainwashTargets) {
         const distanceSq = Vector3.DistanceSquared(
           npc.sprite.position,
@@ -887,7 +888,7 @@ export const updateNpcs = (
       });
       activeBlockers.push({
         position: touchTarget.position,
-        radius: npcBrainwashBlockRadius,
+        radius: npcNoGunTouchContactRadius,
         sourceId: npc.sprite.name
       });
       if (touchTarget.id === "player") {

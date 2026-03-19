@@ -1,24 +1,26 @@
-# 操作説明パネル統一 計画
+# 接触判定距離分離 計画
 
 更新日: 2026-03-19
 
 ## プロンプト
-通常HUDを、「全滅後の整列」「その後の待機/自由移動」「公開処刑」のようなタイミングで中身を書き換えれば十分ではないでしょうか。
-そうすれば `overlayHelp` 関連の実装を消せるはずです。
-`helpPanel` に統一し、`helpPanel` だけは `hudVisible` と独立制御にしてください。
-フェード中はパネルを非表示にし、フェード明けに再表示してください。
+「銃なしに触れたら洗脳」状態ON時の洗脳判定や、OFF時の移動封じ判定に使っている「触れた」の判定距離について、
+プレイヤーがNPCに「触れた」場合と、NPCがNPCやプレイヤーに「触れた」場合とでは、個別に距離を設定できるようにしてください
+
+距離はUIで設定はしません。固定値で良いです。
+
+プレイヤー由来を0.50に、
+NPC由来を0.17に変えてください
 
 ## ステップ
-- [x] `helpPanel` と `overlayHelp` の責務差分と依存箇所を洗い出す
-- [x] HUD・DOM・スタイルから `overlayHelp` を削除し、`helpPanel` 一本化へ変更する
-- [x] 通常プレイ・ルーレット・全滅後・公開処刑の操作説明更新経路を `helpPanel` に統一する
-- [x] フェード遷移開始時に操作説明を消し、遷移先で再表示する制御へ置き換える
-- [x] `npm run build` で確認し、結果を `docs/plan.md` に反映する
+- [x] 既存 `docs/plan.md` を退避し、今回タスク用の計画ファイルへ切り替える
+- [x] プレイヤー由来接触距離を `0.33` の独立定数として `src/main.ts` に反映する
+- [x] NPC由来接触距離を `0.14` の独立定数として `src/game/npcs.ts` に明示する
+- [x] 接触分岐の括弧対応を含めて差分を確認する
+- [x] `npm run build` を実行し、結果を計画へ反映する
 
 ## 結果
-- 実装着手前に、`overlayHelp` が `hud.setStateInfo()` 専用DOM、`helpPanel` が `drawMinimap()` 内 `retryText` 専用DOMとして二重化されていることを確認した。
-- `beginFadeOut()` を使う遷移は、全滅後整列開始、エピローグ移行、公開処刑開始、公開処刑リプレイ、ルーレット Undo に存在することを確認した。
-- `src/ui/hud.ts` は `setHelpPanelText()` と内部保持テキストで `helpPanel` を制御する構成へ変更し、`DrawMinimapParams.retryText` と `setStateInfo()` を削除した。
-- `src/main.ts` は通常プレイ・ルーレットの操作説明を毎フレーム `helpPanel` へ流す構成へ変更し、全 `beginFadeOut()` 呼び出し前、ゲーム開始、タイトル復帰、ステージ再初期化時に `helpPanel` を明示クリアするようにした。
-- `src/game/flow.ts` は整列と公開処刑のフェーズ突入時に `helpPanel` 文言を設定する構成へ変更し、`index.html` と `src/style.css` から `overlayHelp` を削除した。
-- `npm run build` は成功した。Vite の 500kB 超チャンク警告は出たが、今回変更による新規エラーはなかった。
+- 既存の `docs/plan.md` は `docs/plan_2026-03-19_help-panel-unification-prev.md` へ退避し、今回タスク用の計画へ差し替えた。
+- `src/main.ts` では、プレイヤーが `brainwash-complete-no-gun` 状態で接触元になるケースの半径を `playerNoGunTouchContactRadius = 0.5` として独立させ、NPCへの接触洗脳判定と移動封じ判定の両方に反映した。
+- `src/game/npcs.ts` では、NPCが接触元になるケースの半径を `npcNoGunTouchContactRadius = 0.17` として明示し、NPC→プレイヤー/NPC の接触判定と、接触後に生成する移動封じ半径の両方に反映した。
+- `src/game/npcs.ts` の接触分岐周辺と `src/main.ts` の `npcBlockers` 生成部を確認し、括弧対応や分岐構造の崩れがないことを確認した。
+- `npm run build` は成功した。既存どおり、Vite の CJS API 非推奨警告と 500kB 超チャンク警告は出たが、今回変更による新規エラーはなかった。
