@@ -169,6 +169,13 @@ export const createGameFlow = ({
   let assemblyNpcRoutes: AssemblyRoute[] = [];
   let assemblyElapsed = 0;
   let executionCameraFollowAvatar = false;
+  const assemblyHelpPanelText = "操作説明\nWASD: 移動\nEnter: タイトルへ";
+  const executionHelpPanelTextByVariant = {
+    playerSurvivor: "操作説明\nEnter: タイトルへ\nR: リプレイ",
+    npcSurvivorPlayerBlock:
+      "操作説明\nWASD: 移動\nEnter: タイトルへ\nR: リプレイ",
+    npcSurvivorNpcBlock: "操作説明\nEnter: タイトルへ\nR: リプレイ"
+  } as const;
   const followCameraOffset = playerAvatar.width * 0.9;
   const setPlayerAvatarState = (state: CharacterState) => {
     setPlayerState(state);
@@ -500,7 +507,7 @@ export const createGameFlow = ({
     assemblyElapsed = 0;
     hud.setHudVisible(false);
     hud.setTitleVisible(false);
-    hud.setStateInfo("操作説明\nWASD: 移動\nEnter: タイトルへ");
+    hud.setHelpPanelText(assemblyHelpPanelText);
     hud.setCrosshairVisible(false);
     setPlayerAvatarState("brainwash-complete-haigure-formation");
     const playerStartPosition = new Vector3(
@@ -571,11 +578,15 @@ export const createGameFlow = ({
     hud.setHudVisible(false);
     hud.setTitleVisible(false);
     if (config.variant === "npc-survivor-player-block") {
-      hud.setStateInfo(
-        "操作説明\nWASD: 移動\nEnter: タイトルへ\nR: リプレイ"
+      hud.setHelpPanelText(
+        executionHelpPanelTextByVariant.npcSurvivorPlayerBlock
+      );
+    } else if (config.variant === "npc-survivor-npc-block") {
+      hud.setHelpPanelText(
+        executionHelpPanelTextByVariant.npcSurvivorNpcBlock
       );
     } else {
-      hud.setStateInfo("操作説明\nEnter: タイトルへ\nR: リプレイ");
+      hud.setHelpPanelText(executionHelpPanelTextByVariant.playerSurvivor);
     }
     hud.setCrosshairVisible(config.variant === "npc-survivor-player-block");
 

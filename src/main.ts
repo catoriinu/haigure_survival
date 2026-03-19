@@ -2028,7 +2028,7 @@ const applyStageSelection = async (selection: StageSelection) => {
       }
       hud.setTitleVisible(true);
       hud.setHudVisible(false);
-      hud.setStateInfo(null);
+      hud.setHelpPanelText(null);
       gameFlow.resetFade();
     }
   } finally {
@@ -2433,6 +2433,7 @@ const startPublicExecutionTransition = (scenario: PublicExecutionScenario) => {
   publicExecutionTriggerTimer = 0;
   gamePhase = "transition";
   hud.setHudVisible(false);
+  hud.setHelpPanelText(null);
   gameFlow.beginFadeOut(() => {
     removeCarpetFollowers();
     enterPublicExecution(scenario);
@@ -3283,10 +3284,10 @@ rouletteSystem = createRouletteSystem({
   applyCharacterSnapshot: applyRouletteCharacterSnapshot,
   beginUndoTransition: (apply) => {
     gamePhase = "transition";
+    hud.setHelpPanelText(null);
     gameFlow.beginFadeOut(() => {
       apply();
       gamePhase = "roulette";
-      hud.setStateInfo(null);
     });
   },
   prepareUndoState: () => {
@@ -3297,7 +3298,7 @@ rouletteSystem = createRouletteSystem({
 
 const startRouletteMode = () => {
   rouletteSystem.start(true);
-  hud.setStateInfo(null);
+  hud.setHelpPanelText(null);
 };
 
 const undoRouletteRound = () => {
@@ -3372,7 +3373,7 @@ const rebuildGameFlow = () => {
 
 hud.setHudVisible(false);
 hud.setTitleVisible(true);
-hud.setStateInfo(null);
+hud.setHelpPanelText(null);
 gameFlow.resetFade();
 
 const isInterruptibleBit = (bit: Bit) => {
@@ -3508,9 +3509,9 @@ const drawMinimap = () => {
     (rouletteMode && isBrainwashState(playerState));
   const surviveTime = showSurviveTime ? playerHitTime : null;
   const displayElapsedTime = rouletteStats ? rouletteStats.elapsed : elapsedTime;
-  let retryText: string | null = null;
+  let helpPanelText: string | null = null;
   if (rouletteMode) {
-    retryText = "操作説明\nR: 1回分やりなおす\nEnter: タイトルへ";
+    helpPanelText = "操作説明\nR: 1回分やりなおす\nEnter: タイトルへ";
   } else if (brainwashChoiceStarted) {
     const promptLines: string[] = ["操作説明"];
     if (canMove) {
@@ -3527,10 +3528,11 @@ const drawMinimap = () => {
       promptLines.push("左クリック: 発射");
     }
     promptLines.push("R: リトライ", "Enter: エピローグへ");
-    retryText = promptLines.join("\n");
+    helpPanelText = promptLines.join("\n");
   } else if (canMove) {
-    retryText = "操作説明\nWASD: 移動";
+    helpPanelText = "操作説明\nWASD: 移動";
   }
+  hud.setHelpPanelText(helpPanelText);
 
   hud.drawMinimap({
     cameraPosition: camera.position,
@@ -3547,7 +3549,6 @@ const drawMinimap = () => {
     rouletteRoundCount: rouletteRoundCountValue,
     rouletteSurviveCount: rouletteSurviveCountValue,
     aliveCount,
-    retryText,
     showCrosshair: playerState === "brainwash-complete-gun",
     trackedNpcPositions
   });
@@ -3865,7 +3866,7 @@ const startGame = async () => {
     titleStageSelectControl.setVisible(false);
     titleSettingsSidebar.setVisible(false);
     hud.setHudVisible(true);
-    hud.setStateInfo(null);
+    hud.setHelpPanelText(null);
     gameFlow.resetFade();
     canvas.requestPointerLock();
   } finally {
@@ -3887,7 +3888,7 @@ const returnToTitle = async () => {
     titleStageSelectControl.setVisible(true);
     titleSettingsSidebar.setVisible(true);
     hud.setHudVisible(false);
-    hud.setStateInfo(null);
+    hud.setHelpPanelText(null);
     gameFlow.resetFade();
     syncTitleMessage();
     const nextCharacterAssignments = buildCharacterAssignments(
@@ -3958,6 +3959,7 @@ setupInputHandlers({
   onEnterEpilogue: () => {
     gamePhase = "transition";
     hud.setHudVisible(false);
+    hud.setHelpPanelText(null);
     gameFlow.beginFadeOut(() => {
       removeCarpetFollowers();
       gameFlow.enterAssembly("instant");
@@ -3972,6 +3974,7 @@ setupInputHandlers({
   onReplayExecution: () => {
     gamePhase = "transition";
     hud.setHudVisible(false);
+    hud.setHelpPanelText(null);
     gameFlow.beginFadeOut(() => {
       enterPublicExecution(executionScenario!);
     });
@@ -4174,6 +4177,7 @@ engine.runRenderLoop(() => {
         if (skipAssembly) {
           gamePhase = "transition";
           hud.setHudVisible(false);
+          hud.setHelpPanelText(null);
           gameFlow.beginFadeOut(() => {
             removeCarpetFollowers();
             gameFlow.enterAssembly("instant");

@@ -16,7 +16,6 @@ export type DrawMinimapParams = {
   rouletteRoundCount: number | null;
   rouletteSurviveCount: number | null;
   aliveCount: number;
-  retryText: string | null;
   showCrosshair: boolean;
   trackedNpcPositions: Vector3[];
 };
@@ -25,7 +24,7 @@ export type Hud = {
   setHudVisible: (visible: boolean) => void;
   setTitleVisible: (visible: boolean) => void;
   setTitleText: (text: string) => void;
-  setStateInfo: (text: string | null) => void;
+  setHelpPanelText: (text: string | null) => void;
   setFadeOpacity: (value: number) => void;
   setMinimapReadoutVisible: (visible: boolean) => void;
   setCrosshairVisible: (visible: boolean) => void;
@@ -45,8 +44,6 @@ export const createHud = (): Hud => {
     document.getElementById("titleOverlay") as unknown as HTMLDivElement;
   const titleMessage =
     document.getElementById("titleMessage") as unknown as HTMLDivElement;
-  const overlayHelp =
-    document.getElementById("overlayHelp") as unknown as HTMLDivElement;
   const fadeOverlay =
     document.getElementById("fadeOverlay") as unknown as HTMLDivElement;
   const crosshair =
@@ -58,6 +55,7 @@ export const createHud = (): Hud => {
   minimapContext.imageSmoothingQuality = "high";
   let hudVisible = true;
   let minimapReadoutVisible = false;
+  let helpPanelText: string | null = null;
   const minimap = {
     sizePixels: 180,
     windowCells: 18 * CELL_SCALE,
@@ -72,12 +70,16 @@ export const createHud = (): Hud => {
       hudVisible && minimapReadoutVisible ? "block" : "none";
   };
 
+  const applyHelpPanelDisplay = () => {
+    helpPanel.textContent = helpPanelText ?? "";
+    helpPanel.style.display = helpPanelText ? "block" : "none";
+  };
+
   const setHudVisible = (visible: boolean) => {
     hudVisible = visible;
     const display = visible ? "block" : "none";
     minimapCanvas.style.display = display;
     statusInfo.style.display = display;
-    helpPanel.style.display = "none";
     crosshair.style.display = "none";
     applyMinimapReadoutDisplay();
   };
@@ -90,14 +92,9 @@ export const createHud = (): Hud => {
     titleMessage.textContent = text;
   };
 
-  const setStateInfo = (text: string | null) => {
-    if (text) {
-      overlayHelp.textContent = text;
-      overlayHelp.style.display = "block";
-    } else {
-      overlayHelp.textContent = "";
-      overlayHelp.style.display = "none";
-    }
+  const setHelpPanelText = (text: string | null) => {
+    helpPanelText = text;
+    applyHelpPanelDisplay();
   };
 
   const setFadeOpacity = (value: number) => {
@@ -128,7 +125,6 @@ export const createHud = (): Hud => {
     rouletteRoundCount,
     rouletteSurviveCount,
     aliveCount,
-    retryText,
     showCrosshair,
     trackedNpcPositions
   }: DrawMinimapParams) => {
@@ -306,19 +302,17 @@ export const createHud = (): Hud => {
     minimapContext.fillStyle = "#f5f5f5";
     minimapContext.fillText("N", northX, northY);
 
-    helpPanel.style.display = retryText ? "block" : "none";
-    helpPanel.textContent = retryText ?? "";
-
     crosshair.style.display = showCrosshair ? "block" : "none";
   };
 
   applyMinimapReadoutDisplay();
+  applyHelpPanelDisplay();
 
   return {
     setHudVisible,
     setTitleVisible,
     setTitleText,
-    setStateInfo,
+    setHelpPanelText,
     setFadeOpacity,
     setMinimapReadoutVisible,
     setCrosshairVisible,
