@@ -92,6 +92,8 @@ import {
 } from "./audio/audio";
 import {
   createVoiceActor,
+  getVoiceDirectories,
+  getVoiceProfileIdByDirectory,
   stopVoiceActor,
   updateVoiceActor,
   voiceProfiles,
@@ -121,7 +123,7 @@ import { createVolumePanel, type VolumeLevels } from "./ui/volumePanel";
 import type { BitSpawnSettings } from "./ui/bitSpawnPanel";
 import type { DefaultStartSettings } from "./ui/defaultSettingsPanel";
 import type { BrainwashSettings } from "./ui/brainwashSettingsPanel";
-import type { CameraSettings } from "./ui/cameraSettingsPanel";
+import type { PlayerSettings } from "./ui/playerSettingsPanel";
 import {
   buildDefaultPersistedTitleSettings,
   clearPersistedTitleSettings,
@@ -244,26 +246,41 @@ const shuffleIdsInPlace = (ids: string[]) => {
 };
 const pickRandomIdFromPool = (ids: readonly string[]) =>
   ids[Math.floor(Math.random() * ids.length)]!;
-const buildCharacterAssignments = (npcCount: number): CharacterAssignments => {
+const buildCharacterAssignments = (
+  npcCount: number,
+  playerSettings: PlayerSettings
+): CharacterAssignments => {
   const voiceIds = voiceProfiles.map((profile) => profile.id);
   const remainingVoiceIds = [...voiceIds];
   shuffleIdsInPlace(remainingVoiceIds);
-  const playerVoiceId = remainingVoiceIds.shift()!;
+  const fixedPlayerVoiceId =
+    playerSettings.voiceDirectory !== null
+      ? getVoiceProfileIdByDirectory(playerSettings.voiceDirectory)
+      : null;
+  const playerVoiceId = fixedPlayerVoiceId ?? remainingVoiceIds.shift()!;
+  const npcVoiceSourceIds =
+    fixedPlayerVoiceId === null
+      ? remainingVoiceIds
+      : remainingVoiceIds.filter((voiceId) => voiceId !== fixedPlayerVoiceId);
+  const npcVoiceFallbackIds =
+    fixedPlayerVoiceId === null ? voiceIds : [...npcVoiceSourceIds];
   const npcVoiceIds = Array.from(
     { length: npcCount },
     () =>
-      remainingVoiceIds.length > 0
-        ? remainingVoiceIds.shift()!
-        : pickRandomIdFromPool(voiceIds)
+      npcVoiceSourceIds.length > 0
+        ? npcVoiceSourceIds.shift()!
+        : pickRandomIdFromPool(npcVoiceFallbackIds)
   );
   const portraitAssignments = assignPortraitDirectories([
     playerVoiceId,
     ...npcVoiceIds
   ]);
+  const playerPortraitDirectory =
+    playerSettings.portraitDirectory ?? portraitAssignments[0];
   return {
     playerVoiceId,
     npcVoiceIds,
-    playerPortraitDirectory: portraitAssignments[0],
+    playerPortraitDirectory,
     npcPortraitDirectories: portraitAssignments.slice(1)
   };
 };
@@ -386,23 +403,29 @@ const defaultBrainwashSettings: BrainwashSettings = {
   npcBrainwashCompleteGunPercent: 45,
   npcBrainwashCompleteNoGunPercent: 45
 };
-const defaultCameraSettings: CameraSettings = {
-  heightCells: 1.0
+const defaultPlayerSettings: PlayerSettings = {
+  heightCells: 1.0,
+  portraitDirectory: null,
+  voiceDirectory: null
 };
 const TITLE_SETTINGS_STORAGE_KEY = "haigure-survival.title-settings";
-const TITLE_SETTINGS_STORAGE_VERSION = 2;
+const TITLE_SETTINGS_STORAGE_VERSION = 3;
 const defaultVolumeLevels: VolumeLevels = {
   bgm: 5,
   se: 5,
   voice: 5
 };
+const portraitDirectories = getPortraitDirectories();
+const portraitDirectorySet = new Set(portraitDirectories);
+const voiceDirectories = getVoiceDirectories();
+const voiceDirectorySet = new Set(voiceDirectories);
 const titleSettingsDefaults: TitleSettingsDefaults = {
   volumeLevels: defaultVolumeLevels,
   stageId: STAGE_CATALOG[0].id,
   alarmTrapEnabled: false,
+  playerSettings: defaultPlayerSettings,
   defaultStartSettings: defaultDefaultStartSettings,
   brainwashSettings: defaultBrainwashSettings,
-  cameraSettings: defaultCameraSettings,
   bitSpawnSettings: defaultBitSpawnSettings
 };
 const stageIds = new Set(STAGE_CATALOG.map((selection) => selection.id));
@@ -410,7 +433,9 @@ const persistedTitleSettings = loadPersistedTitleSettings(
   TITLE_SETTINGS_STORAGE_KEY,
   TITLE_SETTINGS_STORAGE_VERSION,
   titleSettingsDefaults,
-  stageIds
+  stageIds,
+  portraitDirectorySet,
+  voiceDirectorySet
 );
 const initialVolumeLevels: VolumeLevels = persistedTitleSettings
   ? { ...persistedTitleSettings.volumeLevels }
@@ -429,10 +454,10 @@ let titleBrainwashSettings: BrainwashSettings = {
     ? persistedTitleSettings.brainwashSettings
     : defaultBrainwashSettings)
 };
-let titleCameraSettings: CameraSettings = {
+let titlePlayerSettings: PlayerSettings = {
   ...(persistedTitleSettings
-    ? persistedTitleSettings.cameraSettings
-    : defaultCameraSettings)
+    ? persistedTitleSettings.playerSettings
+    : defaultPlayerSettings)
 };
 let runtimeBitSpawnInterval = defaultBitSpawnSettings.bitSpawnInterval;
 let runtimeMaxBitCount = defaultBitSpawnSettings.maxBitCount;
@@ -503,7 +528,6 @@ const hasNeverGameOverRisk = (
   return !(hasGunRoute || hasNoGunTouchRoute);
 };
 
-const portraitDirectories = getPortraitDirectories();
 const portraitSpriteSheets = new Map<string, PortraitSpriteSheet>();
 const portraitSpriteSheetPromises = new Map<
   string,
@@ -611,7 +635,8 @@ const buildStageSelectionLabel = (
   loadedStageJson: Awaited<ReturnType<typeof loadStageJson>>
 ) => loadedStageJson?.meta.description ?? selection.label;
 const initialCharacterAssignments = buildCharacterAssignments(
-  runtimeDefaultStartSettings.initialNpcCount
+  runtimeDefaultStartSettings.initialNpcCount,
+  titlePlayerSettings
 );
 const initialLoadingSession = createTitleLoadingSession(
   STAGE_CATALOG.length +
@@ -695,7 +720,7 @@ const buildSpawnForwardFromMarker = () => {
 
 let spawnForward = new Vector3(0, 0, 1);
 let portraitCellSize = layout.cellSize;
-const getEyeHeight = () => layout.cellSize * titleCameraSettings.heightCells;
+const getEyeHeight = () => layout.cellSize * titlePlayerSettings.heightCells;
 
 const updateSpawnPoint = () => {
   const randomSpawnable = hasPlayerSpawnTag("random_spawnable");
@@ -860,24 +885,24 @@ const saveTitleSettings = () => {
     volumeLevels: { ...volumeLevels },
     stageId: stageSelection.id,
     alarmTrapEnabled: titleAlarmTrapEnabled,
+    playerSettings: { ...titlePlayerSettings },
     defaultStartSettings: { ...titleDefaultStartSettings },
     brainwashSettings: { ...titleBrainwashSettings },
-    cameraSettings: { ...titleCameraSettings },
     bitSpawnSettings: { ...titleBitSpawnSettings }
   });
 };
 const buildTitleSettingsSidebarSettings = (): TitleSettingsSidebarSettings => ({
+  playerSettings: { ...titlePlayerSettings },
   defaultStartSettings: { ...titleDefaultStartSettings },
   brainwashSettings: { ...titleBrainwashSettings },
-  cameraSettings: { ...titleCameraSettings },
   bitSpawnSettings: { ...titleBitSpawnSettings }
 });
 const applyTitleSettingsSidebarSettings = (
   settings: TitleSettingsSidebarSettings
 ) => {
+  titlePlayerSettings = { ...settings.playerSettings };
   titleDefaultStartSettings = { ...settings.defaultStartSettings };
   titleBrainwashSettings = { ...settings.brainwashSettings };
-  titleCameraSettings = { ...settings.cameraSettings };
   titleBitSpawnSettings = { ...settings.bitSpawnSettings };
 };
 const titleVolumePanel = createVolumePanel({
@@ -909,11 +934,13 @@ const titleStageSelectControl = createStageSelectControl({
 const titleSettingsSidebar = createTitleSettingsSidebar({
   parent: document.body,
   initialSettings: buildTitleSettingsSidebarSettings(),
+  portraitDirectories,
+  voiceDirectories,
   initialStageId: stageSelection.id,
   onSettingsChange: (settings, event) => {
     applyTitleSettingsSidebarSettings(settings);
     saveTitleSettings();
-    if (event.reason === "camera-settings") {
+    if (event.reason === "player-settings") {
       syncTitleCameraHeight();
     }
     if (event.shouldReload) {
@@ -952,9 +979,9 @@ const resetTitleSettingsToDefault = async () => {
     applyVolumeLevel(category, level);
   }
   const nextSidebarSettings: TitleSettingsSidebarSettings = {
+    playerSettings: defaults.playerSettings,
     defaultStartSettings: defaults.defaultStartSettings,
     brainwashSettings: defaults.brainwashSettings,
-    cameraSettings: defaults.cameraSettings,
     bitSpawnSettings: defaults.bitSpawnSettings
   };
   titleSettingsSidebar.setSettings(nextSidebarSettings);
@@ -1513,7 +1540,7 @@ const applyCharacterAssignments = (assignments: CharacterAssignments) => {
 };
 
 const assignVoiceIds = (npcCount: number) => {
-  const assignments = buildCharacterAssignments(npcCount);
+  const assignments = buildCharacterAssignments(npcCount, titlePlayerSettings);
   applyCharacterAssignments(assignments);
   return assignments;
 };
@@ -1950,7 +1977,8 @@ const applyStageSelection = async (selection: StageSelection) => {
   titleStageSelectControl.setSelectedStageId(selection.id);
   titleSettingsSidebar.setStageId(selection.id);
   const nextCharacterAssignments = buildCharacterAssignments(
-    runtimeDefaultStartSettings.initialNpcCount
+    runtimeDefaultStartSettings.initialNpcCount,
+    titlePlayerSettings
   );
   const loadingSession = createTitleLoadingSession(
     1 + countUnloadedPortraitDirectoriesForAssignments(nextCharacterAssignments)
@@ -3861,7 +3889,8 @@ const returnToTitle = async () => {
     gameFlow.resetFade();
     syncTitleMessage();
     const nextCharacterAssignments = buildCharacterAssignments(
-      runtimeDefaultStartSettings.initialNpcCount
+      runtimeDefaultStartSettings.initialNpcCount,
+      titlePlayerSettings
     );
     const unloadedDirectories = countUnloadedPortraitDirectoriesForAssignments(
       nextCharacterAssignments

@@ -57,6 +57,15 @@ const buildVoiceProfiles = () => {
 };
 
 export const voiceProfiles = buildVoiceProfiles();
+const voiceProfileIds = new Set(voiceProfiles.map((profile) => profile.id));
+const voiceFiles = import.meta.glob("/public/audio/voice/*/*.wav");
+const voiceDirectories = Array.from(
+  new Set(
+    Object.keys(voiceFiles).map((path) => path.split("/").slice(-2, -1)[0])
+  )
+)
+  .filter((directory) => voiceProfileIds.has(directory.slice(0, 2)))
+  .sort();
 
 const voiceBasePath = `${import.meta.env.BASE_URL}audio/voice/`;
 
@@ -68,6 +77,13 @@ const pickRandom = (items: string[]) => {
 };
 
 const resolveVoiceUrl = (path: string) => `${voiceBasePath}${path}`;
+
+export const getVoiceDirectories = () => voiceDirectories;
+
+export const getVoiceProfileIdByDirectory = (directory: string) => {
+  const voiceId = directory.slice(0, 2);
+  return voiceProfileIds.has(voiceId) ? voiceId : null;
+};
 
 const rollIdleTimer = () => 8 + Math.random() * 8;
 const isIdleVoiceState = (state: CharacterState) =>
