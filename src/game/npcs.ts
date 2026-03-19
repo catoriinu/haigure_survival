@@ -123,7 +123,8 @@ const npcBrainwashFireRange = 1.5;
 const npcBrainwashFireRangeSq = npcBrainwashFireRange * npcBrainwashFireRange;
 const npcBrainwashFireIntervalMin = 1.4;
 const npcBrainwashFireIntervalMax = 2.2;
-const npcNoGunTouchContactRadius = 0.17;
+// プレイヤーがセル角にいても、NPCがセル中心へ到達した時点で現行3D接触判定が届く値。
+const npcNoGunTouchContactRadius = 0.27;
 const npcBrainwashBlockDuration = 20;
 const npcBrainwashBreakAwayDuration = 2.5;
 const npcBrainwashBreakAwaySpeed = 0.27;
