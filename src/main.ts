@@ -375,10 +375,12 @@ const firstPersonBodyFeetRowHalfWidthStart = 0.66;
 const firstPersonBodyFeetRowHalfWidthEnd = 0.57;
 const firstPersonBodyFeetRowZStart = 0.41;
 const firstPersonBodyFeetRowZEnd = 0.49;
-const isDefeatScenePhase = (phase: GamePhase) =>
+const isAssemblyScenePhase = (phase: GamePhase) =>
   phase === "assemblyMove" ||
   phase === "assemblyHold" ||
-  phase === "execution";
+  phase === "assemblyFree";
+const isDefeatScenePhase = (phase: GamePhase) =>
+  isAssemblyScenePhase(phase) || phase === "execution";
 const shouldShowFirstPersonBodyForPhase = (phase: GamePhase) =>
   phase === "playing" || isDefeatScenePhase(phase);
 const shouldHidePlayerAvatarFromMainCamera = (phase: GamePhase) =>
@@ -3721,7 +3723,7 @@ const syncPlayerPresentation = () => {
         ? reflectionOnlyLayerMask
         : worldLayerMask;
   }
-  if (gamePhase === "playing") {
+  if (gamePhase === "playing" || gamePhase === "assemblyFree") {
     playerAvatar.isVisible = true;
     playerAvatar.position.set(
       camera.position.x,
@@ -3978,6 +3980,12 @@ setupInputHandlers({
     playerState = state;
   },
   onMoveKey: (key, pressed) => {
+    if (
+      pressed &&
+      (gamePhase === "assemblyMove" || gamePhase === "assemblyHold")
+    ) {
+      gameFlow.releaseAssemblyPlayerControl();
+    }
     playerMoveInput[key] = pressed;
   },
   onPlayerFire: (origin, direction) => {
@@ -4293,11 +4301,19 @@ engine.runRenderLoop(() => {
     updateExecutionScene(delta, shouldProcessOrb);
   }
 
-  if (gamePhase === "assemblyMove" || gamePhase === "assemblyHold") {
+  if (isAssemblyScenePhase(gamePhase)) {
     gameFlow.updateAssembly(delta);
   }
 
-  if (gamePhase === "playing" || gamePhase === "roulette") {
+  if (gamePhase === "assemblyFree") {
+    updatePlayerMovement(delta, true);
+  }
+
+  if (
+    gamePhase === "playing" ||
+    gamePhase === "roulette" ||
+    gamePhase === "assemblyFree"
+  ) {
     camera.position.y = getEyeHeight();
   }
   updateCharacterSpriteCells();

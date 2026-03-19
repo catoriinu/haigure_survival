@@ -16,6 +16,7 @@ export type GamePhase =
   | "transition"
   | "assemblyMove"
   | "assemblyHold"
+  | "assemblyFree"
   | "execution";
 
 export type AssemblyMode = "move" | "instant";
@@ -477,6 +478,20 @@ export const createGameFlow = ({
     camera.position.z = playerAvatar.position.z + forward.z * followCameraOffset;
     camera.position.y = getEyeHeight();
   };
+  const updateAssemblyNpcRoutes = (delta: number) => {
+    let allArrived = true;
+    for (let index = 0; index < npcs.length; index += 1) {
+      const npcRoute = assemblyNpcRoutes[index];
+      const arrived = moveSpriteAlongRoute(
+        npcs[index].sprite,
+        npcRoute,
+        assemblyMoveSpeed,
+        delta
+      );
+      allArrived = allArrived && arrived;
+    }
+    return allArrived;
+  };
 
   const enterAssembly = (mode: AssemblyMode) => {
     stopAlertLoop();
@@ -485,7 +500,7 @@ export const createGameFlow = ({
     assemblyElapsed = 0;
     hud.setHudVisible(false);
     hud.setTitleVisible(false);
-    hud.setStateInfo("操作説明\nEnter: タイトルへ");
+    hud.setStateInfo("操作説明\nWASD: 移動\nEnter: タイトルへ");
     hud.setCrosshairVisible(false);
     setPlayerAvatarState("brainwash-complete-haigure-formation");
     const playerStartPosition = new Vector3(
@@ -537,6 +552,15 @@ export const createGameFlow = ({
       buildAssemblyRoute(npc.sprite.position, assemblyNpcTargets[index])
     );
     setGamePhase("assemblyMove");
+  };
+
+  const releaseAssemblyPlayerControl = () => {
+    const phase = getGamePhase();
+    if (phase !== "assemblyMove" && phase !== "assemblyHold") {
+      return;
+    }
+    assemblyPlayerRoute = null;
+    setGamePhase("assemblyFree");
   };
 
   const enterExecution = (config: ExecutionConfig) => {
@@ -659,9 +683,14 @@ export const createGameFlow = ({
   };
 
   const updateAssembly = (delta: number) => {
+    const phase = getGamePhase();
     updateBitsOrbit(delta);
-    if (getGamePhase() !== "assemblyMove") {
+    if (phase === "assemblyHold") {
       updateCameraFollowAvatar();
+      return;
+    }
+    if (phase === "assemblyFree") {
+      updateAssemblyNpcRoutes(delta);
       return;
     }
     const playerRoute = assemblyPlayerRoute!;
@@ -671,16 +700,7 @@ export const createGameFlow = ({
       assemblyMoveSpeed,
       delta
     );
-    for (let index = 0; index < npcs.length; index += 1) {
-      const npcRoute = assemblyNpcRoutes[index];
-      const arrived = moveSpriteAlongRoute(
-        npcs[index].sprite,
-        npcRoute,
-        assemblyMoveSpeed,
-        delta
-      );
-      allArrived = allArrived && arrived;
-    }
+    allArrived = updateAssemblyNpcRoutes(delta) && allArrived;
     if (allArrived) {
       setGamePhase("assemblyHold");
     }
@@ -696,6 +716,7 @@ export const createGameFlow = ({
 
   return {
     enterAssembly,
+    releaseAssemblyPlayerControl,
     enterExecution,
     updateAssembly,
     updateExecution,

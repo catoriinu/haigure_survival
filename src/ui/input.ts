@@ -83,6 +83,7 @@ export const setupInputHandlers = ({
     if (
       gamePhase === "assemblyMove" ||
       gamePhase === "assemblyHold" ||
+      gamePhase === "assemblyFree" ||
       gamePhase === "execution"
     ) {
       event.preventDefault();
@@ -101,6 +102,7 @@ export const setupInputHandlers = ({
       if (
         gamePhase === "assemblyMove" ||
         gamePhase === "assemblyHold" ||
+        gamePhase === "assemblyFree" ||
         gamePhase === "execution" ||
         gamePhase === "roulette"
       ) {
