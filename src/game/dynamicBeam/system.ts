@@ -1,5 +1,5 @@
 import { Scene, StandardMaterial, Vector3 } from "@babylonjs/core";
-import { type GamePhase } from "../flow";
+import { type GamePhase } from "../phases";
 import { GridLayout } from "../../world/grid";
 import {
   createTrapTelegraphMaterial,

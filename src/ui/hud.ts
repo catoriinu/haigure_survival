@@ -16,7 +16,6 @@ export type DrawMinimapParams = {
   rouletteRoundCount: number | null;
   rouletteSurviveCount: number | null;
   aliveCount: number;
-  showCrosshair: boolean;
   trackedNpcPositions: Vector3[];
 };
 
@@ -158,7 +157,6 @@ export const createHud = (): Hud => {
     rouletteRoundCount,
     rouletteSurviveCount,
     aliveCount,
-    showCrosshair,
     trackedNpcPositions
   }: DrawMinimapParams) => {
     const cellPixels = minimapSize / minimap.windowCells;
@@ -334,8 +332,6 @@ export const createHud = (): Hud => {
     minimapContext.strokeText("N", northX, northY);
     minimapContext.fillStyle = "#f5f5f5";
     minimapContext.fillText("N", northX, northY);
-
-    crosshair.style.display = showCrosshair ? "block" : "none";
   };
 
   applyMinimapReadoutDisplay();

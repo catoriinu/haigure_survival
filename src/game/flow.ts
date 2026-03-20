@@ -8,16 +8,7 @@ import { cellToWorld, worldToCellClamped } from "./gridUtils";
 import { getPortraitCellIndex } from "./portraitSprites";
 import { alignSpriteToGround } from "./spriteUtils";
 import { createFadeController } from "./flowFade";
-
-export type GamePhase =
-  | "title"
-  | "playing"
-  | "roulette"
-  | "transition"
-  | "assemblyMove"
-  | "assemblyHold"
-  | "assemblyFree"
-  | "execution";
+import { canReleaseAssemblyControl, type GamePhase } from "./phases";
 
 export type AssemblyMode = "move" | "instant";
 
@@ -48,6 +39,13 @@ type GameFlowOptions = {
   stopAlertLoop: () => void;
   setBitSpawnEnabled: (enabled: boolean) => void;
   disposePlayerHitEffects: () => void;
+  setHudPhaseOverride: (
+    state: {
+      hudVisible: boolean;
+      helpPanelText: string | null;
+      crosshairVisible: boolean;
+    } | null
+  ) => void;
 };
 
 export const createGameFlow = ({
@@ -66,7 +64,8 @@ export const createGameFlow = ({
   clearBeams,
   stopAlertLoop,
   setBitSpawnEnabled,
-  disposePlayerHitEffects
+  disposePlayerHitEffects,
+  setHudPhaseOverride
 }: GameFlowOptions) => {
   const stageArea = assemblyArea;
   const assemblyMoveSpeed = 0.27;
@@ -505,10 +504,11 @@ export const createGameFlow = ({
     setBitSpawnEnabled(false);
     clearBeams();
     assemblyElapsed = 0;
-    hud.setHudVisible(false);
-    hud.setTitleVisible(false);
-    hud.setHelpPanelText(assemblyHelpPanelText);
-    hud.setCrosshairVisible(false);
+    setHudPhaseOverride({
+      hudVisible: false,
+      helpPanelText: assemblyHelpPanelText,
+      crosshairVisible: false
+    });
     setPlayerAvatarState("brainwash-complete-haigure-formation");
     const playerStartPosition = new Vector3(
       camera.position.x,
@@ -563,7 +563,7 @@ export const createGameFlow = ({
 
   const releaseAssemblyPlayerControl = () => {
     const phase = getGamePhase();
-    if (phase !== "assemblyMove" && phase !== "assemblyHold") {
+    if (!canReleaseAssemblyControl(phase)) {
       return;
     }
     assemblyPlayerRoute = null;
@@ -575,20 +575,21 @@ export const createGameFlow = ({
     setBitSpawnEnabled(false);
     clearBeams();
     assemblyElapsed = 0;
-    hud.setHudVisible(false);
-    hud.setTitleVisible(false);
+    let helpPanelText: string | null;
+    let crosshairVisible = false;
     if (config.variant === "npc-survivor-player-block") {
-      hud.setHelpPanelText(
-        executionHelpPanelTextByVariant.npcSurvivorPlayerBlock
-      );
+      helpPanelText = executionHelpPanelTextByVariant.npcSurvivorPlayerBlock;
+      crosshairVisible = true;
     } else if (config.variant === "npc-survivor-npc-block") {
-      hud.setHelpPanelText(
-        executionHelpPanelTextByVariant.npcSurvivorNpcBlock
-      );
+      helpPanelText = executionHelpPanelTextByVariant.npcSurvivorNpcBlock;
     } else {
-      hud.setHelpPanelText(executionHelpPanelTextByVariant.playerSurvivor);
+      helpPanelText = executionHelpPanelTextByVariant.playerSurvivor;
     }
-    hud.setCrosshairVisible(config.variant === "npc-survivor-player-block");
+    setHudPhaseOverride({
+      hudVisible: false,
+      helpPanelText,
+      crosshairVisible
+    });
 
     disposePlayerHitEffects();
     for (const bit of bits) {

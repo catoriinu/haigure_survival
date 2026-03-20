@@ -1,6 +1,6 @@
 import { Scene, StandardMaterial, Vector3 } from "@babylonjs/core";
 import { StageBounds, Beam, Npc } from "../entities";
-import { type GamePhase } from "../flow";
+import { type GamePhase } from "../phases";
 import { pickWeightedUnique } from "../random/weighted";
 import { GridLayout } from "../../world/grid";
 import { buildTrapCandidates } from "./candidates";

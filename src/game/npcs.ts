@@ -310,6 +310,44 @@ export const spawnNpcs = (
   return npcs;
 };
 
+export type NpcUpdateContext = {
+  targets: TargetInfo[];
+  callbacks: {
+    onNpcHit: (position: Vector3) => void;
+    spawnNpcBeam: (
+      position: Vector3,
+      direction: Vector3,
+      sourceId: string
+    ) => void;
+  };
+  effects: {
+    isRedSource: (sourceId: string | null) => boolean;
+    impactOrbs: BeamImpactOrb[];
+    cameraPosition: Vector3;
+    shouldProcessOrb: (position: Vector3) => boolean;
+  };
+  movement: {
+    blockers: MovementBlocker[];
+    evadeThreats: Vector3[][];
+    playerThreatenedNpcIds: ReadonlySet<string>;
+    shouldFreezeAliveMovement: (npc: Npc, npcId: string) => boolean;
+    isAliveNpcForbiddenCell: (cell: FloorCell) => boolean;
+  };
+  alarms: {
+    getAlarmTargetStack: (npcId: string) => readonly string[];
+  };
+  settings: {
+    brainwashOnNoGunTouch: boolean;
+  };
+};
+
+export type NpcUpdateResult = {
+  playerBlocked: boolean;
+  targetedIds: Set<string>;
+  alertRequests: AlertRequest[];
+  playerNoGunTouchBrainwashRequested: boolean;
+};
+
 export const updateNpcs = (
   layout: GridLayout,
   floorCells: FloorCell[],
@@ -317,21 +355,22 @@ export const updateNpcs = (
   beams: Beam[],
   delta: number,
   elapsed: number,
-  targets: TargetInfo[],
-  onNpcHit: (position: Vector3) => void,
-  spawnNpcBeam: (position: Vector3, direction: Vector3, sourceId: string) => void,
-  isRedSource: (sourceId: string | null) => boolean,
-  impactOrbs: BeamImpactOrb[],
-  blockers: MovementBlocker[],
-  evadeThreats: Vector3[][],
-  playerThreatenedNpcIds: ReadonlySet<string>,
-  cameraPosition: Vector3,
-  shouldProcessOrb: (position: Vector3) => boolean,
-  shouldFreezeAliveMovement: (npc: Npc, npcId: string) => boolean,
-  isAliveNpcForbiddenCell: (cell: FloorCell) => boolean,
-  getAlarmTargetStack: (npcId: string) => readonly string[],
-  brainwashOnNoGunTouch: boolean
-) => {
+  context: NpcUpdateContext
+): NpcUpdateResult => {
+  const {
+    targets,
+    callbacks: { onNpcHit, spawnNpcBeam },
+    effects: { isRedSource, impactOrbs, cameraPosition, shouldProcessOrb },
+    movement: {
+      blockers,
+      evadeThreats,
+      playerThreatenedNpcIds,
+      shouldFreezeAliveMovement,
+      isAliveNpcForbiddenCell
+    },
+    alarms: { getAlarmTargetStack },
+    settings: { brainwashOnNoGunTouch }
+  } = context;
   const aliveTargets = targets.filter((target) => target.alive);
   const unbrainwashedTargets = targets.filter(
     (target) => !isBrainwashState(target.state)

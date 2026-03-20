@@ -1,6 +1,10 @@
 import { FreeCamera, Vector3 } from "@babylonjs/core";
 import { CharacterState } from "../game/types";
-import type { GamePhase } from "../game/flow";
+import {
+  canReturnToTitleFromPhase,
+  shouldPreventContextMenuForPhase,
+  type GamePhase
+} from "../game/phases";
 
 export type InputHandlerOptions = {
   canvas: HTMLCanvasElement;
@@ -98,12 +102,7 @@ export const setupInputHandlers = ({
       event.preventDefault();
       return;
     }
-    if (
-      gamePhase === "assemblyMove" ||
-      gamePhase === "assemblyHold" ||
-      gamePhase === "assemblyFree" ||
-      gamePhase === "execution"
-    ) {
+    if (shouldPreventContextMenuForPhase(gamePhase)) {
       event.preventDefault();
     }
   });
@@ -118,13 +117,7 @@ export const setupInputHandlers = ({
         onEnterEpilogue();
         return;
       }
-      if (
-        gamePhase === "assemblyMove" ||
-        gamePhase === "assemblyHold" ||
-        gamePhase === "assemblyFree" ||
-        gamePhase === "execution" ||
-        gamePhase === "roulette"
-      ) {
+      if (canReturnToTitleFromPhase(gamePhase)) {
         onReturnToTitle();
       }
     }
