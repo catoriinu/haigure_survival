@@ -120,6 +120,10 @@ import {
   createPlayerAbilityController,
   type PlayerAbilityFrameSnapshot
 } from "./game/playerAbility";
+import {
+  createCharacterBillboardMeshManager,
+  type CharacterBillboardMeshHandle
+} from "./game/characterBillboardMeshes";
 import { buildStageContext, disposeStageParts } from "./world/stageContext";
 import { createZoneMapFromStageJson } from "./world/stageJson";
 import {
@@ -414,10 +418,11 @@ const defaultBrainwashSettings: BrainwashSettings = {
 const defaultPlayerSettings: PlayerSettings = {
   heightCells: 1.0,
   portraitDirectory: null,
-  voiceDirectory: null
+  voiceDirectory: null,
+  enableCharacterSpriteVerticalAngle: false
 };
 const TITLE_SETTINGS_STORAGE_KEY = "haigure-survival.title-settings";
-const TITLE_SETTINGS_STORAGE_VERSION = 3;
+const TITLE_SETTINGS_STORAGE_VERSION = 4;
 const defaultVolumeLevels: VolumeLevels = {
   bgm: 5,
   se: 5,
@@ -543,6 +548,10 @@ const portraitSpriteSheetPromises = new Map<
 >();
 const portraitManagers = new Map<string, SpriteManager>();
 const portraitManagerPromises = new Map<string, Promise<SpriteManager>>();
+const characterBillboardMeshManager = createCharacterBillboardMeshManager(
+  scene,
+  (directory) => portraitSpriteSheets.get(directory)!
+);
 // プレイヤー1人 + NPC最大99人
 const spriteManagerCapacity = 100;
 const loadPortraitSpriteSheetOnce = (directory: string) => {
@@ -1248,6 +1257,8 @@ scene.ambientColor = new Color3(0.45, 0.45, 0.45);
 scene.collisionsEnabled = true;
 let playerAvatar: Sprite;
 let playerPortraitManager: SpriteManager | null = null;
+let playerBillboardMesh: CharacterBillboardMeshHandle | null = null;
+let npcBillboardMeshes: CharacterBillboardMeshHandle[] = [];
 const npcs: Npc[] = [];
 let playerPortraitDirectory = "";
 let npcPortraitDirectories: string[] = [];
@@ -1543,6 +1554,29 @@ const refreshPortraitSizes = () => {
   applyPortraitSizesToAll();
 };
 
+const disposeCharacterBillboardMeshes = () => {
+  characterBillboardMeshManager.disposeCharacterBillboardMesh(playerBillboardMesh);
+  playerBillboardMesh = null;
+  for (const billboardMesh of npcBillboardMeshes) {
+    characterBillboardMeshManager.disposeCharacterBillboardMesh(billboardMesh);
+  }
+  npcBillboardMeshes = [];
+};
+
+const rebuildCharacterBillboardMeshes = () => {
+  disposeCharacterBillboardMeshes();
+  playerBillboardMesh = characterBillboardMeshManager.createCharacterBillboardMesh(
+    `${playerAvatar.name}_billboard`,
+    playerPortraitDirectory
+  );
+  npcBillboardMeshes = npcs.map((npc) =>
+    characterBillboardMeshManager.createCharacterBillboardMesh(
+      `${npc.sprite.name}_billboard`,
+      npc.portraitDirectory
+    )
+  );
+};
+
 const applyCharacterAssignments = (assignments: CharacterAssignments) => {
   playerVoiceId = assignments.playerVoiceId;
   npcVoiceIds = [...assignments.npcVoiceIds];
@@ -1595,6 +1629,7 @@ const createCharacters = () => {
     applyNpcDefaultHaigureState(shuffledNpcs[index]);
   }
   applyPortraitSizesToAll();
+  rebuildCharacterBillboardMeshes();
 };
 
 const rebuildCharacters = async (
@@ -1611,6 +1646,7 @@ const rebuildCharacters = async (
     session
   );
   await ensureFirstPersonBodySheet(playerPortraitDirectory);
+  disposeCharacterBillboardMeshes();
   playerAvatar.dispose();
   playerPortraitManager?.dispose();
   playerPortraitManager = null;
@@ -3781,12 +3817,6 @@ const updateCharacterSpriteCells = () => {
 };
 
 const syncPlayerPresentation = () => {
-  if (playerPortraitManager) {
-    playerPortraitManager.layerMask =
-      shouldHidePlayerAvatarFromMainCamera(gamePhase)
-        ? reflectionOnlyLayerMask
-        : worldLayerMask;
-  }
   if (shouldSyncPlayerAvatarToCamera(gamePhase)) {
     playerAvatar.isVisible = true;
     playerAvatar.position.set(
@@ -3795,6 +3825,38 @@ const syncPlayerPresentation = () => {
       camera.position.z
     );
     alignSpriteToGround(playerAvatar);
+  }
+
+  const verticalAngleEnabled =
+    titlePlayerSettings.enableCharacterSpriteVerticalAngle;
+  const playerLayerMask = shouldHidePlayerAvatarFromMainCamera(gamePhase)
+    ? reflectionOnlyLayerMask
+    : worldLayerMask;
+  for (const portraitManager of portraitManagers.values()) {
+    portraitManager.layerMask = verticalAngleEnabled ? 0 : worldLayerMask;
+  }
+  if (playerPortraitManager) {
+    playerPortraitManager.layerMask = verticalAngleEnabled ? 0 : playerLayerMask;
+  }
+  if (playerBillboardMesh) {
+    characterBillboardMeshManager.syncCharacterBillboardMesh(
+      playerBillboardMesh,
+      playerAvatar,
+      verticalAngleEnabled,
+      playerLayerMask
+    );
+  }
+  for (let index = 0; index < npcs.length; index += 1) {
+    const billboardMesh = npcBillboardMeshes[index];
+    if (!billboardMesh) {
+      continue;
+    }
+    characterBillboardMeshManager.syncCharacterBillboardMesh(
+      billboardMesh,
+      npcs[index].sprite,
+      verticalAngleEnabled,
+      worldLayerMask
+    );
   }
   syncFirstPersonBodyVisibility();
 };

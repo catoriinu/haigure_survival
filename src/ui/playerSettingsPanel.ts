@@ -8,6 +8,7 @@ export type PlayerSettings = {
   heightCells: number;
   portraitDirectory: string | null;
   voiceDirectory: string | null;
+  enableCharacterSpriteVerticalAngle: boolean;
 };
 
 type PlayerSettingsPanelOptions = {
@@ -55,7 +56,9 @@ export const createPlayerSettingsPanel = ({
     voiceDirectory: normalizeDirectorySelection(
       initialSettings.voiceDirectory,
       voiceDirectorySet
-    )
+    ),
+    enableCharacterSpriteVerticalAngle:
+      initialSettings.enableCharacterSpriteVerticalAngle
   };
 
   const portraitRow = document.createElement("label");
@@ -98,6 +101,18 @@ export const createPlayerSettingsPanel = ({
   heightRow.appendChild(heightInput);
   root.appendChild(heightRow);
 
+  const verticalAngleRow = document.createElement("label");
+  verticalAngleRow.className = "player-settings-panel__checkbox-row";
+  const verticalAngleCheckbox = document.createElement("input");
+  verticalAngleCheckbox.className = "player-settings-panel__checkbox";
+  verticalAngleCheckbox.type = "checkbox";
+  verticalAngleRow.appendChild(verticalAngleCheckbox);
+  const verticalAngleLabel = document.createElement("span");
+  verticalAngleLabel.className = "player-settings-panel__checkbox-label";
+  verticalAngleLabel.textContent = "キャラスプライト縦角度表示";
+  verticalAngleRow.appendChild(verticalAngleLabel);
+  root.appendChild(verticalAngleRow);
+
   const fillSelectOptions = (
     select: HTMLSelectElement,
     directories: readonly string[]
@@ -123,6 +138,7 @@ export const createPlayerSettingsPanel = ({
     voiceSelect.value = settings.voiceDirectory ?? randomOptionValue;
     heightInput.value = String(settings.heightCells);
     heightValue.textContent = formatHeightCells(settings.heightCells);
+    verticalAngleCheckbox.checked = settings.enableCharacterSpriteVerticalAngle;
   };
 
   const { emit, setVisible, getSettings, setSettings } =
@@ -139,6 +155,8 @@ export const createPlayerSettingsPanel = ({
           nextSettings.voiceDirectory,
           voiceDirectorySet
         );
+        settings.enableCharacterSpriteVerticalAngle =
+          nextSettings.enableCharacterSpriteVerticalAngle;
       },
       render,
       onChange
@@ -159,6 +177,11 @@ export const createPlayerSettingsPanel = ({
   heightInput.addEventListener("input", () => {
     settings.heightCells = Number(heightInput.value);
     render();
+    emit();
+  });
+
+  verticalAngleCheckbox.addEventListener("change", () => {
+    settings.enableCharacterSpriteVerticalAngle = verticalAngleCheckbox.checked;
     emit();
   });
 

@@ -136,6 +136,7 @@ export const normalizePersistedTitleSettings = (
   const sourceVersion = source.version;
   const isCurrentVersion = sourceVersion === version;
   const isLegacyVersion = sourceVersion === version - 1;
+  const isLegacyCameraSettingsVersion = sourceVersion === 2;
   if (!isCurrentVersion && !isLegacyVersion) {
     return { settings: defaultSettings, changed: true };
   }
@@ -186,7 +187,7 @@ export const normalizePersistedTitleSettings = (
   );
   changed ||= alarmTrapEnabledValue.changed;
 
-  const playerSettingsObject = isLegacyVersion
+  const playerSettingsObject = isLegacyCameraSettingsVersion
     ? readObject(source, "cameraSettings")
     : readObject(source, "playerSettings");
   changed ||= playerSettingsObject.changed;
@@ -196,7 +197,7 @@ export const normalizePersistedTitleSettings = (
     defaultSettings.playerSettings.heightCells
   );
   changed ||= playerHeightCellsValue.changed;
-  const playerPortraitDirectoryValue = isLegacyVersion
+  const playerPortraitDirectoryValue = isLegacyCameraSettingsVersion
     ? { value: defaultSettings.playerSettings.portraitDirectory, changed: true }
     : readNullableDirectory(
         playerSettingsObject.value,
@@ -204,7 +205,7 @@ export const normalizePersistedTitleSettings = (
         portraitDirectories,
         defaultSettings.playerSettings.portraitDirectory
       );
-  const playerVoiceDirectoryValue = isLegacyVersion
+  const playerVoiceDirectoryValue = isLegacyCameraSettingsVersion
     ? { value: defaultSettings.playerSettings.voiceDirectory, changed: true }
     : readNullableDirectory(
         playerSettingsObject.value,
@@ -212,12 +213,21 @@ export const normalizePersistedTitleSettings = (
         voiceDirectories,
         defaultSettings.playerSettings.voiceDirectory
       );
+  const enableCharacterSpriteVerticalAngleValue = readBoolean(
+    playerSettingsObject.value,
+    "enableCharacterSpriteVerticalAngle",
+    defaultSettings.playerSettings.enableCharacterSpriteVerticalAngle
+  );
   changed ||=
-    playerPortraitDirectoryValue.changed || playerVoiceDirectoryValue.changed;
+    playerPortraitDirectoryValue.changed ||
+    playerVoiceDirectoryValue.changed ||
+    enableCharacterSpriteVerticalAngleValue.changed;
   const playerSettings: PlayerSettings = {
     heightCells: playerHeightCellsValue.value,
     portraitDirectory: playerPortraitDirectoryValue.value,
-    voiceDirectory: playerVoiceDirectoryValue.value
+    voiceDirectory: playerVoiceDirectoryValue.value,
+    enableCharacterSpriteVerticalAngle:
+      enableCharacterSpriteVerticalAngleValue.value
   };
 
   const defaultSettingsObject = readObject(source, "defaultStartSettings");

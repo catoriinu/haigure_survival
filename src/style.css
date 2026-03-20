@@ -440,6 +440,21 @@ body {
   margin: 0;
 }
 
+.player-settings-panel__checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.player-settings-panel__checkbox {
+  margin: 0;
+}
+
+.player-settings-panel__checkbox-label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
 .default-settings-panel__row {
   display: grid;
   grid-template-columns: 96px 74px;
