@@ -8,15 +8,7 @@ import { cellToWorld, worldToCellClamped } from "./gridUtils";
 import { getPortraitCellIndex } from "./portraitSprites";
 import { alignSpriteToGround } from "./spriteUtils";
 import { createFadeController } from "./flowFade";
-
-export type GamePhase =
-  | "title"
-  | "playing"
-  | "roulette"
-  | "transition"
-  | "assemblyMove"
-  | "assemblyHold"
-  | "execution";
+import { canReleaseAssemblyControl, type GamePhase } from "./phases";
 
 export type AssemblyMode = "move" | "instant";
 
@@ -47,6 +39,13 @@ type GameFlowOptions = {
   stopAlertLoop: () => void;
   setBitSpawnEnabled: (enabled: boolean) => void;
   disposePlayerHitEffects: () => void;
+  setHudPhaseOverride: (
+    state: {
+      hudVisible: boolean;
+      helpPanelText: string | null;
+      crosshairVisible: boolean;
+    } | null
+  ) => void;
 };
 
 export const createGameFlow = ({
@@ -65,7 +64,8 @@ export const createGameFlow = ({
   clearBeams,
   stopAlertLoop,
   setBitSpawnEnabled,
-  disposePlayerHitEffects
+  disposePlayerHitEffects,
+  setHudPhaseOverride
 }: GameFlowOptions) => {
   const stageArea = assemblyArea;
   const assemblyMoveSpeed = 0.27;
@@ -168,6 +168,13 @@ export const createGameFlow = ({
   let assemblyNpcRoutes: AssemblyRoute[] = [];
   let assemblyElapsed = 0;
   let executionCameraFollowAvatar = false;
+  const assemblyHelpPanelText = "操作説明\nWASD: 移動\nEnter: タイトルへ";
+  const executionHelpPanelTextByVariant = {
+    playerSurvivor: "操作説明\nEnter: タイトルへ\nR: リプレイ",
+    npcSurvivorPlayerBlock:
+      "操作説明\nWASD: 移動\nEnter: タイトルへ\nR: リプレイ",
+    npcSurvivorNpcBlock: "操作説明\nEnter: タイトルへ\nR: リプレイ"
+  } as const;
   const followCameraOffset = playerAvatar.width * 0.9;
   const setPlayerAvatarState = (state: CharacterState) => {
     setPlayerState(state);
@@ -477,16 +484,31 @@ export const createGameFlow = ({
     camera.position.z = playerAvatar.position.z + forward.z * followCameraOffset;
     camera.position.y = getEyeHeight();
   };
+  const updateAssemblyNpcRoutes = (delta: number) => {
+    let allArrived = true;
+    for (let index = 0; index < npcs.length; index += 1) {
+      const npcRoute = assemblyNpcRoutes[index];
+      const arrived = moveSpriteAlongRoute(
+        npcs[index].sprite,
+        npcRoute,
+        assemblyMoveSpeed,
+        delta
+      );
+      allArrived = allArrived && arrived;
+    }
+    return allArrived;
+  };
 
   const enterAssembly = (mode: AssemblyMode) => {
     stopAlertLoop();
     setBitSpawnEnabled(false);
     clearBeams();
     assemblyElapsed = 0;
-    hud.setHudVisible(false);
-    hud.setTitleVisible(false);
-    hud.setStateInfo("操作説明\nEnter: タイトルへ");
-    hud.setCrosshairVisible(false);
+    setHudPhaseOverride({
+      hudVisible: false,
+      helpPanelText: assemblyHelpPanelText,
+      crosshairVisible: false
+    });
     setPlayerAvatarState("brainwash-complete-haigure-formation");
     const playerStartPosition = new Vector3(
       camera.position.x,
@@ -539,21 +561,35 @@ export const createGameFlow = ({
     setGamePhase("assemblyMove");
   };
 
+  const releaseAssemblyPlayerControl = () => {
+    const phase = getGamePhase();
+    if (!canReleaseAssemblyControl(phase)) {
+      return;
+    }
+    assemblyPlayerRoute = null;
+    setGamePhase("assemblyFree");
+  };
+
   const enterExecution = (config: ExecutionConfig) => {
     stopAlertLoop();
     setBitSpawnEnabled(false);
     clearBeams();
     assemblyElapsed = 0;
-    hud.setHudVisible(false);
-    hud.setTitleVisible(false);
+    let helpPanelText: string | null;
+    let crosshairVisible = false;
     if (config.variant === "npc-survivor-player-block") {
-      hud.setStateInfo(
-        "操作説明\nWASD: 移動\nEnter: タイトルへ\nR: リプレイ"
-      );
+      helpPanelText = executionHelpPanelTextByVariant.npcSurvivorPlayerBlock;
+      crosshairVisible = true;
+    } else if (config.variant === "npc-survivor-npc-block") {
+      helpPanelText = executionHelpPanelTextByVariant.npcSurvivorNpcBlock;
     } else {
-      hud.setStateInfo("操作説明\nEnter: タイトルへ\nR: リプレイ");
+      helpPanelText = executionHelpPanelTextByVariant.playerSurvivor;
     }
-    hud.setCrosshairVisible(config.variant === "npc-survivor-player-block");
+    setHudPhaseOverride({
+      hudVisible: false,
+      helpPanelText,
+      crosshairVisible
+    });
 
     disposePlayerHitEffects();
     for (const bit of bits) {
@@ -659,9 +695,14 @@ export const createGameFlow = ({
   };
 
   const updateAssembly = (delta: number) => {
+    const phase = getGamePhase();
     updateBitsOrbit(delta);
-    if (getGamePhase() !== "assemblyMove") {
+    if (phase === "assemblyHold") {
       updateCameraFollowAvatar();
+      return;
+    }
+    if (phase === "assemblyFree") {
+      updateAssemblyNpcRoutes(delta);
       return;
     }
     const playerRoute = assemblyPlayerRoute!;
@@ -671,16 +712,7 @@ export const createGameFlow = ({
       assemblyMoveSpeed,
       delta
     );
-    for (let index = 0; index < npcs.length; index += 1) {
-      const npcRoute = assemblyNpcRoutes[index];
-      const arrived = moveSpriteAlongRoute(
-        npcs[index].sprite,
-        npcRoute,
-        assemblyMoveSpeed,
-        delta
-      );
-      allArrived = allArrived && arrived;
-    }
+    allArrived = updateAssemblyNpcRoutes(delta) && allArrived;
     if (allArrived) {
       setGamePhase("assemblyHold");
     }
@@ -696,6 +728,7 @@ export const createGameFlow = ({
 
   return {
     enterAssembly,
+    releaseAssemblyPlayerControl,
     enterExecution,
     updateAssembly,
     updateExecution,

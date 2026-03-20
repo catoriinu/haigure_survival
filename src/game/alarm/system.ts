@@ -1,7 +1,7 @@
 import { Color3, Scene, StandardMaterial } from "@babylonjs/core";
 import { GridLayout } from "../../world/grid";
 import { cellToWorld, worldToCellClamped } from "../gridUtils";
-import { type GamePhase } from "../flow";
+import { type GamePhase } from "../phases";
 import { isAliveState, isBrainwashState, type FloorCell, type TargetInfo } from "../types";
 import {
   createTrapTelegraphMesh,

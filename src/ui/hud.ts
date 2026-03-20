@@ -16,8 +16,6 @@ export type DrawMinimapParams = {
   rouletteRoundCount: number | null;
   rouletteSurviveCount: number | null;
   aliveCount: number;
-  retryText: string | null;
-  showCrosshair: boolean;
   trackedNpcPositions: Vector3[];
 };
 
@@ -25,10 +23,16 @@ export type Hud = {
   setHudVisible: (visible: boolean) => void;
   setTitleVisible: (visible: boolean) => void;
   setTitleText: (text: string) => void;
-  setStateInfo: (text: string | null) => void;
+  setHelpPanelText: (text: string | null) => void;
   setFadeOpacity: (value: number) => void;
   setMinimapReadoutVisible: (visible: boolean) => void;
   setCrosshairVisible: (visible: boolean) => void;
+  setStaminaGaugeVisible: (visible: boolean) => void;
+  setStaminaGauge: (
+    current: number,
+    max: number,
+    brainwashed: boolean
+  ) => void;
   drawMinimap: (params: DrawMinimapParams) => void;
 };
 
@@ -41,12 +45,14 @@ export const createHud = (): Hud => {
     document.getElementById("statusInfo") as unknown as HTMLDivElement;
   const helpPanel =
     document.getElementById("helpPanel") as unknown as HTMLDivElement;
+  const staminaGauge =
+    document.getElementById("staminaGauge") as unknown as HTMLDivElement;
+  const staminaGaugeFill =
+    document.getElementById("staminaGaugeFill") as unknown as HTMLDivElement;
   const titleOverlay =
     document.getElementById("titleOverlay") as unknown as HTMLDivElement;
   const titleMessage =
     document.getElementById("titleMessage") as unknown as HTMLDivElement;
-  const overlayHelp =
-    document.getElementById("overlayHelp") as unknown as HTMLDivElement;
   const fadeOverlay =
     document.getElementById("fadeOverlay") as unknown as HTMLDivElement;
   const crosshair =
@@ -58,6 +64,8 @@ export const createHud = (): Hud => {
   minimapContext.imageSmoothingQuality = "high";
   let hudVisible = true;
   let minimapReadoutVisible = false;
+  let helpPanelText: string | null = null;
+  let staminaGaugeVisible = false;
   const minimap = {
     sizePixels: 180,
     windowCells: 18 * CELL_SCALE,
@@ -72,14 +80,24 @@ export const createHud = (): Hud => {
       hudVisible && minimapReadoutVisible ? "block" : "none";
   };
 
+  const applyStaminaGaugeDisplay = () => {
+    staminaGauge.style.display =
+      hudVisible && staminaGaugeVisible ? "block" : "none";
+  };
+
+  const applyHelpPanelDisplay = () => {
+    helpPanel.textContent = helpPanelText ?? "";
+    helpPanel.style.display = helpPanelText ? "block" : "none";
+  };
+
   const setHudVisible = (visible: boolean) => {
     hudVisible = visible;
     const display = visible ? "block" : "none";
     minimapCanvas.style.display = display;
     statusInfo.style.display = display;
-    helpPanel.style.display = "none";
     crosshair.style.display = "none";
     applyMinimapReadoutDisplay();
+    applyStaminaGaugeDisplay();
   };
 
   const setTitleVisible = (visible: boolean) => {
@@ -90,14 +108,9 @@ export const createHud = (): Hud => {
     titleMessage.textContent = text;
   };
 
-  const setStateInfo = (text: string | null) => {
-    if (text) {
-      overlayHelp.textContent = text;
-      overlayHelp.style.display = "block";
-    } else {
-      overlayHelp.textContent = "";
-      overlayHelp.style.display = "none";
-    }
+  const setHelpPanelText = (text: string | null) => {
+    helpPanelText = text;
+    applyHelpPanelDisplay();
   };
 
   const setFadeOpacity = (value: number) => {
@@ -111,6 +124,22 @@ export const createHud = (): Hud => {
 
   const setCrosshairVisible = (visible: boolean) => {
     crosshair.style.display = visible ? "block" : "none";
+  };
+
+  const setStaminaGaugeVisible = (visible: boolean) => {
+    staminaGaugeVisible = visible;
+    applyStaminaGaugeDisplay();
+  };
+
+  const setStaminaGauge = (
+    current: number,
+    max: number,
+    brainwashed: boolean
+  ) => {
+    const fillRatio =
+      max > 0 ? Math.max(0, Math.min(current, max)) / max : 0;
+    staminaGaugeFill.style.height = `${(fillRatio * 100).toFixed(1)}%`;
+    staminaGaugeFill.style.background = brainwashed ? "#ff66b5" : "#f5f5f5";
   };
 
   const drawMinimap = ({
@@ -128,8 +157,6 @@ export const createHud = (): Hud => {
     rouletteRoundCount,
     rouletteSurviveCount,
     aliveCount,
-    retryText,
-    showCrosshair,
     trackedNpcPositions
   }: DrawMinimapParams) => {
     const cellPixels = minimapSize / minimap.windowCells;
@@ -305,23 +332,23 @@ export const createHud = (): Hud => {
     minimapContext.strokeText("N", northX, northY);
     minimapContext.fillStyle = "#f5f5f5";
     minimapContext.fillText("N", northX, northY);
-
-    helpPanel.style.display = retryText ? "block" : "none";
-    helpPanel.textContent = retryText ?? "";
-
-    crosshair.style.display = showCrosshair ? "block" : "none";
   };
 
   applyMinimapReadoutDisplay();
+  applyHelpPanelDisplay();
+  applyStaminaGaugeDisplay();
+  setStaminaGauge(0, 1, false);
 
   return {
     setHudVisible,
     setTitleVisible,
     setTitleText,
-    setStateInfo,
+    setHelpPanelText,
     setFadeOpacity,
     setMinimapReadoutVisible,
     setCrosshairVisible,
+    setStaminaGaugeVisible,
+    setStaminaGauge,
     drawMinimap
   };
 };

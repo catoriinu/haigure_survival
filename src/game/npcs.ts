@@ -123,7 +123,8 @@ const npcBrainwashFireRange = 1.5;
 const npcBrainwashFireRangeSq = npcBrainwashFireRange * npcBrainwashFireRange;
 const npcBrainwashFireIntervalMin = 1.4;
 const npcBrainwashFireIntervalMax = 2.2;
-const npcBrainwashBlockRadius = NPC_SPRITE_WIDTH * 0.7;
+// プレイヤーがセル角にいても、NPCがセル中心へ到達した時点で現行3D接触判定が届く値。
+const npcNoGunTouchContactRadius = 0.27;
 const npcBrainwashBlockDuration = 20;
 const npcBrainwashBreakAwayDuration = 2.5;
 const npcBrainwashBreakAwaySpeed = 0.27;
@@ -309,6 +310,44 @@ export const spawnNpcs = (
   return npcs;
 };
 
+export type NpcUpdateContext = {
+  targets: TargetInfo[];
+  callbacks: {
+    onNpcHit: (position: Vector3) => void;
+    spawnNpcBeam: (
+      position: Vector3,
+      direction: Vector3,
+      sourceId: string
+    ) => void;
+  };
+  effects: {
+    isRedSource: (sourceId: string | null) => boolean;
+    impactOrbs: BeamImpactOrb[];
+    cameraPosition: Vector3;
+    shouldProcessOrb: (position: Vector3) => boolean;
+  };
+  movement: {
+    blockers: MovementBlocker[];
+    evadeThreats: Vector3[][];
+    playerThreatenedNpcIds: ReadonlySet<string>;
+    shouldFreezeAliveMovement: (npc: Npc, npcId: string) => boolean;
+    isAliveNpcForbiddenCell: (cell: FloorCell) => boolean;
+  };
+  alarms: {
+    getAlarmTargetStack: (npcId: string) => readonly string[];
+  };
+  settings: {
+    brainwashOnNoGunTouch: boolean;
+  };
+};
+
+export type NpcUpdateResult = {
+  playerBlocked: boolean;
+  targetedIds: Set<string>;
+  alertRequests: AlertRequest[];
+  playerNoGunTouchBrainwashRequested: boolean;
+};
+
 export const updateNpcs = (
   layout: GridLayout,
   floorCells: FloorCell[],
@@ -316,20 +355,22 @@ export const updateNpcs = (
   beams: Beam[],
   delta: number,
   elapsed: number,
-  targets: TargetInfo[],
-  onNpcHit: (position: Vector3) => void,
-  spawnNpcBeam: (position: Vector3, direction: Vector3, sourceId: string) => void,
-  isRedSource: (sourceId: string | null) => boolean,
-  impactOrbs: BeamImpactOrb[],
-  blockers: MovementBlocker[],
-  evadeThreats: Vector3[][],
-  cameraPosition: Vector3,
-  shouldProcessOrb: (position: Vector3) => boolean,
-  shouldFreezeAliveMovement: (npc: Npc, npcId: string) => boolean,
-  isAliveNpcForbiddenCell: (cell: FloorCell) => boolean,
-  getAlarmTargetStack: (npcId: string) => readonly string[],
-  brainwashOnNoGunTouch: boolean
-) => {
+  context: NpcUpdateContext
+): NpcUpdateResult => {
+  const {
+    targets,
+    callbacks: { onNpcHit, spawnNpcBeam },
+    effects: { isRedSource, impactOrbs, cameraPosition, shouldProcessOrb },
+    movement: {
+      blockers,
+      evadeThreats,
+      playerThreatenedNpcIds,
+      shouldFreezeAliveMovement,
+      isAliveNpcForbiddenCell
+    },
+    alarms: { getAlarmTargetStack },
+    settings: { brainwashOnNoGunTouch }
+  } = context;
   const aliveTargets = targets.filter((target) => target.alive);
   const unbrainwashedTargets = targets.filter(
     (target) => !isBrainwashState(target.state)
@@ -372,7 +413,7 @@ export const updateNpcs = (
     }
     activeBlockers.push({
       position: blockedTarget.position,
-      radius: npcBrainwashBlockRadius,
+      radius: npcNoGunTouchContactRadius,
       sourceId: npc.sprite.name
     });
     if (blockedTarget.id === "player") {
@@ -657,7 +698,9 @@ export const updateNpcs = (
       return true;
     }
 
-    const moveSpeed = npc.state === "evade" ? npcEvadeSpeed : npc.speed;
+    const shouldUseEvadeMovement =
+      npc.state === "evade" || playerThreatenedNpcIds.has(npcId);
+    const moveSpeed = shouldUseEvadeMovement ? npcEvadeSpeed : npc.speed;
     const originCell = npc.cell;
     const buildSafeReachable = () => {
       const reachableMap = buildReachableMap(layout, originCell, npcMovePower);
@@ -713,7 +756,7 @@ export const updateNpcs = (
       return worldToCell(layout, nextTarget);
     };
     const destinationArrived = isNpcAtDestination(npc);
-    if (npc.state === "evade") {
+    if (shouldUseEvadeMovement) {
       npc.evadeTimer = Math.max(0, npc.evadeTimer - delta);
       if (npc.evadeTimer <= 0 || destinationArrived) {
         setAliveDestination(true);
@@ -727,7 +770,7 @@ export const updateNpcs = (
     }
 
     if (isAliveMovementCellForbidden(getNextMoveCell())) {
-      setAliveDestination(npc.state === "evade");
+      setAliveDestination(shouldUseEvadeMovement);
       return true;
     }
 
@@ -748,7 +791,8 @@ export const updateNpcs = (
         return null;
       }
       let candidateTarget: TargetInfo | null = null;
-      let candidateDistanceSq = npcBrainwashBlockRadius * npcBrainwashBlockRadius;
+      let candidateDistanceSq =
+        npcNoGunTouchContactRadius * npcNoGunTouchContactRadius;
       for (const candidate of brainwashTargets) {
         const distanceSq = Vector3.DistanceSquared(
           npc.sprite.position,
@@ -887,7 +931,7 @@ export const updateNpcs = (
       });
       activeBlockers.push({
         position: touchTarget.position,
-        radius: npcBrainwashBlockRadius,
+        radius: npcNoGunTouchContactRadius,
         sourceId: npc.sprite.name
       });
       if (touchTarget.id === "player") {

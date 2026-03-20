@@ -100,12 +100,26 @@ import {
   VoiceActor
 } from "./audio/voice";
 import { SfxDirector } from "./audio/sfxDirector";
-import { createGameFlow, type GamePhase, type ExecutionConfig } from "./game/flow";
+import { createGameFlow, type ExecutionConfig } from "./game/flow";
 import { createDynamicBeamSystem } from "./game/dynamicBeam/system";
 import { createTrapSystem } from "./game/trap/system";
 import { createAlarmSystem } from "./game/alarm/system";
 import { createRouletteSystem } from "./game/roulette/system";
 import { RouletteBitFireEntry, RouletteHitTarget } from "./game/roulette/types";
+import {
+  canReleaseAssemblyControl,
+  isAssemblyPhase,
+  shouldHidePlayerAvatarFromMainCamera,
+  shouldShowFirstPersonBodyForPhase,
+  shouldSyncPlayerAvatarToCamera,
+  type GamePhase,
+  usesPlayerEyeHeight
+} from "./game/phases";
+import {
+  canPlayerMove,
+  createPlayerAbilityController,
+  type PlayerAbilityFrameSnapshot
+} from "./game/playerAbility";
 import { buildStageContext, disposeStageParts } from "./world/stageContext";
 import { createZoneMapFromStageJson } from "./world/stageJson";
 import {
@@ -355,6 +369,8 @@ const playerHeight = PLAYER_SPRITE_HEIGHT;
 const playerCenterHeight = PLAYER_SPRITE_CENTER_HEIGHT;
 // ミニマップ座標表示ボックスの表示切替。true=表示、false=非表示（デフォルト）
 const minimapReadoutVisible = false;
+// スタミナゲージの表示切替。true=表示（デフォルト）、false=非表示
+const showStaminaGauge = true;
 const portraitMaxWidthCells = 1;
 const portraitMaxHeightCells = 2;
 const worldLayerMask = 0x0fffffff;
@@ -375,14 +391,6 @@ const firstPersonBodyFeetRowHalfWidthStart = 0.66;
 const firstPersonBodyFeetRowHalfWidthEnd = 0.57;
 const firstPersonBodyFeetRowZStart = 0.41;
 const firstPersonBodyFeetRowZEnd = 0.49;
-const isDefeatScenePhase = (phase: GamePhase) =>
-  phase === "assemblyMove" ||
-  phase === "assemblyHold" ||
-  phase === "execution";
-const shouldShowFirstPersonBodyForPhase = (phase: GamePhase) =>
-  phase === "playing" || isDefeatScenePhase(phase);
-const shouldHidePlayerAvatarFromMainCamera = (phase: GamePhase) =>
-  phase === "playing" || isDefeatScenePhase(phase);
 
 const defaultBitSpawnSettings: BitSpawnSettings = {
   bitSpawnInterval: 10,  // ビットの通常出現間隔（秒）。1〜99。デフォルトは10
@@ -784,6 +792,10 @@ camera.layerMask = worldLayerMask | firstPersonBodyLayerMask;
 camera.minZ = 0.02;
 const baseCameraSpeed = 0.02;
 const playerMoveSpeed = baseCameraSpeed * Math.sqrt(10);
+const playerDashSpeedMultiplier = 1.7;
+const playerStaminaMaxTenths = 150;
+const playerStaminaDrainInterval = 0.1;
+const playerStaminaRecoverInterval = 0.2;
 camera.speed = 0;
 camera.angularSensibility = 1500;
 camera.keysUp = [87];
@@ -1884,24 +1896,21 @@ const publicExecutionBeamDelayMin = 2;
 const publicExecutionBeamDelayMax = 10;
 const executionHitFadeDuration = playerHitFadeDuration;
 
-const playerBlockRadius = playerWidth;
+const playerNoGunTouchContactRadius = 0.5;
+const playerEvadeThreatNearRangeCells = 3;
+const playerEvadeThreatVisionRangeCells = 9;
 const getSpriteBeamHitRadii = (sprite: Sprite) =>
   createBeamHitRadii(sprite.width, sprite.height);
-
-type MoveKey = "forward" | "back" | "left" | "right";
-const playerMoveInput: Record<MoveKey, boolean> = {
-  forward: false,
-  back: false,
-  left: false,
-  right: false
-};
-
-const resetPlayerMoveInput = () => {
-  playerMoveInput.forward = false;
-  playerMoveInput.back = false;
-  playerMoveInput.left = false;
-  playerMoveInput.right = false;
-};
+const playerAbility = createPlayerAbilityController({
+  baseMoveSpeed: playerMoveSpeed,
+  dashSpeedMultiplier: playerDashSpeedMultiplier,
+  staminaMaxTenths: playerStaminaMaxTenths,
+  staminaDrainInterval: playerStaminaDrainInterval,
+  staminaRecoverInterval: playerStaminaRecoverInterval,
+  noGunTouchContactRadius: playerNoGunTouchContactRadius,
+  evadeThreatNearRangeCells: playerEvadeThreatNearRangeCells,
+  evadeThreatVisionRangeCells: playerEvadeThreatVisionRangeCells
+});
 
 
 type PlayerState = CharacterState;
@@ -1968,6 +1977,23 @@ let bitIndex = bits.length;
 
 const hud = createHud();
 hud.setMinimapReadoutVisible(minimapReadoutVisible);
+type HudPhaseState = {
+  hudVisible: boolean;
+  helpPanelText: string | null;
+  crosshairVisible: boolean;
+};
+let hudPhaseOverride: HudPhaseState | null = null;
+
+const setHudPhaseOverride = (state: HudPhaseState | null) => {
+  hudPhaseOverride = state;
+};
+
+const updateHudPhaseOverride = (patch: Partial<HudPhaseState>) => {
+  if (!hudPhaseOverride) {
+    return;
+  }
+  hudPhaseOverride = { ...hudPhaseOverride, ...patch };
+};
 const applyStageSelection = async (selection: StageSelection) => {
   const requestId = stageSelectionRequestId + 1;
   stageSelectionRequestId = requestId;
@@ -2025,8 +2051,7 @@ const applyStageSelection = async (selection: StageSelection) => {
         return;
       }
       hud.setTitleVisible(true);
-      hud.setHudVisible(false);
-      hud.setStateInfo(null);
+      setHudPhaseOverride(null);
       gameFlow.resetFade();
     }
   } finally {
@@ -2416,7 +2441,7 @@ const enterPublicExecution = (scenario: PublicExecutionScenario) => {
   executionHitFadeDurationCurrent = executionHitFadeDuration;
   disposeExecutionHitEffects();
   if (!executionAllowPlayerMove) {
-    resetPlayerMoveInput();
+    playerAbility.resetInput();
     camera.cameraDirection.set(0, 0, 0);
   }
   gameFlow.enterExecution(scenario);
@@ -2430,7 +2455,7 @@ const startPublicExecutionTransition = (scenario: PublicExecutionScenario) => {
   publicExecutionTriggerKey = null;
   publicExecutionTriggerTimer = 0;
   gamePhase = "transition";
-  hud.setHudVisible(false);
+  setHudPhaseOverride(null);
   gameFlow.beginFadeOut(() => {
     removeCarpetFollowers();
     enterPublicExecution(scenario);
@@ -2701,42 +2726,12 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
   }
 };
 
-const updatePlayerMovement = (delta: number, allowMove: boolean) => {
-  if (!allowMove) {
-    return;
-  }
-  let moveX = 0;
-  let moveZ = 0;
-  if (playerMoveInput.forward) {
-    moveZ += 1;
-  }
-  if (playerMoveInput.back) {
-    moveZ -= 1;
-  }
-  if (playerMoveInput.right) {
-    moveX += 1;
-  }
-  if (playerMoveInput.left) {
-    moveX -= 1;
-  }
-  if (moveX !== 0 || moveZ !== 0) {
-    const forward = camera.getDirection(new Vector3(0, 0, 1));
-    forward.y = 0;
-    const right = camera.getDirection(new Vector3(1, 0, 0));
-    right.y = 0;
-    const moveDirection = new Vector3(0, 0, 0);
-    if (moveZ !== 0 && forward.lengthSquared() > 0.0001) {
-      moveDirection.addInPlace(forward.scale(moveZ));
-    }
-    if (moveX !== 0 && right.lengthSquared() > 0.0001) {
-      moveDirection.addInPlace(right.scale(moveX));
-    }
-    if (moveDirection.lengthSquared() > 0.0001) {
-      camera.cameraDirection.addInPlace(
-        moveDirection.scale(playerMoveSpeed * delta)
-      );
-    }
-  }
+const updatePlayerMovement = (
+  delta: number,
+  allowMove: boolean,
+  moveSpeed: number
+) => {
+  playerAbility.applyMovement(camera, delta, allowMove, moveSpeed);
 };
 
 const getBeamImpactPosition = (beam: Beam) =>
@@ -2783,7 +2778,7 @@ const updateExecutionScene = (
   }
 
   if (executionAllowPlayerMove) {
-    updatePlayerMovement(delta, true);
+    updatePlayerMovement(delta, true, playerMoveSpeed);
   }
 
   if (executionWaitForFade && !gameFlow.isFading()) {
@@ -2830,9 +2825,9 @@ const updateExecutionScene = (
         beginExecutionHit("npc", scenario.survivorNpcIndex, 1);
         playerState = "brainwash-complete-haigure-formation";
         executionAllowPlayerMove = false;
-        resetPlayerMoveInput();
+        playerAbility.resetInput();
         camera.cameraDirection.set(0, 0, 0);
-        hud.setCrosshairVisible(false);
+        updateHudPhaseOverride({ crosshairVisible: false });
         break;
       }
     }
@@ -3008,7 +3003,7 @@ const setupRouletteParticipants = () => {
   camera.position.copyFrom(roulettePlayerPosition);
   camera.setTarget(new Vector3(rouletteCenter.x, eyeHeight, rouletteCenter.z));
   camera.cameraDirection.set(0, 0, 0);
-  resetPlayerMoveInput();
+  playerAbility.resetInput();
   playerAvatar.isVisible = false;
   playerAvatar.position.set(
     roulettePlayerPosition.x,
@@ -3281,10 +3276,10 @@ rouletteSystem = createRouletteSystem({
   applyCharacterSnapshot: applyRouletteCharacterSnapshot,
   beginUndoTransition: (apply) => {
     gamePhase = "transition";
+    setHudPhaseOverride(null);
     gameFlow.beginFadeOut(() => {
       apply();
       gamePhase = "roulette";
-      hud.setStateInfo(null);
     });
   },
   prepareUndoState: () => {
@@ -3295,7 +3290,7 @@ rouletteSystem = createRouletteSystem({
 
 const startRouletteMode = () => {
   rouletteSystem.start(true);
-  hud.setStateInfo(null);
+  setHudPhaseOverride(null);
 };
 
 const undoRouletteRound = () => {
@@ -3361,16 +3356,16 @@ const createGameFlowInstance = () =>
     clearBeams,
     stopAlertLoop,
     setBitSpawnEnabled,
-    disposePlayerHitEffects
+    disposePlayerHitEffects,
+    setHudPhaseOverride
   });
 let gameFlow = createGameFlowInstance();
 const rebuildGameFlow = () => {
   gameFlow = createGameFlowInstance();
 };
 
-hud.setHudVisible(false);
 hud.setTitleVisible(true);
-hud.setStateInfo(null);
+setHudPhaseOverride(null);
 gameFlow.resetFade();
 
 const isInterruptibleBit = (bit: Bit) => {
@@ -3506,30 +3501,6 @@ const drawMinimap = () => {
     (rouletteMode && isBrainwashState(playerState));
   const surviveTime = showSurviveTime ? playerHitTime : null;
   const displayElapsedTime = rouletteStats ? rouletteStats.elapsed : elapsedTime;
-  let retryText: string | null = null;
-  if (rouletteMode) {
-    retryText = "操作説明\nR: 1回分やりなおす\nEnter: タイトルへ";
-  } else if (brainwashChoiceStarted) {
-    const promptLines: string[] = ["操作説明"];
-    if (canMove) {
-      promptLines.push("WASD: 移動");
-    }
-    if (brainwashChoiceUnlocked) {
-      promptLines.push(
-        "G: 銃ありで移動",
-        "N: 銃なしで移動",
-        "H: ハイグレポーズ"
-      );
-    }
-    if (playerState === "brainwash-complete-gun") {
-      promptLines.push("左クリック: 発射");
-    }
-    promptLines.push("R: リトライ", "Enter: エピローグへ");
-    retryText = promptLines.join("\n");
-  } else if (canMove) {
-    retryText = "操作説明\nWASD: 移動";
-  }
-
   hud.drawMinimap({
     cameraPosition: camera.position,
     cameraForward: camera.getDirection(new Vector3(0, 0, 1)),
@@ -3545,17 +3516,112 @@ const drawMinimap = () => {
     rouletteRoundCount: rouletteRoundCountValue,
     rouletteSurviveCount: rouletteSurviveCountValue,
     aliveCount,
-    retryText,
-    showCrosshair: playerState === "brainwash-complete-gun",
     trackedNpcPositions
   });
 };
+
+const buildPlayingHelpPanelText = () => {
+  const canMove = canPlayerMove(playerState);
+  if (brainwashChoiceStarted) {
+    const promptLines: string[] = ["操作説明"];
+    if (canMove) {
+      promptLines.push("WASD: 移動", "Shift: ダッシュ");
+    }
+    if (brainwashChoiceUnlocked) {
+      promptLines.push(
+        "G: 銃ありで移動",
+        "N: 銃なしで移動",
+        "H: ハイグレポーズ"
+      );
+    }
+    if (playerState === "brainwash-complete-gun") {
+      promptLines.push("左クリック: 発射");
+    }
+    promptLines.push("R: リトライ", "Enter: エピローグへ");
+    return promptLines.join("\n");
+  }
+  if (canMove) {
+    return "操作説明\nWASD: 移動\nShift: ダッシュ";
+  }
+  return null;
+};
+
+const getBaseHudPhaseState = (): HudPhaseState => {
+  if (gamePhase === "playing") {
+    return {
+      hudVisible: true,
+      helpPanelText: buildPlayingHelpPanelText(),
+      crosshairVisible: playerState === "brainwash-complete-gun"
+    };
+  }
+  if (gamePhase === "roulette") {
+    return {
+      hudVisible: true,
+      helpPanelText: "操作説明\nR: 1回分やりなおす\nEnter: タイトルへ",
+      crosshairVisible: false
+    };
+  }
+  return {
+    hudVisible: false,
+    helpPanelText: null,
+    crosshairVisible: false
+  };
+};
+
+const syncHudForPhase = () => {
+  const hudState = hudPhaseOverride ?? getBaseHudPhaseState();
+  const staminaState = playerAbility.getStaminaHudState(gamePhase, playerState);
+  hud.setHudVisible(hudState.hudVisible);
+  hud.setHelpPanelText(hudState.helpPanelText);
+  hud.setCrosshairVisible(hudState.crosshairVisible);
+  if (!showStaminaGauge) {
+    hud.setStaminaGaugeVisible(false);
+    return;
+  }
+  hud.setStaminaGaugeVisible(staminaState.visible);
+  if (!staminaState.visible) {
+    return;
+  }
+  hud.setStaminaGauge(
+    staminaState.current,
+    staminaState.max,
+    staminaState.brainwashed
+  );
+};
+
+const buildNpcTargets = () => [
+  {
+    id: "player",
+    position: camera.position,
+    alive: isAliveState(playerState),
+    state: playerState,
+    hitById: playerHitById
+  },
+  ...npcs.map((npc, index) => ({
+    id: `npc_${index}`,
+    position: npc.sprite.position,
+    alive: isAliveState(npc.state),
+    state: npc.state,
+    hitById: npc.hitById
+  }))
+];
+
+const createPlayerAbilitySnapshot = (): PlayerAbilityFrameSnapshot =>
+  playerAbility.createFrameSnapshot({
+    gamePhase,
+    playerState,
+    camera,
+    scene,
+    layout,
+    npcs
+  });
 
 scene.onBeforeRenderObservable.add(() => {
   if (gamePhase === "playing" || gamePhase === "roulette") {
     camera.position.y = getEyeHeight();
     drawMinimap();
   }
+  syncHudForPhase();
 });
 
 const enterPlayerPostHitBrainwashState = () => {
@@ -3721,7 +3787,7 @@ const syncPlayerPresentation = () => {
         ? reflectionOnlyLayerMask
         : worldLayerMask;
   }
-  if (gamePhase === "playing") {
+  if (shouldSyncPlayerAvatarToCamera(gamePhase)) {
     playerAvatar.isVisible = true;
     playerAvatar.position.set(
       camera.position.x,
@@ -3759,6 +3825,7 @@ const resetGame = async (
     : "normal";
   playerHitById = null;
   playerHitTime = 0;
+  playerAbility.resetState();
   trapSurviveCountAtBrainwash = null;
   playerHitDurationCurrent = playerHitDuration;
   playerHitFadeDurationCurrent = playerHitFadeDuration;
@@ -3862,8 +3929,7 @@ const startGame = async () => {
     titleVolumePanel.setVisible(false);
     titleStageSelectControl.setVisible(false);
     titleSettingsSidebar.setVisible(false);
-    hud.setHudVisible(true);
-    hud.setStateInfo(null);
+    setHudPhaseOverride(null);
     gameFlow.resetFade();
     canvas.requestPointerLock();
   } finally {
@@ -3884,8 +3950,7 @@ const returnToTitle = async () => {
     titleVolumePanel.setVisible(true);
     titleStageSelectControl.setVisible(true);
     titleSettingsSidebar.setVisible(true);
-    hud.setHudVisible(false);
-    hud.setStateInfo(null);
+    setHudPhaseOverride(null);
     gameFlow.resetFade();
     syncTitleMessage();
     const nextCharacterAssignments = buildCharacterAssignments(
@@ -3955,7 +4020,7 @@ setupInputHandlers({
   },
   onEnterEpilogue: () => {
     gamePhase = "transition";
-    hud.setHudVisible(false);
+    setHudPhaseOverride(null);
     gameFlow.beginFadeOut(() => {
       removeCarpetFollowers();
       gameFlow.enterAssembly("instant");
@@ -3969,7 +4034,7 @@ setupInputHandlers({
   },
   onReplayExecution: () => {
     gamePhase = "transition";
-    hud.setHudVisible(false);
+    setHudPhaseOverride(null);
     gameFlow.beginFadeOut(() => {
       enterPublicExecution(executionScenario!);
     });
@@ -3978,7 +4043,13 @@ setupInputHandlers({
     playerState = state;
   },
   onMoveKey: (key, pressed) => {
-    playerMoveInput[key] = pressed;
+    if (pressed && canReleaseAssemblyControl(gamePhase)) {
+      gameFlow.releaseAssemblyPlayerControl();
+    }
+    playerAbility.setMoveKey(key, pressed);
+  },
+  onDashKey: (pressed) => {
+    playerAbility.setDashPressed(pressed);
   },
   onPlayerFire: (origin, direction) => {
     beams.push(createBeam(scene, origin, direction, beamMaterial, "player"));
@@ -4006,10 +4077,11 @@ engine.runRenderLoop(() => {
     );
     trapSystem.updateNpcFreezeControl(delta, gamePhase);
     updatePlayerState(delta, elapsedTime, shouldProcessOrb);
+    const playerAbilitySnapshotForMovement = createPlayerAbilitySnapshot();
+    const playerThreatenedNpcIdsForMovement =
+      playerAbilitySnapshotForMovement.threatenedNpcIds;
     const npcBlockers =
-      playerState === "brainwash-complete-no-gun"
-        ? [{ position: camera.position, radius: playerBlockRadius, sourceId: "player" }]
-        : [];
+      playerAbilitySnapshotForMovement.npcBlockers;
     const npcEvadeThreats = npcs.map(() => [] as Vector3[]);
     for (const bit of bits) {
       if (!bit.targetId) {
@@ -4021,56 +4093,11 @@ engine.runRenderLoop(() => {
       const targetIndex = Number(bit.targetId.slice(4));
       npcEvadeThreats[targetIndex].push(bit.root.position);
     }
-    const aimRay = camera.getForwardRay();
-    const aimDirection = aimRay.direction.normalize();
-    let aimedNpcIndex = -1;
-    let aimedNpcDistance = Infinity;
-    for (let index = 0; index < npcs.length; index += 1) {
-      const npc = npcs[index];
-      if (!isAliveState(npc.state)) {
-        continue;
-      }
-      const toCenter = aimRay.origin.subtract(npc.sprite.position);
-      const b = Vector3.Dot(toCenter, aimDirection);
-      const npcAimRadius = npc.sprite.width * 0.5;
-      const c =
-        Vector3.Dot(toCenter, toCenter) - npcAimRadius * npcAimRadius;
-      const discriminant = b * b - c;
-      if (discriminant < 0) {
-        continue;
-      }
-      const sqrt = Math.sqrt(discriminant);
-      let t = -b - sqrt;
-      if (t < 0) {
-        t = -b + sqrt;
-      }
-      if (t < 0) {
-        continue;
-      }
-      if (t < aimedNpcDistance) {
-        aimedNpcDistance = t;
-        aimedNpcIndex = index;
-      }
+    for (const threatenedNpcId of playerThreatenedNpcIdsForMovement) {
+      const targetIndex = Number(threatenedNpcId.slice(4));
+      npcEvadeThreats[targetIndex].push(camera.position);
     }
-    if (aimedNpcIndex >= 0) {
-      npcEvadeThreats[aimedNpcIndex].push(camera.position);
-    }
-    const npcTargets = [
-      {
-        id: "player",
-        position: camera.position,
-        alive: isAliveState(playerState),
-        state: playerState,
-        hitById: playerHitById
-      },
-      ...npcs.map((npc, index) => ({
-        id: `npc_${index}`,
-        position: npc.sprite.position,
-        alive: isAliveState(npc.state),
-        state: npc.state,
-        hitById: npc.hitById
-      }))
-    ];
+    const npcTargets = buildNpcTargets();
     alarmSystem.update(delta, gamePhase, npcTargets);
     const activeDynamicBeamCells = new Set<string>();
     if (isDynamicStageSelected()) {
@@ -4089,36 +4116,55 @@ engine.runRenderLoop(() => {
       beams,
       delta,
       elapsedTime,
-      npcTargets,
-      (position) => {
-        sfxDirector.playHit(() => position);
-      },
-      (position, direction, sourceId) => {
-        beams.push(createBeam(scene, position, direction, beamMaterial, sourceId));
-        sfxDirector.playBeamNonTarget(() => position);
-      },
-      isRedBitSource,
-      beamImpactOrbs,
-      npcBlockers,
-      npcEvadeThreats,
-      camera.position,
-      shouldProcessOrb,
-      trapSystem.shouldFreezeNpcMovement,
-      (cell) => activeDynamicBeamCells.has(`${cell.row},${cell.col}`),
-      (npcId) => alarmSystem.getAlarmTargetStack(npcId),
-      runtimeBrainwashSettings.brainwashOnNoGunTouch
+      {
+        targets: npcTargets,
+        callbacks: {
+          onNpcHit: (position) => {
+            sfxDirector.playHit(() => position);
+          },
+          spawnNpcBeam: (position, direction, sourceId) => {
+            beams.push(
+              createBeam(scene, position, direction, beamMaterial, sourceId)
+            );
+            sfxDirector.playBeamNonTarget(() => position);
+          }
+        },
+        effects: {
+          isRedSource: isRedBitSource,
+          impactOrbs: beamImpactOrbs,
+          cameraPosition: camera.position,
+          shouldProcessOrb
+        },
+        movement: {
+          blockers: npcBlockers,
+          evadeThreats: npcEvadeThreats,
+          playerThreatenedNpcIds: playerThreatenedNpcIdsForMovement,
+          shouldFreezeAliveMovement: trapSystem.shouldFreezeNpcMovement,
+          isAliveNpcForbiddenCell: (cell) =>
+            activeDynamicBeamCells.has(`${cell.row},${cell.col}`)
+        },
+        alarms: {
+          getAlarmTargetStack: (npcId) => alarmSystem.getAlarmTargetStack(npcId)
+        },
+        settings: {
+          brainwashOnNoGunTouch: runtimeBrainwashSettings.brainwashOnNoGunTouch
+        }
+      }
     );
     if (npcUpdate.playerNoGunTouchBrainwashRequested) {
       startPlayerNoGunTouchBrainwash();
     }
     const playerBlockedByNpc =
       npcUpdate.playerBlocked && isAliveState(playerState);
-    const canMove =
-      isAliveState(playerState) ||
-      playerState === "brainwash-complete-gun" ||
-      playerState === "brainwash-complete-no-gun";
+    const canMove = canPlayerMove(playerState);
     const allowMove = canMove && !playerBlockedByNpc;
-    updatePlayerMovement(delta, allowMove);
+    const movingForStamina = allowMove && playerAbility.hasMoveInput();
+    updatePlayerMovement(
+      delta,
+      allowMove,
+      playerAbilitySnapshotForMovement.moveSpeed
+    );
+    playerAbility.updateStamina(delta, movingForStamina, gamePhase, playerState);
 
     const executionCandidate = findPublicExecutionCandidate();
     if (executionCandidate) {
@@ -4165,7 +4211,7 @@ engine.runRenderLoop(() => {
         }
         if (skipAssembly) {
           gamePhase = "transition";
-          hud.setHudVisible(false);
+          setHudPhaseOverride(null);
           gameFlow.beginFadeOut(() => {
             removeCarpetFollowers();
             gameFlow.enterAssembly("instant");
@@ -4255,11 +4301,16 @@ engine.runRenderLoop(() => {
         startAlertLoop(alertLeader);
       }
 
+      const playerAbilitySnapshot = createPlayerAbilitySnapshot();
+      const playerThreatenedNpcIds = playerAbilitySnapshot.threatenedNpcIds;
       const targetedIds = new Set<string>();
       for (const bit of bits) {
         if (bit.targetId) {
           targetedIds.add(bit.targetId);
         }
+      }
+      for (const threatenedNpcId of playerThreatenedNpcIds) {
+        targetedIds.add(threatenedNpcId);
       }
       if (isAliveState(playerState)) {
         playerState =
@@ -4293,11 +4344,15 @@ engine.runRenderLoop(() => {
     updateExecutionScene(delta, shouldProcessOrb);
   }
 
-  if (gamePhase === "assemblyMove" || gamePhase === "assemblyHold") {
+  if (isAssemblyPhase(gamePhase)) {
     gameFlow.updateAssembly(delta);
   }
 
-  if (gamePhase === "playing" || gamePhase === "roulette") {
+  if (gamePhase === "assemblyFree") {
+    updatePlayerMovement(delta, true, playerMoveSpeed);
+  }
+
+  if (usesPlayerEyeHeight(gamePhase)) {
     camera.position.y = getEyeHeight();
   }
   updateCharacterSpriteCells();

@@ -1,6 +1,10 @@
 import { FreeCamera, Vector3 } from "@babylonjs/core";
 import { CharacterState } from "../game/types";
-import type { GamePhase } from "../game/flow";
+import {
+  canReturnToTitleFromPhase,
+  shouldPreventContextMenuForPhase,
+  type GamePhase
+} from "../game/phases";
 
 export type InputHandlerOptions = {
   canvas: HTMLCanvasElement;
@@ -22,6 +26,7 @@ export type InputHandlerOptions = {
     key: "forward" | "back" | "left" | "right",
     pressed: boolean
   ) => void;
+  onDashKey: (pressed: boolean) => void;
   onPlayerFire: (origin: Vector3, direction: Vector3) => void;
 };
 
@@ -42,8 +47,11 @@ export const setupInputHandlers = ({
   onReplayExecution,
   onSelectBrainwashOption,
   onMoveKey,
+  onDashKey,
   onPlayerFire
 }: InputHandlerOptions) => {
+  let shiftLeftPressed = false;
+  let shiftRightPressed = false;
   const handleMoveKey = (code: string, pressed: boolean) => {
     if (code === "KeyW") {
       onMoveKey("forward", pressed);
@@ -61,11 +69,32 @@ export const setupInputHandlers = ({
       onMoveKey("right", pressed);
     }
   };
+  const handleDashKey = (code: string, pressed: boolean) => {
+    // 他キーへ変える場合は以下のcodeと比較しているキー名を以下に変更すること。
+    // 例：
+    // Cキーは "KeyC"
+    // Control は "ControlLeft" / "ControlRight"
+    // Space は "Space"
+    // 左クリックは KeyboardEvent.code ではなく
+    // pointerdown / mousedown 側の event.button === 0 で別処理
+    if (code === "ShiftLeft") {
+      shiftLeftPressed = pressed;
+      onDashKey(shiftLeftPressed || shiftRightPressed);
+      return;
+    }
+    if (code === "ShiftRight") {
+      shiftRightPressed = pressed;
+      onDashKey(shiftLeftPressed || shiftRightPressed);
+    }
+  };
   const releaseMoveKeys = () => {
     onMoveKey("forward", false);
     onMoveKey("back", false);
     onMoveKey("left", false);
     onMoveKey("right", false);
+    shiftLeftPressed = false;
+    shiftRightPressed = false;
+    onDashKey(false);
   };
 
   canvas.addEventListener("click", () => {
@@ -80,17 +109,14 @@ export const setupInputHandlers = ({
       event.preventDefault();
       return;
     }
-    if (
-      gamePhase === "assemblyMove" ||
-      gamePhase === "assemblyHold" ||
-      gamePhase === "execution"
-    ) {
+    if (shouldPreventContextMenuForPhase(gamePhase)) {
       event.preventDefault();
     }
   });
 
   window.addEventListener("keydown", (event) => {
     handleMoveKey(event.code, true);
+    handleDashKey(event.code, true);
     const gamePhase = getGamePhase();
     const playerState = getPlayerState();
     if (event.code === "Enter") {
@@ -98,12 +124,7 @@ export const setupInputHandlers = ({
         onEnterEpilogue();
         return;
       }
-      if (
-        gamePhase === "assemblyMove" ||
-        gamePhase === "assemblyHold" ||
-        gamePhase === "execution" ||
-        gamePhase === "roulette"
-      ) {
+      if (canReturnToTitleFromPhase(gamePhase)) {
         onReturnToTitle();
       }
     }
@@ -140,6 +161,7 @@ export const setupInputHandlers = ({
 
   window.addEventListener("keyup", (event) => {
     handleMoveKey(event.code, false);
+    handleDashKey(event.code, false);
   });
   window.addEventListener("blur", () => {
     releaseMoveKeys();
