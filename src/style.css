@@ -179,6 +179,7 @@ body {
 .title-settings-combined-panel,
 .stage-select-control,
 .player-settings-panel,
+.visual-settings-panel,
 .default-settings-panel,
 .brainwash-settings-panel,
 .bit-spawn-panel {
@@ -368,6 +369,7 @@ body {
 }
 
 .player-settings-panel,
+.visual-settings-panel,
 .default-settings-panel,
 .brainwash-settings-panel,
 .bit-spawn-panel {
@@ -379,6 +381,7 @@ body {
 }
 
 .player-settings-panel--title,
+.visual-settings-panel--title,
 .default-settings-panel--title,
 .brainwash-settings-panel--title,
 .bit-spawn-panel--title {
@@ -390,6 +393,7 @@ body {
 }
 
 .player-settings-panel__title,
+.visual-settings-panel__title,
 .default-settings-panel__title,
 .brainwash-settings-panel__title,
 .bit-spawn-panel__title {
@@ -440,17 +444,20 @@ body {
   margin: 0;
 }
 
-.player-settings-panel__checkbox-row {
+.player-settings-panel__checkbox-row,
+.visual-settings-panel__checkbox-row {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.player-settings-panel__checkbox {
+.player-settings-panel__checkbox,
+.visual-settings-panel__checkbox {
   margin: 0;
 }
 
-.player-settings-panel__checkbox-label {
+.player-settings-panel__checkbox-label,
+.visual-settings-panel__checkbox-label {
   font-size: 13px;
   letter-spacing: 0.06em;
 }

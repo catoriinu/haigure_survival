@@ -15,6 +15,7 @@ import {
   createPlayerSettingsPanel,
   type PlayerSettings
 } from "./playerSettingsPanel";
+import { createVisualSettingsPanel } from "./visualSettingsPanel";
 import { createTrapRoomRecommendControl } from "./trapRoomRecommendControl";
 
 export type TitleSettingsSidebarSettings = {
@@ -26,6 +27,7 @@ export type TitleSettingsSidebarSettings = {
 
 export type TitleSettingsSidebarChangeReason =
   | "player-settings"
+  | "visual-settings"
   | "default-settings"
   | "brainwash-settings"
   | "bit-spawn-settings"
@@ -149,8 +151,24 @@ export const createTitleSettingsSidebar = ({
     voiceDirectories,
     className: "player-settings-panel--title",
     onChange: (nextSettings) => {
-      settings.playerSettings = { ...nextSettings };
+      settings.playerSettings = {
+        ...settings.playerSettings,
+        ...nextSettings
+      };
       emitSettingsChange("player-settings");
+    }
+  });
+
+  const visualSettingsPanel = createVisualSettingsPanel({
+    parent: settingsContainer,
+    initialSettings: settings.playerSettings,
+    className: "visual-settings-panel--title",
+    onChange: (nextSettings) => {
+      settings.playerSettings = {
+        ...settings.playerSettings,
+        ...nextSettings
+      };
+      emitSettingsChange("visual-settings");
     }
   });
 
@@ -241,6 +259,7 @@ export const createTitleSettingsSidebar = ({
     const copiedSettings = cloneSettings(nextSettings);
     withSuppressedSettingsChange(() => {
       playerSettingsPanel.setSettings(copiedSettings.playerSettings);
+      visualSettingsPanel.setSettings(copiedSettings.playerSettings);
       defaultSettingsPanel.setSettings(copiedSettings.defaultStartSettings);
       brainwashSettingsPanel.setSettings(copiedSettings.brainwashSettings);
       bitSpawnPanel.setSettings(copiedSettings.bitSpawnSettings);

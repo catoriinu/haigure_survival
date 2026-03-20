@@ -444,7 +444,7 @@ const defaultPlayerSettings: PlayerSettings = {
   portraitDirectory: null,
   voiceDirectory: null,
   showGroundShadows: true,
-  enableCharacterSpriteVerticalAngle: false
+  enableCharacterSpriteVerticalAngle: true
 };
 const TITLE_SETTINGS_STORAGE_KEY = "haigure-survival.title-settings";
 const TITLE_SETTINGS_STORAGE_VERSION = 5;

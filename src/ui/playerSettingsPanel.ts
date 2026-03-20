@@ -12,16 +12,21 @@ export type PlayerSettings = {
   enableCharacterSpriteVerticalAngle: boolean;
 };
 
+type PlayerSettingsPanelState = Pick<
+  PlayerSettings,
+  "heightCells" | "portraitDirectory" | "voiceDirectory"
+>;
+
 type PlayerSettingsPanelOptions = {
   parent: HTMLElement;
-  initialSettings: PlayerSettings;
+  initialSettings: PlayerSettingsPanelState;
   portraitDirectories: readonly string[];
   voiceDirectories: readonly string[];
-  onChange: (settings: PlayerSettings) => void;
+  onChange: (settings: PlayerSettingsPanelState) => void;
   className?: string;
 };
 
-export type PlayerSettingsPanel = SettingsPanel<PlayerSettings>;
+export type PlayerSettingsPanel = SettingsPanel<PlayerSettingsPanelState>;
 
 const randomOptionValue = "";
 
@@ -48,7 +53,7 @@ export const createPlayerSettingsPanel = ({
 
   const portraitDirectorySet = new Set(portraitDirectories);
   const voiceDirectorySet = new Set(voiceDirectories);
-  const settings: PlayerSettings = {
+  const settings: PlayerSettingsPanelState = {
     heightCells: initialSettings.heightCells,
     portraitDirectory: normalizeDirectorySelection(
       initialSettings.portraitDirectory,
@@ -57,10 +62,7 @@ export const createPlayerSettingsPanel = ({
     voiceDirectory: normalizeDirectorySelection(
       initialSettings.voiceDirectory,
       voiceDirectorySet
-    ),
-    showGroundShadows: initialSettings.showGroundShadows,
-    enableCharacterSpriteVerticalAngle:
-      initialSettings.enableCharacterSpriteVerticalAngle
+    )
   };
 
   const portraitRow = document.createElement("label");
@@ -103,30 +105,6 @@ export const createPlayerSettingsPanel = ({
   heightRow.appendChild(heightInput);
   root.appendChild(heightRow);
 
-  const groundShadowRow = document.createElement("label");
-  groundShadowRow.className = "player-settings-panel__checkbox-row";
-  const groundShadowCheckbox = document.createElement("input");
-  groundShadowCheckbox.className = "player-settings-panel__checkbox";
-  groundShadowCheckbox.type = "checkbox";
-  groundShadowRow.appendChild(groundShadowCheckbox);
-  const groundShadowLabel = document.createElement("span");
-  groundShadowLabel.className = "player-settings-panel__checkbox-label";
-  groundShadowLabel.textContent = "影を表示する";
-  groundShadowRow.appendChild(groundShadowLabel);
-  root.appendChild(groundShadowRow);
-
-  const verticalAngleRow = document.createElement("label");
-  verticalAngleRow.className = "player-settings-panel__checkbox-row";
-  const verticalAngleCheckbox = document.createElement("input");
-  verticalAngleCheckbox.className = "player-settings-panel__checkbox";
-  verticalAngleCheckbox.type = "checkbox";
-  verticalAngleRow.appendChild(verticalAngleCheckbox);
-  const verticalAngleLabel = document.createElement("span");
-  verticalAngleLabel.className = "player-settings-panel__checkbox-label";
-  verticalAngleLabel.textContent = "キャラスプライト縦角度表示";
-  verticalAngleRow.appendChild(verticalAngleLabel);
-  root.appendChild(verticalAngleRow);
-
   const fillSelectOptions = (
     select: HTMLSelectElement,
     directories: readonly string[]
@@ -152,8 +130,6 @@ export const createPlayerSettingsPanel = ({
     voiceSelect.value = settings.voiceDirectory ?? randomOptionValue;
     heightInput.value = String(settings.heightCells);
     heightValue.textContent = formatHeightCells(settings.heightCells);
-    groundShadowCheckbox.checked = settings.showGroundShadows;
-    verticalAngleCheckbox.checked = settings.enableCharacterSpriteVerticalAngle;
   };
 
   const { emit, setVisible, getSettings, setSettings } =
@@ -170,9 +146,6 @@ export const createPlayerSettingsPanel = ({
           nextSettings.voiceDirectory,
           voiceDirectorySet
         );
-        settings.showGroundShadows = nextSettings.showGroundShadows;
-        settings.enableCharacterSpriteVerticalAngle =
-          nextSettings.enableCharacterSpriteVerticalAngle;
       },
       render,
       onChange
@@ -193,16 +166,6 @@ export const createPlayerSettingsPanel = ({
   heightInput.addEventListener("input", () => {
     settings.heightCells = Number(heightInput.value);
     render();
-    emit();
-  });
-
-  groundShadowCheckbox.addEventListener("change", () => {
-    settings.showGroundShadows = groundShadowCheckbox.checked;
-    emit();
-  });
-
-  verticalAngleCheckbox.addEventListener("change", () => {
-    settings.enableCharacterSpriteVerticalAngle = verticalAngleCheckbox.checked;
     emit();
   });
 
