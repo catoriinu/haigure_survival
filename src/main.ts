@@ -443,10 +443,11 @@ const defaultPlayerSettings: PlayerSettings = {
   heightCells: 1.0,
   portraitDirectory: null,
   voiceDirectory: null,
+  showGroundShadows: true,
   enableCharacterSpriteVerticalAngle: false
 };
 const TITLE_SETTINGS_STORAGE_KEY = "haigure-survival.title-settings";
-const TITLE_SETTINGS_STORAGE_VERSION = 4;
+const TITLE_SETTINGS_STORAGE_VERSION = 5;
 const defaultVolumeLevels: VolumeLevels = {
   bgm: 5,
   se: 5,
@@ -3993,6 +3994,7 @@ const syncBitGroundShadowHandles = () => {
 };
 
 const syncGroundShadows = () => {
+  const showGroundShadows = titlePlayerSettings.showGroundShadows;
   if (playerGroundShadow) {
     groundShadowManager.syncGroundShadow(playerGroundShadow, {
       positionX: playerAvatar.position.x,
@@ -4001,7 +4003,7 @@ const syncGroundShadows = () => {
       depth: playerAvatar.width * characterGroundShadowDepthRatio,
       yaw: currentCharacterFacingYaw,
       visibility: characterGroundShadowVisibility,
-      visible: playerAvatar.isVisible,
+      visible: showGroundShadows && playerAvatar.isVisible,
       layerMask: worldLayerMask
     });
   }
@@ -4019,7 +4021,7 @@ const syncGroundShadows = () => {
       depth: npcSprite.width * characterGroundShadowDepthRatio,
       yaw: currentCharacterFacingYaw,
       visibility: characterGroundShadowVisibility,
-      visible: npcSprite.isVisible,
+      visible: showGroundShadows && npcSprite.isVisible,
       layerMask: worldLayerMask
     });
   }
@@ -4071,7 +4073,8 @@ const syncGroundShadows = () => {
       (baseWidth + (circleDiameter - baseWidth) * circleBlend) * heightScale;
     const blendedDepth =
       (baseDepth + (circleDiameter - baseDepth) * circleBlend) * heightScale;
-    const visible = bit.body.isVisible || bit.spawnPhase !== "done";
+    const visible =
+      showGroundShadows && (bit.body.isVisible || bit.spawnPhase !== "done");
     groundShadowManager.syncGroundShadow(groundShadow.shape, {
       positionX: bit.root.position.x,
       positionZ: bit.root.position.z,

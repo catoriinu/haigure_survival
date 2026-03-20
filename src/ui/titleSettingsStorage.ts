@@ -218,14 +218,21 @@ export const normalizePersistedTitleSettings = (
     "enableCharacterSpriteVerticalAngle",
     defaultSettings.playerSettings.enableCharacterSpriteVerticalAngle
   );
+  const showGroundShadowsValue = readBoolean(
+    playerSettingsObject.value,
+    "showGroundShadows",
+    defaultSettings.playerSettings.showGroundShadows
+  );
   changed ||=
     playerPortraitDirectoryValue.changed ||
     playerVoiceDirectoryValue.changed ||
+    showGroundShadowsValue.changed ||
     enableCharacterSpriteVerticalAngleValue.changed;
   const playerSettings: PlayerSettings = {
     heightCells: playerHeightCellsValue.value,
     portraitDirectory: playerPortraitDirectoryValue.value,
     voiceDirectory: playerVoiceDirectoryValue.value,
+    showGroundShadows: showGroundShadowsValue.value,
     enableCharacterSpriteVerticalAngle:
       enableCharacterSpriteVerticalAngleValue.value
   };
