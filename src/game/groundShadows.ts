@@ -8,7 +8,7 @@ import {
   Texture
 } from "@babylonjs/core";
 
-type GroundShadowKind = "ellipse" | "bit";
+type GroundShadowKind = "ellipse" | "bit" | "bit-circle";
 
 export type GroundShadowHandle = {
   mesh: Mesh;
@@ -43,6 +43,7 @@ const groundShadowY = 0.0015;
 const groundShadowRenderingGroupId = 0;
 const bitShadowTipRadius = 0.11;
 const bitShadowTipDepthRatio = 0.62;
+const bitCircleShadowRadius = 0.36;
 
 const createShadowTexture = (
   scene: Scene,
@@ -111,6 +112,25 @@ const drawBitShadow = (ctx: CanvasRenderingContext2D, size: number) => {
   ctx.restore();
 };
 
+const drawBitCircleShadow = (ctx: CanvasRenderingContext2D, size: number) => {
+  ctx.save();
+  ctx.fillStyle = "rgba(0, 0, 0, 0.82)";
+  ctx.shadowColor = "rgba(0, 0, 0, 0.42)";
+  ctx.shadowBlur = size * 0.08;
+  ctx.beginPath();
+  ctx.ellipse(
+    size * 0.5,
+    size * 0.5,
+    size * bitCircleShadowRadius,
+    size * bitCircleShadowRadius,
+    0,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+  ctx.restore();
+};
+
 const createShadowMaterial = (
   scene: Scene,
   name: string,
@@ -139,6 +159,11 @@ export const createGroundShadowManager = (scene: Scene): GroundShadowManager => 
     "groundShadowBitTexture",
     drawBitShadow
   );
+  const bitCircleTexture = createShadowTexture(
+    scene,
+    "groundShadowBitCircleTexture",
+    drawBitCircleShadow
+  );
   const ellipseMaterial = createShadowMaterial(
     scene,
     "groundShadowEllipseMaterial",
@@ -149,6 +174,11 @@ export const createGroundShadowManager = (scene: Scene): GroundShadowManager => 
     "groundShadowBitMaterial",
     bitTexture
   );
+  const bitCircleMaterial = createShadowMaterial(
+    scene,
+    "groundShadowBitCircleMaterial",
+    bitCircleTexture
+  );
 
   const createGroundShadow = (name: string, kind: GroundShadowKind) => {
     const mesh = MeshBuilder.CreateGround(
@@ -156,7 +186,12 @@ export const createGroundShadowManager = (scene: Scene): GroundShadowManager => 
       { width: 1, height: 1 },
       scene
     );
-    mesh.material = kind === "ellipse" ? ellipseMaterial : bitMaterial;
+    mesh.material =
+      kind === "ellipse"
+        ? ellipseMaterial
+        : kind === "bit"
+          ? bitMaterial
+          : bitCircleMaterial;
     mesh.isPickable = false;
     mesh.isVisible = false;
     mesh.renderingGroupId = groundShadowRenderingGroupId;

@@ -209,6 +209,10 @@ type TitleLoadingSession = {
   advance: () => void;
   finish: () => void;
 };
+type BitGroundShadowHandles = {
+  shape: GroundShadowHandle;
+  circle: GroundShadowHandle;
+};
 
 let activeTitleLoadingSessionCount = 0;
 let titleLoadingCompleted = 0;
@@ -397,6 +401,8 @@ const bitGroundShadowScalePerHeight = 0.35;
 const bitGroundShadowMaxScaleBonus = 0.7;
 const bitGroundShadowVisibilityPerHeight = 0.25;
 const bitGroundShadowMinForwardLengthSq = 0.0001;
+const bitGroundShadowMinMorphBlend = 0;
+const bitGroundShadowMaxMorphBlend = 1;
 const characterFacingMinForwardLengthSq = 0.0001;
 const firstPersonBodyBaseAlpha = 1;
 const firstPersonBodyCropTopRatio = 0.3;
@@ -1346,7 +1352,7 @@ let playerBillboardMesh: CharacterBillboardMeshHandle | null = null;
 let npcBillboardMeshes: CharacterBillboardMeshHandle[] = [];
 let playerGroundShadow: GroundShadowHandle | null = null;
 let npcGroundShadows: GroundShadowHandle[] = [];
-const bitGroundShadows = new Map<string, GroundShadowHandle>();
+const bitGroundShadows = new Map<string, BitGroundShadowHandles>();
 const characterFacingViewInverseMatrix = Matrix.Identity();
 const characterFacingForward = Vector3.Zero();
 let currentCharacterFacingYaw = 0;
@@ -1665,7 +1671,8 @@ const disposeCharacterGroundShadows = () => {
 
 const disposeBitGroundShadows = () => {
   for (const groundShadow of bitGroundShadows.values()) {
-    groundShadowManager.disposeGroundShadow(groundShadow);
+    groundShadowManager.disposeGroundShadow(groundShadow.shape);
+    groundShadowManager.disposeGroundShadow(groundShadow.circle);
   }
   bitGroundShadows.clear();
 };
@@ -3962,7 +3969,16 @@ const syncBitGroundShadowHandles = () => {
     if (!bitGroundShadows.has(bit.id)) {
       bitGroundShadows.set(
         bit.id,
-        groundShadowManager.createGroundShadow(`${bit.id}_shadow`, "bit")
+        {
+          shape: groundShadowManager.createGroundShadow(
+            `${bit.id}_shadow`,
+            "bit"
+          ),
+          circle: groundShadowManager.createGroundShadow(
+            `${bit.id}_shadow_circle`,
+            "bit-circle"
+          )
+        }
       );
     }
   }
@@ -3970,7 +3986,8 @@ const syncBitGroundShadowHandles = () => {
     if (activeBitIds.has(bitId)) {
       continue;
     }
-    groundShadowManager.disposeGroundShadow(groundShadow);
+    groundShadowManager.disposeGroundShadow(groundShadow.shape);
+    groundShadowManager.disposeGroundShadow(groundShadow.circle);
     bitGroundShadows.delete(bitId);
   }
 };
@@ -4032,20 +4049,47 @@ const syncGroundShadows = () => {
         bitShadowFootprint.muzzleOffset +
         bitShadowFootprint.muzzleDiameter * 0.5) *
       bitGroundShadowDepthScale;
+    const spawnVisibility =
+      bit.spawnPhase === "fade-in" ? bit.spawnEffectMaterial!.alpha : bodyVisibility;
     const visibility =
       Math.max(
         bitGroundShadowMinVisibility,
         bitGroundShadowBaseVisibility -
           bit.root.position.y * bitGroundShadowVisibilityPerHeight
-      ) * bodyVisibility;
-    groundShadowManager.syncGroundShadow(groundShadow, {
+      ) * spawnVisibility;
+    const carpetBombCircleBlend =
+      bit.mode === "attack-carpet-bomb"
+        ? Math.max(
+            bitGroundShadowMinMorphBlend,
+            Math.min(bitGroundShadowMaxMorphBlend, -forward.y)
+          )
+        : 0;
+    const circleBlend =
+      bit.spawnPhase !== "done" ? 1 : carpetBombCircleBlend;
+    const circleDiameter = Math.sqrt(baseWidth * baseDepth);
+    const blendedWidth =
+      (baseWidth + (circleDiameter - baseWidth) * circleBlend) * heightScale;
+    const blendedDepth =
+      (baseDepth + (circleDiameter - baseDepth) * circleBlend) * heightScale;
+    const visible = bit.body.isVisible || bit.spawnPhase !== "done";
+    groundShadowManager.syncGroundShadow(groundShadow.shape, {
       positionX: bit.root.position.x,
       positionZ: bit.root.position.z,
-      width: baseWidth * heightScale,
-      depth: baseDepth * heightScale,
+      width: blendedWidth,
+      depth: blendedDepth,
       yaw,
-      visibility,
-      visible: bit.body.isVisible,
+      visibility: visibility * (1 - circleBlend),
+      visible,
+      layerMask: worldLayerMask
+    });
+    groundShadowManager.syncGroundShadow(groundShadow.circle, {
+      positionX: bit.root.position.x,
+      positionZ: bit.root.position.z,
+      width: circleDiameter * heightScale,
+      depth: circleDiameter * heightScale,
+      yaw,
+      visibility: visibility * circleBlend,
+      visible,
       layerMask: worldLayerMask
     });
   }

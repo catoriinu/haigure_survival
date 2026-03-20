@@ -80,6 +80,16 @@ PLEASE IMPLEMENT THIS PLAN:
 - ただし、鏡に写っていることを踏まえると、鏡の中のキャラクタースプライトと影は左右反転しているべきです。
 - 鏡描画中だけ左右反転させてください。
 
+追加指示:
+- ビットの影について、
+- 出現時（絨毯爆撃の僚機としてを含む）は影を円形にしてください
+- 絨毯爆撃で下を向いているときは影を円形にしてください
+- 上記それぞれ、ビットの向きが地面と並行になったときの現在の影の形と、リニアに変形できるならしてほしいです（難しければ不要）
+
+追加指示:
+- 影の調整をしてください。
+- 円形の影の半径を今の2倍にしてください
+
 ## ステップ
 - [x] 既存 `docs/plan.md` を `docs/plan_2026-03-20_character-sprite-vertical-angle-prev.md` へ退避し、新規 `docs/plan.md` を今回タスク内容で作成する
 - [x] 床影管理モジュールとビット影フットプリント公開を追加する
@@ -92,11 +102,13 @@ PLEASE IMPLEMENT THIS PLAN:
 - [x] 鏡描画中もキャラクタースプライト相当と楕円影が scene view 行列基準で常にカメラ向きになるよう、手動 yaw と `MirrorTexture` の before/after 差し替えを実装する
 - [x] `scene.getViewMatrix()` 未初期化で発生した開始時クラッシュを修正し、通常視界の yaw 計算だけ `camera.getViewMatrix()` 基準へ切り替える
 - [x] 鏡描画中だけキャラクタースプライト相当と楕円影を左右反転し、通常視界へ戻るときは反転状態を解除する
+- [x] ビット影をシルエット影と円形影の2枚で補間し、出現中と絨毯爆撃の下向き姿勢では円形へ寄せる
+- [x] 円形ビット影の半径を従来の2倍へ拡大する
 
 ## 結果
 - `src/game/groundShadows.ts` を追加し、楕円影とビット影シルエットを `DynamicTexture` で共有生成する `GroundShadowManager` を実装した。影は水平 `ground` メッシュ、半透明黒系マテリアル、床すれすれの固定オフセットで描画する。
 - `src/game/bits.ts` に `bitShadowFootprint` を追加し、ビット本体の胴体長・胴体幅・先端球径・先端オフセットを影サイズの正本として再利用できるようにした。
-- `src/main.ts` にプレイヤー用1個、NPC用配列、ビット用 `Map<string, GroundShadowHandle>` を追加し、キャラ再構築、ステージ切替、ビット全破棄、描画直前同期へ床影の生成・破棄・再同期を統合した。
+- `src/main.ts` にプレイヤー用1個、NPC用配列、ビット用 `Map<string, BitGroundShadowHandles>` を追加し、キャラ再構築、ステージ切替、ビット全破棄、描画直前同期へ床影の生成・破棄・再同期を統合した。
 - プレイヤー/NPC は `Sprite` 座標基準の非回転楕円影、ビットは `bit.root.position` と前方 yaw 基準の簡略シルエット影として同期する。ビット影は高さで少し拡大・減衰し、`bit.body.visibility` で消滅演出の透過にも追従する。
 - follow-up 調整として、ビット影シルエットとサイズを拡大し、キャラクター影はカメラ正面向きの横長楕円へ調整した。
 - 表示順崩れの原因として、follow-up 時に `src/main.ts` の `SpriteManager`、`src/game/characterBillboardMeshes.ts`、`src/game/beams.ts`、`src/game/hitEffects.ts`、`src/game/bits.ts` へ追加した `renderingGroupId` 指定を確認した。これによりビットとキャラスプライトの前後関係が固定化され、命中球エフェクトが床の深度で欠けなくなっていた。
@@ -107,4 +119,7 @@ PLEASE IMPLEMENT THIS PLAN:
 - 鏡面反射では、各 `MirrorTexture` の描画直前に鏡用 `scene.getViewMatrix()` から共通 yaw を再計算してキャラクタービルボードと楕円影へ一時適用し、描画直後に通常視界の yaw へ戻すようにした。これにより、通常画面でも鏡の中でもキャラクタースプライト相当と影が常にカメラ向きのまま揃う。
 - その後、ゲーム開始時に `scene.getViewMatrix()` が未初期化のフレームで `invertToRef` を読んでクラッシュする不具合が見つかったため、通常視界の `syncCharacterFacingYaw()` は `camera.getViewMatrix()` を直接使うよう修正した。鏡描画中の一時 yaw 差し替えだけは引き続き `MirrorTexture` 側の `scene.getViewMatrix()` を使う。
 - さらに、鏡描画中だけ `Sprite.invertU` とキャラクタービルボード/楕円影メッシュの `scaling.x` 符号を切り替えるようにし、鏡の中のキャラクタースプライトと影が左右反転して見えるようにした。`MirrorTexture` の描画直後には通常向きへ戻すため、通常視界には反転が残らない。
+- 追加調整として、ビット影に円形テクスチャを追加し、通常時のシルエット影と円形影を2枚でリニア補間する方式へ変更した。出現演出中は常に円形寄り、絨毯爆撃中は `-forward.y` を補間率にして、地面と平行な向きから真下向きへ近づくほど円形へ連続的に変形する。
+- 出現演出中の影表示は `bit.spawnPhase !== "done"` を基準に維持し、`fade-in` 中は `bit.spawnEffectMaterial.alpha`、`hold` / `shrink` 中は本体可視状態を使って濃さを同期するようにした。これにより、通常出現と絨毯爆撃の僚機出現の両方で円形影が残る。
+- 円形ビット影の半径定数は `0.24` から `0.48` に更新し、円形へ寄る局面で床影が従来の約2倍の半径になるよう調整した。
 - `npm run build` を実行し、renderer / electron ともに成功した。ビルド通過により、今回追加・撤回した分岐と括弧対応に構文崩れがないことを確認した。
