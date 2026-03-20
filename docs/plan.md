@@ -1,57 +1,69 @@
-# キャラスプライト縦角度オプション 実装計画
+# 床疑似影追加計画
 
 更新日: 2026-03-20
 
 ## プロンプト
-今現在、キャラスプライトは全て（プレイヤーの下半身レイヤーは特殊処理なので除く）、プレイヤーのカメラ向きに常に正面を向くようになっています。
-これを、横軸は常に正面向きのまま、縦軸は角度を付けられるようなオプションを追加したいです（つまり、今の実装も残しつつ、タイトル画面でONOFFできるようにしたい）
-
-「縦軸に角度をつける」とは、そのキャラが立っている座標の足下に、常に画像の下辺が接地している状態であり、カメラから見たときにその角度や映る範囲が反映されるようにしてほしいということです。
-
 PLEASE IMPLEMENT THIS PLAN:
-# キャラスプライト縦角度オプション計画
+# 床疑似影追加計画
 
 ## Summary
-- 実装着手時は、まず `docs/plan.md` をこの内容で更新してから進める。
-- 既存の Babylon `Sprite` 表示は残し、`OFF` では現状の見え方を完全維持する。
-- `ON` では、`Sprite` はロジック用の正本として残しつつ、表示だけを `Mesh.BILLBOARDMODE_Y` の平面メッシュへ切り替える。
-- 新設定は `PLAYER SETTINGS` に追加し、型名は `enableCharacterSpriteVerticalAngle: boolean`、初期値とデフォルト復帰値は `false`、保存バージョンは `4` に上げる。
+- 実装着手時に現在の `docs/plan.md` を `docs/plan_2026-03-20_character-sprite-vertical-angle-prev.md` へ退避し、`Get-Date -Format yyyy-MM-dd` で確認した `2026-03-20` を更新日にした新しい `docs/plan.md` を、この依頼文と本計画で作り直す。
+- Babylon の標準シャドウは使わず、床すれすれに重ねる疑似影メッシュで実装する。
+- プレイヤー/NPC は横長の楕円影、ビットは「三角形っぽい胴体 + 先端円」の上面シルエット影を使う。
+- プレイヤー影は一人称プレイ中も主カメラ側へ表示する。反射面には通常のワールドメッシュとしてそのまま映す。
 
-## Key Changes
-- タイトル設定
-  - `PlayerSettings` に `enableCharacterSpriteVerticalAngle` を追加する。
-  - `PLAYER SETTINGS` にチェックボックスを 1 行追加し、文言は `キャラスプライト縦角度表示` で固定する。
-  - 保存・読込・デフォルト復帰へ同項目を追加する。v3 の保存データ読込時はこの値だけ `false` を補完して再保存する。
-  - この切替はリロード不要にし、現在ロード済みのキャラ表示へ即時反映する。
-- 表示方式
-  - 対象は `playerAvatar` と全 NPC のワールド表示のみとし、プレイヤー下半身レイヤーは完全に対象外にする。
-  - 各キャラに unit plane の表示メッシュを 1 つ持たせ、`billboardMode = Mesh.BILLBOARDMODE_Y` を使って Y 軸だけカメラ向きへ追従させる。
-  - 平面は中心基準のまま `position.y = height * 0.5` を維持し、`scaling.x/y` を元 `Sprite` の `width/height` と同期して下辺接地を保つ。
-  - `Sprite` の `position / width / height / cellIndex / color / isVisible` を正本にし、表示メッシュ側は毎フレームそれを追従する。
-  - `Mesh.BILLBOARDMODE_Y` は描画中の active camera 基準で効く前提にし、通常画面と反射面の両方で「横方向だけ正面向き」を維持する。
-- テクスチャと描画
-  - portrait directory ごとに共有マテリアルを 1 つ持ち、diffuse は既存 spritesheet を再利用する。
-  - 各キャラ mesh の UV バッファを `cellIndex` 変更時だけ更新して、現在のセルを表示する。
-  - 各キャラ mesh の Color バッファを `sprite.color` と alpha に同期して、既存の点滅・フェード色を維持する。
-  - `ON` 中は `SpriteManager` 群の `layerMask` を `0` にして `Sprite` を描画させず、`OFF` に戻したら既存の mask 運用へ戻す。
-  - プレイヤー表示メッシュの `layerMask` は、現行の `world / reflectionOnly` 切替規則をそのまま移植する。NPC は常に `world` 側とする。
-- ライフサイクル
-  - billboard mesh 群は `resetGame`、キャラ再生成、ステージ切替の既存 dispose / 再生成フローへ統合する。
-  - 当たり判定、ビーム命中、NPC 移動、下半身レイヤー更新は既存 `Sprite` 依存のままにし、今回の変更は表示経路だけに閉じる。
-  - フレーム同期は既存 render loop の `updateCharacterSpriteCells()` の後、`scene.render()` の前にまとめて入れる。
+## 実装変更
+- 新規に床影管理モジュールを追加し、楕円影用テクスチャとビット影用テクスチャを `DynamicTexture` で1回だけ生成して共有する。影メッシュは水平 `ground` メッシュに統一し、床よりわずかに高い `y` に置いて z-fighting を避ける。
+- 影マテリアルは `disableLighting = true` の半透明黒系で統一し、影の濃さはメッシュ側の `visibility` で個体ごとに制御する。スプライトの点滅色や被弾色は影へ伝播させず、影は安定表示のままにする。
+- プレイヤー/NPC 影は回転なしの横長楕円にし、位置は各 `Sprite` の `x/z` に追従、サイズは `sprite.width` 基準で固定比率にする。縦角度表示 ON/OFF や billboard mesh 有無には依存させず、常に `Sprite` の座標を正本として使う。
+- ビット影は `bit.root.position` に追従し、向きは `root` の前方ベクトルを床面へ射影した yaw のみ反映する。pitch/roll は無視し、真上から見た簡略シルエットとして扱う。
+- ビット影のサイズと濃さは高さ依存にし、上がるほど少し広く、少し薄くする。補正は固定の最小値/最大値で clamp し、極端に大きくも濃くもならないようにする。
+- ビット影の表示条件は `bit.body.isVisible` に合わせ、出現演出中や消滅中に本体が見えていないフレームでは影も消す。プレイヤー/NPC は `sprite.isVisible` に合わせる。
+- `main.ts` では、プレイヤー用1個、NPC用配列、ビット用 `Map<bit.id, handle>` を持ち、キャラ再構築、ビット生成、ビット破棄、リセット、ステージ切替で必ず生成/破棄を同期する。
+- フレーム同期は既存の移動・状態更新後、`syncPlayerPresentation()` と同じ描画直前帯にまとめる。プレイヤーは `playerAvatar`/camera 同期済み位置、NPC は `npc.sprite.position`、ビットは `bit.root.position` を使う。
+
+## インターフェース/型
+- 新規の内部 I/F として `GroundShadowManager` 相当を追加し、`create / sync / dispose` をプレイヤー/NPC/ビットで共通化する。
+- ビット影の寸法は既存ビット本体とズレないよう、現在 `bits.ts` 内部に閉じている胴体径・胴体長・先端球径・先端オフセットから「影用フットプリント定義」を1つ公開して再利用する。
+- タイトル設定、保存データ、既存エンティティ型の保存スキーマには変更を入れない。
+
+## テスト計画
+- `npm run build` を実行し、renderer/electron のビルド成功を確認する。
+- 通常プレイで床を見下ろし、プレイヤー影が主カメラで見えること、NPC 影が移動や被弾状態でも足元からズレないことを確認する。
+- ビットの探索、追跡、assembly、execution で、影が床に残り、yaw に追従し、高さで少しだけ広がって薄くなることを確認する。
+- ビット出現直後、消滅直前、フォロワー追加/除去、リセット、タイトル復帰、ステージ切替で、影の残骸や二重生成がないことを確認する。
+- 鏡ステージで影が反射に映ること、キャラスプライト縦角度表示 ON/OFF を切り替えても影位置と表示条件が崩れないことを確認する。
+
+## 前提と既定値
+- 影はあくまで床専用の疑似影で、壁・天井・段差への投影は行わない。
+- プレイヤー/NPC の楕円影は非回転で固定する。向きを持つ影はビットのみとする。
+- ビット影は厳密投影ではなく、真上視点の簡略シルエットで十分とする。
+- 新しい UI トグルや調整項目は追加しない。初回実装では固定デザインのまま入れる。
+
+追加指示:
+- キャラクターの影は、カメラに向かって横長の楕円にしてください。つまりスプライトの回転軸と同じく常に正面向きにしてください
+- ビットの影は、三角形をもう少し拡大してください。今はビットよりも小さいです
+- 影のレイヤーがおかしいです。画面奥から、影→キャラスプライト→光線エフェクトの順番にしてください。
+
+追加指示:
+- 指定しなかったオブジェクトの表示順がおかしいです。
+- 最新では画面奥から常にビット→キャラスプライトの順になっていますが、カメラに向かってビットのほうが近ければビットを手前に表示してください。
+- また、光線命中エフェクトの表示に違和感が出ました。特に、光線命中エフェクトは球形のはずなので足下は基本的に床にめり込むので表示は完全な球形にならないはずなのに、完全な球形になっていました。
+- 先程何を変更したのかを確認しつつ、元の表示順に戻してください。
 
 ## ステップ
-- [x] 既存のスプライト描画、タイトル設定 UI、保存処理、反射面描画の経路を確認し、実装方針を確定する
-- [x] タイトル設定モデル・UI・保存処理へ `enableCharacterSpriteVerticalAngle` を追加する
-- [x] Y軸ビルボード平面メッシュによるキャラ表示を実装し、既存 `Sprite` 表示と切り替えられるようにする
-- [x] 描画同期、反射面、ライフサイクルを `main.ts` に統合し、表示モード切替を即時反映できるようにする
-- [x] ビルドで検証し、結果を反映する
+- [x] 既存 `docs/plan.md` を `docs/plan_2026-03-20_character-sprite-vertical-angle-prev.md` へ退避し、新規 `docs/plan.md` を今回タスク内容で作成する
+- [x] 床影管理モジュールとビット影フットプリント公開を追加する
+- [x] `main.ts` にプレイヤー/NPC/ビット影の生成・同期・破棄を統合する
+- [x] `npm run build` を実行し、結果と括弧対応を確認する
+- [x] follow-up で追加した `renderingGroupId` 指定を確認し、影の向き変更とビット影拡大は維持したまま元の深度ベース表示順へ戻す
 
 ## 結果
-- `PLAYER SETTINGS` に `キャラスプライト縦角度表示` チェックボックスを追加し、`PlayerSettings.enableCharacterSpriteVerticalAngle` を localStorage 保存対象へ組み込んだ。保存バージョンは `4` に更新し、v3 の既存データ読込時は新項目だけ `false` を補完する形にした。
-- `src/game/characterBillboardMeshes.ts` を追加し、portrait directory ごとの共有マテリアル、セル単位 UV 更新、頂点カラー同期を持つ Y軸ビルボード平面メッシュ表示を実装した。
-- `src/main.ts` でプレイヤーと NPC の billboard mesh をキャラ生成・再生成時に張り直し、毎フレームの `Sprite` 状態から位置・サイズ・セル・色・表示状態を同期するようにした。縦角度表示 ON 中は `SpriteManager.layerMask = 0` で従来 `Sprite` 描画を止め、OFF では元の表示経路へ戻る。
-- プレイヤー表示については既存の `world / reflectionOnly` 切替規則を billboard mesh 側へ移植し、プレイヤー下半身レイヤーの処理には手を入れていない。
-- follow-up 修正として、billboard mesh のマテリアルへ `emissiveColor = white` と `linkEmissiveWithDiffuse = true` を追加し、`disableLighting = true` のままでもテクスチャ色が黒化しないよう修正した。
-- follow-up 修正として、billboard mesh の UV を `Sprite` と同じ V 向きへ反転し、キャラスプライトが上下逆さまに表示される不具合を修正した。
-- `npm run build` を実行し、renderer / electron ともに成功した。
+- `src/game/groundShadows.ts` を追加し、楕円影とビット影シルエットを `DynamicTexture` で共有生成する `GroundShadowManager` を実装した。影は水平 `ground` メッシュ、半透明黒系マテリアル、床すれすれの固定オフセットで描画する。
+- `src/game/bits.ts` に `bitShadowFootprint` を追加し、ビット本体の胴体長・胴体幅・先端球径・先端オフセットを影サイズの正本として再利用できるようにした。
+- `src/main.ts` にプレイヤー用1個、NPC用配列、ビット用 `Map<string, GroundShadowHandle>` を追加し、キャラ再構築、ステージ切替、ビット全破棄、描画直前同期へ床影の生成・破棄・再同期を統合した。
+- プレイヤー/NPC は `Sprite` 座標基準の非回転楕円影、ビットは `bit.root.position` と前方 yaw 基準の簡略シルエット影として同期する。ビット影は高さで少し拡大・減衰し、`bit.body.visibility` で消滅演出の透過にも追従する。
+- follow-up 調整として、キャラクター影は `Mesh.BILLBOARDMODE_Y` でカメラ正面向きにし、ビット影シルエットとサイズを拡大した。
+- 表示順崩れの原因として、follow-up 時に `src/main.ts` の `SpriteManager`、`src/game/characterBillboardMeshes.ts`、`src/game/beams.ts`、`src/game/hitEffects.ts`、`src/game/bits.ts` へ追加した `renderingGroupId` 指定を確認した。これによりビットとキャラスプライトの前後関係が固定化され、命中球エフェクトが床の深度で欠けなくなっていた。
+- 上記の `renderingGroupId` 指定は撤回し、ビットとキャラスプライト、命中エフェクト、各種ビーム/ビット演出は元の深度ベース表示順へ戻した。これにより、カメラに近いビットが手前に出る並びと、床にめり込む球形命中エフェクトの見え方を元に戻す。
+- `npm run build` を実行し、renderer / electron ともに成功した。ビルド通過により、今回追加・撤回した分岐と括弧対応に構文崩れがないことを確認した。

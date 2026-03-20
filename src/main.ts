@@ -40,6 +40,7 @@ import {
   createBeamMaterial,
   createBit,
   createBitMaterials,
+  bitShadowFootprint,
   disposeBit,
   isAliveState,
   isBrainwashState,
@@ -124,6 +125,10 @@ import {
   createCharacterBillboardMeshManager,
   type CharacterBillboardMeshHandle
 } from "./game/characterBillboardMeshes";
+import {
+  createGroundShadowManager,
+  type GroundShadowHandle
+} from "./game/groundShadows";
 import { buildStageContext, disposeStageParts } from "./world/stageContext";
 import { createZoneMapFromStageJson } from "./world/stageJson";
 import {
@@ -380,6 +385,17 @@ const portraitMaxHeightCells = 2;
 const worldLayerMask = 0x0fffffff;
 const reflectionOnlyLayerMask = 0x10000000;
 const firstPersonBodyLayerMask = 0x20000000;
+const characterGroundShadowWidthRatio = 0.9;
+const characterGroundShadowDepthRatio = 0.58;
+const characterGroundShadowVisibility = 0.68;
+const bitGroundShadowWidthScale = 1.35;
+const bitGroundShadowDepthScale = 1.42;
+const bitGroundShadowBaseVisibility = 0.7;
+const bitGroundShadowMinVisibility = 0.22;
+const bitGroundShadowScalePerHeight = 0.35;
+const bitGroundShadowMaxScaleBonus = 0.7;
+const bitGroundShadowVisibilityPerHeight = 0.25;
+const bitGroundShadowMinForwardLengthSq = 0.0001;
 const firstPersonBodyBaseAlpha = 1;
 const firstPersonBodyCropTopRatio = 0.3;
 const firstPersonBodyNearRowStretch = 1.28;
@@ -552,6 +568,7 @@ const characterBillboardMeshManager = createCharacterBillboardMeshManager(
   scene,
   (directory) => portraitSpriteSheets.get(directory)!
 );
+const groundShadowManager = createGroundShadowManager(scene);
 // プレイヤー1人 + NPC最大99人
 const spriteManagerCapacity = 100;
 const loadPortraitSpriteSheetOnce = (directory: string) => {
@@ -1259,6 +1276,9 @@ let playerAvatar: Sprite;
 let playerPortraitManager: SpriteManager | null = null;
 let playerBillboardMesh: CharacterBillboardMeshHandle | null = null;
 let npcBillboardMeshes: CharacterBillboardMeshHandle[] = [];
+let playerGroundShadow: GroundShadowHandle | null = null;
+let npcGroundShadows: GroundShadowHandle[] = [];
+const bitGroundShadows = new Map<string, GroundShadowHandle>();
 const npcs: Npc[] = [];
 let playerPortraitDirectory = "";
 let npcPortraitDirectories: string[] = [];
@@ -1563,6 +1583,27 @@ const disposeCharacterBillboardMeshes = () => {
   npcBillboardMeshes = [];
 };
 
+const disposeCharacterGroundShadows = () => {
+  groundShadowManager.disposeGroundShadow(playerGroundShadow);
+  playerGroundShadow = null;
+  for (const groundShadow of npcGroundShadows) {
+    groundShadowManager.disposeGroundShadow(groundShadow);
+  }
+  npcGroundShadows = [];
+};
+
+const disposeBitGroundShadows = () => {
+  for (const groundShadow of bitGroundShadows.values()) {
+    groundShadowManager.disposeGroundShadow(groundShadow);
+  }
+  bitGroundShadows.clear();
+};
+
+const disposeAllGroundShadows = () => {
+  disposeCharacterGroundShadows();
+  disposeBitGroundShadows();
+};
+
 const rebuildCharacterBillboardMeshes = () => {
   disposeCharacterBillboardMeshes();
   playerBillboardMesh = characterBillboardMeshManager.createCharacterBillboardMesh(
@@ -1573,6 +1614,20 @@ const rebuildCharacterBillboardMeshes = () => {
     characterBillboardMeshManager.createCharacterBillboardMesh(
       `${npc.sprite.name}_billboard`,
       npc.portraitDirectory
+    )
+  );
+};
+
+const rebuildCharacterGroundShadows = () => {
+  disposeCharacterGroundShadows();
+  playerGroundShadow = groundShadowManager.createGroundShadow(
+    `${playerAvatar.name}_shadow`,
+    "ellipse"
+  );
+  npcGroundShadows = npcs.map((npc) =>
+    groundShadowManager.createGroundShadow(
+      `${npc.sprite.name}_shadow`,
+      "ellipse"
     )
   );
 };
@@ -1630,6 +1685,7 @@ const createCharacters = () => {
   }
   applyPortraitSizesToAll();
   rebuildCharacterBillboardMeshes();
+  rebuildCharacterGroundShadows();
 };
 
 const rebuildCharacters = async (
@@ -1647,6 +1703,7 @@ const rebuildCharacters = async (
   );
   await ensureFirstPersonBodySheet(playerPortraitDirectory);
   disposeCharacterBillboardMeshes();
+  disposeCharacterGroundShadows();
   playerAvatar.dispose();
   playerPortraitManager?.dispose();
   playerPortraitManager = null;
@@ -2059,6 +2116,7 @@ const applyStageSelection = async (selection: StageSelection) => {
       return;
     }
     stageJson = loadedStageJson;
+    disposeAllGroundShadows();
     disposeStageParts(stageParts);
     stageContext = buildStageContext(scene, stageJson);
     updateStageState();
@@ -2133,6 +2191,7 @@ const disposeAllBits = () => {
     disposeBit(bit);
   }
   bits.length = 0;
+  disposeBitGroundShadows();
 };
 
 const removeCarpetFollowers = () => {
@@ -3816,6 +3875,101 @@ const updateCharacterSpriteCells = () => {
   }
 };
 
+const syncBitGroundShadowHandles = () => {
+  const activeBitIds = new Set(bits.map((bit) => bit.id));
+  for (const bit of bits) {
+    if (!bitGroundShadows.has(bit.id)) {
+      bitGroundShadows.set(
+        bit.id,
+        groundShadowManager.createGroundShadow(`${bit.id}_shadow`, "bit")
+      );
+    }
+  }
+  for (const [bitId, groundShadow] of bitGroundShadows) {
+    if (activeBitIds.has(bitId)) {
+      continue;
+    }
+    groundShadowManager.disposeGroundShadow(groundShadow);
+    bitGroundShadows.delete(bitId);
+  }
+};
+
+const syncGroundShadows = () => {
+  if (playerGroundShadow) {
+    groundShadowManager.syncGroundShadow(playerGroundShadow, {
+      positionX: playerAvatar.position.x,
+      positionZ: playerAvatar.position.z,
+      width: playerAvatar.width * characterGroundShadowWidthRatio,
+      depth: playerAvatar.width * characterGroundShadowDepthRatio,
+      yaw: 0,
+      visibility: characterGroundShadowVisibility,
+      visible: playerAvatar.isVisible,
+      layerMask: worldLayerMask
+    });
+  }
+
+  for (let index = 0; index < npcs.length; index += 1) {
+    const groundShadow = npcGroundShadows[index];
+    if (!groundShadow) {
+      continue;
+    }
+    const npcSprite = npcs[index].sprite;
+    groundShadowManager.syncGroundShadow(groundShadow, {
+      positionX: npcSprite.position.x,
+      positionZ: npcSprite.position.z,
+      width: npcSprite.width * characterGroundShadowWidthRatio,
+      depth: npcSprite.width * characterGroundShadowDepthRatio,
+      yaw: 0,
+      visibility: characterGroundShadowVisibility,
+      visible: npcSprite.isVisible,
+      layerMask: worldLayerMask
+    });
+  }
+
+  syncBitGroundShadowHandles();
+  for (const bit of bits) {
+    const groundShadow = bitGroundShadows.get(bit.id)!;
+    const bodyVisibility = bit.body.visibility;
+    const heightScale =
+      1 +
+      Math.min(
+        bitGroundShadowMaxScaleBonus,
+        bit.root.position.y * bitGroundShadowScalePerHeight
+      );
+    const forward = bit.root.getDirection(new Vector3(0, 0, 1));
+    const horizontalForwardLengthSq =
+      forward.x * forward.x + forward.z * forward.z;
+    const yaw =
+      horizontalForwardLengthSq > bitGroundShadowMinForwardLengthSq
+        ? Math.atan2(forward.x, forward.z)
+        : 0;
+    const baseWidth =
+      Math.max(bitShadowFootprint.bodyWidth, bitShadowFootprint.muzzleDiameter) *
+      bitGroundShadowWidthScale;
+    const baseDepth =
+      (bitShadowFootprint.bodyLength * 0.5 +
+        bitShadowFootprint.muzzleOffset +
+        bitShadowFootprint.muzzleDiameter * 0.5) *
+      bitGroundShadowDepthScale;
+    const visibility =
+      Math.max(
+        bitGroundShadowMinVisibility,
+        bitGroundShadowBaseVisibility -
+          bit.root.position.y * bitGroundShadowVisibilityPerHeight
+      ) * bodyVisibility;
+    groundShadowManager.syncGroundShadow(groundShadow, {
+      positionX: bit.root.position.x,
+      positionZ: bit.root.position.z,
+      width: baseWidth * heightScale,
+      depth: baseDepth * heightScale,
+      yaw,
+      visibility,
+      visible: bit.body.isVisible,
+      layerMask: worldLayerMask
+    });
+  }
+};
+
 const syncPlayerPresentation = () => {
   if (shouldSyncPlayerAvatarToCamera(gamePhase)) {
     playerAvatar.isVisible = true;
@@ -4419,6 +4573,7 @@ engine.runRenderLoop(() => {
   }
   updateCharacterSpriteCells();
   syncPlayerPresentation();
+  syncGroundShadows();
   syncReflectionCamera();
   updateVoices(delta);
   gameFlow.updateFade(delta);
