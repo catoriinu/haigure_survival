@@ -39,6 +39,7 @@ export type PlayerAbilityFrameSnapshot = {
 export type PlayerAbilityFrameContext = {
   gamePhase: GamePhase;
   playerState: CharacterState;
+  playerPosition: Vector3;
   camera: FreeCamera;
   scene: Scene;
   layout: GridLayout;
@@ -170,6 +171,7 @@ export const createPlayerAbilityController = ({
 
   const collectThreatenedNpcIds = ({
     playerState,
+    playerPosition,
     camera,
     scene,
     layout,
@@ -198,13 +200,13 @@ export const createPlayerAbilityController = ({
         continue;
       }
 
-      const dx = npc.sprite.position.x - camera.position.x;
-      const dz = npc.sprite.position.z - camera.position.z;
+      const dx = npc.sprite.position.x - playerPosition.x;
+      const dz = npc.sprite.position.z - playerPosition.z;
       const isNear = dx * dx + dz * dz <= nearRangeSq;
       let isOnScreen = false;
 
       if (!isNear) {
-        const toNpc = npc.sprite.position.subtract(camera.position);
+        const toNpc = npc.sprite.position.subtract(playerPosition);
         if (
           toNpc.lengthSquared() <= onScreenRangeSq &&
           Vector3.Dot(cameraForward, toNpc) > 0
@@ -251,7 +253,7 @@ export const createPlayerAbilityController = ({
         context.playerState === "brainwash-complete-no-gun"
           ? [
               {
-                position: context.camera.position,
+                position: context.playerPosition,
                 radius: noGunTouchContactRadius,
                 sourceId: "player"
               }

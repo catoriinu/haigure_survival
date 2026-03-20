@@ -12,6 +12,7 @@ import {
   DynamicTexture,
   MirrorTexture,
   Plane,
+  Ray,
   Sprite,
   SpriteManager,
   Mesh,
@@ -419,6 +420,10 @@ const firstPersonBodyFeetRowHalfWidthStart = 0.66;
 const firstPersonBodyFeetRowHalfWidthEnd = 0.57;
 const firstPersonBodyFeetRowZStart = 0.41;
 const firstPersonBodyFeetRowZEnd = 0.49;
+const firstPersonViewOffsetStartDownward = Math.SQRT1_2;
+const firstPersonViewOffsetMaxDistanceScale = 0.18;
+const firstPersonViewOffsetMinDirectionLengthSq = 0.0001;
+const firstPersonViewOffsetWallPadding = 0.01;
 
 const defaultBitSpawnSettings: BitSpawnSettings = {
   bitSpawnInterval: 10,  // ビットの通常出現間隔（秒）。1〜99。デフォルトは10
@@ -720,6 +725,7 @@ let stageContext = buildStageContext(scene, stageJson);
 let layout = stageContext.layout;
 let stageStyle = stageContext.style;
 let stageParts = stageContext.parts;
+let stageColliderSet = new Set(stageParts.colliders);
 let room = stageContext.room;
 let assemblyArea = stageContext.assemblyArea;
 let skipAssembly = stageContext.skipAssembly;
@@ -786,6 +792,7 @@ const updateStageState = () => {
   stageZoneMap = stageJson ? createZoneMapFromStageJson(stageJson) : null;
   stageStyle = stageContext.style;
   stageParts = stageContext.parts;
+  stageColliderSet = new Set(stageParts.colliders);
   room = stageContext.room;
   scene.clearColor = stageContext.environment.skyColor ?? defaultClearColor.clone();
   assemblyArea = stageContext.assemblyArea;
@@ -852,10 +859,21 @@ const reflectionCamera = new FreeCamera(
 reflectionCamera.layerMask = worldLayerMask | reflectionOnlyLayerMask;
 reflectionCamera.minZ = camera.minZ;
 reflectionCamera.fov = camera.fov;
+const playerEyeBasePosition = Vector3.Zero();
+const playerEyeRenderOffset = Vector3.Zero();
+const playerEyeRenderPosition = Vector3.Zero();
+const firstPersonViewHorizontalForward = Vector3.Zero();
+const firstPersonViewRay = new Ray(
+  Vector3.Zero(),
+  new Vector3(0, 0, 1),
+  0
+);
+let renderCameraPositionApplied = false;
 const applyCameraSpawnTransform = () => {
   camera.position.copyFrom(spawnPosition);
   camera.rotation = new Vector3(0, 0, 0);
   camera.setTarget(spawnPosition.add(spawnForward));
+  capturePlayerEyeBasePosition();
 };
 const syncReflectionCamera = () => {
   reflectionCamera.position.copyFrom(camera.position);
@@ -863,6 +881,98 @@ const syncReflectionCamera = () => {
   reflectionCamera.fov = camera.fov;
   reflectionCamera.minZ = camera.minZ;
   reflectionCamera.maxZ = camera.maxZ;
+};
+
+const capturePlayerEyeBasePosition = () => {
+  playerEyeBasePosition.copyFrom(camera.position);
+  renderCameraPositionApplied = false;
+};
+
+const restorePlayerEyeBasePosition = () => {
+  if (!renderCameraPositionApplied) {
+    return;
+  }
+  camera.position.copyFrom(playerEyeBasePosition);
+  renderCameraPositionApplied = false;
+};
+
+const clampFirstPersonViewOffsetLength = (
+  direction: Vector3,
+  desiredLength: number
+) => {
+  if (desiredLength <= 0.0001 || stageColliderSet.size === 0) {
+    return desiredLength;
+  }
+  firstPersonViewRay.origin.copyFrom(playerEyeBasePosition);
+  firstPersonViewRay.direction.copyFrom(direction);
+  firstPersonViewRay.length = desiredLength;
+  const hit = scene.pickWithRay(
+    firstPersonViewRay,
+    (mesh) => stageColliderSet.has(mesh as Mesh),
+    true
+  );
+  if (!hit?.hit || hit.distance === undefined) {
+    return desiredLength;
+  }
+  return Math.max(0, Math.min(desiredLength, hit.distance - firstPersonViewOffsetWallPadding));
+};
+
+const computeFirstPersonViewOffset = () => {
+  playerEyeRenderOffset.set(0, 0, 0);
+  if (!shouldShowFirstPersonBodyForPhase(gamePhase)) {
+    return playerEyeRenderOffset;
+  }
+  const forward = camera.getDirection(new Vector3(0, 0, 1));
+  const downward = Math.max(0, -forward.y);
+  if (downward <= firstPersonViewOffsetStartDownward) {
+    return playerEyeRenderOffset;
+  }
+  const blend =
+    (downward - firstPersonViewOffsetStartDownward) /
+    (1 - firstPersonViewOffsetStartDownward);
+  firstPersonViewHorizontalForward.set(forward.x, 0, forward.z);
+  if (
+    firstPersonViewHorizontalForward.lengthSquared() <=
+    firstPersonViewOffsetMinDirectionLengthSq
+  ) {
+    firstPersonViewHorizontalForward.set(
+      Math.sin(camera.rotation.y),
+      0,
+      Math.cos(camera.rotation.y)
+    );
+  }
+  if (
+    firstPersonViewHorizontalForward.lengthSquared() <=
+    firstPersonViewOffsetMinDirectionLengthSq
+  ) {
+    return playerEyeRenderOffset;
+  }
+  firstPersonViewHorizontalForward.normalize();
+  const desiredLength =
+    layout.cellSize * firstPersonViewOffsetMaxDistanceScale * blend;
+  const clampedLength = clampFirstPersonViewOffsetLength(
+    firstPersonViewHorizontalForward,
+    desiredLength
+  );
+  playerEyeRenderOffset.copyFrom(firstPersonViewHorizontalForward);
+  playerEyeRenderOffset.scaleInPlace(clampedLength);
+  return playerEyeRenderOffset;
+};
+
+const applyRenderCameraPosition = () => {
+  playerEyeRenderPosition.copyFrom(playerEyeBasePosition);
+  if (!shouldShowFirstPersonBodyForPhase(gamePhase)) {
+    renderCameraPositionApplied = false;
+    return;
+  }
+  computeFirstPersonViewOffset();
+  if (playerEyeRenderOffset.lengthSquared() <= 0.0001) {
+    renderCameraPositionApplied = false;
+    return;
+  }
+  playerEyeRenderPosition.addInPlace(playerEyeRenderOffset);
+  camera.position.copyFrom(playerEyeRenderPosition);
+  renderCameraPositionApplied = true;
 };
 
 const computeCharacterFacingYawFromViewMatrix = (viewMatrix: Matrix) => {
@@ -1225,7 +1335,7 @@ const beamSeMidDistance = 1.33;
 
 const sfxDirector = new SfxDirector(
   audioManager,
-  () => camera.position,
+  () => playerEyeBasePosition,
   {
     bitMove: bitSeMove,
     bitAlert: bitSeAlert,
@@ -1270,7 +1380,7 @@ const assignVoiceActors = () => {
   const playerProfile = pickVoiceProfileById(playerVoiceId);
   playerVoiceActor = createVoiceActor(
     playerProfile,
-    () => camera.position,
+    () => playerEyeBasePosition,
     () => playerState
   );
   npcVoiceActors = npcs.map((npc) => {
@@ -2318,9 +2428,9 @@ const disposeExecutionHitEffects = () => {
 const updateExecutionHitTargetPosition = () => {
   if (executionHitTargetKind === "player") {
     executionHitTargetPosition.set(
-      camera.position.x,
+      playerEyeBasePosition.x,
       playerAvatar.height * 0.5,
-      camera.position.z
+      playerEyeBasePosition.z
     );
     return;
   }
@@ -2652,7 +2762,7 @@ const setExecutionAimPosition = (
 ) => {
   const eyeHeight = getEyeHeight();
   if (scenario.variant === "player-survivor") {
-    out.set(camera.position.x, eyeHeight, camera.position.z);
+    out.set(playerEyeBasePosition.x, eyeHeight, playerEyeBasePosition.z);
     return;
   }
   const survivorNpc = npcs[scenario.survivorNpcIndex];
@@ -2808,9 +2918,9 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
 
     if (scenario.variant === "player-survivor") {
       executionCollisionPosition.set(
-        camera.position.x,
+        playerEyeBasePosition.x,
         eyeHeight,
-        camera.position.z
+        playerEyeBasePosition.z
       );
       if (
         isBeamHittingTargetExcludingSource(
@@ -3686,7 +3796,7 @@ const drawMinimap = () => {
   const surviveTime = showSurviveTime ? playerHitTime : null;
   const displayElapsedTime = rouletteStats ? rouletteStats.elapsed : elapsedTime;
   hud.drawMinimap({
-    cameraPosition: camera.position,
+    cameraPosition: playerEyeBasePosition,
     cameraForward: camera.getDirection(new Vector3(0, 0, 1)),
     cameraFov: camera.fov,
     layout,
@@ -3776,7 +3886,7 @@ const syncHudForPhase = () => {
 const buildNpcTargets = () => [
   {
     id: "player",
-    position: camera.position,
+    position: playerEyeBasePosition,
     alive: isAliveState(playerState),
     state: playerState,
     hitById: playerHitById
@@ -3794,6 +3904,7 @@ const createPlayerAbilitySnapshot = (): PlayerAbilityFrameSnapshot =>
   playerAbility.createFrameSnapshot({
     gamePhase,
     playerState,
+    playerPosition: playerEyeBasePosition,
     camera,
     scene,
     layout,
@@ -3840,9 +3951,9 @@ const updatePlayerState = (
   const playerCenterY = playerAvatar.height * 0.5;
   const playerHitRadii = getSpriteBeamHitRadii(playerAvatar);
   const centerPosition = new Vector3(
-    camera.position.x,
+    playerEyeBasePosition.x,
     playerCenterY,
-    camera.position.z
+    playerEyeBasePosition.z
   );
   const hitEffectRadius =
     calculateHitEffectDiameter(playerAvatar.width, playerAvatar.height) / 2;
@@ -4102,9 +4213,9 @@ const syncPlayerPresentation = () => {
   if (shouldSyncPlayerAvatarToCamera(gamePhase)) {
     playerAvatar.isVisible = true;
     playerAvatar.position.set(
-      camera.position.x,
+      playerEyeBasePosition.x,
       playerAvatar.height * 0.5,
-      camera.position.z
+      playerEyeBasePosition.z
     );
     alignSpriteToGround(playerAvatar);
   }
@@ -4405,7 +4516,9 @@ setupInputHandlers({
 });
 
 engine.runRenderLoop(() => {
+  restorePlayerEyeBasePosition();
   const delta = engine.getDeltaTime() / 1000;
+  capturePlayerEyeBasePosition();
   trapSystem.update(delta, gamePhase);
   dynamicBeamSystem.update(delta, gamePhase);
   if (gamePhase === "playing") {
@@ -4441,7 +4554,7 @@ engine.runRenderLoop(() => {
     }
     for (const threatenedNpcId of playerThreatenedNpcIdsForMovement) {
       const targetIndex = Number(threatenedNpcId.slice(4));
-      npcEvadeThreats[targetIndex].push(camera.position);
+      npcEvadeThreats[targetIndex].push(playerEyeBasePosition);
     }
     const npcTargets = buildNpcTargets();
     alarmSystem.update(delta, gamePhase, npcTargets);
@@ -4478,7 +4591,7 @@ engine.runRenderLoop(() => {
         effects: {
           isRedSource: isRedBitSource,
           impactOrbs: beamImpactOrbs,
-          cameraPosition: camera.position,
+          cameraPosition: playerEyeBasePosition,
           shouldProcessOrb
         },
         movement: {
@@ -4510,6 +4623,7 @@ engine.runRenderLoop(() => {
       allowMove,
       playerAbilitySnapshotForMovement.moveSpeed
     );
+    capturePlayerEyeBasePosition();
     playerAbility.updateStamina(delta, movingForStamina, gamePhase, playerState);
 
     const executionCandidate = findPublicExecutionCandidate();
@@ -4586,7 +4700,7 @@ engine.runRenderLoop(() => {
       const targets = [
         {
           id: "player",
-          position: camera.position,
+          position: playerEyeBasePosition,
           alive: isAliveState(playerState),
           state: playerState,
           hitById: playerHitById
@@ -4688,28 +4802,34 @@ engine.runRenderLoop(() => {
   if (gamePhase === "execution") {
     const shouldProcessOrb = buildOrbCullingCheck();
     updateExecutionScene(delta, shouldProcessOrb);
+    capturePlayerEyeBasePosition();
   }
 
   if (isAssemblyPhase(gamePhase)) {
     gameFlow.updateAssembly(delta);
+    capturePlayerEyeBasePosition();
   }
 
   if (gamePhase === "assemblyFree") {
     updatePlayerMovement(delta, true, playerMoveSpeed);
+    capturePlayerEyeBasePosition();
   }
 
   if (usesPlayerEyeHeight(gamePhase)) {
     camera.position.y = getEyeHeight();
+    capturePlayerEyeBasePosition();
   }
   updateCharacterSpriteCells();
+  updateVoices(delta);
+  audioManager.updateSpatial();
+  applyRenderCameraPosition();
   syncCharacterFacingYaw();
   syncPlayerPresentation();
   syncGroundShadows();
   syncReflectionCamera();
-  updateVoices(delta);
   gameFlow.updateFade(delta);
-  audioManager.updateSpatial();
   scene.render();
+  restorePlayerEyeBasePosition();
 });
 
 window.addEventListener("resize", () => {
