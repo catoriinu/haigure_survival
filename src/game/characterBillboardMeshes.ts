@@ -33,7 +33,8 @@ type CharacterBillboardMeshManager = {
     handle: CharacterBillboardMeshHandle,
     sprite: Sprite,
     enabled: boolean,
-    layerMask: number
+    layerMask: number,
+    yaw: number
   ) => void;
   disposeCharacterBillboardMesh: (
     handle: CharacterBillboardMeshHandle | null
@@ -105,7 +106,6 @@ export const createCharacterBillboardMeshManager = (
       { size: 1, updatable: true },
       scene
     );
-    mesh.billboardMode = Mesh.BILLBOARDMODE_Y;
     mesh.material = ensureMaterial(directory);
     mesh.isPickable = false;
     mesh.isVisible = false;
@@ -138,9 +138,11 @@ export const createCharacterBillboardMeshManager = (
     handle: CharacterBillboardMeshHandle,
     sprite: Sprite,
     enabled: boolean,
-    layerMask: number
+    layerMask: number,
+    yaw: number
   ) => {
     handle.mesh.position.copyFrom(sprite.position);
+    handle.mesh.rotation.y = yaw;
 
     if (handle.lastWidth !== sprite.width || handle.lastHeight !== sprite.height) {
       handle.mesh.scaling.set(sprite.width, sprite.height, 1);

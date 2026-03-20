@@ -4,6 +4,7 @@ import {
   Scene,
   FreeCamera,
   Frustum,
+  Matrix,
   Vector3,
   HemisphericLight,
   Color3,
@@ -385,8 +386,8 @@ const portraitMaxHeightCells = 2;
 const worldLayerMask = 0x0fffffff;
 const reflectionOnlyLayerMask = 0x10000000;
 const firstPersonBodyLayerMask = 0x20000000;
-const characterGroundShadowWidthRatio = 0.9;
-const characterGroundShadowDepthRatio = 0.58;
+const characterGroundShadowWidthRatio = 1.16;
+const characterGroundShadowDepthRatio = 0.8;
 const characterGroundShadowVisibility = 0.68;
 const bitGroundShadowWidthScale = 1.35;
 const bitGroundShadowDepthScale = 1.42;
@@ -396,6 +397,7 @@ const bitGroundShadowScalePerHeight = 0.35;
 const bitGroundShadowMaxScaleBonus = 0.7;
 const bitGroundShadowVisibilityPerHeight = 0.25;
 const bitGroundShadowMinForwardLengthSq = 0.0001;
+const characterFacingMinForwardLengthSq = 0.0001;
 const firstPersonBodyBaseAlpha = 1;
 const firstPersonBodyCropTopRatio = 0.3;
 const firstPersonBodyNearRowStretch = 1.28;
@@ -856,6 +858,72 @@ const syncReflectionCamera = () => {
   reflectionCamera.maxZ = camera.maxZ;
 };
 
+const computeCharacterFacingYawFromViewMatrix = (viewMatrix: Matrix) => {
+  viewMatrix.invertToRef(characterFacingViewInverseMatrix);
+  Vector3.TransformNormalFromFloatsToRef(
+    0,
+    0,
+    scene.useRightHandedSystem ? -1 : 1,
+    characterFacingViewInverseMatrix,
+    characterFacingForward
+  );
+  const horizontalForwardLengthSq =
+    characterFacingForward.x * characterFacingForward.x +
+    characterFacingForward.z * characterFacingForward.z;
+  return horizontalForwardLengthSq > characterFacingMinForwardLengthSq
+    ? Math.atan2(characterFacingForward.x, characterFacingForward.z)
+    : 0;
+};
+
+const applyCharacterFacingYaw = (yaw: number) => {
+  if (playerBillboardMesh) {
+    playerBillboardMesh.mesh.rotation.y = yaw;
+  }
+  for (const billboardMesh of npcBillboardMeshes) {
+    billboardMesh.mesh.rotation.y = yaw;
+  }
+  if (playerGroundShadow) {
+    playerGroundShadow.mesh.rotation.y = yaw;
+  }
+  for (const groundShadow of npcGroundShadows) {
+    groundShadow.mesh.rotation.y = yaw;
+  }
+};
+
+const applyCharacterMirrorFlip = (mirrored: boolean) => {
+  playerAvatar.invertU = mirrored;
+  for (const npc of npcs) {
+    npc.sprite.invertU = mirrored;
+  }
+  const applyMirroredScaleX = (value: number) =>
+    mirrored ? -Math.abs(value) : Math.abs(value);
+  if (playerBillboardMesh) {
+    playerBillboardMesh.mesh.scaling.x = applyMirroredScaleX(
+      playerBillboardMesh.mesh.scaling.x
+    );
+  }
+  for (const billboardMesh of npcBillboardMeshes) {
+    billboardMesh.mesh.scaling.x = applyMirroredScaleX(
+      billboardMesh.mesh.scaling.x
+    );
+  }
+  if (playerGroundShadow) {
+    playerGroundShadow.mesh.scaling.x = applyMirroredScaleX(
+      playerGroundShadow.mesh.scaling.x
+    );
+  }
+  for (const groundShadow of npcGroundShadows) {
+    groundShadow.mesh.scaling.x = applyMirroredScaleX(groundShadow.mesh.scaling.x);
+  }
+};
+
+const syncCharacterFacingYaw = () => {
+  currentCharacterFacingYaw = computeCharacterFacingYawFromViewMatrix(
+    camera.getViewMatrix()
+  );
+  applyCharacterFacingYaw(currentCharacterFacingYaw);
+};
+
 const syncTitleCameraHeight = () => {
   const eyeHeight = getEyeHeight();
   spawnPosition.y = eyeHeight;
@@ -1279,6 +1347,9 @@ let npcBillboardMeshes: CharacterBillboardMeshHandle[] = [];
 let playerGroundShadow: GroundShadowHandle | null = null;
 let npcGroundShadows: GroundShadowHandle[] = [];
 const bitGroundShadows = new Map<string, GroundShadowHandle>();
+const characterFacingViewInverseMatrix = Matrix.Identity();
+const characterFacingForward = Vector3.Zero();
+let currentCharacterFacingYaw = 0;
 const npcs: Npc[] = [];
 let playerPortraitDirectory = "";
 let npcPortraitDirectories: string[] = [];
@@ -1747,6 +1818,16 @@ const createReflectionTexture = (
   mirrorTexture.forceLayerMaskCheck = true;
   mirrorTexture.renderListPredicate = (mesh) =>
     !excludedMeshIds.has(mesh.uniqueId);
+  mirrorTexture.onBeforeRenderObservable.add(() => {
+    applyCharacterFacingYaw(
+      computeCharacterFacingYawFromViewMatrix(scene.getViewMatrix())
+    );
+    applyCharacterMirrorFlip(true);
+  });
+  mirrorTexture.onAfterRenderObservable.add(() => {
+    applyCharacterFacingYaw(currentCharacterFacingYaw);
+    applyCharacterMirrorFlip(false);
+  });
   if (blur > 0) {
     mirrorTexture.adaptiveBlurKernel = blur;
   }
@@ -3901,7 +3982,7 @@ const syncGroundShadows = () => {
       positionZ: playerAvatar.position.z,
       width: playerAvatar.width * characterGroundShadowWidthRatio,
       depth: playerAvatar.width * characterGroundShadowDepthRatio,
-      yaw: 0,
+      yaw: currentCharacterFacingYaw,
       visibility: characterGroundShadowVisibility,
       visible: playerAvatar.isVisible,
       layerMask: worldLayerMask
@@ -3919,7 +4000,7 @@ const syncGroundShadows = () => {
       positionZ: npcSprite.position.z,
       width: npcSprite.width * characterGroundShadowWidthRatio,
       depth: npcSprite.width * characterGroundShadowDepthRatio,
-      yaw: 0,
+      yaw: currentCharacterFacingYaw,
       visibility: characterGroundShadowVisibility,
       visible: npcSprite.isVisible,
       layerMask: worldLayerMask
@@ -3997,7 +4078,8 @@ const syncPlayerPresentation = () => {
       playerBillboardMesh,
       playerAvatar,
       verticalAngleEnabled,
-      playerLayerMask
+      playerLayerMask,
+      currentCharacterFacingYaw
     );
   }
   for (let index = 0; index < npcs.length; index += 1) {
@@ -4009,7 +4091,8 @@ const syncPlayerPresentation = () => {
       billboardMesh,
       npcs[index].sprite,
       verticalAngleEnabled,
-      worldLayerMask
+      worldLayerMask,
+      currentCharacterFacingYaw
     );
   }
   syncFirstPersonBodyVisibility();
@@ -4572,6 +4655,7 @@ engine.runRenderLoop(() => {
     camera.position.y = getEyeHeight();
   }
   updateCharacterSpriteCells();
+  syncCharacterFacingYaw();
   syncPlayerPresentation();
   syncGroundShadows();
   syncReflectionCamera();

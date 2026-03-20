@@ -41,6 +41,8 @@ type GroundShadowManager = {
 const shadowTextureSize = 256;
 const groundShadowY = 0.0015;
 const groundShadowRenderingGroupId = 0;
+const bitShadowTipRadius = 0.11;
+const bitShadowTipDepthRatio = 0.62;
 
 const createShadowTexture = (
   scene: Scene,
@@ -89,13 +91,21 @@ const drawBitShadow = (ctx: CanvasRenderingContext2D, size: number) => {
   ctx.shadowBlur = size * 0.08;
 
   ctx.beginPath();
-  ctx.arc(size * 0.5, size * 0.18, size * 0.1, 0, Math.PI * 2);
+  ctx.ellipse(
+    size * 0.5,
+    size * 0.18,
+    size * bitShadowTipRadius,
+    size * bitShadowTipRadius * bitShadowTipDepthRatio,
+    0,
+    0,
+    Math.PI * 2
+  );
   ctx.fill();
 
   ctx.beginPath();
   ctx.moveTo(size * 0.5, size * 0.24);
-  ctx.lineTo(size * 0.82, size * 0.86);
-  ctx.lineTo(size * 0.18, size * 0.86);
+  ctx.lineTo(size * 0.88, size * 0.86);
+  ctx.lineTo(size * 0.12, size * 0.86);
   ctx.closePath();
   ctx.fill();
   ctx.restore();
@@ -147,9 +157,6 @@ export const createGroundShadowManager = (scene: Scene): GroundShadowManager => 
       scene
     );
     mesh.material = kind === "ellipse" ? ellipseMaterial : bitMaterial;
-    if (kind === "ellipse") {
-      mesh.billboardMode = Mesh.BILLBOARDMODE_Y;
-    }
     mesh.isPickable = false;
     mesh.isVisible = false;
     mesh.renderingGroupId = groundShadowRenderingGroupId;
