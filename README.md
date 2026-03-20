@@ -168,6 +168,10 @@
 - `src/game/npcs.ts`: `noGunTouchBrainwashDuration`（`銃なしに触れたら洗脳` ON時の接触洗脳演出時間（秒）。デフォルトは4）
 - `src/game/portraitSprites.ts`: `noGunTouchBrainwashBlendStepCount`（`銃なしに触れたら洗脳` 演出の `hit-b`→`hit-a` 切り替え段階数。値を上げるほど切り替わりは滑らかになるが、起動時の読み込み時間は長くなる。デフォルトは16）
 
+### プレイヤー、NPCの「銃なし」時の接触判定距離の設定
+- `src/main.ts`: `playerNoGunTouchContactRadius`（プレイヤーが `brainwash-complete-no-gun` のときに接触判定へ使う半径。デフォルトは`0.5`）
+- `src/game/npcs.ts`: `npcNoGunTouchContactRadius`（NPCが `brainwash-complete-no-gun` のときに接触判定へ使う半径。デフォルトは`0.27`）
+
 ### NPCの洗脳後の状態遷移の設定
 - `src/game/npcs.ts`: `npcBrainwashInProgressTransitionConfig.decisionDelay`（`brainwash-in-progress` の遷移判定を行う間隔（秒）。デフォルトは10。「洗脳進行中を経ずに即洗脳」ON時は強制的に0となる）
 - `src/game/npcs.ts`: `npcBrainwashInProgressTransitionConfig.stayChance`（`brainwash-in-progress` の判定時に同状態を継続する確率。`1 - npcBrainwashInProgressTransitionConfig.stayChance` の確率で `brainwash-complete-haigure` へ遷移。デフォルトは0.5。「洗脳進行中を経ずに即洗脳」ON時は強制的に0となる）
@@ -215,6 +219,13 @@ stateDiagram-v2
 ### アラームセル用設定
 - `src/game/alarm/system.ts`: `alarmSelectionInterval`（アラームセルを追加抽選する間隔（秒）。デフォルトは`5`）
 - `src/game/alarm/system.ts`: `alarmInfluenceRadiusCells`（アラーム発動時に強制追跡対象とする洗脳済みNPCの判定半径（セル数）。`layout.cellSize * alarmInfluenceRadiusCells` の平面距離で判定。デフォルトは`50`）
+
+### ダッシュ機能、スタミナゲージ関連の設定
+- `src/main.ts`: `showStaminaGauge`（スタミナゲージの表示切替。隠したい場合は`false`にすること。デフォルトは`true`）
+- `src/ui/input.ts`: `handleDashKey()`（ダッシュキー判定。デフォルトは`ShiftLeft` / `ShiftRight`。別キーにしたい場合は関数内コメントに従って `KeyboardEvent.code` を変更すること）
+- `src/main.ts`: `playerStaminaMaxTenths`（スタミナゲージの最大値を0.1単位で管理する値。`150`で最大`15.0`。デフォルトは`150`）
+- `src/main.ts`: `playerStaminaRecoverInterval`（スタミナが`0.1`回復する間隔（秒）。デフォルトは`0.2`。実際の回復量は毎秒`0.5`）
+- `src/main.ts`: `playerDashSpeedMultiplier`（ダッシュ時の移動速度倍率。デフォルトは`1.7`）
 
 ## 制作者用メモ：HTML5ゲームかビルド手順
 1. 配布用ビルドを作成する。
