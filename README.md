@@ -147,24 +147,19 @@
 ## 調整可能項目
 
 ### ゲーム全体の設定
-- `src/main.ts`: `defaultDefaultStartSettings.initialNpcCount`（ステージ開始時のNPC人数。0〜99。デフォルトは11）
 - `src/main.ts`: `minimapReadoutVisible`（ミニマップ座標表示ボックスの表示切替。true=表示、false=非表示（デフォルト））
 
 ### ビット関連の設定
 - `src/main.ts`: `redBitSpawnChance`（赤ビット（通常の3倍の性能を持つビット）の出現確率。0-1の確率で判定し、デフォルトは0.05）
-- `src/main.ts`: `defaultBitSpawnSettings.bitSpawnInterval`（ビットの通常出現間隔。1〜99秒。デフォルトは10秒）
-- `src/main.ts`: `defaultBitSpawnSettings.maxBitCount`（ビットの同時出現上限。1〜99。デフォルトは25）
-- `src/main.ts`: `defaultBitSpawnSettings.disableBitSpawn`（`ビットを出現させない`チェックの初期値。`true`でビットを一切出現させない。デフォルトは`false`）
 - `src/game/bits.ts`: `bitModeMuzzleColorEnabled`（ビットの先端球のモード別色変更。true=モードに応じて色が変わる、false=初期色のまま固定（デフォルト））
 
-### プレイヤー、NPCの光線命中時の設定
+### プレイヤー、NPCの光線命中・「銃なしに触れたら洗脳」演出の設定
 - `src/main.ts`: `playerHitDuration`（プレイヤーが光線命中後に点滅状態を繰り返す継続時間（秒）。デフォルトは3）
 - `src/game/npcs.ts`: `npcHitDuration`（NPCが光線命中後に点滅状態を繰り返す継続時間（秒）。デフォルトは3）
 - `src/main.ts`: `playerHitFadeDuration`（プレイヤーの点滅状態後、`hit-a`（光線命中：ハイレグ姿）のまま光がフェードする時間（秒）。デフォルトは1）
 - `src/game/npcs.ts`: `npcHitFadeDuration`（NPCの点滅状態後、`hit-a`（光線命中：ハイレグ姿）のまま光がフェードする時間（秒）。デフォルトは1）
 - `src/main.ts`: `playerHitFlickerInterval`（プレイヤー光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
 - `src/game/npcs.ts`: `npcHitFlickerInterval`（NPC光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
-- `src/main.ts`: `defaultBrainwashSettings.brainwashOnNoGunTouch`（`BRAINWASH SETTINGS` の `銃なしに触れたら洗脳` チェック初期値。デフォルトは`false`）
 - `src/game/npcs.ts`: `noGunTouchBrainwashDuration`（`銃なしに触れたら洗脳` ON時の接触洗脳演出時間（秒）。デフォルトは4）
 - `src/game/portraitSprites.ts`: `noGunTouchBrainwashBlendStepCount`（`銃なしに触れたら洗脳` 演出の `hit-b`→`hit-a` 切り替え段階数。値を上げるほど切り替わりは滑らかになるが、起動時の読み込み時間は長くなる。デフォルトは16）
 
