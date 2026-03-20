@@ -369,6 +369,8 @@ const playerHeight = PLAYER_SPRITE_HEIGHT;
 const playerCenterHeight = PLAYER_SPRITE_CENTER_HEIGHT;
 // ミニマップ座標表示ボックスの表示切替。true=表示、false=非表示（デフォルト）
 const minimapReadoutVisible = false;
+// スタミナゲージの表示切替。true=表示（デフォルト）、false=非表示
+const showStaminaGauge = true;
 const portraitMaxWidthCells = 1;
 const portraitMaxHeightCells = 2;
 const worldLayerMask = 0x0fffffff;
@@ -3572,6 +3574,10 @@ const syncHudForPhase = () => {
   hud.setHudVisible(hudState.hudVisible);
   hud.setHelpPanelText(hudState.helpPanelText);
   hud.setCrosshairVisible(hudState.crosshairVisible);
+  if (!showStaminaGauge) {
+    hud.setStaminaGaugeVisible(false);
+    return;
+  }
   hud.setStaminaGaugeVisible(staminaState.visible);
   if (!staminaState.visible) {
     return;

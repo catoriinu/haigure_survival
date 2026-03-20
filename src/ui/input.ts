@@ -70,6 +70,13 @@ export const setupInputHandlers = ({
     }
   };
   const handleDashKey = (code: string, pressed: boolean) => {
+    // 他キーへ変える場合は以下のcodeと比較しているキー名を以下に変更すること。
+    // 例：
+    // Cキーは "KeyC"
+    // Control は "ControlLeft" / "ControlRight"
+    // Space は "Space"
+    // 左クリックは KeyboardEvent.code ではなく
+    // pointerdown / mousedown 側の event.button === 0 で別処理
     if (code === "ShiftLeft") {
       shiftLeftPressed = pressed;
       onDashKey(shiftLeftPressed || shiftRightPressed);
