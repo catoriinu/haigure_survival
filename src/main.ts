@@ -4,6 +4,7 @@ import {
   Scene,
   FreeCamera,
   Frustum,
+  Matrix,
   Vector3,
   HemisphericLight,
   Color3,
@@ -1891,6 +1892,8 @@ const publicExecutionBeamDelayMax = 10;
 const executionHitFadeDuration = playerHitFadeDuration;
 
 const playerNoGunTouchContactRadius = 0.5;
+const playerEvadeThreatNearRangeCells = 3;
+const playerEvadeThreatVisionRangeCells = 9;
 const getSpriteBeamHitRadii = (sprite: Sprite) =>
   createBeamHitRadii(sprite.width, sprite.height);
 
@@ -1919,6 +1922,10 @@ type RouletteHitEntry = {
   sequence: ReturnType<typeof createHitSequenceState>;
   completed: boolean;
 };
+const isPlayerThreatState = (state: PlayerState) =>
+  state === "brainwash-complete-gun" ||
+  state === "brainwash-complete-no-gun";
+const playerThreatProjectionWorld = Matrix.Identity();
 let playerState: PlayerState = "normal";
 const playerHitSequence = createHitSequenceState();
 let playerHitDurationCurrent = playerHitDuration;
@@ -1976,6 +1983,65 @@ let bitSpawnEnabled = true;
 let elapsedTime = 0;
 let bitSpawnTimer = runtimeBitSpawnInterval;
 let bitIndex = bits.length;
+
+const collectPlayerThreatenedNpcIds = () => {
+  const threatenedNpcIds = new Set<string>();
+  if (!isPlayerThreatState(playerState)) {
+    return threatenedNpcIds;
+  }
+
+  const nearRange = layout.cellSize * playerEvadeThreatNearRangeCells;
+  const nearRangeSq = nearRange * nearRange;
+  const onScreenRange = layout.cellSize * playerEvadeThreatVisionRangeCells;
+  const onScreenRangeSq = onScreenRange * onScreenRange;
+  const engine = scene.getEngine();
+  const viewport = camera.viewport.toGlobal(
+    engine.getRenderWidth(),
+    engine.getRenderHeight()
+  );
+  const transformMatrix = scene.getTransformMatrix();
+  const cameraForward = camera.getDirection(new Vector3(0, 0, 1));
+
+  for (let index = 0; index < npcs.length; index += 1) {
+    const npc = npcs[index];
+    if (!isAliveState(npc.state)) {
+      continue;
+    }
+
+    const dx = npc.sprite.position.x - camera.position.x;
+    const dz = npc.sprite.position.z - camera.position.z;
+    const isNear = dx * dx + dz * dz <= nearRangeSq;
+    let isOnScreen = false;
+
+    if (!isNear) {
+      const toNpc = npc.sprite.position.subtract(camera.position);
+      if (
+        toNpc.lengthSquared() <= onScreenRangeSq &&
+        Vector3.Dot(cameraForward, toNpc) > 0
+      ) {
+        const projected = Vector3.Project(
+          npc.sprite.position,
+          playerThreatProjectionWorld,
+          transformMatrix,
+          viewport
+        );
+        isOnScreen =
+          projected.z >= 0 &&
+          projected.z <= 1 &&
+          projected.x >= viewport.x &&
+          projected.x <= viewport.x + viewport.width &&
+          projected.y >= viewport.y &&
+          projected.y <= viewport.y + viewport.height;
+      }
+    }
+
+    if (isNear || isOnScreen) {
+      threatenedNpcIds.add(`npc_${index}`);
+    }
+  }
+
+  return threatenedNpcIds;
+};
 
 const hud = createHud();
 hud.setMinimapReadoutVisible(minimapReadoutVisible);
@@ -4130,6 +4196,7 @@ engine.runRenderLoop(() => {
             }
           ]
         : [];
+    const playerThreatenedNpcIdsForMovement = collectPlayerThreatenedNpcIds();
     const npcEvadeThreats = npcs.map(() => [] as Vector3[]);
     for (const bit of bits) {
       if (!bit.targetId) {
@@ -4141,39 +4208,9 @@ engine.runRenderLoop(() => {
       const targetIndex = Number(bit.targetId.slice(4));
       npcEvadeThreats[targetIndex].push(bit.root.position);
     }
-    const aimRay = camera.getForwardRay();
-    const aimDirection = aimRay.direction.normalize();
-    let aimedNpcIndex = -1;
-    let aimedNpcDistance = Infinity;
-    for (let index = 0; index < npcs.length; index += 1) {
-      const npc = npcs[index];
-      if (!isAliveState(npc.state)) {
-        continue;
-      }
-      const toCenter = aimRay.origin.subtract(npc.sprite.position);
-      const b = Vector3.Dot(toCenter, aimDirection);
-      const npcAimRadius = npc.sprite.width * 0.5;
-      const c =
-        Vector3.Dot(toCenter, toCenter) - npcAimRadius * npcAimRadius;
-      const discriminant = b * b - c;
-      if (discriminant < 0) {
-        continue;
-      }
-      const sqrt = Math.sqrt(discriminant);
-      let t = -b - sqrt;
-      if (t < 0) {
-        t = -b + sqrt;
-      }
-      if (t < 0) {
-        continue;
-      }
-      if (t < aimedNpcDistance) {
-        aimedNpcDistance = t;
-        aimedNpcIndex = index;
-      }
-    }
-    if (aimedNpcIndex >= 0) {
-      npcEvadeThreats[aimedNpcIndex].push(camera.position);
+    for (const threatenedNpcId of playerThreatenedNpcIdsForMovement) {
+      const targetIndex = Number(threatenedNpcId.slice(4));
+      npcEvadeThreats[targetIndex].push(camera.position);
     }
     const npcTargets = [
       {
@@ -4221,6 +4258,7 @@ engine.runRenderLoop(() => {
       beamImpactOrbs,
       npcBlockers,
       npcEvadeThreats,
+      playerThreatenedNpcIdsForMovement,
       camera.position,
       shouldProcessOrb,
       trapSystem.shouldFreezeNpcMovement,
@@ -4381,11 +4419,15 @@ engine.runRenderLoop(() => {
         startAlertLoop(alertLeader);
       }
 
+      const playerThreatenedNpcIds = collectPlayerThreatenedNpcIds();
       const targetedIds = new Set<string>();
       for (const bit of bits) {
         if (bit.targetId) {
           targetedIds.add(bit.targetId);
         }
+      }
+      for (const threatenedNpcId of playerThreatenedNpcIds) {
+        targetedIds.add(threatenedNpcId);
       }
       if (isAliveState(playerState)) {
         playerState =

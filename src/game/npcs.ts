@@ -324,6 +324,7 @@ export const updateNpcs = (
   impactOrbs: BeamImpactOrb[],
   blockers: MovementBlocker[],
   evadeThreats: Vector3[][],
+  playerThreatenedNpcIds: ReadonlySet<string>,
   cameraPosition: Vector3,
   shouldProcessOrb: (position: Vector3) => boolean,
   shouldFreezeAliveMovement: (npc: Npc, npcId: string) => boolean,
@@ -658,7 +659,9 @@ export const updateNpcs = (
       return true;
     }
 
-    const moveSpeed = npc.state === "evade" ? npcEvadeSpeed : npc.speed;
+    const shouldUseEvadeMovement =
+      npc.state === "evade" || playerThreatenedNpcIds.has(npcId);
+    const moveSpeed = shouldUseEvadeMovement ? npcEvadeSpeed : npc.speed;
     const originCell = npc.cell;
     const buildSafeReachable = () => {
       const reachableMap = buildReachableMap(layout, originCell, npcMovePower);
@@ -714,7 +717,7 @@ export const updateNpcs = (
       return worldToCell(layout, nextTarget);
     };
     const destinationArrived = isNpcAtDestination(npc);
-    if (npc.state === "evade") {
+    if (shouldUseEvadeMovement) {
       npc.evadeTimer = Math.max(0, npc.evadeTimer - delta);
       if (npc.evadeTimer <= 0 || destinationArrived) {
         setAliveDestination(true);
@@ -728,7 +731,7 @@ export const updateNpcs = (
     }
 
     if (isAliveMovementCellForbidden(getNextMoveCell())) {
-      setAliveDestination(npc.state === "evade");
+      setAliveDestination(shouldUseEvadeMovement);
       return true;
     }
 
