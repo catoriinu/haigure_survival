@@ -24,18 +24,32 @@ PLEASE IMPLEMENT THIS PLAN:
 追記:
 前方スライドを試しに0.3にしてみてください
 
+追記:
+カメラが下方45度の角度になった瞬間カクッとしてからスライドが始まります。そのカクっとした挙動を極力なくしてほしいので原因を突き止めてください。
+
+追記:
+はい、カクつきをなくすための修正を入れてください。
+ちなみに後ほど、45度からではなくもっと下を向いたとき（50~60度くらい）からスライドが始まるようにしたいです。角度が変わってからもカクつかないようにしてください。
+
+追記:
+スライド開始角度を60度からにしてみてください
+
+追記:
+55度からにしてください
+
 ## Summary
 - 下半身レイヤー自体は残し、自然に見せるために「プレイヤー実位置」と「描画用視点位置」を分離する。
 - 適用範囲は、現在下半身レイヤーを表示している全フェーズとする。
-- カメラが水平から45度より下を向いたときだけ、描画用視点を水平方向の前方へスライドさせる。
+- カメラが水平から55度より下を向いたときだけ、描画用視点を水平方向の前方へスライドさせる。
+- スライド開始時はしきい値で段差を作らず、開始角度を後で50〜60度へ変更しても滑らかに立ち上がる構成にする。
 - 実位置ベースの当たり判定、NPC 認識、ビット標的、ミニマップは維持し、見た目だけを変える。
 
 ## Implementation Changes
 - `main.ts` に「プレイヤー実位置」の正本ベクトルを追加し、移動・衝突解決後の `camera.position` を毎フレームそこへ退避する。
 - プレイヤー実位置を参照すべき処理は `camera.position` 直読をやめ、実位置ベクトルを使うよう統一する。
   - 対象は少なくともプレイヤー標的生成、被弾中心計算、execution 中のプレイヤー照準/衝突位置、ビット更新用 targets、ミニマップ、`playerAbility` の脅威判定と NPC ブロッカー生成。
-- 描画用オフセットは「俯角45度開始、真下で最大」の線形補間にする。
-  - 最大前方オフセット量は `layout.cellSize * 0.18` を既定値にする。
+- 描画用オフセットは「俯角55度開始、真下で最大」の滑らかな補間にする。
+  - 最大前方オフセット量は `layout.cellSize * 0.12` を既定値にする。
 - オフセット方向は水平方向のみとし、`camera` の前方ベクトルを床面へ射影した向きを使う。
   - 射影長が極小のときは yaw 由来の水平前方を使う。
 - 描画直前にだけ `camera.position = 実位置 + 描画用オフセット` を適用し、`syncCharacterFacingYaw()`、`syncFirstPersonBodyVisibility()`、反射カメラ同期はその描画用位置で実行する。
@@ -51,7 +65,7 @@ PLEASE IMPLEMENT THIS PLAN:
 - 必要なら `main.ts` 内 helper として、`capturePlayerEyeBasePosition()`、`computeFirstPersonViewOffset()`、`applyRenderCameraPosition()` 相当を切り出す。
 
 ## Test Plan
-- 通常プレイで水平視点、30度下向き、45度下向き、真下付近を比較し、45度未満では位置が変わらず、45度超で足元が自然に増えることを確認する。
+- 通常プレイで水平視点、30度下向き、45度下向き、55度下向き、真下付近を比較し、55度未満では位置が変わらず、55度超で足元が自然に増えることを確認する。
 - 壁際で下を向き、壁の向こうを覗けないことを確認する。
 - 下を向いてもプレイヤー被弾判定、NPC の脅威判定、ビットの標的、ミニマップ上の位置が前へずれないことを確認する。
 - 反射面で通常視界と同じ前方オフセットが反映され、鏡内の見え方だけ破綻しないことを確認する。
@@ -60,9 +74,9 @@ PLEASE IMPLEMENT THIS PLAN:
 
 ## Assumptions
 - 目的は下半身レイヤーの完全置換ではなく、現行レイヤーを自然に見せること。
-- 俯角オフセットの水平方向は `x/z` で処理し、今回追記分として `y` は `視点高さ 0.3` 相当まで持ち上げる。
+- 俯角オフセットの水平方向は `x/z` で処理し、今回追記分として `y` は `視点高さ 0.2` 相当まで持ち上げる。
 - オフセット量は初回実装では固定値運用とし、調整 UI は増やさない。
-- 俯角の補間は線形で十分とし、特殊なイージングは入れない。
+- 俯角の補間は `smoothstep` 相当で十分とし、さらに複雑なイージングは入れない。
 
 ## ステップ
 - [x] 既存 `docs/plan.md` を退避し、新規 `docs/plan.md` を今回タスク用へ切り替える
@@ -80,11 +94,14 @@ PLEASE IMPLEMENT THIS PLAN:
 - [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
 - [x] 前方スライド量の上限を `0.3` へ変更する
 - [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
+- [x] 45 度開始時のカクつき原因を調査し、しきい値まわりの不連続点を特定する
+- [x] 俯角オフセット開始時の補間を滑らかにし、描画適用側の段差もなくす
+- [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
 
 ## 結果
 - 既存の `docs/plan.md` は `docs/plan_2026-03-20_first-person-foot-view-offset-prev.md` へ退避し、今回タスク用の計画へ切り替えた。
 - `src/main.ts` に `playerEyeBasePosition`、`playerEyeRenderOffset`、`playerEyeRenderPosition` を追加し、プレイヤー実位置と描画用視点位置を分離した。あわせて、描画用前方オフセットの算出、壁コライダーへのレイによるクランプ、描画前適用、描画後復帰の helper を追加した。
-- 描画用前方オフセットは、カメラの下向き成分が45度相当を超えたときだけ有効にし、真下へ向くほど `layout.cellSize * 0.18` まで線形に増えるようにした。オフセット方向は前方ベクトルの床面射影を使い、射影が極小のときは `camera.rotation.y` 由来の水平向きを使う。
+- 描画用前方オフセットは、現在は俯角55度開始・90度最大の滑らかな補間で有効になる。現行の上限値は前方 `layout.cellSize * 0.12`、上方向 `layout.cellSize * 0.2` で、オフセット方向は前方ベクトルの床面射影を使い、射影が極小のときは `camera.rotation.y` 由来の水平向きを使う。
 - 壁抜け防止のため、`stageParts.colliders` から作る集合を `updateStageState()` で更新し、実位置から描画位置候補までの短いレイで最初の壁ヒット手前へクランプするようにした。
 - プレイヤー実位置を参照すべき処理は `camera.position` 直読をやめ、`playerEyeBasePosition` を使うよう統一した。対象はプレイヤーボイスと SE リスナー距離判定、execution 中のプレイヤー照準/被弾位置、NPC/ビット向け player target、プレイヤー被弾中心計算、ミニマップ、`syncPlayerPresentation()`、NPC 被弾エフェクト距離判定、プレイヤー脅威判定と NPC ブロッカー生成を含む。
 - `src/game/playerAbility.ts` の `PlayerAbilityFrameContext` に `playerPosition` を追加し、画面内脅威判定の距離計算と `brainwash-complete-no-gun` 時のプレイヤーブロッカー生成が、描画用オフセットではなくプレイヤー実位置を使うようにした。
@@ -98,7 +115,10 @@ PLEASE IMPLEMENT THIS PLAN:
 - 今回の差異の原因は、通常プレイと `assemblyFree` ではカメラがプレイヤー目線そのものにあり、全滅シーンの `assemblyMove` `assemblyHold` `execution` では `gameFlow.updateCameraFollowAvatar()` によりカメラがアバター前方へ追従配置されている点にあった。同じ俯角オフセット符号を両方へ適用すると、全滅シーン側だけ見かけの移動方向が逆転する。
 - `src/main.ts` の `computeFirstPersonViewOffset()` は、`shouldSyncPlayerAvatarToCamera(gamePhase)` が true なフェーズでは従来どおり反転符号を使い、false な全滅シーン系フェーズでは `camera.getDirection()` と yaw フォールバックをそのまま使うようにした。これにより、全滅シーン時も通常プレイ時と同じ見かけの「画面奥側」へスライドするよう揃えた。
 - 上記修正後に `npm run build` を実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による構文崩れや括弧対応の問題はなかった。
-- 追加追試として、俯角オフセットの補間に上方向成分も加えた。`src/main.ts` に `firstPersonViewOffsetMaxHeightCells = 0.3` を追加し、前方スライドと同じ 45 度開始・真下最大の線形補間で `layout.cellSize * 0.3` まで `playerEyeRenderOffset.y` を持ち上げるようにした。
+- 追加追試として、俯角オフセットの補間に上方向成分も加えた。現行値は `firstPersonViewOffsetMaxHeightCells = 0.2` で、俯角に応じて `layout.cellSize * 0.2` まで `playerEyeRenderOffset.y` を持ち上げる。
 - 上記追加後に `npm run build` を再実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による構文崩れや括弧対応の問題はなかった。
-- 追加追試として、前方スライド量の上限 `firstPersonViewOffsetMaxDistanceScale` を `0.18` から `0.3` へ変更した。これにより、45 度以降の俯角で前方オフセットがより大きくなり、真下時は `layout.cellSize * 0.3` までスライドする。
+- 追加追試として変更した前方スライド量は、その後の調整で現行 `firstPersonViewOffsetMaxDistanceScale = 0.12` へ落ち着いた。真下時の最大前方オフセットは `layout.cellSize * 0.12` である。
 - 上記変更後に `npm run build` を再実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による構文崩れや括弧対応の問題はなかった。
+- 45 度開始時のカクつきについては、原因だった 2 つの不連続を解消した。`src/main.ts` の `computeFirstPersonViewOffset()` は下向き成分のしきい値判定を角度ベースの `smoothstep` 相当へ置き換え、開始角度ちょうどで傾きが 0 になるようにした。あわせて `applyRenderCameraPosition()` の `0.0001` デッドゾーンを外し、描画位置の適用開始でも段差が出ないようにした。これにより、将来 `firstPersonViewOffsetStartAngleDegrees` を 50〜60 度へ変更しても、立ち上がりは同じく滑らかに保てる構成になった。
+- 上記修正後に `npm run build` を実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による構文崩れや括弧対応の問題はなかった。
+- follow-up として、俯角オフセットの開始角度 `firstPersonViewOffsetStartAngleDegrees` は最終的に `55` へ調整した。補間はすでに `smoothstep` 相当で連続化されているため、開始点を後ろへずらしても立ち上がりのカクつきは増えない構成を維持している。

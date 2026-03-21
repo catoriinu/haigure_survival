@@ -420,7 +420,12 @@ const firstPersonBodyFeetRowHalfWidthStart = 0.66;
 const firstPersonBodyFeetRowHalfWidthEnd = 0.57;
 const firstPersonBodyFeetRowZStart = 0.41;
 const firstPersonBodyFeetRowZEnd = 0.49;
-const firstPersonViewOffsetStartDownward = Math.SQRT1_2;
+const firstPersonViewOffsetStartAngleDegrees = 55;
+const firstPersonViewOffsetMaxAngleDegrees = 90;
+const firstPersonViewOffsetStartAngleRadians =
+  (firstPersonViewOffsetStartAngleDegrees * Math.PI) / 180;
+const firstPersonViewOffsetMaxAngleRadians =
+  (firstPersonViewOffsetMaxAngleDegrees * Math.PI) / 180;
 const firstPersonViewOffsetMaxDistanceScale = 0.12;
 const firstPersonViewOffsetMaxHeightCells = 0.2;
 const firstPersonViewOffsetMinDirectionLengthSq = 0.0001;
@@ -920,6 +925,14 @@ const clampFirstPersonViewOffsetLength = (
   return Math.max(0, Math.min(desiredLength, hit.distance - firstPersonViewOffsetWallPadding));
 };
 
+const computeFirstPersonViewOffsetBlend = (downwardAngleRadians: number) => {
+  const linearBlend =
+    (downwardAngleRadians - firstPersonViewOffsetStartAngleRadians) /
+    (firstPersonViewOffsetMaxAngleRadians - firstPersonViewOffsetStartAngleRadians);
+  const clampedBlend = Math.max(0, Math.min(linearBlend, 1));
+  return clampedBlend * clampedBlend * (3 - 2 * clampedBlend);
+};
+
 const computeFirstPersonViewOffset = () => {
   playerEyeRenderOffset.set(0, 0, 0);
   if (!shouldShowFirstPersonBodyForPhase(gamePhase)) {
@@ -927,12 +940,11 @@ const computeFirstPersonViewOffset = () => {
   }
   const forward = camera.getDirection(new Vector3(0, 0, 1));
   const downward = Math.max(0, -forward.y);
-  if (downward <= firstPersonViewOffsetStartDownward) {
+  const downwardAngleRadians = Math.asin(downward);
+  const blend = computeFirstPersonViewOffsetBlend(downwardAngleRadians);
+  if (blend <= 0) {
     return playerEyeRenderOffset;
   }
-  const blend =
-    (downward - firstPersonViewOffsetStartDownward) /
-    (1 - firstPersonViewOffsetStartDownward);
   const horizontalOffsetDirectionScale = shouldSyncPlayerAvatarToCamera(gamePhase)
     ? -1
     : 1;
@@ -978,13 +990,9 @@ const applyRenderCameraPosition = () => {
     return;
   }
   computeFirstPersonViewOffset();
-  if (playerEyeRenderOffset.lengthSquared() <= 0.0001) {
-    renderCameraPositionApplied = false;
-    return;
-  }
   playerEyeRenderPosition.addInPlace(playerEyeRenderOffset);
   camera.position.copyFrom(playerEyeRenderPosition);
-  renderCameraPositionApplied = true;
+  renderCameraPositionApplied = playerEyeRenderOffset.lengthSquared() > 0;
 };
 
 const computeCharacterFacingYawFromViewMatrix = (viewMatrix: Matrix) => {
