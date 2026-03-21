@@ -424,6 +424,7 @@ const firstPersonViewOffsetStartDownward = Math.SQRT1_2;
 const firstPersonViewOffsetMaxDistanceScale = 0.18;
 const firstPersonViewOffsetMinDirectionLengthSq = 0.0001;
 const firstPersonViewOffsetWallPadding = 0.01;
+const firstPersonPreviewUsePlayerSprite = true;
 
 const defaultBitSpawnSettings: BitSpawnSettings = {
   bitSpawnInterval: 10,  // ビットの通常出現間隔（秒）。1〜99。デフォルトは10
@@ -862,6 +863,7 @@ reflectionCamera.fov = camera.fov;
 const playerEyeBasePosition = Vector3.Zero();
 const playerEyeRenderOffset = Vector3.Zero();
 const playerEyeRenderPosition = Vector3.Zero();
+const firstPersonPreviewPlayerPosition = Vector3.Zero();
 const firstPersonViewHorizontalForward = Vector3.Zero();
 const firstPersonViewRay = new Ray(
   Vector3.Zero(),
@@ -930,15 +932,15 @@ const computeFirstPersonViewOffset = () => {
   const blend =
     (downward - firstPersonViewOffsetStartDownward) /
     (1 - firstPersonViewOffsetStartDownward);
-  firstPersonViewHorizontalForward.set(forward.x, 0, forward.z);
+  firstPersonViewHorizontalForward.set(-forward.x, 0, -forward.z);
   if (
     firstPersonViewHorizontalForward.lengthSquared() <=
     firstPersonViewOffsetMinDirectionLengthSq
   ) {
     firstPersonViewHorizontalForward.set(
-      Math.sin(camera.rotation.y),
+      -Math.sin(camera.rotation.y),
       0,
-      Math.cos(camera.rotation.y)
+      -Math.cos(camera.rotation.y)
     );
   }
   if (
@@ -1699,6 +1701,10 @@ const ensureFirstPersonBodySheet = async (directory: string) => {
   configureFirstPersonBodyTexture(sheet.cellWidth, sheet.cellHeight);
 };
 const syncFirstPersonBodyVisibility = () => {
+  if (firstPersonPreviewUsePlayerSprite) {
+    firstPersonBodyMesh.isVisible = false;
+    return;
+  }
   if (
     !shouldShowFirstPersonBodyForPhase(gamePhase) ||
     !firstPersonBodyTexture ||
@@ -4210,21 +4216,35 @@ const syncGroundShadows = () => {
 };
 
 const syncPlayerPresentation = () => {
+  const useFirstPersonPreviewSprite =
+    firstPersonPreviewUsePlayerSprite &&
+    shouldShowFirstPersonBodyForPhase(gamePhase);
   if (shouldSyncPlayerAvatarToCamera(gamePhase)) {
     playerAvatar.isVisible = true;
-    playerAvatar.position.set(
-      playerEyeBasePosition.x,
-      playerAvatar.height * 0.5,
-      playerEyeBasePosition.z
-    );
+    if (useFirstPersonPreviewSprite) {
+      firstPersonPreviewPlayerPosition.set(
+        playerEyeBasePosition.x + playerEyeRenderOffset.x * 2,
+        playerAvatar.height * 0.5,
+        playerEyeBasePosition.z + playerEyeRenderOffset.z * 2
+      );
+      playerAvatar.position.copyFrom(firstPersonPreviewPlayerPosition);
+    } else {
+      playerAvatar.position.set(
+        playerEyeBasePosition.x,
+        playerAvatar.height * 0.5,
+        playerEyeBasePosition.z
+      );
+    }
     alignSpriteToGround(playerAvatar);
   }
 
   const verticalAngleEnabled =
     titlePlayerSettings.enableCharacterSpriteVerticalAngle;
-  const playerLayerMask = shouldHidePlayerAvatarFromMainCamera(gamePhase)
-    ? reflectionOnlyLayerMask
-    : worldLayerMask;
+  const playerLayerMask = useFirstPersonPreviewSprite
+    ? worldLayerMask
+    : shouldHidePlayerAvatarFromMainCamera(gamePhase)
+      ? reflectionOnlyLayerMask
+      : worldLayerMask;
   for (const portraitManager of portraitManagers.values()) {
     portraitManager.layerMask = verticalAngleEnabled ? 0 : worldLayerMask;
   }

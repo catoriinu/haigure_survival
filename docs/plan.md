@@ -1,10 +1,17 @@
 # 一人称足元表示の描画用前方オフセット計画
 
-更新日: 2026-03-20
+更新日: 2026-03-21
 
 ## プロンプト
 PLEASE IMPLEMENT THIS PLAN:
 # 一人称足元表示の描画用前方オフセット計画
+
+追記:
+> 下を向いてカメラが少し前に出たときにだけ、映るようにしてください。
+
+と指示しましたが、そもそも「前」の概念を間違えているようです。
+「下を向くと目が前に出る」というときの「前」とは、画面の奥・正面向きで言う奥方向のことです。
+今の実装では、下を向くとカメラが手前にずれるせいで、自キャラスプライトが画面上部に見えてしまっています。自キャラは画面下部に見えてほしいのです。
 
 ## Summary
 - 下半身レイヤー自体は残し、自然に見せるために「プレイヤー実位置」と「描画用視点位置」を分離する。
@@ -52,6 +59,9 @@ PLEASE IMPLEMENT THIS PLAN:
 - [x] `camera.position` 依存のゲームロジックを実位置参照へ差し替える
 - [x] 壁クランプと描画前後のカメラ適用/復帰を統合する
 - [x] `docs/plan.md` を結果で更新し、`npm run build` で検証する
+- [x] follow-up として、下半身レイヤーを一時非表示にし、プレイヤースプライトを主カメラへ出す追試を入れる
+- [x] follow-up 修正として、俯角時の描画用カメラオフセットを画面奥方向へ反転する
+- [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
 
 ## 結果
 - 既存の `docs/plan.md` は `docs/plan_2026-03-20_first-person-foot-view-offset-prev.md` へ退避し、今回タスク用の計画へ切り替えた。
@@ -62,3 +72,8 @@ PLEASE IMPLEMENT THIS PLAN:
 - `src/game/playerAbility.ts` の `PlayerAbilityFrameContext` に `playerPosition` を追加し、画面内脅威判定の距離計算と `brainwash-complete-no-gun` 時のプレイヤーブロッカー生成が、描画用オフセットではなくプレイヤー実位置を使うようにした。
 - メインループは、フレーム開始時に実位置へ復帰してからゲーム更新を行い、移動や演出でカメラが動いた直後に実位置を再取得し、HUD/音声更新の後でのみ描画用オフセットを適用する順へ整理した。反射カメラ同期と `scene.render()` は描画位置で行い、描画直後に再度実位置へ戻す。
 - `npm run build` を実行し、renderer / electron ともに成功した。Vite の chunk size warning は出たが失敗ではなく、今回の変更による構文崩れや括弧対応の問題はなかった。
+- follow-up の追試として、`src/main.ts` に `firstPersonPreviewUsePlayerSprite = true` を追加し、既存の `firstPersonBodyMesh` は常に非表示にした。その代わり、下半身レイヤーを使っていたフェーズではプレイヤースプライト/ビルボードを主カメラにも通すよう `playerLayerMask` を `worldLayerMask` へ切り替えた。
+- 追試表示では、`shouldSyncPlayerAvatarToCamera(gamePhase)` が有効なフェーズに限り、プレイヤースプライトの表示位置を `playerEyeBasePosition + playerEyeRenderOffset * 2` へ寄せるようにした。これにより、正面時は従来どおり画面内に出にくく、下を向いて描画用カメラが前へ出たときだけ主カメラ下端へ入りやすい状態にしている。
+- 上記追試後も `npm run build` は成功した。今回は見た目確認前の実験実装であり、実際の映り方はプレイ画面で確認する前提とする。
+- follow-up 修正として、俯角時の描画用カメラオフセットの水平方向を反転し、`camera.getDirection()` の床面射影と yaw フォールバックの両方で「画面奥」へ進む符号へ修正した。これにより、下を向いたときの描画用視点が奥へ出る前提へ揃えた。
+- 上記修正後も `npm run build` は成功した。Vite の chunk size warning と CJS build deprecation warning は出るが、ビルド自体は成功している。
