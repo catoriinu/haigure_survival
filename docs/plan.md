@@ -13,6 +13,11 @@ PLEASE IMPLEMENT THIS PLAN:
 「下を向くと目が前に出る」というときの「前」とは、画面の奥・正面向きで言う奥方向のことです。
 今の実装では、下を向くとカメラが手前にずれるせいで、自キャラスプライトが画面上部に見えてしまっています。自キャラは画面下部に見えてほしいのです。
 
+追記:
+通常のゲーム中で下を向いたときには「前（正面向きのときの画面奥側）」にカメラがスライドするようになりましたが、
+全滅シーンで下を向いたときには「後ろ（正面向きのときの画面手前側）」にスライドしてしまっており、挙動がチグハグです。
+違いの理由を解析した後、全滅シーン時も、通常のゲーム中と同じ挙動に揃えてください。
+
 ## Summary
 - 下半身レイヤー自体は残し、自然に見せるために「プレイヤー実位置」と「描画用視点位置」を分離する。
 - 適用範囲は、現在下半身レイヤーを表示している全フェーズとする。
@@ -62,6 +67,9 @@ PLEASE IMPLEMENT THIS PLAN:
 - [x] follow-up として、下半身レイヤーを一時非表示にし、プレイヤースプライトを主カメラへ出す追試を入れる
 - [x] follow-up 修正として、俯角時の描画用カメラオフセットを画面奥方向へ反転する
 - [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
+- [x] 全滅シーンでのカメラ追従と通常プレイ時の違いを解析し、原因を整理する
+- [x] フェーズ別の描画用オフセット方向をそろえるよう `main.ts` を修正する
+- [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
 
 ## 結果
 - 既存の `docs/plan.md` は `docs/plan_2026-03-20_first-person-foot-view-offset-prev.md` へ退避し、今回タスク用の計画へ切り替えた。
@@ -77,3 +85,6 @@ PLEASE IMPLEMENT THIS PLAN:
 - 上記追試後も `npm run build` は成功した。今回は見た目確認前の実験実装であり、実際の映り方はプレイ画面で確認する前提とする。
 - follow-up 修正として、俯角時の描画用カメラオフセットの水平方向を反転し、`camera.getDirection()` の床面射影と yaw フォールバックの両方で「画面奥」へ進む符号へ修正した。これにより、下を向いたときの描画用視点が奥へ出る前提へ揃えた。
 - 上記修正後も `npm run build` は成功した。Vite の chunk size warning と CJS build deprecation warning は出るが、ビルド自体は成功している。
+- 今回の差異の原因は、通常プレイと `assemblyFree` ではカメラがプレイヤー目線そのものにあり、全滅シーンの `assemblyMove` `assemblyHold` `execution` では `gameFlow.updateCameraFollowAvatar()` によりカメラがアバター前方へ追従配置されている点にあった。同じ俯角オフセット符号を両方へ適用すると、全滅シーン側だけ見かけの移動方向が逆転する。
+- `src/main.ts` の `computeFirstPersonViewOffset()` は、`shouldSyncPlayerAvatarToCamera(gamePhase)` が true なフェーズでは従来どおり反転符号を使い、false な全滅シーン系フェーズでは `camera.getDirection()` と yaw フォールバックをそのまま使うようにした。これにより、全滅シーン時も通常プレイ時と同じ見かけの「画面奥側」へスライドするよう揃えた。
+- 上記修正後に `npm run build` を実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による構文崩れや括弧対応の問題はなかった。

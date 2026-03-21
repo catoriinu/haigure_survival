@@ -932,15 +932,22 @@ const computeFirstPersonViewOffset = () => {
   const blend =
     (downward - firstPersonViewOffsetStartDownward) /
     (1 - firstPersonViewOffsetStartDownward);
-  firstPersonViewHorizontalForward.set(-forward.x, 0, -forward.z);
+  const horizontalOffsetDirectionScale = shouldSyncPlayerAvatarToCamera(gamePhase)
+    ? -1
+    : 1;
+  firstPersonViewHorizontalForward.set(
+    forward.x * horizontalOffsetDirectionScale,
+    0,
+    forward.z * horizontalOffsetDirectionScale
+  );
   if (
     firstPersonViewHorizontalForward.lengthSquared() <=
     firstPersonViewOffsetMinDirectionLengthSq
   ) {
     firstPersonViewHorizontalForward.set(
-      -Math.sin(camera.rotation.y),
+      Math.sin(camera.rotation.y) * horizontalOffsetDirectionScale,
       0,
-      -Math.cos(camera.rotation.y)
+      Math.cos(camera.rotation.y) * horizontalOffsetDirectionScale
     );
   }
   if (
