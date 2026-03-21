@@ -18,6 +18,7 @@ type SpatialSlot = {
   onEnded?: () => void;
   active: boolean;
   lastUsed: number;
+  playRequestId: number;
 };
 
 export type SpatialHandle = {
@@ -104,7 +105,8 @@ export class AudioManager {
         baseVolume: 1,
         maxDistance: 1,
         active: false,
-        lastUsed: 0
+        lastUsed: 0,
+        playRequestId: 0
       };
       audio.addEventListener("ended", () => {
         this.stopSlot(slot, true);
@@ -186,8 +188,19 @@ export class AudioManager {
     slot.onEnded = options.onEnded;
     slot.active = true;
     slot.lastUsed = performance.now();
+    slot.playRequestId += 1;
+    const playRequestId = slot.playRequestId;
     this.activeSlots.push(slot);
-    slot.audio.play();
+    void slot.audio.play().catch((error: unknown) => {
+      if (playRequestId !== slot.playRequestId) {
+        return;
+      }
+      this.stopSlot(slot, false);
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+      console.error("Spatial audio play() failed.", error);
+    });
     return {
       stop: () => {
         this.stopSlot(slot, false);
