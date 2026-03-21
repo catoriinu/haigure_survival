@@ -14,7 +14,6 @@ import {
   Plane,
   Ray,
   Sprite,
-  SpriteManager,
   Mesh,
   MeshBuilder,
   StandardMaterial,
@@ -62,11 +61,9 @@ import {
   updateBitFireEffect,
   startBitDespawn,
   updateBitDespawn,
-  applyNpcDefaultHaigureState,
   pickRandomCell,
   setNpcBrainwashInProgressTransitionConfig,
   setNpcBrainwashCompleteTransitionConfig,
-  spawnNpcs,
   StageBounds,
   updateBeams,
   updateBits,
@@ -94,13 +91,9 @@ import {
   type AudioCategory
 } from "./audio/audio";
 import {
-  createVoiceActor,
   getVoiceDirectories,
   getVoiceProfileIdByDirectory,
-  stopVoiceActor,
-  updateVoiceActor,
-  voiceProfiles,
-  VoiceActor
+  voiceProfiles
 } from "./audio/voice";
 import { SfxDirector } from "./audio/sfxDirector";
 import { createGameFlow, type ExecutionConfig } from "./game/flow";
@@ -111,7 +104,6 @@ import { createRouletteSystem } from "./game/roulette/system";
 import { RouletteBitFireEntry, RouletteHitTarget } from "./game/roulette/types";
 import {
   canReleaseAssemblyControl,
-  isAssemblyPhase,
   shouldHidePlayerAvatarFromMainCamera,
   shouldShowFirstPersonBodyForPhase,
   shouldSyncPlayerAvatarToCamera,
@@ -124,14 +116,6 @@ import {
   type PlayerAbilityFrameSnapshot
 } from "./game/playerAbility";
 import { createPlayerMotionController } from "./game/playerMotion";
-import {
-  createCharacterBillboardMeshManager,
-  type CharacterBillboardMeshHandle
-} from "./game/characterBillboardMeshes";
-import {
-  createGroundShadowManager,
-  type GroundShadowHandle
-} from "./game/groundShadows";
 import { buildStageContext, disposeStageParts } from "./world/stageContext";
 import { createZoneMapFromStageJson } from "./world/stageJson";
 import {
@@ -161,7 +145,8 @@ import { createStageSelectControl } from "./ui/stageSelectControl";
 import {
   getTitleSettingsAvailability,
   isRouletteStageId,
-  normalizeRuntimeSettingsForStage
+  normalizeRuntimeSettingsForStage,
+  type RuntimeSettingsByStage
 } from "./ui/titleStageRules";
 import {
   createTitleSettingsSidebar,
@@ -174,13 +159,28 @@ import {
 } from "./game/characterSprites";
 import {
   assignPortraitDirectories,
-  calculatePortraitSpriteSize,
   getNoGunTouchBrainwashCellIndex,
   getPortraitCellIndex,
-  getPortraitDirectories,
-  loadPortraitSpriteSheet,
-  type PortraitSpriteSheet
+  getPortraitDirectories
 } from "./game/portraitSprites";
+import { createCharacterSceneController } from "./game/characterScene";
+import {
+  buildGridCellKey,
+  ensureVectorListBufferSize,
+  runRuntimeFramePhases,
+  syncNpcTargetBuffer,
+  syncNpcTargetBufferStates
+} from "./game/runtimeFrame";
+import {
+  createGroundShadowManager,
+  type GroundShadowHandle
+} from "./game/groundShadows";
+import {
+  createTitleStartPreparationController,
+  type TitleStartPreparationController,
+  type TitleStartPreparationLoadingSession,
+  type TitleStartPreparationRequest
+} from "./game/titleStartPreparation";
 
 const canvas =
   document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
@@ -198,6 +198,7 @@ const defaultClearColor = scene.clearColor.clone();
 const titleReadyMessage = "左クリック: 開始";
 const titleLoadingMessageBase = "NOW LOADING";
 const titleLoadingDotIntervalMs = 300;
+const titleStartPreparationDebounceMs = 250;
 const enableNoGunTouchBrainwashConfirmMessage =
   "「銃なしに触れたら洗脳」をオンにすると、ゲーム起動時の読み込み時間が長くなります。\nOKを押すと、オンにしてゲームを再起動します。よろしいですか？";
 type CharacterAssignments = {
@@ -211,6 +212,10 @@ type TitleLoadingSession = {
   advance: () => void;
   finish: () => void;
 };
+type TitleStartPreparationRequestData = TitleStartPreparationRequest<
+  CharacterAssignments,
+  RuntimeSettingsByStage
+>;
 type BitGroundShadowHandles = {
   shape: GroundShadowHandle;
   circle: GroundShadowHandle;
@@ -546,6 +551,31 @@ const buildNpcBrainwashInProgressTransitionConfig = (
         decisionDelay: 10,
         stayChance: 0.5
       };
+const buildRuntimeSettingsForStageId = (
+  stageId: string
+): RuntimeSettingsByStage =>
+  normalizeRuntimeSettingsForStage({
+    stageId,
+    titleDefaultStartSettings,
+    titleBrainwashSettings,
+    titleBitSpawnSettings,
+    titleAlarmTrapEnabled,
+    defaultBrainwashSettings,
+    defaultBitSpawnSettings
+  });
+const applyRuntimeSettings = (runtimeSettings: RuntimeSettingsByStage) => {
+  runtimeDefaultStartSettings = runtimeSettings.runtimeDefaultStartSettings;
+  runtimeBrainwashSettings = runtimeSettings.runtimeBrainwashSettings;
+  runtimeBitSpawnInterval = runtimeSettings.runtimeBitSpawnInterval;
+  runtimeMaxBitCount = runtimeSettings.runtimeMaxBitCount;
+  runtimeAlarmTrapEnabled = runtimeSettings.runtimeAlarmTrapEnabled;
+  setNpcBrainwashInProgressTransitionConfig(
+    buildNpcBrainwashInProgressTransitionConfig(runtimeBrainwashSettings)
+  );
+  setNpcBrainwashCompleteTransitionConfig(
+    buildNpcBrainwashCompleteTransitionConfig(runtimeBrainwashSettings)
+  );
+};
 const hasNeverGameOverRisk = (
   stageId: string,
   defaultSettings: DefaultStartSettings,
@@ -580,103 +610,29 @@ const hasNeverGameOverRisk = (
   return !(hasGunRoute || hasNoGunTouchRoute);
 };
 
-const portraitSpriteSheets = new Map<string, PortraitSpriteSheet>();
-const portraitSpriteSheetPromises = new Map<
-  string,
-  Promise<PortraitSpriteSheet>
->();
-const portraitManagers = new Map<string, SpriteManager>();
-const portraitManagerPromises = new Map<string, Promise<SpriteManager>>();
-const characterBillboardMeshManager = createCharacterBillboardMeshManager(
-  scene,
-  (directory) => portraitSpriteSheets.get(directory)!
-);
-const groundShadowManager = createGroundShadowManager(scene);
 // プレイヤー1人 + NPC最大99人
 const spriteManagerCapacity = 100;
-const loadPortraitSpriteSheetOnce = (directory: string) => {
-  const cachedPromise = portraitSpriteSheetPromises.get(directory);
-  if (cachedPromise) {
-    return cachedPromise;
-  }
-  const promise = loadPortraitSpriteSheet(
-    directory,
+const characterScene = createCharacterSceneController({
+  scene,
+  spriteManagerCapacity,
+  playerWidth,
+  playerHeight,
+  portraitMaxWidthCells,
+  portraitMaxHeightCells,
+  loadPortraitIncludeNoGunTouch: () =>
     titleBrainwashSettings.brainwashOnNoGunTouch
-  ).then((sheet) => {
-    portraitSpriteSheets.set(directory, sheet);
-    return sheet;
-  });
-  portraitSpriteSheetPromises.set(directory, promise);
-  return promise;
-};
-const ensurePortraitManager = async (directory: string) => {
-  const cachedManager = portraitManagers.get(directory);
-  if (cachedManager) {
-    return cachedManager;
-  }
-  const cachedPromise = portraitManagerPromises.get(directory);
-  if (cachedPromise) {
-    return cachedPromise;
-  }
-  const promise = (async () => {
-    const sheet = await loadPortraitSpriteSheetOnce(directory);
-    const manager = new SpriteManager(
-      `portrait_${directory}`,
-      sheet.url,
-      spriteManagerCapacity,
-      { width: sheet.cellWidth, height: sheet.cellHeight },
-      scene
-    );
-    portraitManagers.set(directory, manager);
-    return manager;
-  })();
-  portraitManagerPromises.set(directory, promise);
-  try {
-    return await promise;
-  } finally {
-    portraitManagerPromises.delete(directory);
-  }
-};
-const ensurePortraitManagers = async (directories: string[]) => {
-  const uniqueDirectories = Array.from(new Set(directories));
-  await Promise.all(
-    uniqueDirectories.map(async (directory) => {
-      await ensurePortraitManager(directory);
-    })
-  );
-};
-const getUnloadedPortraitDirectories = (directories: string[]) => {
-  const uniqueDirectories = Array.from(new Set(directories));
-  return uniqueDirectories.filter(
-    (directory) => !portraitManagers.has(directory)
-  );
-};
+});
 const countUnloadedPortraitDirectoriesForAssignments = (
   assignments: CharacterAssignments
 ) =>
-  getUnloadedPortraitDirectories(
+  characterScene.countUnloadedPortraitDirectories(
     getCharacterAssignmentPortraitDirectories(assignments)
-  ).length;
+  );
 const ensurePortraitManagersIfNeeded = async (
   directories: string[],
   session?: TitleLoadingSession
-) => {
-  const unloadedDirectories = getUnloadedPortraitDirectories(directories);
-  if (unloadedDirectories.length === 0) {
-    return;
-  }
-  if (!session) {
-    await ensurePortraitManagers(unloadedDirectories);
-    return;
-  }
-  await advanceSessionForEach(
-    unloadedDirectories,
-    async (directory) => {
-      await ensurePortraitManager(directory);
-    },
-    session
-  );
-};
+) =>
+  characterScene.ensurePortraitManagersIfNeeded(directories, session);
 
 const initialStageSelectionId = persistedTitleSettings
   ? persistedTitleSettings.stageId
@@ -691,6 +647,31 @@ const buildStageSelectionLabel = (
   selection: StageSelection,
   loadedStageJson: Awaited<ReturnType<typeof loadStageJson>>
 ) => loadedStageJson?.meta.description ?? selection.label;
+const buildTitleStartPreparationFingerprint = () =>
+  JSON.stringify({
+    stageId: stageSelection.id,
+    alarmTrapEnabled: titleAlarmTrapEnabled,
+    playerPortraitDirectory: titlePlayerSettings.portraitDirectory,
+    playerVoiceDirectory: titlePlayerSettings.voiceDirectory,
+    defaultStartSettings: titleDefaultStartSettings,
+    brainwashSettings: titleBrainwashSettings,
+    bitSpawnSettings: titleBitSpawnSettings
+  });
+const buildTitleStartPreparationRequest = (): TitleStartPreparationRequestData => {
+  const runtimeSettings = buildRuntimeSettingsForStageId(stageSelection.id);
+  const assignments = buildCharacterAssignments(
+    runtimeSettings.runtimeDefaultStartSettings.initialNpcCount,
+    titlePlayerSettings
+  );
+  return {
+    fingerprint: buildTitleStartPreparationFingerprint(),
+    loadingTotal: countUnloadedPortraitDirectoriesForAssignments(assignments),
+    assignments,
+    runtimeSettings
+  };
+};
+const initialRuntimeSettings = buildRuntimeSettingsForStageId(stageSelection.id);
+applyRuntimeSettings(initialRuntimeSettings);
 const initialCharacterAssignments = buildCharacterAssignments(
   runtimeDefaultStartSettings.initialNpcCount,
   titlePlayerSettings
@@ -1104,45 +1085,11 @@ const computeCharacterFacingYawFromViewMatrix = (
 };
 
 const applyCharacterFacingYaw = (yaw: number) => {
-  if (playerBillboardMesh) {
-    playerBillboardMesh.mesh.rotation.y = yaw;
-  }
-  for (const billboardMesh of npcBillboardMeshes) {
-    billboardMesh.mesh.rotation.y = yaw;
-  }
-  if (playerGroundShadow) {
-    playerGroundShadow.mesh.rotation.y = yaw;
-  }
-  for (const groundShadow of npcGroundShadows) {
-    groundShadow.mesh.rotation.y = yaw;
-  }
+  characterScene.applyFacingYaw(yaw);
 };
 
 const applyCharacterMirrorFlip = (mirrored: boolean) => {
-  playerAvatar.invertU = mirrored;
-  for (const npc of npcs) {
-    npc.sprite.invertU = mirrored;
-  }
-  const applyMirroredScaleX = (value: number) =>
-    mirrored ? -Math.abs(value) : Math.abs(value);
-  if (playerBillboardMesh) {
-    playerBillboardMesh.mesh.scaling.x = applyMirroredScaleX(
-      playerBillboardMesh.mesh.scaling.x
-    );
-  }
-  for (const billboardMesh of npcBillboardMeshes) {
-    billboardMesh.mesh.scaling.x = applyMirroredScaleX(
-      billboardMesh.mesh.scaling.x
-    );
-  }
-  if (playerGroundShadow) {
-    playerGroundShadow.mesh.scaling.x = applyMirroredScaleX(
-      playerGroundShadow.mesh.scaling.x
-    );
-  }
-  for (const groundShadow of npcGroundShadows) {
-    groundShadow.mesh.scaling.x = applyMirroredScaleX(groundShadow.mesh.scaling.x);
-  }
+  characterScene.applyMirrorFlip(mirrored, playerAvatar, npcs);
 };
 
 const syncCharacterFacingYaw = () => {
@@ -1264,6 +1211,9 @@ const titleStageSelectControl = createStageSelectControl({
   onAlarmTrapEnabledChange: (enabled) => {
     titleAlarmTrapEnabled = enabled;
     saveTitleSettings();
+    if (gamePhase === "title" && !stageSelectionInProgress) {
+      scheduleTitleStartPreparation();
+    }
   }
 });
 const titleSettingsSidebar = createTitleSettingsSidebar({
@@ -1280,6 +1230,10 @@ const titleSettingsSidebar = createTitleSettingsSidebar({
     }
     if (event.shouldReload) {
       window.location.reload();
+      return;
+    }
+    if (event.requiresStartPrepare && gamePhase === "title") {
+      scheduleTitleStartPreparation();
     }
   },
   onResetRequested: () => {
@@ -1346,6 +1300,28 @@ const isTitleUiTarget = (target: EventTarget | null) => {
       "[data-ui=\"volume-panel\"], [data-ui=\"stage-select-control\"]"
     ) !== null
   );
+};
+const prepareTitleStartRequest = async (
+  request: TitleStartPreparationRequestData,
+  session?: TitleStartPreparationLoadingSession
+) => {
+  applyRuntimeSettings(request.runtimeSettings);
+  await resetGame(session as TitleLoadingSession | undefined, request.assignments);
+};
+const scheduleTitleStartPreparation = () => {
+  titleStartPreparation.schedule(buildTitleStartPreparationRequest());
+};
+const ensureTitleStartPreparationReady = async () => {
+  const request = buildTitleStartPreparationRequest();
+  const state = await titleStartPreparation.ensureReady(request);
+  if (
+    state.fingerprint !== request.fingerprint ||
+    !state.assignments ||
+    !state.runtimeSettings
+  ) {
+    return null;
+  }
+  return state;
 };
 const bgmFiles = import.meta.glob("/public/audio/bgm/*.mp3");
 const resolveAssetUrl = (relativePath: string) =>
@@ -1469,43 +1445,6 @@ const sfxDirector = new SfxDirector(
   isSeAvailable
 );
 
-const pickVoiceProfileById = (id: string) =>
-  voiceProfiles.find((profile) => profile.id === id)!;
-let playerVoiceId = "00";
-let npcVoiceIds: string[] = [];
-let playerVoiceActor: VoiceActor | null = null;
-let npcVoiceActors: VoiceActor[] = [];
-
-const stopAllVoices = () => {
-  if (playerVoiceActor) {
-    stopVoiceActor(playerVoiceActor);
-  }
-  for (const actor of npcVoiceActors) {
-    stopVoiceActor(actor);
-  }
-  playerVoiceActor = null;
-  npcVoiceActors = [];
-};
-
-const assignVoiceActors = () => {
-  stopAllVoices();
-  const playerProfile = pickVoiceProfileById(playerVoiceId);
-  playerVoiceActor = createVoiceActor(
-    playerProfile,
-    () => playerEyeBasePosition,
-    () => playerState
-  );
-  npcVoiceActors = npcs.map((npc) => {
-    const profile = pickVoiceProfileById(npc.voiceId);
-    return createVoiceActor(
-      profile,
-      () => npc.sprite.position,
-      () =>
-        executionNpcVoiceStateOverrides.get(npc.sprite.name) ?? npc.state
-    );
-  });
-};
-
 const bitSoundEvents: BitSoundEvents = {
   onMoveStart: (bit) => {
     sfxDirector.playBitMove(() => bit.root.position);
@@ -1570,11 +1509,7 @@ light.intensity = 1.2;
 scene.ambientColor = new Color3(0.45, 0.45, 0.45);
 scene.collisionsEnabled = true;
 let playerAvatar: Sprite;
-let playerPortraitManager: SpriteManager | null = null;
-let playerBillboardMesh: CharacterBillboardMeshHandle | null = null;
-let npcBillboardMeshes: CharacterBillboardMeshHandle[] = [];
-let playerGroundShadow: GroundShadowHandle | null = null;
-let npcGroundShadows: GroundShadowHandle[] = [];
+const groundShadowManager = createGroundShadowManager(scene);
 const bitGroundShadows = new Map<string, BitGroundShadowHandles>();
 const characterFacingViewInverseMatrix = Matrix.Identity();
 const characterFacingForward = Vector3.Zero();
@@ -1582,8 +1517,13 @@ const characterFacingUp = Vector3.Zero();
 let currentCharacterFacingYaw = 0;
 let currentReflectionCharacterFacingYaw = 0;
 const npcs: Npc[] = [];
-let playerPortraitDirectory = "";
-let npcPortraitDirectories: string[] = [];
+const npcTargetBuffer: TargetInfo[] = [];
+const npcEvadeThreatsBuffer: Vector3[][] = [];
+const activeBitGroundShadowIds = new Set<string>();
+const activeDynamicBeamCells = new Set<number>();
+const playerHitCenterPosition = Vector3.Zero();
+const playerHitImpactDirection = Vector3.Zero();
+const playerHitImpactPosition = Vector3.Zero();
 let firstPersonBodyMesh: Mesh;
 let firstPersonBodyMaterial: StandardMaterial;
 let firstPersonBodyTexture: DynamicTexture | null = null;
@@ -1593,7 +1533,6 @@ let firstPersonBodySheetCellWidth = 0;
 let firstPersonBodySheetCellHeight = 0;
 let firstPersonBodyLastCellIndex = -1;
 const firstPersonBodyVertexPositions = new Float32Array(12);
-const portraitScaleCache = new Map<string, { width: number; height: number }>();
 const clampValue = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
 const lerpValue = (start: number, end: number, amount: number) =>
@@ -1611,10 +1550,6 @@ const projectHalfWidthToLocal = (halfWidth: number, depth: number) => {
     scene.getEngine().getRenderHeight();
   return halfWidth * depth * Math.tan(camera.fov * 0.5) * aspect;
 };
-const getPortraitManagerByDirectory = (directory: string) =>
-  portraitManagers.get(directory)!;
-const getNpcPortraitManager = (directory: string, _index: number) =>
-  getPortraitManagerByDirectory(directory);
 const loadImageFromUrl = (url: string) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
@@ -1623,28 +1558,6 @@ const loadImageFromUrl = (url: string) =>
     image.onerror = () => reject(new Error(`Failed to load ${url}`));
     image.src = url;
   });
-const createPlayerPortraitManager = (directory: string) => {
-  playerPortraitManager?.dispose();
-  const sheet = portraitSpriteSheets.get(directory)!;
-  playerPortraitManager = new SpriteManager(
-    `player_portrait_${directory}`,
-    sheet.url,
-    1,
-    { width: sheet.cellWidth, height: sheet.cellHeight },
-    scene
-  );
-  playerPortraitManager.layerMask = worldLayerMask;
-  return playerPortraitManager;
-};
-const createPlayerAvatar = (manager: SpriteManager) => {
-  const avatar = new Sprite("playerAvatar", manager);
-  avatar.width = playerWidth;
-  avatar.height = playerHeight;
-  avatar.isPickable = false;
-  avatar.cellIndex = 0;
-  avatar.isVisible = false;
-  return avatar;
-};
 const createFirstPersonBodyMesh = () => {
   firstPersonBodyMesh = new Mesh("playerBodyLayer", scene);
   const vertexData = new VertexData();
@@ -1803,7 +1716,7 @@ const ensureFirstPersonBodySheet = async (directory: string) => {
   if (firstPersonBodySheetDirectory === directory && firstPersonBodySheetImage) {
     return;
   }
-  const sheet = portraitSpriteSheets.get(directory)!;
+  const sheet = characterScene.getPortraitSpriteSheet(directory);
   const image = await loadImageFromUrl(sheet.url);
   firstPersonBodySheetDirectory = directory;
   firstPersonBodySheetImage = image;
@@ -1843,59 +1756,8 @@ const syncFirstPersonBodyVisibility = () => {
 };
 createFirstPersonBodyMesh();
 
-const computePortraitSpriteSize = (directory: string) => {
-  const cached = portraitScaleCache.get(directory);
-  if (cached) {
-    return cached;
-  }
-  const sheet = portraitSpriteSheets.get(directory)!;
-  const size = calculatePortraitSpriteSize(
-    sheet.imageWidth,
-    sheet.imageHeight,
-    portraitCellSize,
-    portraitMaxWidthCells,
-    portraitMaxHeightCells
-  );
-  portraitScaleCache.set(directory, size);
-  return size;
-};
-
-const applyPortraitSize = (sprite: Sprite, directory: string) => {
-  const size = computePortraitSpriteSize(directory);
-  sprite.width = size.width;
-  sprite.height = size.height;
-};
-
-const applyPortraitSizesToAll = () => {
-  applyPortraitSize(playerAvatar, playerPortraitDirectory);
-  alignSpriteToGround(playerAvatar);
-  for (const npc of npcs) {
-    applyPortraitSize(npc.sprite, npc.portraitDirectory);
-    alignSpriteToGround(npc.sprite);
-  }
-};
-
 const refreshPortraitSizes = () => {
-  portraitScaleCache.clear();
-  applyPortraitSizesToAll();
-};
-
-const disposeCharacterBillboardMeshes = () => {
-  characterBillboardMeshManager.disposeCharacterBillboardMesh(playerBillboardMesh);
-  playerBillboardMesh = null;
-  for (const billboardMesh of npcBillboardMeshes) {
-    characterBillboardMeshManager.disposeCharacterBillboardMesh(billboardMesh);
-  }
-  npcBillboardMeshes = [];
-};
-
-const disposeCharacterGroundShadows = () => {
-  groundShadowManager.disposeGroundShadow(playerGroundShadow);
-  playerGroundShadow = null;
-  for (const groundShadow of npcGroundShadows) {
-    groundShadowManager.disposeGroundShadow(groundShadow);
-  }
-  npcGroundShadows = [];
+  characterScene.refreshPortraitSizes(playerAvatar, npcs, portraitCellSize);
 };
 
 const disposeBitGroundShadows = () => {
@@ -1907,125 +1769,65 @@ const disposeBitGroundShadows = () => {
 };
 
 const disposeAllGroundShadows = () => {
-  disposeCharacterGroundShadows();
+  characterScene.disposeCharacterGroundShadows();
   disposeBitGroundShadows();
-};
-
-const rebuildCharacterBillboardMeshes = () => {
-  disposeCharacterBillboardMeshes();
-  playerBillboardMesh = characterBillboardMeshManager.createCharacterBillboardMesh(
-    `${playerAvatar.name}_billboard`,
-    playerPortraitDirectory
-  );
-  npcBillboardMeshes = npcs.map((npc) =>
-    characterBillboardMeshManager.createCharacterBillboardMesh(
-      `${npc.sprite.name}_billboard`,
-      npc.portraitDirectory
-    )
-  );
-};
-
-const rebuildCharacterGroundShadows = () => {
-  disposeCharacterGroundShadows();
-  playerGroundShadow = groundShadowManager.createGroundShadow(
-    `${playerAvatar.name}_shadow`,
-    "ellipse"
-  );
-  npcGroundShadows = npcs.map((npc) =>
-    groundShadowManager.createGroundShadow(
-      `${npc.sprite.name}_shadow`,
-      "ellipse"
-    )
-  );
-};
-
-const applyCharacterAssignments = (assignments: CharacterAssignments) => {
-  playerVoiceId = assignments.playerVoiceId;
-  npcVoiceIds = [...assignments.npcVoiceIds];
-  playerPortraitDirectory = assignments.playerPortraitDirectory;
-  npcPortraitDirectories = [...assignments.npcPortraitDirectories];
-  portraitScaleCache.clear();
-};
-
-const assignVoiceIds = (npcCount: number) => {
-  const assignments = buildCharacterAssignments(npcCount, titlePlayerSettings);
-  applyCharacterAssignments(assignments);
-  return assignments;
-};
-const getAssignedPortraitDirectories = (assignments?: CharacterAssignments) =>
-  assignments
-    ? getCharacterAssignmentPortraitDirectories(assignments)
-    : [playerPortraitDirectory, ...npcPortraitDirectories];
-
-const createCharacters = () => {
-  playerAvatar = createPlayerAvatar(
-    createPlayerPortraitManager(playerPortraitDirectory)
-  );
-  playerAvatar.position = new Vector3(
-    spawnPosition.x,
-    playerAvatar.height * 0.5,
-    spawnPosition.z
-  );
-  npcs.push(
-    ...spawnNpcs(
-      layout,
-      spawnableCells,
-      getNpcPortraitManager,
-      npcVoiceIds,
-      npcPortraitDirectories
-    )
-  );
-  const initialBrainwashedNpcCount = Math.floor(
-    runtimeDefaultStartSettings.initialNpcCount *
-      runtimeDefaultStartSettings.initialBrainwashedNpcPercent *
-      0.01
-  );
-  const shuffledNpcs = [...npcs];
-  for (let index = shuffledNpcs.length - 1; index > 0; index -= 1) {
-    const swap = Math.floor(Math.random() * (index + 1));
-    const temp = shuffledNpcs[index];
-    shuffledNpcs[index] = shuffledNpcs[swap];
-    shuffledNpcs[swap] = temp;
-  }
-  for (let index = 0; index < initialBrainwashedNpcCount; index += 1) {
-    applyNpcDefaultHaigureState(shuffledNpcs[index]);
-  }
-  applyPortraitSizesToAll();
-  rebuildCharacterBillboardMeshes();
-  rebuildCharacterGroundShadows();
 };
 
 const rebuildCharacters = async (
   session?: TitleLoadingSession,
   assignments?: CharacterAssignments
 ) => {
-  if (assignments) {
-    applyCharacterAssignments(assignments);
-  } else {
-    assignVoiceIds(runtimeDefaultStartSettings.initialNpcCount);
-  }
-  await ensurePortraitManagersIfNeeded(
-    getAssignedPortraitDirectories(assignments),
-    session
-  );
-  await ensureFirstPersonBodySheet(playerPortraitDirectory);
-  disposeCharacterBillboardMeshes();
-  disposeCharacterGroundShadows();
-  playerAvatar.dispose();
-  playerPortraitManager?.dispose();
-  playerPortraitManager = null;
-  npcs.length = 0;
-  createCharacters();
+  const nextAssignments =
+    assignments ??
+    buildCharacterAssignments(
+      runtimeDefaultStartSettings.initialNpcCount,
+      titlePlayerSettings
+    );
+  playerAvatar = await characterScene.prepareCharacters({
+    assignments: nextAssignments,
+    playerAvatar,
+    npcs,
+    session,
+    spawnPosition,
+    layout,
+    spawnableCells,
+    initialNpcCount: runtimeDefaultStartSettings.initialNpcCount,
+    initialBrainwashedNpcPercent:
+      runtimeDefaultStartSettings.initialBrainwashedNpcPercent,
+    portraitCellSize
+  });
+  await ensureFirstPersonBodySheet(characterScene.getPlayerPortraitDirectory());
 };
 
-applyCharacterAssignments(initialCharacterAssignments);
-await ensurePortraitManagersIfNeeded(
-  getAssignedPortraitDirectories(initialCharacterAssignments),
-  initialLoadingSession
-);
-await ensureFirstPersonBodySheet(playerPortraitDirectory);
-createCharacters();
+playerAvatar = await characterScene.prepareCharacters({
+  assignments: initialCharacterAssignments,
+  playerAvatar: null,
+  npcs,
+  session: initialLoadingSession,
+  spawnPosition,
+  layout,
+  spawnableCells,
+  initialNpcCount: runtimeDefaultStartSettings.initialNpcCount,
+  initialBrainwashedNpcPercent:
+    runtimeDefaultStartSettings.initialBrainwashedNpcPercent,
+  portraitCellSize
+});
+await ensureFirstPersonBodySheet(characterScene.getPlayerPortraitDirectory());
 initialLoadingSession.finish();
+const titleStartPreparation: TitleStartPreparationController<
+  CharacterAssignments,
+  RuntimeSettingsByStage
+> = createTitleStartPreparationController({
+  debounceMs: titleStartPreparationDebounceMs,
+  createLoadingSession: (initialTotal) => createTitleLoadingSession(initialTotal),
+  prepare: (request, session) => prepareTitleStartRequest(request, session)
+});
+titleStartPreparation.markReady({
+  fingerprint: buildTitleStartPreparationFingerprint(),
+  loadingTotal: 0,
+  assignments: initialCharacterAssignments,
+  runtimeSettings: initialRuntimeSettings
+});
 
 const clearStageReflectiveResources = () => {
   for (const reflectiveMaterial of stageParts.reflectiveMaterials) {
@@ -2410,12 +2212,16 @@ const applyStageSelection = async (selection: StageSelection) => {
   const requestId = stageSelectionRequestId + 1;
   stageSelectionRequestId = requestId;
   stageSelectionInProgress = true;
+  titleStartPreparation.cancelScheduled();
+  await titleStartPreparation.flush();
   stageSelection = selection;
+  titleStartPreparation.invalidateReady();
   saveTitleSettings();
   titleStageSelectControl.setSelectedStageId(selection.id);
   titleSettingsSidebar.setStageId(selection.id);
+  const runtimeSettings = buildRuntimeSettingsForStageId(selection.id);
   const nextCharacterAssignments = buildCharacterAssignments(
-    runtimeDefaultStartSettings.initialNpcCount,
+    runtimeSettings.runtimeDefaultStartSettings.initialNpcCount,
     titlePlayerSettings
   );
   const loadingSession = createTitleLoadingSession(
@@ -2456,13 +2262,20 @@ const applyStageSelection = async (selection: StageSelection) => {
     refreshPortraitSizes();
     rebuildGameFlow();
     if (gamePhase === "title") {
-      await resetGame(loadingSession, nextCharacterAssignments);
+      const preparationRequest: TitleStartPreparationRequestData = {
+        fingerprint: buildTitleStartPreparationFingerprint(),
+        loadingTotal: 0,
+        assignments: nextCharacterAssignments,
+        runtimeSettings
+      };
+      await prepareTitleStartRequest(preparationRequest, loadingSession);
       if (requestId !== stageSelectionRequestId) {
         return;
       }
       if (gamePhase !== "title") {
         return;
       }
+      titleStartPreparation.markReady(preparationRequest);
       hud.setTitleVisible(true);
       setHudPhaseOverride(null);
       gameFlow.resetFade();
@@ -4028,23 +3841,6 @@ const syncHudForPhase = () => {
   );
 };
 
-const buildNpcTargets = () => [
-  {
-    id: "player",
-    position: playerEyeBasePosition,
-    alive: isAliveState(playerState),
-    state: playerState,
-    hitById: playerHitById
-  },
-  ...npcs.map((npc, index) => ({
-    id: `npc_${index}`,
-    position: npc.sprite.position,
-    alive: isAliveState(npc.state),
-    state: npc.state,
-    hitById: npc.hitById
-  }))
-];
-
 const createPlayerAbilitySnapshot = (): PlayerAbilityFrameSnapshot =>
   playerAbility.createFrameSnapshot({
     gamePhase,
@@ -4094,7 +3890,7 @@ const updatePlayerState = (
 ) => {
   const playerCenterY = playerAvatar.height * 0.5;
   const playerHitRadii = getSpriteBeamHitRadii(playerAvatar);
-  const centerPosition = new Vector3(
+  playerHitCenterPosition.set(
     playerEyeBasePosition.x,
     playerCenterY,
     playerEyeBasePosition.z
@@ -4121,14 +3917,16 @@ const updatePlayerState = (
       if (beam.sourceId === "player") {
         continue;
       }
-      if (isBeamHittingTarget(beam, centerPosition, playerHitRadii)) {
+      if (isBeamHittingTarget(beam, playerHitCenterPosition, playerHitRadii)) {
         const hitScale = isRedBitSource(beam.sourceId)
           ? redHitDurationScale
           : 1;
-        const impactPosition = beam.tip.position.add(
-          Vector3.Normalize(beam.velocity).scale(beam.tipRadius)
-        );
-        beginBeamRetract(beam, impactPosition);
+        playerHitImpactDirection.copyFrom(beam.velocity);
+        playerHitImpactDirection.normalize();
+        playerHitImpactDirection.scaleInPlace(beam.tipRadius);
+        playerHitImpactPosition.copyFrom(beam.tip.position);
+        playerHitImpactPosition.addInPlace(playerHitImpactDirection);
+        beginBeamRetract(beam, playerHitImpactPosition);
         playerState = "hit-a";
         playerHitById = beam.sourceId;
         playerHitTime = elapsed;
@@ -4140,14 +3938,14 @@ const updatePlayerState = (
         startHitSequence(
           playerHitSequence,
           scene,
-          centerPosition,
+          playerHitCenterPosition,
           buildPlayerHitSequenceConfig(
             "playerHitEffect",
             playerHitDurationCurrent,
             playerHitFadeDurationCurrent
           )
         );
-        const hitPosition = centerPosition.clone();
+        const hitPosition = playerHitCenterPosition.clone();
         sfxDirector.playHit(() => hitPosition);
         break;
       }
@@ -4158,7 +3956,7 @@ const updatePlayerState = (
     updateHitSequence(
       playerHitSequence,
       delta,
-      centerPosition,
+      playerHitCenterPosition,
       buildPlayerHitSequenceConfig(
         "playerHitEffect",
         playerHitDurationCurrent,
@@ -4184,9 +3982,9 @@ const updatePlayerState = (
     if (npc.state === "hit-a" || npc.state === "hit-b") {
       continue;
     }
-    const dx = npc.sprite.position.x - centerPosition.x;
-    const dy = npc.sprite.position.y - centerPosition.y;
-    const dz = npc.sprite.position.z - centerPosition.z;
+    const dx = npc.sprite.position.x - playerHitCenterPosition.x;
+    const dy = npc.sprite.position.y - playerHitCenterPosition.y;
+    const dz = npc.sprite.position.z - playerHitCenterPosition.z;
     const inside = dx * dx + dy * dy + dz * dz <= hitEffectRadiusSq;
     if (shouldFlickerNpcSprite && inside) {
       const isColorA =
@@ -4220,8 +4018,9 @@ const updateCharacterSpriteCells = () => {
 };
 
 const syncBitGroundShadowHandles = () => {
-  const activeBitIds = new Set(bits.map((bit) => bit.id));
+  activeBitGroundShadowIds.clear();
   for (const bit of bits) {
+    activeBitGroundShadowIds.add(bit.id);
     if (!bitGroundShadows.has(bit.id)) {
       bitGroundShadows.set(
         bit.id,
@@ -4239,7 +4038,7 @@ const syncBitGroundShadowHandles = () => {
     }
   }
   for (const [bitId, groundShadow] of bitGroundShadows) {
-    if (activeBitIds.has(bitId)) {
+    if (activeBitGroundShadowIds.has(bitId)) {
       continue;
     }
     groundShadowManager.disposeGroundShadow(groundShadow.shape);
@@ -4250,37 +4049,16 @@ const syncBitGroundShadowHandles = () => {
 
 const syncGroundShadows = () => {
   const showGroundShadows = titlePlayerSettings.showGroundShadows;
-  if (playerGroundShadow) {
-    groundShadowManager.syncGroundShadow(playerGroundShadow, {
-      positionX: playerAvatar.position.x,
-      positionZ: playerAvatar.position.z,
-      width: playerAvatar.width * characterGroundShadowWidthRatio,
-      depth: playerAvatar.width * characterGroundShadowDepthRatio,
-      yaw: currentCharacterFacingYaw,
-      visibility: characterGroundShadowVisibility,
-      visible: showGroundShadows && playerAvatar.isVisible,
-      layerMask: worldLayerMask
-    });
-  }
-
-  for (let index = 0; index < npcs.length; index += 1) {
-    const groundShadow = npcGroundShadows[index];
-    if (!groundShadow) {
-      continue;
-    }
-    const npcSprite = npcs[index].sprite;
-    groundShadowManager.syncGroundShadow(groundShadow, {
-      positionX: npcSprite.position.x,
-      positionZ: npcSprite.position.z,
-      width: npcSprite.width * characterGroundShadowWidthRatio,
-      depth: npcSprite.width * characterGroundShadowDepthRatio,
-      yaw: currentCharacterFacingYaw,
-      visibility: characterGroundShadowVisibility,
-      visible: showGroundShadows && npcSprite.isVisible,
-      layerMask: worldLayerMask
-    });
-  }
-
+  characterScene.syncCharacterGroundShadows({
+    playerAvatar,
+    npcs,
+    showGroundShadows,
+    yaw: currentCharacterFacingYaw,
+    visibility: characterGroundShadowVisibility,
+    worldLayerMask,
+    widthRatio: characterGroundShadowWidthRatio,
+    depthRatio: characterGroundShadowDepthRatio
+  });
   syncBitGroundShadowHandles();
   for (const bit of bits) {
     const groundShadow = bitGroundShadows.get(bit.id)!;
@@ -4382,34 +4160,14 @@ const syncPlayerPresentation = () => {
     : shouldHidePlayerAvatarFromMainCamera(gamePhase)
       ? reflectionOnlyLayerMask
       : worldLayerMask;
-  for (const portraitManager of portraitManagers.values()) {
-    portraitManager.layerMask = verticalAngleEnabled ? 0 : worldLayerMask;
-  }
-  if (playerPortraitManager) {
-    playerPortraitManager.layerMask = verticalAngleEnabled ? 0 : playerLayerMask;
-  }
-  if (playerBillboardMesh) {
-    characterBillboardMeshManager.syncCharacterBillboardMesh(
-      playerBillboardMesh,
-      playerAvatar,
-      verticalAngleEnabled,
-      playerLayerMask,
-      currentCharacterFacingYaw
-    );
-  }
-  for (let index = 0; index < npcs.length; index += 1) {
-    const billboardMesh = npcBillboardMeshes[index];
-    if (!billboardMesh) {
-      continue;
-    }
-    characterBillboardMeshManager.syncCharacterBillboardMesh(
-      billboardMesh,
-      npcs[index].sprite,
-      verticalAngleEnabled,
-      worldLayerMask,
-      currentCharacterFacingYaw
-    );
-  }
+  characterScene.syncBillboards({
+    playerAvatar,
+    npcs,
+    playerLayerMask,
+    worldLayerMask,
+    enabled: verticalAngleEnabled,
+    yaw: currentCharacterFacingYaw
+  });
   syncFirstPersonBodyVisibility();
 };
 
@@ -4419,7 +4177,7 @@ const resetGame = async (
 ) => {
   alarmTriggeredNpcIds.clear();
   bitAlertTargetedNpcIds.clear();
-  stopAllVoices();
+  characterScene.stopAllVoices();
   trapSystem.syncStageContext({ layout, bounds });
   trapSystem.resetRuntimeState();
   dynamicBeamSystem.syncStageContext({
@@ -4493,7 +4251,13 @@ const resetGame = async (
     spawnPosition.z
   );
   rebuildGameFlow();
-  assignVoiceActors();
+  characterScene.rebindVoices({
+    playerPosition: () => playerEyeBasePosition,
+    getPlayerState: () => playerState,
+    npcs,
+    getNpcState: (npc) =>
+      executionNpcVoiceStateOverrides.get(npc.sprite.name) ?? npc.state
+  });
 };
 
 const startGame = async () => {
@@ -4508,28 +4272,12 @@ const startGame = async () => {
     titleSettingsSidebar.setWarningEnabled(false);
     applyTitleSettingsSidebarSettings(titleSettingsSidebar.getSettings());
     titleAlarmTrapEnabled = titleStageSelectControl.getAlarmTrapEnabled();
-    const runtimeSettings = normalizeRuntimeSettingsForStage({
-      stageId: stageSelection.id,
-      titleDefaultStartSettings,
-      titleBrainwashSettings,
-      titleBitSpawnSettings,
-      titleAlarmTrapEnabled,
-      defaultBrainwashSettings,
-      defaultBitSpawnSettings
-    });
-    const rouletteSelected = runtimeSettings.rouletteSelected;
-    runtimeDefaultStartSettings = runtimeSettings.runtimeDefaultStartSettings;
-    runtimeBrainwashSettings = runtimeSettings.runtimeBrainwashSettings;
-    runtimeBitSpawnInterval = runtimeSettings.runtimeBitSpawnInterval;
-    runtimeMaxBitCount = runtimeSettings.runtimeMaxBitCount;
-    runtimeAlarmTrapEnabled = runtimeSettings.runtimeAlarmTrapEnabled;
-    setNpcBrainwashInProgressTransitionConfig(
-      buildNpcBrainwashInProgressTransitionConfig(runtimeBrainwashSettings)
-    );
-    setNpcBrainwashCompleteTransitionConfig(
-      buildNpcBrainwashCompleteTransitionConfig(runtimeBrainwashSettings)
-    );
-    await resetGame();
+    const preparedState = await ensureTitleStartPreparationReady();
+    if (!preparedState?.runtimeSettings) {
+      return;
+    }
+    applyRuntimeSettings(preparedState.runtimeSettings);
+    const rouletteSelected = preparedState.runtimeSettings.rouletteSelected;
     const bgmUrl = selectBgmUrl(stageJson ? stageJson.meta.name : null);
     if (bgmUrl) {
       audioManager.startBgm(bgmUrl);
@@ -4546,6 +4294,7 @@ const startGame = async () => {
     titleSettingsSidebar.setVisible(false);
     setHudPhaseOverride(null);
     gameFlow.resetFade();
+    titleStartPreparation.invalidateReady();
     canvas.requestPointerLock();
   } finally {
     titleTransitionInProgress = false;
@@ -4559,6 +4308,7 @@ const returnToTitle = async () => {
   titleTransitionInProgress = true;
   try {
     document.exitPointerLock();
+    titleStartPreparation.invalidateReady();
     gamePhase = "title";
     titleSettingsSidebar.setWarningEnabled(true);
     hud.setTitleVisible(true);
@@ -4568,25 +4318,7 @@ const returnToTitle = async () => {
     setHudPhaseOverride(null);
     gameFlow.resetFade();
     syncTitleMessage();
-    const nextCharacterAssignments = buildCharacterAssignments(
-      runtimeDefaultStartSettings.initialNpcCount,
-      titlePlayerSettings
-    );
-    const unloadedDirectories = countUnloadedPortraitDirectoriesForAssignments(
-      nextCharacterAssignments
-    );
-    const loadingSession =
-      unloadedDirectories > 0
-        ? createTitleLoadingSession(unloadedDirectories)
-        : null;
-    try {
-      await resetGame(
-        loadingSession ?? undefined,
-        nextCharacterAssignments
-      );
-    } finally {
-      loadingSession?.finish();
-    }
+    await ensureTitleStartPreparationReady();
     audioManager.stopBgm();
   } finally {
     titleTransitionInProgress = false;
@@ -4594,28 +4326,18 @@ const returnToTitle = async () => {
 };
 
 const updateVoices = (delta: number) => {
-  if (!playerVoiceActor) {
-    return;
-  }
-  const allowIdle = gamePhase === "playing";
-  updateVoiceActor(
-    playerVoiceActor,
-    audioManager,
+  characterScene.updateVoices({
     delta,
-    allowIdle,
-    voiceBaseOptions,
-    voiceLoopOptions
-  );
-  for (const actor of npcVoiceActors) {
-    updateVoiceActor(
-      actor,
-      audioManager,
-      delta,
-      allowIdle,
-      voiceBaseOptions,
-      voiceLoopOptions
-    );
-}
+    allowIdle: gamePhase === "playing",
+    playerPosition: () => playerEyeBasePosition,
+    getPlayerState: () => playerState,
+    npcs,
+    getNpcState: (npc) =>
+      executionNpcVoiceStateOverrides.get(npc.sprite.name) ?? npc.state,
+    audioManager,
+    baseOptions: voiceBaseOptions,
+    loopOptions: voiceLoopOptions
+  });
 };
 
 setupInputHandlers({
@@ -4696,12 +4418,14 @@ engine.runRenderLoop(() => {
     );
     trapSystem.updateNpcFreezeControl(delta, gamePhase);
     updatePlayerState(delta, elapsedTime, shouldProcessOrb);
-    const playerAbilitySnapshotForMovement = createPlayerAbilitySnapshot();
-    const playerThreatenedNpcIdsForMovement =
-      playerAbilitySnapshotForMovement.threatenedNpcIds;
-    const npcBlockers =
-      playerAbilitySnapshotForMovement.npcBlockers;
-    const npcEvadeThreats = npcs.map(() => [] as Vector3[]);
+    const playerAbilitySnapshot = createPlayerAbilitySnapshot();
+    const playerThreatenedNpcIds =
+      playerAbilitySnapshot.threatenedNpcIds;
+    const npcBlockers = playerAbilitySnapshot.npcBlockers;
+    const npcEvadeThreats = ensureVectorListBufferSize(
+      npcEvadeThreatsBuffer,
+      npcs.length
+    );
     for (const bit of bits) {
       if (!bit.targetId) {
         continue;
@@ -4710,22 +4434,30 @@ engine.runRenderLoop(() => {
         continue;
       }
       const targetIndex = Number(bit.targetId.slice(4));
-      npcEvadeThreats[targetIndex].push(bit.root.position);
+      npcEvadeThreats[targetIndex]!.push(bit.root.position);
     }
-    for (const threatenedNpcId of playerThreatenedNpcIdsForMovement) {
+    for (const threatenedNpcId of playerThreatenedNpcIds) {
       const targetIndex = Number(threatenedNpcId.slice(4));
-      npcEvadeThreats[targetIndex].push(playerEyeBasePosition);
+      npcEvadeThreats[targetIndex]!.push(playerEyeBasePosition);
     }
-    const npcTargets = buildNpcTargets();
+    const npcTargets = syncNpcTargetBuffer({
+      buffer: npcTargetBuffer,
+      playerPosition: playerEyeBasePosition,
+      playerState,
+      playerHitById,
+      npcs
+    });
     alarmSystem.update(delta, gamePhase, npcTargets);
-    const activeDynamicBeamCells = new Set<string>();
+    activeDynamicBeamCells.clear();
     if (isDynamicStageSelected()) {
       for (const beam of beams) {
         if (!beam.active || beam.sourceId !== dynamicBeamSourceId) {
           continue;
         }
         const beamCell = worldToCell(layout, beam.startPosition);
-        activeDynamicBeamCells.add(`${beamCell.row},${beamCell.col}`);
+        activeDynamicBeamCells.add(
+          buildGridCellKey(layout.columns, beamCell.row, beamCell.col)
+        );
       }
     }
     const npcUpdate = updateNpcs(
@@ -4757,10 +4489,12 @@ engine.runRenderLoop(() => {
         movement: {
           blockers: npcBlockers,
           evadeThreats: npcEvadeThreats,
-          playerThreatenedNpcIds: playerThreatenedNpcIdsForMovement,
+          playerThreatenedNpcIds,
           shouldFreezeAliveMovement: trapSystem.shouldFreezeNpcMovement,
           isAliveNpcForbiddenCell: (cell) =>
-            activeDynamicBeamCells.has(`${cell.row},${cell.col}`)
+            activeDynamicBeamCells.has(
+              buildGridCellKey(layout.columns, cell.row, cell.col)
+            )
         },
         alarms: {
           getAlarmTargetStack: (npcId) => alarmSystem.getAlarmTargetStack(npcId)
@@ -4781,7 +4515,7 @@ engine.runRenderLoop(() => {
     updatePlayerMovement(
       delta,
       allowMove,
-      playerAbilitySnapshotForMovement.moveSpeed
+      playerAbilitySnapshot.moveSpeed
     );
     capturePlayerEyeBasePosition();
     syncCameraBasePositionFromPlayer();
@@ -4858,22 +4592,12 @@ engine.runRenderLoop(() => {
         }
       }
 
-      const targets = [
-        {
-          id: "player",
-          position: playerEyeBasePosition,
-          alive: isAliveState(playerState),
-          state: playerState,
-          hitById: playerHitById
-        },
-        ...npcs.map((npc, index) => ({
-          id: `npc_${index}`,
-          position: npc.sprite.position,
-          alive: isAliveState(npc.state),
-          state: npc.state,
-          hitById: npc.hitById
-        }))
-      ];
+      syncNpcTargetBufferStates({
+        buffer: npcTargets,
+        playerState,
+        playerHitById,
+        npcs
+      });
       const spawnAlertBit = (position: Vector3, direction: Vector3) => {
         if (countNonFollowerBits() >= runtimeMaxBitCount) {
           return null;
@@ -4889,14 +4613,14 @@ engine.runRenderLoop(() => {
       };
       const externalAlert =
         alertSignal.leaderId === null
-          ? applyAlertRequests(npcUpdate.alertRequests, targets, bits)
+          ? applyAlertRequests(npcUpdate.alertRequests, npcTargets, bits)
           : null;
       updateBits(
         layout,
         bits,
         delta,
         elapsedTime,
-        targets,
+        npcTargets,
         bounds,
         alertSignal,
         externalAlert,
@@ -4922,8 +4646,6 @@ engine.runRenderLoop(() => {
         startAlertLoop(alertLeader);
       }
 
-      const playerAbilitySnapshot = createPlayerAbilitySnapshot();
-      const playerThreatenedNpcIds = playerAbilitySnapshot.threatenedNpcIds;
       const targetedIds = new Set<string>();
       for (const bit of bits) {
         if (bit.targetId) {
@@ -4952,36 +4674,35 @@ engine.runRenderLoop(() => {
       }
     }
   }
-  if (gamePhase === "roulette") {
-    const shouldProcessOrb = buildOrbCullingCheck();
-    updateRouletteScene(delta, shouldProcessOrb);
-  }
-  if (gamePhase !== "playing") {
-    trapSystem.updateNpcFreezeControl(delta, gamePhase);
-  }
-
-  if (gamePhase === "execution") {
-    const shouldProcessOrb = buildOrbCullingCheck();
-    updateExecutionScene(delta, shouldProcessOrb);
-    capturePlayerEyeBasePosition();
-    syncCameraBasePositionFromPlayer();
-  }
-
-  if (isAssemblyPhase(gamePhase)) {
-    gameFlow.updateAssembly(delta);
-    capturePlayerEyeBasePosition();
-  }
-
-  if (gamePhase === "assemblyFree") {
-    updatePlayerMovement(delta, true, playerMoveSpeed);
-    capturePlayerEyeBasePosition();
-    syncCameraBasePositionFromPlayer();
-  }
-
-  if (usesPlayerEyeHeight(gamePhase)) {
-    capturePlayerEyeBasePosition();
-    syncCameraBasePositionFromPlayer();
-  }
+  runRuntimeFramePhases(gamePhase, {
+    onPlaying: () => {},
+    onRoulette: () => {
+      const shouldProcessOrb = buildOrbCullingCheck();
+      updateRouletteScene(delta, shouldProcessOrb);
+    },
+    onNonPlaying: () => {
+      trapSystem.updateNpcFreezeControl(delta, gamePhase);
+    },
+    onExecution: () => {
+      const shouldProcessOrb = buildOrbCullingCheck();
+      updateExecutionScene(delta, shouldProcessOrb);
+      capturePlayerEyeBasePosition();
+      syncCameraBasePositionFromPlayer();
+    },
+    onAssembly: () => {
+      gameFlow.updateAssembly(delta);
+      capturePlayerEyeBasePosition();
+    },
+    onAssemblyFree: () => {
+      updatePlayerMovement(delta, true, playerMoveSpeed);
+      capturePlayerEyeBasePosition();
+      syncCameraBasePositionFromPlayer();
+    },
+    onUsesPlayerEyeHeight: () => {
+      capturePlayerEyeBasePosition();
+      syncCameraBasePositionFromPlayer();
+    }
+  });
   updateCharacterSpriteCells();
   updateVoices(delta);
   audioManager.updateSpatial();

@@ -85,6 +85,10 @@ const toSpriteFlickerColor = (color: Color3) =>
 const npcHitColorA4 = toSpriteFlickerColor(npcHitColorA);
 const npcHitColorB4 = toSpriteFlickerColor(npcHitColorB);
 const npcSpriteColorNormal = new Color4(1, 1, 1, 1);
+const aliveTargetsBuffer: TargetInfo[] = [];
+const unbrainwashedTargetsBuffer: TargetInfo[] = [];
+const npcThreatsFromNpcsBuffer: Vector3[][] = [];
+const combinedThreatBuffer: Vector3[] = [];
 export const npcHitLightIntensity = 1.1;
 const getNpcHitEffectDiameter = (sprite: Sprite) =>
   calculateHitEffectDiameter(sprite.width, sprite.height);
@@ -192,7 +196,53 @@ export const applyNpcDefaultHaigureState = (npc: Npc) => {
   promoteHaigureNpc(npc);
 };
 
-const findVisibleNpcTarget = (npc: Npc, targets: TargetInfo[]) => {
+const resetVectorListBuffer = (buffer: Vector3[][], count: number) => {
+  while (buffer.length < count) {
+    buffer.push([]);
+  }
+  for (let index = 0; index < buffer.length; index += 1) {
+    buffer[index]!.length = 0;
+  }
+  buffer.length = count;
+  return buffer;
+};
+
+const collectTargetsByState = (targets: TargetInfo[]) => {
+  aliveTargetsBuffer.length = 0;
+  unbrainwashedTargetsBuffer.length = 0;
+  for (const target of targets) {
+    if (target.alive) {
+      aliveTargetsBuffer.push(target);
+    }
+    if (!isBrainwashState(target.state)) {
+      unbrainwashedTargetsBuffer.push(target);
+    }
+  }
+  return {
+    aliveTargets: aliveTargetsBuffer,
+    unbrainwashedTargets: unbrainwashedTargetsBuffer
+  };
+};
+
+const combineThreats = (
+  primary: readonly Vector3[],
+  secondary: readonly Vector3[]
+) => {
+  combinedThreatBuffer.length = 0;
+  for (const threat of primary) {
+    combinedThreatBuffer.push(threat);
+  }
+  for (const threat of secondary) {
+    combinedThreatBuffer.push(threat);
+  }
+  return combinedThreatBuffer;
+};
+
+const findVisibleNpcTarget = (
+  npc: Npc,
+  targets: TargetInfo[],
+  excludedTargetId?: string
+) => {
   const forward =
     npc.moveDirection.lengthSquared() > 0.0001
       ? npc.moveDirection
@@ -201,6 +251,9 @@ const findVisibleNpcTarget = (npc: Npc, targets: TargetInfo[]) => {
   let bestDistanceSq = 0;
 
   for (const target of targets) {
+    if (target.id === excludedTargetId) {
+      continue;
+    }
     if (isBrainwashState(target.state)) {
       continue;
     }
@@ -371,10 +424,7 @@ export const updateNpcs = (
     alarms: { getAlarmTargetStack },
     settings: { brainwashOnNoGunTouch }
   } = context;
-  const aliveTargets = targets.filter((target) => target.alive);
-  const unbrainwashedTargets = targets.filter(
-    (target) => !isBrainwashState(target.state)
-  );
+  const { aliveTargets, unbrainwashedTargets } = collectTargetsByState(targets);
   const activeBlockers: MovementBlocker[] = [...blockers];
   let playerBlocked = false;
   const targetedIds = new Set<string>();
@@ -382,7 +432,10 @@ export const updateNpcs = (
   let playerNoGunTouchBrainwashRequested = false;
   const isAliveMovementFrozen = shouldFreezeAliveMovement;
   const isAliveMovementCellForbidden = isAliveNpcForbiddenCell;
-  const npcThreatsFromNpcs = npcs.map(() => [] as Vector3[]);
+  const npcThreatsFromNpcs = resetVectorListBuffer(
+    npcThreatsFromNpcsBuffer,
+    npcs.length
+  );
   for (const npc of npcs) {
     if (npc.brainwashMode !== "chase" || !npc.brainwashTargetId) {
       continue;
@@ -726,10 +779,10 @@ export const updateNpcs = (
         return false;
       }
       const threats = preferEvade
-        ? [
-            ...npcThreatsFromNpcs[npcIndex],
-            ...evadeThreats[npcIndex]
-          ]
+        ? combineThreats(
+            npcThreatsFromNpcs[npcIndex]!,
+            evadeThreats[npcIndex]!
+          )
         : [];
       const destination =
         threats.length > 0
@@ -783,9 +836,6 @@ export const updateNpcs = (
     npcId: string,
     alarmTargetStack: readonly string[]
   ) => {
-    const brainwashTargets = unbrainwashedTargets.filter(
-      (target) => target.id !== npcId
-    );
     const touchTarget = (() => {
       if (npc.state !== "brainwash-complete-no-gun") {
         return null;
@@ -793,7 +843,10 @@ export const updateNpcs = (
       let candidateTarget: TargetInfo | null = null;
       let candidateDistanceSq =
         npcNoGunTouchContactRadius * npcNoGunTouchContactRadius;
-      for (const candidate of brainwashTargets) {
+      for (const candidate of unbrainwashedTargets) {
+        if (candidate.id === npcId) {
+          continue;
+        }
         const distanceSq = Vector3.DistanceSquared(
           npc.sprite.position,
           candidate.position
@@ -940,7 +993,11 @@ export const updateNpcs = (
       return;
     }
 
-    const visiblePriorityTarget = findVisibleNpcTarget(npc, brainwashTargets);
+    const visiblePriorityTarget = findVisibleNpcTarget(
+      npc,
+      unbrainwashedTargets,
+      npcId
+    );
     // 視界候補の最上位（最寄り）は毎フレーム更新し、
     // 最終選択時のみアラーム候補があればそちらを優先する。
     const currentTarget = alarmPriorityTarget ?? visiblePriorityTarget;

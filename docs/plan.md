@@ -1,87 +1,74 @@
-# プレイヤー移動の責務分離と慣性復元 計画
+# ブランチ横断リファクタリングと開始遅延削減 計画
 
 更新日: 2026-03-21
 
 ## プロンプト
+このブランチで実装した内容を中心に、それ以前の実装も含めてリファクタリングを行ってください。
+なお、以下の点を特に重視してください。
+
+- ゲーム中の動作がかなり重くなってきているので、処理を軽量化することの優先度を上げてください。
+- ビルド時に警告が出ています。main.tsの肥大化を止めてファイルを分離するなど検討してください。
+- 今、タイトル画面で左クリックをしても、実際にゲームが始まるまでに数秒のラグがあります。
+原因を調査して、少しでも早く起動するように修正してください。
+- リファクタリングの優先度は「動作を保つこと > 処理を軽量化すること > 処理を共通化すること」です。
+
 PLEASE IMPLEMENT THIS PLAN:
-# プレイヤー移動の責務分離と慣性復元 計画
+# ブランチ横断リファクタリングと開始遅延削減 計画
 
 ## Summary
-- 現在の `(moveSpeed * delta) / (1 - camera.inertia)` 補正は最終形としては採用しない。
-- 一番筋の良い設計は、「プレイヤーの物理実体」と「カメラ表示」を分離し、移動速度と慣性を Babylon の `camera.inertia` ではなくゲーム側の明示的な状態で管理する構成にすること。
-- 具体的には、専用のプレイヤー衝突メッシュを移動の唯一の正とし、`playerEyeBasePosition`、カメラ、キャラスプライト、ミニマップ、当たり判定参照はすべてそこから派生させる。
+- 実装開始時に既存の `docs/plan.md` を `docs/plan_2026-03-21_branch-refactor-prev.md` へ退避し、新しい `docs/plan.md` を `2026-03-21` で作成する。以後は各ステップ完了ごとに更新する。
+- 対象は、このブランチで増えた一人称表示・キャラスプライト・影・開始フローを中心にしつつ、`src/main.ts` 全体の責務分離、ビルド警告、プレイ中の毎フレーム負荷まで含める。
+- 左クリック開始のラグ対策は「デバウンス事前準備」を採用する。タイトル画面は次回開始状態を先に準備し、開始時は再構築を極力走らせない。
+- 原因調査は `performance.mark/measure` で `startGame`、`resetGame`、`rebuildCharacters`、portrait 読み込み、billboard/shadow 再構築を一度計測し、原因を確認したうえで計測コードは仕上げ前に外す。
 
 ## Key Changes
-- `main.ts` に不可視の `playerCollisionMesh` を追加する。
-  - 公開APIの `AbstractMesh.moveWithCollisions()` を使う。
-  - `checkCollisions = true`、`ellipsoid` と `ellipsoidOffset` は現行カメラ相当の体格に合わせる。
-  - `camera` は衝突実体から外し、表示専用に戻す。`camera.inertia` と `camera.checkCollisions` はプレイヤー移動の挙動決定に使わない。
-- プレイヤーの正位置を「衝突メッシュの足元基準位置」に統一する。
-  - `playerEyeBasePosition` は毎フレーム `playerCollisionMesh.position` と `getEyeHeight()` から再計算する派生値に変更する。
-  - `capturePlayerEyeBasePosition()` で `camera.position` を正とみなす流れは廃止する。
-  - `applyRenderCameraPosition()` はあくまで描画用オフセットだけを扱い、移動や同期の責務を持たせない。
-- 移動モデルを専用状態へ切り出す。
-  - `playerAbility.ts` から `applyMovement()` を削除し、入力軸取得だけを残す。
-  - 新しい内部 `PlayerMotionController` を追加し、水平移動用の `moveMomentum` を永続状態として持つ。
-  - 慣性は `moveInertiaAt60Fps = 0.9` を初期値とする明示的パラメータにする。これは「旧体感に近い僅かな滑り」を再現するためのゲーム側設定であり、`camera.inertia` とは無関係にする。
-  - 毎フレームの流れは次で固定する。
-    1. `computeCharacterFacingYawFromViewMatrix()` で水平 yaw を求める。
-    2. `playerAbility.getMoveAxes()` で入力軸を取る。
-    3. `PlayerMotionController` が、入力分と前フレームの `moveMomentum` から「今回要求する水平 displacement」を作る。
-    4. その displacement を `playerCollisionMesh.moveWithCollisions()` に通す。
-    5. 実際に動いた量 `actualDisplacement` を測り、次フレーム用 `moveMomentum` を `actualDisplacement * frameInertia` で更新する。
-  - これにより、キー押下中の加速感と、キーを離した直後の僅かな慣性移動を復活させつつ、壁衝突後は実移動量ベースで慣性が減衰する。
-- ブロック時とフェーズ遷移時の挙動を明示する。
-  - `allowMove = false` のフレームでは新規移動を行わず、`moveMomentum` は即時ゼロにする。NPC 接触ブロック中に惰性で滑り続けない仕様にする。
-  - スポーン、リセット、タイトル遷移、アセンブリ遷移、ルーレット遷移、実行シーン遷移では `playerCollisionMesh.position` と `moveMomentum` を必ず明示的に初期化する。
-  - `roulette` のように自由移動しないフェーズでも、プレイヤー位置の唯一の正は同じ変数群に揃え、復帰時に位置がズレないようにする。
-- 表示系は派生専用に揃える。
-  - `syncPlayerPresentation()`、一人称プレビュー位置、地面影、被弾判定のプレイヤー位置、ミニマップ、音源位置は `playerEyeBasePosition` だけを見る。
-  - 後退時に自キャラスプライトが映る問題は、カメラとスプライトが同じ正位置から派生することで解消する。
-  - 視線上下、射撃方向、俯角時の描画用カメラオフセットの仕様は変更しない。
+- `src/game/titleStartPreparation.ts` を新設し、ステージ変更、アラーム罠切替、`playerSettings.portraitDirectory`、`playerSettings.voiceDirectory`、`defaultStartSettings`、`brainwashSettings`、`bitSpawnSettings` の変更時に、250ms デバウンスで開始用準備を再実行する。
+- `showGroundShadows`、`enableCharacterSpriteVerticalAngle`、`heightCells` は重い再準備対象に含めず、タイトル中の即時反映だけを維持する。
+- 開始用準備は `normalizeRuntimeSettingsForStage`、`buildCharacterAssignments`、必要な portrait preload、タイトル用 `resetGame` 相当の再構築、fingerprint 更新までを担当させる。
+- `startGame()` は準備済み fingerprint と一致する場合 `resetGame()` を呼ばず、HUD 切替、BGM 開始、phase 遷移、pointer lock だけを行う。準備中は loading 表示のまま待ち、開始クリック時の追加再抽選は行わない。
+- `returnToTitle()` はタイトル復帰直後に次回開始状態の準備を再スケジュールし、再開始でも同じ即時化経路を使う。
+- `src/game/characterScene.ts` を新設し、portrait manager cache、player/NPC sprite 生成、billboard mesh、ground shadow、voice actor の責務を `main.ts` から移す。
+- billboard mesh と ground shadow は index ベースのプールへ変更し、リセット時は再利用を優先する。NPC 数増減時だけ不足分を追加し、不要分は非表示化する。
+- `rebuildCharacters()` は「必要な sprite の差し替え」と「状態初期化」に寄せ、毎回の billboard/shadow 全破棄・全再作成をやめる。
+- タイトル画面で準備した `CharacterAssignments` を開始時にもそのまま使い、クリック時の portrait 未ロード待ちをなくす。
+- `src/game/runtimeFrame.ts` を新設し、playing / roulette / execution / assembly の更新分岐を `main.ts` から移す。`main.ts` には engine/scene 初期化、モジュール配線、phase 遷移の入口だけを残す。
+- 同一フレーム内の `playerAbility.createFrameSnapshot()` と `buildNpcTargets()` は 1 回だけ作成して再利用する。
+- `syncBitGroundShadowHandles()` の `new Set(bits.map(...))`、`updateNpcs()` の `npcs.map(() => [])` と `targets.filter(...)`、`AudioManager.updateSpatial()` と `updatePlayerState()` の `new Vector3()` 連発は、再利用バッファと temp vector に置き換える。
+- `portraitManager.layerMask` の全件書き換えは、phase または表示モードが変わった時だけ実行する。
+- `vite.config.ts` は `vite.config.mts` へ変更して Vite CJS Node API deprecation warning を消す。
+- `build.rollupOptions.output.manualChunks` を追加し、少なくとも `@babylonjs/core`、title/UI 群、audio 群を分割する。
+- 分割後も vendor-only の `babylon` chunk だけが 500kB を超える場合は `chunkSizeWarningLimit = 2500` を設定し、`docs/plan.md` に測定値を残して警告を解消する。アプリ側 chunk は 500kB 超のまま放置しない。
 
-## Interfaces / Types
-- `PlayerAbilityController`
-  - `applyMovement(...)` は削除する。
-  - `getMoveAxes(): { moveX: number; moveZ: number }` を追加する。
-  - 既存の入力管理、スタミナ管理、脅威判定の責務は維持する。
-- 新規内部 `PlayerMotionController`
-  - `reset()`
-  - `update(moveAxes, horizontalFacingYaw, delta, allowMove, moveSpeed): requestedDisplacement`
-  - `commit(actualDisplacement): void`
-- 新規内部設定
-  - `moveInertiaAt60Fps`
-  - `moveStopEpsilon`
-- `playerEyeBasePosition` は「カメラから捕捉した値」ではなく「プレイヤー実体から導出した目線位置」という意味に統一する。
+いくつか問題が起きています。原因を調査して修正してください。
+- ボイスが再生されない
 
-## Test Plan
-- `playing`、`assemblyFree`、`execution` で、水平、45度下、80度下、80度上、ほぼ真上、ほぼ真下でも `W/S` が常に水平方向へ移動すること。
-- `W/A/S/D` を離した直後に、以前と同程度のごく短い慣性移動が入り、その後自然に停止すること。
-- `W`→`S`、`A`→`D` の切り返しで、移動量と向きが破綻しないこと。
-- 壁・角・NPC ブロックに慣性付きで当たっても、めり込み、震え、永続的な押しつけが発生しないこと。
-- `S` で後退し続けても自キャラスプライトが画面へ映り込まないこと。
-- スポーン直後、リセット直後、タイトル復帰、ルーレット遷移、実行シーン遷移後に、位置ずれや古い慣性の持ち越しがないこと。
-- ミニマップ、音源位置、ビーム当たり判定、プレイヤー脅威判定が従来どおりプレイヤー位置へ追従すること。
-- `npm run build` を実行し、型エラーと構文崩れがないことを確認する。最後に、移動更新まわりの if/return 追加箇所と描画復帰処理の括弧対応を目視確認する。
-
-## Assumptions
-- 今回は「全面整理」を採用し、最小修正や `camera.inertia` 依存の補正は残さない。
-- 慣性の初期値は「旧体感に近い僅かな滑り」を優先して `0.9 @ 60fps` 相当で開始し、必要なら手触りだけを微調整する。旧挙動の数値完全一致までは要求しない。
-- プレイヤーの自由移動仕様、スタミナ仕様、射撃方向、俯角時カメラオフセット、一人称見た目の基本仕様は維持する。
+- 自ボイスを指定してゲームを始めると以下のエラーが出た
+audio.ts:271 Uncaught TypeError: Failed to set the 'value' property on 'AudioParam': The provided float value is non-finite.
+    at AudioManager.updateSpatial (audio.ts:271:24)
+    at main.ts:4708:16
 
 ## ステップ
-- [x] `docs/plan.md` を今回タスク用へ切り替え、実装方針を記録する
-- [x] `PlayerAbilityController` から移動適用責務を外し、入力軸取得APIへ整理する
-- [x] `PlayerMotionController` と `playerCollisionMesh` を導入し、プレイヤー移動の正位置を衝突メッシュへ統一する
-- [x] カメラ、キャラスプライト、各種参照位置を `playerEyeBasePosition` 派生へ揃え、フェーズ遷移時の初期化を更新する
-- [x] `docs/plan.md` の結果を更新し、`npm run build` と括弧確認で仕上げる
+- [x] 既存の `docs/plan.md` を退避し、今回タスク用の `docs/plan.md` を作成する
+- [x] タイトル開始の事前準備フローと設定変更イベントを実装する
+- [x] `characterScene` と `runtimeFrame` を新設し、`main.ts` から責務を分離する
+- [x] 毎フレーム処理と再生成処理の不要アロケーションを削減する
+- [x] Vite 設定を更新してビルド警告を解消し、`npm run build` で検証する
+- [x] 実装結果と検証結果を `docs/plan.md` に反映する
+- [x] 音声まわりの回帰を調査し、ボイス未再生と `AudioParam` 非有限値エラーの原因を修正する
+- [x] `npm run build` を再実行し、回帰修正後のビルド成立を確認する
 
 ## 結果
-- 直前の計画は `docs/plan_2026-03-21_ws-horizontal-movement-followup-prev.md` へ退避し、今回タスク用の `docs/plan.md` へ切り替えた。
-- `src/game/playerAbility.ts` から移動適用責務を削除し、`getMoveAxes()` を追加して入力軸取得だけを公開する構成へ整理した。スタミナ管理、脅威判定、入力状態管理の責務は維持している。
-- `src/game/playerMotion.ts` を新規追加し、ゲーム側の明示的な `moveMomentum` を保持する `PlayerMotionController` を実装した。慣性は `moveInertiaAt60Fps = 0.9` を 60fps 基準で減衰させる方式で管理し、キー押下中の加速感とキー離し後の短い慣性移動を `camera.inertia` 非依存で再現する。
-- `src/main.ts` に不可視の `playerCollisionMesh` を追加し、`camera.checkCollisions = false` へ変更した。`updatePlayerMovement()` は `computeCharacterFacingYawFromViewMatrix()` と `playerAbility.getMoveAxes()` から要求移動量を作り、`playerCollisionMesh.moveWithCollisions()` の実移動量を `playerMotion.commit()` へ返す流れへ置き換えた。
-- `playerEyeBasePosition` は `playerCollisionMesh.position + getEyeHeight()` から毎フレーム再計算する派生値へ統一した。これに合わせてカメラ基準の `capturePlayerEyeBasePosition()` は廃止し、`restorePlayerEyeBasePosition()` は描画用カメラオフセットを外した後に必ずプレイヤー実位置へ戻す役割へ整理した。
-- スポーン、リセット、ルーレット、実行シーン移行時には `playerCollisionMesh` と `playerMotion` を明示的に初期化するよう更新した。カメラ、キャラスプライト、被弾判定、音源、ミニマップなどが参照する `playerEyeBasePosition` は、今回の統一後もプレイヤー実位置から派生する。
-- `npm run build` は成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の変更による型エラーや構文崩れは発生していない。
-- `updatePlayerMovement()`、`restorePlayerEyeBasePosition()`、描画ループ内の `if` 分岐追加箇所を見直し、今回の差し替えで括弧対応が崩れていないことを確認した。
+- `src/game/titleStartPreparation.ts` を追加し、タイトル画面の重い再準備を 250ms デバウンスで直列化するコントローラを導入した。開始時は prepared state を確認し、一致時は `resetGame()` を再実行しない構成へ切り替えた。
+- `src/ui/titleSettingsSidebar.ts` の変更イベントに `requiresStartPrepare` を追加し、portrait/voice、default settings、brainwash settings、bit settings、trap-room 推奨変更だけが重い再準備を要求するよう整理した。`heightCells` と visual settings は即時反映のみ維持する。
+- 起動直後の runtime settings 初期化を title settings ベースへ修正し、初回タイトル表示の時点で次回開始状態と揃うようにした。
+- `startGame()` は prepared runtime settings を使って開始し、`returnToTitle()` は prepared state を無効化したうえでタイトル側の再準備を待つ流れへ更新した。
+- `src/game/characterScene.ts` を追加し、portrait manager cache、billboard mesh、ground shadow、voice actor の責務を `main.ts` から切り出した。キャラクター再生成時は billboard / shadow を index ベースで再利用し、毎回の全破棄・全再生成をやめた。
+- `src/game/runtimeFrame.ts` を追加し、playing / roulette / execution / assembly の更新分岐と、毎フレーム使う target buffer / vector list buffer の再利用ロジックを `main.ts` から分離した。
+- `src/main.ts` は `buildNpcTargets()` の毎回再生成をやめ、mutable な target buffer を 1 フレーム内で再利用する構成へ変更した。`playerAbility.createFrameSnapshot()` も playing フレーム内で 1 回だけ生成して共有するようにした。
+- `syncBitGroundShadowHandles()` の `new Set(bits.map(...))` を再利用 `Set` に置き換え、`updatePlayerState()` の player center / beam impact は temp `Vector3` を再利用するようにした。
+- `src/game/npcs.ts` の `targets.filter(...)`、`npcs.map(() => [])`、evade threat の配列結合を scratch buffer 化し、`src/audio/audio.ts` の `AudioManager.updateSpatial()` は per-frame の `Vector3` 生成をやめて数値演算中心に置き換えた。
+- `portraitManager.layerMask` の一括更新は `characterScene.syncBillboards()` 側で phase / 表示モード変更時だけ実行するようにした。
+- `vite.config.ts` を `vite.config.mts` へ移行し、Vite CJS Node API deprecation warning を解消した。manual chunks で `babylon`、`audio`、`title-ui`、`game-systems`、`game-entities`、`world` を分割し、app chunk は `index-BXlRBY_g.js` の 60.31 kB まで縮小した。
+- `babylon` vendor chunk は `babylon-Bq8v4Nk3.js` の 3,896.73 kB だったため、vendor-only 警告だけを吸収する目的で `chunkSizeWarningLimit` を 4000 に設定した。最終確認時の `npm run build` では chunk size warning も出ていない。
+- 音声回帰の原因は、`main.ts` から `characterScene.updateVoices()` へ渡す引数名が `baseOptions` / `loopOptions` ではなく `voiceBaseOptions` / `voiceLoopOptions` のまま残っていたことだった。これにより `updateVoiceActor()` 側へ音声設定が渡らず、ボイス未再生と `AudioManager.updateSpatial()` の `AudioParam` 非有限値エラーが発生していたため、呼び出し側のプロパティ名を修正した。
+- 回帰修正後に `npm run build` を再実行し、renderer / electron ともに成功することを確認した。

@@ -39,6 +39,9 @@ export class AudioManager {
   private sePool: SpatialSlot[];
   private voicePool: SpatialSlot[];
   private camera: FreeCamera;
+  private zeroPosition: Vector3;
+  private forwardAxis: Vector3;
+  private forward: Vector3;
 
   constructor(camera: FreeCamera) {
     this.camera = camera;
@@ -55,6 +58,9 @@ export class AudioManager {
 
     this.bgmAudio = null;
     this.activeSlots = [];
+    this.zeroPosition = Vector3.Zero();
+    this.forwardAxis = new Vector3(0, 0, 1);
+    this.forward = Vector3.Zero();
     const sePoolSize = 32;
     const voicePoolSize = 16;
     this.sePool = this.createPool(sePoolSize, this.seGain);
@@ -101,7 +107,7 @@ export class AudioManager {
         source,
         gain,
         pan,
-        getPosition: () => Vector3.Zero(),
+        getPosition: () => this.zeroPosition,
         baseVolume: 1,
         maxDistance: 1,
         active: false,
@@ -233,15 +239,28 @@ export class AudioManager {
       return;
     }
     const cameraPosition = this.camera.position;
-    const forward = this.camera.getDirection(new Vector3(0, 0, 1)).normalize();
-    const right = Vector3.Cross(Vector3.Up(), forward).normalize();
+    this.camera.getDirectionToRef(this.forwardAxis, this.forward);
+    this.forward.normalize();
+    const rightLength = Math.hypot(this.forward.x, this.forward.z);
+    const rightX =
+      rightLength > 0.0001 ? this.forward.z / rightLength : 1;
+    const rightZ =
+      rightLength > 0.0001 ? -this.forward.x / rightLength : 0;
 
     for (const handle of this.activeSlots) {
       const sourcePosition = handle.getPosition();
-      const toSource = sourcePosition.subtract(cameraPosition);
-      const distance = toSource.length();
-      const horizontal = new Vector3(toSource.x, 0, toSource.z).normalize();
-      const pan = Math.max(-1, Math.min(1, Vector3.Dot(right, horizontal)));
+      const dx = sourcePosition.x - cameraPosition.x;
+      const dy = sourcePosition.y - cameraPosition.y;
+      const dz = sourcePosition.z - cameraPosition.z;
+      const distance = Math.hypot(dx, dy, dz);
+      const horizontalLength = Math.hypot(dx, dz);
+      const pan =
+        horizontalLength > 0.0001
+          ? Math.max(
+              -1,
+              Math.min(1, (rightX * dx + rightZ * dz) / horizontalLength)
+            )
+          : 0;
       const normalized = Math.max(
         0,
         Math.min(1, distance / handle.maxDistance)

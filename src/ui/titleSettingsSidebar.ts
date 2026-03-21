@@ -36,6 +36,7 @@ export type TitleSettingsSidebarChangeReason =
 export type TitleSettingsSidebarChangeEvent = {
   reason: TitleSettingsSidebarChangeReason;
   shouldReload: boolean;
+  requiresStartPrepare: boolean;
 };
 
 type TitleSettingsSidebarOptions = {
@@ -123,7 +124,8 @@ export const createTitleSettingsSidebar = ({
 
   const emitSettingsChange = (
     reason: TitleSettingsSidebarChangeReason,
-    shouldReload = false
+    shouldReload = false,
+    requiresStartPrepare = false
   ) => {
     if (suppressSettingsChange) {
       return;
@@ -131,7 +133,8 @@ export const createTitleSettingsSidebar = ({
     syncWarning();
     onSettingsChange(cloneSettings(settings), {
       reason,
-      shouldReload
+      shouldReload,
+      requiresStartPrepare
     });
   };
 
@@ -151,11 +154,15 @@ export const createTitleSettingsSidebar = ({
     voiceDirectories,
     className: "player-settings-panel--title",
     onChange: (nextSettings) => {
+      const requiresStartPrepare =
+        settings.playerSettings.portraitDirectory !==
+          nextSettings.portraitDirectory ||
+        settings.playerSettings.voiceDirectory !== nextSettings.voiceDirectory;
       settings.playerSettings = {
         ...settings.playerSettings,
         ...nextSettings
       };
-      emitSettingsChange("player-settings");
+      emitSettingsChange("player-settings", false, requiresStartPrepare);
     }
   });
 
@@ -178,7 +185,7 @@ export const createTitleSettingsSidebar = ({
     className: "default-settings-panel--title",
     onChange: (nextSettings) => {
       settings.defaultStartSettings = { ...nextSettings };
-      emitSettingsChange("default-settings");
+      emitSettingsChange("default-settings", false, true);
     }
   });
 
@@ -192,7 +199,11 @@ export const createTitleSettingsSidebar = ({
         nextSettings.brainwashOnNoGunTouch &&
         !settings.brainwashSettings.brainwashOnNoGunTouch;
       settings.brainwashSettings = { ...nextSettings };
-      emitSettingsChange("brainwash-settings", shouldReload);
+      emitSettingsChange(
+        "brainwash-settings",
+        shouldReload,
+        !shouldReload
+      );
     }
   });
 
@@ -202,7 +213,7 @@ export const createTitleSettingsSidebar = ({
     className: "bit-spawn-panel--title",
     onChange: (nextSettings) => {
       settings.bitSpawnSettings = { ...nextSettings };
-      emitSettingsChange("bit-spawn-settings");
+      emitSettingsChange("bit-spawn-settings", false, true);
     }
   });
 
@@ -228,7 +239,7 @@ export const createTitleSettingsSidebar = ({
       });
       settings.brainwashSettings = { ...nextSettings.brainwashSettings };
       settings.bitSpawnSettings = { ...nextSettings.bitSpawnSettings };
-      emitSettingsChange("trap-room-recommend");
+      emitSettingsChange("trap-room-recommend", false, true);
     }
   });
 
