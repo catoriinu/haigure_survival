@@ -995,7 +995,10 @@ const applyRenderCameraPosition = () => {
   renderCameraPositionApplied = playerEyeRenderOffset.lengthSquared() > 0;
 };
 
-const computeCharacterFacingYawFromViewMatrix = (viewMatrix: Matrix) => {
+const computeCharacterFacingYawFromViewMatrix = (
+  viewMatrix: Matrix,
+  fallbackYaw: number
+) => {
   viewMatrix.invertToRef(characterFacingViewInverseMatrix);
   Vector3.TransformNormalFromFloatsToRef(
     0,
@@ -1007,9 +1010,22 @@ const computeCharacterFacingYawFromViewMatrix = (viewMatrix: Matrix) => {
   const horizontalForwardLengthSq =
     characterFacingForward.x * characterFacingForward.x +
     characterFacingForward.z * characterFacingForward.z;
-  return horizontalForwardLengthSq > characterFacingMinForwardLengthSq
-    ? Math.atan2(characterFacingForward.x, characterFacingForward.z)
-    : 0;
+  if (horizontalForwardLengthSq > characterFacingMinForwardLengthSq) {
+    return Math.atan2(characterFacingForward.x, characterFacingForward.z);
+  }
+  Vector3.TransformNormalFromFloatsToRef(
+    0,
+    1,
+    0,
+    characterFacingViewInverseMatrix,
+    characterFacingUp
+  );
+  const horizontalUpLengthSq =
+    characterFacingUp.x * characterFacingUp.x +
+    characterFacingUp.z * characterFacingUp.z;
+  return horizontalUpLengthSq > characterFacingMinForwardLengthSq
+    ? Math.atan2(characterFacingUp.x, characterFacingUp.z)
+    : fallbackYaw;
 };
 
 const applyCharacterFacingYaw = (yaw: number) => {
@@ -1056,7 +1072,8 @@ const applyCharacterMirrorFlip = (mirrored: boolean) => {
 
 const syncCharacterFacingYaw = () => {
   currentCharacterFacingYaw = computeCharacterFacingYawFromViewMatrix(
-    camera.getViewMatrix()
+    camera.getViewMatrix(),
+    currentCharacterFacingYaw
   );
   applyCharacterFacingYaw(currentCharacterFacingYaw);
 };
@@ -1486,7 +1503,9 @@ let npcGroundShadows: GroundShadowHandle[] = [];
 const bitGroundShadows = new Map<string, BitGroundShadowHandles>();
 const characterFacingViewInverseMatrix = Matrix.Identity();
 const characterFacingForward = Vector3.Zero();
+const characterFacingUp = Vector3.Zero();
 let currentCharacterFacingYaw = 0;
+let currentReflectionCharacterFacingYaw = 0;
 const npcs: Npc[] = [];
 let playerPortraitDirectory = "";
 let npcPortraitDirectories: string[] = [];
@@ -1961,9 +1980,11 @@ const createReflectionTexture = (
   mirrorTexture.renderListPredicate = (mesh) =>
     !excludedMeshIds.has(mesh.uniqueId);
   mirrorTexture.onBeforeRenderObservable.add(() => {
-    applyCharacterFacingYaw(
-      computeCharacterFacingYawFromViewMatrix(scene.getViewMatrix())
+    currentReflectionCharacterFacingYaw = computeCharacterFacingYawFromViewMatrix(
+      scene.getViewMatrix(),
+      currentReflectionCharacterFacingYaw
     );
+    applyCharacterFacingYaw(currentReflectionCharacterFacingYaw);
     applyCharacterMirrorFlip(true);
   });
   mirrorTexture.onAfterRenderObservable.add(() => {
