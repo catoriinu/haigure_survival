@@ -50,6 +50,33 @@ PLEASE IMPLEMENT THIS PLAN:
 人間で言えば、首だけが360度回転している状態です。
 それは怖いので、下を向いたままでもスプライトは常に同じ面を画面に表示してください。（身体ごと回転するイメージ）
 
+追記:
+通常シーンで下を向いてbw-complete-pose.pngを表示しているときと、
+全滅シーンで下を向いてbw-complete-pose.pngを表示しているときとでは、見える画像の範囲が異なっています。
+全滅シーンの方が、画像の上の方まで見えているようです。
+これはカメラの高さが違うのか、全滅シーンでのスプライトの描画が違うのか、その他なのか、調査してください。
+通常シーンと全滅シーンでは、基本的に同じようにスプライトを描画したいです（通常シーンにそろえてほしい）
+
+追記:
+> 全滅シーンは gameFlow.updateCameraFollowAvatar() でワールド上の playerAvatar を少し後ろから追う構造
+
+そのように実装されていた理由を考察してください。
+それに合理性があるなら修正方針を一度検討し直したいです。
+特に強い理由がない、または理由不明の場合は、完全に通常シーンに寄せて、全滅シーン用のカメラ処理は削除してください。
+
+追記:
+通常シーン時は変わっていませんでしたが、
+全滅シーンでのカメラ位置がおかしくなりました。
+少なくとも下を向いたとき、修正前とは違い、カメラが「後ろ（正面向きのときの画面手前方向）」にずれてしまっています。カメラは「前」にスライドしてください。（なお高くなるスライドは問題なさそうです）
+
+追記:
+実は、画像8枚のうちbw-complete-pose.pngとbw-in-progress.pngは、他の6枚と比べて目線が低いポーズになっています。
+そのうえで現在は、通常シーン時のbw-complete-pose.pngとbw-in-progress.pngの見え方は、今がちょうどよい角度になっています。高さ調整をされていない全滅シーンでの方が、目線が高すぎると感じます。
+それを踏まえると、
+- bw-complete-pose.pngとbw-in-progress.pngを表示するときのみ、高さ調整をして低くする
+- それ以外の6枚を表示するモードは、高さ調整をしないようにする
+という整理にすべきです。（※上記の「高さ調整」は「camera.position.yの上書き」のことです。「カメラを下向きにしたときに高さを上にスライドする」のことではありません。スライドについては、先述の「高さ調整」を踏まえたうえで数値調整しつつ残してください）
+
 ## Summary
 - 下半身レイヤー自体は残し、自然に見せるために「プレイヤー実位置」と「描画用視点位置」を分離する。
 - 適用範囲は、現在下半身レイヤーを表示している全フェーズとする。
@@ -116,6 +143,15 @@ PLEASE IMPLEMENT THIS PLAN:
 - [x] 「最後の有効な水平向き保持」で首固定になる問題を整理し、カメラ姿勢から自然に向きを決める方針へ切り替える
 - [x] 真下付近では前方ベクトルではなく view 行列の上向きベクトルから yaw を導き、身体ごと回転する見え方へ揃える
 - [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
+- [x] 通常シーンと全滅シーンで見える範囲の差を、カメラ高さと `gameFlow` / `syncPlayerPresentation()` の役割差から切り分ける
+- [x] 全滅シーンの後方オフセット追従を廃止し、通常シーンと同じ一人称プレビュー配置へ寄せるよう `src/game/flow.ts` と `src/main.ts` を修正する
+- [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
+- [x] 全滅シーン側の俯角前後方向が逆転した原因を切り分ける
+- [x] 俯角オフセットの水平符号を通常シーンと統一する
+- [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
+- [x] low-eye 画像だけに適用する render 高さ補正条件を整理し、`main.ts` の helper 構成を決める
+- [x] `scene.onBeforeRenderObservable` の phase ベース `y` 上書きを撤去し、low-eye 画像だけ render `y` 補正を合成する
+- [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
 
 ## 結果
 - 既存の `docs/plan.md` は `docs/plan_2026-03-20_first-person-foot-view-offset-prev.md` へ退避し、今回タスク用の計画へ切り替えた。
@@ -144,4 +180,15 @@ PLEASE IMPLEMENT THIS PLAN:
 - 真下付近で自キャラ板ポリが反転して見えた原因は、`computeCharacterFacingYawFromViewMatrix()` がカメラ前方ベクトルの水平成分から `yaw` を求めており、俯角が深くなって水平成分がほぼ 0 になると `yaw` が未定義に近づいて不安定化していたためである。しかもビルボード材質は背面描画ありなので、その瞬間に裏面が見えて左右反転のように見えていた。
 - その後の確認で、「最後に有効だった水平向き保持」は反転自体は止められても、下を向いたまま yaw 入力を続けると板ポリが回らず、視点だけが周回してしまう問題が分かった。これは首だけが回る見え方になり、求める「身体ごと回転」には合わない。
 - 最終的には、`computeCharacterFacingYawFromViewMatrix()` の特異点処理を「最後の yaw 保持」から「同じ view 行列の上向きベクトルを水平面へ射影して yaw を求める」方式へ切り替えた。通常域では従来どおり前方ベクトルの水平射影を使い、真下付近で前方が縦に潰れたときだけ上向きベクトルへ自然に引き継ぐ。これにより、下を向いたまま左右へ回しても、板ポリは画面に対して同じ面を保ちながら身体ごと回転する見え方になる。主カメラと反射描画の両方で同じ計算を使うため、鏡側も挙動がそろう。
+- 上記修正後に `npm run build` を実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による構文崩れや括弧対応の問題はなかった。
+- 今回の差異はカメラ高さではなく、全滅シーンで `gameFlow.updateCameraFollowAvatar()` がワールド上の `playerAvatar` を少し後ろから追う構造にあり、通常シーンだけが `syncPlayerPresentation()` で一人称プレビュー位置へ寄せていたことに起因していた。全滅シーン側の追従自体には「自動移動する身体へ視点を追随させる」合理性があるが、後方オフセットは旧来の半三人称的な見せ方の名残で、現在の「通常シーンと同じ一人称表示」方針とは整合しないと判断した。
+- `src/game/flow.ts` では、全滅シーン用の後方オフセット追従を削除し、assembly の自動移動中だけカメラ位置を `playerAvatar` と同じ `x/z` へ同期する構成へ整理した。これにより、通常シーンと同じ身体位置基準の一人称カメラになり、execution の `npc-survivor-npc-block` でもカメラを身体の後ろへ回り込ませる処理はなくなった。
+- `src/main.ts` では、通常シーンだけでなく全滅シーンでも `firstPersonPreviewUsePlayerSprite` 有効時は描画中だけ `playerAvatar` を `playerEyeBasePosition + playerEyeRenderOffset * 2` へ寄せるようにした。全滅シーンでは描画前にワールド座標を退避し、`scene.render()` 後と次フレーム開始時に復帰するため、`gameFlow` のルート移動や実座標ロジックは従来どおり保たれる。
+- 上記修正後に `npm run build` を実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による構文崩れや括弧対応の問題はなかった。
+- 上記の通常シーン寄せにより、俯角オフセット方向のフェーズ別分岐は前提が古くなっていた。`computeFirstPersonViewOffset()` では依然として `shouldSyncPlayerAvatarToCamera(gamePhase)` が false の全滅シーンだけ水平方向の符号を反転しないまま残っていたため、全滅シーンで下を向くと描画用カメラだけが画面手前側へずれていた。
+- そのため、`src/main.ts` の `computeFirstPersonViewOffset()` はフェーズ別の水平方向分岐を廃止し、俯角時の前方スライド方向を通常シーンと全滅シーンで同じ符号へ統一した。これにより、全滅シーンでも下向き時の描画用カメラは画面奥側へスライドする。
+- 上記修正後に `npm run build` を実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による構文崩れや括弧対応の問題はなかった。
+- 今回の整理では、`bw-in-progress`、`brainwash-complete-haigure`、`brainwash-complete-haigure-formation` を low-eye 画像として扱い、`playerNoGunTouchBrainwash` 中の専用ブレンドセルは `hit-a/hit-b` 系として除外する方針にした。
+- `src/main.ts` に low-eye 判定 helper と render 高さ補正 helper を追加し、`applyRenderCameraPosition()` で描画用カメラ位置を `実位置 + 俯角スライド + 画像別高さ補正` として合成するようにした。low-eye 画像では `playerEyeRenderOffset.y` を相殺するため、通常シーンで従来ちょうどよかった最終見え方を phase に依存せず維持できる。
+- `scene.onBeforeRenderObservable` に残っていた `playing` / `roulette` 限定の `camera.position.y = getEyeHeight()` は撤去し、ミニマップ更新だけを残した。これにより、phase ベース高さ上書きはなくなり、主画面と反射面の描画位置はどちらも `applyRenderCameraPosition()` に統一された。
 - 上記修正後に `npm run build` を実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による構文崩れや括弧対応の問題はなかった。

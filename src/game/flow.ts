@@ -167,7 +167,6 @@ export const createGameFlow = ({
   let assemblyPlayerRoute: AssemblyRoute | null = null;
   let assemblyNpcRoutes: AssemblyRoute[] = [];
   let assemblyElapsed = 0;
-  let executionCameraFollowAvatar = false;
   const assemblyHelpPanelText = "操作説明\nWASD: 移動\nEnter: タイトルへ";
   const executionHelpPanelTextByVariant = {
     playerSurvivor: "操作説明\nEnter: タイトルへ\nR: リプレイ",
@@ -175,7 +174,6 @@ export const createGameFlow = ({
       "操作説明\nWASD: 移動\nEnter: タイトルへ\nR: リプレイ",
     npcSurvivorNpcBlock: "操作説明\nEnter: タイトルへ\nR: リプレイ"
   } as const;
-  const followCameraOffset = playerAvatar.width * 0.9;
   const setPlayerAvatarState = (state: CharacterState) => {
     setPlayerState(state);
     playerAvatar.cellIndex = getPortraitCellIndex(state);
@@ -478,10 +476,9 @@ export const createGameFlow = ({
     }
   };
 
-  const updateCameraFollowAvatar = () => {
-    const forward = camera.getDirection(new Vector3(0, 0, 1));
-    camera.position.x = playerAvatar.position.x + forward.x * followCameraOffset;
-    camera.position.z = playerAvatar.position.z + forward.z * followCameraOffset;
+  const syncCameraToPlayerAvatar = () => {
+    camera.position.x = playerAvatar.position.x;
+    camera.position.z = playerAvatar.position.z;
     camera.position.y = getEyeHeight();
   };
   const updateAssemblyNpcRoutes = (delta: number) => {
@@ -624,7 +621,6 @@ export const createGameFlow = ({
     };
 
     if (config.variant === "player-survivor") {
-      executionCameraFollowAvatar = false;
       setPlayerAvatarState("evade");
       playerAvatar.isVisible = true;
       playerAvatar.position.copyFrom(executionCenter);
@@ -653,7 +649,6 @@ export const createGameFlow = ({
     alignSpriteToGround(survivorNpc.sprite);
 
     if (config.variant === "npc-survivor-player-block") {
-      executionCameraFollowAvatar = false;
       setPlayerAvatarState("brainwash-complete-gun");
       playerAvatar.isVisible = true;
       const playerTarget = frontSlots[frontRowCenterIndex];
@@ -672,7 +667,6 @@ export const createGameFlow = ({
       return;
     }
 
-    executionCameraFollowAvatar = true;
     setPlayerAvatarState("brainwash-complete-haigure-formation");
     playerAvatar.isVisible = true;
     playerAvatar.position.copyFrom(frontSlots[frontRowCenterIndex]);
@@ -698,7 +692,7 @@ export const createGameFlow = ({
     const phase = getGamePhase();
     updateBitsOrbit(delta);
     if (phase === "assemblyHold") {
-      updateCameraFollowAvatar();
+      syncCameraToPlayerAvatar();
       return;
     }
     if (phase === "assemblyFree") {
@@ -716,15 +710,10 @@ export const createGameFlow = ({
     if (allArrived) {
       setGamePhase("assemblyHold");
     }
-    updateCameraFollowAvatar();
+    syncCameraToPlayerAvatar();
   };
 
-  const updateExecution = () => {
-    if (!executionCameraFollowAvatar) {
-      return;
-    }
-    updateCameraFollowAvatar();
-  };
+  const updateExecution = () => {};
 
   return {
     enterAssembly,

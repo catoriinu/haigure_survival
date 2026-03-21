@@ -869,6 +869,7 @@ reflectionCamera.fov = camera.fov;
 const playerEyeBasePosition = Vector3.Zero();
 const playerEyeRenderOffset = Vector3.Zero();
 const playerEyeRenderPosition = Vector3.Zero();
+const playerAvatarWorldPosition = Vector3.Zero();
 const firstPersonPreviewPlayerPosition = Vector3.Zero();
 const firstPersonViewHorizontalForward = Vector3.Zero();
 const firstPersonViewRay = new Ray(
@@ -877,6 +878,7 @@ const firstPersonViewRay = new Ray(
   0
 );
 let renderCameraPositionApplied = false;
+let playerAvatarRenderPositionApplied = false;
 const applyCameraSpawnTransform = () => {
   camera.position.copyFrom(spawnPosition);
   camera.rotation = new Vector3(0, 0, 0);
@@ -902,6 +904,30 @@ const restorePlayerEyeBasePosition = () => {
   }
   camera.position.copyFrom(playerEyeBasePosition);
   renderCameraPositionApplied = false;
+};
+
+const restorePlayerAvatarWorldPosition = () => {
+  if (!playerAvatarRenderPositionApplied) {
+    return;
+  }
+  playerAvatar.position.copyFrom(playerAvatarWorldPosition);
+  playerAvatarRenderPositionApplied = false;
+};
+
+const syncFirstPersonPreviewPlayerPosition = (
+  restoreWorldPosition: boolean
+) => {
+  if (restoreWorldPosition) {
+    playerAvatarWorldPosition.copyFrom(playerAvatar.position);
+    playerAvatarRenderPositionApplied = true;
+  }
+  firstPersonPreviewPlayerPosition.set(
+    playerEyeBasePosition.x + playerEyeRenderOffset.x * 2,
+    playerAvatar.height * 0.5,
+    playerEyeBasePosition.z + playerEyeRenderOffset.z * 2
+  );
+  playerAvatar.position.copyFrom(firstPersonPreviewPlayerPosition);
+  alignSpriteToGround(playerAvatar);
 };
 
 const clampFirstPersonViewOffsetLength = (
@@ -945,9 +971,7 @@ const computeFirstPersonViewOffset = () => {
   if (blend <= 0) {
     return playerEyeRenderOffset;
   }
-  const horizontalOffsetDirectionScale = shouldSyncPlayerAvatarToCamera(gamePhase)
-    ? -1
-    : 1;
+  const horizontalOffsetDirectionScale = -1;
   firstPersonViewHorizontalForward.set(
     forward.x * horizontalOffsetDirectionScale,
     0,
@@ -983,6 +1007,15 @@ const computeFirstPersonViewOffset = () => {
   return playerEyeRenderOffset;
 };
 
+const shouldApplyLowEyeHeightAdjustment = () =>
+  playerNoGunTouchBrainwashTimer <= 0 &&
+  (playerState === "brainwash-in-progress" ||
+    playerState === "brainwash-complete-haigure" ||
+    playerState === "brainwash-complete-haigure-formation");
+
+const computePlayerPortraitHeightAdjustmentY = () =>
+  shouldApplyLowEyeHeightAdjustment() ? -playerEyeRenderOffset.y : 0;
+
 const applyRenderCameraPosition = () => {
   playerEyeRenderPosition.copyFrom(playerEyeBasePosition);
   if (!shouldShowFirstPersonBodyForPhase(gamePhase)) {
@@ -991,6 +1024,7 @@ const applyRenderCameraPosition = () => {
   }
   computeFirstPersonViewOffset();
   playerEyeRenderPosition.addInPlace(playerEyeRenderOffset);
+  playerEyeRenderPosition.y += computePlayerPortraitHeightAdjustmentY();
   camera.position.copyFrom(playerEyeRenderPosition);
   renderCameraPositionApplied = playerEyeRenderOffset.lengthSquared() > 0;
 };
@@ -3958,7 +3992,6 @@ const createPlayerAbilitySnapshot = (): PlayerAbilityFrameSnapshot =>
 
 scene.onBeforeRenderObservable.add(() => {
   if (gamePhase === "playing" || gamePhase === "roulette") {
-    camera.position.y = getEyeHeight();
     drawMinimap();
   }
   syncHudForPhase();
@@ -4258,23 +4291,22 @@ const syncPlayerPresentation = () => {
   const useFirstPersonPreviewSprite =
     firstPersonPreviewUsePlayerSprite &&
     shouldShowFirstPersonBodyForPhase(gamePhase);
+  playerAvatarRenderPositionApplied = false;
   if (shouldSyncPlayerAvatarToCamera(gamePhase)) {
     playerAvatar.isVisible = true;
     if (useFirstPersonPreviewSprite) {
-      firstPersonPreviewPlayerPosition.set(
-        playerEyeBasePosition.x + playerEyeRenderOffset.x * 2,
-        playerAvatar.height * 0.5,
-        playerEyeBasePosition.z + playerEyeRenderOffset.z * 2
-      );
-      playerAvatar.position.copyFrom(firstPersonPreviewPlayerPosition);
+      syncFirstPersonPreviewPlayerPosition(false);
     } else {
       playerAvatar.position.set(
         playerEyeBasePosition.x,
         playerAvatar.height * 0.5,
         playerEyeBasePosition.z
       );
+      alignSpriteToGround(playerAvatar);
     }
-    alignSpriteToGround(playerAvatar);
+  } else if (useFirstPersonPreviewSprite) {
+    playerAvatar.isVisible = true;
+    syncFirstPersonPreviewPlayerPosition(true);
   }
 
   const verticalAngleEnabled =
@@ -4576,6 +4608,7 @@ setupInputHandlers({
 
 engine.runRenderLoop(() => {
   restorePlayerEyeBasePosition();
+  restorePlayerAvatarWorldPosition();
   const delta = engine.getDeltaTime() / 1000;
   capturePlayerEyeBasePosition();
   trapSystem.update(delta, gamePhase);
@@ -4889,6 +4922,7 @@ engine.runRenderLoop(() => {
   gameFlow.updateFade(delta);
   scene.render();
   restorePlayerEyeBasePosition();
+  restorePlayerAvatarWorldPosition();
 });
 
 window.addEventListener("resize", () => {
