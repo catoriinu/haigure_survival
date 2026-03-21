@@ -870,6 +870,7 @@ reflectionCamera.fov = camera.fov;
 const playerEyeBasePosition = Vector3.Zero();
 const playerEyeRenderOffset = Vector3.Zero();
 const playerEyeRenderPosition = Vector3.Zero();
+const playerEyeRenderRestoreOffset = Vector3.Zero();
 const playerAvatarWorldPosition = Vector3.Zero();
 const firstPersonPreviewPlayerPosition = Vector3.Zero();
 const firstPersonViewHorizontalForward = Vector3.Zero();
@@ -903,7 +904,11 @@ const restorePlayerEyeBasePosition = () => {
   if (!renderCameraPositionApplied) {
     return;
   }
-  camera.position.copyFrom(playerEyeBasePosition);
+  // scene.render() 中に反映された移動量は残しつつ、描画用オフセットだけを外す。
+  playerEyeRenderRestoreOffset.copyFrom(playerEyeBasePosition);
+  playerEyeRenderRestoreOffset.subtractInPlace(playerEyeRenderPosition);
+  camera.position.addInPlace(playerEyeRenderRestoreOffset);
+  playerEyeBasePosition.copyFrom(camera.position);
   renderCameraPositionApplied = false;
 };
 
@@ -3107,7 +3112,18 @@ const updatePlayerMovement = (
   allowMove: boolean,
   moveSpeed: number
 ) => {
-  playerAbility.applyMovement(camera, delta, allowMove, moveSpeed);
+  const movementYaw = computeCharacterFacingYawFromViewMatrix(
+    camera.getViewMatrix(),
+    currentCharacterFacingYaw
+  );
+  currentCharacterFacingYaw = movementYaw;
+  playerAbility.applyMovement(
+    movementYaw,
+    camera,
+    delta,
+    allowMove,
+    moveSpeed
+  );
 };
 
 const getBeamImpactPosition = (beam: Beam) =>

@@ -66,6 +66,7 @@ export type PlayerAbilityController = {
     playerState: CharacterState
   ) => void;
   applyMovement: (
+    horizontalFacingYaw: number,
     camera: FreeCamera,
     delta: number,
     allowMove: boolean,
@@ -323,7 +324,13 @@ export const createPlayerAbilityController = ({
         staminaRecoverTimer = 0;
       }
     },
-    applyMovement: (camera, delta, allowMove, moveSpeed) => {
+    applyMovement: (
+      horizontalFacingYaw,
+      camera,
+      delta,
+      allowMove,
+      moveSpeed
+    ) => {
       if (!allowMove) {
         return;
       }
@@ -332,15 +339,21 @@ export const createPlayerAbilityController = ({
         return;
       }
 
-      const forward = camera.getDirection(new Vector3(0, 0, 1));
-      forward.y = 0;
-      const right = camera.getDirection(new Vector3(1, 0, 0));
-      right.y = 0;
+      const forward = new Vector3(
+        Math.sin(horizontalFacingYaw),
+        0,
+        Math.cos(horizontalFacingYaw)
+      );
+      const right = new Vector3(
+        Math.cos(horizontalFacingYaw),
+        0,
+        -Math.sin(horizontalFacingYaw)
+      );
       const moveDirection = new Vector3(0, 0, 0);
-      if (moveZ !== 0 && forward.lengthSquared() > 0.0001) {
+      if (moveZ !== 0) {
         moveDirection.addInPlace(forward.scale(moveZ));
       }
-      if (moveX !== 0 && right.lengthSquared() > 0.0001) {
+      if (moveX !== 0) {
         moveDirection.addInPlace(right.scale(moveX));
       }
       if (moveDirection.lengthSquared() <= 0.0001) {
