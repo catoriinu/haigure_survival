@@ -18,6 +18,12 @@ PLEASE IMPLEMENT THIS PLAN:
 全滅シーンで下を向いたときには「後ろ（正面向きのときの画面手前側）」にスライドしてしまっており、挙動がチグハグです。
 違いの理由を解析した後、全滅シーン時も、通常のゲーム中と同じ挙動に揃えてください。
 
+追記:
+カメラを下に向けて、前にカメラがスライドし始めたとき、同時に「上（正面向きのときの天井方向）」にも高さを上げてください。最も下を向いたときに、「視点高さ」基準で0.3ぶん高くなっているようにしてください。
+
+追記:
+前方スライドを試しに0.3にしてみてください
+
 ## Summary
 - 下半身レイヤー自体は残し、自然に見せるために「プレイヤー実位置」と「描画用視点位置」を分離する。
 - 適用範囲は、現在下半身レイヤーを表示している全フェーズとする。
@@ -54,7 +60,7 @@ PLEASE IMPLEMENT THIS PLAN:
 
 ## Assumptions
 - 目的は下半身レイヤーの完全置換ではなく、現行レイヤーを自然に見せること。
-- オフセットは `x/z` のみで、`y` は動かさない。
+- 俯角オフセットの水平方向は `x/z` で処理し、今回追記分として `y` は `視点高さ 0.3` 相当まで持ち上げる。
 - オフセット量は初回実装では固定値運用とし、調整 UI は増やさない。
 - 俯角の補間は線形で十分とし、特殊なイージングは入れない。
 
@@ -69,6 +75,10 @@ PLEASE IMPLEMENT THIS PLAN:
 - [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
 - [x] 全滅シーンでのカメラ追従と通常プレイ時の違いを解析し、原因を整理する
 - [x] フェーズ別の描画用オフセット方向をそろえるよう `main.ts` を修正する
+- [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
+- [x] 俯角オフセットへ上方向の高さ補間を追加する
+- [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
+- [x] 前方スライド量の上限を `0.3` へ変更する
 - [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
 
 ## 結果
@@ -88,3 +98,7 @@ PLEASE IMPLEMENT THIS PLAN:
 - 今回の差異の原因は、通常プレイと `assemblyFree` ではカメラがプレイヤー目線そのものにあり、全滅シーンの `assemblyMove` `assemblyHold` `execution` では `gameFlow.updateCameraFollowAvatar()` によりカメラがアバター前方へ追従配置されている点にあった。同じ俯角オフセット符号を両方へ適用すると、全滅シーン側だけ見かけの移動方向が逆転する。
 - `src/main.ts` の `computeFirstPersonViewOffset()` は、`shouldSyncPlayerAvatarToCamera(gamePhase)` が true なフェーズでは従来どおり反転符号を使い、false な全滅シーン系フェーズでは `camera.getDirection()` と yaw フォールバックをそのまま使うようにした。これにより、全滅シーン時も通常プレイ時と同じ見かけの「画面奥側」へスライドするよう揃えた。
 - 上記修正後に `npm run build` を実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による構文崩れや括弧対応の問題はなかった。
+- 追加追試として、俯角オフセットの補間に上方向成分も加えた。`src/main.ts` に `firstPersonViewOffsetMaxHeightCells = 0.3` を追加し、前方スライドと同じ 45 度開始・真下最大の線形補間で `layout.cellSize * 0.3` まで `playerEyeRenderOffset.y` を持ち上げるようにした。
+- 上記追加後に `npm run build` を再実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による構文崩れや括弧対応の問題はなかった。
+- 追加追試として、前方スライド量の上限 `firstPersonViewOffsetMaxDistanceScale` を `0.18` から `0.3` へ変更した。これにより、45 度以降の俯角で前方オフセットがより大きくなり、真下時は `layout.cellSize * 0.3` までスライドする。
+- 上記変更後に `npm run build` を再実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による構文崩れや括弧対応の問題はなかった。

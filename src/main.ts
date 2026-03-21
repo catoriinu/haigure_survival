@@ -421,7 +421,8 @@ const firstPersonBodyFeetRowHalfWidthEnd = 0.57;
 const firstPersonBodyFeetRowZStart = 0.41;
 const firstPersonBodyFeetRowZEnd = 0.49;
 const firstPersonViewOffsetStartDownward = Math.SQRT1_2;
-const firstPersonViewOffsetMaxDistanceScale = 0.18;
+const firstPersonViewOffsetMaxDistanceScale = 0.12;
+const firstPersonViewOffsetMaxHeightCells = 0.2;
 const firstPersonViewOffsetMinDirectionLengthSq = 0.0001;
 const firstPersonViewOffsetWallPadding = 0.01;
 const firstPersonPreviewUsePlayerSprite = true;
@@ -965,6 +966,8 @@ const computeFirstPersonViewOffset = () => {
   );
   playerEyeRenderOffset.copyFrom(firstPersonViewHorizontalForward);
   playerEyeRenderOffset.scaleInPlace(clampedLength);
+  playerEyeRenderOffset.y =
+    layout.cellSize * firstPersonViewOffsetMaxHeightCells * blend;
   return playerEyeRenderOffset;
 };
 
