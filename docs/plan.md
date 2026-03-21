@@ -77,6 +77,10 @@ PLEASE IMPLEMENT THIS PLAN:
 - それ以外の6枚を表示するモードは、高さ調整をしないようにする
 という整理にすべきです。（※上記の「高さ調整」は「camera.position.yの上書き」のことです。「カメラを下向きにしたときに高さを上にスライドする」のことではありません。スライドについては、先述の「高さ調整」を踏まえたうえで数値調整しつつ残してください）
 
+追記:
+bw-in-progress / bw-complete-pose 系: 高さ方向スライドも、0ではなく、最大でそれ以外系の20%の高さのスライドをしてほしいです。
+どれだけ反映するか（あるいは軽減するか）の割合として0.2（あるいは0.8）を定数で持ってください。
+
 ## Summary
 - 下半身レイヤー自体は残し、自然に見せるために「プレイヤー実位置」と「描画用視点位置」を分離する。
 - 適用範囲は、現在下半身レイヤーを表示している全フェーズとする。
@@ -152,6 +156,8 @@ PLEASE IMPLEMENT THIS PLAN:
 - [x] low-eye 画像だけに適用する render 高さ補正条件を整理し、`main.ts` の helper 構成を決める
 - [x] `scene.onBeforeRenderObservable` の phase ベース `y` 上書きを撤去し、low-eye 画像だけ render `y` 補正を合成する
 - [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
+- [x] low-eye 画像の高さスライド残し率を定数化し、20%だけ残るように調整する
+- [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
 
 ## 結果
 - 既存の `docs/plan.md` は `docs/plan_2026-03-20_first-person-foot-view-offset-prev.md` へ退避し、今回タスク用の計画へ切り替えた。
@@ -192,3 +198,4 @@ PLEASE IMPLEMENT THIS PLAN:
 - `src/main.ts` に low-eye 判定 helper と render 高さ補正 helper を追加し、`applyRenderCameraPosition()` で描画用カメラ位置を `実位置 + 俯角スライド + 画像別高さ補正` として合成するようにした。low-eye 画像では `playerEyeRenderOffset.y` を相殺するため、通常シーンで従来ちょうどよかった最終見え方を phase に依存せず維持できる。
 - `scene.onBeforeRenderObservable` に残っていた `playing` / `roulette` 限定の `camera.position.y = getEyeHeight()` は撤去し、ミニマップ更新だけを残した。これにより、phase ベース高さ上書きはなくなり、主画面と反射面の描画位置はどちらも `applyRenderCameraPosition()` に統一された。
 - 上記修正後に `npm run build` を実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による構文崩れや括弧対応の問題はなかった。
+- 追加調整として、low-eye 画像向けの高さ補正は「完全相殺」ではなく「20%だけ残す」方式へ変更した。`src/main.ts` に `firstPersonLowEyeHeightSlideRatio = 0.2` を追加し、`computePlayerPortraitHeightAdjustmentY()` は `playerEyeRenderOffset.y` の 80% だけを相殺する構成にした。これにより、`bw-in-progress` / `bw-complete-pose` 系でも高さ方向スライドが最大で通常系の 20% 残る。

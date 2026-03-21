@@ -426,8 +426,9 @@ const firstPersonViewOffsetStartAngleRadians =
   (firstPersonViewOffsetStartAngleDegrees * Math.PI) / 180;
 const firstPersonViewOffsetMaxAngleRadians =
   (firstPersonViewOffsetMaxAngleDegrees * Math.PI) / 180;
-const firstPersonViewOffsetMaxDistanceScale = 0.12;
-const firstPersonViewOffsetMaxHeightCells = 0.2;
+const firstPersonViewOffsetMaxDistanceScale = 0.14;
+const firstPersonViewOffsetMaxHeightCells = 0.17;
+const firstPersonLowEyeHeightSlideRatio = 0.6;
 const firstPersonViewOffsetMinDirectionLengthSq = 0.0001;
 const firstPersonViewOffsetWallPadding = 0.01;
 const firstPersonPreviewUsePlayerSprite = true;
@@ -1014,7 +1015,9 @@ const shouldApplyLowEyeHeightAdjustment = () =>
     playerState === "brainwash-complete-haigure-formation");
 
 const computePlayerPortraitHeightAdjustmentY = () =>
-  shouldApplyLowEyeHeightAdjustment() ? -playerEyeRenderOffset.y : 0;
+  shouldApplyLowEyeHeightAdjustment()
+    ? -playerEyeRenderOffset.y * (1 - firstPersonLowEyeHeightSlideRatio)
+    : 0;
 
 const applyRenderCameraPosition = () => {
   playerEyeRenderPosition.copyFrom(playerEyeBasePosition);
