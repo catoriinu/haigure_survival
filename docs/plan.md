@@ -81,6 +81,12 @@ PLEASE IMPLEMENT THIS PLAN:
 bw-in-progress / bw-complete-pose 系: 高さ方向スライドも、0ではなく、最大でそれ以外系の20%の高さのスライドをしてほしいです。
 どれだけ反映するか（あるいは軽減するか）の割合として0.2（あるいは0.8）を定数で持ってください。
 
+追記:
+カメラを下向きにしているときに光線が自分に命中したとき、
+自分のキャラスプライトの方が光線命中エフェクトよりも前に映るようにしてください。
+これはレイヤーを無理やり調整するという話ではないです。
+光線命中による球体の内側にカメラがあるなら、下を向いたときには光線よりも自分のキャラスプライトの方が手前に見えるのが当たり前だという話です。
+
 ## Summary
 - 下半身レイヤー自体は残し、自然に見せるために「プレイヤー実位置」と「描画用視点位置」を分離する。
 - 適用範囲は、現在下半身レイヤーを表示している全フェーズとする。
@@ -158,6 +164,9 @@ bw-in-progress / bw-complete-pose 系: 高さ方向スライドも、0ではな�
 - [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
 - [x] low-eye 画像の高さスライド残し率を定数化し、20%だけ残るように調整する
 - [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
+- [x] 光線命中エフェクトと一人称用プレイヤー板ポリの見え順が崩れる条件を切り分け、透明描画ソートが原因か確認する
+- [x] 自キャラ板ポリの透明描画に深度プリパスを入れ、球体内視点では手前の自キャラスプライトが前に見えるよう修正する
+- [x] `docs/plan.md` の結果更新と `npm run build` による確認を行う
 
 ## 結果
 - 既存の `docs/plan.md` は `docs/plan_2026-03-20_first-person-foot-view-offset-prev.md` へ退避し、今回タスク用の計画へ切り替えた。
@@ -199,3 +208,6 @@ bw-in-progress / bw-complete-pose 系: 高さ方向スライドも、0ではな�
 - `scene.onBeforeRenderObservable` に残っていた `playing` / `roulette` 限定の `camera.position.y = getEyeHeight()` は撤去し、ミニマップ更新だけを残した。これにより、phase ベース高さ上書きはなくなり、主画面と反射面の描画位置はどちらも `applyRenderCameraPosition()` に統一された。
 - 上記修正後に `npm run build` を実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による構文崩れや括弧対応の問題はなかった。
 - 追加調整として、low-eye 画像向けの高さ補正は「完全相殺」ではなく「20%だけ残す」方式へ変更した。`src/main.ts` に `firstPersonLowEyeHeightSlideRatio = 0.2` を追加し、`computePlayerPortraitHeightAdjustmentY()` は `playerEyeRenderOffset.y` の 80% だけを相殺する構成にした。これにより、`bw-in-progress` / `bw-complete-pose` 系でも高さ方向スライドが最大で通常系の 20% 残る。
+- 今回の見え順崩れは、`firstPersonPreviewUsePlayerSprite = true` かつ `enableCharacterSpriteVerticalAngle = true` の既定構成で、自キャラが `src/game/characterBillboardMeshes.ts` の半透明板ポリとして描かれている一方、被弾球体も半透明メッシュであるため、深度を書かない透明メッシュ同士のソートに依存していたことが原因候補と分かった。座標自体は `playerEyeBasePosition + playerEyeRenderOffset * 2` の前方配置で、球体内視点では自キャラの方が手前に来うる構成だった。
+- 修正として、`src/game/characterBillboardMeshes.ts` のプレイヤー/ NPC 板ポリ材質に `needDepthPrePass = true` を追加した。これにより、一人称で使っている自キャラ板ポリは半透明のままでも先に深度を確保でき、光線命中球体の内側にカメラがある状況では、実際に手前にある自キャラスプライトが球体より前に見えるようになる。
+- 上記修正後に `npm run build` を実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による構文崩れや括弧対応の問題はなかった。

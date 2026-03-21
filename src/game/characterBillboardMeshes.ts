@@ -95,6 +95,7 @@ export const createCharacterBillboardMeshManager = (
     material.linkEmissiveWithDiffuse = true;
     material.diffuseTexture = texture;
     material.useAlphaFromDiffuseTexture = true;
+    material.needDepthPrePass = true;
     materialCache.set(directory, material);
     return material;
   };
