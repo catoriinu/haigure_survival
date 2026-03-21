@@ -11,6 +11,11 @@ import { type GamePhase } from "./phases";
 
 export type MoveKey = "forward" | "back" | "left" | "right";
 
+export type PlayerMoveAxes = {
+  moveX: number;
+  moveZ: number;
+};
+
 export type PlayerAbilityConfig = {
   baseMoveSpeed: number;
   dashSpeedMultiplier: number;
@@ -51,6 +56,7 @@ export type PlayerAbilityController = {
   setDashPressed: (pressed: boolean) => void;
   resetInput: () => void;
   resetState: () => void;
+  getMoveAxes: () => PlayerMoveAxes;
   hasMoveInput: () => boolean;
   createFrameSnapshot: (
     context: PlayerAbilityFrameContext
@@ -64,13 +70,6 @@ export type PlayerAbilityController = {
     moving: boolean,
     gamePhase: GamePhase,
     playerState: CharacterState
-  ) => void;
-  applyMovement: (
-    horizontalFacingYaw: number,
-    camera: FreeCamera,
-    delta: number,
-    allowMove: boolean,
-    moveSpeed: number
   ) => void;
 };
 
@@ -121,7 +120,7 @@ export const createPlayerAbilityController = ({
     staminaRecoverTimer = 0;
   };
 
-  const getMoveAxes = () => {
+  const getMoveAxes = (): PlayerMoveAxes => {
     let moveX = 0;
     let moveZ = 0;
     if (moveInput.forward) {
@@ -245,6 +244,7 @@ export const createPlayerAbilityController = ({
     },
     resetInput,
     resetState,
+    getMoveAxes,
     hasMoveInput,
     createFrameSnapshot: (context) => {
       const moveSpeed = isDashActive(context.gamePhase, context.playerState)
@@ -323,43 +323,6 @@ export const createPlayerAbilityController = ({
         staminaTenths = staminaMaxTenths;
         staminaRecoverTimer = 0;
       }
-    },
-    applyMovement: (
-      horizontalFacingYaw,
-      camera,
-      delta,
-      allowMove,
-      moveSpeed
-    ) => {
-      if (!allowMove) {
-        return;
-      }
-      const { moveX, moveZ } = getMoveAxes();
-      if (moveX === 0 && moveZ === 0) {
-        return;
-      }
-
-      const forward = new Vector3(
-        Math.sin(horizontalFacingYaw),
-        0,
-        Math.cos(horizontalFacingYaw)
-      );
-      const right = new Vector3(
-        Math.cos(horizontalFacingYaw),
-        0,
-        -Math.sin(horizontalFacingYaw)
-      );
-      const moveDirection = new Vector3(0, 0, 0);
-      if (moveZ !== 0) {
-        moveDirection.addInPlace(forward.scale(moveZ));
-      }
-      if (moveX !== 0) {
-        moveDirection.addInPlace(right.scale(moveX));
-      }
-      if (moveDirection.lengthSquared() <= 0.0001) {
-        return;
-      }
-      camera.cameraDirection.addInPlace(moveDirection.scale(moveSpeed * delta));
     }
   };
 };

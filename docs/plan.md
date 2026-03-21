@@ -1,52 +1,87 @@
-# W/S 水平前後移動修正計画
+# プレイヤー移動の責務分離と慣性復元 計画
 
 更新日: 2026-03-21
 
 ## プロンプト
 PLEASE IMPLEMENT THIS PLAN:
-# W/S 水平前後移動修正計画
+# プレイヤー移動の責務分離と慣性復元 計画
 
 ## Summary
-- 原因は `W/S` の移動基準がカメラ前方ベクトルの水平成分で、正規化されていないこと。
-- 修正後は `W/S` を「プレイヤーの現在の水平向き」に固定し、上下を向いても常にステージ上の水平方向へ前後移動させる。
+- 現在の `(moveSpeed * delta) / (1 - camera.inertia)` 補正は最終形としては採用しない。
+- 一番筋の良い設計は、「プレイヤーの物理実体」と「カメラ表示」を分離し、移動速度と慣性を Babylon の `camera.inertia` ではなくゲーム側の明示的な状態で管理する構成にすること。
+- 具体的には、専用のプレイヤー衝突メッシュを移動の唯一の正とし、`playerEyeBasePosition`、カメラ、キャラスプライト、ミニマップ、当たり判定参照はすべてそこから派生させる。
 
 ## Key Changes
-- 実装着手時に現行 `docs/plan.md` を退避し、新しい `docs/plan.md` を今回タスク用へ切り替える。
-- `src/main.ts` の `computeCharacterFacingYawFromViewMatrix()` を移動にも使う。
-- `updatePlayerMovement()` 内で `movementYaw = computeCharacterFacingYawFromViewMatrix(camera.getViewMatrix(), currentCharacterFacingYaw)` を計算し、`currentCharacterFacingYaw` を更新して移動へ渡す。
-- `src/game/playerAbility.ts` の `applyMovement` は `camera.getDirection()` ベースをやめ、`horizontalFacingYaw` から unit forward `(sin(yaw), 0, cos(yaw))` と unit right `(cos(yaw), 0, -sin(yaw))` を作って移動ベクトルを組み立てる。
-- 射撃方向、視線上下、描画用カメラオフセット、一人称見た目の処理は変更しない。
+- `main.ts` に不可視の `playerCollisionMesh` を追加する。
+  - 公開APIの `AbstractMesh.moveWithCollisions()` を使う。
+  - `checkCollisions = true`、`ellipsoid` と `ellipsoidOffset` は現行カメラ相当の体格に合わせる。
+  - `camera` は衝突実体から外し、表示専用に戻す。`camera.inertia` と `camera.checkCollisions` はプレイヤー移動の挙動決定に使わない。
+- プレイヤーの正位置を「衝突メッシュの足元基準位置」に統一する。
+  - `playerEyeBasePosition` は毎フレーム `playerCollisionMesh.position` と `getEyeHeight()` から再計算する派生値に変更する。
+  - `capturePlayerEyeBasePosition()` で `camera.position` を正とみなす流れは廃止する。
+  - `applyRenderCameraPosition()` はあくまで描画用オフセットだけを扱い、移動や同期の責務を持たせない。
+- 移動モデルを専用状態へ切り出す。
+  - `playerAbility.ts` から `applyMovement()` を削除し、入力軸取得だけを残す。
+  - 新しい内部 `PlayerMotionController` を追加し、水平移動用の `moveMomentum` を永続状態として持つ。
+  - 慣性は `moveInertiaAt60Fps = 0.9` を初期値とする明示的パラメータにする。これは「旧体感に近い僅かな滑り」を再現するためのゲーム側設定であり、`camera.inertia` とは無関係にする。
+  - 毎フレームの流れは次で固定する。
+    1. `computeCharacterFacingYawFromViewMatrix()` で水平 yaw を求める。
+    2. `playerAbility.getMoveAxes()` で入力軸を取る。
+    3. `PlayerMotionController` が、入力分と前フレームの `moveMomentum` から「今回要求する水平 displacement」を作る。
+    4. その displacement を `playerCollisionMesh.moveWithCollisions()` に通す。
+    5. 実際に動いた量 `actualDisplacement` を測り、次フレーム用 `moveMomentum` を `actualDisplacement * frameInertia` で更新する。
+  - これにより、キー押下中の加速感と、キーを離した直後の僅かな慣性移動を復活させつつ、壁衝突後は実移動量ベースで慣性が減衰する。
+- ブロック時とフェーズ遷移時の挙動を明示する。
+  - `allowMove = false` のフレームでは新規移動を行わず、`moveMomentum` は即時ゼロにする。NPC 接触ブロック中に惰性で滑り続けない仕様にする。
+  - スポーン、リセット、タイトル遷移、アセンブリ遷移、ルーレット遷移、実行シーン遷移では `playerCollisionMesh.position` と `moveMomentum` を必ず明示的に初期化する。
+  - `roulette` のように自由移動しないフェーズでも、プレイヤー位置の唯一の正は同じ変数群に揃え、復帰時に位置がズレないようにする。
+- 表示系は派生専用に揃える。
+  - `syncPlayerPresentation()`、一人称プレビュー位置、地面影、被弾判定のプレイヤー位置、ミニマップ、音源位置は `playerEyeBasePosition` だけを見る。
+  - 後退時に自キャラスプライトが映る問題は、カメラとスプライトが同じ正位置から派生することで解消する。
+  - 視線上下、射撃方向、俯角時の描画用カメラオフセットの仕様は変更しない。
 
 ## Interfaces / Types
-- 内部インターフェース変更として `PlayerAbilityController.applyMovement` の第一引数を `horizontalFacingYaw: number` にし、移動の適用先として `camera: FreeCamera` は第二引数で受け取る。
-- セーブデータ、UI、公開設定は変更しない。
+- `PlayerAbilityController`
+  - `applyMovement(...)` は削除する。
+  - `getMoveAxes(): { moveX: number; moveZ: number }` を追加する。
+  - 既存の入力管理、スタミナ管理、脅威判定の責務は維持する。
+- 新規内部 `PlayerMotionController`
+  - `reset()`
+  - `update(moveAxes, horizontalFacingYaw, delta, allowMove, moveSpeed): requestedDisplacement`
+  - `commit(actualDisplacement): void`
+- 新規内部設定
+  - `moveInertiaAt60Fps`
+  - `moveStopEpsilon`
+- `playerEyeBasePosition` は「カメラから捕捉した値」ではなく「プレイヤー実体から導出した目線位置」という意味に統一する。
 
 ## Test Plan
-- `playing`、`assemblyFree`、`execution` の移動可能時に、水平、45度下、80度下、80度上、ほぼ真下、ほぼ真上で `W` と `S` を確認し、常に床面上で前後移動できることを確認する。
-- 真上/真下付近でも、左右へ視点を回した後の `W/S` がプレイヤーの水平向きと一致することを確認する。
-- `A/D`、斜め移動、ダッシュ、NPC 接触による移動阻害が従来どおり動くことを確認する。
-- `npm run build` を実行し、型エラーや構文崩れがないことを確認する。最後に括弧対応を目視確認する。
+- `playing`、`assemblyFree`、`execution` で、水平、45度下、80度下、80度上、ほぼ真上、ほぼ真下でも `W/S` が常に水平方向へ移動すること。
+- `W/A/S/D` を離した直後に、以前と同程度のごく短い慣性移動が入り、その後自然に停止すること。
+- `W`→`S`、`A`→`D` の切り返しで、移動量と向きが破綻しないこと。
+- 壁・角・NPC ブロックに慣性付きで当たっても、めり込み、震え、永続的な押しつけが発生しないこと。
+- `S` で後退し続けても自キャラスプライトが画面へ映り込まないこと。
+- スポーン直後、リセット直後、タイトル復帰、ルーレット遷移、実行シーン遷移後に、位置ずれや古い慣性の持ち越しがないこと。
+- ミニマップ、音源位置、ビーム当たり判定、プレイヤー脅威判定が従来どおりプレイヤー位置へ追従すること。
+- `npm run build` を実行し、型エラーと構文崩れがないことを確認する。最後に、移動更新まわりの if/return 追加箇所と描画復帰処理の括弧対応を目視確認する。
 
 ## Assumptions
-- 「プレイヤーのステージ上の向き」は、既存の `computeCharacterFacingYawFromViewMatrix()` が返す水平向きと同義とする。
-- 斜め移動の速度仕様は今回変更しない。今回の対象は `W/S` の前後移動基準のみとする。
+- 今回は「全面整理」を採用し、最小修正や `camera.inertia` 依存の補正は残さない。
+- 慣性の初期値は「旧体感に近い僅かな滑り」を優先して `0.9 @ 60fps` 相当で開始し、必要なら手触りだけを微調整する。旧挙動の数値完全一致までは要求しない。
+- プレイヤーの自由移動仕様、スタミナ仕様、射撃方向、俯角時カメラオフセット、一人称見た目の基本仕様は維持する。
 
 ## ステップ
-- [x] 現行 `docs/plan.md` を退避し、今回タスク用の `docs/plan.md` を作成する
-- [x] `src/main.ts` で移動用の水平向きを算出し、`updatePlayerMovement()` から渡す
-- [x] `src/game/playerAbility.ts` の `applyMovement()` を yaw 基準の水平移動へ変更する
-- [x] `docs/plan.md` の結果を更新し、`npm run build` で確認する
-- [x] `applyMovement()` 内の旧 `camera` 参照を解消し、実行時エラーを修正する
-- [x] 俯角時の移動デグレを調査し、描画用オフセット復帰で移動量を失わないよう修正する
+- [x] `docs/plan.md` を今回タスク用へ切り替え、実装方針を記録する
+- [x] `PlayerAbilityController` から移動適用責務を外し、入力軸取得APIへ整理する
+- [x] `PlayerMotionController` と `playerCollisionMesh` を導入し、プレイヤー移動の正位置を衝突メッシュへ統一する
+- [x] カメラ、キャラスプライト、各種参照位置を `playerEyeBasePosition` 派生へ揃え、フェーズ遷移時の初期化を更新する
+- [x] `docs/plan.md` の結果を更新し、`npm run build` と括弧確認で仕上げる
 
 ## 結果
-- 現行の `docs/plan.md` を `docs/plan_2026-03-21_first-person-foot-view-offset-prev2.md` へ退避し、今回タスク用の計画へ切り替えた。
-- `src/main.ts` の `updatePlayerMovement()` で、移動前に `computeCharacterFacingYawFromViewMatrix(camera.getViewMatrix(), currentCharacterFacingYaw)` を使って水平 yaw を算出し、`currentCharacterFacingYaw` を更新したうえで移動処理へ渡すようにした。
-- `src/game/playerAbility.ts` の `applyMovement()` は第一引数を `horizontalFacingYaw` に変更し、`camera.getDirection()` ではなく `yaw` から作る unit forward / unit right を使って水平方向の移動ベクトルを組み立てるようにした。これにより、上下を向いても `W/S` の移動量が俯角・仰角で縮まらない。
-- `npm run build` は renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は出たが、今回の変更による型エラーや構文崩れはなかった。
-- 変更後の `updatePlayerMovement()` と `applyMovement()` の括弧対応を確認し、今回の if ブロック追加・差し替えによる対応崩れはないことを確認した。
-- follow-up 修正として、`src/game/playerAbility.ts` の `applyMovement()` が内部で `camera.cameraDirection` を更新している点に合わせ、`camera: FreeCamera` を第二引数として明示的に受け取るようにした。これに合わせて `src/main.ts` の呼び出し側も更新し、`ReferenceError: camera is not defined` で停止する問題を解消した。
-- 上記 follow-up 修正後に `npm run build` を再実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による型エラーや構文崩れはなかった。
-- 今回のデグレ原因は、俯角時だけ `applyRenderCameraPosition()` が描画用オフセットを `camera.position` に乗せ、その後 `restorePlayerEyeBasePosition()` が `scene.render()` 中に反映された移動分まで含めて古い `playerEyeBasePosition` へ丸ごと巻き戻していたことにあった。そのため、見た目上はカメラが少しずれる一方で、実際のプレイヤー位置は更新されず、身体が動かない状態になっていた。
-- `src/main.ts` の `restorePlayerEyeBasePosition()` は、古い実位置へ戻すのではなく、`playerEyeRenderPosition - playerEyeBasePosition` で求めた描画用オフセットだけを現在の `camera.position` から差し引く構成へ修正した。これにより、`scene.render()` 中に反映された移動量は維持したまま、描画用オフセットだけを外して次フレームの実位置へ戻せる。
-- 上記デグレ修正後に `npm run build` を再実行し、renderer / electron ともに成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の修正による型エラーや構文崩れはなかった。
+- 直前の計画は `docs/plan_2026-03-21_ws-horizontal-movement-followup-prev.md` へ退避し、今回タスク用の `docs/plan.md` へ切り替えた。
+- `src/game/playerAbility.ts` から移動適用責務を削除し、`getMoveAxes()` を追加して入力軸取得だけを公開する構成へ整理した。スタミナ管理、脅威判定、入力状態管理の責務は維持している。
+- `src/game/playerMotion.ts` を新規追加し、ゲーム側の明示的な `moveMomentum` を保持する `PlayerMotionController` を実装した。慣性は `moveInertiaAt60Fps = 0.9` を 60fps 基準で減衰させる方式で管理し、キー押下中の加速感とキー離し後の短い慣性移動を `camera.inertia` 非依存で再現する。
+- `src/main.ts` に不可視の `playerCollisionMesh` を追加し、`camera.checkCollisions = false` へ変更した。`updatePlayerMovement()` は `computeCharacterFacingYawFromViewMatrix()` と `playerAbility.getMoveAxes()` から要求移動量を作り、`playerCollisionMesh.moveWithCollisions()` の実移動量を `playerMotion.commit()` へ返す流れへ置き換えた。
+- `playerEyeBasePosition` は `playerCollisionMesh.position + getEyeHeight()` から毎フレーム再計算する派生値へ統一した。これに合わせてカメラ基準の `capturePlayerEyeBasePosition()` は廃止し、`restorePlayerEyeBasePosition()` は描画用カメラオフセットを外した後に必ずプレイヤー実位置へ戻す役割へ整理した。
+- スポーン、リセット、ルーレット、実行シーン移行時には `playerCollisionMesh` と `playerMotion` を明示的に初期化するよう更新した。カメラ、キャラスプライト、被弾判定、音源、ミニマップなどが参照する `playerEyeBasePosition` は、今回の統一後もプレイヤー実位置から派生する。
+- `npm run build` は成功した。Vite の chunk size warning と CJS build deprecation warning は継続して出るが、今回の変更による型エラーや構文崩れは発生していない。
+- `updatePlayerMovement()`、`restorePlayerEyeBasePosition()`、描画ループ内の `if` 分岐追加箇所を見直し、今回の差し替えで括弧対応が崩れていないことを確認した。

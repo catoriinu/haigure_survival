@@ -123,6 +123,7 @@ import {
   createPlayerAbilityController,
   type PlayerAbilityFrameSnapshot
 } from "./game/playerAbility";
+import { createPlayerMotionController } from "./game/playerMotion";
 import {
   createCharacterBillboardMeshManager,
   type CharacterBillboardMeshHandle
@@ -846,19 +847,26 @@ const playerDashSpeedMultiplier = 1.7;
 const playerStaminaMaxTenths = 150;
 const playerStaminaDrainInterval = 0.1;
 const playerStaminaRecoverInterval = 0.2;
+const playerMoveInertiaAt60Fps = 0.9;
+const playerMoveStopEpsilon = 0.00001;
 camera.speed = 0;
 camera.angularSensibility = 1500;
 camera.keysUp = [87];
 camera.keysDown = [83];
 camera.keysLeft = [65];
 camera.keysRight = [68];
-camera.checkCollisions = true;
-camera.ellipsoid = new Vector3(
+camera.checkCollisions = false;
+camera.inputs.removeByType("FreeCameraKeyboardMoveInput");
+const playerCollisionMesh = new Mesh("playerCollision", scene);
+playerCollisionMesh.isVisible = false;
+playerCollisionMesh.isPickable = false;
+playerCollisionMesh.checkCollisions = true;
+playerCollisionMesh.ellipsoid = new Vector3(
   playerWidth * 0.5,
   playerHeight * 0.5,
   playerWidth * 0.5
 );
-camera.inputs.removeByType("FreeCameraKeyboardMoveInput");
+playerCollisionMesh.ellipsoidOffset = new Vector3(0, playerHeight * 0.5, 0);
 const reflectionCamera = new FreeCamera(
   "reflectionCamera",
   spawnPosition.clone(),
@@ -870,10 +878,11 @@ reflectionCamera.fov = camera.fov;
 const playerEyeBasePosition = Vector3.Zero();
 const playerEyeRenderOffset = Vector3.Zero();
 const playerEyeRenderPosition = Vector3.Zero();
-const playerEyeRenderRestoreOffset = Vector3.Zero();
 const playerAvatarWorldPosition = Vector3.Zero();
 const firstPersonPreviewPlayerPosition = Vector3.Zero();
 const firstPersonViewHorizontalForward = Vector3.Zero();
+const playerMoveStartPosition = Vector3.Zero();
+const playerMoveActualDisplacement = Vector3.Zero();
 const firstPersonViewRay = new Ray(
   Vector3.Zero(),
   new Vector3(0, 0, 1),
@@ -881,7 +890,29 @@ const firstPersonViewRay = new Ray(
 );
 let renderCameraPositionApplied = false;
 let playerAvatarRenderPositionApplied = false;
+const playerMotion = createPlayerMotionController({
+  moveInertiaAt60Fps: playerMoveInertiaAt60Fps,
+  moveStopEpsilon: playerMoveStopEpsilon
+});
+const shouldSyncCameraToPlayerPosition = (phase: GamePhase) =>
+  usesPlayerEyeHeight(phase) || phase === "execution";
+const syncPlayerCollisionMeshFromEyePosition = (eyePosition: Vector3) => {
+  playerCollisionMesh.position.set(
+    eyePosition.x,
+    eyePosition.y - getEyeHeight(),
+    eyePosition.z
+  );
+};
+const syncCameraBasePositionFromPlayer = () => {
+  if (!shouldSyncCameraToPlayerPosition(gamePhase)) {
+    return;
+  }
+  camera.position.copyFrom(playerEyeBasePosition);
+  renderCameraPositionApplied = false;
+};
 const applyCameraSpawnTransform = () => {
+  syncPlayerCollisionMeshFromEyePosition(spawnPosition);
+  playerMotion.reset();
   camera.position.copyFrom(spawnPosition);
   camera.rotation = new Vector3(0, 0, 0);
   camera.setTarget(spawnPosition.add(spawnForward));
@@ -896,19 +927,21 @@ const syncReflectionCamera = () => {
 };
 
 const capturePlayerEyeBasePosition = () => {
-  playerEyeBasePosition.copyFrom(camera.position);
+  playerEyeBasePosition.set(
+    playerCollisionMesh.position.x,
+    playerCollisionMesh.position.y + getEyeHeight(),
+    playerCollisionMesh.position.z
+  );
   renderCameraPositionApplied = false;
 };
+syncPlayerCollisionMeshFromEyePosition(spawnPosition);
+capturePlayerEyeBasePosition();
 
 const restorePlayerEyeBasePosition = () => {
-  if (!renderCameraPositionApplied) {
+  if (!renderCameraPositionApplied || !shouldSyncCameraToPlayerPosition(gamePhase)) {
     return;
   }
-  // scene.render() 中に反映された移動量は残しつつ、描画用オフセットだけを外す。
-  playerEyeRenderRestoreOffset.copyFrom(playerEyeBasePosition);
-  playerEyeRenderRestoreOffset.subtractInPlace(playerEyeRenderPosition);
-  camera.position.addInPlace(playerEyeRenderRestoreOffset);
-  playerEyeBasePosition.copyFrom(camera.position);
+  camera.position.copyFrom(playerEyeBasePosition);
   renderCameraPositionApplied = false;
 };
 
@@ -2823,6 +2856,7 @@ const enterPublicExecution = (scenario: PublicExecutionScenario) => {
   disposeExecutionHitEffects();
   if (!executionAllowPlayerMove) {
     playerAbility.resetInput();
+    playerMotion.reset();
     camera.cameraDirection.set(0, 0, 0);
   }
   gameFlow.enterExecution(scenario);
@@ -3117,13 +3151,20 @@ const updatePlayerMovement = (
     currentCharacterFacingYaw
   );
   currentCharacterFacingYaw = movementYaw;
-  playerAbility.applyMovement(
+  const requestedDisplacement = playerMotion.update(
+    playerAbility.getMoveAxes(),
     movementYaw,
-    camera,
     delta,
     allowMove,
     moveSpeed
   );
+  playerMoveStartPosition.copyFrom(playerCollisionMesh.position);
+  if (requestedDisplacement.lengthSquared() > 0.0000000001) {
+    playerCollisionMesh.moveWithCollisions(requestedDisplacement);
+  }
+  playerMoveActualDisplacement.copyFrom(playerCollisionMesh.position);
+  playerMoveActualDisplacement.subtractInPlace(playerMoveStartPosition);
+  playerMotion.commit(playerMoveActualDisplacement);
 };
 
 const getBeamImpactPosition = (beam: Beam) =>
@@ -3218,6 +3259,7 @@ const updateExecutionScene = (
         playerState = "brainwash-complete-haigure-formation";
         executionAllowPlayerMove = false;
         playerAbility.resetInput();
+        playerMotion.reset();
         camera.cameraDirection.set(0, 0, 0);
         updateHudPhaseOverride({ crosshairVisible: false });
         break;
@@ -3392,7 +3434,10 @@ const setupRouletteParticipants = () => {
     eyeHeight,
     rouletteCenter.z + Math.sin(playerAngle) * rouletteCharacterRadius
   );
-  camera.position.copyFrom(roulettePlayerPosition);
+  syncPlayerCollisionMeshFromEyePosition(roulettePlayerPosition);
+  playerMotion.reset();
+  capturePlayerEyeBasePosition();
+  syncCameraBasePositionFromPlayer();
   camera.setTarget(new Vector3(rouletteCenter.x, eyeHeight, rouletteCenter.z));
   camera.cameraDirection.set(0, 0, 0);
   playerAbility.resetInput();
@@ -3700,7 +3745,9 @@ const updateRouletteScene = (
   shouldProcessOrb: (position: Vector3) => boolean
 ) => {
   const eyeHeight = getEyeHeight();
-  camera.position.set(roulettePlayerPosition.x, eyeHeight, roulettePlayerPosition.z);
+  syncPlayerCollisionMeshFromEyePosition(roulettePlayerPosition);
+  capturePlayerEyeBasePosition();
+  syncCameraBasePositionFromPlayer();
   camera.cameraDirection.set(0, 0, 0);
   updateBeams(
     layout,
@@ -4393,6 +4440,7 @@ const resetGame = async (
   playerHitById = null;
   playerHitTime = 0;
   playerAbility.resetState();
+  playerMotion.reset();
   trapSurviveCountAtBrainwash = null;
   playerHitDurationCurrent = playerHitDuration;
   playerHitFadeDurationCurrent = playerHitFadeDuration;
@@ -4630,6 +4678,7 @@ engine.runRenderLoop(() => {
   restorePlayerAvatarWorldPosition();
   const delta = engine.getDeltaTime() / 1000;
   capturePlayerEyeBasePosition();
+  syncCameraBasePositionFromPlayer();
   trapSystem.update(delta, gamePhase);
   dynamicBeamSystem.update(delta, gamePhase);
   if (gamePhase === "playing") {
@@ -4735,6 +4784,7 @@ engine.runRenderLoop(() => {
       playerAbilitySnapshotForMovement.moveSpeed
     );
     capturePlayerEyeBasePosition();
+    syncCameraBasePositionFromPlayer();
     playerAbility.updateStamina(delta, movingForStamina, gamePhase, playerState);
 
     const executionCandidate = findPublicExecutionCandidate();
@@ -4914,6 +4964,7 @@ engine.runRenderLoop(() => {
     const shouldProcessOrb = buildOrbCullingCheck();
     updateExecutionScene(delta, shouldProcessOrb);
     capturePlayerEyeBasePosition();
+    syncCameraBasePositionFromPlayer();
   }
 
   if (isAssemblyPhase(gamePhase)) {
@@ -4924,11 +4975,12 @@ engine.runRenderLoop(() => {
   if (gamePhase === "assemblyFree") {
     updatePlayerMovement(delta, true, playerMoveSpeed);
     capturePlayerEyeBasePosition();
+    syncCameraBasePositionFromPlayer();
   }
 
   if (usesPlayerEyeHeight(gamePhase)) {
-    camera.position.y = getEyeHeight();
     capturePlayerEyeBasePosition();
+    syncCameraBasePositionFromPlayer();
   }
   updateCharacterSpriteCells();
   updateVoices(delta);
