@@ -88,6 +88,11 @@ Files in the public directory are served at the root path.
 
 1でYES
 
+構文警告が出ているので修正してください。
+- main.tsの`const npcTargetBuffer: TargetInfo[] = [];`が見つかりません
+- src\game\groundShadows.tsの`draw(ctx, shadowTextureSize);`について、「型 'ICanvasRenderingContext' の引数を型 'CanvasRenderingContext2D' のパラメーターに割り当てることはできません。
+  型 'ICanvasRenderingContext' には 型 'CanvasRenderingContext2D' からの次のプロパティがありません: msImageSmoothingEnabled, globalCompositeOperation, isPointInPath, isPointInStroke、28 など。」
+
 また、都心部ステージで全滅したとき、フェードが明けても整列位置に移動していないようでした。
 「よう」というのは、画面内を見る限り他のキャラやビットが見えなかったからです。周囲を見渡そうとした瞬間、以下のエラーが出てカメラが固まってしまいました。（整列時のNPCのボイスは鳴っていました）
 flow.ts:402 Uncaught TypeError: Cannot read properties of undefined (reading 'index')
@@ -121,6 +126,9 @@ flow.ts:402 Uncaught TypeError: Cannot read properties of undefined (reading 'in
 - [x] `npm run build` を再実行し、整列入力仕様変更後のビルド成立を確認する
 - [x] タイトル復帰時に旧シーンの映像と音声が残る原因を調査し、即時に見た目と音を片付ける
 - [x] `npm run build` を再実行し、タイトル復帰まわりの変更後のビルド成立を確認する
+- [x] `main.ts` の `TargetInfo` 参照警告を解消する
+- [x] `groundShadows.ts` の `DynamicTexture` context 型警告を解消する
+- [x] `npm run build` を再実行し、今回の警告修正後のビルド成立を確認する
 
 ## 結果
 - `src/game/titleStartPreparation.ts` を追加し、タイトル画面の重い再準備を 250ms デバウンスで直列化するコントローラを導入した。開始時は prepared state を確認し、一致時は `resetGame()` を再実行しない構成へ切り替えた。
@@ -152,3 +160,6 @@ flow.ts:402 Uncaught TypeError: Cannot read properties of undefined (reading 'in
 - 旧シーンが残って見えていた原因は、`returnToTitle()` がタイトル UI と半透明 overlay を先に表示した後で `await ensureTitleStartPreparationReady()` を待っており、`resetGame()` 由来の voice 停止・ビット破棄・カメラ初期化がその後まで走らなかったことだった。overlay も `rgba(0, 0, 0, 0.7)` なので、待ち時間中は全滅時カメラの映像が透けて見えていた。
 - これを解消するため、`prepareTitleReturnPresentation()` を追加し、`returnToTitle()` の `await` 前に voice/BGM/ループ SE の停止、公開処刑状態の解除、ビームとビットの破棄、入力慣性のリセット、スポーン視点へのカメラ復帰、player/NPC sprite の即時非表示を先に実行するようにした。これにより、title start preparation の待ちが残っていても、裏で全滅シーンの映像と音声が残り続けにくくした。
 - 今回のタイトル復帰修正後にも `npm run build` は成功した。
+- `src/main.ts` の `npcTargetBuffer` が参照していた `TargetInfo` は `src/game/types.ts` からの `type import` が抜けていたため、明示的に import を追加して構文警告を解消した。
+- `src/game/groundShadows.ts` の `draw(ctx, shadowTextureSize)` 警告は、Babylon.js の `DynamicTexture.getContext()` が `ICanvasRenderingContext` を返す型定義と `draw()` の `CanvasRenderingContext2D` 要求のズレが原因だったため、利用箇所で `CanvasRenderingContext2D` へ明示キャストして解消した。
+- 今回の警告修正後にも `npm run build` は成功した。

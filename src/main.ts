@@ -179,6 +179,7 @@ import {
   createGroundShadowManager,
   type GroundShadowHandle
 } from "./game/groundShadows";
+import type { TargetInfo } from "./game/types";
 import {
   createTitleStartPreparationController,
   type TitleStartPreparationController,

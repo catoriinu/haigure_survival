@@ -56,7 +56,7 @@ const createShadowTexture = (
     scene,
     false
   );
-  const ctx = texture.getContext();
+  const ctx = texture.getContext() as unknown as CanvasRenderingContext2D;
   ctx.clearRect(0, 0, shadowTextureSize, shadowTextureSize);
   draw(ctx, shadowTextureSize);
   texture.hasAlpha = true;
