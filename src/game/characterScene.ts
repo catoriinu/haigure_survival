@@ -650,17 +650,18 @@ export const createCharacterSceneController = ({
       baseOptions,
       loopOptions
     }) => {
-      if (!playerVoiceActor) {
-        return;
+      if (playerVoiceActor) {
+        playerVoiceActor.getPosition = playerPosition;
+        playerVoiceActor.getState = getPlayerState;
+        updateVoiceActor(
+          playerVoiceActor,
+          audioManager,
+          delta,
+          allowIdle,
+          baseOptions,
+          loopOptions
+        );
       }
-      updateVoiceActor(
-        playerVoiceActor,
-        audioManager,
-        delta,
-        allowIdle,
-        baseOptions,
-        loopOptions
-      );
       for (let index = 0; index < npcVoiceActors.length; index += 1) {
         const actor = npcVoiceActors[index];
         const npc = npcs[index];
@@ -678,10 +679,6 @@ export const createCharacterSceneController = ({
           baseOptions,
           loopOptions
         );
-      }
-      if (playerVoiceActor) {
-        playerVoiceActor.getPosition = playerPosition;
-        playerVoiceActor.getState = getPlayerState;
       }
     }
   };

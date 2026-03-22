@@ -1,6 +1,6 @@
 # ブランチ横断リファクタリングと開始遅延削減 計画
 
-更新日: 2026-03-21
+更新日: 2026-03-22
 
 ## プロンプト
 このブランチで実装した内容を中心に、それ以前の実装も含めてリファクタリングを行ってください。
@@ -47,6 +47,32 @@ audio.ts:271 Uncaught TypeError: Failed to set the 'value' property on 'AudioPar
     at AudioManager.updateSpatial (audio.ts:271:24)
     at main.ts:4708:16
 
+自ボイスを「ランダム選択」にすると、ボイスは再生できました。
+しかしいずれかのボイス（少なくとも01_devil選択時は）を選択すると、全員のボイスが再生されませんでした。
+コンソールログは何も出ていませんでした。
+今回のリファクタ起因ではない可能性を含めて、問題を調査してください。
+
+01_devilを選択してゲームを開始した直後、以下のログが12_anauncerのぶんまで全ボイスファイルぶん表示されました。
+```
+Assets in public directory cannot be imported from JavaScript.
+If you intend to import that asset, put the file in the src directory, and use /src/audio/voice/01_devil/悪_110ハイグレ.wav instead of /public/audio/voice/01_devil/悪_110ハイグレ.wav.
+If you intend to use the URL of that asset, use /audio/voice/01_devil/悪_110ハイグレ.wav?url.
+Assets in public directory cannot be imported from JavaScript.
+If you intend to import that asset, put the file in the src directory, and use /src/audio/voice/01_devil/悪_210ハイグレ.wav instead of /public/audio/voice/01_devil/悪_210ハイグレ.wav.
+If you intend to use the URL of that asset, use /audio/voice/01_devil/悪_210ハイグレ.wav?url.
+Assets in public directory cannot be imported from JavaScript.
+```
+
+その後、音声がゲーム内で再生されるたびにこのような表示が出ました。
+```
+If you intend to use the URL of that asset, use /audio/voice/12_anauncer/ア_Cはああああん！.wav?url.
+Files in the public directory are served at the root path.
+```
+
+また、一つ現象として判明したことがあります。
+ブラウザをF5で更新した直後、LOADINGが終わった直後にゲームを開始すると、自ボイスを選択していても、ランダムでも、ゲーム内でボイスが鳴りません。（SEは鳴ります）
+そのまま全滅→読み込み直しせずに再度ゲーム開始すると、自ボイスを選択していても、ランダムでも、ボイスが鳴るようになりました。
+
 ## ステップ
 - [x] 既存の `docs/plan.md` を退避し、今回タスク用の `docs/plan.md` を作成する
 - [x] タイトル開始の事前準備フローと設定変更イベントを実装する
@@ -56,6 +82,11 @@ audio.ts:271 Uncaught TypeError: Failed to set the 'value' property on 'AudioPar
 - [x] 実装結果と検証結果を `docs/plan.md` に反映する
 - [x] 音声まわりの回帰を調査し、ボイス未再生と `AudioParam` 非有限値エラーの原因を修正する
 - [x] `npm run build` を再実行し、回帰修正後のビルド成立を確認する
+- [x] 固定自ボイス選択時の全ボイス無音を調査し、voice asset 解決と silent media error の経路を修正する
+- [x] 回帰修正後の `npm run build` を再実行し、音声関連変更のビルド成立を確認する
+- [x] `/public` voice asset の誤 import を除去し、Vite 警告ログを止める
+- [x] 初回開始時に voice actor が未初期化のまま残る経路を修正する
+- [x] `npm run build` を再実行し、今回の音声修正後のビルド成立を確認する
 
 ## 結果
 - `src/game/titleStartPreparation.ts` を追加し、タイトル画面の重い再準備を 250ms デバウンスで直列化するコントローラを導入した。開始時は prepared state を確認し、一致時は `resetGame()` を再実行しない構成へ切り替えた。
@@ -72,3 +103,9 @@ audio.ts:271 Uncaught TypeError: Failed to set the 'value' property on 'AudioPar
 - `babylon` vendor chunk は `babylon-Bq8v4Nk3.js` の 3,896.73 kB だったため、vendor-only 警告だけを吸収する目的で `chunkSizeWarningLimit` を 4000 に設定した。最終確認時の `npm run build` では chunk size warning も出ていない。
 - 音声回帰の原因は、`main.ts` から `characterScene.updateVoices()` へ渡す引数名が `baseOptions` / `loopOptions` ではなく `voiceBaseOptions` / `voiceLoopOptions` のまま残っていたことだった。これにより `updateVoiceActor()` 側へ音声設定が渡らず、ボイス未再生と `AudioManager.updateSpatial()` の `AudioParam` 非有限値エラーが発生していたため、呼び出し側のプロパティ名を修正した。
 - 回帰修正後に `npm run build` を再実行し、renderer / electron ともに成功することを確認した。
+- `voiceManifest.json` に載っている全 voice ファイルは実在し、preview で `01_devil` と `11_poor` の raw URL を直接叩いても `200` が返ることを確認した。したがって、固定自ボイス選択時の無音は manifest と実ファイルの不一致や public 配信パス欠落ではなかった。
+- `src/audio/audio.ts` に `HTMLAudioElement` の `error` ハンドラを追加し、silent failure をコンソールへ出しつつ壊れた slot を解放するようにした。併せて `src/game/characterScene.ts` の `updateVoices()` から「player voice actor がないと NPC voice 更新も止まる」早期 return を外し、仮に自ボイス側だけ問題があっても全員無音にならないようにした。
+- 追加の音声修正後にも `npm run build` は成功した。
+- `/public` voice asset の Vite 警告は、`src/audio/voice.ts` で `import.meta.glob("/public/...")` を `eager import` へ変えていたことが直接原因だったため、列挙用途だけに戻して再生 URL は `BASE_URL + audio/voice/...` の参照へ戻した。
+- F5 直後の初回開始で全 voice が鳴らない原因は、初期 LOADING 終了時点では `prepareCharacters()` だけが走っており、`characterScene.rebindVoices()` がまだ呼ばれていなかったことだった。prepared start では `resetGame()` を省略するため、そのまま `voice actor` 未初期化のままゲーム開始していた。これを避けるため、`startGame()` の prepared state 適用直後に軽量な `rebindVoiceActors()` を必ず実行するようにした。
+- 今回の修正後にも `npm run build` は成功した。

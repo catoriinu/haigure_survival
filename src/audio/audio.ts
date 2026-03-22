@@ -117,6 +117,16 @@ export class AudioManager {
       audio.addEventListener("ended", () => {
         this.stopSlot(slot, true);
       });
+      audio.addEventListener("error", () => {
+        if (!slot.active) {
+          return;
+        }
+        console.error("Spatial audio media error.", {
+          src: audio.currentSrc || audio.src,
+          code: audio.error?.code ?? null
+        });
+        this.stopSlot(slot, false);
+      });
       slots.push(slot);
     }
     return slots;

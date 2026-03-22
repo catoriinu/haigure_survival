@@ -1100,6 +1100,16 @@ const syncCharacterFacingYaw = () => {
   applyCharacterFacingYaw(currentCharacterFacingYaw);
 };
 
+const rebindVoiceActors = () => {
+  characterScene.rebindVoices({
+    playerPosition: () => playerEyeBasePosition,
+    getPlayerState: () => playerState,
+    npcs,
+    getNpcState: (npc) =>
+      executionNpcVoiceStateOverrides.get(npc.sprite.name) ?? npc.state
+  });
+};
+
 const syncTitleCameraHeight = () => {
   const eyeHeight = getEyeHeight();
   spawnPosition.y = eyeHeight;
@@ -4251,13 +4261,7 @@ const resetGame = async (
     spawnPosition.z
   );
   rebuildGameFlow();
-  characterScene.rebindVoices({
-    playerPosition: () => playerEyeBasePosition,
-    getPlayerState: () => playerState,
-    npcs,
-    getNpcState: (npc) =>
-      executionNpcVoiceStateOverrides.get(npc.sprite.name) ?? npc.state
-  });
+  rebindVoiceActors();
 };
 
 const startGame = async () => {
@@ -4277,6 +4281,7 @@ const startGame = async () => {
       return;
     }
     applyRuntimeSettings(preparedState.runtimeSettings);
+    rebindVoiceActors();
     const rouletteSelected = preparedState.runtimeSettings.rouletteSelected;
     const bgmUrl = selectBgmUrl(stageJson ? stageJson.meta.name : null);
     if (bgmUrl) {
