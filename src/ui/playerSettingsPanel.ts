@@ -8,18 +8,25 @@ export type PlayerSettings = {
   heightCells: number;
   portraitDirectory: string | null;
   voiceDirectory: string | null;
+  showGroundShadows: boolean;
+  enableCharacterSpriteVerticalAngle: boolean;
 };
+
+type PlayerSettingsPanelState = Pick<
+  PlayerSettings,
+  "heightCells" | "portraitDirectory" | "voiceDirectory"
+>;
 
 type PlayerSettingsPanelOptions = {
   parent: HTMLElement;
-  initialSettings: PlayerSettings;
+  initialSettings: PlayerSettingsPanelState;
   portraitDirectories: readonly string[];
   voiceDirectories: readonly string[];
-  onChange: (settings: PlayerSettings) => void;
+  onChange: (settings: PlayerSettingsPanelState) => void;
   className?: string;
 };
 
-export type PlayerSettingsPanel = SettingsPanel<PlayerSettings>;
+export type PlayerSettingsPanel = SettingsPanel<PlayerSettingsPanelState>;
 
 const randomOptionValue = "";
 
@@ -46,7 +53,7 @@ export const createPlayerSettingsPanel = ({
 
   const portraitDirectorySet = new Set(portraitDirectories);
   const voiceDirectorySet = new Set(voiceDirectories);
-  const settings: PlayerSettings = {
+  const settings: PlayerSettingsPanelState = {
     heightCells: initialSettings.heightCells,
     portraitDirectory: normalizeDirectorySelection(
       initialSettings.portraitDirectory,

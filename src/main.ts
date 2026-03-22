@@ -4,6 +4,7 @@ import {
   Scene,
   FreeCamera,
   Frustum,
+  Matrix,
   Vector3,
   HemisphericLight,
   Color3,
@@ -11,8 +12,8 @@ import {
   DynamicTexture,
   MirrorTexture,
   Plane,
+  Ray,
   Sprite,
-  SpriteManager,
   Mesh,
   MeshBuilder,
   StandardMaterial,
@@ -40,6 +41,7 @@ import {
   createBeamMaterial,
   createBit,
   createBitMaterials,
+  bitShadowFootprint,
   disposeBit,
   isAliveState,
   isBrainwashState,
@@ -59,11 +61,9 @@ import {
   updateBitFireEffect,
   startBitDespawn,
   updateBitDespawn,
-  applyNpcDefaultHaigureState,
   pickRandomCell,
   setNpcBrainwashInProgressTransitionConfig,
   setNpcBrainwashCompleteTransitionConfig,
-  spawnNpcs,
   StageBounds,
   updateBeams,
   updateBits,
@@ -91,16 +91,16 @@ import {
   type AudioCategory
 } from "./audio/audio";
 import {
-  createVoiceActor,
   getVoiceDirectories,
   getVoiceProfileIdByDirectory,
-  stopVoiceActor,
-  updateVoiceActor,
-  voiceProfiles,
-  VoiceActor
+  voiceProfiles
 } from "./audio/voice";
 import { SfxDirector } from "./audio/sfxDirector";
-import { createGameFlow, type ExecutionConfig } from "./game/flow";
+import {
+  createGameFlow,
+  type AssemblyMode,
+  type ExecutionConfig
+} from "./game/flow";
 import { createDynamicBeamSystem } from "./game/dynamicBeam/system";
 import { createTrapSystem } from "./game/trap/system";
 import { createAlarmSystem } from "./game/alarm/system";
@@ -108,7 +108,6 @@ import { createRouletteSystem } from "./game/roulette/system";
 import { RouletteBitFireEntry, RouletteHitTarget } from "./game/roulette/types";
 import {
   canReleaseAssemblyControl,
-  isAssemblyPhase,
   shouldHidePlayerAvatarFromMainCamera,
   shouldShowFirstPersonBodyForPhase,
   shouldSyncPlayerAvatarToCamera,
@@ -120,6 +119,7 @@ import {
   createPlayerAbilityController,
   type PlayerAbilityFrameSnapshot
 } from "./game/playerAbility";
+import { createPlayerMotionController } from "./game/playerMotion";
 import { buildStageContext, disposeStageParts } from "./world/stageContext";
 import { createZoneMapFromStageJson } from "./world/stageJson";
 import {
@@ -149,7 +149,8 @@ import { createStageSelectControl } from "./ui/stageSelectControl";
 import {
   getTitleSettingsAvailability,
   isRouletteStageId,
-  normalizeRuntimeSettingsForStage
+  normalizeRuntimeSettingsForStage,
+  type RuntimeSettingsByStage
 } from "./ui/titleStageRules";
 import {
   createTitleSettingsSidebar,
@@ -162,13 +163,29 @@ import {
 } from "./game/characterSprites";
 import {
   assignPortraitDirectories,
-  calculatePortraitSpriteSize,
   getNoGunTouchBrainwashCellIndex,
   getPortraitCellIndex,
-  getPortraitDirectories,
-  loadPortraitSpriteSheet,
-  type PortraitSpriteSheet
+  getPortraitDirectories
 } from "./game/portraitSprites";
+import { createCharacterSceneController } from "./game/characterScene";
+import {
+  buildGridCellKey,
+  ensureVectorListBufferSize,
+  runRuntimeFramePhases,
+  syncNpcTargetBuffer,
+  syncNpcTargetBufferStates
+} from "./game/runtimeFrame";
+import {
+  createGroundShadowManager,
+  type GroundShadowHandle
+} from "./game/groundShadows";
+import type { TargetInfo } from "./game/types";
+import {
+  createTitleStartPreparationController,
+  type TitleStartPreparationController,
+  type TitleStartPreparationLoadingSession,
+  type TitleStartPreparationRequest
+} from "./game/titleStartPreparation";
 
 const canvas =
   document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
@@ -186,6 +203,7 @@ const defaultClearColor = scene.clearColor.clone();
 const titleReadyMessage = "左クリック: 開始";
 const titleLoadingMessageBase = "NOW LOADING";
 const titleLoadingDotIntervalMs = 300;
+const titleStartPreparationDebounceMs = 250;
 const enableNoGunTouchBrainwashConfirmMessage =
   "「銃なしに触れたら洗脳」をオンにすると、ゲーム起動時の読み込み時間が長くなります。\nOKを押すと、オンにしてゲームを再起動します。よろしいですか？";
 type CharacterAssignments = {
@@ -198,6 +216,14 @@ type TitleLoadingSession = {
   setTotal: (count: number) => void;
   advance: () => void;
   finish: () => void;
+};
+type TitleStartPreparationRequestData = TitleStartPreparationRequest<
+  CharacterAssignments,
+  RuntimeSettingsByStage
+>;
+type BitGroundShadowHandles = {
+  shape: GroundShadowHandle;
+  circle: GroundShadowHandle;
 };
 
 let activeTitleLoadingSessionCount = 0;
@@ -376,6 +402,21 @@ const portraitMaxHeightCells = 2;
 const worldLayerMask = 0x0fffffff;
 const reflectionOnlyLayerMask = 0x10000000;
 const firstPersonBodyLayerMask = 0x20000000;
+const mainCameraOnlyLayerMask = 0x40000000;
+const characterGroundShadowWidthRatio = 1.16;
+const characterGroundShadowDepthRatio = 0.8;
+const characterGroundShadowVisibility = 0.68;
+const bitGroundShadowWidthScale = 1.35;
+const bitGroundShadowDepthScale = 1.42;
+const bitGroundShadowBaseVisibility = 0.7;
+const bitGroundShadowMinVisibility = 0.22;
+const bitGroundShadowScalePerHeight = 0.35;
+const bitGroundShadowMaxScaleBonus = 0.7;
+const bitGroundShadowVisibilityPerHeight = 0.25;
+const bitGroundShadowMinForwardLengthSq = 0.0001;
+const bitGroundShadowMinMorphBlend = 0;
+const bitGroundShadowMaxMorphBlend = 1;
+const characterFacingMinForwardLengthSq = 0.0001;
 const firstPersonBodyBaseAlpha = 1;
 const firstPersonBodyCropTopRatio = 0.3;
 const firstPersonBodyNearRowStretch = 1.28;
@@ -391,6 +432,18 @@ const firstPersonBodyFeetRowHalfWidthStart = 0.66;
 const firstPersonBodyFeetRowHalfWidthEnd = 0.57;
 const firstPersonBodyFeetRowZStart = 0.41;
 const firstPersonBodyFeetRowZEnd = 0.49;
+const firstPersonViewOffsetStartAngleDegrees = 55;
+const firstPersonViewOffsetMaxAngleDegrees = 90;
+const firstPersonViewOffsetStartAngleRadians =
+  (firstPersonViewOffsetStartAngleDegrees * Math.PI) / 180;
+const firstPersonViewOffsetMaxAngleRadians =
+  (firstPersonViewOffsetMaxAngleDegrees * Math.PI) / 180;
+const firstPersonViewOffsetMaxDistanceScale = 0.14;
+const firstPersonViewOffsetMaxHeightCells = 0.17;
+const firstPersonLowEyeHeightSlideRatio = 0.6;
+const firstPersonViewOffsetMinDirectionLengthSq = 0.0001;
+const firstPersonViewOffsetWallPadding = 0.01;
+const firstPersonPreviewUsePlayerSprite = true;
 
 const defaultBitSpawnSettings: BitSpawnSettings = {
   bitSpawnInterval: 10,  // ビットの通常出現間隔（秒）。1〜99。デフォルトは10
@@ -414,10 +467,12 @@ const defaultBrainwashSettings: BrainwashSettings = {
 const defaultPlayerSettings: PlayerSettings = {
   heightCells: 1.0,
   portraitDirectory: null,
-  voiceDirectory: null
+  voiceDirectory: null,
+  showGroundShadows: true,
+  enableCharacterSpriteVerticalAngle: true
 };
 const TITLE_SETTINGS_STORAGE_KEY = "haigure-survival.title-settings";
-const TITLE_SETTINGS_STORAGE_VERSION = 3;
+const TITLE_SETTINGS_STORAGE_VERSION = 5;
 const defaultVolumeLevels: VolumeLevels = {
   bgm: 5,
   se: 5,
@@ -502,6 +557,31 @@ const buildNpcBrainwashInProgressTransitionConfig = (
         decisionDelay: 10,
         stayChance: 0.5
       };
+const buildRuntimeSettingsForStageId = (
+  stageId: string
+): RuntimeSettingsByStage =>
+  normalizeRuntimeSettingsForStage({
+    stageId,
+    titleDefaultStartSettings,
+    titleBrainwashSettings,
+    titleBitSpawnSettings,
+    titleAlarmTrapEnabled,
+    defaultBrainwashSettings,
+    defaultBitSpawnSettings
+  });
+const applyRuntimeSettings = (runtimeSettings: RuntimeSettingsByStage) => {
+  runtimeDefaultStartSettings = runtimeSettings.runtimeDefaultStartSettings;
+  runtimeBrainwashSettings = runtimeSettings.runtimeBrainwashSettings;
+  runtimeBitSpawnInterval = runtimeSettings.runtimeBitSpawnInterval;
+  runtimeMaxBitCount = runtimeSettings.runtimeMaxBitCount;
+  runtimeAlarmTrapEnabled = runtimeSettings.runtimeAlarmTrapEnabled;
+  setNpcBrainwashInProgressTransitionConfig(
+    buildNpcBrainwashInProgressTransitionConfig(runtimeBrainwashSettings)
+  );
+  setNpcBrainwashCompleteTransitionConfig(
+    buildNpcBrainwashCompleteTransitionConfig(runtimeBrainwashSettings)
+  );
+};
 const hasNeverGameOverRisk = (
   stageId: string,
   defaultSettings: DefaultStartSettings,
@@ -536,98 +616,29 @@ const hasNeverGameOverRisk = (
   return !(hasGunRoute || hasNoGunTouchRoute);
 };
 
-const portraitSpriteSheets = new Map<string, PortraitSpriteSheet>();
-const portraitSpriteSheetPromises = new Map<
-  string,
-  Promise<PortraitSpriteSheet>
->();
-const portraitManagers = new Map<string, SpriteManager>();
-const portraitManagerPromises = new Map<string, Promise<SpriteManager>>();
 // プレイヤー1人 + NPC最大99人
 const spriteManagerCapacity = 100;
-const loadPortraitSpriteSheetOnce = (directory: string) => {
-  const cachedPromise = portraitSpriteSheetPromises.get(directory);
-  if (cachedPromise) {
-    return cachedPromise;
-  }
-  const promise = loadPortraitSpriteSheet(
-    directory,
+const characterScene = createCharacterSceneController({
+  scene,
+  spriteManagerCapacity,
+  playerWidth,
+  playerHeight,
+  portraitMaxWidthCells,
+  portraitMaxHeightCells,
+  loadPortraitIncludeNoGunTouch: () =>
     titleBrainwashSettings.brainwashOnNoGunTouch
-  ).then((sheet) => {
-    portraitSpriteSheets.set(directory, sheet);
-    return sheet;
-  });
-  portraitSpriteSheetPromises.set(directory, promise);
-  return promise;
-};
-const ensurePortraitManager = async (directory: string) => {
-  const cachedManager = portraitManagers.get(directory);
-  if (cachedManager) {
-    return cachedManager;
-  }
-  const cachedPromise = portraitManagerPromises.get(directory);
-  if (cachedPromise) {
-    return cachedPromise;
-  }
-  const promise = (async () => {
-    const sheet = await loadPortraitSpriteSheetOnce(directory);
-    const manager = new SpriteManager(
-      `portrait_${directory}`,
-      sheet.url,
-      spriteManagerCapacity,
-      { width: sheet.cellWidth, height: sheet.cellHeight },
-      scene
-    );
-    portraitManagers.set(directory, manager);
-    return manager;
-  })();
-  portraitManagerPromises.set(directory, promise);
-  try {
-    return await promise;
-  } finally {
-    portraitManagerPromises.delete(directory);
-  }
-};
-const ensurePortraitManagers = async (directories: string[]) => {
-  const uniqueDirectories = Array.from(new Set(directories));
-  await Promise.all(
-    uniqueDirectories.map(async (directory) => {
-      await ensurePortraitManager(directory);
-    })
-  );
-};
-const getUnloadedPortraitDirectories = (directories: string[]) => {
-  const uniqueDirectories = Array.from(new Set(directories));
-  return uniqueDirectories.filter(
-    (directory) => !portraitManagers.has(directory)
-  );
-};
+});
 const countUnloadedPortraitDirectoriesForAssignments = (
   assignments: CharacterAssignments
 ) =>
-  getUnloadedPortraitDirectories(
+  characterScene.countUnloadedPortraitDirectories(
     getCharacterAssignmentPortraitDirectories(assignments)
-  ).length;
+  );
 const ensurePortraitManagersIfNeeded = async (
   directories: string[],
   session?: TitleLoadingSession
-) => {
-  const unloadedDirectories = getUnloadedPortraitDirectories(directories);
-  if (unloadedDirectories.length === 0) {
-    return;
-  }
-  if (!session) {
-    await ensurePortraitManagers(unloadedDirectories);
-    return;
-  }
-  await advanceSessionForEach(
-    unloadedDirectories,
-    async (directory) => {
-      await ensurePortraitManager(directory);
-    },
-    session
-  );
-};
+) =>
+  characterScene.ensurePortraitManagersIfNeeded(directories, session);
 
 const initialStageSelectionId = persistedTitleSettings
   ? persistedTitleSettings.stageId
@@ -642,6 +653,31 @@ const buildStageSelectionLabel = (
   selection: StageSelection,
   loadedStageJson: Awaited<ReturnType<typeof loadStageJson>>
 ) => loadedStageJson?.meta.description ?? selection.label;
+const buildTitleStartPreparationFingerprint = () =>
+  JSON.stringify({
+    stageId: stageSelection.id,
+    alarmTrapEnabled: titleAlarmTrapEnabled,
+    playerPortraitDirectory: titlePlayerSettings.portraitDirectory,
+    playerVoiceDirectory: titlePlayerSettings.voiceDirectory,
+    defaultStartSettings: titleDefaultStartSettings,
+    brainwashSettings: titleBrainwashSettings,
+    bitSpawnSettings: titleBitSpawnSettings
+  });
+const buildTitleStartPreparationRequest = (): TitleStartPreparationRequestData => {
+  const runtimeSettings = buildRuntimeSettingsForStageId(stageSelection.id);
+  const assignments = buildCharacterAssignments(
+    runtimeSettings.runtimeDefaultStartSettings.initialNpcCount,
+    titlePlayerSettings
+  );
+  return {
+    fingerprint: buildTitleStartPreparationFingerprint(),
+    loadingTotal: countUnloadedPortraitDirectoriesForAssignments(assignments),
+    assignments,
+    runtimeSettings
+  };
+};
+const initialRuntimeSettings = buildRuntimeSettingsForStageId(stageSelection.id);
+applyRuntimeSettings(initialRuntimeSettings);
 const initialCharacterAssignments = buildCharacterAssignments(
   runtimeDefaultStartSettings.initialNpcCount,
   titlePlayerSettings
@@ -685,6 +721,7 @@ let stageContext = buildStageContext(scene, stageJson);
 let layout = stageContext.layout;
 let stageStyle = stageContext.style;
 let stageParts = stageContext.parts;
+let stageColliderSet = new Set(stageParts.colliders);
 let room = stageContext.room;
 let assemblyArea = stageContext.assemblyArea;
 let skipAssembly = stageContext.skipAssembly;
@@ -751,6 +788,7 @@ const updateStageState = () => {
   stageZoneMap = stageJson ? createZoneMapFromStageJson(stageJson) : null;
   stageStyle = stageContext.style;
   stageParts = stageContext.parts;
+  stageColliderSet = new Set(stageParts.colliders);
   room = stageContext.room;
   scene.clearColor = stageContext.environment.skyColor ?? defaultClearColor.clone();
   assemblyArea = stageContext.assemblyArea;
@@ -788,7 +826,8 @@ const camera = new FreeCamera(
 );
 camera.setTarget(spawnPosition.add(spawnForward));
 camera.attachControl(canvas, true);
-camera.layerMask = worldLayerMask | firstPersonBodyLayerMask;
+camera.layerMask =
+  worldLayerMask | firstPersonBodyLayerMask | mainCameraOnlyLayerMask;
 camera.minZ = 0.02;
 const baseCameraSpeed = 0.02;
 const playerMoveSpeed = baseCameraSpeed * Math.sqrt(10);
@@ -796,19 +835,26 @@ const playerDashSpeedMultiplier = 1.7;
 const playerStaminaMaxTenths = 150;
 const playerStaminaDrainInterval = 0.1;
 const playerStaminaRecoverInterval = 0.2;
+const playerMoveInertiaAt60Fps = 0.9;
+const playerMoveStopEpsilon = 0.00001;
 camera.speed = 0;
 camera.angularSensibility = 1500;
 camera.keysUp = [87];
 camera.keysDown = [83];
 camera.keysLeft = [65];
 camera.keysRight = [68];
-camera.checkCollisions = true;
-camera.ellipsoid = new Vector3(
+camera.checkCollisions = false;
+camera.inputs.removeByType("FreeCameraKeyboardMoveInput");
+const playerCollisionMesh = new Mesh("playerCollision", scene);
+playerCollisionMesh.isVisible = false;
+playerCollisionMesh.isPickable = false;
+playerCollisionMesh.checkCollisions = true;
+playerCollisionMesh.ellipsoid = new Vector3(
   playerWidth * 0.5,
   playerHeight * 0.5,
   playerWidth * 0.5
 );
-camera.inputs.removeByType("FreeCameraKeyboardMoveInput");
+playerCollisionMesh.ellipsoidOffset = new Vector3(0, playerHeight * 0.5, 0);
 const reflectionCamera = new FreeCamera(
   "reflectionCamera",
   spawnPosition.clone(),
@@ -817,10 +863,48 @@ const reflectionCamera = new FreeCamera(
 reflectionCamera.layerMask = worldLayerMask | reflectionOnlyLayerMask;
 reflectionCamera.minZ = camera.minZ;
 reflectionCamera.fov = camera.fov;
+const playerEyeBasePosition = Vector3.Zero();
+const playerEyeRenderOffset = Vector3.Zero();
+const playerEyeRenderPosition = Vector3.Zero();
+const playerAvatarWorldPosition = Vector3.Zero();
+const firstPersonPreviewPlayerPosition = Vector3.Zero();
+const firstPersonViewHorizontalForward = Vector3.Zero();
+const playerMoveStartPosition = Vector3.Zero();
+const playerMoveActualDisplacement = Vector3.Zero();
+const firstPersonViewRay = new Ray(
+  Vector3.Zero(),
+  new Vector3(0, 0, 1),
+  0
+);
+let renderCameraPositionApplied = false;
+let playerAvatarRenderPositionApplied = false;
+const playerMotion = createPlayerMotionController({
+  moveInertiaAt60Fps: playerMoveInertiaAt60Fps,
+  moveStopEpsilon: playerMoveStopEpsilon
+});
+const shouldSyncCameraToPlayerPosition = (phase: GamePhase) =>
+  usesPlayerEyeHeight(phase) || phase === "execution";
+const syncPlayerCollisionMeshFromEyePosition = (eyePosition: Vector3) => {
+  playerCollisionMesh.position.set(
+    eyePosition.x,
+    eyePosition.y - getEyeHeight(),
+    eyePosition.z
+  );
+};
+const syncCameraBasePositionFromPlayer = () => {
+  if (!shouldSyncCameraToPlayerPosition(gamePhase)) {
+    return;
+  }
+  camera.position.copyFrom(playerEyeBasePosition);
+  renderCameraPositionApplied = false;
+};
 const applyCameraSpawnTransform = () => {
+  syncPlayerCollisionMeshFromEyePosition(spawnPosition);
+  playerMotion.reset();
   camera.position.copyFrom(spawnPosition);
   camera.rotation = new Vector3(0, 0, 0);
   camera.setTarget(spawnPosition.add(spawnForward));
+  capturePlayerEyeBasePosition();
 };
 const syncReflectionCamera = () => {
   reflectionCamera.position.copyFrom(camera.position);
@@ -828,6 +912,209 @@ const syncReflectionCamera = () => {
   reflectionCamera.fov = camera.fov;
   reflectionCamera.minZ = camera.minZ;
   reflectionCamera.maxZ = camera.maxZ;
+};
+
+const capturePlayerEyeBasePosition = () => {
+  playerEyeBasePosition.set(
+    playerCollisionMesh.position.x,
+    playerCollisionMesh.position.y + getEyeHeight(),
+    playerCollisionMesh.position.z
+  );
+  renderCameraPositionApplied = false;
+};
+syncPlayerCollisionMeshFromEyePosition(spawnPosition);
+capturePlayerEyeBasePosition();
+
+const restorePlayerEyeBasePosition = () => {
+  if (!renderCameraPositionApplied || !shouldSyncCameraToPlayerPosition(gamePhase)) {
+    return;
+  }
+  camera.position.copyFrom(playerEyeBasePosition);
+  renderCameraPositionApplied = false;
+};
+
+const restorePlayerAvatarWorldPosition = () => {
+  if (!playerAvatarRenderPositionApplied) {
+    return;
+  }
+  playerAvatar.position.copyFrom(playerAvatarWorldPosition);
+  playerAvatarRenderPositionApplied = false;
+};
+
+const syncFirstPersonPreviewPlayerPosition = (
+  restoreWorldPosition: boolean
+) => {
+  if (restoreWorldPosition) {
+    playerAvatarWorldPosition.copyFrom(playerAvatar.position);
+    playerAvatarRenderPositionApplied = true;
+  }
+  firstPersonPreviewPlayerPosition.set(
+    playerEyeBasePosition.x + playerEyeRenderOffset.x * 2,
+    playerAvatar.height * 0.5,
+    playerEyeBasePosition.z + playerEyeRenderOffset.z * 2
+  );
+  playerAvatar.position.copyFrom(firstPersonPreviewPlayerPosition);
+  alignSpriteToGround(playerAvatar);
+};
+
+const clampFirstPersonViewOffsetLength = (
+  direction: Vector3,
+  desiredLength: number
+) => {
+  if (desiredLength <= 0.0001 || stageColliderSet.size === 0) {
+    return desiredLength;
+  }
+  firstPersonViewRay.origin.copyFrom(playerEyeBasePosition);
+  firstPersonViewRay.direction.copyFrom(direction);
+  firstPersonViewRay.length = desiredLength;
+  const hit = scene.pickWithRay(
+    firstPersonViewRay,
+    (mesh) => stageColliderSet.has(mesh as Mesh),
+    true
+  );
+  if (!hit?.hit || hit.distance === undefined) {
+    return desiredLength;
+  }
+  return Math.max(0, Math.min(desiredLength, hit.distance - firstPersonViewOffsetWallPadding));
+};
+
+const computeFirstPersonViewOffsetBlend = (downwardAngleRadians: number) => {
+  const linearBlend =
+    (downwardAngleRadians - firstPersonViewOffsetStartAngleRadians) /
+    (firstPersonViewOffsetMaxAngleRadians - firstPersonViewOffsetStartAngleRadians);
+  const clampedBlend = Math.max(0, Math.min(linearBlend, 1));
+  return clampedBlend * clampedBlend * (3 - 2 * clampedBlend);
+};
+
+const computeFirstPersonViewOffset = () => {
+  playerEyeRenderOffset.set(0, 0, 0);
+  if (!shouldShowFirstPersonBodyForPhase(gamePhase)) {
+    return playerEyeRenderOffset;
+  }
+  const forward = camera.getDirection(new Vector3(0, 0, 1));
+  const downward = Math.max(0, -forward.y);
+  const downwardAngleRadians = Math.asin(downward);
+  const blend = computeFirstPersonViewOffsetBlend(downwardAngleRadians);
+  if (blend <= 0) {
+    return playerEyeRenderOffset;
+  }
+  const horizontalOffsetDirectionScale = -1;
+  firstPersonViewHorizontalForward.set(
+    forward.x * horizontalOffsetDirectionScale,
+    0,
+    forward.z * horizontalOffsetDirectionScale
+  );
+  if (
+    firstPersonViewHorizontalForward.lengthSquared() <=
+    firstPersonViewOffsetMinDirectionLengthSq
+  ) {
+    firstPersonViewHorizontalForward.set(
+      Math.sin(camera.rotation.y) * horizontalOffsetDirectionScale,
+      0,
+      Math.cos(camera.rotation.y) * horizontalOffsetDirectionScale
+    );
+  }
+  if (
+    firstPersonViewHorizontalForward.lengthSquared() <=
+    firstPersonViewOffsetMinDirectionLengthSq
+  ) {
+    return playerEyeRenderOffset;
+  }
+  firstPersonViewHorizontalForward.normalize();
+  const desiredLength =
+    layout.cellSize * firstPersonViewOffsetMaxDistanceScale * blend;
+  const clampedLength = clampFirstPersonViewOffsetLength(
+    firstPersonViewHorizontalForward,
+    desiredLength
+  );
+  playerEyeRenderOffset.copyFrom(firstPersonViewHorizontalForward);
+  playerEyeRenderOffset.scaleInPlace(clampedLength);
+  playerEyeRenderOffset.y =
+    layout.cellSize * firstPersonViewOffsetMaxHeightCells * blend;
+  return playerEyeRenderOffset;
+};
+
+const shouldApplyLowEyeHeightAdjustment = () =>
+  playerNoGunTouchBrainwashTimer <= 0 &&
+  (playerState === "brainwash-in-progress" ||
+    playerState === "brainwash-complete-haigure" ||
+    playerState === "brainwash-complete-haigure-formation");
+
+const computePlayerPortraitHeightAdjustmentY = () =>
+  shouldApplyLowEyeHeightAdjustment()
+    ? -playerEyeRenderOffset.y * (1 - firstPersonLowEyeHeightSlideRatio)
+    : 0;
+
+const applyRenderCameraPosition = () => {
+  playerEyeRenderPosition.copyFrom(playerEyeBasePosition);
+  if (!shouldShowFirstPersonBodyForPhase(gamePhase)) {
+    renderCameraPositionApplied = false;
+    return;
+  }
+  computeFirstPersonViewOffset();
+  playerEyeRenderPosition.addInPlace(playerEyeRenderOffset);
+  playerEyeRenderPosition.y += computePlayerPortraitHeightAdjustmentY();
+  camera.position.copyFrom(playerEyeRenderPosition);
+  renderCameraPositionApplied = playerEyeRenderOffset.lengthSquared() > 0;
+};
+
+const computeCharacterFacingYawFromViewMatrix = (
+  viewMatrix: Matrix,
+  fallbackYaw: number
+) => {
+  viewMatrix.invertToRef(characterFacingViewInverseMatrix);
+  Vector3.TransformNormalFromFloatsToRef(
+    0,
+    0,
+    scene.useRightHandedSystem ? -1 : 1,
+    characterFacingViewInverseMatrix,
+    characterFacingForward
+  );
+  const horizontalForwardLengthSq =
+    characterFacingForward.x * characterFacingForward.x +
+    characterFacingForward.z * characterFacingForward.z;
+  if (horizontalForwardLengthSq > characterFacingMinForwardLengthSq) {
+    return Math.atan2(characterFacingForward.x, characterFacingForward.z);
+  }
+  Vector3.TransformNormalFromFloatsToRef(
+    0,
+    1,
+    0,
+    characterFacingViewInverseMatrix,
+    characterFacingUp
+  );
+  const horizontalUpLengthSq =
+    characterFacingUp.x * characterFacingUp.x +
+    characterFacingUp.z * characterFacingUp.z;
+  return horizontalUpLengthSq > characterFacingMinForwardLengthSq
+    ? Math.atan2(characterFacingUp.x, characterFacingUp.z)
+    : fallbackYaw;
+};
+
+const applyCharacterFacingYaw = (yaw: number) => {
+  characterScene.applyFacingYaw(yaw);
+};
+
+const applyCharacterMirrorFlip = (mirrored: boolean) => {
+  characterScene.applyMirrorFlip(mirrored, playerAvatar, npcs);
+};
+
+const syncCharacterFacingYaw = () => {
+  currentCharacterFacingYaw = computeCharacterFacingYawFromViewMatrix(
+    camera.getViewMatrix(),
+    currentCharacterFacingYaw
+  );
+  applyCharacterFacingYaw(currentCharacterFacingYaw);
+};
+
+const rebindVoiceActors = () => {
+  characterScene.rebindVoices({
+    playerPosition: () => playerEyeBasePosition,
+    getPlayerState: () => playerState,
+    npcs,
+    getNpcState: (npc) =>
+      executionNpcVoiceStateOverrides.get(npc.sprite.name) ?? npc.state
+  });
 };
 
 const syncTitleCameraHeight = () => {
@@ -941,6 +1228,9 @@ const titleStageSelectControl = createStageSelectControl({
   onAlarmTrapEnabledChange: (enabled) => {
     titleAlarmTrapEnabled = enabled;
     saveTitleSettings();
+    if (gamePhase === "title" && !stageSelectionInProgress) {
+      scheduleTitleStartPreparation();
+    }
   }
 });
 const titleSettingsSidebar = createTitleSettingsSidebar({
@@ -957,6 +1247,10 @@ const titleSettingsSidebar = createTitleSettingsSidebar({
     }
     if (event.shouldReload) {
       window.location.reload();
+      return;
+    }
+    if (event.requiresStartPrepare && gamePhase === "title") {
+      scheduleTitleStartPreparation();
     }
   },
   onResetRequested: () => {
@@ -1023,6 +1317,28 @@ const isTitleUiTarget = (target: EventTarget | null) => {
       "[data-ui=\"volume-panel\"], [data-ui=\"stage-select-control\"]"
     ) !== null
   );
+};
+const prepareTitleStartRequest = async (
+  request: TitleStartPreparationRequestData,
+  session?: TitleStartPreparationLoadingSession
+) => {
+  applyRuntimeSettings(request.runtimeSettings);
+  await resetGame(session as TitleLoadingSession | undefined, request.assignments);
+};
+const scheduleTitleStartPreparation = () => {
+  titleStartPreparation.schedule(buildTitleStartPreparationRequest());
+};
+const ensureTitleStartPreparationReady = async () => {
+  const request = buildTitleStartPreparationRequest();
+  const state = await titleStartPreparation.ensureReady(request);
+  if (
+    state.fingerprint !== request.fingerprint ||
+    !state.assignments ||
+    !state.runtimeSettings
+  ) {
+    return null;
+  }
+  return state;
 };
 const bgmFiles = import.meta.glob("/public/audio/bgm/*.mp3");
 const resolveAssetUrl = (relativePath: string) =>
@@ -1124,7 +1440,7 @@ const beamSeMidDistance = 1.33;
 
 const sfxDirector = new SfxDirector(
   audioManager,
-  () => camera.position,
+  () => playerEyeBasePosition,
   {
     bitMove: bitSeMove,
     bitAlert: bitSeAlert,
@@ -1145,43 +1461,6 @@ const sfxDirector = new SfxDirector(
   },
   isSeAvailable
 );
-
-const pickVoiceProfileById = (id: string) =>
-  voiceProfiles.find((profile) => profile.id === id)!;
-let playerVoiceId = "00";
-let npcVoiceIds: string[] = [];
-let playerVoiceActor: VoiceActor | null = null;
-let npcVoiceActors: VoiceActor[] = [];
-
-const stopAllVoices = () => {
-  if (playerVoiceActor) {
-    stopVoiceActor(playerVoiceActor);
-  }
-  for (const actor of npcVoiceActors) {
-    stopVoiceActor(actor);
-  }
-  playerVoiceActor = null;
-  npcVoiceActors = [];
-};
-
-const assignVoiceActors = () => {
-  stopAllVoices();
-  const playerProfile = pickVoiceProfileById(playerVoiceId);
-  playerVoiceActor = createVoiceActor(
-    playerProfile,
-    () => camera.position,
-    () => playerState
-  );
-  npcVoiceActors = npcs.map((npc) => {
-    const profile = pickVoiceProfileById(npc.voiceId);
-    return createVoiceActor(
-      profile,
-      () => npc.sprite.position,
-      () =>
-        executionNpcVoiceStateOverrides.get(npc.sprite.name) ?? npc.state
-    );
-  });
-};
 
 const bitSoundEvents: BitSoundEvents = {
   onMoveStart: (bit) => {
@@ -1247,10 +1526,21 @@ light.intensity = 1.2;
 scene.ambientColor = new Color3(0.45, 0.45, 0.45);
 scene.collisionsEnabled = true;
 let playerAvatar: Sprite;
-let playerPortraitManager: SpriteManager | null = null;
+const groundShadowManager = createGroundShadowManager(scene);
+const bitGroundShadows = new Map<string, BitGroundShadowHandles>();
+const characterFacingViewInverseMatrix = Matrix.Identity();
+const characterFacingForward = Vector3.Zero();
+const characterFacingUp = Vector3.Zero();
+let currentCharacterFacingYaw = 0;
+let currentReflectionCharacterFacingYaw = 0;
 const npcs: Npc[] = [];
-let playerPortraitDirectory = "";
-let npcPortraitDirectories: string[] = [];
+const npcTargetBuffer: TargetInfo[] = [];
+const npcEvadeThreatsBuffer: Vector3[][] = [];
+const activeBitGroundShadowIds = new Set<string>();
+const activeDynamicBeamCells = new Set<number>();
+const playerHitCenterPosition = Vector3.Zero();
+const playerHitImpactDirection = Vector3.Zero();
+const playerHitImpactPosition = Vector3.Zero();
 let firstPersonBodyMesh: Mesh;
 let firstPersonBodyMaterial: StandardMaterial;
 let firstPersonBodyTexture: DynamicTexture | null = null;
@@ -1260,7 +1550,6 @@ let firstPersonBodySheetCellWidth = 0;
 let firstPersonBodySheetCellHeight = 0;
 let firstPersonBodyLastCellIndex = -1;
 const firstPersonBodyVertexPositions = new Float32Array(12);
-const portraitScaleCache = new Map<string, { width: number; height: number }>();
 const clampValue = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
 const lerpValue = (start: number, end: number, amount: number) =>
@@ -1278,10 +1567,6 @@ const projectHalfWidthToLocal = (halfWidth: number, depth: number) => {
     scene.getEngine().getRenderHeight();
   return halfWidth * depth * Math.tan(camera.fov * 0.5) * aspect;
 };
-const getPortraitManagerByDirectory = (directory: string) =>
-  portraitManagers.get(directory)!;
-const getNpcPortraitManager = (directory: string, _index: number) =>
-  getPortraitManagerByDirectory(directory);
 const loadImageFromUrl = (url: string) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
@@ -1290,28 +1575,6 @@ const loadImageFromUrl = (url: string) =>
     image.onerror = () => reject(new Error(`Failed to load ${url}`));
     image.src = url;
   });
-const createPlayerPortraitManager = (directory: string) => {
-  playerPortraitManager?.dispose();
-  const sheet = portraitSpriteSheets.get(directory)!;
-  playerPortraitManager = new SpriteManager(
-    `player_portrait_${directory}`,
-    sheet.url,
-    1,
-    { width: sheet.cellWidth, height: sheet.cellHeight },
-    scene
-  );
-  playerPortraitManager.layerMask = worldLayerMask;
-  return playerPortraitManager;
-};
-const createPlayerAvatar = (manager: SpriteManager) => {
-  const avatar = new Sprite("playerAvatar", manager);
-  avatar.width = playerWidth;
-  avatar.height = playerHeight;
-  avatar.isPickable = false;
-  avatar.cellIndex = 0;
-  avatar.isVisible = false;
-  return avatar;
-};
 const createFirstPersonBodyMesh = () => {
   firstPersonBodyMesh = new Mesh("playerBodyLayer", scene);
   const vertexData = new VertexData();
@@ -1470,7 +1733,7 @@ const ensureFirstPersonBodySheet = async (directory: string) => {
   if (firstPersonBodySheetDirectory === directory && firstPersonBodySheetImage) {
     return;
   }
-  const sheet = portraitSpriteSheets.get(directory)!;
+  const sheet = characterScene.getPortraitSpriteSheet(directory);
   const image = await loadImageFromUrl(sheet.url);
   firstPersonBodySheetDirectory = directory;
   firstPersonBodySheetImage = image;
@@ -1479,7 +1742,24 @@ const ensureFirstPersonBodySheet = async (directory: string) => {
   firstPersonBodyLastCellIndex = -1;
   configureFirstPersonBodyTexture(sheet.cellWidth, sheet.cellHeight);
 };
+const computeFirstPersonBodyVisibility = () => {
+  if (!shouldShowFirstPersonBodyForPhase(gamePhase)) {
+    return 0;
+  }
+  const forward = camera.getDirection(new Vector3(0, 0, 1));
+  const floorUnderPlayerVisibleThreshold = Math.cos(camera.fov * 0.5);
+  return clampValue(
+    (-forward.y - floorUnderPlayerVisibleThreshold) /
+      (1 - floorUnderPlayerVisibleThreshold),
+    0,
+    1
+  );
+};
 const syncFirstPersonBodyVisibility = () => {
+  if (firstPersonPreviewUsePlayerSprite) {
+    firstPersonBodyMesh.isVisible = false;
+    return;
+  }
   if (
     !shouldShowFirstPersonBodyForPhase(gamePhase) ||
     !firstPersonBodyTexture ||
@@ -1488,14 +1768,7 @@ const syncFirstPersonBodyVisibility = () => {
     firstPersonBodyMesh.isVisible = false;
     return;
   }
-  const forward = camera.getDirection(new Vector3(0, 0, 1));
-  const floorUnderPlayerVisibleThreshold = Math.cos(camera.fov * 0.5);
-  const visibility = clampValue(
-    (-forward.y - floorUnderPlayerVisibleThreshold) /
-      (1 - floorUnderPlayerVisibleThreshold),
-    0,
-    1
-  );
+  const visibility = computeFirstPersonBodyVisibility();
   if (visibility <= 0) {
     firstPersonBodyMesh.isVisible = false;
     return;
@@ -1506,126 +1779,78 @@ const syncFirstPersonBodyVisibility = () => {
 };
 createFirstPersonBodyMesh();
 
-const computePortraitSpriteSize = (directory: string) => {
-  const cached = portraitScaleCache.get(directory);
-  if (cached) {
-    return cached;
-  }
-  const sheet = portraitSpriteSheets.get(directory)!;
-  const size = calculatePortraitSpriteSize(
-    sheet.imageWidth,
-    sheet.imageHeight,
-    portraitCellSize,
-    portraitMaxWidthCells,
-    portraitMaxHeightCells
-  );
-  portraitScaleCache.set(directory, size);
-  return size;
-};
-
-const applyPortraitSize = (sprite: Sprite, directory: string) => {
-  const size = computePortraitSpriteSize(directory);
-  sprite.width = size.width;
-  sprite.height = size.height;
-};
-
-const applyPortraitSizesToAll = () => {
-  applyPortraitSize(playerAvatar, playerPortraitDirectory);
-  alignSpriteToGround(playerAvatar);
-  for (const npc of npcs) {
-    applyPortraitSize(npc.sprite, npc.portraitDirectory);
-    alignSpriteToGround(npc.sprite);
-  }
-};
-
 const refreshPortraitSizes = () => {
-  portraitScaleCache.clear();
-  applyPortraitSizesToAll();
+  characterScene.refreshPortraitSizes(playerAvatar, npcs, portraitCellSize);
 };
 
-const applyCharacterAssignments = (assignments: CharacterAssignments) => {
-  playerVoiceId = assignments.playerVoiceId;
-  npcVoiceIds = [...assignments.npcVoiceIds];
-  playerPortraitDirectory = assignments.playerPortraitDirectory;
-  npcPortraitDirectories = [...assignments.npcPortraitDirectories];
-  portraitScaleCache.clear();
-};
-
-const assignVoiceIds = (npcCount: number) => {
-  const assignments = buildCharacterAssignments(npcCount, titlePlayerSettings);
-  applyCharacterAssignments(assignments);
-  return assignments;
-};
-const getAssignedPortraitDirectories = (assignments?: CharacterAssignments) =>
-  assignments
-    ? getCharacterAssignmentPortraitDirectories(assignments)
-    : [playerPortraitDirectory, ...npcPortraitDirectories];
-
-const createCharacters = () => {
-  playerAvatar = createPlayerAvatar(
-    createPlayerPortraitManager(playerPortraitDirectory)
-  );
-  playerAvatar.position = new Vector3(
-    spawnPosition.x,
-    playerAvatar.height * 0.5,
-    spawnPosition.z
-  );
-  npcs.push(
-    ...spawnNpcs(
-      layout,
-      spawnableCells,
-      getNpcPortraitManager,
-      npcVoiceIds,
-      npcPortraitDirectories
-    )
-  );
-  const initialBrainwashedNpcCount = Math.floor(
-    runtimeDefaultStartSettings.initialNpcCount *
-      runtimeDefaultStartSettings.initialBrainwashedNpcPercent *
-      0.01
-  );
-  const shuffledNpcs = [...npcs];
-  for (let index = shuffledNpcs.length - 1; index > 0; index -= 1) {
-    const swap = Math.floor(Math.random() * (index + 1));
-    const temp = shuffledNpcs[index];
-    shuffledNpcs[index] = shuffledNpcs[swap];
-    shuffledNpcs[swap] = temp;
+const disposeBitGroundShadows = () => {
+  for (const groundShadow of bitGroundShadows.values()) {
+    groundShadowManager.disposeGroundShadow(groundShadow.shape);
+    groundShadowManager.disposeGroundShadow(groundShadow.circle);
   }
-  for (let index = 0; index < initialBrainwashedNpcCount; index += 1) {
-    applyNpcDefaultHaigureState(shuffledNpcs[index]);
-  }
-  applyPortraitSizesToAll();
+  bitGroundShadows.clear();
+};
+
+const disposeAllGroundShadows = () => {
+  characterScene.disposeCharacterGroundShadows();
+  disposeBitGroundShadows();
 };
 
 const rebuildCharacters = async (
   session?: TitleLoadingSession,
   assignments?: CharacterAssignments
 ) => {
-  if (assignments) {
-    applyCharacterAssignments(assignments);
-  } else {
-    assignVoiceIds(runtimeDefaultStartSettings.initialNpcCount);
-  }
-  await ensurePortraitManagersIfNeeded(
-    getAssignedPortraitDirectories(assignments),
-    session
-  );
-  await ensureFirstPersonBodySheet(playerPortraitDirectory);
-  playerAvatar.dispose();
-  playerPortraitManager?.dispose();
-  playerPortraitManager = null;
-  npcs.length = 0;
-  createCharacters();
+  const nextAssignments =
+    assignments ??
+    buildCharacterAssignments(
+      runtimeDefaultStartSettings.initialNpcCount,
+      titlePlayerSettings
+    );
+  playerAvatar = await characterScene.prepareCharacters({
+    assignments: nextAssignments,
+    playerAvatar,
+    npcs,
+    session,
+    spawnPosition,
+    layout,
+    spawnableCells,
+    initialNpcCount: runtimeDefaultStartSettings.initialNpcCount,
+    initialBrainwashedNpcPercent:
+      runtimeDefaultStartSettings.initialBrainwashedNpcPercent,
+    portraitCellSize
+  });
+  await ensureFirstPersonBodySheet(characterScene.getPlayerPortraitDirectory());
 };
 
-applyCharacterAssignments(initialCharacterAssignments);
-await ensurePortraitManagersIfNeeded(
-  getAssignedPortraitDirectories(initialCharacterAssignments),
-  initialLoadingSession
-);
-await ensureFirstPersonBodySheet(playerPortraitDirectory);
-createCharacters();
+playerAvatar = await characterScene.prepareCharacters({
+  assignments: initialCharacterAssignments,
+  playerAvatar: null,
+  npcs,
+  session: initialLoadingSession,
+  spawnPosition,
+  layout,
+  spawnableCells,
+  initialNpcCount: runtimeDefaultStartSettings.initialNpcCount,
+  initialBrainwashedNpcPercent:
+    runtimeDefaultStartSettings.initialBrainwashedNpcPercent,
+  portraitCellSize
+});
+await ensureFirstPersonBodySheet(characterScene.getPlayerPortraitDirectory());
 initialLoadingSession.finish();
+const titleStartPreparation: TitleStartPreparationController<
+  CharacterAssignments,
+  RuntimeSettingsByStage
+> = createTitleStartPreparationController({
+  debounceMs: titleStartPreparationDebounceMs,
+  createLoadingSession: (initialTotal) => createTitleLoadingSession(initialTotal),
+  prepare: (request, session) => prepareTitleStartRequest(request, session)
+});
+titleStartPreparation.markReady({
+  fingerprint: buildTitleStartPreparationFingerprint(),
+  loadingTotal: 0,
+  assignments: initialCharacterAssignments,
+  runtimeSettings: initialRuntimeSettings
+});
 
 const clearStageReflectiveResources = () => {
   for (const reflectiveMaterial of stageParts.reflectiveMaterials) {
@@ -1654,6 +1879,18 @@ const createReflectionTexture = (
   mirrorTexture.forceLayerMaskCheck = true;
   mirrorTexture.renderListPredicate = (mesh) =>
     !excludedMeshIds.has(mesh.uniqueId);
+  mirrorTexture.onBeforeRenderObservable.add(() => {
+    currentReflectionCharacterFacingYaw = computeCharacterFacingYawFromViewMatrix(
+      scene.getViewMatrix(),
+      currentReflectionCharacterFacingYaw
+    );
+    applyCharacterFacingYaw(currentReflectionCharacterFacingYaw);
+    applyCharacterMirrorFlip(true);
+  });
+  mirrorTexture.onAfterRenderObservable.add(() => {
+    applyCharacterFacingYaw(currentCharacterFacingYaw);
+    applyCharacterMirrorFlip(false);
+  });
   if (blur > 0) {
     mirrorTexture.adaptiveBlurKernel = blur;
   }
@@ -1998,12 +2235,16 @@ const applyStageSelection = async (selection: StageSelection) => {
   const requestId = stageSelectionRequestId + 1;
   stageSelectionRequestId = requestId;
   stageSelectionInProgress = true;
+  titleStartPreparation.cancelScheduled();
+  await titleStartPreparation.flush();
   stageSelection = selection;
+  titleStartPreparation.invalidateReady();
   saveTitleSettings();
   titleStageSelectControl.setSelectedStageId(selection.id);
   titleSettingsSidebar.setStageId(selection.id);
+  const runtimeSettings = buildRuntimeSettingsForStageId(selection.id);
   const nextCharacterAssignments = buildCharacterAssignments(
-    runtimeDefaultStartSettings.initialNpcCount,
+    runtimeSettings.runtimeDefaultStartSettings.initialNpcCount,
     titlePlayerSettings
   );
   const loadingSession = createTitleLoadingSession(
@@ -2023,6 +2264,7 @@ const applyStageSelection = async (selection: StageSelection) => {
       return;
     }
     stageJson = loadedStageJson;
+    disposeAllGroundShadows();
     disposeStageParts(stageParts);
     stageContext = buildStageContext(scene, stageJson);
     updateStageState();
@@ -2043,13 +2285,20 @@ const applyStageSelection = async (selection: StageSelection) => {
     refreshPortraitSizes();
     rebuildGameFlow();
     if (gamePhase === "title") {
-      await resetGame(loadingSession, nextCharacterAssignments);
+      const preparationRequest: TitleStartPreparationRequestData = {
+        fingerprint: buildTitleStartPreparationFingerprint(),
+        loadingTotal: 0,
+        assignments: nextCharacterAssignments,
+        runtimeSettings
+      };
+      await prepareTitleStartRequest(preparationRequest, loadingSession);
       if (requestId !== stageSelectionRequestId) {
         return;
       }
       if (gamePhase !== "title") {
         return;
       }
+      titleStartPreparation.markReady(preparationRequest);
       hud.setTitleVisible(true);
       setHudPhaseOverride(null);
       gameFlow.resetFade();
@@ -2097,6 +2346,7 @@ const disposeAllBits = () => {
     disposeBit(bit);
   }
   bits.length = 0;
+  disposeBitGroundShadows();
 };
 
 const removeCarpetFollowers = () => {
@@ -2134,9 +2384,9 @@ const disposeExecutionHitEffects = () => {
 const updateExecutionHitTargetPosition = () => {
   if (executionHitTargetKind === "player") {
     executionHitTargetPosition.set(
-      camera.position.x,
+      playerEyeBasePosition.x,
       playerAvatar.height * 0.5,
-      camera.position.z
+      playerEyeBasePosition.z
     );
     return;
   }
@@ -2442,6 +2692,7 @@ const enterPublicExecution = (scenario: PublicExecutionScenario) => {
   disposeExecutionHitEffects();
   if (!executionAllowPlayerMove) {
     playerAbility.resetInput();
+    playerMotion.reset();
     camera.cameraDirection.set(0, 0, 0);
   }
   gameFlow.enterExecution(scenario);
@@ -2468,7 +2719,7 @@ const setExecutionAimPosition = (
 ) => {
   const eyeHeight = getEyeHeight();
   if (scenario.variant === "player-survivor") {
-    out.set(camera.position.x, eyeHeight, camera.position.z);
+    out.set(playerEyeBasePosition.x, eyeHeight, playerEyeBasePosition.z);
     return;
   }
   const survivorNpc = npcs[scenario.survivorNpcIndex];
@@ -2624,9 +2875,9 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
 
     if (scenario.variant === "player-survivor") {
       executionCollisionPosition.set(
-        camera.position.x,
+        playerEyeBasePosition.x,
         eyeHeight,
-        camera.position.z
+        playerEyeBasePosition.z
       );
       if (
         isBeamHittingTargetExcludingSource(
@@ -2731,7 +2982,25 @@ const updatePlayerMovement = (
   allowMove: boolean,
   moveSpeed: number
 ) => {
-  playerAbility.applyMovement(camera, delta, allowMove, moveSpeed);
+  const movementYaw = computeCharacterFacingYawFromViewMatrix(
+    camera.getViewMatrix(),
+    currentCharacterFacingYaw
+  );
+  currentCharacterFacingYaw = movementYaw;
+  const requestedDisplacement = playerMotion.update(
+    playerAbility.getMoveAxes(),
+    movementYaw,
+    delta,
+    allowMove,
+    moveSpeed
+  );
+  playerMoveStartPosition.copyFrom(playerCollisionMesh.position);
+  if (requestedDisplacement.lengthSquared() > 0.0000000001) {
+    playerCollisionMesh.moveWithCollisions(requestedDisplacement);
+  }
+  playerMoveActualDisplacement.copyFrom(playerCollisionMesh.position);
+  playerMoveActualDisplacement.subtractInPlace(playerMoveStartPosition);
+  playerMotion.commit(playerMoveActualDisplacement);
 };
 
 const getBeamImpactPosition = (beam: Beam) =>
@@ -2826,6 +3095,7 @@ const updateExecutionScene = (
         playerState = "brainwash-complete-haigure-formation";
         executionAllowPlayerMove = false;
         playerAbility.resetInput();
+        playerMotion.reset();
         camera.cameraDirection.set(0, 0, 0);
         updateHudPhaseOverride({ crosshairVisible: false });
         break;
@@ -3000,7 +3270,10 @@ const setupRouletteParticipants = () => {
     eyeHeight,
     rouletteCenter.z + Math.sin(playerAngle) * rouletteCharacterRadius
   );
-  camera.position.copyFrom(roulettePlayerPosition);
+  syncPlayerCollisionMeshFromEyePosition(roulettePlayerPosition);
+  playerMotion.reset();
+  capturePlayerEyeBasePosition();
+  syncCameraBasePositionFromPlayer();
   camera.setTarget(new Vector3(rouletteCenter.x, eyeHeight, rouletteCenter.z));
   camera.cameraDirection.set(0, 0, 0);
   playerAbility.resetInput();
@@ -3308,7 +3581,9 @@ const updateRouletteScene = (
   shouldProcessOrb: (position: Vector3) => boolean
 ) => {
   const eyeHeight = getEyeHeight();
-  camera.position.set(roulettePlayerPosition.x, eyeHeight, roulettePlayerPosition.z);
+  syncPlayerCollisionMeshFromEyePosition(roulettePlayerPosition);
+  capturePlayerEyeBasePosition();
+  syncCameraBasePositionFromPlayer();
   camera.cameraDirection.set(0, 0, 0);
   updateBeams(
     layout,
@@ -3357,11 +3632,17 @@ const createGameFlowInstance = () =>
     stopAlertLoop,
     setBitSpawnEnabled,
     disposePlayerHitEffects,
+    syncPlayerEyePosition: syncPlayerCollisionMeshFromEyePosition,
     setHudPhaseOverride
   });
 let gameFlow = createGameFlowInstance();
 const rebuildGameFlow = () => {
   gameFlow = createGameFlowInstance();
+};
+let assemblyControlReleaseRequiresFreshMovePress = false;
+const enterAssemblyPhase = (mode: AssemblyMode) => {
+  assemblyControlReleaseRequiresFreshMovePress = playerAbility.hasMoveInput();
+  gameFlow.enterAssembly(mode);
 };
 
 hud.setTitleVisible(true);
@@ -3502,7 +3783,7 @@ const drawMinimap = () => {
   const surviveTime = showSurviveTime ? playerHitTime : null;
   const displayElapsedTime = rouletteStats ? rouletteStats.elapsed : elapsedTime;
   hud.drawMinimap({
-    cameraPosition: camera.position,
+    cameraPosition: playerEyeBasePosition,
     cameraForward: camera.getDirection(new Vector3(0, 0, 1)),
     cameraFov: camera.fov,
     layout,
@@ -3589,27 +3870,11 @@ const syncHudForPhase = () => {
   );
 };
 
-const buildNpcTargets = () => [
-  {
-    id: "player",
-    position: camera.position,
-    alive: isAliveState(playerState),
-    state: playerState,
-    hitById: playerHitById
-  },
-  ...npcs.map((npc, index) => ({
-    id: `npc_${index}`,
-    position: npc.sprite.position,
-    alive: isAliveState(npc.state),
-    state: npc.state,
-    hitById: npc.hitById
-  }))
-];
-
 const createPlayerAbilitySnapshot = (): PlayerAbilityFrameSnapshot =>
   playerAbility.createFrameSnapshot({
     gamePhase,
     playerState,
+    playerPosition: playerEyeBasePosition,
     camera,
     scene,
     layout,
@@ -3618,7 +3883,6 @@ const createPlayerAbilitySnapshot = (): PlayerAbilityFrameSnapshot =>
 
 scene.onBeforeRenderObservable.add(() => {
   if (gamePhase === "playing" || gamePhase === "roulette") {
-    camera.position.y = getEyeHeight();
     drawMinimap();
   }
   syncHudForPhase();
@@ -3655,10 +3919,10 @@ const updatePlayerState = (
 ) => {
   const playerCenterY = playerAvatar.height * 0.5;
   const playerHitRadii = getSpriteBeamHitRadii(playerAvatar);
-  const centerPosition = new Vector3(
-    camera.position.x,
+  playerHitCenterPosition.set(
+    playerEyeBasePosition.x,
     playerCenterY,
-    camera.position.z
+    playerEyeBasePosition.z
   );
   const hitEffectRadius =
     calculateHitEffectDiameter(playerAvatar.width, playerAvatar.height) / 2;
@@ -3682,14 +3946,16 @@ const updatePlayerState = (
       if (beam.sourceId === "player") {
         continue;
       }
-      if (isBeamHittingTarget(beam, centerPosition, playerHitRadii)) {
+      if (isBeamHittingTarget(beam, playerHitCenterPosition, playerHitRadii)) {
         const hitScale = isRedBitSource(beam.sourceId)
           ? redHitDurationScale
           : 1;
-        const impactPosition = beam.tip.position.add(
-          Vector3.Normalize(beam.velocity).scale(beam.tipRadius)
-        );
-        beginBeamRetract(beam, impactPosition);
+        playerHitImpactDirection.copyFrom(beam.velocity);
+        playerHitImpactDirection.normalize();
+        playerHitImpactDirection.scaleInPlace(beam.tipRadius);
+        playerHitImpactPosition.copyFrom(beam.tip.position);
+        playerHitImpactPosition.addInPlace(playerHitImpactDirection);
+        beginBeamRetract(beam, playerHitImpactPosition);
         playerState = "hit-a";
         playerHitById = beam.sourceId;
         playerHitTime = elapsed;
@@ -3701,14 +3967,14 @@ const updatePlayerState = (
         startHitSequence(
           playerHitSequence,
           scene,
-          centerPosition,
+          playerHitCenterPosition,
           buildPlayerHitSequenceConfig(
             "playerHitEffect",
             playerHitDurationCurrent,
             playerHitFadeDurationCurrent
           )
         );
-        const hitPosition = centerPosition.clone();
+        const hitPosition = playerHitCenterPosition.clone();
         sfxDirector.playHit(() => hitPosition);
         break;
       }
@@ -3719,7 +3985,7 @@ const updatePlayerState = (
     updateHitSequence(
       playerHitSequence,
       delta,
-      centerPosition,
+      playerHitCenterPosition,
       buildPlayerHitSequenceConfig(
         "playerHitEffect",
         playerHitDurationCurrent,
@@ -3745,9 +4011,9 @@ const updatePlayerState = (
     if (npc.state === "hit-a" || npc.state === "hit-b") {
       continue;
     }
-    const dx = npc.sprite.position.x - centerPosition.x;
-    const dy = npc.sprite.position.y - centerPosition.y;
-    const dz = npc.sprite.position.z - centerPosition.z;
+    const dx = npc.sprite.position.x - playerHitCenterPosition.x;
+    const dy = npc.sprite.position.y - playerHitCenterPosition.y;
+    const dz = npc.sprite.position.z - playerHitCenterPosition.z;
     const inside = dx * dx + dy * dy + dz * dz <= hitEffectRadiusSq;
     if (shouldFlickerNpcSprite && inside) {
       const isColorA =
@@ -3780,22 +4046,175 @@ const updateCharacterSpriteCells = () => {
   }
 };
 
-const syncPlayerPresentation = () => {
-  if (playerPortraitManager) {
-    playerPortraitManager.layerMask =
-      shouldHidePlayerAvatarFromMainCamera(gamePhase)
-        ? reflectionOnlyLayerMask
-        : worldLayerMask;
+const syncBitGroundShadowHandles = () => {
+  activeBitGroundShadowIds.clear();
+  for (const bit of bits) {
+    activeBitGroundShadowIds.add(bit.id);
+    if (!bitGroundShadows.has(bit.id)) {
+      bitGroundShadows.set(
+        bit.id,
+        {
+          shape: groundShadowManager.createGroundShadow(
+            `${bit.id}_shadow`,
+            "bit"
+          ),
+          circle: groundShadowManager.createGroundShadow(
+            `${bit.id}_shadow_circle`,
+            "bit-circle"
+          )
+        }
+      );
+    }
   }
+  for (const [bitId, groundShadow] of bitGroundShadows) {
+    if (activeBitGroundShadowIds.has(bitId)) {
+      continue;
+    }
+    groundShadowManager.disposeGroundShadow(groundShadow.shape);
+    groundShadowManager.disposeGroundShadow(groundShadow.circle);
+    bitGroundShadows.delete(bitId);
+  }
+};
+
+const syncGroundShadows = () => {
+  const showGroundShadows = titlePlayerSettings.showGroundShadows;
+  characterScene.syncCharacterGroundShadows({
+    playerAvatar,
+    npcs,
+    showGroundShadows,
+    yaw: currentCharacterFacingYaw,
+    visibility: characterGroundShadowVisibility,
+    worldLayerMask,
+    widthRatio: characterGroundShadowWidthRatio,
+    depthRatio: characterGroundShadowDepthRatio
+  });
+  syncBitGroundShadowHandles();
+  for (const bit of bits) {
+    const groundShadow = bitGroundShadows.get(bit.id)!;
+    const bodyVisibility = bit.body.visibility;
+    const heightScale =
+      1 +
+      Math.min(
+        bitGroundShadowMaxScaleBonus,
+        bit.root.position.y * bitGroundShadowScalePerHeight
+      );
+    const forward = bit.root.getDirection(new Vector3(0, 0, 1));
+    const horizontalForwardLengthSq =
+      forward.x * forward.x + forward.z * forward.z;
+    const yaw =
+      horizontalForwardLengthSq > bitGroundShadowMinForwardLengthSq
+        ? Math.atan2(forward.x, forward.z)
+        : 0;
+    const baseWidth =
+      Math.max(bitShadowFootprint.bodyWidth, bitShadowFootprint.muzzleDiameter) *
+      bitGroundShadowWidthScale;
+    const baseDepth =
+      (bitShadowFootprint.bodyLength * 0.5 +
+        bitShadowFootprint.muzzleOffset +
+        bitShadowFootprint.muzzleDiameter * 0.5) *
+      bitGroundShadowDepthScale;
+    const spawnVisibility =
+      bit.spawnPhase === "fade-in" ? bit.spawnEffectMaterial!.alpha : bodyVisibility;
+    const visibility =
+      Math.max(
+        bitGroundShadowMinVisibility,
+        bitGroundShadowBaseVisibility -
+          bit.root.position.y * bitGroundShadowVisibilityPerHeight
+      ) * spawnVisibility;
+    const carpetBombCircleBlend =
+      bit.mode === "attack-carpet-bomb"
+        ? Math.max(
+            bitGroundShadowMinMorphBlend,
+            Math.min(bitGroundShadowMaxMorphBlend, -forward.y)
+          )
+        : 0;
+    const circleBlend =
+      bit.spawnPhase !== "done" ? 1 : carpetBombCircleBlend;
+    const circleDiameter = Math.sqrt(baseWidth * baseDepth);
+    const blendedWidth =
+      (baseWidth + (circleDiameter - baseWidth) * circleBlend) * heightScale;
+    const blendedDepth =
+      (baseDepth + (circleDiameter - baseDepth) * circleBlend) * heightScale;
+    const visible =
+      showGroundShadows && (bit.body.isVisible || bit.spawnPhase !== "done");
+    groundShadowManager.syncGroundShadow(groundShadow.shape, {
+      positionX: bit.root.position.x,
+      positionZ: bit.root.position.z,
+      width: blendedWidth,
+      depth: blendedDepth,
+      yaw,
+      visibility: visibility * (1 - circleBlend),
+      visible,
+      layerMask: worldLayerMask
+    });
+    groundShadowManager.syncGroundShadow(groundShadow.circle, {
+      positionX: bit.root.position.x,
+      positionZ: bit.root.position.z,
+      width: circleDiameter * heightScale,
+      depth: circleDiameter * heightScale,
+      yaw,
+      visibility: visibility * circleBlend,
+      visible,
+      layerMask: worldLayerMask
+    });
+  }
+};
+
+const syncPlayerPresentation = () => {
+  const useFirstPersonPreviewSprite =
+    firstPersonPreviewUsePlayerSprite &&
+    shouldShowFirstPersonBodyForPhase(gamePhase);
+  const firstPersonBodyVisibility = computeFirstPersonBodyVisibility();
+  playerAvatarRenderPositionApplied = false;
   if (shouldSyncPlayerAvatarToCamera(gamePhase)) {
     playerAvatar.isVisible = true;
-    playerAvatar.position.set(
-      camera.position.x,
-      playerAvatar.height * 0.5,
-      camera.position.z
-    );
-    alignSpriteToGround(playerAvatar);
+    if (useFirstPersonPreviewSprite) {
+      syncFirstPersonPreviewPlayerPosition(false);
+    } else {
+      playerAvatar.position.set(
+        playerEyeBasePosition.x,
+        playerAvatar.height * 0.5,
+        playerEyeBasePosition.z
+      );
+      alignSpriteToGround(playerAvatar);
+    }
+  } else if (useFirstPersonPreviewSprite) {
+    playerAvatar.isVisible = true;
+    syncFirstPersonPreviewPlayerPosition(true);
   }
+
+  const verticalAngleEnabled =
+    titlePlayerSettings.enableCharacterSpriteVerticalAngle;
+  const useVerticalAnglePreviewForMainCamera =
+    useFirstPersonPreviewSprite &&
+    !verticalAngleEnabled &&
+    firstPersonBodyVisibility > 0;
+  const playerVisibleLayerMask = useFirstPersonPreviewSprite
+    ? worldLayerMask
+    : shouldHidePlayerAvatarFromMainCamera(gamePhase)
+      ? reflectionOnlyLayerMask
+      : worldLayerMask;
+  const playerBillboardEnabled =
+    verticalAngleEnabled || useVerticalAnglePreviewForMainCamera;
+  const playerLayerMask = verticalAngleEnabled
+    ? playerVisibleLayerMask
+    : useVerticalAnglePreviewForMainCamera
+      ? mainCameraOnlyLayerMask
+      : playerVisibleLayerMask;
+  const playerSpriteLayerMask =
+    !verticalAngleEnabled && useFirstPersonPreviewSprite
+      ? reflectionOnlyLayerMask
+      : playerVisibleLayerMask;
+  characterScene.syncBillboards({
+    playerAvatar,
+    npcs,
+    playerBillboardEnabled,
+    playerLayerMask,
+    playerSpriteLayerMask,
+    worldLayerMask,
+    enabled: verticalAngleEnabled,
+    yaw: currentCharacterFacingYaw
+  });
   syncFirstPersonBodyVisibility();
 };
 
@@ -3805,7 +4224,7 @@ const resetGame = async (
 ) => {
   alarmTriggeredNpcIds.clear();
   bitAlertTargetedNpcIds.clear();
-  stopAllVoices();
+  characterScene.stopAllVoices();
   trapSystem.syncStageContext({ layout, bounds });
   trapSystem.resetRuntimeState();
   dynamicBeamSystem.syncStageContext({
@@ -3826,6 +4245,7 @@ const resetGame = async (
   playerHitById = null;
   playerHitTime = 0;
   playerAbility.resetState();
+  playerMotion.reset();
   trapSurviveCountAtBrainwash = null;
   playerHitDurationCurrent = playerHitDuration;
   playerHitFadeDurationCurrent = playerHitFadeDuration;
@@ -3878,7 +4298,7 @@ const resetGame = async (
     spawnPosition.z
   );
   rebuildGameFlow();
-  assignVoiceActors();
+  rebindVoiceActors();
 };
 
 const startGame = async () => {
@@ -3893,28 +4313,13 @@ const startGame = async () => {
     titleSettingsSidebar.setWarningEnabled(false);
     applyTitleSettingsSidebarSettings(titleSettingsSidebar.getSettings());
     titleAlarmTrapEnabled = titleStageSelectControl.getAlarmTrapEnabled();
-    const runtimeSettings = normalizeRuntimeSettingsForStage({
-      stageId: stageSelection.id,
-      titleDefaultStartSettings,
-      titleBrainwashSettings,
-      titleBitSpawnSettings,
-      titleAlarmTrapEnabled,
-      defaultBrainwashSettings,
-      defaultBitSpawnSettings
-    });
-    const rouletteSelected = runtimeSettings.rouletteSelected;
-    runtimeDefaultStartSettings = runtimeSettings.runtimeDefaultStartSettings;
-    runtimeBrainwashSettings = runtimeSettings.runtimeBrainwashSettings;
-    runtimeBitSpawnInterval = runtimeSettings.runtimeBitSpawnInterval;
-    runtimeMaxBitCount = runtimeSettings.runtimeMaxBitCount;
-    runtimeAlarmTrapEnabled = runtimeSettings.runtimeAlarmTrapEnabled;
-    setNpcBrainwashInProgressTransitionConfig(
-      buildNpcBrainwashInProgressTransitionConfig(runtimeBrainwashSettings)
-    );
-    setNpcBrainwashCompleteTransitionConfig(
-      buildNpcBrainwashCompleteTransitionConfig(runtimeBrainwashSettings)
-    );
-    await resetGame();
+    const preparedState = await ensureTitleStartPreparationReady();
+    if (!preparedState?.runtimeSettings) {
+      return;
+    }
+    applyRuntimeSettings(preparedState.runtimeSettings);
+    rebindVoiceActors();
+    const rouletteSelected = preparedState.runtimeSettings.rouletteSelected;
     const bgmUrl = selectBgmUrl(stageJson ? stageJson.meta.name : null);
     if (bgmUrl) {
       audioManager.startBgm(bgmUrl);
@@ -3931,9 +4336,30 @@ const startGame = async () => {
     titleSettingsSidebar.setVisible(false);
     setHudPhaseOverride(null);
     gameFlow.resetFade();
+    titleStartPreparation.invalidateReady();
     canvas.requestPointerLock();
   } finally {
     titleTransitionInProgress = false;
+  }
+};
+
+const prepareTitleReturnPresentation = () => {
+  characterScene.stopAllVoices();
+  stopAlertLoop();
+  stopRouletteSpinLoop();
+  audioManager.stopBgm();
+  resetExecutionState();
+  rouletteSystem.reset();
+  disposePlayerHitEffects();
+  clearBeams();
+  disposeAllBits();
+  playerAbility.resetInput();
+  playerMotion.reset();
+  camera.cameraDirection.set(0, 0, 0);
+  applyCameraSpawnTransform();
+  playerAvatar.isVisible = false;
+  for (const npc of npcs) {
+    npc.sprite.isVisible = false;
   }
 };
 
@@ -3944,6 +4370,8 @@ const returnToTitle = async () => {
   titleTransitionInProgress = true;
   try {
     document.exitPointerLock();
+    titleStartPreparation.invalidateReady();
+    prepareTitleReturnPresentation();
     gamePhase = "title";
     titleSettingsSidebar.setWarningEnabled(true);
     hud.setTitleVisible(true);
@@ -3953,54 +4381,25 @@ const returnToTitle = async () => {
     setHudPhaseOverride(null);
     gameFlow.resetFade();
     syncTitleMessage();
-    const nextCharacterAssignments = buildCharacterAssignments(
-      runtimeDefaultStartSettings.initialNpcCount,
-      titlePlayerSettings
-    );
-    const unloadedDirectories = countUnloadedPortraitDirectoriesForAssignments(
-      nextCharacterAssignments
-    );
-    const loadingSession =
-      unloadedDirectories > 0
-        ? createTitleLoadingSession(unloadedDirectories)
-        : null;
-    try {
-      await resetGame(
-        loadingSession ?? undefined,
-        nextCharacterAssignments
-      );
-    } finally {
-      loadingSession?.finish();
-    }
-    audioManager.stopBgm();
+    await ensureTitleStartPreparationReady();
   } finally {
     titleTransitionInProgress = false;
   }
 };
 
 const updateVoices = (delta: number) => {
-  if (!playerVoiceActor) {
-    return;
-  }
-  const allowIdle = gamePhase === "playing";
-  updateVoiceActor(
-    playerVoiceActor,
-    audioManager,
+  characterScene.updateVoices({
     delta,
-    allowIdle,
-    voiceBaseOptions,
-    voiceLoopOptions
-  );
-  for (const actor of npcVoiceActors) {
-    updateVoiceActor(
-      actor,
-      audioManager,
-      delta,
-      allowIdle,
-      voiceBaseOptions,
-      voiceLoopOptions
-    );
-}
+    allowIdle: gamePhase === "playing",
+    playerPosition: () => playerEyeBasePosition,
+    getPlayerState: () => playerState,
+    npcs,
+    getNpcState: (npc) =>
+      executionNpcVoiceStateOverrides.get(npc.sprite.name) ?? npc.state,
+    audioManager,
+    baseOptions: voiceBaseOptions,
+    loopOptions: voiceLoopOptions
+  });
 };
 
 setupInputHandlers({
@@ -4023,7 +4422,7 @@ setupInputHandlers({
     setHudPhaseOverride(null);
     gameFlow.beginFadeOut(() => {
       removeCarpetFollowers();
-      gameFlow.enterAssembly("instant");
+      enterAssemblyPhase("instant");
     });
   },
   onReturnToTitle: () => {
@@ -4043,10 +4442,23 @@ setupInputHandlers({
     playerState = state;
   },
   onMoveKey: (key, pressed) => {
-    if (pressed && canReleaseAssemblyControl(gamePhase)) {
-      gameFlow.releaseAssemblyPlayerControl();
-    }
     playerAbility.setMoveKey(key, pressed);
+    if (!canReleaseAssemblyControl(gamePhase)) {
+      return;
+    }
+    if (!pressed) {
+      if (
+        assemblyControlReleaseRequiresFreshMovePress &&
+        !playerAbility.hasMoveInput()
+      ) {
+        assemblyControlReleaseRequiresFreshMovePress = false;
+      }
+      return;
+    }
+    if (assemblyControlReleaseRequiresFreshMovePress) {
+      return;
+    }
+    gameFlow.releaseAssemblyPlayerControl();
   },
   onDashKey: (pressed) => {
     playerAbility.setDashPressed(pressed);
@@ -4059,7 +4471,11 @@ setupInputHandlers({
 });
 
 engine.runRenderLoop(() => {
+  restorePlayerEyeBasePosition();
+  restorePlayerAvatarWorldPosition();
   const delta = engine.getDeltaTime() / 1000;
+  capturePlayerEyeBasePosition();
+  syncCameraBasePositionFromPlayer();
   trapSystem.update(delta, gamePhase);
   dynamicBeamSystem.update(delta, gamePhase);
   if (gamePhase === "playing") {
@@ -4077,12 +4493,14 @@ engine.runRenderLoop(() => {
     );
     trapSystem.updateNpcFreezeControl(delta, gamePhase);
     updatePlayerState(delta, elapsedTime, shouldProcessOrb);
-    const playerAbilitySnapshotForMovement = createPlayerAbilitySnapshot();
-    const playerThreatenedNpcIdsForMovement =
-      playerAbilitySnapshotForMovement.threatenedNpcIds;
-    const npcBlockers =
-      playerAbilitySnapshotForMovement.npcBlockers;
-    const npcEvadeThreats = npcs.map(() => [] as Vector3[]);
+    const playerAbilitySnapshot = createPlayerAbilitySnapshot();
+    const playerThreatenedNpcIds =
+      playerAbilitySnapshot.threatenedNpcIds;
+    const npcBlockers = playerAbilitySnapshot.npcBlockers;
+    const npcEvadeThreats = ensureVectorListBufferSize(
+      npcEvadeThreatsBuffer,
+      npcs.length
+    );
     for (const bit of bits) {
       if (!bit.targetId) {
         continue;
@@ -4091,22 +4509,30 @@ engine.runRenderLoop(() => {
         continue;
       }
       const targetIndex = Number(bit.targetId.slice(4));
-      npcEvadeThreats[targetIndex].push(bit.root.position);
+      npcEvadeThreats[targetIndex]!.push(bit.root.position);
     }
-    for (const threatenedNpcId of playerThreatenedNpcIdsForMovement) {
+    for (const threatenedNpcId of playerThreatenedNpcIds) {
       const targetIndex = Number(threatenedNpcId.slice(4));
-      npcEvadeThreats[targetIndex].push(camera.position);
+      npcEvadeThreats[targetIndex]!.push(playerEyeBasePosition);
     }
-    const npcTargets = buildNpcTargets();
+    const npcTargets = syncNpcTargetBuffer({
+      buffer: npcTargetBuffer,
+      playerPosition: playerEyeBasePosition,
+      playerState,
+      playerHitById,
+      npcs
+    });
     alarmSystem.update(delta, gamePhase, npcTargets);
-    const activeDynamicBeamCells = new Set<string>();
+    activeDynamicBeamCells.clear();
     if (isDynamicStageSelected()) {
       for (const beam of beams) {
         if (!beam.active || beam.sourceId !== dynamicBeamSourceId) {
           continue;
         }
         const beamCell = worldToCell(layout, beam.startPosition);
-        activeDynamicBeamCells.add(`${beamCell.row},${beamCell.col}`);
+        activeDynamicBeamCells.add(
+          buildGridCellKey(layout.columns, beamCell.row, beamCell.col)
+        );
       }
     }
     const npcUpdate = updateNpcs(
@@ -4132,16 +4558,18 @@ engine.runRenderLoop(() => {
         effects: {
           isRedSource: isRedBitSource,
           impactOrbs: beamImpactOrbs,
-          cameraPosition: camera.position,
+          cameraPosition: playerEyeBasePosition,
           shouldProcessOrb
         },
         movement: {
           blockers: npcBlockers,
           evadeThreats: npcEvadeThreats,
-          playerThreatenedNpcIds: playerThreatenedNpcIdsForMovement,
+          playerThreatenedNpcIds,
           shouldFreezeAliveMovement: trapSystem.shouldFreezeNpcMovement,
           isAliveNpcForbiddenCell: (cell) =>
-            activeDynamicBeamCells.has(`${cell.row},${cell.col}`)
+            activeDynamicBeamCells.has(
+              buildGridCellKey(layout.columns, cell.row, cell.col)
+            )
         },
         alarms: {
           getAlarmTargetStack: (npcId) => alarmSystem.getAlarmTargetStack(npcId)
@@ -4162,8 +4590,10 @@ engine.runRenderLoop(() => {
     updatePlayerMovement(
       delta,
       allowMove,
-      playerAbilitySnapshotForMovement.moveSpeed
+      playerAbilitySnapshot.moveSpeed
     );
+    capturePlayerEyeBasePosition();
+    syncCameraBasePositionFromPlayer();
     playerAbility.updateStamina(delta, movingForStamina, gamePhase, playerState);
 
     const executionCandidate = findPublicExecutionCandidate();
@@ -4214,11 +4644,11 @@ engine.runRenderLoop(() => {
           setHudPhaseOverride(null);
           gameFlow.beginFadeOut(() => {
             removeCarpetFollowers();
-            gameFlow.enterAssembly("instant");
+            enterAssemblyPhase("instant");
           });
         } else {
           removeCarpetFollowers();
-          gameFlow.enterAssembly("move");
+          enterAssemblyPhase("move");
         }
       }
     } else {
@@ -4237,22 +4667,12 @@ engine.runRenderLoop(() => {
         }
       }
 
-      const targets = [
-        {
-          id: "player",
-          position: camera.position,
-          alive: isAliveState(playerState),
-          state: playerState,
-          hitById: playerHitById
-        },
-        ...npcs.map((npc, index) => ({
-          id: `npc_${index}`,
-          position: npc.sprite.position,
-          alive: isAliveState(npc.state),
-          state: npc.state,
-          hitById: npc.hitById
-        }))
-      ];
+      syncNpcTargetBufferStates({
+        buffer: npcTargets,
+        playerState,
+        playerHitById,
+        npcs
+      });
       const spawnAlertBit = (position: Vector3, direction: Vector3) => {
         if (countNonFollowerBits() >= runtimeMaxBitCount) {
           return null;
@@ -4268,14 +4688,14 @@ engine.runRenderLoop(() => {
       };
       const externalAlert =
         alertSignal.leaderId === null
-          ? applyAlertRequests(npcUpdate.alertRequests, targets, bits)
+          ? applyAlertRequests(npcUpdate.alertRequests, npcTargets, bits)
           : null;
       updateBits(
         layout,
         bits,
         delta,
         elapsedTime,
-        targets,
+        npcTargets,
         bounds,
         alertSignal,
         externalAlert,
@@ -4301,8 +4721,6 @@ engine.runRenderLoop(() => {
         startAlertLoop(alertLeader);
       }
 
-      const playerAbilitySnapshot = createPlayerAbilitySnapshot();
-      const playerThreatenedNpcIds = playerAbilitySnapshot.threatenedNpcIds;
       const targetedIds = new Set<string>();
       for (const bit of bits) {
         if (bit.targetId) {
@@ -4331,37 +4749,47 @@ engine.runRenderLoop(() => {
       }
     }
   }
-  if (gamePhase === "roulette") {
-    const shouldProcessOrb = buildOrbCullingCheck();
-    updateRouletteScene(delta, shouldProcessOrb);
-  }
-  if (gamePhase !== "playing") {
-    trapSystem.updateNpcFreezeControl(delta, gamePhase);
-  }
-
-  if (gamePhase === "execution") {
-    const shouldProcessOrb = buildOrbCullingCheck();
-    updateExecutionScene(delta, shouldProcessOrb);
-  }
-
-  if (isAssemblyPhase(gamePhase)) {
-    gameFlow.updateAssembly(delta);
-  }
-
-  if (gamePhase === "assemblyFree") {
-    updatePlayerMovement(delta, true, playerMoveSpeed);
-  }
-
-  if (usesPlayerEyeHeight(gamePhase)) {
-    camera.position.y = getEyeHeight();
-  }
+  runRuntimeFramePhases(gamePhase, {
+    onPlaying: () => {},
+    onRoulette: () => {
+      const shouldProcessOrb = buildOrbCullingCheck();
+      updateRouletteScene(delta, shouldProcessOrb);
+    },
+    onNonPlaying: () => {
+      trapSystem.updateNpcFreezeControl(delta, gamePhase);
+    },
+    onExecution: () => {
+      const shouldProcessOrb = buildOrbCullingCheck();
+      updateExecutionScene(delta, shouldProcessOrb);
+      capturePlayerEyeBasePosition();
+      syncCameraBasePositionFromPlayer();
+    },
+    onAssembly: () => {
+      gameFlow.updateAssembly(delta);
+      capturePlayerEyeBasePosition();
+    },
+    onAssemblyFree: () => {
+      updatePlayerMovement(delta, true, playerMoveSpeed);
+      capturePlayerEyeBasePosition();
+      syncCameraBasePositionFromPlayer();
+    },
+    onUsesPlayerEyeHeight: () => {
+      capturePlayerEyeBasePosition();
+      syncCameraBasePositionFromPlayer();
+    }
+  });
   updateCharacterSpriteCells();
-  syncPlayerPresentation();
-  syncReflectionCamera();
   updateVoices(delta);
-  gameFlow.updateFade(delta);
   audioManager.updateSpatial();
+  applyRenderCameraPosition();
+  syncCharacterFacingYaw();
+  syncPlayerPresentation();
+  syncGroundShadows();
+  syncReflectionCamera();
+  gameFlow.updateFade(delta);
   scene.render();
+  restorePlayerEyeBasePosition();
+  restorePlayerAvatarWorldPosition();
 });
 
 window.addEventListener("resize", () => {

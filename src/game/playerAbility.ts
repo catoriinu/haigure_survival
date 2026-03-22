@@ -11,6 +11,11 @@ import { type GamePhase } from "./phases";
 
 export type MoveKey = "forward" | "back" | "left" | "right";
 
+export type PlayerMoveAxes = {
+  moveX: number;
+  moveZ: number;
+};
+
 export type PlayerAbilityConfig = {
   baseMoveSpeed: number;
   dashSpeedMultiplier: number;
@@ -39,6 +44,7 @@ export type PlayerAbilityFrameSnapshot = {
 export type PlayerAbilityFrameContext = {
   gamePhase: GamePhase;
   playerState: CharacterState;
+  playerPosition: Vector3;
   camera: FreeCamera;
   scene: Scene;
   layout: GridLayout;
@@ -50,6 +56,7 @@ export type PlayerAbilityController = {
   setDashPressed: (pressed: boolean) => void;
   resetInput: () => void;
   resetState: () => void;
+  getMoveAxes: () => PlayerMoveAxes;
   hasMoveInput: () => boolean;
   createFrameSnapshot: (
     context: PlayerAbilityFrameContext
@@ -63,12 +70,6 @@ export type PlayerAbilityController = {
     moving: boolean,
     gamePhase: GamePhase,
     playerState: CharacterState
-  ) => void;
-  applyMovement: (
-    camera: FreeCamera,
-    delta: number,
-    allowMove: boolean,
-    moveSpeed: number
   ) => void;
 };
 
@@ -119,7 +120,7 @@ export const createPlayerAbilityController = ({
     staminaRecoverTimer = 0;
   };
 
-  const getMoveAxes = () => {
+  const getMoveAxes = (): PlayerMoveAxes => {
     let moveX = 0;
     let moveZ = 0;
     if (moveInput.forward) {
@@ -170,6 +171,7 @@ export const createPlayerAbilityController = ({
 
   const collectThreatenedNpcIds = ({
     playerState,
+    playerPosition,
     camera,
     scene,
     layout,
@@ -198,13 +200,13 @@ export const createPlayerAbilityController = ({
         continue;
       }
 
-      const dx = npc.sprite.position.x - camera.position.x;
-      const dz = npc.sprite.position.z - camera.position.z;
+      const dx = npc.sprite.position.x - playerPosition.x;
+      const dz = npc.sprite.position.z - playerPosition.z;
       const isNear = dx * dx + dz * dz <= nearRangeSq;
       let isOnScreen = false;
 
       if (!isNear) {
-        const toNpc = npc.sprite.position.subtract(camera.position);
+        const toNpc = npc.sprite.position.subtract(playerPosition);
         if (
           toNpc.lengthSquared() <= onScreenRangeSq &&
           Vector3.Dot(cameraForward, toNpc) > 0
@@ -242,6 +244,7 @@ export const createPlayerAbilityController = ({
     },
     resetInput,
     resetState,
+    getMoveAxes,
     hasMoveInput,
     createFrameSnapshot: (context) => {
       const moveSpeed = isDashActive(context.gamePhase, context.playerState)
@@ -251,7 +254,7 @@ export const createPlayerAbilityController = ({
         context.playerState === "brainwash-complete-no-gun"
           ? [
               {
-                position: context.camera.position,
+                position: context.playerPosition,
                 radius: noGunTouchContactRadius,
                 sourceId: "player"
               }
@@ -320,31 +323,6 @@ export const createPlayerAbilityController = ({
         staminaTenths = staminaMaxTenths;
         staminaRecoverTimer = 0;
       }
-    },
-    applyMovement: (camera, delta, allowMove, moveSpeed) => {
-      if (!allowMove) {
-        return;
-      }
-      const { moveX, moveZ } = getMoveAxes();
-      if (moveX === 0 && moveZ === 0) {
-        return;
-      }
-
-      const forward = camera.getDirection(new Vector3(0, 0, 1));
-      forward.y = 0;
-      const right = camera.getDirection(new Vector3(1, 0, 0));
-      right.y = 0;
-      const moveDirection = new Vector3(0, 0, 0);
-      if (moveZ !== 0 && forward.lengthSquared() > 0.0001) {
-        moveDirection.addInPlace(forward.scale(moveZ));
-      }
-      if (moveX !== 0 && right.lengthSquared() > 0.0001) {
-        moveDirection.addInPlace(right.scale(moveX));
-      }
-      if (moveDirection.lengthSquared() <= 0.0001) {
-        return;
-      }
-      camera.cameraDirection.addInPlace(moveDirection.scale(moveSpeed * delta));
     }
   };
 };

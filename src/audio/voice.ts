@@ -59,14 +59,14 @@ const buildVoiceProfiles = () => {
 export const voiceProfiles = buildVoiceProfiles();
 const voiceProfileIds = new Set(voiceProfiles.map((profile) => profile.id));
 const voiceFiles = import.meta.glob("/public/audio/voice/*/*.wav");
+const voiceFilePaths = Object.keys(voiceFiles);
 const voiceDirectories = Array.from(
   new Set(
-    Object.keys(voiceFiles).map((path) => path.split("/").slice(-2, -1)[0])
+    voiceFilePaths.map((path) => path.split("/").slice(-2, -1)[0])
   )
 )
   .filter((directory) => voiceProfileIds.has(directory.slice(0, 2)))
   .sort();
-
 const voiceBasePath = `${import.meta.env.BASE_URL}audio/voice/`;
 
 const pickRandom = (items: string[]) => {
@@ -76,7 +76,12 @@ const pickRandom = (items: string[]) => {
   return items[Math.floor(Math.random() * items.length)];
 };
 
-const resolveVoiceUrl = (path: string) => `${voiceBasePath}${path}`;
+const resolveVoiceUrl = (path: string) => {
+  if (!voiceFiles[`/public/audio/voice/${path}`]) {
+    throw new Error(`Missing voice audio asset: ${path}`);
+  }
+  return `${voiceBasePath}${path}`;
+};
 
 export const getVoiceDirectories = () => voiceDirectories;
 
