@@ -402,6 +402,7 @@ const portraitMaxHeightCells = 2;
 const worldLayerMask = 0x0fffffff;
 const reflectionOnlyLayerMask = 0x10000000;
 const firstPersonBodyLayerMask = 0x20000000;
+const mainCameraOnlyLayerMask = 0x40000000;
 const characterGroundShadowWidthRatio = 1.16;
 const characterGroundShadowDepthRatio = 0.8;
 const characterGroundShadowVisibility = 0.68;
@@ -825,7 +826,8 @@ const camera = new FreeCamera(
 );
 camera.setTarget(spawnPosition.add(spawnForward));
 camera.attachControl(canvas, true);
-camera.layerMask = worldLayerMask | firstPersonBodyLayerMask;
+camera.layerMask =
+  worldLayerMask | firstPersonBodyLayerMask | mainCameraOnlyLayerMask;
 camera.minZ = 0.02;
 const baseCameraSpeed = 0.02;
 const playerMoveSpeed = baseCameraSpeed * Math.sqrt(10);
@@ -1740,6 +1742,19 @@ const ensureFirstPersonBodySheet = async (directory: string) => {
   firstPersonBodyLastCellIndex = -1;
   configureFirstPersonBodyTexture(sheet.cellWidth, sheet.cellHeight);
 };
+const computeFirstPersonBodyVisibility = () => {
+  if (!shouldShowFirstPersonBodyForPhase(gamePhase)) {
+    return 0;
+  }
+  const forward = camera.getDirection(new Vector3(0, 0, 1));
+  const floorUnderPlayerVisibleThreshold = Math.cos(camera.fov * 0.5);
+  return clampValue(
+    (-forward.y - floorUnderPlayerVisibleThreshold) /
+      (1 - floorUnderPlayerVisibleThreshold),
+    0,
+    1
+  );
+};
 const syncFirstPersonBodyVisibility = () => {
   if (firstPersonPreviewUsePlayerSprite) {
     firstPersonBodyMesh.isVisible = false;
@@ -1753,14 +1768,7 @@ const syncFirstPersonBodyVisibility = () => {
     firstPersonBodyMesh.isVisible = false;
     return;
   }
-  const forward = camera.getDirection(new Vector3(0, 0, 1));
-  const floorUnderPlayerVisibleThreshold = Math.cos(camera.fov * 0.5);
-  const visibility = clampValue(
-    (-forward.y - floorUnderPlayerVisibleThreshold) /
-      (1 - floorUnderPlayerVisibleThreshold),
-    0,
-    1
-  );
+  const visibility = computeFirstPersonBodyVisibility();
   if (visibility <= 0) {
     firstPersonBodyMesh.isVisible = false;
     return;
@@ -4156,6 +4164,7 @@ const syncPlayerPresentation = () => {
   const useFirstPersonPreviewSprite =
     firstPersonPreviewUsePlayerSprite &&
     shouldShowFirstPersonBodyForPhase(gamePhase);
+  const firstPersonBodyVisibility = computeFirstPersonBodyVisibility();
   playerAvatarRenderPositionApplied = false;
   if (shouldSyncPlayerAvatarToCamera(gamePhase)) {
     playerAvatar.isVisible = true;
@@ -4176,15 +4185,32 @@ const syncPlayerPresentation = () => {
 
   const verticalAngleEnabled =
     titlePlayerSettings.enableCharacterSpriteVerticalAngle;
-  const playerLayerMask = useFirstPersonPreviewSprite
+  const useVerticalAnglePreviewForMainCamera =
+    useFirstPersonPreviewSprite &&
+    !verticalAngleEnabled &&
+    firstPersonBodyVisibility > 0;
+  const playerVisibleLayerMask = useFirstPersonPreviewSprite
     ? worldLayerMask
     : shouldHidePlayerAvatarFromMainCamera(gamePhase)
       ? reflectionOnlyLayerMask
       : worldLayerMask;
+  const playerBillboardEnabled =
+    verticalAngleEnabled || useVerticalAnglePreviewForMainCamera;
+  const playerLayerMask = verticalAngleEnabled
+    ? playerVisibleLayerMask
+    : useVerticalAnglePreviewForMainCamera
+      ? mainCameraOnlyLayerMask
+      : playerVisibleLayerMask;
+  const playerSpriteLayerMask =
+    !verticalAngleEnabled && useFirstPersonPreviewSprite
+      ? reflectionOnlyLayerMask
+      : playerVisibleLayerMask;
   characterScene.syncBillboards({
     playerAvatar,
     npcs,
+    playerBillboardEnabled,
     playerLayerMask,
+    playerSpriteLayerMask,
     worldLayerMask,
     enabled: verticalAngleEnabled,
     yaw: currentCharacterFacingYaw

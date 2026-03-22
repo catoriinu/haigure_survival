@@ -69,7 +69,9 @@ type PrepareCharactersArgs = {
 type SyncBillboardsArgs = {
   playerAvatar: Sprite;
   npcs: Npc[];
+  playerBillboardEnabled: boolean;
   playerLayerMask: number;
+  playerSpriteLayerMask: number;
   worldLayerMask: number;
   enabled: boolean;
   yaw: number;
@@ -166,8 +168,9 @@ export const createCharacterSceneController = ({
   let npcVoiceIds: string[] = [];
   let playerPortraitDirectory = "";
   let npcPortraitDirectories: string[] = [];
-  let lastVerticalAngleEnabled: boolean | null = null;
-  let lastPlayerLayerMask = -1;
+  let lastBillboardEnabled: boolean | null = null;
+  let lastPlayerBillboardEnabled: boolean | null = null;
+  let lastPlayerSpriteLayerMask = -1;
   let lastWorldLayerMask = -1;
 
   const pickVoiceProfileById = (id: string) =>
@@ -463,8 +466,9 @@ export const createCharacterSceneController = ({
       }
       ensureBillboardHandles(nextPlayerAvatar, npcs);
       ensureCharacterGroundShadowHandles(npcs);
-      lastVerticalAngleEnabled = null;
-      lastPlayerLayerMask = -1;
+      lastBillboardEnabled = null;
+      lastPlayerBillboardEnabled = null;
+      lastPlayerSpriteLayerMask = -1;
       lastWorldLayerMask = -1;
       return nextPlayerAvatar;
     },
@@ -480,31 +484,37 @@ export const createCharacterSceneController = ({
     syncBillboards: ({
       playerAvatar,
       npcs,
+      playerBillboardEnabled,
       playerLayerMask,
+      playerSpriteLayerMask,
       worldLayerMask,
       enabled,
       yaw
     }) => {
       if (
-        lastVerticalAngleEnabled !== enabled ||
-        lastPlayerLayerMask !== playerLayerMask ||
+        lastBillboardEnabled !== enabled ||
+        lastPlayerBillboardEnabled !== playerBillboardEnabled ||
+        lastPlayerSpriteLayerMask !== playerSpriteLayerMask ||
         lastWorldLayerMask !== worldLayerMask
       ) {
         for (const portraitManager of portraitManagers.values()) {
           portraitManager.layerMask = enabled ? 0 : worldLayerMask;
         }
         if (playerPortraitManager) {
-          playerPortraitManager.layerMask = enabled ? 0 : playerLayerMask;
+          playerPortraitManager.layerMask = playerBillboardEnabled
+            ? 0
+            : playerSpriteLayerMask;
         }
-        lastVerticalAngleEnabled = enabled;
-        lastPlayerLayerMask = playerLayerMask;
+        lastBillboardEnabled = enabled;
+        lastPlayerBillboardEnabled = playerBillboardEnabled;
+        lastPlayerSpriteLayerMask = playerSpriteLayerMask;
         lastWorldLayerMask = worldLayerMask;
       }
       if (playerBillboardMesh) {
         characterBillboardMeshManager.syncCharacterBillboardMesh(
           playerBillboardMesh,
           playerAvatar,
-          enabled,
+          playerBillboardEnabled,
           playerLayerMask,
           yaw
         );
