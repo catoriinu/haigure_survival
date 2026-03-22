@@ -79,6 +79,15 @@ Files in the public directory are served at the root path.
 
 ちなみに、全滅して強制移動が始まるタイミングで、「WASDのいずれかを既に押しっぱなしだった場合は、自由移動させない。次にWASDキーのいずれかを押したときに自由移動可能にする」ことはできますか？
 
+最近の動作確認時において、
+全滅シーン後、Enterでタイトル画面に戻るとき、
+- NOW LOADING 0/1の読み込みが走る
+- 既にタイトル画面の薄い黒色が表示されているのに、その裏で全滅時のカメラ表示や、再生されていた音声がしばらく残っている
+現象が起きています。
+絶対に直してほしいわけではないですが気になるので、原因を調査したりそうならないように修正可能かを検討してください。
+
+1でYES
+
 また、都心部ステージで全滅したとき、フェードが明けても整列位置に移動していないようでした。
 「よう」というのは、画面内を見る限り他のキャラやビットが見えなかったからです。周囲を見渡そうとした瞬間、以下のエラーが出てカメラが固まってしまいました。（整列時のNPCのボイスは鳴っていました）
 flow.ts:402 Uncaught TypeError: Cannot read properties of undefined (reading 'index')
@@ -110,6 +119,8 @@ flow.ts:402 Uncaught TypeError: Cannot read properties of undefined (reading 'in
 - [x] `npm run build` を再実行し、今回の整列回帰修正後のビルド成立を確認する
 - [x] 整列開始時に移動キーが押しっぱなしだった場合、再入力があるまで自由移動を解放しないようにする
 - [x] `npm run build` を再実行し、整列入力仕様変更後のビルド成立を確認する
+- [x] タイトル復帰時に旧シーンの映像と音声が残る原因を調査し、即時に見た目と音を片付ける
+- [x] `npm run build` を再実行し、タイトル復帰まわりの変更後のビルド成立を確認する
 
 ## 結果
 - `src/game/titleStartPreparation.ts` を追加し、タイトル画面の重い再準備を 250ms デバウンスで直列化するコントローラを導入した。開始時は prepared state を確認し、一致時は `resetGame()` を再実行しない構成へ切り替えた。
@@ -137,3 +148,7 @@ flow.ts:402 Uncaught TypeError: Cannot read properties of undefined (reading 'in
 - 整列回帰修正後にも `npm run build` は成功した。
 - 整列開始時に `WASD` のいずれかが既に押されていた場合は、その押しっぱなし入力では `assemblyFree` へ移行しないようにした。`enterAssembly` の入口で move input の有無を記録し、整列中は一度すべての移動キーが離されるまで解放を保留する。全キーが離れた後の次の `keydown` でだけ `releaseAssemblyPlayerControl()` を呼ぶように変更した。
 - 今回の入力仕様変更後にも `npm run build` は成功した。
+- `Enter` でタイトルへ戻る際に `NOW LOADING 0/1` が出ていたのは、`buildTitleStartPreparationRequest()` が「未ロードの portrait directory 数」を `loadingTotal` にしており、1 件だけ portrait preload が残っていたためだった。待ち自体は開始準備の都合で残るが、その待ち時間中に旧シーンが見えたり音が残ったりすることが違和感の本体だった。
+- 旧シーンが残って見えていた原因は、`returnToTitle()` がタイトル UI と半透明 overlay を先に表示した後で `await ensureTitleStartPreparationReady()` を待っており、`resetGame()` 由来の voice 停止・ビット破棄・カメラ初期化がその後まで走らなかったことだった。overlay も `rgba(0, 0, 0, 0.7)` なので、待ち時間中は全滅時カメラの映像が透けて見えていた。
+- これを解消するため、`prepareTitleReturnPresentation()` を追加し、`returnToTitle()` の `await` 前に voice/BGM/ループ SE の停止、公開処刑状態の解除、ビームとビットの破棄、入力慣性のリセット、スポーン視点へのカメラ復帰、player/NPC sprite の即時非表示を先に実行するようにした。これにより、title start preparation の待ちが残っていても、裏で全滅シーンの映像と音声が残り続けにくくした。
+- 今回のタイトル復帰修正後にも `npm run build` は成功した。

@@ -4316,6 +4316,26 @@ const startGame = async () => {
   }
 };
 
+const prepareTitleReturnPresentation = () => {
+  characterScene.stopAllVoices();
+  stopAlertLoop();
+  stopRouletteSpinLoop();
+  audioManager.stopBgm();
+  resetExecutionState();
+  rouletteSystem.reset();
+  disposePlayerHitEffects();
+  clearBeams();
+  disposeAllBits();
+  playerAbility.resetInput();
+  playerMotion.reset();
+  camera.cameraDirection.set(0, 0, 0);
+  applyCameraSpawnTransform();
+  playerAvatar.isVisible = false;
+  for (const npc of npcs) {
+    npc.sprite.isVisible = false;
+  }
+};
+
 const returnToTitle = async () => {
   if (titleTransitionInProgress) {
     return;
@@ -4324,6 +4344,7 @@ const returnToTitle = async () => {
   try {
     document.exitPointerLock();
     titleStartPreparation.invalidateReady();
+    prepareTitleReturnPresentation();
     gamePhase = "title";
     titleSettingsSidebar.setWarningEnabled(true);
     hud.setTitleVisible(true);
@@ -4334,7 +4355,6 @@ const returnToTitle = async () => {
     gameFlow.resetFade();
     syncTitleMessage();
     await ensureTitleStartPreparationReady();
-    audioManager.stopBgm();
   } finally {
     titleTransitionInProgress = false;
   }
