@@ -39,6 +39,7 @@ type GameFlowOptions = {
   stopAlertLoop: () => void;
   setBitSpawnEnabled: (enabled: boolean) => void;
   disposePlayerHitEffects: () => void;
+  syncPlayerEyePosition: (eyePosition: Vector3) => void;
   setHudPhaseOverride: (
     state: {
       hudVisible: boolean;
@@ -65,6 +66,7 @@ export const createGameFlow = ({
   stopAlertLoop,
   setBitSpawnEnabled,
   disposePlayerHitEffects,
+  syncPlayerEyePosition,
   setHudPhaseOverride
 }: GameFlowOptions) => {
   const stageArea = assemblyArea;
@@ -480,6 +482,7 @@ export const createGameFlow = ({
     camera.position.x = playerAvatar.position.x;
     camera.position.z = playerAvatar.position.z;
     camera.position.y = getEyeHeight();
+    syncPlayerEyePosition(camera.position);
   };
   const updateAssemblyNpcRoutes = (delta: number) => {
     let allArrived = true;
@@ -537,13 +540,17 @@ export const createGameFlow = ({
 
     if (mode === "instant") {
       assemblyPlayerRoute = null;
-      assemblyNpcRoutes = [];
+      assemblyNpcRoutes = assemblyNpcTargets.map(() => ({
+        waypoints: [],
+        index: 0
+      }));
       playerAvatar.position.copyFrom(assemblyPlayerTarget);
       alignSpriteToGround(playerAvatar);
       for (let index = 0; index < npcs.length; index += 1) {
         npcs[index].sprite.position.copyFrom(assemblyNpcTargets[index]);
         alignSpriteToGround(npcs[index].sprite);
       }
+      syncCameraToPlayerAvatar();
       setGamePhase("assemblyHold");
       return;
     }
@@ -634,6 +641,7 @@ export const createGameFlow = ({
       camera.setTarget(
         new Vector3(executionCenter.x, eyeHeight, executionCenter.z + 1)
       );
+      syncPlayerEyePosition(camera.position);
 
       placeNpcRing(npcs.map((_, index) => index));
       setBitsEnabled(true);
@@ -657,6 +665,7 @@ export const createGameFlow = ({
       const eyeHeight = getEyeHeight();
       camera.position.set(playerTarget.x, eyeHeight, playerTarget.z);
       camera.setTarget(executionCenter);
+      syncPlayerEyePosition(camera.position);
 
       const npcIndices = npcs
         .map((_, index) => index)
@@ -678,6 +687,7 @@ export const createGameFlow = ({
       playerAvatar.position.z
     );
     camera.setTarget(executionCenter);
+    syncPlayerEyePosition(camera.position);
 
     const npcIndices = npcs
       .map((_, index) => index)

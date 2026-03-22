@@ -73,6 +73,24 @@ Files in the public directory are served at the root path.
 ブラウザをF5で更新した直後、LOADINGが終わった直後にゲームを開始すると、自ボイスを選択していても、ランダムでも、ゲーム内でボイスが鳴りません。（SEは鳴ります）
 そのまま全滅→読み込み直しせずに再度ゲーム開始すると、自ボイスを選択していても、ランダムでも、ボイスが鳴るようになりました。
 
+全滅時、整列のプレイヤーの強制移動が効かなくなっていました。
+全滅した瞬間にWASDキーを押してなくてもその場で留まったままになってしまっています。
+原因を調査して修正してください。
+
+ちなみに、全滅して強制移動が始まるタイミングで、「WASDのいずれかを既に押しっぱなしだった場合は、自由移動させない。次にWASDキーのいずれかを押したときに自由移動可能にする」ことはできますか？
+
+また、都心部ステージで全滅したとき、フェードが明けても整列位置に移動していないようでした。
+「よう」というのは、画面内を見る限り他のキャラやビットが見えなかったからです。周囲を見渡そうとした瞬間、以下のエラーが出てカメラが固まってしまいました。（整列時のNPCのボイスは鳴っていました）
+flow.ts:402 Uncaught TypeError: Cannot read properties of undefined (reading 'index')
+    at moveSpriteAlongRoute (flow.ts:402:18)
+    at updateAssemblyNpcRoutes (flow.ts:488:23)
+    at Object.updateAssembly (flow.ts:699:7)
+    at Object.onAssembly (main.ts:4698:16)
+    at runRuntimeFramePhases (runtimeFrame.ts:131:15)
+    at main.ts:4682:3
+
+原因を調査して修正してください。
+
 ## ステップ
 - [x] 既存の `docs/plan.md` を退避し、今回タスク用の `docs/plan.md` を作成する
 - [x] タイトル開始の事前準備フローと設定変更イベントを実装する
@@ -87,6 +105,11 @@ Files in the public directory are served at the root path.
 - [x] `/public` voice asset の誤 import を除去し、Vite 警告ログを止める
 - [x] 初回開始時に voice actor が未初期化のまま残る経路を修正する
 - [x] `npm run build` を再実行し、今回の音声修正後のビルド成立を確認する
+- [x] 全滅後の整列フェーズでプレイヤー位置とカメラ基準がずれる原因を修正する
+- [x] 即時整列後に assemblyFree へ移行した際の NPC ルート参照クラッシュを修正する
+- [x] `npm run build` を再実行し、今回の整列回帰修正後のビルド成立を確認する
+- [x] 整列開始時に移動キーが押しっぱなしだった場合、再入力があるまで自由移動を解放しないようにする
+- [x] `npm run build` を再実行し、整列入力仕様変更後のビルド成立を確認する
 
 ## 結果
 - `src/game/titleStartPreparation.ts` を追加し、タイトル画面の重い再準備を 250ms デバウンスで直列化するコントローラを導入した。開始時は prepared state を確認し、一致時は `resetGame()` を再実行しない構成へ切り替えた。
@@ -109,3 +132,8 @@ Files in the public directory are served at the root path.
 - `/public` voice asset の Vite 警告は、`src/audio/voice.ts` で `import.meta.glob("/public/...")` を `eager import` へ変えていたことが直接原因だったため、列挙用途だけに戻して再生 URL は `BASE_URL + audio/voice/...` の参照へ戻した。
 - F5 直後の初回開始で全 voice が鳴らない原因は、初期 LOADING 終了時点では `prepareCharacters()` だけが走っており、`characterScene.rebindVoices()` がまだ呼ばれていなかったことだった。prepared start では `resetGame()` を省略するため、そのまま `voice actor` 未初期化のままゲーム開始していた。これを避けるため、`startGame()` の prepared state 適用直後に軽量な `rebindVoiceActors()` を必ず実行するようにした。
 - 今回の修正後にも `npm run build` は成功した。
+- 全滅後の整列でプレイヤーがその場に残って見えていた原因は、`flow.ts` が `playerAvatar` と `camera` だけを整列位置へ動かし、実際の視点基準になっている `playerCollisionMesh` を更新していなかったことだった。次フレームで `capturePlayerEyeBasePosition()` が古い collision 位置を拾い直してしまうため、強制移動が効いていないように見えていた。これを修正するため、`createGameFlow()` に `syncPlayerEyePosition` を追加し、整列・公開処刑で flow 側がカメラ位置を決めたタイミングで collision 基準も同時に更新するようにした。
+- 都心部ステージのクラッシュは、`enterAssembly("instant")` が `assemblyNpcRoutes = []` を設定したまま `assemblyHold` に入り、その後 `WASD` で `assemblyFree` へ移行すると `updateAssemblyNpcRoutes()` が存在しない route を `moveSpriteAlongRoute()` へ渡していたことが原因だった。即時整列でも NPC ごとの「完了済みルート」を保持するように変え、route 配列長と `npcs` の前提を崩さないようにした。
+- 整列回帰修正後にも `npm run build` は成功した。
+- 整列開始時に `WASD` のいずれかが既に押されていた場合は、その押しっぱなし入力では `assemblyFree` へ移行しないようにした。`enterAssembly` の入口で move input の有無を記録し、整列中は一度すべての移動キーが離されるまで解放を保留する。全キーが離れた後の次の `keydown` でだけ `releaseAssemblyPlayerControl()` を呼ぶように変更した。
+- 今回の入力仕様変更後にも `npm run build` は成功した。

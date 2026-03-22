@@ -96,7 +96,11 @@ import {
   voiceProfiles
 } from "./audio/voice";
 import { SfxDirector } from "./audio/sfxDirector";
-import { createGameFlow, type ExecutionConfig } from "./game/flow";
+import {
+  createGameFlow,
+  type AssemblyMode,
+  type ExecutionConfig
+} from "./game/flow";
 import { createDynamicBeamSystem } from "./game/dynamicBeam/system";
 import { createTrapSystem } from "./game/trap/system";
 import { createAlarmSystem } from "./game/alarm/system";
@@ -3619,11 +3623,17 @@ const createGameFlowInstance = () =>
     stopAlertLoop,
     setBitSpawnEnabled,
     disposePlayerHitEffects,
+    syncPlayerEyePosition: syncPlayerCollisionMeshFromEyePosition,
     setHudPhaseOverride
   });
 let gameFlow = createGameFlowInstance();
 const rebuildGameFlow = () => {
   gameFlow = createGameFlowInstance();
+};
+let assemblyControlReleaseRequiresFreshMovePress = false;
+const enterAssemblyPhase = (mode: AssemblyMode) => {
+  assemblyControlReleaseRequiresFreshMovePress = playerAbility.hasMoveInput();
+  gameFlow.enterAssembly(mode);
 };
 
 hud.setTitleVisible(true);
@@ -4365,7 +4375,7 @@ setupInputHandlers({
     setHudPhaseOverride(null);
     gameFlow.beginFadeOut(() => {
       removeCarpetFollowers();
-      gameFlow.enterAssembly("instant");
+      enterAssemblyPhase("instant");
     });
   },
   onReturnToTitle: () => {
@@ -4385,10 +4395,23 @@ setupInputHandlers({
     playerState = state;
   },
   onMoveKey: (key, pressed) => {
-    if (pressed && canReleaseAssemblyControl(gamePhase)) {
-      gameFlow.releaseAssemblyPlayerControl();
-    }
     playerAbility.setMoveKey(key, pressed);
+    if (!canReleaseAssemblyControl(gamePhase)) {
+      return;
+    }
+    if (!pressed) {
+      if (
+        assemblyControlReleaseRequiresFreshMovePress &&
+        !playerAbility.hasMoveInput()
+      ) {
+        assemblyControlReleaseRequiresFreshMovePress = false;
+      }
+      return;
+    }
+    if (assemblyControlReleaseRequiresFreshMovePress) {
+      return;
+    }
+    gameFlow.releaseAssemblyPlayerControl();
   },
   onDashKey: (pressed) => {
     playerAbility.setDashPressed(pressed);
@@ -4574,11 +4597,11 @@ engine.runRenderLoop(() => {
           setHudPhaseOverride(null);
           gameFlow.beginFadeOut(() => {
             removeCarpetFollowers();
-            gameFlow.enterAssembly("instant");
+            enterAssemblyPhase("instant");
           });
         } else {
           removeCarpetFollowers();
-          gameFlow.enterAssembly("move");
+          enterAssemblyPhase("move");
         }
       }
     } else {
