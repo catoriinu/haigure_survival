@@ -12,10 +12,26 @@ import { canReleaseAssemblyControl, type GamePhase } from "./phases";
 
 export type AssemblyMode = "move" | "instant";
 
-export type ExecutionConfig =
-  | { variant: "player-survivor" }
-  | { variant: "npc-survivor-player-block"; survivorNpcIndex: number }
-  | { variant: "npc-survivor-npc-block"; survivorNpcIndex: number };
+export type ExecutionTarget =
+  | { kind: "player" }
+  | { kind: "npc"; npcIndex: number };
+
+export type ExecutionVariant =
+  | "player-survivor"
+  | "npc-survivor-player-block"
+  | "npc-survivor-npc-block";
+
+export type ExecutionBlockKind = "player" | "npc";
+
+export type ExecutionPlayerRole = "target" | "shooter" | "observer";
+
+export type ExecutionConfig = {
+  variant: ExecutionVariant;
+  survivorTargets: ExecutionTarget[];
+  blockKindsByTargetKey: Record<string, ExecutionBlockKind>;
+  playerExecutionRole: ExecutionPlayerRole;
+  usesNpcVolley: boolean;
+};
 
 type AssemblyRoute = {
   waypoints: Vector3[];
@@ -80,10 +96,6 @@ export const createGameFlow = ({
   const executionNpcRingMaxRadius = Math.min(
     ((stageArea.width - CELL_SCALE) * layout.cellSize) / 2,
     ((stageArea.height - CELL_SCALE) * layout.cellSize) / 2
-  );
-  const executionNpcRingRadius = Math.min(
-    executionNpcRingMaxRadius,
-    executionOrbitRadius + executionNpcRingPadding
   );
   const fadeDuration = 0.8;
   const { beginFadeOut, updateFade, resetFade, isFading } =
@@ -354,7 +366,46 @@ export const createGameFlow = ({
     return slots;
   };
 
-  const createExecutionRingSlots = (center: Vector3, count: number) => {
+  const getExecutionBitOrbitRadius = (survivorCount: number) =>
+    Math.max(
+      executionOrbitRadius,
+      ((Math.max(0, survivorCount - 1) * layout.cellSize) / 2) +
+        layout.cellSize * 0.9
+    );
+
+  const getExecutionNpcRingRadius = (survivorCount: number) =>
+    Math.min(
+      executionNpcRingMaxRadius,
+      Math.max(
+        getExecutionBitOrbitRadius(survivorCount) + executionNpcRingPadding,
+        executionOrbitRadius + executionNpcRingPadding
+      )
+    );
+
+  const createExecutionLineSlots = (center: Vector3, count: number) => {
+    if (count <= 0) {
+      return [];
+    }
+    const spacing = layout.cellSize;
+    const startX = center.x - ((count - 1) * spacing) / 2;
+    const slots: Vector3[] = [];
+    for (let index = 0; index < count; index += 1) {
+      slots.push(
+        new Vector3(
+          startX + spacing * index,
+          playerCenterHeight,
+          center.z
+        )
+      );
+    }
+    return slots;
+  };
+
+  const createExecutionRingSlots = (
+    center: Vector3,
+    count: number,
+    radius: number
+  ) => {
     if (count <= 0) {
       return [];
     }
@@ -364,9 +415,9 @@ export const createGameFlow = ({
       const angle = angleStep * index;
       slots.push(
         new Vector3(
-          center.x + Math.cos(angle) * executionNpcRingRadius,
+          center.x + Math.cos(angle) * radius,
           playerCenterHeight,
-          center.z + Math.sin(angle) * executionNpcRingRadius
+          center.z + Math.sin(angle) * radius
         )
       );
     }
@@ -454,7 +505,7 @@ export const createGameFlow = ({
     }
   };
 
-  const placeBitsAround = (center: Vector3) => {
+  const placeBitsAround = (center: Vector3, radius: number) => {
     if (bits.length === 0) {
       return;
     }
@@ -463,8 +514,8 @@ export const createGameFlow = ({
       const bit = bits[index];
       const angle = angleStep * index;
       bit.root.setEnabled(true);
-      bit.root.position.x = center.x + Math.cos(angle) * executionOrbitRadius;
-      bit.root.position.z = center.z + Math.sin(angle) * executionOrbitRadius;
+      bit.root.position.x = center.x + Math.cos(angle) * radius;
+      bit.root.position.z = center.z + Math.sin(angle) * radius;
       const executionOrbitHeight = getEyeHeight();
       bit.root.position.y = executionOrbitHeight;
       bit.baseHeight = executionOrbitHeight;
@@ -610,13 +661,24 @@ export const createGameFlow = ({
       playerCenterHeight,
       stageCenter.z
     );
+    const executionLineSlots = createExecutionLineSlots(
+      executionCenter,
+      config.survivorTargets.length
+    );
+    const executionBitOrbitRadius = getExecutionBitOrbitRadius(
+      config.survivorTargets.length
+    );
+    const executionNpcRingRadius = getExecutionNpcRingRadius(
+      config.survivorTargets.length
+    );
     const frontRowOrder = [...stageRows];
     const frontRowCenterIndex = Math.floor((stageCols.length - 1) / 2);
     const frontSlots = createStageSlots(frontRowOrder);
     const placeNpcRing = (npcIndices: number[]) => {
       const ringSlots = createExecutionRingSlots(
         executionCenter,
-        npcIndices.length
+        npcIndices.length,
+        executionNpcRingRadius
       );
       for (let index = 0; index < npcIndices.length; index += 1) {
         const npc = npcs[npcIndices[index]];
@@ -626,35 +688,47 @@ export const createGameFlow = ({
         alignSpriteToGround(npc.sprite);
       }
     };
+    let playerTargetPosition: Vector3 | null = null;
+    const survivorNpcIndexSet = new Set<number>();
+    for (let index = 0; index < config.survivorTargets.length; index += 1) {
+      const target = config.survivorTargets[index];
+      const position = executionLineSlots[index];
+      if (target.kind === "player") {
+        setPlayerAvatarState("evade");
+        playerAvatar.isVisible = true;
+        playerAvatar.position.copyFrom(position);
+        alignSpriteToGround(playerAvatar);
+        playerTargetPosition = position;
+        continue;
+      }
+      const npc = npcs[target.npcIndex];
+      npc.state = "evade";
+      npc.sprite.cellIndex = getPortraitCellIndex("evade");
+      npc.sprite.position.copyFrom(position);
+      alignSpriteToGround(npc.sprite);
+      survivorNpcIndexSet.add(target.npcIndex);
+    }
 
-    if (config.variant === "player-survivor") {
-      setPlayerAvatarState("evade");
-      playerAvatar.isVisible = true;
-      playerAvatar.position.copyFrom(executionCenter);
-      alignSpriteToGround(playerAvatar);
+    const nonSurvivorNpcIndices = npcs
+      .map((_, index) => index)
+      .filter((index) => !survivorNpcIndexSet.has(index));
+
+    if (config.playerExecutionRole === "target") {
       const eyeHeight = getEyeHeight();
-      camera.position.set(
-        executionCenter.x,
-        eyeHeight,
-        executionCenter.z
-      );
+      const cameraBase = playerTargetPosition ?? executionCenter;
+      camera.position.set(cameraBase.x, eyeHeight, cameraBase.z);
       camera.setTarget(
-        new Vector3(executionCenter.x, eyeHeight, executionCenter.z + 1)
+        new Vector3(cameraBase.x, eyeHeight, cameraBase.z + 1)
       );
       syncPlayerEyePosition(camera.position);
-
-      placeNpcRing(npcs.map((_, index) => index));
-      setBitsEnabled(true);
-      placeBitsAround(executionCenter);
+      placeNpcRing(nonSurvivorNpcIndices);
+      setBitsEnabled(!config.usesNpcVolley);
+      if (!config.usesNpcVolley) {
+        placeBitsAround(executionCenter, executionBitOrbitRadius);
+      }
       setGamePhase("execution");
       return;
     }
-
-    const survivorNpc = npcs[config.survivorNpcIndex];
-    survivorNpc.state = "evade";
-    survivorNpc.sprite.cellIndex = 0;
-    survivorNpc.sprite.position.copyFrom(executionCenter);
-    alignSpriteToGround(survivorNpc.sprite);
 
     if (config.variant === "npc-survivor-player-block") {
       setPlayerAvatarState("brainwash-complete-gun");
@@ -666,11 +740,7 @@ export const createGameFlow = ({
       camera.position.set(playerTarget.x, eyeHeight, playerTarget.z);
       camera.setTarget(executionCenter);
       syncPlayerEyePosition(camera.position);
-
-      const npcIndices = npcs
-        .map((_, index) => index)
-        .filter((index) => index !== config.survivorNpcIndex);
-      placeNpcRing(npcIndices);
+      placeNpcRing(nonSurvivorNpcIndices);
       setBitsEnabled(false);
       setGamePhase("execution");
       return;
@@ -688,13 +758,11 @@ export const createGameFlow = ({
     );
     camera.setTarget(executionCenter);
     syncPlayerEyePosition(camera.position);
-
-    const npcIndices = npcs
-      .map((_, index) => index)
-      .filter((index) => index !== config.survivorNpcIndex);
-    placeNpcRing(npcIndices);
-    setBitsEnabled(true);
-    placeBitsAround(executionCenter);
+    placeNpcRing(nonSurvivorNpcIndices);
+    setBitsEnabled(!config.usesNpcVolley);
+    if (!config.usesNpcVolley) {
+      placeBitsAround(executionCenter, executionBitOrbitRadius);
+    }
     setGamePhase("execution");
   };
 

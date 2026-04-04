@@ -99,7 +99,9 @@ import { SfxDirector } from "./audio/sfxDirector";
 import {
   createGameFlow,
   type AssemblyMode,
-  type ExecutionConfig
+  type ExecutionBlockKind,
+  type ExecutionConfig,
+  type ExecutionTarget
 } from "./game/flow";
 import { createDynamicBeamSystem } from "./game/dynamicBeam/system";
 import { createTrapSystem } from "./game/trap/system";
@@ -2128,10 +2130,11 @@ const playerHitFadeOrbConfig: HitFadeOrbConfig = {
   speedMin: playerHitOrbSpeedMin,
   speedMax: playerHitOrbSpeedMax
 };
+const publicExecutionMaxSurvivors = 5;
 const publicExecutionTransitionDelay = 1;
+const publicExecutionSimultaneousChance = 0.3;
 const publicExecutionBeamDelayMin = 2;
 const publicExecutionBeamDelayMax = 10;
-const executionHitFadeDuration = playerHitFadeDuration;
 
 const playerNoGunTouchContactRadius = 0.5;
 const playerEvadeThreatNearRangeCells = 3;
@@ -2152,6 +2155,23 @@ const playerAbility = createPlayerAbilityController({
 
 type PlayerState = CharacterState;
 type PublicExecutionScenario = ExecutionConfig;
+type ExecutionHitEntry = {
+  target: ExecutionTarget;
+  sequence: ReturnType<typeof createHitSequenceState>;
+  completed: boolean;
+};
+type ExecutionTargetState = {
+  target: ExecutionTarget;
+  key: string;
+  completed: boolean;
+  firePending: boolean;
+  fireCountdown: number;
+  fireEffectActive: boolean;
+  fireEffectTimer: number;
+  beamTargetPosition: Vector3;
+  shooterBitIndices: number[];
+  shooterNpcIndices: number[];
+};
 type RouletteHitEntry = {
   target: RouletteHitTarget;
   sequence: ReturnType<typeof createHitSequenceState>;
@@ -2172,23 +2192,14 @@ let publicExecutionTriggerKey: string | null = null;
 let publicExecutionTriggerTimer = 0;
 let executionScenario: PublicExecutionScenario | null = null;
 let executionWaitForFade = false;
-let executionFireCountdown = 0;
-let executionFirePending = false;
-let executionFireEffectActive = false;
-let executionFireEffectTimer = 0;
-const executionFireTargetPosition = new Vector3(0, 0, 0);
-let executionVolleyFired = false;
+const executionShooterTargetKeys = new Map<string, string>();
+let executionTargetStates: ExecutionTargetState[] = [];
+let executionHitEntries: ExecutionHitEntry[] = [];
+let executionSimultaneousPattern = false;
 let executionResolved = false;
 let executionAllowPlayerMove = false;
 let executionNpcShooterIndices: number[] = [];
-const executionNpcShooterIds = new Set<string>();
 const executionNpcVoiceStateOverrides = new Map<string, CharacterState>();
-const executionHitSequence = createHitSequenceState();
-let executionHitDurationCurrent = playerHitDuration;
-let executionHitFadeDurationCurrent = executionHitFadeDuration;
-let executionHitTargetKind: "player" | "npc" | null = null;
-let executionHitNpcIndex: number | null = null;
-const executionHitTargetPosition = new Vector3(0, 0, 0);
 const executionCollisionPosition = new Vector3(0, 0, 0);
 const rouletteFireTimeFromSpinStart = 9;
 const roulettePostHitWaitDuration = 1;
@@ -2378,23 +2389,89 @@ const disposePlayerHitEffects = () => {
 };
 
 const disposeExecutionHitEffects = () => {
-  resetHitSequenceState(executionHitSequence);
+  for (const entry of executionHitEntries) {
+    resetHitSequenceState(entry.sequence);
+  }
+  executionHitEntries = [];
 };
 
-const updateExecutionHitTargetPosition = () => {
-  if (executionHitTargetKind === "player") {
-    executionHitTargetPosition.set(
+const buildCharacterTargetKey = (
+  target: { kind: "player" } | { kind: "npc"; npcIndex: number }
+) => (target.kind === "player" ? "player" : `npc_${target.npcIndex}`);
+
+const buildExecutionTargetKey = (target: ExecutionTarget) =>
+  buildCharacterTargetKey(target);
+
+const setExecutionTargetState = (
+  target: ExecutionTarget,
+  state: CharacterState
+) => {
+  if (target.kind === "player") {
+    playerState = state;
+    return;
+  }
+  const npc = npcs[target.npcIndex];
+  npc.state = state;
+  npc.sprite.cellIndex = getPortraitCellIndex(state);
+};
+
+const getExecutionTargetStateEntry = (key: string) =>
+  executionTargetStates.find((state) => state.key === key) ?? null;
+
+const getExecutionTargetEyePosition = (
+  target: ExecutionTarget,
+  out: Vector3
+) => {
+  const eyeHeight = getEyeHeight();
+  if (target.kind === "player") {
+    out.set(playerEyeBasePosition.x, eyeHeight, playerEyeBasePosition.z);
+    return;
+  }
+  const sprite = npcs[target.npcIndex].sprite;
+  out.set(sprite.position.x, eyeHeight, sprite.position.z);
+};
+
+const getExecutionTargetCenterPosition = (
+  target: ExecutionTarget,
+  out: Vector3
+) => {
+  if (target.kind === "player") {
+    out.set(
       playerEyeBasePosition.x,
       playerAvatar.height * 0.5,
       playerEyeBasePosition.z
     );
     return;
   }
-  if (executionHitTargetKind === "npc" && executionHitNpcIndex !== null) {
-    executionHitTargetPosition.copyFrom(
-      npcs[executionHitNpcIndex].sprite.position
-    );
+  out.copyFrom(npcs[target.npcIndex].sprite.position);
+};
+
+const isExecutionTargetInHitSequence = (key: string) =>
+  executionHitEntries.some(
+    (entry) => !entry.completed && buildExecutionTargetKey(entry.target) === key
+  );
+
+const getRandomExecutionBeamDelay = () =>
+  publicExecutionBeamDelayMin +
+  Math.random() * (publicExecutionBeamDelayMax - publicExecutionBeamDelayMin);
+
+const assignExecutionShooters = <T,>(shooters: T[], targetCount: number) => {
+  const assignments = Array.from({ length: targetCount }, () => [] as T[]);
+  for (let index = 0; index < shooters.length; index += 1) {
+    assignments[index % targetCount].push(shooters[index]);
   }
+  return assignments;
+};
+
+const shuffleExecutionShooters = <T,>(shooters: T[]) => {
+  const shuffled = [...shooters];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    const current = shuffled[index];
+    shuffled[index] = shuffled[swapIndex]!;
+    shuffled[swapIndex] = current!;
+  }
+  return shuffled;
 };
 
 const buildPlayerHitSequenceConfig = (
@@ -2448,159 +2525,177 @@ const buildNpcHitSequenceConfig = (
   };
 };
 
-const beginExecutionHit = (
-  targetKind: "player" | "npc",
-  npcIndex: number | null,
-  hitScale: number
-) => {
-  if (executionHitSequence.phase !== "none") {
+const beginExecutionHit = (target: ExecutionTarget, hitScale: number) => {
+  const key = buildExecutionTargetKey(target);
+  if (isExecutionTargetInHitSequence(key)) {
     return;
   }
-  executionHitTargetKind = targetKind;
-  executionHitNpcIndex = npcIndex;
-  updateExecutionHitTargetPosition();
-  if (targetKind === "player") {
-    executionHitDurationCurrent = playerHitDuration * hitScale;
-    executionHitFadeDurationCurrent = playerHitFadeDuration * hitScale;
+  const sequence = createHitSequenceState();
+  getExecutionTargetCenterPosition(target, executionCollisionPosition);
+  if (target.kind === "player") {
     startHitSequence(
-      executionHitSequence,
+      sequence,
       scene,
-      executionHitTargetPosition,
+      executionCollisionPosition,
       buildPlayerHitSequenceConfig(
-        "executionHitEffect",
-        executionHitDurationCurrent,
-        executionHitFadeDurationCurrent
+        `executionHitEffect_${key}`,
+        playerHitDuration * hitScale,
+        playerHitFadeDuration * hitScale
       )
     );
     playerState = "hit-a";
-    return;
+  } else {
+    const sprite = npcs[target.npcIndex].sprite;
+    startHitSequence(
+      sequence,
+      scene,
+      executionCollisionPosition,
+      buildNpcHitSequenceConfig(
+        `executionHitEffect_${key}`,
+        npcHitDuration * hitScale,
+        npcHitFadeDuration * hitScale,
+        sprite
+      )
+    );
+    const npc = npcs[target.npcIndex];
+    npc.state = "hit-a";
+    npc.sprite.cellIndex = getPortraitCellIndex("hit-a");
   }
-  executionHitDurationCurrent = npcHitDuration * hitScale;
-  executionHitFadeDurationCurrent = npcHitFadeDuration * hitScale;
-  startHitSequence(
-    executionHitSequence,
-    scene,
-    executionHitTargetPosition,
-    buildNpcHitSequenceConfig(
-      "executionHitEffect",
-      executionHitDurationCurrent,
-      executionHitFadeDurationCurrent,
-      npcs[npcIndex!].sprite
-    )
-  );
-  const npc = npcs[npcIndex!];
-  npc.state = "hit-a";
-  npc.sprite.cellIndex = 1;
+  executionHitEntries.push({
+    target,
+    sequence,
+    completed: false
+  });
 };
 
-const updateExecutionHitEffect = (
+const finalizeExecutionAfterAllTargetsCompleted = () => {
+  if (executionScenario?.variant === "npc-survivor-player-block") {
+    playerState = "brainwash-complete-haigure-formation";
+    updateHudPhaseOverride({ crosshairVisible: false });
+  }
+  executionResolved = true;
+};
+
+const updateExecutionHitEntries = (
   delta: number,
   shouldProcessOrb: (position: Vector3) => boolean
 ) => {
-  if (executionHitSequence.phase === "none") {
-    return;
-  }
-  updateExecutionHitTargetPosition();
-  const config =
-    executionHitTargetKind === "player"
-      ? buildPlayerHitSequenceConfig(
-          "executionHitEffect",
-          executionHitDurationCurrent,
-          executionHitFadeDurationCurrent
-        )
-      : buildNpcHitSequenceConfig(
-          "executionHitEffect",
-          executionHitDurationCurrent,
-          executionHitFadeDurationCurrent,
-          npcs[executionHitNpcIndex!].sprite
-        );
-  updateHitSequence(
-    executionHitSequence,
-    delta,
-    executionHitTargetPosition,
-    config,
-    (isColorA) => {
-      if (executionHitTargetKind === "player") {
-        playerState = isColorA ? "hit-a" : "hit-b";
-        return;
-      }
-      const npc = npcs[executionHitNpcIndex!];
-      npc.state = isColorA ? "hit-a" : "hit-b";
-    },
-    () => {
-      if (executionHitTargetKind === "player") {
-        playerState = "hit-a";
-        return;
-      }
-      const npc = npcs[executionHitNpcIndex!];
-      npc.state = "hit-a";
-      npc.sprite.cellIndex = 2;
-    },
-    () => {
-      if (executionHitTargetKind === "player") {
-        playerState = "brainwash-complete-haigure-formation";
-      } else {
-        const npc = npcs[executionHitNpcIndex!];
+  for (const entry of executionHitEntries) {
+    const key = buildExecutionTargetKey(entry.target);
+    getExecutionTargetCenterPosition(entry.target, executionCollisionPosition);
+    if (entry.target.kind === "player") {
+      updateHitSequence(
+        entry.sequence,
+        delta,
+        executionCollisionPosition,
+        buildPlayerHitSequenceConfig(
+          `executionHitEffect_${key}`,
+          playerHitDuration,
+          playerHitFadeDuration
+        ),
+        (isColorA) => {
+          playerState = isColorA ? "hit-a" : "hit-b";
+        },
+        () => {
+          playerState = "hit-a";
+        },
+        () => {
+          playerState = "brainwash-complete-haigure-formation";
+          const targetState = getExecutionTargetStateEntry(key);
+          if (targetState) {
+            targetState.completed = true;
+          }
+          entry.completed = true;
+        },
+        shouldProcessOrb
+      );
+      continue;
+    }
+
+    const npc = npcs[entry.target.npcIndex];
+    updateHitSequence(
+      entry.sequence,
+      delta,
+      executionCollisionPosition,
+      buildNpcHitSequenceConfig(
+        `executionHitEffect_${key}`,
+        npcHitDuration,
+        npcHitFadeDuration,
+        npc.sprite
+      ),
+      (isColorA) => {
+        npc.state = isColorA ? "hit-a" : "hit-b";
+        npc.sprite.cellIndex = getPortraitCellIndex(npc.state);
+      },
+      () => {
+        npc.state = "hit-a";
+        npc.sprite.cellIndex = getPortraitCellIndex("hit-a");
+      },
+      () => {
         npc.state = "brainwash-complete-haigure-formation";
-        npc.sprite.cellIndex = 2;
-      }
-      executionResolved = true;
-      executionHitTargetKind = null;
-      executionHitNpcIndex = null;
-    },
-    shouldProcessOrb
-  );
+        npc.sprite.cellIndex = getPortraitCellIndex(npc.state);
+        const targetState = getExecutionTargetStateEntry(key);
+        if (targetState) {
+          targetState.completed = true;
+        }
+        entry.completed = true;
+      },
+      shouldProcessOrb
+    );
+  }
+  executionHitEntries = executionHitEntries.filter((entry) => !entry.completed);
+  if (
+    !executionResolved &&
+    executionTargetStates.length > 0 &&
+    executionTargetStates.every((state) => state.completed)
+  ) {
+    finalizeExecutionAfterAllTargetsCompleted();
+  }
 };
 
 const resetExecutionState = () => {
+  disposeExecutionHitEffects();
   publicExecutionTriggerKey = null;
   publicExecutionTriggerTimer = 0;
   executionScenario = null;
   executionWaitForFade = false;
-  executionFireCountdown = 0;
-  executionFirePending = false;
-  executionFireEffectActive = false;
-  executionFireEffectTimer = 0;
-  executionVolleyFired = false;
+  executionShooterTargetKeys.clear();
+  executionTargetStates = [];
+  executionSimultaneousPattern = false;
   executionResolved = false;
   executionAllowPlayerMove = false;
   executionNpcShooterIndices = [];
-  executionNpcShooterIds.clear();
   executionNpcVoiceStateOverrides.clear();
-  executionHitTargetKind = null;
-  executionHitNpcIndex = null;
-  executionHitDurationCurrent = playerHitDuration;
-  executionHitFadeDurationCurrent = executionHitFadeDuration;
-  disposeExecutionHitEffects();
 };
+
+const isExecutionAutomaticVolley = (scenario: PublicExecutionScenario) =>
+  scenario.variant !== "npc-survivor-player-block";
 
 const isExecutionBitVolley = (scenario: PublicExecutionScenario) =>
-  scenario.variant === "player-survivor" ||
-  scenario.variant === "npc-survivor-npc-block";
+  isExecutionAutomaticVolley(scenario) && !scenario.usesNpcVolley;
 
 const isExecutionNpcVolley = (scenario: PublicExecutionScenario) =>
-  isExecutionBitVolley(scenario) && bits.length === 0;
+  isExecutionAutomaticVolley(scenario) && scenario.usesNpcVolley;
 
-const getExecutionTriggerKey = (scenario: PublicExecutionScenario) => {
-  if (scenario.variant === "player-survivor") {
-    return "player-survivor";
-  }
-  return `${scenario.variant}:${scenario.survivorNpcIndex}`;
-};
+const getExecutionTriggerKey = (scenario: PublicExecutionScenario) =>
+  `${scenario.variant}|${[...scenario.survivorTargets]
+    .map((target) => {
+      const key = buildExecutionTargetKey(target);
+      return `${key}:${scenario.blockKindsByTargetKey[key]}`;
+    })
+    .sort()
+    .join(",")}`;
 
-const keepExecutionTargetEvadeUntilHit = (
-  scenario: PublicExecutionScenario
-) => {
-  if (executionResolved || executionHitSequence.phase !== "none") {
+const keepExecutionTargetEvadeUntilHit = () => {
+  if (executionResolved) {
     return;
   }
-  if (scenario.variant === "player-survivor") {
-    playerState = "evade";
-    return;
+  for (const targetState of executionTargetStates) {
+    if (targetState.completed || isExecutionTargetInHitSequence(targetState.key)) {
+      continue;
+    }
+    setExecutionTargetState(targetState.target, "evade");
   }
-  const survivorNpc = npcs[scenario.survivorNpcIndex];
-  survivorNpc.state = "evade";
-  survivorNpc.sprite.cellIndex = getPortraitCellIndex("evade");
 };
 
 const applyExecutionNpcShooterPresentation = () => {
@@ -2616,79 +2711,182 @@ const applyExecutionNpcShooterPresentation = () => {
 };
 
 const findPublicExecutionCandidate = () => {
-  const aliveNpcIndices: number[] = [];
+  const aliveNpcTargets: ExecutionTarget[] = [];
   for (let index = 0; index < npcs.length; index += 1) {
     if (isAliveState(npcs[index].state)) {
-      aliveNpcIndices.push(index);
+      aliveNpcTargets.push({ kind: "npc", npcIndex: index });
     }
   }
-  const playerAlive = isAliveState(playerState);
-  const aliveCount = aliveNpcIndices.length + (playerAlive ? 1 : 0);
-  if (aliveCount !== 1) {
+  const survivorTargets =
+    isAliveState(playerState)
+      ? [
+          ...aliveNpcTargets.slice(
+            0,
+            Math.floor((aliveNpcTargets.length + 1) * 0.5)
+          ),
+          { kind: "player" } as const,
+          ...aliveNpcTargets.slice(
+            Math.floor((aliveNpcTargets.length + 1) * 0.5)
+          )
+        ]
+      : aliveNpcTargets;
+
+  if (
+    survivorTargets.length <= 0 ||
+    survivorTargets.length > publicExecutionMaxSurvivors
+  ) {
     return null;
   }
-  if (playerAlive) {
+
+  const blockKindsByTargetKey: Record<string, ExecutionBlockKind> = {};
+  let hasPlayerBlockedSurvivor = false;
+  for (const target of survivorTargets) {
+    const key = buildExecutionTargetKey(target);
+    if (target.kind === "player") {
+      let blocked = false;
+      for (const npc of npcs) {
+        if (
+          npc.state === "brainwash-complete-no-gun" &&
+          npc.blockTargetId === "player"
+        ) {
+          blocked = true;
+          blockKindsByTargetKey[key] = "npc";
+          break;
+        }
+      }
+      if (!blocked) {
+        return null;
+      }
+      continue;
+    }
+
+    const survivorNpc = npcs[target.npcIndex];
+    if (survivorNpc.blockedByPlayer) {
+      blockKindsByTargetKey[key] = "player";
+      hasPlayerBlockedSurvivor = true;
+      continue;
+    }
+
+    let blocked = false;
     for (const npc of npcs) {
       if (
         npc.state === "brainwash-complete-no-gun" &&
-        npc.blockTargetId === "player"
+        npc.blockTargetId === key
       ) {
-        return { variant: "player-survivor" } as const;
+        blocked = true;
+        blockKindsByTargetKey[key] = "npc";
+        break;
       }
     }
-    return null;
-  }
-
-  const survivorNpcIndex = aliveNpcIndices[0];
-  const survivorNpc = npcs[survivorNpcIndex];
-  if (survivorNpc.blockedByPlayer) {
-    return {
-      variant: "npc-survivor-player-block",
-      survivorNpcIndex
-    } as const;
-  }
-
-  const targetId = `npc_${survivorNpcIndex}`;
-  for (const npc of npcs) {
-    if (
-      npc.state === "brainwash-complete-no-gun" &&
-      npc.blockTargetId === targetId
-    ) {
-      return { variant: "npc-survivor-npc-block", survivorNpcIndex } as const;
+    if (!blocked) {
+      return null;
     }
   }
-  return null;
+
+  let variant: PublicExecutionScenario["variant"];
+  let playerExecutionRole: PublicExecutionScenario["playerExecutionRole"];
+  if (survivorTargets.some((target) => target.kind === "player")) {
+    variant = "player-survivor";
+    playerExecutionRole = "target";
+  } else if (hasPlayerBlockedSurvivor) {
+    variant = "npc-survivor-player-block";
+    playerExecutionRole = "shooter";
+  } else {
+    variant = "npc-survivor-npc-block";
+    playerExecutionRole = "observer";
+  }
+
+  return {
+    variant,
+    survivorTargets,
+    blockKindsByTargetKey,
+    playerExecutionRole,
+    usesNpcVolley:
+      variant !== "npc-survivor-player-block" &&
+      bits.length < publicExecutionMaxSurvivors
+  };
+};
+
+const buildExecutionTargetStates = (scenario: PublicExecutionScenario) => {
+  executionShooterTargetKeys.clear();
+  executionTargetStates = scenario.survivorTargets.map((target) => ({
+    target,
+    key: buildExecutionTargetKey(target),
+    completed: false,
+    firePending: false,
+    fireCountdown: 0,
+    fireEffectActive: false,
+    fireEffectTimer: 0,
+    beamTargetPosition: new Vector3(0, 0, 0),
+    shooterBitIndices: [],
+    shooterNpcIndices: []
+  }));
+  executionNpcShooterIndices = [];
+  executionNpcVoiceStateOverrides.clear();
+  executionSimultaneousPattern =
+    isExecutionAutomaticVolley(scenario) &&
+    Math.random() < publicExecutionSimultaneousChance;
+
+  if (executionTargetStates.length <= 0) {
+    return;
+  }
+
+  if (isExecutionBitVolley(scenario)) {
+    const shooterBitIndices = bits.map((_, index) => index);
+    const assignments = assignExecutionShooters(
+      shooterBitIndices,
+      executionTargetStates.length
+    );
+    for (let index = 0; index < executionTargetStates.length; index += 1) {
+      const targetState = executionTargetStates[index];
+      targetState.shooterBitIndices = assignments[index];
+      for (const bitIndex of assignments[index]) {
+        executionShooterTargetKeys.set(bits[bitIndex].id, targetState.key);
+      }
+    }
+    return;
+  }
+
+  if (!isExecutionNpcVolley(scenario)) {
+    return;
+  }
+
+  const survivorNpcIndexSet = new Set<number>();
+  for (const target of scenario.survivorTargets) {
+    if (target.kind === "npc") {
+      survivorNpcIndexSet.add(target.npcIndex);
+    }
+  }
+  const shooterNpcIndices = npcs
+    .map((_, index) => index)
+    .filter((index) => !survivorNpcIndexSet.has(index));
+  const assignments = assignExecutionShooters(
+    shuffleExecutionShooters(shooterNpcIndices),
+    executionTargetStates.length
+  );
+  for (let index = 0; index < executionTargetStates.length; index += 1) {
+    const targetState = executionTargetStates[index];
+    targetState.shooterNpcIndices = assignments[index];
+    for (const npcIndex of assignments[index]) {
+      const shooterId = npcs[npcIndex].sprite.name;
+      executionShooterTargetKeys.set(shooterId, targetState.key);
+      if (!executionNpcVoiceStateOverrides.has(shooterId)) {
+        executionNpcShooterIndices.push(npcIndex);
+        executionNpcVoiceStateOverrides.set(
+          shooterId,
+          "brainwash-complete-haigure-formation"
+        );
+      }
+    }
+  }
 };
 
 const enterPublicExecution = (scenario: PublicExecutionScenario) => {
   executionScenario = scenario;
   executionWaitForFade = true;
-  executionFireCountdown = 0;
-  executionFirePending = false;
-  executionFireEffectActive = false;
-  executionFireEffectTimer = 0;
-  executionVolleyFired = false;
   executionResolved = false;
   executionAllowPlayerMove = scenario.variant === "npc-survivor-player-block";
-  executionNpcShooterIndices = [];
-  executionNpcShooterIds.clear();
-  executionNpcVoiceStateOverrides.clear();
-  if (isExecutionNpcVolley(scenario)) {
-    for (let index = 0; index < npcs.length; index += 1) {
-      if (
-        scenario.variant === "npc-survivor-npc-block" &&
-        index === scenario.survivorNpcIndex
-      ) {
-        continue;
-      }
-      executionNpcShooterIndices.push(index);
-      executionNpcShooterIds.add(npcs[index].sprite.name);
-    }
-  }
-  executionHitTargetKind = null;
-  executionHitNpcIndex = null;
-  executionHitDurationCurrent = playerHitDuration;
-  executionHitFadeDurationCurrent = executionHitFadeDuration;
+  buildExecutionTargetStates(scenario);
   disposeExecutionHitEffects();
   if (!executionAllowPlayerMove) {
     playerAbility.resetInput();
@@ -2696,7 +2894,7 @@ const enterPublicExecution = (scenario: PublicExecutionScenario) => {
     camera.cameraDirection.set(0, 0, 0);
   }
   gameFlow.enterExecution(scenario);
-  keepExecutionTargetEvadeUntilHit(scenario);
+  keepExecutionTargetEvadeUntilHit();
   if (isExecutionNpcVolley(scenario)) {
     applyExecutionNpcShooterPresentation();
   }
@@ -2713,28 +2911,29 @@ const startPublicExecutionTransition = (scenario: PublicExecutionScenario) => {
   });
 };
 
-const setExecutionAimPosition = (
-  scenario: PublicExecutionScenario,
-  out: Vector3
-) => {
-  const eyeHeight = getEyeHeight();
-  if (scenario.variant === "player-survivor") {
-    out.set(playerEyeBasePosition.x, eyeHeight, playerEyeBasePosition.z);
-    return;
+const prepareExecutionCountdowns = () => {
+  const sharedCountdown = executionSimultaneousPattern
+    ? getRandomExecutionBeamDelay()
+    : 0;
+  for (const targetState of executionTargetStates) {
+    if (targetState.completed) {
+      continue;
+    }
+    targetState.firePending = true;
+    targetState.fireCountdown = executionSimultaneousPattern
+      ? sharedCountdown
+      : getRandomExecutionBeamDelay();
+    targetState.fireEffectActive = false;
+    targetState.fireEffectTimer = 0;
   }
-  const survivorNpc = npcs[scenario.survivorNpcIndex];
-  out.set(
-    survivorNpc.sprite.position.x,
-    eyeHeight,
-    survivorNpc.sprite.position.z
-  );
 };
 
-const startExecutionBitFireEffects = (targetPosition: Vector3) => {
-  for (const bit of bits) {
-    bit.root.lookAt(targetPosition);
+const startExecutionBitFireEffects = (targetState: ExecutionTargetState) => {
+  for (const bitIndex of targetState.shooterBitIndices) {
+    const bit = bits[bitIndex];
+    bit.root.lookAt(targetState.beamTargetPosition);
     const muzzlePosition = bit.muzzle.getAbsolutePosition();
-    const direction = targetPosition.subtract(muzzlePosition);
+    const direction = targetState.beamTargetPosition.subtract(muzzlePosition);
     if (direction.lengthSquared() <= 0.0001) {
       continue;
     }
@@ -2743,23 +2942,20 @@ const startExecutionBitFireEffects = (targetPosition: Vector3) => {
   }
 };
 
-const startExecutionNpcFireEffects = () => {
-  for (const index of executionNpcShooterIndices) {
+const startExecutionNpcFireEffects = (targetState: ExecutionTargetState) => {
+  for (const index of targetState.shooterNpcIndices) {
     const npc = npcs[index];
     npc.state = "brainwash-complete-gun";
     npc.sprite.cellIndex = getPortraitCellIndex(npc.state);
   }
 };
 
-const startExecutionVolleyFireEffects = (
-  scenario: PublicExecutionScenario,
-  targetPosition: Vector3
-) => {
-  if (isExecutionNpcVolley(scenario)) {
-    startExecutionNpcFireEffects();
+const startExecutionVolleyFireEffects = (targetState: ExecutionTargetState) => {
+  if (executionScenario && isExecutionNpcVolley(executionScenario)) {
+    startExecutionNpcFireEffects(targetState);
     return;
   }
-  startExecutionBitFireEffects(targetPosition);
+  startExecutionBitFireEffects(targetState);
 };
 
 const updateExecutionBitFireEffects = (delta: number) => {
@@ -2768,21 +2964,9 @@ const updateExecutionBitFireEffects = (delta: number) => {
   }
 };
 
-const updateExecutionVolleyFireEffects = (
-  scenario: PublicExecutionScenario,
-  delta: number
-) => {
-  if (isExecutionNpcVolley(scenario)) {
-    return;
-  }
-  updateExecutionBitFireEffects(delta);
-};
-
-const spawnExecutionNpcBeamVolley = (
-  targetPosition: Vector3
-) => {
+const spawnExecutionNpcBeamVolley = (targetState: ExecutionTargetState) => {
   const eyeHeight = getEyeHeight();
-  for (const index of executionNpcShooterIndices) {
+  for (const index of targetState.shooterNpcIndices) {
     const npc = npcs[index];
     npc.state = "brainwash-complete-gun";
     npc.sprite.cellIndex = getPortraitCellIndex(npc.state);
@@ -2791,7 +2975,7 @@ const spawnExecutionNpcBeamVolley = (
       eyeHeight,
       npc.sprite.position.z
     );
-    const direction = targetPosition.subtract(muzzlePosition);
+    const direction = targetState.beamTargetPosition.subtract(muzzlePosition);
     if (direction.lengthSquared() <= 0.0001) {
       continue;
     }
@@ -2810,18 +2994,12 @@ const spawnExecutionNpcBeamVolley = (
   }
 };
 
-const spawnExecutionBeamVolley = (
-  scenario: PublicExecutionScenario,
-  targetPosition: Vector3
-) => {
-  if (isExecutionNpcVolley(scenario)) {
-    spawnExecutionNpcBeamVolley(targetPosition);
-    return;
-  }
-  const targetingPlayer = scenario.variant === "player-survivor";
-  for (const bit of bits) {
+const spawnExecutionBitBeamVolley = (targetState: ExecutionTargetState) => {
+  const targetingPlayer = targetState.target.kind === "player";
+  for (const bitIndex of targetState.shooterBitIndices) {
+    const bit = bits[bitIndex];
     const muzzlePosition = bit.muzzle.getAbsolutePosition();
-    const direction = targetPosition.subtract(muzzlePosition);
+    const direction = targetState.beamTargetPosition.subtract(muzzlePosition);
     if (direction.lengthSquared() <= 0.0001) {
       continue;
     }
@@ -2840,140 +3018,49 @@ const spawnExecutionBeamVolley = (
   }
 };
 
+const spawnExecutionBeamVolley = (targetState: ExecutionTargetState) => {
+  if (executionScenario && isExecutionNpcVolley(executionScenario)) {
+    spawnExecutionNpcBeamVolley(targetState);
+    return;
+  }
+  spawnExecutionBitBeamVolley(targetState);
+};
+
 const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
-  if (!isExecutionBitVolley(scenario)) {
+  if (!isExecutionAutomaticVolley(scenario)) {
     return;
   }
-  if (!executionVolleyFired) {
-    return;
-  }
-  const eyeHeight = getEyeHeight();
-  const skipNpcIndex =
-    scenario.variant === "player-survivor" ? -1 : scenario.survivorNpcIndex;
-  const playerHitRadii = getSpriteBeamHitRadii(playerAvatar);
-  const survivorNpc =
-    scenario.variant === "player-survivor"
-      ? null
-      : npcs[scenario.survivorNpcIndex];
-  const survivorNpcHitRadii = survivorNpc
-    ? getSpriteBeamHitRadii(survivorNpc.sprite)
-    : null;
   for (const beam of beams) {
-    if (!beam.active) {
+    if (!beam.active || !beam.sourceId) {
       continue;
     }
-    if (isExecutionNpcVolley(scenario)) {
-      if (!beam.sourceId || !executionNpcShooterIds.has(beam.sourceId)) {
-        continue;
-      }
-    } else if (!isBitSource(beam.sourceId)) {
+    const targetKey = executionShooterTargetKeys.get(beam.sourceId);
+    if (!targetKey) {
       continue;
     }
-
-    let hitTarget = false;
-    let hitAny = false;
-
-    if (scenario.variant === "player-survivor") {
-      executionCollisionPosition.set(
-        playerEyeBasePosition.x,
-        eyeHeight,
-        playerEyeBasePosition.z
-      );
-      if (
-        isBeamHittingTargetExcludingSource(
-          beam,
-          beam.sourceId,
-          "player",
-          executionCollisionPosition,
-          playerHitRadii
-        )
-      ) {
-        hitAny = true;
-        hitTarget = true;
-      }
-    } else {
-      executionCollisionPosition.set(
-        survivorNpc!.sprite.position.x,
-        eyeHeight,
-        survivorNpc!.sprite.position.z
-      );
-      if (
-        isBeamHittingTargetExcludingSource(
-          beam,
-          beam.sourceId,
-          `npc_${scenario.survivorNpcIndex}`,
-          executionCollisionPosition,
-          survivorNpcHitRadii!
-        )
-      ) {
-        hitAny = true;
-        hitTarget = true;
-      }
+    const targetState = getExecutionTargetStateEntry(targetKey);
+    if (!targetState || targetState.completed) {
+      continue;
     }
-
+    const targetRadii =
+      targetState.target.kind === "player"
+        ? getSpriteBeamHitRadii(playerAvatar)
+        : getSpriteBeamHitRadii(npcs[targetState.target.npcIndex].sprite);
+    getExecutionTargetEyePosition(targetState.target, executionCollisionPosition);
     if (
-      !hitAny &&
-      scenario.variant === "npc-survivor-npc-block"
+      !isBeamHittingTargetExcludingSource(
+        beam,
+        beam.sourceId,
+        targetKey,
+        executionCollisionPosition,
+        targetRadii
+      )
     ) {
-      executionCollisionPosition.set(
-        playerAvatar.position.x,
-        eyeHeight,
-        playerAvatar.position.z
-      );
-      if (
-        isBeamHittingTargetExcludingSource(
-          beam,
-          beam.sourceId,
-          "player",
-          executionCollisionPosition,
-          playerHitRadii
-        )
-      ) {
-        hitAny = true;
-      }
-    }
-
-    if (!hitAny) {
-      for (let index = 0; index < npcs.length; index += 1) {
-        if (index === skipNpcIndex) {
-          continue;
-        }
-        const npc = npcs[index];
-        const npcId = npc.sprite.name;
-        const npcHitRadii = getSpriteBeamHitRadii(npc.sprite);
-        executionCollisionPosition.set(
-          npc.sprite.position.x,
-          eyeHeight,
-          npc.sprite.position.z
-        );
-        if (
-          isBeamHittingTargetExcludingSource(
-            beam,
-            beam.sourceId,
-            npcId,
-            executionCollisionPosition,
-            npcHitRadii
-          )
-        ) {
-          hitAny = true;
-          break;
-        }
-      }
-    }
-
-    if (!hitAny) {
       continue;
     }
-
     const impactPosition = getBeamImpactPosition(beam);
     beginBeamRetract(beam, impactPosition);
-    if (hitTarget && executionHitSequence.phase === "none") {
-      if (scenario.variant === "player-survivor") {
-        beginExecutionHit("player", null, 1);
-      } else {
-        beginExecutionHit("npc", scenario.survivorNpcIndex, 1);
-      }
-    }
+    beginExecutionHit(targetState.target, 1);
   }
 };
 
@@ -3022,89 +3109,92 @@ const updateExecutionScene = (
     shouldProcessOrb
   );
   gameFlow.updateExecution();
-  updateExecutionHitEffect(delta, shouldProcessOrb);
+  updateExecutionHitEntries(delta, shouldProcessOrb);
 
   const scenario = executionScenario!;
-  keepExecutionTargetEvadeUntilHit(scenario);
-  if (executionFireEffectActive) {
-    executionFireEffectTimer = Math.max(
+  keepExecutionTargetEvadeUntilHit();
+  if (isExecutionBitVolley(scenario)) {
+    updateExecutionBitFireEffects(delta);
+  }
+  for (const targetState of executionTargetStates) {
+    if (!targetState.fireEffectActive) {
+      continue;
+    }
+    targetState.fireEffectTimer = Math.max(
       0,
-      executionFireEffectTimer - delta
+      targetState.fireEffectTimer - delta
     );
-    updateExecutionVolleyFireEffects(scenario, delta);
-    if (executionFireEffectTimer <= 0) {
-      executionFireEffectActive = false;
-      executionVolleyFired = true;
-      spawnExecutionBeamVolley(scenario, executionFireTargetPosition);
+    if (targetState.fireEffectTimer <= 0) {
+      targetState.fireEffectActive = false;
+      spawnExecutionBeamVolley(targetState);
     }
   }
   handleExecutionBeamCollisions(scenario);
-  if (executionResolved) {
-    return;
-  }
-  if (executionHitSequence.phase !== "none") {
-    return;
-  }
-
   if (executionAllowPlayerMove) {
     updatePlayerMovement(delta, true, playerMoveSpeed);
+  }
+  if (executionResolved) {
+    return;
   }
 
   if (executionWaitForFade && !gameFlow.isFading()) {
     executionWaitForFade = false;
-    if (isExecutionBitVolley(scenario)) {
-      executionFireCountdown =
-        publicExecutionBeamDelayMin +
-        Math.random() *
-          (publicExecutionBeamDelayMax - publicExecutionBeamDelayMin);
-      executionFirePending = true;
+    if (isExecutionAutomaticVolley(scenario)) {
+      prepareExecutionCountdowns();
     }
   }
 
-  if (executionFirePending) {
-    executionFireCountdown -= delta;
-    if (executionFireCountdown <= 0) {
-      executionFirePending = false;
-      setExecutionAimPosition(scenario, executionFireTargetPosition);
-      if (isExecutionNpcVolley(scenario)) {
-        executionVolleyFired = true;
-        spawnExecutionBeamVolley(scenario, executionFireTargetPosition);
-      } else {
-        executionFireEffectActive = true;
-        executionFireEffectTimer = bitFireEffectDuration;
-        startExecutionVolleyFireEffects(scenario, executionFireTargetPosition);
-      }
+  for (const targetState of executionTargetStates) {
+    if (
+      !targetState.firePending ||
+      targetState.completed ||
+      targetState.fireEffectActive
+    ) {
+      continue;
     }
+    targetState.fireCountdown -= delta;
+    if (targetState.fireCountdown > 0) {
+      continue;
+    }
+    targetState.firePending = false;
+    getExecutionTargetEyePosition(
+      targetState.target,
+      targetState.beamTargetPosition
+    );
+    if (isExecutionNpcVolley(scenario)) {
+      spawnExecutionBeamVolley(targetState);
+      continue;
+    }
+    targetState.fireEffectActive = true;
+    targetState.fireEffectTimer = bitFireEffectDuration;
+    startExecutionVolleyFireEffects(targetState);
   }
 
   if (scenario.variant === "npc-survivor-player-block") {
-    const survivorNpc = npcs[scenario.survivorNpcIndex];
-    const targetPosition = survivorNpc.sprite.position;
-    const targetHitRadii = getSpriteBeamHitRadii(survivorNpc.sprite);
     for (const beam of beams) {
-      if (!beam.active) {
+      if (!beam.active || beam.sourceId !== "player") {
         continue;
       }
-      if (beam.sourceId !== "player") {
-        continue;
-      }
-      if (isBeamHittingTarget(beam, targetPosition, targetHitRadii)) {
+      for (const targetState of executionTargetStates) {
+        if (
+          targetState.completed ||
+          targetState.target.kind !== "npc" ||
+          isExecutionTargetInHitSequence(targetState.key)
+        ) {
+          continue;
+        }
+        const npc = npcs[targetState.target.npcIndex];
+        const targetPosition = npc.sprite.position;
+        const targetHitRadii = getSpriteBeamHitRadii(npc.sprite);
+        if (!isBeamHittingTarget(beam, targetPosition, targetHitRadii)) {
+          continue;
+        }
         const impactPosition = getBeamImpactPosition(beam);
         beginBeamRetract(beam, impactPosition);
-        beginExecutionHit("npc", scenario.survivorNpcIndex, 1);
-        playerState = "brainwash-complete-haigure-formation";
-        executionAllowPlayerMove = false;
-        playerAbility.resetInput();
-        playerMotion.reset();
-        camera.cameraDirection.set(0, 0, 0);
-        updateHudPhaseOverride({ crosshairVisible: false });
+        beginExecutionHit(targetState.target, 1);
         break;
       }
     }
-    return;
-  }
-
-  if (isExecutionBitVolley(scenario)) {
     return;
   }
 };
@@ -4049,6 +4139,9 @@ const updateCharacterSpriteCells = () => {
 const syncBitGroundShadowHandles = () => {
   activeBitGroundShadowIds.clear();
   for (const bit of bits) {
+    if (!bit.root.isEnabled()) {
+      continue;
+    }
     activeBitGroundShadowIds.add(bit.id);
     if (!bitGroundShadows.has(bit.id)) {
       bitGroundShadows.set(
@@ -4090,6 +4183,9 @@ const syncGroundShadows = () => {
   });
   syncBitGroundShadowHandles();
   for (const bit of bits) {
+    if (!bit.root.isEnabled()) {
+      continue;
+    }
     const groundShadow = bitGroundShadows.get(bit.id)!;
     const bodyVisibility = bit.body.visibility;
     const heightScale =
