@@ -354,18 +354,6 @@ export const createGameFlow = ({
     return { waypoints, index: 0 };
   };
 
-  const createStageSlots = (rowOrder: number[]) => {
-    const slots: Vector3[] = [];
-    for (const row of rowOrder) {
-      for (const col of stageCols) {
-        slots.push(
-          cellToWorld(layout, { row, col }, playerCenterHeight)
-        );
-      }
-    }
-    return slots;
-  };
-
   const getExecutionBitOrbitRadius = (survivorCount: number) =>
     Math.max(
       executionOrbitRadius,
@@ -379,6 +367,15 @@ export const createGameFlow = ({
       Math.max(
         getExecutionBitOrbitRadius(survivorCount) + executionNpcRingPadding,
         executionOrbitRadius + executionNpcRingPadding
+      )
+    );
+
+  const getExecutionBitViewGapAngle = (radius: number) =>
+    Math.max(
+      Math.PI / 15,
+      Math.min(
+        Math.PI * 0.75,
+        Math.atan2(layout.cellSize * 0.7, radius) * 2
       )
     );
 
@@ -505,14 +502,32 @@ export const createGameFlow = ({
     }
   };
 
-  const placeBitsAround = (center: Vector3, radius: number) => {
+  const placeBitsAround = (
+    center: Vector3,
+    radius: number,
+    blockedViewPosition: Vector3 | null = null
+  ) => {
     if (bits.length === 0) {
       return;
     }
-    const angleStep = (Math.PI * 2) / bits.length;
+    const blockedAngle =
+      blockedViewPosition
+        ? Math.atan2(
+            blockedViewPosition.z - center.z,
+            blockedViewPosition.x - center.x
+          )
+        : 0;
+    const blockedArc =
+      blockedViewPosition ? getExecutionBitViewGapAngle(radius) : 0;
+    const availableArc = Math.PI * 2 - blockedArc;
     for (let index = 0; index < bits.length; index += 1) {
       const bit = bits[index];
-      const angle = angleStep * index;
+      const angle =
+        blockedViewPosition
+          ? blockedAngle +
+            blockedArc * 0.5 +
+            (availableArc * (index + 0.5)) / bits.length
+          : ((Math.PI * 2) / bits.length) * index;
       bit.root.setEnabled(true);
       bit.root.position.x = center.x + Math.cos(angle) * radius;
       bit.root.position.z = center.z + Math.sin(angle) * radius;
@@ -671,22 +686,36 @@ export const createGameFlow = ({
     const executionNpcRingRadius = getExecutionNpcRingRadius(
       config.survivorTargets.length
     );
-    const frontRowOrder = [...stageRows];
-    const frontRowCenterIndex = Math.floor((stageCols.length - 1) / 2);
-    const frontSlots = createStageSlots(frontRowOrder);
-    const placeNpcRing = (npcIndices: number[]) => {
+    const placeSpectatorRing = (
+      npcIndices: number[],
+      playerSpectatorState: CharacterState | null
+    ) => {
+      const spectatorCount =
+        npcIndices.length + (playerSpectatorState ? 1 : 0);
       const ringSlots = createExecutionRingSlots(
         executionCenter,
-        npcIndices.length,
+        spectatorCount,
         executionNpcRingRadius
       );
+      let ringSlotIndex = 0;
+      let playerRingSlot: Vector3 | null = null;
+      if (playerSpectatorState) {
+        setPlayerAvatarState(playerSpectatorState);
+        playerAvatar.isVisible = true;
+        playerAvatar.position.copyFrom(ringSlots[ringSlotIndex]);
+        alignSpriteToGround(playerAvatar);
+        playerRingSlot = ringSlots[ringSlotIndex].clone();
+        ringSlotIndex += 1;
+      }
       for (let index = 0; index < npcIndices.length; index += 1) {
         const npc = npcs[npcIndices[index]];
         npc.state = "brainwash-complete-haigure-formation";
         npc.sprite.cellIndex = 2;
-        npc.sprite.position.copyFrom(ringSlots[index]);
+        npc.sprite.position.copyFrom(ringSlots[ringSlotIndex]);
         alignSpriteToGround(npc.sprite);
+        ringSlotIndex += 1;
       }
+      return playerRingSlot;
     };
     let playerTargetPosition: Vector3 | null = null;
     const survivorNpcIndexSet = new Set<number>();
@@ -721,7 +750,7 @@ export const createGameFlow = ({
         new Vector3(cameraBase.x, eyeHeight, cameraBase.z + 1)
       );
       syncPlayerEyePosition(camera.position);
-      placeNpcRing(nonSurvivorNpcIndices);
+      placeSpectatorRing(nonSurvivorNpcIndices, null);
       setBitsEnabled(!config.usesNpcVolley);
       if (!config.usesNpcVolley) {
         placeBitsAround(executionCenter, executionBitOrbitRadius);
@@ -731,37 +760,30 @@ export const createGameFlow = ({
     }
 
     if (config.variant === "npc-survivor-player-block") {
-      setPlayerAvatarState("brainwash-complete-gun");
-      playerAvatar.isVisible = true;
-      const playerTarget = frontSlots[frontRowCenterIndex];
-      playerAvatar.position.copyFrom(playerTarget);
-      alignSpriteToGround(playerAvatar);
+      const playerTarget = placeSpectatorRing(
+        nonSurvivorNpcIndices,
+        "brainwash-complete-gun"
+      )!;
       const eyeHeight = getEyeHeight();
       camera.position.set(playerTarget.x, eyeHeight, playerTarget.z);
       camera.setTarget(executionCenter);
       syncPlayerEyePosition(camera.position);
-      placeNpcRing(nonSurvivorNpcIndices);
       setBitsEnabled(false);
       setGamePhase("execution");
       return;
     }
 
-    setPlayerAvatarState("brainwash-complete-haigure-formation");
-    playerAvatar.isVisible = true;
-    playerAvatar.position.copyFrom(frontSlots[frontRowCenterIndex]);
-    alignSpriteToGround(playerAvatar);
+    const playerTarget = placeSpectatorRing(
+      nonSurvivorNpcIndices,
+      "brainwash-complete-haigure-formation"
+    )!;
     const eyeHeight = getEyeHeight();
-    camera.position.set(
-      playerAvatar.position.x,
-      eyeHeight,
-      playerAvatar.position.z
-    );
+    camera.position.set(playerTarget.x, eyeHeight, playerTarget.z);
     camera.setTarget(executionCenter);
     syncPlayerEyePosition(camera.position);
-    placeNpcRing(nonSurvivorNpcIndices);
     setBitsEnabled(!config.usesNpcVolley);
     if (!config.usesNpcVolley) {
-      placeBitsAround(executionCenter, executionBitOrbitRadius);
+      placeBitsAround(executionCenter, executionBitOrbitRadius, playerTarget);
     }
     setGamePhase("execution");
   };

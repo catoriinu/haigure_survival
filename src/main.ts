@@ -4283,6 +4283,8 @@ const syncPlayerPresentation = () => {
   } else if (useFirstPersonPreviewSprite) {
     playerAvatar.isVisible = true;
     syncFirstPersonPreviewPlayerPosition(true);
+  } else if (gamePhase === "transition") {
+    playerAvatar.isVisible = false;
   }
 
   const verticalAngleEnabled =

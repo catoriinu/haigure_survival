@@ -1,6 +1,6 @@
 # 公開処刑の多人数化・遷移条件変更 計画
 
-更新日: 2026-04-04
+更新日: 2026-04-05
 
 ## プロンプト
 公開処刑に遷移する条件を、以下のように変更したいです。
@@ -40,6 +40,19 @@ playing 中に「生存扱い (normal / evade) がx人以下」になり、そ�
 追バグ修正
 - ゲーム中にビットが放つビームが NPC に命中しなくなっている。原因を修正する。
 
+追配置修正
+- 公開処刑中に `R` キーを押したとき、暗転する間にプレイヤー自身と思われるキャラスプライトが画面いっぱいに表示される。暗転中にキャラスプライトを表示しないようにする。
+- `npc-survivor-npc-block` と `npc-survivor-player-block` では、プレイヤーを洗脳済み NPC の円陣の一人として出現させる。円陣の外に単独で出現させない。
+
+追ビット視界修正
+- `npc-survivor-npc-block` と `npc-survivor-player-block` では、円陣に配置されたプレイヤーの目の前へ bit を置かないようにする。bit が 99 体でも同様に、プレイヤーの初期位置から円陣中央の処刑対象が見えるようにする。
+
+追ビット視界調整
+- 公開処刑の bit 視界用ギャップ角はもっと狭めてよい。案2として、下限角を 18 度へ下げる。
+
+追ビット視界再調整
+- 公開処刑の bit 視界用ギャップ角をさらに狭める。下限角を 18 度から 12 度へ下げる。
+
 ## ステップ
 - [x] 既存の `docs/plan.md` を退避し、新しい計画ファイルを作成する
 - [x] 公開処刑の型・候補選定・トリガー管理を多人数前提へ変更する
@@ -56,6 +69,15 @@ playing 中に「生存扱い (normal / evade) がx人以下」になり、そ�
 - [x] `npm run build` を再実行し、追リファクタ後のビルド成立を確認する
 - [x] 共有 beam hit resolver の source 条件を見直し、通常プレイで bit/NPC ビームが NPC に当たる経路を復旧する
 - [x] `npm run build` を再実行し、追バグ修正後のビルド成立を確認する
+- [x] `transition` 中のプレイヤー表示条件を見直し、公開処刑リプレイ暗転中の巨大スプライト表示を止める
+- [x] `npc-survivor-npc-block` と `npc-survivor-player-block` の spectator 配置を組み直し、プレイヤーを円陣スロットへ含める
+- [x] `npm run build` を再実行し、追配置修正後のビルド成立を確認する
+- [x] 公開処刑の bit 円配置にプレイヤー正面の視界用ギャップを追加する
+- [x] `npm run build` を再実行し、追ビット視界修正後のビルド成立を確認する
+- [x] 公開処刑の bit 視界用ギャップ下限角を 18 度へ調整する
+- [x] `npm run build` を再実行し、追ビット視界調整後のビルド成立を確認する
+- [x] 公開処刑の bit 視界用ギャップ下限角を 12 度へ再調整する
+- [x] `npm run build` を再実行し、追ビット視界再調整後のビルド成立を確認する
 
 ## 結果
 - 既存の `docs/plan.md` は `docs/plan_2026-04-04_public-execution-threshold-prev.md` へ退避し、本タスク用の計画へ切り替えた。
@@ -76,3 +98,12 @@ playing 中に「生存扱い (normal / evade) がx人以下」になり、そ�
 - 追リファクタ後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
 - 共有 beam hit resolver は当初 `player` 由来ビームだけを扱う実装だったため、通常プレイ側の NPC 被弾処理を共有化した時点で、bit/NPC 由来ビームが NPC 命中判定を通らなくなっていた。resolver を source 条件付きの汎用版 `resolveBeamHits()` と `player` 専用ラッパー `resolvePlayerBeamHits()` に整理し、通常プレイでは前者、`npc-survivor-player-block` では後者を使う構成へ修正した。
 - 追バグ修正後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
+- `transition` 中のプレイヤー表示を見直し、公開処刑から `R` リプレイへ入る暗転中はプレイヤーアバターを非表示にした。これにより、暗転中にプレイヤー自身のキャラスプライトが画面いっぱいへ映り込む挙動を止めた。
+- `npc-survivor-npc-block` と `npc-survivor-player-block` の spectator 配置は、プレイヤーも含めた総人数で円陣スロットを作る構成へ変更した。プレイヤーは洗脳済み NPC の円陣の一員として初期配置され、残りの洗脳済み NPC が残りスロットへ並ぶ。
+- 追配置修正後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
+- 公開処刑の bit 円配置は、必要に応じてプレイヤー spectator の正面へ視界用ギャップを空ける構成へ変更した。これにより、bit が多数ある場合でもプレイヤー初期位置から円陣中央の処刑対象が見えるようにした。
+- 追ビット視界修正後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
+- 公開処刑の bit 視界用ギャップ角はさらに狭め、下限角を 36 度から 18 度へ調整した。これにより視界確保は維持しつつ、bit 円陣の密度感を上げた。
+- 追ビット視界調整後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
+- 公開処刑の bit 視界用ギャップ角はさらに狭め、下限角を 18 度から 12 度へ再調整した。視界用の抜けは維持しつつ、円陣の密度感をもう一段上げた。
+- 追ビット視界再調整後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
