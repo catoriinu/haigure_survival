@@ -53,6 +53,9 @@ playing 中に「生存扱い (normal / evade) がx人以下」になり、そ�
 追ビット視界再調整
 - 公開処刑の bit 視界用ギャップ角をさらに狭める。下限角を 18 度から 12 度へ下げる。
 
+追整列向き修正
+- `npc-survivor-npc-block` と `npc-survivor-player-block` では、整列する生存者たちをプレイヤーから見て横一列へ並べる。プレイヤーから見て縦に並ぶ配置にしない。
+
 ## ステップ
 - [x] 既存の `docs/plan.md` を退避し、新しい計画ファイルを作成する
 - [x] 公開処刑の型・候補選定・トリガー管理を多人数前提へ変更する
@@ -78,6 +81,8 @@ playing 中に「生存扱い (normal / evade) がx人以下」になり、そ�
 - [x] `npm run build` を再実行し、追ビット視界調整後のビルド成立を確認する
 - [x] 公開処刑の bit 視界用ギャップ下限角を 12 度へ再調整する
 - [x] `npm run build` を再実行し、追ビット視界再調整後のビルド成立を確認する
+- [x] `npc-survivor-npc-block` と `npc-survivor-player-block` の中央 line slots をプレイヤー視点基準の横向きへ変更する
+- [x] `npm run build` を再実行し、追整列向き修正後のビルド成立を確認する
 
 ## 結果
 - 既存の `docs/plan.md` は `docs/plan_2026-04-04_public-execution-threshold-prev.md` へ退避し、本タスク用の計画へ切り替えた。
@@ -107,3 +112,5 @@ playing 中に「生存扱い (normal / evade) がx人以下」になり、そ�
 - 追ビット視界調整後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
 - 公開処刑の bit 視界用ギャップ角はさらに狭め、下限角を 18 度から 12 度へ再調整した。視界用の抜けは維持しつつ、円陣の密度感をもう一段上げた。
 - 追ビット視界再調整後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
+- `npc-survivor-npc-block` と `npc-survivor-player-block` の中央生存者 line slots は、プレイヤー spectator 初期位置から円陣中央を見る方向に対して直交する向きで組み立てるように変更した。これにより、プレイヤーから見た生存者たちは常に横一列に並ぶ。
+- 追整列向き修正後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。

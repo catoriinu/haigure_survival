@@ -379,19 +379,39 @@ export const createGameFlow = ({
       )
     );
 
-  const createExecutionLineSlots = (center: Vector3, count: number) => {
+  const getExecutionLineDirectionFromView = (
+    center: Vector3,
+    viewPosition: Vector3 | null
+  ) => {
+    if (!viewPosition) {
+      return new Vector3(1, 0, 0);
+    }
+    const toCenter = center.subtract(viewPosition);
+    toCenter.y = 0;
+    if (toCenter.lengthSquared() <= 0.000001) {
+      return new Vector3(1, 0, 0);
+    }
+    return new Vector3(-toCenter.z, 0, toCenter.x).normalize();
+  };
+
+  const createExecutionLineSlots = (
+    center: Vector3,
+    count: number,
+    direction: Vector3
+  ) => {
     if (count <= 0) {
       return [];
     }
     const spacing = layout.cellSize;
-    const startX = center.x - ((count - 1) * spacing) / 2;
+    const lineDirection = direction.normalizeToNew();
     const slots: Vector3[] = [];
     for (let index = 0; index < count; index += 1) {
+      const offset = (index - (count - 1) / 2) * spacing;
       slots.push(
         new Vector3(
-          startX + spacing * index,
+          center.x + lineDirection.x * offset,
           playerCenterHeight,
-          center.z
+          center.z + lineDirection.z * offset
         )
       );
     }
@@ -676,10 +696,6 @@ export const createGameFlow = ({
       playerCenterHeight,
       stageCenter.z
     );
-    const executionLineSlots = createExecutionLineSlots(
-      executionCenter,
-      config.survivorTargets.length
-    );
     const executionBitOrbitRadius = getExecutionBitOrbitRadius(
       config.survivorTargets.length
     );
@@ -717,8 +733,38 @@ export const createGameFlow = ({
       }
       return playerRingSlot;
     };
-    let playerTargetPosition: Vector3 | null = null;
     const survivorNpcIndexSet = new Set<number>();
+    for (const target of config.survivorTargets) {
+      if (target.kind === "npc") {
+        survivorNpcIndexSet.add(target.npcIndex);
+      }
+    }
+
+    const nonSurvivorNpcIndices = npcs
+      .map((_, index) => index)
+      .filter((index) => !survivorNpcIndexSet.has(index));
+    const spectatorPlayerPreviewPosition =
+      config.playerExecutionRole === "target"
+        ? null
+        : createExecutionRingSlots(
+            executionCenter,
+            nonSurvivorNpcIndices.length + 1,
+            executionNpcRingRadius
+          )[0] ?? null;
+    const executionLineDirection =
+      config.variant === "npc-survivor-player-block" ||
+      config.variant === "npc-survivor-npc-block"
+        ? getExecutionLineDirectionFromView(
+            executionCenter,
+            spectatorPlayerPreviewPosition
+          )
+        : new Vector3(1, 0, 0);
+    const executionLineSlots = createExecutionLineSlots(
+      executionCenter,
+      config.survivorTargets.length,
+      executionLineDirection
+    );
+    let playerTargetPosition: Vector3 | null = null;
     for (let index = 0; index < config.survivorTargets.length; index += 1) {
       const target = config.survivorTargets[index];
       const position = executionLineSlots[index];
@@ -735,12 +781,7 @@ export const createGameFlow = ({
       npc.sprite.cellIndex = getPortraitCellIndex("evade");
       npc.sprite.position.copyFrom(position);
       alignSpriteToGround(npc.sprite);
-      survivorNpcIndexSet.add(target.npcIndex);
     }
-
-    const nonSurvivorNpcIndices = npcs
-      .map((_, index) => index)
-      .filter((index) => !survivorNpcIndexSet.has(index));
 
     if (config.playerExecutionRole === "target") {
       const eyeHeight = getEyeHeight();
