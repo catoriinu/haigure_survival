@@ -8,7 +8,7 @@
 playing 中に「生存扱い (normal / evade) がx人以下」になり、その最後の生存者が全員拘束されている状態が同一パターンで1秒続いたとき。
 
 以下詳細
-- xは定数で持ち、デフォルト5人とします。
+- xは定数で持ち、デフォルト6人とします。
 - プレイヤーが生存中かつ拘束されている状態に含まれていた場合は、「player-survivor」を拡張したモードに入ります。すなわち、プレイヤーを含むx人を公開処刑するモードです。
 - プレイヤーが生存していないかつx人の生存者のうち最後の一人をプレイヤーが拘束したとき、「npc-survivor-player-block」を拡張したモードに入ります。すなわち、プレイヤーが移動・射撃可能な処刑役になります。最後の一人に光線が命中したときに終了します。
 - プレイヤーが生存していないかつx人の生存者のうち最後の一人をNPCが拘束したとき、「npc-survivor-npc-block」を拡張したモードに入ります。すなわち、生き残っていたNPCたちがビットの斉射を受けます。
@@ -60,6 +60,12 @@ playing 中に「生存扱い (normal / evade) がx人以下」になり、そ�
 - `npc-survivor-npc-block` のとき、プレイヤーは自由に移動できるようにする。
 - ただしプレイヤーは、bit や NPC の斉射した光線には命中判定を持たず、ターゲットの生存者へ正しく命中させられるようにする。
 
+追しきい値変更
+- X（最後の何人が拘束されたら公開処刑に移るか）の値を 6 にする。
+
+追待ち時間上限変更
+- 公開処刑時、斉射までにかかるランダム時間の上限を 8 秒にする。
+
 ## ステップ
 - [x] 既存の `docs/plan.md` を退避し、新しい計画ファイルを作成する
 - [x] 公開処刑の型・候補選定・トリガー管理を多人数前提へ変更する
@@ -90,6 +96,10 @@ playing 中に「生存扱い (normal / evade) がx人以下」になり、そ�
 - [x] `npc-survivor-npc-block` の execution 中にプレイヤー移動を許可し、ヘルプ表示も実際の操作に合わせる
 - [x] execution の自動斉射ビームが spectator のプレイヤーではなく指定 target の生存者だけに当たる挙動を維持できていることを確認する
 - [x] `npm run build` を再実行し、追移動修正後のビルド成立を確認する
+- [x] 公開処刑の survivor 上限定数 `publicExecutionMaxSurvivors` を 6 へ変更する
+- [x] `npm run build` を再実行し、追しきい値変更後のビルド成立を確認する
+- [x] 公開処刑の斉射待ち時間上限定数 `publicExecutionBeamDelayMax` を 8 秒へ変更する
+- [x] `npm run build` を再実行し、追待ち時間上限変更後のビルド成立を確認する
 
 ## 結果
 - 既存の `docs/plan.md` は `docs/plan_2026-04-04_public-execution-threshold-prev.md` へ退避し、本タスク用の計画へ切り替えた。
@@ -124,3 +134,7 @@ playing 中に「生存扱い (normal / evade) がx人以下」になり、そ�
 - `npc-survivor-npc-block` でも execution 中のプレイヤー移動を許可し、ヘルプ表示へ `WASD: 移動` を追加した。これにより、公開処刑の spectator 配置のまま自由に歩ける。
 - execution の自動斉射ビーム衝突は従来どおり割り当て済み target の生存者だけを判定対象にしており、spectator のプレイヤーは遮蔽物にならず、そのまますり抜けて中央 target へ命中する構成を維持した。
 - 追移動修正後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
+- 公開処刑へ移る survivor 上限定数 `publicExecutionMaxSurvivors` は 5 から 6 へ変更した。これに伴い、候補判定上限と bit 不足による NPC 斉射切り替え条件も同じ定数経由で 6 基準になった。
+- 追しきい値変更後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
+- 公開処刑の斉射待ち時間上限定数 `publicExecutionBeamDelayMax` は 10 秒から 8 秒へ変更した。これにより、個別斉射と同時斉射のどちらでも待ち時間の抽選上限が 8 秒になる。
+- 追待ち時間上限変更後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。

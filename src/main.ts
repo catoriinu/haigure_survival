@@ -2134,11 +2134,11 @@ const playerHitFadeOrbConfig: HitFadeOrbConfig = {
   speedMin: playerHitOrbSpeedMin,
   speedMax: playerHitOrbSpeedMax
 };
-const publicExecutionMaxSurvivors = 5;
+const publicExecutionMaxSurvivors = 6;
 const publicExecutionTransitionDelay = 1;
 const publicExecutionSimultaneousChance = 0.3;
 const publicExecutionBeamDelayMin = 2;
-const publicExecutionBeamDelayMax = 10;
+const publicExecutionBeamDelayMax = 8;
 
 const playerNoGunTouchContactRadius = 0.5;
 const playerEvadeThreatNearRangeCells = 3;
