@@ -32,6 +32,14 @@ playing 中に「生存扱い (normal / evade) がx人以下」になり、そ�
 - 少なくとも「npc-survivor-player-block」の公開処刑モードのとき、ビットの3Dモデルは存在しないのに、床にビットの影が残っている。ビットを消すと同時に影も消す。
 - 「npc-survivor-player-block」の公開処刑モードのとき、全員を撃ち終わった後もプレイヤーは移動できるようにする。
 
+追リファクタ
+- 主に「npc-survivor-player-block」モードについて、通常gunモードを土台にしつつ、公開処刑中は一部の動作をブロックしたり特殊ロジックを挟む形へ整理する。
+- プレイヤーの gun ビーム処理を通常プレイ用の共通基盤へ寄せ、`npc-survivor-player-block` は対象制限と命中後処理だけを差し替える。
+- 対象はプレイヤー発射ビームが NPC に当たる処理の共通化に限定し、bit/NPC の自動斉射、roulette の専用 hit 演出、他 execution モードの自動処刑ロジックは統合しない。
+
+追バグ修正
+- ゲーム中にビットが放つビームが NPC に命中しなくなっている。原因を修正する。
+
 ## ステップ
 - [x] 既存の `docs/plan.md` を退避し、新しい計画ファイルを作成する
 - [x] 公開処刑の型・候補選定・トリガー管理を多人数前提へ変更する
@@ -42,6 +50,12 @@ playing 中に「生存扱い (normal / evade) がx人以下」になり、そ�
 - [x] 非表示ビットの床影が残る問題を修正する
 - [x] `npc-survivor-player-block` 完了後もプレイヤー移動を維持する
 - [x] `npm run build` を再実行し、追修正後のビルド成立を確認する
+- [x] プレイヤー gun 用の共有ビーム命中 resolver を追加する
+- [x] 通常プレイの NPC 被弾処理を共有 resolver 経由へ移す
+- [x] `npc-survivor-player-block` の専用プレイヤービーム命中処理を共有 resolver 経由へ置き換える
+- [x] `npm run build` を再実行し、追リファクタ後のビルド成立を確認する
+- [x] 共有 beam hit resolver の source 条件を見直し、通常プレイで bit/NPC ビームが NPC に当たる経路を復旧する
+- [x] `npm run build` を再実行し、追バグ修正後のビルド成立を確認する
 
 ## 結果
 - 既存の `docs/plan.md` は `docs/plan_2026-04-04_public-execution-threshold-prev.md` へ退避し、本タスク用の計画へ切り替えた。
@@ -56,3 +70,9 @@ playing 中に「生存扱い (normal / evade) がx人以下」になり、そ�
 - ビットの床影同期は `bit.root` が無効な個体を対象外に変更し、公開処刑でビット本体を消したタイミングで影も消えるようにした。
 - `npc-survivor-player-block` 完了後はプレイヤーをハイグレポーズへ移しつつ、移動入力を止めずに execution フェーズ中の移動だけ継続できるようにした。照準は非表示にし、射撃は無効化したままにしている。
 - 追修正後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
+- `src/game/playerBeamHits.ts` を追加し、プレイヤー由来の active beam と候補配列を順番に評価して命中を確定する共有 resolver を実装した。候補側は `targetId`、命中中心、半径、`canHit`、`onHit` を渡す構成にした。
+- 通常プレイの NPC 被弾処理は `npcs.ts` で共有 resolver へ候補配列を渡す形へ寄せ、NPC hit 演出・SE・state 遷移の適用だけを `onHit` 側に残した。これにより通常 gun のビーム進行と命中確定の土台を execution と共有できるようにした。
+- `npc-survivor-player-block` のプレイヤービーム命中は `main.ts` の専用 beam 走査ループをやめ、未完了 survivor NPC だけを候補にした共有 resolver 呼び出しへ置き換えた。公開処刑中だけ対象集合と命中後処理を差し替える構造になり、通常 gun ロジックを土台にできるようにした。
+- 追リファクタ後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
+- 共有 beam hit resolver は当初 `player` 由来ビームだけを扱う実装だったため、通常プレイ側の NPC 被弾処理を共有化した時点で、bit/NPC 由来ビームが NPC 命中判定を通らなくなっていた。resolver を source 条件付きの汎用版 `resolveBeamHits()` と `player` 専用ラッパー `resolvePlayerBeamHits()` に整理し、通常プレイでは前者、`npc-survivor-player-block` では後者を使う構成へ修正した。
+- 追バグ修正後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。

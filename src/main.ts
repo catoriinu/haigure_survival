@@ -76,6 +76,10 @@ import {
   isBeamHittingTargetExcludingSource
 } from "./game/beamCollision";
 import {
+  resolvePlayerBeamHits,
+  type BeamHitCandidate
+} from "./game/playerBeamHits";
+import {
   HitFadeOrbConfig,
   HitSequenceConfig,
   calculateHitEffectDiameter,
@@ -2881,6 +2885,31 @@ const buildExecutionTargetStates = (scenario: PublicExecutionScenario) => {
   }
 };
 
+const buildExecutionPlayerBeamHitCandidates = (): BeamHitCandidate[] =>
+  executionTargetStates.flatMap((targetState) => {
+    if (
+      targetState.completed ||
+      targetState.target.kind !== "npc" ||
+      isExecutionTargetInHitSequence(targetState.key)
+    ) {
+      return [];
+    }
+    const npc = npcs[targetState.target.npcIndex];
+    return [
+      {
+        targetId: targetState.key,
+        targetPosition: npc.sprite.position,
+        targetRadii: getSpriteBeamHitRadii(npc.sprite),
+        canHit: () =>
+          !targetState.completed && !isExecutionTargetInHitSequence(targetState.key),
+        onHit: (beam, impactPosition) => {
+          beginBeamRetract(beam, impactPosition);
+          beginExecutionHit(targetState.target, 1);
+        }
+      }
+    ];
+  });
+
 const enterPublicExecution = (scenario: PublicExecutionScenario) => {
   executionScenario = scenario;
   executionWaitForFade = true;
@@ -3171,30 +3200,7 @@ const updateExecutionScene = (
   }
 
   if (scenario.variant === "npc-survivor-player-block") {
-    for (const beam of beams) {
-      if (!beam.active || beam.sourceId !== "player") {
-        continue;
-      }
-      for (const targetState of executionTargetStates) {
-        if (
-          targetState.completed ||
-          targetState.target.kind !== "npc" ||
-          isExecutionTargetInHitSequence(targetState.key)
-        ) {
-          continue;
-        }
-        const npc = npcs[targetState.target.npcIndex];
-        const targetPosition = npc.sprite.position;
-        const targetHitRadii = getSpriteBeamHitRadii(npc.sprite);
-        if (!isBeamHittingTarget(beam, targetPosition, targetHitRadii)) {
-          continue;
-        }
-        const impactPosition = getBeamImpactPosition(beam);
-        beginBeamRetract(beam, impactPosition);
-        beginExecutionHit(targetState.target, 1);
-        break;
-      }
-    }
+    resolvePlayerBeamHits(beams, buildExecutionPlayerBeamHitCandidates());
     return;
   }
 };
