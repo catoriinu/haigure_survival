@@ -186,7 +186,8 @@ export const createGameFlow = ({
     playerSurvivor: "操作説明\nEnter: タイトルへ\nR: リプレイ",
     npcSurvivorPlayerBlock:
       "操作説明\nWASD: 移動\nEnter: タイトルへ\nR: リプレイ",
-    npcSurvivorNpcBlock: "操作説明\nEnter: タイトルへ\nR: リプレイ"
+    npcSurvivorNpcBlock:
+      "操作説明\nWASD: 移動\nEnter: タイトルへ\nR: リプレイ"
   } as const;
   const setPlayerAvatarState = (state: CharacterState) => {
     setPlayerState(state);

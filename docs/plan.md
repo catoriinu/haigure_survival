@@ -56,6 +56,10 @@ playing 中に「生存扱い (normal / evade) がx人以下」になり、そ�
 追整列向き修正
 - `npc-survivor-npc-block` と `npc-survivor-player-block` では、整列する生存者たちをプレイヤーから見て横一列へ並べる。プレイヤーから見て縦に並ぶ配置にしない。
 
+追移動修正
+- `npc-survivor-npc-block` のとき、プレイヤーは自由に移動できるようにする。
+- ただしプレイヤーは、bit や NPC の斉射した光線には命中判定を持たず、ターゲットの生存者へ正しく命中させられるようにする。
+
 ## ステップ
 - [x] 既存の `docs/plan.md` を退避し、新しい計画ファイルを作成する
 - [x] 公開処刑の型・候補選定・トリガー管理を多人数前提へ変更する
@@ -83,6 +87,9 @@ playing 中に「生存扱い (normal / evade) がx人以下」になり、そ�
 - [x] `npm run build` を再実行し、追ビット視界再調整後のビルド成立を確認する
 - [x] `npc-survivor-npc-block` と `npc-survivor-player-block` の中央 line slots をプレイヤー視点基準の横向きへ変更する
 - [x] `npm run build` を再実行し、追整列向き修正後のビルド成立を確認する
+- [x] `npc-survivor-npc-block` の execution 中にプレイヤー移動を許可し、ヘルプ表示も実際の操作に合わせる
+- [x] execution の自動斉射ビームが spectator のプレイヤーではなく指定 target の生存者だけに当たる挙動を維持できていることを確認する
+- [x] `npm run build` を再実行し、追移動修正後のビルド成立を確認する
 
 ## 結果
 - 既存の `docs/plan.md` は `docs/plan_2026-04-04_public-execution-threshold-prev.md` へ退避し、本タスク用の計画へ切り替えた。
@@ -114,3 +121,6 @@ playing 中に「生存扱い (normal / evade) がx人以下」になり、そ�
 - 追ビット視界再調整後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
 - `npc-survivor-npc-block` と `npc-survivor-player-block` の中央生存者 line slots は、プレイヤー spectator 初期位置から円陣中央を見る方向に対して直交する向きで組み立てるように変更した。これにより、プレイヤーから見た生存者たちは常に横一列に並ぶ。
 - 追整列向き修正後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
+- `npc-survivor-npc-block` でも execution 中のプレイヤー移動を許可し、ヘルプ表示へ `WASD: 移動` を追加した。これにより、公開処刑の spectator 配置のまま自由に歩ける。
+- execution の自動斉射ビーム衝突は従来どおり割り当て済み target の生存者だけを判定対象にしており、spectator のプレイヤーは遮蔽物にならず、そのまますり抜けて中央 target へ命中する構成を維持した。
+- 追移動修正後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。

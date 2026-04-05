@@ -2914,7 +2914,9 @@ const enterPublicExecution = (scenario: PublicExecutionScenario) => {
   executionScenario = scenario;
   executionWaitForFade = true;
   executionResolved = false;
-  executionAllowPlayerMove = scenario.variant === "npc-survivor-player-block";
+  executionAllowPlayerMove =
+    scenario.variant === "npc-survivor-player-block" ||
+    scenario.variant === "npc-survivor-npc-block";
   buildExecutionTargetStates(scenario);
   disposeExecutionHitEffects();
   if (!executionAllowPlayerMove) {
@@ -3071,6 +3073,8 @@ const handleExecutionBeamCollisions = (scenario: PublicExecutionScenario) => {
     if (!targetState || targetState.completed) {
       continue;
     }
+    // 自動斉射ビームは割り当て済み target だけを判定し、spectator の
+    // プレイヤーは遮蔽物として扱わない。
     const targetRadii =
       targetState.target.kind === "player"
         ? getSpriteBeamHitRadii(playerAvatar)
