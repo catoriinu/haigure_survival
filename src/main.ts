@@ -72,6 +72,7 @@ import {
 import { alignSpriteToGround } from "./game/spriteUtils";
 import {
   createBeamHitRadii,
+  getBeamImpactPosition,
   isBeamHittingTarget,
   isBeamHittingTargetExcludingSource
 } from "./game/beamCollision";
@@ -1343,6 +1344,9 @@ const titleSettingsSidebar = createTitleSettingsSidebar({
     titleInstantExecutionMode = enabled;
     syncTitleReadyMessage();
   },
+  onBeforeStartInstantExecution: () => {
+    canvas.requestPointerLock();
+  },
   onStartInstantExecution: () => {
     void startInstantExecution();
   },
@@ -1643,7 +1647,6 @@ const npcEvadeThreatsBuffer: Vector3[][] = [];
 const activeBitGroundShadowIds = new Set<string>();
 const activeDynamicBeamCells = new Set<number>();
 const playerHitCenterPosition = Vector3.Zero();
-const playerHitImpactDirection = Vector3.Zero();
 const playerHitImpactPosition = Vector3.Zero();
 let firstPersonBodyMesh: Mesh;
 let firstPersonBodyMaterial: StandardMaterial;
@@ -3364,11 +3367,6 @@ const updatePlayerMovement = (
   playerMotion.commit(playerMoveActualDisplacement);
 };
 
-const getBeamImpactPosition = (beam: Beam) =>
-  beam.tip.position.add(
-    Vector3.Normalize(beam.velocity).scale(beam.tipRadius)
-  );
-
 const updateExecutionScene = (
   delta: number,
   shouldProcessOrb: (position: Vector3) => boolean
@@ -4291,11 +4289,7 @@ const updatePlayerState = (
         const hitScale = isRedBitSource(beam.sourceId)
           ? redHitDurationScale
           : 1;
-        playerHitImpactDirection.copyFrom(beam.velocity);
-        playerHitImpactDirection.normalize();
-        playerHitImpactDirection.scaleInPlace(beam.tipRadius);
-        playerHitImpactPosition.copyFrom(beam.tip.position);
-        playerHitImpactPosition.addInPlace(playerHitImpactDirection);
+        playerHitImpactPosition.copyFrom(getBeamImpactPosition(beam));
         beginBeamRetract(beam, playerHitImpactPosition);
         playerState = "hit-a";
         playerHitById = beam.sourceId;

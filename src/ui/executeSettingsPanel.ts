@@ -17,6 +17,7 @@ type ExecuteSettingsPanelOptions = {
   parent: HTMLElement;
   initialSettings: ExecuteSettings;
   onChange: (settings: ExecuteSettings) => void;
+  onBeforeStartRequested?: () => void;
   onStartRequested: () => void;
   className?: string;
 };
@@ -29,6 +30,7 @@ export const createExecuteSettingsPanel = ({
   parent,
   initialSettings,
   onChange,
+  onBeforeStartRequested,
   onStartRequested,
   className
 }: ExecuteSettingsPanelOptions): ExecuteSettingsPanel => {
@@ -109,6 +111,7 @@ export const createExecuteSettingsPanel = ({
     if (!startEnabled) {
       return;
     }
+    onBeforeStartRequested?.();
     onStartRequested();
   });
   root.appendChild(startButton);

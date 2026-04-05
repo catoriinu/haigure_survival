@@ -1,12 +1,13 @@
-import { Mesh, Vector3 } from "@babylonjs/core";
+import { Vector3 } from "@babylonjs/core";
 
 export type BeamCollisionShape = {
-  mesh: Mesh;
+  persistent: boolean;
   velocity: Vector3;
   bodyRadius: number;
+  startPosition: Vector3;
+  travelDistance: number;
   length: number;
   currentLength: number;
-  tip: Mesh;
   tipRadius: number;
 };
 
@@ -70,16 +71,51 @@ const expandRadii = (targetRadii: BeamHitRadii, margin: number): BeamHitRadii =>
   z: targetRadii.z + margin
 });
 
+const getBeamDirection = (beam: BeamCollisionShape) =>
+  Vector3.Normalize(beam.velocity);
+
+const buildBeamCollisionGeometry = (beam: BeamCollisionShape) => {
+  const direction = getBeamDirection(beam);
+  const tailDistance = beam.persistent
+    ? 0
+    : Math.max(0, beam.travelDistance - beam.length);
+  const segmentStart = beam.startPosition.add(
+    direction.scale(tailDistance)
+  );
+  const segmentEnd = segmentStart.add(
+    direction.scale(beam.currentLength)
+  );
+  const tipCenterPosition = beam.persistent
+    ? segmentEnd
+    : segmentEnd.add(direction.scale(beam.tipRadius));
+  return {
+    direction,
+    segmentStart,
+    segmentEnd,
+    tipCenterPosition
+  };
+};
+
+export const getBeamTipCenterPosition = (beam: BeamCollisionShape) => {
+  const { tipCenterPosition } = buildBeamCollisionGeometry(beam);
+  return tipCenterPosition;
+};
+
+export const getBeamImpactPosition = (beam: BeamCollisionShape) => {
+  const { direction, tipCenterPosition } = buildBeamCollisionGeometry(beam);
+  if (beam.tipRadius <= 0) {
+    return tipCenterPosition;
+  }
+  return tipCenterPosition.add(direction.scale(beam.tipRadius));
+};
+
 export const isBeamHittingTarget = (
   beam: BeamCollisionShape,
   targetPosition: Vector3,
   targetRadii: BeamHitRadii
 ) => {
-  const direction = Vector3.Normalize(beam.velocity);
-  const halfLength = beam.currentLength / 2;
-  const segmentOffset = direction.scale(halfLength);
-  const segmentStart = beam.mesh.position.subtract(segmentOffset);
-  const segmentEnd = beam.mesh.position.add(segmentOffset);
+  const { segmentStart, segmentEnd, tipCenterPosition } =
+    buildBeamCollisionGeometry(beam);
   const bodyRadii = expandRadii(targetRadii, beam.bodyRadius);
   if (
     isSegmentHittingEllipsoid(
@@ -92,9 +128,8 @@ export const isBeamHittingTarget = (
     return true;
   }
 
-  const tipPosition = beam.tip.getAbsolutePosition();
   const tipRadii = expandRadii(targetRadii, beam.tipRadius);
-  return isPointInsideEllipsoid(tipPosition, targetPosition, tipRadii);
+  return isPointInsideEllipsoid(tipCenterPosition, targetPosition, tipRadii);
 };
 
 export const isBeamHittingTargetExcludingSource = (

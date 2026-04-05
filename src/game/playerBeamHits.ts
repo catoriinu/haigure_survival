@@ -1,5 +1,9 @@
 import { Vector3 } from "@babylonjs/core";
-import { BeamHitRadii, isBeamHittingTargetExcludingSource } from "./beamCollision";
+import {
+  BeamHitRadii,
+  getBeamImpactPosition,
+  isBeamHittingTargetExcludingSource
+} from "./beamCollision";
 import { Beam } from "./types";
 
 export type BeamHitCandidate = {
@@ -9,11 +13,6 @@ export type BeamHitCandidate = {
   canHit?: () => boolean;
   onHit: (beam: Beam, impactPosition: Vector3) => void;
 };
-
-const getBeamImpactPosition = (beam: Beam) =>
-  beam.tip.position.add(
-    Vector3.Normalize(beam.velocity).scale(beam.tipRadius)
-  );
 
 export const resolveBeamHits = (
   beams: Beam[],
