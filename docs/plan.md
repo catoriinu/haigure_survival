@@ -1,140 +1,103 @@
-# 公開処刑の多人数化・遷移条件変更 計画
+# タイトル画面「いきなり公開処刑モード」追加 計画
 
 更新日: 2026-04-05
 
 ## プロンプト
-公開処刑に遷移する条件を、以下のように変更したいです。
+「いきなり公開処刑モード」ボタンを、タイトル画面に追加してください。
+- ボタンの位置は「全てデフォルトに戻す」の左
+- ボタンの色は「全てデフォルトに戻す」の黄色バージョン
+- タイトル画面での「いきなり公開処刑モード」仕様
+　- 「いきなり公開処刑モード」ボタンは「通常モードに戻る」ボタンに変わる。押すと通常モードに戻る。
+　- 「左クリック：開始」のテキストは「いきなり公開処刑モード」に変更。左クリックをしても開始しないようにする。
+    - SETTINGSパネルのうち、PLAYER SETTINGSとVISUAL SETTINGSはそのまま残り、値も適用される。STAGEやVOLUMEも残る。
+    - DEFAULT SETTINGS、BRAINWASH SETTINGS、BIT SETTINGSは非表示になる。
+    - 空いたスペースには、以下の設定を表示する。
+      - EXECUTE SETTINGS
+        - 処刑方法：プルダウンメニュー（値は下記）。デフォルト「プレイヤーをビットが処刑」
+          - 「プレイヤーをビットが処刑」：player-survivorかつビットが処刑する。
+          - 「プレイヤーをNPCが処刑」：player-survivorかつNPCが処刑する。ビットは出現しない。このとき「周囲のビット(体)」は入力不可になる。
+          - 「NPCをビットが処刑」：npc-survivor-npc-blockかつビットが処刑する。
+          - 「NPCをNPCが処刑」：npc-survivor-npc-blockかつNPCが処刑する。ビットは出現しない。このとき「周囲のビット(体)」は入力不可になる。
+          - 「NPCをプレイヤーが処刑」：npc-survivor-player-block
+        - 処刑対象NPC(人)：スピンボックス要素。デフォルト0。
+          - 処刑方法が「NPCを～」に変わったときに値が0なら、自動で1になる。 処刑方法が「NPCを～」のとき、0以下に変更することはできない（1になる）。
+          - 最大値は、処刑方法が「NPCを～」なら6、「プレイヤーを～」なら5。（※この5という数字には、最後のx人が拘束されたら公開処刑モードに以降する定数を用いること）
+          - 処刑方法が「プレイヤーを～」に変わったときに値が6なら、自動で5になる。 処刑方法が「プレイヤーを～」のとき、6以上に変更することはできない（5になる）。
+        - 周囲のNPC(人)：スピンボックス要素。デフォルト11。最大値は99。処刑対象NPC(人)の数＋（処刑方法が「プレイヤーを～」なら1追加）よりも少なくすることはできない。少なくしようとすると自動で最小値になる。
+        - 周囲のビット(体)：スピンボックス要素。デフォルト10。最大値は99。処刑対象NPC(人)の数＋（処刑方法が「プレイヤーを～」なら1追加）よりも少なくすることはできない。少なくしようとすると自動で最小値になる。
+        - 「処刑開始」ボタン：黒地に白文字。上記の設定通りに公開処刑が開始される。NPCのスプライトやボイスの選択は、通常モード開始時と同様にランダム。
+    - 「いきなり公開処刑モード」中の「全てデフォルトに戻す」ボタンは、「公開処刑設定のみデフォルトに戻す」にテキスト変更。EXECUTE SETTINGS内のみデフォルトに戻す効果になる。なお「全てデフォルトに戻す」ボタンは、EXECUTE SETTINGSの設定もデフォルトに戻す。
+    - EXECUTE SETTINGSの内容も、localStorageに保持すること。
+- タイトル画面の「いきなり公開処刑モード」中は、まだカメラをマウスに合わせて追従しないでください。マウスカーソルも消さないでください。
+- EXECUTE SETTINGS内の各種入力ボックスの大きさや文字の大きさは、通常モードの他SETTINGSに揃えてください。今は文字が大きすぎます。
+- EXECUTE SETTINGSの文字と、処刑方法の間にもう少し隙間を開けてください。
+- EXECUTE SETTINGSの各種入力フォームの間にもう少し隙間を開けてください。「出現間隔(秒)」と「最大数」の間と同じだけ空けてください。
+- EXECUTE SETTINGSの文字と、処刑方法の間がまだ狭いです。もっと空けてください。
+- 「いきなり公開処刑モード」時のパネルの横幅を、あと10px左に広げてください
+- 文字と入力欄の右側は元通りの隙間になるようにしてください。
+- パネルの中の文字、とくにプルダウンメニューの文字が長くて隠れてしまっているので、それを表示するためにパネル自体の幅を広げたかったのです。文字の表示域をちゃんとパネルの中いっぱいまで広げてください。もちろん適切な余白は保ったままです。いいですね？
+- あのー、そんなに広げないでくださいよ。さっき指示した10pxぶんくらいでちょうどよかったのに、どうしてこんなにひろげちゃったんですか？プルダウンメニューの中で一番長い文字は「プレイヤーをビットが処刑」です。これが表示できれば十分です。
 
-playing 中に「生存扱い (normal / evade) がx人以下」になり、その最後の生存者が全員拘束されている状態が同一パターンで1秒続いたとき。
+実装計画:
 
-以下詳細
-- xは定数で持ち、デフォルト6人とします。
-- プレイヤーが生存中かつ拘束されている状態に含まれていた場合は、「player-survivor」を拡張したモードに入ります。すなわち、プレイヤーを含むx人を公開処刑するモードです。
-- プレイヤーが生存していないかつx人の生存者のうち最後の一人をプレイヤーが拘束したとき、「npc-survivor-player-block」を拡張したモードに入ります。すなわち、プレイヤーが移動・射撃可能な処刑役になります。最後の一人に光線が命中したときに終了します。
-- プレイヤーが生存していないかつx人の生存者のうち最後の一人をNPCが拘束したとき、「npc-survivor-npc-block」を拡張したモードに入ります。すなわち、生き残っていたNPCたちがビットの斉射を受けます。
-- 「ビットが0体なら周囲NPCの斉射に切り替わります。」については、「ビットがx体未満なら」に変更します。そうすれば、洗脳済みのNPCの人数は必ず生存していたNPC数以上になるからです。
-- ビットが残りx+1人目を洗脳したことによって、残りx人が全員拘束状態になってゲームが終了する場合、公開処刑モードの優先度は以下の通りとします。
-  - 1. 生存者にプレイヤーが含まれているなら「player-survivor」
-  - 2. x人のうちプレイヤーが拘束しているNPCが含まれているなら「npc-survivor-player-block」
-  - 3. 上記以外なら「npc-survivor-npc-block」
-- 「player-survivor」と「npc-survivor-npc-block」のとき、ビットやNPCがどのキャラクターを洗脳するかについて（以下、記載はビットで統一するが、NPCの斉射の場合もロジックは同じ）
-  - 生存者のキャラは円の中央で、1セルぶんずつキャラ同士の間を空けて整列している。当然異動はできない。画像はevade状態。その周囲を、円陣を組むようにビットが浮かんで静止している。
-  - 生成済みビットの数を生存者の人数で割り、どのキャラを撃つかの担当を決める。余りはなるべく均等に割り振る。
-  - 現在の、ビットがランダムなタイミングで生存者に斉射するロジックを、生存者が複数人いる場合はキャラごとに適用する。すなわち、基本的にキャラごとに異なるタイミングで処刑されていく。
-  - ただし30%の確率で、全員一斉に斉射されるパターンが選ばれるようにしたい。
+# タイトル画面「いきなり公開処刑モード」追加 計画
 
-追加指示
-- やっぱり3秒維持ではなく1秒維持のままに変更します
-- R リプレイ時は、撃たれるまでのランダム時間や、全員一斉処刑するかの抽選は、どちらも再抽選してください。
+## 概要
+- 既存の計画ファイルは新タスク用に退避し、新しい計画へ切り替えて更新する。
+- タイトル画面に「いきなり公開処刑モード」への切替ボタンと `EXECUTE SETTINGS` を追加し、通常開始とは別に公開処刑へ直接入る開始経路を作る。
+- 回答反映:
+  - ルーレットステージ選択中でも、本モードではルーレット本編へ入らず公開処刑を開始する。
+  - `NPCをプレイヤーが処刑` では `周囲のビット(体)` は未使用にする。
 
-追修正
-- 「npc-survivor-player-block」の公開処刑モードのとき、プレイヤーが最初の一人を撃つとき、左クリックすると照準の位置に関係なく中央のキャラが突然光線命中する。そのキャラの光線命中エフェクトが途切れるまで、プレイヤーの撃つ光線のエフェクトがおかしい。光線命中が完了すると、普通に他のキャラに向かって光線を撃てるようになる。モードが始まったときから、プレイヤーは自由に光線を撃てるようにする。
-- 少なくとも「npc-survivor-player-block」の公開処刑モードのとき、ビットの3Dモデルは存在しないのに、床にビットの影が残っている。ビットを消すと同時に影も消す。
-- 「npc-survivor-player-block」の公開処刑モードのとき、全員を撃ち終わった後もプレイヤーは移動できるようにする。
-
-追リファクタ
-- 主に「npc-survivor-player-block」モードについて、通常gunモードを土台にしつつ、公開処刑中は一部の動作をブロックしたり特殊ロジックを挟む形へ整理する。
-- プレイヤーの gun ビーム処理を通常プレイ用の共通基盤へ寄せ、`npc-survivor-player-block` は対象制限と命中後処理だけを差し替える。
-- 対象はプレイヤー発射ビームが NPC に当たる処理の共通化に限定し、bit/NPC の自動斉射、roulette の専用 hit 演出、他 execution モードの自動処刑ロジックは統合しない。
-
-追バグ修正
-- ゲーム中にビットが放つビームが NPC に命中しなくなっている。原因を修正する。
-
-追配置修正
-- 公開処刑中に `R` キーを押したとき、暗転する間にプレイヤー自身と思われるキャラスプライトが画面いっぱいに表示される。暗転中にキャラスプライトを表示しないようにする。
-- `npc-survivor-npc-block` と `npc-survivor-player-block` では、プレイヤーを洗脳済み NPC の円陣の一人として出現させる。円陣の外に単独で出現させない。
-
-追ビット視界修正
-- `npc-survivor-npc-block` と `npc-survivor-player-block` では、円陣に配置されたプレイヤーの目の前へ bit を置かないようにする。bit が 99 体でも同様に、プレイヤーの初期位置から円陣中央の処刑対象が見えるようにする。
-
-追ビット視界調整
-- 公開処刑の bit 視界用ギャップ角はもっと狭めてよい。案2として、下限角を 18 度へ下げる。
-
-追ビット視界再調整
-- 公開処刑の bit 視界用ギャップ角をさらに狭める。下限角を 18 度から 12 度へ下げる。
-
-追整列向き修正
-- `npc-survivor-npc-block` と `npc-survivor-player-block` では、整列する生存者たちをプレイヤーから見て横一列へ並べる。プレイヤーから見て縦に並ぶ配置にしない。
-
-追移動修正
-- `npc-survivor-npc-block` のとき、プレイヤーは自由に移動できるようにする。
-- ただしプレイヤーは、bit や NPC の斉射した光線には命中判定を持たず、ターゲットの生存者へ正しく命中させられるようにする。
-
-追しきい値変更
-- X（最後の何人が拘束されたら公開処刑に移るか）の値を 6 にする。
-
-追待ち時間上限変更
-- 公開処刑時、斉射までにかかるランダム時間の上限を 8 秒にする。
+## 実装変更
+- タイトル設定モデルに `ExecuteSettings` を追加する。項目は `method`、`targetNpcCount`、`surroundingNpcCount`、`surroundingBitCount`。
+- localStorage 保存データに `executeSettings` を追加し、保存バージョンを 6 へ上げる。既存データ移行時は execute settings の既定値を補完する。
+- 初回表示は通常モード固定にし、execute settings の値だけ復元する。通常設定パネルの値はそのまま保持する。
+- 右下ボタン群を横並び化し、新ボタンを既存リセットボタンの左へ置く。通常時は `いきなり公開処刑モード`、切替後は `通常モードに戻る` にする。
+- 新ボタンは既存リセット系ボタンの黄色版スタイルにする。
+- instant mode 中はタイトル文言を `いきなり公開処刑モード` に差し替え、左クリックで `startGame()` しないよう入力分岐を止める。pointer lock 要求だけは従来どおり維持する。
+- instant mode 中は `PLAYER SETTINGS`、`VISUAL SETTINGS`、`STAGE`、`VOLUME` だけ残し、`DEFAULT SETTINGS`、`BRAINWASH SETTINGS`、`BIT SETTINGS` を隠して、その位置へ `EXECUTE SETTINGS` を表示する。
+- `EXECUTE SETTINGS` には以下を実装する。
+  - `処刑方法` プルダウン。値は 5 種固定で、既存 execution variant と `usesNpcVolley` の組み合わせへ対応づける。
+  - `処刑対象NPC(人)` 数値入力。`NPCを～` に切り替わった時に 0 なら 1 へ補正する。`プレイヤーを～` の上限は `publicExecutionMaxSurvivors - 1`、`NPCを～` の上限は 6 にする。
+  - `周囲のNPC(人)` 数値入力。最小値は `処刑対象NPC + (プレイヤーを～なら1)`、最大 99。
+  - `周囲のビット(体)` 数値入力。bit 使用モードでは最小値は `処刑対象NPC + (プレイヤーを～なら1)`、最大 99。`プレイヤーをNPCが処刑`、`NPCをNPCが処刑`、`NPCをプレイヤーが処刑` では入力不可かつ開始時 0 扱いにする。
+  - `処刑開始` ボタン。黒地白文字にし、クリックで設定どおりの公開処刑を開始する。
+- 入力補正ロジックは UI 側で即時反映する。無効な値へ変更しようとした場合はその場で仕様上の最小値または最大値へ戻す。
+- 通常モードの `全てデフォルトに戻す` は execute settings も含めて全リセットする。instant mode 中は同じ位置のボタン文言を `公開処刑設定のみデフォルトに戻す` に変え、execute settings のみ既定値へ戻す。
+- 通常 `startGame()` とは別に `startInstantExecution()` を追加する。ここでは hidden にした `DEFAULT/BRAINWASH/BIT` 設定は使わず、`PLAYER/VISUAL/STAGE/VOLUME + execute settings` だけを使用する。
+- instant execution 用の準備リクエストを別に持ち、総 NPC 数を `処刑対象NPC + 周囲NPC` にした上で、通常開始と同様のランダムなスプライト・ボイス割当を行う。
+- instant execution 開始時は reset 後に NPC と bit を execute settings に合わせて再構成し、対象 NPC、周囲 NPC、プレイヤー状態、`blockedByPlayer`、`blockTargetId`、`usesNpcVolley`、`survivorTargets`、`playerExecutionRole` を明示的に組んだ `ExecutionConfig` を生成して `enterPublicExecution()` へ渡す。
+- bit 使用モードでは指定数の bit を生成して execution 円配置に使う。NPC 処刑役モードとプレイヤー処刑役モードでは bit を生成しない。
+- ルーレットステージ選択時も、ステージ地形はそのまま使うが `roulette` フェーズへは入らず、instant execution 専用経路で直接 `execution` へ入る。
 
 ## ステップ
 - [x] 既存の `docs/plan.md` を退避し、新しい計画ファイルを作成する
-- [x] 公開処刑の型・候補選定・トリガー管理を多人数前提へ変更する
-- [x] 公開処刑シーンの配置とビット/NPC/プレイヤーの処刑進行を多人数対応へ変更する
-- [x] リプレイ時の再抽選仕様と完了判定を実装する
+- [x] `ExecuteSettings` 型・保存・デフォルト値・localStorage 正規化を追加する
+- [x] タイトル画面に instant mode 切替 UI と `EXECUTE SETTINGS` パネルを追加する
+- [x] instant mode 中の文言・表示制御・左クリック開始抑止を追加する
+- [x] `startInstantExecution()` と instant execution 用の準備経路を追加する
+- [x] instant execution 用の NPC/bit 再構成と `ExecutionConfig` 生成を実装する
+- [x] リセット挙動を通常モード用と公開処刑設定専用に分岐する
 - [x] `npm run build` で確認し、結果を計画ファイルへ反映する
-- [x] `npc-survivor-player-block` の初回射撃が誤命中する原因を修正する
-- [x] 非表示ビットの床影が残る問題を修正する
-- [x] `npc-survivor-player-block` 完了後もプレイヤー移動を維持する
-- [x] `npm run build` を再実行し、追修正後のビルド成立を確認する
-- [x] プレイヤー gun 用の共有ビーム命中 resolver を追加する
-- [x] 通常プレイの NPC 被弾処理を共有 resolver 経由へ移す
-- [x] `npc-survivor-player-block` の専用プレイヤービーム命中処理を共有 resolver 経由へ置き換える
-- [x] `npm run build` を再実行し、追リファクタ後のビルド成立を確認する
-- [x] 共有 beam hit resolver の source 条件を見直し、通常プレイで bit/NPC ビームが NPC に当たる経路を復旧する
-- [x] `npm run build` を再実行し、追バグ修正後のビルド成立を確認する
-- [x] `transition` 中のプレイヤー表示条件を見直し、公開処刑リプレイ暗転中の巨大スプライト表示を止める
-- [x] `npc-survivor-npc-block` と `npc-survivor-player-block` の spectator 配置を組み直し、プレイヤーを円陣スロットへ含める
-- [x] `npm run build` を再実行し、追配置修正後のビルド成立を確認する
-- [x] 公開処刑の bit 円配置にプレイヤー正面の視界用ギャップを追加する
-- [x] `npm run build` を再実行し、追ビット視界修正後のビルド成立を確認する
-- [x] 公開処刑の bit 視界用ギャップ下限角を 18 度へ調整する
-- [x] `npm run build` を再実行し、追ビット視界調整後のビルド成立を確認する
-- [x] 公開処刑の bit 視界用ギャップ下限角を 12 度へ再調整する
-- [x] `npm run build` を再実行し、追ビット視界再調整後のビルド成立を確認する
-- [x] `npc-survivor-npc-block` と `npc-survivor-player-block` の中央 line slots をプレイヤー視点基準の横向きへ変更する
-- [x] `npm run build` を再実行し、追整列向き修正後のビルド成立を確認する
-- [x] `npc-survivor-npc-block` の execution 中にプレイヤー移動を許可し、ヘルプ表示も実際の操作に合わせる
-- [x] execution の自動斉射ビームが spectator のプレイヤーではなく指定 target の生存者だけに当たる挙動を維持できていることを確認する
-- [x] `npm run build` を再実行し、追移動修正後のビルド成立を確認する
-- [x] 公開処刑の survivor 上限定数 `publicExecutionMaxSurvivors` を 6 へ変更する
-- [x] `npm run build` を再実行し、追しきい値変更後のビルド成立を確認する
-- [x] 公開処刑の斉射待ち時間上限定数 `publicExecutionBeamDelayMax` を 8 秒へ変更する
-- [x] `npm run build` を再実行し、追待ち時間上限変更後のビルド成立を確認する
 
 ## 結果
-- 既存の `docs/plan.md` は `docs/plan_2026-04-04_public-execution-threshold-prev.md` へ退避し、本タスク用の計画へ切り替えた。
-- 公開処刑の候補判定を多人数対応へ変更し、`playing` 中に生存扱いの対象が 1 人以上 `publicExecutionMaxSurvivors` 以下、かつ全員が拘束された同一パターンが 1 秒継続した場合のみ遷移するようにした。判定キーは生存者集合と拘束種別で構成し、モード優先度は `player-survivor`、`npc-survivor-player-block`、`npc-survivor-npc-block` の順で固定した。
-- `ExecutionConfig` と公開処刑ランタイム状態を多人数前提へ作り直し、中央に 1 行で並ぶ複数生存者、外周観客、ビットまたは NPC 斉射役、プレイヤー処刑役をモード別に配置できるようにした。中央の対象は公開処刑中ずっと `evade` 表示を維持し、対象ごとに被弾と完了を管理する。
-- `player-survivor` と `npc-survivor-npc-block` では、生存者ごとに担当ビットまたは担当 NPC を均等配分し、70% は個別タイミング、30% は全員同時で処刑するようにした。ビット不足時の NPC 斉射条件は `bits.length < publicExecutionMaxSurvivors` へ変更した。
-- `npc-survivor-player-block` は複数生存 NPC を中央対象に持てるように拡張し、プレイヤーが移動・射撃可能な処刑役となり、最後の未完了対象へ命中した時点で公開処刑を終了するようにした。
-- `R` リプレイ時は同じモードと生存者集合を使いつつ、全員同時処刑フラグ、各対象の発射待ち時間、NPC 斉射時の担当割り振りを毎回再抽選するようにした。
-- `npm run build` を実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
-- `npc-survivor-player-block` の左クリックは、pointer lock 未取得時には照準発射せず pointer lock 再取得だけを行うようにした。これにより、モード開始直後の初回クリックが固定方向へ誤射される問題を止めた。
-- `npc-survivor-player-block` のプレイヤービーム判定では、既に命中演出中の対象を再度遮蔽物として扱わないようにし、最初の 1 人が被弾演出中でも他の生存者へ続けて狙えるようにした。
-- ビットの床影同期は `bit.root` が無効な個体を対象外に変更し、公開処刑でビット本体を消したタイミングで影も消えるようにした。
-- `npc-survivor-player-block` 完了後はプレイヤーをハイグレポーズへ移しつつ、移動入力を止めずに execution フェーズ中の移動だけ継続できるようにした。照準は非表示にし、射撃は無効化したままにしている。
-- 追修正後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
-- `src/game/playerBeamHits.ts` を追加し、プレイヤー由来の active beam と候補配列を順番に評価して命中を確定する共有 resolver を実装した。候補側は `targetId`、命中中心、半径、`canHit`、`onHit` を渡す構成にした。
-- 通常プレイの NPC 被弾処理は `npcs.ts` で共有 resolver へ候補配列を渡す形へ寄せ、NPC hit 演出・SE・state 遷移の適用だけを `onHit` 側に残した。これにより通常 gun のビーム進行と命中確定の土台を execution と共有できるようにした。
-- `npc-survivor-player-block` のプレイヤービーム命中は `main.ts` の専用 beam 走査ループをやめ、未完了 survivor NPC だけを候補にした共有 resolver 呼び出しへ置き換えた。公開処刑中だけ対象集合と命中後処理を差し替える構造になり、通常 gun ロジックを土台にできるようにした。
-- 追リファクタ後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
-- 共有 beam hit resolver は当初 `player` 由来ビームだけを扱う実装だったため、通常プレイ側の NPC 被弾処理を共有化した時点で、bit/NPC 由来ビームが NPC 命中判定を通らなくなっていた。resolver を source 条件付きの汎用版 `resolveBeamHits()` と `player` 専用ラッパー `resolvePlayerBeamHits()` に整理し、通常プレイでは前者、`npc-survivor-player-block` では後者を使う構成へ修正した。
-- 追バグ修正後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
-- `transition` 中のプレイヤー表示を見直し、公開処刑から `R` リプレイへ入る暗転中はプレイヤーアバターを非表示にした。これにより、暗転中にプレイヤー自身のキャラスプライトが画面いっぱいへ映り込む挙動を止めた。
-- `npc-survivor-npc-block` と `npc-survivor-player-block` の spectator 配置は、プレイヤーも含めた総人数で円陣スロットを作る構成へ変更した。プレイヤーは洗脳済み NPC の円陣の一員として初期配置され、残りの洗脳済み NPC が残りスロットへ並ぶ。
-- 追配置修正後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
-- 公開処刑の bit 円配置は、必要に応じてプレイヤー spectator の正面へ視界用ギャップを空ける構成へ変更した。これにより、bit が多数ある場合でもプレイヤー初期位置から円陣中央の処刑対象が見えるようにした。
-- 追ビット視界修正後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
-- 公開処刑の bit 視界用ギャップ角はさらに狭め、下限角を 36 度から 18 度へ調整した。これにより視界確保は維持しつつ、bit 円陣の密度感を上げた。
-- 追ビット視界調整後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
-- 公開処刑の bit 視界用ギャップ角はさらに狭め、下限角を 18 度から 12 度へ再調整した。視界用の抜けは維持しつつ、円陣の密度感をもう一段上げた。
-- 追ビット視界再調整後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
-- `npc-survivor-npc-block` と `npc-survivor-player-block` の中央生存者 line slots は、プレイヤー spectator 初期位置から円陣中央を見る方向に対して直交する向きで組み立てるように変更した。これにより、プレイヤーから見た生存者たちは常に横一列に並ぶ。
-- 追整列向き修正後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
-- `npc-survivor-npc-block` でも execution 中のプレイヤー移動を許可し、ヘルプ表示へ `WASD: 移動` を追加した。これにより、公開処刑の spectator 配置のまま自由に歩ける。
-- execution の自動斉射ビーム衝突は従来どおり割り当て済み target の生存者だけを判定対象にしており、spectator のプレイヤーは遮蔽物にならず、そのまますり抜けて中央 target へ命中する構成を維持した。
-- 追移動修正後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
-- 公開処刑へ移る survivor 上限定数 `publicExecutionMaxSurvivors` は 5 から 6 へ変更した。これに伴い、候補判定上限と bit 不足による NPC 斉射切り替え条件も同じ定数経由で 6 基準になった。
-- 追しきい値変更後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
-- 公開処刑の斉射待ち時間上限定数 `publicExecutionBeamDelayMax` は 10 秒から 8 秒へ変更した。これにより、個別斉射と同時斉射のどちらでも待ち時間の抽選上限が 8 秒になる。
-- 追待ち時間上限変更後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
+- 既存の `docs/plan.md` は `docs/plan_2026-04-05_public-execution-threshold-prev2.md` へ退避し、本タスク用の計画へ切り替えた。
+- `src/ui/executeSettings.ts` と `src/ui/executeSettingsPanel.ts` を追加し、`ExecuteSettings` 型、処刑方法 5 種、対象NPC数・周囲NPC数・周囲ビット数の補正ルール、`EXECUTE SETTINGS` パネルを新設した。bit 未使用モードでは `周囲のビット(体)` を入力不可にし、bit 使用モードへ戻した際は必要最小値へ補正する構成にした。
+- `src/ui/titleSettingsStorage.ts` は保存バージョンを 6 へ移行し、`executeSettings` を localStorage の保存・復元対象へ追加した。旧保存データ読込時は execute settings の既定値を補完しつつ正規化する。
+- `src/ui/titleSettingsSidebar.ts` は instant mode 切替ボタン、`EXECUTE SETTINGS` の表示切替、公開処刑設定専用リセット、通常リセット、`処刑開始` コールバックをまとめる構成へ拡張した。通常モードでは既存パネル群を表示し、instant mode では `DEFAULT SETTINGS`、`BRAINWASH SETTINGS`、`BIT SETTINGS` を隠して `EXECUTE SETTINGS` を表示する。
+- `src/style.css` は instant mode 切替ボタンの黄色スタイル、右下ボタン横並びレイアウト、`EXECUTE SETTINGS` の入力行と `処刑開始` ボタンの見た目を追加した。
+- `src/main.ts` はタイトル準備データへ `executeSettings` を組み込み、title ready 文言を通常時 `左クリック：開始`、instant mode 時 `いきなり公開処刑モード` へ切り替えるよう変更した。タイトルでの左クリックは instant mode 中に通常開始せず、pointer lock 要求も止める構成にしたため、マウスカーソルが消えず、カメラもマウス追従を始めない。
+- `src/game/publicExecutionConfig.ts` を追加し、公開処刑人数しきい値や待ち時間定数を共有化した。`ExecuteSettings` 側の NPC 上限もこの定数を参照するよう統一した。
+- instant execution 用の準備経路を `startInstantExecution()` として追加し、通常開始とは別に総 NPC 数を `処刑対象NPC + 周囲のNPC` としてランダムなスプライト・ボイス割当を行うようにした。ルーレットステージ選択中でも `roulette` フェーズへは入らず、選択中ステージ地形のまま公開処刑へ直接遷移する。
+- instant execution 開始時は通常 reset 後に NPC と bit を execute settings に合わせて再構成し、`player-survivor`、`npc-survivor-npc-block`、`npc-survivor-player-block` の各 `ExecutionConfig` を明示的に生成して `enterPublicExecution()` へ渡すようにした。`NPCをプレイヤーが処刑` では保存済み bit 数は維持しつつ、開始時には使用しない。
+- リセット挙動は、通常モードでは従来どおり全設定既定値へ戻し、instant mode 中は `EXECUTE SETTINGS` のみ既定値へ戻す分岐へ変更した。
+- `src/style.css` の `EXECUTE SETTINGS` 入力欄は、数値入力幅を既存設定パネルと同等に狭め、フォントサイズも 13px へ固定して通常モードの他 SETTINGS と揃えた。
+- `npm run build` を実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。タイトル画面上での手動操作確認は未実施。
+- 追修正後に `npm run build` を再実行し、pointer lock 抑止と EXECUTE SETTINGS の入力サイズ調整後も `vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
+- 追加調整として、`src/style.css` の `EXECUTE SETTINGS` は `処刑方法` 行のラベルとプルダウンの間隔を広げ、各入力行の間にも 9px の縦余白を追加した。
+- さらに `src/style.css` と `src/ui/titleSettingsSidebar.ts` を追修正し、`EXECUTE SETTINGS` 見出し直下の縦余白を追加したうえで、instant mode 中の設定パネルは右端を維持したまま左方向へ 10px 広がるようにした。
+- 追加で `src/style.css` を調整し、instant mode 中に 10px 広げた分の余白が左側の中身にも反映されるよう、設定パネルの余白方向を見直して文字や入力欄も左へ揃えた。
+- さらに `src/style.css` を調整し、instant mode 中の設定パネルは右側の余白だけ通常時と同じ 14px に戻すよう再調整した。
+- 最新の追修正では `src/style.css` の instant mode 用設定を見直し、padding ではなく `title-settings-combined-panel` 自体へ最小幅を与えたうえで、`EXECUTE SETTINGS` の `処刑方法` プルダウンはパネル内の残り幅いっぱいまで広がるように変更した。これにより長い選択肢文字列も適切な余白を保ったまま表示しやすくした。
+- 最後に `src/style.css` を再調整し、過剰だった instant mode 用の最小幅指定は撤回した。`EXECUTE SETTINGS` の `処刑方法` 行だけを 200px 幅へ絞って広げ、一番長い「プレイヤーをビットが処刑」が見える程度の増分に戻した。

@@ -145,6 +145,14 @@ import type { DefaultStartSettings } from "./ui/defaultSettingsPanel";
 import type { BrainwashSettings } from "./ui/brainwashSettingsPanel";
 import type { PlayerSettings } from "./ui/playerSettingsPanel";
 import {
+  defaultExecuteSettings,
+  getEffectiveExecuteBitCount,
+  isPlayerExecutionMethod,
+  isPlayerShooterExecutionMethod,
+  normalizeExecuteSettings,
+  type ExecuteSettings
+} from "./ui/executeSettings";
+import {
   buildDefaultPersistedTitleSettings,
   clearPersistedTitleSettings,
   loadPersistedTitleSettings,
@@ -162,6 +170,13 @@ import {
   createTitleSettingsSidebar,
   type TitleSettingsSidebarSettings
 } from "./ui/titleSettingsSidebar";
+import {
+  publicExecutionBeamDelayMax,
+  publicExecutionBeamDelayMin,
+  publicExecutionMaxSurvivors,
+  publicExecutionSimultaneousChance,
+  publicExecutionTransitionDelay
+} from "./game/publicExecutionConfig";
 import {
   PLAYER_SPRITE_CENTER_HEIGHT,
   PLAYER_SPRITE_HEIGHT,
@@ -206,7 +221,9 @@ const titleMessageProgressElement = document.createElement("span");
 const engine = new Engine(canvas, true);
 const scene = new Scene(engine);
 const defaultClearColor = scene.clearColor.clone();
-const titleReadyMessage = "左クリック: 開始";
+const titleDefaultReadyMessage = "左クリック：開始";
+const titleInstantReadyMessage = "いきなり公開処刑モード";
+let titleReadyMessage = titleDefaultReadyMessage;
 const titleLoadingMessageBase = "NOW LOADING";
 const titleLoadingDotIntervalMs = 300;
 const titleStartPreparationDebounceMs = 250;
@@ -264,6 +281,12 @@ const syncTitleMessage = () => {
   titleMessageDotsElement.style.display = "none";
   titleMessageProgressElement.textContent = "";
   titleMessageProgressElement.style.display = "none";
+};
+const syncTitleReadyMessage = () => {
+  titleReadyMessage = titleInstantExecutionMode
+    ? titleInstantReadyMessage
+    : titleDefaultReadyMessage;
+  syncTitleMessage();
 };
 const startTitleLoadingDots = () => {
   if (titleLoadingDotTimerId !== null) {
@@ -478,7 +501,7 @@ const defaultPlayerSettings: PlayerSettings = {
   enableCharacterSpriteVerticalAngle: true
 };
 const TITLE_SETTINGS_STORAGE_KEY = "haigure-survival.title-settings";
-const TITLE_SETTINGS_STORAGE_VERSION = 5;
+const TITLE_SETTINGS_STORAGE_VERSION = 6;
 const defaultVolumeLevels: VolumeLevels = {
   bgm: 5,
   se: 5,
@@ -495,7 +518,8 @@ const titleSettingsDefaults: TitleSettingsDefaults = {
   playerSettings: defaultPlayerSettings,
   defaultStartSettings: defaultDefaultStartSettings,
   brainwashSettings: defaultBrainwashSettings,
-  bitSpawnSettings: defaultBitSpawnSettings
+  bitSpawnSettings: defaultBitSpawnSettings,
+  executeSettings: defaultExecuteSettings
 };
 const stageIds = new Set(STAGE_CATALOG.map((selection) => selection.id));
 const persistedTitleSettings = loadPersistedTitleSettings(
@@ -528,6 +552,12 @@ let titlePlayerSettings: PlayerSettings = {
     ? persistedTitleSettings.playerSettings
     : defaultPlayerSettings)
 };
+let titleExecuteSettings: ExecuteSettings = {
+  ...(persistedTitleSettings
+    ? persistedTitleSettings.executeSettings
+    : defaultExecuteSettings)
+};
+let titleInstantExecutionMode = false;
 let runtimeBitSpawnInterval = defaultBitSpawnSettings.bitSpawnInterval;
 let runtimeMaxBitCount = defaultBitSpawnSettings.maxBitCount;
 let runtimeDefaultStartSettings: DefaultStartSettings = {
@@ -575,6 +605,25 @@ const buildRuntimeSettingsForStageId = (
     defaultBrainwashSettings,
     defaultBitSpawnSettings
   });
+const buildInstantExecutionRuntimeSettings = (
+  executeSettings: ExecuteSettings
+): RuntimeSettingsByStage => {
+  const normalized = normalizeExecuteSettings(executeSettings);
+  return {
+    rouletteSelected: false,
+    runtimeDefaultStartSettings: {
+      ...defaultDefaultStartSettings,
+      startPlayerAsBrainwashCompleteGun: false,
+      initialNpcCount:
+        normalized.targetNpcCount + normalized.surroundingNpcCount,
+      initialBrainwashedNpcPercent: 0
+    },
+    runtimeBrainwashSettings: { ...defaultBrainwashSettings },
+    runtimeBitSpawnInterval: defaultBitSpawnSettings.bitSpawnInterval,
+    runtimeMaxBitCount: 0,
+    runtimeAlarmTrapEnabled: false
+  };
+};
 const applyRuntimeSettings = (runtimeSettings: RuntimeSettingsByStage) => {
   runtimeDefaultStartSettings = runtimeSettings.runtimeDefaultStartSettings;
   runtimeBrainwashSettings = runtimeSettings.runtimeBrainwashSettings;
@@ -677,6 +726,28 @@ const buildTitleStartPreparationRequest = (): TitleStartPreparationRequestData =
   );
   return {
     fingerprint: buildTitleStartPreparationFingerprint(),
+    loadingTotal: countUnloadedPortraitDirectoriesForAssignments(assignments),
+    assignments,
+    runtimeSettings
+  };
+};
+const buildInstantExecutionPreparationRequest = (
+  executeSettings: ExecuteSettings
+): TitleStartPreparationRequestData => {
+  const normalized = normalizeExecuteSettings(executeSettings);
+  const runtimeSettings = buildInstantExecutionRuntimeSettings(normalized);
+  const assignments = buildCharacterAssignments(
+    runtimeSettings.runtimeDefaultStartSettings.initialNpcCount,
+    titlePlayerSettings
+  );
+  return {
+    fingerprint: JSON.stringify({
+      mode: "instant-execution",
+      stageId: stageSelection.id,
+      playerPortraitDirectory: titlePlayerSettings.portraitDirectory,
+      playerVoiceDirectory: titlePlayerSettings.voiceDirectory,
+      executeSettings: normalized
+    }),
     loadingTotal: countUnloadedPortraitDirectoriesForAssignments(assignments),
     assignments,
     runtimeSettings
@@ -1193,14 +1264,16 @@ const saveTitleSettings = () => {
     playerSettings: { ...titlePlayerSettings },
     defaultStartSettings: { ...titleDefaultStartSettings },
     brainwashSettings: { ...titleBrainwashSettings },
-    bitSpawnSettings: { ...titleBitSpawnSettings }
+    bitSpawnSettings: { ...titleBitSpawnSettings },
+    executeSettings: { ...titleExecuteSettings }
   });
 };
 const buildTitleSettingsSidebarSettings = (): TitleSettingsSidebarSettings => ({
   playerSettings: { ...titlePlayerSettings },
   defaultStartSettings: { ...titleDefaultStartSettings },
   brainwashSettings: { ...titleBrainwashSettings },
-  bitSpawnSettings: { ...titleBitSpawnSettings }
+  bitSpawnSettings: { ...titleBitSpawnSettings },
+  executeSettings: { ...titleExecuteSettings }
 });
 const applyTitleSettingsSidebarSettings = (
   settings: TitleSettingsSidebarSettings
@@ -1209,6 +1282,7 @@ const applyTitleSettingsSidebarSettings = (
   titleDefaultStartSettings = { ...settings.defaultStartSettings };
   titleBrainwashSettings = { ...settings.brainwashSettings };
   titleBitSpawnSettings = { ...settings.bitSpawnSettings };
+  titleExecuteSettings = { ...settings.executeSettings };
 };
 const titleVolumePanel = createVolumePanel({
   parent: document.body,
@@ -1262,6 +1336,16 @@ const titleSettingsSidebar = createTitleSettingsSidebar({
   onResetRequested: () => {
     void resetTitleSettingsToDefault();
   },
+  onResetExecuteSettingsRequested: () => {
+    resetTitleExecuteSettingsToDefault();
+  },
+  onInstantModeChange: (enabled) => {
+    titleInstantExecutionMode = enabled;
+    syncTitleReadyMessage();
+  },
+  onStartInstantExecution: () => {
+    void startInstantExecution();
+  },
   onConfirmEnableNoGunTouch: () =>
     window.confirm(enableNoGunTouchBrainwashConfirmMessage),
   shouldShowGameOverWarning: (stageId, settings) =>
@@ -1294,7 +1378,8 @@ const resetTitleSettingsToDefault = async () => {
     playerSettings: defaults.playerSettings,
     defaultStartSettings: defaults.defaultStartSettings,
     brainwashSettings: defaults.brainwashSettings,
-    bitSpawnSettings: defaults.bitSpawnSettings
+    bitSpawnSettings: defaults.bitSpawnSettings,
+    executeSettings: defaults.executeSettings
   };
   titleSettingsSidebar.setSettings(nextSidebarSettings);
   applyTitleSettingsSidebarSettings(nextSidebarSettings);
@@ -1305,6 +1390,19 @@ const resetTitleSettingsToDefault = async () => {
   )!;
   await applyStageSelection(defaultSelection);
   clearPersistedTitleSettings(TITLE_SETTINGS_STORAGE_KEY);
+};
+const resetTitleExecuteSettingsToDefault = () => {
+  const defaults = buildDefaultPersistedTitleSettings(
+    TITLE_SETTINGS_STORAGE_VERSION,
+    titleSettingsDefaults
+  );
+  const nextSidebarSettings: TitleSettingsSidebarSettings = {
+    ...titleSettingsSidebar.getSettings(),
+    executeSettings: { ...defaults.executeSettings }
+  };
+  titleSettingsSidebar.setSettings(nextSidebarSettings);
+  applyTitleSettingsSidebarSettings(nextSidebarSettings);
+  saveTitleSettings();
 };
 for (const category of volumeCategories) {
   applyVolumeLevel(category, volumeLevels[category]);
@@ -2134,12 +2232,6 @@ const playerHitFadeOrbConfig: HitFadeOrbConfig = {
   speedMin: playerHitOrbSpeedMin,
   speedMax: playerHitOrbSpeedMax
 };
-const publicExecutionMaxSurvivors = 6;
-const publicExecutionTransitionDelay = 1;
-const publicExecutionSimultaneousChance = 0.3;
-const publicExecutionBeamDelayMin = 2;
-const publicExecutionBeamDelayMax = 8;
-
 const playerNoGunTouchContactRadius = 0.5;
 const playerEvadeThreatNearRangeCells = 3;
 const playerEvadeThreatVisionRangeCells = 9;
@@ -2405,6 +2497,155 @@ const buildCharacterTargetKey = (
 
 const buildExecutionTargetKey = (target: ExecutionTarget) =>
   buildCharacterTargetKey(target);
+
+const setNpcStateImmediate = (npc: Npc, state: CharacterState) => {
+  npc.state = state;
+  npc.sprite.cellIndex = getPortraitCellIndex(state);
+};
+
+const resetNpcForInstantExecution = (npc: Npc) => {
+  npc.hitTimer = 0;
+  npc.fadeTimer = 0;
+  npc.hitById = null;
+  npc.brainwashTimer = 0;
+  npc.brainwashMode = "search";
+  npc.brainwashTargetId = null;
+  npc.blockTimer = 0;
+  npc.blockTargetId = null;
+  npc.breakAwayTimer = 0;
+  npc.blockedByPlayer = false;
+  npc.alertState = "none";
+  npc.noGunTouchBrainwashTimer = 0;
+  npc.sprite.color.copyFrom(npcSpriteColorNormal);
+};
+
+const rebuildInstantExecutionBits = (count: number) => {
+  disposeAllBits();
+  bitIndex = 0;
+  for (let index = 0; index < count; index += 1) {
+    bits.push(createRandomBit(bitIndex));
+    bitIndex += 1;
+  }
+};
+
+const buildInstantExecutionSurvivorTargets = (
+  executeSettings: ExecuteSettings,
+  targetNpcIndices: number[]
+): ExecutionTarget[] => {
+  if (!isPlayerExecutionMethod(executeSettings.method)) {
+    return targetNpcIndices.map(
+      (npcIndex) => ({ kind: "npc", npcIndex }) as const
+    );
+  }
+  const npcTargets = targetNpcIndices.map(
+    (npcIndex) => ({ kind: "npc", npcIndex }) as const
+  );
+  const splitIndex = Math.floor((npcTargets.length + 1) * 0.5);
+  return [
+    ...npcTargets.slice(0, splitIndex),
+    { kind: "player" } as const,
+    ...npcTargets.slice(splitIndex)
+  ];
+};
+
+const buildInstantExecutionScenario = (
+  executeSettings: ExecuteSettings
+): PublicExecutionScenario => {
+  const normalized = normalizeExecuteSettings(executeSettings);
+  const targetNpcIndices = Array.from(
+    { length: normalized.targetNpcCount },
+    (_, index) => index
+  );
+  const targetNpcIndexSet = new Set(targetNpcIndices);
+  const spectatorNpcIndices = npcs
+    .map((_, index) => index)
+    .filter((index) => !targetNpcIndexSet.has(index));
+  const survivorTargets = buildInstantExecutionSurvivorTargets(
+    normalized,
+    targetNpcIndices
+  );
+  const blockKindsByTargetKey: Record<string, ExecutionBlockKind> = {};
+
+  for (const npc of npcs) {
+    resetNpcForInstantExecution(npc);
+  }
+
+  for (const targetNpcIndex of targetNpcIndices) {
+    setNpcStateImmediate(npcs[targetNpcIndex], "normal");
+  }
+
+  if (isPlayerExecutionMethod(normalized.method)) {
+    playerState = "normal";
+    const blockTargetKeys = survivorTargets.map((target) => {
+      const key = buildExecutionTargetKey(target);
+      blockKindsByTargetKey[key] = "npc";
+      return key;
+    });
+    for (let index = 0; index < spectatorNpcIndices.length; index += 1) {
+      const npc = npcs[spectatorNpcIndices[index]];
+      if (index < blockTargetKeys.length) {
+        setNpcStateImmediate(npc, "brainwash-complete-no-gun");
+        npc.blockTargetId = blockTargetKeys[index]!;
+        continue;
+      }
+      setNpcStateImmediate(npc, "brainwash-complete-haigure-formation");
+    }
+  } else if (isPlayerShooterExecutionMethod(normalized.method)) {
+    playerState = "brainwash-complete-gun";
+    for (const target of survivorTargets) {
+      blockKindsByTargetKey[buildExecutionTargetKey(target)] = "player";
+      if (target.kind === "npc") {
+        npcs[target.npcIndex].blockedByPlayer = true;
+      }
+    }
+    for (const spectatorNpcIndex of spectatorNpcIndices) {
+      setNpcStateImmediate(
+        npcs[spectatorNpcIndex],
+        "brainwash-complete-haigure-formation"
+      );
+    }
+  } else {
+    playerState = "brainwash-complete-haigure-formation";
+    const blockTargetKeys = survivorTargets.map((target) => {
+      const key = buildExecutionTargetKey(target);
+      blockKindsByTargetKey[key] = "npc";
+      return key;
+    });
+    for (let index = 0; index < spectatorNpcIndices.length; index += 1) {
+      const npc = npcs[spectatorNpcIndices[index]];
+      if (index < blockTargetKeys.length) {
+        setNpcStateImmediate(npc, "brainwash-complete-no-gun");
+        npc.blockTargetId = blockTargetKeys[index]!;
+        continue;
+      }
+      setNpcStateImmediate(npc, "brainwash-complete-haigure-formation");
+    }
+  }
+
+  playerHitById = null;
+  playerHitTime = 0;
+  playerNoGunTouchBrainwashTimer = 0;
+  brainwashChoiceStarted = playerState === "brainwash-complete-gun";
+  brainwashChoiceUnlocked = brainwashChoiceStarted;
+  rebuildInstantExecutionBits(getEffectiveExecuteBitCount(normalized));
+
+  return {
+    variant: isPlayerExecutionMethod(normalized.method)
+      ? "player-survivor"
+      : isPlayerShooterExecutionMethod(normalized.method)
+        ? "npc-survivor-player-block"
+        : "npc-survivor-npc-block",
+    survivorTargets,
+    blockKindsByTargetKey,
+    playerExecutionRole: isPlayerExecutionMethod(normalized.method)
+      ? "target"
+      : isPlayerShooterExecutionMethod(normalized.method)
+        ? "shooter"
+        : "observer",
+    usesNpcVolley:
+      normalized.method === "player-npc" || normalized.method === "npc-npc"
+  };
+};
 
 const setExecutionTargetState = (
   target: ExecutionTarget,
@@ -4409,6 +4650,49 @@ const resetGame = async (
   rebindVoiceActors();
 };
 
+const startInstantExecution = async () => {
+  if (titleTransitionInProgress || gamePhase !== "title") {
+    return;
+  }
+  if (stageSelectionInProgress) {
+    return;
+  }
+  titleTransitionInProgress = true;
+  try {
+    titleSettingsSidebar.setWarningEnabled(false);
+    applyTitleSettingsSidebarSettings(titleSettingsSidebar.getSettings());
+    titleAlarmTrapEnabled = titleStageSelectControl.getAlarmTrapEnabled();
+    const executeSettings = normalizeExecuteSettings(titleExecuteSettings);
+    const request = buildInstantExecutionPreparationRequest(executeSettings);
+    titleStartPreparation.cancelScheduled();
+    await titleStartPreparation.flush();
+    const loadingSession = createTitleLoadingSession(request.loadingTotal);
+    try {
+      await prepareTitleStartRequest(request, loadingSession);
+    } finally {
+      loadingSession.finish();
+    }
+    applyRuntimeSettings(request.runtimeSettings);
+    rebindVoiceActors();
+    const bgmUrl = selectBgmUrl(stageJson ? stageJson.meta.name : null);
+    if (bgmUrl) {
+      audioManager.startBgm(bgmUrl);
+    }
+    const scenario = buildInstantExecutionScenario(executeSettings);
+    setHudPhaseOverride(null);
+    enterPublicExecution(scenario);
+    hud.setTitleVisible(false);
+    titleVolumePanel.setVisible(false);
+    titleStageSelectControl.setVisible(false);
+    titleSettingsSidebar.setVisible(false);
+    gameFlow.resetFade();
+    titleStartPreparation.invalidateReady();
+    canvas.requestPointerLock();
+  } finally {
+    titleTransitionInProgress = false;
+  }
+};
+
 const startGame = async () => {
   if (titleTransitionInProgress) {
     return;
@@ -4520,9 +4804,15 @@ setupInputHandlers({
   getBrainwashChoiceUnlocked: () => brainwashChoiceUnlocked,
   isUiPointerTarget: isTitleUiTarget,
   onPointerLockRequest: () => {
+    if (gamePhase === "title" && titleInstantExecutionMode) {
+      return;
+    }
     canvas.requestPointerLock();
   },
   onStartGame: () => {
+    if (titleInstantExecutionMode) {
+      return;
+    }
     void startGame();
   },
   onEnterEpilogue: () => {
