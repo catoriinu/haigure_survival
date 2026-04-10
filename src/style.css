@@ -404,7 +404,8 @@ body {
 .visual-settings-panel--title,
 .default-settings-panel--title,
 .brainwash-settings-panel--title,
-.bit-spawn-panel--title {
+.bit-spawn-panel--title,
+.execute-settings-panel--title {
   position: static;
   top: auto;
   padding: 0;
