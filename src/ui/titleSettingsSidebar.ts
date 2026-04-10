@@ -85,6 +85,14 @@ export type TitleSettingsSidebar = {
 
 const warningMessage =
   "※現在の設定ではゲームオーバーにならない可能性があります。設定の変更を推奨します。";
+const instantExecutionToggleLabels = [
+  "いきなり公開処刑モードに変更",
+  "サバイバルモードに変更"
+] as const;
+const resetButtonLabels = [
+  "全設定をリセットする",
+  "公開処刑設定のみリセットする"
+] as const;
 
 const cloneSettings = (
   settings: TitleSettingsSidebarSettings
@@ -95,6 +103,34 @@ const cloneSettings = (
   bitSpawnSettings: { ...settings.bitSpawnSettings },
   executeSettings: { ...settings.executeSettings }
 });
+
+const syncButtonWidth = (
+  button: HTMLButtonElement,
+  labels: readonly string[]
+) => {
+  const measureButton = document.createElement("button");
+  measureButton.type = "button";
+  measureButton.className = button.className;
+  measureButton.style.position = "absolute";
+  measureButton.style.visibility = "hidden";
+  measureButton.style.pointerEvents = "none";
+  measureButton.style.left = "-9999px";
+  measureButton.style.top = "0";
+  measureButton.style.width = "fit-content";
+  document.body.appendChild(measureButton);
+
+  let maxWidth = 0;
+  for (const label of labels) {
+    measureButton.textContent = label;
+    maxWidth = Math.max(
+      maxWidth,
+      Math.ceil(measureButton.getBoundingClientRect().width)
+    );
+  }
+
+  measureButton.remove();
+  button.style.width = `${maxWidth}px`;
+};
 
 export const createTitleSettingsSidebar = ({
   parent,
@@ -311,6 +347,11 @@ export const createTitleSettingsSidebar = ({
   });
   buttonRow.appendChild(resetButton);
 
+  const syncButtonWidths = () => {
+    syncButtonWidth(instantExecutionToggleButton, instantExecutionToggleLabels);
+    syncButtonWidth(resetButton, resetButtonLabels);
+  };
+
   const syncInstantExecutionUi = () => {
     root.classList.toggle(
       "title-right-panels--instant-execution",
@@ -321,11 +362,11 @@ export const createTitleSettingsSidebar = ({
     bitSpawnPanel.setVisible(!instantExecutionMode);
     executeSettingsPanel.setVisible(instantExecutionMode);
     instantExecutionToggleButton.textContent = instantExecutionMode
-      ? "通常モードに戻る"
-      : "いきなり公開処刑モード";
+      ? instantExecutionToggleLabels[1]
+      : instantExecutionToggleLabels[0];
     resetButton.textContent = instantExecutionMode
-      ? "公開処刑設定のみデフォルトに戻す"
-      : "全てデフォルトに戻す";
+      ? resetButtonLabels[1]
+      : resetButtonLabels[0];
   };
 
   const syncStageDerivedUi = () => {
@@ -366,6 +407,8 @@ export const createTitleSettingsSidebar = ({
   };
 
   syncInstantExecutionUi();
+  syncButtonWidths();
+  void document.fonts?.ready.then(syncButtonWidths);
   syncStageDerivedUi();
   syncWarning();
 
