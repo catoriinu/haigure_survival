@@ -17,21 +17,15 @@ type ExecuteSettingsPanelOptions = {
   parent: HTMLElement;
   initialSettings: ExecuteSettings;
   onChange: (settings: ExecuteSettings) => void;
-  onBeforeStartRequested?: () => void;
-  onStartRequested: () => void;
   className?: string;
 };
 
-export type ExecuteSettingsPanel = SettingsPanel<ExecuteSettings> & {
-  setStartEnabled: (enabled: boolean) => void;
-};
+export type ExecuteSettingsPanel = SettingsPanel<ExecuteSettings>;
 
 export const createExecuteSettingsPanel = ({
   parent,
   initialSettings,
   onChange,
-  onBeforeStartRequested,
-  onStartRequested,
   className
 }: ExecuteSettingsPanelOptions): ExecuteSettingsPanel => {
   const root = createTitledSettingsPanelRoot({
@@ -41,7 +35,6 @@ export const createExecuteSettingsPanel = ({
   });
 
   const settings: ExecuteSettings = normalizeExecuteSettings(initialSettings);
-  let startEnabled = true;
 
   const methodRow = document.createElement("label");
   methodRow.className = "execute-settings-panel__row execute-settings-panel__row--select";
@@ -103,19 +96,6 @@ export const createExecuteSettingsPanel = ({
   surroundingBitRow.appendChild(surroundingBitInput);
   root.appendChild(surroundingBitRow);
 
-  const startButton = document.createElement("button");
-  startButton.type = "button";
-  startButton.className = "execute-settings-panel__start-button";
-  startButton.textContent = "処刑開始";
-  startButton.addEventListener("click", () => {
-    if (!startEnabled) {
-      return;
-    }
-    onBeforeStartRequested?.();
-    onStartRequested();
-  });
-  root.appendChild(startButton);
-
   const applyNormalized = (nextSettings: ExecuteSettings) => {
     const normalized = normalizeExecuteSettings(nextSettings);
     settings.method = normalized.method;
@@ -143,7 +123,6 @@ export const createExecuteSettingsPanel = ({
     surroundingBitInput.max = "99";
     surroundingBitInput.value = String(settings.surroundingBitCount);
     surroundingBitInput.disabled = !bitEnabled;
-    startButton.disabled = !startEnabled;
   };
 
   const { emit, setVisible, getSettings, setSettings } =
@@ -204,10 +183,6 @@ export const createExecuteSettingsPanel = ({
     root,
     setVisible,
     getSettings,
-    setSettings,
-    setStartEnabled: (enabled) => {
-      startEnabled = enabled;
-      render();
-    }
+    setSettings
   };
 };

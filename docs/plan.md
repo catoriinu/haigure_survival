@@ -1,42 +1,43 @@
-# npc-survivor-player-block 初弾命中修正 計画
+# タイトル画面の中央表示・開始導線整理 計画
 
-更新日: 2026-04-06
+更新日: 2026-04-11
 
 ## プロンプト
-中程度のバグ：npc-survivor-player-blockの処刑のとき、プレイヤーが最初の一人を撃つときに光線が出ておらず、照準の向きに関わらず真ん中のNPCが光線命中エフェクトが起こります。
-そうではなく、最初の一発目も通常通りに光線発射してください。そして命中したキャラのことだけを光線命中状態にしてください。
+タイトル画面の改修をしたいです。
+- 「いきなり公開処刑モード」の「処刑開始」ボタンを削除する
+- 代わりに、「いきなり公開処刑モード」でも「左クリック：開始」できるようにする
+- 画面中央の要素の配置を調整する。
+  - タイトル「HAIGURE SURVIVAL」を少し上に移動する
+  - タイトルの下に現在のモード「サバイバルモード」「いきなり公開処刑モード」を表示する
+  - その下に「NOW LOADING」「左クリック：開始」を表示する
+  - STAGEパネルを少し下に移動する
 
-つまり、通常モードのbrainwash-complete-gun状態と同じ仕様にしてほしいのです。
+PLEASE IMPLEMENT THIS PLAN:
+# タイトル画面の中央表示・開始導線整理 計画
 
-一発目から光線が出るようになったのはOKです。
-ただ、光線が命中していなくても中央の生存者が勝手に命中したことになっているのは指示違反です。
-
-ありがとうございます。想定通りの挙動になりました。
-この修正が適切か、念のため確認とリファクタリングを行ってください。
+## 要約
+- 既存の `docs/plan.md` は別タスク用なので、実装開始時に日付付き退避ファイルへ改名し、新しい `docs/plan.md` を 2026-04-11 更新日で作成する。プロンプト原文、進捗、結果を都度反映する。
+- タイトル画面の中央表示を「タイトル / 現在モード / 読込表示 / 開始案内」の4段構成へ分離し、instant mode でも `左クリック：開始` で入れるよう開始導線を一本化する。
+- `EXECUTE SETTINGS` の `処刑開始` ボタンは削除し、instant mode の開始はタイトル画面の左クリックだけに統一する。
 
 ## ステップ
-- [x] `処刑開始` 直後の初弾が pointer lock 再取得に消費される原因を切り分け、初弾で beam が出る状態にする
-- [x] `処刑開始` ボタンの user gesture 中に pointer lock を要求するよう修正する
-- [x] execution 中のプレイヤービーム命中条件を再調査し、「beam が外れたのに中央 survivor が hit になる」経路を特定する
-- [x] `npc-survivor-player-block` で beam が実際に当たった target だけを hit にするよう修正する
-- [x] 修正後コードを確認し、beam 座標計算の重複や不整合を整理する
-- [x] `npm run build` でビルド確認し、結果を反映する
+- [x] 既存 plan を退避し、新しい `docs/plan.md` に今回タスクのプロンプトと実施手順を記録する
+- [x] タイトル中央表示のDOMとスタイルを更新し、タイトル・モード・読込表示・開始案内を分離する
+- [x] instant mode の開始導線を左クリックへ統一し、pointer lock の要求順を維持する
+- [x] `EXECUTE SETTINGS` とタイトル設定sidebarから `処刑開始` ボタン依存を削除する
+- [x] `npm run build` でビルド確認し、結果を `docs/plan.md` に反映する
 
 ## 結果
-- `docs/plan.md` は本不具合用へ切り替え、直前まで使っていた計画は `docs/plan_2026-04-05_instant-execution-title-prev.md` へ退避した。
-- `src/ui/executeSettingsPanel.ts`、`src/ui/titleSettingsSidebar.ts`、`src/main.ts` を修正し、`処刑開始` ボタンの click user gesture 中に `canvas.requestPointerLock()` を先に要求してから `startInstantExecution()` を始める構成へ変更した。これにより、`npc-survivor-player-block` 開始直後の最初の左クリックが pointer lock 再取得に消費されにくくなり、初弾 beam が出ない問題は解消した。
-- 調査の結果、`beginExecutionHit()` の到達元は execution 側で `buildExecutionPlayerBeamHitCandidates()` の `onHit` と `handleExecutionBeamCollisions()` の 2 系統に絞れた。`npc-survivor-player-block` では後者の自動斉射ルートは通らないため、残件は player beam の collision 条件側にある。
-- `df820c5` 以前の execution プレイヤー命中処理も、`npc-survivor-player-block` では `isBeamHittingTarget(...)` を使って中央 survivor への hit を決めていた。shared resolver 化そのものが、今回の「beam が外れているのに中央 survivor が hit になる」現象の唯一原因ではないことを確認した。
-- ユーザーから「中央 survivor から 180 度後ろを向いて空撃ちしても、最初の 1 発目で中央 survivor が hit になる」との再現報告があり、単純な当たり判定の広さだけでは説明できないことを確認した。前段の見立てだけでは不十分。
-- `src/main.ts` に一時ログを追加し、`npc-survivor-player-block` の execution 中だけ `onPlayerFire`、player beam の `candidateOnHit`、`beginExecutionHit()` の発火順とスタックを `console.log` で追えるようにした。これにより、初弾 miss 時に本当に player beam の衝突コールバック経由で hit しているのか、別経路が走っているのかを runtime で切り分けられる状態にした。
-- `npm run build` を再実行し、計測ログ追加後も `vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
-- ユーザーからのログで、180 度後ろ向きの空撃ちでも `onPlayerFire -> candidateOnHit -> beginExecutionHit` の順で入っていることを確認した。つまり direct hit の隠し経路ではなく、player beam collision 側が誤って true を返している。
-- 追加調査として `src/main.ts` の一時ログを拡張し、`candidateOnHit` で `targetRadii`、segment/tip の位置、`segmentHit`、`tipHit`、`manualHit` を同フレームで出せるようにした。これで衝突判定のどの部分が想定外なのかを直接照合できる。
-- `npm run build` を再実行し、衝突判定の追加ログ後も `vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
-- 数値検証の結果、ユーザーが貼った `onPlayerFire` / `candidateOnHit` の座標からは本来 `isBeamHittingTarget(...)` は false になることを確認した。したがって、execution 初弾の誤命中は「命中優先ルール」ではなく、scene ノード座標ベースの collision 計算が runtime で論理座標とずれていたことが原因と判断した。
-- `src/game/beamCollision.ts` を修正し、beam collision は `mesh.position` や `tip.getAbsolutePosition()` ではなく、`startPosition`、`travelDistance`、`currentLength`、`velocity` から beam 本体区間と tip 位置を直接組み立てて判定するよう変更した。通常 beam と trap beam の両方で論理座標を使うため、`npc-survivor-player-block` の初弾でも、実際に beam が当たった target だけが hit する。
-- 調査用に追加していた `src/main.ts` の一時 `console.log` は削除し、通常コードへ戻した。
-- 修正後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。ゲーム内での手動確認は未実施。
-- 追確認では、この修正方針に対して追加の不適切な挙動は見つからなかった。scene ノード座標依存を排し、beam の論理座標を使う方針は妥当と判断した。
-- リファクタリングとして `src/game/beamCollision.ts` に beam 幾何情報の共通組み立て処理を寄せ、tip 中心座標と impact 座標を export した。これに合わせて `src/game/playerBeamHits.ts` と `src/main.ts` の impact 座標取得も共通 helper を使うよう統一し、`beam.tip.position` 依存の重複実装と未使用の `playerHitImpactDirection` を削除した。
-- リファクタリング後に `npm run build` を再実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。ゲーム内での手動確認は未実施。
+- 既存の `docs/plan.md` は `docs/plan_2026-04-11_npc-survivor-player-block-prev.md` へ退避し、本タスク用の `docs/plan.md` を新規作成した。
+- `index.html` と `src/style.css` を更新し、タイトル中央を `HAIGURE SURVIVAL` / 開始案内または `NOW LOADING` / 現在モード の並びへ調整した。モード表示の文字サイズは開始案内と同じにそろえ、タイトルは従来より上に移動し、`STAGE` パネルは下へ移動した。
+- `src/main.ts` のタイトル文言同期を見直し、通常時は `サバイバルモード`、instant mode 時は `いきなり公開処刑モード` を表示するようにした。`NOW LOADING` は読込中のみ、`左クリック：開始` は準備完了後のみ表示する。
+- タイトル左クリック開始を一本化し、instant mode でも非UI領域の左クリックで `canvas.requestPointerLock()` を先に要求してから `startInstantExecution()` を呼ぶ構成へ変更した。`onPointerLockRequest` の title instant mode 抑止は維持している。
+- `src/ui/executeSettingsPanel.ts` から `処刑開始` ボタンと開始コールバック依存を削除し、`src/ui/titleSettingsSidebar.ts` も instant execution 開始コールバックを持たない構成へ整理した。
+- 追加調整として、タイトル中央ブロックをさらに少し下げ、タイトル・開始案内・モード表示の行間を広げた。あわせて `STAGE` パネルは少し上へ戻した。
+- 追加で、タイトル中央ブロックと `STAGE` パネルの間隔を詰めるため、中央ブロックをわずかに下げ、`STAGE` パネルも少し上げた。
+- さらに、タイトル中央ブロックをもう少し下げ、開始案内とモード表示の間隔を広げた。これにより、モード表示は `STAGE` パネル側へ少し近づいた。
+- さらに追加で、タイトル・開始案内・モード表示のまとまり全体を現在位置から 20px 下げた。
+- `NOW LOADING` 表示は、タイトル中央の中心線に合わせつつ 1 行固定に調整した。`999 / 999` までの 3 桁進捗を想定した最小幅を確保し、2 桁や 3 桁でも改行しないようにした。
+- 中央ブロックの位置決めは、`translate` と個別の `margin-top` の積み上げから、`見出し / 状態スロット / モード` の 3 段レイアウトへリファクタリングした。開始案内と `NOW LOADING` は同じ状態スロットに重ね、縦オフセットや行間は専用の CSS 変数で管理する形に整理した。
+- `npm run build` を実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
+- 実機での手動確認は未実施。

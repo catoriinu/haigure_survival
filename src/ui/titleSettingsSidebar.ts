@@ -60,8 +60,6 @@ type TitleSettingsSidebarOptions = {
   onResetRequested: () => void;
   onResetExecuteSettingsRequested: () => void;
   onInstantModeChange: (enabled: boolean) => void;
-  onBeforeStartInstantExecution?: () => void;
-  onStartInstantExecution: () => void;
   onConfirmEnableNoGunTouch: () => boolean;
   shouldShowGameOverWarning: (
     stageId: string,
@@ -142,8 +140,6 @@ export const createTitleSettingsSidebar = ({
   onResetRequested,
   onResetExecuteSettingsRequested,
   onInstantModeChange,
-  onBeforeStartInstantExecution,
-  onStartInstantExecution,
   onConfirmEnableNoGunTouch,
   shouldShowGameOverWarning,
   getAvailability,
@@ -280,12 +276,6 @@ export const createTitleSettingsSidebar = ({
     onChange: (nextSettings) => {
       settings.executeSettings = { ...nextSettings };
       emitSettingsChange("execute-settings");
-    },
-    onBeforeStartRequested: () => {
-      onBeforeStartInstantExecution?.();
-    },
-    onStartRequested: () => {
-      onStartInstantExecution();
     }
   });
 

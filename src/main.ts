@@ -213,8 +213,12 @@ const canvas =
   document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
 const titleOverlayElement =
   document.getElementById("titleOverlay") as unknown as HTMLDivElement;
+const titleModeElement =
+  document.getElementById("titleMode") as unknown as HTMLDivElement;
 const titleMessageElement =
   document.getElementById("titleMessage") as unknown as HTMLDivElement;
+const titleStartHintElement =
+  document.getElementById("titleStartHint") as unknown as HTMLDivElement;
 const titleMessageStatusElement = document.createElement("span");
 const titleMessageLabelElement = document.createElement("span");
 const titleMessageDotsElement = document.createElement("span");
@@ -222,9 +226,9 @@ const titleMessageProgressElement = document.createElement("span");
 const engine = new Engine(canvas, true);
 const scene = new Scene(engine);
 const defaultClearColor = scene.clearColor.clone();
-const titleDefaultReadyMessage = "左クリック：開始";
-const titleInstantReadyMessage = "いきなり公開処刑モード";
-let titleReadyMessage = titleDefaultReadyMessage;
+const titleStartHintMessage = "左クリック：開始";
+const titleDefaultModeMessage = "サバイバルモード";
+const titleInstantModeMessage = "いきなり公開処刑モード";
 const titleLoadingMessageBase = "NOW LOADING";
 const titleLoadingDotIntervalMs = 300;
 const titleStartPreparationDebounceMs = 250;
@@ -255,6 +259,7 @@ let titleLoadingCompleted = 0;
 let titleLoadingTotal = 0;
 let titleLoadingDotCount = 0;
 let titleLoadingDotTimerId: number | null = null;
+titleStartHintElement.textContent = titleStartHintMessage;
 titleMessageStatusElement.className = "title-message__status";
 titleMessageDotsElement.className = "title-message__dots";
 titleMessageProgressElement.className = "title-message__progress";
@@ -268,8 +273,15 @@ titleMessageElement.replaceChildren(
 const buildTitleDots = () => ".".repeat(titleLoadingDotCount);
 const buildTitleProgress = () =>
   `${titleLoadingCompleted} / ${titleLoadingTotal}`;
+const syncTitleModeMessage = () => {
+  titleModeElement.textContent = titleInstantExecutionMode
+    ? titleInstantModeMessage
+    : titleDefaultModeMessage;
+};
 const syncTitleMessage = () => {
   if (activeTitleLoadingSessionCount > 0) {
+    titleMessageElement.style.display = "flex";
+    titleStartHintElement.style.display = "none";
     titleMessageLabelElement.textContent = titleLoadingMessageBase;
     titleMessageDotsElement.textContent = buildTitleDots();
     titleMessageDotsElement.style.display = "";
@@ -277,17 +289,13 @@ const syncTitleMessage = () => {
     titleMessageProgressElement.style.display = "";
     return;
   }
-  titleMessageLabelElement.textContent = titleReadyMessage;
+  titleMessageElement.style.display = "none";
+  titleStartHintElement.style.display = "block";
+  titleMessageLabelElement.textContent = titleLoadingMessageBase;
   titleMessageDotsElement.textContent = "";
   titleMessageDotsElement.style.display = "none";
   titleMessageProgressElement.textContent = "";
   titleMessageProgressElement.style.display = "none";
-};
-const syncTitleReadyMessage = () => {
-  titleReadyMessage = titleInstantExecutionMode
-    ? titleInstantReadyMessage
-    : titleDefaultReadyMessage;
-  syncTitleMessage();
 };
 const startTitleLoadingDots = () => {
   if (titleLoadingDotTimerId !== null) {
@@ -1342,13 +1350,8 @@ const titleSettingsSidebar = createTitleSettingsSidebar({
   },
   onInstantModeChange: (enabled) => {
     titleInstantExecutionMode = enabled;
-    syncTitleReadyMessage();
-  },
-  onBeforeStartInstantExecution: () => {
-    canvas.requestPointerLock();
-  },
-  onStartInstantExecution: () => {
-    void startInstantExecution();
+    syncTitleModeMessage();
+    syncTitleMessage();
   },
   onConfirmEnableNoGunTouch: () =>
     window.confirm(enableNoGunTouchBrainwashConfirmMessage),
@@ -1958,6 +1961,7 @@ titleStartPreparation.markReady({
   assignments: initialCharacterAssignments,
   runtimeSettings: initialRuntimeSettings
 });
+syncTitleModeMessage();
 
 const clearStageReflectiveResources = () => {
   for (const reflectiveMaterial of stageParts.reflectiveMaterials) {
@@ -4805,6 +4809,8 @@ setupInputHandlers({
   },
   onStartGame: () => {
     if (titleInstantExecutionMode) {
+      canvas.requestPointerLock();
+      void startInstantExecution();
       return;
     }
     void startGame();
