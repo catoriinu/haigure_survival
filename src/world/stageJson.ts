@@ -167,9 +167,13 @@ const flipStageDecalX = (
   mapSize: StageMapWidth
 ): StageDecal => {
   const width = decal.type === "rect" ? (decal.w ?? 1) : 1;
+  const flippedX =
+    decal.wallDir === "E" || decal.wallDir === "W"
+      ? mapSize.width - 1 - decal.x
+      : mapSize.width - decal.x - width;
   return {
     ...decal,
-    x: mapSize.width - decal.x - width,
+    x: flippedX,
     wallDir: flipStageWallDir(decal.wallDir)
   };
 };
