@@ -126,6 +126,7 @@ type PublicExecutionControllerOptions = {
     shouldProcessOrb: (position: Vector3) => boolean
   ) => void;
   playBeamNonTarget: (position: Vector3) => void;
+  playHit: (position: Vector3) => void;
   updateHudPhaseOverride: (patch: Partial<HudPhaseState>) => void;
 };
 
@@ -169,6 +170,7 @@ export const createPublicExecutionController = ({
   rebuildInstantExecutionBits,
   updateBeams,
   playBeamNonTarget,
+  playHit,
   updateHudPhaseOverride
 }: PublicExecutionControllerOptions): PublicExecutionController => {
   let publicExecutionTriggerKey: string | null = null;
@@ -466,6 +468,7 @@ export const createPublicExecutionController = ({
     }
     const sequence = createHitSequenceState();
     getExecutionTargetCenterPosition(target, executionCollisionPosition);
+    playHit(executionCollisionPosition.clone());
     if (target.kind === "player") {
       startHitSequence(
         sequence,

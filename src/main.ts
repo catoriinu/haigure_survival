@@ -2488,6 +2488,10 @@ publicExecutionController = createPublicExecutionController({
     const firePosition = position.clone();
     sfxDirector.playBeamNonTarget(() => firePosition);
   },
+  playHit: (position) => {
+    const hitPosition = position.clone();
+    sfxDirector.playHit(() => hitPosition);
+  },
   updateHudPhaseOverride
 });
 
