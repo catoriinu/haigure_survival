@@ -238,6 +238,12 @@ const bitBodyHeight = 0.15;
 const bitBodyDiameter = 0.12;
 const bitMuzzleDiameter = 0.03;
 const bitMuzzleOffsetZ = bitBodyHeight / 2 + 0.02;
+export const bitShadowFootprint = {
+  bodyLength: bitBodyHeight,
+  bodyWidth: bitBodyDiameter,
+  muzzleDiameter: bitMuzzleDiameter,
+  muzzleOffset: bitMuzzleOffsetZ
+};
 const bitSpawnWallClearanceRadius = 0.07;
 export const bitFireEffectDuration = 0.32;
 const bitFireConeSweepDuration = 0.07;

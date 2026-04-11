@@ -110,6 +110,22 @@ const loadImage = (url: string) =>
     image.src = url;
   });
 
+const yieldToBrowser = () =>
+  new Promise<void>((resolve) => {
+    window.setTimeout(resolve, 0);
+  });
+
+const canvasToPngUrl = (canvas: HTMLCanvasElement) =>
+  new Promise<string>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error("Failed to encode portrait spritesheet"));
+        return;
+      }
+      resolve(URL.createObjectURL(blob));
+    }, "image/png");
+  });
+
 const defaultPortraitFrameByState: Record<CharacterState, number> = {
   normal: 0,
   evade: 0,
@@ -122,7 +138,9 @@ const defaultPortraitFrameByState: Record<CharacterState, number> = {
   "brainwash-complete-haigure-formation": 3
 };
 
-const createDefaultPortraitSpriteSheet = (): PortraitSpriteSheet => {
+const createDefaultPortraitSpriteSheet = (
+  includeNoGunTouchBlendFrames: boolean
+): PortraitSpriteSheet => {
   const heightScale = 1.4;
   const cellWidth = CHARACTER_SPRITE_CELL_SIZE;
   const cellHeight = Math.round(CHARACTER_SPRITE_CELL_SIZE * heightScale);
@@ -144,8 +162,9 @@ const createDefaultPortraitSpriteSheet = (): PortraitSpriteSheet => {
   const gunDotOffsetX = 72;
   const gunDotOffsetY = Math.round(64 * heightScale);
   const gunDotRadius = 6;
-  const totalFrameCount =
-    portraitStateOrder.length + noGunTouchBrainwashBlendProgresses.length;
+  const totalFrameCount = includeNoGunTouchBlendFrames
+    ? portraitStateOrder.length + noGunTouchBrainwashBlendProgresses.length
+    : portraitStateOrder.length;
   const canvas = document.createElement("canvas");
   canvas.width = cellWidth * totalFrameCount;
   canvas.height = cellHeight;
@@ -280,44 +299,46 @@ const createDefaultPortraitSpriteSheet = (): PortraitSpriteSheet => {
     drawFrame(index, "#5c5c5c", "#c7c7c7", true, sweatMark);
   }
 
-  const hitBSourceX = portraitStateIndex["hit-b"] * cellWidth;
-  const hitASourceX = portraitStateIndex["hit-a"] * cellWidth;
-  for (
-    let blendIndex = 0;
-    blendIndex < noGunTouchBrainwashBlendProgresses.length;
-    blendIndex += 1
-  ) {
-    const progress = noGunTouchBrainwashBlendProgresses[blendIndex];
-    const destinationX = (portraitStateOrder.length + blendIndex) * cellWidth;
-    ctx.drawImage(
-      canvas,
-      hitBSourceX,
-      0,
-      cellWidth,
-      cellHeight,
-      destinationX,
-      0,
-      cellWidth,
-      cellHeight
-    );
-    const revealedHeight = Math.round(cellHeight * progress);
-    if (revealedHeight <= 0) {
-      continue;
+  if (includeNoGunTouchBlendFrames) {
+    const hitBSourceX = portraitStateIndex["hit-b"] * cellWidth;
+    const hitASourceX = portraitStateIndex["hit-a"] * cellWidth;
+    for (
+      let blendIndex = 0;
+      blendIndex < noGunTouchBrainwashBlendProgresses.length;
+      blendIndex += 1
+    ) {
+      const progress = noGunTouchBrainwashBlendProgresses[blendIndex];
+      const destinationX = (portraitStateOrder.length + blendIndex) * cellWidth;
+      ctx.drawImage(
+        canvas,
+        hitBSourceX,
+        0,
+        cellWidth,
+        cellHeight,
+        destinationX,
+        0,
+        cellWidth,
+        cellHeight
+      );
+      const revealedHeight = Math.round(cellHeight * progress);
+      if (revealedHeight <= 0) {
+        continue;
+      }
+      const sourceY = cellHeight - revealedHeight;
+      // 切り替え済み領域のhit-bを消してからhit-aを描画する
+      ctx.clearRect(destinationX, sourceY, cellWidth, revealedHeight);
+      ctx.drawImage(
+        canvas,
+        hitASourceX,
+        sourceY,
+        cellWidth,
+        revealedHeight,
+        destinationX,
+        sourceY,
+        cellWidth,
+        revealedHeight
+      );
     }
-    const sourceY = cellHeight - revealedHeight;
-    // 切り替え済み領域のhit-bを消してからhit-aを描画する
-    ctx.clearRect(destinationX, sourceY, cellWidth, revealedHeight);
-    ctx.drawImage(
-      canvas,
-      hitASourceX,
-      sourceY,
-      cellWidth,
-      revealedHeight,
-      destinationX,
-      sourceY,
-      cellWidth,
-      revealedHeight
-    );
   }
 
   return {
@@ -330,7 +351,7 @@ const createDefaultPortraitSpriteSheet = (): PortraitSpriteSheet => {
   };
 };
 
-const buildSpritesheetFromModeImages = (
+const buildSpritesheetFromModeImages = async (
   images: (HTMLImageElement | HTMLCanvasElement)[],
   cellWidth: number,
   cellHeight: number
@@ -349,18 +370,28 @@ const buildSpritesheetFromModeImages = (
       cellWidth,
       cellHeight
     );
+    if ((index + 1) % 4 === 0) {
+      await yieldToBrowser();
+    }
   }
 
-  return canvas.toDataURL("image/png");
+  await yieldToBrowser();
+  return await canvasToPngUrl(canvas);
 };
 
-const buildNoGunTouchBrainwashBlendFrames = (
+const buildNoGunTouchBrainwashBlendFrames = async (
   hitBImage: HTMLImageElement,
   hitAImage: HTMLImageElement
 ) => {
   const cellWidth = hitBImage.naturalWidth;
   const cellHeight = hitBImage.naturalHeight;
-  return noGunTouchBrainwashBlendProgresses.map((progress) => {
+  const frames: HTMLCanvasElement[] = [];
+  for (
+    let blendIndex = 0;
+    blendIndex < noGunTouchBrainwashBlendProgresses.length;
+    blendIndex += 1
+  ) {
+    const progress = noGunTouchBrainwashBlendProgresses[blendIndex];
     const canvas = document.createElement("canvas");
     canvas.width = cellWidth;
     canvas.height = cellHeight;
@@ -383,8 +414,12 @@ const buildNoGunTouchBrainwashBlendFrames = (
         revealedHeight
       );
     }
-    return canvas;
-  });
+    frames.push(canvas);
+    if ((blendIndex + 1) % 2 === 0) {
+      await yieldToBrowser();
+    }
+  }
+  return frames;
 };
 
 const getDirectoryId = (directory: string) => directory.slice(0, 2);
@@ -393,6 +428,9 @@ const pickRandomDirectory = (directories: string[]) =>
   directories[Math.floor(Math.random() * directories.length)];
 
 export const getPortraitDirectories = () => portraitDirectories;
+
+export const getPortraitSelectionDirectories = () =>
+  portraitDirectoriesFromFiles;
 
 export const getPortraitCellIndex = (state: CharacterState) =>
   portraitStateIndex[state];
@@ -431,10 +469,11 @@ export const assignPortraitDirectories = (voiceIds: string[]) => {
 };
 
 export const loadPortraitSpriteSheet = async (
-  directory: string
+  directory: string,
+  includeNoGunTouchBlendFrames: boolean
 ): Promise<PortraitSpriteSheet> => {
   if (!hasPortraitAssets && directory === defaultPortraitDirectory) {
-    return createDefaultPortraitSpriteSheet();
+    return createDefaultPortraitSpriteSheet(includeNoGunTouchBlendFrames);
   }
   const modeBaseNames = portraitStateOrder.map(
     (state) => portraitBaseNameByState[state]
@@ -443,21 +482,26 @@ export const loadPortraitSpriteSheet = async (
     getPortraitFileUrl(directory, baseName)
   );
   const images = await Promise.all(modeUrls.map((url) => loadImage(url)));
-  const hitBImage = images[portraitStateIndex["hit-b"]];
-  const hitAImage = images[portraitStateIndex["hit-a"]];
-  const noGunTouchBlendFrames = buildNoGunTouchBrainwashBlendFrames(
-    hitBImage,
-    hitAImage
-  );
-  const imagesWithNoGunTouchBlend = [...images, ...noGunTouchBlendFrames];
+  await yieldToBrowser();
+  const imagesWithNoGunTouchBlend = [...images];
+  if (includeNoGunTouchBlendFrames) {
+    const hitBImage = images[portraitStateIndex["hit-b"]];
+    const hitAImage = images[portraitStateIndex["hit-a"]];
+    const noGunTouchBlendFrames = await buildNoGunTouchBrainwashBlendFrames(
+      hitBImage,
+      hitAImage
+    );
+    imagesWithNoGunTouchBlend.push(...noGunTouchBlendFrames);
+  }
   const cellWidth = images[0].naturalWidth;
   const cellHeight = images[0].naturalHeight;
+  const spritesheetUrl = await buildSpritesheetFromModeImages(
+    imagesWithNoGunTouchBlend,
+    cellWidth,
+    cellHeight
+  );
   return {
-    url: buildSpritesheetFromModeImages(
-      imagesWithNoGunTouchBlend,
-      cellWidth,
-      cellHeight
-    ),
+    url: spritesheetUrl,
     cellWidth,
     cellHeight,
     frameCount: imagesWithNoGunTouchBlend.length,

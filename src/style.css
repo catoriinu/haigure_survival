@@ -80,7 +80,37 @@ body {
   white-space: pre;
 }
 
+#staminaGauge {
+  position: absolute;
+  left: 12px;
+  top: calc(60%);
+  width: 20px;
+  height: 250px;
+  transform: translateY(-50%);
+  border: 1px solid #111111;
+  background: rgba(40, 40, 40, 0.92);
+  box-sizing: border-box;
+  overflow: hidden;
+  z-index: 10;
+  pointer-events: none;
+  display: none;
+}
+
+#staminaGaugeFill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0;
+  background: #f5f5f5;
+}
+
 #titleOverlay {
+  --title-center-offset-y: 14px;
+  --title-status-gap: 18px;
+  --title-mode-gap: 22px;
+  --title-status-line-height: 1.2;
+  --title-loading-width: calc(24ch + 22 * 0.08em);
   position: absolute;
   inset: 0;
   display: flex;
@@ -92,23 +122,87 @@ body {
   pointer-events: none;
 }
 
+#titleCenterBlock {
+  display: grid;
+  justify-items: center;
+  padding-top: var(--title-center-offset-y);
+}
+
 #titleHeading {
+  margin: 0;
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
   font-size: 32px;
   letter-spacing: 0.18em;
+  line-height: 1;
   text-transform: uppercase;
-  transform: translateY(-26px);
+}
+
+#titleStatusSlot {
+  display: grid;
+  justify-items: center;
+  align-items: center;
+  min-height: calc(24px * var(--title-status-line-height));
+  padding-top: var(--title-status-gap);
+}
+
+#titleStartHint,
+#titleMessage {
+  grid-area: 1 / 1;
+  margin: 0;
 }
 
 #titleMessage {
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 22px;
+  letter-spacing: 0.08em;
+  line-height: var(--title-status-line-height);
+  text-transform: uppercase;
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: center;
+  min-width: var(--title-loading-width);
+  text-align: center;
+  white-space: nowrap;
+  gap: 0.45em;
+}
+
+#titleMode,
+#titleStartHint {
+  color: #f5f5f5;
+  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
   font-size: 24px;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
-  white-space: pre-line;
-  transform: translateY(10px);
+  line-height: var(--title-status-line-height);
+}
+
+#titleMode {
+  margin: 0;
+  padding-top: var(--title-mode-gap);
+}
+
+#titleStartHint {
+  display: none;
+}
+
+.title-message__status {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-start;
+}
+
+.title-message__dots {
+  display: inline-block;
+  width: 3ch;
+  text-align: left;
+}
+
+.title-message__progress {
+  display: inline-block;
+  width: calc(9ch + 8 * 0.08em);
+  text-align: left;
 }
 
 #titleVersion {
@@ -133,9 +227,12 @@ body {
 .volume-panel,
 .title-settings-combined-panel,
 .stage-select-control,
+.player-settings-panel,
+.visual-settings-panel,
 .default-settings-panel,
 .brainwash-settings-panel,
-.bit-spawn-panel {
+.bit-spawn-panel,
+.execute-settings-panel {
   border: 1px solid #111111;
   background: rgba(0, 0, 0, 0.65);
   color: #f5f5f5;
@@ -169,6 +266,13 @@ body {
   width: max-content;
   padding: 12px 14px;
   text-align: left;
+}
+
+.title-settings-button-row {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  pointer-events: auto;
 }
 
 .stage-select-control {
@@ -218,7 +322,7 @@ body {
 }
 
 .stage-select-control--title-overlay {
-  margin-top: 26px;
+  margin-top: 34px;
   z-index: 31;
 }
 
@@ -244,6 +348,7 @@ body {
 }
 
 .title-trap-room-recommend-button,
+.title-instant-execution-toggle-button,
 .title-reset-settings-button {
   width: fit-content;
   height: 34px;
@@ -261,6 +366,16 @@ body {
   background: #1f1f1f;
 }
 
+.title-instant-execution-toggle-button {
+  border: 1px solid #7a6210;
+  background: #4b3d0a;
+  color: #fff2b8;
+}
+
+.title-instant-execution-toggle-button:hover {
+  background: #5b4a0d;
+}
+
 .title-reset-settings-button {
   border: 1px solid #4c2a2a;
   background: #1d1111;
@@ -272,6 +387,7 @@ body {
 }
 
 .title-trap-room-recommend-button:active,
+.title-instant-execution-toggle-button:active,
 .title-reset-settings-button:active {
   transform: translateY(1px);
 }
@@ -321,7 +437,11 @@ body {
   letter-spacing: 0.08em;
 }
 
-.default-settings-panel {
+.player-settings-panel,
+.visual-settings-panel,
+.default-settings-panel,
+.brainwash-settings-panel,
+.bit-spawn-panel {
   display: flex;
   flex-direction: column;
   gap: 9px;
@@ -329,7 +449,12 @@ body {
   font-size: 13px;
 }
 
-.default-settings-panel--title {
+.player-settings-panel--title,
+.visual-settings-panel--title,
+.default-settings-panel--title,
+.brainwash-settings-panel--title,
+.bit-spawn-panel--title,
+.execute-settings-panel--title {
   position: static;
   top: auto;
   padding: 0;
@@ -337,10 +462,79 @@ body {
   background: transparent;
 }
 
-.default-settings-panel__title {
+.player-settings-panel__title,
+.visual-settings-panel__title,
+.default-settings-panel__title,
+.brainwash-settings-panel__title,
+.bit-spawn-panel__title,
+.execute-settings-panel__title {
   font-size: 14px;
   letter-spacing: 0.14em;
   color: #f0f0f0;
+}
+
+.execute-settings-panel__title {
+  margin-bottom: 10px;
+}
+
+.player-settings-panel__row {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.player-settings-panel__slider-row {
+  display: grid;
+  grid-template-columns: 56px calc(3.8ch + 1px) 1fr;
+  align-items: center;
+  gap: 6px;
+}
+
+.player-settings-panel__label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.player-settings-panel__select {
+  height: 26px;
+  min-width: 188px;
+  padding: 0 6px;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  background: #141414;
+  color: #f5f5f5;
+  font: inherit;
+}
+
+.player-settings-panel__slider-value {
+  text-align: right;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: #f0f0f0;
+}
+
+.player-settings-panel__slider {
+  width: 100%;
+  margin: 0;
+}
+
+.player-settings-panel__checkbox-row,
+.visual-settings-panel__checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.player-settings-panel__checkbox,
+.visual-settings-panel__checkbox {
+  margin: 0;
+}
+
+.player-settings-panel__checkbox-label,
+.visual-settings-panel__checkbox-label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
 }
 
 .default-settings-panel__row {
@@ -394,28 +588,6 @@ body {
 .default-settings-panel__checkbox-label {
   font-size: 13px;
   letter-spacing: 0.06em;
-}
-
-.brainwash-settings-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  padding: 12px 14px;
-  font-size: 13px;
-}
-
-.brainwash-settings-panel--title {
-  position: static;
-  top: auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
-.brainwash-settings-panel__title {
-  font-size: 14px;
-  letter-spacing: 0.14em;
-  color: #f0f0f0;
 }
 
 .brainwash-settings-panel__label {
@@ -476,27 +648,6 @@ body {
   color: #bcbcbc;
 }
 
-.bit-spawn-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  padding: 12px 14px;
-  font-size: 13px;
-}
-
-.bit-spawn-panel--title {
-  position: static;
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
-.bit-spawn-panel__title {
-  font-size: 14px;
-  letter-spacing: 0.14em;
-  color: #f0f0f0;
-}
-
 .bit-spawn-panel__row {
   display: grid;
   grid-template-columns: 96px 74px;
@@ -541,21 +692,49 @@ body {
   letter-spacing: 0.06em;
 }
 
-#overlayHelp {
-  position: absolute;
-  top: 250px;
-  left: 12px;
-  padding: 8px 14px;
-  border: 1px solid #111111;
-  background: rgba(0, 0, 0, 0.65);
+.execute-settings-panel__row {
+  display: grid;
+  grid-template-columns: 112px 74px;
+  align-items: center;
+  gap: 9px;
+}
+
+.execute-settings-panel__row + .execute-settings-panel__row {
+  margin-top: 9px;
+}
+
+.execute-settings-panel__row--select {
+  grid-template-columns: 56px 200px;
+  column-gap: 14px;
+}
+
+.execute-settings-panel__label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.execute-settings-panel__select,
+.execute-settings-panel__input {
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  background: #141414;
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 14px;
-  letter-spacing: 0.06em;
-  z-index: 25;
-  pointer-events: none;
-  display: none;
-  white-space: pre;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+.execute-settings-panel__select {
+  min-width: 200px;
+}
+
+.execute-settings-panel__input:disabled,
+.execute-settings-panel__select:disabled {
+  background: #262626;
+  color: #8a8a8a;
+  border-color: #3a3a3a;
 }
 
 #crosshair {

@@ -147,27 +147,25 @@
 ## 調整可能項目
 
 ### ゲーム全体の設定
-- `src/main.ts`: `defaultDefaultStartSettings.initialNpcCount`（ステージ開始時のNPC人数。0〜99。デフォルトは11）
 - `src/main.ts`: `minimapReadoutVisible`（ミニマップ座標表示ボックスの表示切替。true=表示、false=非表示（デフォルト））
-- `src/game/characterSprites.ts`: `PLAYER_EYE_HEIGHT`（プレイヤーのカメラの高さ。係数が大きいほど高くなる。デフォルトは`PLAYER_SPRITE_HEIGHT * 0.75`）
 
 ### ビット関連の設定
 - `src/main.ts`: `redBitSpawnChance`（赤ビット（通常の3倍の性能を持つビット）の出現確率。0-1の確率で判定し、デフォルトは0.05）
-- `src/main.ts`: `defaultBitSpawnSettings.bitSpawnInterval`（ビットの通常出現間隔。1〜99秒。デフォルトは10秒）
-- `src/main.ts`: `defaultBitSpawnSettings.maxBitCount`（ビットの同時出現上限。1〜99。デフォルトは25）
-- `src/main.ts`: `defaultBitSpawnSettings.disableBitSpawn`（`ビットを出現させない`チェックの初期値。`true`でビットを一切出現させない。デフォルトは`false`）
 - `src/game/bits.ts`: `bitModeMuzzleColorEnabled`（ビットの先端球のモード別色変更。true=モードに応じて色が変わる、false=初期色のまま固定（デフォルト））
 
-### プレイヤー、NPCの光線命中時の設定
+### プレイヤー、NPCの光線命中・「銃なしに触れたら洗脳」演出の設定
 - `src/main.ts`: `playerHitDuration`（プレイヤーが光線命中後に点滅状態を繰り返す継続時間（秒）。デフォルトは3）
 - `src/game/npcs.ts`: `npcHitDuration`（NPCが光線命中後に点滅状態を繰り返す継続時間（秒）。デフォルトは3）
 - `src/main.ts`: `playerHitFadeDuration`（プレイヤーの点滅状態後、`hit-a`（光線命中：ハイレグ姿）のまま光がフェードする時間（秒）。デフォルトは1）
 - `src/game/npcs.ts`: `npcHitFadeDuration`（NPCの点滅状態後、`hit-a`（光線命中：ハイレグ姿）のまま光がフェードする時間（秒）。デフォルトは1）
 - `src/main.ts`: `playerHitFlickerInterval`（プレイヤー光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
 - `src/game/npcs.ts`: `npcHitFlickerInterval`（NPC光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
-- `src/main.ts`: `defaultBrainwashSettings.brainwashOnNoGunTouch`（`BRAINWASH SETTINGS` の `銃なしに触れたら洗脳` チェック初期値。デフォルトは`false`）
 - `src/game/npcs.ts`: `noGunTouchBrainwashDuration`（`銃なしに触れたら洗脳` ON時の接触洗脳演出時間（秒）。デフォルトは4）
 - `src/game/portraitSprites.ts`: `noGunTouchBrainwashBlendStepCount`（`銃なしに触れたら洗脳` 演出の `hit-b`→`hit-a` 切り替え段階数。値を上げるほど切り替わりは滑らかになるが、起動時の読み込み時間は長くなる。デフォルトは16）
+
+### プレイヤー、NPCの「銃なし」時の接触判定距離の設定
+- `src/main.ts`: `playerNoGunTouchContactRadius`（プレイヤーが `brainwash-complete-no-gun` のときに接触判定へ使う半径。デフォルトは`0.5`）
+- `src/game/npcs.ts`: `npcNoGunTouchContactRadius`（NPCが `brainwash-complete-no-gun` のときに接触判定へ使う半径。デフォルトは`0.27`）
 
 ### NPCの洗脳後の状態遷移の設定
 - `src/game/npcs.ts`: `npcBrainwashInProgressTransitionConfig.decisionDelay`（`brainwash-in-progress` の遷移判定を行う間隔（秒）。デフォルトは10。「洗脳進行中を経ずに即洗脳」ON時は強制的に0となる）
@@ -217,7 +215,15 @@ stateDiagram-v2
 - `src/game/alarm/system.ts`: `alarmSelectionInterval`（アラームセルを追加抽選する間隔（秒）。デフォルトは`5`）
 - `src/game/alarm/system.ts`: `alarmInfluenceRadiusCells`（アラーム発動時に強制追跡対象とする洗脳済みNPCの判定半径（セル数）。`layout.cellSize * alarmInfluenceRadiusCells` の平面距離で判定。デフォルトは`50`）
 
-## 制作者用メモ：HTML5ゲームかビルド手順
-1. 配布用ビルドを作成する。
+### ダッシュ機能、スタミナゲージ関連の設定
+- `src/main.ts`: `showStaminaGauge`（スタミナゲージの表示切替。隠したい場合は`false`にすること。デフォルトは`true`）
+- `src/ui/input.ts`: `handleDashKey()`（ダッシュキー判定。デフォルトは`ShiftLeft` / `ShiftRight`。別キーにしたい場合は関数内コメントに従って `KeyboardEvent.code` を変更すること）
+- `src/main.ts`: `playerStaminaMaxTenths`（スタミナゲージの最大値を0.1単位で管理する値。`150`で最大`15.0`。デフォルトは`150`）
+- `src/main.ts`: `playerStaminaRecoverInterval`（スタミナが`0.1`回復する間隔（秒）。デフォルトは`0.2`。実際の回復量は毎秒`0.5`）
+- `src/main.ts`: `playerDashSpeedMultiplier`（ダッシュ時の移動速度倍率。デフォルトは`2.0`）
+
+## 制作者用メモ：HTML5ゲームとしてのビルド手順
+1. public配下から、配布したくない素材ファイルを退避する。
+2. 配布用ビルドを作成する。
    - `npm run build:renderer`
-2. dist配下の成果物を `index.html` がZIP直下になる形で圧縮する。
+3. dist配下の成果物を `index.html` がZIP直下になる形で圧縮する。

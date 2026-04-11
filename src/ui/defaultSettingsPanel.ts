@@ -1,3 +1,9 @@
+import {
+  createSettingsPanelControls,
+  createTitledSettingsPanelRoot,
+  type SettingsPanel
+} from "./settingsPanelShared";
+
 export type DefaultStartSettings = {
   startPlayerAsBrainwashCompleteGun: boolean;
   initialNpcCount: number;
@@ -11,11 +17,7 @@ type DefaultSettingsPanelOptions = {
   className?: string;
 };
 
-export type DefaultSettingsPanel = {
-  root: HTMLDivElement;
-  setVisible: (visible: boolean) => void;
-  getSettings: () => DefaultStartSettings;
-  setSettings: (nextSettings: DefaultStartSettings) => void;
+export type DefaultSettingsPanel = SettingsPanel<DefaultStartSettings> & {
   setNpcCountOnlyMode: (enabled: boolean) => void;
 };
 
@@ -29,16 +31,11 @@ export const createDefaultSettingsPanel = ({
   onChange,
   className
 }: DefaultSettingsPanelOptions): DefaultSettingsPanel => {
-  const root = document.createElement("div");
-  root.className = className
-    ? `default-settings-panel ${className}`
-    : "default-settings-panel";
-  root.dataset.ui = "default-settings-panel";
-
-  const title = document.createElement("div");
-  title.className = "default-settings-panel__title";
-  title.textContent = "DEFAULT SETTINGS";
-  root.appendChild(title);
+  const root = createTitledSettingsPanelRoot({
+    blockClassName: "default-settings-panel",
+    className,
+    titleText: "DEFAULT SETTINGS"
+  });
 
   const settings: DefaultStartSettings = { ...initialSettings };
   let npcCountOnlyMode = false;
@@ -84,9 +81,6 @@ export const createDefaultSettingsPanel = ({
   playerRow.appendChild(playerLabel);
   root.appendChild(playerRow);
 
-  const emit = () => {
-    onChange({ ...settings });
-  };
   const calculateInitialBrainwashedNpcCount = () =>
     Math.floor(
       settings.initialNpcCount * settings.initialBrainwashedNpcPercent * 0.01
@@ -127,6 +121,22 @@ export const createDefaultSettingsPanel = ({
     applyNpcCountOnlyMode();
   };
 
+  const { emit, setVisible, getSettings, setSettings } =
+    createSettingsPanelControls({
+      root,
+      settings,
+      applySettings: (nextSettings) => {
+        settings.startPlayerAsBrainwashCompleteGun =
+          nextSettings.startPlayerAsBrainwashCompleteGun;
+        settings.initialNpcCount = clampInteger(nextSettings.initialNpcCount, 0, 99);
+        settings.initialBrainwashedNpcPercent = clampPercent(
+          nextSettings.initialBrainwashedNpcPercent
+        );
+      },
+      render,
+      onChange
+    });
+
   npcCountInput.addEventListener("change", () => {
     updateNpcCount();
   });
@@ -151,20 +161,9 @@ export const createDefaultSettingsPanel = ({
 
   return {
     root,
-    setVisible: (visible) => {
-      root.style.display = visible ? "" : "none";
-    },
-    getSettings: () => ({ ...settings }),
-    setSettings: (nextSettings) => {
-      settings.startPlayerAsBrainwashCompleteGun =
-        nextSettings.startPlayerAsBrainwashCompleteGun;
-      settings.initialNpcCount = clampInteger(nextSettings.initialNpcCount, 0, 99);
-      settings.initialBrainwashedNpcPercent = clampPercent(
-        nextSettings.initialBrainwashedNpcPercent
-      );
-      render();
-      emit();
-    },
+    setVisible,
+    getSettings,
+    setSettings,
     setNpcCountOnlyMode: (enabled) => {
       npcCountOnlyMode = enabled;
       applyNpcCountOnlyMode();

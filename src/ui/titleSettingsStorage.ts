@@ -1,6 +1,12 @@
 import type { BitSpawnSettings } from "./bitSpawnPanel";
 import type { BrainwashSettings } from "./brainwashSettingsPanel";
 import type { DefaultStartSettings } from "./defaultSettingsPanel";
+import {
+  executeMethodOptions,
+  normalizeExecuteSettings,
+  type ExecuteSettings
+} from "./executeSettings";
+import type { PlayerSettings } from "./playerSettingsPanel";
 import type { VolumeLevels } from "./volumePanel";
 
 export type PersistedTitleSettings = {
@@ -8,18 +14,22 @@ export type PersistedTitleSettings = {
   volumeLevels: VolumeLevels;
   stageId: string;
   alarmTrapEnabled: boolean;
+  playerSettings: PlayerSettings;
   defaultStartSettings: DefaultStartSettings;
   brainwashSettings: BrainwashSettings;
   bitSpawnSettings: BitSpawnSettings;
+  executeSettings: ExecuteSettings;
 };
 
 export type TitleSettingsDefaults = {
   volumeLevels: VolumeLevels;
   stageId: string;
   alarmTrapEnabled: boolean;
+  playerSettings: PlayerSettings;
   defaultStartSettings: DefaultStartSettings;
   brainwashSettings: BrainwashSettings;
   bitSpawnSettings: BitSpawnSettings;
+  executeSettings: ExecuteSettings;
 };
 
 const clampInteger = (value: number, min: number, max: number) =>
@@ -40,6 +50,18 @@ const readClampedInteger = (
   return { value, changed: value !== rawValue };
 };
 
+const readNumber = (
+  source: Record<string, unknown>,
+  key: string,
+  fallback: number
+) => {
+  const rawValue = source[key];
+  if (typeof rawValue !== "number" || !Number.isFinite(rawValue)) {
+    return { value: fallback, changed: true };
+  }
+  return { value: rawValue, changed: false };
+};
+
 const readBoolean = (
   source: Record<string, unknown>,
   key: string,
@@ -58,6 +80,38 @@ const readObject = (source: Record<string, unknown>, key: string) => {
     return { value: rawValue as Record<string, unknown>, changed: false };
   }
   return { value: {}, changed: true };
+};
+
+const readNullableDirectory = (
+  source: Record<string, unknown>,
+  key: string,
+  validDirectories: ReadonlySet<string>,
+  fallback: string | null
+) => {
+  const rawValue = source[key];
+  if (rawValue === null) {
+    return { value: null, changed: false };
+  }
+  if (typeof rawValue !== "string" || !validDirectories.has(rawValue)) {
+    return { value: fallback, changed: true };
+  }
+  return { value: rawValue, changed: false };
+};
+
+const executeMethodSet = new Set(
+  executeMethodOptions.map((option) => option.value)
+);
+
+const readExecuteMethod = (
+  source: Record<string, unknown>,
+  key: string,
+  fallback: ExecuteSettings["method"]
+) => {
+  const rawValue = source[key];
+  if (typeof rawValue !== "string" || !executeMethodSet.has(rawValue)) {
+    return { value: fallback, changed: true };
+  }
+  return { value: rawValue as ExecuteSettings["method"], changed: false };
 };
 
 const normalizeBrainwashPercentPair = (
@@ -83,27 +137,35 @@ export const buildDefaultPersistedTitleSettings = (
   volumeLevels: { ...defaults.volumeLevels },
   stageId: defaults.stageId,
   alarmTrapEnabled: defaults.alarmTrapEnabled,
+  playerSettings: { ...defaults.playerSettings },
   defaultStartSettings: { ...defaults.defaultStartSettings },
   brainwashSettings: { ...defaults.brainwashSettings },
-  bitSpawnSettings: { ...defaults.bitSpawnSettings }
+  bitSpawnSettings: { ...defaults.bitSpawnSettings },
+  executeSettings: { ...defaults.executeSettings }
 });
 
 export const normalizePersistedTitleSettings = (
   raw: unknown,
   version: number,
   defaults: TitleSettingsDefaults,
-  stageIds: ReadonlySet<string>
+  stageIds: ReadonlySet<string>,
+  portraitDirectories: ReadonlySet<string>,
+  voiceDirectories: ReadonlySet<string>
 ) => {
   const defaultSettings = buildDefaultPersistedTitleSettings(version, defaults);
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { settings: defaultSettings, changed: true };
   }
   const source = raw as Record<string, unknown>;
-  if (source.version !== version) {
+  const sourceVersion = source.version;
+  const isCurrentVersion = sourceVersion === version;
+  const isLegacyVersion = sourceVersion === version - 1;
+  const isLegacyCameraSettingsVersion = sourceVersion === 2;
+  if (!isCurrentVersion && !isLegacyVersion) {
     return { settings: defaultSettings, changed: true };
   }
 
-  let changed = false;
+  let changed = isLegacyVersion;
   const stageId =
     typeof source.stageId === "string" && stageIds.has(source.stageId)
       ? source.stageId
@@ -148,6 +210,56 @@ export const normalizePersistedTitleSettings = (
     defaultSettings.alarmTrapEnabled
   );
   changed ||= alarmTrapEnabledValue.changed;
+
+  const playerSettingsObject = isLegacyCameraSettingsVersion
+    ? readObject(source, "cameraSettings")
+    : readObject(source, "playerSettings");
+  changed ||= playerSettingsObject.changed;
+  const playerHeightCellsValue = readNumber(
+    playerSettingsObject.value,
+    "heightCells",
+    defaultSettings.playerSettings.heightCells
+  );
+  changed ||= playerHeightCellsValue.changed;
+  const playerPortraitDirectoryValue = isLegacyCameraSettingsVersion
+    ? { value: defaultSettings.playerSettings.portraitDirectory, changed: true }
+    : readNullableDirectory(
+        playerSettingsObject.value,
+        "portraitDirectory",
+        portraitDirectories,
+        defaultSettings.playerSettings.portraitDirectory
+      );
+  const playerVoiceDirectoryValue = isLegacyCameraSettingsVersion
+    ? { value: defaultSettings.playerSettings.voiceDirectory, changed: true }
+    : readNullableDirectory(
+        playerSettingsObject.value,
+        "voiceDirectory",
+        voiceDirectories,
+        defaultSettings.playerSettings.voiceDirectory
+      );
+  const enableCharacterSpriteVerticalAngleValue = readBoolean(
+    playerSettingsObject.value,
+    "enableCharacterSpriteVerticalAngle",
+    defaultSettings.playerSettings.enableCharacterSpriteVerticalAngle
+  );
+  const showGroundShadowsValue = readBoolean(
+    playerSettingsObject.value,
+    "showGroundShadows",
+    defaultSettings.playerSettings.showGroundShadows
+  );
+  changed ||=
+    playerPortraitDirectoryValue.changed ||
+    playerVoiceDirectoryValue.changed ||
+    showGroundShadowsValue.changed ||
+    enableCharacterSpriteVerticalAngleValue.changed;
+  const playerSettings: PlayerSettings = {
+    heightCells: playerHeightCellsValue.value,
+    portraitDirectory: playerPortraitDirectoryValue.value,
+    voiceDirectory: playerVoiceDirectoryValue.value,
+    showGroundShadows: showGroundShadowsValue.value,
+    enableCharacterSpriteVerticalAngle:
+      enableCharacterSpriteVerticalAngleValue.value
+  };
 
   const defaultSettingsObject = readObject(source, "defaultStartSettings");
   changed ||= defaultSettingsObject.changed;
@@ -255,15 +367,62 @@ export const normalizePersistedTitleSettings = (
     disableBitSpawn: disableBitSpawnValue.value
   };
 
+  const executeSettingsObject = readObject(source, "executeSettings");
+  changed ||= executeSettingsObject.changed;
+  const executeMethodValue = readExecuteMethod(
+    executeSettingsObject.value,
+    "method",
+    defaultSettings.executeSettings.method
+  );
+  const targetNpcCountValue = readClampedInteger(
+    executeSettingsObject.value,
+    "targetNpcCount",
+    0,
+    99,
+    defaultSettings.executeSettings.targetNpcCount
+  );
+  const surroundingNpcCountValue = readClampedInteger(
+    executeSettingsObject.value,
+    "surroundingNpcCount",
+    0,
+    99,
+    defaultSettings.executeSettings.surroundingNpcCount
+  );
+  const surroundingBitCountValue = readClampedInteger(
+    executeSettingsObject.value,
+    "surroundingBitCount",
+    0,
+    99,
+    defaultSettings.executeSettings.surroundingBitCount
+  );
+  changed ||=
+    executeMethodValue.changed ||
+    targetNpcCountValue.changed ||
+    surroundingNpcCountValue.changed ||
+    surroundingBitCountValue.changed;
+  const executeSettings = normalizeExecuteSettings({
+    method: executeMethodValue.value,
+    targetNpcCount: targetNpcCountValue.value,
+    surroundingNpcCount: surroundingNpcCountValue.value,
+    surroundingBitCount: surroundingBitCountValue.value
+  });
+  changed ||=
+    executeSettings.method !== executeMethodValue.value ||
+    executeSettings.targetNpcCount !== targetNpcCountValue.value ||
+    executeSettings.surroundingNpcCount !== surroundingNpcCountValue.value ||
+    executeSettings.surroundingBitCount !== surroundingBitCountValue.value;
+
   return {
     settings: {
       version,
       volumeLevels,
       stageId,
       alarmTrapEnabled: alarmTrapEnabledValue.value,
+      playerSettings,
       defaultStartSettings,
       brainwashSettings,
-      bitSpawnSettings
+      bitSpawnSettings,
+      executeSettings
     },
     changed
   };
@@ -284,7 +443,9 @@ export const loadPersistedTitleSettings = (
   storageKey: string,
   version: number,
   defaults: TitleSettingsDefaults,
-  stageIds: ReadonlySet<string>
+  stageIds: ReadonlySet<string>,
+  portraitDirectories: ReadonlySet<string>,
+  voiceDirectories: ReadonlySet<string>
 ) => {
   const stored = localStorage.getItem(storageKey);
   if (stored === null) {
@@ -302,7 +463,9 @@ export const loadPersistedTitleSettings = (
     parsed,
     version,
     defaults,
-    stageIds
+    stageIds,
+    portraitDirectories,
+    voiceDirectories
   );
   if (normalized.changed) {
     savePersistedTitleSettings(storageKey, normalized.settings);

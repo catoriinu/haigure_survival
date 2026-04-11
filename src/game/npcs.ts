@@ -40,10 +40,7 @@ import {
 } from "./npcNavigation";
 import { alignSpriteToGround } from "./spriteUtils";
 import { findTargetById } from "./targetUtils";
-import {
-  createBeamHitRadii,
-  isBeamHittingTargetExcludingSource
-} from "./beamCollision";
+import { createBeamHitRadii } from "./beamCollision";
 import {
   createHitEffectMesh,
   createHitFadeOrbs,
@@ -52,6 +49,10 @@ import {
   updateHitFadeOrbs
 } from "./hitEffects";
 import { beginBeamRetract } from "./beams";
+import {
+  resolveBeamHits,
+  type BeamHitCandidate
+} from "./playerBeamHits";
 import {
   CHARACTER_SPRITE_CELL_SIZE,
   NPC_SPRITE_CENTER_HEIGHT,
@@ -85,6 +86,10 @@ const toSpriteFlickerColor = (color: Color3) =>
 const npcHitColorA4 = toSpriteFlickerColor(npcHitColorA);
 const npcHitColorB4 = toSpriteFlickerColor(npcHitColorB);
 const npcSpriteColorNormal = new Color4(1, 1, 1, 1);
+const aliveTargetsBuffer: TargetInfo[] = [];
+const unbrainwashedTargetsBuffer: TargetInfo[] = [];
+const npcThreatsFromNpcsBuffer: Vector3[][] = [];
+const combinedThreatBuffer: Vector3[] = [];
 export const npcHitLightIntensity = 1.1;
 const getNpcHitEffectDiameter = (sprite: Sprite) =>
   calculateHitEffectDiameter(sprite.width, sprite.height);
@@ -123,7 +128,8 @@ const npcBrainwashFireRange = 1.5;
 const npcBrainwashFireRangeSq = npcBrainwashFireRange * npcBrainwashFireRange;
 const npcBrainwashFireIntervalMin = 1.4;
 const npcBrainwashFireIntervalMax = 2.2;
-const npcBrainwashBlockRadius = NPC_SPRITE_WIDTH * 0.7;
+// プレイヤーがセル角にいても、NPCがセル中心へ到達した時点で現行3D接触判定が届く値。
+const npcNoGunTouchContactRadius = 0.27;
 const npcBrainwashBlockDuration = 20;
 const npcBrainwashBreakAwayDuration = 2.5;
 const npcBrainwashBreakAwaySpeed = 0.27;
@@ -191,7 +197,53 @@ export const applyNpcDefaultHaigureState = (npc: Npc) => {
   promoteHaigureNpc(npc);
 };
 
-const findVisibleNpcTarget = (npc: Npc, targets: TargetInfo[]) => {
+const resetVectorListBuffer = (buffer: Vector3[][], count: number) => {
+  while (buffer.length < count) {
+    buffer.push([]);
+  }
+  for (let index = 0; index < buffer.length; index += 1) {
+    buffer[index]!.length = 0;
+  }
+  buffer.length = count;
+  return buffer;
+};
+
+const collectTargetsByState = (targets: TargetInfo[]) => {
+  aliveTargetsBuffer.length = 0;
+  unbrainwashedTargetsBuffer.length = 0;
+  for (const target of targets) {
+    if (target.alive) {
+      aliveTargetsBuffer.push(target);
+    }
+    if (!isBrainwashState(target.state)) {
+      unbrainwashedTargetsBuffer.push(target);
+    }
+  }
+  return {
+    aliveTargets: aliveTargetsBuffer,
+    unbrainwashedTargets: unbrainwashedTargetsBuffer
+  };
+};
+
+const combineThreats = (
+  primary: readonly Vector3[],
+  secondary: readonly Vector3[]
+) => {
+  combinedThreatBuffer.length = 0;
+  for (const threat of primary) {
+    combinedThreatBuffer.push(threat);
+  }
+  for (const threat of secondary) {
+    combinedThreatBuffer.push(threat);
+  }
+  return combinedThreatBuffer;
+};
+
+const findVisibleNpcTarget = (
+  npc: Npc,
+  targets: TargetInfo[],
+  excludedTargetId?: string
+) => {
   const forward =
     npc.moveDirection.lengthSquared() > 0.0001
       ? npc.moveDirection
@@ -200,6 +252,9 @@ const findVisibleNpcTarget = (npc: Npc, targets: TargetInfo[]) => {
   let bestDistanceSq = 0;
 
   for (const target of targets) {
+    if (target.id === excludedTargetId) {
+      continue;
+    }
     if (isBrainwashState(target.state)) {
       continue;
     }
@@ -309,6 +364,44 @@ export const spawnNpcs = (
   return npcs;
 };
 
+export type NpcUpdateContext = {
+  targets: TargetInfo[];
+  callbacks: {
+    onNpcHit: (position: Vector3) => void;
+    spawnNpcBeam: (
+      position: Vector3,
+      direction: Vector3,
+      sourceId: string
+    ) => void;
+  };
+  effects: {
+    isRedSource: (sourceId: string | null) => boolean;
+    impactOrbs: BeamImpactOrb[];
+    cameraPosition: Vector3;
+    shouldProcessOrb: (position: Vector3) => boolean;
+  };
+  movement: {
+    blockers: MovementBlocker[];
+    evadeThreats: Vector3[][];
+    playerThreatenedNpcIds: ReadonlySet<string>;
+    shouldFreezeAliveMovement: (npc: Npc, npcId: string) => boolean;
+    isAliveNpcForbiddenCell: (cell: FloorCell) => boolean;
+  };
+  alarms: {
+    getAlarmTargetStack: (npcId: string) => readonly string[];
+  };
+  settings: {
+    brainwashOnNoGunTouch: boolean;
+  };
+};
+
+export type NpcUpdateResult = {
+  playerBlocked: boolean;
+  targetedIds: Set<string>;
+  alertRequests: AlertRequest[];
+  playerNoGunTouchBrainwashRequested: boolean;
+};
+
 export const updateNpcs = (
   layout: GridLayout,
   floorCells: FloorCell[],
@@ -316,24 +409,23 @@ export const updateNpcs = (
   beams: Beam[],
   delta: number,
   elapsed: number,
-  targets: TargetInfo[],
-  onNpcHit: (position: Vector3) => void,
-  spawnNpcBeam: (position: Vector3, direction: Vector3, sourceId: string) => void,
-  isRedSource: (sourceId: string | null) => boolean,
-  impactOrbs: BeamImpactOrb[],
-  blockers: MovementBlocker[],
-  evadeThreats: Vector3[][],
-  cameraPosition: Vector3,
-  shouldProcessOrb: (position: Vector3) => boolean,
-  shouldFreezeAliveMovement: (npc: Npc, npcId: string) => boolean,
-  isAliveNpcForbiddenCell: (cell: FloorCell) => boolean,
-  getAlarmTargetStack: (npcId: string) => readonly string[],
-  brainwashOnNoGunTouch: boolean
-) => {
-  const aliveTargets = targets.filter((target) => target.alive);
-  const unbrainwashedTargets = targets.filter(
-    (target) => !isBrainwashState(target.state)
-  );
+  context: NpcUpdateContext
+): NpcUpdateResult => {
+  const {
+    targets,
+    callbacks: { onNpcHit, spawnNpcBeam },
+    effects: { isRedSource, impactOrbs, cameraPosition, shouldProcessOrb },
+    movement: {
+      blockers,
+      evadeThreats,
+      playerThreatenedNpcIds,
+      shouldFreezeAliveMovement,
+      isAliveNpcForbiddenCell
+    },
+    alarms: { getAlarmTargetStack },
+    settings: { brainwashOnNoGunTouch }
+  } = context;
+  const { aliveTargets, unbrainwashedTargets } = collectTargetsByState(targets);
   const activeBlockers: MovementBlocker[] = [...blockers];
   let playerBlocked = false;
   const targetedIds = new Set<string>();
@@ -341,7 +433,10 @@ export const updateNpcs = (
   let playerNoGunTouchBrainwashRequested = false;
   const isAliveMovementFrozen = shouldFreezeAliveMovement;
   const isAliveMovementCellForbidden = isAliveNpcForbiddenCell;
-  const npcThreatsFromNpcs = npcs.map(() => [] as Vector3[]);
+  const npcThreatsFromNpcs = resetVectorListBuffer(
+    npcThreatsFromNpcsBuffer,
+    npcs.length
+  );
   for (const npc of npcs) {
     if (npc.brainwashMode !== "chase" || !npc.brainwashTargetId) {
       continue;
@@ -372,7 +467,7 @@ export const updateNpcs = (
     }
     activeBlockers.push({
       position: blockedTarget.position,
-      radius: npcBrainwashBlockRadius,
+      radius: npcNoGunTouchContactRadius,
       sourceId: npc.sprite.name
     });
     if (blockedTarget.id === "player") {
@@ -380,57 +475,42 @@ export const updateNpcs = (
     }
   }
 
-  const applyNpcBeamHits = (npc: Npc, npcId: string) => {
-    const npcHitRadii = createBeamHitRadii(npc.sprite.width, npc.sprite.height);
-    for (const beam of beams) {
-      if (!beam.active) {
-        continue;
-      }
-      if (
-        isBeamHittingTargetExcludingSource(
-          beam,
-          beam.sourceId,
-          npcId,
-          npc.sprite.position,
-          npcHitRadii
-        )
-      ) {
-        const hitScale = isRedSource(beam.sourceId) ? redHitDurationScale : 1;
-        const impactPosition = beam.tip.position.add(
-          Vector3.Normalize(beam.velocity).scale(beam.tipRadius)
-        );
-        beginBeamRetract(beam, impactPosition);
-        npc.state = "hit-a";
-        npc.sprite.cellIndex = 1;
-        npc.hitTimer = npcHitDuration * hitScale;
-        npc.hitFadeDuration = npcHitFadeDuration * hitScale;
-        npc.fadeTimer = 0;
-        npc.hitById = beam.sourceId;
-        const scene = npc.sprite.manager.scene;
-        const hitEffectDiameter = getNpcHitEffectDiameter(npc.sprite);
-        const { mesh: effect, material } = createHitEffectMesh(scene, {
-          name: `npcHit_${npc.sprite.name}`,
-          diameter: hitEffectDiameter,
-          color: npcHitColorA,
-          alpha: npcHitEffectAlpha
-        });
-        effect.position.copyFrom(npc.sprite.position);
-        npc.hitEffect = effect;
-        npc.hitEffectMaterial = material;
-        const hitLight = new PointLight(
-          `npcHitLight_${npc.sprite.name}`,
-          npc.sprite.position.clone(),
-          scene
-        );
-        hitLight.diffuse = npcHitColorA.clone();
-        hitLight.specular = npcHitColorA.clone();
-        hitLight.intensity = npcHitLightIntensity;
-        hitLight.range = hitEffectDiameter * 1.2;
-        npc.hitLight = hitLight;
-        onNpcHit(npc.sprite.position);
-        break;
-      }
-    }
+  const applyNpcBeamHit = (
+    npc: Npc,
+    npcId: string,
+    beam: Beam,
+    impactPosition: Vector3
+  ) => {
+    const hitScale = isRedSource(beam.sourceId) ? redHitDurationScale : 1;
+    beginBeamRetract(beam, impactPosition);
+    npc.state = "hit-a";
+    npc.sprite.cellIndex = 1;
+    npc.hitTimer = npcHitDuration * hitScale;
+    npc.hitFadeDuration = npcHitFadeDuration * hitScale;
+    npc.fadeTimer = 0;
+    npc.hitById = beam.sourceId;
+    const scene = npc.sprite.manager.scene;
+    const hitEffectDiameter = getNpcHitEffectDiameter(npc.sprite);
+    const { mesh: effect, material } = createHitEffectMesh(scene, {
+      name: `npcHit_${npcId}`,
+      diameter: hitEffectDiameter,
+      color: npcHitColorA,
+      alpha: npcHitEffectAlpha
+    });
+    effect.position.copyFrom(npc.sprite.position);
+    npc.hitEffect = effect;
+    npc.hitEffectMaterial = material;
+    const hitLight = new PointLight(
+      `npcHitLight_${npcId}`,
+      npc.sprite.position.clone(),
+      scene
+    );
+    hitLight.diffuse = npcHitColorA.clone();
+    hitLight.specular = npcHitColorA.clone();
+    hitLight.intensity = npcHitLightIntensity;
+    hitLight.range = hitEffectDiameter * 1.2;
+    npc.hitLight = hitLight;
+    onNpcHit(npc.sprite.position);
   };
 
   const enterNpcBrainwashInProgress = (npc: Npc) => {
@@ -657,7 +737,9 @@ export const updateNpcs = (
       return true;
     }
 
-    const moveSpeed = npc.state === "evade" ? npcEvadeSpeed : npc.speed;
+    const shouldUseEvadeMovement =
+      npc.state === "evade" || playerThreatenedNpcIds.has(npcId);
+    const moveSpeed = shouldUseEvadeMovement ? npcEvadeSpeed : npc.speed;
     const originCell = npc.cell;
     const buildSafeReachable = () => {
       const reachableMap = buildReachableMap(layout, originCell, npcMovePower);
@@ -683,10 +765,10 @@ export const updateNpcs = (
         return false;
       }
       const threats = preferEvade
-        ? [
-            ...npcThreatsFromNpcs[npcIndex],
-            ...evadeThreats[npcIndex]
-          ]
+        ? combineThreats(
+            npcThreatsFromNpcs[npcIndex]!,
+            evadeThreats[npcIndex]!
+          )
         : [];
       const destination =
         threats.length > 0
@@ -713,7 +795,7 @@ export const updateNpcs = (
       return worldToCell(layout, nextTarget);
     };
     const destinationArrived = isNpcAtDestination(npc);
-    if (npc.state === "evade") {
+    if (shouldUseEvadeMovement) {
       npc.evadeTimer = Math.max(0, npc.evadeTimer - delta);
       if (npc.evadeTimer <= 0 || destinationArrived) {
         setAliveDestination(true);
@@ -727,7 +809,7 @@ export const updateNpcs = (
     }
 
     if (isAliveMovementCellForbidden(getNextMoveCell())) {
-      setAliveDestination(npc.state === "evade");
+      setAliveDestination(shouldUseEvadeMovement);
       return true;
     }
 
@@ -740,16 +822,17 @@ export const updateNpcs = (
     npcId: string,
     alarmTargetStack: readonly string[]
   ) => {
-    const brainwashTargets = unbrainwashedTargets.filter(
-      (target) => target.id !== npcId
-    );
     const touchTarget = (() => {
       if (npc.state !== "brainwash-complete-no-gun") {
         return null;
       }
       let candidateTarget: TargetInfo | null = null;
-      let candidateDistanceSq = npcBrainwashBlockRadius * npcBrainwashBlockRadius;
-      for (const candidate of brainwashTargets) {
+      let candidateDistanceSq =
+        npcNoGunTouchContactRadius * npcNoGunTouchContactRadius;
+      for (const candidate of unbrainwashedTargets) {
+        if (candidate.id === npcId) {
+          continue;
+        }
         const distanceSq = Vector3.DistanceSquared(
           npc.sprite.position,
           candidate.position
@@ -887,7 +970,7 @@ export const updateNpcs = (
       });
       activeBlockers.push({
         position: touchTarget.position,
-        radius: npcBrainwashBlockRadius,
+        radius: npcNoGunTouchContactRadius,
         sourceId: npc.sprite.name
       });
       if (touchTarget.id === "player") {
@@ -896,7 +979,11 @@ export const updateNpcs = (
       return;
     }
 
-    const visiblePriorityTarget = findVisibleNpcTarget(npc, brainwashTargets);
+    const visiblePriorityTarget = findVisibleNpcTarget(
+      npc,
+      unbrainwashedTargets,
+      npcId
+    );
     // 視界候補の最上位（最寄り）は毎フレーム更新し、
     // 最終選択時のみアラーム候補があればそちらを優先する。
     const currentTarget = alarmPriorityTarget ?? visiblePriorityTarget;
@@ -985,19 +1072,33 @@ export const updateNpcs = (
     }
   };
 
+  const beamHitCandidates: BeamHitCandidate[] = [];
   for (const npc of npcs) {
     const npcId = npc.sprite.name;
-    const alarmTargetStack = getAlarmTargetStack(npcId);
     alignSpriteToGround(npc.sprite);
     npc.cell = worldToCell(layout, npc.sprite.position);
-    const npcIndex = Number(npcId.slice(4));
     if (npc.state === "brainwash-complete-gun") {
       npc.sprite.cellIndex = 3;
     }
-
-    if (isAliveState(npc.state)) {
-      applyNpcBeamHits(npc, npcId);
+    if (!isAliveState(npc.state)) {
+      continue;
     }
+    beamHitCandidates.push({
+      targetId: npcId,
+      targetPosition: npc.sprite.position,
+      targetRadii: createBeamHitRadii(npc.sprite.width, npc.sprite.height),
+      canHit: () => isAliveState(npc.state),
+      onHit: (beam, impactPosition) => {
+        applyNpcBeamHit(npc, npcId, beam, impactPosition);
+      }
+    });
+  }
+  resolveBeamHits(beams, beamHitCandidates);
+
+  for (const npc of npcs) {
+    const npcId = npc.sprite.name;
+    const alarmTargetStack = getAlarmTargetStack(npcId);
+    const npcIndex = Number(npcId.slice(4));
 
     if (handleNpcNoGunTouchBrainwash(npc)) {
       continue;

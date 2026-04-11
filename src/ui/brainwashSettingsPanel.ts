@@ -1,3 +1,9 @@
+import {
+  createSettingsPanelControls,
+  createTitledSettingsPanelRoot,
+  type SettingsPanel
+} from "./settingsPanelShared";
+
 export type BrainwashSettings = {
   instantBrainwash: boolean;
   brainwashOnNoGunTouch: boolean;
@@ -9,14 +15,11 @@ type BrainwashSettingsPanelOptions = {
   parent: HTMLElement;
   initialSettings: BrainwashSettings;
   onChange: (settings: BrainwashSettings) => void;
+  onBeforeEnableNoGunTouch?: () => boolean;
   className?: string;
 };
 
-export type BrainwashSettingsPanel = {
-  root: HTMLDivElement;
-  setVisible: (visible: boolean) => void;
-  getSettings: () => BrainwashSettings;
-  setSettings: (nextSettings: BrainwashSettings) => void;
+export type BrainwashSettingsPanel = SettingsPanel<BrainwashSettings> & {
   setEnabled: (enabled: boolean) => void;
 };
 
@@ -63,18 +66,14 @@ export const createBrainwashSettingsPanel = ({
   parent,
   initialSettings,
   onChange,
+  onBeforeEnableNoGunTouch,
   className
 }: BrainwashSettingsPanelOptions): BrainwashSettingsPanel => {
-  const root = document.createElement("div");
-  root.className = className
-    ? `brainwash-settings-panel ${className}`
-    : "brainwash-settings-panel";
-  root.dataset.ui = "brainwash-settings-panel";
-
-  const title = document.createElement("div");
-  title.className = "brainwash-settings-panel__title";
-  title.textContent = "BRAINWASH SETTINGS";
-  root.appendChild(title);
+  const root = createTitledSettingsPanelRoot({
+    blockClassName: "brainwash-settings-panel",
+    className,
+    titleText: "BRAINWASH SETTINGS"
+  });
 
   const settings: BrainwashSettings = { ...initialSettings };
   let panelEnabled = true;
@@ -154,10 +153,6 @@ export const createBrainwashSettingsPanel = ({
   noGunRow.appendChild(noGunInput);
   root.appendChild(noGunRow);
 
-  const emit = () => {
-    onChange({ ...settings });
-  };
-
   const applyEnabledState = () => {
     instantBrainwashCheckbox.disabled = !panelEnabled;
     noGunTouchBrainwashCheckbox.disabled = !panelEnabled;
@@ -188,11 +183,43 @@ export const createBrainwashSettingsPanel = ({
     applyEnabledState();
   };
 
+  const { emit, setVisible, getSettings, setSettings } =
+    createSettingsPanelControls({
+      root,
+      settings,
+      applySettings: (nextSettings) => {
+        settings.instantBrainwash = nextSettings.instantBrainwash;
+        settings.brainwashOnNoGunTouch = nextSettings.brainwashOnNoGunTouch;
+        settings.npcBrainwashCompleteGunPercent =
+          nextSettings.npcBrainwashCompleteGunPercent;
+        settings.npcBrainwashCompleteNoGunPercent =
+          nextSettings.npcBrainwashCompleteNoGunPercent;
+        applyBrainwashSliderChange(
+          settings,
+          "npcBrainwashCompleteGunPercent",
+          settings.npcBrainwashCompleteGunPercent
+        );
+      },
+      render,
+      onChange
+    });
+
   instantBrainwashCheckbox.addEventListener("change", () => {
     settings.instantBrainwash = instantBrainwashCheckbox.checked;
     emit();
   });
   noGunTouchBrainwashCheckbox.addEventListener("change", () => {
+    const shouldConfirm =
+      noGunTouchBrainwashCheckbox.checked &&
+      !settings.brainwashOnNoGunTouch;
+    if (
+      shouldConfirm &&
+      onBeforeEnableNoGunTouch &&
+      !onBeforeEnableNoGunTouch()
+    ) {
+      noGunTouchBrainwashCheckbox.checked = settings.brainwashOnNoGunTouch;
+      return;
+    }
     settings.brainwashOnNoGunTouch = noGunTouchBrainwashCheckbox.checked;
     emit();
   });
@@ -213,25 +240,9 @@ export const createBrainwashSettingsPanel = ({
 
   return {
     root,
-    setVisible: (visible) => {
-      root.style.display = visible ? "" : "none";
-    },
-    getSettings: () => ({ ...settings }),
-    setSettings: (nextSettings) => {
-      settings.instantBrainwash = nextSettings.instantBrainwash;
-      settings.brainwashOnNoGunTouch = nextSettings.brainwashOnNoGunTouch;
-      settings.npcBrainwashCompleteGunPercent =
-        nextSettings.npcBrainwashCompleteGunPercent;
-      settings.npcBrainwashCompleteNoGunPercent =
-        nextSettings.npcBrainwashCompleteNoGunPercent;
-      applyBrainwashSliderChange(
-        settings,
-        "npcBrainwashCompleteGunPercent",
-        settings.npcBrainwashCompleteGunPercent
-      );
-      render();
-      emit();
-    },
+    setVisible,
+    getSettings,
+    setSettings,
     setEnabled: (enabled) => {
       panelEnabled = enabled;
       applyEnabledState();
