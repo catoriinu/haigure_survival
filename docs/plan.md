@@ -1,43 +1,34 @@
-# タイトル画面の中央表示・開始導線整理 計画
+# develop マージ前の公開処刑ブランチ整理 計画
 
 更新日: 2026-04-11
 
 ## プロンプト
-タイトル画面の改修をしたいです。
-- 「いきなり公開処刑モード」の「処刑開始」ボタンを削除する
-- 代わりに、「いきなり公開処刑モード」でも「左クリック：開始」できるようにする
-- 画面中央の要素の配置を調整する。
-  - タイトル「HAIGURE SURVIVAL」を少し上に移動する
-  - タイトルの下に現在のモード「サバイバルモード」「いきなり公開処刑モード」を表示する
-  - その下に「NOW LOADING」「左クリック：開始」を表示する
-  - STAGEパネルを少し下に移動する
+このブランチで実装した内容をdevelopブランチにマージする予定です。内容をリファクタリングしてください。
 
 PLEASE IMPLEMENT THIS PLAN:
-# タイトル画面の中央表示・開始導線整理 計画
+# develop マージ前の公開処刑ブランチ整理 計画
 
 ## 要約
-- 既存の `docs/plan.md` は別タスク用なので、実装開始時に日付付き退避ファイルへ改名し、新しい `docs/plan.md` を 2026-04-11 更新日で作成する。プロンプト原文、進捗、結果を都度反映する。
-- タイトル画面の中央表示を「タイトル / 現在モード / 読込表示 / 開始案内」の4段構成へ分離し、instant mode でも `左クリック：開始` で入れるよう開始導線を一本化する。
-- `EXECUTE SETTINGS` の `処刑開始` ボタンは削除し、instant mode の開始はタイトル画面の左クリックだけに統一する。
+- 実装開始時に現在の `docs/plan.md` を `docs/plan_2026-04-11_title-start-layout-prev2.md` へ退避し、新しい `docs/plan.md` をこのタスク用に作成して、原文プロンプト・進捗・結果を都度更新する。
+- 目的は、このブランチで増えた責務を `src/main.ts` から分離して、`develop` へマージしやすい構造にすること。主対象は公開処刑進行、タイトル開始導線、タイトル表示同期で、UI 見た目や保存形式は原則維持する。
+- リファクタ中に必要な軽微な挙動調整は許容するが、公開処刑ルールや設定項目の意味は変えない。
 
 ## ステップ
-- [x] 既存 plan を退避し、新しい `docs/plan.md` に今回タスクのプロンプトと実施手順を記録する
-- [x] タイトル中央表示のDOMとスタイルを更新し、タイトル・モード・読込表示・開始案内を分離する
-- [x] instant mode の開始導線を左クリックへ統一し、pointer lock の要求順を維持する
-- [x] `EXECUTE SETTINGS` とタイトル設定sidebarから `処刑開始` ボタン依存を削除する
-- [x] `npm run build` でビルド確認し、結果を `docs/plan.md` に反映する
+- [x] 既存の `docs/plan.md` を `docs/plan_2026-04-11_title-start-layout-prev2.md` へ退避し、新しい `docs/plan.md` を本タスク用に作成する
+- [x] `src/ui/titleOverlayController.ts` を新設し、タイトルのロード表示・開始案内・モード表示を `main.ts` から切り出す
+- [x] `src/game/publicExecutionController.ts` を新設し、公開処刑シナリオ準備・進行・ヒット管理・候補検出を `main.ts` から切り出す
+- [x] `src/main.ts` のタイトル遷移と公開処刑呼び出しを controller ベースへ整理する
+- [x] `npm run build` を実行し、結果と未確認の手動確認項目を `docs/plan.md` に反映する
 
 ## 結果
-- 既存の `docs/plan.md` は `docs/plan_2026-04-11_npc-survivor-player-block-prev.md` へ退避し、本タスク用の `docs/plan.md` を新規作成した。
-- `index.html` と `src/style.css` を更新し、タイトル中央を `HAIGURE SURVIVAL` / 開始案内または `NOW LOADING` / 現在モード の並びへ調整した。モード表示の文字サイズは開始案内と同じにそろえ、タイトルは従来より上に移動し、`STAGE` パネルは下へ移動した。
-- `src/main.ts` のタイトル文言同期を見直し、通常時は `サバイバルモード`、instant mode 時は `いきなり公開処刑モード` を表示するようにした。`NOW LOADING` は読込中のみ、`左クリック：開始` は準備完了後のみ表示する。
-- タイトル左クリック開始を一本化し、instant mode でも非UI領域の左クリックで `canvas.requestPointerLock()` を先に要求してから `startInstantExecution()` を呼ぶ構成へ変更した。`onPointerLockRequest` の title instant mode 抑止は維持している。
-- `src/ui/executeSettingsPanel.ts` から `処刑開始` ボタンと開始コールバック依存を削除し、`src/ui/titleSettingsSidebar.ts` も instant execution 開始コールバックを持たない構成へ整理した。
-- 追加調整として、タイトル中央ブロックをさらに少し下げ、タイトル・開始案内・モード表示の行間を広げた。あわせて `STAGE` パネルは少し上へ戻した。
-- 追加で、タイトル中央ブロックと `STAGE` パネルの間隔を詰めるため、中央ブロックをわずかに下げ、`STAGE` パネルも少し上げた。
-- さらに、タイトル中央ブロックをもう少し下げ、開始案内とモード表示の間隔を広げた。これにより、モード表示は `STAGE` パネル側へ少し近づいた。
-- さらに追加で、タイトル・開始案内・モード表示のまとまり全体を現在位置から 20px 下げた。
-- `NOW LOADING` 表示は、タイトル中央の中心線に合わせつつ 1 行固定に調整した。`999 / 999` までの 3 桁進捗を想定した最小幅を確保し、2 桁や 3 桁でも改行しないようにした。
-- 中央ブロックの位置決めは、`translate` と個別の `margin-top` の積み上げから、`見出し / 状態スロット / モード` の 3 段レイアウトへリファクタリングした。開始案内と `NOW LOADING` は同じ状態スロットに重ね、縦オフセットや行間は専用の CSS 変数で管理する形に整理した。
+- `docs/plan.md` を `docs/plan_2026-04-11_title-start-layout-prev2.md` へ退避し、本タスク用の計画書を新規作成した。
+- `src/ui/titleOverlayController.ts` を新設し、タイトル画面の `NOW LOADING`、進捗表示、開始案内、モード文言切替を `main.ts` から切り出した。
+- `src/main.ts` は title overlay DOM の直接操作とロード表示タイマー管理をやめ、`titleOverlayController.createLoadingSession()` と `setInstantExecutionMode()` 経由で扱う構成へ整理した。
+- `src/game/publicExecutionController.ts` を新設し、instant execution の scenario 準備、通常プレイ中の公開処刑候補判定、execution 中のヒット演出・斉射進行・プレイヤー射撃判定・voice override を `main.ts` から切り出した。
+- `src/main.ts` は公開処刑について `publicExecutionController.prepareInstantScenario()`、`advanceAutoTrigger()`、`enter()`、`update()`、`reset()`、`getScenario()` を呼ぶ構成へ整理した。あわせて `startGame` と `startInstantExecution` の title UI 非表示・pointer lock・`titleStartPreparation.invalidateReady()` を `finalizeTitleStartTransition()` へ共通化した。
+- `src/main.ts` に `syncTitleStartSettings()` と `setTitleUiVisible()` を追加し、タイトル開始前の設定反映と、タイトル復帰時の UI 表示切替を共通化した。
 - `npm run build` を実行し、`vite build` と `tsc -p tsconfig.electron.json` の成功を確認した。
-- 実機での手動確認は未実施。
+- サバイバルモード開始直後に `buildPlayerHitSequenceConfig` / `buildNpcHitSequenceConfig` が未定義で停止する不具合を修正するため、`src/main.ts` に roulette/通常被弾用の hit sequence helper を復元した。
+- `npx tsc --noEmit` で今回の未定義参照が消えたことを確認した。別件の既存型エラーとして `src/game/portraitSprites.ts`、`src/ui/input.ts`、`src/ui/titleSettingsStorage.ts` は引き続き残っている。
+- instant execution 開始時に `finalizeTitleStartTransition()` が execution 用の HUD override を消していたため、`src/main.ts` の `startInstantExecution()` で title 遷移完了処理を `publicExecutionController.enter()` より先に実行するよう修正し、操作説明パネルが表示される状態へ戻した。
+- 手動確認は未実施。通常タイトル開始、instant execution 開始、公開処刑 3 系統、execution replay の実機確認が未完了。
