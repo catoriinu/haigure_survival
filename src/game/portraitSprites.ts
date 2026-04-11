@@ -429,6 +429,9 @@ const pickRandomDirectory = (directories: string[]) =>
 
 export const getPortraitDirectories = () => portraitDirectories;
 
+export const getPortraitSelectionDirectories = () =>
+  portraitDirectoriesFromFiles;
+
 export const getPortraitCellIndex = (state: CharacterState) =>
   portraitStateIndex[state];
 
