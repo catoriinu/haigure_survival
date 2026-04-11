@@ -50,6 +50,8 @@ export const createPlayerSettingsPanel = ({
     className,
     titleText: "PLAYER SETTINGS"
   });
+  const shouldShowPortraitSelect = portraitDirectories.length > 0;
+  const shouldShowVoiceSelect = voiceDirectories.length > 0;
 
   const portraitDirectorySet = new Set(portraitDirectories);
   const voiceDirectorySet = new Set(voiceDirectories);
@@ -74,7 +76,9 @@ export const createPlayerSettingsPanel = ({
   const portraitSelect = document.createElement("select");
   portraitSelect.className = "player-settings-panel__select";
   portraitRow.appendChild(portraitSelect);
-  root.appendChild(portraitRow);
+  if (shouldShowPortraitSelect) {
+    root.appendChild(portraitRow);
+  }
 
   const voiceRow = document.createElement("label");
   voiceRow.className = "player-settings-panel__row";
@@ -85,7 +89,9 @@ export const createPlayerSettingsPanel = ({
   const voiceSelect = document.createElement("select");
   voiceSelect.className = "player-settings-panel__select";
   voiceRow.appendChild(voiceSelect);
-  root.appendChild(voiceRow);
+  if (shouldShowVoiceSelect) {
+    root.appendChild(voiceRow);
+  }
 
   const heightRow = document.createElement("label");
   heightRow.className = "player-settings-panel__slider-row";

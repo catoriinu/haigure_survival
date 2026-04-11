@@ -178,7 +178,8 @@ import {
   assignPortraitDirectories,
   getNoGunTouchBrainwashCellIndex,
   getPortraitCellIndex,
-  getPortraitDirectories
+  getPortraitDirectories,
+  getPortraitSelectionDirectories
 } from "./game/portraitSprites";
 import { createCharacterSceneController } from "./game/characterScene";
 import {
@@ -396,7 +397,8 @@ const defaultVolumeLevels: VolumeLevels = {
   voice: 5
 };
 const portraitDirectories = getPortraitDirectories();
-const portraitDirectorySet = new Set(portraitDirectories);
+const portraitSelectionDirectories = getPortraitSelectionDirectories();
+const portraitDirectorySet = new Set(portraitSelectionDirectories);
 const voiceDirectories = getVoiceDirectories();
 const voiceDirectorySet = new Set(voiceDirectories);
 const titleSettingsDefaults: TitleSettingsDefaults = {
@@ -1205,7 +1207,7 @@ const titleStageSelectControl = createStageSelectControl({
 const titleSettingsSidebar = createTitleSettingsSidebar({
   parent: document.body,
   initialSettings: buildTitleSettingsSidebarSettings(),
-  portraitDirectories,
+  portraitDirectories: portraitSelectionDirectories,
   voiceDirectories,
   initialStageId: stageSelection.id,
   onSettingsChange: (settings, event) => {
