@@ -136,7 +136,7 @@
       "type": "rect",
       "x": 4,
       "z": 1,
-      "w": 6,
+      "w": 14,
       "h": 2,
       "wallDir": "N",
       "reflective": {
@@ -149,9 +149,9 @@
     {
       "face": "wall",
       "type": "rect",
-      "x": 17,
+      "x": 9,
       "z": 25,
-      "w": 6,
+      "w": 14,
       "h": 2,
       "wallDir": "S",
       "reflective": {
@@ -166,7 +166,7 @@
       "type": "rect",
       "x": 1,
       "z": 6,
-      "w": 6,
+      "w": 12,
       "h": 2,
       "wallDir": "W",
       "reflective": {
@@ -180,8 +180,8 @@
       "face": "wall",
       "type": "rect",
       "x": 25,
-      "z": 17,
-      "w": 6,
+      "z": 9,
+      "w": 12,
       "h": 2,
       "wallDir": "E",
       "reflective": {

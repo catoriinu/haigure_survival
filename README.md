@@ -220,7 +220,7 @@ stateDiagram-v2
 - `src/ui/input.ts`: `handleDashKey()`（ダッシュキー判定。デフォルトは`ShiftLeft` / `ShiftRight`。別キーにしたい場合は関数内コメントに従って `KeyboardEvent.code` を変更すること）
 - `src/main.ts`: `playerStaminaMaxTenths`（スタミナゲージの最大値を0.1単位で管理する値。`150`で最大`15.0`。デフォルトは`150`）
 - `src/main.ts`: `playerStaminaRecoverInterval`（スタミナが`0.1`回復する間隔（秒）。デフォルトは`0.2`。実際の回復量は毎秒`0.5`）
-- `src/main.ts`: `playerDashSpeedMultiplier`（ダッシュ時の移動速度倍率。デフォルトは`1.7`）
+- `src/main.ts`: `playerDashSpeedMultiplier`（ダッシュ時の移動速度倍率。デフォルトは`2.0`）
 
 ## 制作者用メモ：HTML5ゲームかビルド手順
 1. 配布用ビルドを作成する。

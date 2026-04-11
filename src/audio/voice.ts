@@ -68,6 +68,7 @@ const voiceDirectories = Array.from(
   .filter((directory) => voiceProfileIds.has(directory.slice(0, 2)))
   .sort();
 const voiceBasePath = `${import.meta.env.BASE_URL}audio/voice/`;
+const hasVoiceFile = (path: string) => !!voiceFiles[`/public/audio/voice/${path}`];
 
 const pickRandom = (items: string[]) => {
   if (items.length === 0) {
@@ -75,13 +76,10 @@ const pickRandom = (items: string[]) => {
   }
   return items[Math.floor(Math.random() * items.length)];
 };
+const pickRandomAvailable = (items: string[]) =>
+  pickRandom(items.filter((path) => hasVoiceFile(path)));
 
-const resolveVoiceUrl = (path: string) => {
-  if (!voiceFiles[`/public/audio/voice/${path}`]) {
-    throw new Error(`Missing voice audio asset: ${path}`);
-  }
-  return `${voiceBasePath}${path}`;
-};
+const resolveVoiceUrl = (path: string) => `${voiceBasePath}${path}`;
 
 export const getVoiceDirectories = () => voiceDirectories;
 
@@ -130,9 +128,13 @@ export const updateVoiceActor = (
   const haigureState = states["brainwash-complete-haigure"];
 
   const playOneShot = (files: string[], onEnded?: () => void) => {
-    const file = pickRandom(files);
+    const file = pickRandomAvailable(files);
     stopVoiceActor(actor);
     if (!file) {
+      actor.voiceHandle = null;
+      if (onEnded) {
+        onEnded();
+      }
       return;
     }
     actor.voiceHandle = audio.playVoice(
@@ -151,9 +153,10 @@ export const updateVoiceActor = (
   };
 
   const startLoop = (files: string[]) => {
-    const file = pickRandom(files);
+    const file = pickRandomAvailable(files);
     stopVoiceActor(actor);
     if (!file) {
+      actor.voiceHandle = null;
       return;
     }
     actor.voiceHandle = audio.playVoice(
