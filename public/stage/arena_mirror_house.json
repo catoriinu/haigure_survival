@@ -1,7 +1,7 @@
 {
   "meta": {
     "name": "arena_mirror_house",
-    "description": "アリーナ（ミラーハウスβ）",
+    "description": "アリーナ（ミラーハウス）",
     "size": { "width": 27, "height": 27 },
     "mapScale": { "x": 1, "z": 1 }
   },
