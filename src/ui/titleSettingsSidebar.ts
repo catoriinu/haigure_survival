@@ -12,6 +12,12 @@ import {
   type DefaultStartSettings
 } from "./defaultSettingsPanel";
 import {
+  createExecuteSettingsPanel
+} from "./executeSettingsPanel";
+import {
+  type ExecuteSettings
+} from "./executeSettings";
+import {
   createPlayerSettingsPanel,
   type PlayerSettings
 } from "./playerSettingsPanel";
@@ -23,6 +29,7 @@ export type TitleSettingsSidebarSettings = {
   defaultStartSettings: DefaultStartSettings;
   brainwashSettings: BrainwashSettings;
   bitSpawnSettings: BitSpawnSettings;
+  executeSettings: ExecuteSettings;
 };
 
 export type TitleSettingsSidebarChangeReason =
@@ -31,6 +38,7 @@ export type TitleSettingsSidebarChangeReason =
   | "default-settings"
   | "brainwash-settings"
   | "bit-spawn-settings"
+  | "execute-settings"
   | "trap-room-recommend";
 
 export type TitleSettingsSidebarChangeEvent = {
@@ -50,6 +58,8 @@ type TitleSettingsSidebarOptions = {
     event: TitleSettingsSidebarChangeEvent
   ) => void;
   onResetRequested: () => void;
+  onResetExecuteSettingsRequested: () => void;
+  onInstantModeChange: (enabled: boolean) => void;
   onConfirmEnableNoGunTouch: () => boolean;
   shouldShowGameOverWarning: (
     stageId: string,
@@ -68,10 +78,19 @@ export type TitleSettingsSidebar = {
   getSettings: () => TitleSettingsSidebarSettings;
   setSettings: (settings: TitleSettingsSidebarSettings) => void;
   isUiTarget: (target: EventTarget | null) => boolean;
+  getInstantExecutionMode: () => boolean;
 };
 
 const warningMessage =
   "※現在の設定ではゲームオーバーにならない可能性があります。設定の変更を推奨します。";
+const instantExecutionToggleLabels = [
+  "いきなり公開処刑モードに変更",
+  "サバイバルモードに変更"
+] as const;
+const resetButtonLabels = [
+  "全設定をリセットする",
+  "公開処刑設定のみリセットする"
+] as const;
 
 const cloneSettings = (
   settings: TitleSettingsSidebarSettings
@@ -79,8 +98,37 @@ const cloneSettings = (
   playerSettings: { ...settings.playerSettings },
   defaultStartSettings: { ...settings.defaultStartSettings },
   brainwashSettings: { ...settings.brainwashSettings },
-  bitSpawnSettings: { ...settings.bitSpawnSettings }
+  bitSpawnSettings: { ...settings.bitSpawnSettings },
+  executeSettings: { ...settings.executeSettings }
 });
+
+const syncButtonWidth = (
+  button: HTMLButtonElement,
+  labels: readonly string[]
+) => {
+  const measureButton = document.createElement("button");
+  measureButton.type = "button";
+  measureButton.className = button.className;
+  measureButton.style.position = "absolute";
+  measureButton.style.visibility = "hidden";
+  measureButton.style.pointerEvents = "none";
+  measureButton.style.left = "-9999px";
+  measureButton.style.top = "0";
+  measureButton.style.width = "fit-content";
+  document.body.appendChild(measureButton);
+
+  let maxWidth = 0;
+  for (const label of labels) {
+    measureButton.textContent = label;
+    maxWidth = Math.max(
+      maxWidth,
+      Math.ceil(measureButton.getBoundingClientRect().width)
+    );
+  }
+
+  measureButton.remove();
+  button.style.width = `${maxWidth}px`;
+};
 
 export const createTitleSettingsSidebar = ({
   parent,
@@ -90,6 +138,8 @@ export const createTitleSettingsSidebar = ({
   initialStageId,
   onSettingsChange,
   onResetRequested,
+  onResetExecuteSettingsRequested,
+  onInstantModeChange,
   onConfirmEnableNoGunTouch,
   shouldShowGameOverWarning,
   getAvailability,
@@ -113,11 +163,13 @@ export const createTitleSettingsSidebar = ({
   let visible = true;
   let warningEnabled = true;
   let suppressSettingsChange = false;
+  let instantExecutionMode = false;
 
   const syncWarning = () => {
     const shouldShow =
       visible &&
       warningEnabled &&
+      !instantExecutionMode &&
       shouldShowGameOverWarning(stageId, cloneSettings(settings));
     warning.style.display = shouldShow ? "block" : "none";
   };
@@ -217,6 +269,16 @@ export const createTitleSettingsSidebar = ({
     }
   });
 
+  const executeSettingsPanel = createExecuteSettingsPanel({
+    parent: settingsContainer,
+    initialSettings: settings.executeSettings,
+    className: "execute-settings-panel--title",
+    onChange: (nextSettings) => {
+      settings.executeSettings = { ...nextSettings };
+      emitSettingsChange("execute-settings");
+    }
+  });
+
   const trapRoomRecommendControl = createTrapRoomRecommendControl({
     parent: root,
     onApply: () => {
@@ -231,7 +293,8 @@ export const createTitleSettingsSidebar = ({
         bitSpawnSettings: {
           ...settings.bitSpawnSettings,
           disableBitSpawn: true
-        }
+        },
+        executeSettings: { ...settings.executeSettings }
       };
       withSuppressedSettingsChange(() => {
         brainwashSettingsPanel.setSettings(nextSettings.brainwashSettings);
@@ -243,25 +306,73 @@ export const createTitleSettingsSidebar = ({
     }
   });
 
+  const buttonRow = document.createElement("div");
+  buttonRow.className = "title-settings-button-row";
+  root.appendChild(buttonRow);
+
+  const instantExecutionToggleButton = document.createElement("button");
+  instantExecutionToggleButton.type = "button";
+  instantExecutionToggleButton.className =
+    "title-instant-execution-toggle-button";
+  instantExecutionToggleButton.dataset.ui = "title-instant-execution-toggle-button";
+  instantExecutionToggleButton.addEventListener("click", () => {
+    instantExecutionMode = !instantExecutionMode;
+    syncInstantExecutionUi();
+    syncStageDerivedUi();
+    syncWarning();
+    onInstantModeChange(instantExecutionMode);
+  });
+  buttonRow.appendChild(instantExecutionToggleButton);
+
   const resetButton = document.createElement("button");
   resetButton.type = "button";
   resetButton.className = "title-reset-settings-button";
   resetButton.dataset.ui = "title-reset-settings-button";
-  resetButton.textContent = "全てデフォルトに戻す";
-  resetButton.addEventListener("click", onResetRequested);
-  root.appendChild(resetButton);
+  resetButton.addEventListener("click", () => {
+    if (instantExecutionMode) {
+      onResetExecuteSettingsRequested();
+      return;
+    }
+    onResetRequested();
+  });
+  buttonRow.appendChild(resetButton);
+
+  const syncButtonWidths = () => {
+    syncButtonWidth(instantExecutionToggleButton, instantExecutionToggleLabels);
+    syncButtonWidth(resetButton, resetButtonLabels);
+  };
+
+  const syncInstantExecutionUi = () => {
+    root.classList.toggle(
+      "title-right-panels--instant-execution",
+      instantExecutionMode
+    );
+    defaultSettingsPanel.setVisible(!instantExecutionMode);
+    brainwashSettingsPanel.setVisible(!instantExecutionMode);
+    bitSpawnPanel.setVisible(!instantExecutionMode);
+    executeSettingsPanel.setVisible(instantExecutionMode);
+    instantExecutionToggleButton.textContent = instantExecutionMode
+      ? instantExecutionToggleLabels[1]
+      : instantExecutionToggleLabels[0];
+    resetButton.textContent = instantExecutionMode
+      ? resetButtonLabels[1]
+      : resetButtonLabels[0];
+  };
 
   const syncStageDerivedUi = () => {
     const availability = getAvailability(stageId);
     defaultSettingsPanel.setNpcCountOnlyMode(availability.npcCountOnly);
     brainwashSettingsPanel.setEnabled(availability.brainwashEnabled);
     bitSpawnPanel.setEnabled(availability.bitSpawnEnabled);
-    trapRoomRecommendControl.setVisible(visible && isTrapRoomStage(stageId));
+    trapRoomRecommendControl.setVisible(
+      visible && !instantExecutionMode && isTrapRoomStage(stageId)
+    );
   };
 
   const setVisible = (nextVisible: boolean) => {
     visible = nextVisible;
     root.style.display = visible ? "flex" : "none";
+    syncInstantExecutionUi();
     syncStageDerivedUi();
     syncWarning();
   };
@@ -274,14 +385,20 @@ export const createTitleSettingsSidebar = ({
       defaultSettingsPanel.setSettings(copiedSettings.defaultStartSettings);
       brainwashSettingsPanel.setSettings(copiedSettings.brainwashSettings);
       bitSpawnPanel.setSettings(copiedSettings.bitSpawnSettings);
+      executeSettingsPanel.setSettings(copiedSettings.executeSettings);
     });
     settings.playerSettings = { ...copiedSettings.playerSettings };
     settings.defaultStartSettings = { ...copiedSettings.defaultStartSettings };
     settings.brainwashSettings = { ...copiedSettings.brainwashSettings };
     settings.bitSpawnSettings = { ...copiedSettings.bitSpawnSettings };
+    settings.executeSettings = { ...copiedSettings.executeSettings };
+    syncInstantExecutionUi();
     syncWarning();
   };
 
+  syncInstantExecutionUi();
+  syncButtonWidths();
+  void document.fonts?.ready.then(syncButtonWidths);
   syncStageDerivedUi();
   syncWarning();
 
@@ -301,6 +418,7 @@ export const createTitleSettingsSidebar = ({
     getSettings: () => cloneSettings(settings),
     setSettings,
     isUiTarget: (target) =>
-      target instanceof HTMLElement ? root.contains(target) : false
+      target instanceof HTMLElement ? root.contains(target) : false,
+    getInstantExecutionMode: () => instantExecutionMode
   };
 };

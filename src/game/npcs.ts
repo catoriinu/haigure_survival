@@ -40,10 +40,7 @@ import {
 } from "./npcNavigation";
 import { alignSpriteToGround } from "./spriteUtils";
 import { findTargetById } from "./targetUtils";
-import {
-  createBeamHitRadii,
-  isBeamHittingTargetExcludingSource
-} from "./beamCollision";
+import { createBeamHitRadii } from "./beamCollision";
 import {
   createHitEffectMesh,
   createHitFadeOrbs,
@@ -52,6 +49,10 @@ import {
   updateHitFadeOrbs
 } from "./hitEffects";
 import { beginBeamRetract } from "./beams";
+import {
+  resolveBeamHits,
+  type BeamHitCandidate
+} from "./playerBeamHits";
 import {
   CHARACTER_SPRITE_CELL_SIZE,
   NPC_SPRITE_CENTER_HEIGHT,
@@ -474,57 +475,42 @@ export const updateNpcs = (
     }
   }
 
-  const applyNpcBeamHits = (npc: Npc, npcId: string) => {
-    const npcHitRadii = createBeamHitRadii(npc.sprite.width, npc.sprite.height);
-    for (const beam of beams) {
-      if (!beam.active) {
-        continue;
-      }
-      if (
-        isBeamHittingTargetExcludingSource(
-          beam,
-          beam.sourceId,
-          npcId,
-          npc.sprite.position,
-          npcHitRadii
-        )
-      ) {
-        const hitScale = isRedSource(beam.sourceId) ? redHitDurationScale : 1;
-        const impactPosition = beam.tip.position.add(
-          Vector3.Normalize(beam.velocity).scale(beam.tipRadius)
-        );
-        beginBeamRetract(beam, impactPosition);
-        npc.state = "hit-a";
-        npc.sprite.cellIndex = 1;
-        npc.hitTimer = npcHitDuration * hitScale;
-        npc.hitFadeDuration = npcHitFadeDuration * hitScale;
-        npc.fadeTimer = 0;
-        npc.hitById = beam.sourceId;
-        const scene = npc.sprite.manager.scene;
-        const hitEffectDiameter = getNpcHitEffectDiameter(npc.sprite);
-        const { mesh: effect, material } = createHitEffectMesh(scene, {
-          name: `npcHit_${npc.sprite.name}`,
-          diameter: hitEffectDiameter,
-          color: npcHitColorA,
-          alpha: npcHitEffectAlpha
-        });
-        effect.position.copyFrom(npc.sprite.position);
-        npc.hitEffect = effect;
-        npc.hitEffectMaterial = material;
-        const hitLight = new PointLight(
-          `npcHitLight_${npc.sprite.name}`,
-          npc.sprite.position.clone(),
-          scene
-        );
-        hitLight.diffuse = npcHitColorA.clone();
-        hitLight.specular = npcHitColorA.clone();
-        hitLight.intensity = npcHitLightIntensity;
-        hitLight.range = hitEffectDiameter * 1.2;
-        npc.hitLight = hitLight;
-        onNpcHit(npc.sprite.position);
-        break;
-      }
-    }
+  const applyNpcBeamHit = (
+    npc: Npc,
+    npcId: string,
+    beam: Beam,
+    impactPosition: Vector3
+  ) => {
+    const hitScale = isRedSource(beam.sourceId) ? redHitDurationScale : 1;
+    beginBeamRetract(beam, impactPosition);
+    npc.state = "hit-a";
+    npc.sprite.cellIndex = 1;
+    npc.hitTimer = npcHitDuration * hitScale;
+    npc.hitFadeDuration = npcHitFadeDuration * hitScale;
+    npc.fadeTimer = 0;
+    npc.hitById = beam.sourceId;
+    const scene = npc.sprite.manager.scene;
+    const hitEffectDiameter = getNpcHitEffectDiameter(npc.sprite);
+    const { mesh: effect, material } = createHitEffectMesh(scene, {
+      name: `npcHit_${npcId}`,
+      diameter: hitEffectDiameter,
+      color: npcHitColorA,
+      alpha: npcHitEffectAlpha
+    });
+    effect.position.copyFrom(npc.sprite.position);
+    npc.hitEffect = effect;
+    npc.hitEffectMaterial = material;
+    const hitLight = new PointLight(
+      `npcHitLight_${npcId}`,
+      npc.sprite.position.clone(),
+      scene
+    );
+    hitLight.diffuse = npcHitColorA.clone();
+    hitLight.specular = npcHitColorA.clone();
+    hitLight.intensity = npcHitLightIntensity;
+    hitLight.range = hitEffectDiameter * 1.2;
+    npc.hitLight = hitLight;
+    onNpcHit(npc.sprite.position);
   };
 
   const enterNpcBrainwashInProgress = (npc: Npc) => {
@@ -1086,19 +1072,33 @@ export const updateNpcs = (
     }
   };
 
+  const beamHitCandidates: BeamHitCandidate[] = [];
   for (const npc of npcs) {
     const npcId = npc.sprite.name;
-    const alarmTargetStack = getAlarmTargetStack(npcId);
     alignSpriteToGround(npc.sprite);
     npc.cell = worldToCell(layout, npc.sprite.position);
-    const npcIndex = Number(npcId.slice(4));
     if (npc.state === "brainwash-complete-gun") {
       npc.sprite.cellIndex = 3;
     }
-
-    if (isAliveState(npc.state)) {
-      applyNpcBeamHits(npc, npcId);
+    if (!isAliveState(npc.state)) {
+      continue;
     }
+    beamHitCandidates.push({
+      targetId: npcId,
+      targetPosition: npc.sprite.position,
+      targetRadii: createBeamHitRadii(npc.sprite.width, npc.sprite.height),
+      canHit: () => isAliveState(npc.state),
+      onHit: (beam, impactPosition) => {
+        applyNpcBeamHit(npc, npcId, beam, impactPosition);
+      }
+    });
+  }
+  resolveBeamHits(beams, beamHitCandidates);
+
+  for (const npc of npcs) {
+    const npcId = npc.sprite.name;
+    const alarmTargetStack = getAlarmTargetStack(npcId);
+    const npcIndex = Number(npcId.slice(4));
 
     if (handleNpcNoGunTouchBrainwash(npc)) {
       continue;

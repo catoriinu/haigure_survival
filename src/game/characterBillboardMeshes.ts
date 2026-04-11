@@ -1,6 +1,7 @@
 import {
   Color3,
   Color4,
+  Material,
   Mesh,
   MeshBuilder,
   Scene,
@@ -95,6 +96,8 @@ export const createCharacterBillboardMeshManager = (
     material.linkEmissiveWithDiffuse = true;
     material.diffuseTexture = texture;
     material.useAlphaFromDiffuseTexture = true;
+    material.transparencyMode = Material.MATERIAL_ALPHATESTANDBLEND;
+    material.alphaCutOff = 0.01;
     material.needDepthPrePass = true;
     materialCache.set(directory, material);
     return material;

@@ -1,6 +1,11 @@
 import type { BitSpawnSettings } from "./bitSpawnPanel";
 import type { BrainwashSettings } from "./brainwashSettingsPanel";
 import type { DefaultStartSettings } from "./defaultSettingsPanel";
+import {
+  executeMethodOptions,
+  normalizeExecuteSettings,
+  type ExecuteSettings
+} from "./executeSettings";
 import type { PlayerSettings } from "./playerSettingsPanel";
 import type { VolumeLevels } from "./volumePanel";
 
@@ -13,6 +18,7 @@ export type PersistedTitleSettings = {
   defaultStartSettings: DefaultStartSettings;
   brainwashSettings: BrainwashSettings;
   bitSpawnSettings: BitSpawnSettings;
+  executeSettings: ExecuteSettings;
 };
 
 export type TitleSettingsDefaults = {
@@ -23,6 +29,7 @@ export type TitleSettingsDefaults = {
   defaultStartSettings: DefaultStartSettings;
   brainwashSettings: BrainwashSettings;
   bitSpawnSettings: BitSpawnSettings;
+  executeSettings: ExecuteSettings;
 };
 
 const clampInteger = (value: number, min: number, max: number) =>
@@ -91,6 +98,22 @@ const readNullableDirectory = (
   return { value: rawValue, changed: false };
 };
 
+const executeMethodSet = new Set(
+  executeMethodOptions.map((option) => option.value)
+);
+
+const readExecuteMethod = (
+  source: Record<string, unknown>,
+  key: string,
+  fallback: ExecuteSettings["method"]
+) => {
+  const rawValue = source[key];
+  if (typeof rawValue !== "string" || !executeMethodSet.has(rawValue)) {
+    return { value: fallback, changed: true };
+  }
+  return { value: rawValue as ExecuteSettings["method"], changed: false };
+};
+
 const normalizeBrainwashPercentPair = (
   gunPercent: number,
   noGunPercent: number
@@ -117,7 +140,8 @@ export const buildDefaultPersistedTitleSettings = (
   playerSettings: { ...defaults.playerSettings },
   defaultStartSettings: { ...defaults.defaultStartSettings },
   brainwashSettings: { ...defaults.brainwashSettings },
-  bitSpawnSettings: { ...defaults.bitSpawnSettings }
+  bitSpawnSettings: { ...defaults.bitSpawnSettings },
+  executeSettings: { ...defaults.executeSettings }
 });
 
 export const normalizePersistedTitleSettings = (
@@ -343,6 +367,51 @@ export const normalizePersistedTitleSettings = (
     disableBitSpawn: disableBitSpawnValue.value
   };
 
+  const executeSettingsObject = readObject(source, "executeSettings");
+  changed ||= executeSettingsObject.changed;
+  const executeMethodValue = readExecuteMethod(
+    executeSettingsObject.value,
+    "method",
+    defaultSettings.executeSettings.method
+  );
+  const targetNpcCountValue = readClampedInteger(
+    executeSettingsObject.value,
+    "targetNpcCount",
+    0,
+    99,
+    defaultSettings.executeSettings.targetNpcCount
+  );
+  const surroundingNpcCountValue = readClampedInteger(
+    executeSettingsObject.value,
+    "surroundingNpcCount",
+    0,
+    99,
+    defaultSettings.executeSettings.surroundingNpcCount
+  );
+  const surroundingBitCountValue = readClampedInteger(
+    executeSettingsObject.value,
+    "surroundingBitCount",
+    0,
+    99,
+    defaultSettings.executeSettings.surroundingBitCount
+  );
+  changed ||=
+    executeMethodValue.changed ||
+    targetNpcCountValue.changed ||
+    surroundingNpcCountValue.changed ||
+    surroundingBitCountValue.changed;
+  const executeSettings = normalizeExecuteSettings({
+    method: executeMethodValue.value,
+    targetNpcCount: targetNpcCountValue.value,
+    surroundingNpcCount: surroundingNpcCountValue.value,
+    surroundingBitCount: surroundingBitCountValue.value
+  });
+  changed ||=
+    executeSettings.method !== executeMethodValue.value ||
+    executeSettings.targetNpcCount !== targetNpcCountValue.value ||
+    executeSettings.surroundingNpcCount !== surroundingNpcCountValue.value ||
+    executeSettings.surroundingBitCount !== surroundingBitCountValue.value;
+
   return {
     settings: {
       version,
@@ -352,7 +421,8 @@ export const normalizePersistedTitleSettings = (
       playerSettings,
       defaultStartSettings,
       brainwashSettings,
-      bitSpawnSettings
+      bitSpawnSettings,
+      executeSettings
     },
     changed
   };

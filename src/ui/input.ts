@@ -187,6 +187,10 @@ export const setupInputHandlers = ({
       if (getPlayerState() !== "brainwash-complete-gun") {
         return;
       }
+      if (document.pointerLockElement !== canvas) {
+        onPointerLockRequest();
+        return;
+      }
       const ray = camera.getForwardRay();
       const direction = ray.direction.normalize();
       if (direction.length() < 0.001) {
