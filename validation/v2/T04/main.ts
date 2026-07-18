@@ -27,7 +27,11 @@ import {
   loadStageSpatialContext,
   type StageSpatialContext
 } from "../../../src/world/stageSpatialContext";
-import { createStageSpatialQueries } from "../../../src/world/stageSpatialQueries";
+import { createStageSpawnSampler } from "../../../src/world/stageSpawnSampler";
+import {
+  createStageSpatialQueries,
+  type StageVolume
+} from "../../../src/world/stageSpatialQueries";
 
 import "./style.css";
 
@@ -219,6 +223,49 @@ const sceneResourceCountsEqual = (
   left.meshes === right.meshes &&
   left.materials === right.materials &&
   left.transformNodes === right.transformNodes;
+
+const createProjectionNavigationStub = (
+  projectPoint: NavigationWorld["projectPoint"]
+): NavigationWorld => ({
+  projectPoint,
+  findPath: () => {
+    throw new Error("spawn sampler検証ではfindPathを呼び出しません。");
+  },
+  constrainMovement: () => {
+    throw new Error("spawn sampler検証ではconstrainMovementを呼び出しません。");
+  },
+  randomPointAround: () => {
+    throw new Error("spawn sampler検証ではrandomPointAroundを呼び出しません。");
+  },
+  createDebugMesh: () => {
+    throw new Error("spawn sampler検証ではcreateDebugMeshを呼び出しません。");
+  },
+  dispose: () => {}
+});
+
+const createRandomSequence = (values: readonly number[]) => {
+  let callCount = 0;
+  return {
+    random: () => {
+      if (callCount >= values.length) {
+        throw new Error("spawn sampler検証用乱数列を使い切りました。");
+      }
+      const value = values[callCount];
+      callCount += 1;
+      return value;
+    },
+    getCallCount: () => callCount
+  };
+};
+
+const captureThrownMessage = (action: () => void) => {
+  try {
+    action();
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+};
 
 const createPathMesh = (name: string, path: readonly Vector3[], color: Color3) => {
   const elevated = path.map((point) => point.add(new Vector3(0, 0.015, 0)));
@@ -548,6 +595,151 @@ const runValidation = async () => {
     const spatialEngine = new NullEngine();
     const spatialScene = new Scene(spatialEngine);
     try {
+      const spawnVolumeMesh = MeshBuilder.CreateBox(
+        "VOL_NpcSpawn_SamplerValidation",
+        { size: 4 },
+        spatialScene
+      );
+      spawnVolumeMesh.position.set(3, 1, -2);
+      const spawnVolume: StageVolume = Object.freeze({
+        id: "sampler-validation",
+        role: "npc_spawn",
+        mesh: spawnVolumeMesh
+      });
+      const spawnVolumeQueries = createStageSpatialQueries(
+        spatialScene,
+        [],
+        [],
+        [],
+        [spawnVolume]
+      );
+      const projectToGround = (position: Vector3) =>
+        new Vector3(position.x, 0, position.z);
+
+      const singleRandom = createRandomSequence([0.5, 0.75, 0.5]);
+      let singleProjectionMaxDistance = Number.NaN;
+      const singleSampler = createStageSpawnSampler(
+        spawnVolume,
+        createProjectionNavigationStub((position, maxDistance) => {
+          singleProjectionMaxDistance = maxDistance;
+          return projectToGround(position);
+        }),
+        {
+          maxAttempts: 1,
+          projectionMaxDistance: 2,
+          random: singleRandom.random
+        }
+      );
+      const singleSpawnPoint = singleSampler.samplePoint();
+      checks.push({
+        name: "3D spawn volume内のNavMesh投影点",
+        ok:
+          spawnVolumeQueries.containsVolume("npc_spawn", singleSpawnPoint) &&
+          Vector3.Distance(singleSpawnPoint, new Vector3(3, 0, -2)) <= 1e-6 &&
+          singleProjectionMaxDistance === 2 &&
+          singleRandom.getCallCount() === 3,
+        detail: `point=(${singleSpawnPoint.x.toFixed(3)}, ${singleSpawnPoint.y.toFixed(3)}, ${singleSpawnPoint.z.toFixed(3)}) / projection=${singleProjectionMaxDistance}`
+      });
+
+      const multipleRandom = createRandomSequence([
+        0.25, 0.5, 0.25,
+        0.75, 0.5, 0.75,
+        0.25, 0.5, 0.75
+      ]);
+      const multipleSampler = createStageSpawnSampler(
+        spawnVolume,
+        createProjectionNavigationStub((position) => projectToGround(position)),
+        {
+          maxAttempts: 1,
+          projectionMaxDistance: 2,
+          random: multipleRandom.random
+        }
+      );
+      const multipleSpawnPoints = multipleSampler.samplePoints(3, 2);
+      const pairDistances = [
+        Vector3.Distance(multipleSpawnPoints[0], multipleSpawnPoints[1]),
+        Vector3.Distance(multipleSpawnPoints[0], multipleSpawnPoints[2]),
+        Vector3.Distance(multipleSpawnPoints[1], multipleSpawnPoints[2])
+      ];
+      checks.push({
+        name: "複数spawn点の最小3D距離",
+        ok:
+          multipleSpawnPoints.every((point) =>
+            spawnVolumeQueries.containsVolume("npc_spawn", point)
+          ) &&
+          pairDistances.every((distance) => distance >= 2 - 1e-6),
+        detail: pairDistances.map((distance) => distance.toFixed(3)).join(" / ")
+      });
+
+      const duplicateRandom = createRandomSequence([
+        0.25, 0.5, 0.25,
+        0.25, 0.5, 0.25,
+        0.75, 0.5, 0.75
+      ]);
+      const duplicateSampler = createStageSpawnSampler(
+        spawnVolume,
+        createProjectionNavigationStub((position) => projectToGround(position)),
+        {
+          maxAttempts: 2,
+          projectionMaxDistance: 2,
+          random: duplicateRandom.random
+        }
+      );
+      const duplicateCheckedPoints = duplicateSampler.samplePoints(2, 0);
+      checks.push({
+        name: "同一spawn候補の再利用拒否",
+        ok:
+          duplicateRandom.getCallCount() === 9 &&
+          Vector3.Distance(
+            duplicateCheckedPoints[0],
+            duplicateCheckedPoints[1]
+          ) > 0,
+        detail: `randomCalls=${duplicateRandom.getCallCount()} / distance=${Vector3.Distance(duplicateCheckedPoints[0], duplicateCheckedPoints[1]).toFixed(3)}`
+      });
+
+      const projectionFailureRandom = createRandomSequence([
+        0.5, 0.5, 0.5,
+        0.5, 0.5, 0.5
+      ]);
+      const projectionFailureSampler = createStageSpawnSampler(
+        spawnVolume,
+        createProjectionNavigationStub(() => null),
+        {
+          maxAttempts: 2,
+          projectionMaxDistance: 2,
+          random: projectionFailureRandom.random
+        }
+      );
+      const projectionFailureMessage = captureThrownMessage(() => {
+        projectionFailureSampler.samplePoint();
+      });
+      checks.push({
+        name: "NavMesh投影失敗の厳格例外",
+        ok:
+          projectionFailureMessage?.includes("sampler-validation") === true &&
+          projectionFailureMessage.includes("NavMesh投影失敗=2"),
+        detail: projectionFailureMessage ?? "例外なし"
+      });
+
+      const invalidRandomSampler = createStageSpawnSampler(
+        spawnVolume,
+        createProjectionNavigationStub((position) => projectToGround(position)),
+        {
+          maxAttempts: 1,
+          projectionMaxDistance: 2,
+          random: () => 1
+        }
+      );
+      const invalidRandomMessage = captureThrownMessage(() => {
+        invalidRandomSampler.samplePoint();
+      });
+      checks.push({
+        name: "spawn乱数範囲の厳格検証",
+        ok: invalidRandomMessage?.includes("0以上1未満") === true,
+        detail: invalidRandomMessage ?? "例外なし"
+      });
+      spawnVolumeMesh.dispose();
+
       const actorOnlyWindow = MeshBuilder.CreateBox(
         "COL_ActorOnly_Window_Validation",
         { size: 0.4 },
