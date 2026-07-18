@@ -25,9 +25,9 @@ V2ではすべてのマップにおいてJSONではなく、管理方法の設�
 - [x] JSON文字マップと2Dセル依存の限界、現行依存箇所、T04～T06への影響を調査する
 - [x] V2全ステージでJSONマップとセルナビを廃止し、当面は学校だけを対象にする方針をユーザーと確定する
 - [x] 現ブランチのセル方式コミットと未コミット差分を責務別に監査し、保持・取り下げ・再実装を確定する
-- [ ] `docs/plan.md`、ステージ資産仕様、技術仕様、T02・T05・T06計画を3D空間基盤へ改訂する
-- [ ] `StageSpatialContext`、`NavigationWorld`、3Dマーカー、3Dボリューム、衝突・視線集合の型と所有権を確定する
-- [ ] GLBの`NAV_*`、`MRK_*`、`VOL_*`、`LNK_*`命名・座標・書き出し・検証規約を確定する
+- [x] `docs/plan.md`、ステージ資産仕様、技術仕様、T02・T05・T06計画を3D空間基盤へ改訂する
+- [x] `StageSpatialContext`、`NavigationWorld`、3Dマーカー、3Dボリューム、衝突・視線集合の型と所有権を確定する
+- [x] GLBの`NAV_*`、`MRK_*`、`VOL_*`、`LNK_*`命名・座標・書き出し・検証規約を確定する
 - [x] Blenderの現在ファイル、dirty状態、オブジェクト一覧を読み取り、B02資産を安全に編集できる状態か確認する
 - [ ] T01小型コースとB02学校でRecast NavMeshの生成、経路、階段、扉、窓、重複床、Web・Electron読込を技術検証する
 - [ ] 実行時生成と事前ベイクの時間・容量・再現性を比較し、NavMeshバイナリ形式と生成コマンドを確定する
@@ -73,3 +73,5 @@ V2ではすべてのマップにおいてJSONではなく、管理方法の設�
 - 現行B02 GLBはMesh 407件（`VIS_`263件、`COL_`144件）だけで、Empty、node extras、NavMesh生成指定、マーカー、ボリューム、明示境界をまだ含まないことを確認した。
 - Blender確認時点では旧B02 worktree側ファイルが開かれ、`bpy.data.is_dirty=true`だったため、保存・破棄・上書き・編集を行わず停止した。旧B02 Git worktree自体はコミット`4e62adf`でクリーンかつoriginと一致している。ユーザーが保存せず閉じ、現作業worktree側ファイルを開き直してから再監査する。
 - ユーザーが旧ファイルを保存せず閉じ、現作業worktree側のB02ファイルを開き直した。再監査ではパスが`D:\Users\draft\create\fps_survival20251226\assets\blender\v2\B02\b02_school_blockout.blend`、`bpy.data.is_dirty=false`、全430オブジェクト、Mesh 407件、`VIS_`263件、`COL_`144件であり、安全に資産工程へ進める状態を確認した。この確認時点では保存・編集を行っていない。
+- セル方式の5コミットを履歴のresetなしで逆順に取り下げ、階段修正だけを保持した。`npm run build`と`npm run build:t03`を通過後、revertコミット`c94302e`として確定した。
+- `docs/spec_stage_assets_v2.md`をGLB意味Object、Object custom properties、Export Collection、GLB監査、NavMesh派生物まで含む資産契約へ改訂し、`docs/spec_stage_runtime_v2.md`へ`StageSpatialContext`、`NavigationWorld`、3D問い合わせ、AI移動、資源所有権を定義した。
