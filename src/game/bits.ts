@@ -26,13 +26,8 @@ import {
   cellToWorld,
   pickRandomCell,
   pickRandomHorizontalDirection,
-  worldToCell,
   worldToCellClamped
 } from "./gridUtils";
-import {
-  findShortestFloorPath,
-  getFloorNeighborCells
-} from "./gridNavigation";
 import { findTargetById } from "./targetUtils";
 import { beamTipDiameter } from "./beams";
 
@@ -250,8 +245,6 @@ export const bitShadowFootprint = {
   muzzleOffset: bitMuzzleOffsetZ
 };
 const bitSpawnWallClearanceRadius = 0.07;
-const bitNavigationArrivalDistanceScale = 0.2;
-const bitNavigationRetryDuration = 0.5;
 export const bitFireEffectDuration = 0.32;
 const bitFireConeSweepDuration = 0.07;
 const bitFireConeFadeDuration = 0.06;
@@ -398,13 +391,6 @@ const startAttackCooldown = (bit: Bit) => {
   bit.attackCooldown = attackModeCooldownDuration;
 };
 
-const resetBitNavigation = (bit: Bit) => {
-  bit.navigationGoalCell = null;
-  bit.navigationPath = null;
-  bit.navigationPathIndex = 0;
-  bit.navigationRetryTimer = 0;
-};
-
 const applyAttackModeTimers = (bit: Bit, mode: AttackModeId) => {
   const config = attackModeConfigs[mode];
   bit.fireInterval =
@@ -533,7 +519,6 @@ const setBitMode = (
   }
   bit.mode = nextMode;
   bit.targetId = target ? target.id : null;
-  resetBitNavigation(bit);
 
   if (nextMode === "attack-chase") {
     applyAttackModeTimers(bit, nextMode);
@@ -573,7 +558,6 @@ const initializeCarpetBit = (
 ) => {
   bit.mode = "attack-carpet-bomb";
   bit.targetId = targetId;
-  resetBitNavigation(bit);
   bit.carpetLeaderId = leaderId;
   bit.carpetTargetId = targetId;
   bit.carpetDirection.copyFrom(direction);
@@ -1141,8 +1125,10 @@ const createSpawnEffect = (
 };
 
 const isFloorPoint = (layout: GridLayout, x: number, z: number) => {
-  const cell = worldToCell(layout, new Vector3(x, 0, z));
-  const { row, col } = cell;
+  const halfWidth = (layout.columns * layout.cellSize) / 2;
+  const halfDepth = (layout.rows * layout.cellSize) / 2;
+  const col = Math.floor((x + halfWidth) / layout.cellSize);
+  const row = Math.floor((z + halfDepth) / layout.cellSize);
   if (row < 0 || row >= layout.rows || col < 0 || col >= layout.columns) {
     return false;
   }
@@ -1150,7 +1136,26 @@ const isFloorPoint = (layout: GridLayout, x: number, z: number) => {
 };
 
 const hasFloorNeighbor = (layout: GridLayout, row: number, col: number) => {
-  return getFloorNeighborCells(layout, { row, col }).length > 0;
+  const neighbors = [
+    { row: row - 1, col },
+    { row, col: col + 1 },
+    { row: row + 1, col },
+    { row, col: col - 1 }
+  ];
+  for (const neighbor of neighbors) {
+    if (
+      neighbor.row < 0 ||
+      neighbor.row >= layout.rows ||
+      neighbor.col < 0 ||
+      neighbor.col >= layout.columns
+    ) {
+      continue;
+    }
+    if (layout.cells[neighbor.row][neighbor.col] === "floor") {
+      return true;
+    }
+  }
+  return false;
 };
 
 const hasWallClearanceAt = (
@@ -1159,49 +1164,45 @@ const hasWallClearanceAt = (
   z: number,
   radius: number
 ) => {
-  const offsetX = x - layout.worldOrigin.x;
-  const offsetZ = z - layout.worldOrigin.z;
-  const gridX =
-    offsetX * layout.columnDirection.x + offsetZ * layout.columnDirection.z;
-  const gridZ =
-    offsetX * layout.rowDirection.x + offsetZ * layout.rowDirection.z;
+  const halfWidth = (layout.columns * layout.cellSize) / 2;
+  const halfDepth = (layout.rows * layout.cellSize) / 2;
   const radiusSq = radius * radius;
   const minCol = Math.max(
     0,
-    Math.floor((gridX - radius) / layout.cellSize + 0.5)
+    Math.floor((x - radius + halfWidth) / layout.cellSize)
   );
   const maxCol = Math.min(
     layout.columns - 1,
-    Math.floor((gridX + radius) / layout.cellSize + 0.5)
+    Math.floor((x + radius + halfWidth) / layout.cellSize)
   );
   const minRow = Math.max(
     0,
-    Math.floor((gridZ - radius) / layout.cellSize + 0.5)
+    Math.floor((z - radius + halfDepth) / layout.cellSize)
   );
   const maxRow = Math.min(
     layout.rows - 1,
-    Math.floor((gridZ + radius) / layout.cellSize + 0.5)
+    Math.floor((z + radius + halfDepth) / layout.cellSize)
   );
   for (let row = minRow; row <= maxRow; row += 1) {
     for (let col = minCol; col <= maxCol; col += 1) {
       if (layout.cells[row][col] !== "wall") {
         continue;
       }
-      const cellMinX = (col - 0.5) * layout.cellSize;
+      const cellMinX = -halfWidth + col * layout.cellSize;
       const cellMaxX = cellMinX + layout.cellSize;
-      const cellMinZ = (row - 0.5) * layout.cellSize;
+      const cellMinZ = -halfDepth + row * layout.cellSize;
       const cellMaxZ = cellMinZ + layout.cellSize;
       let dx = 0;
-      if (gridX < cellMinX) {
-        dx = cellMinX - gridX;
-      } else if (gridX > cellMaxX) {
-        dx = gridX - cellMaxX;
+      if (x < cellMinX) {
+        dx = cellMinX - x;
+      } else if (x > cellMaxX) {
+        dx = x - cellMaxX;
       }
       let dz = 0;
-      if (gridZ < cellMinZ) {
-        dz = cellMinZ - gridZ;
-      } else if (gridZ > cellMaxZ) {
-        dz = gridZ - cellMaxZ;
+      if (z < cellMinZ) {
+        dz = cellMinZ - z;
+      } else if (z > cellMaxZ) {
+        dz = z - cellMaxZ;
       }
       if (dx * dx + dz * dz <= radiusSq) {
         return false;
@@ -1362,10 +1363,6 @@ export const createBit = (
     alertCooldownPending: false,
     alertReturnMode: null,
     alertReturnTargetId: null,
-    navigationGoalCell: null,
-    navigationPath: null,
-    navigationPathIndex: 0,
-    navigationRetryTimer: 0,
     attackCooldown: 0,
     fireTimer: 0.6 + Math.random() * 1.2,
     fireInterval: 1.1 + Math.random() * 1.4,
@@ -1466,10 +1463,6 @@ export const createBitAt = (
     alertCooldownPending: false,
     alertReturnMode: null,
     alertReturnTargetId: null,
-    navigationGoalCell: null,
-    navigationPath: null,
-    navigationPathIndex: 0,
-    navigationRetryTimer: 0,
     attackCooldown: 0,
     fireTimer: 0.6 + Math.random() * 1.2,
     fireInterval: 1.1 + Math.random() * 1.4,
@@ -1531,6 +1524,8 @@ export const updateBits = (
   );
   const minY = bounds.minY + 0.27;
   const maxY = maxAllowedY - 0.23;
+  const halfWidth = (layout.columns * layout.cellSize) / 2;
+  const halfDepth = (layout.rows * layout.cellSize) / 2;
   const searchElapsed = Math.max(0, elapsed - bitSearchScaleStartSeconds);
   const searchDistanceScale =
     1 + searchElapsed / bitSearchDistanceScaleInterval;
@@ -1541,17 +1536,26 @@ export const updateBits = (
   const avoidRadius = 0.25;
   const avoidRadiusSq = avoidRadius * avoidRadius;
   const wallRadius = bitWallProximityRadius;
-  const isFloorAt = (x: number, z: number) =>
-    isFloorPoint(layout, x, z);
+  const isFloorAt = (x: number, z: number) => {
+    const col = Math.floor((x + halfWidth) / layout.cellSize);
+    const row = Math.floor((z + halfDepth) / layout.cellSize);
+    if (row < 0 || row >= layout.rows || col < 0 || col >= layout.columns) {
+      return false;
+    }
+    return layout.cells[row][col] === "floor";
+  };
   const isWallNear = (position: Vector3) =>
     !hasWallClearanceAt(layout, position.x, position.z, wallRadius);
   const isCellWithinBounds = (row: number, col: number) => {
-    const center = cellToWorld(layout, { row, col }, 0);
+    const centerX =
+      -halfWidth + layout.cellSize / 2 + col * layout.cellSize;
+    const centerZ =
+      -halfDepth + layout.cellSize / 2 + row * layout.cellSize;
     return (
-      center.x >= minX &&
-      center.x <= maxX &&
-      center.z >= minZ &&
-      center.z <= maxZ
+      centerX >= minX &&
+      centerX <= maxX &&
+      centerZ >= minZ &&
+      centerZ <= maxZ
     );
   };
   const getBruteforceKey = (row: number, col: number) => `${row},${col}`;
@@ -1618,8 +1622,25 @@ export const updateBits = (
         target = { row, col };
         break;
       }
-      for (const neighbor of getFloorNeighborCells(layout, { row, col })) {
+      const neighbors = [
+        { row: row - 1, col },
+        { row: row + 1, col },
+        { row, col: col - 1 },
+        { row, col: col + 1 }
+      ];
+      for (const neighbor of neighbors) {
+        if (
+          neighbor.row < 0 ||
+          neighbor.row >= layout.rows ||
+          neighbor.col < 0 ||
+          neighbor.col >= layout.columns
+        ) {
+          continue;
+        }
         if (!isCellWithinBounds(neighbor.row, neighbor.col)) {
+          continue;
+        }
+        if (layout.cells[neighbor.row][neighbor.col] !== "floor") {
           continue;
         }
         if (visited[neighbor.row][neighbor.col]) {
@@ -1650,66 +1671,91 @@ export const updateBits = (
     path.reverse();
     return path;
   };
-  const getNavigationDirection = (
-    bit: Bit,
-    targetPosition: Vector3
-  ) => {
-    const startCell = worldToCell(layout, bit.root.position);
-    const goalCell = worldToCell(layout, targetPosition);
-    const goalChanged =
-      !bit.navigationGoalCell ||
-      bit.navigationGoalCell.row !== goalCell.row ||
-      bit.navigationGoalCell.col !== goalCell.col;
-    const pathCompletedAwayFromGoal =
-      bit.navigationPath !== null &&
-      bit.navigationPathIndex >= bit.navigationPath.length &&
-      (startCell.row !== goalCell.row || startCell.col !== goalCell.col);
-
-    if (goalChanged) {
-      bit.navigationGoalCell = goalCell;
-      bit.navigationPath = null;
-      bit.navigationPathIndex = 0;
-      bit.navigationRetryTimer = 0;
-    }
-    if (
-      pathCompletedAwayFromGoal ||
-      (bit.navigationPath === null && bit.navigationRetryTimer <= 0)
-    ) {
-      bit.navigationPath = findShortestFloorPath(layout, startCell, goalCell);
-      bit.navigationPathIndex = 0;
-      bit.navigationRetryTimer =
-        bit.navigationPath === null ? bitNavigationRetryDuration : 0;
-    }
-    if (bit.navigationPath === null) {
-      return new Vector3(0, 0, 0);
+  const getChaseDirection = (from: Vector3, to: Vector3) => {
+    const start = worldToCellClamped(layout, from);
+    const goal = worldToCellClamped(layout, to);
+    if (start.row === goal.row && start.col === goal.col) {
+      return to.subtract(from).normalize();
     }
 
-    const arrivalDistance = layout.cellSize * bitNavigationArrivalDistanceScale;
-    while (bit.navigationPathIndex < bit.navigationPath.length) {
-      const waypoint = cellToWorld(
-        layout,
-        bit.navigationPath[bit.navigationPathIndex],
-        bit.root.position.y
-      );
-      const toWaypoint = waypoint.subtract(bit.root.position);
-      toWaypoint.y = 0;
-      if (toWaypoint.lengthSquared() <= arrivalDistance * arrivalDistance) {
-        bit.navigationPathIndex += 1;
-        continue;
+    const visited = Array.from({ length: layout.rows }, () =>
+      Array.from({ length: layout.columns }, () => false)
+    );
+    const prevRow = Array.from({ length: layout.rows }, () =>
+      Array.from({ length: layout.columns }, () => -1)
+    );
+    const prevCol = Array.from({ length: layout.rows }, () =>
+      Array.from({ length: layout.columns }, () => -1)
+    );
+    const queueRow: number[] = [];
+    const queueCol: number[] = [];
+    let head = 0;
+
+    visited[start.row][start.col] = true;
+    queueRow.push(start.row);
+    queueCol.push(start.col);
+
+    while (head < queueRow.length) {
+      const row = queueRow[head];
+      const col = queueCol[head];
+      head += 1;
+      if (row === goal.row && col === goal.col) {
+        break;
       }
-      return toWaypoint.normalize();
+      const neighbors = [
+        { row: row - 1, col },
+        { row: row + 1, col },
+        { row, col: col - 1 },
+        { row, col: col + 1 }
+      ];
+      for (const neighbor of neighbors) {
+        if (
+          neighbor.row < 0 ||
+          neighbor.row >= layout.rows ||
+          neighbor.col < 0 ||
+          neighbor.col >= layout.columns
+        ) {
+          continue;
+        }
+        if (layout.cells[neighbor.row][neighbor.col] !== "floor") {
+          continue;
+        }
+        if (visited[neighbor.row][neighbor.col]) {
+          continue;
+        }
+        visited[neighbor.row][neighbor.col] = true;
+        prevRow[neighbor.row][neighbor.col] = row;
+        prevCol[neighbor.row][neighbor.col] = col;
+        queueRow.push(neighbor.row);
+        queueCol.push(neighbor.col);
+      }
     }
 
-    const currentCell = worldToCell(layout, bit.root.position);
-    if (currentCell.row !== goalCell.row || currentCell.col !== goalCell.col) {
-      bit.navigationPath = null;
-      return new Vector3(0, 0, 0);
+    if (!visited[goal.row][goal.col]) {
+      return to.subtract(from).normalize();
     }
-    const direction = targetPosition.subtract(bit.root.position);
-    direction.y = 0;
+
+    let row = goal.row;
+    let col = goal.col;
+    let prevR = prevRow[row][col];
+    let prevC = prevCol[row][col];
+    while (
+      prevR !== -1 &&
+      prevC !== -1 &&
+      (prevR !== start.row || prevC !== start.col)
+    ) {
+      row = prevR;
+      col = prevC;
+      prevR = prevRow[row][col];
+      prevC = prevCol[row][col];
+    }
+
+    const nextCell = { row, col };
+    const nextPosition = cellToWorld(layout, nextCell, from.y);
+    const direction = nextPosition.subtract(from);
     return direction.lengthSquared() > 0.0001
       ? direction.normalize()
-      : direction;
+      : to.subtract(from).normalize();
   };
 
   const aliveTargets = targets.filter((target) => target.alive);
@@ -1773,7 +1819,6 @@ export const updateBits = (
     bit.alertReturnTargetId = null;
     bit.mode = "alert-send";
     bit.targetId = target.id;
-    resetBitNavigation(bit);
     bit.alertRecovering = false;
     bit.alertRecoverYaw = getYawFromDirection(getHorizontalForward(bit));
     bit.alertCooldownPending = false;
@@ -1794,7 +1839,6 @@ export const updateBits = (
     }
     bit.mode = "alert-receive";
     bit.targetId = target.id;
-    resetBitNavigation(bit);
     bit.alertRecovering = false;
     bit.alertRecoverYaw = getYawFromDirection(getHorizontalForward(bit));
     bit.alertCooldownPending = false;
@@ -2028,7 +2072,10 @@ export const updateBits = (
     const targetDirection = target.position
       .subtract(bit.root.position)
       .normalize();
-    const chaseDirection = getNavigationDirection(bit, target.position);
+    const chaseDirection = getChaseDirection(
+      bit.root.position,
+      target.position
+    );
     const heightDelta = target.position.y - bit.root.position.y;
     if (heightDelta < 0) {
       frame.extraHeightStep = Math.max(
@@ -2390,7 +2437,10 @@ export const updateBits = (
       }
       return true;
     }
-    frame.moveDirection = getNavigationDirection(bit, leaderPosition);
+    frame.moveDirection = getChaseDirection(
+      bit.root.position,
+      leaderPosition
+    );
     if (distance > 0.001) {
       frame.aimDirection = toLeader.normalize();
     } else {
@@ -2565,12 +2615,6 @@ export const updateBits = (
     if (bit.attackCooldown > 0) {
       bit.attackCooldown = Math.max(0, bit.attackCooldown - delta);
     }
-    if (bit.navigationRetryTimer > 0) {
-      bit.navigationRetryTimer = Math.max(
-        0,
-        bit.navigationRetryTimer - delta
-      );
-    }
     if (bit.despawnTimer > 0) {
       if (updateCarpetFollowerDespawn(bit, delta)) {
         bitsToRemove.push(bit);
@@ -2612,7 +2656,6 @@ export const updateBits = (
         if (!bit.isRed || hitTarget.id !== bit.lastHoldTargetId) {
           bit.mode = "hold";
           bit.targetId = hitTarget.id;
-          resetBitNavigation(bit);
           bit.holdDirection = bit.root.getDirection(new Vector3(0, 0, 1));
           bit.holdTimer = bit.isRed ? redBitHoldDuration : 0;
         }
@@ -2766,19 +2809,8 @@ export const updateBits = (
         continue;
       }
       bit.carpetCooldown = carpetBombWallCooldown;
-      const carpetTarget = findTargetById(aliveTargets, bit.carpetTargetId);
       clearCarpetState(bit);
-      if (carpetTarget) {
-        setBitMode(
-          bit,
-          "attack-chase",
-          carpetTarget,
-          alertSignal,
-          soundEvents
-        );
-      } else {
-        setBitMode(bit, "search", null, alertSignal, soundEvents);
-      }
+      setBitMode(bit, "search", null, alertSignal, soundEvents);
       continue;
     }
 

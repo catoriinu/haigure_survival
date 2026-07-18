@@ -53,12 +53,6 @@ export const STAGE_CATALOG: StageSelection[] = [
     id: LABYRINTH_DYNAMIC_STAGE_ID,
     label: LABYRINTH_DYNAMIC_STAGE_ID,
     definitionPath: buildStageDefinitionPath("labyrinth_dynamic.json")
-  },
-  // B02＋T03の手動テスト専用。正式な学校ステージ登録はT06で行う。
-  {
-    id: "b02_t03_school_test",
-    label: "[TEST] b02_t03_school_test",
-    definitionPath: buildStageDefinitionPath("b02_t03_school_test.json")
   }
 ];
 
