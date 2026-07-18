@@ -406,3 +406,12 @@ B01で承認された学校間取りを前提として、Blenderで学校の初�
 - 修正後のBlenderシーンは430 Object、407 Mesh（`VIS_`263件、`COL_`144件）で、`bpy.data.is_dirty == false`である。`.blend`は302,510 bytes、SHA-256 `5ECCD2E04BDC1071D6FB2BCBA9DFD5784F26DB29C82009D505F1094C2F9215B4`である。
 - GLBは666,004 bytes、SHA-256 `AFC4D0C9E8FF19FFAFE55DD4B500F25D145AB6CBF2FECB720BD38551BB7B2C6F`である。GLB 2.0、Node 407件、Mesh 407件、Material 20件、Camera・Light・Animation 0件、規約外Node／Mesh名0件を確認した。
 - `npm run build`、`npm run build:t01`、`npm run build:t03`が成功した。T01 `.blend`・GLBは既知のSHA-256を維持し、Git差分0件である。Blender連携のビューポート画像はカメラ指定後も黒画像だったため、後段の実ゲーム読込で描画を再確認する。
+
+### 2026-07-19 北側出入口コライダーの連続スロープ化
+
+- 北側出入口の`COL_NorthEntryStep`は、外側地面上面Z＝-0.30mから1階床Z＝0.00mまでを一度に上がる高さ0.30mの箱であり、T03プレイヤーの許容段差0.15mを超えていた。
+- 表示用`VIS_NorthEntryStep`の箱形状と見た目は変更せず、衝突用だけをX＝2.4～5.4m、Y＝45.5～47.0m、Z＝-0.3～0.0mの既存境界内で外側地面から1階床へ上がる1:5連続楔へ置き換えた。
+- 修正後の`COL_NorthEntryStep`は6頂点・5面、面積0面0、非多様体辺0、正の符号付き体積0.675m³、斜面法線Z＝0.980581である。表示用は従来どおり8頂点・6面、体積1.35m³を維持した。
+- 再現スクリプトは`scripts/v2/fix_school_north_entry_collider.py`で、現worktree側B02、未保存変更なし、`VIS_`263件、`COL_`144件、既存境界一致を必須条件としている。
+- 修正後の`.blend`はSHA-256 `04CF5C0C8759737F21843BC231B0F460695D198EA1E662EA790933421BD6648E`、GLBは665,704 bytes、SHA-256 `1DFF477335398A62893DE048BF3F8073ECF9B19715C17BB9EE4296E67D5CCF74`である。GLB 2.0、Node 407件、Mesh 407件、Material 20件、Camera・Light・Animation 0件、規約外名0件を確認した。
+- `npm run build`と`npm run build:t03`が成功し、T01 `.blend`・GLBのGit差分は0件だった。学校通常ゲーム接続後、北側出入口を内外両方向に歩いて最終確認する。

@@ -164,6 +164,7 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 - [x] GLB意味オブジェクト、3Dマーカー・ボリューム、NavMesh派生物の資産契約を確定する
 - [x] Recast NavMeshの生成・バイナリ往復・3D経路を小型検証する
 - [x] 学校の階段・舞台斜面コライダーをNavMesh入力に使える閉じた外向きMeshへ正規化する
+- [x] 北側出入口の0.30m箱段差コライダーを外側地面から1階床へ続く連続スロープへ置き換える
 - [ ] 学校用`StageSpatialContext`、`NavigationWorld`、TypeScriptカタログを実装する
 - [ ] プレイヤー、NPC、ビット、通常ビーム、ビット視線を3D空間基盤へ移行する
 - [ ] V2実行経路からステージJSON、`GridLayout`、`FloorCell`、セル座標処理を削除する
@@ -187,6 +188,8 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 - 問題6（3D NavMesh入力の前提修正・自動検証済み）: B02の校舎下段階段ランプ3件と体育館舞台ランプ2件には重複頂点由来の面積0面があり、これら5件を含む階段ランプ・上段ランプ・転落防止壁12件の閉じたMeshは面法線が内向きだった。期待結果は、表示段を変更せず、`COL_StairRamp_*`等をプレイヤー衝突と連続NavMesh生成の両方へ安定して使用できることである。5件を6頂点・5面の閉じた楔形へ整理し、12件すべてを正の符号付き体積へ正規化した。修正後は12件すべてで面積0面0、非多様体辺0、正の体積を確認した。
 - Blenderは現作業ブランチ側`assets/blender/v2/B02/b02_school_blockout.blend`、`is_dirty=false`、430 Object、407 Mesh（`VIS_`263件、`COL_`144件）であることを再確認した。GLBも407 Node／407 Mesh、Material 20件、Camera・Light・Animation 0件、規約外名0件である。B02 `.blend`のSHA-256は`5ECCD2E04BDC1071D6FB2BCBA9DFD5784F26DB29C82009D505F1094C2F9215B4`、GLBは`AFC4D0C9E8FF19FFAFE55DD4B500F25D145AB6CBF2FECB720BD38551BB7B2C6F`となった。
 - `npm run build`、`npm run build:t01`、`npm run build:t03`は成功した。T01の`.blend`は`A26672A7400A143F32FAB9F5DC53387CFF85C1FB22A9766F464E9BAEFAC5B16B`、GLBは`CF6CF17CF7447152D0B25219045C33EFB2E1A1821C201ACD6E51E39F468EA69B`のままで、対象パスのGit差分は0件だった。Blender連携のビューポート画像取得は既存カメラへ合わせても黒画像を返したため、表示メッシュ監査と後段の実ゲーム描画で視覚確認を補完する。
+- 問題7（北側出入口の段差移動を修正・自動検証済み）: 北側出入口の`COL_NorthEntryStep`は、外側地面上面Z＝-0.30mから1階床Z＝0.00mまでを一度に上がる高さ0.30mの箱だった。T03プレイヤーの許容段差0.15mを超えるため、期待する外側から校舎内への連続移動が成立しなかった。表示用`VIS_NorthEntryStep`の8頂点・6面の箱は維持し、衝突用だけを同じX＝2.4～5.4m、Y＝45.5～47.0m、Z＝-0.3～0.0m境界内の1:5連続楔へ変更した。修正後のColliderは6頂点・5面、面積0面0、非多様体辺0、符号付き体積0.675m³、斜面法線Z＝0.980581である。
+- 北側出入口修正後も430 Object、407 Mesh（`VIS_`263件、`COL_`144件）を維持し、GLBは407 Node／407 Mesh、Material 20件、Camera・Light・Animation 0件、規約外名0件だった。B02 `.blend`はSHA-256 `04CF5C0C8759737F21843BC231B0F460695D198EA1E662EA790933421BD6648E`、GLBは`1DFF477335398A62893DE048BF3F8073ECF9B19715C17BB9EE4296E67D5CCF74`である。`npm run build`と`npm run build:t03`は成功し、T01資産のGit差分は0件だった。実際の出入りは学校を通常ゲームへ再接続した後の手動確認へ残す。
 
 - 2026-07-18 23:29 JSTに開始確認を実施した。
 - メインworktreeはクリーンな`develop`で、`develop`、`origin/develop`、HEADはいずれもPR #40取込後の`8b25790efbd9afbd151fa3081a8f0faf095b5df5`だった。
