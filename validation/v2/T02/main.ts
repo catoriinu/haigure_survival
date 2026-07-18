@@ -1,8 +1,10 @@
 import {
   ArcRotateCamera,
+  type BaseTexture,
   Color4,
   Engine,
   HemisphericLight,
+  Logger,
   Mesh,
   Scene,
   Vector3
@@ -12,7 +14,11 @@ import {
   disposeStageContext,
   type StageContext
 } from "../../../src/world/stageContext";
-import { cellToWorld } from "../../../src/game/gridUtils";
+import {
+  cellToWorld,
+  gridAreaCenterToWorld,
+  worldToCell
+} from "../../../src/game/gridUtils";
 import {
   loadStageDefinition,
   type StageSelection
@@ -57,6 +63,21 @@ const glbSelection: StageSelection = {
   id: "t01_glb_collision_course",
   label: "T01 立体テストコース",
   definitionPath: `${import.meta.env.BASE_URL}fixtures/t01_glb_collision_course.json`
+};
+
+const browserErrors: string[] = [];
+const formatBrowserError = (value: unknown) =>
+  value instanceof Error ? `${value.name}: ${value.message}` : String(value);
+window.addEventListener("error", (event) => {
+  browserErrors.push(formatBrowserError(event.error ?? event.message));
+});
+window.addEventListener("unhandledrejection", (event) => {
+  browserErrors.push(`unhandledrejection: ${formatBrowserError(event.reason)}`);
+});
+const originalConsoleError = console.error.bind(console);
+console.error = (...values: unknown[]) => {
+  browserErrors.push(values.map(formatBrowserError).join(" "));
+  originalConsoleError(...values);
 };
 
 const canvas = document.getElementById(
@@ -119,15 +140,57 @@ const sceneSignature = () => ({
   transformNodes: new Set(scene.transformNodes)
 });
 
-const signatureMatches = (baseline: ReturnType<typeof sceneSignature>) =>
-  scene.meshes.every((item) => baseline.meshes.has(item)) &&
-  scene.meshes.length === baseline.meshes.size &&
-  scene.materials.every((item) => baseline.materials.has(item)) &&
-  scene.materials.length === baseline.materials.size &&
-  scene.textures.every((item) => baseline.textures.has(item)) &&
-  scene.textures.length === baseline.textures.size &&
-  scene.transformNodes.every((item) => baseline.transformNodes.has(item)) &&
-  scene.transformNodes.length === baseline.transformNodes.size;
+const signatureMatches = (
+  baseline: ReturnType<typeof sceneSignature>,
+  ignoredTextures = new Set<BaseTexture>()
+) => {
+  const currentTextures = scene.textures.filter(
+    (item) => !ignoredTextures.has(item)
+  );
+  const baselineTextures = [...baseline.textures].filter(
+    (item) => !ignoredTextures.has(item)
+  );
+  return (
+    scene.meshes.every((item) => baseline.meshes.has(item)) &&
+    scene.meshes.length === baseline.meshes.size &&
+    scene.materials.every((item) => baseline.materials.has(item)) &&
+    scene.materials.length === baseline.materials.size &&
+    currentTextures.every((item) => baseline.textures.has(item)) &&
+    currentTextures.length === baselineTextures.length &&
+    scene.transformNodes.every((item) => baseline.transformNodes.has(item)) &&
+    scene.transformNodes.length === baseline.transformNodes.size
+  );
+};
+
+const waitForSceneResources = async () => {
+  await scene.whenReadyAsync(true);
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+  await scene.whenReadyAsync(true);
+};
+
+const captureGlbResources = (context: StageContext) => ({
+  nodes: [
+    ...(context.resources.assetContainer?.meshes ?? []),
+    ...(context.resources.assetContainer?.transformNodes ?? [])
+  ],
+  materials: [...(context.resources.assetContainer?.materials ?? [])],
+  textures: [...(context.resources.assetContainer?.textures ?? [])]
+});
+
+const inspectDisposedGlbResources = (
+  captured: ReturnType<typeof captureGlbResources>
+) => {
+  const liveNodes = captured.nodes.filter((item) => !item.isDisposed());
+  const liveMaterials = captured.materials.filter((item) =>
+    scene.materials.includes(item)
+  );
+  const liveTextures = captured.textures.filter(
+    (item) => scene.textures.includes(item) || item.getInternalTexture() !== null
+  );
+  return { liveNodes, liveMaterials, liveTextures };
+};
 
 const readBounds = (mesh: Mesh) => {
   mesh.computeWorldMatrix(true);
@@ -264,36 +327,89 @@ const validateGlbStage = async (
       `spawn=(${spawn.x.toFixed(3)},${spawn.z.toFixed(3)}), colX=${context.layout.columnDirection.x}, rowZ=${context.layout.rowDirection.z}`
     )
   );
-  const managedNodes = [
-    ...(context.resources.assetContainer?.meshes ?? []),
-    ...(context.resources.assetContainer?.transformNodes ?? [])
-  ];
+  const roundTripCell = { col: 1, row: 8 };
+  const roundTripWorld = cellToWorld(context.layout, roundTripCell, 0);
+  const roundTripResult = worldToCell(context.layout, roundTripWorld);
+  checks.push(
+    createCheck(
+      "T01 GLB: 非対称セル往復",
+      roundTripResult.col === roundTripCell.col &&
+        roundTripResult.row === roundTripCell.row,
+      `cell=(${roundTripCell.col},${roundTripCell.row}) → world=(${roundTripWorld.x.toFixed(3)},${roundTripWorld.z.toFixed(3)}) → cell=(${roundTripResult.col},${roundTripResult.row})`
+    )
+  );
+  const assemblyCenter = gridAreaCenterToWorld(
+    context.layout,
+    context.assemblyArea,
+    0
+  );
+  checks.push(
+    createCheck(
+      "T01 GLB: assembly_area中心",
+      nearlyEqual(assemblyCenter.x, 0) && nearlyEqual(assemblyCenter.z, -0.25),
+      `center=(${assemblyCenter.x.toFixed(3)},${assemblyCenter.z.toFixed(3)})`
+    )
+  );
+  const managedResources = captureGlbResources(context);
   const replacementContext = await buildStageContext(scene, definition);
-  const replacementNodes = [
-    ...(replacementContext.resources.assetContainer?.meshes ?? []),
-    ...(replacementContext.resources.assetContainer?.transformNodes ?? [])
-  ];
+  const replacementResources = captureGlbResources(replacementContext);
+  const sharedBrdfTexture = scene.environmentBRDFTexture;
   disposeStageContext(context);
-  const undisposedNodes = managedNodes.filter((node) => !node.isDisposed());
+  const liveManagedResources = inspectDisposedGlbResources(managedResources);
   checks.push(
     createCheck(
       "T01 GLB: 先行ロード後の旧破棄",
-      undisposedNodes.length === 0 &&
+      liveManagedResources.liveNodes.length === 0 &&
+        liveManagedResources.liveMaterials.length === 0 &&
+        liveManagedResources.liveTextures.length === 0 &&
         replacementContext.resources.authoredMeshes.every(
           (mesh) => !mesh.isDisposed()
         ),
-      `oldUndisposed=${undisposedNodes.map((node) => node.name).join(",") || "なし"}, replacementMesh=${replacementContext.resources.authoredMeshes.length}`
+      `node=${liveManagedResources.liveNodes.length}, material=${liveManagedResources.liveMaterials.length}, texture=${liveManagedResources.liveTextures.length}, replacementMesh=${replacementContext.resources.authoredMeshes.length}`
     )
   );
   disposeStageContext(replacementContext);
-  const undisposedReplacementNodes = replacementNodes.filter(
-    (node) => !node.isDisposed()
+  await waitForSceneResources();
+  const liveReplacementResources =
+    inspectDisposedGlbResources(replacementResources);
+  const ignoredTextures = new Set(
+    sharedBrdfTexture ? [sharedBrdfTexture] : []
   );
   checks.push(
     createCheck(
       "T01 GLB: AssetContainer破棄",
-      undisposedReplacementNodes.length === 0 && signatureMatches(baseline),
-      `managed=${replacementNodes.length}, undisposed=${undisposedReplacementNodes.map((node) => node.name).join(",") || "なし"}, scene mesh=${scene.meshes.length}, material=${scene.materials.length}, texture=${scene.textures.map((texture) => texture.name).join(",") || "なし"}, transform=${scene.transformNodes.length}`
+      liveReplacementResources.liveNodes.length === 0 &&
+        liveReplacementResources.liveMaterials.length === 0 &&
+        liveReplacementResources.liveTextures.length === 0 &&
+        signatureMatches(baseline, ignoredTextures),
+      `node=${liveReplacementResources.liveNodes.length}, material=${liveReplacementResources.liveMaterials.length}, texture=${liveReplacementResources.liveTextures.length}, scene mesh=${scene.meshes.length}, transform=${scene.transformNodes.length}`
+    )
+  );
+  checks.push(
+    createCheck(
+      "T01 GLB: Scene共有BRDF Texture",
+      sharedBrdfTexture !== null &&
+        scene.environmentBRDFTexture === sharedBrdfTexture &&
+        scene.textures.includes(sharedBrdfTexture) &&
+        sharedBrdfTexture.getInternalTexture() !== null &&
+        sharedBrdfTexture.isReady(),
+      `name=${sharedBrdfTexture?.name ?? "なし"}, ready=${sharedBrdfTexture?.isReady() ?? false}`
+    )
+  );
+
+  const readyContext = await buildStageContext(scene, definition);
+  const readyResources = captureGlbResources(readyContext);
+  await waitForSceneResources();
+  disposeStageContext(readyContext);
+  const liveReadyResources = inspectDisposedGlbResources(readyResources);
+  checks.push(
+    createCheck(
+      "T01 GLB: 描画準備後の資源実体破棄",
+      liveReadyResources.liveNodes.length === 0 &&
+        liveReadyResources.liveMaterials.length === 0 &&
+        liveReadyResources.liveTextures.length === 0 &&
+        signatureMatches(baseline, ignoredTextures),
+      `node=${liveReadyResources.liveNodes.length}, material=${liveReadyResources.liveMaterials.length}, texture=${liveReadyResources.liveTextures.length}`
     )
   );
 };
@@ -302,6 +418,8 @@ const runValidation = async () => {
   if (running) {
     return;
   }
+  browserErrors.length = 0;
+  const loggerErrorsAtStart = Logger.errorsCount;
   running = true;
   runButton.disabled = true;
   if (displayedContext) {
@@ -322,7 +440,14 @@ const runValidation = async () => {
     checks.push(
       createCheck(
         "JSON→GLB→JSON切り替え",
-        signatureMatches(baseline),
+        signatureMatches(
+          baseline,
+          new Set(
+            scene.environmentBRDFTexture
+              ? [scene.environmentBRDFTexture]
+              : []
+          )
+        ),
         `最終破棄後 mesh=${scene.meshes.length}, material=${scene.materials.length}, texture=${scene.textures.length}, transform=${scene.transformNodes.length}`
       )
     );
@@ -330,6 +455,7 @@ const runValidation = async () => {
       scene,
       await loadStageDefinition(glbSelection)
     );
+    await waitForSceneResources();
   } catch (error) {
     checks.push(
       createCheck(
@@ -339,6 +465,15 @@ const runValidation = async () => {
       )
     );
   } finally {
+    await waitForSceneResources();
+    const loggerErrorCount = Logger.errorsCount - loggerErrorsAtStart;
+    checks.push(
+      createCheck(
+        "非同期エラー監視",
+        loggerErrorCount === 0 && browserErrors.length === 0,
+        `Babylon Logger=${loggerErrorCount}, browser=${browserErrors.join(" | ") || "なし"}`
+      )
+    );
     const failed = checks.some((check) => !check.ok);
     window.__T02_VALIDATION__ = {
       status: failed ? "failed" : "passed",

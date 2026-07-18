@@ -148,7 +148,7 @@ T01で確定した設定:
 3. 作者メッシュ、`createRootMesh()`で追加した管理親、glTF管理ルートを含む全Mesh／TransformNode参照が`isDisposed()`になり、シーンに残っていないことを確認する。コンテナ由来Material名、Texture名もシーンに残っていないことを確認する。
 4. 再読込時は新しいAssetContainerを作り、初回と同じ命名、件数、world boundsになることを確認する。
 
-共通ローダーは、GLB読込によってSceneへ初めて生成された`EnvironmentBRDFTexture`を参照カウントする。GLB同士を先行ロード方式で切り替える場合は新旧コンテキストが共有し、最後のGLBコンテキスト破棄時にSceneから解放する。ローダー導入前からSceneに存在する共有Textureは所有対象にしない。
+GLB読込によって生成される`EnvironmentBRDFTexture`はBabylon.jsのScene共有資源として扱う。共通ローダーは参照カウントや明示破棄を行わず、非同期RGBD展開、コンテキスト復元、最終破棄をSceneのライフサイクルへ委ねる。AssetContainer破棄後もSceneが存続する間は再利用する。
 
 ## 9. T01基準コース
 

@@ -103,8 +103,8 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - T02「v2ステージ型、共通ローダー、既存8ステージJSONの移行」を完了した。
 - `StageDefinitionV2`を`procedural-grid`と`glb`のUnion型として導入し、旧`StageJson | null`と組込みグリッドへの失敗時フォールバックを廃止した。
 - `GridLayout`へ水平原点と行・列方向を追加し、既存中央原点グリッドとBlender資産原点・メートル基準のGLB平面グリッドを共通変換へ統一した。
-- 非同期`StageContext`へprocedural-gridの生成資源とGLBのAssetContainer、VIS/COL、Material、Texture、共有BRDF Textureを集約し、先行ロード後の旧コンテキスト破棄へ対応した。
+- 非同期`StageContext`へprocedural-gridの生成資源とGLBのAssetContainer、VIS/COL、Material、Textureを集約し、先行ロード後の旧コンテキスト破棄へ対応した。Babylon.jsの共有BRDF Textureは非同期RGBD展開を含めScene所有へ統一した。
 - 既存8 JSONを`schemaVersion: 2`へ一括移行し、マップ、環境、スポーン、ゾーン、鏡、専用IDを維持した。`laboratory`の過剰な最終ゾーン行を削除した。
 - T01 GLBは通常タイトルへ登録せず、許可した8 JSON、検証定義、GLBだけを公開するT02専用画面へ接続した。
-- 実ブラウザの共通ローダー検証39項目がすべてPASSし、通常タイトルの8ステージ連続切り替えでも全件が開始可能状態へ復帰した。ブラウザwarning/errorは0件だった。
+- 実ブラウザの共通ローダー検証45項目がすべてPASSし、資源実体、非対称セル往復、整列中心、共有BRDF Texture、Babylon Loggerと非同期エラー0件を確認した。通常タイトルの8ステージ連続切り替えでも全件が開始可能状態へ復帰した。
 - `npm run build`、`npm run build:t01`、`npm run build:t02`が成功した。T03以降、NPC・ビット・光線の高さ対応、学校本体には着手していない。

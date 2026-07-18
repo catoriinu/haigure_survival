@@ -30,6 +30,34 @@ export const cellToWorld = (
   );
 };
 
+export const gridAreaCenterToWorld = (
+  layout: GridLayout,
+  area: {
+    startCol: number;
+    startRow: number;
+    width: number;
+    height: number;
+  },
+  y: number
+) =>
+  new Vector3(
+    layout.worldOrigin.x +
+      layout.columnDirection.x *
+        (area.startCol + (area.width - 1) / 2) *
+        layout.cellSize +
+      layout.rowDirection.x *
+        (area.startRow + (area.height - 1) / 2) *
+        layout.cellSize,
+    y,
+    layout.worldOrigin.z +
+      layout.columnDirection.z *
+        (area.startCol + (area.width - 1) / 2) *
+        layout.cellSize +
+      layout.rowDirection.z *
+        (area.startRow + (area.height - 1) / 2) *
+        layout.cellSize
+  );
+
 const worldOffsetToCell = (layout: GridLayout, position: Vector3) => {
   const offsetX = position.x - layout.worldOrigin.x;
   const offsetZ = position.z - layout.worldOrigin.z;

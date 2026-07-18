@@ -297,7 +297,8 @@ type StageZone = {
 
 - procedural-gridの床、壁、天井、コライダー、Material、Texture、反射資源。
 - GLBのAssetContainer、管理親、glTFルート、作者Mesh、Material、Texture。
-- GLB読込時にSceneへ生成された共有BRDF Textureのうち、当該コンテキストが新規生成したもの。
+
+Babylon.jsがGLBのPBR Material用に生成する`EnvironmentBRDFTexture`はScene共有資源とし、StageContextからは破棄しない。非同期RGBD展開を含むライフサイクルと最終破棄はSceneへ委ねる。
 
 ## 9. 現行8ステージ
 

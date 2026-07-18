@@ -28,9 +28,6 @@ import {
   type StageDefinitionV2
 } from "./stageJson";
 import type { MirrorTexture, StandardMaterial } from "@babylonjs/core";
-import type { BaseTexture } from "@babylonjs/core";
-
-const managedSharedTextureReferences = new Map<BaseTexture, number>();
 
 export type StageContextEnvironment = StageEnvironment & {
   skyColor: Color4 | null;
@@ -187,48 +184,11 @@ const splitAssetPath = (path: string) => {
   };
 };
 
-const retainManagedSharedTextures = (
-  scene: Scene,
-  existingTextures: Set<BaseTexture>
-) => {
-  const retainedTextures = scene.textures.filter(
-    (texture) =>
-      texture.name.startsWith("data:EnvironmentBRDFTexture") &&
-      (!existingTextures.has(texture) || managedSharedTextureReferences.has(texture))
-  );
-  for (const texture of retainedTextures) {
-    managedSharedTextureReferences.set(
-      texture,
-      (managedSharedTextureReferences.get(texture) ?? 0) + 1
-    );
-  }
-  return retainedTextures;
-};
-
-const releaseManagedSharedTextures = (
-  scene: Scene,
-  textures: BaseTexture[]
-) => {
-  for (const texture of textures) {
-    const nextReferenceCount =
-      (managedSharedTextureReferences.get(texture) as number) - 1;
-    if (nextReferenceCount > 0) {
-      managedSharedTextureReferences.set(texture, nextReferenceCount);
-      continue;
-    }
-    managedSharedTextureReferences.delete(texture);
-    if (scene.textures.includes(texture)) {
-      texture.dispose();
-    }
-  }
-};
-
 const loadGlbResources = async (
   scene: Scene,
   definition: Extract<StageDefinitionV2, { kind: "glb" }>
 ): Promise<StageContextResources> => {
   const { rootUrl, filename } = splitAssetPath(definition.asset.path);
-  const existingTextures = new Set(scene.textures);
   const container = await SceneLoader.LoadAssetContainerAsync(
     rootUrl,
     filename,
@@ -240,10 +200,6 @@ const loadGlbResources = async (
   managementRoot.isVisible = false;
   managementRoot.checkCollisions = false;
   container.addAllToScene();
-  const retainedSharedTextures = retainManagedSharedTextures(
-    scene,
-    existingTextures
-  );
 
   const authoredMeshes = container.meshes.filter(
     (mesh): mesh is Mesh => mesh instanceof Mesh && mesh.getTotalVertices() > 0
@@ -254,7 +210,6 @@ const loadGlbResources = async (
   if (invalidMesh) {
     container.removeAllFromScene();
     container.dispose();
-    releaseManagedSharedTextures(scene, retainedSharedTextures);
     throw new Error(`v2資産規約外のメッシュ名です: ${invalidMesh.name}`);
   }
 
@@ -291,7 +246,6 @@ const loadGlbResources = async (
       }
       container.removeAllFromScene();
       container.dispose();
-      releaseManagedSharedTextures(scene, retainedSharedTextures);
     }
   };
   return resources;

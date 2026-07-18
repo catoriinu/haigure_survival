@@ -26,6 +26,13 @@ HAIGURE SURVIVAL v2ロードマップのT02「v2ステージ型、共通ロー�
 - `docs/spec_stage_json.md`と`docs/spec_technical.md`をT02結果へ更新する。
 - プレイヤー重力・接地・階段、NPC、ビット、光線の高さ対応、高さ付きナビゲーション、学校本体には着手しない。
 
+PR #36へ別セッションのレビュー結果がコメントされたため、内容を精査して対応し、対応結果をPRコメントとして返信する。レビューで報告された次の4件を対象とする。
+
+- 共有Environment BRDF Textureを非同期RGBD展開中に破棄しない。
+- GLBの整列ゾーン中心を`GridLayout`の原点・行列方向による共通水平座標変換へ統一する。
+- ステージ切替失敗時に旧コンテキストを維持し、UIを有効ステージへ戻してエラーを表示する。初期ロード失敗もタイトル上へ表示する。
+- T02検証で資源実体、Texture・シェーダー準備、Babylon Logger、`error`、`unhandledrejection`、非対称座標と整列中心を検査する。
+
 開始時に日時、Git状態、`develop`、PR #35のマージを確認し、最新`develop`から`codex/v2-t02-stage-loader`を作成する。変更はUTF-8（BOMなし）で行い、1ステップごとに本計画の進捗と結果を更新する。
 
 ## ステップ
@@ -40,6 +47,13 @@ HAIGURE SURVIVAL v2ロードマップのT02「v2ステージ型、共通ロー�
 - [x] 通常8ステージとJSON→GLB→JSON切り替えを実ブラウザで検証する
 - [x] 仕様書、T02計画、全体計画へ結果を反映する
 - [x] ビルド、UTF-8、括弧対応、差分を最終検証する
+- [x] PR #36のレビューコメントとスレッド状態を取得し、4件の指摘を精査する
+- [x] 共有BRDF Textureの所有をSceneへ委ね、非同期RGBD展開中の破棄を防ぐ
+- [x] ゾーン矩形中心を共通水平座標変換へ統一する
+- [x] ステージ切替・初期ロード失敗時のタイトルUI処理を実装する
+- [x] T02検証を資源実体・非同期エラー・座標検査まで強化する
+- [x] ビルド、実ブラウザ、UTF-8、差分を再検証する
+- [x] レビュー対応結果をコミット・プッシュし、PR #36へ返信する
 
 ## 結果
 
@@ -56,9 +70,17 @@ HAIGURE SURVIVAL v2ロードマップのT02「v2ステージ型、共通ロー�
 - 移行後の通常レンダラービルドが成功した。
 - T01 GLB用に1mセル9×10、Blender原点基準、中央レーン入口スポーンのv2検証定義を追加した。通常の8ステージカタログには追加していない。
 - T02専用Viteを`publicDir: false`と許可リスト配信で構成し、8 JSON、T01検証定義、T01 GLBだけを検証用distへ出力した。
-- 実ブラウザで8 procedural-gridの生成・破棄、T01 GLBのVIS 8件・COL 8件、床2.25×2.50、段差0.0375、軸、Blender原点グリッド、AssetContainer破棄、JSON→GLB→JSON切り替えの全39項目がPASSした。warning/errorは0件だった。
+- 実ブラウザで8 procedural-gridの生成・破棄、T01 GLBのVIS 8件・COL 8件、床2.25×2.50、段差0.0375、軸、Blender原点グリッド、AssetContainer破棄、JSON→GLB→JSON切り替えを検証した。
 - 通常タイトルには8ステージだけが表示され、8件を順次切り替えて各回「左クリック：開始」へ復帰し、warning/errorが0件であることを確認した。
-- GLB同士を先行ロードしてから旧コンテキストを破棄しても共有BRDF Textureを維持できるよう、共通ローダー生成分だけを参照カウントし、最後のGLB破棄時に解放する構成へ統一した。
+- PR #36のレビューで、共有BRDF Textureの非同期RGBD展開中の破棄、GLB整列中心の旧座標式、切替失敗時のUI不整合、検証の偽陽性が指摘された。4件はいずれもT02範囲の有効な指摘と判断して対応した。
+- `EnvironmentBRDFTexture`はStageContextの参照カウントと明示破棄を廃止し、Babylon.jsのScene共有資源として非同期RGBD展開と最終破棄をSceneへ委ねた。
+- `gridAreaCenterToWorld`を追加し、整列・公開処刑・ルーレットが使うゾーン矩形中心を`worldOrigin`、`columnDirection`、`rowDirection`による共通水平変換へ統一した。
+- ステージ切替失敗時は現行requestだけがselectとサイドバーを有効ステージへ戻し、タイトルへエラーを表示する。初期定義・カタログ・コンテキスト構築の失敗もタイトルへ致命エラーを表示するようにした。
+- T02検証は破棄前にGLBのNode、Material、Texture参照を保持して実体残留を検査し、Scene共有BRDFの準備、非対称セル往復、`assembly_area`中心、Babylon Logger、`error`、`unhandledrejection`を検査する全45項目へ強化した。
+- 強化後のT02検証を実ブラウザで2回連続実行し、どちらも全45項目がPASSした。Babylon Logger error、ブラウザerror、unhandled rejection、console warning/errorは0件だった。
+- 通常タイトルで8ステージを順次切り替え、全件で選択値が対象ステージに一致し「左クリック：開始」へ復帰した。console warning/errorは0件だった。
+- レビュー対応後に`npm run build`、`npm run build:t01`、`npm run build:t02`、`git diff --check`が成功した。変更テキスト12件は厳格UTF-8、BOMなしだった。
+- リポジトリ全体の`tsc --noEmit`は、変更外の`portraitSprites.ts`、`input.ts`、`titleSettingsStorage.ts`にある既存3件だけが失敗し、T02変更による追加エラーはなかった。
 - 旧JSONとv2 JSONを機械比較し、意図した`laboratory`の余剰1行削除を除いて、マップ、物理、環境、スポーン、ゾーン、鏡、制作注釈が8件すべて一致することを確認した。
 - `npm run build`、`npm run build:t01`、`npm run build:t02`が成功した。Electron、T01・T02専用TypeScriptの型・構文・括弧対応を確認した。
 - 追加のリポジトリ全体`tsc --noEmit`では、今回未変更の`portraitSprites.ts`、`input.ts`、`titleSettingsStorage.ts`に既存の型エラーが各1件あった。T02変更ファイルの型エラーは0件だった。

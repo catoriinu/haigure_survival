@@ -33,6 +33,7 @@ import {
   CharacterState,
   cellToWorld,
   collectFloorCells,
+  gridAreaCenterToWorld,
   worldToCell,
   createBeam,
   createTrapBeam,
@@ -242,6 +243,10 @@ const titleOverlayController = createTitleOverlayController({
   loadingMessageBase: titleLoadingMessageBase,
   loadingDotIntervalMs: titleLoadingDotIntervalMs
 });
+const formatStageLoadError = (error: unknown) =>
+  `ステージの読み込みに失敗しました: ${
+    error instanceof Error ? error.message : String(error)
+  }`;
 const shuffleIdsInPlace = (ids: string[]) => {
   for (let index = ids.length - 1; index > 0; index -= 1) {
     const swap = Math.floor(Math.random() * (index + 1));
@@ -659,26 +664,36 @@ const initialLoadingSession = createTitleLoadingSession(
 let stageDefinition: Awaited<ReturnType<typeof loadStageDefinition>>;
 try {
   stageDefinition = await loadStageDefinition(stageSelection);
+} catch (error) {
+  initialLoadingSession.finish();
+  titleOverlayController.setError(formatStageLoadError(error));
+  throw error;
 } finally {
   initialLoadingSession.advance();
 }
 const stageSelectionsForMenu: StageSelection[] = Array.from(
   { length: STAGE_CATALOG.length }
 ) as StageSelection[];
-await advanceSessionForEach(
-  STAGE_CATALOG.filter((selection) => selection.id !== stageSelection.id),
-  async (selection) => {
-    const loadedDefinition = await loadStageDefinition(selection);
-    const index = STAGE_CATALOG.findIndex(
-      (candidate) => candidate.id === selection.id
-    );
-    stageSelectionsForMenu[index] = {
-      ...selection,
-      label: buildStageSelectionLabel(selection, loadedDefinition)
-    };
-  },
-  initialLoadingSession
-);
+try {
+  await advanceSessionForEach(
+    STAGE_CATALOG.filter((selection) => selection.id !== stageSelection.id),
+    async (selection) => {
+      const loadedDefinition = await loadStageDefinition(selection);
+      const index = STAGE_CATALOG.findIndex(
+        (candidate) => candidate.id === selection.id
+      );
+      stageSelectionsForMenu[index] = {
+        ...selection,
+        label: buildStageSelectionLabel(selection, loadedDefinition)
+      };
+    },
+    initialLoadingSession
+  );
+} catch (error) {
+  initialLoadingSession.finish();
+  titleOverlayController.setError(formatStageLoadError(error));
+  throw error;
+}
 const selectedStageIndex = STAGE_CATALOG.findIndex(
   (selection) => selection.id === stageSelection.id
 );
@@ -686,7 +701,14 @@ stageSelectionsForMenu[selectedStageIndex] = {
   ...stageSelection,
   label: buildStageSelectionLabel(stageSelection, stageDefinition)
 };
-let stageContext = await buildStageContext(scene, stageDefinition);
+let stageContext: Awaited<ReturnType<typeof buildStageContext>>;
+try {
+  stageContext = await buildStageContext(scene, stageDefinition);
+} catch (error) {
+  initialLoadingSession.finish();
+  titleOverlayController.setError(formatStageLoadError(error));
+  throw error;
+}
 let layout = stageContext.layout;
 let stageStyle = stageContext.style;
 let stageResources = stageContext.resources;
@@ -2241,6 +2263,7 @@ const applyStageSelection = async (selection: StageSelection) => {
   const requestId = stageSelectionRequestId + 1;
   stageSelectionRequestId = requestId;
   stageSelectionInProgress = true;
+  titleOverlayController.clearError();
   titleStartPreparation.cancelScheduled();
   await titleStartPreparation.flush();
   const runtimeSettings = buildRuntimeSettingsForStageId(selection.id);
@@ -2312,6 +2335,15 @@ const applyStageSelection = async (selection: StageSelection) => {
       setHudPhaseOverride(null);
       gameFlow.resetFade();
     }
+    return true;
+  } catch (error) {
+    if (requestId !== stageSelectionRequestId) {
+      return false;
+    }
+    titleStageSelectControl.setSelectedStageId(stageSelection.id);
+    titleSettingsSidebar.setStageId(stageSelection.id);
+    titleOverlayController.setError(formatStageLoadError(error));
+    return false;
   } finally {
     if (requestId === stageSelectionRequestId) {
       stageSelectionInProgress = false;
@@ -2614,11 +2646,9 @@ const setRouletteSpinLoopVolumeRatio = (ratio: number) => {
 
 const setupRouletteParticipants = () => {
   const slotCount = npcs.length + 1;
-  const areaCenterX =
-    -halfWidth + layout.cellSize * (assemblyArea.startCol + assemblyArea.width / 2);
-  const areaCenterZ =
-    -halfDepth + layout.cellSize * (assemblyArea.startRow + assemblyArea.height / 2);
-  rouletteCenter.set(areaCenterX, playerCenterHeight, areaCenterZ);
+  rouletteCenter.copyFrom(
+    gridAreaCenterToWorld(layout, assemblyArea, playerCenterHeight)
+  );
   const maxRadius = Math.max(
     layout.cellSize * 1.6,
     Math.min(

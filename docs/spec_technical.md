@@ -71,7 +71,7 @@ flowchart TD
 | `src/world/stageContext.ts` | v2定義から非同期に描画・衝突・ナビゲーション資源を構築し、コンテキスト単位で破棄 |
 | `src/world/stage.ts` | 床、壁、天井、衝突、鏡面デカールをBabylon.jsメッシュとして生成 |
 | `src/world/grid.ts` | セルレイアウト型とJSON不使用時の既定グリッド生成 |
-| `src/game/gridUtils.ts` | セル座標とワールド座標の相互変換 |
+| `src/game/gridUtils.ts` | セル座標とワールド座標の相互変換、ゾーン矩形中心のワールド変換 |
 
 ### 4.3 キャラクターと戦闘
 
@@ -105,6 +105,7 @@ flowchart TD
 | モジュール | 責務 |
 |---|---|
 | `src/ui/titleSettingsSidebar.ts` | タイトル設定パネルの合成、モード切替、警告、リセット |
+| `src/ui/titleOverlayController.ts` | タイトルの読込進捗とステージ読込エラー表示 |
 | `src/ui/titleSettingsStorage.ts` | localStorageへの保存、読込、値の正規化 |
 | `src/ui/titleStageRules.ts` | ルーレット選択時の設定無効化とランタイム値補正 |
 | `src/ui/input.ts` | キーボード、ポインタ、ポインタロックの入力経路 |
