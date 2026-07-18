@@ -29,7 +29,8 @@ V2ではすべてのマップにおいてJSONではなく、管理方法の設�
 - [x] `StageSpatialContext`、`NavigationWorld`、3Dマーカー、3Dボリューム、衝突・視線集合の型と所有権を確定する
 - [x] GLBの`NAV_*`、`MRK_*`、`VOL_*`、`LNK_*`命名・座標・書き出し・検証規約を確定する
 - [x] Blenderの現在ファイル、dirty状態、オブジェクト一覧を読み取り、B02資産を安全に編集できる状態か確認する
-- [ ] T01小型コースとB02学校でRecast NavMeshの生成、経路、階段、扉、窓、重複床、Web・Electron読込を技術検証する
+- [x] Webの小型3DコースでRecast NavMeshの生成、扉迂回、連続ランプ、到達不能、バイナリ往復を技術検証する
+- [ ] B02学校で階段、扉、窓、重複床、事前ベイク、Web・Electron読込を技術検証する
 - [ ] 実行時生成と事前ベイクの時間・容量・再現性を比較し、NavMeshバイナリ形式と生成コマンドを確定する
 - [ ] 学校用TypeScriptカタログとGLB・NavMeshローダーを実装し、ステージJSONを介さず`StageSpatialContext`を構築する
 - [ ] 学校GLBへプレイヤースポーン、NPC・ビット出現領域、集合領域、禁止領域、ステージ境界の3Dマーカー・ボリュームを追加する
@@ -69,7 +70,9 @@ V2ではすべてのマップにおいてJSONではなく、管理方法の設�
 - 旧T04の`NavCellRef`による多層セル案は廃止し、3D `StageSpatialContext`とNavMeshを導入する計画へ置き換えた。
 - 未完成だったビットLOS差分は実行時の引数ずれを起こすため取り除いた。GLB実メッシュを使う通常ビーム遮蔽差分は新基盤へ移植する候補として未コミットのまま保全している。
 - 現ブランチにはセル方式の学校入口・原点補正・1階ナビ・ビット経路・NPC経路コミットが残っている。履歴のresetは行わず、保持する階段修正と分離して安全なrevertコミットで取り下げる予定である。
-- Babylon.js 6.49.0の`RecastJSPlugin`と`recast-detour` 1.6.4を調査し、GLB由来のナビソースを検証時にベイクして`getNavmeshData()`でバイナリ化し、本編では`buildFromNavmeshData()`で復元する方式を採用候補とした。実行時ベイクは本番経路に置かない。
+- 最初に調査した`RecastJSPlugin`と`recast-detour` 1.6.4は、ViteのES module実行でパッケージ内のtop-level `this`が`undefined`となり初期化できなかった。node_modulesへのパッチや互換wrapperは採用せず、ESMを正式配布する`recast-navigation` 0.43.1へ置き換えた。
+- `validation/v2/T04`へセル・JSONを使わない小型3Dコースを追加した。実ブラウザでRecast初期化、壁を抜けず扉へ迂回する6点経路、終端高0.25mの連続ランプ経路、11,116 byteのNavMeshバイナリ往復、到達不能0点の5項目がすべてPASSし、consoleのwarning・errorは0件だった。
+- 採用候補を`recast-navigation` 0.43.1の`generateSoloNavMesh()`、`NavMeshQuery`、`exportNavMesh()`、`importNavMesh()`へ更新した。本番は事前ベイクNavMeshの読込だけとし、実行時ベイクは検証・制作入口に限定する。
 - 現行B02 GLBはMesh 407件（`VIS_`263件、`COL_`144件）だけで、Empty、node extras、NavMesh生成指定、マーカー、ボリューム、明示境界をまだ含まないことを確認した。
 - Blender確認時点では旧B02 worktree側ファイルが開かれ、`bpy.data.is_dirty=true`だったため、保存・破棄・上書き・編集を行わず停止した。旧B02 Git worktree自体はコミット`4e62adf`でクリーンかつoriginと一致している。ユーザーが保存せず閉じ、現作業worktree側ファイルを開き直してから再監査する。
 - ユーザーが旧ファイルを保存せず閉じ、現作業worktree側のB02ファイルを開き直した。再監査ではパスが`D:\Users\draft\create\fps_survival20251226\assets\blender\v2\B02\b02_school_blockout.blend`、`bpy.data.is_dirty=false`、全430オブジェクト、Mesh 407件、`VIS_`263件、`COL_`144件であり、安全に資産工程へ進める状態を確認した。この確認時点では保存・編集を行っていない。

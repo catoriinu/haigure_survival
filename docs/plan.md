@@ -133,3 +133,4 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - 2026-07-18 23:03 JST時点で、B02ブランチはT03マージ済みの最新`origin/develop`（`a118a46`）と一致している。`git merge --ff-only origin/develop`は`Already up to date`で、T04以降には着手していない。
 - 2026-07-19、ユーザー指示によりV2のJSON文字マップとセルナビゲーションを全面廃止する方針へ変更した。T02のJSON移行成果は履歴として残すが、T04でV2実行経路から削除する。互換層は設けず、当面は学校だけを3Dステージ基盤へ接続する。
 - V2の空間正本をGLBの表示・衝突形状、3Dマーカー、3Dボリュームとし、AI経路はそれらから生成したRecast NavMeshを使用する。事前ベイクしたNavMeshバイナリは派生物として扱い、TypeScriptカタログには非空間情報と資産URLだけを保持する。
+- NavMesh実装はViteでES moduleとして動作する`recast-navigation` 0.43.1を採用候補に確定した。小型3Dコースの実ブラウザ検証で、扉迂回、連続ランプ、バイナリ往復、到達不能を含む5/5項目PASS、consoleのwarning・error 0件を確認した。

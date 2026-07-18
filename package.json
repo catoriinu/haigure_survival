@@ -19,12 +19,16 @@
     "dev:t03": "vite --config vite.t03.config.mts",
     "typecheck:t03": "tsc -p validation/v2/T03/tsconfig.json --noEmit",
     "build:t03": "npm run typecheck:t03 && vite build --config vite.t03.config.mts",
+    "dev:t04": "vite --config vite.t04.config.mts",
+    "typecheck:t04": "tsc -p validation/v2/T04/tsconfig.json --noEmit",
+    "build:t04": "npm run typecheck:t04 && vite build --config vite.t04.config.mts",
     "preview": "vite preview",
     "dist": "npm run build && electron-builder"
   },
   "dependencies": {
     "@babylonjs/core": "^6.49.0",
-    "@babylonjs/loaders": "^6.49.0"
+    "@babylonjs/loaders": "^6.49.0",
+    "recast-navigation": "0.43.1"
   },
   "devDependencies": {
     "@types/node": "^20.10.5",

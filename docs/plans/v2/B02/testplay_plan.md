@@ -162,7 +162,7 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 - [x] JSON・セル依存の限界を調査し、V2では学校の3D空間基盤へ全面移行する方針を確定する
 - [x] 学校テストJSON、セルナビ、セルBFSの暫定コミットを安全なrevertコミットで取り下げる
 - [x] GLB意味オブジェクト、3Dマーカー・ボリューム、NavMesh派生物の資産契約を確定する
-- [ ] Recast NavMeshの生成・バイナリ往復・3D経路を小型検証する
+- [x] Recast NavMeshの生成・バイナリ往復・3D経路を小型検証する
 - [ ] 学校用`StageSpatialContext`、`NavigationWorld`、TypeScriptカタログを実装する
 - [ ] プレイヤー、NPC、ビット、通常ビーム、ビット視線を3D空間基盤へ移行する
 - [ ] V2実行経路からステージJSON、`GridLayout`、`FloorCell`、セル座標処理を削除する
@@ -182,6 +182,7 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 - 3D空間基盤は、GLBを空間正本、Recast NavMeshバイナリをGLBから生成する派生物、TypeScriptカタログを非空間情報だけの索引とする。通常扉・階段は連続NavMesh、梯子・昇降機などだけを`LNK_*`で表す。
 - Blenderは最初の監査で旧B02 worktree側が開かれdirtyだったため無変更で停止した。ユーザーが保存せず閉じて現作業側を開き直し、`bpy.data.filepath`が現worktree、`is_dirty=false`、全430オブジェクト、Mesh 407件、`VIS_`263件、`COL_`144件であることを再確認した。
 - セル方式の5コミットを逆順に`git revert --no-commit`し、学校テストJSON、タイトル入口、カスタム原点補正、学校1階文字セル、ビット・NPCセルBFSだけを取り下げた。階段修正`2c83349`と未コミットの3Dビーム試作は保持した。`npm run build`と`npm run build:t03`の成功後、`revert: 学校テスト用セルナビゲーションを取り下げ`としてコミット`c94302e`へ分離した。
+- NavMesh候補の`recast-detour` 1.6.4はViteのES module実行で初期化不能だったため採用しなかった。ESM対応の`recast-navigation` 0.43.1へ置き換え、セル・JSONを使わない小型3Dコースで初期化、扉迂回、連続ランプ、バイナリ往復、到達不能の5項目を実ブラウザ検証した。5/5項目PASS、warning・error 0件、生成4.40ms、NavMesh 11,116 byteだった。
 
 - 2026-07-18 23:29 JSTに開始確認を実施した。
 - メインworktreeはクリーンな`develop`で、`develop`、`origin/develop`、HEADはいずれもPR #40取込後の`8b25790efbd9afbd151fa3081a8f0faf095b5df5`だった。

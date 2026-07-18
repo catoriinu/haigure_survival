@@ -123,19 +123,19 @@ export interface NavigationWorld {
 
 ## 7. NavMesh生成と読込
 
-採用実装はBabylon.js 6.49.0の`RecastJSPlugin`と`recast-detour` 1.6.4を固定して使用する。
+採用実装は`recast-navigation` 0.43.1を固定して使用する。Babylon.jsの`RecastJSPlugin`へNavMeshの所有権を渡さず、V2の`NavigationWorld` adapterが`NavMesh`と`NavMeshQuery`を直接所有する。
 
 本番起動時にGLB全体からNavMeshを生成しない。T04検証・ベイク入口で次を実行する。
 
 1. 規約準拠GLBを読み、`NAV_*`だけを抽出する。
-2. 固定ベイクプロファイルで`createNavMesh()`する。
+2. `NAV_*`のworld座標三角形をRecastの右手座標・反時計回り規約へ変換し、固定ベイクプロファイルで`generateSoloNavMesh()`または確定後のtiled generatorを実行する。
 3. debug Mesh、扉、階段、閉鎖地点、到達不能領域を検証する。
 4. 代表経路の3D点列と距離を記録する。
-5. `getNavmeshData()`を`.navmesh.bin`へ保存する。
-6. 新規pluginへ`buildFromNavmeshData()`し、代表経路が一致することを確認する。
+5. `exportNavMesh()`の結果を`.navmesh.bin`へ保存する。
+6. `importNavMesh()`で新規`NavMesh`へ復元し、新規`NavMeshQuery`の代表経路が一致することを確認する。
 7. GLB SHA-256、NavMesh SHA-256、Recast版、プロファイルID、生成時間、容量を記録する。
 
-本編はバイナリ読込と`buildFromNavmeshData()`だけを行う。GLBまたはベイク条件を変更した場合はNavMeshを必ず再生成する。
+本編はバイナリ読込、`importNavMesh()`、`NavMeshQuery`構築だけを行う。GLBまたはベイク条件を変更した場合はNavMeshを必ず再生成する。
 
 ## 8. マーカー
 
@@ -201,7 +201,7 @@ T04では学校の通常プレイに必要なプレイヤー、NPC、ビット�
 - `StageSpatialContext`構築に失敗した場合、新ContextのAssetContainer、NavMesh、debug Mesh、イベント購読を破棄し、旧Contextは維持する。
 - 成功時は入力停止、プレイヤー再配置、新Context有効化、旧Context破棄の順に交換する。
 - `dispose()`はステージ所有のMesh、TransformNode、Material、Texture参照、NavMesh adapter、Crowd、debug Mesh、イベント購読を1回だけ解放する。
-- Babylon.js 6.49.0の`RecastJSPlugin.dispose()`だけへWASM資源解放を依存しない。当面はRecast module/pluginをアプリ寿命で1個保持し、学校1ステージだけを扱う。
+- `recast-navigation`のWASM moduleはアプリ寿命で1回だけ初期化する。ステージごとの`NavMeshQuery`、`NavMesh`、debug Meshは`NavigationWorld.dispose()`で明示的に破棄する。
 - 複数3Dステージを再導入する前に、NavMesh再構築時の明示破棄とWASMメモリ推移を専用試験する。
 
 ## 14. 検証条件
