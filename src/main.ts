@@ -124,14 +124,17 @@ import {
   type PlayerAbilityFrameSnapshot
 } from "./game/playerAbility";
 import { createPlayerMotionController } from "./game/playerMotion";
-import { buildStageContext, disposeStageParts } from "./world/stageContext";
-import { createZoneMapFromStageJson } from "./world/stageJson";
+import {
+  buildStageContext,
+  disposeStageContext
+} from "./world/stageContext";
+import { getPlayerSpawnMarkerFromStageDefinition } from "./world/stageJson";
 import {
   LABYRINTH_DYNAMIC_STAGE_ID,
   TRAP_STAGE_ID
 } from "./world/stageIds";
 import {
-  loadStageJson,
+  loadStageDefinition,
   STAGE_CATALOG,
   type StageSelection
 } from "./world/stageSelection";
@@ -596,8 +599,8 @@ let stageSelectionInProgress = false;
 let titleTransitionInProgress = false;
 const buildStageSelectionLabel = (
   selection: StageSelection,
-  loadedStageJson: Awaited<ReturnType<typeof loadStageJson>>
-) => loadedStageJson?.meta.description ?? selection.label;
+  loadedDefinition: Awaited<ReturnType<typeof loadStageDefinition>>
+) => loadedDefinition.meta.description ?? selection.label;
 const buildTitleStartPreparationFingerprint = () =>
   JSON.stringify({
     stageId: stageSelection.id,
@@ -653,26 +656,25 @@ const initialLoadingSession = createTitleLoadingSession(
   STAGE_CATALOG.length +
     countUnloadedPortraitDirectoriesForAssignments(initialCharacterAssignments)
 );
-let stageJson: Awaited<ReturnType<typeof loadStageJson>>;
+let stageDefinition: Awaited<ReturnType<typeof loadStageDefinition>>;
 try {
-  stageJson = await loadStageJson(stageSelection);
+  stageDefinition = await loadStageDefinition(stageSelection);
 } finally {
   initialLoadingSession.advance();
 }
-let stageZoneMap = stageJson ? createZoneMapFromStageJson(stageJson) : null;
 const stageSelectionsForMenu: StageSelection[] = Array.from(
   { length: STAGE_CATALOG.length }
 ) as StageSelection[];
 await advanceSessionForEach(
   STAGE_CATALOG.filter((selection) => selection.id !== stageSelection.id),
   async (selection) => {
-    const loadedStageJson = await loadStageJson(selection);
+    const loadedDefinition = await loadStageDefinition(selection);
     const index = STAGE_CATALOG.findIndex(
       (candidate) => candidate.id === selection.id
     );
     stageSelectionsForMenu[index] = {
       ...selection,
-      label: buildStageSelectionLabel(selection, loadedStageJson)
+      label: buildStageSelectionLabel(selection, loadedDefinition)
     };
   },
   initialLoadingSession
@@ -682,13 +684,14 @@ const selectedStageIndex = STAGE_CATALOG.findIndex(
 );
 stageSelectionsForMenu[selectedStageIndex] = {
   ...stageSelection,
-  label: buildStageSelectionLabel(stageSelection, stageJson)
+  label: buildStageSelectionLabel(stageSelection, stageDefinition)
 };
-let stageContext = buildStageContext(scene, stageJson);
+let stageContext = await buildStageContext(scene, stageDefinition);
 let layout = stageContext.layout;
 let stageStyle = stageContext.style;
-let stageParts = stageContext.parts;
-let stageColliderSet = new Set(stageParts.colliders);
+let stageResources = stageContext.resources;
+let stageColliderSet = new Set(stageResources.colliders);
+let stageZoneMap = stageContext.zoneMap;
 let room = stageContext.room;
 let assemblyArea = stageContext.assemblyArea;
 let skipAssembly = stageContext.skipAssembly;
@@ -698,14 +701,7 @@ let minimapCellSize = layout.cellSize;
 let spawnPosition = new Vector3(0, 0, 0);
 let floorCells = collectFloorCells(layout);
 let spawnableCells = floorCells;
-let bounds: StageBounds = {
-  minX: -halfWidth,
-  maxX: halfWidth,
-  minZ: -halfDepth,
-  maxZ: halfDepth,
-  minY: 0,
-  maxY: room.height
-};
+let bounds: StageBounds = stageContext.bounds;
 
 const buildSpawnForwardTowardCenter = (position: Vector3) => {
   const towardCenter = new Vector3(-position.x, 0, -position.z);
@@ -716,9 +712,7 @@ const buildSpawnForwardTowardCenter = (position: Vector3) => {
 };
 
 const getPlayerSpawnMarker = () =>
-  stageJson?.gameplay.markers.find(
-    (marker) => marker.id === "spawn_player" && marker.type === "spawn"
-  ) ?? null;
+  getPlayerSpawnMarkerFromStageDefinition(stageDefinition);
 
 const hasPlayerSpawnTag = (tag: string) =>
   getPlayerSpawnMarker()?.tags?.includes(tag) === true;
@@ -752,10 +746,10 @@ const updateSpawnPoint = () => {
 
 const updateStageState = () => {
   layout = stageContext.layout;
-  stageZoneMap = stageJson ? createZoneMapFromStageJson(stageJson) : null;
+  stageZoneMap = stageContext.zoneMap;
   stageStyle = stageContext.style;
-  stageParts = stageContext.parts;
-  stageColliderSet = new Set(stageParts.colliders);
+  stageResources = stageContext.resources;
+  stageColliderSet = new Set(stageResources.colliders);
   room = stageContext.room;
   scene.clearColor = stageContext.environment.skyColor ?? defaultClearColor.clone();
   assemblyArea = stageContext.assemblyArea;
@@ -774,14 +768,7 @@ const updateStageState = () => {
     (cell) => !noSpawnKeys.has(`${cell.row},${cell.col}`)
   );
   updateSpawnPoint();
-  bounds = {
-    minX: -halfWidth,
-    maxX: halfWidth,
-    minZ: -halfDepth,
-    maxZ: halfDepth,
-    minY: 0,
-    maxY: room.height
-  };
+  bounds = stageContext.bounds;
   portraitCellSize = layout.cellSize;
 };
 
@@ -1845,15 +1832,15 @@ titleStartPreparation.markReady({
 titleOverlayController.setInstantExecutionMode(titleInstantExecutionMode);
 
 const clearStageReflectiveResources = () => {
-  for (const reflectiveMaterial of stageParts.reflectiveMaterials) {
+  for (const reflectiveMaterial of stageResources.reflectiveMaterials) {
     reflectiveMaterial.dispose();
   }
-  stageParts.reflectiveMaterials.length = 0;
-  for (const reflectiveTexture of stageParts.reflectiveTextures) {
+  stageResources.reflectiveMaterials.length = 0;
+  for (const reflectiveTexture of stageResources.reflectiveTextures) {
     reflectiveTexture.dispose();
   }
-  stageParts.reflectiveTextures.length = 0;
-  for (const reflectiveSurface of stageParts.reflectiveSurfaces) {
+  stageResources.reflectiveTextures.length = 0;
+  for (const reflectiveSurface of stageResources.reflectiveSurfaces) {
     reflectiveSurface.mesh.material = null;
   }
 };
@@ -1906,16 +1893,16 @@ const createReflectiveMaterial = (
 };
 const syncStageReflectiveSurfaces = () => {
   clearStageReflectiveResources();
-  if (stageParts.reflectiveSurfaces.length === 0) {
+  if (stageResources.reflectiveSurfaces.length === 0) {
     return;
   }
   const excludedReflectiveMeshIds = new Set(
-    stageParts.reflectiveSurfaces.map(
+    stageResources.reflectiveSurfaces.map(
       (reflectiveSurface) => reflectiveSurface.mesh.uniqueId
     )
   );
-  for (let index = 0; index < stageParts.reflectiveSurfaces.length; index += 1) {
-    const reflectiveSurface = stageParts.reflectiveSurfaces[index];
+  for (let index = 0; index < stageResources.reflectiveSurfaces.length; index += 1) {
+    const reflectiveSurface = stageResources.reflectiveSurfaces[index];
     const reflectionTexture = createReflectionTexture(
       `mirrorReflectionTexture_${index}`,
       reflectiveSurface.mirrorPlane,
@@ -1923,7 +1910,7 @@ const syncStageReflectiveSurfaces = () => {
       1,
       excludedReflectiveMeshIds
     );
-    stageParts.reflectiveTextures.push(reflectionTexture);
+    stageResources.reflectiveTextures.push(reflectionTexture);
     const material = createReflectiveMaterial(
       `mirrorMaterial_${index}`,
       reflectionTexture,
@@ -1931,7 +1918,7 @@ const syncStageReflectiveSurfaces = () => {
       reflectiveSurface.amount
     );
     reflectiveSurface.mesh.material = material;
-    stageParts.reflectiveMaterials.push(material);
+    stageResources.reflectiveMaterials.push(material);
   }
 };
 syncStageReflectiveSurfaces();
@@ -2256,11 +2243,6 @@ const applyStageSelection = async (selection: StageSelection) => {
   stageSelectionInProgress = true;
   titleStartPreparation.cancelScheduled();
   await titleStartPreparation.flush();
-  stageSelection = selection;
-  titleStartPreparation.invalidateReady();
-  saveTitleSettings();
-  titleStageSelectControl.setSelectedStageId(selection.id);
-  titleSettingsSidebar.setStageId(selection.id);
   const runtimeSettings = buildRuntimeSettingsForStageId(selection.id);
   const nextCharacterAssignments = buildCharacterAssignments(
     runtimeSettings.runtimeDefaultStartSettings.initialNpcCount,
@@ -2270,22 +2252,30 @@ const applyStageSelection = async (selection: StageSelection) => {
     1 + countUnloadedPortraitDirectoriesForAssignments(nextCharacterAssignments)
   );
   try {
-    let loadedStageJson: Awaited<ReturnType<typeof loadStageJson>>;
+    let loadedDefinition: Awaited<ReturnType<typeof loadStageDefinition>>;
     try {
-      loadedStageJson = await loadStageJson(selection);
+      loadedDefinition = await loadStageDefinition(selection);
     } finally {
       loadingSession.advance();
     }
+    const nextStageContext = await buildStageContext(scene, loadedDefinition);
     if (requestId !== stageSelectionRequestId) {
+      disposeStageContext(nextStageContext);
       return;
     }
     if (gamePhase !== "title") {
+      disposeStageContext(nextStageContext);
       return;
     }
-    stageJson = loadedStageJson;
+    stageSelection = selection;
+    stageDefinition = loadedDefinition;
+    titleStartPreparation.invalidateReady();
+    saveTitleSettings();
+    titleStageSelectControl.setSelectedStageId(selection.id);
+    titleSettingsSidebar.setStageId(selection.id);
     disposeAllGroundShadows();
-    disposeStageParts(stageParts);
-    stageContext = buildStageContext(scene, stageJson);
+    disposeStageContext(stageContext);
+    stageContext = nextStageContext;
     updateStageState();
     syncStageReflectiveSurfaces();
     trapSystem.syncStageContext({ layout, bounds });
@@ -3734,7 +3724,7 @@ const startInstantExecution = async () => {
     }
     applyRuntimeSettings(request.runtimeSettings);
     rebindVoiceActors();
-    const bgmUrl = selectBgmUrl(stageJson ? stageJson.meta.name : null);
+    const bgmUrl = selectBgmUrl(stageDefinition.meta.name);
     if (bgmUrl) {
       audioManager.startBgm(bgmUrl);
     }
@@ -3765,7 +3755,7 @@ const startGame = async () => {
     applyRuntimeSettings(preparedState.runtimeSettings);
     rebindVoiceActors();
     const rouletteSelected = preparedState.runtimeSettings.rouletteSelected;
-    const bgmUrl = selectBgmUrl(stageJson ? stageJson.meta.name : null);
+    const bgmUrl = selectBgmUrl(stageDefinition.meta.name);
     if (bgmUrl) {
       audioManager.startBgm(bgmUrl);
     }

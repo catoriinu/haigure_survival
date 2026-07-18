@@ -1,8 +1,8 @@
 # HAIGURE SURVIVAL 技術・アーキテクチャ仕様書
 
 更新日: 2026-07-18
-対象バージョン: 1.3.1
-基準コミット: `bb3b5c5`
+対象バージョン: v2（T02完了時点）
+基準develop: `0c8b438`
 
 ## 1. 文書の位置付け
 
@@ -66,9 +66,9 @@ flowchart TD
 
 | モジュール | 責務 |
 |---|---|
-| `src/world/stageSelection.ts` | 8ステージのカタログとJSON取得 |
-| `src/world/stageJson.ts` | JSON型、X反転、`mapScale` 展開、グリッド・環境・デカール・整列領域への変換 |
-| `src/world/stageContext.ts` | JSONからステージ描画に必要なレイアウト、スタイル、環境、部品を構築 |
+| `src/world/stageSelection.ts` | 8ステージのカタログとv2定義取得、版・種別判定 |
+| `src/world/stageJson.ts` | `StageDefinitionV2`、procedural-grid／GLB座標、グリッド・環境・ゲームプレイ変換 |
+| `src/world/stageContext.ts` | v2定義から非同期に描画・衝突・ナビゲーション資源を構築し、コンテキスト単位で破棄 |
 | `src/world/stage.ts` | 床、壁、天井、衝突、鏡面デカールをBabylon.jsメッシュとして生成 |
 | `src/world/grid.ts` | セルレイアウト型とJSON不使用時の既定グリッド生成 |
 | `src/game/gridUtils.ts` | セル座標とワールド座標の相互変換 |
@@ -117,34 +117,32 @@ flowchart TD
 
 1. `main.ts` がCanvas、Engine、Scene、タイトルUI、設定パネルを初期化する。
 2. localStorageから設定を読み、ステージID、音量、各設定値を正規化する。
-3. 選択中ステージJSONを `fetch(..., { cache: "no-store" })` で取得する。
+3. 選択中のv2ステージ定義を `fetch(..., { cache: "no-store" })` で取得し、版とUnion判別子を確認する。
 4. キャラクター割当を作成し、必要なポートレートスプライトシートだけを遅延生成する。
 5. タイトル設定の指紋が変わると開始準備をデバウンスし、同じ設定の準備結果を再利用する。
 6. 左クリック時に準備完了を待ち、通常開始またはいきなり公開処刑開始へ進む。
 
-ステージ取得に失敗した場合、`loadStageJson` は `null` を返し、組込みの3部屋グリッドへフォールバックする。JSON取得後の項目検証は行わないため、構造不備は後段の例外となり得る。
+ステージ取得失敗、未対応版、未知の種別はエラーとする。旧JSON形式や組込み3部屋グリッドへのフォールバックは行わない。全項目を検証する汎用スキーマ検証器は持たず、規約準拠データを前提とする。
 
 ## 6. ステージ構築データフロー
 
 ```mermaid
 flowchart LR
-    JSON["public/stage/*.json"] --> Load["loadStageJson"]
-    Load --> Convert["stageJson.ts"]
-    Convert --> Grid["GridLayout"]
-    Convert --> Env["envMap / sky / decals"]
-    Convert --> Area["assemblyArea / skipAssembly"]
-    Grid --> Context["buildStageContext"]
-    Env --> Context
-    Area --> Context
-    Context --> Mesh["floor / wall / ceiling / collider / mirror"]
-    Context --> Runtime["NPC / bit / special systems"]
+    JSON["StageDefinitionV2"] --> Load["loadStageDefinition"]
+    Load --> Kind{"kind"}
+    Kind -->|"procedural-grid"| Proc["グリッドから床・壁・天井・鏡を生成"]
+    Kind -->|"glb"| GLB["AssetContainerでVIS/COLを読込"]
+    Proc --> Context["非同期StageContext"]
+    GLB --> Context
+    Context --> Runtime["GridLayout / zone / collider / gameplay"]
+    Context --> Dispose["disposeStageContext"]
 ```
 
-- JSON上の列は全行を左右反転してから内部列へ変換する。
-- `mapScale.x` と `mapScale.z` に従い、1文字を複数セルへ展開する。
-- 基本セルサイズは `1 / 3` ワールド単位である。
-- `heightCells`、天井高、マーカー、ゾーン、デカールも同じ座標規則へ変換する。
-- ステージ切替時は既存の床、壁、天井、衝突、材質、反射資源を破棄して再構築する。
+- procedural-gridはJSON列を左右反転し、`mapScale`に従って展開する。既存8ステージのセルサイズは`1 / 3`ワールド単位である。
+- GLBの平面グリッドはBlender資産原点・メートル基準で、列`+X`／行`+Y`をBabylon `-X`／`-Z`へ0.25倍変換する。
+- `GridLayout`はセル(0,0)のワールド中心と行・列方向を保持し、両形式のセル／ワールド変換を共通化する。
+- 新コンテキストを完成させてから旧コンテキストを破棄し、競合して古くなったロード結果は即時破棄する。
+- procedural-gridは生成Mesh、Material、Texture、反射資源を、GLBはAssetContainer、管理ノード、作者Mesh、Material、Textureをまとめて破棄する。
 
 ## 7. ゲームフェーズ
 
@@ -292,7 +290,7 @@ Viteの `import.meta.glob` を使用するため、素材一覧はビルド時�
 ## 16. 現行実装上の制約
 
 - 自動テスト用スクリプトはpackage.jsonに定義されておらず、主な静的検証はTypeScriptビルドである。
-- ステージJSONはTypeScript型へキャストするだけで、ランタイムスキーマ検証を行わない。
+- v2ステージ定義は版とUnion判別子だけを実行時確認し、全項目のランタイムスキーマ検証は行わない。
 - `main.ts` が多数のランタイム状態とシステム接続を保持するため、開始・リセット・タイトル復帰の変更は複数システムの破棄・再同期を確認する必要がある。
 - 専用ステージ機能はカタログIDとの一致を前提とする。
 - JSONの一部フィールドは型上存在するが未使用である。詳細はステージJSON仕様書を参照すること。

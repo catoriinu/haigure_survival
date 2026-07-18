@@ -1,4 +1,7 @@
-﻿import { DEFAULT_GRID_CONFIG, type CellType, type GridLayout } from "./grid";
+import { DEFAULT_GRID_CONFIG, type CellType, type GridLayout } from "./grid";
+
+export const STAGE_DEFINITION_SCHEMA_VERSION = 2 as const;
+export const BLENDER_METERS_TO_BABYLON_UNITS = 0.25;
 
 export type StageCellPhysicsDef = {
   solid: boolean;
@@ -74,10 +77,6 @@ export type StageDecal = {
   reflective?: StageDecalReflectiveStyle;
 };
 
-export type StageGameplayOptions = {
-  skipAssembly: boolean;
-};
-
 export type StageArea = {
   startCol: number;
   startRow: number;
@@ -85,49 +84,72 @@ export type StageArea = {
   height: number;
 };
 
-export type StageSemantics = {
-  channels: {
-    env: string[];
-    zone?: string[];
-  };
-  brief?: {
-    env?: Record<string, string>;
-    zone?: Record<string, string>;
-  };
-};
-
-export type StageJson = {
+export type StageDefinitionCommonV2 = {
+  schemaVersion: typeof STAGE_DEFINITION_SCHEMA_VERSION;
   meta: {
     name: string;
     description?: string;
-    size?: {
-      width: number;
-      height: number;
+  };
+  gameplay: {
+    markers: StageMarker[];
+    zones: StageZone[];
+    options: {
+      skipAssembly: boolean;
     };
+  };
+  authoring?: {
+    symbols?: {
+      env?: Record<string, string>;
+      zone?: Record<string, string>;
+    };
+    zoneRules?: Record<string, unknown>;
+  };
+};
+
+export type ProceduralGridStageDefinitionV2 = StageDefinitionCommonV2 & {
+  kind: "procedural-grid";
+  grid: {
+    cellSize: number;
     mapScale: {
       x: number;
       z: number;
     };
+    cellPhysics: Record<string, StageCellPhysicsDef>;
+    mainMap: string[];
+    zoneMap?: string[];
   };
-  cellPhysics: Record<string, StageCellPhysicsDef>;
-  mainMap: string[];
-  semantics: StageSemantics;
-  generationRules: {
-    env: Record<string, StageEnvRule>;
+  rendering: {
+    environmentMap: string[];
+    environmentRules: Record<string, StageEnvRule>;
+    decals: StageDecal[];
   };
-  entities: unknown[];
-  decals: StageDecal[];
-  gameplay: {
-    markers: StageMarker[];
-    zones: StageZone[];
-    spawners: unknown[];
-    triggers: unknown[];
-    options: StageGameplayOptions;
-  };
-  overrides: unknown;
 };
 
-type StageMapScale = StageJson["meta"]["mapScale"];
+export type GlbStageDefinitionV2 = StageDefinitionCommonV2 & {
+  kind: "glb";
+  asset: {
+    path: string;
+  };
+  navigation: {
+    cellSizeMeters: number;
+    originMeters: {
+      x: number;
+      y: number;
+    };
+    cellPhysics: Record<string, StageCellPhysicsDef>;
+    mainMap: string[];
+    zoneMap?: string[];
+  };
+  environment: {
+    skyColor?: string;
+  };
+};
+
+export type StageDefinitionV2 =
+  | ProceduralGridStageDefinitionV2
+  | GlbStageDefinitionV2;
+
+type StageMapScale = ProceduralGridStageDefinitionV2["grid"]["mapScale"];
 type StageMapWidth = {
   width: number;
 };
@@ -182,15 +204,11 @@ const expandSymbolMap = (
   rows: string[],
   mapScale: StageMapScale
 ): string[][] => {
-  const baseRows = rows.length;
-  const baseColumns = rows[0].length;
   const expanded: string[][] = [];
 
-  for (let row = 0; row < baseRows; row += 1) {
-    const rowText = rows[row];
+  for (const rowText of rows) {
     const expandedSymbols: string[] = [];
-    for (let col = 0; col < baseColumns; col += 1) {
-      const cellSymbol = rowText[col];
+    for (const cellSymbol of rowText) {
       for (let x = 0; x < mapScale.x; x += 1) {
         expandedSymbols.push(cellSymbol);
       }
@@ -236,138 +254,202 @@ const createCellDataFromSymbolMap = (
   return { cells, cellHeights, cellNoRender };
 };
 
-export const getAssemblyAreaFromStageJson = (stageJson: StageJson): StageArea => {
-  const mapSize = getStageMapWidth(stageJson.mainMap);
-  const assemblyZone = flipStageZoneX(
-    stageJson.gameplay.zones.find(
+const getDefinitionRows = (definition: StageDefinitionV2) =>
+  definition.kind === "procedural-grid"
+    ? definition.grid.mainMap
+    : definition.navigation.mainMap;
+
+const getDefinitionMapScale = (
+  definition: StageDefinitionV2
+): StageMapScale =>
+  definition.kind === "procedural-grid"
+    ? definition.grid.mapScale
+    : { x: 1, z: 1 };
+
+const transformMarker = (
+  definition: StageDefinitionV2,
+  marker: StageMarker
+) =>
+  definition.kind === "procedural-grid"
+    ? flipStageMarkerX(marker, getStageMapWidth(definition.grid.mainMap))
+    : marker;
+
+const transformZone = (definition: StageDefinitionV2, zone: StageZone) =>
+  definition.kind === "procedural-grid"
+    ? flipStageZoneX(zone, getStageMapWidth(definition.grid.mainMap))
+    : zone;
+
+export const getAssemblyAreaFromStageDefinition = (
+  definition: StageDefinitionV2
+): StageArea => {
+  const assemblyZone = transformZone(
+    definition,
+    definition.gameplay.zones.find(
       (zone) => zone.id === "assembly_area"
-    ) as StageZone,
-    mapSize
+    ) as StageZone
   );
-  const scaleX = stageJson.meta.mapScale.x;
-  const scaleZ = stageJson.meta.mapScale.z;
+  const scale = getDefinitionMapScale(definition);
   return {
-    startCol: assemblyZone.x * scaleX,
-    startRow: assemblyZone.z * scaleZ,
-    width: assemblyZone.w * scaleX,
-    height: assemblyZone.h * scaleZ
+    startCol: assemblyZone.x * scale.x,
+    startRow: assemblyZone.z * scale.z,
+    width: assemblyZone.w * scale.x,
+    height: assemblyZone.h * scale.z
   };
 };
 
-export const createEnvMapFromStageJson = (
-  stageJson: StageJson
-): string[][] => {
-  return expandSymbolMap(
-    flipStageColumns(stageJson.semantics.channels.env),
-    stageJson.meta.mapScale
+export const getPlayerSpawnMarkerFromStageDefinition = (
+  definition: StageDefinitionV2
+): StageMarker | null => {
+  const marker = definition.gameplay.markers.find(
+    (candidate) =>
+      candidate.id === "spawn_player" && candidate.type === "spawn"
   );
+  return marker ? transformMarker(definition, marker) : null;
 };
 
-export const createZoneMapFromStageJson = (
-  stageJson: StageJson
+export const createEnvMapFromStageDefinition = (
+  definition: ProceduralGridStageDefinitionV2
+): string[][] =>
+  expandSymbolMap(
+    flipStageColumns(definition.rendering.environmentMap),
+    definition.grid.mapScale
+  );
+
+export const createZoneMapFromStageDefinition = (
+  definition: StageDefinitionV2
 ): string[][] | null => {
-  const zone = stageJson.semantics.channels.zone;
-  if (!zone) {
+  const rows =
+    definition.kind === "procedural-grid"
+      ? definition.grid.zoneMap
+      : definition.navigation.zoneMap;
+  if (!rows) {
     return null;
   }
-  return expandSymbolMap(
-    flipStageColumns(zone),
-    stageJson.meta.mapScale
+  if (definition.kind === "procedural-grid") {
+    return expandSymbolMap(flipStageColumns(rows), definition.grid.mapScale);
+  }
+  return rows.map((row) => [...row]);
+};
+
+export const createStageDecalsFromStageDefinition = (
+  definition: ProceduralGridStageDefinitionV2
+): StageDecal[] => {
+  const mapSize = getStageMapWidth(definition.grid.mainMap);
+  return definition.rendering.decals.map((decal) =>
+    flipStageDecalX(decal, mapSize)
   );
 };
 
-export const createStageDecalsFromStageJson = (
-  stageJson: StageJson
-): StageDecal[] => {
-  const mapSize = getStageMapWidth(stageJson.mainMap);
-  return stageJson.decals.map((decal) => flipStageDecalX(decal, mapSize));
+export const getSkyColorFromStageDefinition = (
+  definition: StageDefinitionV2
+): string | null => {
+  if (definition.kind === "glb") {
+    return definition.environment.skyColor ?? null;
+  }
+  return definition.rendering.environmentRules.O?.sky?.color ?? null;
 };
 
-export const getSkyColorFromStageJson = (
-  stageJson: StageJson
-): string | null => stageJson.generationRules.env.O?.sky?.color ?? null;
-
-export type StageEnvironmentData = {
-  envMap: string[][];
-  skyColor: string | null;
-};
-
-export const createStageEnvironmentFromStageJson = (
-  stageJson: StageJson
-): StageEnvironmentData => ({
-  envMap: createEnvMapFromStageJson(stageJson),
-  skyColor: getSkyColorFromStageJson(stageJson)
+export const createStageEnvironmentFromStageDefinition = (
+  definition: ProceduralGridStageDefinitionV2
+) => ({
+  envMap: createEnvMapFromStageDefinition(definition),
+  skyColor: getSkyColorFromStageDefinition(definition)
 });
 
-export const createGridLayoutFromStageJson = (
-  stageJson: StageJson
-): GridLayout => {
-  const scaleX = stageJson.meta.mapScale.x;
-  const scaleZ = stageJson.meta.mapScale.z;
-  const mapSize = getStageMapWidth(stageJson.mainMap);
-  const maxHeightCells = Math.max(
-    ...Object.values(stageJson.cellPhysics).map(
-      (definition) => definition.heightCells
-    )
-  );
-  const fallbackWallHeightCells = maxHeightCells;
-  const cellSize = DEFAULT_GRID_CONFIG.cellSize;
-  const symbolMap = expandSymbolMap(
-    flipStageColumns(stageJson.mainMap),
-    stageJson.meta.mapScale
-  );
-  const rows = symbolMap.length;
-  const columns = symbolMap[0].length;
-  const { cells, cellHeights, cellNoRender } = createCellDataFromSymbolMap(
-    symbolMap,
-    stageJson.cellPhysics,
-    cellSize,
-    fallbackWallHeightCells
-  );
-
-  const ceiling = Object.values(stageJson.generationRules.env)[0].ceiling;
-  const ceilingHeight =
-    ceiling === null ? null : ceiling.heightCells * cellSize;
-  const maxWallHeight = maxHeightCells * cellSize;
-  const height = Math.max(maxWallHeight, ceilingHeight ?? 0);
-  const spawnMarker = flipStageMarkerX(
-    stageJson.gameplay.markers.find(
-      (marker) => marker.type === "spawn"
-    ) as StageMarker,
-    mapSize
-  );
-  const spawn = {
-    row: spawnMarker.z * scaleZ + Math.floor(scaleZ / 2),
-    col: spawnMarker.x * scaleX + Math.floor(scaleX / 2)
-  };
+const createNoSpawnCells = (
+  definition: StageDefinitionV2,
+  scale: StageMapScale
+) => {
   const noSpawnCells: { row: number; col: number }[] = [];
-
-  for (const zone of stageJson.gameplay.zones) {
+  for (const zone of definition.gameplay.zones) {
     if (zone.type !== "noEnemySpawn") {
       continue;
     }
-    const flippedZone = flipStageZoneX(zone, mapSize);
-    const startRow = flippedZone.z * scaleZ;
-    const startCol = flippedZone.x * scaleX;
-    const zoneHeight = flippedZone.h * scaleZ;
-    const zoneWidth = flippedZone.w * scaleX;
+    const transformedZone = transformZone(definition, zone);
+    const startRow = transformedZone.z * scale.z;
+    const startCol = transformedZone.x * scale.x;
+    const zoneHeight = transformedZone.h * scale.z;
+    const zoneWidth = transformedZone.w * scale.x;
     for (let row = startRow; row < startRow + zoneHeight; row += 1) {
       for (let col = startCol; col < startCol + zoneWidth; col += 1) {
         noSpawnCells.push({ row, col });
       }
     }
   }
+  return noSpawnCells;
+};
+
+export const createGridLayoutFromStageDefinition = (
+  definition: StageDefinitionV2
+): GridLayout => {
+  const procedural = definition.kind === "procedural-grid";
+  const rows = getDefinitionRows(definition);
+  const scale = getDefinitionMapScale(definition);
+  const cellPhysics = procedural
+    ? definition.grid.cellPhysics
+    : definition.navigation.cellPhysics;
+  const cellSize = procedural
+    ? definition.grid.cellSize
+    : definition.navigation.cellSizeMeters * BLENDER_METERS_TO_BABYLON_UNITS;
+  const maxHeightCells = Math.max(
+    ...Object.values(cellPhysics).map((item) => item.heightCells)
+  );
+  const symbolMap = procedural
+    ? expandSymbolMap(flipStageColumns(rows), scale)
+    : rows.map((row) => [...row]);
+  const { cells, cellHeights, cellNoRender } = createCellDataFromSymbolMap(
+    symbolMap,
+    cellPhysics,
+    cellSize,
+    maxHeightCells
+  );
+  const expandedRows = symbolMap.length;
+  const columns = symbolMap[0].length;
+  const ceiling = procedural
+    ? Object.values(definition.rendering.environmentRules)[0].ceiling
+    : null;
+  const ceilingHeight =
+    ceiling === null ? null : ceiling.heightCells * cellSize;
+  const height = Math.max(maxHeightCells * cellSize, ceilingHeight ?? 0);
+  const spawnMarker = transformMarker(
+    definition,
+    definition.gameplay.markers.find(
+      (marker) => marker.type === "spawn"
+    ) as StageMarker
+  );
+  const spawn = {
+    row: spawnMarker.z * scale.z + Math.floor(scale.z / 2),
+    col: spawnMarker.x * scale.x + Math.floor(scale.x / 2)
+  };
+  const worldOrigin = procedural
+    ? {
+        x: -(columns * cellSize) / 2 + cellSize / 2,
+        z: -(expandedRows * cellSize) / 2 + cellSize / 2
+      }
+    : {
+        x:
+          -definition.navigation.originMeters.x *
+          BLENDER_METERS_TO_BABYLON_UNITS,
+        z:
+          -definition.navigation.originMeters.y *
+          BLENDER_METERS_TO_BABYLON_UNITS
+      };
 
   return {
     columns,
-    rows,
+    rows: expandedRows,
     cellSize,
+    worldOrigin,
+    columnDirection: procedural ? { x: 1, z: 0 } : { x: -1, z: 0 },
+    rowDirection: procedural ? { x: 0, z: 1 } : { x: 0, z: -1 },
     height,
     ceilingHeight,
     cellNoRender,
     spawn,
-    noSpawnCells,
+    noSpawnCells: createNoSpawnCells(definition, scale),
     cells,
     cellHeights
   };
 };
+
+export const DEFAULT_STAGE_GRID_CELL_SIZE = DEFAULT_GRID_CONFIG.cellSize;

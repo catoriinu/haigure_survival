@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 2,
+  "kind": "glb",
+  "meta": {
+    "name": "t01_glb_collision_course",
+    "description": "T01 立体テストコース"
+  },
+  "asset": {
+    "path": "stage-assets/v2/T01/t01_glb_collision_course.glb"
+  },
+  "navigation": {
+    "cellSizeMeters": 1,
+    "originMeters": {
+      "x": -4,
+      "y": 0.5
+    },
+    "cellPhysics": {
+      ".": {
+        "solid": false,
+        "heightCells": 0
+      }
+    },
+    "mainMap": [
+      ".........",
+      ".........",
+      ".........",
+      ".........",
+      ".........",
+      ".........",
+      ".........",
+      ".........",
+      ".........",
+      "........."
+    ]
+  },
+  "environment": {
+    "skyColor": "#06111c"
+  },
+  "gameplay": {
+    "markers": [
+      {
+        "id": "spawn_player",
+        "type": "spawn",
+        "x": 4,
+        "z": 0,
+        "rotY": 0
+      }
+    ],
+    "zones": [
+      {
+        "id": "assembly_area",
+        "type": "safeZone",
+        "x": 3,
+        "z": 0,
+        "w": 3,
+        "h": 2,
+        "tags": [
+          "all_down",
+          "execution"
+        ]
+      }
+    ],
+    "options": {
+      "skipAssembly": true
+    }
+  },
+  "authoring": {
+    "symbols": {
+      "zone": {
+        ".": "T02時点の平面ナビゲーションセル"
+      }
+    }
+  }
+}

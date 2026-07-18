@@ -4,6 +4,18 @@ export type GridLayout = {
   columns: number;
   rows: number;
   cellSize: number;
+  worldOrigin: {
+    x: number;
+    z: number;
+  };
+  columnDirection: {
+    x: number;
+    z: number;
+  };
+  rowDirection: {
+    x: number;
+    z: number;
+  };
   height: number;
   ceilingHeight: number | null;
   cellNoRender: boolean[][];
@@ -166,6 +178,12 @@ const buildThreeRoomsLinear = (config: GridConfig): GridLayout => {
     columns: config.columns,
     rows: config.rows,
     cellSize: config.cellSize,
+    worldOrigin: {
+      x: -(config.columns * config.cellSize) / 2 + config.cellSize / 2,
+      z: -(config.rows * config.cellSize) / 2 + config.cellSize / 2
+    },
+    columnDirection: { x: 1, z: 0 },
+    rowDirection: { x: 0, z: 1 },
     height: config.height,
     ceilingHeight: config.height,
     cellNoRender,

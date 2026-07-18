@@ -19,48 +19,48 @@ export const cellToWorld = (
   cell: FloorCell,
   y: number
 ) => {
-  const halfWidth = (layout.columns * layout.cellSize) / 2;
-  const halfDepth = (layout.rows * layout.cellSize) / 2;
   return new Vector3(
-    -halfWidth + layout.cellSize / 2 + cell.col * layout.cellSize,
+    layout.worldOrigin.x +
+      layout.columnDirection.x * cell.col * layout.cellSize +
+      layout.rowDirection.x * cell.row * layout.cellSize,
     y,
-    -halfDepth + layout.cellSize / 2 + cell.row * layout.cellSize
+    layout.worldOrigin.z +
+      layout.columnDirection.z * cell.col * layout.cellSize +
+      layout.rowDirection.z * cell.row * layout.cellSize
   );
+};
+
+const worldOffsetToCell = (layout: GridLayout, position: Vector3) => {
+  const offsetX = position.x - layout.worldOrigin.x;
+  const offsetZ = position.z - layout.worldOrigin.z;
+  return {
+    row: Math.floor(
+      (offsetX * layout.rowDirection.x + offsetZ * layout.rowDirection.z) /
+        layout.cellSize +
+        0.5
+    ),
+    col: Math.floor(
+      (offsetX * layout.columnDirection.x +
+        offsetZ * layout.columnDirection.z) /
+        layout.cellSize +
+        0.5
+    )
+  };
 };
 
 export const worldToCell = (
   layout: GridLayout,
   position: Vector3
-): FloorCell => {
-  const halfWidth = (layout.columns * layout.cellSize) / 2;
-  const halfDepth = (layout.rows * layout.cellSize) / 2;
-  return {
-    row: Math.floor((position.z + halfDepth) / layout.cellSize),
-    col: Math.floor((position.x + halfWidth) / layout.cellSize)
-  };
-};
+): FloorCell => worldOffsetToCell(layout, position);
 
 export const worldToCellClamped = (
   layout: GridLayout,
   position: Vector3
 ): FloorCell => {
-  const halfWidth = (layout.columns * layout.cellSize) / 2;
-  const halfDepth = (layout.rows * layout.cellSize) / 2;
+  const cell = worldOffsetToCell(layout, position);
   return {
-    row: Math.max(
-      0,
-      Math.min(
-        layout.rows - 1,
-        Math.floor((position.z + halfDepth) / layout.cellSize)
-      )
-    ),
-    col: Math.max(
-      0,
-      Math.min(
-        layout.columns - 1,
-        Math.floor((position.x + halfWidth) / layout.cellSize)
-      )
-    )
+    row: Math.max(0, Math.min(layout.rows - 1, cell.row)),
+    col: Math.max(0, Math.min(layout.columns - 1, cell.col))
   };
 };
 
