@@ -5,6 +5,7 @@ import {
   HemisphericLight,
   Logger,
   Mesh,
+  MeshBuilder,
   Scene,
   Vector3
 } from "@babylonjs/core";
@@ -141,6 +142,21 @@ const blenderToBabylon = (x: number, y: number, z: number) =>
 
 const getColliderSet = () =>
   new Set(currentContext?.resources.colliders ?? []);
+
+const addValidationCollider = (mesh: Mesh) => {
+  mesh.checkCollisions = true;
+  mesh.visibility = 0;
+  mesh.computeWorldMatrix(true);
+  currentContext!.resources.colliders.push(mesh);
+  playerCollisionMesh.surroundingMeshes = currentContext!.resources.colliders;
+};
+
+const removeValidationCollider = (mesh: Mesh) => {
+  const colliderIndex = currentContext!.resources.colliders.indexOf(mesh);
+  currentContext!.resources.colliders.splice(colliderIndex, 1);
+  playerCollisionMesh.surroundingMeshes = currentContext!.resources.colliders;
+  mesh.dispose();
+};
 
 const syncCamera = () => {
   camera.position.set(
@@ -304,6 +320,82 @@ const runValidation = async () => {
       )
     );
 
+    const fallStart = blenderToBabylon(0, -1, 0);
+    fallStart.y = 0.1;
+    teleport(fallStart);
+    let landingFrame = -1;
+    let landingY = Number.NaN;
+    for (let frame = 0; frame < 120; frame += 1) {
+      const result = playerHeightMotion.move(
+        playerCollisionMesh,
+        Vector3.Zero(),
+        fixedDelta,
+        getColliderSet()
+      );
+      if (result.state.grounded) {
+        landingFrame = frame;
+        landingY = playerCollisionMesh.position.y;
+        break;
+      }
+    }
+    const landingState = playerHeightMotion.getState();
+    checks.push(
+      createCheck(
+        "空中からの着地フレーム同期",
+        landingFrame >= 0 &&
+          landingState.grounded &&
+          landingState.supportY !== null &&
+          nearlyEqual(landingState.supportY, 0) &&
+          landingY - landingState.supportY <= groundTolerance,
+        `frame=${landingFrame}, footY=${landingY.toFixed(6)}, supportY=${landingState.supportY?.toFixed(6)}, velocity=${landingState.verticalVelocity.toFixed(6)}`
+      )
+    );
+
+    const discontinuousSlopeAngle = Math.PI / 9;
+    const discontinuousSlopeDepth = 0.4;
+    const discontinuousSlopeThickness = 0.02;
+    const discontinuousSlope = MeshBuilder.CreateBox(
+      "T03_DiscontinuousSlope",
+      {
+        width: 0.4,
+        height: discontinuousSlopeThickness,
+        depth: discontinuousSlopeDepth
+      },
+      scene
+    );
+    discontinuousSlope.rotation.x = discontinuousSlopeAngle;
+    discontinuousSlope.position.set(
+      0.35,
+      0.08 -
+        (discontinuousSlopeThickness * 0.5) *
+          Math.cos(discontinuousSlopeAngle) +
+        (discontinuousSlopeDepth * 0.5) *
+          Math.sin(discontinuousSlopeAngle),
+      -0.1
+    );
+    addValidationCollider(discontinuousSlope);
+    teleport(new Vector3(0.35, 0, 0.25));
+    const discontinuousStartZ = playerCollisionMesh.position.z;
+    const discontinuousMotion = runLinearMotion(
+      new Vector3(0, 0, -1),
+      0.45
+    );
+    const discontinuousState = playerHeightMotion.getState();
+    const discontinuousAdvance =
+      discontinuousStartZ - playerCollisionMesh.position.z;
+    checks.push(
+      createCheck(
+        "不連続斜面の最大段差拒否",
+        discontinuousState.grounded &&
+          discontinuousState.supportY !== null &&
+          nearlyEqual(discontinuousState.supportY, 0) &&
+          discontinuousMotion.maxY <= groundTolerance &&
+          discontinuousAdvance < 0.45 - groundTolerance,
+        `advance=${discontinuousAdvance.toFixed(6)}, footY=${playerCollisionMesh.position.y.toFixed(6)}, maxY=${discontinuousMotion.maxY.toFixed(6)}, supportY=${discontinuousState.supportY?.toFixed(6)}, mesh=${playerHeightMotion.getSupportMeshName()}`
+      )
+    );
+    removeValidationCollider(discontinuousSlope);
+
     teleport(blenderToBabylon(0, 0.6, 0));
     const stepUp = runLinearMotion(new Vector3(0, 0, -1), 0.35);
     const stepState = playerHeightMotion.getState();
@@ -411,17 +503,34 @@ const runValidation = async () => {
       )
     );
 
-    teleport(blenderToBabylon(0, 5.3, 0.02));
-    playerCollisionMesh.computeWorldMatrix(true);
-    playerCollisionMesh.moveWithCollisions(new Vector3(0, 0.3, 0));
+    const lowCeilingUnderside = playerHeight + 0.03;
+    const lowCeiling = MeshBuilder.CreateBox(
+      "T03_LowCeilingStepGuard",
+      { width: 0.6, height: 0.05, depth: 0.4 },
+      scene
+    );
+    lowCeiling.position.set(0, lowCeilingUnderside + 0.025, -0.35);
+    addValidationCollider(lowCeiling);
+    teleport(blenderToBabylon(0, 0.6, 0));
+    const lowCeilingStartZ = playerCollisionMesh.position.z;
+    runLinearMotion(new Vector3(0, 0, -1), 0.35);
+    const lowCeilingState = playerHeightMotion.getState();
+    const lowCeilingAdvance =
+      lowCeilingStartZ - playerCollisionMesh.position.z;
     checks.push(
       createCheck(
-        "低天井クリアランス",
-        playerCollisionMesh.position.y > groundTolerance &&
-          playerCollisionMesh.position.y + playerHeight <= 0.525 + groundTolerance,
-        `footY=${playerCollisionMesh.position.y.toFixed(6)}, topY=${(playerCollisionMesh.position.y + playerHeight).toFixed(6)}, ceilingY=0.525`
+        "低天井下の段差再試行停止",
+        lowCeilingState.grounded &&
+          lowCeilingState.supportY !== null &&
+          nearlyEqual(lowCeilingState.supportY, 0) &&
+          playerCollisionMesh.position.y <= groundTolerance &&
+          playerCollisionMesh.position.y + playerHeight <=
+            lowCeilingUnderside + groundTolerance &&
+          lowCeilingAdvance < 0.35 - groundTolerance,
+        `advance=${lowCeilingAdvance.toFixed(6)}, footY=${playerCollisionMesh.position.y.toFixed(6)}, topY=${(playerCollisionMesh.position.y + playerHeight).toFixed(6)}, ceilingY=${lowCeilingUnderside.toFixed(6)}, grounded=${lowCeilingState.grounded}, supportY=${lowCeilingState.supportY?.toFixed(6)}`
       )
     );
+    removeValidationCollider(lowCeiling);
 
     await loadStage(flatSelection);
     const finalFlatState = playerHeightMotion.getState();

@@ -61,7 +61,9 @@ export const createPlayerHeightController = (
   const startPosition = Vector3.Zero();
   const normalPosition = Vector3.Zero();
   const actualHorizontalDisplacement = Vector3.Zero();
+  const stepDirection = Vector3.Zero();
   const stepLookAhead = Vector3.Zero();
+  const supportProbePosition = Vector3.Zero();
   const verticalDisplacement = Vector3.Zero();
   const horizontalProgressTolerance = 0.000001;
   let supportMeshName: string | null = null;
@@ -121,6 +123,39 @@ export const createPlayerHeightController = (
     }
   };
 
+  const findContinuousSupport = (
+    position: Vector3,
+    direction: Vector3,
+    distance: number,
+    stageColliders: ReadonlySet<Mesh>,
+    initialSupportY: number
+  ): GroundSupport | null => {
+    const sampleCount = Math.ceil(distance / maxStepHeight);
+    let previousSupportY = initialSupportY;
+    let support: GroundSupport | null = null;
+    for (let sample = 1; sample <= sampleCount; sample += 1) {
+      supportProbePosition.copyFrom(direction);
+      supportProbePosition.scaleInPlace((distance * sample) / sampleCount);
+      supportProbePosition.addInPlace(position);
+      supportProbePosition.y = previousSupportY + groundTolerance;
+      support = findSupport(
+        supportProbePosition,
+        stageColliders,
+        maxStepHeight + groundTolerance,
+        groundSnapDistance
+      );
+      if (
+        !support ||
+        support.y - previousSupportY > maxStepHeight + groundTolerance ||
+        previousSupportY - support.y > groundSnapDistance
+      ) {
+        return null;
+      }
+      previousSupportY = support.y;
+    }
+    return support;
+  };
+
   const snapDown = (
     collisionMesh: Mesh,
     stageColliders: ReadonlySet<Mesh>,
@@ -147,7 +182,8 @@ export const createPlayerHeightController = (
     collisionMesh: Mesh,
     horizontalDisplacement: Vector3,
     stageColliders: ReadonlySet<Mesh>,
-    normalHorizontalProgress: number
+    normalHorizontalProgress: number,
+    initialSupportY: number
   ) => {
     const requestedDistance = Math.hypot(
       horizontalDisplacement.x,
@@ -156,12 +192,21 @@ export const createPlayerHeightController = (
     if (requestedDistance <= horizontalProgressTolerance) {
       return false;
     }
-    const normalGrounded = state.grounded;
+    const normalState = copyState();
+    const normalSupportMeshName = supportMeshName;
+    const restoreNormalState = () => {
+      collisionMesh.position.copyFrom(normalPosition);
+      state.grounded = normalState.grounded;
+      state.verticalVelocity = normalState.verticalVelocity;
+      state.supportY = normalState.supportY;
+      supportMeshName = normalSupportMeshName;
+    };
     stepLookAhead.copyFrom(horizontalDisplacement);
     stepLookAhead.y = 0;
     stepLookAhead.normalize();
     const lookAheadDistance =
       collisionMesh.ellipsoid.x + requestedDistance + groundTolerance;
+    stepDirection.copyFrom(stepLookAhead);
     stepLookAhead.scaleInPlace(lookAheadDistance);
     stepLookAhead.addInPlace(startPosition);
     const candidateSupport = findSupport(
@@ -173,13 +218,27 @@ export const createPlayerHeightController = (
     if (!candidateSupport) {
       return false;
     }
+    const candidateRise = candidateSupport.y - initialSupportY;
+    if (candidateRise > maxStepHeight + groundTolerance) {
+      if (candidateSupport.normalY >= 0.9999) {
+        return false;
+      }
+      const continuousSupport = findContinuousSupport(
+        startPosition,
+        stepDirection,
+        lookAheadDistance,
+        stageColliders,
+        initialSupportY
+      );
+      if (
+        !continuousSupport ||
+        Math.abs(continuousSupport.y - candidateSupport.y) > groundTolerance
+      ) {
+        return false;
+      }
+    }
     const candidateHeight = candidateSupport.y - startPosition.y;
-    const isInclinedSupport = candidateSupport.normalY < 0.9999;
-    if (
-      candidateHeight < -groundSnapDistance ||
-      (!isInclinedSupport &&
-        candidateHeight > maxStepHeight + groundTolerance)
-    ) {
+    if (candidateHeight < -groundSnapDistance) {
       return false;
     }
 
@@ -191,7 +250,7 @@ export const createPlayerHeightController = (
     }
     const climbedHeight = collisionMesh.position.y - startPosition.y;
     if (climbedHeight < liftHeight - groundTolerance) {
-      collisionMesh.position.copyFrom(normalPosition);
+      restoreNormalState();
       return false;
     }
 
@@ -204,11 +263,11 @@ export const createPlayerHeightController = (
           horizontalDisplacement.z) /
       requestedDistance;
     if (
-      normalGrounded &&
+      normalState.grounded &&
       steppedHorizontalProgress <=
       normalHorizontalProgress + horizontalProgressTolerance
     ) {
-      collisionMesh.position.copyFrom(normalPosition);
+      restoreNormalState();
       return false;
     }
     const steppedPosition = collisionMesh.position.clone();
@@ -225,7 +284,7 @@ export const createPlayerHeightController = (
       requestedDistance;
     if (
       state.grounded &&
-      (!normalGrounded ||
+      (!normalState.grounded ||
         finalHorizontalProgress >
           normalHorizontalProgress + horizontalProgressTolerance)
     ) {
@@ -277,6 +336,7 @@ export const createPlayerHeightController = (
     ) => {
       startPosition.copyFrom(collisionMesh.position);
       const wasGrounded = state.grounded;
+      const initialSupportY = state.supportY;
       if (horizontalDisplacement.lengthSquared() > 0) {
         moveWithUpdatedWorld(collisionMesh, horizontalDisplacement);
       }
@@ -305,14 +365,15 @@ export const createPlayerHeightController = (
             collisionMesh,
             horizontalDisplacement,
             stageColliders,
-            normalHorizontalProgress
+            normalHorizontalProgress,
+            initialSupportY!
           );
         }
       } else {
         state.verticalVelocity -= gravity * delta;
         verticalDisplacement.set(0, state.verticalVelocity * delta, 0);
         moveWithUpdatedWorld(collisionMesh, verticalDisplacement);
-        updateGroundState(collisionMesh, stageColliders);
+        snapDown(collisionMesh, stageColliders);
       }
 
       actualHorizontalDisplacement.set(
