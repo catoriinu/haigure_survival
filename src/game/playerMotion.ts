@@ -1,5 +1,9 @@
 import { Vector3 } from "@babylonjs/core";
-import type { PlayerMoveAxes } from "./playerAbility";
+
+export type PlayerMoveAxes = Readonly<{
+  moveX: number;
+  moveZ: number;
+}>;
 
 export type PlayerMotionConfig = {
   moveInertiaAt60Fps: number;

@@ -41,6 +41,7 @@ V2ではすべてのマップにおいてJSONではなく、管理方法の設�
 - [x] NPC・ビット間の標的共有をactor IDと期限だけで管理するV2アラート基盤を追加する
 - [ ] 学校で実際に使用する集合領域と禁止領域を用途確定後に3Dボリュームとして追加する
 - [x] プレイヤースポーン、床高、衝突、ステージ境界、再配置を3D空間APIへ移行する
+- [x] V2プレイヤー移動型を旧`playerAbility`から分離し、V2型検査のセル依存を解消する
 - [ ] NPCの出現、徘徊、追跡、アラート迂回、停止、階段移動をNavMeshへ移行する
 - [ ] ビットの出現、探索、追跡、アラート集合、カーペット爆撃解除をNavMesh経路と床相対高度へ移行する
 - [ ] 通常ビームの連続3D衝突、ビット視界の3D遮蔽、`COL_ActorOnly_Window_*`透過規則を`StageSpatialContext`へ統合する
@@ -94,4 +95,5 @@ V2ではすべてのマップにおいてJSONではなく、管理方法の設�
 - 3Dスポーンサンプラーは`VOL_*`のworld AABBから候補を生成し、実Volume内判定、NavMesh投影、投影後Volume内判定、重複排除、3D最小距離を満たす点だけを返す。生成不能時は直置きやセルへフォールバックせず、Volume IDと棄却理由別件数を含む例外にする。T04実ブラウザは既存20項目を維持したまま25/25項目が初回・再実行ともPASSし、console warning／errorは0件だった。
 - 通常ゲーム入口を学校専用`src/v2/main.ts`へ切り替え、ステージJSON、`GridLayout`、旧`StageContext`を読み込まず、学校GLB／NavMeshから`StageSpatialContext`を構築する。プレイヤーはGLBの`player_spawn` world座標・前方、Actor衝突集合、T03高さ移動、`BND_Stage`を使用し、境界外ではフレーム開始位置へ戻して接地状態を再同期する。実ブラウザは読込完了、クリック開始、接地座標表示、W入力、console warning／error 0件を確認した。
 - V2アラート共有基盤は`leaderId`と`targetId`の組を期限付きで保持し、同じ通知の再発行時に期限を更新する。leaderとtargetの同一IDは拒否し、セル、受信者セル集合、経路情報を持たない。T04実ブラウザは期限減算、再発行、失効、同一ID拒否を含む27/27項目がPASSし、console warning／errorは0件だった。
+- V2プレイヤーは実装上セルを使っていなかったが、`playerMotion.ts`の入力型が旧`playerAbility.ts`に置かれ、その型参照だけで`GridLayout`、`FloorCell`、旧NPC型までV2型検査へ混入していた。汎用移動入力型を`playerMotion.ts`自身の契約へ移し、`tsconfig.v2.json --listFiles`でV2依存元が3D空間、プレイヤー高さ・移動、V2モジュールだけになったことを確認した。`npm run build`と`npm run build:t03`は成功した。
 - 舞台階段の形状ディテールと同色境界はB03へ残し、NPC・ビットの複数階移動と高さ付き接続は本T04の後続工程で実装する。

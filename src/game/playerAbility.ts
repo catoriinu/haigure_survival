@@ -8,13 +8,9 @@ import {
   isBrainwashState
 } from "./types";
 import { type GamePhase } from "./phases";
+import type { PlayerMoveAxes } from "./playerMotion";
 
 export type MoveKey = "forward" | "back" | "left" | "right";
-
-export type PlayerMoveAxes = {
-  moveX: number;
-  moveZ: number;
-};
 
 export type PlayerAbilityConfig = {
   baseMoveSpeed: number;
