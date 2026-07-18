@@ -1,0 +1,144 @@
+import "../style.css";
+
+import {
+  Color4,
+  Engine,
+  FreeCamera,
+  HemisphericLight,
+  Scene,
+  Vector3
+} from "@babylonjs/core";
+
+import { SCHOOL_STAGE } from "../world/stageCatalog";
+import {
+  loadStageSpatialContext,
+  type StageSpatialContext
+} from "../world/stageSpatialContext";
+import {
+  createV2PlayerController,
+  type V2PlayerController
+} from "./playerController";
+import { createV2PlayerInput } from "./playerInput";
+
+const canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
+const minimapCanvas = document.getElementById(
+  "minimapCanvas"
+) as unknown as HTMLCanvasElement;
+const minimapReadout = document.getElementById("minimapReadout") as HTMLDivElement;
+const statusInfo = document.getElementById("statusInfo") as HTMLDivElement;
+const helpPanel = document.getElementById("helpPanel") as HTMLDivElement;
+const staminaGauge = document.getElementById("staminaGauge") as HTMLDivElement;
+const titleOverlay = document.getElementById("titleOverlay") as HTMLDivElement;
+const titleHeading = document.getElementById("titleHeading") as HTMLDivElement;
+const titleStartHint = document.getElementById("titleStartHint") as HTMLDivElement;
+const titleMessage = document.getElementById("titleMessage") as HTMLDivElement;
+const titleMode = document.getElementById("titleMode") as HTMLDivElement;
+const titleVersion = document.getElementById("titleVersion") as HTMLDivElement;
+const crosshair = document.getElementById("crosshair") as HTMLDivElement;
+
+const engine = new Engine(canvas, true);
+const scene = new Scene(engine);
+scene.collisionsEnabled = true;
+scene.clearColor = new Color4(0.035, 0.045, 0.065, 1);
+
+const camera = new FreeCamera("V2PlayerCamera", Vector3.Zero(), scene);
+camera.minZ = 0.02;
+camera.angularSensibility = 1500;
+camera.speed = 0;
+scene.activeCamera = camera;
+
+const ambientLight = new HemisphericLight(
+  "V2SchoolAmbientLight",
+  Vector3.Up(),
+  scene
+);
+ambientLight.intensity = 0.8;
+
+titleHeading.textContent = "HAIGURE SURVIVAL V2";
+titleStartHint.textContent = "";
+titleMessage.textContent = "学校3D空間を読み込んでいます";
+titleMode.textContent = "学校3Dサバイバル基盤";
+titleVersion.textContent = "V2 3D SPATIAL RUNTIME";
+titleOverlay.style.display = "flex";
+minimapCanvas.style.display = "none";
+minimapReadout.style.display = "none";
+staminaGauge.style.display = "none";
+crosshair.style.display = "none";
+statusInfo.style.display = "none";
+helpPanel.style.display = "none";
+
+const formatLoadError = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
+let stage: StageSpatialContext;
+let player: V2PlayerController;
+try {
+  stage = await loadStageSpatialContext(scene, SCHOOL_STAGE);
+  const input = createV2PlayerInput(window);
+  player = createV2PlayerController({ scene, camera, stage, input });
+} catch (error) {
+  titleStartHint.textContent = "読込エラー";
+  titleMessage.textContent = formatLoadError(error);
+  throw error;
+}
+
+camera.attachControl(canvas, true);
+canvas.tabIndex = 0;
+titleMessage.textContent = "学校3D空間 読込完了";
+titleStartHint.textContent = "左クリック：開始";
+titleStartHint.style.display = "block";
+titleMessage.style.display = "none";
+
+let started = false;
+let statusTimer = 0;
+
+const startPlay = () => {
+  if (!started) {
+    started = true;
+    titleOverlay.style.display = "none";
+    statusInfo.style.display = "block";
+    helpPanel.style.display = "block";
+    crosshair.style.display = "block";
+    helpPanel.textContent =
+      "WASD：移動  Shift：ダッシュ  マウス：視点  Esc：マウス解放";
+  }
+  canvas.focus();
+  void (canvas as unknown as Element).requestPointerLock().catch(() => {});
+};
+
+canvas.addEventListener("click", startPlay);
+
+engine.runRenderLoop(() => {
+  const delta = Math.min(engine.getDeltaTime() / 1000, 0.05);
+  const frame = player.update(delta, started);
+  statusTimer += delta;
+  if (statusTimer >= 0.1) {
+    statusTimer = 0;
+    const foot = frame.footPosition;
+    statusInfo.textContent =
+      `学校3D空間\n` +
+      `X ${foot.x.toFixed(3)}  Y ${foot.y.toFixed(3)}  Z ${foot.z.toFixed(3)}\n` +
+      `${frame.verticalState.grounded ? "接地" : "空中"}`;
+  }
+  scene.render();
+});
+
+const resize = () => engine.resize();
+window.addEventListener("resize", resize);
+
+let disposed = false;
+const disposeRuntime = () => {
+  if (disposed) {
+    return;
+  }
+  disposed = true;
+  engine.stopRenderLoop();
+  window.removeEventListener("resize", resize);
+  canvas.removeEventListener("click", startPlay);
+  player.dispose();
+  stage.dispose();
+  scene.dispose();
+  engine.dispose();
+};
+
+window.addEventListener("beforeunload", disposeRuntime, { once: true });
