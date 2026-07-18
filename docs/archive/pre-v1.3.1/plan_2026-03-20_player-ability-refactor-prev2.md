@@ -9,7 +9,7 @@ PLEASE IMPLEMENT THIS PLAN:
 ## 要約
 - `develop...HEAD` の差分を確認し、現状 `npm run build` は成功した。
 - リファクタリング余地は十分ある。優先度は 1. プレイヤー能力ロジックの `main.ts` 集中解消、2. HUD/ヘルプ表示の状態遷移統合、3. `updateNpcs` の引数整理。
-- 主因は [src/main.ts](d:/Users/draft/create/fps_survival20251226/src/main.ts#L1987) に今回ブランチの追加責務が集中し、[src/game/npcs.ts](d:/Users/draft/create/fps_survival20251226/src/game/npcs.ts#L315) の更新 API が肥大化し、[src/ui/hud.ts](d:/Users/draft/create/fps_survival20251226/src/ui/hud.ts#L89) の表示ポリシーが呼び出し側へ漏れている点。
+- 主因は [src/main.ts](../../../src/main.ts#L1987) に今回ブランチの追加責務が集中し、[src/game/npcs.ts](../../../src/game/npcs.ts#L315) の更新 API が肥大化し、[src/ui/hud.ts](../../../src/ui/hud.ts#L89) の表示ポリシーが呼び出し側へ漏れている点。
 
 ## 実装方針
 - `main.ts` から「移動入力集約・ダッシュ判定・スタミナ更新・プレイヤー由来脅威判定」を `playerAbility` 系モジュールへ抽出する。`camera`、`scene`、`layout`、`npcs` を受けて、そのフレームで必要な `moveSpeed`、`threatenedNpcIds`、`npcBlockers`、`staminaHudState` を返す形にする。

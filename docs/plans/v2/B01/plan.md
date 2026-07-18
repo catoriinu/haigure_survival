@@ -53,5 +53,7 @@ B01は別セッションのT02「v2ステージ型、共通ローダー、既存
 - Markdown 4件をUTF-8（BOMなし）として検査し、参照画像リンク、画像のコピー元とのSHA-256一致、`git diff --check`、B01所有範囲だけの差分を確認した。
 - B01成果物を`43ea359`（`docs: B01学校間取り承認結果を記録`）としてコミットし、`origin/codex/v2-b01-school-layout`へpushした。
 - `develop`宛てDraft Pull Request [#37](https://github.com/catoriinu/haigure_survival/pull/37)を作成した。
+- Pull Request #37が`develop`へマージされた後、B02開始時のT02 worktree分離と、保存済みT01 Blenderシーンの安全な引き継ぎ手順を`b02_handoff.md`および`b02_start_prompt.md`へ追記した。
+- 引き継ぎ追記を`develop`宛てPull Request [#38](https://github.com/catoriinu/haigure_survival/pull/38)として作成した。
 - B01完了時点ではBlender、`.blend`、`.glb`、コード、ステージJSON、通常ゲームを変更していない。B02は未着手である。
 - T02との並行作業中のため、全体`docs/plan.md`のB01完了更新は統合担当が行う保留事項とする。
