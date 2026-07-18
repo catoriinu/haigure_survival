@@ -148,6 +148,10 @@ export type Bit = {
   alertCooldownPending: boolean;
   alertReturnMode: BitMode | null;
   alertReturnTargetId: string | null;
+  navigationGoalCell: FloorCell | null;
+  navigationPath: FloorCell[] | null;
+  navigationPathIndex: number;
+  navigationRetryTimer: number;
   attackCooldown: number;
   fireTimer: number;
   fireInterval: number;
