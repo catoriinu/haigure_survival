@@ -240,7 +240,7 @@ T03専用検証画面が必要な場合は、実運用と同じ共通ローダ�
 - [x] JSON→GLB→JSON切替と既存8 procedural-gridステージの開始・平面移動を実ブラウザで回帰確認する
 - [x] `npm run build`、T01・T02・T03ビルド、既存型エラーとの差分、UTF-8、BOM、括弧、`git diff --check`を検証する
 - [x] 本計画と全体`docs/plan.md`へ最新の実装結果を記録する
-- [ ] T03差分だけをコミット、pushし、`develop`宛てPull Requestを作成する
+- [x] T03差分だけをコミット、pushし、`develop`宛てPull Requestを作成する
 
 ## 結果
 
@@ -279,3 +279,5 @@ T03専用検証画面が必要な場合は、実運用と同じ共通ローダ�
 - T03検証でGLB床静止、壁停止Z=`-1.599000`、低天井上端Y=`0.522879`、JSON→GLB→JSON切替後の再接地、ブラウザerror、unhandledrejection、console.error、Babylon Logger error 0件を確認した。手動の階段踊り場再配置でも足元Y=`0.2271`、支持面Y=`0.225000`、`COL_StairLanding`への接地を確認した。
 - T01既存検証は全28項目PASS、T02既存検証は全45項目PASSで、両画面のconsole errorは0件だった。
 - 通常タイトルの既存8ステージを順に選択し、全件でゲーム開始とW入力後の継続を確認した。研究所では床上の前進を描画でも確認した。ブラウザ自動操作では音声再生とpointer lockの許可エラーが発生したが、T03ロジックやStageContext由来ではなく、準備完了後のステージ切替自体はクリーンタブでerror 0件だった。
+- T03実装を`a467e3d`（`feat: プレイヤーの高さ・接地・階段移動に対応`）としてコミットし、`origin/codex/v2-t03-player-height`へpushした。
+- `develop`宛てDraft Pull Request [#39](https://github.com/catoriinu/haigure_survival/pull/39)を作成した。T04以降、NPC・ビット・光線の高さ対応、学校本体には進んでいない。

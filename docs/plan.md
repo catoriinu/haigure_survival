@@ -115,3 +115,4 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - T03専用検証画面は許可した平面JSON、T01検証JSON、T01 GLBだけを配信する。実ブラウザで全15項目がPASSし、0.15m段差、1:4斜面、1:2階段ランプの双方向移動は空中フレーム0、両踊り場静止、壁・低天井・JSON→GLB→JSON切替、ブラウザ・Babylonエラー0件を確認した。
 - T01全28項目とT02全45項目は回帰なしで、通常タイトルの既存8ステージも全件で選択、ゲーム開始、WASD平面移動を確認した。
 - `npm run build`、`npm run build:t01`、`npm run build:t02`、`npm run build:t03`は成功した。別途のリポジトリ全体型検査は変更外の既存3件だけでT03新規エラーは0件だった。T04以降、NPC・ビット・光線の高さ対応、学校本体には着手していない。
+- T03実装を`codex/v2-t03-player-height`へpushし、`develop`宛てDraft Pull Request [#39](https://github.com/catoriinu/haigure_survival/pull/39)を作成した。
