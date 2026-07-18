@@ -136,20 +136,17 @@ const buildStageEnvironment = (
 };
 
 const disposeStageParts = (parts: StageParts) => {
-  for (const floor of parts.floors) {
-    floor.dispose();
-  }
   for (const reflectiveSurface of parts.reflectiveSurfaces) {
     reflectiveSurface.mesh.dispose();
   }
-  for (const wall of parts.walls) {
-    wall.dispose();
-  }
-  for (const collider of parts.colliders) {
-    collider.dispose();
-  }
-  if (parts.ceiling) {
-    parts.ceiling.dispose();
+  const stageMeshes = new Set([
+    ...parts.floors,
+    ...parts.walls,
+    ...parts.colliders,
+    ...(parts.ceiling ? [parts.ceiling] : [])
+  ]);
+  for (const mesh of stageMeshes) {
+    mesh.dispose();
   }
   parts.floorMaterial.dispose(false, true);
   parts.ceilingMaterial?.dispose(false, true);
@@ -170,7 +167,14 @@ const createProceduralResources = (parts: StageParts): StageContextResources => 
   reflectiveSurfaces: parts.reflectiveSurfaces,
   reflectiveMaterials: parts.reflectiveMaterials,
   reflectiveTextures: parts.reflectiveTextures,
-  authoredMeshes: [...parts.floors, ...parts.walls, ...parts.colliders],
+  authoredMeshes: Array.from(
+    new Set([
+      ...parts.floors,
+      ...parts.walls,
+      ...parts.colliders,
+      ...(parts.ceiling ? [parts.ceiling] : [])
+    ])
+  ),
   assetContainer: null,
   dispose: () => disposeStageParts(parts)
 });
