@@ -2,40 +2,21 @@ import { Vector3 } from "@babylonjs/core";
 import { GridLayout } from "../world/grid";
 import { cellToWorld } from "./gridUtils";
 import { NPC_SPRITE_CENTER_HEIGHT } from "./characterSprites";
+import {
+  buildPathFromPredecessors,
+  findShortestFloorPath,
+  getFloorNeighborCells
+} from "./gridNavigation";
 import { pickWeightedOneIndex } from "./random/weighted";
 import { FloorCell, Npc } from "./types";
 
 export const npcTargetArrivalDistance = 0.025;
 
-const getNeighborCells = (layout: GridLayout, cell: FloorCell) => {
-  const neighbors: FloorCell[] = [];
-  const candidates = [
-    { row: cell.row - 1, col: cell.col },
-    { row: cell.row + 1, col: cell.col },
-    { row: cell.row, col: cell.col - 1 },
-    { row: cell.row, col: cell.col + 1 }
-  ];
-
-  for (const candidate of candidates) {
-    if (
-      candidate.row >= 0 &&
-      candidate.row < layout.rows &&
-      candidate.col >= 0 &&
-      candidate.col < layout.columns &&
-      layout.cells[candidate.row][candidate.col] === "floor"
-    ) {
-      neighbors.push(candidate);
-    }
-  }
-
-  return neighbors;
-};
-
 export const pickRandomNeighborCell = (
   layout: GridLayout,
   cell: FloorCell
 ) => {
-  const neighbors = getNeighborCells(layout, cell);
+  const neighbors = getFloorNeighborCells(layout, cell);
   return neighbors[Math.floor(Math.random() * neighbors.length)];
 };
 
@@ -44,7 +25,7 @@ export const pickNeighborCellClosestTo = (
   cell: FloorCell,
   targetPosition: Vector3
 ) => {
-  const neighbors = getNeighborCells(layout, cell);
+  const neighbors = getFloorNeighborCells(layout, cell);
   let bestCell = neighbors[0];
   let bestDistanceSq = Vector3.DistanceSquared(
     cellToWorld(layout, bestCell, NPC_SPRITE_CENTER_HEIGHT),
@@ -66,58 +47,9 @@ export const pickNeighborCellClosestTo = (
   return bestCell;
 };
 
-type ReachableMap = {
-  distances: number[][];
-  prevRow: number[][];
-  prevCol: number[][];
-};
-
 type ReachableCell = {
   cell: FloorCell;
   distance: number;
-};
-
-export const buildReachableMap = (
-  layout: GridLayout,
-  startCell: FloorCell,
-  maxDistance: number
-): ReachableMap => {
-  const distances = Array.from({ length: layout.rows }, () =>
-    Array.from({ length: layout.columns }, () => -1)
-  );
-  const prevRow = Array.from({ length: layout.rows }, () =>
-    Array.from({ length: layout.columns }, () => -1)
-  );
-  const prevCol = Array.from({ length: layout.rows }, () =>
-    Array.from({ length: layout.columns }, () => -1)
-  );
-  const queueRow = [startCell.row];
-  const queueCol = [startCell.col];
-  distances[startCell.row][startCell.col] = 0;
-  let head = 0;
-
-  while (head < queueRow.length) {
-    const row = queueRow[head];
-    const col = queueCol[head];
-    head += 1;
-    const nextDistance = distances[row][col] + 1;
-    if (nextDistance > maxDistance) {
-      continue;
-    }
-    const neighbors = getNeighborCells(layout, { row, col });
-    for (const neighbor of neighbors) {
-      if (distances[neighbor.row][neighbor.col] !== -1) {
-        continue;
-      }
-      distances[neighbor.row][neighbor.col] = nextDistance;
-      prevRow[neighbor.row][neighbor.col] = row;
-      prevCol[neighbor.row][neighbor.col] = col;
-      queueRow.push(neighbor.row);
-      queueCol.push(neighbor.col);
-    }
-  }
-
-  return { distances, prevRow, prevCol };
 };
 
 export const collectReachableCells = (
@@ -184,32 +116,11 @@ export const pickEvadeCell = (
   return bestCells[Math.floor(Math.random() * bestCells.length)];
 };
 
-const buildPathFromPrev = (
-  startCell: FloorCell,
-  goalCell: FloorCell,
-  prevRow: number[][],
-  prevCol: number[][]
-) => {
-  const path: FloorCell[] = [];
-  let row = goalCell.row;
-  let col = goalCell.col;
-  path.push({ row, col });
-  while (row !== startCell.row || col !== startCell.col) {
-    const nextRow = prevRow[row][col];
-    const nextCol = prevCol[row][col];
-    row = nextRow;
-    col = nextCol;
-    path.push({ row, col });
-  }
-  path.reverse();
-  return path;
-};
-
 const buildPathWaypoints = (layout: GridLayout, path: FloorCell[]) => {
   const waypoints: Vector3[] = [];
-  for (let index = 1; index < path.length; index += 1) {
+  for (const cell of path) {
     waypoints.push(
-      cellToWorld(layout, path[index], NPC_SPRITE_CENTER_HEIGHT)
+      cellToWorld(layout, cell, NPC_SPRITE_CENTER_HEIGHT)
     );
   }
   return waypoints;
@@ -327,6 +238,14 @@ export const isNpcAtDestination = (npc: Npc) => {
   return distance < npcTargetArrivalDistance;
 };
 
+export const stopNpcAtCurrentPosition = (npc: Npc) => {
+  npc.goalCell = { row: npc.cell.row, col: npc.cell.col };
+  npc.target.copyFrom(npc.sprite.position);
+  npc.path = [];
+  npc.pathIndex = 0;
+  npc.moveDirection.set(0, 0, 0);
+};
+
 export const setNpcDestination = (
   layout: GridLayout,
   npc: Npc,
@@ -335,15 +254,42 @@ export const setNpcDestination = (
   prevRow: number[][],
   prevCol: number[][]
 ) => {
+  const path = buildPathFromPredecessors(
+    originCell,
+    destinationCell,
+    prevRow,
+    prevCol
+  );
   npc.goalCell = destinationCell;
   npc.target = cellToWorld(layout, destinationCell, NPC_SPRITE_CENTER_HEIGHT);
   npc.pathIndex = 0;
   if (hasWallOnLine(layout, npc.sprite.position, npc.target)) {
-    const path = buildPathFromPrev(originCell, destinationCell, prevRow, prevCol);
     npc.path = buildPathWaypoints(layout, path);
   } else {
     npc.path = [];
   }
+};
+
+export const setNpcShortestDestination = (
+  layout: GridLayout,
+  npc: Npc,
+  originCell: FloorCell,
+  destinationCell: FloorCell
+) => {
+  const path = findShortestFloorPath(layout, originCell, destinationCell);
+  if (path === null) {
+    return false;
+  }
+
+  npc.goalCell = destinationCell;
+  npc.target = cellToWorld(layout, destinationCell, NPC_SPRITE_CENTER_HEIGHT);
+  npc.pathIndex = 0;
+  if (hasWallOnLine(layout, npc.sprite.position, npc.target)) {
+    npc.path = buildPathWaypoints(layout, path);
+  } else {
+    npc.path = [];
+  }
+  return true;
 };
 
 export const pickNeighborCellClosestToAvoid = (
@@ -352,7 +298,7 @@ export const pickNeighborCellClosestToAvoid = (
   targetPosition: Vector3,
   avoidCell: FloorCell
 ) => {
-  const neighbors = getNeighborCells(layout, cell).filter(
+  const neighbors = getFloorNeighborCells(layout, cell).filter(
     (candidate) =>
       candidate.row !== avoidCell.row || candidate.col !== avoidCell.col
   );
@@ -385,7 +331,7 @@ export const pickNeighborCellInDirection = (
   cell: FloorCell,
   direction: Vector3
 ) => {
-  const neighbors = getNeighborCells(layout, cell);
+  const neighbors = getFloorNeighborCells(layout, cell);
   const base = cellToWorld(layout, cell, NPC_SPRITE_CENTER_HEIGHT);
   let bestCell = neighbors[0];
   let bestDot = -Infinity;

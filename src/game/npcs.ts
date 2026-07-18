@@ -27,7 +27,6 @@ import {
   worldToCell
 } from "./gridUtils";
 import {
-  buildReachableMap,
   collectReachableCells,
   isNpcAtDestination,
   moveNpcAlongPath,
@@ -36,8 +35,11 @@ import {
   pickNeighborCellInDirection,
   pickRandomNeighborCell,
   pickWeightedCell,
-  setNpcDestination
+  setNpcDestination,
+  setNpcShortestDestination,
+  stopNpcAtCurrentPosition
 } from "./npcNavigation";
+import { buildReachableMap } from "./gridNavigation";
 import { alignSpriteToGround } from "./spriteUtils";
 import { findTargetById } from "./targetUtils";
 import { createBeamHitRadii } from "./beamCollision";
@@ -901,11 +903,13 @@ export const updateNpcs = (
             npc.alertState = "none";
             npc.brainwashMode = "search";
             npc.brainwashTargetId = null;
+            stopNpcAtCurrentPosition(npc);
             npc.cell = pickNeighborCellInDirection(
               layout,
               npc.cell,
               npc.breakAwayDirection
             );
+            npc.goalCell = npc.cell;
             npc.target = cellToWorld(layout, npc.cell, NPC_SPRITE_CENTER_HEIGHT);
           }
         }
@@ -926,6 +930,7 @@ export const updateNpcs = (
             npc.cell,
             npc.breakAwayDirection
           );
+          npc.goalCell = npc.cell;
           npc.target = cellToWorld(layout, npc.cell, NPC_SPRITE_CENTER_HEIGHT);
           toTarget = npc.target.subtract(npc.sprite.position);
           toTarget.y = 0;
@@ -987,12 +992,16 @@ export const updateNpcs = (
     // 視界候補の最上位（最寄り）は毎フレーム更新し、
     // 最終選択時のみアラーム候補があればそちらを優先する。
     const currentTarget = alarmPriorityTarget ?? visiblePriorityTarget;
+    const wasChasing = npc.brainwashMode === "chase";
     if (currentTarget) {
       npc.brainwashMode = "chase";
       npc.brainwashTargetId = currentTarget.id;
     } else {
       npc.brainwashMode = "search";
       npc.brainwashTargetId = null;
+      if (wasChasing) {
+        stopNpcAtCurrentPosition(npc);
+      }
     }
 
     const destinationArrived = isNpcAtDestination(npc);
@@ -1001,23 +1010,14 @@ export const updateNpcs = (
       const goalCellChanged =
         npc.goalCell.row !== targetCell.row || npc.goalCell.col !== targetCell.col;
       if (goalCellChanged || destinationArrived) {
-        const reachableMap = buildReachableMap(
+        const routeFound = setNpcShortestDestination(
           layout,
+          npc,
           npc.cell,
-          layout.rows * layout.columns
+          targetCell
         );
-        if (reachableMap.distances[targetCell.row][targetCell.col] >= 0) {
-          setNpcDestination(
-            layout,
-            npc,
-            npc.cell,
-            targetCell,
-            reachableMap.prevRow,
-            reachableMap.prevCol
-          );
-        } else {
-          npc.brainwashMode = "search";
-          npc.brainwashTargetId = null;
+        if (!routeFound) {
+          stopNpcAtCurrentPosition(npc);
         }
       }
     } else if (destinationArrived) {
