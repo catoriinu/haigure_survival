@@ -81,6 +81,22 @@ flowchart LR
 - 現在のリポジトリ履歴に合わせ、通常のPull Requestマージで履歴を残す。
 - マージ後、不要になったタスクブランチは削除する。
 
+### GitHub CLI事前確認
+
+Codexセッションでコミット・push・Pull Request作成まで行うタスクは、実装開始時にGitHub CLIのPATHと認証を確認する。
+
+```powershell
+Get-Command gh -ErrorAction SilentlyContinue
+gh --version
+gh auth status
+```
+
+- VS CodeのGit BashとCodexが使用するPowerShellではPATHが異なる場合があるため、一方で`gh`が動くことをもう一方の確認として扱わない。
+- Windowsで`Get-Command gh`が見つからない場合は、`C:\Program Files\GitHub CLI\gh.exe`の存在を確認し、存在する場合は絶対パスで実行してよい。
+- Codex起動後にGitHub CLIをインストールした、またはPATHを変更した場合に限り、裸の`gh`コマンドへ新しいPATHを反映する手段としてCodexアプリの再起動を検討する。
+- 絶対パスで`gh --version`と`gh auth status`が成功する場合、コミット・push・Pull Request作成のためだけにCodexアプリを再起動する必要はない。
+- GitHubアプリ連携でPull Requestを作成する場合も、ローカルGit操作とフォールバックに備えて上記確認を行う。
+
 ## 5. 並行開発規則
 
 - T02～T05は共通コードへの変更が重なるため、直列で`develop`へマージする。

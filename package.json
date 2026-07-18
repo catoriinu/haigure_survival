@@ -10,11 +10,15 @@
     "build:renderer": "vite build",
     "build:electron": "tsc -p tsconfig.electron.json",
     "build": "npm run build:renderer && npm run build:electron",
+    "dev:t01": "vite --config vite.t01.config.mts",
+    "typecheck:t01": "tsc -p validation/v2/T01/tsconfig.json --noEmit",
+    "build:t01": "npm run typecheck:t01 && vite build --config vite.t01.config.mts",
     "preview": "vite preview",
     "dist": "npm run build && electron-builder"
   },
   "dependencies": {
-    "@babylonjs/core": "^6.49.0"
+    "@babylonjs/core": "^6.49.0",
+    "@babylonjs/loaders": "^6.49.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.5",
