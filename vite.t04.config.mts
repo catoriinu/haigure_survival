@@ -6,7 +6,7 @@ const repositoryRoot = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
   root: resolve(repositoryRoot, "validation/v2/T04"),
-  publicDir: false,
+  publicDir: resolve(repositoryRoot, "public/stage-assets/v2/B02"),
   base: "./",
   optimizeDeps: {
     exclude: ["recast-navigation"]

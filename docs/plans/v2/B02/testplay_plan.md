@@ -166,7 +166,7 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 - [x] 学校の階段・舞台斜面コライダーをNavMesh入力に使える閉じた外向きMeshへ正規化する
 - [x] 北側出入口の0.30m箱段差コライダーを外側地面から1階床へ続く連続スロープへ置き換える
 - [x] 学校GLBへ`META_*`、`MRK_*`、`VOL_*`、`BND_*`、`NAV_*`を追加し、事前ベイクNavMeshの代表10経路を検証する
-- [ ] 学校用`StageSpatialContext`、`NavigationWorld`、TypeScriptカタログを実装する
+- [x] 学校用`StageSpatialContext`、`NavigationWorld`、TypeScriptカタログを実装する
 - [ ] プレイヤー、NPC、ビット、通常ビーム、ビット視線を3D空間基盤へ移行する
 - [ ] V2実行経路からステージJSON、`GridLayout`、`FloorCell`、セル座標処理を削除する
 - [ ] 全ビルド、学校手動テスト、Blender・GLB・NavMesh監査を最終確認する
@@ -195,6 +195,8 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 - 問題9（体育館舞台へのNavMesh経路切断を修正・自動検証済み）: プレイヤースポーンから体育館舞台中央へ経路計算すると、Recastが部分経路を返し、要求終点との誤差が`0.762910`となった。東西の`VIS_GymStageStairHeadWall_*`と`COL_GymStageStairHeadWall_*`は下端Z＝2.4mだったが、舞台上面Z＝1.0mからの実開口はBlender 1.4m、Runtime 0.35mにしかならず、プレイヤー高さ約0.424mとNavMesh高さ0.425mを下回っていたことが原因である。表示壁・衝突壁双方の下端をZ＝3.4mへ上げ、舞台上面からBlender 2.4mの一致した開口を確保した。NavMeshだけをつなぐ仮connector面は不採用として削除した。
 - 舞台開口修正後、主玄関スポーンから校庭、北側出入口外側、北西・北東・南西階段踊り場、体育館中央、体育倉庫、舞台中央などを含む代表10経路はすべて終点誤差`4.3e-7`以下となった。最終`.blend`は308,457 bytes、SHA-256 `42617927F6AD7AB4F4C8776CA3E8EC3999BA12E9DF90D9551342D0A97EEF5996`、GLBは739,444 bytes、SHA-256 `55A6EAE9AAA169E1CB6389C2D3924BED05D1F9530105DCF92F9F9808FCFEE381`、NavMeshは151,552 bytes、SHA-256 `C0699A5C371AB30A5B85241DEEE38A2603258DE8961A095AA5EF55031A4040E9`である。同一入力から2回ベイクしてNavMeshの容量・SHA-256が一致した。T01 `.blend`は`A26672A7400A143F32FAB9F5DC53387CFF85C1FB22A9766F464E9BAEFAC5B16B`、GLBは`CF6CF17CF7447152D0B25219045C33EFB2E1A1821C201ACD6E51E39F468EA69B`を維持した。
 - `npm run bake:v2:school-navmesh`は部分経路を`success`として受理せず、代表10経路すべての要求終点との誤差`1e-5`以下を必須とする。`npm run build`、`npm run build:t01`、`npm run build:t02`、`npm run build:t03`、`npm run build:t04`はすべて成功した。
+- 問題10（学校3D空間コンテキストを実装・自動検証済み）: 学校カタログはID、表示名、GLB／NavMesh URL、schema、NavMesh profile、確定SHA-256だけを保持し、空間座標を持たない。`StageSpatialContext`はGLB作者Node 420件を`VIS_*`263件、通常`COL_*`144件、`NAV_*`8件、意味Object 5件へ厳格分類し、プレイヤースポーン、NPC・ビット出現Volume、3D境界、Actor衝突、通常ビーム・視線遮蔽、事前ベイクNavMeshを同じ所有単位へまとめる。ActorOnly窓は移動だけを遮り、光線と視線を通す分類テストも追加した。
+- T04実ブラウザ検証は実学校GLB／NavMeshのハッシュ照合、主玄関スポーン、境界包含、舞台までの完全経路、実壁遮蔽、資源破棄、再読込を含む12/12項目が初回・再実行ともPASSし、console warning／errorは0件だった。学校読込は約34～41msで、破棄後はMesh・Material・TransformNode件数が読込前と一致した。
 - 体育館舞台階段の形状ディテールと同色面の境界表現はB03、NPC・ビットが複数階を移動する高さ付きNavMesh接続はT04の範囲とし、今回の1階連続NavMeshへ仮リンクやセル互換を追加しない。
 
 - 2026-07-18 23:29 JSTに開始確認を実施した。

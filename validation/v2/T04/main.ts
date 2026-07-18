@@ -5,6 +5,7 @@ import {
   HemisphericLight,
   Mesh,
   MeshBuilder,
+  NullEngine,
   Scene,
   StandardMaterial,
   Vector3
@@ -17,6 +18,15 @@ import {
   initializeNavigationRuntime,
   type NavigationWorld
 } from "../../../src/world/navigationWorld";
+import {
+  SCHOOL_STAGE,
+  type StageCatalogEntry
+} from "../../../src/world/stageCatalog";
+import {
+  loadStageSpatialContext,
+  type StageSpatialContext
+} from "../../../src/world/stageSpatialContext";
+import { createStageSpatialQueries } from "../../../src/world/stageSpatialQueries";
 
 import "./style.css";
 
@@ -37,6 +47,18 @@ type NavGeometry = Readonly<{
   positions: readonly number[];
   indices: readonly number[];
 }>;
+
+type SceneResourceCounts = Readonly<{
+  meshes: number;
+  materials: number;
+  transformNodes: number;
+}>;
+
+const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
+  ...SCHOOL_STAGE,
+  glbUrl: "b02_school_blockout.glb",
+  navmeshUrl: "b02_school_blockout.navmesh.bin"
+});
 
 const canvas = document.getElementById("render-canvas") as unknown as HTMLCanvasElement;
 const summary = document.querySelector<HTMLElement>("#summary");
@@ -173,6 +195,20 @@ const disposeNavigationRuntime = () => {
 const pathsEqual = (left: readonly Vector3[], right: readonly Vector3[]) =>
   left.length === right.length &&
   left.every((point, index) => Vector3.Distance(point, right[index]) <= 1e-5);
+
+const countSceneResources = (targetScene: Scene): SceneResourceCounts => ({
+  meshes: targetScene.meshes.length,
+  materials: targetScene.materials.length,
+  transformNodes: targetScene.transformNodes.length
+});
+
+const sceneResourceCountsEqual = (
+  left: SceneResourceCounts,
+  right: SceneResourceCounts
+) =>
+  left.meshes === right.meshes &&
+  left.materials === right.materials &&
+  left.transformNodes === right.transformNodes;
 
 const createPathMesh = (name: string, path: readonly Vector3[], color: Color3) => {
   const elevated = path.map((point) => point.add(new Vector3(0, 0.015, 0)));
@@ -350,6 +386,159 @@ const runValidation = async () => {
       detail: `projectY=${projectedPoint?.y.toFixed(4) ?? "--"} / constrainZ=${constrainedPoint?.z.toFixed(4) ?? "--"} / random=${Number.isFinite(randomDistance) ? randomDistance.toFixed(4) : "--"}`
     });
 
+    let schoolLoadMs = 0;
+    const spatialEngine = new NullEngine();
+    const spatialScene = new Scene(spatialEngine);
+    try {
+      const actorOnlyWindow = MeshBuilder.CreateBox(
+        "COL_ActorOnly_Window_Validation",
+        { size: 0.4 },
+        spatialScene
+      );
+      const normalWall = MeshBuilder.CreateBox(
+        "COL_Wall_Validation",
+        { size: 0.4 },
+        spatialScene
+      );
+      actorOnlyWindow.position.x = 0;
+      normalWall.position.x = 2;
+      const classificationQueries = createStageSpatialQueries(
+        spatialScene,
+        [actorOnlyWindow, normalWall],
+        [normalWall],
+        [normalWall],
+        []
+      );
+      const classificationStart = new Vector3(-2, 0, 0);
+      const classificationEnd = new Vector3(4, 0, 0);
+      const actorOnlyHit = classificationQueries.castActorSegment(
+        classificationStart,
+        classificationEnd
+      );
+      const beamThroughWindowHit = classificationQueries.castBeamSegment(
+        classificationStart,
+        classificationEnd
+      );
+      const sightThroughWindowHit = classificationQueries.castSightSegment(
+        classificationStart,
+        classificationEnd
+      );
+      checks.push({
+        name: "ActorOnly窓の移動遮蔽と光線透過",
+        ok:
+          actorOnlyHit?.mesh === actorOnlyWindow &&
+          beamThroughWindowHit?.mesh === normalWall &&
+          sightThroughWindowHit?.mesh === normalWall,
+        detail: `actor=${actorOnlyHit?.mesh.name ?? "--"} / beam=${beamThroughWindowHit?.mesh.name ?? "--"} / sight=${sightThroughWindowHit?.mesh.name ?? "--"}`
+      });
+      actorOnlyWindow.dispose();
+      normalWall.dispose();
+
+      const baselineResources = countSceneResources(spatialScene);
+      let schoolContext: StageSpatialContext | null = null;
+      try {
+        const schoolLoadStartedAt = performance.now();
+        schoolContext = await loadStageSpatialContext(
+          spatialScene,
+          SCHOOL_VALIDATION_STAGE
+        );
+        schoolLoadMs = performance.now() - schoolLoadStartedAt;
+
+        const playerSpawn = schoolContext.markers
+          .requireSingle("player_spawn")
+          .node.getAbsolutePosition();
+        const expectedPlayerSpawn = new Vector3(0.375, 0, 0);
+        const resourceCountsOk =
+          schoolContext.resources.visualMeshes.length === 263 &&
+          schoolContext.resources.normalColliders.length === 144 &&
+          schoolContext.resources.actorOnlyColliders.length === 0 &&
+          schoolContext.resources.navSourceMeshes.length === 8 &&
+          schoolContext.markers.all.length === 1 &&
+          schoolContext.volumes.all.length === 2;
+        checks.push({
+          name: "学校GLBの厳格分類と3D意味Object",
+          ok:
+            schoolContext.metadata.stageId === "school" &&
+            schoolContext.metadata.navProfileId === "school-humanoid-v1" &&
+            resourceCountsOk &&
+            Vector3.Distance(playerSpawn, expectedPlayerSpawn) <= 1e-5 &&
+            schoolContext.boundary.contains(playerSpawn) &&
+            schoolContext.volumes.getByRole("npc_spawn").length === 1 &&
+            schoolContext.volumes.getByRole("bit_spawn").length === 1,
+          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / NAV=${schoolContext.resources.navSourceMeshes.length} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
+        });
+
+        const stageDestination = new Vector3(-11.35, 0.25, 1.625);
+        const schoolPath = schoolContext.navigation.findPath(
+          playerSpawn,
+          stageDestination
+        );
+        const projectedStageDestination = schoolContext.navigation.projectPoint(
+          stageDestination,
+          0.1
+        );
+        const schoolPathEndpoint = schoolPath
+          ? schoolPath.points[schoolPath.points.length - 1]
+          : null;
+        const schoolPathEndpointError = schoolPathEndpoint && projectedStageDestination
+          ? Vector3.Distance(schoolPathEndpoint, projectedStageDestination)
+          : Number.POSITIVE_INFINITY;
+        const chestPosition = playerSpawn.add(new Vector3(0, 0.2, 0));
+        const outsidePosition = new Vector3(5.5, 0.2, 0);
+        const actorWallHit = schoolContext.queries.castActorSegment(
+          chestPosition,
+          outsidePosition
+        );
+        const beamWallHit = schoolContext.queries.castBeamSegment(
+          chestPosition,
+          outsidePosition
+        );
+        const sightWallHit = schoolContext.queries.castSightSegment(
+          chestPosition,
+          outsidePosition
+        );
+        checks.push({
+          name: "学校NavMesh完全経路と実壁遮蔽",
+          ok:
+            schoolPath !== null &&
+            projectedStageDestination !== null &&
+            schoolPathEndpointError <= 1e-5 &&
+            actorWallHit !== null &&
+            beamWallHit !== null &&
+            sightWallHit !== null &&
+            actorWallHit.mesh === beamWallHit.mesh &&
+            beamWallHit.mesh === sightWallHit.mesh,
+          detail: `${schoolPath?.points.length ?? 0}点 / endpointError=${Number.isFinite(schoolPathEndpointError) ? schoolPathEndpointError.toExponential(2) : "--"} / blocker=${beamWallHit?.mesh.name ?? "--"}`
+        });
+
+        schoolContext.dispose();
+        schoolContext = null;
+        const afterFirstDispose = countSceneResources(spatialScene);
+        const reloadedContext = await loadStageSpatialContext(
+          spatialScene,
+          SCHOOL_VALIDATION_STAGE
+        );
+        const reloadedMetadataOk =
+          reloadedContext.metadata.stageId === "school" &&
+          reloadedContext.resources.visualMeshes.length === 263;
+        reloadedContext.dispose();
+        const afterSecondDispose = countSceneResources(spatialScene);
+        checks.push({
+          name: "学校資源の破棄と再読込",
+          ok:
+            reloadedMetadataOk &&
+            sceneResourceCountsEqual(baselineResources, afterFirstDispose) &&
+            sceneResourceCountsEqual(baselineResources, afterSecondDispose),
+          detail: `baseline=${JSON.stringify(baselineResources)} / first=${JSON.stringify(afterFirstDispose)} / second=${JSON.stringify(afterSecondDispose)}`
+        });
+      } finally {
+        schoolContext?.dispose();
+      }
+    } finally {
+      spatialScene.dispose();
+      spatialEngine.dispose();
+    }
+
     const pathMeshes = [
       createPathMesh("DoorRoute", routePath, new Color3(1, 0.82, 0.18)),
       createPathMesh("RampRoute", rampPath, new Color3(0.2, 0.72, 1))
@@ -366,6 +555,7 @@ const runValidation = async () => {
     setMetric("初期化", `${initializationMs.toFixed(2)} ms`);
     setMetric("ベイク", `${bakeMs.toFixed(2)} ms`);
     setMetric("復元", `${restoreMs.toFixed(2)} ms`);
+    setMetric("学校読込", `${schoolLoadMs.toFixed(2)} ms`);
     setMetric("バイナリ", `${data.byteLength} bytes`);
     setMetric("入力三角形", `${navGeometry.indices.length / 3}`);
 
