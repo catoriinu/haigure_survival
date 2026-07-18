@@ -229,8 +229,8 @@ export type AlertSignal = {
 };
 
 export type AlertRequest = {
+  leaderId: string;
   targetId: string;
-  blockerId: string;
 };
 
 export type ExternalAlert = {

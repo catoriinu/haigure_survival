@@ -726,7 +726,7 @@ export const updateNpcs = (
       return true;
     }
     if (blockedByPlayer && !npc.blockedByPlayer) {
-      alertRequests.push({ targetId: npcId, blockerId: "player" });
+      alertRequests.push({ leaderId: npcId, targetId: "player" });
     }
     npc.alertState = blockedByPlayer ? "send" : "none";
     npc.blockedByPlayer = blockedByPlayer;
@@ -965,8 +965,8 @@ export const updateNpcs = (
       npc.blockTimer = 0;
       npc.breakAwayTimer = 0;
       alertRequests.push({
-        targetId: touchTarget.id,
-        blockerId: npcId
+        leaderId: npcId,
+        targetId: touchTarget.id
       });
       activeBlockers.push({
         position: touchTarget.position,

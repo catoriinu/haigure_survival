@@ -3108,9 +3108,6 @@ const applyAlertRequests = (
     )!;
     const candidates: { distanceSq: number; bit: Bit }[] = [];
     for (const bit of bits) {
-      if (bit.id === request.blockerId) {
-        continue;
-      }
       if (!isInterruptibleBit(bit)) {
         continue;
       }
@@ -3125,8 +3122,8 @@ const applyAlertRequests = (
     const receiverIds = selected.map((candidate) => candidate.bit.id);
     if (receiverIds.length > 0) {
       return {
-        leaderId: request.blockerId,
-        targetId: request.blockerId,
+        leaderId: request.leaderId,
+        targetId: request.targetId,
         receiverIds
       };
     }

@@ -197,6 +197,7 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 - `npm run bake:v2:school-navmesh`は部分経路を`success`として受理せず、代表10経路すべての要求終点との誤差`1e-5`以下を必須とする。`npm run build`、`npm run build:t01`、`npm run build:t02`、`npm run build:t03`、`npm run build:t04`はすべて成功した。
 - 問題10（学校3D空間コンテキストを実装・自動検証済み）: 学校カタログはID、表示名、GLB／NavMesh URL、schema、NavMesh profile、確定SHA-256だけを保持し、空間座標を持たない。`StageSpatialContext`はGLB作者Node 420件を`VIS_*`263件、通常`COL_*`144件、`NAV_*`8件、意味Object 5件へ厳格分類し、プレイヤースポーン、NPC・ビット出現Volume、3D境界、Actor衝突、通常ビーム・視線遮蔽、事前ベイクNavMeshを同じ所有単位へまとめる。ActorOnly窓は移動だけを遮り、光線と視線を通す分類テストも追加した。
 - T04実ブラウザ検証は実学校GLB／NavMeshのハッシュ照合、主玄関スポーン、境界包含、舞台までの完全経路、実壁遮蔽、資源破棄、再読込を含む12/12項目が初回・再実行ともPASSし、console warning／errorは0件だった。学校読込は約34～41msで、破棄後はMesh・Material・TransformNode件数が読込前と一致した。
+- 問題11（NPCからビットへのアラート標的受け渡しを修正・自動検証済み）: 既存の`AlertRequest`は`targetId`と`blockerId`の意味が呼出箇所ごとに反転し、`applyAlertRequests`が両方を`blockerId`として`ExternalAlert`へ渡していた。このため、警報を出したNPCと追跡対象が同じIDへ潰れていた。型を`leaderId`と`targetId`へ変更し、生存NPCがプレイヤーに塞がれた場合はNPCを発信者・プレイヤーを標的、洗脳NPCが未洗脳者へ接触した場合は洗脳NPCを発信者・接触相手を標的として統一した。`npm run build`と対象差分の`git diff --check`は成功した。
 - 体育館舞台階段の形状ディテールと同色面の境界表現はB03、NPC・ビットが複数階を移動する高さ付きNavMesh接続はT04の範囲とし、今回の1階連続NavMeshへ仮リンクやセル互換を追加しない。
 
 - 2026-07-18 23:29 JSTに開始確認を実施した。
