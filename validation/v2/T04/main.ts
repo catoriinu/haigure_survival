@@ -32,6 +32,7 @@ import {
   createStageSpatialQueries,
   type StageVolume
 } from "../../../src/world/stageSpatialQueries";
+import { createV2AlertCoordinator } from "../../../src/v2/alertCoordinator";
 
 import "./style.css";
 
@@ -307,6 +308,33 @@ const runValidation = async () => {
   disposeNavigationRuntime();
 
   const checks: ValidationCheck[] = [];
+
+  const alertCoordinator = createV2AlertCoordinator({ alertDuration: 2 });
+  alertCoordinator.publish([{ leaderId: "bit-1", targetId: "player" }]);
+  alertCoordinator.update(0.75);
+  const activeAlert = alertCoordinator.getActiveAlerts()[0];
+  alertCoordinator.publish([{ leaderId: "bit-1", targetId: "player" }]);
+  const refreshedAlert = alertCoordinator.getActiveAlerts()[0];
+  alertCoordinator.update(2);
+  checks.push({
+    name: "3D actor alertの期限更新と再発行",
+    ok:
+      activeAlert?.leaderId === "bit-1" &&
+      activeAlert.targetId === "player" &&
+      Math.abs(activeAlert.remainingSeconds - 1.25) <= 1e-9 &&
+      refreshedAlert?.remainingSeconds === 2 &&
+      alertCoordinator.getActiveAlerts().length === 0,
+    detail: `remaining=${activeAlert?.remainingSeconds ?? "none"} / refreshed=${refreshedAlert?.remainingSeconds ?? "none"}`
+  });
+
+  const invalidAlertMessage = captureThrownMessage(() => {
+    alertCoordinator.publish([{ leaderId: "same", targetId: "same" }]);
+  });
+  checks.push({
+    name: "alert leaderとtargetの同一ID拒否",
+    ok: invalidAlertMessage?.includes("異なる必要") === true,
+    detail: invalidAlertMessage ?? "例外なし"
+  });
   const pendingNavigationWorlds: NavigationWorld[] = [];
 
   try {
