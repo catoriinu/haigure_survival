@@ -80,6 +80,7 @@ type SyncBillboardsArgs = {
 type SyncCharacterGroundShadowsArgs = {
   playerAvatar: Sprite;
   npcs: Npc[];
+  playerGroundY: number;
   showGroundShadows: boolean;
   yaw: number;
   visibility: number;
@@ -544,6 +545,7 @@ export const createCharacterSceneController = ({
     syncCharacterGroundShadows: ({
       playerAvatar,
       npcs,
+      playerGroundY,
       showGroundShadows,
       yaw,
       visibility,
@@ -554,6 +556,7 @@ export const createCharacterSceneController = ({
       if (playerGroundShadow) {
         groundShadowManager.syncGroundShadow(playerGroundShadow, {
           positionX: playerAvatar.position.x,
+          positionY: playerGroundY,
           positionZ: playerAvatar.position.z,
           width: playerAvatar.width * widthRatio,
           depth: playerAvatar.width * depthRatio,
@@ -572,6 +575,7 @@ export const createCharacterSceneController = ({
         groundShadow.mesh.setEnabled(true);
         groundShadowManager.syncGroundShadow(groundShadow, {
           positionX: npcSprite.position.x,
+          positionY: npcSprite.position.y - npcSprite.height * 0.5,
           positionZ: npcSprite.position.z,
           width: npcSprite.width * widthRatio,
           depth: npcSprite.width * depthRatio,

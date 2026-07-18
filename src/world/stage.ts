@@ -271,6 +271,8 @@ export const createStageFromGrid = (
         scene
       );
       floor.position = new Vector3(centerX, 0, centerZ);
+      floor.checkCollisions = style.enableCollisions;
+      floor.isPickable = false;
       floor.material = resolveFloorMaterial(
         environment,
         row,
@@ -279,6 +281,9 @@ export const createStageFromGrid = (
         floorMaterialOutdoor
       );
       floors.push(floor);
+      if (style.enableCollisions) {
+        colliders.push(floor);
+      }
 
       if (!isFloorCell(layout, row - 1, col)) {
         const wallHeight = getWallHeight(layout, row - 1, col);
@@ -411,6 +416,8 @@ export const createStageFromGrid = (
     ceiling.material = ceilingMaterial;
     if (style.enableCollisions) {
       ceiling.checkCollisions = true;
+      ceiling.isPickable = false;
+      colliders.push(ceiling);
     }
   }
 

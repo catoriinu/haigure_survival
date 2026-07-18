@@ -1,0 +1,78 @@
+:root {
+  color: #e9f4ff;
+  background: #06111c;
+  font-family: system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  display: grid;
+  grid-template-columns: minmax(390px, 44vw) 1fr;
+  min-height: 100vh;
+}
+
+.panel {
+  overflow: auto;
+  max-height: 100vh;
+  padding: 20px;
+  background: #0c2033;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+button {
+  padding: 8px 12px;
+  color: #07111b;
+  background: #7ed8ff;
+  border: 0;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+button:disabled {
+  opacity: 0.55;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+}
+
+dt {
+  font-weight: 700;
+}
+
+dd {
+  margin: 0;
+  font-family: ui-monospace, monospace;
+}
+
+li {
+  margin: 8px 0;
+}
+
+.pass {
+  color: #8dffb0;
+}
+
+.fail {
+  color: #ff8d96;
+}
+
+#render-canvas {
+  width: 100%;
+  height: 100vh;
+  outline: none;
+}

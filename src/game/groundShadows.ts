@@ -17,6 +17,7 @@ export type GroundShadowHandle = {
 
 export type GroundShadowSyncState = {
   positionX: number;
+  positionY: number;
   positionZ: number;
   width: number;
   depth: number;
@@ -203,7 +204,11 @@ export const createGroundShadowManager = (scene: Scene): GroundShadowManager => 
     handle: GroundShadowHandle,
     state: GroundShadowSyncState
   ) => {
-    handle.mesh.position.set(state.positionX, groundShadowY, state.positionZ);
+    handle.mesh.position.set(
+      state.positionX,
+      state.positionY + groundShadowY,
+      state.positionZ
+    );
     handle.mesh.scaling.set(state.width, 1, state.depth);
     handle.mesh.rotation.y = state.yaw;
     handle.mesh.visibility = Math.max(0, Math.min(1, state.visibility));

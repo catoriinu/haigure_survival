@@ -125,6 +125,7 @@ import {
   type PlayerAbilityFrameSnapshot
 } from "./game/playerAbility";
 import { createPlayerMotionController } from "./game/playerMotion";
+import { createPlayerHeightController } from "./game/playerHeight";
 import {
   buildStageContext,
   disposeStageContext
@@ -813,6 +814,11 @@ const playerStaminaDrainInterval = 0.1;
 const playerStaminaRecoverInterval = 0.2;
 const playerMoveInertiaAt60Fps = 0.9;
 const playerMoveStopEpsilon = 0.00001;
+const playerGravity = 2.4525;
+const playerMaxStepHeight = 0.0375;
+const playerGroundTolerance = 0.004;
+const playerGroundSnapDistance = 0.0415;
+const playerMinGroundNormalY = Math.SQRT1_2;
 camera.speed = 0;
 camera.angularSensibility = 1500;
 camera.keysUp = [87];
@@ -831,6 +837,7 @@ playerCollisionMesh.ellipsoid = new Vector3(
   playerWidth * 0.5
 );
 playerCollisionMesh.ellipsoidOffset = new Vector3(0, playerHeight * 0.5, 0);
+playerCollisionMesh.surroundingMeshes = stageResources.colliders;
 const reflectionCamera = new FreeCamera(
   "reflectionCamera",
   spawnPosition.clone(),
@@ -845,7 +852,6 @@ const playerEyeRenderPosition = Vector3.Zero();
 const playerAvatarWorldPosition = Vector3.Zero();
 const firstPersonPreviewPlayerPosition = Vector3.Zero();
 const firstPersonViewHorizontalForward = Vector3.Zero();
-const playerMoveStartPosition = Vector3.Zero();
 const playerMoveActualDisplacement = Vector3.Zero();
 const firstPersonViewRay = new Ray(
   Vector3.Zero(),
@@ -858,6 +864,13 @@ const playerMotion = createPlayerMotionController({
   moveInertiaAt60Fps: playerMoveInertiaAt60Fps,
   moveStopEpsilon: playerMoveStopEpsilon
 });
+const playerHeightMotion = createPlayerHeightController(scene, {
+  gravity: playerGravity,
+  maxStepHeight: playerMaxStepHeight,
+  groundTolerance: playerGroundTolerance,
+  groundSnapDistance: playerGroundSnapDistance,
+  minGroundNormalY: playerMinGroundNormalY
+});
 const shouldSyncCameraToPlayerPosition = (phase: GamePhase) =>
   usesPlayerEyeHeight(phase) || phase === "execution";
 const syncPlayerCollisionMeshFromEyePosition = (eyePosition: Vector3) => {
@@ -866,6 +879,8 @@ const syncPlayerCollisionMeshFromEyePosition = (eyePosition: Vector3) => {
     eyePosition.y - getEyeHeight(),
     eyePosition.z
   );
+  playerHeightMotion.resync(playerCollisionMesh, stageColliderSet);
+  eyePosition.y = playerCollisionMesh.position.y + getEyeHeight();
 };
 const syncCameraBasePositionFromPlayer = () => {
   if (!shouldSyncCameraToPlayerPosition(gamePhase)) {
@@ -877,9 +892,13 @@ const syncCameraBasePositionFromPlayer = () => {
 const applyCameraSpawnTransform = () => {
   syncPlayerCollisionMeshFromEyePosition(spawnPosition);
   playerMotion.reset();
-  camera.position.copyFrom(spawnPosition);
+  camera.position.set(
+    playerCollisionMesh.position.x,
+    playerCollisionMesh.position.y + getEyeHeight(),
+    playerCollisionMesh.position.z
+  );
   camera.rotation = new Vector3(0, 0, 0);
-  camera.setTarget(spawnPosition.add(spawnForward));
+  camera.setTarget(camera.position.add(spawnForward));
   capturePlayerEyeBasePosition();
 };
 const syncReflectionCamera = () => {
@@ -926,11 +945,10 @@ const syncFirstPersonPreviewPlayerPosition = (
   }
   firstPersonPreviewPlayerPosition.set(
     playerEyeBasePosition.x + playerEyeRenderOffset.x * 2,
-    playerAvatar.height * 0.5,
+    playerCollisionMesh.position.y + playerAvatar.height * 0.5,
     playerEyeBasePosition.z + playerEyeRenderOffset.z * 2
   );
   playerAvatar.position.copyFrom(firstPersonPreviewPlayerPosition);
-  alignSpriteToGround(playerAvatar);
 };
 
 const clampFirstPersonViewOffsetLength = (
@@ -1111,11 +1129,11 @@ const syncTitleCameraHeight = () => {
   } else {
     horizontalForward.normalize();
   }
-  camera.position.y = eyeHeight;
+  camera.position.y = playerCollisionMesh.position.y + eyeHeight;
   camera.setTarget(
     new Vector3(
       camera.position.x + horizontalForward.x,
-      eyeHeight,
+      camera.position.y,
       camera.position.z + horizontalForward.z
     )
   );
@@ -2297,9 +2315,10 @@ const applyStageSelection = async (selection: StageSelection) => {
     titleStageSelectControl.setSelectedStageId(selection.id);
     titleSettingsSidebar.setStageId(selection.id);
     disposeAllGroundShadows();
-    disposeStageContext(stageContext);
+    const previousStageContext = stageContext;
     stageContext = nextStageContext;
     updateStageState();
+    playerCollisionMesh.surroundingMeshes = stageResources.colliders;
     syncStageReflectiveSurfaces();
     trapSystem.syncStageContext({ layout, bounds });
     trapSystem.resetRuntimeState();
@@ -2314,6 +2333,7 @@ const applyStageSelection = async (selection: StageSelection) => {
     });
     alarmSystem.resetRuntimeState();
     applyCameraSpawnTransform();
+    disposeStageContext(previousStageContext);
     refreshPortraitSizes();
     rebuildGameFlow();
     if (gamePhase === "title") {
@@ -2451,12 +2471,15 @@ const updatePlayerMovement = (
     allowMove,
     moveSpeed
   );
-  playerMoveStartPosition.copyFrom(playerCollisionMesh.position);
-  if (requestedDisplacement.lengthSquared() > 0.0000000001) {
-    playerCollisionMesh.moveWithCollisions(requestedDisplacement);
-  }
-  playerMoveActualDisplacement.copyFrom(playerCollisionMesh.position);
-  playerMoveActualDisplacement.subtractInPlace(playerMoveStartPosition);
+  const heightFrame = playerHeightMotion.move(
+    playerCollisionMesh,
+    requestedDisplacement,
+    delta,
+    stageColliderSet
+  );
+  playerMoveActualDisplacement.copyFrom(
+    heightFrame.actualHorizontalDisplacement
+  );
   playerMotion.commit(playerMoveActualDisplacement);
 };
 
@@ -3486,6 +3509,8 @@ const syncGroundShadows = () => {
   characterScene.syncCharacterGroundShadows({
     playerAvatar,
     npcs,
+    playerGroundY:
+      playerHeightMotion.getState().supportY ?? playerCollisionMesh.position.y,
     showGroundShadows,
     yaw: currentCharacterFacingYaw,
     visibility: characterGroundShadowVisibility,
@@ -3547,6 +3572,7 @@ const syncGroundShadows = () => {
       showGroundShadows && (bit.body.isVisible || bit.spawnPhase !== "done");
     groundShadowManager.syncGroundShadow(groundShadow.shape, {
       positionX: bit.root.position.x,
+      positionY: 0,
       positionZ: bit.root.position.z,
       width: blendedWidth,
       depth: blendedDepth,
@@ -3557,6 +3583,7 @@ const syncGroundShadows = () => {
     });
     groundShadowManager.syncGroundShadow(groundShadow.circle, {
       positionX: bit.root.position.x,
+      positionY: 0,
       positionZ: bit.root.position.z,
       width: circleDiameter * heightScale,
       depth: circleDiameter * heightScale,
@@ -3581,16 +3608,18 @@ const syncPlayerPresentation = () => {
     } else {
       playerAvatar.position.set(
         playerEyeBasePosition.x,
-        playerAvatar.height * 0.5,
+        playerCollisionMesh.position.y + playerAvatar.height * 0.5,
         playerEyeBasePosition.z
       );
-      alignSpriteToGround(playerAvatar);
     }
   } else if (useFirstPersonPreviewSprite) {
     playerAvatar.isVisible = true;
     syncFirstPersonPreviewPlayerPosition(true);
   } else if (gamePhase === "transition") {
     playerAvatar.isVisible = false;
+  } else {
+    playerAvatar.position.y =
+      playerCollisionMesh.position.y + playerAvatar.height * 0.5;
   }
 
   const verticalAngleEnabled =
