@@ -71,7 +71,7 @@ T00を引き継ぎ、`codex/v2-t01-glb-contract`上でテストコース、GLB�
 - [x] v2ステージ資産仕様書へ規約と実測結果を記録する
 - [x] 関連ビルド、UTF-8（BOMなし）、括弧対応、差分を検証する
 - [x] 本計画と全体`docs/plan.md`へT01の完了結果を記録する
-- [ ] 変更をコミット、pushし、`develop`宛てPull Requestを作成する
+- [x] 変更をコミット、pushし、`develop`宛てPull Requestを作成する
 
 ## 結果
 
@@ -103,3 +103,5 @@ T00を引き継ぎ、`codex/v2-t01-glb-contract`上でテストコース、GLB�
 - 公開URL変更後もBrowserで全28項目PASSとCOL表示／非表示切替を再確認した。
 - 変更テキスト10件を厳格UTF-8として復号し、BOMなしを確認した。JSON 3件の構文解析、GLB 2.0の16メッシュ・VIS/COL各8件・Material 6件、`git diff --check`も成功した。
 - 最終保存後のBlenderはMetric・1 unit＝1m、16メッシュ、VIS/COL各8件、Object名とMesh Data名の一致、scale 1、保存済み状態を維持している。
+- T01成果物を`d089010`（`feat: v2ステージ資産規約を技術検証`）としてコミットし、`origin/codex/v2-t01-glb-contract`へpushした。
+- `develop`宛てDraft Pull Request [#35](https://github.com/catoriinu/haigure_survival/pull/35)を作成した。T02以降は未着手のまま保持している。
