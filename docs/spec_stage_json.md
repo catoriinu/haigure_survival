@@ -1,12 +1,19 @@
-# HAIGURE SURVIVAL v2 ステージJSON仕様書
+# HAIGURE SURVIVAL 旧T02 ステージJSON仕様書（V2廃止済み）
 
-更新日: 2026-07-18
-対象バージョン: v2
+更新日: 2026-07-19
+文書状態: 旧T02履歴（V2実行契約では廃止済み）
 基準実装: `src/world/stageJson.ts`
+
+> [!CAUTION]
+> 本書をV2の実行契約、実装要件、データ作成要件として参照してはならない。V2ではステージJSON、JSON文字マップ、セルナビゲーションを廃止し、これらへの互換処理も実装しない。
 
 ## 1. 文書の位置付け
 
-本書はHAIGURE SURVIVAL v2のステージ定義JSONを規定する。ステージ定義は`schemaVersion: 2`と`kind`を持つ`StageDefinitionV2`であり、次の2形式を明示的に扱う。
+本書は、旧T02で採用していたステージ定義JSONの仕様を履歴として保存するものである。以下に記載する`schemaVersion: 2`、`StageDefinitionV2`、`procedural-grid`、旧GLB用JSON、文字マップ、セル座標、セルナビゲーションはすべて廃止済みであり、V2の要件ではない。
+
+V2のステージ実行契約は、新規作成予定の [V2ステージランタイム仕様書](./spec_stage_runtime_v2.md) を正本とする。V2はGLBの3D meshes／markers／volumes、事前ベイク済みRecast navmesh、TypeScriptの非空間カタログを使用し、対象ステージを学校のみに限定する。既存8ステージはV2対象外である。
+
+以下の旧T02仕様は、当時の設計と実装を追跡する目的でのみ残す。
 
 - `procedural-grid`: JSONの文字グリッドから床、壁、天井、衝突、鏡を生成する。
 - `glb`: 規約準拠GLBから表示形状と衝突形状を読み、JSONは平面ナビゲーション、スポーン、ゾーン、ステージ設定を担当する。
