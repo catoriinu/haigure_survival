@@ -13,6 +13,9 @@
     "dev:t01": "vite --config vite.t01.config.mts",
     "typecheck:t01": "tsc -p validation/v2/T01/tsconfig.json --noEmit",
     "build:t01": "npm run typecheck:t01 && vite build --config vite.t01.config.mts",
+    "dev:t02": "vite --config vite.t02.config.mts",
+    "typecheck:t02": "tsc -p validation/v2/T02/tsconfig.json --noEmit",
+    "build:t02": "npm run typecheck:t02 && vite build --config vite.t02.config.mts",
     "preview": "vite preview",
     "dist": "npm run build && electron-builder"
   },

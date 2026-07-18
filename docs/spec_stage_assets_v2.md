@@ -148,6 +148,8 @@ T01で確定した設定:
 3. 作者メッシュ、`createRootMesh()`で追加した管理親、glTF管理ルートを含む全Mesh／TransformNode参照が`isDisposed()`になり、シーンに残っていないことを確認する。コンテナ由来Material名、Texture名もシーンに残っていないことを確認する。
 4. 再読込時は新しいAssetContainerを作り、初回と同じ命名、件数、world boundsになることを確認する。
 
+GLB読込によって生成される`EnvironmentBRDFTexture`はBabylon.jsのScene共有資源として扱う。共通ローダーは参照カウントや明示破棄を行わず、非同期RGBD展開、コンテキスト復元、最終破棄をSceneのライフサイクルへ委ねる。AssetContainer破棄後もSceneが存続する間は再利用する。
+
 ## 9. T01基準コース
 
 コース外形は9m×10mで、玄関相当の小段差、廊下相当の壁・天井、階段室相当の階段・踊り場を3レーンへ配置する。学校本体の間取りや外観ではなく、後続ロジックのための技術検証資産である。

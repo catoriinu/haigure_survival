@@ -1,163 +1,182 @@
 {
+  "schemaVersion": 2,
+  "kind": "procedural-grid",
   "meta": {
     "name": "city_center",
-    "description": "都心部",
-    "size": { "width": 56, "height": 58 },
-    "mapScale": { "x": 2, "z": 2 }
+    "description": "都心部"
   },
-
-  "cellPhysics": {
-    " ": { "solid": true,  "heightCells": 0, "noRender": true },
-    ".": { "solid": false, "heightCells": 0 },
-    "$": { "solid": true,  "heightCells": 6 },
-    "&": { "solid": true,  "heightCells": 18 }
-  },
-
-  "mainMap": [
-    "                        &      &                        ",
-    "                        &......&                        ",
-    "                        &......&                        ",
-    "                        &......&                        ",
-    "                        &......&                        ",
-    "                        &......&                        ",
-    "&&&&&&&&&&&&&&&&&&&&&&&&&......&&&&&&&&&&&&&&&&&&&&&&&&&",
-    " ...................................................... ",
-    " ...................................................... ",
-    " ...................................................... ",
-    " ...................................................... ",
-    "&&&&&&&&.$$$$$$$$$$$$$$$$......&&&&&&&&&&&&&....&&&&&&&&",
-    "       &.$              $......&           &....&       ",
-    "       &.$              $......&           &....&       ",
-    "       &.$              $......&           &....&       ",
-    "       &.$              $......&           &....&       ",
-    "       &.$              $......&           &....&       ",
-    "       &.$              $......&           &....&       ",
-    "       &.$              $......&           &....&       ",
-    "       &.$              $......&           &....&       ",
-    "&&&&&&&&.$$$$$$$$$$$$$$$$......&&&&&&&&&&&&&....&&&&&&&&",
-    " ...................................................... ",
-    " ...................................................... ",
-    " ...................................................... ",
-    " ...................................................... ",
-    "$$$$$$$$.&&&&&&&&&&&&&&&&......$$$$$$$$$$$$$....$$$$$$$$",
-    "       $.&              &......$           $....$       ",
-    "       $.&              &......$           $....$       ",
-    "       $.&              &......$           $....$       ",
-    "       $.&              &......$           $....$       ",
-    "       $.&              &......$           $....$       ",
-    "       $.&              &......$           $....$       ",
-    " $$$$$$$.&&&&&&&&&&&&&&&&......$           $....$       ",
-    " $.............................$           $....$       ",
-    " $$$$$$$.$$$$$$$$$$$$$$$$......$           $....$       ",
-    "       $.$              $......$           $....$       ",
-    "       $.$              $......$           $....$       ",
-    "       $.$              $......$           $....$       ",
-    "$$$$$$$$.$$$$$$$$$$$$$$$$......$$$$$$$$$$$$$....$$$$$$$$",
-    " ...................................................... ",
-    " ...................................................... ",
-    " ...................................................... ",
-    " ...................................................... ",
-    "$$$$$$$$....$$$$$$$$$$$$$$....&&&&&&&&&&&&&&....$$$$$$$$",
-    "       $....$            $....&            &....$       ",
-    "       $....$            $....&            &....$       ",
-    "       $....$            $....&            &....$       ",
-    "       $....$            $....&            &....$       ",
-    "       $....$            $....&            &....$       ",
-    "       $....$            $....&            &....$       ",
-    "       $....$            $....&            &....$       ",
-    "$$$$$$$$....$$$$$$$$$$$$$$....&&&&&&&&&&&&&&....$$$$$$$$",
-    " ...................................................... ",
-    " ...................................................... ",
-    " ...................................................... ",
-    " ...................................................... ",
-    "$$$$$$$$....$$$$$$$$$$$$$$....$$$$$$$$$$$$$$....$$$$$$$$",
-    "       $    $            $    $            $    $       "
-  ],
-
-  "semantics": {
-    "channels": {
-      "env": [
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
-        "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO"
-      ]
+  "grid": {
+    "cellSize": 0.3333333333333333,
+    "mapScale": {
+      "x": 2,
+      "z": 2
     },
-    "brief": {
-      "env": { "O": "屋外（都心部）" }
-    }
-  },
-
-  "generationRules": {
-    "env": {
-      "O": {
-        "floor": { "tileId": "road_city" },
-        "obstacle": { "tileId": "building_city" },
-        "ceiling": null,
-        "sky": { "color": "#87CEEB" }
+    "cellPhysics": {
+      " ": {
+        "solid": true,
+        "heightCells": 0,
+        "noRender": true
+      },
+      ".": {
+        "solid": false,
+        "heightCells": 0
+      },
+      "$": {
+        "solid": true,
+        "heightCells": 6
+      },
+      "&": {
+        "solid": true,
+        "heightCells": 18
       }
-    }
+    },
+    "mainMap": [
+      "                        &      &                        ",
+      "                        &......&                        ",
+      "                        &......&                        ",
+      "                        &......&                        ",
+      "                        &......&                        ",
+      "                        &......&                        ",
+      "&&&&&&&&&&&&&&&&&&&&&&&&&......&&&&&&&&&&&&&&&&&&&&&&&&&",
+      " ...................................................... ",
+      " ...................................................... ",
+      " ...................................................... ",
+      " ...................................................... ",
+      "&&&&&&&&.$$$$$$$$$$$$$$$$......&&&&&&&&&&&&&....&&&&&&&&",
+      "       &.$              $......&           &....&       ",
+      "       &.$              $......&           &....&       ",
+      "       &.$              $......&           &....&       ",
+      "       &.$              $......&           &....&       ",
+      "       &.$              $......&           &....&       ",
+      "       &.$              $......&           &....&       ",
+      "       &.$              $......&           &....&       ",
+      "       &.$              $......&           &....&       ",
+      "&&&&&&&&.$$$$$$$$$$$$$$$$......&&&&&&&&&&&&&....&&&&&&&&",
+      " ...................................................... ",
+      " ...................................................... ",
+      " ...................................................... ",
+      " ...................................................... ",
+      "$$$$$$$$.&&&&&&&&&&&&&&&&......$$$$$$$$$$$$$....$$$$$$$$",
+      "       $.&              &......$           $....$       ",
+      "       $.&              &......$           $....$       ",
+      "       $.&              &......$           $....$       ",
+      "       $.&              &......$           $....$       ",
+      "       $.&              &......$           $....$       ",
+      "       $.&              &......$           $....$       ",
+      " $$$$$$$.&&&&&&&&&&&&&&&&......$           $....$       ",
+      " $.............................$           $....$       ",
+      " $$$$$$$.$$$$$$$$$$$$$$$$......$           $....$       ",
+      "       $.$              $......$           $....$       ",
+      "       $.$              $......$           $....$       ",
+      "       $.$              $......$           $....$       ",
+      "$$$$$$$$.$$$$$$$$$$$$$$$$......$$$$$$$$$$$$$....$$$$$$$$",
+      " ...................................................... ",
+      " ...................................................... ",
+      " ...................................................... ",
+      " ...................................................... ",
+      "$$$$$$$$....$$$$$$$$$$$$$$....&&&&&&&&&&&&&&....$$$$$$$$",
+      "       $....$            $....&            &....$       ",
+      "       $....$            $....&            &....$       ",
+      "       $....$            $....&            &....$       ",
+      "       $....$            $....&            &....$       ",
+      "       $....$            $....&            &....$       ",
+      "       $....$            $....&            &....$       ",
+      "       $....$            $....&            &....$       ",
+      "$$$$$$$$....$$$$$$$$$$$$$$....&&&&&&&&&&&&&&....$$$$$$$$",
+      " ...................................................... ",
+      " ...................................................... ",
+      " ...................................................... ",
+      " ...................................................... ",
+      "$$$$$$$$....$$$$$$$$$$$$$$....$$$$$$$$$$$$$$....$$$$$$$$",
+      "       $    $            $    $            $    $       "
+    ]
   },
-
-  "entities": [],
-  "decals": [],
+  "rendering": {
+    "environmentMap": [
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+      "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO"
+    ],
+    "environmentRules": {
+      "O": {
+        "floor": {
+          "tileId": "road_city"
+        },
+        "obstacle": {
+          "tileId": "building_city"
+        },
+        "ceiling": null,
+        "sky": {
+          "color": "#87CEEB"
+        }
+      }
+    },
+    "decals": []
+  },
   "gameplay": {
     "markers": [
-      { "id": "spawn_player", "type": "spawn", "x": 27.5, "z": 41.25, "rotY": 180 }
+      {
+        "id": "spawn_player",
+        "type": "spawn",
+        "x": 27.5,
+        "z": 41.25,
+        "rotY": 180
+      }
     ],
     "zones": [
       {
@@ -167,12 +186,21 @@
         "z": 28,
         "w": 6,
         "h": 6,
-        "tags": ["all_down", "execution"]
+        "tags": [
+          "all_down",
+          "execution"
+        ]
       }
     ],
-    "spawners": [],
-    "triggers": [],
-    "options": { "skipAssembly": true }
+    "options": {
+      "skipAssembly": true
+    }
   },
-  "overrides": {}
+  "authoring": {
+    "symbols": {
+      "env": {
+        "O": "屋外（都心部）"
+      }
+    }
+  }
 }

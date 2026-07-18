@@ -1,23 +1,26 @@
-# HAIGURE SURVIVAL ステージJSON作成仕様書
+# HAIGURE SURVIVAL v2 ステージJSON仕様書
 
 更新日: 2026-07-18
-対象バージョン: 1.3.1
+対象バージョン: v2
 基準実装: `src/world/stageJson.ts`
 
 ## 1. 文書の位置付け
 
-本書は、HAIGURE SURVIVAL v1.3.1で読み込めるステージJSONの作成規則を定義する。ゲーム仕様は [ゲーム仕様書](./spec.md)、読込後の構成は [技術仕様書](./spec_technical.md) を参照すること。
+本書はHAIGURE SURVIVAL v2のステージ定義JSONを規定する。ステージ定義は`schemaVersion: 2`と`kind`を持つ`StageDefinitionV2`であり、次の2形式を明示的に扱う。
 
-現行実装にはJSON Schemaやランタイム検証がない。型アサーション後に各項目を直接参照するため、本書の必須条件を満たさないデータは読込後に例外、`undefined` 参照、寸法不一致を起こす。
+- `procedural-grid`: JSONの文字グリッドから床、壁、天井、衝突、鏡を生成する。
+- `glb`: 規約準拠GLBから表示形状と衝突形状を読み、JSONは平面ナビゲーション、スポーン、ゾーン、ステージ設定を担当する。
+
+GLB資産自体の縮尺、軸、命名、衝突規約は[ステージ資産仕様書](./spec_stage_assets_v2.md)を正本とする。旧JSON形式の互換読込や変換フォールバックは提供しない。
 
 ## 2. 配置と登録
 
-1. JSONを `public/stage/<ファイル名>.json` にUTF-8（BOMなし）で配置する。
-2. `src/world/stageSelection.ts` の `STAGE_CATALOG` にID、表示用ラベル、ファイル名を追加する。
-3. ステージ専用処理が必要なら、`src/world/stageIds.ts` と呼出側へID判定を追加する。
-4. ステージ固有BGMを使う場合は `public/audio/bgm/<meta.name>.mp3` を配置する。
+- 通常ステージ定義は`public/stage/<ファイル名>.json`へUTF-8（BOMなし）で配置する。
+- `src/world/stageSelection.ts`の`STAGE_CATALOG`へID、初期ラベル、定義パスを登録する。
+- 定義パスとGLBパスは`import.meta.env.BASE_URL`から解決できる相対パスとする。
+- JSONを配置しただけではタイトルの選択肢へ追加されない。
 
-JSONファイルを置くだけではタイトルの選択肢へ追加されない。現行の専用IDは次の3つである。
+現行の専用IDは次の3件である。
 
 | ID | 専用処理 |
 |---|---|
@@ -25,108 +28,87 @@ JSONファイルを置くだけではタイトルの選択肢へ追加されな�
 | `labyrinth_dynamic` | `D`ゾーンを使う動的ビームシステム |
 | `arena_roulette` | ルーレット進行とタイトル設定制限 |
 
-## 3. 座標系
-
-JSONはASCIIマップを人が読む向きで記述する。
-
-- 原点: `mainMap` 左上
-- X: 右へ増加
-- Z: 下へ増加
-- 座標単位: `mapScale` 適用前のベースセル
-- `rotY`: 度数法。0度は内部ワールドの+Z方向
-- `w`: X方向の幅
-- `h`: Z方向の奥行き。ただし壁面鏡では鏡の縦方向セル数として使う
-
-読込時に `mainMap`、`semantics.channels.env`、`semantics.channels.zone` は各行を左右反転する。マーカー、ゾーン、デカールも同じX反転を受けるため、JSON作成者は内部反転を考慮せず、見たままの左上原点で記述する。
-
-### 3.1 X反転式
-
-ベースマップ幅を `W` とする。
-
-| 対象 | 内部X |
-|---|---|
-| 点マーカー | `W - 1 - x` |
-| 矩形ゾーン | `W - x - w` |
-| 床・天井矩形デカール | `W - x - width` |
-| 東西向き壁デカール | `W - 1 - x` |
-
-壁方向 `E` と `W` は反転時に入れ替わる。`N` と `S` は変わらない。
-
-## 4. `mapScale` とワールド寸法
-
-`meta.mapScale` はベースセル1文字を内部セルへ複製する倍率である。
-
-```json
-"mapScale": { "x": 2, "z": 3 }
-```
-
-この場合、1文字を横2セル、縦3セルへ展開する。マーカーとゾーンにも同じ倍率を適用する。
-
-- 内部列数: `mainMap[0].length * mapScale.x`
-- 内部行数: `mainMap.length * mapScale.z`
-- 1内部セル: `1 / 3` ワールド単位
-- ベースセルのワールド幅: `mapScale.x / 3`
-- ベースセルのワールド奥行き: `mapScale.z / 3`
-
-倍率は実装上整数検証されないが、1以上の整数を指定すること。0、負数、小数は使用禁止とする。
-
-## 5. トップレベル構造
-
-すべての新規ステージは次の項目を持たせる。
-
-```json
-{
-  "meta": {},
-  "cellPhysics": {},
-  "mainMap": [],
-  "semantics": {},
-  "generationRules": { "env": {} },
-  "entities": [],
-  "decals": [],
-  "gameplay": {
-    "markers": [],
-    "zones": [],
-    "spawners": [],
-    "triggers": [],
-    "options": { "skipAssembly": false }
-  },
-  "overrides": {}
-}
-```
-
-| 項目 | 型 | 現行ランタイムでの使用 |
-|---|---|---|
-| `meta` | object | 使用 |
-| `cellPhysics` | object | 使用 |
-| `mainMap` | string[] | 使用 |
-| `semantics` | object | `channels.env` と任意の `channels.zone` を使用 |
-| `generationRules` | object | `env` の一部を使用 |
-| `entities` | array | 未使用。空配列を指定 |
-| `decals` | array | 壁面鏡だけ使用 |
-| `gameplay` | object | `markers`、`zones`、`options` を使用 |
-| `overrides` | any | 未使用。空オブジェクトを指定 |
-
-## 6. `meta`
+## 3. Union型
 
 ```ts
-type Meta = {
-  name: string;
-  description?: string;
-  size?: { width: number; height: number };
-  mapScale: { x: number; z: number };
+type StageDefinitionV2 =
+  | ProceduralGridStageDefinitionV2
+  | GlbStageDefinitionV2;
+```
+
+両形式は次の共通領域を持つ。
+
+```ts
+type StageDefinitionCommonV2 = {
+  schemaVersion: 2;
+  meta: {
+    name: string;
+    description?: string;
+  };
+  gameplay: {
+    markers: StageMarker[];
+    zones: StageZone[];
+    options: {
+      skipAssembly: boolean;
+    };
+  };
+  authoring?: {
+    symbols?: {
+      env?: Record<string, string>;
+      zone?: Record<string, string>;
+    };
+    zoneRules?: Record<string, unknown>;
+  };
 };
 ```
 
-| 項目 | 必須 | 内容 |
-|---|---|---|
-| `name` | 必須 | ステージ内部名。対応BGMのファイル名にも使う |
-| `description` | 任意 | タイトルの表示ラベルへ使用する説明 |
-| `size` | 任意 | 文書用寸法。現行ランタイムは参照しない |
-| `mapScale` | 必須 | X/Z方向の展開倍率 |
+`meta.description`はタイトルのステージ名へ使用する。BGMは`meta.name`と同名の素材を選ぶ。
 
-実寸法は常に `mainMap` から算出する。`size` を書く場合は `width = 各行の文字数`、`height = 行数` と一致させること。
+旧形式の`meta.size`、`entities`、`gameplay.spawners`、`gameplay.triggers`、`overrides`はv2契約に含めない。
 
-## 7. `cellPhysics`
+## 4. procedural-grid形式
+
+```ts
+type ProceduralGridStageDefinitionV2 = StageDefinitionCommonV2 & {
+  kind: "procedural-grid";
+  grid: {
+    cellSize: number;
+    mapScale: { x: number; z: number };
+    cellPhysics: Record<string, StageCellPhysicsDef>;
+    mainMap: string[];
+    zoneMap?: string[];
+  };
+  rendering: {
+    environmentMap: string[];
+    environmentRules: Record<string, StageEnvRule>;
+    decals: StageDecal[];
+  };
+};
+```
+
+### 4.1 座標
+
+- JSON原点は`mainMap`左上。
+- Xは右、Zは下へ増加する。
+- 読込時に`mainMap`、`environmentMap`、`zoneMap`の各行を左右反転する。
+- マーカー、ゾーン、デカールにも同じX反転を適用する。
+- `E`と`W`の壁方向はX反転時に入れ替える。
+- 内部ワールドではグリッド全体の中央を原点とし、列をBabylon `+X`、行を`+Z`へ配置する。
+
+### 4.2 セル寸法と展開
+
+`grid.cellSize`は展開後の1内部セルのBabylonワールド寸法である。既存8ステージは`0.3333333333333333`を使用する。
+
+`mapScale`は1文字を内部セルへ複製する倍率である。
+
+- 内部列数: `mainMap[0].length * mapScale.x`
+- 内部行数: `mainMap.length * mapScale.z`
+- ベースセル幅: `cellSize * mapScale.x`
+- ベースセル奥行き: `cellSize * mapScale.z`
+
+`mapScale.x/z`は1以上の整数とする。
+
+### 4.3 物理グリッド
 
 ```ts
 type StageCellPhysicsDef = {
@@ -136,166 +118,118 @@ type StageCellPhysicsDef = {
 };
 ```
 
-`mainMap` の1文字と物理特性を対応付ける。`mainMap` に現れるすべての文字を定義すること。
+- `mainMap`は1行以上で、全行を同じ文字数にする。
+- `mainMap`に現れる全記号を`cellPhysics`へ定義する。
+- `solid: false`は床、`solid: true`は壁とする。
+- `heightCells`へ`cellSize`を掛けた値を壁高とする。
+- `solid: true`かつ`heightCells: 0`は、定義内最大の`heightCells`を使用する。
+- `noRender: true`は壁表示を省略するが、衝突は生成する。
+- 外周を壁または不可視solidセルで閉じる。
 
-```json
-"cellPhysics": {
-  " ": { "solid": true, "heightCells": 0, "noRender": true },
-  ".": { "solid": false, "heightCells": 0 },
-  "$": { "solid": true, "heightCells": 3 }
-}
-```
+### 4.4 環境と天井
 
-| 項目 | 内容 |
+`rendering.environmentMap`は`mainMap`と同じベース寸法にする。`O`は屋外床、それ以外は屋内床として扱う。
+
+`rendering.environmentRules`の最初のルールにある`ceiling`をステージ全体の天井へ使用する。`ceiling: null`なら天井を生成しない。`O.sky.color`はBabylonの背景色へ使用する。
+
+対応済み床`tileId`:
+
+| tileId | 表示 |
 |---|---|
-| `solid` | `true`なら壁、`false`なら床 |
-| `heightCells` | 壁高のセル数。内部セルサイズを掛けてワールド高にする |
-| `noRender` | `true`なら壁メッシュを描画しない。ただし衝突は生成する |
-
-### 7.1 高さ0のsolidセル
-
-`solid: true` かつ `heightCells: 0` は、`cellPhysics` 内で最大の `heightCells` を壁高として使用する。これは空白セルを不可視の外周壁として扱うための規則である。
-
-最低1種類は正の高さを持つsolid記号を定義すること。全solid定義が0だとフォールバック高も0になる。
-
-### 7.2 推奨記号
-
-記号の意味は固定ではなく `cellPhysics` が決めるが、現行データとの一貫性のため次を推奨する。
-
-| 記号 | 用途 |
-|---|---|
-| 半角空白 | 不可視の進入不能領域 |
-| `.` | 床 |
-| `$` | 標準壁 |
-| `&` | 高い壁 |
-
-## 8. `mainMap`
-
-`mainMap` は物理的な床・壁の配列である。
-
-```json
-"mainMap": [
-  "$$$$$",
-  "$...$",
-  "$...$",
-  "$...$",
-  "$$$$$"
-]
-```
-
-必須条件:
-
-- 1行以上、1文字以上であること。
-- 全行の文字数が同じであること。
-- すべての文字が `cellPhysics` に存在すること。
-- プレイヤーのスポーン先が `solid: false` のセルになること。
-- 外周を閉じるか、不可視solidセルで移動範囲を囲むこと。
-
-床セルごとに床メッシュを1枚作り、隣接セルが壁なら床側から壁面と衝突Meshを作る。壁セル自体に床は作らない。
-
-## 9. `semantics`
-
-```ts
-type StageSemantics = {
-  channels: {
-    env: string[];
-    zone?: string[];
-  };
-  brief?: {
-    env?: Record<string, string>;
-    zone?: Record<string, string>;
-  };
-};
-```
-
-### 9.1 `channels.env`
-
-`mainMap` と同じベース寸法で環境記号を記述する。
-
-| 記号 | 現行処理 |
-|---|---|
-| `O` | 屋外用の暗色床マテリアルを使用 |
-| `O`以外 | 通常床マテリアルを使用 |
-
-屋内記号には現行データと同じ `I` を推奨する。環境記号と `generationRules.env` のキーは合わせること。
-
-### 9.2 `channels.zone`
-
-任意の意味レイヤーである。現行ランタイムが解釈する記号は `D` だけである。
-
-- `D`: `labyrinth_dynamic` で動的ビーム候補になる床セル。
-- 上下左右に連結した `D` 床セルを1つのビームセットとして扱う。
-- `D` が壁セル上にあっても候補にならない。
-- `D` の意味はステージID `labyrinth_dynamic` のときだけ実際の進行に接続される。
-- `L` などその他の記号は現行ランタイムでは意味を持たない。
-
-`zone` を指定する場合は `mainMap` と同じ行数・列数にする。使用しない場合はプロパティ自体を省略する。
-
-### 9.3 `brief`
-
-記号の人間向け説明を保存できるが、現行ランタイムは参照しない。保守性のため、使用した環境・ゾーン記号の説明を書くことを推奨する。
-
-## 10. `generationRules`
-
-型上の必須部分は次のとおりである。
-
-```ts
-type StageEnvRule = {
-  floor?: { tileId?: string };
-  obstacle?: { tileId?: string };
-  ceiling: {
-    heightCells: number;
-    collision: boolean;
-    style?: { tileId?: string };
-  } | null;
-  sky?: { color: string };
-};
-
-type GenerationRules = {
-  env: Record<string, StageEnvRule>;
-};
-```
-
-`env` は1件以上必要である。現行処理には次の制約がある。
-
-| 項目 | 現行処理 |
-|---|---|
-| 最初のenvルールの `ceiling` | ステージ全体の天井として使用 |
-| `ceiling.heightCells` | 天井高に使用 |
-| `ceiling.collision` | 未使用。天井があれば常に衝突有効 |
-| `ceiling.style` | 未使用 |
-| `env.I.floor.tileId` | 一部の既知tileIdを床色へ変換 |
-| `env.O.sky.color` | ステージ背景色へ使用 |
-| `floor` のその他キー | 未使用 |
-| `obstacle` | 未使用 |
-| `generationRules.zone` | 型外の追加データ。現行ランタイムでは未使用 |
-
-対応済み床 `tileId`:
-
-| tileId | 色 |
-|---|---|
-| `floor_arena_amber` | 茶系のアリーナ床 |
-| `floor_labyrinth_amber` | 紺系の迷宮床 |
+| `floor_arena_amber` | 茶系アリーナ床 |
+| `floor_labyrinth_amber` | 紺系迷宮床 |
 | その他／未指定 | 既定の紫床 |
 
-屋外の例:
+### 4.5 意味ゾーン
+
+`grid.zoneMap`は任意で、指定時は`mainMap`と同じベース寸法にする。
+
+- `D`: `labyrinth_dynamic`の動的ビーム候補床セル。
+- `L`: 制作上の汎用屋内領域。現行ランタイム処理は持たない。
+
+上下左右に連結した`D`床セルを1つのビームセットとして扱う。
+
+### 4.6 デカール
+
+v2で描画するデカールは壁面鏡である。
+
+```ts
+type StageDecal = {
+  face: "floor" | "wall" | "ceiling";
+  type: "cell" | "rect";
+  x: number;
+  z: number;
+  w?: number;
+  h?: number;
+  wallDir?: "N" | "E" | "S" | "W";
+  reflective?: {
+    kind: "mirror";
+    tint: string;
+    amount: number;
+    blur: number;
+  };
+};
+```
+
+鏡は`face: "wall"`、`reflective.kind: "mirror"`、`wallDir`を必須とする。
+
+## 5. glb形式
+
+```ts
+type GlbStageDefinitionV2 = StageDefinitionCommonV2 & {
+  kind: "glb";
+  asset: {
+    path: string;
+  };
+  navigation: {
+    cellSizeMeters: number;
+    originMeters: { x: number; y: number };
+    cellPhysics: Record<string, StageCellPhysicsDef>;
+    mainMap: string[];
+    zoneMap?: string[];
+  };
+  environment: {
+    skyColor?: string;
+  };
+};
+```
+
+### 5.1 GLBパス
+
+`asset.path`はBASE_URL相対で記述する。
 
 ```json
-"generationRules": {
-  "env": {
-    "O": {
-      "floor": { "tileId": "floor_city_asphalt" },
-      "obstacle": { "tileId": "wall_city" },
-      "ceiling": null,
-      "sky": { "color": "#87ceeb" }
-    }
-  }
+"asset": {
+  "path": "stage-assets/v2/T01/t01_glb_collision_course.glb"
 }
 ```
 
-`ceiling: null` なら天井を生成しない。天井ありの場合、ステージ高さは最大壁高と天井高の大きい方になる。
+ローダーはAssetContainerの外側に管理親を作成し、0.25倍を適用する。glTF管理ルートは変更しない。
 
-## 11. `gameplay.markers`
+### 5.2 平面ナビゲーション座標
+
+GLB用JSONの水平座標はBlender資産原点・メートル基準とする。
+
+- `originMeters`: ナビゲーションセル`(x=0, z=0)`中心のBlender X/Y座標。
+- `cellSizeMeters`: 1セルのBlenderメートル寸法。
+- JSON列: Blender `+X`へ増加。
+- JSON行: Blender `+Y`へ増加。
+- JSON列はBabylon `-X`、JSON行はBabylon `-Z`へ変換する。
+- 距離は0.25倍に変換する。
+- GLB形式ではJSON列の左右反転を行わない。
+
+本平面グリッドはT02時点の既存ゲームシステムを接続するための構造である。`layerId`、`floorY`、複数階、階段リンクはT04で導入する。
+
+### 5.3 GLBメッシュ
+
+- 頂点を持つ作者メッシュはすべて`VIS_`または`COL_`で始める。
+- `VIS_`: 表示、有効、衝突無効。
+- `COL_`: 有効、非表示、衝突有効。
+- 規約外の作者メッシュ名は読込エラーとする。
+
+## 6. ゲームプレイ共通領域
+
+### 6.1 マーカー
 
 ```ts
 type StageMarker = {
@@ -309,40 +243,22 @@ type StageMarker = {
 };
 ```
 
-プレイヤースポーンには、`id: "spawn_player"` かつ `type: "spawn"` のマーカーを必ず1件置く。グリッド構築は最初の `type: "spawn"` を使い、向きとタグの取得は `id: "spawn_player"` も要求するため、同じ1件で両方を満たすこと。
-
-```json
-{
-  "id": "spawn_player",
-  "type": "spawn",
-  "x": 2,
-  "z": 2,
-  "rotY": 180,
-  "tags": ["look_at_center"]
-}
-```
+全ステージに`id: "spawn_player"`かつ`type: "spawn"`のマーカーを1件置く。
 
 対応済みタグ:
 
 | タグ | 動作 |
 |---|---|
-| `random_spawnable` | 敵出現禁止セルを除いたスポーン可能床からランダム選択 |
-| `random_floor` | 全床セルからランダム選択 |
-| `look_at_center` | `rotY` よりステージ中心方向を優先 |
+| `random_spawnable` | 敵出現禁止セルを除く床からランダム開始 |
+| `random_floor` | 全床セルからランダム開始 |
+| `look_at_center` | `rotY`よりステージ中心方向を優先 |
 
-タグがない場合はマーカー座標と `rotY` を使用する。`props` とspawn以外のマーカー種別は現行ランタイムでは未使用である。
-
-## 12. `gameplay.zones`
+### 6.2 ゾーン
 
 ```ts
 type StageZone = {
   id: string;
-  type:
-    | "safeZone"
-    | "noEnemySpawn"
-    | "noEnemyEnter"
-    | "noCombat"
-    | "hazard";
+  type: "safeZone" | "noEnemySpawn" | "noEnemyEnter" | "noCombat" | "hazard";
   x: number;
   z: number;
   w: number;
@@ -352,291 +268,64 @@ type StageZone = {
 };
 ```
 
-### 12.1 `assembly_area`
+- 全ステージに`id: "assembly_area"`を1件置く。
+- `noEnemySpawn`はビットの初期・追加スポーン候補から除外する。
+- `noEnemyEnter`、`noCombat`、`hazard`は現行ランタイム処理を持たない。
 
-全ステージに `id: "assembly_area"` の矩形を必ず1件置く。
+### 6.3 オプション
 
-```json
-{
-  "id": "assembly_area",
-  "type": "safeZone",
-  "x": 1,
-  "z": 1,
-  "w": 3,
-  "h": 3,
-  "tags": ["all_down", "execution"]
-}
-```
+- `skipAssembly: false`: 全滅後に`assembly_area`へ経路移動する。
+- `skipAssembly: true`: 整列移動を省略して即時配置する。
 
-全滅後の整列・公開処刑配置に使用する。現行コードはIDだけで検索するが、意味を明確にするため `type: "safeZone"` と上記タグを使用する。領域内には十分な床を確保すること。到達不能セルしかない場合は全床へフォールバックする。
+## 7. 制作注釈
 
-### 12.2 `noEnemySpawn`
+`authoring.symbols`は環境・ゾーン記号の人間向け説明を保持する。`authoring.zoneRules`は制作意図を保持できるが、現行ランタイムは処理しない。
 
-`type: "noEnemySpawn"` の全矩形を内部セルへ展開し、ビットの初期・追加スポーン候補から除外する。
+制作注釈はゲームプレイ効果を自動生成しない。
 
-`safeZone` は `assembly_area` の検索以外、`noEnemyEnter`、`noCombat`、`hazard`、ゾーンの `tags` と `props` は現行ランタイムでは未使用である。
+## 8. 読込・切替・破棄
 
-## 13. `gameplay.options`
+1. `loadStageDefinition`がJSONを取得する。
+2. `schemaVersion`と`kind`を検査する。
+3. 非同期`buildStageContext`がグリッド、描画資源、衝突資源を構築する。
+4. 新コンテキスト完成後に旧コンテキストを破棄して切り替える。
+5. 競合して古くなったロード結果は利用せず、そのコンテキストを即時破棄する。
 
-```ts
-type StageGameplayOptions = {
-  skipAssembly: boolean;
-};
-```
+取得失敗、未対応版、未知の`kind`、GLB命名違反はエラーとする。旧形式読込、組込みグリッドへの代替、未知形式の推測変換は行わない。
 
-- `false`: 全滅後にキャラクターを `assembly_area` へ経路移動させる。
-- `true`: 全滅後の移動を省略し、即時配置へ進む。
+`disposeStageContext`は次をまとめて破棄する。
 
-## 14. `decals`
+- procedural-gridの床、壁、天井、コライダー、Material、Texture、反射資源。
+- GLBのAssetContainer、管理親、glTFルート、作者Mesh、Material、Texture。
 
-型は床・壁・天井、セル・矩形、テクスチャ・色などを表現できるが、v1.3.1で描画されるのは壁面鏡だけである。
+Babylon.jsがGLBのPBR Material用に生成する`EnvironmentBRDFTexture`はScene共有資源とし、StageContextからは破棄しない。非同期RGBD展開を含むライフサイクルと最終破棄はSceneへ委ねる。
 
-```ts
-type StageDecal = {
-  face: "floor" | "wall" | "ceiling";
-  type: "cell" | "rect";
-  x: number;
-  z: number;
-  w?: number;
-  h?: number;
-  wallDir?: "N" | "E" | "S" | "W";
-  texture?: string;
-  tileId?: string;
-  color?: string;
-  reflective?: {
-    kind: "mirror";
-    tint: string;
-    amount: number;
-    blur: number;
-  };
-};
-```
+## 9. 現行8ステージ
 
-鏡の例:
+| ファイル | kind | 内部グリッド | 主な特徴 |
+|---|---|---:|---|
+| `laboratory.json` | procedural-grid | 17×56 | 屋内、敵出現禁止領域 |
+| `city_center.json` | procedural-grid | 112×116 | 屋外、2×2展開、高壁 |
+| `arena.json` | procedural-grid | 27×27 | 屋内アリーナ |
+| `arena_trap_room.json` | procedural-grid | 27×27 | トラップ専用ID |
+| `arena_roulette.json` | procedural-grid | 27×27 | ルーレット専用ID |
+| `arena_mirror_house.json` | procedural-grid | 27×27 | 壁面鏡4枚 |
+| `labyrinth.json` | procedural-grid | 76×64 | 大型迷路 |
+| `labyrinth_dynamic.json` | procedural-grid | 76×64 | `D`ゾーン付き大型迷路 |
 
-```json
-{
-  "face": "wall",
-  "type": "rect",
-  "x": 1,
-  "z": 1,
-  "w": 3,
-  "h": 2,
-  "wallDir": "N",
-  "reflective": {
-    "kind": "mirror",
-    "tint": "#c4c8d1",
-    "amount": 0.72,
-    "blur": 4
-  }
-}
-```
+T02移行時に`laboratory.json`の過剰な最終`L`行を削除し、全定義のマップ寸法を一致させた。
 
-必須条件:
+T01テストコースは検証専用のglb定義であり、通常のステージカタログには登録しない。
 
-- `face` は `wall`。
-- `reflective.kind` は `mirror`。
-- `wallDir` を指定する。
-- `tint` はBabylon.jsが解釈できる16進色にする。
-- `w` は壁面の横幅、`h` は床からの高さをセル数で指定する。
-- `type: "cell"` は幅・高さとも1として扱う。
+## 10. 作成チェックリスト
 
-`texture`、`tileId`、`color`、鏡以外のreflective、床・天井デカールは現行ランタイムでは描画されない。
-
-## 15. 現行未使用項目
-
-次の項目は将来用または制作意図保存用として既存JSONに存在するが、v1.3.1のランタイム処理には接続されていない。
-
-| 項目 | 作成時の扱い |
-|---|---|
-| `meta.size` | 任意。書くなら実寸と一致させる |
-| `semantics.brief` | 任意の説明用 |
-| `generationRules.zone` | 任意の説明用。処理されない |
-| `entities` | `[]` を指定 |
-| `gameplay.spawners` | `[]` を指定 |
-| `gameplay.triggers` | `[]` を指定 |
-| `overrides` | `{}` を指定 |
-| marker/zoneの未対応種別・`props` | ゲーム処理を期待しない |
-
-これらへ値を書いても、配置物、スポーン、イベント、例外処理は自動生成されない。
-
-## 16. 最小構成例
-
-次は通常の屋内ステージとして読み込める最小テンプレートである。
-
-```json
-{
-  "meta": {
-    "name": "sample_room",
-    "description": "サンプルルーム",
-    "size": { "width": 5, "height": 5 },
-    "mapScale": { "x": 1, "z": 1 }
-  },
-  "cellPhysics": {
-    ".": { "solid": false, "heightCells": 0 },
-    "$": { "solid": true, "heightCells": 3 }
-  },
-  "mainMap": [
-    "$$$$$",
-    "$...$",
-    "$...$",
-    "$...$",
-    "$$$$$"
-  ],
-  "semantics": {
-    "channels": {
-      "env": [
-        "IIIII",
-        "IIIII",
-        "IIIII",
-        "IIIII",
-        "IIIII"
-      ]
-    },
-    "brief": {
-      "env": { "I": "屋内" }
-    }
-  },
-  "generationRules": {
-    "env": {
-      "I": {
-        "floor": { "tileId": "floor_arena_amber" },
-        "obstacle": { "tileId": "wall_plain" },
-        "ceiling": {
-          "heightCells": 3,
-          "collision": true,
-          "style": { "tileId": "ceiling_plain" }
-        }
-      }
-    }
-  },
-  "entities": [],
-  "decals": [],
-  "gameplay": {
-    "markers": [
-      {
-        "id": "spawn_player",
-        "type": "spawn",
-        "x": 2,
-        "z": 2,
-        "rotY": 0
-      }
-    ],
-    "zones": [
-      {
-        "id": "assembly_area",
-        "type": "safeZone",
-        "x": 1,
-        "z": 1,
-        "w": 3,
-        "h": 3,
-        "tags": ["all_down", "execution"]
-      }
-    ],
-    "spawners": [],
-    "triggers": [],
-    "options": { "skipAssembly": false }
-  },
-  "overrides": {}
-}
-```
-
-## 17. 機能追加例
-
-最小構成へ次の差分を加えることで、対応済み機能を使用できる。
-
-### 17.1 ランダム開始
-
-```json
-"tags": ["random_spawnable", "look_at_center"]
-```
-
-### 17.2 敵出現禁止領域
-
-```json
-{
-  "id": "safe_spawn_1",
-  "type": "noEnemySpawn",
-  "x": 1,
-  "z": 1,
-  "w": 2,
-  "h": 2
-}
-```
-
-### 17.3 屋外
-
-- `channels.env` の屋外セルを `O` にする。
-- `generationRules.env.O.ceiling` を `null` にする。
-- `generationRules.env.O.sky.color` を指定する。
-
-### 17.4 動的ビーム
-
-- ステージIDを `labyrinth_dynamic` にする。
-- `channels.zone` を追加する。
-- 光線を出したい床セルを連結した `D` で記述する。
-
-### 17.5 鏡
-
-- 壁に接する床側座標へ、14章の壁面鏡デカールを追加する。
-- `wallDir` は部屋から見た壁面方向に合わせる。
-
-## 18. 現行8ステージの実データ
-
-| ファイル | 実マップ寸法 | scale | 主な特徴 |
-|---|---:|---:|---|
-| `laboratory.json` | 17×56 | 1×1 | 屋内、敵出現禁止領域 |
-| `city_center.json` | 56×58 | 2×2 | 屋外、空白不可視領域、高壁 |
-| `arena.json` | 27×27 | 1×1 | 屋内アリーナ |
-| `arena_trap_room.json` | 27×27 | 1×1 | トラップ専用ID |
-| `arena_roulette.json` | 27×27 | 1×1 | ルーレット専用ID |
-| `arena_mirror_house.json` | 27×27 | 1×1 | 壁面鏡4枚 |
-| `labyrinth.json` | 76×64 | 1×1 | 大型迷路 |
-| `labyrinth_dynamic.json` | 76×64 | 1×1 | `D`ゾーン付き大型迷路 |
-
-v1.3.1実データには、ランタイム未使用項目に次の不一致がある。
-
-- `labyrinth.json` と `labyrinth_dynamic.json` の `meta.size.height` は77だが、実際の `mainMap` は64行である。
-- `laboratory.json` の `semantics.channels.zone` は57行だが、`mainMap` は56行である。このzoneは当該ステージでゲーム処理に使用されない。
-
-新規・更新データではこれらを踏襲せず、寸法を一致させること。
-
-## 19. 作成チェックリスト
-
-### 19.1 JSONと寸法
-
-- [ ] JSONとして構文解析できる
-- [ ] UTF-8（BOMなし）で保存している
-- [ ] `mainMap` が空でない
-- [ ] `mainMap` の全行幅が同じ
-- [ ] `channels.env` が `mainMap` と同じ行数・列数
-- [ ] `channels.zone` を書く場合、`mainMap` と同じ行数・列数
-- [ ] `meta.size` を書く場合、`mainMap` の実寸と一致
-- [ ] `mapScale.x/z` が1以上の整数
-
-### 19.2 物理と環境
-
-- [ ] `mainMap` の全記号が `cellPhysics` に定義済み
-- [ ] 正の高さを持つsolid記号が最低1つある
-- [ ] スポーンセルと整列領域に床がある
-- [ ] 外周または不可視壁で移動範囲が閉じている
-- [ ] `generationRules.env` が1件以上ある
-- [ ] 天井の有無と高さが意図どおり
-- [ ] 屋外なら `O` と `env.O.sky.color` を指定している
-
-### 19.3 ゲーム進行
-
-- [ ] `spawn_player` / `spawn` マーカーが1件ある
-- [ ] `assembly_area` ゾーンが1件ある
-- [ ] `skipAssembly` を明示している
-- [ ] ランダム開始タグと敵出現禁止領域が矛盾していない
-- [ ] `D` を使う場合、ステージIDが `labyrinth_dynamic`
-- [ ] 専用機能が必要ならID定数と呼出側を実装済み
-
-### 19.4 表示と登録
-
-- [ ] 鏡は `wall` / `mirror` / `wallDir` を満たす
-- [ ] `STAGE_CATALOG` に登録した
-- [ ] `description` がタイトル表示名として適切
-- [ ] 固有BGM名が `meta.name` と一致
-- [ ] 実際に開始し、スポーン、壁、天井、整列、専用ギミックを確認した
+- [ ] UTF-8（BOMなし）のJSONとして解析できる。
+- [ ] `schemaVersion: 2`と既知の`kind`を持つ。
+- [ ] `mainMap`が空でなく、全行幅が同じ。
+- [ ] 使用記号をすべて`cellPhysics`へ定義している。
+- [ ] `zoneMap`と`environmentMap`が必要なマップ寸法と一致する。
+- [ ] `spawn_player`と`assembly_area`が各1件ある。
+- [ ] `skipAssembly`を明示している。
+- [ ] procedural-gridは外周、天井、環境、鏡が意図どおりである。
+- [ ] glbは資産原点、メートル寸法、`VIS_`／`COL_`命名を満たす。
+- [ ] タイトルから開始し、切替後に旧資源がSceneへ残らない。

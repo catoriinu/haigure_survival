@@ -4,7 +4,11 @@ import { type StageArea } from "../world/stageJson";
 import { Hud } from "../ui/hud";
 import { Bit, CharacterState, FloorCell, Npc } from "./types";
 import { finalizeBitVisuals } from "./bits";
-import { cellToWorld, worldToCellClamped } from "./gridUtils";
+import {
+  cellToWorld,
+  gridAreaCenterToWorld,
+  worldToCellClamped
+} from "./gridUtils";
 import { getPortraitCellIndex } from "./portraitSprites";
 import { alignSpriteToGround } from "./spriteUtils";
 import { createFadeController } from "./flowFade";
@@ -100,14 +104,10 @@ export const createGameFlow = ({
   const fadeDuration = 0.8;
   const { beginFadeOut, updateFade, resetFade, isFading } =
     createFadeController(hud, fadeDuration);
-  const halfWidth = (layout.columns * layout.cellSize) / 2;
-  const halfDepth = (layout.rows * layout.cellSize) / 2;
-  const stageCenter = new Vector3(
-    -halfWidth +
-      layout.cellSize * (stageArea.startCol + stageArea.width / 2),
-    playerCenterHeight,
-    -halfDepth +
-      layout.cellSize * (stageArea.startRow + stageArea.height / 2)
+  const stageCenter = gridAreaCenterToWorld(
+    layout,
+    stageArea,
+    playerCenterHeight
   );
   const stageRows = Array.from(
     { length: stageArea.height },

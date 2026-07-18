@@ -1,68 +1,78 @@
-import { type StageJson } from "./stageJson";
+import {
+  STAGE_DEFINITION_SCHEMA_VERSION,
+  type StageDefinitionV2
+} from "./stageJson";
 import { LABYRINTH_DYNAMIC_STAGE_ID, TRAP_STAGE_ID } from "./stageIds";
 
 export type StageSelection = {
   id: string;
   label: string;
-  jsonPath: string;
+  definitionPath: string;
 };
 
-const buildStageJsonPath = (filename: string) =>
+const buildStageDefinitionPath = (filename: string) =>
   `${import.meta.env.BASE_URL}stage/${filename}`;
 
 export const STAGE_CATALOG: StageSelection[] = [
   {
     id: "laboratory",
     label: "laboratory",
-    jsonPath: buildStageJsonPath("laboratory.json")
+    definitionPath: buildStageDefinitionPath("laboratory.json")
   },
   {
     id: "city_center",
     label: "city_center",
-    jsonPath: buildStageJsonPath("city_center.json")
+    definitionPath: buildStageDefinitionPath("city_center.json")
   },
   {
     id: "arena",
     label: "arena",
-    jsonPath: buildStageJsonPath("arena.json")
+    definitionPath: buildStageDefinitionPath("arena.json")
   },
   {
     id: TRAP_STAGE_ID,
     label: TRAP_STAGE_ID,
-    jsonPath: buildStageJsonPath("arena_trap_room.json")
+    definitionPath: buildStageDefinitionPath("arena_trap_room.json")
   },
   {
     id: "arena_roulette",
     label: "arena_roulette",
-    jsonPath: buildStageJsonPath("arena_roulette.json")
+    definitionPath: buildStageDefinitionPath("arena_roulette.json")
   },
   {
     id: "arena_mirror_house",
     label: "arena_mirror_house",
-    jsonPath: buildStageJsonPath("arena_mirror_house.json")
+    definitionPath: buildStageDefinitionPath("arena_mirror_house.json")
   },
   {
     id: "labyrinth",
     label: "labyrinth",
-    jsonPath: buildStageJsonPath("labyrinth.json")
+    definitionPath: buildStageDefinitionPath("labyrinth.json")
   },
   {
     id: LABYRINTH_DYNAMIC_STAGE_ID,
     label: LABYRINTH_DYNAMIC_STAGE_ID,
-    jsonPath: buildStageJsonPath("labyrinth_dynamic.json")
+    definitionPath: buildStageDefinitionPath("labyrinth_dynamic.json")
   }
 ];
 
-export const loadStageJson = async (
+export const loadStageDefinition = async (
   selection: StageSelection
-): Promise<StageJson | null> => {
-  try {
-    const response = await fetch(selection.jsonPath, { cache: "no-store" });
-    if (!response.ok) {
-      return null;
-    }
-    return (await response.json()) as StageJson;
-  } catch (error) {
-    return null;
+): Promise<StageDefinitionV2> => {
+  const response = await fetch(selection.definitionPath, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(
+      `ステージ定義の取得に失敗しました: ${selection.definitionPath} (${response.status})`
+    );
   }
+  const definition = (await response.json()) as Partial<StageDefinitionV2>;
+  if (definition.schemaVersion !== STAGE_DEFINITION_SCHEMA_VERSION) {
+    throw new Error(
+      `未対応のステージ定義バージョンです: ${String(definition.schemaVersion)}`
+    );
+  }
+  if (definition.kind !== "procedural-grid" && definition.kind !== "glb") {
+    throw new Error(`未知のステージ種別です: ${String(definition.kind)}`);
+  }
+  return definition as StageDefinitionV2;
 };
