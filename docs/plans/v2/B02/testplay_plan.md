@@ -205,6 +205,7 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 - 問題14（学校専用V2プレイヤーランタイムを実装・自動検証済み）: 通常ゲーム入口を`src/v2/main.ts`へ切り替え、学校JSON、セル座標、既存8ステージ選択を介さず、GLB／NavMeshの`StageSpatialContext`から学校だけを読み込む。GLBの`player_spawn` world座標・前方へ足元基準で配置し、Actor衝突集合とT03の重力・接地・段差・斜面移動を再利用し、`BND_Stage`外への移動は同じフレーム開始位置へ戻して慣性と接地を再同期する。実ブラウザは`http://127.0.0.1:5175/`で読込完了、クリック開始、足元`(0.375, 0.002, 0.000)`の接地、W入力、console warning／error 0件を確認し、`npm run typecheck:v2`と`npm run build`も成功した。
 - 問題15（V2アラート共有基盤を実装・自動検証済み）: NPCとビットが壁越しでも維持できるのは通常視認ではなくアラート由来の標的だけに限定するため、`leaderId`と`targetId`を期限付きで共有する基盤をセル実装から分離した。同じ通知の再発行は期限を更新し、期限切れで削除する。leaderとtargetの同一IDは厳格に拒否する。T04実ブラウザは27/27項目PASS、console warning／error 0件、`npm run build:t04`成功だった。
 - 問題16（V2プレイヤー型検査の隠れたセル依存を解消）: `playerMotion.ts`は座標処理にセルを使わないが、入力軸の型だけを旧`playerAbility.ts`からimportしていたため、`GridLayout`、`FloorCell`、旧NPC型がV2型検査対象へ連鎖していた。入力軸型を汎用移動制御側へ移し、V2のコンパイル依存から旧セル型を除外した。`npm run typecheck:v2 -- --listFiles`相当の監査、`npm run build`、`npm run build:t03`は成功した。
+- 問題17（V2実行依存のJSON・セル再混入をビルドで禁止）: 通常入口を学校専用V2へ変えただけでは、将来のtype-only importや補助モジュールから旧セル処理が再流入する可能性がある。通常Web入口と全V2モジュールの相対import依存を走査し、JSONファイル参照、`GridLayout`、`FloorCell`、`NavCellRef`、旧grid／stageContext／stageSelection／セルBFSを検出した時点で失敗する監査を`typecheck:v2`の必須前段へ追加した。現時点はV2モジュール8件・TypeScript依存18件でPASSし、`npm run build`も成功した。
 - 体育館舞台階段の形状ディテールと同色面の境界表現はB03、NPC・ビットが複数階を移動する高さ付きNavMesh接続はT04の範囲とし、今回の1階連続NavMeshへ仮リンクやセル互換を追加しない。
 
 - 2026-07-18 23:29 JSTに開始確認を実施した。
