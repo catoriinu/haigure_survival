@@ -397,3 +397,12 @@ B01で承認された学校間取りを前提として、Blenderで学校の初�
 - 2026-07-18 23:03 JSTに`git fetch origin --prune`後、B02ブランチと`origin/develop`がともにT03マージ済み`a118a46`であることを確認した。`git merge --ff-only origin/develop`は`Already up to date`、距離は`0 0`で、B02未コミット成果物は保持されている。
 - 確定結果を`docs/plan.md`、`docs/plans/v2/B03/plan.md`、`docs/plans/v2/T04/plan.md`、`docs/plans/v2/T05/plan.md`、`docs/plans/v2/T06/plan.md`、`docs/spec_stage_assets_v2.md`へ反映した。BlenderシーンとGLB形状は本相談では変更していない。
 - 文書更新後に`npm run build`と`git diff --check`が成功した。更新したMarkdown 7件は厳格UTF-8で読込可能、BOMなしで、T01差分0件、B02 `.blend`・GLBのSHA-256は窓相談前から不変である。
+
+### 2026-07-19 学校テストプレイ向け斜面コライダー正規化
+
+- B02＋T03学校テストを3D NavMeshへ移行する前提監査で、校舎下段階段ランプ3件と体育館舞台ランプ2件に重複頂点由来の面積0面があり、これら5件を含む階段ランプ・上段ランプ・転落防止壁12件の閉じたMeshが内向き面法線だった。
+- 表示用の階段、寸法、配置、Materialは変更せず、5件を6頂点・5面の閉じた楔形へ整理し、12件すべての面法線を外向きへ統一した。修正後は対象12件すべてで面積0面0、非多様体辺0、正の符号付き体積を確認した。
+- 再現可能な修正処理を`scripts/v2/fix_school_slope_colliders.py`へ保存した。スクリプトは自身の位置からリポジトリルートを解決し、現worktree側B02と未保存変更なしを必須条件として、既存407件の`VIS_`／`COL_`だけをGLBへ再出力する。
+- 修正後のBlenderシーンは430 Object、407 Mesh（`VIS_`263件、`COL_`144件）で、`bpy.data.is_dirty == false`である。`.blend`は302,510 bytes、SHA-256 `5ECCD2E04BDC1071D6FB2BCBA9DFD5784F26DB29C82009D505F1094C2F9215B4`である。
+- GLBは666,004 bytes、SHA-256 `AFC4D0C9E8FF19FFAFE55DD4B500F25D145AB6CBF2FECB720BD38551BB7B2C6F`である。GLB 2.0、Node 407件、Mesh 407件、Material 20件、Camera・Light・Animation 0件、規約外Node／Mesh名0件を確認した。
+- `npm run build`、`npm run build:t01`、`npm run build:t03`が成功した。T01 `.blend`・GLBは既知のSHA-256を維持し、Git差分0件である。Blender連携のビューポート画像はカメラ指定後も黒画像だったため、後段の実ゲーム読込で描画を再確認する。

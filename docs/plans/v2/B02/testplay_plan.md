@@ -163,6 +163,7 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 - [x] 学校テストJSON、セルナビ、セルBFSの暫定コミットを安全なrevertコミットで取り下げる
 - [x] GLB意味オブジェクト、3Dマーカー・ボリューム、NavMesh派生物の資産契約を確定する
 - [x] Recast NavMeshの生成・バイナリ往復・3D経路を小型検証する
+- [x] 学校の階段・舞台斜面コライダーをNavMesh入力に使える閉じた外向きMeshへ正規化する
 - [ ] 学校用`StageSpatialContext`、`NavigationWorld`、TypeScriptカタログを実装する
 - [ ] プレイヤー、NPC、ビット、通常ビーム、ビット視線を3D空間基盤へ移行する
 - [ ] V2実行経路からステージJSON、`GridLayout`、`FloorCell`、セル座標処理を削除する
@@ -183,6 +184,9 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 - Blenderは最初の監査で旧B02 worktree側が開かれdirtyだったため無変更で停止した。ユーザーが保存せず閉じて現作業側を開き直し、`bpy.data.filepath`が現worktree、`is_dirty=false`、全430オブジェクト、Mesh 407件、`VIS_`263件、`COL_`144件であることを再確認した。
 - セル方式の5コミットを逆順に`git revert --no-commit`し、学校テストJSON、タイトル入口、カスタム原点補正、学校1階文字セル、ビット・NPCセルBFSだけを取り下げた。階段修正`2c83349`と未コミットの3Dビーム試作は保持した。`npm run build`と`npm run build:t03`の成功後、`revert: 学校テスト用セルナビゲーションを取り下げ`としてコミット`c94302e`へ分離した。
 - NavMesh候補の`recast-detour` 1.6.4はViteのES module実行で初期化不能だったため採用しなかった。ESM対応の`recast-navigation` 0.43.1へ置き換え、セル・JSONを使わない小型3Dコースで初期化、扉迂回、連続ランプ、バイナリ往復、到達不能の5項目を実ブラウザ検証した。5/5項目PASS、warning・error 0件、生成4.40ms、NavMesh 11,116 byteだった。
+- 問題6（3D NavMesh入力の前提修正・自動検証済み）: B02の校舎下段階段ランプ3件と体育館舞台ランプ2件には重複頂点由来の面積0面があり、これら5件を含む階段ランプ・上段ランプ・転落防止壁12件の閉じたMeshは面法線が内向きだった。期待結果は、表示段を変更せず、`COL_StairRamp_*`等をプレイヤー衝突と連続NavMesh生成の両方へ安定して使用できることである。5件を6頂点・5面の閉じた楔形へ整理し、12件すべてを正の符号付き体積へ正規化した。修正後は12件すべてで面積0面0、非多様体辺0、正の体積を確認した。
+- Blenderは現作業ブランチ側`assets/blender/v2/B02/b02_school_blockout.blend`、`is_dirty=false`、430 Object、407 Mesh（`VIS_`263件、`COL_`144件）であることを再確認した。GLBも407 Node／407 Mesh、Material 20件、Camera・Light・Animation 0件、規約外名0件である。B02 `.blend`のSHA-256は`5ECCD2E04BDC1071D6FB2BCBA9DFD5784F26DB29C82009D505F1094C2F9215B4`、GLBは`AFC4D0C9E8FF19FFAFE55DD4B500F25D145AB6CBF2FECB720BD38551BB7B2C6F`となった。
+- `npm run build`、`npm run build:t01`、`npm run build:t03`は成功した。T01の`.blend`は`A26672A7400A143F32FAB9F5DC53387CFF85C1FB22A9766F464E9BAEFAC5B16B`、GLBは`CF6CF17CF7447152D0B25219045C33EFB2E1A1821C201ACD6E51E39F468EA69B`のままで、対象パスのGit差分は0件だった。Blender連携のビューポート画像取得は既存カメラへ合わせても黒画像を返したため、表示メッシュ監査と後段の実ゲーム描画で視覚確認を補完する。
 
 - 2026-07-18 23:29 JSTに開始確認を実施した。
 - メインworktreeはクリーンな`develop`で、`develop`、`origin/develop`、HEADはいずれもPR #40取込後の`8b25790efbd9afbd151fa3081a8f0faf095b5df5`だった。
