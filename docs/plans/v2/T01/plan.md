@@ -77,7 +77,7 @@ T00を引き継ぎ、`codex/v2-t01-glb-contract`上でテストコース、GLB�
 - [x] T01振り返りの3項目を後続タスク用の仕様書と運用文書へ反映する
 - [x] P2レビュー指摘に従い、垂直衝突でプローブ停止位置も許容誤差付き判定へ含める
 - [x] P3レビュー指摘に従い、AssetContainerの管理ルートも破棄判定へ含める
-- [ ] 関連テスト、コミット、push、レビュー返信を行い、スレッドを未resolveのまま保持する
+- [x] 関連テスト、コミット、push、レビュー返信を行い、スレッドを未resolveのまま保持する
 
 ## 結果
 
@@ -118,3 +118,5 @@ T00を引き継ぎ、`codex/v2-t01-glb-contract`上でテストコース、GLB�
 - 未解決P3指摘も妥当と判断し、`T01AssetRoot`、glTF管理ルートを含むAssetContainerの全Mesh／TransformNode参照を保持し、破棄後に全ノードの`isDisposed()`とScene残存がともに0件であることを合否判定へ追加した。専用型検査は成功した。
 - レビュー修正後に`npm run build`と`npm run build:t01`が成功した。Browserで初回読込・破棄・再読込を再実行し、全28項目PASS、FAIL 0件、停止Yの実測表示12件、`managedNode=0`、`undisposedNode=なし`を確認した。
 - レビュー対応で変更した3テキストを厳格UTF-8として復号し、BOMなしと`git diff --check`の成功を確認した。
+- レビュー修正を`ce38949`（`fix: T01の衝突・破棄検証を強化`）としてコミットし、PR #35のブランチへpushした。P2とP3の各レビュー会話へ修正内容とテスト結果を返信した。
+- 返信後にGraphQLでレビュー会話を再取得し、両方とも返信が追加済みかつ`isResolved=false`であることを確認した。resolve操作は行っていない。
