@@ -206,6 +206,7 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 - 問題15（V2アラート共有基盤を実装・自動検証済み）: NPCとビットが壁越しでも維持できるのは通常視認ではなくアラート由来の標的だけに限定するため、`leaderId`と`targetId`を期限付きで共有する基盤をセル実装から分離した。同じ通知の再発行は期限を更新し、期限切れで削除する。leaderとtargetの同一IDは厳格に拒否する。T04実ブラウザは27/27項目PASS、console warning／error 0件、`npm run build:t04`成功だった。
 - 問題16（V2プレイヤー型検査の隠れたセル依存を解消）: `playerMotion.ts`は座標処理にセルを使わないが、入力軸の型だけを旧`playerAbility.ts`からimportしていたため、`GridLayout`、`FloorCell`、旧NPC型がV2型検査対象へ連鎖していた。入力軸型を汎用移動制御側へ移し、V2のコンパイル依存から旧セル型を除外した。`npm run typecheck:v2 -- --listFiles`相当の監査、`npm run build`、`npm run build:t03`は成功した。
 - 問題17（V2実行依存のJSON・セル再混入をビルドで禁止）: 通常入口を学校専用V2へ変えただけでは、将来のtype-only importや補助モジュールから旧セル処理が再流入する可能性がある。通常Web入口と全V2モジュールの相対import依存を走査し、JSONファイル参照、`GridLayout`、`FloorCell`、`NavCellRef`、旧grid／stageContext／stageSelection／セルBFSを検出した時点で失敗する監査を`typecheck:v2`の必須前段へ追加した。現時点はV2モジュール8件・TypeScript依存18件でPASSし、`npm run build`も成功した。
+- 問題18（通常ビームの3D壁遮蔽を実装・自動検証済み）: ビームの新位置だけを判定すると高速フレームで薄い壁を飛び越え、壁だけを先に判定すると壁より手前のActor命中を失う。前フレーム位置から新位置までの通常COL壁と球形Actorを同じ距離基準で比較し、最初の1件で停止・着弾するV2ビームシステムへ置き換えた。同距離は壁を優先し、ActorOnly窓はビームと視線を通す。T04実ブラウザはActor先行、壁先行、同距離、高速連続判定、窓透過、通常壁遮蔽、寿命失効を含む31/31項目PASS、console warning／error 0件、`npm run build:t04`成功だった。
 - 体育館舞台階段の形状ディテールと同色面の境界表現はB03、NPC・ビットが複数階を移動する高さ付きNavMesh接続はT04の範囲とし、今回の1階連続NavMeshへ仮リンクやセル互換を追加しない。
 
 - 2026-07-18 23:29 JSTに開始確認を実施した。

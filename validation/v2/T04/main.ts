@@ -33,6 +33,12 @@ import {
   type StageVolume
 } from "../../../src/world/stageSpatialQueries";
 import { createV2AlertCoordinator } from "../../../src/v2/alertCoordinator";
+import {
+  castV2BeamSegment,
+  castV2SightSegment,
+  createV2BeamSystem
+} from "../../../src/v2/beamCollision";
+import type { V2ActorSphere } from "../../../src/v2/combatTypes";
 
 import "./style.css";
 
@@ -266,6 +272,27 @@ const captureThrownMessage = (action: () => void) => {
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }
+};
+
+const createBeamValidationStage = (
+  targetScene: Scene,
+  normalColliders: readonly Mesh[],
+  actorOnlyColliders: readonly Mesh[] = []
+): StageSpatialContext => {
+  const actorColliders = [...normalColliders, ...actorOnlyColliders];
+  return {
+    resources: {
+      beamBlockers: normalColliders,
+      sightBlockers: normalColliders
+    },
+    queries: createStageSpatialQueries(
+      targetScene,
+      actorColliders,
+      normalColliders,
+      normalColliders,
+      []
+    )
+  } as unknown as StageSpatialContext;
 };
 
 const createPathMesh = (name: string, path: readonly Vector3[], color: Color3) => {
@@ -811,6 +838,180 @@ const runValidation = async () => {
       });
       actorOnlyWindow.dispose();
       normalWall.dispose();
+
+      const beamWall = MeshBuilder.CreateBox(
+        "COL_Wall_BeamCollisionValidation",
+        { size: 0.2 },
+        spatialScene
+      );
+      beamWall.position.x = 2;
+      const beamWallStage = createBeamValidationStage(
+        spatialScene,
+        [beamWall]
+      );
+      const beamStart = Vector3.Zero();
+      const beamEnd = new Vector3(4, 0, 0);
+      const actorBeforeWall: V2ActorSphere = Object.freeze({
+        id: "actor-before-wall",
+        kind: "npc",
+        center: new Vector3(1, 0, 0),
+        radius: 0.2
+      });
+      const actorAfterWall: V2ActorSphere = Object.freeze({
+        id: "actor-after-wall",
+        kind: "npc",
+        center: new Vector3(3, 0, 0),
+        radius: 0.2
+      });
+      const actorOnWallSurface: V2ActorSphere = Object.freeze({
+        id: "actor-on-wall-surface",
+        kind: "npc",
+        center: new Vector3(2, 0, 0),
+        radius: 0.1
+      });
+      const actorFirstHit = castV2BeamSegment(
+        beamWallStage,
+        beamStart,
+        beamEnd,
+        [actorBeforeWall]
+      );
+      const wallFirstHit = castV2BeamSegment(
+        beamWallStage,
+        beamStart,
+        beamEnd,
+        [actorAfterWall]
+      );
+      const equalDistanceHit = castV2BeamSegment(
+        beamWallStage,
+        beamStart,
+        beamEnd,
+        [actorOnWallSurface]
+      );
+      checks.push({
+        name: "通常ビームの標的・壁の最近傍判定",
+        ok:
+          actorFirstHit?.kind === "actor" &&
+          actorFirstHit.actor.id === actorBeforeWall.id &&
+          wallFirstHit?.kind === "blocker" &&
+          wallFirstHit.mesh === beamWall &&
+          equalDistanceHit?.kind === "blocker" &&
+          equalDistanceHit.mesh === beamWall,
+        detail: `actorFirst=${actorFirstHit?.kind ?? "--"} / wallFirst=${wallFirstHit?.kind ?? "--"} / equal=${equalDistanceHit?.kind ?? "--"}`
+      });
+
+      const beamWindow = MeshBuilder.CreateBox(
+        "COL_ActorOnly_Window_BeamCollisionValidation",
+        { size: 0.2 },
+        spatialScene
+      );
+      beamWindow.position.x = 1;
+      const beamWindowStage = createBeamValidationStage(
+        spatialScene,
+        [],
+        [beamWindow]
+      );
+      const windowBeamHit = castV2BeamSegment(
+        beamWindowStage,
+        beamStart,
+        new Vector3(1.5, 0, 0),
+        []
+      );
+      const windowSightHit = castV2SightSegment(
+        beamWindowStage,
+        beamStart,
+        new Vector3(1.5, 0, 0)
+      );
+      const normalWallBeamHit = castV2BeamSegment(
+        beamWallStage,
+        beamStart,
+        beamEnd,
+        []
+      );
+      const normalWallSightHit = castV2SightSegment(
+        beamWallStage,
+        beamStart,
+        beamEnd
+      );
+      checks.push({
+        name: "ActorOnly窓の透過と通常壁のビーム・視線遮蔽",
+        ok:
+          windowBeamHit === null &&
+          !windowSightHit.occluded &&
+          normalWallBeamHit?.kind === "blocker" &&
+          normalWallBeamHit.mesh === beamWall &&
+          normalWallSightHit.occluded &&
+          normalWallSightHit.mesh === beamWall,
+        detail: `windowBeam=${windowBeamHit?.kind ?? "none"} / windowSight=${windowSightHit.occluded} / wallBeam=${normalWallBeamHit?.kind ?? "--"} / wallSight=${normalWallSightHit.occluded}`
+      });
+
+      const highSpeedBeamSystem = createV2BeamSystem({
+        scene: spatialScene,
+        stage: beamWallStage,
+        getActorSpheres: () => [],
+        visual: {
+          diameter: 0.04,
+          color: new Color3(1, 0.4, 0.1),
+          alpha: 1
+        }
+      });
+      const highSpeedBeamId = highSpeedBeamSystem.spawn({
+        sourceId: "bit-fast",
+        origin: beamStart,
+        direction: Vector3.Right(),
+        speed: 100,
+        maximumLifetime: 1
+      });
+      const highSpeedEvents = highSpeedBeamSystem.update(0.1);
+      checks.push({
+        name: "前フレーム位置からの高速ビーム連続衝突",
+        ok:
+          highSpeedEvents.impacts.length === 1 &&
+          highSpeedEvents.impacts[0].beamId === highSpeedBeamId &&
+          highSpeedEvents.impacts[0].hit.kind === "blocker" &&
+          highSpeedEvents.impacts[0].hit.mesh === beamWall &&
+          highSpeedEvents.expirations.length === 0 &&
+          highSpeedBeamSystem.activeCount === 0,
+        detail: `impacts=${highSpeedEvents.impacts.length} / expirations=${highSpeedEvents.expirations.length} / active=${highSpeedBeamSystem.activeCount}`
+      });
+      highSpeedBeamSystem.dispose();
+
+      const emptyBeamStage = createBeamValidationStage(spatialScene, []);
+      const lifetimeBeamSystem = createV2BeamSystem({
+        scene: spatialScene,
+        stage: emptyBeamStage,
+        getActorSpheres: () => [],
+        visual: {
+          diameter: 0.04,
+          color: new Color3(0.2, 0.8, 1),
+          alpha: 1
+        }
+      });
+      const lifetimeBeamId = lifetimeBeamSystem.spawn({
+        sourceId: "bit-lifetime",
+        origin: beamStart,
+        direction: Vector3.Right(),
+        speed: 8,
+        maximumLifetime: 0.25
+      });
+      const lifetimeEvents = lifetimeBeamSystem.update(1);
+      const lifetimeExpiration = lifetimeEvents.expirations[0];
+      checks.push({
+        name: "通常ビームの寿命終端イベント",
+        ok:
+          lifetimeEvents.impacts.length === 0 &&
+          lifetimeEvents.expirations.length === 1 &&
+          lifetimeExpiration.beamId === lifetimeBeamId &&
+          lifetimeExpiration.sourceId === "bit-lifetime" &&
+          Vector3.Distance(
+            lifetimeExpiration.position,
+            new Vector3(2, 0, 0)
+          ) <= 1e-6 &&
+          lifetimeBeamSystem.activeCount === 0,
+        detail: `impacts=${lifetimeEvents.impacts.length} / expirations=${lifetimeEvents.expirations.length} / positionX=${lifetimeExpiration?.position.x.toFixed(3) ?? "--"}`
+      });
+      lifetimeBeamSystem.dispose();
+      beamWindow.dispose();
+      beamWall.dispose();
 
       const baselineResources = countSceneResources(spatialScene);
       let schoolContext: StageSpatialContext | null = null;
