@@ -173,8 +173,13 @@ export const createPlayerHeightController = (
       supportMeshName = null;
       return;
     }
+    const horizontalX = collisionMesh.position.x;
+    const horizontalZ = collisionMesh.position.z;
     verticalDisplacement.set(0, -downwardReach, 0);
     moveWithUpdatedWorld(collisionMesh, verticalDisplacement);
+    collisionMesh.position.x = horizontalX;
+    collisionMesh.position.z = horizontalZ;
+    collisionMesh.computeWorldMatrix(true);
     updateGroundState(collisionMesh, stageColliders);
   };
 

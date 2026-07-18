@@ -424,6 +424,35 @@ const runValidation = async () => {
     );
 
     teleport(blenderToBabylon(-3, 0.6, 0));
+    const slopeMidUp = runLinearMotion(new Vector3(0, 0, -1), 0.55);
+    const slopeMidPosition = playerCollisionMesh.position.clone();
+    const slopeMidStable = runStationaryFrames(120);
+    const slopeMidHorizontalDrift = Math.hypot(
+      playerCollisionMesh.position.x - slopeMidPosition.x,
+      playerCollisionMesh.position.z - slopeMidPosition.z
+    );
+    const slopeReverseStartZ = playerCollisionMesh.position.z;
+    const slopeReverse = runLinearMotion(new Vector3(0, 0, 1), 0.2);
+    const slopeReverseProgress =
+      playerCollisionMesh.position.z - slopeReverseStartZ;
+    checks.push(
+      createCheck(
+        "斜面中腹の入力解除停止",
+        slopeMidUp.airborneFrames === 0 &&
+          slopeMidStable.airborneFrames === 0 &&
+          slopeMidStable.maxY - slopeMidStable.minY <= groundTolerance &&
+          slopeMidHorizontalDrift <= groundTolerance,
+        `drift=${slopeMidHorizontalDrift.toFixed(6)}, Y=${slopeMidStable.minY.toFixed(6)}..${slopeMidStable.maxY.toFixed(6)}, airborne=${slopeMidStable.airborneFrames}`
+      ),
+      createCheck(
+        "斜面中腹の即時方向転換",
+        slopeReverse.airborneFrames === 0 &&
+          slopeReverseProgress >= 0.2 - groundTolerance,
+        `progress=${slopeReverseProgress.toFixed(6)}, airborne=${slopeReverse.airborneFrames}`
+      )
+    );
+
+    teleport(blenderToBabylon(-3, 0.6, 0));
     const slopeUp = runLinearMotion(new Vector3(0, 0, -1), 1.22);
     const slopeTopState = playerHeightMotion.getState();
     checks.push(
