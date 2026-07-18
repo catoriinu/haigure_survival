@@ -56,7 +56,7 @@ T00を引き継ぎ、`codex/v2-t01-glb-contract`上でテストコース、GLB�
 
 ## 追加決定
 
-- リポジトリ内の`AGENTS.md`探索は終了し、自動適用された`C:\Users\draft\.codex\AGENTS.md`と`docs/plan.md`、`docs/plans/v2/T01/plan.md`に従う。
+- リポジトリ内の`AGENTS.md`探索は終了し、自動適用されたグローバル`AGENTS.md`と`docs/plan.md`、`docs/plans/v2/T01/plan.md`に従う。
 - 現在のBlenderシーンは今回だけのテストシーンなので破棄し、接続中のGUI BlenderシーンをそのままT01成果物へ作り直す。
 - テストコースは学校で必要になる玄関相当の段差、廊下相当の壁・天井、階段室相当の階段・踊り場を小さく集め、後続ロジックを検証するためのステージとする。学校本体や詳細な間取りは作らない。
 - T01の振り返りとして、今後は「軸変換を実ブラウザで測定する」「検証用Viteの公開範囲を限定する」「Codexでは`gh`のPATHを事前確認する」を手順上の注意点としてMarkdownへ保存し、後続タスクへ引き継ぐ。
