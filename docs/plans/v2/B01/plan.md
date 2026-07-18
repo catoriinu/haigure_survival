@@ -41,7 +41,7 @@ B01は別セッションのT02「v2ステージ型、共通ローダー、既存
 - [x] B02開始用の指示を`b02_start_prompt.md`へ保存する
 - [x] 参照画像をB01専用階層へ保存する
 - [x] UTF-8（BOMなし）、Markdownリンク、差分範囲、`git diff --check`を検証する
-- [ ] 変更をコミット、pushし、`develop`宛てDraft Pull Requestを作成する
+- [x] 変更をコミット、pushし、`develop`宛てDraft Pull Requestを作成する
 
 ## 結果
 
@@ -51,5 +51,7 @@ B01は別セッションのT02「v2ステージ型、共通ローダー、既存
 - B02専用セッションへ渡す開始指示を`b02_start_prompt.md`へ保存した。
 - 元画像を`images/school_layout_reference.png`へ保存した。
 - Markdown 4件をUTF-8（BOMなし）として検査し、参照画像リンク、画像のコピー元とのSHA-256一致、`git diff --check`、B01所有範囲だけの差分を確認した。
+- B01成果物を`43ea359`（`docs: B01学校間取り承認結果を記録`）としてコミットし、`origin/codex/v2-b01-school-layout`へpushした。
+- `develop`宛てDraft Pull Request [#37](https://github.com/catoriinu/haigure_survival/pull/37)を作成した。
 - B01完了時点ではBlender、`.blend`、`.glb`、コード、ステージJSON、通常ゲームを変更していない。B02は未着手である。
 - T02との並行作業中のため、全体`docs/plan.md`のB01完了更新は統合担当が行う保留事項とする。
