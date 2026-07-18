@@ -59,6 +59,7 @@ T00を引き継ぎ、`codex/v2-t01-glb-contract`上でテストコース、GLB�
 - リポジトリ内の`AGENTS.md`探索は終了し、自動適用された`C:\Users\draft\.codex\AGENTS.md`と`docs/plan.md`、`docs/plans/v2/T01/plan.md`に従う。
 - 現在のBlenderシーンは今回だけのテストシーンなので破棄し、接続中のGUI BlenderシーンをそのままT01成果物へ作り直す。
 - テストコースは学校で必要になる玄関相当の段差、廊下相当の壁・天井、階段室相当の階段・踊り場を小さく集め、後続ロジックを検証するためのステージとする。学校本体や詳細な間取りは作らない。
+- T01の振り返りとして、今後は「軸変換を実ブラウザで測定する」「検証用Viteの公開範囲を限定する」「Codexでは`gh`のPATHを事前確認する」を手順上の注意点としてMarkdownへ保存し、後続タスクへ引き継ぐ。
 
 ## ステップ
 
@@ -72,6 +73,7 @@ T00を引き継ぎ、`codex/v2-t01-glb-contract`上でテストコース、GLB�
 - [x] 関連ビルド、UTF-8（BOMなし）、括弧対応、差分を検証する
 - [x] 本計画と全体`docs/plan.md`へT01の完了結果を記録する
 - [x] 変更をコミット、pushし、`develop`宛てPull Requestを作成する
+- [x] T01振り返りの3項目を後続タスク用の仕様書と運用文書へ反映する
 
 ## 結果
 
@@ -105,3 +107,6 @@ T00を引き継ぎ、`codex/v2-t01-glb-contract`上でテストコース、GLB�
 - 最終保存後のBlenderはMetric・1 unit＝1m、16メッシュ、VIS/COL各8件、Object名とMesh Data名の一致、scale 1、保存済み状態を維持している。
 - T01成果物を`d089010`（`feat: v2ステージ資産規約を技術検証`）としてコミットし、`origin/codex/v2-t01-glb-contract`へpushした。
 - `develop`宛てDraft Pull Request [#35](https://github.com/catoriinu/haigure_survival/pull/35)を作成した。T02以降は未着手のまま保持している。
+- T01振り返りに基づき、軸変換を推測で確定せず実ブラウザのworld座標・world boundsで測定する規則と、検証用Viteの`publicDir`を対象資産ディレクトリへ限定する規則を`docs/spec_stage_assets_v2.md`へ追記した。
+- CodexでGitHub操作を行う前に`gh`のPATHと認証を確認し、Windowsの標準インストール先を絶対パスで使用できる場合は再起動不要とする手順を`docs/branch_strategy.md`へ追記した。
+- 上記3項目を後続セッションが確実に参照できるよう、全体`docs/plan.md`の追加指示と結果にも反映した。
