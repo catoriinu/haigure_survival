@@ -167,6 +167,8 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 - [x] 北側出入口の0.30m箱段差コライダーを外側地面から1階床へ続く連続スロープへ置き換える
 - [x] 学校GLBへ`META_*`、`MRK_*`、`VOL_*`、`BND_*`、`NAV_*`を追加し、事前ベイクNavMeshの代表10経路を検証する
 - [x] 学校用`StageSpatialContext`、`NavigationWorld`、TypeScriptカタログを実装する
+- [ ] セル非依存の共通3D経路追従とVolume内NavMesh生成位置を実装する
+- [ ] 学校専用V2プレイヤーランタイムを新設し、通常ゲーム入口を切り替える
 - [ ] プレイヤー、NPC、ビット、通常ビーム、ビット視線を3D空間基盤へ移行する
 - [ ] V2実行経路からステージJSON、`GridLayout`、`FloorCell`、セル座標処理を削除する
 - [ ] 全ビルド、学校手動テスト、Blender・GLB・NavMesh監査を最終確認する
@@ -198,6 +200,7 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 - 問題10（学校3D空間コンテキストを実装・自動検証済み）: 学校カタログはID、表示名、GLB／NavMesh URL、schema、NavMesh profile、確定SHA-256だけを保持し、空間座標を持たない。`StageSpatialContext`はGLB作者Node 420件を`VIS_*`263件、通常`COL_*`144件、`NAV_*`8件、意味Object 5件へ厳格分類し、プレイヤースポーン、NPC・ビット出現Volume、3D境界、Actor衝突、通常ビーム・視線遮蔽、事前ベイクNavMeshを同じ所有単位へまとめる。ActorOnly窓は移動だけを遮り、光線と視線を通す分類テストも追加した。
 - T04実ブラウザ検証は実学校GLB／NavMeshのハッシュ照合、主玄関スポーン、境界包含、舞台までの完全経路、実壁遮蔽、資源破棄、再読込を含む12/12項目が初回・再実行ともPASSし、console warning／errorは0件だった。学校読込は約34～41msで、破棄後はMesh・Material・TransformNode件数が読込前と一致した。
 - 問題11（NPCからビットへのアラート標的受け渡しを修正・自動検証済み）: 既存の`AlertRequest`は`targetId`と`blockerId`の意味が呼出箇所ごとに反転し、`applyAlertRequests`が両方を`blockerId`として`ExternalAlert`へ渡していた。このため、警報を出したNPCと追跡対象が同じIDへ潰れていた。型を`leaderId`と`targetId`へ変更し、生存NPCがプレイヤーに塞がれた場合はNPCを発信者・プレイヤーを標的、洗脳NPCが未洗脳者へ接触した場合は洗脳NPCを発信者・接触相手を標的として統一した。`npm run build`と対象差分の`git diff --check`は成功した。
+- 問題12（共通3D経路追従を実装・自動検証済み）: NPC・ビットのセルBFSを置き換える共通エージェントは、NavMeshへ投影した始点・標的の完全経路をキャッシュし、標的移動閾値、定期期限、経路消費、stuck時だけ再探索する。到達不能または移動拘束失敗時は現在位置で停止し、直進へフォールバックしない。斜面を含むXYZ経路を速度×deltaで複数点跨いで進み、投影終点への到着を判定する。T04実ブラウザは20/20項目PASS、console warning／error 0件、`npm run build:t04`成功だった。
 - 体育館舞台階段の形状ディテールと同色面の境界表現はB03、NPC・ビットが複数階を移動する高さ付きNavMesh接続はT04の範囲とし、今回の1階連続NavMeshへ仮リンクやセル互換を追加しない。
 
 - 2026-07-18 23:29 JSTに開始確認を実施した。

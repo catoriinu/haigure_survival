@@ -18,6 +18,7 @@ import {
   initializeNavigationRuntime,
   type NavigationWorld
 } from "../../../src/world/navigationWorld";
+import { createNavigationAgent } from "../../../src/world/navigationAgent";
 import {
   SCHOOL_STAGE,
   type StageCatalogEntry
@@ -179,6 +180,15 @@ const navParameters = {
   detailSampleDist: 6,
   detailSampleMaxError: 1
 };
+
+const navigationAgentConfig = Object.freeze({
+  projectionMaxDistance: 0.1,
+  targetMoveThreshold: 0.2,
+  pathRefreshIntervalSeconds: 1,
+  waypointTolerance: 0.001,
+  stuckDistanceThreshold: 0.01,
+  stuckDurationSeconds: 0.5
+});
 
 let navigationRuntime: NavigationRuntime | null = null;
 
@@ -384,6 +394,154 @@ const runValidation = async () => {
         randomPoint !== null &&
         randomDistance <= 0.5 + 1e-5,
       detail: `projectY=${projectedPoint?.y.toFixed(4) ?? "--"} / constrainZ=${constrainedPoint?.z.toFixed(4) ?? "--"} / random=${Number.isFinite(randomDistance) ? randomDistance.toFixed(4) : "--"}`
+    });
+
+    const cacheAgent = createNavigationAgent(
+      navigationWorld,
+      navigationAgentConfig
+    );
+    const initialAgentStep = cacheAgent.update(routeStart, routeEnd, 0, 0);
+    const cachedAgentStep = cacheAgent.update(routeStart, routeEnd, 0, 0.25);
+    const movedAgentTarget = routeEnd.add(new Vector3(0.3, 0, 0));
+    const movedTargetAgentStep = cacheAgent.update(
+      routeStart,
+      movedAgentTarget,
+      0,
+      0
+    );
+    checks.push({
+      name: "3D経路追従の初回探索とキャッシュ",
+      ok:
+        initialAgentStep.pathRecalculated &&
+        initialAgentStep.state === "moving" &&
+        !cachedAgentStep.pathRecalculated,
+      detail: `initial=${initialAgentStep.pathRecalculated} / cached=${cachedAgentStep.pathRecalculated}`
+    });
+    checks.push({
+      name: "標的移動閾値による経路再計算",
+      ok:
+        movedTargetAgentStep.pathRecalculated &&
+        movedTargetAgentStep.state === "moving",
+      detail: `targetMove=${Vector3.Distance(routeEnd, movedAgentTarget).toFixed(3)} / recalculated=${movedTargetAgentStep.pathRecalculated}`
+    });
+
+    const unreachableAgent = createNavigationAgent(
+      navigationWorld,
+      navigationAgentConfig
+    );
+    const unreachableTarget = new Vector3(-6.5, 0, -1.5);
+    const unreachableInitial = unreachableAgent.update(
+      routeStart,
+      unreachableTarget,
+      1,
+      0
+    );
+    const unreachableCached = unreachableAgent.update(
+      routeStart,
+      unreachableTarget,
+      1,
+      0.5
+    );
+    const unreachableRetry = unreachableAgent.update(
+      routeStart,
+      unreachableTarget,
+      1,
+      0.5
+    );
+    checks.push({
+      name: "到達不能時の停止と期限後再探索",
+      ok:
+        unreachableInitial.state === "unreachable" &&
+        Vector3.Distance(unreachableInitial.position, routeStart) <= 1e-6 &&
+        !unreachableCached.pathRecalculated &&
+        Vector3.Distance(unreachableCached.position, routeStart) <= 1e-6 &&
+        unreachableRetry.pathRecalculated &&
+        unreachableRetry.state === "unreachable" &&
+        Vector3.Distance(unreachableRetry.position, routeStart) <= 1e-6,
+      detail: `initial=${unreachableInitial.pathRecalculated} / cached=${unreachableCached.pathRecalculated} / retry=${unreachableRetry.pathRecalculated}`
+    });
+
+    const stuckAgent = createNavigationAgent(
+      navigationWorld,
+      navigationAgentConfig
+    );
+    stuckAgent.update(routeStart, routeEnd, 1, 0);
+    const stuckWaiting = stuckAgent.update(routeStart, routeEnd, 1, 0.3);
+    const stuckRecalculated = stuckAgent.update(routeStart, routeEnd, 1, 0.3);
+    checks.push({
+      name: "移動停止判定による経路再計算",
+      ok:
+        !stuckWaiting.pathRecalculated &&
+        stuckRecalculated.pathRecalculated,
+      detail: `waiting=${stuckWaiting.pathRecalculated} / stuck=${stuckRecalculated.pathRecalculated}`
+    });
+
+    const rampAgent = createNavigationAgent(
+      navigationWorld,
+      navigationAgentConfig
+    );
+    const rampAgentStep = rampAgent.update(rampStart, rampEnd, 0.75, 1);
+    checks.push({
+      name: "3D経路追従の斜面高度",
+      ok:
+        rampAgentStep.state === "moving" &&
+        rampAgentStep.position.y > 0.02 &&
+        rampAgentStep.position.y < rampEnd.y,
+      detail: `positionY=${rampAgentStep.position.y.toFixed(4)} / targetY=${rampEnd.y.toFixed(4)}`
+    });
+
+    const waypointAgent = createNavigationAgent(
+      navigationWorld,
+      navigationAgentConfig
+    );
+    const waypointStep = waypointAgent.update(routeStart, routeEnd, 100, 1);
+    const routeEndpoint = routePath[routePath.length - 1];
+    checks.push({
+      name: "移動予算内の複数経路点通過",
+      ok:
+        routePath.length >= 3 &&
+        waypointStep.state === "arrived" &&
+        Vector3.Distance(waypointStep.position, routeEndpoint) <= 1e-5,
+      detail: `${routePath.length}点 / endpointError=${Vector3.Distance(waypointStep.position, routeEndpoint).toExponential(2)}`
+    });
+
+    const projectedTargetAgent = createNavigationAgent(
+      navigationWorld,
+      navigationAgentConfig
+    );
+    const floatingTarget = routeEnd.add(new Vector3(0, 0.05, 0));
+    const floatingTargetProjection = navigationWorld.projectPoint(
+      floatingTarget,
+      navigationAgentConfig.projectionMaxDistance
+    );
+    const projectedTargetStep = projectedTargetAgent.update(
+      routeStart,
+      floatingTarget,
+      100,
+      1
+    );
+    checks.push({
+      name: "NavMesh投影標的への到着",
+      ok:
+        floatingTargetProjection !== null &&
+        projectedTargetStep.state === "arrived" &&
+        Vector3.Distance(projectedTargetStep.position, floatingTargetProjection) <=
+          1e-5,
+      detail: `rawY=${floatingTarget.y.toFixed(4)} / projectedY=${floatingTargetProjection?.y.toFixed(4) ?? "--"} / state=${projectedTargetStep.state}`
+    });
+
+    const clearAgent = createNavigationAgent(
+      navigationWorld,
+      navigationAgentConfig
+    );
+    clearAgent.update(routeStart, routeEnd, 0, 0);
+    const beforeClear = clearAgent.update(routeStart, routeEnd, 0, 0.1);
+    clearAgent.clear();
+    const afterClear = clearAgent.update(routeStart, routeEnd, 0, 0);
+    checks.push({
+      name: "3D経路追従状態のclear",
+      ok: !beforeClear.pathRecalculated && afterClear.pathRecalculated,
+      detail: `before=${beforeClear.pathRecalculated} / after=${afterClear.pathRecalculated}`
     });
 
     let schoolLoadMs = 0;
