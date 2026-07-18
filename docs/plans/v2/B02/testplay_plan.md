@@ -165,6 +165,7 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 - [x] Recast NavMeshの生成・バイナリ往復・3D経路を小型検証する
 - [x] 学校の階段・舞台斜面コライダーをNavMesh入力に使える閉じた外向きMeshへ正規化する
 - [x] 北側出入口の0.30m箱段差コライダーを外側地面から1階床へ続く連続スロープへ置き換える
+- [x] 学校GLBへ`META_*`、`MRK_*`、`VOL_*`、`BND_*`、`NAV_*`を追加し、事前ベイクNavMeshの代表10経路を検証する
 - [ ] 学校用`StageSpatialContext`、`NavigationWorld`、TypeScriptカタログを実装する
 - [ ] プレイヤー、NPC、ビット、通常ビーム、ビット視線を3D空間基盤へ移行する
 - [ ] V2実行経路からステージJSON、`GridLayout`、`FloorCell`、セル座標処理を削除する
@@ -190,6 +191,11 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 - `npm run build`、`npm run build:t01`、`npm run build:t03`は成功した。T01の`.blend`は`A26672A7400A143F32FAB9F5DC53387CFF85C1FB22A9766F464E9BAEFAC5B16B`、GLBは`CF6CF17CF7447152D0B25219045C33EFB2E1A1821C201ACD6E51E39F468EA69B`のままで、対象パスのGit差分は0件だった。Blender連携のビューポート画像取得は既存カメラへ合わせても黒画像を返したため、表示メッシュ監査と後段の実ゲーム描画で視覚確認を補完する。
 - 問題7（北側出入口の段差移動を修正・自動検証済み）: 北側出入口の`COL_NorthEntryStep`は、外側地面上面Z＝-0.30mから1階床Z＝0.00mまでを一度に上がる高さ0.30mの箱だった。T03プレイヤーの許容段差0.15mを超えるため、期待する外側から校舎内への連続移動が成立しなかった。表示用`VIS_NorthEntryStep`の8頂点・6面の箱は維持し、衝突用だけを同じX＝2.4～5.4m、Y＝45.5～47.0m、Z＝-0.3～0.0m境界内の1:5連続楔へ変更した。修正後のColliderは6頂点・5面、面積0面0、非多様体辺0、符号付き体積0.675m³、斜面法線Z＝0.980581である。
 - 北側出入口修正後も430 Object、407 Mesh（`VIS_`263件、`COL_`144件）を維持し、GLBは407 Node／407 Mesh、Material 20件、Camera・Light・Animation 0件、規約外名0件だった。B02 `.blend`はSHA-256 `04CF5C0C8759737F21843BC231B0F460695D198EA1E662EA790933421BD6648E`、GLBは`1DFF477335398A62893DE048BF3F8073ECF9B19715C17BB9EE4296E67D5CCF74`である。`npm run build`と`npm run build:t03`は成功し、T01資産のGit差分は0件だった。実際の出入りは学校を通常ゲームへ再接続した後の手動確認へ残す。
+- 問題8（学校3D空間正本・事前ベイクNavMeshを作成）: V2学校ではJSON文字マップとセルを空間正本にせず、同一GLB内の`META_Stage`、`MRK_*`、`VOL_*`、`BND_Stage`、`NAV_*`と、そのGLBから生成した事前ベイクRecast NavMeshを使用する。Blender監査は443 Object／418 Mesh、GLB出力対象420 Objectで、内訳は`VIS_*`263件、`COL_*`144件、`NAV_*`8件、`META_Stage`1件、`MRK_*`1件、`VOL_*`2件、`BND_Stage`1件である。制作ガイド23件は出力対象外を維持した。
+- 問題9（体育館舞台へのNavMesh経路切断を修正・自動検証済み）: プレイヤースポーンから体育館舞台中央へ経路計算すると、Recastが部分経路を返し、要求終点との誤差が`0.762910`となった。東西の`VIS_GymStageStairHeadWall_*`と`COL_GymStageStairHeadWall_*`は下端Z＝2.4mだったが、舞台上面Z＝1.0mからの実開口はBlender 1.4m、Runtime 0.35mにしかならず、プレイヤー高さ約0.424mとNavMesh高さ0.425mを下回っていたことが原因である。表示壁・衝突壁双方の下端をZ＝3.4mへ上げ、舞台上面からBlender 2.4mの一致した開口を確保した。NavMeshだけをつなぐ仮connector面は不採用として削除した。
+- 舞台開口修正後、主玄関スポーンから校庭、北側出入口外側、北西・北東・南西階段踊り場、体育館中央、体育倉庫、舞台中央などを含む代表10経路はすべて終点誤差`4.3e-7`以下となった。最終`.blend`は308,457 bytes、SHA-256 `42617927F6AD7AB4F4C8776CA3E8EC3999BA12E9DF90D9551342D0A97EEF5996`、GLBは739,444 bytes、SHA-256 `55A6EAE9AAA169E1CB6389C2D3924BED05D1F9530105DCF92F9F9808FCFEE381`、NavMeshは151,552 bytes、SHA-256 `C0699A5C371AB30A5B85241DEEE38A2603258DE8961A095AA5EF55031A4040E9`である。同一入力から2回ベイクしてNavMeshの容量・SHA-256が一致した。T01 `.blend`は`A26672A7400A143F32FAB9F5DC53387CFF85C1FB22A9766F464E9BAEFAC5B16B`、GLBは`CF6CF17CF7447152D0B25219045C33EFB2E1A1821C201ACD6E51E39F468EA69B`を維持した。
+- `npm run bake:v2:school-navmesh`は部分経路を`success`として受理せず、代表10経路すべての要求終点との誤差`1e-5`以下を必須とする。`npm run build`、`npm run build:t01`、`npm run build:t02`、`npm run build:t03`、`npm run build:t04`はすべて成功した。
+- 体育館舞台階段の形状ディテールと同色面の境界表現はB03、NPC・ビットが複数階を移動する高さ付きNavMesh接続はT04の範囲とし、今回の1階連続NavMeshへ仮リンクやセル互換を追加しない。
 
 - 2026-07-18 23:29 JSTに開始確認を実施した。
 - メインworktreeはクリーンな`develop`で、`develop`、`origin/develop`、HEADはいずれもPR #40取込後の`8b25790efbd9afbd151fa3081a8f0faf095b5df5`だった。

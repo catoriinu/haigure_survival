@@ -38,16 +38,25 @@ public/stage-assets/v2/<ステージID>/<資産名>.glb
 public/stage-assets/v2/<ステージID>/<資産名>.navmesh.bin
 ```
 
-当面の通常ゲーム対象は学校だけである。T01とB02の現行ファイルは技術検証・制作途中の資産であり、本書の通常ステージ必須Objectをすべて満たす完成資産ではない。
+当面の通常ゲーム対象は学校だけである。T01は技術検証fixtureであり、B02学校は本書の空間Object契約と事前ベイクNavMeshを備えた実ゲーム移行中の資産である。
 
 | 用途 | パス | 状態 |
 |---|---|---|
 | T01 Blender編集元 | `assets/blender/v2/T01/t01_glb_collision_course.blend` | 座標・縮尺・衝突の検証fixture |
 | T01 GLB | `public/stage-assets/v2/T01/t01_glb_collision_course.glb` | 座標・縮尺・衝突の検証fixture |
-| B02 Blender編集元 | `assets/blender/v2/B02/b02_school_blockout.blend` | 学校の制作元。空間Object追加前 |
-| B02 GLB | `public/stage-assets/v2/B02/b02_school_blockout.glb` | 学校の制作途中。通常ステージとして未適合 |
+| B02 Blender編集元 | `assets/blender/v2/B02/b02_school_blockout.blend` | 学校の制作元。3D意味ObjectとNavMesh生成元を保持 |
+| B02 GLB | `public/stage-assets/v2/B02/b02_school_blockout.glb` | 学校の実行時空間正本。Runtime移行・手動検証中 |
+| B02 NavMesh | `public/stage-assets/v2/B02/b02_school_blockout.navmesh.bin` | 同一GLBから事前ベイクするRecast派生物 |
 
 `.blend`はVite配布物へ含めない。GLBとNavMeshバイナリだけを`public`からWeb版・Electron版へコピーする。バイナリ資産は単一担当で編集し、同一ファイルを複数ブランチで並行編集しない。
+
+### 3.1 B02学校の現行監査基準
+
+- Blenderは443 Object／418 Meshとし、Export Collection配下の420 ObjectだけをGLBへ出力する。
+- 出力内訳は`VIS_*`263件、`COL_*`144件、`NAV_*`8件、`META_Stage`1件、`MRK_*`1件、`VOL_*`2件、`BND_Stage`1件とする。
+- 制作用ガイド23件はExport Collection外に保持し、GLBへ出力しない。
+- 体育館舞台階段上部の東西表示壁・衝突壁は、舞台上面からBlender 2.4mの実開口を一致して確保する。NavMeshだけを接続する仮connector面は資産へ残さない。
+- 事前ベイク後は、主玄関スポーンから学校1階、3階段踊り場、体育館、体育倉庫、舞台を含む代表10経路が要求終点へ到達することを検査する。部分経路を成功扱いせず、要求終点との誤差も検査する。
 
 検証専用Viteでは、`publicDir`をリポジトリ全体の`public`へ向けない。検証対象の資産ディレクトリだけを公開し、ビルド後はファイル一覧、容量、SHA-256を公開元と照合する。
 
@@ -456,8 +465,9 @@ npm run build:t01
 ## 15. 当面の対象と移行条件
 
 - 当面の通常ゲーム対象は学校だけとする。
-- B02学校blockoutは`VIS_*`と`COL_*`の制作基盤として利用し、通常ゲームへ登録する前に本書の`META_*`、`NAV_*`、`MRK_*`、`VOL_*`、`BND_*`を追加する。
+- B02学校blockoutには`VIS_*`、`COL_*`に加えて`META_*`、`NAV_*`、`MRK_*`、`VOL_*`、`BND_*`を追加済みであり、事前ベイクNavMeshと組み合わせてRuntime移行を行う。
 - `PRT_*`と`LNK_*`は学校の設計上必要な場合だけ追加する。
+- 舞台階段の形状ディテールと同色面の境界表現はB03で仕上げる。NPC・ビットの複数階移動と高さ付きNavMesh接続はT04で実装する。
 - 既存8ステージのJSONはV2実行経路から除外し、互換アダプターを作らない。
 - 既存ステージを将来再導入する場合は、ステージごとに`.blend`、規約準拠GLB、事前ベイクNavMeshを作り、通常ステージ監査へ合格させる。
 - JSON文字マップをGLB欠落時の代替、NavMesh生成の補助、テストfixtureの正本として残さない。

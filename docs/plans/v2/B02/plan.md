@@ -415,3 +415,12 @@ B01で承認された学校間取りを前提として、Blenderで学校の初�
 - 再現スクリプトは`scripts/v2/fix_school_north_entry_collider.py`で、現worktree側B02、未保存変更なし、`VIS_`263件、`COL_`144件、既存境界一致を必須条件としている。
 - 修正後の`.blend`はSHA-256 `04CF5C0C8759737F21843BC231B0F460695D198EA1E662EA790933421BD6648E`、GLBは665,704 bytes、SHA-256 `1DFF477335398A62893DE048BF3F8073ECF9B19715C17BB9EE4296E67D5CCF74`である。GLB 2.0、Node 407件、Mesh 407件、Material 20件、Camera・Light・Animation 0件、規約外名0件を確認した。
 - `npm run build`と`npm run build:t03`が成功し、T01 `.blend`・GLBのGit差分は0件だった。学校通常ゲーム接続後、北側出入口を内外両方向に歩いて最終確認する。
+
+### 2026-07-19 学校3D空間Object・NavMeshと体育館舞台開口の更新
+
+- V2学校ではJSON文字マップとセルを空間正本にせず、GLB内の`META_Stage`、`MRK_*`、`VOL_*`、`BND_Stage`、`NAV_*`と、そのGLBから事前ベイクするRecast NavMeshを正本・派生物として使用する。
+- Blenderは443 Object／418 Meshとなり、GLB出力対象420 Objectの内訳は`VIS_*`263件、`COL_*`144件、`NAV_*`8件、`META_Stage`1件、`MRK_*`1件、`VOL_*`2件、`BND_Stage`1件である。制作ガイド23件はGLBへ出力しない。
+- プレイヤースポーンから体育館舞台中央へのNavMesh経路は、修正前に要求終点との誤差`0.762910`で途切れた。東西の`GymStageStairHeadWall`は下端Z＝2.4mだったため、舞台上面Z＝1.0mからの実開口がBlender 1.4m、Runtime 0.35mとなり、プレイヤー高さ約0.424mとNavMesh高さ0.425mを下回っていた。
+- 第4修正版で「床面から2.4mまで開放」とした記録は地面Z＝0m基準であり、舞台上面基準の通過高として不足していた。`VIS_GymStageStairHeadWall_East/West`と`COL_GymStageStairHeadWall_East/West`の下端をZ＝3.4mへ上げ、舞台上面からBlender 2.4mの開口を表示・衝突の両方で一致させた。NavMeshだけを接続する仮connector面は採用せず削除した。
+- 修正後は校庭、各出入口、3階段踊り場、体育館、体育倉庫、舞台を含む代表10経路がすべて要求終点へ到達し、終点誤差は`4.3e-7`以下だった。最終`.blend`は308,457 bytes、SHA-256 `42617927F6AD7AB4F4C8776CA3E8EC3999BA12E9DF90D9551342D0A97EEF5996`、GLBは739,444 bytes、SHA-256 `55A6EAE9AAA169E1CB6389C2D3924BED05D1F9530105DCF92F9F9808FCFEE381`、NavMeshは151,552 bytes、SHA-256 `C0699A5C371AB30A5B85241DEEE38A2603258DE8961A095AA5EF55031A4040E9`である。同一入力からの2回ベイクでNavMeshの容量・SHA-256が一致し、T01 `.blend`・GLBの既知ハッシュも不変だった。
+- 舞台階段の形状ディテールと同色面の境界表現はB03で仕上げる。NPC・ビット用の複数階および高さ付き接続はT04で実装し、B02資産へセル互換や仮の階段リンクを残さない。

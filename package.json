@@ -22,6 +22,7 @@
     "dev:t04": "vite --config vite.t04.config.mts",
     "typecheck:t04": "tsc -p validation/v2/T04/tsconfig.json --noEmit",
     "build:t04": "npm run typecheck:t04 && vite build --config vite.t04.config.mts",
+    "bake:v2:school-navmesh": "node scripts/v2/bake_school_navmesh.mjs",
     "preview": "vite preview",
     "dist": "npm run build && electron-builder"
   },
