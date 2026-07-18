@@ -220,12 +220,28 @@ const hasWallOnLine = (
   start: Vector3,
   end: Vector3
 ) => {
-  const halfWidth = (layout.columns * layout.cellSize) / 2;
-  const halfDepth = (layout.rows * layout.cellSize) / 2;
-  const startX = (start.x + halfWidth) / layout.cellSize;
-  const startZ = (start.z + halfDepth) / layout.cellSize;
-  const endX = (end.x + halfWidth) / layout.cellSize;
-  const endZ = (end.z + halfDepth) / layout.cellSize;
+  const toGridPoint = (position: Vector3) => {
+    const offsetX = position.x - layout.worldOrigin.x;
+    const offsetZ = position.z - layout.worldOrigin.z;
+    return {
+      x:
+        (offsetX * layout.columnDirection.x +
+          offsetZ * layout.columnDirection.z) /
+          layout.cellSize +
+        0.5,
+      z:
+        (offsetX * layout.rowDirection.x +
+          offsetZ * layout.rowDirection.z) /
+          layout.cellSize +
+        0.5
+    };
+  };
+  const startPoint = toGridPoint(start);
+  const endPoint = toGridPoint(end);
+  const startX = startPoint.x;
+  const startZ = startPoint.z;
+  const endX = endPoint.x;
+  const endZ = endPoint.z;
   let cellX = Math.floor(startX);
   let cellZ = Math.floor(startZ);
   const endCellX = Math.floor(endX);
