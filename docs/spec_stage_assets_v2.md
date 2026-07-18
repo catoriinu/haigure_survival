@@ -145,7 +145,7 @@ T01で確定した設定:
 
 1. `removeAllFromScene()`でコンテナ所有物をシーンから外す。
 2. `dispose()`でMesh、Material、Texture、管理ルートを破棄する。
-3. 作者メッシュ名、コンテナ由来Material名、Texture名がシーンに残っていないことを確認する。
+3. 作者メッシュ、`createRootMesh()`で追加した管理親、glTF管理ルートを含む全Mesh／TransformNode参照が`isDisposed()`になり、シーンに残っていないことを確認する。コンテナ由来Material名、Texture名もシーンに残っていないことを確認する。
 4. 再読込時は新しいAssetContainerを作り、初回と同じ命名、件数、world boundsになることを確認する。
 
 ## 9. T01基準コース
@@ -176,6 +176,8 @@ T01で確定した設定:
 
 縮尺・境界寸法の一致判定には許容誤差`1e-4`を使用した。現行プレイヤー相当の幅0.2・高さ約0.424242の楕円体プローブを使用した。
 
+垂直衝突は、期待した`COL_`の通知、Rayで得た幾何学面高、`moveWithCollisions()`後のプローブ停止Yの3条件をすべて満たした場合だけPASSとする。プローブ停止位置と壁・天井の停止位置には許容誤差`0.004`を使用する。
+
 | 対象 | 衝突先 | 面または停止位置 | 結果 |
 |---|---|---:|---|
 | 平面床 | `COL_FloorBase` | 面Y=0、probeY=0.002121 | PASS |
@@ -188,7 +190,7 @@ T01で確定した設定:
 | 天井 | `COL_CeilingLow` | stopY=0.098636、期待値0.100758 | PASS |
 
 - VIS 8件・COL 8件の命名と設定を確認した。
-- 初回読込後にAssetContainerを破棄し、残存Mesh、Material、Textureがすべて0件になることを確認した。
+- 初回読込後にAssetContainerを破棄し、管理親とglTF管理ルートを含む全管理ノードが`isDisposed()`となり、Scene残存Node、Mesh、Material、Textureがすべて0件になることを確認した。
 - 再読込後の名前、件数、world boundsが初回と一致した。
 - 独立検証画面の自動検査28項目がすべてPASSした。
 - COL表示切替、手動破棄、手動再読込もPASSした。

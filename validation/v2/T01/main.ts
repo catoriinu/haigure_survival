@@ -6,6 +6,7 @@ import {
   Engine,
   HemisphericLight,
   Mesh,
+  Node,
   Ray,
   Scene,
   SceneLoader,
@@ -62,6 +63,7 @@ type CourseSignature = Record<string, MeshBounds>;
 type LoadedCourse = {
   container: AssetContainer;
   root: Mesh;
+  managedNodes: Node[];
   authoredMeshes: Mesh[];
   visMeshes: Mesh[];
   colMeshes: Mesh[];
@@ -203,6 +205,10 @@ const loadCourse = async (): Promise<LoadedCourse> => {
   root.checkCollisions = false;
   container.addAllToScene();
 
+  const managedNodes = Array.from(
+    new Set<Node>([...container.meshes, ...container.transformNodes])
+  );
+
   const authoredMeshes = container.meshes.filter(
     (mesh): mesh is Mesh => mesh instanceof Mesh && mesh.getTotalVertices() > 0
   );
@@ -234,6 +240,7 @@ const loadCourse = async (): Promise<LoadedCourse> => {
   return {
     container,
     root,
+    managedNodes,
     authoredMeshes,
     visMeshes,
     colMeshes,
@@ -276,36 +283,42 @@ const runVerticalCollisionChecks = (): CheckResult[] => {
       label: "平面床",
       start: blenderToBabylon(0, -1, 3),
       expectedHeight: 0,
+      expectedProbeY: 0.002121,
       expectedCollider: "COL_FloorBase"
     },
     {
       label: "15cm段差",
       start: blenderToBabylon(0, 2, 3),
       expectedHeight: 0.0375,
+      expectedProbeY: 0.039621,
       expectedCollider: "COL_Step015"
     },
     {
       label: "斜面",
       start: blenderToBabylon(-3, 2.6, 3),
       expectedHeight: 0.1,
+      expectedProbeY: 0.09876,
       expectedCollider: "COL_Slope"
     },
     {
       label: "斜面踊り場",
       start: blenderToBabylon(-3, 5.3, 3),
       expectedHeight: 0.2,
+      expectedProbeY: 0.202121,
       expectedCollider: "COL_SlopeLanding"
     },
     {
       label: "階段用ランプ",
       start: blenderToBabylon(3, 1.9, 3),
       expectedHeight: 0.1125,
+      expectedProbeY: 0.100991,
       expectedCollider: "COL_StairRamp"
     },
     {
       label: "階段踊り場",
       start: blenderToBabylon(3, 4.6, 3),
       expectedHeight: 0.225,
+      expectedProbeY: 0.227121,
       expectedCollider: "COL_StairLanding"
     }
   ];
@@ -323,10 +336,15 @@ const runVerticalCollisionChecks = (): CheckResult[] => {
       surfaceHit?.hit === true &&
       surfaceHeight !== undefined &&
       nearlyEqual(surfaceHeight, testCase.expectedHeight, dimensionTolerance);
+    const probePositionMatched = nearlyEqual(
+      result.endPosition.y,
+      testCase.expectedProbeY,
+      collisionTolerance
+    );
     return createCheck(
       `${testCase.label}の衝突`,
-      colliderMatched && heightMatched,
-      `hit=${result.collidedNames.join(",") || "なし"}, probeY=${round(result.endPosition.y)}, surfaceY=${surfaceHeight === undefined ? "なし" : round(surfaceHeight)}, expected=${testCase.expectedHeight}`
+      colliderMatched && heightMatched && probePositionMatched,
+      `hit=${result.collidedNames.join(",") || "なし"}, probeY=${round(result.endPosition.y)}, expectedProbeY=${testCase.expectedProbeY}, surfaceY=${surfaceHeight === undefined ? "なし" : round(surfaceHeight)}, expectedSurfaceY=${testCase.expectedHeight}`
     );
   });
 };
@@ -449,9 +467,14 @@ const disposeCourse = (course: LoadedCourse, phase: string): CheckResult => {
   const authoredNames = course.authoredMeshes.map((mesh) => mesh.name);
   const materialNames = course.importedMaterialNames;
   const textureNames = course.importedTextureNames;
+  const managedNodes = course.managedNodes;
   course.container.removeAllFromScene();
   course.container.dispose();
 
+  const undisposedManagedNodes = managedNodes.filter((node) => !node.isDisposed());
+  const remainingManagedNodes = [...scene.meshes, ...scene.transformNodes].filter((node) =>
+    managedNodes.includes(node)
+  );
   const remainingMeshes = scene.meshes.filter((mesh) => authoredNames.includes(mesh.name));
   const remainingMaterials = scene.materials.filter((material) =>
     materialNames.includes(material.name)
@@ -462,9 +485,11 @@ const disposeCourse = (course: LoadedCourse, phase: string): CheckResult => {
   return createCheck(
     `${phase}: AssetContainer破棄`,
     remainingMeshes.length === 0 &&
+      undisposedManagedNodes.length === 0 &&
+      remainingManagedNodes.length === 0 &&
       remainingMaterials.length === 0 &&
       remainingTextures.length === 0,
-    `mesh=${remainingMeshes.length}, material=${remainingMaterials.length}, texture=${remainingTextures.length}`
+    `managedNode=${remainingManagedNodes.length}, undisposedNode=${undisposedManagedNodes.map((node) => node.name).join(",") || "なし"}, mesh=${remainingMeshes.length}, material=${remainingMaterials.length}, texture=${remainingTextures.length}`
   );
 };
 
