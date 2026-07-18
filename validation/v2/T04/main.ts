@@ -7,17 +7,16 @@ import {
   MeshBuilder,
   Scene,
   StandardMaterial,
-  Vector3,
-  VertexData
+  Vector3
 } from "@babylonjs/core";
-import {
-  NavMeshQuery,
-  exportNavMesh,
-  getNavMeshPositionsAndIndices,
-  importNavMesh,
-  init
-} from "recast-navigation";
+import { exportNavMesh } from "recast-navigation";
 import { generateSoloNavMesh } from "recast-navigation/generators";
+
+import {
+  createNavigationWorld,
+  initializeNavigationRuntime,
+  type NavigationWorld
+} from "../../../src/world/navigationWorld";
 
 import "./style.css";
 
@@ -28,11 +27,8 @@ type ValidationCheck = Readonly<{
 }>;
 
 type NavigationRuntime = Readonly<{
-  navMesh: ReturnType<typeof importNavMesh>["navMesh"];
-  navMeshQuery: NavMeshQuery;
-  restoredNavMesh: ReturnType<typeof importNavMesh>["navMesh"];
-  restoredNavMeshQuery: NavMeshQuery;
-  debugMesh: Mesh;
+  navigationWorld: NavigationWorld;
+  restoredNavigationWorld: NavigationWorld;
   pathMeshes: readonly Mesh[];
   data: Uint8Array;
 }>;
@@ -62,7 +58,7 @@ const camera = new ArcRotateCamera(
   -Math.PI / 2.4,
   Math.PI / 3.1,
   8,
-  new Vector3(-1, 0, 0),
+  new Vector3(1, 0, 0),
   scene
 );
 camera.attachControl(canvas, true);
@@ -87,14 +83,17 @@ const createGround = (name: string, width: number, height: number, position: Vec
   return mesh;
 };
 
-createGround("NAV_Walkable_LowerSouth", 4, 1.95, new Vector3(-2, 0, -1.025));
-createGround("NAV_Walkable_LowerNorth", 4, 1.95, new Vector3(-2, 0, 1.025));
-createGround("NAV_Walkable_Doorway", 0.45, 0.1, new Vector3(-0.575, 0, 0));
+createGround("NAV_Walkable_LowerSouth", 4, 1.95, new Vector3(2, 0, -1.025));
+createGround("NAV_Walkable_LowerNorth", 4, 1.95, new Vector3(2, 0, 1.025));
+createGround("NAV_Walkable_Doorway", 0.45, 0.1, new Vector3(0.575, 0, 0));
+createGround("NAV_Walkable_DisconnectedIsland", 1, 1, new Vector3(-6.5, 0, -1.5));
+createGround("NAV_Walkable_StackedLower", 1, 1, new Vector3(-9.5, 0, -1.5));
+createGround("NAV_Walkable_StackedUpper", 1, 1, new Vector3(-9.5, 0.8, -1.5));
 
 const rampLength = Math.hypot(1, 0.25);
-const ramp = createGround("NAV_Walkable_Ramp", rampLength, 0.5, new Vector3(0.5, 0.125, -1.75));
-ramp.rotation.z = Math.atan2(0.25, 1);
-createGround("NAV_Walkable_UpperFloor", 1, 0.5, new Vector3(1.5, 0.25, -1.75));
+const ramp = createGround("NAV_Walkable_Ramp", rampLength, 0.5, new Vector3(-0.5, 0.125, -1.75));
+ramp.rotation.z = -Math.atan2(0.25, 1);
+createGround("NAV_Walkable_UpperFloor", 1, 0.5, new Vector3(-1.5, 0.25, -1.75));
 
 const createBarrier = (name: string, width: number, centerX: number) => {
   const mesh = MeshBuilder.CreateBox(name, { width, height: 0.6, depth: 0.1 }, scene);
@@ -102,8 +101,8 @@ const createBarrier = (name: string, width: number, centerX: number) => {
   mesh.material = blockerMaterial;
 };
 
-createBarrier("NAV_Blocker_WallWest", 3.2, -2.4);
-createBarrier("NAV_Blocker_WallEast", 0.35, -0.175);
+createBarrier("NAV_Blocker_WallWest", 3.2, 2.4);
+createBarrier("NAV_Blocker_WallEast", 0.35, 0.175);
 
 const createNavigationGeometry = (): NavGeometry => {
   const positions: number[] = [];
@@ -135,6 +134,9 @@ const createNavigationGeometry = (): NavGeometry => {
   appendWalkableQuad(-0.8, -0.35, -0.05, 0.05, 0, 0);
   appendWalkableQuad(0, 1, -2, -1.5, 0, 0.25);
   appendWalkableQuad(1, 2, -2, -1.5, 0.25, 0.25);
+  appendWalkableQuad(6, 7, -2, -1, 0, 0);
+  appendWalkableQuad(9, 10, -2, -1, 0, 0);
+  appendWalkableQuad(9, 10, -2, -1, 0.8, 0.8);
 
   return { positions, indices };
 };
@@ -162,59 +164,21 @@ const disposeNavigationRuntime = () => {
   if (!navigationRuntime) {
     return;
   }
-  navigationRuntime.debugMesh.dispose();
   navigationRuntime.pathMeshes.forEach((mesh) => mesh.dispose());
-  navigationRuntime.navMeshQuery.destroy();
-  navigationRuntime.restoredNavMeshQuery.destroy();
-  navigationRuntime.navMesh.destroy();
-  navigationRuntime.restoredNavMesh.destroy();
+  navigationRuntime.navigationWorld.dispose();
+  navigationRuntime.restoredNavigationWorld.dispose();
   navigationRuntime = null;
-};
-
-const pathDistance = (path: readonly Vector3[]) => {
-  let distance = 0;
-  for (let index = 1; index < path.length; index += 1) {
-    distance += Vector3.Distance(path[index - 1], path[index]);
-  }
-  return distance;
 };
 
 const pathsEqual = (left: readonly Vector3[], right: readonly Vector3[]) =>
   left.length === right.length &&
   left.every((point, index) => Vector3.Distance(point, right[index]) <= 1e-5);
 
-const toBabylonPath = (path: readonly { x: number; y: number; z: number }[]) =>
-  path.map((point) => new Vector3(point.x, point.y, point.z));
-
 const createPathMesh = (name: string, path: readonly Vector3[], color: Color3) => {
   const elevated = path.map((point) => point.add(new Vector3(0, 0.015, 0)));
   const mesh = MeshBuilder.CreateLines(name, { points: elevated }, scene);
   mesh.color = color;
   return mesh;
-};
-
-const createDebugNavMesh = (navMesh: NavigationRuntime["navMesh"]) => {
-  const [positions, indices] = getNavMeshPositionsAndIndices(navMesh);
-  const normals: number[] = [];
-  VertexData.ComputeNormals(positions, indices, normals);
-
-  const vertexData = new VertexData();
-  vertexData.positions = positions;
-  vertexData.indices = indices;
-  vertexData.normals = normals;
-
-  const debugMesh = new Mesh("NavMeshDebug", scene);
-  vertexData.applyToMesh(debugMesh);
-  debugMesh.position.y = 0.006;
-
-  const debugMaterial = new StandardMaterial("NavMeshDebugMaterial", scene);
-  debugMaterial.diffuseColor = new Color3(0.1, 0.72, 0.53);
-  debugMaterial.emissiveColor = new Color3(0.03, 0.2, 0.14);
-  debugMaterial.alpha = 0.45;
-  debugMaterial.backFaceCulling = false;
-  debugMesh.material = debugMaterial;
-
-  return debugMesh;
 };
 
 const renderChecks = (checks: readonly ValidationCheck[]) => {
@@ -250,10 +214,11 @@ const runValidation = async () => {
   disposeNavigationRuntime();
 
   const checks: ValidationCheck[] = [];
+  const pendingNavigationWorlds: NavigationWorld[] = [];
 
   try {
     const initializationStartedAt = performance.now();
-    await init();
+    await initializeNavigationRuntime();
     const initializationMs = performance.now() - initializationStartedAt;
     checks.push({
       name: "Recast初期化",
@@ -272,46 +237,48 @@ const runValidation = async () => {
       throw new Error(generationResult.error);
     }
 
-    const navMesh = generationResult.navMesh;
-    const navMeshQuery = new NavMeshQuery(navMesh);
-    const debugMesh = createDebugNavMesh(navMesh);
+    let data: Uint8Array;
+    try {
+      data = exportNavMesh(generationResult.navMesh);
+    } finally {
+      generationResult.navMesh.destroy();
+    }
 
-    const routeStart = new Vector3(-3, 0, -1.5);
-    const routeEnd = new Vector3(-3, 0, 1.5);
-    const routeResult = navMeshQuery.computePath(routeStart, routeEnd);
-    const routePath = toBabylonPath(routeResult.path);
-    const routeMaxX = Math.max(...routePath.map((point) => point.x));
+    const navigationWorld = await createNavigationWorld(data);
+    pendingNavigationWorlds.push(navigationWorld);
+    navigationWorld.createDebugMesh(scene);
+
+    const routeStart = new Vector3(3, 0, -1.5);
+    const routeEnd = new Vector3(3, 0, 1.5);
+    const routeResult = navigationWorld.findPath(routeStart, routeEnd);
+    const routePath = routeResult?.points ?? [];
+    const routeMinX = Math.min(...routePath.map((point) => point.x));
     checks.push({
       name: "壁を抜けず扉へ迂回",
-      ok: routeResult.success && routePath.length >= 3 && routeMaxX > -0.95,
-      detail: `${routePath.length}点 / maxX=${routeMaxX.toFixed(4)} / ${pathDistance(routePath).toFixed(4)} wu`
+      ok: routeResult !== null && routePath.length >= 3 && routeMinX < 0.95,
+      detail: `${routePath.length}点 / minX=${routeMinX.toFixed(4)} / ${routeResult?.distance.toFixed(4) ?? "--"} wu`
     });
 
-    const rampStart = new Vector3(-0.25, 0, -1.75);
-    const rampEnd = new Vector3(1.5, 0.25, -1.75);
-    const rampResult = navMeshQuery.computePath(rampStart, rampEnd);
-    const rampPath = toBabylonPath(rampResult.path);
+    const rampStart = new Vector3(0.25, 0, -1.75);
+    const rampEnd = new Vector3(-1.5, 0.25, -1.75);
+    const rampResult = navigationWorld.findPath(rampStart, rampEnd);
+    const rampPath = rampResult?.points ?? [];
     const rampHeight =
       rampPath.length > 0
         ? rampPath[rampPath.length - 1].y
         : Number.NEGATIVE_INFINITY;
     checks.push({
       name: "連続ランプの3D経路",
-      ok: rampResult.success && rampPath.length >= 2 && rampHeight >= 0.2,
+      ok: rampResult !== null && rampPath.length >= 2 && rampHeight >= 0.2,
       detail: `${rampPath.length}点 / endY=${rampHeight.toFixed(4)}`
     });
 
-    const data = exportNavMesh(navMesh);
     const restoreStartedAt = performance.now();
-    const { navMesh: restoredNavMesh } = importNavMesh(data);
-    const restoredNavMeshQuery = new NavMeshQuery(restoredNavMesh);
+    const restoredNavigationWorld = await createNavigationWorld(data);
+    pendingNavigationWorlds.push(restoredNavigationWorld);
     const restoreMs = performance.now() - restoreStartedAt;
-    const restoredRoutePath = toBabylonPath(
-      restoredNavMeshQuery.computePath(routeStart, routeEnd).path
-    );
-    const restoredRampPath = toBabylonPath(
-      restoredNavMeshQuery.computePath(rampStart, rampEnd).path
-    );
+    const restoredRoutePath = restoredNavigationWorld.findPath(routeStart, routeEnd)?.points ?? [];
+    const restoredRampPath = restoredNavigationWorld.findPath(rampStart, rampEnd)?.points ?? [];
     checks.push({
       name: "NavMeshバイナリ往復",
       ok:
@@ -321,14 +288,66 @@ const runValidation = async () => {
       detail: `${data.byteLength} bytes / 復元 ${restoreMs.toFixed(2)} ms`
     });
 
-    const unreachableResult = navMeshQuery.computePath(
-      new Vector3(-3, 0, -1.5),
+    const unreachableResult = navigationWorld.findPath(
+      new Vector3(3, 0, -1.5),
       new Vector3(8, 0, 8)
     );
     checks.push({
-      name: "到達不能地点",
-      ok: !unreachableResult.success && unreachableResult.path.length === 0,
-      detail: `${unreachableResult.path.length}点`
+      name: "NavMesh外の到達不能地点",
+      ok: unreachableResult === null,
+      detail: `${unreachableResult?.points.length ?? 0}点`
+    });
+
+    const disconnectedIslandResult = navigationWorld.findPath(
+      new Vector3(3, 0, -1.5),
+      new Vector3(-6.5, 0, -1.5)
+    );
+    checks.push({
+      name: "切断されたNavMesh島",
+      ok: disconnectedIslandResult === null,
+      detail: `${disconnectedIslandResult?.points.length ?? 0}点`
+    });
+
+    const stackedLowerStart = new Vector3(-9.2, 0, -1.8);
+    const stackedLowerEnd = new Vector3(-9.8, 0, -1.2);
+    const stackedUpperStart = new Vector3(-9.2, 0.8, -1.8);
+    const stackedUpperEnd = new Vector3(-9.8, 0.8, -1.2);
+    const stackedLowerPath = navigationWorld.findPath(stackedLowerStart, stackedLowerEnd);
+    const stackedUpperPath = navigationWorld.findPath(stackedUpperStart, stackedUpperEnd);
+    const stackedCrossFloorPath = navigationWorld.findPath(stackedLowerStart, stackedUpperEnd);
+    const lowerProjected = navigationWorld.projectPoint(stackedLowerStart, 0.1);
+    const upperProjected = navigationWorld.projectPoint(stackedUpperStart, 0.1);
+    checks.push({
+      name: "重複する上下床の分離",
+      ok:
+        stackedLowerPath !== null &&
+        stackedUpperPath !== null &&
+        stackedCrossFloorPath === null &&
+        lowerProjected !== null &&
+        upperProjected !== null &&
+        upperProjected.y - lowerProjected.y >= 0.7,
+      detail: `lowerY=${lowerProjected?.y.toFixed(4) ?? "--"} / upperY=${upperProjected?.y.toFixed(4) ?? "--"} / cross=${stackedCrossFloorPath?.points.length ?? 0}点`
+    });
+
+    const projectedPoint = navigationWorld.projectPoint(new Vector3(3, 0.1, -1.5), 0.2);
+    const constrainedPoint = navigationWorld.constrainMovement(
+      new Vector3(3, 0, -1.5),
+      new Vector3(3, 0, 1.5)
+    );
+    const randomPoint = navigationWorld.randomPointAround(new Vector3(3, 0, -1.5), 0.5);
+    const randomDistance = randomPoint
+      ? Vector3.Distance(randomPoint, new Vector3(3, 0, -1.5))
+      : Number.POSITIVE_INFINITY;
+    checks.push({
+      name: "本番NavigationWorld問い合わせ",
+      ok:
+        projectedPoint !== null &&
+        Math.abs(projectedPoint.y) <= 0.02 &&
+        constrainedPoint !== null &&
+        constrainedPoint.z < 0 &&
+        randomPoint !== null &&
+        randomDistance <= 0.5 + 1e-5,
+      detail: `projectY=${projectedPoint?.y.toFixed(4) ?? "--"} / constrainZ=${constrainedPoint?.z.toFixed(4) ?? "--"} / random=${Number.isFinite(randomDistance) ? randomDistance.toFixed(4) : "--"}`
     });
 
     const pathMeshes = [
@@ -337,14 +356,12 @@ const runValidation = async () => {
     ];
 
     navigationRuntime = {
-      navMesh,
-      navMeshQuery,
-      restoredNavMesh,
-      restoredNavMeshQuery,
-      debugMesh,
+      navigationWorld,
+      restoredNavigationWorld,
       pathMeshes,
       data
     };
+    pendingNavigationWorlds.length = 0;
 
     setMetric("初期化", `${initializationMs.toFixed(2)} ms`);
     setMetric("ベイク", `${bakeMs.toFixed(2)} ms`);
@@ -362,6 +379,7 @@ const runValidation = async () => {
     summary.dataset.state = "failed";
     summary.textContent = "NavMesh技術検証に失敗しました。";
   } finally {
+    pendingNavigationWorlds.forEach((navigationWorld) => navigationWorld.dispose());
     renderChecks(checks);
     runButton.disabled = false;
   }
