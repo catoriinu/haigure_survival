@@ -140,6 +140,8 @@ EXP_Stage_<stage-id>
 
 作者Object名は次のいずれかへ厳密に分類する。Mesh ObjectはObject名とMesh Data名を同一にする。名前はGLB内で一意とし、未知接頭辞を認めない。
 
+現行Runtimeでは、複数の作者Objectで同一Mesh datablockを共有しない。共有MeshをglTFの複数Nodeから参照すると、Babylon.jsローダーの既定設定では2個目以降が`InstancedMesh`になり得る一方、`StageSpatialContext`は作者Nodeを通常の`Mesh`として分類する契約だからである。Mesh datablock共有を採用する場合は、専用fixtureでGLB Node名、`extras`、分類、衝突、遮蔽、破棄を検証し、Runtimeのinstance対応と本書のObject名・Mesh Data名契約を同じ技術タスクで更新してから使用する。Material共有はこの制限を受けない。
+
 | 接頭辞・固定名 | Blender型 | 役割 | 表示 | Actor衝突 | 光線・視線遮蔽 | NavMeshベイク |
 |---|---|---|---|---|---|---|
 | `VIS_*` | Mesh | プレイヤーに見せる形状 | 有効 | 無効 | 無効 | 不使用 |
