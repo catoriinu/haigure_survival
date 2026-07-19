@@ -118,6 +118,13 @@ const renderResults = (checks: readonly CheckResult[]) => {
 const resolveAssetUrl = (relativeUrl: string) =>
   `${import.meta.env.BASE_URL}${relativeUrl}`;
 
+const blenderPointToBabylon = (point: Vector3) =>
+  new Vector3(
+    -point.x * BLENDER_METERS_TO_WORLD_UNITS,
+    point.z * BLENDER_METERS_TO_WORLD_UNITS,
+    -point.y * BLENDER_METERS_TO_WORLD_UNITS
+  );
+
 const fetchBinary = async (relativeUrl: string) => {
   const response = await fetch(resolveAssetUrl(relativeUrl), {
     cache: "no-store"
@@ -233,7 +240,7 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 263 &&
+      context.resources.visualMeshes.length === 261 &&
         context.resources.normalColliders.length === 144 &&
         context.resources.actorOnlyColliders.length === 0 &&
         context.resources.navSourceMeshes.length === 8 &&
@@ -248,6 +255,58 @@ const validateLoadedContext = (
         npcSpawnVolumes.length === 1 &&
         bitSpawnVolumes.length === 1,
       `spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)}) / boundary=${context.boundary.contains(playerSpawn)} / npc=${npcSpawnVolumes.length} / bit=${bitSpawnVolumes.length}`
+    )
+  );
+
+  const visualMeshByName = new Map(
+    context.resources.visualMeshes.map((mesh) => [mesh.name, mesh])
+  );
+  const expectedOpenDoorCenters = [
+    [
+      "VIS_NorthEntryDoor_Open_L",
+      blenderPointToBabylon(new Vector3(1.725, 45.66, 1.15))
+    ],
+    [
+      "VIS_NorthEntryDoor_Open_R",
+      blenderPointToBabylon(new Vector3(6.075, 45.66, 1.15))
+    ],
+    [
+      "VIS_GymDoor_Open_Courtyard_L",
+      blenderPointToBabylon(new Vector3(33.56, 4.35, 1.2))
+    ],
+    [
+      "VIS_GymDoor_Open_Courtyard_R",
+      blenderPointToBabylon(new Vector3(33.56, 8.65, 1.2))
+    ]
+  ] as const;
+  const openDoorResults = expectedOpenDoorCenters.map(
+    ([name, expectedCenter]) => {
+      const mesh = visualMeshByName.get(name);
+      mesh?.computeWorldMatrix(true);
+      const actualCenter = mesh?.getBoundingInfo().boundingBox.centerWorld;
+      return {
+        name,
+        actualCenter,
+        ok:
+          actualCenter !== undefined &&
+          Vector3.Distance(actualCenter, expectedCenter) <= 1e-5
+      };
+    }
+  );
+  const toiletDoorsRemoved = [
+    "VIS_DoorLeaf_Toilet_M",
+    "VIS_DoorLeaf_Toilet_F"
+  ].every((name) => !visualMeshByName.has(name));
+  checks.push(
+    createCheck(
+      "常時開放扉とトイレ開口の表示契約",
+      toiletDoorsRemoved && openDoorResults.every((result) => result.ok),
+      `トイレ扉削除=${toiletDoorsRemoved} / ${openDoorResults
+        .map(
+          (result) =>
+            `${result.name}=${result.actualCenter?.toString() ?? "なし"}`
+        )
+        .join(" / ")}`
     )
   );
 
@@ -352,11 +411,7 @@ const validateLoadedContext = (
     new Vector3(-11.4, -0.5, 0)
   ];
   const headroomResults = landingCentersBlender.map((center) => {
-    const horizontalPosition = new Vector3(
-      -center.x * BLENDER_METERS_TO_WORLD_UNITS,
-      0,
-      -center.y * BLENDER_METERS_TO_WORLD_UNITS
-    );
+    const horizontalPosition = blenderPointToBabylon(center);
     const storageFoot = horizontalPosition.add(
       new Vector3(0, footSurfaceClearance, 0)
     );
@@ -497,7 +552,7 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 263 &&
+      activeContext.resources.visualMeshes.length === 261 &&
       activeContext.resources.normalColliders.length === 144;
     checks.push(
       createCheck(

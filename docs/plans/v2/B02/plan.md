@@ -444,3 +444,10 @@ B01で承認された学校間取りを前提として、Blenderで学校の初�
 - `NAV_Walkable_Stairs`を下段ランプと中間踊り場から再生成した。校庭、各出入口、3階段踊り場、体育館、体育倉庫、舞台を含む11代表経路はすべて要求終点へ到達し、踊り場終点誤差は`4.3e-7`以下だった。
 - 更新後もBlenderシーンは443 Object／418 Mesh（`VIS_`263件、`COL_`144件、`NAV_`8件）を維持した。`.blend`は312,973 bytes、SHA-256 `CB5E50F63A39A9BD7CD645D09848B48C52EC72160386CB7627AA0CD249043CB8`、GLBは757,980 bytes、SHA-256 `3B3D53171F03C7B86255A61DF80B56904F4B5146244B273BCBF69B9B264E26E2`、NavMeshは156,808 bytes、SHA-256 `9CCFE1419B150053A1E7AD85F686431A18343CBC9F7780041EE1ACDAA77063AF`である。
 - T02実ブラウザは3階段の倉庫・踊り場最大視点高を含む18/18項目PASS、console warning／error 0件だった。`npm run build`、`build:t01`、`build:t02`、`build:t03`、`build:t04`も成功した。
+
+### 2026-07-19 学校の常時開放扉とトイレ開口の表示修正
+
+- 男女トイレ出入口は扉を設けない確定デザインに合わせ、`VIS_DoorLeaf_Toilet_M`と`VIS_DoorLeaf_Toilet_F`をMesh Dataごと削除した。既存の壁分割とLintelが高さ2.3mの開口を維持し、対応する扉Colliderは元から存在しない。
+- 北側校舎北出入口の引戸2枚を開口X＝2.4～5.4mの左右へ完全収納し、体育館西側出入口の引戸2枚を開口Y＝5.0～8.0mの両脇へ完全収納した。いずれも壁に沿う平行移動だけとし、回転、材質、COL、NAVは変更していない。
+- 更新後のBlenderシーンは441 Object／416 Mesh（`VIS_*`261件、`COL_*`144件、`NAV_*`8件）、GLB出力は418 Objectとなった。`.blend`は312,192 bytes、SHA-256 `A31C20BD9EC5CB5095A5CF3A2D4A2137107CB165D61ABDA8D41139F81E3C0ECE`、GLBは754,904 bytes、SHA-256 `E414D302387053DB953E9422B25B85F185F2173C2885CCFEE54E7990DCDB5806`である。
+- NavMesh入力は不変で、2回の再ベイク後も156,808 bytes、SHA-256 `9CCFE1419B150053A1E7AD85F686431A18343CBC9F7780041EE1ACDAA77063AF`を維持した。T02実ブラウザはトイレ扉不在と開放扉4件のGLB位置を含む19/19項目PASS、console warning／error 0件で、`build:t02`と`build:t04`も成功した。

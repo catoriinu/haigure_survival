@@ -52,8 +52,8 @@ public/stage-assets/v2/<ステージID>/<資産名>.navmesh.bin
 
 ### 3.1 B02学校の現行監査基準
 
-- Blenderは443 Object／418 Meshとし、Export Collection配下の420 ObjectだけをGLBへ出力する。
-- 出力内訳は`VIS_*`263件、`COL_*`144件、`NAV_*`8件、`META_Stage`1件、`MRK_*`1件、`VOL_*`2件、`BND_Stage`1件とする。
+- Blenderは441 Object／416 Meshとし、Export Collection配下の418 ObjectだけをGLBへ出力する。
+- 出力内訳は`VIS_*`261件、`COL_*`144件、`NAV_*`8件、`META_Stage`1件、`MRK_*`1件、`VOL_*`2件、`BND_Stage`1件とする。
 - 制作用ガイド23件はExport Collection外に保持し、GLBへ出力しない。
 - 体育館舞台階段上部の東西表示壁・衝突壁は、舞台上面からBlender 2.4mの実開口を一致して確保する。NavMeshだけを接続する仮connector面は資産へ残さない。
 - 事前ベイク後は、主玄関スポーンから学校1階、3階段踊り場、体育館、体育倉庫、舞台を含む代表10経路が要求終点へ到達することを検査する。部分経路を成功扱いせず、要求終点との誤差も検査する。
