@@ -1,4 +1,5 @@
 import {
+  AbstractMesh,
   ArcRotateCamera,
   Color4,
   Engine,
@@ -125,6 +126,46 @@ const blenderPointToBabylon = (point: Vector3) =>
     -point.y * BLENDER_METERS_TO_WORLD_UNITS
   );
 
+const compareBlenderBounds = (
+  mesh: AbstractMesh | undefined,
+  minimum: Vector3,
+  maximum: Vector3
+) => {
+  if (!mesh) {
+    return { ok: false, detail: "Meshなし" };
+  }
+  const expectedPoints = [
+    new Vector3(minimum.x, minimum.y, minimum.z),
+    new Vector3(minimum.x, minimum.y, maximum.z),
+    new Vector3(minimum.x, maximum.y, minimum.z),
+    new Vector3(minimum.x, maximum.y, maximum.z),
+    new Vector3(maximum.x, minimum.y, minimum.z),
+    new Vector3(maximum.x, minimum.y, maximum.z),
+    new Vector3(maximum.x, maximum.y, minimum.z),
+    new Vector3(maximum.x, maximum.y, maximum.z)
+  ].map(blenderPointToBabylon);
+  const expectedMinimum = new Vector3(
+    Math.min(...expectedPoints.map((point) => point.x)),
+    Math.min(...expectedPoints.map((point) => point.y)),
+    Math.min(...expectedPoints.map((point) => point.z))
+  );
+  const expectedMaximum = new Vector3(
+    Math.max(...expectedPoints.map((point) => point.x)),
+    Math.max(...expectedPoints.map((point) => point.y)),
+    Math.max(...expectedPoints.map((point) => point.z))
+  );
+  mesh.computeWorldMatrix(true);
+  const bounds = mesh.getBoundingInfo().boundingBox;
+  const actualMinimum = bounds.minimumWorld;
+  const actualMaximum = bounds.maximumWorld;
+  return {
+    ok:
+      Vector3.Distance(actualMinimum, expectedMinimum) <= 1e-5 &&
+      Vector3.Distance(actualMaximum, expectedMaximum) <= 1e-5,
+    detail: `${actualMinimum.toString()}..${actualMaximum.toString()}`
+  };
+};
+
 const fetchBinary = async (relativeUrl: string) => {
   const response = await fetch(resolveAssetUrl(relativeUrl), {
     cache: "no-store"
@@ -240,8 +281,8 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 261 &&
-        context.resources.normalColliders.length === 144 &&
+      context.resources.visualMeshes.length === 264 &&
+        context.resources.normalColliders.length === 143 &&
         context.resources.actorOnlyColliders.length === 0 &&
         context.resources.navSourceMeshes.length === 8 &&
         context.markers.all.length === 1 &&
@@ -277,6 +318,22 @@ const validateLoadedContext = (
     [
       "VIS_GymDoor_Open_Courtyard_R",
       blenderPointToBabylon(new Vector3(33.56, 8.65, 1.2))
+    ],
+    [
+      "VIS_NorthWingDoor_Open_Bridge_L",
+      blenderPointToBabylon(new Vector3(38.5, 32.34, 1.2))
+    ],
+    [
+      "VIS_NorthWingDoor_Open_Bridge_R",
+      blenderPointToBabylon(new Vector3(44.3, 32.34, 1.2))
+    ],
+    [
+      "VIS_GymDoor_Open_Bridge_L",
+      blenderPointToBabylon(new Vector3(38.5, 26.66, 1.2))
+    ],
+    [
+      "VIS_GymDoor_Open_Bridge_R",
+      blenderPointToBabylon(new Vector3(44.3, 26.66, 1.2))
     ]
   ] as const;
   const openDoorResults = expectedOpenDoorCenters.map(
@@ -307,6 +364,46 @@ const validateLoadedContext = (
             `${result.name}=${result.actualCenter?.toString() ?? "なし"}`
         )
         .join(" / ")}`
+    )
+  );
+
+  const entryMeshByName = new Map(
+    [
+      ...context.resources.visualMeshes,
+      ...context.resources.normalColliders
+    ].map((mesh) => [mesh.name, mesh])
+  );
+  const entryBoundsExpectations = [
+    ["VIS_EntryStep01", [1.0, -2.5, -0.3], [2.0, 2.5, -0.15]],
+    ["VIS_EntryStep02", [0.0, -2.5, -0.15], [1.0, 2.5, 0.0]],
+    ["COL_EntryRamp", [0.0, -2.5, -0.3], [2.0, 2.5, 0.0]],
+    ["VIS_NorthEntryStep01", [2.4, 46.5, -0.3], [5.4, 47.5, -0.15]],
+    ["VIS_NorthEntryStep02", [2.4, 45.5, -0.15], [5.4, 46.5, 0.0]],
+    ["COL_NorthEntryRamp", [2.4, 45.5, -0.3], [5.4, 47.5, 0.0]],
+    ["VIS_NorthSouthEntryStep01", [37.4, 26.5, -0.3], [38.4, 32.5, -0.15]],
+    ["VIS_NorthSouthEntryStep02", [38.4, 26.5, -0.15], [39.4, 32.5, 0.0]],
+    ["COL_NorthSouthEntryRamp", [37.4, 26.5, -0.3], [39.4, 32.5, 0.0]],
+    ["VIS_GymCourtyardEntryStep01", [31.4, 5.0, -0.3], [32.4, 8.0, -0.15]],
+    ["VIS_GymCourtyardEntryStep02", [32.4, 5.0, -0.15], [33.4, 8.0, 0.0]],
+    ["COL_GymCourtyardEntryRamp", [31.4, 5.0, -0.3], [33.4, 8.0, 0.0]]
+  ] as const;
+  const entryBoundsResults = entryBoundsExpectations.map(
+    ([name, minimum, maximum]) => ({
+      name,
+      ...compareBlenderBounds(
+        entryMeshByName.get(name),
+        Vector3.FromArray(minimum),
+        Vector3.FromArray(maximum)
+      )
+    })
+  );
+  checks.push(
+    createCheck(
+      "学校出入口の共通2段・連続Ramp契約",
+      entryBoundsResults.every((result) => result.ok),
+      entryBoundsResults
+        .map((result) => `${result.name}=${result.ok ? "一致" : result.detail}`)
+        .join(" / ")
     )
   );
 
@@ -558,8 +655,8 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 261 &&
-      activeContext.resources.normalColliders.length === 144;
+      activeContext.resources.visualMeshes.length === 264 &&
+      activeContext.resources.normalColliders.length === 143;
     checks.push(
       createCheck(
         "学校コンテキスト再読込",

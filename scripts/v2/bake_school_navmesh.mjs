@@ -107,6 +107,18 @@ const REPRESENTATIVE_ROUTES = Object.freeze([
     endBlender: Object.freeze([34.0, 6.5, 0])
   }),
   Object.freeze({
+    id: "north-wing-to-north-outside",
+    label: "北側校舎→北側屋外",
+    startBlender: Object.freeze([3.9, 44.5, 0]),
+    endBlender: Object.freeze([3.9, 48.0, -0.3])
+  }),
+  Object.freeze({
+    id: "courtyard-to-bridge-west-side",
+    label: "校庭→渡り廊下西側",
+    startBlender: Object.freeze([37.0, 29.5, -0.3]),
+    endBlender: Object.freeze([40.0, 29.5, 0])
+  }),
+  Object.freeze({
     id: "main-entrance-to-gym-storage",
     label: "主玄関→体育倉庫",
     startBlender: Object.freeze([-1.5, 0, 0]),
