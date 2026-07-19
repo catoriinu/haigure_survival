@@ -8,15 +8,18 @@ import {
   NullEngine,
   Scene,
   StandardMaterial,
+  TransformNode,
   Vector3,
   type SpriteManager
 } from "@babylonjs/core";
-import { exportNavMesh } from "recast-navigation";
+import { exportNavMesh, NavMeshQuery } from "recast-navigation";
 import { generateSoloNavMesh } from "recast-navigation/generators";
 
 import {
   createNavigationWorld,
   initializeNavigationRuntime,
+  type NavigationLocation,
+  type NavigationPath,
   type NavigationWorld
 } from "../../../src/world/navigationWorld";
 import { createNavigationAgent } from "../../../src/world/navigationAgent";
@@ -33,6 +36,11 @@ import {
   loadStageSpatialContext,
   type StageSpatialContext
 } from "../../../src/world/stageSpatialContext";
+import type {
+  StageLinkKind,
+  StageLinkPair,
+  StageMoverKind
+} from "../../../src/world/stageLinks";
 import { createStageSpawnSampler } from "../../../src/world/stageSpawnSampler";
 import {
   createStageSpatialQueries,
@@ -140,6 +148,36 @@ createGround("NAV_Walkable_Doorway", 0.45, 0.1, new Vector3(0.575, 0, 0));
 createGround("NAV_Walkable_DisconnectedIsland", 1, 1, new Vector3(-6.5, 0, -1.5));
 createGround("NAV_Walkable_StackedLower", 1, 1, new Vector3(-9.5, 0, -1.5));
 createGround("NAV_Walkable_StackedUpper", 1, 1, new Vector3(-9.5, 0.8, -1.5));
+createGround("NAV_Walkable_WindowIsland", 1, 1, new Vector3(5.5, 0, -1.5));
+
+const createValidationLinkPair = (
+  id: string,
+  kind: StageLinkKind,
+  endpointAPosition: Vector3,
+  endpointBPosition: Vector3,
+  bidirectional = true
+): StageLinkPair => {
+  const endpointANode = new TransformNode(`LNK_${id}_A`, scene);
+  const endpointBNode = new TransformNode(`LNK_${id}_B`, scene);
+  endpointANode.position.copyFrom(endpointAPosition);
+  endpointBNode.position.copyFrom(endpointBPosition);
+  return Object.freeze({
+    id,
+    kind,
+    bidirectional,
+    radiusMeters: 0.54,
+    endpointA: Object.freeze({
+      endpoint: "A" as const,
+      position: endpointAPosition.clone(),
+      node: endpointANode
+    }),
+    endpointB: Object.freeze({
+      endpoint: "B" as const,
+      position: endpointBPosition.clone(),
+      node: endpointBNode
+    })
+  });
+};
 
 const rampLength = Math.hypot(1, 0.25);
 const ramp = createGround("NAV_Walkable_Ramp", rampLength, 0.5, new Vector3(-0.5, 0.125, -1.75));
@@ -188,6 +226,7 @@ const createNavigationGeometry = (): NavGeometry => {
   appendWalkableQuad(6, 7, -2, -1, 0, 0);
   appendWalkableQuad(9, 10, -2, -1, 0, 0);
   appendWalkableQuad(9, 10, -2, -1, 0.8, 0.8);
+  appendWalkableQuad(-6, -5, -2, -1, 0, 0);
 
   return { positions, indices };
 };
@@ -233,6 +272,48 @@ const disposeNavigationRuntime = () => {
 const pathsEqual = (left: readonly Vector3[], right: readonly Vector3[]) =>
   left.length === right.length &&
   left.every((point, index) => Vector3.Distance(point, right[index]) <= 1e-5);
+
+const getNavigationPathPoints = (
+  path: NavigationPath | null
+): readonly Vector3[] =>
+  path
+    ? Object.freeze(
+        path.steps.flatMap((step) =>
+          step.kind === "surface"
+            ? step.points.map((location) => location.position)
+            : []
+        )
+      )
+    : Object.freeze([]);
+
+const findNavigationPath = (
+  navigation: NavigationWorld,
+  start: Vector3,
+  destination: Vector3,
+  moverKind: "player" | "npc" | "bit" = "npc",
+  projectionMaxDistance = 0.1
+) => {
+  const startLocation = navigation.projectPoint(start, projectionMaxDistance);
+  const destinationLocation = navigation.projectPoint(
+    destination,
+    projectionMaxDistance
+  );
+  return startLocation && destinationLocation
+    ? navigation.findPath(startLocation, destinationLocation, moverKind)
+    : null;
+};
+
+const requireNavigationLocation = (
+  navigation: NavigationWorld,
+  position: Vector3,
+  maxDistance = 0.1
+): NavigationLocation => {
+  const location = navigation.projectPoint(position, maxDistance);
+  if (!location) {
+    throw new Error(`検証位置をNavMeshへ投影できません: ${position.toString()}`);
+  }
+  return location;
+};
 
 const countSceneResources = (targetScene: Scene): SceneResourceCounts => ({
   meshes: targetScene.meshes.length,
@@ -335,20 +416,123 @@ const createBeamValidationStage = (
   normalColliders: readonly Mesh[],
   actorOnlyColliders: readonly Mesh[] = []
 ): StageSpatialContext => {
-  const actorColliders = [...normalColliders, ...actorOnlyColliders];
+  const movementColliders = Object.freeze({
+    player: Object.freeze([...normalColliders, ...actorOnlyColliders]),
+    npc: Object.freeze([...normalColliders, ...actorOnlyColliders]),
+    bit: Object.freeze([...normalColliders, ...actorOnlyColliders])
+  });
   return {
     resources: {
       beamBlockers: normalColliders,
       sightBlockers: normalColliders
     },
-    queries: createStageSpatialQueries(
-      targetScene,
-      actorColliders,
-      normalColliders,
-      normalColliders,
-      []
-    )
+    queries: createStageSpatialQueries(targetScene, {
+      movementColliders,
+      groundColliders: normalColliders,
+      beamBlockers: normalColliders,
+      sightBlockers: normalColliders,
+      volumes: []
+    })
   } as unknown as StageSpatialContext;
+};
+
+type MovementAttempt = Readonly<{
+  moverKind: StageMoverKind;
+  from: Vector3;
+  to: Vector3;
+}>;
+
+type PathfindAttempt = Readonly<{
+  moverKind: StageMoverKind;
+  start: NavigationLocation;
+}>;
+
+const countPathfindAttemptsFrom = (
+  attempts: readonly PathfindAttempt[],
+  moverKind: StageMoverKind,
+  startPosition: Vector3
+) =>
+  attempts.filter(
+    (attempt) =>
+      attempt.moverKind === moverKind &&
+      (attempt.start.position.x - startPosition.x) ** 2 +
+        (attempt.start.position.z - startPosition.z) ** 2 <=
+        1e-12
+  ).length;
+
+const createMovementBlockingStage = (
+  source: StageSpatialContext,
+  blockedMover: StageMoverKind
+) => {
+  const attempts: MovementAttempt[] = [];
+  const pathfindAttempts: PathfindAttempt[] = [];
+  const stage: StageSpatialContext = Object.freeze({
+    ...source,
+    navigation: Object.freeze({
+      projectPoint: (position: Vector3, maxDistance: number) =>
+        source.navigation.projectPoint(position, maxDistance),
+      findPath: (
+        start: NavigationLocation,
+        destination: NavigationLocation,
+        moverKind: StageMoverKind
+      ) => {
+        pathfindAttempts.push(
+          Object.freeze({
+            moverKind,
+            start: Object.freeze({
+              position: start.position.clone(),
+              polygonRef: start.polygonRef
+            })
+          })
+        );
+        return source.navigation.findPath(start, destination, moverKind);
+      },
+      constrainMovement: (
+        start: NavigationLocation,
+        destination: Vector3
+      ) => source.navigation.constrainMovement(start, destination),
+      randomPointAround: (origin: NavigationLocation, radius: number) =>
+        source.navigation.randomPointAround(origin, radius),
+      createDebugMesh: (targetScene: Scene) =>
+        source.navigation.createDebugMesh(targetScene),
+      dispose: () => source.navigation.dispose()
+    }),
+    queries: Object.freeze({
+      ...source.queries,
+      castMovementSegment: (
+        moverKind: StageMoverKind,
+        from: Vector3,
+        to: Vector3
+      ) => {
+        const horizontalDistanceSquared =
+          (to.x - from.x) ** 2 + (to.z - from.z) ** 2;
+        if (
+          moverKind !== blockedMover ||
+          horizontalDistanceSquared <= 1e-12
+        ) {
+          return source.queries.castMovementSegment(moverKind, from, to);
+        }
+        attempts.push(
+          Object.freeze({
+            moverKind,
+            from: from.clone(),
+            to: to.clone()
+          })
+        );
+        return Object.freeze({
+          point: from.add(to).scale(0.5),
+          normal: from.subtract(to).normalize(),
+          distance: Vector3.Distance(from, to) * 0.5,
+          mesh: source.resources.normalColliders[0]
+        });
+      }
+    })
+  });
+  return Object.freeze({
+    stage,
+    getAttempts: () => Object.freeze([...attempts]),
+    getPathfindAttempts: () => Object.freeze([...pathfindAttempts])
+  });
 };
 
 const createPathMesh = (name: string, path: readonly Vector3[], color: Color3) => {
@@ -448,14 +632,14 @@ const runValidation = async () => {
       generationResult.navMesh.destroy();
     }
 
-    const navigationWorld = await createNavigationWorld(data);
+    const navigationWorld = await createNavigationWorld(data, []);
     pendingNavigationWorlds.push(navigationWorld);
     navigationWorld.createDebugMesh(scene);
 
     const routeStart = new Vector3(3, 0, -1.5);
     const routeEnd = new Vector3(3, 0, 1.5);
-    const routeResult = navigationWorld.findPath(routeStart, routeEnd);
-    const routePath = routeResult?.points ?? [];
+    const routeResult = findNavigationPath(navigationWorld, routeStart, routeEnd);
+    const routePath = getNavigationPathPoints(routeResult);
     const routeMinX = Math.min(...routePath.map((point) => point.x));
     checks.push({
       name: "壁を抜けず扉へ迂回",
@@ -465,8 +649,8 @@ const runValidation = async () => {
 
     const rampStart = new Vector3(0.25, 0, -1.75);
     const rampEnd = new Vector3(-1.5, 0.25, -1.75);
-    const rampResult = navigationWorld.findPath(rampStart, rampEnd);
-    const rampPath = rampResult?.points ?? [];
+    const rampResult = findNavigationPath(navigationWorld, rampStart, rampEnd);
+    const rampPath = getNavigationPathPoints(rampResult);
     const rampHeight =
       rampPath.length > 0
         ? rampPath[rampPath.length - 1].y
@@ -478,11 +662,15 @@ const runValidation = async () => {
     });
 
     const restoreStartedAt = performance.now();
-    const restoredNavigationWorld = await createNavigationWorld(data);
+    const restoredNavigationWorld = await createNavigationWorld(data, []);
     pendingNavigationWorlds.push(restoredNavigationWorld);
     const restoreMs = performance.now() - restoreStartedAt;
-    const restoredRoutePath = restoredNavigationWorld.findPath(routeStart, routeEnd)?.points ?? [];
-    const restoredRampPath = restoredNavigationWorld.findPath(rampStart, rampEnd)?.points ?? [];
+    const restoredRoutePath = getNavigationPathPoints(
+      findNavigationPath(restoredNavigationWorld, routeStart, routeEnd)
+    );
+    const restoredRampPath = getNavigationPathPoints(
+      findNavigationPath(restoredNavigationWorld, rampStart, rampEnd)
+    );
     checks.push({
       name: "NavMeshバイナリ往復",
       ok:
@@ -492,35 +680,61 @@ const runValidation = async () => {
       detail: `${data.byteLength} bytes / 復元 ${restoreMs.toFixed(2)} ms`
     });
 
-    const unreachableResult = navigationWorld.findPath(
+    const unreachableResult = findNavigationPath(
+      navigationWorld,
       new Vector3(3, 0, -1.5),
       new Vector3(8, 0, 8)
     );
     checks.push({
       name: "NavMesh外の到達不能地点",
       ok: unreachableResult === null,
-      detail: `${unreachableResult?.points.length ?? 0}点`
+      detail: `${getNavigationPathPoints(unreachableResult).length}点`
     });
 
-    const disconnectedIslandResult = navigationWorld.findPath(
+    const disconnectedIslandResult = findNavigationPath(
+      navigationWorld,
       new Vector3(3, 0, -1.5),
       new Vector3(-6.5, 0, -1.5)
     );
     checks.push({
       name: "切断されたNavMesh島",
       ok: disconnectedIslandResult === null,
-      detail: `${disconnectedIslandResult?.points.length ?? 0}点`
+      detail: `${getNavigationPathPoints(disconnectedIslandResult).length}点`
     });
 
     const stackedLowerStart = new Vector3(-9.2, 0, -1.8);
     const stackedLowerEnd = new Vector3(-9.8, 0, -1.2);
     const stackedUpperStart = new Vector3(-9.2, 0.8, -1.8);
     const stackedUpperEnd = new Vector3(-9.8, 0.8, -1.2);
-    const stackedLowerPath = navigationWorld.findPath(stackedLowerStart, stackedLowerEnd);
-    const stackedUpperPath = navigationWorld.findPath(stackedUpperStart, stackedUpperEnd);
-    const stackedCrossFloorPath = navigationWorld.findPath(stackedLowerStart, stackedUpperEnd);
+    const stackedLowerPath = findNavigationPath(
+      navigationWorld,
+      stackedLowerStart,
+      stackedLowerEnd
+    );
+    const stackedUpperPath = findNavigationPath(
+      navigationWorld,
+      stackedUpperStart,
+      stackedUpperEnd
+    );
+    const stackedCrossFloorPath = findNavigationPath(
+      navigationWorld,
+      stackedLowerStart,
+      stackedUpperEnd
+    );
     const lowerProjected = navigationWorld.projectPoint(stackedLowerStart, 0.1);
     const upperProjected = navigationWorld.projectPoint(stackedUpperStart, 0.1);
+    const lowerConstrained = lowerProjected
+      ? navigationWorld.constrainMovement(lowerProjected, stackedLowerEnd)
+      : null;
+    const upperConstrained = upperProjected
+      ? navigationWorld.constrainMovement(upperProjected, stackedUpperEnd)
+      : null;
+    const lowerRandom = lowerProjected
+      ? navigationWorld.randomPointAround(lowerProjected, 0.4)
+      : null;
+    const upperRandom = upperProjected
+      ? navigationWorld.randomPointAround(upperProjected, 0.4)
+      : null;
     checks.push({
       name: "重複する上下床の分離",
       ok:
@@ -529,40 +743,413 @@ const runValidation = async () => {
         stackedCrossFloorPath === null &&
         lowerProjected !== null &&
         upperProjected !== null &&
-        upperProjected.y - lowerProjected.y >= 0.7,
-      detail: `lowerY=${lowerProjected?.y.toFixed(4) ?? "--"} / upperY=${upperProjected?.y.toFixed(4) ?? "--"} / cross=${stackedCrossFloorPath?.points.length ?? 0}点`
+        upperProjected.position.y - lowerProjected.position.y >= 0.7 &&
+        upperProjected.polygonRef !== lowerProjected.polygonRef &&
+        lowerConstrained !== null &&
+        upperConstrained !== null &&
+        lowerRandom !== null &&
+        upperRandom !== null &&
+        Math.abs(lowerConstrained.position.y - lowerProjected.position.y) <= 0.02 &&
+        Math.abs(upperConstrained.position.y - upperProjected.position.y) <= 0.02 &&
+        Math.abs(lowerRandom.position.y - lowerProjected.position.y) <= 0.02 &&
+        Math.abs(upperRandom.position.y - upperProjected.position.y) <= 0.02,
+      detail: `lowerY=${lowerProjected?.position.y.toFixed(4) ?? "--"} / upperY=${upperProjected?.position.y.toFixed(4) ?? "--"} / constrain=${lowerConstrained?.position.y.toFixed(4) ?? "--"}/${upperConstrained?.position.y.toFixed(4) ?? "--"} / random=${lowerRandom?.position.y.toFixed(4) ?? "--"}/${upperRandom?.position.y.toFixed(4) ?? "--"} / cross=${getNavigationPathPoints(stackedCrossFloorPath).length}点`
     });
 
+    const bitWindowLink = createValidationLinkPair(
+      "bit-window-validation",
+      "bit_window",
+      new Vector3(3.9, 0.25, -1.5),
+      new Vector3(5.1, 0.25, -1.5)
+    );
+    const bitRoofLink = createValidationLinkPair(
+      "bit-roof-validation",
+      "bit_roof",
+      new Vector3(-9.5, 0.25, -1.5),
+      new Vector3(-9.5, 1.05, -1.5)
+    );
+    const cachedSurfaceBridgeLink = createValidationLinkPair(
+      "bit-window-cache-bridge-validation",
+      "bit_window",
+      new Vector3(5.7, 0.25, -1.5),
+      new Vector3(-6.7, 0.25, -1.5)
+    );
+    const linkCacheValidationLinks = [
+      bitWindowLink,
+      bitRoofLink,
+      cachedSurfaceBridgeLink
+    ];
+    const queryPrototype = NavMeshQuery.prototype;
+    const originalFindPath = queryPrototype.findPath;
+    type RecastPathfindAttempt = Readonly<{
+      start: string;
+      destination: string;
+    }>;
+    const createPathfindPointKey = (
+      polygonRef: number,
+      position: Readonly<{ x: number; y: number; z: number }>
+    ) =>
+      `${polygonRef}:${position.x.toFixed(6)},${position.y.toFixed(6)},${position.z.toFixed(6)}`;
+    const recastPathfindAttempts: RecastPathfindAttempt[] = [];
+    let constructionPathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let firstPathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let secondPathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let firstCachedLinkPath: NavigationPath | null = null;
+    let secondCachedLinkPath: NavigationPath | null = null;
+    let linkCacheValidationWorld: NavigationWorld | null = null;
+    queryPrototype.findPath = function (
+      this: NavMeshQuery,
+      ...args: Parameters<NavMeshQuery["findPath"]>
+    ) {
+      recastPathfindAttempts.push(
+        Object.freeze({
+          start: createPathfindPointKey(args[0], args[2]),
+          destination: createPathfindPointKey(args[1], args[3])
+        })
+      );
+      return originalFindPath.apply(this, args);
+    };
+    try {
+      linkCacheValidationWorld = await createNavigationWorld(
+        data,
+        linkCacheValidationLinks
+      );
+      constructionPathfindAttempts = Object.freeze([
+        ...recastPathfindAttempts
+      ]);
+      const startLocation = requireNavigationLocation(
+        linkCacheValidationWorld,
+        new Vector3(3.5, 0, -1.5)
+      );
+      const destinationLocation = requireNavigationLocation(
+        linkCacheValidationWorld,
+        new Vector3(-6.3, 0, -1.5)
+      );
+      const firstPathfindStartIndex = recastPathfindAttempts.length;
+      firstCachedLinkPath = linkCacheValidationWorld.findPath(
+        startLocation,
+        destinationLocation,
+        "bit"
+      );
+      firstPathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(firstPathfindStartIndex)
+      );
+      const secondPathfindStartIndex = recastPathfindAttempts.length;
+      secondCachedLinkPath = linkCacheValidationWorld.findPath(
+        startLocation,
+        destinationLocation,
+        "bit"
+      );
+      secondPathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(secondPathfindStartIndex)
+      );
+    } finally {
+      queryPrototype.findPath = originalFindPath;
+      linkCacheValidationWorld?.dispose();
+      cachedSurfaceBridgeLink.endpointA.node.dispose();
+      cachedSurfaceBridgeLink.endpointB.node.dispose();
+    }
+    const cachedEndpointKeys = new Set(
+      constructionPathfindAttempts.flatMap((attempt) => [
+        attempt.start,
+        attempt.destination
+      ])
+    );
+    const constructionPairKeys = new Set(
+      constructionPathfindAttempts.map(
+        (attempt) => `${attempt.start}->${attempt.destination}`
+      )
+    );
+    const repeatsEndpointSurfacePathfind = (
+      attempts: readonly RecastPathfindAttempt[]
+    ) =>
+      attempts.some(
+        (attempt) =>
+          cachedEndpointKeys.has(attempt.start) &&
+          cachedEndpointKeys.has(attempt.destination)
+      );
+    const firstCachedTransitionIds =
+      firstCachedLinkPath?.steps.flatMap((step) =>
+        step.kind === "transition" ? [step.link.id] : []
+      ) ?? [];
+    const secondCachedTransitionIds =
+      secondCachedLinkPath?.steps.flatMap((step) =>
+        step.kind === "transition" ? [step.link.id] : []
+      ) ?? [];
+    const expectedCachedTransitionIds = [
+      bitWindowLink.id,
+      cachedSurfaceBridgeLink.id
+    ];
+    const hasExpectedCachedTransitions = (ids: readonly string[]) =>
+      ids.length === expectedCachedTransitionIds.length &&
+      ids.every((id, index) => id === expectedCachedTransitionIds[index]);
+    checks.push({
+      name: "特殊接続端点間経路の構築時キャッシュ",
+      ok:
+        hasExpectedCachedTransitions(firstCachedTransitionIds) &&
+        hasExpectedCachedTransitions(secondCachedTransitionIds) &&
+        cachedEndpointKeys.size === linkCacheValidationLinks.length * 2 &&
+        constructionPairKeys.size === constructionPathfindAttempts.length &&
+        !repeatsEndpointSurfacePathfind(firstPathfindAttempts) &&
+        !repeatsEndpointSurfacePathfind(secondPathfindAttempts) &&
+        secondPathfindAttempts.length <= firstPathfindAttempts.length,
+      detail: `endpoints=${cachedEndpointKeys.size} / build=${constructionPathfindAttempts.length} / find=${firstPathfindAttempts.length},${secondPathfindAttempts.length} / transitions=${firstCachedTransitionIds.join(" > ") || "none"}`
+    });
+    const linkedNavigationWorld = await createNavigationWorld(data, [
+      bitWindowLink,
+      bitRoofLink
+    ]);
+    pendingNavigationWorlds.push(linkedNavigationWorld);
+
+    const windowOutside = new Vector3(3.9, 0, -1.5);
+    const windowInside = new Vector3(5.1, 0, -1.5);
+    const windowWithoutLink = findNavigationPath(
+      navigationWorld,
+      windowOutside,
+      windowInside,
+      "bit"
+    );
+    const windowBitForward = findNavigationPath(
+      linkedNavigationWorld,
+      windowOutside,
+      windowInside,
+      "bit"
+    );
+    const windowBitBackward = findNavigationPath(
+      linkedNavigationWorld,
+      windowInside,
+      windowOutside,
+      "bit"
+    );
+    const windowNpcForward = findNavigationPath(
+      linkedNavigationWorld,
+      windowOutside,
+      windowInside,
+      "npc"
+    );
+    const windowPlayerForward = findNavigationPath(
+      linkedNavigationWorld,
+      windowOutside,
+      windowInside,
+      "player"
+    );
+    const windowForwardTransitions =
+      windowBitForward?.steps.filter((step) => step.kind === "transition") ?? [];
+    const windowBackwardTransitions =
+      windowBitBackward?.steps.filter((step) => step.kind === "transition") ?? [];
+    checks.push({
+      name: "bit_windowのビット専用双方向経路",
+      ok:
+        windowWithoutLink === null &&
+        windowBitForward !== null &&
+        windowBitBackward !== null &&
+        windowNpcForward === null &&
+        windowPlayerForward === null &&
+        windowForwardTransitions.length === 1 &&
+        windowBackwardTransitions.length === 1 &&
+        windowForwardTransitions[0].link.id === bitWindowLink.id &&
+        windowBackwardTransitions[0].link.id === bitWindowLink.id &&
+        windowForwardTransitions[0].from === "A" &&
+        windowBackwardTransitions[0].from === "B",
+      detail: `bit=${windowForwardTransitions.length}/${windowBackwardTransitions.length}遷移 / npc=${windowNpcForward === null ? "不可" : "可"} / player=${windowPlayerForward === null ? "不可" : "可"}`
+    });
+
+    const roofGround = new Vector3(-9.5, 0, -1.5);
+    const roofTop = new Vector3(-9.5, 0.8, -1.5);
+    const roofWithoutLink = findNavigationPath(
+      navigationWorld,
+      roofGround,
+      roofTop,
+      "bit"
+    );
+    const roofBitForward = findNavigationPath(
+      linkedNavigationWorld,
+      roofGround,
+      roofTop,
+      "bit"
+    );
+    const roofBitBackward = findNavigationPath(
+      linkedNavigationWorld,
+      roofTop,
+      roofGround,
+      "bit"
+    );
+    const roofNpcForward = findNavigationPath(
+      linkedNavigationWorld,
+      roofGround,
+      roofTop,
+      "npc"
+    );
+    const roofForwardTransition = roofBitForward?.steps.find(
+      (step) => step.kind === "transition"
+    );
+    const roofBackwardTransition = roofBitBackward?.steps.find(
+      (step) => step.kind === "transition"
+    );
+    const roofEndpointMaximumY = Math.max(
+      bitRoofLink.endpointA.position.y,
+      bitRoofLink.endpointB.position.y
+    );
+    checks.push({
+      name: "bit_roofの屋上接近・帰還固定経路",
+      ok:
+        roofWithoutLink === null &&
+        roofForwardTransition?.link.id === bitRoofLink.id &&
+        roofBackwardTransition?.link.id === bitRoofLink.id &&
+        roofForwardTransition.from === "A" &&
+        roofBackwardTransition.from === "B" &&
+        roofNpcForward === null &&
+        roofEndpointMaximumY === 1.05,
+      detail: `up=${roofForwardTransition?.link.kind ?? "none"} / down=${roofBackwardTransition?.link.kind ?? "none"} / maxY=${roofEndpointMaximumY.toFixed(2)} / npc=${roofNpcForward === null ? "不可" : "可"}`
+    });
+
+    const transitionAgent = createNavigationAgent(
+      linkedNavigationWorld,
+      "bit",
+      navigationAgentConfig
+    );
+    const windowOutsideLocation = requireNavigationLocation(
+      linkedNavigationWorld,
+      windowOutside
+    );
+    const windowInsideLocation = requireNavigationLocation(
+      linkedNavigationWorld,
+      windowInside
+    );
+    const transitionAgentStep = transitionAgent.update(
+      windowOutsideLocation,
+      windowInside,
+      10,
+      1
+    );
+    checks.push({
+      name: "特殊接続入口でのtransition-required",
+      ok:
+        transitionAgentStep.state === "transition-required" &&
+        transitionAgentStep.transition?.link.id === bitWindowLink.id &&
+        transitionAgentStep.transition.from === "A" &&
+        transitionAgentStep.transition.to === "B" &&
+        Vector3.Distance(
+          transitionAgentStep.location.position,
+          windowOutsideLocation.position
+        ) <= 1e-5 &&
+        Vector3.Distance(
+          transitionAgentStep.transition.entry.position,
+          windowOutsideLocation.position
+        ) <= 1e-5 &&
+        Vector3.Distance(
+          transitionAgentStep.transition.exit.position,
+          windowInsideLocation.position
+        ) <= 1e-5 &&
+        Vector3.Distance(
+          transitionAgentStep.location.position,
+          windowInsideLocation.position
+        ) >= 0.5,
+      detail: `state=${transitionAgentStep.state} / link=${transitionAgentStep.transition?.link.id ?? "none"}`
+    });
+    transitionAgent.clear();
+
+    const invalidWindowLink = createValidationLinkPair(
+      "bit-window-one-way-validation",
+      "bit_window",
+      new Vector3(3.9, 0.25, -1.5),
+      new Vector3(5.1, 0.25, -1.5),
+      false
+    );
+    const invalidRoofLink = createValidationLinkPair(
+      "bit-roof-one-way-validation",
+      "bit_roof",
+      new Vector3(-9.5, 0.25, -1.5),
+      new Vector3(-9.5, 1.05, -1.5),
+      false
+    );
+    let invalidWindowLinkMessage: string | null = null;
+    try {
+      const invalidWorld = await createNavigationWorld(data, [invalidWindowLink]);
+      invalidWorld.dispose();
+    } catch (error) {
+      invalidWindowLinkMessage = error instanceof Error ? error.message : String(error);
+    }
+    let invalidRoofLinkMessage: string | null = null;
+    try {
+      const invalidWorld = await createNavigationWorld(data, [invalidRoofLink]);
+      invalidWorld.dispose();
+    } catch (error) {
+      invalidRoofLinkMessage = error instanceof Error ? error.message : String(error);
+    }
+    checks.push({
+      name: "bit_window・bit_roofの双方向必須契約",
+      ok:
+        invalidWindowLinkMessage?.includes("双方向必須") === true &&
+        invalidWindowLinkMessage.includes(invalidWindowLink.id) &&
+        invalidRoofLinkMessage?.includes("双方向必須") === true &&
+        invalidRoofLinkMessage.includes(invalidRoofLink.id),
+      detail: `window=${invalidWindowLinkMessage ?? "例外なし"} / roof=${invalidRoofLinkMessage ?? "例外なし"}`
+    });
+
+    linkedNavigationWorld.dispose();
+    pendingNavigationWorlds.splice(
+      pendingNavigationWorlds.indexOf(linkedNavigationWorld),
+      1
+    );
+    for (const link of [
+      bitWindowLink,
+      bitRoofLink,
+      invalidWindowLink,
+      invalidRoofLink
+    ]) {
+      link.endpointA.node.dispose();
+      link.endpointB.node.dispose();
+    }
+
     const projectedPoint = navigationWorld.projectPoint(new Vector3(3, 0.1, -1.5), 0.2);
+    const queryOrigin = requireNavigationLocation(
+      navigationWorld,
+      new Vector3(3, 0, -1.5)
+    );
     const constrainedPoint = navigationWorld.constrainMovement(
-      new Vector3(3, 0, -1.5),
+      queryOrigin,
       new Vector3(3, 0, 1.5)
     );
-    const randomPoint = navigationWorld.randomPointAround(new Vector3(3, 0, -1.5), 0.5);
+    const randomPoint = navigationWorld.randomPointAround(queryOrigin, 0.5);
     const randomDistance = randomPoint
-      ? Vector3.Distance(randomPoint, new Vector3(3, 0, -1.5))
+      ? Vector3.Distance(randomPoint.position, queryOrigin.position)
       : Number.POSITIVE_INFINITY;
     checks.push({
       name: "本番NavigationWorld問い合わせ",
       ok:
         projectedPoint !== null &&
-        Math.abs(projectedPoint.y) <= 0.02 &&
+        Math.abs(projectedPoint.position.y) <= 0.02 &&
         constrainedPoint !== null &&
-        constrainedPoint.z < 0 &&
+        constrainedPoint.position.z < 0 &&
         randomPoint !== null &&
         randomDistance <= 0.5 + 1e-5,
-      detail: `projectY=${projectedPoint?.y.toFixed(4) ?? "--"} / constrainZ=${constrainedPoint?.z.toFixed(4) ?? "--"} / random=${Number.isFinite(randomDistance) ? randomDistance.toFixed(4) : "--"}`
+      detail: `projectY=${projectedPoint?.position.y.toFixed(4) ?? "--"} / constrainZ=${constrainedPoint?.position.z.toFixed(4) ?? "--"} / random=${Number.isFinite(randomDistance) ? randomDistance.toFixed(4) : "--"}`
     });
 
+    const routeStartLocation = requireNavigationLocation(
+      navigationWorld,
+      routeStart
+    );
+    const rampStartLocation = requireNavigationLocation(
+      navigationWorld,
+      rampStart
+    );
     const cacheAgent = createNavigationAgent(
       navigationWorld,
+      "npc",
       navigationAgentConfig
     );
-    const initialAgentStep = cacheAgent.update(routeStart, routeEnd, 0, 0);
-    const cachedAgentStep = cacheAgent.update(routeStart, routeEnd, 0, 0.25);
+    const initialAgentStep = cacheAgent.update(routeStartLocation, routeEnd, 0, 0);
+    const cachedAgentStep = cacheAgent.update(
+      routeStartLocation,
+      routeEnd,
+      0,
+      0.25
+    );
     const movedAgentTarget = routeEnd.add(new Vector3(0.3, 0, 0));
     const movedTargetAgentStep = cacheAgent.update(
-      routeStart,
+      routeStartLocation,
       movedAgentTarget,
       0,
       0
@@ -585,23 +1172,24 @@ const runValidation = async () => {
 
     const unreachableAgent = createNavigationAgent(
       navigationWorld,
+      "npc",
       navigationAgentConfig
     );
     const unreachableTarget = new Vector3(-6.5, 0, -1.5);
     const unreachableInitial = unreachableAgent.update(
-      routeStart,
+      routeStartLocation,
       unreachableTarget,
       1,
       0
     );
     const unreachableCached = unreachableAgent.update(
-      routeStart,
+      routeStartLocation,
       unreachableTarget,
       1,
       0.5
     );
     const unreachableRetry = unreachableAgent.update(
-      routeStart,
+      routeStartLocation,
       unreachableTarget,
       1,
       0.5
@@ -610,22 +1198,37 @@ const runValidation = async () => {
       name: "到達不能時の停止と期限後再探索",
       ok:
         unreachableInitial.state === "unreachable" &&
-        Vector3.Distance(unreachableInitial.position, routeStart) <= 1e-6 &&
+        Vector3.Distance(
+          unreachableInitial.location.position,
+          routeStartLocation.position
+        ) <= 1e-6 &&
         !unreachableCached.pathRecalculated &&
-        Vector3.Distance(unreachableCached.position, routeStart) <= 1e-6 &&
+        Vector3.Distance(
+          unreachableCached.location.position,
+          routeStartLocation.position
+        ) <= 1e-6 &&
         unreachableRetry.pathRecalculated &&
         unreachableRetry.state === "unreachable" &&
-        Vector3.Distance(unreachableRetry.position, routeStart) <= 1e-6,
+        Vector3.Distance(
+          unreachableRetry.location.position,
+          routeStartLocation.position
+        ) <= 1e-6,
       detail: `initial=${unreachableInitial.pathRecalculated} / cached=${unreachableCached.pathRecalculated} / retry=${unreachableRetry.pathRecalculated}`
     });
 
     const stuckAgent = createNavigationAgent(
       navigationWorld,
+      "npc",
       navigationAgentConfig
     );
-    stuckAgent.update(routeStart, routeEnd, 1, 0);
-    const stuckWaiting = stuckAgent.update(routeStart, routeEnd, 1, 0.3);
-    const stuckRecalculated = stuckAgent.update(routeStart, routeEnd, 1, 0.3);
+    stuckAgent.update(routeStartLocation, routeEnd, 1, 0);
+    const stuckWaiting = stuckAgent.update(routeStartLocation, routeEnd, 1, 0.3);
+    const stuckRecalculated = stuckAgent.update(
+      routeStartLocation,
+      routeEnd,
+      1,
+      0.3
+    );
     checks.push({
       name: "移動停止判定による経路再計算",
       ok:
@@ -636,35 +1239,43 @@ const runValidation = async () => {
 
     const rampAgent = createNavigationAgent(
       navigationWorld,
+      "npc",
       navigationAgentConfig
     );
-    const rampAgentStep = rampAgent.update(rampStart, rampEnd, 0.75, 1);
+    const rampAgentStep = rampAgent.update(rampStartLocation, rampEnd, 0.75, 1);
     checks.push({
       name: "3D経路追従の斜面高度",
       ok:
         rampAgentStep.state === "moving" &&
-        rampAgentStep.position.y > 0.02 &&
-        rampAgentStep.position.y < rampEnd.y,
-      detail: `positionY=${rampAgentStep.position.y.toFixed(4)} / targetY=${rampEnd.y.toFixed(4)}`
+        rampAgentStep.location.position.y > 0.02 &&
+        rampAgentStep.location.position.y < rampEnd.y,
+      detail: `positionY=${rampAgentStep.location.position.y.toFixed(4)} / targetY=${rampEnd.y.toFixed(4)}`
     });
 
     const waypointAgent = createNavigationAgent(
       navigationWorld,
+      "npc",
       navigationAgentConfig
     );
-    const waypointStep = waypointAgent.update(routeStart, routeEnd, 100, 1);
+    const waypointStep = waypointAgent.update(
+      routeStartLocation,
+      routeEnd,
+      100,
+      1
+    );
     const routeEndpoint = routePath[routePath.length - 1];
     checks.push({
       name: "移動予算内の複数経路点通過",
       ok:
         routePath.length >= 3 &&
         waypointStep.state === "arrived" &&
-        Vector3.Distance(waypointStep.position, routeEndpoint) <= 1e-5,
-      detail: `${routePath.length}点 / endpointError=${Vector3.Distance(waypointStep.position, routeEndpoint).toExponential(2)}`
+        Vector3.Distance(waypointStep.location.position, routeEndpoint) <= 1e-5,
+      detail: `${routePath.length}点 / endpointError=${Vector3.Distance(waypointStep.location.position, routeEndpoint).toExponential(2)}`
     });
 
     const projectedTargetAgent = createNavigationAgent(
       navigationWorld,
+      "npc",
       navigationAgentConfig
     );
     const floatingTarget = routeEnd.add(new Vector3(0, 0.05, 0));
@@ -673,7 +1284,7 @@ const runValidation = async () => {
       navigationAgentConfig.projectionMaxDistance
     );
     const projectedTargetStep = projectedTargetAgent.update(
-      routeStart,
+      routeStartLocation,
       floatingTarget,
       100,
       1
@@ -683,19 +1294,23 @@ const runValidation = async () => {
       ok:
         floatingTargetProjection !== null &&
         projectedTargetStep.state === "arrived" &&
-        Vector3.Distance(projectedTargetStep.position, floatingTargetProjection) <=
+        Vector3.Distance(
+          projectedTargetStep.location.position,
+          floatingTargetProjection.position
+        ) <=
           1e-5,
-      detail: `rawY=${floatingTarget.y.toFixed(4)} / projectedY=${floatingTargetProjection?.y.toFixed(4) ?? "--"} / state=${projectedTargetStep.state}`
+      detail: `rawY=${floatingTarget.y.toFixed(4)} / projectedY=${floatingTargetProjection?.position.y.toFixed(4) ?? "--"} / state=${projectedTargetStep.state}`
     });
 
     const clearAgent = createNavigationAgent(
       navigationWorld,
+      "npc",
       navigationAgentConfig
     );
-    clearAgent.update(routeStart, routeEnd, 0, 0);
-    const beforeClear = clearAgent.update(routeStart, routeEnd, 0, 0.1);
+    clearAgent.update(routeStartLocation, routeEnd, 0, 0);
+    const beforeClear = clearAgent.update(routeStartLocation, routeEnd, 0, 0.1);
     clearAgent.clear();
-    const afterClear = clearAgent.update(routeStart, routeEnd, 0, 0);
+    const afterClear = clearAgent.update(routeStartLocation, routeEnd, 0, 0);
     checks.push({
       name: "3D経路追従状態のclear",
       ok: !beforeClear.pathRecalculated && afterClear.pathRecalculated,
@@ -717,15 +1332,23 @@ const runValidation = async () => {
         role: "npc_spawn",
         mesh: spawnVolumeMesh
       });
-      const spawnVolumeQueries = createStageSpatialQueries(
-        spatialScene,
-        [],
-        [],
-        [],
-        [spawnVolume]
-      );
+      const emptyMovementColliders = Object.freeze({
+        player: Object.freeze([]),
+        npc: Object.freeze([]),
+        bit: Object.freeze([])
+      });
+      const spawnVolumeQueries = createStageSpatialQueries(spatialScene, {
+        movementColliders: emptyMovementColliders,
+        groundColliders: [],
+        beamBlockers: [],
+        sightBlockers: [],
+        volumes: [spawnVolume]
+      });
       const projectToGround = (position: Vector3) =>
-        new Vector3(position.x, 0, position.z);
+        Object.freeze({
+          position: new Vector3(position.x, 0, position.z),
+          polygonRef: 1
+        });
 
       const singleRandom = createRandomSequence([0.5, 0.75, 0.5]);
       let singleProjectionMaxDistance = Number.NaN;
@@ -745,11 +1368,15 @@ const runValidation = async () => {
       checks.push({
         name: "3D spawn volume内のNavMesh投影点",
         ok:
-          spawnVolumeQueries.containsVolume("npc_spawn", singleSpawnPoint) &&
-          Vector3.Distance(singleSpawnPoint, new Vector3(3, 0, -2)) <= 1e-6 &&
+          spawnVolumeQueries.containsVolume(
+            "npc_spawn",
+            singleSpawnPoint.position
+          ) &&
+          Vector3.Distance(singleSpawnPoint.position, new Vector3(3, 0, -2)) <=
+            1e-6 &&
           singleProjectionMaxDistance === 2 &&
           singleRandom.getCallCount() === 3,
-        detail: `point=(${singleSpawnPoint.x.toFixed(3)}, ${singleSpawnPoint.y.toFixed(3)}, ${singleSpawnPoint.z.toFixed(3)}) / projection=${singleProjectionMaxDistance}`
+        detail: `point=(${singleSpawnPoint.position.x.toFixed(3)}, ${singleSpawnPoint.position.y.toFixed(3)}, ${singleSpawnPoint.position.z.toFixed(3)}) / projection=${singleProjectionMaxDistance}`
       });
 
       const multipleRandom = createRandomSequence([
@@ -768,15 +1395,24 @@ const runValidation = async () => {
       );
       const multipleSpawnPoints = multipleSampler.samplePoints(3, 2);
       const pairDistances = [
-        Vector3.Distance(multipleSpawnPoints[0], multipleSpawnPoints[1]),
-        Vector3.Distance(multipleSpawnPoints[0], multipleSpawnPoints[2]),
-        Vector3.Distance(multipleSpawnPoints[1], multipleSpawnPoints[2])
+        Vector3.Distance(
+          multipleSpawnPoints[0].position,
+          multipleSpawnPoints[1].position
+        ),
+        Vector3.Distance(
+          multipleSpawnPoints[0].position,
+          multipleSpawnPoints[2].position
+        ),
+        Vector3.Distance(
+          multipleSpawnPoints[1].position,
+          multipleSpawnPoints[2].position
+        )
       ];
       checks.push({
         name: "複数spawn点の最小3D距離",
         ok:
           multipleSpawnPoints.every((point) =>
-            spawnVolumeQueries.containsVolume("npc_spawn", point)
+            spawnVolumeQueries.containsVolume("npc_spawn", point.position)
           ) &&
           pairDistances.every((distance) => distance >= 2 - 1e-6),
         detail: pairDistances.map((distance) => distance.toFixed(3)).join(" / ")
@@ -802,10 +1438,10 @@ const runValidation = async () => {
         ok:
           duplicateRandom.getCallCount() === 9 &&
           Vector3.Distance(
-            duplicateCheckedPoints[0],
-            duplicateCheckedPoints[1]
+            duplicateCheckedPoints[0].position,
+            duplicateCheckedPoints[1].position
           ) > 0,
-        detail: `randomCalls=${duplicateRandom.getCallCount()} / distance=${Vector3.Distance(duplicateCheckedPoints[0], duplicateCheckedPoints[1]).toFixed(3)}`
+        detail: `randomCalls=${duplicateRandom.getCallCount()} / distance=${Vector3.Distance(duplicateCheckedPoints[0].position, duplicateCheckedPoints[1].position).toFixed(3)}`
       });
 
       const projectionFailureRandom = createRandomSequence([
@@ -856,25 +1492,75 @@ const runValidation = async () => {
         { size: 0.4 },
         spatialScene
       );
+      const humanOnlyWindow = MeshBuilder.CreateBox(
+        "COL_HumanOnly_Window_Validation",
+        { size: 0.4 },
+        spatialScene
+      );
       const normalWall = MeshBuilder.CreateBox(
         "COL_Wall_Validation",
         { size: 0.4 },
         spatialScene
       );
-      actorOnlyWindow.position.x = 0;
-      normalWall.position.x = 2;
-      const classificationQueries = createStageSpatialQueries(
-        spatialScene,
-        [actorOnlyWindow, normalWall],
-        [normalWall],
-        [normalWall],
-        []
+      const lowCeiling = MeshBuilder.CreateBox(
+        "COL_Ceiling_LowValidation",
+        { width: 1, height: 0.1, depth: 1 },
+        spatialScene
       );
+      actorOnlyWindow.position.x = 0;
+      humanOnlyWindow.position.x = 1;
+      normalWall.position.x = 2;
+      lowCeiling.position.set(4, 0.5, 0);
+      [actorOnlyWindow, humanOnlyWindow, normalWall, lowCeiling].forEach(
+        (mesh) => mesh.computeWorldMatrix(true)
+      );
+      const normalClassificationColliders = [normalWall, lowCeiling];
+      const actorClassificationColliders = [actorOnlyWindow];
+      const humanClassificationColliders = [humanOnlyWindow];
+      const humanMovementClassificationColliders = [
+        ...normalClassificationColliders,
+        ...actorClassificationColliders,
+        ...humanClassificationColliders
+      ];
+      const bitMovementClassificationColliders = [
+        ...normalClassificationColliders,
+        ...actorClassificationColliders
+      ];
+      const classificationQueries = createStageSpatialQueries(spatialScene, {
+        movementColliders: {
+          player: humanMovementClassificationColliders,
+          npc: humanMovementClassificationColliders,
+          bit: bitMovementClassificationColliders
+        },
+        groundColliders: normalClassificationColliders,
+        beamBlockers: normalClassificationColliders,
+        sightBlockers: normalClassificationColliders,
+        volumes: []
+      });
       const classificationStart = new Vector3(-2, 0, 0);
       const classificationEnd = new Vector3(4, 0, 0);
-      const actorOnlyHit = classificationQueries.castActorSegment(
-        classificationStart,
-        classificationEnd
+      const actorOnlyHits = ["player", "npc", "bit"] as const;
+      const closedWindowHits = actorOnlyHits.map((moverKind) =>
+        classificationQueries.castMovementSegment(
+          moverKind,
+          classificationStart,
+          new Vector3(0.5, 0, 0)
+        )
+      );
+      const humanWindowPlayerHit = classificationQueries.castMovementSegment(
+        "player",
+        new Vector3(0.5, 0, 0),
+        new Vector3(1.5, 0, 0)
+      );
+      const humanWindowNpcHit = classificationQueries.castMovementSegment(
+        "npc",
+        new Vector3(0.5, 0, 0),
+        new Vector3(1.5, 0, 0)
+      );
+      const humanWindowBitHit = classificationQueries.castMovementSegment(
+        "bit",
+        new Vector3(0.5, 0, 0),
+        new Vector3(1.5, 0, 0)
       );
       const beamThroughWindowHit = classificationQueries.castBeamSegment(
         classificationStart,
@@ -885,15 +1571,44 @@ const runValidation = async () => {
         classificationEnd
       );
       checks.push({
-        name: "ActorOnly窓の移動遮蔽と光線透過",
+        name: "閉じた窓の全移動体遮断と光線透過",
         ok:
-          actorOnlyHit?.mesh === actorOnlyWindow &&
+          closedWindowHits.every((hit) => hit?.mesh === actorOnlyWindow) &&
           beamThroughWindowHit?.mesh === normalWall &&
           sightThroughWindowHit?.mesh === normalWall,
-        detail: `actor=${actorOnlyHit?.mesh.name ?? "--"} / beam=${beamThroughWindowHit?.mesh.name ?? "--"} / sight=${sightThroughWindowHit?.mesh.name ?? "--"}`
+        detail: `movement=${closedWindowHits.map((hit) => hit?.mesh.name ?? "--").join("/")} / beam=${beamThroughWindowHit?.mesh.name ?? "--"} / sight=${sightThroughWindowHit?.mesh.name ?? "--"}`
+      });
+      checks.push({
+        name: "HumanOnly窓の人間遮断とビット通過",
+        ok:
+          humanWindowPlayerHit?.mesh === humanOnlyWindow &&
+          humanWindowNpcHit?.mesh === humanOnlyWindow &&
+          humanWindowBitHit === null,
+        detail: `player=${humanWindowPlayerHit?.mesh.name ?? "--"} / npc=${humanWindowNpcHit?.mesh.name ?? "--"} / bit=${humanWindowBitHit?.mesh.name ?? "none"}`
+      });
+      const ceilingHit = classificationQueries.castMovementSegment(
+        "bit",
+        new Vector3(4, 0.1, 0),
+        new Vector3(4, 0.8, 0)
+      );
+      const outdoorCeilingHit = classificationQueries.castMovementSegment(
+        "bit",
+        new Vector3(6, 0.1, 0),
+        new Vector3(6, 0.8, 0)
+      );
+      checks.push({
+        name: "低い天井と天井なし屋外の問い合わせ",
+        ok:
+          ceilingHit?.mesh === lowCeiling &&
+          ceilingHit.normal.y < 0 &&
+          Math.abs(ceilingHit.point.y - 0.45) <= 1e-4 &&
+          outdoorCeilingHit === null,
+        detail: `ceiling=${ceilingHit?.point.y.toFixed(3) ?? "none"} / normalY=${ceilingHit?.normal.y.toFixed(3) ?? "none"} / outdoor=${outdoorCeilingHit?.mesh.name ?? "none"}`
       });
       actorOnlyWindow.dispose();
+      humanOnlyWindow.dispose();
       normalWall.dispose();
+      lowCeiling.dispose();
 
       const beamWall = MeshBuilder.CreateBox(
         "COL_Wall_BeamCollisionValidation",
@@ -1144,9 +1859,11 @@ const runValidation = async () => {
           schoolContext.resources.visualMeshes.length === 308 &&
           schoolContext.resources.normalColliders.length === 161 &&
           schoolContext.resources.actorOnlyColliders.length === 0 &&
+          schoolContext.resources.humanOnlyColliders.length === 0 &&
           schoolContext.resources.navSourceMeshes.length === 8 &&
           schoolContext.markers.all.length === 1 &&
-          schoolContext.volumes.all.length === 2;
+          schoolContext.volumes.all.length === 2 &&
+          schoolContext.links.all.length === 0;
         checks.push({
           name: "学校GLBの厳格分類と3D意味Object",
           ok:
@@ -1157,11 +1874,12 @@ const runValidation = async () => {
             schoolContext.boundary.contains(playerSpawn) &&
             schoolContext.volumes.getByRole("npc_spawn").length === 1 &&
             schoolContext.volumes.getByRole("bit_spawn").length === 1,
-          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / NAV=${schoolContext.resources.navSourceMeshes.length} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
+          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / NAV=${schoolContext.resources.navSourceMeshes.length} / LNK=${schoolContext.links.all.length} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
         });
 
         const stageDestination = new Vector3(-11.35, 0.25, 1.625);
-        const schoolPath = schoolContext.navigation.findPath(
+        const schoolPath = findNavigationPath(
+          schoolContext.navigation,
           playerSpawn,
           stageDestination
         );
@@ -1169,15 +1887,19 @@ const runValidation = async () => {
           stageDestination,
           0.1
         );
-        const schoolPathEndpoint = schoolPath
-          ? schoolPath.points[schoolPath.points.length - 1]
-          : null;
+        const schoolPathPoints = getNavigationPathPoints(schoolPath);
+        const schoolPathEndpoint =
+          schoolPathPoints[schoolPathPoints.length - 1] ?? null;
         const schoolPathEndpointError = schoolPathEndpoint && projectedStageDestination
-          ? Vector3.Distance(schoolPathEndpoint, projectedStageDestination)
+          ? Vector3.Distance(
+              schoolPathEndpoint,
+              projectedStageDestination.position
+            )
           : Number.POSITIVE_INFINITY;
         const chestPosition = playerSpawn.add(new Vector3(0, 0.2, 0));
         const outsidePosition = new Vector3(5.5, 0.2, 0);
-        const actorWallHit = schoolContext.queries.castActorSegment(
+        const actorWallHit = schoolContext.queries.castMovementSegment(
+          "player",
           chestPosition,
           outsidePosition
         );
@@ -1200,7 +1922,7 @@ const runValidation = async () => {
             sightWallHit !== null &&
             actorWallHit.mesh === beamWallHit.mesh &&
             beamWallHit.mesh === sightWallHit.mesh,
-          detail: `${schoolPath?.points.length ?? 0}点 / endpointError=${Number.isFinite(schoolPathEndpointError) ? schoolPathEndpointError.toExponential(2) : "--"} / blocker=${beamWallHit?.mesh.name ?? "--"}`
+          detail: `${schoolPathPoints.length}点 / endpointError=${Number.isFinite(schoolPathEndpointError) ? schoolPathEndpointError.toExponential(2) : "--"} / blocker=${beamWallHit?.mesh.name ?? "--"}`
         });
 
         const upperFloorRepresentatives = [
@@ -1221,7 +1943,7 @@ const runValidation = async () => {
             return {
               label,
               projected: schoolNavigation.projectPoint(point, 0.1),
-              path: schoolNavigation.findPath(playerSpawn, point)
+              path: findNavigationPath(schoolNavigation, playerSpawn, point)
             };
           }
         );
@@ -1234,15 +1956,19 @@ const runValidation = async () => {
             .map(
               (result) =>
                 `${result.label}:projected=${result.projected?.toString() ?? "null"},` +
-                `path=${result.path === null ? "null" : `${result.path.points.length}点`}`
+                `path=${result.path === null ? "null" : `${getNavigationPathPoints(result.path).length}点`}`
             )
             .join(" / ")
         });
 
         const npcRandom = createSeededCountingRandom(0x5f3759df);
+        const npcMovementBlocking = createMovementBlockingStage(
+          schoolContext,
+          "npc"
+        );
         const npcSystem = createV2NpcSystem({
           scene: spatialScene,
-          stage: schoolContext,
+          stage: npcMovementBlocking.stage,
           npcCount: 2,
           initialBrainwashedNpcCount: 2,
           random: npcRandom.random
@@ -1271,6 +1997,50 @@ const runValidation = async () => {
                 `${tracking.npcId}:${tracking.provenance ?? "none"}/${tracking.targetId ?? "none"}`
             )
             .join(" / ")
+        });
+        const npcBeforeBlockedMovement = npcSystem.getActorSpheres()[1];
+        const npcNavigationStart =
+          npcSystem.getTargetSnapshots()[1].footPosition;
+        const npcMovementTarget = Object.freeze({
+          id: "player",
+          kind: "player" as const,
+          footPosition: stageDestination.clone(),
+          aimPosition: stageDestination.add(new Vector3(0, 0.3, 0)),
+          collisionRadius: 0.1,
+          alive: true,
+          brainwashed: false
+        });
+        npcSystem.update(0.1, npcMovementTarget);
+        const npcFirstPathfindCount = countPathfindAttemptsFrom(
+          npcMovementBlocking.getPathfindAttempts(),
+          "npc",
+          npcNavigationStart
+        );
+        npcSystem.update(0.1, npcMovementTarget);
+        const npcSecondPathfindCount = countPathfindAttemptsFrom(
+          npcMovementBlocking.getPathfindAttempts(),
+          "npc",
+          npcNavigationStart
+        );
+        const npcAfterBlockedMovement = npcSystem.getActorSpheres()[1];
+        const npcMovementAttempts = npcMovementBlocking.getAttempts();
+        const npcChaseAttempt = npcMovementAttempts.find(
+          (attempt) =>
+            attempt.moverKind === "npc" &&
+            Vector3.Distance(attempt.from, npcBeforeBlockedMovement.center) <=
+              1e-6
+        );
+        checks.push({
+          name: "NPC実移動のmover別Collider停止",
+          ok:
+            npcChaseAttempt !== undefined &&
+            npcFirstPathfindCount >= 1 &&
+            npcSecondPathfindCount === npcFirstPathfindCount + 1 &&
+            Vector3.Distance(
+              npcAfterBlockedMovement.center,
+              npcBeforeBlockedMovement.center
+            ) <= 1e-6,
+          detail: `attempts=${npcMovementAttempts.length} / pathfind=${npcFirstPathfindCount}->${npcSecondPathfindCount} / moved=${Vector3.Distance(npcAfterBlockedMovement.center, npcBeforeBlockedMovement.center).toExponential(2)}`
         });
         npcSystem.dispose();
 
@@ -1319,10 +2089,25 @@ const runValidation = async () => {
           detail: `throwCall=${npcFailureRandom.getCallCount()}/${npcInitializationRandomCallCount} / sameError=${npcThrownValue === npcInjectedError} / dispose=${npcFailureDisposalOrder.join(" > ")} / baseline=${JSON.stringify(npcFailureBaseline)} / after=${JSON.stringify(npcFailureAfter)}`
         });
 
-        const bitRandom = createSeededCountingRandom(0x9e3779b9);
+        const bitSeededRandom = createSeededCountingRandom(0x9e3779b9);
+        let forceNormalChase = false;
+        const bitRandom = Object.freeze({
+          random: () => {
+            if (forceNormalChase) {
+              forceNormalChase = false;
+              return 0.5;
+            }
+            return bitSeededRandom.random();
+          },
+          getCallCount: bitSeededRandom.getCallCount
+        });
+        const bitMovementBlocking = createMovementBlockingStage(
+          schoolContext,
+          "bit"
+        );
         const bitSystem = createV2BitSystem(
           spatialScene,
-          schoolContext,
+          bitMovementBlocking.stage,
           {
             initialBitCount: 2,
             minimumSpawnDistance: 0.2,
@@ -1335,6 +2120,7 @@ const runValidation = async () => {
         );
         const bitInitializationRandomCallCount = bitRandom.getCallCount();
         const initialBitActors = bitSystem.getActorSpheres();
+        const bitNavigationStart = initialBitActors[1].center.clone();
         const bitGround = schoolContext.queries.sampleGround(
           initialBitActors[0].center.add(new Vector3(0, 0.5, 0)),
           1.5
@@ -1358,6 +2144,7 @@ const runValidation = async () => {
           alive: true,
           brainwashed: false
         });
+        forceNormalChase = true;
         bitSystem.update({
           deltaSeconds: 0.1,
           elapsedSeconds: 0,
@@ -1371,12 +2158,36 @@ const runValidation = async () => {
           ]
         });
         const bitAlertStates = bitSystem.getTargetStates();
+        const bitFirstPathfindCount = countPathfindAttemptsFrom(
+          bitMovementBlocking.getPathfindAttempts(),
+          "bit",
+          bitNavigationStart
+        );
+        bitSystem.update({
+          deltaSeconds: 0.1,
+          elapsedSeconds: 0.1,
+          targets: [distantPlayerTarget],
+          externalAlerts: []
+        });
+        const bitSecondPathfindCount = countPathfindAttemptsFrom(
+          bitMovementBlocking.getPathfindAttempts(),
+          "bit",
+          bitNavigationStart
+        );
+        const bitAfterBlockedMovement = bitSystem.getActorSpheres()[1];
+        const bitMovementAttempts = bitMovementBlocking.getAttempts();
+        const bitChaseAttempt = bitMovementAttempts.find(
+          (attempt) =>
+            attempt.moverKind === "bit" &&
+            Vector3.Distance(attempt.from, initialBitActors[1].center) <= 1e-6
+        );
         checks.push({
           name: "ビット発信者visualと受信者alertの分離",
           ok:
             bitAlertStates[0].provenance !== "alert" &&
             bitAlertStates[0].alertLeaderId === null &&
             bitAlertStates[1].targetId === "player" &&
+            bitAlertStates[1].mode === "chase" &&
             bitAlertStates[1].provenance === "alert" &&
             bitAlertStates[1].alertLeaderId === "v2_bit_0",
           detail: bitAlertStates
@@ -1385,6 +2196,19 @@ const runValidation = async () => {
                 `${state.bitId}:${state.provenance ?? "none"}/${state.targetId ?? "none"}`
             )
             .join(" / ")
+        });
+        checks.push({
+          name: "通常ビット実移動のmover別Collider停止",
+          ok:
+            bitChaseAttempt !== undefined &&
+            bitAlertStates[1].mode === "chase" &&
+            bitFirstPathfindCount >= 1 &&
+            bitSecondPathfindCount === bitFirstPathfindCount + 1 &&
+            Vector3.Distance(
+              bitAfterBlockedMovement.center,
+              initialBitActors[1].center
+            ) <= 1e-6,
+          detail: `mode=${bitAlertStates[1].mode} / attempts=${bitMovementAttempts.length} / pathfind=${bitFirstPathfindCount}->${bitSecondPathfindCount} / moved=${Vector3.Distance(bitAfterBlockedMovement.center, initialBitActors[1].center).toExponential(2)}`
         });
         bitSystem.dispose();
 
@@ -1573,7 +2397,9 @@ const runValidation = async () => {
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
           reloadedContext.resources.visualMeshes.length === 308 &&
-          reloadedContext.resources.normalColliders.length === 161;
+          reloadedContext.resources.normalColliders.length === 161 &&
+          reloadedContext.resources.humanOnlyColliders.length === 0 &&
+          reloadedContext.links.all.length === 0;
         reloadedContext.dispose();
         const afterSecondDispose = countSceneResources(spatialScene);
         checks.push({

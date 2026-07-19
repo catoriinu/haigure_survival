@@ -1,5 +1,7 @@
 import { Mesh, Ray, Scene, Vector3, VertexBuffer } from "@babylonjs/core";
 
+import type { StageMoverKind } from "./stageLinks";
+
 export const STAGE_VOLUME_ROLES = [
   "npc_spawn",
   "bit_spawn",
@@ -25,13 +27,29 @@ export type SpatialHit = Readonly<{
   mesh: Mesh;
 }>;
 
+export type StageMovementColliderSets = Readonly<
+  Record<StageMoverKind, readonly Mesh[]>
+>;
+
 export interface StageSpatialQueries {
-  castActorSegment(from: Vector3, to: Vector3): SpatialHit | null;
+  castMovementSegment(
+    moverKind: StageMoverKind,
+    from: Vector3,
+    to: Vector3
+  ): SpatialHit | null;
   castBeamSegment(from: Vector3, to: Vector3): SpatialHit | null;
   castSightSegment(from: Vector3, to: Vector3): SpatialHit | null;
   sampleGround(origin: Vector3, maxDistance: number): SpatialHit | null;
   containsVolume(role: StageVolumeRole, point: Vector3): boolean;
 }
+
+export type StageSpatialQueryOptions = Readonly<{
+  movementColliders: StageMovementColliderSets;
+  groundColliders: readonly Mesh[];
+  beamBlockers: readonly Mesh[];
+  sightBlockers: readonly Mesh[];
+  volumes: readonly StageVolume[];
+}>;
 
 const SURFACE_DISTANCE_EPSILON = 1e-6;
 const INSIDE_SOLID_ANGLE_THRESHOLD = Math.PI * 2;
@@ -156,31 +174,35 @@ const createContainsPointQuery = (mesh: Mesh) => {
 
 export const createStageSpatialQueries = (
   scene: Scene,
-  actorColliders: readonly Mesh[],
-  beamBlockers: readonly Mesh[],
-  sightBlockers: readonly Mesh[],
-  volumes: readonly StageVolume[]
+  options: StageSpatialQueryOptions
 ): StageSpatialQueries => {
-  const actorColliderSet = new Set(actorColliders);
-  const beamBlockerSet = new Set(beamBlockers);
-  const sightBlockerSet = new Set(sightBlockers);
+  const movementColliderSets: Readonly<Record<StageMoverKind, ReadonlySet<Mesh>>> =
+    Object.freeze({
+      player: new Set(options.movementColliders.player),
+      npc: new Set(options.movementColliders.npc),
+      bit: new Set(options.movementColliders.bit)
+    });
+  const groundColliderSet = new Set(options.groundColliders);
+  const beamBlockerSet = new Set(options.beamBlockers);
+  const sightBlockerSet = new Set(options.sightBlockers);
   const volumesByRole = new Map<StageVolumeRole, StageVolume[]>(
     STAGE_VOLUME_ROLES.map((role) => [role, []])
   );
   const containsByVolume = new Map<StageVolume, (point: Vector3) => boolean>();
-  for (const volume of volumes) {
+  for (const volume of options.volumes) {
     volumesByRole.get(volume.role)!.push(volume);
     containsByVolume.set(volume, createContainsPointQuery(volume.mesh));
   }
 
   return {
-    castActorSegment: (from, to) => castSegment(scene, actorColliderSet, from, to),
+    castMovementSegment: (moverKind, from, to) =>
+      castSegment(scene, movementColliderSets[moverKind], from, to),
     castBeamSegment: (from, to) => castSegment(scene, beamBlockerSet, from, to),
     castSightSegment: (from, to) => castSegment(scene, sightBlockerSet, from, to),
     sampleGround: (origin, maxDistance) => {
       const picks = scene.multiPickWithRay(
         new Ray(origin, Vector3.Down(), maxDistance),
-        (mesh) => mesh instanceof Mesh && actorColliderSet.has(mesh)
+        (mesh) => mesh instanceof Mesh && groundColliderSet.has(mesh)
       );
       if (!picks) {
         return null;

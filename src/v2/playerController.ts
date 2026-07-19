@@ -105,7 +105,7 @@ export const createV2PlayerController = ({
   eyeHeightScale: initialEyeHeightScale = 1
 }: V2PlayerControllerOptions): V2PlayerController => {
   assertEyeHeightScale(initialEyeHeightScale);
-  if (stage.resources.actorColliders.length === 0) {
+  if (stage.resources.movementColliders.player.length === 0) {
     throw new Error("V2プレイヤーには1個以上のactor colliderが必要です。");
   }
 
@@ -117,7 +117,7 @@ export const createV2PlayerController = ({
     throw new Error("player_spawnがBND_Stageの外側にあります。");
   }
 
-  const actorColliderSet = new Set(stage.resources.actorColliders);
+  const actorColliderSet = new Set(stage.resources.movementColliders.player);
   const collisionMesh = new Mesh("V2PlayerCollision", scene);
   collisionMesh.isVisible = false;
   collisionMesh.isPickable = false;
@@ -132,7 +132,7 @@ export const createV2PlayerController = ({
     PLAYER_SPRITE_HEIGHT * 0.5,
     0
   );
-  collisionMesh.surroundingMeshes = [...stage.resources.actorColliders];
+  collisionMesh.surroundingMeshes = [...stage.resources.movementColliders.player];
 
   const motion = createPlayerMotionController({
     moveInertiaAt60Fps: PLAYER_MOVE_INERTIA_AT_60_FPS,
