@@ -783,10 +783,13 @@ def build_preview_collections(
     duplicate_for_preview(chair, "PREVIEW_Chair_Side", overview, (0.7, -10.0, 0.23), (0.0, math.radians(90.0), math.radians(-10.0)))
     duplicate_for_preview(staff_chair, "PREVIEW_StaffChair_Toppled", overview, (2.5, -10.0, 0.34), (math.radians(78.0), 0.0, 0.0))
     duplicate_for_preview(monitor, "PREVIEW_Monitor_Toppled", overview, (4.4, -10.0, 0.20), (math.radians(90.0), 0.0, math.radians(16.0)))
-    duplicate_for_preview(closed_book, "PREVIEW_ClosedBook_Scatter", overview, (5.4, -10.4, 0.02), (0.0, 0.0, math.radians(28.0)))
-    duplicate_for_preview(single_paper, "PREVIEW_Paper_Scatter", overview, (5.8, -9.8, 0.003), (0.0, 0.0, math.radians(-21.0)))
-    duplicate_for_preview(pencil_case, "PREVIEW_PencilCase_Scatter", overview, (6.2, -10.3, 0.03), (0.0, 0.0, math.radians(36.0)))
+    duplicate_for_preview(desk, "PREVIEW_ClassroomDesk_Upright", overview, (5.4, -10.0, 0.0))
+    duplicate_for_preview(chair, "PREVIEW_ClassroomChair_Upright", overview, (5.4, -10.65, 0.0))
+    duplicate_for_preview(closed_book, "PREVIEW_ClosedBook_Scatter", overview, (5.22, -10.0, 0.705), (0.0, 0.0, math.radians(28.0)))
+    duplicate_for_preview(pencil_case, "PREVIEW_PencilCase_Scatter", overview, (5.50, -10.02, 0.705), (0.0, 0.0, math.radians(-16.0)))
+    duplicate_for_preview(single_paper, "PREVIEW_Paper_Scatter", overview, (6.05, -10.55, 0.003), (0.0, 0.0, math.radians(-21.0)))
     create_text_label("PlacementExamples", (0.0, -11.2, 0.015), overview)
+    create_text_label("ClassroomScatter", (5.4, -11.45, 0.015), overview)
 
     add_preview_floor(scale, (13.0, 5.0), (0.0, 0.0, -0.035), materials["metal_dark"])
     scale_sources = (
@@ -1033,6 +1036,10 @@ def configure_scene() -> None:
 
 
 def build_library(arguments: argparse.Namespace) -> None:
+    if not bpy.app.background:
+        raise RuntimeError(
+            "B03学校小物ライブラリの生成はBlenderのバックグラウンド実行専用です"
+        )
     clear_scene()
     configure_scene()
     library = create_collection(LIBRARY_COLLECTION_NAME)

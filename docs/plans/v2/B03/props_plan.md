@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 B03-P 学校小物ライブラリ先行制作 計画
 
-更新日: 2026-07-19
+更新日: 2026-07-20
 
 ## プロンプト
 
@@ -135,7 +135,7 @@ PLEASE IMPLEMENT THIS PLAN:
 - [x] 最新`origin/develop`（`fe88083`）から`codex/v2-b03-prop-library`と専用worktreeを作る
 - [x] 再生成可能なBlender小物生成スクリプトを作る
 - [x] 22種の表示小物と10種の簡略Colliderを生成する
-- [x] 一覧、縮尺、散乱にも使える通常小物の配置例を作り、確認画像を生成する
+- [x] 一覧、縮尺、机上・床上の散乱にも使える通常小物の小規模な教室配置例を作り、確認画像を生成する
 - [x] ライブラリ`.blend`と確認用GLBを出力する
 - [x] 別プロセス再読込、二重GLB出力、命名、寸法、Material、三角形予算を監査する
 - [x] T01・B02資産不変、UTF-8、BOM、Git差分、ローカルパスを検証する
@@ -143,16 +143,17 @@ PLEASE IMPLEMENT THIS PLAN:
 
 ## 結果
 
-2026-07-19に実装と検証を完了した。
+2026-07-19に実装と検証を完了し、2026-07-20にセルフレビュー指摘を反映した。
 
 - メインworktreeの並行中`codex/v2-t04-height-nav-core`には触れず、最新`origin/develop`の`fe8808314fcf3efb8df12940e3b460fb78fb093c`から専用worktreeと`codex/v2-b03-prop-library`を作成した。
 - Blender 5.2.0 LTSを`--background --factory-startup`で別起動し、表示小物22種、簡略Collider 10種、共有Material 9種を生成した。起動中のBlender GUIは終了・操作していない。
 - 表示小物は合計2,016三角形、Colliderは合計120三角形。全Object名とMesh Data名、正本のrotation・scale、原点、寸法、single-user Meshを再読込後に監査した。
-- パニック状態専用の机・椅子Meshは作っていない。通常の正本MeshをPreview内で複製し、固定Transformだけを変えた転倒・回転の配置例とした。本、紙、筆箱も通常小物として収録した。
+- パニック状態専用の机・椅子Meshは作っていない。通常の正本MeshをPreview内で複製し、固定Transformだけを変えた転倒・回転の配置例とした。本、紙、筆箱も通常小物として収録し、通常状態の机・椅子と組み合わせて机上・床上へ分けた小規模な教室散乱見本を追加した。
+- 誤ってBlender GUIからbuildモードを実行して現在のシーンを消去しないよう、`clear_scene()`より前にバックグラウンド実行を必須検査するようにした。
 - 一覧画像と1.7m人型との縮尺画像を目視確認し、古い公立校向けの木・灰色金属を中心にしたローポリ密度と、配置例の判別性を確認した。
-- 保存済み`.blend`を別バックグラウンドプロセスで再読込し、同一保存物からGLBを2回再出力した。2回の一時出力と公開GLBはすべて183,172 bytes、SHA-256は`F6D46E660330B38BB237E886E6BCA1E70580BFCE9D8CBE234BE9E28A0DFF0FBC`で一致した。
+- 保存済み`.blend`を別バックグラウンドプロセスで再読込し、同一保存物からGLBを2回再出力した。2026-07-20のセルフレビュー修正後も、2回の一時出力と公開GLBはすべて183,172 bytes、SHA-256は`D1DB5214D22DCA26E117F6C0EBB23BC3CCE069E531CF552C8D5067A1262ADA5E`で一致した。
 - GLBはScene 1、Node 32、Mesh 32、Material 9、Camera 0、Light 0、Animation 0。規約外名、重複名、参照不能Meshはない。確認用床、人型、Camera、Light、配置例はGLBへ含めていない。
 - `.blend`のRender出力欄を空に戻し、外部ImageとLibrary参照がないことを再読込後に確認した。成果物からローカル絶対パスは検出されなかった。
 - T01・B02の保護資産は`origin/develop`とSHA-256が一致した。T01 `.blend`は`A26672A7400A143F32FAB9F5DC53387CFF85C1FB22A9766F464E9BAEFAC5B16B`、T01 GLBは`CF6CF17CF7447152D0B25219045C33EFB2E1A1821C201ACD6E51E39F468EA69B`、B02 `.blend`は`6F68041134DEA543BDF7FA13193ECA46A729145E973BD28C5855AAEB72DDE51B`、B02 GLBは`294F8E4370CE736726166AE14CBABEB89CBB40DE875CFD2FF40A9F9E20EB9C8C`、B02 NavMeshは`7326422B609D810E8736B48A08EC819AA962848769A718E175463FE6191A5347`である。
 - UTF-8 BOMなし、Python構文、`git diff --check`を確認した。ゲームコード、学校本体、窓、扉、柵、手すり、T04-2A成果物は変更していない。
-- コミット、push、Pull Request作成は行っていない。窓・ビット仕様は引き続き保留し、T04-2Aから仕様が届いた後にB03-0計画へ反映する。
+- 初回実装後にコミット、push、Draft Pull Request #44の作成まで行い、2026-07-20のセルフレビューで記録した2件を本変更で修正した。窓・ビット仕様は本ライブラリの対象外であり、B03-0側の計画で扱う。

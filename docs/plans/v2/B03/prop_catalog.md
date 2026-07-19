@@ -1,6 +1,6 @@
 # B03-P 学校小物ライブラリ カタログ
 
-更新日: 2026-07-19
+更新日: 2026-07-20
 
 ## 位置付け
 
@@ -52,5 +52,6 @@
 - Object名とMesh Data名は全32個で一致し、正本のrotationは0、scaleは1
 - 通行不可10種だけに12三角形の箱Colliderを設定
 - 教室机、教室椅子、職員椅子、PCモニターの転倒・回転は、専用小物を作らず、Preview内で正本Meshの複製後Transformだけを変更
-- 確認用GLBは183,172 bytes、SHA-256は`F6D46E660330B38BB237E886E6BCA1E70580BFCE9D8CBE234BE9E28A0DFF0FBC`
+- 通常状態の教室机・椅子と、本・筆箱の机上配置、単紙の床上配置を組み合わせた小規模な教室散乱見本をPreviewへ収録
+- 確認用GLBは183,172 bytes、SHA-256は`D1DB5214D22DCA26E117F6C0EBB23BC3CCE069E531CF552C8D5067A1262ADA5E`
 - 確認用GLBはScene 1、Node 32、Mesh 32、Material 9、Camera 0、Animation 0。確認用床、人型、照明、配置例は未収録
