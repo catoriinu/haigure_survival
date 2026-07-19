@@ -273,6 +273,108 @@ const validatePlayerRampTraversal = (
   return result;
 };
 
+const validatePlayerWaypointTraversal = (
+  context: StageSpatialContext,
+  label: string,
+  waypointsBlender: readonly Vector3[]
+) => {
+  if (waypointsBlender.length < 2) {
+    throw new Error(`${label}のWaypointが2件未満です。`);
+  }
+  const spawnNode = context.markers.requireSingle("player_spawn").node;
+  const originalSpawn = spawnNode.getAbsolutePosition().clone();
+  const waypoints = waypointsBlender.map(blenderPointToBabylon);
+  const previousActiveCamera = scene.activeCamera;
+  const testCamera = new FreeCamera(`${label}Camera`, waypoints[0].clone(), scene);
+  let moving = true;
+  const input: V2PlayerInput = {
+    getMoveAxes: () => ({ moveX: 0, moveZ: moving ? 1 : 0 }),
+    isDashPressed: () => true,
+    reset: () => undefined,
+    dispose: () => undefined
+  };
+
+  spawnNode.setAbsolutePosition(waypoints[0]);
+  spawnNode.computeWorldMatrix(true);
+  let controller: ReturnType<typeof createV2PlayerController> | null = null;
+  let waypointIndex = 1;
+  let highestFootY = Number.NEGATIVE_INFINITY;
+  let lowestFootY = Number.POSITIVE_INFINITY;
+  let stayedInsideBoundary = true;
+  let traversalError: unknown = null;
+  let finalFoot = waypoints[0].clone();
+  try {
+    controller = createV2PlayerController({
+      scene,
+      camera: testCamera,
+      stage: context,
+      input
+    });
+    for (let frame = 0; frame < 9000 && waypointIndex < waypoints.length; frame += 1) {
+      const target = waypoints[waypointIndex];
+      testCamera.setTarget(
+        new Vector3(target.x, testCamera.position.y, target.z)
+      );
+      const playerFrame = controller.update(1 / 60, true);
+      finalFoot = playerFrame.footPosition.clone();
+      highestFootY = Math.max(highestFootY, finalFoot.y);
+      lowestFootY = Math.min(lowestFootY, finalFoot.y);
+      stayedInsideBoundary =
+        stayedInsideBoundary && context.boundary.contains(finalFoot);
+      const horizontalDistance = Math.hypot(
+        target.x - finalFoot.x,
+        target.z - finalFoot.z
+      );
+      const verticalDistance = Math.abs(target.y - finalFoot.y);
+      if (horizontalDistance <= 0.08 && verticalDistance <= 0.035) {
+        waypointIndex += 1;
+      }
+    }
+    moving = false;
+    for (let frame = 0; frame < 30; frame += 1) {
+      const playerFrame = controller.update(1 / 60, true);
+      finalFoot = playerFrame.footPosition.clone();
+      stayedInsideBoundary =
+        stayedInsideBoundary && context.boundary.contains(finalFoot);
+    }
+  } catch (error) {
+    traversalError = error;
+    console.error(`${label} Waypoint通過中に例外が発生しました。`, error);
+  } finally {
+    controller?.dispose();
+    testCamera.dispose();
+    scene.activeCamera = previousActiveCamera;
+    spawnNode.setAbsolutePosition(originalSpawn);
+    spawnNode.computeWorldMatrix(true);
+  }
+
+  const finalTarget = waypoints[waypoints.length - 1];
+  const finalHorizontalError = Math.hypot(
+    finalTarget.x - finalFoot.x,
+    finalTarget.z - finalFoot.z
+  );
+  const finalVerticalError = Math.abs(finalTarget.y - finalFoot.y);
+  return {
+    label,
+    ok:
+      traversalError === null &&
+      waypointIndex === waypoints.length &&
+      highestFootY >= 12.7 * BLENDER_METERS_TO_WORLD_UNITS - 0.01 &&
+      lowestFootY <= 0.02 &&
+      finalHorizontalError <= 0.15 &&
+      finalVerticalError <= 0.04 &&
+      stayedInsideBoundary,
+    reachedWaypoints: waypointIndex,
+    totalWaypoints: waypoints.length,
+    highestFootY,
+    lowestFootY,
+    finalHorizontalError,
+    finalVerticalError,
+    stayedInsideBoundary,
+    errorMessage: traversalError === null ? null : formatError(traversalError)
+  };
+};
+
 const countSceneResources = (): SceneResourceCounts => {
   const sharedBrdfTexture = scene.environmentBRDFTexture;
   return {
@@ -368,8 +470,8 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 277 &&
-        context.resources.normalColliders.length === 150 &&
+      context.resources.visualMeshes.length === 306 &&
+        context.resources.normalColliders.length === 158 &&
         context.resources.actorOnlyColliders.length === 0 &&
         context.resources.navSourceMeshes.length === 8 &&
         context.markers.all.length === 1 &&
@@ -547,6 +649,150 @@ const validateLoadedContext = (
             `エラー=${result.errorMessage ?? "なし"}`
         )
         .join(" / ")
+    )
+  );
+
+  const schoolMeshByName = new Map(
+    [
+      ...context.resources.visualMeshes,
+      ...context.resources.normalColliders
+    ].map((mesh) => [mesh.name, mesh])
+  );
+  const specialRoomBoundsExpectations = [
+    ["VIS_Floor_SpecialRoom_West", [-12.6, 12.5, 0.0], [-3.5, 32.5, 0.03]],
+    ["VIS_Floor_SpecialRoom01", [5.4, 36.5, 0.0], [23.4, 45.5, 0.03]],
+    ["VIS_Floor_SpecialRoom02", [23.4, 36.5, 0.0], [41.4, 45.5, 0.03]]
+  ] as const;
+  const specialRoomBoundsResults = specialRoomBoundsExpectations.map(
+    ([name, minimum, maximum]) => ({
+      name,
+      ...compareBlenderBounds(
+        schoolMeshByName.get(name),
+        Vector3.FromArray(minimum),
+        Vector3.FromArray(maximum)
+      )
+    })
+  );
+  const removedMergeObjects = [
+    "VIS_Wall_ClassroomCross_3",
+    "COL_Wall_ClassroomCross_3",
+    "VIS_Floor_Classroom03"
+  ];
+  const mergeLineHit = context.queries.castActorSegment(
+    blenderPointToBabylon(new Vector3(-8.05, 17.5, 1.0)),
+    blenderPointToBabylon(new Vector3(-8.05, 27.5, 1.0))
+  );
+  const southDividerHit = context.queries.castActorSegment(
+    blenderPointToBabylon(new Vector3(-8.05, 11.5, 1.0)),
+    blenderPointToBabylon(new Vector3(-8.05, 13.5, 1.0))
+  );
+  const northSpecialDividerHit = context.queries.castActorSegment(
+    blenderPointToBabylon(new Vector3(22.5, 39.0, 1.0)),
+    blenderPointToBabylon(new Vector3(24.3, 39.0, 1.0))
+  );
+  const mergedWestRoomsOnly =
+    removedMergeObjects.every((name) => !schoolMeshByName.has(name)) &&
+    mergeLineHit === null &&
+    southDividerHit?.mesh.name === "COL_Wall_ClassroomCross_2" &&
+    northSpecialDividerHit?.mesh.name === "COL_Wall_Special_Divider" &&
+    specialRoomBoundsResults.every((result) => result.ok);
+  checks.push(
+    createCheck(
+      "1階西側2教室だけを特別教室へ統合",
+      mergedWestRoomsOnly,
+      `削除=${removedMergeObjects
+        .map((name) => `${name}:${!schoolMeshByName.has(name)}`)
+        .join(",")} / 統合室中央=${mergeLineHit?.mesh.name ?? "clear"} / 南境界=${southDividerHit?.mesh.name ?? "なし"} / 北側既存境界=${northSpecialDividerHit?.mesh.name ?? "なし"} / ${specialRoomBoundsResults
+        .map((result) => `${result.name}=${result.ok ? "一致" : result.detail}`)
+        .join(" / ")}`
+    )
+  );
+
+  const fourFloorBoundsExpectations = [
+    ["VIS_4F_NorthVolume", [-12.6, 32.5, 9.6], [47.4, 45.5, 12.6]],
+    ["COL_4F_NorthVolume", [-12.6, 32.5, 9.6], [47.4, 45.5, 12.6]],
+    ["VIS_4F_WestVolume", [-12.6, -3.5, 9.6], [0.0, 32.5, 12.6]],
+    ["COL_4F_WestVolume", [-12.6, -3.5, 9.6], [0.0, 32.5, 12.6]],
+    ["VIS_Roof_North", [-12.6, 32.5, 12.6], [47.4, 45.5, 12.7]],
+    ["COL_RooftopStairExitRamp", [-9.0, 38.9, 12.5], [-6.9, 40.7, 12.7]],
+    ["VIS_RooftopFacilityWalls", [-12.6, 38.5, 12.7], [2.4, 45.5, 15.1]],
+    ["VIS_RooftopFacilityRoofs", [-12.6, 38.5, 15.1], [2.4, 45.5, 15.2]],
+    ["COL_RooftopFacilityShell", [-12.6, 38.5, 12.7], [2.4, 45.5, 15.2]],
+    ["VIS_DoorLeaf_RooftopStairHouse_Open", [-9.04, 37.0, 12.7], [-8.96, 38.9, 14.9]],
+    ["VIS_Floor_RooftopChangingRoom_M", [-6.6, 38.5, 12.7], [-2.1, 45.5, 12.73]],
+    ["VIS_Floor_RooftopChangingRoom_F", [-2.1, 38.5, 12.7], [2.4, 45.5, 12.73]],
+    ["BND_Stage", [-18.4, -12.3, -0.5], [63.2, 51.3, 15.3]]
+  ] as const;
+  const fourFloorBoundsResults = fourFloorBoundsExpectations.map(
+    ([name, minimum, maximum]) => ({
+      name,
+      ...compareBlenderBounds(
+        name === "BND_Stage"
+          ? context.boundary.mesh
+          : schoolMeshByName.get(name),
+        Vector3.FromArray(minimum),
+        Vector3.FromArray(maximum)
+      )
+    })
+  );
+  const fourthFloorWindowCount = context.resources.visualMeshes.filter(
+    (mesh) => mesh.name.startsWith("VIS_WindowGuide_4F_")
+  ).length;
+  const rooftopFoot = blenderPointToBabylon(
+    new Vector3(-7.8, 37.8, 12.7)
+  );
+  const rooftopMaximumEye = rooftopFoot.add(
+    new Vector3(
+      0,
+      V2_PLAYER_BASE_EYE_HEIGHT * V2_PLAYER_MAX_EYE_HEIGHT_SCALE,
+      0
+    )
+  );
+  checks.push(
+    createCheck(
+      "4階校舎・屋上階段室・更衣室・境界の3D契約",
+      fourFloorBoundsResults.every((result) => result.ok) &&
+        fourthFloorWindowCount === 18 &&
+        context.boundary.contains(rooftopFoot) &&
+        context.boundary.contains(rooftopMaximumEye),
+      `4F窓=${fourthFloorWindowCount} / 屋上足元境界内=${context.boundary.contains(rooftopFoot)} / 最大視点境界内=${context.boundary.contains(rooftopMaximumEye)} / ${fourFloorBoundsResults
+        .map((result) => `${result.name}=${result.ok ? "一致" : result.detail}`)
+        .join(" / ")}`
+    )
+  );
+
+  const rooftopAscentWaypoints = [
+    new Vector3(-11.4, 38.7, 0.0),
+    new Vector3(-11.4, 44.3, 2.4),
+    new Vector3(-7.8, 44.3, 2.4),
+    new Vector3(-7.8, 39.8, 3.6),
+    new Vector3(-11.4, 39.8, 3.6),
+    new Vector3(-11.4, 44.3, 5.1),
+    new Vector3(-7.8, 44.3, 5.1),
+    new Vector3(-7.8, 39.8, 6.6),
+    new Vector3(-11.4, 39.8, 6.6),
+    new Vector3(-11.4, 44.3, 8.1),
+    new Vector3(-7.8, 44.3, 8.1),
+    new Vector3(-7.8, 39.8, 9.6),
+    new Vector3(-11.4, 39.8, 9.6),
+    new Vector3(-11.4, 44.3, 11.1),
+    new Vector3(-7.8, 44.3, 11.1),
+    new Vector3(-7.8, 39.8, 12.65),
+    new Vector3(-7.8, 37.8, 12.7)
+  ];
+  const rooftopRoundTrip = validatePlayerWaypointTraversal(
+    context,
+    "北西階段1階・屋上往復",
+    [
+      ...rooftopAscentWaypoints,
+      ...rooftopAscentWaypoints.slice(0, -1).reverse()
+    ]
+  );
+  checks.push(
+    createCheck(
+      "実プレイヤーによる北西階段1階・屋上往復",
+      rooftopRoundTrip.ok,
+      `Waypoint=${rooftopRoundTrip.reachedWaypoints}/${rooftopRoundTrip.totalWaypoints} / 最高足元Y=${rooftopRoundTrip.highestFootY.toFixed(3)} / 最低足元Y=${rooftopRoundTrip.lowestFootY.toFixed(3)} / 最終水平誤差=${rooftopRoundTrip.finalHorizontalError.toFixed(3)} / 最終垂直誤差=${rooftopRoundTrip.finalVerticalError.toFixed(3)} / 境界内=${rooftopRoundTrip.stayedInsideBoundary} / エラー=${rooftopRoundTrip.errorMessage ?? "なし"}`
     )
   );
 
@@ -844,8 +1090,8 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 277 &&
-      activeContext.resources.normalColliders.length === 150;
+      activeContext.resources.visualMeshes.length === 306 &&
+      activeContext.resources.normalColliders.length === 158;
     checks.push(
       createCheck(
         "学校コンテキスト再読込",

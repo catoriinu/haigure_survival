@@ -81,7 +81,6 @@ SCHOOL_1F_BLOCKERS = (
     "COL_Wall_Classroom3_North",
     "COL_Wall_ClassroomCross_1",
     "COL_Wall_ClassroomCross_2",
-    "COL_Wall_ClassroomCross_3",
     "COL_Wall_Lintel_ClassroomDoor_01",
     "COL_Wall_Lintel_ClassroomDoor_02",
     "COL_Wall_Lintel_ClassroomDoor_03",
@@ -158,7 +157,6 @@ PERIMETER_BLOCKERS = (
 
 STAIR_BLOCKERS = (
     "COL_StairClosure_NE",
-    "COL_StairClosure_NW",
     "COL_StairClosure_SW",
     "COL_StairGuard_NE_Landing",
     "COL_StairGuard_NE_Lower",
@@ -194,10 +192,10 @@ def require_clean_current_blend() -> None:
         raise RuntimeError(f"現worktree側B02ではありません: {bpy.data.filepath}")
     if bpy.data.is_dirty:
         raise RuntimeError("編集開始前のB02に未保存変更があります")
-    if len([obj for obj in bpy.data.objects if obj.name.startswith("VIS_")]) != 277:
-        raise RuntimeError("既存B02のVIS Object数が277件ではありません")
-    if len([obj for obj in bpy.data.objects if obj.name.startswith("COL_")]) != 150:
-        raise RuntimeError("既存B02のCOL Object数が150件ではありません")
+    if len([obj for obj in bpy.data.objects if obj.name.startswith("VIS_")]) != 306:
+        raise RuntimeError("4階化後B02のVIS Object数が306件ではありません")
+    if len([obj for obj in bpy.data.objects if obj.name.startswith("COL_")]) != 158:
+        raise RuntimeError("4階化後B02のCOL Object数が158件ではありません")
 
 
 def reset_generated_semantics() -> None:
@@ -237,8 +235,8 @@ def reset_generated_semantics() -> None:
         "BND_Stage",
     }:
         raise RuntimeError("B02_SEMANTICのObjectが想定外です")
-    if len(export_collection.all_objects) != 440:
-        raise RuntimeError("再生成前の学校契約Object数が440件ではありません")
+    if len(export_collection.all_objects) != 477:
+        raise RuntimeError("再生成前の学校契約Object数が477件ではありません")
 
     scene_root = bpy.context.scene.collection
     if {collection.name for collection in scene_root.children} != {
@@ -504,7 +502,7 @@ def create_semantic_objects(collection: bpy.types.Collection) -> None:
     create_box_mesh(
         "BND_Stage",
         (-18.4, -12.3, -0.5),
-        (63.2, 51.3, 4.6),
+        (63.2, 51.3, 15.3),
         collection,
         {
             "hs_id": "stage",
@@ -516,8 +514,8 @@ def create_semantic_objects(collection: bpy.types.Collection) -> None:
 def export_stage(export_collection: bpy.types.Collection) -> None:
     bpy.ops.object.select_all(action="DESELECT")
     export_objects = list(export_collection.all_objects)
-    if len(export_objects) != 440:
-        raise RuntimeError(f"学校の契約Object数が440件ではありません: {len(export_objects)}")
+    if len(export_objects) != 477:
+        raise RuntimeError(f"学校の契約Object数が477件ではありません: {len(export_objects)}")
     for obj in export_objects:
         obj.select_set(True)
 

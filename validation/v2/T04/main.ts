@@ -28,6 +28,7 @@ import {
   SCHOOL_STAGE,
   type StageCatalogEntry
 } from "../../../src/world/stageCatalog";
+import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
 import {
   loadStageSpatialContext,
   type StageSpatialContext
@@ -80,6 +81,13 @@ const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   glbUrl: "b02_school_blockout.glb",
   navmeshUrl: "b02_school_blockout.navmesh.bin"
 });
+
+const blenderPointToBabylon = (point: Vector3) =>
+  new Vector3(
+    -point.x * BLENDER_METERS_TO_WORLD_UNITS,
+    point.z * BLENDER_METERS_TO_WORLD_UNITS,
+    -point.y * BLENDER_METERS_TO_WORLD_UNITS
+  );
 
 const canvas = document.getElementById("render-canvas") as unknown as HTMLCanvasElement;
 const summary = document.querySelector<HTMLElement>("#summary");
@@ -1133,8 +1141,8 @@ const runValidation = async () => {
           .node.getAbsolutePosition();
         const expectedPlayerSpawn = new Vector3(0.375, 0, 0);
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 277 &&
-          schoolContext.resources.normalColliders.length === 150 &&
+          schoolContext.resources.visualMeshes.length === 306 &&
+          schoolContext.resources.normalColliders.length === 158 &&
           schoolContext.resources.actorOnlyColliders.length === 0 &&
           schoolContext.resources.navSourceMeshes.length === 8 &&
           schoolContext.markers.all.length === 1 &&
@@ -1193,6 +1201,40 @@ const runValidation = async () => {
             actorWallHit.mesh === beamWallHit.mesh &&
             beamWallHit.mesh === sightWallHit.mesh,
           detail: `${schoolPath?.points.length ?? 0}点 / endpointError=${Number.isFinite(schoolPathEndpointError) ? schoolPathEndpointError.toExponential(2) : "--"} / blocker=${beamWallHit?.mesh.name ?? "--"}`
+        });
+
+        const upperFloorRepresentatives = [
+          ["2F床", new Vector3(10.0, 39.0, 3.6)],
+          ["2F階段", new Vector3(-11.4, 39.8, 3.6)],
+          ["3F床", new Vector3(10.0, 39.0, 6.6)],
+          ["3F階段", new Vector3(-11.4, 39.8, 6.6)],
+          ["4F床", new Vector3(10.0, 39.0, 9.6)],
+          ["4F階段", new Vector3(-11.4, 39.8, 9.6)],
+          ["屋上", new Vector3(-7.8, 37.8, 12.7)]
+        ] as const;
+        const schoolNavigation = schoolContext.navigation;
+        const upperFloorNavigationResults = upperFloorRepresentatives.map(
+          ([label, blenderPoint]) => {
+            const point = blenderPointToBabylon(blenderPoint);
+            return {
+              label,
+              projected: schoolNavigation.projectPoint(point, 0.1),
+              path: schoolNavigation.findPath(playerSpawn, point)
+            };
+          }
+        );
+        checks.push({
+          name: "上階・屋上をNPC用NavMeshから除外",
+          ok: upperFloorNavigationResults.every(
+            (result) => result.projected === null && result.path === null
+          ),
+          detail: upperFloorNavigationResults
+            .map(
+              (result) =>
+                `${result.label}:projected=${result.projected?.toString() ?? "null"},` +
+                `path=${result.path === null ? "null" : `${result.path.points.length}点`}`
+            )
+            .join(" / ")
         });
 
         const npcRandom = createSeededCountingRandom(0x5f3759df);
@@ -1528,7 +1570,8 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 277;
+          reloadedContext.resources.visualMeshes.length === 306 &&
+          reloadedContext.resources.normalColliders.length === 158;
         reloadedContext.dispose();
         const afterSecondDispose = countSceneResources(spatialScene);
         checks.push({
