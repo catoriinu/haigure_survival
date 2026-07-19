@@ -157,4 +157,4 @@ B03-0に限り、上記に加えて`docs/plans/v2/T04/plan.md`の「B03-0への�
 
 2026-07-20、T04-2AはPR #43で`develop`へ統合済みとなり、B03-0も承認済み設計の確定を完了した。B03-0では`D01`～`D10`、修正版W02-R1の81窓・開放率40.7%・体育館南面完全窓なし、W07案3の`bit_roof`2経路、T04契約、B03-P小物22種の利用先、設計図10枚を確定した。学校`.blend`、GLB、NavMesh、ゲームコードは変更していない。B03-0のPull Requestを`develop`へ統合した後、次はB03-1だけを開始する。
 
-同日、B03-0統合後のB03-1で学校を702 Object／608 Meshへ更新し、実窓81件、`bit_window` 33組、`bit_roof` 2組、2～4階と屋上の`NAV_*`生成元、全屋内天井Collider、`VOL_PoolWater`を実装した。生成・GLB監査、連続2回生成一致、7枚の1080p画像、GLB単体ブラウザ表示、通常・T01～T04ビルドに合格し、NavMesh、B03-Pライブラリ、`src/`の不変を確認した。次はB03-1のPull Requestを`develop`へ統合後、B03-2で機能Objectを維持したまま内装・材質・最適化を仕上げる。
+同日、B03-0統合後のB03-1で学校を768 Object／674 Meshへ更新し、81地点を左右2枚引違いユニット2～4組の連続窓帯として実装した。片側開放羽33件、閉じた羽の`COL_ActorOnly_WindowFixed_*` 33件、`bit_window` 33組、`bit_roof` 2組、2～4階と屋上の`NAV_*`生成元、全屋内天井Collider、`VOL_PoolWater`を含む。生成・GLB監査、連続2回生成一致、7枚の1080p画像、GLB単体ブラウザ表示、通常・T01～T04ビルドに合格し、NavMesh、B03-Pライブラリ、`src/`の不変を確認した。次はB03-1のPull Requestを`develop`へ統合後、B03-2で機能Objectを維持したまま内装・材質・最適化を仕上げる。

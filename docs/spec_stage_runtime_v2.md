@@ -95,7 +95,7 @@ export type StageMoverKind = "player" | "npc" | "bit";
 | `COL_ActorOnly_*` | 停止 | 停止 | 停止 | 透過 |
 | `COL_HumanOnly_*` | 停止 | 停止 | 透過 | 透過 |
 
-閉じた窓は`COL_ActorOnly_Window_*`とし、全移動体を止めながら視線と全光線を通す。指定した開いた窓または割れた窓は`COL_HumanOnly_Window_*`とし、プレイヤーとNPCを止め、ビット、視線、全光線を通す。`PRT_*`の既存room、streaming、door trigger用途は維持するが、`bit_window`と`bit_roof`は`PRT_*`で表さない。
+閉じた窓は`COL_ActorOnly_Window_*`とし、全移動体を止めながら視線と全光線を通す。指定した開いた窓または割れた窓は、残るガラス羽を`COL_ActorOnly_WindowFixed_*`、実開口を`COL_HumanOnly_Window_*`とする。前者は全移動体を止め、後者はプレイヤーとNPCを止めてビットを通す。どちらも視線と全光線を通す。`PRT_*`の既存room、streaming、door trigger用途は維持するが、`bit_window`と`bit_roof`は`PRT_*`で表さない。
 
 ## 5. GLB読込と分類
 
@@ -321,7 +321,7 @@ T04は高さ付き経路と特殊接続の選択までを共通基盤として�
 - 学校の主玄関、教室扉、3階段、1～4階、校庭、渡り廊下、体育館、屋上が、連続NavMeshと承認済み特殊接続の組で意図どおり接続される。
 - 壁を挟んだ`surface`経路が扉へ迂回し、閉鎖地点と窓開口を通常経路として通らない。階段経路の各点は正しい床高と`polygonRef`を持つ。
 - `bit_window`と`bit_roof`はビットのA→B・B→A経路だけに`transition`として現れ、プレイヤーとNPCの経路には現れない。特殊接続入口では実移動せず`transition-required`を返す。
-- `COL_ActorOnly_Window_*`はプレイヤー・NPC・ビットを止め、`COL_HumanOnly_Window_*`はプレイヤー・NPCだけを止める。両方とも視線と全光線を透過する。
+- `COL_ActorOnly_Window_*`と`COL_ActorOnly_WindowFixed_*`はプレイヤー・NPC・ビットを止め、`COL_HumanOnly_Window_*`はプレイヤー・NPCだけを止める。いずれも視線と全光線を透過する。
 - T05-1では通常飛行が物理床上1.0～1.8m、天井優先、ビット本体・銃口・最大揺れ幅と0.10m余裕を満たす。高さ帯の例外は`bit_window`／`bit_roof`上だけで、最高高度は高い端点以下、標的喪失時は近い端へ復帰し、進入前にカーペット編隊を解除する。
 - 壁越しに通常索敵せず、窓越しには視認する。T05-2で通常・固定・トラップ・動的を含む全光線が壁へ着弾し、両種の窓を透過する。
 - T06で全階と屋上を含む学校全域のゲーム進行を統合確認する。

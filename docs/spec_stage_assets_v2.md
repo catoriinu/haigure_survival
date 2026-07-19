@@ -183,11 +183,11 @@ EXP_Stage_<stage-id>
 | 窓 | 表示Object | 衝突Object | 移動・光線契約 |
 |---|---|---|---|
 | 閉じた窓 | `VIS_WindowFrame_*`と`VIS_WindowGlass_*` | `COL_ActorOnly_Window_*` | プレイヤー・NPC・ビットを止め、視線と全光線を通す |
-| 指定した開いた窓または割れた窓 | 開口状態に対応する`VIS_WindowFrame_*`、必要なガラス表示 | `COL_HumanOnly_Window_*` | プレイヤー・NPCを止め、ビット・視線・全光線を通す |
+| 指定した開いた窓または割れた窓 | 開口状態に対応する`VIS_WindowFrame_*`、残るガラス羽の`VIS_WindowGlass_*` | 残るガラス羽の`COL_ActorOnly_WindowFixed_*`と実開口の`COL_HumanOnly_Window_*` | 閉じた羽は全移動体を止め、実開口はプレイヤー・NPCを止めてビットを通す。どちらも視線・全光線を通す |
 
 ビット通過窓は見た目が開いた窓か割れた窓かにかかわらず、Runtimeでは`hs_link_kind="bit_window"`の同一契約で扱う。Collider名だけでビット通過経路を推測せず、必ず7.8節の`LNK_<id>_A/B`を組み合わせる。閉じた窓へ`bit_window`を置いてはならない。
 
-窓位置で通常の床・階段NavMeshが連結しないよう、必要な`NAV_*` blockerも別途用意する。`COL_ActorOnly_Window_*`と`COL_HumanOnly_Window_*`をNavMeshベイク入力へ流用しない。
+窓位置で通常の床・階段NavMeshが連結しないよう、必要な`NAV_*` blockerも別途用意する。`COL_ActorOnly_Window_*`、`COL_ActorOnly_WindowFixed_*`、`COL_HumanOnly_Window_*`をNavMeshベイク入力へ流用しない。
 
 ### 7.3 `NAV_*`と`hs_nav_role`
 
