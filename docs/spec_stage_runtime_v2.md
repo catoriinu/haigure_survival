@@ -246,6 +246,7 @@ NPCとビットのランダム出現は多数の点を列挙せず、対応す�
 - `no_enemy_enter`
 - `no_combat`
 - `hazard`
+- `water`: 水中判定に用いる閉じた3D領域。B03-1では学校GLBと資産仕様へ追加し、`StageVolumeRole`への登録、GLB読込、ゲーム処理との接続はT04-2Bで行う。
 
 `BND_Stage`はプレイ可能な3D空間を定義する。範囲外時の再配置先は`MRK_PlayerSpawn_*`または最後に確認したNavMesh上の安全点とする。AABBだけで凹形状や上下階を判定しない。
 

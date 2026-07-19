@@ -254,13 +254,14 @@ MRK_PlayerSpawn_Main
 | `hs_id` | string | ステージ内で一意な小文字kebab-case ID |
 | `hs_role` | string | Runtimeのvolume role registryに登録された役割 |
 
-初期roleには`npc_spawn`、`bit_spawn`、`assembly`、`no_enemy_spawn`、`no_enemy_enter`、`no_combat`、`hazard`を使用できる。追加roleはRuntime側registryと本書を同時に更新してから使用する。
+roleには`npc_spawn`、`bit_spawn`、`assembly`、`no_enemy_spawn`、`no_enemy_enter`、`no_combat`、`hazard`、`water`を使用できる。`water`は水面ではなく、水中判定に用いる閉じた3D領域を表す。B03-1の学校資産は、プール内面に一致する`VOL_PoolWater`を1件持ち、`hs_id="pool-water"`、`hs_role="water"`とする。TypeScriptのrole登録とRuntime接続はT04-2Bで行う。
 
 - Volumeの位置、回転、範囲はMesh形状を正本とする。
 - boxの中心・幅・奥行・高さをpropertiesへ重複記述しない。
 - 閉じたmanifold、外向き法線、自己交差なしとする。
 - 1つの凹形状へまとめず、凸形状へ分割する。複数Volumeを同じ`hs_role`で使用してよい。
 - `VOL_*`は物理衝突、光線遮蔽、NavMesh生成へ使用しない。
+- `water` Volumeは水面表示Meshと分離し、プール壁・底の内側だけを閉じた形状で覆う。
 
 `BND_Stage`はちょうど1個の明示的な閉じた低ポリMeshとする。プレイヤーが存在してよい3D空間を囲み、上下限も持つ。`BND_Stage`はout-of-bounds判定用であり、物理壁ではない。移動を止める必要がある位置には別の`COL_*`を置く。
 
