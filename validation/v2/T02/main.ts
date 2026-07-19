@@ -416,7 +416,7 @@ const validateLoadedContext = (
     ],
     [
       "VIS_NorthWingSouthEntryDoor_Open_L",
-      blenderPointToBabylon(new Vector3(-0.75, 32.34, 1.2))
+      blenderPointToBabylon(new Vector3(0.2, 31.54, 1.2))
     ],
     [
       "VIS_NorthWingSouthEntryDoor_Open_R",
@@ -478,6 +478,7 @@ const validateLoadedContext = (
     ["VIS_NorthWingSouthEntryStep01", [0.15, 30.5, -0.3], [5.4, 31.5, -0.15]],
     ["VIS_NorthWingSouthEntryStep02", [0.15, 31.5, -0.15], [5.4, 32.5, 0.0]],
     ["COL_NorthWingSouthEntryRamp", [0.15, 30.5, -0.3], [5.4, 32.5, 0.0]],
+    ["VIS_NorthWingSouthEntryDoor_Open_L", [0.16, 30.74, 0.0], [0.24, 32.34, 2.4]],
     ["COL_BridgeSideRamp_West", [37.4, 26.5, -0.3], [39.4, 32.5, 0.0]],
     ["COL_BridgeSideRamp_East", [43.4, 26.5, -0.3], [45.4, 32.5, 0.0]],
     ["VIS_Wall_Lintel_NorthWingSouthEntry", [0.15, 32.35, 2.4], [5.4, 32.65, 3.0]],
