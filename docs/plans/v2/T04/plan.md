@@ -46,6 +46,7 @@ V2ではすべてのマップにおいてJSONではなく、管理方法の設�
 - [ ] NPCの出現、徘徊、追跡、アラート迂回、停止、階段移動をNavMeshへ移行する
 - [x] NPCのVolume出現、徘徊、視認・アラート追跡、到達不能停止をセル非依存のV2モジュールへ移行する
 - [ ] ビットの出現、探索、追跡、アラート集合、カーペット爆撃解除をNavMesh経路と床相対高度へ移行する
+- [x] ビットのVolume出現、探索・追跡、視認・アラート、床相対高度、カーペット解除をセル非依存のV2モジュールへ移行する
 - [ ] 通常ビームの連続3D衝突、ビット視界の3D遮蔽、`COL_ActorOnly_Window_*`透過規則を`StageSpatialContext`へ統合する
 - [x] 通常ビームの壁・Actor最近傍連続衝突と視線遮蔽問い合わせをV2モジュールとして実装する
 - [ ] 集合、警報、トラップ、動的ビーム、ミニマップを3Dマーカー・ボリューム・NavMesh領域へ移行し、学校で未使用の機能はセル互換なしで未接続にする
@@ -102,4 +103,5 @@ V2ではすべてのマップにおいてJSONではなく、管理方法の設�
 - `audit:v2:dependencies`を追加し、通常Web入口が`/src/v2/main.ts`だけであること、全`src/v2`モジュールから到達するTypeScript依存にJSONファイル参照、`GridLayout`、`FloorCell`、`NavCellRef`、旧grid／stageContext／stageSelection／セルBFS実装がないことを毎回検査する。`typecheck:v2`と通常`build`の必須前段へ接続し、V2モジュール8件・依存18件でPASSした。
 - 通常ビームは前フレーム位置から新位置までを連続線分判定し、通常COL壁と球形Actorのうち最短距離の1件だけへ命中する。同距離は壁を優先し、開始点が壁内なら距離0で着弾する。ActorOnly窓は`beamBlockers`／`sightBlockers`に入らないため両方を通す。T04へActor先行、壁先行、同距離、高速壁衝突、窓透過、通常壁遮蔽、寿命失効を追加し、実ブラウザ31/31項目PASS、console warning／error 0件だった。
 - V2 NPCは`npc_spawn` VolumeからNavMesh上へ生成し、通常徘徊と洗脳NPCの標的追跡を共通`NavigationAgent`で行う。距離・95度半角視野・3D視線のANDで通常標的を取得・保持し、遮蔽時は解除する。別Actorから受信したalertだけは期限中保持し、発信者自身のvisual provenanceをalertへ上書きしない。徘徊候補も注入乱数から生成してNavMeshへ投影する。T04実ブラウザは発信者と受信者のprovenance分離を含む32/32項目PASS、console warning／error 0件だった。
+- V2ビットは`bit_spawn` VolumeからNavMesh上へ生成し、探索・追跡を`NavigationAgent`へ統一する。通常標的は距離・100度半角視野・3D視線のANDで取得・保持し、遮蔽または扇形外で解除する。別Actorのalertだけを期限中保持し、洗脳済みNPCを標的から除外する。表示・Actor中心高はNavMesh高ではなく通常COL物理床面から算出する。カーペット編隊はleaderと各follower候補をNavMeshへ投影し、壁衝突または投影不能でfollowerを破棄してleaderをNavMesh追跡へ移す。T04実ブラウザは床相対高、発信者／受信者分離、洗脳標的除外、扇形外解除を含む36/36項目PASS、console warning／error 0件だった。
 - 舞台階段の形状ディテールと同色境界はB03へ残し、NPC・ビットの複数階移動と高さ付き接続は本T04の後続工程で実装する。

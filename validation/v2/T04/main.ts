@@ -33,6 +33,7 @@ import {
   type StageVolume
 } from "../../../src/world/stageSpatialQueries";
 import { createV2AlertCoordinator } from "../../../src/v2/alertCoordinator";
+import { createV2BitSystem } from "../../../src/v2/bitSystem";
 import { createV2NpcSystem } from "../../../src/v2/npcSystem";
 import {
   castV2BeamSegment,
@@ -1129,6 +1130,197 @@ const runValidation = async () => {
             .join(" / ")
         });
         npcSystem.dispose();
+
+        let bitRandomState = 0x9e3779b9;
+        const bitRandom = () => {
+          bitRandomState =
+            (Math.imul(bitRandomState, 1664525) + 1013904223) >>> 0;
+          return bitRandomState / 0x100000000;
+        };
+        const bitSystem = createV2BitSystem(
+          spatialScene,
+          schoolContext,
+          {
+            initialBitCount: 2,
+            minimumSpawnDistance: 0.2,
+            spawnMaxAttempts: 128,
+            spawnProjectionMaxDistance: 0.75,
+            minimumFlightHeight: 0.3,
+            maximumFlightHeight: 0.3,
+            random: bitRandom
+          }
+        );
+        const initialBitActors = bitSystem.getActorSpheres();
+        const bitGround = schoolContext.queries.sampleGround(
+          initialBitActors[0].center.add(new Vector3(0, 0.5, 0)),
+          1.5
+        );
+        checks.push({
+          name: "ビットの物理床相対高度",
+          ok:
+            bitGround !== null &&
+            Math.abs(
+              initialBitActors[0].center.y - bitGround.point.y - 0.3
+            ) <= 1e-6,
+          detail: `centerY=${initialBitActors[0].center.y.toFixed(4)} / groundY=${bitGround?.point.y.toFixed(4) ?? "--"}`
+        });
+
+        const distantPlayerTarget = Object.freeze({
+          id: "player",
+          kind: "player" as const,
+          footPosition: stageDestination.clone(),
+          aimPosition: stageDestination.add(new Vector3(0, 0.3, 0)),
+          collisionRadius: 0.1,
+          alive: true,
+          brainwashed: false
+        });
+        bitSystem.update({
+          deltaSeconds: 0.1,
+          elapsedSeconds: 0,
+          targets: [distantPlayerTarget],
+          externalAlerts: [
+            {
+              leaderId: "v2_bit_0",
+              targetId: "player",
+              remainingSeconds: 5
+            }
+          ]
+        });
+        const bitAlertStates = bitSystem.getTargetStates();
+        checks.push({
+          name: "ビット発信者visualと受信者alertの分離",
+          ok:
+            bitAlertStates[0].provenance !== "alert" &&
+            bitAlertStates[0].alertLeaderId === null &&
+            bitAlertStates[1].targetId === "player" &&
+            bitAlertStates[1].provenance === "alert" &&
+            bitAlertStates[1].alertLeaderId === "v2_bit_0",
+          detail: bitAlertStates
+            .map(
+              (state) =>
+                `${state.bitId}:${state.provenance ?? "none"}/${state.targetId ?? "none"}`
+            )
+            .join(" / ")
+        });
+        bitSystem.dispose();
+
+        const brainwashedTargetBitSystem = createV2BitSystem(
+          spatialScene,
+          schoolContext,
+          {
+            initialBitCount: 1,
+            minimumSpawnDistance: 0,
+            spawnMaxAttempts: 128,
+            spawnProjectionMaxDistance: 0.75,
+            minimumFlightHeight: 0.3,
+            maximumFlightHeight: 0.3,
+            random: bitRandom
+          }
+        );
+        const brainwashedNpcTarget = Object.freeze({
+          id: "npc_brainwashed",
+          kind: "npc" as const,
+          footPosition: stageDestination.clone(),
+          aimPosition: stageDestination.add(new Vector3(0, 0.2, 0)),
+          collisionRadius: 0.1,
+          alive: true,
+          brainwashed: true
+        });
+        brainwashedTargetBitSystem.update({
+          deltaSeconds: 0.1,
+          elapsedSeconds: 0,
+          targets: [brainwashedNpcTarget],
+          externalAlerts: [
+            {
+              leaderId: "npc_0",
+              targetId: "npc_brainwashed",
+              remainingSeconds: 5
+            }
+          ]
+        });
+        const brainwashedTargetState =
+          brainwashedTargetBitSystem.getTargetStates()[0];
+        checks.push({
+          name: "ビットの洗脳済みNPC標的除外",
+          ok:
+            brainwashedTargetState.targetId === null &&
+            brainwashedTargetState.provenance === null,
+          detail: `${brainwashedTargetState.provenance ?? "none"}/${brainwashedTargetState.targetId ?? "none"}`
+        });
+        brainwashedTargetBitSystem.dispose();
+
+        const visionBitSystem = createV2BitSystem(
+          spatialScene,
+          schoolContext,
+          {
+            initialBitCount: 1,
+            minimumSpawnDistance: 0,
+            spawnMaxAttempts: 128,
+            spawnProjectionMaxDistance: 0.75,
+            minimumFlightHeight: 0.3,
+            maximumFlightHeight: 0.3,
+            random: bitRandom
+          }
+        );
+        const visionBitCenter = visionBitSystem.getActorSpheres()[0].center;
+        const ringTargets = Array.from({ length: 12 }, (_, index) => {
+          const angle = (index / 12) * Math.PI * 2;
+          const aimPosition = visionBitCenter.add(
+            new Vector3(Math.cos(angle) * 0.15, 0, Math.sin(angle) * 0.15)
+          );
+          return Object.freeze({
+            id: `vision_target_${index}`,
+            kind: "npc" as const,
+            footPosition: aimPosition.add(new Vector3(0, -0.2, 0)),
+            aimPosition,
+            collisionRadius: 0.1,
+            alive: true,
+            brainwashed: false
+          });
+        });
+        visionBitSystem.update({
+          deltaSeconds: 0,
+          elapsedSeconds: 0,
+          targets: ringTargets,
+          externalAlerts: []
+        });
+        const acquiredVisionState = visionBitSystem.getTargetStates()[0];
+        const acquiredTarget = ringTargets.find(
+          (target) => target.id === acquiredVisionState.targetId
+        );
+        const aimedBitCenter = visionBitSystem.getActorSpheres()[0].center;
+        const behindDirection = acquiredTarget
+          ? acquiredTarget.aimPosition.subtract(aimedBitCenter).normalize()
+          : Vector3.Forward();
+        const behindAimPosition = aimedBitCenter.subtract(
+          behindDirection.scale(0.15)
+        );
+        const behindTarget = Object.freeze({
+          id: acquiredVisionState.targetId ?? "not-acquired",
+          kind: "npc" as const,
+          footPosition: behindAimPosition.add(new Vector3(0, -0.2, 0)),
+          aimPosition: behindAimPosition,
+          collisionRadius: 0.1,
+          alive: true,
+          brainwashed: false
+        });
+        visionBitSystem.update({
+          deltaSeconds: 0,
+          elapsedSeconds: 0,
+          targets: [behindTarget],
+          externalAlerts: []
+        });
+        const releasedVisionState = visionBitSystem.getTargetStates()[0];
+        checks.push({
+          name: "ビットvisual標的の扇形外解除",
+          ok:
+            acquiredVisionState.provenance === "visual" &&
+            acquiredTarget !== undefined &&
+            releasedVisionState.targetId === null &&
+            releasedVisionState.provenance === null,
+          detail: `acquired=${acquiredVisionState.targetId ?? "none"} / released=${releasedVisionState.targetId ?? "none"}`
+        });
+        visionBitSystem.dispose();
 
         schoolContext.dispose();
         schoolContext = null;
