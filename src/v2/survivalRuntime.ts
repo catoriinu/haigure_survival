@@ -167,6 +167,8 @@ export const createV2SurvivalRuntime = ({
 
   let disposed = false;
   let frame = initialFrame;
+  let blockerImpactCount = 0;
+  let actorImpactCount = 0;
 
   const assertActive = () => {
     if (disposed) {
@@ -187,7 +189,6 @@ export const createV2SurvivalRuntime = ({
       assertNonNegativeFiniteNumber("survival deltaSeconds", deltaSeconds);
       assertNonNegativeFiniteNumber("survival elapsedSeconds", elapsedSeconds);
 
-      alertCoordinator.update(deltaSeconds);
       const activeAlerts = alertCoordinator.getActiveAlerts();
       const playerTarget = createPlayerTarget(player);
 
@@ -204,6 +205,7 @@ export const createV2SurvivalRuntime = ({
         externalAlerts: activeAlerts
       });
 
+      alertCoordinator.update(deltaSeconds);
       alertCoordinator.publish([
         ...npcSystem.drainAlertRequests(),
         ...bitSystem.takeAlertRequests()
@@ -214,6 +216,12 @@ export const createV2SurvivalRuntime = ({
 
       beamActors = buildBeamActors(playerTarget);
       const beamEvents = beamSystem.update(deltaSeconds);
+      blockerImpactCount += beamEvents.impacts.filter(
+        (event) => event.hit.kind === "blocker"
+      ).length;
+      actorImpactCount += beamEvents.impacts.filter(
+        (event) => event.hit.kind === "actor"
+      ).length;
       const npcTracking = npcSystem.getTrackingSnapshots();
       const bitTracking = bitSystem.getTargetStates();
       const allTracking = [...npcTracking, ...bitTracking];
@@ -228,12 +236,8 @@ export const createV2SurvivalRuntime = ({
         alertTargetCount: allTracking.filter(
           (tracking) => tracking.provenance === "alert"
         ).length,
-        blockerImpactCount: beamEvents.impacts.filter(
-          (event) => event.hit.kind === "blocker"
-        ).length,
-        actorImpactCount: beamEvents.impacts.filter(
-          (event) => event.hit.kind === "actor"
-        ).length
+        blockerImpactCount,
+        actorImpactCount
       });
       return frame;
     },
