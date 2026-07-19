@@ -9,6 +9,11 @@ import {
 } from "@babylonjs/core";
 
 import { SCHOOL_STAGE } from "../../../src/world/stageCatalog";
+import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
+import {
+  V2_PLAYER_BASE_EYE_HEIGHT,
+  V2_PLAYER_MAX_EYE_HEIGHT_SCALE
+} from "../../../src/v2/playerController";
 import {
   loadStageSpatialContext,
   type StageSpatialContext
@@ -335,6 +340,74 @@ const validateLoadedContext = (
         actorWallHit.mesh === beamWallHit.mesh &&
         beamWallHit.mesh === sightWallHit.mesh,
       `actor=${actorWallHit?.mesh.name ?? "なし"} / beam=${beamWallHit?.mesh.name ?? "なし"} / sight=${sightWallHit?.mesh.name ?? "なし"}`
+    )
+  );
+
+  const maximumEyeHeight =
+    V2_PLAYER_BASE_EYE_HEIGHT * V2_PLAYER_MAX_EYE_HEIGHT_SCALE;
+  const footSurfaceClearance = 0.05 * BLENDER_METERS_TO_WORLD_UNITS;
+  const landingCentersBlender = [
+    new Vector3(-9.6, 44.3, 0),
+    new Vector3(44.4, 44.3, 0),
+    new Vector3(-11.4, -0.5, 0)
+  ];
+  const headroomResults = landingCentersBlender.map((center) => {
+    const horizontalPosition = new Vector3(
+      -center.x * BLENDER_METERS_TO_WORLD_UNITS,
+      0,
+      -center.y * BLENDER_METERS_TO_WORLD_UNITS
+    );
+    const storageFoot = horizontalPosition.add(
+      new Vector3(0, footSurfaceClearance, 0)
+    );
+    const storageMaximumEye = storageFoot.add(
+      new Vector3(0, maximumEyeHeight, 0)
+    );
+    const landingFoot = horizontalPosition.add(
+      new Vector3(
+        0,
+        2.4 * BLENDER_METERS_TO_WORLD_UNITS + footSurfaceClearance,
+        0
+      )
+    );
+    const landingMaximumEye = landingFoot.add(
+      new Vector3(0, maximumEyeHeight, 0)
+    );
+    return {
+      storageMaximumEyeHit: context.queries.castActorSegment(
+        storageFoot,
+        storageMaximumEye
+      ),
+      landingUndersideHit: context.queries.castActorSegment(
+        landingFoot,
+        storageFoot
+      ),
+      landingMaximumEyeHit: context.queries.castActorSegment(
+        landingFoot,
+        landingMaximumEye
+      )
+    };
+  });
+  checks.push(
+    createCheck(
+      "3階段の倉庫・踊り場最大視点高",
+      headroomResults.every(
+        (result) =>
+          result.storageMaximumEyeHit === null &&
+          result.landingUndersideHit?.mesh.name.startsWith(
+            "COL_StairLanding_"
+          ) === true &&
+          result.landingMaximumEyeHit === null
+      ),
+      headroomResults
+        .map(
+          (result, index) =>
+            `${["NW", "NE", "SW"][index]}=` +
+            `倉庫:${result.storageMaximumEyeHit?.mesh.name ?? "clear"},` +
+            `踊り場下面:${result.landingUndersideHit?.mesh.name ?? "なし"},` +
+            `踊り場上:${result.landingMaximumEyeHit?.mesh.name ?? "clear"}`
+        )
+        .join(" / ")
     )
   );
 
