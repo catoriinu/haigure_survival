@@ -440,7 +440,10 @@ const validateLoadedContext = (
       landingMaximumEyeHit: context.queries.castActorSegment(
         landingFoot,
         landingMaximumEye
-      )
+      ),
+      landingFootInBoundary: context.boundary.contains(landingFoot),
+      landingMaximumEyeInBoundary:
+        context.boundary.contains(landingMaximumEye)
     };
   });
   checks.push(
@@ -452,7 +455,9 @@ const validateLoadedContext = (
           result.landingUndersideHit?.mesh.name.startsWith(
             "COL_StairLanding_"
           ) === true &&
-          result.landingMaximumEyeHit === null
+          result.landingMaximumEyeHit === null &&
+          result.landingFootInBoundary &&
+          result.landingMaximumEyeInBoundary
       ),
       headroomResults
         .map(
@@ -460,7 +465,8 @@ const validateLoadedContext = (
             `${["NW", "NE", "SW"][index]}=` +
             `倉庫:${result.storageMaximumEyeHit?.mesh.name ?? "clear"},` +
             `踊り場下面:${result.landingUndersideHit?.mesh.name ?? "なし"},` +
-            `踊り場上:${result.landingMaximumEyeHit?.mesh.name ?? "clear"}`
+            `踊り場上:${result.landingMaximumEyeHit?.mesh.name ?? "clear"},` +
+            `境界:足元=${result.landingFootInBoundary},最大視点=${result.landingMaximumEyeInBoundary}`
         )
         .join(" / ")
     )

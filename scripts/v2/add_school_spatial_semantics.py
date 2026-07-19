@@ -498,7 +498,7 @@ def create_semantic_objects(collection: bpy.types.Collection) -> None:
     create_box_mesh(
         "BND_Stage",
         (-18.4, -12.3, -0.5),
-        (63.2, 51.3, 3.5),
+        (63.2, 51.3, 4.6),
         collection,
         {
             "hs_id": "stage",
