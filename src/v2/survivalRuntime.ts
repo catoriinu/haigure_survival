@@ -1,9 +1,6 @@
-import { Color3, Vector3, type Scene } from "@babylonjs/core";
+import { Color3, type Scene } from "@babylonjs/core";
 
-import {
-  PLAYER_SPRITE_HEIGHT,
-  PLAYER_SPRITE_WIDTH
-} from "../game/characterSprites";
+import { PLAYER_SPRITE_WIDTH } from "../game/characterSprites";
 import type { StageSpatialContext } from "../world/stageSpatialContext";
 import { createV2AlertCoordinator } from "./alertCoordinator";
 import { createV2BeamSystem } from "./beamCollision";
@@ -69,10 +66,8 @@ const createPlayerActorSphere = (
   Object.freeze({
     id: target.id,
     kind: "player" as const,
-    center: target.footPosition.add(
-      new Vector3(0, PLAYER_SPRITE_HEIGHT * 0.5, 0)
-    ),
-    radius: PLAYER_SPRITE_HEIGHT * 0.5
+    center: target.aimPosition.clone(),
+    radius: target.collisionRadius
   });
 
 export const createV2SurvivalRuntime = ({
