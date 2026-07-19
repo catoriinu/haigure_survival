@@ -54,6 +54,16 @@ flowchart LR
 | T06 | `codex/v2-t06-school-integration` |
 | T07 | `codex/v2-t07-regression-docs` |
 
+PR #41以降は、レビュー可能な一ブランチ単位へ次のように分割する。
+
+| 作業単位 | ブランチ名 |
+|---|---|
+| B03-0 設計確定 | `codex/v2-b03-design-freeze` |
+| T04-2A 高さ付きNav基盤 | `codex/v2-t04-height-nav-core` |
+| B03-1 建築仕上げ | `codex/v2-b03-architecture` |
+| B03-2 内装・最適化 | `codex/v2-b03-interiors` |
+| T04-2B 学校複数階統合 | `codex/v2-t04-school-multifloor` |
+
 ### リリースブランチ
 
 - v2に必要なタスクが`develop`へ揃い、リリース準備を始める時点で`develop`から作成する。
@@ -64,7 +74,7 @@ flowchart LR
 
 ## 3. タスク開始手順
 
-1. `docs/plan.md`、対象の`docs/plans/v2/<タスクID>/plan.md`、本書を読む。
+1. `docs/plan.md`、`docs/plans/v2/next_tasks_plan.md`、対象の`docs/plans/v2/<タスクID>/plan.md`、本書を読む。
 2. `git status`で未コミット変更がないことを確認する。
 3. `develop`へ切り替え、originの最新`develop`を取り込む。
 4. 対象タスク専用の`codex/v2-<タスク名>`ブランチを作成する。
@@ -101,6 +111,8 @@ gh auth status
 
 - T02～T05は共通コードへの変更が重なるため、直列で`develop`へマージする。
 - B01～B03は依存条件を満たし、T系タスクと共有コードまたは同一のBlender／GLB／NavMesh資産を編集しない場合に限り、T系タスクと並行できる。
+- PR #41以降はB03-0とT04-2Aだけを並行できる。T04-2Aは学校`.blend`、GLB、NavMeshバイナリ、カタログハッシュを編集しない。
+- B03-1とB03-2は同じ学校`.blend`とGLBを順番に編集する。T04-2Bは両方の完了後に開始する。
 - 並行ブランチはそれぞれ最新の`develop`から作成し、別タスクブランチから派生させない。
 - `.blend`と`.glb`は同時に複数ブランチで編集しない。Blender資産は常に1ブランチ・1担当とする。
 - `docs/plan.md`は統合担当だけが更新し、並行担当は自分の個別計画を更新する。
