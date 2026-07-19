@@ -424,3 +424,13 @@ B01で承認された学校間取りを前提として、Blenderで学校の初�
 - 第4修正版で「床面から2.4mまで開放」とした記録は地面Z＝0m基準であり、舞台上面基準の通過高として不足していた。`VIS_GymStageStairHeadWall_East/West`と`COL_GymStageStairHeadWall_East/West`の下端をZ＝3.4mへ上げ、舞台上面からBlender 2.4mの開口を表示・衝突の両方で一致させた。NavMeshだけを接続する仮connector面は採用せず削除した。
 - 修正後は校庭、各出入口、3階段踊り場、体育館、体育倉庫、舞台を含む代表10経路がすべて要求終点へ到達し、終点誤差は`4.3e-7`以下だった。最終`.blend`は308,457 bytes、SHA-256 `42617927F6AD7AB4F4C8776CA3E8EC3999BA12E9DF90D9551342D0A97EEF5996`、GLBは739,444 bytes、SHA-256 `55A6EAE9AAA169E1CB6389C2D3924BED05D1F9530105DCF92F9F9808FCFEE381`、NavMeshは151,552 bytes、SHA-256 `C0699A5C371AB30A5B85241DEEE38A2603258DE8961A095AA5EF55031A4040E9`である。同一入力からの2回ベイクでNavMeshの容量・SHA-256が一致し、T01 `.blend`・GLBの既知ハッシュも不変だった。
 - 舞台階段の形状ディテールと同色面の境界表現はB03で仕上げる。NPC・ビット用の複数階および高さ付き接続はT05以降で実装し、B02資産へセル互換や仮の階段リンクを残さない。
+
+### 2026-07-19 学校出入口コライダーの連続ランプ化
+
+- 主玄関の表示2段は維持し、`COL_EntryStep01/02`を校庭地面Z＝-0.30mから1階床Z＝0.00mへ連続する2枚の斜面へ変更した。
+- 渡り廊下接続部は、重なっていた`COL_NorthSouthEntryTataki`を床と同じ高さへ平坦化した。表示用TatakiとThresholdは変更していない。
+- 旧`COL_NorthSouthEntryThreshold`を`COL_GymCourtyardEntryRamp`へ置き換え、校庭側X＝31.9m・Z＝-0.30mから体育館側X＝33.4m・Z＝0.00mまでを結ぶ1:5連続斜面とした。
+- `NAV_Walkable_EntryTransitions`を同じ衝突面から再生成し、校庭から体育館西側出入口への代表経路を追加した。全11経路は要求終点へ到達し、NavMeshは5,541頂点・1,847三角形となった。同一入力からの2回ベイクでGLB・NavMeshの容量とSHA-256が一致した。
+- 更新後のBlenderシーンは443 Object／418 Mesh（`VIS_`263件、`COL_`144件、`NAV_`8件）を維持した。`.blend`のSHA-256は`3798F81AE780A0074FFC2B10325E760538CE450399B57A0ACF834997FE2EF30F`である。
+- GLBは737,684 bytes、SHA-256 `396C9B5F88DAE9563B7B6F3C1CA7C9E44F07F6FEB0BDFAD24A737D9AA559595B`、NavMeshは152,724 bytes、SHA-256 `40983EC74208D8902051D56C0418BD6ED5E727D85436503B1DD63903F2C836A0`となった。
+- T02実ブラウザは17/17項目PASS、console warning／error 0件で、`npm run build`、`build:t02`、`build:t03`、`build:t04`、`git diff --check`、strict UTF-8・BOMなし検査も成功した。

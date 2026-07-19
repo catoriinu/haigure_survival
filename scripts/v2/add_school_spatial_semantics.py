@@ -39,7 +39,7 @@ WALKABLE_SOURCES = {
             "COL_EntryStep02",
             "COL_NorthEntryStep",
             "COL_NorthSouthEntryTataki",
-            "COL_NorthSouthEntryThreshold",
+            "COL_GymCourtyardEntryRamp",
         ),
     ),
     "NAV_Walkable_Stairs": (
