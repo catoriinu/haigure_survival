@@ -41,7 +41,6 @@ const titleStartHint = document.getElementById("titleStartHint") as HTMLDivEleme
 const titleMessage = document.getElementById("titleMessage") as HTMLDivElement;
 const titleMode = document.getElementById("titleMode") as HTMLDivElement;
 const titleVersion = document.getElementById("titleVersion") as HTMLDivElement;
-const crosshair = document.getElementById("crosshair") as HTMLDivElement;
 
 const engine = new Engine(canvas, true);
 const scene = new Scene(engine);
@@ -70,7 +69,6 @@ titleOverlay.style.display = "flex";
 minimapCanvas.style.display = "none";
 minimapReadout.style.display = "none";
 staminaGauge.style.display = "none";
-crosshair.style.display = "none";
 statusInfo.style.display = "none";
 helpPanel.style.display = "none";
 
@@ -136,9 +134,7 @@ const startPlay = () => {
     titleOverlay.style.display = "none";
     statusInfo.style.display = "block";
     helpPanel.style.display = "block";
-    crosshair.style.display = "block";
-    helpPanel.textContent =
-      "WASD：移動  Shift：ダッシュ  マウス：視点  Esc：マウス解放";
+    helpPanel.textContent = "操作説明\nWASD: 移動\nShift: ダッシュ";
   }
   canvas.focus();
   void (canvas as unknown as Element).requestPointerLock().catch(() => {});
