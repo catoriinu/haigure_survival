@@ -1,39 +1,36 @@
 import {
   ArcRotateCamera,
-  type BaseTexture,
   Color4,
   Engine,
   HemisphericLight,
   Logger,
-  Mesh,
   Scene,
   Vector3
 } from "@babylonjs/core";
-import {
-  buildStageContext,
-  disposeStageContext,
-  type StageContext
-} from "../../../src/world/stageContext";
-import {
-  cellToWorld,
-  gridAreaCenterToWorld,
-  worldToCell
-} from "../../../src/game/gridUtils";
-import {
-  loadStageDefinition,
-  type StageSelection
-} from "../../../src/world/stageSelection";
 
-type CheckResult = {
+import { SCHOOL_STAGE } from "../../../src/world/stageCatalog";
+import {
+  loadStageSpatialContext,
+  type StageSpatialContext
+} from "../../../src/world/stageSpatialContext";
+
+type CheckResult = Readonly<{
   name: string;
   ok: boolean;
   detail: string;
-};
+}>;
 
-type ValidationState = {
+type ValidationState = Readonly<{
   status: "running" | "passed" | "failed";
-  checks: CheckResult[];
-};
+  checks: readonly CheckResult[];
+}>;
+
+type SceneResourceCounts = Readonly<{
+  meshes: number;
+  materials: number;
+  textures: number;
+  transformNodes: number;
+}>;
 
 declare global {
   interface Window {
@@ -41,86 +38,66 @@ declare global {
   }
 }
 
-const stageFiles = [
-  ["laboratory", "laboratory.json", 17, 56],
-  ["city_center", "city_center.json", 112, 116],
-  ["arena", "arena.json", 27, 27],
-  ["arena_trap_room", "arena_trap_room.json", 27, 27],
-  ["arena_roulette", "arena_roulette.json", 27, 27],
-  ["arena_mirror_house", "arena_mirror_house.json", 27, 27],
-  ["labyrinth", "labyrinth.json", 76, 64],
-  ["labyrinth_dynamic", "labyrinth_dynamic.json", 76, 64]
-] as const;
-
-const stageSelections = stageFiles.map(
-  ([id, filename]): StageSelection => ({
-    id,
-    label: id,
-    definitionPath: `${import.meta.env.BASE_URL}stage/${filename}`
-  })
-);
-const glbSelection: StageSelection = {
-  id: "t01_glb_collision_course",
-  label: "T01 立体テストコース",
-  definitionPath: `${import.meta.env.BASE_URL}fixtures/t01_glb_collision_course.json`
-};
-
-const browserErrors: string[] = [];
-const formatBrowserError = (value: unknown) =>
-  value instanceof Error ? `${value.name}: ${value.message}` : String(value);
-window.addEventListener("error", (event) => {
-  browserErrors.push(formatBrowserError(event.error ?? event.message));
-});
-window.addEventListener("unhandledrejection", (event) => {
-  browserErrors.push(`unhandledrejection: ${formatBrowserError(event.reason)}`);
-});
-const originalConsoleError = console.error.bind(console);
-console.error = (...values: unknown[]) => {
-  browserErrors.push(values.map(formatBrowserError).join(" "));
-  originalConsoleError(...values);
-};
-
 const canvas = document.getElementById(
   "render-canvas"
 ) as unknown as HTMLCanvasElement;
 const summary = document.getElementById("summary") as HTMLElement;
 const results = document.getElementById("results") as HTMLOListElement;
 const runButton = document.getElementById("run-validation") as HTMLButtonElement;
+
 const engine = new Engine(canvas, true, {
   preserveDrawingBuffer: true,
   stencil: true
 });
 const scene = new Scene(engine);
 scene.clearColor = new Color4(0.025, 0.045, 0.07, 1);
+
 const camera = new ArcRotateCamera(
   "T02Camera",
-  -1.02,
-  1.02,
-  3.9,
-  new Vector3(0, 0.18, -1.1),
+  -Math.PI / 2.4,
+  Math.PI / 3.1,
+  8,
+  new Vector3(1, 0, 0),
   scene
 );
 camera.attachControl(canvas, true);
+camera.lowerRadiusLimit = 3;
+camera.upperRadiusLimit = 14;
+
 const light = new HemisphericLight(
   "T02Light",
   new Vector3(-0.4, 1, -0.2),
   scene
 );
-light.intensity = 1.25;
+light.intensity = 1.1;
 
-let displayedContext: StageContext | null = null;
-let running = false;
+const browserErrors: string[] = [];
+const formatError = (value: unknown) =>
+  value instanceof Error ? `${value.name}: ${value.message}` : String(value);
 
-const createCheck = (name: string, ok: boolean, detail: string): CheckResult => ({
-  name,
-  ok,
-  detail
+window.addEventListener("error", (event) => {
+  browserErrors.push(formatError(event.error ?? event.message));
+});
+window.addEventListener("unhandledrejection", (event) => {
+  browserErrors.push(`unhandledrejection: ${formatError(event.reason)}`);
 });
 
-const nearlyEqual = (actual: number, expected: number, tolerance = 1e-4) =>
-  Math.abs(actual - expected) <= tolerance;
+const originalConsoleError = console.error.bind(console);
+console.error = (...values: unknown[]) => {
+  browserErrors.push(values.map(formatError).join(" "));
+  originalConsoleError(...values);
+};
 
-const renderResults = (checks: CheckResult[]) => {
+let running = false;
+let activeContext: StageSpatialContext | null = null;
+
+const createCheck = (
+  name: string,
+  ok: boolean,
+  detail: string
+): CheckResult => ({ name, ok, detail });
+
+const renderResults = (checks: readonly CheckResult[]) => {
   results.replaceChildren(
     ...checks.map((check) => {
       const item = document.createElement("li");
@@ -129,40 +106,76 @@ const renderResults = (checks: CheckResult[]) => {
       return item;
     })
   );
-  const failed = checks.filter((check) => !check.ok).length;
-  summary.textContent = `全${checks.length}項目 / PASS ${checks.length - failed} / FAIL ${failed}`;
+  const failedCount = checks.filter((check) => !check.ok).length;
+  summary.textContent = `全${checks.length}項目 / PASS ${checks.length - failedCount} / FAIL ${failedCount}`;
 };
 
-const sceneSignature = () => ({
-  meshes: new Set(scene.meshes),
-  materials: new Set(scene.materials),
-  textures: new Set(scene.textures),
-  transformNodes: new Set(scene.transformNodes)
+const resolveAssetUrl = (relativeUrl: string) =>
+  `${import.meta.env.BASE_URL}${relativeUrl}`;
+
+const fetchBinary = async (relativeUrl: string) => {
+  const response = await fetch(resolveAssetUrl(relativeUrl), {
+    cache: "no-store"
+  });
+  if (!response.ok) {
+    throw new Error(
+      `検証資産の取得に失敗しました: ${relativeUrl} (${response.status})`
+    );
+  }
+  return new Uint8Array(await response.arrayBuffer());
+};
+
+const calculateSha256 = async (data: Uint8Array) => {
+  const bytes = Uint8Array.from(data);
+  const digest = await crypto.subtle.digest("SHA-256", bytes.buffer);
+  return Array.from(new Uint8Array(digest), (value) =>
+    value.toString(16).padStart(2, "0")
+  ).join("");
+};
+
+const countSceneResources = (): SceneResourceCounts => {
+  const sharedBrdfTexture = scene.environmentBRDFTexture;
+  return {
+    meshes: scene.meshes.length,
+    materials: scene.materials.length,
+    textures: scene.textures.filter((texture) => texture !== sharedBrdfTexture)
+      .length,
+    transformNodes: scene.transformNodes.length
+  };
+};
+
+const sceneResourceCountsEqual = (
+  left: SceneResourceCounts,
+  right: SceneResourceCounts
+) =>
+  left.meshes === right.meshes &&
+  left.materials === right.materials &&
+  left.textures === right.textures &&
+  left.transformNodes === right.transformNodes;
+
+const captureOwnedResources = (context: StageSpatialContext) => ({
+  nodes: [
+    ...context.resources.assetContainer.meshes,
+    ...context.resources.assetContainer.transformNodes
+  ],
+  materials: [...context.resources.assetContainer.materials],
+  textures: [...context.resources.assetContainer.textures]
 });
 
-const signatureMatches = (
-  baseline: ReturnType<typeof sceneSignature>,
-  ignoredTextures = new Set<BaseTexture>()
-) => {
-  const currentTextures = scene.textures.filter(
-    (item) => !ignoredTextures.has(item)
-  );
-  const baselineTextures = [...baseline.textures].filter(
-    (item) => !ignoredTextures.has(item)
-  );
-  return (
-    scene.meshes.every((item) => baseline.meshes.has(item)) &&
-    scene.meshes.length === baseline.meshes.size &&
-    scene.materials.every((item) => baseline.materials.has(item)) &&
-    scene.materials.length === baseline.materials.size &&
-    currentTextures.every((item) => baseline.textures.has(item)) &&
-    currentTextures.length === baselineTextures.length &&
-    scene.transformNodes.every((item) => baseline.transformNodes.has(item)) &&
-    scene.transformNodes.length === baseline.transformNodes.size
-  );
-};
+const inspectDisposedResources = (
+  captured: ReturnType<typeof captureOwnedResources>
+) => ({
+  liveNodes: captured.nodes.filter((node) => !node.isDisposed()),
+  liveMaterials: captured.materials.filter((material) =>
+    scene.materials.includes(material)
+  ),
+  liveTextures: captured.textures.filter(
+    (texture) =>
+      scene.textures.includes(texture) || texture.getInternalTexture() !== null
+  )
+});
 
-const waitForSceneResources = async () => {
+const settleScene = async () => {
   await scene.whenReadyAsync(true);
   await new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
@@ -170,246 +183,165 @@ const waitForSceneResources = async () => {
   await scene.whenReadyAsync(true);
 };
 
-const captureGlbResources = (context: StageContext) => ({
-  nodes: [
-    ...(context.resources.assetContainer?.meshes ?? []),
-    ...(context.resources.assetContainer?.transformNodes ?? [])
-  ],
-  materials: [...(context.resources.assetContainer?.materials ?? [])],
-  textures: [...(context.resources.assetContainer?.textures ?? [])]
-});
-
-const inspectDisposedGlbResources = (
-  captured: ReturnType<typeof captureGlbResources>
-) => {
-  const liveNodes = captured.nodes.filter((item) => !item.isDisposed());
-  const liveMaterials = captured.materials.filter((item) =>
-    scene.materials.includes(item)
+const validateAssetHashes = async (checks: CheckResult[]) => {
+  const [glbData, navmeshData] = await Promise.all([
+    fetchBinary(SCHOOL_STAGE.glbUrl),
+    fetchBinary(SCHOOL_STAGE.navmeshUrl)
+  ]);
+  const [glbSha256, navmeshSha256] = await Promise.all([
+    calculateSha256(glbData),
+    calculateSha256(navmeshData)
+  ]);
+  checks.push(
+    createCheck(
+      "学校GLB SHA-256",
+      glbSha256 === SCHOOL_STAGE.glbSha256,
+      `catalog=${SCHOOL_STAGE.glbSha256} / actual=${glbSha256}`
+    ),
+    createCheck(
+      "学校NavMesh SHA-256",
+      navmeshSha256 === SCHOOL_STAGE.navmeshSha256,
+      `catalog=${SCHOOL_STAGE.navmeshSha256} / actual=${navmeshSha256}`
+    )
   );
-  const liveTextures = captured.textures.filter(
-    (item) => scene.textures.includes(item) || item.getInternalTexture() !== null
-  );
-  return { liveNodes, liveMaterials, liveTextures };
 };
 
-const readBounds = (mesh: Mesh) => {
-  mesh.computeWorldMatrix(true);
-  const box = mesh.getBoundingInfo().boundingBox;
-  return {
-    center: box.centerWorld,
-    size: box.maximumWorld.subtract(box.minimumWorld)
-  };
-};
-
-const validateProceduralStages = async (
-  baseline: ReturnType<typeof sceneSignature>,
+const validateLoadedContext = (
+  context: StageSpatialContext,
   checks: CheckResult[]
 ) => {
-  for (let index = 0; index < stageSelections.length; index += 1) {
-    const selection = stageSelections[index];
-    const [, , expectedColumns, expectedRows] = stageFiles[index];
-    const definition = await loadStageDefinition(selection);
-    checks.push(
-      createCheck(
-        `${selection.id}: v2定義`,
-        definition.schemaVersion === 2 && definition.kind === "procedural-grid",
-        `schemaVersion=${definition.schemaVersion}, kind=${definition.kind}`
-      )
-    );
-    const context = await buildStageContext(scene, definition);
-    checks.push(
-      createCheck(
-        `${selection.id}: グリッド寸法`,
-        context.layout.columns === expectedColumns &&
-          context.layout.rows === expectedRows,
-        `${context.layout.columns}×${context.layout.rows}`
-      )
-    );
-    checks.push(
-      createCheck(
-        `${selection.id}: procedural-grid構築`,
-        context.resources.authoredMeshes.length > 0 &&
-          context.resources.colliders.length > 0,
-        `mesh=${context.resources.authoredMeshes.length}, collider=${context.resources.colliders.length}`
-      )
-    );
-    disposeStageContext(context);
-    checks.push(
-      createCheck(
-        `${selection.id}: コンテキスト破棄`,
-        signatureMatches(baseline),
-        `scene mesh=${scene.meshes.length}, material=${scene.materials.length}, texture=${scene.textures.length}`
-      )
-    );
-  }
-};
+  const playerSpawn = context.markers
+    .requireSingle("player_spawn")
+    .node.getAbsolutePosition();
+  const expectedPlayerSpawn = new Vector3(0.375, 0, 0);
+  const npcSpawnVolumes = context.volumes.getByRole("npc_spawn");
+  const bitSpawnVolumes = context.volumes.getByRole("bit_spawn");
 
-const validateGlbStage = async (
-  baseline: ReturnType<typeof sceneSignature>,
-  checks: CheckResult[]
-) => {
-  const definition = await loadStageDefinition(glbSelection);
   checks.push(
     createCheck(
-      "T01 GLB: v2定義",
-      definition.schemaVersion === 2 && definition.kind === "glb",
-      `schemaVersion=${definition.schemaVersion}, kind=${definition.kind}`
+      "学校メタデータ契約",
+      context.stage === SCHOOL_STAGE &&
+        context.metadata.schemaVersion === SCHOOL_STAGE.assetSchemaVersion &&
+        context.metadata.stageId === SCHOOL_STAGE.id &&
+        context.metadata.navProfileId === SCHOOL_STAGE.navProfileId,
+      `stage=${context.metadata.stageId} / schema=${context.metadata.schemaVersion} / navProfile=${context.metadata.navProfileId}`
+    ),
+    createCheck(
+      "学校GLBの厳格意味分類",
+      context.resources.visualMeshes.length === 263 &&
+        context.resources.normalColliders.length === 144 &&
+        context.resources.actorOnlyColliders.length === 0 &&
+        context.resources.navSourceMeshes.length === 8 &&
+        context.markers.all.length === 1 &&
+        context.volumes.all.length === 2,
+      `VIS=${context.resources.visualMeshes.length} / COL=${context.resources.normalColliders.length} / ActorOnly=${context.resources.actorOnlyColliders.length} / NAV=${context.resources.navSourceMeshes.length} / MRK=${context.markers.all.length} / VOL=${context.volumes.all.length}`
+    ),
+    createCheck(
+      "3Dスポーン・境界・生成Volume",
+      Vector3.Distance(playerSpawn, expectedPlayerSpawn) <= 1e-5 &&
+        context.boundary.contains(playerSpawn) &&
+        npcSpawnVolumes.length === 1 &&
+        bitSpawnVolumes.length === 1,
+      `spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)}) / boundary=${context.boundary.contains(playerSpawn)} / npc=${npcSpawnVolumes.length} / bit=${bitSpawnVolumes.length}`
     )
   );
-  const context = await buildStageContext(scene, definition);
-  const visMeshes = context.resources.authoredMeshes.filter((mesh) =>
-    mesh.name.startsWith("VIS_")
-  );
-  const colMeshes = context.resources.authoredMeshes.filter((mesh) =>
-    mesh.name.startsWith("COL_")
-  );
+
+  const normalColliderSet = new Set(context.resources.normalColliders);
+  const actorColliderSet = new Set(context.resources.actorColliders);
+  const beamBlockerSet = new Set(context.resources.beamBlockers);
+  const sightBlockerSet = new Set(context.resources.sightBlockers);
   checks.push(
     createCheck(
-      "T01 GLB: VIS/COL設定",
-      visMeshes.length === 8 &&
-        colMeshes.length === 8 &&
-        visMeshes.every((mesh) => mesh.isVisible && !mesh.checkCollisions) &&
-        colMeshes.every((mesh) => !mesh.isVisible && mesh.checkCollisions),
-      `VIS=${visMeshes.length}, COL=${colMeshes.length}`
-    )
-  );
-  const floor = readBounds(
-    context.resources.authoredMeshes.find(
-      (mesh) => mesh.name === "VIS_FloorBase"
-    ) as Mesh
-  );
-  const step = readBounds(
-    context.resources.authoredMeshes.find(
-      (mesh) => mesh.name === "VIS_Step015"
-    ) as Mesh
-  );
-  checks.push(
-    createCheck(
-      "T01 GLB: 1m→0.25縮尺",
-      nearlyEqual(floor.size.x, 2.25) &&
-        nearlyEqual(floor.size.z, 2.5) &&
-        nearlyEqual(step.size.y, 0.0375),
-      `floor=${floor.size.x.toFixed(4)}×${floor.size.z.toFixed(4)}, step=${step.size.y.toFixed(4)}`
-    )
-  );
-  const slopeLanding = readBounds(
-    context.resources.authoredMeshes.find(
-      (mesh) => mesh.name === "VIS_SlopeLanding"
-    ) as Mesh
-  ).center;
-  const stairLanding = readBounds(
-    context.resources.authoredMeshes.find(
-      (mesh) => mesh.name === "VIS_StairLanding"
-    ) as Mesh
-  ).center;
-  const wall = readBounds(
-    context.resources.authoredMeshes.find(
-      (mesh) => mesh.name === "VIS_WallStop"
-    ) as Mesh
-  ).center;
-  checks.push(
-    createCheck(
-      "T01 GLB: Babylon最終軸",
-      nearlyEqual(slopeLanding.x, 0.75) &&
-        nearlyEqual(stairLanding.x, -0.75) &&
-        wall.z < step.center.z,
-      `slopeX=${slopeLanding.x.toFixed(3)}, stairX=${stairLanding.x.toFixed(3)}, wallZ=${wall.z.toFixed(3)}, stepZ=${step.center.z.toFixed(3)}`
-    )
-  );
-  const spawn = cellToWorld(context.layout, context.layout.spawn, 0);
-  checks.push(
-    createCheck(
-      "T01 GLB: Blender原点グリッド",
-      nearlyEqual(spawn.x, 0) &&
-        nearlyEqual(spawn.z, -0.125) &&
-        context.layout.columnDirection.x === -1 &&
-        context.layout.rowDirection.z === -1,
-      `spawn=(${spawn.x.toFixed(3)},${spawn.z.toFixed(3)}), colX=${context.layout.columnDirection.x}, rowZ=${context.layout.rowDirection.z}`
-    )
-  );
-  const roundTripCell = { col: 1, row: 8 };
-  const roundTripWorld = cellToWorld(context.layout, roundTripCell, 0);
-  const roundTripResult = worldToCell(context.layout, roundTripWorld);
-  checks.push(
-    createCheck(
-      "T01 GLB: 非対称セル往復",
-      roundTripResult.col === roundTripCell.col &&
-        roundTripResult.row === roundTripCell.row,
-      `cell=(${roundTripCell.col},${roundTripCell.row}) → world=(${roundTripWorld.x.toFixed(3)},${roundTripWorld.z.toFixed(3)}) → cell=(${roundTripResult.col},${roundTripResult.row})`
-    )
-  );
-  const assemblyCenter = gridAreaCenterToWorld(
-    context.layout,
-    context.assemblyArea,
-    0
-  );
-  checks.push(
-    createCheck(
-      "T01 GLB: assembly_area中心",
-      nearlyEqual(assemblyCenter.x, 0) && nearlyEqual(assemblyCenter.z, -0.25),
-      `center=(${assemblyCenter.x.toFixed(3)},${assemblyCenter.z.toFixed(3)})`
-    )
-  );
-  const managedResources = captureGlbResources(context);
-  const replacementContext = await buildStageContext(scene, definition);
-  const replacementResources = captureGlbResources(replacementContext);
-  const sharedBrdfTexture = scene.environmentBRDFTexture;
-  disposeStageContext(context);
-  const liveManagedResources = inspectDisposedGlbResources(managedResources);
-  checks.push(
-    createCheck(
-      "T01 GLB: 先行ロード後の旧破棄",
-      liveManagedResources.liveNodes.length === 0 &&
-        liveManagedResources.liveMaterials.length === 0 &&
-        liveManagedResources.liveTextures.length === 0 &&
-        replacementContext.resources.authoredMeshes.every(
-          (mesh) => !mesh.isDisposed()
+      "actor・beam・sight衝突集合",
+      actorColliderSet.size === normalColliderSet.size &&
+        beamBlockerSet.size === normalColliderSet.size &&
+        sightBlockerSet.size === normalColliderSet.size &&
+        context.resources.normalColliders.every(
+          (mesh) =>
+            actorColliderSet.has(mesh) &&
+            beamBlockerSet.has(mesh) &&
+            sightBlockerSet.has(mesh)
         ),
-      `node=${liveManagedResources.liveNodes.length}, material=${liveManagedResources.liveMaterials.length}, texture=${liveManagedResources.liveTextures.length}, replacementMesh=${replacementContext.resources.authoredMeshes.length}`
-    )
-  );
-  disposeStageContext(replacementContext);
-  await waitForSceneResources();
-  const liveReplacementResources =
-    inspectDisposedGlbResources(replacementResources);
-  const ignoredTextures = new Set(
-    sharedBrdfTexture ? [sharedBrdfTexture] : []
-  );
-  checks.push(
-    createCheck(
-      "T01 GLB: AssetContainer破棄",
-      liveReplacementResources.liveNodes.length === 0 &&
-        liveReplacementResources.liveMaterials.length === 0 &&
-        liveReplacementResources.liveTextures.length === 0 &&
-        signatureMatches(baseline, ignoredTextures),
-      `node=${liveReplacementResources.liveNodes.length}, material=${liveReplacementResources.liveMaterials.length}, texture=${liveReplacementResources.liveTextures.length}, scene mesh=${scene.meshes.length}, transform=${scene.transformNodes.length}`
-    )
-  );
-  checks.push(
-    createCheck(
-      "T01 GLB: Scene共有BRDF Texture",
-      sharedBrdfTexture !== null &&
-        scene.environmentBRDFTexture === sharedBrdfTexture &&
-        scene.textures.includes(sharedBrdfTexture) &&
-        sharedBrdfTexture.getInternalTexture() !== null &&
-        sharedBrdfTexture.isReady(),
-      `name=${sharedBrdfTexture?.name ?? "なし"}, ready=${sharedBrdfTexture?.isReady() ?? false}`
+      `actor=${actorColliderSet.size} / beam=${beamBlockerSet.size} / sight=${sightBlockerSet.size} / normal=${normalColliderSet.size}`
     )
   );
 
-  const readyContext = await buildStageContext(scene, definition);
-  const readyResources = captureGlbResources(readyContext);
-  await waitForSceneResources();
-  disposeStageContext(readyContext);
-  const liveReadyResources = inspectDisposedGlbResources(readyResources);
+  const chestPosition = playerSpawn.add(new Vector3(0, 0.2, 0));
+  const outsidePosition = new Vector3(5.5, 0.2, 0);
+  const actorWallHit = context.queries.castActorSegment(
+    chestPosition,
+    outsidePosition
+  );
+  const beamWallHit = context.queries.castBeamSegment(
+    chestPosition,
+    outsidePosition
+  );
+  const sightWallHit = context.queries.castSightSegment(
+    chestPosition,
+    outsidePosition
+  );
   checks.push(
     createCheck(
-      "T01 GLB: 描画準備後の資源実体破棄",
-      liveReadyResources.liveNodes.length === 0 &&
-        liveReadyResources.liveMaterials.length === 0 &&
-        liveReadyResources.liveTextures.length === 0 &&
-        signatureMatches(baseline, ignoredTextures),
-      `node=${liveReadyResources.liveNodes.length}, material=${liveReadyResources.liveMaterials.length}, texture=${liveReadyResources.liveTextures.length}`
+      "学校実壁のactor・beam・sight遮蔽",
+      actorWallHit !== null &&
+        beamWallHit !== null &&
+        sightWallHit !== null &&
+        actorWallHit.mesh === beamWallHit.mesh &&
+        beamWallHit.mesh === sightWallHit.mesh,
+      `actor=${actorWallHit?.mesh.name ?? "なし"} / beam=${beamWallHit?.mesh.name ?? "なし"} / sight=${sightWallHit?.mesh.name ?? "なし"}`
+    )
+  );
+
+  const projectedSpawn = context.navigation.projectPoint(playerSpawn, 0.25);
+  const projectedSpawnHorizontalError = projectedSpawn
+    ? Math.hypot(
+        projectedSpawn.x - playerSpawn.x,
+        projectedSpawn.z - playerSpawn.z
+      )
+    : Number.POSITIVE_INFINITY;
+  const projectedSpawnVerticalError = projectedSpawn
+    ? Math.abs(projectedSpawn.y - playerSpawn.y)
+    : Number.POSITIVE_INFINITY;
+  checks.push(
+    createCheck(
+      "NavMesh復元とスポーン投影",
+      projectedSpawn !== null &&
+        projectedSpawnHorizontalError <= 1e-5 &&
+        projectedSpawnVerticalError <= 0.02,
+      projectedSpawn
+        ? `projected=(${projectedSpawn.x.toFixed(3)}, ${projectedSpawn.y.toFixed(4)}, ${projectedSpawn.z.toFixed(3)}) / horizontalError=${projectedSpawnHorizontalError.toFixed(6)} / verticalError=${projectedSpawnVerticalError.toFixed(6)}`
+        : "投影失敗"
+    )
+  );
+};
+
+const disposeAndInspect = async (
+  context: StageSpatialContext,
+  baseline: SceneResourceCounts,
+  checks: CheckResult[],
+  label: string
+) => {
+  const captured = captureOwnedResources(context);
+  context.dispose();
+  if (activeContext === context) {
+    activeContext = null;
+  }
+  await settleScene();
+
+  const liveResources = inspectDisposedResources(captured);
+  const currentCounts = countSceneResources();
+  checks.push(
+    createCheck(
+      `${label}: 所有資源の実体破棄`,
+      liveResources.liveNodes.length === 0 &&
+        liveResources.liveMaterials.length === 0 &&
+        liveResources.liveTextures.length === 0,
+      `node=${liveResources.liveNodes.length} / material=${liveResources.liveMaterials.length} / texture=${liveResources.liveTextures.length}`
+    ),
+    createCheck(
+      `${label}: Scene資源残留なし`,
+      sceneResourceCountsEqual(baseline, currentCounts),
+      `baseline=${JSON.stringify(baseline)} / current=${JSON.stringify(currentCounts)}`
     )
   );
 };
@@ -418,60 +350,58 @@ const runValidation = async () => {
   if (running) {
     return;
   }
-  browserErrors.length = 0;
-  const loggerErrorsAtStart = Logger.errorsCount;
   running = true;
   runButton.disabled = true;
-  if (displayedContext) {
-    disposeStageContext(displayedContext);
-    displayedContext = null;
-  }
+  summary.textContent = "学校GLB・NavMesh・3D意味Objectを検証中";
+  results.replaceChildren();
+  browserErrors.length = 0;
+  const loggerErrorsAtStart = Logger.errorsCount;
   const checks: CheckResult[] = [];
   window.__T02_VALIDATION__ = { status: "running", checks };
-  summary.textContent = "検証中";
-  results.replaceChildren();
-  const baseline = sceneSignature();
+
   try {
-    await validateProceduralStages(baseline, checks);
-    await validateGlbStage(baseline, checks);
-    const finalDefinition = await loadStageDefinition(stageSelections[2]);
-    const finalProceduralContext = await buildStageContext(scene, finalDefinition);
-    disposeStageContext(finalProceduralContext);
+    if (activeContext) {
+      activeContext.dispose();
+      activeContext = null;
+      await settleScene();
+    }
+    const baseline = countSceneResources();
+
+    await validateAssetHashes(checks);
+
+    activeContext = await loadStageSpatialContext(scene, SCHOOL_STAGE);
+    await settleScene();
+    validateLoadedContext(activeContext, checks);
+    await disposeAndInspect(activeContext, baseline, checks, "初回読込");
+
+    activeContext = await loadStageSpatialContext(scene, SCHOOL_STAGE);
+    await settleScene();
+    const reloadMetadataValid =
+      activeContext.metadata.stageId === SCHOOL_STAGE.id &&
+      activeContext.resources.visualMeshes.length === 263 &&
+      activeContext.resources.normalColliders.length === 144;
     checks.push(
       createCheck(
-        "JSON→GLB→JSON切り替え",
-        signatureMatches(
-          baseline,
-          new Set(
-            scene.environmentBRDFTexture
-              ? [scene.environmentBRDFTexture]
-              : []
-          )
-        ),
-        `最終破棄後 mesh=${scene.meshes.length}, material=${scene.materials.length}, texture=${scene.textures.length}, transform=${scene.transformNodes.length}`
+        "学校コンテキスト再読込",
+        reloadMetadataValid,
+        `stage=${activeContext.metadata.stageId} / VIS=${activeContext.resources.visualMeshes.length} / COL=${activeContext.resources.normalColliders.length}`
       )
     );
-    displayedContext = await buildStageContext(
-      scene,
-      await loadStageDefinition(glbSelection)
-    );
-    await waitForSceneResources();
+    await disposeAndInspect(activeContext, baseline, checks, "再読込");
   } catch (error) {
-    checks.push(
-      createCheck(
-        "検証処理",
-        false,
-        error instanceof Error ? error.message : String(error)
-      )
-    );
+    checks.push(createCheck("検証処理", false, formatError(error)));
+    if (activeContext) {
+      activeContext.dispose();
+      activeContext = null;
+    }
   } finally {
-    await waitForSceneResources();
-    const loggerErrorCount = Logger.errorsCount - loggerErrorsAtStart;
+    await scene.whenReadyAsync(true);
+    const loggerErrors = Logger.errorsCount - loggerErrorsAtStart;
     checks.push(
       createCheck(
-        "非同期エラー監視",
-        loggerErrorCount === 0 && browserErrors.length === 0,
-        `Babylon Logger=${loggerErrorCount}, browser=${browserErrors.join(" | ") || "なし"}`
+        "ブラウザ・Babylonエラー監視",
+        browserErrors.length === 0 && loggerErrors === 0,
+        `Babylon Logger=${loggerErrors} / browser=${browserErrors.join(" | ") || "なし"}`
       )
     );
     const failed = checks.some((check) => !check.ok);
@@ -487,5 +417,9 @@ const runValidation = async () => {
 
 runButton.addEventListener("click", () => void runValidation());
 window.addEventListener("resize", () => engine.resize());
+window.addEventListener("beforeunload", () => {
+  activeContext?.dispose();
+});
 engine.runRenderLoop(() => scene.render());
+
 void runValidation();
