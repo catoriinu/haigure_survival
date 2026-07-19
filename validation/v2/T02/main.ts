@@ -475,8 +475,8 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 309 &&
-        context.resources.normalColliders.length === 160 &&
+      context.resources.visualMeshes.length === 310 &&
+        context.resources.normalColliders.length === 161 &&
         context.resources.actorOnlyColliders.length === 0 &&
         context.resources.navSourceMeshes.length === 8 &&
         context.markers.all.length === 1 &&
@@ -799,6 +799,89 @@ const validateLoadedContext = (
       "実プレイヤーによる北西階段1階・屋上往復",
       rooftopRoundTrip.ok,
       `Waypoint=${rooftopRoundTrip.reachedWaypoints}/${rooftopRoundTrip.totalWaypoints} / 最高足元Y=${rooftopRoundTrip.highestFootY.toFixed(3)} / 最低足元Y=${rooftopRoundTrip.lowestFootY.toFixed(3)} / 最終水平誤差=${rooftopRoundTrip.finalHorizontalError.toFixed(3)} / 最終垂直誤差=${rooftopRoundTrip.finalVerticalError.toFixed(3)} / 境界内=${rooftopRoundTrip.stayedInsideBoundary} / エラー=${rooftopRoundTrip.errorMessage ?? "なし"}`
+    )
+  );
+
+  const northwestStorageBoundsExpectations = [
+    ["VIS_StairStorageShell_NW", [-9.0, 38.9, 0.0], [-6.75, 43.1, 3.5]],
+    ["COL_StairStorageShell_NW", [-9.0, 38.9, 0.0], [-6.75, 43.1, 3.5]],
+    ["COL_StairRampUpper_NW", [-9.0, 38.9, 2.3], [-6.6, 43.1, 3.6]]
+  ] as const;
+  const northwestStorageBoundsResults = northwestStorageBoundsExpectations.map(
+    ([name, minimum, maximum]) => ({
+      name,
+      ...compareBlenderBounds(
+        schoolMeshByName.get(name),
+        Vector3.FromArray(minimum),
+        Vector3.FromArray(maximum)
+      )
+    })
+  );
+  const openUpperStairVisuals = [
+    "VIS_StairSystem_NW_2FTo3F",
+    "VIS_StairSystem_NW_3FTo4F",
+    "VIS_StairSystem_NW_4FToRooftop"
+  ].map((name) => ({
+    name,
+    vertices: schoolMeshByName.get(name)?.getTotalVertices() ?? 0
+  }));
+  const storageCentralApproachHit = context.queries.castActorSegment(
+    blenderPointToBabylon(new Vector3(-9.6, 38.5, 1.0)),
+    blenderPointToBabylon(new Vector3(-9.6, 43.8, 1.0))
+  );
+  const storageWestWallHit = context.queries.castActorSegment(
+    blenderPointToBabylon(new Vector3(-9.2, 41.0, 1.0)),
+    blenderPointToBabylon(new Vector3(-8.8, 41.0, 1.0))
+  );
+  const storageSouthWallHit = context.queries.castActorSegment(
+    blenderPointToBabylon(new Vector3(-7.8, 38.5, 1.0)),
+    blenderPointToBabylon(new Vector3(-7.8, 39.3, 1.0))
+  );
+  const northwestStorageMaximumEyeHeight =
+    V2_PLAYER_BASE_EYE_HEIGHT * V2_PLAYER_MAX_EYE_HEIGHT_SCALE;
+  const storageMaximumEyeFoot = blenderPointToBabylon(
+    new Vector3(-7.8, 40.0, 0.05)
+  );
+  const storageMaximumEyeHit = context.queries.castActorSegment(
+    storageMaximumEyeFoot,
+    storageMaximumEyeFoot.add(
+      new Vector3(0, northwestStorageMaximumEyeHeight, 0)
+    )
+  );
+  const storageHighCeilingHit = context.queries.castActorSegment(
+    blenderPointToBabylon(new Vector3(-7.8, 40.0, 2.4)),
+    blenderPointToBabylon(new Vector3(-7.8, 40.0, 3.4))
+  );
+  const northwestStorageRoundTrip = validatePlayerWaypointTraversal(
+    context,
+    "北西階段下倉庫往復",
+    [
+      new Vector3(-9.6, 38.5, 0.0),
+      new Vector3(-9.6, 43.8, 0.0),
+      new Vector3(-7.8, 43.8, 0.0),
+      new Vector3(-7.8, 40.0, 0.0),
+      new Vector3(-7.8, 43.8, 0.0),
+      new Vector3(-9.6, 43.8, 0.0),
+      new Vector3(-9.6, 38.5, 0.0)
+    ],
+    [0.0, 0.0]
+  );
+  checks.push(
+    createCheck(
+      "北西階段の1階倉庫と2階以上の開放構造",
+      northwestStorageBoundsResults.every((result) => result.ok) &&
+        openUpperStairVisuals.every((result) => result.vertices === 600) &&
+        storageCentralApproachHit === null &&
+        storageWestWallHit?.mesh.name === "COL_StairStorageShell_NW" &&
+        storageSouthWallHit?.mesh.name === "COL_StairStorageShell_NW" &&
+        storageMaximumEyeHit === null &&
+        storageHighCeilingHit === null &&
+        northwestStorageRoundTrip.ok,
+      `${northwestStorageBoundsResults
+        .map((result) => `${result.name}=${result.ok ? "一致" : result.detail}`)
+        .join(" / ")} / 上階表示=${openUpperStairVisuals
+        .map((result) => `${result.name}:${result.vertices}`)
+        .join(",")} / 中央入口=${storageCentralApproachHit?.mesh.name ?? "clear"} / 西壁=${storageWestWallHit?.mesh.name ?? "なし"} / 南壁=${storageSouthWallHit?.mesh.name ?? "なし"} / 最大視点=${storageMaximumEyeHit?.mesh.name ?? "clear"} / 高天井帯=${storageHighCeilingHit?.mesh.name ?? "clear"} / Waypoint=${northwestStorageRoundTrip.reachedWaypoints}/${northwestStorageRoundTrip.totalWaypoints} / 境界内=${northwestStorageRoundTrip.stayedInsideBoundary} / エラー=${northwestStorageRoundTrip.errorMessage ?? "なし"}`
     )
   );
 
@@ -1157,8 +1240,8 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 309 &&
-      activeContext.resources.normalColliders.length === 160;
+      activeContext.resources.visualMeshes.length === 310 &&
+      activeContext.resources.normalColliders.length === 161;
     checks.push(
       createCheck(
         "学校コンテキスト再読込",
