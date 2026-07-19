@@ -19,6 +19,10 @@ import {
   type V2PlayerController
 } from "./playerController";
 import { createV2PlayerInput } from "./playerInput";
+import {
+  createV2SurvivalRuntime,
+  type V2SurvivalRuntime
+} from "./survivalRuntime";
 
 const canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
 const minimapCanvas = document.getElementById(
@@ -72,10 +76,17 @@ const formatLoadError = (error: unknown) =>
 
 let stage: StageSpatialContext;
 let player: V2PlayerController;
+let survival: V2SurvivalRuntime;
 try {
   stage = await loadStageSpatialContext(scene, SCHOOL_STAGE);
   const input = createV2PlayerInput(window);
   player = createV2PlayerController({ scene, camera, stage, input });
+  survival = createV2SurvivalRuntime({
+    scene,
+    stage,
+    player,
+    random: Math.random
+  });
 } catch (error) {
   titleStartHint.textContent = "読込エラー";
   titleMessage.textContent = formatLoadError(error);
@@ -91,6 +102,7 @@ titleMessage.style.display = "none";
 
 let started = false;
 let statusTimer = 0;
+let elapsedSeconds = 0;
 
 const startPlay = () => {
   if (!started) {
@@ -110,15 +122,27 @@ canvas.addEventListener("click", startPlay);
 
 engine.runRenderLoop(() => {
   const delta = Math.min(engine.getDeltaTime() / 1000, 0.05);
-  const frame = player.update(delta, started);
+  const playerFrame = player.update(delta, started);
+  let survivalFrame = survival.getFrame();
+  if (started) {
+    elapsedSeconds += delta;
+    survivalFrame = survival.update(delta, elapsedSeconds);
+  }
   statusTimer += delta;
   if (statusTimer >= 0.1) {
     statusTimer = 0;
-    const foot = frame.footPosition;
+    const foot = playerFrame.footPosition;
     statusInfo.textContent =
       `学校3D空間\n` +
       `X ${foot.x.toFixed(3)}  Y ${foot.y.toFixed(3)}  Z ${foot.z.toFixed(3)}\n` +
-      `${frame.verticalState.grounded ? "接地" : "空中"}`;
+      `${playerFrame.verticalState.grounded ? "接地" : "空中"}\n` +
+      `NPC ${survivalFrame.npcCount}  BIT ${survivalFrame.bitCount}  ` +
+      `BEAM ${survivalFrame.activeBeamCount}\n` +
+      `視認 ${survivalFrame.visualTargetCount}  ` +
+      `警報 ${survivalFrame.alertTargetCount}  ` +
+      `共有 ${survivalFrame.activeAlertCount}\n` +
+      `着弾 壁 ${survivalFrame.blockerImpactCount}  ` +
+      `標的 ${survivalFrame.actorImpactCount}`;
   }
   scene.render();
 });
@@ -135,6 +159,7 @@ const disposeRuntime = () => {
   engine.stopRenderLoop();
   window.removeEventListener("resize", resize);
   canvas.removeEventListener("click", startPlay);
+  survival.dispose();
   player.dispose();
   stage.dispose();
   scene.dispose();
