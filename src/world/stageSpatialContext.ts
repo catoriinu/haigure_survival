@@ -14,9 +14,17 @@ import {
 } from "./navigationWorld";
 import type { StageCatalogEntry } from "./stageCatalog";
 import {
+  createStageLinkRegistry,
+  STAGE_LINK_KINDS,
+  type StageLinkKind,
+  type StageLinkPair,
+  type StageLinkRegistry
+} from "./stageLinks";
+import {
   createStageBoundaryContainsQuery,
   createStageSpatialQueries,
   STAGE_VOLUME_ROLES,
+  type StageMovementColliderSets,
   type StageSpatialQueries,
   type StageVolume,
   type StageVolumeRole
@@ -65,7 +73,8 @@ export type StageSpatialResources = Readonly<{
   visualMeshes: readonly Mesh[];
   normalColliders: readonly Mesh[];
   actorOnlyColliders: readonly Mesh[];
-  actorColliders: readonly Mesh[];
+  humanOnlyColliders: readonly Mesh[];
+  movementColliders: StageMovementColliderSets;
   beamBlockers: readonly Mesh[];
   sightBlockers: readonly Mesh[];
   navSourceMeshes: readonly Mesh[];
@@ -89,6 +98,7 @@ export type StageSpatialContext = Readonly<{
   navigation: NavigationWorld;
   markers: StageMarkerRegistry;
   volumes: StageVolumeRegistry;
+  links: StageLinkRegistry;
   boundary: StageBoundary;
   queries: StageSpatialQueries;
   dispose(): void;
@@ -107,18 +117,15 @@ const PORTAL_ROLES = [
 ] as const;
 type PortalRole = (typeof PORTAL_ROLES)[number];
 
-const LINK_KINDS = ["ladder", "elevator", "teleport"] as const;
-type LinkKind = (typeof LINK_KINDS)[number];
-
 type StagePortal = Readonly<{
   id: string;
   role: PortalRole;
   mesh: Mesh;
 }>;
 
-type StageLink = Readonly<{
+type AuthoredStageLinkEndpoint = Readonly<{
   id: string;
-  kind: LinkKind;
+  kind: StageLinkKind;
   bidirectional: boolean;
   radiusMeters: number;
   endpoint: "A" | "B";
@@ -137,12 +144,13 @@ type StageAssetClassification = Readonly<{
   visualMeshes: readonly Mesh[];
   normalColliders: readonly Mesh[];
   actorOnlyColliders: readonly Mesh[];
+  humanOnlyColliders: readonly Mesh[];
   navSources: readonly NavSource[];
   markers: readonly StageMarker[];
   volumes: readonly StageVolume[];
   boundaryMesh: Mesh;
   portals: readonly StagePortal[];
-  links: readonly StageLink[];
+  links: readonly AuthoredStageLinkEndpoint[];
 }>;
 
 type Extras = Readonly<Record<string, unknown>>;
@@ -424,7 +432,7 @@ const classifyMarker = (node: TransformNode): StageMarker => {
   };
 };
 
-const classifyLink = (node: TransformNode): StageLink => {
+const classifyLink = (node: TransformNode): AuthoredStageLinkEndpoint => {
   const nameMatch = LINK_OBJECT_NAME_PATTERN.exec(node.name);
   if (!nameMatch) {
     throw new Error(`LNK_*名はLNK_<id>_A/Bで指定します: ${node.name}`);
@@ -455,9 +463,13 @@ const classifyLink = (node: TransformNode): StageLink => {
   if (radiusMeters <= 0) {
     throw new Error(`hs_link_radius_mは正数が必要です: ${node.name}`);
   }
+  const id = requireId(node.name, extras);
+  if (nameMatch[1] !== id) {
+    throw new Error(`LNK_*名とhs_idが一致しません: ${node.name}`);
+  }
   return {
-    id: requireId(node.name, extras),
-    kind: requireEnum(node.name, extras, "hs_link_kind", LINK_KINDS),
+    id,
+    kind: requireEnum(node.name, extras, "hs_link_kind", STAGE_LINK_KINDS),
     bidirectional: requireBoolean(node.name, extras, "hs_bidirectional"),
     radiusMeters,
     endpoint,
@@ -481,7 +493,7 @@ const assertUniqueSemanticIds = (
   volumes: readonly StageVolume[],
   boundaryId: string,
   portals: readonly StagePortal[],
-  links: readonly StageLink[]
+  links: readonly AuthoredStageLinkEndpoint[]
 ) => {
   const owners = new Map<string, string>();
   const register = (id: string, objectName: string) => {
@@ -503,7 +515,7 @@ const assertUniqueSemanticIds = (
     register(portal.id, portal.mesh.name);
   }
 
-  const linksById = new Map<string, StageLink[]>();
+  const linksById = new Map<string, AuthoredStageLinkEndpoint[]>();
   for (const link of links) {
     const pair = linksById.get(link.id) ?? [];
     pair.push(link);
@@ -525,6 +537,22 @@ const assertUniqueSemanticIds = (
       endpointA.radiusMeters !== endpointB.radiusMeters
     ) {
       throw new Error(`LNK_* pairのpropertyが一致しません: ${id}`);
+    }
+    if (
+      (endpointA.kind === "bit_window" || endpointA.kind === "bit_roof") &&
+      !endpointA.bidirectional
+    ) {
+      throw new Error(`${endpointA.kind}は双方向必須です: ${id}`);
+    }
+    endpointA.node.computeWorldMatrix(true);
+    endpointB.node.computeWorldMatrix(true);
+    if (
+      Vector3.Distance(
+        endpointA.node.getAbsolutePosition(),
+        endpointB.node.getAbsolutePosition()
+      ) === 0
+    ) {
+      throw new Error(`LNK_*のA/Bには異なる位置が必要です: ${id}`);
     }
     register(id, `${endpointA.node.name}/${endpointB.node.name}`);
   }
@@ -564,6 +592,7 @@ const classifyStageAsset = (
   const visualMeshes: Mesh[] = [];
   const normalColliders: Mesh[] = [];
   const actorOnlyColliders: Mesh[] = [];
+  const humanOnlyColliders: Mesh[] = [];
   const navSources: NavSource[] = [];
   const volumes: StageVolume[] = [];
   const boundaries: Array<{ id: "stage"; mesh: Mesh }> = [];
@@ -576,6 +605,11 @@ const classifyStageAsset = (
       assertNoHsProperties(mesh);
       configureActorCollider(mesh);
       actorOnlyColliders.push(mesh);
+    } else if (mesh.name.startsWith("COL_HumanOnly_")) {
+      assertNameHasSuffix(mesh.name, "COL_HumanOnly_");
+      assertNoHsProperties(mesh);
+      configureActorCollider(mesh);
+      humanOnlyColliders.push(mesh);
     } else if (mesh.name.startsWith("COL_")) {
       assertNameHasSuffix(mesh.name, "COL_");
       assertNoHsProperties(mesh);
@@ -612,7 +646,7 @@ const classifyStageAsset = (
 
   const metadataEntries: StageMetadata[] = [];
   const markers: StageMarker[] = [];
-  const links: StageLink[] = [];
+  const links: AuthoredStageLinkEndpoint[] = [];
   for (const node of authoredEmptyNodes) {
     assertFiniteNodeTransform(node);
     if (node.name === "META_Stage") {
@@ -659,6 +693,7 @@ const classifyStageAsset = (
     visualMeshes,
     normalColliders,
     actorOnlyColliders,
+    humanOnlyColliders,
     navSources,
     markers,
     volumes,
@@ -713,10 +748,48 @@ const createVolumeRegistry = (
   });
 };
 
+const createLinkRegistry = (
+  links: readonly AuthoredStageLinkEndpoint[]
+): StageLinkRegistry => {
+  const linksById = new Map<string, AuthoredStageLinkEndpoint[]>();
+  for (const link of links) {
+    const pair = linksById.get(link.id) ?? [];
+    pair.push(link);
+    linksById.set(link.id, pair);
+  }
+  const pairs: StageLinkPair[] = [];
+  for (const [id, endpoints] of linksById) {
+    const endpointA = endpoints.find((link) => link.endpoint === "A")!;
+    const endpointB = endpoints.find((link) => link.endpoint === "B")!;
+    endpointA.node.computeWorldMatrix(true);
+    endpointB.node.computeWorldMatrix(true);
+    pairs.push(
+      Object.freeze({
+        id,
+        kind: endpointA.kind,
+        bidirectional: endpointA.bidirectional,
+        radiusMeters: endpointA.radiusMeters,
+        endpointA: Object.freeze({
+          endpoint: "A" as const,
+          position: endpointA.node.getAbsolutePosition().clone(),
+          node: endpointA.node
+        }),
+        endpointB: Object.freeze({
+          endpoint: "B" as const,
+          position: endpointB.node.getAbsolutePosition().clone(),
+          node: endpointB.node
+        })
+      })
+    );
+  }
+  return createStageLinkRegistry(pairs);
+};
+
 const assertSemanticsInsideBoundary = (
   boundary: StageBoundary,
   markers: readonly StageMarker[],
-  volumes: readonly StageVolume[]
+  volumes: readonly StageVolume[],
+  links: readonly StageLinkPair[]
 ) => {
   for (const marker of markers) {
     marker.node.computeWorldMatrix(true);
@@ -735,6 +808,14 @@ const assertSemanticsInsideBoundary = (
       );
       if (!boundary.contains(point)) {
         throw new Error(`VOL_*がBND_Stageの外側です: ${volume.mesh.name}`);
+      }
+    }
+  }
+
+  for (const link of links) {
+    for (const endpoint of [link.endpointA, link.endpointB]) {
+      if (!boundary.contains(endpoint.position)) {
+        throw new Error(`LNK_*がBND_Stageの外側です: ${endpoint.node.name}`);
       }
     }
   }
@@ -843,13 +924,24 @@ export const loadStageSpatialContext = async (
     managementRoot.computeWorldMatrix(true);
 
     const classification = classifyStageAsset(container, managementRoot, stage);
-    navigation = await createNavigationWorld(navmeshData);
+    const links = createLinkRegistry(classification.links);
+    navigation = await createNavigationWorld(navmeshData, links.all);
     container.addAllToScene();
 
-    const actorColliders = Object.freeze([
+    const humanMovementColliders = Object.freeze([
+      ...classification.normalColliders,
+      ...classification.actorOnlyColliders,
+      ...classification.humanOnlyColliders
+    ]);
+    const bitMovementColliders = Object.freeze([
       ...classification.normalColliders,
       ...classification.actorOnlyColliders
     ]);
+    const movementColliders: StageMovementColliderSets = Object.freeze({
+      player: humanMovementColliders,
+      npc: humanMovementColliders,
+      bit: bitMovementColliders
+    });
     const beamBlockers = Object.freeze([...classification.normalColliders]);
     const sightBlockers = Object.freeze([...classification.normalColliders]);
     const navSourceMeshes = Object.freeze(
@@ -869,7 +961,8 @@ export const loadStageSpatialContext = async (
       visualMeshes: Object.freeze([...classification.visualMeshes]),
       normalColliders: Object.freeze([...classification.normalColliders]),
       actorOnlyColliders: Object.freeze([...classification.actorOnlyColliders]),
-      actorColliders,
+      humanOnlyColliders: Object.freeze([...classification.humanOnlyColliders]),
+      movementColliders,
       beamBlockers,
       sightBlockers,
       navSourceMeshes,
@@ -883,17 +976,20 @@ export const loadStageSpatialContext = async (
     const volumes = createVolumeRegistry(classification.volumes);
     const queries = createStageSpatialQueries(
       scene,
-      actorColliders,
-      beamBlockers,
-      sightBlockers,
-      volumes.all
+      {
+        movementColliders,
+        groundColliders: resources.normalColliders,
+        beamBlockers,
+        sightBlockers,
+        volumes: volumes.all
+      }
     );
     const boundary: StageBoundary = Object.freeze({
       id: "stage" as const,
       mesh: classification.boundaryMesh,
       contains: createStageBoundaryContainsQuery(classification.boundaryMesh)
     });
-    assertSemanticsInsideBoundary(boundary, markers.all, volumes.all);
+    assertSemanticsInsideBoundary(boundary, markers.all, volumes.all, links.all);
 
     let disposed = false;
     const ownedContainer = container;
@@ -905,6 +1001,7 @@ export const loadStageSpatialContext = async (
       navigation: ownedNavigation,
       markers,
       volumes,
+      links,
       boundary,
       queries,
       dispose: () => {

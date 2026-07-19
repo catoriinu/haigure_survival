@@ -1,6 +1,14 @@
 import { Vector3 } from "@babylonjs/core";
 
-import type { NavigationPath, NavigationWorld } from "./navigationWorld";
+import {
+  cloneNavigationLocation,
+  type NavigationLocation,
+  type NavigationPath,
+  type NavigationPathStep,
+  type NavigationTransitionStep,
+  type NavigationWorld
+} from "./navigationWorld";
+import type { StageMoverKind } from "./stageLinks";
 
 export type NavigationAgentConfig = Readonly<{
   projectionMaxDistance: number;
@@ -11,17 +19,22 @@ export type NavigationAgentConfig = Readonly<{
   stuckDurationSeconds: number;
 }>;
 
-export type NavigationAgentState = "moving" | "arrived" | "unreachable";
+export type NavigationAgentState =
+  | "moving"
+  | "arrived"
+  | "unreachable"
+  | "transition-required";
 
 export type NavigationAgentStepResult = Readonly<{
-  position: Vector3;
+  location: NavigationLocation;
   state: NavigationAgentState;
   pathRecalculated: boolean;
+  transition: NavigationTransitionStep | null;
 }>;
 
 export interface NavigationAgent {
   update(
-    currentPosition: Vector3,
+    currentLocation: NavigationLocation,
     targetPosition: Vector3,
     speed: number,
     deltaSeconds: number
@@ -36,6 +49,13 @@ const assertFiniteVector = (name: string, value: Vector3) => {
     !Number.isFinite(value.z)
   ) {
     throw new Error(`${name}には有限の3D座標が必要です。`);
+  }
+};
+
+const assertNavigationLocation = (name: string, value: NavigationLocation) => {
+  assertFiniteVector(`${name}の座標`, value.position);
+  if (!Number.isInteger(value.polygonRef) || value.polygonRef <= 0) {
+    throw new Error(`${name}には有効なNavMesh面IDが必要です。`);
   }
 };
 
@@ -66,46 +86,80 @@ const assertConfig = (config: NavigationAgentConfig) => {
   assertPositiveFiniteNumber("停止判定時間", config.stuckDurationSeconds);
 };
 
-const cloneAndValidatePath = (path: NavigationPath): readonly Vector3[] => {
-  if (path.points.length === 0) {
-    throw new Error("NavigationWorld.findPath()は1点以上の経路を返す必要があります。");
+const cloneAndValidatePath = (path: NavigationPath): readonly NavigationPathStep[] => {
+  if (path.steps.length === 0) {
+    throw new Error("NavigationWorld.findPath()は1区間以上の経路を返す必要があります。");
   }
   if (!Number.isFinite(path.distance) || path.distance < 0) {
     throw new Error("NavigationWorld.findPath()の経路距離が不正です。");
   }
   return Object.freeze(
-    path.points.map((point, index) => {
-      assertFiniteVector(`経路点${index}`, point);
-      return point.clone();
+    path.steps.map((step, stepIndex) => {
+      if (!Number.isFinite(step.distance) || step.distance < 0) {
+        throw new Error(`経路区間${stepIndex}の距離が不正です。`);
+      }
+      if (step.kind === "surface") {
+        if (step.points.length === 0) {
+          throw new Error(`床・階段区間${stepIndex}に経路点がありません。`);
+        }
+        return Object.freeze({
+          kind: "surface" as const,
+          points: Object.freeze(
+            step.points.map((point, pointIndex) => {
+              assertNavigationLocation(`経路区間${stepIndex}の点${pointIndex}`, point);
+              return cloneNavigationLocation(point);
+            })
+          ),
+          distance: step.distance
+        });
+      }
+      assertNavigationLocation(`特殊接続${stepIndex}の入口`, step.entry);
+      assertNavigationLocation(`特殊接続${stepIndex}の出口`, step.exit);
+      return Object.freeze({
+        kind: "transition" as const,
+        link: step.link,
+        from: step.from,
+        to: step.to,
+        entry: cloneNavigationLocation(step.entry),
+        exit: cloneNavigationLocation(step.exit),
+        distance: step.distance
+      });
     })
   );
 };
 
 class CachedNavigationAgent implements NavigationAgent {
   private readonly navigationWorld: NavigationWorld;
+  private readonly moverKind: StageMoverKind;
   private readonly config: NavigationAgentConfig;
-  private path: readonly Vector3[] | null = null;
-  private resolvedTarget: Vector3 | null = null;
+  private path: readonly NavigationPathStep[] | null = null;
+  private resolvedTarget: NavigationLocation | null = null;
+  private nextStepIndex = 0;
   private nextPointIndex = 0;
   private plannedTarget: Vector3 | null = null;
   private secondsSincePathSearch = 0;
   private stuckAnchor: Vector3 | null = null;
   private stuckElapsedSeconds = 0;
 
-  constructor(navigationWorld: NavigationWorld, config: NavigationAgentConfig) {
+  constructor(
+    navigationWorld: NavigationWorld,
+    moverKind: StageMoverKind,
+    config: NavigationAgentConfig
+  ) {
     assertConfig(config);
     this.navigationWorld = navigationWorld;
+    this.moverKind = moverKind;
     this.config = Object.freeze({ ...config });
     this.secondsSincePathSearch = config.pathRefreshIntervalSeconds;
   }
 
   update(
-    currentPosition: Vector3,
+    currentLocation: NavigationLocation,
     targetPosition: Vector3,
     speed: number,
     deltaSeconds: number
   ): NavigationAgentStepResult {
-    assertFiniteVector("経路追従の現在位置", currentPosition);
+    assertNavigationLocation("経路追従の現在位置", currentLocation);
     assertFiniteVector("経路追従の標的位置", targetPosition);
     assertNonNegativeFiniteNumber("経路追従速度", speed);
     assertNonNegativeFiniteNumber("経路追従deltaSeconds", deltaSeconds);
@@ -115,7 +169,7 @@ class CachedNavigationAgent implements NavigationAgent {
       throw new Error("経路再探索までの経過時間が有限値になりません。");
     }
 
-    const stuck = this.detectStuck(currentPosition, speed, deltaSeconds);
+    const stuck = this.detectStuck(currentLocation, speed, deltaSeconds);
     const targetMoved =
       this.plannedTarget !== null &&
       Vector3.Distance(this.plannedTarget, targetPosition) >=
@@ -123,8 +177,8 @@ class CachedNavigationAgent implements NavigationAgent {
     const pathConsumedAwayFromEndpoint =
       this.path !== null &&
       this.resolvedTarget !== null &&
-      this.nextPointIndex >= this.path.length &&
-      Vector3.Distance(currentPosition, this.resolvedTarget) >
+      this.nextStepIndex >= this.path.length &&
+      Vector3.Distance(currentLocation.position, this.resolvedTarget.position) >
         this.config.waypointTolerance;
     const refreshExpired =
       this.secondsSincePathSearch >= this.config.pathRefreshIntervalSeconds;
@@ -138,14 +192,15 @@ class CachedNavigationAgent implements NavigationAgent {
     let pathRecalculated = false;
     if (mustSearch) {
       pathRecalculated = true;
-      this.searchPath(currentPosition, targetPosition);
+      this.searchPath(currentLocation, targetPosition);
     }
 
     if (!this.path) {
       return {
-        position: currentPosition.clone(),
+        location: cloneNavigationLocation(currentLocation),
         state: "unreachable",
-        pathRecalculated
+        pathRecalculated,
+        transition: null
       };
     }
 
@@ -154,56 +209,104 @@ class CachedNavigationAgent implements NavigationAgent {
       throw new Error("経路追従の移動距離が有限値になりません。");
     }
 
-    const position = currentPosition.clone();
+    let location = cloneNavigationLocation(currentLocation);
     let remainingDistance = movementBudget;
-    while (this.nextPointIndex < this.path.length) {
-      const nextPoint = this.path[this.nextPointIndex];
-      const distance = Vector3.Distance(position, nextPoint);
-      if (distance <= this.config.waypointTolerance) {
-        this.nextPointIndex += 1;
-        continue;
-      }
-      if (remainingDistance === 0) {
-        break;
-      }
-      const stepDistance = Math.min(remainingDistance, distance);
-      const desiredPosition = position.add(
-        nextPoint.subtract(position).scale(stepDistance / distance)
-      );
-      const constrainedPosition = this.navigationWorld.constrainMovement(
-        position,
-        desiredPosition
-      );
-      if (!constrainedPosition) {
-        this.invalidatePath();
+    while (this.nextStepIndex < this.path.length) {
+      const step = this.path[this.nextStepIndex];
+      if (step.kind === "transition") {
+        if (
+          Vector3.Distance(location.position, step.entry.position) >
+          this.config.waypointTolerance
+        ) {
+          this.invalidatePath();
+          return {
+            location: cloneNavigationLocation(currentLocation),
+            state: "unreachable",
+            pathRecalculated,
+            transition: null
+          };
+        }
         return {
-          position: currentPosition.clone(),
-          state: "unreachable",
-          pathRecalculated
+          location,
+          state: "transition-required",
+          pathRecalculated,
+          transition: step
         };
       }
-      assertFiniteVector("NavMesh移動拘束結果", constrainedPosition);
-      const actualDistance = Vector3.Distance(position, constrainedPosition);
-      if (actualDistance > stepDistance + this.config.waypointTolerance) {
-        throw new Error("NavMesh移動拘束結果が指定移動距離を超えました。");
+
+      while (this.nextPointIndex < step.points.length) {
+        const nextPoint = step.points[this.nextPointIndex];
+        const distance = Vector3.Distance(location.position, nextPoint.position);
+        if (distance <= this.config.waypointTolerance) {
+          this.nextPointIndex += 1;
+          continue;
+        }
+        if (remainingDistance === 0) {
+          return {
+            location,
+            state: "moving",
+            pathRecalculated,
+            transition: null
+          };
+        }
+        const stepDistance = Math.min(remainingDistance, distance);
+        const desiredPosition = location.position.add(
+          nextPoint.position.subtract(location.position).scale(stepDistance / distance)
+        );
+        const constrainedLocation = this.navigationWorld.constrainMovement(
+          location,
+          desiredPosition
+        );
+        if (!constrainedLocation) {
+          this.invalidatePath();
+          return {
+            location: cloneNavigationLocation(currentLocation),
+            state: "unreachable",
+            pathRecalculated,
+            transition: null
+          };
+        }
+        assertNavigationLocation("NavMesh移動拘束結果", constrainedLocation);
+        const actualDistance = Vector3.Distance(
+          location.position,
+          constrainedLocation.position
+        );
+        if (actualDistance > stepDistance + this.config.waypointTolerance) {
+          throw new Error("NavMesh移動拘束結果が指定移動距離を超えました。");
+        }
+        location = constrainedLocation;
+        remainingDistance -= stepDistance;
+        if (
+          Vector3.Distance(location.position, nextPoint.position) <=
+          this.config.waypointTolerance
+        ) {
+          this.nextPointIndex += 1;
+          continue;
+        }
+        return {
+          location,
+          state: "moving",
+          pathRecalculated,
+          transition: null
+        };
       }
-      position.copyFrom(constrainedPosition);
-      remainingDistance -= stepDistance;
-      if (Vector3.Distance(position, nextPoint) <= this.config.waypointTolerance) {
-        this.nextPointIndex += 1;
-        continue;
-      }
-      break;
+
+      this.nextStepIndex += 1;
+      this.nextPointIndex = 0;
     }
 
-    const state =
-      this.nextPointIndex >= this.path.length ? "arrived" : "moving";
-    return { position, state, pathRecalculated };
+    return {
+      location,
+      state: "arrived",
+      pathRecalculated,
+      transition: null
+    };
   }
 
   clear() {
     this.path = null;
     this.resolvedTarget = null;
+    this.nextStepIndex = 0;
     this.nextPointIndex = 0;
     this.plannedTarget = null;
     this.secondsSincePathSearch = this.config.pathRefreshIntervalSeconds;
@@ -211,33 +314,37 @@ class CachedNavigationAgent implements NavigationAgent {
     this.stuckElapsedSeconds = 0;
   }
 
-  private searchPath(currentPosition: Vector3, targetPosition: Vector3) {
-    const projectedStart = this.navigationWorld.projectPoint(
-      currentPosition,
-      this.config.projectionMaxDistance
-    );
+  private searchPath(
+    currentLocation: NavigationLocation,
+    targetPosition: Vector3
+  ) {
     const projectedTarget = this.navigationWorld.projectPoint(
       targetPosition,
       this.config.projectionMaxDistance
     );
-    const result =
-      projectedStart && projectedTarget
-        ? this.navigationWorld.findPath(projectedStart, projectedTarget)
-        : null;
-    this.path = result ? cloneAndValidatePath(result) : null;
-    this.resolvedTarget = this.path
-      ? this.path[this.path.length - 1].clone()
+    const result = projectedTarget
+      ? this.navigationWorld.findPath(
+          currentLocation,
+          projectedTarget,
+          this.moverKind
+        )
       : null;
+    this.path = result ? cloneAndValidatePath(result) : null;
+    this.resolvedTarget = result
+      ? cloneNavigationLocation(result.destination)
+      : null;
+    this.nextStepIndex = 0;
     this.nextPointIndex = 0;
     this.plannedTarget = targetPosition.clone();
     this.secondsSincePathSearch = 0;
-    this.stuckAnchor = currentPosition.clone();
+    this.stuckAnchor = currentLocation.position.clone();
     this.stuckElapsedSeconds = 0;
   }
 
   private invalidatePath() {
     this.path = null;
     this.resolvedTarget = null;
+    this.nextStepIndex = 0;
     this.nextPointIndex = 0;
     this.secondsSincePathSearch = 0;
     this.stuckAnchor = null;
@@ -245,25 +352,26 @@ class CachedNavigationAgent implements NavigationAgent {
   }
 
   private detectStuck(
-    currentPosition: Vector3,
+    currentLocation: NavigationLocation,
     speed: number,
     deltaSeconds: number
   ) {
-    if (!this.path || this.nextPointIndex >= this.path.length || speed === 0) {
-      this.stuckAnchor = currentPosition.clone();
+    const nextStep = this.path?.[this.nextStepIndex] ?? null;
+    if (!nextStep || nextStep.kind === "transition" || speed === 0) {
+      this.stuckAnchor = currentLocation.position.clone();
       this.stuckElapsedSeconds = 0;
       return false;
     }
     if (!this.stuckAnchor) {
-      this.stuckAnchor = currentPosition.clone();
+      this.stuckAnchor = currentLocation.position.clone();
       this.stuckElapsedSeconds = 0;
       return false;
     }
     if (
-      Vector3.Distance(this.stuckAnchor, currentPosition) >
+      Vector3.Distance(this.stuckAnchor, currentLocation.position) >
       this.config.stuckDistanceThreshold
     ) {
-      this.stuckAnchor.copyFrom(currentPosition);
+      this.stuckAnchor.copyFrom(currentLocation.position);
       this.stuckElapsedSeconds = 0;
       return false;
     }
@@ -275,5 +383,6 @@ class CachedNavigationAgent implements NavigationAgent {
 
 export const createNavigationAgent = (
   navigationWorld: NavigationWorld,
+  moverKind: StageMoverKind,
   config: NavigationAgentConfig
-): NavigationAgent => new CachedNavigationAgent(navigationWorld, config);
+): NavigationAgent => new CachedNavigationAgent(navigationWorld, moverKind, config);

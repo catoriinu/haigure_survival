@@ -12,6 +12,7 @@ import {
   createNavigationAgent,
   type NavigationAgent
 } from "../world/navigationAgent";
+import type { NavigationLocation } from "../world/navigationWorld";
 import { createStageSpawnSampler } from "../world/stageSpawnSampler";
 import type { StageSpatialContext } from "../world/stageSpatialContext";
 import type {
@@ -106,14 +107,14 @@ type RuntimeBit = {
   body: Mesh;
   muzzle: Mesh;
   navigationAgent: NavigationAgent;
-  navigationPosition: Vector3;
+  navigationLocation: NavigationLocation;
   flightHeight: number;
   bobPhase: number;
   mode: V2BitMode;
   targetId: string | null;
   targetProvenance: V2TargetProvenance | null;
   alertLeaderId: string | null;
-  wanderTarget: Vector3 | null;
+  wanderTarget: NavigationLocation | null;
   wanderRetrySeconds: number;
   fireSeconds: number;
   carpetLeaderId: string | null;
@@ -299,14 +300,17 @@ export const createV2BitSystem = (
       navigationPosition.z
     );
 
-  const projectCarpetPosition = (desiredPosition: Vector3) => {
-    const projected = spatial.navigation.projectPoint(
-      desiredPosition,
-      NAVIGATION_AGENT_CONFIG.projectionMaxDistance
+  const projectCarpetPosition = (
+    origin: NavigationLocation,
+    desiredPosition: Vector3
+  ) => {
+    const projected = spatial.navigation.constrainMovement(
+      origin,
+      desiredPosition
     );
     if (
       !projected ||
-      Vector3.Distance(projected, desiredPosition) >
+      Vector3.Distance(projected.position, desiredPosition) >
         CARPET_PROJECTION_TOLERANCE
     ) {
       return null;
@@ -331,11 +335,11 @@ export const createV2BitSystem = (
   let nextBitIndex = 0;
 
   const createRuntimeBit = (
-    navigationPosition: Vector3,
+    navigationLocation: NavigationLocation,
     flightHeight: number,
     mode: V2BitMode = "search"
   ) => {
-    assertFiniteVector("ビットのNavMesh位置", navigationPosition);
+    assertFiniteVector("ビットのNavMesh位置", navigationLocation.position);
     const id = `v2_bit_${nextBitIndex}`;
     nextBitIndex += 1;
     const visual = createBitVisual(scene, materials, id);
@@ -349,13 +353,14 @@ export const createV2BitSystem = (
       );
       navigationAgent = createNavigationAgent(
         spatial.navigation,
+        "bit",
         NAVIGATION_AGENT_CONFIG
       );
       const bit: RuntimeBit = {
         id,
         ...visual,
         navigationAgent,
-        navigationPosition: navigationPosition.clone(),
+        navigationLocation,
         flightHeight,
         bobPhase: nextRandom() * Math.PI * 2,
         mode,
@@ -369,7 +374,7 @@ export const createV2BitSystem = (
         carpetOffset: 0
       };
       bit.root.position.copyFrom(
-        buildFlightPosition(navigationPosition, flightHeight)
+        buildFlightPosition(navigationLocation.position, flightHeight)
       );
       bit.root.lookAt(bit.root.position.add(initialDirection));
       bits.push(bit);
@@ -543,7 +548,7 @@ export const createV2BitSystem = (
         continue;
       }
       const distanceSquared = Vector3.DistanceSquared(
-        bit.navigationPosition,
+        bit.navigationLocation.position,
         target.footPosition
       );
       if (distanceSquared < closestDistanceSquared) {
@@ -557,8 +562,36 @@ export const createV2BitSystem = (
   const syncRootPosition = (bit: RuntimeBit, elapsedSeconds: number) => {
     const bob = Math.sin(elapsedSeconds * 0.9 + bit.bobPhase) * BOB_AMPLITUDE;
     bit.root.position.copyFrom(
-      buildFlightPosition(bit.navigationPosition, bit.flightHeight + bob)
+      buildFlightPosition(
+        bit.navigationLocation.position,
+        bit.flightHeight + bob
+      )
     );
+  };
+
+  const applyNavigationMovement = (
+    bit: RuntimeBit,
+    nextLocation: NavigationLocation,
+    elapsedSeconds: number
+  ) => {
+    const bob = Math.sin(elapsedSeconds * 0.9 + bit.bobPhase) * BOB_AMPLITUDE;
+    const nextRootPosition = buildFlightPosition(
+      nextLocation.position,
+      bit.flightHeight + bob
+    );
+    if (
+      spatial.queries.castMovementSegment(
+        "bit",
+        bit.root.position,
+        nextRootPosition
+      ) !== null
+    ) {
+      bit.navigationAgent.clear();
+      return false;
+    }
+    bit.navigationLocation = nextLocation;
+    bit.root.position.copyFrom(nextRootPosition);
+    return true;
   };
 
   const pointBitAt = (bit: RuntimeBit, aimPosition: Vector3) => {
@@ -580,7 +613,7 @@ export const createV2BitSystem = (
     );
     if (!bit.wanderTarget && bit.wanderRetrySeconds === 0) {
       bit.wanderTarget = spatial.navigation.randomPointAround(
-        bit.navigationPosition,
+        bit.navigationLocation,
         SEARCH_RADIUS
       );
       if (!bit.wanderTarget) {
@@ -592,20 +625,19 @@ export const createV2BitSystem = (
       return;
     }
 
-    const previous = bit.navigationPosition.clone();
+    const previous = bit.navigationLocation.position.clone();
     const step = bit.navigationAgent.update(
-      bit.navigationPosition,
-      bit.wanderTarget,
+      bit.navigationLocation,
+      bit.wanderTarget.position,
       SEARCH_SPEED,
       deltaSeconds
     );
-    bit.navigationPosition.copyFrom(step.position);
-    syncRootPosition(bit, elapsedSeconds);
-    const movement = bit.navigationPosition.subtract(previous);
+    const moved = applyNavigationMovement(bit, step.location, elapsedSeconds);
+    const movement = bit.navigationLocation.position.subtract(previous);
     if (movement.lengthSquared() > 0) {
       bit.root.lookAt(bit.root.position.add(normalizeHorizontal(movement)));
     }
-    if (step.state !== "moving") {
+    if (!moved || step.state !== "moving") {
       bit.wanderTarget = null;
       bit.navigationAgent.clear();
       bit.wanderRetrySeconds = SEARCH_RETRY_SECONDS;
@@ -620,13 +652,12 @@ export const createV2BitSystem = (
   ) => {
     bit.mode = "chase";
     const step = bit.navigationAgent.update(
-      bit.navigationPosition,
+      bit.navigationLocation,
       target.footPosition,
       CHASE_SPEED,
       deltaSeconds
     );
-    bit.navigationPosition.copyFrom(step.position);
-    syncRootPosition(bit, elapsedSeconds);
+    applyNavigationMovement(bit, step.location, elapsedSeconds);
     pointBitAt(bit, target.aimPosition);
   };
 
@@ -658,32 +689,39 @@ export const createV2BitSystem = (
     elapsedSeconds: number
   ) => {
     const direction = normalizeHorizontal(
-      target.footPosition.subtract(leader.navigationPosition)
+      target.footPosition.subtract(leader.navigationLocation.position)
     );
     const right = new Vector3(-direction.z, 0, direction.x);
     const offsets = [
       -CARPET_FORMATION_SPACING,
       CARPET_FORMATION_SPACING
     ] as const;
-    const followerPositions: Vector3[] = [];
+    const followerLocations: NavigationLocation[] = [];
     for (const offset of offsets) {
-      const desiredPosition = leader.navigationPosition.add(
+      const desiredPosition = leader.navigationLocation.position.add(
         right.scale(offset)
       );
-      const projectedPosition = projectCarpetPosition(desiredPosition);
+      const projectedPosition = projectCarpetPosition(
+        leader.navigationLocation,
+        desiredPosition
+      );
       if (!projectedPosition) {
         leader.mode = "chase";
         return false;
       }
-      followerPositions.push(projectedPosition);
+      followerLocations.push(projectedPosition);
     }
-    const proposedRoots = followerPositions.map((position) =>
-      buildFlightPosition(position, leader.flightHeight)
+    const proposedRoots = followerLocations.map((location) =>
+      buildFlightPosition(location.position, leader.flightHeight)
     );
     if (
       proposedRoots.some(
         (position) =>
-          spatial.queries.castActorSegment(leader.root.position, position) !== null
+          spatial.queries.castMovementSegment(
+            "bit",
+            leader.root.position,
+            position
+          ) !== null
       )
     ) {
       leader.mode = "chase";
@@ -693,7 +731,7 @@ export const createV2BitSystem = (
     for (let index = 0; index < offsets.length; index += 1) {
       const offset = offsets[index];
       const follower = createRuntimeBit(
-        followerPositions[index],
+        followerLocations[index],
         leader.flightHeight,
         "carpet-follower"
       );
@@ -723,21 +761,22 @@ export const createV2BitSystem = (
     }
 
     const direction = normalizeHorizontal(
-      target.footPosition.subtract(leader.navigationPosition)
+      target.footPosition.subtract(leader.navigationLocation.position)
     );
     const distance = Vector3.Distance(
       new Vector3(
-        leader.navigationPosition.x,
+        leader.navigationLocation.position.x,
         target.footPosition.y,
-        leader.navigationPosition.z
+        leader.navigationLocation.position.z
       ),
       target.footPosition
     );
     const stepDistance = Math.min(CARPET_SPEED * deltaSeconds, distance);
-    const proposedNavigationPosition = leader.navigationPosition.add(
+    const proposedNavigationPosition = leader.navigationLocation.position.add(
       direction.scale(stepDistance)
     );
     const projectedNavigationPosition = projectCarpetPosition(
+      leader.navigationLocation,
       proposedNavigationPosition
     );
     if (!projectedNavigationPosition) {
@@ -752,16 +791,19 @@ export const createV2BitSystem = (
         candidate.carpetLeaderId === leader.id
     );
     const proposedRoot = buildFlightPosition(
-      projectedNavigationPosition,
+      projectedNavigationPosition.position,
       leader.flightHeight
     );
-    const followerNavigationDestinations: Vector3[] = [];
+    const followerNavigationDestinations: NavigationLocation[] = [];
     const followerRootDestinations: Vector3[] = [];
     for (const follower of followers) {
-      const desiredPosition = projectedNavigationPosition.add(
+      const desiredPosition = projectedNavigationPosition.position.add(
         right.scale(follower.carpetOffset)
       );
-      const projectedPosition = projectCarpetPosition(desiredPosition);
+      const projectedPosition = projectCarpetPosition(
+        follower.navigationLocation,
+        desiredPosition
+      );
       if (!projectedPosition) {
         convertCarpetToChase(leader);
         updateChase(leader, target, deltaSeconds, elapsedSeconds);
@@ -769,17 +811,19 @@ export const createV2BitSystem = (
       }
       followerNavigationDestinations.push(projectedPosition);
       followerRootDestinations.push(
-        buildFlightPosition(projectedPosition, follower.flightHeight)
+        buildFlightPosition(projectedPosition.position, follower.flightHeight)
       );
     }
     const leaderBlocked =
-      spatial.queries.castActorSegment(
+      spatial.queries.castMovementSegment(
+        "bit",
         leader.root.position,
         proposedRoot
       ) !== null;
     const followerBlocked = followers.some(
       (follower, index) =>
-        spatial.queries.castActorSegment(
+        spatial.queries.castMovementSegment(
+          "bit",
           follower.root.position,
           followerRootDestinations[index]
         ) !== null
@@ -790,14 +834,12 @@ export const createV2BitSystem = (
       return;
     }
 
-    leader.navigationPosition.copyFrom(projectedNavigationPosition);
+    leader.navigationLocation = projectedNavigationPosition;
     syncRootPosition(leader, elapsedSeconds);
     pointBitAt(leader, target.aimPosition);
     for (let index = 0; index < followers.length; index += 1) {
       const follower = followers[index];
-      follower.navigationPosition.copyFrom(
-        followerNavigationDestinations[index]
-      );
+      follower.navigationLocation = followerNavigationDestinations[index];
       syncRootPosition(follower, elapsedSeconds);
       pointBitAt(follower, target.aimPosition);
     }

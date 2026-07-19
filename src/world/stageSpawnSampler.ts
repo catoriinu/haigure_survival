@@ -1,5 +1,5 @@
 import { Vector3 } from "@babylonjs/core";
-import type { NavigationWorld } from "./navigationWorld";
+import type { NavigationLocation, NavigationWorld } from "./navigationWorld";
 import {
   createStageBoundaryContainsQuery,
   type StageVolume
@@ -12,8 +12,11 @@ export type StageSpawnSamplerConfig = Readonly<{
 }>;
 
 export interface StageSpawnSampler {
-  samplePoint(): Vector3;
-  samplePoints(count: number, minimumDistance: number): readonly Vector3[];
+  samplePoint(): NavigationLocation;
+  samplePoints(
+    count: number,
+    minimumDistance: number
+  ): readonly NavigationLocation[];
 }
 
 type RejectionCounts = {
@@ -113,7 +116,7 @@ export const createStageSpawnSampler = (
     );
 
   const samplePointInternal = (
-    acceptedPoints: readonly Vector3[],
+    acceptedPoints: readonly NavigationLocation[],
     minimumDistance: number,
     pointNumber: number
   ) => {
@@ -135,7 +138,7 @@ export const createStageSpawnSampler = (
         rejectionCounts.projectionFailed += 1;
         continue;
       }
-      if (!containsPoint(projected)) {
+      if (!containsPoint(projected.position)) {
         rejectionCounts.projectedOutsideVolume += 1;
         continue;
       }
@@ -143,8 +146,8 @@ export const createStageSpawnSampler = (
       let rejected = false;
       for (const acceptedPoint of acceptedPoints) {
         const distanceSquared = Vector3.DistanceSquared(
-          projected,
-          acceptedPoint
+          projected.position,
+          acceptedPoint.position
         );
         if (distanceSquared === 0) {
           rejectionCounts.duplicate += 1;
@@ -174,7 +177,7 @@ export const createStageSpawnSampler = (
     samplePoints: (count, minimumDistance) => {
       assertPositiveInteger("count", count);
       assertNonNegativeFiniteNumber("minimumDistance", minimumDistance);
-      const points: Vector3[] = [];
+      const points: NavigationLocation[] = [];
       for (let index = 0; index < count; index += 1) {
         points.push(
           samplePointInternal(points, minimumDistance, index + 1)

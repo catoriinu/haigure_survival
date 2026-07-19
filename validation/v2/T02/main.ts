@@ -478,10 +478,12 @@ const validateLoadedContext = (
       context.resources.visualMeshes.length === 308 &&
         context.resources.normalColliders.length === 161 &&
         context.resources.actorOnlyColliders.length === 0 &&
+        context.resources.humanOnlyColliders.length === 0 &&
         context.resources.navSourceMeshes.length === 8 &&
         context.markers.all.length === 1 &&
-        context.volumes.all.length === 2,
-      `VIS=${context.resources.visualMeshes.length} / COL=${context.resources.normalColliders.length} / ActorOnly=${context.resources.actorOnlyColliders.length} / NAV=${context.resources.navSourceMeshes.length} / MRK=${context.markers.all.length} / VOL=${context.volumes.all.length}`
+        context.volumes.all.length === 2 &&
+        context.links.all.length === 0,
+      `VIS=${context.resources.visualMeshes.length} / COL=${context.resources.normalColliders.length} / ActorOnly=${context.resources.actorOnlyColliders.length} / HumanOnly=${context.resources.humanOnlyColliders.length} / NAV=${context.resources.navSourceMeshes.length} / MRK=${context.markers.all.length} / VOL=${context.volumes.all.length} / LNK=${context.links.all.length}`
     ),
     createCheck(
       "3Dスポーン・境界・生成Volume",
@@ -683,15 +685,17 @@ const validateLoadedContext = (
     "COL_Wall_ClassroomCross_3",
     "VIS_Floor_Classroom03"
   ];
-  const mergeLineHit = context.queries.castActorSegment(
+  const castPlayerMovementSegment = (from: Vector3, to: Vector3) =>
+    context.queries.castMovementSegment("player", from, to);
+  const mergeLineHit = castPlayerMovementSegment(
     blenderPointToBabylon(new Vector3(-8.05, 17.5, 1.0)),
     blenderPointToBabylon(new Vector3(-8.05, 27.5, 1.0))
   );
-  const southDividerHit = context.queries.castActorSegment(
+  const southDividerHit = castPlayerMovementSegment(
     blenderPointToBabylon(new Vector3(-8.05, 11.5, 1.0)),
     blenderPointToBabylon(new Vector3(-8.05, 13.5, 1.0))
   );
-  const northSpecialDividerHit = context.queries.castActorSegment(
+  const northSpecialDividerHit = castPlayerMovementSegment(
     blenderPointToBabylon(new Vector3(22.5, 39.0, 1.0)),
     blenderPointToBabylon(new Vector3(24.3, 39.0, 1.0))
   );
@@ -750,7 +754,7 @@ const validateLoadedContext = (
     "COL_Wall_Lintel_ClassroomDoor_06"
   ];
   const castWestSpecialRoomOpening = (
-    castSegment: StageSpatialContext["queries"]["castActorSegment"],
+    castSegment: StageSpatialContext["queries"]["castBeamSegment"],
     y: number
   ) =>
     castSegment(
@@ -759,7 +763,7 @@ const validateLoadedContext = (
     );
   const westSpecialRoomDoorwayResults = [13.7, 31.3].map((y) => ({
     y,
-    actor: castWestSpecialRoomOpening(context.queries.castActorSegment, y),
+    actor: castWestSpecialRoomOpening(castPlayerMovementSegment, y),
     beam: castWestSpecialRoomOpening(context.queries.castBeamSegment, y),
     sight: castWestSpecialRoomOpening(context.queries.castSightSegment, y)
   }));
@@ -769,7 +773,7 @@ const validateLoadedContext = (
   ].map(([y, expectedName]) => ({
     y,
     expectedName,
-    actor: castWestSpecialRoomOpening(context.queries.castActorSegment, y as number),
+    actor: castWestSpecialRoomOpening(castPlayerMovementSegment, y as number),
     beam: castWestSpecialRoomOpening(context.queries.castBeamSegment, y as number),
     sight: castWestSpecialRoomOpening(context.queries.castSightSegment, y as number)
   }));
@@ -912,15 +916,15 @@ const validateLoadedContext = (
     name,
     vertices: schoolMeshByName.get(name)?.getTotalVertices() ?? 0
   }));
-  const storageCentralApproachHit = context.queries.castActorSegment(
+  const storageCentralApproachHit = castPlayerMovementSegment(
     blenderPointToBabylon(new Vector3(-9.6, 38.5, 1.0)),
     blenderPointToBabylon(new Vector3(-9.6, 43.8, 1.0))
   );
-  const storageWestWallHit = context.queries.castActorSegment(
+  const storageWestWallHit = castPlayerMovementSegment(
     blenderPointToBabylon(new Vector3(-9.2, 41.0, 1.0)),
     blenderPointToBabylon(new Vector3(-8.8, 41.0, 1.0))
   );
-  const storageSouthWallHit = context.queries.castActorSegment(
+  const storageSouthWallHit = castPlayerMovementSegment(
     blenderPointToBabylon(new Vector3(-7.8, 38.5, 1.0)),
     blenderPointToBabylon(new Vector3(-7.8, 39.3, 1.0))
   );
@@ -929,13 +933,13 @@ const validateLoadedContext = (
   const storageMaximumEyeFoot = blenderPointToBabylon(
     new Vector3(-7.8, 40.0, 0.05)
   );
-  const storageMaximumEyeHit = context.queries.castActorSegment(
+  const storageMaximumEyeHit = castPlayerMovementSegment(
     storageMaximumEyeFoot,
     storageMaximumEyeFoot.add(
       new Vector3(0, northwestStorageMaximumEyeHeight, 0)
     )
   );
-  const storageHighCeilingHit = context.queries.castActorSegment(
+  const storageHighCeilingHit = castPlayerMovementSegment(
     blenderPointToBabylon(new Vector3(-7.8, 40.0, 2.4)),
     blenderPointToBabylon(new Vector3(-7.8, 40.0, 3.4))
   );
@@ -1126,28 +1130,36 @@ const validateLoadedContext = (
   );
 
   const normalColliderSet = new Set(context.resources.normalColliders);
-  const actorColliderSet = new Set(context.resources.actorColliders);
+  const playerColliderSet = new Set(
+    context.resources.movementColliders.player
+  );
+  const npcColliderSet = new Set(context.resources.movementColliders.npc);
+  const bitColliderSet = new Set(context.resources.movementColliders.bit);
   const beamBlockerSet = new Set(context.resources.beamBlockers);
   const sightBlockerSet = new Set(context.resources.sightBlockers);
   checks.push(
     createCheck(
-      "actor・beam・sight衝突集合",
-      actorColliderSet.size === normalColliderSet.size &&
+      "移動体別・beam・sight衝突集合",
+      playerColliderSet.size === normalColliderSet.size &&
+        npcColliderSet.size === normalColliderSet.size &&
+        bitColliderSet.size === normalColliderSet.size &&
         beamBlockerSet.size === normalColliderSet.size &&
         sightBlockerSet.size === normalColliderSet.size &&
         context.resources.normalColliders.every(
           (mesh) =>
-            actorColliderSet.has(mesh) &&
+            playerColliderSet.has(mesh) &&
+            npcColliderSet.has(mesh) &&
+            bitColliderSet.has(mesh) &&
             beamBlockerSet.has(mesh) &&
             sightBlockerSet.has(mesh)
         ),
-      `actor=${actorColliderSet.size} / beam=${beamBlockerSet.size} / sight=${sightBlockerSet.size} / normal=${normalColliderSet.size}`
+      `player=${playerColliderSet.size} / npc=${npcColliderSet.size} / bit=${bitColliderSet.size} / beam=${beamBlockerSet.size} / sight=${sightBlockerSet.size} / normal=${normalColliderSet.size}`
     )
   );
 
   const chestPosition = playerSpawn.add(new Vector3(0, 0.2, 0));
   const outsidePosition = new Vector3(5.5, 0.2, 0);
-  const actorWallHit = context.queries.castActorSegment(
+  const actorWallHit = castPlayerMovementSegment(
     chestPosition,
     outsidePosition
   );
@@ -1198,15 +1210,15 @@ const validateLoadedContext = (
       new Vector3(0, maximumEyeHeight, 0)
     );
     return {
-      storageMaximumEyeHit: context.queries.castActorSegment(
+      storageMaximumEyeHit: castPlayerMovementSegment(
         storageFoot,
         storageMaximumEye
       ),
-      landingUndersideHit: context.queries.castActorSegment(
+      landingUndersideHit: castPlayerMovementSegment(
         landingFoot,
         storageFoot
       ),
-      landingMaximumEyeHit: context.queries.castActorSegment(
+      landingMaximumEyeHit: castPlayerMovementSegment(
         landingFoot,
         landingMaximumEye
       ),
@@ -1244,12 +1256,12 @@ const validateLoadedContext = (
   const projectedSpawn = context.navigation.projectPoint(playerSpawn, 0.25);
   const projectedSpawnHorizontalError = projectedSpawn
     ? Math.hypot(
-        projectedSpawn.x - playerSpawn.x,
-        projectedSpawn.z - playerSpawn.z
+        projectedSpawn.position.x - playerSpawn.x,
+        projectedSpawn.position.z - playerSpawn.z
       )
     : Number.POSITIVE_INFINITY;
   const projectedSpawnVerticalError = projectedSpawn
-    ? Math.abs(projectedSpawn.y - playerSpawn.y)
+    ? Math.abs(projectedSpawn.position.y - playerSpawn.y)
     : Number.POSITIVE_INFINITY;
   checks.push(
     createCheck(
@@ -1258,7 +1270,7 @@ const validateLoadedContext = (
         projectedSpawnHorizontalError <= 1e-5 &&
         projectedSpawnVerticalError <= 0.02,
       projectedSpawn
-        ? `projected=(${projectedSpawn.x.toFixed(3)}, ${projectedSpawn.y.toFixed(4)}, ${projectedSpawn.z.toFixed(3)}) / horizontalError=${projectedSpawnHorizontalError.toFixed(6)} / verticalError=${projectedSpawnVerticalError.toFixed(6)}`
+        ? `projected=(${projectedSpawn.position.x.toFixed(3)}, ${projectedSpawn.position.y.toFixed(4)}, ${projectedSpawn.position.z.toFixed(3)}) / horizontalError=${projectedSpawnHorizontalError.toFixed(6)} / verticalError=${projectedSpawnVerticalError.toFixed(6)}`
         : "投影失敗"
     )
   );
@@ -1328,12 +1340,14 @@ const runValidation = async () => {
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
       activeContext.resources.visualMeshes.length === 308 &&
-      activeContext.resources.normalColliders.length === 161;
+      activeContext.resources.normalColliders.length === 161 &&
+      activeContext.resources.humanOnlyColliders.length === 0 &&
+      activeContext.links.all.length === 0;
     checks.push(
       createCheck(
         "学校コンテキスト再読込",
         reloadMetadataValid,
-        `stage=${activeContext.metadata.stageId} / VIS=${activeContext.resources.visualMeshes.length} / COL=${activeContext.resources.normalColliders.length}`
+        `stage=${activeContext.metadata.stageId} / VIS=${activeContext.resources.visualMeshes.length} / COL=${activeContext.resources.normalColliders.length} / HumanOnly=${activeContext.resources.humanOnlyColliders.length} / LNK=${activeContext.links.all.length}`
       )
     );
     await disposeAndInspect(activeContext, baseline, checks, "再読込");
