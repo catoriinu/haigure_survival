@@ -3,45 +3,27 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 
+import { SCHOOL_STAGE } from "./src/world/stageCatalog";
+
 const repositoryRoot = fileURLToPath(new URL(".", import.meta.url));
-const stageFilenames = [
-  "laboratory.json",
-  "city_center.json",
-  "arena.json",
-  "arena_trap_room.json",
-  "arena_roulette.json",
-  "arena_mirror_house.json",
-  "labyrinth.json",
-  "labyrinth_dynamic.json"
-];
 const allowedAssets = new Map<string, string>([
-  ...stageFilenames.map(
-    (filename) => [
-      `/stage/${filename}`,
-      resolve(repositoryRoot, "public/stage", filename)
-    ] as const
-  ),
   [
-    "/fixtures/t01_glb_collision_course.json",
-    resolve(
-      repositoryRoot,
-      "validation/v2/T02/t01_glb_collision_course.json"
-    )
+    `/${SCHOOL_STAGE.glbUrl}`,
+    resolve(repositoryRoot, "public", SCHOOL_STAGE.glbUrl)
   ],
   [
-    "/stage-assets/v2/T01/t01_glb_collision_course.glb",
-    resolve(
-      repositoryRoot,
-      "public/stage-assets/v2/T01/t01_glb_collision_course.glb"
-    )
+    `/${SCHOOL_STAGE.navmeshUrl}`,
+    resolve(repositoryRoot, "public", SCHOOL_STAGE.navmeshUrl)
   ]
 ]);
 
 const contentTypeForPath = (path: string) =>
-  path.endsWith(".json") ? "application/json; charset=utf-8" : "model/gltf-binary";
+  path.endsWith(".glb")
+    ? "model/gltf-binary"
+    : "application/octet-stream";
 
 const allowlistedStageAssets = (): Plugin => ({
-  name: "t02-allowlisted-stage-assets",
+  name: "t02-allowlisted-3d-stage-assets",
   configureServer(server) {
     server.middlewares.use(async (request, response, next) => {
       const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
@@ -71,6 +53,9 @@ export default defineConfig({
   publicDir: false,
   base: "./",
   plugins: [allowlistedStageAssets()],
+  optimizeDeps: {
+    exclude: ["recast-navigation"]
+  },
   server: {
     port: 5177,
     strictPort: true
@@ -78,6 +63,7 @@ export default defineConfig({
   build: {
     target: "es2022",
     outDir: resolve(repositoryRoot, "dist/t02-validation"),
-    emptyOutDir: true
+    emptyOutDir: true,
+    chunkSizeWarningLimit: 5000
   }
 });

@@ -1,26 +1,33 @@
-# HAIGURE SURVIVAL v2 ステージJSON仕様書
+# HAIGURE SURVIVAL 旧T02 ステージJSON仕様書（V2廃止済み）
 
-更新日: 2026-07-18
-対象バージョン: v2
-基準実装: `src/world/stageJson.ts`
+更新日: 2026-07-19
+文書状態: 旧T02履歴（V2実行契約では廃止済み）
+基準実装（履歴）: 旧`src/world/stageJson.ts`（V2移行で削除済み）
+
+> [!CAUTION]
+> 本書をV2の実行契約、実装要件、データ作成要件として参照してはならない。V2ではステージJSON、JSON文字マップ、セルナビゲーションを廃止し、これらへの互換処理も実装しない。
 
 ## 1. 文書の位置付け
 
-本書はHAIGURE SURVIVAL v2のステージ定義JSONを規定する。ステージ定義は`schemaVersion: 2`と`kind`を持つ`StageDefinitionV2`であり、次の2形式を明示的に扱う。
+本書は、旧T02で採用していたステージ定義JSONの仕様を履歴として保存するものである。以下に記載する`schemaVersion: 2`、`StageDefinitionV2`、`procedural-grid`、旧GLB用JSON、文字マップ、セル座標、セルナビゲーションはすべて廃止済みであり、V2の要件ではない。
+
+V2のステージ実行契約は、現行の[V2ステージランタイム仕様書](./spec_stage_runtime_v2.md)を正本とする。V2はGLBの3D meshes／markers／volumes、事前ベイク済みRecast navmesh、TypeScriptの非空間カタログを使用し、対象ステージを学校のみに限定する。既存8ステージはV2対象外である。
+
+以下の旧T02仕様は、当時の設計と実装を追跡する目的でのみ残す。
 
 - `procedural-grid`: JSONの文字グリッドから床、壁、天井、衝突、鏡を生成する。
 - `glb`: 規約準拠GLBから表示形状と衝突形状を読み、JSONは平面ナビゲーション、スポーン、ゾーン、ステージ設定を担当する。
 
 GLB資産自体の縮尺、軸、命名、衝突規約は[ステージ資産仕様書](./spec_stage_assets_v2.md)を正本とする。旧JSON形式の互換読込や変換フォールバックは提供しない。
 
-## 2. 配置と登録
+## 2. 旧T02の配置と登録（履歴）
 
 - 通常ステージ定義は`public/stage/<ファイル名>.json`へUTF-8（BOMなし）で配置する。
 - `src/world/stageSelection.ts`の`STAGE_CATALOG`へID、初期ラベル、定義パスを登録する。
 - 定義パスとGLBパスは`import.meta.env.BASE_URL`から解決できる相対パスとする。
 - JSONを配置しただけではタイトルの選択肢へ追加されない。
 
-現行の専用IDは次の3件である。
+旧T02時点の専用IDは次の3件だった。
 
 | ID | 専用処理 |
 |---|---|
@@ -145,7 +152,7 @@ type StageCellPhysicsDef = {
 `grid.zoneMap`は任意で、指定時は`mainMap`と同じベース寸法にする。
 
 - `D`: `labyrinth_dynamic`の動的ビーム候補床セル。
-- `L`: 制作上の汎用屋内領域。現行ランタイム処理は持たない。
+- `L`: 制作上の汎用屋内領域。旧T02ランタイムでは処理していなかった。
 
 上下左右に連結した`D`床セルを1つのビームセットとして扱う。
 
@@ -218,7 +225,7 @@ GLB用JSONの水平座標はBlender資産原点・メートル基準とする。
 - 距離は0.25倍に変換する。
 - GLB形式ではJSON列の左右反転を行わない。
 
-本平面グリッドはT02時点の既存ゲームシステムを接続するための構造である。`layerId`、`floorY`、複数階、階段リンクはT04で導入する。
+本平面グリッドはT02時点の既存ゲームシステムを接続するための構造だった。当時は`layerId`、`floorY`、複数階、階段リンクをT04で導入する予定としていたが、この設計は採用せず、現行V2は3D NavMeshを使用する。
 
 ### 5.3 GLBメッシュ
 
@@ -270,7 +277,7 @@ type StageZone = {
 
 - 全ステージに`id: "assembly_area"`を1件置く。
 - `noEnemySpawn`はビットの初期・追加スポーン候補から除外する。
-- `noEnemyEnter`、`noCombat`、`hazard`は現行ランタイム処理を持たない。
+- `noEnemyEnter`、`noCombat`、`hazard`は旧T02ランタイムでは処理していなかった。
 
 ### 6.3 オプション
 
@@ -279,7 +286,7 @@ type StageZone = {
 
 ## 7. 制作注釈
 
-`authoring.symbols`は環境・ゾーン記号の人間向け説明を保持する。`authoring.zoneRules`は制作意図を保持できるが、現行ランタイムは処理しない。
+`authoring.symbols`は環境・ゾーン記号の人間向け説明を保持する。`authoring.zoneRules`は制作意図を保持できたが、旧T02ランタイムでは処理していなかった。
 
 制作注釈はゲームプレイ効果を自動生成しない。
 
@@ -300,7 +307,9 @@ type StageZone = {
 
 Babylon.jsがGLBのPBR Material用に生成する`EnvironmentBRDFTexture`はScene共有資源とし、StageContextからは破棄しない。非同期RGBD展開を含むライフサイクルと最終破棄はSceneへ委ねる。
 
-## 9. 現行8ステージ
+## 9. 旧T02時点の8ステージ（履歴）
+
+次の8件は旧T02で使用していたJSONステージであり、V2移行時に`public/stage`から削除した。個別に3D資産化されるまで、V2のカタログや動作保証には含めない。
 
 | ファイル | kind | 内部グリッド | 主な特徴 |
 |---|---|---:|---|
@@ -315,9 +324,11 @@ Babylon.jsがGLBのPBR Material用に生成する`EnvironmentBRDFTexture`はScen
 
 T02移行時に`laboratory.json`の過剰な最終`L`行を削除し、全定義のマップ寸法を一致させた。
 
-T01テストコースは検証専用のglb定義であり、通常のステージカタログには登録しない。
+T01テストコースは検証専用のglb定義であり、旧T02の通常ステージカタログには登録されていなかった。
 
-## 10. 作成チェックリスト
+## 10. 旧T02作成チェックリスト（履歴）
+
+以下は旧JSONを作成していた当時のチェックリストである。現行V2の資産制作や実装検証には使用せず、[V2ステージランタイム仕様書](./spec_stage_runtime_v2.md)と[ステージ資産仕様書](./spec_stage_assets_v2.md)に従う。
 
 - [ ] UTF-8（BOMなし）のJSONとして解析できる。
 - [ ] `schemaVersion: 2`と既知の`kind`を持つ。

@@ -1,0 +1,1100 @@
+import { createHash } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import {
+  exportNavMesh,
+  getNavMeshPositionsAndIndices,
+  importNavMesh,
+  init,
+  NavMeshQuery
+} from "recast-navigation";
+import { generateSoloNavMesh } from "recast-navigation/generators";
+
+const GLB_MAGIC = 0x46546c67;
+const GLB_VERSION = 2;
+const JSON_CHUNK_TYPE = 0x4e4f534a;
+const BIN_CHUNK_TYPE = 0x004e4942;
+const TRIANGLES_MODE = 4;
+const FLOAT_COMPONENT_TYPE = 5126;
+const UNSIGNED_INDEX_COMPONENT_TYPES = new Set([5121, 5123, 5125]);
+const REGISTERED_NAV_AREAS = new Set(["ground", "stairs", "outdoor", "door"]);
+const REGISTERED_NAV_ROLES = new Set(["walkable", "blocker", "exclude"]);
+const REPRESENTATIVE_ROUTE_ENDPOINT_TOLERANCE = 1e-5;
+const REPRESENTATIVE_ROUTE_PATH_LIMIT = 4096;
+const REPRESENTATIVE_ROUTE_QUERY_HALF_EXTENTS = Object.freeze({
+  x: 0.5,
+  y: 0.5,
+  z: 0.5
+});
+
+const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
+const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "../..");
+const INPUT_RELATIVE_PATH = "public/stage-assets/v2/B02/b02_school_blockout.glb";
+const OUTPUT_RELATIVE_PATH = "public/stage-assets/v2/B02/b02_school_blockout.navmesh.bin";
+const INPUT_PATH = resolve(REPOSITORY_ROOT, INPUT_RELATIVE_PATH);
+const OUTPUT_PATH = resolve(REPOSITORY_ROOT, OUTPUT_RELATIVE_PATH);
+
+const SCHOOL_NAV_PROFILE = Object.freeze({
+  id: "school-humanoid-v1",
+  schemaVersion: 1,
+  stageId: "school",
+  coordinateSpace: "gltf-right-handed-y-up",
+  worldScale: 0.25,
+  generator: "solo",
+  recastPackage: "recast-navigation",
+  recastVersion: "0.43.1",
+  parameters: Object.freeze({
+    cs: 0.025,
+    ch: 0.0125,
+    walkableSlopeAngle: 45,
+    walkableHeight: 34,
+    walkableClimb: 3,
+    walkableRadius: 4,
+    maxEdgeLen: 12,
+    maxSimplificationError: 1.3,
+    minRegionArea: 8,
+    mergeRegionArea: 20,
+    maxVertsPerPoly: 6,
+    detailSampleDist: 6,
+    detailSampleMaxError: 1,
+    buildBvTree: true
+  })
+});
+
+const REPRESENTATIVE_ROUTES = Object.freeze([
+  Object.freeze({
+    id: "main-entrance-to-courtyard",
+    label: "主玄関→校庭",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([16.7, 14.5, 0])
+  }),
+  Object.freeze({
+    id: "main-entrance-to-north-outside",
+    label: "主玄関→北側屋外",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([17.4, 47, 0])
+  }),
+  Object.freeze({
+    id: "main-entrance-to-northwest-landing",
+    label: "主玄関→北西踊り場",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([-9.6, 44.3, 2.4])
+  }),
+  Object.freeze({
+    id: "main-entrance-to-northwest-storage",
+    label: "主玄関→北西階段下倉庫",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([-7.8, 40.0, 0])
+  }),
+  Object.freeze({
+    id: "main-entrance-to-northeast-landing",
+    label: "主玄関→北東踊り場",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([44.4, 44.3, 2.4])
+  }),
+  Object.freeze({
+    id: "main-entrance-to-southwest-landing",
+    label: "主玄関→南西踊り場",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([-11.4, -0.5, 2.4])
+  }),
+  Object.freeze({
+    id: "main-entrance-to-gym-center",
+    label: "主玄関→体育館中央",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([45.4, 8.5, 0])
+  }),
+  Object.freeze({
+    id: "courtyard-to-gym-west-entrance",
+    label: "校庭→体育館西側出入口",
+    startBlender: Object.freeze([31.6, 6.5, -0.3]),
+    endBlender: Object.freeze([34.0, 6.5, 0])
+  }),
+  Object.freeze({
+    id: "north-wing-to-north-outside",
+    label: "北側校舎→北側屋外",
+    startBlender: Object.freeze([3.9, 44.5, 0]),
+    endBlender: Object.freeze([3.9, 48.0, -0.3])
+  }),
+  Object.freeze({
+    id: "courtyard-to-bridge-west-side",
+    label: "校庭→渡り廊下西側",
+    startBlender: Object.freeze([37.0, 29.5, -0.3]),
+    endBlender: Object.freeze([40.0, 29.5, 0])
+  }),
+  Object.freeze({
+    id: "courtyard-to-north-wing-south-entry",
+    label: "校庭→北側校舎南出入口",
+    startBlender: Object.freeze([2.7, 30.0, -0.3]),
+    endBlender: Object.freeze([2.7, 33.2, 0])
+  }),
+  Object.freeze({
+    id: "east-outside-to-bridge-east-side",
+    label: "東側屋外→渡り廊下東側",
+    startBlender: Object.freeze([45.8, 29.5, -0.3]),
+    endBlender: Object.freeze([42.8, 29.5, 0])
+  }),
+  Object.freeze({
+    id: "male-toilet-aisle-to-stall",
+    label: "男子トイレ通路→個室",
+    startBlender: Object.freeze([-4.35, 42.4, 0]),
+    endBlender: Object.freeze([-5.75, 44.6, 0])
+  }),
+  Object.freeze({
+    id: "female-toilet-aisle-to-stall",
+    label: "女子トイレ通路→個室",
+    startBlender: Object.freeze([0.15, 42.4, 0]),
+    endBlender: Object.freeze([-1.25, 44.6, 0])
+  }),
+  Object.freeze({
+    id: "west-special-room-south-to-north",
+    label: "西側特別教室中央→北端",
+    startBlender: Object.freeze([-8.05, 17.5, 0]),
+    endBlender: Object.freeze([-8.05, 27.5, 0])
+  }),
+  Object.freeze({
+    id: "west-corridor-to-special-room-front-door",
+    label: "西側廊下→特別教室前方扉",
+    startBlender: Object.freeze([-2.8, 13.7, 0]),
+    endBlender: Object.freeze([-5.0, 13.7, 0])
+  }),
+  Object.freeze({
+    id: "west-corridor-to-special-room-rear-door",
+    label: "西側廊下→特別教室後方扉",
+    startBlender: Object.freeze([-2.8, 31.3, 0]),
+    endBlender: Object.freeze([-5.0, 31.3, 0])
+  }),
+  Object.freeze({
+    id: "main-entrance-to-gym-storage",
+    label: "主玄関→体育倉庫",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([54.4, 28.5, 0])
+  }),
+  Object.freeze({
+    id: "gym-floor-to-stage",
+    label: "体育館床→舞台",
+    startBlender: Object.freeze([45.4, 0, 0]),
+    endBlender: Object.freeze([45.4, -6.5, 1])
+  }),
+  Object.freeze({
+    id: "east-ramp-bottom-to-stage",
+    label: "東ランプ下→舞台",
+    startBlender: Object.freeze([53.1, -6.5, 0]),
+    endBlender: Object.freeze([45.4, -6.5, 1])
+  }),
+  Object.freeze({
+    id: "west-ramp-bottom-to-stage",
+    label: "西ランプ下→舞台",
+    startBlender: Object.freeze([37.7, -6.5, 0]),
+    endBlender: Object.freeze([45.4, -6.5, 1])
+  })
+]);
+
+const identityMatrix = Object.freeze([
+  1, 0, 0, 0,
+  0, 1, 0, 0,
+  0, 0, 1, 0,
+  0, 0, 0, 1
+]);
+
+const fail = (message) => {
+  throw new Error(message);
+};
+
+const assertObject = (value, label) => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    fail(`${label}はobjectである必要があります。`);
+  }
+  return value;
+};
+
+const assertArray = (value, label) => {
+  if (!Array.isArray(value)) {
+    fail(`${label}はarrayである必要があります。`);
+  }
+  return value;
+};
+
+const assertInteger = (value, label, minimum = 0) => {
+  if (!Number.isInteger(value) || value < minimum) {
+    fail(`${label}は${minimum}以上のintegerである必要があります。`);
+  }
+  return value;
+};
+
+const assertFiniteNumber = (value, label) => {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    fail(`${label}は有限numberである必要があります。`);
+  }
+  return value;
+};
+
+const assertFiniteNumberArray = (value, length, label) => {
+  const values = assertArray(value, label);
+  if (values.length !== length) {
+    fail(`${label}は要素数${length}である必要があります。`);
+  }
+  return values.map((component, index) => assertFiniteNumber(component, `${label}[${index}]`));
+};
+
+const assertIndex = (value, length, label) => {
+  const index = assertInteger(value, label);
+  if (index >= length) {
+    fail(`${label}=${index}は参照先件数${length}の範囲外です。`);
+  }
+  return index;
+};
+
+const assertExactKeys = (value, allowedKeys, label) => {
+  const actualKeys = Object.keys(value).sort();
+  const expectedKeys = [...allowedKeys].sort();
+  if (
+    actualKeys.length !== expectedKeys.length ||
+    actualKeys.some((key, index) => key !== expectedKeys[index])
+  ) {
+    fail(`${label}のkeysが不正です。期待=${expectedKeys.join(",")} 実際=${actualKeys.join(",")}`);
+  }
+};
+
+const sha256 = (data) => createHash("sha256").update(data).digest("hex");
+
+const stableStringify = (value) => {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+};
+
+const parseGlb = (data) => {
+  if (data.byteLength < 20) {
+    fail("GLBがheaderとJSON chunkを保持する最小長に達していません。");
+  }
+
+  const magic = data.readUInt32LE(0);
+  const version = data.readUInt32LE(4);
+  const declaredLength = data.readUInt32LE(8);
+  if (magic !== GLB_MAGIC) {
+    fail(`GLB magicが不正です: 0x${magic.toString(16)}`);
+  }
+  if (version !== GLB_VERSION) {
+    fail(`GLB versionが不正です: ${version}`);
+  }
+  if (declaredLength !== data.byteLength) {
+    fail(`GLB header lengthが実ファイル長と一致しません: ${declaredLength} != ${data.byteLength}`);
+  }
+
+  let offset = 12;
+  let chunkIndex = 0;
+  let jsonChunk = null;
+  let binaryChunk = null;
+
+  while (offset < data.byteLength) {
+    if (offset + 8 > data.byteLength) {
+      fail(`GLB chunk ${chunkIndex}のheaderが途中で切れています。`);
+    }
+    const chunkLength = data.readUInt32LE(offset);
+    const chunkType = data.readUInt32LE(offset + 4);
+    offset += 8;
+    if (chunkLength % 4 !== 0) {
+      fail(`GLB chunk ${chunkIndex}の長さが4-byte境界ではありません: ${chunkLength}`);
+    }
+    if (offset + chunkLength > data.byteLength) {
+      fail(`GLB chunk ${chunkIndex}がファイル終端を超えています。`);
+    }
+    const chunk = data.subarray(offset, offset + chunkLength);
+    offset += chunkLength;
+
+    if (chunkIndex === 0 && chunkType !== JSON_CHUNK_TYPE) {
+      fail("GLB先頭chunkがJSONではありません。");
+    }
+    if (chunkType === JSON_CHUNK_TYPE) {
+      if (jsonChunk !== null) {
+        fail("GLBにJSON chunkが複数あります。");
+      }
+      jsonChunk = chunk;
+    } else if (chunkType === BIN_CHUNK_TYPE) {
+      if (binaryChunk !== null) {
+        fail("GLBにBIN chunkが複数あります。");
+      }
+      binaryChunk = chunk;
+    } else {
+      fail(`GLBに未対応chunk typeがあります: 0x${chunkType.toString(16)}`);
+    }
+    chunkIndex += 1;
+  }
+
+  if (offset !== data.byteLength) {
+    fail("GLB chunk走査がファイル終端と一致しません。");
+  }
+  if (jsonChunk === null || binaryChunk === null || chunkIndex !== 2) {
+    fail("GLBはJSON chunk 1件とBIN chunk 1件だけで構成する必要があります。");
+  }
+
+  const jsonText = new TextDecoder("utf-8", { fatal: true }).decode(jsonChunk);
+  let document;
+  try {
+    document = JSON.parse(jsonText);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    fail(`GLB JSONを解析できません: ${detail}`);
+  }
+
+  const gltf = assertObject(document, "glTF root");
+  const asset = assertObject(gltf.asset, "glTF.asset");
+  if (asset.version !== "2.0") {
+    fail(`glTF.asset.versionが2.0ではありません: ${String(asset.version)}`);
+  }
+  const buffers = assertArray(gltf.buffers, "glTF.buffers");
+  if (buffers.length !== 1) {
+    fail(`GLBのbufferは1件である必要があります: ${buffers.length}`);
+  }
+  const bufferDefinition = assertObject(buffers[0], "glTF.buffers[0]");
+  assertExactKeys(bufferDefinition, ["byteLength"], "glTF.buffers[0]");
+  const declaredBinaryLength = assertInteger(
+    bufferDefinition.byteLength,
+    "glTF.buffers[0].byteLength",
+    1
+  );
+  const paddingLength = binaryChunk.byteLength - declaredBinaryLength;
+  if (paddingLength < 0 || paddingLength > 3) {
+    fail(
+      `GLB BIN chunk長とbuffer.byteLengthの差がpadding範囲外です: ${binaryChunk.byteLength} - ${declaredBinaryLength}`
+    );
+  }
+
+  return {
+    gltf,
+    binary: binaryChunk.subarray(0, declaredBinaryLength)
+  };
+};
+
+const multiplyMatrices = (left, right) => {
+  const result = new Array(16).fill(0);
+  for (let column = 0; column < 4; column += 1) {
+    for (let row = 0; row < 4; row += 1) {
+      for (let inner = 0; inner < 4; inner += 1) {
+        result[column * 4 + row] += left[inner * 4 + row] * right[column * 4 + inner];
+      }
+    }
+  }
+  return result;
+};
+
+const composeTrsMatrix = (translation, rotation, scale) => {
+  const [x, y, z, w] = rotation;
+  const [sx, sy, sz] = scale;
+  const xx = x * x;
+  const yy = y * y;
+  const zz = z * z;
+  const xy = x * y;
+  const xz = x * z;
+  const yz = y * z;
+  const wx = w * x;
+  const wy = w * y;
+  const wz = w * z;
+
+  return [
+    (1 - 2 * (yy + zz)) * sx,
+    (2 * (xy + wz)) * sx,
+    (2 * (xz - wy)) * sx,
+    0,
+    (2 * (xy - wz)) * sy,
+    (1 - 2 * (xx + zz)) * sy,
+    (2 * (yz + wx)) * sy,
+    0,
+    (2 * (xz + wy)) * sz,
+    (2 * (yz - wx)) * sz,
+    (1 - 2 * (xx + yy)) * sz,
+    0,
+    translation[0],
+    translation[1],
+    translation[2],
+    1
+  ];
+};
+
+const localMatrixForNode = (node, label) => {
+  if (node.matrix !== undefined) {
+    if (
+      node.translation !== undefined ||
+      node.rotation !== undefined ||
+      node.scale !== undefined
+    ) {
+      fail(`${label}はmatrixとTRSを同時に持てません。`);
+    }
+    return assertFiniteNumberArray(node.matrix, 16, `${label}.matrix`);
+  }
+
+  const translation =
+    node.translation === undefined
+      ? [0, 0, 0]
+      : assertFiniteNumberArray(node.translation, 3, `${label}.translation`);
+  const rotation =
+    node.rotation === undefined
+      ? [0, 0, 0, 1]
+      : assertFiniteNumberArray(node.rotation, 4, `${label}.rotation`);
+  const scale =
+    node.scale === undefined
+      ? [1, 1, 1]
+      : assertFiniteNumberArray(node.scale, 3, `${label}.scale`);
+  const quaternionLength = Math.hypot(...rotation);
+  if (Math.abs(quaternionLength - 1) > 1e-5) {
+    fail(`${label}.rotationが単位quaternionではありません: ${quaternionLength}`);
+  }
+  if (scale.some((component) => component === 0)) {
+    fail(`${label}.scaleに0があります。`);
+  }
+  return composeTrsMatrix(translation, rotation, scale);
+};
+
+const matrixDeterminant3x3 = (matrix) =>
+  matrix[0] * (matrix[5] * matrix[10] - matrix[9] * matrix[6]) -
+  matrix[4] * (matrix[1] * matrix[10] - matrix[9] * matrix[2]) +
+  matrix[8] * (matrix[1] * matrix[6] - matrix[5] * matrix[2]);
+
+const transformPosition = (matrix, x, y, z) => [
+  matrix[0] * x + matrix[4] * y + matrix[8] * z + matrix[12],
+  matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13],
+  matrix[2] * x + matrix[6] * y + matrix[10] * z + matrix[14]
+];
+
+const buildSceneGraph = (gltf) => {
+  const scenes = assertArray(gltf.scenes, "glTF.scenes");
+  if (scenes.length !== 1) {
+    fail(`glTF sceneは1件である必要があります: ${scenes.length}`);
+  }
+  if (gltf.scene !== 0) {
+    fail(`glTF.sceneは0である必要があります: ${String(gltf.scene)}`);
+  }
+
+  const nodes = assertArray(gltf.nodes, "glTF.nodes");
+  if (nodes.length === 0) {
+    fail("glTF.nodesが空です。");
+  }
+  const scene = assertObject(scenes[0], "glTF.scenes[0]");
+  const rootNodeIndices = assertArray(scene.nodes, "glTF.scenes[0].nodes").map(
+    (nodeIndex, index) => assertIndex(nodeIndex, nodes.length, `glTF.scenes[0].nodes[${index}]`)
+  );
+  if (rootNodeIndices.length === 0) {
+    fail("glTF default sceneにroot nodeがありません。");
+  }
+
+  const parentIndices = new Array(nodes.length).fill(-1);
+  const names = new Set();
+  nodes.forEach((nodeValue, nodeIndex) => {
+    const node = assertObject(nodeValue, `glTF.nodes[${nodeIndex}]`);
+    if (typeof node.name !== "string" || node.name.length === 0) {
+      fail(`glTF.nodes[${nodeIndex}].nameが非空stringではありません。`);
+    }
+    if (names.has(node.name)) {
+      fail(`glTF node名が重複しています: ${node.name}`);
+    }
+    names.add(node.name);
+
+    if (node.children !== undefined) {
+      assertArray(node.children, `glTF.nodes[${nodeIndex}].children`).forEach(
+        (childValue, childOffset) => {
+          const childIndex = assertIndex(
+            childValue,
+            nodes.length,
+            `glTF.nodes[${nodeIndex}].children[${childOffset}]`
+          );
+          if (childIndex === nodeIndex) {
+            fail(`glTF node ${node.name}が自身をchildにしています。`);
+          }
+          if (parentIndices[childIndex] !== -1) {
+            fail(`glTF node ${nodes[childIndex].name}が複数のparentを持っています。`);
+          }
+          parentIndices[childIndex] = nodeIndex;
+        }
+      );
+    }
+  });
+
+  const rootSet = new Set(rootNodeIndices);
+  if (rootSet.size !== rootNodeIndices.length) {
+    fail("glTF default sceneのroot node参照が重複しています。");
+  }
+  rootNodeIndices.forEach((rootIndex) => {
+    if (parentIndices[rootIndex] !== -1) {
+      fail(`glTF root node ${nodes[rootIndex].name}が別nodeのchildでもあります。`);
+    }
+  });
+
+  const worldMatrices = new Array(nodes.length);
+  const visitState = new Uint8Array(nodes.length);
+  let visitedCount = 0;
+
+  const visit = (nodeIndex, parentWorldMatrix) => {
+    if (visitState[nodeIndex] === 1) {
+      fail(`glTF node階層にcycleがあります: ${nodes[nodeIndex].name}`);
+    }
+    if (visitState[nodeIndex] === 2) {
+      fail(`glTF node ${nodes[nodeIndex].name}へ重複到達しました。`);
+    }
+    visitState[nodeIndex] = 1;
+    const node = nodes[nodeIndex];
+    const localMatrix = localMatrixForNode(node, `glTF.nodes[${nodeIndex}](${node.name})`);
+    const worldMatrix = multiplyMatrices(parentWorldMatrix, localMatrix);
+    worldMatrices[nodeIndex] = worldMatrix;
+    const determinant = matrixDeterminant3x3(worldMatrix);
+    if (!Number.isFinite(determinant) || determinant <= 1e-8) {
+      fail(`glTF node ${node.name}のworld transformが正の非退化変換ではありません: ${determinant}`);
+    }
+    if (node.children !== undefined) {
+      node.children.forEach((childIndex) => visit(childIndex, worldMatrix));
+    }
+    visitState[nodeIndex] = 2;
+    visitedCount += 1;
+  };
+
+  rootNodeIndices.forEach((rootIndex) => visit(rootIndex, identityMatrix));
+  if (visitedCount !== nodes.length) {
+    const unreachable = nodes
+      .filter((_, nodeIndex) => visitState[nodeIndex] === 0)
+      .map((node) => node.name);
+    fail(`glTF default sceneから到達不能なnodeがあります: ${unreachable.join(", ")}`);
+  }
+
+  return { nodes, worldMatrices };
+};
+
+const validateMetadataAndNavigationNodes = (nodes) => {
+  const metadataNodes = nodes
+    .map((node, nodeIndex) => ({ node, nodeIndex }))
+    .filter(({ node }) => node.name === "META_Stage");
+  const navigationNodes = nodes
+    .map((node, nodeIndex) => ({ node, nodeIndex }))
+    .filter(({ node }) => node.name.startsWith("NAV_"));
+  const contractErrors = [];
+
+  if (metadataNodes.length !== 1) {
+    contractErrors.push(`META_Stageは1件必要です（実際=${metadataNodes.length}件）`);
+  }
+  if (navigationNodes.length === 0) {
+    contractErrors.push("NAV_* Meshがありません");
+  }
+  if (contractErrors.length > 0) {
+    fail(`学校NavMeshベイク入力が未完成です: ${contractErrors.join(" / ")}`);
+  }
+
+  const metadataNode = metadataNodes[0].node;
+  if (metadataNode.mesh !== undefined) {
+    fail("META_StageはMeshを参照しないEmptyである必要があります。");
+  }
+  const metadataExtras = assertObject(metadataNode.extras, "META_Stage.extras");
+  assertExactKeys(
+    metadataExtras,
+    ["hs_schema_version", "hs_stage_id", "hs_nav_profile"],
+    "META_Stage.extras"
+  );
+  if (metadataExtras.hs_schema_version !== SCHOOL_NAV_PROFILE.schemaVersion) {
+    fail(
+      `META_Stage.hs_schema_versionが不一致です: ${String(metadataExtras.hs_schema_version)} != ${SCHOOL_NAV_PROFILE.schemaVersion}`
+    );
+  }
+  if (metadataExtras.hs_stage_id !== SCHOOL_NAV_PROFILE.stageId) {
+    fail(
+      `META_Stage.hs_stage_idが不一致です: ${String(metadataExtras.hs_stage_id)} != ${SCHOOL_NAV_PROFILE.stageId}`
+    );
+  }
+  if (metadataExtras.hs_nav_profile !== SCHOOL_NAV_PROFILE.id) {
+    fail(
+      `META_Stage.hs_nav_profileが不一致です: ${String(metadataExtras.hs_nav_profile)} != ${SCHOOL_NAV_PROFILE.id}`
+    );
+  }
+
+  const countsByRole = { walkable: 0, blocker: 0, exclude: 0 };
+  const countsByArea = { ground: 0, stairs: 0, outdoor: 0, door: 0 };
+  navigationNodes.forEach(({ node }) => {
+    if (node.mesh === undefined) {
+      fail(`${node.name}はMeshを参照する必要があります。`);
+    }
+    const extras = assertObject(node.extras, `${node.name}.extras`);
+    const role = extras.hs_nav_role;
+    if (!REGISTERED_NAV_ROLES.has(role)) {
+      fail(`${node.name}.hs_nav_roleが未登録です: ${String(role)}`);
+    }
+    if (role === "walkable") {
+      assertExactKeys(extras, ["hs_nav_role", "hs_nav_area"], `${node.name}.extras`);
+      const area = extras.hs_nav_area;
+      if (!REGISTERED_NAV_AREAS.has(area)) {
+        fail(`${node.name}.hs_nav_areaが未登録です: ${String(area)}`);
+      }
+      countsByArea[area] += 1;
+    } else {
+      assertExactKeys(extras, ["hs_nav_role"], `${node.name}.extras`);
+    }
+    countsByRole[role] += 1;
+  });
+
+  if (countsByRole.walkable === 0) {
+    fail("hs_nav_role=walkableのNAV_* Meshがありません。");
+  }
+  if (countsByRole.blocker === 0) {
+    fail("hs_nav_role=blockerのNAV_* Meshがありません。");
+  }
+  if (countsByRole.exclude > 0) {
+    fail(
+      `school-humanoid-v1のSoloベイクはexcludeを使用しません: ${countsByRole.exclude}件`
+    );
+  }
+
+  return { navigationNodes, countsByRole, countsByArea };
+};
+
+const componentReader = (binary, componentType, byteOffset) => {
+  switch (componentType) {
+    case 5121:
+      return binary.readUInt8(byteOffset);
+    case 5123:
+      return binary.readUInt16LE(byteOffset);
+    case 5125:
+      return binary.readUInt32LE(byteOffset);
+    case FLOAT_COMPONENT_TYPE:
+      return binary.readFloatLE(byteOffset);
+    default:
+      fail(`未対応componentTypeです: ${componentType}`);
+  }
+};
+
+const componentByteLength = (componentType) => {
+  switch (componentType) {
+    case 5121:
+      return 1;
+    case 5123:
+      return 2;
+    case 5125:
+    case FLOAT_COMPONENT_TYPE:
+      return 4;
+    default:
+      fail(`未対応componentTypeです: ${componentType}`);
+  }
+};
+
+const readAccessor = (gltf, binary, accessorIndex, expectedKind) => {
+  const accessors = assertArray(gltf.accessors, "glTF.accessors");
+  const bufferViews = assertArray(gltf.bufferViews, "glTF.bufferViews");
+  const checkedAccessorIndex = assertIndex(accessorIndex, accessors.length, "accessor index");
+  const accessor = assertObject(
+    accessors[checkedAccessorIndex],
+    `glTF.accessors[${checkedAccessorIndex}]`
+  );
+  if (accessor.sparse !== undefined) {
+    fail(`glTF.accessors[${checkedAccessorIndex}]はsparse accessorを使用できません。`);
+  }
+  if (accessor.bufferView === undefined) {
+    fail(`glTF.accessors[${checkedAccessorIndex}]にbufferViewがありません。`);
+  }
+  if (accessor.normalized === true) {
+    fail(`glTF.accessors[${checkedAccessorIndex}]はnormalized accessorを使用できません。`);
+  }
+
+  const componentType = assertInteger(
+    accessor.componentType,
+    `glTF.accessors[${checkedAccessorIndex}].componentType`
+  );
+  if (expectedKind === "position") {
+    if (accessor.type !== "VEC3" || componentType !== FLOAT_COMPONENT_TYPE) {
+      fail(
+        `POSITION accessorはFLOAT VEC3である必要があります: type=${String(accessor.type)} componentType=${componentType}`
+      );
+    }
+  } else if (
+    accessor.type !== "SCALAR" ||
+    !UNSIGNED_INDEX_COMPONENT_TYPES.has(componentType)
+  ) {
+    fail(
+      `indices accessorはUNSIGNED BYTE/SHORT/INT SCALARである必要があります: type=${String(accessor.type)} componentType=${componentType}`
+    );
+  }
+
+  const componentCount = expectedKind === "position" ? 3 : 1;
+  const bytesPerComponent = componentByteLength(componentType);
+  const elementByteLength = bytesPerComponent * componentCount;
+  const count = assertInteger(accessor.count, `glTF.accessors[${checkedAccessorIndex}].count`, 1);
+  const bufferViewIndex = assertIndex(
+    accessor.bufferView,
+    bufferViews.length,
+    `glTF.accessors[${checkedAccessorIndex}].bufferView`
+  );
+  const bufferView = assertObject(
+    bufferViews[bufferViewIndex],
+    `glTF.bufferViews[${bufferViewIndex}]`
+  );
+  if (bufferView.buffer !== 0) {
+    fail(`glTF.bufferViews[${bufferViewIndex}].bufferは0である必要があります。`);
+  }
+  const viewOffset =
+    bufferView.byteOffset === undefined
+      ? 0
+      : assertInteger(bufferView.byteOffset, `glTF.bufferViews[${bufferViewIndex}].byteOffset`);
+  const viewLength = assertInteger(
+    bufferView.byteLength,
+    `glTF.bufferViews[${bufferViewIndex}].byteLength`,
+    1
+  );
+  const accessorOffset =
+    accessor.byteOffset === undefined
+      ? 0
+      : assertInteger(accessor.byteOffset, `glTF.accessors[${checkedAccessorIndex}].byteOffset`);
+  const stride =
+    bufferView.byteStride === undefined
+      ? elementByteLength
+      : assertInteger(bufferView.byteStride, `glTF.bufferViews[${bufferViewIndex}].byteStride`, 4);
+
+  if (accessorOffset % bytesPerComponent !== 0 || stride % bytesPerComponent !== 0) {
+    fail(`glTF.accessors[${checkedAccessorIndex}]のbyte alignmentが不正です。`);
+  }
+  if (stride < elementByteLength || stride > 252) {
+    fail(`glTF.bufferViews[${bufferViewIndex}].byteStrideが不正です: ${stride}`);
+  }
+  const firstByte = viewOffset + accessorOffset;
+  const lastByteExclusive = firstByte + (count - 1) * stride + elementByteLength;
+  if (lastByteExclusive > viewOffset + viewLength || lastByteExclusive > binary.byteLength) {
+    fail(`glTF.accessors[${checkedAccessorIndex}]がbufferViewまたはBIN chunkを超えています。`);
+  }
+
+  const values = new Array(count * componentCount);
+  for (let elementIndex = 0; elementIndex < count; elementIndex += 1) {
+    const elementOffset = firstByte + elementIndex * stride;
+    for (let componentIndex = 0; componentIndex < componentCount; componentIndex += 1) {
+      const value = componentReader(
+        binary,
+        componentType,
+        elementOffset + componentIndex * bytesPerComponent
+      );
+      if (!Number.isFinite(value)) {
+        fail(`glTF.accessors[${checkedAccessorIndex}]に有限値でない要素があります。`);
+      }
+      values[elementIndex * componentCount + componentIndex] = value;
+    }
+  }
+
+  return { values, count };
+};
+
+const extractNavigationGeometry = (
+  gltf,
+  binary,
+  worldMatrices,
+  navigationNodes
+) => {
+  const meshes = assertArray(gltf.meshes, "glTF.meshes");
+  const positions = [];
+  const indices = [];
+  const sourceStatistics = [];
+  const meshNames = new Set();
+
+  meshes.forEach((meshValue, meshIndex) => {
+    const mesh = assertObject(meshValue, `glTF.meshes[${meshIndex}]`);
+    if (typeof mesh.name !== "string" || mesh.name.length === 0) {
+      fail(`glTF.meshes[${meshIndex}].nameが非空stringではありません。`);
+    }
+    if (meshNames.has(mesh.name)) {
+      fail(`glTF mesh名が重複しています: ${mesh.name}`);
+    }
+    meshNames.add(mesh.name);
+  });
+
+  navigationNodes.forEach(({ node, nodeIndex }) => {
+    const meshIndex = assertIndex(node.mesh, meshes.length, `${node.name}.mesh`);
+    const mesh = meshes[meshIndex];
+    if (mesh.name !== node.name) {
+      fail(`${node.name}のObject名とMesh名が一致しません: ${mesh.name}`);
+    }
+    const primitives = assertArray(mesh.primitives, `${mesh.name}.primitives`);
+    if (primitives.length === 0) {
+      fail(`${mesh.name}.primitivesが空です。`);
+    }
+    const worldMatrix = worldMatrices[nodeIndex];
+    let sourceVertexCount = 0;
+    let sourceTriangleCount = 0;
+
+    primitives.forEach((primitiveValue, primitiveIndex) => {
+      const primitive = assertObject(
+        primitiveValue,
+        `${mesh.name}.primitives[${primitiveIndex}]`
+      );
+      const mode = primitive.mode === undefined ? TRIANGLES_MODE : primitive.mode;
+      if (mode !== TRIANGLES_MODE) {
+        fail(`${mesh.name}.primitives[${primitiveIndex}]はTRIANGLESではありません: ${mode}`);
+      }
+      if (primitive.indices === undefined) {
+        fail(`${mesh.name}.primitives[${primitiveIndex}]にindicesがありません。`);
+      }
+      if (primitive.targets !== undefined) {
+        fail(`${mesh.name}.primitives[${primitiveIndex}]はmorph targetsを使用できません。`);
+      }
+      const attributes = assertObject(
+        primitive.attributes,
+        `${mesh.name}.primitives[${primitiveIndex}].attributes`
+      );
+      if (attributes.POSITION === undefined) {
+        fail(`${mesh.name}.primitives[${primitiveIndex}]にPOSITIONがありません。`);
+      }
+
+      const positionAccessor = readAccessor(
+        gltf,
+        binary,
+        attributes.POSITION,
+        "position"
+      );
+      const indexAccessor = readAccessor(gltf, binary, primitive.indices, "index");
+      if (indexAccessor.count % 3 !== 0) {
+        fail(`${mesh.name}.primitives[${primitiveIndex}]のindex数が3の倍数ではありません。`);
+      }
+
+      const vertexOffset = positions.length / 3;
+      for (let vertexIndex = 0; vertexIndex < positionAccessor.count; vertexIndex += 1) {
+        const sourceOffset = vertexIndex * 3;
+        const transformed = transformPosition(
+          worldMatrix,
+          positionAccessor.values[sourceOffset],
+          positionAccessor.values[sourceOffset + 1],
+          positionAccessor.values[sourceOffset + 2]
+        );
+        positions.push(
+          transformed[0] * SCHOOL_NAV_PROFILE.worldScale,
+          transformed[1] * SCHOOL_NAV_PROFILE.worldScale,
+          transformed[2] * SCHOOL_NAV_PROFILE.worldScale
+        );
+      }
+      indexAccessor.values.forEach((indexValue) => {
+        if (indexValue >= positionAccessor.count) {
+          fail(
+            `${mesh.name}.primitives[${primitiveIndex}]のindex ${indexValue}が頂点数${positionAccessor.count}の範囲外です。`
+          );
+        }
+        indices.push(vertexOffset + indexValue);
+      });
+      sourceVertexCount += positionAccessor.count;
+      sourceTriangleCount += indexAccessor.count / 3;
+    });
+
+    sourceStatistics.push({
+      name: node.name,
+      role: node.extras.hs_nav_role,
+      area: node.extras.hs_nav_area ?? null,
+      vertices: sourceVertexCount,
+      triangles: sourceTriangleCount
+    });
+  });
+
+  if (positions.length === 0 || indices.length === 0) {
+    fail("NAV_*からRecast入力三角形を抽出できませんでした。");
+  }
+
+  const boundsMin = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
+  const boundsMax = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
+  for (let offset = 0; offset < positions.length; offset += 3) {
+    for (let axis = 0; axis < 3; axis += 1) {
+      boundsMin[axis] = Math.min(boundsMin[axis], positions[offset + axis]);
+      boundsMax[axis] = Math.max(boundsMax[axis], positions[offset + axis]);
+    }
+  }
+
+  return {
+    positions,
+    indices,
+    boundsMin,
+    boundsMax,
+    sourceStatistics
+  };
+};
+
+const assertInstalledRecastVersion = async () => {
+  const packagePath = resolve(REPOSITORY_ROOT, "node_modules/recast-navigation/package.json");
+  const packageDocument = JSON.parse(await readFile(packagePath, "utf8"));
+  const packageMetadata = assertObject(packageDocument, "recast-navigation package.json");
+  if (packageMetadata.version !== SCHOOL_NAV_PROFILE.recastVersion) {
+    fail(
+      `recast-navigation versionがプロファイルと不一致です: ${String(packageMetadata.version)} != ${SCHOOL_NAV_PROFILE.recastVersion}`
+    );
+  }
+};
+
+const arraysEqual = (left, right) =>
+  left.byteLength === right.byteLength && left.every((value, index) => value === right[index]);
+
+// Blender右手Z-upから、GLBと同じRecast右手Y-upへ変換する。
+// (x, y, z) -> (x * scale, z * scale, -y * scale)
+const blenderPointToRecast = ([x, y, z]) => ({
+  x: x * SCHOOL_NAV_PROFILE.worldScale,
+  y: z * SCHOOL_NAV_PROFILE.worldScale,
+  z: -y * SCHOOL_NAV_PROFILE.worldScale
+});
+
+const recastPointToArray = (point) => [point.x, point.y, point.z];
+
+const distanceBetweenPoints = (left, right) =>
+  Math.hypot(left.x - right.x, left.y - right.y, left.z - right.z);
+
+const measurePathDistance = (path) => {
+  let distance = 0;
+  for (let index = 1; index < path.length; index += 1) {
+    distance += distanceBetweenPoints(path[index - 1], path[index]);
+  }
+  return distance;
+};
+
+const validateRepresentativeRoutes = (navMesh) => {
+  const query = new NavMeshQuery(navMesh, {
+    maxNodes: REPRESENTATIVE_ROUTE_PATH_LIMIT
+  });
+  try {
+    return REPRESENTATIVE_ROUTES.map((route) => {
+      const startRecast = blenderPointToRecast(route.startBlender);
+      const endRecast = blenderPointToRecast(route.endBlender);
+      const pathResult = query.computePath(startRecast, endRecast, {
+        halfExtents: REPRESENTATIVE_ROUTE_QUERY_HALF_EXTENTS,
+        maxPathPolys: REPRESENTATIVE_ROUTE_PATH_LIMIT,
+        maxStraightPathPoints: REPRESENTATIVE_ROUTE_PATH_LIMIT
+      });
+      if (!pathResult.success || pathResult.path.length === 0) {
+        fail(
+          `代表経路を計算できませんでした: ${route.label}, ` +
+          `error=${pathResult.error?.name ?? "経路点0件"}`
+        );
+      }
+
+      const endpoint = pathResult.path[pathResult.path.length - 1];
+      const endpointError = distanceBetweenPoints(endpoint, endRecast);
+      if (endpointError > REPRESENTATIVE_ROUTE_ENDPOINT_TOLERANCE) {
+        fail(
+          `代表経路が終点へ到達していません: ${route.label}, ` +
+          `endpointError=${endpointError}, ` +
+          `tolerance=${REPRESENTATIVE_ROUTE_ENDPOINT_TOLERANCE}`
+        );
+      }
+
+      return {
+        id: route.id,
+        label: route.label,
+        startBlender: route.startBlender,
+        endBlender: route.endBlender,
+        startRecast: recastPointToArray(startRecast),
+        endRecast: recastPointToArray(endRecast),
+        pathRecast: pathResult.path.map(recastPointToArray),
+        distance: measurePathDistance(pathResult.path),
+        endpointError
+      };
+    });
+  } finally {
+    query.destroy();
+  }
+};
+
+const main = async () => {
+  await assertInstalledRecastVersion();
+  const glbData = await readFile(INPUT_PATH);
+  const glbHash = sha256(glbData);
+  const { gltf, binary } = parseGlb(glbData);
+  const { nodes, worldMatrices } = buildSceneGraph(gltf);
+  const { navigationNodes, countsByRole, countsByArea } =
+    validateMetadataAndNavigationNodes(nodes);
+  const geometry = extractNavigationGeometry(
+    gltf,
+    binary,
+    worldMatrices,
+    navigationNodes
+  );
+
+  await init();
+  const bakeStartedAt = performance.now();
+  const generationResult = generateSoloNavMesh(
+    geometry.positions,
+    geometry.indices,
+    SCHOOL_NAV_PROFILE.parameters
+  );
+  const bakeMilliseconds = performance.now() - bakeStartedAt;
+  if (!generationResult.success) {
+    fail(`Recast Solo NavMesh生成に失敗しました: ${generationResult.error}`);
+  }
+
+  const navMesh = generationResult.navMesh;
+  let restoredNavMesh = null;
+  try {
+    const navMeshData = exportNavMesh(navMesh);
+    if (navMeshData.byteLength === 0) {
+      fail("exportNavMesh()が空のバイナリを返しました。");
+    }
+    const restored = importNavMesh(navMeshData);
+    restoredNavMesh = restored.navMesh;
+    const restoredData = exportNavMesh(restoredNavMesh);
+    if (!arraysEqual(navMeshData, restoredData)) {
+      fail("NavMeshバイナリをimport/exportした結果が一致しません。");
+    }
+
+    const [navMeshPositions, navMeshIndices] = getNavMeshPositionsAndIndices(restoredNavMesh);
+    if (navMeshPositions.length === 0 || navMeshIndices.length === 0) {
+      fail("復元したNavMeshにpolygon geometryがありません。");
+    }
+    const representativeRoutes = validateRepresentativeRoutes(restoredNavMesh);
+
+    await writeFile(OUTPUT_PATH, navMeshData);
+    const profileHash = sha256(Buffer.from(stableStringify(SCHOOL_NAV_PROFILE), "utf8"));
+    const report = {
+      stageId: SCHOOL_NAV_PROFILE.stageId,
+      profileId: SCHOOL_NAV_PROFILE.id,
+      profileSha256: profileHash,
+      recastVersion: SCHOOL_NAV_PROFILE.recastVersion,
+      input: {
+        path: INPUT_RELATIVE_PATH,
+        bytes: glbData.byteLength,
+        sha256: glbHash,
+        nodes: nodes.length,
+        navSources: navigationNodes.length,
+        roles: countsByRole,
+        areas: countsByArea,
+        vertices: geometry.positions.length / 3,
+        triangles: geometry.indices.length / 3,
+        boundsMin: geometry.boundsMin,
+        boundsMax: geometry.boundsMax,
+        sources: geometry.sourceStatistics
+      },
+      output: {
+        path: OUTPUT_RELATIVE_PATH,
+        bytes: navMeshData.byteLength,
+        sha256: sha256(navMeshData),
+        vertices: navMeshPositions.length / 3,
+        triangles: navMeshIndices.length / 3
+      },
+      validation: {
+        coordinateTransform: {
+          source: "blender-right-handed-z-up",
+          destination: SCHOOL_NAV_PROFILE.coordinateSpace,
+          worldScale: SCHOOL_NAV_PROFILE.worldScale,
+          formula: "(x, y, z) -> (x * scale, z * scale, -y * scale)"
+        },
+        representativeRoutes: {
+          endpointTolerance: REPRESENTATIVE_ROUTE_ENDPOINT_TOLERANCE,
+          maxNodes: REPRESENTATIVE_ROUTE_PATH_LIMIT,
+          maxPathPolys: REPRESENTATIVE_ROUTE_PATH_LIMIT,
+          maxStraightPathPoints: REPRESENTATIVE_ROUTE_PATH_LIMIT,
+          queryHalfExtents: REPRESENTATIVE_ROUTE_QUERY_HALF_EXTENTS,
+          routes: representativeRoutes
+        }
+      },
+      bakeMilliseconds: Number(bakeMilliseconds.toFixed(3))
+    };
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  } finally {
+    restoredNavMesh?.destroy();
+    navMesh.destroy();
+  }
+};
+
+main().catch((error) => {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`[学校NavMeshベイク失敗] ${message}\n`);
+  process.exitCode = 1;
+});

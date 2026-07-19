@@ -1,4 +1,5 @@
 import {
+  AssetContainer,
   Color4,
   Engine,
   FreeCamera,
@@ -7,22 +8,15 @@ import {
   Mesh,
   MeshBuilder,
   Scene,
+  SceneLoader,
   Vector3
 } from "@babylonjs/core";
-import {
-  buildStageContext,
-  disposeStageContext,
-  type StageContext
-} from "../../../src/world/stageContext";
+import "@babylonjs/loaders/glTF";
 import {
   createPlayerHeightController,
-  type PlayerVerticalState
+  type PlayerHeightSnapshot
 } from "../../../src/game/playerHeight";
-import { cellToWorld } from "../../../src/game/gridUtils";
-import {
-  loadStageDefinition,
-  type StageSelection
-} from "../../../src/world/stageSelection";
+import { createPlayerMotionController } from "../../../src/game/playerMotion";
 
 type CheckResult = {
   name: string;
@@ -41,16 +35,18 @@ declare global {
   }
 }
 
-const flatSelection: StageSelection = {
-  id: "t03_flat_procedural",
-  label: "T03 平面回帰検証",
-  definitionPath: `${import.meta.env.BASE_URL}fixtures/flat_procedural.json`
+type ValidationCourseId = "flat-mesh" | "t01-glb";
+
+type ValidationCourse = {
+  id: ValidationCourseId;
+  colliders: Mesh[];
+  dispose: () => void;
 };
-const glbSelection: StageSelection = {
-  id: "t01_glb_collision_course",
-  label: "T01 立体テストコース",
-  definitionPath: `${import.meta.env.BASE_URL}fixtures/t01_glb_collision_course.json`
-};
+
+const flatCourseId: ValidationCourseId = "flat-mesh";
+const glbCourseId: ValidationCourseId = "t01-glb";
+const glbAssetFilename = "t01_glb_collision_course.glb";
+const blenderMetersToBabylonUnits = 0.25;
 
 const playerWidth = 0.2;
 const playerHeight = (700 / 330) * playerWidth;
@@ -62,6 +58,7 @@ const groundSnapDistance = 0.0415;
 const minGroundNormalY = Math.SQRT1_2;
 const fixedDelta = 1 / 60;
 const fixedHorizontalStep = 0.0015;
+const inertialMoveSpeed = 0.02 * Math.sqrt(10);
 
 const browserErrors: string[] = [];
 const formatError = (value: unknown) =>
@@ -121,9 +118,14 @@ const playerHeightMotion = createPlayerHeightController(scene, {
   groundSnapDistance,
   minGroundNormalY
 });
+const playerMotion = createPlayerMotionController({
+  moveInertiaAt60Fps: 0.9,
+  moveStopEpsilon: 0.00001
+});
+const forwardMoveAxes = { moveX: 0, moveZ: 1 } as const;
+const backwardFacingYaw = Math.PI;
 
-let currentContext: StageContext | null = null;
-let currentSelection: StageSelection | null = null;
+let currentCourse: ValidationCourse | null = null;
 let running = false;
 const pressedKeys = new Set<string>();
 const manualDisplacement = Vector3.Zero();
@@ -138,23 +140,26 @@ const nearlyEqual = (actual: number, expected: number, tolerance = groundToleran
   Math.abs(actual - expected) <= tolerance;
 
 const blenderToBabylon = (x: number, y: number, z: number) =>
-  new Vector3(-x * 0.25, z * 0.25, -y * 0.25);
+  new Vector3(
+    -x * blenderMetersToBabylonUnits,
+    z * blenderMetersToBabylonUnits,
+    -y * blenderMetersToBabylonUnits
+  );
 
-const getColliderSet = () =>
-  new Set(currentContext?.resources.colliders ?? []);
+const getColliderSet = () => new Set(currentCourse?.colliders ?? []);
 
 const addValidationCollider = (mesh: Mesh) => {
   mesh.checkCollisions = true;
   mesh.visibility = 0;
   mesh.computeWorldMatrix(true);
-  currentContext!.resources.colliders.push(mesh);
-  playerCollisionMesh.surroundingMeshes = currentContext!.resources.colliders;
+  currentCourse!.colliders.push(mesh);
+  playerCollisionMesh.surroundingMeshes = currentCourse!.colliders;
 };
 
 const removeValidationCollider = (mesh: Mesh) => {
-  const colliderIndex = currentContext!.resources.colliders.indexOf(mesh);
-  currentContext!.resources.colliders.splice(colliderIndex, 1);
-  playerCollisionMesh.surroundingMeshes = currentContext!.resources.colliders;
+  const colliderIndex = currentCourse!.colliders.indexOf(mesh);
+  currentCourse!.colliders.splice(colliderIndex, 1);
+  playerCollisionMesh.surroundingMeshes = currentCourse!.colliders;
   mesh.dispose();
 };
 
@@ -172,20 +177,87 @@ const teleport = (position: Vector3) => {
   syncCamera();
 };
 
-const loadStage = async (selection: StageSelection) => {
-  const definition = await loadStageDefinition(selection);
-  const nextContext = await buildStageContext(scene, definition);
-  const previousContext = currentContext;
-  currentContext = nextContext;
-  currentSelection = selection;
-  playerCollisionMesh.surroundingMeshes = nextContext.resources.colliders;
-  const spawn = cellToWorld(nextContext.layout, nextContext.layout.spawn, 0);
-  teleport(spawn);
-  if (previousContext) {
-    disposeStageContext(previousContext);
+const configureCollider = (mesh: Mesh) => {
+  mesh.setEnabled(true);
+  mesh.isVisible = false;
+  mesh.visibility = 0;
+  mesh.isPickable = false;
+  mesh.checkCollisions = true;
+  mesh.computeWorldMatrix(true);
+};
+
+const createFlatCourse = (): ValidationCourse => {
+  const floor = MeshBuilder.CreateBox(
+    "COL_FlatFloor",
+    { width: 2, height: 0.05, depth: 2 },
+    scene
+  );
+  floor.position.y = -0.025;
+  configureCollider(floor);
+  return {
+    id: flatCourseId,
+    colliders: [floor],
+    dispose: () => floor.dispose()
+  };
+};
+
+const createGlbCourse = async (): Promise<ValidationCourse> => {
+  const container: AssetContainer = await SceneLoader.LoadAssetContainerAsync(
+    import.meta.env.BASE_URL,
+    glbAssetFilename,
+    scene
+  );
+  const root = container.createRootMesh();
+  root.name = "T03T01AssetRoot";
+  root.scaling.setAll(blenderMetersToBabylonUnits);
+  root.isVisible = false;
+  root.isPickable = false;
+  root.checkCollisions = false;
+  container.addAllToScene();
+
+  const authoredMeshes = container.meshes.filter(
+    (mesh): mesh is Mesh => mesh instanceof Mesh && mesh.getTotalVertices() > 0
+  );
+  const invalidMesh = authoredMeshes.find(
+    (mesh) => !mesh.name.startsWith("VIS_") && !mesh.name.startsWith("COL_")
+  );
+  if (invalidMesh) {
+    container.removeAllFromScene();
+    container.dispose();
+    throw new Error(`T01 GLBのMesh名が規約外です: ${invalidMesh.name}`);
   }
-  scene.clearColor =
-    nextContext.environment.skyColor ?? new Color4(0.025, 0.045, 0.07, 1);
+  const colliders = authoredMeshes.filter((mesh) => mesh.name.startsWith("COL_"));
+  for (const mesh of authoredMeshes) {
+    if (mesh.name.startsWith("VIS_")) {
+      mesh.setEnabled(true);
+      mesh.isVisible = true;
+      mesh.visibility = 1;
+      mesh.isPickable = false;
+      mesh.checkCollisions = false;
+      mesh.computeWorldMatrix(true);
+    } else {
+      configureCollider(mesh);
+    }
+  }
+  return {
+    id: glbCourseId,
+    colliders,
+    dispose: () => {
+      container.removeAllFromScene();
+      container.dispose();
+    }
+  };
+};
+
+const loadCourse = async (id: ValidationCourseId) => {
+  const nextCourse =
+    id === flatCourseId ? createFlatCourse() : await createGlbCourse();
+  const previousCourse = currentCourse;
+  currentCourse = nextCourse;
+  playerCollisionMesh.surroundingMeshes = nextCourse.colliders;
+  teleport(id === flatCourseId ? Vector3.Zero() : blenderToBabylon(0, -1, 0));
+  previousCourse?.dispose();
+  scene.clearColor = new Color4(0.025, 0.045, 0.07, 1);
   await scene.whenReadyAsync(true);
   scene.render();
 };
@@ -193,7 +265,7 @@ const loadStage = async (selection: StageSelection) => {
 const renderMetrics = () => {
   const state = playerHeightMotion.getState();
   const values: Array<[string, string]> = [
-    ["ステージ", currentSelection?.id ?? "なし"],
+    ["コース", currentCourse?.id ?? "なし"],
     ["足元", `(${playerCollisionMesh.position.x.toFixed(4)}, ${playerCollisionMesh.position.y.toFixed(4)}, ${playerCollisionMesh.position.z.toFixed(4)})`],
     ["接地", String(state.grounded)],
     ["支持面Y", state.supportY === null ? "なし" : state.supportY.toFixed(6)],
@@ -274,6 +346,53 @@ const runLinearMotion = (direction: Vector3, distance: number) => {
   return { frames, airborneFrames, firstAirbornePosition, minY, maxY };
 };
 
+const runInertialForwardFrames = (frameCount: number) => {
+  const horizontalProgress: number[] = [];
+  const requestedProgress: number[] = [];
+  const supportNames: Array<string | null> = [];
+  const supportNormals: Array<number | null> = [];
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    const startZ = playerCollisionMesh.position.z;
+    const requestedDisplacement = playerMotion.update(
+      forwardMoveAxes,
+      backwardFacingYaw,
+      fixedDelta,
+      true,
+      inertialMoveSpeed
+    );
+    const result = playerHeightMotion.move(
+      playerCollisionMesh,
+      requestedDisplacement,
+      fixedDelta,
+      getColliderSet()
+    );
+    playerMotion.commit(result.actualHorizontalDisplacement);
+    requestedProgress.push(
+      Math.hypot(requestedDisplacement.x, requestedDisplacement.z)
+    );
+    horizontalProgress.push(startZ - playerCollisionMesh.position.z);
+    supportNames.push(result.supportMeshName);
+    const snapshot: PlayerHeightSnapshot = {
+      grounded: false,
+      verticalVelocity: 0,
+      supportY: null,
+      supportMeshName: null,
+      supportNormalY: null
+    };
+    playerHeightMotion.capture(snapshot);
+    supportNormals.push(snapshot.supportNormalY);
+  }
+  return {
+    horizontalProgress,
+    requestedProgress,
+    supportNames,
+    supportNormals
+  };
+};
+
+const average = (values: number[]) =>
+  values.reduce((total, value) => total + value, 0) / values.length;
+
 const runValidation = async () => {
   if (running) {
     return;
@@ -290,26 +409,84 @@ const runValidation = async () => {
   results.replaceChildren();
 
   try {
-    await loadStage(flatSelection);
-    const flatFloorCount = currentContext!.resources.colliders.filter((mesh) =>
-      mesh.name.startsWith("floor_")
+    await loadCourse(flatCourseId);
+    const flatFloorCount = currentCourse!.colliders.filter((mesh) =>
+      mesh.name === "COL_FlatFloor"
     ).length;
     const flatStable = runStationaryFrames(120);
     const flatState = playerHeightMotion.getState();
+    playerMotion.reset();
+    teleport(new Vector3(0, 0, 0.4));
+    const flatInertialMotion = runInertialForwardFrames(50);
+    const flatSteadyProgress = average(
+      flatInertialMotion.horizontalProgress.slice(-10)
+    );
     checks.push(
       createCheck(
-        "procedural-grid床衝突",
+        "MeshBuilder平面床衝突",
         flatFloorCount > 0 && flatState.grounded,
         `floorCollider=${flatFloorCount}, grounded=${flatState.grounded}, support=${playerHeightMotion.getSupportMeshName()}`
       ),
       createCheck(
-        "procedural-grid平面静止",
+        "MeshBuilder平面静止",
         flatStable.airborneFrames === 0 && flatStable.maxY - flatStable.minY <= groundTolerance,
         `Y=${flatStable.minY.toFixed(6)}..${flatStable.maxY.toFixed(6)}, airborne=${flatStable.airborneFrames}`
+      ),
+      createCheck(
+        "平地の慣性移動基準速度",
+        flatSteadyProgress > 0,
+        `steady=${flatSteadyProgress.toFixed(9)}`
       )
     );
 
-    await loadStage(glbSelection);
+    await loadCourse(glbCourseId);
+    playerMotion.reset();
+    teleport(blenderToBabylon(-3, 0.6, 0));
+    const slopeInertialMotion = runInertialForwardFrames(50);
+    const slopeSteadyProgress = average(
+      slopeInertialMotion.horizontalProgress.slice(-10)
+    );
+    checks.push(
+      createCheck(
+        "連続斜面の水平速度維持",
+        slopeSteadyProgress >= flatSteadyProgress * 0.95,
+        `flat=${flatSteadyProgress.toFixed(9)}, slope=${slopeSteadyProgress.toFixed(9)}, ratio=${(slopeSteadyProgress / flatSteadyProgress).toFixed(6)}`
+      )
+    );
+
+    playerMotion.reset();
+    teleport(blenderToBabylon(3, 0.6, 0));
+    const stairInertialMotion = runInertialForwardFrames(160);
+    const stairLandingFrame = stairInertialMotion.supportNames.findIndex(
+      (name) => name === "COL_StairLanding"
+    );
+    const preLandingProgress =
+      stairLandingFrame >= 5
+        ? average(
+            stairInertialMotion.horizontalProgress.slice(
+              stairLandingFrame - 5,
+              stairLandingFrame
+            )
+          )
+        : 0;
+    const landingTrace =
+      stairLandingFrame >= 5
+        ? stairInertialMotion.horizontalProgress
+            .slice(stairLandingFrame - 5, stairLandingFrame + 2)
+            .map((value, index) => {
+              const frame = stairLandingFrame - 5 + index;
+              return `${frame}:${stairInertialMotion.supportNames[frame]}:${stairInertialMotion.supportNormals[frame]?.toFixed(6)}:${stairInertialMotion.requestedProgress[frame].toFixed(6)}>${value.toFixed(6)}`;
+            })
+            .join("|")
+        : "landingなし";
+    checks.push(
+      createCheck(
+        "階段踊り場直前の水平速度維持",
+        stairLandingFrame >= 5 && preLandingProgress >= flatSteadyProgress * 0.9,
+        `landingFrame=${stairLandingFrame}, flat=${flatSteadyProgress.toFixed(9)}, preLanding=${preLandingProgress.toFixed(9)}, ratio=${(preLandingProgress / flatSteadyProgress).toFixed(6)}, trace=${landingTrace}`
+      )
+    );
+
     teleport(blenderToBabylon(0, -1, 0));
     const floorStable = runStationaryFrames(180);
     checks.push(
@@ -424,6 +601,80 @@ const runValidation = async () => {
     );
 
     teleport(blenderToBabylon(-3, 0.6, 0));
+    const slopeMidUp = runLinearMotion(new Vector3(0, 0, -1), 0.55);
+    const slopeMidPosition = playerCollisionMesh.position.clone();
+    playerHeightMotion.resync(playerCollisionMesh, getColliderSet());
+    const slopeResyncHorizontalDrift = Math.hypot(
+      playerCollisionMesh.position.x - slopeMidPosition.x,
+      playerCollisionMesh.position.z - slopeMidPosition.z
+    );
+    const slopeSnapshot: PlayerHeightSnapshot = {
+      grounded: false,
+      verticalVelocity: 0,
+      supportY: null,
+      supportMeshName: null,
+      supportNormalY: null
+    };
+    playerHeightMotion.capture(slopeSnapshot);
+    const slopeSnapshotPosition = playerCollisionMesh.position.clone();
+    runLinearMotion(new Vector3(0, 0, -1), 0.05);
+    playerCollisionMesh.position.copyFrom(slopeSnapshotPosition);
+    playerCollisionMesh.computeWorldMatrix(true);
+    playerHeightMotion.restore(slopeSnapshot);
+    const restoredSlopeSnapshot: PlayerHeightSnapshot = {
+      grounded: false,
+      verticalVelocity: 0,
+      supportY: null,
+      supportMeshName: null,
+      supportNormalY: null
+    };
+    playerHeightMotion.capture(restoredSlopeSnapshot);
+    const slopeSnapshotPositionRestored =
+      playerCollisionMesh.position.equals(slopeSnapshotPosition);
+    const slopeSnapshotRestored =
+      slopeSnapshotPositionRestored &&
+      restoredSlopeSnapshot.grounded === slopeSnapshot.grounded &&
+      restoredSlopeSnapshot.verticalVelocity === slopeSnapshot.verticalVelocity &&
+      restoredSlopeSnapshot.supportY === slopeSnapshot.supportY &&
+      restoredSlopeSnapshot.supportMeshName === slopeSnapshot.supportMeshName &&
+      restoredSlopeSnapshot.supportNormalY === slopeSnapshot.supportNormalY;
+    const slopeMidStable = runStationaryFrames(120);
+    const slopeMidHorizontalDrift = Math.hypot(
+      playerCollisionMesh.position.x - slopeMidPosition.x,
+      playerCollisionMesh.position.z - slopeMidPosition.z
+    );
+    const slopeReverseStartZ = playerCollisionMesh.position.z;
+    const slopeReverse = runLinearMotion(new Vector3(0, 0, 1), 0.2);
+    const slopeReverseProgress =
+      playerCollisionMesh.position.z - slopeReverseStartZ;
+    checks.push(
+      createCheck(
+        "斜面接地再同期の水平位置保持",
+        slopeResyncHorizontalDrift <= 0.000001,
+        `drift=${slopeResyncHorizontalDrift.toFixed(9)}`
+      ),
+      createCheck(
+        "境界巻き戻し用高さ状態の完全復元",
+        slopeSnapshotRestored,
+        `position=${slopeSnapshotPositionRestored}, support=${restoredSlopeSnapshot.supportMeshName}, normalY=${restoredSlopeSnapshot.supportNormalY?.toFixed(6)}`
+      ),
+      createCheck(
+        "斜面中腹の入力解除停止",
+        slopeMidUp.airborneFrames === 0 &&
+          slopeMidStable.airborneFrames === 0 &&
+          slopeMidStable.maxY - slopeMidStable.minY <= groundTolerance &&
+          slopeMidHorizontalDrift <= groundTolerance,
+        `drift=${slopeMidHorizontalDrift.toFixed(6)}, Y=${slopeMidStable.minY.toFixed(6)}..${slopeMidStable.maxY.toFixed(6)}, airborne=${slopeMidStable.airborneFrames}`
+      ),
+      createCheck(
+        "斜面中腹の即時方向転換",
+        slopeReverse.airborneFrames === 0 &&
+          slopeReverseProgress >= 0.2 - groundTolerance,
+        `progress=${slopeReverseProgress.toFixed(6)}, airborne=${slopeReverse.airborneFrames}`
+      )
+    );
+
+    teleport(blenderToBabylon(-3, 0.6, 0));
     const slopeUp = runLinearMotion(new Vector3(0, 0, -1), 1.22);
     const slopeTopState = playerHeightMotion.getState();
     checks.push(
@@ -532,11 +783,11 @@ const runValidation = async () => {
     );
     removeValidationCollider(lowCeiling);
 
-    await loadStage(flatSelection);
+    await loadCourse(flatCourseId);
     const finalFlatState = playerHeightMotion.getState();
     checks.push(
       createCheck(
-        "JSON→GLB→JSON切替後の接地",
+        "平面Mesh→GLB→平面Mesh切替後の接地",
         finalFlatState.grounded &&
           finalFlatState.supportY !== null &&
           nearlyEqual(finalFlatState.supportY, 0),
@@ -544,7 +795,7 @@ const runValidation = async () => {
       )
     );
 
-    await loadStage(glbSelection);
+    await loadCourse(glbCourseId);
     teleport(blenderToBabylon(0, -1, 0));
   } catch (error) {
     checks.push(createCheck("検証処理", false, formatError(error)));
@@ -583,13 +834,13 @@ const manualPositions: Record<string, Vector3> = {
 };
 
 runButton.addEventListener("click", () => void runValidation());
-loadFlatButton.addEventListener("click", () => void loadStage(flatSelection));
-loadGlbButton.addEventListener("click", () => void loadStage(glbSelection));
+loadFlatButton.addEventListener("click", () => void loadCourse(flatCourseId));
+loadGlbButton.addEventListener("click", () => void loadCourse(glbCourseId));
 for (const button of document.querySelectorAll<HTMLButtonElement>(
   "button[data-position]"
 )) {
   button.addEventListener("click", () => {
-    if (currentSelection?.id !== glbSelection.id) {
+    if (currentCourse?.id !== glbCourseId) {
       return;
     }
     teleport(manualPositions[button.dataset.position!]);
@@ -605,7 +856,7 @@ window.addEventListener("keyup", (event) => {
 window.addEventListener("resize", () => engine.resize());
 
 engine.runRenderLoop(() => {
-  if (!running && currentContext) {
+  if (!running && currentCourse) {
     let moveX = 0;
     let moveZ = 0;
     if (pressedKeys.has("KeyW")) {
