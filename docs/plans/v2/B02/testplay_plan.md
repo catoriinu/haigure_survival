@@ -88,7 +88,7 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 
 ## Git・作業場所
 
-- このタスクは独立worktreeを新設せず、メインworktree `D:\Users\draft\create\fps_survival20251226`を使用する。
+- このタスクは独立worktreeを新設せず、リポジトリ本体のメインworktreeを使用する。
 - メインworktreeの`develop`はPR #40取込後の`8b25790efbd9afbd151fa3081a8f0faf095b5df5`までpull済みで、開始時点ではクリーンである。
 - 最初に`date`、`git status`、`git branch`、`git log`、`git worktree list`を実行し、日時、既存変更、現在位置、最新develop、旧B02/T03 worktreeとの分離を確認する。
 - メインworktreeがクリーンな`develop`であることを確認後、最新developから`codex/v2-b02-t03-gameplay-test`を作成して切り替える。
@@ -335,7 +335,7 @@ T03までのゲーム実装と、B02で完成・developへマージ済みの学�
 
 - 2026-07-18 23:29 JSTに開始確認を実施した。
 - メインworktreeはクリーンな`develop`で、`develop`、`origin/develop`、HEADはいずれもPR #40取込後の`8b25790efbd9afbd151fa3081a8f0faf095b5df5`だった。
-- 旧B01 worktreeは`D:/Users/draft/create/fps_survival20251226-b01`、旧B02 worktreeは`D:/Users/draft/create/fps_survival20251226-b02`に分離されている。
+- 旧B01 worktreeは`../fps_survival20251226-b01`、旧B02 worktreeは`../fps_survival20251226-b02`に分離されている。
 - 停止済みの似た名前のブランチ`codex/v2-b02-t03-testplay`は`8b25790`に存在するが、指定名とは異なるため変更していない。
 - 指定名`codex/v2-b02-t03-gameplay-test`が存在しないことを確認し、最新`develop`から作成してメインworktreeで切り替えた。
 - 指定された15文書をUTF-8で末尾まで読み、T01資産規約、T02共通ローダー、T03プレイヤー高さ制御、B02最終資産、B03/T04/T05/T06の未実装境界を確認した。

@@ -95,7 +95,7 @@ B02追加テストで学校は4階建てとなり、北西階段はプレイヤ�
 - 採用候補を`recast-navigation` 0.43.1の`generateSoloNavMesh()`、`NavMeshQuery`、`exportNavMesh()`、`importNavMesh()`へ更新した。本番は事前ベイクNavMeshの読込だけとし、実行時ベイクは検証・制作入口に限定する。
 - 現行B02 GLBはMesh 407件（`VIS_`263件、`COL_`144件）だけで、Empty、node extras、NavMesh生成指定、マーカー、ボリューム、明示境界をまだ含まないことを確認した。
 - Blender確認時点では旧B02 worktree側ファイルが開かれ、`bpy.data.is_dirty=true`だったため、保存・破棄・上書き・編集を行わず停止した。旧B02 Git worktree自体はコミット`4e62adf`でクリーンかつoriginと一致している。ユーザーが保存せず閉じ、現作業worktree側ファイルを開き直してから再監査する。
-- ユーザーが旧ファイルを保存せず閉じ、現作業worktree側のB02ファイルを開き直した。再監査ではパスが`D:\Users\draft\create\fps_survival20251226\assets\blender\v2\B02\b02_school_blockout.blend`、`bpy.data.is_dirty=false`、全430オブジェクト、Mesh 407件、`VIS_`263件、`COL_`144件であり、安全に資産工程へ進める状態を確認した。この確認時点では保存・編集を行っていない。
+- ユーザーが旧ファイルを保存せず閉じ、現作業worktree側のB02ファイルを開き直した。再監査ではパスが`assets/blender/v2/B02/b02_school_blockout.blend`、`bpy.data.is_dirty=false`、全430オブジェクト、Mesh 407件、`VIS_`263件、`COL_`144件であり、安全に資産工程へ進める状態を確認した。この確認時点では保存・編集を行っていない。
 - セル方式の5コミットを履歴のresetなしで逆順に取り下げ、階段修正だけを保持した。`npm run build`と`npm run build:t03`を通過後、revertコミット`c94302e`として確定した。
 - `docs/spec_stage_assets_v2.md`をGLB意味Object、Object custom properties、Export Collection、GLB監査、NavMesh派生物まで含む資産契約へ改訂し、`docs/spec_stage_runtime_v2.md`へ`StageSpatialContext`、`NavigationWorld`、3D問い合わせ、AI移動、資源所有権を定義した。
 - 学校GLBへ`META_Stage`、プレイヤースポーン`MRK_*`、NPC・ビット出現用`VOL_*`、`BND_Stage`、1階用`NAV_*`を追加した。Blenderは443 Object／418 Mesh、GLB出力対象420 Objectで、内訳は`VIS_*`263件、`COL_*`144件、`NAV_*`8件、`META_Stage`1件、`MRK_*`1件、`VOL_*`2件、`BND_Stage`1件である。制作ガイド23件は非出力を維持した。
