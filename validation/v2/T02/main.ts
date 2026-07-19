@@ -475,7 +475,7 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 310 &&
+      context.resources.visualMeshes.length === 308 &&
         context.resources.normalColliders.length === 161 &&
         context.resources.actorOnlyColliders.length === 0 &&
         context.resources.navSourceMeshes.length === 8 &&
@@ -709,6 +709,93 @@ const validateLoadedContext = (
         .map((name) => `${name}:${!schoolMeshByName.has(name)}`)
         .join(",")} / 統合室中央=${mergeLineHit?.mesh.name ?? "clear"} / 南境界=${southDividerHit?.mesh.name ?? "なし"} / 北側既存境界=${northSpecialDividerHit?.mesh.name ?? "なし"} / ${specialRoomBoundsResults
         .map((result) => `${result.name}=${result.ok ? "一致" : result.detail}`)
+        .join(" / ")}`
+    )
+  );
+
+  const westSpecialRoomBoundsExpectations = [
+    ["VIS_Wall_Lintel_SpecialRoomWest_Front", [-3.65, 13.1, 2.3], [-3.35, 14.3, 3.0]],
+    ["COL_Wall_Lintel_SpecialRoomWest_Front", [-3.65, 13.1, 2.3], [-3.35, 14.3, 3.0]],
+    ["VIS_Wall_SpecialRoomWest_CorridorClosed_South", [-3.65, 20.7, 0.0], [-3.35, 21.9, 3.0]],
+    ["COL_Wall_SpecialRoomWest_CorridorClosed_South", [-3.65, 20.7, 0.0], [-3.35, 21.9, 3.0]],
+    ["VIS_Wall_SpecialRoomWest_CorridorClosed_North", [-3.65, 23.1, 0.0], [-3.35, 24.3, 3.0]],
+    ["COL_Wall_SpecialRoomWest_CorridorClosed_North", [-3.65, 23.1, 0.0], [-3.35, 24.3, 3.0]],
+    ["VIS_Wall_Lintel_SpecialRoomWest_Rear", [-3.65, 30.7, 2.3], [-3.35, 31.9, 3.0]],
+    ["COL_Wall_Lintel_SpecialRoomWest_Rear", [-3.65, 30.7, 2.3], [-3.35, 31.9, 3.0]],
+    ["VIS_DoorLeaf_SpecialRoomWest_Front", [-3.71, 14.35, 0.0], [-3.61, 15.45, 2.3]],
+    ["VIS_DoorLeaf_SpecialRoomWest_Rear", [-3.71, 29.55, 0.0], [-3.61, 30.65, 2.3]]
+  ] as const;
+  const westSpecialRoomBoundsResults = westSpecialRoomBoundsExpectations.map(
+    ([name, minimum, maximum]) => ({
+      name,
+      ...compareBlenderBounds(
+        schoolMeshByName.get(name),
+        Vector3.FromArray(minimum),
+        Vector3.FromArray(maximum)
+      )
+    })
+  );
+  const retiredWestSpecialRoomObjects = [
+    "VIS_DoorLeaf_Classroom2_Front",
+    "VIS_DoorLeaf_Classroom2_Rear",
+    "VIS_DoorLeaf_Classroom3_Front",
+    "VIS_DoorLeaf_Classroom3_Rear",
+    "VIS_Wall_Lintel_ClassroomDoor_03",
+    "COL_Wall_Lintel_ClassroomDoor_03",
+    "VIS_Wall_Lintel_ClassroomDoor_04",
+    "COL_Wall_Lintel_ClassroomDoor_04",
+    "VIS_Wall_Lintel_ClassroomDoor_05",
+    "COL_Wall_Lintel_ClassroomDoor_05",
+    "VIS_Wall_Lintel_ClassroomDoor_06",
+    "COL_Wall_Lintel_ClassroomDoor_06"
+  ];
+  const castWestSpecialRoomOpening = (
+    castSegment: StageSpatialContext["queries"]["castActorSegment"],
+    y: number
+  ) =>
+    castSegment(
+      blenderPointToBabylon(new Vector3(-2.8, y, 1.0)),
+      blenderPointToBabylon(new Vector3(-4.2, y, 1.0))
+    );
+  const westSpecialRoomDoorwayResults = [13.7, 31.3].map((y) => ({
+    y,
+    actor: castWestSpecialRoomOpening(context.queries.castActorSegment, y),
+    beam: castWestSpecialRoomOpening(context.queries.castBeamSegment, y),
+    sight: castWestSpecialRoomOpening(context.queries.castSightSegment, y)
+  }));
+  const westSpecialRoomClosedWallResults = [
+    [21.3, "COL_Wall_SpecialRoomWest_CorridorClosed_South"],
+    [23.7, "COL_Wall_SpecialRoomWest_CorridorClosed_North"]
+  ].map(([y, expectedName]) => ({
+    y,
+    expectedName,
+    actor: castWestSpecialRoomOpening(context.queries.castActorSegment, y as number),
+    beam: castWestSpecialRoomOpening(context.queries.castBeamSegment, y as number),
+    sight: castWestSpecialRoomOpening(context.queries.castSightSegment, y as number)
+  }));
+  checks.push(
+    createCheck(
+      "西側特別教室は前後2扉だけを開口",
+      westSpecialRoomBoundsResults.every((result) => result.ok) &&
+        retiredWestSpecialRoomObjects.every((name) => !schoolMeshByName.has(name)) &&
+        westSpecialRoomDoorwayResults.every(
+          (result) =>
+            result.actor === null &&
+            result.beam === null &&
+            result.sight === null
+        ) &&
+        westSpecialRoomClosedWallResults.every(
+          (result) =>
+            result.actor?.mesh.name === result.expectedName &&
+            result.beam?.mesh.name === result.expectedName &&
+            result.sight?.mesh.name === result.expectedName
+        ),
+      `${westSpecialRoomBoundsResults
+        .map((result) => `${result.name}=${result.ok ? "一致" : result.detail}`)
+        .join(" / ")} / 旧Object削除=${retiredWestSpecialRoomObjects.every((name) => !schoolMeshByName.has(name))} / 開口=${westSpecialRoomDoorwayResults
+        .map((result) => `${result.y}:actor=${result.actor?.mesh.name ?? "clear"},beam=${result.beam?.mesh.name ?? "clear"},sight=${result.sight?.mesh.name ?? "clear"}`)
+        .join(" / ")} / 壁=${westSpecialRoomClosedWallResults
+        .map((result) => `${result.y}:actor=${result.actor?.mesh.name ?? "なし"},beam=${result.beam?.mesh.name ?? "なし"},sight=${result.sight?.mesh.name ?? "なし"}`)
         .join(" / ")}`
     )
   );
@@ -1240,7 +1327,7 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 310 &&
+      activeContext.resources.visualMeshes.length === 308 &&
       activeContext.resources.normalColliders.length === 161;
     checks.push(
       createCheck(
