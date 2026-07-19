@@ -2,14 +2,26 @@ import { Color3, type Scene } from "@babylonjs/core";
 
 import { PLAYER_SPRITE_WIDTH } from "../game/characterSprites";
 import type { StageSpatialContext } from "../world/stageSpatialContext";
-import { createV2AlertCoordinator } from "./alertCoordinator";
-import { createV2BeamSystem } from "./beamCollision";
-import { createV2BitSystem } from "./bitSystem";
+import {
+  createV2AlertCoordinator,
+  type V2AlertCoordinator
+} from "./alertCoordinator";
+import {
+  createV2BeamSystem,
+  type V2BeamSystem
+} from "./beamCollision";
+import {
+  createV2BitSystem,
+  type V2BitSystem
+} from "./bitSystem";
 import type {
   V2ActorSphere,
   V2HumanTargetSnapshot
 } from "./combatTypes";
-import { createV2NpcSystem } from "./npcSystem";
+import {
+  createV2NpcSystem,
+  type V2NpcSystem
+} from "./npcSystem";
 import type { V2PlayerController } from "./playerController";
 
 const NPC_COUNT = 10;
@@ -80,49 +92,81 @@ export const createV2SurvivalRuntime = ({
     throw new Error("V2SurvivalRuntimeのrandomには関数が必要です。");
   }
 
-  const npcSystem = createV2NpcSystem({
-    scene,
-    stage,
-    npcCount: NPC_COUNT,
-    initialBrainwashedNpcCount: INITIAL_BRAINWASHED_NPC_COUNT,
-    random
-  });
-  const bitSystem = createV2BitSystem(scene, stage, {
-    initialBitCount: BIT_COUNT,
-    minimumSpawnDistance: 0.2,
-    spawnMaxAttempts: 512,
-    spawnProjectionMaxDistance: 0.75,
-    minimumFlightHeight: 0.25,
-    maximumFlightHeight: 0.45,
-    random
-  });
-  const alertCoordinator = createV2AlertCoordinator({
-    alertDuration: ALERT_DURATION_SECONDS
-  });
-
   let beamActors: readonly V2ActorSphere[] = Object.freeze([]);
-  const beamSystem = createV2BeamSystem({
-    scene,
-    stage,
-    getActorSpheres: () => beamActors,
-    visual: {
-      diameter: 0.025,
-      color: new Color3(1, 0.16, 0.72),
-      alpha: 0.95
+
+  const initializeSystems = () => {
+    let ownedNpcSystem: V2NpcSystem | null = null;
+    let ownedBitSystem: V2BitSystem | null = null;
+    let ownedAlertCoordinator: V2AlertCoordinator | null = null;
+    let ownedBeamSystem: V2BeamSystem | null = null;
+
+    try {
+      ownedNpcSystem = createV2NpcSystem({
+        scene,
+        stage,
+        npcCount: NPC_COUNT,
+        initialBrainwashedNpcCount: INITIAL_BRAINWASHED_NPC_COUNT,
+        random
+      });
+      ownedBitSystem = createV2BitSystem(scene, stage, {
+        initialBitCount: BIT_COUNT,
+        minimumSpawnDistance: 0.2,
+        spawnMaxAttempts: 512,
+        spawnProjectionMaxDistance: 0.75,
+        minimumFlightHeight: 0.25,
+        maximumFlightHeight: 0.45,
+        random
+      });
+      ownedAlertCoordinator = createV2AlertCoordinator({
+        alertDuration: ALERT_DURATION_SECONDS
+      });
+      ownedBeamSystem = createV2BeamSystem({
+        scene,
+        stage,
+        getActorSpheres: () => beamActors,
+        visual: {
+          diameter: 0.025,
+          color: new Color3(1, 0.16, 0.72),
+          alpha: 0.95
+        }
+      });
+      const initialFrame: V2SurvivalFrame = Object.freeze({
+        npcCount: NPC_COUNT,
+        bitCount: ownedBitSystem.getActorSpheres().length,
+        activeBeamCount: 0,
+        activeAlertCount: 0,
+        visualTargetCount: 0,
+        alertTargetCount: 0,
+        blockerImpactCount: 0,
+        actorImpactCount: 0
+      });
+      return {
+        npcSystem: ownedNpcSystem,
+        bitSystem: ownedBitSystem,
+        alertCoordinator: ownedAlertCoordinator,
+        beamSystem: ownedBeamSystem,
+        initialFrame
+      };
+    } catch (error) {
+      ownedBeamSystem?.dispose();
+      ownedAlertCoordinator?.clear();
+      ownedBitSystem?.dispose();
+      ownedNpcSystem?.dispose();
+      beamActors = Object.freeze([]);
+      throw error;
     }
-  });
+  };
+
+  const {
+    npcSystem,
+    bitSystem,
+    alertCoordinator,
+    beamSystem,
+    initialFrame
+  } = initializeSystems();
 
   let disposed = false;
-  let frame: V2SurvivalFrame = Object.freeze({
-    npcCount: NPC_COUNT,
-    bitCount: bitSystem.getActorSpheres().length,
-    activeBeamCount: 0,
-    activeAlertCount: 0,
-    visualTargetCount: 0,
-    alertTargetCount: 0,
-    blockerImpactCount: 0,
-    actorImpactCount: 0
-  });
+  let frame = initialFrame;
 
   const assertActive = () => {
     if (disposed) {

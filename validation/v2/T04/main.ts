@@ -8,7 +8,8 @@ import {
   NullEngine,
   Scene,
   StandardMaterial,
-  Vector3
+  Vector3,
+  type SpriteManager
 } from "@babylonjs/core";
 import { exportNavMesh } from "recast-navigation";
 import { generateSoloNavMesh } from "recast-navigation/generators";
@@ -70,6 +71,8 @@ type SceneResourceCounts = Readonly<{
   meshes: number;
   materials: number;
   transformNodes: number;
+  textures: number;
+  spriteManagers: number;
 }>;
 
 const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
@@ -226,7 +229,11 @@ const pathsEqual = (left: readonly Vector3[], right: readonly Vector3[]) =>
 const countSceneResources = (targetScene: Scene): SceneResourceCounts => ({
   meshes: targetScene.meshes.length,
   materials: targetScene.materials.length,
-  transformNodes: targetScene.transformNodes.length
+  transformNodes: targetScene.transformNodes.length,
+  textures: targetScene.textures.filter(
+    (texture) => texture !== targetScene.environmentBRDFTexture
+  ).length,
+  spriteManagers: targetScene.spriteManagers?.length ?? 0
 });
 
 const sceneResourceCountsEqual = (
@@ -235,7 +242,9 @@ const sceneResourceCountsEqual = (
 ) =>
   left.meshes === right.meshes &&
   left.materials === right.materials &&
-  left.transformNodes === right.transformNodes;
+  left.transformNodes === right.transformNodes &&
+  left.textures === right.textures &&
+  left.spriteManagers === right.spriteManagers;
 
 const createProjectionNavigationStub = (
   projectPoint: NavigationWorld["projectPoint"]
@@ -269,6 +278,39 @@ const createRandomSequence = (values: readonly number[]) => {
     },
     getCallCount: () => callCount
   };
+};
+
+const createSeededCountingRandom = (
+  initialState: number,
+  injectedFailure: Readonly<{
+    call: number;
+    error: Error;
+    beforeThrow?: () => void;
+  }> | null = null
+) => {
+  let state = initialState >>> 0;
+  let callCount = 0;
+  return {
+    random: () => {
+      callCount += 1;
+      if (injectedFailure && callCount === injectedFailure.call) {
+        injectedFailure.beforeThrow?.();
+        throw injectedFailure.error;
+      }
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      return state / 0x100000000;
+    },
+    getCallCount: () => callCount
+  };
+};
+
+const captureThrownValue = (action: () => void): unknown => {
+  try {
+    action();
+    return null;
+  } catch (error) {
+    return error;
+  }
 };
 
 const captureThrownMessage = (action: () => void) => {
@@ -1153,19 +1195,15 @@ const runValidation = async () => {
           detail: `${schoolPath?.points.length ?? 0}点 / endpointError=${Number.isFinite(schoolPathEndpointError) ? schoolPathEndpointError.toExponential(2) : "--"} / blocker=${beamWallHit?.mesh.name ?? "--"}`
         });
 
-        let npcRandomState = 0x5f3759df;
-        const npcRandom = () => {
-          npcRandomState =
-            (Math.imul(npcRandomState, 1664525) + 1013904223) >>> 0;
-          return npcRandomState / 0x100000000;
-        };
+        const npcRandom = createSeededCountingRandom(0x5f3759df);
         const npcSystem = createV2NpcSystem({
           scene: spatialScene,
           stage: schoolContext,
           npcCount: 2,
           initialBrainwashedNpcCount: 2,
-          random: npcRandom
+          random: npcRandom.random
         });
+        const npcInitializationRandomCallCount = npcRandom.getCallCount();
         npcSystem.applyAlerts([
           {
             leaderId: "npc_0",
@@ -1192,12 +1230,52 @@ const runValidation = async () => {
         });
         npcSystem.dispose();
 
-        let bitRandomState = 0x9e3779b9;
-        const bitRandom = () => {
-          bitRandomState =
-            (Math.imul(bitRandomState, 1664525) + 1013904223) >>> 0;
-          return bitRandomState / 0x100000000;
-        };
+        const npcFailureBaseline = countSceneResources(spatialScene);
+        const npcInjectedError = new Error(
+          "T04 NPC factory初期化失敗注入"
+        );
+        const npcFailureStage = schoolContext;
+        const npcFailureDisposalOrder: string[] = [];
+        const npcFailureRandom = createSeededCountingRandom(0x5f3759df, {
+          call: npcInitializationRandomCallCount,
+          error: npcInjectedError,
+          beforeThrow: () => {
+            const spriteManagers = spatialScene.spriteManagers!;
+            const spriteManager = spriteManagers[
+              spriteManagers.length - 1
+            ] as SpriteManager;
+            for (const sprite of spriteManager.sprites) {
+              sprite.onDisposeObservable.add(() => {
+                npcFailureDisposalOrder.push(`sprite:${sprite.name}`);
+              });
+            }
+            spriteManager.onDisposeObservable.add(() => {
+              npcFailureDisposalOrder.push(`manager:${spriteManager.name}`);
+            });
+          }
+        });
+        const npcThrownValue = captureThrownValue(() => {
+          const unexpectedSystem = createV2NpcSystem({
+            scene: spatialScene,
+            stage: npcFailureStage,
+            npcCount: 2,
+            initialBrainwashedNpcCount: 2,
+            random: npcFailureRandom.random
+          });
+          unexpectedSystem.dispose();
+        });
+        const npcFailureAfter = countSceneResources(spatialScene);
+        checks.push({
+          name: "NPC factory初期化失敗時の資源回収",
+          ok:
+            npcThrownValue === npcInjectedError &&
+            npcFailureDisposalOrder.join("|") ===
+              "sprite:npc_1|sprite:npc_0|manager:V2SchoolNpcSpriteManager" &&
+            sceneResourceCountsEqual(npcFailureBaseline, npcFailureAfter),
+          detail: `throwCall=${npcFailureRandom.getCallCount()}/${npcInitializationRandomCallCount} / sameError=${npcThrownValue === npcInjectedError} / dispose=${npcFailureDisposalOrder.join(" > ")} / baseline=${JSON.stringify(npcFailureBaseline)} / after=${JSON.stringify(npcFailureAfter)}`
+        });
+
+        const bitRandom = createSeededCountingRandom(0x9e3779b9);
         const bitSystem = createV2BitSystem(
           spatialScene,
           schoolContext,
@@ -1208,9 +1286,10 @@ const runValidation = async () => {
             spawnProjectionMaxDistance: 0.75,
             minimumFlightHeight: 0.3,
             maximumFlightHeight: 0.3,
-            random: bitRandom
+            random: bitRandom.random
           }
         );
+        const bitInitializationRandomCallCount = bitRandom.getCallCount();
         const initialBitActors = bitSystem.getActorSpheres();
         const bitGround = schoolContext.queries.sampleGround(
           initialBitActors[0].center.add(new Vector3(0, 0.5, 0)),
@@ -1265,6 +1344,63 @@ const runValidation = async () => {
         });
         bitSystem.dispose();
 
+        const bitFailureBaseline = countSceneResources(spatialScene);
+        const bitInjectedError = new Error(
+          "T04 bit factory初期化失敗注入"
+        );
+        const bitFailureStage = schoolContext;
+        const bitFailureDisposalOrder: string[] = [];
+        const bitFailureRandom = createSeededCountingRandom(0x9e3779b9, {
+          call: bitInitializationRandomCallCount,
+          error: bitInjectedError,
+          beforeThrow: () => {
+            const bitRoots = spatialScene.transformNodes.filter(
+              (node) => /^v2_bit_\d+$/.test(node.name)
+            );
+            const bitMaterials = spatialScene.materials.filter(
+              (material) =>
+                material.name === "v2BitBodyMaterial" ||
+                material.name === "v2BitMuzzleMaterial"
+            );
+            for (const root of bitRoots) {
+              root.onDisposeObservable.add(() => {
+                bitFailureDisposalOrder.push(`root:${root.name}`);
+              });
+            }
+            for (const material of bitMaterials) {
+              material.onDisposeObservable.add(() => {
+                bitFailureDisposalOrder.push(`material:${material.name}`);
+              });
+            }
+          }
+        });
+        const bitThrownValue = captureThrownValue(() => {
+          const unexpectedSystem = createV2BitSystem(
+            spatialScene,
+            bitFailureStage,
+            {
+              initialBitCount: 2,
+              minimumSpawnDistance: 0.2,
+              spawnMaxAttempts: 128,
+              spawnProjectionMaxDistance: 0.75,
+              minimumFlightHeight: 0.3,
+              maximumFlightHeight: 0.3,
+              random: bitFailureRandom.random
+            }
+          );
+          unexpectedSystem.dispose();
+        });
+        const bitFailureAfter = countSceneResources(spatialScene);
+        checks.push({
+          name: "ビットfactory初期化失敗時の資源回収",
+          ok:
+            bitThrownValue === bitInjectedError &&
+            bitFailureDisposalOrder.join("|") ===
+              "root:v2_bit_1|root:v2_bit_0|material:v2BitMuzzleMaterial|material:v2BitBodyMaterial" &&
+            sceneResourceCountsEqual(bitFailureBaseline, bitFailureAfter),
+          detail: `throwCall=${bitFailureRandom.getCallCount()}/${bitInitializationRandomCallCount} / sameError=${bitThrownValue === bitInjectedError} / dispose=${bitFailureDisposalOrder.join(" > ")} / baseline=${JSON.stringify(bitFailureBaseline)} / after=${JSON.stringify(bitFailureAfter)}`
+        });
+
         const brainwashedTargetBitSystem = createV2BitSystem(
           spatialScene,
           schoolContext,
@@ -1275,7 +1411,7 @@ const runValidation = async () => {
             spawnProjectionMaxDistance: 0.75,
             minimumFlightHeight: 0.3,
             maximumFlightHeight: 0.3,
-            random: bitRandom
+            random: bitRandom.random
           }
         );
         const brainwashedNpcTarget = Object.freeze({
@@ -1320,7 +1456,7 @@ const runValidation = async () => {
             spawnProjectionMaxDistance: 0.75,
             minimumFlightHeight: 0.3,
             maximumFlightHeight: 0.3,
-            random: bitRandom
+            random: bitRandom.random
           }
         );
         const visionBitCenter = visionBitSystem.getActorSpheres()[0].center;

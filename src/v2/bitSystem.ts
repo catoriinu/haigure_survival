@@ -178,16 +178,24 @@ const assertConfig = (config: V2BitSystemConfig) => {
 };
 
 const createSharedMaterials = (scene: Scene) => {
-  const body = new StandardMaterial("v2BitBodyMaterial", scene);
-  body.diffuseColor = new Color3(0.08, 0.08, 0.09);
-  body.specularColor = new Color3(0.35, 0.35, 0.4);
+  let body: StandardMaterial | null = null;
+  let muzzle: StandardMaterial | null = null;
+  try {
+    body = new StandardMaterial("v2BitBodyMaterial", scene);
+    body.diffuseColor = new Color3(0.08, 0.08, 0.09);
+    body.specularColor = new Color3(0.35, 0.35, 0.4);
 
-  const muzzle = new StandardMaterial("v2BitMuzzleMaterial", scene);
-  muzzle.diffuseColor = new Color3(1, 0.18, 0.74);
-  muzzle.emissiveColor = new Color3(0.7, 0.06, 0.42);
-  muzzle.specularColor = Color3.Black();
+    muzzle = new StandardMaterial("v2BitMuzzleMaterial", scene);
+    muzzle.diffuseColor = new Color3(1, 0.18, 0.74);
+    muzzle.emissiveColor = new Color3(0.7, 0.06, 0.42);
+    muzzle.specularColor = Color3.Black();
 
-  return { body, muzzle };
+    return { body, muzzle };
+  } catch (error) {
+    muzzle?.dispose();
+    body?.dispose();
+    throw error;
+  }
 };
 
 const createBitVisual = (
@@ -195,33 +203,43 @@ const createBitVisual = (
   materials: Readonly<{ body: StandardMaterial; muzzle: StandardMaterial }>,
   id: string
 ) => {
-  const root = new TransformNode(id, scene);
-  const body = MeshBuilder.CreateCylinder(
-    `${id}_body`,
-    {
-      diameterTop: 0,
-      diameterBottom: BIT_BODY_DIAMETER,
-      height: BIT_BODY_HEIGHT,
-      tessellation: 24
-    },
-    scene
-  );
-  body.parent = root;
-  body.rotation.x = Math.PI / 2;
-  body.material = materials.body;
-  body.isPickable = false;
+  let root: TransformNode | null = null;
+  let body: Mesh | null = null;
+  let muzzle: Mesh | null = null;
+  try {
+    root = new TransformNode(id, scene);
+    body = MeshBuilder.CreateCylinder(
+      `${id}_body`,
+      {
+        diameterTop: 0,
+        diameterBottom: BIT_BODY_DIAMETER,
+        height: BIT_BODY_HEIGHT,
+        tessellation: 24
+      },
+      scene
+    );
+    body.parent = root;
+    body.rotation.x = Math.PI / 2;
+    body.material = materials.body;
+    body.isPickable = false;
 
-  const muzzle = MeshBuilder.CreateSphere(
-    `${id}_muzzle`,
-    { diameter: BIT_MUZZLE_DIAMETER, segments: 16 },
-    scene
-  );
-  muzzle.parent = root;
-  muzzle.position.z = BIT_MUZZLE_OFFSET;
-  muzzle.material = materials.muzzle;
-  muzzle.isPickable = false;
+    muzzle = MeshBuilder.CreateSphere(
+      `${id}_muzzle`,
+      { diameter: BIT_MUZZLE_DIAMETER, segments: 16 },
+      scene
+    );
+    muzzle.parent = root;
+    muzzle.position.z = BIT_MUZZLE_OFFSET;
+    muzzle.material = materials.muzzle;
+    muzzle.isPickable = false;
 
-  return { root, body, muzzle };
+    return { root, body, muzzle };
+  } catch (error) {
+    muzzle?.dispose(false, false);
+    body?.dispose(false, false);
+    root?.dispose(false);
+    throw error;
+  }
 };
 
 const normalizeHorizontal = (direction: Vector3) => {
@@ -321,52 +339,71 @@ export const createV2BitSystem = (
     const id = `v2_bit_${nextBitIndex}`;
     nextBitIndex += 1;
     const visual = createBitVisual(scene, materials, id);
-    const initialAngle = nextRandom() * Math.PI * 2;
-    const initialDirection = new Vector3(
-      Math.cos(initialAngle),
-      0,
-      Math.sin(initialAngle)
-    );
-    const bit: RuntimeBit = {
-      id,
-      ...visual,
-      navigationAgent: createNavigationAgent(
+    let navigationAgent: NavigationAgent | null = null;
+    try {
+      const initialAngle = nextRandom() * Math.PI * 2;
+      const initialDirection = new Vector3(
+        Math.cos(initialAngle),
+        0,
+        Math.sin(initialAngle)
+      );
+      navigationAgent = createNavigationAgent(
         spatial.navigation,
         NAVIGATION_AGENT_CONFIG
-      ),
-      navigationPosition: navigationPosition.clone(),
-      flightHeight,
-      bobPhase: nextRandom() * Math.PI * 2,
-      mode,
-      targetId: null,
-      targetProvenance: null,
-      alertLeaderId: null,
-      wanderTarget: null,
-      wanderRetrySeconds: 0,
-      fireSeconds: randomRange(FIRE_INTERVAL_MIN, FIRE_INTERVAL_MAX),
-      carpetLeaderId: null,
-      carpetOffset: 0
-    };
-    bit.root.position.copyFrom(
-      buildFlightPosition(navigationPosition, flightHeight)
-    );
-    bit.root.lookAt(bit.root.position.add(initialDirection));
-    bits.push(bit);
-    return bit;
+      );
+      const bit: RuntimeBit = {
+        id,
+        ...visual,
+        navigationAgent,
+        navigationPosition: navigationPosition.clone(),
+        flightHeight,
+        bobPhase: nextRandom() * Math.PI * 2,
+        mode,
+        targetId: null,
+        targetProvenance: null,
+        alertLeaderId: null,
+        wanderTarget: null,
+        wanderRetrySeconds: 0,
+        fireSeconds: randomRange(FIRE_INTERVAL_MIN, FIRE_INTERVAL_MAX),
+        carpetLeaderId: null,
+        carpetOffset: 0
+      };
+      bit.root.position.copyFrom(
+        buildFlightPosition(navigationPosition, flightHeight)
+      );
+      bit.root.lookAt(bit.root.position.add(initialDirection));
+      bits.push(bit);
+      return bit;
+    } catch (error) {
+      navigationAgent?.clear();
+      visual.root.dispose(false);
+      throw error;
+    }
   };
 
-  const spawnPoints =
-    config.initialBitCount === 0
-      ? []
-      : spawnSampler.samplePoints(
-          config.initialBitCount,
-          config.minimumSpawnDistance
-        );
-  for (const point of spawnPoints) {
-    createRuntimeBit(
-      point,
-      randomRange(config.minimumFlightHeight, config.maximumFlightHeight)
-    );
+  try {
+    const spawnPoints =
+      config.initialBitCount === 0
+        ? []
+        : spawnSampler.samplePoints(
+            config.initialBitCount,
+            config.minimumSpawnDistance
+          );
+    for (const point of spawnPoints) {
+      createRuntimeBit(
+        point,
+        randomRange(config.minimumFlightHeight, config.maximumFlightHeight)
+      );
+    }
+  } catch (error) {
+    for (let index = bits.length - 1; index >= 0; index -= 1) {
+      bits[index].navigationAgent.clear();
+      bits[index].root.dispose(false);
+    }
+    bits.length = 0;
+    materials.muzzle.dispose();
+    materials.body.dispose();
+    throw error;
   }
 
   const isTargetable = (target: V2HumanTargetSnapshot) =>

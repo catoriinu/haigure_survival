@@ -18,7 +18,10 @@ import {
   createV2PlayerController,
   type V2PlayerController
 } from "./playerController";
-import { createV2PlayerInput } from "./playerInput";
+import {
+  createV2PlayerInput,
+  type V2PlayerInput
+} from "./playerInput";
 import {
   createV2SurvivalRuntime,
   type V2SurvivalRuntime
@@ -74,24 +77,47 @@ helpPanel.style.display = "none";
 const formatLoadError = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
-let stage: StageSpatialContext;
-let player: V2PlayerController;
-let survival: V2SurvivalRuntime;
-try {
-  stage = await loadStageSpatialContext(scene, SCHOOL_STAGE);
-  const input = createV2PlayerInput(window);
-  player = createV2PlayerController({ scene, camera, stage, input });
-  survival = createV2SurvivalRuntime({
-    scene,
-    stage,
-    player,
-    random: Math.random
-  });
-} catch (error) {
-  titleStartHint.textContent = "読込エラー";
-  titleMessage.textContent = formatLoadError(error);
-  throw error;
-}
+const initializeRuntime = async () => {
+  let ownedStage: StageSpatialContext | null = null;
+  let ownedInput: V2PlayerInput | null = null;
+  let ownedPlayer: V2PlayerController | null = null;
+  let ownedSurvival: V2SurvivalRuntime | null = null;
+
+  try {
+    ownedStage = await loadStageSpatialContext(scene, SCHOOL_STAGE);
+    ownedInput = createV2PlayerInput(window);
+    ownedPlayer = createV2PlayerController({
+      scene,
+      camera,
+      stage: ownedStage,
+      input: ownedInput
+    });
+    ownedInput = null;
+    ownedSurvival = createV2SurvivalRuntime({
+      scene,
+      stage: ownedStage,
+      player: ownedPlayer,
+      random: Math.random
+    });
+    return {
+      stage: ownedStage,
+      player: ownedPlayer,
+      survival: ownedSurvival
+    };
+  } catch (error) {
+    titleStartHint.textContent = "読込エラー";
+    titleMessage.textContent = formatLoadError(error);
+    ownedSurvival?.dispose();
+    ownedPlayer?.dispose();
+    ownedInput?.dispose();
+    ownedStage?.dispose();
+    scene.dispose();
+    engine.dispose();
+    throw error;
+  }
+};
+
+const { stage, player, survival } = await initializeRuntime();
 
 camera.attachControl(canvas, true);
 canvas.tabIndex = 0;

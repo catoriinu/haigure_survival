@@ -219,7 +219,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       options.initialBrainwashedNpcCount
     );
 
-    this.spriteManager = new SpriteManager(
+    const npcs: NpcRuntime[] = [];
+    const cleanupActions: Array<() => void> = [];
+    const spriteManager = new SpriteManager(
       "V2SchoolNpcSpriteManager",
       createDefaultCharacterSpritesheet(),
       options.npcCount,
@@ -229,41 +231,55 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       },
       options.scene
     );
+    this.spriteManager = spriteManager;
+    cleanupActions.push(() => spriteManager.dispose());
 
-    const npcs: NpcRuntime[] = spawnPoints.map((spawnPoint, index) => {
-      const id = `npc_${index}`;
-      const sprite = new Sprite(id, this.spriteManager);
-      sprite.width = NPC_SPRITE_WIDTH;
-      sprite.height = NPC_SPRITE_HEIGHT;
-      sprite.isPickable = false;
-      const brainwashed = brainwashedIndices.has(index);
-      sprite.cellIndex = brainwashed ? 3 : 0;
-      sprite.position.copyFrom(toAimPosition(spawnPoint));
-      const angle = this.nextRandom() * Math.PI * 2;
-      return {
-        id,
-        sprite,
-        navigationAgent: createNavigationAgent(
+    try {
+      for (let index = 0; index < spawnPoints.length; index += 1) {
+        const spawnPoint = spawnPoints[index];
+        const id = `npc_${index}`;
+        const sprite = new Sprite(id, spriteManager);
+        cleanupActions.push(() => sprite.dispose());
+        sprite.width = NPC_SPRITE_WIDTH;
+        sprite.height = NPC_SPRITE_HEIGHT;
+        sprite.isPickable = false;
+        const brainwashed = brainwashedIndices.has(index);
+        sprite.cellIndex = brainwashed ? 3 : 0;
+        sprite.position.copyFrom(toAimPosition(spawnPoint));
+        const angle = this.nextRandom() * Math.PI * 2;
+        const navigationAgent = createNavigationAgent(
           options.stage.navigation,
           NAVIGATION_AGENT_CONFIG
-        ),
-        footPosition: spawnPoint.clone(),
-        forward: new Vector3(Math.sin(angle), 0, Math.cos(angle)),
-        brainwashed,
-        wanderDestination: null,
-        wanderWaitSeconds: this.nextWanderWait(),
-        targetId: null,
-        targetProvenance: null,
-        alertLeaderId: null,
-        alertRemainingSeconds: 0
-      };
-    });
-    this.npcs = Object.freeze(npcs);
-    this.npcsById = new Map(npcs.map((npc) => [npc.id, npc]));
-    this.targetSnapshots = Object.freeze(
-      npcs.map(createNpcTargetSnapshot)
-    );
-    this.actorSpheres = this.buildActorSpheres();
+        );
+        cleanupActions.push(() => navigationAgent.clear());
+        npcs.push({
+          id,
+          sprite,
+          navigationAgent,
+          footPosition: spawnPoint.clone(),
+          forward: new Vector3(Math.sin(angle), 0, Math.cos(angle)),
+          brainwashed,
+          wanderDestination: null,
+          wanderWaitSeconds: this.nextWanderWait(),
+          targetId: null,
+          targetProvenance: null,
+          alertLeaderId: null,
+          alertRemainingSeconds: 0
+        });
+      }
+      this.npcs = Object.freeze(npcs);
+      this.npcsById = new Map(npcs.map((npc) => [npc.id, npc]));
+      this.targetSnapshots = Object.freeze(
+        npcs.map(createNpcTargetSnapshot)
+      );
+      this.actorSpheres = this.buildActorSpheres();
+      cleanupActions.length = 0;
+    } catch (error) {
+      for (let index = cleanupActions.length - 1; index >= 0; index -= 1) {
+        cleanupActions[index]();
+      }
+      throw error;
+    }
   }
 
   update(deltaSeconds: number, playerTarget: V2HumanTargetSnapshot) {
