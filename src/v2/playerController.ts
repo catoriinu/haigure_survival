@@ -5,6 +5,7 @@ import {
 } from "../game/characterSprites";
 import {
   createPlayerHeightController,
+  type PlayerHeightSnapshot,
   type PlayerVerticalState
 } from "../game/playerHeight";
 import { createPlayerMotionController } from "../game/playerMotion";
@@ -146,6 +147,13 @@ export const createV2PlayerController = ({
   });
 
   const frameStartFootPosition = Vector3.Zero();
+  const frameStartHeightSnapshot: PlayerHeightSnapshot = {
+    grounded: false,
+    verticalVelocity: 0,
+    supportY: null,
+    supportMeshName: null,
+    supportNormalY: null
+  };
   const cameraHorizontalForward = Vector3.Zero();
   let eyeHeightScale = initialEyeHeightScale;
   let movementYaw = Math.atan2(spawnForward.x, spawnForward.z);
@@ -217,6 +225,7 @@ export const createV2PlayerController = ({
         throw new Error("allowMoveにはbooleanが必要です。");
       }
       frameStartFootPosition.copyFrom(collisionMesh.position);
+      height.capture(frameStartHeightSnapshot);
       if (!stage.boundary.contains(frameStartFootPosition)) {
         throw new Error("V2プレイヤーのフレーム開始位置がBND_Stageの外側です。");
       }
@@ -257,8 +266,8 @@ export const createV2PlayerController = ({
       if (!stage.boundary.contains(collisionMesh.position)) {
         collisionMesh.position.copyFrom(frameStartFootPosition);
         collisionMesh.computeWorldMatrix(true);
+        height.restore(frameStartHeightSnapshot);
         motion.reset();
-        resyncHeightOrThrow("境界外移動の巻き戻し");
       } else {
         motion.commit(heightFrame.actualHorizontalDisplacement);
       }

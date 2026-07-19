@@ -6,6 +6,11 @@ export type PlayerVerticalState = {
   supportY: number | null;
 };
 
+export type PlayerHeightSnapshot = PlayerVerticalState & {
+  supportMeshName: string | null;
+  supportNormalY: number | null;
+};
+
 export type PlayerHeightConfig = {
   gravity: number;
   maxStepHeight: number;
@@ -24,6 +29,8 @@ export type PlayerHeightController = {
   reset: () => void;
   getState: () => PlayerVerticalState;
   getSupportMeshName: () => string | null;
+  capture: (snapshot: PlayerHeightSnapshot) => void;
+  restore: (snapshot: PlayerHeightSnapshot) => void;
   resync: (
     collisionMesh: Mesh,
     stageColliders: ReadonlySet<Mesh>
@@ -67,6 +74,7 @@ export const createPlayerHeightController = (
   const verticalDisplacement = Vector3.Zero();
   const horizontalProgressTolerance = 0.000001;
   let supportMeshName: string | null = null;
+  let supportNormalY: number | null = null;
 
   const copyState = (): PlayerVerticalState => ({ ...state });
 
@@ -118,6 +126,7 @@ export const createPlayerHeightController = (
     state.grounded = support !== null;
     state.supportY = support?.y ?? null;
     supportMeshName = support?.meshName ?? null;
+    supportNormalY = support?.normalY ?? null;
     if (state.grounded) {
       state.verticalVelocity = 0;
     }
@@ -171,6 +180,7 @@ export const createPlayerHeightController = (
       state.grounded = false;
       state.supportY = null;
       supportMeshName = null;
+      supportNormalY = null;
       return;
     }
     const horizontalX = collisionMesh.position.x;
@@ -199,12 +209,14 @@ export const createPlayerHeightController = (
     }
     const normalState = copyState();
     const normalSupportMeshName = supportMeshName;
+    const normalSupportNormalY = supportNormalY;
     const restoreNormalState = () => {
       collisionMesh.position.copyFrom(normalPosition);
       state.grounded = normalState.grounded;
       state.verticalVelocity = normalState.verticalVelocity;
       state.supportY = normalState.supportY;
       supportMeshName = normalSupportMeshName;
+      supportNormalY = normalSupportNormalY;
     };
     stepLookAhead.copyFrom(horizontalDisplacement);
     stepLookAhead.y = 0;
@@ -300,6 +312,7 @@ export const createPlayerHeightController = (
     state.verticalVelocity = 0;
     state.supportY = candidateSupport.y;
     supportMeshName = candidateSupport.meshName;
+    supportNormalY = candidateSupport.normalY;
     return true;
   };
 
@@ -308,12 +321,31 @@ export const createPlayerHeightController = (
     state.verticalVelocity = 0;
     state.supportY = null;
     supportMeshName = null;
+    supportNormalY = null;
+  };
+
+  const capture = (snapshot: PlayerHeightSnapshot) => {
+    snapshot.grounded = state.grounded;
+    snapshot.verticalVelocity = state.verticalVelocity;
+    snapshot.supportY = state.supportY;
+    snapshot.supportMeshName = supportMeshName;
+    snapshot.supportNormalY = supportNormalY;
+  };
+
+  const restore = (snapshot: PlayerHeightSnapshot) => {
+    state.grounded = snapshot.grounded;
+    state.verticalVelocity = snapshot.verticalVelocity;
+    state.supportY = snapshot.supportY;
+    supportMeshName = snapshot.supportMeshName;
+    supportNormalY = snapshot.supportNormalY;
   };
 
   return {
     reset,
     getState: copyState,
     getSupportMeshName: () => supportMeshName,
+    capture,
+    restore,
     resync: (collisionMesh, stageColliders) => {
       reset();
       collisionMesh.computeWorldMatrix(true);
@@ -324,9 +356,14 @@ export const createPlayerHeightController = (
         groundSnapDistance
       );
       if (support) {
+        const horizontalX = collisionMesh.position.x;
+        const horizontalZ = collisionMesh.position.z;
         collisionMesh.position.y = support.y + groundTolerance;
         verticalDisplacement.set(0, -groundTolerance * 2, 0);
         moveWithUpdatedWorld(collisionMesh, verticalDisplacement);
+        collisionMesh.position.x = horizontalX;
+        collisionMesh.position.z = horizontalZ;
+        collisionMesh.computeWorldMatrix(true);
         updateGroundState(collisionMesh, stageColliders);
       } else {
         snapDown(collisionMesh, stageColliders);

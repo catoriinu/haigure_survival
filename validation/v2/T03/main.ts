@@ -12,7 +12,10 @@ import {
   Vector3
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
-import { createPlayerHeightController } from "../../../src/game/playerHeight";
+import {
+  createPlayerHeightController,
+  type PlayerHeightSnapshot
+} from "../../../src/game/playerHeight";
 
 type CheckResult = {
   name: string;
@@ -487,6 +490,41 @@ const runValidation = async () => {
     teleport(blenderToBabylon(-3, 0.6, 0));
     const slopeMidUp = runLinearMotion(new Vector3(0, 0, -1), 0.55);
     const slopeMidPosition = playerCollisionMesh.position.clone();
+    playerHeightMotion.resync(playerCollisionMesh, getColliderSet());
+    const slopeResyncHorizontalDrift = Math.hypot(
+      playerCollisionMesh.position.x - slopeMidPosition.x,
+      playerCollisionMesh.position.z - slopeMidPosition.z
+    );
+    const slopeSnapshot: PlayerHeightSnapshot = {
+      grounded: false,
+      verticalVelocity: 0,
+      supportY: null,
+      supportMeshName: null,
+      supportNormalY: null
+    };
+    playerHeightMotion.capture(slopeSnapshot);
+    const slopeSnapshotPosition = playerCollisionMesh.position.clone();
+    runLinearMotion(new Vector3(0, 0, -1), 0.05);
+    playerCollisionMesh.position.copyFrom(slopeSnapshotPosition);
+    playerCollisionMesh.computeWorldMatrix(true);
+    playerHeightMotion.restore(slopeSnapshot);
+    const restoredSlopeSnapshot: PlayerHeightSnapshot = {
+      grounded: false,
+      verticalVelocity: 0,
+      supportY: null,
+      supportMeshName: null,
+      supportNormalY: null
+    };
+    playerHeightMotion.capture(restoredSlopeSnapshot);
+    const slopeSnapshotPositionRestored =
+      playerCollisionMesh.position.equals(slopeSnapshotPosition);
+    const slopeSnapshotRestored =
+      slopeSnapshotPositionRestored &&
+      restoredSlopeSnapshot.grounded === slopeSnapshot.grounded &&
+      restoredSlopeSnapshot.verticalVelocity === slopeSnapshot.verticalVelocity &&
+      restoredSlopeSnapshot.supportY === slopeSnapshot.supportY &&
+      restoredSlopeSnapshot.supportMeshName === slopeSnapshot.supportMeshName &&
+      restoredSlopeSnapshot.supportNormalY === slopeSnapshot.supportNormalY;
     const slopeMidStable = runStationaryFrames(120);
     const slopeMidHorizontalDrift = Math.hypot(
       playerCollisionMesh.position.x - slopeMidPosition.x,
@@ -497,6 +535,16 @@ const runValidation = async () => {
     const slopeReverseProgress =
       playerCollisionMesh.position.z - slopeReverseStartZ;
     checks.push(
+      createCheck(
+        "斜面接地再同期の水平位置保持",
+        slopeResyncHorizontalDrift <= 0.000001,
+        `drift=${slopeResyncHorizontalDrift.toFixed(9)}`
+      ),
+      createCheck(
+        "境界巻き戻し用高さ状態の完全復元",
+        slopeSnapshotRestored,
+        `position=${slopeSnapshotPositionRestored}, support=${restoredSlopeSnapshot.supportMeshName}, normalY=${restoredSlopeSnapshot.supportNormalY?.toFixed(6)}`
+      ),
       createCheck(
         "斜面中腹の入力解除停止",
         slopeMidUp.airborneFrames === 0 &&
