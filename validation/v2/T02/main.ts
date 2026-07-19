@@ -281,8 +281,8 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 264 &&
-        context.resources.normalColliders.length === 143 &&
+      context.resources.visualMeshes.length === 274 &&
+        context.resources.normalColliders.length === 147 &&
         context.resources.actorOnlyColliders.length === 0 &&
         context.resources.navSourceMeshes.length === 8 &&
         context.markers.all.length === 1 &&
@@ -404,6 +404,52 @@ const validateLoadedContext = (
       entryBoundsResults
         .map((result) => `${result.name}=${result.ok ? "一致" : result.detail}`)
         .join(" / ")
+    )
+  );
+
+  const toiletMeshByName = new Map(
+    [
+      ...context.resources.visualMeshes,
+      ...context.resources.normalColliders
+    ].map((mesh) => [mesh.name, mesh])
+  );
+  const toiletBoundsExpectations = [
+    ["VIS_ToiletStallPartition_M_01", [-5.09, 43.25, 0.0], [-5.01, 45.35, 2.1]],
+    ["COL_ToiletStallPartition_M_01", [-5.09, 43.25, 0.0], [-5.01, 45.35, 2.1]],
+    ["VIS_ToiletStallPartition_M_02", [-3.69, 43.25, 0.0], [-3.61, 45.35, 2.1]],
+    ["COL_ToiletStallPartition_M_02", [-3.69, 43.25, 0.0], [-3.61, 45.35, 2.1]],
+    ["VIS_ToiletStallPartition_F_01", [-0.59, 43.25, 0.0], [-0.51, 45.35, 2.1]],
+    ["COL_ToiletStallPartition_F_01", [-0.59, 43.25, 0.0], [-0.51, 45.35, 2.1]],
+    ["VIS_ToiletStallPartition_F_02", [0.81, 43.25, 0.0], [0.89, 45.35, 2.1]],
+    ["COL_ToiletStallPartition_F_02", [0.81, 43.25, 0.0], [0.89, 45.35, 2.1]],
+    ["VIS_ToiletStallDoor_Open_M_01", [-5.13, 43.25, 0.0], [-5.09, 44.15, 1.8]],
+    ["VIS_ToiletStallDoor_Open_M_02", [-3.73, 43.25, 0.0], [-3.69, 44.15, 1.8]],
+    ["VIS_ToiletStallDoor_Open_M_03", [-2.33, 43.25, 0.0], [-2.29, 44.15, 1.8]],
+    ["VIS_ToiletStallDoor_Open_F_01", [-0.63, 43.25, 0.0], [-0.59, 44.15, 1.8]],
+    ["VIS_ToiletStallDoor_Open_F_02", [0.77, 43.25, 0.0], [0.81, 44.15, 1.8]],
+    ["VIS_ToiletStallDoor_Open_F_03", [2.17, 43.25, 0.0], [2.21, 44.15, 1.8]]
+  ] as const;
+  const toiletBoundsResults = toiletBoundsExpectations.map(
+    ([name, minimum, maximum]) => ({
+      name,
+      ...compareBlenderBounds(
+        toiletMeshByName.get(name),
+        Vector3.FromArray(minimum),
+        Vector3.FromArray(maximum)
+      )
+    })
+  );
+  const urinalFixturesAbsent = [
+    ...context.resources.visualMeshes,
+    ...context.resources.normalColliders
+  ].every((mesh) => !mesh.name.includes("Urinal"));
+  checks.push(
+    createCheck(
+      "男女各3個室と男子小便器予約帯の契約",
+      toiletBoundsResults.every((result) => result.ok) && urinalFixturesAbsent,
+      `${toiletBoundsResults
+        .map((result) => `${result.name}=${result.ok ? "一致" : result.detail}`)
+        .join(" / ")} / 小便器予約帯のみ=${urinalFixturesAbsent}`
     )
   );
 
@@ -655,8 +701,8 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 264 &&
-      activeContext.resources.normalColliders.length === 143;
+      activeContext.resources.visualMeshes.length === 274 &&
+      activeContext.resources.normalColliders.length === 147;
     checks.push(
       createCheck(
         "学校コンテキスト再読込",

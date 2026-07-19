@@ -111,6 +111,10 @@ SCHOOL_1F_BLOCKERS = (
     "COL_Wall_Toilet_South_C",
     "COL_Wall_Toilet_South_D",
     "COL_Wall_Toilet_West",
+    "COL_ToiletStallPartition_M_01",
+    "COL_ToiletStallPartition_M_02",
+    "COL_ToiletStallPartition_F_01",
+    "COL_ToiletStallPartition_F_02",
 )
 
 GYM_BLOCKERS = (
@@ -187,10 +191,10 @@ def require_clean_current_blend() -> None:
         raise RuntimeError(f"現worktree側B02ではありません: {bpy.data.filepath}")
     if bpy.data.is_dirty:
         raise RuntimeError("編集開始前のB02に未保存変更があります")
-    if len([obj for obj in bpy.data.objects if obj.name.startswith("VIS_")]) != 264:
-        raise RuntimeError("既存B02のVIS Object数が264件ではありません")
-    if len([obj for obj in bpy.data.objects if obj.name.startswith("COL_")]) != 143:
-        raise RuntimeError("既存B02のCOL Object数が143件ではありません")
+    if len([obj for obj in bpy.data.objects if obj.name.startswith("VIS_")]) != 274:
+        raise RuntimeError("既存B02のVIS Object数が274件ではありません")
+    if len([obj for obj in bpy.data.objects if obj.name.startswith("COL_")]) != 147:
+        raise RuntimeError("既存B02のCOL Object数が147件ではありません")
 
 
 def reset_generated_semantics() -> None:
@@ -230,8 +234,8 @@ def reset_generated_semantics() -> None:
         "BND_Stage",
     }:
         raise RuntimeError("B02_SEMANTICのObjectが想定外です")
-    if len(export_collection.all_objects) != 420:
-        raise RuntimeError("再生成前の学校契約Object数が420件ではありません")
+    if len(export_collection.all_objects) != 434:
+        raise RuntimeError("再生成前の学校契約Object数が434件ではありません")
 
     scene_root = bpy.context.scene.collection
     if {collection.name for collection in scene_root.children} != {
@@ -509,8 +513,8 @@ def create_semantic_objects(collection: bpy.types.Collection) -> None:
 def export_stage(export_collection: bpy.types.Collection) -> None:
     bpy.ops.object.select_all(action="DESELECT")
     export_objects = list(export_collection.all_objects)
-    if len(export_objects) != 420:
-        raise RuntimeError(f"学校の契約Object数が420件ではありません: {len(export_objects)}")
+    if len(export_objects) != 434:
+        raise RuntimeError(f"学校の契約Object数が434件ではありません: {len(export_objects)}")
     for obj in export_objects:
         obj.select_set(True)
 
