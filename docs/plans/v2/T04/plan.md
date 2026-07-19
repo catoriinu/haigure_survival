@@ -44,6 +44,7 @@ V2ではすべてのマップにおいてJSONではなく、管理方法の設�
 - [x] V2プレイヤー移動型を旧`playerAbility`から分離し、V2型検査のセル依存を解消する
 - [x] 通常Web入口と全V2モジュールの依存グラフをビルド時に監査し、JSON・セル実装の再混入を拒否する
 - [ ] NPCの出現、徘徊、追跡、アラート迂回、停止、階段移動をNavMeshへ移行する
+- [x] NPCのVolume出現、徘徊、視認・アラート追跡、到達不能停止をセル非依存のV2モジュールへ移行する
 - [ ] ビットの出現、探索、追跡、アラート集合、カーペット爆撃解除をNavMesh経路と床相対高度へ移行する
 - [ ] 通常ビームの連続3D衝突、ビット視界の3D遮蔽、`COL_ActorOnly_Window_*`透過規則を`StageSpatialContext`へ統合する
 - [x] 通常ビームの壁・Actor最近傍連続衝突と視線遮蔽問い合わせをV2モジュールとして実装する
@@ -100,4 +101,5 @@ V2ではすべてのマップにおいてJSONではなく、管理方法の設�
 - V2プレイヤーは実装上セルを使っていなかったが、`playerMotion.ts`の入力型が旧`playerAbility.ts`に置かれ、その型参照だけで`GridLayout`、`FloorCell`、旧NPC型までV2型検査へ混入していた。汎用移動入力型を`playerMotion.ts`自身の契約へ移し、`tsconfig.v2.json --listFiles`でV2依存元が3D空間、プレイヤー高さ・移動、V2モジュールだけになったことを確認した。`npm run build`と`npm run build:t03`は成功した。
 - `audit:v2:dependencies`を追加し、通常Web入口が`/src/v2/main.ts`だけであること、全`src/v2`モジュールから到達するTypeScript依存にJSONファイル参照、`GridLayout`、`FloorCell`、`NavCellRef`、旧grid／stageContext／stageSelection／セルBFS実装がないことを毎回検査する。`typecheck:v2`と通常`build`の必須前段へ接続し、V2モジュール8件・依存18件でPASSした。
 - 通常ビームは前フレーム位置から新位置までを連続線分判定し、通常COL壁と球形Actorのうち最短距離の1件だけへ命中する。同距離は壁を優先し、開始点が壁内なら距離0で着弾する。ActorOnly窓は`beamBlockers`／`sightBlockers`に入らないため両方を通す。T04へActor先行、壁先行、同距離、高速壁衝突、窓透過、通常壁遮蔽、寿命失効を追加し、実ブラウザ31/31項目PASS、console warning／error 0件だった。
+- V2 NPCは`npc_spawn` VolumeからNavMesh上へ生成し、通常徘徊と洗脳NPCの標的追跡を共通`NavigationAgent`で行う。距離・95度半角視野・3D視線のANDで通常標的を取得・保持し、遮蔽時は解除する。別Actorから受信したalertだけは期限中保持し、発信者自身のvisual provenanceをalertへ上書きしない。徘徊候補も注入乱数から生成してNavMeshへ投影する。T04実ブラウザは発信者と受信者のprovenance分離を含む32/32項目PASS、console warning／error 0件だった。
 - 舞台階段の形状ディテールと同色境界はB03へ残し、NPC・ビットの複数階移動と高さ付き接続は本T04の後続工程で実装する。

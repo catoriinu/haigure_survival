@@ -33,6 +33,7 @@ import {
   type StageVolume
 } from "../../../src/world/stageSpatialQueries";
 import { createV2AlertCoordinator } from "../../../src/v2/alertCoordinator";
+import { createV2NpcSystem } from "../../../src/v2/npcSystem";
 import {
   castV2BeamSegment,
   castV2SightSegment,
@@ -1089,6 +1090,45 @@ const runValidation = async () => {
             beamWallHit.mesh === sightWallHit.mesh,
           detail: `${schoolPath?.points.length ?? 0}点 / endpointError=${Number.isFinite(schoolPathEndpointError) ? schoolPathEndpointError.toExponential(2) : "--"} / blocker=${beamWallHit?.mesh.name ?? "--"}`
         });
+
+        let npcRandomState = 0x5f3759df;
+        const npcRandom = () => {
+          npcRandomState =
+            (Math.imul(npcRandomState, 1664525) + 1013904223) >>> 0;
+          return npcRandomState / 0x100000000;
+        };
+        const npcSystem = createV2NpcSystem({
+          scene: spatialScene,
+          stage: schoolContext,
+          npcCount: 2,
+          initialBrainwashedNpcCount: 2,
+          random: npcRandom
+        });
+        npcSystem.applyAlerts([
+          {
+            leaderId: "npc_0",
+            targetId: "player",
+            remainingSeconds: 5
+          }
+        ]);
+        const npcTracking = npcSystem.getTrackingSnapshots();
+        checks.push({
+          name: "NPC発信者visualと受信者alertの分離",
+          ok:
+            npcTracking[0].targetId === null &&
+            npcTracking[0].provenance === null &&
+            npcTracking[1].targetId === "player" &&
+            npcTracking[1].provenance === "alert" &&
+            npcTracking[1].alertLeaderId === "npc_0" &&
+            npcTracking[1].alertRemainingSeconds === 5,
+          detail: npcTracking
+            .map(
+              (tracking) =>
+                `${tracking.npcId}:${tracking.provenance ?? "none"}/${tracking.targetId ?? "none"}`
+            )
+            .join(" / ")
+        });
+        npcSystem.dispose();
 
         schoolContext.dispose();
         schoolContext = null;
