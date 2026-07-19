@@ -54,29 +54,48 @@ export type StageCatalogEntry = Readonly<{
 ```ts
 export type StageSpatialContext = Readonly<{
   stage: StageCatalogEntry;
+  metadata: StageMetadata;
   resources: StageSpatialResources;
   navigation: NavigationWorld;
   markers: StageMarkerRegistry;
   volumes: StageVolumeRegistry;
+  links: StageLinkRegistry;
   boundary: StageBoundary;
   queries: StageSpatialQueries;
   dispose(): void;
 }>;
 ```
 
-`StageSpatialResources`は最低限、次の排他的な集合を持つ。
+移動者は共通して次の型で区別する。
+
+```ts
+export type StageMoverKind = "player" | "npc" | "bit";
+```
+
+`StageSpatialResources`は最低限、次の排他的な作者Object集合と、そこから構成した移動者別集合を持つ。
 
 | 集合 | 入力Object | 用途 |
 |---|---|---|
 | `visualMeshes` | `VIS_*` | 表示 |
-| `actorColliders` | `COL_*`、`COL_ActorOnly_*` | プレイヤー・NPC・ビット移動 |
+| `normalColliders` | 通常`COL_*` | 全移動体、全光線、視線を遮る |
+| `actorOnlyColliders` | `COL_ActorOnly_*` | プレイヤー・NPC・ビットだけを遮る |
+| `humanOnlyColliders` | `COL_HumanOnly_*` | プレイヤー・NPCだけを遮る |
+| `movementColliders` | 上記3集合から`StageMoverKind`別に構成 | 移動線分判定 |
 | `beamBlockers` | 通常`COL_*`だけ | 全ビーム遮蔽 |
 | `sightBlockers` | 通常`COL_*`だけ | 視線遮蔽 |
 | `navSourceMeshes` | `NAV_*` | 検証・再ベイク |
 | `semanticMeshes` | `VOL_*`、`BND_*`、`PRT_*` | 3D意味判定 |
 | `semanticNodes` | `META_*`、`MRK_*`、`LNK_*` | メタデータ・位置・特殊接続 |
 
-`COL_ActorOnly_*`は`actorColliders`にだけ含め、`beamBlockers`と`sightBlockers`から除外する。窓はこの分類により、移動を止めながら視線とビームを通す。
+移動者別集合は次の表を正本とする。
+
+| Collider | `player` | `npc` | `bit` | 視線・全光線 |
+|---|---:|---:|---:|---:|
+| 通常`COL_*` | 停止 | 停止 | 停止 | 遮蔽 |
+| `COL_ActorOnly_*` | 停止 | 停止 | 停止 | 透過 |
+| `COL_HumanOnly_*` | 停止 | 停止 | 透過 | 透過 |
+
+閉じた窓は`COL_ActorOnly_Window_*`とし、全移動体を止めながら視線と全光線を通す。指定した開いた窓または割れた窓は`COL_HumanOnly_Window_*`とし、プレイヤーとNPCを止め、ビット、視線、全光線を通す。`PRT_*`の既存room、streaming、door trigger用途は維持するが、`bit_window`と`bit_roof`は`PRT_*`で表さない。
 
 ## 5. GLB読込と分類
 
@@ -87,10 +106,11 @@ export type StageSpatialContext = Readonly<{
 3. `container.meshes`と`container.transformNodes`を列挙する。
 4. Object名、Blender型に対応するBabylon Node型、`metadata.gltf.extras`を検査する。
 5. 資産仕様の各集合へ排他的に分類する。
-6. `META_Stage`、必須marker、必須volume、`BND_Stage`を検査する。
+6. `META_Stage`、必須marker、必須volume、`BND_Stage`、`PRT_*`のrole、`LNK_*`のA/B pairを検査する。
 7. GLBとNavMeshのカタログハッシュ、schema version、nav profileを照合する。
-8. NavMeshバイナリを読み、`NavigationWorld`を構築する。
-9. すべて成功した後だけ`addAllToScene()`し、旧Contextと交換する。
+8. `LNK_*`を`StageLinkPair`へ組み立て、`StageLinkRegistry`を構築する。
+9. NavMeshバイナリを読み、link pairの両端を対応するNavMesh面へ投影して`NavigationWorld`を構築する。
+10. すべて成功した後だけ`addAllToScene()`し、旧Contextと交換する。
 
 未知接頭辞、重複ID、型違い、必須extras欠落、NavMesh不整合は即時エラーとする。欠落時に座標をTypeScriptへ直書きしたり、旧JSONへ戻したりしない。
 
@@ -99,27 +119,90 @@ export type StageSpatialContext = Readonly<{
 ゲーム処理へBabylonのRecast型を直接公開しない。
 
 ```ts
+export type StageLinkKind =
+  | "ladder"
+  | "elevator"
+  | "teleport"
+  | "bit_window"
+  | "bit_roof";
+
+export type StageLinkEndpoint = Readonly<{
+  endpoint: "A" | "B";
+  position: Vector3;
+  node: TransformNode;
+}>;
+
+export type StageLinkPair = Readonly<{
+  id: string;
+  kind: StageLinkKind;
+  bidirectional: boolean;
+  radiusMeters: number;
+  endpointA: StageLinkEndpoint;
+  endpointB: StageLinkEndpoint;
+}>;
+
+export interface StageLinkRegistry {
+  readonly all: readonly StageLinkPair[];
+  getById(id: string): StageLinkPair | null;
+  getByKind(kind: StageLinkKind): readonly StageLinkPair[];
+}
+
+export type NavigationLocation = Readonly<{
+  position: Vector3;
+  polygonRef: number;
+}>;
+
+export type NavigationSurfaceStep = Readonly<{
+  kind: "surface";
+  points: readonly NavigationLocation[];
+  distance: number;
+}>;
+
+export type NavigationTransitionStep = Readonly<{
+  kind: "transition";
+  link: StageLinkPair;
+  from: "A" | "B";
+  to: "A" | "B";
+  entry: NavigationLocation;
+  exit: NavigationLocation;
+  distance: number;
+}>;
+
 export type NavigationPath = Readonly<{
-  points: readonly Vector3[];
+  steps: readonly (NavigationSurfaceStep | NavigationTransitionStep)[];
+  destination: NavigationLocation;
   distance: number;
 }>;
 
 export interface NavigationWorld {
-  projectPoint(position: Vector3, maxDistance: number): Vector3 | null;
-  findPath(start: Vector3, destination: Vector3): NavigationPath | null;
-  constrainMovement(start: Vector3, destination: Vector3): Vector3 | null;
-  randomPointAround(origin: Vector3, radius: number): Vector3 | null;
+  projectPoint(position: Vector3, maxDistance: number): NavigationLocation | null;
+  findPath(
+    start: NavigationLocation,
+    destination: NavigationLocation,
+    moverKind: StageMoverKind
+  ): NavigationPath | null;
+  constrainMovement(
+    start: NavigationLocation,
+    destination: Vector3
+  ): NavigationLocation | null;
+  randomPointAround(
+    origin: NavigationLocation,
+    radius: number
+  ): NavigationLocation | null;
   createDebugMesh(scene: Scene): Mesh;
   dispose(): void;
 }
 ```
 
-- APIは床高を含むBabylon world座標の`Vector3`だけを扱う。
+- `NavigationLocation`はBabylon world座標と、その位置が属するRecast polygonの`polygonRef`を必ず組で保持する。現在地、経路点、目的地、移動拘束結果、ランダム点から`polygonRef`を捨てて`Vector3`だけへ戻してはならない。
+- 同じ水平位置に上下の床が重なる場合は、現在の`polygonRef`から到達可能な面を使う。X/Z距離だけで最寄りの別階へ再投影しない。
 - 経路なし、投影不能は`null`とし、標的への直進へ切り替えない。
-- 初期実装は`computePath()`の3D角点を追従する。Crowdと平滑化は計測後に別途採否を決める。
+- `surface` stepは通常床、段差、階段ランプ、踊り場を通るNavMesh上の3D点列、`transition` stepは`LNK_*`の固定接続を表す。両者を単一の点列へ潰さない。
 - 通常扉、段差、階段ランプ、踊り場は連続NavMeshとして表す。
-- 梯子、昇降機、テレポートなど連続面で表せない接続だけを`LNK_*`グラフで補う。
-- NPCとビットは共通経路APIを使う。ビットはNavMesh上の床高へ飛行相対高度を加える。
+- 梯子、昇降機、テレポート、指定されたビット通過窓、ビット屋上接近など連続面で表せない接続だけを`LNK_*`グラフで補う。
+- `findPath()`は`moverKind`が利用できるlinkだけを経路候補にする。`bit_window`と`bit_roof`はビット専用かつ双方向必須であり、プレイヤーとNPCの経路へ含めない。
+- 経路追従は`transition`入口へ到達した時点で`transition-required`を返す。T04は特殊接続を瞬間移動で消化せず、窓通過と屋上接近の実飛行をT05-1へ引き渡す。
+- NPCとビットは共通経路APIを使う。ビットはNavMesh上の物理床高へ飛行相対高度を加える。
 
 ## 7. NavMesh生成と読込
 
@@ -133,9 +216,10 @@ export interface NavigationWorld {
 4. 代表経路の3D点列と距離を記録する。
 5. `exportNavMesh()`の結果を`.navmesh.bin`へ保存する。
 6. `importNavMesh()`で新規`NavMesh`へ復元し、新規`NavMeshQuery`の代表経路が一致することを確認する。
-7. GLB SHA-256、NavMesh SHA-256、Recast版、プロファイルID、生成時間、容量を記録する。
+7. 同じGLBの各`LNK_*`端点が`hs_link_radius_m`以内の正しい高さのNavMesh面へ投影でき、`bit_window`と`bit_roof`が双方向であることを確認する。
+8. GLB SHA-256、NavMesh SHA-256、Recast版、プロファイルID、生成時間、容量を記録する。
 
-本編はバイナリ読込、`importNavMesh()`、`NavMeshQuery`構築だけを行う。GLBまたはベイク条件を変更した場合はNavMeshを必ず再生成する。
+本編はバイナリ読込、`importNavMesh()`、`NavMeshQuery`構築に加え、GLB由来の`StageLinkRegistry`を経路グラフへ接続する。`LNK_*`をNavMeshバイナリへ焼き込まない。GLBまたはベイク条件を変更した場合はNavMeshを必ず再生成し、GLBとNavMeshの組を再監査する。
 
 ## 8. マーカー
 
@@ -169,6 +253,11 @@ NPCとビットのランダム出現は多数の点を列挙せず、対応す�
 
 ```ts
 export interface StageSpatialQueries {
+  castMovementSegment(
+    moverKind: StageMoverKind,
+    from: Vector3,
+    to: Vector3
+  ): SpatialHit | null;
   castBeamSegment(from: Vector3, to: Vector3): SpatialHit | null;
   castSightSegment(from: Vector3, to: Vector3): SpatialHit | null;
   sampleGround(origin: Vector3, maxDistance: number): SpatialHit | null;
@@ -176,25 +265,44 @@ export interface StageSpatialQueries {
 }
 ```
 
-- ビームは前フレーム位置から新位置まで連続線分判定し、最初の`beamBlockers`交点で停止・着弾する。
+- 移動は`castMovementSegment(moverKind, from, to)`で移動者別Collider集合へ問い合わせる。移動者種別を省略する旧`castActorSegment()`や、呼出側でColliderを推測する互換経路は作らない。
+- 通常、固定、トラップ、動的を含む全光線は前フレーム位置から新位置まで連続線分判定し、最初の`beamBlockers`交点で停止・着弾する。
 - 視線は観測点から標的中心まで`sightBlockers`へ線分判定する。
 - 通常索敵は距離、扇形視野、遮蔽物なしの全条件を満たす標的だけを取得する。
 - 通常視認由来の標的は遮蔽時に解除する。アラート由来の標的は期限まで保持できるが、ビームは壁を貫通しない。
-- 床高は下向き3D Rayで`actorColliders`の支持面へ問い合わせる。NavMeshの高さを物理接地面の代用にしない。
+- 床高は下向き3D Rayで`normalColliders`の支持面へ問い合わせる。窓用の`COL_ActorOnly_*`と`COL_HumanOnly_*`を床支持面にせず、NavMeshの高さも物理接地面の代用にしない。
 
 ## 11. AI移動
 
-- NPCとビットは、標的または目的Volumeが変わった時だけ`findPath()`を再実行し、3D経路点をキャッシュする。
+- NPCとビットは`NavigationLocation`を現在地として保持し、標的変更、標的の規定距離以上の移動、再探索期限、stuck時にだけ`findPath()`を再実行して`surface`／`transition` stepをキャッシュする。
 - 視認標的が遮蔽されて通常追跡を解除した場合は、古い経路も破棄する。
 - アラート標的は期限内だけ保持し、NavMesh経路で扉へ回り込む。
 - 経路がない場合は壁へ直進せず停止し、規定間隔後に再探索する。
+- `surface` stepはNavMeshへ拘束して追従する。`transition` stepの入口では、移動を実行せず`transition-required`と対象linkを返す。
 - カーペット爆撃など直進編隊が障害物で成立しない場合、編隊を解除してNavMesh追跡へ移行する。
 
-## 12. 未接続システム
+### 11.1 T05-1 ビット飛行安全条件
+
+T04は高さ付き経路と特殊接続の選択までを共通基盤として提供し、以下の実飛行はT05-1で接続する。
+
+- 通常飛行時のビット基準位置は、GLBの物理床面上1.0～1.8mに保つ。NavMesh面高を床高の代用にしない。
+- 天井までの空きは希望高度より優先する。1.0～1.8mの範囲内で高度を下げても移動包絡と安全余裕を確保できない通常経路へは進入しない。
+- 移動可否はビット本体、銃口、最大揺れ幅を包む移動包絡に、全方向0.10m以上の安全余裕を加え、前位置から次位置までの全区間で連続判定する。中心線だけ、静止姿勢だけ、次位置だけの判定にせず、高速移動でも壁、天井、庇、窓枠を飛び越えない。
+- 床相対高度1.0～1.8mを外れる実飛行を許すのは、`bit_window`または`bit_roof`の`transition`実行中だけとする。どちらも資産で確定したA/B間の固定経路を使い、経路上の最高高度は両端の高い方を超えない。移動包絡と0.10mの安全余裕は例外にしない。
+- 特殊接続の途中で標的を喪失した場合は、その時点から近い側の端点まで進んで`surface`へ復帰する。経路途中で停止したり、毎フレーム往復方向を切り替えたりしない。
+- 特殊接続完了後はexit側の`NavigationLocation`と`polygonRef`へ結び直し、接続先の物理床を基準にした通常高度1.0～1.8mへ戻す。
+- 階段、別階移動、`bit_window`、`bit_roof`へ入る前にカーペット編隊を解除する。編隊のまま通過せず、通常追跡の単体ビットとして遷移する。
+- 標的の高さへの一定加算やステージ全体の最高点だけで飛行高度上限を決める旧処理は使用せず、現在地の物理床と直上天井を正本にする。
+- 屋上は窓の設置対象外だが、索敵、標的追跡、経路、戦闘の対象である。屋外や校庭から屋上標的へ高度を上げて接近・帰還するときは、屋外Aと屋上Bを結ぶ双方向`bit_roof`を使う。通常の床・階段NavMeshだけで到達できる現在地からは、その通常経路も候補にできる。
+
+## 12. 実装境界と未接続システム
 
 学校GLBへ必要な`MRK_*`または`VOL_*`がないシステムは、対応資産が追加されるまで明示的に無効化する。セル互換、既定座標、全面床、AABB代用を追加しない。
 
-T04の学校通常プレイ接続として、プレイヤー、NPC、ビット、通常ビーム、視線の3Dランタイム統合を完了した。固定光線、トラップ光線、動的ビーム、公開処刑などの完全な3D統合はT05で行う。
+- T04は`StageMoverKind`、`NavigationLocation.polygonRef`、`surface`／`transition`経路、`StageSpatialContext.links`、移動者別`castMovementSegment()`、`transition-required`までの共通基盤を担当する。
+- T05-1は11.1節のビット高度、天井・衝突安全、窓通過、屋上接近・帰還の実飛行を担当する。
+- T05-2は既存の戦闘モード、射程維持、通常・固定・トラップ・動的を含む全光線、警報、標的状態遷移を3D空間へ統合する。
+- T06はB03最終学校資産を使い、プレイヤー、NPC、ビット、全階、屋上、全光線、ゲーム進行を通した統合確認を行う。
 
 ## 13. ライフサイクル
 
@@ -207,11 +315,15 @@ T04の学校通常プレイ接続として、プレイヤー、NPC、ビット�
 ## 14. 検証条件
 
 - V2モジュールにステージJSON、`GridLayout`、`FloorCell`、`worldToCell`、`cellToWorld`、セルBFS参照がない。
-- 学校の主玄関、教室扉、3階段、校庭、渡り廊下、体育館が連続NavMeshで接続される。
-- 壁を挟んだ経路が扉へ迂回し、閉鎖地点と窓開口を通らない。
-- 階段経路の各点が床高を持ち、NPCとビットが階段ランプを滑らかに昇降する。
-- 壁越しに通常索敵せず、窓越しには視認する。
-- 通常ビームは壁へ着弾し、窓を透過する。
+- `StageSpatialContext.links`がGLB内の完全な`LNK_*` pairだけを公開し、`bit_window`と`bit_roof`を`PRT_*`へ重複登録しない。
+- 同じX/Zに重なる上下床の`NavigationLocation`が異なる`polygonRef`を保持し、現在地・目的地・移動結果が別階へ誤投影されない。
+- 学校の主玄関、教室扉、3階段、1～4階、校庭、渡り廊下、体育館、屋上が、連続NavMeshと承認済み特殊接続の組で意図どおり接続される。
+- 壁を挟んだ`surface`経路が扉へ迂回し、閉鎖地点と窓開口を通常経路として通らない。階段経路の各点は正しい床高と`polygonRef`を持つ。
+- `bit_window`と`bit_roof`はビットのA→B・B→A経路だけに`transition`として現れ、プレイヤーとNPCの経路には現れない。特殊接続入口では実移動せず`transition-required`を返す。
+- `COL_ActorOnly_Window_*`はプレイヤー・NPC・ビットを止め、`COL_HumanOnly_Window_*`はプレイヤー・NPCだけを止める。両方とも視線と全光線を透過する。
+- T05-1では通常飛行が物理床上1.0～1.8m、天井優先、ビット本体・銃口・最大揺れ幅と0.10m余裕を満たす。高さ帯の例外は`bit_window`／`bit_roof`上だけで、最高高度は高い端点以下、標的喪失時は近い端へ復帰し、進入前にカーペット編隊を解除する。
+- 壁越しに通常索敵せず、窓越しには視認する。T05-2で通常・固定・トラップ・動的を含む全光線が壁へ着弾し、両種の窓を透過する。
+- T06で全階と屋上を含む学校全域のゲーム進行を統合確認する。
 - 学校の破棄・再読込後にScene資源、NavMesh、イベント購読が増加しない。
 - Web開発版、Web本番ビルド、Electronビルドで同じNavMeshバイナリを読める。
 - UTF-8 BOMなし、括弧対応、`git diff --check`、GLB・NavMeshハッシュ監査が成功する。
