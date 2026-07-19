@@ -24,12 +24,14 @@ NAV_COLLECTION_NAME = "B02_NAV"
 SEMANTIC_COLLECTION_NAME = "B02_SEMANTIC"
 EXPORT_COLLECTION_NAME = "EXP_Stage_school"
 
-WINDOW_CLEAR_WIDTH = 1.20
-WINDOW_CLEAR_HEIGHT = 1.20
+WINDOW_UNIT_CLEAR_WIDTH = 2.40
+SCHOOL_WINDOW_CLEAR_HEIGHT = 1.80
+GYM_WINDOW_CLEAR_HEIGHT = 2.40
 WINDOW_FRAME_BORDER = 0.08
+WINDOW_MEETING_STILE_WIDTH = 0.06
 WALL_THICKNESS = 0.30
 LINK_RADIUS_METERS = 0.54
-GENERATOR_VERSION = "b03-1-architecture-v3"
+GENERATOR_VERSION = "b03-1-architecture-v4"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 
@@ -40,6 +42,7 @@ GENERATED_PREFIXES = (
     "VIS_WindowFrame_",
     "VIS_WindowGlass_",
     "COL_ActorOnly_Window_",
+    "COL_ActorOnly_WindowFixed_",
     "COL_HumanOnly_Window_",
     "LNK_bit-window-",
     "LNK_bit-roof-",
@@ -144,6 +147,8 @@ class WindowSpec:
     z_center: float
     outward: tuple[float, float, float]
     is_open: bool
+    unit_count: int
+    clear_height: float
 
 
 def sha256(path: Path) -> str:
@@ -371,6 +376,16 @@ def build_window_specs() -> list[WindowSpec]:
         for index, (label, wall, axis, fixed, horizontal, outward) in enumerate(
             entries
         ):
+            if wall == "North":
+                unit_count = 3 if label in {"North_01", "North_02"} else 4
+                if label == "North_05":
+                    unit_count = 2
+            elif wall == "CourtyardNorth":
+                unit_count = 3 if floor == 1 and label == "Courtyard_03" else 4
+            elif wall in {"WestOuter", "CourtyardWest", "East"}:
+                unit_count = 3
+            else:
+                unit_count = 2
             suffix = f"F{floor:02d}_{label}"
             specs.append(
                 WindowSpec(
@@ -384,6 +399,8 @@ def build_window_specs() -> list[WindowSpec]:
                     z_center=base_z + 1.7,
                     outward=outward,
                     is_open=index in open_indices[floor],
+                    unit_count=unit_count,
+                    clear_height=SCHOOL_WINDOW_CLEAR_HEIGHT,
                 )
             )
 
@@ -394,9 +411,9 @@ def build_window_specs() -> list[WindowSpec]:
         ("Gym_West_01", "GymWest", "Y", 33.4, -2.5, (-1, 0, 0), False),
         ("Gym_West_02", "GymWest", "Y", 33.4, 12.5, (-1, 0, 0), True),
         ("Gym_West_03", "GymWest", "Y", 33.4, 21.5, (-1, 0, 0), False),
-        ("Gym_North_01", "GymNorth", "X", 26.5, 36.4, (0, 1, 0), False),
-        ("Gym_North_02", "GymNorth", "X", 26.5, 47.4, (0, 1, 0), True),
-        ("Gym_North_03", "GymNorth", "X", 26.5, 55.2, (0, 1, 0), False),
+        ("Gym_North_01", "GymNorth", "X", 26.5, 37.2, (0, 1, 0), False),
+        ("Gym_North_02", "GymNorth", "X", 26.5, 45.5, (0, 1, 0), True),
+        ("Gym_North_03", "GymNorth", "X", 26.5, 53.5, (0, 1, 0), False),
     ]
     for label, wall, axis, fixed, horizontal, outward, is_open in gym_entries:
         specs.append(
@@ -411,6 +428,8 @@ def build_window_specs() -> list[WindowSpec]:
                 z_center=7.1,
                 outward=outward,
                 is_open=is_open,
+                unit_count=3,
+                clear_height=GYM_WINDOW_CLEAR_HEIGHT,
             )
         )
     return specs
@@ -458,8 +477,8 @@ def wall_boxes(
 
 
 def window_opening(spec: WindowSpec) -> tuple[float, float, float, float]:
-    outer_half_width = WINDOW_CLEAR_WIDTH / 2 + WINDOW_FRAME_BORDER
-    outer_half_height = WINDOW_CLEAR_HEIGHT / 2 + WINDOW_FRAME_BORDER
+    outer_half_width = window_clear_width(spec) / 2 + WINDOW_FRAME_BORDER
+    outer_half_height = spec.clear_height / 2 + WINDOW_FRAME_BORDER
     return (
         spec.horizontal_center - outer_half_width,
         spec.horizontal_center + outer_half_width,
@@ -468,46 +487,138 @@ def window_opening(spec: WindowSpec) -> tuple[float, float, float, float]:
     )
 
 
+def window_clear_width(spec: WindowSpec) -> float:
+    return spec.unit_count * WINDOW_UNIT_CLEAR_WIDTH
+
+
+def open_leaf_index(spec: WindowSpec) -> int:
+    unit_index = (spec.unit_count - 1) // 2
+    opens_left = sum(ord(character) for character in spec.suffix) % 2 == 0
+    return unit_index * 2 + (0 if opens_left else 1)
+
+
+def window_leaf_center(spec: WindowSpec, leaf_index: int) -> float:
+    left = spec.horizontal_center - window_clear_width(spec) / 2
+    leaf_width = WINDOW_UNIT_CLEAR_WIDTH / 2
+    return left + (leaf_index + 0.5) * leaf_width
+
+
 def window_frame_boxes(
     spec: WindowSpec,
 ) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
-    half_w = WINDOW_CLEAR_WIDTH / 2
-    half_h = WINDOW_CLEAR_HEIGHT / 2
+    half_w = window_clear_width(spec) / 2
+    half_h = spec.clear_height / 2
     border = WINDOW_FRAME_BORDER
     depth = 0.20
     h = spec.horizontal_center
     z = spec.z_center
+    boxes = []
     if spec.axis == "X":
-        return [
+        boxes.extend(
+            [
             ((h - half_w - border, spec.fixed - depth / 2, z - half_h - border), (h + half_w + border, spec.fixed + depth / 2, z - half_h)),
             ((h - half_w - border, spec.fixed - depth / 2, z + half_h), (h + half_w + border, spec.fixed + depth / 2, z + half_h + border)),
             ((h - half_w - border, spec.fixed - depth / 2, z - half_h), (h - half_w, spec.fixed + depth / 2, z + half_h)),
             ((h + half_w, spec.fixed - depth / 2, z - half_h), (h + half_w + border, spec.fixed + depth / 2, z + half_h)),
-        ]
-    return [
-        ((spec.fixed - depth / 2, h - half_w - border, z - half_h - border), (spec.fixed + depth / 2, h + half_w + border, z - half_h)),
-        ((spec.fixed - depth / 2, h - half_w - border, z + half_h), (spec.fixed + depth / 2, h + half_w + border, z + half_h + border)),
-        ((spec.fixed - depth / 2, h - half_w - border, z - half_h), (spec.fixed + depth / 2, h - half_w, z + half_h)),
-        ((spec.fixed - depth / 2, h + half_w, z - half_h), (spec.fixed + depth / 2, h + half_w + border, z + half_h)),
-    ]
+            ]
+        )
+    else:
+        boxes.extend(
+            [
+                ((spec.fixed - depth / 2, h - half_w - border, z - half_h - border), (spec.fixed + depth / 2, h + half_w + border, z - half_h)),
+                ((spec.fixed - depth / 2, h - half_w - border, z + half_h), (spec.fixed + depth / 2, h + half_w + border, z + half_h + border)),
+                ((spec.fixed - depth / 2, h - half_w - border, z - half_h), (spec.fixed + depth / 2, h - half_w, z + half_h)),
+                ((spec.fixed - depth / 2, h + half_w, z - half_h), (spec.fixed + depth / 2, h + half_w + border, z + half_h)),
+            ]
+        )
+    leaf_width = WINDOW_UNIT_CLEAR_WIDTH / 2
+    for divider_index in range(1, spec.unit_count * 2):
+        divider = h - half_w + divider_index * leaf_width
+        divider_width = (
+            WINDOW_MEETING_STILE_WIDTH if divider_index % 2 else WINDOW_FRAME_BORDER
+        )
+        if spec.axis == "X":
+            boxes.append(
+                ((divider - divider_width / 2, spec.fixed - depth / 2, z - half_h), (divider + divider_width / 2, spec.fixed + depth / 2, z + half_h))
+            )
+        else:
+            boxes.append(
+                ((spec.fixed - depth / 2, divider - divider_width / 2, z - half_h), (spec.fixed + depth / 2, divider + divider_width / 2, z + half_h))
+            )
+    return boxes
 
 
-def window_plane_box(
-    spec: WindowSpec, depth: float
+def window_panel_box(
+    spec: WindowSpec,
+    horizontal_center: float,
+    width: float,
+    height: float,
+    depth: float,
+    normal_offset: float = 0.0,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
-    half_w = WINDOW_CLEAR_WIDTH / 2
-    half_h = WINDOW_CLEAR_HEIGHT / 2
-    h = spec.horizontal_center
+    half_w = width / 2
+    half_h = height / 2
+    h = horizontal_center
     z = spec.z_center
     if spec.axis == "X":
         return (
-            (h - half_w, spec.fixed - depth / 2, z - half_h),
-            (h + half_w, spec.fixed + depth / 2, z + half_h),
+            (h - half_w, spec.fixed + normal_offset - depth / 2, z - half_h),
+            (h + half_w, spec.fixed + normal_offset + depth / 2, z + half_h),
         )
     return (
-        (spec.fixed - depth / 2, h - half_w, z - half_h),
-        (spec.fixed + depth / 2, h + half_w, z + half_h),
+        (spec.fixed + normal_offset - depth / 2, h - half_w, z - half_h),
+        (spec.fixed + normal_offset + depth / 2, h + half_w, z + half_h),
     )
+
+
+def window_full_plane_box(
+    spec: WindowSpec, depth: float
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    return window_panel_box(
+        spec,
+        spec.horizontal_center,
+        window_clear_width(spec),
+        spec.clear_height,
+        depth,
+    )
+
+
+def closed_leaf_boxes(
+    spec: WindowSpec, depth: float
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    leaf_width = WINDOW_UNIT_CLEAR_WIDTH / 2
+    skipped_leaf = open_leaf_index(spec) if spec.is_open else -1
+    return [
+        window_panel_box(
+            spec,
+            window_leaf_center(spec, leaf_index),
+            leaf_width,
+            spec.clear_height,
+            depth,
+        )
+        for leaf_index in range(spec.unit_count * 2)
+        if leaf_index != skipped_leaf
+    ]
+
+
+def window_glass_boxes(
+    spec: WindowSpec,
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    boxes = closed_leaf_boxes(spec, 0.025)
+    if spec.is_open:
+        moved_leaf = open_leaf_index(spec)
+        stacked_leaf = moved_leaf + 1 if moved_leaf % 2 == 0 else moved_leaf - 1
+        boxes.append(
+            window_panel_box(
+                spec,
+                window_leaf_center(spec, stacked_leaf),
+                WINDOW_UNIT_CLEAR_WIDTH / 2,
+                spec.clear_height,
+                0.025,
+                normal_offset=0.035,
+            )
+        )
+    return boxes
 
 
 def build_school_exterior(
@@ -736,35 +847,64 @@ def build_windows_and_links(
 ) -> list[bpy.types.Object]:
     colliders = []
     for spec in specs:
+        window_properties = {
+            "hs_window_style": "paired_sliding_band",
+            "hs_window_units": spec.unit_count,
+            "hs_window_clear_height_m": spec.clear_height,
+            "hs_window_open_leaf": open_leaf_index(spec) + 1 if spec.is_open else 0,
+        }
         create_mesh_object(
             f"VIS_WindowFrame_{spec.suffix}",
             window_frame_boxes(spec),
             visual_collection,
             frame_material,
+            window_properties,
         )
-        collider_prefix = (
-            "COL_HumanOnly_Window_" if spec.is_open else "COL_ActorOnly_Window_"
-        )
-        colliders.append(
-            create_mesh_object(
-                f"{collider_prefix}{spec.suffix}",
-                [window_plane_box(spec, 0.10)],
-                collider_collection,
-            )
+        create_mesh_object(
+            f"VIS_WindowGlass_{spec.suffix}",
+            window_glass_boxes(spec),
+            visual_collection,
+            glass_material,
+            window_properties,
         )
         if not spec.is_open:
-            create_mesh_object(
-                f"VIS_WindowGlass_{spec.suffix}",
-                [window_plane_box(spec, 0.025)],
-                visual_collection,
-                glass_material,
+            colliders.append(
+                create_mesh_object(
+                    f"COL_ActorOnly_Window_{spec.suffix}",
+                    [window_full_plane_box(spec, 0.10)],
+                    collider_collection,
+                )
             )
             continue
 
+        colliders.append(
+            create_mesh_object(
+                f"COL_ActorOnly_WindowFixed_{spec.suffix}",
+                closed_leaf_boxes(spec, 0.10),
+                collider_collection,
+            )
+        )
+        open_center = window_leaf_center(spec, open_leaf_index(spec))
+        colliders.append(
+            create_mesh_object(
+                f"COL_HumanOnly_Window_{spec.suffix}",
+                [
+                    window_panel_box(
+                        spec,
+                        open_center,
+                        WINDOW_UNIT_CLEAR_WIDTH / 2,
+                        spec.clear_height,
+                        0.10,
+                    )
+                ],
+                collider_collection,
+            )
+        )
+
         center = (
-            (spec.horizontal_center, spec.fixed, spec.z_center)
+            (open_center, spec.fixed, spec.z_center)
             if spec.axis == "X"
-            else (spec.fixed, spec.horizontal_center, spec.z_center)
+            else (spec.fixed, open_center, spec.z_center)
         )
         outward = Vector(spec.outward)
         a = Vector(center) + outward * 1.0
@@ -1194,8 +1334,9 @@ def is_current_generation() -> bool:
     return (
         bpy.context.scene.get(GENERATOR_VERSION_PROPERTY) == GENERATOR_VERSION
         and sum(name.startswith("VIS_WindowFrame_") for name in names) == 81
-        and sum(name.startswith("VIS_WindowGlass_") for name in names) == 48
+        and sum(name.startswith("VIS_WindowGlass_") for name in names) == 81
         and sum(name.startswith("COL_ActorOnly_Window_") for name in names) == 48
+        and sum(name.startswith("COL_ActorOnly_WindowFixed_") for name in names) == 33
         and sum(name.startswith("COL_HumanOnly_Window_") for name in names) == 33
         and sum(name.startswith("LNK_bit-window-") for name in names) == 66
         and sum(name.startswith("LNK_bit-roof-") for name in names) == 4

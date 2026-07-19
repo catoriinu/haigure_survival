@@ -172,10 +172,17 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
     frames = [obj for obj in objects if obj.name.startswith("VIS_WindowFrame_")]
     glass = [obj for obj in objects if obj.name.startswith("VIS_WindowGlass_")]
     actor = [obj for obj in objects if obj.name.startswith("COL_ActorOnly_Window_")]
+    fixed_actor = [
+        obj for obj in objects if obj.name.startswith("COL_ActorOnly_WindowFixed_")
+    ]
     human = [obj for obj in objects if obj.name.startswith("COL_HumanOnly_Window_")]
     require(len(frames) == 81, f"窓枠が81件ではありません: {len(frames)}")
-    require(len(glass) == 48, f"閉窓ガラスが48件ではありません: {len(glass)}")
+    require(len(glass) == 81, f"連続窓帯ガラスが81件ではありません: {len(glass)}")
     require(len(actor) == 48, f"ActorOnly窓が48件ではありません: {len(actor)}")
+    require(
+        len(fixed_actor) == 33,
+        f"開放窓帯の固定ガラスColliderが33件ではありません: {len(fixed_actor)}",
+    )
     require(len(human) == 33, f"HumanOnly窓が33件ではありません: {len(human)}")
     require(
         not any("Gym_South" in name for name in names),
@@ -189,17 +196,32 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
         minimum, maximum = world_bounds(collider)
         dimensions = sorted((maximum - minimum))
         require(
-            dimensions[1] >= 1.20 - 1e-5 and dimensions[2] >= 1.20 - 1e-5,
-            f"通過窓の有効開口が1.20m未満です: {collider.name}",
+            dimensions[1] >= 1.20 - 1e-5 and dimensions[2] >= 1.80 - 1e-5,
+            f"通過窓の有効開口が1.20m×1.80m未満です: {collider.name}",
         )
         require(
             dimensions[1] / 2 >= 0.54 and dimensions[2] / 2 >= 0.54,
             f"通過窓が半径0.54m包絡を満たしません: {collider.name}",
         )
+    for frame in frames:
+        units = frame.get("hs_window_units")
+        require(units in {2, 3, 4}, f"窓帯の2枚ユニット数が不正です: {frame.name}={units}")
+        require(
+            frame.get("hs_window_style") == "paired_sliding_band",
+            f"窓帯の引違い様式が不正です: {frame.name}",
+        )
+        minimum, maximum = world_bounds(frame)
+        dimensions = sorted(maximum - minimum)
+        expected_height = 2.40 if "Gym_" in frame.name else 1.80
+        require(
+            dimensions[1] >= expected_height - 1e-5,
+            f"窓帯高さが不足しています: {frame.name}",
+        )
     return {
         "frames": len(frames),
         "glass": len(glass),
         "actor_only": len(actor),
+        "actor_only_fixed": len(fixed_actor),
         "human_only": len(human),
     }
 
@@ -291,8 +313,9 @@ def audit_glb(gltf: dict[str, object]) -> dict[str, int]:
     node_names = [node.get("name") for node in nodes if node.get("name")]
     require(len(node_names) == len(set(node_names)), "GLB Node名が重複しています")
     require(sum(name.startswith("VIS_WindowFrame_") for name in node_names) == 81, "GLB窓枠が81件ではありません")
-    require(sum(name.startswith("VIS_WindowGlass_") for name in node_names) == 48, "GLBガラスが48件ではありません")
+    require(sum(name.startswith("VIS_WindowGlass_") for name in node_names) == 81, "GLB連続窓帯ガラスが81件ではありません")
     require(sum(name.startswith("COL_ActorOnly_Window_") for name in node_names) == 48, "GLB ActorOnly窓が48件ではありません")
+    require(sum(name.startswith("COL_ActorOnly_WindowFixed_") for name in node_names) == 33, "GLB開放窓帯固定Colliderが33件ではありません")
     require(sum(name.startswith("COL_HumanOnly_Window_") for name in node_names) == 33, "GLB HumanOnly窓が33件ではありません")
     require(sum(name.startswith("LNK_bit-window-") for name in node_names) == 66, "GLB bit_window端点が66件ではありません")
     require(sum(name.startswith("LNK_bit-roof-") for name in node_names) == 4, "GLB bit_roof端点が4件ではありません")
