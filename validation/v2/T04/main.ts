@@ -12,7 +12,7 @@ import {
   Vector3,
   type SpriteManager
 } from "@babylonjs/core";
-import { exportNavMesh } from "recast-navigation";
+import { exportNavMesh, NavMeshQuery } from "recast-navigation";
 import { generateSoloNavMesh } from "recast-navigation/generators";
 
 import {
@@ -768,6 +768,133 @@ const runValidation = async () => {
       new Vector3(-9.5, 0.25, -1.5),
       new Vector3(-9.5, 1.05, -1.5)
     );
+    const cachedSurfaceBridgeLink = createValidationLinkPair(
+      "bit-window-cache-bridge-validation",
+      "bit_window",
+      new Vector3(5.7, 0.25, -1.5),
+      new Vector3(-6.7, 0.25, -1.5)
+    );
+    const linkCacheValidationLinks = [
+      bitWindowLink,
+      bitRoofLink,
+      cachedSurfaceBridgeLink
+    ];
+    const queryPrototype = NavMeshQuery.prototype;
+    const originalFindPath = queryPrototype.findPath;
+    type RecastPathfindAttempt = Readonly<{
+      start: string;
+      destination: string;
+    }>;
+    const createPathfindPointKey = (
+      polygonRef: number,
+      position: Readonly<{ x: number; y: number; z: number }>
+    ) =>
+      `${polygonRef}:${position.x.toFixed(6)},${position.y.toFixed(6)},${position.z.toFixed(6)}`;
+    const recastPathfindAttempts: RecastPathfindAttempt[] = [];
+    let constructionPathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let firstPathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let secondPathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let firstCachedLinkPath: NavigationPath | null = null;
+    let secondCachedLinkPath: NavigationPath | null = null;
+    let linkCacheValidationWorld: NavigationWorld | null = null;
+    queryPrototype.findPath = function (
+      this: NavMeshQuery,
+      ...args: Parameters<NavMeshQuery["findPath"]>
+    ) {
+      recastPathfindAttempts.push(
+        Object.freeze({
+          start: createPathfindPointKey(args[0], args[2]),
+          destination: createPathfindPointKey(args[1], args[3])
+        })
+      );
+      return originalFindPath.apply(this, args);
+    };
+    try {
+      linkCacheValidationWorld = await createNavigationWorld(
+        data,
+        linkCacheValidationLinks
+      );
+      constructionPathfindAttempts = Object.freeze([
+        ...recastPathfindAttempts
+      ]);
+      const startLocation = requireNavigationLocation(
+        linkCacheValidationWorld,
+        new Vector3(3.5, 0, -1.5)
+      );
+      const destinationLocation = requireNavigationLocation(
+        linkCacheValidationWorld,
+        new Vector3(-6.3, 0, -1.5)
+      );
+      const firstPathfindStartIndex = recastPathfindAttempts.length;
+      firstCachedLinkPath = linkCacheValidationWorld.findPath(
+        startLocation,
+        destinationLocation,
+        "bit"
+      );
+      firstPathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(firstPathfindStartIndex)
+      );
+      const secondPathfindStartIndex = recastPathfindAttempts.length;
+      secondCachedLinkPath = linkCacheValidationWorld.findPath(
+        startLocation,
+        destinationLocation,
+        "bit"
+      );
+      secondPathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(secondPathfindStartIndex)
+      );
+    } finally {
+      queryPrototype.findPath = originalFindPath;
+      linkCacheValidationWorld?.dispose();
+      cachedSurfaceBridgeLink.endpointA.node.dispose();
+      cachedSurfaceBridgeLink.endpointB.node.dispose();
+    }
+    const cachedEndpointKeys = new Set(
+      constructionPathfindAttempts.flatMap((attempt) => [
+        attempt.start,
+        attempt.destination
+      ])
+    );
+    const constructionPairKeys = new Set(
+      constructionPathfindAttempts.map(
+        (attempt) => `${attempt.start}->${attempt.destination}`
+      )
+    );
+    const repeatsEndpointSurfacePathfind = (
+      attempts: readonly RecastPathfindAttempt[]
+    ) =>
+      attempts.some(
+        (attempt) =>
+          cachedEndpointKeys.has(attempt.start) &&
+          cachedEndpointKeys.has(attempt.destination)
+      );
+    const firstCachedTransitionIds =
+      firstCachedLinkPath?.steps.flatMap((step) =>
+        step.kind === "transition" ? [step.link.id] : []
+      ) ?? [];
+    const secondCachedTransitionIds =
+      secondCachedLinkPath?.steps.flatMap((step) =>
+        step.kind === "transition" ? [step.link.id] : []
+      ) ?? [];
+    const expectedCachedTransitionIds = [
+      bitWindowLink.id,
+      cachedSurfaceBridgeLink.id
+    ];
+    const hasExpectedCachedTransitions = (ids: readonly string[]) =>
+      ids.length === expectedCachedTransitionIds.length &&
+      ids.every((id, index) => id === expectedCachedTransitionIds[index]);
+    checks.push({
+      name: "特殊接続端点間経路の構築時キャッシュ",
+      ok:
+        hasExpectedCachedTransitions(firstCachedTransitionIds) &&
+        hasExpectedCachedTransitions(secondCachedTransitionIds) &&
+        cachedEndpointKeys.size === linkCacheValidationLinks.length * 2 &&
+        constructionPairKeys.size === constructionPathfindAttempts.length &&
+        !repeatsEndpointSurfacePathfind(firstPathfindAttempts) &&
+        !repeatsEndpointSurfacePathfind(secondPathfindAttempts) &&
+        secondPathfindAttempts.length <= firstPathfindAttempts.length,
+      detail: `endpoints=${cachedEndpointKeys.size} / build=${constructionPathfindAttempts.length} / find=${firstPathfindAttempts.length},${secondPathfindAttempts.length} / transitions=${firstCachedTransitionIds.join(" > ") || "none"}`
+    });
     const linkedNavigationWorld = await createNavigationWorld(data, [
       bitWindowLink,
       bitRoofLink
