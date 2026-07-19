@@ -16,7 +16,7 @@ TOLERANCE = 1e-5
 NORTH_OUTER = (-12.6, 47.4, 32.5, 45.5)
 NORTHWEST_STAIR_OPENING = ((-12.45, -6.75, 38.9, 45.35),)
 UPPER_FLOOR_RISE = 3.0
-BOUNDARY_MAXIMUM_Z = 15.3
+BOUNDARY_MAXIMUM_Z = 16.0
 
 TRANSITIONS = (
     ("2FTo3F", 3.6, False),
@@ -920,7 +920,7 @@ def main() -> None:
     assert_bounds("VIS_4F_NorthVolume", (-12.6, 32.5, 9.6), (47.4, 45.5, 12.6))
     assert_bounds("VIS_4F_WestVolume", (-12.6, -3.5, 9.6), (0.0, 32.5, 12.6))
     assert_bounds("VIS_Roof_North", (-12.6, 32.5, 12.6), (47.4, 45.5, 12.7))
-    assert_bounds("BND_Stage", (-18.4, -12.3, -0.5), (63.2, 51.3, 15.3))
+    assert_bounds("BND_Stage", (-18.4, -12.3, -0.5), (63.2, 51.3, 16.0))
     if any(bpy.data.objects.get(name) is not None for name in (
         "VIS_Wall_ClassroomCross_3",
         "COL_Wall_ClassroomCross_3",

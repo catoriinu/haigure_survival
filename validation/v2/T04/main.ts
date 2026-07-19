@@ -1141,8 +1141,8 @@ const runValidation = async () => {
           .node.getAbsolutePosition();
         const expectedPlayerSpawn = new Vector3(0.375, 0, 0);
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 306 &&
-          schoolContext.resources.normalColliders.length === 158 &&
+          schoolContext.resources.visualMeshes.length === 309 &&
+          schoolContext.resources.normalColliders.length === 160 &&
           schoolContext.resources.actorOnlyColliders.length === 0 &&
           schoolContext.resources.navSourceMeshes.length === 8 &&
           schoolContext.markers.all.length === 1 &&
@@ -1210,7 +1210,9 @@ const runValidation = async () => {
           ["3F階段", new Vector3(-11.4, 39.8, 6.6)],
           ["4F床", new Vector3(10.0, 39.0, 9.6)],
           ["4F階段", new Vector3(-11.4, 39.8, 9.6)],
-          ["屋上", new Vector3(-7.8, 37.8, 12.7)]
+          ["屋上", new Vector3(-7.8, 37.8, 12.7)],
+          ["プールサイド", new Vector3(13.4, 39.0, 13.85)],
+          ["プール底", new Vector3(24.4, 39.0, 12.86)]
         ] as const;
         const schoolNavigation = schoolContext.navigation;
         const upperFloorNavigationResults = upperFloorRepresentatives.map(
@@ -1570,8 +1572,8 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 306 &&
-          reloadedContext.resources.normalColliders.length === 158;
+          reloadedContext.resources.visualMeshes.length === 309 &&
+          reloadedContext.resources.normalColliders.length === 160;
         reloadedContext.dispose();
         const afterSecondDispose = countSceneResources(spatialScene);
         checks.push({

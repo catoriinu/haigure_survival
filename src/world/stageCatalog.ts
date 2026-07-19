@@ -18,7 +18,7 @@ export const SCHOOL_STAGE: StageCatalogEntry = Object.freeze({
   navmeshUrl: "stage-assets/v2/B02/b02_school_blockout.navmesh.bin",
   assetSchemaVersion: 1,
   navProfileId: "school-humanoid-v1",
-  glbSha256: "4809329116067be96c71aa4f540577a0d0229a6725135be78fb07d495e05b589",
+  glbSha256: "a4867b9a0d032e6671fd195d4194a95e4443c6c920bb47443fc76dc4a19aa002",
   navmeshSha256: "69547c90e5b9f514069370d410e3facba005baba71121ade908d3aaf5eb4969f"
 });
 

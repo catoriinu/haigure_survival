@@ -276,7 +276,8 @@ const validatePlayerRampTraversal = (
 const validatePlayerWaypointTraversal = (
   context: StageSpatialContext,
   label: string,
-  waypointsBlender: readonly Vector3[]
+  waypointsBlender: readonly Vector3[],
+  expectedHeightRangeBlender: readonly [number, number]
 ) => {
   if (waypointsBlender.length < 2) {
     throw new Error(`${label}のWaypointが2件未満です。`);
@@ -349,6 +350,10 @@ const validatePlayerWaypointTraversal = (
   }
 
   const finalTarget = waypoints[waypoints.length - 1];
+  const expectedMinimumFootY =
+    expectedHeightRangeBlender[0] * BLENDER_METERS_TO_WORLD_UNITS;
+  const expectedMaximumFootY =
+    expectedHeightRangeBlender[1] * BLENDER_METERS_TO_WORLD_UNITS;
   const finalHorizontalError = Math.hypot(
     finalTarget.x - finalFoot.x,
     finalTarget.z - finalFoot.z
@@ -359,8 +364,8 @@ const validatePlayerWaypointTraversal = (
     ok:
       traversalError === null &&
       waypointIndex === waypoints.length &&
-      highestFootY >= 12.7 * BLENDER_METERS_TO_WORLD_UNITS - 0.01 &&
-      lowestFootY <= 0.02 &&
+      highestFootY >= expectedMaximumFootY - 0.01 &&
+      lowestFootY <= expectedMinimumFootY + 0.02 &&
       finalHorizontalError <= 0.15 &&
       finalVerticalError <= 0.04 &&
       stayedInsideBoundary,
@@ -470,8 +475,8 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 306 &&
-        context.resources.normalColliders.length === 158 &&
+      context.resources.visualMeshes.length === 309 &&
+        context.resources.normalColliders.length === 160 &&
         context.resources.actorOnlyColliders.length === 0 &&
         context.resources.navSourceMeshes.length === 8 &&
         context.markers.all.length === 1 &&
@@ -721,7 +726,7 @@ const validateLoadedContext = (
     ["VIS_DoorLeaf_RooftopStairHouse_Open", [-9.04, 37.0, 12.7], [-8.96, 38.9, 14.9]],
     ["VIS_Floor_RooftopChangingRoom_M", [-6.6, 38.5, 12.7], [-2.1, 45.5, 12.73]],
     ["VIS_Floor_RooftopChangingRoom_F", [-2.1, 38.5, 12.7], [2.4, 45.5, 12.73]],
-    ["BND_Stage", [-18.4, -12.3, -0.5], [63.2, 51.3, 15.3]]
+    ["BND_Stage", [-18.4, -12.3, -0.5], [63.2, 51.3, 16.0]]
   ] as const;
   const fourFloorBoundsResults = fourFloorBoundsExpectations.map(
     ([name, minimum, maximum]) => ({
@@ -786,13 +791,75 @@ const validateLoadedContext = (
     [
       ...rooftopAscentWaypoints,
       ...rooftopAscentWaypoints.slice(0, -1).reverse()
-    ]
+    ],
+    [0.0, 12.7]
   );
   checks.push(
     createCheck(
       "実プレイヤーによる北西階段1階・屋上往復",
       rooftopRoundTrip.ok,
       `Waypoint=${rooftopRoundTrip.reachedWaypoints}/${rooftopRoundTrip.totalWaypoints} / 最高足元Y=${rooftopRoundTrip.highestFootY.toFixed(3)} / 最低足元Y=${rooftopRoundTrip.lowestFootY.toFixed(3)} / 最終水平誤差=${rooftopRoundTrip.finalHorizontalError.toFixed(3)} / 最終垂直誤差=${rooftopRoundTrip.finalVerticalError.toFixed(3)} / 境界内=${rooftopRoundTrip.stayedInsideBoundary} / エラー=${rooftopRoundTrip.errorMessage ?? "なし"}`
+    )
+  );
+
+  const poolBoundsExpectations = [
+    ["VIS_PoolWaterPlaceholder", [14.6, 36.2, 13.53], [34.2, 41.8, 13.57]],
+    ["VIS_PoolDeckAccessStairs_West", [10.0, 37.8, 12.65], [12.4, 40.2, 13.85]],
+    ["COL_PoolDeckAccessRamp_West", [10.0, 37.8, 12.65], [16.5, 40.2, 13.85]],
+    ["VIS_PoolBasinStairs_West", [14.4, 37.8, 12.81], [16.5, 40.2, 13.85]],
+    ["VIS_PoolBasinStairs_East", [32.3, 37.8, 12.81], [34.4, 40.2, 13.85]],
+    ["COL_PoolBasinRamp_East", [32.3, 37.8, 12.76], [36.4, 40.2, 13.85]]
+  ] as const;
+  const poolBoundsResults = poolBoundsExpectations.map(
+    ([name, minimum, maximum]) => ({
+      name,
+      ...compareBlenderBounds(
+        schoolMeshByName.get(name),
+        Vector3.FromArray(minimum),
+        Vector3.FromArray(maximum)
+      )
+    })
+  );
+  const poolTraversalWaypoints = [
+    new Vector3(8.8, 39.0, 12.7),
+    new Vector3(10.0, 39.0, 12.7),
+    new Vector3(12.4, 39.0, 13.85),
+    new Vector3(14.4, 39.0, 13.85),
+    new Vector3(16.5, 39.0, 12.86),
+    new Vector3(31.0, 39.0, 12.86),
+    new Vector3(32.3, 39.0, 12.86),
+    new Vector3(34.4, 39.0, 13.85),
+    new Vector3(35.4, 39.0, 13.85)
+  ];
+  const poolRoundTrip = validatePlayerWaypointTraversal(
+    context,
+    "屋上床・プールサイド・プール内往復",
+    [
+      ...poolTraversalWaypoints,
+      ...poolTraversalWaypoints.slice(0, -1).reverse()
+    ],
+    [12.7, 13.85]
+  );
+  const poolsideFoot = blenderPointToBabylon(
+    new Vector3(13.4, 39.0, 13.85)
+  );
+  const poolsideMaximumEye = poolsideFoot.add(
+    new Vector3(
+      0,
+      V2_PLAYER_BASE_EYE_HEIGHT * V2_PLAYER_MAX_EYE_HEIGHT_SCALE,
+      0
+    )
+  );
+  checks.push(
+    createCheck(
+      "屋上プール3階段の形状と実プレイヤー往復",
+      poolBoundsResults.every((result) => result.ok) &&
+        poolRoundTrip.ok &&
+        context.boundary.contains(poolsideFoot) &&
+        context.boundary.contains(poolsideMaximumEye),
+      `${poolBoundsResults
+        .map((result) => `${result.name}=${result.ok ? "一致" : result.detail}`)
+        .join(" / ")} / Waypoint=${poolRoundTrip.reachedWaypoints}/${poolRoundTrip.totalWaypoints} / 最高足元Y=${poolRoundTrip.highestFootY.toFixed(3)} / 最低足元Y=${poolRoundTrip.lowestFootY.toFixed(3)} / 足元境界内=${context.boundary.contains(poolsideFoot)} / 最大視点境界内=${context.boundary.contains(poolsideMaximumEye)} / 経路境界内=${poolRoundTrip.stayedInsideBoundary} / エラー=${poolRoundTrip.errorMessage ?? "なし"}`
     )
   );
 
@@ -1090,8 +1157,8 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 306 &&
-      activeContext.resources.normalColliders.length === 158;
+      activeContext.resources.visualMeshes.length === 309 &&
+      activeContext.resources.normalColliders.length === 160;
     checks.push(
       createCheck(
         "学校コンテキスト再読込",
