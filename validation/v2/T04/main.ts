@@ -20,6 +20,10 @@ import {
 } from "../../../src/world/navigationWorld";
 import { createNavigationAgent } from "../../../src/world/navigationAgent";
 import {
+  PLAYER_SPRITE_HEIGHT,
+  PLAYER_SPRITE_WIDTH
+} from "../../../src/game/characterSprites";
+import {
   SCHOOL_STAGE,
   type StageCatalogEntry
 } from "../../../src/world/stageCatalog";
@@ -900,6 +904,63 @@ const runValidation = async () => {
           equalDistanceHit.mesh === beamWall,
         detail: `actorFirst=${actorFirstHit?.kind ?? "--"} / wallFirst=${wallFirstHit?.kind ?? "--"} / equal=${equalDistanceHit?.kind ?? "--"}`
       });
+
+      const playerRadiusWallThickness = 0.01;
+      const playerRadiusWall = MeshBuilder.CreateBox(
+        "COL_Wall_PlayerRadiusValidation",
+        {
+          width: playerRadiusWallThickness,
+          height: 1,
+          depth: 1
+        },
+        spatialScene
+      );
+      playerRadiusWall.position.x = 2;
+      const playerRadiusWallStage = createBeamValidationStage(
+        spatialScene,
+        [playerRadiusWall]
+      );
+      const playerHorizontalRadius = PLAYER_SPRITE_WIDTH * 0.5;
+      const playerCenter = new Vector3(
+        playerRadiusWall.position.x +
+          playerRadiusWallThickness * 0.5 +
+          playerHorizontalRadius,
+        0,
+        0
+      );
+      const playerActor: V2ActorSphere = Object.freeze({
+        id: "player-radius-validation",
+        kind: "player",
+        center: playerCenter,
+        radius: playerHorizontalRadius
+      });
+      const legacyOversizedPlayerActor: V2ActorSphere = Object.freeze({
+        ...playerActor,
+        radius: PLAYER_SPRITE_HEIGHT * 0.5
+      });
+      const playerRadiusHit = castV2BeamSegment(
+        playerRadiusWallStage,
+        beamStart,
+        beamEnd,
+        [playerActor]
+      );
+      const legacyRadiusHit = castV2BeamSegment(
+        playerRadiusWallStage,
+        beamStart,
+        beamEnd,
+        [legacyOversizedPlayerActor]
+      );
+      checks.push({
+        name: "プレイヤー水平半径と壁優先衝突",
+        ok:
+          playerHorizontalRadius === 0.1 &&
+          playerRadiusHit?.kind === "blocker" &&
+          playerRadiusHit.mesh === playerRadiusWall &&
+          legacyRadiusHit?.kind === "actor" &&
+          legacyRadiusHit.actor.id === playerActor.id,
+        detail: `radius=${playerHorizontalRadius.toFixed(6)} / hit=${playerRadiusHit?.kind ?? "--"} / legacyRadius=${legacyOversizedPlayerActor.radius.toFixed(6)} / legacyHit=${legacyRadiusHit?.kind ?? "--"}`
+      });
+      playerRadiusWall.dispose();
 
       const beamWindow = MeshBuilder.CreateBox(
         "COL_ActorOnly_Window_BeamCollisionValidation",
