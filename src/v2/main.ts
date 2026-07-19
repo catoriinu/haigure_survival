@@ -103,6 +103,7 @@ const initializeRuntime = async () => {
       survival: ownedSurvival
     };
   } catch (error) {
+    console.error("V2実行環境の初期化に失敗しました。", error);
     titleStartHint.textContent = "読込エラー";
     titleMessage.textContent = formatLoadError(error);
     ownedSurvival?.dispose();
@@ -137,36 +138,46 @@ const startPlay = () => {
     helpPanel.textContent = "操作説明\nWASD: 移動\nShift: ダッシュ";
   }
   canvas.focus();
-  void (canvas as unknown as Element).requestPointerLock().catch(() => {});
+  void (canvas as unknown as Element)
+    .requestPointerLock()
+    .catch((error: unknown) => {
+      console.error("ポインターロックの要求に失敗しました。", error);
+    });
 };
 
 canvas.addEventListener("click", startPlay);
 
 engine.runRenderLoop(() => {
-  const delta = Math.min(engine.getDeltaTime() / 1000, 0.05);
-  const playerFrame = player.update(delta, started);
-  let survivalFrame = survival.getFrame();
-  if (started) {
-    elapsedSeconds += delta;
-    survivalFrame = survival.update(delta, elapsedSeconds);
+  try {
+    const delta = Math.min(engine.getDeltaTime() / 1000, 0.05);
+    const playerFrame = player.update(delta, started);
+    let survivalFrame = survival.getFrame();
+    if (started) {
+      elapsedSeconds += delta;
+      survivalFrame = survival.update(delta, elapsedSeconds);
+    }
+    statusTimer += delta;
+    if (statusTimer >= 0.1) {
+      statusTimer = 0;
+      const foot = playerFrame.footPosition;
+      statusInfo.textContent =
+        `学校3D空間\n` +
+        `X ${foot.x.toFixed(3)}  Y ${foot.y.toFixed(3)}  Z ${foot.z.toFixed(3)}\n` +
+        `${playerFrame.verticalState.grounded ? "接地" : "空中"}\n` +
+        `NPC ${survivalFrame.npcCount}  BIT ${survivalFrame.bitCount}  ` +
+        `BEAM ${survivalFrame.activeBeamCount}\n` +
+        `視認 ${survivalFrame.visualTargetCount}  ` +
+        `警報 ${survivalFrame.alertTargetCount}  ` +
+        `共有 ${survivalFrame.activeAlertCount}\n` +
+        `着弾 壁 ${survivalFrame.blockerImpactCount}  ` +
+        `標的 ${survivalFrame.actorImpactCount}`;
+    }
+    scene.render();
+  } catch (error) {
+    engine.stopRenderLoop();
+    console.error("V2ゲーム更新中に例外が発生したため、更新を停止しました。", error);
+    throw error;
   }
-  statusTimer += delta;
-  if (statusTimer >= 0.1) {
-    statusTimer = 0;
-    const foot = playerFrame.footPosition;
-    statusInfo.textContent =
-      `学校3D空間\n` +
-      `X ${foot.x.toFixed(3)}  Y ${foot.y.toFixed(3)}  Z ${foot.z.toFixed(3)}\n` +
-      `${playerFrame.verticalState.grounded ? "接地" : "空中"}\n` +
-      `NPC ${survivalFrame.npcCount}  BIT ${survivalFrame.bitCount}  ` +
-      `BEAM ${survivalFrame.activeBeamCount}\n` +
-      `視認 ${survivalFrame.visualTargetCount}  ` +
-      `警報 ${survivalFrame.alertTargetCount}  ` +
-      `共有 ${survivalFrame.activeAlertCount}\n` +
-      `着弾 壁 ${survivalFrame.blockerImpactCount}  ` +
-      `標的 ${survivalFrame.actorImpactCount}`;
-  }
-  scene.render();
 });
 
 const resize = () => engine.resize();

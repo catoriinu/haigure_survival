@@ -246,6 +246,7 @@ const validatePlayerRampTraversal = (
     }
   } catch (error) {
     traversalError = error;
+    console.error(`${label} Ramp通過中に例外が発生しました。`, error);
   } finally {
     controller?.dispose();
     testCamera.dispose();
