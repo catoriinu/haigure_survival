@@ -16,6 +16,7 @@ import {
   createPlayerHeightController,
   type PlayerHeightSnapshot
 } from "../../../src/game/playerHeight";
+import { createPlayerMotionController } from "../../../src/game/playerMotion";
 
 type CheckResult = {
   name: string;
@@ -57,6 +58,7 @@ const groundSnapDistance = 0.0415;
 const minGroundNormalY = Math.SQRT1_2;
 const fixedDelta = 1 / 60;
 const fixedHorizontalStep = 0.0015;
+const inertialMoveSpeed = 0.02 * Math.sqrt(10);
 
 const browserErrors: string[] = [];
 const formatError = (value: unknown) =>
@@ -116,6 +118,12 @@ const playerHeightMotion = createPlayerHeightController(scene, {
   groundSnapDistance,
   minGroundNormalY
 });
+const playerMotion = createPlayerMotionController({
+  moveInertiaAt60Fps: 0.9,
+  moveStopEpsilon: 0.00001
+});
+const forwardMoveAxes = { moveX: 0, moveZ: 1 } as const;
+const backwardFacingYaw = Math.PI;
 
 let currentCourse: ValidationCourse | null = null;
 let running = false;
@@ -338,6 +346,53 @@ const runLinearMotion = (direction: Vector3, distance: number) => {
   return { frames, airborneFrames, firstAirbornePosition, minY, maxY };
 };
 
+const runInertialForwardFrames = (frameCount: number) => {
+  const horizontalProgress: number[] = [];
+  const requestedProgress: number[] = [];
+  const supportNames: Array<string | null> = [];
+  const supportNormals: Array<number | null> = [];
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    const startZ = playerCollisionMesh.position.z;
+    const requestedDisplacement = playerMotion.update(
+      forwardMoveAxes,
+      backwardFacingYaw,
+      fixedDelta,
+      true,
+      inertialMoveSpeed
+    );
+    const result = playerHeightMotion.move(
+      playerCollisionMesh,
+      requestedDisplacement,
+      fixedDelta,
+      getColliderSet()
+    );
+    playerMotion.commit(result.actualHorizontalDisplacement);
+    requestedProgress.push(
+      Math.hypot(requestedDisplacement.x, requestedDisplacement.z)
+    );
+    horizontalProgress.push(startZ - playerCollisionMesh.position.z);
+    supportNames.push(result.supportMeshName);
+    const snapshot: PlayerHeightSnapshot = {
+      grounded: false,
+      verticalVelocity: 0,
+      supportY: null,
+      supportMeshName: null,
+      supportNormalY: null
+    };
+    playerHeightMotion.capture(snapshot);
+    supportNormals.push(snapshot.supportNormalY);
+  }
+  return {
+    horizontalProgress,
+    requestedProgress,
+    supportNames,
+    supportNormals
+  };
+};
+
+const average = (values: number[]) =>
+  values.reduce((total, value) => total + value, 0) / values.length;
+
 const runValidation = async () => {
   if (running) {
     return;
@@ -360,6 +415,12 @@ const runValidation = async () => {
     ).length;
     const flatStable = runStationaryFrames(120);
     const flatState = playerHeightMotion.getState();
+    playerMotion.reset();
+    teleport(new Vector3(0, 0, 0.4));
+    const flatInertialMotion = runInertialForwardFrames(50);
+    const flatSteadyProgress = average(
+      flatInertialMotion.horizontalProgress.slice(-10)
+    );
     checks.push(
       createCheck(
         "MeshBuilder平面床衝突",
@@ -370,10 +431,62 @@ const runValidation = async () => {
         "MeshBuilder平面静止",
         flatStable.airborneFrames === 0 && flatStable.maxY - flatStable.minY <= groundTolerance,
         `Y=${flatStable.minY.toFixed(6)}..${flatStable.maxY.toFixed(6)}, airborne=${flatStable.airborneFrames}`
+      ),
+      createCheck(
+        "平地の慣性移動基準速度",
+        flatSteadyProgress > 0,
+        `steady=${flatSteadyProgress.toFixed(9)}`
       )
     );
 
     await loadCourse(glbCourseId);
+    playerMotion.reset();
+    teleport(blenderToBabylon(-3, 0.6, 0));
+    const slopeInertialMotion = runInertialForwardFrames(50);
+    const slopeSteadyProgress = average(
+      slopeInertialMotion.horizontalProgress.slice(-10)
+    );
+    checks.push(
+      createCheck(
+        "連続斜面の水平速度維持",
+        slopeSteadyProgress >= flatSteadyProgress * 0.95,
+        `flat=${flatSteadyProgress.toFixed(9)}, slope=${slopeSteadyProgress.toFixed(9)}, ratio=${(slopeSteadyProgress / flatSteadyProgress).toFixed(6)}`
+      )
+    );
+
+    playerMotion.reset();
+    teleport(blenderToBabylon(3, 0.6, 0));
+    const stairInertialMotion = runInertialForwardFrames(160);
+    const stairLandingFrame = stairInertialMotion.supportNames.findIndex(
+      (name) => name === "COL_StairLanding"
+    );
+    const preLandingProgress =
+      stairLandingFrame >= 5
+        ? average(
+            stairInertialMotion.horizontalProgress.slice(
+              stairLandingFrame - 5,
+              stairLandingFrame
+            )
+          )
+        : 0;
+    const landingTrace =
+      stairLandingFrame >= 5
+        ? stairInertialMotion.horizontalProgress
+            .slice(stairLandingFrame - 5, stairLandingFrame + 2)
+            .map((value, index) => {
+              const frame = stairLandingFrame - 5 + index;
+              return `${frame}:${stairInertialMotion.supportNames[frame]}:${stairInertialMotion.supportNormals[frame]?.toFixed(6)}:${stairInertialMotion.requestedProgress[frame].toFixed(6)}>${value.toFixed(6)}`;
+            })
+            .join("|")
+        : "landingなし";
+    checks.push(
+      createCheck(
+        "階段踊り場直前の水平速度維持",
+        stairLandingFrame >= 5 && preLandingProgress >= flatSteadyProgress * 0.9,
+        `landingFrame=${stairLandingFrame}, flat=${flatSteadyProgress.toFixed(9)}, preLanding=${preLandingProgress.toFixed(9)}, ratio=${(preLandingProgress / flatSteadyProgress).toFixed(6)}, trace=${landingTrace}`
+      )
+    );
+
     teleport(blenderToBabylon(0, -1, 0));
     const floorStable = runStationaryFrames(180);
     checks.push(

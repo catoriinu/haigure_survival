@@ -72,6 +72,8 @@ export const createPlayerHeightController = (
   const stepLookAhead = Vector3.Zero();
   const supportProbePosition = Vector3.Zero();
   const verticalDisplacement = Vector3.Zero();
+  const groundedDisplacement = Vector3.Zero();
+  const continuousMoveDirection = Vector3.Zero();
   const horizontalProgressTolerance = 0.000001;
   let supportMeshName: string | null = null;
   let supportNormalY: number | null = null;
@@ -237,7 +239,10 @@ export const createPlayerHeightController = (
     }
     const candidateRise = candidateSupport.y - initialSupportY;
     if (candidateRise > maxStepHeight + groundTolerance) {
-      if (candidateSupport.normalY >= 0.9999) {
+      if (
+        candidateSupport.normalY >= 0.9999 &&
+        (supportNormalY === null || supportNormalY >= 0.9999)
+      ) {
         return false;
       }
       const continuousSupport = findContinuousSupport(
@@ -340,6 +345,42 @@ export const createPlayerHeightController = (
     supportNormalY = snapshot.supportNormalY;
   };
 
+  const resolveGroundedDisplacement = (
+    horizontalDisplacement: Vector3,
+    stageColliders: ReadonlySet<Mesh>,
+    initialSupportY: number
+  ) => {
+    const requestedDistance = Math.hypot(
+      horizontalDisplacement.x,
+      horizontalDisplacement.z
+    );
+    if (
+      requestedDistance <= horizontalProgressTolerance ||
+      supportNormalY === null
+    ) {
+      return horizontalDisplacement;
+    }
+    continuousMoveDirection.copyFrom(horizontalDisplacement);
+    continuousMoveDirection.y = 0;
+    continuousMoveDirection.normalize();
+    const targetSupport = findContinuousSupport(
+      startPosition,
+      continuousMoveDirection,
+      requestedDistance,
+      stageColliders,
+      initialSupportY
+    );
+    if (
+      !targetSupport ||
+      (supportNormalY >= 0.9999 && targetSupport.normalY >= 0.9999)
+    ) {
+      return horizontalDisplacement;
+    }
+    groundedDisplacement.copyFrom(horizontalDisplacement);
+    groundedDisplacement.y = targetSupport.y - initialSupportY;
+    return groundedDisplacement;
+  };
+
   return {
     reset,
     getState: copyState,
@@ -380,7 +421,27 @@ export const createPlayerHeightController = (
       const wasGrounded = state.grounded;
       const initialSupportY = state.supportY;
       if (horizontalDisplacement.lengthSquared() > 0) {
-        moveWithUpdatedWorld(collisionMesh, horizontalDisplacement);
+        const displacement =
+          wasGrounded && initialSupportY !== null
+            ? resolveGroundedDisplacement(
+                horizontalDisplacement,
+                stageColliders,
+                initialSupportY
+              )
+            : horizontalDisplacement;
+        if (
+          displacement === groundedDisplacement ||
+          (wasGrounded && supportNormalY !== null && supportNormalY < 0.9999)
+        ) {
+          const horizontalX = collisionMesh.position.x;
+          const horizontalZ = collisionMesh.position.z;
+          verticalDisplacement.set(0, groundTolerance, 0);
+          moveWithUpdatedWorld(collisionMesh, verticalDisplacement);
+          collisionMesh.position.x = horizontalX;
+          collisionMesh.position.z = horizontalZ;
+          collisionMesh.computeWorldMatrix(true);
+        }
+        moveWithUpdatedWorld(collisionMesh, displacement);
       }
       normalPosition.copyFrom(collisionMesh.position);
       if (wasGrounded) {
