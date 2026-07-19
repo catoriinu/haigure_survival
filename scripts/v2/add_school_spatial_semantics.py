@@ -37,7 +37,9 @@ WALKABLE_SOURCES = {
         (
             "COL_EntryRamp",
             "COL_NorthEntryRamp",
-            "COL_NorthSouthEntryRamp",
+            "COL_NorthWingSouthEntryRamp",
+            "COL_BridgeSideRamp_West",
+            "COL_BridgeSideRamp_East",
             "COL_GymCourtyardEntryRamp",
         ),
     ),
@@ -89,6 +91,7 @@ SCHOOL_1F_BLOCKERS = (
     "COL_Wall_Lintel_MainEntry",
     "COL_Wall_Lintel_NorthEntry",
     "COL_Wall_Lintel_NorthWingBridge",
+    "COL_Wall_Lintel_NorthWingSouthEntry",
     "COL_Wall_Lintel_SpecialDoor_01",
     "COL_Wall_Lintel_SpecialDoor_02",
     "COL_Wall_Lintel_SpecialDoor_03",
@@ -191,10 +194,10 @@ def require_clean_current_blend() -> None:
         raise RuntimeError(f"現worktree側B02ではありません: {bpy.data.filepath}")
     if bpy.data.is_dirty:
         raise RuntimeError("編集開始前のB02に未保存変更があります")
-    if len([obj for obj in bpy.data.objects if obj.name.startswith("VIS_")]) != 274:
-        raise RuntimeError("既存B02のVIS Object数が274件ではありません")
-    if len([obj for obj in bpy.data.objects if obj.name.startswith("COL_")]) != 147:
-        raise RuntimeError("既存B02のCOL Object数が147件ではありません")
+    if len([obj for obj in bpy.data.objects if obj.name.startswith("VIS_")]) != 277:
+        raise RuntimeError("既存B02のVIS Object数が277件ではありません")
+    if len([obj for obj in bpy.data.objects if obj.name.startswith("COL_")]) != 150:
+        raise RuntimeError("既存B02のCOL Object数が150件ではありません")
 
 
 def reset_generated_semantics() -> None:
@@ -234,8 +237,8 @@ def reset_generated_semantics() -> None:
         "BND_Stage",
     }:
         raise RuntimeError("B02_SEMANTICのObjectが想定外です")
-    if len(export_collection.all_objects) != 434:
-        raise RuntimeError("再生成前の学校契約Object数が434件ではありません")
+    if len(export_collection.all_objects) != 440:
+        raise RuntimeError("再生成前の学校契約Object数が440件ではありません")
 
     scene_root = bpy.context.scene.collection
     if {collection.name for collection in scene_root.children} != {
@@ -513,8 +516,8 @@ def create_semantic_objects(collection: bpy.types.Collection) -> None:
 def export_stage(export_collection: bpy.types.Collection) -> None:
     bpy.ops.object.select_all(action="DESELECT")
     export_objects = list(export_collection.all_objects)
-    if len(export_objects) != 434:
-        raise RuntimeError(f"学校の契約Object数が434件ではありません: {len(export_objects)}")
+    if len(export_objects) != 440:
+        raise RuntimeError(f"学校の契約Object数が440件ではありません: {len(export_objects)}")
     for obj in export_objects:
         obj.select_set(True)
 

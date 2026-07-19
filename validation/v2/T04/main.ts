@@ -1133,8 +1133,8 @@ const runValidation = async () => {
           .node.getAbsolutePosition();
         const expectedPlayerSpawn = new Vector3(0.375, 0, 0);
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 274 &&
-          schoolContext.resources.normalColliders.length === 147 &&
+          schoolContext.resources.visualMeshes.length === 277 &&
+          schoolContext.resources.normalColliders.length === 150 &&
           schoolContext.resources.actorOnlyColliders.length === 0 &&
           schoolContext.resources.navSourceMeshes.length === 8 &&
           schoolContext.markers.all.length === 1 &&
@@ -1528,7 +1528,7 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 274;
+          reloadedContext.resources.visualMeshes.length === 277;
         reloadedContext.dispose();
         const afterSecondDispose = countSceneResources(spatialScene);
         checks.push({

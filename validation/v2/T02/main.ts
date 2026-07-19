@@ -3,6 +3,7 @@ import {
   ArcRotateCamera,
   Color4,
   Engine,
+  FreeCamera,
   HemisphericLight,
   Logger,
   Scene,
@@ -13,8 +14,10 @@ import { SCHOOL_STAGE } from "../../../src/world/stageCatalog";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
 import {
   V2_PLAYER_BASE_EYE_HEIGHT,
-  V2_PLAYER_MAX_EYE_HEIGHT_SCALE
+  V2_PLAYER_MAX_EYE_HEIGHT_SCALE,
+  createV2PlayerController
 } from "../../../src/v2/playerController";
+import type { V2PlayerInput } from "../../../src/v2/playerInput";
 import {
   loadStageSpatialContext,
   type StageSpatialContext
@@ -186,6 +189,89 @@ const calculateSha256 = async (data: Uint8Array) => {
   ).join("");
 };
 
+const validatePlayerRampTraversal = (
+  context: StageSpatialContext,
+  label: string,
+  startBlender: Vector3,
+  endBlender: Vector3
+) => {
+  const spawnNode = context.markers.requireSingle("player_spawn").node;
+  const originalSpawn = spawnNode.getAbsolutePosition().clone();
+  const start = blenderPointToBabylon(startBlender);
+  const end = blenderPointToBabylon(endBlender);
+  const horizontalRoute = end.subtract(start);
+  horizontalRoute.y = 0;
+  const routeLength = horizontalRoute.length();
+  const routeDirection = horizontalRoute.scale(1 / routeLength);
+  const previousActiveCamera = scene.activeCamera;
+  const testCamera = new FreeCamera(`${label}Camera`, start.clone(), scene);
+  let moving = true;
+  const input: V2PlayerInput = {
+    getMoveAxes: () => ({ moveX: 0, moveZ: moving ? 1 : 0 }),
+    isDashPressed: () => true,
+    reset: () => undefined,
+    dispose: () => undefined
+  };
+
+  spawnNode.setAbsolutePosition(start);
+  spawnNode.computeWorldMatrix(true);
+  let controller: ReturnType<typeof createV2PlayerController> | null = null;
+  let maximumProgress = 0;
+  let maximumFootY = Number.NEGATIVE_INFINITY;
+  let stayedInsideBoundary = true;
+  let traversalError: unknown = null;
+  try {
+    controller = createV2PlayerController({
+      scene,
+      camera: testCamera,
+      stage: context,
+      input
+    });
+    testCamera.setTarget(
+      new Vector3(end.x, testCamera.position.y, end.z)
+    );
+    maximumFootY = controller.getFootPosition().y;
+    for (let frame = 0; frame < 240; frame += 1) {
+      const playerFrame = controller.update(1 / 60, true);
+      const horizontalOffset = playerFrame.footPosition.subtract(start);
+      horizontalOffset.y = 0;
+      const progress = Vector3.Dot(horizontalOffset, routeDirection);
+      maximumProgress = Math.max(maximumProgress, progress);
+      maximumFootY = Math.max(maximumFootY, playerFrame.footPosition.y);
+      stayedInsideBoundary =
+        stayedInsideBoundary && context.boundary.contains(playerFrame.footPosition);
+      if (maximumProgress >= routeLength - 0.025) {
+        moving = false;
+      }
+    }
+  } catch (error) {
+    traversalError = error;
+  } finally {
+    controller?.dispose();
+    testCamera.dispose();
+    scene.activeCamera = previousActiveCamera;
+    spawnNode.setAbsolutePosition(originalSpawn);
+    spawnNode.computeWorldMatrix(true);
+  }
+
+  const result = {
+    label,
+    ok:
+      traversalError === null &&
+      maximumProgress >= routeLength - 0.025 &&
+      maximumFootY >= end.y - 0.005 &&
+      stayedInsideBoundary,
+    maximumProgress,
+    routeLength,
+    maximumFootY,
+    expectedEndY: end.y,
+    stayedInsideBoundary,
+    errorMessage:
+      traversalError === null ? null : formatError(traversalError)
+  };
+  return result;
+};
+
 const countSceneResources = (): SceneResourceCounts => {
   const sharedBrdfTexture = scene.environmentBRDFTexture;
   return {
@@ -281,8 +367,8 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 274 &&
-        context.resources.normalColliders.length === 147 &&
+      context.resources.visualMeshes.length === 277 &&
+        context.resources.normalColliders.length === 150 &&
         context.resources.actorOnlyColliders.length === 0 &&
         context.resources.navSourceMeshes.length === 8 &&
         context.markers.all.length === 1 &&
@@ -326,6 +412,14 @@ const validateLoadedContext = (
     [
       "VIS_NorthWingDoor_Open_Bridge_R",
       blenderPointToBabylon(new Vector3(44.3, 32.34, 1.2))
+    ],
+    [
+      "VIS_NorthWingSouthEntryDoor_Open_L",
+      blenderPointToBabylon(new Vector3(-0.75, 32.34, 1.2))
+    ],
+    [
+      "VIS_NorthWingSouthEntryDoor_Open_R",
+      blenderPointToBabylon(new Vector3(6.3, 32.34, 1.2))
     ],
     [
       "VIS_GymDoor_Open_Bridge_L",
@@ -380,9 +474,13 @@ const validateLoadedContext = (
     ["VIS_NorthEntryStep01", [2.4, 46.5, -0.3], [5.4, 47.5, -0.15]],
     ["VIS_NorthEntryStep02", [2.4, 45.5, -0.15], [5.4, 46.5, 0.0]],
     ["COL_NorthEntryRamp", [2.4, 45.5, -0.3], [5.4, 47.5, 0.0]],
-    ["VIS_NorthSouthEntryStep01", [37.4, 26.5, -0.3], [38.4, 32.5, -0.15]],
-    ["VIS_NorthSouthEntryStep02", [38.4, 26.5, -0.15], [39.4, 32.5, 0.0]],
-    ["COL_NorthSouthEntryRamp", [37.4, 26.5, -0.3], [39.4, 32.5, 0.0]],
+    ["VIS_NorthWingSouthEntryStep01", [0.15, 30.5, -0.3], [5.4, 31.5, -0.15]],
+    ["VIS_NorthWingSouthEntryStep02", [0.15, 31.5, -0.15], [5.4, 32.5, 0.0]],
+    ["COL_NorthWingSouthEntryRamp", [0.15, 30.5, -0.3], [5.4, 32.5, 0.0]],
+    ["COL_BridgeSideRamp_West", [37.4, 26.5, -0.3], [39.4, 32.5, 0.0]],
+    ["COL_BridgeSideRamp_East", [43.4, 26.5, -0.3], [45.4, 32.5, 0.0]],
+    ["VIS_Wall_Lintel_NorthWingSouthEntry", [0.15, 32.35, 2.4], [5.4, 32.65, 3.0]],
+    ["COL_Wall_Lintel_NorthWingSouthEntry", [0.15, 32.35, 2.4], [5.4, 32.65, 3.0]],
     ["VIS_GymCourtyardEntryStep01", [31.4, 5.0, -0.3], [32.4, 8.0, -0.15]],
     ["VIS_GymCourtyardEntryStep02", [32.4, 5.0, -0.15], [33.4, 8.0, 0.0]],
     ["COL_GymCourtyardEntryRamp", [31.4, 5.0, -0.3], [33.4, 8.0, 0.0]]
@@ -397,12 +495,55 @@ const validateLoadedContext = (
       )
     })
   );
+  const bridgeSideRampsAreInvisible = [
+    "VIS_NorthSouthEntryStep01",
+    "VIS_NorthSouthEntryStep02",
+    "VIS_BridgeSideRamp_West",
+    "VIS_BridgeSideRamp_East"
+  ].every((name) => !visualMeshByName.has(name));
   checks.push(
     createCheck(
-      "学校出入口の共通2段・連続Ramp契約",
-      entryBoundsResults.every((result) => result.ok),
-      entryBoundsResults
+      "学校出入口の共通2段・渡り廊下透明Ramp契約",
+      entryBoundsResults.every((result) => result.ok) && bridgeSideRampsAreInvisible,
+      `渡り廊下側面VISなし=${bridgeSideRampsAreInvisible} / ${entryBoundsResults
         .map((result) => `${result.name}=${result.ok ? "一致" : result.detail}`)
+        .join(" / ")}`
+    )
+  );
+
+  const playerRampTraversalResults = [
+    validatePlayerRampTraversal(
+      context,
+      "北側校舎南口",
+      new Vector3(2.7, 30.0, -0.3),
+      new Vector3(2.7, 33.2, 0.0)
+    ),
+    validatePlayerRampTraversal(
+      context,
+      "渡り廊下西側",
+      new Vector3(36.8, 29.5, -0.3),
+      new Vector3(40.0, 29.5, 0.0)
+    ),
+    validatePlayerRampTraversal(
+      context,
+      "渡り廊下東側",
+      new Vector3(46.0, 29.5, -0.3),
+      new Vector3(42.8, 29.5, 0.0)
+    )
+  ];
+  checks.push(
+    createCheck(
+      "実プレイヤーによる北側校舎南口・渡り廊下東西Ramp通過",
+      playerRampTraversalResults.every((result) => result.ok),
+      playerRampTraversalResults
+        .map(
+          (result) =>
+            `${result.label}=` +
+            `進行${result.maximumProgress.toFixed(3)}/${result.routeLength.toFixed(3)},` +
+            `最高足元Y${result.maximumFootY.toFixed(3)}/${result.expectedEndY.toFixed(3)},` +
+            `境界内=${result.stayedInsideBoundary},` +
+            `エラー=${result.errorMessage ?? "なし"}`
+        )
         .join(" / ")
     )
   );
@@ -701,8 +842,8 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 274 &&
-      activeContext.resources.normalColliders.length === 147;
+      activeContext.resources.visualMeshes.length === 277 &&
+      activeContext.resources.normalColliders.length === 150;
     checks.push(
       createCheck(
         "学校コンテキスト再読込",
