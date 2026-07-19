@@ -451,3 +451,9 @@ B01で承認された学校間取りを前提として、Blenderで学校の初�
 - 北側校舎北出入口の引戸2枚を開口X＝2.4～5.4mの左右へ完全収納し、体育館西側出入口の引戸2枚を開口Y＝5.0～8.0mの両脇へ完全収納した。いずれも壁に沿う平行移動だけとし、回転、材質、COL、NAVは変更していない。
 - 更新後のBlenderシーンは441 Object／416 Mesh（`VIS_*`261件、`COL_*`144件、`NAV_*`8件）、GLB出力は418 Objectとなった。`.blend`は312,192 bytes、SHA-256 `A31C20BD9EC5CB5095A5CF3A2D4A2137107CB165D61ABDA8D41139F81E3C0ECE`、GLBは754,904 bytes、SHA-256 `E414D302387053DB953E9422B25B85F185F2173C2885CCFEE54E7990DCDB5806`である。
 - NavMesh入力は不変で、2回の再ベイク後も156,808 bytes、SHA-256 `9CCFE1419B150053A1E7AD85F686431A18343CBC9F7780041EE1ACDAA77063AF`を維持した。T02実ブラウザはトイレ扉不在と開放扉4件のGLB位置を含む19/19項目PASS、console warning／error 0件で、`build:t02`と`build:t04`も成功した。
+
+### 2026-07-19 階段踊り場の境界上限修正
+
+- 中間踊り場上面Z＝2.4mへ床余裕0.05mと最大視点高2.0mを加えたZ＝4.45mに対し、`BND_Stage`上端がZ＝3.5mのままだった。足元判定では直ちに移動エラーにならないが、プレイヤーが存在してよい3D空間を全身で囲う資産契約に反するため、上端だけをZ＝4.6mへ拡張して0.15mの余裕を確保した。
+- Blenderは441 Object／416 Mesh、GLB出力418 Objectのまま、`.blend`は312,287 bytes、SHA-256 `AAA4BFA111387D7DE6C52E0D25A1D9DC3A93A4F998044D642F2DCDA95561405A`、GLBは754,916 bytes、SHA-256 `ED0BAA2D2709669F58182F0BBDEDB6DDE3D66ADA2A7E3928E206B2C8CCEBC2D6`となった。NavMesh入力は不変で、2回の再ベイク後も156,808 bytes、SHA-256 `9CCFE1419B150053A1E7AD85F686431A18343CBC9F7780041EE1ACDAA77063AF`を維持した。
+- T02へ3か所の踊り場の足元と最大視点がともに境界内である回帰を追加し、19/19項目PASS、console warning／error 0件を確認した。依存監査、通常Web・Electron、T01～T04の全ビルド、T03 19/19、T04 39/39、通常ゲーム10秒継続も成功した。
