@@ -33,12 +33,8 @@ export interface StageSpatialQueries {
   containsVolume(role: StageVolumeRole, point: Vector3): boolean;
 }
 
-const CONTAINMENT_RAY_DIRECTION = new Vector3(
-  0.7385489459,
-  0.4615930912,
-  0.4938376187
-).normalize();
 const SURFACE_DISTANCE_EPSILON = 1e-6;
+const INSIDE_SOLID_ANGLE_THRESHOLD = Math.PI * 2;
 
 const toSpatialHit = (
   pickedPoint: Vector3,
@@ -110,32 +106,51 @@ const buildWorldTriangles = (mesh: Mesh): readonly WorldTriangle[] => {
   return triangles;
 };
 
+const calculateSolidAngle = (
+  point: Vector3,
+  [first, second, third]: WorldTriangle
+) => {
+  const ax = first.x - point.x;
+  const ay = first.y - point.y;
+  const az = first.z - point.z;
+  const bx = second.x - point.x;
+  const by = second.y - point.y;
+  const bz = second.z - point.z;
+  const cx = third.x - point.x;
+  const cy = third.y - point.y;
+  const cz = third.z - point.z;
+  const firstLength = Math.hypot(ax, ay, az);
+  const secondLength = Math.hypot(bx, by, bz);
+  const thirdLength = Math.hypot(cx, cy, cz);
+  const numerator =
+    ax * (by * cz - bz * cy) +
+    ay * (bz * cx - bx * cz) +
+    az * (bx * cy - by * cx);
+  const denominator =
+    firstLength * secondLength * thirdLength +
+    (ax * bx + ay * by + az * bz) * thirdLength +
+    (bx * cx + by * cy + bz * cz) * firstLength +
+    (cx * ax + cy * ay + cz * az) * secondLength;
+  return 2 * Math.atan2(numerator, denominator);
+};
+
 const createContainsPointQuery = (mesh: Mesh) => {
   const triangles = buildWorldTriangles(mesh);
+  const projectedPoint = Vector3.Zero();
   return (point: Vector3): boolean => {
-    const ray = new Ray(point, CONTAINMENT_RAY_DIRECTION, Number.MAX_VALUE);
-    const distances: number[] = [];
+    let solidAngle = 0;
     for (const triangle of triangles) {
-      const intersection = ray.intersectsTriangle(...triangle);
-      if (!intersection || intersection.distance < -SURFACE_DISTANCE_EPSILON) {
-        continue;
-      }
-      if (Math.abs(intersection.distance) <= SURFACE_DISTANCE_EPSILON) {
+      const distanceToSurface = Vector3.ProjectOnTriangleToRef(
+        point,
+        ...triangle,
+        projectedPoint
+      );
+      if (distanceToSurface <= SURFACE_DISTANCE_EPSILON) {
         return true;
       }
-      distances.push(intersection.distance);
+      solidAngle += calculateSolidAngle(point, triangle);
     }
-
-    distances.sort((left, right) => left - right);
-    let uniqueIntersections = 0;
-    let previousDistance = Number.NEGATIVE_INFINITY;
-    for (const distance of distances) {
-      if (distance - previousDistance > SURFACE_DISTANCE_EPSILON) {
-        uniqueIntersections += 1;
-        previousDistance = distance;
-      }
-    }
-    return uniqueIntersections % 2 === 1;
+    return Math.abs(solidAngle) > INSIDE_SOLID_ANGLE_THRESHOLD;
   };
 };
 

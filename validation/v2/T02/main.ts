@@ -246,6 +246,52 @@ const validateLoadedContext = (
     )
   );
 
+  const boundaryRegressionPoints = [
+    new Vector3(0, 0, 2.145),
+    new Vector3(-9.55, 0.05, 2.2),
+    new Vector3(-9.55, 0.05, 1.2),
+    new Vector3(-13.15, 0.05, 2.2)
+  ];
+  const boundaryRegressionResults = boundaryRegressionPoints.map((point) =>
+    context.boundary.contains(point)
+  );
+  const boundaryBounds = context.boundary.mesh.getBoundingInfo().boundingBox;
+  const boundaryMinimum = boundaryBounds.minimumWorld;
+  const boundaryMaximum = boundaryBounds.maximumWorld;
+  const boundaryCenter = boundaryMinimum.add(boundaryMaximum).scale(0.5);
+  const boundarySurfacePoints = [
+    new Vector3(boundaryCenter.x, boundaryCenter.y, boundaryMaximum.z),
+    new Vector3(boundaryMaximum.x, boundaryCenter.y, boundaryMaximum.z)
+  ];
+  const boundarySurfaceResults = boundarySurfacePoints.map((point) =>
+    context.boundary.contains(point)
+  );
+  const boundaryOutsidePoints = [
+    new Vector3(boundaryCenter.x, boundaryCenter.y, boundaryMaximum.z + 0.01),
+    new Vector3(boundaryMinimum.x - 0.01, boundaryCenter.y, boundaryCenter.z)
+  ];
+  const boundaryOutsideResults = boundaryOutsidePoints.map((point) =>
+    context.boundary.contains(point)
+  );
+  checks.push(
+    createCheck(
+      "BND南塀・体育館舞台ランプ誤判定回帰",
+      boundaryRegressionResults.every(Boolean),
+      `南塀=${boundaryRegressionResults[0]} / 西ランプ南側=${boundaryRegressionResults[1]} / 西ランプ北側=${boundaryRegressionResults[2]} / 東ランプ南側=${boundaryRegressionResults[3]}`
+    ),
+    createCheck(
+      "BND表面点を内側として扱う",
+      boundarySurfaceResults.every(Boolean),
+      `南面中央=${boundarySurfaceResults[0]} / 南東共有稜線=${boundarySurfaceResults[1]}`
+    ),
+    createCheck(
+      "BND代表内外点",
+      context.boundary.contains(boundaryCenter) &&
+        boundaryOutsideResults.every((contains) => !contains),
+      `中央=${context.boundary.contains(boundaryCenter)} / 南外=${boundaryOutsideResults[0]} / 東外=${boundaryOutsideResults[1]}`
+    )
+  );
+
   const normalColliderSet = new Set(context.resources.normalColliders);
   const actorColliderSet = new Set(context.resources.actorColliders);
   const beamBlockerSet = new Set(context.resources.beamBlockers);
