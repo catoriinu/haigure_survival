@@ -49,7 +49,7 @@ WINDOW_FRAME_BORDER = 0.05
 WINDOW_MEETING_STILE_WIDTH = 0.06
 WALL_THICKNESS = 0.30
 LINK_RADIUS_METERS = 0.54
-GENERATOR_VERSION = "b03-2-interiors-v05-staffroom-placement"
+GENERATOR_VERSION = "t04-2b-nav-connectivity-v01"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 
@@ -1149,7 +1149,6 @@ def build_upper_floors_and_rooms(
         ((-12.6, -3.5), (0.0, 32.5)),
         ((-6.6, 32.5), (47.4, 45.5)),
         ((-12.6, 32.5), (-6.6, 38.9)),
-        ((-12.6, 43.1), (-6.6, 45.5)),
     ]
     for floor, base_z in ((2, 3.6), (3, 7.2), (4, 10.8)):
         floor_boxes = [
@@ -1805,12 +1804,13 @@ def build_nav_sources(
     copy_meshes_into_object(
         "NAV_Walkable_StairsNWUpper",
         [
+            "COL_StairRampUpper_NW",
             "COL_StairSystem_NW_2FTo3F",
             "COL_StairSystem_NW_3FTo4F",
             "COL_StairSystem_NW_4FToRooftop",
         ],
         nav_collection,
-        {"hs_nav_role": "walkable", "hs_nav_area": "ground"},
+        {"hs_nav_role": "walkable", "hs_nav_area": "stairs"},
     )
     copy_meshes_into_object(
         "NAV_Walkable_Rooftop",
