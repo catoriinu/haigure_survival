@@ -40,6 +40,11 @@ VIEWS = (
     ("22_gym_east_full", (137.4, 8.5, 5.5), (57.4, 8.5, 5.5), 55.0),
     ("23_gym_west_full", (-46.6, 8.5, 5.5), (33.4, 8.5, 5.5), 55.0),
     ("24_gym_south_full", (45.4, -89.5, 5.5), (45.4, -9.5, 5.5), 55.0),
+    ("25_2f_ordinary_room02_full_open", (-35.0, 17.5, 5.3), (-12.6, 17.5, 5.3), 60.0),
+    ("26_3f_special_room02_full_open", (32.4, 68.0, 8.9), (32.4, 45.5, 8.9), 60.0),
+    ("27_4f_ordinary_room03_full_open", (-35.0, 27.5, 12.5), (-12.6, 27.5, 12.5), 60.0),
+    ("28_3f_ordinary_room03_closed", (-35.0, 27.5, 8.9), (-12.6, 27.5, 8.9), 60.0),
+    ("29_2f_student_council_closed", (9.9, 68.0, 5.3), (9.9, 45.5, 5.3), 60.0),
 )
 
 SCHOOL_FULL_PREFIXES = (
@@ -143,6 +148,11 @@ VIEW_SHOW_PREFIXES = {
     "22_gym_east_full": GYM_FULL_PREFIXES,
     "23_gym_west_full": GYM_FULL_PREFIXES,
     "24_gym_south_full": GYM_FULL_PREFIXES,
+    "25_2f_ordinary_room02_full_open": SCHOOL_FULL_PREFIXES,
+    "26_3f_special_room02_full_open": SCHOOL_FULL_PREFIXES,
+    "27_4f_ordinary_room03_full_open": SCHOOL_FULL_PREFIXES,
+    "28_3f_ordinary_room03_closed": SCHOOL_FULL_PREFIXES,
+    "29_2f_student_council_closed": SCHOOL_FULL_PREFIXES,
 }
 
 

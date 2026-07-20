@@ -46,6 +46,58 @@ EXPECTED_PROP_LIBRARY_SHA256 = (
 )
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 
+EXPECTED_OPEN_UNITS: dict[str, tuple[int, ...]] = {
+    "F01_CourtyardNorth_Corridor_02": (3,),
+    "F01_CourtyardWest_Corridor_02": (2,),
+    "F01_CourtyardWest_Corridor_04": (2,),
+    "F01_CourtyardWest_Corridor_05": (2,),
+    "F01_North_Special_Room01_Set02": (1,),
+    "F01_North_Special_Room02_Set01": (1,),
+    "F01_North_Special_Room02_Set03": (2,),
+    "F01_West_Ordinary_Room01": (4,),
+    "F01_West_Special_01": (1,),
+    "F02_CourtyardNorth_Corridor_01": (2,),
+    "F02_CourtyardNorth_Corridor_02": (1,),
+    "F02_CourtyardNorth_Corridor_03": (1,),
+    "F02_CourtyardWest_Corridor_04": (2,),
+    "F02_North_Broadcast_Set01": (2,),
+    "F02_North_Special_Room03_Set02": (2,),
+    "F02_North_Special_Room03_Set03": (1,),
+    "F02_West_Ordinary_Room01": (2,),
+    "F02_West_Ordinary_Room02": (1, 2, 3, 4),
+    "F02_West_Ordinary_Room03": (1,),
+    "F03_CourtyardNorth_Corridor_01": (3,),
+    "F03_CourtyardNorth_Corridor_02": (4,),
+    "F03_CourtyardNorth_Corridor_03": (3,),
+    "F03_CourtyardWest_Corridor_01": (2,),
+    "F03_CourtyardWest_Corridor_02": (2,),
+    "F03_CourtyardWest_Corridor_04": (1,),
+    "F03_North_Special_Room01_Set01": (1,),
+    "F03_North_Special_Room02_Set01": (1, 2),
+    "F03_North_Special_Room02_Set02": (1, 2),
+    "F03_North_Special_Room02_Set03": (1, 2),
+    "F03_West_Ordinary_Room01": (3,),
+    "F03_West_Ordinary_Room02": (1,),
+    "F04_CourtyardNorth_Corridor_01": (3,),
+    "F04_CourtyardNorth_Corridor_02": (1,),
+    "F04_CourtyardNorth_Corridor_03": (3,),
+    "F04_CourtyardWest_Corridor_01": (2,),
+    "F04_CourtyardWest_Corridor_03": (2,),
+    "F04_CourtyardWest_Corridor_05": (1,),
+    "F04_North_Special_Room02_Set01": (2,),
+    "F04_North_Special_Room02_Set02": (1,),
+    "F04_West_Ordinary_Room01": (4,),
+    "F04_West_Ordinary_Room02": (2,),
+    "F04_West_Ordinary_Room03": (1, 2, 3, 4),
+    "Gym_East_01": (3,),
+    "Gym_East_02": (1,),
+    "Gym_East_03": (4,),
+    "Gym_North_02": (1,),
+    "Gym_West_01": (4,),
+    "Gym_West_02": (2,),
+    "Gym_West_03": (1,),
+}
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -121,7 +173,6 @@ def audit_mesh_contract(export_objects: list[bpy.types.Object]) -> None:
 
 
 def audit_links(objects: list[bpy.types.Object]) -> dict[str, int]:
-    placement_review = bpy.context.scene.get("b03_window_layout_status") == "placement_review"
     pairs: dict[str, dict[str, bpy.types.Object]] = defaultdict(dict)
     for obj in objects:
         match = LINK_PATTERN.match(obj.name)
@@ -137,7 +188,7 @@ def audit_links(objects: list[bpy.types.Object]) -> dict[str, int]:
             abs(float(obj.get("hs_link_radius_m")) - 0.54) <= 1e-9,
             f"LNK半径が0.54mではありません: {obj.name}",
         )
-    expected_pairs = 2 if placement_review else 35
+    expected_pairs = 60
     require(len(pairs) == expected_pairs, f"特殊接続が{expected_pairs}組ではありません: {len(pairs)}")
     window_colliders = {
         "bit-window-"
@@ -178,14 +229,13 @@ def audit_links(objects: list[bpy.types.Object]) -> dict[str, int]:
                 min(a.location.z, b.location.z) - 13.8 >= 0.54,
                 f"bit_roofが屋上手すりへ半径0.54mの空きを持ちません: {link_id}",
             )
-    expected_window_links = 0 if placement_review else 33
+    expected_window_links = 58
     require(kinds["bit_window"] == expected_window_links, f"bit_windowが{expected_window_links}組ではありません: {kinds}")
     require(kinds["bit_roof"] == 2, f"bit_roofが2組ではありません: {kinds}")
     return dict(kinds)
 
 
 def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
-    placement_review = bpy.context.scene.get("b03_window_layout_status") == "placement_review"
     names = [obj.name for obj in objects]
     frames = [obj for obj in objects if obj.name.startswith("VIS_WindowFrame_")]
     glass = [obj for obj in objects if obj.name.startswith("VIS_WindowGlass_")]
@@ -194,10 +244,10 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
         obj for obj in objects if obj.name.startswith("COL_ActorOnly_WindowFixed_")
     ]
     human = [obj for obj in objects if obj.name.startswith("COL_HumanOnly_Window_")]
-    expected_frames = 94 if placement_review else 81
-    expected_actor = 94 if placement_review else 48
-    expected_fixed = 0 if placement_review else 33
-    expected_human = 0 if placement_review else 33
+    expected_frames = 83
+    expected_actor = 34
+    expected_fixed = 49
+    expected_human = 58
     require(len(frames) == expected_frames, f"窓枠が{expected_frames}件ではありません: {len(frames)}")
     require(len(glass) == expected_frames, f"窓ガラスが{expected_frames}件ではありません: {len(glass)}")
     require(len(actor) == expected_actor, f"ActorOnly窓が{expected_actor}件ではありません: {len(actor)}")
@@ -206,6 +256,33 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
         f"開放窓帯の固定ガラスColliderが{expected_fixed}件ではありません: {len(fixed_actor)}",
     )
     require(len(human) == expected_human, f"HumanOnly窓が{expected_human}件ではありません: {len(human)}")
+    expected_human_names = {
+        f"COL_HumanOnly_Window_{suffix}_U{unit_index:02d}"
+        for suffix, unit_indices in EXPECTED_OPEN_UNITS.items()
+        for unit_index in unit_indices
+    }
+    require(
+        {obj.name for obj in human} == expected_human_names,
+        "HumanOnly窓の開放ユニットが承認済み58か所と一致しません",
+    )
+    expected_fixed_names = {
+        f"COL_ActorOnly_WindowFixed_{suffix}" for suffix in EXPECTED_OPEN_UNITS
+    }
+    require(
+        {obj.name for obj in fixed_actor} == expected_fixed_names,
+        "開放窓帯の固定ガラスColliderが承認済み49窓帯と一致しません",
+    )
+    frame_suffixes = {
+        frame.name.removeprefix("VIS_WindowFrame_") for frame in frames
+    }
+    expected_actor_names = {
+        f"COL_ActorOnly_Window_{suffix}"
+        for suffix in frame_suffixes - set(EXPECTED_OPEN_UNITS)
+    }
+    require(
+        {obj.name for obj in actor} == expected_actor_names,
+        "全閉窓帯のActorOnly Colliderが承認内容と一致しません",
+    )
     require(
         not any("Gym_South" in name for name in names),
         "体育館南面に窓関連Objectがあります",
@@ -225,10 +302,9 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
             dimensions[1] / 2 >= 0.54 and dimensions[2] / 2 >= 0.54,
             f"通過窓が半径0.54m包絡を満たしません: {collider.name}",
         )
+    open_leaf_sides = Counter()
     for frame in frames:
-        if placement_review:
-            require(frame.get("hs_window_open_leaf") == 0, f"配置確認中に開放窓があります: {frame.name}")
-            require(frame.get("hs_window_layout_status") == "placement_review", f"窓の配置確認状態が不正です: {frame.name}")
+        require(frame.get("hs_window_layout_status") == "final", f"窓の最終配置状態が不正です: {frame.name}")
         if frame.name == "VIS_WindowFrame_GymStorage_North_01":
             require(frame.get("hs_window_style") == "small_fixed", "体育倉庫小窓の様式が不正です")
             require(frame.get("hs_window_panes") == 1, "体育倉庫小窓が1枚ではありません")
@@ -241,25 +317,46 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
             == ("paired_stair_transom" if is_stair_window else "paired_sliding_band"),
             f"窓帯の様式が不正です: {frame.name}",
         )
+        expected_unit_width = 1.80 if is_stair_window else 2.40
         require(
-            abs(frame.get("hs_window_unit_width_m") - 1.80) <= 1e-5,
-            f"標準窓1枚の幅が0.90mではありません: {frame.name}",
+            abs(frame.get("hs_window_unit_width_m") - expected_unit_width) <= 1e-5,
+            f"窓の2枚ユニット幅が用途別規格と一致しません: {frame.name}",
         )
         expected_clear_height = 0.70 if is_stair_window else 1.80
         require(
             abs(frame.get("hs_window_clear_height_m") - expected_clear_height) <= 1e-5,
             f"窓1枚の高さが用途別規格と一致しません: {frame.name}",
         )
-        if placement_review:
-            expected_panes = 2 if "_Stair" in frame.name else 4 if any(token in frame.name for token in ("_Ordinary_", "_North_Special_", "_North_StudentCouncil_", "_North_Broadcast_", "_CourtyardWest_Corridor_")) else 8
-            require(frame.get("hs_window_panes") == expected_panes, f"用途別の窓枚数が不正です: {frame.name}")
+        if "_Stair" in frame.name:
+            expected_panes = 2
+        elif frame.name == "VIS_WindowFrame_F01_CourtyardNorth_Corridor_01":
+            expected_panes = 4
+        elif frame.name == "VIS_WindowFrame_F01_CourtyardNorth_Corridor_03":
+            expected_panes = 2
+        elif any(token in frame.name for token in ("_Ordinary_", "_West_Special_", "_CourtyardNorth_Corridor_", "Gym_")):
+            expected_panes = 8
+        else:
+            expected_panes = 4
+        require(frame.get("hs_window_panes") == expected_panes, f"用途別の窓枚数が不正です: {frame.name}")
+        suffix = frame.name.removeprefix("VIS_WindowFrame_")
+        open_leaf_text = frame.get("hs_window_open_leaves")
+        open_leaf_numbers = tuple(
+            int(value) for value in open_leaf_text.split(",") if value
+        )
+        open_leaf_sides.update("L" if leaf_number % 2 else "R" for leaf_number in open_leaf_numbers)
+        open_unit_numbers = tuple((leaf_number - 1) // 2 + 1 for leaf_number in open_leaf_numbers)
+        require(
+            open_unit_numbers == EXPECTED_OPEN_UNITS.get(suffix, ()),
+            f"窓帯の開放ユニットが承認内容と一致しません: {frame.name}={open_unit_numbers}",
+        )
         minimum, maximum = world_bounds(frame)
         dimensions = sorted(maximum - minimum)
         require(
             dimensions[1] >= expected_clear_height - 1e-5,
             f"窓帯高さが不足しています: {frame.name}",
         )
-    if placement_review:
+    require(open_leaf_sides == Counter({"R": 30, "L": 28}), f"開放羽の左右数が不正です: {open_leaf_sides}")
+    if bpy.context.scene.get("b03_window_layout_status") == "final":
         frame_names = {frame.name for frame in frames}
         required_stairs = {
             "VIS_WindowFrame_F01_West_StairSW",
@@ -276,7 +373,7 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
         require(required_stairs.issubset(frame_names), "階段踊り場正面の2枚窓が不足しています")
         require(not any("_South_" in name or "WestSouth" in name for name in frame_names), "西側校舎南壁に窓があります")
         require(not any("WestNorth" in name or "_East_01" in name and name.startswith("VIS_WindowFrame_F") for name in frame_names), "階段段の横壁に窓があります")
-        require(sum("_Ordinary_" in name for name in frame_names) == 20, "普通教室の4枚窓2組の配置数が不正です")
+        require(sum("_Ordinary_" in name for name in frame_names) == 10, "普通教室の8枚連続窓帯が10室分ではありません")
         require(sum("_West_Special_" in name for name in frame_names) == 1, "西側1階特別区画の8枚窓が不正です")
         require(sum("F01_North_Special_" in name for name in frame_names) == 6, "1階北側特別教室の4枚窓3組が不正です")
         require(sum("F02_North_Special_" in name for name in frame_names) == 3, "2階理科室の4枚窓3組が不正です")
@@ -284,22 +381,33 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
         require(sum("F02_North_Broadcast_" in name for name in frame_names) == 1, "2階放送室の4枚窓が不正です")
         require(sum("F03_North_Special_" in name for name in frame_names) == 6, "3階特別教室の4枚窓3組が不正です")
         require(sum("F04_North_Special_" in name for name in frame_names) == 6, "4階特別教室の4枚窓3組が不正です")
-        require(sum("_CourtyardWest_Corridor_" in name for name in frame_names) == 20, "西側校舎廊下の4枚窓5組が不正です")
+        require(sum("_CourtyardWest_Corridor_" in name for name in frame_names) == 19, "西側校舎廊下の4枚窓帯数が不正です")
         require(sum("_CourtyardNorth_Corridor_" in name for name in frame_names) == 12, "北側校舎廊下の8枚窓3組が不正です")
         require(sum(name.startswith("VIS_WindowFrame_Gym_") for name in frame_names) == 7, "体育館8枚窓帯の配置数が不正です")
         require("VIS_WindowFrame_Gym_North_01" not in frame_names, "体育館北面西側の6m壁区画に窓があります")
         require("VIS_WindowFrame_GymStorage_North_01" in frame_names, "体育倉庫の閉小窓がありません")
         require(not any("_Toilet" in name for name in frame_names), "トイレに窓があります")
-        ordinary_groups: dict[str, list[bpy.types.Object]] = defaultdict(list)
-        for frame in frames:
-            if "_West_Ordinary_Room" not in frame.name:
-                continue
-            ordinary_groups[frame.name.rsplit("_Set", 1)[0]].append(frame)
-        require(len(ordinary_groups) == 10, "普通教室の窓グループ数が10室ではありません")
-        for room_name, room_frames in ordinary_groups.items():
-            require(len(room_frames) == 2, f"普通教室が4枚窓2組ではありません: {room_name}")
-            intervals = sorted((world_bounds(frame)[0].y, world_bounds(frame)[1].y) for frame in room_frames)
-            require(intervals[1][0] - intervals[0][1] >= 0.30 - 1e-5, f"普通教室の窓間に構造柱幅がありません: {room_name}")
+        ordinary_frames = sorted(
+            (frame for frame in frames if "_West_Ordinary_Room" in frame.name),
+            key=lambda frame: frame.name,
+        )
+        require(len(ordinary_frames) == 10, "普通教室の8枚窓帯が10室ではありません")
+        require(
+            all(frame.get("hs_window_units") == 4 for frame in ordinary_frames),
+            "普通教室窓が4ユニットの連続8枚窓帯ではありません",
+        )
+        for floor in (2, 3, 4):
+            floor_frames = [
+                frame for frame in ordinary_frames if f"F{floor:02d}_" in frame.name
+            ]
+            intervals = sorted(
+                (world_bounds(frame)[0].y, world_bounds(frame)[1].y)
+                for frame in floor_frames
+            )
+            require(
+                all(abs(right[0] - left[1] - 0.30) <= 1e-5 for left, right in zip(intervals, intervals[1:])),
+                f"{floor}階普通教室間の構造柱幅が0.30mではありません: {intervals}",
+            )
         expected_stair_heights = {
             "F01": 4.20,
             "F02": 7.80,
@@ -355,8 +463,8 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
                 frame = bpy.data.objects.get(f"VIS_WindowFrame_Gym_{side}_{index:02d}")
                 require(frame is not None, f"体育館{side}面の窓が不足しています")
                 minimum, maximum = world_bounds(frame)
-                centers.append(round((minimum.y + maximum.y) / 2, 2))
-        require(gym_west_centers == [-2.34, 8.5, 19.34], f"体育館西面の窓が壁面均等配置ではありません: {gym_west_centers}")
+                centers.append(round((minimum.y + maximum.y) / 2, 3))
+        require(gym_west_centers == [-2.925, 8.5, 19.925], f"体育館西面の窓が壁面均等配置ではありません: {gym_west_centers}")
         require(gym_east_centers == gym_west_centers, f"体育館東西面の窓位置が一致しません: east={gym_east_centers}, west={gym_west_centers}")
         gym_intervals = []
         for index in (1, 2, 3):
@@ -428,6 +536,12 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
                 minimum, maximum = world_bounds(frame)
                 centers.append(round((minimum.x + maximum.x) / 2, 1))
             require(centers == [8.8, 14.4, 20.0], f"{floor}階西側特別教室窓が正しい区画にありません: {centers}")
+        expected_courtyard_west_centers = {
+            1: [7.683, 14.5, 21.317, 28.133],
+            2: [0.867, 7.683, 14.5, 21.317, 28.133],
+            3: [0.867, 7.683, 14.5, 21.317, 28.133],
+            4: [0.867, 7.683, 14.5, 21.317, 28.133],
+        }
         for floor in (1, 2, 3, 4):
             corridor_frames = [
                 frame
@@ -435,11 +549,24 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
                 if f"F{floor:02d}_CourtyardWest_Corridor_" in frame.name
             ]
             intervals = sorted((world_bounds(frame)[0].y, world_bounds(frame)[1].y) for frame in corridor_frames)
-            require(len(intervals) == 5, f"{floor}階西側廊下窓が5組ではありません")
-            require(all(right[0] - left[1] >= 1.80 - 1e-5 for left, right in zip(intervals, intervals[1:])), f"{floor}階西側廊下窓間の柱幅が不足しています")
+            centers = [round((minimum + maximum) / 2, 3) for minimum, maximum in intervals]
+            require(
+                centers == expected_courtyard_west_centers[floor],
+                f"{floor}階西側廊下窓が上階基準の中心線と一致しません: {centers}",
+            )
+            require(all(right[0] - left[1] >= 1.90 - 1e-5 for left, right in zip(intervals, intervals[1:])), f"{floor}階西側廊下窓間の柱幅が不足しています")
+        for floor in (1, 2, 3, 4):
+            centers = []
+            for index in (1, 2, 3):
+                frame = bpy.data.objects.get(f"VIS_WindowFrame_F{floor:02d}_CourtyardNorth_Corridor_{index:02d}")
+                require(frame is not None, f"{floor}階北側廊下窓が不足しています: {index}")
+                minimum, maximum = world_bounds(frame)
+                centers.append(round((minimum.x + maximum.x) / 2, 3))
+            require(centers == [9.55, 23.7, 37.85], f"{floor}階北側廊下窓が上階基準の中心線と一致しません: {centers}")
         door_intervals = {
             "F01_North_": ((2.4, 5.4, 0.0, 2.4),),
             "F01_CourtyardNorth_": ((0.15, 5.4, 0.0, 2.4), (39.4, 43.4, 0.0, 2.4)),
+            "F01_CourtyardWest_": ((-2.5, 2.5, 0.0, 2.4),),
             "Gym_West_": ((5.0, 8.0, 0.0, 2.4),),
             "Gym_North_": ((39.4, 43.4, 0.0, 2.4), (51.4, 57.4, 0.0, 2.3)),
         }
@@ -609,7 +736,6 @@ def audit_stair_handrails(objects: list[bpy.types.Object]) -> dict[str, int]:
 
 
 def audit_glb(gltf: dict[str, object]) -> dict[str, int]:
-    placement_review = bpy.context.scene.get("b03_window_layout_status") == "placement_review"
     nodes = gltf.get("nodes", [])
     meshes = gltf.get("meshes", [])
     materials = gltf.get("materials", [])
@@ -621,18 +747,18 @@ def audit_glb(gltf: dict[str, object]) -> dict[str, int]:
     require("KHR_lights_punctual" not in extensions, "GLBにLightがあります")
     node_names = [node.get("name") for node in nodes if node.get("name")]
     require(len(node_names) == len(set(node_names)), "GLB Node名が重複しています")
-    expected_frames = 94 if placement_review else 81
-    expected_actor = 94 if placement_review else 48
-    expected_fixed = 0 if placement_review else 33
-    expected_human = 0 if placement_review else 33
-    expected_link_endpoints = 0 if placement_review else 66
+    expected_frames = 83
+    expected_actor = 34
+    expected_fixed = 49
+    expected_human = 58
+    expected_link_endpoints = 116
     require(sum(name.startswith("VIS_WindowFrame_") for name in node_names) == expected_frames, f"GLB窓枠が{expected_frames}件ではありません")
     require(sum(name.startswith("VIS_WindowGlass_") for name in node_names) == expected_frames, f"GLB窓ガラスが{expected_frames}件ではありません")
     require(sum(name.startswith("COL_ActorOnly_Window_") for name in node_names) == expected_actor, f"GLB ActorOnly窓が{expected_actor}件ではありません")
     require(sum(name.startswith("COL_ActorOnly_WindowFixed_") for name in node_names) == expected_fixed, f"GLB開放窓帯固定Colliderが{expected_fixed}件ではありません")
     require(sum(name.startswith("COL_HumanOnly_Window_") for name in node_names) == expected_human, f"GLB HumanOnly窓が{expected_human}件ではありません")
     require(sum(name.startswith("LNK_bit-window-") for name in node_names) == expected_link_endpoints, f"GLB bit_window端点が{expected_link_endpoints}件ではありません")
-    expected_roof_link_endpoints = 0 if placement_review else 4
+    expected_roof_link_endpoints = 4
     require(
         sum(name.startswith("LNK_bit-roof-") for name in node_names)
         == expected_roof_link_endpoints,
@@ -724,6 +850,7 @@ def audit_glb_optimization() -> dict[str, int]:
 
 def main() -> None:
     require(Path(bpy.data.filepath).resolve() == BLEND_PATH.resolve(), "監査対象.blendが不正です")
+    require(bpy.context.scene.get("b03_window_layout_status") == "final", "窓配置が最終状態ではありません")
     require(sha256(NAVMESH_PATH) == EXPECTED_NAVMESH_SHA256, "NavMesh SHA-256が変化しています")
     require(sha256(PROP_LIBRARY_PATH) == EXPECTED_PROP_LIBRARY_SHA256, "B03-PライブラリSHA-256が変化しています")
     export_collection = bpy.data.collections.get("EXP_Stage_school")

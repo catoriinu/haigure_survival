@@ -36,22 +36,23 @@ SEMANTIC_COLLECTION_NAME = "B02_SEMANTIC"
 EXPORT_COLLECTION_NAME = "EXP_Stage_school"
 LEGACY_GUIDE_COLLECTION_NAME = "B02_GUIDES"
 
-WINDOW_UNIT_CLEAR_WIDTH = 1.80
+WINDOW_UNIT_CLEAR_WIDTH = 2.40
+STAIR_WINDOW_UNIT_CLEAR_WIDTH = 1.80
 SCHOOL_WINDOW_CLEAR_HEIGHT = 1.80
 GYM_WINDOW_CLEAR_HEIGHT = 1.80
 STAIR_WINDOW_CLEAR_HEIGHT = 0.70
-WINDOW_FRAME_BORDER = 0.08
+WINDOW_FRAME_BORDER = 0.05
 WINDOW_MEETING_STILE_WIDTH = 0.06
 WALL_THICKNESS = 0.30
 LINK_RADIUS_METERS = 0.54
-GENERATOR_VERSION = "b03-1-architecture-v14-single-primitive-props"
+GENERATOR_VERSION = "b03-1-architecture-v15-final-window-links"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 
 WINDOW_AUTHORING_PROPERTY_NAMES = (
     "hs_window_clear_height_m",
     "hs_window_layout_status",
-    "hs_window_open_leaf",
+    "hs_window_open_leaves",
     "hs_window_panes",
     "hs_window_style",
     "hs_window_unit_width_m",
@@ -162,7 +163,6 @@ for prefix in ("VIS_", "COL_"):
 @dataclass(frozen=True)
 class WindowSpec:
     suffix: str
-    link_id: str
     floor: int
     wall_key: str
     axis: str
@@ -170,10 +170,63 @@ class WindowSpec:
     horizontal_center: float
     z_center: float
     outward: tuple[float, float, float]
-    is_open: bool
+    open_leaf_indices: tuple[int, ...]
     unit_count: int
     clear_height: float
     unit_clear_width: float
+
+
+OPEN_WINDOW_UNITS: dict[str, tuple[tuple[int, str], ...]] = {
+    "F01_CourtyardNorth_Corridor_02": ((3, "R"),),
+    "F01_CourtyardWest_Corridor_02": ((2, "L"),),
+    "F01_CourtyardWest_Corridor_04": ((2, "L"),),
+    "F01_CourtyardWest_Corridor_05": ((2, "L"),),
+    "F01_North_Special_Room01_Set02": ((1, "L"),),
+    "F01_North_Special_Room02_Set01": ((1, "R"),),
+    "F01_North_Special_Room02_Set03": ((2, "R"),),
+    "F01_West_Ordinary_Room01": ((4, "L"),),
+    "F01_West_Special_01": ((1, "R"),),
+    "F02_CourtyardNorth_Corridor_01": ((2, "R"),),
+    "F02_CourtyardNorth_Corridor_02": ((1, "R"),),
+    "F02_CourtyardNorth_Corridor_03": ((1, "R"),),
+    "F02_CourtyardWest_Corridor_04": ((2, "L"),),
+    "F02_North_Broadcast_Set01": ((2, "L"),),
+    "F02_North_Special_Room03_Set02": ((2, "L"),),
+    "F02_North_Special_Room03_Set03": ((1, "R"),),
+    "F02_West_Ordinary_Room01": ((2, "R"),),
+    "F02_West_Ordinary_Room02": ((1, "R"), (2, "L"), (3, "R"), (4, "L")),
+    "F02_West_Ordinary_Room03": ((1, "R"),),
+    "F03_CourtyardNorth_Corridor_01": ((3, "L"),),
+    "F03_CourtyardNorth_Corridor_02": ((4, "R"),),
+    "F03_CourtyardNorth_Corridor_03": ((3, "L"),),
+    "F03_CourtyardWest_Corridor_01": ((2, "R"),),
+    "F03_CourtyardWest_Corridor_02": ((2, "R"),),
+    "F03_CourtyardWest_Corridor_04": ((1, "R"),),
+    "F03_North_Special_Room01_Set01": ((1, "L"),),
+    "F03_North_Special_Room02_Set01": ((1, "L"), (2, "R")),
+    "F03_North_Special_Room02_Set02": ((1, "R"), (2, "L")),
+    "F03_North_Special_Room02_Set03": ((1, "L"), (2, "R")),
+    "F03_West_Ordinary_Room01": ((3, "L"),),
+    "F03_West_Ordinary_Room02": ((1, "R"),),
+    "F04_CourtyardNorth_Corridor_01": ((3, "L"),),
+    "F04_CourtyardNorth_Corridor_02": ((1, "R"),),
+    "F04_CourtyardNorth_Corridor_03": ((3, "R"),),
+    "F04_CourtyardWest_Corridor_01": ((2, "L"),),
+    "F04_CourtyardWest_Corridor_03": ((2, "L"),),
+    "F04_CourtyardWest_Corridor_05": ((1, "R"),),
+    "F04_North_Special_Room02_Set01": ((2, "L"),),
+    "F04_North_Special_Room02_Set02": ((1, "R"),),
+    "F04_West_Ordinary_Room01": ((4, "L"),),
+    "F04_West_Ordinary_Room02": ((2, "R"),),
+    "F04_West_Ordinary_Room03": ((1, "L"), (2, "R"), (3, "L"), (4, "R")),
+    "Gym_East_01": ((3, "L"),),
+    "Gym_East_02": ((1, "L"),),
+    "Gym_East_03": ((4, "R"),),
+    "Gym_North_02": ((1, "L"),),
+    "Gym_West_01": ((4, "R"),),
+    "Gym_West_02": ((2, "R"),),
+    "Gym_West_03": ((1, "L"),),
+}
 
 
 def sha256(path: Path) -> str:
@@ -599,10 +652,15 @@ def build_window_specs() -> list[WindowSpec]:
         z_offset: float = 1.7,
     ) -> None:
         suffix = label if floor == 0 else f"F{floor:02d}_{label}"
+        open_leaf_indices = tuple(
+            (unit_index - 1) * 2 + (0 if side == "L" else 1)
+            for unit_index, side in OPEN_WINDOW_UNITS.get(suffix, ())
+        )
+        if any(index < 0 or index >= unit_count * 2 for index in open_leaf_indices):
+            raise RuntimeError(f"開放羽指定が窓帯の範囲外です: {suffix}={open_leaf_indices}")
         specs.append(
             WindowSpec(
                 suffix=suffix,
-                link_id=f"bit-window-{suffix.lower().replace('_', '-')}",
                 floor=floor,
                 wall_key=wall,
                 axis=axis,
@@ -610,7 +668,7 @@ def build_window_specs() -> list[WindowSpec]:
                 horizontal_center=horizontal,
                 z_center=base_z + z_offset,
                 outward=outward,
-                is_open=False,
+                open_leaf_indices=open_leaf_indices,
                 unit_count=unit_count,
                 clear_height=clear_height,
                 unit_clear_width=unit_clear_width,
@@ -620,56 +678,93 @@ def build_window_specs() -> list[WindowSpec]:
     for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
         ordinary_room_centers = (7.5,) if floor == 1 else (7.5, 17.5, 27.5)
         for room_index, room_center in enumerate(ordinary_room_centers, start=1):
-            for set_index, center in enumerate((room_center - 2.35, room_center + 2.35), start=1):
-                append(floor, base_z, f"West_Ordinary_Room{room_index:02d}_Set{set_index:02d}", "WestOuter", "Y", -12.6, center, (-1, 0, 0), 2)
+            append(
+                floor,
+                base_z,
+                f"West_Ordinary_Room{room_index:02d}",
+                "WestOuter",
+                "Y",
+                -12.6,
+                room_center,
+                (-1, 0, 0),
+                4,
+            )
         if floor == 1:
             append(floor, base_z, "West_Special_01", "WestOuter", "Y", -12.6, 22.5, (-1, 0, 0), 4)
 
-        for wall, label_prefix, axis, fixed, centers, outward, unit_count, unit_width in (
-            ("CourtyardWest", "CourtyardWest_Corridor", "Y", 0.0, (6.25, 11.875, 17.5, 23.125, 28.75), (1, 0, 0), 2, 1.80),
-            ("CourtyardNorth", "CourtyardNorth_Corridor", "X", 32.5, (11.0, 23.0, 34.5), (0, -1, 0), 4, 1.80),
+        courtyard_west_centers = (0.867, 7.683, 14.500, 21.317, 28.133)
+        for index, center in enumerate(courtyard_west_centers, start=1):
+            if floor == 1 and index == 1:
+                continue
+            append(
+                floor,
+                base_z,
+                f"CourtyardWest_Corridor_{index:02d}",
+                "CourtyardWest",
+                "Y",
+                0.0,
+                center,
+                (1, 0, 0),
+                2,
+            )
+
+        courtyard_north_units = (2, 4, 1) if floor == 1 else (4, 4, 4)
+        for index, (center, unit_count) in enumerate(
+            zip((9.550, 23.700, 37.850), courtyard_north_units), start=1
         ):
-            for index, center in enumerate(centers, start=1):
-                append(floor, base_z, f"{label_prefix}_{index:02d}", wall, axis, fixed, center, outward, unit_count, unit_clear_width=unit_width)
+            append(
+                floor,
+                base_z,
+                f"CourtyardNorth_Corridor_{index:02d}",
+                "CourtyardNorth",
+                "X",
+                32.5,
+                center,
+                (0, -1, 0),
+                unit_count,
+            )
 
         stair_center_z = {1: 4.20, 2: 7.80, 3: 11.40, 4: 15.00}[floor]
-        append(floor, base_z, "North_StairNW", "North", "X", 45.5, -9.6, (0, 1, 0), 1, STAIR_WINDOW_CLEAR_HEIGHT, z_offset=stair_center_z - base_z)
+        append(floor, base_z, "North_StairNW", "North", "X", 45.5, -9.6, (0, 1, 0), 1, STAIR_WINDOW_CLEAR_HEIGHT, STAIR_WINDOW_UNIT_CLEAR_WIDTH, stair_center_z - base_z)
         if floor == 1:
             north_sets = (
-                ("North_Special_Room01", (8.8, 14.4, 20.0), 1.80),
-                ("North_Special_Room02", (26.8, 32.4, 38.0), 1.80),
+                ("North_Special_Room01", (8.8, 14.4, 20.0)),
+                ("North_Special_Room02", (26.8, 32.4, 38.0)),
             )
         elif floor == 2:
             north_sets = (
-                ("North_StudentCouncil", (9.9,), 1.80),
-                ("North_Broadcast", (18.9,), 1.80),
-                ("North_Special_Room03", (26.8, 32.4, 38.0), 1.80),
+                ("North_StudentCouncil", (9.9,)),
+                ("North_Broadcast", (18.9,)),
+                ("North_Special_Room03", (26.8, 32.4, 38.0)),
             )
         else:
             north_sets = (
-                ("North_Special_Room01", (8.8, 14.4, 20.0), 1.80),
-                ("North_Special_Room02", (26.8, 32.4, 38.0), 1.80),
+                ("North_Special_Room01", (8.8, 14.4, 20.0)),
+                ("North_Special_Room02", (26.8, 32.4, 38.0)),
             )
-        for room_label, centers, unit_width in north_sets:
+        for room_label, centers in north_sets:
             for set_index, center in enumerate(centers, start=1):
-                append(floor, base_z, f"{room_label}_Set{set_index:02d}", "North", "X", 45.5, center, (0, 1, 0), 2, unit_clear_width=unit_width)
+                append(floor, base_z, f"{room_label}_Set{set_index:02d}", "North", "X", 45.5, center, (0, 1, 0), 2)
         if floor in (1, 2, 3):
-            append(floor, base_z, "North_StairNE", "North", "X", 45.5, 44.4, (0, 1, 0), 1, STAIR_WINDOW_CLEAR_HEIGHT, z_offset=stair_center_z - base_z)
+            append(floor, base_z, "North_StairNE", "North", "X", 45.5, 44.4, (0, 1, 0), 1, STAIR_WINDOW_CLEAR_HEIGHT, STAIR_WINDOW_UNIT_CLEAR_WIDTH, stair_center_z - base_z)
 
     for floor, base_z, stair_center_z in ((1, 0.0, 4.20), (2, 3.6, 7.80), (3, 7.2, 11.40)):
-        append(floor, base_z, "West_StairSW", "WestOuter", "Y", -12.6, -0.5, (-1, 0, 0), 1, STAIR_WINDOW_CLEAR_HEIGHT, z_offset=stair_center_z - base_z)
+        append(floor, base_z, "West_StairSW", "WestOuter", "Y", -12.6, -0.5, (-1, 0, 0), 1, STAIR_WINDOW_CLEAR_HEIGHT, STAIR_WINDOW_UNIT_CLEAR_WIDTH, stair_center_z - base_z)
 
     gym_entries = (
-        ("Gym_East_01", "GymEast", "Y", 57.4, -2.34, (1, 0, 0), 1.80),
-        ("Gym_East_02", "GymEast", "Y", 57.4, 8.50, (1, 0, 0), 1.80),
-        ("Gym_East_03", "GymEast", "Y", 57.4, 19.34, (1, 0, 0), 1.80),
-        ("Gym_West_01", "GymWest", "Y", 33.4, -2.34, (-1, 0, 0), 1.80),
-        ("Gym_West_02", "GymWest", "Y", 33.4, 8.50, (-1, 0, 0), 1.80),
-        ("Gym_West_03", "GymWest", "Y", 33.4, 19.34, (-1, 0, 0), 1.80),
-        ("Gym_North_02", "GymNorth", "X", 26.5, 47.4, (0, 1, 0), 1.80),
+        ("Gym_East_01", "GymEast", "Y", 57.4, -2.925, (1, 0, 0)),
+        ("Gym_East_02", "GymEast", "Y", 57.4, 8.500, (1, 0, 0)),
+        ("Gym_East_03", "GymEast", "Y", 57.4, 19.925, (1, 0, 0)),
+        ("Gym_West_01", "GymWest", "Y", 33.4, -2.925, (-1, 0, 0)),
+        ("Gym_West_02", "GymWest", "Y", 33.4, 8.500, (-1, 0, 0)),
+        ("Gym_West_03", "GymWest", "Y", 33.4, 19.925, (-1, 0, 0)),
+        ("Gym_North_02", "GymNorth", "X", 26.5, 47.4, (0, 1, 0)),
     )
-    for label, wall, axis, fixed, horizontal, outward, unit_width in gym_entries:
-        append(0, 0.0, label, wall, axis, fixed, horizontal, outward, 4, GYM_WINDOW_CLEAR_HEIGHT, unit_width, 7.1)
+    for label, wall, axis, fixed, horizontal, outward in gym_entries:
+        append(0, 0.0, label, wall, axis, fixed, horizontal, outward, 4, GYM_WINDOW_CLEAR_HEIGHT, WINDOW_UNIT_CLEAR_WIDTH, 7.1)
+    unknown_open_windows = set(OPEN_WINDOW_UNITS) - {spec.suffix for spec in specs}
+    if unknown_open_windows:
+        raise RuntimeError(f"存在しない窓帯へ開放指定があります: {sorted(unknown_open_windows)}")
     return specs
 
 
@@ -729,10 +824,9 @@ def window_clear_width(spec: WindowSpec) -> float:
     return spec.unit_count * spec.unit_clear_width
 
 
-def open_leaf_index(spec: WindowSpec) -> int:
-    unit_index = (spec.unit_count - 1) // 2
-    opens_left = sum(ord(character) for character in spec.suffix) % 2 == 0
-    return unit_index * 2 + (0 if opens_left else 1)
+def window_link_id(spec: WindowSpec, leaf_index: int) -> str:
+    unit_index = leaf_index // 2 + 1
+    return f"bit-window-{spec.suffix.lower().replace('_', '-')}-u{unit_index:02d}"
 
 
 def window_leaf_center(spec: WindowSpec, leaf_index: int) -> float:
@@ -825,7 +919,7 @@ def closed_leaf_boxes(
     spec: WindowSpec, depth: float
 ) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
     leaf_width = spec.unit_clear_width / 2
-    skipped_leaf = open_leaf_index(spec) if spec.is_open else -1
+    skipped_leaves = set(spec.open_leaf_indices)
     return [
         window_panel_box(
             spec,
@@ -835,7 +929,7 @@ def closed_leaf_boxes(
             depth,
         )
         for leaf_index in range(spec.unit_count * 2)
-        if leaf_index != skipped_leaf
+        if leaf_index not in skipped_leaves
     ]
 
 
@@ -843,8 +937,7 @@ def window_glass_boxes(
     spec: WindowSpec,
 ) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
     boxes = closed_leaf_boxes(spec, 0.025)
-    if spec.is_open:
-        moved_leaf = open_leaf_index(spec)
+    for moved_leaf in spec.open_leaf_indices:
         stacked_leaf = moved_leaf + 1 if moved_leaf % 2 == 0 else moved_leaf - 1
         boxes.append(
             window_panel_box(
@@ -1012,9 +1105,9 @@ def build_gym_storage_window(
     properties = {
         "hs_window_style": "small_fixed",
         "hs_window_panes": 1,
-        "hs_window_open_leaf": 0,
+        "hs_window_open_leaves": "",
         "hs_window_clear_height_m": clear_height,
-        "hs_window_layout_status": "placement_review",
+        "hs_window_layout_status": "final",
     }
     create_mesh_object(
         "VIS_WindowFrame_GymStorage_North_01",
@@ -1180,9 +1273,11 @@ def build_windows_and_links(
             "hs_window_units": spec.unit_count,
             "hs_window_panes": spec.unit_count * 2,
             "hs_window_unit_width_m": spec.unit_clear_width,
-            "hs_window_layout_status": "placement_review",
+            "hs_window_layout_status": "final",
             "hs_window_clear_height_m": spec.clear_height,
-            "hs_window_open_leaf": open_leaf_index(spec) + 1 if spec.is_open else 0,
+            "hs_window_open_leaves": ",".join(
+                str(index + 1) for index in spec.open_leaf_indices
+            ),
         }
         create_mesh_object(
             f"VIS_WindowFrame_{spec.suffix}",
@@ -1198,7 +1293,7 @@ def build_windows_and_links(
             glass_material,
             window_properties,
         )
-        if not spec.is_open:
+        if not spec.open_leaf_indices:
             colliders.append(
                 create_mesh_object(
                     f"COL_ActorOnly_Window_{spec.suffix}",
@@ -1215,49 +1310,52 @@ def build_windows_and_links(
                 collider_collection,
             )
         )
-        open_center = window_leaf_center(spec, open_leaf_index(spec))
-        colliders.append(
-            create_mesh_object(
-                f"COL_HumanOnly_Window_{spec.suffix}",
-                [
-                    window_panel_box(
-                        spec,
-                        open_center,
-                        spec.unit_clear_width / 2,
-                        spec.clear_height,
-                        0.10,
-                    )
-                ],
-                collider_collection,
+        for open_leaf_index in spec.open_leaf_indices:
+            unit_index = open_leaf_index // 2 + 1
+            open_center = window_leaf_center(spec, open_leaf_index)
+            colliders.append(
+                create_mesh_object(
+                    f"COL_HumanOnly_Window_{spec.suffix}_U{unit_index:02d}",
+                    [
+                        window_panel_box(
+                            spec,
+                            open_center,
+                            spec.unit_clear_width / 2,
+                            spec.clear_height,
+                            0.10,
+                        )
+                    ],
+                    collider_collection,
+                )
             )
-        )
 
-        center = (
-            (open_center, spec.fixed, spec.z_center)
-            if spec.axis == "X"
-            else (spec.fixed, open_center, spec.z_center)
-        )
-        outward = Vector(spec.outward)
-        a = Vector(center) + outward * 1.0
-        b = Vector(center) - outward * 1.0
-        common = {
-            "hs_id": spec.link_id,
-            "hs_link_kind": "bit_window",
-            "hs_bidirectional": True,
-            "hs_link_radius_m": LINK_RADIUS_METERS,
-        }
-        create_empty(
-            f"LNK_{spec.link_id}_A",
-            tuple(a),
-            semantic_collection,
-            {**common, "hs_endpoint": "A"},
-        )
-        create_empty(
-            f"LNK_{spec.link_id}_B",
-            tuple(b),
-            semantic_collection,
-            {**common, "hs_endpoint": "B"},
-        )
+            center = (
+                (open_center, spec.fixed, spec.z_center)
+                if spec.axis == "X"
+                else (spec.fixed, open_center, spec.z_center)
+            )
+            outward = Vector(spec.outward)
+            a = Vector(center) + outward * 1.0
+            b = Vector(center) - outward * 1.0
+            link_id = window_link_id(spec, open_leaf_index)
+            common = {
+                "hs_id": link_id,
+                "hs_link_kind": "bit_window",
+                "hs_bidirectional": True,
+                "hs_link_radius_m": LINK_RADIUS_METERS,
+            }
+            create_empty(
+                f"LNK_{link_id}_A",
+                tuple(a),
+                semantic_collection,
+                {**common, "hs_endpoint": "A"},
+            )
+            create_empty(
+                f"LNK_{link_id}_B",
+                tuple(b),
+                semantic_collection,
+                {**common, "hs_endpoint": "B"},
+            )
     return colliders
 
 
@@ -1842,13 +1940,13 @@ def is_current_generation() -> bool:
     names = tuple(bpy.data.objects.keys())
     return (
         bpy.context.scene.get(GENERATOR_VERSION_PROPERTY) == GENERATOR_VERSION
-        and bpy.context.scene.get("b03_window_layout_status") == "placement_review"
-        and sum(name.startswith("VIS_WindowFrame_") for name in names) == 94
-        and sum(name.startswith("VIS_WindowGlass_") for name in names) == 94
-        and sum(name.startswith("COL_ActorOnly_Window_") for name in names) == 94
-        and sum(name.startswith("COL_ActorOnly_WindowFixed_") for name in names) == 0
-        and sum(name.startswith("COL_HumanOnly_Window_") for name in names) == 0
-        and sum(name.startswith("LNK_bit-window-") for name in names) == 0
+        and bpy.context.scene.get("b03_window_layout_status") == "final"
+        and sum(name.startswith("VIS_WindowFrame_") for name in names) == 83
+        and sum(name.startswith("VIS_WindowGlass_") for name in names) == 83
+        and sum(name.startswith("COL_ActorOnly_Window_") for name in names) == 34
+        and sum(name.startswith("COL_ActorOnly_WindowFixed_") for name in names) == 49
+        and sum(name.startswith("COL_HumanOnly_Window_") for name in names) == 58
+        and sum(name.startswith("LNK_bit-window-") for name in names) == 116
         and sum(name.startswith("LNK_bit-roof-") for name in names) == 4
         and GENERATED_EXACT_NAMES.issubset(names)
         and "VOL_PoolWater" in names
@@ -1869,8 +1967,9 @@ def print_build_result(
         "meshes": len(bpy.data.meshes),
         "materials": len(bpy.data.materials),
         "windows": len(specs) + 1,
-        "open_windows": sum(spec.is_open for spec in specs),
-        "closed_windows": sum(not spec.is_open for spec in specs) + 1,
+        "open_window_bands": sum(bool(spec.open_leaf_indices) for spec in specs),
+        "open_window_units": sum(len(spec.open_leaf_indices) for spec in specs),
+        "closed_window_bands": sum(not spec.open_leaf_indices for spec in specs) + 1,
         "glb_optimization": optimization,
     }
     print("B03_BUILD_RESULT=" + json.dumps(result, ensure_ascii=False, sort_keys=True))
@@ -1885,8 +1984,8 @@ def main() -> None:
     export_collection = collection(EXPORT_COLLECTION_NAME)
 
     specs = build_window_specs()
-    if len(specs) != 93 or any(spec.is_open for spec in specs):
-        raise RuntimeError("配置確認用の連続窓帯が93件／全閉ではありません")
+    if len(specs) != 82 or sum(len(spec.open_leaf_indices) for spec in specs) != 58:
+        raise RuntimeError("最終窓帯が82件または開放ユニットが58件ではありません")
     removed_authoring_data = remove_final_unused_authoring_data()
     if is_current_generation():
         if removed_authoring_data:
@@ -1965,7 +2064,7 @@ def main() -> None:
     normalize_export_meshes(export_collection)
 
     bpy.context.scene[GENERATOR_VERSION_PROPERTY] = GENERATOR_VERSION
-    bpy.context.scene["b03_window_layout_status"] = "placement_review"
+    bpy.context.scene["b03_window_layout_status"] = "final"
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_PATH), check_existing=False)
     bpy.context.scene[GENERATOR_SIGNATURE_PROPERTY] = generation_signature()
