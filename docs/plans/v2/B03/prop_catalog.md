@@ -29,7 +29,7 @@
 | `VIS_Prop_StageLectern` | 体育館舞台 | 0.80×0.554×1.099 | 床置き | 不可 | `COL_Prop_StageLectern` | 60 | Wood |
 | `VIS_Prop_Urinal` | 男子トイレ | 0.40×0.35×0.65 | 壁付け | 可 | なし | 172 | Porcelain、MetalGray |
 | `VIS_Prop_WesternToilet` | トイレ個室 | 0.40×0.70×0.75 | 床置き | 可 | なし | 168 | Porcelain、PlasticBlack |
-| `VIS_Prop_LargeWoodTable` | 理科室、図書室 | 1.80×0.90×0.72 | 床置き | 不可 | `COL_Prop_LargeWoodTable` | 84 | Wood、MetalGray |
+| `VIS_Prop_LargeWoodTable` | 理科室、図書室ほか | 1.80×0.90×0.72 | 床置き | 不可 | `COL_Prop_LargeWoodTable` | 60 | Wood、MetalGray |
 | `VIS_Prop_CleaningLocker` | 各教室、廊下 | 0.90×0.45×1.80 | 床置き | 不可 | `COL_Prop_CleaningLocker` | 120 | MetalGray、MetalDark |
 | `VIS_Prop_BaggageLocker` | 各教室 | 1.80×0.45×1.20 | 床置き | 不可 | `COL_Prop_BaggageLocker` | 120 | Wood |
 | `VIS_Prop_GrandPiano` | 音楽室 | 1.55×1.45×1.00 | 床置き | 不可 | `COL_Prop_GrandPiano` | 116 | PlasticBlack、Paper、MetalDark、AccentOrange |
@@ -47,11 +47,13 @@
 ## 実測結果
 
 - 表示小物22種、簡略Collider 10種、Library Mesh合計32個
-- 表示小物2,016三角形、Collider 120三角形
+- 表示小物1,992三角形、Collider 120三角形
 - 共有Material 9種。全表示Meshのdatablockはsingle-user
 - Object名とMesh Data名は全32個で一致し、正本のrotationは0、scaleは1
 - 通行不可10種だけに12三角形の箱Colliderを設定
 - 教室机、教室椅子、職員椅子、PCモニターの転倒・回転は、専用小物を作らず、Preview内で正本Meshの複製後Transformだけを変更
 - 通常状態の教室机・椅子と、本・筆箱の机上配置、単紙の床上配置を組み合わせた小規模な教室散乱見本をPreviewへ収録
-- 確認用GLBは183,172 bytes、SHA-256は`D1DB5214D22DCA26E117F6C0EBB23BC3CCE069E531CF552C8D5067A1262ADA5E`
+- 大型机は全利用先で椅子を収納できるよう、ライブラリ本体から脚同士をつなぐ横棒を撤去した
+- ライブラリ`.blend`は163,659 bytes、SHA-256は`2733FC44E18149C6F8D49C32ED79FD7E949AAD827607CA7418D7F4CC580B559A`
+- 確認用GLBは181,632 bytes、SHA-256は`5B929F1006B4280EA4CE1A5706C5A31F210EEBB7BABE7AD271412930D154C2AC`
 - 確認用GLBはScene 1、Node 32、Mesh 32、Material 9、Camera 0、Animation 0。確認用床、人型、照明、配置例は未収録

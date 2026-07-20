@@ -254,6 +254,38 @@ def rebuild_and_deduplicate_accessors(
         canonical_to_new[canonical_key] = new_index
         remap[old_index] = new_index
 
+    image_view_remap: dict[int, int] = {}
+    for old_view_index in sorted(
+        {
+            image["bufferView"]
+            for image in gltf.get("images", [])
+            if "bufferView" in image
+        }
+    ):
+        view = buffer_views[old_view_index]
+        if view.get("buffer", 0) != 0:
+            raise RuntimeError("複数bufferの埋め込みImageは最適化対象外です")
+        start = view.get("byteOffset", 0)
+        end = start + view.get("byteLength", 0)
+        if start < 0 or end > len(binary_data):
+            raise RuntimeError("埋め込みImageのbufferViewが範囲外です")
+        while len(new_binary) % 4:
+            new_binary.append(0)
+        new_view_index = len(new_buffer_views)
+        new_buffer_views.append(
+            {
+                "buffer": 0,
+                "byteOffset": len(new_binary),
+                "byteLength": end - start,
+            }
+        )
+        new_binary.extend(binary_data[start:end])
+        image_view_remap[old_view_index] = new_view_index
+
+    for image in gltf.get("images", []):
+        if "bufferView" in image:
+            image["bufferView"] = image_view_remap[image["bufferView"]]
+
     remap_accessor_references(gltf, remap)
     gltf["accessors"] = new_accessors
     gltf["bufferViews"] = new_buffer_views
@@ -265,6 +297,7 @@ def rebuild_and_deduplicate_accessors(
         "deduplicated_accessors": len(used_indices) - len(new_accessors),
         "source_buffer_views": len(buffer_views),
         "optimized_buffer_views": len(new_buffer_views),
+        "preserved_image_buffer_views": len(image_view_remap),
     }
 
 

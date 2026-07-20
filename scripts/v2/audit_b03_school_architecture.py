@@ -42,7 +42,7 @@ EXPECTED_NAVMESH_SHA256 = (
     "7326422B609D810E8736B48A08EC819AA962848769A718E175463FE6191A5347"
 )
 EXPECTED_PROP_LIBRARY_SHA256 = (
-    "71E461799D915B046483C9B2343C13818AC12203F94C3481E857E56DDA4F09A4"
+    "2733FC44E18149C6F8D49C32ED79FD7E949AAD827607CA7418D7F4CC580B559A"
 )
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 
@@ -794,7 +794,15 @@ def audit_glb_optimization() -> dict[str, int]:
     buffer_views = gltf.get("bufferViews", [])
     used_indices = collect_used_accessor_indices(gltf)
     require(len(used_indices) == len(accessors), "GLBに未使用Accessorがあります")
-    require(len(buffer_views) == len(accessors), "GLBのAccessorとbufferViewが1対1ではありません")
+    image_view_indices = {
+        image["bufferView"]
+        for image in gltf.get("images", [])
+        if "bufferView" in image
+    }
+    require(
+        len(buffer_views) == len(accessors) + len(image_view_indices),
+        "GLBのAccessor用bufferViewと埋め込みImage用bufferViewの件数が不正です",
+    )
 
     mesh_node_names: dict[int, list[str]] = defaultdict(list)
     for node in gltf.get("nodes", []):
