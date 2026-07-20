@@ -1836,6 +1836,14 @@ def build_nav_sources(
         or obj.name.startswith(("COL_ActorOnly_Window_F02", "COL_ActorOnly_Window_F03", "COL_ActorOnly_Window_F04"))
         or obj.name.startswith(("COL_HumanOnly_Window_F02", "COL_HumanOnly_Window_F03", "COL_HumanOnly_Window_F04"))
     ]
+    blocker_sources.extend(
+        [
+            "COL_StairGuardSystem_NW_2FTo3F",
+            "COL_StairGuardSystem_NW_3FTo4F",
+            "COL_StairGuardSystem_NW_4FToRooftop",
+            "COL_RooftopFacilityShell",
+        ]
+    )
     copy_meshes_into_object(
         "NAV_Blocker_SchoolUpper",
         sorted(blocker_sources),

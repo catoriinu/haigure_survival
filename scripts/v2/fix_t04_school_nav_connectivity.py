@@ -32,11 +32,19 @@ SECOND_FLOOR_PANELS_XY = (
 
 EXPECTED_SOURCE_VERSION = "b03-2-interiors-v05-staffroom-placement"
 CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
-CORRECTION_VERSION = "t04-2b-nav-connectivity-v02"
+CORRECTION_VERSION = "t04-2b-nav-connectivity-v03"
 SUPPORTED_INPUT_CORRECTION_VERSIONS = {
     "t04-2b-nav-connectivity-v01",
+    "t04-2b-nav-connectivity-v02",
     CORRECTION_VERSION,
 }
+
+UPPER_NAV_BLOCKER_SOURCE_NAMES = (
+    "COL_StairGuardSystem_NW_2FTo3F",
+    "COL_StairGuardSystem_NW_3FTo4F",
+    "COL_StairGuardSystem_NW_4FToRooftop",
+    "COL_RooftopFacilityShell",
+)
 
 
 def sha256_file(path: Path) -> str:
@@ -108,7 +116,7 @@ def replace_nav_source(
     )
 
 
-def rebuild_nav_sources() -> None:
+def rebuild_nav_sources() -> int:
     for floor in (2, 3, 4):
         replace_nav_source(
             f"NAV_Walkable_Interior{floor}F",
@@ -126,6 +134,42 @@ def rebuild_nav_sources() -> None:
         ],
         {"hs_nav_role": "walkable", "hs_nav_area": "stairs"},
     )
+
+    upper_blocker_sources = sorted(
+        [
+            obj.name
+            for obj in bpy.data.objects
+            if obj.name.startswith("COL_B03_InteriorWalls_F0")
+            or obj.name.startswith(
+                (
+                    "COL_B03_ExteriorWalls_F02",
+                    "COL_B03_ExteriorWalls_F03",
+                    "COL_B03_ExteriorWalls_F04",
+                )
+            )
+            or obj.name.startswith(
+                (
+                    "COL_ActorOnly_Window_F02",
+                    "COL_ActorOnly_Window_F03",
+                    "COL_ActorOnly_Window_F04",
+                )
+            )
+            or obj.name.startswith(
+                (
+                    "COL_HumanOnly_Window_F02",
+                    "COL_HumanOnly_Window_F03",
+                    "COL_HumanOnly_Window_F04",
+                )
+            )
+            or obj.name in UPPER_NAV_BLOCKER_SOURCE_NAMES
+        ]
+    )
+    replace_nav_source(
+        "NAV_Blocker_SchoolUpper",
+        upper_blocker_sources,
+        {"hs_nav_role": "blocker"},
+    )
+    return len(upper_blocker_sources)
 
 
 def main() -> None:
@@ -146,7 +190,7 @@ def main() -> None:
         )
 
     rebuild_upper_floor_openings()
-    rebuild_nav_sources()
+    upper_nav_blocker_source_count = rebuild_nav_sources()
     export_collection = architecture.collection(architecture.EXPORT_COLLECTION_NAME)
     material_result = architecture.consolidate_school_materials(export_collection)
     bpy.context.scene[architecture.GENERATOR_VERSION_PROPERTY] = architecture.GENERATOR_VERSION
@@ -166,6 +210,7 @@ def main() -> None:
                 "glbSha256": sha256_file(architecture.GLB_PATH),
                 "materials": material_result,
                 "secondFloorPanelCount": len(SECOND_FLOOR_PANELS_XY),
+                "upperNavBlockerSourceCount": upper_nav_blocker_source_count,
                 "upperFloorPanelCount": len(NORTHWEST_OPEN_FLOOR_PANELS_XY),
             },
             ensure_ascii=False,
