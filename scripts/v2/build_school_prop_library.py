@@ -464,12 +464,6 @@ def build_large_table(materials: dict[str, bpy.types.Material]) -> list[bpy.type
     for x in (-0.82, 0.82):
         for y in (-0.37, 0.37):
             parts.append(add_box((0.055, 0.055, 0.67), (x, y, 0.335), materials["metal_gray"]))
-    parts.extend(
-        [
-            add_box((1.64, 0.035, 0.035), (0.0, -0.37, 0.16), materials["metal_gray"]),
-            add_box((1.64, 0.035, 0.035), (0.0, 0.37, 0.16), materials["metal_gray"]),
-        ]
-    )
     return parts
 
 

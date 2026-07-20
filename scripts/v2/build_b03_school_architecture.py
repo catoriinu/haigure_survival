@@ -20,6 +20,10 @@ if str(SCRIPT_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIRECTORY))
 
 from optimize_b03_school_glb import optimize_glb
+from build_b03_school_interiors import (
+    build_school_interiors,
+    consolidate_school_materials,
+)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -45,7 +49,7 @@ WINDOW_FRAME_BORDER = 0.05
 WINDOW_MEETING_STILE_WIDTH = 0.06
 WALL_THICKNESS = 0.30
 LINK_RADIUS_METERS = 0.54
-GENERATOR_VERSION = "b03-1-architecture-v15-final-window-links"
+GENERATOR_VERSION = "b03-2-interiors-v03-full-school"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 
@@ -80,6 +84,7 @@ GENERATED_EXACT_NAMES = {
     "NAV_Walkable_StairsNWUpper",
     "NAV_Walkable_Rooftop",
     "NAV_Blocker_SchoolUpper",
+    "NAV_Blocker_Interiors",
 }
 
 SOURCE_OBJECTS_TO_REMOVE = {
@@ -1987,7 +1992,8 @@ def main() -> None:
     if len(specs) != 82 or sum(len(spec.open_leaf_indices) for spec in specs) != 58:
         raise RuntimeError("最終窓帯が82件または開放ユニットが58件ではありません")
     removed_authoring_data = remove_final_unused_authoring_data()
-    if is_current_generation():
+    force_rebuild = "--force" in sys.argv
+    if is_current_generation() and not force_rebuild:
         if removed_authoring_data:
             bpy.context.preferences.filepaths.save_version = 0
             bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_PATH), check_existing=False)
@@ -2059,9 +2065,19 @@ def main() -> None:
     build_roof_links(semantic_collection)
     build_pool(visual_collection, semantic_collection, water_material)
     build_minimum_props(visual_collection, collider_collection, bench_material)
+    interior_result = build_school_interiors(
+        visual_collection, collider_collection, nav_collection
+    )
+    bpy.context.scene["b03_2_interior_result"] = json.dumps(
+        interior_result, ensure_ascii=False, sort_keys=True
+    )
     build_stair_finish(visual_collection, nosing_material, rail_material)
     build_nav_sources(nav_collection, upper_colliders, window_colliders)
     normalize_export_meshes(export_collection)
+    material_result = consolidate_school_materials(export_collection)
+    bpy.context.scene["b03_2_material_result"] = json.dumps(
+        material_result, ensure_ascii=False, sort_keys=True
+    )
 
     bpy.context.scene[GENERATOR_VERSION_PROPERTY] = GENERATOR_VERSION
     bpy.context.scene["b03_window_layout_status"] = "final"
