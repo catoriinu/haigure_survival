@@ -49,7 +49,7 @@ WINDOW_FRAME_BORDER = 0.05
 WINDOW_MEETING_STILE_WIDTH = 0.06
 WALL_THICKNESS = 0.30
 LINK_RADIUS_METERS = 0.54
-GENERATOR_VERSION = "b03-2-interiors-v04-matrix-complete"
+GENERATOR_VERSION = "b03-2-interiors-v05-staffroom-placement"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 

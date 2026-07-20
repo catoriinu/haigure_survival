@@ -126,6 +126,9 @@ PROP_COLLIDER_SIZES = {
     "Bookshelf": (0.90, 0.32, 1.80),
 }
 
+STAFFROOM_INTERIOR_BOUNDS = (5.4, 23.4, 36.5, 45.5)
+STAFFROOM_CLEANING_LOCKER = (7.0, 44.8, 0.0)
+
 
 def png_chunk(chunk_type: bytes, data: bytes) -> bytes:
     return (
@@ -982,7 +985,7 @@ def build_school_rooms(
                     )
     staff.add_prop(sources, "Bookshelf", 5.8, 44.0, math.pi / 2)
     staff.add_prop(sources, "Bookshelf", 23.0, 44.0, math.pi / 2)
-    staff.add_prop(sources, "CleaningLocker", 1.0, 44.8)
+    staff.add_prop(sources, "CleaningLocker", *STAFFROOM_CLEANING_LOCKER)
     add_additional_prop(staff, "BulletinBoard", (14.4, 45.32, 0.0))
     add_additional_prop(staff, "WallClock", (18.0, 45.33, 0.0))
     add_additional_prop(staff, "TrashBin", (22.7, 37.3, 0.0))

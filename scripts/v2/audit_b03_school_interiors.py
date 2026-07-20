@@ -15,7 +15,13 @@ SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 if str(SCRIPT_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIRECTORY))
 
-from build_b03_school_interiors import ADDITIONAL_PROP_TYPES, ATLAS_DEFINITIONS
+from build_b03_school_interiors import (
+    ADDITIONAL_PROP_TYPES,
+    ATLAS_DEFINITIONS,
+    PROP_COLLIDER_SIZES,
+    STAFFROOM_CLEANING_LOCKER,
+    STAFFROOM_INTERIOR_BOUNDS,
+)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -312,6 +318,49 @@ def main() -> None:
                     f"室内小物数が不正です: {room_name}/{prop_type}="
                     f"{actual_counts.get(prop_type)}/{expected_count}"
                 )
+    staffroom_collider = bpy.data.objects["COL_B03_Interior_F01_StaffRoom"]
+    locker_x, locker_y, locker_rotation = STAFFROOM_CLEANING_LOCKER
+    if locker_rotation != 0.0:
+        raise RuntimeError("職員室の掃除ロッカー回転が監査前提と一致しません")
+    locker_width, locker_depth, locker_height = PROP_COLLIDER_SIZES[
+        "CleaningLocker"
+    ]
+    locker_minimum = Vector(
+        (
+            locker_x - locker_width / 2,
+            locker_y - locker_depth / 2,
+            0.0,
+        )
+    )
+    locker_maximum = Vector(
+        (
+            locker_x + locker_width / 2,
+            locker_y + locker_depth / 2,
+            locker_height,
+        )
+    )
+    room_min_x, room_max_x, room_min_y, room_max_y = STAFFROOM_INTERIOR_BOUNDS
+    if not (
+        room_min_x <= locker_minimum.x
+        and locker_maximum.x <= room_max_x
+        and room_min_y <= locker_minimum.y
+        and locker_maximum.y <= room_max_y
+    ):
+        raise RuntimeError("職員室の掃除ロッカーが職員室区画外です")
+    if not any(
+        all(
+            abs(actual_minimum[axis] - locker_minimum[axis]) < 1e-6
+            for axis in range(3)
+        )
+        and all(
+            abs(actual_maximum[axis] - locker_maximum[axis]) < 1e-6
+            for axis in range(3)
+        )
+        for actual_minimum, actual_maximum in connected_component_aabbs(
+            staffroom_collider
+        )
+    ):
+        raise RuntimeError("職員室の掃除ロッカーColliderを確認できません")
     for floor in range(1, 5):
         corridor_name = f"F{floor:02d}_Corridors"
         if room_counts[corridor_name].get("CleaningLocker") != 1:
