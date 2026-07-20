@@ -16,15 +16,27 @@ if str(SCRIPT_DIRECTORY) not in sys.path:
 import build_b03_school_architecture as architecture
 
 
-FLOOR_PANELS_XY = (
+NORTHWEST_OPEN_FLOOR_PANELS_XY = (
     ((-12.6, -3.5), (0.0, 32.5)),
     ((-6.6, 32.5), (47.4, 45.5)),
     ((-12.6, 32.5), (-6.6, 38.9)),
 )
 
+SECOND_FLOOR_PANELS_XY = (
+    ((-6.0, -3.5), (0.0, 32.5)),
+    ((-12.6, 2.5), (-6.0, 32.5)),
+    ((-6.6, 32.5), (41.4, 45.5)),
+    ((-12.6, 32.5), (-6.6, 38.9)),
+    ((41.4, 32.5), (47.4, 38.9)),
+)
+
 EXPECTED_SOURCE_VERSION = "b03-2-interiors-v05-staffroom-placement"
 CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
-CORRECTION_VERSION = "t04-2b-nav-connectivity-v01"
+CORRECTION_VERSION = "t04-2b-nav-connectivity-v02"
+SUPPORTED_INPUT_CORRECTION_VERSIONS = {
+    "t04-2b-nav-connectivity-v01",
+    CORRECTION_VERSION,
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -48,18 +60,28 @@ def rebuild_box_object(
         obj.data.materials.clear()
 
 
-def floor_boxes(base_z: float) -> list[
+def floor_boxes(
+    base_z: float,
+    panels_xy: tuple[
+        tuple[tuple[float, float], tuple[float, float]], ...
+    ] = NORTHWEST_OPEN_FLOOR_PANELS_XY,
+) -> list[
     tuple[tuple[float, float, float], tuple[float, float, float]]
 ]:
     return [
         ((minimum[0], minimum[1], base_z - 0.15), (maximum[0], maximum[1], base_z))
-        for minimum, maximum in FLOOR_PANELS_XY
+        for minimum, maximum in panels_xy
     ]
 
 
 def rebuild_upper_floor_openings() -> None:
     for floor, base_z in ((2, 3.6), (3, 7.2), (4, 10.8)):
-        boxes = floor_boxes(base_z)
+        boxes = floor_boxes(
+            base_z,
+            SECOND_FLOOR_PANELS_XY
+            if floor == 2
+            else NORTHWEST_OPEN_FLOOR_PANELS_XY,
+        )
         rebuild_box_object(f"VIS_B03_Floor_F{floor:02d}", boxes)
         rebuild_box_object(f"COL_B03_Floor_F{floor:02d}", boxes)
 
@@ -113,12 +135,13 @@ def main() -> None:
     correction_version = bpy.context.scene.get(CORRECTION_VERSION_PROPERTY)
     valid_source = source_version == EXPECTED_SOURCE_VERSION or (
         source_version == architecture.GENERATOR_VERSION
-        and correction_version == CORRECTION_VERSION
+        and correction_version in SUPPORTED_INPUT_CORRECTION_VERSIONS
     )
     if not valid_source:
         raise RuntimeError(
             "B03-2最終生成版が一致しません: "
-            f"expected={EXPECTED_SOURCE_VERSION} or {CORRECTION_VERSION}, "
+            f"expected={EXPECTED_SOURCE_VERSION} or "
+            f"{sorted(SUPPORTED_INPUT_CORRECTION_VERSIONS)}, "
             f"actual={source_version}, correction={correction_version}"
         )
 
@@ -142,7 +165,8 @@ def main() -> None:
                 "glbOptimization": optimization,
                 "glbSha256": sha256_file(architecture.GLB_PATH),
                 "materials": material_result,
-                "upperFloorPanelCount": len(FLOOR_PANELS_XY),
+                "secondFloorPanelCount": len(SECOND_FLOOR_PANELS_XY),
+                "upperFloorPanelCount": len(NORTHWEST_OPEN_FLOOR_PANELS_XY),
             },
             ensure_ascii=False,
             sort_keys=True,
