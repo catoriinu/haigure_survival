@@ -729,11 +729,12 @@ def build_classroom(
                 math.pi + rotation,
             )
     add_wall_blackboard(room, sources, -8.05, 12.34 + room_y_offset, math.pi)
+    for locker_x in (-11.15, -8.95, -6.75):
+        room.add_prop(
+            sources, "BaggageLocker", locker_x, 2.82 + room_y_offset, math.pi
+        )
     room.add_prop(
-        sources, "BaggageLocker", -10.8, 2.82 + room_y_offset, math.pi
-    )
-    room.add_prop(
-        sources, "CleaningLocker", -9.25, 2.82 + room_y_offset, math.pi
+        sources, "CleaningLocker", -4.75, 2.82 + room_y_offset, math.pi
     )
     add_additional_prop(
         room,
@@ -873,6 +874,9 @@ def build_common_area_rooms(
             corridor, "FireExtinguisher", (42.0, 36.2, base_z), 0.0
         )
         add_additional_prop(corridor, "RoomSign", (6.0, 36.32, base_z), 0.0)
+        corridor.add_prop(
+            sources, "CleaningLocker", -3.15, 6.8, math.pi / 2
+        )
         rooms.append(corridor)
 
     main_entry = RoomBuilder.create("F01_MainEntry", 0.0)
@@ -930,7 +934,7 @@ def build_school_rooms(
     infirmary.add_prop(sources, "StaffChair", -5.8, 5.2, math.pi / 2)
     infirmary.add_prop(sources, "Bookshelf", -7.2, 10.8, math.pi / 2)
     infirmary.add_prop(sources, "CleaningLocker", -10.7, 11.7, math.pi / 2)
-    add_additional_prop(infirmary, "TeacherDesk", (-6.2, 5.2, 0.0), math.pi / 2)
+    infirmary.add_prop(sources, "StaffDesk", -6.2, 5.2, math.pi / 2)
     add_additional_prop(infirmary, "MedicalCabinet", (-5.0, 10.8, 0.0), math.pi / 2)
     add_additional_prop(infirmary, "InfirmaryCurtain", (-9.5, 6.1, 0.0), math.pi / 2)
     add_additional_prop(infirmary, "WashBasin", (-5.0, 8.8, 0.0), math.pi / 2)
@@ -978,6 +982,7 @@ def build_school_rooms(
                     )
     staff.add_prop(sources, "Bookshelf", 5.8, 44.0, math.pi / 2)
     staff.add_prop(sources, "Bookshelf", 23.0, 44.0, math.pi / 2)
+    staff.add_prop(sources, "CleaningLocker", 1.0, 44.8)
     add_additional_prop(staff, "BulletinBoard", (14.4, 45.32, 0.0))
     add_additional_prop(staff, "WallClock", (18.0, 45.33, 0.0))
     add_additional_prop(staff, "TrashBin", (22.7, 37.3, 0.0))
@@ -1001,6 +1006,9 @@ def build_school_rooms(
                 pc, "KeyboardMouse", (x - 0.16, y, 0.0), -math.pi / 2
             )
     add_additional_prop(pc, "AvRack", (40.5, 37.4, 0.0))
+    pc.add_prop(sources, "BaggageLocker", 29.0, 44.8)
+    pc.add_prop(sources, "BaggageLocker", 31.2, 44.8)
+    pc.add_prop(sources, "CleaningLocker", 32.7, 44.8)
     rooms.append(pc)
 
     council = RoomBuilder.create("F02_Council", 3.6)
@@ -1018,6 +1026,9 @@ def build_school_rooms(
     broadcast = RoomBuilder.create("F02_Broadcast", 3.6)
     add_additional_prop(broadcast, "BroadcastConsole", (18.8, 41.2, 3.6))
     add_additional_prop(broadcast, "AvRack", (15.2, 44.7, 3.6))
+    broadcast.add_prop(sources, "StaffDesk", 16.4, 38.5)
+    broadcast.add_prop(sources, "StaffDesk", 21.2, 38.5)
+    broadcast.add_prop(sources, "BaggageLocker", 16.7, 44.8)
     broadcast.add_prop(sources, "StaffChair", 18.2, 42.15, 0.0)
     broadcast.add_prop(sources, "StaffChair", 19.4, 42.15, 0.0)
     add_desktop_prop(broadcast, sources, "PcMonitor", 18.2, 41.2, 0.0, 0.80)
@@ -1033,6 +1044,9 @@ def build_school_rooms(
                 add_additional_prop(science, "ScienceStool", (x + dx, y + 0.72, 3.6))
     add_wall_blackboard(science, sources, 41.34, 41.0, math.pi / 2)
     add_additional_prop(science, "MedicalCabinet", (40.5, 44.7, 3.6))
+    science.add_prop(sources, "Bookshelf", 27.0, 44.8)
+    science.add_prop(sources, "Bookshelf", 28.2, 44.8)
+    science.add_prop(sources, "CleaningLocker", 29.4, 44.8)
     rooms.append(science)
 
     art = RoomBuilder.create("F03_Art", 7.2)
@@ -1042,6 +1056,9 @@ def build_school_rooms(
     for x in (-4.5, 0.0, 4.5, 9.0, 13.0):
         add_additional_prop(art, "Easel", (x, 37.6, 7.2), math.pi / 2)
     add_wall_blackboard(art, sources, 23.34, 41.0, math.pi / 2)
+    art.add_prop(sources, "Bookshelf", -4.8, 44.8)
+    art.add_prop(sources, "Bookshelf", -3.6, 44.8)
+    art.add_prop(sources, "CleaningLocker", -2.4, 44.8)
     rooms.append(art)
 
     home = RoomBuilder.create("F03_HomeEc", 7.2)
@@ -1055,6 +1072,7 @@ def build_school_rooms(
                 home.add_prop(sources, "ClassroomChair", x + dx, y + 0.72, 0.0)
     add_additional_prop(home, "WashBasin", (40.5, 44.5, 7.2), math.pi / 2)
     add_wall_blackboard(home, sources, 41.34, 39.4, math.pi / 2)
+    home.add_prop(sources, "CleaningLocker", 27.0, 44.8)
     rooms.append(home)
 
     ll = RoomBuilder.create("F04_LL", 10.8)
@@ -1066,6 +1084,8 @@ def build_school_rooms(
             ll.add_prop(sources, "ClassroomChair", x - 0.31, y, math.pi / 2)
     add_wall_blackboard(ll, sources, 23.34, 41.0, math.pi / 2)
     add_additional_prop(ll, "AvRack", (-5.7, 44.7, 10.8))
+    ll.add_prop(sources, "BaggageLocker", 2.0, 44.8)
+    ll.add_prop(sources, "BaggageLocker", 4.2, 44.8)
     rooms.append(ll)
 
     music = RoomBuilder.create("F04_Music", 10.8)
@@ -1076,6 +1096,9 @@ def build_school_rooms(
             y = 38.2 + row * 1.35
             music.add_prop(sources, "ClassroomChair", x, y, -math.pi / 2)
     add_wall_blackboard(music, sources, 41.34, 41.0, math.pi / 2)
+    music.add_prop(sources, "Bookshelf", 34.5, 44.8)
+    music.add_prop(sources, "Bookshelf", 35.7, 44.8)
+    music.add_prop(sources, "CleaningLocker", 36.9, 44.8)
     rooms.append(music)
 
     gym = RoomBuilder.create("Gym", 0.0)
@@ -1091,6 +1114,8 @@ def build_school_rooms(
     changing = RoomBuilder.create("RoofChanging", 14.5)
     for x in (-5.4, -3.1, -0.8, 1.3):
         changing.add_prop(sources, "BaggageLocker", x, 44.8)
+    changing.add_prop(sources, "CleaningLocker", 3.0, 44.8)
+    changing.add_prop(sources, "CleaningLocker", 4.2, 44.8)
     add_additional_prop(changing, "ChangingBench", (-4.2, 41.3, 14.5))
     add_additional_prop(changing, "ChangingBench", (0.2, 41.3, 14.5))
     add_additional_prop(changing, "Mirror", (-2.1, 45.3, 14.5))

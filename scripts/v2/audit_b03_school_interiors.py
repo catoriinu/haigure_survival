@@ -179,7 +179,7 @@ def main() -> None:
         key=lambda obj: obj.name,
     )
     nav_blocker = bpy.data.objects.get("NAV_Blocker_Interiors")
-    if not interior_visuals or len(interior_colliders) != 29 or nav_blocker is None:
+    if not interior_visuals or len(interior_colliders) != 33 or nav_blocker is None:
         raise RuntimeError("全校内装の表示・Collider・Nav blockerが不足しています")
     if nav_blocker.get("hs_nav_role") != "blocker":
         raise RuntimeError("NAV_Blocker_Interiorsのhs_nav_roleが不正です")
@@ -205,8 +205,11 @@ def main() -> None:
         if (
             classroom_counts.get("ClassroomDesk") != 30
             or classroom_counts.get("ClassroomChair") != 30
+            or classroom_counts.get("Blackboard") != 1
+            or classroom_counts.get("BaggageLocker") != 3
+            or classroom_counts.get("CleaningLocker") != 1
         ):
-            raise RuntimeError(f"普通教室が30組ではありません: {room_name}")
+            raise RuntimeError(f"普通教室の必須家具数が不正です: {room_name}")
         if not 0.15 <= metrics["scatter_ratio"] <= 0.25:
             raise RuntimeError(f"普通教室の散乱率が範囲外です: {room_name}")
         if not 2 <= metrics["book_paper_spots"] <= 4:
@@ -219,22 +222,87 @@ def main() -> None:
         raise RuntimeError("北側校舎の教室前方が東ではありません")
 
     expected_room_counts = {
-        "F01_Library": {"Bookshelf": 18, "LargeWoodTable": 4, "ClassroomChair": 16},
-        "F01_StaffRoom": {"StaffDesk": 12, "StaffChair": 12, "PcMonitor": 6},
+        "F01_Infirmary": {
+            "InfirmaryBed": 2,
+            "StaffDesk": 1,
+            "StaffChair": 1,
+            "Bookshelf": 1,
+            "CleaningLocker": 1,
+        },
+        "F01_Library": {
+            "Bookshelf": 18,
+            "LargeWoodTable": 4,
+            "ClassroomChair": 16,
+            "StaffDesk": 1,
+            "StaffChair": 1,
+        },
+        "F01_StaffRoom": {
+            "StaffDesk": 12,
+            "StaffChair": 12,
+            "PcMonitor": 6,
+            "Bookshelf": 2,
+            "CleaningLocker": 1,
+        },
         "F01_PcRoom": {
             "StaffDesk": 24,
             "StaffChair": 24,
             "PcMonitor": 24,
+            "BaggageLocker": 2,
+            "CleaningLocker": 1,
             "PcTower": 24,
             "KeyboardMouse": 24,
         },
-        "F02_Council": {"LargeWoodTable": 2, "ClassroomChair": 8},
-        "F02_Broadcast": {"StaffChair": 2, "BroadcastConsole": 1},
-        "F02_Science": {"LabBench": 6, "ScienceStool": 36, "Blackboard": 1},
-        "F03_Art": {"LargeWoodTable": 6, "ClassroomChair": 24, "Easel": 5, "Blackboard": 1},
-        "F03_HomeEc": {"KitchenIsland": 4, "ClassroomChair": 24, "Blackboard": 1},
-        "F04_LL": {"ClassroomDesk": 24, "ClassroomChair": 24, "Blackboard": 1},
-        "F04_Music": {"ClassroomChair": 30, "Blackboard": 1},
+        "F02_Council": {
+            "LargeWoodTable": 2,
+            "ClassroomChair": 8,
+            "StaffDesk": 1,
+            "StaffChair": 1,
+            "BaggageLocker": 1,
+        },
+        "F02_Broadcast": {
+            "StaffDesk": 2,
+            "StaffChair": 2,
+            "PcMonitor": 2,
+            "BaggageLocker": 1,
+            "BroadcastConsole": 1,
+        },
+        "F02_Science": {
+            "LabBench": 6,
+            "ScienceStool": 36,
+            "Blackboard": 1,
+            "Bookshelf": 2,
+            "CleaningLocker": 1,
+        },
+        "F03_Art": {
+            "LargeWoodTable": 6,
+            "ClassroomChair": 24,
+            "Easel": 5,
+            "Blackboard": 1,
+            "Bookshelf": 2,
+            "CleaningLocker": 1,
+        },
+        "F03_HomeEc": {
+            "KitchenIsland": 4,
+            "ClassroomChair": 24,
+            "Blackboard": 1,
+            "CleaningLocker": 1,
+        },
+        "F04_LL": {
+            "ClassroomDesk": 24,
+            "ClassroomChair": 24,
+            "Blackboard": 1,
+            "BaggageLocker": 2,
+        },
+        "F04_Music": {
+            "GrandPiano": 1,
+            "ClassroomChair": 30,
+            "Blackboard": 1,
+            "Bookshelf": 2,
+            "CleaningLocker": 1,
+        },
+        "Gym": {"BasketballGoal": 2, "VaultingBox": 2, "StageLectern": 1},
+        "GymStorage": {"VaultingBox": 2, "CleaningLocker": 1},
+        "RoofChanging": {"BaggageLocker": 4, "CleaningLocker": 2},
     }
     for room_name, expected_counts in expected_room_counts.items():
         actual_counts = room_counts[room_name]
@@ -244,6 +312,10 @@ def main() -> None:
                     f"室内小物数が不正です: {room_name}/{prop_type}="
                     f"{actual_counts.get(prop_type)}/{expected_count}"
                 )
+    for floor in range(1, 5):
+        corridor_name = f"F{floor:02d}_Corridors"
+        if room_counts[corridor_name].get("CleaningLocker") != 1:
+            raise RuntimeError(f"廊下の掃除ロッカー数が不正です: {corridor_name}")
     if room_counts["F01_PcRoom"].get("Blackboard", 0) != 0:
         raise RuntimeError("PC室に黒板が残っています")
     if room_counts["F04_LL"].get("PcMonitor", 0) != 0:
