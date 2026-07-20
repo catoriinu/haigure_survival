@@ -305,6 +305,44 @@ def add_extruded_polygon(
     return obj
 
 
+def add_rectangular_frustum(
+    bottom_size: tuple[float, float],
+    top_size: tuple[float, float],
+    z_min: float,
+    z_max: float,
+    material: bpy.types.Material,
+) -> bpy.types.Object:
+    bottom_x = bottom_size[0] / 2.0
+    bottom_y = bottom_size[1] / 2.0
+    top_x = top_size[0] / 2.0
+    top_y = top_size[1] / 2.0
+    vertices = [
+        (-bottom_x, -bottom_y, z_min),
+        (bottom_x, -bottom_y, z_min),
+        (bottom_x, bottom_y, z_min),
+        (-bottom_x, bottom_y, z_min),
+        (-top_x, -top_y, z_max),
+        (top_x, -top_y, z_max),
+        (top_x, top_y, z_max),
+        (-top_x, top_y, z_max),
+    ]
+    faces = [
+        (3, 2, 1, 0),
+        (4, 5, 6, 7),
+        (0, 1, 5, 4),
+        (1, 2, 6, 5),
+        (2, 3, 7, 6),
+        (3, 0, 4, 7),
+    ]
+    mesh = bpy.data.meshes.new("TemporaryFrustum")
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new("TemporaryFrustum", mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    assign_material(obj, material)
+    return obj
+
+
 def set_origin_without_moving_geometry(
     obj: bpy.types.Object, world_origin: tuple[float, float, float]
 ) -> None:
@@ -324,6 +362,67 @@ def smart_uv(obj: bpy.types.Object) -> None:
     bpy.ops.uv.smart_project(angle_limit=math.radians(66.0), island_margin=0.02)
     bpy.ops.object.mode_set(mode="OBJECT")
     obj.select_set(False)
+
+
+def triangulate_mesh(obj: bpy.types.Object) -> None:
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.quads_convert_to_tris(quad_method="FIXED", ngon_method="CLIP")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    obj.select_set(False)
+
+
+def canonicalize_triangle_mesh(obj: bpy.types.Object) -> None:
+    source_mesh = obj.data
+    face_records = []
+    material_names = [
+        material.name for material in source_mesh.materials if material is not None
+    ]
+    source_material_indices = {
+        material_name: index for index, material_name in enumerate(material_names)
+    }
+    for polygon in source_mesh.polygons:
+        corners = tuple(
+            tuple(float(value) for value in source_mesh.vertices[index].co)
+            for index in polygon.vertices
+        )
+        first_corner = min(range(len(corners)), key=corners.__getitem__)
+        rotated_corners = corners[first_corner:] + corners[:first_corner]
+        material = source_mesh.materials[polygon.material_index]
+        face_records.append((material.name, polygon.use_smooth, rotated_corners))
+
+    face_records.sort(
+        key=lambda record: (source_material_indices[record[0]], record[2])
+    )
+    coordinates = sorted(
+        {corner for _, _, corners in face_records for corner in corners}
+    )
+    vertex_indices = {coordinate: index for index, coordinate in enumerate(coordinates)}
+    mesh = bpy.data.meshes.new(f"{source_mesh.name}__canonical")
+    mesh.from_pydata(
+        coordinates,
+        [],
+        [
+            tuple(vertex_indices[corner] for corner in corners)
+            for _, _, corners in face_records
+        ],
+    )
+    mesh.update()
+    for material_name in material_names:
+        mesh.materials.append(bpy.data.materials[material_name])
+    material_indices = {
+        material.name: index for index, material in enumerate(mesh.materials)
+    }
+    for polygon, (material_name, use_smooth, _) in zip(mesh.polygons, face_records):
+        polygon.material_index = material_indices[material_name]
+        polygon.use_smooth = use_smooth
+
+    obj.data = mesh
+    bpy.data.meshes.remove(source_mesh)
+    mesh.name = obj.name
 
 
 def join_asset(
@@ -347,7 +446,13 @@ def join_asset(
     set_origin_without_moving_geometry(obj, (0.0, 0.0, 0.0))
     obj.name = name
     obj.data.name = name
-    smart_uv(obj)
+    if name in {"VIS_Prop_Urinal", "VIS_Prop_WesternToilet"}:
+        while obj.data.uv_layers:
+            obj.data.uv_layers.remove(obj.data.uv_layers[0])
+        triangulate_mesh(obj)
+        canonicalize_triangle_mesh(obj)
+    else:
+        smart_uv(obj)
     obj.location = location
     obj.rotation_euler = (0.0, 0.0, 0.0)
     obj.scale = (1.0, 1.0, 1.0)
@@ -553,13 +658,16 @@ def build_basketball_goal(materials: dict[str, bpy.types.Material]) -> list[bpy.
 
 
 def build_vaulting_box(materials: dict[str, bpy.types.Material]) -> list[bpy.types.Object]:
-    parts: list[bpy.types.Object] = []
-    for level in range(5):
-        width = 1.20 - level * 0.08
-        depth = 0.60 - level * 0.035
-        material = materials["fabric"] if level == 4 else materials["wood"]
-        parts.append(add_box((width, depth, 0.20), (0.0, 0.0, 0.10 + level * 0.20), material))
-    return parts
+    return [
+        add_rectangular_frustum(
+            (1.20, 0.60),
+            (0.90, 0.42),
+            0.0,
+            0.90,
+            materials["wood"],
+        ),
+        add_box((0.92, 0.44, 0.10), (0.0, 0.0, 0.95), materials["fabric"]),
+    ]
 
 
 def build_bookshelf(materials: dict[str, bpy.types.Material]) -> list[bpy.types.Object]:

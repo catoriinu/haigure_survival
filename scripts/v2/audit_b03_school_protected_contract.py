@@ -34,18 +34,41 @@ PROTECTED_PREFIXES = (
 ALLOWED_NEW_PREFIXES = ("COL_B03_Interior_",)
 ALLOWED_NEW_EXACT_NAMES = {"NAV_Blocker_Interiors"}
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
-T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v03"
+T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v04"
+T04_ALLOWED_MISSING_EXACT_NAMES = {
+    "COL_StairClosure_NE",
+    "COL_StairClosure_SW",
+}
+T04_ALLOWED_NEW_EXACT_NAMES = {
+    "COL_StairGuardSystem_NE_2FTo3F",
+    "COL_StairGuardSystem_NE_3FTo4F",
+    "COL_StairGuardSystem_SW_2FTo3F",
+    "COL_StairGuardSystem_SW_3FTo4F",
+    "COL_StairSystem_NE_2FTo3F",
+    "COL_StairSystem_NE_3FTo4F",
+    "COL_StairSystem_SW_2FTo3F",
+    "COL_StairSystem_SW_3FTo4F",
+}
 T04_ALLOWED_CHANGED_EXACT_NAMES = {
     "COL_B03_Ceiling_F02",
     "COL_B03_Ceiling_F03",
     "COL_B03_Floor_F02",
     "COL_B03_Floor_F03",
     "COL_B03_Floor_F04",
+    "COL_B03_InteriorWalls_F02",
+    "COL_B03_InteriorWalls_F03",
+    "COL_B03_InteriorWalls_F04",
+    "COL_StairGuard_NE_Upper",
+    "COL_StairGuard_SW_Upper",
+    "COL_StairRampUpper_NE",
+    "COL_StairRampUpper_SW",
+    "COL_Wall_ClassroomCross_2",
     "NAV_Walkable_Interior2F",
     "NAV_Walkable_Interior3F",
     "NAV_Walkable_Interior4F",
     "NAV_Walkable_StairsNWUpper",
     "NAV_Blocker_SchoolUpper",
+    "NAV_Blocker_StairClosed",
 }
 
 
@@ -143,7 +166,7 @@ def compare_baseline() -> None:
     baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
     expected = baseline["objects"]
     current = protected_snapshot()
-    missing = sorted(set(expected) - set(current))
+    all_missing = sorted(set(expected) - set(current))
     all_changed = sorted(
         name for name in set(expected) & set(current) if expected[name] != current[name]
     )
@@ -153,19 +176,48 @@ def compare_baseline() -> None:
         if correction_version == T04_CORRECTION_VERSION
         else []
     )
+    expected_allowed_missing = (
+        sorted(T04_ALLOWED_MISSING_EXACT_NAMES)
+        if correction_version == T04_CORRECTION_VERSION
+        else []
+    )
+    expected_allowed_new = (
+        sorted(T04_ALLOWED_NEW_EXACT_NAMES)
+        if correction_version == T04_CORRECTION_VERSION
+        else []
+    )
+    allowed_missing = sorted(
+        name for name in all_missing if name in T04_ALLOWED_MISSING_EXACT_NAMES
+    )
+    missing = sorted(
+        name for name in all_missing if name not in T04_ALLOWED_MISSING_EXACT_NAMES
+    )
     allowed_changed = sorted(
         name for name in all_changed if name in T04_ALLOWED_CHANGED_EXACT_NAMES
     )
     changed = sorted(
         name for name in all_changed if name not in T04_ALLOWED_CHANGED_EXACT_NAMES
     )
-    unexpected = sorted(
+    all_new = sorted(
         name
         for name in set(current) - set(expected)
         if name not in ALLOWED_NEW_EXACT_NAMES
         and not name.startswith(ALLOWED_NEW_PREFIXES)
     )
-    if missing or changed or unexpected or allowed_changed != expected_allowed_changes:
+    allowed_new = sorted(
+        name for name in all_new if name in T04_ALLOWED_NEW_EXACT_NAMES
+    )
+    unexpected = sorted(
+        name for name in all_new if name not in T04_ALLOWED_NEW_EXACT_NAMES
+    )
+    if (
+        missing
+        or changed
+        or unexpected
+        or allowed_missing != expected_allowed_missing
+        or allowed_changed != expected_allowed_changes
+        or allowed_new != expected_allowed_new
+    ):
         raise RuntimeError(
             "B03-1保護契約が変化しました: "
             + json.dumps(
@@ -173,8 +225,12 @@ def compare_baseline() -> None:
                     "missing": missing,
                     "changed": changed,
                     "unexpected": unexpected,
+                    "t04_allowed_missing": allowed_missing,
+                    "t04_expected_missing": expected_allowed_missing,
                     "t04_allowed_changed": allowed_changed,
                     "t04_expected_changed": expected_allowed_changes,
+                    "t04_allowed_new": allowed_new,
+                    "t04_expected_new": expected_allowed_new,
                 },
                 ensure_ascii=False,
                 sort_keys=True,
@@ -186,7 +242,9 @@ def compare_baseline() -> None:
             {
                 "protected": len(expected),
                 "new_interior_objects": len(set(current) - set(expected)),
+                "t04_allowed_missing": allowed_missing,
                 "t04_allowed_changed": allowed_changed,
+                "t04_allowed_new": allowed_new,
             },
             ensure_ascii=False,
             sort_keys=True,

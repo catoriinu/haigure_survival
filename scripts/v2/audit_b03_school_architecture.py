@@ -25,6 +25,7 @@ from optimize_b03_school_glb import (
     material_uses_texture,
     read_glb,
 )
+from build_b03_school_interiors import swatch_uv
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -39,10 +40,10 @@ PROP_LIBRARY_PATH = (
 )
 
 EXPECTED_NAVMESH_SHA256 = (
-    "EC2626236BA8B2A8619DD8CBC0237AC3003CFA74EEFC144A77F3BD7EB84E8174"
+    "6F70BE017AB46E4446D458981490511A38E4BCE6825AF63BCA5820890465B87B"
 )
 EXPECTED_PROP_LIBRARY_SHA256 = (
-    "2733FC44E18149C6F8D49C32ED79FD7E949AAD827607CA7418D7F4CC580B559A"
+    "47037C4261CE6A5BD86A64EE2E1DEE834A834A25CE6CB979D9329E194BC6311A"
 )
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 
@@ -118,6 +119,181 @@ def world_bounds(obj: bpy.types.Object) -> tuple[Vector, Vector]:
         Vector(tuple(min(point[index] for point in points) for index in range(3))),
         Vector(tuple(max(point[index] for point in points) for index in range(3))),
     )
+
+
+def audit_box_components(
+    object_name: str,
+    expected: list[tuple[tuple[float, float, float], tuple[float, float, float]]],
+) -> int:
+    obj = bpy.data.objects.get(object_name)
+    require(obj is not None and obj.type == "MESH", f"箱形状監査対象がありません: {object_name}")
+    require(
+        len(obj.data.vertices) == len(expected) * 8,
+        f"箱形状監査対象の頂点数が不正です: {object_name}/{len(obj.data.vertices)}",
+    )
+    actual = []
+    for offset in range(0, len(obj.data.vertices), 8):
+        points = [
+            obj.matrix_world @ obj.data.vertices[offset + index].co
+            for index in range(8)
+        ]
+        actual.append(
+            (
+                tuple(min(point[axis] for point in points) for axis in range(3)),
+                tuple(max(point[axis] for point in points) for axis in range(3)),
+            )
+        )
+    actual.sort()
+    expected.sort()
+    require(len(actual) == len(expected), f"箱形状監査対象の部品数が不正です: {object_name}")
+    for actual_bounds, expected_bounds in zip(actual, expected, strict=True):
+        require(
+            all(
+                abs(actual_bounds[bound][axis] - expected_bounds[bound][axis]) <= 1e-5
+                for bound in range(2)
+                for axis in range(3)
+            ),
+            f"箱形状監査対象の位置が不正です: {object_name}/{actual_bounds}/{expected_bounds}",
+        )
+    return len(actual)
+
+
+def require_architecture_swatch(object_name: str, swatch: str) -> None:
+    obj = bpy.data.objects.get(object_name)
+    require(obj is not None and obj.type == "MESH", f"配色監査対象がありません: {object_name}")
+    uv_layer = obj.data.uv_layers.get("UVMap")
+    require(uv_layer is not None, f"配色監査対象にUVがありません: {object_name}")
+    expected_coordinates = swatch_uv("Architecture", swatch)
+    minimum_u = min(coordinate[0] for coordinate in expected_coordinates)
+    maximum_u = max(coordinate[0] for coordinate in expected_coordinates)
+    minimum_v = min(coordinate[1] for coordinate in expected_coordinates)
+    maximum_v = max(coordinate[1] for coordinate in expected_coordinates)
+    require(
+        all(
+            minimum_u - 1e-6 <= loop.uv.x <= maximum_u + 1e-6
+            and minimum_v - 1e-6 <= loop.uv.y <= maximum_v + 1e-6
+            for loop in uv_layer.data
+        ),
+        f"Architecture Atlasの配色が不正です: {object_name}/{swatch}",
+    )
+
+
+def audit_architecture_atlas_rgb() -> int:
+    image = bpy.data.images.get("b03_architecture_atlas.png")
+    require(image is not None, "Architecture Atlas画像がBlender正本にありません")
+    require(tuple(image.size) == (512, 512), "Architecture Atlas画像寸法が不正です")
+    expected_cells = {
+        (0, 0): (214, 210, 197),
+        (1, 0): (232, 231, 221),
+        (3, 0): (176, 145, 101),
+        (1, 1): (120, 76, 42),
+        (2, 2): (51, 107, 51),
+        (3, 2): (46, 97, 173),
+        (0, 3): (117, 38, 26),
+        (1, 3): (92, 117, 98),
+        (2, 3): (72, 78, 79),
+    }
+    width, height = image.size
+    for (column, row_from_top), expected in expected_cells.items():
+        x = column * width // 4 + width // 8
+        y = (3 - row_from_top) * height // 4 + height // 8
+        pixel_offset = (y * width + x) * 4
+        actual = tuple(
+            round(float(image.pixels[pixel_offset + channel]) * 255)
+            for channel in range(3)
+        )
+        require(
+            all(actual[channel] in {expected[channel], expected[channel] + 1} for channel in range(3)),
+            f"Architecture AtlasのRGBが不正です: cell=({column},{row_from_top}), actual={actual}, expected={expected}",
+        )
+    return len(expected_cells)
+
+
+def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
+    atlas_rgb_cells = audit_architecture_atlas_rgb()
+    expected_swatches = {
+        "VIS_SiteGround": "grass",
+        "VIS_CourtyardSurface": "grass",
+        "VIS_Gate_MainClosed": "gate",
+        "VIS_Gate_UtilityClosed": "gate",
+        "VIS_Floor_Gym": "gym_floor",
+        "VIS_GymStage": "gym_stage",
+        "VIS_B03_GymExteriorWalls": "wall",
+        "VIS_B03_GymWainscot": "gym_wainscot",
+        "VIS_B03_GymTrim": "trim",
+    }
+    for floor in range(1, 5):
+        expected_swatches[f"VIS_B03_StoreyTrim_F{floor:02d}"] = "trim"
+    for object_name, swatch in expected_swatches.items():
+        require_architecture_swatch(object_name, swatch)
+
+    trim_components = audit_box_components(
+        "VIS_B03_GymTrim",
+        [
+            ((33.59, -9.35, 0.02), (33.63, 4.95, 0.14)),
+            ((33.59, 8.05, 0.02), (33.63, 26.35, 0.14)),
+            ((57.17, -9.35, 0.02), (57.21, 26.35, 0.14)),
+            ((33.55, 26.27, 0.02), (39.35, 26.31, 0.14)),
+            ((43.45, 26.27, 0.02), (53.60, 26.31, 0.14)),
+            ((55.20, 26.27, 0.02), (57.25, 26.31, 0.14)),
+            ((33.59, -9.35, 0.02), (33.67, -9.27, 9.00)),
+            ((33.59, 26.27, 0.02), (33.67, 26.35, 9.00)),
+            ((57.13, -9.35, 0.02), (57.21, -9.27, 9.00)),
+            ((57.13, 26.27, 0.02), (57.21, 26.35, 9.00)),
+        ],
+    )
+    for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
+        trim_components += audit_box_components(
+            f"VIS_B03_StoreyTrim_F{floor:02d}",
+            [
+                ((-3.47, 2.5, base_z + 0.02), (-3.43, 32.5, base_z + 0.12)),
+                ((-6.6, 36.41, base_z + 0.02), (41.4, 36.45, base_z + 0.12)),
+                ((-3.47, 36.41, base_z + 0.02), (-3.39, 36.45, base_z + 3.50)),
+                ((-6.60, 36.41, base_z + 0.02), (-6.52, 36.45, base_z + 3.50)),
+                ((41.32, 36.41, base_z + 0.02), (41.40, 36.45, base_z + 3.50)),
+            ],
+        )
+
+    lintels = [
+        obj.name
+        for obj in objects
+        if obj.type == "MESH"
+        and obj.name.startswith("VIS_")
+        and "Lintel" in obj.name
+    ]
+    for object_name in lintels:
+        require_architecture_swatch(object_name, "wall")
+
+    removed_objects = {
+        "COL_StairClosure_NE",
+        "COL_StairClosure_SW",
+        "VIS_Ceiling1F_North",
+        "VIS_Ceiling1F_West",
+        "VIS_B03_Ceiling_F02",
+        "VIS_B03_Ceiling_F03",
+    }
+    present_removed = sorted(removed_objects & {obj.name for obj in objects})
+    require(not present_removed, f"閉鎖または重複表示面が残っています: {present_removed}")
+
+    for name in ("VIS_MainEntryDoor_Open_North", "VIS_MainEntryDoor_Open_South"):
+        door = bpy.data.objects.get(name)
+        require(door is not None, f"主玄関扉がありません: {name}")
+        minimum, _ = world_bounds(door)
+        require(minimum.x >= 0.17 - 1e-6, f"主玄関扉が壁へ重なっています: {name}")
+        require_architecture_swatch(name, "door")
+
+    for name in ("VIS_Wall_ClassroomCross_2", "COL_Wall_ClassroomCross_2"):
+        corner = bpy.data.objects.get(name)
+        require(corner is not None, f"保健室角がありません: {name}")
+        _, maximum = world_bounds(corner)
+        require(abs(maximum.x + 3.35) <= 1e-5, f"保健室角が廊下壁へ揃っていません: {name}")
+
+    return {
+        "atlas_rgb_cells": atlas_rgb_cells,
+        "swatches": len(expected_swatches) + len(lintels) + 2,
+        "trim_components": trim_components,
+        "removed_overlap_objects": len(removed_objects),
+    }
 
 
 def read_glb_json(path: Path) -> dict[str, object]:
@@ -496,19 +672,23 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
             require(floor_object is not None, f"{floor}階床がありません")
             _, maximum = world_bounds(floor_object)
             require(abs(maximum.z - expected_top) <= 1e-5, f"{floor}階床高が3.6m階高規則と一致しません")
-        for suffix, base_z in (("2FTo3F", 3.6), ("3FTo4F", 7.2), ("4FToRooftop", 10.8)):
-            stairs = bpy.data.objects.get(f"VIS_StairSystem_NW_{suffix}")
-            require(stairs is not None, f"北西上階階段がありません: {suffix}")
-            horizontal_levels = set()
-            for polygon in stairs.data.polygons:
-                normal = stairs.matrix_world.to_3x3() @ polygon.normal
-                if normal.z < 0.98:
-                    continue
-                points = [stairs.matrix_world @ stairs.data.vertices[index].co for index in polygon.vertices]
-                horizontal_levels.add(round(max(point.z for point in points), 2))
-            expected_steps = {round(base_z + 0.15 * index, 2) for index in range(1, 25)}
-            require(expected_steps.issubset(horizontal_levels), f"北西上階階段が24段・蹴上0.15mではありません: {suffix}")
-            require(round(base_z + 2.4, 2) in horizontal_levels, f"北西上階階段の16段目に踊り場がありません: {suffix}")
+        for stair in ("NW", "NE", "SW"):
+            transitions = [("2FTo3F", 3.6), ("3FTo4F", 7.2)]
+            if stair == "NW":
+                transitions.append(("4FToRooftop", 10.8))
+            for suffix, base_z in transitions:
+                stairs = bpy.data.objects.get(f"VIS_StairSystem_{stair}_{suffix}")
+                require(stairs is not None, f"上階階段がありません: {stair}/{suffix}")
+                horizontal_levels = set()
+                for polygon in stairs.data.polygons:
+                    normal = stairs.matrix_world.to_3x3() @ polygon.normal
+                    if normal.z < 0.98:
+                        continue
+                    points = [stairs.matrix_world @ stairs.data.vertices[index].co for index in polygon.vertices]
+                    horizontal_levels.add(round(max(point.z for point in points), 2))
+                expected_steps = {round(base_z + 0.15 * index, 2) for index in range(1, 25)}
+                require(expected_steps.issubset(horizontal_levels), f"上階階段が24段・蹴上0.15mではありません: {stair}/{suffix}")
+                require(round(base_z + 2.4, 2) in horizontal_levels, f"上階階段の16段目に踊り場がありません: {stair}/{suffix}")
         storage_bounds = {
             "VIS_StairStorageShell_NW": ((-9.0, 38.9, 0.0), (-6.75, 43.1, 3.5)),
             "COL_StairStorageShell_NW": ((-9.0, 38.9, 0.0), (-6.75, 43.1, 3.5)),
@@ -671,9 +851,11 @@ def audit_semantics(objects: list[bpy.types.Object]) -> None:
     require(len(urinal_parts) == 3, f"男子小便器金物partが3件ではありません: {len(urinal_parts)}")
     for urinal, expected_y in zip(urinals, (39.6, 40.6, 41.6), strict=True):
         minimum, maximum = world_bounds(urinal)
-        require(-2.55 <= minimum.x <= -2.25, f"男子小便器が指定X帯にありません: {urinal.name}")
+        require(
+            abs(minimum.x + 2.75) <= 1e-5 and abs(maximum.x + 2.40) <= 1e-5,
+            f"男子小便器が180度反転後の向きではありません: {urinal.name}",
+        )
         require(abs((minimum.y + maximum.y) / 2 - expected_y) <= 1e-5, f"男子小便器の中心Yが不正です: {urinal.name}")
-        require(minimum.x >= -2.55, f"男子小便器が西側1m立位空間へ侵入しています: {urinal.name}")
 
 
 def audit_hs_ids(objects: list[bpy.types.Object]) -> None:
@@ -718,8 +900,8 @@ def audit_stair_handrails(objects: list[bpy.types.Object]) -> dict[str, int]:
         for start, end in segments
         if abs(end.z - start.z) > 0.1
     ]
-    require(len(segments) == 26, f"手すり上桟区間が26件ではありません: {len(segments)}")
-    require(len(sloped) == 12, f"傾斜上桟が12件ではありません: {len(sloped)}")
+    require(len(segments) == 44, f"手すり上桟区間が44件ではありません: {len(segments)}")
+    require(len(sloped) == 20, f"傾斜上桟が20件ではありません: {len(sloped)}")
     require(
         any(
             abs(start.x + 10.28) <= 1e-4
@@ -888,6 +1070,7 @@ def main() -> None:
     window_counts = audit_windows(export_objects)
     link_counts = audit_links(export_objects)
     handrail_counts = audit_stair_handrails(export_objects)
+    acceptance_visuals = audit_acceptance_visuals(export_objects)
     audit_semantics(export_objects)
     glb_counts = audit_glb(read_glb_json(GLB_PATH))
     glb_optimization = audit_glb_optimization()
@@ -906,6 +1089,7 @@ def main() -> None:
         "windows": window_counts,
         "links": link_counts,
         "handrails": handrail_counts,
+        "acceptance_visuals": acceptance_visuals,
         "glb": glb_counts,
         "glb_optimization": glb_optimization,
     }

@@ -45,23 +45,24 @@ public/stage-assets/v2/<ステージID>/<資産名>.navmesh.bin
 | T01 Blender編集元 | `assets/blender/v2/T01/t01_glb_collision_course.blend` | 座標・縮尺・衝突の検証fixture |
 | T01 GLB | `public/stage-assets/v2/T01/t01_glb_collision_course.glb` | 座標・縮尺・衝突の検証fixture |
 | B02 Blender編集元 | `assets/blender/v2/B02/b02_school_blockout.blend` | 学校の制作元。3D意味ObjectとNavMesh生成元を保持 |
-| B02 GLB | `public/stage-assets/v2/B02/b02_school_blockout.glb` | 学校の実行時空間正本。B03-2内装とT04-2B NAV補正を統合済み |
+| B02 GLB | `public/stage-assets/v2/B02/b02_school_blockout.glb` | 学校の実行時空間正本。B03-2内装、T04-2B NAV補正、人間受入の外観・配置補正を統合済み |
 | B02 NavMesh | `public/stage-assets/v2/B02/b02_school_blockout.navmesh.bin` | 同一GLBから事前ベイクするRecast派生物 |
 
 `.blend`はVite配布物へ含めない。GLBとNavMeshバイナリだけを`public`からWeb版・Electron版へコピーする。バイナリ資産は単一担当で編集し、同一ファイルを複数ブランチで並行編集しない。
 
 ### 3.1 B02学校の現行監査基準
 
-- BlenderとGLBは932 Object／Node、810 Meshとする。GLBは5 Material／3 Textureを持つ。
-- 出力内訳は`VIS_*`467件、`COL_*`324件、`NAV_*`15件、`META_Stage`1件、`MRK_*`1件、`VOL_*`3件、`LNK_*`120端点、`BND_Stage`1件とする。`COL_*`は通常183件、`COL_ActorOnly_*`83件、`COL_HumanOnly_*`58件へ排他的に分類する。
+- BlenderとGLBは948 Object／Node、826 Meshとする。GLBは5 Material／3 Textureを持つ。
+- 出力内訳は`VIS_*`477件、`COL_*`330件、`NAV_*`15件、`META_Stage`1件、`MRK_*`1件、`VOL_*`3件、`LNK_*`120端点、`BND_Stage`1件とする。`COL_*`は通常189件、`COL_ActorOnly_*`83件、`COL_HumanOnly_*`58件へ排他的に分類する。
 - `LNK_*`は`bit_window`58組と`bit_roof`2組の計60組で、全組がA/Bの2端点、双方向、`hs_link_radius_m=0.54`を持つ。
 - 主玄関、北側校舎北口、北側校舎南口、体育館校庭側は、総高0.30m、各蹴上0.15m、各踏面1.00mの表示2段を共通断面とする。移動衝突は表示段と分離し、地面Z＝-0.30mから床Z＝0.00mへ続く単一の`COL_*Ramp`とする。渡り廊下東西側は表示段を置かず、不可視の`COL_BridgeSideRamp_East`と`COL_BridgeSideRamp_West`で同じ床高差を連続接続する。
-- 男女トイレは各3個室とし、内部仕切りは厚さ0.08m、奥行2.10m、高さ2.10mの`VIS_ToiletStallPartition_*`と`COL_ToiletStallPartition_*`を一致させる。男子小便器はB03で3基を追加するため、X＝-2.55～-2.25m、Y＝39.0～42.2mの設置帯と、その西側1.0mの立位空間を塞がない。
+- 男女トイレは各3個室とし、内部仕切りは厚さ0.08m、奥行2.10m、高さ2.10mの`VIS_ToiletStallPartition_*`と`COL_ToiletStallPartition_*`を一致させる。男子小便器3基は背面を東、正面を西へ向け、X＝-2.75～-2.40m、中心Y＝39.6／40.6／41.6mへ配置する。
+- 校庭の`VIS_SiteGround`と`VIS_CourtyardSurface`は草地を表す緑、校門は塀と識別できる青とする。体育館は床を明るい木色、舞台を濃茶、腰壁を淡緑、見切りを濃灰として、同一色の面が重なる箇所を分離する。出入口上部の`VIS_*Lintel`は壁色へ統一する。
 - 体育館舞台階段上部の東西表示壁・衝突壁は、舞台上面からBlender 2.4mの実開口を一致して確保する。NavMeshだけを接続する仮connector面は資産へ残さない。
 - `BND_Stage`のBlender範囲はX＝-18.4～63.2m、Y＝-12.3～51.3m、Z＝-0.5～18.0mとする。プールサイド足元Z＝15.65mへ最大視点高2.0mを加えたZ＝17.65mを内包し、上端に0.35mの余裕を持つ。
-- 事前ベイク後は、主玄関から3か所の1F踊り場、各階廊下・代表教室、北西階段の1F↔2F↔3F↔4F↔屋上、体育館・舞台・体育倉庫、屋上階段室、プールサイド、プール底を含む代表経路が要求終点へ到達することを検査する。部分経路を成功扱いせず、要求終点との誤差`1e-5`以下を必須とする。北東・南西階段上段にNavMesh面がなく北西階段へ迂回すること、通常窓の内外を結ぶsurface経路が窓開口を短絡せず正規出入口へ迂回することも必須とする。
+- 事前ベイク後は、主玄関から3か所の1F踊り場、各階廊下・代表教室、3階段それぞれの1F↔2F↔3F↔4F、北西階段の4F↔屋上、体育館・舞台・体育倉庫、屋上階段室、プールサイド、プール底を含む54代表経路が要求終点へ到達することを検査する。各階段の隣接階経路は指定踊り場を通り、25m以内でなければならない。部分経路を成功扱いせず、要求終点との誤差`1e-5`以下を必須とする。通常窓の内外を結ぶsurface経路が窓開口を短絡せず正規出入口へ迂回することも必須とする。
 - 全120リンク端点は、水平0.54m以内を端点からNavMesh下端まで検索し、端点以下で垂直差、水平差、polygon参照の順に選んだ面へ接続する。体育館高窓14端点、屋上外側2端点を含め、各端点が期待する直下階へ投影されなければならない。
-- 現行`.blend`は1,288,847 bytes・SHA-256 `1926D1868720EFBF8CC1F3040EE227D1CA3BFC0990052D439F073DC6EBEECB67`、GLBは8,949,588 bytes・SHA-256 `75716D10FE584E8FF661FB9C966683E45C4714776935890E68BE593C444F7920`、NavMeshは494,796 bytes・SHA-256 `EC2626236BA8B2A8619DD8CBC0237AC3003CFA74EEFC144A77F3BD7EB84E8174`である。NavMeshは18,366 vertices／6,122 trianglesである。GLBとNavMeshは同じ入力から2回連続生成してbytesとSHA-256が一致しなければならない。Blender 5.2の`.blend`保存バイナリ自体は同一シーンでも非決定的なため、保存後の現行値を記録し、決定性は監査済みシーン契約とGLB・NavMeshで判定する。
+- 現行`.blend`は1,367,585 bytes・SHA-256 `DDC813DC6E5A46550542533E7B28BEFD3F1A35E4D391E72378A41878684CDBBE`、GLBは9,103,844 bytes・SHA-256 `857FAD8D24531D29F35DCF7239B5CDDD77D91F286F8B87C1F7112D49E800CE56`、NavMeshは507,744 bytes・SHA-256 `6F70BE017AB46E4446D458981490511A38E4BCE6825AF63BCA5820890465B87B`である。NavMeshは19,098 vertices／6,366 trianglesである。GLBとNavMeshは同じ入力から2回連続生成してbytesとSHA-256が一致しなければならない。Blender 5.2の`.blend`保存バイナリ自体は同一シーンでも非決定的なため、保存後の現行値を記録し、決定性は監査済みシーン契約とGLB・NavMeshで判定する。
 
 検証専用Viteでは、`publicDir`をリポジトリ全体の`public`へ向けない。検証対象の資産ディレクトリだけを公開し、ビルド後はファイル一覧、容量、SHA-256を公開元と照合する。
 

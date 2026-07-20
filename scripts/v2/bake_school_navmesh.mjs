@@ -39,23 +39,6 @@ const NORMAL_WINDOW_REGRESSION = Object.freeze({
   openingNodeName: "COL_HumanOnly_Window_F01_CourtyardNorth_Corridor_02_U03",
   entranceNodeName: "COL_BridgeSideRamp_West"
 });
-const CLOSED_UPPER_STAIR_FLIGHT_ENVELOPES = Object.freeze([
-  Object.freeze({
-    id: "northeast-upper-flight",
-    label: "北東階段上段",
-    centerBlender: Object.freeze([46.2, 41.9, 3.0]),
-    halfExtentsBlender: Object.freeze([0.6, 0.3, 0.2]),
-    detourRouteId: "northeast-landing-to-second-floor-west-corridor"
-  }),
-  Object.freeze({
-    id: "southwest-upper-flight",
-    label: "南西階段上段",
-    centerBlender: Object.freeze([-9.0, 1.3, 3.0]),
-    halfExtentsBlender: Object.freeze([0.3, 0.6, 0.2]),
-    detourRouteId: "southwest-landing-to-second-floor-west-corridor"
-  })
-]);
-
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "../..");
 const INPUT_RELATIVE_PATH = "public/stage-assets/v2/B02/b02_school_blockout.glb";
@@ -96,6 +79,12 @@ const LINK_SURFACE_HEIGHT_TOLERANCE_BLENDER =
       SCHOOL_NAV_PROFILE.parameters.ch /
       SCHOOL_NAV_PROFILE.worldScale
   ) + 1e-5;
+const STAIR_ROUTE_MAX_DISTANCE_BLENDER = 25;
+
+const makeStairPassageBounds = (x, y, z) => Object.freeze({
+  minimum: Object.freeze({ x: x - 0.8, y: y - 0.8, z: z - 0.2 }),
+  maximum: Object.freeze({ x: x + 0.8, y: y + 0.8, z: z + 0.2 })
+});
 
 const REPRESENTATIVE_ROUTES = Object.freeze([
   Object.freeze({
@@ -177,16 +166,148 @@ const REPRESENTATIVE_ROUTES = Object.freeze([
     endBlender: Object.freeze([-5, 13.7, 10.8])
   }),
   Object.freeze({
-    id: "northeast-landing-to-second-floor-west-corridor",
-    label: "北東踊り場→2F西側廊下（北西階段迂回）",
-    startBlender: Object.freeze([44.4, 44.3, 2.4]),
-    endBlender: Object.freeze([-2, 15, 3.6])
+    id: "northwest-first-floor-to-second-floor",
+    label: "北西階段1F→2F",
+    startBlender: Object.freeze([-11.4, 38.7, 0]),
+    endBlender: Object.freeze([-11.4, 38.7, 3.6]),
+    requiredPassageBlender: makeStairPassageBounds(-9.6, 43.7, 2.4),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
   }),
   Object.freeze({
-    id: "southwest-landing-to-second-floor-west-corridor",
-    label: "南西踊り場→2F西側廊下（北西階段迂回）",
-    startBlender: Object.freeze([-11.4, -0.5, 2.4]),
-    endBlender: Object.freeze([-2, 15, 3.6])
+    id: "northwest-second-floor-to-first-floor",
+    label: "北西階段2F→1F",
+    startBlender: Object.freeze([-11.4, 38.7, 3.6]),
+    endBlender: Object.freeze([-11.4, 38.7, 0]),
+    requiredPassageBlender: makeStairPassageBounds(-9.6, 43.7, 2.4),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
+  }),
+  Object.freeze({
+    id: "northwest-second-floor-to-third-floor",
+    label: "北西階段2F→3F",
+    startBlender: Object.freeze([-11.4, 38.7, 3.6]),
+    endBlender: Object.freeze([-11.4, 38.7, 7.2]),
+    requiredPassageBlender: makeStairPassageBounds(-9.6, 43.7, 6.0),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
+  }),
+  Object.freeze({
+    id: "northwest-third-floor-to-second-floor",
+    label: "北西階段3F→2F",
+    startBlender: Object.freeze([-11.4, 38.7, 7.2]),
+    endBlender: Object.freeze([-11.4, 38.7, 3.6]),
+    requiredPassageBlender: makeStairPassageBounds(-9.6, 43.7, 6.0),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
+  }),
+  Object.freeze({
+    id: "northwest-third-floor-to-fourth-floor",
+    label: "北西階段3F→4F",
+    startBlender: Object.freeze([-11.4, 38.7, 7.2]),
+    endBlender: Object.freeze([-11.4, 38.7, 10.8]),
+    requiredPassageBlender: makeStairPassageBounds(-9.6, 43.7, 9.6),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
+  }),
+  Object.freeze({
+    id: "northwest-fourth-floor-to-third-floor",
+    label: "北西階段4F→3F",
+    startBlender: Object.freeze([-11.4, 38.7, 10.8]),
+    endBlender: Object.freeze([-11.4, 38.7, 7.2]),
+    requiredPassageBlender: makeStairPassageBounds(-9.6, 43.7, 9.6),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
+  }),
+  Object.freeze({
+    id: "northeast-first-floor-to-second-floor",
+    label: "北東階段1F→2F",
+    startBlender: Object.freeze([43.2, 38.3, 0]),
+    endBlender: Object.freeze([43.2, 38.3, 3.6]),
+    requiredPassageBlender: makeStairPassageBounds(45.0, 43.7, 2.4),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
+  }),
+  Object.freeze({
+    id: "northeast-second-floor-to-first-floor",
+    label: "北東階段2F→1F",
+    startBlender: Object.freeze([43.2, 38.3, 3.6]),
+    endBlender: Object.freeze([43.2, 38.3, 0]),
+    requiredPassageBlender: makeStairPassageBounds(45.0, 43.7, 2.4),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
+  }),
+  Object.freeze({
+    id: "northeast-second-floor-to-third-floor",
+    label: "北東階段2F→3F",
+    startBlender: Object.freeze([43.2, 38.3, 3.6]),
+    endBlender: Object.freeze([43.2, 38.3, 7.2]),
+    requiredPassageBlender: makeStairPassageBounds(45.0, 43.7, 6.0),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
+  }),
+  Object.freeze({
+    id: "northeast-third-floor-to-second-floor",
+    label: "北東階段3F→2F",
+    startBlender: Object.freeze([43.2, 38.3, 7.2]),
+    endBlender: Object.freeze([43.2, 38.3, 3.6]),
+    requiredPassageBlender: makeStairPassageBounds(45.0, 43.7, 6.0),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
+  }),
+  Object.freeze({
+    id: "northeast-third-floor-to-fourth-floor",
+    label: "北東階段3F→4F",
+    startBlender: Object.freeze([43.2, 38.3, 7.2]),
+    endBlender: Object.freeze([43.2, 38.3, 10.8]),
+    requiredPassageBlender: makeStairPassageBounds(45.0, 43.7, 9.6),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
+  }),
+  Object.freeze({
+    id: "northeast-fourth-floor-to-third-floor",
+    label: "北東階段4F→3F",
+    startBlender: Object.freeze([43.2, 38.3, 10.8]),
+    endBlender: Object.freeze([43.2, 38.3, 7.2]),
+    requiredPassageBlender: makeStairPassageBounds(45.0, 43.7, 9.6),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
+  }),
+  Object.freeze({
+    id: "southwest-first-floor-to-second-floor",
+    label: "南西階段1F→2F",
+    startBlender: Object.freeze([-5.4, 1.3, 0]),
+    endBlender: Object.freeze([-5.4, 1.3, 3.6]),
+    requiredPassageBlender: makeStairPassageBounds(-10.8, -1.3, 2.4),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
+  }),
+  Object.freeze({
+    id: "southwest-second-floor-to-first-floor",
+    label: "南西階段2F→1F",
+    startBlender: Object.freeze([-5.4, 1.3, 3.6]),
+    endBlender: Object.freeze([-5.4, 1.3, 0]),
+    requiredPassageBlender: makeStairPassageBounds(-10.8, -1.3, 2.4),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
+  }),
+  Object.freeze({
+    id: "southwest-second-floor-to-third-floor",
+    label: "南西階段2F→3F",
+    startBlender: Object.freeze([-5.4, 1.3, 3.6]),
+    endBlender: Object.freeze([-5.4, 1.3, 7.2]),
+    requiredPassageBlender: makeStairPassageBounds(-10.8, -1.3, 6.0),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
+  }),
+  Object.freeze({
+    id: "southwest-third-floor-to-second-floor",
+    label: "南西階段3F→2F",
+    startBlender: Object.freeze([-5.4, 1.3, 7.2]),
+    endBlender: Object.freeze([-5.4, 1.3, 3.6]),
+    requiredPassageBlender: makeStairPassageBounds(-10.8, -1.3, 6.0),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
+  }),
+  Object.freeze({
+    id: "southwest-third-floor-to-fourth-floor",
+    label: "南西階段3F→4F",
+    startBlender: Object.freeze([-5.4, 1.3, 7.2]),
+    endBlender: Object.freeze([-5.4, 1.3, 10.8]),
+    requiredPassageBlender: makeStairPassageBounds(-10.8, -1.3, 9.6),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
+  }),
+  Object.freeze({
+    id: "southwest-fourth-floor-to-third-floor",
+    label: "南西階段4F→3F",
+    startBlender: Object.freeze([-5.4, 1.3, 10.8]),
+    endBlender: Object.freeze([-5.4, 1.3, 7.2]),
+    requiredPassageBlender: makeStairPassageBounds(-10.8, -1.3, 9.6),
+    maximumDistanceBlender: STAIR_ROUTE_MAX_DISTANCE_BLENDER
   }),
   Object.freeze({
     id: "second-floor-to-third-floor",
@@ -312,19 +433,19 @@ const REPRESENTATIVE_ROUTES = Object.freeze([
     id: "gym-floor-to-stage",
     label: "体育館床→舞台",
     startBlender: Object.freeze([45.4, 0, 0]),
-    endBlender: Object.freeze([45.4, -6.5, 1])
+    endBlender: Object.freeze([47.0, -6.5, 1])
   }),
   Object.freeze({
     id: "east-ramp-bottom-to-stage",
     label: "東ランプ下→舞台",
     startBlender: Object.freeze([53.1, -6.5, 0]),
-    endBlender: Object.freeze([45.4, -6.5, 1])
+    endBlender: Object.freeze([47.0, -6.5, 1])
   }),
   Object.freeze({
     id: "west-ramp-bottom-to-stage",
     label: "西ランプ下→舞台",
     startBlender: Object.freeze([37.7, -6.5, 0]),
-    endBlender: Object.freeze([45.4, -6.5, 1])
+    endBlender: Object.freeze([47.0, -6.5, 1])
   })
 ]);
 
@@ -1178,12 +1299,6 @@ const projectRepresentativeRoutePoint = (query, point, label) => {
   };
 };
 
-const blenderHalfExtentsToRecast = ([x, y, z]) => ({
-  x: x * SCHOOL_NAV_PROFILE.worldScale,
-  y: z * SCHOOL_NAV_PROFILE.worldScale,
-  z: y * SCHOOL_NAV_PROFILE.worldScale
-});
-
 const calculateNavMeshBounds = (positions) => {
   const minimum = {
     x: Number.POSITIVE_INFINITY,
@@ -1576,6 +1691,43 @@ const validateRepresentativeRoutes = (navMesh) => {
         return null;
       }
 
+      const distance = measurePathDistance(pathResult.path);
+      const distanceBlender = distance / SCHOOL_NAV_PROFILE.worldScale;
+      const pathBlender = pathResult.path.map((point) =>
+        pointFromArray(recastPointToBlender(point))
+      );
+      const passesRequiredPassage =
+        route.requiredPassageBlender === undefined ||
+        pathBlender.some(
+          (point, index) =>
+            index > 0 &&
+            segmentIntersectsBounds(
+              pathBlender[index - 1],
+              point,
+              route.requiredPassageBlender,
+              ["x", "y", "z"]
+            )
+        );
+      if (!passesRequiredPassage) {
+        failures.push(
+          `代表経路が指定階段の踊り場を通過していません: ${route.label}, ` +
+          `requiredPassageBlender=${JSON.stringify(route.requiredPassageBlender)}, ` +
+          `pathBlender=${JSON.stringify(pathBlender)}`
+        );
+        return null;
+      }
+      if (
+        route.maximumDistanceBlender !== undefined &&
+        distanceBlender > route.maximumDistanceBlender
+      ) {
+        failures.push(
+          `代表経路が指定階段の距離上限を超えました: ${route.label}, ` +
+          `distanceBlender=${distanceBlender}, ` +
+          `maximumDistanceBlender=${route.maximumDistanceBlender}`
+        );
+        return null;
+      }
+
       return {
         id: route.id,
         label: route.label,
@@ -1588,7 +1740,11 @@ const validateRepresentativeRoutes = (navMesh) => {
         startProjectionDistance: projectedStart.projectionDistance,
         endProjectionDistance: projectedEnd.projectionDistance,
         pathRecast: pathResult.path.map(recastPointToArray),
-        distance: measurePathDistance(pathResult.path),
+        distance,
+        distanceBlender,
+        requiredPassageBlender: route.requiredPassageBlender ?? null,
+        passesRequiredPassage,
+        maximumDistanceBlender: route.maximumDistanceBlender ?? null,
         startpointError,
         endpointError
       };
@@ -1603,14 +1759,6 @@ const validateRepresentativeRoutes = (navMesh) => {
 };
 
 const pointFromArray = ([x, y, z]) => ({ x, y, z });
-
-const pointWithinBounds = (point, bounds) =>
-  point.x >= bounds.minimum.x - LINK_PROJECTION_TOLERANCE &&
-  point.x <= bounds.maximum.x + LINK_PROJECTION_TOLERANCE &&
-  point.y >= bounds.minimum.y - LINK_PROJECTION_TOLERANCE &&
-  point.y <= bounds.maximum.y + LINK_PROJECTION_TOLERANCE &&
-  point.z >= bounds.minimum.z - LINK_PROJECTION_TOLERANCE &&
-  point.z <= bounds.maximum.z + LINK_PROJECTION_TOLERANCE;
 
 const segmentIntersectsBounds = (start, end, bounds, axes) => {
   let minimumParameter = 0;
@@ -1646,19 +1794,6 @@ const pathIntersectsBounds = (path, bounds, axes) => {
   return false;
 };
 
-const boundsFromCenterAndHalfExtents = (center, halfExtents) => ({
-  minimum: {
-    x: center.x - halfExtents.x,
-    y: center.y - halfExtents.y,
-    z: center.z - halfExtents.z
-  },
-  maximum: {
-    x: center.x + halfExtents.x,
-    y: center.y + halfExtents.y,
-    z: center.z + halfExtents.z
-  }
-});
-
 const boundsToReport = (bounds) => {
   const firstBlenderCorner = recastPointToBlender(bounds.minimum);
   const secondBlenderCorner = recastPointToBlender(bounds.maximum);
@@ -1672,63 +1807,6 @@ const boundsToReport = (bounds) => {
       Math.max(value, secondBlenderCorner[index])
     )
   };
-};
-
-const validateClosedUpperStairs = (navMesh, representativeRoutes) => {
-  const query = new NavMeshQuery(navMesh, {
-    maxNodes: REPRESENTATIVE_ROUTE_PATH_LIMIT
-  });
-  try {
-    const polygonCount = countNavMeshPolygons(navMesh);
-    return CLOSED_UPPER_STAIR_FLIGHT_ENVELOPES.map((definition) => {
-      const center = blenderPointToRecast(definition.centerBlender);
-      const halfExtents = blenderHalfExtentsToRecast(definition.halfExtentsBlender);
-      const bounds = boundsFromCenterAndHalfExtents(center, halfExtents);
-      const polygonResult = query.queryPolygons(center, halfExtents, {
-        maxPolys: polygonCount
-      });
-      if (!polygonResult.success) {
-        fail(`${definition.label}の局所polygon検索に失敗しました。`);
-      }
-      const localSurfacePolyRefs = [...new Set(polygonResult.polyRefs)].filter(
-        (polyRef) => {
-          const closest = query.closestPointOnPoly(polyRef, center);
-          return closest.success && pointWithinBounds(closest.closestPoint, bounds);
-        }
-      );
-      const detourRoute = representativeRoutes.find(
-        (route) => route.id === definition.detourRouteId
-      );
-      if (detourRoute === undefined) {
-        fail(`${definition.label}の迂回代表経路がありません。`);
-      }
-      const detourPath = detourRoute.pathRecast.map(pointFromArray);
-      const detourIntersectsEnvelope = pathIntersectsBounds(
-        detourPath,
-        bounds,
-        ["x", "y", "z"]
-      );
-      if (localSurfacePolyRefs.length > 0 || detourIntersectsEnvelope) {
-        fail(
-          `${definition.label}の閉鎖上段にNavMesh面または代表経路が侵入しています: ` +
-          `localPolys=${localSurfacePolyRefs.length}, ` +
-          `pathIntersects=${detourIntersectsEnvelope}`
-        );
-      }
-      return {
-        id: definition.id,
-        label: definition.label,
-        ...boundsToReport(bounds),
-        queriedPolygonCount: polygonResult.polyRefs.length,
-        localSurfacePolygonCount: localSurfacePolyRefs.length,
-        detourRouteId: detourRoute.id,
-        detourRouteDistance: detourRoute.distance,
-        detourIntersectsEnvelope
-      };
-    });
-  } finally {
-    query.destroy();
-  }
 };
 
 const validateNormalWindowDetour = (
@@ -1873,10 +1951,6 @@ const main = async () => {
       nodes,
       worldMatrices
     );
-    const closedUpperStairs = validateClosedUpperStairs(
-      restoredNavMesh,
-      representativeRoutes
-    );
     const normalWindowDetour = validateNormalWindowDetour(
       restoredNavMesh,
       gltf,
@@ -1932,7 +2006,6 @@ const main = async () => {
         },
         linkEndpointProjections,
         negativeCases: {
-          closedUpperStairs,
           normalWindowDetour
         }
       },

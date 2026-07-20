@@ -287,6 +287,71 @@ const getNavigationPathPoints = (
       )
     : Object.freeze([]);
 
+const measurePathDistance = (points: readonly Vector3[]) =>
+  points.slice(1).reduce(
+    (distance, point, index) =>
+      distance + Vector3.Distance(points[index], point),
+    0
+  );
+
+const blenderBoundsToBabylon = (minimum: Vector3, maximum: Vector3) => {
+  const first = blenderPointToBabylon(minimum);
+  const second = blenderPointToBabylon(maximum);
+  return {
+    minimum: new Vector3(
+      Math.min(first.x, second.x),
+      Math.min(first.y, second.y),
+      Math.min(first.z, second.z)
+    ),
+    maximum: new Vector3(
+      Math.max(first.x, second.x),
+      Math.max(first.y, second.y),
+      Math.max(first.z, second.z)
+    )
+  };
+};
+
+const segmentIntersectsBounds = (
+  start: Vector3,
+  end: Vector3,
+  bounds: Readonly<{ minimum: Vector3; maximum: Vector3 }>
+) => {
+  let minimumParameter = 0;
+  let maximumParameter = 1;
+  for (const axis of ["x", "y", "z"] as const) {
+    const delta = end[axis] - start[axis];
+    if (Math.abs(delta) <= Number.EPSILON) {
+      if (
+        start[axis] < bounds.minimum[axis] ||
+        start[axis] > bounds.maximum[axis]
+      ) {
+        return false;
+      }
+      continue;
+    }
+    let entry = (bounds.minimum[axis] - start[axis]) / delta;
+    let exit = (bounds.maximum[axis] - start[axis]) / delta;
+    if (entry > exit) {
+      [entry, exit] = [exit, entry];
+    }
+    minimumParameter = Math.max(minimumParameter, entry);
+    maximumParameter = Math.min(maximumParameter, exit);
+    if (minimumParameter > maximumParameter) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const pathPassesBounds = (
+  points: readonly Vector3[],
+  bounds: Readonly<{ minimum: Vector3; maximum: Vector3 }>
+) =>
+  points.some(
+    (point, index) =>
+      index > 0 && segmentIntersectsBounds(points[index - 1], point, bounds)
+  );
+
 const findNavigationPath = (
   navigation: NavigationWorld,
   start: Vector3,
@@ -2158,8 +2223,8 @@ const runValidation = async () => {
           (link) => link.kind === "bit_roof"
         );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 467 &&
-          schoolContext.resources.normalColliders.length === 183 &&
+          schoolContext.resources.visualMeshes.length === 477 &&
+          schoolContext.resources.normalColliders.length === 189 &&
           schoolContext.resources.actorOnlyColliders.length === 83 &&
           schoolContext.resources.humanOnlyColliders.length === 58 &&
           schoolContext.resources.navSourceMeshes.length === 15 &&
@@ -2184,7 +2249,9 @@ const runValidation = async () => {
           detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / NAV=${schoolContext.resources.navSourceMeshes.length} / VOL=${schoolContext.volumes.all.length} / water=${schoolContext.volumes.getByRole("water").length} / LNK=${schoolContext.links.all.length}(window=${windowLinks.length},roof=${roofLinks.length}) / buildPathfind=${schoolConstructionPathfindCount} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
         });
 
-        const stageDestination = new Vector3(-11.35, 0.25, 1.625);
+        const stageDestination = blenderPointToBabylon(
+          new Vector3(47.0, -6.5, 1.0)
+        );
         const npcPathfindStartCount = schoolRecastPathfindCount;
         const schoolPath = findNavigationPath(
           schoolContext.navigation,
@@ -2248,17 +2315,33 @@ const runValidation = async () => {
           detail: `${schoolPathPoints.length}点 / endpointError=${Number.isFinite(schoolPathEndpointError) ? schoolPathEndpointError.toExponential(2) : "--"} / pathfind=npc:${npcDirectPathfindCount},player:${playerDirectPathfindCount} / blocker=${beamWallHit?.mesh.name ?? "--"}`
         });
 
-        const northwestStairBounds = Object.freeze({
-          minimumX: 1.6,
-          maximumX: 3.2,
-          minimumZ: -11.4,
-          maximumZ: -9.6
+        const stairBounds = Object.freeze({
+          NW: blenderBoundsToBabylon(
+            new Vector3(-12.0, 38.0, 0.2),
+            new Vector3(-7.0, 44.8, 10.7)
+          ),
+          NE: blenderBoundsToBabylon(
+            new Vector3(42.0, 38.0, 0.2),
+            new Vector3(47.0, 44.8, 10.7)
+          ),
+          SW: blenderBoundsToBabylon(
+            new Vector3(-12.0, -3.0, 0.2),
+            new Vector3(-5.0, 2.0, 10.7)
+          )
         });
-        const isInsideNorthwestStair = (position: Vector3) =>
-          position.x >= northwestStairBounds.minimumX &&
-          position.x <= northwestStairBounds.maximumX &&
-          position.z >= northwestStairBounds.minimumZ &&
-          position.z <= northwestStairBounds.maximumZ;
+        const findContainingStaircase = (position: Vector3) =>
+          (Object.entries(stairBounds) as readonly [
+            "NW" | "NE" | "SW",
+            Readonly<{ minimum: Vector3; maximum: Vector3 }>
+          ][]).find(
+            ([, bounds]) =>
+              position.x >= bounds.minimum.x &&
+              position.x <= bounds.maximum.x &&
+              position.y >= bounds.minimum.y &&
+              position.y <= bounds.maximum.y &&
+              position.z >= bounds.minimum.z &&
+              position.z <= bounds.maximum.z
+          )?.[0] ?? null;
         const upperFloorRepresentatives = [
           ["2F床", new Vector3(-2.0, 15.0, 3.6)],
           ["2F階段", new Vector3(-11.4, 38.7, 3.6)],
@@ -2334,78 +2417,161 @@ const runValidation = async () => {
             .join(" / ")
         });
 
-        const closedUpperStairResults = [
+        const multiFloorStairs = [
           {
-            label: "北東",
-            colliderName: "COL_StairClosure_NE",
-            directStart: blenderPointToBabylon(new Vector3(46.2, 44.0, 2.4)),
-            directDestination: blenderPointToBabylon(
-              new Vector3(46.2, 40.0, 3.6)
-            ),
-            routeStart: blenderPointToBabylon(new Vector3(44.4, 44.3, 2.4)),
-            routeDestination: blenderPointToBabylon(
-              new Vector3(-2.0, 15.0, 3.6)
-            )
+            label: "北西階段",
+            passageCenters: [
+              new Vector3(-9.6, 43.7, 2.4),
+              new Vector3(-9.6, 43.7, 6.0),
+              new Vector3(-9.6, 43.7, 9.6)
+            ],
+            floors: [
+              ["1F", new Vector3(-11.4, 38.7, 0.0)],
+              ["2F", new Vector3(-11.4, 38.7, 3.6)],
+              ["3F", new Vector3(-11.4, 38.7, 7.2)],
+              ["4F", new Vector3(-11.4, 38.7, 10.8)]
+            ]
           },
           {
-            label: "南西",
-            colliderName: "COL_StairClosure_SW",
-            directStart: blenderPointToBabylon(new Vector3(-11.0, 1.3, 2.4)),
-            directDestination: blenderPointToBabylon(
-              new Vector3(-8.0, 1.3, 3.6)
-            ),
-            routeStart: blenderPointToBabylon(new Vector3(-11.4, -0.5, 2.4)),
-            routeDestination: blenderPointToBabylon(
-              new Vector3(-2.0, 15.0, 3.6)
-            )
+            label: "北東階段",
+            passageCenters: [
+              new Vector3(45.0, 43.7, 2.4),
+              new Vector3(45.0, 43.7, 6.0),
+              new Vector3(45.0, 43.7, 9.6)
+            ],
+            floors: [
+              ["1F", new Vector3(43.2, 38.3, 0.0)],
+              ["2F", new Vector3(43.2, 38.3, 3.6)],
+              ["3F", new Vector3(43.2, 38.3, 7.2)],
+              ["4F", new Vector3(43.2, 38.3, 10.8)]
+            ]
+          },
+          {
+            label: "南西階段",
+            passageCenters: [
+              new Vector3(-10.8, -1.3, 2.4),
+              new Vector3(-10.8, -1.3, 6.0),
+              new Vector3(-10.8, -1.3, 9.6)
+            ],
+            floors: [
+              ["1F", new Vector3(-5.4, 1.3, 0.0)],
+              ["2F", new Vector3(-5.4, 1.3, 3.6)],
+              ["3F", new Vector3(-5.4, 1.3, 7.2)],
+              ["4F", new Vector3(-5.4, 1.3, 10.8)]
+            ]
           }
-        ].map((candidate) => {
-          const chestOffset = new Vector3(0, 0.3, 0);
-          const directHit = schoolContext!.queries.castMovementSegment(
-            "npc",
-            candidate.directStart.add(chestOffset),
-            candidate.directDestination.add(chestOffset)
+        ] as const;
+        const multiFloorStairResults = multiFloorStairs.flatMap((stair) =>
+          stair.floors.slice(1).map(([destinationFloor, destinationPoint], index) => {
+            const [startFloor, startPoint] = stair.floors[index];
+            const start = blenderPointToBabylon(startPoint);
+            const destination = blenderPointToBabylon(destinationPoint);
+            const projectedStart = schoolNavigation.projectPoint(start, 0.1);
+            const projectedDestination = schoolNavigation.projectPoint(
+              destination,
+              0.1
+            );
+            const forwardPath = findNavigationPath(
+              schoolNavigation,
+              start,
+              destination,
+              "npc"
+            );
+            const backwardPath = findNavigationPath(
+              schoolNavigation,
+              destination,
+              start,
+              "npc"
+            );
+            const forwardPoints = getNavigationPathPoints(forwardPath);
+            const backwardPoints = getNavigationPathPoints(backwardPath);
+            const passageCenter = stair.passageCenters[index];
+            const passageBounds = blenderBoundsToBabylon(
+              passageCenter.subtract(new Vector3(0.8, 0.8, 0.2)),
+              passageCenter.add(new Vector3(0.8, 0.8, 0.2))
+            );
+            return {
+              label: `${stair.label}${startFloor}↔${destinationFloor}`,
+              projectedStart,
+              projectedDestination,
+              forwardPath,
+              backwardPath,
+              forwardPointCount: forwardPoints.length,
+              backwardPointCount: backwardPoints.length,
+              forwardPassesRequiredPassage: pathPassesBounds(
+                forwardPoints,
+                passageBounds
+              ),
+              backwardPassesRequiredPassage: pathPassesBounds(
+                backwardPoints,
+                passageBounds
+              ),
+              forwardDistanceBlender:
+                measurePathDistance(forwardPoints) /
+                BLENDER_METERS_TO_WORLD_UNITS,
+              backwardDistanceBlender:
+                measurePathDistance(backwardPoints) /
+                BLENDER_METERS_TO_WORLD_UNITS,
+              forwardEndpointError:
+                projectedDestination && forwardPoints.length > 0
+                  ? Vector3.Distance(
+                      forwardPoints[forwardPoints.length - 1],
+                      projectedDestination.position
+                    )
+                  : Number.POSITIVE_INFINITY,
+              backwardEndpointError:
+                projectedStart && backwardPoints.length > 0
+                  ? Vector3.Distance(
+                      backwardPoints[backwardPoints.length - 1],
+                      projectedStart.position
+                    )
+                  : Number.POSITIVE_INFINITY
+            };
+          })
+        );
+        const retiredUpperStairClosures = new Set([
+          "COL_StairClosure_NE",
+          "COL_StairClosure_SW"
+        ]);
+        const remainingUpperStairClosures =
+          schoolContext.resources.normalColliders.filter((mesh) =>
+            retiredUpperStairClosures.has(mesh.name)
           );
-          const routeStartLocation = schoolNavigation.projectPoint(
-            candidate.routeStart,
-            0.1
-          );
-          const routeDestinationLocation = schoolNavigation.projectPoint(
-            candidate.routeDestination,
-            0.1
-          );
-          const path = routeStartLocation && routeDestinationLocation
-            ? schoolNavigation.findPath(
-                routeStartLocation,
-                routeDestinationLocation,
-                "npc"
-              )
-            : null;
-          const pathPoints = getNavigationPathPoints(path);
-          return {
-            ...candidate,
-            directHit,
-            path,
-            routeStartLocation,
-            routeDestinationLocation,
-            visitedNorthwestStair: pathPoints.some(isInsideNorthwestStair)
-          };
-        });
         checks.push({
-          name: "北東・南西上階閉鎖を横断せず北西階段へ迂回",
-          ok: closedUpperStairResults.every(
-            (result) =>
-              result.directHit?.mesh.name === result.colliderName &&
-              result.path !== null &&
-              result.path.steps.every((step) => step.kind === "surface") &&
-              result.visitedNorthwestStair
-          ),
-          detail: closedUpperStairResults
-            .map(
+          name: "3階段の1F～4F隣接階双方向完全経路",
+          ok:
+            remainingUpperStairClosures.length === 0 &&
+            multiFloorStairResults.every(
               (result) =>
-                `${result.label}:hit=${result.directHit?.mesh.name ?? "clear"},start=${result.routeStartLocation?.position.toString() ?? "null"},destination=${result.routeDestinationLocation?.position.toString() ?? "null"},path=${result.path?.distance.toFixed(3) ?? "null"},NW=${result.visitedNorthwestStair}`
-            )
-            .join(" / ")
+                result.projectedStart !== null &&
+                result.projectedDestination !== null &&
+                result.forwardPath !== null &&
+                result.backwardPath !== null &&
+                result.forwardPath.steps.every(
+                  (step) => step.kind === "surface"
+                ) &&
+                result.backwardPath.steps.every(
+                  (step) => step.kind === "surface"
+                ) &&
+                result.forwardPassesRequiredPassage &&
+                result.backwardPassesRequiredPassage &&
+                result.forwardDistanceBlender <= 25 &&
+                result.backwardDistanceBlender <= 25 &&
+                result.forwardEndpointError <= 1e-5 &&
+                result.backwardEndpointError <= 1e-5
+            ),
+          detail:
+            `旧closure=${remainingUpperStairClosures.map((mesh) => mesh.name).join(",") || "0件"} / ` +
+            multiFloorStairResults
+              .map(
+                (result) =>
+                  `${result.label}:projected=${result.projectedStart !== null}/${result.projectedDestination !== null},` +
+                  `path=${result.forwardPointCount}/${result.backwardPointCount},` +
+                  `passage=${result.forwardPassesRequiredPassage}/${result.backwardPassesRequiredPassage},` +
+                  `distance=${result.forwardDistanceBlender.toFixed(2)}/${result.backwardDistanceBlender.toFixed(2)}m,` +
+                  `error=${Number.isFinite(result.forwardEndpointError) ? result.forwardEndpointError.toExponential(1) : "--"}/${Number.isFinite(result.backwardEndpointError) ? result.backwardEndpointError.toExponential(1) : "--"}`
+              )
+              .join(" / ")
         });
 
         const normalColliderSet = new Set(
@@ -2632,14 +2798,17 @@ const runValidation = async () => {
               brainwashed: false
             });
             let reached = false;
-            let visitedNorthwestStair = false;
+            const visitedStaircases = new Set<"NW" | "NE" | "SW">();
             let updateCount = 0;
             while (!reached && updateCount < 2400) {
               routeSystem.update(0.25, target);
               updateCount += 1;
               const position =
                 routeSystem.getTargetSnapshots()[1].footPosition;
-              visitedNorthwestStair ||= isInsideNorthwestStair(position);
+              const containingStaircase = findContainingStaircase(position);
+              if (containingStaircase !== null) {
+                visitedStaircases.add(containingStaircase);
+              }
               reached = Vector3.Distance(position, destination.position) <= 0.15;
             }
             const finalPosition =
@@ -2649,7 +2818,7 @@ const runValidation = async () => {
               label,
               startedOnFirstFloor: Math.abs(start.y) <= 0.1,
               reached,
-              visitedNorthwestStair,
+              visitedStaircases: [...visitedStaircases].sort(),
               updateCount,
               endpointError: Vector3.Distance(
                 finalPosition,
@@ -2664,13 +2833,15 @@ const runValidation = async () => {
             (result) =>
               result.startedOnFirstFloor &&
               result.reached &&
-              result.visitedNorthwestStair &&
+              result.visitedStaircases.length > 0 &&
+              (result.label !== "屋上" ||
+                result.visitedStaircases.includes("NW")) &&
               result.endpointError <= 0.15
           ),
           detail: multifloorNpcResults
             .map(
               (result) =>
-                `${result.label}:1F=${result.startedOnFirstFloor},reached=${result.reached},NW=${result.visitedNorthwestStair},updates=${result.updateCount},error=${result.endpointError.toFixed(3)}`
+                `${result.label}:1F=${result.startedOnFirstFloor},reached=${result.reached},stairs=${result.visitedStaircases.join(",") || "none"},updates=${result.updateCount},error=${result.endpointError.toFixed(3)}`
             )
             .join(" / ")
         });
@@ -3066,8 +3237,8 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 467 &&
-          reloadedContext.resources.normalColliders.length === 183 &&
+          reloadedContext.resources.visualMeshes.length === 477 &&
+          reloadedContext.resources.normalColliders.length === 189 &&
           reloadedContext.resources.actorOnlyColliders.length === 83 &&
           reloadedContext.resources.humanOnlyColliders.length === 58 &&
           reloadedContext.resources.navSourceMeshes.length === 15 &&

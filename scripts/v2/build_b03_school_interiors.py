@@ -26,13 +26,18 @@ ATLAS_DEFINITIONS = {
             "wall": (214, 210, 197),
             "ceiling": (232, 231, 221),
             "floor": (158, 132, 91),
-            "gym": (178, 128, 70),
+            "gym_floor": (176, 145, 101),
             "roof": (83, 96, 103),
             "door": (120, 76, 42),
             "floor_1": (185, 101, 71),
             "floor_2": (198, 151, 53),
             "floor_3": (66, 135, 104),
             "floor_4": (70, 105, 159),
+            "grass": (51, 107, 51),
+            "gate": (46, 97, 173),
+            "gym_stage": (117, 38, 26),
+            "gym_wainscot": (92, 117, 98),
+            "trim": (72, 78, 79),
         },
     },
     "FurnitureProps": {
@@ -117,6 +122,7 @@ IMPASSABLE_ADDITIONAL_PROP_TYPES = {
 PROP_COLLIDER_SIZES = {
     "ClassroomDesk": (0.65, 0.45, 0.70),
     "StaffDesk": (1.40, 0.70, 0.72),
+    "StageLectern": (0.72, 0.50, 1.05),
     "LargeWoodTable": (1.80, 0.90, 0.72),
     "CleaningLocker": (0.90, 0.45, 1.80),
     "BaggageLocker": (1.80, 0.45, 1.20),
@@ -172,11 +178,9 @@ def build_atlases() -> dict[str, bpy.types.Material]:
             list(definition["swatches"].values()),
         )
         image = bpy.data.images.get(image_path.name)
-        if image is None:
-            image = bpy.data.images.load(str(image_path), check_existing=True)
-        else:
-            image.filepath = str(image_path)
-            image.reload()
+        if image is not None:
+            bpy.data.images.remove(image)
+        image = bpy.data.images.load(str(image_path), check_existing=False)
         image.name = image_path.name
         image.colorspace_settings.name = "sRGB"
         image.pack()
@@ -201,20 +205,30 @@ def build_atlases() -> dict[str, bpy.types.Material]:
 def architecture_swatch(object_name: str) -> str:
     name = object_name.lower()
     floor_match = re.search(r"(?:_|^)f0?([1-4])(?:_|$)", name)
+    if "siteground" in name or "courtyardsurface" in name:
+        return "grass"
+    if "gate_" in name:
+        return "gate"
+    if "gymwainscot" in name:
+        return "gym_wainscot"
+    if "gymtrim" in name or "storeytrim" in name:
+        return "trim"
+    if "gymstage" in name and "wall" not in name and "lintel" not in name:
+        return "gym_stage"
     if "flooraccent" in name and floor_match:
         return f"floor_{floor_match.group(1)}"
     if "ceiling" in name:
         return "ceiling"
-    if "gym" in name:
-        return "gym"
-    if "door" in name:
-        return "door"
-    if "wall" in name:
+    if "wall" in name or "lintel" in name:
         return "wall"
-    if "floor" in name or "stair" in name:
-        return "floor"
+    if "floor_gym" in name or ("gym" in name and "floor" in name):
+        return "gym_floor"
     if "roof" in name or "pool" in name or "rail" in name or "windowframe" in name:
         return "roof"
+    if "door" in name:
+        return "door"
+    if "floor" in name or "stair" in name:
+        return "floor"
     return "wall"
 
 
@@ -245,9 +259,16 @@ def consolidate_school_materials(
         }
         if current_material_names & transparent_names:
             continue
-        if current_material_names <= {
-            material.name for material in materials.values()
-        } and len(current_material_names) == 1:
+        if (
+            current_material_names <= {
+                material.name for material in materials.values()
+            }
+            and len(current_material_names) == 1
+            and (
+                obj.name.startswith("VIS_B03_Interior_")
+                or obj.name.startswith("VIS_B03_Prop_")
+            )
+        ):
             continue
 
         if obj.name.startswith("VIS_B03_Prop_") or obj.name == "VIS_B03_ChangingBenches":
@@ -470,7 +491,11 @@ class RoomBuilder:
         )
         size = PROP_COLLIDER_SIZES.get(prop_type)
         if size is not None:
-            self.add_collider((x, y, self.base_z + size[2] / 2), size, rotation_z)
+            self.add_collider(
+                (x, y, self.base_z + z_offset + size[2] / 2),
+                size,
+                rotation_z,
+            )
 
     def add_collider(
         self,
@@ -737,12 +762,12 @@ def build_classroom(
             sources, "BaggageLocker", locker_x, 2.82 + room_y_offset, math.pi
         )
     room.add_prop(
-        sources, "CleaningLocker", -4.75, 2.82 + room_y_offset, math.pi
+        sources, "CleaningLocker", -5.65, 2.82 + room_y_offset, math.pi
     )
     add_additional_prop(
         room,
         "TeacherDesk",
-        (-4.35, 11.25 + room_y_offset, room.base_z),
+        (-5.40, 11.25 + room_y_offset, room.base_z),
         math.pi,
     )
     add_additional_prop(
@@ -821,14 +846,14 @@ def build_toilet_room(
                 "door",
             )
         for toilet_x in (-5.8, -4.35, -2.95, -1.3, 0.15, 1.55):
-            room.add_prop(sources, "WesternToilet", toilet_x, 44.7, math.pi)
+            room.add_prop(sources, "WesternToilet", toilet_x, 44.7)
         for urinal_y in (39.6, 40.6, 41.6):
             room.add_prop(
                 sources,
                 "Urinal",
                 -2.40,
                 urinal_y,
-                -math.pi / 2,
+                math.pi / 2,
                 0.8,
             )
 
@@ -845,10 +870,10 @@ def build_toilet_room(
         room, "Mirror", (2.20, 40.4, room.base_z), -math.pi / 2
     )
     add_additional_prop(
-        room, "RoomSign", (-4.8, 38.34, room.base_z), math.pi
+        room, "RoomSign", (-5.75, 38.34, room.base_z), math.pi
     )
     add_additional_prop(
-        room, "RoomSign", (-0.3, 38.34, room.base_z), math.pi
+        room, "RoomSign", (0.65, 38.34, room.base_z), math.pi
     )
 
 
@@ -865,7 +890,8 @@ def build_common_area_rooms(
                 (-3.15, y, base_z),
                 math.pi / 2,
             )
-        for y in (3.2, 13.2, 23.2):
+        sign_positions = (3.2, 12.8, 30.4) if floor == 1 else (3.2, 12.8, 23.4)
+        for y in sign_positions:
             add_additional_prop(
                 corridor, "RoomSign", (-3.30, y, base_z), math.pi / 2
             )
@@ -874,27 +900,29 @@ def build_common_area_rooms(
         )
         add_additional_prop(corridor, "WallClock", (17.0, 36.33, base_z), 0.0)
         add_additional_prop(
-            corridor, "FireExtinguisher", (42.0, 36.2, base_z), 0.0
+            corridor, "FireExtinguisher", (41.15, 36.75, base_z), 0.0
         )
-        add_additional_prop(corridor, "RoomSign", (6.0, 36.32, base_z), 0.0)
+        add_additional_prop(corridor, "RoomSign", (5.5, 36.32, base_z), 0.0)
         corridor.add_prop(
             sources, "CleaningLocker", -3.15, 6.8, math.pi / 2
         )
         rooms.append(corridor)
 
     main_entry = RoomBuilder.create("F01_MainEntry", 0.0)
-    for y in (-1.8, 0.0, 1.8):
-        add_additional_prop(main_entry, "ShoeLocker", (4.9, y, 0.0), math.pi / 2)
-    add_additional_prop(main_entry, "UmbrellaStand", (1.2, 2.1, 0.0))
-    add_additional_prop(main_entry, "RoomSign", (4.9, 2.35, 0.0), math.pi / 2)
+    for x in (-4.4, -2.4, 2.4):
+        add_additional_prop(main_entry, "ShoeLocker", (x, -3.12, 0.0))
+    add_additional_prop(main_entry, "UmbrellaStand", (4.0, -3.18, 0.0))
+    add_additional_prop(main_entry, "RoomSign", (-1.45, -3.46, 0.0))
     rooms.append(main_entry)
 
     north_entry = RoomBuilder.create("F01_NorthEntry", 0.0)
     add_additional_prop(
         north_entry, "ShoeLocker", (5.0, 40.6, 0.0), math.pi / 2
     )
-    add_additional_prop(north_entry, "UmbrellaStand", (3.0, 39.0, 0.0))
-    add_additional_prop(north_entry, "RoomSign", (5.2, 44.8, 0.0), math.pi / 2)
+    add_additional_prop(
+        north_entry, "UmbrellaStand", (5.05, 39.0, 0.0), math.pi / 2
+    )
+    add_additional_prop(north_entry, "RoomSign", (5.65, 45.48, 0.0))
     rooms.append(north_entry)
 
     gym_storage = RoomBuilder.create("GymStorage", 0.0)
@@ -934,20 +962,23 @@ def build_school_rooms(
     infirmary = RoomBuilder.create("F01_Infirmary", 0.0)
     infirmary.add_prop(sources, "InfirmaryBed", -10.8, 5.0)
     infirmary.add_prop(sources, "InfirmaryBed", -10.8, 7.2)
-    infirmary.add_prop(sources, "StaffChair", -5.8, 5.2, math.pi / 2)
+    infirmary.add_prop(sources, "StaffChair", -5.35, 5.2, -math.pi / 2)
     infirmary.add_prop(sources, "Bookshelf", -7.2, 10.8, math.pi / 2)
     infirmary.add_prop(sources, "CleaningLocker", -10.7, 11.7, math.pi / 2)
     infirmary.add_prop(sources, "StaffDesk", -6.2, 5.2, math.pi / 2)
     add_additional_prop(infirmary, "MedicalCabinet", (-5.0, 10.8, 0.0), math.pi / 2)
     add_additional_prop(infirmary, "InfirmaryCurtain", (-9.5, 6.1, 0.0), math.pi / 2)
     add_additional_prop(infirmary, "WashBasin", (-5.0, 8.8, 0.0), math.pi / 2)
-    add_additional_prop(infirmary, "RoomSign", (-3.53, 11.1, 0.0), math.pi / 2)
+    add_additional_prop(infirmary, "RoomSign", (-3.53, 12.15, 0.0), math.pi / 2)
     rooms.append(infirmary)
 
     library = RoomBuilder.create("F01_Library", 0.0)
     for shelf_y in (13.6, 15.6, 17.6, 21.6, 23.6, 25.6, 27.6, 29.6, 31.4):
         library.add_prop(sources, "Bookshelf", -12.0, shelf_y, math.pi / 2)
+    for shelf_y in (15.6, 17.6, 21.6, 23.6, 25.6, 27.6, 29.6):
         library.add_prop(sources, "Bookshelf", -4.1, shelf_y, math.pi / 2)
+    library.add_prop(sources, "Bookshelf", -10.0, 13.0)
+    library.add_prop(sources, "Bookshelf", -10.0, 32.0)
     for x in (-9.7, -6.5):
         for y in (18.0, 24.0):
             add_table_group(library, sources, x, y)
@@ -986,17 +1017,17 @@ def build_school_rooms(
     staff.add_prop(sources, "Bookshelf", 5.8, 44.0, math.pi / 2)
     staff.add_prop(sources, "Bookshelf", 23.0, 44.0, math.pi / 2)
     staff.add_prop(sources, "CleaningLocker", *STAFFROOM_CLEANING_LOCKER)
-    add_additional_prop(staff, "BulletinBoard", (14.4, 45.32, 0.0))
-    add_additional_prop(staff, "WallClock", (18.0, 45.33, 0.0))
+    add_additional_prop(staff, "BulletinBoard", (14.4, 36.68, 0.0), math.pi)
+    add_additional_prop(staff, "WallClock", (18.0, 36.67, 0.0), math.pi)
     add_additional_prop(staff, "TrashBin", (22.7, 37.3, 0.0))
     add_desktop_prop(staff, sources, "PaperStack", 15.1, 40.65, 0.08, 0.72)
     rooms.append(staff)
 
     pc = RoomBuilder.create("F01_PcRoom", 0.0)
-    for row in range(4):
+    for row_y in (38.5, 40.9, 43.0):
         for column in range(6):
             x = 24.8 + column * 3.1
-            y = 38.3 + row * 1.65
+            y = row_y
             pc.add_prop(sources, "StaffDesk", x, y, -math.pi / 2)
             pc.add_prop(sources, "StaffChair", x - 0.62, y, math.pi / 2)
             add_desktop_prop(
@@ -1008,7 +1039,7 @@ def build_school_rooms(
             add_additional_prop(
                 pc, "KeyboardMouse", (x - 0.16, y, 0.0), -math.pi / 2
             )
-    add_additional_prop(pc, "AvRack", (40.5, 37.4, 0.0))
+    add_additional_prop(pc, "AvRack", (40.8, 44.7, 0.0))
     pc.add_prop(sources, "BaggageLocker", 29.0, 44.8)
     pc.add_prop(sources, "BaggageLocker", 31.2, 44.8)
     pc.add_prop(sources, "CleaningLocker", 32.7, 44.8)
@@ -1105,11 +1136,11 @@ def build_school_rooms(
     rooms.append(music)
 
     gym = RoomBuilder.create("Gym", 0.0)
-    gym.add_prop(sources, "BasketballGoal", 35.0, 8.5, -math.pi / 2)
-    gym.add_prop(sources, "BasketballGoal", 55.8, 8.5, math.pi / 2)
+    gym.add_prop(sources, "BasketballGoal", 33.55, 8.5, -math.pi / 2, 3.35)
+    gym.add_prop(sources, "BasketballGoal", 57.25, 8.5, math.pi / 2, 3.35)
     gym.add_prop(sources, "VaultingBox", 37.0, 22.5)
     gym.add_prop(sources, "VaultingBox", 39.0, 22.5)
-    gym.add_prop(sources, "StageLectern", 45.4, 24.6)
+    gym.add_prop(sources, "StageLectern", 45.4, -6.5, 0.0, 1.0)
     add_additional_prop(gym, "WallClock", (45.4, 26.3, 3.0))
     add_additional_prop(gym, "LifePreserverSign", (56.9, 23.5, 0.0), math.pi / 2)
     rooms.append(gym)
