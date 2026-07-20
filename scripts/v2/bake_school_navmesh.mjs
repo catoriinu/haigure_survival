@@ -22,12 +22,39 @@ const UNSIGNED_INDEX_COMPONENT_TYPES = new Set([5121, 5123, 5125]);
 const REGISTERED_NAV_AREAS = new Set(["ground", "stairs", "outdoor", "door"]);
 const REGISTERED_NAV_ROLES = new Set(["walkable", "blocker", "exclude"]);
 const REPRESENTATIVE_ROUTE_ENDPOINT_TOLERANCE = 1e-5;
+const REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE = 0.1;
 const REPRESENTATIVE_ROUTE_PATH_LIMIT = 4096;
 const REPRESENTATIVE_ROUTE_QUERY_HALF_EXTENTS = Object.freeze({
-  x: 0.5,
-  y: 0.5,
-  z: 0.5
+  x: REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE,
+  y: REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE,
+  z: REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE
 });
+const LINK_ENDPOINT_COUNT = 120;
+const LINK_PAIR_COUNT = 60;
+const BIT_WINDOW_PAIR_COUNT = 58;
+const BIT_ROOF_PAIR_COUNT = 2;
+const LINK_PROJECTION_TOLERANCE = 1e-7;
+const NORMAL_WINDOW_REGRESSION = Object.freeze({
+  linkId: "bit-window-f01-courtyardnorth-corridor-02-u03",
+  openingNodeName: "COL_HumanOnly_Window_F01_CourtyardNorth_Corridor_02_U03",
+  entranceNodeName: "COL_BridgeSideRamp_West"
+});
+const CLOSED_UPPER_STAIR_FLIGHT_ENVELOPES = Object.freeze([
+  Object.freeze({
+    id: "northeast-upper-flight",
+    label: "北東階段上段",
+    centerBlender: Object.freeze([46.2, 41.9, 3.0]),
+    halfExtentsBlender: Object.freeze([0.6, 0.3, 0.2]),
+    detourRouteId: "northeast-landing-to-second-floor-west-corridor"
+  }),
+  Object.freeze({
+    id: "southwest-upper-flight",
+    label: "南西階段上段",
+    centerBlender: Object.freeze([-9.0, 1.3, 3.0]),
+    halfExtentsBlender: Object.freeze([0.3, 0.6, 0.2]),
+    detourRouteId: "southwest-landing-to-second-floor-west-corridor"
+  })
+]);
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "../..");
@@ -62,6 +89,13 @@ const SCHOOL_NAV_PROFILE = Object.freeze({
     buildBvTree: true
   })
 });
+const LINK_SURFACE_HEIGHT_TOLERANCE_BLENDER =
+  Math.max(
+    SCHOOL_NAV_PROFILE.parameters.ch / SCHOOL_NAV_PROFILE.worldScale * 2,
+    SCHOOL_NAV_PROFILE.parameters.walkableClimb *
+      SCHOOL_NAV_PROFILE.parameters.ch /
+      SCHOOL_NAV_PROFILE.worldScale
+  ) + 1e-5;
 
 const REPRESENTATIVE_ROUTES = Object.freeze([
   Object.freeze({
@@ -99,6 +133,108 @@ const REPRESENTATIVE_ROUTES = Object.freeze([
     label: "主玄関→南西踊り場",
     startBlender: Object.freeze([-1.5, 0, 0]),
     endBlender: Object.freeze([-11.4, -0.5, 2.4])
+  }),
+  Object.freeze({
+    id: "main-entrance-to-second-floor-west-corridor",
+    label: "主玄関→2F西側廊下",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([-2, 15, 3.6])
+  }),
+  Object.freeze({
+    id: "main-entrance-to-third-floor-west-corridor",
+    label: "主玄関→3F西側廊下",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([-2, 15, 7.2])
+  }),
+  Object.freeze({
+    id: "main-entrance-to-fourth-floor-west-corridor",
+    label: "主玄関→4F西側廊下",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([-2, 15, 10.8])
+  }),
+  Object.freeze({
+    id: "main-entrance-to-rooftop",
+    label: "主玄関→屋上",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([-5.5, 39.5, 14.4])
+  }),
+  Object.freeze({
+    id: "main-entrance-to-second-floor-ordinary-room",
+    label: "主玄関→2F西側普通教室",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([-5, 13.7, 3.6])
+  }),
+  Object.freeze({
+    id: "main-entrance-to-third-floor-ordinary-room",
+    label: "主玄関→3F西側普通教室",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([-5, 13.7, 7.2])
+  }),
+  Object.freeze({
+    id: "main-entrance-to-fourth-floor-ordinary-room",
+    label: "主玄関→4F西側普通教室",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([-5, 13.7, 10.8])
+  }),
+  Object.freeze({
+    id: "northeast-landing-to-second-floor-west-corridor",
+    label: "北東踊り場→2F西側廊下（北西階段迂回）",
+    startBlender: Object.freeze([44.4, 44.3, 2.4]),
+    endBlender: Object.freeze([-2, 15, 3.6])
+  }),
+  Object.freeze({
+    id: "southwest-landing-to-second-floor-west-corridor",
+    label: "南西踊り場→2F西側廊下（北西階段迂回）",
+    startBlender: Object.freeze([-11.4, -0.5, 2.4]),
+    endBlender: Object.freeze([-2, 15, 3.6])
+  }),
+  Object.freeze({
+    id: "second-floor-to-third-floor",
+    label: "2F西側廊下→3F西側廊下",
+    startBlender: Object.freeze([-2, 15, 3.6]),
+    endBlender: Object.freeze([-2, 15, 7.2])
+  }),
+  Object.freeze({
+    id: "third-floor-to-second-floor",
+    label: "3F西側廊下→2F西側廊下",
+    startBlender: Object.freeze([-2, 15, 7.2]),
+    endBlender: Object.freeze([-2, 15, 3.6])
+  }),
+  Object.freeze({
+    id: "third-floor-to-fourth-floor",
+    label: "3F西側廊下→4F西側廊下",
+    startBlender: Object.freeze([-2, 15, 7.2]),
+    endBlender: Object.freeze([-2, 15, 10.8])
+  }),
+  Object.freeze({
+    id: "fourth-floor-to-third-floor",
+    label: "4F西側廊下→3F西側廊下",
+    startBlender: Object.freeze([-2, 15, 10.8]),
+    endBlender: Object.freeze([-2, 15, 7.2])
+  }),
+  Object.freeze({
+    id: "fourth-floor-to-rooftop",
+    label: "4F西側廊下→屋上",
+    startBlender: Object.freeze([-2, 15, 10.8]),
+    endBlender: Object.freeze([-5.5, 39.5, 14.4])
+  }),
+  Object.freeze({
+    id: "rooftop-to-fourth-floor",
+    label: "屋上→4F西側廊下",
+    startBlender: Object.freeze([-5.5, 39.5, 14.4]),
+    endBlender: Object.freeze([-2, 15, 10.8])
+  }),
+  Object.freeze({
+    id: "rooftop-to-poolside",
+    label: "屋上→プールサイド",
+    startBlender: Object.freeze([-5.5, 39.5, 14.4]),
+    endBlender: Object.freeze([12, 39, 15.65])
+  }),
+  Object.freeze({
+    id: "poolside-to-pool-bottom",
+    label: "プールサイド→プール底",
+    startBlender: Object.freeze([12, 39, 15.65]),
+    endBlender: Object.freeze([23.4, 39, 14.61])
   }),
   Object.freeze({
     id: "main-entrance-to-gym-center",
@@ -155,22 +291,22 @@ const REPRESENTATIVE_ROUTES = Object.freeze([
     endBlender: Object.freeze([-8.05, 27.5, 0])
   }),
   Object.freeze({
-    id: "west-corridor-to-special-room-front-door",
-    label: "西側廊下→特別教室前方扉",
-    startBlender: Object.freeze([-2.8, 13.7, 0]),
-    endBlender: Object.freeze([-5.0, 13.7, 0])
+    id: "west-corridor-to-special-room-south-door",
+    label: "西側廊下→1F特別教室南側扉",
+    startBlender: Object.freeze([-2.8, 11.8, 0]),
+    endBlender: Object.freeze([-5.0, 11.8, 0])
   }),
   Object.freeze({
-    id: "west-corridor-to-special-room-rear-door",
-    label: "西側廊下→特別教室後方扉",
-    startBlender: Object.freeze([-2.8, 31.3, 0]),
-    endBlender: Object.freeze([-5.0, 31.3, 0])
+    id: "main-entrance-to-west-special-room-south-door",
+    label: "主玄関→1F西側特別教室南側扉",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([-5, 11.8, 0])
   }),
   Object.freeze({
     id: "main-entrance-to-gym-storage",
     label: "主玄関→体育倉庫",
     startBlender: Object.freeze([-1.5, 0, 0]),
-    endBlender: Object.freeze([54.4, 28.5, 0])
+    endBlender: Object.freeze([55.5, 27.1, 0.1])
   }),
   Object.freeze({
     id: "gym-floor-to-stage",
@@ -782,6 +918,75 @@ const readAccessor = (gltf, binary, accessorIndex, expectedKind) => {
   return { values, count };
 };
 
+const extractMeshNodeBoundsRecast = (
+  gltf,
+  binary,
+  nodes,
+  worldMatrices,
+  nodeName
+) => {
+  const nodeIndex = nodes.findIndex((node) => node.name === nodeName);
+  if (nodeIndex < 0) {
+    fail(`境界取得対象nodeがありません: ${nodeName}`);
+  }
+  const node = nodes[nodeIndex];
+  if (node.mesh === undefined) {
+    fail(`境界取得対象nodeがMeshを参照していません: ${nodeName}`);
+  }
+  const meshes = assertArray(gltf.meshes, "glTF.meshes");
+  const meshIndex = assertIndex(node.mesh, meshes.length, `${nodeName}.mesh`);
+  const mesh = assertObject(meshes[meshIndex], `glTF.meshes[${meshIndex}]`);
+  const primitives = assertArray(mesh.primitives, `${nodeName}.primitives`);
+  const minimum = {
+    x: Number.POSITIVE_INFINITY,
+    y: Number.POSITIVE_INFINITY,
+    z: Number.POSITIVE_INFINITY
+  };
+  const maximum = {
+    x: Number.NEGATIVE_INFINITY,
+    y: Number.NEGATIVE_INFINITY,
+    z: Number.NEGATIVE_INFINITY
+  };
+
+  primitives.forEach((primitiveValue, primitiveIndex) => {
+    const primitive = assertObject(
+      primitiveValue,
+      `${nodeName}.primitives[${primitiveIndex}]`
+    );
+    const attributes = assertObject(
+      primitive.attributes,
+      `${nodeName}.primitives[${primitiveIndex}].attributes`
+    );
+    if (attributes.POSITION === undefined) {
+      fail(`${nodeName}.primitives[${primitiveIndex}]にPOSITIONがありません。`);
+    }
+    const accessor = readAccessor(gltf, binary, attributes.POSITION, "position");
+    for (let vertexIndex = 0; vertexIndex < accessor.count; vertexIndex += 1) {
+      const offset = vertexIndex * 3;
+      const transformed = transformPosition(
+        worldMatrices[nodeIndex],
+        accessor.values[offset],
+        accessor.values[offset + 1],
+        accessor.values[offset + 2]
+      );
+      const point = {
+        x: transformed[0] * SCHOOL_NAV_PROFILE.worldScale,
+        y: transformed[1] * SCHOOL_NAV_PROFILE.worldScale,
+        z: transformed[2] * SCHOOL_NAV_PROFILE.worldScale
+      };
+      for (const axis of ["x", "y", "z"]) {
+        minimum[axis] = Math.min(minimum[axis], point[axis]);
+        maximum[axis] = Math.max(maximum[axis], point[axis]);
+      }
+    }
+  });
+
+  if (!Number.isFinite(minimum.x) || !Number.isFinite(maximum.x)) {
+    fail(`境界取得対象nodeに頂点がありません: ${nodeName}`);
+  }
+  return { minimum, maximum };
+};
+
 const extractNavigationGeometry = (
   gltf,
   binary,
@@ -933,6 +1138,12 @@ const blenderPointToRecast = ([x, y, z]) => ({
   z: -y * SCHOOL_NAV_PROFILE.worldScale
 });
 
+const recastPointToBlender = (point) => [
+  point.x / SCHOOL_NAV_PROFILE.worldScale,
+  -point.z / SCHOOL_NAV_PROFILE.worldScale,
+  point.y / SCHOOL_NAV_PROFILE.worldScale
+];
+
 const recastPointToArray = (point) => [point.x, point.y, point.z];
 
 const distanceBetweenPoints = (left, right) =>
@@ -946,34 +1157,423 @@ const measurePathDistance = (path) => {
   return distance;
 };
 
+const projectRepresentativeRoutePoint = (query, point, label) => {
+  const result = query.findClosestPoint(point, {
+    halfExtents: REPRESENTATIVE_ROUTE_QUERY_HALF_EXTENTS,
+  });
+  if (!result.success || result.polyRef === 0) {
+    fail(`代表経路の${label}をNavMeshへ投影できませんでした。`);
+  }
+  const projectionDistance = distanceBetweenPoints(point, result.point);
+  if (projectionDistance > REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE) {
+    fail(
+      `代表経路の${label}投影距離が上限を超えました: ` +
+      `${projectionDistance} > ${REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE}`
+    );
+  }
+  return {
+    point: result.point,
+    polygonRef: result.polyRef,
+    projectionDistance,
+  };
+};
+
+const blenderHalfExtentsToRecast = ([x, y, z]) => ({
+  x: x * SCHOOL_NAV_PROFILE.worldScale,
+  y: z * SCHOOL_NAV_PROFILE.worldScale,
+  z: y * SCHOOL_NAV_PROFILE.worldScale
+});
+
+const calculateNavMeshBounds = (positions) => {
+  const minimum = {
+    x: Number.POSITIVE_INFINITY,
+    y: Number.POSITIVE_INFINITY,
+    z: Number.POSITIVE_INFINITY
+  };
+  const maximum = {
+    x: Number.NEGATIVE_INFINITY,
+    y: Number.NEGATIVE_INFINITY,
+    z: Number.NEGATIVE_INFINITY
+  };
+  for (let offset = 0; offset < positions.length; offset += 3) {
+    minimum.x = Math.min(minimum.x, positions[offset]);
+    minimum.y = Math.min(minimum.y, positions[offset + 1]);
+    minimum.z = Math.min(minimum.z, positions[offset + 2]);
+    maximum.x = Math.max(maximum.x, positions[offset]);
+    maximum.y = Math.max(maximum.y, positions[offset + 1]);
+    maximum.z = Math.max(maximum.z, positions[offset + 2]);
+  }
+  return { minimum, maximum };
+};
+
+const countNavMeshPolygons = (navMesh) => {
+  let polygonCount = 0;
+  for (let tileIndex = 0; tileIndex < navMesh.getMaxTiles(); tileIndex += 1) {
+    const header = navMesh.getTile(tileIndex).header();
+    if (header !== null) {
+      polygonCount += header.polyCount();
+    }
+  }
+  if (polygonCount === 0) {
+    fail("NavMeshのpolygon件数が0です。");
+  }
+  return polygonCount;
+};
+
+const collectLinkPairs = (nodes, worldMatrices) => {
+  const pairMap = new Map();
+  nodes.forEach((node, nodeIndex) => {
+    if (!node.name.startsWith("LNK_")) {
+      return;
+    }
+    if (node.mesh !== undefined) {
+      fail(`${node.name}はMeshを参照しないEmptyである必要があります。`);
+    }
+    const extras = assertObject(node.extras, `${node.name}.extras`);
+    assertExactKeys(
+      extras,
+      [
+        "hs_id",
+        "hs_endpoint",
+        "hs_link_kind",
+        "hs_bidirectional",
+        "hs_link_radius_m"
+      ],
+      `${node.name}.extras`
+    );
+    if (typeof extras.hs_id !== "string" || extras.hs_id.length === 0) {
+      fail(`${node.name}.hs_idが非空stringではありません。`);
+    }
+    if (extras.hs_endpoint !== "A" && extras.hs_endpoint !== "B") {
+      fail(`${node.name}.hs_endpointがA/Bではありません。`);
+    }
+    if (extras.hs_link_kind !== "bit_window" && extras.hs_link_kind !== "bit_roof") {
+      fail(`${node.name}.hs_link_kindが学校用特殊接続ではありません。`);
+    }
+    if (extras.hs_bidirectional !== true) {
+      fail(`${node.name}.hs_bidirectionalがtrueではありません。`);
+    }
+    if (extras.hs_link_radius_m !== 0.54) {
+      fail(`${node.name}.hs_link_radius_mが0.54ではありません。`);
+    }
+    const expectedName = `LNK_${extras.hs_id}_${extras.hs_endpoint}`;
+    if (node.name !== expectedName) {
+      fail(`${node.name}がextras由来の期待名${expectedName}と一致しません。`);
+    }
+    const transformed = transformPosition(worldMatrices[nodeIndex], 0, 0, 0);
+    const rawRecast = {
+      x: transformed[0] * SCHOOL_NAV_PROFILE.worldScale,
+      y: transformed[1] * SCHOOL_NAV_PROFILE.worldScale,
+      z: transformed[2] * SCHOOL_NAV_PROFILE.worldScale
+    };
+    const pair = pairMap.get(extras.hs_id) ?? {
+      id: extras.hs_id,
+      kind: extras.hs_link_kind,
+      radiusMeters: extras.hs_link_radius_m,
+      endpointA: null,
+      endpointB: null
+    };
+    if (pair.kind !== extras.hs_link_kind || pair.radiusMeters !== extras.hs_link_radius_m) {
+      fail(`特殊接続pairの契約が端点間で一致しません: ${extras.hs_id}`);
+    }
+    const key = extras.hs_endpoint === "A" ? "endpointA" : "endpointB";
+    if (pair[key] !== null) {
+      fail(`特殊接続端点が重複しています: ${extras.hs_id}/${extras.hs_endpoint}`);
+    }
+    pair[key] = {
+      name: node.name,
+      endpoint: extras.hs_endpoint,
+      rawRecast
+    };
+    pairMap.set(extras.hs_id, pair);
+  });
+
+  const pairs = [...pairMap.values()].sort((left, right) =>
+    left.id.localeCompare(right.id)
+  );
+  if (pairs.length !== LINK_PAIR_COUNT) {
+    fail(`特殊接続pairが${LINK_PAIR_COUNT}組ではありません: ${pairs.length}`);
+  }
+  pairs.forEach((pair) => {
+    if (pair.endpointA === null || pair.endpointB === null) {
+      fail(`特殊接続pairのA/Bが揃っていません: ${pair.id}`);
+    }
+  });
+  const kindCounts = {
+    bit_window: pairs.filter((pair) => pair.kind === "bit_window").length,
+    bit_roof: pairs.filter((pair) => pair.kind === "bit_roof").length
+  };
+  if (
+    kindCounts.bit_window !== BIT_WINDOW_PAIR_COUNT ||
+    kindCounts.bit_roof !== BIT_ROOF_PAIR_COUNT
+  ) {
+    fail(
+      `特殊接続kind件数が不正です: ` +
+      `bit_window=${kindCounts.bit_window}, bit_roof=${kindCounts.bit_roof}`
+    );
+  }
+  return { pairs, kindCounts };
+};
+
+const expectedLinkSurfaceBandBlender = (pair, endpoint) => {
+  if (endpoint.endpoint === "A") {
+    return {
+      id: "outdoor-ground",
+      nominal: -0.3,
+      minimum: -0.3 - LINK_PROJECTION_TOLERANCE,
+      maximum: 0.1 + LINK_PROJECTION_TOLERANCE
+    };
+  }
+  let nominal;
+  let id;
+  if (pair.kind === "bit_roof") {
+    nominal = 14.4;
+    id = "rooftop";
+  } else if (pair.id.includes("-gym-")) {
+    nominal = 0;
+    id = "gym-floor";
+  } else {
+    const floorMatch = pair.id.match(/-f0([1-4])-/);
+    if (floorMatch === null) {
+      fail(`bit_windowの階をhs_idから判定できません: ${pair.id}`);
+    }
+    const floor = Number(floorMatch[1]);
+    nominal = (floor - 1) * 3.6;
+    id = `school-floor-${floor}`;
+  }
+  return {
+    id,
+    nominal,
+    minimum: nominal - LINK_SURFACE_HEIGHT_TOLERANCE_BLENDER,
+    maximum: nominal + LINK_SURFACE_HEIGHT_TOLERANCE_BLENDER
+  };
+};
+
+const projectLinkEndpoint = (
+  query,
+  polygonCount,
+  navMeshBounds,
+  pair,
+  endpoint
+) => {
+  const radius = pair.radiusMeters * SCHOOL_NAV_PROFILE.worldScale;
+  if (endpoint.rawRecast.y < navMeshBounds.minimum.y) {
+    fail(`特殊接続端点がNavMesh下端より下です: ${endpoint.name}`);
+  }
+  const verticalSpan = endpoint.rawRecast.y - navMeshBounds.minimum.y;
+  const searchCenter = {
+    x: endpoint.rawRecast.x,
+    y: navMeshBounds.minimum.y + verticalSpan / 2,
+    z: endpoint.rawRecast.z
+  };
+  const searchHalfExtents = {
+    x: radius,
+    y: verticalSpan / 2,
+    z: radius
+  };
+  const polygonResult = query.queryPolygons(searchCenter, searchHalfExtents, {
+    maxPolys: polygonCount
+  });
+  if (!polygonResult.success) {
+    fail(`特殊接続端点の直下polygon検索に失敗しました: ${endpoint.name}`);
+  }
+  const candidates = [...new Set(polygonResult.polyRefs)]
+    .map((polyRef) => {
+      const closestResult = query.closestPointOnPoly(polyRef, endpoint.rawRecast);
+      if (!closestResult.success) {
+        return null;
+      }
+      const point = closestResult.closestPoint;
+      const verticalDrop = endpoint.rawRecast.y - point.y;
+      const horizontalDistance = Math.hypot(
+        endpoint.rawRecast.x - point.x,
+        endpoint.rawRecast.z - point.z
+      );
+      if (
+        verticalDrop < -LINK_PROJECTION_TOLERANCE ||
+        horizontalDistance > radius + LINK_PROJECTION_TOLERANCE
+      ) {
+        return null;
+      }
+      return { polyRef, point, verticalDrop, horizontalDistance };
+    })
+    .filter((candidate) => candidate !== null)
+    .sort(
+      (left, right) =>
+        left.verticalDrop - right.verticalDrop ||
+        left.horizontalDistance - right.horizontalDistance ||
+        left.polyRef - right.polyRef
+    );
+  if (candidates.length === 0) {
+    fail(`特殊接続端点の直下にNavMesh面がありません: ${endpoint.name}`);
+  }
+  const selected = candidates[0];
+  const projectedBlender = recastPointToBlender(selected.point);
+  const expectedSurfaceBand = expectedLinkSurfaceBandBlender(pair, endpoint);
+  const surfaceHeightError = Math.abs(projectedBlender[2] - expectedSurfaceBand.nominal);
+  if (
+    projectedBlender[2] < expectedSurfaceBand.minimum ||
+    projectedBlender[2] > expectedSurfaceBand.maximum
+  ) {
+    fail(
+      `特殊接続端点が期待する高さ帯へ投影されません: ${endpoint.name}, ` +
+      `actual=${projectedBlender[2]}, ` +
+      `expected=${expectedSurfaceBand.minimum}..${expectedSurfaceBand.maximum}`
+    );
+  }
+  return {
+    name: endpoint.name,
+    endpoint: endpoint.endpoint,
+    rawRecast: recastPointToArray(endpoint.rawRecast),
+    rawBlender: recastPointToBlender(endpoint.rawRecast),
+    projectedRecast: recastPointToArray(selected.point),
+    projectedBlender,
+    polyRef: selected.polyRef,
+    verticalDrop: selected.verticalDrop,
+    horizontalDistance: selected.horizontalDistance,
+    expectedSurfaceBandBlender: expectedSurfaceBand,
+    surfaceHeightErrorBlender: surfaceHeightError
+  };
+};
+
+const validateLinkEndpointProjections = (
+  navMesh,
+  navMeshPositions,
+  nodes,
+  worldMatrices
+) => {
+  const { pairs, kindCounts } = collectLinkPairs(nodes, worldMatrices);
+  const query = new NavMeshQuery(navMesh, {
+    maxNodes: REPRESENTATIVE_ROUTE_PATH_LIMIT
+  });
+  try {
+    const polygonCount = countNavMeshPolygons(navMesh);
+    const navMeshBounds = calculateNavMeshBounds(navMeshPositions);
+    const projectedPairs = pairs.map((pair) => ({
+      ...pair,
+      endpointA: projectLinkEndpoint(
+        query,
+        polygonCount,
+        navMeshBounds,
+        pair,
+        pair.endpointA
+      ),
+      endpointB: projectLinkEndpoint(
+        query,
+        polygonCount,
+        navMeshBounds,
+        pair,
+        pair.endpointB
+      )
+    }));
+    const endpoints = projectedPairs.flatMap((pair) => [
+      { id: pair.id, kind: pair.kind, ...pair.endpointA },
+      { id: pair.id, kind: pair.kind, ...pair.endpointB }
+    ]);
+    if (endpoints.length !== LINK_ENDPOINT_COUNT) {
+      fail(`特殊接続端点が${LINK_ENDPOINT_COUNT}件ではありません: ${endpoints.length}`);
+    }
+    const gymHighWindowEndpointCount = endpoints.filter(
+      (endpoint) => endpoint.kind === "bit_window" && endpoint.id.includes("-gym-")
+    ).length;
+    const roofOutsideEndpointCount = endpoints.filter(
+      (endpoint) => endpoint.kind === "bit_roof" && endpoint.endpoint === "A"
+    ).length;
+    if (gymHighWindowEndpointCount !== 14 || roofOutsideEndpointCount !== 2) {
+      fail(
+        `高所端点件数が不正です: ` +
+        `gym=${gymHighWindowEndpointCount}, roofOutside=${roofOutsideEndpointCount}`
+      );
+    }
+    const projectedHeightDistribution = Object.fromEntries(
+      [...new Set(endpoints.map((endpoint) => endpoint.projectedBlender[2].toFixed(2)))]
+        .sort((left, right) => Number(left) - Number(right))
+        .map((height) => [
+          height,
+          endpoints.filter(
+            (endpoint) => endpoint.projectedBlender[2].toFixed(2) === height
+          ).length
+        ])
+    );
+    const expectedBandDistribution = Object.fromEntries(
+      [...new Set(endpoints.map((endpoint) => endpoint.expectedSurfaceBandBlender.id))]
+        .sort()
+        .map((bandId) => [
+          bandId,
+          endpoints.filter(
+            (endpoint) => endpoint.expectedSurfaceBandBlender.id === bandId
+          ).length
+        ])
+    );
+    return {
+      pairCount: projectedPairs.length,
+      endpointCount: endpoints.length,
+      kindCounts,
+      polygonCount,
+      horizontalRadiusMeters: 0.54,
+      surfaceHeightToleranceBlender: LINK_SURFACE_HEIGHT_TOLERANCE_BLENDER,
+      gymHighWindowEndpointCount,
+      roofOutsideEndpointCount,
+      projectedSurfaceHeightDistributionBlender: projectedHeightDistribution,
+      expectedSurfaceBandDistribution: expectedBandDistribution,
+      pairs: projectedPairs
+    };
+  } finally {
+    query.destroy();
+  }
+};
+
 const validateRepresentativeRoutes = (navMesh) => {
   const query = new NavMeshQuery(navMesh, {
     maxNodes: REPRESENTATIVE_ROUTE_PATH_LIMIT
   });
   try {
-    return REPRESENTATIVE_ROUTES.map((route) => {
+    const failures = [];
+    const routes = REPRESENTATIVE_ROUTES.map((route) => {
       const startRecast = blenderPointToRecast(route.startBlender);
       const endRecast = blenderPointToRecast(route.endBlender);
-      const pathResult = query.computePath(startRecast, endRecast, {
+      const projectedStart = projectRepresentativeRoutePoint(
+        query,
+        startRecast,
+        `${route.label}の始点`
+      );
+      const projectedEnd = projectRepresentativeRoutePoint(
+        query,
+        endRecast,
+        `${route.label}の終点`
+      );
+      const pathResult = query.computePath(projectedStart.point, projectedEnd.point, {
         halfExtents: REPRESENTATIVE_ROUTE_QUERY_HALF_EXTENTS,
         maxPathPolys: REPRESENTATIVE_ROUTE_PATH_LIMIT,
         maxStraightPathPoints: REPRESENTATIVE_ROUTE_PATH_LIMIT
       });
       if (!pathResult.success || pathResult.path.length === 0) {
-        fail(
+        failures.push(
           `代表経路を計算できませんでした: ${route.label}, ` +
           `error=${pathResult.error?.name ?? "経路点0件"}`
         );
+        return null;
       }
 
+      const startpoint = pathResult.path[0];
       const endpoint = pathResult.path[pathResult.path.length - 1];
-      const endpointError = distanceBetweenPoints(endpoint, endRecast);
-      if (endpointError > REPRESENTATIVE_ROUTE_ENDPOINT_TOLERANCE) {
-        fail(
-          `代表経路が終点へ到達していません: ${route.label}, ` +
+      const startpointError = distanceBetweenPoints(
+        startpoint,
+        projectedStart.point
+      );
+      const endpointError = distanceBetweenPoints(endpoint, projectedEnd.point);
+      if (
+        startpointError > REPRESENTATIVE_ROUTE_ENDPOINT_TOLERANCE ||
+        endpointError > REPRESENTATIVE_ROUTE_ENDPOINT_TOLERANCE
+      ) {
+        failures.push(
+          `代表経路が投影済み両端へ到達していません: ${route.label}, ` +
+          `startpointError=${startpointError}, ` +
           `endpointError=${endpointError}, ` +
+          `actualEndpointBlender=${JSON.stringify(recastPointToBlender(endpoint))}, ` +
           `tolerance=${REPRESENTATIVE_ROUTE_ENDPOINT_TOLERANCE}`
         );
+        return null;
       }
 
       return {
@@ -983,11 +1583,239 @@ const validateRepresentativeRoutes = (navMesh) => {
         endBlender: route.endBlender,
         startRecast: recastPointToArray(startRecast),
         endRecast: recastPointToArray(endRecast),
+        projectedStartRecast: recastPointToArray(projectedStart.point),
+        projectedEndRecast: recastPointToArray(projectedEnd.point),
+        startProjectionDistance: projectedStart.projectionDistance,
+        endProjectionDistance: projectedEnd.projectionDistance,
         pathRecast: pathResult.path.map(recastPointToArray),
         distance: measurePathDistance(pathResult.path),
+        startpointError,
         endpointError
       };
     });
+    if (failures.length > 0) {
+      fail(failures.join("\n"));
+    }
+    return routes;
+  } finally {
+    query.destroy();
+  }
+};
+
+const pointFromArray = ([x, y, z]) => ({ x, y, z });
+
+const pointWithinBounds = (point, bounds) =>
+  point.x >= bounds.minimum.x - LINK_PROJECTION_TOLERANCE &&
+  point.x <= bounds.maximum.x + LINK_PROJECTION_TOLERANCE &&
+  point.y >= bounds.minimum.y - LINK_PROJECTION_TOLERANCE &&
+  point.y <= bounds.maximum.y + LINK_PROJECTION_TOLERANCE &&
+  point.z >= bounds.minimum.z - LINK_PROJECTION_TOLERANCE &&
+  point.z <= bounds.maximum.z + LINK_PROJECTION_TOLERANCE;
+
+const segmentIntersectsBounds = (start, end, bounds, axes) => {
+  let minimumParameter = 0;
+  let maximumParameter = 1;
+  for (const axis of axes) {
+    const delta = end[axis] - start[axis];
+    if (Math.abs(delta) <= Number.EPSILON) {
+      if (start[axis] < bounds.minimum[axis] || start[axis] > bounds.maximum[axis]) {
+        return false;
+      }
+      continue;
+    }
+    let entry = (bounds.minimum[axis] - start[axis]) / delta;
+    let exit = (bounds.maximum[axis] - start[axis]) / delta;
+    if (entry > exit) {
+      [entry, exit] = [exit, entry];
+    }
+    minimumParameter = Math.max(minimumParameter, entry);
+    maximumParameter = Math.min(maximumParameter, exit);
+    if (minimumParameter > maximumParameter) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const pathIntersectsBounds = (path, bounds, axes) => {
+  for (let index = 1; index < path.length; index += 1) {
+    if (segmentIntersectsBounds(path[index - 1], path[index], bounds, axes)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const boundsFromCenterAndHalfExtents = (center, halfExtents) => ({
+  minimum: {
+    x: center.x - halfExtents.x,
+    y: center.y - halfExtents.y,
+    z: center.z - halfExtents.z
+  },
+  maximum: {
+    x: center.x + halfExtents.x,
+    y: center.y + halfExtents.y,
+    z: center.z + halfExtents.z
+  }
+});
+
+const boundsToReport = (bounds) => {
+  const firstBlenderCorner = recastPointToBlender(bounds.minimum);
+  const secondBlenderCorner = recastPointToBlender(bounds.maximum);
+  return {
+    minimumRecast: recastPointToArray(bounds.minimum),
+    maximumRecast: recastPointToArray(bounds.maximum),
+    minimumBlender: firstBlenderCorner.map((value, index) =>
+      Math.min(value, secondBlenderCorner[index])
+    ),
+    maximumBlender: firstBlenderCorner.map((value, index) =>
+      Math.max(value, secondBlenderCorner[index])
+    )
+  };
+};
+
+const validateClosedUpperStairs = (navMesh, representativeRoutes) => {
+  const query = new NavMeshQuery(navMesh, {
+    maxNodes: REPRESENTATIVE_ROUTE_PATH_LIMIT
+  });
+  try {
+    const polygonCount = countNavMeshPolygons(navMesh);
+    return CLOSED_UPPER_STAIR_FLIGHT_ENVELOPES.map((definition) => {
+      const center = blenderPointToRecast(definition.centerBlender);
+      const halfExtents = blenderHalfExtentsToRecast(definition.halfExtentsBlender);
+      const bounds = boundsFromCenterAndHalfExtents(center, halfExtents);
+      const polygonResult = query.queryPolygons(center, halfExtents, {
+        maxPolys: polygonCount
+      });
+      if (!polygonResult.success) {
+        fail(`${definition.label}の局所polygon検索に失敗しました。`);
+      }
+      const localSurfacePolyRefs = [...new Set(polygonResult.polyRefs)].filter(
+        (polyRef) => {
+          const closest = query.closestPointOnPoly(polyRef, center);
+          return closest.success && pointWithinBounds(closest.closestPoint, bounds);
+        }
+      );
+      const detourRoute = representativeRoutes.find(
+        (route) => route.id === definition.detourRouteId
+      );
+      if (detourRoute === undefined) {
+        fail(`${definition.label}の迂回代表経路がありません。`);
+      }
+      const detourPath = detourRoute.pathRecast.map(pointFromArray);
+      const detourIntersectsEnvelope = pathIntersectsBounds(
+        detourPath,
+        bounds,
+        ["x", "y", "z"]
+      );
+      if (localSurfacePolyRefs.length > 0 || detourIntersectsEnvelope) {
+        fail(
+          `${definition.label}の閉鎖上段にNavMesh面または代表経路が侵入しています: ` +
+          `localPolys=${localSurfacePolyRefs.length}, ` +
+          `pathIntersects=${detourIntersectsEnvelope}`
+        );
+      }
+      return {
+        id: definition.id,
+        label: definition.label,
+        ...boundsToReport(bounds),
+        queriedPolygonCount: polygonResult.polyRefs.length,
+        localSurfacePolygonCount: localSurfacePolyRefs.length,
+        detourRouteId: detourRoute.id,
+        detourRouteDistance: detourRoute.distance,
+        detourIntersectsEnvelope
+      };
+    });
+  } finally {
+    query.destroy();
+  }
+};
+
+const validateNormalWindowDetour = (
+  navMesh,
+  gltf,
+  binary,
+  nodes,
+  worldMatrices,
+  linkProjectionValidation
+) => {
+  const pair = linkProjectionValidation.pairs.find(
+    (candidate) => candidate.id === NORMAL_WINDOW_REGRESSION.linkId
+  );
+  if (pair === undefined) {
+    fail(`通常窓迂回検証用linkがありません: ${NORMAL_WINDOW_REGRESSION.linkId}`);
+  }
+  const openingBounds = extractMeshNodeBoundsRecast(
+    gltf,
+    binary,
+    nodes,
+    worldMatrices,
+    NORMAL_WINDOW_REGRESSION.openingNodeName
+  );
+  const entranceBounds = extractMeshNodeBoundsRecast(
+    gltf,
+    binary,
+    nodes,
+    worldMatrices,
+    NORMAL_WINDOW_REGRESSION.entranceNodeName
+  );
+  const start = pointFromArray(pair.endpointA.projectedRecast);
+  const end = pointFromArray(pair.endpointB.projectedRecast);
+  const query = new NavMeshQuery(navMesh, {
+    maxNodes: REPRESENTATIVE_ROUTE_PATH_LIMIT
+  });
+  try {
+    const pathResult = query.computePath(start, end, {
+      halfExtents: REPRESENTATIVE_ROUTE_QUERY_HALF_EXTENTS,
+      maxPathPolys: REPRESENTATIVE_ROUTE_PATH_LIMIT,
+      maxStraightPathPoints: REPRESENTATIVE_ROUTE_PATH_LIMIT
+    });
+    if (!pathResult.success || pathResult.path.length === 0) {
+      fail("通常窓の内外を結ぶ正規入口迂回経路を計算できませんでした。");
+    }
+    const endpoint = pathResult.path[pathResult.path.length - 1];
+    const endpointError = distanceBetweenPoints(endpoint, end);
+    const crossesWindowOpening = pathIntersectsBounds(
+      pathResult.path,
+      openingBounds,
+      ["x", "z"]
+    );
+    const crossesNormalEntrance = pathIntersectsBounds(
+      pathResult.path,
+      entranceBounds,
+      ["x", "z"]
+    );
+    const pathDistance = measurePathDistance(pathResult.path);
+    const directDistance = distanceBetweenPoints(start, end);
+    if (
+      endpointError > REPRESENTATIVE_ROUTE_ENDPOINT_TOLERANCE ||
+      crossesWindowOpening ||
+      !crossesNormalEntrance ||
+      pathDistance <= directDistance
+    ) {
+      fail(
+        `通常窓のsurface経路が正規入口へ迂回していません: ` +
+        `endpointError=${endpointError}, window=${crossesWindowOpening}, ` +
+        `entrance=${crossesNormalEntrance}, distance=${pathDistance}/${directDistance}, ` +
+        `pathBlender=${JSON.stringify(pathResult.path.map(recastPointToBlender))}, ` +
+        `entranceBounds=${JSON.stringify(boundsToReport(entranceBounds))}`
+      );
+    }
+    return {
+      linkId: pair.id,
+      openingNodeName: NORMAL_WINDOW_REGRESSION.openingNodeName,
+      entranceNodeName: NORMAL_WINDOW_REGRESSION.entranceNodeName,
+      openingBounds: boundsToReport(openingBounds),
+      entranceBounds: boundsToReport(entranceBounds),
+      startRecast: recastPointToArray(start),
+      endRecast: recastPointToArray(end),
+      pathRecast: pathResult.path.map(recastPointToArray),
+      pathDistance,
+      directDistance,
+      endpointError,
+      crossesWindowOpening,
+      crossesNormalEntrance
+    };
   } finally {
     query.destroy();
   }
@@ -1039,6 +1867,24 @@ const main = async () => {
       fail("復元したNavMeshにpolygon geometryがありません。");
     }
     const representativeRoutes = validateRepresentativeRoutes(restoredNavMesh);
+    const linkEndpointProjections = validateLinkEndpointProjections(
+      restoredNavMesh,
+      navMeshPositions,
+      nodes,
+      worldMatrices
+    );
+    const closedUpperStairs = validateClosedUpperStairs(
+      restoredNavMesh,
+      representativeRoutes
+    );
+    const normalWindowDetour = validateNormalWindowDetour(
+      restoredNavMesh,
+      gltf,
+      binary,
+      nodes,
+      worldMatrices,
+      linkEndpointProjections
+    );
 
     await writeFile(OUTPUT_PATH, navMeshData);
     const profileHash = sha256(Buffer.from(stableStringify(SCHOOL_NAV_PROFILE), "utf8"));
@@ -1077,11 +1923,17 @@ const main = async () => {
         },
         representativeRoutes: {
           endpointTolerance: REPRESENTATIVE_ROUTE_ENDPOINT_TOLERANCE,
+          projectionMaxDistance: REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE,
           maxNodes: REPRESENTATIVE_ROUTE_PATH_LIMIT,
           maxPathPolys: REPRESENTATIVE_ROUTE_PATH_LIMIT,
           maxStraightPathPoints: REPRESENTATIVE_ROUTE_PATH_LIMIT,
           queryHalfExtents: REPRESENTATIVE_ROUTE_QUERY_HALF_EXTENTS,
           routes: representativeRoutes
+        },
+        linkEndpointProjections,
+        negativeCases: {
+          closedUpperStairs,
+          normalWindowDetour
         }
       },
       bakeMilliseconds: Number(bakeMilliseconds.toFixed(3))

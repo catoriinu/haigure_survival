@@ -69,7 +69,7 @@ PR #41以降は、レビュー可能な一ブランチ単位へ次のように�
 
 確定した実行順は、B03-0とT04-2Aの並行Wave、B03-1、B03-2、T04-2B、T05-1、T05-2、T06、T07とする。並行Wave以外は、直前の依存タスクが`develop`へマージされた後に開始する。
 
-T04-2BでB03-2統合後の北西階段NAV元形状を修正する作業だけは、`codex/v2-t04-school-multifloor`からローカル限定の`codex/v2-t04-school-nav-asset-fix`を分岐する。修正コミットはT04-2Bへ`--no-ff`でローカルマージし、この補助ブランチ自体はpushまたはPull Request化しない。
+T04-2BでB03-2統合後の階段NAV元形状と上階blockerを修正する作業だけは、`codex/v2-t04-school-multifloor`からローカル限定の`codex/v2-t04-school-nav-asset-fix`を分岐する。修正コミットはT04-2Bへ`--no-ff`でローカルマージし、この補助ブランチ自体はpushまたはPull Request化しない。2026-07-20に北西階段・吹抜け補正`1f34fe2`を`d9a3872`、北東・南西1F踊り場開口補正`fb2caf5`を`b3f2302`、上階Nav blocker補正`c2bcdcc`を`b5e77f7`としてT04へローカルマージ済みである。
 
 ### リリースブランチ
 

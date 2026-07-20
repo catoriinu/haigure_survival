@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 ステージ資産仕様書
 
-更新日: 2026-07-19
+更新日: 2026-07-20
 対象バージョン: v2
 基準検証: T01 GLB・座標・衝突規約 技術検証
 
@@ -12,7 +12,7 @@ V2のステージ空間の正本は、GLBへ出力された3D形状、EmptyのTr
 
 ステージJSONは使用しない。JSON文字マップ、セル、行・列、矩形ゾーンなどへ空間を重複記述してはならない。TypeScriptのステージカタログが保持できるのは、ステージID、表示名、GLB URL、NavMesh URL、整合性検査用ハッシュなどの非空間情報だけである。
 
-Recast NavMeshバイナリはGLBの`NAV_*`形状から生成する派生物であり、編集元ではない。`LNK_*` Emptyは最終GLBに残る特殊接続の正本であり、RuntimeがNavMesh上へ両端を投影して経路グラフへ加える。NavMeshを変更したい場合はBlender資産またはベイクプロファイルを変更し、GLB監査後に再ベイクする。B03-1の窓配置確認中は`.blend`に`bit_roof` 2組を保持する一方、旧NavMeshへ投影できない接続を配置確認用GLBから除外する。開放窓確定後の最終GLBとNavMeshはT04-2Bで同時に生成・監査し、`LNK_*`を欠いた配置確認用GLBを完成資産として扱わない。
+Recast NavMeshバイナリはGLBの`NAV_*`形状から生成する派生物であり、編集元ではない。`LNK_*` Emptyは最終GLBに残る特殊接続の正本であり、RuntimeがNavMesh上へ両端を投影して経路グラフへ加える。NavMeshを変更したい場合はBlender資産またはベイクプロファイルを変更し、GLB監査後に再ベイクする。B03-1の窓配置確認中は`.blend`に`bit_roof` 2組を保持する一方、旧NavMeshへ投影できない接続を配置確認用GLBから除外した。開放窓確定後の最終GLBとNavMeshはT04-2Bで同時に生成・監査済みであり、`LNK_*`を欠いた配置確認用GLBを完成資産として扱わない。
 
 本規約は規約準拠資産だけを扱う。未知の接頭辞、欠落した必須Object、未知の`hs_*` propertyを読み替える互換処理やフォールバックは作らない。
 
@@ -45,22 +45,23 @@ public/stage-assets/v2/<ステージID>/<資産名>.navmesh.bin
 | T01 Blender編集元 | `assets/blender/v2/T01/t01_glb_collision_course.blend` | 座標・縮尺・衝突の検証fixture |
 | T01 GLB | `public/stage-assets/v2/T01/t01_glb_collision_course.glb` | 座標・縮尺・衝突の検証fixture |
 | B02 Blender編集元 | `assets/blender/v2/B02/b02_school_blockout.blend` | 学校の制作元。3D意味ObjectとNavMesh生成元を保持 |
-| B02 GLB | `public/stage-assets/v2/B02/b02_school_blockout.glb` | 学校の実行時空間正本。Runtime移行・手動検証中 |
+| B02 GLB | `public/stage-assets/v2/B02/b02_school_blockout.glb` | 学校の実行時空間正本。B03-2内装とT04-2B NAV補正を統合済み |
 | B02 NavMesh | `public/stage-assets/v2/B02/b02_school_blockout.navmesh.bin` | 同一GLBから事前ベイクするRecast派生物 |
 
 `.blend`はVite配布物へ含めない。GLBとNavMeshバイナリだけを`public`からWeb版・Electron版へコピーする。バイナリ資産は単一担当で編集し、同一ファイルを複数ブランチで並行編集しない。
 
 ### 3.1 B02学校の現行監査基準
 
-- Blenderは504 Object／480 Meshとし、`EXP_Stage_school`配下の482 ObjectだけをGLBへ出力する。
-- 出力内訳は`VIS_*`308件、`COL_*`161件、`NAV_*`8件、`META_Stage`1件、`MRK_*`1件、`VOL_*`2件、`BND_Stage`1件とする。
-- 制作用ガイド22件はExport Collection外に保持し、GLBへ出力しない。
+- BlenderとGLBは932 Object／Node、810 Meshとする。GLBは5 Material／3 Textureを持つ。
+- 出力内訳は`VIS_*`467件、`COL_*`324件、`NAV_*`15件、`META_Stage`1件、`MRK_*`1件、`VOL_*`3件、`LNK_*`120端点、`BND_Stage`1件とする。`COL_*`は通常183件、`COL_ActorOnly_*`83件、`COL_HumanOnly_*`58件へ排他的に分類する。
+- `LNK_*`は`bit_window`58組と`bit_roof`2組の計60組で、全組がA/Bの2端点、双方向、`hs_link_radius_m=0.54`を持つ。
 - 主玄関、北側校舎北口、北側校舎南口、体育館校庭側は、総高0.30m、各蹴上0.15m、各踏面1.00mの表示2段を共通断面とする。移動衝突は表示段と分離し、地面Z＝-0.30mから床Z＝0.00mへ続く単一の`COL_*Ramp`とする。渡り廊下東西側は表示段を置かず、不可視の`COL_BridgeSideRamp_East`と`COL_BridgeSideRamp_West`で同じ床高差を連続接続する。
 - 男女トイレは各3個室とし、内部仕切りは厚さ0.08m、奥行2.10m、高さ2.10mの`VIS_ToiletStallPartition_*`と`COL_ToiletStallPartition_*`を一致させる。男子小便器はB03で3基を追加するため、X＝-2.55～-2.25m、Y＝39.0～42.2mの設置帯と、その西側1.0mの立位空間を塞がない。
 - 体育館舞台階段上部の東西表示壁・衝突壁は、舞台上面からBlender 2.4mの実開口を一致して確保する。NavMeshだけを接続する仮connector面は資産へ残さない。
-- `BND_Stage`のBlender範囲はX＝-18.4～63.2m、Y＝-12.3～51.3m、Z＝-0.5～16.0mとする。プールサイド足元Z＝13.85mへ最大視点高2.0mを加えたZ＝15.85mを内包し、上端に0.15mの余裕を持つ。
-- 事前ベイク後は、主玄関から校庭、北側屋外、北西階段踊り場・階段下倉庫、北東・南西階段踊り場、体育館中央・体育倉庫へ向かう経路、校庭・東側屋外から各出入口と渡り廊下側面へ向かう経路、男女トイレ個室、西側特別教室内縦断・前方扉・後方扉、体育館床・東西ランプ下から舞台へ向かう経路を含む代表21経路が要求終点へ到達することを検査する。部分経路を成功扱いせず、要求終点との誤差`1e-5`以下を必須とする。現行監査資産では2～4階の一般床、北西上階階段、屋上、プールをAI NavMeshの対象外としているが、これはT04-1時点の資産状態である。屋上は窓の設置対象外であるだけで、ゲームプレイまたは将来の経路対象から除外しない。
-- 現行`.blend`は345,906 bytes・SHA-256 `6F68041134DEA543BDF7FA13193ECA46A729145E973BD28C5855AAEB72DDE51B`、GLBは942,796 bytes・SHA-256 `294F8E4370CE736726166AE14CBABEB89CBB40DE875CFD2FF40A9F9E20EB9C8C`、NavMeshは157,376 bytes・SHA-256 `7326422B609D810E8736B48A08EC819AA962848769A718E175463FE6191A5347`である。同じ保存済み`.blend`からのGLB再出力と同じGLBからのNavMesh再ベイクで、GLBとNavMeshの各SHA-256が一致しなければならない。
+- `BND_Stage`のBlender範囲はX＝-18.4～63.2m、Y＝-12.3～51.3m、Z＝-0.5～18.0mとする。プールサイド足元Z＝15.65mへ最大視点高2.0mを加えたZ＝17.65mを内包し、上端に0.35mの余裕を持つ。
+- 事前ベイク後は、主玄関から3か所の1F踊り場、各階廊下・代表教室、北西階段の1F↔2F↔3F↔4F↔屋上、体育館・舞台・体育倉庫、屋上階段室、プールサイド、プール底を含む代表経路が要求終点へ到達することを検査する。部分経路を成功扱いせず、要求終点との誤差`1e-5`以下を必須とする。北東・南西階段上段にNavMesh面がなく北西階段へ迂回すること、通常窓の内外を結ぶsurface経路が窓開口を短絡せず正規出入口へ迂回することも必須とする。
+- 全120リンク端点は、水平0.54m以内を端点からNavMesh下端まで検索し、端点以下で垂直差、水平差、polygon参照の順に選んだ面へ接続する。体育館高窓14端点、屋上外側2端点を含め、各端点が期待する直下階へ投影されなければならない。
+- 現行`.blend`は1,288,847 bytes・SHA-256 `1926D1868720EFBF8CC1F3040EE227D1CA3BFC0990052D439F073DC6EBEECB67`、GLBは8,949,588 bytes・SHA-256 `75716D10FE584E8FF661FB9C966683E45C4714776935890E68BE593C444F7920`、NavMeshは494,796 bytes・SHA-256 `EC2626236BA8B2A8619DD8CBC0237AC3003CFA74EEFC144A77F3BD7EB84E8174`である。NavMeshは18,366 vertices／6,122 trianglesである。GLBとNavMeshは同じ入力から2回連続生成してbytesとSHA-256が一致しなければならない。Blender 5.2の`.blend`保存バイナリ自体は同一シーンでも非決定的なため、保存後の現行値を記録し、決定性は監査済みシーン契約とGLB・NavMeshで判定する。
 
 検証専用Viteでは、`publicDir`をリポジトリ全体の`public`へ向けない。検証対象の資産ディレクトリだけを公開し、ビルド後はファイル一覧、容量、SHA-256を公開元と照合する。
 
@@ -254,7 +255,7 @@ MRK_PlayerSpawn_Main
 | `hs_id` | string | ステージ内で一意な小文字kebab-case ID |
 | `hs_role` | string | Runtimeのvolume role registryに登録された役割 |
 
-roleには`npc_spawn`、`bit_spawn`、`assembly`、`no_enemy_spawn`、`no_enemy_enter`、`no_combat`、`hazard`、`water`を使用できる。`water`は水面ではなく、水中判定に用いる閉じた3D領域を表す。B03-1の学校資産は、プール内面に一致する`VOL_PoolWater`を1件持ち、`hs_id="pool-water"`、`hs_role="water"`とする。TypeScriptのrole登録とGLB読込はB03-1で行い、水中ゲーム処理との接続はT04-2Bで行う。
+roleには`npc_spawn`、`bit_spawn`、`assembly`、`no_enemy_spawn`、`no_enemy_enter`、`no_combat`、`hazard`、`water`を使用できる。`water`は水面ではなく、水中判定に用いる閉じた3D領域を表す。学校資産は、プール内面に一致する`VOL_PoolWater`を1件持ち、`hs_id="pool-water"`、`hs_role="water"`とする。T04-2Bで読込、内外問い合わせ、プール底へのNavMesh到達、破棄・再読込を確認済みであり、水中水平速度50%と通常速度への復帰はT06で実装する。
 
 - Volumeの位置、回転、範囲はMesh形状を正本とする。
 - boxの中心・幅・奥行・高さをpropertiesへ重複記述しない。

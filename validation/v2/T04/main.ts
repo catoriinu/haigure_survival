@@ -20,6 +20,7 @@ import {
   initializeNavigationRuntime,
   type NavigationLocation,
   type NavigationPath,
+  type NavigationSurfaceStep,
   type NavigationWorld
 } from "../../../src/world/navigationWorld";
 import { createNavigationAgent } from "../../../src/world/navigationAgent";
@@ -792,10 +793,17 @@ const runValidation = async () => {
       `${polygonRef}:${position.x.toFixed(6)},${position.y.toFixed(6)},${position.z.toFixed(6)}`;
     const recastPathfindAttempts: RecastPathfindAttempt[] = [];
     let constructionPathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let playerPathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let npcPathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let directBitPathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let firstPathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let secondPathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let reversePathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let directBitPath: NavigationPath | null = null;
     let firstCachedLinkPath: NavigationPath | null = null;
     let secondCachedLinkPath: NavigationPath | null = null;
+    let reverseCachedLinkPath: NavigationPath | null = null;
+    let cachedEndpointKeys = new Set<string>();
     let linkCacheValidationWorld: NavigationWorld | null = null;
     queryPrototype.findPath = function (
       this: NavMeshQuery,
@@ -817,6 +825,57 @@ const runValidation = async () => {
       constructionPathfindAttempts = Object.freeze([
         ...recastPathfindAttempts
       ]);
+      cachedEndpointKeys = new Set(
+        linkCacheValidationLinks.flatMap((link) =>
+          [link.endpointA.position, link.endpointB.position].map((position) => {
+            const location = requireNavigationLocation(
+              linkCacheValidationWorld!,
+              position,
+              0.3
+            );
+            return createPathfindPointKey(location.polygonRef, {
+              x: -location.position.x,
+              y: location.position.y,
+              z: location.position.z
+            });
+          })
+        )
+      );
+      const directStartLocation = requireNavigationLocation(
+        linkCacheValidationWorld,
+        new Vector3(2.8, 0, -1.5)
+      );
+      const directDestinationLocation = requireNavigationLocation(
+        linkCacheValidationWorld,
+        new Vector3(3.2, 0, -1.5)
+      );
+      const playerPathfindStartIndex = recastPathfindAttempts.length;
+      linkCacheValidationWorld.findPath(
+        directStartLocation,
+        directDestinationLocation,
+        "player"
+      );
+      playerPathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(playerPathfindStartIndex)
+      );
+      const npcPathfindStartIndex = recastPathfindAttempts.length;
+      linkCacheValidationWorld.findPath(
+        directStartLocation,
+        directDestinationLocation,
+        "npc"
+      );
+      npcPathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(npcPathfindStartIndex)
+      );
+      const directBitPathfindStartIndex = recastPathfindAttempts.length;
+      directBitPath = linkCacheValidationWorld.findPath(
+        directStartLocation,
+        directDestinationLocation,
+        "bit"
+      );
+      directBitPathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(directBitPathfindStartIndex)
+      );
       const startLocation = requireNavigationLocation(
         linkCacheValidationWorld,
         new Vector3(3.5, 0, -1.5)
@@ -843,31 +902,65 @@ const runValidation = async () => {
       secondPathfindAttempts = Object.freeze(
         recastPathfindAttempts.slice(secondPathfindStartIndex)
       );
+      const reversePathfindStartIndex = recastPathfindAttempts.length;
+      reverseCachedLinkPath = linkCacheValidationWorld.findPath(
+        destinationLocation,
+        startLocation,
+        "bit"
+      );
+      reversePathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(reversePathfindStartIndex)
+      );
     } finally {
       queryPrototype.findPath = originalFindPath;
       linkCacheValidationWorld?.dispose();
       cachedSurfaceBridgeLink.endpointA.node.dispose();
       cachedSurfaceBridgeLink.endpointB.node.dispose();
     }
-    const cachedEndpointKeys = new Set(
-      constructionPathfindAttempts.flatMap((attempt) => [
-        attempt.start,
-        attempt.destination
-      ])
-    );
-    const constructionPairKeys = new Set(
-      constructionPathfindAttempts.map(
-        (attempt) => `${attempt.start}->${attempt.destination}`
-      )
-    );
-    const repeatsEndpointSurfacePathfind = (
+    const getEndpointSurfacePathfindAttempts = (
       attempts: readonly RecastPathfindAttempt[]
     ) =>
-      attempts.some(
+      attempts.filter(
         (attempt) =>
           cachedEndpointKeys.has(attempt.start) &&
           cachedEndpointKeys.has(attempt.destination)
       );
+    const getSurfaceStepsBetweenTransitions = (
+      path: NavigationPath | null,
+      firstLinkId: string,
+      secondLinkId: string
+    ) => {
+      if (!path) {
+        return [];
+      }
+      const firstTransitionIndex = path.steps.findIndex(
+        (step) => step.kind === "transition" && step.link.id === firstLinkId
+      );
+      const secondTransitionIndex = path.steps.findIndex(
+        (step, index) =>
+          index > firstTransitionIndex &&
+          step.kind === "transition" &&
+          step.link.id === secondLinkId
+      );
+      return firstTransitionIndex >= 0 && secondTransitionIndex > firstTransitionIndex
+        ? path.steps
+            .slice(firstTransitionIndex + 1, secondTransitionIndex)
+            .filter(
+              (step): step is NavigationSurfaceStep => step.kind === "surface"
+            )
+        : [];
+    };
+    const directBitTransitionCount =
+      directBitPath?.steps.filter((step) => step.kind === "transition").length ?? 0;
+    const directSurfacePairKey = playerPathfindAttempts[0]
+      ? `${playerPathfindAttempts[0].start}->${playerPathfindAttempts[0].destination}`
+      : null;
+    const directBitSurfacePathfindCount = directSurfacePairKey
+      ? directBitPathfindAttempts.filter(
+          (attempt) =>
+            `${attempt.start}->${attempt.destination}` === directSurfacePairKey
+        ).length
+      : 0;
     const firstCachedTransitionIds =
       firstCachedLinkPath?.steps.flatMap((step) =>
         step.kind === "transition" ? [step.link.id] : []
@@ -876,25 +969,217 @@ const runValidation = async () => {
       secondCachedLinkPath?.steps.flatMap((step) =>
         step.kind === "transition" ? [step.link.id] : []
       ) ?? [];
+    const reverseCachedTransitionIds =
+      reverseCachedLinkPath?.steps.flatMap((step) =>
+        step.kind === "transition" ? [step.link.id] : []
+      ) ?? [];
     const expectedCachedTransitionIds = [
       bitWindowLink.id,
       cachedSurfaceBridgeLink.id
     ];
+    const expectedReverseCachedTransitionIds = [
+      cachedSurfaceBridgeLink.id,
+      bitWindowLink.id
+    ];
     const hasExpectedCachedTransitions = (ids: readonly string[]) =>
       ids.length === expectedCachedTransitionIds.length &&
       ids.every((id, index) => id === expectedCachedTransitionIds[index]);
+    const hasExpectedReverseCachedTransitions = (ids: readonly string[]) =>
+      ids.length === expectedReverseCachedTransitionIds.length &&
+      ids.every(
+        (id, index) => id === expectedReverseCachedTransitionIds[index]
+      );
+    const firstEndpointSurfacePathfindAttempts =
+      getEndpointSurfacePathfindAttempts(firstPathfindAttempts);
+    const secondEndpointSurfacePathfindAttempts =
+      getEndpointSurfacePathfindAttempts(secondPathfindAttempts);
+    const reverseEndpointSurfacePathfindAttempts =
+      getEndpointSurfacePathfindAttempts(reversePathfindAttempts);
+    const firstCachedEndpointSurfaceSteps = getSurfaceStepsBetweenTransitions(
+      firstCachedLinkPath,
+      bitWindowLink.id,
+      cachedSurfaceBridgeLink.id
+    );
+    const reverseCachedEndpointSurfaceSteps = getSurfaceStepsBetweenTransitions(
+      reverseCachedLinkPath,
+      cachedSurfaceBridgeLink.id,
+      bitWindowLink.id
+    );
+    const reverseCachedSurfaceMatches =
+      firstCachedEndpointSurfaceSteps.length > 0 &&
+      firstCachedEndpointSurfaceSteps.length ===
+        reverseCachedEndpointSurfaceSteps.length &&
+      firstCachedEndpointSurfaceSteps.every((forwardStep, stepIndex) => {
+        const reverseStep =
+          reverseCachedEndpointSurfaceSteps[
+            reverseCachedEndpointSurfaceSteps.length - 1 - stepIndex
+          ];
+        return (
+          forwardStep.points.length === reverseStep.points.length &&
+          forwardStep.points.every((forwardPoint, pointIndex) => {
+            const reversePoint =
+              reverseStep.points[reverseStep.points.length - 1 - pointIndex];
+            return (
+              forwardPoint.polygonRef === reversePoint.polygonRef &&
+              Vector3.Distance(forwardPoint.position, reversePoint.position) <=
+                1e-6
+            );
+          })
+        );
+      });
     checks.push({
-      name: "特殊接続端点間経路の構築時キャッシュ",
+      name: "特殊接続端点間経路の遅延・順不同キャッシュ",
       ok:
         hasExpectedCachedTransitions(firstCachedTransitionIds) &&
         hasExpectedCachedTransitions(secondCachedTransitionIds) &&
+        hasExpectedReverseCachedTransitions(reverseCachedTransitionIds) &&
         cachedEndpointKeys.size === linkCacheValidationLinks.length * 2 &&
-        constructionPairKeys.size === constructionPathfindAttempts.length &&
-        !repeatsEndpointSurfacePathfind(firstPathfindAttempts) &&
-        !repeatsEndpointSurfacePathfind(secondPathfindAttempts) &&
-        secondPathfindAttempts.length <= firstPathfindAttempts.length,
-      detail: `endpoints=${cachedEndpointKeys.size} / build=${constructionPathfindAttempts.length} / find=${firstPathfindAttempts.length},${secondPathfindAttempts.length} / transitions=${firstCachedTransitionIds.join(" > ") || "none"}`
+        constructionPathfindAttempts.length === 0 &&
+        playerPathfindAttempts.length === 1 &&
+        npcPathfindAttempts.length === 1 &&
+        directBitPath !== null &&
+        directBitTransitionCount === 0 &&
+        directBitPathfindAttempts.length === 1 &&
+        directBitSurfacePathfindCount === 1 &&
+        firstEndpointSurfacePathfindAttempts.length > 0 &&
+        secondEndpointSurfacePathfindAttempts.length === 0 &&
+        reverseEndpointSurfacePathfindAttempts.length === 0 &&
+        reverseCachedSurfaceMatches,
+      detail: `endpoints=${cachedEndpointKeys.size} / build=${constructionPathfindAttempts.length} / normal=${playerPathfindAttempts.length},${npcPathfindAttempts.length} / directBit=${directBitPathfindAttempts.length}(direct=${directBitSurfacePathfindCount}, ${directBitTransitionCount}遷移) / endpoint=${firstEndpointSurfacePathfindAttempts.length},${secondEndpointSurfacePathfindAttempts.length},${reverseEndpointSurfacePathfindAttempts.length} / reversePoints=${reverseCachedSurfaceMatches} / transitions=${firstCachedTransitionIds.join(" > ") || "none"}`
     });
+
+    const highProjectionLink = createValidationLinkPair(
+      "bit-window-high-projection-validation",
+      "bit_window",
+      new Vector3(-9.5, 2, -1.5),
+      new Vector3(-6.5, 2, -1.5)
+    );
+    let highProjectionWorld: NavigationWorld | null = null;
+    let highProjectionPath: NavigationPath | null = null;
+    try {
+      highProjectionWorld = await createNavigationWorld(data, [
+        highProjectionLink
+      ]);
+      highProjectionPath = findNavigationPath(
+        highProjectionWorld,
+        new Vector3(-9.5, 0.8, -1.5),
+        new Vector3(-6.5, 0, -1.5),
+        "bit"
+      );
+    } finally {
+      highProjectionWorld?.dispose();
+    }
+    const highProjectionTransition = highProjectionPath?.steps.find(
+      (step) => step.kind === "transition"
+    );
+    const expectedHighProjectionTransitionDistance = highProjectionTransition
+      ? Vector3.Distance(
+          highProjectionTransition.entry.position,
+          highProjectionLink.endpointA.position
+        ) +
+        Vector3.Distance(
+          highProjectionLink.endpointA.position,
+          highProjectionLink.endpointB.position
+        ) +
+        Vector3.Distance(
+          highProjectionLink.endpointB.position,
+          highProjectionTransition.exit.position
+        )
+      : Number.NaN;
+    const highProjectionStepDistance =
+      highProjectionPath?.steps.reduce((sum, step) => sum + step.distance, 0) ??
+      Number.NaN;
+    const unsupportedProjectionLink = createValidationLinkPair(
+      "bit-window-unsupported-projection-validation",
+      "bit_window",
+      new Vector3(-8, 2, -1.5),
+      new Vector3(-6.5, 2, -1.5)
+    );
+    let unsupportedProjectionMessage: string | null = null;
+    try {
+      const invalidWorld = await createNavigationWorld(data, [
+        unsupportedProjectionLink
+      ]);
+      invalidWorld.dispose();
+    } catch (error) {
+      unsupportedProjectionMessage =
+        error instanceof Error ? error.message : String(error);
+    }
+    checks.push({
+      name: "高所LNK端点の下向き投影と3区間距離",
+      ok:
+        highProjectionTransition !== undefined &&
+        Math.abs(highProjectionTransition.entry.position.y - 0.8) <= 0.02 &&
+        Math.abs(highProjectionTransition.exit.position.y) <= 0.02 &&
+        highProjectionLink.endpointA.position.y -
+          highProjectionTransition.entry.position.y >
+          0.5 &&
+        highProjectionLink.endpointB.position.y -
+          highProjectionTransition.exit.position.y >
+          0.5 &&
+        Math.abs(
+          highProjectionTransition.distance -
+            expectedHighProjectionTransitionDistance
+        ) <= 1e-6 &&
+        highProjectionPath !== null &&
+        Math.abs(highProjectionPath.distance - highProjectionStepDistance) <=
+          1e-6 &&
+        unsupportedProjectionMessage?.includes("直下にNavMesh面がありません") ===
+          true,
+      detail: `entryY=${highProjectionTransition?.entry.position.y.toFixed(4) ?? "--"} / exitY=${highProjectionTransition?.exit.position.y.toFixed(4) ?? "--"} / transition=${highProjectionTransition?.distance.toFixed(4) ?? "--"}/${Number.isFinite(expectedHighProjectionTransitionDistance) ? expectedHighProjectionTransitionDistance.toFixed(4) : "--"} / unsupported=${unsupportedProjectionMessage ?? "例外なし"}`
+    });
+    highProjectionLink.endpointA.node.dispose();
+    highProjectionLink.endpointB.node.dispose();
+    unsupportedProjectionLink.endpointA.node.dispose();
+    unsupportedProjectionLink.endpointB.node.dispose();
+
+    const directSurfaceShortcutLink = createValidationLinkPair(
+      "bit-window-direct-surface-shortcut-validation",
+      "bit_window",
+      new Vector3(3, 0.25, -1.5),
+      new Vector3(3, 0.25, 1.5)
+    );
+    let directSurfaceShortcutWorld: NavigationWorld | null = null;
+    let directSurfaceNpcPath: NavigationPath | null = null;
+    let directSurfaceBitPath: NavigationPath | null = null;
+    try {
+      directSurfaceShortcutWorld = await createNavigationWorld(data, [
+        directSurfaceShortcutLink
+      ]);
+      directSurfaceNpcPath = findNavigationPath(
+        directSurfaceShortcutWorld,
+        routeStart,
+        routeEnd,
+        "npc"
+      );
+      directSurfaceBitPath = findNavigationPath(
+        directSurfaceShortcutWorld,
+        routeStart,
+        routeEnd,
+        "bit"
+      );
+    } finally {
+      directSurfaceShortcutWorld?.dispose();
+    }
+    const directSurfaceBitTransitions =
+      directSurfaceBitPath?.steps.filter((step) => step.kind === "transition") ??
+      [];
+    checks.push({
+      name: "通常面成立時のビットA*非実行",
+      ok:
+        directSurfaceNpcPath !== null &&
+        directSurfaceNpcPath.steps.every((step) => step.kind === "surface") &&
+        directSurfaceBitPath !== null &&
+        directSurfaceBitPath.steps.every((step) => step.kind === "surface") &&
+        directSurfaceBitTransitions.length === 0 &&
+        Math.abs(
+          directSurfaceBitPath.distance - directSurfaceNpcPath.distance
+        ) <= 1e-6,
+      detail: `npc=${directSurfaceNpcPath?.distance.toFixed(4) ?? "--"} / bit=${directSurfaceBitPath?.distance.toFixed(4) ?? "--"} / transitions=${directSurfaceBitTransitions.length}`
+    });
+    directSurfaceShortcutLink.endpointA.node.dispose();
+    directSurfaceShortcutLink.endpointB.node.dispose();
+
     const linkedNavigationWorld = await createNavigationWorld(data, [
       bitWindowLink,
       bitRoofLink
@@ -1843,6 +2128,16 @@ const runValidation = async () => {
 
       const baselineResources = countSceneResources(spatialScene);
       let schoolContext: StageSpatialContext | null = null;
+      const schoolQueryPrototype = NavMeshQuery.prototype;
+      const originalSchoolFindPath = schoolQueryPrototype.findPath;
+      let schoolRecastPathfindCount = 0;
+      schoolQueryPrototype.findPath = function (
+        this: NavMeshQuery,
+        ...args: Parameters<NavMeshQuery["findPath"]>
+      ) {
+        schoolRecastPathfindCount += 1;
+        return originalSchoolFindPath.apply(this, args);
+      };
       try {
         const schoolLoadStartedAt = performance.now();
         schoolContext = await loadStageSpatialContext(
@@ -1850,20 +2145,30 @@ const runValidation = async () => {
           SCHOOL_VALIDATION_STAGE
         );
         schoolLoadMs = performance.now() - schoolLoadStartedAt;
+        const schoolConstructionPathfindCount = schoolRecastPathfindCount;
 
         const playerSpawn = schoolContext.markers
           .requireSingle("player_spawn")
           .node.getAbsolutePosition();
         const expectedPlayerSpawn = new Vector3(0.375, 0, 0);
+        const windowLinks = schoolContext.links.all.filter(
+          (link) => link.kind === "bit_window"
+        );
+        const roofLinks = schoolContext.links.all.filter(
+          (link) => link.kind === "bit_roof"
+        );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 427 &&
-          schoolContext.resources.normalColliders.length === 150 &&
-          schoolContext.resources.actorOnlyColliders.length === 94 &&
-          schoolContext.resources.humanOnlyColliders.length === 0 &&
-          schoolContext.resources.navSourceMeshes.length === 14 &&
+          schoolContext.resources.visualMeshes.length === 467 &&
+          schoolContext.resources.normalColliders.length === 183 &&
+          schoolContext.resources.actorOnlyColliders.length === 83 &&
+          schoolContext.resources.humanOnlyColliders.length === 58 &&
+          schoolContext.resources.navSourceMeshes.length === 15 &&
           schoolContext.markers.all.length === 1 &&
           schoolContext.volumes.all.length === 3 &&
-          schoolContext.links.all.length === 0;
+          schoolContext.links.all.length === 60 &&
+          windowLinks.length === 58 &&
+          roofLinks.length === 2 &&
+          schoolContext.links.all.every((link) => link.bidirectional);
         checks.push({
           name: "学校GLBの厳格分類と3D意味Object",
           ok:
@@ -1874,16 +2179,30 @@ const runValidation = async () => {
             schoolContext.boundary.contains(playerSpawn) &&
             schoolContext.volumes.getByRole("npc_spawn").length === 1 &&
             schoolContext.volumes.getByRole("bit_spawn").length === 1 &&
-            schoolContext.volumes.getByRole("water").length === 1,
-          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / NAV=${schoolContext.resources.navSourceMeshes.length} / VOL=${schoolContext.volumes.all.length} / water=${schoolContext.volumes.getByRole("water").length} / LNK=${schoolContext.links.all.length} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
+            schoolContext.volumes.getByRole("water").length === 1 &&
+            schoolConstructionPathfindCount === 0,
+          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / NAV=${schoolContext.resources.navSourceMeshes.length} / VOL=${schoolContext.volumes.all.length} / water=${schoolContext.volumes.getByRole("water").length} / LNK=${schoolContext.links.all.length}(window=${windowLinks.length},roof=${roofLinks.length}) / buildPathfind=${schoolConstructionPathfindCount} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
         });
 
         const stageDestination = new Vector3(-11.35, 0.25, 1.625);
+        const npcPathfindStartCount = schoolRecastPathfindCount;
         const schoolPath = findNavigationPath(
           schoolContext.navigation,
           playerSpawn,
-          stageDestination
+          stageDestination,
+          "npc"
         );
+        const npcDirectPathfindCount =
+          schoolRecastPathfindCount - npcPathfindStartCount;
+        const playerPathfindStartCount = schoolRecastPathfindCount;
+        const playerSchoolPath = findNavigationPath(
+          schoolContext.navigation,
+          playerSpawn,
+          stageDestination,
+          "player"
+        );
+        const playerDirectPathfindCount =
+          schoolRecastPathfindCount - playerPathfindStartCount;
         const projectedStageDestination = schoolContext.navigation.projectPoint(
           stageDestination,
           0.1
@@ -1916,50 +2235,282 @@ const runValidation = async () => {
           name: "学校NavMesh完全経路と実壁遮蔽",
           ok:
             schoolPath !== null &&
+            playerSchoolPath !== null &&
             projectedStageDestination !== null &&
             schoolPathEndpointError <= 1e-5 &&
+            npcDirectPathfindCount === 1 &&
+            playerDirectPathfindCount === 1 &&
             actorWallHit !== null &&
             beamWallHit !== null &&
             sightWallHit !== null &&
             actorWallHit.mesh === beamWallHit.mesh &&
             beamWallHit.mesh === sightWallHit.mesh,
-          detail: `${schoolPathPoints.length}点 / endpointError=${Number.isFinite(schoolPathEndpointError) ? schoolPathEndpointError.toExponential(2) : "--"} / blocker=${beamWallHit?.mesh.name ?? "--"}`
+          detail: `${schoolPathPoints.length}点 / endpointError=${Number.isFinite(schoolPathEndpointError) ? schoolPathEndpointError.toExponential(2) : "--"} / pathfind=npc:${npcDirectPathfindCount},player:${playerDirectPathfindCount} / blocker=${beamWallHit?.mesh.name ?? "--"}`
         });
 
+        const northwestStairBounds = Object.freeze({
+          minimumX: 1.6,
+          maximumX: 3.2,
+          minimumZ: -11.4,
+          maximumZ: -9.6
+        });
+        const isInsideNorthwestStair = (position: Vector3) =>
+          position.x >= northwestStairBounds.minimumX &&
+          position.x <= northwestStairBounds.maximumX &&
+          position.z >= northwestStairBounds.minimumZ &&
+          position.z <= northwestStairBounds.maximumZ;
         const upperFloorRepresentatives = [
-          ["2F床", new Vector3(10.0, 39.0, 3.6)],
-          ["2F階段", new Vector3(-11.4, 39.8, 3.6)],
-          ["3F床", new Vector3(10.0, 39.0, 6.6)],
-          ["3F階段", new Vector3(-11.4, 39.8, 6.6)],
-          ["4F床", new Vector3(10.0, 39.0, 9.6)],
-          ["4F階段", new Vector3(-11.4, 39.8, 9.6)],
-          ["屋上", new Vector3(-7.8, 37.8, 12.7)],
-          ["プールサイド", new Vector3(13.4, 39.0, 13.85)],
-          ["プール底", new Vector3(24.4, 39.0, 12.86)]
+          ["2F床", new Vector3(-2.0, 15.0, 3.6)],
+          ["2F階段", new Vector3(-11.4, 38.7, 3.6)],
+          ["3F床", new Vector3(-2.0, 15.0, 7.2)],
+          ["3F階段", new Vector3(-11.4, 38.7, 7.2)],
+          ["4F床", new Vector3(-2.0, 15.0, 10.8)],
+          ["4F階段", new Vector3(-11.4, 38.7, 10.8)],
+          ["屋上", new Vector3(-5.5, 39.5, 14.4)],
+          ["プールサイド", new Vector3(12.0, 39.0, 15.65)],
+          ["プール底", new Vector3(23.4, 39.0, 14.61)]
         ] as const;
         const schoolNavigation = schoolContext.navigation;
+        const projectedPlayerSpawn = schoolNavigation.projectPoint(playerSpawn, 0.1);
         const upperFloorNavigationResults = upperFloorRepresentatives.map(
           ([label, blenderPoint]) => {
             const point = blenderPointToBabylon(blenderPoint);
+            const projected = schoolNavigation.projectPoint(point, 0.1);
+            const forwardPath = findNavigationPath(
+              schoolNavigation,
+              playerSpawn,
+              point,
+              "npc"
+            );
+            const backwardPath = findNavigationPath(
+              schoolNavigation,
+              point,
+              playerSpawn,
+              "npc"
+            );
+            const forwardPoints = getNavigationPathPoints(forwardPath);
+            const backwardPoints = getNavigationPathPoints(backwardPath);
             return {
               label,
-              projected: schoolNavigation.projectPoint(point, 0.1),
-              path: findNavigationPath(schoolNavigation, playerSpawn, point)
+              projected,
+              forwardPath,
+              backwardPath,
+              forwardEndpointError:
+                projected && forwardPoints.length > 0
+                  ? Vector3.Distance(
+                      forwardPoints[forwardPoints.length - 1],
+                      projected.position
+                    )
+                  : Number.POSITIVE_INFINITY,
+              backwardEndpointError:
+                projectedPlayerSpawn && backwardPoints.length > 0
+                  ? Vector3.Distance(
+                      backwardPoints[backwardPoints.length - 1],
+                      projectedPlayerSpawn.position
+                    )
+                  : Number.POSITIVE_INFINITY
             };
           }
         );
         checks.push({
-          name: "上階・屋上をNPC用NavMeshから除外",
+          name: "北西階段による全階・屋上・プールのNPC双方向経路",
           ok: upperFloorNavigationResults.every(
-            (result) => result.projected === null && result.path === null
+            (result) =>
+              result.projected !== null &&
+              result.forwardPath !== null &&
+              result.backwardPath !== null &&
+              result.forwardPath.steps.every((step) => step.kind === "surface") &&
+              result.backwardPath.steps.every((step) => step.kind === "surface") &&
+              result.forwardEndpointError <= 1e-5 &&
+              result.backwardEndpointError <= 1e-5
           ),
           detail: upperFloorNavigationResults
             .map(
               (result) =>
-                `${result.label}:projected=${result.projected?.toString() ?? "null"},` +
-                `path=${result.path === null ? "null" : `${getNavigationPathPoints(result.path).length}点`}`
+                `${result.label}:projected=${result.projected?.position.y.toFixed(3) ?? "null"},` +
+                `path=${result.forwardPath === null ? "null" : `${getNavigationPathPoints(result.forwardPath).length}点`}/${result.backwardPath === null ? "null" : `${getNavigationPathPoints(result.backwardPath).length}点`},` +
+                `error=${Number.isFinite(result.forwardEndpointError) ? result.forwardEndpointError.toExponential(1) : "--"}/${Number.isFinite(result.backwardEndpointError) ? result.backwardEndpointError.toExponential(1) : "--"}`
             )
             .join(" / ")
+        });
+
+        const closedUpperStairResults = [
+          {
+            label: "北東",
+            colliderName: "COL_StairClosure_NE",
+            directStart: blenderPointToBabylon(new Vector3(46.2, 44.0, 2.4)),
+            directDestination: blenderPointToBabylon(
+              new Vector3(46.2, 40.0, 3.6)
+            ),
+            routeStart: blenderPointToBabylon(new Vector3(44.4, 44.3, 2.4)),
+            routeDestination: blenderPointToBabylon(
+              new Vector3(-2.0, 15.0, 3.6)
+            )
+          },
+          {
+            label: "南西",
+            colliderName: "COL_StairClosure_SW",
+            directStart: blenderPointToBabylon(new Vector3(-11.0, 1.3, 2.4)),
+            directDestination: blenderPointToBabylon(
+              new Vector3(-8.0, 1.3, 3.6)
+            ),
+            routeStart: blenderPointToBabylon(new Vector3(-11.4, -0.5, 2.4)),
+            routeDestination: blenderPointToBabylon(
+              new Vector3(-2.0, 15.0, 3.6)
+            )
+          }
+        ].map((candidate) => {
+          const chestOffset = new Vector3(0, 0.3, 0);
+          const directHit = schoolContext!.queries.castMovementSegment(
+            "npc",
+            candidate.directStart.add(chestOffset),
+            candidate.directDestination.add(chestOffset)
+          );
+          const routeStartLocation = schoolNavigation.projectPoint(
+            candidate.routeStart,
+            0.1
+          );
+          const routeDestinationLocation = schoolNavigation.projectPoint(
+            candidate.routeDestination,
+            0.1
+          );
+          const path = routeStartLocation && routeDestinationLocation
+            ? schoolNavigation.findPath(
+                routeStartLocation,
+                routeDestinationLocation,
+                "npc"
+              )
+            : null;
+          const pathPoints = getNavigationPathPoints(path);
+          return {
+            ...candidate,
+            directHit,
+            path,
+            routeStartLocation,
+            routeDestinationLocation,
+            visitedNorthwestStair: pathPoints.some(isInsideNorthwestStair)
+          };
+        });
+        checks.push({
+          name: "北東・南西上階閉鎖を横断せず北西階段へ迂回",
+          ok: closedUpperStairResults.every(
+            (result) =>
+              result.directHit?.mesh.name === result.colliderName &&
+              result.path !== null &&
+              result.path.steps.every((step) => step.kind === "surface") &&
+              result.visitedNorthwestStair
+          ),
+          detail: closedUpperStairResults
+            .map(
+              (result) =>
+                `${result.label}:hit=${result.directHit?.mesh.name ?? "clear"},start=${result.routeStartLocation?.position.toString() ?? "null"},destination=${result.routeDestinationLocation?.position.toString() ?? "null"},path=${result.path?.distance.toFixed(3) ?? "null"},NW=${result.visitedNorthwestStair}`
+            )
+            .join(" / ")
+        });
+
+        const normalColliderSet = new Set(
+          schoolContext.resources.normalColliders
+        );
+        const actorOnlyColliderSet = new Set(
+          schoolContext.resources.actorOnlyColliders
+        );
+        const humanOnlyColliderSet = new Set(
+          schoolContext.resources.humanOnlyColliders
+        );
+        const expectedPlayerAndNpcColliders = [
+          ...normalColliderSet,
+          ...actorOnlyColliderSet,
+          ...humanOnlyColliderSet
+        ];
+        const expectedBitColliders = [
+          ...normalColliderSet,
+          ...actorOnlyColliderSet
+        ];
+        const setMatches = <T>(
+          actual: ReadonlySet<T>,
+          expected: readonly T[]
+        ) =>
+          actual.size === expected.length &&
+          expected.every((value) => actual.has(value));
+        checks.push({
+          name: "実学校Colliderのmover・beam・sight分類",
+          ok:
+            setMatches(
+              new Set(schoolContext.resources.movementColliders.player),
+              expectedPlayerAndNpcColliders
+            ) &&
+            setMatches(
+              new Set(schoolContext.resources.movementColliders.npc),
+              expectedPlayerAndNpcColliders
+            ) &&
+            setMatches(
+              new Set(schoolContext.resources.movementColliders.bit),
+              expectedBitColliders
+            ) &&
+            setMatches(
+              new Set(schoolContext.resources.beamBlockers),
+              [...normalColliderSet]
+            ) &&
+            setMatches(
+              new Set(schoolContext.resources.sightBlockers),
+              [...normalColliderSet]
+            ),
+          detail: `normal=${normalColliderSet.size} / ActorOnly=${actorOnlyColliderSet.size} / HumanOnly=${humanOnlyColliderSet.size} / player=${schoolContext.resources.movementColliders.player.length} / npc=${schoolContext.resources.movementColliders.npc.length} / bit=${schoolContext.resources.movementColliders.bit.length} / beam=${schoolContext.resources.beamBlockers.length} / sight=${schoolContext.resources.sightBlockers.length}`
+        });
+
+        const representativeWindowLink = windowLinks[0];
+        const realWindowPlayerHit = schoolContext.queries.castMovementSegment(
+          "player",
+          representativeWindowLink.endpointA.position,
+          representativeWindowLink.endpointB.position
+        );
+        const realWindowNpcHit = schoolContext.queries.castMovementSegment(
+          "npc",
+          representativeWindowLink.endpointA.position,
+          representativeWindowLink.endpointB.position
+        );
+        const realWindowBitHit = schoolContext.queries.castMovementSegment(
+          "bit",
+          representativeWindowLink.endpointA.position,
+          representativeWindowLink.endpointB.position
+        );
+        const realWindowBeamHit = schoolContext.queries.castBeamSegment(
+          representativeWindowLink.endpointA.position,
+          representativeWindowLink.endpointB.position
+        );
+        const realWindowSightHit = schoolContext.queries.castSightSegment(
+          representativeWindowLink.endpointA.position,
+          representativeWindowLink.endpointB.position
+        );
+        checks.push({
+          name: "実bit_window開口の移動・光線分類",
+          ok:
+            realWindowPlayerHit?.mesh.name.startsWith(
+              "COL_HumanOnly_Window_"
+            ) === true &&
+            realWindowNpcHit?.mesh === realWindowPlayerHit?.mesh &&
+            realWindowBitHit === null &&
+            realWindowBeamHit === null &&
+            realWindowSightHit === null,
+          detail: `link=${representativeWindowLink.id} / player=${realWindowPlayerHit?.mesh.name ?? "clear"} / npc=${realWindowNpcHit?.mesh.name ?? "clear"} / bit=${realWindowBitHit?.mesh.name ?? "clear"} / beam=${realWindowBeamHit?.mesh.name ?? "clear"} / sight=${realWindowSightHit?.mesh.name ?? "clear"}`
+        });
+
+        const waterVolume = schoolContext.volumes.getByRole("water")[0];
+        waterVolume.mesh.computeWorldMatrix(true);
+        const waterBounds = waterVolume.mesh.getBoundingInfo().boundingBox;
+        const waterCenter = waterBounds.centerWorld.clone();
+        const pointAboveWater = new Vector3(
+          waterCenter.x,
+          waterBounds.maximumWorld.y + 0.05,
+          waterCenter.z
+        );
+        checks.push({
+          name: "学校水域の読込・内外判定",
+          ok:
+            waterVolume.id === "pool-water" &&
+            schoolContext.queries.containsVolume("water", waterCenter) &&
+            !schoolContext.queries.containsVolume("water", pointAboveWater),
+          detail: `id=${waterVolume.id} / center=${schoolContext.queries.containsVolume("water", waterCenter)} / above=${schoolContext.queries.containsVolume("water", pointAboveWater)}`
         });
 
         const npcRandom = createSeededCountingRandom(0x5f3759df);
@@ -2044,6 +2595,124 @@ const runValidation = async () => {
           detail: `attempts=${npcMovementAttempts.length} / pathfind=${npcFirstPathfindCount}->${npcSecondPathfindCount} / moved=${Vector3.Distance(npcAfterBlockedMovement.center, npcBeforeBlockedMovement.center).toExponential(2)}`
         });
         npcSystem.dispose();
+
+        const multifloorNpcDestinations = [
+          ["2F", upperFloorNavigationResults[0].projected!],
+          ["3F", upperFloorNavigationResults[2].projected!],
+          ["4F", upperFloorNavigationResults[4].projected!],
+          ["屋上", upperFloorNavigationResults[6].projected!]
+        ] as const;
+        const multifloorNpcResults = multifloorNpcDestinations.map(
+          ([label, destination], destinationIndex) => {
+            const routeRandom = createSeededCountingRandom(
+              0x6a09e667 + destinationIndex
+            );
+            const routeSystem = createV2NpcSystem({
+              scene: spatialScene,
+              stage: schoolContext!,
+              npcCount: 2,
+              initialBrainwashedNpcCount: 2,
+              random: routeRandom.random
+            });
+            routeSystem.applyAlerts([
+              {
+                leaderId: "npc_0",
+                targetId: "player",
+                remainingSeconds: 600
+              }
+            ]);
+            const start = routeSystem.getTargetSnapshots()[1].footPosition;
+            const target = Object.freeze({
+              id: "player",
+              kind: "player" as const,
+              footPosition: destination.position.clone(),
+              aimPosition: destination.position.add(new Vector3(0, 0.3, 0)),
+              collisionRadius: 0.1,
+              alive: true,
+              brainwashed: false
+            });
+            let reached = false;
+            let visitedNorthwestStair = false;
+            let updateCount = 0;
+            while (!reached && updateCount < 2400) {
+              routeSystem.update(0.25, target);
+              updateCount += 1;
+              const position =
+                routeSystem.getTargetSnapshots()[1].footPosition;
+              visitedNorthwestStair ||= isInsideNorthwestStair(position);
+              reached = Vector3.Distance(position, destination.position) <= 0.15;
+            }
+            const finalPosition =
+              routeSystem.getTargetSnapshots()[1].footPosition;
+            routeSystem.dispose();
+            return {
+              label,
+              startedOnFirstFloor: Math.abs(start.y) <= 0.1,
+              reached,
+              visitedNorthwestStair,
+              updateCount,
+              endpointError: Vector3.Distance(
+                finalPosition,
+                destination.position
+              )
+            };
+          }
+        );
+        checks.push({
+          name: "実V2NpcSystemの1Fから2F・3F・4F・屋上追跡",
+          ok: multifloorNpcResults.every(
+            (result) =>
+              result.startedOnFirstFloor &&
+              result.reached &&
+              result.visitedNorthwestStair &&
+              result.endpointError <= 0.15
+          ),
+          detail: multifloorNpcResults
+            .map(
+              (result) =>
+                `${result.label}:1F=${result.startedOnFirstFloor},reached=${result.reached},NW=${result.visitedNorthwestStair},updates=${result.updateCount},error=${result.endpointError.toFixed(3)}`
+            )
+            .join(" / ")
+        });
+
+        const unreachableNpcRandom = createSeededCountingRandom(0x510e527f);
+        const unreachableNpcSystem = createV2NpcSystem({
+          scene: spatialScene,
+          stage: schoolContext,
+          npcCount: 2,
+          initialBrainwashedNpcCount: 2,
+          random: unreachableNpcRandom.random
+        });
+        unreachableNpcSystem.applyAlerts([
+          {
+            leaderId: "npc_0",
+            targetId: "player",
+            remainingSeconds: 10
+          }
+        ]);
+        const unreachableNpcStart =
+          unreachableNpcSystem.getTargetSnapshots()[1].footPosition;
+        const unreachablePlayerTarget = Object.freeze({
+          id: "player",
+          kind: "player" as const,
+          footPosition: new Vector3(100, 100, 100),
+          aimPosition: new Vector3(100, 100.3, 100),
+          collisionRadius: 0.1,
+          alive: true,
+          brainwashed: false
+        });
+        for (let updateIndex = 0; updateIndex < 4; updateIndex += 1) {
+          unreachableNpcSystem.update(0.25, unreachablePlayerTarget);
+        }
+        const unreachableNpcEnd =
+          unreachableNpcSystem.getTargetSnapshots()[1].footPosition;
+        unreachableNpcSystem.dispose();
+        checks.push({
+          name: "実V2NpcSystemの到達不能時停止",
+          ok:
+            Vector3.Distance(unreachableNpcStart, unreachableNpcEnd) <= 1e-6,
+          detail: `moved=${Vector3.Distance(unreachableNpcStart, unreachableNpcEnd).toExponential(2)}`
+        });
 
         const npcFailureBaseline = countSceneResources(spatialScene);
         const npcInjectedError = new Error(
@@ -2397,12 +3066,13 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 427 &&
-          reloadedContext.resources.normalColliders.length === 150 &&
-          reloadedContext.resources.actorOnlyColliders.length === 94 &&
-          reloadedContext.resources.humanOnlyColliders.length === 0 &&
+          reloadedContext.resources.visualMeshes.length === 467 &&
+          reloadedContext.resources.normalColliders.length === 183 &&
+          reloadedContext.resources.actorOnlyColliders.length === 83 &&
+          reloadedContext.resources.humanOnlyColliders.length === 58 &&
+          reloadedContext.resources.navSourceMeshes.length === 15 &&
           reloadedContext.volumes.getByRole("water").length === 1 &&
-          reloadedContext.links.all.length === 0;
+          reloadedContext.links.all.length === 60;
         reloadedContext.dispose();
         const afterSecondDispose = countSceneResources(spatialScene);
         checks.push({
@@ -2414,6 +3084,7 @@ const runValidation = async () => {
           detail: `baseline=${JSON.stringify(baselineResources)} / first=${JSON.stringify(afterFirstDispose)} / second=${JSON.stringify(afterSecondDispose)}`
         });
       } finally {
+        schoolQueryPrototype.findPath = originalSchoolFindPath;
         schoolContext?.dispose();
       }
     } finally {

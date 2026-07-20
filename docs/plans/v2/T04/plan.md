@@ -299,7 +299,7 @@ PR #43の未解決レビューを正本とし、特殊接続端点間の通常Na
 |---|---|---|---|---|---|
 | T04-1 3D空間基盤 | PR #41で完了 | 完了 | GPT-5.6 Sol | High | `StageSpatialContext`、1階NavMesh、NPC・ビット基本移動、通常視線・ビーム |
 | T04-2A 高さ付きNav基盤 | 完了・`develop`統合済み | `codex/v2-t04-height-nav-core` | GPT-5.6 Sol | Ultra | `navigationWorld`、`navigationAgent`、移動者別衝突、`bit_window`／`bit_roof`、重複床・階段・低天井・窓専用fixture。学校バイナリは変更しない |
-| T04-2B 学校複数階統合 | 2026-07-20実装開始 | `codex/v2-t04-school-multifloor` | GPT-5.6 Sol | Ultra | B03最終GLBからのNavMesh、カタログハッシュ、NPC複数階、実窓・屋上接続分類、実学校回帰 |
+| T04-2B 学校複数階統合 | 2026-07-20実装・ローカル検証完了（`develop`未統合） | `codex/v2-t04-school-multifloor` | GPT-5.6 Sol | Ultra | B03最終GLBからのNavMesh、カタログハッシュ、NPC複数階、実窓・屋上接続分類、実学校回帰 |
 
 T04-2AはB03-0と別worktreeで並行できる。T04-2BはT04-2AとB03-2の両方が`develop`へマージされた後に開始する。各作業単位は`docs/plan.md`、`docs/plans/v2/next_tasks_plan.md`、本計画、`docs/branch_strategy.md`を必ず読む。
 
@@ -309,14 +309,14 @@ T04-2AはB03-0と別worktreeで並行できる。T04-2BはT04-2AとB03-2の両�
 
 - [x] B03-2統合済みの`develop`を`ca89fc9`へfast-forwardし、`codex/v2-t04-school-multifloor`を作成する
 - [x] ユーザー提示の計画、ローカル資産修正ブランチ、水中処理のT06境界を計画文書へ反映する
-- [x] T04から`codex/v2-t04-school-nav-asset-fix`をローカル分岐し、北西階段のwalkable NAVと2F～4F吹抜けheadroomを修正する
-- [ ] 修正版`.blend`からGLBを再出力して資産監査を通し、資産修正コミットをT04へ`--no-ff`でローカルマージする（再出力・監査完了、ローカルマージ待ち）
-- [ ] 最終GLBに合わせてベイク代表経路を更新し、全階・屋上・プール・閉鎖経路を検証してNavMeshを決定的に再生成する
-- [ ] 全120リンク端点を直下NavMeshへ投影し、transition距離を実飛行端点まで含む3区間合計へ変更する
-- [ ] 起動時全端点間探索を廃止し、player／NPCの通常経路優先とbitのA*・順不同遅延キャッシュを実装する
-- [ ] T02・T03・T04検証を最終資産、複数階NPC、実窓・屋上リンク、水域、破棄・再読込へ更新する
-- [ ] 仕様書、ロードマップ、カタログ、監査定数、実装結果を確定値へ更新する
-- [ ] 全ビルド、実ブラウザ、通常Web、Electron、console、UTF-8、差分、バイナリハッシュを最終確認する
+- [x] T04から`codex/v2-t04-school-nav-asset-fix`をローカル分岐し、北西階段のwalkable NAV、2F～4F吹抜けheadroom、北東・南西1F踊り場開口、上階Nav blockerを修正する
+- [x] 修正版`.blend`からGLBを再出力して資産監査を通し、3資産修正コミットをT04へ`--no-ff`でローカルマージする
+- [x] 最終GLBに合わせてベイク代表経路を更新し、全階・屋上・プール・閉鎖経路を検証してNavMeshを決定的に再生成する
+- [x] 全120リンク端点を直下NavMeshへ投影し、transition距離を実飛行端点まで含む3区間合計へ変更する
+- [x] 起動時全端点間探索を廃止し、player／NPCの通常経路優先とbitのA*・順不同遅延キャッシュを実装する
+- [x] T02・T03・T04検証を最終資産、複数階NPC、実窓・屋上リンク、水域、破棄・再読込へ更新する（T03は学校資産を参照しないため既存回帰を維持）
+- [x] 仕様書、ロードマップ、カタログ、監査定数、実装結果を確定値へ更新する
+- [x] 全ビルド、実ブラウザ、通常Web、Electron、console、UTF-8、差分、バイナリハッシュを最終確認する
 
 ### T04-2A納品
 
@@ -347,16 +347,16 @@ T04-2AはB03-0と別worktreeで並行できる。T04-2BはT04-2AとB03-2の両�
 - [x] Blenderの現在ファイル、dirty状態、オブジェクト一覧を読み取り、B02資産を安全に編集できる状態か確認する
 - [x] Webの小型3DコースでRecast NavMeshの生成、扉迂回、連続ランプ、到達不能、バイナリ往復を技術検証する
 - [x] B02学校へ3D意味Objectと1階NavMeshを追加し、出入口、3階段踊り場、体育館、舞台を含む代表10経路を事前ベイク結果で検証する
-- [ ] T04-2BでB03の実窓を使い、移動体専用衝突、視線、通常ビームの分類を技術検証する
+- [x] T04-2BでB03の実窓を使い、移動体専用衝突、視線、通常ビームの分類を技術検証する
 - [x] Web・Electronで事前ベイクNavMeshの本番読込経路を技術検証する
 - [x] T04-2Aで座標と属するNavMesh面を組にした高さ付き問い合わせへ移行し、同じ水平位置の上下階で現在地・目的地・到着判定を取り違えないことを専用fixtureで検証する
 - [x] 経路を通常の床・階段区間と特殊接続区間へ分け、接続がなければ別階へ直接移動せず、接続入口では`transition-required`を返す
 - [x] `StageMoverKind`、`StageLinkKind`、`StageLinkPair`、`StageLinkRegistry`、`StageSpatialContext.links`を追加し、`bit_window`／`bit_roof`はビットだけがA→B・B→Aを利用できるようにする
 - [x] `COL_HumanOnly_Window_*`を追加し、`castActorSegment()`を互換メソッドなしで`castMovementSegment(moverKind, ...)`へ一括移行する
 - [x] 専用fixtureで重複床、連続階段、低い天井、閉じた窓、ビット通過窓、屋上固定接続、移動者別遮断、視線・全光線透過を検証する
-- [ ] T04-2BでNPC共通経路が学校の扉・階段を使って複数階の標的へ完全経路で迂回し、経路がない場合は壁へ直進せず停止する回帰を追加する。ビットの窓・屋上実飛行はT05-1、完成戦闘はT05-2へ残す
-- [ ] T04-2Bで閉じた窓、ビット通過窓、通常壁、窓枠、庇、全屋内の天井Colliderを分類し、天井欠落と、NPC用NavMeshが窓越しに接続されていないことを確認する。ビットの実飛行はまだ行わない
-- [ ] T04-2Bで1～4階それぞれの`bit_window`が同じ階の屋外A・室内Bを結び、ビット用transitionだけがA→B・B→Aで存在することを確認する。`bit_roof`は屋外A・屋上Bを双方向に結び、NPC・プレイヤー用transitionを作らないことを確認する
+- [x] T04-2BでNPC共通経路が学校の扉・階段を使って複数階の標的へ完全経路で迂回し、経路がない場合は壁へ直進せず停止する回帰を追加する。ビットの窓・屋上実飛行はT05-1、完成戦闘はT05-2へ残す
+- [x] T04-2Bで閉じた窓、ビット通過窓、通常壁、窓枠、庇、全屋内の天井Colliderを分類し、天井欠落と、NPC用NavMeshが窓越しに接続されていないことを確認する。ビットの実飛行はまだ行わない
+- [x] T04-2Bで1～4階それぞれの`bit_window`が同じ階の屋外A・室内Bを結び、ビット用transitionだけがA→B・B→Aで存在することを確認する。`bit_roof`は屋外A・屋上Bを双方向に結び、NPC・プレイヤー用transitionを作らないことを確認する
 - [x] 実行時生成と事前ベイクの時間・容量・再現性を比較し、NavMeshバイナリ形式と生成コマンドを確定する
 - [x] 事前ベイクバイナリを所有する`NavigationWorld`を実装し、投影、完全経路、移動拘束、ランダム点、デバッグ表示、破棄を検証する
 - [x] NPC・ビットで共有する3D経路追従エージェントを実装し、経路キャッシュ、条件付き再探索、斜面高度、到達不能時停止を検証する
@@ -446,6 +446,12 @@ T04-2AはB03-0と別worktreeで並行できる。T04-2BはT04-2AとB03-2の両�
 - レビュー修正は`perf: 特殊接続端点間の経路探索を構築時にキャッシュ`の1コミットとして現在のブランチへpushし、PR #43の対象threadへ修正内容と検証結果を返信した。threadの解決、Draft解除、マージは行っていない。
 - 2026-07-20、T04からローカル限定の`codex/v2-t04-school-nav-asset-fix`と専用worktreeを作成した。`NAV_Walkable_StairsNWUpper`へ1F踊り場から2Fへ上がる`COL_StairRampUpper_NW`を追加し、Nav areaを`stairs`へ統一した。
 - 2F～4Fの北西階段では、中間踊り場の1.05m上に上階床下面が重なり、Recastの身長1.7mを満たしていなかった。表示床、Collider、天井、各階walkable NAVから北西側の重複床矩形を除き、吹抜けをX=-12.6～-6.6m、Y=38.9～45.5mの連続開口へ修正した。
-- 補正スクリプトを同じ最終B03-2 `.blend`へ2回適用し、GLBは両方とも932 Node／810 Mesh／5 Material／3 Texture、8,936,780 bytes、SHA-256 `EF7486724DCD2A6802F6A413406B68D53D1E825076B03BC6D14DAEEF1B75FA09`で一致した。Blender 5.2の保存バイナリは非決定的なため、直近SHA-256は`05A540A4AB7CD4A139CFE38A0C7AB2A1AA5C6E59C709445C8797DEEED765CDBE`である。
+- 第1補正スクリプトを同じ最終B03-2 `.blend`へ2回適用し、中間GLBは両方とも932 Node／810 Mesh／5 Material／3 Texture、8,936,780 bytes、SHA-256 `EF7486724DCD2A6802F6A413406B68D53D1E825076B03BC6D14DAEEF1B75FA09`で一致した。Blender 5.2の保存バイナリは非決定的なため、この時点の直近SHA-256は`05A540A4AB7CD4A139CFE38A0C7AB2A1AA5C6E59C709445C8797DEEED765CDBE`である。
 - B03保護監査では意図した床・天井Collider5件とwalkable NAV4件だけを明示許可し、その他の保護対象595件、内装34区画、512家具Collider箱、60特殊リンク、3 Atlasが不変であることを確認した。建築監査、内装監査、30,720組の特殊経路包絡検査はいずれも合格した。
-- 修正版GLBの読み取り診断ベイクは482,460 bytes、SHA-256 `21A5483AFBEB7B2FC8AB803FB565109D97222EA29D6C004A7832D82E7C2CD745`、18,036 vertices／6,012 trianglesとなった。主玄関から3踊り場、2F、3F、4F、屋上、各階逆方向、屋上からプールサイド・プール底までを含む代表経路は全て完全到達し、最大終端誤差は`4.3e-7`未満だった。
+- 第1補正後の中間診断ベイクは482,460 bytes、SHA-256 `21A5483AFBEB7B2FC8AB803FB565109D97222EA29D6C004A7832D82E7C2CD745`、18,036 vertices／6,012 trianglesとなった。主玄関から3踊り場、2F、3F、4F、屋上、各階逆方向、屋上からプールサイド・プール底までを含む代表経路は全て完全到達し、最大終端誤差は`4.3e-7`未満だった。
+- 第1補正`1f34fe2`を`d9a3872`、北東・南西1F踊り場開口補正`fb2caf5`を`b3f2302`、北西上階階段ガード3件と屋上施設ShellのNav blocker補正`c2bcdcc`を`b5e77f7`として、T04本体へそれぞれ`--no-ff`でローカルマージした。資産修正ブランチと専用worktreeはローカルに保持し、push／PR作成は行っていない。
+- T02は最終分類、4階・屋上・プール形状、実窓、Collider集合、水域内外、再読込へ更新した。T04は構築時探索0件、player／NPC通常探索1件、全階双方向経路、閉鎖階段迂回、実`V2NpcSystem`の1Fから2F・3F・4F・屋上追跡、到達不能時停止、水域、再読込へ更新した。実ブラウザはT02 30/30、T03 24/24、T04 57/57を初回・再実行・再読込で確認し、各console warning／errorは0件だった。
+- `NavigationWorld`は全移動体で通常`surface`を1回だけ探索し、成立時は即時返却する。通常経路が成立しないbitだけが特殊接続A*へ入り、端点間経路を順不同pairで`path|null`として遅延保持し、逆方向は点列とpolygon参照を反転して再利用する。構築時探索0件、player／NPC／通常到達bit各1件、逆方向再探索0件を検証し、独立再レビューでも残るP0／P1がないことを確認した。破棄時は遅延キャッシュを明示解放する。
+- 最終GLBからNavMeshを2回連続ベイクし、両方とも494,796 bytes、SHA-256 `EC2626236BA8B2A8619DD8CBC0237AC3003CFA74EEFC144A77F3BD7EB84E8174`で一致した。復元後NavMeshは18,366 vertices／6,122 trianglesで、38代表経路の最大投影距離は`0.0625`、最大終端誤差は`0`だった。北東・南西上段は局所polygon 0件かつ迂回経路侵入0件、通常窓は開口短絡なし・正規出入口経由となった。
+- `bit_window`58組、`bit_roof`2組の全60組／120端点を端点以下の直下面へ投影し、体育館高窓14端点と屋上外側2端点を含めて期待高さ帯への接続を確認した。最終資産は`.blend` 1,288,847 bytes／`1926D1868720EFBF8CC1F3040EE227D1CA3BFC0990052D439F073DC6EBEECB67`、GLB 8,949,588 bytes／`75716D10FE584E8FF661FB9C966683E45C4714776935890E68BE593C444F7920`で、学校カタログはGLBとNavMeshの最終ハッシュへ同期した。
+- `npm run audit:v2:dependencies`、`npm run typecheck:v2`、`npm run typecheck:t02`、`npm run typecheck:t04`、`npm run build`、`npm run build:t01`～`build:t04`は全て成功した。通常WebはCSP適用後も学校開始画面をconsole warning／error 0件で読み込んだ。Electronは開始画面から実行画面へ遷移して学校3D空間、接地、NPC・BIT・BEAMの更新を確認し、consoleはBabylon初期化ログ1件だけでwarning／error 0件だった。17テキスト差分は厳格UTF-8・BOMなし、`git diff --check`とユーザーディレクトリ絶対パス検査は0件、3資産ハッシュはカタログ・監査定数・仕様書と一致した。独立最終レビューはP0～P2指摘なしだった。学校全域を手動歩行する受入項目はT06/T07の総合回帰として未完了のまま維持する。

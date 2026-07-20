@@ -109,7 +109,7 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - [x] 掃除ロッカーを職員室区画内へ移動し、配置座標監査を追加
 - [x] 学校資産・画像・SHA-256を再生成して回帰検証
 - [x] 修正をPR #47へ反映し、元のインラインスレッドへ再返信
-- [ ] T04-2B: 実装中。最終学校GLBのNAV資産修正、複数階NavMesh、NPC、実窓・屋上分類、水域判定を統合
+- [x] T04-2B: 実装・ローカル検証完了。最終学校GLBのNAV資産修正、複数階NavMesh、NPC、実窓・屋上分類、水域判定を統合（`develop`未統合）
 - [ ] T05-1: 全ビットモード共通の飛行高さ安全、ビット専用窓・屋上固定経路の実移動
 - [ ] T05-2: ビット戦闘モード、全光線、集合、警報、公開処刑の3D空間対応
 - [x] B01: 学校の間取り案作成とユーザー承認
@@ -276,6 +276,9 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 
 ### 2026-07-20 T04-2B NAV資産修正
 
-- ローカル限定の`codex/v2-t04-school-nav-asset-fix`で、北西階段の1F→2F walkable NAV欠落と、2F～4F中間踊り場上の1.05m headroomを修正した。
-- 修正版GLBは932 Node／810 Mesh／5 Material／3 Texture、8,936,780 bytes、SHA-256 `EF7486724DCD2A6802F6A413406B68D53D1E825076B03BC6D14DAEEF1B75FA09`で、連続2回出力が一致した。
-- B03保護・建築・内装監査に合格し、意図した床・天井Collider5件とwalkable NAV4件以外の保護対象、内装、特殊リンク、Volumeを維持した。NavMesh再生成とRuntime統合はT04本体へのローカルマージ後に行う。
+- ローカル限定の`codex/v2-t04-school-nav-asset-fix`で、北西階段の1F→2F walkable NAV欠落と2F～4F中間踊り場上のheadroomを修正した。続いて2F床の北東・南西1F踊り場開口を復元して`COL_StairClosure_NE/SW`による上階閉鎖を維持し、上階NavMesh blockerへ北西階段ガード3件と`COL_RooftopFacilityShell`を追加した。
+- 最終資産は932 Object／Node、810 Mesh、5 Material、3 Textureを維持した。`.blend`は1,288,847 bytes・SHA-256 `1926D1868720EFBF8CC1F3040EE227D1CA3BFC0990052D439F073DC6EBEECB67`、GLBは8,949,588 bytes・SHA-256 `75716D10FE584E8FF661FB9C966683E45C4714776935890E68BE593C444F7920`である。
+- B03保護・建築・内装監査に合格し、許可した床・天井Collider5件、walkable NAV4件、`NAV_Blocker_SchoolUpper`以外の保護対象、内装、特殊リンク、Volumeを維持した。資産修正は`1f34fe2`→`d9a3872`、`fb2caf5`→`b3f2302`、`c2bcdcc`→`b5e77f7`の3組でT04本体へ`--no-ff`ローカルマージした。補助ブランチはローカルに保持し、push／PR作成は行っていない。
+- T02検証を最終分類、4階・屋上・プール、実窓、Collider、水域、再読込へ、T04検証を構築時探索0件、player／NPC通常探索1件、全階双方向経路、閉鎖階段迂回、実NPC複数階追跡、到達不能停止、水域、再読込へ更新した。`npm run audit:v2:dependencies`、`npm run typecheck:v2`、`npm run typecheck:t02`、`npm run typecheck:t04`、通常ビルド、`build:t01`～`build:t04`は成功した。実ブラウザはT02 30/30、T03 24/24、T04 57/57を初回・再実行・再読込で確認し、各console warning／errorは0件だった。通常Webは読込エラー0件、ElectronはCSP適用後に開始画面から実行画面へ遷移し、学校3D空間と接地・NPC・BIT・BEAMの更新、Babylon初期化ログ1件だけでconsole warning／error 0件を確認した。
+- `NavigationWorld`の起動時14,280件探索を廃止した。全移動体は通常`surface`を1回だけ探索し、失敗したbitだけが特殊接続A*へ入る。端点間経路は順不同pairの`path|null`遅延キャッシュとし、逆方向は点列・polygon参照を反転再利用する。構築時0件、通常到達時1件、逆方向再探索0件を固定し、破棄時のcache解放も追加した。独立再レビューで残るP0／P1はなかった。
+- 最終GLBからNavMeshを2回連続ベイクし、494,796 bytes、SHA-256 `EC2626236BA8B2A8619DD8CBC0237AC3003CFA74EEFC144A77F3BD7EB84E8174`で一致した。復元後は18,366 vertices／6,122 triangles、38代表経路の最大投影距離`0.0625`、最大終端誤差`0`で、全階・屋上・プール、北東・南西閉鎖迂回、通常窓の非短絡を確認した。全60組／120端点、体育館高窓14端点、屋上外側2端点も期待する直下高さ帯へ投影できた。学校カタログのGLB／NavMeshハッシュを最終値へ同期した。
