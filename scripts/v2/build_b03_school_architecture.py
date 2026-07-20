@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import bmesh
 import bpy
 from mathutils import Matrix, Vector
 
@@ -24,14 +25,15 @@ NAV_COLLECTION_NAME = "B02_NAV"
 SEMANTIC_COLLECTION_NAME = "B02_SEMANTIC"
 EXPORT_COLLECTION_NAME = "EXP_Stage_school"
 
-WINDOW_UNIT_CLEAR_WIDTH = 2.40
+WINDOW_UNIT_CLEAR_WIDTH = 1.80
 SCHOOL_WINDOW_CLEAR_HEIGHT = 1.80
-GYM_WINDOW_CLEAR_HEIGHT = 2.40
+GYM_WINDOW_CLEAR_HEIGHT = 1.80
+STAIR_WINDOW_CLEAR_HEIGHT = 0.70
 WINDOW_FRAME_BORDER = 0.08
 WINDOW_MEETING_STILE_WIDTH = 0.06
 WALL_THICKNESS = 0.30
 LINK_RADIUS_METERS = 0.54
-GENERATOR_VERSION = "b03-1-architecture-v4"
+GENERATOR_VERSION = "b03-1-architecture-v11-stair-window-clearance"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 
@@ -131,6 +133,7 @@ for prefix in ("VIS_", "COL_"):
             f"{prefix}GymWall_North_RightB",
             f"{prefix}GymWall_WestMiddle",
             f"{prefix}GymWall_WestSouth",
+            f"{prefix}GymStorage_North",
         }
     )
 
@@ -149,6 +152,7 @@ class WindowSpec:
     is_open: bool
     unit_count: int
     clear_height: float
+    unit_clear_width: float
 
 
 def sha256(path: Path) -> str:
@@ -267,6 +271,224 @@ def create_mesh_object(
     return obj
 
 
+def append_profile_prism(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    width: tuple[float, float],
+    profile: tuple[tuple[float, float], ...],
+) -> None:
+    offset = len(vertices)
+    for x in width:
+        vertices.extend((x, y, z) for y, z in profile)
+    profile_size = len(profile)
+    faces.extend(
+        [
+            tuple(offset + index for index in reversed(range(profile_size))),
+            tuple(offset + profile_size + index for index in range(profile_size)),
+        ]
+    )
+    for index in range(profile_size):
+        next_index = (index + 1) % profile_size
+        faces.append(
+            (
+                offset + index,
+                offset + next_index,
+                offset + profile_size + next_index,
+                offset + profile_size + index,
+            )
+        )
+
+
+def replace_mesh_geometry(
+    object_name: str,
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+) -> bpy.types.Object:
+    obj = bpy.data.objects.get(object_name)
+    if obj is None or obj.type != "MESH":
+        raise RuntimeError(f"再構築対象Meshがありません: {object_name}")
+    if obj.data.users != 1:
+        obj.data = obj.data.copy()
+    obj.matrix_world = Matrix.Identity(4)
+    obj.data.clear_geometry()
+    obj.data.from_pydata(vertices, [], faces)
+    obj.data.name = object_name
+    obj.data.update(calc_edges=True)
+    mesh = bmesh.new()
+    mesh.from_mesh(obj.data)
+    bmesh.ops.recalc_face_normals(mesh, faces=list(mesh.faces))
+    mesh.normal_update()
+    if mesh.calc_volume(signed=True) < 0:
+        bmesh.ops.reverse_faces(mesh, faces=list(mesh.faces))
+        mesh.normal_update()
+    mesh.to_mesh(obj.data)
+    mesh.free()
+    obj.data.update(calc_edges=True)
+    return obj
+
+
+def append_thin_steps(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    width: tuple[float, float],
+    start_y: float,
+    end_y: float,
+    base_z: float,
+    step_count: int,
+) -> None:
+    rise = 0.15
+    for index in range(step_count):
+        y0 = start_y + (end_y - start_y) * index / step_count
+        y1 = start_y + (end_y - start_y) * (index + 1) / step_count
+        top = base_z + rise * (index + 1)
+        append_box(
+            vertices,
+            faces,
+            (width[0], min(y0, y1), top - rise),
+            (width[1], max(y0, y1), top),
+        )
+
+
+def create_upper_stair_visual_geometry(
+    base_z: float,
+) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
+    vertices: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    append_box(vertices, faces, (-12.6, 38.9, base_z - 0.1), (-9.0, 40.7, base_z))
+    append_thin_steps(vertices, faces, (-12.6, -10.2), 38.9, 43.1, base_z, 16)
+    append_profile_prism(
+        vertices,
+        faces,
+        (-12.6, -10.2),
+        ((38.9, base_z - 0.1), (43.1, base_z + 2.3), (43.1, base_z + 2.4), (38.9, base_z)),
+    )
+    append_box(vertices, faces, (-12.6, 43.1, base_z + 2.3), (-6.6, 45.5, base_z + 2.4))
+    append_thin_steps(vertices, faces, (-9.0, -6.6), 43.1, 40.7, base_z + 2.4, 8)
+    append_profile_prism(
+        vertices,
+        faces,
+        (-9.0, -6.6),
+        ((43.1, base_z + 2.3), (40.7, base_z + 3.5), (40.7, base_z + 3.6), (43.1, base_z + 2.4)),
+    )
+    append_box(vertices, faces, (-9.0, 38.9, base_z + 3.5), (-6.6, 40.7, base_z + 3.6))
+    return vertices, faces
+
+
+def create_upper_stair_collider_geometry(
+    base_z: float,
+) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
+    vertices: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    append_box(vertices, faces, (-12.6, 38.9, base_z - 0.1), (-9.0, 40.7, base_z))
+    append_profile_prism(
+        vertices,
+        faces,
+        (-12.6, -10.2),
+        ((38.9, base_z - 0.1), (43.1, base_z + 2.3), (43.1, base_z + 2.4), (38.9, base_z)),
+    )
+    append_box(vertices, faces, (-12.6, 43.1, base_z + 2.3), (-6.6, 45.5, base_z + 2.4))
+    append_profile_prism(
+        vertices,
+        faces,
+        (-9.0, -6.6),
+        ((43.1, base_z + 2.3), (40.7, base_z + 3.5), (40.7, base_z + 3.6), (43.1, base_z + 2.4)),
+    )
+    append_box(vertices, faces, (-9.0, 38.9, base_z + 3.5), (-6.6, 40.7, base_z + 3.6))
+    return vertices, faces
+
+
+def create_upper_stair_guard_geometry(
+    base_z: float,
+) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
+    vertices: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    append_profile_prism(
+        vertices,
+        faces,
+        (-10.36, -10.2),
+        ((38.9, base_z), (43.1, base_z + 2.4), (43.1, base_z + 3.45), (38.9, base_z + 1.05)),
+    )
+    append_box(vertices, faces, (-10.2, 43.1, base_z + 2.4), (-9.0, 43.26, base_z + 3.45))
+    append_profile_prism(
+        vertices,
+        faces,
+        (-9.0, -8.84),
+        ((43.1, base_z + 2.4), (40.7, base_z + 3.6), (40.7, base_z + 4.65), (43.1, base_z + 3.45)),
+    )
+    append_box(vertices, faces, (-10.2, 38.9, base_z), (-9.0, 39.06, base_z + 1.05))
+    append_box(vertices, faces, (-10.2, 40.7, base_z + 3.6), (-9.0, 40.86, base_z + 4.65))
+    return vertices, faces
+
+
+def rebuild_upper_stairs() -> None:
+    for suffix, base_z in (
+        ("2FTo3F", 3.6),
+        ("3FTo4F", 7.2),
+        ("4FToRooftop", 10.8),
+    ):
+        vertices, faces = create_upper_stair_visual_geometry(base_z)
+        replace_mesh_geometry(f"VIS_StairSystem_NW_{suffix}", vertices, faces)
+        vertices, faces = create_upper_stair_collider_geometry(base_z)
+        replace_mesh_geometry(f"COL_StairSystem_NW_{suffix}", vertices, faces)
+        vertices, faces = create_upper_stair_guard_geometry(base_z)
+        replace_mesh_geometry(f"VIS_StairGuardSystem_NW_{suffix}", vertices, faces)
+        replace_mesh_geometry(f"COL_StairGuardSystem_NW_{suffix}", vertices, faces)
+
+
+def shift_object_geometry_z(obj: bpy.types.Object, amount: float) -> None:
+    if abs(amount) <= 1e-8:
+        return
+    if obj.type == "MESH":
+        if obj.data.users != 1:
+            obj.data = obj.data.copy()
+        obj.data.transform(Matrix.Translation(Vector((0.0, 0.0, amount))))
+        obj.data.name = obj.name
+        obj.data.update()
+    else:
+        obj.location.z += amount
+
+
+def align_existing_storey_sources() -> None:
+    roof = bpy.data.objects.get("COL_Roof_North")
+    if roof is None:
+        raise RuntimeError("屋上高さ基準がありません: COL_Roof_North")
+    roof_minimum, _ = world_bounds(roof)
+    rooftop_shift = 14.4 - roof_minimum.z
+    rooftop_prefixes = (
+        "VIS_Roof_",
+        "COL_Roof_",
+        "VIS_RoofGuard_",
+        "COL_RoofGuard_",
+        "VIS_Rooftop",
+        "COL_Rooftop",
+        "VIS_Pool",
+        "COL_Pool",
+        "VIS_Floor_Rooftop",
+        "VIS_DoorLeaf_Rooftop",
+        "GUIDE_Pool",
+    )
+    for obj in bpy.data.objects:
+        if obj.name.startswith(rooftop_prefixes):
+            shift_object_geometry_z(obj, rooftop_shift)
+    rebuild_upper_stairs()
+    for name in ("COL_StairClosure_NE", "COL_StairClosure_SW"):
+        obj = bpy.data.objects.get(name)
+        if obj is None or obj.type != "MESH":
+            raise RuntimeError(f"階段閉鎖Colliderがありません: {name}")
+        for vertex in obj.data.vertices:
+            if vertex.co.z > 6.5:
+                vertex.co.z = 7.2
+        obj.data.update()
+    boundary = bpy.data.objects.get("BND_Stage")
+    if boundary is None:
+        raise RuntimeError("BND_Stageがありません")
+    minimum, maximum = world_bounds(boundary)
+    boundary_vertices: list[tuple[float, float, float]] = []
+    boundary_faces: list[tuple[int, ...]] = []
+    append_box(boundary_vertices, boundary_faces, tuple(minimum), (maximum.x, maximum.y, 18.0))
+    replace_mesh_geometry("BND_Stage", boundary_vertices, boundary_faces)
+
+
 def create_empty(
     name: str,
     position: tuple[float, float, float],
@@ -316,122 +538,93 @@ def make_material(
 
 def build_window_specs() -> list[WindowSpec]:
     specs: list[WindowSpec] = []
-    open_indices = {
-        1: {1, 4, 6, 9, 12, 15, 17},
-        2: {0, 3, 5, 8, 11, 14, 16},
-        3: {2, 4, 7, 10, 12, 15, 17},
-        4: {0, 2, 5, 7, 9, 12, 14, 17},
-    }
 
-    for floor, base_z in ((1, 0.0), (2, 3.6), (3, 6.6), (4, 9.6)):
-        entries: list[
-            tuple[str, str, str, float, float, tuple[float, float, float]]
-        ] = []
-        if floor == 1:
-            entries.extend(
-                [
-                    ("Courtyard_01", "CourtyardNorth", "X", 32.5, 11.4, (0, -1, 0)),
-                    ("Courtyard_02", "CourtyardNorth", "X", 32.5, 23.4, (0, -1, 0)),
-                    ("Courtyard_03", "CourtyardNorth", "X", 32.5, 35.4, (0, -1, 0)),
-                    ("North_01", "North", "X", 45.5, -3.6, (0, 1, 0)),
-                    ("North_02", "North", "X", 45.5, 8.4, (0, 1, 0)),
-                    ("North_03", "North", "X", 45.5, 20.4, (0, 1, 0)),
-                    ("North_04", "North", "X", 45.5, 32.4, (0, 1, 0)),
-                    ("North_05", "North", "X", 45.5, 44.4, (0, 1, 0)),
-                    ("East_01", "East", "Y", 47.4, 39.0, (1, 0, 0)),
-                    ("WestNorth_01", "WestOuter", "Y", -12.6, 39.0, (-1, 0, 0)),
-                    ("WestCourtyard_01", "CourtyardWest", "Y", 0.0, 7.5, (1, 0, 0)),
-                    ("WestCourtyard_02", "CourtyardWest", "Y", 0.0, 17.5, (1, 0, 0)),
-                    ("WestCourtyard_03", "CourtyardWest", "Y", 0.0, 27.5, (1, 0, 0)),
-                    ("WestOuter_01", "WestOuter", "Y", -12.6, 7.5, (-1, 0, 0)),
-                    ("WestOuter_02", "WestOuter", "Y", -12.6, 17.5, (-1, 0, 0)),
-                    ("WestOuter_03", "WestOuter", "Y", -12.6, 27.5, (-1, 0, 0)),
-                    ("South_01", "South", "X", -3.5, -9.5, (0, -1, 0)),
-                    ("South_02", "South", "X", -3.5, -4.0, (0, -1, 0)),
-                ]
-            )
-        else:
-            entries.extend(
-                [
-                    ("Courtyard_01", "CourtyardNorth", "X", 32.5, 11.4, (0, -1, 0)),
-                    ("Courtyard_02", "CourtyardNorth", "X", 32.5, 23.4, (0, -1, 0)),
-                    ("Courtyard_03", "CourtyardNorth", "X", 32.5, 35.4, (0, -1, 0)),
-                    ("North_01", "North", "X", 45.5, -3.6, (0, 1, 0)),
-                    ("North_02", "North", "X", 45.5, 8.4, (0, 1, 0)),
-                    ("North_03", "North", "X", 45.5, 20.4, (0, 1, 0)),
-                    ("North_04", "North", "X", 45.5, 32.4, (0, 1, 0)),
-                    ("North_05", "North", "X", 45.5, 44.4, (0, 1, 0)),
-                    ("West_01", "WestOuter", "Y", -12.6, 3.5, (-1, 0, 0)),
-                    ("West_02", "WestOuter", "Y", -12.6, 12.5, (-1, 0, 0)),
-                    ("West_03", "WestOuter", "Y", -12.6, 21.5, (-1, 0, 0)),
-                    ("West_04", "WestOuter", "Y", -12.6, 30.5, (-1, 0, 0)),
-                    ("West_05", "WestOuter", "Y", -12.6, 39.5, (-1, 0, 0)),
-                    ("WestCourtyard_01", "CourtyardWest", "Y", 0.0, 7.5, (1, 0, 0)),
-                    ("WestCourtyard_02", "CourtyardWest", "Y", 0.0, 17.5, (1, 0, 0)),
-                    ("WestCourtyard_03", "CourtyardWest", "Y", 0.0, 27.5, (1, 0, 0)),
-                    ("South_01", "South", "X", -3.5, -9.5, (0, -1, 0)),
-                    ("South_02", "South", "X", -3.5, -4.0, (0, -1, 0)),
-                ]
-            )
-        for index, (label, wall, axis, fixed, horizontal, outward) in enumerate(
-            entries
-        ):
-            if wall == "North":
-                unit_count = 3 if label in {"North_01", "North_02"} else 4
-                if label == "North_05":
-                    unit_count = 2
-            elif wall == "CourtyardNorth":
-                unit_count = 3 if floor == 1 and label == "Courtyard_03" else 4
-            elif wall in {"WestOuter", "CourtyardWest", "East"}:
-                unit_count = 3
-            else:
-                unit_count = 2
-            suffix = f"F{floor:02d}_{label}"
-            specs.append(
-                WindowSpec(
-                    suffix=suffix,
-                    link_id=f"bit-window-f{floor:02d}-{label.lower().replace('_', '-')}",
-                    floor=floor,
-                    wall_key=wall,
-                    axis=axis,
-                    fixed=fixed,
-                    horizontal_center=horizontal,
-                    z_center=base_z + 1.7,
-                    outward=outward,
-                    is_open=index in open_indices[floor],
-                    unit_count=unit_count,
-                    clear_height=SCHOOL_WINDOW_CLEAR_HEIGHT,
-                )
-            )
-
-    gym_entries = [
-        ("Gym_East_01", "GymEast", "Y", 57.4, -2.5, (1, 0, 0), True),
-        ("Gym_East_02", "GymEast", "Y", 57.4, 8.5, (1, 0, 0), False),
-        ("Gym_East_03", "GymEast", "Y", 57.4, 19.5, (1, 0, 0), True),
-        ("Gym_West_01", "GymWest", "Y", 33.4, -2.5, (-1, 0, 0), False),
-        ("Gym_West_02", "GymWest", "Y", 33.4, 12.5, (-1, 0, 0), True),
-        ("Gym_West_03", "GymWest", "Y", 33.4, 21.5, (-1, 0, 0), False),
-        ("Gym_North_01", "GymNorth", "X", 26.5, 37.2, (0, 1, 0), False),
-        ("Gym_North_02", "GymNorth", "X", 26.5, 45.5, (0, 1, 0), True),
-        ("Gym_North_03", "GymNorth", "X", 26.5, 53.5, (0, 1, 0), False),
-    ]
-    for label, wall, axis, fixed, horizontal, outward, is_open in gym_entries:
+    def append(
+        floor: int,
+        base_z: float,
+        label: str,
+        wall: str,
+        axis: str,
+        fixed: float,
+        horizontal: float,
+        outward: tuple[float, float, float],
+        unit_count: int,
+        clear_height: float = SCHOOL_WINDOW_CLEAR_HEIGHT,
+        unit_clear_width: float = WINDOW_UNIT_CLEAR_WIDTH,
+        z_offset: float = 1.7,
+    ) -> None:
+        suffix = label if floor == 0 else f"F{floor:02d}_{label}"
         specs.append(
             WindowSpec(
-                suffix=label,
-                link_id=f"bit-window-{label.lower().replace('_', '-')}",
-                floor=0,
+                suffix=suffix,
+                link_id=f"bit-window-{suffix.lower().replace('_', '-')}",
+                floor=floor,
                 wall_key=wall,
                 axis=axis,
                 fixed=fixed,
                 horizontal_center=horizontal,
-                z_center=7.1,
+                z_center=base_z + z_offset,
                 outward=outward,
-                is_open=is_open,
-                unit_count=3,
-                clear_height=GYM_WINDOW_CLEAR_HEIGHT,
+                is_open=False,
+                unit_count=unit_count,
+                clear_height=clear_height,
+                unit_clear_width=unit_clear_width,
             )
         )
+
+    for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
+        ordinary_room_centers = (7.5,) if floor == 1 else (7.5, 17.5, 27.5)
+        for room_index, room_center in enumerate(ordinary_room_centers, start=1):
+            for set_index, center in enumerate((room_center - 2.35, room_center + 2.35), start=1):
+                append(floor, base_z, f"West_Ordinary_Room{room_index:02d}_Set{set_index:02d}", "WestOuter", "Y", -12.6, center, (-1, 0, 0), 2)
+        if floor == 1:
+            append(floor, base_z, "West_Special_01", "WestOuter", "Y", -12.6, 22.5, (-1, 0, 0), 4)
+
+        for wall, label_prefix, axis, fixed, centers, outward, unit_count, unit_width in (
+            ("CourtyardWest", "CourtyardWest_Corridor", "Y", 0.0, (6.25, 11.875, 17.5, 23.125, 28.75), (1, 0, 0), 2, 1.80),
+            ("CourtyardNorth", "CourtyardNorth_Corridor", "X", 32.5, (11.0, 23.0, 34.5), (0, -1, 0), 4, 1.80),
+        ):
+            for index, center in enumerate(centers, start=1):
+                append(floor, base_z, f"{label_prefix}_{index:02d}", wall, axis, fixed, center, outward, unit_count, unit_clear_width=unit_width)
+
+        stair_center_z = {1: 4.20, 2: 7.80, 3: 11.40, 4: 15.00}[floor]
+        append(floor, base_z, "North_StairNW", "North", "X", 45.5, -9.6, (0, 1, 0), 1, STAIR_WINDOW_CLEAR_HEIGHT, z_offset=stair_center_z - base_z)
+        if floor == 1:
+            north_sets = (
+                ("North_Special_Room01", (8.8, 14.4, 20.0), 1.80),
+                ("North_Special_Room02", (26.8, 32.4, 38.0), 1.80),
+            )
+        elif floor == 2:
+            north_sets = (
+                ("North_StudentCouncil", (9.9,), 1.80),
+                ("North_Broadcast", (18.9,), 1.80),
+                ("North_Special_Room03", (26.8, 32.4, 38.0), 1.80),
+            )
+        else:
+            north_sets = (
+                ("North_Special_Room01", (8.8, 14.4, 20.0), 1.80),
+                ("North_Special_Room02", (26.8, 32.4, 38.0), 1.80),
+            )
+        for room_label, centers, unit_width in north_sets:
+            for set_index, center in enumerate(centers, start=1):
+                append(floor, base_z, f"{room_label}_Set{set_index:02d}", "North", "X", 45.5, center, (0, 1, 0), 2, unit_clear_width=unit_width)
+        if floor in (1, 2, 3):
+            append(floor, base_z, "North_StairNE", "North", "X", 45.5, 44.4, (0, 1, 0), 1, STAIR_WINDOW_CLEAR_HEIGHT, z_offset=stair_center_z - base_z)
+
+    for floor, base_z, stair_center_z in ((1, 0.0, 4.20), (2, 3.6, 7.80), (3, 7.2, 11.40)):
+        append(floor, base_z, "West_StairSW", "WestOuter", "Y", -12.6, -0.5, (-1, 0, 0), 1, STAIR_WINDOW_CLEAR_HEIGHT, z_offset=stair_center_z - base_z)
+
+    gym_entries = (
+        ("Gym_East_01", "GymEast", "Y", 57.4, -2.34, (1, 0, 0), 1.80),
+        ("Gym_East_02", "GymEast", "Y", 57.4, 8.50, (1, 0, 0), 1.80),
+        ("Gym_East_03", "GymEast", "Y", 57.4, 19.34, (1, 0, 0), 1.80),
+        ("Gym_West_01", "GymWest", "Y", 33.4, -2.34, (-1, 0, 0), 1.80),
+        ("Gym_West_02", "GymWest", "Y", 33.4, 8.50, (-1, 0, 0), 1.80),
+        ("Gym_West_03", "GymWest", "Y", 33.4, 19.34, (-1, 0, 0), 1.80),
+        ("Gym_North_02", "GymNorth", "X", 26.5, 47.4, (0, 1, 0), 1.80),
+    )
+    for label, wall, axis, fixed, horizontal, outward, unit_width in gym_entries:
+        append(0, 0.0, label, wall, axis, fixed, horizontal, outward, 4, GYM_WINDOW_CLEAR_HEIGHT, unit_width, 7.1)
     return specs
 
 
@@ -488,7 +681,7 @@ def window_opening(spec: WindowSpec) -> tuple[float, float, float, float]:
 
 
 def window_clear_width(spec: WindowSpec) -> float:
-    return spec.unit_count * WINDOW_UNIT_CLEAR_WIDTH
+    return spec.unit_count * spec.unit_clear_width
 
 
 def open_leaf_index(spec: WindowSpec) -> int:
@@ -499,7 +692,7 @@ def open_leaf_index(spec: WindowSpec) -> int:
 
 def window_leaf_center(spec: WindowSpec, leaf_index: int) -> float:
     left = spec.horizontal_center - window_clear_width(spec) / 2
-    leaf_width = WINDOW_UNIT_CLEAR_WIDTH / 2
+    leaf_width = spec.unit_clear_width / 2
     return left + (leaf_index + 0.5) * leaf_width
 
 
@@ -531,7 +724,7 @@ def window_frame_boxes(
                 ((spec.fixed - depth / 2, h + half_w, z - half_h), (spec.fixed + depth / 2, h + half_w + border, z + half_h)),
             ]
         )
-    leaf_width = WINDOW_UNIT_CLEAR_WIDTH / 2
+    leaf_width = spec.unit_clear_width / 2
     for divider_index in range(1, spec.unit_count * 2):
         divider = h - half_w + divider_index * leaf_width
         divider_width = (
@@ -586,7 +779,7 @@ def window_full_plane_box(
 def closed_leaf_boxes(
     spec: WindowSpec, depth: float
 ) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
-    leaf_width = WINDOW_UNIT_CLEAR_WIDTH / 2
+    leaf_width = spec.unit_clear_width / 2
     skipped_leaf = open_leaf_index(spec) if spec.is_open else -1
     return [
         window_panel_box(
@@ -612,7 +805,7 @@ def window_glass_boxes(
             window_panel_box(
                 spec,
                 window_leaf_center(spec, stacked_leaf),
-                WINDOW_UNIT_CLEAR_WIDTH / 2,
+                spec.unit_clear_width / 2,
                 spec.clear_height,
                 0.025,
                 normal_offset=0.035,
@@ -636,7 +829,7 @@ def build_school_exterior(
         "CourtyardWest": ("Y", 0.0, -3.5, 32.5),
         "South": ("X", -3.5, -12.6, 0.0),
     }
-    floor_ranges = {1: (0.0, 3.0), 2: (3.6, 6.6), 3: (6.6, 9.6), 4: (9.6, 12.6)}
+    floor_ranges = {1: (0.0, 3.6), 2: (3.6, 7.2), 3: (7.2, 10.8), 4: (10.8, 14.4)}
     door_openings = {
         (1, "North"): [(2.4, 5.4, 0.0, 2.4)],
         (1, "CourtyardNorth"): [
@@ -652,12 +845,25 @@ def build_school_exterior(
             openings = [
                 window_opening(spec)
                 for spec in specs
-                if spec.floor == floor and spec.wall_key == wall_key
+                if spec.wall_key == wall_key
+                and window_opening(spec)[3] > z0
+                and window_opening(spec)[2] < z1
             ]
             openings.extend(door_openings.get((floor, wall_key), []))
             boxes = wall_boxes(axis, fixed, h0, h1, z0, z1, openings)
             visual_boxes.extend(boxes)
             collider_boxes.extend(boxes)
+        if floor == 4:
+            rooftop_stair_openings = [
+                window_opening(spec)
+                for spec in specs
+                if spec.suffix == "F04_North_StairNW"
+            ]
+            rooftop_stair_boxes = wall_boxes(
+                "X", 45.5, -12.6, -6.6, 14.4, 15.7, rooftop_stair_openings
+            )
+            visual_boxes.extend(rooftop_stair_boxes)
+            collider_boxes.extend(rooftop_stair_boxes)
         create_mesh_object(
             f"VIS_B03_ExteriorWalls_F{floor:02d}",
             visual_boxes,
@@ -713,6 +919,80 @@ def build_gym_exterior(
     ]
 
 
+def build_gym_storage_window(
+    visual_collection: bpy.types.Collection,
+    collider_collection: bpy.types.Collection,
+    wall_material: bpy.types.Material,
+    frame_material: bpy.types.Material,
+    glass_material: bpy.types.Material,
+) -> tuple[list[bpy.types.Object], list[bpy.types.Object]]:
+    center_x = 54.4
+    center_z = 1.8
+    clear_width = 1.20
+    clear_height = 1.20
+    border = WINDOW_FRAME_BORDER
+    wall_boxes_result = wall_boxes(
+        "X",
+        30.5,
+        51.4,
+        57.4,
+        0.0,
+        3.0,
+        [
+            (
+                center_x - clear_width / 2 - border,
+                center_x + clear_width / 2 + border,
+                center_z - clear_height / 2 - border,
+                center_z + clear_height / 2 + border,
+            )
+        ],
+    )
+    create_mesh_object(
+        "VIS_B03_GymStorageNorthWall",
+        wall_boxes_result,
+        visual_collection,
+        wall_material,
+    )
+    wall_collider = create_mesh_object(
+        "COL_B03_GymStorageNorthWall",
+        wall_boxes_result,
+        collider_collection,
+    )
+    frame_boxes = [
+        ((center_x - clear_width / 2 - border, 30.4, center_z - clear_height / 2 - border), (center_x + clear_width / 2 + border, 30.6, center_z - clear_height / 2)),
+        ((center_x - clear_width / 2 - border, 30.4, center_z + clear_height / 2), (center_x + clear_width / 2 + border, 30.6, center_z + clear_height / 2 + border)),
+        ((center_x - clear_width / 2 - border, 30.4, center_z - clear_height / 2), (center_x - clear_width / 2, 30.6, center_z + clear_height / 2)),
+        ((center_x + clear_width / 2, 30.4, center_z - clear_height / 2), (center_x + clear_width / 2 + border, 30.6, center_z + clear_height / 2)),
+    ]
+    properties = {
+        "hs_window_style": "small_fixed",
+        "hs_window_panes": 1,
+        "hs_window_open_leaf": 0,
+        "hs_window_clear_height_m": clear_height,
+        "hs_window_layout_status": "placement_review",
+    }
+    create_mesh_object(
+        "VIS_WindowFrame_GymStorage_North_01",
+        frame_boxes,
+        visual_collection,
+        frame_material,
+        properties,
+    )
+    create_mesh_object(
+        "VIS_WindowGlass_GymStorage_North_01",
+        [((center_x - clear_width / 2, 30.4875, center_z - clear_height / 2), (center_x + clear_width / 2, 30.5125, center_z + clear_height / 2))],
+        visual_collection,
+        glass_material,
+        properties,
+    )
+    window_collider = create_mesh_object(
+        "COL_ActorOnly_Window_GymStorage_North_01",
+        [((center_x - clear_width / 2, 30.45, center_z - clear_height / 2), (center_x + clear_width / 2, 30.55, center_z + clear_height / 2))],
+        collider_collection,
+    )
+    return [wall_collider], [window_collider]
+
+
 def build_upper_floors_and_rooms(
     visual_collection: bpy.types.Collection,
     collider_collection: bpy.types.Collection,
@@ -728,7 +1008,7 @@ def build_upper_floors_and_rooms(
         ((-12.6, 32.5), (-6.6, 38.9)),
         ((-12.6, 43.1), (-6.6, 45.5)),
     ]
-    for floor, base_z in ((2, 3.6), (3, 6.6), (4, 9.6)):
+    for floor, base_z in ((2, 3.6), (3, 7.2), (4, 10.8)):
         floor_boxes = [
             ((xy0[0], xy0[1], base_z - 0.15), (xy1[0], xy1[1], base_z))
             for xy0, xy1 in floor_panels_xy
@@ -746,7 +1026,7 @@ def build_upper_floors_and_rooms(
         )
 
         if floor in (2, 3):
-            ceiling_z = base_z + 3.0
+            ceiling_z = base_z + 3.6
             ceiling_boxes = [
                 ((xy0[0], xy0[1], ceiling_z - 0.15), (xy1[0], xy1[1], ceiling_z))
                 for xy0, xy1 in floor_panels_xy
@@ -765,7 +1045,7 @@ def build_upper_floors_and_rooms(
                 )
             )
 
-        z0, z1 = base_z, base_z + 3.0
+        z0, z1 = base_z, base_z + 3.6
         internal_boxes = []
         west_doors = [
             (3.5, 4.7, z0, z0 + 2.3),
@@ -847,9 +1127,15 @@ def build_windows_and_links(
 ) -> list[bpy.types.Object]:
     colliders = []
     for spec in specs:
+        is_stair_window = "_Stair" in spec.suffix
         window_properties = {
-            "hs_window_style": "paired_sliding_band",
+            "hs_window_style": (
+                "paired_stair_transom" if is_stair_window else "paired_sliding_band"
+            ),
             "hs_window_units": spec.unit_count,
+            "hs_window_panes": spec.unit_count * 2,
+            "hs_window_unit_width_m": spec.unit_clear_width,
+            "hs_window_layout_status": "placement_review",
             "hs_window_clear_height_m": spec.clear_height,
             "hs_window_open_leaf": open_leaf_index(spec) + 1 if spec.is_open else 0,
         }
@@ -892,7 +1178,7 @@ def build_windows_and_links(
                     window_panel_box(
                         spec,
                         open_center,
-                        WINDOW_UNIT_CLEAR_WIDTH / 2,
+                        spec.unit_clear_width / 2,
                         spec.clear_height,
                         0.10,
                     )
@@ -934,13 +1220,13 @@ def build_roof_links(semantic_collection: bpy.types.Collection) -> None:
     definitions = (
         (
             "bit-roof-north-east",
-            (48.4, 34.8, 14.45),
-            (46.1, 34.8, 14.45),
+            (48.4, 34.8, 16.25),
+            (46.1, 34.8, 16.25),
         ),
         (
             "bit-roof-west-south",
-            (-10.0, -4.5, 14.45),
-            (-10.0, -2.2, 14.45),
+            (-10.0, -4.5, 16.25),
+            (-10.0, -2.2, 16.25),
         ),
     )
     for link_id, a, b in definitions:
@@ -969,10 +1255,10 @@ def build_pool(
     semantic_collection: bpy.types.Collection,
     water_material: bpy.types.Material,
 ) -> None:
-    water_bounds = ((14.6, 36.2, 12.86), (34.2, 41.8, 13.55))
+    water_bounds = ((14.6, 36.2, 14.66), (34.2, 41.8, 15.35))
     create_mesh_object(
         "VIS_B03_PoolWater",
-        [((14.6, 36.2, 13.53), (34.2, 41.8, 13.55))],
+        [((14.6, 36.2, 15.33), (34.2, 41.8, 15.35))],
         visual_collection,
         water_material,
     )
@@ -1064,10 +1350,10 @@ def build_minimum_props(
         )
 
     locker_positions = [
-        ("Changing_M_01", (-5.5, 44.9, 12.7)),
-        ("Changing_M_02", (-3.3, 44.9, 12.7)),
-        ("Changing_F_01", (-1.0, 44.9, 12.7)),
-        ("Changing_F_02", (1.2, 44.9, 12.7)),
+        ("Changing_M_01", (-5.5, 44.9, 14.5)),
+        ("Changing_M_02", (-3.3, 44.9, 14.5)),
+        ("Changing_F_01", (-1.0, 44.9, 14.5)),
+        ("Changing_F_02", (1.2, 44.9, 14.5)),
     ]
     for suffix, position in locker_positions:
         instantiate_prop(
@@ -1086,8 +1372,8 @@ def build_minimum_props(
         )
 
     bench_boxes = [
-        ((-5.6, 40.2, 12.7), (-3.1, 40.7, 13.12)),
-        ((-1.1, 40.2, 12.7), (1.4, 40.7, 13.12)),
+        ((-5.6, 40.2, 14.5), (-3.1, 40.7, 14.92)),
+        ((-1.1, 40.2, 14.5), (1.4, 40.7, 14.92)),
     ]
     create_mesh_object(
         "VIS_B03_ChangingBenches",
@@ -1208,6 +1494,28 @@ def build_nav_sources(
     generated_upper_colliders: list[bpy.types.Object],
     window_colliders: list[bpy.types.Object],
 ) -> None:
+    stair_blocker = bpy.data.objects.get("NAV_Blocker_StairClosed")
+    if stair_blocker is not None:
+        unlink_and_remove_object(stair_blocker)
+    copy_meshes_into_object(
+        "NAV_Blocker_StairClosed",
+        [
+            "COL_StairClosure_NE",
+            "COL_StairClosure_SW",
+            "COL_StairGuard_NE_Landing",
+            "COL_StairGuard_NE_Lower",
+            "COL_StairGuard_NE_Upper",
+            "COL_StairGuard_NW_Landing",
+            "COL_StairGuard_NW_Lower",
+            "COL_StairGuard_NW_Upper",
+            "COL_StairStorageShell_NW",
+            "COL_StairGuard_SW_Landing",
+            "COL_StairGuard_SW_Lower",
+            "COL_StairGuard_SW_Upper",
+        ],
+        nav_collection,
+        {"hs_nav_role": "blocker"},
+    )
     for floor in (2, 3, 4):
         copy_meshes_into_object(
             f"NAV_Walkable_Interior{floor}F",
@@ -1333,12 +1641,13 @@ def is_current_generation() -> bool:
     names = tuple(bpy.data.objects.keys())
     return (
         bpy.context.scene.get(GENERATOR_VERSION_PROPERTY) == GENERATOR_VERSION
-        and sum(name.startswith("VIS_WindowFrame_") for name in names) == 81
-        and sum(name.startswith("VIS_WindowGlass_") for name in names) == 81
-        and sum(name.startswith("COL_ActorOnly_Window_") for name in names) == 48
-        and sum(name.startswith("COL_ActorOnly_WindowFixed_") for name in names) == 33
-        and sum(name.startswith("COL_HumanOnly_Window_") for name in names) == 33
-        and sum(name.startswith("LNK_bit-window-") for name in names) == 66
+        and bpy.context.scene.get("b03_window_layout_status") == "placement_review"
+        and sum(name.startswith("VIS_WindowFrame_") for name in names) == 94
+        and sum(name.startswith("VIS_WindowGlass_") for name in names) == 94
+        and sum(name.startswith("COL_ActorOnly_Window_") for name in names) == 94
+        and sum(name.startswith("COL_ActorOnly_WindowFixed_") for name in names) == 0
+        and sum(name.startswith("COL_HumanOnly_Window_") for name in names) == 0
+        and sum(name.startswith("LNK_bit-window-") for name in names) == 0
         and sum(name.startswith("LNK_bit-roof-") for name in names) == 4
         and GENERATED_EXACT_NAMES.issubset(names)
         and "VOL_PoolWater" in names
@@ -1356,9 +1665,9 @@ def print_build_result(specs: list[WindowSpec]) -> None:
         "objects": len(bpy.data.objects),
         "meshes": len(bpy.data.meshes),
         "materials": len(bpy.data.materials),
-        "windows": len(specs),
+        "windows": len(specs) + 1,
         "open_windows": sum(spec.is_open for spec in specs),
-        "closed_windows": sum(not spec.is_open for spec in specs),
+        "closed_windows": sum(not spec.is_open for spec in specs) + 1,
     }
     print("B03_BUILD_RESULT=" + json.dumps(result, ensure_ascii=False, sort_keys=True))
 
@@ -1372,14 +1681,15 @@ def main() -> None:
     export_collection = collection(EXPORT_COLLECTION_NAME)
 
     specs = build_window_specs()
-    if len(specs) != 81 or sum(spec.is_open for spec in specs) != 33:
-        raise RuntimeError("W02-R1窓定義が81件／開33件ではありません")
+    if len(specs) != 93 or any(spec.is_open for spec in specs):
+        raise RuntimeError("配置確認用の連続窓帯が93件／全閉ではありません")
     if is_current_generation():
         export_stage(export_collection)
         print_build_result(specs)
         return
 
     clear_generated_objects()
+    align_existing_storey_sources()
 
     wall_material = existing_material("MAT_Wall_White")
     floor_material = existing_material("MAT_Corridor_Ochre")
@@ -1412,6 +1722,14 @@ def main() -> None:
             specs, visual_collection, collider_collection, wall_material
         )
     )
+    storage_wall_colliders, storage_window_colliders = build_gym_storage_window(
+        visual_collection,
+        collider_collection,
+        wall_material,
+        frame_material,
+        glass_material,
+    )
+    upper_colliders.extend(storage_wall_colliders)
     upper_colliders.extend(
         build_upper_floors_and_rooms(
             visual_collection,
@@ -1430,6 +1748,7 @@ def main() -> None:
         frame_material,
         glass_material,
     )
+    window_colliders.extend(storage_window_colliders)
     build_roof_links(semantic_collection)
     build_pool(visual_collection, semantic_collection, water_material)
     build_minimum_props(visual_collection, collider_collection, bench_material)
@@ -1438,6 +1757,7 @@ def main() -> None:
     normalize_export_meshes(export_collection)
 
     bpy.context.scene[GENERATOR_VERSION_PROPERTY] = GENERATOR_VERSION
+    bpy.context.scene["b03_window_layout_status"] = "placement_review"
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_PATH), check_existing=False)
     bpy.context.scene[GENERATOR_SIGNATURE_PROPERTY] = generation_signature()
