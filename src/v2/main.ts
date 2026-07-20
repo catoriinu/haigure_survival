@@ -1,6 +1,7 @@
 import "../style.css";
 
 import {
+  Color3,
   Color4,
   Engine,
   FreeCamera,
@@ -45,7 +46,7 @@ const titleVersion = document.getElementById("titleVersion") as HTMLDivElement;
 const engine = new Engine(canvas, true);
 const scene = new Scene(engine);
 scene.collisionsEnabled = true;
-scene.clearColor = new Color4(0.035, 0.045, 0.065, 1);
+scene.clearColor = new Color4(0.48, 0.72, 0.92, 1);
 
 const camera = new FreeCamera("V2PlayerCamera", Vector3.Zero(), scene);
 camera.minZ = 0.02;
@@ -55,10 +56,11 @@ scene.activeCamera = camera;
 
 const ambientLight = new HemisphericLight(
   "V2SchoolAmbientLight",
-  Vector3.Up(),
+  new Vector3(0.35, 1, -0.25),
   scene
 );
-ambientLight.intensity = 0.8;
+ambientLight.intensity = 0.9;
+ambientLight.groundColor = new Color3(0.16, 0.2, 0.22);
 
 titleHeading.textContent = "HAIGURE SURVIVAL V2";
 titleStartHint.textContent = "";

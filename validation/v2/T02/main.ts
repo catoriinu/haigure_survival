@@ -476,8 +476,8 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 467 &&
-        context.resources.normalColliders.length === 183 &&
+      context.resources.visualMeshes.length === 477 &&
+        context.resources.normalColliders.length === 189 &&
         context.resources.actorOnlyColliders.length === 83 &&
         context.resources.humanOnlyColliders.length === 58 &&
         context.resources.navSourceMeshes.length === 15 &&
@@ -902,6 +902,44 @@ const validateLoadedContext = (
     )
   );
 
+  const upperFloorAscentWaypoints = rooftopAscentWaypoints.slice(0, 17);
+  const northeastAscentWaypoints = upperFloorAscentWaypoints.map(
+    (point) => new Vector3(point.x + 54.0, point.y, point.z)
+  );
+  const southwestAscentWaypoints = upperFloorAscentWaypoints.map(
+    (point) => new Vector3(32.9 - point.y, point.x + 9.1, point.z)
+  );
+  const northeastRoundTrip = validatePlayerWaypointTraversal(
+    context,
+    "北東階段1階・4階往復",
+    [
+      ...northeastAscentWaypoints,
+      ...northeastAscentWaypoints.slice(0, -1).reverse()
+    ],
+    [0.0, 10.8]
+  );
+  const southwestRoundTrip = validatePlayerWaypointTraversal(
+    context,
+    "南西階段1階・4階往復",
+    [
+      ...southwestAscentWaypoints,
+      ...southwestAscentWaypoints.slice(0, -1).reverse()
+    ],
+    [0.0, 10.8]
+  );
+  checks.push(
+    createCheck(
+      "実プレイヤーによる北東・南西階段1階・4階往復",
+      northeastRoundTrip.ok && southwestRoundTrip.ok,
+      [northeastRoundTrip, southwestRoundTrip]
+        .map(
+          (result) =>
+            `${result.label}: Waypoint=${result.reachedWaypoints}/${result.totalWaypoints} / 最高足元Y=${result.highestFootY.toFixed(3)} / 最低足元Y=${result.lowestFootY.toFixed(3)} / 最終水平誤差=${result.finalHorizontalError.toFixed(3)} / 最終垂直誤差=${result.finalVerticalError.toFixed(3)} / 境界内=${result.stayedInsideBoundary} / エラー=${result.errorMessage ?? "なし"}`
+        )
+        .join(" || ")
+    )
+  );
+
   const northwestStorageBoundsExpectations = [
     ["VIS_StairStorageShell_NW", [-9.0, 38.9, 0.0], [-6.75, 43.1, 3.5]],
     ["COL_StairStorageShell_NW", [-9.0, 38.9, 0.0], [-6.75, 43.1, 3.5]],
@@ -920,11 +958,19 @@ const validateLoadedContext = (
   const openUpperStairVisuals = [
     "VIS_StairSystem_NW_2FTo3F",
     "VIS_StairSystem_NW_3FTo4F",
-    "VIS_StairSystem_NW_4FToRooftop"
+    "VIS_StairSystem_NW_4FToRooftop",
+    "VIS_StairSystem_NE_2FTo3F",
+    "VIS_StairSystem_NE_3FTo4F",
+    "VIS_StairSystem_SW_2FTo3F",
+    "VIS_StairSystem_SW_3FTo4F"
   ].map((name) => ({
     name,
     vertices: schoolMeshByName.get(name)?.getTotalVertices() ?? 0
   }));
+  const retiredUpperStairClosures = [
+    "COL_StairClosure_NE",
+    "COL_StairClosure_SW"
+  ];
   const storageCentralApproachHit = castPlayerMovementSegment(
     blenderPointToBabylon(new Vector3(-9.6, 38.5, 1.0)),
     blenderPointToBabylon(new Vector3(-9.6, 43.8, 1.0))
@@ -968,9 +1014,12 @@ const validateLoadedContext = (
   );
   checks.push(
     createCheck(
-      "北西階段の1階倉庫と2階以上の開放構造",
+      "3階段の2階～4階開放構造と北西階段の1階倉庫",
       northwestStorageBoundsResults.every((result) => result.ok) &&
         openUpperStairVisuals.every((result) => result.vertices === 696) &&
+        retiredUpperStairClosures.every(
+          (name) => !schoolMeshByName.has(name)
+        ) &&
         storageCentralApproachHit === null &&
         storageWestWallHit?.mesh.name === "COL_StairStorageShell_NW" &&
         storageSouthWallHit?.mesh.name === "COL_StairStorageShell_NW" &&
@@ -981,6 +1030,8 @@ const validateLoadedContext = (
         .map((result) => `${result.name}=${result.ok ? "一致" : result.detail}`)
         .join(" / ")} / 上階表示=${openUpperStairVisuals
         .map((result) => `${result.name}:${result.vertices}`)
+        .join(",")} / 旧closure=${retiredUpperStairClosures
+        .map((name) => `${name}:${!schoolMeshByName.has(name)}`)
         .join(",")} / 中央入口=${storageCentralApproachHit?.mesh.name ?? "clear"} / 西壁=${storageWestWallHit?.mesh.name ?? "なし"} / 南壁=${storageSouthWallHit?.mesh.name ?? "なし"} / 最大視点=${storageMaximumEyeHit?.mesh.name ?? "clear"} / 高天井帯=${storageHighCeilingHit?.mesh.name ?? "clear"} / Waypoint=${northwestStorageRoundTrip.reachedWaypoints}/${northwestStorageRoundTrip.totalWaypoints} / 境界内=${northwestStorageRoundTrip.stayedInsideBoundary} / エラー=${northwestStorageRoundTrip.errorMessage ?? "なし"}`
     )
   );
@@ -1413,8 +1464,8 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 467 &&
-      activeContext.resources.normalColliders.length === 183 &&
+      activeContext.resources.visualMeshes.length === 477 &&
+      activeContext.resources.normalColliders.length === 189 &&
       activeContext.resources.actorOnlyColliders.length === 83 &&
       activeContext.resources.humanOnlyColliders.length === 58 &&
       activeContext.resources.navSourceMeshes.length === 15 &&

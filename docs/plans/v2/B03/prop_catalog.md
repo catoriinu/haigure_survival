@@ -36,7 +36,7 @@
 | `VIS_Prop_InfirmaryBed` | 保健室 | 2.00×0.90×0.55 | 床置き | 不可 | `COL_Prop_InfirmaryBed` | 72 | Fabric、MetalGray、Paper |
 | `VIS_Prop_PcMonitor` | PC室、職員室 | 0.55×0.18×0.45 | 底面中央 | 可 | なし | 48 | PlasticBlack、MetalDark、MetalGray |
 | `VIS_Prop_BasketballGoal` | 体育館 | 1.80×0.70×1.05 | 壁付け | 可 | なし | 240 | Paper、AccentOrange、MetalGray |
-| `VIS_Prop_VaultingBox` | 体育館 | 1.20×0.60×1.00 | 床置き | 不可 | `COL_Prop_VaultingBox` | 60 | Wood、Fabric |
+| `VIS_Prop_VaultingBox` | 体育館 | 1.20×0.60×1.00 | 床置き | 不可 | `COL_Prop_VaultingBox` | 24 | Wood、Fabric |
 | `VIS_Prop_Bookshelf` | 図書室 | 0.90×0.32×1.80 | 床置き | 不可 | `COL_Prop_Bookshelf` | 96 | Wood |
 | `VIS_Prop_ClosedBook` | 教室、図書室、職員室 | 0.25×0.18×0.025 | 底面中央 | 可 | なし | 24 | Paper、AccentOrange |
 | `VIS_Prop_OpenBook` | 教室、図書室、職員室 | 0.44×0.25×0.04 | 底面中央 | 可 | なし | 36 | Paper、AccentOrange |
@@ -47,13 +47,13 @@
 ## 実測結果
 
 - 表示小物22種、簡略Collider 10種、Library Mesh合計32個
-- 表示小物1,992三角形、Collider 120三角形
+- 表示小物1,956三角形、Collider 120三角形
 - 共有Material 9種。全表示Meshのdatablockはsingle-user
 - Object名とMesh Data名は全32個で一致し、正本のrotationは0、scaleは1
 - 通行不可10種だけに12三角形の箱Colliderを設定
 - 教室机、教室椅子、職員椅子、PCモニターの転倒・回転は、専用小物を作らず、Preview内で正本Meshの複製後Transformだけを変更
 - 通常状態の教室机・椅子と、本・筆箱の机上配置、単紙の床上配置を組み合わせた小規模な教室散乱見本をPreviewへ収録
 - 大型机は全利用先で椅子を収納できるよう、ライブラリ本体から脚同士をつなぐ横棒を撤去した
-- ライブラリ`.blend`は163,659 bytes、SHA-256は`2733FC44E18149C6F8D49C32ED79FD7E949AAD827607CA7418D7F4CC580B559A`
-- 確認用GLBは181,632 bytes、SHA-256は`5B929F1006B4280EA4CE1A5706C5A31F210EEBB7BABE7AD271412930D154C2AC`
+- ライブラリ`.blend`は165,208 bytes、SHA-256は`47037C4261CE6A5BD86A64EE2E1DEE834A834A25CE6CB979D9329E194BC6311A`
+- 確認用GLBは173,384 bytes、SHA-256は`85E67ADA04EA6D1F97CD6909FF388534316224931C567D5914EF00B5F40BAC30`
 - 確認用GLBはScene 1、Node 32、Mesh 32、Material 9、Camera 0、Animation 0。確認用床、人型、照明、配置例は未収録

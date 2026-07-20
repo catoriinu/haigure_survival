@@ -119,6 +119,232 @@ def point_aabb_distance(point: Vector, minimum: Vector, maximum: Vector) -> floa
     ) ** 0.5
 
 
+def aabb_overlaps(
+    first_minimum: Vector,
+    first_maximum: Vector,
+    second_minimum: Vector,
+    second_maximum: Vector,
+) -> bool:
+    return all(
+        first_minimum[axis] < second_maximum[axis] - 1e-6
+        and first_maximum[axis] > second_minimum[axis] + 1e-6
+        for axis in range(3)
+    )
+
+
+def door_clearance_volumes() -> list[tuple[str, Vector, Vector]]:
+    clearances: list[tuple[str, Vector, Vector]] = []
+    upper_west_doors = ((3.5, 4.7), (13.1, 14.3), (21.9, 23.1), (30.7, 31.9))
+    first_floor_west_doors = ((3.5, 4.7), (10.7, 11.9), (13.1, 14.3), (30.7, 31.9))
+    north_doors = ((6.0, 7.2), (21.6, 22.8), (24.0, 25.2), (39.6, 40.8))
+    for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
+        west_doors = first_floor_west_doors if floor == 1 else upper_west_doors
+        for index, (minimum_y, maximum_y) in enumerate(west_doors, 1):
+            clearances.append(
+                (
+                    f"F{floor:02d}_West_{index:02d}",
+                    Vector((-4.6, minimum_y + 0.05, base_z + 0.05)),
+                    Vector((-2.4, maximum_y - 0.05, base_z + 2.25)),
+                )
+            )
+        for index, (minimum_x, maximum_x) in enumerate(north_doors, 1):
+            clearances.append(
+                (
+                    f"F{floor:02d}_North_{index:02d}",
+                    Vector((minimum_x + 0.05, 35.4, base_z + 0.05)),
+                    Vector((maximum_x - 0.05, 37.6, base_z + 2.25)),
+                )
+            )
+        for index, (minimum_x, maximum_x) in enumerate(
+            ((-5.4, -4.2), (-0.9, 0.3)),
+            1,
+        ):
+            clearances.append(
+                (
+                    f"F{floor:02d}_Toilet_{index:02d}",
+                    Vector((minimum_x + 0.05, 38.65, base_z + 0.05)),
+                    Vector((maximum_x - 0.05, 39.65, base_z + 2.25)),
+                )
+            )
+    clearances.extend(
+        (
+            (
+                "MainEntry",
+                Vector((-1.20, -4.60, 0.05)),
+                Vector((1.20, 2.45, 2.25)),
+            ),
+            (
+                "NorthEntry",
+                Vector((2.45, 44.40, 0.05)),
+                Vector((5.35, 46.60, 2.25)),
+            ),
+            (
+                "NorthWingSouthEntry",
+                Vector((0.30, 31.30, 0.05)),
+                Vector((5.40, 33.70, 2.25)),
+            ),
+            (
+                "NorthWingBridge",
+                Vector((39.35, 31.30, 0.05)),
+                Vector((43.45, 33.70, 2.25)),
+            ),
+            (
+                "GymBridge",
+                Vector((39.35, 25.30, 0.05)),
+                Vector((43.45, 27.70, 2.25)),
+            ),
+            (
+                "GymCourtyard",
+                Vector((32.30, 5.05, 0.05)),
+                Vector((34.70, 7.95, 2.25)),
+            ),
+            (
+                "GymStorage",
+                Vector((53.70, 25.30, 0.05)),
+                Vector((55.10, 27.70, 2.25)),
+            ),
+            (
+                "GymStageWest",
+                Vector((33.20, -4.60, 0.05)),
+                Vector((36.90, -2.40, 2.25)),
+            ),
+            (
+                "GymStageEast",
+                Vector((54.00, -4.60, 0.05)),
+                Vector((57.60, -2.40, 2.25)),
+            ),
+        )
+    )
+    return clearances
+
+
+def audit_door_clearance(interior_colliders: list[bpy.types.Object]) -> int:
+    clearances = door_clearance_volumes()
+
+    collider_components = [
+        (collider.name, component_index, minimum, maximum)
+        for collider in interior_colliders
+        for component_index, (minimum, maximum) in enumerate(
+            connected_component_aabbs(collider),
+            1,
+        )
+    ]
+    violations = []
+    for label, clearance_minimum, clearance_maximum in clearances:
+        for collider_name, component_index, minimum, maximum in collider_components:
+            if aabb_overlaps(
+                clearance_minimum,
+                clearance_maximum,
+                minimum,
+                maximum,
+            ):
+                violations.append(f"{label}/{collider_name}#{component_index}")
+    if violations:
+        raise RuntimeError(
+            "出入口前へ通行不能小物が侵入しています:\n" + "\n".join(violations)
+        )
+    return len(clearances) * len(collider_components)
+
+
+def audit_door_sign_clearance() -> int:
+    sign_objects = [
+        obj
+        for obj in bpy.data.objects
+        if obj.type == "MESH"
+        and obj.name.startswith("VIS_B03_Interior_")
+        and obj.name.endswith("_SignsPaper")
+    ]
+    sign_components = [
+        (obj.name, component_index, minimum, maximum)
+        for obj in sign_objects
+        for component_index, (minimum, maximum) in enumerate(
+            connected_component_aabbs(obj),
+            1,
+        )
+    ]
+    violations = []
+    clearances = door_clearance_volumes()
+    for label, clearance_minimum, clearance_maximum in clearances:
+        for object_name, component_index, minimum, maximum in sign_components:
+            if aabb_overlaps(
+                clearance_minimum,
+                clearance_maximum,
+                minimum,
+                maximum,
+            ):
+                violations.append(f"{label}/{object_name}#{component_index}")
+    if violations:
+        raise RuntimeError(
+            "表札が出入口中央へ重なっています:\n" + "\n".join(violations)
+        )
+    return len(clearances) * len(sign_components)
+
+
+def bounds_match(
+    actual: tuple[Vector, Vector],
+    expected: tuple[tuple[float, float, float], tuple[float, float, float]],
+) -> bool:
+    minimum, maximum = actual
+    return all(
+        abs(minimum[axis] - expected[0][axis]) <= 1e-4
+        and abs(maximum[axis] - expected[1][axis]) <= 1e-4
+        for axis in range(3)
+    )
+
+
+def audit_acceptance_placements() -> dict[str, int]:
+    main_entry = bpy.data.objects["VIS_B03_Interior_F01_MainEntry_FurnitureProps"]
+    main_components = connected_component_aabbs(main_entry)
+    if any(
+        minimum.y < -3.5 or maximum.y > -2.9
+        for minimum, maximum in main_components
+    ):
+        raise RuntimeError("主玄関の下駄箱・傘立てが建物内の南壁際にありません")
+    if min(minimum.x for minimum, _ in main_components) < -5.35:
+        raise RuntimeError("主玄関の家具が南西階段の出入口へ近すぎます")
+
+    north_entry = bpy.data.objects["VIS_B03_Interior_F01_NorthEntry_FurnitureProps"]
+    north_components = connected_component_aabbs(north_entry)
+    if min(minimum.x for minimum, _ in north_components) < 4.79:
+        raise RuntimeError("北側通用口の小物が壁際から廊下側へ出ています")
+
+    staff = bpy.data.objects["VIS_B03_Interior_F01_StaffRoom_FurnitureProps"]
+    if max(maximum.y for _, maximum in connected_component_aabbs(staff)) > 45.15:
+        raise RuntimeError("職員室の掲示板または時計が北窓面に残っています")
+
+    gym = bpy.data.objects["VIS_B03_Interior_Gym_FurnitureProps"]
+    gym_components = connected_component_aabbs(gym)
+    expected_backboards = (
+        ((33.55, 7.60, 2.825), (33.60, 9.40, 3.875)),
+        ((57.20, 7.60, 2.825), (57.25, 9.40, 3.875)),
+    )
+    for expected in expected_backboards:
+        if not any(bounds_match(component, expected) for component in gym_components):
+            raise RuntimeError(f"バスケットゴールが壁面の規定高にありません: {expected}")
+    lectern_components = [
+        (minimum, maximum)
+        for minimum, maximum in gym_components
+        if maximum.y < -6.20
+    ]
+    if not lectern_components or min(minimum.z for minimum, _ in lectern_components) < 1.0 - 1e-5:
+        raise RuntimeError("演説机が舞台上にありません")
+
+    gym_collider = bpy.data.objects["COL_B03_Interior_Gym"]
+    expected_lectern_collider = ((45.04, -6.75, 1.0), (45.76, -6.25, 2.05))
+    if not any(
+        bounds_match(component, expected_lectern_collider)
+        for component in connected_component_aabbs(gym_collider)
+    ):
+        raise RuntimeError("演説机Colliderが舞台上にありません")
+
+    return {
+        "main_entry": len(main_components),
+        "north_entry": len(north_components),
+        "staffroom": 1,
+        "gym": len(expected_backboards) + 2,
+    }
+
+
 def audit_link_clearance(interior_colliders: list[bpy.types.Object]) -> int:
     endpoints: dict[str, dict[str, Vector]] = {}
     for obj in bpy.data.objects:
@@ -250,13 +476,13 @@ def main() -> None:
             "CleaningLocker": 1,
         },
         "F01_PcRoom": {
-            "StaffDesk": 24,
-            "StaffChair": 24,
-            "PcMonitor": 24,
+            "StaffDesk": 18,
+            "StaffChair": 18,
+            "PcMonitor": 18,
             "BaggageLocker": 2,
             "CleaningLocker": 1,
-            "PcTower": 24,
-            "KeyboardMouse": 24,
+            "PcTower": 18,
+            "KeyboardMouse": 18,
         },
         "F02_Council": {
             "LargeWoodTable": 2,
@@ -404,6 +630,9 @@ def main() -> None:
     }
     if not required_common_rooms <= set(room_counts):
         raise RuntimeError("共用部の全校展開が不足しています")
+    door_clearance_checks = audit_door_clearance(interior_colliders)
+    door_sign_clearance_checks = audit_door_sign_clearance()
+    acceptance_placements = audit_acceptance_placements()
     link_clearance_checks = audit_link_clearance(interior_colliders)
 
     gltf, binary_length = read_glb_json(GLB_PATH)
@@ -437,6 +666,9 @@ def main() -> None:
         "interior_collider_boxes": generation["collider_boxes"],
         "classroom_metrics": classroom_metrics,
         "link_clearance_checks": link_clearance_checks,
+        "door_clearance_checks": door_clearance_checks,
+        "door_sign_clearance_checks": door_sign_clearance_checks,
+        "acceptance_placements": acceptance_placements,
         "glb": {
             "bytes": GLB_PATH.stat().st_size,
             "sha256": sha256(GLB_PATH),

@@ -49,9 +49,17 @@ WINDOW_FRAME_BORDER = 0.05
 WINDOW_MEETING_STILE_WIDTH = 0.06
 WALL_THICKNESS = 0.30
 LINK_RADIUS_METERS = 0.54
-GENERATOR_VERSION = "t04-2b-nav-connectivity-v01"
+GENERATOR_VERSION = "t04-2b-acceptance-v01"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
+
+UPPER_FLOOR_PANELS_XY = (
+    ((-6.0, -3.5), (0.0, 32.5)),
+    ((-12.6, 2.5), (-6.0, 32.5)),
+    ((-6.6, 32.5), (41.4, 45.5)),
+    ((-12.6, 32.5), (-6.6, 38.9)),
+    ((41.4, 32.5), (47.4, 38.9)),
+)
 
 WINDOW_AUTHORING_PROPERTY_NAMES = (
     "hs_window_clear_height_m",
@@ -75,6 +83,14 @@ GENERATED_PREFIXES = (
     "LNK_bit-window-",
     "LNK_bit-roof-",
     "VOL_PoolWater",
+    "VIS_StairSystem_NE_",
+    "COL_StairSystem_NE_",
+    "VIS_StairGuardSystem_NE_",
+    "COL_StairGuardSystem_NE_",
+    "VIS_StairSystem_SW_",
+    "COL_StairSystem_SW_",
+    "VIS_StairGuardSystem_SW_",
+    "COL_StairGuardSystem_SW_",
 )
 
 GENERATED_EXACT_NAMES = {
@@ -107,6 +123,10 @@ SOURCE_OBJECTS_TO_REMOVE = {
     "VIS_WindowGuide_1F_WestSouth_1",
     "VIS_WindowGuide_1F_WestSouth_2",
     "VIS_PoolWaterPlaceholder",
+    "VIS_Ceiling1F_North",
+    "VIS_Ceiling1F_West",
+    "COL_StairClosure_NE",
+    "COL_StairClosure_SW",
 }
 
 for floor in (2, 3, 4):
@@ -430,6 +450,23 @@ def replace_mesh_geometry(
     return obj
 
 
+def upsert_mesh_geometry(
+    object_name: str,
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    target_collection: bpy.types.Collection,
+) -> bpy.types.Object:
+    obj = bpy.data.objects.get(object_name)
+    if obj is None:
+        mesh = bpy.data.meshes.new(object_name)
+        mesh.from_pydata(vertices, [], faces)
+        mesh.update(calc_edges=True)
+        obj = bpy.data.objects.new(object_name, mesh)
+        target_collection.objects.link(obj)
+        return obj
+    return replace_mesh_geometry(object_name, vertices, faces)
+
+
 def append_thin_steps(
     vertices: list[tuple[float, float, float]],
     faces: list[tuple[int, ...]],
@@ -523,19 +560,58 @@ def create_upper_stair_guard_geometry(
     return vertices, faces
 
 
+def transform_stair_vertices(
+    vertices: list[tuple[float, float, float]],
+    stair: str,
+) -> list[tuple[float, float, float]]:
+    if stair == "NW":
+        return vertices
+    if stair == "NE":
+        return [(x + 54.0, y, z) for x, y, z in vertices]
+    if stair == "SW":
+        return [(32.9 - y, x + 9.1, z) for x, y, z in vertices]
+    raise RuntimeError(f"未定義の階段です: {stair}")
+
+
 def rebuild_upper_stairs() -> None:
-    for suffix, base_z in (
-        ("2FTo3F", 3.6),
-        ("3FTo4F", 7.2),
-        ("4FToRooftop", 10.8),
-    ):
-        vertices, faces = create_upper_stair_visual_geometry(base_z)
-        replace_mesh_geometry(f"VIS_StairSystem_NW_{suffix}", vertices, faces)
-        vertices, faces = create_upper_stair_collider_geometry(base_z)
-        replace_mesh_geometry(f"COL_StairSystem_NW_{suffix}", vertices, faces)
-        vertices, faces = create_upper_stair_guard_geometry(base_z)
-        replace_mesh_geometry(f"VIS_StairGuardSystem_NW_{suffix}", vertices, faces)
-        replace_mesh_geometry(f"COL_StairGuardSystem_NW_{suffix}", vertices, faces)
+    visual_collection = collection(VIS_COLLECTION_NAME)
+    collider_collection = collection(COL_COLLECTION_NAME)
+    for stair in ("NW", "NE", "SW"):
+        transitions = [
+            ("2FTo3F", 3.6),
+            ("3FTo4F", 7.2),
+        ]
+        if stair == "NW":
+            transitions.append(("4FToRooftop", 10.8))
+        for suffix, base_z in transitions:
+            vertices, faces = create_upper_stair_visual_geometry(base_z)
+            upsert_mesh_geometry(
+                f"VIS_StairSystem_{stair}_{suffix}",
+                transform_stair_vertices(vertices, stair),
+                faces,
+                visual_collection,
+            )
+            vertices, faces = create_upper_stair_collider_geometry(base_z)
+            upsert_mesh_geometry(
+                f"COL_StairSystem_{stair}_{suffix}",
+                transform_stair_vertices(vertices, stair),
+                faces,
+                collider_collection,
+            )
+            vertices, faces = create_upper_stair_guard_geometry(base_z)
+            transformed_guard_vertices = transform_stair_vertices(vertices, stair)
+            upsert_mesh_geometry(
+                f"VIS_StairGuardSystem_{stair}_{suffix}",
+                transformed_guard_vertices,
+                faces,
+                visual_collection,
+            )
+            upsert_mesh_geometry(
+                f"COL_StairGuardSystem_{stair}_{suffix}",
+                transformed_guard_vertices,
+                faces,
+                collider_collection,
+            )
 
 
 def shift_object_geometry_z(obj: bpy.types.Object, amount: float) -> None:
@@ -574,14 +650,7 @@ def align_existing_storey_sources() -> None:
         if obj.name.startswith(rooftop_prefixes):
             shift_object_geometry_z(obj, rooftop_shift)
     rebuild_upper_stairs()
-    for name in ("COL_StairClosure_NE", "COL_StairClosure_SW"):
-        obj = bpy.data.objects.get(name)
-        if obj is None or obj.type != "MESH":
-            raise RuntimeError(f"階段閉鎖Colliderがありません: {name}")
-        for vertex in obj.data.vertices:
-            if vertex.co.z > 6.5:
-                vertex.co.z = 7.2
-        obj.data.update()
+    align_acceptance_geometry()
     boundary = bpy.data.objects.get("BND_Stage")
     if boundary is None:
         raise RuntimeError("BND_Stageがありません")
@@ -590,6 +659,40 @@ def align_existing_storey_sources() -> None:
     boundary_faces: list[tuple[int, ...]] = []
     append_box(boundary_vertices, boundary_faces, tuple(minimum), (maximum.x, maximum.y, 18.0))
     replace_mesh_geometry("BND_Stage", boundary_vertices, boundary_faces)
+
+
+def align_acceptance_geometry() -> None:
+    for name in ("VIS_MainEntryDoor_Open_North", "VIS_MainEntryDoor_Open_South"):
+        obj = bpy.data.objects.get(name)
+        if obj is None or obj.type != "MESH":
+            raise RuntimeError(f"主玄関扉がありません: {name}")
+        minimum, _ = world_bounds(obj)
+        shift_object_geometry_x(obj, 0.17 - minimum.x)
+
+    for name in ("VIS_Wall_ClassroomCross_2", "COL_Wall_ClassroomCross_2"):
+        obj = bpy.data.objects.get(name)
+        if obj is None or obj.type != "MESH":
+            raise RuntimeError(f"保健室角の壁がありません: {name}")
+        minimum, maximum = world_bounds(obj)
+        vertices: list[tuple[float, float, float]] = []
+        faces: list[tuple[int, ...]] = []
+        append_box(
+            vertices,
+            faces,
+            tuple(minimum),
+            (-3.35, maximum.y, maximum.z),
+        )
+        replace_mesh_geometry(name, vertices, faces)
+
+
+def shift_object_geometry_x(obj: bpy.types.Object, target_shift: float) -> None:
+    if abs(target_shift) <= 1e-8:
+        return
+    if obj.data.users != 1:
+        obj.data = obj.data.copy()
+    obj.data.transform(Matrix.Translation(Vector((target_shift, 0.0, 0.0))))
+    obj.data.name = obj.name
+    obj.data.update()
 
 
 def create_empty(
@@ -1145,15 +1248,10 @@ def build_upper_floors_and_rooms(
     door_material: bpy.types.Material,
 ) -> list[bpy.types.Object]:
     generated_colliders: list[bpy.types.Object] = []
-    floor_panels_xy = [
-        ((-12.6, -3.5), (0.0, 32.5)),
-        ((-6.6, 32.5), (47.4, 45.5)),
-        ((-12.6, 32.5), (-6.6, 38.9)),
-    ]
     for floor, base_z in ((2, 3.6), (3, 7.2), (4, 10.8)):
         floor_boxes = [
             ((xy0[0], xy0[1], base_z - 0.15), (xy1[0], xy1[1], base_z))
-            for xy0, xy1 in floor_panels_xy
+            for xy0, xy1 in UPPER_FLOOR_PANELS_XY
         ]
         create_mesh_object(
             f"VIS_B03_Floor_F{floor:02d}",
@@ -1171,14 +1269,8 @@ def build_upper_floors_and_rooms(
             ceiling_z = base_z + 3.6
             ceiling_boxes = [
                 ((xy0[0], xy0[1], ceiling_z - 0.15), (xy1[0], xy1[1], ceiling_z))
-                for xy0, xy1 in floor_panels_xy
+                for xy0, xy1 in UPPER_FLOOR_PANELS_XY
             ]
-            create_mesh_object(
-                f"VIS_B03_Ceiling_F{floor:02d}",
-                ceiling_boxes,
-                visual_collection,
-                wall_material,
-            )
             generated_colliders.append(
                 create_mesh_object(
                     f"COL_B03_Ceiling_F{floor:02d}",
@@ -1206,6 +1298,12 @@ def build_upper_floors_and_rooms(
         ]
         internal_boxes.extend(
             wall_boxes("X", 36.5, -6.6, 41.4, z0, z1, north_doors)
+        )
+        internal_boxes.extend(
+            [
+                ((-12.6, 2.35, z0), (-6.0, 2.65, z1)),
+                ((41.25, 36.5, z0), (41.55, 45.5, z1)),
+            ]
         )
         for divider_y in (12.5, 22.5):
             internal_boxes.append(
@@ -1257,6 +1355,48 @@ def build_upper_floors_and_rooms(
             door_material,
         )
     return generated_colliders
+
+
+def build_readability_finish(visual_collection: bpy.types.Collection) -> None:
+    gym_wainscot_boxes = [
+        ((33.55, -9.35, 0.02), (33.59, 4.95, 1.20)),
+        ((33.55, 8.05, 0.02), (33.59, 26.35, 1.20)),
+        ((57.21, -9.35, 0.02), (57.25, 26.35, 1.20)),
+        ((33.55, 26.31, 0.02), (39.35, 26.35, 1.20)),
+        ((43.45, 26.31, 0.02), (53.60, 26.35, 1.20)),
+        ((55.20, 26.31, 0.02), (57.25, 26.35, 1.20)),
+    ]
+    create_mesh_object(
+        "VIS_B03_GymWainscot",
+        gym_wainscot_boxes,
+        visual_collection,
+    )
+    gym_trim_boxes = [
+        ((33.59, -9.35, 0.02), (33.63, 4.95, 0.14)),
+        ((33.59, 8.05, 0.02), (33.63, 26.35, 0.14)),
+        ((57.17, -9.35, 0.02), (57.21, 26.35, 0.14)),
+        ((33.55, 26.27, 0.02), (39.35, 26.31, 0.14)),
+        ((43.45, 26.27, 0.02), (53.60, 26.31, 0.14)),
+        ((55.20, 26.27, 0.02), (57.25, 26.31, 0.14)),
+        ((33.59, -9.35, 0.02), (33.67, -9.27, 9.00)),
+        ((33.59, 26.27, 0.02), (33.67, 26.35, 9.00)),
+        ((57.13, -9.35, 0.02), (57.21, -9.27, 9.00)),
+        ((57.13, 26.27, 0.02), (57.21, 26.35, 9.00)),
+    ]
+    create_mesh_object("VIS_B03_GymTrim", gym_trim_boxes, visual_collection)
+
+    for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
+        create_mesh_object(
+            f"VIS_B03_StoreyTrim_F{floor:02d}",
+            [
+                ((-3.47, 2.5, base_z + 0.02), (-3.43, 32.5, base_z + 0.12)),
+                ((-6.6, 36.41, base_z + 0.02), (41.4, 36.45, base_z + 0.12)),
+                ((-3.47, 36.41, base_z + 0.02), (-3.39, 36.45, base_z + 3.50)),
+                ((-6.60, 36.41, base_z + 0.02), (-6.52, 36.45, base_z + 3.50)),
+                ((41.32, 36.41, base_z + 0.02), (41.40, 36.45, base_z + 3.50)),
+            ],
+            visual_collection,
+        )
 
 
 def build_windows_and_links(
@@ -1515,7 +1655,7 @@ def build_minimum_props(
             sources["VIS_Prop_WesternToilet"],
             f"VIS_B03_Prop_Toilet_{suffix}",
             position,
-            math.pi,
+            0.0,
             visual_collection,
         )
     for index, y in enumerate((39.6, 40.6, 41.6), 1):
@@ -1523,7 +1663,7 @@ def build_minimum_props(
             sources["VIS_Prop_Urinal"],
             f"VIS_B03_Prop_Urinal_{index:02d}",
             (-2.40, y, 0.8),
-            -math.pi / 2,
+            math.pi / 2,
             visual_collection,
         )
 
@@ -1778,8 +1918,6 @@ def build_nav_sources(
     copy_meshes_into_object(
         "NAV_Blocker_StairClosed",
         [
-            "COL_StairClosure_NE",
-            "COL_StairClosure_SW",
             "COL_StairGuard_NE_Landing",
             "COL_StairGuard_NE_Lower",
             "COL_StairGuard_NE_Upper",
@@ -1790,6 +1928,13 @@ def build_nav_sources(
             "COL_StairGuard_SW_Landing",
             "COL_StairGuard_SW_Lower",
             "COL_StairGuard_SW_Upper",
+            "COL_StairGuardSystem_NE_2FTo3F",
+            "COL_StairGuardSystem_NE_3FTo4F",
+            "COL_StairGuardSystem_NW_2FTo3F",
+            "COL_StairGuardSystem_NW_3FTo4F",
+            "COL_StairGuardSystem_NW_4FToRooftop",
+            "COL_StairGuardSystem_SW_2FTo3F",
+            "COL_StairGuardSystem_SW_3FTo4F",
         ],
         nav_collection,
         {"hs_nav_role": "blocker"},
@@ -1804,10 +1949,16 @@ def build_nav_sources(
     copy_meshes_into_object(
         "NAV_Walkable_StairsNWUpper",
         [
+            "COL_StairRampUpper_NE",
             "COL_StairRampUpper_NW",
+            "COL_StairRampUpper_SW",
+            "COL_StairSystem_NE_2FTo3F",
+            "COL_StairSystem_NE_3FTo4F",
             "COL_StairSystem_NW_2FTo3F",
             "COL_StairSystem_NW_3FTo4F",
             "COL_StairSystem_NW_4FToRooftop",
+            "COL_StairSystem_SW_2FTo3F",
+            "COL_StairSystem_SW_3FTo4F",
         ],
         nav_collection,
         {"hs_nav_role": "walkable", "hs_nav_area": "stairs"},
@@ -2012,11 +2163,13 @@ def main() -> None:
     clear_generated_objects()
     align_existing_storey_sources()
 
-    wall_material = existing_material("MAT_Wall_White")
-    floor_material = existing_material("MAT_Corridor_Ochre")
-    door_material = existing_material("MAT_Door_Blue")
+    architecture_material = existing_material("MAT_B03_Atlas_Architecture")
+    furniture_material = existing_material("MAT_B03_Atlas_FurnitureProps")
+    wall_material = architecture_material
+    floor_material = architecture_material
+    door_material = architecture_material
     water_material = existing_material("MAT_Pool_Water")
-    bench_material = existing_material("MAT_Classroom_Beige")
+    bench_material = furniture_material
     frame_material = make_material(
         "MAT_B03_WindowFrame", (0.36, 0.39, 0.41, 1.0), metallic=0.15, roughness=0.38
     )
@@ -2061,6 +2214,7 @@ def main() -> None:
             door_material,
         )
     )
+    build_readability_finish(visual_collection)
     window_colliders = build_windows_and_links(
         specs,
         visual_collection,
