@@ -1856,13 +1856,13 @@ const runValidation = async () => {
           .node.getAbsolutePosition();
         const expectedPlayerSpawn = new Vector3(0.375, 0, 0);
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 308 &&
-          schoolContext.resources.normalColliders.length === 161 &&
-          schoolContext.resources.actorOnlyColliders.length === 0 &&
+          schoolContext.resources.visualMeshes.length === 427 &&
+          schoolContext.resources.normalColliders.length === 150 &&
+          schoolContext.resources.actorOnlyColliders.length === 94 &&
           schoolContext.resources.humanOnlyColliders.length === 0 &&
-          schoolContext.resources.navSourceMeshes.length === 8 &&
+          schoolContext.resources.navSourceMeshes.length === 14 &&
           schoolContext.markers.all.length === 1 &&
-          schoolContext.volumes.all.length === 2 &&
+          schoolContext.volumes.all.length === 3 &&
           schoolContext.links.all.length === 0;
         checks.push({
           name: "学校GLBの厳格分類と3D意味Object",
@@ -1873,8 +1873,9 @@ const runValidation = async () => {
             Vector3.Distance(playerSpawn, expectedPlayerSpawn) <= 1e-5 &&
             schoolContext.boundary.contains(playerSpawn) &&
             schoolContext.volumes.getByRole("npc_spawn").length === 1 &&
-            schoolContext.volumes.getByRole("bit_spawn").length === 1,
-          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / NAV=${schoolContext.resources.navSourceMeshes.length} / LNK=${schoolContext.links.all.length} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
+            schoolContext.volumes.getByRole("bit_spawn").length === 1 &&
+            schoolContext.volumes.getByRole("water").length === 1,
+          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / NAV=${schoolContext.resources.navSourceMeshes.length} / VOL=${schoolContext.volumes.all.length} / water=${schoolContext.volumes.getByRole("water").length} / LNK=${schoolContext.links.all.length} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
         });
 
         const stageDestination = new Vector3(-11.35, 0.25, 1.625);
@@ -2396,9 +2397,11 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 308 &&
-          reloadedContext.resources.normalColliders.length === 161 &&
+          reloadedContext.resources.visualMeshes.length === 427 &&
+          reloadedContext.resources.normalColliders.length === 150 &&
+          reloadedContext.resources.actorOnlyColliders.length === 94 &&
           reloadedContext.resources.humanOnlyColliders.length === 0 &&
+          reloadedContext.volumes.getByRole("water").length === 1 &&
           reloadedContext.links.all.length === 0;
         reloadedContext.dispose();
         const afterSecondDispose = countSceneResources(spatialScene);

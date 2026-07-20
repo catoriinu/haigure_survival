@@ -98,10 +98,13 @@ def strip_unused_attributes(gltf: dict[str, Any]) -> dict[str, int]:
     removed_texcoords = 0
     for mesh_index, mesh in enumerate(meshes):
         node_names = mesh_node_names.get(mesh_index, [])
-        is_visual = bool(node_names) and all(name.startswith("VIS_") for name in node_names)
+        normals_are_runtime_unused = bool(node_names) and all(
+            name.startswith(("NAV_", "VOL_", "BND_", "PRT_"))
+            for name in node_names
+        )
         for primitive in mesh.get("primitives", []):
             attributes = primitive.get("attributes", {})
-            if not is_visual and "NORMAL" in attributes:
+            if normals_are_runtime_unused and "NORMAL" in attributes:
                 attributes.pop("NORMAL")
                 removed_normals += 1
             material_index = primitive.get("material")

@@ -514,13 +514,34 @@ def audit_semantics(objects: list[bpy.types.Object]) -> None:
         not any(obj.name.startswith("NAV_") and "Window" in obj.name for obj in objects),
         "通常NavMesh用の窓越し接続が存在します",
     )
-    toilets = [obj for obj in objects if obj.name.startswith("VIS_B03_Prop_Toilet_")]
+    toilets = [
+        obj
+        for obj in objects
+        if obj.name.startswith("VIS_B03_Prop_Toilet_") and "_Part" not in obj.name
+    ]
+    toilet_parts = [
+        obj
+        for obj in objects
+        if obj.name.startswith("VIS_B03_Prop_Toilet_") and "_Part" in obj.name
+    ]
     urinals = sorted(
-        (obj for obj in objects if obj.name.startswith("VIS_B03_Prop_Urinal_")),
+        (
+            obj
+            for obj in objects
+            if obj.name.startswith("VIS_B03_Prop_Urinal_")
+            and "_Part" not in obj.name
+        ),
         key=lambda obj: obj.name,
     )
+    urinal_parts = [
+        obj
+        for obj in objects
+        if obj.name.startswith("VIS_B03_Prop_Urinal_") and "_Part" in obj.name
+    ]
     require(len(toilets) == 6, f"便器が男女各3基ではありません: {len(toilets)}")
+    require(len(toilet_parts) == 6, f"便器金物partが6件ではありません: {len(toilet_parts)}")
     require(len(urinals) == 3, f"男子小便器が3基ではありません: {len(urinals)}")
+    require(len(urinal_parts) == 3, f"男子小便器金物partが3件ではありません: {len(urinal_parts)}")
     for urinal, expected_y in zip(urinals, (39.6, 40.6, 41.6), strict=True):
         minimum, maximum = world_bounds(urinal)
         require(-2.55 <= minimum.x <= -2.25, f"男子小便器が指定X帯にありません: {urinal.name}")
@@ -547,6 +568,46 @@ def audit_hs_ids(objects: list[bpy.types.Object]) -> None:
         )
 
 
+def audit_stair_handrails(objects: list[bpy.types.Object]) -> dict[str, int]:
+    handrail = next(
+        (obj for obj in objects if obj.name == "VIS_B03_HandrailTops"), None
+    )
+    require(handrail is not None, "VIS_B03_HandrailTopsがありません")
+    require(handrail.type == "MESH", "VIS_B03_HandrailTopsがMeshではありません")
+    vertices = list(handrail.data.vertices)
+    require(len(vertices) % 8 == 0, "手すり上桟が8頂点単位の角柱ではありません")
+    centers = [
+        Vector(
+            tuple(
+                sum(vertices[offset + index].co[axis] for index in range(4)) / 4
+                for axis in range(3)
+            )
+        )
+        for offset in range(0, len(vertices), 4)
+    ]
+    segments = list(zip(centers[0::2], centers[1::2], strict=True))
+    sloped = [
+        (start, end)
+        for start, end in segments
+        if abs(end.z - start.z) > 0.1
+    ]
+    require(len(segments) == 26, f"手すり上桟区間が26件ではありません: {len(segments)}")
+    require(len(sloped) == 12, f"傾斜上桟が12件ではありません: {len(sloped)}")
+    require(
+        any(
+            abs(start.x + 10.28) <= 1e-4
+            and abs(end.x + 10.28) <= 1e-4
+            and abs(start.y - 38.9) <= 1e-4
+            and abs(end.y - 43.1) <= 1e-4
+            and abs(start.z - 1.05) <= 1e-4
+            and abs(end.z - 3.45) <= 1e-4
+            for start, end in segments
+        ),
+        "北西1～2階下段の上桟がガード上辺へ追従していません",
+    )
+    return {"segments": len(segments), "sloped": len(sloped)}
+
+
 def audit_glb(gltf: dict[str, object]) -> dict[str, int]:
     placement_review = bpy.context.scene.get("b03_window_layout_status") == "placement_review"
     nodes = gltf.get("nodes", [])
@@ -571,18 +632,26 @@ def audit_glb(gltf: dict[str, object]) -> dict[str, int]:
     require(sum(name.startswith("COL_ActorOnly_WindowFixed_") for name in node_names) == expected_fixed, f"GLB開放窓帯固定Colliderが{expected_fixed}件ではありません")
     require(sum(name.startswith("COL_HumanOnly_Window_") for name in node_names) == expected_human, f"GLB HumanOnly窓が{expected_human}件ではありません")
     require(sum(name.startswith("LNK_bit-window-") for name in node_names) == expected_link_endpoints, f"GLB bit_window端点が{expected_link_endpoints}件ではありません")
-    require(sum(name.startswith("LNK_bit-roof-") for name in node_names) == 4, "GLB bit_roof端点が4件ではありません")
+    expected_roof_link_endpoints = 0 if placement_review else 4
+    require(
+        sum(name.startswith("LNK_bit-roof-") for name in node_names)
+        == expected_roof_link_endpoints,
+        f"GLB bit_roof端点が{expected_roof_link_endpoints}件ではありません",
+    )
     require("VOL_PoolWater" in node_names, "GLBにVOL_PoolWaterがありません")
     require(not any("Gym_South" in name for name in node_names), "GLB体育館南面に窓があります")
     require(not any(name.startswith("PRT_") for name in node_names), "GLBにPRT_*があります")
     for node in nodes:
         name = node.get("name", "")
+        extras = node.get("extras", {})
+        require(
+            not any(key.startswith("hs_window_") for key in extras),
+            f"GLBへ窓配置検討用propertyが出力されています: {name}",
+        )
         if name == "VOL_PoolWater":
-            extras = node.get("extras", {})
             require(extras.get("hs_id") == "pool-water", "GLB水Volumeのhs_idが不正です")
             require(extras.get("hs_role") == "water", "GLB水Volumeのhs_roleが不正です")
         if name.startswith("LNK_bit-"):
-            extras = node.get("extras", {})
             require(extras.get("hs_bidirectional") is True, f"GLB LNKが双方向ではありません: {name}")
             require(abs(float(extras.get("hs_link_radius_m")) - 0.54) <= 1e-9, f"GLB LNK半径が不正です: {name}")
     return {
@@ -609,10 +678,15 @@ def audit_glb_optimization() -> dict[str, int]:
     materials = gltf.get("materials", [])
     for mesh_index, mesh in enumerate(gltf.get("meshes", [])):
         node_names = mesh_node_names.get(mesh_index, [])
-        is_visual = bool(node_names) and all(name.startswith("VIS_") for name in node_names)
+        normals_are_runtime_required = bool(node_names) and all(
+            name.startswith(("VIS_", "COL_")) for name in node_names
+        )
         for primitive in mesh.get("primitives", []):
             attributes = primitive.get("attributes", {})
-            require(is_visual or "NORMAL" not in attributes, f"非表示MeshにNormalがあります: {node_names}")
+            require(
+                ("NORMAL" in attributes) == normals_are_runtime_required,
+                f"Runtime用途とNormal有無が一致しません: {node_names}",
+            )
             material_index = primitive.get("material")
             uses_texture = (
                 material_index is not None
@@ -678,6 +752,7 @@ def main() -> None:
     audit_hs_ids(export_objects)
     window_counts = audit_windows(export_objects)
     link_counts = audit_links(export_objects)
+    handrail_counts = audit_stair_handrails(export_objects)
     audit_semantics(export_objects)
     glb_counts = audit_glb(read_glb_json(GLB_PATH))
     glb_optimization = audit_glb_optimization()
@@ -695,6 +770,7 @@ def main() -> None:
         "prefixes": dict(sorted(prefixes.items())),
         "windows": window_counts,
         "links": link_counts,
+        "handrails": handrail_counts,
         "glb": glb_counts,
         "glb_optimization": glb_optimization,
     }

@@ -5,6 +5,7 @@ import json
 import math
 import re
 import sys
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -43,9 +44,19 @@ WINDOW_FRAME_BORDER = 0.08
 WINDOW_MEETING_STILE_WIDTH = 0.06
 WALL_THICKNESS = 0.30
 LINK_RADIUS_METERS = 0.54
-GENERATOR_VERSION = "b03-1-architecture-v11-stair-window-clearance"
+GENERATOR_VERSION = "b03-1-architecture-v14-single-primitive-props"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
+
+WINDOW_AUTHORING_PROPERTY_NAMES = (
+    "hs_window_clear_height_m",
+    "hs_window_layout_status",
+    "hs_window_open_leaf",
+    "hs_window_panes",
+    "hs_window_style",
+    "hs_window_unit_width_m",
+    "hs_window_units",
+)
 
 GENERATED_PREFIXES = (
     "VIS_B03_",
@@ -1334,16 +1345,47 @@ def instantiate_prop(
     position: tuple[float, float, float],
     rotation_z: float,
     target_collection: bpy.types.Collection,
-) -> bpy.types.Object:
-    mesh = source.data.copy()
+) -> list[bpy.types.Object]:
     transform = Matrix.Translation(Vector(position)) @ Matrix.Rotation(
         rotation_z, 4, "Z"
     )
-    mesh.transform(transform)
-    mesh.name = name
-    obj = bpy.data.objects.new(name, mesh)
-    target_collection.objects.link(obj)
-    return obj
+    used_material_indices = sorted(
+        {polygon.material_index for polygon in source.data.polygons}
+    )
+    objects: list[bpy.types.Object] = []
+    for part_index, material_index in enumerate(used_material_indices, 1):
+        polygons = [
+            polygon
+            for polygon in source.data.polygons
+            if polygon.material_index == material_index
+        ]
+        source_vertex_indices = sorted(
+            {vertex_index for polygon in polygons for vertex_index in polygon.vertices}
+        )
+        vertex_map = {
+            source_index: target_index
+            for target_index, source_index in enumerate(source_vertex_indices)
+        }
+        vertices = [
+            tuple(transform @ source.data.vertices[source_index].co)
+            for source_index in source_vertex_indices
+        ]
+        faces = [
+            tuple(vertex_map[source_index] for source_index in polygon.vertices)
+            for polygon in polygons
+        ]
+        part_name = name if part_index == 1 else f"{name}_Part{part_index:02d}"
+        mesh = bpy.data.meshes.new(part_name)
+        mesh.from_pydata(vertices, [], faces)
+        if material_index < len(source.data.materials):
+            material = source.data.materials[material_index]
+            if material is not None:
+                mesh.materials.append(material)
+        mesh.update(calc_edges=True)
+        obj = bpy.data.objects.new(part_name, mesh)
+        target_collection.objects.link(obj)
+        objects.append(obj)
+    return objects
 
 
 def build_minimum_props(
@@ -1432,6 +1474,109 @@ def world_bounds(obj: bpy.types.Object) -> tuple[Vector, Vector]:
     )
 
 
+def append_sloped_rail_prism(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    start: Vector,
+    end: Vector,
+    half_width: float = 0.05,
+    half_height: float = 0.05,
+) -> None:
+    direction = end - start
+    horizontal_length = math.hypot(direction.x, direction.y)
+    if horizontal_length < 0.3:
+        return
+    side = Vector(
+        (-direction.y / horizontal_length, direction.x / horizontal_length, 0.0)
+    ) * half_width
+    vertical = Vector((0.0, 0.0, half_height))
+    offset = len(vertices)
+    for point in (start, end):
+        vertices.extend(
+            (
+                tuple(point + side + vertical),
+                tuple(point - side + vertical),
+                tuple(point - side - vertical),
+                tuple(point + side - vertical),
+            )
+        )
+    faces.extend(
+        [
+            (offset + 0, offset + 3, offset + 2, offset + 1),
+            (offset + 4, offset + 5, offset + 6, offset + 7),
+            (offset + 0, offset + 1, offset + 5, offset + 4),
+            (offset + 1, offset + 2, offset + 6, offset + 5),
+            (offset + 2, offset + 3, offset + 7, offset + 6),
+            (offset + 3, offset + 0, offset + 4, offset + 7),
+        ]
+    )
+
+
+def guard_top_segments(obj: bpy.types.Object) -> list[tuple[Vector, Vector]]:
+    world_vertices = [obj.matrix_world @ vertex.co for vertex in obj.data.vertices]
+    top_z_by_xy: dict[tuple[float, float], float] = {}
+    for point in world_vertices:
+        key = (round(point.x, 6), round(point.y, 6))
+        top_z_by_xy[key] = max(top_z_by_xy.get(key, -math.inf), point.z)
+
+    grouped_minor_positions: dict[
+        tuple[str, float, float, float, float], list[float]
+    ] = defaultdict(list)
+    for edge in obj.data.edges:
+        start = world_vertices[edge.vertices[0]]
+        end = world_vertices[edge.vertices[1]]
+        start_key = (round(start.x, 6), round(start.y, 6))
+        end_key = (round(end.x, 6), round(end.y, 6))
+        if abs(start.z - top_z_by_xy[start_key]) > 1e-6:
+            continue
+        if abs(end.z - top_z_by_xy[end_key]) > 1e-6:
+            continue
+        if math.hypot(end.x - start.x, end.y - start.y) < 0.3:
+            continue
+
+        if abs(end.x - start.x) >= abs(end.y - start.y):
+            first, second = sorted((start, end), key=lambda point: point.x)
+            key = (
+                "x",
+                round(first.x, 6),
+                round(first.z, 6),
+                round(second.x, 6),
+                round(second.z, 6),
+            )
+            grouped_minor_positions[key].append((first.y + second.y) / 2)
+        else:
+            first, second = sorted((start, end), key=lambda point: point.y)
+            key = (
+                "y",
+                round(first.y, 6),
+                round(first.z, 6),
+                round(second.y, 6),
+                round(second.z, 6),
+            )
+            grouped_minor_positions[key].append((first.x + second.x) / 2)
+
+    segments: list[tuple[Vector, Vector]] = []
+    for key, minor_positions in grouped_minor_positions.items():
+        clusters: list[list[float]] = []
+        for position in sorted(minor_positions):
+            if not clusters or position - clusters[-1][-1] > 0.35:
+                clusters.append([position])
+            else:
+                clusters[-1].append(position)
+        axis, major0, z0, major1, z1 = key
+        for cluster in clusters:
+            minor = sum(cluster) / len(cluster)
+            if axis == "x":
+                segments.append(
+                    (Vector((major0, minor, z0)), Vector((major1, minor, z1)))
+                )
+            else:
+                segments.append(
+                    (Vector((minor, major0, z0)), Vector((minor, major1, z1)))
+                )
+    return segments
+
+
 def build_stair_finish(
     visual_collection: bpy.types.Collection,
     nosing_material: bpy.types.Material,
@@ -1468,30 +1613,27 @@ def build_stair_finish(
             nosing_material,
         )
 
-    rail_boxes = []
+    rail_vertices: list[tuple[float, float, float]] = []
+    rail_faces: list[tuple[int, ...]] = []
     guard_objects = [
         obj
         for obj in bpy.data.objects
         if obj.type == "MESH" and obj.name.startswith("VIS_StairGuard")
     ]
     for obj in guard_objects:
-        minimum, maximum = world_bounds(obj)
-        z0 = maximum.z - 0.05
-        z1 = maximum.z + 0.05
-        if maximum.x - minimum.x >= maximum.y - minimum.y:
-            rail_boxes.append(
-                ((minimum.x, (minimum.y + maximum.y) / 2 - 0.05, z0), (maximum.x, (minimum.y + maximum.y) / 2 + 0.05, z1))
-            )
-        else:
-            rail_boxes.append(
-                (((minimum.x + maximum.x) / 2 - 0.05, minimum.y, z0), ((minimum.x + maximum.x) / 2 + 0.05, maximum.y, z1))
-            )
-    if rail_boxes:
+        for start, end in guard_top_segments(obj):
+            append_sloped_rail_prism(rail_vertices, rail_faces, start, end)
+    if rail_vertices:
         create_mesh_object(
             "VIS_B03_HandrailTops",
-            rail_boxes,
+            [],
             visual_collection,
             rail_material,
+        )
+        replace_mesh_geometry(
+            "VIS_B03_HandrailTops",
+            rail_vertices,
+            rail_faces,
         )
 
 
@@ -1623,21 +1765,43 @@ def export_stage(
 ) -> dict[str, int | str]:
     bpy.ops.object.select_all(action="DESELECT")
     for obj in export_collection.all_objects:
-        obj.select_set(True)
+        if not (
+            bpy.context.scene.get("b03_window_layout_status") == "placement_review"
+            and obj.name.startswith("LNK_")
+        ):
+            obj.select_set(True)
     GLB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    bpy.ops.export_scene.gltf(
-        filepath=str(GLB_PATH),
-        check_existing=False,
-        export_format="GLB",
-        use_selection=True,
-        use_visible=False,
-        export_cameras=False,
-        export_lights=False,
-        export_animations=False,
-        export_extras=True,
-        export_yup=True,
-        export_apply=False,
-    )
+    authoring_properties: dict[str, dict[str, object]] = {}
+    for obj in export_collection.all_objects:
+        values = {
+            key: obj[key]
+            for key in WINDOW_AUTHORING_PROPERTY_NAMES
+            if key in obj
+        }
+        if not values:
+            continue
+        authoring_properties[obj.name] = values
+        for key in values:
+            del obj[key]
+    try:
+        bpy.ops.export_scene.gltf(
+            filepath=str(GLB_PATH),
+            check_existing=False,
+            export_format="GLB",
+            use_selection=True,
+            use_visible=False,
+            export_cameras=False,
+            export_lights=False,
+            export_animations=False,
+            export_extras=True,
+            export_yup=True,
+            export_apply=False,
+        )
+    finally:
+        for object_name, values in authoring_properties.items():
+            obj = bpy.data.objects[object_name]
+            for key, value in values.items():
+                obj[key] = value
     return optimize_glb(GLB_PATH)
 
 

@@ -219,7 +219,7 @@ export interface NavigationWorld {
 7. 同じGLBの各`LNK_*`端点が`hs_link_radius_m`以内の正しい高さのNavMesh面へ投影でき、`bit_window`と`bit_roof`が双方向であることを確認する。
 8. GLB SHA-256、NavMesh SHA-256、Recast版、プロファイルID、生成時間、容量を記録する。
 
-本編はバイナリ読込、`importNavMesh()`、`NavMeshQuery`構築に加え、GLB由来の`StageLinkRegistry`を経路グラフへ接続する。`LNK_*`をNavMeshバイナリへ焼き込まない。GLBまたはベイク条件を変更した場合はNavMeshを必ず再生成し、GLBとNavMeshの組を再監査する。
+本編はバイナリ読込、`importNavMesh()`、`NavMeshQuery`構築に加え、GLB由来の`StageLinkRegistry`を経路グラフへ接続する。`LNK_*`をNavMeshバイナリへ焼き込まない。GLBまたはベイク条件を変更した場合はNavMeshを必ず再生成し、GLBとNavMeshの組を再監査する。B03-1の窓配置確認用GLBは、旧NavMeshへ投影できない`.blend`内の`bit_roof`を一時的に出力しない。開放窓確定後の最終GLB、`bit_window`、`bit_roof`、NavMesh投影はT04-2Bで同時に統合し、配置確認用GLBを完成Runtime契約として扱わない。
 
 ## 8. マーカー
 
@@ -246,7 +246,7 @@ NPCとビットのランダム出現は多数の点を列挙せず、対応す�
 - `no_enemy_enter`
 - `no_combat`
 - `hazard`
-- `water`: 水中判定に用いる閉じた3D領域。B03-1では学校GLBと資産仕様へ追加し、`StageVolumeRole`への登録、GLB読込、ゲーム処理との接続はT04-2Bで行う。
+- `water`: 水中判定に用いる閉じた3D領域。B03-1で学校GLB、`StageVolumeRole`、GLB読込までを追加し、水中ゲーム処理との接続はT04-2Bで行う。
 
 `BND_Stage`はプレイ可能な3D空間を定義する。範囲外時の再配置先は`MRK_PlayerSpawn_*`または最後に確認したNavMesh上の安全点とする。AABBだけで凹形状や上下階を判定しない。
 
