@@ -4,12 +4,21 @@ import hashlib
 import json
 import math
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 import bmesh
 import bpy
 from mathutils import Matrix, Vector
+
+
+SCRIPT_DIRECTORY = Path(__file__).resolve().parent
+sys.dont_write_bytecode = True
+if str(SCRIPT_DIRECTORY) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIRECTORY))
+
+from optimize_b03_school_glb import optimize_glb
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -24,6 +33,7 @@ COL_COLLECTION_NAME = "B02_COL"
 NAV_COLLECTION_NAME = "B02_NAV"
 SEMANTIC_COLLECTION_NAME = "B02_SEMANTIC"
 EXPORT_COLLECTION_NAME = "EXP_Stage_school"
+LEGACY_GUIDE_COLLECTION_NAME = "B02_GUIDES"
 
 WINDOW_UNIT_CLEAR_WIDTH = 1.80
 SCHOOL_WINDOW_CLEAR_HEIGHT = 1.80
@@ -202,6 +212,30 @@ def remove_unused_prop_material_duplicates() -> None:
     for material in list(bpy.data.materials):
         if material.users == 0 and duplicate_material_pattern.match(material.name):
             bpy.data.materials.remove(material)
+
+
+def remove_final_unused_authoring_data() -> bool:
+    changed = False
+    guide_collection = bpy.data.collections.get(LEGACY_GUIDE_COLLECTION_NAME)
+    if guide_collection is not None:
+        for obj in list(guide_collection.objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+        bpy.data.collections.remove(guide_collection)
+        changed = True
+    for datablocks in (
+        bpy.data.meshes,
+        bpy.data.materials,
+        bpy.data.curves,
+        bpy.data.cameras,
+        bpy.data.lights,
+        bpy.data.node_groups,
+        bpy.data.actions,
+    ):
+        for datablock in list(datablocks):
+            if datablock.users == 0:
+                datablocks.remove(datablock)
+                changed = True
+    return changed
 
 
 def move_to_collection(
@@ -1584,7 +1618,9 @@ def normalize_export_meshes(export_collection: bpy.types.Collection) -> None:
             obj.scale = (1.0, 1.0, 1.0)
 
 
-def export_stage(export_collection: bpy.types.Collection) -> None:
+def export_stage(
+    export_collection: bpy.types.Collection,
+) -> dict[str, int | str]:
     bpy.ops.object.select_all(action="DESELECT")
     for obj in export_collection.all_objects:
         obj.select_set(True)
@@ -1602,6 +1638,7 @@ def export_stage(export_collection: bpy.types.Collection) -> None:
         export_yup=True,
         export_apply=False,
     )
+    return optimize_glb(GLB_PATH)
 
 
 def is_generated_name(name: str) -> bool:
@@ -1656,7 +1693,9 @@ def is_current_generation() -> bool:
     )
 
 
-def print_build_result(specs: list[WindowSpec]) -> None:
+def print_build_result(
+    specs: list[WindowSpec], optimization: dict[str, int | str]
+) -> None:
     result = {
         "blend": str(BLEND_PATH),
         "blend_sha256": sha256(BLEND_PATH),
@@ -1668,6 +1707,7 @@ def print_build_result(specs: list[WindowSpec]) -> None:
         "windows": len(specs) + 1,
         "open_windows": sum(spec.is_open for spec in specs),
         "closed_windows": sum(not spec.is_open for spec in specs) + 1,
+        "glb_optimization": optimization,
     }
     print("B03_BUILD_RESULT=" + json.dumps(result, ensure_ascii=False, sort_keys=True))
 
@@ -1683,9 +1723,13 @@ def main() -> None:
     specs = build_window_specs()
     if len(specs) != 93 or any(spec.is_open for spec in specs):
         raise RuntimeError("配置確認用の連続窓帯が93件／全閉ではありません")
+    removed_authoring_data = remove_final_unused_authoring_data()
     if is_current_generation():
-        export_stage(export_collection)
-        print_build_result(specs)
+        if removed_authoring_data:
+            bpy.context.preferences.filepaths.save_version = 0
+            bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_PATH), check_existing=False)
+        optimization = export_stage(export_collection)
+        print_build_result(specs, optimization)
         return
 
     clear_generated_objects()
@@ -1762,8 +1806,8 @@ def main() -> None:
     bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_PATH), check_existing=False)
     bpy.context.scene[GENERATOR_SIGNATURE_PROPERTY] = generation_signature()
     bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_PATH), check_existing=False)
-    export_stage(export_collection)
-    print_build_result(specs)
+    optimization = export_stage(export_collection)
+    print_build_result(specs, optimization)
 
 
 if __name__ == "__main__":

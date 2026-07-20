@@ -147,6 +147,12 @@ T04整合後の次工程として、`W02`の通過窓密度・位置・見た目
 
 校舎は西・北・南・東の4方向を正対・全景で撮影し、体育館による遮蔽を避けて各外壁と全窓を確認できるようにする。体育館も北・東・西・南の4方向を正対・全景で撮影する。造形は変更せず、撮影スクリプトと確認画像だけを追加する。
 
+### 2026-07-20 B03-1学校建築のリファクタリング・容量削減指示
+
+> B03-1作業で実装中のworktreeおよびbranchをリファクタリングする。特にBlender上のモデルに最終的に不要なデータが残っていないか確認し、容量を削減する。元タスク側で修正を全てコミットしたため、最新コミット状態から改めて確認を開始する。
+
+最新コミット`f846bd5`を基準とし、機能Objectの名前、位置、形状、Mesh single-user、`hs_*`、窓配置、Collider、`NAV_*`、`LNK_*`、`VOL_*`を維持する。Blenderでは最終B03生成・撮影・監査に不要な旧B02ガイドと、その削除により未使用になるCamera、Light、Text datablockだけを除去する。GLBではNode・Mesh・Material・extrasの意味契約を維持し、非表示Objectの未使用Normal、テクスチャを参照しないUV、同一Accessorバイナリを除去・共有化する。最適化は生成器から毎回決定的に適用し、連続2回生成のSHA-256一致、Blender／GLB監査、GLB再読込、外観、通常・T01～T04ビルドで回帰がないことを確認する。コミット、push、PR更新は本作業では行わない。
+
 ## 教室用途メモ
 
 | 階 | 西側通常区画 | 西側・北側の特別区画 |
@@ -276,6 +282,14 @@ B03-0はT04-2Aと並行できる。B03-1はB03-0とT04-2Aの両方が`develop`�
 - [x] 体育館北・東・西・南の正対全景4枚を追加し、7窓帯と体育倉庫小窓、南面窓なしを確認する
 - [x] 画像追加後も`.blend`、GLB、NavMesh、B03-Pライブラリ、`src/`が不変であることを確認する
 
+### B03-1 リファクタリング・容量削減
+
+- [x] 最新コミット`f846bd5`、クリーンな専用worktree、`.blend`・GLB容量、Blender／GLBデータ内訳を再監査する
+- [x] 旧B02ガイド22 Objectと専用Camera・Light・Text datablockを生成時に除去し、未使用datablockを0件にする
+- [x] GLBの意味契約を変えず、非表示ObjectのNormal、未使用UV、重複Accessorを決定的に除去・共有化する
+- [x] 連続2回生成、Blender／GLB監査、GLB再読込、画像比較、通常・T01～T04ビルド、容量削減量を確認する
+- [x] リファクタリングと容量削減の結果を本計画へ記録する
+
 - [x] `docs/plan.md`、`docs/plans/v2/next_tasks_plan.md`、B03計画、T04計画の引き渡し契約、`docs/spec_stage_assets_v2.md`、`docs/spec_stage_runtime_v2.md`、B03-Pカタログを読む
 - [x] 造形密度、共通部品、マテリアル構成を確定する
 - [x] B03-0で、2階を三年生、3階を二年生、4階を一年生として、各階用途、窓配置、造形密度、共通部品、マテリアル構成を承認する。全室・廊下・校舎外周・中庭側と体育館北・東・西面の窓総数、体育館南面完全窓なし、破損なし・約40%開放の固定配置を確定する
@@ -385,6 +399,15 @@ B03-0はT04-2Aと並行できる。B03-1はB03-0とT04-2Aの両方が`develop`�
 - 校舎撮影時は体育館を非表示にし、体育館撮影時は校舎を非表示にした。これは遮蔽を避ける撮影上の表示制御だけで、学校資産のObject、Mesh、Transform、出力対象は変更していない。
 - 校舎の普通教室、特別教室、廊下、階段窓を4方向で目視し、体育館は北面8枚窓帯1組と体育倉庫小窓1件、東西面8枚窓帯各3組、南面窓0件を確認した。
 - 画像追加後も`.blend` SHA-256 `D7FA79936E9A05E8CB2C8AC1DDB54F1F19572C21FA4ED9694C99D195741C074D`、GLB SHA-256 `FE717AD16EEE7C0D57B20EA387464811B04ECE8FC6A579D8C20692944D504959`を維持した。NavMesh、B03-Pライブラリ、`src/`も不変で、コミット、push、PR #46更新は行っていない。
+
+### 2026-07-20 B03-1 学校建築リファクタリング・容量削減
+
+- 最新コミット`f846bd5`のクリーンな専用worktreeを基準に再監査した。最終出力外に旧`B02_GUIDES` 22 Object（Text 17、Camera 3、Light 2）が残っていたため、生成器から削除し、専用datablockと未使用Materialも除去した。最終`.blend`は686 Object／680 Mesh／29 Material、Camera・Light・Text/Curve・未使用datablockは全て0件である。
+- Blender側のObject名＝Mesh Data名、Mesh single-user、Transform、形状、Material共有、`hs_*`を維持した。窓94件、COL 244件、NAV 14件、`bit_roof` 2組、`VOL_PoolWater`を含む機能Objectの名前・位置・形状は変更していない。
+- `optimize_b03_school_glb.py`を追加し、生成器のGLB出力直後に、非表示Meshの未使用Normal 262属性、Texture未使用MeshのUV 229属性を除去し、同一Accessor 507件を共有化する決定的な後処理を追加した。Node 686件、Mesh定義680件、Material 29件、extrasは維持し、Accessor／bufferViewを1,679件から681件へ削減した。圧縮拡張は追加していない。
+- `.blend`は639,544 bytesから638,102 bytesへ1,442 bytes（0.23%）削減し、SHA-256は`1BB595C591A0F465FCF7101BD3DF796A8D220D25AB6E53235D53829E8C09E3F6`となった。GLBは3,513,712 bytesから1,959,040 bytesへ1,554,672 bytes（44.25%）削減し、SHA-256は`53054F087F181C253D893DB1D0970774F233ACB9FD11FCA147E98B8ACF04A477`となった。
+- 生成器の連続2回実行で`.blend`・GLBの件数、容量、SHA-256が一致した。Blender／GLB監査、Blender 5.2再読込、24方向1080p再生成、Babylon.js単体読込に合格した。Babylon.jsでは689 primitiveを全て通常`Mesh`として読み、`InstancedMesh` 0件、console warning・error 0件である。
+- 通常・T01～T04ビルドは全て成功した。NavMesh SHA-256 `7326422B609D810E8736B48A08EC819AA962848769A718E175463FE6191A5347`、B03-Pライブラリ SHA-256 `71E461799D915B046483C9B2343C13818AC12203F94C3481E857E56DDA4F09A4`、`src/`は不変である。検証用HTML、ローカルサーバー、依存Junction、Python cacheは削除し、コミット、push、PR #46更新は行っていない。
 
 B03全体のうちB03-0設計確定とB03-1建築仕上げを完了した。B03-2内装・最適化は未着手である。T04計画の引き渡し契約を窓・屋上設計の正本とし、B03-1の機能Objectを維持したままB03-2へ引き渡す。
 

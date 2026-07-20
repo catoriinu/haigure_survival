@@ -5,12 +5,26 @@ import json
 import math
 import re
 import struct
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
 import bpy
 import bmesh
 from mathutils import Vector
+
+
+SCRIPT_DIRECTORY = Path(__file__).resolve().parent
+sys.dont_write_bytecode = True
+if str(SCRIPT_DIRECTORY) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIRECTORY))
+
+from optimize_b03_school_glb import (
+    accessor_payload,
+    collect_used_accessor_indices,
+    material_uses_texture,
+    read_glb,
+)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -578,12 +592,85 @@ def audit_glb(gltf: dict[str, object]) -> dict[str, int]:
     }
 
 
+def audit_glb_optimization() -> dict[str, int]:
+    document = read_glb(GLB_PATH)
+    gltf = document.json_data
+    accessors = gltf.get("accessors", [])
+    buffer_views = gltf.get("bufferViews", [])
+    used_indices = collect_used_accessor_indices(gltf)
+    require(len(used_indices) == len(accessors), "GLBに未使用Accessorがあります")
+    require(len(buffer_views) == len(accessors), "GLBのAccessorとbufferViewが1対1ではありません")
+
+    mesh_node_names: dict[int, list[str]] = defaultdict(list)
+    for node in gltf.get("nodes", []):
+        mesh_index = node.get("mesh")
+        if mesh_index is not None:
+            mesh_node_names[mesh_index].append(node.get("name", ""))
+    materials = gltf.get("materials", [])
+    for mesh_index, mesh in enumerate(gltf.get("meshes", [])):
+        node_names = mesh_node_names.get(mesh_index, [])
+        is_visual = bool(node_names) and all(name.startswith("VIS_") for name in node_names)
+        for primitive in mesh.get("primitives", []):
+            attributes = primitive.get("attributes", {})
+            require(is_visual or "NORMAL" not in attributes, f"非表示MeshにNormalがあります: {node_names}")
+            material_index = primitive.get("material")
+            uses_texture = (
+                material_index is not None
+                and material_uses_texture(materials[material_index])
+            )
+            if not uses_texture:
+                require(
+                    not any(name.startswith("TEXCOORD_") for name in attributes),
+                    f"Texture未使用MeshにUVがあります: {node_names}",
+                )
+
+    canonical_accessors: set[tuple[str, int | None, bytes]] = set()
+    for accessor_index in sorted(used_indices):
+        accessor = accessors[accessor_index]
+        payload, target = accessor_payload(accessor, buffer_views, document.binary_data)
+        metadata = {
+            key: value
+            for key, value in accessor.items()
+            if key not in {"bufferView", "byteOffset", "name"}
+        }
+        key = (
+            json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+            target,
+            payload,
+        )
+        require(key not in canonical_accessors, "GLBに重複Accessorがあります")
+        canonical_accessors.add(key)
+    return {
+        "bytes": GLB_PATH.stat().st_size,
+        "accessors": len(accessors),
+        "buffer_views": len(buffer_views),
+        "binary_bytes": len(document.binary_data),
+    }
+
+
 def main() -> None:
     require(Path(bpy.data.filepath).resolve() == BLEND_PATH.resolve(), "監査対象.blendが不正です")
     require(sha256(NAVMESH_PATH) == EXPECTED_NAVMESH_SHA256, "NavMesh SHA-256が変化しています")
     require(sha256(PROP_LIBRARY_PATH) == EXPECTED_PROP_LIBRARY_SHA256, "B03-PライブラリSHA-256が変化しています")
     export_collection = bpy.data.collections.get("EXP_Stage_school")
     require(export_collection is not None, "EXP_Stage_schoolがありません")
+    require(bpy.data.collections.get("B02_GUIDES") is None, "最終.blendにB02_GUIDESが残っています")
+    require(not any(obj.name.startswith("GUIDE_") for obj in bpy.data.objects), "最終.blendにGUIDE_*が残っています")
+    require(not bpy.data.cameras, "最終.blendにCamera datablockが残っています")
+    require(not bpy.data.lights, "最終.blendにLight datablockが残っています")
+    require(not bpy.data.curves, "最終.blendにText/Curve datablockが残っています")
+    orphan_datablocks = [
+        datablock.name
+        for datablocks in (
+            bpy.data.meshes,
+            bpy.data.materials,
+            bpy.data.node_groups,
+            bpy.data.actions,
+        )
+        for datablock in datablocks
+        if datablock.users == 0
+    ]
+    require(not orphan_datablocks, f"最終.blendに未使用datablockがあります: {orphan_datablocks}")
     export_objects = list(export_collection.all_objects)
     names = [obj.name for obj in export_objects]
     require(len(names) == len(set(names)), "Blender Object名が重複しています")
@@ -593,6 +680,7 @@ def main() -> None:
     link_counts = audit_links(export_objects)
     audit_semantics(export_objects)
     glb_counts = audit_glb(read_glb_json(GLB_PATH))
+    glb_optimization = audit_glb_optimization()
     prefixes = Counter(name.split("_", 1)[0] for name in names)
     result = {
         "blend_sha256": sha256(BLEND_PATH),
@@ -602,11 +690,13 @@ def main() -> None:
         "blender_objects": len(bpy.data.objects),
         "blender_meshes": len(bpy.data.meshes),
         "blender_materials": len(bpy.data.materials),
+        "orphan_datablocks": len(orphan_datablocks),
         "export_objects": len(export_objects),
         "prefixes": dict(sorted(prefixes.items())),
         "windows": window_counts,
         "links": link_counts,
         "glb": glb_counts,
+        "glb_optimization": glb_optimization,
     }
     print("B03_AUDIT_RESULT=" + json.dumps(result, ensure_ascii=False, sort_keys=True))
 
