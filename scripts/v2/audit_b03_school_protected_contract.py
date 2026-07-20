@@ -34,7 +34,7 @@ PROTECTED_PREFIXES = (
 ALLOWED_NEW_PREFIXES = ("COL_B03_Interior_",)
 ALLOWED_NEW_EXACT_NAMES = {"NAV_Blocker_Interiors"}
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
-T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v02"
+T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v03"
 T04_ALLOWED_CHANGED_EXACT_NAMES = {
     "COL_B03_Ceiling_F02",
     "COL_B03_Ceiling_F03",
@@ -45,6 +45,7 @@ T04_ALLOWED_CHANGED_EXACT_NAMES = {
     "NAV_Walkable_Interior3F",
     "NAV_Walkable_Interior4F",
     "NAV_Walkable_StairsNWUpper",
+    "NAV_Blocker_SchoolUpper",
 }
 
 
