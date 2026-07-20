@@ -95,7 +95,7 @@ export type StageMoverKind = "player" | "npc" | "bit";
 | `COL_ActorOnly_*` | 停止 | 停止 | 停止 | 透過 |
 | `COL_HumanOnly_*` | 停止 | 停止 | 透過 | 透過 |
 
-閉じた窓は`COL_ActorOnly_Window_*`とし、全移動体を止めながら視線と全光線を通す。指定した開いた窓または割れた窓は`COL_HumanOnly_Window_*`とし、プレイヤーとNPCを止め、ビット、視線、全光線を通す。`PRT_*`の既存room、streaming、door trigger用途は維持するが、`bit_window`と`bit_roof`は`PRT_*`で表さない。
+閉じた窓は`COL_ActorOnly_Window_*`とし、全移動体を止めながら視線と全光線を通す。指定した開いた窓または割れた窓は、残るガラス羽を`COL_ActorOnly_WindowFixed_*`、実開口を`COL_HumanOnly_Window_*`とする。前者は全移動体を止め、後者はプレイヤーとNPCを止めてビットを通す。どちらも視線と全光線を通す。`PRT_*`の既存room、streaming、door trigger用途は維持するが、`bit_window`と`bit_roof`は`PRT_*`で表さない。
 
 ## 5. GLB読込と分類
 
@@ -219,7 +219,7 @@ export interface NavigationWorld {
 7. 同じGLBの各`LNK_*`端点が`hs_link_radius_m`以内の正しい高さのNavMesh面へ投影でき、`bit_window`と`bit_roof`が双方向であることを確認する。
 8. GLB SHA-256、NavMesh SHA-256、Recast版、プロファイルID、生成時間、容量を記録する。
 
-本編はバイナリ読込、`importNavMesh()`、`NavMeshQuery`構築に加え、GLB由来の`StageLinkRegistry`を経路グラフへ接続する。`LNK_*`をNavMeshバイナリへ焼き込まない。GLBまたはベイク条件を変更した場合はNavMeshを必ず再生成し、GLBとNavMeshの組を再監査する。
+本編はバイナリ読込、`importNavMesh()`、`NavMeshQuery`構築に加え、GLB由来の`StageLinkRegistry`を経路グラフへ接続する。`LNK_*`をNavMeshバイナリへ焼き込まない。GLBまたはベイク条件を変更した場合はNavMeshを必ず再生成し、GLBとNavMeshの組を再監査する。B03-1の窓配置確認用GLBは、旧NavMeshへ投影できない`.blend`内の`bit_roof`を一時的に出力しない。開放窓確定後の最終GLB、`bit_window`、`bit_roof`、NavMesh投影はT04-2Bで同時に統合し、配置確認用GLBを完成Runtime契約として扱わない。
 
 ## 8. マーカー
 
@@ -246,6 +246,7 @@ NPCとビットのランダム出現は多数の点を列挙せず、対応す�
 - `no_enemy_enter`
 - `no_combat`
 - `hazard`
+- `water`: 水中判定に用いる閉じた3D領域。B03-1で学校GLB、`StageVolumeRole`、GLB読込までを追加し、水中ゲーム処理との接続はT04-2Bで行う。
 
 `BND_Stage`はプレイ可能な3D空間を定義する。範囲外時の再配置先は`MRK_PlayerSpawn_*`または最後に確認したNavMesh上の安全点とする。AABBだけで凹形状や上下階を判定しない。
 
@@ -320,7 +321,7 @@ T04は高さ付き経路と特殊接続の選択までを共通基盤として�
 - 学校の主玄関、教室扉、3階段、1～4階、校庭、渡り廊下、体育館、屋上が、連続NavMeshと承認済み特殊接続の組で意図どおり接続される。
 - 壁を挟んだ`surface`経路が扉へ迂回し、閉鎖地点と窓開口を通常経路として通らない。階段経路の各点は正しい床高と`polygonRef`を持つ。
 - `bit_window`と`bit_roof`はビットのA→B・B→A経路だけに`transition`として現れ、プレイヤーとNPCの経路には現れない。特殊接続入口では実移動せず`transition-required`を返す。
-- `COL_ActorOnly_Window_*`はプレイヤー・NPC・ビットを止め、`COL_HumanOnly_Window_*`はプレイヤー・NPCだけを止める。両方とも視線と全光線を透過する。
+- `COL_ActorOnly_Window_*`と`COL_ActorOnly_WindowFixed_*`はプレイヤー・NPC・ビットを止め、`COL_HumanOnly_Window_*`はプレイヤー・NPCだけを止める。いずれも視線と全光線を透過する。
 - T05-1では通常飛行が物理床上1.0～1.8m、天井優先、ビット本体・銃口・最大揺れ幅と0.10m余裕を満たす。高さ帯の例外は`bit_window`／`bit_roof`上だけで、最高高度は高い端点以下、標的喪失時は近い端へ復帰し、進入前にカーペット編隊を解除する。
 - 壁越しに通常索敵せず、窓越しには視認する。T05-2で通常・固定・トラップ・動的を含む全光線が壁へ着弾し、両種の窓を透過する。
 - T06で全階と屋上を含む学校全域のゲーム進行を統合確認する。

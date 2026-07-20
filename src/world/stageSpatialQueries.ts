@@ -9,7 +9,8 @@ export const STAGE_VOLUME_ROLES = [
   "no_enemy_spawn",
   "no_enemy_enter",
   "no_combat",
-  "hazard"
+  "hazard",
+  "water"
 ] as const;
 
 export type StageVolumeRole = (typeof STAGE_VOLUME_ROLES)[number];

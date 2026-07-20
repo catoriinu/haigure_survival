@@ -463,6 +463,7 @@ const validateLoadedContext = (
   const expectedPlayerSpawn = new Vector3(0.375, 0, 0);
   const npcSpawnVolumes = context.volumes.getByRole("npc_spawn");
   const bitSpawnVolumes = context.volumes.getByRole("bit_spawn");
+  const waterVolumes = context.volumes.getByRole("water");
 
   checks.push(
     createCheck(
@@ -475,13 +476,13 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 308 &&
-        context.resources.normalColliders.length === 161 &&
-        context.resources.actorOnlyColliders.length === 0 &&
+      context.resources.visualMeshes.length === 427 &&
+        context.resources.normalColliders.length === 150 &&
+        context.resources.actorOnlyColliders.length === 94 &&
         context.resources.humanOnlyColliders.length === 0 &&
-        context.resources.navSourceMeshes.length === 8 &&
+        context.resources.navSourceMeshes.length === 14 &&
         context.markers.all.length === 1 &&
-        context.volumes.all.length === 2 &&
+        context.volumes.all.length === 3 &&
         context.links.all.length === 0,
       `VIS=${context.resources.visualMeshes.length} / COL=${context.resources.normalColliders.length} / ActorOnly=${context.resources.actorOnlyColliders.length} / HumanOnly=${context.resources.humanOnlyColliders.length} / NAV=${context.resources.navSourceMeshes.length} / MRK=${context.markers.all.length} / VOL=${context.volumes.all.length} / LNK=${context.links.all.length}`
     ),
@@ -490,8 +491,9 @@ const validateLoadedContext = (
       Vector3.Distance(playerSpawn, expectedPlayerSpawn) <= 1e-5 &&
         context.boundary.contains(playerSpawn) &&
         npcSpawnVolumes.length === 1 &&
-        bitSpawnVolumes.length === 1,
-      `spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)}) / boundary=${context.boundary.contains(playerSpawn)} / npc=${npcSpawnVolumes.length} / bit=${bitSpawnVolumes.length}`
+        bitSpawnVolumes.length === 1 &&
+        waterVolumes.length === 1,
+      `spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)}) / boundary=${context.boundary.contains(playerSpawn)} / npc=${npcSpawnVolumes.length} / bit=${bitSpawnVolumes.length} / water=${waterVolumes.length}`
     )
   );
 
@@ -590,8 +592,6 @@ const validateLoadedContext = (
     ["VIS_NorthWingSouthEntryDoor_Open_L", [0.16, 30.74, 0.0], [0.24, 32.34, 2.4]],
     ["COL_BridgeSideRamp_West", [37.4, 26.5, -0.3], [39.4, 32.5, 0.0]],
     ["COL_BridgeSideRamp_East", [43.4, 26.5, -0.3], [45.4, 32.5, 0.0]],
-    ["VIS_Wall_Lintel_NorthWingSouthEntry", [0.15, 32.35, 2.4], [5.4, 32.65, 3.0]],
-    ["COL_Wall_Lintel_NorthWingSouthEntry", [0.15, 32.35, 2.4], [5.4, 32.65, 3.0]],
     ["VIS_GymCourtyardEntryStep01", [31.4, 5.0, -0.3], [32.4, 8.0, -0.15]],
     ["VIS_GymCourtyardEntryStep02", [32.4, 5.0, -0.15], [33.4, 8.0, 0.0]],
     ["COL_GymCourtyardEntryRamp", [31.4, 5.0, -0.3], [33.4, 8.0, 0.0]]
@@ -1339,15 +1339,17 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 308 &&
-      activeContext.resources.normalColliders.length === 161 &&
+      activeContext.resources.visualMeshes.length === 427 &&
+      activeContext.resources.normalColliders.length === 150 &&
+      activeContext.resources.actorOnlyColliders.length === 94 &&
       activeContext.resources.humanOnlyColliders.length === 0 &&
+      activeContext.volumes.getByRole("water").length === 1 &&
       activeContext.links.all.length === 0;
     checks.push(
       createCheck(
         "学校コンテキスト再読込",
         reloadMetadataValid,
-        `stage=${activeContext.metadata.stageId} / VIS=${activeContext.resources.visualMeshes.length} / COL=${activeContext.resources.normalColliders.length} / HumanOnly=${activeContext.resources.humanOnlyColliders.length} / LNK=${activeContext.links.all.length}`
+        `stage=${activeContext.metadata.stageId} / VIS=${activeContext.resources.visualMeshes.length} / COL=${activeContext.resources.normalColliders.length} / ActorOnly=${activeContext.resources.actorOnlyColliders.length} / HumanOnly=${activeContext.resources.humanOnlyColliders.length} / water=${activeContext.volumes.getByRole("water").length} / LNK=${activeContext.links.all.length}`
       )
     );
     await disposeAndInspect(activeContext, baseline, checks, "再読込");

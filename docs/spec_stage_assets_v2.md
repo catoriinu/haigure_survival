@@ -12,7 +12,7 @@ V2のステージ空間の正本は、GLBへ出力された3D形状、EmptyのTr
 
 ステージJSONは使用しない。JSON文字マップ、セル、行・列、矩形ゾーンなどへ空間を重複記述してはならない。TypeScriptのステージカタログが保持できるのは、ステージID、表示名、GLB URL、NavMesh URL、整合性検査用ハッシュなどの非空間情報だけである。
 
-Recast NavMeshバイナリはGLBの`NAV_*`形状から生成する派生物であり、編集元ではない。`LNK_*` EmptyはGLBに残る特殊接続の正本であり、RuntimeがNavMesh上へ両端を投影して経路グラフへ加える。NavMeshを変更したい場合はBlender資産またはベイクプロファイルを変更し、GLB監査後に再ベイクする。
+Recast NavMeshバイナリはGLBの`NAV_*`形状から生成する派生物であり、編集元ではない。`LNK_*` Emptyは最終GLBに残る特殊接続の正本であり、RuntimeがNavMesh上へ両端を投影して経路グラフへ加える。NavMeshを変更したい場合はBlender資産またはベイクプロファイルを変更し、GLB監査後に再ベイクする。B03-1の窓配置確認中は`.blend`に`bit_roof` 2組を保持する一方、旧NavMeshへ投影できない接続を配置確認用GLBから除外する。開放窓確定後の最終GLBとNavMeshはT04-2Bで同時に生成・監査し、`LNK_*`を欠いた配置確認用GLBを完成資産として扱わない。
 
 本規約は規約準拠資産だけを扱う。未知の接頭辞、欠落した必須Object、未知の`hs_*` propertyを読み替える互換処理やフォールバックは作らない。
 
@@ -183,11 +183,11 @@ EXP_Stage_<stage-id>
 | 窓 | 表示Object | 衝突Object | 移動・光線契約 |
 |---|---|---|---|
 | 閉じた窓 | `VIS_WindowFrame_*`と`VIS_WindowGlass_*` | `COL_ActorOnly_Window_*` | プレイヤー・NPC・ビットを止め、視線と全光線を通す |
-| 指定した開いた窓または割れた窓 | 開口状態に対応する`VIS_WindowFrame_*`、必要なガラス表示 | `COL_HumanOnly_Window_*` | プレイヤー・NPCを止め、ビット・視線・全光線を通す |
+| 指定した開いた窓または割れた窓 | 開口状態に対応する`VIS_WindowFrame_*`、残るガラス羽の`VIS_WindowGlass_*` | 残るガラス羽の`COL_ActorOnly_WindowFixed_*`と実開口の`COL_HumanOnly_Window_*` | 閉じた羽は全移動体を止め、実開口はプレイヤー・NPCを止めてビットを通す。どちらも視線・全光線を通す |
 
 ビット通過窓は見た目が開いた窓か割れた窓かにかかわらず、Runtimeでは`hs_link_kind="bit_window"`の同一契約で扱う。Collider名だけでビット通過経路を推測せず、必ず7.8節の`LNK_<id>_A/B`を組み合わせる。閉じた窓へ`bit_window`を置いてはならない。
 
-窓位置で通常の床・階段NavMeshが連結しないよう、必要な`NAV_*` blockerも別途用意する。`COL_ActorOnly_Window_*`と`COL_HumanOnly_Window_*`をNavMeshベイク入力へ流用しない。
+窓位置で通常の床・階段NavMeshが連結しないよう、必要な`NAV_*` blockerも別途用意する。`COL_ActorOnly_Window_*`、`COL_ActorOnly_WindowFixed_*`、`COL_HumanOnly_Window_*`をNavMeshベイク入力へ流用しない。
 
 ### 7.3 `NAV_*`と`hs_nav_role`
 
@@ -254,13 +254,14 @@ MRK_PlayerSpawn_Main
 | `hs_id` | string | ステージ内で一意な小文字kebab-case ID |
 | `hs_role` | string | Runtimeのvolume role registryに登録された役割 |
 
-初期roleには`npc_spawn`、`bit_spawn`、`assembly`、`no_enemy_spawn`、`no_enemy_enter`、`no_combat`、`hazard`を使用できる。追加roleはRuntime側registryと本書を同時に更新してから使用する。
+roleには`npc_spawn`、`bit_spawn`、`assembly`、`no_enemy_spawn`、`no_enemy_enter`、`no_combat`、`hazard`、`water`を使用できる。`water`は水面ではなく、水中判定に用いる閉じた3D領域を表す。B03-1の学校資産は、プール内面に一致する`VOL_PoolWater`を1件持ち、`hs_id="pool-water"`、`hs_role="water"`とする。TypeScriptのrole登録とGLB読込はB03-1で行い、水中ゲーム処理との接続はT04-2Bで行う。
 
 - Volumeの位置、回転、範囲はMesh形状を正本とする。
 - boxの中心・幅・奥行・高さをpropertiesへ重複記述しない。
 - 閉じたmanifold、外向き法線、自己交差なしとする。
 - 1つの凹形状へまとめず、凸形状へ分割する。複数Volumeを同じ`hs_role`で使用してよい。
 - `VOL_*`は物理衝突、光線遮蔽、NavMesh生成へ使用しない。
+- `water` Volumeは水面表示Meshと分離し、プール壁・底の内側だけを閉じた形状で覆う。
 
 `BND_Stage`はちょうど1個の明示的な閉じた低ポリMeshとする。プレイヤーが存在してよい3D空間を囲み、上下限も持つ。`BND_Stage`はout-of-bounds判定用であり、物理壁ではない。移動を止める必要がある位置には別の`COL_*`を置く。
 
