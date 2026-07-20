@@ -309,8 +309,8 @@ T04-2AはB03-0と別worktreeで並行できる。T04-2BはT04-2AとB03-2の両�
 
 - [x] B03-2統合済みの`develop`を`ca89fc9`へfast-forwardし、`codex/v2-t04-school-multifloor`を作成する
 - [x] ユーザー提示の計画、ローカル資産修正ブランチ、水中処理のT06境界を計画文書へ反映する
-- [ ] T04から`codex/v2-t04-school-nav-asset-fix`をローカル分岐し、北西階段のwalkable NAVと2F～4F吹抜けheadroomを修正する
-- [ ] 修正版`.blend`からGLBを再出力して資産監査を通し、資産修正コミットをT04へ`--no-ff`でローカルマージする
+- [x] T04から`codex/v2-t04-school-nav-asset-fix`をローカル分岐し、北西階段のwalkable NAVと2F～4F吹抜けheadroomを修正する
+- [ ] 修正版`.blend`からGLBを再出力して資産監査を通し、資産修正コミットをT04へ`--no-ff`でローカルマージする（再出力・監査完了、ローカルマージ待ち）
 - [ ] 最終GLBに合わせてベイク代表経路を更新し、全階・屋上・プール・閉鎖経路を検証してNavMeshを決定的に再生成する
 - [ ] 全120リンク端点を直下NavMeshへ投影し、transition距離を実飛行端点まで含む3区間合計へ変更する
 - [ ] 起動時全端点間探索を廃止し、player／NPCの通常経路優先とbitのA*・順不同遅延キャッシュを実装する
@@ -444,3 +444,8 @@ T04-2AはB03-0と別worktreeで並行できる。T04-2BはT04-2AとB03-2の両�
 - 2026-07-20、PR #43の未解決レビュー1件を確認した。検証上の特殊接続6端点の通常経路を`NavigationWorld`構築時に30回だけ探索して保持し、各`findPath()`は開始地点から目的地点、開始地点から6端点、6端点から目的地点の13回だけを問い合わせる構成へ変更した。到達可能な端点間surfaceを挟む`bit_window`2遷移経路を同じ条件で2回要求しても13回／13回で端点間再探索0件となり、T04実ブラウザ49/49、console warning／error 0件を確認した。
 - レビュー修正後に`npm run build`、`npm run build:t01`～`build:t04`を再実行してすべて成功した。実ブラウザはT02 28/28、T04 49/49、両画面のconsole warning／error 0件だった。変更3ファイルはUTF-8 BOMなし、`git diff --check`、公開ローカル絶対パス0件、学校`.blend`／GLB／NavMesh差分0件で、独立再監査はP0～P2指摘なしとなった。
 - レビュー修正は`perf: 特殊接続端点間の経路探索を構築時にキャッシュ`の1コミットとして現在のブランチへpushし、PR #43の対象threadへ修正内容と検証結果を返信した。threadの解決、Draft解除、マージは行っていない。
+- 2026-07-20、T04からローカル限定の`codex/v2-t04-school-nav-asset-fix`と専用worktreeを作成した。`NAV_Walkable_StairsNWUpper`へ1F踊り場から2Fへ上がる`COL_StairRampUpper_NW`を追加し、Nav areaを`stairs`へ統一した。
+- 2F～4Fの北西階段では、中間踊り場の1.05m上に上階床下面が重なり、Recastの身長1.7mを満たしていなかった。表示床、Collider、天井、各階walkable NAVから北西側の重複床矩形を除き、吹抜けをX=-12.6～-6.6m、Y=38.9～45.5mの連続開口へ修正した。
+- 補正スクリプトを同じ最終B03-2 `.blend`へ2回適用し、GLBは両方とも932 Node／810 Mesh／5 Material／3 Texture、8,936,780 bytes、SHA-256 `EF7486724DCD2A6802F6A413406B68D53D1E825076B03BC6D14DAEEF1B75FA09`で一致した。Blender 5.2の保存バイナリは非決定的なため、直近SHA-256は`05A540A4AB7CD4A139CFE38A0C7AB2A1AA5C6E59C709445C8797DEEED765CDBE`である。
+- B03保護監査では意図した床・天井Collider5件とwalkable NAV4件だけを明示許可し、その他の保護対象595件、内装34区画、512家具Collider箱、60特殊リンク、3 Atlasが不変であることを確認した。建築監査、内装監査、30,720組の特殊経路包絡検査はいずれも合格した。
+- 修正版GLBの読み取り診断ベイクは482,460 bytes、SHA-256 `21A5483AFBEB7B2FC8AB803FB565109D97222EA29D6C004A7832D82E7C2CD745`、18,036 vertices／6,012 trianglesとなった。主玄関から3踊り場、2F、3F、4F、屋上、各階逆方向、屋上からプールサイド・プール底までを含む代表経路は全て完全到達し、最大終端誤差は`4.3e-7`未満だった。
