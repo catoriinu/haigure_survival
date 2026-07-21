@@ -1,6 +1,6 @@
 # B03-P 学校小物ライブラリ カタログ
 
-更新日: 2026-07-20
+更新日: 2026-07-22
 
 ## 位置付け
 
@@ -37,7 +37,7 @@
 | `VIS_Prop_PcMonitor` | PC室、職員室 | 0.55×0.18×0.45 | 底面中央 | 可 | なし | 48 | PlasticBlack、MetalDark、MetalGray |
 | `VIS_Prop_BasketballGoal` | 体育館 | 1.80×0.70×1.05 | 壁付け | 可 | なし | 240 | Paper、AccentOrange、MetalGray |
 | `VIS_Prop_VaultingBox` | 体育館 | 1.20×0.60×1.00 | 床置き | 不可 | `COL_Prop_VaultingBox` | 24 | Wood、Fabric |
-| `VIS_Prop_Bookshelf` | 図書室 | 0.90×0.32×1.80 | 床置き | 不可 | `COL_Prop_Bookshelf` | 96 | Wood |
+| `VIS_Prop_Bookshelf` | 図書室 | 0.90×0.32×1.80 | 床置き | 不可 | `COL_Prop_Bookshelf` | 432 | Wood、AccentOrange、Fabric、Blackboard、Paper、MetalDark |
 | `VIS_Prop_ClosedBook` | 教室、図書室、職員室 | 0.25×0.18×0.025 | 底面中央 | 可 | なし | 24 | Paper、AccentOrange |
 | `VIS_Prop_OpenBook` | 教室、図書室、職員室 | 0.44×0.25×0.04 | 底面中央 | 可 | なし | 36 | Paper、AccentOrange |
 | `VIS_Prop_PaperStack` | 教室、職員室 | 0.297×0.21×0.025 | 底面中央 | 可 | なし | 12 | Paper |
@@ -47,13 +47,14 @@
 ## 実測結果
 
 - 表示小物22種、簡略Collider 10種、Library Mesh合計32個
-- 表示小物1,956三角形、Collider 120三角形
+- 表示小物2,292三角形、Collider 120三角形
 - 共有Material 9種。全表示Meshのdatablockはsingle-user
 - Object名とMesh Data名は全32個で一致し、正本のrotationは0、scaleは1
 - 通行不可10種だけに12三角形の箱Colliderを設定
 - 教室机、教室椅子、職員椅子、PCモニターの転倒・回転は、専用小物を作らず、Preview内で正本Meshの複製後Transformだけを変更
 - 通常状態の教室机・椅子と、本・筆箱の机上配置、単紙の床上配置を組み合わせた小規模な教室散乱見本をPreviewへ収録
 - 大型机は全利用先で椅子を収納できるよう、ライブラリ本体から脚同士をつなぐ横棒を撤去した
-- ライブラリ`.blend`は165,208 bytes、SHA-256は`47037C4261CE6A5BD86A64EE2E1DEE834A834A25CE6CB979D9329E194BC6311A`
-- 確認用GLBは173,384 bytes、SHA-256は`85E67ADA04EA6D1F97CD6909FF388534316224931C567D5914EF00B5F40BAC30`
+- 本棚は本体8部品と色の異なる背表紙28冊の計36 components／432 trianglesとし、室内側から本が並んで見える正面を持つ。学校本体では18台を壁沿いに内向きで並べ、前後の出入口と窓へ干渉させない
+- ライブラリ`.blend`は169,321 bytes、SHA-256は`FAEBDD4CEFE2C80BE254021BFE151B975AADF5A3922ADCAD0B8958B96C30F7DF`
+- 確認用GLBは198,016 bytes、SHA-256は`7962D95D7983AD2E4946990EF1A03E2383FB83D3D26E4F78213A0A4CB6420750`
 - 確認用GLBはScene 1、Node 32、Mesh 32、Material 9、Camera 0、Animation 0。確認用床、人型、照明、配置例は未収録

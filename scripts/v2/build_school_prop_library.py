@@ -75,6 +75,9 @@ FLOOR_ORIGIN_VISUALS = frozenset(
     }
 )
 WALL_ORIGIN_VISUALS = frozenset(VISUAL_NAMES) - FLOOR_ORIGIN_VISUALS
+BOOKSHELF_BOOK_SPINE_COUNT = 28
+BOOKSHELF_COMPONENT_COUNT = 36
+BOOKSHELF_TRIANGLE_COUNT = 432
 
 EXPECTED_VISUAL_DIMENSIONS = {
     "VIS_Prop_ClassroomDesk": (0.65, 0.45, 0.70),
@@ -678,6 +681,27 @@ def build_bookshelf(materials: dict[str, bpy.types.Material]) -> list[bpy.types.
     ]
     for z in (0.025, 0.45, 0.90, 1.35, 1.775):
         parts.append(add_box((0.80, 0.32, 0.05), (0.0, 0.0, z), materials["wood"]))
+    book_widths = (0.085, 0.10, 0.075, 0.11, 0.09, 0.08, 0.095)
+    book_gap = 0.012
+    book_materials = ("accent", "fabric", "blackboard", "paper", "metal_dark")
+    row_width = sum(book_widths) + book_gap * (len(book_widths) - 1)
+    shelf_tops = (0.05, 0.475, 0.925, 1.375)
+    for shelf_index, shelf_top in enumerate(shelf_tops):
+        cursor = -row_width / 2.0
+        for book_index, width in enumerate(book_widths):
+            height = 0.30 + 0.02 * ((shelf_index + book_index) % 3)
+            center_x = cursor + width / 2.0
+            material_index = (
+                shelf_index * len(book_widths) + book_index
+            ) % len(book_materials)
+            parts.append(
+                add_box(
+                    (width, 0.16, height),
+                    (center_x, -0.055, shelf_top + height / 2.0),
+                    materials[book_materials[material_index]],
+                )
+            )
+            cursor += width + book_gap
     return parts
 
 
@@ -1017,6 +1041,25 @@ def triangle_count(obj: bpy.types.Object) -> int:
     return sum(max(0, len(polygon.vertices) - 2) for polygon in obj.data.polygons)
 
 
+def connected_component_count(obj: bpy.types.Object) -> int:
+    adjacency = [set() for _ in obj.data.vertices]
+    for edge in obj.data.edges:
+        first, second = edge.vertices
+        adjacency[first].add(second)
+        adjacency[second].add(first)
+    remaining = set(range(len(obj.data.vertices)))
+    count = 0
+    while remaining:
+        pending = [remaining.pop()]
+        while pending:
+            vertex_index = pending.pop()
+            connected = adjacency[vertex_index] & remaining
+            remaining.difference_update(connected)
+            pending.extend(connected)
+        count += 1
+    return count
+
+
 def local_bounds(obj: bpy.types.Object) -> tuple[Vector, Vector]:
     coordinates = [vertex.co for vertex in obj.data.vertices]
     return (
@@ -1086,11 +1129,45 @@ def audit_library() -> dict[str, object]:
                 raise RuntimeError(
                     f"壁付け原点が取付面中央にありません: {obj.name}, bounds={minimum}/{maximum}"
                 )
-        triangle_limit = 1500 if obj.name == "VIS_Prop_GrandPiano" else 1000 if obj.name == "VIS_Prop_BasketballGoal" else 500
+        triangle_limit = (
+            1500
+            if obj.name == "VIS_Prop_GrandPiano"
+            else 1000
+            if obj.name == "VIS_Prop_BasketballGoal"
+            else 500
+        )
         if visual_triangles[obj.name] > triangle_limit:
             raise RuntimeError(
                 f"三角形予算超過です: {obj.name}={visual_triangles[obj.name]}/{triangle_limit}"
             )
+
+    for obj in colliders:
+        prop_type = obj.name.removeprefix("COL_Prop_")
+        assert_vector_close(
+            f"{obj.name} dimensions",
+            obj.dimensions,
+            COLLIDER_DIMENSIONS[prop_type],
+        )
+
+    for prop_type in ("Bookshelf", "BaggageLocker", "CleaningLocker"):
+        assert_vector_close(
+            f"{prop_type} VIS/COL dimensions",
+            bpy.data.objects[f"VIS_Prop_{prop_type}"].dimensions,
+            bpy.data.objects[f"COL_Prop_{prop_type}"].dimensions,
+        )
+
+    bookshelf = bpy.data.objects["VIS_Prop_Bookshelf"]
+    bookshelf_components = connected_component_count(bookshelf)
+    if bookshelf_components != BOOKSHELF_COMPONENT_COUNT:
+        raise RuntimeError(
+            "本棚の本体8部品＋背表紙28冊が揃っていません: "
+            f"{bookshelf_components}/{BOOKSHELF_COMPONENT_COUNT}"
+        )
+    if visual_triangles[bookshelf.name] != BOOKSHELF_TRIANGLE_COUNT:
+        raise RuntimeError(
+            "本棚の三角形数が造形契約と一致しません: "
+            f"{visual_triangles[bookshelf.name]}/{BOOKSHELF_TRIANGLE_COUNT}"
+        )
 
     total_visual_triangles = sum(visual_triangles.values())
     total_collider_triangles = sum(collider_triangles.values())
@@ -1120,6 +1197,8 @@ def audit_library() -> dict[str, object]:
         "colliderTriangles": total_collider_triangles,
         "trianglesByVisual": visual_triangles,
         "trianglesByCollider": collider_triangles,
+        "bookshelfBookSpines": BOOKSHELF_BOOK_SPINE_COUNT,
+        "bookshelfComponents": bookshelf_components,
         "dimensions": {
             obj.name: [round(float(value), 6) for value in obj.dimensions] for obj in visuals
         },

@@ -34,12 +34,19 @@ PROTECTED_PREFIXES = (
 ALLOWED_NEW_PREFIXES = ("COL_B03_Interior_",)
 ALLOWED_NEW_EXACT_NAMES = {"NAV_Blocker_Interiors"}
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
-T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v04"
+T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v05"
 T04_ALLOWED_MISSING_EXACT_NAMES = {
+    "COL_ActorOnly_Window_F01_CourtyardNorth_Corridor_01",
+    "COL_Ceiling1F_North",
+    "COL_Ceiling1F_West",
     "COL_StairClosure_NE",
     "COL_StairClosure_SW",
+    "VIS_WindowFrame_F01_CourtyardNorth_Corridor_01",
+    "VIS_WindowGlass_F01_CourtyardNorth_Corridor_01",
 }
 T04_ALLOWED_NEW_EXACT_NAMES = {
+    "COL_B03_InterfloorStructure_F01_North",
+    "COL_B03_InterfloorStructure_F01_West",
     "COL_StairGuardSystem_NE_2FTo3F",
     "COL_StairGuardSystem_NE_3FTo4F",
     "COL_StairGuardSystem_SW_2FTo3F",
@@ -52,13 +59,24 @@ T04_ALLOWED_NEW_EXACT_NAMES = {
 T04_ALLOWED_CHANGED_EXACT_NAMES = {
     "COL_B03_Ceiling_F02",
     "COL_B03_Ceiling_F03",
+    "COL_B03_ExteriorWalls_F01",
     "COL_B03_Floor_F02",
     "COL_B03_Floor_F03",
     "COL_B03_Floor_F04",
     "COL_B03_InteriorWalls_F02",
     "COL_B03_InteriorWalls_F03",
     "COL_B03_InteriorWalls_F04",
+    "COL_StairGuard_NE_Landing",
+    "COL_StairGuard_NE_Lower",
     "COL_StairGuard_NE_Upper",
+    "COL_StairGuard_NW_Landing",
+    "COL_StairGuard_NW_Lower",
+    "COL_StairGuard_NW_Upper",
+    "COL_StairGuardSystem_NW_2FTo3F",
+    "COL_StairGuardSystem_NW_3FTo4F",
+    "COL_StairGuardSystem_NW_4FToRooftop",
+    "COL_StairGuard_SW_Landing",
+    "COL_StairGuard_SW_Lower",
     "COL_StairGuard_SW_Upper",
     "COL_StairRampUpper_NE",
     "COL_StairRampUpper_SW",
