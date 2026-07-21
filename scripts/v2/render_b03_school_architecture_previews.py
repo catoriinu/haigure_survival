@@ -78,7 +78,8 @@ VIEW_SHOW_PREFIXES = {
     "03_upper_corridor": (
         "VIS_B03_Floor_F02",
         "VIS_B03_InteriorWalls_F02",
-        "VIS_B03_FloorAccent_F02",
+        "VIS_B03_StoreyBand_F02",
+        "VIS_B03_StoreyTrim_F02",
         "VIS_B03_DoorLeaves_F02",
         "VIS_WindowFrame_F02_",
         "VIS_WindowGlass_F02_",

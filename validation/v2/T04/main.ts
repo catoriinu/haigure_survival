@@ -2223,9 +2223,9 @@ const runValidation = async () => {
           (link) => link.kind === "bit_roof"
         );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 477 &&
-          schoolContext.resources.normalColliders.length === 189 &&
-          schoolContext.resources.actorOnlyColliders.length === 83 &&
+          schoolContext.resources.visualMeshes.length === 479 &&
+          schoolContext.resources.normalColliders.length === 192 &&
+          schoolContext.resources.actorOnlyColliders.length === 82 &&
           schoolContext.resources.humanOnlyColliders.length === 58 &&
           schoolContext.resources.navSourceMeshes.length === 15 &&
           schoolContext.markers.all.length === 1 &&
@@ -3237,9 +3237,9 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 477 &&
-          reloadedContext.resources.normalColliders.length === 189 &&
-          reloadedContext.resources.actorOnlyColliders.length === 83 &&
+          reloadedContext.resources.visualMeshes.length === 479 &&
+          reloadedContext.resources.normalColliders.length === 192 &&
+          reloadedContext.resources.actorOnlyColliders.length === 82 &&
           reloadedContext.resources.humanOnlyColliders.length === 58 &&
           reloadedContext.resources.navSourceMeshes.length === 15 &&
           reloadedContext.volumes.getByRole("water").length === 1 &&

@@ -476,9 +476,9 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 477 &&
-        context.resources.normalColliders.length === 189 &&
-        context.resources.actorOnlyColliders.length === 83 &&
+      context.resources.visualMeshes.length === 479 &&
+        context.resources.normalColliders.length === 192 &&
+        context.resources.actorOnlyColliders.length === 82 &&
         context.resources.humanOnlyColliders.length === 58 &&
         context.resources.navSourceMeshes.length === 15 &&
         context.markers.all.length === 1 &&
@@ -1464,9 +1464,9 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 477 &&
-      activeContext.resources.normalColliders.length === 189 &&
-      activeContext.resources.actorOnlyColliders.length === 83 &&
+      activeContext.resources.visualMeshes.length === 479 &&
+      activeContext.resources.normalColliders.length === 192 &&
+      activeContext.resources.actorOnlyColliders.length === 82 &&
       activeContext.resources.humanOnlyColliders.length === 58 &&
       activeContext.resources.navSourceMeshes.length === 15 &&
       activeContext.volumes.getByRole("water").length === 1 &&

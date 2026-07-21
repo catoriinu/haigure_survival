@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 B03-P 学校小物ライブラリ先行制作 計画
 
-更新日: 2026-07-20
+更新日: 2026-07-22
 
 ## プロンプト
 
@@ -157,3 +157,9 @@ PLEASE IMPLEMENT THIS PLAN:
 - T01・B02の保護資産は`origin/develop`とSHA-256が一致した。T01 `.blend`は`A26672A7400A143F32FAB9F5DC53387CFF85C1FB22A9766F464E9BAEFAC5B16B`、T01 GLBは`CF6CF17CF7447152D0B25219045C33EFB2E1A1821C201ACD6E51E39F468EA69B`、B02 `.blend`は`6F68041134DEA543BDF7FA13193ECA46A729145E973BD28C5855AAEB72DDE51B`、B02 GLBは`294F8E4370CE736726166AE14CBABEB89CBB40DE875CFD2FF40A9F9E20EB9C8C`、B02 NavMeshは`7326422B609D810E8736B48A08EC819AA962848769A718E175463FE6191A5347`である。
 - UTF-8 BOMなし、Python構文、`git diff --check`を確認した。ゲームコード、学校本体、窓、扉、柵、手すり、T04-2A成果物は変更していない。
 - 初回実装後にコミット、push、Draft Pull Request #44の作成まで行い、2026-07-20のセルフレビューで記録した2件を本変更で修正した。窓・ビット仕様は本ライブラリの対象外であり、B03-0側の計画で扱う。
+
+### 2026-07-22 人間受入後の最新結果
+
+- 本棚は本体8部品に色の異なる背表紙28冊を加え、計36 components／432 trianglesへ更新した。現行の表示小物合計は2,292 triangles、Collider合計は120 trianglesである。
+- 学校本体への統合では、本棚18台を室内側へ向けて壁沿いに並べ、図書室の前後出入口と窓に干渉しない配置を監査した。主玄関前の箱は撤去し、下駄箱代替としてライブラリの`BaggageLocker` 2台を建物内南壁際へ配置した。
+- 現行の小物ライブラリ`.blend`は169,321 bytes、SHA-256 `FAEBDD4CEFE2C80BE254021BFE151B975AADF5A3922ADCAD0B8958B96C30F7DF`である。確認用GLBは198,016 bytes、SHA-256 `7962D95D7983AD2E4946990EF1A03E2383FB83D3D26E4F78213A0A4CB6420750`で、Scene 1、Node 32、Mesh 32、Material 9、Camera 0、Light 0、Animation 0を維持する。
