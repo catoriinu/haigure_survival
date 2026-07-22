@@ -485,9 +485,9 @@ def build_classroom_chair(materials: dict[str, bpy.types.Material]) -> list[bpy.
             parts.append(add_box((0.03, 0.03, 0.4125), (x, y, 0.20625), materials["metal_gray"]))
     parts.extend(
         [
-            add_box((0.03, 0.03, 0.35), (-0.175, 0.20, 0.605), materials["metal_gray"]),
-            add_box((0.03, 0.03, 0.35), (0.175, 0.20, 0.605), materials["metal_gray"]),
-            add_box((0.42, 0.035, 0.24), (0.0, 0.2075, 0.66), materials["wood"]),
+            add_box((0.03, 0.03, 0.34), (-0.175, 0.20, 0.60), materials["metal_gray"]),
+            add_box((0.03, 0.03, 0.34), (0.175, 0.20, 0.60), materials["metal_gray"]),
+            add_box((0.42, 0.06, 0.26), (0.0, 0.195, 0.65), materials["wood"]),
         ]
     )
     return parts
@@ -1169,6 +1169,50 @@ def audit_library() -> dict[str, object]:
             f"{visual_triangles[bookshelf.name]}/{BOOKSHELF_TRIANGLE_COUNT}"
         )
 
+    classroom_chair = bpy.data.objects["VIS_Prop_ClassroomChair"]
+    wood_indices = {
+        index
+        for index, material in enumerate(classroom_chair.data.materials)
+        if material.name == "MAT_Prop_Wood"
+    }
+    metal_indices = {
+        index
+        for index, material in enumerate(classroom_chair.data.materials)
+        if material.name == "MAT_Prop_MetalGray"
+    }
+    back_vertex_indices = {
+        vertex_index
+        for polygon in classroom_chair.data.polygons
+        if polygon.material_index in wood_indices
+        and max(classroom_chair.data.vertices[index].co.z for index in polygon.vertices)
+        > 0.5
+        for vertex_index in polygon.vertices
+    }
+    back_vertices = [
+        classroom_chair.data.vertices[index].co for index in back_vertex_indices
+    ]
+    chair_back_bounds = (
+        tuple(min(vertex[axis] for vertex in back_vertices) for axis in range(3)),
+        tuple(max(vertex[axis] for vertex in back_vertices) for axis in range(3)),
+    )
+    assert_vector_close(
+        "木製椅子背板minimum", chair_back_bounds[0], (-0.21, 0.165, 0.52), 1.0e-6
+    )
+    assert_vector_close(
+        "木製椅子背板maximum", chair_back_bounds[1], (0.21, 0.225, 0.78), 1.0e-6
+    )
+    metal_vertex_indices = {
+        vertex_index
+        for polygon in classroom_chair.data.polygons
+        if polygon.material_index in metal_indices
+        for vertex_index in polygon.vertices
+    }
+    metal_top = max(
+        classroom_chair.data.vertices[index].co.z for index in metal_vertex_indices
+    )
+    if abs(metal_top - 0.77) > 1.0e-6:
+        raise RuntimeError(f"木製椅子背面支柱の上端が不正です: {metal_top}")
+
     total_visual_triangles = sum(visual_triangles.values())
     total_collider_triangles = sum(collider_triangles.values())
     if total_visual_triangles > 8000:
@@ -1199,6 +1243,8 @@ def audit_library() -> dict[str, object]:
         "trianglesByCollider": collider_triangles,
         "bookshelfBookSpines": BOOKSHELF_BOOK_SPINE_COUNT,
         "bookshelfComponents": bookshelf_components,
+        "classroomChairBackBounds": chair_back_bounds,
+        "classroomChairMetalTop": metal_top,
         "dimensions": {
             obj.name: [round(float(value), 6) for value in obj.dimensions] for obj in visuals
         },
