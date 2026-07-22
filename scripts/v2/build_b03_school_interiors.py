@@ -145,6 +145,7 @@ MAIN_ENTRY_BAGGAGE_LOCKERS = (
 )
 COUNCIL_INTERIOR_BOUNDS = (5.55, 14.4, 36.65, 45.35)
 LIBRARY_WEST_WALL_INNER_X = -12.45
+LIBRARY_EAST_WALL_INNER_X = -3.65
 LIBRARY_BOOKSHELF_PLACEMENTS = (
     *(
         (LIBRARY_WEST_WALL_INNER_X + 0.16, y, math.pi / 2)
@@ -156,16 +157,80 @@ LIBRARY_BOOKSHELF_PLACEMENTS = (
     ),
     *(
         (-3.81, y, -math.pi / 2)
-        for y in (16.2, 17.1, 18.0, 18.9, 19.8, 20.7, 21.6, 22.5)
+        for y in (
+            16.2,
+            17.1,
+            18.0,
+            18.9,
+            19.8,
+            20.7,
+            21.6,
+            22.5,
+            23.4,
+            24.3,
+            25.2,
+            26.1,
+            27.0,
+            27.9,
+        )
     ),
+)
+FIRST_FLOOR_WEST_DOOR_OPENINGS = (
+    (3.1, 4.3),
+    (10.7, 11.9),
+    (13.1, 14.3),
+    (30.7, 31.9),
+)
+UPPER_WEST_CLASSROOM_DOOR_OPENINGS = (
+    (3.1, 4.3),
+    (10.7, 11.9),
+    (13.1, 14.3),
+    (20.7, 21.9),
+    (23.1, 24.3),
+    (30.7, 31.9),
+)
+NORTH_CLASSROOM_DOOR_OPENINGS = (
+    (6.0, 7.2),
+    (21.6, 22.8),
+    (24.0, 25.2),
+    (39.6, 40.8),
+)
+TOILET_COMMON_OPENING = (-6.6, 5.4)
+ART_INTERIOR_BOUNDS = (5.4, 23.4, 36.5, 45.5)
+ART_TABLE_XS = (8.0, 14.4, 20.8)
+ART_TABLE_YS = (39.5, 43.0)
+ART_EASEL_XS = (9.0, 11.6, 14.2, 16.8, 19.4)
+ART_EASEL_Y = 37.6
+ART_BOOKSHELF_PLACEMENTS = (
+    (5.75, 39.5, math.pi / 2),
+    (5.75, 41.5, math.pi / 2),
+)
+ART_CLEANING_LOCKER = (5.775, 44.0, math.pi / 2)
+LL_INTERIOR_BOUNDS = (5.4, 23.4, 36.5, 45.5)
+LL_DESK_XS = (6.7, 9.9, 13.1, 16.3, 19.5, 22.7)
+LL_DESK_YS = (38.2, 39.9, 41.6, 43.3)
+LL_AV_RACK = (5.9, 44.7)
+LL_BAGGAGE_LOCKER_XS = (7.2, 9.2)
+GYM_STAGE_LECTERN = (45.4, -5.0, 1.0)
+BULLETIN_BOARD_FURNITURE_PARTS = (
+    ((0.0, 0.0, 1.45), (1.80, 0.06, 1.00), "fabric"),
+    ((0.0, 0.0, 1.95), (1.92, 0.08, 0.08), "wood"),
+    ((0.0, 0.0, 0.95), (1.92, 0.08, 0.08), "wood"),
+    ((-0.92, 0.0, 1.45), (0.08, 0.08, 1.08), "wood"),
+    ((0.92, 0.0, 1.45), (0.08, 0.08, 1.08), "wood"),
+)
+BULLETIN_BOARD_PAPER_PARTS = (
+    ((-0.50, -0.041, 1.52), (0.42, 0.012, 0.42), "paper_white"),
+    ((0.00, -0.041, 1.36), (0.36, 0.012, 0.30), "paper"),
+    ((0.50, -0.041, 1.55), (0.42, 0.012, 0.38), "sign_1"),
 )
 WEST_CORRIDOR_SIGN_POSITIONS = {
     1: (5.125, 14.725, 30.275),
-    2: (3.075, 12.675, 23.525),
-    3: (3.075, 12.675, 23.525),
-    4: (3.075, 12.675, 23.525),
+    2: (5.725, 15.725, 25.725),
+    3: (5.725, 15.725, 25.725),
+    4: (5.725, 15.725, 25.725),
 }
-NORTH_CORRIDOR_SIGN_X = {1: 7.625, 2: 5.575, 3: 5.575, 4: 5.575}
+NORTH_CORRIDOR_SIGN_X = {1: 7.625, 2: 7.625, 3: 7.625, 4: 7.625}
 
 
 def png_chunk(chunk_type: bytes, data: bytes) -> bytes:
@@ -257,12 +322,14 @@ def architecture_swatch(object_name: str) -> str:
         return "wall"
     if "floor_gym" in name or ("gym" in name and "floor" in name):
         return "gym_floor"
-    if "roof" in name or "pool" in name or "rail" in name or "windowframe" in name:
-        return "roof"
     if "door" in name:
         return "door"
-    if "floor" in name or "stair" in name:
+    if "windowframe" in name:
+        return "roof"
+    if "stair" in name or "floor" in name:
         return "floor"
+    if "roof" in name or "pool" in name or "rail" in name:
+        return "roof"
     return "wall"
 
 
@@ -641,7 +708,7 @@ def add_additional_prop(
         ],
         "ShoeLocker": [((0, 0, 0.7), (1.8, 0.4, 1.4), "wood_light")],
         "ChangingBench": [((0, 0, 0.42), (1.8, 0.45, 0.12), "wood"), ((0, 0, 0.2), (1.55, 0.32, 0.4), "metal_gray")],
-        "BulletinBoard": [((0, 0, 1.45), (1.8, 0.06, 1.0), "fabric")],
+        "BulletinBoard": BULLETIN_BOARD_FURNITURE_PARTS,
         "WallClock": [((0, 0, 1.9), (0.35, 0.04, 0.35), "plastic_black")],
         "FireExtinguisher": [((0, 0, 0.32), (0.24, 0.18, 0.64), "accent_red")],
         "TrashBin": [((0, 0, 0.25), (0.3, 0.3, 0.5), "metal_gray")],
@@ -689,6 +756,15 @@ def add_additional_prop(
         )
         signs = prop_type in {"RoomSign", "LifePreserverSign"}
         room.box(target, size, swatch, rotation_z, signs=signs)
+    if prop_type == "BulletinBoard":
+        for local_center, size, swatch in BULLETIN_BOARD_PAPER_PARTS:
+            lx, ly, lz = local_center
+            target = (
+                x + lx * cosine - ly * sine,
+                y + lx * sine + ly * cosine,
+                z + lz,
+            )
+            room.box(target, size, swatch, rotation_z, signs=True)
     if prop_type in IMPASSABLE_ADDITIONAL_PROP_TYPES:
         size = {
             "TeacherDesk": (1.2, 0.6, 0.72), "ShoeLocker": (1.8, 0.4, 1.4),
@@ -878,13 +954,6 @@ def build_toilet_room(
 ) -> None:
     if include_structure_and_fixtures:
         wall_center_z = room.base_z + 1.5
-        for center_x, width in ((-6.0, 1.2), (-3.15, 2.1), (-1.5, 1.2), (1.35, 2.1)):
-            room.architecture_box(
-                (center_x, 38.5, wall_center_z),
-                (width, 0.30, 3.0),
-                "wall",
-                wall_collider=True,
-            )
         room.architecture_box(
             (-2.1, 42.0, wall_center_z),
             (0.30, 7.0, 3.0),
@@ -934,10 +1003,10 @@ def build_toilet_room(
         room, "Mirror", (2.20, 40.4, room.base_z), -math.pi / 2
     )
     add_additional_prop(
-        room, "RoomSign", (-5.825, 38.34, room.base_z), math.pi
+        room, "RoomSign", (-6.43, 39.0, room.base_z), -math.pi / 2
     )
     add_additional_prop(
-        room, "RoomSign", (0.725, 38.34, room.base_z), math.pi
+        room, "RoomSign", (2.23, 39.0, room.base_z), math.pi / 2
     )
 
 
@@ -1117,7 +1186,7 @@ def build_school_rooms(
     council.add_prop(sources, "StaffDesk", 12.5, 44.2)
     council.add_prop(sources, "StaffChair", 12.5, 43.4, math.pi)
     council.add_prop(sources, "BaggageLocker", 6.45, 45.125)
-    add_additional_prop(council, "BulletinBoard", (13.3, 45.32, 3.6))
+    add_additional_prop(council, "BulletinBoard", (13.3, 45.31, 3.6))
     rooms.append(council)
 
     broadcast = RoomBuilder.create("F02_Broadcast", 3.6)
@@ -1153,15 +1222,22 @@ def build_school_rooms(
     rooms.append(science)
 
     art = RoomBuilder.create("F03_Art", 7.2)
-    for x in (-2.0, 5.0, 12.0):
-        for y in (39.5, 43.0):
+    for x in ART_TABLE_XS:
+        for y in ART_TABLE_YS:
             add_table_group(art, sources, x, y)
-    for x in (-4.5, 0.0, 4.5, 9.0, 13.0):
-        add_additional_prop(art, "Easel", (x, 37.6, 7.2), math.pi / 2)
+    for x in ART_EASEL_XS:
+        add_additional_prop(art, "Easel", (x, ART_EASEL_Y, 7.2), math.pi / 2)
     add_wall_blackboard(art, sources, 23.34, 41.0, math.pi / 2)
-    art.add_prop(sources, "Bookshelf", -4.8, 44.8)
-    art.add_prop(sources, "Bookshelf", -3.6, 44.8)
-    art.add_prop(sources, "CleaningLocker", -2.4, 44.8)
+    for x, y, rotation in ART_BOOKSHELF_PLACEMENTS:
+        art.add_prop(sources, "Bookshelf", x, y, rotation)
+    locker_x, locker_y, locker_rotation = ART_CLEANING_LOCKER
+    art.add_prop(
+        sources,
+        "CleaningLocker",
+        locker_x,
+        locker_y,
+        locker_rotation,
+    )
     rooms.append(art)
 
     home = RoomBuilder.create("F03_HomeEc", 7.2)
@@ -1179,16 +1255,14 @@ def build_school_rooms(
     rooms.append(home)
 
     ll = RoomBuilder.create("F04_LL", 10.8)
-    for row in range(4):
-        for column in range(6):
-            x = -3.5 + column * 4.3
-            y = 38.2 + row * 1.7
+    for y in LL_DESK_YS:
+        for x in LL_DESK_XS:
             ll.add_prop(sources, "ClassroomDesk", x, y, -math.pi / 2)
             ll.add_prop(sources, "ClassroomChair", x - 0.31, y, math.pi / 2)
     add_wall_blackboard(ll, sources, 23.34, 41.0, math.pi / 2)
-    add_additional_prop(ll, "AvRack", (-5.7, 44.7, 10.8))
-    ll.add_prop(sources, "BaggageLocker", 2.0, 44.8)
-    ll.add_prop(sources, "BaggageLocker", 4.2, 44.8)
+    add_additional_prop(ll, "AvRack", (*LL_AV_RACK, 10.8))
+    for x in LL_BAGGAGE_LOCKER_XS:
+        ll.add_prop(sources, "BaggageLocker", x, 44.8)
     rooms.append(ll)
 
     music = RoomBuilder.create("F04_Music", 10.8)
@@ -1209,7 +1283,8 @@ def build_school_rooms(
     gym.add_prop(sources, "BasketballGoal", 57.25, 8.5, math.pi / 2, 3.35)
     gym.add_prop(sources, "VaultingBox", 37.0, 22.5)
     gym.add_prop(sources, "VaultingBox", 39.0, 22.5)
-    gym.add_prop(sources, "StageLectern", 45.4, -6.5, 0.0, 1.0)
+    lectern_x, lectern_y, lectern_z = GYM_STAGE_LECTERN
+    gym.add_prop(sources, "StageLectern", lectern_x, lectern_y, 0.0, lectern_z)
     add_additional_prop(gym, "WallClock", (45.4, 26.3, 3.0))
     add_additional_prop(gym, "LifePreserverSign", (56.9, 23.5, 0.0), math.pi / 2)
     rooms.append(gym)

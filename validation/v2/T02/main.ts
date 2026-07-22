@@ -476,8 +476,8 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 479 &&
-        context.resources.normalColliders.length === 192 &&
+      context.resources.visualMeshes.length === 473 &&
+        context.resources.normalColliders.length === 187 &&
         context.resources.actorOnlyColliders.length === 82 &&
         context.resources.humanOnlyColliders.length === 58 &&
         context.resources.navSourceMeshes.length === 15 &&
@@ -1464,8 +1464,8 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 479 &&
-      activeContext.resources.normalColliders.length === 192 &&
+      activeContext.resources.visualMeshes.length === 473 &&
+      activeContext.resources.normalColliders.length === 187 &&
       activeContext.resources.actorOnlyColliders.length === 82 &&
       activeContext.resources.humanOnlyColliders.length === 58 &&
       activeContext.resources.navSourceMeshes.length === 15 &&

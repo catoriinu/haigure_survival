@@ -2223,8 +2223,8 @@ const runValidation = async () => {
           (link) => link.kind === "bit_roof"
         );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 479 &&
-          schoolContext.resources.normalColliders.length === 192 &&
+          schoolContext.resources.visualMeshes.length === 473 &&
+          schoolContext.resources.normalColliders.length === 187 &&
           schoolContext.resources.actorOnlyColliders.length === 82 &&
           schoolContext.resources.humanOnlyColliders.length === 58 &&
           schoolContext.resources.navSourceMeshes.length === 15 &&
@@ -3237,8 +3237,8 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 479 &&
-          reloadedContext.resources.normalColliders.length === 192 &&
+          reloadedContext.resources.visualMeshes.length === 473 &&
+          reloadedContext.resources.normalColliders.length === 187 &&
           reloadedContext.resources.actorOnlyColliders.length === 82 &&
           reloadedContext.resources.humanOnlyColliders.length === 58 &&
           reloadedContext.resources.navSourceMeshes.length === 15 &&

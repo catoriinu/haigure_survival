@@ -161,5 +161,9 @@ PLEASE IMPLEMENT THIS PLAN:
 ### 2026-07-22 人間受入後の最新結果
 
 - 本棚は本体8部品に色の異なる背表紙28冊を加え、計36 components／432 trianglesへ更新した。現行の表示小物合計は2,292 triangles、Collider合計は120 trianglesである。
-- 学校本体への統合では、本棚18台を室内側へ向けて壁沿いに並べ、図書室の前後出入口と窓に干渉しない配置を監査した。主玄関前の箱は撤去し、下駄箱代替としてライブラリの`BaggageLocker` 2台を建物内南壁際へ配置した。
-- 現行の小物ライブラリ`.blend`は169,321 bytes、SHA-256 `FAEBDD4CEFE2C80BE254021BFE151B975AADF5A3922ADCAD0B8958B96C30F7DF`である。確認用GLBは198,016 bytes、SHA-256 `7962D95D7983AD2E4946990EF1A03E2383FB83D3D26E4F78213A0A4CB6420750`で、Scene 1、Node 32、Mesh 32、Material 9、Camera 0、Light 0、Animation 0を維持する。
+
+### 2026-07-23 第3次人間受入後の最新結果
+
+- 教室椅子は全体寸法0.42×0.45×0.78mを維持し、木製背板を厚さ0.06m・上端0.78mへ拡張した。背面の金属支柱上端は0.77mとし、正面・上面から支柱が露出しないことを監査した。
+- 学校本体への統合では、廊下側壁の6台を加えた本棚24台を室内側へ向けて壁沿いに並べ、図書室の前後出入口と窓に干渉しない配置を監査した。主玄関前の箱は撤去し、下駄箱代替としてライブラリの`BaggageLocker` 2台を建物内南壁際へ配置した。
+- 現行の小物ライブラリ`.blend`は169,302 bytes、SHA-256 `898E4E43D39B470F6ECE344272192A45A26EBAF3F2477BF9F3D1D95DC3EB65DB`である。確認用GLBは198,016 bytes、SHA-256 `D32A33CD55453C90C0605F267513ED3082983259FB27853F7FEF494BDC83E9A9`で、Scene 1、Node 32、Mesh 32、Material 9、Camera 0、Light 0、Animation 0を維持する。
