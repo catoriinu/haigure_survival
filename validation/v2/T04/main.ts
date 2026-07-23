@@ -2223,8 +2223,8 @@ const runValidation = async () => {
           (link) => link.kind === "bit_roof"
         );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 473 &&
-          schoolContext.resources.normalColliders.length === 187 &&
+          schoolContext.resources.visualMeshes.length === 472 &&
+          schoolContext.resources.normalColliders.length === 185 &&
           schoolContext.resources.actorOnlyColliders.length === 82 &&
           schoolContext.resources.humanOnlyColliders.length === 58 &&
           schoolContext.resources.navSourceMeshes.length === 15 &&
@@ -2354,6 +2354,56 @@ const runValidation = async () => {
           ["プール底", new Vector3(23.4, 39.0, 14.61)]
         ] as const;
         const schoolNavigation = schoolContext.navigation;
+        const roofGuardNorthStartX = 2.4;
+        const roofGuardNorthEndX = 47.3;
+        const roofGuardPostCount = Math.ceil(
+          (roofGuardNorthEndX - roofGuardNorthStartX) / 1.1
+        );
+        const roofGuardPostSpacing =
+          (roofGuardNorthEndX - roofGuardNorthStartX) /
+          roofGuardPostCount;
+        const roofGuardGapX =
+          roofGuardNorthStartX + roofGuardPostSpacing * 6.5;
+        const roofGuardNorthY = 45.4;
+        const roofInsidePoint = blenderPointToBabylon(
+          new Vector3(roofGuardGapX, 44.5, 14.5)
+        );
+        const roofOutsidePoint = blenderPointToBabylon(
+          new Vector3(roofGuardGapX, 46.5, 14.5)
+        );
+        const roofGuardLinePoint = blenderPointToBabylon(
+          new Vector3(roofGuardGapX, roofGuardNorthY, 14.5)
+        );
+        const projectedRoofInside = schoolNavigation.projectPoint(
+          roofInsidePoint,
+          0.1
+        );
+        const projectedRoofOutside = schoolNavigation.projectPoint(
+          roofOutsidePoint,
+          0.1
+        );
+        const constrainedRoofMovement = projectedRoofInside
+          ? schoolNavigation.constrainMovement(
+              projectedRoofInside,
+              roofOutsidePoint
+            )
+          : null;
+        checks.push({
+          name: "屋上NorthOuter外点のNav投影拒否・内側拘束",
+          ok:
+            projectedRoofInside !== null &&
+            projectedRoofOutside === null &&
+            constrainedRoofMovement !== null &&
+            constrainedRoofMovement.position.z >=
+              roofGuardLinePoint.z - 1e-5,
+          detail:
+            `支柱数=${roofGuardPostCount} / 間隔=${roofGuardPostSpacing.toFixed(6)} / ` +
+            `隙間x=${roofGuardGapX.toFixed(6)} / ` +
+            `内点=${projectedRoofInside?.position.toString() ?? "null"} / ` +
+            `外点=${projectedRoofOutside?.position.toString() ?? "null"} / ` +
+            `拘束=${constrainedRoofMovement?.position.toString() ?? "null"} / ` +
+            `柵線Z=${roofGuardLinePoint.z.toFixed(6)}`
+        });
         const projectedPlayerSpawn = schoolNavigation.projectPoint(playerSpawn, 0.1);
         const upperFloorNavigationResults = upperFloorRepresentatives.map(
           ([label, blenderPoint]) => {
@@ -3237,8 +3287,8 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 473 &&
-          reloadedContext.resources.normalColliders.length === 187 &&
+          reloadedContext.resources.visualMeshes.length === 472 &&
+          reloadedContext.resources.normalColliders.length === 185 &&
           reloadedContext.resources.actorOnlyColliders.length === 82 &&
           reloadedContext.resources.humanOnlyColliders.length === 58 &&
           reloadedContext.resources.navSourceMeshes.length === 15 &&

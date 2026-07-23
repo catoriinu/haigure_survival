@@ -86,6 +86,11 @@ const makeStairPassageBounds = (x, y, z) => Object.freeze({
   maximum: Object.freeze({ x: x + 0.8, y: y + 0.8, z: z + 0.2 })
 });
 
+const makeToiletEntrancePassageBounds = (x, z) => Object.freeze({
+  minimum: Object.freeze({ x: x - 0.35, y: 38.25, z: z - 0.2 }),
+  maximum: Object.freeze({ x: x + 0.35, y: 38.75, z: z + 0.2 })
+});
+
 const REPRESENTATIVE_ROUTES = Object.freeze([
   Object.freeze({
     id: "main-entrance-to-courtyard",
@@ -394,16 +399,60 @@ const REPRESENTATIVE_ROUTES = Object.freeze([
     endBlender: Object.freeze([42.8, 29.5, 0])
   }),
   Object.freeze({
-    id: "male-toilet-aisle-to-stall",
-    label: "男子トイレ通路→個室",
-    startBlender: Object.freeze([-4.35, 42.4, 0]),
-    endBlender: Object.freeze([-5.75, 44.6, 0])
+    id: "first-floor-male-toilet-entrance-to-stall",
+    label: "1階男子トイレ入口外→個室",
+    startBlender: Object.freeze([-4.8, 37.5, 0]),
+    endBlender: Object.freeze([-5.75, 44.6, 0]),
+    requiredPassageBlender: makeToiletEntrancePassageBounds(-4.8, 0)
   }),
   Object.freeze({
-    id: "female-toilet-aisle-to-stall",
-    label: "女子トイレ通路→個室",
-    startBlender: Object.freeze([0.15, 42.4, 0]),
-    endBlender: Object.freeze([-1.25, 44.6, 0])
+    id: "first-floor-female-toilet-entrance-to-stall",
+    label: "1階女子トイレ入口外→個室",
+    startBlender: Object.freeze([-0.3, 37.5, 0]),
+    endBlender: Object.freeze([-1.25, 44.6, 0]),
+    requiredPassageBlender: makeToiletEntrancePassageBounds(-0.3, 0)
+  }),
+  Object.freeze({
+    id: "second-floor-male-toilet-entrance-to-stall",
+    label: "2階男子トイレ入口外→個室",
+    startBlender: Object.freeze([-4.8, 37.5, 3.6]),
+    endBlender: Object.freeze([-5.75, 44.6, 3.6]),
+    requiredPassageBlender: makeToiletEntrancePassageBounds(-4.8, 3.6)
+  }),
+  Object.freeze({
+    id: "second-floor-female-toilet-entrance-to-stall",
+    label: "2階女子トイレ入口外→個室",
+    startBlender: Object.freeze([-0.3, 37.5, 3.6]),
+    endBlender: Object.freeze([-1.25, 44.6, 3.6]),
+    requiredPassageBlender: makeToiletEntrancePassageBounds(-0.3, 3.6)
+  }),
+  Object.freeze({
+    id: "third-floor-male-toilet-entrance-to-stall",
+    label: "3階男子トイレ入口外→個室",
+    startBlender: Object.freeze([-4.8, 37.5, 7.2]),
+    endBlender: Object.freeze([-5.75, 44.6, 7.2]),
+    requiredPassageBlender: makeToiletEntrancePassageBounds(-4.8, 7.2)
+  }),
+  Object.freeze({
+    id: "third-floor-female-toilet-entrance-to-stall",
+    label: "3階女子トイレ入口外→個室",
+    startBlender: Object.freeze([-0.3, 37.5, 7.2]),
+    endBlender: Object.freeze([-1.25, 44.6, 7.2]),
+    requiredPassageBlender: makeToiletEntrancePassageBounds(-0.3, 7.2)
+  }),
+  Object.freeze({
+    id: "fourth-floor-male-toilet-entrance-to-stall",
+    label: "4階男子トイレ入口外→個室",
+    startBlender: Object.freeze([-4.8, 37.5, 10.8]),
+    endBlender: Object.freeze([-5.75, 44.6, 10.8]),
+    requiredPassageBlender: makeToiletEntrancePassageBounds(-4.8, 10.8)
+  }),
+  Object.freeze({
+    id: "fourth-floor-female-toilet-entrance-to-stall",
+    label: "4階女子トイレ入口外→個室",
+    startBlender: Object.freeze([-0.3, 37.5, 10.8]),
+    endBlender: Object.freeze([-1.25, 44.6, 10.8]),
+    requiredPassageBlender: makeToiletEntrancePassageBounds(-0.3, 10.8)
   }),
   Object.freeze({
     id: "west-special-room-south-to-north",

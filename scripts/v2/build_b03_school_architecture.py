@@ -27,6 +27,7 @@ from build_b03_school_interiors import (
     UPPER_WEST_CLASSROOM_DOOR_OPENINGS,
     build_school_interiors,
     consolidate_school_materials,
+    swatch_uv,
 )
 
 
@@ -53,11 +54,11 @@ WINDOW_FRAME_BORDER = 0.05
 WINDOW_MEETING_STILE_WIDTH = 0.06
 WALL_THICKNESS = 0.30
 LINK_RADIUS_METERS = 0.54
-GENERATOR_VERSION = "t04-2b-acceptance-v03"
+GENERATOR_VERSION = "t04-2b-acceptance-v04"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
-T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v06"
+T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v07"
 
 STAIR_NAV_BLOCKER_SOURCE_NAMES = (
     "COL_StairGuard_NE_Landing",
@@ -100,6 +101,56 @@ UPPER_FLOOR_PANELS_XY = (
     ((-12.6, 32.5), (-6.6, 38.9)),
     ((41.4, 32.5), (47.4, 38.9)),
 )
+F4_CEILING_PANELS_XY = (
+    *UPPER_FLOOR_PANELS_XY,
+    ((-12.6, -3.5), (-6.0, 2.5)),
+    ((41.4, 38.9), (47.4, 45.5)),
+)
+
+ROOF_GUARD_SEGMENTS = (
+    (
+        "CourtyardNorth",
+        (-0.1, 32.6, 14.5),
+        (47.3, 32.6, 14.5),
+        False,
+        True,
+    ),
+    (
+        "CourtyardWest",
+        (-0.1, -3.4, 14.5),
+        (-0.1, 32.6, 14.5),
+        False,
+        True,
+    ),
+    (
+        "EastOuter",
+        (47.3, 32.6, 14.5),
+        (47.3, 45.4, 14.5),
+        False,
+        True,
+    ),
+    (
+        "NorthOuter",
+        (2.4, 45.4, 14.5),
+        (47.3, 45.4, 14.5),
+        True,
+        False,
+    ),
+    (
+        "SouthOuter",
+        (-12.5, -3.4, 14.5),
+        (-0.1, -3.4, 14.5),
+        False,
+        True,
+    ),
+    (
+        "WestOuter",
+        (-12.5, -3.4, 14.5),
+        (-12.5, 38.9, 14.5),
+        True,
+        True,
+    ),
+)
 
 WINDOW_AUTHORING_PROPERTY_NAMES = (
     "hs_window_clear_height_m",
@@ -131,6 +182,8 @@ GENERATED_PREFIXES = (
     "COL_StairSystem_SW_",
     "VIS_StairGuardSystem_SW_",
     "COL_StairGuardSystem_SW_",
+    "VIS_RoofGuard_",
+    "COL_RoofGuard_",
 )
 
 GENERATED_EXACT_NAMES = {
@@ -601,7 +654,7 @@ def upper_stair_guard_base_segments(
     lower_end = Vector((-10.28, 43.1, base_z + 2.4))
     landing_end = Vector((-8.92, 43.1, base_z + 2.4))
     upper_end = Vector((-8.92, 40.7, base_z + 3.6))
-    top_end = Vector((-10.28, 40.7, base_z + 3.6))
+    top_end = Vector((-8.92, 38.9, base_z + 3.6))
     lower_segments = [
         (lower_start, lower_end),
     ]
@@ -620,8 +673,8 @@ def upper_stair_guard_base_segments(
         ),
         "Terminal": (
             (
-                Vector((-12.6, 38.98, base_z + 3.6)),
-                Vector((-9.0, 38.98, base_z + 3.6)),
+                Vector((-12.6, 38.9, base_z + 3.6)),
+                Vector((-8.92, 38.9, base_z + 3.6)),
             ),
         ),
     }
@@ -743,6 +796,73 @@ def rebuild_first_transition_stair_guards() -> None:
             )
 
 
+def create_roof_guard_geometry(
+    start_coordinates: tuple[float, float, float],
+    end_coordinates: tuple[float, float, float],
+    include_start_post: bool,
+    include_end_post: bool,
+) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
+    start = Vector(start_coordinates)
+    end = Vector(end_coordinates)
+    vertices: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    for rail_height in (0.55, 1.0):
+        vertical = Vector((0.0, 0.0, rail_height))
+        append_sloped_rail_prism(
+            vertices,
+            faces,
+            start + vertical,
+            end + vertical,
+        )
+
+    direction = end - start
+    horizontal_length = math.hypot(direction.x, direction.y)
+    post_count = max(1, math.ceil(horizontal_length / 1.1))
+    for index in range(post_count + 1):
+        if index == 0 and not include_start_post:
+            continue
+        if index == post_count and not include_end_post:
+            continue
+        base = start + direction * (index / post_count)
+        append_box(
+            vertices,
+            faces,
+            (base.x - 0.05, base.y - 0.05, base.z),
+            (base.x + 0.05, base.y + 0.05, base.z + 1.05),
+        )
+    return vertices, faces
+
+
+def rebuild_roof_guards() -> None:
+    visual_collection = collection(VIS_COLLECTION_NAME)
+    collider_collection = collection(COL_COLLECTION_NAME)
+    for (
+        suffix,
+        start,
+        end,
+        include_start_post,
+        include_end_post,
+    ) in ROOF_GUARD_SEGMENTS:
+        vertices, faces = create_roof_guard_geometry(
+            start,
+            end,
+            include_start_post,
+            include_end_post,
+        )
+        upsert_mesh_geometry(
+            f"VIS_RoofGuard_{suffix}",
+            vertices,
+            faces,
+            visual_collection,
+        )
+        upsert_mesh_geometry(
+            f"COL_RoofGuard_{suffix}",
+            vertices,
+            faces,
+            collider_collection,
+        )
+
+
 def transform_stair_vertices(
     vertices: list[tuple[float, float, float]],
     stair: str,
@@ -841,6 +961,7 @@ def align_existing_storey_sources() -> None:
     for obj in bpy.data.objects:
         if obj.name.startswith(rooftop_prefixes):
             shift_object_geometry_z(obj, rooftop_shift)
+    rebuild_roof_guards()
     rebuild_first_transition_stair_guards()
     rebuild_upper_stairs()
     align_acceptance_geometry()
@@ -1147,7 +1268,7 @@ def upper_interior_wall_boxes(
     base_z: float,
 ) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
     z0 = base_z
-    z1 = base_z + (3.0 if floor in (2, 3) else 3.6)
+    z1 = base_z + 3.0
     boundary_z1 = base_z + 3.6
     west_doors = [
         (minimum, maximum, z0, z0 + 2.3)
@@ -1666,8 +1787,18 @@ def build_upper_floors_and_rooms(
             )
         )
 
-        if floor in (2, 3):
-            ceiling_boxes = interfloor_structure_boxes(base_z + 3.6)
+        if floor in (2, 3, 4):
+            ceiling_boxes = (
+                interfloor_structure_boxes(base_z + 3.6)
+                if floor in (2, 3)
+                else [
+                    (
+                        (minimum[0], minimum[1], base_z + 3.0),
+                        (maximum[0], maximum[1], base_z + 3.6),
+                    )
+                    for minimum, maximum in F4_CEILING_PANELS_XY
+                ]
+            )
             create_mesh_object(
                 f"VIS_B03_Ceiling_F{floor:02d}",
                 ceiling_boxes,
@@ -1743,8 +1874,6 @@ def build_readability_finish(visual_collection: bpy.types.Collection) -> None:
         create_mesh_object(
             f"VIS_B03_StoreyTrim_F{floor:02d}",
             [
-                ((-3.47, 36.41, base_z + 0.02), (-3.39, 36.45, base_z + 3.50)),
-                ((-6.60, 36.41, base_z + 0.02), (-6.52, 36.45, base_z + 3.50)),
                 ((41.32, 36.41, base_z + 0.02), (41.40, 36.45, base_z + 3.50)),
             ],
             visual_collection,
@@ -1990,8 +2119,6 @@ def build_minimum_props(
     source_names = [
         "VIS_Prop_WesternToilet",
         "VIS_Prop_Urinal",
-        "VIS_Prop_BaggageLocker",
-        "COL_Prop_BaggageLocker",
     ]
     sources = import_prop_sources(source_names)
     toilet_positions = [
@@ -2017,28 +2144,6 @@ def build_minimum_props(
             (-2.40, y, 0.8),
             math.pi / 2,
             visual_collection,
-        )
-
-    locker_positions = [
-        ("Changing_M_01", (-5.5, 44.9, 14.5)),
-        ("Changing_M_02", (-3.3, 44.9, 14.5)),
-        ("Changing_F_01", (-1.0, 44.9, 14.5)),
-        ("Changing_F_02", (1.2, 44.9, 14.5)),
-    ]
-    for suffix, position in locker_positions:
-        instantiate_prop(
-            sources["VIS_Prop_BaggageLocker"],
-            f"VIS_B03_Prop_Locker_{suffix}",
-            position,
-            0.0,
-            visual_collection,
-        )
-        instantiate_prop(
-            sources["COL_Prop_BaggageLocker"],
-            f"COL_B03_Prop_Locker_{suffix}",
-            position,
-            0.0,
-            collider_collection,
         )
 
     bench_boxes = [
@@ -2314,6 +2419,23 @@ def normalize_export_meshes(export_collection: bpy.types.Collection) -> None:
             obj.scale = (1.0, 1.0, 1.0)
 
 
+def apply_architecture_swatch_uv(
+    object_names: tuple[str, ...],
+    swatch: str,
+) -> None:
+    coordinates = swatch_uv("Architecture", swatch)
+    for object_name in object_names:
+        obj = bpy.data.objects.get(object_name)
+        if obj is None or obj.type != "MESH":
+            raise RuntimeError(f"Architecture Atlasの再配色対象がありません: {object_name}")
+        uv_layer = obj.data.uv_layers.get("UVMap")
+        if uv_layer is None:
+            uv_layer = obj.data.uv_layers.new(name="UVMap")
+        for polygon in obj.data.polygons:
+            for corner_index, loop_index in enumerate(polygon.loop_indices):
+                uv_layer.data[loop_index].uv = coordinates[corner_index % 4]
+
+
 def export_stage(
     export_collection: bpy.types.Collection,
 ) -> dict[str, int | str]:
@@ -2417,10 +2539,12 @@ def is_current_generation() -> bool:
                 "VIS_B03_InterfloorStructure_F01_West",
                 "VIS_B03_Ceiling_F02",
                 "VIS_B03_Ceiling_F03",
+                "VIS_B03_Ceiling_F04",
                 "COL_B03_InterfloorStructure_F01_North",
                 "COL_B03_InterfloorStructure_F01_West",
                 "COL_B03_Ceiling_F02",
                 "COL_B03_Ceiling_F03",
+                "COL_B03_Ceiling_F04",
             )
         )
         and not any(
@@ -2551,6 +2675,10 @@ def main() -> None:
     build_nav_sources(nav_collection, upper_colliders, window_colliders)
     normalize_export_meshes(export_collection)
     material_result = consolidate_school_materials(export_collection)
+    apply_architecture_swatch_uv(
+        tuple(f"VIS_RoofGuard_{suffix}" for suffix, *_ in ROOF_GUARD_SEGMENTS),
+        "trim",
+    )
     bpy.context.scene["b03_2_material_result"] = json.dumps(
         material_result, ensure_ascii=False, sort_keys=True
     )
