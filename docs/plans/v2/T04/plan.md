@@ -299,7 +299,7 @@ PR #43の未解決レビューを正本とし、特殊接続端点間の通常Na
 |---|---|---|---|---|---|
 | T04-1 3D空間基盤 | PR #41で完了 | 完了 | GPT-5.6 Sol | High | `StageSpatialContext`、1階NavMesh、NPC・ビット基本移動、通常視線・ビーム |
 | T04-2A 高さ付きNav基盤 | 完了・`develop`統合済み | `codex/v2-t04-height-nav-core` | GPT-5.6 Sol | Ultra | `navigationWorld`、`navigationAgent`、移動者別衝突、`bit_window`／`bit_roof`、重複床・階段・低天井・窓専用fixture。学校バイナリは変更しない |
-| T04-2B 学校複数階統合 | 第5次人間受入修正の実装・資産再生成・総合回帰完了（ローカル統合待ち） | `codex/v2-t04-school-multifloor` | GPT-5.6 Sol | Ultra | B03最終GLBからのNavMesh、カタログハッシュ、NPC複数階、実窓・屋上接続分類、実学校回帰 |
+| T04-2B 学校複数階統合 | 第5次人間受入修正をローカル統合済み（人間再受入待ち） | `codex/v2-t04-school-multifloor` | GPT-5.6 Sol | Ultra | B03最終GLBからのNavMesh、カタログハッシュ、NPC複数階、実窓・屋上接続分類、実学校回帰 |
 
 T04-2AはB03-0と別worktreeで並行できる。T04-2BはT04-2AとB03-2の両方が`develop`へマージされた後に開始する。各作業単位は`docs/plan.md`、`docs/plans/v2/next_tasks_plan.md`、本計画、`docs/branch_strategy.md`を必ず読む。
 
@@ -874,10 +874,11 @@ T04-2AはB03-0と別worktreeで並行できる。T04-2BはT04-2AとB03-2の両�
 - [x] NavMeshを2回ベイクし、bytes／SHA-256、62代表経路、60特殊リンク／120端点、3 Volume、NPC複数階移動を確認する
 - [x] 依存監査、型検査、通常build、`build:t01`～`build:t04`、T02～T04のWeb／Electron回帰を実行する
 - [x] 最終容量・ハッシュ・件数・視覚確認を記録し、修正コミットを作成する
-- [ ] T04へ`--no-ff`でローカルマージし、補助ブランチを保持する。push／Pull Requestは行わない
+- [x] T04へ`--no-ff`でローカルマージし、補助ブランチを保持する。push／Pull Requestは行わない
 
 #### 結果
 
 - 正本生成処理と監査を`acceptance-v05`／`nav-connectivity-v08`へ更新し、F03・F04境界壁、音楽室、北通用口、体育倉庫表札、両校門、7区画のブロック塀目地、全階階色帯を修正した。建築・内装・保護契約監査は合格し、938 Node／816 Mesh、VIS 472、通常COL 185、ActorOnly 82、HumanOnly 58、NAV 15、特殊リンク60組／120端点、3 Volumeを維持した。
 - GLBは2回とも10,861,356 bytes／SHA-256 `6BB6BF52AE10F21227FDF94948FA6ED7F8A9886E95C7B502606094284C4A8392`で一致した。最終`.blend`は1,663,537 bytes／`83139870430EE9999C23753245ACF3DC06B3AC01EB96EA211FF0919FA3D777F9`である。NavMeshも2回とも512,900 bytes／`F80AC812B13D6E6D27B98E8DEBB8F3BDF9891140083E74E393B7A32FE08E30DC`で一致し、19,344 vertices／6,448 triangles、62代表経路、60特殊リンク／120端点を確認した。
 - `npm run audit:v2:dependencies`、`npm run typecheck:v2`、`npm run build`、`npm run build:t01`～`build:t04`はすべて成功した。WebとElectronはT02 36/36、T03 24/24、T04 59/59を初回・再実行・再読込で確認し、検証ページのwarning／errorは0件だった。通常ゲームはWebと実Electronで学校3D空間、接地、NPC・BIT・BEAM更新まで起動し、実Electronではポインターロックと移動入力も確認した。固定視点11枚を再生成し、F02～F04境界壁、音楽室、北通用口、主門・北東門、ブロック塀、F01～F04階色帯、全3階段の手すりを目視確認した。
+- 修正は`996cb7e`（`fix: 学校の第5次受入指摘を修正`）へコミットし、T04本体へ`--no-ff`の`142abb8`でローカル統合した。補助ブランチ`codex/v2-t04-school-acceptance-fix-5`は保持し、push／Pull Requestは作成していない。
