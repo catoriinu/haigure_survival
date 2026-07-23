@@ -28,6 +28,7 @@ from optimize_b03_school_glb import (
 from build_b03_school_interiors import (
     FIRST_FLOOR_WEST_DOOR_OPENINGS,
     NORTH_CLASSROOM_DOOR_OPENINGS,
+    ROOF_POOL_NORTH_SIGN_SUPPORT,
     TOILET_COMMON_OPENING,
     UPPER_WEST_CLASSROOM_DOOR_OPENINGS,
     swatch_uv,
@@ -46,7 +47,7 @@ PROP_LIBRARY_PATH = (
 )
 
 EXPECTED_NAVMESH_SHA256 = (
-    "F4483A149E7E6199B854E5381C7E56AA31BE35F7F1D67E225A5E1FA170B24732"
+    "72F3C4B8FDCD2E92EE71ECF5A848683C57DDB9E342FF52059DDFB4179BF29F82"
 )
 EXPECTED_PROP_LIBRARY_SHA256 = (
     "898E4E43D39B470F6ECE344272192A45A26EBAF3F2477BF9F3D1D95DC3EB65DB"
@@ -54,6 +55,53 @@ EXPECTED_PROP_LIBRARY_SHA256 = (
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
+EXPECTED_GENERATOR_VERSION = "t04-2b-acceptance-v04"
+EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v07"
+
+ROOF_GUARD_SEGMENTS = (
+    (
+        "CourtyardNorth",
+        (-0.1, 32.6, 14.5),
+        (47.3, 32.6, 14.5),
+        False,
+        True,
+    ),
+    (
+        "CourtyardWest",
+        (-0.1, -3.4, 14.5),
+        (-0.1, 32.6, 14.5),
+        False,
+        True,
+    ),
+    (
+        "EastOuter",
+        (47.3, 32.6, 14.5),
+        (47.3, 45.4, 14.5),
+        False,
+        True,
+    ),
+    (
+        "NorthOuter",
+        (2.4, 45.4, 14.5),
+        (47.3, 45.4, 14.5),
+        True,
+        False,
+    ),
+    (
+        "SouthOuter",
+        (-12.5, -3.4, 14.5),
+        (-0.1, -3.4, 14.5),
+        False,
+        True,
+    ),
+    (
+        "WestOuter",
+        (-12.5, -3.4, 14.5),
+        (-12.5, 38.9, 14.5),
+        True,
+        True,
+    ),
+)
 
 EXPECTED_OPEN_UNITS: dict[str, tuple[int, ...]] = {
     "F01_CourtyardNorth_Corridor_02": (3,),
@@ -140,13 +188,25 @@ def audit_box_components(
         len(actual) == len(expected),
         f"箱形状監査対象の部品数が不正です: {object_name}/{len(actual)}",
     )
-    actual.sort()
-    expected.sort()
-    for actual_bounds, expected_bounds in zip(actual, expected, strict=True):
-        require(
-            bounds_match(actual_bounds, expected_bounds),
-            f"箱形状監査対象の位置が不正です: {object_name}/{actual_bounds}/{expected_bounds}",
+    unmatched_actual = list(actual)
+    for expected_bounds in expected:
+        matching_index = next(
+            (
+                index
+                for index, actual_bounds in enumerate(unmatched_actual)
+                if bounds_match(actual_bounds, expected_bounds)
+            ),
+            None,
         )
+        require(
+            matching_index is not None,
+            f"箱形状監査対象の位置が不正です: {object_name}/{expected_bounds}",
+        )
+        unmatched_actual.pop(matching_index)
+    require(
+        not unmatched_actual,
+        f"箱形状監査対象に未照合部品があります: {object_name}/{unmatched_actual}",
+    )
     return len(actual)
 
 
@@ -181,6 +241,53 @@ def bounds_match(
         for bound in range(2)
         for axis in range(3)
     )
+
+
+def expected_linear_guard_component_bounds(
+    start_coordinates: tuple[float, float, float],
+    end_coordinates: tuple[float, float, float],
+    include_start_post: bool,
+    include_end_post: bool,
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    start = Vector(start_coordinates)
+    end = Vector(end_coordinates)
+    direction = end - start
+    horizontal_length = math.hypot(direction.x, direction.y)
+    require(horizontal_length > 0.3, "屋上柵線分が短すぎます")
+    side = Vector(
+        (-direction.y / horizontal_length, direction.x / horizontal_length, 0.0)
+    ) * 0.05
+    result = []
+    for rail_height in (0.55, 1.0):
+        vertical = Vector((0.0, 0.0, rail_height))
+        half_height = Vector((0.0, 0.0, 0.05))
+        points = [
+            point + offset + vertical + z_offset
+            for point in (start, end)
+            for offset in (side, -side)
+            for z_offset in (half_height, -half_height)
+        ]
+        result.append(
+            (
+                tuple(min(point[axis] for point in points) for axis in range(3)),
+                tuple(max(point[axis] for point in points) for axis in range(3)),
+            )
+        )
+
+    post_count = max(1, math.ceil(horizontal_length / 1.1))
+    for index in range(post_count + 1):
+        if index == 0 and not include_start_post:
+            continue
+        if index == post_count and not include_end_post:
+            continue
+        base = start + direction * (index / post_count)
+        result.append(
+            (
+                (base.x - 0.05, base.y - 0.05, base.z),
+                (base.x + 0.05, base.y + 0.05, base.z + 1.05),
+            )
+        )
+    return result
 
 
 def require_box_component(
@@ -467,7 +574,7 @@ def audit_classroom_openings_and_boundaries() -> dict[str, int]:
             f"VIS_B03_InteriorWalls_F{floor:02d}",
             f"COL_B03_InteriorWalls_F{floor:02d}",
         )
-        wall_top = base_z + (3.0 if floor in (2, 3) else 3.6)
+        wall_top = base_z + 3.0
         for wall_name in wall_names:
             wall = bpy.data.objects.get(wall_name)
             require(wall is not None and wall.type == "MESH", f"上階内壁がありません: {wall_name}")
@@ -583,7 +690,7 @@ def audit_stair_boundary_walls() -> dict[str, int]:
                     ),
                 )
                 checks += 1
-            if floor in (2, 3):
+            if floor in (2, 3, 4):
                 wall = bpy.data.objects[wall_name]
                 unexpected_ceiling_overlaps = [
                     bounds
@@ -618,6 +725,8 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     for floor in range(1, 5):
         expected_swatches[f"VIS_B03_StoreyTrim_F{floor:02d}"] = "trim"
         expected_swatches[f"VIS_B03_StoreyBand_F{floor:02d}"] = f"floor_{floor}"
+    for floor in range(2, 5):
+        expected_swatches[f"VIS_B03_Ceiling_F{floor:02d}"] = "ceiling"
     for object_name, swatch in expected_swatches.items():
         require_architecture_swatch(object_name, swatch)
 
@@ -644,8 +753,6 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
         trim_components += audit_box_components(
             f"VIS_B03_StoreyTrim_F{floor:02d}",
             [
-                ((-3.47, 36.41, base_z + 0.02), (-3.39, 36.45, base_z + 3.50)),
-                ((-6.60, 36.41, base_z + 0.02), (-6.52, 36.45, base_z + 3.50)),
                 ((41.32, 36.41, base_z + 0.02), (41.40, 36.45, base_z + 3.50)),
             ],
         )
@@ -706,6 +813,22 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
                 f"{prefix}_B03_Ceiling_F{lower_floor:02d}",
                 list(expected_structure),
             )
+    expected_roof_ceiling = [
+        (
+            (minimum[0], minimum[1], 13.8),
+            (maximum[0], maximum[1], 14.4),
+        )
+        for minimum, maximum in (
+            *floor_panels,
+            ((-12.6, -3.5), (-6.0, 2.5)),
+            ((41.4, 38.9), (47.4, 45.5)),
+        )
+    ]
+    for prefix in ("VIS", "COL"):
+        structure_component_count += audit_box_components(
+            f"{prefix}_B03_Ceiling_F04",
+            list(expected_roof_ceiling),
+        )
 
     lintels = [
         obj.name
@@ -755,6 +878,20 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     require(
         not present_floor_accents,
         f"旧床アクセントが残っています: {present_floor_accents}",
+    )
+    legacy_changing_lockers = sorted(
+        obj.name
+        for obj in objects
+        if obj.name.startswith(
+            (
+                "VIS_B03_Prop_Locker_Changing_",
+                "COL_B03_Prop_Locker_Changing_",
+            )
+        )
+    )
+    require(
+        not legacy_changing_lockers,
+        f"建築側の重複更衣室ロッカーが残っています: {legacy_changing_lockers}",
     )
 
     for name in ("VIS_MainEntryDoor_Open_North", "VIS_MainEntryDoor_Open_South"):
@@ -857,6 +994,149 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     }
 
 
+def audit_roof_guards() -> dict[str, int]:
+    component_count = 0
+    post_spacing_checks = 0
+    component_bounds_by_name: dict[
+        str,
+        list[tuple[tuple[float, float, float], tuple[float, float, float]]],
+    ] = {}
+    for (
+        suffix,
+        start,
+        end,
+        include_start_post,
+        include_end_post,
+    ) in ROOF_GUARD_SEGMENTS:
+        expected_components = expected_linear_guard_component_bounds(
+            start,
+            end,
+            include_start_post,
+            include_end_post,
+        )
+        for prefix in ("VIS", "COL"):
+            object_name = f"{prefix}_RoofGuard_{suffix}"
+            component_count += audit_box_components(
+                object_name,
+                list(expected_components),
+            )
+            component_bounds_by_name[object_name] = box_component_bounds(
+                bpy.data.objects[object_name]
+            )
+        require_architecture_swatch(f"VIS_RoofGuard_{suffix}", "trim")
+        horizontal_length = math.hypot(end[0] - start[0], end[1] - start[1])
+        require(
+            horizontal_length / math.ceil(horizontal_length / 1.1)
+            <= 1.1 + TOLERANCE,
+            f"屋上柵の支柱間隔が1.1mを超えています: {suffix}",
+        )
+        post_spacing_checks += 1
+
+    shared_junctions = (
+        (
+            (-12.5, -3.4, 14.5),
+            ("WestOuter", "SouthOuter"),
+        ),
+        (
+            (-0.1, -3.4, 14.5),
+            ("SouthOuter", "CourtyardWest"),
+        ),
+        (
+            (-0.1, 32.6, 14.5),
+            ("CourtyardWest", "CourtyardNorth"),
+        ),
+        (
+            (47.3, 32.6, 14.5),
+            ("CourtyardNorth", "EastOuter"),
+        ),
+        (
+            (47.3, 45.4, 14.5),
+            ("EastOuter", "NorthOuter"),
+        ),
+    )
+    junction_checks = 0
+    for point, suffixes in shared_junctions:
+        top_rail_point = (point[0], point[1], point[2] + 1.0)
+        expected_post = (
+            (point[0] - 0.05, point[1] - 0.05, point[2]),
+            (point[0] + 0.05, point[1] + 0.05, point[2] + 1.05),
+        )
+        for prefix in ("VIS", "COL"):
+            for suffix in suffixes:
+                require_point_in_box_component(
+                    f"{prefix}_RoofGuard_{suffix}",
+                    top_rail_point,
+                )
+                junction_checks += 1
+            owning_posts = sum(
+                any(
+                    bounds_match(component, expected_post)
+                    for component in component_bounds_by_name[
+                        f"{prefix}_RoofGuard_{suffix}"
+                    ]
+                )
+                for suffix in suffixes
+            )
+            require(
+                owning_posts == 1,
+                f"屋上柵共有角の支柱が欠落または重複しています: {prefix}/{point}/{owning_posts}",
+            )
+            junction_checks += 1
+
+    facility_connections = (
+        ((-12.5, 38.9, 15.0), "WestOuter"),
+        ((2.4, 45.4, 15.0), "NorthOuter"),
+    )
+    for point, suffix in facility_connections:
+        for prefix, facility_name in (
+            ("VIS", "VIS_RooftopFacilityWalls"),
+            ("COL", "COL_RooftopFacilityShell"),
+        ):
+            require_point_in_box_component(
+                f"{prefix}_RoofGuard_{suffix}",
+                point,
+            )
+            require_point_in_box_component(facility_name, point)
+            junction_checks += 2
+
+    support_center, support_size = ROOF_POOL_NORTH_SIGN_SUPPORT
+    require(
+        support_center == (39.5, 45.28, 15.5)
+        and support_size == (0.10, 0.24, 0.10),
+        "屋上北側救命表示ブラケットの座標または寸法が契約値と一致しません",
+    )
+    expected_support = (
+        tuple(
+            support_center[axis] - support_size[axis] / 2.0 for axis in range(3)
+        ),
+        tuple(
+            support_center[axis] + support_size[axis] / 2.0 for axis in range(3)
+        ),
+    )
+    require_box_component(
+        "VIS_B03_Interior_RoofPoolSafety_Architecture",
+        expected_support,
+    )
+    bracket_guard_contact = (39.5, 45.4, 15.5)
+    require_point_in_box_component(
+        "VIS_B03_Interior_RoofPoolSafety_Architecture",
+        bracket_guard_contact,
+    )
+    for prefix in ("VIS", "COL"):
+        require_point_in_box_component(
+            f"{prefix}_RoofGuard_NorthOuter",
+            bracket_guard_contact,
+        )
+        junction_checks += 1
+
+    return {
+        "objects": len(ROOF_GUARD_SEGMENTS) * 2,
+        "components": component_count,
+        "post_spacing_checks": post_spacing_checks,
+        "junction_checks": junction_checks,
+    }
+
+
 def read_glb_json(path: Path) -> dict[str, object]:
     with path.open("rb") as stream:
         header = stream.read(12)
@@ -934,6 +1214,9 @@ def audit_links(objects: list[bpy.types.Object]) -> dict[str, int]:
         if obj.name.startswith("COL_HumanOnly_Window_")
     }
     kinds = Counter()
+    roof_guards = [
+        obj for obj in objects if obj.name.startswith("COL_RoofGuard_")
+    ]
     for link_id, endpoints in pairs.items():
         require(set(endpoints) == {"A", "B"}, f"LNK pairが不完全です: {link_id}")
         a = endpoints["A"]
@@ -962,9 +1245,26 @@ def audit_links(objects: list[bpy.types.Object]) -> dict[str, int]:
                 f"bit_windowが壁法線方向ではありません: {link_id}",
             )
         elif kind == "bit_roof":
+            midpoint = (a.location + b.location) / 2
+            crossed_guards: list[tuple[bpy.types.Object, float]] = []
+            for guard in roof_guards:
+                minimum, maximum = world_bounds(guard)
+                if (
+                    minimum.x - 1e-5 <= midpoint.x <= maximum.x + 1e-5
+                    and minimum.y - 1e-5 <= midpoint.y <= maximum.y + 1e-5
+                ):
+                    crossed_guards.append((guard, maximum.z))
             require(
-                min(a.location.z, b.location.z) - 13.8 >= 0.54,
-                f"bit_roofが屋上手すりへ半径0.54mの空きを持ちません: {link_id}",
+                len(crossed_guards) == 1,
+                f"bit_roofが横断する屋上柵を一意に特定できません: "
+                f"{link_id} / {[guard.name for guard, _ in crossed_guards]}",
+            )
+            guard, guard_top = crossed_guards[0]
+            require(
+                min(a.location.z, b.location.z) - guard_top >= 0.54,
+                f"bit_roofが{guard.name}へ半径0.54mの空きを持ちません: "
+                f"{link_id} / clearance="
+                f"{min(a.location.z, b.location.z) - guard_top}",
             )
     expected_window_links = 58
     require(kinds["bit_window"] == expected_window_links, f"bit_windowが{expected_window_links}組ではありません: {kinds}")
@@ -1373,8 +1673,10 @@ def audit_semantics(objects: list[bpy.types.Object]) -> None:
         "COL_B03_InterfloorStructure_F01_West",
         "VIS_B03_Ceiling_F02",
         "VIS_B03_Ceiling_F03",
+        "VIS_B03_Ceiling_F04",
         "COL_B03_Ceiling_F02",
         "COL_B03_Ceiling_F03",
+        "COL_B03_Ceiling_F04",
         "COL_Roof_North",
         "COL_Roof_West",
         "COL_GymRoof",
@@ -1686,6 +1988,20 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
                     f"1FTo2F/{stair}",
                 )
                 rail_junction_checks += 1
+        for rail_height in (0.55, 1.0):
+            require_rail_segment(
+                first_segments,
+                transform_stair_point(
+                    stair,
+                    (-8.92, 40.7, 3.6 + rail_height),
+                ),
+                transform_stair_point(
+                    stair,
+                    (-8.92, 38.9, 3.6 + rail_height),
+                ),
+                f"1FTo2F到達柵/{stair}",
+            )
+            rail_junction_checks += 1
 
     connector_surface_count = 0
     terminal_guard_checks = 0
@@ -1726,10 +2042,24 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
                         f"{suffix}/{stair}",
                     )
                     rail_junction_checks += 1
+            for rail_height in (0.55, 1.0):
+                require_rail_segment(
+                    segments,
+                    transform_stair_point(
+                        stair,
+                        (-8.92, 40.7, base_z + 3.6 + rail_height),
+                    ),
+                    transform_stair_point(
+                        stair,
+                        (-8.92, 38.9, base_z + 3.6 + rail_height),
+                    ),
+                    f"{suffix}到達柵/{stair}",
+                )
+                rail_junction_checks += 1
 
             if has_terminal:
-                terminal_start = (-12.6, 38.98, base_z + 3.6)
-                terminal_end = (-9.0, 38.98, base_z + 3.6)
+                terminal_start = (-12.6, 38.9, base_z + 3.6)
+                terminal_end = (-8.92, 38.9, base_z + 3.6)
                 for rail_height in (0.55, 1.0):
                     world_start = transform_stair_point(
                         stair,
@@ -1757,8 +2087,8 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
                 terminal_collider_bounds = transform_stair_bounds(
                     stair,
                     (
-                        (-12.6, 38.90, base_z + 3.6),
-                        (-9.0, 39.06, base_z + 4.65),
+                        (-12.6, 38.82, base_z + 3.6),
+                        (-8.92, 38.98, base_z + 4.65),
                     ),
                 )
                 require_box_component(collider_name, terminal_collider_bounds)
@@ -1773,6 +2103,30 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
             connector = transform_stair_point(stair, (-7.8, 39.8, base_z + 3.6))
             require(has_horizontal_surface(stair_object, connector), f"階段上端の接続床がありません: {stair}/{suffix}")
             connector_surface_count += 1
+
+    for stair in ("NW", "NE", "SW"):
+        guard_objects = tuple(
+            obj
+            for obj in objects
+            if obj.name.startswith(
+                (
+                    f"VIS_StairGuard_{stair}_",
+                    f"VIS_StairGuardSystem_{stair}_",
+                )
+            )
+        )
+        all_segments = rail_centerline_segments(guard_objects)
+        for arrival_z in (3.6, 7.2, 10.8):
+            for rail_height in (0.55, 1.0):
+                require_rail_junction(
+                    all_segments,
+                    transform_stair_point(
+                        stair,
+                        (-8.92, 38.9, arrival_z + rail_height),
+                    ),
+                    f"階段到達柵/{stair}/{arrival_z}",
+                )
+                rail_junction_checks += 1
 
     first_transition_objects = {
         "NW": "VIS_StairsUpper_NW",
@@ -1952,6 +2306,16 @@ def audit_glb_optimization() -> dict[str, int]:
 
 def main() -> None:
     require(Path(bpy.data.filepath).resolve() == BLEND_PATH.resolve(), "監査対象.blendが不正です")
+    require(
+        bpy.context.scene.get("b03_architecture_generator_version")
+        == EXPECTED_GENERATOR_VERSION,
+        "建築生成版が第4次受入修正版ではありません",
+    )
+    require(
+        bpy.context.scene.get("t04_2b_nav_connectivity_version")
+        == EXPECTED_T04_CORRECTION_VERSION,
+        "T04補正版がv07ではありません",
+    )
     require(bpy.context.scene.get("b03_window_layout_status") == "final", "窓配置が最終状態ではありません")
     require(sha256(NAVMESH_PATH) == EXPECTED_NAVMESH_SHA256, "NavMesh SHA-256が変化しています")
     require(sha256(PROP_LIBRARY_PATH) == EXPECTED_PROP_LIBRARY_SHA256, "B03-PライブラリSHA-256が変化しています")
@@ -1982,6 +2346,7 @@ def main() -> None:
     window_counts = audit_windows(export_objects)
     link_counts = audit_links(export_objects)
     stair_guard_counts = audit_stair_guards(export_objects)
+    roof_guard_counts = audit_roof_guards()
     acceptance_visuals = audit_acceptance_visuals(export_objects)
     audit_semantics(export_objects)
     glb_counts = audit_glb(read_glb_json(GLB_PATH))
@@ -2001,6 +2366,7 @@ def main() -> None:
         "windows": window_counts,
         "links": link_counts,
         "stair_guards": stair_guard_counts,
+        "roof_guards": roof_guard_counts,
         "acceptance_visuals": acceptance_visuals,
         "glb": glb_counts,
         "glb_optimization": glb_optimization,

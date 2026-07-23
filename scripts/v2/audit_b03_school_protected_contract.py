@@ -34,8 +34,12 @@ PROTECTED_PREFIXES = (
 ALLOWED_NEW_PREFIXES = ("COL_B03_Interior_",)
 ALLOWED_NEW_EXACT_NAMES = {"NAV_Blocker_Interiors"}
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
-T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v06"
+T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v07"
 T04_ALLOWED_MISSING_EXACT_NAMES = {
+    "COL_B03_Prop_Locker_Changing_F_01",
+    "COL_B03_Prop_Locker_Changing_F_02",
+    "COL_B03_Prop_Locker_Changing_M_01",
+    "COL_B03_Prop_Locker_Changing_M_02",
     "COL_ActorOnly_Window_F01_CourtyardNorth_Corridor_01",
     "COL_Ceiling1F_North",
     "COL_Ceiling1F_West",
@@ -51,6 +55,11 @@ T04_ALLOWED_MISSING_EXACT_NAMES = {
     "VIS_WindowGlass_F01_CourtyardNorth_Corridor_01",
 }
 T04_ALLOWED_NEW_EXACT_NAMES = {
+    "COL_B03_Ceiling_F04",
+    "COL_B03_Interior_Walls_F01_Toilets",
+    "COL_B03_Interior_Walls_F02_Toilets",
+    "COL_B03_Interior_Walls_F03_Toilets",
+    "COL_B03_Interior_Walls_F04_Toilets",
     "COL_B03_StairBoundaryCaps_F01",
     "COL_B03_InterfloorStructure_F01_North",
     "COL_B03_InterfloorStructure_F01_West",
@@ -62,6 +71,7 @@ T04_ALLOWED_NEW_EXACT_NAMES = {
     "COL_StairSystem_NE_3FTo4F",
     "COL_StairSystem_SW_2FTo3F",
     "COL_StairSystem_SW_3FTo4F",
+    "NAV_Blocker_Interiors",
 }
 T04_ALLOWED_CHANGED_EXACT_NAMES = {
     "COL_B03_Ceiling_F02",
@@ -73,6 +83,12 @@ T04_ALLOWED_CHANGED_EXACT_NAMES = {
     "COL_B03_InteriorWalls_F02",
     "COL_B03_InteriorWalls_F03",
     "COL_B03_InteriorWalls_F04",
+    "COL_RoofGuard_CourtyardNorth",
+    "COL_RoofGuard_CourtyardWest",
+    "COL_RoofGuard_EastOuter",
+    "COL_RoofGuard_NorthOuter",
+    "COL_RoofGuard_SouthOuter",
+    "COL_RoofGuard_WestOuter",
     "COL_StairGuard_NE_Landing",
     "COL_StairGuard_NE_Lower",
     "COL_StairGuard_NE_Upper",
@@ -229,8 +245,11 @@ def compare_baseline() -> None:
     all_new = sorted(
         name
         for name in set(current) - set(expected)
-        if name not in ALLOWED_NEW_EXACT_NAMES
-        and not name.startswith(ALLOWED_NEW_PREFIXES)
+        if name in T04_ALLOWED_NEW_EXACT_NAMES
+        or (
+            name not in ALLOWED_NEW_EXACT_NAMES
+            and not name.startswith(ALLOWED_NEW_PREFIXES)
+        )
     )
     allowed_new = sorted(
         name for name in all_new if name in T04_ALLOWED_NEW_EXACT_NAMES

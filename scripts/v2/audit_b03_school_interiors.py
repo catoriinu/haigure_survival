@@ -47,9 +47,17 @@ from build_b03_school_interiors import (
     MAIN_ENTRY_BAGGAGE_LOCKERS,
     NORTH_CLASSROOM_DOOR_OPENINGS,
     PROP_COLLIDER_SIZES,
+    ROOF_CHANGING_BAGGAGE_LOCKER_XS,
+    ROOF_POOL_NORTH_SIGN_SUPPORT,
     STAFFROOM_CLEANING_LOCKER,
     STAFFROOM_INTERIOR_BOUNDS,
     TOILET_COMMON_OPENING,
+    TOILET_FRONT_DOOR_HEIGHT,
+    TOILET_FRONT_DOOR_OPENINGS,
+    TOILET_FRONT_WALL_DEPTH,
+    TOILET_FRONT_WALL_SPANS,
+    TOILET_FRONT_WALL_Y,
+    TOILET_SIGN_PLACEMENTS,
     UPPER_WEST_CLASSROOM_DOOR_OPENINGS,
     architecture_swatch,
 )
@@ -253,11 +261,6 @@ def bounds_key(minimum: Vector, maximum: Vector) -> tuple[float, ...]:
 
 def door_clearance_volumes() -> list[tuple[str, Vector, Vector]]:
     clearances: list[tuple[str, Vector, Vector]] = []
-    toilet_passages = (
-        (-6.45, -2.25),
-        (-1.95, 2.25),
-        (2.55, TOILET_COMMON_OPENING[1]),
-    )
     for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
         west_doors = (
             FIRST_FLOOR_WEST_DOOR_OPENINGS
@@ -283,11 +286,33 @@ def door_clearance_volumes() -> list[tuple[str, Vector, Vector]]:
                     Vector((maximum_x - 0.05, 37.6, base_z + 2.25)),
                 )
             )
-        for index, (minimum_x, maximum_x) in enumerate(toilet_passages, 1):
+        clearances.append(
+            (
+                f"F{floor:02d}_ToiletCommon",
+                Vector(
+                    (
+                        TOILET_COMMON_OPENING[0] + 0.15,
+                        36.35,
+                        base_z + 0.05,
+                    )
+                ),
+                Vector(
+                    (
+                        TOILET_COMMON_OPENING[1] - 0.15,
+                        38.30,
+                        base_z + 2.25,
+                    )
+                ),
+            )
+        )
+        for index, (minimum_x, maximum_x) in enumerate(
+            TOILET_FRONT_DOOR_OPENINGS,
+            1,
+        ):
             clearances.append(
                 (
-                    f"F{floor:02d}_ToiletCommon_{index:02d}",
-                    Vector((minimum_x + 0.05, 38.65, base_z + 0.05)),
+                    f"F{floor:02d}_ToiletDoor_{index:02d}",
+                    Vector((minimum_x + 0.05, 38.35, base_z + 0.05)),
                     Vector((maximum_x - 0.05, 39.65, base_z + 2.25)),
                 )
             )
@@ -418,13 +443,17 @@ def room_sign_clearance_volumes() -> list[tuple[str, Vector, Vector]]:
                     Vector((maximum_x + 0.20, 36.70, base_z + 1.90)),
                 )
             )
-        clearances.append(
-            (
-                f"F{floor:02d}_ToiletCommon",
-                Vector((TOILET_COMMON_OPENING[0], 38.20, base_z + 1.50)),
-                Vector((TOILET_COMMON_OPENING[1], 38.50, base_z + 1.90)),
+        for index, (minimum_x, maximum_x) in enumerate(
+            TOILET_FRONT_DOOR_OPENINGS,
+            1,
+        ):
+            clearances.append(
+                (
+                    f"F{floor:02d}_ToiletDoor_{index:02d}",
+                    Vector((minimum_x - 0.20, 38.20, base_z + 1.50)),
+                    Vector((maximum_x + 0.20, 38.50, base_z + 1.90)),
+                )
             )
-        )
     clearances.extend(
         (
             (
@@ -641,6 +670,9 @@ def audit_classroom_teacher_desks_and_lockers() -> dict[str, int]:
     rear_locker_count = 0
     orientation_checks = 0
     placement_checks = 0
+    bulletin_board_absence_checks = 0
+    blackboard_alignment_checks = 0
+    blackboard_x = -8.05
     for floor, base_z in ((2, 3.6), (3, 7.2), (4, 10.8)):
         for room_index, room_y_offset in enumerate((0.0, 10.0, 20.0), 1):
             room_name = f"F{floor:02d}_Classroom{room_index:02d}"
@@ -652,7 +684,7 @@ def audit_classroom_teacher_desks_and_lockers() -> dict[str, int]:
             collider_components = connected_component_aabbs(collider)
             teacher_y = 11.25 + room_y_offset
             teacher_bounds = box_bounds(
-                (-5.40, teacher_y, base_z + 0.36),
+                (blackboard_x, teacher_y, base_z + 0.36),
                 (1.20, 0.60, 0.72),
             )
             require_component_bounds(
@@ -660,11 +692,16 @@ def audit_classroom_teacher_desks_and_lockers() -> dict[str, int]:
                 collider_components,
                 teacher_bounds,
             )
+            actual_teacher_bounds = next(
+                component
+                for component in collider_components
+                if bounds_match(component, teacher_bounds)
+            )
             require_component_bounds(
                 f"{room_name} 教卓天板",
                 visual_components,
                 box_bounds(
-                    (-5.40, teacher_y, base_z + 0.66),
+                    (blackboard_x, teacher_y, base_z + 0.66),
                     (1.20, 0.60, 0.12),
                 ),
             )
@@ -672,10 +709,46 @@ def audit_classroom_teacher_desks_and_lockers() -> dict[str, int]:
                 f"{room_name} 教卓本体",
                 visual_components,
                 box_bounds(
-                    (-5.40, teacher_y, base_z + 0.30),
+                    (blackboard_x, teacher_y, base_z + 0.30),
                     (1.05, 0.50, 0.60),
                 ),
             )
+            actual_teacher_center_x = (
+                actual_teacher_bounds[0].x + actual_teacher_bounds[1].x
+            ) / 2.0
+            if abs(actual_teacher_center_x - blackboard_x) > 1e-5:
+                raise RuntimeError(f"{room_name} 教卓が黒板中央にありません")
+            blackboard_alignment_checks += 1
+
+            old_bulletin_origin = (
+                -12.42,
+                8.7 + room_y_offset,
+                base_z,
+            )
+            paper_object = bpy.data.objects[
+                f"VIS_B03_Interior_{room_name}_SignsPaper"
+            ]
+            paper_components = connected_component_aabbs(paper_object)
+            for local_center, size, _swatch in BULLETIN_BOARD_FURNITURE_PARTS:
+                old_bounds = transformed_box_bounds(
+                    old_bulletin_origin,
+                    local_center,
+                    size,
+                    math.pi / 2,
+                )
+                if any(bounds_match(component, old_bounds) for component in visual_components):
+                    raise RuntimeError(f"{room_name} 窓際掲示板の枠が残っています")
+                bulletin_board_absence_checks += 1
+            for local_center, size, _swatch in BULLETIN_BOARD_PAPER_PARTS:
+                old_bounds = transformed_box_bounds(
+                    old_bulletin_origin,
+                    local_center,
+                    size,
+                    math.pi / 2,
+                )
+                if any(bounds_match(component, old_bounds) for component in paper_components):
+                    raise RuntimeError(f"{room_name} 窓際掲示板の掲示紙が残っています")
+                bulletin_board_absence_checks += 1
             teacher_desk_count += 1
 
             locker_y = CLASSROOM_REAR_LOCKER_Y + room_y_offset
@@ -757,6 +830,8 @@ def audit_classroom_teacher_desks_and_lockers() -> dict[str, int]:
         "rear_lockers": rear_locker_count,
         "orientation_checks": orientation_checks,
         "placement_checks": placement_checks,
+        "bulletin_board_absence_checks": bulletin_board_absence_checks,
+        "blackboard_alignment_checks": blackboard_alignment_checks,
     }
 
 
@@ -1073,59 +1148,221 @@ def audit_ll_room_placement() -> dict[str, int]:
     }
 
 
-def audit_toilet_open_fronts() -> dict[str, int]:
-    front_wall_violations: list[str] = []
-    checked_components = 0
-    for floor in (2, 3, 4):
-        object_names = (
-            f"VIS_B03_Interior_F{floor:02d}_Toilets_Architecture",
-            f"COL_B03_Interior_Walls_F{floor:02d}_Toilets",
+def audit_toilet_front_structures() -> dict[str, int]:
+    expected_wall_spans = (
+        (-6.6, -5.4),
+        (-4.2, -2.1),
+        (-2.1, -0.9),
+        (0.3, 2.4),
+    )
+    expected_door_openings = ((-5.4, -4.2), (-0.9, 0.3))
+    expected_sign_placements = (
+        (-5.825, 38.34, math.pi),
+        (0.725, 38.34, math.pi),
+    )
+    if tuple(TOILET_FRONT_WALL_SPANS) != expected_wall_spans:
+        raise RuntimeError("トイレ正面壁4区画の確定座標が変化しています")
+    if tuple(TOILET_FRONT_DOOR_OPENINGS) != expected_door_openings:
+        raise RuntimeError("トイレ正面入口2区画の確定座標が変化しています")
+    if (
+        TOILET_FRONT_WALL_Y != 38.5
+        or TOILET_FRONT_WALL_DEPTH != 0.30
+        or TOILET_FRONT_DOOR_HEIGHT != 2.3
+        or tuple(TOILET_COMMON_OPENING) != (-6.6, 5.4)
+    ):
+        raise RuntimeError("トイレ正面・共用前室の確定寸法が変化しています")
+    if tuple(TOILET_SIGN_PLACEMENTS) != expected_sign_placements:
+        raise RuntimeError("トイレ表札の確定座標が変化しています")
+    expected_front_components = (
+        len(TOILET_FRONT_WALL_SPANS) + len(TOILET_FRONT_DOOR_OPENINGS)
+    )
+    wall_objects = [
+        obj
+        for obj in bpy.data.objects
+        if obj.type == "MESH" and is_architecture_wall_collider(obj)
+    ]
+    front_component_checks = 0
+    door_opening_checks = 0
+    common_opening_checks = 0
+    sign_support_checks = 0
+
+    for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
+        visual = bpy.data.objects[
+            f"VIS_B03_Interior_F{floor:02d}_Toilets_Architecture"
+        ]
+        collider = bpy.data.objects[
+            f"COL_B03_Interior_Walls_F{floor:02d}_Toilets"
+        ]
+        object_components = (
+            connected_component_aabbs(visual),
+            connected_component_aabbs(collider),
         )
-        for object_name in object_names:
-            obj = bpy.data.objects[object_name]
+
+        expected_bounds = [
+            box_bounds(
+                (
+                    (minimum_x + maximum_x) / 2.0,
+                    TOILET_FRONT_WALL_Y,
+                    base_z + 1.5,
+                ),
+                (
+                    maximum_x - minimum_x,
+                    TOILET_FRONT_WALL_DEPTH,
+                    3.0,
+                ),
+            )
+            for minimum_x, maximum_x in TOILET_FRONT_WALL_SPANS
+        ]
+        expected_bounds.extend(
+            box_bounds(
+                (
+                    (minimum_x + maximum_x) / 2.0,
+                    TOILET_FRONT_WALL_Y,
+                    base_z + (TOILET_FRONT_DOOR_HEIGHT + 3.0) / 2.0,
+                ),
+                (
+                    maximum_x - minimum_x,
+                    TOILET_FRONT_WALL_DEPTH,
+                    3.0 - TOILET_FRONT_DOOR_HEIGHT,
+                ),
+            )
+            for minimum_x, maximum_x in TOILET_FRONT_DOOR_OPENINGS
+        )
+
+        for components in object_components:
+            front_components = [
+                (minimum, maximum)
+                for minimum, maximum in components
+                if (maximum - minimum).y <= TOILET_FRONT_WALL_DEPTH + 1e-5
+                and minimum.y <= TOILET_FRONT_WALL_Y + TOILET_FRONT_WALL_DEPTH / 2
+                and maximum.y >= TOILET_FRONT_WALL_Y - TOILET_FRONT_WALL_DEPTH / 2
+            ]
+            if len(front_components) != expected_front_components:
+                raise RuntimeError(
+                    f"F{floor:02d}トイレ正面構造が"
+                    f"{expected_front_components}区画ではありません: "
+                    f"{len(front_components)}"
+                )
+            for expected in expected_bounds:
+                require_component_bounds(
+                    f"F{floor:02d}トイレ正面壁・まぐさ",
+                    front_components,
+                    expected,
+                )
+                front_component_checks += 1
+
+            for minimum_x, maximum_x in TOILET_FRONT_DOOR_OPENINGS:
+                opening_minimum = Vector(
+                    (
+                        minimum_x + 0.01,
+                        TOILET_FRONT_WALL_Y - TOILET_FRONT_WALL_DEPTH / 2 - 0.01,
+                        base_z + 0.01,
+                    )
+                )
+                opening_maximum = Vector(
+                    (
+                        maximum_x - 0.01,
+                        TOILET_FRONT_WALL_Y + TOILET_FRONT_WALL_DEPTH / 2 + 0.01,
+                        base_z + TOILET_FRONT_DOOR_HEIGHT - 0.01,
+                    )
+                )
+                if any(
+                    aabb_overlaps(
+                        opening_minimum,
+                        opening_maximum,
+                        minimum,
+                        maximum,
+                    )
+                    for minimum, maximum in front_components
+                ):
+                    raise RuntimeError(f"F{floor:02d}トイレ入口が壁で塞がれています")
+            door_opening_checks += len(TOILET_FRONT_DOOR_OPENINGS)
+
+        common_minimum = Vector(
+            (
+                TOILET_COMMON_OPENING[0] + 0.15,
+                36.35,
+                base_z + 0.05,
+            )
+        )
+        common_maximum = Vector(
+            (
+                TOILET_COMMON_OPENING[1] - 0.15,
+                36.65,
+                base_z + 2.25,
+            )
+        )
+        common_violations = [
+            f"{obj.name}#{component_index}"
+            for obj in wall_objects
             for component_index, (minimum, maximum) in enumerate(
                 connected_component_aabbs(obj),
                 1,
-            ):
-                checked_components += 1
-                dimensions = maximum - minimum
-                is_front_facing = dimensions.y <= 0.40 + 1e-5
-                crosses_front = minimum.y <= 38.65 and maximum.y >= 38.35
-                crosses_opening = (
-                    minimum.x < TOILET_COMMON_OPENING[1] - 1e-5
-                    and maximum.x > TOILET_COMMON_OPENING[0] + 1e-5
-                )
-                if is_front_facing and crosses_front and crosses_opening:
-                    front_wall_violations.append(f"{obj.name}#{component_index}")
-    if front_wall_violations:
-        raise RuntimeError(
-            "上階トイレ全面開放部に正面壁・梁Colliderが残っています:\n"
-            + "\n".join(front_wall_violations)
-        )
-
-    sign_checks = 0
-    expected_signs = (
-        (-6.43, 39.0, -math.pi / 2),
-        (2.23, 39.0, math.pi / 2),
-    )
-    for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
-        signs = bpy.data.objects[f"VIS_B03_Interior_F{floor:02d}_Toilets_SignsPaper"]
-        components = connected_component_aabbs(signs)
-        for x, y, rotation in expected_signs:
-            require_component_bounds(
-                "トイレ側壁表札",
-                components,
-                transformed_box_bounds(
-                    (x, y, base_z),
-                    (0.0, 0.0, 1.7),
-                    (0.45, 0.04, 0.18),
-                    rotation,
-                ),
             )
-            sign_checks += 1
+            if aabb_overlaps(
+                common_minimum,
+                common_maximum,
+                minimum,
+                maximum,
+            )
+        ]
+        if common_violations:
+            raise RuntimeError(
+                f"F{floor:02d}トイレ共用前室入口が壁で塞がれています: "
+                f"{common_violations}"
+            )
+        common_opening_checks += 1
+
+        signs = bpy.data.objects[
+            f"VIS_B03_Interior_F{floor:02d}_Toilets_SignsPaper"
+        ]
+        sign_components = connected_component_aabbs(signs)
+        wall_components = object_components[1]
+        for x, y, rotation in TOILET_SIGN_PLACEMENTS:
+            expected_sign = transformed_box_bounds(
+                (x, y, base_z),
+                (0.0, 0.0, 1.7),
+                (0.45, 0.04, 0.18),
+                rotation,
+            )
+            require_component_bounds(
+                "トイレ正面壁表札",
+                sign_components,
+                expected_sign,
+            )
+            sign_minimum = Vector(expected_sign[0])
+            sign_maximum = Vector(expected_sign[1])
+            if not any(
+                aabb_axis_gap(
+                    sign_minimum,
+                    sign_maximum,
+                    wall_minimum,
+                    wall_maximum,
+                    1,
+                )
+                <= 1e-4
+                and interval_contains(
+                    wall_minimum.x,
+                    wall_maximum.x,
+                    sign_minimum.x,
+                    sign_maximum.x,
+                )
+                and interval_contains(
+                    wall_minimum.z,
+                    wall_maximum.z,
+                    sign_minimum.z,
+                    sign_maximum.z,
+                )
+                for wall_minimum, wall_maximum in wall_components
+            ):
+                raise RuntimeError(f"F{floor:02d}トイレ表札が実壁に支持されていません")
+            sign_support_checks += 1
+
     return {
-        "front_components": checked_components,
-        "side_wall_signs": sign_checks,
+        "front_component_checks": front_component_checks,
+        "door_opening_checks": door_opening_checks,
+        "common_opening_checks": common_opening_checks,
+        "sign_support_checks": sign_support_checks,
     }
 
 
@@ -1287,6 +1524,178 @@ def audit_acceptance_placements() -> dict[str, int]:
     }
 
 
+def audit_roof_changing_lockers() -> dict[str, int]:
+    expected_locker_xs = (-5.4, -3.1, -0.8, 1.3)
+    if tuple(ROOF_CHANGING_BAGGAGE_LOCKER_XS) != expected_locker_xs:
+        raise RuntimeError("屋上男女更衣室ロッカー4台の確定座標が変化しています")
+    collider = bpy.data.objects["COL_B03_Interior_RoofChanging"]
+    collider_components = connected_component_aabbs(collider)
+    expected_lockers = [
+        (
+            Vector(minimum),
+            Vector(maximum),
+        )
+        for minimum, maximum in (
+            box_bounds(
+                (x, 44.8, 14.5 + PROP_COLLIDER_SIZES["BaggageLocker"][2] / 2.0),
+                PROP_COLLIDER_SIZES["BaggageLocker"],
+            )
+            for x in ROOF_CHANGING_BAGGAGE_LOCKER_XS
+        )
+    ]
+    actual_lockers = [
+        (minimum, maximum)
+        for minimum, maximum in collider_components
+        if dimensions_match(
+            minimum,
+            maximum,
+            PROP_COLLIDER_SIZES["BaggageLocker"],
+        )
+    ]
+    if len(actual_lockers) != len(expected_lockers):
+        raise RuntimeError(
+            "屋上男女更衣室の荷物ロッカーが4台ではありません: "
+            f"{len(actual_lockers)}"
+        )
+    for expected_minimum, expected_maximum in expected_lockers:
+        require_component_bounds(
+            "屋上男女更衣室の荷物ロッカーCollider",
+            actual_lockers,
+            (
+                tuple(expected_minimum),
+                tuple(expected_maximum),
+            ),
+        )
+    overlap_checks = 0
+    for index, (minimum, maximum) in enumerate(expected_lockers):
+        for other_minimum, other_maximum in expected_lockers[index + 1 :]:
+            if aabb_overlaps(
+                minimum,
+                maximum,
+                other_minimum,
+                other_maximum,
+            ):
+                raise RuntimeError("屋上男女更衣室の荷物ロッカー同士が重なっています")
+            overlap_checks += 1
+
+    for old_x in (3.0, 4.2):
+        old_cleaning_bounds = box_bounds(
+            (
+                old_x,
+                44.8,
+                14.5 + PROP_COLLIDER_SIZES["CleaningLocker"][2] / 2.0,
+            ),
+            PROP_COLLIDER_SIZES["CleaningLocker"],
+        )
+        if any(
+            bounds_match(component, old_cleaning_bounds)
+            for component in collider_components
+        ):
+            raise RuntimeError("更衣室外へはみ出す掃除ロッカーが残っています")
+
+    legacy_names = {
+        f"{prefix}_B03_Prop_Locker_Changing_{sex}_{index:02d}"
+        for prefix in ("VIS", "COL")
+        for sex in ("M", "F")
+        for index in (1, 2)
+    }
+    remaining_legacy = sorted(
+        name for name in legacy_names if bpy.data.objects.get(name) is not None
+    )
+    if remaining_legacy:
+        raise RuntimeError(
+            f"屋上更衣室の旧二重ロッカーが残っています: {remaining_legacy}"
+        )
+
+    return {
+        "baggage_lockers": len(actual_lockers),
+        "overlap_checks": overlap_checks,
+        "removed_cleaning_lockers": 2,
+        "removed_legacy_objects": len(legacy_names),
+    }
+
+
+def audit_roof_pool_north_sign_support() -> dict[str, int]:
+    support = bpy.data.objects[
+        "VIS_B03_Interior_RoofPoolSafety_Architecture"
+    ]
+    support_components = connected_component_aabbs(support)
+    support_center, support_size = ROOF_POOL_NORTH_SIGN_SUPPORT
+    if support_center != (39.5, 45.28, 15.5) or support_size != (0.10, 0.24, 0.10):
+        raise RuntimeError(
+            "屋上北側救命表示ブラケットの座標または寸法が契約値と一致しません"
+        )
+    expected_support = box_bounds(support_center, support_size)
+    require_component_bounds(
+        "屋上北側救命表示ブラケット",
+        support_components,
+        expected_support,
+    )
+
+    signs = bpy.data.objects[
+        "VIS_B03_Interior_RoofPoolSafety_SignsPaper"
+    ]
+    sign_components = connected_component_aabbs(signs)
+    expected_sign = transformed_box_bounds(
+        (39.5, 45.1, 14.5),
+        (0.0, 0.0, 1.2),
+        (0.7, 0.12, 0.7),
+        0.0,
+    )
+    require_component_bounds(
+        "屋上北側救命表示",
+        sign_components,
+        expected_sign,
+    )
+
+    support_minimum = Vector(expected_support[0])
+    support_maximum = Vector(expected_support[1])
+    sign_minimum = Vector(expected_sign[0])
+    sign_maximum = Vector(expected_sign[1])
+    if max(
+        aabb_axis_gap(
+            support_minimum,
+            support_maximum,
+            sign_minimum,
+            sign_maximum,
+            axis,
+        )
+        for axis in range(3)
+    ) > 1e-4:
+        raise RuntimeError("屋上北側救命表示とブラケットが接触していません")
+
+    fence_checks = 0
+    for object_name in (
+        "VIS_RoofGuard_NorthOuter",
+        "COL_RoofGuard_NorthOuter",
+    ):
+        fence = bpy.data.objects[object_name]
+        if not any(
+            max(
+                aabb_axis_gap(
+                    support_minimum,
+                    support_maximum,
+                    minimum,
+                    maximum,
+                    axis,
+                )
+                for axis in range(3)
+            )
+            <= 1e-4
+            for minimum, maximum in connected_component_aabbs(fence)
+        ):
+            raise RuntimeError(
+                f"屋上北側救命表示ブラケットが柵へ接続していません: {object_name}"
+            )
+        fence_checks += 1
+
+    return {
+        "brackets": 1,
+        "sign_contacts": 1,
+        "fence_contacts": fence_checks,
+    }
+
+
 def audit_link_clearance(interior_colliders: list[bpy.types.Object]) -> int:
     endpoints: dict[str, dict[str, Vector]] = {}
     for obj in bpy.data.objects:
@@ -1354,11 +1763,11 @@ def main() -> None:
     )
     nav_blocker = bpy.data.objects.get("NAV_Blocker_Interiors")
     expected_toilet_wall_colliders = {
-        f"COL_B03_Interior_Walls_F{floor:02d}_Toilets" for floor in (2, 3, 4)
+        f"COL_B03_Interior_Walls_F{floor:02d}_Toilets" for floor in (1, 2, 3, 4)
     }
     if (
         not interior_visuals
-        or len(interior_colliders) != 36
+        or len(interior_colliders) != 37
         or nav_blocker is None
         or not (
             expected_toilet_wall_colliders
@@ -1381,8 +1790,8 @@ def main() -> None:
     generation = json.loads(bpy.context.scene["b03_2_interior_result"])
     if generation.get("scope") != "full_school" or generation.get("rooms") != 34:
         raise RuntimeError("全校34区画の生成結果ではありません")
-    if generation.get("wall_collider_objects") != 3:
-        raise RuntimeError("上階トイレの専用建築壁Colliderが3 Objectではありません")
+    if generation.get("wall_collider_objects") != 4:
+        raise RuntimeError("全階トイレの専用建築壁Colliderが4 Objectではありません")
     if generation.get("classrooms") != 9:
         raise RuntimeError("普通教室が9室ではありません")
     room_counts = generation["room_counts"]
@@ -1395,6 +1804,8 @@ def main() -> None:
             or classroom_counts.get("Blackboard") != 1
             or classroom_counts.get("BaggageLocker") != 3
             or classroom_counts.get("CleaningLocker") != 1
+            or classroom_counts.get("TeacherDesk") != 1
+            or classroom_counts.get("BulletinBoard", 0) != 0
         ):
             raise RuntimeError(f"普通教室の必須家具数が不正です: {room_name}")
         if not 0.15 <= metrics["scatter_ratio"] <= 0.25:
@@ -1489,7 +1900,7 @@ def main() -> None:
         },
         "Gym": {"BasketballGoal": 2, "VaultingBox": 2, "StageLectern": 1},
         "GymStorage": {"VaultingBox": 2, "CleaningLocker": 1},
-        "RoofChanging": {"BaggageLocker": 4, "CleaningLocker": 2},
+        "RoofChanging": {"BaggageLocker": 4},
     }
     for room_name, expected_counts in expected_room_counts.items():
         actual_counts = room_counts[room_name]
@@ -1499,6 +1910,8 @@ def main() -> None:
                     f"室内小物数が不正です: {room_name}/{prop_type}="
                     f"{actual_counts.get(prop_type)}/{expected_count}"
                 )
+    if room_counts["RoofChanging"].get("CleaningLocker", 0) != 0:
+        raise RuntimeError("屋上更衣室に掃除ロッカーが残っています")
     staffroom_collider = bpy.data.objects["COL_B03_Interior_F01_StaffRoom"]
     locker_x, locker_y, locker_rotation = STAFFROOM_CLEANING_LOCKER
     if locker_rotation != 0.0:
@@ -1599,9 +2012,11 @@ def main() -> None:
     bulletin_board_design = audit_bulletin_board_design()
     art_room_acceptance = audit_art_room_placement()
     ll_room_acceptance = audit_ll_room_placement()
-    toilet_open_fronts = audit_toilet_open_fronts()
+    toilet_front_structures = audit_toilet_front_structures()
     broadcast_orientation_checks = audit_broadcast_orientation()
     council_placement_checks = audit_council_placement()
+    roof_changing_lockers = audit_roof_changing_lockers()
+    roof_pool_north_sign_support = audit_roof_pool_north_sign_support()
     door_clearance_checks = audit_door_clearance(interior_colliders)
     door_sign_clearance_checks = audit_door_sign_clearance()
     room_sign_wall_support_checks = audit_room_sign_wall_support()
@@ -1645,9 +2060,11 @@ def main() -> None:
         "bulletin_board_design": bulletin_board_design,
         "art_room_acceptance": art_room_acceptance,
         "ll_room_acceptance": ll_room_acceptance,
-        "toilet_open_fronts": toilet_open_fronts,
+        "toilet_front_structures": toilet_front_structures,
         "broadcast_orientation_checks": broadcast_orientation_checks,
         "council_placement_checks": council_placement_checks,
+        "roof_changing_lockers": roof_changing_lockers,
+        "roof_pool_north_sign_support": roof_pool_north_sign_support,
         "link_clearance_checks": link_clearance_checks,
         "door_clearance_checks": door_clearance_checks,
         "door_sign_clearance_checks": door_sign_clearance_checks,

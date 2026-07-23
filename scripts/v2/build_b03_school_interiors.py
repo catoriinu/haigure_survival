@@ -196,6 +196,28 @@ NORTH_CLASSROOM_DOOR_OPENINGS = (
     (39.6, 40.8),
 )
 TOILET_COMMON_OPENING = (-6.6, 5.4)
+TOILET_FRONT_WALL_Y = 38.5
+TOILET_FRONT_WALL_DEPTH = 0.30
+TOILET_FRONT_WALL_SPANS = (
+    (-6.6, -5.4),
+    (-4.2, -2.1),
+    (-2.1, -0.9),
+    (0.3, 2.4),
+)
+TOILET_FRONT_DOOR_OPENINGS = (
+    (-5.4, -4.2),
+    (-0.9, 0.3),
+)
+TOILET_FRONT_DOOR_HEIGHT = 2.3
+TOILET_SIGN_PLACEMENTS = (
+    (-5.825, 38.34, math.pi),
+    (0.725, 38.34, math.pi),
+)
+ROOF_POOL_NORTH_SIGN_SUPPORT = (
+    (39.5, 45.28, 15.5),
+    (0.10, 0.24, 0.10),
+)
+ROOF_CHANGING_BAGGAGE_LOCKER_XS = (-5.4, -3.1, -0.8, 1.3)
 ART_INTERIOR_BOUNDS = (5.4, 23.4, 36.5, 45.5)
 ART_TABLE_XS = (8.0, 14.4, 20.8)
 ART_TABLE_YS = (39.5, 43.0)
@@ -907,14 +929,8 @@ def build_classroom(
     add_additional_prop(
         room,
         "TeacherDesk",
-        (-5.40, 11.25 + room_y_offset, room.base_z),
+        (-8.05, 11.25 + room_y_offset, room.base_z),
         math.pi,
-    )
-    add_additional_prop(
-        room,
-        "BulletinBoard",
-        (-12.42, 8.7 + room_y_offset, room.base_z),
-        math.pi / 2,
     )
     add_additional_prop(
         room,
@@ -952,8 +968,39 @@ def build_toilet_room(
     *,
     include_structure_and_fixtures: bool,
 ) -> None:
+    wall_center_z = room.base_z + 1.5
+    for minimum_x, maximum_x in TOILET_FRONT_WALL_SPANS:
+        room.architecture_box(
+            (
+                (minimum_x + maximum_x) / 2.0,
+                TOILET_FRONT_WALL_Y,
+                wall_center_z,
+            ),
+            (
+                maximum_x - minimum_x,
+                TOILET_FRONT_WALL_DEPTH,
+                3.0,
+            ),
+            "wall",
+            wall_collider=True,
+        )
+    for minimum_x, maximum_x in TOILET_FRONT_DOOR_OPENINGS:
+        room.architecture_box(
+            (
+                (minimum_x + maximum_x) / 2.0,
+                TOILET_FRONT_WALL_Y,
+                room.base_z + (TOILET_FRONT_DOOR_HEIGHT + 3.0) / 2.0,
+            ),
+            (
+                maximum_x - minimum_x,
+                TOILET_FRONT_WALL_DEPTH,
+                3.0 - TOILET_FRONT_DOOR_HEIGHT,
+            ),
+            "wall",
+            wall_collider=True,
+        )
+
     if include_structure_and_fixtures:
-        wall_center_z = room.base_z + 1.5
         room.architecture_box(
             (-2.1, 42.0, wall_center_z),
             (0.30, 7.0, 3.0),
@@ -1002,12 +1049,8 @@ def build_toilet_room(
     add_additional_prop(
         room, "Mirror", (2.20, 40.4, room.base_z), -math.pi / 2
     )
-    add_additional_prop(
-        room, "RoomSign", (-6.43, 39.0, room.base_z), -math.pi / 2
-    )
-    add_additional_prop(
-        room, "RoomSign", (2.23, 39.0, room.base_z), math.pi / 2
-    )
+    for x, y, rotation in TOILET_SIGN_PLACEMENTS:
+        add_additional_prop(room, "RoomSign", (x, y, room.base_z), rotation)
 
 
 def build_common_area_rooms(
@@ -1075,6 +1118,8 @@ def build_common_area_rooms(
     add_additional_prop(
         roof_pool, "LifePreserverSign", (39.5, 45.1, 14.5), 0.0
     )
+    support_center, support_size = ROOF_POOL_NORTH_SIGN_SUPPORT
+    roof_pool.architecture_box(support_center, support_size, "trim")
     add_additional_prop(roof_pool, "RoomSign", (2.42, 39.1, 14.5), math.pi / 2)
     rooms.append(roof_pool)
     return rooms
@@ -1290,10 +1335,8 @@ def build_school_rooms(
     rooms.append(gym)
 
     changing = RoomBuilder.create("RoofChanging", 14.5)
-    for x in (-5.4, -3.1, -0.8, 1.3):
+    for x in ROOF_CHANGING_BAGGAGE_LOCKER_XS:
         changing.add_prop(sources, "BaggageLocker", x, 44.8)
-    changing.add_prop(sources, "CleaningLocker", 3.0, 44.8)
-    changing.add_prop(sources, "CleaningLocker", 4.2, 44.8)
     add_additional_prop(changing, "ChangingBench", (-4.2, 41.3, 14.5))
     add_additional_prop(changing, "ChangingBench", (0.2, 41.3, 14.5))
     add_additional_prop(changing, "Mirror", (-2.1, 45.3, 14.5))
