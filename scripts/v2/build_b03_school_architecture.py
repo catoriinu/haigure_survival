@@ -54,11 +54,30 @@ WINDOW_FRAME_BORDER = 0.05
 WINDOW_MEETING_STILE_WIDTH = 0.06
 WALL_THICKNESS = 0.30
 LINK_RADIUS_METERS = 0.54
-GENERATOR_VERSION = "t04-2b-acceptance-v04"
+GENERATOR_VERSION = "t04-2b-acceptance-v05"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
-T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v07"
+T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v08"
+
+GATE_VISUAL_SPECS = (
+    ("VIS_Gate_MainClosed", "X", 19.4, 25.4, -12.5),
+    ("VIS_Gate_UtilityClosed", "Y", 44.5, 50.5, 63.4),
+)
+PERIMETER_WALL_SPECS = (
+    ("VIS_Perimeter_East", "Y", -12.5, 44.5, 63.2, 63.6),
+    ("VIS_Perimeter_EastNorth", "Y", 50.5, 51.5, 63.2, 63.6),
+    ("VIS_Perimeter_NorthEast", "X", 22.4, 63.4, 51.3, 51.7),
+    ("VIS_Perimeter_NorthWest", "X", -18.6, 22.4, 51.3, 51.7),
+    ("VIS_Perimeter_SouthEast", "X", 25.4, 63.4, -12.7, -12.3),
+    ("VIS_Perimeter_SouthWest", "X", -18.6, 19.4, -12.7, -12.3),
+    ("VIS_Perimeter_West", "Y", -12.5, 51.5, -18.8, -18.4),
+)
+PERIMETER_WALL_Z = (-0.3, 1.7)
+PERIMETER_BLOCK_WIDTH = 0.8
+PERIMETER_BLOCK_HEIGHT = 0.4
+PERIMETER_JOINT_WIDTH = 0.02
+PERIMETER_JOINT_DEPTH = 0.006
 
 STAIR_NAV_BLOCKER_SOURCE_NAMES = (
     "COL_StairGuard_NE_Landing",
@@ -187,6 +206,8 @@ GENERATED_PREFIXES = (
 )
 
 GENERATED_EXACT_NAMES = {
+    "VIS_Gate_MainClosed",
+    "VIS_Gate_UtilityClosed",
     "NAV_Walkable_Interior2F",
     "NAV_Walkable_Interior3F",
     "NAV_Walkable_Interior4F",
@@ -480,6 +501,241 @@ def append_box(
     )
 
 
+def oriented_box(
+    axis: str,
+    primary_minimum: float,
+    primary_maximum: float,
+    cross_minimum: float,
+    cross_maximum: float,
+    z_minimum: float,
+    z_maximum: float,
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    if axis == "X":
+        return (
+            (primary_minimum, cross_minimum, z_minimum),
+            (primary_maximum, cross_maximum, z_maximum),
+        )
+    if axis == "Y":
+        return (
+            (cross_minimum, primary_minimum, z_minimum),
+            (cross_maximum, primary_maximum, z_maximum),
+        )
+    raise RuntimeError(f"未定義の水平軸です: {axis}")
+
+
+def gate_fence_boxes(
+    axis: str,
+    primary_minimum: float,
+    primary_maximum: float,
+    fixed: float,
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    center = (primary_minimum + primary_maximum) / 2.0
+    boxes = [
+        oriented_box(
+            axis,
+            post_center - 0.05,
+            post_center + 0.05,
+            fixed - 0.05,
+            fixed + 0.05,
+            -0.3,
+            1.7,
+        )
+        for post_center in (primary_minimum + 0.05, center, primary_maximum - 0.05)
+    ]
+    leaves = (
+        (primary_minimum + 0.10, center - 0.05),
+        (center + 0.05, primary_maximum - 0.10),
+    )
+    for leaf_minimum, leaf_maximum in leaves:
+        for z_minimum, z_maximum in (
+            (-0.28, -0.20),
+            (0.66, 0.74),
+            (1.62, 1.70),
+        ):
+            boxes.append(
+                oriented_box(
+                    axis,
+                    leaf_minimum,
+                    leaf_maximum,
+                    fixed - 0.04,
+                    fixed + 0.04,
+                    z_minimum,
+                    z_maximum,
+                )
+            )
+        interval_count = math.ceil((leaf_maximum - leaf_minimum) / 0.5)
+        for index in range(1, interval_count):
+            position = (
+                leaf_minimum
+                + (leaf_maximum - leaf_minimum) * index / interval_count
+            )
+            boxes.append(
+                oriented_box(
+                    axis,
+                    position - 0.04,
+                    position + 0.04,
+                    fixed - 0.04,
+                    fixed + 0.04,
+                    -0.20,
+                    1.62,
+                )
+            )
+    boxes.append(
+        oriented_box(
+            axis,
+            center - 0.12,
+            center + 0.12,
+            fixed - 0.06,
+            fixed + 0.06,
+            0.62,
+            0.78,
+        )
+    )
+    return boxes
+
+
+def perimeter_block_joint_quads(
+) -> list[tuple[str, float, float, float, float, float, int]]:
+    quads: list[tuple[str, float, float, float, float, float, int]] = []
+    z_minimum, z_maximum = PERIMETER_WALL_Z
+    course_count = round((z_maximum - z_minimum) / PERIMETER_BLOCK_HEIGHT)
+    for (
+        _,
+        axis,
+        primary_minimum,
+        primary_maximum,
+        cross_minimum,
+        cross_maximum,
+    ) in PERIMETER_WALL_SPECS:
+        surfaces = (
+            (cross_minimum - PERIMETER_JOINT_DEPTH, -1),
+            (cross_maximum + PERIMETER_JOINT_DEPTH, 1),
+        )
+        for surface_coordinate, outward_sign in surfaces:
+            for boundary_index in range(1, course_count):
+                boundary_z = (
+                    z_minimum + boundary_index * PERIMETER_BLOCK_HEIGHT
+                )
+                quads.append(
+                    (
+                        axis,
+                        primary_minimum,
+                        primary_maximum,
+                        surface_coordinate,
+                        boundary_z - PERIMETER_JOINT_WIDTH / 2.0,
+                        boundary_z + PERIMETER_JOINT_WIDTH / 2.0,
+                        outward_sign,
+                    )
+                )
+            for course_index in range(course_count):
+                course_z_minimum = (
+                    z_minimum + course_index * PERIMETER_BLOCK_HEIGHT
+                )
+                course_z_maximum = course_z_minimum + PERIMETER_BLOCK_HEIGHT
+                vertical_z_minimum = course_z_minimum + (
+                    PERIMETER_JOINT_WIDTH / 2.0 if course_index > 0 else 0.0
+                )
+                vertical_z_maximum = course_z_maximum - (
+                    PERIMETER_JOINT_WIDTH / 2.0
+                    if course_index < course_count - 1
+                    else 0.0
+                )
+                first_offset = (
+                    PERIMETER_BLOCK_WIDTH / 2.0
+                    if course_index % 2
+                    else PERIMETER_BLOCK_WIDTH
+                )
+                joint_index = 0
+                while True:
+                    position = (
+                        primary_minimum
+                        + first_offset
+                        + joint_index * PERIMETER_BLOCK_WIDTH
+                    )
+                    if position >= primary_maximum - 1e-8:
+                        break
+                    quads.append(
+                        (
+                            axis,
+                            position - PERIMETER_JOINT_WIDTH / 2.0,
+                            position + PERIMETER_JOINT_WIDTH / 2.0,
+                            surface_coordinate,
+                            vertical_z_minimum,
+                            vertical_z_maximum,
+                            outward_sign,
+                        )
+                    )
+                    joint_index += 1
+    return quads
+
+
+def append_outward_surface_quad(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    axis: str,
+    primary_minimum: float,
+    primary_maximum: float,
+    cross_coordinate: float,
+    z_minimum: float,
+    z_maximum: float,
+    outward_sign: int,
+) -> None:
+    offset = len(vertices)
+    if axis == "X":
+        vertices.extend(
+            (
+                (primary_minimum, cross_coordinate, z_minimum),
+                (primary_maximum, cross_coordinate, z_minimum),
+                (primary_maximum, cross_coordinate, z_maximum),
+                (primary_minimum, cross_coordinate, z_maximum),
+            )
+        )
+    elif axis == "Y":
+        vertices.extend(
+            (
+                (cross_coordinate, primary_minimum, z_minimum),
+                (cross_coordinate, primary_maximum, z_minimum),
+                (cross_coordinate, primary_maximum, z_maximum),
+                (cross_coordinate, primary_minimum, z_maximum),
+            )
+        )
+    else:
+        raise RuntimeError(f"未定義の水平軸です: {axis}")
+    face = (offset, offset + 1, offset + 2, offset + 3)
+    if (axis == "X" and outward_sign > 0) or (
+        axis == "Y" and outward_sign < 0
+    ):
+        face = tuple(reversed(face))
+    faces.append(face)
+
+
+def rebuild_site_boundary_visuals() -> None:
+    visual_collection = collection(VIS_COLLECTION_NAME)
+    for object_name, axis, minimum, maximum, fixed in GATE_VISUAL_SPECS:
+        boxes = gate_fence_boxes(axis, minimum, maximum, fixed)
+        vertices: list[tuple[float, float, float]] = []
+        faces: list[tuple[int, ...]] = []
+        for box_minimum, box_maximum in boxes:
+            append_box(vertices, faces, box_minimum, box_maximum)
+        upsert_mesh_geometry(
+            object_name,
+            vertices,
+            faces,
+            visual_collection,
+        )
+
+    joint_vertices: list[tuple[float, float, float]] = []
+    joint_faces: list[tuple[int, ...]] = []
+    for joint in perimeter_block_joint_quads():
+        append_outward_surface_quad(joint_vertices, joint_faces, *joint)
+    upsert_surface_geometry(
+        "VIS_B03_PerimeterBlockJoints",
+        joint_vertices,
+        joint_faces,
+        visual_collection,
+    )
+
+
 def create_mesh_object(
     name: str,
     boxes: list[tuple[tuple[float, float, float], tuple[float, float, float]]],
@@ -572,6 +828,29 @@ def upsert_mesh_geometry(
         target_collection.objects.link(obj)
         return replace_mesh_geometry(object_name, vertices, faces)
     return replace_mesh_geometry(object_name, vertices, faces)
+
+
+def upsert_surface_geometry(
+    object_name: str,
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    target_collection: bpy.types.Collection,
+) -> bpy.types.Object:
+    obj = bpy.data.objects.get(object_name)
+    if obj is None:
+        mesh = bpy.data.meshes.new(object_name)
+        obj = bpy.data.objects.new(object_name, mesh)
+        target_collection.objects.link(obj)
+    elif obj.type != "MESH":
+        raise RuntimeError(f"再構築対象Meshではありません: {object_name}")
+    if obj.data.users != 1:
+        obj.data = obj.data.copy()
+    obj.matrix_world = Matrix.Identity(4)
+    obj.data.clear_geometry()
+    obj.data.from_pydata(vertices, [], faces)
+    obj.data.name = object_name
+    obj.data.update(calc_edges=True)
+    return obj
 
 
 def append_thin_steps(
@@ -964,6 +1243,7 @@ def align_existing_storey_sources() -> None:
     rebuild_roof_guards()
     rebuild_first_transition_stair_guards()
     rebuild_upper_stairs()
+    rebuild_site_boundary_visuals()
     align_acceptance_geometry()
     boundary = bpy.data.objects.get("BND_Stage")
     if boundary is None:
@@ -1304,9 +1584,8 @@ def upper_interior_wall_boxes(
             ((divider_x - 0.15, 36.5, z0), (divider_x + 0.15, 45.5, z1))
         )
 
-    if floor == 2:
-        # 生徒会室とトイレ側余白を1階と同じ閉じた区画へ戻す。
-        boxes.append(((5.25, 36.5, z0), (5.55, 45.5, z1)))
+    # トイレ側通路と特別教室を全上階で同じ閉じた区画へ分離する。
+    boxes.append(((5.25, 36.5, z0), (5.55, 45.5, z1)))
 
     boxes.append(((41.25, 36.5, z0), (41.55, 45.5, boundary_z1)))
     return boxes
@@ -1400,6 +1679,19 @@ def storey_band_boxes(
     boxes.extend(
         ((start, 32.649, z0), (end, 32.653, z1))
         for start, end in subtract_intervals(0.0, 47.4, north_floor_openings)
+    )
+    boxes.extend(
+        (
+            ((-6.6, 38.347, z0), (-5.41, 38.351, z1)),
+            ((-4.19, 38.347, z0), (-0.91, 38.351, z1)),
+            ((0.31, 38.347, z0), (2.4, 38.351, z1)),
+            ((2.549, 38.5, z0), (2.553, 45.5, z1)),
+            ((5.247, 36.5, z0), (5.251, 45.5, z1)),
+            ((-6.753, 38.5, z0), (-6.749, 45.5, z1)),
+            ((41.549, 36.5, z0), (41.553, 45.5, z1)),
+            ((-12.6, 2.347, z0), (-3.5, 2.351, z1)),
+            ((-12.6, 32.649, z0), (-6.6, 32.653, z1)),
+        )
     )
     return boxes
 
@@ -2677,6 +2969,10 @@ def main() -> None:
     material_result = consolidate_school_materials(export_collection)
     apply_architecture_swatch_uv(
         tuple(f"VIS_RoofGuard_{suffix}" for suffix, *_ in ROOF_GUARD_SEGMENTS),
+        "trim",
+    )
+    apply_architecture_swatch_uv(
+        ("VIS_B03_PerimeterBlockJoints",),
         "trim",
     )
     bpy.context.scene["b03_2_material_result"] = json.dumps(
