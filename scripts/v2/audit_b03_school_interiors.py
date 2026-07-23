@@ -45,7 +45,13 @@ from build_b03_school_interiors import (
     LL_DESK_YS,
     LL_INTERIOR_BOUNDS,
     MAIN_ENTRY_BAGGAGE_LOCKERS,
+    MUSIC_CHAIR_ROTATION,
+    MUSIC_CHAIR_XS,
+    MUSIC_CHAIR_YS,
+    MUSIC_PIANO_PLACEMENT,
     NORTH_CLASSROOM_DOOR_OPENINGS,
+    NORTH_ENTRY_BAGGAGE_LOCKER,
+    NORTH_ENTRY_UMBRELLA_STAND,
     PROP_COLLIDER_SIZES,
     ROOF_CHANGING_BAGGAGE_LOCKER_XS,
     ROOF_POOL_NORTH_SIGN_SUPPORT,
@@ -488,8 +494,8 @@ def room_sign_clearance_volumes() -> list[tuple[str, Vector, Vector]]:
 
 def audit_door_sign_clearance() -> int:
     sign_components = room_sign_components()
-    if len(sign_components) != 30:
-        raise RuntimeError(f"表札が30枚ではありません: {len(sign_components)}")
+    if len(sign_components) != 29:
+        raise RuntimeError(f"表札が29枚ではありません: {len(sign_components)}")
     violations = []
     clearances = room_sign_clearance_volumes()
     for label, clearance_minimum, clearance_maximum in clearances:
@@ -1148,6 +1154,109 @@ def audit_ll_room_placement() -> dict[str, int]:
     }
 
 
+def audit_music_room_orientation() -> dict[str, int]:
+    if tuple(MUSIC_PIANO_PLACEMENT) != (40.4, 42.5, -math.pi / 2):
+        raise RuntimeError("音楽室ピアノの確定配置が変化しています")
+    if tuple(MUSIC_CHAIR_XS) != (29.0, 30.55, 32.1, 33.65, 35.2, 36.75):
+        raise RuntimeError("音楽室椅子のX座標が変化しています")
+    if tuple(MUSIC_CHAIR_YS) != (38.2, 39.55, 40.9, 42.25, 43.6):
+        raise RuntimeError("音楽室椅子のY座標が変化しています")
+    if abs(MUSIC_CHAIR_ROTATION - math.pi / 2) > 1e-7:
+        raise RuntimeError("音楽室の椅子が東向きではありません")
+
+    visual = bpy.data.objects["VIS_B03_Interior_F04_Music_FurnitureProps"]
+    collider = bpy.data.objects["COL_B03_Interior_F04_Music"]
+    visual_components = connected_component_aabbs(visual)
+    collider_components = connected_component_aabbs(collider)
+    piano_x, piano_y, piano_rotation = MUSIC_PIANO_PLACEMENT
+    piano_collider_bounds = transformed_box_bounds(
+        (piano_x, piano_y, 10.8),
+        (0.0, 0.0, PROP_COLLIDER_SIZES["GrandPiano"][2] / 2.0),
+        PROP_COLLIDER_SIZES["GrandPiano"],
+        piano_rotation,
+    )
+    require_component_bounds(
+        "音楽室ピアノCollider",
+        collider_components,
+        piano_collider_bounds,
+    )
+    if not bounds_match(
+        (Vector(piano_collider_bounds[0]), Vector(piano_collider_bounds[1])),
+        (
+            (39.675, 41.725, 10.8),
+            (41.125, 43.275, 11.76),
+        ),
+    ):
+        raise RuntimeError(
+            f"音楽室ピアノColliderの確定AABBが不正です: {piano_collider_bounds}"
+        )
+
+    keyboard_bounds = transformed_box_bounds(
+        (piano_x, piano_y, 10.8),
+        (-0.22, -0.605, 0.73),
+        (1.05, 0.24, 0.035),
+        piano_rotation,
+    )
+    require_component_bounds("音楽室ピアノ鍵盤", visual_components, keyboard_bounds)
+    if keyboard_bounds[1][0] >= piano_x:
+        raise RuntimeError("音楽室ピアノの鍵盤が西側を向いていません")
+
+    blackboard_bounds = (
+        (41.26, 39.2, 11.92),
+        (41.34, 42.8, 13.12),
+    )
+    for component_bounds in (
+        ((41.28, 39.26, 11.98), (41.32, 42.74, 13.06)),
+        ((41.26, 39.2, 13.06), (41.34, 42.8, 13.12)),
+        ((41.26, 39.2, 11.92), (41.34, 42.8, 11.98)),
+        ((41.26, 39.2, 11.98), (41.34, 39.26, 13.06)),
+        ((41.26, 42.74, 11.98), (41.34, 42.8, 13.06)),
+    ):
+        require_component_bounds(
+            "音楽室東壁黒板",
+            visual_components,
+            component_bounds,
+        )
+    blackboard_gap = blackboard_bounds[0][0] - piano_collider_bounds[1][0]
+    if blackboard_gap < 0.135 - 1e-5:
+        raise RuntimeError(
+            f"音楽室ピアノと東壁黒板の間隔が不足しています: {blackboard_gap}"
+        )
+
+    south_wall_inner_y = 36.65
+    door_clearance = piano_collider_bounds[0][1] - south_wall_inner_y
+    if door_clearance < 5.0:
+        raise RuntimeError(
+            f"音楽室ピアノが南側出入口へ近すぎます: {door_clearance}"
+        )
+
+    chair_back_checks = 0
+    for y in MUSIC_CHAIR_YS:
+        for x in MUSIC_CHAIR_XS:
+            expected_back = transformed_box_bounds(
+                (x, y, 10.8),
+                (0.0, 0.195, 0.65),
+                (0.42, 0.06, 0.26),
+                MUSIC_CHAIR_ROTATION,
+            )
+            require_component_bounds(
+                "音楽室東向き椅子の背板",
+                visual_components,
+                expected_back,
+            )
+            if expected_back[1][0] >= x:
+                raise RuntimeError("音楽室椅子の背板が座面の西側にありません")
+            chair_back_checks += 1
+
+    return {
+        "piano_collider": 1,
+        "piano_keyboard": 1,
+        "chair_backs": chair_back_checks,
+        "blackboard_clearance_mm": round(blackboard_gap * 1000),
+        "door_clearance_mm": round(door_clearance * 1000),
+    }
+
+
 def audit_toilet_front_structures() -> dict[str, int]:
     expected_wall_spans = (
         (-6.6, -5.4),
@@ -1477,6 +1586,62 @@ def audit_acceptance_placements() -> dict[str, int]:
     north_components = connected_component_aabbs(north_entry)
     if min(minimum.x for minimum, _ in north_components) < 4.79:
         raise RuntimeError("北側通用口の小物が壁際から廊下側へ出ています")
+    if tuple(NORTH_ENTRY_BAGGAGE_LOCKER) != (5.025, 40.6, -math.pi / 2):
+        raise RuntimeError("北側通用口の荷物ロッカー確定配置が変化しています")
+    north_locker_x, north_locker_y, north_locker_rotation = (
+        NORTH_ENTRY_BAGGAGE_LOCKER
+    )
+    north_locker_collider = bpy.data.objects["COL_B03_Interior_F01_NorthEntry"]
+    north_locker_collider_components = connected_component_aabbs(
+        north_locker_collider
+    )
+    if len(north_locker_collider_components) != 1:
+        raise RuntimeError(
+            "北側通用口の荷物ロッカーColliderが1台分ではありません: "
+            f"{len(north_locker_collider_components)}"
+        )
+    north_locker_bounds = transformed_box_bounds(
+        (north_locker_x, north_locker_y, 0.0),
+        (0.0, 0.0, PROP_COLLIDER_SIZES["BaggageLocker"][2] / 2.0),
+        PROP_COLLIDER_SIZES["BaggageLocker"],
+        north_locker_rotation,
+    )
+    require_component_bounds(
+        "北側通用口の荷物ロッカーCollider",
+        north_locker_collider_components,
+        north_locker_bounds,
+    )
+    if not bounds_match(
+        (Vector(north_locker_bounds[0]), Vector(north_locker_bounds[1])),
+        ((4.8, 39.7, 0.0), (5.25, 41.5, 1.2)),
+    ):
+        raise RuntimeError(
+            "北側通用口の荷物ロッカーCollider確定AABBが不正です: "
+            f"{north_locker_bounds}"
+        )
+    require_component_bounds(
+        "北側通用口の荷物ロッカー背板",
+        north_components,
+        ((5.21, 39.7, 0.0), (5.25, 41.5, 1.2)),
+    )
+    if tuple(NORTH_ENTRY_UMBRELLA_STAND) != (5.05, 39.0, math.pi / 2):
+        raise RuntimeError("北側通用口の傘立て確定配置が変化しています")
+    umbrella_x, umbrella_y, umbrella_rotation = NORTH_ENTRY_UMBRELLA_STAND
+    umbrella_bounds = transformed_box_bounds(
+        (umbrella_x, umbrella_y, 0.0),
+        (0.0, 0.0, 0.3),
+        (0.9, 0.3, 0.6),
+        umbrella_rotation,
+    )
+    require_component_bounds(
+        "北側通用口の傘立て",
+        north_components,
+        umbrella_bounds,
+    )
+    if north_locker_bounds[0][1] - umbrella_bounds[1][1] < 0.25 - 1e-5:
+        raise RuntimeError("北側通用口の荷物ロッカーと傘立てが重なっています")
+    if 44.4 - north_locker_bounds[1][1] < 2.9 - 1e-5:
+        raise RuntimeError("北側通用口の荷物ロッカーが出入口へ近すぎます")
 
     staff = bpy.data.objects["VIS_B03_Interior_F01_StaffRoom_FurnitureProps"]
     if max(maximum.y for _, maximum in connected_component_aabbs(staff)) > 45.15:
@@ -1519,6 +1684,7 @@ def audit_acceptance_placements() -> dict[str, int]:
         "main_entry": len(main_components),
         "main_entry_colliders": len(main_collider_components),
         "north_entry": len(north_components),
+        "north_entry_colliders": len(north_locker_collider_components),
         "staffroom": 1,
         "gym": len(expected_backboards) + 2,
     }
@@ -1965,6 +2131,10 @@ def main() -> None:
         raise RuntimeError("LL室にモニターが残っています")
     if room_counts["F04_Music"].get("MusicStand", 0) != 0:
         raise RuntimeError("音楽室に譜面台が残っています")
+    if room_counts["GymStorage"].get("RoomSign", 0) != 0:
+        raise RuntimeError("体育倉庫の表札数が0件ではありません")
+    if bpy.data.objects.get("VIS_B03_Interior_GymStorage_SignsPaper") is not None:
+        raise RuntimeError("体育倉庫内の不要な表札が残っています")
     expected_blackboards = {
         f"F{floor:02d}_Classroom{room_index:02d}"
         for floor in (2, 3, 4)
@@ -2005,6 +2175,15 @@ def main() -> None:
         or main_entry_counts.get("UmbrellaStand", 0) != 0
     ):
         raise RuntimeError(f"主玄関のロッカー構成が不正です: {main_entry_counts}")
+    north_entry_counts = room_counts["F01_NorthEntry"]
+    if (
+        north_entry_counts.get("BaggageLocker") != 1
+        or north_entry_counts.get("ShoeLocker", 0) != 0
+        or north_entry_counts.get("UmbrellaStand") != 1
+    ):
+        raise RuntimeError(
+            f"北側通用口のロッカー構成が不正です: {north_entry_counts}"
+        )
     storey_band_swatches = audit_storey_band_swatches()
     nav_blocker_parity = audit_nav_blocker_parity(interior_colliders, nav_blocker)
     classroom_acceptance = audit_classroom_teacher_desks_and_lockers()
@@ -2012,6 +2191,7 @@ def main() -> None:
     bulletin_board_design = audit_bulletin_board_design()
     art_room_acceptance = audit_art_room_placement()
     ll_room_acceptance = audit_ll_room_placement()
+    music_room_orientation = audit_music_room_orientation()
     toilet_front_structures = audit_toilet_front_structures()
     broadcast_orientation_checks = audit_broadcast_orientation()
     council_placement_checks = audit_council_placement()
@@ -2060,6 +2240,7 @@ def main() -> None:
         "bulletin_board_design": bulletin_board_design,
         "art_room_acceptance": art_room_acceptance,
         "ll_room_acceptance": ll_room_acceptance,
+        "music_room_orientation": music_room_orientation,
         "toilet_front_structures": toilet_front_structures,
         "broadcast_orientation_checks": broadcast_orientation_checks,
         "council_placement_checks": council_placement_checks,

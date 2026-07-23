@@ -30,6 +30,7 @@ from build_b03_school_interiors import (
     NORTH_CLASSROOM_DOOR_OPENINGS,
     ROOF_POOL_NORTH_SIGN_SUPPORT,
     TOILET_COMMON_OPENING,
+    TOILET_FRONT_DOOR_OPENINGS,
     UPPER_WEST_CLASSROOM_DOOR_OPENINGS,
     swatch_uv,
 )
@@ -47,7 +48,7 @@ PROP_LIBRARY_PATH = (
 )
 
 EXPECTED_NAVMESH_SHA256 = (
-    "72F3C4B8FDCD2E92EE71ECF5A848683C57DDB9E342FF52059DDFB4179BF29F82"
+    "F80AC812B13D6E6D27B98E8DEBB8F3BDF9891140083E74E393B7A32FE08E30DC"
 )
 EXPECTED_PROP_LIBRARY_SHA256 = (
     "898E4E43D39B470F6ECE344272192A45A26EBAF3F2477BF9F3D1D95DC3EB65DB"
@@ -55,8 +56,31 @@ EXPECTED_PROP_LIBRARY_SHA256 = (
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "t04-2b-acceptance-v04"
-EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v07"
+EXPECTED_GENERATOR_VERSION = "t04-2b-acceptance-v05"
+EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v08"
+
+GATE_VISUAL_SPECS = (
+    ("VIS_Gate_MainClosed", "X", 19.4, 25.4, -12.5),
+    ("VIS_Gate_UtilityClosed", "Y", 44.5, 50.5, 63.4),
+)
+GATE_COLLIDER_BOUNDS = {
+    "COL_Gate_MainClosed": ((19.4, -12.625, -0.3), (25.4, -12.375, 1.7)),
+    "COL_Gate_UtilityClosed": ((63.275, 44.5, -0.3), (63.525, 50.5, 1.7)),
+}
+PERIMETER_WALL_SPECS = (
+    ("Perimeter_East", "Y", -12.5, 44.5, 63.2, 63.6),
+    ("Perimeter_EastNorth", "Y", 50.5, 51.5, 63.2, 63.6),
+    ("Perimeter_NorthEast", "X", 22.4, 63.4, 51.3, 51.7),
+    ("Perimeter_NorthWest", "X", -18.6, 22.4, 51.3, 51.7),
+    ("Perimeter_SouthEast", "X", 25.4, 63.4, -12.7, -12.3),
+    ("Perimeter_SouthWest", "X", -18.6, 19.4, -12.7, -12.3),
+    ("Perimeter_West", "Y", -12.5, 51.5, -18.8, -18.4),
+)
+PERIMETER_WALL_Z = (-0.3, 1.7)
+PERIMETER_BLOCK_WIDTH = 0.8
+PERIMETER_BLOCK_HEIGHT = 0.4
+PERIMETER_JOINT_WIDTH = 0.02
+PERIMETER_JOINT_DEPTH = 0.006
 
 ROOF_GUARD_SEGMENTS = (
     (
@@ -435,6 +459,112 @@ def expected_storey_band_boxes(
         ((start, 32.649, z0), (end, 32.653, z1))
         for start, end in expected_band_segments(0.0, 47.4, north_entry_openings)
     )
+    boxes.extend(
+        (
+            ((-6.6, 38.347, z0), (-5.41, 38.351, z1)),
+            ((-4.19, 38.347, z0), (-0.91, 38.351, z1)),
+            ((0.31, 38.347, z0), (2.4, 38.351, z1)),
+            ((2.549, 38.5, z0), (2.553, 45.5, z1)),
+            ((5.247, 36.5, z0), (5.251, 45.5, z1)),
+            ((-6.753, 38.5, z0), (-6.749, 45.5, z1)),
+            ((41.549, 36.5, z0), (41.553, 45.5, z1)),
+            ((-12.6, 2.347, z0), (-3.5, 2.351, z1)),
+            ((-12.6, 32.649, z0), (-6.6, 32.653, z1)),
+        )
+    )
+    return boxes
+
+
+def expected_oriented_box(
+    axis: str,
+    primary_minimum: float,
+    primary_maximum: float,
+    cross_minimum: float,
+    cross_maximum: float,
+    z_minimum: float,
+    z_maximum: float,
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    if axis == "X":
+        return (
+            (primary_minimum, cross_minimum, z_minimum),
+            (primary_maximum, cross_maximum, z_maximum),
+        )
+    if axis == "Y":
+        return (
+            (cross_minimum, primary_minimum, z_minimum),
+            (cross_maximum, primary_maximum, z_maximum),
+        )
+    raise RuntimeError(f"未定義の水平軸です: {axis}")
+
+
+def expected_gate_fence_boxes(
+    axis: str,
+    primary_minimum: float,
+    primary_maximum: float,
+    fixed: float,
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    center = (primary_minimum + primary_maximum) / 2.0
+    boxes = [
+        expected_oriented_box(
+            axis,
+            post_center - 0.05,
+            post_center + 0.05,
+            fixed - 0.05,
+            fixed + 0.05,
+            -0.3,
+            1.7,
+        )
+        for post_center in (primary_minimum + 0.05, center, primary_maximum - 0.05)
+    ]
+    leaves = (
+        (primary_minimum + 0.10, center - 0.05),
+        (center + 0.05, primary_maximum - 0.10),
+    )
+    for leaf_minimum, leaf_maximum in leaves:
+        for z_minimum, z_maximum in (
+            (-0.28, -0.20),
+            (0.66, 0.74),
+            (1.62, 1.70),
+        ):
+            boxes.append(
+                expected_oriented_box(
+                    axis,
+                    leaf_minimum,
+                    leaf_maximum,
+                    fixed - 0.04,
+                    fixed + 0.04,
+                    z_minimum,
+                    z_maximum,
+                )
+            )
+        interval_count = math.ceil((leaf_maximum - leaf_minimum) / 0.5)
+        for index in range(1, interval_count):
+            position = (
+                leaf_minimum
+                + (leaf_maximum - leaf_minimum) * index / interval_count
+            )
+            boxes.append(
+                expected_oriented_box(
+                    axis,
+                    position - 0.04,
+                    position + 0.04,
+                    fixed - 0.04,
+                    fixed + 0.04,
+                    -0.20,
+                    1.62,
+                )
+            )
+    boxes.append(
+        expected_oriented_box(
+            axis,
+            center - 0.12,
+            center + 0.12,
+            fixed - 0.06,
+            fixed + 0.06,
+            0.62,
+            0.78,
+        )
+    )
     return boxes
 
 
@@ -456,6 +586,24 @@ def interval_overlaps(
     return max(left[0], right[0]) < min(left[1], right[1]) - TOLERANCE
 
 
+def interval_union_covers(
+    target: tuple[float, float],
+    intervals: list[tuple[float, float]],
+) -> bool:
+    cursor = target[0]
+    for minimum, maximum in sorted(intervals):
+        clipped_minimum = max(target[0], minimum)
+        clipped_maximum = min(target[1], maximum)
+        if clipped_maximum <= cursor + TOLERANCE:
+            continue
+        if clipped_minimum > cursor + TOLERANCE:
+            return False
+        cursor = max(cursor, clipped_maximum)
+        if cursor >= target[1] - TOLERANCE:
+            return True
+    return cursor >= target[1] - TOLERANCE
+
+
 def audit_storey_band_relationships(
     objects: list[bpy.types.Object],
 ) -> dict[str, int]:
@@ -468,22 +616,32 @@ def audit_storey_band_relationships(
             "Wall" in obj.name
             or "_InteriorWalls_" in obj.name
             or "_ExteriorWalls_" in obj.name
+            or (
+                obj.name.startswith("VIS_B03_Interior_")
+                and obj.name.endswith("_Architecture")
+            )
         )
         and len(obj.data.vertices) % 8 == 0
         for bounds in box_component_bounds(obj)
     ]
     backing_checks = 0
     opening_checks = 0
+    band_depth_checks = 0
     depth_checks = 0
     for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
         band_name = f"VIS_B03_StoreyBand_F{floor:02d}"
         band = bpy.data.objects.get(band_name)
         require(band is not None and band.type == "MESH", f"階色帯がありません: {band_name}")
         components = box_component_bounds(band)
+        expected_component_count = 24 if floor == 1 else 23
+        require(
+            len(components) == expected_component_count,
+            f"階色帯の成分数が不正です: {band_name}/{len(components)}",
+        )
         for minimum, maximum in components:
-            midpoint = tuple((minimum[axis] + maximum[axis]) / 2 for axis in range(3))
             if abs(minimum[0] + 3.351) <= TOLERANCE:
-                support_point = (-3.36, midpoint[1], midpoint[2])
+                normal_axis, projected_axis = 0, 1
+                wall_face, outward_sign = -3.35, 1
                 projected_interval = (minimum[1], maximum[1])
                 openings = (
                     FIRST_FLOOR_WEST_DOOR_OPENINGS
@@ -491,24 +649,106 @@ def audit_storey_band_relationships(
                     else UPPER_WEST_CLASSROOM_DOOR_OPENINGS
                 )
             elif abs(minimum[0] + 0.153) <= TOLERANCE:
-                support_point = (-0.14, midpoint[1], midpoint[2])
+                normal_axis, projected_axis = 0, 1
+                wall_face, outward_sign = -0.15, -1
                 projected_interval = (minimum[1], maximum[1])
                 openings = ((-2.5, 2.5),) if floor == 1 else ()
             elif abs(minimum[1] - 36.347) <= TOLERANCE:
-                support_point = (midpoint[0], 36.36, midpoint[2])
+                normal_axis, projected_axis = 1, 0
+                wall_face, outward_sign = 36.35, -1
                 projected_interval = (minimum[0], maximum[0])
                 openings = (TOILET_COMMON_OPENING,) + NORTH_CLASSROOM_DOOR_OPENINGS
             elif abs(minimum[1] - 32.649) <= TOLERANCE:
-                support_point = (midpoint[0], 32.64, midpoint[2])
+                normal_axis, projected_axis = 1, 0
+                wall_face, outward_sign = 32.65, 1
                 projected_interval = (minimum[0], maximum[0])
                 openings = ((0.15, 5.4), (39.4, 43.4)) if floor == 1 else ()
+            elif abs(minimum[1] - 38.347) <= TOLERANCE:
+                normal_axis, projected_axis = 1, 0
+                wall_face, outward_sign = 38.35, -1
+                projected_interval = (minimum[0], maximum[0])
+                openings = TOILET_FRONT_DOOR_OPENINGS
+            elif abs(minimum[0] - 2.549) <= TOLERANCE:
+                normal_axis, projected_axis = 0, 1
+                wall_face, outward_sign = 2.55, 1
+                projected_interval = (minimum[1], maximum[1])
+                openings = ()
+            elif abs(minimum[0] - 5.247) <= TOLERANCE:
+                normal_axis, projected_axis = 0, 1
+                wall_face, outward_sign = 5.25, -1
+                projected_interval = (minimum[1], maximum[1])
+                openings = ()
+            elif abs(minimum[0] + 6.753) <= TOLERANCE:
+                normal_axis, projected_axis = 0, 1
+                wall_face, outward_sign = -6.75, -1
+                projected_interval = (minimum[1], maximum[1])
+                openings = ()
+            elif abs(minimum[0] - 41.549) <= TOLERANCE:
+                normal_axis, projected_axis = 0, 1
+                wall_face, outward_sign = 41.55, 1
+                projected_interval = (minimum[1], maximum[1])
+                openings = ()
+            elif abs(minimum[1] - 2.347) <= TOLERANCE:
+                normal_axis, projected_axis = 1, 0
+                wall_face, outward_sign = 2.35, -1
+                projected_interval = (minimum[0], maximum[0])
+                openings = ()
             else:
                 raise RuntimeError(f"階色帯の壁面位置が不正です: {band_name}/{minimum}/{maximum}")
+
+            supporting_walls = []
+            for wall_minimum, wall_maximum in wall_components:
+                candidate_face = (
+                    wall_minimum[normal_axis]
+                    if outward_sign < 0
+                    else wall_maximum[normal_axis]
+                )
+                if abs(candidate_face - wall_face) > TOLERANCE:
+                    continue
+                if (
+                    wall_minimum[2] > minimum[2] + TOLERANCE
+                    or wall_maximum[2] < maximum[2] - TOLERANCE
+                ):
+                    continue
+                supporting_walls.append(
+                    (
+                        wall_minimum[projected_axis],
+                        wall_maximum[projected_axis],
+                        candidate_face,
+                    )
+                )
             require(
-                any(point_in_bounds(support_point, bounds) for bounds in wall_components),
-                f"階色帯の背面に実壁がありません: {band_name}/{support_point}",
+                interval_union_covers(
+                    projected_interval,
+                    [
+                        (wall_minimum, wall_maximum)
+                        for wall_minimum, wall_maximum, _ in supporting_walls
+                    ],
+                ),
+                f"階色帯の全区間を同一壁面が支持していません: {band_name}/{wall_face}/{projected_interval}/{supporting_walls}",
             )
             backing_checks += 1
+
+            actual_wall_face = supporting_walls[0][2]
+            require(
+                all(
+                    abs(candidate_face - actual_wall_face) <= TOLERANCE
+                    for _, _, candidate_face in supporting_walls
+                ),
+                f"階色帯の支持壁面が共面ではありません: {band_name}/{supporting_walls}",
+            )
+            if outward_sign < 0:
+                embedded_depth = maximum[normal_axis] - actual_wall_face
+                protruding_depth = actual_wall_face - minimum[normal_axis]
+            else:
+                embedded_depth = actual_wall_face - minimum[normal_axis]
+                protruding_depth = maximum[normal_axis] - actual_wall_face
+            require(
+                abs(embedded_depth - 0.001) <= TOLERANCE
+                and abs(protruding_depth - 0.003) <= TOLERANCE,
+                f"階色帯の壁埋込みまたは廊下突出量が不正です: {band_name}/{embedded_depth}/{protruding_depth}",
+            )
+            band_depth_checks += 1
             for opening_minimum, opening_maximum in expanded_openings(openings):
                 require(
                     not interval_overlaps(
@@ -561,6 +801,7 @@ def audit_storey_band_relationships(
     return {
         "backing_checks": backing_checks,
         "opening_checks": opening_checks,
+        "band_depth_checks": band_depth_checks,
         "door_depth_checks": depth_checks,
     }
 
@@ -709,6 +950,334 @@ def audit_stair_boundary_walls() -> dict[str, int]:
     return {"continuous_boundary_components": checks}
 
 
+def audit_perimeter_block_joint_mesh() -> dict[str, int]:
+    object_name = "VIS_B03_PerimeterBlockJoints"
+    obj = bpy.data.objects.get(object_name)
+    require(obj is not None and obj.type == "MESH", f"塀目地がありません: {object_name}")
+    require(
+        len(obj.data.vertices) == 14120,
+        f"塀目地の頂点数が不正です: {len(obj.data.vertices)}",
+    )
+    require(
+        len(obj.data.polygons) == 3530,
+        f"塀目地のquad数が不正です: {len(obj.data.polygons)}",
+    )
+    require(
+        all(len(polygon.vertices) == 4 for polygon in obj.data.polygons),
+        "塀目地にquad以外の面があります",
+    )
+    require(
+        bounds_match(
+            tuple(tuple(value for value in bound) for bound in world_bounds(obj)),
+            ((-18.806, -12.706, -0.3), (63.606, 51.706, 1.7)),
+        ),
+        f"塀目地のAABBが不正です: {world_bounds(obj)}",
+    )
+
+    horizontal_levels: dict[tuple[str, int], list[float]] = defaultdict(list)
+    vertical_centers: dict[tuple[str, int, int], list[float]] = defaultdict(list)
+    outward_normal_checks = 0
+    for polygon in obj.data.polygons:
+        points = [
+            obj.matrix_world @ obj.data.vertices[vertex_index].co
+            for vertex_index in polygon.vertices
+        ]
+        minimum = tuple(min(point[axis] for point in points) for axis in range(3))
+        maximum = tuple(max(point[axis] for point in points) for axis in range(3))
+        axis = (
+            "X"
+            if maximum[1] - minimum[1] <= TOLERANCE
+            else "Y"
+            if maximum[0] - minimum[0] <= TOLERANCE
+            else ""
+        )
+        require(axis, f"塀目地が外周面上のquadではありません: {minimum}/{maximum}")
+        primary_axis = 0 if axis == "X" else 1
+        cross_axis = 1 if axis == "X" else 0
+        primary_interval = (minimum[primary_axis], maximum[primary_axis])
+        cross_coordinate = minimum[cross_axis]
+
+        matches = []
+        for (
+            suffix,
+            expected_axis,
+            primary_minimum,
+            primary_maximum,
+            cross_minimum,
+            cross_maximum,
+        ) in PERIMETER_WALL_SPECS:
+            if expected_axis != axis:
+                continue
+            for outward_sign, expected_cross in (
+                (-1, cross_minimum - PERIMETER_JOINT_DEPTH),
+                (1, cross_maximum + PERIMETER_JOINT_DEPTH),
+            ):
+                if (
+                    abs(cross_coordinate - expected_cross) <= TOLERANCE
+                    and primary_interval[0] >= primary_minimum - TOLERANCE
+                    and primary_interval[1] <= primary_maximum + TOLERANCE
+                ):
+                    matches.append(
+                        (
+                            suffix,
+                            outward_sign,
+                            primary_minimum,
+                            primary_maximum,
+                        )
+                    )
+        require(
+            len(matches) == 1,
+            f"塀目地の所属外周面が一意ではありません: {minimum}/{maximum}/{matches}",
+        )
+        suffix, outward_sign, wall_minimum, wall_maximum = matches[0]
+
+        normal = (points[1] - points[0]).cross(points[2] - points[0]).normalized()
+        expected_normal = (
+            Vector((0.0, float(outward_sign), 0.0))
+            if axis == "X"
+            else Vector((float(outward_sign), 0.0, 0.0))
+        )
+        require(
+            normal.dot(expected_normal) >= 1.0 - TOLERANCE,
+            f"塀目地の法線が外向きではありません: {suffix}/{outward_sign}/{normal}",
+        )
+        outward_normal_checks += 1
+
+        primary_length = primary_interval[1] - primary_interval[0]
+        z_interval = (minimum[2], maximum[2])
+        z_length = z_interval[1] - z_interval[0]
+        if (
+            abs(primary_interval[0] - wall_minimum) <= TOLERANCE
+            and abs(primary_interval[1] - wall_maximum) <= TOLERANCE
+            and abs(z_length - PERIMETER_JOINT_WIDTH) <= TOLERANCE
+        ):
+            horizontal_levels[(suffix, outward_sign)].append(
+                (z_interval[0] + z_interval[1]) / 2.0
+            )
+            continue
+
+        require(
+            abs(primary_length - PERIMETER_JOINT_WIDTH) <= TOLERANCE,
+            f"塀の縦目地幅が2cmではありません: {suffix}/{primary_interval}",
+        )
+        course_index = next(
+            (
+                index
+                for index in range(5)
+                if abs(
+                    z_interval[0]
+                    - (
+                        PERIMETER_WALL_Z[0]
+                        + index * PERIMETER_BLOCK_HEIGHT
+                        + (PERIMETER_JOINT_WIDTH / 2.0 if index > 0 else 0.0)
+                    )
+                )
+                <= TOLERANCE
+                and abs(
+                    z_interval[1]
+                    - (
+                        PERIMETER_WALL_Z[0]
+                        + (index + 1) * PERIMETER_BLOCK_HEIGHT
+                        - (
+                            PERIMETER_JOINT_WIDTH / 2.0
+                            if index < 4
+                            else 0.0
+                        )
+                    )
+                )
+                <= TOLERANCE
+            ),
+            None,
+        )
+        require(
+            course_index is not None,
+            f"塀の縦目地が5段の範囲にありません: {suffix}/{z_interval}",
+        )
+        vertical_centers[(suffix, outward_sign, course_index)].append(
+            (primary_interval[0] + primary_interval[1]) / 2.0
+        )
+
+    expected_horizontal_levels = [
+        PERIMETER_WALL_Z[0] + index * PERIMETER_BLOCK_HEIGHT
+        for index in range(1, 5)
+    ]
+    phase_checks = 0
+    for (
+        suffix,
+        _,
+        wall_minimum,
+        wall_maximum,
+        _,
+        _,
+    ) in PERIMETER_WALL_SPECS:
+        for outward_sign in (-1, 1):
+            actual_horizontal_levels = sorted(
+                horizontal_levels[(suffix, outward_sign)]
+            )
+            require(
+                len(actual_horizontal_levels) == len(expected_horizontal_levels)
+                and all(
+                    abs(actual - expected) <= TOLERANCE
+                    for actual, expected in zip(
+                        actual_horizontal_levels,
+                        expected_horizontal_levels,
+                    )
+                ),
+                f"塀の水平目地が0.4m間隔の5段ではありません: {suffix}/{outward_sign}",
+            )
+            phase_checks += 1
+            for course_index in range(5):
+                first_offset = (
+                    PERIMETER_BLOCK_WIDTH / 2.0
+                    if course_index % 2
+                    else PERIMETER_BLOCK_WIDTH
+                )
+                expected_centers = []
+                position = wall_minimum + first_offset
+                while position < wall_maximum - 1e-8:
+                    expected_centers.append(position)
+                    position += PERIMETER_BLOCK_WIDTH
+                actual_centers = sorted(
+                    vertical_centers[(suffix, outward_sign, course_index)]
+                )
+                require(
+                    len(actual_centers) == len(expected_centers)
+                    and all(
+                        abs(actual - expected) <= TOLERANCE
+                        for actual, expected in zip(
+                            actual_centers,
+                            expected_centers,
+                            strict=True,
+                        )
+                    ),
+                    f"塀の縦目地位相が不正です: {suffix}/{outward_sign}/{course_index}/{actual_centers}",
+                )
+                phase_checks += 1
+
+    return {
+        "vertices": len(obj.data.vertices),
+        "quads": len(obj.data.polygons),
+        "outward_normal_checks": outward_normal_checks,
+        "course_and_phase_checks": phase_checks,
+    }
+
+
+def audit_site_boundary_visuals() -> dict[str, int]:
+    site_ground = bpy.data.objects.get("VIS_SiteGround")
+    require(
+        site_ground is not None and site_ground.type == "MESH",
+        "校門下桟の高さ基準となるSiteGroundがありません",
+    )
+    _, site_ground_maximum = world_bounds(site_ground)
+    require(
+        abs(site_ground_maximum.z + 0.3) <= TOLERANCE,
+        f"SiteGround上面がz=-0.30ではありません: {site_ground_maximum.z}",
+    )
+    gate_components = 0
+    for object_name, axis, minimum, maximum, fixed in GATE_VISUAL_SPECS:
+        expected = expected_gate_fence_boxes(
+            axis,
+            minimum,
+            maximum,
+            fixed,
+        )
+        require(len(expected) == 20, f"校門の部品数定義が不正です: {object_name}")
+        gate_components += audit_box_components(object_name, expected)
+        require_architecture_swatch(object_name, "gate")
+        lower_rails = [
+            bounds
+            for bounds in box_component_bounds(bpy.data.objects[object_name])
+            if abs(bounds[0][2] + 0.28) <= TOLERANCE
+            and abs(bounds[1][2] + 0.20) <= TOLERANCE
+        ]
+        require(
+            len(lower_rails) == 2
+            and all(
+                abs(bounds[0][2] - site_ground_maximum.z - 0.02)
+                <= TOLERANCE
+                for bounds in lower_rails
+            ),
+            f"校門下桟とSiteGround上面の隙間が2cmではありません: {object_name}/{lower_rails}",
+        )
+
+    gate_collider_components = 0
+    for object_name, expected_bounds in GATE_COLLIDER_BOUNDS.items():
+        gate_collider_components += audit_box_components(
+            object_name,
+            [expected_bounds],
+        )
+
+    perimeter_core_components = 0
+    for suffix, axis, minimum, maximum, cross_minimum, cross_maximum in (
+        PERIMETER_WALL_SPECS
+    ):
+        expected_bounds = expected_oriented_box(
+            axis,
+            minimum,
+            maximum,
+            cross_minimum,
+            cross_maximum,
+            PERIMETER_WALL_Z[0],
+            PERIMETER_WALL_Z[1],
+        )
+        perimeter_core_components += audit_box_components(
+            f"VIS_{suffix}",
+            [expected_bounds],
+        )
+        perimeter_core_components += audit_box_components(
+            f"COL_{suffix}",
+            [expected_bounds],
+        )
+        require_architecture_swatch(f"VIS_{suffix}", "wall")
+
+    joint_mesh = audit_perimeter_block_joint_mesh()
+    require_architecture_swatch("VIS_B03_PerimeterBlockJoints", "trim")
+    require(
+        bpy.data.objects.get("COL_B03_PerimeterBlockJoints") is None,
+        "塀目地へColliderが追加されています",
+    )
+    require(
+        bpy.data.objects.get("NAV_Blocker_Perimeter") is not None,
+        "既存の外周Nav blockerがありません",
+    )
+    return {
+        "gate_components": gate_components,
+        "gate_collider_components": gate_collider_components,
+        "perimeter_core_components": perimeter_core_components,
+        "perimeter_joint_mesh": joint_mesh,
+        "perimeter_courses": round(
+            (PERIMETER_WALL_Z[1] - PERIMETER_WALL_Z[0])
+            / PERIMETER_BLOCK_HEIGHT
+        ),
+    }
+
+
+def audit_upper_nav_blocker_boundaries() -> dict[str, int]:
+    object_name = "NAV_Blocker_SchoolUpper"
+    obj = bpy.data.objects.get(object_name)
+    require(
+        obj is not None and obj.type == "MESH",
+        f"上階Nav blockerがありません: {object_name}",
+    )
+    actual_components = box_component_bounds(obj)
+    expected_boundary_walls = (
+        ((5.25, 36.5, 3.6), (5.55, 45.5, 6.6)),
+        ((5.25, 36.5, 7.2), (5.55, 45.5, 10.2)),
+        ((5.25, 36.5, 10.8), (5.55, 45.5, 13.8)),
+    )
+    for expected_bounds in expected_boundary_walls:
+        matches = [
+            actual_bounds
+            for actual_bounds in actual_components
+            if bounds_match(actual_bounds, expected_bounds)
+        ]
+        require(
+            len(matches) == 1,
+            f"上階Nav blockerの通路・特別教室境界壁が一意に存在しません: {expected_bounds}/{len(matches)}",
+        )
+    return {"special_room_boundary_walls": len(expected_boundary_walls)}
+
+
 def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     atlas_rgb_cells = audit_architecture_atlas_rgb()
     expected_swatches = {
@@ -759,6 +1328,8 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     storey_band_relationships = audit_storey_band_relationships(objects)
     classroom_openings = audit_classroom_openings_and_boundaries()
     stair_boundary_walls = audit_stair_boundary_walls()
+    site_boundaries = audit_site_boundary_visuals()
+    upper_nav_blocker_boundaries = audit_upper_nav_blocker_boundaries()
 
     floor_panels = (
         ((-6.0, -3.5), (0.0, 32.5)),
@@ -964,11 +1535,10 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
                 wall_name,
                 ((-12.6, 32.35, base_z), (-3.5, 32.65, base_z + 3.6)),
             )
-            if floor == 2:
-                require_box_component(
-                    wall_name,
-                    ((5.25, 36.5, base_z), (5.55, 45.5, base_z + 3.0)),
-                )
+            require_box_component(
+                wall_name,
+                ((5.25, 36.5, base_z), (5.55, 45.5, base_z + 3.0)),
+            )
         require_box_component(
             f"VIS_B03_DoorLeaves_F{floor:02d}",
             ((22.71, 35.35, base_z), (22.79, 36.45, base_z + 2.3)),
@@ -991,6 +1561,8 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
         "storey_band_relationships": storey_band_relationships,
         "classroom_openings": classroom_openings,
         "stair_boundary_walls": stair_boundary_walls,
+        "site_boundaries": site_boundaries,
+        "upper_nav_blocker_boundaries": upper_nav_blocker_boundaries,
     }
 
 
@@ -2186,6 +2758,7 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
 def audit_glb(gltf: dict[str, object]) -> dict[str, int]:
     nodes = gltf.get("nodes", [])
     meshes = gltf.get("meshes", [])
+    accessors = gltf.get("accessors", [])
     materials = gltf.get("materials", [])
     animations = gltf.get("animations", [])
     cameras = gltf.get("cameras", [])
@@ -2215,6 +2788,59 @@ def audit_glb(gltf: dict[str, object]) -> dict[str, int]:
     require("VOL_PoolWater" in node_names, "GLBにVOL_PoolWaterがありません")
     require(not any("Gym_South" in name for name in node_names), "GLB体育館南面に窓があります")
     require(not any(name.startswith("PRT_") for name in node_names), "GLBにPRT_*があります")
+    perimeter_joint_nodes = [
+        node
+        for node in nodes
+        if node.get("name") == "VIS_B03_PerimeterBlockJoints"
+    ]
+    require(
+        len(perimeter_joint_nodes) == 1,
+        f"GLBの塀目地Nodeが1件ではありません: {len(perimeter_joint_nodes)}",
+    )
+    perimeter_joint_mesh_index = perimeter_joint_nodes[0].get("mesh")
+    require(
+        isinstance(perimeter_joint_mesh_index, int)
+        and 0 <= perimeter_joint_mesh_index < len(meshes),
+        f"GLBの塀目地Mesh参照が不正です: {perimeter_joint_mesh_index}",
+    )
+    perimeter_joint_primitives = meshes[perimeter_joint_mesh_index].get(
+        "primitives",
+        [],
+    )
+    require(
+        len(perimeter_joint_primitives) == 1,
+        f"GLBの塀目地Primitiveが1件ではありません: {len(perimeter_joint_primitives)}",
+    )
+    perimeter_joint_primitive = perimeter_joint_primitives[0]
+    require(
+        perimeter_joint_primitive.get("mode", 4) == 4,
+        "GLBの塀目地PrimitiveがTRIANGLESではありません",
+    )
+    position_accessor_index = perimeter_joint_primitive.get(
+        "attributes",
+        {},
+    ).get("POSITION")
+    index_accessor_index = perimeter_joint_primitive.get("indices")
+    require(
+        isinstance(position_accessor_index, int)
+        and 0 <= position_accessor_index < len(accessors),
+        f"GLBの塀目地POSITION参照が不正です: {position_accessor_index}",
+    )
+    require(
+        isinstance(index_accessor_index, int)
+        and 0 <= index_accessor_index < len(accessors),
+        f"GLBの塀目地indices参照が不正です: {index_accessor_index}",
+    )
+    perimeter_joint_vertex_count = accessors[position_accessor_index].get("count")
+    perimeter_joint_index_count = accessors[index_accessor_index].get("count")
+    require(
+        perimeter_joint_vertex_count == 14120,
+        f"GLBの塀目地頂点数が14120ではありません: {perimeter_joint_vertex_count}",
+    )
+    require(
+        perimeter_joint_index_count == 21180,
+        f"GLBの塀目地index数が21180ではありません: {perimeter_joint_index_count}",
+    )
     for node in nodes:
         name = node.get("name", "")
         extras = node.get("extras", {})
@@ -2232,6 +2858,8 @@ def audit_glb(gltf: dict[str, object]) -> dict[str, int]:
         "nodes": len(nodes),
         "meshes": len(meshes),
         "materials": len(materials),
+        "perimeter_joint_vertices": perimeter_joint_vertex_count,
+        "perimeter_joint_triangles": perimeter_joint_index_count // 3,
     }
 
 
@@ -2309,12 +2937,12 @@ def main() -> None:
     require(
         bpy.context.scene.get("b03_architecture_generator_version")
         == EXPECTED_GENERATOR_VERSION,
-        "建築生成版が第4次受入修正版ではありません",
+        "建築生成版が第5次受入修正版ではありません",
     )
     require(
         bpy.context.scene.get("t04_2b_nav_connectivity_version")
         == EXPECTED_T04_CORRECTION_VERSION,
-        "T04補正版がv07ではありません",
+        "T04補正版がv08ではありません",
     )
     require(bpy.context.scene.get("b03_window_layout_status") == "final", "窓配置が最終状態ではありません")
     require(sha256(NAVMESH_PATH) == EXPECTED_NAVMESH_SHA256, "NavMesh SHA-256が変化しています")

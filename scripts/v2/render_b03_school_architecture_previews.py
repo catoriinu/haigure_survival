@@ -48,6 +48,8 @@ VIEWS = (
     ("30_northeast_stairs", (35.0, 29.0, 12.5), (43.2, 40.8, 6.2), 40.0),
     ("31_southwest_stairs", (5.0, 9.5, 12.5), (-5.4, 0.8, 6.2), 40.0),
     ("32_gym_interior_readability", (45.4, 18.0, 5.8), (45.4, -5.5, 1.6), 34.0),
+    ("33_main_gate_block_wall", (22.4, -23.5, 3.0), (22.4, -12.5, 0.75), 45.0),
+    ("34_utility_gate_block_wall", (74.4, 47.5, 3.0), (63.4, 47.5, 0.75), 45.0),
 )
 
 SCHOOL_FULL_PREFIXES = (
@@ -186,6 +188,21 @@ VIEW_SHOW_PREFIXES = {
         "VIS_B03_GymWainscot",
         "VIS_B03_GymTrim",
         "VIS_B03_Interior_Gym_",
+    ),
+    "33_main_gate_block_wall": (
+        "VIS_Gate_MainClosed",
+        "VIS_Perimeter_SouthEast",
+        "VIS_Perimeter_SouthWest",
+        "VIS_B03_PerimeterBlockJoints",
+        "VIS_SiteGround",
+    ),
+    "34_utility_gate_block_wall": (
+        "VIS_Gate_UtilityClosed",
+        "VIS_Perimeter_East",
+        "VIS_Perimeter_EastNorth",
+        "VIS_Perimeter_NorthEast",
+        "VIS_B03_PerimeterBlockJoints",
+        "VIS_SiteGround",
     ),
 }
 

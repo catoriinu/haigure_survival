@@ -2467,6 +2467,158 @@ const runValidation = async () => {
             .join(" / ")
         });
 
+        const upperSpecialRoomRoutes = [
+          ["3F", 7.2, 11.5, 40.75],
+          ["4F", 10.8, 8.0, 40.0]
+        ].map(([floor, baseZ, destinationX, destinationY]) => {
+          const z = baseZ as number;
+          const start = blenderPointToBabylon(new Vector3(3.9, 40.0, z));
+          const destination = blenderPointToBabylon(
+            new Vector3(
+              destinationX as number,
+              destinationY as number,
+              z
+            )
+          );
+          const requiredDoorBounds = blenderBoundsToBabylon(
+            new Vector3(6.0, 36.25, z - 0.2),
+            new Vector3(7.2, 36.75, z + 0.2)
+          );
+          const wallBounds = blenderBoundsToBabylon(
+            new Vector3(5.25, 36.5, z),
+            new Vector3(5.55, 45.5, z + 3.0)
+          );
+          const playerPath = findNavigationPath(
+            schoolNavigation,
+            start,
+            destination,
+            "player"
+          );
+          const npcPath = findNavigationPath(
+            schoolNavigation,
+            start,
+            destination,
+            "npc"
+          );
+          const playerPoints = getNavigationPathPoints(playerPath);
+          const npcPoints = getNavigationPathPoints(npcPath);
+          const projectedDestination = schoolNavigation.projectPoint(
+            destination,
+            0.1
+          );
+          let agentLocation = requireNavigationLocation(
+            schoolNavigation,
+            start
+          );
+          const agent = createNavigationAgent(
+            schoolNavigation,
+            "npc",
+            navigationAgentConfig
+          );
+          const agentPoints = [agentLocation.position.clone()];
+          let agentState = "moving";
+          let transitionRequired = false;
+          for (
+            let updateIndex = 0;
+            updateIndex < 400 && agentState === "moving";
+            updateIndex += 1
+          ) {
+            const result = agent.update(
+              agentLocation,
+              destination,
+              0.5,
+              0.1
+            );
+            agentLocation = result.location;
+            agentState = result.state;
+            transitionRequired =
+              transitionRequired || result.state === "transition-required";
+            agentPoints.push(agentLocation.position.clone());
+          }
+          agent.clear();
+          return {
+            floor,
+            playerPath,
+            npcPath,
+            playerPoints,
+            npcPoints,
+            agentPoints,
+            agentState,
+            transitionRequired,
+            directLineCrossesWall: segmentIntersectsBounds(
+              start,
+              destination,
+              wallBounds
+            ),
+            playerPassesDoor: pathPassesBounds(
+              playerPoints,
+              requiredDoorBounds
+            ),
+            npcPassesDoor: pathPassesBounds(npcPoints, requiredDoorBounds),
+            agentPassesDoor: pathPassesBounds(
+              agentPoints,
+              requiredDoorBounds
+            ),
+            playerCrossesWall: pathPassesBounds(playerPoints, wallBounds),
+            npcCrossesWall: pathPassesBounds(npcPoints, wallBounds),
+            agentCrossesWall: pathPassesBounds(agentPoints, wallBounds),
+            playerEndpointError:
+              projectedDestination && playerPoints.length > 0
+                ? Vector3.Distance(
+                    playerPoints[playerPoints.length - 1],
+                    projectedDestination.position
+                  )
+                : Number.POSITIVE_INFINITY,
+            npcEndpointError:
+              projectedDestination && npcPoints.length > 0
+                ? Vector3.Distance(
+                    npcPoints[npcPoints.length - 1],
+                    projectedDestination.position
+                  )
+                : Number.POSITIVE_INFINITY,
+            agentEndpointError: projectedDestination
+              ? Vector3.Distance(
+                  agentLocation.position,
+                  projectedDestination.position
+                )
+              : Number.POSITIVE_INFINITY
+          };
+        });
+        checks.push({
+          name: "3・4階トイレ側通路から特別教室正規扉へのsurface経路",
+          ok: upperSpecialRoomRoutes.every(
+            (result) =>
+              result.directLineCrossesWall &&
+              result.playerPath !== null &&
+              result.npcPath !== null &&
+              result.playerPath.steps.every(
+                (step) => step.kind === "surface"
+              ) &&
+              result.npcPath.steps.every((step) => step.kind === "surface") &&
+              result.playerPassesDoor &&
+              result.npcPassesDoor &&
+              result.agentPassesDoor &&
+              !result.playerCrossesWall &&
+              !result.npcCrossesWall &&
+              !result.agentCrossesWall &&
+              result.agentState === "arrived" &&
+              !result.transitionRequired &&
+              result.playerEndpointError <= 1e-5 &&
+              result.npcEndpointError <= 1e-5 &&
+              result.agentEndpointError <= 0.001
+          ),
+          detail: upperSpecialRoomRoutes
+            .map(
+              (result) =>
+                `${result.floor}:path=${result.playerPoints.length}/${result.npcPoints.length},` +
+                `door=${result.playerPassesDoor}/${result.npcPassesDoor}/${result.agentPassesDoor},` +
+                `wall=${result.directLineCrossesWall}:${result.playerCrossesWall}/${result.npcCrossesWall}/${result.agentCrossesWall},` +
+                `agent=${result.agentState},transition=${result.transitionRequired},` +
+                `error=${Number.isFinite(result.playerEndpointError) ? result.playerEndpointError.toExponential(1) : "--"}/${Number.isFinite(result.npcEndpointError) ? result.npcEndpointError.toExponential(1) : "--"}/${Number.isFinite(result.agentEndpointError) ? result.agentEndpointError.toExponential(1) : "--"}`
+            )
+            .join(" / ")
+        });
+
         const multiFloorStairs = [
           {
             label: "北西階段",

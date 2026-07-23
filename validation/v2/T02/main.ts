@@ -812,6 +812,113 @@ const validateLoadedContext = (
     )
   );
 
+  const upperToiletPassageWallResults = [
+    ["3F", 7.2, "COL_B03_InteriorWalls_F03"],
+    ["4F", 10.8, "COL_B03_InteriorWalls_F04"]
+  ].map(([floor, baseZ, expectedName]) => {
+    const from = blenderPointToBabylon(
+      new Vector3(5.0, 40.0, (baseZ as number) + 1.0)
+    );
+    const to = blenderPointToBabylon(
+      new Vector3(5.8, 40.0, (baseZ as number) + 1.0)
+    );
+    return {
+      floor,
+      expectedName,
+      player: context.queries.castMovementSegment("player", from, to),
+      npc: context.queries.castMovementSegment("npc", from, to),
+      beam: context.queries.castBeamSegment(from, to),
+      sight: context.queries.castSightSegment(from, to)
+    };
+  });
+  checks.push(
+    createCheck(
+      "3・4階トイレ側通路と特別教室の境界壁",
+      upperToiletPassageWallResults.every((result) =>
+        [result.player, result.npc, result.beam, result.sight].every(
+          (hit) => hit?.mesh.name === result.expectedName
+        )
+      ),
+      upperToiletPassageWallResults
+        .map(
+          (result) =>
+            `${result.floor}:player=${result.player?.mesh.name ?? "clear"},` +
+            `npc=${result.npc?.mesh.name ?? "clear"},` +
+            `beam=${result.beam?.mesh.name ?? "clear"},` +
+            `sight=${result.sight?.mesh.name ?? "clear"}`
+        )
+        .join(" / ")
+    )
+  );
+
+  const perimeterColliderExpectations = [
+    ["COL_Gate_MainClosed", [19.4, -12.625, -0.3], [25.4, -12.375, 1.7]],
+    ["COL_Gate_UtilityClosed", [63.275, 44.5, -0.3], [63.525, 50.5, 1.7]],
+    ["COL_Perimeter_East", [63.2, -12.5, -0.3], [63.6, 44.5, 1.7]],
+    ["COL_Perimeter_EastNorth", [63.2, 50.5, -0.3], [63.6, 51.5, 1.7]],
+    ["COL_Perimeter_NorthEast", [22.4, 51.3, -0.3], [63.4, 51.7, 1.7]],
+    ["COL_Perimeter_NorthWest", [-18.6, 51.3, -0.3], [22.4, 51.7, 1.7]],
+    ["COL_Perimeter_SouthEast", [25.4, -12.7, -0.3], [63.4, -12.3, 1.7]],
+    ["COL_Perimeter_SouthWest", [-18.6, -12.7, -0.3], [19.4, -12.3, 1.7]],
+    ["COL_Perimeter_West", [-18.8, -12.5, -0.3], [-18.4, 51.5, 1.7]]
+  ] as const;
+  const perimeterColliderBoundsResults = perimeterColliderExpectations.map(
+    ([name, minimum, maximum]) => ({
+      name,
+      ...compareBlenderBounds(
+        schoolMeshByName.get(name),
+        Vector3.FromArray(minimum),
+        Vector3.FromArray(maximum)
+      )
+    })
+  );
+  const perimeterBlockingSegments = [
+    ["COL_Gate_MainClosed", [22.4, -13.0, 1.0], [22.4, -12.0, 1.0]],
+    ["COL_Gate_UtilityClosed", [62.9, 47.5, 1.0], [63.9, 47.5, 1.0]],
+    ["COL_Perimeter_East", [62.9, 16.0, 1.0], [63.9, 16.0, 1.0]],
+    ["COL_Perimeter_EastNorth", [62.9, 51.0, 1.0], [63.9, 51.0, 1.0]],
+    ["COL_Perimeter_NorthEast", [42.0, 50.9, 1.0], [42.0, 52.1, 1.0]],
+    ["COL_Perimeter_NorthWest", [0.0, 50.9, 1.0], [0.0, 52.1, 1.0]],
+    ["COL_Perimeter_SouthEast", [45.0, -13.1, 1.0], [45.0, -11.9, 1.0]],
+    ["COL_Perimeter_SouthWest", [0.0, -13.1, 1.0], [0.0, -11.9, 1.0]],
+    ["COL_Perimeter_West", [-19.2, 20.0, 1.0], [-18.0, 20.0, 1.0]]
+  ] as const;
+  const perimeterBlockingResults = perimeterBlockingSegments.map(
+    ([expectedName, fromBlender, toBlender]) => {
+      const from = blenderPointToBabylon(Vector3.FromArray(fromBlender));
+      const to = blenderPointToBabylon(Vector3.FromArray(toBlender));
+      return {
+        expectedName,
+        player: context.queries.castMovementSegment("player", from, to),
+        npc: context.queries.castMovementSegment("npc", from, to),
+        beam: context.queries.castBeamSegment(from, to),
+        sight: context.queries.castSightSegment(from, to)
+      };
+    }
+  );
+  checks.push(
+    createCheck(
+      "閉鎖校門2件・外周塀7件のCollider不変",
+      perimeterColliderBoundsResults.every((result) => result.ok) &&
+        perimeterBlockingResults.every((result) =>
+          [result.player, result.npc, result.beam, result.sight].every(
+            (hit) => hit?.mesh.name === result.expectedName
+          )
+        ),
+      `AABB=${perimeterColliderBoundsResults
+        .map((result) => `${result.name}:${result.ok ? "一致" : result.detail}`)
+        .join(",")} / 遮断=${perimeterBlockingResults
+        .map(
+          (result) =>
+            `${result.expectedName}:` +
+            [result.player, result.npc, result.beam, result.sight]
+              .map((hit) => hit?.mesh.name ?? "clear")
+              .join(",")
+        )
+        .join(" / ")}`
+    )
+  );
+
   const westSpecialRoomBoundsExpectations = [
     ["VIS_Wall_Lintel_SpecialRoomWest_Front", [-3.65, 13.1, 2.3], [-3.35, 14.3, 3.0]],
     ["COL_Wall_Lintel_SpecialRoomWest_Front", [-3.65, 13.1, 2.3], [-3.35, 14.3, 3.0]],

@@ -91,6 +91,11 @@ const makeToiletEntrancePassageBounds = (x, z) => Object.freeze({
   maximum: Object.freeze({ x: x + 0.35, y: 38.75, z: z + 0.2 })
 });
 
+const makeNorthSpecialRoomDoorPassageBounds = (z) => Object.freeze({
+  minimum: Object.freeze({ x: 6.0, y: 36.25, z: z - 0.2 }),
+  maximum: Object.freeze({ x: 7.2, y: 36.75, z: z + 0.2 })
+});
+
 const REPRESENTATIVE_ROUTES = Object.freeze([
   Object.freeze({
     id: "main-entrance-to-courtyard",
@@ -453,6 +458,20 @@ const REPRESENTATIVE_ROUTES = Object.freeze([
     startBlender: Object.freeze([-0.3, 37.5, 10.8]),
     endBlender: Object.freeze([-1.25, 44.6, 10.8]),
     requiredPassageBlender: makeToiletEntrancePassageBounds(-0.3, 10.8)
+  }),
+  Object.freeze({
+    id: "third-floor-toilet-passage-to-special-room",
+    label: "3階トイレ側通路→特別教室正規扉",
+    startBlender: Object.freeze([3.9, 40.0, 7.2]),
+    endBlender: Object.freeze([11.5, 40.75, 7.2]),
+    requiredPassageBlender: makeNorthSpecialRoomDoorPassageBounds(7.2)
+  }),
+  Object.freeze({
+    id: "fourth-floor-toilet-passage-to-special-room",
+    label: "4階トイレ側通路→特別教室正規扉",
+    startBlender: Object.freeze([3.9, 40.0, 10.8]),
+    endBlender: Object.freeze([8.0, 40.0, 10.8]),
+    requiredPassageBlender: makeNorthSpecialRoomDoorPassageBounds(10.8)
   }),
   Object.freeze({
     id: "west-special-room-south-to-north",

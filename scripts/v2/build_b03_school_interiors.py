@@ -143,6 +143,8 @@ MAIN_ENTRY_BAGGAGE_LOCKERS = (
     (-4.4, -3.125, math.pi),
     (-2.4, -3.125, math.pi),
 )
+NORTH_ENTRY_BAGGAGE_LOCKER = (5.025, 40.6, -math.pi / 2)
+NORTH_ENTRY_UMBRELLA_STAND = (5.05, 39.0, math.pi / 2)
 COUNCIL_INTERIOR_BOUNDS = (5.55, 14.4, 36.65, 45.35)
 LIBRARY_WEST_WALL_INNER_X = -12.45
 LIBRARY_EAST_WALL_INNER_X = -3.65
@@ -233,6 +235,10 @@ LL_DESK_XS = (6.7, 9.9, 13.1, 16.3, 19.5, 22.7)
 LL_DESK_YS = (38.2, 39.9, 41.6, 43.3)
 LL_AV_RACK = (5.9, 44.7)
 LL_BAGGAGE_LOCKER_XS = (7.2, 9.2)
+MUSIC_PIANO_PLACEMENT = (40.4, 42.5, -math.pi / 2)
+MUSIC_CHAIR_XS = (29.0, 30.55, 32.1, 33.65, 35.2, 36.75)
+MUSIC_CHAIR_YS = (38.2, 39.55, 40.9, 42.25, 43.6)
+MUSIC_CHAIR_ROTATION = math.pi / 2
 GYM_STAGE_LECTERN = (45.4, -5.0, 1.0)
 BULLETIN_BOARD_FURNITURE_PARTS = (
     ((0.0, 0.0, 1.45), (1.80, 0.06, 1.00), "fabric"),
@@ -1095,11 +1101,22 @@ def build_common_area_rooms(
     rooms.append(main_entry)
 
     north_entry = RoomBuilder.create("F01_NorthEntry", 0.0)
-    add_additional_prop(
-        north_entry, "ShoeLocker", (5.0, 40.6, 0.0), math.pi / 2
+    north_locker_x, north_locker_y, north_locker_rotation = (
+        NORTH_ENTRY_BAGGAGE_LOCKER
     )
+    north_entry.add_prop(
+        sources,
+        "BaggageLocker",
+        north_locker_x,
+        north_locker_y,
+        north_locker_rotation,
+    )
+    umbrella_x, umbrella_y, umbrella_rotation = NORTH_ENTRY_UMBRELLA_STAND
     add_additional_prop(
-        north_entry, "UmbrellaStand", (5.05, 39.0, 0.0), math.pi / 2
+        north_entry,
+        "UmbrellaStand",
+        (umbrella_x, umbrella_y, 0.0),
+        umbrella_rotation,
     )
     add_additional_prop(north_entry, "RoomSign", (5.825, 45.48, 0.0))
     rooms.append(north_entry)
@@ -1108,7 +1125,6 @@ def build_common_area_rooms(
     gym_storage.add_prop(sources, "VaultingBox", 52.7, 28.3)
     gym_storage.add_prop(sources, "VaultingBox", 54.4, 28.3)
     gym_storage.add_prop(sources, "CleaningLocker", 56.7, 29.6, math.pi / 2)
-    add_additional_prop(gym_storage, "RoomSign", (51.5, 26.65, 0.0), math.pi)
     rooms.append(gym_storage)
 
     roof_pool = RoomBuilder.create("RoofPoolSafety", 14.5)
@@ -1311,12 +1327,17 @@ def build_school_rooms(
     rooms.append(ll)
 
     music = RoomBuilder.create("F04_Music", 10.8)
-    music.add_prop(sources, "GrandPiano", 26.2, 42.5)
-    for row in range(5):
-        for column in range(6):
-            x = 29.0 + column * 1.55
-            y = 38.2 + row * 1.35
-            music.add_prop(sources, "ClassroomChair", x, y, -math.pi / 2)
+    piano_x, piano_y, piano_rotation = MUSIC_PIANO_PLACEMENT
+    music.add_prop(sources, "GrandPiano", piano_x, piano_y, piano_rotation)
+    for y in MUSIC_CHAIR_YS:
+        for x in MUSIC_CHAIR_XS:
+            music.add_prop(
+                sources,
+                "ClassroomChair",
+                x,
+                y,
+                MUSIC_CHAIR_ROTATION,
+            )
     add_wall_blackboard(music, sources, 41.34, 41.0, math.pi / 2)
     music.add_prop(sources, "Bookshelf", 34.5, 44.8)
     music.add_prop(sources, "Bookshelf", 35.7, 44.8)
