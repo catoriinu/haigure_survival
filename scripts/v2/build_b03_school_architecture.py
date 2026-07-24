@@ -5,7 +5,6 @@ import json
 import math
 import re
 import sys
-from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -2525,71 +2524,6 @@ def append_sloped_rail_prism(
             (offset + 3, offset + 0, offset + 4, offset + 7),
         ]
     )
-
-
-def guard_top_segments(obj: bpy.types.Object) -> list[tuple[Vector, Vector]]:
-    world_vertices = [obj.matrix_world @ vertex.co for vertex in obj.data.vertices]
-    top_z_by_xy: dict[tuple[float, float], float] = {}
-    for point in world_vertices:
-        key = (round(point.x, 6), round(point.y, 6))
-        top_z_by_xy[key] = max(top_z_by_xy.get(key, -math.inf), point.z)
-
-    grouped_minor_positions: dict[
-        tuple[str, float, float, float, float], list[float]
-    ] = defaultdict(list)
-    for edge in obj.data.edges:
-        start = world_vertices[edge.vertices[0]]
-        end = world_vertices[edge.vertices[1]]
-        start_key = (round(start.x, 6), round(start.y, 6))
-        end_key = (round(end.x, 6), round(end.y, 6))
-        if abs(start.z - top_z_by_xy[start_key]) > 1e-6:
-            continue
-        if abs(end.z - top_z_by_xy[end_key]) > 1e-6:
-            continue
-        if math.hypot(end.x - start.x, end.y - start.y) < 0.3:
-            continue
-
-        if abs(end.x - start.x) >= abs(end.y - start.y):
-            first, second = sorted((start, end), key=lambda point: point.x)
-            key = (
-                "x",
-                round(first.x, 6),
-                round(first.z, 6),
-                round(second.x, 6),
-                round(second.z, 6),
-            )
-            grouped_minor_positions[key].append((first.y + second.y) / 2)
-        else:
-            first, second = sorted((start, end), key=lambda point: point.y)
-            key = (
-                "y",
-                round(first.y, 6),
-                round(first.z, 6),
-                round(second.y, 6),
-                round(second.z, 6),
-            )
-            grouped_minor_positions[key].append((first.x + second.x) / 2)
-
-    segments: list[tuple[Vector, Vector]] = []
-    for key, minor_positions in grouped_minor_positions.items():
-        clusters: list[list[float]] = []
-        for position in sorted(minor_positions):
-            if not clusters or position - clusters[-1][-1] > 0.35:
-                clusters.append([position])
-            else:
-                clusters[-1].append(position)
-        axis, major0, z0, major1, z1 = key
-        for cluster in clusters:
-            minor = sum(cluster) / len(cluster)
-            if axis == "x":
-                segments.append(
-                    (Vector((major0, minor, z0)), Vector((major1, minor, z1)))
-                )
-            else:
-                segments.append(
-                    (Vector((minor, major0, z0)), Vector((minor, major1, z1)))
-                )
-    return segments
 
 
 def build_stair_finish(

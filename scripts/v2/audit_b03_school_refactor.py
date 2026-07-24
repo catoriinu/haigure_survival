@@ -234,6 +234,7 @@ class DisjointSet:
 
 def component_aabb_signatures(
     obj: bpy.types.Object,
+    world_points: list[Vector],
 ) -> list[tuple[tuple[int, ...], dict[str, Any]]]:
     mesh = obj.data
     if not mesh.vertices or not mesh.polygons:
@@ -252,10 +253,7 @@ def component_aabb_signatures(
 
     result: list[tuple[tuple[int, ...], dict[str, Any]]] = []
     for component_index, root in enumerate(sorted(polygons_by_root)):
-        points = [
-            obj.matrix_world @ mesh.vertices[index].co
-            for index in sorted(vertices_by_root[root])
-        ]
+        points = [world_points[index] for index in sorted(vertices_by_root[root])]
         minimum = tuple(min(point[axis] for point in points) for axis in range(3))
         maximum = tuple(max(point[axis] for point in points) for axis in range(3))
         signature = tuple(quantize(value) for value in (*minimum, *maximum))
@@ -274,19 +272,24 @@ def component_aabb_signatures(
     return result
 
 
-def object_geometry_signature(obj: bpy.types.Object) -> str:
+def object_geometry_signature(
+    obj: bpy.types.Object,
+    world_points: list[Vector],
+) -> str:
     mesh = obj.data
     digest = hashlib.sha256()
-    world_points = [
-        quantized_vector(obj.matrix_world @ vertex.co)
-        for vertex in mesh.vertices
-    ]
-    for point in sorted(world_points):
+    quantized_world_points = [quantized_vector(point) for point in world_points]
+    for point in sorted(quantized_world_points):
         digest.update(struct.pack("<qqq", *point))
     face_signatures = []
     for polygon in mesh.polygons:
         face_signatures.append(
-            tuple(sorted(world_points[index] for index in polygon.vertices))
+            tuple(
+                sorted(
+                    quantized_world_points[index]
+                    for index in polygon.vertices
+                )
+            )
         )
     for signature in sorted(face_signatures):
         digest.update(struct.pack("<I", len(signature)))
@@ -298,6 +301,7 @@ def object_geometry_signature(obj: bpy.types.Object) -> str:
 def axis_aligned_rectangle(
     obj: bpy.types.Object,
     polygon: bpy.types.MeshPolygon,
+    world_points: list[Vector],
 ) -> dict[str, Any] | None:
     if len(polygon.vertices) != 4:
         return None
@@ -309,10 +313,7 @@ def axis_aligned_rectangle(
     if abs(normal[axis]) < 1.0 - 1.0e-6:
         return None
     other_axes = [index for index in range(3) if index != axis]
-    points = [
-        obj.matrix_world @ obj.data.vertices[index].co
-        for index in polygon.vertices
-    ]
+    points = [world_points[index] for index in polygon.vertices]
     plane_values = [point[axis] for point in points]
     if max(plane_values) - min(plane_values) > COORDINATE_TOLERANCE:
         return None
@@ -512,8 +513,16 @@ def audit_scene() -> dict[str, Any]:
                 {"name": obj.name, "vertices": non_finite[:20]}
             )
 
-        geometry_signature_groups[object_geometry_signature(obj)].append(obj.name)
-        for signature, component in component_aabb_signatures(obj):
+        world_points = [
+            obj.matrix_world @ vertex.co for vertex in mesh.vertices
+        ]
+        geometry_signature_groups[
+            object_geometry_signature(obj, world_points)
+        ].append(obj.name)
+        for signature, component in component_aabb_signatures(
+            obj,
+            world_points,
+        ):
             component_signature_groups[signature].append(component)
 
         mesh.calc_loop_triangles()
@@ -523,7 +532,7 @@ def audit_scene() -> dict[str, Any]:
         if obj.name.startswith("VIS_"):
             visual_triangles += triangle_count
             for polygon in mesh.polygons:
-                rectangle = axis_aligned_rectangle(obj, polygon)
+                rectangle = axis_aligned_rectangle(obj, polygon, world_points)
                 if rectangle is not None:
                     visual_rectangles.append(rectangle)
 

@@ -2130,7 +2130,9 @@ def audit_acceptance_placements() -> dict[str, int]:
     }
 
 
-def audit_refactored_furniture_placements() -> dict[str, int]:
+def audit_refactored_furniture_placements(
+    wall_components: list[tuple[str, int, Vector, Vector]],
+) -> dict[str, int]:
     if tuple(CORRIDOR_CLEANING_LOCKER) != (-3.125, 6.8, math.pi / 2):
         raise RuntimeError("廊下掃除ロッカーの確定配置が変化しています")
     if tuple(CLASSROOM_TRASH_BIN_PLACEMENT) != (-3.8, 7.5):
@@ -2138,7 +2140,6 @@ def audit_refactored_furniture_placements() -> dict[str, int]:
     if tuple(STAFFROOM_TRASH_BIN) != (19.0, 36.8, 0.0):
         raise RuntimeError("職員室ごみ箱の確定配置が変化しています")
 
-    wall_components = architecture_wall_component_aabbs()
     placement_checks = 0
     wall_overlap_checks = 0
     corridor_x, corridor_y, corridor_rotation = CORRIDOR_CLEANING_LOCKER
@@ -2272,7 +2273,9 @@ def audit_refactored_furniture_placements() -> dict[str, int]:
     }
 
 
-def audit_roof_changing_lockers() -> dict[str, int]:
+def audit_roof_changing_lockers(
+    wall_components: list[tuple[str, int, Vector, Vector]],
+) -> dict[str, int]:
     expected_locker_xs = (-5.4, -3.16, -0.8, 1.19)
     if tuple(ROOF_CHANGING_BAGGAGE_LOCKER_XS) != expected_locker_xs:
         raise RuntimeError("屋上男女更衣室ロッカー4台の確定座標が変化しています")
@@ -2345,7 +2348,6 @@ def audit_roof_changing_lockers() -> dict[str, int]:
                 raise RuntimeError("屋上男女更衣室の荷物ロッカー同士が重なっています")
             overlap_checks += 1
 
-    wall_components = architecture_wall_component_aabbs()
     wall_overlap_checks = 0
     for index, bounds in enumerate(expected_lockers, 1):
         wall_overlap_checks += require_no_architecture_wall_overlap(
@@ -2810,14 +2812,19 @@ def main() -> None:
     broadcast_orientation_checks = audit_broadcast_orientation()
     council_placement_checks = audit_council_placement()
     staff_desk_collider_contract = audit_staff_desk_collider_contract()
-    roof_changing_lockers = audit_roof_changing_lockers()
+    architecture_wall_components = architecture_wall_component_aabbs()
+    roof_changing_lockers = audit_roof_changing_lockers(
+        architecture_wall_components
+    )
     roof_pool_north_sign_support = audit_roof_pool_north_sign_support()
     door_clearance_checks = audit_door_clearance(interior_colliders)
     visual_door_clearance_checks = audit_visual_door_clearance(interior_visuals)
     door_sign_clearance_checks = audit_door_sign_clearance()
     room_sign_wall_support_checks = audit_room_sign_wall_support()
     acceptance_placements = audit_acceptance_placements()
-    refactored_furniture_placements = audit_refactored_furniture_placements()
+    refactored_furniture_placements = audit_refactored_furniture_placements(
+        architecture_wall_components
+    )
     link_clearance_checks = audit_link_clearance(interior_colliders)
 
     gltf, binary_length = read_glb_json(GLB_PATH)
