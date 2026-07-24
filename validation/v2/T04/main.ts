@@ -769,6 +769,48 @@ const runValidation = async () => {
       detail: `${getNavigationPathPoints(disconnectedIslandResult).length}点`
     });
 
+    const genericTeleportLink = createValidationLinkPair(
+      "generic-teleport-validation",
+      "teleport",
+      new Vector3(3.9, 0.25, -1.5),
+      new Vector3(-6.7, 0.25, -1.5)
+    );
+    let genericLinkWorld: NavigationWorld | null = null;
+    let genericPlayerPath: NavigationPath | null = null;
+    let genericNpcPath: NavigationPath | null = null;
+    try {
+      genericLinkWorld = await createNavigationWorld(data, [genericTeleportLink]);
+      genericPlayerPath = findNavigationPath(
+        genericLinkWorld,
+        new Vector3(3.5, 0, -1.5),
+        new Vector3(-6.3, 0, -1.5),
+        "player"
+      );
+      genericNpcPath = findNavigationPath(
+        genericLinkWorld,
+        new Vector3(3.5, 0, -1.5),
+        new Vector3(-6.3, 0, -1.5),
+        "npc"
+      );
+    } finally {
+      genericLinkWorld?.dispose();
+      genericTeleportLink.endpointA.node.dispose();
+      genericTeleportLink.endpointB.node.dispose();
+    }
+    const genericPlayerTransitions =
+      genericPlayerPath?.steps.filter((step) => step.kind === "transition") ?? [];
+    const genericNpcTransitions =
+      genericNpcPath?.steps.filter((step) => step.kind === "transition") ?? [];
+    checks.push({
+      name: "player・NPCの汎用特殊リンク経路",
+      ok:
+        genericPlayerTransitions.length === 1 &&
+        genericNpcTransitions.length === 1 &&
+        genericPlayerTransitions[0].link.id === genericTeleportLink.id &&
+        genericNpcTransitions[0].link.id === genericTeleportLink.id,
+      detail: `player=${genericPlayerTransitions.map((step) => step.link.kind).join(",") || "none"} / npc=${genericNpcTransitions.map((step) => step.link.kind).join(",") || "none"}`
+    });
+
     const stackedLowerStart = new Vector3(-9.2, 0, -1.8);
     const stackedLowerEnd = new Vector3(-9.8, 0, -1.2);
     const stackedUpperStart = new Vector3(-9.2, 0.8, -1.8);
@@ -1094,7 +1136,7 @@ const runValidation = async () => {
         );
       });
     checks.push({
-      name: "特殊接続端点間経路の遅延・順不同キャッシュ",
+      name: "特殊接続の連結成分グラフ・順不同キャッシュ",
       ok:
         hasExpectedCachedTransitions(firstCachedTransitionIds) &&
         hasExpectedCachedTransitions(secondCachedTransitionIds) &&
@@ -1107,7 +1149,7 @@ const runValidation = async () => {
         directBitTransitionCount === 0 &&
         directBitPathfindAttempts.length === 1 &&
         directBitSurfacePathfindCount === 1 &&
-        firstEndpointSurfacePathfindAttempts.length > 0 &&
+        firstEndpointSurfacePathfindAttempts.length === 0 &&
         secondEndpointSurfacePathfindAttempts.length === 0 &&
         reverseEndpointSurfacePathfindAttempts.length === 0 &&
         reverseCachedSurfaceMatches,

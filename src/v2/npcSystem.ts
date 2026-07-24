@@ -26,6 +26,10 @@ import type {
   V2HumanTargetSnapshot,
   V2TargetProvenance
 } from "./combatTypes";
+import {
+  createV2HumanTargetSpatialIndex,
+  type V2HumanTargetSpatialIndex
+} from "./humanTargetSpatialIndex";
 
 const NPC_SEARCH_SPEED = 0.2;
 const NPC_CHASE_SPEED = 0.3;
@@ -303,13 +307,22 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     const targetsById = new Map(
       frameTargets.map((target) => [target.id, target])
     );
+    const targetSpatialIndex = createV2HumanTargetSpatialIndex(
+      frameTargets,
+      NPC_VISION_RANGE
+    );
     if (targetsById.size !== frameTargets.length) {
       throw new Error("NPC更新の標的IDが重複しています。");
     }
 
     for (const npc of this.npcs) {
       if (npc.brainwashed) {
-        this.updateBrainwashedNpc(npc, deltaSeconds, frameTargets, targetsById);
+        this.updateBrainwashedNpc(
+          npc,
+          deltaSeconds,
+          targetSpatialIndex,
+          targetsById
+        );
       } else {
         this.updateNormalNpc(npc, deltaSeconds);
       }
@@ -379,24 +392,32 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         alert.remainingSeconds
       );
 
-      for (const npc of this.npcs) {
-        if (
-          !npc.brainwashed ||
-          npc.id === alert.targetId ||
-          npc.id === alert.leaderId
-        ) {
-          continue;
+    }
+    for (const npc of this.npcs) {
+      if (!npc.brainwashed) {
+        continue;
+      }
+      let selectedAlert: V2ExternalAlert | null = null;
+      for (let index = alerts.length - 1; index >= 0; index -= 1) {
+        const alert = alerts[index];
+        if (npc.id !== alert.targetId && npc.id !== alert.leaderId) {
+          selectedAlert = alert;
+          break;
         }
-        const targetChanged =
-          npc.targetId !== alert.targetId || npc.targetProvenance !== "alert";
-        npc.targetId = alert.targetId;
-        npc.targetProvenance = "alert";
-        npc.alertLeaderId = alert.leaderId;
-        npc.alertRemainingSeconds = alert.remainingSeconds;
-        npc.wanderDestination = null;
-        if (targetChanged) {
-          npc.navigationAgent.clear();
-        }
+      }
+      if (!selectedAlert) {
+        continue;
+      }
+      const targetChanged =
+        npc.targetId !== selectedAlert.targetId ||
+        npc.targetProvenance !== "alert";
+      npc.targetId = selectedAlert.targetId;
+      npc.targetProvenance = "alert";
+      npc.alertLeaderId = selectedAlert.leaderId;
+      npc.alertRemainingSeconds = selectedAlert.remainingSeconds;
+      npc.wanderDestination = null;
+      if (targetChanged) {
+        npc.navigationAgent.clear();
       }
     }
   }
@@ -471,7 +492,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private updateBrainwashedNpc(
     npc: NpcRuntime,
     deltaSeconds: number,
-    targets: readonly V2HumanTargetSnapshot[],
+    targetSpatialIndex: V2HumanTargetSpatialIndex,
     targetsById: ReadonlyMap<string, V2HumanTargetSnapshot>
   ) {
     npc.wanderDestination = null;
@@ -493,7 +514,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
 
     if (!npc.targetId) {
-      const visibleTarget = this.findNearestVisibleTarget(npc, targets);
+      const visibleTarget = this.findNearestVisibleTarget(
+        npc,
+        targetSpatialIndex.query(toAimPosition(npc.footPosition), NPC_VISION_RANGE)
+      );
       if (visibleTarget) {
         npc.targetId = visibleTarget.id;
         npc.targetProvenance = "visual";
@@ -585,6 +609,12 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc: NpcRuntime,
     nextLocation: NavigationLocation
   ) {
+    const displacement = nextLocation.position.subtract(
+      npc.navigationLocation.position
+    );
+    if (displacement.lengthSquared() === 0) {
+      return true;
+    }
     const nextFootPosition = this.resolveFootPosition(nextLocation.position);
     const currentAimPosition = toAimPosition(npc.footPosition);
     const nextAimPosition = toAimPosition(nextFootPosition);
@@ -598,9 +628,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.navigationAgent.clear();
       return false;
     }
-    const displacement = nextLocation.position.subtract(
-      npc.navigationLocation.position
-    );
     const horizontal = new Vector3(displacement.x, 0, displacement.z);
     if (horizontal.lengthSquared() > 0) {
       npc.forward.copyFrom(horizontal.normalize());
