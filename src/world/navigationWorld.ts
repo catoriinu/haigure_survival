@@ -91,15 +91,19 @@ type LinkEndpointRouteNode = Readonly<{
 type RouteEdge = Readonly<{
   fromIndex: number;
   toIndex: number;
-  step: NavigationPathStep;
+  transition: NavigationTransitionStep | null;
   distance: number;
+}>;
+
+type CachedSurfaceStepDirection = Readonly<{
+  step: NavigationSurfaceStep;
+  reversed: boolean;
 }>;
 
 const queryHalfExtents = Object.freeze({ x: 0.5, y: 0.25, z: 0.5 });
 const queryNodeCapacity = 4096;
 const pathPolygonCapacity = 4096;
 const straightPathPointCapacity = 4096;
-const linkSurfaceMaximumVerticalDistance = 0.5;
 const linkSurfaceEpsilon = 1e-5;
 
 let recastInitialization: Promise<void> | null = null;
@@ -175,11 +179,88 @@ const cloneNavigationSurfaceStep = (
     distance: step.distance
   });
 
-const createLinkEndpointPairKey = (
+const reverseNavigationSurfaceStep = (
+  step: NavigationSurfaceStep
+): NavigationSurfaceStep =>
+  Object.freeze({
+    kind: "surface",
+    points: Object.freeze(
+      [...step.points].reverse().map(cloneNavigationLocation)
+    ),
+    distance: step.distance
+  });
+
+const createUnorderedLinkEndpointPairKey = (
   fromEndpointIndex: number,
   toEndpointIndex: number,
   endpointCount: number
-) => fromEndpointIndex * endpointCount + toEndpointIndex;
+) => {
+  const lowerEndpointIndex = Math.min(fromEndpointIndex, toEndpointIndex);
+  const upperEndpointIndex = Math.max(fromEndpointIndex, toEndpointIndex);
+  return lowerEndpointIndex * endpointCount + upperEndpointIndex;
+};
+
+const calculateNavMeshMinimumY = (navMesh: NavMesh) => {
+  const [positions] = getNavMeshPositionsAndIndices(navMesh);
+  let minimumY = Number.POSITIVE_INFINITY;
+  for (let index = 1; index < positions.length; index += 3) {
+    minimumY = Math.min(minimumY, positions[index]);
+  }
+  if (!Number.isFinite(minimumY)) {
+    throw new Error("NavMeshの高さ範囲を取得できません。");
+  }
+  return minimumY;
+};
+
+const calculateNavMeshPolygonComponents = (navMesh: NavMesh) => {
+  const adjacentPolygonRefs = new Map<number, number[]>();
+  for (let tileIndex = 0; tileIndex < navMesh.getMaxTiles(); tileIndex += 1) {
+    const tile = navMesh.getTile(tileIndex);
+    const header = tile.header();
+    if (!header) {
+      continue;
+    }
+    const polygonRefBase = navMesh.getPolyRefBase(tile);
+    for (let polygonIndex = 0; polygonIndex < header.polyCount(); polygonIndex += 1) {
+      const polygonRef = polygonRefBase + polygonIndex;
+      const adjacent = adjacentPolygonRefs.get(polygonRef) ?? [];
+      let linkIndex = tile.polys(polygonIndex).firstLink();
+      while (linkIndex !== Detour.DT_NULL_LINK) {
+        const link = tile.links(linkIndex);
+        if (link.ref() !== 0) {
+          adjacent.push(link.ref());
+        }
+        linkIndex = link.next();
+      }
+      adjacentPolygonRefs.set(polygonRef, adjacent);
+    }
+  }
+
+  const componentByPolygonRef = new Map<number, number>();
+  let nextComponent = 0;
+  for (const polygonRef of adjacentPolygonRefs.keys()) {
+    if (componentByPolygonRef.has(polygonRef)) {
+      continue;
+    }
+    const pending = [polygonRef];
+    componentByPolygonRef.set(polygonRef, nextComponent);
+    while (pending.length > 0) {
+      const current = pending.pop()!;
+      for (const adjacent of adjacentPolygonRefs.get(current) ?? []) {
+        if (
+          !adjacentPolygonRefs.has(adjacent) ||
+          componentByPolygonRef.has(adjacent)
+        ) {
+          continue;
+        }
+        componentByPolygonRef.set(adjacent, nextComponent);
+        pending.push(adjacent);
+      }
+    }
+    nextComponent += 1;
+  }
+  return componentByPolygonRef;
+};
 
 const validateLinkPair = (pair: StageLinkPair) => {
   if (!Number.isFinite(pair.radiusMeters) || pair.radiusMeters <= 0) {
@@ -200,11 +281,14 @@ class RecastNavigationWorld implements NavigationWorld {
   private readonly navMesh: NavMesh;
   private readonly query: NavMeshQuery;
   private readonly filter: QueryFilter;
+  private readonly navMeshMinimumY: number;
+  private readonly polygonComponentByRef: ReadonlyMap<number, number>;
   private readonly resolvedLinks: readonly ResolvedStageLink[];
+  private readonly linkEndpoints: readonly NavigationLocation[];
   private readonly linkEndpointCount: number;
-  private readonly linkEndpointSurfaceSteps: ReadonlyMap<
+  private readonly linkEndpointSurfaceStepCache = new Map<
     number,
-    NavigationSurfaceStep
+    NavigationSurfaceStep | null
   >;
   private readonly debugMeshes = new Set<Mesh>();
   private disposed = false;
@@ -218,6 +302,8 @@ class RecastNavigationWorld implements NavigationWorld {
     this.navMesh = navMesh;
     this.query = query;
     this.filter = filter;
+    this.navMeshMinimumY = calculateNavMeshMinimumY(navMesh);
+    this.polygonComponentByRef = calculateNavMeshPolygonComponents(navMesh);
     this.resolvedLinks = Object.freeze(
       links.map((pair) => {
         validateLinkPair(pair);
@@ -228,42 +314,10 @@ class RecastNavigationWorld implements NavigationWorld {
         });
       })
     );
-    const linkEndpoints = this.resolvedLinks.flatMap((link) => [
-      link.endpointA,
-      link.endpointB
-    ]);
-    this.linkEndpointCount = linkEndpoints.length;
-    const linkEndpointSurfaceSteps = new Map<number, NavigationSurfaceStep>();
-    for (
-      let fromEndpointIndex = 0;
-      fromEndpointIndex < linkEndpoints.length;
-      fromEndpointIndex += 1
-    ) {
-      for (
-        let toEndpointIndex = 0;
-        toEndpointIndex < linkEndpoints.length;
-        toEndpointIndex += 1
-      ) {
-        if (fromEndpointIndex === toEndpointIndex) {
-          continue;
-        }
-        const step = this.findSurfaceStep(
-          linkEndpoints[fromEndpointIndex],
-          linkEndpoints[toEndpointIndex]
-        );
-        if (step) {
-          linkEndpointSurfaceSteps.set(
-            createLinkEndpointPairKey(
-              fromEndpointIndex,
-              toEndpointIndex,
-              this.linkEndpointCount
-            ),
-            step
-          );
-        }
-      }
-    }
-    this.linkEndpointSurfaceSteps = linkEndpointSurfaceSteps;
+    this.linkEndpoints = Object.freeze(
+      this.resolvedLinks.flatMap((link) => [link.endpointA, link.endpointB])
+    );
+    this.linkEndpointCount = this.linkEndpoints.length;
   }
 
   projectPoint(position: Vector3, maxDistance: number) {
@@ -293,6 +347,15 @@ class RecastNavigationWorld implements NavigationWorld {
     assertNavigationLocation("経路始点", start);
     assertNavigationLocation("経路終点", destination);
 
+    const directSurfaceStep = this.findSurfaceStep(start, destination);
+    if (directSurfaceStep) {
+      const step = cloneNavigationSurfaceStep(directSurfaceStep);
+      return Object.freeze({
+        steps: Object.freeze([step]),
+        destination: cloneNavigationLocation(destination),
+        distance: step.distance
+      });
+    }
     const availableLinks = this.resolvedLinks.flatMap((link, linkIndex) =>
       canStageMoverUseLink(moverKind, link.pair.kind)
         ? [
@@ -304,6 +367,10 @@ class RecastNavigationWorld implements NavigationWorld {
           ]
         : []
     );
+    if (availableLinks.length === 0) {
+      return null;
+    }
+
     const linkEndpointNodes: LinkEndpointRouteNode[] = [];
     for (const { link, endpointAIndex, endpointBIndex } of availableLinks) {
       linkEndpointNodes.push({
@@ -320,67 +387,35 @@ class RecastNavigationWorld implements NavigationWorld {
       { location: cloneNavigationLocation(destination) },
       ...linkEndpointNodes
     ];
-
-    const edges: RouteEdge[] = [];
-    const addSurfaceEdge = (
-      fromIndex: number,
-      toIndex: number,
-      step: NavigationSurfaceStep | null
-    ) => {
-      if (!step) {
-        return;
-      }
-      edges.push({
-        fromIndex,
-        toIndex,
-        step,
-        distance: step.distance
-      });
-    };
-    addSurfaceEdge(
-      0,
-      1,
-      this.findSurfaceStep(nodes[0].location, nodes[1].location)
-    );
-    for (
-      let endpointNodeIndex = 2;
-      endpointNodeIndex < nodes.length;
-      endpointNodeIndex += 1
-    ) {
-      addSurfaceEdge(
-        0,
-        endpointNodeIndex,
-        this.findSurfaceStep(nodes[0].location, nodes[endpointNodeIndex].location)
-      );
-      addSurfaceEdge(
-        endpointNodeIndex,
-        1,
-        this.findSurfaceStep(nodes[endpointNodeIndex].location, nodes[1].location)
-      );
-    }
-    for (let fromIndex = 2; fromIndex < nodes.length; fromIndex += 1) {
-      for (let toIndex = 2; toIndex < nodes.length; toIndex += 1) {
-        if (fromIndex === toIndex) {
-          continue;
-        }
-        const fromEndpointIndex =
-          linkEndpointNodes[fromIndex - 2].linkEndpointIndex;
-        const toEndpointIndex =
-          linkEndpointNodes[toIndex - 2].linkEndpointIndex;
-        addSurfaceEdge(
-          fromIndex,
-          toIndex,
-          this.linkEndpointSurfaceSteps.get(
-            createLinkEndpointPairKey(
-              fromEndpointIndex,
-              toEndpointIndex,
-              this.linkEndpointCount
-            )
-          ) ?? null
+    const nodeComponents = nodes.map((node) => {
+      const component = this.polygonComponentByRef.get(node.location.polygonRef);
+      if (component === undefined) {
+        throw new Error(
+          `NavMesh面の連結成分を取得できません: ${node.location.polygonRef}`
         );
       }
-    }
+      return component;
+    });
 
+    const createSurfaceEdge = (
+      fromIndex: number,
+      toIndex: number
+    ): RouteEdge | null => {
+      if (nodeComponents[fromIndex] !== nodeComponents[toIndex]) {
+        return null;
+      }
+      return Object.freeze({
+        fromIndex,
+        toIndex,
+        transition: null,
+        distance: Vector3.Distance(
+          nodes[fromIndex].location.position,
+          nodes[toIndex].location.position
+        )
+      });
+    };
+
+    const transitionEdgesByFromIndex = new Map<number, RouteEdge[]>();
     availableLinks.forEach(({ link }, linkIndex) => {
       const endpointAIndex = 2 + linkIndex * 2;
       const endpointBIndex = endpointAIndex + 1;
@@ -392,10 +427,14 @@ class RecastNavigationWorld implements NavigationWorld {
         entry: NavigationLocation,
         exit: NavigationLocation
       ) => {
-        const distance = Vector3.Distance(
-          from === "A" ? link.pair.endpointA.position : link.pair.endpointB.position,
-          to === "A" ? link.pair.endpointA.position : link.pair.endpointB.position
-        );
+        const rawFrom =
+          from === "A" ? link.pair.endpointA.position : link.pair.endpointB.position;
+        const rawTo =
+          to === "A" ? link.pair.endpointA.position : link.pair.endpointB.position;
+        const distance =
+          Vector3.Distance(entry.position, rawFrom) +
+          Vector3.Distance(rawFrom, rawTo) +
+          Vector3.Distance(rawTo, exit.position);
         const step: NavigationTransitionStep = Object.freeze({
           kind: "transition",
           link: link.pair,
@@ -405,7 +444,11 @@ class RecastNavigationWorld implements NavigationWorld {
           exit: cloneNavigationLocation(exit),
           distance
         });
-        edges.push({ fromIndex, toIndex, step, distance });
+        const edges = transitionEdgesByFromIndex.get(fromIndex) ?? [];
+        edges.push(
+          Object.freeze({ fromIndex, toIndex, transition: step, distance })
+        );
+        transitionEdgesByFromIndex.set(fromIndex, edges);
       };
       addTransition(
         endpointAIndex,
@@ -427,30 +470,73 @@ class RecastNavigationWorld implements NavigationWorld {
       }
     });
 
+    const collectOutgoingEdges = (fromIndex: number) => {
+      const edges: RouteEdge[] = [];
+      if (fromIndex === 0) {
+        for (let toIndex = 2; toIndex < nodes.length; toIndex += 1) {
+          const edge = createSurfaceEdge(0, toIndex);
+          if (edge) {
+            edges.push(edge);
+          }
+        }
+        return edges;
+      }
+      if (fromIndex < 2) {
+        return edges;
+      }
+
+      const destinationEdge = createSurfaceEdge(fromIndex, 1);
+      if (destinationEdge) {
+        edges.push(destinationEdge);
+      }
+      for (let toIndex = 2; toIndex < nodes.length; toIndex += 1) {
+        if (fromIndex === toIndex) {
+          continue;
+        }
+        const edge = createSurfaceEdge(fromIndex, toIndex);
+        if (edge) {
+          edges.push(edge);
+        }
+      }
+      edges.push(...(transitionEdgesByFromIndex.get(fromIndex) ?? []));
+      return edges;
+    };
+
     const distances = nodes.map(() => Number.POSITIVE_INFINITY);
+    const estimatedDistances = nodes.map(() => Number.POSITIVE_INFINITY);
     const previousEdges: Array<RouteEdge | null> = nodes.map(() => null);
     const visited = nodes.map(() => false);
     distances[0] = 0;
+    estimatedDistances[0] = Vector3.Distance(
+      nodes[0].location.position,
+      nodes[1].location.position
+    );
     for (let iteration = 0; iteration < nodes.length; iteration += 1) {
       let currentIndex = -1;
-      let currentDistance = Number.POSITIVE_INFINITY;
+      let currentEstimatedDistance = Number.POSITIVE_INFINITY;
       for (let index = 0; index < nodes.length; index += 1) {
-        if (!visited[index] && distances[index] < currentDistance) {
+        if (!visited[index] && estimatedDistances[index] < currentEstimatedDistance) {
           currentIndex = index;
-          currentDistance = distances[index];
+          currentEstimatedDistance = estimatedDistances[index];
         }
       }
       if (currentIndex < 0 || currentIndex === 1) {
         break;
       }
       visited[currentIndex] = true;
-      for (const edge of edges) {
-        if (edge.fromIndex !== currentIndex || visited[edge.toIndex]) {
+      for (const edge of collectOutgoingEdges(currentIndex)) {
+        if (visited[edge.toIndex]) {
           continue;
         }
-        const candidateDistance = currentDistance + edge.distance;
+        const candidateDistance = distances[currentIndex] + edge.distance;
         if (candidateDistance < distances[edge.toIndex]) {
           distances[edge.toIndex] = candidateDistance;
+          estimatedDistances[edge.toIndex] =
+            candidateDistance +
+            Vector3.Distance(
+              nodes[edge.toIndex].location.position,
+              nodes[1].location.position
+            );
           previousEdges[edge.toIndex] = edge;
         }
       }
@@ -459,25 +545,55 @@ class RecastNavigationWorld implements NavigationWorld {
     if (!Number.isFinite(distances[1])) {
       return null;
     }
-    const reversedSteps: NavigationPathStep[] = [];
+    const reversedEdges: RouteEdge[] = [];
     let nodeIndex = 1;
     while (nodeIndex !== 0) {
       const edge = previousEdges[nodeIndex];
       if (!edge) {
         throw new Error("NavMesh経路グラフの復元に失敗しました。");
       }
-      reversedSteps.push(
-        edge.step.kind === "surface"
-          ? cloneNavigationSurfaceStep(edge.step)
-          : edge.step
-      );
+      reversedEdges.push(edge);
       nodeIndex = edge.fromIndex;
     }
-    const steps = Object.freeze(reversedSteps.reverse());
+    const steps: NavigationPathStep[] = [];
+    for (const edge of reversedEdges.reverse()) {
+      if (edge.transition) {
+        steps.push(edge.transition);
+        continue;
+      }
+      let surfaceDirection: CachedSurfaceStepDirection | null;
+      if (edge.fromIndex >= 2 && edge.toIndex >= 2) {
+        surfaceDirection = this.getLinkEndpointSurfaceStep(
+          linkEndpointNodes[edge.fromIndex - 2].linkEndpointIndex,
+          linkEndpointNodes[edge.toIndex - 2].linkEndpointIndex
+        );
+      } else {
+        const step = this.findSurfaceStep(
+          nodes[edge.fromIndex].location,
+          nodes[edge.toIndex].location
+        );
+        surfaceDirection = step
+          ? Object.freeze({ step, reversed: false })
+          : null;
+      }
+      if (!surfaceDirection) {
+        throw new Error("NavMesh連結成分内のsurface経路を復元できません。");
+      }
+      steps.push(
+        surfaceDirection.reversed
+          ? reverseNavigationSurfaceStep(surfaceDirection.step)
+          : cloneNavigationSurfaceStep(surfaceDirection.step)
+      );
+    }
+    const frozenSteps = Object.freeze(steps);
+    const actualDistance = frozenSteps.reduce(
+      (sum, step) => sum + step.distance,
+      0
+    );
     return Object.freeze({
-      steps,
+      steps: frozenSteps,
       destination: cloneNavigationLocation(destination),
-      distance: distances[1]
+      distance: actualDistance
     });
   }
 
@@ -561,6 +677,7 @@ class RecastNavigationWorld implements NavigationWorld {
     this.disposed = true;
     this.debugMeshes.forEach((mesh) => mesh.dispose(false, true));
     this.debugMeshes.clear();
+    this.linkEndpointSurfaceStepCache.clear();
     this.query.destroy();
     Raw.destroy(this.filter.raw);
     this.navMesh.destroy();
@@ -638,6 +755,36 @@ class RecastNavigationWorld implements NavigationWorld {
     }
   }
 
+  private getLinkEndpointSurfaceStep(
+    fromEndpointIndex: number,
+    toEndpointIndex: number
+  ): CachedSurfaceStepDirection | null {
+    const lowerEndpointIndex = Math.min(fromEndpointIndex, toEndpointIndex);
+    const upperEndpointIndex = Math.max(fromEndpointIndex, toEndpointIndex);
+    const key = createUnorderedLinkEndpointPairKey(
+      lowerEndpointIndex,
+      upperEndpointIndex,
+      this.linkEndpointCount
+    );
+    if (!this.linkEndpointSurfaceStepCache.has(key)) {
+      this.linkEndpointSurfaceStepCache.set(
+        key,
+        this.findSurfaceStep(
+          this.linkEndpoints[lowerEndpointIndex],
+          this.linkEndpoints[upperEndpointIndex]
+        )
+      );
+    }
+    const canonicalStep = this.linkEndpointSurfaceStepCache.get(key) ?? null;
+    if (!canonicalStep) {
+      return null;
+    }
+    return Object.freeze({
+      step: canonicalStep,
+      reversed: fromEndpointIndex !== lowerEndpointIndex
+    });
+  }
+
   private projectLinkEndpoint(
     pair: StageLinkPair,
     endpointName: StageLinkEndpointName
@@ -646,16 +793,27 @@ class RecastNavigationWorld implements NavigationWorld {
     assertFiniteVector(`LNK_${pair.id}_${endpointName}`, endpoint.position);
     const horizontalDistance = pair.radiusMeters * BLENDER_METERS_TO_WORLD_UNITS;
     const recastPosition = toRecastPosition(endpoint.position);
+    const verticalRange = endpoint.position.y - this.navMeshMinimumY;
+    if (verticalRange < -linkSurfaceEpsilon) {
+      throw new Error(`LNK_*端点の直下にNavMesh面がありません: ${pair.id}_${endpointName}`);
+    }
     const polygonResult = this.query.queryPolygons(
-      recastPosition,
+      {
+        x: recastPosition.x,
+        y: endpoint.position.y - Math.max(0, verticalRange) / 2,
+        z: recastPosition.z
+      },
       {
         x: horizontalDistance,
-        y: linkSurfaceMaximumVerticalDistance,
+        y: Math.max(linkSurfaceEpsilon, verticalRange / 2 + linkSurfaceEpsilon),
         z: horizontalDistance
       },
       { maxPolys: pathPolygonCapacity }
     );
-    if (!polygonResult.success) {
+    if (
+      !polygonResult.success ||
+      (polygonResult.status & Detour.DT_BUFFER_TOO_SMALL) !== 0
+    ) {
       throw new Error(`LNK_*端点周辺のNavMesh面取得に失敗しました: ${pair.id}_${endpointName}`);
     }
 
@@ -677,7 +835,6 @@ class RecastNavigationWorld implements NavigationWorld {
       );
       if (
         verticalDistance >= -linkSurfaceEpsilon &&
-        verticalDistance <= linkSurfaceMaximumVerticalDistance + linkSurfaceEpsilon &&
         planarDistance <= horizontalDistance + linkSurfaceEpsilon
       ) {
         candidates.push({
@@ -690,7 +847,8 @@ class RecastNavigationWorld implements NavigationWorld {
     candidates.sort(
       (left, right) =>
         left.verticalDistance - right.verticalDistance ||
-        left.horizontalDistance - right.horizontalDistance
+        left.horizontalDistance - right.horizontalDistance ||
+        left.location.polygonRef - right.location.polygonRef
     );
     const nearest = candidates[0];
     if (!nearest) {

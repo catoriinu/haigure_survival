@@ -380,6 +380,96 @@ const validatePlayerWaypointTraversal = (
   };
 };
 
+const validatePlayerBarrierAttempt = (
+  context: StageSpatialContext,
+  label: string,
+  startBlender: Vector3,
+  endBlender: Vector3,
+  barrierProgressBlender: number,
+  minimumFootHeightBlender: number
+) => {
+  const spawnNode = context.markers.requireSingle("player_spawn").node;
+  const originalSpawn = spawnNode.getAbsolutePosition().clone();
+  const start = blenderPointToBabylon(startBlender);
+  const end = blenderPointToBabylon(endBlender);
+  const horizontalRoute = end.subtract(start);
+  horizontalRoute.y = 0;
+  const routeLength = horizontalRoute.length();
+  const routeDirection = horizontalRoute.scale(1 / routeLength);
+  const barrierProgress =
+    barrierProgressBlender * BLENDER_METERS_TO_WORLD_UNITS;
+  const minimumFootHeight =
+    minimumFootHeightBlender * BLENDER_METERS_TO_WORLD_UNITS;
+  const previousActiveCamera = scene.activeCamera;
+  const testCamera = new FreeCamera(`${label}Camera`, start.clone(), scene);
+  const input: V2PlayerInput = {
+    getMoveAxes: () => ({ moveX: 0, moveZ: 1 }),
+    isDashPressed: () => true,
+    reset: () => undefined,
+    dispose: () => undefined
+  };
+
+  spawnNode.setAbsolutePosition(start);
+  spawnNode.computeWorldMatrix(true);
+  let controller: ReturnType<typeof createV2PlayerController> | null = null;
+  let maximumProgress = 0;
+  let minimumFootY = Number.POSITIVE_INFINITY;
+  let finalFoot = start.clone();
+  let stayedInsideBoundary = true;
+  let traversalError: unknown = null;
+  try {
+    controller = createV2PlayerController({
+      scene,
+      camera: testCamera,
+      stage: context,
+      input
+    });
+    testCamera.setTarget(
+      new Vector3(end.x, testCamera.position.y, end.z)
+    );
+    minimumFootY = controller.getFootPosition().y;
+    for (let frame = 0; frame < 300; frame += 1) {
+      const playerFrame = controller.update(1 / 60, true);
+      finalFoot = playerFrame.footPosition.clone();
+      const horizontalOffset = finalFoot.subtract(start);
+      horizontalOffset.y = 0;
+      maximumProgress = Math.max(
+        maximumProgress,
+        Vector3.Dot(horizontalOffset, routeDirection)
+      );
+      minimumFootY = Math.min(minimumFootY, finalFoot.y);
+      stayedInsideBoundary =
+        stayedInsideBoundary && context.boundary.contains(finalFoot);
+    }
+  } catch (error) {
+    traversalError = error;
+    console.error(`${label} Barrier突進中に例外が発生しました。`, error);
+  } finally {
+    controller?.dispose();
+    testCamera.dispose();
+    scene.activeCamera = previousActiveCamera;
+    spawnNode.setAbsolutePosition(originalSpawn);
+    spawnNode.computeWorldMatrix(true);
+  }
+
+  return {
+    label,
+    ok:
+      traversalError === null &&
+      maximumProgress >= barrierProgress * 0.25 &&
+      maximumProgress < barrierProgress - 0.005 &&
+      minimumFootY >= minimumFootHeight &&
+      stayedInsideBoundary,
+    maximumProgress,
+    barrierProgress,
+    minimumFootY,
+    minimumFootHeight,
+    finalFoot,
+    stayedInsideBoundary,
+    errorMessage: traversalError === null ? null : formatError(traversalError)
+  };
+};
+
 const countSceneResources = (): SceneResourceCounts => {
   const sharedBrdfTexture = scene.environmentBRDFTexture;
   return {
@@ -476,14 +566,19 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 427 &&
-        context.resources.normalColliders.length === 150 &&
-        context.resources.actorOnlyColliders.length === 94 &&
-        context.resources.humanOnlyColliders.length === 0 &&
-        context.resources.navSourceMeshes.length === 14 &&
+      context.resources.visualMeshes.length === 472 &&
+        context.resources.normalColliders.length === 185 &&
+        context.resources.actorOnlyColliders.length === 82 &&
+        context.resources.humanOnlyColliders.length === 58 &&
+        context.resources.navSourceMeshes.length === 15 &&
         context.markers.all.length === 1 &&
         context.volumes.all.length === 3 &&
-        context.links.all.length === 0,
+        context.links.all.length === 60 &&
+        context.links.all.filter((link) => link.kind === "bit_window").length ===
+          58 &&
+        context.links.all.filter((link) => link.kind === "bit_roof").length ===
+          2 &&
+        context.links.all.every((link) => link.bidirectional),
       `VIS=${context.resources.visualMeshes.length} / COL=${context.resources.normalColliders.length} / ActorOnly=${context.resources.actorOnlyColliders.length} / HumanOnly=${context.resources.humanOnlyColliders.length} / NAV=${context.resources.navSourceMeshes.length} / MRK=${context.markers.all.length} / VOL=${context.volumes.all.length} / LNK=${context.links.all.length}`
     ),
     createCheck(
@@ -717,6 +812,113 @@ const validateLoadedContext = (
     )
   );
 
+  const upperToiletPassageWallResults = [
+    ["3F", 7.2, "COL_B03_InteriorWalls_F03"],
+    ["4F", 10.8, "COL_B03_InteriorWalls_F04"]
+  ].map(([floor, baseZ, expectedName]) => {
+    const from = blenderPointToBabylon(
+      new Vector3(5.0, 40.0, (baseZ as number) + 1.0)
+    );
+    const to = blenderPointToBabylon(
+      new Vector3(5.8, 40.0, (baseZ as number) + 1.0)
+    );
+    return {
+      floor,
+      expectedName,
+      player: context.queries.castMovementSegment("player", from, to),
+      npc: context.queries.castMovementSegment("npc", from, to),
+      beam: context.queries.castBeamSegment(from, to),
+      sight: context.queries.castSightSegment(from, to)
+    };
+  });
+  checks.push(
+    createCheck(
+      "3・4階トイレ側通路と特別教室の境界壁",
+      upperToiletPassageWallResults.every((result) =>
+        [result.player, result.npc, result.beam, result.sight].every(
+          (hit) => hit?.mesh.name === result.expectedName
+        )
+      ),
+      upperToiletPassageWallResults
+        .map(
+          (result) =>
+            `${result.floor}:player=${result.player?.mesh.name ?? "clear"},` +
+            `npc=${result.npc?.mesh.name ?? "clear"},` +
+            `beam=${result.beam?.mesh.name ?? "clear"},` +
+            `sight=${result.sight?.mesh.name ?? "clear"}`
+        )
+        .join(" / ")
+    )
+  );
+
+  const perimeterColliderExpectations = [
+    ["COL_Gate_MainClosed", [19.4, -12.625, -0.3], [25.4, -12.375, 1.7]],
+    ["COL_Gate_UtilityClosed", [63.275, 44.5, -0.3], [63.525, 50.5, 1.7]],
+    ["COL_Perimeter_East", [63.2, -12.5, -0.3], [63.6, 44.5, 1.7]],
+    ["COL_Perimeter_EastNorth", [63.2, 50.5, -0.3], [63.6, 51.5, 1.7]],
+    ["COL_Perimeter_NorthEast", [22.4, 51.3, -0.3], [63.4, 51.7, 1.7]],
+    ["COL_Perimeter_NorthWest", [-18.6, 51.3, -0.3], [22.4, 51.7, 1.7]],
+    ["COL_Perimeter_SouthEast", [25.4, -12.7, -0.3], [63.4, -12.3, 1.7]],
+    ["COL_Perimeter_SouthWest", [-18.6, -12.7, -0.3], [19.4, -12.3, 1.7]],
+    ["COL_Perimeter_West", [-18.8, -12.5, -0.3], [-18.4, 51.5, 1.7]]
+  ] as const;
+  const perimeterColliderBoundsResults = perimeterColliderExpectations.map(
+    ([name, minimum, maximum]) => ({
+      name,
+      ...compareBlenderBounds(
+        schoolMeshByName.get(name),
+        Vector3.FromArray(minimum),
+        Vector3.FromArray(maximum)
+      )
+    })
+  );
+  const perimeterBlockingSegments = [
+    ["COL_Gate_MainClosed", [22.4, -13.0, 1.0], [22.4, -12.0, 1.0]],
+    ["COL_Gate_UtilityClosed", [62.9, 47.5, 1.0], [63.9, 47.5, 1.0]],
+    ["COL_Perimeter_East", [62.9, 16.0, 1.0], [63.9, 16.0, 1.0]],
+    ["COL_Perimeter_EastNorth", [62.9, 51.0, 1.0], [63.9, 51.0, 1.0]],
+    ["COL_Perimeter_NorthEast", [42.0, 50.9, 1.0], [42.0, 52.1, 1.0]],
+    ["COL_Perimeter_NorthWest", [0.0, 50.9, 1.0], [0.0, 52.1, 1.0]],
+    ["COL_Perimeter_SouthEast", [45.0, -13.1, 1.0], [45.0, -11.9, 1.0]],
+    ["COL_Perimeter_SouthWest", [0.0, -13.1, 1.0], [0.0, -11.9, 1.0]],
+    ["COL_Perimeter_West", [-19.2, 20.0, 1.0], [-18.0, 20.0, 1.0]]
+  ] as const;
+  const perimeterBlockingResults = perimeterBlockingSegments.map(
+    ([expectedName, fromBlender, toBlender]) => {
+      const from = blenderPointToBabylon(Vector3.FromArray(fromBlender));
+      const to = blenderPointToBabylon(Vector3.FromArray(toBlender));
+      return {
+        expectedName,
+        player: context.queries.castMovementSegment("player", from, to),
+        npc: context.queries.castMovementSegment("npc", from, to),
+        beam: context.queries.castBeamSegment(from, to),
+        sight: context.queries.castSightSegment(from, to)
+      };
+    }
+  );
+  checks.push(
+    createCheck(
+      "閉鎖校門2件・外周塀7件のCollider不変",
+      perimeterColliderBoundsResults.every((result) => result.ok) &&
+        perimeterBlockingResults.every((result) =>
+          [result.player, result.npc, result.beam, result.sight].every(
+            (hit) => hit?.mesh.name === result.expectedName
+          )
+        ),
+      `AABB=${perimeterColliderBoundsResults
+        .map((result) => `${result.name}:${result.ok ? "一致" : result.detail}`)
+        .join(",")} / 遮断=${perimeterBlockingResults
+        .map(
+          (result) =>
+            `${result.expectedName}:` +
+            [result.player, result.npc, result.beam, result.sight]
+              .map((hit) => hit?.mesh.name ?? "clear")
+              .join(",")
+        )
+        .join(" / ")}`
+    )
+  );
+
   const westSpecialRoomBoundsExpectations = [
     ["VIS_Wall_Lintel_SpecialRoomWest_Front", [-3.65, 13.1, 2.3], [-3.35, 14.3, 3.0]],
     ["COL_Wall_Lintel_SpecialRoomWest_Front", [-3.65, 13.1, 2.3], [-3.35, 14.3, 3.0]],
@@ -758,8 +960,8 @@ const validateLoadedContext = (
     y: number
   ) =>
     castSegment(
-      blenderPointToBabylon(new Vector3(-2.8, y, 1.0)),
-      blenderPointToBabylon(new Vector3(-4.2, y, 1.0))
+      blenderPointToBabylon(new Vector3(-3.2, y, 1.0)),
+      blenderPointToBabylon(new Vector3(-3.8, y, 1.0))
     );
   const westSpecialRoomDoorwayResults = [13.7, 31.3].map((y) => ({
     y,
@@ -805,19 +1007,17 @@ const validateLoadedContext = (
   );
 
   const fourFloorBoundsExpectations = [
-    ["VIS_4F_NorthVolume", [-12.6, 32.5, 9.6], [47.4, 45.5, 12.6]],
-    ["COL_4F_NorthVolume", [-12.6, 32.5, 9.6], [47.4, 45.5, 12.6]],
-    ["VIS_4F_WestVolume", [-12.6, -3.5, 9.6], [0.0, 32.5, 12.6]],
-    ["COL_4F_WestVolume", [-12.6, -3.5, 9.6], [0.0, 32.5, 12.6]],
-    ["VIS_Roof_North", [-12.6, 32.5, 12.6], [47.4, 45.5, 12.7]],
-    ["COL_RooftopStairExitRamp", [-9.0, 38.9, 12.5], [-6.9, 40.7, 12.7]],
-    ["VIS_RooftopFacilityWalls", [-12.6, 38.5, 12.7], [2.4, 45.5, 15.1]],
-    ["VIS_RooftopFacilityRoofs", [-12.6, 38.5, 15.1], [2.4, 45.5, 15.2]],
-    ["COL_RooftopFacilityShell", [-12.6, 38.5, 12.7], [2.4, 45.5, 15.2]],
-    ["VIS_DoorLeaf_RooftopStairHouse_Open", [-9.04, 37.0, 12.7], [-8.96, 38.9, 14.9]],
-    ["VIS_Floor_RooftopChangingRoom_M", [-6.6, 38.5, 12.7], [-2.1, 45.5, 12.73]],
-    ["VIS_Floor_RooftopChangingRoom_F", [-2.1, 38.5, 12.7], [2.4, 45.5, 12.73]],
-    ["BND_Stage", [-18.4, -12.3, -0.5], [63.2, 51.3, 16.0]]
+    ["VIS_B03_Floor_F04", [-12.6, -3.5, 10.65], [47.4, 45.5, 10.8]],
+    ["COL_B03_Floor_F04", [-12.6, -3.5, 10.65], [47.4, 45.5, 10.8]],
+    ["VIS_Roof_North", [-12.6, 32.5, 14.4], [47.4, 45.5, 14.5]],
+    ["COL_RooftopStairExitRamp", [-9.0, 38.9, 14.3], [-6.9, 40.7, 14.5]],
+    ["VIS_RooftopFacilityWalls", [-12.6, 38.5, 14.5], [2.4, 45.5, 16.9]],
+    ["VIS_RooftopFacilityRoofs", [-12.6, 38.5, 16.9], [2.4, 45.5, 17.0]],
+    ["COL_RooftopFacilityShell", [-12.6, 38.5, 14.5], [2.4, 45.5, 17.0]],
+    ["VIS_DoorLeaf_RooftopStairHouse_Open", [-9.04, 37.0, 14.5], [-8.96, 38.9, 16.7]],
+    ["VIS_Floor_RooftopChangingRoom_M", [-6.6, 38.5, 14.5], [-2.1, 45.5, 14.53]],
+    ["VIS_Floor_RooftopChangingRoom_F", [-2.1, 38.5, 14.5], [2.4, 45.5, 14.53]],
+    ["BND_Stage", [-18.4, -12.3, -0.5], [63.2, 51.3, 18.0]]
   ] as const;
   const fourFloorBoundsResults = fourFloorBoundsExpectations.map(
     ([name, minimum, maximum]) => ({
@@ -832,10 +1032,10 @@ const validateLoadedContext = (
     })
   );
   const fourthFloorWindowCount = context.resources.visualMeshes.filter(
-    (mesh) => mesh.name.startsWith("VIS_WindowGuide_4F_")
+    (mesh) => mesh.name.startsWith("VIS_WindowFrame_F04_")
   ).length;
   const rooftopFoot = blenderPointToBabylon(
-    new Vector3(-7.8, 37.8, 12.7)
+    new Vector3(-7.8, 37.8, 14.5)
   );
   const rooftopMaximumEye = rooftopFoot.add(
     new Vector3(
@@ -857,24 +1057,129 @@ const validateLoadedContext = (
     )
   );
 
+  const roofGuardNorthStartX = 2.4;
+  const roofGuardNorthEndX = 47.3;
+  const roofGuardNorthY = 45.4;
+  const roofGuardPostCount = Math.ceil(
+    (roofGuardNorthEndX - roofGuardNorthStartX) / 1.1
+  );
+  const roofGuardPostSpacing =
+    (roofGuardNorthEndX - roofGuardNorthStartX) / roofGuardPostCount;
+  const roofGuardGapX =
+    roofGuardNorthStartX + roofGuardPostSpacing * 6.5;
+  const roofGuardPostX =
+    roofGuardNorthStartX + roofGuardPostSpacing * 7;
+  const castRoofGuardSegment = (
+    x: number,
+    z: number,
+    castSegment: StageSpatialContext["queries"]["castBeamSegment"]
+  ) =>
+    castSegment(
+      blenderPointToBabylon(new Vector3(x, roofGuardNorthY - 0.4, z)),
+      blenderPointToBabylon(new Vector3(x, roofGuardNorthY + 0.4, z))
+    );
+  const roofGuardGapResults = {
+    actor: castRoofGuardSegment(roofGuardGapX, 15.3, castPlayerMovementSegment),
+    beam: castRoofGuardSegment(
+      roofGuardGapX,
+      15.3,
+      context.queries.castBeamSegment
+    ),
+    sight: castRoofGuardSegment(
+      roofGuardGapX,
+      15.3,
+      context.queries.castSightSegment
+    )
+  };
+  const roofGuardLowerRailResults = {
+    actor: castRoofGuardSegment(
+      roofGuardGapX,
+      15.05,
+      castPlayerMovementSegment
+    ),
+    beam: castRoofGuardSegment(
+      roofGuardGapX,
+      15.05,
+      context.queries.castBeamSegment
+    ),
+    sight: castRoofGuardSegment(
+      roofGuardGapX,
+      15.05,
+      context.queries.castSightSegment
+    )
+  };
+  const roofGuardPostResults = {
+    actor: castRoofGuardSegment(
+      roofGuardPostX,
+      15.3,
+      castPlayerMovementSegment
+    ),
+    beam: castRoofGuardSegment(
+      roofGuardPostX,
+      15.3,
+      context.queries.castBeamSegment
+    ),
+    sight: castRoofGuardSegment(
+      roofGuardPostX,
+      15.3,
+      context.queries.castSightSegment
+    )
+  };
+  const roofGuardPlayerAttempt = validatePlayerBarrierAttempt(
+    context,
+    "屋上NorthOuter外向き突進",
+    new Vector3(roofGuardGapX, 44.5, 14.5),
+    new Vector3(roofGuardGapX, 46.5, 14.5),
+    roofGuardNorthY - 44.5,
+    14.4
+  );
+  const expectedRoofGuardName = "COL_RoofGuard_NorthOuter";
+  checks.push(
+    createCheck(
+      "屋上NorthOuter柵の実形状・光線・転落防止",
+      schoolMeshByName.has(expectedRoofGuardName) &&
+        Object.values(roofGuardGapResults).every((result) => result === null) &&
+        Object.values(roofGuardLowerRailResults).every(
+          (result) => result?.mesh.name === expectedRoofGuardName
+        ) &&
+        Object.values(roofGuardPostResults).every(
+          (result) => result?.mesh.name === expectedRoofGuardName
+        ) &&
+        roofGuardPlayerAttempt.ok,
+      `支柱数=${roofGuardPostCount} / 間隔=${roofGuardPostSpacing.toFixed(6)} / 隙間x=${roofGuardGapX.toFixed(6)}:${Object.values(roofGuardGapResults)
+        .map((result) => result?.mesh.name ?? "clear")
+        .join(",")} / 下桟=${Object.values(roofGuardLowerRailResults)
+        .map((result) => result?.mesh.name ?? "clear")
+        .join(",")} / 支柱x=${roofGuardPostX.toFixed(6)}:${Object.values(roofGuardPostResults)
+        .map((result) => result?.mesh.name ?? "clear")
+        .join(",")} / 実Player進行=${roofGuardPlayerAttempt.maximumProgress.toFixed(4)}/${roofGuardPlayerAttempt.barrierProgress.toFixed(4)} / 最低足元Y=${roofGuardPlayerAttempt.minimumFootY.toFixed(4)}/${roofGuardPlayerAttempt.minimumFootHeight.toFixed(4)} / 境界内=${roofGuardPlayerAttempt.stayedInsideBoundary} / エラー=${roofGuardPlayerAttempt.errorMessage ?? "なし"}`
+    )
+  );
+
   const rooftopAscentWaypoints = [
     new Vector3(-11.4, 38.7, 0.0),
     new Vector3(-11.4, 44.3, 2.4),
     new Vector3(-7.8, 44.3, 2.4),
     new Vector3(-7.8, 39.8, 3.6),
-    new Vector3(-11.4, 39.8, 3.6),
-    new Vector3(-11.4, 44.3, 5.1),
-    new Vector3(-7.8, 44.3, 5.1),
-    new Vector3(-7.8, 39.8, 6.6),
-    new Vector3(-11.4, 39.8, 6.6),
-    new Vector3(-11.4, 44.3, 8.1),
-    new Vector3(-7.8, 44.3, 8.1),
-    new Vector3(-7.8, 39.8, 9.6),
-    new Vector3(-11.4, 39.8, 9.6),
-    new Vector3(-11.4, 44.3, 11.1),
-    new Vector3(-7.8, 44.3, 11.1),
-    new Vector3(-7.8, 39.8, 12.65),
-    new Vector3(-7.8, 37.8, 12.7)
+    new Vector3(-7.8, 38.4, 3.6),
+    new Vector3(-11.4, 38.4, 3.6),
+    new Vector3(-11.4, 38.7, 3.6),
+    new Vector3(-11.4, 44.3, 6.0),
+    new Vector3(-7.8, 44.3, 6.0),
+    new Vector3(-7.8, 39.8, 7.2),
+    new Vector3(-7.8, 38.4, 7.2),
+    new Vector3(-11.4, 38.4, 7.2),
+    new Vector3(-11.4, 38.7, 7.2),
+    new Vector3(-11.4, 44.3, 9.6),
+    new Vector3(-7.8, 44.3, 9.6),
+    new Vector3(-7.8, 39.8, 10.8),
+    new Vector3(-7.8, 38.4, 10.8),
+    new Vector3(-11.4, 38.4, 10.8),
+    new Vector3(-11.4, 38.7, 10.8),
+    new Vector3(-11.4, 44.3, 13.2),
+    new Vector3(-7.8, 44.3, 13.2),
+    new Vector3(-7.8, 39.8, 14.45),
+    new Vector3(-7.8, 37.8, 14.5)
   ];
   const rooftopRoundTrip = validatePlayerWaypointTraversal(
     context,
@@ -883,13 +1188,132 @@ const validateLoadedContext = (
       ...rooftopAscentWaypoints,
       ...rooftopAscentWaypoints.slice(0, -1).reverse()
     ],
-    [0.0, 12.7]
+    [0.0, 14.5]
   );
   checks.push(
     createCheck(
       "実プレイヤーによる北西階段1階・屋上往復",
       rooftopRoundTrip.ok,
       `Waypoint=${rooftopRoundTrip.reachedWaypoints}/${rooftopRoundTrip.totalWaypoints} / 最高足元Y=${rooftopRoundTrip.highestFootY.toFixed(3)} / 最低足元Y=${rooftopRoundTrip.lowestFootY.toFixed(3)} / 最終水平誤差=${rooftopRoundTrip.finalHorizontalError.toFixed(3)} / 最終垂直誤差=${rooftopRoundTrip.finalVerticalError.toFixed(3)} / 境界内=${rooftopRoundTrip.stayedInsideBoundary} / エラー=${rooftopRoundTrip.errorMessage ?? "なし"}`
+    )
+  );
+
+  const upperFloorAscentWaypoints = rooftopAscentWaypoints.slice(0, 17);
+  const northeastAscentWaypoints = upperFloorAscentWaypoints.map(
+    (point) => new Vector3(point.x + 54.0, point.y, point.z)
+  );
+  const southwestAscentWaypoints = upperFloorAscentWaypoints.map(
+    (point) => new Vector3(32.9 - point.y, point.x + 9.1, point.z)
+  );
+  const northeastRoundTrip = validatePlayerWaypointTraversal(
+    context,
+    "北東階段1階・4階往復",
+    [
+      ...northeastAscentWaypoints,
+      ...northeastAscentWaypoints.slice(0, -1).reverse()
+    ],
+    [0.0, 10.8]
+  );
+  const southwestRoundTrip = validatePlayerWaypointTraversal(
+    context,
+    "南西階段1階・4階往復",
+    [
+      ...southwestAscentWaypoints,
+      ...southwestAscentWaypoints.slice(0, -1).reverse()
+    ],
+    [0.0, 10.8]
+  );
+  checks.push(
+    createCheck(
+      "実プレイヤーによる北東・南西階段1階・4階往復",
+      northeastRoundTrip.ok && southwestRoundTrip.ok,
+      [northeastRoundTrip, southwestRoundTrip]
+        .map(
+          (result) =>
+            `${result.label}: Waypoint=${result.reachedWaypoints}/${result.totalWaypoints} / 最高足元Y=${result.highestFootY.toFixed(3)} / 最低足元Y=${result.lowestFootY.toFixed(3)} / 最終水平誤差=${result.finalHorizontalError.toFixed(3)} / 最終垂直誤差=${result.finalVerticalError.toFixed(3)} / 境界内=${result.stayedInsideBoundary} / エラー=${result.errorMessage ?? "なし"}`
+        )
+        .join(" || ")
+    )
+  );
+
+  const transformStairPoint = (
+    point: Vector3,
+    stair: "NW" | "NE" | "SW"
+  ) => {
+    if (stair === "NW") {
+      return point;
+    }
+    if (stair === "NE") {
+      return new Vector3(point.x + 54.0, point.y, point.z);
+    }
+    return new Vector3(32.9 - point.y, point.x + 9.1, point.z);
+  };
+  const stairArrivalGuardExpectations = [
+    ["NW", "2F", 3.6, "COL_StairGuard_NW_Upper"],
+    ["NW", "3F", 7.2, "COL_StairGuardSystem_NW_2FTo3F"],
+    ["NW", "4F", 10.8, "COL_StairGuardSystem_NW_3FTo4F"],
+    ["NW", "屋上", 14.4, "COL_StairGuardSystem_NW_4FToRooftop"],
+    ["NE", "2F", 3.6, "COL_StairGuard_NE_Upper"],
+    ["NE", "3F", 7.2, "COL_StairGuardSystem_NE_2FTo3F"],
+    ["NE", "4F", 10.8, "COL_StairGuardSystem_NE_3FTo4F"],
+    ["SW", "2F", 3.6, "COL_StairGuard_SW_Upper"],
+    ["SW", "3F", 7.2, "COL_StairGuardSystem_SW_2FTo3F"],
+    ["SW", "4F", 10.8, "COL_StairGuardSystem_SW_3FTo4F"]
+  ] as const;
+  const stairArrivalGuardResults = stairArrivalGuardExpectations.map(
+    ([stair, floor, arrivalZ, expectedName]) => {
+      const from = blenderPointToBabylon(
+        transformStairPoint(
+          new Vector3(-8.5, 39.8, arrivalZ + 1.0),
+          stair
+        )
+      );
+      const to = blenderPointToBabylon(
+        transformStairPoint(
+          new Vector3(-9.3, 39.8, arrivalZ + 1.0),
+          stair
+        )
+      );
+      return {
+        stair,
+        floor,
+        expectedName,
+        player: context.queries.castMovementSegment("player", from, to),
+        npc: context.queries.castMovementSegment("npc", from, to),
+        bit: context.queries.castMovementSegment("bit", from, to),
+        beam: context.queries.castBeamSegment(from, to),
+        sight: context.queries.castSightSegment(from, to)
+      };
+    }
+  );
+  checks.push(
+    createCheck(
+      "全到達階の階段手すりによる転落防止",
+      stairArrivalGuardResults.every(
+        (result) =>
+          schoolMeshByName.has(result.expectedName) &&
+          [
+            result.player,
+            result.npc,
+            result.bit,
+            result.beam,
+            result.sight
+          ].every((hit) => hit?.mesh.name === result.expectedName)
+      ),
+      stairArrivalGuardResults
+        .map(
+          (result) =>
+            `${result.stair}${result.floor}:${[
+              result.player,
+              result.npc,
+              result.bit,
+              result.beam,
+              result.sight
+            ]
+              .map((hit) => hit?.mesh.name ?? "clear")
+              .join(",")}`
+        )
+        .join(" / ")
     )
   );
 
@@ -911,11 +1335,19 @@ const validateLoadedContext = (
   const openUpperStairVisuals = [
     "VIS_StairSystem_NW_2FTo3F",
     "VIS_StairSystem_NW_3FTo4F",
-    "VIS_StairSystem_NW_4FToRooftop"
+    "VIS_StairSystem_NW_4FToRooftop",
+    "VIS_StairSystem_NE_2FTo3F",
+    "VIS_StairSystem_NE_3FTo4F",
+    "VIS_StairSystem_SW_2FTo3F",
+    "VIS_StairSystem_SW_3FTo4F"
   ].map((name) => ({
     name,
     vertices: schoolMeshByName.get(name)?.getTotalVertices() ?? 0
   }));
+  const retiredUpperStairClosures = [
+    "COL_StairClosure_NE",
+    "COL_StairClosure_SW"
+  ];
   const storageCentralApproachHit = castPlayerMovementSegment(
     blenderPointToBabylon(new Vector3(-9.6, 38.5, 1.0)),
     blenderPointToBabylon(new Vector3(-9.6, 43.8, 1.0))
@@ -959,9 +1391,12 @@ const validateLoadedContext = (
   );
   checks.push(
     createCheck(
-      "北西階段の1階倉庫と2階以上の開放構造",
+      "3階段の2階～4階開放構造と北西階段の1階倉庫",
       northwestStorageBoundsResults.every((result) => result.ok) &&
-        openUpperStairVisuals.every((result) => result.vertices === 600) &&
+        openUpperStairVisuals.every((result) => result.vertices === 696) &&
+        retiredUpperStairClosures.every(
+          (name) => !schoolMeshByName.has(name)
+        ) &&
         storageCentralApproachHit === null &&
         storageWestWallHit?.mesh.name === "COL_StairStorageShell_NW" &&
         storageSouthWallHit?.mesh.name === "COL_StairStorageShell_NW" &&
@@ -972,17 +1407,19 @@ const validateLoadedContext = (
         .map((result) => `${result.name}=${result.ok ? "一致" : result.detail}`)
         .join(" / ")} / 上階表示=${openUpperStairVisuals
         .map((result) => `${result.name}:${result.vertices}`)
+        .join(",")} / 旧closure=${retiredUpperStairClosures
+        .map((name) => `${name}:${!schoolMeshByName.has(name)}`)
         .join(",")} / 中央入口=${storageCentralApproachHit?.mesh.name ?? "clear"} / 西壁=${storageWestWallHit?.mesh.name ?? "なし"} / 南壁=${storageSouthWallHit?.mesh.name ?? "なし"} / 最大視点=${storageMaximumEyeHit?.mesh.name ?? "clear"} / 高天井帯=${storageHighCeilingHit?.mesh.name ?? "clear"} / Waypoint=${northwestStorageRoundTrip.reachedWaypoints}/${northwestStorageRoundTrip.totalWaypoints} / 境界内=${northwestStorageRoundTrip.stayedInsideBoundary} / エラー=${northwestStorageRoundTrip.errorMessage ?? "なし"}`
     )
   );
 
   const poolBoundsExpectations = [
-    ["VIS_PoolWaterPlaceholder", [14.6, 36.2, 13.53], [34.2, 41.8, 13.57]],
-    ["VIS_PoolDeckAccessStairs_West", [10.0, 37.8, 12.65], [12.4, 40.2, 13.85]],
-    ["COL_PoolDeckAccessRamp_West", [10.0, 37.8, 12.65], [16.5, 40.2, 13.85]],
-    ["VIS_PoolBasinStairs_West", [14.4, 37.8, 12.81], [16.5, 40.2, 13.85]],
-    ["VIS_PoolBasinStairs_East", [32.3, 37.8, 12.81], [34.4, 40.2, 13.85]],
-    ["COL_PoolBasinRamp_East", [32.3, 37.8, 12.76], [36.4, 40.2, 13.85]]
+    ["VIS_B03_PoolWater", [14.6, 36.2, 15.33], [34.2, 41.8, 15.35]],
+    ["VIS_PoolDeckAccessStairs_West", [10.0, 37.8, 14.45], [12.4, 40.2, 15.65]],
+    ["COL_PoolDeckAccessRamp_West", [10.0, 37.8, 14.45], [16.5, 40.2, 15.65]],
+    ["VIS_PoolBasinStairs_West", [14.4, 37.8, 14.61], [16.5, 40.2, 15.65]],
+    ["VIS_PoolBasinStairs_East", [32.3, 37.8, 14.61], [34.4, 40.2, 15.65]],
+    ["COL_PoolBasinRamp_East", [32.3, 37.8, 14.56], [36.4, 40.2, 15.65]]
   ] as const;
   const poolBoundsResults = poolBoundsExpectations.map(
     ([name, minimum, maximum]) => ({
@@ -995,15 +1432,15 @@ const validateLoadedContext = (
     })
   );
   const poolTraversalWaypoints = [
-    new Vector3(8.8, 39.0, 12.7),
-    new Vector3(10.0, 39.0, 12.7),
-    new Vector3(12.4, 39.0, 13.85),
-    new Vector3(14.4, 39.0, 13.85),
-    new Vector3(16.5, 39.0, 12.86),
-    new Vector3(31.0, 39.0, 12.86),
-    new Vector3(32.3, 39.0, 12.86),
-    new Vector3(34.4, 39.0, 13.85),
-    new Vector3(35.4, 39.0, 13.85)
+    new Vector3(8.8, 39.0, 14.5),
+    new Vector3(10.0, 39.0, 14.5),
+    new Vector3(12.4, 39.0, 15.65),
+    new Vector3(14.4, 39.0, 15.65),
+    new Vector3(16.5, 39.0, 14.66),
+    new Vector3(31.0, 39.0, 14.66),
+    new Vector3(32.3, 39.0, 14.66),
+    new Vector3(34.4, 39.0, 15.65),
+    new Vector3(35.4, 39.0, 15.65)
   ];
   const poolRoundTrip = validatePlayerWaypointTraversal(
     context,
@@ -1012,10 +1449,10 @@ const validateLoadedContext = (
       ...poolTraversalWaypoints,
       ...poolTraversalWaypoints.slice(0, -1).reverse()
     ],
-    [12.7, 13.85]
+    [14.5, 15.65]
   );
   const poolsideFoot = blenderPointToBabylon(
-    new Vector3(13.4, 39.0, 13.85)
+    new Vector3(13.4, 39.0, 15.65)
   );
   const poolsideMaximumEye = poolsideFoot.add(
     new Vector3(
@@ -1023,6 +1460,15 @@ const validateLoadedContext = (
       V2_PLAYER_BASE_EYE_HEIGHT * V2_PLAYER_MAX_EYE_HEIGHT_SCALE,
       0
     )
+  );
+  const waterVolume = waterVolumes[0];
+  waterVolume.mesh.computeWorldMatrix(true);
+  const waterBounds = waterVolume.mesh.getBoundingInfo().boundingBox;
+  const waterCenter = waterBounds.centerWorld.clone();
+  const pointAboveWater = new Vector3(
+    waterCenter.x,
+    waterBounds.maximumWorld.y + 0.05,
+    waterCenter.z
   );
   checks.push(
     createCheck(
@@ -1034,6 +1480,13 @@ const validateLoadedContext = (
       `${poolBoundsResults
         .map((result) => `${result.name}=${result.ok ? "一致" : result.detail}`)
         .join(" / ")} / Waypoint=${poolRoundTrip.reachedWaypoints}/${poolRoundTrip.totalWaypoints} / 最高足元Y=${poolRoundTrip.highestFootY.toFixed(3)} / 最低足元Y=${poolRoundTrip.lowestFootY.toFixed(3)} / 足元境界内=${context.boundary.contains(poolsideFoot)} / 最大視点境界内=${context.boundary.contains(poolsideMaximumEye)} / 経路境界内=${poolRoundTrip.stayedInsideBoundary} / エラー=${poolRoundTrip.errorMessage ?? "なし"}`
+    ),
+    createCheck(
+      "VOL_PoolWaterの内外判定",
+      waterVolume.id === "pool-water" &&
+        context.queries.containsVolume("water", waterCenter) &&
+        !context.queries.containsVolume("water", pointAboveWater),
+      `id=${waterVolume.id} / center=${context.queries.containsVolume("water", waterCenter)} / above=${context.queries.containsVolume("water", pointAboveWater)}`
     )
   );
 
@@ -1069,17 +1522,110 @@ const validateLoadedContext = (
       )
     })
   );
-  const urinalFixturesAbsent = [
-    ...context.resources.visualMeshes,
-    ...context.resources.normalColliders
-  ].every((mesh) => !mesh.name.includes("Urinal"));
+  const expectedUrinalFixtureNames = [
+    "VIS_B03_Prop_Urinal_01",
+    "VIS_B03_Prop_Urinal_02",
+    "VIS_B03_Prop_Urinal_03"
+  ];
+  const urinalFixturesPresent = expectedUrinalFixtureNames.every((name) =>
+    toiletMeshByName.has(name)
+  );
   checks.push(
     createCheck(
-      "男女各3個室と男子小便器予約帯の契約",
-      toiletBoundsResults.every((result) => result.ok) && urinalFixturesAbsent,
+      "男女各3個室と男子小便器3基の契約",
+      toiletBoundsResults.every((result) => result.ok) && urinalFixturesPresent,
       `${toiletBoundsResults
         .map((result) => `${result.name}=${result.ok ? "一致" : result.detail}`)
-        .join(" / ")} / 小便器予約帯のみ=${urinalFixturesAbsent}`
+        .join(" / ")} / 小便器=${expectedUrinalFixtureNames
+        .map((name) => `${name}:${toiletMeshByName.has(name)}`)
+        .join(",")}`
+    )
+  );
+
+  const castToiletFrontSegment = (
+    x: number,
+    baseZ: number,
+    castSegment: StageSpatialContext["queries"]["castBeamSegment"]
+  ) =>
+    castSegment(
+      blenderPointToBabylon(new Vector3(x, 38.0, baseZ + 1.0)),
+      blenderPointToBabylon(new Vector3(x, 39.0, baseZ + 1.0))
+    );
+  const toiletFrontResults = [
+    ["1F", 0.0, "COL_B03_Interior_Walls_F01_Toilets"],
+    ["2F", 3.6, "COL_B03_Interior_Walls_F02_Toilets"],
+    ["3F", 7.2, "COL_B03_Interior_Walls_F03_Toilets"],
+    ["4F", 10.8, "COL_B03_Interior_Walls_F04_Toilets"]
+  ].map(([floor, baseZ, expectedName]) => {
+    const z = baseZ as number;
+    const name = expectedName as string;
+    const queryOpening = (x: number) => ({
+      actor: castToiletFrontSegment(x, z, castPlayerMovementSegment),
+      beam: castToiletFrontSegment(x, z, context.queries.castBeamSegment),
+      sight: castToiletFrontSegment(x, z, context.queries.castSightSegment)
+    });
+    const maleOpening = queryOpening(-4.8);
+    const femaleOpening = queryOpening(-0.3);
+    const wall = queryOpening(-3.0);
+    return {
+      floor,
+      expectedName: name,
+      maleOpening,
+      femaleOpening,
+      wall
+    };
+  });
+  const fourthFloorToiletCeilingFrom = blenderPointToBabylon(
+    new Vector3(-4.8, 39.2, 13.6)
+  );
+  const fourthFloorToiletCeilingTo = blenderPointToBabylon(
+    new Vector3(-4.8, 39.2, 14.45)
+  );
+  const fourthFloorToiletCeilingResults = {
+    actor: castPlayerMovementSegment(
+      fourthFloorToiletCeilingFrom,
+      fourthFloorToiletCeilingTo
+    ),
+    beam: context.queries.castBeamSegment(
+      fourthFloorToiletCeilingFrom,
+      fourthFloorToiletCeilingTo
+    ),
+    sight: context.queries.castSightSegment(
+      fourthFloorToiletCeilingFrom,
+      fourthFloorToiletCeilingTo
+    )
+  };
+  checks.push(
+    createCheck(
+      "全階トイレ正面壁・男女入口・4階天井",
+      toiletFrontResults.every(
+        (result) =>
+          toiletMeshByName.has(result.expectedName) &&
+          Object.values(result.maleOpening).every((hit) => hit === null) &&
+          Object.values(result.femaleOpening).every((hit) => hit === null) &&
+          Object.values(result.wall).every(
+            (hit) => hit?.mesh.name === result.expectedName
+          )
+      ) &&
+        Object.values(fourthFloorToiletCeilingResults).every(
+          (hit) => hit?.mesh.name === "COL_B03_Ceiling_F04"
+        ),
+      `${toiletFrontResults
+        .map(
+          (result) =>
+            `${result.floor}:男=${Object.values(result.maleOpening)
+              .map((hit) => hit?.mesh.name ?? "clear")
+              .join(",")},女=${Object.values(result.femaleOpening)
+              .map((hit) => hit?.mesh.name ?? "clear")
+              .join(",")},壁=${Object.values(result.wall)
+              .map((hit) => hit?.mesh.name ?? "clear")
+              .join(",")}`
+        )
+        .join(" / ")} / 4F天井=${Object.values(
+        fourthFloorToiletCeilingResults
+      )
+        .map((hit) => hit?.mesh.name ?? "clear")
+        .join(",")}`
     )
   );
 
@@ -1130,6 +1676,8 @@ const validateLoadedContext = (
   );
 
   const normalColliderSet = new Set(context.resources.normalColliders);
+  const actorOnlyColliderSet = new Set(context.resources.actorOnlyColliders);
+  const humanOnlyColliderSet = new Set(context.resources.humanOnlyColliders);
   const playerColliderSet = new Set(
     context.resources.movementColliders.player
   );
@@ -1137,23 +1685,64 @@ const validateLoadedContext = (
   const bitColliderSet = new Set(context.resources.movementColliders.bit);
   const beamBlockerSet = new Set(context.resources.beamBlockers);
   const sightBlockerSet = new Set(context.resources.sightBlockers);
+  const expectedPlayerAndNpcColliders = [
+    ...normalColliderSet,
+    ...actorOnlyColliderSet,
+    ...humanOnlyColliderSet
+  ];
+  const expectedBitColliders = [
+    ...normalColliderSet,
+    ...actorOnlyColliderSet
+  ];
+  const setMatches = <T>(actual: ReadonlySet<T>, expected: readonly T[]) =>
+    actual.size === expected.length && expected.every((value) => actual.has(value));
   checks.push(
     createCheck(
       "移動体別・beam・sight衝突集合",
-      playerColliderSet.size === normalColliderSet.size &&
-        npcColliderSet.size === normalColliderSet.size &&
-        bitColliderSet.size === normalColliderSet.size &&
-        beamBlockerSet.size === normalColliderSet.size &&
-        sightBlockerSet.size === normalColliderSet.size &&
-        context.resources.normalColliders.every(
-          (mesh) =>
-            playerColliderSet.has(mesh) &&
-            npcColliderSet.has(mesh) &&
-            bitColliderSet.has(mesh) &&
-            beamBlockerSet.has(mesh) &&
-            sightBlockerSet.has(mesh)
-        ),
-      `player=${playerColliderSet.size} / npc=${npcColliderSet.size} / bit=${bitColliderSet.size} / beam=${beamBlockerSet.size} / sight=${sightBlockerSet.size} / normal=${normalColliderSet.size}`
+      setMatches(playerColliderSet, expectedPlayerAndNpcColliders) &&
+        setMatches(npcColliderSet, expectedPlayerAndNpcColliders) &&
+        setMatches(bitColliderSet, expectedBitColliders) &&
+        setMatches(beamBlockerSet, [...normalColliderSet]) &&
+        setMatches(sightBlockerSet, [...normalColliderSet]),
+      `player=${playerColliderSet.size} / npc=${npcColliderSet.size} / bit=${bitColliderSet.size} / beam=${beamBlockerSet.size} / sight=${sightBlockerSet.size} / normal=${normalColliderSet.size} / ActorOnly=${actorOnlyColliderSet.size} / HumanOnly=${humanOnlyColliderSet.size}`
+    )
+  );
+
+  const representativeWindowLink = context.links.all.find(
+    (link) => link.kind === "bit_window"
+  )!;
+  const windowPlayerHit = context.queries.castMovementSegment(
+    "player",
+    representativeWindowLink.endpointA.position,
+    representativeWindowLink.endpointB.position
+  );
+  const windowNpcHit = context.queries.castMovementSegment(
+    "npc",
+    representativeWindowLink.endpointA.position,
+    representativeWindowLink.endpointB.position
+  );
+  const windowBitHit = context.queries.castMovementSegment(
+    "bit",
+    representativeWindowLink.endpointA.position,
+    representativeWindowLink.endpointB.position
+  );
+  const windowBeamHit = context.queries.castBeamSegment(
+    representativeWindowLink.endpointA.position,
+    representativeWindowLink.endpointB.position
+  );
+  const windowSightHit = context.queries.castSightSegment(
+    representativeWindowLink.endpointA.position,
+    representativeWindowLink.endpointB.position
+  );
+  checks.push(
+    createCheck(
+      "実bit_window開口のmover・beam・sight分類",
+      windowPlayerHit?.mesh.name.startsWith("COL_HumanOnly_Window_") === true &&
+        windowNpcHit?.mesh === windowPlayerHit.mesh &&
+        windowBitHit === null &&
+        windowBeamHit === null &&
+        windowSightHit === null,
+      `link=${representativeWindowLink.id} / player=${windowPlayerHit?.mesh.name ?? "clear"} / npc=${windowNpcHit?.mesh.name ?? "clear"} / bit=${windowBitHit?.mesh.name ?? "clear"} / beam=${windowBeamHit?.mesh.name ?? "clear"} / sight=${windowSightHit?.mesh.name ?? "clear"}`
     )
   );
 
@@ -1229,7 +1818,7 @@ const validateLoadedContext = (
   });
   checks.push(
     createCheck(
-      "3階段の倉庫・踊り場最大視点高",
+      "3階段の倉庫・1F踊り場最大視点高",
       headroomResults.every(
         (result) =>
           result.storageMaximumEyeHit === null &&
@@ -1339,12 +1928,13 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 427 &&
-      activeContext.resources.normalColliders.length === 150 &&
-      activeContext.resources.actorOnlyColliders.length === 94 &&
-      activeContext.resources.humanOnlyColliders.length === 0 &&
+      activeContext.resources.visualMeshes.length === 472 &&
+      activeContext.resources.normalColliders.length === 185 &&
+      activeContext.resources.actorOnlyColliders.length === 82 &&
+      activeContext.resources.humanOnlyColliders.length === 58 &&
+      activeContext.resources.navSourceMeshes.length === 15 &&
       activeContext.volumes.getByRole("water").length === 1 &&
-      activeContext.links.all.length === 0;
+      activeContext.links.all.length === 60;
     checks.push(
       createCheck(
         "学校コンテキスト再読込",

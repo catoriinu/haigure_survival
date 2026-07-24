@@ -1,5 +1,6 @@
 import { Vector3 } from "@babylonjs/core";
 import type { NavigationLocation, NavigationWorld } from "./navigationWorld";
+import type { StageBoundary } from "./stageSpatialContext";
 import {
   createStageBoundaryContainsQuery,
   type StageVolume
@@ -19,10 +20,18 @@ export interface StageSpawnSampler {
   ): readonly NavigationLocation[];
 }
 
+type StageSpawnRegion = Readonly<{
+  id: string;
+  mesh: StageVolume["mesh"];
+  contains(point: Vector3): boolean;
+  excludes(point: Vector3): boolean;
+}>;
+
 type RejectionCounts = {
   outsideVolume: number;
   projectionFailed: number;
   projectedOutsideVolume: number;
+  excluded: number;
   duplicate: number;
   minimumDistance: number;
 };
@@ -59,6 +68,7 @@ const createRejectionCounts = (): RejectionCounts => ({
   outsideVolume: 0,
   projectionFailed: 0,
   projectedOutsideVolume: 0,
+  excluded: 0,
   duplicate: 0,
   minimumDistance: 0
 });
@@ -68,12 +78,13 @@ const formatRejectionCounts = (counts: RejectionCounts) =>
     `volume外=${counts.outsideVolume}`,
     `NavMesh投影失敗=${counts.projectionFailed}`,
     `投影後volume外=${counts.projectedOutsideVolume}`,
+    `除外領域=${counts.excluded}`,
     `重複=${counts.duplicate}`,
     `最小距離不足=${counts.minimumDistance}`
   ].join(" / ");
 
-export const createStageSpawnSampler = (
-  volume: StageVolume,
+const createSpawnSampler = (
+  region: StageSpawnRegion,
   navigation: NavigationWorld,
   config: StageSpawnSamplerConfig
 ): StageSpawnSampler => {
@@ -86,8 +97,8 @@ export const createStageSpawnSampler = (
     throw new Error("randomには0以上1未満を返す関数が必要です。");
   }
 
-  volume.mesh.computeWorldMatrix(true);
-  const boundingBox = volume.mesh.getBoundingInfo().boundingBox;
+  region.mesh.computeWorldMatrix(true);
+  const boundingBox = region.mesh.getBoundingInfo().boundingBox;
   const minimum = boundingBox.minimumWorld.clone();
   const maximum = boundingBox.maximumWorld.clone();
   assertFiniteVector("volumeのworld AABB最小点", minimum);
@@ -98,7 +109,6 @@ export const createStageSpawnSampler = (
   assertPositiveFiniteNumber("volumeのworld AABB高さ", extent.y);
   assertPositiveFiniteNumber("volumeのworld AABB奥行き", extent.z);
 
-  const containsPoint = createStageBoundaryContainsQuery(volume.mesh);
   const nextRandom = () => {
     const value = config.random();
     if (!Number.isFinite(value) || value < 0 || value >= 1) {
@@ -125,7 +135,7 @@ export const createStageSpawnSampler = (
 
     for (let attempt = 0; attempt < config.maxAttempts; attempt += 1) {
       const candidate = sampleAabbPoint();
-      if (!containsPoint(candidate)) {
+      if (!region.contains(candidate)) {
         rejectionCounts.outsideVolume += 1;
         continue;
       }
@@ -138,8 +148,12 @@ export const createStageSpawnSampler = (
         rejectionCounts.projectionFailed += 1;
         continue;
       }
-      if (!containsPoint(projected.position)) {
+      if (!region.contains(projected.position)) {
         rejectionCounts.projectedOutsideVolume += 1;
+        continue;
+      }
+      if (region.excludes(projected.position)) {
+        rejectionCounts.excluded += 1;
         continue;
       }
 
@@ -166,7 +180,7 @@ export const createStageSpawnSampler = (
     }
 
     throw new Error(
-      `spawn volume「${volume.id}」の${pointNumber}点目を` +
+      `spawn領域「${region.id}」の${pointNumber}点目を` +
         `${config.maxAttempts}回以内に生成できませんでした。` +
         ` ${formatRejectionCounts(rejectionCounts)}`
     );
@@ -187,3 +201,36 @@ export const createStageSpawnSampler = (
     }
   };
 };
+
+export const createStageSpawnSampler = (
+  volume: StageVolume,
+  navigation: NavigationWorld,
+  config: StageSpawnSamplerConfig
+): StageSpawnSampler =>
+  createSpawnSampler(
+    {
+      id: volume.id,
+      mesh: volume.mesh,
+      contains: createStageBoundaryContainsQuery(volume.mesh),
+      excludes: () => false
+    },
+    navigation,
+    config
+  );
+
+export const createStageBoundarySpawnSampler = (
+  boundary: StageBoundary,
+  navigation: NavigationWorld,
+  config: StageSpawnSamplerConfig,
+  excludes: (point: Vector3) => boolean
+): StageSpawnSampler =>
+  createSpawnSampler(
+    {
+      id: boundary.id,
+      mesh: boundary.mesh,
+      contains: boundary.contains,
+      excludes
+    },
+    navigation,
+    config
+  );

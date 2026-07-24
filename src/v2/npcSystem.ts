@@ -17,7 +17,7 @@ import {
   type NavigationAgent
 } from "../world/navigationAgent";
 import type { NavigationLocation } from "../world/navigationWorld";
-import { createStageSpawnSampler } from "../world/stageSpawnSampler";
+import { createStageBoundarySpawnSampler } from "../world/stageSpawnSampler";
 import type { StageSpatialContext } from "../world/stageSpatialContext";
 import type {
   V2ActorSphere,
@@ -26,6 +26,10 @@ import type {
   V2HumanTargetSnapshot,
   V2TargetProvenance
 } from "./combatTypes";
+import {
+  createV2HumanTargetSpatialIndex,
+  type V2HumanTargetSpatialIndex
+} from "./humanTargetSpatialIndex";
 
 const NPC_SEARCH_SPEED = 0.2;
 const NPC_CHASE_SPEED = 0.3;
@@ -40,6 +44,8 @@ const NPC_COLLISION_RADIUS = NPC_SPRITE_WIDTH * 0.5;
 const SPAWN_MINIMUM_DISTANCE = NPC_SPRITE_WIDTH * 1.75;
 const SPAWN_PROJECTION_MAX_DISTANCE = 0.75;
 const NAVIGATION_PROJECTION_MAX_DISTANCE = 0.75;
+const GROUND_PROBE_UPWARD_OFFSET = 0.5;
+const GROUND_PROBE_DISTANCE = 1.5;
 
 const NAVIGATION_AGENT_CONFIG = Object.freeze({
   projectionMaxDistance: NAVIGATION_PROJECTION_MAX_DISTANCE,
@@ -85,6 +91,7 @@ type NpcRuntime = {
   readonly sprite: Sprite;
   readonly navigationAgent: NavigationAgent;
   navigationLocation: NavigationLocation;
+  footPosition: Vector3;
   readonly forward: Vector3;
   brainwashed: boolean;
   wanderDestination: NavigationLocation | null;
@@ -169,8 +176,8 @@ const createNpcTargetSnapshot = (
   Object.freeze({
     id: npc.id,
     kind: "npc" as const,
-    footPosition: npc.navigationLocation.position.clone(),
-    aimPosition: toAimPosition(npc.navigationLocation.position),
+    footPosition: npc.footPosition.clone(),
+    aimPosition: toAimPosition(npc.footPosition),
     collisionRadius: NPC_COLLISION_RADIUS,
     alive: true,
     brainwashed: npc.brainwashed
@@ -196,20 +203,19 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.stage = options.stage;
     this.random = options.random;
 
-    const spawnVolumes = options.stage.volumes.getByRole("npc_spawn");
-    if (spawnVolumes.length !== 1) {
-      throw new Error(
-        `学校のnpc_spawn Volumeは1個必要です: ${spawnVolumes.length}個`
-      );
-    }
-    const spawnSampler = createStageSpawnSampler(
-      spawnVolumes[0],
+    const spawnSampler = createStageBoundarySpawnSampler(
+      options.stage.boundary,
       options.stage.navigation,
       {
         maxAttempts: options.npcCount * 64,
         projectionMaxDistance: SPAWN_PROJECTION_MAX_DISTANCE,
         random: options.random
-      }
+      },
+      (point) =>
+        options.stage.queries.containsVolume("no_enemy_spawn", point) ||
+        options.stage.queries.containsVolume("no_enemy_enter", point) ||
+        options.stage.queries.containsVolume("hazard", point) ||
+        options.stage.queries.containsVolume("water", point)
     );
     const spawnPoints = spawnSampler.samplePoints(
       options.npcCount,
@@ -246,7 +252,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         sprite.isPickable = false;
         const brainwashed = brainwashedIndices.has(index);
         sprite.cellIndex = brainwashed ? 3 : 0;
-        sprite.position.copyFrom(toAimPosition(spawnPoint.position));
+        const footPosition = this.resolveFootPosition(spawnPoint.position);
+        sprite.position.copyFrom(toAimPosition(footPosition));
         const angle = this.nextRandom() * Math.PI * 2;
         const navigationAgent = createNavigationAgent(
           options.stage.navigation,
@@ -259,6 +266,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           sprite,
           navigationAgent,
           navigationLocation: spawnPoint,
+          footPosition,
           forward: new Vector3(Math.sin(angle), 0, Math.cos(angle)),
           brainwashed,
           wanderDestination: null,
@@ -299,18 +307,27 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     const targetsById = new Map(
       frameTargets.map((target) => [target.id, target])
     );
+    const targetSpatialIndex = createV2HumanTargetSpatialIndex(
+      frameTargets,
+      NPC_VISION_RANGE
+    );
     if (targetsById.size !== frameTargets.length) {
       throw new Error("NPC更新の標的IDが重複しています。");
     }
 
     for (const npc of this.npcs) {
       if (npc.brainwashed) {
-        this.updateBrainwashedNpc(npc, deltaSeconds, frameTargets, targetsById);
+        this.updateBrainwashedNpc(
+          npc,
+          deltaSeconds,
+          targetSpatialIndex,
+          targetsById
+        );
       } else {
         this.updateNormalNpc(npc, deltaSeconds);
       }
       npc.sprite.position.copyFrom(
-        toAimPosition(npc.navigationLocation.position)
+        toAimPosition(npc.footPosition)
       );
     }
 
@@ -375,24 +392,32 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         alert.remainingSeconds
       );
 
-      for (const npc of this.npcs) {
-        if (
-          !npc.brainwashed ||
-          npc.id === alert.targetId ||
-          npc.id === alert.leaderId
-        ) {
-          continue;
+    }
+    for (const npc of this.npcs) {
+      if (!npc.brainwashed) {
+        continue;
+      }
+      let selectedAlert: V2ExternalAlert | null = null;
+      for (let index = alerts.length - 1; index >= 0; index -= 1) {
+        const alert = alerts[index];
+        if (npc.id !== alert.targetId && npc.id !== alert.leaderId) {
+          selectedAlert = alert;
+          break;
         }
-        const targetChanged =
-          npc.targetId !== alert.targetId || npc.targetProvenance !== "alert";
-        npc.targetId = alert.targetId;
-        npc.targetProvenance = "alert";
-        npc.alertLeaderId = alert.leaderId;
-        npc.alertRemainingSeconds = alert.remainingSeconds;
-        npc.wanderDestination = null;
-        if (targetChanged) {
-          npc.navigationAgent.clear();
-        }
+      }
+      if (!selectedAlert) {
+        continue;
+      }
+      const targetChanged =
+        npc.targetId !== selectedAlert.targetId ||
+        npc.targetProvenance !== "alert";
+      npc.targetId = selectedAlert.targetId;
+      npc.targetProvenance = "alert";
+      npc.alertLeaderId = selectedAlert.leaderId;
+      npc.alertRemainingSeconds = selectedAlert.remainingSeconds;
+      npc.wanderDestination = null;
+      if (targetChanged) {
+        npc.navigationAgent.clear();
       }
     }
   }
@@ -467,7 +492,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private updateBrainwashedNpc(
     npc: NpcRuntime,
     deltaSeconds: number,
-    targets: readonly V2HumanTargetSnapshot[],
+    targetSpatialIndex: V2HumanTargetSpatialIndex,
     targetsById: ReadonlyMap<string, V2HumanTargetSnapshot>
   ) {
     npc.wanderDestination = null;
@@ -489,7 +514,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
 
     if (!npc.targetId) {
-      const visibleTarget = this.findNearestVisibleTarget(npc, targets);
+      const visibleTarget = this.findNearestVisibleTarget(
+        npc,
+        targetSpatialIndex.query(toAimPosition(npc.footPosition), NPC_VISION_RANGE)
+      );
       if (visibleTarget) {
         npc.targetId = visibleTarget.id;
         npc.targetProvenance = "visual";
@@ -536,7 +564,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         continue;
       }
       const distanceSquared = Vector3.DistanceSquared(
-        toAimPosition(npc.navigationLocation.position),
+        toAimPosition(npc.footPosition),
         target.aimPosition
       );
       if (distanceSquared < nearestDistanceSquared) {
@@ -554,7 +582,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (!this.isTargetable(npc, target)) {
       return false;
     }
-    const origin = toAimPosition(npc.navigationLocation.position);
+    const origin = toAimPosition(npc.footPosition);
     const toTarget = target.aimPosition.subtract(origin);
     const distanceSquared = toTarget.lengthSquared();
     if (
@@ -581,8 +609,15 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc: NpcRuntime,
     nextLocation: NavigationLocation
   ) {
-    const currentAimPosition = toAimPosition(npc.navigationLocation.position);
-    const nextAimPosition = toAimPosition(nextLocation.position);
+    const displacement = nextLocation.position.subtract(
+      npc.navigationLocation.position
+    );
+    if (displacement.lengthSquared() === 0) {
+      return true;
+    }
+    const nextFootPosition = this.resolveFootPosition(nextLocation.position);
+    const currentAimPosition = toAimPosition(npc.footPosition);
+    const nextAimPosition = toAimPosition(nextFootPosition);
     if (
       this.stage.queries.castMovementSegment(
         "npc",
@@ -593,15 +628,33 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.navigationAgent.clear();
       return false;
     }
-    const displacement = nextLocation.position.subtract(
-      npc.navigationLocation.position
-    );
     const horizontal = new Vector3(displacement.x, 0, displacement.z);
     if (horizontal.lengthSquared() > 0) {
       npc.forward.copyFrom(horizontal.normalize());
     }
     npc.navigationLocation = nextLocation;
+    npc.footPosition = nextFootPosition;
     return true;
+  }
+
+  private resolveFootPosition(navigationPosition: Vector3) {
+    const probeOrigin = navigationPosition.add(
+      new Vector3(0, GROUND_PROBE_UPWARD_OFFSET, 0)
+    );
+    const ground = this.stage.queries.sampleGround(
+      probeOrigin,
+      GROUND_PROBE_DISTANCE
+    );
+    if (!ground) {
+      throw new Error(
+        `NPCのNavMesh位置に物理床がありません: (${navigationPosition.x}, ${navigationPosition.y}, ${navigationPosition.z})`
+      );
+    }
+    return new Vector3(
+      navigationPosition.x,
+      ground.point.y,
+      navigationPosition.z
+    );
   }
 
   private clearTarget(npc: NpcRuntime) {
@@ -618,7 +671,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         Object.freeze({
           id: npc.id,
           kind: "npc" as const,
-          center: toAimPosition(npc.navigationLocation.position),
+          center: toAimPosition(npc.footPosition),
           radius: NPC_COLLISION_RADIUS
         })
       )

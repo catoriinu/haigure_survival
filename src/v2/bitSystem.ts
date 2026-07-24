@@ -13,7 +13,7 @@ import {
   type NavigationAgent
 } from "../world/navigationAgent";
 import type { NavigationLocation } from "../world/navigationWorld";
-import { createStageSpawnSampler } from "../world/stageSpawnSampler";
+import { createStageBoundarySpawnSampler } from "../world/stageSpawnSampler";
 import type { StageSpatialContext } from "../world/stageSpatialContext";
 import type {
   V2ActorSphere,
@@ -23,6 +23,7 @@ import type {
   V2HumanTargetSnapshot,
   V2TargetProvenance
 } from "./combatTypes";
+import { createV2HumanTargetSpatialIndex } from "./humanTargetSpatialIndex";
 
 const BIT_BODY_HEIGHT = 0.15;
 const BIT_BODY_DIAMETER = 0.12;
@@ -108,6 +109,7 @@ type RuntimeBit = {
   muzzle: Mesh;
   navigationAgent: NavigationAgent;
   navigationLocation: NavigationLocation;
+  groundOffsetY: number;
   flightHeight: number;
   bobPhase: number;
   mode: V2BitMode;
@@ -257,13 +259,6 @@ export const createV2BitSystem = (
 ): V2BitSystem => {
   assertConfig(config);
 
-  const spawnVolumes = spatial.volumes.getByRole("bit_spawn");
-  if (spawnVolumes.length !== 1) {
-    throw new Error(
-      `V2ビットシステムにはbit_spawn Volumeが1件必要です: ${spawnVolumes.length}件`
-    );
-  }
-
   const nextRandom = () => {
     const value = config.random();
     if (!Number.isFinite(value) || value < 0 || value >= 1) {
@@ -292,13 +287,17 @@ export const createV2BitSystem = (
 
   const buildFlightPosition = (
     navigationPosition: Vector3,
-    flightHeight: number
+    flightHeight: number,
+    groundOffsetY: number
   ) =>
     new Vector3(
       navigationPosition.x,
-      resolveGroundY(navigationPosition) + flightHeight,
+      navigationPosition.y + groundOffsetY + flightHeight,
       navigationPosition.z
     );
+
+  const resolveGroundOffsetY = (navigationPosition: Vector3) =>
+    resolveGroundY(navigationPosition) - navigationPosition.y;
 
   const projectCarpetPosition = (
     origin: NavigationLocation,
@@ -318,14 +317,19 @@ export const createV2BitSystem = (
     return projected;
   };
 
-  const spawnSampler = createStageSpawnSampler(
-    spawnVolumes[0],
+  const spawnSampler = createStageBoundarySpawnSampler(
+    spatial.boundary,
     spatial.navigation,
     {
       maxAttempts: config.spawnMaxAttempts,
       projectionMaxDistance: config.spawnProjectionMaxDistance,
       random: nextRandom
-    }
+    },
+    (point) =>
+      spatial.queries.containsVolume("no_enemy_spawn", point) ||
+      spatial.queries.containsVolume("no_enemy_enter", point) ||
+      spatial.queries.containsVolume("hazard", point) ||
+      spatial.queries.containsVolume("water", point)
   );
   const materials = createSharedMaterials(scene);
   const bits: RuntimeBit[] = [];
@@ -361,6 +365,7 @@ export const createV2BitSystem = (
         ...visual,
         navigationAgent,
         navigationLocation,
+        groundOffsetY: resolveGroundOffsetY(navigationLocation.position),
         flightHeight,
         bobPhase: nextRandom() * Math.PI * 2,
         mode,
@@ -374,7 +379,11 @@ export const createV2BitSystem = (
         carpetOffset: 0
       };
       bit.root.position.copyFrom(
-        buildFlightPosition(navigationLocation.position, flightHeight)
+        buildFlightPosition(
+          navigationLocation.position,
+          flightHeight,
+          bit.groundOffsetY
+        )
       );
       bit.root.lookAt(bit.root.position.add(initialDirection));
       bits.push(bit);
@@ -564,7 +573,8 @@ export const createV2BitSystem = (
     bit.root.position.copyFrom(
       buildFlightPosition(
         bit.navigationLocation.position,
-        bit.flightHeight + bob
+        bit.flightHeight + bob,
+        bit.groundOffsetY
       )
     );
   };
@@ -575,9 +585,14 @@ export const createV2BitSystem = (
     elapsedSeconds: number
   ) => {
     const bob = Math.sin(elapsedSeconds * 0.9 + bit.bobPhase) * BOB_AMPLITUDE;
+    const nextGroundOffsetY =
+      nextLocation.polygonRef === bit.navigationLocation.polygonRef
+        ? bit.groundOffsetY
+        : resolveGroundOffsetY(nextLocation.position);
     const nextRootPosition = buildFlightPosition(
       nextLocation.position,
-      bit.flightHeight + bob
+      bit.flightHeight + bob,
+      nextGroundOffsetY
     );
     if (
       spatial.queries.castMovementSegment(
@@ -590,6 +605,7 @@ export const createV2BitSystem = (
       return false;
     }
     bit.navigationLocation = nextLocation;
+    bit.groundOffsetY = nextGroundOffsetY;
     bit.root.position.copyFrom(nextRootPosition);
     return true;
   };
@@ -712,7 +728,11 @@ export const createV2BitSystem = (
       followerLocations.push(projectedPosition);
     }
     const proposedRoots = followerLocations.map((location) =>
-      buildFlightPosition(location.position, leader.flightHeight)
+      buildFlightPosition(
+        location.position,
+        leader.flightHeight,
+        resolveGroundOffsetY(location.position)
+      )
     );
     if (
       proposedRoots.some(
@@ -790,12 +810,19 @@ export const createV2BitSystem = (
         candidate.mode === "carpet-follower" &&
         candidate.carpetLeaderId === leader.id
     );
+    const leaderGroundOffsetY =
+      projectedNavigationPosition.polygonRef ===
+      leader.navigationLocation.polygonRef
+        ? leader.groundOffsetY
+        : resolveGroundOffsetY(projectedNavigationPosition.position);
     const proposedRoot = buildFlightPosition(
       projectedNavigationPosition.position,
-      leader.flightHeight
+      leader.flightHeight,
+      leaderGroundOffsetY
     );
     const followerNavigationDestinations: NavigationLocation[] = [];
     const followerRootDestinations: Vector3[] = [];
+    const followerGroundOffsetsY: number[] = [];
     for (const follower of followers) {
       const desiredPosition = projectedNavigationPosition.position.add(
         right.scale(follower.carpetOffset)
@@ -810,8 +837,17 @@ export const createV2BitSystem = (
         return;
       }
       followerNavigationDestinations.push(projectedPosition);
+      const followerGroundOffsetY =
+        projectedPosition.polygonRef === follower.navigationLocation.polygonRef
+          ? follower.groundOffsetY
+          : resolveGroundOffsetY(projectedPosition.position);
+      followerGroundOffsetsY.push(followerGroundOffsetY);
       followerRootDestinations.push(
-        buildFlightPosition(projectedPosition.position, follower.flightHeight)
+        buildFlightPosition(
+          projectedPosition.position,
+          follower.flightHeight,
+          followerGroundOffsetY
+        )
       );
     }
     const leaderBlocked =
@@ -835,11 +871,13 @@ export const createV2BitSystem = (
     }
 
     leader.navigationLocation = projectedNavigationPosition;
+    leader.groundOffsetY = leaderGroundOffsetY;
     syncRootPosition(leader, elapsedSeconds);
     pointBitAt(leader, target.aimPosition);
     for (let index = 0; index < followers.length; index += 1) {
       const follower = followers[index];
       follower.navigationLocation = followerNavigationDestinations[index];
+      follower.groundOffsetY = followerGroundOffsetsY[index];
       syncRootPosition(follower, elapsedSeconds);
       pointBitAt(follower, target.aimPosition);
     }
@@ -882,6 +920,10 @@ export const createV2BitSystem = (
       assertNonNegativeFiniteNumber("ビット更新elapsedSeconds", elapsedSeconds);
       const targetsById = new Map(
         targets.map((target) => [target.id, target] as const)
+      );
+      const targetSpatialIndex = createV2HumanTargetSpatialIndex(
+        targets,
+        VISION_RANGE
       );
 
       for (const alert of externalAlerts) {
@@ -946,7 +988,10 @@ export const createV2BitSystem = (
         }
 
         if (!target) {
-          const visibleTarget = findVisibleTarget(bit, targets);
+          const visibleTarget = findVisibleTarget(
+            bit,
+            targetSpatialIndex.query(bit.root.position, VISION_RANGE)
+          );
           if (visibleTarget) {
             setVisualTarget(bit, visibleTarget);
             target = visibleTarget;

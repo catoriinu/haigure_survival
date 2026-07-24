@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 3Dステージランタイム仕様書
 
-更新日: 2026-07-19
+更新日: 2026-07-20
 対象バージョン: v2
 
 ## 1. 文書の位置付け
@@ -198,9 +198,14 @@ export interface NavigationWorld {
 - 同じ水平位置に上下の床が重なる場合は、現在の`polygonRef`から到達可能な面を使う。X/Z距離だけで最寄りの別階へ再投影しない。
 - 経路なし、投影不能は`null`とし、標的への直進へ切り替えない。
 - `surface` stepは通常床、段差、階段ランプ、踊り場を通るNavMesh上の3D点列、`transition` stepは`LNK_*`の固定接続を表す。両者を単一の点列へ潰さない。
+- `StageLinkPair.endpointA/B.position`は作者がGLBへ配置した実飛行座標を保持する。`NavigationTransitionStep.entry/exit`は、その端点からNavMeshへ接続した面上の座標を保持し、両者を同じ座標として扱わない。
+- `LNK_*`端点の接続面は、`hs_link_radius_m × worldScale`の水平半径内を端点からNavMesh下端まで検索する。端点以下の候補だけを残し、垂直差、水平差、polygon参照の順に昇順で選ぶ。通常の`projectPoint()`が使う上下探索範囲は変更しない。
 - 通常扉、段差、階段ランプ、踊り場は連続NavMeshとして表す。
 - 梯子、昇降機、テレポート、指定されたビット通過窓、ビット屋上接近など連続面で表せない接続だけを`LNK_*`グラフで補う。
 - `findPath()`は`moverKind`が利用できるlinkだけを経路候補にする。`bit_window`と`bit_roof`はビット専用かつ双方向必須であり、プレイヤーとNPCの経路へ含めない。
+- `findPath()`は最初に始点から終点への通常`surface`経路を1回だけ探索する。playerとNPCはその結果だけを返し、特殊接続グラフへ入らない。bitも通常経路が成立した場合はその結果を返し、通常経路が成立しない場合だけA*で利用可能な特殊接続を探索する。
+- 特殊接続A*の端点間`surface`経路は、探索で必要になった時点で初めて計算する。キャッシュキーは順不同の端点index pairとし、`path`または`null`を保持する。逆方向は同じ経路点を反転して再利用し、起動時の全端点間探索、LRU、遷移数上限、直線フォールバックは設けない。
+- `transition.distance`は`entry→作者端点from + 作者端点from→作者端点to + 作者端点to→exit`の3区間合計とする。
 - 経路追従は`transition`入口へ到達した時点で`transition-required`を返す。T04は特殊接続を瞬間移動で消化せず、窓通過と屋上接近の実飛行をT05-1へ引き渡す。
 - NPCとビットは共通経路APIを使う。ビットはNavMesh上の物理床高へ飛行相対高度を加える。
 
@@ -216,10 +221,10 @@ export interface NavigationWorld {
 4. 代表経路の3D点列と距離を記録する。
 5. `exportNavMesh()`の結果を`.navmesh.bin`へ保存する。
 6. `importNavMesh()`で新規`NavMesh`へ復元し、新規`NavMeshQuery`の代表経路が一致することを確認する。
-7. 同じGLBの各`LNK_*`端点が`hs_link_radius_m`以内の正しい高さのNavMesh面へ投影でき、`bit_window`と`bit_roof`が双方向であることを確認する。
+7. 同じGLBの各`LNK_*`端点が水平`hs_link_radius_m × worldScale`以内かつ端点以下の正しいNavMesh面へ投影でき、`bit_window`と`bit_roof`が双方向であることを確認する。
 8. GLB SHA-256、NavMesh SHA-256、Recast版、プロファイルID、生成時間、容量を記録する。
 
-本編はバイナリ読込、`importNavMesh()`、`NavMeshQuery`構築に加え、GLB由来の`StageLinkRegistry`を経路グラフへ接続する。`LNK_*`をNavMeshバイナリへ焼き込まない。GLBまたはベイク条件を変更した場合はNavMeshを必ず再生成し、GLBとNavMeshの組を再監査する。B03-1の窓配置確認用GLBは、旧NavMeshへ投影できない`.blend`内の`bit_roof`を一時的に出力しない。開放窓確定後の最終GLB、`bit_window`、`bit_roof`、NavMesh投影はT04-2Bで同時に統合し、配置確認用GLBを完成Runtime契約として扱わない。
+本編はバイナリ読込、`importNavMesh()`、`NavMeshQuery`構築に加え、GLB由来の`StageLinkRegistry`を経路グラフへ接続する。`LNK_*`をNavMeshバイナリへ焼き込まない。GLBまたはベイク条件を変更した場合はNavMeshを必ず再生成し、GLBとNavMeshの組を再監査する。B03-2統合後の最終GLB、`bit_window` 58組、`bit_roof` 2組、120端点のNavMesh投影はT04-2Bで同時に確定済みである。
 
 ## 8. マーカー
 
@@ -246,7 +251,7 @@ NPCとビットのランダム出現は多数の点を列挙せず、対応す�
 - `no_enemy_enter`
 - `no_combat`
 - `hazard`
-- `water`: 水中判定に用いる閉じた3D領域。B03-1で学校GLB、`StageVolumeRole`、GLB読込までを追加し、水中ゲーム処理との接続はT04-2Bで行う。
+- `water`: 水中判定に用いる閉じた3D領域。T04-2Bで学校GLBからの読込、内外問い合わせ、プール底へのNavMesh到達、破棄・再読込までを確認済みである。水中水平速度50%と通常速度への復帰はT06で実装する。
 
 `BND_Stage`はプレイ可能な3D空間を定義する。範囲外時の再配置先は`MRK_PlayerSpawn_*`または最後に確認したNavMesh上の安全点とする。AABBだけで凹形状や上下階を判定しない。
 
@@ -300,10 +305,10 @@ T04は高さ付き経路と特殊接続の選択までを共通基盤として�
 
 学校GLBへ必要な`MRK_*`または`VOL_*`がないシステムは、対応資産が追加されるまで明示的に無効化する。セル互換、既定座標、全面床、AABB代用を追加しない。
 
-- T04は`StageMoverKind`、`NavigationLocation.polygonRef`、`surface`／`transition`経路、`StageSpatialContext.links`、移動者別`castMovementSegment()`、`transition-required`までの共通基盤を担当する。
+- T04は`StageMoverKind`、`NavigationLocation.polygonRef`、`surface`／`transition`経路、`StageSpatialContext.links`、移動者別`castMovementSegment()`、`transition-required`、水Volumeの読込・問い合わせ・NavMesh到達までの共通基盤を担当する。
 - T05-1は11.1節のビット高度、天井・衝突安全、窓通過、屋上接近・帰還の実飛行を担当する。
 - T05-2は既存の戦闘モード、射程維持、通常・固定・トラップ・動的を含む全光線、警報、標的状態遷移を3D空間へ統合する。
-- T06はB03最終学校資産を使い、プレイヤー、NPC、ビット、全階、屋上、全光線、ゲーム進行を通した統合確認を行う。
+- T06はB03最終学校資産を使い、プレイヤー、NPC、ビット、全階、屋上、全光線、ゲーム進行、水中水平速度50%と通常速度への復帰を通した統合確認を行う。
 
 ## 13. ライフサイクル
 
@@ -318,7 +323,7 @@ T04は高さ付き経路と特殊接続の選択までを共通基盤として�
 - V2モジュールにステージJSON、`GridLayout`、`FloorCell`、`worldToCell`、`cellToWorld`、セルBFS参照がない。
 - `StageSpatialContext.links`がGLB内の完全な`LNK_*` pairだけを公開し、`bit_window`と`bit_roof`を`PRT_*`へ重複登録しない。
 - 同じX/Zに重なる上下床の`NavigationLocation`が異なる`polygonRef`を保持し、現在地・目的地・移動結果が別階へ誤投影されない。
-- 学校の主玄関、教室扉、3階段、1～4階、校庭、渡り廊下、体育館、屋上が、連続NavMeshと承認済み特殊接続の組で意図どおり接続される。
+- 学校の主玄関、教室扉、校庭、渡り廊下、体育館、北西階段の1階～屋上、北東・南西階段の1階～4階が連続NavMeshで接続される。北東・南西から屋上へは接続せず、屋上移動は北西階段を使う。承認済み特殊接続は通常NavMeshが成立しない場合だけ補助する。
 - 壁を挟んだ`surface`経路が扉へ迂回し、閉鎖地点と窓開口を通常経路として通らない。階段経路の各点は正しい床高と`polygonRef`を持つ。
 - `bit_window`と`bit_roof`はビットのA→B・B→A経路だけに`transition`として現れ、プレイヤーとNPCの経路には現れない。特殊接続入口では実移動せず`transition-required`を返す。
 - `COL_ActorOnly_Window_*`と`COL_ActorOnly_WindowFixed_*`はプレイヤー・NPC・ビットを止め、`COL_HumanOnly_Window_*`はプレイヤー・NPCだけを止める。いずれも視線と全光線を透過する。

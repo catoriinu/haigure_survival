@@ -45,6 +45,11 @@ VIEWS = (
     ("27_4f_ordinary_room03_full_open", (-35.0, 27.5, 12.5), (-12.6, 27.5, 12.5), 60.0),
     ("28_3f_ordinary_room03_closed", (-35.0, 27.5, 8.9), (-12.6, 27.5, 8.9), 60.0),
     ("29_2f_student_council_closed", (9.9, 68.0, 5.3), (9.9, 45.5, 5.3), 60.0),
+    ("30_northeast_stairs", (35.0, 29.0, 12.5), (43.2, 40.8, 6.2), 40.0),
+    ("31_southwest_stairs", (5.0, 9.5, 12.5), (-5.4, 0.8, 6.2), 40.0),
+    ("32_gym_interior_readability", (45.4, 18.0, 5.8), (45.4, -5.5, 1.6), 34.0),
+    ("33_main_gate_block_wall", (22.4, -23.5, 3.0), (22.4, -12.5, 0.75), 45.0),
+    ("34_utility_gate_block_wall", (74.4, 47.5, 3.0), (63.4, 47.5, 0.75), 45.0),
 )
 
 SCHOOL_FULL_PREFIXES = (
@@ -75,7 +80,8 @@ VIEW_SHOW_PREFIXES = {
     "03_upper_corridor": (
         "VIS_B03_Floor_F02",
         "VIS_B03_InteriorWalls_F02",
-        "VIS_B03_FloorAccent_F02",
+        "VIS_B03_StoreyBand_F02",
+        "VIS_B03_StoreyTrim_F02",
         "VIS_B03_DoorLeaves_F02",
         "VIS_WindowFrame_F02_",
         "VIS_WindowGlass_F02_",
@@ -153,6 +159,51 @@ VIEW_SHOW_PREFIXES = {
     "27_4f_ordinary_room03_full_open": SCHOOL_FULL_PREFIXES,
     "28_3f_ordinary_room03_closed": SCHOOL_FULL_PREFIXES,
     "29_2f_student_council_closed": SCHOOL_FULL_PREFIXES,
+    "30_northeast_stairs": (
+        "VIS_Stairs_NE",
+        "VIS_StairsUpper_NE",
+        "VIS_StairLanding_NE",
+        "VIS_StairSystem_NE_",
+        "VIS_StairGuard_NE_",
+        "VIS_StairGuardSystem_NE_",
+        "VIS_B03_StairNosing",
+        "VIS_B03_HandrailTops",
+        "VIS_B03_Floor_F01",
+    ),
+    "31_southwest_stairs": (
+        "VIS_Stairs_SW",
+        "VIS_StairsUpper_SW",
+        "VIS_StairLanding_SW",
+        "VIS_StairSystem_SW_",
+        "VIS_StairGuard_SW_",
+        "VIS_StairGuardSystem_SW_",
+        "VIS_B03_StairNosing",
+        "VIS_B03_HandrailTops",
+        "VIS_B03_Floor_F01",
+    ),
+    "32_gym_interior_readability": (
+        "VIS_Floor_Gym",
+        "VIS_GymStage",
+        "VIS_B03_GymExteriorWalls",
+        "VIS_B03_GymWainscot",
+        "VIS_B03_GymTrim",
+        "VIS_B03_Interior_Gym_",
+    ),
+    "33_main_gate_block_wall": (
+        "VIS_Gate_MainClosed",
+        "VIS_Perimeter_SouthEast",
+        "VIS_Perimeter_SouthWest",
+        "VIS_B03_PerimeterBlockJoints",
+        "VIS_SiteGround",
+    ),
+    "34_utility_gate_block_wall": (
+        "VIS_Gate_UtilityClosed",
+        "VIS_Perimeter_East",
+        "VIS_Perimeter_EastNorth",
+        "VIS_Perimeter_NorthEast",
+        "VIS_B03_PerimeterBlockJoints",
+        "VIS_SiteGround",
+    ),
 }
 
 

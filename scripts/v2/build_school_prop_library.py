@@ -75,6 +75,9 @@ FLOOR_ORIGIN_VISUALS = frozenset(
     }
 )
 WALL_ORIGIN_VISUALS = frozenset(VISUAL_NAMES) - FLOOR_ORIGIN_VISUALS
+BOOKSHELF_BOOK_SPINE_COUNT = 28
+BOOKSHELF_COMPONENT_COUNT = 36
+BOOKSHELF_TRIANGLE_COUNT = 432
 
 EXPECTED_VISUAL_DIMENSIONS = {
     "VIS_Prop_ClassroomDesk": (0.65, 0.45, 0.70),
@@ -220,6 +223,29 @@ def add_box(
     return obj
 
 
+def add_front_quad(
+    size: tuple[float, float],
+    center: tuple[float, float, float],
+    material: bpy.types.Material,
+) -> bpy.types.Object:
+    half_width = size[0] / 2.0
+    half_height = size[1] / 2.0
+    center_x, center_y, center_z = center
+    vertices = (
+        (center_x - half_width, center_y, center_z - half_height),
+        (center_x + half_width, center_y, center_z - half_height),
+        (center_x + half_width, center_y, center_z + half_height),
+        (center_x - half_width, center_y, center_z + half_height),
+    )
+    mesh = bpy.data.meshes.new("TemporaryFrontQuad")
+    mesh.from_pydata(vertices, [], ((0, 1, 2, 3),))
+    mesh.update()
+    obj = bpy.data.objects.new("TemporaryFrontQuad", mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    assign_material(obj, material)
+    return obj
+
+
 def add_cylinder(
     radius: float,
     depth: float,
@@ -305,6 +331,44 @@ def add_extruded_polygon(
     return obj
 
 
+def add_rectangular_frustum(
+    bottom_size: tuple[float, float],
+    top_size: tuple[float, float],
+    z_min: float,
+    z_max: float,
+    material: bpy.types.Material,
+) -> bpy.types.Object:
+    bottom_x = bottom_size[0] / 2.0
+    bottom_y = bottom_size[1] / 2.0
+    top_x = top_size[0] / 2.0
+    top_y = top_size[1] / 2.0
+    vertices = [
+        (-bottom_x, -bottom_y, z_min),
+        (bottom_x, -bottom_y, z_min),
+        (bottom_x, bottom_y, z_min),
+        (-bottom_x, bottom_y, z_min),
+        (-top_x, -top_y, z_max),
+        (top_x, -top_y, z_max),
+        (top_x, top_y, z_max),
+        (-top_x, top_y, z_max),
+    ]
+    faces = [
+        (3, 2, 1, 0),
+        (4, 5, 6, 7),
+        (0, 1, 5, 4),
+        (1, 2, 6, 5),
+        (2, 3, 7, 6),
+        (3, 0, 4, 7),
+    ]
+    mesh = bpy.data.meshes.new("TemporaryFrustum")
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new("TemporaryFrustum", mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    assign_material(obj, material)
+    return obj
+
+
 def set_origin_without_moving_geometry(
     obj: bpy.types.Object, world_origin: tuple[float, float, float]
 ) -> None:
@@ -324,6 +388,67 @@ def smart_uv(obj: bpy.types.Object) -> None:
     bpy.ops.uv.smart_project(angle_limit=math.radians(66.0), island_margin=0.02)
     bpy.ops.object.mode_set(mode="OBJECT")
     obj.select_set(False)
+
+
+def triangulate_mesh(obj: bpy.types.Object) -> None:
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.quads_convert_to_tris(quad_method="FIXED", ngon_method="CLIP")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    obj.select_set(False)
+
+
+def canonicalize_triangle_mesh(obj: bpy.types.Object) -> None:
+    source_mesh = obj.data
+    face_records = []
+    material_names = [
+        material.name for material in source_mesh.materials if material is not None
+    ]
+    source_material_indices = {
+        material_name: index for index, material_name in enumerate(material_names)
+    }
+    for polygon in source_mesh.polygons:
+        corners = tuple(
+            tuple(float(value) for value in source_mesh.vertices[index].co)
+            for index in polygon.vertices
+        )
+        first_corner = min(range(len(corners)), key=corners.__getitem__)
+        rotated_corners = corners[first_corner:] + corners[:first_corner]
+        material = source_mesh.materials[polygon.material_index]
+        face_records.append((material.name, polygon.use_smooth, rotated_corners))
+
+    face_records.sort(
+        key=lambda record: (source_material_indices[record[0]], record[2])
+    )
+    coordinates = sorted(
+        {corner for _, _, corners in face_records for corner in corners}
+    )
+    vertex_indices = {coordinate: index for index, coordinate in enumerate(coordinates)}
+    mesh = bpy.data.meshes.new(f"{source_mesh.name}__canonical")
+    mesh.from_pydata(
+        coordinates,
+        [],
+        [
+            tuple(vertex_indices[corner] for corner in corners)
+            for _, _, corners in face_records
+        ],
+    )
+    mesh.update()
+    for material_name in material_names:
+        mesh.materials.append(bpy.data.materials[material_name])
+    material_indices = {
+        material.name: index for index, material in enumerate(mesh.materials)
+    }
+    for polygon, (material_name, use_smooth, _) in zip(mesh.polygons, face_records):
+        polygon.material_index = material_indices[material_name]
+        polygon.use_smooth = use_smooth
+
+    obj.data = mesh
+    bpy.data.meshes.remove(source_mesh)
+    mesh.name = obj.name
 
 
 def join_asset(
@@ -347,7 +472,13 @@ def join_asset(
     set_origin_without_moving_geometry(obj, (0.0, 0.0, 0.0))
     obj.name = name
     obj.data.name = name
-    smart_uv(obj)
+    if name in {"VIS_Prop_Urinal", "VIS_Prop_WesternToilet"}:
+        while obj.data.uv_layers:
+            obj.data.uv_layers.remove(obj.data.uv_layers[0])
+        triangulate_mesh(obj)
+        canonicalize_triangle_mesh(obj)
+    else:
+        smart_uv(obj)
     obj.location = location
     obj.rotation_euler = (0.0, 0.0, 0.0)
     obj.scale = (1.0, 1.0, 1.0)
@@ -377,9 +508,9 @@ def build_classroom_chair(materials: dict[str, bpy.types.Material]) -> list[bpy.
             parts.append(add_box((0.03, 0.03, 0.4125), (x, y, 0.20625), materials["metal_gray"]))
     parts.extend(
         [
-            add_box((0.03, 0.03, 0.35), (-0.175, 0.20, 0.605), materials["metal_gray"]),
-            add_box((0.03, 0.03, 0.35), (0.175, 0.20, 0.605), materials["metal_gray"]),
-            add_box((0.42, 0.035, 0.24), (0.0, 0.2075, 0.66), materials["wood"]),
+            add_box((0.03, 0.03, 0.34), (-0.175, 0.20, 0.60), materials["metal_gray"]),
+            add_box((0.03, 0.03, 0.34), (0.175, 0.20, 0.60), materials["metal_gray"]),
+            add_box((0.42, 0.06, 0.26), (0.0, 0.195, 0.65), materials["wood"]),
         ]
     )
     return parts
@@ -469,14 +600,20 @@ def build_large_table(materials: dict[str, bpy.types.Material]) -> list[bpy.type
 
 def build_cleaning_locker(materials: dict[str, bpy.types.Material]) -> list[bpy.types.Object]:
     parts = [
-        add_box((0.90, 0.45, 1.80), (0.0, 0.0, 0.90), materials["metal_gray"]),
-        add_box((0.02, 0.018, 1.68), (0.0, -0.216, 0.90), materials["metal_dark"]),
-        add_box((0.02, 0.04, 0.12), (-0.08, -0.205, 0.93), materials["metal_dark"]),
-        add_box((0.02, 0.04, 0.12), (0.08, -0.205, 0.93), materials["metal_dark"]),
+        add_box((0.90, 0.448, 1.80), (0.0, 0.001, 0.90), materials["metal_gray"]),
+        add_front_quad((0.02, 1.68), (0.0, -0.225, 0.90), materials["metal_dark"]),
+        add_front_quad((0.02, 0.12), (-0.08, -0.225, 0.93), materials["metal_dark"]),
+        add_front_quad((0.02, 0.12), (0.08, -0.225, 0.93), materials["metal_dark"]),
     ]
     for x in (-0.23, 0.23):
         for z in (1.55, 1.61, 1.67):
-            parts.append(add_box((0.22, 0.018, 0.018), (x, -0.216, z), materials["metal_dark"]))
+            parts.append(
+                add_front_quad(
+                    (0.22, 0.018),
+                    (x, -0.225, z),
+                    materials["metal_dark"],
+                )
+            )
     return parts
 
 
@@ -535,8 +672,8 @@ def build_infirmary_bed(materials: dict[str, bpy.types.Material]) -> list[bpy.ty
 
 def build_pc_monitor(materials: dict[str, bpy.types.Material]) -> list[bpy.types.Object]:
     return [
-        add_box((0.55, 0.06, 0.32), (0.0, 0.03, 0.29), materials["plastic"]),
-        add_box((0.49, 0.012, 0.265), (0.0, 0.006, 0.29), materials["metal_dark"]),
+        add_box((0.55, 0.058, 0.32), (0.0, 0.031, 0.29), materials["plastic"]),
+        add_front_quad((0.49, 0.265), (0.0, 0.0, 0.29), materials["metal_dark"]),
         add_box((0.05, 0.08, 0.18), (0.0, 0.08, 0.13), materials["metal_gray"]),
         add_box((0.30, 0.18, 0.035), (0.0, 0.09, 0.0175), materials["plastic"]),
     ]
@@ -553,13 +690,16 @@ def build_basketball_goal(materials: dict[str, bpy.types.Material]) -> list[bpy.
 
 
 def build_vaulting_box(materials: dict[str, bpy.types.Material]) -> list[bpy.types.Object]:
-    parts: list[bpy.types.Object] = []
-    for level in range(5):
-        width = 1.20 - level * 0.08
-        depth = 0.60 - level * 0.035
-        material = materials["fabric"] if level == 4 else materials["wood"]
-        parts.append(add_box((width, depth, 0.20), (0.0, 0.0, 0.10 + level * 0.20), material))
-    return parts
+    return [
+        add_rectangular_frustum(
+            (1.20, 0.60),
+            (0.90, 0.42),
+            0.0,
+            0.90,
+            materials["wood"],
+        ),
+        add_box((0.92, 0.44, 0.10), (0.0, 0.0, 0.95), materials["fabric"]),
+    ]
 
 
 def build_bookshelf(materials: dict[str, bpy.types.Material]) -> list[bpy.types.Object]:
@@ -570,6 +710,27 @@ def build_bookshelf(materials: dict[str, bpy.types.Material]) -> list[bpy.types.
     ]
     for z in (0.025, 0.45, 0.90, 1.35, 1.775):
         parts.append(add_box((0.80, 0.32, 0.05), (0.0, 0.0, z), materials["wood"]))
+    book_widths = (0.085, 0.10, 0.075, 0.11, 0.09, 0.08, 0.095)
+    book_gap = 0.012
+    book_materials = ("accent", "fabric", "blackboard", "paper", "metal_dark")
+    row_width = sum(book_widths) + book_gap * (len(book_widths) - 1)
+    shelf_tops = (0.05, 0.475, 0.925, 1.375)
+    for shelf_index, shelf_top in enumerate(shelf_tops):
+        cursor = -row_width / 2.0
+        for book_index, width in enumerate(book_widths):
+            height = 0.30 + 0.02 * ((shelf_index + book_index) % 3)
+            center_x = cursor + width / 2.0
+            material_index = (
+                shelf_index * len(book_widths) + book_index
+            ) % len(book_materials)
+            parts.append(
+                add_box(
+                    (width, 0.16, height),
+                    (center_x, -0.055, shelf_top + height / 2.0),
+                    materials[book_materials[material_index]],
+                )
+            )
+            cursor += width + book_gap
     return parts
 
 
@@ -629,11 +790,12 @@ BUILDERS: dict[str, Callable[[dict[str, bpy.types.Material]], list[bpy.types.Obj
 def create_collider(
     prop_type: str,
     size: tuple[float, float, float],
+    local_center: tuple[float, float, float],
     location: tuple[float, float, float],
     collection: bpy.types.Collection,
 ) -> bpy.types.Object:
     name = f"COL_Prop_{prop_type}"
-    obj = add_box(size, (0.0, 0.0, size[2] / 2.0), None)
+    obj = add_box(size, local_center, None)
     set_origin_without_moving_geometry(obj, (0.0, 0.0, 0.0))
     obj.name = name
     obj.data.name = name
@@ -645,18 +807,43 @@ def create_collider(
     return obj
 
 
+STAGE_LECTERN_TOP_Y_HALF_EXTENT = (
+    0.275 * math.cos(math.radians(4.0))
+    + 0.035 * math.sin(math.radians(4.0))
+)
+STAGE_LECTERN_TOP_Z_HALF_EXTENT = (
+    0.275 * math.sin(math.radians(4.0))
+    + 0.035 * math.cos(math.radians(4.0))
+)
+STAGE_LECTERN_COLLIDER_HEIGHT = 1.045 + STAGE_LECTERN_TOP_Z_HALF_EXTENT
+
 COLLIDER_DIMENSIONS = {
     "ClassroomDesk": (0.65, 0.45, 0.70),
-    "StaffDesk": (1.40, 0.70, 0.72),
-    "StageLectern": (0.72, 0.50, 1.05),
+    "StaffDesk": (1.40, 0.71, 0.72),
+    "StageLectern": (
+        0.80,
+        STAGE_LECTERN_TOP_Y_HALF_EXTENT * 2.0,
+        STAGE_LECTERN_COLLIDER_HEIGHT,
+    ),
     "LargeWoodTable": (1.80, 0.90, 0.72),
     "CleaningLocker": (0.90, 0.45, 1.80),
     "BaggageLocker": (1.80, 0.45, 1.20),
-    "GrandPiano": (1.55, 1.45, 0.96),
+    "GrandPiano": (1.55, 1.45, 1.00),
     "InfirmaryBed": (2.00, 0.90, 0.55),
     "VaultingBox": (1.20, 0.60, 1.00),
     "Bookshelf": (0.90, 0.32, 1.80),
 }
+
+COLLIDER_LOCAL_CENTERS = {
+    prop_type: (0.0, 0.0, COLLIDER_DIMENSIONS[prop_type][2] / 2.0)
+    for prop_type in COLLIDER_TYPES
+}
+COLLIDER_LOCAL_CENTERS.update(
+    {
+        "StaffDesk": (0.0, -0.005, 0.36),
+        "StageLectern": (0.0, -0.010, STAGE_LECTERN_COLLIDER_HEIGHT / 2.0),
+    }
+)
 
 
 def duplicate_for_preview(
@@ -909,6 +1096,64 @@ def triangle_count(obj: bpy.types.Object) -> int:
     return sum(max(0, len(polygon.vertices) - 2) for polygon in obj.data.polygons)
 
 
+def connected_component_count(obj: bpy.types.Object) -> int:
+    adjacency = [set() for _ in obj.data.vertices]
+    for edge in obj.data.edges:
+        first, second = edge.vertices
+        adjacency[first].add(second)
+        adjacency[second].add(first)
+    remaining = set(range(len(obj.data.vertices)))
+    count = 0
+    while remaining:
+        pending = [remaining.pop()]
+        while pending:
+            vertex_index = pending.pop()
+            connected = adjacency[vertex_index] & remaining
+            remaining.difference_update(connected)
+            pending.extend(connected)
+        count += 1
+    return count
+
+
+def connected_component_bounds(
+    obj: bpy.types.Object,
+) -> list[tuple[Vector, Vector]]:
+    adjacency = [set() for _ in obj.data.vertices]
+    for edge in obj.data.edges:
+        first, second = edge.vertices
+        adjacency[first].add(second)
+        adjacency[second].add(first)
+    remaining = set(range(len(obj.data.vertices)))
+    bounds = []
+    while remaining:
+        component = {remaining.pop()}
+        pending = list(component)
+        while pending:
+            vertex_index = pending.pop()
+            connected = adjacency[vertex_index] & remaining
+            remaining.difference_update(connected)
+            component.update(connected)
+            pending.extend(connected)
+        coordinates = [obj.data.vertices[index].co for index in component]
+        bounds.append(
+            (
+                Vector(
+                    tuple(
+                        min(value[axis] for value in coordinates)
+                        for axis in range(3)
+                    )
+                ),
+                Vector(
+                    tuple(
+                        max(value[axis] for value in coordinates)
+                        for axis in range(3)
+                    )
+                ),
+            )
+        )
+    return bounds
+
+
 def local_bounds(obj: bpy.types.Object) -> tuple[Vector, Vector]:
     coordinates = [vertex.co for vertex in obj.data.vertices]
     return (
@@ -978,11 +1223,174 @@ def audit_library() -> dict[str, object]:
                 raise RuntimeError(
                     f"壁付け原点が取付面中央にありません: {obj.name}, bounds={minimum}/{maximum}"
                 )
-        triangle_limit = 1500 if obj.name == "VIS_Prop_GrandPiano" else 1000 if obj.name == "VIS_Prop_BasketballGoal" else 500
+        triangle_limit = (
+            1500
+            if obj.name == "VIS_Prop_GrandPiano"
+            else 1000
+            if obj.name == "VIS_Prop_BasketballGoal"
+            else 500
+        )
         if visual_triangles[obj.name] > triangle_limit:
             raise RuntimeError(
                 f"三角形予算超過です: {obj.name}={visual_triangles[obj.name]}/{triangle_limit}"
             )
+
+    for obj in colliders:
+        prop_type = obj.name.removeprefix("COL_Prop_")
+        assert_vector_close(
+            f"{obj.name} dimensions",
+            obj.dimensions,
+            COLLIDER_DIMENSIONS[prop_type],
+        )
+        expected_center = Vector(COLLIDER_LOCAL_CENTERS[prop_type])
+        visual_minimum, visual_maximum = local_bounds(
+            bpy.data.objects[f"VIS_Prop_{prop_type}"]
+        )
+        collider_minimum, collider_maximum = local_bounds(obj)
+        assert_vector_close(
+            f"{obj.name} bounds center",
+            (collider_minimum + collider_maximum) / 2.0,
+            expected_center,
+        )
+        if any(
+            collider_minimum[axis] > visual_minimum[axis] + 1.0e-6
+            or collider_maximum[axis] < visual_maximum[axis] - 1.0e-6
+            for axis in range(3)
+        ):
+            raise RuntimeError(
+                f"Colliderが表示形状を包含していません: {prop_type}/"
+                f"{visual_minimum}/{visual_maximum}/"
+                f"{collider_minimum}/{collider_maximum}"
+            )
+
+    for prop_type in ("Bookshelf", "BaggageLocker", "CleaningLocker"):
+        assert_vector_close(
+            f"{prop_type} VIS/COL dimensions",
+            bpy.data.objects[f"VIS_Prop_{prop_type}"].dimensions,
+            bpy.data.objects[f"COL_Prop_{prop_type}"].dimensions,
+        )
+
+    bookshelf = bpy.data.objects["VIS_Prop_Bookshelf"]
+    bookshelf_components = connected_component_count(bookshelf)
+    if bookshelf_components != BOOKSHELF_COMPONENT_COUNT:
+        raise RuntimeError(
+            "本棚の本体8部品＋背表紙28冊が揃っていません: "
+            f"{bookshelf_components}/{BOOKSHELF_COMPONENT_COUNT}"
+        )
+    if visual_triangles[bookshelf.name] != BOOKSHELF_TRIANGLE_COUNT:
+        raise RuntimeError(
+            "本棚の三角形数が造形契約と一致しません: "
+            f"{visual_triangles[bookshelf.name]}/{BOOKSHELF_TRIANGLE_COUNT}"
+        )
+
+    cleaning_locker = bpy.data.objects["VIS_Prop_CleaningLocker"]
+    cleaning_components = connected_component_bounds(cleaning_locker)
+    if len(cleaning_components) != 10:
+        raise RuntimeError(
+            "掃除ロッカーの本体＋正面ディテール9部品が揃っていません: "
+            f"{len(cleaning_components)}/10"
+        )
+    cleaning_body_index = max(
+        range(len(cleaning_components)),
+        key=lambda index: math.prod(
+            cleaning_components[index][1][axis]
+            - cleaning_components[index][0][axis]
+            for axis in range(3)
+        ),
+    )
+    cleaning_body = cleaning_components[cleaning_body_index]
+    assert_vector_close(
+        "掃除ロッカー本体minimum",
+        cleaning_body[0],
+        (-0.45, -0.223, 0.0),
+        1.0e-6,
+    )
+    assert_vector_close(
+        "掃除ロッカー本体maximum",
+        cleaning_body[1],
+        (0.45, 0.225, 1.8),
+        1.0e-6,
+    )
+    cleaning_detail_bounds = [
+        bounds
+        for index, bounds in enumerate(cleaning_components)
+        if index != cleaning_body_index
+    ]
+    if any(
+        abs(minimum.y + 0.225) > 1.0e-6
+        or abs(maximum.y + 0.225) > 1.0e-6
+        for minimum, maximum in cleaning_detail_bounds
+    ):
+        raise RuntimeError("掃除ロッカーの正面ディテールが前面quadではありません")
+    if visual_triangles[cleaning_locker.name] != 30:
+        raise RuntimeError(
+            "掃除ロッカーの三角形数が不正です: "
+            f"{visual_triangles[cleaning_locker.name]}/30"
+        )
+
+    pc_monitor = bpy.data.objects["VIS_Prop_PcMonitor"]
+    pc_monitor_components = connected_component_bounds(pc_monitor)
+    screen_bounds = [
+        bounds
+        for bounds in pc_monitor_components
+        if all(
+            abs((bounds[1][axis] - bounds[0][axis]) - expected) <= 1.0e-6
+            for axis, expected in enumerate((0.49, 0.0, 0.265))
+        )
+    ]
+    if len(screen_bounds) != 1 or any(
+        abs(screen_bounds[0][side].y) > 1.0e-6 for side in (0, 1)
+    ):
+        raise RuntimeError("PCモニター画面が筐体前面のquadではありません")
+    if visual_triangles[pc_monitor.name] != 38:
+        raise RuntimeError(
+            "PCモニターの三角形数が不正です: "
+            f"{visual_triangles[pc_monitor.name]}/38"
+        )
+
+    classroom_chair = bpy.data.objects["VIS_Prop_ClassroomChair"]
+    wood_indices = {
+        index
+        for index, material in enumerate(classroom_chair.data.materials)
+        if material.name == "MAT_Prop_Wood"
+    }
+    metal_indices = {
+        index
+        for index, material in enumerate(classroom_chair.data.materials)
+        if material.name == "MAT_Prop_MetalGray"
+    }
+    back_vertex_indices = {
+        vertex_index
+        for polygon in classroom_chair.data.polygons
+        if polygon.material_index in wood_indices
+        and max(classroom_chair.data.vertices[index].co.z for index in polygon.vertices)
+        > 0.5
+        for vertex_index in polygon.vertices
+    }
+    back_vertices = [
+        classroom_chair.data.vertices[index].co for index in back_vertex_indices
+    ]
+    chair_back_bounds = (
+        tuple(min(vertex[axis] for vertex in back_vertices) for axis in range(3)),
+        tuple(max(vertex[axis] for vertex in back_vertices) for axis in range(3)),
+    )
+    assert_vector_close(
+        "木製椅子背板minimum", chair_back_bounds[0], (-0.21, 0.165, 0.52), 1.0e-6
+    )
+    assert_vector_close(
+        "木製椅子背板maximum", chair_back_bounds[1], (0.21, 0.225, 0.78), 1.0e-6
+    )
+    metal_vertex_indices = {
+        vertex_index
+        for polygon in classroom_chair.data.polygons
+        if polygon.material_index in metal_indices
+        for vertex_index in polygon.vertices
+    }
+    metal_top = max(
+        classroom_chair.data.vertices[index].co.z for index in metal_vertex_indices
+    )
+    if abs(metal_top - 0.77) > 1.0e-6:
+        raise RuntimeError(f"木製椅子背面支柱の上端が不正です: {metal_top}")
 
     total_visual_triangles = sum(visual_triangles.values())
     total_collider_triangles = sum(collider_triangles.values())
@@ -1012,6 +1420,14 @@ def audit_library() -> dict[str, object]:
         "colliderTriangles": total_collider_triangles,
         "trianglesByVisual": visual_triangles,
         "trianglesByCollider": collider_triangles,
+        "bookshelfBookSpines": BOOKSHELF_BOOK_SPINE_COUNT,
+        "bookshelfComponents": bookshelf_components,
+        "cleaningLockerComponents": len(cleaning_components),
+        "cleaningLockerTriangles": visual_triangles[cleaning_locker.name],
+        "pcMonitorComponents": len(pc_monitor_components),
+        "pcMonitorTriangles": visual_triangles[pc_monitor.name],
+        "classroomChairBackBounds": chair_back_bounds,
+        "classroomChairMetalTop": metal_top,
         "dimensions": {
             obj.name: [round(float(value), 6) for value in obj.dimensions] for obj in visuals
         },
@@ -1050,6 +1466,7 @@ def build_library(arguments: argparse.Namespace) -> None:
         create_collider(
             prop_type,
             COLLIDER_DIMENSIONS[prop_type],
+            COLLIDER_LOCAL_CENTERS[prop_type],
             GRID_POSITIONS[visual_name],
             library,
         )

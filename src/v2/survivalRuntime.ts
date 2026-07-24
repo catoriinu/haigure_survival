@@ -24,9 +24,9 @@ import {
 } from "./npcSystem";
 import type { V2PlayerController } from "./playerController";
 
-const NPC_COUNT = 10;
-const INITIAL_BRAINWASHED_NPC_COUNT = 2;
-const BIT_COUNT = 6;
+const NPC_COUNT = 99;
+const INITIAL_BRAINWASHED_NPC_COUNT = 66;
+const BIT_COUNT = 99;
 const ALERT_DURATION_SECONDS = 15;
 
 export type V2SurvivalFrame = Readonly<{
@@ -176,11 +176,15 @@ export const createV2SurvivalRuntime = ({
     }
   };
 
-  const buildBeamActors = (playerTarget: V2HumanTargetSnapshot) =>
+  const buildBeamActors = (
+    playerTarget: V2HumanTargetSnapshot,
+    npcActors: readonly V2ActorSphere[],
+    bitActors: readonly V2ActorSphere[]
+  ) =>
     Object.freeze([
       createPlayerActorSphere(playerTarget),
-      ...npcSystem.getActorSpheres(),
-      ...bitSystem.getActorSpheres()
+      ...npcActors,
+      ...bitActors
     ]);
 
   return {
@@ -194,9 +198,10 @@ export const createV2SurvivalRuntime = ({
 
       npcSystem.applyAlerts(activeAlerts);
       npcSystem.update(deltaSeconds, playerTarget);
+      const npcTargets = npcSystem.getTargetSnapshots();
       const humanTargets = Object.freeze([
         playerTarget,
-        ...npcSystem.getTargetSnapshots()
+        ...npcTargets
       ]);
       bitSystem.update({
         deltaSeconds,
@@ -214,28 +219,36 @@ export const createV2SurvivalRuntime = ({
         beamSystem.spawn(request);
       }
 
-      beamActors = buildBeamActors(playerTarget);
+      const npcActors = npcSystem.getActorSpheres();
+      const bitActors = bitSystem.getActorSpheres();
+      beamActors = buildBeamActors(playerTarget, npcActors, bitActors);
       const beamEvents = beamSystem.update(deltaSeconds);
-      blockerImpactCount += beamEvents.impacts.filter(
-        (event) => event.hit.kind === "blocker"
-      ).length;
-      actorImpactCount += beamEvents.impacts.filter(
-        (event) => event.hit.kind === "actor"
-      ).length;
+      for (const event of beamEvents.impacts) {
+        if (event.hit.kind === "blocker") {
+          blockerImpactCount += 1;
+        } else {
+          actorImpactCount += 1;
+        }
+      }
       const npcTracking = npcSystem.getTrackingSnapshots();
       const bitTracking = bitSystem.getTargetStates();
-      const allTracking = [...npcTracking, ...bitTracking];
+      let visualTargetCount = 0;
+      let alertTargetCount = 0;
+      for (const tracking of [...npcTracking, ...bitTracking]) {
+        if (tracking.provenance === "visual") {
+          visualTargetCount += 1;
+        } else if (tracking.provenance === "alert") {
+          alertTargetCount += 1;
+        }
+      }
+      const currentAlerts = alertCoordinator.getActiveAlerts();
       frame = Object.freeze({
-        npcCount: npcSystem.getActorSpheres().length,
-        bitCount: bitSystem.getActorSpheres().length,
+        npcCount: npcActors.length,
+        bitCount: bitActors.length,
         activeBeamCount: beamSystem.activeCount,
-        activeAlertCount: alertCoordinator.getActiveAlerts().length,
-        visualTargetCount: allTracking.filter(
-          (tracking) => tracking.provenance === "visual"
-        ).length,
-        alertTargetCount: allTracking.filter(
-          (tracking) => tracking.provenance === "alert"
-        ).length,
+        activeAlertCount: currentAlerts.length,
+        visualTargetCount,
+        alertTargetCount,
         blockerImpactCount,
         actorImpactCount
       });

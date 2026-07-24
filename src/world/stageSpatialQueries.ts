@@ -54,6 +54,77 @@ export type StageSpatialQueryOptions = Readonly<{
 
 const SURFACE_DISTANCE_EPSILON = 1e-6;
 const INSIDE_SOLID_ANGLE_THRESHOLD = Math.PI * 2;
+const STATIC_MESH_SPATIAL_CELL_SIZE = 2;
+
+type StaticMeshSpatialIndex = Readonly<{
+  query(from: Vector3, to: Vector3): ReadonlySet<Mesh>;
+}>;
+
+const spatialCellKey = (x: number, y: number, z: number) => `${x}:${y}:${z}`;
+
+const createStaticMeshSpatialIndex = (
+  meshes: readonly Mesh[]
+): StaticMeshSpatialIndex => {
+  const cells = new Map<string, Mesh[]>();
+  for (const mesh of meshes) {
+    mesh.computeWorldMatrix(true);
+    const bounds = mesh.getBoundingInfo().boundingBox;
+    const minimum = bounds.minimumWorld;
+    const maximum = bounds.maximumWorld;
+    const minimumCellX = Math.floor(minimum.x / STATIC_MESH_SPATIAL_CELL_SIZE);
+    const maximumCellX = Math.floor(maximum.x / STATIC_MESH_SPATIAL_CELL_SIZE);
+    const minimumCellY = Math.floor(minimum.y / STATIC_MESH_SPATIAL_CELL_SIZE);
+    const maximumCellY = Math.floor(maximum.y / STATIC_MESH_SPATIAL_CELL_SIZE);
+    const minimumCellZ = Math.floor(minimum.z / STATIC_MESH_SPATIAL_CELL_SIZE);
+    const maximumCellZ = Math.floor(maximum.z / STATIC_MESH_SPATIAL_CELL_SIZE);
+    for (let cellX = minimumCellX; cellX <= maximumCellX; cellX += 1) {
+      for (let cellY = minimumCellY; cellY <= maximumCellY; cellY += 1) {
+        for (let cellZ = minimumCellZ; cellZ <= maximumCellZ; cellZ += 1) {
+          const key = spatialCellKey(cellX, cellY, cellZ);
+          const cell = cells.get(key) ?? [];
+          cell.push(mesh);
+          cells.set(key, cell);
+        }
+      }
+    }
+  }
+
+  return Object.freeze({
+    query: (from, to) => {
+      const minimumCellX = Math.floor(
+        Math.min(from.x, to.x) / STATIC_MESH_SPATIAL_CELL_SIZE
+      );
+      const maximumCellX = Math.floor(
+        Math.max(from.x, to.x) / STATIC_MESH_SPATIAL_CELL_SIZE
+      );
+      const minimumCellY = Math.floor(
+        Math.min(from.y, to.y) / STATIC_MESH_SPATIAL_CELL_SIZE
+      );
+      const maximumCellY = Math.floor(
+        Math.max(from.y, to.y) / STATIC_MESH_SPATIAL_CELL_SIZE
+      );
+      const minimumCellZ = Math.floor(
+        Math.min(from.z, to.z) / STATIC_MESH_SPATIAL_CELL_SIZE
+      );
+      const maximumCellZ = Math.floor(
+        Math.max(from.z, to.z) / STATIC_MESH_SPATIAL_CELL_SIZE
+      );
+      const candidates = new Set<Mesh>();
+      for (let cellX = minimumCellX; cellX <= maximumCellX; cellX += 1) {
+        for (let cellY = minimumCellY; cellY <= maximumCellY; cellY += 1) {
+          for (let cellZ = minimumCellZ; cellZ <= maximumCellZ; cellZ += 1) {
+            const cell =
+              cells.get(spatialCellKey(cellX, cellY, cellZ)) ?? [];
+            for (const mesh of cell) {
+              candidates.add(mesh);
+            }
+          }
+        }
+      }
+      return candidates;
+    }
+  });
+};
 
 const toSpatialHit = (
   pickedPoint: Vector3,
@@ -69,7 +140,7 @@ const toSpatialHit = (
 
 const castSegment = (
   scene: Scene,
-  meshSet: ReadonlySet<Mesh>,
+  spatialIndex: StaticMeshSpatialIndex,
   from: Vector3,
   to: Vector3
 ): SpatialHit | null => {
@@ -79,9 +150,10 @@ const castSegment = (
   }
 
   const direction = to.subtract(from).scaleInPlace(1 / distance);
+  const candidateSet = spatialIndex.query(from, to);
   const pick = scene.pickWithRay(
     new Ray(from, direction, distance),
-    (mesh) => mesh instanceof Mesh && meshSet.has(mesh),
+    (mesh) => mesh instanceof Mesh && candidateSet.has(mesh),
     false
   );
   if (!pick?.hit || !(pick.pickedMesh instanceof Mesh) || !pick.pickedPoint) {
@@ -177,15 +249,19 @@ export const createStageSpatialQueries = (
   scene: Scene,
   options: StageSpatialQueryOptions
 ): StageSpatialQueries => {
-  const movementColliderSets: Readonly<Record<StageMoverKind, ReadonlySet<Mesh>>> =
+  const movementColliderIndices: Readonly<
+    Record<StageMoverKind, StaticMeshSpatialIndex>
+  > =
     Object.freeze({
-      player: new Set(options.movementColliders.player),
-      npc: new Set(options.movementColliders.npc),
-      bit: new Set(options.movementColliders.bit)
+      player: createStaticMeshSpatialIndex(options.movementColliders.player),
+      npc: createStaticMeshSpatialIndex(options.movementColliders.npc),
+      bit: createStaticMeshSpatialIndex(options.movementColliders.bit)
     });
-  const groundColliderSet = new Set(options.groundColliders);
-  const beamBlockerSet = new Set(options.beamBlockers);
-  const sightBlockerSet = new Set(options.sightBlockers);
+  const groundColliderIndex = createStaticMeshSpatialIndex(
+    options.groundColliders
+  );
+  const beamBlockerIndex = createStaticMeshSpatialIndex(options.beamBlockers);
+  const sightBlockerIndex = createStaticMeshSpatialIndex(options.sightBlockers);
   const volumesByRole = new Map<StageVolumeRole, StageVolume[]>(
     STAGE_VOLUME_ROLES.map((role) => [role, []])
   );
@@ -197,13 +273,17 @@ export const createStageSpatialQueries = (
 
   return {
     castMovementSegment: (moverKind, from, to) =>
-      castSegment(scene, movementColliderSets[moverKind], from, to),
-    castBeamSegment: (from, to) => castSegment(scene, beamBlockerSet, from, to),
-    castSightSegment: (from, to) => castSegment(scene, sightBlockerSet, from, to),
+      castSegment(scene, movementColliderIndices[moverKind], from, to),
+    castBeamSegment: (from, to) =>
+      castSegment(scene, beamBlockerIndex, from, to),
+    castSightSegment: (from, to) =>
+      castSegment(scene, sightBlockerIndex, from, to),
     sampleGround: (origin, maxDistance) => {
+      const groundEnd = origin.add(Vector3.Down().scale(maxDistance));
+      const candidateSet = groundColliderIndex.query(origin, groundEnd);
       const picks = scene.multiPickWithRay(
         new Ray(origin, Vector3.Down(), maxDistance),
-        (mesh) => mesh instanceof Mesh && groundColliderSet.has(mesh)
+        (mesh) => mesh instanceof Mesh && candidateSet.has(mesh)
       );
       if (!picks) {
         return null;

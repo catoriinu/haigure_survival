@@ -15,6 +15,7 @@ import type { V2ActorSphere, V2BeamRequest } from "./combatTypes";
 const SEGMENT_LENGTH_EPSILON = 1e-8;
 const SURFACE_DISTANCE_EPSILON = 1e-6;
 const HIT_DISTANCE_EPSILON = 1e-6;
+const ACTOR_SPATIAL_CELL_SIZE = 1;
 const CONTAINMENT_RAY_DIRECTION = new Vector3(
   0.7385489459,
   0.4615930912,
@@ -347,6 +348,68 @@ const validateActorIds = (actors: readonly V2ActorSphere[]): void => {
   }
 };
 
+type ActorSpatialIndex = Readonly<{
+  query(from: Vector3, to: Vector3, sourceId: string): readonly V2ActorSphere[];
+}>;
+
+const actorCellKey = (x: number, y: number, z: number) => `${x}:${y}:${z}`;
+
+const createActorSpatialIndex = (
+  actors: readonly V2ActorSphere[]
+): ActorSpatialIndex => {
+  const cells = new Map<string, number[]>();
+  let maximumRadius = 0;
+  actors.forEach((actor, index) => {
+    maximumRadius = Math.max(maximumRadius, actor.radius);
+    const cellX = Math.floor(actor.center.x / ACTOR_SPATIAL_CELL_SIZE);
+    const cellY = Math.floor(actor.center.y / ACTOR_SPATIAL_CELL_SIZE);
+    const cellZ = Math.floor(actor.center.z / ACTOR_SPATIAL_CELL_SIZE);
+    const key = actorCellKey(cellX, cellY, cellZ);
+    const indices = cells.get(key) ?? [];
+    indices.push(index);
+    cells.set(key, indices);
+  });
+
+  return Object.freeze({
+    query: (from, to, sourceId) => {
+      const minimumCellX = Math.floor(
+        (Math.min(from.x, to.x) - maximumRadius) / ACTOR_SPATIAL_CELL_SIZE
+      );
+      const maximumCellX = Math.floor(
+        (Math.max(from.x, to.x) + maximumRadius) / ACTOR_SPATIAL_CELL_SIZE
+      );
+      const minimumCellY = Math.floor(
+        (Math.min(from.y, to.y) - maximumRadius) / ACTOR_SPATIAL_CELL_SIZE
+      );
+      const maximumCellY = Math.floor(
+        (Math.max(from.y, to.y) + maximumRadius) / ACTOR_SPATIAL_CELL_SIZE
+      );
+      const minimumCellZ = Math.floor(
+        (Math.min(from.z, to.z) - maximumRadius) / ACTOR_SPATIAL_CELL_SIZE
+      );
+      const maximumCellZ = Math.floor(
+        (Math.max(from.z, to.z) + maximumRadius) / ACTOR_SPATIAL_CELL_SIZE
+      );
+      const candidateIndices: number[] = [];
+      for (let cellX = minimumCellX; cellX <= maximumCellX; cellX += 1) {
+        for (let cellY = minimumCellY; cellY <= maximumCellY; cellY += 1) {
+          for (let cellZ = minimumCellZ; cellZ <= maximumCellZ; cellZ += 1) {
+            candidateIndices.push(
+              ...(cells.get(actorCellKey(cellX, cellY, cellZ)) ?? [])
+            );
+          }
+        }
+      }
+      candidateIndices.sort((left, right) => left - right);
+      return Object.freeze(
+        candidateIndices.flatMap((index) =>
+          actors[index].id === sourceId ? [] : [actors[index]]
+        )
+      );
+    }
+  });
+};
+
 /**
  * 前フレーム位置から新位置までを連続判定し、最初の壁または標的だけを返す。
  * 同距離では壁を優先し、壁面上の標的へビームが抜けることを防ぐ。
@@ -538,6 +601,7 @@ export const createV2BeamSystem = (
 
       const allActors = config.getActorSpheres();
       validateActorIds(allActors);
+      const actorSpatialIndex = createActorSpatialIndex(allActors);
       const impacts: V2BeamImpactEvent[] = [];
       const expirations: V2BeamExpirationEvent[] = [];
 
@@ -550,8 +614,10 @@ export const createV2BeamSystem = (
         const nextPosition = previousPosition.add(
           beam.velocity.scale(travelSeconds)
         );
-        const targetActors = allActors.filter(
-          (actor) => actor.id !== beam.sourceId
+        const targetActors = actorSpatialIndex.query(
+          previousPosition,
+          nextPosition,
+          beam.sourceId
         );
         const hit = castV2BeamSegment(
           config.stage,

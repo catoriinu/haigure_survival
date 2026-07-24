@@ -5,7 +5,6 @@ import json
 import math
 import re
 import sys
-from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,8 +20,18 @@ if str(SCRIPT_DIRECTORY) not in sys.path:
 
 from optimize_b03_school_glb import optimize_glb
 from build_b03_school_interiors import (
+    FIRST_FLOOR_WEST_DOOR_OPENINGS,
+    NORTH_CLASSROOM_DOOR_OPENINGS,
+    TOILET_COMMON_OPENING,
+    TOILET_FRONT_DOOR_HEIGHT,
+    TOILET_FRONT_DOOR_OPENINGS,
+    TOILET_FRONT_WALL_DEPTH,
+    TOILET_FRONT_WALL_SPANS,
+    TOILET_FRONT_WALL_Y,
+    UPPER_WEST_CLASSROOM_DOOR_OPENINGS,
     build_school_interiors,
     consolidate_school_materials,
+    swatch_uv,
 )
 
 
@@ -49,9 +58,122 @@ WINDOW_FRAME_BORDER = 0.05
 WINDOW_MEETING_STILE_WIDTH = 0.06
 WALL_THICKNESS = 0.30
 LINK_RADIUS_METERS = 0.54
-GENERATOR_VERSION = "b03-2-interiors-v05-staffroom-placement"
+GENERATOR_VERSION = "t04-2b-asset-refactor-v01"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
+T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
+T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v09"
+
+GATE_VISUAL_SPECS = (
+    ("VIS_Gate_MainClosed", "X", 19.4, 25.4, -12.5),
+    ("VIS_Gate_UtilityClosed", "Y", 44.5, 50.5, 63.4),
+)
+PERIMETER_WALL_SPECS = (
+    ("VIS_Perimeter_East", "Y", -12.5, 44.5, 63.2, 63.6),
+    ("VIS_Perimeter_EastNorth", "Y", 50.5, 51.5, 63.2, 63.6),
+    ("VIS_Perimeter_NorthEast", "X", 22.4, 63.4, 51.3, 51.7),
+    ("VIS_Perimeter_NorthWest", "X", -18.6, 22.4, 51.3, 51.7),
+    ("VIS_Perimeter_SouthEast", "X", 25.4, 63.4, -12.7, -12.3),
+    ("VIS_Perimeter_SouthWest", "X", -18.6, 19.4, -12.7, -12.3),
+    ("VIS_Perimeter_West", "Y", -12.5, 51.5, -18.8, -18.4),
+)
+PERIMETER_WALL_Z = (-0.3, 1.7)
+PERIMETER_BLOCK_WIDTH = 0.8
+PERIMETER_BLOCK_HEIGHT = 0.4
+PERIMETER_JOINT_WIDTH = 0.02
+PERIMETER_JOINT_DEPTH = 0.006
+
+STAIR_NAV_BLOCKER_SOURCE_NAMES = (
+    "COL_StairGuard_NE_Landing",
+    "COL_StairGuard_NE_Lower",
+    "COL_StairGuard_NE_Upper",
+    "COL_StairGuard_NW_Landing",
+    "COL_StairGuard_NW_Lower",
+    "COL_StairGuard_NW_Upper",
+    "COL_StairStorageShell_NW",
+    "COL_StairGuard_SW_Landing",
+    "COL_StairGuard_SW_Lower",
+    "COL_StairGuard_SW_Upper",
+)
+UPPER_STAIR_NAV_BLOCKER_SOURCE_NAMES = (
+    "COL_StairGuardSystem_NW_2FTo3F",
+    "COL_StairGuardSystem_NW_3FTo4F",
+    "COL_StairGuardSystem_NW_4FToRooftop",
+    "COL_StairGuardSystem_NE_2FTo3F",
+    "COL_StairGuardSystem_NE_3FTo4F",
+    "COL_StairGuardSystem_SW_2FTo3F",
+    "COL_StairGuardSystem_SW_3FTo4F",
+)
+UPPER_STAIR_NAV_SOURCE_NAMES = (
+    "COL_StairRampUpper_NW",
+    "COL_StairRampUpper_NE",
+    "COL_StairRampUpper_SW",
+    "COL_StairSystem_NW_2FTo3F",
+    "COL_StairSystem_NW_3FTo4F",
+    "COL_StairSystem_NW_4FToRooftop",
+    "COL_StairSystem_NE_2FTo3F",
+    "COL_StairSystem_NE_3FTo4F",
+    "COL_StairSystem_SW_2FTo3F",
+    "COL_StairSystem_SW_3FTo4F",
+)
+
+UPPER_FLOOR_PANELS_XY = (
+    ((-6.0, -3.5), (0.0, 32.5)),
+    ((-12.6, 2.5), (-6.0, 32.5)),
+    ((-6.6, 32.5), (41.4, 45.5)),
+    ((-12.6, 32.5), (-6.6, 38.9)),
+    ((41.4, 32.5), (47.4, 38.9)),
+)
+F4_CEILING_PANELS_XY = (
+    *UPPER_FLOOR_PANELS_XY,
+    ((-12.6, -3.5), (-6.0, 2.5)),
+    ((41.4, 38.9), (47.4, 45.5)),
+)
+
+ROOF_GUARD_SEGMENTS = (
+    (
+        "CourtyardNorth",
+        (-0.1, 32.6, 14.5),
+        (47.3, 32.6, 14.5),
+        False,
+        True,
+    ),
+    (
+        "CourtyardWest",
+        (-0.1, -3.4, 14.5),
+        (-0.1, 32.6, 14.5),
+        False,
+        True,
+    ),
+    (
+        "EastOuter",
+        (47.3, 32.6, 14.5),
+        (47.3, 45.4, 14.5),
+        False,
+        True,
+    ),
+    (
+        "NorthOuter",
+        (2.4, 45.4, 14.5),
+        (47.3, 45.4, 14.5),
+        True,
+        False,
+    ),
+    (
+        "SouthOuter",
+        (-12.5, -3.4, 14.5),
+        (-0.1, -3.4, 14.5),
+        False,
+        True,
+    ),
+    (
+        "WestOuter",
+        (-12.5, -3.4, 14.5),
+        (-12.5, 38.9, 14.5),
+        True,
+        True,
+    ),
+)
 
 WINDOW_AUTHORING_PROPERTY_NAMES = (
     "hs_window_clear_height_m",
@@ -75,9 +197,21 @@ GENERATED_PREFIXES = (
     "LNK_bit-window-",
     "LNK_bit-roof-",
     "VOL_PoolWater",
+    "VIS_StairSystem_NE_",
+    "COL_StairSystem_NE_",
+    "VIS_StairGuardSystem_NE_",
+    "COL_StairGuardSystem_NE_",
+    "VIS_StairSystem_SW_",
+    "COL_StairSystem_SW_",
+    "VIS_StairGuardSystem_SW_",
+    "COL_StairGuardSystem_SW_",
+    "VIS_RoofGuard_",
+    "COL_RoofGuard_",
 )
 
 GENERATED_EXACT_NAMES = {
+    "VIS_Gate_MainClosed",
+    "VIS_Gate_UtilityClosed",
     "NAV_Walkable_Interior2F",
     "NAV_Walkable_Interior3F",
     "NAV_Walkable_Interior4F",
@@ -107,7 +241,27 @@ SOURCE_OBJECTS_TO_REMOVE = {
     "VIS_WindowGuide_1F_WestSouth_1",
     "VIS_WindowGuide_1F_WestSouth_2",
     "VIS_PoolWaterPlaceholder",
+    "VIS_Ceiling1F_North",
+    "VIS_Ceiling1F_West",
+    "COL_Ceiling1F_North",
+    "COL_Ceiling1F_West",
+    "COL_StairClosure_NE",
+    "COL_StairClosure_SW",
+    "VIS_Floor_ToiletFront",
+    "VIS_Floor_ToiletZone",
 }
+
+for prefix in ("VIS_", "COL_"):
+    SOURCE_OBJECTS_TO_REMOVE.update(
+        {
+            f"{prefix}Wall_Lintel_Toilet_F",
+            f"{prefix}Wall_Lintel_Toilet_M",
+            f"{prefix}Wall_Toilet_South_A",
+            f"{prefix}Wall_Toilet_South_B",
+            f"{prefix}Wall_Toilet_South_C",
+            f"{prefix}Wall_Toilet_South_D",
+        }
+    )
 
 for floor in (2, 3, 4):
     SOURCE_OBJECTS_TO_REMOVE.update(
@@ -351,6 +505,241 @@ def append_box(
     )
 
 
+def oriented_box(
+    axis: str,
+    primary_minimum: float,
+    primary_maximum: float,
+    cross_minimum: float,
+    cross_maximum: float,
+    z_minimum: float,
+    z_maximum: float,
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    if axis == "X":
+        return (
+            (primary_minimum, cross_minimum, z_minimum),
+            (primary_maximum, cross_maximum, z_maximum),
+        )
+    if axis == "Y":
+        return (
+            (cross_minimum, primary_minimum, z_minimum),
+            (cross_maximum, primary_maximum, z_maximum),
+        )
+    raise RuntimeError(f"未定義の水平軸です: {axis}")
+
+
+def gate_fence_boxes(
+    axis: str,
+    primary_minimum: float,
+    primary_maximum: float,
+    fixed: float,
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    center = (primary_minimum + primary_maximum) / 2.0
+    boxes = [
+        oriented_box(
+            axis,
+            post_center - 0.05,
+            post_center + 0.05,
+            fixed - 0.05,
+            fixed + 0.05,
+            -0.3,
+            1.7,
+        )
+        for post_center in (primary_minimum + 0.05, center, primary_maximum - 0.05)
+    ]
+    leaves = (
+        (primary_minimum + 0.10, center - 0.05),
+        (center + 0.05, primary_maximum - 0.10),
+    )
+    for leaf_minimum, leaf_maximum in leaves:
+        for z_minimum, z_maximum in (
+            (-0.28, -0.20),
+            (0.66, 0.74),
+            (1.62, 1.70),
+        ):
+            boxes.append(
+                oriented_box(
+                    axis,
+                    leaf_minimum,
+                    leaf_maximum,
+                    fixed - 0.04,
+                    fixed + 0.04,
+                    z_minimum,
+                    z_maximum,
+                )
+            )
+        interval_count = math.ceil((leaf_maximum - leaf_minimum) / 0.5)
+        for index in range(1, interval_count):
+            position = (
+                leaf_minimum
+                + (leaf_maximum - leaf_minimum) * index / interval_count
+            )
+            boxes.append(
+                oriented_box(
+                    axis,
+                    position - 0.04,
+                    position + 0.04,
+                    fixed - 0.04,
+                    fixed + 0.04,
+                    -0.20,
+                    1.62,
+                )
+            )
+    boxes.append(
+        oriented_box(
+            axis,
+            center - 0.12,
+            center + 0.12,
+            fixed - 0.06,
+            fixed + 0.06,
+            0.62,
+            0.78,
+        )
+    )
+    return boxes
+
+
+def perimeter_block_joint_quads(
+) -> list[tuple[str, float, float, float, float, float, int]]:
+    quads: list[tuple[str, float, float, float, float, float, int]] = []
+    z_minimum, z_maximum = PERIMETER_WALL_Z
+    course_count = round((z_maximum - z_minimum) / PERIMETER_BLOCK_HEIGHT)
+    for (
+        _,
+        axis,
+        primary_minimum,
+        primary_maximum,
+        cross_minimum,
+        cross_maximum,
+    ) in PERIMETER_WALL_SPECS:
+        surfaces = (
+            (cross_minimum - PERIMETER_JOINT_DEPTH, -1),
+            (cross_maximum + PERIMETER_JOINT_DEPTH, 1),
+        )
+        for surface_coordinate, outward_sign in surfaces:
+            for boundary_index in range(1, course_count):
+                boundary_z = (
+                    z_minimum + boundary_index * PERIMETER_BLOCK_HEIGHT
+                )
+                quads.append(
+                    (
+                        axis,
+                        primary_minimum,
+                        primary_maximum,
+                        surface_coordinate,
+                        boundary_z - PERIMETER_JOINT_WIDTH / 2.0,
+                        boundary_z + PERIMETER_JOINT_WIDTH / 2.0,
+                        outward_sign,
+                    )
+                )
+            for course_index in range(course_count):
+                course_z_minimum = (
+                    z_minimum + course_index * PERIMETER_BLOCK_HEIGHT
+                )
+                course_z_maximum = course_z_minimum + PERIMETER_BLOCK_HEIGHT
+                vertical_z_minimum = course_z_minimum + (
+                    PERIMETER_JOINT_WIDTH / 2.0 if course_index > 0 else 0.0
+                )
+                vertical_z_maximum = course_z_maximum - (
+                    PERIMETER_JOINT_WIDTH / 2.0
+                    if course_index < course_count - 1
+                    else 0.0
+                )
+                first_offset = (
+                    PERIMETER_BLOCK_WIDTH / 2.0
+                    if course_index % 2
+                    else PERIMETER_BLOCK_WIDTH
+                )
+                joint_index = 0
+                while True:
+                    position = (
+                        primary_minimum
+                        + first_offset
+                        + joint_index * PERIMETER_BLOCK_WIDTH
+                    )
+                    if position >= primary_maximum - 1e-8:
+                        break
+                    quads.append(
+                        (
+                            axis,
+                            position - PERIMETER_JOINT_WIDTH / 2.0,
+                            position + PERIMETER_JOINT_WIDTH / 2.0,
+                            surface_coordinate,
+                            vertical_z_minimum,
+                            vertical_z_maximum,
+                            outward_sign,
+                        )
+                    )
+                    joint_index += 1
+    return quads
+
+
+def append_outward_surface_quad(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    axis: str,
+    primary_minimum: float,
+    primary_maximum: float,
+    cross_coordinate: float,
+    z_minimum: float,
+    z_maximum: float,
+    outward_sign: int,
+) -> None:
+    offset = len(vertices)
+    if axis == "X":
+        vertices.extend(
+            (
+                (primary_minimum, cross_coordinate, z_minimum),
+                (primary_maximum, cross_coordinate, z_minimum),
+                (primary_maximum, cross_coordinate, z_maximum),
+                (primary_minimum, cross_coordinate, z_maximum),
+            )
+        )
+    elif axis == "Y":
+        vertices.extend(
+            (
+                (cross_coordinate, primary_minimum, z_minimum),
+                (cross_coordinate, primary_maximum, z_minimum),
+                (cross_coordinate, primary_maximum, z_maximum),
+                (cross_coordinate, primary_minimum, z_maximum),
+            )
+        )
+    else:
+        raise RuntimeError(f"未定義の水平軸です: {axis}")
+    face = (offset, offset + 1, offset + 2, offset + 3)
+    if (axis == "X" and outward_sign > 0) or (
+        axis == "Y" and outward_sign < 0
+    ):
+        face = tuple(reversed(face))
+    faces.append(face)
+
+
+def rebuild_site_boundary_visuals() -> None:
+    visual_collection = collection(VIS_COLLECTION_NAME)
+    for object_name, axis, minimum, maximum, fixed in GATE_VISUAL_SPECS:
+        boxes = gate_fence_boxes(axis, minimum, maximum, fixed)
+        vertices: list[tuple[float, float, float]] = []
+        faces: list[tuple[int, ...]] = []
+        for box_minimum, box_maximum in boxes:
+            append_box(vertices, faces, box_minimum, box_maximum)
+        upsert_mesh_geometry(
+            object_name,
+            vertices,
+            faces,
+            visual_collection,
+        )
+
+    joint_vertices: list[tuple[float, float, float]] = []
+    joint_faces: list[tuple[int, ...]] = []
+    for joint in perimeter_block_joint_quads():
+        append_outward_surface_quad(joint_vertices, joint_faces, *joint)
+    upsert_surface_geometry(
+        "VIS_B03_PerimeterBlockJoints",
+        joint_vertices,
+        joint_faces,
+        visual_collection,
+    )
+
+
 def create_mesh_object(
     name: str,
     boxes: list[tuple[tuple[float, float, float], tuple[float, float, float]]],
@@ -430,6 +819,44 @@ def replace_mesh_geometry(
     return obj
 
 
+def upsert_mesh_geometry(
+    object_name: str,
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    target_collection: bpy.types.Collection,
+) -> bpy.types.Object:
+    obj = bpy.data.objects.get(object_name)
+    if obj is None:
+        mesh = bpy.data.meshes.new(object_name)
+        obj = bpy.data.objects.new(object_name, mesh)
+        target_collection.objects.link(obj)
+        return replace_mesh_geometry(object_name, vertices, faces)
+    return replace_mesh_geometry(object_name, vertices, faces)
+
+
+def upsert_surface_geometry(
+    object_name: str,
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    target_collection: bpy.types.Collection,
+) -> bpy.types.Object:
+    obj = bpy.data.objects.get(object_name)
+    if obj is None:
+        mesh = bpy.data.meshes.new(object_name)
+        obj = bpy.data.objects.new(object_name, mesh)
+        target_collection.objects.link(obj)
+    elif obj.type != "MESH":
+        raise RuntimeError(f"再構築対象Meshではありません: {object_name}")
+    if obj.data.users != 1:
+        obj.data = obj.data.copy()
+    obj.matrix_world = Matrix.Identity(4)
+    obj.data.clear_geometry()
+    obj.data.from_pydata(vertices, [], faces)
+    obj.data.name = object_name
+    obj.data.update(calc_edges=True)
+    return obj
+
+
 def append_thin_steps(
     vertices: list[tuple[float, float, float]],
     faces: list[tuple[int, ...]],
@@ -457,7 +884,7 @@ def create_upper_stair_visual_geometry(
 ) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
     vertices: list[tuple[float, float, float]] = []
     faces: list[tuple[int, ...]] = []
-    append_box(vertices, faces, (-12.6, 38.9, base_z - 0.1), (-9.0, 40.7, base_z))
+    append_box(vertices, faces, (-12.6, 38.9, base_z - 0.1), (-10.2, 40.7, base_z))
     append_thin_steps(vertices, faces, (-12.6, -10.2), 38.9, 43.1, base_z, 16)
     append_profile_prism(
         vertices,
@@ -482,7 +909,7 @@ def create_upper_stair_collider_geometry(
 ) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
     vertices: list[tuple[float, float, float]] = []
     faces: list[tuple[int, ...]] = []
-    append_box(vertices, faces, (-12.6, 38.9, base_z - 0.1), (-9.0, 40.7, base_z))
+    append_box(vertices, faces, (-12.6, 38.9, base_z - 0.1), (-10.2, 40.7, base_z))
     append_profile_prism(
         vertices,
         faces,
@@ -500,42 +927,305 @@ def create_upper_stair_collider_geometry(
     return vertices, faces
 
 
-def create_upper_stair_guard_geometry(
+def upper_stair_guard_base_segments(
     base_z: float,
+    parts: tuple[str, ...] = ("Lower", "Landing", "Upper"),
+    *,
+    include_lower_end_cap: bool = True,
+) -> list[tuple[Vector, Vector]]:
+    lower_start = Vector((-10.28, 38.9, base_z))
+    lower_end = Vector((-10.28, 43.1, base_z + 2.4))
+    landing_end = Vector((-8.92, 43.1, base_z + 2.4))
+    upper_end = Vector((-8.92, 40.7, base_z + 3.6))
+    top_end = Vector((-8.92, 38.9, base_z + 3.6))
+    lower_segments = [
+        (lower_start, lower_end),
+    ]
+    if include_lower_end_cap:
+        lower_segments.append(
+            (lower_start, Vector((-8.92, 38.9, base_z)))
+        )
+    segment_groups = {
+        "Lower": tuple(lower_segments),
+        "Landing": (
+            (lower_end, landing_end),
+        ),
+        "Upper": (
+            (landing_end, upper_end),
+            (upper_end, top_end),
+        ),
+        "Terminal": (
+            (
+                Vector((-12.6, 38.9, base_z + 3.6)),
+                Vector((-8.92, 38.9, base_z + 3.6)),
+            ),
+        ),
+    }
+    unknown = set(parts) - set(segment_groups)
+    if unknown:
+        raise RuntimeError(f"未定義の階段手すり区分です: {sorted(unknown)}")
+    return [segment for part in parts for segment in segment_groups[part]]
+
+
+def create_upper_stair_guard_visual_geometry(
+    base_z: float,
+    parts: tuple[str, ...] = ("Lower", "Landing", "Upper"),
+    *,
+    include_lower_end_cap: bool = True,
+    claimed_post_positions: set[tuple[float, float, float]],
 ) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
     vertices: list[tuple[float, float, float]] = []
     faces: list[tuple[int, ...]] = []
-    append_profile_prism(
-        vertices,
-        faces,
-        (-10.36, -10.2),
-        ((38.9, base_z), (43.1, base_z + 2.4), (43.1, base_z + 3.45), (38.9, base_z + 1.05)),
-    )
-    append_box(vertices, faces, (-10.2, 43.1, base_z + 2.4), (-9.0, 43.26, base_z + 3.45))
-    append_profile_prism(
-        vertices,
-        faces,
-        (-9.0, -8.84),
-        ((43.1, base_z + 2.4), (40.7, base_z + 3.6), (40.7, base_z + 4.65), (43.1, base_z + 3.45)),
-    )
-    append_box(vertices, faces, (-10.2, 38.9, base_z), (-9.0, 39.06, base_z + 1.05))
-    append_box(vertices, faces, (-10.2, 40.7, base_z + 3.6), (-9.0, 40.86, base_z + 4.65))
+    for start, end in upper_stair_guard_base_segments(
+        base_z,
+        parts,
+        include_lower_end_cap=include_lower_end_cap,
+    ):
+        for rail_height in (0.55, 1.0):
+            vertical = Vector((0.0, 0.0, rail_height))
+            append_sloped_rail_prism(
+                vertices,
+                faces,
+                start + vertical,
+                end + vertical,
+            )
+        segment = end - start
+        horizontal_length = math.hypot(segment.x, segment.y)
+        post_count = max(1, math.ceil(horizontal_length / 1.1))
+        for index in range(post_count + 1):
+            ratio = index / post_count
+            base = start + segment * ratio
+            post_key = tuple(round(float(value), 6) for value in base)
+            if post_key in claimed_post_positions:
+                continue
+            claimed_post_positions.add(post_key)
+            append_box(
+                vertices,
+                faces,
+                (base.x - 0.05, base.y - 0.05, base.z),
+                (base.x + 0.05, base.y + 0.05, base.z + 1.05),
+            )
     return vertices, faces
 
 
-def rebuild_upper_stairs() -> None:
-    for suffix, base_z in (
-        ("2FTo3F", 3.6),
-        ("3FTo4F", 7.2),
-        ("4FToRooftop", 10.8),
+def create_upper_stair_guard_collider_geometry(
+    base_z: float,
+    parts: tuple[str, ...] = ("Lower", "Landing", "Upper"),
+    *,
+    include_lower_end_cap: bool = True,
+) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
+    vertices: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    for start, end in upper_stair_guard_base_segments(
+        base_z,
+        parts,
+        include_lower_end_cap=include_lower_end_cap,
     ):
-        vertices, faces = create_upper_stair_visual_geometry(base_z)
-        replace_mesh_geometry(f"VIS_StairSystem_NW_{suffix}", vertices, faces)
-        vertices, faces = create_upper_stair_collider_geometry(base_z)
-        replace_mesh_geometry(f"COL_StairSystem_NW_{suffix}", vertices, faces)
-        vertices, faces = create_upper_stair_guard_geometry(base_z)
-        replace_mesh_geometry(f"VIS_StairGuardSystem_NW_{suffix}", vertices, faces)
-        replace_mesh_geometry(f"COL_StairGuardSystem_NW_{suffix}", vertices, faces)
+        direction = end - start
+        horizontal_length = math.hypot(direction.x, direction.y)
+        side = Vector(
+            (-direction.y / horizontal_length, direction.x / horizontal_length, 0.0)
+        ) * 0.08
+        vertical = Vector((0.0, 0.0, 1.05))
+        offset = len(vertices)
+        vertices.extend(
+            tuple(point)
+            for point in (
+                start + side,
+                start - side,
+                end - side,
+                end + side,
+                start + side + vertical,
+                start - side + vertical,
+                end - side + vertical,
+                end + side + vertical,
+            )
+        )
+        faces.extend(
+            (
+                (offset + 0, offset + 3, offset + 2, offset + 1),
+                (offset + 4, offset + 5, offset + 6, offset + 7),
+                (offset + 0, offset + 1, offset + 5, offset + 4),
+                (offset + 1, offset + 2, offset + 6, offset + 5),
+                (offset + 2, offset + 3, offset + 7, offset + 6),
+                (offset + 3, offset + 0, offset + 4, offset + 7),
+            )
+        )
+    return vertices, faces
+
+
+def rebuild_first_transition_stair_guards(
+) -> dict[str, set[tuple[float, float, float]]]:
+    visual_collection = collection(VIS_COLLECTION_NAME)
+    collider_collection = collection(COL_COLLECTION_NAME)
+    claimed_post_positions_by_stair: dict[
+        str, set[tuple[float, float, float]]
+    ] = {}
+    for stair in ("NW", "NE", "SW"):
+        claimed_post_positions: set[tuple[float, float, float]] = set()
+        claimed_post_positions_by_stair[stair] = claimed_post_positions
+        for part in ("Lower", "Landing", "Upper"):
+            include_lower_end_cap = stair != "NW" or part != "Lower"
+            vertices, faces = create_upper_stair_guard_visual_geometry(
+                0.0,
+                (part,),
+                include_lower_end_cap=include_lower_end_cap,
+                claimed_post_positions=claimed_post_positions,
+            )
+            upsert_mesh_geometry(
+                f"VIS_StairGuard_{stair}_{part}",
+                transform_stair_vertices(vertices, stair),
+                faces,
+                visual_collection,
+            )
+            vertices, faces = create_upper_stair_guard_collider_geometry(
+                0.0,
+                (part,),
+                include_lower_end_cap=include_lower_end_cap,
+            )
+            upsert_mesh_geometry(
+                f"COL_StairGuard_{stair}_{part}",
+                transform_stair_vertices(vertices, stair),
+                faces,
+                collider_collection,
+            )
+    return claimed_post_positions_by_stair
+
+
+def create_roof_guard_geometry(
+    start_coordinates: tuple[float, float, float],
+    end_coordinates: tuple[float, float, float],
+    include_start_post: bool,
+    include_end_post: bool,
+) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
+    start = Vector(start_coordinates)
+    end = Vector(end_coordinates)
+    vertices: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    for rail_height in (0.55, 1.0):
+        vertical = Vector((0.0, 0.0, rail_height))
+        append_sloped_rail_prism(
+            vertices,
+            faces,
+            start + vertical,
+            end + vertical,
+        )
+
+    direction = end - start
+    horizontal_length = math.hypot(direction.x, direction.y)
+    post_count = max(1, math.ceil(horizontal_length / 1.1))
+    for index in range(post_count + 1):
+        if index == 0 and not include_start_post:
+            continue
+        if index == post_count and not include_end_post:
+            continue
+        base = start + direction * (index / post_count)
+        append_box(
+            vertices,
+            faces,
+            (base.x - 0.05, base.y - 0.05, base.z),
+            (base.x + 0.05, base.y + 0.05, base.z + 1.05),
+        )
+    return vertices, faces
+
+
+def rebuild_roof_guards() -> None:
+    visual_collection = collection(VIS_COLLECTION_NAME)
+    collider_collection = collection(COL_COLLECTION_NAME)
+    for (
+        suffix,
+        start,
+        end,
+        include_start_post,
+        include_end_post,
+    ) in ROOF_GUARD_SEGMENTS:
+        vertices, faces = create_roof_guard_geometry(
+            start,
+            end,
+            include_start_post,
+            include_end_post,
+        )
+        upsert_mesh_geometry(
+            f"VIS_RoofGuard_{suffix}",
+            vertices,
+            faces,
+            visual_collection,
+        )
+        upsert_mesh_geometry(
+            f"COL_RoofGuard_{suffix}",
+            vertices,
+            faces,
+            collider_collection,
+        )
+
+
+def transform_stair_vertices(
+    vertices: list[tuple[float, float, float]],
+    stair: str,
+) -> list[tuple[float, float, float]]:
+    if stair == "NW":
+        return vertices
+    if stair == "NE":
+        return [(x + 54.0, y, z) for x, y, z in vertices]
+    if stair == "SW":
+        return [(32.9 - y, x + 9.1, z) for x, y, z in vertices]
+    raise RuntimeError(f"未定義の階段です: {stair}")
+
+
+def rebuild_upper_stairs(
+    claimed_post_positions_by_stair: dict[
+        str, set[tuple[float, float, float]]
+    ],
+) -> None:
+    visual_collection = collection(VIS_COLLECTION_NAME)
+    collider_collection = collection(COL_COLLECTION_NAME)
+    for stair in ("NW", "NE", "SW"):
+        transitions = [
+            ("2FTo3F", 3.6),
+            ("3FTo4F", 7.2),
+        ]
+        if stair == "NW":
+            transitions.append(("4FToRooftop", 10.8))
+        for suffix, base_z in transitions:
+            guard_parts = (
+                ("Lower", "Landing", "Upper", "Terminal")
+                if stair in ("NE", "SW") and suffix == "3FTo4F"
+                else ("Lower", "Landing", "Upper")
+            )
+            vertices, faces = create_upper_stair_visual_geometry(base_z)
+            upsert_mesh_geometry(
+                f"VIS_StairSystem_{stair}_{suffix}",
+                transform_stair_vertices(vertices, stair),
+                faces,
+                visual_collection,
+            )
+            vertices, faces = create_upper_stair_collider_geometry(base_z)
+            upsert_mesh_geometry(
+                f"COL_StairSystem_{stair}_{suffix}",
+                transform_stair_vertices(vertices, stair),
+                faces,
+                collider_collection,
+            )
+            vertices, faces = create_upper_stair_guard_visual_geometry(
+                base_z,
+                guard_parts,
+                claimed_post_positions=claimed_post_positions_by_stair[stair],
+            )
+            upsert_mesh_geometry(
+                f"VIS_StairGuardSystem_{stair}_{suffix}",
+                transform_stair_vertices(vertices, stair),
+                faces,
+                visual_collection,
+            )
+            vertices, faces = create_upper_stair_guard_collider_geometry(
+                base_z, guard_parts
+            )
+            upsert_mesh_geometry(
+                f"COL_StairGuardSystem_{stair}_{suffix}",
+                transform_stair_vertices(vertices, stair),
+                faces,
+                collider_collection,
+            )
 
 
 def shift_object_geometry_z(obj: bpy.types.Object, amount: float) -> None:
@@ -573,15 +1263,11 @@ def align_existing_storey_sources() -> None:
     for obj in bpy.data.objects:
         if obj.name.startswith(rooftop_prefixes):
             shift_object_geometry_z(obj, rooftop_shift)
-    rebuild_upper_stairs()
-    for name in ("COL_StairClosure_NE", "COL_StairClosure_SW"):
-        obj = bpy.data.objects.get(name)
-        if obj is None or obj.type != "MESH":
-            raise RuntimeError(f"階段閉鎖Colliderがありません: {name}")
-        for vertex in obj.data.vertices:
-            if vertex.co.z > 6.5:
-                vertex.co.z = 7.2
-        obj.data.update()
+    rebuild_roof_guards()
+    claimed_post_positions_by_stair = rebuild_first_transition_stair_guards()
+    rebuild_upper_stairs(claimed_post_positions_by_stair)
+    rebuild_site_boundary_visuals()
+    align_acceptance_geometry()
     boundary = bpy.data.objects.get("BND_Stage")
     if boundary is None:
         raise RuntimeError("BND_Stageがありません")
@@ -590,6 +1276,40 @@ def align_existing_storey_sources() -> None:
     boundary_faces: list[tuple[int, ...]] = []
     append_box(boundary_vertices, boundary_faces, tuple(minimum), (maximum.x, maximum.y, 18.0))
     replace_mesh_geometry("BND_Stage", boundary_vertices, boundary_faces)
+
+
+def align_acceptance_geometry() -> None:
+    for name in ("VIS_MainEntryDoor_Open_North", "VIS_MainEntryDoor_Open_South"):
+        obj = bpy.data.objects.get(name)
+        if obj is None or obj.type != "MESH":
+            raise RuntimeError(f"主玄関扉がありません: {name}")
+        minimum, _ = world_bounds(obj)
+        shift_object_geometry_x(obj, 0.17 - minimum.x)
+
+    for name in ("VIS_Wall_ClassroomCross_2", "COL_Wall_ClassroomCross_2"):
+        obj = bpy.data.objects.get(name)
+        if obj is None or obj.type != "MESH":
+            raise RuntimeError(f"保健室角の壁がありません: {name}")
+        minimum, maximum = world_bounds(obj)
+        vertices: list[tuple[float, float, float]] = []
+        faces: list[tuple[int, ...]] = []
+        append_box(
+            vertices,
+            faces,
+            tuple(minimum),
+            (-3.35, maximum.y, maximum.z),
+        )
+        replace_mesh_geometry(name, vertices, faces)
+
+
+def shift_object_geometry_x(obj: bpy.types.Object, target_shift: float) -> None:
+    if abs(target_shift) <= 1e-8:
+        return
+    if obj.data.users != 1:
+        obj.data = obj.data.copy()
+    obj.data.transform(Matrix.Translation(Vector((target_shift, 0.0, 0.0))))
+    obj.data.name = obj.name
+    obj.data.update()
 
 
 def create_empty(
@@ -717,6 +1437,8 @@ def build_window_specs() -> list[WindowSpec]:
         for index, (center, unit_count) in enumerate(
             zip((9.550, 23.700, 37.850), courtyard_north_units), start=1
         ):
+            if floor == 1 and index == 1:
+                continue
             append(
                 floor,
                 base_z,
@@ -811,6 +1533,189 @@ def wall_boxes(
                 boxes.append(((h0, fixed - half, cell_z0), (h1, fixed + half, cell_z1)))
             else:
                 boxes.append(((fixed - half, h0, cell_z0), (fixed + half, h1, cell_z1)))
+    return boxes
+
+
+def floor_finish_boxes(
+    upper_floor_z: float,
+    panels_xy: tuple[
+        tuple[tuple[float, float], tuple[float, float]], ...
+    ] = UPPER_FLOOR_PANELS_XY,
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    return [
+        (
+            (minimum[0], minimum[1], upper_floor_z - 0.15),
+            (maximum[0], maximum[1], upper_floor_z),
+        )
+        for minimum, maximum in panels_xy
+    ]
+
+
+def interfloor_structure_boxes(
+    upper_floor_z: float,
+    panels_xy: tuple[
+        tuple[tuple[float, float], tuple[float, float]], ...
+    ] = UPPER_FLOOR_PANELS_XY,
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    return [
+        (
+            (minimum[0], minimum[1], upper_floor_z - 0.60),
+            (maximum[0], maximum[1], upper_floor_z - 0.15),
+        )
+        for minimum, maximum in panels_xy
+    ]
+
+
+def upper_interior_wall_boxes(
+    floor: int,
+    base_z: float,
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    z0 = base_z
+    z1 = base_z + 3.0
+    boundary_z1 = base_z + 3.6
+    west_doors = [
+        (minimum, maximum, z0, z0 + 2.3)
+        for minimum, maximum in UPPER_WEST_CLASSROOM_DOOR_OPENINGS
+    ]
+    north_doors = [
+        (TOILET_COMMON_OPENING[0], TOILET_COMMON_OPENING[1], z0, z1),
+        *(
+            (minimum, maximum, z0, z0 + 2.3)
+            for minimum, maximum in NORTH_CLASSROOM_DOOR_OPENINGS
+        ),
+    ]
+    boxes = wall_boxes("Y", -3.5, 2.5, 32.5, z0, z1, west_doors)
+    boxes.extend(wall_boxes("X", 36.5, -6.6, 41.4, z0, z1, north_doors))
+
+    for divider_y in (12.5, 22.5):
+        boxes.append(
+            ((-12.6, divider_y - 0.15, z0), (-3.5, divider_y + 0.15, z1))
+        )
+
+    # 各端部の階段室と普通教室を壁で分離する。廊下側の出入口だけを残す。
+    boxes.extend(
+        (
+            ((-12.6, 2.35, z0), (-3.5, 2.65, boundary_z1)),
+            ((-12.6, 32.35, z0), (-3.5, 32.65, boundary_z1)),
+            ((-6.75, 38.5, z0), (-6.45, 45.5, boundary_z1)),
+        )
+    )
+
+    north_dividers = (14.4, 23.4) if floor == 2 else (23.4,)
+    for divider_x in north_dividers:
+        boxes.append(
+            ((divider_x - 0.15, 36.5, z0), (divider_x + 0.15, 45.5, z1))
+        )
+
+    # トイレ側通路と特別教室を全上階で同じ閉じた区画へ分離する。
+    boxes.append(((5.25, 36.5, z0), (5.55, 45.5, z1)))
+
+    boxes.append(((41.25, 36.5, z0), (41.55, 45.5, boundary_z1)))
+    return boxes
+
+
+def upper_door_leaf_boxes(
+    floor: int,
+    base_z: float,
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    del floor
+    boxes = []
+    for index, (start, end) in enumerate(UPPER_WEST_CLASSROOM_DOOR_OPENINGS):
+        if index % 2 == 0:
+            boxes.append(
+                ((-3.42, end + 0.05, base_z), (-3.34, end + 1.15, base_z + 2.3))
+            )
+        else:
+            boxes.append(
+                ((-3.42, start - 1.15, base_z), (-3.34, start - 0.05, base_z + 2.3))
+            )
+    for index, (start, end) in enumerate(NORTH_CLASSROOM_DOOR_OPENINGS):
+        if index == 1:
+            # 西側特別教室の前扉は東端を蝶番として南へ90度開く。
+            boxes.append(
+                ((end - 0.09, 35.35, base_z), (end - 0.01, 36.45, base_z + 2.3))
+            )
+        elif index == 3:
+            # 東側特別教室の東端扉は、1階と同じく開口の西側へ寄せる。
+            boxes.append(
+                ((start - 1.15, 36.30, base_z), (start - 0.05, 36.38, base_z + 2.3))
+            )
+        else:
+            boxes.append(
+                ((end + 0.05, 36.30, base_z), (end + 1.15, 36.38, base_z + 2.3))
+            )
+    return boxes
+
+
+def subtract_intervals(
+    minimum: float,
+    maximum: float,
+    openings: tuple[tuple[float, float], ...],
+) -> list[tuple[float, float]]:
+    segments: list[tuple[float, float]] = []
+    cursor = minimum
+    for opening_minimum, opening_maximum in sorted(openings):
+        clipped_minimum = max(minimum, opening_minimum)
+        clipped_maximum = min(maximum, opening_maximum)
+        if clipped_minimum > cursor:
+            segments.append((cursor, clipped_minimum))
+        cursor = max(cursor, clipped_maximum)
+    if cursor < maximum:
+        segments.append((cursor, maximum))
+    return segments
+
+
+def storey_band_boxes(
+    floor: int,
+    base_z: float,
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    west_classroom_openings = tuple(
+        (minimum - 0.01, maximum + 0.01)
+        for minimum, maximum in (
+            FIRST_FLOOR_WEST_DOOR_OPENINGS
+            if floor == 1
+            else UPPER_WEST_CLASSROOM_DOOR_OPENINGS
+        )
+    )
+    west_floor_openings = ((-2.51, 2.51),) if floor == 1 else ()
+    north_classroom_openings = tuple(
+        (minimum - 0.01, maximum + 0.01)
+        for minimum, maximum in (
+            TOILET_COMMON_OPENING,
+            *NORTH_CLASSROOM_DOOR_OPENINGS,
+        )
+    )
+    north_floor_openings = ((0.14, 5.41), (39.39, 43.41)) if floor == 1 else ()
+    z0, z1 = base_z + 0.15, base_z + 0.25
+    boxes = [
+        ((-3.351, start, z0), (-3.347, end, z1))
+        for start, end in subtract_intervals(2.5, 32.5, west_classroom_openings)
+    ]
+    boxes.extend(
+        ((-0.153, start, z0), (-0.149, end, z1))
+        for start, end in subtract_intervals(-3.5, 32.5, west_floor_openings)
+    )
+    boxes.extend(
+        ((start, 36.347, z0), (end, 36.351, z1))
+        for start, end in subtract_intervals(-6.6, 41.4, north_classroom_openings)
+    )
+    boxes.extend(
+        ((start, 32.649, z0), (end, 32.653, z1))
+        for start, end in subtract_intervals(0.0, 47.4, north_floor_openings)
+    )
+    boxes.extend(
+        (
+            ((-6.6, 38.347, z0), (-5.41, 38.351, z1)),
+            ((-4.19, 38.347, z0), (-0.91, 38.351, z1)),
+            ((0.31, 38.347, z0), (2.4, 38.351, z1)),
+            ((2.549, 38.5, z0), (2.553, 45.5, z1)),
+            ((5.247, 36.5, z0), (5.251, 45.5, z1)),
+            ((-6.753, 38.5, z0), (-6.749, 45.5, z1)),
+            ((41.549, 36.5, z0), (41.553, 45.5, z1)),
+            ((-12.6, 2.347, z0), (-3.5, 2.351, z1)),
+            ((-12.6, 32.649, z0), (-6.6, 32.653, z1)),
+        )
+    )
     return boxes
 
 
@@ -1141,21 +2046,50 @@ def build_upper_floors_and_rooms(
     collider_collection: bpy.types.Collection,
     floor_material: bpy.types.Material,
     wall_material: bpy.types.Material,
-    accent_materials: dict[int, bpy.types.Material],
     door_material: bpy.types.Material,
 ) -> list[bpy.types.Object]:
     generated_colliders: list[bpy.types.Object] = []
-    floor_panels_xy = [
-        ((-12.6, -3.5), (0.0, 32.5)),
-        ((-6.6, 32.5), (47.4, 45.5)),
-        ((-12.6, 32.5), (-6.6, 38.9)),
-        ((-12.6, 43.1), (-6.6, 45.5)),
+    first_floor_stair_boundary_caps = [
+        ((-12.6, 2.35, 3.0), (-3.5, 2.65, 3.6)),
+        ((-12.6, 32.35, 3.0), (-3.5, 32.65, 3.6)),
+        ((41.25, 36.5, 3.0), (41.55, 45.5, 3.6)),
+        ((-6.75, 38.5, 3.0), (-6.45, 45.5, 3.6)),
     ]
+    create_mesh_object(
+        "VIS_B03_StairBoundaryCaps_F01",
+        first_floor_stair_boundary_caps,
+        visual_collection,
+        wall_material,
+    )
+    generated_colliders.append(
+        create_mesh_object(
+            "COL_B03_StairBoundaryCaps_F01",
+            first_floor_stair_boundary_caps,
+            collider_collection,
+        )
+    )
+    first_floor_structure_groups = {
+        "West": tuple(UPPER_FLOOR_PANELS_XY[index] for index in (0, 1, 3)),
+        "North": tuple(UPPER_FLOOR_PANELS_XY[index] for index in (2, 4)),
+    }
+    for wing, panels in first_floor_structure_groups.items():
+        boxes = interfloor_structure_boxes(3.6, panels)
+        create_mesh_object(
+            f"VIS_B03_InterfloorStructure_F01_{wing}",
+            boxes,
+            visual_collection,
+            wall_material,
+        )
+        generated_colliders.append(
+            create_mesh_object(
+                f"COL_B03_InterfloorStructure_F01_{wing}",
+                boxes,
+                collider_collection,
+            )
+        )
+
     for floor, base_z in ((2, 3.6), (3, 7.2), (4, 10.8)):
-        floor_boxes = [
-            ((xy0[0], xy0[1], base_z - 0.15), (xy1[0], xy1[1], base_z))
-            for xy0, xy1 in floor_panels_xy
-        ]
+        floor_boxes = floor_finish_boxes(base_z)
         create_mesh_object(
             f"VIS_B03_Floor_F{floor:02d}",
             floor_boxes,
@@ -1168,12 +2102,18 @@ def build_upper_floors_and_rooms(
             )
         )
 
-        if floor in (2, 3):
-            ceiling_z = base_z + 3.6
-            ceiling_boxes = [
-                ((xy0[0], xy0[1], ceiling_z - 0.15), (xy1[0], xy1[1], ceiling_z))
-                for xy0, xy1 in floor_panels_xy
-            ]
+        if floor in (2, 3, 4):
+            ceiling_boxes = (
+                interfloor_structure_boxes(base_z + 3.6)
+                if floor in (2, 3)
+                else [
+                    (
+                        (minimum[0], minimum[1], base_z + 3.0),
+                        (maximum[0], maximum[1], base_z + 3.6),
+                    )
+                    for minimum, maximum in F4_CEILING_PANELS_XY
+                ]
+            )
             create_mesh_object(
                 f"VIS_B03_Ceiling_F{floor:02d}",
                 ceiling_boxes,
@@ -1188,35 +2128,7 @@ def build_upper_floors_and_rooms(
                 )
             )
 
-        z0, z1 = base_z, base_z + 3.6
-        internal_boxes = []
-        west_doors = [
-            (3.5, 4.7, z0, z0 + 2.3),
-            (13.1, 14.3, z0, z0 + 2.3),
-            (21.9, 23.1, z0, z0 + 2.3),
-            (30.7, 31.9, z0, z0 + 2.3),
-        ]
-        internal_boxes.extend(
-            wall_boxes("Y", -3.5, 2.5, 32.5, z0, z1, west_doors)
-        )
-        north_doors = [
-            (6.0, 7.2, z0, z0 + 2.3),
-            (21.6, 22.8, z0, z0 + 2.3),
-            (24.0, 25.2, z0, z0 + 2.3),
-            (39.6, 40.8, z0, z0 + 2.3),
-        ]
-        internal_boxes.extend(
-            wall_boxes("X", 36.5, -6.6, 41.4, z0, z1, north_doors)
-        )
-        for divider_y in (12.5, 22.5):
-            internal_boxes.append(
-                ((-12.6, divider_y - 0.15, z0), (-3.5, divider_y + 0.15, z1))
-            )
-        north_dividers = (14.4, 23.4) if floor == 2 else (23.4,)
-        for divider_x in north_dividers:
-            internal_boxes.append(
-                ((divider_x - 0.15, 36.5, z0), (divider_x + 0.15, 45.5, z1))
-            )
+        internal_boxes = upper_interior_wall_boxes(floor, base_z)
         create_mesh_object(
             f"VIS_B03_InteriorWalls_F{floor:02d}",
             internal_boxes,
@@ -1231,33 +2143,56 @@ def build_upper_floors_and_rooms(
             )
         )
 
-        accent_boxes = [
-            ((-3.45, 2.5, base_z + 0.006), (-3.25, 32.5, base_z + 0.026)),
-            ((-6.6, 36.25, base_z + 0.006), (41.4, 36.45, base_z + 0.026)),
-        ]
-        create_mesh_object(
-            f"VIS_B03_FloorAccent_F{floor:02d}",
-            accent_boxes,
-            visual_collection,
-            accent_materials[floor],
-        )
-
-        door_boxes = []
-        for h0, h1, _, _ in west_doors:
-            door_boxes.append(
-                ((-3.42, h1 + 0.05, z0), (-3.34, h1 + 1.15, z0 + 2.3))
-            )
-        for h0, h1, _, _ in north_doors:
-            door_boxes.append(
-                ((h1 + 0.05, 36.58, z0), (h1 + 1.15, 36.66, z0 + 2.3))
-            )
         create_mesh_object(
             f"VIS_B03_DoorLeaves_F{floor:02d}",
-            door_boxes,
+            upper_door_leaf_boxes(floor, base_z),
             visual_collection,
             door_material,
         )
     return generated_colliders
+
+
+def build_readability_finish(visual_collection: bpy.types.Collection) -> None:
+    gym_wainscot_boxes = [
+        ((33.55, -9.35, 0.02), (33.59, 4.95, 1.20)),
+        ((33.55, 8.05, 0.02), (33.59, 26.35, 1.20)),
+        ((57.21, -9.35, 0.02), (57.25, 26.35, 1.20)),
+        ((33.55, 26.31, 0.02), (39.35, 26.35, 1.20)),
+        ((43.45, 26.31, 0.02), (53.60, 26.35, 1.20)),
+        ((55.20, 26.31, 0.02), (57.25, 26.35, 1.20)),
+    ]
+    create_mesh_object(
+        "VIS_B03_GymWainscot",
+        gym_wainscot_boxes,
+        visual_collection,
+    )
+    gym_trim_boxes = [
+        ((33.59, -9.35, 0.02), (33.63, 4.95, 0.14)),
+        ((33.59, 8.05, 0.02), (33.63, 26.35, 0.14)),
+        ((57.17, -9.35, 0.02), (57.21, 26.35, 0.14)),
+        ((33.55, 26.27, 0.02), (39.35, 26.31, 0.14)),
+        ((43.45, 26.27, 0.02), (53.60, 26.31, 0.14)),
+        ((55.20, 26.27, 0.02), (57.25, 26.31, 0.14)),
+        ((33.59, -9.35, 0.02), (33.67, -9.27, 9.00)),
+        ((33.59, 26.27, 0.02), (33.67, 26.35, 9.00)),
+        ((57.13, -9.35, 0.02), (57.21, -9.27, 9.00)),
+        ((57.13, 26.27, 0.02), (57.21, 26.35, 9.00)),
+    ]
+    create_mesh_object("VIS_B03_GymTrim", gym_trim_boxes, visual_collection)
+
+    for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
+        create_mesh_object(
+            f"VIS_B03_StoreyBand_F{floor:02d}",
+            storey_band_boxes(floor, base_z),
+            visual_collection,
+        )
+        create_mesh_object(
+            f"VIS_B03_StoreyTrim_F{floor:02d}",
+            [
+                ((41.32, 36.41, base_z + 0.02), (41.40, 36.45, base_z + 3.50)),
+            ],
+            visual_collection,
+        )
 
 
 def build_windows_and_links(
@@ -1499,8 +2434,6 @@ def build_minimum_props(
     source_names = [
         "VIS_Prop_WesternToilet",
         "VIS_Prop_Urinal",
-        "VIS_Prop_BaggageLocker",
-        "COL_Prop_BaggageLocker",
     ]
     sources = import_prop_sources(source_names)
     toilet_positions = [
@@ -1516,7 +2449,7 @@ def build_minimum_props(
             sources["VIS_Prop_WesternToilet"],
             f"VIS_B03_Prop_Toilet_{suffix}",
             position,
-            math.pi,
+            0.0,
             visual_collection,
         )
     for index, y in enumerate((39.6, 40.6, 41.6), 1):
@@ -1524,30 +2457,8 @@ def build_minimum_props(
             sources["VIS_Prop_Urinal"],
             f"VIS_B03_Prop_Urinal_{index:02d}",
             (-2.40, y, 0.8),
-            -math.pi / 2,
+            math.pi / 2,
             visual_collection,
-        )
-
-    locker_positions = [
-        ("Changing_M_01", (-5.5, 44.9, 14.5)),
-        ("Changing_M_02", (-3.3, 44.9, 14.5)),
-        ("Changing_F_01", (-1.0, 44.9, 14.5)),
-        ("Changing_F_02", (1.2, 44.9, 14.5)),
-    ]
-    for suffix, position in locker_positions:
-        instantiate_prop(
-            sources["VIS_Prop_BaggageLocker"],
-            f"VIS_B03_Prop_Locker_{suffix}",
-            position,
-            0.0,
-            visual_collection,
-        )
-        instantiate_prop(
-            sources["COL_Prop_BaggageLocker"],
-            f"COL_B03_Prop_Locker_{suffix}",
-            position,
-            0.0,
-            collider_collection,
         )
 
     bench_boxes = [
@@ -1615,75 +2526,9 @@ def append_sloped_rail_prism(
     )
 
 
-def guard_top_segments(obj: bpy.types.Object) -> list[tuple[Vector, Vector]]:
-    world_vertices = [obj.matrix_world @ vertex.co for vertex in obj.data.vertices]
-    top_z_by_xy: dict[tuple[float, float], float] = {}
-    for point in world_vertices:
-        key = (round(point.x, 6), round(point.y, 6))
-        top_z_by_xy[key] = max(top_z_by_xy.get(key, -math.inf), point.z)
-
-    grouped_minor_positions: dict[
-        tuple[str, float, float, float, float], list[float]
-    ] = defaultdict(list)
-    for edge in obj.data.edges:
-        start = world_vertices[edge.vertices[0]]
-        end = world_vertices[edge.vertices[1]]
-        start_key = (round(start.x, 6), round(start.y, 6))
-        end_key = (round(end.x, 6), round(end.y, 6))
-        if abs(start.z - top_z_by_xy[start_key]) > 1e-6:
-            continue
-        if abs(end.z - top_z_by_xy[end_key]) > 1e-6:
-            continue
-        if math.hypot(end.x - start.x, end.y - start.y) < 0.3:
-            continue
-
-        if abs(end.x - start.x) >= abs(end.y - start.y):
-            first, second = sorted((start, end), key=lambda point: point.x)
-            key = (
-                "x",
-                round(first.x, 6),
-                round(first.z, 6),
-                round(second.x, 6),
-                round(second.z, 6),
-            )
-            grouped_minor_positions[key].append((first.y + second.y) / 2)
-        else:
-            first, second = sorted((start, end), key=lambda point: point.y)
-            key = (
-                "y",
-                round(first.y, 6),
-                round(first.z, 6),
-                round(second.y, 6),
-                round(second.z, 6),
-            )
-            grouped_minor_positions[key].append((first.x + second.x) / 2)
-
-    segments: list[tuple[Vector, Vector]] = []
-    for key, minor_positions in grouped_minor_positions.items():
-        clusters: list[list[float]] = []
-        for position in sorted(minor_positions):
-            if not clusters or position - clusters[-1][-1] > 0.35:
-                clusters.append([position])
-            else:
-                clusters[-1].append(position)
-        axis, major0, z0, major1, z1 = key
-        for cluster in clusters:
-            minor = sum(cluster) / len(cluster)
-            if axis == "x":
-                segments.append(
-                    (Vector((major0, minor, z0)), Vector((major1, minor, z1)))
-                )
-            else:
-                segments.append(
-                    (Vector((minor, major0, z0)), Vector((minor, major1, z1)))
-                )
-    return segments
-
-
 def build_stair_finish(
     visual_collection: bpy.types.Collection,
     nosing_material: bpy.types.Material,
-    rail_material: bpy.types.Material,
 ) -> None:
     nosing_boxes = []
     for obj in list(bpy.data.objects):
@@ -1716,30 +2561,6 @@ def build_stair_finish(
             nosing_material,
         )
 
-    rail_vertices: list[tuple[float, float, float]] = []
-    rail_faces: list[tuple[int, ...]] = []
-    guard_objects = [
-        obj
-        for obj in bpy.data.objects
-        if obj.type == "MESH" and obj.name.startswith("VIS_StairGuard")
-    ]
-    for obj in guard_objects:
-        for start, end in guard_top_segments(obj):
-            append_sloped_rail_prism(rail_vertices, rail_faces, start, end)
-    if rail_vertices:
-        create_mesh_object(
-            "VIS_B03_HandrailTops",
-            [],
-            visual_collection,
-            rail_material,
-        )
-        replace_mesh_geometry(
-            "VIS_B03_HandrailTops",
-            rail_vertices,
-            rail_faces,
-        )
-
-
 def copy_meshes_into_object(
     name: str,
     source_names: list[str],
@@ -1768,6 +2589,97 @@ def copy_meshes_into_object(
     return obj
 
 
+def first_floor_toilet_nav_blocker_bounds(
+) -> tuple[
+    tuple[tuple[float, float, float], tuple[float, float, float]], ...
+]:
+    half_depth = TOILET_FRONT_WALL_DEPTH / 2.0
+    return tuple(
+        (
+            (minimum_x, TOILET_FRONT_WALL_Y - half_depth, 0.0),
+            (maximum_x, TOILET_FRONT_WALL_Y + half_depth, 3.0),
+        )
+        for minimum_x, maximum_x in TOILET_FRONT_WALL_SPANS
+    ) + tuple(
+        (
+            (
+                minimum_x,
+                TOILET_FRONT_WALL_Y - half_depth,
+                TOILET_FRONT_DOOR_HEIGHT,
+            ),
+            (maximum_x, TOILET_FRONT_WALL_Y + half_depth, 3.0),
+        )
+        for minimum_x, maximum_x in TOILET_FRONT_DOOR_OPENINGS
+    )
+
+
+def remove_redundant_first_floor_nav_blocker_boxes() -> int:
+    obj = bpy.data.objects.get("NAV_Blocker_School1F")
+    if obj is None or obj.type != "MESH":
+        raise RuntimeError("NAV_Blocker_School1Fがありません")
+    if len(obj.data.vertices) % 8 != 0 or len(obj.data.polygons) % 6 != 0:
+        raise RuntimeError(
+            "NAV_Blocker_School1Fが箱単位のMeshではありません: "
+            f"{len(obj.data.vertices)} vertices/{len(obj.data.polygons)} faces"
+        )
+    expected_bounds = list(first_floor_toilet_nav_blocker_bounds())
+    matched_expected_indices: set[int] = set()
+    kept_vertices: list[tuple[float, float, float]] = []
+    kept_faces: list[tuple[int, ...]] = []
+    box_count = len(obj.data.vertices) // 8
+    if len(obj.data.polygons) // 6 != box_count:
+        raise RuntimeError("NAV_Blocker_School1Fの頂点・面の箱数が一致しません")
+    for box_index in range(box_count):
+        vertex_offset = box_index * 8
+        face_offset = box_index * 6
+        points = [
+            obj.matrix_world @ obj.data.vertices[vertex_offset + index].co
+            for index in range(8)
+        ]
+        bounds = (
+            tuple(min(point[axis] for point in points) for axis in range(3)),
+            tuple(max(point[axis] for point in points) for axis in range(3)),
+        )
+        matching_index = next(
+            (
+                index
+                for index, expected in enumerate(expected_bounds)
+                if index not in matched_expected_indices
+                and all(
+                    abs(bounds[bound][axis] - expected[bound][axis]) <= 1.0e-5
+                    for bound in range(2)
+                    for axis in range(3)
+                )
+            ),
+            None,
+        )
+        if matching_index is not None:
+            matched_expected_indices.add(matching_index)
+            continue
+        new_offset = len(kept_vertices)
+        kept_vertices.extend(tuple(point) for point in points)
+        kept_faces.extend(
+            tuple(
+                new_offset + vertex_index - vertex_offset
+                for vertex_index in obj.data.polygons[face_offset + index].vertices
+            )
+            for index in range(6)
+        )
+    if not matched_expected_indices:
+        return 0
+    if len(matched_expected_indices) != len(expected_bounds):
+        missing = [
+            expected_bounds[index]
+            for index in range(len(expected_bounds))
+            if index not in matched_expected_indices
+        ]
+        raise RuntimeError(
+            f"NAV_Blocker_School1Fの重複トイレ壁を照合できません: {missing}"
+        )
+    replace_mesh_geometry(obj.name, kept_vertices, kept_faces)
+    return len(matched_expected_indices)
+
+
 def build_nav_sources(
     nav_collection: bpy.types.Collection,
     generated_upper_colliders: list[bpy.types.Object],
@@ -1778,20 +2690,7 @@ def build_nav_sources(
         unlink_and_remove_object(stair_blocker)
     copy_meshes_into_object(
         "NAV_Blocker_StairClosed",
-        [
-            "COL_StairClosure_NE",
-            "COL_StairClosure_SW",
-            "COL_StairGuard_NE_Landing",
-            "COL_StairGuard_NE_Lower",
-            "COL_StairGuard_NE_Upper",
-            "COL_StairGuard_NW_Landing",
-            "COL_StairGuard_NW_Lower",
-            "COL_StairGuard_NW_Upper",
-            "COL_StairStorageShell_NW",
-            "COL_StairGuard_SW_Landing",
-            "COL_StairGuard_SW_Lower",
-            "COL_StairGuard_SW_Upper",
-        ],
+        list(STAIR_NAV_BLOCKER_SOURCE_NAMES),
         nav_collection,
         {"hs_nav_role": "blocker"},
     )
@@ -1804,13 +2703,9 @@ def build_nav_sources(
         )
     copy_meshes_into_object(
         "NAV_Walkable_StairsNWUpper",
-        [
-            "COL_StairSystem_NW_2FTo3F",
-            "COL_StairSystem_NW_3FTo4F",
-            "COL_StairSystem_NW_4FToRooftop",
-        ],
+        list(UPPER_STAIR_NAV_SOURCE_NAMES),
         nav_collection,
-        {"hs_nav_role": "walkable", "hs_nav_area": "ground"},
+        {"hs_nav_role": "walkable", "hs_nav_area": "stairs"},
     )
     copy_meshes_into_object(
         "NAV_Walkable_Rooftop",
@@ -1836,6 +2731,8 @@ def build_nav_sources(
         or obj.name.startswith(("COL_ActorOnly_Window_F02", "COL_ActorOnly_Window_F03", "COL_ActorOnly_Window_F04"))
         or obj.name.startswith(("COL_HumanOnly_Window_F02", "COL_HumanOnly_Window_F03", "COL_HumanOnly_Window_F04"))
     ]
+    blocker_sources.extend(UPPER_STAIR_NAV_BLOCKER_SOURCE_NAMES)
+    blocker_sources.append("COL_RooftopFacilityShell")
     copy_meshes_into_object(
         "NAV_Blocker_SchoolUpper",
         sorted(blocker_sources),
@@ -1861,6 +2758,23 @@ def normalize_export_meshes(export_collection: bpy.types.Collection) -> None:
         if any(abs(value - 1.0) > 1e-8 for value in obj.scale):
             obj.data.transform(Matrix.Diagonal((*obj.scale, 1.0)))
             obj.scale = (1.0, 1.0, 1.0)
+
+
+def apply_architecture_swatch_uv(
+    object_names: tuple[str, ...],
+    swatch: str,
+) -> None:
+    coordinates = swatch_uv("Architecture", swatch)
+    for object_name in object_names:
+        obj = bpy.data.objects.get(object_name)
+        if obj is None or obj.type != "MESH":
+            raise RuntimeError(f"Architecture Atlasの再配色対象がありません: {object_name}")
+        uv_layer = obj.data.uv_layers.get("UVMap")
+        if uv_layer is None:
+            uv_layer = obj.data.uv_layers.new(name="UVMap")
+        for polygon in obj.data.polygons:
+            for corner_index, loop_index in enumerate(polygon.loop_indices):
+                uv_layer.data[loop_index].uv = coordinates[corner_index % 4]
 
 
 def export_stage(
@@ -1945,14 +2859,47 @@ def is_current_generation() -> bool:
     names = tuple(bpy.data.objects.keys())
     return (
         bpy.context.scene.get(GENERATOR_VERSION_PROPERTY) == GENERATOR_VERSION
+        and bpy.context.scene.get(T04_CORRECTION_VERSION_PROPERTY)
+        == T04_CORRECTION_VERSION
         and bpy.context.scene.get("b03_window_layout_status") == "final"
-        and sum(name.startswith("VIS_WindowFrame_") for name in names) == 83
-        and sum(name.startswith("VIS_WindowGlass_") for name in names) == 83
-        and sum(name.startswith("COL_ActorOnly_Window_") for name in names) == 34
+        and sum(name.startswith("VIS_WindowFrame_") for name in names) == 82
+        and sum(name.startswith("VIS_WindowGlass_") for name in names) == 82
+        and sum(name.startswith("COL_ActorOnly_Window_") for name in names) == 33
         and sum(name.startswith("COL_ActorOnly_WindowFixed_") for name in names) == 49
         and sum(name.startswith("COL_HumanOnly_Window_") for name in names) == 58
         and sum(name.startswith("LNK_bit-window-") for name in names) == 116
         and sum(name.startswith("LNK_bit-roof-") for name in names) == 4
+        and sum(name.startswith("VIS_B03_StoreyBand_") for name in names) == 4
+        and sum(name.startswith("VIS_B03_StoreyTrim_") for name in names) == 4
+        and not any(name.startswith("VIS_B03_FloorAccent_") for name in names)
+        and "VIS_B03_HandrailTops" not in names
+        and all(
+            name in names
+            for name in (
+                "VIS_B03_InterfloorStructure_F01_North",
+                "VIS_B03_InterfloorStructure_F01_West",
+                "VIS_B03_Ceiling_F02",
+                "VIS_B03_Ceiling_F03",
+                "VIS_B03_Ceiling_F04",
+                "COL_B03_InterfloorStructure_F01_North",
+                "COL_B03_InterfloorStructure_F01_West",
+                "COL_B03_Ceiling_F02",
+                "COL_B03_Ceiling_F03",
+                "COL_B03_Ceiling_F04",
+            )
+        )
+        and not any(
+            name in names
+            for name in (
+                "VIS_WindowFrame_F01_CourtyardNorth_Corridor_01",
+                "VIS_WindowGlass_F01_CourtyardNorth_Corridor_01",
+                "COL_ActorOnly_Window_F01_CourtyardNorth_Corridor_01",
+                "VIS_Ceiling1F_North",
+                "VIS_Ceiling1F_West",
+                "COL_Ceiling1F_North",
+                "COL_Ceiling1F_West",
+            )
+        )
         and GENERATED_EXACT_NAMES.issubset(names)
         and "VOL_PoolWater" in names
         and bpy.context.scene.get(GENERATOR_SIGNATURE_PROPERTY)
@@ -1989,8 +2936,8 @@ def main() -> None:
     export_collection = collection(EXPORT_COLLECTION_NAME)
 
     specs = build_window_specs()
-    if len(specs) != 82 or sum(len(spec.open_leaf_indices) for spec in specs) != 58:
-        raise RuntimeError("最終窓帯が82件または開放ユニットが58件ではありません")
+    if len(specs) != 81 or sum(len(spec.open_leaf_indices) for spec in specs) != 58:
+        raise RuntimeError("最終窓帯が81件または開放ユニットが58件ではありません")
     removed_authoring_data = remove_final_unused_authoring_data()
     force_rebuild = "--force" in sys.argv
     if is_current_generation() and not force_rebuild:
@@ -2004,11 +2951,13 @@ def main() -> None:
     clear_generated_objects()
     align_existing_storey_sources()
 
-    wall_material = existing_material("MAT_Wall_White")
-    floor_material = existing_material("MAT_Corridor_Ochre")
-    door_material = existing_material("MAT_Door_Blue")
+    architecture_material = existing_material("MAT_B03_Atlas_Architecture")
+    furniture_material = existing_material("MAT_B03_Atlas_FurnitureProps")
+    wall_material = architecture_material
+    floor_material = architecture_material
+    door_material = architecture_material
     water_material = existing_material("MAT_Pool_Water")
-    bench_material = existing_material("MAT_Classroom_Beige")
+    bench_material = furniture_material
     frame_material = make_material(
         "MAT_B03_WindowFrame", (0.36, 0.39, 0.41, 1.0), metallic=0.15, roughness=0.38
     )
@@ -2018,14 +2967,6 @@ def main() -> None:
     nosing_material = make_material(
         "MAT_B03_StairNosing", (0.84, 0.78, 0.62, 1.0), roughness=0.45
     )
-    rail_material = make_material(
-        "MAT_B03_Handrail", (0.24, 0.27, 0.29, 1.0), metallic=0.3, roughness=0.4
-    )
-    accent_materials = {
-        2: make_material("MAT_B03_Accent_2F_Green", (0.31, 0.42, 0.35, 1.0)),
-        3: make_material("MAT_B03_Accent_3F_Claret", (0.48, 0.30, 0.32, 1.0)),
-        4: make_material("MAT_B03_Accent_4F_Navy", (0.27, 0.35, 0.45, 1.0)),
-    }
 
     upper_colliders = build_school_exterior(
         specs, visual_collection, collider_collection, wall_material
@@ -2049,10 +2990,10 @@ def main() -> None:
             collider_collection,
             floor_material,
             wall_material,
-            accent_materials,
             door_material,
         )
     )
+    build_readability_finish(visual_collection)
     window_colliders = build_windows_and_links(
         specs,
         visual_collection,
@@ -2068,18 +3009,30 @@ def main() -> None:
     interior_result = build_school_interiors(
         visual_collection, collider_collection, nav_collection
     )
+    interior_result["removed_redundant_school1f_nav_boxes"] = (
+        remove_redundant_first_floor_nav_blocker_boxes()
+    )
     bpy.context.scene["b03_2_interior_result"] = json.dumps(
         interior_result, ensure_ascii=False, sort_keys=True
     )
-    build_stair_finish(visual_collection, nosing_material, rail_material)
+    build_stair_finish(visual_collection, nosing_material)
     build_nav_sources(nav_collection, upper_colliders, window_colliders)
     normalize_export_meshes(export_collection)
     material_result = consolidate_school_materials(export_collection)
+    apply_architecture_swatch_uv(
+        tuple(f"VIS_RoofGuard_{suffix}" for suffix, *_ in ROOF_GUARD_SEGMENTS),
+        "trim",
+    )
+    apply_architecture_swatch_uv(
+        ("VIS_B03_PerimeterBlockJoints",),
+        "trim",
+    )
     bpy.context.scene["b03_2_material_result"] = json.dumps(
         material_result, ensure_ascii=False, sort_keys=True
     )
 
     bpy.context.scene[GENERATOR_VERSION_PROPERTY] = GENERATOR_VERSION
+    bpy.context.scene[T04_CORRECTION_VERSION_PROPERTY] = T04_CORRECTION_VERSION
     bpy.context.scene["b03_window_layout_status"] = "final"
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_PATH), check_existing=False)
