@@ -3012,6 +3012,10 @@ const runValidation = async () => {
             });
             let reached = false;
             const visitedStaircases = new Set<"NW" | "NE" | "SW">();
+            let groundProbeFailureCount = 0;
+            let groundSampleCount = 0;
+            let staircaseGroundSampleCount = 0;
+            let maximumGroundError = 0;
             let updateCount = 0;
             while (!reached && updateCount < 2400) {
               routeSystem.update(0.25, target);
@@ -3021,6 +3025,22 @@ const runValidation = async () => {
               const containingStaircase = findContainingStaircase(position);
               if (containingStaircase !== null) {
                 visitedStaircases.add(containingStaircase);
+              }
+              const ground = schoolContext!.queries.sampleGround(
+                position.add(new Vector3(0, 0.5, 0)),
+                1.5
+              );
+              if (!ground) {
+                groundProbeFailureCount += 1;
+              } else {
+                groundSampleCount += 1;
+                maximumGroundError = Math.max(
+                  maximumGroundError,
+                  Math.abs(position.y - ground.point.y)
+                );
+                if (containingStaircase !== null) {
+                  staircaseGroundSampleCount += 1;
+                }
               }
               reached = Vector3.Distance(position, destination.position) <= 0.15;
             }
@@ -3033,6 +3053,10 @@ const runValidation = async () => {
               reached,
               visitedStaircases: [...visitedStaircases].sort(),
               updateCount,
+              groundProbeFailureCount,
+              groundSampleCount,
+              staircaseGroundSampleCount,
+              maximumGroundError,
               endpointError: Vector3.Distance(
                 finalPosition,
                 destination.position
@@ -3055,6 +3079,22 @@ const runValidation = async () => {
             .map(
               (result) =>
                 `${result.label}:1F=${result.startedOnFirstFloor},reached=${result.reached},stairs=${result.visitedStaircases.join(",") || "none"},updates=${result.updateCount},error=${result.endpointError.toFixed(3)}`
+            )
+            .join(" / ")
+        });
+        checks.push({
+          name: "実V2NpcSystemの物理階段面への接地追従",
+          ok: multifloorNpcResults.every(
+            (result) =>
+              result.groundProbeFailureCount === 0 &&
+              result.groundSampleCount === result.updateCount &&
+              result.staircaseGroundSampleCount > 0 &&
+              result.maximumGroundError <= 1e-6
+          ),
+          detail: multifloorNpcResults
+            .map(
+              (result) =>
+                `${result.label}:samples=${result.groundSampleCount}/${result.updateCount},stairs=${result.staircaseGroundSampleCount},fail=${result.groundProbeFailureCount},maxError=${result.maximumGroundError.toExponential(2)}`
             )
             .join(" / ")
         });

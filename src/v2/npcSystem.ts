@@ -40,6 +40,8 @@ const NPC_COLLISION_RADIUS = NPC_SPRITE_WIDTH * 0.5;
 const SPAWN_MINIMUM_DISTANCE = NPC_SPRITE_WIDTH * 1.75;
 const SPAWN_PROJECTION_MAX_DISTANCE = 0.75;
 const NAVIGATION_PROJECTION_MAX_DISTANCE = 0.75;
+const GROUND_PROBE_UPWARD_OFFSET = 0.5;
+const GROUND_PROBE_DISTANCE = 1.5;
 
 const NAVIGATION_AGENT_CONFIG = Object.freeze({
   projectionMaxDistance: NAVIGATION_PROJECTION_MAX_DISTANCE,
@@ -85,6 +87,7 @@ type NpcRuntime = {
   readonly sprite: Sprite;
   readonly navigationAgent: NavigationAgent;
   navigationLocation: NavigationLocation;
+  footPosition: Vector3;
   readonly forward: Vector3;
   brainwashed: boolean;
   wanderDestination: NavigationLocation | null;
@@ -169,8 +172,8 @@ const createNpcTargetSnapshot = (
   Object.freeze({
     id: npc.id,
     kind: "npc" as const,
-    footPosition: npc.navigationLocation.position.clone(),
-    aimPosition: toAimPosition(npc.navigationLocation.position),
+    footPosition: npc.footPosition.clone(),
+    aimPosition: toAimPosition(npc.footPosition),
     collisionRadius: NPC_COLLISION_RADIUS,
     alive: true,
     brainwashed: npc.brainwashed
@@ -245,7 +248,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         sprite.isPickable = false;
         const brainwashed = brainwashedIndices.has(index);
         sprite.cellIndex = brainwashed ? 3 : 0;
-        sprite.position.copyFrom(toAimPosition(spawnPoint.position));
+        const footPosition = this.resolveFootPosition(spawnPoint.position);
+        sprite.position.copyFrom(toAimPosition(footPosition));
         const angle = this.nextRandom() * Math.PI * 2;
         const navigationAgent = createNavigationAgent(
           options.stage.navigation,
@@ -258,6 +262,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           sprite,
           navigationAgent,
           navigationLocation: spawnPoint,
+          footPosition,
           forward: new Vector3(Math.sin(angle), 0, Math.cos(angle)),
           brainwashed,
           wanderDestination: null,
@@ -309,7 +314,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         this.updateNormalNpc(npc, deltaSeconds);
       }
       npc.sprite.position.copyFrom(
-        toAimPosition(npc.navigationLocation.position)
+        toAimPosition(npc.footPosition)
       );
     }
 
@@ -535,7 +540,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         continue;
       }
       const distanceSquared = Vector3.DistanceSquared(
-        toAimPosition(npc.navigationLocation.position),
+        toAimPosition(npc.footPosition),
         target.aimPosition
       );
       if (distanceSquared < nearestDistanceSquared) {
@@ -553,7 +558,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (!this.isTargetable(npc, target)) {
       return false;
     }
-    const origin = toAimPosition(npc.navigationLocation.position);
+    const origin = toAimPosition(npc.footPosition);
     const toTarget = target.aimPosition.subtract(origin);
     const distanceSquared = toTarget.lengthSquared();
     if (
@@ -580,8 +585,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc: NpcRuntime,
     nextLocation: NavigationLocation
   ) {
-    const currentAimPosition = toAimPosition(npc.navigationLocation.position);
-    const nextAimPosition = toAimPosition(nextLocation.position);
+    const nextFootPosition = this.resolveFootPosition(nextLocation.position);
+    const currentAimPosition = toAimPosition(npc.footPosition);
+    const nextAimPosition = toAimPosition(nextFootPosition);
     if (
       this.stage.queries.castMovementSegment(
         "npc",
@@ -600,7 +606,28 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.forward.copyFrom(horizontal.normalize());
     }
     npc.navigationLocation = nextLocation;
+    npc.footPosition = nextFootPosition;
     return true;
+  }
+
+  private resolveFootPosition(navigationPosition: Vector3) {
+    const probeOrigin = navigationPosition.add(
+      new Vector3(0, GROUND_PROBE_UPWARD_OFFSET, 0)
+    );
+    const ground = this.stage.queries.sampleGround(
+      probeOrigin,
+      GROUND_PROBE_DISTANCE
+    );
+    if (!ground) {
+      throw new Error(
+        `NPCのNavMesh位置に物理床がありません: (${navigationPosition.x}, ${navigationPosition.y}, ${navigationPosition.z})`
+      );
+    }
+    return new Vector3(
+      navigationPosition.x,
+      ground.point.y,
+      navigationPosition.z
+    );
   }
 
   private clearTarget(npc: NpcRuntime) {
@@ -617,7 +644,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         Object.freeze({
           id: npc.id,
           kind: "npc" as const,
-          center: toAimPosition(npc.navigationLocation.position),
+          center: toAimPosition(npc.footPosition),
           radius: NPC_COLLISION_RADIUS
         })
       )
