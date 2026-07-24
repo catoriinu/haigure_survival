@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 複数セッション実装ロードマップ 計画
 
-更新日: 2026-07-23
+更新日: 2026-07-24
 
 ## プロンプト
 
@@ -478,3 +478,26 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - T04 HEAD `8885b4c`からローカル限定の`codex/v2-t04-school-acceptance-fix-5`を作成した。正本生成、監査、GLB・NavMesh決定性、62代表経路、T02～T04、Web／Electron回帰を完了した。修正は`996cb7e`（`fix: 学校の第5次受入指摘を修正`）へコミットし、T04本体へ`--no-ff`の`142abb8`でローカル統合した。補助ブランチは保持し、push／Pull Requestは作成していない。
 - 正本生成処理と監査を`acceptance-v05`／`nav-connectivity-v08`へ更新し、建築・内装・保護契約監査に合格した。最終GLBは938 Node／816 Mesh、10,861,356 bytes、SHA-256 `6BB6BF52AE10F21227FDF94948FA6ED7F8A9886E95C7B502606094284C4A8392`である。`.blend`は1,663,537 bytes／`83139870430EE9999C23753245ACF3DC06B3AC01EB96EA211FF0919FA3D777F9`である。
 - NavMeshは512,900 bytes／SHA-256 `F80AC812B13D6E6D27B98E8DEBB8F3BDF9891140083E74E393B7A32FE08E30DC`、19,344 vertices／6,448 trianglesへ更新した。GLBとNavMeshは各2回の生成で一致し、62代表経路、60特殊リンク／120端点、3 Volumeを維持した。依存監査、型検査、通常build、`build:t01`～`build:t04`はすべて成功した。WebとElectronはT02 36/36、T03 24/24、T04 59/59を初回・再実行・再読込で確認し、検証ページのwarning／errorは0件だった。通常ゲームはWebと実Electronで学校3D空間、接地、NPC・BIT・BEAM更新まで起動し、実Electronではポインターロックと移動入力も確認した。固定視点11枚で今回の全指摘位置を目視確認した。
+
+### 2026-07-24 T04-2B 学校3D資産全体リファクタリング
+
+- ユーザー指示: `T04-2B学校複数階統合を計画`で実装した学校全体の3Dモデルと小物類をリファクタリングし、見えない無駄なモデルやボーン、建築物として明らかに異常な形状、過去の修正漏れを全体的に確認して削除・修正する。
+- 追加指示: 実行にも制作にも寄与しないことを証明できないが、寄与しない可能性が高いデータも調査対象に含める。証明済みの削除対象とは分離し、削除対象にすべきかを根拠・リスク付きで一覧化して人間へ提示する。未証明候補は人間確認前に削除しない。
+- T04 HEAD `d5b0ad3`のクリーン状態からローカル限定の`codex/v2-t04-school-asset-refactor`を作成した。学校`.blend`／GLBはこのブランチだけで単一編集し、Blender GUIは起動していないためバックグラウンド実行だけを使用する。
+- 意図的に不可視な`COL_*`、`NAV_*`、`LNK_*`、`VOL_*`、`BND_Stage`、`META_Stage`は削除候補に含めない。削除は、実行・監査・再生成のいずれにも寄与しないことをObject、datablock、GLB参照、実画面で確認できるデータに限定する。
+- 建築、内装・小物、Blender／GLB残留データを独立監査し、正本生成処理と監査を先に修正する。その後に`.blend`、GLB、NavMeshを再生成し、資産契約、決定性、全ビルド、T02～T04、通常Web／Electronを回帰する。公開API、60特殊リンク／120端点、3 Volume、T05／T06境界は変更しない。
+- 独立監査の結果、Armature／Bone／Animation、未使用GLB resource、空Mesh、Export外混入は0件だった。確定修正は階段表示支柱48本相当の重複、掃除ロッカーとPCモニターの本体内面、壁・出入口へ干渉する家具、1階トイレ正面Nav blocker 6箱の二重所有である。非寄与を証明できない15候補は[人間確認候補](plans/v2/T04/school_asset_refactor_candidates.md)へ分離し、2026-07-25に承認されたC-08だけを削除、残る14件を保持している。
+- 正本生成版を`asset-refactor-v01`、補正契約を`nav-connectivity-v09`へ更新した。掃除ロッカーを120 trisから30 tris、PCモニターを48 trisから38 trisへ削減し、小物確認用GLBを198,016 bytesから191,148 bytesへ縮小した。小物`.blend`は168,468 bytes／SHA-256 `560974D7FABAAE9D7FC89FB563F4EEB3964866D8B33EE2C138FF1020C414514C`、確認用GLBは191,148 bytes／`E48FDA1ADFA86530BCB9C2DDC42B257776901388B510D9447D029B9F1F223457`で、GLBは2回生成して一致した。
+- 最終学校`.blend`は1,662,555 bytes／SHA-256 `D8454A7175A8724921D1BB06098C55936C7D0CF5E2DC94949F5CD0B99D7BF762`、GLBは10,702,688 bytes／`BD55458CE7AFA0F2B2B32608E92DD86B588E4B223A74B1254DC1AB58DFDB675E`、NavMeshは512,900 bytes／`0FCF0B136D41E23202925EB8821270C39D18EFEE37A5146F20C9BFA97C03C869`である。GLBは第5次受入版から158,668 bytes（1.46%）縮小し、938 Node／816 Mesh、VIS 472、COL 325、NAV 15、60特殊リンク／120端点、3 Volumeを維持した。GLBとNavMeshは各2回生成してbytes／SHA-256一致を確認した。
+- 建築・内装・保護契約・残骸監査に合格した。Armature、Bone、Action、Animation、Skin、Camera、非表示Object、Export外Object、未参照GLB Node／Mesh／Material／Texture／Image／Accessor／BufferView／Buffer、空・退化Meshはすべて0件であり、将来の再混入時は監査を失敗させる。正本へpackする3 Atlasはユーザーディレクトリ絶対パスを保持せず、`.blend`基準のリポジトリ相対パスへ統一して監査する。依存監査、型検査、通常build、`build:t01`～`build:t04`は成功した。WebはT02 36/36、T03 24/24、T04 59/59を初回・再実行・再読込で確認し、warning／error 0件だった。Electronも開始画面から実行画面へ遷移し、学校3D空間、接地、NPC・BIT・BEAM更新、Babylon初期化情報1件だけでwarning／error 0件を確認した。
+- 変更テキスト16件はUTF-8厳格読込に成功し、BOM 0件、追加ローカル絶対パス0件、変更Python 8本のAST解析成功、`git diff --check`合格である。検証用Vite、タスク専用一時出力、生成された`__pycache__`を削除した。本差分は未コミットであり、T04本体へのローカル統合、push、Pull Requestは行っていない。
+
+### 2026-07-25 C-08 ShoeLocker未使用生成定義削除
+
+- ユーザー指示: 「C-08 | `ShoeLocker`の未使用生成定義だけ削除してください」
+- 現行`.blend`、学校GLB、小物`.blend`、小物確認用GLBに`ShoeLocker`実体は存在しない。削除対象は`build_b03_school_interiors.py`内の追加小物カタログ、通行不能種別、表示形状、Collider寸法の4定義だけとする。
+- 玄関・北通用口で`ShoeLocker`が0件であることを要求する内装監査は、過去の受入修正の再混入防止契約なので維持する。`BaggageLocker`、学校・小物バイナリ、GLB／NavMesh、他の人間確認候補には変更を加えない。
+- `ADDITIONAL_PROP_TYPES`、`IMPASSABLE_ADDITIONAL_PROP_TYPES`、表示形状、Collider寸法の4定義から`ShoeLocker`だけを削除し、追加小物カタログ監査を24種から23種へ更新した。生成コード内の`ShoeLocker`参照は0件である。
+- Blender 5.2の内装監査は合格し、玄関・北通用口の`ShoeLocker` 0件監査を維持した。学校・小物の4バイナリに`ShoeLocker`実体・文字列がないこと、学校`.blend`／GLB／NavMeshと小物`.blend`／確認用GLBのbytes・SHA-256が変更前のままであることを確認した。
+- 「生成定義だけ」の削除なのでバイナリは再生成していない。現行GLBの`b03_2_interior_result.additional_prop_types=24`は旧生成時点の結果値として残り、次回正本再生成時に23へ更新される。その際は形状が同一でもGLBのbytes／SHA-256を再確定する。
+- 対象5テキストはUTF-8厳格読込に成功し、BOM 0件、追加ローカル絶対パス0件、Python AST解析成功、`git diff --check`合格である。監査で生成された`__pycache__`は削除した。本変更は未コミットで、push／Pull Requestは行っていない。

@@ -166,4 +166,10 @@ PLEASE IMPLEMENT THIS PLAN:
 
 - 教室椅子は全体寸法0.42×0.45×0.78mを維持し、木製背板を厚さ0.06m・上端0.78mへ拡張した。背面の金属支柱上端は0.77mとし、正面・上面から支柱が露出しないことを監査した。
 - 学校本体への統合では、廊下側壁の6台を加えた本棚24台を室内側へ向けて壁沿いに並べ、図書室の前後出入口と窓に干渉しない配置を監査した。主玄関前の箱は撤去し、下駄箱代替としてライブラリの`BaggageLocker` 2台を建物内南壁際へ配置した。
-- 現行の小物ライブラリ`.blend`は169,302 bytes、SHA-256 `898E4E43D39B470F6ECE344272192A45A26EBAF3F2477BF9F3D1D95DC3EB65DB`である。確認用GLBは198,016 bytes、SHA-256 `D32A33CD55453C90C0605F267513ED3082983259FB27853F7FEF494BDC83E9A9`で、Scene 1、Node 32、Mesh 32、Material 9、Camera 0、Light 0、Animation 0を維持する。
+- この時点の小物ライブラリ`.blend`は169,302 bytes、SHA-256 `898E4E43D39B470F6ECE344272192A45A26EBAF3F2477BF9F3D1D95DC3EB65DB`であった。確認用GLBは198,016 bytes、SHA-256 `D32A33CD55453C90C0605F267513ED3082983259FB27853F7FEF494BDC83E9A9`であった。
+
+### 2026-07-24 学校資産リファクタリング後の最新結果
+
+- 掃除ロッカー正面9部品とPCモニター画面を前面quadへ置換し、表示外形を変えず、掃除ロッカーを120 trianglesから30 triangles、PCモニターを48 trianglesから38 trianglesへ削減した。表示小物合計は2,192 triangles、Collider合計は120 trianglesである。
+- `StaffDesk`と`StageLectern`は、表示外形の非対称な前後中心へCollider中心を合わせた。`GrandPiano`を含め、Colliderが表示外形を包含し、隣接する職員机Collider同士が重ならないことを監査した。
+- 現行の小物ライブラリ`.blend`は168,468 bytes、SHA-256 `560974D7FABAAE9D7FC89FB563F4EEB3964866D8B33EE2C138FF1020C414514C`である。確認用GLBは191,148 bytes、SHA-256 `E48FDA1ADFA86530BCB9C2DDC42B257776901388B510D9447D029B9F1F223457`で、Scene 1、Node 32、Mesh 32、Material 9、Camera 0、Light 0、Animation 0を維持する。確認用GLBは同一入力から2回生成してbytes／SHA-256が一致した。

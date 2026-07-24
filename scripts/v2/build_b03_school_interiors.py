@@ -82,7 +82,6 @@ ATLAS_DEFINITIONS = {
 
 ADDITIONAL_PROP_TYPES = (
     "TeacherDesk",
-    "ShoeLocker",
     "ChangingBench",
     "BulletinBoard",
     "WallClock",
@@ -109,7 +108,6 @@ ADDITIONAL_PROP_TYPES = (
 
 IMPASSABLE_ADDITIONAL_PROP_TYPES = {
     "TeacherDesk",
-    "ShoeLocker",
     "ChangingBench",
     "WashBasin",
     "LabBench",
@@ -119,17 +117,35 @@ IMPASSABLE_ADDITIONAL_PROP_TYPES = {
     "AvRack",
 }
 
+STAGE_LECTERN_TOP_Y_HALF_EXTENT = (
+    0.275 * math.cos(math.radians(4.0))
+    + 0.035 * math.sin(math.radians(4.0))
+)
+STAGE_LECTERN_TOP_Z_HALF_EXTENT = (
+    0.275 * math.sin(math.radians(4.0))
+    + 0.035 * math.cos(math.radians(4.0))
+)
+STAGE_LECTERN_COLLIDER_HEIGHT = 1.045 + STAGE_LECTERN_TOP_Z_HALF_EXTENT
+
 PROP_COLLIDER_SIZES = {
     "ClassroomDesk": (0.65, 0.45, 0.70),
-    "StaffDesk": (1.40, 0.70, 0.72),
-    "StageLectern": (0.72, 0.50, 1.05),
+    "StaffDesk": (1.40, 0.71, 0.72),
+    "StageLectern": (
+        0.80,
+        STAGE_LECTERN_TOP_Y_HALF_EXTENT * 2.0,
+        STAGE_LECTERN_COLLIDER_HEIGHT,
+    ),
     "LargeWoodTable": (1.80, 0.90, 0.72),
     "CleaningLocker": (0.90, 0.45, 1.80),
     "BaggageLocker": (1.80, 0.45, 1.20),
-    "GrandPiano": (1.55, 1.45, 0.96),
+    "GrandPiano": (1.55, 1.45, 1.00),
     "InfirmaryBed": (2.00, 0.90, 0.55),
     "VaultingBox": (1.20, 0.60, 1.00),
     "Bookshelf": (0.90, 0.32, 1.80),
+}
+PROP_COLLIDER_LOCAL_CENTERS = {
+    "StaffDesk": (0.0, -0.005, 0.36),
+    "StageLectern": (0.0, -0.01, STAGE_LECTERN_COLLIDER_HEIGHT / 2.0),
 }
 
 STAFFROOM_INTERIOR_BOUNDS = (5.4, 23.4, 36.5, 45.5)
@@ -139,6 +155,8 @@ CLASSROOM_REAR_BAGGAGE_XS = (-10.65, -8.65, -6.65)
 CLASSROOM_REAR_CLEANING_X = -5.20
 CLASSROOM_REAR_WALL_INNER_Y = 2.65
 CLASSROOM_REAR_INTERIOR_X_BOUNDS = (-12.45, -3.65)
+CLASSROOM_TRASH_BIN_PLACEMENT = (-3.8, 7.5)
+CORRIDOR_CLEANING_LOCKER = (-3.125, 6.8, math.pi / 2)
 MAIN_ENTRY_BAGGAGE_LOCKERS = (
     (-4.4, -3.125, math.pi),
     (-2.4, -3.125, math.pi),
@@ -219,7 +237,8 @@ ROOF_POOL_NORTH_SIGN_SUPPORT = (
     (39.5, 45.28, 15.5),
     (0.10, 0.24, 0.10),
 )
-ROOF_CHANGING_BAGGAGE_LOCKER_XS = (-5.4, -3.1, -0.8, 1.3)
+ROOF_CHANGING_BAGGAGE_LOCKER_XS = (-5.4, -3.16, -0.8, 1.19)
+STAFFROOM_TRASH_BIN = (19.0, 36.8, 0.0)
 ART_INTERIOR_BOUNDS = (5.4, 23.4, 36.5, 45.5)
 ART_TABLE_XS = (8.0, 14.4, 20.8)
 ART_TABLE_YS = (39.5, 43.0)
@@ -309,6 +328,12 @@ def build_atlases() -> dict[str, bpy.types.Material]:
         image.name = image_path.name
         image.colorspace_settings.name = "sRGB"
         image.pack()
+        relative_image_path = bpy.path.relpath(
+            str(image_path),
+            start=str(Path(bpy.data.filepath).resolve().parent),
+        )
+        image.filepath = relative_image_path
+        image.filepath_raw = relative_image_path
         material_name = str(definition["material"])
         material = bpy.data.materials.get(material_name)
         if material is None:
@@ -573,6 +598,19 @@ def import_prop_sources(names: set[str]) -> dict[str, bpy.types.Object]:
     return {obj.name.removeprefix("VIS_Prop_"): obj for obj in data_to.objects}
 
 
+def rotated_box_aabb_size(
+    size: tuple[float, float, float],
+    rotation_z: float,
+) -> tuple[float, float, float]:
+    cosine = abs(math.cos(rotation_z))
+    sine = abs(math.sin(rotation_z))
+    return (
+        size[0] * cosine + size[1] * sine,
+        size[0] * sine + size[1] * cosine,
+        size[2],
+    )
+
+
 @dataclass
 class RoomBuilder:
     name: str
@@ -624,8 +662,19 @@ class RoomBuilder:
         )
         size = PROP_COLLIDER_SIZES.get(prop_type)
         if size is not None:
+            local_center = PROP_COLLIDER_LOCAL_CENTERS.get(
+                prop_type,
+                (0.0, 0.0, size[2] / 2.0),
+            )
+            cosine = math.cos(rotation_z)
+            sine = math.sin(rotation_z)
+            collider_center = (
+                x + local_center[0] * cosine - local_center[1] * sine,
+                y + local_center[0] * sine + local_center[1] * cosine,
+                self.base_z + z_offset + local_center[2],
+            )
             self.add_collider(
-                (x, y, self.base_z + z_offset + size[2] / 2),
+                collider_center,
                 size,
                 rotation_z,
             )
@@ -636,8 +685,7 @@ class RoomBuilder:
         size: tuple[float, float, float],
         rotation_z: float = 0.0,
     ) -> None:
-        if abs(math.sin(rotation_z)) > 0.5:
-            size = (size[1], size[0], size[2])
+        size = rotated_box_aabb_size(size, rotation_z)
         minimum = tuple(center[index] - size[index] / 2 for index in range(3))
         maximum = tuple(center[index] + size[index] / 2 for index in range(3))
         self.colliders.append((minimum, maximum))
@@ -648,8 +696,7 @@ class RoomBuilder:
         size: tuple[float, float, float],
         rotation_z: float = 0.0,
     ) -> None:
-        if abs(math.sin(rotation_z)) > 0.5:
-            size = (size[1], size[0], size[2])
+        size = rotated_box_aabb_size(size, rotation_z)
         minimum = tuple(center[index] - size[index] / 2 for index in range(3))
         maximum = tuple(center[index] + size[index] / 2 for index in range(3))
         self.wall_colliders.append((minimum, maximum))
@@ -734,7 +781,6 @@ def add_additional_prop(
             ((0, 0, 0.66), (1.2, 0.6, 0.12), "wood"),
             ((0, 0, 0.30), (1.05, 0.5, 0.60), "metal_gray"),
         ],
-        "ShoeLocker": [((0, 0, 0.7), (1.8, 0.4, 1.4), "wood_light")],
         "ChangingBench": [((0, 0, 0.42), (1.8, 0.45, 0.12), "wood"), ((0, 0, 0.2), (1.55, 0.32, 0.4), "metal_gray")],
         "BulletinBoard": BULLETIN_BOARD_FURNITURE_PARTS,
         "WallClock": [((0, 0, 1.9), (0.35, 0.04, 0.35), "plastic_black")],
@@ -795,13 +841,21 @@ def add_additional_prop(
             room.box(target, size, swatch, rotation_z, signs=True)
     if prop_type in IMPASSABLE_ADDITIONAL_PROP_TYPES:
         size = {
-            "TeacherDesk": (1.2, 0.6, 0.72), "ShoeLocker": (1.8, 0.4, 1.4),
+            "TeacherDesk": (1.2, 0.6, 0.72),
             "ChangingBench": (1.8, 0.45, 0.48), "WashBasin": (1.2, 0.5, 0.85),
             "LabBench": (1.8, 0.75, 0.92), "MedicalCabinet": (1.2, 0.45, 1.8),
-            "BroadcastConsole": (1.6, 0.75, 0.98), "KitchenIsland": (1.8, 0.9, 0.9),
-            "AvRack": (0.7, 0.5, 1.5),
+            "BroadcastConsole": (1.6, 0.75, 1.09), "KitchenIsland": (1.8, 0.9, 0.9),
+            "AvRack": (0.7, 0.525, 1.5),
         }[prop_type]
-        room.add_collider((x, y, z + size[2] / 2), size, rotation_z)
+        local_center = {
+            "AvRack": (0.0, -0.0125, 0.75),
+        }.get(prop_type, (0.0, 0.0, size[2] / 2.0))
+        collider_center = (
+            x + local_center[0] * cosine - local_center[1] * sine,
+            y + local_center[0] * sine + local_center[1] * cosine,
+            z + local_center[2],
+        )
+        room.add_collider(collider_center, size, rotation_z)
 
 
 def add_wall_blackboard(
@@ -944,8 +998,11 @@ def build_classroom(
         (-8.05, 12.31 + room_y_offset, room.base_z),
         math.pi,
     )
+    trash_x, trash_y = CLASSROOM_TRASH_BIN_PLACEMENT
     add_additional_prop(
-        room, "TrashBin", (-4.2, 3.1 + room_y_offset, room.base_z)
+        room,
+        "TrashBin",
+        (trash_x, trash_y + room_y_offset, room.base_z),
     )
     for prop_type, key, offset_x, offset_y in CLASSROOM_DESKTOP_PROP_VARIANTS[
         variant_index
@@ -1089,9 +1146,7 @@ def build_common_area_rooms(
             (NORTH_CORRIDOR_SIGN_X[floor], 36.34, base_z),
             0.0,
         )
-        corridor.add_prop(
-            sources, "CleaningLocker", -3.15, 6.8, math.pi / 2
-        )
+        corridor.add_prop(sources, "CleaningLocker", *CORRIDOR_CLEANING_LOCKER)
         rooms.append(corridor)
 
     main_entry = RoomBuilder.create("F01_MainEntry", 0.0)
@@ -1212,7 +1267,7 @@ def build_school_rooms(
     staff.add_prop(sources, "CleaningLocker", *STAFFROOM_CLEANING_LOCKER)
     add_additional_prop(staff, "BulletinBoard", (14.4, 36.68, 0.0), math.pi)
     add_additional_prop(staff, "WallClock", (18.0, 36.67, 0.0), math.pi)
-    add_additional_prop(staff, "TrashBin", (22.7, 37.3, 0.0))
+    add_additional_prop(staff, "TrashBin", STAFFROOM_TRASH_BIN)
     add_desktop_prop(staff, sources, "PaperStack", 15.1, 40.65, 0.08, 0.72)
     rooms.append(staff)
 

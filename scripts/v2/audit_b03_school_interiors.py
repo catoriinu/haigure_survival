@@ -33,7 +33,10 @@ from build_b03_school_interiors import (
     CLASSROOM_REAR_INTERIOR_X_BOUNDS,
     CLASSROOM_REAR_LOCKER_Y,
     CLASSROOM_REAR_WALL_INNER_Y,
+    CLASSROOM_SCATTER_VARIANTS,
+    CLASSROOM_TRASH_BIN_PLACEMENT,
     COUNCIL_INTERIOR_BOUNDS,
+    CORRIDOR_CLEANING_LOCKER,
     FIRST_FLOOR_WEST_DOOR_OPENINGS,
     GYM_STAGE_LECTERN,
     LIBRARY_BOOKSHELF_PLACEMENTS,
@@ -52,11 +55,13 @@ from build_b03_school_interiors import (
     NORTH_CLASSROOM_DOOR_OPENINGS,
     NORTH_ENTRY_BAGGAGE_LOCKER,
     NORTH_ENTRY_UMBRELLA_STAND,
+    PROP_COLLIDER_LOCAL_CENTERS,
     PROP_COLLIDER_SIZES,
     ROOF_CHANGING_BAGGAGE_LOCKER_XS,
     ROOF_POOL_NORTH_SIGN_SUPPORT,
     STAFFROOM_CLEANING_LOCKER,
     STAFFROOM_INTERIOR_BOUNDS,
+    STAFFROOM_TRASH_BIN,
     TOILET_COMMON_OPENING,
     TOILET_FRONT_DOOR_HEIGHT,
     TOILET_FRONT_DOOR_OPENINGS,
@@ -244,9 +249,14 @@ def transformed_box_bounds(
         origin[1] + local_x * sine + local_y * cosine,
         origin[2] + local_z,
     )
-    if abs(sine) > 0.5:
-        size = (size[1], size[0], size[2])
-    return box_bounds(center, size)
+    absolute_cosine = abs(cosine)
+    absolute_sine = abs(sine)
+    rotated_size = (
+        size[0] * absolute_cosine + size[1] * absolute_sine,
+        size[0] * absolute_sine + size[1] * absolute_cosine,
+        size[2],
+    )
+    return box_bounds(center, rotated_size)
 
 
 def dimensions_match(
@@ -400,6 +410,34 @@ def audit_door_clearance(interior_colliders: list[bpy.types.Object]) -> int:
             "出入口前へ通行不能小物が侵入しています:\n" + "\n".join(violations)
         )
     return len(clearances) * len(collider_components)
+
+
+def audit_visual_door_clearance(interior_visuals: list[bpy.types.Object]) -> int:
+    clearances = door_clearance_volumes()
+    furniture_components = [
+        (visual.name, component_index, minimum, maximum)
+        for visual in interior_visuals
+        if visual.name.endswith("_FurnitureProps")
+        for component_index, (minimum, maximum) in enumerate(
+            connected_component_aabbs(visual),
+            1,
+        )
+    ]
+    violations = []
+    for label, clearance_minimum, clearance_maximum in clearances:
+        for object_name, component_index, minimum, maximum in furniture_components:
+            if aabb_overlaps(
+                clearance_minimum,
+                clearance_maximum,
+                minimum,
+                maximum,
+            ):
+                violations.append(f"{label}/{object_name}#{component_index}")
+    if violations:
+        raise RuntimeError(
+            "出入口前へ表示小物が侵入しています:\n" + "\n".join(violations)
+        )
+    return len(clearances) * len(furniture_components)
 
 
 def room_sign_components() -> list[tuple[str, int, Vector, Vector]]:
@@ -595,6 +633,82 @@ def require_component_bounds(
         raise RuntimeError(f"{label}のAABBが見つかりません: {expected}")
 
 
+def require_bounds_contained(
+    label: str,
+    container: tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ],
+    contents: list[tuple[Vector, Vector]],
+    tolerance: float = 1e-4,
+) -> int:
+    violations = [
+        (minimum.copy(), maximum.copy())
+        for minimum, maximum in contents
+        if any(
+            minimum[axis] < container[0][axis] - tolerance
+            or maximum[axis] > container[1][axis] + tolerance
+            for axis in range(3)
+        )
+    ]
+    if violations:
+        raise RuntimeError(
+            f"{label}がCollider AABBからはみ出しています: {violations}"
+        )
+    return len(contents)
+
+
+def component_union_bounds(
+    components: list[tuple[Vector, Vector]],
+) -> tuple[Vector, Vector]:
+    if not components:
+        raise RuntimeError("AABB合成対象の表示componentがありません")
+    return (
+        Vector(
+            tuple(
+                min(minimum[axis] for minimum, _maximum in components)
+                for axis in range(3)
+            )
+        ),
+        Vector(
+            tuple(
+                max(maximum[axis] for _minimum, maximum in components)
+                for axis in range(3)
+            )
+        ),
+    )
+
+
+def architecture_wall_component_aabbs() -> list[tuple[str, int, Vector, Vector]]:
+    return [
+        (obj.name, component_index, minimum, maximum)
+        for obj in bpy.data.objects
+        if obj.type == "MESH" and is_architecture_wall_collider(obj)
+        for component_index, (minimum, maximum) in enumerate(
+            connected_component_aabbs(obj),
+            1,
+        )
+    ]
+
+
+def require_no_architecture_wall_overlap(
+    label: str,
+    bounds: tuple[Vector, Vector],
+    wall_components: list[tuple[str, int, Vector, Vector]],
+) -> int:
+    minimum, maximum = bounds
+    violations = [
+        f"{wall_name}#{component_index}"
+        for wall_name, component_index, wall_minimum, wall_maximum in wall_components
+        if aabb_overlaps(minimum, maximum, wall_minimum, wall_maximum)
+    ]
+    if violations:
+        raise RuntimeError(
+            f"{label}が建築壁へ重なっています: {', '.join(violations)}"
+        )
+    return len(wall_components)
+
+
 def audit_storey_band_swatches() -> int:
     expected_colors = {
         "floor_1": (198, 151, 53),
@@ -678,6 +792,7 @@ def audit_classroom_teacher_desks_and_lockers() -> dict[str, int]:
     placement_checks = 0
     bulletin_board_absence_checks = 0
     blackboard_alignment_checks = 0
+    desk_collider_checks = 0
     blackboard_x = -8.05
     for floor, base_z in ((2, 3.6), (3, 7.2), (4, 10.8)):
         for room_index, room_y_offset in enumerate((0.0, 10.0, 20.0), 1):
@@ -688,6 +803,29 @@ def audit_classroom_teacher_desks_and_lockers() -> dict[str, int]:
             collider = bpy.data.objects[f"COL_B03_Interior_{room_name}"]
             visual_components = connected_component_aabbs(visual)
             collider_components = connected_component_aabbs(collider)
+            variant_index = (floor + room_index) % len(CLASSROOM_SCATTER_VARIANTS)
+            rotations = CLASSROOM_SCATTER_VARIANTS[variant_index]
+            for row in range(6):
+                for column in range(5):
+                    desk_x = -11.15 + column * 1.42
+                    desk_y = 4.5 + room_y_offset + row * 1.22
+                    rotation = rotations.get((column, row), 0.0)
+                    expected_desk_bounds = transformed_box_bounds(
+                        (desk_x, desk_y, base_z),
+                        (
+                            0.0,
+                            0.0,
+                            PROP_COLLIDER_SIZES["ClassroomDesk"][2] / 2.0,
+                        ),
+                        PROP_COLLIDER_SIZES["ClassroomDesk"],
+                        rotation,
+                    )
+                    require_component_bounds(
+                        f"{room_name} 生徒机Collider",
+                        collider_components,
+                        expected_desk_bounds,
+                    )
+                    desk_collider_checks += 1
             teacher_y = 11.25 + room_y_offset
             teacher_bounds = box_bounds(
                 (blackboard_x, teacher_y, base_z + 0.36),
@@ -806,7 +944,7 @@ def audit_classroom_teacher_desks_and_lockers() -> dict[str, int]:
                 (
                     (
                         CLASSROOM_REAR_CLEANING_X - 0.01,
-                        locker_y + 0.207,
+                        locker_y + 0.225,
                         base_z + 0.06,
                     ),
                     (
@@ -838,6 +976,7 @@ def audit_classroom_teacher_desks_and_lockers() -> dict[str, int]:
         "placement_checks": placement_checks,
         "bulletin_board_absence_checks": bulletin_board_absence_checks,
         "blackboard_alignment_checks": blackboard_alignment_checks,
+        "desk_collider_checks": desk_collider_checks,
     }
 
 
@@ -1096,9 +1235,11 @@ def audit_ll_room_placement() -> dict[str, int]:
         )
         for x in LL_BAGGAGE_LOCKER_XS
     )
-    expected_colliders.append(
-        box_bounds((LL_AV_RACK[0], LL_AV_RACK[1], 11.55), (0.7, 0.5, 1.5))
+    ll_av_rack_collider = box_bounds(
+        (LL_AV_RACK[0], LL_AV_RACK[1] - 0.0125, 11.55),
+        (0.7, 0.525, 1.5),
     )
+    expected_colliders.append(ll_av_rack_collider)
     if len(collider_components) != len(expected_colliders):
         raise RuntimeError(
             f"4階LL室Collider数が不正です: "
@@ -1106,6 +1247,28 @@ def audit_ll_room_placement() -> dict[str, int]:
         )
     for expected in expected_colliders:
         require_component_bounds("4階LL室家具Collider", collider_components, expected)
+    ll_av_rack_visuals = [
+        transformed_box_bounds(
+            (LL_AV_RACK[0], LL_AV_RACK[1], 10.8),
+            local_center,
+            size,
+            0.0,
+        )
+        for local_center, size in (
+            ((0.0, 0.0, 0.75), (0.7, 0.5, 1.5)),
+            ((0.0, -0.26, 0.9), (0.52, 0.03, 0.3)),
+        )
+    ]
+    for expected in ll_av_rack_visuals:
+        require_component_bounds("4階LL室AVラック表示", visual_components, expected)
+    ll_av_rack_visual_containment = require_bounds_contained(
+        "4階LL室AVラック表示",
+        ll_av_rack_collider,
+        [
+            (Vector(minimum), Vector(maximum))
+            for minimum, maximum in ll_av_rack_visuals
+        ],
+    )
 
     overlaps = [
         (first_index, second_index)
@@ -1147,6 +1310,7 @@ def audit_ll_room_placement() -> dict[str, int]:
     return {
         "visual_components": len(visual_components),
         "colliders": len(collider_components),
+        "av_rack_visual_containment": ll_av_rack_visual_containment,
         "furniture_overlap_checks": (
             len(collider_components) * (len(collider_components) - 1) // 2
         ),
@@ -1184,12 +1348,38 @@ def audit_music_room_orientation() -> dict[str, int]:
         (Vector(piano_collider_bounds[0]), Vector(piano_collider_bounds[1])),
         (
             (39.675, 41.725, 10.8),
-            (41.125, 43.275, 11.76),
+            (41.125, 43.275, 11.8),
         ),
     ):
         raise RuntimeError(
             f"音楽室ピアノColliderの確定AABBが不正です: {piano_collider_bounds}"
         )
+    piano_visual_components = [
+        (minimum, maximum)
+        for minimum, maximum in visual_components
+        if all(
+            piano_collider_bounds[0][axis] - 1e-4
+            <= (minimum[axis] + maximum[axis]) / 2.0
+            <= piano_collider_bounds[1][axis] + 1e-4
+            for axis in range(3)
+        )
+    ]
+    if len(piano_visual_components) != 9:
+        raise RuntimeError(
+            "音楽室ピアノの表示9部品をCollider内で特定できません: "
+            f"{len(piano_visual_components)}/9"
+        )
+    piano_visual_union = component_union_bounds(piano_visual_components)
+    if not bounds_match(piano_visual_union, piano_collider_bounds):
+        raise RuntimeError(
+            "音楽室ピアノ表示の合成AABBがColliderと一致しません: "
+            f"{piano_visual_union}/{piano_collider_bounds}"
+        )
+    piano_visual_containment = require_bounds_contained(
+        "音楽室ピアノ表示",
+        piano_collider_bounds,
+        piano_visual_components,
+    )
 
     keyboard_bounds = transformed_box_bounds(
         (piano_x, piano_y, 10.8),
@@ -1251,6 +1441,7 @@ def audit_music_room_orientation() -> dict[str, int]:
     return {
         "piano_collider": 1,
         "piano_keyboard": 1,
+        "piano_visual_containment": piano_visual_containment,
         "chair_backs": chair_back_checks,
         "blackboard_clearance_mm": round(blackboard_gap * 1000),
         "door_clearance_mm": round(door_clearance * 1000),
@@ -1475,9 +1666,94 @@ def audit_toilet_front_structures() -> dict[str, int]:
     }
 
 
-def audit_broadcast_orientation() -> int:
+def audit_broadcast_orientation() -> dict[str, int]:
     visual = bpy.data.objects["VIS_B03_Interior_F02_Broadcast_FurnitureProps"]
+    collider = bpy.data.objects["COL_B03_Interior_F02_Broadcast"]
     components = connected_component_aabbs(visual)
+    collider_components = connected_component_aabbs(collider)
+    console_origin = (18.8, 41.2, 3.6)
+    console_rotation = math.pi
+    console_collider_bounds = transformed_box_bounds(
+        console_origin,
+        (0.0, 0.0, 0.545),
+        (1.6, 0.75, 1.09),
+        console_rotation,
+    )
+    require_component_bounds(
+        "放送卓Collider",
+        collider_components,
+        console_collider_bounds,
+    )
+    console_visual_bounds = [
+        transformed_box_bounds(
+            console_origin,
+            local_center,
+            size,
+            console_rotation,
+        )
+        for local_center, size in (
+            ((0.0, 0.0, 0.36), (1.6, 0.75, 0.72)),
+            ((0.0, -0.04, 0.76), (1.45, 0.55, 0.08)),
+            ((0.0, 0.20, 0.94), (1.35, 0.08, 0.30)),
+            ((-0.48, -0.12, 0.82), (0.18, 0.12, 0.03)),
+            ((-0.16, -0.12, 0.82), (0.18, 0.12, 0.03)),
+            ((0.16, -0.12, 0.82), (0.18, 0.12, 0.03)),
+            ((0.48, -0.12, 0.82), (0.18, 0.12, 0.03)),
+        )
+    ]
+    for expected in console_visual_bounds:
+        require_component_bounds("放送卓表示", components, expected)
+    console_visual_components = [
+        (Vector(minimum), Vector(maximum))
+        for minimum, maximum in console_visual_bounds
+    ]
+    console_visual_containment = require_bounds_contained(
+        "放送卓表示",
+        console_collider_bounds,
+        console_visual_components,
+    )
+    if not bounds_match(
+        component_union_bounds(console_visual_components),
+        console_collider_bounds,
+    ):
+        raise RuntimeError("放送卓表示の合成AABBがColliderと一致しません")
+
+    av_rack_origin = (15.2, 44.7, 3.6)
+    av_rack_collider_bounds = transformed_box_bounds(
+        av_rack_origin,
+        (0.0, -0.0125, 0.75),
+        (0.7, 0.525, 1.5),
+        0.0,
+    )
+    require_component_bounds(
+        "放送室AVラックCollider",
+        collider_components,
+        av_rack_collider_bounds,
+    )
+    av_rack_visual_bounds = [
+        transformed_box_bounds(av_rack_origin, local_center, size, 0.0)
+        for local_center, size in (
+            ((0.0, 0.0, 0.75), (0.7, 0.5, 1.5)),
+            ((0.0, -0.26, 0.9), (0.52, 0.03, 0.3)),
+        )
+    ]
+    for expected in av_rack_visual_bounds:
+        require_component_bounds("放送室AVラック表示", components, expected)
+    av_rack_visual_components = [
+        (Vector(minimum), Vector(maximum))
+        for minimum, maximum in av_rack_visual_bounds
+    ]
+    av_rack_visual_containment = require_bounds_contained(
+        "放送室AVラック表示",
+        av_rack_collider_bounds,
+        av_rack_visual_components,
+    )
+    if not bounds_match(
+        component_union_bounds(av_rack_visual_components),
+        av_rack_collider_bounds,
+    ):
+        raise RuntimeError("放送室AVラック表示の合成AABBがColliderと一致しません")
+
     controls = [
         (minimum, maximum)
         for minimum, maximum in components
@@ -1491,12 +1767,12 @@ def audit_broadcast_orientation() -> int:
     monitor_bodies = [
         (minimum, maximum)
         for minimum, maximum in components
-        if dimensions_match(minimum, maximum, (0.55, 0.06, 0.32))
+        if dimensions_match(minimum, maximum, (0.55, 0.058, 0.32))
     ]
     monitor_screens = [
         (minimum, maximum)
         for minimum, maximum in components
-        if dimensions_match(minimum, maximum, (0.49, 0.012, 0.265))
+        if dimensions_match(minimum, maximum, (0.49, 0.0, 0.265))
     ]
     if len(monitor_bodies) != 2 or len(monitor_screens) != 2:
         raise RuntimeError("放送卓のモニター構成が不正です")
@@ -1512,7 +1788,11 @@ def audit_broadcast_orientation() -> int:
         body_minimum, body_maximum = matching_bodies[0]
         if screen_center.y <= (body_minimum.y + body_maximum.y) / 2.0:
             raise RuntimeError("放送卓モニターの画面が椅子側を向いていません")
-    return len(controls) + len(monitor_screens)
+    return {
+        "controls_and_screens": len(controls) + len(monitor_screens),
+        "console_visual_containment": console_visual_containment,
+        "av_rack_visual_containment": av_rack_visual_containment,
+    }
 
 
 def audit_council_placement() -> int:
@@ -1534,7 +1814,12 @@ def audit_council_placement() -> int:
     expected_colliders = (
         box_bounds((8.4, 41.0, 3.96), (1.80, 0.90, 0.72)),
         box_bounds((10.2, 41.0, 3.96), (1.80, 0.90, 0.72)),
-        box_bounds((12.5, 44.2, 3.96), (1.40, 0.70, 0.72)),
+        transformed_box_bounds(
+            (12.5, 44.2, 3.6),
+            PROP_COLLIDER_LOCAL_CENTERS["StaffDesk"],
+            PROP_COLLIDER_SIZES["StaffDesk"],
+            0.0,
+        ),
         box_bounds((6.45, 45.125, 4.20), (1.80, 0.45, 1.20)),
     )
     if len(collider_components) != len(expected_colliders):
@@ -1544,6 +1829,140 @@ def audit_council_placement() -> int:
     for expected in expected_colliders:
         require_component_bounds("生徒会室家具Collider", collider_components, expected)
     return len(visual_components) + len(collider_components)
+
+
+def audit_staff_desk_collider_contract() -> dict[str, int]:
+    staff_desk_size = PROP_COLLIDER_SIZES["StaffDesk"]
+    staff_desk_local_center = PROP_COLLIDER_LOCAL_CENTERS["StaffDesk"]
+    if any(
+        abs(actual - expected) > 1e-9
+        for actual, expected in zip(staff_desk_size, (1.40, 0.71, 0.72))
+    ):
+        raise RuntimeError(
+            f"職員机Collider寸法が表示外形と一致しません: {staff_desk_size}"
+        )
+    if any(
+        abs(actual - expected) > 1e-9
+        for actual, expected in zip(
+            staff_desk_local_center,
+            (0.0, -0.005, 0.36),
+        )
+    ):
+        raise RuntimeError(
+            "職員机Collider中心が表示外形と一致しません: "
+            f"{staff_desk_local_center}"
+        )
+
+    visual_parts = (
+        ((0.0, 0.0, 0.70), (1.40, 0.70, 0.04)),
+        ((-0.50, 0.0, 0.33), (0.34, 0.62, 0.66)),
+        ((0.50, 0.0, 0.33), (0.34, 0.62, 0.66)),
+        ((0.0, 0.3325, 0.43), (0.66, 0.035, 0.36)),
+        ((-0.50, -0.32, 0.51), (0.025, 0.08, 0.02)),
+        ((0.50, -0.32, 0.51), (0.025, 0.08, 0.02)),
+    )
+
+    visual_containment_checks = 0
+    collider_checks = 0
+
+    def audit_instance(
+        label: str,
+        room_name: str,
+        origin: tuple[float, float, float],
+        rotation: float,
+    ) -> tuple[Vector, Vector]:
+        nonlocal visual_containment_checks, collider_checks
+        visual_components = connected_component_aabbs(
+            bpy.data.objects[f"VIS_B03_Interior_{room_name}_FurnitureProps"]
+        )
+        collider_components = connected_component_aabbs(
+            bpy.data.objects[f"COL_B03_Interior_{room_name}"]
+        )
+        collider_bounds = transformed_box_bounds(
+            origin,
+            staff_desk_local_center,
+            staff_desk_size,
+            rotation,
+        )
+        require_component_bounds(
+            f"{label}職員机Collider",
+            collider_components,
+            collider_bounds,
+        )
+        expected_visuals = [
+            transformed_box_bounds(origin, local_center, size, rotation)
+            for local_center, size in visual_parts
+        ]
+        for expected in expected_visuals:
+            require_component_bounds(f"{label}職員机表示", visual_components, expected)
+        visual_containment_checks += require_bounds_contained(
+            f"{label}職員机表示",
+            collider_bounds,
+            [
+                (Vector(minimum), Vector(maximum))
+                for minimum, maximum in expected_visuals
+            ],
+        )
+        if not bounds_match(
+            component_union_bounds(
+                [
+                    (Vector(minimum), Vector(maximum))
+                    for minimum, maximum in expected_visuals
+                ]
+            ),
+            collider_bounds,
+        ):
+            raise RuntimeError(f"{label}職員机表示の合成AABBがColliderと一致しません")
+        collider_checks += 1
+        return Vector(collider_bounds[0]), Vector(collider_bounds[1])
+
+    staffroom_colliders: list[tuple[Vector, Vector]] = []
+    for island_x in (7.2, 14.4, 21.0):
+        for row, desk_y in enumerate((40.65, 41.35)):
+            rotation = 0.0 if row == 0 else math.pi
+            for desk_x in (island_x - 0.7, island_x + 0.7):
+                staffroom_colliders.append(
+                    audit_instance(
+                        "職員室",
+                        "F01_StaffRoom",
+                        (desk_x, desk_y, 0.0),
+                        rotation,
+                    )
+                )
+
+    overlap_pairs = [
+        (first_index, second_index)
+        for first_index, (first_minimum, first_maximum) in enumerate(
+            staffroom_colliders,
+            1,
+        )
+        for second_index, (second_minimum, second_maximum) in enumerate(
+            staffroom_colliders[first_index:],
+            first_index + 1,
+        )
+        if aabb_overlaps(
+            first_minimum,
+            first_maximum,
+            second_minimum,
+            second_maximum,
+        )
+    ]
+    if overlap_pairs:
+        raise RuntimeError(
+            f"職員室の職員机Colliderが重複しています: {overlap_pairs}"
+        )
+
+    audit_instance(
+        "保健室",
+        "F01_Infirmary",
+        (-6.2, 5.2, 0.0),
+        math.pi / 2,
+    )
+    return {
+        "collider_checks": collider_checks,
+        "visual_containment_checks": visual_containment_checks,
+        "staffroom_overlap_pairs": len(overlap_pairs),
+    }
 
 
 def audit_acceptance_placements() -> dict[str, int]:
@@ -1670,8 +2089,13 @@ def audit_acceptance_placements() -> dict[str, int]:
 
     gym_collider = bpy.data.objects["COL_B03_Interior_Gym"]
     lectern_size = PROP_COLLIDER_SIZES["StageLectern"]
+    lectern_local_center = PROP_COLLIDER_LOCAL_CENTERS["StageLectern"]
     expected_lectern_collider = box_bounds(
-        (lectern_x, lectern_y, lectern_z + lectern_size[2] / 2.0),
+        (
+            lectern_x + lectern_local_center[0],
+            lectern_y + lectern_local_center[1],
+            lectern_z + lectern_local_center[2],
+        ),
         lectern_size,
     )
     if not any(
@@ -1679,6 +2103,21 @@ def audit_acceptance_placements() -> dict[str, int]:
         for component in connected_component_aabbs(gym_collider)
     ):
         raise RuntimeError("演説机Colliderが舞台上にありません")
+    if len(lectern_components) != 5:
+        raise RuntimeError(
+            f"演説机の表示5部品を特定できません: {len(lectern_components)}/5"
+        )
+    lectern_visual_containment = require_bounds_contained(
+        "演説机表示",
+        expected_lectern_collider,
+        lectern_components,
+    )
+    lectern_visual_union = component_union_bounds(lectern_components)
+    if not bounds_match(lectern_visual_union, expected_lectern_collider):
+        raise RuntimeError(
+            "演説机表示の合成AABBがColliderと一致しません: "
+            f"{lectern_visual_union}/{expected_lectern_collider}"
+        )
 
     return {
         "main_entry": len(main_components),
@@ -1687,15 +2126,161 @@ def audit_acceptance_placements() -> dict[str, int]:
         "north_entry_colliders": len(north_locker_collider_components),
         "staffroom": 1,
         "gym": len(expected_backboards) + 2,
+        "lectern_visual_containment": lectern_visual_containment,
+    }
+
+
+def audit_refactored_furniture_placements() -> dict[str, int]:
+    if tuple(CORRIDOR_CLEANING_LOCKER) != (-3.125, 6.8, math.pi / 2):
+        raise RuntimeError("廊下掃除ロッカーの確定配置が変化しています")
+    if tuple(CLASSROOM_TRASH_BIN_PLACEMENT) != (-3.8, 7.5):
+        raise RuntimeError("普通教室ごみ箱の確定配置が変化しています")
+    if tuple(STAFFROOM_TRASH_BIN) != (19.0, 36.8, 0.0):
+        raise RuntimeError("職員室ごみ箱の確定配置が変化しています")
+
+    wall_components = architecture_wall_component_aabbs()
+    placement_checks = 0
+    wall_overlap_checks = 0
+    corridor_x, corridor_y, corridor_rotation = CORRIDOR_CLEANING_LOCKER
+    for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
+        corridor_bounds = transformed_box_bounds(
+            (corridor_x, corridor_y, base_z),
+            (
+                0.0,
+                0.0,
+                PROP_COLLIDER_SIZES["CleaningLocker"][2] / 2.0,
+            ),
+            PROP_COLLIDER_SIZES["CleaningLocker"],
+            corridor_rotation,
+        )
+        collider_components = connected_component_aabbs(
+            bpy.data.objects[f"COL_B03_Interior_F{floor:02d}_Corridors"]
+        )
+        visual_components = connected_component_aabbs(
+            bpy.data.objects[
+                f"VIS_B03_Interior_F{floor:02d}_Corridors_FurnitureProps"
+            ]
+        )
+        require_component_bounds(
+            f"F{floor:02d}廊下掃除ロッカーCollider",
+            collider_components,
+            corridor_bounds,
+        )
+        corridor_visual_body = transformed_box_bounds(
+            (corridor_x, corridor_y, base_z),
+            (0.0, 0.001, 0.90),
+            (0.90, 0.448, 1.80),
+            corridor_rotation,
+        )
+        corridor_visual_front_seam = transformed_box_bounds(
+            (corridor_x, corridor_y, base_z),
+            (0.0, -0.225, 0.90),
+            (0.02, 0.0, 1.68),
+            corridor_rotation,
+        )
+        require_component_bounds(
+            f"F{floor:02d}廊下掃除ロッカー表示本体",
+            visual_components,
+            corridor_visual_body,
+        )
+        require_component_bounds(
+            f"F{floor:02d}廊下掃除ロッカー正面継ぎ目",
+            visual_components,
+            corridor_visual_front_seam,
+        )
+        corridor_visual_components = [
+            (minimum, maximum)
+            for minimum, maximum in visual_components
+            if all(
+                corridor_bounds[0][axis] - 1e-4
+                <= (minimum[axis] + maximum[axis]) / 2.0
+                <= corridor_bounds[1][axis] + 1e-4
+                for axis in range(3)
+            )
+        ]
+        if len(corridor_visual_components) != 10:
+            raise RuntimeError(
+                f"F{floor:02d}廊下掃除ロッカーの表示10部品を"
+                "Collider内で特定できません: "
+                f"{len(corridor_visual_components)}/10"
+            )
+        require_bounds_contained(
+            f"F{floor:02d}廊下掃除ロッカー表示",
+            corridor_bounds,
+            corridor_visual_components,
+        )
+        wall_overlap_checks += require_no_architecture_wall_overlap(
+            f"F{floor:02d}廊下掃除ロッカー",
+            (Vector(corridor_bounds[0]), Vector(corridor_bounds[1])),
+            wall_components,
+        )
+        placement_checks += 2 + len(corridor_visual_components)
+
+    trash_x, trash_y = CLASSROOM_TRASH_BIN_PLACEMENT
+    trash_size = (0.3, 0.3, 0.5)
+    for floor, base_z in ((2, 3.6), (3, 7.2), (4, 10.8)):
+        for room_index, room_y_offset in enumerate((0.0, 10.0, 20.0), 1):
+            trash_bounds = box_bounds(
+                (
+                    trash_x,
+                    trash_y + room_y_offset,
+                    base_z + trash_size[2] / 2.0,
+                ),
+                trash_size,
+            )
+            visual_components = connected_component_aabbs(
+                bpy.data.objects[
+                    f"VIS_B03_Interior_F{floor:02d}_Classroom"
+                    f"{room_index:02d}_FurnitureProps"
+                ]
+            )
+            require_component_bounds(
+                f"F{floor:02d}普通教室{room_index:02d}ごみ箱",
+                visual_components,
+                trash_bounds,
+            )
+            wall_overlap_checks += require_no_architecture_wall_overlap(
+                f"F{floor:02d}普通教室{room_index:02d}ごみ箱",
+                (Vector(trash_bounds[0]), Vector(trash_bounds[1])),
+                wall_components,
+            )
+            placement_checks += 1
+
+    staff_x, staff_y, staff_z = STAFFROOM_TRASH_BIN
+    staff_trash_bounds = box_bounds(
+        (staff_x, staff_y, staff_z + trash_size[2] / 2.0),
+        trash_size,
+    )
+    staff_components = connected_component_aabbs(
+        bpy.data.objects["VIS_B03_Interior_F01_StaffRoom_FurnitureProps"]
+    )
+    require_component_bounds(
+        "職員室ごみ箱",
+        staff_components,
+        staff_trash_bounds,
+    )
+    wall_overlap_checks += require_no_architecture_wall_overlap(
+        "職員室ごみ箱",
+        (Vector(staff_trash_bounds[0]), Vector(staff_trash_bounds[1])),
+        wall_components,
+    )
+    placement_checks += 1
+
+    return {
+        "placements": placement_checks,
+        "wall_overlap_checks": wall_overlap_checks,
     }
 
 
 def audit_roof_changing_lockers() -> dict[str, int]:
-    expected_locker_xs = (-5.4, -3.1, -0.8, 1.3)
+    expected_locker_xs = (-5.4, -3.16, -0.8, 1.19)
     if tuple(ROOF_CHANGING_BAGGAGE_LOCKER_XS) != expected_locker_xs:
         raise RuntimeError("屋上男女更衣室ロッカー4台の確定座標が変化しています")
     collider = bpy.data.objects["COL_B03_Interior_RoofChanging"]
     collider_components = connected_component_aabbs(collider)
+    visual_components = connected_component_aabbs(
+        bpy.data.objects["VIS_B03_Interior_RoofChanging_FurnitureProps"]
+    )
     expected_lockers = [
         (
             Vector(minimum),
@@ -1732,6 +2317,22 @@ def audit_roof_changing_lockers() -> dict[str, int]:
                 tuple(expected_maximum),
             ),
         )
+        require_component_bounds(
+            "屋上男女更衣室の荷物ロッカー背板",
+            visual_components,
+            (
+                (
+                    expected_minimum.x,
+                    44.985,
+                    expected_minimum.z,
+                ),
+                (
+                    expected_maximum.x,
+                    45.025,
+                    expected_maximum.z,
+                ),
+            ),
+        )
     overlap_checks = 0
     for index, (minimum, maximum) in enumerate(expected_lockers):
         for other_minimum, other_maximum in expected_lockers[index + 1 :]:
@@ -1743,6 +2344,15 @@ def audit_roof_changing_lockers() -> dict[str, int]:
             ):
                 raise RuntimeError("屋上男女更衣室の荷物ロッカー同士が重なっています")
             overlap_checks += 1
+
+    wall_components = architecture_wall_component_aabbs()
+    wall_overlap_checks = 0
+    for index, bounds in enumerate(expected_lockers, 1):
+        wall_overlap_checks += require_no_architecture_wall_overlap(
+            f"屋上男女更衣室の荷物ロッカー{index:02d}",
+            bounds,
+            wall_components,
+        )
 
     for old_x in (3.0, 4.2):
         old_cleaning_bounds = box_bounds(
@@ -1775,7 +2385,9 @@ def audit_roof_changing_lockers() -> dict[str, int]:
 
     return {
         "baggage_lockers": len(actual_lockers),
+        "visual_back_panels": len(expected_lockers),
         "overlap_checks": overlap_checks,
+        "wall_overlap_checks": wall_overlap_checks,
         "removed_cleaning_lockers": 2,
         "removed_legacy_objects": len(legacy_names),
     }
@@ -1903,8 +2515,8 @@ def audit_link_clearance(interior_colliders: list[bpy.types.Object]) -> int:
 def main() -> None:
     if Path(bpy.data.filepath).resolve() != BLEND_PATH.resolve():
         raise RuntimeError(f"B03-2対象外のBlenderファイルです: {bpy.data.filepath}")
-    if len(ADDITIONAL_PROP_TYPES) != 24 or len(set(ADDITIONAL_PROP_TYPES)) != 24:
-        raise RuntimeError("追加小物カタログが24種ではありません")
+    if len(ADDITIONAL_PROP_TYPES) != 23 or len(set(ADDITIONAL_PROP_TYPES)) != 23:
+        raise RuntimeError("追加小物カタログが23種ではありません")
 
     atlas_results = {}
     for definition in ATLAS_DEFINITIONS.values():
@@ -1971,6 +2583,7 @@ def main() -> None:
             or classroom_counts.get("BaggageLocker") != 3
             or classroom_counts.get("CleaningLocker") != 1
             or classroom_counts.get("TeacherDesk") != 1
+            or classroom_counts.get("TrashBin") != 1
             or classroom_counts.get("BulletinBoard", 0) != 0
         ):
             raise RuntimeError(f"普通教室の必須家具数が不正です: {room_name}")
@@ -2006,6 +2619,7 @@ def main() -> None:
             "PcMonitor": 6,
             "Bookshelf": 2,
             "CleaningLocker": 1,
+            "TrashBin": 1,
         },
         "F01_PcRoom": {
             "StaffDesk": 18,
@@ -2195,12 +2809,15 @@ def main() -> None:
     toilet_front_structures = audit_toilet_front_structures()
     broadcast_orientation_checks = audit_broadcast_orientation()
     council_placement_checks = audit_council_placement()
+    staff_desk_collider_contract = audit_staff_desk_collider_contract()
     roof_changing_lockers = audit_roof_changing_lockers()
     roof_pool_north_sign_support = audit_roof_pool_north_sign_support()
     door_clearance_checks = audit_door_clearance(interior_colliders)
+    visual_door_clearance_checks = audit_visual_door_clearance(interior_visuals)
     door_sign_clearance_checks = audit_door_sign_clearance()
     room_sign_wall_support_checks = audit_room_sign_wall_support()
     acceptance_placements = audit_acceptance_placements()
+    refactored_furniture_placements = audit_refactored_furniture_placements()
     link_clearance_checks = audit_link_clearance(interior_colliders)
 
     gltf, binary_length = read_glb_json(GLB_PATH)
@@ -2244,13 +2861,16 @@ def main() -> None:
         "toilet_front_structures": toilet_front_structures,
         "broadcast_orientation_checks": broadcast_orientation_checks,
         "council_placement_checks": council_placement_checks,
+        "staff_desk_collider_contract": staff_desk_collider_contract,
         "roof_changing_lockers": roof_changing_lockers,
         "roof_pool_north_sign_support": roof_pool_north_sign_support,
         "link_clearance_checks": link_clearance_checks,
         "door_clearance_checks": door_clearance_checks,
+        "visual_door_clearance_checks": visual_door_clearance_checks,
         "door_sign_clearance_checks": door_sign_clearance_checks,
         "room_sign_wall_support_checks": room_sign_wall_support_checks,
         "acceptance_placements": acceptance_placements,
+        "refactored_furniture_placements": refactored_furniture_placements,
         "glb": {
             "bytes": GLB_PATH.stat().st_size,
             "sha256": sha256(GLB_PATH),

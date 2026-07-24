@@ -30,7 +30,11 @@ from build_b03_school_interiors import (
     NORTH_CLASSROOM_DOOR_OPENINGS,
     ROOF_POOL_NORTH_SIGN_SUPPORT,
     TOILET_COMMON_OPENING,
+    TOILET_FRONT_DOOR_HEIGHT,
     TOILET_FRONT_DOOR_OPENINGS,
+    TOILET_FRONT_WALL_DEPTH,
+    TOILET_FRONT_WALL_SPANS,
+    TOILET_FRONT_WALL_Y,
     UPPER_WEST_CLASSROOM_DOOR_OPENINGS,
     swatch_uv,
 )
@@ -48,16 +52,24 @@ PROP_LIBRARY_PATH = (
 )
 
 EXPECTED_NAVMESH_SHA256 = (
-    "F80AC812B13D6E6D27B98E8DEBB8F3BDF9891140083E74E393B7A32FE08E30DC"
+    "0FCF0B136D41E23202925EB8821270C39D18EFEE37A5146F20C9BFA97C03C869"
 )
 EXPECTED_PROP_LIBRARY_SHA256 = (
-    "898E4E43D39B470F6ECE344272192A45A26EBAF3F2477BF9F3D1D95DC3EB65DB"
+    "560974D7FABAAE9D7FC89FB563F4EEB3964866D8B33EE2C138FF1020C414514C"
 )
+EXPECTED_PACKED_ATLAS_PATHS = {
+    image_name: REPOSITORY_ROOT / "assets/textures/v2/B03" / image_name
+    for image_name in (
+        "b03_architecture_atlas.png",
+        "b03_furniture_props_atlas.png",
+        "b03_signs_paper_atlas.png",
+    )
+}
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "t04-2b-acceptance-v05"
-EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v08"
+EXPECTED_GENERATOR_VERSION = "t04-2b-asset-refactor-v01"
+EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v09"
 
 GATE_VISUAL_SPECS = (
     ("VIS_Gate_MainClosed", "X", 19.4, 25.4, -12.5),
@@ -390,6 +402,32 @@ def audit_architecture_atlas_rgb() -> int:
             f"Architecture AtlasのRGBが不正です: cell=({column},{row_from_top}), actual={actual}, expected={expected}",
         )
     return len(expected_cells)
+
+
+def audit_packed_atlas_paths() -> int:
+    for image_name, expected_path in EXPECTED_PACKED_ATLAS_PATHS.items():
+        image = bpy.data.images.get(image_name)
+        require(image is not None, f"Atlas Imageがありません: {image_name}")
+        require(image.packed_file is not None, f"Atlasがpackされていません: {image_name}")
+        require(
+            image.filepath.startswith("//"),
+            f"Atlas filepathがリポジトリ相対ではありません: {image_name}",
+        )
+        require(
+            image.filepath_raw.startswith("//"),
+            f"Atlas filepath_rawがリポジトリ相対ではありません: {image_name}",
+        )
+        require(
+            Path(bpy.path.abspath(image.filepath)).resolve()
+            == expected_path.resolve(),
+            f"Atlas filepathの参照先が不正です: {image_name}",
+        )
+        require(
+            Path(bpy.path.abspath(image.filepath_raw)).resolve()
+            == expected_path.resolve(),
+            f"Atlas filepath_rawの参照先が不正です: {image_name}",
+        )
+    return len(EXPECTED_PACKED_ATLAS_PATHS)
 
 
 def expected_band_segments(
@@ -1278,8 +1316,50 @@ def audit_upper_nav_blocker_boundaries() -> dict[str, int]:
     return {"special_room_boundary_walls": len(expected_boundary_walls)}
 
 
+def audit_first_floor_nav_blocker_deduplication() -> dict[str, int]:
+    half_depth = TOILET_FRONT_WALL_DEPTH / 2.0
+    expected_bounds = tuple(
+        (
+            (minimum_x, TOILET_FRONT_WALL_Y - half_depth, 0.0),
+            (maximum_x, TOILET_FRONT_WALL_Y + half_depth, 3.0),
+        )
+        for minimum_x, maximum_x in TOILET_FRONT_WALL_SPANS
+    ) + tuple(
+        (
+            (
+                minimum_x,
+                TOILET_FRONT_WALL_Y - half_depth,
+                TOILET_FRONT_DOOR_HEIGHT,
+            ),
+            (maximum_x, TOILET_FRONT_WALL_Y + half_depth, 3.0),
+        )
+        for minimum_x, maximum_x in TOILET_FRONT_DOOR_OPENINGS
+    )
+    school_components = box_component_bounds(
+        bpy.data.objects["NAV_Blocker_School1F"]
+    )
+    interior_components = box_component_bounds(
+        bpy.data.objects["NAV_Blocker_Interiors"]
+    )
+    for expected in expected_bounds:
+        require(
+            not any(bounds_match(component, expected) for component in school_components),
+            f"旧1階Nav blockerに重複トイレ壁が残っています: {expected}",
+        )
+        require(
+            sum(
+                bounds_match(component, expected)
+                for component in interior_components
+            )
+            == 1,
+            f"内装Nav blockerのトイレ壁が一意ではありません: {expected}",
+        )
+    return {"removed_school1f_boxes": len(expected_bounds)}
+
+
 def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     atlas_rgb_cells = audit_architecture_atlas_rgb()
+    packed_atlases = audit_packed_atlas_paths()
     expected_swatches = {
         "VIS_SiteGround": "grass",
         "VIS_CourtyardSurface": "grass",
@@ -1330,6 +1410,9 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     stair_boundary_walls = audit_stair_boundary_walls()
     site_boundaries = audit_site_boundary_visuals()
     upper_nav_blocker_boundaries = audit_upper_nav_blocker_boundaries()
+    first_floor_nav_deduplication = (
+        audit_first_floor_nav_blocker_deduplication()
+    )
 
     floor_panels = (
         ((-6.0, -3.5), (0.0, 32.5)),
@@ -1552,6 +1635,7 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
 
     return {
         "atlas_rgb_cells": atlas_rgb_cells,
+        "packed_atlases": packed_atlases,
         "swatches": len(expected_swatches) + len(lintels) + 2,
         "trim_components": trim_components,
         "floor_components": floor_component_count,
@@ -1563,6 +1647,7 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
         "stair_boundary_walls": stair_boundary_walls,
         "site_boundaries": site_boundaries,
         "upper_nav_blocker_boundaries": upper_nav_blocker_boundaries,
+        "first_floor_nav_deduplication": first_floor_nav_deduplication,
     }
 
 
@@ -2506,7 +2591,7 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
                 )
                 central_well_checks += 1
 
-    first_part_vertices = {"Lower": (96, 16), "Landing": (40, 8), "Upper": (88, 16)}
+    first_part_vertices = {"Lower": (88, 16), "Landing": (32, 8), "Upper": (72, 16)}
     visual_components = 0
     collider_components = 0
     rail_junction_checks = 0
@@ -2577,6 +2662,7 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
 
     connector_surface_count = 0
     terminal_guard_checks = 0
+    unique_post_checks = 0
     for stair in ("NW", "NE", "SW"):
         transitions = (("2FTo3F", 3.6), ("3FTo4F", 7.2))
         if stair == "NW":
@@ -2588,7 +2674,7 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
             visual = bpy.data.objects[visual_name]
             collider = bpy.data.objects[collider_name]
             has_terminal = stair in ("NE", "SW") and suffix == "3FTo4F"
-            expected_visual_vertices = 280 if has_terminal else 224
+            expected_visual_vertices = 232 if has_terminal else 184
             expected_collider_vertices = 48 if has_terminal else 40
             require(len(visual.data.vertices) == expected_visual_vertices, f"上階の開放型階段柵が不正です: {visual_name}")
             require(len(collider.data.vertices) == expected_collider_vertices, f"上階の連続階段柵Colliderが不正です: {collider_name}")
@@ -2687,6 +2773,35 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
                 )
             )
         )
+        post_bounds = [
+            bounds
+            for guard in guard_objects
+            for bounds in box_component_bounds(guard)
+            if all(
+                abs(
+                    (bounds[1][axis] - bounds[0][axis])
+                    - expected_dimension
+                )
+                <= 1.0e-5
+                for axis, expected_dimension in enumerate((0.1, 0.1, 1.05))
+            )
+        ]
+        post_keys = {
+            tuple(
+                round(value, 5)
+                for bound in bounds
+                for value in bound
+            )
+            for bounds in post_bounds
+        }
+        expected_post_count = 51 if stair == "NW" else 44
+        require(
+            len(post_bounds) == expected_post_count
+            and len(post_keys) == expected_post_count,
+            "階段手すり支柱が全Object横断で一意ではありません: "
+            f"{stair}/{len(post_bounds)}/{len(post_keys)}/{expected_post_count}",
+        )
+        unique_post_checks += expected_post_count
         all_segments = rail_centerline_segments(guard_objects)
         for arrival_z in (3.6, 7.2, 10.8):
             for rail_height in (0.55, 1.0):
@@ -2752,6 +2867,7 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
         "rail_junction_checks": rail_junction_checks,
         "terminal_guard_checks": terminal_guard_checks,
         "stair_floor_swatch_checks": len(stair_swatch_names),
+        "unique_post_checks": unique_post_checks,
     }
 
 

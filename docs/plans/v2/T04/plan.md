@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 T04 3Dステージ空間基盤・NavMesh移行 計画
 
-更新日: 2026-07-23
+更新日: 2026-07-24
 
 ## プロンプト
 
@@ -882,3 +882,79 @@ T04-2AはB03-0と別worktreeで並行できる。T04-2BはT04-2AとB03-2の両�
 - GLBは2回とも10,861,356 bytes／SHA-256 `6BB6BF52AE10F21227FDF94948FA6ED7F8A9886E95C7B502606094284C4A8392`で一致した。最終`.blend`は1,663,537 bytes／`83139870430EE9999C23753245ACF3DC06B3AC01EB96EA211FF0919FA3D777F9`である。NavMeshも2回とも512,900 bytes／`F80AC812B13D6E6D27B98E8DEBB8F3BDF9891140083E74E393B7A32FE08E30DC`で一致し、19,344 vertices／6,448 triangles、62代表経路、60特殊リンク／120端点を確認した。
 - `npm run audit:v2:dependencies`、`npm run typecheck:v2`、`npm run build`、`npm run build:t01`～`build:t04`はすべて成功した。WebとElectronはT02 36/36、T03 24/24、T04 59/59を初回・再実行・再読込で確認し、検証ページのwarning／errorは0件だった。通常ゲームはWebと実Electronで学校3D空間、接地、NPC・BIT・BEAM更新まで起動し、実Electronではポインターロックと移動入力も確認した。固定視点11枚を再生成し、F02～F04境界壁、音楽室、北通用口、主門・北東門、ブロック塀、F01～F04階色帯、全3階段の手すりを目視確認した。
 - 修正は`996cb7e`（`fix: 学校の第5次受入指摘を修正`）へコミットし、T04本体へ`--no-ff`の`142abb8`でローカル統合した。補助ブランチ`codex/v2-t04-school-acceptance-fix-5`は保持し、push／Pull Requestは作成していない。
+
+### 2026-07-24 学校3D資産全体リファクタリング 計画
+
+#### プロンプト
+
+> `T04-2B学校複数階統合を計画`で実装を行った、学校全体の3Dモデルや小物類について、3Dモデルのリファクタリングを行ってください。見えない無駄なモデルやボーンが残っていないか、建築物的に明らかに異常なものが残っているか、修正漏れが残っていないか、そういったものを全体的にチェックして削除や修正を行ってください。
+>
+> 調査の段階で、実行にも成績にも寄与しないことを証明できないが、可能性として寄与しないことが高いデータについてもチェックはしておいてください。そして、削除対象にすべきかどうかをリストアップしておいたものを人間に後で見せてください。
+
+#### ステップ
+
+- [x] 2026-07-24 07:59 JSTにT04 HEAD `d5b0ad3`、クリーン状態、リモートT04より11コミット先であること、Blender GUIが起動していないことを確認する
+- [x] ローカル限定の`codex/v2-t04-school-asset-refactor`を作成し、学校バイナリを単一担当に固定する
+- [x] Blender正本、GLB、NavMesh、生成器、最適化処理、既存監査の基準値を取得する
+- [x] Camera／Light／Text／Curve／Armature／Bone、orphan datablock、Export Collection外混入、未使用Material／Texture／Image、ゼロ面・重複・無参照データを監査する
+- [x] `VIS_*`の完全内包・共面／近接重複・反転面・閉空間内の不可視面と、意図的に不可視な`COL_*`／`NAV_*`／意味Objectを分離して削除候補を確定する
+- [x] 全校の壁・床・天井・開口・階間・階段・吹抜け・柵・屋上・門塀・体育館・プールを座標／AABB／面向きで監査し、建築異常と修正漏れを確定する
+- [x] 全室の家具・小物を実座標／AABBで監査し、重複、完全内包、壁・床への食い込み、区画外越境、扉・窓・通路・特殊リンク干渉、表示／Collider不一致を確定する
+- [x] 不要性を証明できない疑わしいデータを、Object／component、疑わしい理由、現行参照、削除時リスク、推奨判定付きの人間確認リストへ整理する
+- [x] 正本生成処理、GLB最適化処理、建築・内装・保護契約監査を修正し、同種異常を再生成時に拒否する
+- [x] 学校`.blend`、GLB、NavMeshを再生成し、GLB／NavMeshを各2回生成してbytes／SHA-256一致を確認する
+- [x] 938 Node／816 Meshを前提にせず、新しい正当な件数・容量・ハッシュをカタログ、仕様書、検証へ反映する
+- [x] 62代表経路、3階段、北西屋上、代表室、体育館、プール、閉窓負例、60特殊リンク／120端点、3 Volume、NPC複数階移動を回帰する
+- [x] 依存監査、型検査、通常build、`build:t01`～`build:t04`、T02～T04のWeb／Electron、console、固定視点画像を検証する
+- [x] UTF-8 BOMなし、Python構文、括弧、`git diff --check`、ローカル絶対パス、未追跡キャッシュ、バイナリ差分を最終監査する
+- [x] 実装結果を本計画と全体計画へ記録する。コミット・T04へのローカル統合・push／Pull Requestは別途指示まで行わない
+
+#### 削除・変更の境界
+
+- `COL_*`、`NAV_*`、`LNK_*`、`VOL_*`、`BND_Stage`、`META_Stage`は見えないこと自体が仕様であり、表示されないという理由だけでは削除しない。
+- 削除対象は、参照0のdatablock、Export対象外の制作残骸、ゼロ面／ゼロ面積Mesh、契約を持たない重複Object、別の不透明面へ完全内包され実行時に一切寄与しない表示面など、不要性を機械的に証明できるものに限定する。
+- 不要性を証明できないものは削除せず、「削除推奨」「要目視」「維持推奨」に分類した候補一覧へ残す。各候補にはObject名またはcomponent識別子、検出根拠、現行の参照・表示・衝突への関与、削除した場合のリスクを記載する。
+- 建築や小物の意匠を新規デザインし直すのではなく、既存の承認済み間取り・配置・衝突契約を保ったまま、構造異常、重複、修正漏れ、表示とColliderの不一致を直す。
+- Armature／Boneは現行学校資産で利用しない。存在した場合は利用元・Modifier・Animation参照を確認し、参照0のものだけを削除する。
+- 公開API・Runtime型、60特殊リンク／120端点、3 Volume、T05のビット実飛行、T06の水中速度・統合境界は変更しない。
+
+#### 結果
+
+- 現行学校資産は938 Object／816 Mesh、GLB 10,861,356 bytes、NavMesh 512,900 bytesである。Camera、Light、Text、Curve、Armature、Bone、Action、Animation、Modifier、Shape Key、orphan datablock、Export Collection外Object、未到達GLB Node、未使用Mesh／Material／Texture／Image、ゼロ頂点・ゼロ面・退化面はいずれも0件だった。GLBへ既存最適化処理を再適用してもbytesとSHA-256は変化せず、一般的なGLB残留データはない。
+- 確定修正候補として、階段手すり共有端点の重複支柱48本相当、掃除ロッカー21台の本体内へ隠れた正面ディテール、PCモニター26台の筐体内へ隠れた画面、壁へ体積交差する家具6件、扉進入領域へ侵入するColliderなしごみ箱10件を検出した。建築全体と残る小物候補は引き続き精査中である。
+- 不要性未証明の候補として、コード・文書から名称参照のない校庭・体育館の配置ガイドらしい表示平面4件、階段本体の共面接合7面、箱形状接合部の反対向き完全一致面1,474面を分離した。これらは人間確認用一覧へ記録し、この段階では削除しない。
+- 建築・内装・小物・GLBの独立監査を完了した。追加の確定修正として、1階トイレ正面6箱が`NAV_Blocker_School1F`と`NAV_Blocker_Interiors`へ二重収録されていることを確認した。旧`NAV_Blocker_School1F`側からexact AABB一致の6箱だけを除き、現行内装側を一意な所有者とする。
+- 人間確認候補15件は[学校3D資産リファクタリング 人間確認候補](school_asset_refactor_candidates.md)へ分離した。2026-07-25に承認されたC-08だけを削除し、ガイド4件、階段接合面、建築内部面、ピアノ鍵盤、本棚、小物薄箱、残る未使用生成定義、制作専用プレビュー、意味の異なる同形状Volumeなど14件は保持する。
+- 正本生成版を`asset-refactor-v01`、補正契約を`nav-connectivity-v09`へ更新した。階段表示支柱は階段系ごとの共有座標集合で一意化し、掃除ロッカーを120 trisから30 tris、PCモニターを48 trisから38 trisへ削減した。小物`.blend`は168,468 bytes／SHA-256 `560974D7FABAAE9D7FC89FB563F4EEB3964866D8B33EE2C138FF1020C414514C`、確認用GLBは191,148 bytes／`E48FDA1ADFA86530BCB9C2DDC42B257776901388B510D9447D029B9F1F223457`で、確認用GLBは2回生成して一致した。
+- 最終学校`.blend`は1,662,555 bytes／SHA-256 `D8454A7175A8724921D1BB06098C55936C7D0CF5E2DC94949F5CD0B99D7BF762`、GLBは10,702,688 bytes／`BD55458CE7AFA0F2B2B32608E92DD86B588E4B223A74B1254DC1AB58DFDB675E`である。GLBは第5次受入版から158,668 bytes（1.46%）縮小した。938 Node／816 Mesh／5 Material／3 Texture／3 Image、VIS 472、通常COL 185、ActorOnly 82、HumanOnly 58、NAV 15、MRK 1、VOL 3、特殊リンク60組／120端点を維持し、GLBは同一入力から2回生成してbytes／SHA-256が一致した。
+- 最終NavMeshは512,900 bytes／SHA-256 `0FCF0B136D41E23202925EB8821270C39D18EFEE37A5146F20C9BFA97C03C869`、19,344 vertices／6,448 trianglesで、2回ベイクして一致した。62代表経路、3階段の1F～4F双方向、北西4F～屋上、代表教室、体育館、プール、通常窓非短絡、60特殊リンク／120端点、3 Volume、実NPC複数階移動を回帰した。
+- 建築・内装・保護契約・残骸監査に合格した。Armature、Bone、Action、Animation、Skin、Camera、非表示Object、Export外Object、未参照GLB Node／Mesh／Material／Texture／Image／Accessor／BufferView／Buffer、空・退化Meshはすべて0件である。正本へpackする3 Atlasは`.blend`基準のリポジトリ相対パスへ統一した。確定禁止項目は将来の再混入時に監査を失敗させ、面の重なり・同形状候補は人間判断用のreport-onlyとして分離した。
+- 建築34枚、内装24枚、小物2枚の固定視点画像を再生成し、階段、教室、職員室、放送室、体育館、屋上更衣室、トイレ周辺を目視して退行がないことを確認した。`npm run audit:v2:dependencies`、`npm run typecheck:v2`、`npm run build`、`npm run build:t01`～`build:t04`は成功した。WebはT02 36/36、T03 24/24、T04 59/59を初回・再実行・再読込で確認し、warning／error 0件だった。Electronは開始画面から実行画面へ遷移し、学校3D空間、接地、NPC・BIT・BEAM更新、Babylon初期化情報1件だけでwarning／error 0件を確認した。
+- 変更テキスト16件はUTF-8厳格読込に成功し、BOM 0件、追加ローカル絶対パス0件、変更Python 8本のAST解析成功、`git diff --check`合格である。検証用Vite 3本、タスク専用一時出力、生成された`__pycache__`を削除し、意図した新規ファイルは監査スクリプトと人間確認候補一覧だけに整理した。
+- 現在の作業は`codex/v2-t04-school-asset-refactor`上の未コミット差分である。T04本体へのローカル統合、push、Pull Requestは行っていない。
+
+### 2026-07-25 C-08 ShoeLocker未使用生成定義削除 計画
+
+更新日: 2026-07-25
+
+#### プロンプト
+
+> C-08 | `ShoeLocker`の未使用生成定義だけ削除してください
+
+#### ステップ
+
+- [x] 2026-07-25 00:37 JSTに現在ブランチ`codex/v2-t04-school-asset-refactor`、HEAD `d5b0ad3`、既存リファクタリング差分を確認する
+- [x] `ShoeLocker`の全参照と学校・小物バイナリを調査し、現行資産の実体が0件であることを確認する
+- [x] 追加小物カタログ、通行不能種別、表示形状、Collider寸法から`ShoeLocker`だけを削除する
+- [x] 追加小物カタログ監査を23種へ更新し、玄関・北通用口の`ShoeLocker` 0件監査を維持する
+- [x] Python構文、内装監査、学校・小物資産ハッシュ不変を確認する
+- [x] UTF-8 BOMなし、`git diff --check`、ローカル絶対パス、変更範囲を監査する
+- [x] 人間確認候補C-08と計画結果を「削除済み」へ更新する
+
+#### 結果
+
+- `build_b03_school_interiors.py`の追加小物カタログ、通行不能種別、表示形状、Collider寸法から`ShoeLocker`だけを削除した。追加小物カタログは23種になり、生成コード内の`ShoeLocker`参照は0件である。
+- `audit_b03_school_interiors.py`のカタログ件数を23種へ更新した。主玄関・北通用口の`ShoeLocker` 0件監査は、再混入防止契約として2件とも維持した。`BaggageLocker`と他の人間確認候補は変更していない。
+- Blender 5.2の内装監査は合格した。学校`.blend`は1,662,555 bytes／`D8454A7175A8724921D1BB06098C55936C7D0CF5E2DC94949F5CD0B99D7BF762`、GLBは10,702,688 bytes／`BD55458CE7AFA0F2B2B32608E92DD86B588E4B223A74B1254DC1AB58DFDB675E`、NavMeshは512,900 bytes／`0FCF0B136D41E23202925EB8821270C39D18EFEE37A5146F20C9BFA97C03C869`で変更なし。小物`.blend`と確認用GLBも変更前ハッシュを維持した。
+- バイナリを再生成していないため、現行GLBの`b03_2_interior_result.additional_prop_types=24`は旧生成時点の結果値として残る。次回再生成時は23へ更新され、形状が同一でもGLBのbytes／SHA-256を再確定する。
+- 対象5テキストはUTF-8厳格読込に成功し、BOM 0件、追加ローカル絶対パス0件、Python AST解析成功、`git diff --check`合格である。監査で生成された`__pycache__`は削除した。

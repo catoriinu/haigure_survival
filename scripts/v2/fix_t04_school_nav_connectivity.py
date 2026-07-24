@@ -196,7 +196,9 @@ def copy_transformed_mesh_geometry(
 
 
 def rebuild_northeast_and_southwest_stairs() -> tuple[list[str], list[str]]:
-    architecture.rebuild_first_transition_stair_guards()
+    claimed_post_positions_by_stair = (
+        architecture.rebuild_first_transition_stair_guards()
+    )
     rebuilt_first_transition_names = [
         f"{prefix}_StairGuard_{staircase}_{part}"
         for staircase in ("NW", "NE", "SW")
@@ -214,7 +216,7 @@ def rebuild_northeast_and_southwest_stairs() -> tuple[list[str], list[str]]:
             copy_transformed_mesh_geometry(source_name, target_name, staircase)
             rebuilt_first_transition_names.append(target_name)
 
-    architecture.rebuild_upper_stairs()
+    architecture.rebuild_upper_stairs(claimed_post_positions_by_stair)
     upper_transitions = {
         "NW": ("2FTo3F", "3FTo4F", "4FToRooftop"),
         "NE": ("2FTo3F", "3FTo4F"),

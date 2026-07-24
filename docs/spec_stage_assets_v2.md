@@ -45,7 +45,7 @@ public/stage-assets/v2/<ステージID>/<資産名>.navmesh.bin
 | T01 Blender編集元 | `assets/blender/v2/T01/t01_glb_collision_course.blend` | 座標・縮尺・衝突の検証fixture |
 | T01 GLB | `public/stage-assets/v2/T01/t01_glb_collision_course.glb` | 座標・縮尺・衝突の検証fixture |
 | B02 Blender編集元 | `assets/blender/v2/B02/b02_school_blockout.blend` | 学校の制作元。3D意味ObjectとNavMesh生成元を保持 |
-| B02 GLB | `public/stage-assets/v2/B02/b02_school_blockout.glb` | 学校の実行時空間正本。B03-2内装、T04-2B NAV補正、第5次人間受入までの外観・配置補正を統合済み |
+| B02 GLB | `public/stage-assets/v2/B02/b02_school_blockout.glb` | 学校の実行時空間正本。B03-2内装、T04-2B NAV補正、第5次人間受入、学校3D資産全体リファクタリングを統合済み |
 | B02 NavMesh | `public/stage-assets/v2/B02/b02_school_blockout.navmesh.bin` | 同一GLBから事前ベイクするRecast派生物 |
 
 `.blend`はVite配布物へ含めない。GLBとNavMeshバイナリだけを`public`からWeb版・Electron版へコピーする。バイナリ資産は単一担当で編集し、同一ファイルを複数ブランチで並行編集しない。
@@ -62,11 +62,13 @@ public/stage-assets/v2/<ステージID>/<資産名>.navmesh.bin
 - 主玄関前の校庭には下駄箱や用途不明の箱を置かない。下駄箱代替は`BaggageLocker` 2台を建物内南壁際へ配置し、出入口を塞がない。図書室の本棚24台は本の背表紙を室内へ向けて壁際へ並べ、前後の出入口と窓へ干渉させない。本棚1台は本体8部品と背表紙28冊の計36 components／432 trianglesとする。
 - 3階・4階の北側特別教室は2階と同じく、トイレ、通路、境界壁、特別教室の順に分離する。4階音楽室は東を前方としてピアノと30脚の椅子を配置する。1階北通用口は`BaggageLocker` 1台と傘立てを壁際へ置き、体育倉庫には表札を置かない。階色帯はF01が24成分、F02～F04が各23成分で、扉・開放部を左右1cmの余裕付きで除外する。
 - 人間受入で確認した出入口足元の不要な骨組みは撤去し、表札は開口ではなく脇の建築壁へ支持させる。普通教室後方収納、教卓、放送機材、生徒会室家具、美術室家具、掲示板、体育館演説机の位置・向きと、全階トイレ開口、上階の階段手すり・吹抜け・階間構造・普通教室壁・階色帯を、通行と建築形状が一致する配置へ補正済みとする。
+- 階段手すりの共有端点では表示支柱を座標単位で一意化し、転落防止範囲を変えずに重複支柱を生成しない。1階トイレ正面のNav blocker 6箱は`NAV_Blocker_Interiors`だけが所有し、`NAV_Blocker_School1F`へ二重収録しない。
+- 学校正本はArmature、Bone、Action、Animation、Modifier、Shape Key、Vertex Group、非表示Object、Export Collection外Object、空・退化Meshを持たない。GLBはSkin、Animation、Camera、未参照Node／Mesh／Material／Texture／Image／Accessor／BufferView／Bufferを持たない。これらは残骸監査で非空なら失敗とする。不要性を証明できない面・同形状候補は削除せず、T04の人間確認候補一覧で管理する。
 - 体育館舞台階段上部の東西表示壁・衝突壁は、舞台上面からBlender 2.4mの実開口を一致して確保する。NavMeshだけを接続する仮connector面は資産へ残さない。
 - `BND_Stage`のBlender範囲はX＝-18.4～63.2m、Y＝-12.3～51.3m、Z＝-0.5～18.0mとする。プールサイド足元Z＝15.65mへ最大視点高2.0mを加えたZ＝17.65mを内包し、上端に0.35mの余裕を持つ。
 - 事前ベイク後は、主玄関から3か所の1F踊り場、各階廊下・代表教室、全階男女トイレ入口、3階段それぞれの1F↔2F↔3F↔4F、北西階段の4F↔屋上、体育館・舞台・体育倉庫、屋上階段室、プールサイド、プール底を含む62代表経路が要求終点へ到達することを検査する。追加2経路は3階・4階のトイレ側通路から正規扉を通って特別教室へ入る。各階段の隣接階経路は指定踊り場を通り、25m以内でなければならない。部分経路を成功扱いせず、要求終点との誤差`1e-5`以下を必須とする。通常窓の内外を結ぶsurface経路が窓開口を短絡せず正規出入口へ迂回することも必須とする。
 - 全120リンク端点は、水平0.54m以内を端点からNavMesh下端まで検索し、端点以下で垂直差、水平差、polygon参照の順に選んだ面へ接続する。体育館高窓14端点、屋上外側2端点を含め、各端点が期待する直下階へ投影されなければならない。
-- 現行`.blend`は1,663,537 bytes・SHA-256 `83139870430EE9999C23753245ACF3DC06B3AC01EB96EA211FF0919FA3D777F9`、GLBは10,861,356 bytes・SHA-256 `6BB6BF52AE10F21227FDF94948FA6ED7F8A9886E95C7B502606094284C4A8392`、NavMeshは512,900 bytes・SHA-256 `F80AC812B13D6E6D27B98E8DEBB8F3BDF9891140083E74E393B7A32FE08E30DC`である。NavMeshは19,344 vertices／6,448 trianglesである。Architecture Atlasは4,532 bytes・SHA-256 `4F952C690C5E05045063FF80B74308C971F4CF9186230E4B8F854DAAF1A0FFF5`である。GLBとNavMeshは同じ入力から2回連続生成してbytesとSHA-256が一致しなければならない。Blender 5.2の`.blend`保存バイナリ自体は同一シーンでも非決定的なため、保存後の現行値を記録し、決定性は監査済みシーン契約とGLB・NavMeshで判定する。
+- 現行`.blend`は1,662,555 bytes・SHA-256 `D8454A7175A8724921D1BB06098C55936C7D0CF5E2DC94949F5CD0B99D7BF762`、GLBは10,702,688 bytes・SHA-256 `BD55458CE7AFA0F2B2B32608E92DD86B588E4B223A74B1254DC1AB58DFDB675E`、NavMeshは512,900 bytes・SHA-256 `0FCF0B136D41E23202925EB8821270C39D18EFEE37A5146F20C9BFA97C03C869`である。NavMeshは19,344 vertices／6,448 trianglesである。Architecture Atlasは4,532 bytes・SHA-256 `4F952C690C5E05045063FF80B74308C971F4CF9186230E4B8F854DAAF1A0FFF5`である。小物`.blend`は168,468 bytes・SHA-256 `560974D7FABAAE9D7FC89FB563F4EEB3964866D8B33EE2C138FF1020C414514C`、確認用GLBは191,148 bytes・SHA-256 `E48FDA1ADFA86530BCB9C2DDC42B257776901388B510D9447D029B9F1F223457`である。学校正本へpackする3 Atlasの外部参照は`.blend`基準のリポジトリ相対パスとする。学校GLB、学校NavMesh、小物確認用GLBは同じ入力から2回連続生成してbytesとSHA-256が一致しなければならない。Blender 5.2の`.blend`保存バイナリ自体は同一シーンでも非決定的なため、保存後の現行値を記録し、決定性は監査済みシーン契約とGLB・NavMeshで判定する。
 
 検証専用Viteでは、`publicDir`をリポジトリ全体の`public`へ向けない。検証対象の資産ディレクトリだけを公開し、ビルド後はファイル一覧、容量、SHA-256を公開元と照合する。
 

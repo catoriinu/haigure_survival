@@ -24,6 +24,11 @@ from build_b03_school_interiors import (
     FIRST_FLOOR_WEST_DOOR_OPENINGS,
     NORTH_CLASSROOM_DOOR_OPENINGS,
     TOILET_COMMON_OPENING,
+    TOILET_FRONT_DOOR_HEIGHT,
+    TOILET_FRONT_DOOR_OPENINGS,
+    TOILET_FRONT_WALL_DEPTH,
+    TOILET_FRONT_WALL_SPANS,
+    TOILET_FRONT_WALL_Y,
     UPPER_WEST_CLASSROOM_DOOR_OPENINGS,
     build_school_interiors,
     consolidate_school_materials,
@@ -54,11 +59,11 @@ WINDOW_FRAME_BORDER = 0.05
 WINDOW_MEETING_STILE_WIDTH = 0.06
 WALL_THICKNESS = 0.30
 LINK_RADIUS_METERS = 0.54
-GENERATOR_VERSION = "t04-2b-acceptance-v05"
+GENERATOR_VERSION = "t04-2b-asset-refactor-v01"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
-T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v08"
+T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v09"
 
 GATE_VISUAL_SPECS = (
     ("VIS_Gate_MainClosed", "X", 19.4, 25.4, -12.5),
@@ -968,6 +973,7 @@ def create_upper_stair_guard_visual_geometry(
     parts: tuple[str, ...] = ("Lower", "Landing", "Upper"),
     *,
     include_lower_end_cap: bool = True,
+    claimed_post_positions: set[tuple[float, float, float]],
 ) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
     vertices: list[tuple[float, float, float]] = []
     faces: list[tuple[int, ...]] = []
@@ -990,6 +996,10 @@ def create_upper_stair_guard_visual_geometry(
         for index in range(post_count + 1):
             ratio = index / post_count
             base = start + segment * ratio
+            post_key = tuple(round(float(value), 6) for value in base)
+            if post_key in claimed_post_positions:
+                continue
+            claimed_post_positions.add(post_key)
             append_box(
                 vertices,
                 faces,
@@ -1045,16 +1055,23 @@ def create_upper_stair_guard_collider_geometry(
     return vertices, faces
 
 
-def rebuild_first_transition_stair_guards() -> None:
+def rebuild_first_transition_stair_guards(
+) -> dict[str, set[tuple[float, float, float]]]:
     visual_collection = collection(VIS_COLLECTION_NAME)
     collider_collection = collection(COL_COLLECTION_NAME)
+    claimed_post_positions_by_stair: dict[
+        str, set[tuple[float, float, float]]
+    ] = {}
     for stair in ("NW", "NE", "SW"):
+        claimed_post_positions: set[tuple[float, float, float]] = set()
+        claimed_post_positions_by_stair[stair] = claimed_post_positions
         for part in ("Lower", "Landing", "Upper"):
             include_lower_end_cap = stair != "NW" or part != "Lower"
             vertices, faces = create_upper_stair_guard_visual_geometry(
                 0.0,
                 (part,),
                 include_lower_end_cap=include_lower_end_cap,
+                claimed_post_positions=claimed_post_positions,
             )
             upsert_mesh_geometry(
                 f"VIS_StairGuard_{stair}_{part}",
@@ -1073,6 +1090,7 @@ def rebuild_first_transition_stair_guards() -> None:
                 faces,
                 collider_collection,
             )
+    return claimed_post_positions_by_stair
 
 
 def create_roof_guard_geometry(
@@ -1155,7 +1173,11 @@ def transform_stair_vertices(
     raise RuntimeError(f"未定義の階段です: {stair}")
 
 
-def rebuild_upper_stairs() -> None:
+def rebuild_upper_stairs(
+    claimed_post_positions_by_stair: dict[
+        str, set[tuple[float, float, float]]
+    ],
+) -> None:
     visual_collection = collection(VIS_COLLECTION_NAME)
     collider_collection = collection(COL_COLLECTION_NAME)
     for stair in ("NW", "NE", "SW"):
@@ -1186,7 +1208,9 @@ def rebuild_upper_stairs() -> None:
                 collider_collection,
             )
             vertices, faces = create_upper_stair_guard_visual_geometry(
-                base_z, guard_parts
+                base_z,
+                guard_parts,
+                claimed_post_positions=claimed_post_positions_by_stair[stair],
             )
             upsert_mesh_geometry(
                 f"VIS_StairGuardSystem_{stair}_{suffix}",
@@ -1241,8 +1265,8 @@ def align_existing_storey_sources() -> None:
         if obj.name.startswith(rooftop_prefixes):
             shift_object_geometry_z(obj, rooftop_shift)
     rebuild_roof_guards()
-    rebuild_first_transition_stair_guards()
-    rebuild_upper_stairs()
+    claimed_post_positions_by_stair = rebuild_first_transition_stair_guards()
+    rebuild_upper_stairs(claimed_post_positions_by_stair)
     rebuild_site_boundary_visuals()
     align_acceptance_geometry()
     boundary = bpy.data.objects.get("BND_Stage")
@@ -2631,6 +2655,97 @@ def copy_meshes_into_object(
     return obj
 
 
+def first_floor_toilet_nav_blocker_bounds(
+) -> tuple[
+    tuple[tuple[float, float, float], tuple[float, float, float]], ...
+]:
+    half_depth = TOILET_FRONT_WALL_DEPTH / 2.0
+    return tuple(
+        (
+            (minimum_x, TOILET_FRONT_WALL_Y - half_depth, 0.0),
+            (maximum_x, TOILET_FRONT_WALL_Y + half_depth, 3.0),
+        )
+        for minimum_x, maximum_x in TOILET_FRONT_WALL_SPANS
+    ) + tuple(
+        (
+            (
+                minimum_x,
+                TOILET_FRONT_WALL_Y - half_depth,
+                TOILET_FRONT_DOOR_HEIGHT,
+            ),
+            (maximum_x, TOILET_FRONT_WALL_Y + half_depth, 3.0),
+        )
+        for minimum_x, maximum_x in TOILET_FRONT_DOOR_OPENINGS
+    )
+
+
+def remove_redundant_first_floor_nav_blocker_boxes() -> int:
+    obj = bpy.data.objects.get("NAV_Blocker_School1F")
+    if obj is None or obj.type != "MESH":
+        raise RuntimeError("NAV_Blocker_School1Fがありません")
+    if len(obj.data.vertices) % 8 != 0 or len(obj.data.polygons) % 6 != 0:
+        raise RuntimeError(
+            "NAV_Blocker_School1Fが箱単位のMeshではありません: "
+            f"{len(obj.data.vertices)} vertices/{len(obj.data.polygons)} faces"
+        )
+    expected_bounds = list(first_floor_toilet_nav_blocker_bounds())
+    matched_expected_indices: set[int] = set()
+    kept_vertices: list[tuple[float, float, float]] = []
+    kept_faces: list[tuple[int, ...]] = []
+    box_count = len(obj.data.vertices) // 8
+    if len(obj.data.polygons) // 6 != box_count:
+        raise RuntimeError("NAV_Blocker_School1Fの頂点・面の箱数が一致しません")
+    for box_index in range(box_count):
+        vertex_offset = box_index * 8
+        face_offset = box_index * 6
+        points = [
+            obj.matrix_world @ obj.data.vertices[vertex_offset + index].co
+            for index in range(8)
+        ]
+        bounds = (
+            tuple(min(point[axis] for point in points) for axis in range(3)),
+            tuple(max(point[axis] for point in points) for axis in range(3)),
+        )
+        matching_index = next(
+            (
+                index
+                for index, expected in enumerate(expected_bounds)
+                if index not in matched_expected_indices
+                and all(
+                    abs(bounds[bound][axis] - expected[bound][axis]) <= 1.0e-5
+                    for bound in range(2)
+                    for axis in range(3)
+                )
+            ),
+            None,
+        )
+        if matching_index is not None:
+            matched_expected_indices.add(matching_index)
+            continue
+        new_offset = len(kept_vertices)
+        kept_vertices.extend(tuple(point) for point in points)
+        kept_faces.extend(
+            tuple(
+                new_offset + vertex_index - vertex_offset
+                for vertex_index in obj.data.polygons[face_offset + index].vertices
+            )
+            for index in range(6)
+        )
+    if not matched_expected_indices:
+        return 0
+    if len(matched_expected_indices) != len(expected_bounds):
+        missing = [
+            expected_bounds[index]
+            for index in range(len(expected_bounds))
+            if index not in matched_expected_indices
+        ]
+        raise RuntimeError(
+            f"NAV_Blocker_School1Fの重複トイレ壁を照合できません: {missing}"
+        )
+    replace_mesh_geometry(obj.name, kept_vertices, kept_faces)
+    return len(matched_expected_indices)
+
+
 def build_nav_sources(
     nav_collection: bpy.types.Collection,
     generated_upper_colliders: list[bpy.types.Object],
@@ -2959,6 +3074,9 @@ def main() -> None:
     build_minimum_props(visual_collection, collider_collection, bench_material)
     interior_result = build_school_interiors(
         visual_collection, collider_collection, nav_collection
+    )
+    interior_result["removed_redundant_school1f_nav_boxes"] = (
+        remove_redundant_first_floor_nav_blocker_boxes()
     )
     bpy.context.scene["b03_2_interior_result"] = json.dumps(
         interior_result, ensure_ascii=False, sort_keys=True

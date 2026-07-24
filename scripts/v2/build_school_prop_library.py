@@ -223,6 +223,29 @@ def add_box(
     return obj
 
 
+def add_front_quad(
+    size: tuple[float, float],
+    center: tuple[float, float, float],
+    material: bpy.types.Material,
+) -> bpy.types.Object:
+    half_width = size[0] / 2.0
+    half_height = size[1] / 2.0
+    center_x, center_y, center_z = center
+    vertices = (
+        (center_x - half_width, center_y, center_z - half_height),
+        (center_x + half_width, center_y, center_z - half_height),
+        (center_x + half_width, center_y, center_z + half_height),
+        (center_x - half_width, center_y, center_z + half_height),
+    )
+    mesh = bpy.data.meshes.new("TemporaryFrontQuad")
+    mesh.from_pydata(vertices, [], ((0, 1, 2, 3),))
+    mesh.update()
+    obj = bpy.data.objects.new("TemporaryFrontQuad", mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    assign_material(obj, material)
+    return obj
+
+
 def add_cylinder(
     radius: float,
     depth: float,
@@ -577,14 +600,20 @@ def build_large_table(materials: dict[str, bpy.types.Material]) -> list[bpy.type
 
 def build_cleaning_locker(materials: dict[str, bpy.types.Material]) -> list[bpy.types.Object]:
     parts = [
-        add_box((0.90, 0.45, 1.80), (0.0, 0.0, 0.90), materials["metal_gray"]),
-        add_box((0.02, 0.018, 1.68), (0.0, -0.216, 0.90), materials["metal_dark"]),
-        add_box((0.02, 0.04, 0.12), (-0.08, -0.205, 0.93), materials["metal_dark"]),
-        add_box((0.02, 0.04, 0.12), (0.08, -0.205, 0.93), materials["metal_dark"]),
+        add_box((0.90, 0.448, 1.80), (0.0, 0.001, 0.90), materials["metal_gray"]),
+        add_front_quad((0.02, 1.68), (0.0, -0.225, 0.90), materials["metal_dark"]),
+        add_front_quad((0.02, 0.12), (-0.08, -0.225, 0.93), materials["metal_dark"]),
+        add_front_quad((0.02, 0.12), (0.08, -0.225, 0.93), materials["metal_dark"]),
     ]
     for x in (-0.23, 0.23):
         for z in (1.55, 1.61, 1.67):
-            parts.append(add_box((0.22, 0.018, 0.018), (x, -0.216, z), materials["metal_dark"]))
+            parts.append(
+                add_front_quad(
+                    (0.22, 0.018),
+                    (x, -0.225, z),
+                    materials["metal_dark"],
+                )
+            )
     return parts
 
 
@@ -643,8 +672,8 @@ def build_infirmary_bed(materials: dict[str, bpy.types.Material]) -> list[bpy.ty
 
 def build_pc_monitor(materials: dict[str, bpy.types.Material]) -> list[bpy.types.Object]:
     return [
-        add_box((0.55, 0.06, 0.32), (0.0, 0.03, 0.29), materials["plastic"]),
-        add_box((0.49, 0.012, 0.265), (0.0, 0.006, 0.29), materials["metal_dark"]),
+        add_box((0.55, 0.058, 0.32), (0.0, 0.031, 0.29), materials["plastic"]),
+        add_front_quad((0.49, 0.265), (0.0, 0.0, 0.29), materials["metal_dark"]),
         add_box((0.05, 0.08, 0.18), (0.0, 0.08, 0.13), materials["metal_gray"]),
         add_box((0.30, 0.18, 0.035), (0.0, 0.09, 0.0175), materials["plastic"]),
     ]
@@ -761,11 +790,12 @@ BUILDERS: dict[str, Callable[[dict[str, bpy.types.Material]], list[bpy.types.Obj
 def create_collider(
     prop_type: str,
     size: tuple[float, float, float],
+    local_center: tuple[float, float, float],
     location: tuple[float, float, float],
     collection: bpy.types.Collection,
 ) -> bpy.types.Object:
     name = f"COL_Prop_{prop_type}"
-    obj = add_box(size, (0.0, 0.0, size[2] / 2.0), None)
+    obj = add_box(size, local_center, None)
     set_origin_without_moving_geometry(obj, (0.0, 0.0, 0.0))
     obj.name = name
     obj.data.name = name
@@ -777,18 +807,43 @@ def create_collider(
     return obj
 
 
+STAGE_LECTERN_TOP_Y_HALF_EXTENT = (
+    0.275 * math.cos(math.radians(4.0))
+    + 0.035 * math.sin(math.radians(4.0))
+)
+STAGE_LECTERN_TOP_Z_HALF_EXTENT = (
+    0.275 * math.sin(math.radians(4.0))
+    + 0.035 * math.cos(math.radians(4.0))
+)
+STAGE_LECTERN_COLLIDER_HEIGHT = 1.045 + STAGE_LECTERN_TOP_Z_HALF_EXTENT
+
 COLLIDER_DIMENSIONS = {
     "ClassroomDesk": (0.65, 0.45, 0.70),
-    "StaffDesk": (1.40, 0.70, 0.72),
-    "StageLectern": (0.72, 0.50, 1.05),
+    "StaffDesk": (1.40, 0.71, 0.72),
+    "StageLectern": (
+        0.80,
+        STAGE_LECTERN_TOP_Y_HALF_EXTENT * 2.0,
+        STAGE_LECTERN_COLLIDER_HEIGHT,
+    ),
     "LargeWoodTable": (1.80, 0.90, 0.72),
     "CleaningLocker": (0.90, 0.45, 1.80),
     "BaggageLocker": (1.80, 0.45, 1.20),
-    "GrandPiano": (1.55, 1.45, 0.96),
+    "GrandPiano": (1.55, 1.45, 1.00),
     "InfirmaryBed": (2.00, 0.90, 0.55),
     "VaultingBox": (1.20, 0.60, 1.00),
     "Bookshelf": (0.90, 0.32, 1.80),
 }
+
+COLLIDER_LOCAL_CENTERS = {
+    prop_type: (0.0, 0.0, COLLIDER_DIMENSIONS[prop_type][2] / 2.0)
+    for prop_type in COLLIDER_TYPES
+}
+COLLIDER_LOCAL_CENTERS.update(
+    {
+        "StaffDesk": (0.0, -0.005, 0.36),
+        "StageLectern": (0.0, -0.010, STAGE_LECTERN_COLLIDER_HEIGHT / 2.0),
+    }
+)
 
 
 def duplicate_for_preview(
@@ -1060,6 +1115,45 @@ def connected_component_count(obj: bpy.types.Object) -> int:
     return count
 
 
+def connected_component_bounds(
+    obj: bpy.types.Object,
+) -> list[tuple[Vector, Vector]]:
+    adjacency = [set() for _ in obj.data.vertices]
+    for edge in obj.data.edges:
+        first, second = edge.vertices
+        adjacency[first].add(second)
+        adjacency[second].add(first)
+    remaining = set(range(len(obj.data.vertices)))
+    bounds = []
+    while remaining:
+        component = {remaining.pop()}
+        pending = list(component)
+        while pending:
+            vertex_index = pending.pop()
+            connected = adjacency[vertex_index] & remaining
+            remaining.difference_update(connected)
+            component.update(connected)
+            pending.extend(connected)
+        coordinates = [obj.data.vertices[index].co for index in component]
+        bounds.append(
+            (
+                Vector(
+                    tuple(
+                        min(value[axis] for value in coordinates)
+                        for axis in range(3)
+                    )
+                ),
+                Vector(
+                    tuple(
+                        max(value[axis] for value in coordinates)
+                        for axis in range(3)
+                    )
+                ),
+            )
+        )
+    return bounds
+
+
 def local_bounds(obj: bpy.types.Object) -> tuple[Vector, Vector]:
     coordinates = [vertex.co for vertex in obj.data.vertices]
     return (
@@ -1148,6 +1242,26 @@ def audit_library() -> dict[str, object]:
             obj.dimensions,
             COLLIDER_DIMENSIONS[prop_type],
         )
+        expected_center = Vector(COLLIDER_LOCAL_CENTERS[prop_type])
+        visual_minimum, visual_maximum = local_bounds(
+            bpy.data.objects[f"VIS_Prop_{prop_type}"]
+        )
+        collider_minimum, collider_maximum = local_bounds(obj)
+        assert_vector_close(
+            f"{obj.name} bounds center",
+            (collider_minimum + collider_maximum) / 2.0,
+            expected_center,
+        )
+        if any(
+            collider_minimum[axis] > visual_minimum[axis] + 1.0e-6
+            or collider_maximum[axis] < visual_maximum[axis] - 1.0e-6
+            for axis in range(3)
+        ):
+            raise RuntimeError(
+                f"Colliderが表示形状を包含していません: {prop_type}/"
+                f"{visual_minimum}/{visual_maximum}/"
+                f"{collider_minimum}/{collider_maximum}"
+            )
 
     for prop_type in ("Bookshelf", "BaggageLocker", "CleaningLocker"):
         assert_vector_close(
@@ -1167,6 +1281,71 @@ def audit_library() -> dict[str, object]:
         raise RuntimeError(
             "本棚の三角形数が造形契約と一致しません: "
             f"{visual_triangles[bookshelf.name]}/{BOOKSHELF_TRIANGLE_COUNT}"
+        )
+
+    cleaning_locker = bpy.data.objects["VIS_Prop_CleaningLocker"]
+    cleaning_components = connected_component_bounds(cleaning_locker)
+    if len(cleaning_components) != 10:
+        raise RuntimeError(
+            "掃除ロッカーの本体＋正面ディテール9部品が揃っていません: "
+            f"{len(cleaning_components)}/10"
+        )
+    cleaning_body_index = max(
+        range(len(cleaning_components)),
+        key=lambda index: math.prod(
+            cleaning_components[index][1][axis]
+            - cleaning_components[index][0][axis]
+            for axis in range(3)
+        ),
+    )
+    cleaning_body = cleaning_components[cleaning_body_index]
+    assert_vector_close(
+        "掃除ロッカー本体minimum",
+        cleaning_body[0],
+        (-0.45, -0.223, 0.0),
+        1.0e-6,
+    )
+    assert_vector_close(
+        "掃除ロッカー本体maximum",
+        cleaning_body[1],
+        (0.45, 0.225, 1.8),
+        1.0e-6,
+    )
+    cleaning_detail_bounds = [
+        bounds
+        for index, bounds in enumerate(cleaning_components)
+        if index != cleaning_body_index
+    ]
+    if any(
+        abs(minimum.y + 0.225) > 1.0e-6
+        or abs(maximum.y + 0.225) > 1.0e-6
+        for minimum, maximum in cleaning_detail_bounds
+    ):
+        raise RuntimeError("掃除ロッカーの正面ディテールが前面quadではありません")
+    if visual_triangles[cleaning_locker.name] != 30:
+        raise RuntimeError(
+            "掃除ロッカーの三角形数が不正です: "
+            f"{visual_triangles[cleaning_locker.name]}/30"
+        )
+
+    pc_monitor = bpy.data.objects["VIS_Prop_PcMonitor"]
+    pc_monitor_components = connected_component_bounds(pc_monitor)
+    screen_bounds = [
+        bounds
+        for bounds in pc_monitor_components
+        if all(
+            abs((bounds[1][axis] - bounds[0][axis]) - expected) <= 1.0e-6
+            for axis, expected in enumerate((0.49, 0.0, 0.265))
+        )
+    ]
+    if len(screen_bounds) != 1 or any(
+        abs(screen_bounds[0][side].y) > 1.0e-6 for side in (0, 1)
+    ):
+        raise RuntimeError("PCモニター画面が筐体前面のquadではありません")
+    if visual_triangles[pc_monitor.name] != 38:
+        raise RuntimeError(
+            "PCモニターの三角形数が不正です: "
+            f"{visual_triangles[pc_monitor.name]}/38"
         )
 
     classroom_chair = bpy.data.objects["VIS_Prop_ClassroomChair"]
@@ -1243,6 +1422,10 @@ def audit_library() -> dict[str, object]:
         "trianglesByCollider": collider_triangles,
         "bookshelfBookSpines": BOOKSHELF_BOOK_SPINE_COUNT,
         "bookshelfComponents": bookshelf_components,
+        "cleaningLockerComponents": len(cleaning_components),
+        "cleaningLockerTriangles": visual_triangles[cleaning_locker.name],
+        "pcMonitorComponents": len(pc_monitor_components),
+        "pcMonitorTriangles": visual_triangles[pc_monitor.name],
         "classroomChairBackBounds": chair_back_bounds,
         "classroomChairMetalTop": metal_top,
         "dimensions": {
@@ -1283,6 +1466,7 @@ def build_library(arguments: argparse.Namespace) -> None:
         create_collider(
             prop_type,
             COLLIDER_DIMENSIONS[prop_type],
+            COLLIDER_LOCAL_CENTERS[prop_type],
             GRID_POSITIONS[visual_name],
             library,
         )
