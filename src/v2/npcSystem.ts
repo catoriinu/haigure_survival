@@ -17,7 +17,7 @@ import {
   type NavigationAgent
 } from "../world/navigationAgent";
 import type { NavigationLocation } from "../world/navigationWorld";
-import { createStageSpawnSampler } from "../world/stageSpawnSampler";
+import { createStageBoundarySpawnSampler } from "../world/stageSpawnSampler";
 import type { StageSpatialContext } from "../world/stageSpatialContext";
 import type {
   V2ActorSphere,
@@ -196,20 +196,19 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.stage = options.stage;
     this.random = options.random;
 
-    const spawnVolumes = options.stage.volumes.getByRole("npc_spawn");
-    if (spawnVolumes.length !== 1) {
-      throw new Error(
-        `学校のnpc_spawn Volumeは1個必要です: ${spawnVolumes.length}個`
-      );
-    }
-    const spawnSampler = createStageSpawnSampler(
-      spawnVolumes[0],
+    const spawnSampler = createStageBoundarySpawnSampler(
+      options.stage.boundary,
       options.stage.navigation,
       {
         maxAttempts: options.npcCount * 64,
         projectionMaxDistance: SPAWN_PROJECTION_MAX_DISTANCE,
         random: options.random
-      }
+      },
+      (point) =>
+        options.stage.queries.containsVolume("no_enemy_spawn", point) ||
+        options.stage.queries.containsVolume("no_enemy_enter", point) ||
+        options.stage.queries.containsVolume("hazard", point) ||
+        options.stage.queries.containsVolume("water", point)
     );
     const spawnPoints = spawnSampler.samplePoints(
       options.npcCount,

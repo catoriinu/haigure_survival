@@ -44,6 +44,7 @@ import type {
 } from "../../../src/world/stageLinks";
 import { createStageSpawnSampler } from "../../../src/world/stageSpawnSampler";
 import {
+  createStageBoundaryContainsQuery,
   createStageSpatialQueries,
   type StageVolume
 } from "../../../src/world/stageSpatialQueries";
@@ -2964,6 +2965,16 @@ const runValidation = async () => {
         });
         npcSystem.dispose();
 
+        const npcSpawnVolume =
+          schoolContext.volumes.getByRole("npc_spawn")[0];
+        const firstFloorNpcStage = Object.freeze({
+          ...schoolContext,
+          boundary: Object.freeze({
+            id: "stage" as const,
+            mesh: npcSpawnVolume.mesh,
+            contains: createStageBoundaryContainsQuery(npcSpawnVolume.mesh)
+          })
+        });
         const multifloorNpcDestinations = [
           ["2F", upperFloorNavigationResults[0].projected!],
           ["3F", upperFloorNavigationResults[2].projected!],
@@ -2977,7 +2988,7 @@ const runValidation = async () => {
             );
             const routeSystem = createV2NpcSystem({
               scene: spatialScene,
-              stage: schoolContext!,
+              stage: firstFloorNpcStage,
               npcCount: 2,
               initialBrainwashedNpcCount: 2,
               random: routeRandom.random

@@ -13,7 +13,7 @@ import {
   type NavigationAgent
 } from "../world/navigationAgent";
 import type { NavigationLocation } from "../world/navigationWorld";
-import { createStageSpawnSampler } from "../world/stageSpawnSampler";
+import { createStageBoundarySpawnSampler } from "../world/stageSpawnSampler";
 import type { StageSpatialContext } from "../world/stageSpatialContext";
 import type {
   V2ActorSphere,
@@ -257,13 +257,6 @@ export const createV2BitSystem = (
 ): V2BitSystem => {
   assertConfig(config);
 
-  const spawnVolumes = spatial.volumes.getByRole("bit_spawn");
-  if (spawnVolumes.length !== 1) {
-    throw new Error(
-      `V2ビットシステムにはbit_spawn Volumeが1件必要です: ${spawnVolumes.length}件`
-    );
-  }
-
   const nextRandom = () => {
     const value = config.random();
     if (!Number.isFinite(value) || value < 0 || value >= 1) {
@@ -318,14 +311,19 @@ export const createV2BitSystem = (
     return projected;
   };
 
-  const spawnSampler = createStageSpawnSampler(
-    spawnVolumes[0],
+  const spawnSampler = createStageBoundarySpawnSampler(
+    spatial.boundary,
     spatial.navigation,
     {
       maxAttempts: config.spawnMaxAttempts,
       projectionMaxDistance: config.spawnProjectionMaxDistance,
       random: nextRandom
-    }
+    },
+    (point) =>
+      spatial.queries.containsVolume("no_enemy_spawn", point) ||
+      spatial.queries.containsVolume("no_enemy_enter", point) ||
+      spatial.queries.containsVolume("hazard", point) ||
+      spatial.queries.containsVolume("water", point)
   );
   const materials = createSharedMaterials(scene);
   const bits: RuntimeBit[] = [];

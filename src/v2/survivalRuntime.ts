@@ -24,9 +24,9 @@ import {
 } from "./npcSystem";
 import type { V2PlayerController } from "./playerController";
 
-const NPC_COUNT = 10;
-const INITIAL_BRAINWASHED_NPC_COUNT = 2;
-const BIT_COUNT = 6;
+const NPC_COUNT = 99;
+const INITIAL_BRAINWASHED_NPC_COUNT = 66;
+const BIT_COUNT = 99;
 const ALERT_DURATION_SECONDS = 15;
 
 export type V2SurvivalFrame = Readonly<{
