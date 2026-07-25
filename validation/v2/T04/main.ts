@@ -65,15 +65,28 @@ import {
   createStageSpatialQueries,
   type StageVolume
 } from "../../../src/world/stageSpatialQueries";
+import {
+  V2_ALARM_INFLUENCE_RADIUS_WORLD_UNITS
+} from "../../../src/v2/alarmSystem";
 import { createV2AlertCoordinator } from "../../../src/v2/alertCoordinator";
 import { createV2BitSystem } from "../../../src/v2/bitSystem";
-import { createV2NpcSystem } from "../../../src/v2/npcSystem";
+import {
+  V2_NPC_CAPTURE_RADIUS,
+  createV2NpcSystem
+} from "../../../src/v2/npcSystem";
 import {
   castV2BeamSegment,
   castV2SightSegment,
   createV2BeamSystem
 } from "../../../src/v2/beamCollision";
-import type { V2ActorSphere } from "../../../src/v2/combatTypes";
+import {
+  isV2AliveState,
+  isV2BrainwashState,
+  type V2BeamTargetPolicy,
+  type V2CharacterState,
+  type V2HumanKind,
+  type V2HumanTargetSnapshot
+} from "../../../src/v2/combatTypes";
 
 import "./style.css";
 
@@ -82,6 +95,55 @@ type ValidationCheck = Readonly<{
   ok: boolean;
   detail: string;
 }>;
+
+const ALIVE_HUMANS_BEAM_POLICY: V2BeamTargetPolicy = Object.freeze({
+  kind: "alive-humans"
+});
+
+const createHumanTargetFixture = (
+  id: string,
+  kind: V2HumanKind,
+  footPosition: Vector3,
+  aimPosition: Vector3,
+  state: V2CharacterState = "normal"
+): V2HumanTargetSnapshot =>
+  Object.freeze({
+    id,
+    kind,
+    footPosition,
+    aimPosition,
+    hitShape: Object.freeze({
+      center: footPosition.add(new Vector3(0, PLAYER_SPRITE_HEIGHT * 0.5, 0)),
+      radii: new Vector3(
+        PLAYER_SPRITE_WIDTH * 0.5,
+        PLAYER_SPRITE_HEIGHT * 0.5,
+        PLAYER_SPRITE_WIDTH * 0.5
+      )
+    }),
+    state,
+    alive: isV2AliveState(state),
+    brainwashed: isV2BrainwashState(state)
+  });
+
+const createBeamTargetFixture = (
+  id: string,
+  kind: V2HumanKind,
+  center: Vector3,
+  radii: Vector3
+): V2HumanTargetSnapshot =>
+  Object.freeze({
+    id,
+    kind,
+    footPosition: center.add(new Vector3(0, -radii.y, 0)),
+    aimPosition: center.clone(),
+    hitShape: Object.freeze({
+      center,
+      radii
+    }),
+    state: "normal",
+    alive: true,
+    brainwashed: false
+  });
 
 type NavigationRuntime = Readonly<{
   navigationWorld: NavigationWorld;
@@ -2278,41 +2340,47 @@ const runValidation = async () => {
       );
       const beamStart = Vector3.Zero();
       const beamEnd = new Vector3(4, 0, 0);
-      const actorBeforeWall: V2ActorSphere = Object.freeze({
-        id: "actor-before-wall",
-        kind: "npc",
-        center: new Vector3(1, 0, 0),
-        radius: 0.2
-      });
-      const actorAfterWall: V2ActorSphere = Object.freeze({
-        id: "actor-after-wall",
-        kind: "npc",
-        center: new Vector3(3, 0, 0),
-        radius: 0.2
-      });
-      const actorOnWallSurface: V2ActorSphere = Object.freeze({
-        id: "actor-on-wall-surface",
-        kind: "npc",
-        center: new Vector3(2, 0, 0),
-        radius: 0.1
-      });
+      const actorBeforeWall = createBeamTargetFixture(
+        "actor-before-wall",
+        "npc",
+        new Vector3(1, 0, 0),
+        new Vector3(0.2, 0.2, 0.2)
+      );
+      const actorAfterWall = createBeamTargetFixture(
+        "actor-after-wall",
+        "npc",
+        new Vector3(3, 0, 0),
+        new Vector3(0.2, 0.2, 0.2)
+      );
+      const actorOnWallSurface = createBeamTargetFixture(
+        "actor-on-wall-surface",
+        "npc",
+        new Vector3(2, 0, 0),
+        new Vector3(0.1, 0.1, 0.1)
+      );
       const actorFirstHit = castV2BeamSegment(
         beamWallStage,
         beamStart,
         beamEnd,
-        [actorBeforeWall]
+        [actorBeforeWall],
+        "fixture-beam",
+        ALIVE_HUMANS_BEAM_POLICY
       );
       const wallFirstHit = castV2BeamSegment(
         beamWallStage,
         beamStart,
         beamEnd,
-        [actorAfterWall]
+        [actorAfterWall],
+        "fixture-beam",
+        ALIVE_HUMANS_BEAM_POLICY
       );
       const equalDistanceHit = castV2BeamSegment(
         beamWallStage,
         beamStart,
         beamEnd,
-        [actorOnWallSurface]
+        [actorOnWallSurface],
+        "fixture-beam",
+        ALIVE_HUMANS_BEAM_POLICY
       );
       checks.push({
         name: "通常ビームの標的・壁の最近傍判定",
@@ -2349,27 +2417,41 @@ const runValidation = async () => {
         0,
         0
       );
-      const playerActor: V2ActorSphere = Object.freeze({
-        id: "player-radius-validation",
-        kind: "player",
-        center: playerCenter,
-        radius: playerHorizontalRadius
-      });
-      const legacyOversizedPlayerActor: V2ActorSphere = Object.freeze({
-        ...playerActor,
-        radius: PLAYER_SPRITE_HEIGHT * 0.5
-      });
+      const playerActor = createBeamTargetFixture(
+        "player-radius-validation",
+        "player",
+        playerCenter,
+        new Vector3(
+          playerHorizontalRadius,
+          PLAYER_SPRITE_HEIGHT * 0.5,
+          playerHorizontalRadius
+        )
+      );
+      const legacyOversizedPlayerActor = createBeamTargetFixture(
+        playerActor.id,
+        playerActor.kind,
+        playerCenter,
+        new Vector3(
+          PLAYER_SPRITE_HEIGHT * 0.5,
+          PLAYER_SPRITE_HEIGHT * 0.5,
+          PLAYER_SPRITE_HEIGHT * 0.5
+        )
+      );
       const playerRadiusHit = castV2BeamSegment(
         playerRadiusWallStage,
         beamStart,
         beamEnd,
-        [playerActor]
+        [playerActor],
+        "fixture-beam",
+        ALIVE_HUMANS_BEAM_POLICY
       );
       const legacyRadiusHit = castV2BeamSegment(
         playerRadiusWallStage,
         beamStart,
         beamEnd,
-        [legacyOversizedPlayerActor]
+        [legacyOversizedPlayerActor],
+        "fixture-beam",
+        ALIVE_HUMANS_BEAM_POLICY
       );
       checks.push({
         name: "プレイヤー水平半径と壁優先衝突",
@@ -2379,7 +2461,7 @@ const runValidation = async () => {
           playerRadiusHit.mesh === playerRadiusWall &&
           legacyRadiusHit?.kind === "actor" &&
           legacyRadiusHit.actor.id === playerActor.id,
-        detail: `radius=${playerHorizontalRadius.toFixed(6)} / hit=${playerRadiusHit?.kind ?? "--"} / legacyRadius=${legacyOversizedPlayerActor.radius.toFixed(6)} / legacyHit=${legacyRadiusHit?.kind ?? "--"}`
+        detail: `radius=${playerHorizontalRadius.toFixed(6)} / hit=${playerRadiusHit?.kind ?? "--"} / legacyRadius=${legacyOversizedPlayerActor.hitShape.radii.x.toFixed(6)} / legacyHit=${legacyRadiusHit?.kind ?? "--"}`
       });
       playerRadiusWall.dispose();
 
@@ -2398,7 +2480,9 @@ const runValidation = async () => {
         beamWindowStage,
         beamStart,
         new Vector3(1.5, 0, 0),
-        []
+        [],
+        "fixture-beam",
+        ALIVE_HUMANS_BEAM_POLICY
       );
       const windowSightHit = castV2SightSegment(
         beamWindowStage,
@@ -2409,7 +2493,9 @@ const runValidation = async () => {
         beamWallStage,
         beamStart,
         beamEnd,
-        []
+        [],
+        "fixture-beam",
+        ALIVE_HUMANS_BEAM_POLICY
       );
       const normalWallSightHit = castV2SightSegment(
         beamWallStage,
@@ -2431,7 +2517,7 @@ const runValidation = async () => {
       const highSpeedBeamSystem = createV2BeamSystem({
         scene: spatialScene,
         stage: beamWallStage,
-        getActorSpheres: () => [],
+        getHumanTargets: () => [],
         visual: {
           diameter: 0.04,
           color: new Color3(1, 0.4, 0.1),
@@ -2440,12 +2526,17 @@ const runValidation = async () => {
       });
       const highSpeedBeamId = highSpeedBeamSystem.spawn({
         sourceId: "bit-fast",
+        originKind: "bit-chase",
+        targetPolicy: ALIVE_HUMANS_BEAM_POLICY,
         origin: beamStart,
         direction: Vector3.Right(),
         speed: 100,
         maximumLifetime: 1
       });
       const highSpeedEvents = highSpeedBeamSystem.update(0.1);
+      const highSpeedImpactSnapshot =
+        highSpeedBeamSystem.getActiveBeams()[0];
+      const highSpeedRetractionEvents = highSpeedBeamSystem.update(0.1);
       checks.push({
         name: "前フレーム位置からの高速ビーム連続衝突",
         ok:
@@ -2454,8 +2545,11 @@ const runValidation = async () => {
           highSpeedEvents.impacts[0].hit.kind === "blocker" &&
           highSpeedEvents.impacts[0].hit.mesh === beamWall &&
           highSpeedEvents.expirations.length === 0 &&
+          highSpeedImpactSnapshot.phase === "retracting" &&
+          highSpeedRetractionEvents.impacts.length === 0 &&
+          highSpeedRetractionEvents.expirations.length === 0 &&
           highSpeedBeamSystem.activeCount === 0,
-        detail: `impacts=${highSpeedEvents.impacts.length} / expirations=${highSpeedEvents.expirations.length} / active=${highSpeedBeamSystem.activeCount}`
+        detail: `impacts=${highSpeedEvents.impacts.length} / expirations=${highSpeedEvents.expirations.length} / phase=${highSpeedImpactSnapshot?.phase ?? "--"} / retractImpacts=${highSpeedRetractionEvents.impacts.length} / active=${highSpeedBeamSystem.activeCount}`
       });
       highSpeedBeamSystem.dispose();
 
@@ -2463,7 +2557,7 @@ const runValidation = async () => {
       const lifetimeBeamSystem = createV2BeamSystem({
         scene: spatialScene,
         stage: emptyBeamStage,
-        getActorSpheres: () => [],
+        getHumanTargets: () => [],
         visual: {
           diameter: 0.04,
           color: new Color3(0.2, 0.8, 1),
@@ -2472,6 +2566,8 @@ const runValidation = async () => {
       });
       const lifetimeBeamId = lifetimeBeamSystem.spawn({
         sourceId: "bit-lifetime",
+        originKind: "bit-chase",
+        targetPolicy: ALIVE_HUMANS_BEAM_POLICY,
         origin: beamStart,
         direction: Vector3.Right(),
         speed: 8,
@@ -2479,6 +2575,9 @@ const runValidation = async () => {
       });
       const lifetimeEvents = lifetimeBeamSystem.update(1);
       const lifetimeExpiration = lifetimeEvents.expirations[0];
+      const lifetimeExpirationSnapshot =
+        lifetimeBeamSystem.getActiveBeams()[0];
+      const lifetimeRetractionEvents = lifetimeBeamSystem.update(0.25);
       checks.push({
         name: "通常ビームの寿命終端イベント",
         ok:
@@ -2490,8 +2589,11 @@ const runValidation = async () => {
             lifetimeExpiration.position,
             new Vector3(2, 0, 0)
           ) <= 1e-6 &&
+          lifetimeExpirationSnapshot.phase === "retracting" &&
+          lifetimeRetractionEvents.impacts.length === 0 &&
+          lifetimeRetractionEvents.expirations.length === 0 &&
           lifetimeBeamSystem.activeCount === 0,
-        detail: `impacts=${lifetimeEvents.impacts.length} / expirations=${lifetimeEvents.expirations.length} / positionX=${lifetimeExpiration?.position.x.toFixed(3) ?? "--"}`
+        detail: `impacts=${lifetimeEvents.impacts.length} / expirations=${lifetimeEvents.expirations.length} / positionX=${lifetimeExpiration?.position.x.toFixed(3) ?? "--"} / phase=${lifetimeExpirationSnapshot?.phase ?? "--"} / active=${lifetimeBeamSystem.activeCount}`
       });
       lifetimeBeamSystem.dispose();
       beamWindow.dispose();
@@ -2537,15 +2639,39 @@ const runValidation = async () => {
         );
         const bitSpawnVolumes =
           schoolContext.volumes.getByRole("bit_spawn");
+        const assemblyAnchors =
+          schoolContext.markers.getByRole("assembly_anchor");
+        const assemblyVolumes =
+          schoolContext.volumes.getByRole("assembly");
+        const assemblyVenueSummaries = schoolContext.assemblyVenues.all.map(
+          (venue) =>
+            `${venue.id}:${venue.volume.id}/${venue.assemblyPositions.length}/${venue.executionAudiencePositions.length}/${venue.executionTargetPositions.length}/w${venue.selectionWeight}`
+        );
+        const assemblyVenuesOk =
+          schoolContext.assemblyVenues.all.length === 2 &&
+          assemblyVenueSummaries.join("|") ===
+            "assembly-courtyard:assembly-volume-courtyard/100/94/6/w1|assembly-gym:assembly-volume-gym/100/94/6/w1" &&
+          schoolContext.assemblyVenues.all.every(
+            (venue) =>
+              venue.anchor.role === "assembly_anchor" &&
+              venue.anchor.id === venue.id &&
+              venue.volume.role === "assembly" &&
+              Vector3.Distance(
+                venue.center,
+                venue.anchor.node.getAbsolutePosition()
+              ) <= 1e-6
+          );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 472 &&
+          schoolContext.resources.visualMeshes.length === 468 &&
           schoolContext.resources.normalColliders.length === 185 &&
           schoolContext.resources.actorOnlyColliders.length === 82 &&
           schoolContext.resources.humanOnlyColliders.length === 58 &&
           schoolContext.resources.navSourceMeshes.length === 15 &&
           schoolContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-          schoolContext.markers.all.length === 1 &&
-          schoolContext.volumes.all.length === 3 &&
+          schoolContext.markers.all.length === 3 &&
+          assemblyAnchors.length === 2 &&
+          schoolContext.volumes.all.length === 5 &&
+          assemblyVolumes.length === 2 &&
           schoolContext.links.all.length === 0 &&
           schoolContext.bitNavigation.zones.length === 4 &&
           schoolContext.bitNavigation.bands.length === 11 &&
@@ -2562,6 +2688,7 @@ const runValidation = async () => {
             schoolContext.metadata.bitNavProfileId ===
               SCHOOL_VALIDATION_STAGE.bitNavProfileId &&
             resourceCountsOk &&
+            assemblyVenuesOk &&
             Vector3.Distance(playerSpawn, expectedPlayerSpawn) <= 1e-5 &&
             schoolContext.boundary.contains(playerSpawn) &&
             schoolContext.volumes.getByRole("npc_spawn").length === 1 &&
@@ -2569,7 +2696,7 @@ const runValidation = async () => {
             bitSpawnVolumes[0].bitFlightBand !== null &&
             schoolContext.volumes.getByRole("water").length === 1 &&
             schoolConstructionPathfindCount === 0,
-          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / humanNAV=${schoolContext.resources.navSourceMeshes.length} / bitNAV=${schoolContext.resources.bitFlightNavSourceMeshes.length} / VOL=${schoolContext.volumes.all.length} / water=${schoolContext.volumes.getByRole("water").length} / humanLNK=${schoolContext.links.all.length} / zones=${schoolContext.bitNavigation.zones.length} / bands=${schoolContext.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length}) / buildPathfind=${schoolConstructionPathfindCount} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
+          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / humanNAV=${schoolContext.resources.navSourceMeshes.length} / bitNAV=${schoolContext.resources.bitFlightNavSourceMeshes.length} / MRK=${schoolContext.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${schoolContext.volumes.all.length}(assembly=${assemblyVolumes.length},water=${schoolContext.volumes.getByRole("water").length}) / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${schoolContext.links.all.length} / zones=${schoolContext.bitNavigation.zones.length} / bands=${schoolContext.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length}) / buildPathfind=${schoolConstructionPathfindCount} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
         });
 
         const schoolBitSafety = createBitFlightSafety(
@@ -3374,23 +3501,68 @@ const runValidation = async () => {
           random: npcRandom.random
         });
         const npcInitializationRandomCallCount = npcRandom.getCallCount();
-        npcSystem.applyAlerts([
+        const alarmCandidateId = "alarm-t04-tracking";
+        const alarmPosition = npcSystem
+          .getTargetSnapshots()[1]
+          .footPosition.add(new Vector3(0.5, 0, 0));
+        const alarmRadiusSquared =
+          V2_ALARM_INFLUENCE_RADIUS_WORLD_UNITS *
+          V2_ALARM_INFLUENCE_RADIUS_WORLD_UNITS;
+        const expectedAlarmReceiverIds = new Set(
+          npcSystem
+            .getTargetSnapshots()
+            .filter(
+              (target) =>
+                target.state === "brainwash-complete-gun" ||
+                target.state === "brainwash-complete-no-gun"
+            )
+            .filter((target) => {
+              const offsetX =
+                target.footPosition.x - alarmPosition.x;
+              const offsetZ =
+                target.footPosition.z - alarmPosition.z;
+              return (
+                offsetX * offsetX + offsetZ * offsetZ <=
+                alarmRadiusSquared
+              );
+            })
+            .map((target) => target.id)
+        );
+        const npcAlarmTarget = createHumanTargetFixture(
+          "player",
+          "player",
+          alarmPosition.clone(),
+          alarmPosition.add(new Vector3(0, 0.3, 0))
+        );
+        const npcMovementTarget = createHumanTargetFixture(
+          "player",
+          "player",
+          stageDestination.clone(),
+          stageDestination.add(new Vector3(0, 0.3, 0))
+        );
+        npcSystem.applyAlarmTargetEvents([
           {
-            leaderId: "npc_0",
+            candidateId: alarmCandidateId,
             targetId: "player",
-            remainingSeconds: 5
+            position: alarmPosition
           }
         ]);
+        npcSystem.update(0, npcAlarmTarget);
         const npcTracking = npcSystem.getTrackingSnapshots();
         checks.push({
-          name: "NPC発信者visualと受信者alertの分離",
+          name: "Alarm発火時の完成NPC優先追跡",
           ok:
-            npcTracking[0].targetId === null &&
-            npcTracking[0].provenance === null &&
-            npcTracking[1].targetId === "player" &&
-            npcTracking[1].provenance === "alert" &&
-            npcTracking[1].alertLeaderId === "npc_0" &&
-            npcTracking[1].alertRemainingSeconds === 5,
+            expectedAlarmReceiverIds.size > 0 &&
+            npcTracking.every((tracking) =>
+              expectedAlarmReceiverIds.has(tracking.npcId)
+                ? tracking.targetId === "player" &&
+                  tracking.provenance === "alert" &&
+                  tracking.alertLeaderId ===
+                    `alarm:${alarmCandidateId}` &&
+                  tracking.alertRemainingSeconds === 0
+                : tracking.targetId === null &&
+                  tracking.provenance === null
+            ),
           detail: npcTracking
             .map(
               (tracking) =>
@@ -3401,15 +3573,6 @@ const runValidation = async () => {
         const npcBeforeBlockedMovement = npcSystem.getActorSpheres()[1];
         const npcNavigationStart =
           npcSystem.getTargetSnapshots()[1].footPosition;
-        const npcMovementTarget = Object.freeze({
-          id: "player",
-          kind: "player" as const,
-          footPosition: stageDestination.clone(),
-          aimPosition: stageDestination.add(new Vector3(0, 0.3, 0)),
-          collisionRadius: 0.1,
-          alive: true,
-          brainwashed: false
-        });
         npcSystem.update(0.1, npcMovementTarget);
         const npcFirstPathfindCount = countPathfindAttemptsFrom(
           npcMovementBlocking.getPathfindAttempts(),
@@ -3472,23 +3635,32 @@ const runValidation = async () => {
               initialBrainwashedNpcCount: 2,
               random: routeRandom.random
             });
-            routeSystem.applyAlerts([
+            const routeNpcStart =
+              routeSystem.getTargetSnapshots()[1].footPosition;
+            const routeAlarmPosition = routeNpcStart.add(
+              new Vector3(0.5, 0, 0)
+            );
+            const targetAtAlarm = createHumanTargetFixture(
+              "player",
+              "player",
+              routeAlarmPosition.clone(),
+              routeAlarmPosition.add(new Vector3(0, 0.3, 0))
+            );
+            routeSystem.applyAlarmTargetEvents([
               {
-                leaderId: "npc_0",
+                candidateId: `alarm-t04-route-${destinationIndex}`,
                 targetId: "player",
-                remainingSeconds: 600
+                position: routeAlarmPosition
               }
             ]);
-            const start = routeSystem.getTargetSnapshots()[1].footPosition;
-            const target = Object.freeze({
-              id: "player",
-              kind: "player" as const,
-              footPosition: destination.position.clone(),
-              aimPosition: destination.position.add(new Vector3(0, 0.3, 0)),
-              collisionRadius: 0.1,
-              alive: true,
-              brainwashed: false
-            });
+            routeSystem.update(0, targetAtAlarm);
+            const start = routeNpcStart;
+            const target = createHumanTargetFixture(
+              "player",
+              "player",
+              destination.position.clone(),
+              destination.position.add(new Vector3(0, 0.3, 0))
+            );
             let reached = false;
             const visitedStaircases = new Set<"NW" | "NE" | "SW">();
             let groundProbeFailureCount = 0;
@@ -3521,7 +3693,9 @@ const runValidation = async () => {
                   staircaseGroundSampleCount += 1;
                 }
               }
-              reached = Vector3.Distance(position, destination.position) <= 0.15;
+              reached =
+                Vector3.Distance(position, destination.position) <=
+                V2_NPC_CAPTURE_RADIUS + 1e-6;
             }
             const finalPosition =
               routeSystem.getTargetSnapshots()[1].footPosition;
@@ -3552,7 +3726,7 @@ const runValidation = async () => {
               result.visitedStaircases.length > 0 &&
               (result.label !== "屋上" ||
                 result.visitedStaircases.includes("NW")) &&
-              result.endpointError <= 0.15
+              result.endpointError <= V2_NPC_CAPTURE_RADIUS + 1e-6
           ),
           detail: multifloorNpcResults
             .map(
@@ -3586,24 +3760,31 @@ const runValidation = async () => {
           initialBrainwashedNpcCount: 2,
           random: unreachableNpcRandom.random
         });
-        unreachableNpcSystem.applyAlerts([
-          {
-            leaderId: "npc_0",
-            targetId: "player",
-            remainingSeconds: 10
-          }
-        ]);
         const unreachableNpcStart =
           unreachableNpcSystem.getTargetSnapshots()[1].footPosition;
-        const unreachablePlayerTarget = Object.freeze({
-          id: "player",
-          kind: "player" as const,
-          footPosition: new Vector3(100, 100, 100),
-          aimPosition: new Vector3(100, 100.3, 100),
-          collisionRadius: 0.1,
-          alive: true,
-          brainwashed: false
-        });
+        const unreachableAlarmPosition = unreachableNpcStart.add(
+          new Vector3(0.5, 0, 0)
+        );
+        const unreachableTargetAtAlarm = createHumanTargetFixture(
+          "player",
+          "player",
+          unreachableAlarmPosition.clone(),
+          unreachableAlarmPosition.add(new Vector3(0, 0.3, 0))
+        );
+        unreachableNpcSystem.applyAlarmTargetEvents([
+          {
+            candidateId: "alarm-t04-unreachable",
+            targetId: "player",
+            position: unreachableAlarmPosition
+          }
+        ]);
+        unreachableNpcSystem.update(0, unreachableTargetAtAlarm);
+        const unreachablePlayerTarget = createHumanTargetFixture(
+          "player",
+          "player",
+          new Vector3(100, 100, 100),
+          new Vector3(100, 100.3, 100)
+        );
         for (let updateIndex = 0; updateIndex < 4; updateIndex += 1) {
           unreachableNpcSystem.update(0.25, unreachablePlayerTarget);
         }
@@ -3682,6 +3863,7 @@ const runValidation = async () => {
           spatialScene,
           bitMovementBlocking.stage,
           {
+            combatEnabled: false,
             initialBitCount: 2,
             minimumSpawnDistance: 0.2,
             spawnMaxAttempts: 128,
@@ -3715,15 +3897,12 @@ const runValidation = async () => {
           detail: `centerY=${initialBitActors.map((actor) => actor.center.y.toFixed(4)).join(",")} / band=${bitSpawnBand ? `${bitSpawnBand.minimumCenterHeight.toFixed(4)}..${bitSpawnBand.maximumCenterHeight.toFixed(4)}` : "none"}`
         });
 
-        const distantPlayerTarget = Object.freeze({
-          id: "player",
-          kind: "player" as const,
-          footPosition: stageDestination.clone(),
-          aimPosition: stageDestination.add(new Vector3(0, 0.3, 0)),
-          collisionRadius: 0.1,
-          alive: true,
-          brainwashed: false
-        });
+        const distantPlayerTarget = createHumanTargetFixture(
+          "player",
+          "player",
+          stageDestination.clone(),
+          stageDestination.add(new Vector3(0, 0.3, 0))
+        );
         forceNormalChase = true;
         bitSystem.update({
           deltaSeconds: 0.1,
@@ -3738,11 +3917,12 @@ const runValidation = async () => {
           ]
         });
         const bitAlertStates = bitSystem.getTargetStates();
-        const blockedMovementTarget = Object.freeze({
-          ...distantPlayerTarget,
-          footPosition: initialBitActors[0].center.clone(),
-          aimPosition: initialBitActors[0].center.clone()
-        });
+        const blockedMovementTarget = createHumanTargetFixture(
+          "player",
+          "player",
+          initialBitActors[0].center.clone(),
+          initialBitActors[0].center.clone()
+        );
         const bitFirstMovementAttemptCount =
           bitMovementBlocking.getAttempts().length;
         let bitBlockedUpdateCount = 0;
@@ -3860,6 +4040,7 @@ const runValidation = async () => {
             spatialScene,
             bitFailureStage,
             {
+              combatEnabled: false,
               initialBitCount: 2,
               minimumSpawnDistance: 0.2,
               spawnMaxAttempts: 128,
@@ -3884,6 +4065,7 @@ const runValidation = async () => {
           spatialScene,
           schoolContext,
           {
+            combatEnabled: false,
             initialBitCount: 1,
             minimumSpawnDistance: 0,
             spawnMaxAttempts: 128,
@@ -3891,15 +4073,13 @@ const runValidation = async () => {
             random: bitRandom.random
           }
         );
-        const brainwashedNpcTarget = Object.freeze({
-          id: "npc_brainwashed",
-          kind: "npc" as const,
-          footPosition: stageDestination.clone(),
-          aimPosition: stageDestination.add(new Vector3(0, 0.2, 0)),
-          collisionRadius: 0.1,
-          alive: true,
-          brainwashed: true
-        });
+        const brainwashedNpcTarget = createHumanTargetFixture(
+          "npc_brainwashed",
+          "npc",
+          stageDestination.clone(),
+          stageDestination.add(new Vector3(0, 0.2, 0)),
+          "brainwash-complete-no-gun"
+        );
         brainwashedTargetBitSystem.update({
           deltaSeconds: 0.1,
           elapsedSeconds: 0,
@@ -3927,6 +4107,7 @@ const runValidation = async () => {
           spatialScene,
           schoolContext,
           {
+            combatEnabled: false,
             initialBitCount: 1,
             minimumSpawnDistance: 0,
             spawnMaxAttempts: 128,
@@ -3940,15 +4121,12 @@ const runValidation = async () => {
           const aimPosition = visionBitCenter.add(
             new Vector3(Math.cos(angle) * 0.15, 0, Math.sin(angle) * 0.15)
           );
-          return Object.freeze({
-            id: `vision_target_${index}`,
-            kind: "npc" as const,
-            footPosition: aimPosition.add(new Vector3(0, -0.2, 0)),
-            aimPosition,
-            collisionRadius: 0.1,
-            alive: true,
-            brainwashed: false
-          });
+          return createHumanTargetFixture(
+            `vision_target_${index}`,
+            "npc",
+            aimPosition.add(new Vector3(0, -0.2, 0)),
+            aimPosition
+          );
         });
         visionBitSystem.update({
           deltaSeconds: 0,
@@ -3967,15 +4145,12 @@ const runValidation = async () => {
         const behindAimPosition = aimedBitCenter.subtract(
           behindDirection.scale(0.15)
         );
-        const behindTarget = Object.freeze({
-          id: acquiredVisionState.targetId ?? "not-acquired",
-          kind: "npc" as const,
-          footPosition: behindAimPosition.add(new Vector3(0, -0.2, 0)),
-          aimPosition: behindAimPosition,
-          collisionRadius: 0.1,
-          alive: true,
-          brainwashed: false
-        });
+        const behindTarget = createHumanTargetFixture(
+          acquiredVisionState.targetId ?? "not-acquired",
+          "npc",
+          behindAimPosition.add(new Vector3(0, -0.2, 0)),
+          behindAimPosition
+        );
         visionBitSystem.update({
           deltaSeconds: 0,
           elapsedSeconds: 0,
@@ -4003,12 +4178,24 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 472 &&
+          reloadedContext.resources.visualMeshes.length === 468 &&
           reloadedContext.resources.normalColliders.length === 185 &&
           reloadedContext.resources.actorOnlyColliders.length === 82 &&
           reloadedContext.resources.humanOnlyColliders.length === 58 &&
           reloadedContext.resources.navSourceMeshes.length === 15 &&
           reloadedContext.resources.bitFlightNavSourceMeshes.length === 22 &&
+          reloadedContext.markers.all.length === 3 &&
+          reloadedContext.markers.getByRole("assembly_anchor").length === 2 &&
+          reloadedContext.volumes.all.length === 5 &&
+          reloadedContext.volumes.getByRole("assembly").length === 2 &&
+          reloadedContext.assemblyVenues.all.length === 2 &&
+          reloadedContext.assemblyVenues.all.every(
+            (venue) =>
+              venue.selectionWeight === 1 &&
+              venue.assemblyPositions.length === 100 &&
+              venue.executionAudiencePositions.length === 94 &&
+              venue.executionTargetPositions.length === 6
+          ) &&
           reloadedContext.volumes.getByRole("water").length === 1 &&
           reloadedContext.links.all.length === 0 &&
           reloadedContext.bitNavigation.zones.length === 4 &&

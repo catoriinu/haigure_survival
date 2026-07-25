@@ -212,6 +212,7 @@ const createSystem = (
   minimumSpawnDistance = 0
 ) =>
   createV2BitSystem(scene, stage, {
+    combatEnabled: false,
     initialBitCount,
     minimumSpawnDistance,
     spawnMaxAttempts: initialBitCount === 1 ? 8 : 1024,
@@ -228,7 +229,11 @@ const createTarget = (
     kind: "npc" as const,
     footPosition: aimPosition.add(new Vector3(0, -0.2, 0)),
     aimPosition,
-    collisionRadius: 0.1,
+    hitShape: Object.freeze({
+      center: aimPosition.clone(),
+      radii: new Vector3(0.1, 0.2, 0.1)
+    }),
+    state: "normal" as const,
     alive: true,
     brainwashed: false
   });

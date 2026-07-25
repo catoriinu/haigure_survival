@@ -41,14 +41,24 @@ import { initializeNavigationRuntime } from "../../../src/world/navigationWorld"
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import { createV2BitSystem } from "../../../src/v2/bitSystem";
+import { runAlarmSystemTests } from "./alarmSystem.test";
+import { runAssemblyLayoutTests } from "./assemblyLayout.test";
+import { runBeamCombatTests } from "./beamCombat.test";
+import { runBitCombatIntegrationTests } from "./bitCombatIntegration.test";
+import { runBitCombatProfileTests } from "./bitCombatProfile.test";
 import { runBitFlightAgentTests } from "./bitFlightAgent.test";
 import { runBitFlightSafetyTests } from "./bitFlightSafety.test";
 import { runBitFlightSurfaceVariantTests } from "./bitFlightSurfaceVariant.test";
 import { runBitFlightTacticsTests } from "./bitFlightTactics.test";
 import {
   runBitSystemAcceptanceTests,
+  type BitSystemAcceptanceFixture,
   type BitSystemAcceptanceMode
 } from "./bitSystemAcceptance.test";
+import { runCharacterStateSystemTests } from "./characterStateSystem.test";
+import { runNpcCombatTests } from "./npcCombat.test";
+import { runPublicExecutionSystemTests } from "./publicExecutionSystem.test";
+import { runSurvivalRulesTests } from "./survivalRules.test";
 
 import "./style.css";
 
@@ -533,6 +543,7 @@ const runValidation = async () => {
       return randomState / 0x1_0000_0000;
     };
     const bitSystem = createV2BitSystem(scene, runtimeStage, {
+      combatEnabled: false,
       initialBitCount: 99,
       minimumSpawnDistance: 0.08,
       spawnMaxAttempts: 1024,
@@ -706,6 +717,7 @@ const runValidation = async () => {
       scene,
       transitionRuntimeStage,
       {
+        combatEnabled: false,
         initialBitCount: 1,
         minimumSpawnDistance: 0,
         spawnMaxAttempts: 8,
@@ -719,7 +731,11 @@ const runValidation = async () => {
         kind: "npc" as const,
         footPosition: new Vector3(0, 3.35, 0),
         aimPosition: pointInBand(mezzanineRef, 0, 0),
-        collisionRadius: 0.1,
+        hitShape: Object.freeze({
+          center: pointInBand(mezzanineRef, 0, 0),
+          radii: new Vector3(0.1, 0.2, 0.1)
+        }),
+        state: "normal" as const,
         alive: true,
         brainwashed: false
       });
@@ -1366,7 +1382,7 @@ const runValidation = async () => {
       }))
     );
 
-    const bitSystemAcceptance = await runBitSystemAcceptanceTests({
+    const bitSystemFixture: BitSystemAcceptanceFixture = Object.freeze({
       scene,
       navigation: activeWorld,
       definition,
@@ -1375,7 +1391,11 @@ const runValidation = async () => {
       concourseRef,
       mezzanineRef,
       pointInBand
-    }, acceptanceMode);
+    });
+    const bitSystemAcceptance = await runBitSystemAcceptanceTests(
+      bitSystemFixture,
+      acceptanceMode
+    );
     checks.push(...bitSystemAcceptance.checks);
     bitSystemAcceptance.metrics.forEach((metric) =>
       setMetric(metric.label, metric.value)
@@ -1399,10 +1419,60 @@ const runValidation = async () => {
       }))
     );
 
+    const combatSystemResults = [
+      ...runAlarmSystemTests().map((result) => ({
+        name: `T05-2 アラーム: ${result.name}`,
+        ok: result.ok,
+        detail: result.detail
+      })),
+      ...runAssemblyLayoutTests().map((result) => ({
+        name: `T05-2 集合配置: ${result.name}`,
+        ok: result.ok,
+        detail: result.detail
+      })),
+      ...runBeamCombatTests().map((result) => ({
+        name: `T05-2 光線: ${result.name}`,
+        ok: result.ok,
+        detail: result.detail
+      })),
+      ...runBitCombatProfileTests().map((result) => ({
+        name: `T05-2 bit戦闘profile: ${result.name}`,
+        ok: result.ok,
+        detail: result.detail
+      })),
+      ...runBitCombatIntegrationTests(bitSystemFixture).map((result) => ({
+        name: `T05-2 bit戦闘統合: ${result.name}`,
+        ok: result.ok,
+        detail: result.detail
+      })),
+      ...runCharacterStateSystemTests().map((result) => ({
+        name: `T05-2 キャラクター状態: ${result.name}`,
+        ok: result.ok,
+        detail: result.detail
+      })),
+      ...runNpcCombatTests().map((result) => ({
+        name: `T05-2 NPC戦闘: ${result.name}`,
+        ok: result.ok,
+        detail: result.detail
+      })),
+      ...runPublicExecutionSystemTests().map((result) => ({
+        name: `T05-2 公開処刑: ${result.name}`,
+        ok: result.ok,
+        detail: result.detail
+      })),
+      ...runSurvivalRulesTests().map((result) => ({
+        name: `T05-2 survival統合契約: ${result.name}`,
+        ok: result.ok,
+        detail: result.detail
+      }))
+    ];
+    checks.push(...combatSystemResults);
+
     setMetric("Recast初期化", `${initializationMs.toFixed(2)} ms`);
     setMetric("5帯ベイク", `${bakeMs.toFixed(2)} ms`);
     setMetric("bundle", `${bundle.byteLength} bytes`);
     setMetric("fixture", "3 zones / 5 bands / 4 transitions");
+    setMetric("T05-2単体検証", `${combatSystemResults.length} 項目`);
     const passed = checks.filter((check) => check.ok).length;
     summary.dataset.state = passed === checks.length ? "passed" : "failed";
     summary.textContent = `${passed} / ${checks.length} 項目がPASSしました。`;

@@ -65,6 +65,7 @@ export type StageSpatialContext = Readonly<{
   bitNavigation: BitFlightNavigationWorld;
   markers: StageMarkerRegistry;
   volumes: StageVolumeRegistry;
+  assemblyVenues: StageAssemblyVenueRegistry;
   links: StageLinkRegistry;
   boundary: StageBoundary;
   queries: StageSpatialQueries;
@@ -116,9 +117,10 @@ export type StageMoverKind = "player" | "npc" | "bit";
 6. `META_Stage`、必須marker、通常volume、飛行遷移volume、`BND_Stage`、`PRT_*`、人間用link、ビット用aperture pairを検査する。
 7. GLB、人間用NavMesh、ビットNavMesh bundleのカタログハッシュ、schema version、両profileを照合する。
 8. 人間用`LNK_*`だけを`StageLinkPair`へ組み立て、`StageLinkRegistry`を構築する。
-9. `NAV_BitFlight_*`から任意数のゾーン・帯を構築し、GLBの帯キー集合とbundle目録を完全一致検査する。
-10. 人間用`NavigationWorld`と、帯ごとに独立した`NavigationWorld`および明示遷移グラフを持つ`BitFlightNavigationWorld`を構築する。
-11. すべて成功した後だけ`addAllToScene()`し、旧Contextと交換する。
+9. `assembly_anchor` Markerと`assembly` Volumeを1対1に結び、`StageAssemblyVenueRegistry`を構築する。
+10. `NAV_BitFlight_*`から任意数のゾーン・帯を構築し、GLBの帯キー集合とbundle目録を完全一致検査する。
+11. 人間用`NavigationWorld`と、帯ごとに独立した`NavigationWorld`および明示遷移グラフを持つ`BitFlightNavigationWorld`を構築する。
+12. すべて成功した後だけ`addAllToScene()`し、旧Contextと交換する。
 
 未知接頭辞、重複ID、型違い、必須extras欠落、NavMesh不整合は即時エラーとする。欠落時に座標をTypeScriptへ直書きしたり、旧JSONへ戻したりしない。
 
@@ -273,6 +275,49 @@ NPCとビットのランダム出現は多数の点を列挙せず、対応す�
 - `water`: 水中判定に用いる閉じた3D領域。T04-2Bで学校GLBからの読込、内外問い合わせ、プール底へのNavMesh到達、破棄・再読込までを確認済みである。水中水平速度50%と通常速度への復帰はT06で実装する。
 
 `BND_Stage`はプレイ可能な3D空間を定義する。範囲外時の再配置先は`MRK_PlayerSpawn_*`または最後に確認したNavMesh上の安全点とする。AABBだけで凹形状や上下階を判定しない。
+
+### 9.1 集合・公開処刑会場
+
+`StageAssemblyVenueRegistry`は`assembly_anchor` Markerと、`hs_anchor_id`がそのMarker IDを参照する`assembly` Volumeを1対1に組み立てる。
+
+```ts
+export type StageAssemblyVenue = Readonly<{
+  id: string;
+  anchor: StageMarker;
+  volume: StageVolume;
+  center: Vector3;
+  selectionWeight: number;
+  assemblyPositions: readonly Vector3[];
+  executionAudiencePositions: readonly Vector3[];
+  executionTargetPositions: readonly Vector3[];
+}>;
+
+export interface StageAssemblyVenueRegistry {
+  readonly all: readonly StageAssemblyVenue[];
+  getById(id: string): StageAssemblyVenue | null;
+}
+```
+
+ロード時に次をすべて検査し、違反時はステージ読込を失敗させる。
+
+- `hs_selection_weight`が有限かつ0より大きい。
+- 3座標配列がそれぞれ非空で、全要素が有限値3要素である。
+- `assemblyPositions.length === executionAudiencePositions.length + executionTargetPositions.length`である。
+- MarkerとVolumeの参照が1対1で、参照先欠落、孤立Volume、重複対応がない。
+- Marker中心と3座標配列の全点が、対応Volumeと`BND_Stage`の内側または表面にある。
+
+JSON内のBlender座標`(x, y, z)`は読込時にBabylon world座標`(-0.25x, 0.25z, -0.25y)`へ変換する。TypeScriptへステージ固有の座標、格子間隔、会場名による分岐を置かない。
+
+会場選択はRegistryの決定的なID順に、`selectionWeight`による累積weight抽選を行う。入力乱数は0以上1未満とし、会場2件のweightがともに1なら、乱数が`0.5`未満で先頭会場、`0.5`以上で後続会場を選ぶ。会場欠落、不正weight、不正乱数を別会場や固定座標へフォールバックしない。
+
+配置数が作者座標数と同じ場合は、作者座標の値と順序をそのまま使用する。少ない場合は用途ごとに次の共通規則で縮小配置する。
+
+- 中心は常に会場の`center`とする。
+- 1人は中心へ置く。
+- 2人以上はBabylon XZ平面で等角度の円へ置き、先頭を中心から`+X`方向、以後を正の角度順とする。
+- 作者座標群の中心からの最大XZ半径を`maxAuthorRadius`、作者座標数を`capacity`、配置数を`count`とし、縮小後半径を`maxAuthorRadius * sqrt(count / capacity)`とする。
+- 集合、公開処刑観客、公開処刑対象は、それぞれの作者座標配列と容量を独立に使用する。
+- 同じ会場、用途、人数からは常に同じ順序・同じ座標を返す。
 
 ## 10. 3D空間問い合わせ
 

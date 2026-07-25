@@ -147,12 +147,29 @@ const startPlay = () => {
     });
 };
 
-canvas.addEventListener("click", startPlay);
+const handleCanvasClick = () => {
+  const wasStarted = started;
+  const hadPointerLock =
+    document.pointerLockElement ===
+    (canvas as unknown as Element);
+  startPlay();
+  if (wasStarted && hadPointerLock) {
+    const direction = camera.getDirection(
+      Vector3.Forward(scene.useRightHandedSystem)
+    );
+    survival.requestPlayerGunFire(direction);
+  }
+};
+
+canvas.addEventListener("click", handleCanvasClick);
 
 engine.runRenderLoop(() => {
   try {
     const delta = Math.min(engine.getDeltaTime() / 1000, 0.05);
-    const playerFrame = player.update(delta, started);
+    const playerFrame = player.update(
+      delta,
+      started && survival.canPlayerMove()
+    );
     let survivalFrame = survival.getFrame();
     if (started) {
       elapsedSeconds += delta;
@@ -166,11 +183,17 @@ engine.runRenderLoop(() => {
         `学校3D空間\n` +
         `X ${foot.x.toFixed(3)}  Y ${foot.y.toFixed(3)}  Z ${foot.z.toFixed(3)}\n` +
         `${playerFrame.verticalState.grounded ? "接地" : "空中"}\n` +
+        `フェーズ ${survivalFrame.phase}  ` +
+        `状態 ${survivalFrame.playerState}\n` +
+        `集合地点 ${survivalFrame.assemblyVenueId}\n` +
         `NPC ${survivalFrame.npcCount}  BIT ${survivalFrame.bitCount}  ` +
         `BEAM ${survivalFrame.activeBeamCount}\n` +
         `視認 ${survivalFrame.visualTargetCount}  ` +
-        `警報 ${survivalFrame.alertTargetCount}  ` +
+        `警戒対象 ${survivalFrame.alertTargetCount}  ` +
         `共有 ${survivalFrame.activeAlertCount}\n` +
+        `警報 稼働 ${survivalFrame.activeAlarmCount}  ` +
+        `点滅 ${survivalFrame.alarmBlinkCount}  ` +
+        `発報 ${survivalFrame.alarmTriggerCount}\n` +
         `着弾 壁 ${survivalFrame.blockerImpactCount}  ` +
         `標的 ${survivalFrame.actorImpactCount}`;
     }
@@ -193,7 +216,7 @@ const disposeRuntime = () => {
   disposed = true;
   engine.stopRenderLoop();
   window.removeEventListener("resize", resize);
-  canvas.removeEventListener("click", startPlay);
+  canvas.removeEventListener("click", handleCanvasClick);
   survival.dispose();
   player.dispose();
   stage.dispose();

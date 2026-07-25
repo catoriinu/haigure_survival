@@ -640,6 +640,26 @@ const validateLoadedContext = (
   const boundaryTransitions = bitTransitions.filter(
     (transition) => transition.kind === "boundary"
   );
+  const assemblyAnchors = context.markers.getByRole("assembly_anchor");
+  const assemblyVolumes = context.volumes.getByRole("assembly");
+  const assemblyVenueSummaries = context.assemblyVenues.all.map(
+    (venue) =>
+      `${venue.id}:${venue.volume.id}/${venue.assemblyPositions.length}/${venue.executionAudiencePositions.length}/${venue.executionTargetPositions.length}/w${venue.selectionWeight}`
+  );
+  const assemblyVenuesValid =
+    context.assemblyVenues.all.length === 2 &&
+    assemblyVenueSummaries.join("|") ===
+      "assembly-courtyard:assembly-volume-courtyard/100/94/6/w1|assembly-gym:assembly-volume-gym/100/94/6/w1" &&
+    context.assemblyVenues.all.every(
+      (venue) =>
+        venue.anchor.role === "assembly_anchor" &&
+        venue.anchor.id === venue.id &&
+        venue.volume.role === "assembly" &&
+        Vector3.Distance(
+          venue.center,
+          venue.anchor.node.getAbsolutePosition()
+        ) <= 1e-6
+    );
   const unsafeBitTransitionSegments: string[] = [];
   for (const transition of bitTransitions) {
     const traversalPoints = [
@@ -689,14 +709,17 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 472 &&
+      context.resources.visualMeshes.length === 468 &&
         context.resources.normalColliders.length === 185 &&
         context.resources.actorOnlyColliders.length === 82 &&
         context.resources.humanOnlyColliders.length === 58 &&
         context.resources.navSourceMeshes.length === 15 &&
         context.resources.bitFlightNavSourceMeshes.length === 22 &&
-        context.markers.all.length === 1 &&
-        context.volumes.all.length === 3 &&
+        context.markers.all.length === 3 &&
+        assemblyAnchors.length === 2 &&
+        context.volumes.all.length === 5 &&
+        assemblyVolumes.length === 2 &&
+        assemblyVenuesValid &&
         context.links.all.length === 0 &&
         context.bitNavigation.zones.length === 4 &&
         context.bitNavigation.bands.length === 11 &&
@@ -705,7 +728,7 @@ const validateLoadedContext = (
         surfaceRouteTransitions.length === 10 &&
         boundaryTransitions.length === 1 &&
         bitTransitions.every((transition) => transition.bidirectional),
-      `VIS=${context.resources.visualMeshes.length} / COL=${context.resources.normalColliders.length} / ActorOnly=${context.resources.actorOnlyColliders.length} / HumanOnly=${context.resources.humanOnlyColliders.length} / humanNAV=${context.resources.navSourceMeshes.length} / bitNAV=${context.resources.bitFlightNavSourceMeshes.length} / MRK=${context.markers.all.length} / VOL=${context.volumes.all.length} / humanLNK=${context.links.all.length} / zones=${context.bitNavigation.zones.length} / bands=${context.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length})`
+      `VIS=${context.resources.visualMeshes.length} / COL=${context.resources.normalColliders.length} / ActorOnly=${context.resources.actorOnlyColliders.length} / HumanOnly=${context.resources.humanOnlyColliders.length} / humanNAV=${context.resources.navSourceMeshes.length} / bitNAV=${context.resources.bitFlightNavSourceMeshes.length} / MRK=${context.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${context.volumes.all.length}(assembly=${assemblyVolumes.length}) / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${context.links.all.length} / zones=${context.bitNavigation.zones.length} / bands=${context.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length})`
     ),
     createCheck(
       `全ビット飛行遷移の${BIT_FLIGHT_ENVELOPE_RADIUS_METERS.toFixed(2)}m安全包絡`,
@@ -2116,12 +2139,24 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 472 &&
+      activeContext.resources.visualMeshes.length === 468 &&
       activeContext.resources.normalColliders.length === 185 &&
       activeContext.resources.actorOnlyColliders.length === 82 &&
       activeContext.resources.humanOnlyColliders.length === 58 &&
       activeContext.resources.navSourceMeshes.length === 15 &&
       activeContext.resources.bitFlightNavSourceMeshes.length === 22 &&
+      activeContext.markers.all.length === 3 &&
+      activeContext.markers.getByRole("assembly_anchor").length === 2 &&
+      activeContext.volumes.all.length === 5 &&
+      activeContext.volumes.getByRole("assembly").length === 2 &&
+      activeContext.assemblyVenues.all.length === 2 &&
+      activeContext.assemblyVenues.all.every(
+        (venue) =>
+          venue.selectionWeight === 1 &&
+          venue.assemblyPositions.length === 100 &&
+          venue.executionAudiencePositions.length === 94 &&
+          venue.executionTargetPositions.length === 6
+      ) &&
       activeContext.volumes.getByRole("water").length === 1 &&
       activeContext.links.all.length === 0 &&
       activeContext.bitNavigation.zones.length === 4 &&

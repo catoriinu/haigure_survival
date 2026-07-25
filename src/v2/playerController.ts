@@ -47,6 +47,7 @@ export type V2PlayerController = {
   getEyePosition(): Vector3;
   getVerticalState(): PlayerVerticalState;
   setEyeHeightScale(scale: number): void;
+  placeAt(footPosition: Vector3, lookAtPosition: Vector3): void;
   resetToSpawn(): void;
   dispose(): void;
 };
@@ -206,6 +207,39 @@ export const createV2PlayerController = ({
     movementYaw = Math.atan2(spawnForward.x, spawnForward.z);
   };
 
+  const placeAt = (
+    footPosition: Vector3,
+    lookAtPosition: Vector3
+  ) => {
+    assertActive();
+    assertFiniteVector("プレイヤー再配置足元", footPosition);
+    assertFiniteVector("プレイヤー再配置注視点", lookAtPosition);
+    const horizontalForward = lookAtPosition.subtract(footPosition);
+    horizontalForward.y = 0;
+    if (
+      horizontalForward.lengthSquared() <=
+      HORIZONTAL_FORWARD_EPSILON_SQUARED
+    ) {
+      throw new Error(
+        "プレイヤー再配置注視点は足元と異なる水平位置が必要です。"
+      );
+    }
+    horizontalForward.normalize();
+
+    input.reset();
+    motion.reset();
+    collisionMesh.position.copyFrom(footPosition);
+    collisionMesh.computeWorldMatrix(true);
+    resyncHeightOrThrow("指定位置への再配置");
+    syncCameraPosition();
+    camera.setTarget(camera.position.add(horizontalForward));
+    camera.cameraDirection.set(0, 0, 0);
+    movementYaw = Math.atan2(
+      horizontalForward.x,
+      horizontalForward.z
+    );
+  };
+
   camera.speed = 0;
   camera.checkCollisions = false;
   camera.inputs.removeByType("FreeCameraKeyboardMoveInput");
@@ -293,6 +327,7 @@ export const createV2PlayerController = ({
       eyeHeightScale = scale;
       syncCameraPosition();
     },
+    placeAt,
     resetToSpawn,
     dispose: () => {
       assertActive();

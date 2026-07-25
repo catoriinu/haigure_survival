@@ -2,20 +2,42 @@ import {
   Color3,
   Mesh,
   MeshBuilder,
+  Quaternion,
   Ray,
   Scene,
   StandardMaterial,
   Vector3,
   VertexBuffer
 } from "@babylonjs/core";
+
 import type { StageSpatialContext } from "../world/stageSpatialContext";
 import type { SpatialHit } from "../world/stageSpatialQueries";
-import type { V2ActorSphere, V2BeamRequest } from "./combatTypes";
+import type {
+  V2BeamOriginKind,
+  V2BeamRequest,
+  V2BeamTargetPolicy,
+  V2HumanTargetSnapshot
+} from "./combatTypes";
+
+export const V2_NORMAL_BEAM_MAX_BODY_LENGTH = 0.75;
+export const V2_NORMAL_BEAM_IMPACT_VISUAL_DURATION_SECONDS = 0.12;
 
 const SEGMENT_LENGTH_EPSILON = 1e-8;
 const SURFACE_DISTANCE_EPSILON = 1e-6;
 const HIT_DISTANCE_EPSILON = 1e-6;
-const ACTOR_SPATIAL_CELL_SIZE = 1;
+const HUMAN_TARGET_SPATIAL_CELL_SIZE = 1;
+const IMPACT_VISUAL_DIAMETER_MULTIPLIER = 2.5;
+const BEAM_ORIGIN_KINDS: readonly V2BeamOriginKind[] = Object.freeze([
+  "bit-chase",
+  "bit-fixed",
+  "bit-random",
+  "bit-carpet",
+  "npc-gun",
+  "player-gun",
+  "execution-bit",
+  "execution-npc",
+  "execution-player"
+]);
 const CONTAINMENT_RAY_DIRECTION = new Vector3(
   0.7385489459,
   0.4615930912,
@@ -46,7 +68,7 @@ export type V2BeamActorHit = Readonly<{
   point: Vector3;
   normal: Vector3;
   distance: number;
-  actor: V2ActorSphere;
+  actor: V2HumanTargetSnapshot;
 }>;
 
 export type V2BeamSegmentHit = V2BeamBlockerHit | V2BeamActorHit;
@@ -78,19 +100,23 @@ export type V2BeamVisualConfig = Readonly<{
 export type V2BeamSystemConfig = Readonly<{
   scene: Scene;
   stage: StageSpatialContext;
-  getActorSpheres(): readonly V2ActorSphere[];
+  getHumanTargets(): readonly V2HumanTargetSnapshot[];
   visual: V2BeamVisualConfig;
 }>;
 
 export type V2BeamImpactEvent = Readonly<{
   beamId: string;
   sourceId: string;
+  originKind: V2BeamOriginKind;
+  targetPolicy: V2BeamTargetPolicy;
   hit: V2BeamSegmentHit;
 }>;
 
 export type V2BeamExpirationEvent = Readonly<{
   beamId: string;
   sourceId: string;
+  originKind: V2BeamOriginKind;
+  targetPolicy: V2BeamTargetPolicy;
   position: Vector3;
 }>;
 
@@ -99,11 +125,18 @@ export type V2BeamFrameEvents = Readonly<{
   expirations: readonly V2BeamExpirationEvent[];
 }>;
 
+export type V2BeamPhase = "advancing" | "retracting";
+
 export type V2ActiveBeamSnapshot = Readonly<{
   id: string;
   sourceId: string;
+  originKind: V2BeamOriginKind;
+  targetPolicy: V2BeamTargetPolicy;
+  phase: V2BeamPhase;
   position: Vector3;
+  tailPosition: Vector3;
   velocity: Vector3;
+  bodyLength: number;
   remainingLifetime: number;
 }>;
 
@@ -119,10 +152,21 @@ export interface V2BeamSystem {
 type ActiveBeam = {
   id: string;
   sourceId: string;
+  originKind: V2BeamOriginKind;
+  targetPolicy: V2BeamTargetPolicy;
+  phase: V2BeamPhase;
   position: Vector3;
-  velocity: Vector3;
+  direction: Vector3;
+  speed: number;
   remainingLifetime: number;
+  bodyLength: number;
+  bodyMesh: Mesh;
+  tipMesh: Mesh;
+};
+
+type ImpactVisual = {
   mesh: Mesh;
+  remainingSeconds: number;
 };
 
 const assertFiniteNumber = (label: string, value: number): void => {
@@ -152,15 +196,122 @@ const assertUnitInterval = (label: string, value: number): void => {
 };
 
 const requireNonEmptyId = (label: string, value: string): void => {
-  if (value.length === 0) {
-    throw new Error(`${label}は空文字列にできません`);
+  if (value.length === 0 || value.trim() !== value) {
+    throw new Error(`${label}には前後空白のない非空IDが必要です`);
+  }
+};
+
+const cloneHumanTarget = (
+  target: V2HumanTargetSnapshot
+): V2HumanTargetSnapshot =>
+  Object.freeze({
+    id: target.id,
+    kind: target.kind,
+    footPosition: target.footPosition.clone(),
+    aimPosition: target.aimPosition.clone(),
+    hitShape: Object.freeze({
+      center: target.hitShape.center.clone(),
+      radii: target.hitShape.radii.clone()
+    }),
+    state: target.state,
+    alive: target.alive,
+    brainwashed: target.brainwashed
+  });
+
+const validateHumanTarget = (target: V2HumanTargetSnapshot): void => {
+  requireNonEmptyId("beam target.id", target.id);
+  if (target.kind !== "player" && target.kind !== "npc") {
+    throw new Error(`ビーム標的kindはplayerまたはnpcに限ります: ${target.id}`);
+  }
+  assertFiniteVector(`beam target(${target.id}).footPosition`, target.footPosition);
+  assertFiniteVector(`beam target(${target.id}).aimPosition`, target.aimPosition);
+  assertFiniteVector(
+    `beam target(${target.id}).hitShape.center`,
+    target.hitShape.center
+  );
+  assertPositiveNumber(
+    `beam target(${target.id}).hitShape.radii.x`,
+    target.hitShape.radii.x
+  );
+  assertPositiveNumber(
+    `beam target(${target.id}).hitShape.radii.y`,
+    target.hitShape.radii.y
+  );
+  assertPositiveNumber(
+    `beam target(${target.id}).hitShape.radii.z`,
+    target.hitShape.radii.z
+  );
+  if (typeof target.alive !== "boolean") {
+    throw new Error(`beam target(${target.id}).aliveにはbooleanが必要です`);
+  }
+  if (typeof target.brainwashed !== "boolean") {
+    throw new Error(
+      `beam target(${target.id}).brainwashedにはbooleanが必要です`
+    );
+  }
+};
+
+const validateHumanTargetIds = (
+  targets: readonly V2HumanTargetSnapshot[]
+): void => {
+  const targetIds = new Set<string>();
+  for (const target of targets) {
+    validateHumanTarget(target);
+    if (targetIds.has(target.id)) {
+      throw new Error(`ビーム衝突標的IDが重複しています: ${target.id}`);
+    }
+    targetIds.add(target.id);
+  }
+};
+
+const cloneTargetPolicy = (
+  targetPolicy: V2BeamTargetPolicy
+): V2BeamTargetPolicy => {
+  if (targetPolicy.kind === "alive-humans") {
+    return Object.freeze({ kind: "alive-humans" });
+  }
+  if (
+    targetPolicy.kind !== "execution-assigned" &&
+    targetPolicy.kind !== "execution-manual"
+  ) {
+    throw new Error(
+      `未登録のビームtargetPolicyです: ${String(
+        (targetPolicy as { kind: unknown }).kind
+      )}`
+    );
+  }
+
+  const targetIds = new Set<string>();
+  for (const targetId of targetPolicy.targetIds) {
+    requireNonEmptyId("beam.targetPolicy.targetIds[]", targetId);
+    if (targetIds.has(targetId)) {
+      throw new Error(
+        `beam.targetPolicy.targetIdsが重複しています: ${targetId}`
+      );
+    }
+    targetIds.add(targetId);
+  }
+  return Object.freeze({
+    kind: targetPolicy.kind,
+    targetIds: Object.freeze([...targetPolicy.targetIds])
+  });
+};
+
+const assertBeamOriginKind = (originKind: V2BeamOriginKind): void => {
+  if (!BEAM_ORIGIN_KINDS.includes(originKind)) {
+    throw new Error(`未登録のビームoriginKindです: ${String(originKind)}`);
   }
 };
 
 const buildBlockerGeometry = (mesh: Mesh): BlockerGeometry => {
   const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
   const indices = mesh.getIndices();
-  if (!positions || !indices || indices.length === 0 || indices.length % 3 !== 0) {
+  if (
+    !positions ||
+    !indices ||
+    indices.length === 0 ||
+    indices.length % 3 !== 0
+  ) {
     throw new Error(`ビーム遮蔽Meshに三角形形状がありません: ${mesh.name}`);
   }
 
@@ -184,11 +335,11 @@ const buildBlockerGeometry = (mesh: Mesh): BlockerGeometry => {
   }
 
   const bounds = mesh.getBoundingInfo().boundingBox;
-  return {
+  return Object.freeze({
     minimum: bounds.minimumWorld.clone(),
     maximum: bounds.maximumWorld.clone(),
-    triangles
-  };
+    triangles: Object.freeze(triangles)
+  });
 };
 
 const getBlockerGeometry = (mesh: Mesh): BlockerGeometry => {
@@ -267,164 +418,200 @@ const getStartHitNormal = (from: Vector3, to: Vector3): Vector3 => {
 const toBlockerHit = (
   hit: SpatialHit,
   startedInside: boolean
-): V2BeamBlockerHit => ({
-  kind: "blocker",
-  point: hit.point.clone(),
-  normal: hit.normal.clone(),
-  distance: hit.distance,
-  mesh: hit.mesh,
-  startedInside
-});
+): V2BeamBlockerHit =>
+  Object.freeze({
+    kind: "blocker",
+    point: hit.point.clone(),
+    normal: hit.normal.clone(),
+    distance: hit.distance,
+    mesh: hit.mesh,
+    startedInside
+  });
 
 const createStartBlockerHit = (
   mesh: Mesh,
   from: Vector3,
   to: Vector3
-): V2BeamBlockerHit => ({
-  kind: "blocker",
-  point: from.clone(),
-  normal: getStartHitNormal(from, to),
-  distance: 0,
-  mesh,
-  startedInside: true
-});
+): V2BeamBlockerHit =>
+  Object.freeze({
+    kind: "blocker",
+    point: from.clone(),
+    normal: getStartHitNormal(from, to),
+    distance: 0,
+    mesh,
+    startedInside: true
+  });
 
-const castActorSphereSegment = (
+const castHumanEllipsoidSegment = (
   from: Vector3,
   to: Vector3,
-  actor: V2ActorSphere
+  target: V2HumanTargetSnapshot
 ): V2BeamActorHit | null => {
-  requireNonEmptyId("actor.id", actor.id);
-  assertFiniteVector(`actor(${actor.id}).center`, actor.center);
-  assertPositiveNumber(`actor(${actor.id}).radius`, actor.radius);
-
-  const delta = to.subtract(from);
-  const relativeStart = from.subtract(actor.center);
-  const radiusSquared = actor.radius * actor.radius;
-  const segmentLengthSquared = delta.lengthSquared();
+  const { center, radii } = target.hitShape;
+  const scaledStart = new Vector3(
+    (from.x - center.x) / radii.x,
+    (from.y - center.y) / radii.y,
+    (from.z - center.z) / radii.z
+  );
+  const scaledDelta = new Vector3(
+    (to.x - from.x) / radii.x,
+    (to.y - from.y) / radii.y,
+    (to.z - from.z) / radii.z
+  );
+  const quadratic = scaledDelta.lengthSquared();
+  const linear = 2 * Vector3.Dot(scaledStart, scaledDelta);
+  const constant = scaledStart.lengthSquared() - 1;
   let fraction: number;
 
-  if (relativeStart.lengthSquared() <= radiusSquared) {
+  if (constant <= SEGMENT_LENGTH_EPSILON) {
     fraction = 0;
-  } else if (segmentLengthSquared <= SEGMENT_LENGTH_EPSILON ** 2) {
+  } else if (quadratic <= SEGMENT_LENGTH_EPSILON ** 2) {
     return null;
   } else {
-    const projection = Vector3.Dot(relativeStart, delta);
-    const constant = relativeStart.lengthSquared() - radiusSquared;
-    const discriminant = projection * projection - segmentLengthSquared * constant;
-    if (discriminant < 0) {
+    const discriminant = linear * linear - 4 * quadratic * constant;
+    if (discriminant < -SEGMENT_LENGTH_EPSILON) {
       return null;
     }
-    fraction =
-      (-projection - Math.sqrt(discriminant)) / segmentLengthSquared;
-    if (fraction < 0 || fraction > 1) {
+    const root = Math.sqrt(Math.max(0, discriminant));
+    const first = (-linear - root) / (2 * quadratic);
+    const second = (-linear + root) / (2 * quadratic);
+    const intersections = [first, second].filter(
+      (candidate) =>
+        candidate >= -SEGMENT_LENGTH_EPSILON &&
+        candidate <= 1 + SEGMENT_LENGTH_EPSILON
+    );
+    if (intersections.length === 0) {
       return null;
     }
+    fraction = Math.min(...intersections);
+    fraction = Math.min(1, Math.max(0, fraction));
   }
 
+  const delta = to.subtract(from);
   const point = from.add(delta.scale(fraction));
-  const outward = point.subtract(actor.center);
+  const relative = point.subtract(center);
+  const gradient = new Vector3(
+    relative.x / (radii.x * radii.x),
+    relative.y / (radii.y * radii.y),
+    relative.z / (radii.z * radii.z)
+  );
   const normal =
-    outward.lengthSquared() <= SEGMENT_LENGTH_EPSILON ** 2
+    gradient.lengthSquared() <= SEGMENT_LENGTH_EPSILON ** 2
       ? getStartHitNormal(from, to)
-      : outward.normalize();
-  return {
+      : gradient.normalize();
+  return Object.freeze({
     kind: "actor",
     point,
     normal,
-    distance: Math.sqrt(segmentLengthSquared) * fraction,
-    actor
-  };
+    distance: delta.length() * fraction,
+    actor: cloneHumanTarget(target)
+  });
 };
 
-const validateActorIds = (actors: readonly V2ActorSphere[]): void => {
-  const actorIds = new Set<string>();
-  for (const actor of actors) {
-    requireNonEmptyId("actor.id", actor.id);
-    if (actorIds.has(actor.id)) {
-      throw new Error(`ビーム衝突標的IDが重複しています: ${actor.id}`);
-    }
-    actorIds.add(actor.id);
+const isTargetAllowedByPolicy = (
+  target: V2HumanTargetSnapshot,
+  sourceId: string,
+  targetPolicy: V2BeamTargetPolicy
+): boolean => {
+  if (!target.alive || target.id === sourceId) {
+    return false;
   }
+  if (targetPolicy.kind === "alive-humans") {
+    return true;
+  }
+  return targetPolicy.targetIds.includes(target.id);
 };
 
-type ActorSpatialIndex = Readonly<{
-  query(from: Vector3, to: Vector3, sourceId: string): readonly V2ActorSphere[];
+type HumanTargetSpatialIndex = Readonly<{
+  query(
+    from: Vector3,
+    to: Vector3
+  ): readonly V2HumanTargetSnapshot[];
 }>;
 
-const actorCellKey = (x: number, y: number, z: number) => `${x}:${y}:${z}`;
+const humanTargetCellKey = (x: number, y: number, z: number) =>
+  `${x}:${y}:${z}`;
 
-const createActorSpatialIndex = (
-  actors: readonly V2ActorSphere[]
-): ActorSpatialIndex => {
+const createHumanTargetSpatialIndex = (
+  targets: readonly V2HumanTargetSnapshot[]
+): HumanTargetSpatialIndex => {
   const cells = new Map<string, number[]>();
   let maximumRadius = 0;
-  actors.forEach((actor, index) => {
-    maximumRadius = Math.max(maximumRadius, actor.radius);
-    const cellX = Math.floor(actor.center.x / ACTOR_SPATIAL_CELL_SIZE);
-    const cellY = Math.floor(actor.center.y / ACTOR_SPATIAL_CELL_SIZE);
-    const cellZ = Math.floor(actor.center.z / ACTOR_SPATIAL_CELL_SIZE);
-    const key = actorCellKey(cellX, cellY, cellZ);
-    const indices = cells.get(key) ?? [];
-    indices.push(index);
-    cells.set(key, indices);
+  targets.forEach((target, index) => {
+    maximumRadius = Math.max(
+      maximumRadius,
+      target.hitShape.radii.x,
+      target.hitShape.radii.y,
+      target.hitShape.radii.z
+    );
+    const center = target.hitShape.center;
+    const cellX = Math.floor(center.x / HUMAN_TARGET_SPATIAL_CELL_SIZE);
+    const cellY = Math.floor(center.y / HUMAN_TARGET_SPATIAL_CELL_SIZE);
+    const cellZ = Math.floor(center.z / HUMAN_TARGET_SPATIAL_CELL_SIZE);
+    const key = humanTargetCellKey(cellX, cellY, cellZ);
+    const indices = cells.get(key);
+    if (indices) {
+      indices.push(index);
+    } else {
+      cells.set(key, [index]);
+    }
   });
 
   return Object.freeze({
-    query: (from, to, sourceId) => {
+    query: (from, to) => {
       const minimumCellX = Math.floor(
-        (Math.min(from.x, to.x) - maximumRadius) / ACTOR_SPATIAL_CELL_SIZE
+        (Math.min(from.x, to.x) - maximumRadius) /
+          HUMAN_TARGET_SPATIAL_CELL_SIZE
       );
       const maximumCellX = Math.floor(
-        (Math.max(from.x, to.x) + maximumRadius) / ACTOR_SPATIAL_CELL_SIZE
+        (Math.max(from.x, to.x) + maximumRadius) /
+          HUMAN_TARGET_SPATIAL_CELL_SIZE
       );
       const minimumCellY = Math.floor(
-        (Math.min(from.y, to.y) - maximumRadius) / ACTOR_SPATIAL_CELL_SIZE
+        (Math.min(from.y, to.y) - maximumRadius) /
+          HUMAN_TARGET_SPATIAL_CELL_SIZE
       );
       const maximumCellY = Math.floor(
-        (Math.max(from.y, to.y) + maximumRadius) / ACTOR_SPATIAL_CELL_SIZE
+        (Math.max(from.y, to.y) + maximumRadius) /
+          HUMAN_TARGET_SPATIAL_CELL_SIZE
       );
       const minimumCellZ = Math.floor(
-        (Math.min(from.z, to.z) - maximumRadius) / ACTOR_SPATIAL_CELL_SIZE
+        (Math.min(from.z, to.z) - maximumRadius) /
+          HUMAN_TARGET_SPATIAL_CELL_SIZE
       );
       const maximumCellZ = Math.floor(
-        (Math.max(from.z, to.z) + maximumRadius) / ACTOR_SPATIAL_CELL_SIZE
+        (Math.max(from.z, to.z) + maximumRadius) /
+          HUMAN_TARGET_SPATIAL_CELL_SIZE
       );
       const candidateIndices: number[] = [];
       for (let cellX = minimumCellX; cellX <= maximumCellX; cellX += 1) {
         for (let cellY = minimumCellY; cellY <= maximumCellY; cellY += 1) {
           for (let cellZ = minimumCellZ; cellZ <= maximumCellZ; cellZ += 1) {
-            candidateIndices.push(
-              ...(cells.get(actorCellKey(cellX, cellY, cellZ)) ?? [])
+            const indices = cells.get(
+              humanTargetCellKey(cellX, cellY, cellZ)
             );
+            if (indices) {
+              candidateIndices.push(...indices);
+            }
           }
         }
       }
       candidateIndices.sort((left, right) => left - right);
       return Object.freeze(
-        candidateIndices.flatMap((index) =>
-          actors[index].id === sourceId ? [] : [actors[index]]
-        )
+        candidateIndices.map((index) => targets[index])
       );
     }
   });
 };
 
-/**
- * 前フレーム位置から新位置までを連続判定し、最初の壁または標的だけを返す。
- * 同距離では壁を優先し、壁面上の標的へビームが抜けることを防ぐ。
- * ゼロ長でも開始点が壁内または標的内なら距離0の命中、それ以外はnullとする。
- */
-export const castV2BeamSegment = (
+const castValidatedV2BeamSegment = (
   stage: StageSpatialContext,
   from: Vector3,
   to: Vector3,
-  actors: readonly V2ActorSphere[]
+  targets: readonly V2HumanTargetSnapshot[],
+  sourceId: string,
+  targetPolicy: V2BeamTargetPolicy
 ): V2BeamSegmentHit | null => {
-  assertFiniteVector("beam.from", from);
-  assertFiniteVector("beam.to", to);
-  validateActorIds(actors);
-
   const containingBlocker = findContainingBlocker(
     stage.resources.beamBlockers,
     from
@@ -441,8 +628,11 @@ export const castV2BeamSegment = (
     }
   }
 
-  for (const actor of actors) {
-    const actorHit = castActorSphereSegment(from, to, actor);
+  for (const target of targets) {
+    if (!isTargetAllowedByPolicy(target, sourceId, targetPolicy)) {
+      continue;
+    }
+    const actorHit = castHumanEllipsoidSegment(from, to, target);
     if (
       actorHit &&
       (!nearestHit ||
@@ -452,6 +642,33 @@ export const castV2BeamSegment = (
     }
   }
   return nearestHit;
+};
+
+/**
+ * 前フレーム位置から新位置までを連続判定し、最初の壁または生存中の人間だけを返す。
+ * sourceId自身とtargetPolicy対象外を除き、同距離では壁を優先する。
+ */
+export const castV2BeamSegment = (
+  stage: StageSpatialContext,
+  from: Vector3,
+  to: Vector3,
+  targets: readonly V2HumanTargetSnapshot[],
+  sourceId: string,
+  targetPolicy: V2BeamTargetPolicy
+): V2BeamSegmentHit | null => {
+  assertFiniteVector("beam.from", from);
+  assertFiniteVector("beam.to", to);
+  requireNonEmptyId("beam.sourceId", sourceId);
+  validateHumanTargetIds(targets);
+  const validatedPolicy = cloneTargetPolicy(targetPolicy);
+  return castValidatedV2BeamSegment(
+    stage,
+    from,
+    to,
+    targets,
+    sourceId,
+    validatedPolicy
+  );
 };
 
 /**
@@ -472,50 +689,54 @@ export const castV2SightSegment = (
     from
   );
   if (containingBlocker) {
-    return {
+    return Object.freeze({
       occluded: true,
       point: from.clone(),
       normal: getStartHitNormal(from, to),
       distance: 0,
       mesh: containingBlocker,
       startedInside: true
-    };
+    });
   }
 
   if (Vector3.DistanceSquared(from, to) <= SEGMENT_LENGTH_EPSILON ** 2) {
-    return {
+    return Object.freeze({
       occluded: false,
       point: null,
       normal: null,
       distance: null,
       mesh: null,
       startedInside: false
-    };
+    });
   }
 
   const hit = stage.queries.castSightSegment(from, to);
   if (!hit) {
-    return {
+    return Object.freeze({
       occluded: false,
       point: null,
       normal: null,
       distance: null,
       mesh: null,
       startedInside: false
-    };
+    });
   }
-  return {
+  return Object.freeze({
     occluded: true,
     point: hit.point.clone(),
     normal: hit.normal.clone(),
     distance: hit.distance,
     mesh: hit.mesh,
     startedInside: false
-  };
+  });
 };
 
-const validateBeamRequest = (request: V2BeamRequest): void => {
+const validateBeamRequest = (
+  request: V2BeamRequest
+): V2BeamTargetPolicy => {
   requireNonEmptyId("beam.sourceId", request.sourceId);
+  assertBeamOriginKind(request.originKind);
+  const targetPolicy = cloneTargetPolicy(request.targetPolicy);
   assertFiniteVector("beam.origin", request.origin);
   assertFiniteVector("beam.direction", request.direction);
   if (request.direction.lengthSquared() <= SEGMENT_LENGTH_EPSILON ** 2) {
@@ -523,24 +744,39 @@ const validateBeamRequest = (request: V2BeamRequest): void => {
   }
   assertPositiveNumber("beam.speed", request.speed);
   assertPositiveNumber("beam.maximumLifetime", request.maximumLifetime);
+  return targetPolicy;
+};
+
+const createBeamBodyRotation = (direction: Vector3): Quaternion => {
+  const up = Vector3.Up();
+  const dot = Math.min(1, Math.max(-1, Vector3.Dot(up, direction)));
+  if (dot >= 1 - SEGMENT_LENGTH_EPSILON) {
+    return Quaternion.Identity();
+  }
+  if (dot <= -1 + SEGMENT_LENGTH_EPSILON) {
+    return Quaternion.RotationAxis(Vector3.Right(), Math.PI);
+  }
+  const axis = Vector3.Cross(up, direction).normalize();
+  return Quaternion.RotationAxis(axis, Math.acos(dot));
 };
 
 export const createV2BeamSystem = (
   config: V2BeamSystemConfig
 ): V2BeamSystem => {
+  if (typeof config.getHumanTargets !== "function") {
+    throw new Error(
+      "V2BeamSystemのgetHumanTargetsには関数が必要です"
+    );
+  }
   assertPositiveNumber("beam.visual.diameter", config.visual.diameter);
   assertUnitInterval("beam.visual.alpha", config.visual.alpha);
   assertFiniteNumber("beam.visual.color.r", config.visual.color.r);
   assertFiniteNumber("beam.visual.color.g", config.visual.color.g);
   assertFiniteNumber("beam.visual.color.b", config.visual.color.b);
 
-  const material = new StandardMaterial("v2NormalBeamMaterial", config.scene);
-  material.emissiveColor = config.visual.color.clone();
-  material.diffuseColor = config.visual.color.clone();
-  material.specularColor = Color3.Black();
-  material.alpha = config.visual.alpha;
-
   const activeBeams = new Map<string, ActiveBeam>();
+  const impactVisuals = new Set<ImpactVisual>();
+  let material: StandardMaterial | null = null;
   let nextBeamSerial = 1;
   let disposed = false;
 
@@ -550,9 +786,88 @@ export const createV2BeamSystem = (
     }
   };
 
+  const getMaterial = (): StandardMaterial => {
+    if (material) {
+      return material;
+    }
+    material = new StandardMaterial("v2NormalBeamMaterial", config.scene);
+    material.emissiveColor = config.visual.color.clone();
+    material.diffuseColor = config.visual.color.clone();
+    material.specularColor = Color3.Black();
+    material.alpha = config.visual.alpha;
+    return material;
+  };
+
+  const disposeMaterial = (): void => {
+    material?.dispose();
+    material = null;
+  };
+
+  const getTailPosition = (beam: ActiveBeam): Vector3 =>
+    beam.position.subtract(beam.direction.scale(beam.bodyLength));
+
+  const updateBeamVisual = (beam: ActiveBeam): void => {
+    beam.tipMesh.position.copyFrom(beam.position);
+    if (beam.bodyLength <= SEGMENT_LENGTH_EPSILON) {
+      beam.bodyMesh.setEnabled(false);
+      return;
+    }
+    const tail = getTailPosition(beam);
+    beam.bodyMesh.setEnabled(true);
+    beam.bodyMesh.position.copyFrom(tail.add(beam.position).scale(0.5));
+    beam.bodyMesh.scaling.set(1, beam.bodyLength, 1);
+  };
+
   const disposeBeam = (beam: ActiveBeam): void => {
-    beam.mesh.dispose(false, false);
+    beam.bodyMesh.dispose(false, false);
+    beam.tipMesh.dispose(false, false);
     activeBeams.delete(beam.id);
+  };
+
+  const disposeImpactVisual = (impactVisual: ImpactVisual): void => {
+    impactVisual.mesh.dispose(false, false);
+    impactVisuals.delete(impactVisual);
+  };
+
+  const createBlockerImpactVisual = (
+    beamId: string,
+    position: Vector3
+  ): void => {
+    const mesh = MeshBuilder.CreateSphere(
+      `${beamId}-impact`,
+      {
+        diameter:
+          config.visual.diameter * IMPACT_VISUAL_DIAMETER_MULTIPLIER,
+        segments: 8
+      },
+      config.scene
+    );
+    mesh.material = getMaterial();
+    mesh.isPickable = false;
+    mesh.position.copyFrom(position);
+    impactVisuals.add({
+      mesh,
+      remainingSeconds: V2_NORMAL_BEAM_IMPACT_VISUAL_DURATION_SECONDS
+    });
+  };
+
+  const clearResources = (): void => {
+    for (const beam of [...activeBeams.values()]) {
+      disposeBeam(beam);
+    }
+    for (const impactVisual of [...impactVisuals]) {
+      disposeImpactVisual(impactVisual);
+    }
+    disposeMaterial();
+  };
+
+  const updateImpactVisuals = (deltaSeconds: number): void => {
+    for (const impactVisual of [...impactVisuals]) {
+      impactVisual.remainingSeconds -= deltaSeconds;
+      if (impactVisual.remainingSeconds <= SEGMENT_LENGTH_EPSILON) {
+        disposeImpactVisual(impactVisual);
+      }
+    }
   };
 
   const system: V2BeamSystem = {
@@ -561,30 +876,51 @@ export const createV2BeamSystem = (
     },
     spawn: (request) => {
       requireActiveSystem();
-      validateBeamRequest(request);
+      const targetPolicy = validateBeamRequest(request);
 
       const id = `v2-normal-beam-${nextBeamSerial}`;
       nextBeamSerial += 1;
-      const mesh = MeshBuilder.CreateSphere(
-        id,
+      const bodyMesh = MeshBuilder.CreateCylinder(
+        `${id}-body`,
+        {
+          height: 1,
+          diameter: config.visual.diameter,
+          tessellation: 8
+        },
+        config.scene
+      );
+      const tipMesh = MeshBuilder.CreateSphere(
+        `${id}-tip`,
         {
           diameter: config.visual.diameter,
           segments: 8
         },
         config.scene
       );
-      mesh.material = material;
-      mesh.isPickable = false;
-      mesh.position.copyFrom(request.origin);
+      const beamMaterial = getMaterial();
+      bodyMesh.material = beamMaterial;
+      tipMesh.material = beamMaterial;
+      bodyMesh.isPickable = false;
+      tipMesh.isPickable = false;
 
-      activeBeams.set(id, {
+      const direction = request.direction.clone().normalize();
+      bodyMesh.rotationQuaternion = createBeamBodyRotation(direction);
+      const beam: ActiveBeam = {
         id,
         sourceId: request.sourceId,
+        originKind: request.originKind,
+        targetPolicy,
+        phase: "advancing",
         position: request.origin.clone(),
-        velocity: request.direction.clone().normalize().scale(request.speed),
+        direction,
+        speed: request.speed,
         remainingLifetime: request.maximumLifetime,
-        mesh
-      });
+        bodyLength: 0,
+        bodyMesh,
+        tipMesh
+      };
+      activeBeams.set(id, beam);
+      updateBeamVisual(beam);
       return id;
     },
     update: (deltaSeconds) => {
@@ -596,87 +932,146 @@ export const createV2BeamSystem = (
         );
       }
       if (deltaSeconds === 0) {
-        return { impacts: [], expirations: [] };
+        return Object.freeze({
+          impacts: Object.freeze([]),
+          expirations: Object.freeze([])
+        });
       }
 
-      const allActors = config.getActorSpheres();
-      validateActorIds(allActors);
-      const actorSpatialIndex = createActorSpatialIndex(allActors);
+      updateImpactVisuals(deltaSeconds);
+      const targets = config.getHumanTargets();
+      validateHumanTargetIds(targets);
+      const targetSpatialIndex = createHumanTargetSpatialIndex(targets);
       const impacts: V2BeamImpactEvent[] = [];
       const expirations: V2BeamExpirationEvent[] = [];
 
       for (const beam of [...activeBeams.values()]) {
+        if (beam.phase === "retracting") {
+          beam.bodyLength = Math.max(
+            0,
+            beam.bodyLength - beam.speed * deltaSeconds
+          );
+          if (beam.bodyLength <= SEGMENT_LENGTH_EPSILON) {
+            disposeBeam(beam);
+          } else {
+            updateBeamVisual(beam);
+          }
+          continue;
+        }
+
         const travelSeconds = Math.min(
           deltaSeconds,
           beam.remainingLifetime
         );
+        const travelDistance = beam.speed * travelSeconds;
         const previousPosition = beam.position.clone();
         const nextPosition = previousPosition.add(
-          beam.velocity.scale(travelSeconds)
+          beam.direction.scale(travelDistance)
         );
-        const targetActors = actorSpatialIndex.query(
+        const candidateTargets = targetSpatialIndex.query(
           previousPosition,
-          nextPosition,
-          beam.sourceId
+          nextPosition
         );
-        const hit = castV2BeamSegment(
+        const hit = castValidatedV2BeamSegment(
           config.stage,
           previousPosition,
           nextPosition,
-          targetActors
+          candidateTargets,
+          beam.sourceId,
+          beam.targetPolicy
         );
 
         if (hit) {
           beam.position.copyFrom(hit.point);
-          beam.mesh.position.copyFrom(hit.point);
-          impacts.push({
-            beamId: beam.id,
-            sourceId: beam.sourceId,
-            hit
-          });
-          disposeBeam(beam);
+          beam.bodyLength = Math.min(
+            V2_NORMAL_BEAM_MAX_BODY_LENGTH,
+            beam.bodyLength + hit.distance
+          );
+          beam.remainingLifetime = Math.max(
+            0,
+            beam.remainingLifetime - hit.distance / beam.speed
+          );
+          beam.phase = "retracting";
+          updateBeamVisual(beam);
+          impacts.push(
+            Object.freeze({
+              beamId: beam.id,
+              sourceId: beam.sourceId,
+              originKind: beam.originKind,
+              targetPolicy: beam.targetPolicy,
+              hit
+            })
+          );
+          if (hit.kind === "blocker") {
+            createBlockerImpactVisual(beam.id, hit.point);
+          }
+          if (beam.bodyLength <= SEGMENT_LENGTH_EPSILON) {
+            disposeBeam(beam);
+          }
           continue;
         }
 
         beam.position.copyFrom(nextPosition);
-        beam.mesh.position.copyFrom(nextPosition);
+        beam.bodyLength = Math.min(
+          V2_NORMAL_BEAM_MAX_BODY_LENGTH,
+          beam.bodyLength + travelDistance
+        );
         beam.remainingLifetime -= travelSeconds;
+        updateBeamVisual(beam);
         if (beam.remainingLifetime <= SEGMENT_LENGTH_EPSILON) {
-          expirations.push({
-            beamId: beam.id,
-            sourceId: beam.sourceId,
-            position: beam.position.clone()
-          });
-          disposeBeam(beam);
+          beam.remainingLifetime = 0;
+          beam.phase = "retracting";
+          expirations.push(
+            Object.freeze({
+              beamId: beam.id,
+              sourceId: beam.sourceId,
+              originKind: beam.originKind,
+              targetPolicy: beam.targetPolicy,
+              position: beam.position.clone()
+            })
+          );
+          if (beam.bodyLength <= SEGMENT_LENGTH_EPSILON) {
+            disposeBeam(beam);
+          }
         }
       }
 
-      return { impacts, expirations };
+      return Object.freeze({
+        impacts: Object.freeze(impacts),
+        expirations: Object.freeze(expirations)
+      });
     },
     getActiveBeams: () => {
       requireActiveSystem();
-      return [...activeBeams.values()].map((beam) => ({
-        id: beam.id,
-        sourceId: beam.sourceId,
-        position: beam.position.clone(),
-        velocity: beam.velocity.clone(),
-        remainingLifetime: beam.remainingLifetime
-      }));
+      return Object.freeze(
+        [...activeBeams.values()].map((beam) =>
+          Object.freeze({
+            id: beam.id,
+            sourceId: beam.sourceId,
+            originKind: beam.originKind,
+            targetPolicy: beam.targetPolicy,
+            phase: beam.phase,
+            position: beam.position.clone(),
+            tailPosition: getTailPosition(beam),
+            velocity:
+              beam.phase === "advancing"
+                ? beam.direction.scale(beam.speed)
+                : Vector3.Zero(),
+            bodyLength: beam.bodyLength,
+            remainingLifetime: beam.remainingLifetime
+          })
+        )
+      );
     },
     clear: () => {
       requireActiveSystem();
-      for (const beam of [...activeBeams.values()]) {
-        disposeBeam(beam);
-      }
+      clearResources();
     },
     dispose: () => {
       if (disposed) {
         return;
       }
-      for (const beam of [...activeBeams.values()]) {
-        disposeBeam(beam);
-      }
-      material.dispose();
+      clearResources();
       disposed = true;
     }
   };

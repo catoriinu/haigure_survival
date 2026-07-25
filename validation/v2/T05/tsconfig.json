@@ -6,10 +6,19 @@
   },
   "include": [
     "main.ts",
+    "alarmSystem.test.ts",
+    "assemblyLayout.test.ts",
+    "beamCombat.test.ts",
+    "bitCombatIntegration.test.ts",
+    "bitCombatProfile.test.ts",
     "bitFlightAgent.test.ts",
     "bitFlightSafety.test.ts",
     "bitFlightSurfaceVariant.test.ts",
     "bitFlightTactics.test.ts",
-    "bitSystemAcceptance.test.ts"
+    "bitSystemAcceptance.test.ts",
+    "characterStateSystem.test.ts",
+    "npcCombat.test.ts",
+    "publicExecutionSystem.test.ts",
+    "survivalRules.test.ts"
   ]
 }
