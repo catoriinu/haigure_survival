@@ -57,8 +57,18 @@ STAIR_WINDOW_CLEAR_HEIGHT = 0.70
 WINDOW_FRAME_BORDER = 0.05
 WINDOW_MEETING_STILE_WIDTH = 0.06
 WALL_THICKNESS = 0.30
-LINK_RADIUS_METERS = 0.54
-GENERATOR_VERSION = "t04-2b-asset-refactor-v01"
+BIT_FLIGHT_PHYSICAL_RADIUS_METERS = 0.44
+BIT_FLIGHT_SAFETY_MARGIN_METERS = 0.10
+BIT_FLIGHT_SAFETY_ENVELOPE_METERS = (
+    BIT_FLIGHT_PHYSICAL_RADIUS_METERS + BIT_FLIGHT_SAFETY_MARGIN_METERS
+)
+LINK_RADIUS_METERS = BIT_FLIGHT_SAFETY_ENVELOPE_METERS
+BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
+    BIT_FLIGHT_SAFETY_ENVELOPE_METERS + 0.05
+)
+BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
+BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
+GENERATOR_VERSION = "t05-1a-bit-flight-navigation-v02"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -189,6 +199,7 @@ GENERATED_PREFIXES = (
     "VIS_B03_",
     "COL_B03_",
     "NAV_B03_",
+    "NAV_BitFlight_",
     "VIS_WindowFrame_",
     "VIS_WindowGlass_",
     "COL_ActorOnly_Window_",
@@ -196,6 +207,7 @@ GENERATED_PREFIXES = (
     "COL_HumanOnly_Window_",
     "LNK_bit-window-",
     "LNK_bit-roof-",
+    "VOL_BitFlight_",
     "VOL_PoolWater",
     "VIS_StairSystem_NE_",
     "COL_StairSystem_NE_",
@@ -220,6 +232,97 @@ GENERATED_EXACT_NAMES = {
     "NAV_Blocker_SchoolUpper",
     "NAV_Blocker_Interiors",
 }
+
+BIT_FLIGHT_BANDS = (
+    (
+        "NAV_BitFlight_ExteriorF1",
+        "school-exterior",
+        "outdoor-f1",
+        "outdoor",
+        1.0,
+        1.8,
+    ),
+    (
+        "NAV_BitFlight_ExteriorF2",
+        "school-exterior",
+        "outdoor-f2",
+        "outdoor",
+        4.6,
+        5.4,
+    ),
+    (
+        "NAV_BitFlight_ExteriorF3",
+        "school-exterior",
+        "outdoor-f3",
+        "outdoor",
+        8.2,
+        9.0,
+    ),
+    (
+        "NAV_BitFlight_ExteriorF4",
+        "school-exterior",
+        "outdoor-f4",
+        "outdoor",
+        11.8,
+        12.6,
+    ),
+    (
+        "NAV_BitFlight_InteriorF1",
+        "school-interior",
+        "interior-f1",
+        "indoor",
+        1.0,
+        1.8,
+    ),
+    (
+        "NAV_BitFlight_InteriorF2",
+        "school-interior",
+        "interior-f2",
+        "indoor",
+        4.6,
+        5.4,
+    ),
+    (
+        "NAV_BitFlight_InteriorF3",
+        "school-interior",
+        "interior-f3",
+        "indoor",
+        8.2,
+        9.0,
+    ),
+    (
+        "NAV_BitFlight_InteriorF4",
+        "school-interior",
+        "interior-f4",
+        "indoor",
+        11.8,
+        12.6,
+    ),
+    (
+        "NAV_BitFlight_GymLow",
+        "school-gym",
+        "gym-low",
+        "indoor",
+        1.0,
+        1.8,
+    ),
+    (
+        "NAV_BitFlight_GymUpper",
+        "school-gym",
+        "gym-upper",
+        "indoor",
+        4.6,
+        5.4,
+    ),
+    (
+        "NAV_BitFlight_Rooftop",
+        "school-rooftop",
+        "roof-flight",
+        "outdoor",
+        15.4,
+        18.0,
+    ),
+)
 
 SOURCE_OBJECTS_TO_REMOVE = {
     "VIS_WindowGuide_1F_Courtyard_1",
@@ -1274,7 +1377,7 @@ def align_existing_storey_sources() -> None:
     minimum, maximum = world_bounds(boundary)
     boundary_vertices: list[tuple[float, float, float]] = []
     boundary_faces: list[tuple[int, ...]] = []
-    append_box(boundary_vertices, boundary_faces, tuple(minimum), (maximum.x, maximum.y, 18.0))
+    append_box(boundary_vertices, boundary_faces, tuple(minimum), (maximum.x, maximum.y, 19.0))
     replace_mesh_geometry("BND_Stage", boundary_vertices, boundary_faces)
 
 
@@ -2278,59 +2381,57 @@ def build_windows_and_links(
             a = Vector(center) + outward * 1.0
             b = Vector(center) - outward * 1.0
             link_id = window_link_id(spec, open_leaf_index)
+            if spec.floor == 0:
+                outside_band = ("school-exterior", "outdoor-f3")
+                inside_band = ("school-gym", "gym-upper")
+            else:
+                outside_band = (
+                    "school-exterior",
+                    f"outdoor-f{spec.floor}",
+                )
+                inside_band = (
+                    "school-interior",
+                    f"interior-f{spec.floor}",
+                )
             common = {
                 "hs_id": link_id,
-                "hs_link_kind": "bit_window",
+                "hs_transition_kind": "aperture",
                 "hs_bidirectional": True,
                 "hs_link_radius_m": LINK_RADIUS_METERS,
+                "hs_projection_distance_m": BIT_FLIGHT_PROJECTION_DISTANCE_METERS,
+                "hs_affordances_json": json.dumps(
+                    [
+                        "search-vantage",
+                        "indoor-access",
+                        "outdoor-access",
+                        "window-access",
+                    ],
+                    separators=(",", ":"),
+                ),
             }
             create_empty(
                 f"LNK_{link_id}_A",
                 tuple(a),
                 semantic_collection,
-                {**common, "hs_endpoint": "A"},
+                {
+                    **common,
+                    "hs_zone_id": outside_band[0],
+                    "hs_band_id": outside_band[1],
+                    "hs_endpoint": "A",
+                },
             )
             create_empty(
                 f"LNK_{link_id}_B",
                 tuple(b),
                 semantic_collection,
-                {**common, "hs_endpoint": "B"},
+                {
+                    **common,
+                    "hs_zone_id": inside_band[0],
+                    "hs_band_id": inside_band[1],
+                    "hs_endpoint": "B",
+                },
             )
     return colliders
-
-
-def build_roof_links(semantic_collection: bpy.types.Collection) -> None:
-    definitions = (
-        (
-            "bit-roof-north-east",
-            (48.4, 34.8, 16.25),
-            (46.1, 34.8, 16.25),
-        ),
-        (
-            "bit-roof-west-south",
-            (-10.0, -4.5, 16.25),
-            (-10.0, -2.2, 16.25),
-        ),
-    )
-    for link_id, a, b in definitions:
-        common = {
-            "hs_id": link_id,
-            "hs_link_kind": "bit_roof",
-            "hs_bidirectional": True,
-            "hs_link_radius_m": LINK_RADIUS_METERS,
-        }
-        create_empty(
-            f"LNK_{link_id}_A",
-            a,
-            semantic_collection,
-            {**common, "hs_endpoint": "A"},
-        )
-        create_empty(
-            f"LNK_{link_id}_B",
-            b,
-            semantic_collection,
-            {**common, "hs_endpoint": "B"},
-        )
 
 
 def build_pool(
@@ -2741,6 +2842,464 @@ def build_nav_sources(
     )
 
 
+def bit_flight_nav_properties(
+    zone_id: str,
+    band_id: str,
+    space_kind: str,
+    minimum_center_height: float,
+    maximum_center_height: float,
+    nav_role: str,
+) -> dict[str, object]:
+    return {
+        "hs_nav_set": "bit-flight",
+        "hs_nav_role": nav_role,
+        "hs_zone_id": zone_id,
+        "hs_band_id": band_id,
+        "hs_space_kind": space_kind,
+        "hs_center_height_min_m": minimum_center_height,
+        "hs_center_height_max_m": maximum_center_height,
+    }
+
+
+def build_bit_flight_nav_sources(nav_collection: bpy.types.Collection) -> None:
+    sources_and_offsets = {
+        "NAV_BitFlight_ExteriorF1": (["NAV_Walkable_Outdoor"], 1.4),
+        "NAV_BitFlight_ExteriorF2": (["NAV_Walkable_Outdoor"], 5.0),
+        "NAV_BitFlight_ExteriorF3": (["NAV_Walkable_Outdoor"], 8.6),
+        "NAV_BitFlight_ExteriorF4": (["NAV_Walkable_Outdoor"], 12.2),
+        "NAV_BitFlight_InteriorF1": (
+            [
+                "COL_Floor_WestWing",
+                "COL_Floor_NorthWing",
+                "COL_Floor_GymStorage",
+            ],
+            1.4,
+        ),
+        "NAV_BitFlight_InteriorF2": (["NAV_Walkable_Interior2F"], 1.4),
+        "NAV_BitFlight_InteriorF3": (["NAV_Walkable_Interior3F"], 1.4),
+        "NAV_BitFlight_InteriorF4": (["NAV_Walkable_Interior4F"], 1.4),
+        "NAV_BitFlight_GymLow": (["COL_Floor_Gym"], 1.4),
+        "NAV_BitFlight_GymUpper": (["COL_Floor_Gym"], 5.0),
+        "NAV_BitFlight_Rooftop": (["NAV_Walkable_Rooftop"], 2.3),
+    }
+    band_properties = {
+        object_name: bit_flight_nav_properties(
+            zone_id,
+            band_id,
+            space_kind,
+            minimum_center_height,
+            maximum_center_height,
+            "walkable",
+        )
+        for (
+            object_name,
+            zone_id,
+            band_id,
+            space_kind,
+            minimum_center_height,
+            maximum_center_height,
+        ) in BIT_FLIGHT_BANDS
+    }
+    if set(sources_and_offsets) != set(band_properties):
+        raise RuntimeError("ビット飛行帯の形状定義とproperty定義が一致しません")
+    for object_name, (source_names, z_offset) in sources_and_offsets.items():
+        obj = copy_meshes_into_object(
+            object_name,
+            source_names,
+            nav_collection,
+            band_properties[object_name],
+        )
+        shift_object_geometry_z(obj, z_offset)
+
+
+def mesh_component_world_bounds(
+    obj: bpy.types.Object,
+) -> list[tuple[Vector, Vector]]:
+    vertex_count = len(obj.data.vertices)
+    parents = list(range(vertex_count))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(first: int, second: int) -> None:
+        first_root = find(first)
+        second_root = find(second)
+        if first_root != second_root:
+            parents[second_root] = first_root
+
+    for edge in obj.data.edges:
+        union(edge.vertices[0], edge.vertices[1])
+
+    vertices_by_root: dict[int, list[int]] = {}
+    for index in range(vertex_count):
+        vertices_by_root.setdefault(find(index), []).append(index)
+
+    result = []
+    for indices in vertices_by_root.values():
+        points = [obj.matrix_world @ obj.data.vertices[index].co for index in indices]
+        result.append(
+            (
+                Vector(
+                    tuple(min(point[axis] for point in points) for axis in range(3))
+                ),
+                Vector(
+                    tuple(max(point[axis] for point in points) for axis in range(3))
+                ),
+            )
+        )
+    return result
+
+
+def is_broad_horizontal_support(
+    minimum: Vector,
+    maximum: Vector,
+) -> bool:
+    extent = maximum - minimum
+    return extent.z <= 0.5 and extent.x >= 2.0 and extent.y >= 2.0
+
+
+def is_bit_flight_support_collider_name(name: str) -> bool:
+    return (
+        "Floor" in name
+        or "Ceiling" in name
+        or "Ground" in name
+        or "Ramp" in name
+        or "Landing" in name
+        or "RaisedDeck" in name
+        or name.startswith("COL_Roof_")
+    )
+
+
+def build_bit_flight_obstacle_sources(
+    nav_collection: bpy.types.Collection,
+) -> None:
+    collider_collection = collection(COL_COLLECTION_NAME)
+    colliders = tuple(
+        sorted(
+            (
+                obj
+                for obj in collider_collection.all_objects
+                if obj.type == "MESH"
+                and obj.name.startswith("COL_")
+                and not obj.name.startswith("COL_HumanOnly_")
+                and not is_bit_flight_support_collider_name(obj.name)
+            ),
+            key=lambda obj: obj.name,
+        )
+    )
+    exterior_zone_exclusion_sources = []
+    for name in (
+        "COL_Floor_WestWing",
+        "COL_Floor_NorthWing",
+        "COL_Floor_Gym",
+        "COL_Floor_GymStorage",
+    ):
+        source = bpy.data.objects.get(name)
+        if source is None or source.type != "MESH":
+            raise RuntimeError(f"外部飛行ゾーン除外元がありません: {name}")
+        exterior_zone_exclusion_sources.append(source)
+    for (
+        _surface_name,
+        zone_id,
+        band_id,
+        space_kind,
+        minimum_center_height,
+        maximum_center_height,
+    ) in BIT_FLIGHT_BANDS:
+        obstacle_boxes = []
+        center_height = (minimum_center_height + maximum_center_height) / 2.0
+        for collider in colliders:
+            for minimum, maximum in mesh_component_world_bounds(collider):
+                if (
+                    minimum.z - BIT_FLIGHT_SAFETY_ENVELOPE_METERS
+                    > center_height
+                    or maximum.z + BIT_FLIGHT_SAFETY_ENVELOPE_METERS
+                    < center_height
+                    or is_broad_horizontal_support(minimum, maximum)
+                ):
+                    continue
+                minimum_x = minimum.x
+                maximum_x = maximum.x
+                minimum_y = minimum.y
+                maximum_y = maximum.y
+                if maximum_x - minimum_x < 0.02:
+                    center_x = (minimum_x + maximum_x) / 2.0
+                    minimum_x = center_x - 0.01
+                    maximum_x = center_x + 0.01
+                if maximum_y - minimum_y < 0.02:
+                    center_y = (minimum_y + maximum_y) / 2.0
+                    minimum_y = center_y - 0.01
+                    maximum_y = center_y + 0.01
+                obstacle_boxes.append(
+                    (
+                        (
+                            minimum_x,
+                            minimum_y,
+                            center_height
+                            - BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS,
+                        ),
+                        (
+                            maximum_x,
+                            maximum_y,
+                            center_height
+                            + BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS,
+                        ),
+                    )
+                )
+        if zone_id == "school-exterior":
+            for exclusion_source in exterior_zone_exclusion_sources:
+                for minimum, maximum in mesh_component_world_bounds(
+                    exclusion_source
+                ):
+                    obstacle_boxes.append(
+                        (
+                            (
+                                minimum.x,
+                                minimum.y,
+                                center_height
+                                - BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS,
+                            ),
+                            (
+                                maximum.x,
+                                maximum.y,
+                                center_height
+                                + BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS,
+                            ),
+                        )
+                    )
+        if not obstacle_boxes:
+            continue
+        object_suffix = re.sub(r"[^A-Za-z0-9]+", "_", f"{zone_id}_{band_id}")
+        create_mesh_object(
+            f"NAV_BitFlight_Obstacle_{object_suffix}",
+            obstacle_boxes,
+            nav_collection,
+            properties=bit_flight_nav_properties(
+                zone_id,
+                band_id,
+                space_kind,
+                minimum_center_height,
+                maximum_center_height,
+                "blocker",
+            ),
+        )
+
+
+def transition_properties(
+    transition_id: str,
+    transition_kind: str,
+    from_zone_id: str,
+    from_band_id: str,
+    to_zone_id: str,
+    to_band_id: str,
+    affordances: tuple[str, ...],
+    route_points: list[tuple[float, float, float]] | None = None,
+) -> dict[str, object]:
+    properties: dict[str, object] = {
+        "hs_id": transition_id,
+        "hs_role": "bit_flight_transition",
+        "hs_transition_kind": transition_kind,
+        "hs_from_zone_id": from_zone_id,
+        "hs_from_band_id": from_band_id,
+        "hs_to_zone_id": to_zone_id,
+        "hs_to_band_id": to_band_id,
+        "hs_bidirectional": True,
+        "hs_affordances_json": json.dumps(
+            affordances,
+            separators=(",", ":"),
+        ),
+        "hs_projection_distance_m": BIT_FLIGHT_PROJECTION_DISTANCE_METERS,
+    }
+    if route_points is not None:
+        properties["hs_route_points_json"] = json.dumps(
+            route_points,
+            separators=(",", ":"),
+        )
+    return properties
+
+
+def build_transition_volume(
+    object_name: str,
+    bounds: tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ],
+    semantic_collection: bpy.types.Collection,
+    properties: dict[str, object],
+) -> None:
+    create_mesh_object(
+        object_name,
+        [bounds],
+        semantic_collection,
+        properties=properties,
+    )
+
+
+def build_vertical_transition_volumes(
+    semantic_collection: bpy.types.Collection,
+) -> None:
+    for lower_floor, lower_center_minimum, upper_center_maximum in (
+        (1, 1.0, 5.4),
+        (2, 4.6, 9.0),
+        (3, 8.2, 12.6),
+    ):
+        upper_floor = lower_floor + 1
+        transition_id = f"school-exterior-f{lower_floor}-f{upper_floor}"
+        build_transition_volume(
+            f"VOL_BitFlight_ExteriorF{lower_floor}ToF{upper_floor}",
+            (
+                (14.0, 12.0, lower_center_minimum),
+                (22.0, 20.0, upper_center_maximum),
+            ),
+            semantic_collection,
+            transition_properties(
+                transition_id,
+                "vertical",
+                "school-exterior",
+                f"outdoor-f{lower_floor}",
+                "school-exterior",
+                f"outdoor-f{upper_floor}",
+                ("search-vantage",),
+            ),
+        )
+    build_transition_volume(
+        "VOL_BitFlight_GymLowToUpper",
+        ((41.0, 5.0, 1.0), (49.0, 12.0, 5.4)),
+        semantic_collection,
+        transition_properties(
+            "school-gym-low-upper",
+            "vertical",
+            "school-gym",
+            "gym-low",
+            "school-gym",
+            "gym-upper",
+            ("search-vantage",),
+        ),
+    )
+
+
+def stair_route_points(
+    stair: str,
+    base_z: float,
+) -> list[tuple[float, float, float]]:
+    local_points = [
+        (-11.4, 39.8, base_z + 1.4),
+        (-11.4, 43.1, base_z + 3.8),
+        (-11.4, 44.0, base_z + 3.8),
+        (-7.8, 44.0, base_z + 3.8),
+        (-7.8, 43.1, base_z + 3.8),
+        (-7.8, 40.0, base_z + 5.0),
+    ]
+    return transform_stair_vertices(local_points, stair)
+
+
+def build_stair_transition_volumes(
+    semantic_collection: bpy.types.Collection,
+) -> None:
+    transitions_by_stair = {
+        "NW": (
+            (1, "school-interior", "interior-f2"),
+            (2, "school-interior", "interior-f3"),
+            (3, "school-interior", "interior-f4"),
+            (4, "school-rooftop", "roof-flight"),
+        ),
+        "NE": (
+            (1, "school-interior", "interior-f2"),
+            (2, "school-interior", "interior-f3"),
+            (3, "school-interior", "interior-f4"),
+        ),
+        "SW": (
+            (1, "school-interior", "interior-f2"),
+            (2, "school-interior", "interior-f3"),
+            (3, "school-interior", "interior-f4"),
+        ),
+    }
+    for stair, transitions in transitions_by_stair.items():
+        for lower_floor, to_zone_id, to_band_id in transitions:
+            base_z = (lower_floor - 1) * 3.6
+            route_points = stair_route_points(stair, base_z)
+            horizontal_margin = BIT_FLIGHT_PROJECTION_DISTANCE_METERS
+            minimum_x = min(point[0] for point in route_points) - horizontal_margin
+            maximum_x = max(point[0] for point in route_points) + horizontal_margin
+            minimum_y = min(point[1] for point in route_points) - horizontal_margin
+            maximum_y = max(point[1] for point in route_points) + horizontal_margin
+            transition_id = (
+                f"school-stair-{stair.lower()}-f{lower_floor}-"
+                + ("roof" if to_zone_id == "school-rooftop" else f"f{lower_floor + 1}")
+            )
+            build_transition_volume(
+                (
+                    f"VOL_BitFlight_Stair{stair}F{lower_floor}To"
+                    + ("Roof" if to_zone_id == "school-rooftop" else f"F{lower_floor + 1}")
+                ),
+                (
+                    (minimum_x, minimum_y, base_z + 0.2),
+                    (maximum_x, maximum_y, base_z + 5.2),
+                ),
+                semantic_collection,
+                transition_properties(
+                    transition_id,
+                    "surface-route",
+                    "school-interior",
+                    f"interior-f{lower_floor}",
+                    to_zone_id,
+                    to_band_id,
+                    ("stair-route",),
+                    route_points,
+                ),
+            )
+
+
+def build_rooftop_boundary_transition(
+    semantic_collection: bpy.types.Collection,
+) -> None:
+    route_points = [
+        (48.4, 34.8, 12.2),
+        (48.4, 34.8, 16.25),
+        (46.1, 34.8, 16.25),
+        (46.1, 34.8, 15.4),
+    ]
+    build_transition_volume(
+        "VOL_BitFlight_ExteriorF4ToRooftop",
+        ((45.8, 33.8, 11.8), (48.7, 35.8, 16.8)),
+        semantic_collection,
+        transition_properties(
+            "school-exterior-f4-rooftop",
+            "boundary",
+            "school-exterior",
+            "outdoor-f4",
+            "school-rooftop",
+            "roof-flight",
+            ("search-vantage", "outdoor-access"),
+            route_points,
+        ),
+    )
+
+
+def configure_stage_navigation_contract() -> None:
+    metadata = bpy.data.objects.get("META_Stage")
+    if metadata is None or metadata.type != "EMPTY":
+        raise RuntimeError("META_Stageがありません")
+    metadata["hs_schema_version"] = 2
+    metadata["hs_bit_nav_profile"] = BIT_FLIGHT_NAV_PROFILE
+
+    for obj in bpy.data.objects:
+        if (
+            obj.name.startswith("NAV_")
+            and not obj.name.startswith("NAV_BitFlight_")
+        ):
+            obj["hs_nav_set"] = "human"
+
+    bit_spawn = bpy.data.objects.get("VOL_BitSpawn_Courtyard")
+    if bit_spawn is None or bit_spawn.type != "MESH":
+        raise RuntimeError("VOL_BitSpawn_Courtyardがありません")
+    bit_spawn["hs_zone_id"] = "school-exterior"
+    bit_spawn["hs_band_id"] = "outdoor-f1"
+
+
 def normalize_export_meshes(export_collection: bpy.types.Collection) -> None:
     for obj in export_collection.all_objects:
         if obj.type != "MESH":
@@ -2857,10 +3416,34 @@ def generation_signature() -> str:
 
 def is_current_generation() -> bool:
     names = tuple(bpy.data.objects.keys())
+    metadata = bpy.data.objects.get("META_Stage")
+    bit_spawn = bpy.data.objects.get("VOL_BitSpawn_Courtyard")
+    boundary = bpy.data.objects.get("BND_Stage")
+    boundary_maximum_z = (
+        world_bounds(boundary)[1].z
+        if boundary is not None and boundary.type == "MESH"
+        else None
+    )
+    human_nav_sources = tuple(
+        obj
+        for obj in bpy.data.objects
+        if obj.name.startswith("NAV_")
+        and not obj.name.startswith("NAV_BitFlight_")
+    )
     return (
         bpy.context.scene.get(GENERATOR_VERSION_PROPERTY) == GENERATOR_VERSION
         and bpy.context.scene.get(T04_CORRECTION_VERSION_PROPERTY)
         == T04_CORRECTION_VERSION
+        and metadata is not None
+        and metadata.get("hs_schema_version") == 2
+        and metadata.get("hs_bit_nav_profile") == BIT_FLIGHT_NAV_PROFILE
+        and bit_spawn is not None
+        and bit_spawn.get("hs_zone_id") == "school-exterior"
+        and bit_spawn.get("hs_band_id") == "outdoor-f1"
+        and boundary_maximum_z is not None
+        and abs(boundary_maximum_z - 19.0) <= 1.0e-6
+        and human_nav_sources
+        and all(obj.get("hs_nav_set") == "human" for obj in human_nav_sources)
         and bpy.context.scene.get("b03_window_layout_status") == "final"
         and sum(name.startswith("VIS_WindowFrame_") for name in names) == 82
         and sum(name.startswith("VIS_WindowGlass_") for name in names) == 82
@@ -2868,7 +3451,10 @@ def is_current_generation() -> bool:
         and sum(name.startswith("COL_ActorOnly_WindowFixed_") for name in names) == 49
         and sum(name.startswith("COL_HumanOnly_Window_") for name in names) == 58
         and sum(name.startswith("LNK_bit-window-") for name in names) == 116
-        and sum(name.startswith("LNK_bit-roof-") for name in names) == 4
+        and not any(name.startswith("LNK_bit-roof-") for name in names)
+        and sum(name.startswith("NAV_BitFlight_") for name in names) == 22
+        and sum(name.startswith("NAV_BitFlight_Obstacle_") for name in names) == 11
+        and sum(name.startswith("VOL_BitFlight_") for name in names) == 15
         and sum(name.startswith("VIS_B03_StoreyBand_") for name in names) == 4
         and sum(name.startswith("VIS_B03_StoreyTrim_") for name in names) == 4
         and not any(name.startswith("VIS_B03_FloorAccent_") for name in names)
@@ -3003,7 +3589,6 @@ def main() -> None:
         glass_material,
     )
     window_colliders.extend(storage_window_colliders)
-    build_roof_links(semantic_collection)
     build_pool(visual_collection, semantic_collection, water_material)
     build_minimum_props(visual_collection, collider_collection, bench_material)
     interior_result = build_school_interiors(
@@ -3017,6 +3602,12 @@ def main() -> None:
     )
     build_stair_finish(visual_collection, nosing_material)
     build_nav_sources(nav_collection, upper_colliders, window_colliders)
+    configure_stage_navigation_contract()
+    build_bit_flight_nav_sources(nav_collection)
+    build_bit_flight_obstacle_sources(nav_collection)
+    build_vertical_transition_volumes(semantic_collection)
+    build_stair_transition_volumes(semantic_collection)
+    build_rooftop_boundary_transition(semantic_collection)
     normalize_export_meshes(export_collection)
     material_result = consolidate_school_materials(export_collection)
     apply_architecture_swatch_uv(

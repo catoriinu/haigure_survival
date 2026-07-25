@@ -68,8 +68,119 @@ EXPECTED_PACKED_ATLAS_PATHS = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "t04-2b-asset-refactor-v01"
+EXPECTED_GENERATOR_VERSION = "t05-1a-bit-flight-navigation-v02"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v09"
+EXPECTED_SCHEMA_VERSION = 2
+EXPECTED_STAGE_ID = "school"
+EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-v1"
+EXPECTED_BIT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
+BIT_FLIGHT_PHYSICAL_RADIUS_METERS = 0.44
+BIT_FLIGHT_SAFETY_MARGIN_METERS = 0.10
+BIT_FLIGHT_SAFETY_ENVELOPE_METERS = (
+    BIT_FLIGHT_PHYSICAL_RADIUS_METERS + BIT_FLIGHT_SAFETY_MARGIN_METERS
+)
+BIT_FLIGHT_LINK_RADIUS_METERS = BIT_FLIGHT_SAFETY_ENVELOPE_METERS
+BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
+    BIT_FLIGHT_SAFETY_ENVELOPE_METERS + 0.05
+)
+BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
+EXPECTED_APERTURE_AFFORDANCES = (
+    "search-vantage",
+    "indoor-access",
+    "outdoor-access",
+    "window-access",
+)
+
+EXPECTED_BIT_FLIGHT_BANDS = (
+    (
+        "NAV_BitFlight_ExteriorF1",
+        "school-exterior",
+        "outdoor-f1",
+        "outdoor",
+        1.0,
+        1.8,
+    ),
+    (
+        "NAV_BitFlight_ExteriorF2",
+        "school-exterior",
+        "outdoor-f2",
+        "outdoor",
+        4.6,
+        5.4,
+    ),
+    (
+        "NAV_BitFlight_ExteriorF3",
+        "school-exterior",
+        "outdoor-f3",
+        "outdoor",
+        8.2,
+        9.0,
+    ),
+    (
+        "NAV_BitFlight_ExteriorF4",
+        "school-exterior",
+        "outdoor-f4",
+        "outdoor",
+        11.8,
+        12.6,
+    ),
+    (
+        "NAV_BitFlight_InteriorF1",
+        "school-interior",
+        "interior-f1",
+        "indoor",
+        1.0,
+        1.8,
+    ),
+    (
+        "NAV_BitFlight_InteriorF2",
+        "school-interior",
+        "interior-f2",
+        "indoor",
+        4.6,
+        5.4,
+    ),
+    (
+        "NAV_BitFlight_InteriorF3",
+        "school-interior",
+        "interior-f3",
+        "indoor",
+        8.2,
+        9.0,
+    ),
+    (
+        "NAV_BitFlight_InteriorF4",
+        "school-interior",
+        "interior-f4",
+        "indoor",
+        11.8,
+        12.6,
+    ),
+    (
+        "NAV_BitFlight_GymLow",
+        "school-gym",
+        "gym-low",
+        "indoor",
+        1.0,
+        1.8,
+    ),
+    (
+        "NAV_BitFlight_GymUpper",
+        "school-gym",
+        "gym-upper",
+        "indoor",
+        4.6,
+        5.4,
+    ),
+    (
+        "NAV_BitFlight_Rooftop",
+        "school-rooftop",
+        "roof-flight",
+        "outdoor",
+        15.4,
+        18.0,
+    ),
+)
 
 GATE_VISUAL_SPECS = (
     ("VIS_Gate_MainClosed", "X", 19.4, 25.4, -12.5),
@@ -205,6 +316,296 @@ def require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
+def hs_properties(source: object) -> dict[str, object]:
+    if isinstance(source, dict):
+        return {
+            key: value
+            for key, value in source.items()
+            if key.startswith("hs_")
+        }
+    return {
+        key: source[key]
+        for key in source.keys()
+        if key.startswith("hs_")
+    }
+
+
+def properties_match(actual: object, expected: object) -> bool:
+    if (
+        isinstance(expected, (int, float))
+        and not isinstance(expected, bool)
+        and isinstance(actual, (int, float))
+        and not isinstance(actual, bool)
+    ):
+        return abs(float(actual) - float(expected)) <= 1e-9
+    return actual == expected
+
+
+def require_exact_hs_properties(
+    object_name: str,
+    source: object,
+    expected: dict[str, object],
+) -> None:
+    actual = hs_properties(source)
+    require(
+        set(actual) == set(expected),
+        f"hs_* extrasのkeyが不正です: {object_name} / "
+        f"actual={sorted(actual)} / expected={sorted(expected)}",
+    )
+    for key, expected_value in expected.items():
+        require(
+            properties_match(actual[key], expected_value),
+            f"hs_* extrasの値が不正です: {object_name}.{key} / "
+            f"actual={actual[key]!r} / expected={expected_value!r}",
+        )
+
+
+def bit_flight_nav_properties(
+    zone_id: str,
+    band_id: str,
+    space_kind: str,
+    minimum_center_height: float,
+    maximum_center_height: float,
+    nav_role: str,
+) -> dict[str, object]:
+    return {
+        "hs_nav_set": "bit-flight",
+        "hs_nav_role": nav_role,
+        "hs_zone_id": zone_id,
+        "hs_band_id": band_id,
+        "hs_space_kind": space_kind,
+        "hs_center_height_min_m": minimum_center_height,
+        "hs_center_height_max_m": maximum_center_height,
+    }
+
+
+def bit_flight_obstacle_name(zone_id: str, band_id: str) -> str:
+    suffix = re.sub(r"[^A-Za-z0-9]+", "_", f"{zone_id}_{band_id}")
+    return f"NAV_BitFlight_Obstacle_{suffix}"
+
+
+def expected_aperture_endpoint_properties(
+    link_id: str,
+    endpoint: str,
+) -> dict[str, object]:
+    if link_id.startswith("bit-window-gym-"):
+        outside_zone_id = "school-exterior"
+        outside_band_id = "outdoor-f3"
+        inside_zone_id = "school-gym"
+        inside_band_id = "gym-upper"
+    else:
+        match = re.match(r"^bit-window-f0([1-4])-", link_id)
+        require(match is not None, f"窓接続IDから階を特定できません: {link_id}")
+        floor = int(match.group(1))
+        outside_zone_id = "school-exterior"
+        outside_band_id = f"outdoor-f{floor}"
+        inside_zone_id = "school-interior"
+        inside_band_id = f"interior-f{floor}"
+    zone_id, band_id = (
+        (outside_zone_id, outside_band_id)
+        if endpoint == "A"
+        else (inside_zone_id, inside_band_id)
+    )
+    return {
+        "hs_id": link_id,
+        "hs_transition_kind": "aperture",
+        "hs_bidirectional": True,
+        "hs_link_radius_m": BIT_FLIGHT_LINK_RADIUS_METERS,
+        "hs_projection_distance_m": BIT_FLIGHT_PROJECTION_DISTANCE_METERS,
+        "hs_affordances_json": json.dumps(
+            EXPECTED_APERTURE_AFFORDANCES,
+            separators=(",", ":"),
+        ),
+        "hs_zone_id": zone_id,
+        "hs_band_id": band_id,
+        "hs_endpoint": endpoint,
+    }
+
+
+def expected_stair_route_points(
+    stair: str,
+    base_z: float,
+) -> list[tuple[float, float, float]]:
+    points = [
+        (-11.4, 39.8, base_z + 1.4),
+        (-11.4, 43.1, base_z + 3.8),
+        (-11.4, 44.0, base_z + 3.8),
+        (-7.8, 44.0, base_z + 3.8),
+        (-7.8, 43.1, base_z + 3.8),
+        (-7.8, 40.0, base_z + 5.0),
+    ]
+    if stair == "NW":
+        return points
+    if stair == "NE":
+        return [(x + 54.0, y, z) for x, y, z in points]
+    if stair == "SW":
+        return [(32.9 - y, x + 9.1, z) for x, y, z in points]
+    raise RuntimeError(f"未定義の階段です: {stair}")
+
+
+def expected_transition_properties(
+    transition_id: str,
+    transition_kind: str,
+    from_zone_id: str,
+    from_band_id: str,
+    to_zone_id: str,
+    to_band_id: str,
+    affordances: tuple[str, ...],
+    route_points: list[tuple[float, float, float]] | None = None,
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        "hs_id": transition_id,
+        "hs_role": "bit_flight_transition",
+        "hs_transition_kind": transition_kind,
+        "hs_from_zone_id": from_zone_id,
+        "hs_from_band_id": from_band_id,
+        "hs_to_zone_id": to_zone_id,
+        "hs_to_band_id": to_band_id,
+        "hs_bidirectional": True,
+        "hs_affordances_json": json.dumps(affordances, separators=(",", ":")),
+        "hs_projection_distance_m": BIT_FLIGHT_PROJECTION_DISTANCE_METERS,
+    }
+    if route_points is not None:
+        result["hs_route_points_json"] = json.dumps(
+            route_points,
+            separators=(",", ":"),
+        )
+    return result
+
+
+def expected_bit_flight_transitions() -> dict[
+    str,
+    tuple[
+        dict[str, object],
+        tuple[tuple[float, float, float], tuple[float, float, float]],
+    ],
+]:
+    result = {}
+    for lower_floor, lower_center_minimum, upper_center_maximum in (
+        (1, 1.0, 5.4),
+        (2, 4.6, 9.0),
+        (3, 8.2, 12.6),
+    ):
+        upper_floor = lower_floor + 1
+        result[f"VOL_BitFlight_ExteriorF{lower_floor}ToF{upper_floor}"] = (
+            expected_transition_properties(
+                f"school-exterior-f{lower_floor}-f{upper_floor}",
+                "vertical",
+                "school-exterior",
+                f"outdoor-f{lower_floor}",
+                "school-exterior",
+                f"outdoor-f{upper_floor}",
+                ("search-vantage",),
+            ),
+            (
+                (14.0, 12.0, lower_center_minimum),
+                (22.0, 20.0, upper_center_maximum),
+            ),
+        )
+    result["VOL_BitFlight_GymLowToUpper"] = (
+        expected_transition_properties(
+            "school-gym-low-upper",
+            "vertical",
+            "school-gym",
+            "gym-low",
+            "school-gym",
+            "gym-upper",
+            ("search-vantage",),
+        ),
+        ((41.0, 5.0, 1.0), (49.0, 12.0, 5.4)),
+    )
+    transitions_by_stair = {
+        "NW": (
+            (1, "school-interior", "interior-f2"),
+            (2, "school-interior", "interior-f3"),
+            (3, "school-interior", "interior-f4"),
+            (4, "school-rooftop", "roof-flight"),
+        ),
+        "NE": (
+            (1, "school-interior", "interior-f2"),
+            (2, "school-interior", "interior-f3"),
+            (3, "school-interior", "interior-f4"),
+        ),
+        "SW": (
+            (1, "school-interior", "interior-f2"),
+            (2, "school-interior", "interior-f3"),
+            (3, "school-interior", "interior-f4"),
+        ),
+    }
+    for stair, transitions in transitions_by_stair.items():
+        for lower_floor, to_zone_id, to_band_id in transitions:
+            base_z = (lower_floor - 1) * 3.6
+            route_points = expected_stair_route_points(stair, base_z)
+            object_name = (
+                f"VOL_BitFlight_Stair{stair}F{lower_floor}To"
+                + (
+                    "Roof"
+                    if to_zone_id == "school-rooftop"
+                    else f"F{lower_floor + 1}"
+                )
+            )
+            transition_id = (
+                f"school-stair-{stair.lower()}-f{lower_floor}-"
+                + (
+                    "roof"
+                    if to_zone_id == "school-rooftop"
+                    else f"f{lower_floor + 1}"
+                )
+            )
+            minimum_x = (
+                min(point[0] for point in route_points)
+                - BIT_FLIGHT_PROJECTION_DISTANCE_METERS
+            )
+            maximum_x = (
+                max(point[0] for point in route_points)
+                + BIT_FLIGHT_PROJECTION_DISTANCE_METERS
+            )
+            minimum_y = (
+                min(point[1] for point in route_points)
+                - BIT_FLIGHT_PROJECTION_DISTANCE_METERS
+            )
+            maximum_y = (
+                max(point[1] for point in route_points)
+                + BIT_FLIGHT_PROJECTION_DISTANCE_METERS
+            )
+            result[object_name] = (
+                expected_transition_properties(
+                    transition_id,
+                    "surface-route",
+                    "school-interior",
+                    f"interior-f{lower_floor}",
+                    to_zone_id,
+                    to_band_id,
+                    ("stair-route",),
+                    route_points,
+                ),
+                (
+                    (minimum_x, minimum_y, base_z + 0.2),
+                    (maximum_x, maximum_y, base_z + 5.2),
+                ),
+            )
+    rooftop_route_points = [
+        (48.4, 34.8, 12.2),
+        (48.4, 34.8, 16.25),
+        (46.1, 34.8, 16.25),
+        (46.1, 34.8, 15.4),
+    ]
+    result["VOL_BitFlight_ExteriorF4ToRooftop"] = (
+        expected_transition_properties(
+            "school-exterior-f4-rooftop",
+            "boundary",
+            "school-exterior",
+            "outdoor-f4",
+            "school-rooftop",
+            "roof-flight",
+            ("search-vantage", "outdoor-access"),
+            rooftop_route_points,
+        ),
+        ((45.8, 33.8, 11.8), (48.7, 35.8, 16.8)),
+    )
+    return result
+
+
 def world_bounds(obj: bpy.types.Object) -> tuple[Vector, Vector]:
     points = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
     return (
@@ -266,6 +667,198 @@ def box_component_bounds(
             )
         )
     return actual
+
+
+def mesh_component_world_bounds(
+    obj: bpy.types.Object,
+) -> list[tuple[Vector, Vector]]:
+    vertex_count = len(obj.data.vertices)
+    parents = list(range(vertex_count))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(first: int, second: int) -> None:
+        first_root = find(first)
+        second_root = find(second)
+        if first_root != second_root:
+            parents[second_root] = first_root
+
+    for edge in obj.data.edges:
+        union(edge.vertices[0], edge.vertices[1])
+
+    vertices_by_root: dict[int, list[int]] = {}
+    for index in range(vertex_count):
+        vertices_by_root.setdefault(find(index), []).append(index)
+
+    result = []
+    for indices in vertices_by_root.values():
+        points = [
+            obj.matrix_world @ obj.data.vertices[index].co
+            for index in indices
+        ]
+        result.append(
+            (
+                Vector(
+                    tuple(
+                        min(point[axis] for point in points)
+                        for axis in range(3)
+                    )
+                ),
+                Vector(
+                    tuple(
+                        max(point[axis] for point in points)
+                        for axis in range(3)
+                    )
+                ),
+            )
+        )
+    return result
+
+
+def is_broad_horizontal_support(
+    minimum: Vector,
+    maximum: Vector,
+) -> bool:
+    extent = maximum - minimum
+    return extent.z <= 0.5 and extent.x >= 2.0 and extent.y >= 2.0
+
+
+def is_bit_flight_support_collider_name(name: str) -> bool:
+    return (
+        "Floor" in name
+        or "Ceiling" in name
+        or "Ground" in name
+        or "Ramp" in name
+        or "Landing" in name
+        or "RaisedDeck" in name
+        or name.startswith("COL_Roof_")
+    )
+
+
+def expected_bit_flight_obstacle_bounds(
+    objects_by_name: dict[str, bpy.types.Object],
+    zone_id: str,
+    center_height: float,
+) -> list[
+    tuple[tuple[float, float, float], tuple[float, float, float]]
+]:
+    colliders = tuple(
+        sorted(
+            (
+                obj
+                for obj in objects_by_name.values()
+                if obj.type == "MESH"
+                and obj.name.startswith("COL_")
+                and not obj.name.startswith("COL_HumanOnly_")
+                and not is_bit_flight_support_collider_name(obj.name)
+            ),
+            key=lambda obj: obj.name,
+        )
+    )
+    obstacle_boxes = []
+    for collider in colliders:
+        for minimum, maximum in mesh_component_world_bounds(collider):
+            if (
+                minimum.z - BIT_FLIGHT_SAFETY_ENVELOPE_METERS
+                > center_height
+                or maximum.z + BIT_FLIGHT_SAFETY_ENVELOPE_METERS
+                < center_height
+                or is_broad_horizontal_support(minimum, maximum)
+            ):
+                continue
+            minimum_x = minimum.x
+            maximum_x = maximum.x
+            minimum_y = minimum.y
+            maximum_y = maximum.y
+            if maximum_x - minimum_x < 0.02:
+                center_x = (minimum_x + maximum_x) / 2.0
+                minimum_x = center_x - 0.01
+                maximum_x = center_x + 0.01
+            if maximum_y - minimum_y < 0.02:
+                center_y = (minimum_y + maximum_y) / 2.0
+                minimum_y = center_y - 0.01
+                maximum_y = center_y + 0.01
+            obstacle_boxes.append(
+                (
+                    (
+                        minimum_x,
+                        minimum_y,
+                        center_height
+                        - BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS,
+                    ),
+                    (
+                        maximum_x,
+                        maximum_y,
+                        center_height
+                        + BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS,
+                    ),
+                )
+            )
+    if zone_id == "school-exterior":
+        for object_name in (
+            "COL_Floor_WestWing",
+            "COL_Floor_NorthWing",
+            "COL_Floor_Gym",
+            "COL_Floor_GymStorage",
+        ):
+            exclusion_source = objects_by_name.get(object_name)
+            require(
+                exclusion_source is not None
+                and exclusion_source.type == "MESH",
+                f"外部飛行ゾーン除外元がありません: {object_name}",
+            )
+            for minimum, maximum in mesh_component_world_bounds(
+                exclusion_source
+            ):
+                obstacle_boxes.append(
+                    (
+                        (
+                            minimum.x,
+                            minimum.y,
+                            center_height
+                            - BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS,
+                        ),
+                        (
+                            maximum.x,
+                            maximum.y,
+                            center_height
+                            + BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS,
+                        ),
+                    )
+                )
+    return obstacle_boxes
+
+
+def audit_bit_flight_obstacle_geometry(
+    object_name: str,
+    expected: list[
+        tuple[tuple[float, float, float], tuple[float, float, float]]
+    ],
+) -> int:
+    obj = bpy.data.objects.get(object_name)
+    require(
+        obj is not None and obj.type == "MESH",
+        f"ビット用blocker形状監査対象がありません: {object_name}",
+    )
+    actual = box_component_bounds(obj)
+    require(
+        len(actual) == len(expected),
+        f"ビット用blocker部品数が不正です: "
+        f"{object_name}/{len(actual)} != {len(expected)}",
+    )
+    for component_index, (actual_bounds, expected_bounds) in enumerate(
+        zip(actual, expected)
+    ):
+        require(
+            bounds_match(actual_bounds, expected_bounds),
+            f"ビット用blocker形状が基準面の0.54m包絡と不一致です: "
+            f"{object_name}/component={component_index}",
+        )
+    return len(actual)
 
 
 def bounds_match(
@@ -1855,14 +2448,12 @@ def audit_links(objects: list[bpy.types.Object]) -> dict[str, int]:
         link_id, endpoint = match.groups()
         pairs[link_id][endpoint] = obj
         require(obj.type == "EMPTY", f"LNK_*がEmptyではありません: {obj.name}")
-        require(obj.get("hs_id") == link_id, f"LNK名とhs_idが不一致です: {obj.name}")
-        require(obj.get("hs_endpoint") == endpoint, f"LNK名と端点が不一致です: {obj.name}")
-        require(obj.get("hs_bidirectional") is True, f"LNKが双方向ではありません: {obj.name}")
-        require(
-            abs(float(obj.get("hs_link_radius_m")) - 0.54) <= 1e-9,
-            f"LNK半径が0.54mではありません: {obj.name}",
+        require_exact_hs_properties(
+            obj.name,
+            obj,
+            expected_aperture_endpoint_properties(link_id, endpoint),
         )
-    expected_pairs = 60
+    expected_pairs = 58
     require(len(pairs) == expected_pairs, f"特殊接続が{expected_pairs}組ではありません: {len(pairs)}")
     window_colliders = {
         "bit-window-"
@@ -1870,63 +2461,279 @@ def audit_links(objects: list[bpy.types.Object]) -> dict[str, int]:
         for obj in objects
         if obj.name.startswith("COL_HumanOnly_Window_")
     }
-    kinds = Counter()
-    roof_guards = [
-        obj for obj in objects if obj.name.startswith("COL_RoofGuard_")
-    ]
+    require(
+        set(pairs) == set(window_colliders),
+        "aperture接続IDと承認済み58窓Colliderが一致しません",
+    )
     for link_id, endpoints in pairs.items():
         require(set(endpoints) == {"A", "B"}, f"LNK pairが不完全です: {link_id}")
         a = endpoints["A"]
         b = endpoints["B"]
-        kind = a.get("hs_link_kind")
-        require(kind == b.get("hs_link_kind"), f"LNK kindが端点間で不一致です: {link_id}")
-        kinds[kind] += 1
         segment = b.location - a.location
         require(
             abs(segment.z) <= 1e-7,
             f"LNK直線が端点最高高度を越える傾斜を持ちます: {link_id}",
         )
-        require(segment.length / 2 >= 0.54, f"LNK端点余裕が0.54m未満です: {link_id}")
-        if kind == "bit_window":
-            collider = window_colliders.get(link_id)
-            require(collider is not None, f"bit_window対応Colliderがありません: {link_id}")
-            minimum, maximum = world_bounds(collider)
-            center = (minimum + maximum) / 2
-            midpoint = (a.location + b.location) / 2
-            require((midpoint - center).length <= 1e-5, f"bit_windowが開口中央を通りません: {link_id}")
-            dimensions = maximum - minimum
-            thin_axis = min(range(3), key=lambda axis: dimensions[axis])
-            direction = segment.normalized()
+        require(
+            segment.length / 2 >= BIT_FLIGHT_LINK_RADIUS_METERS,
+            f"aperture端点余裕が0.54m未満です: {link_id}",
+        )
+        collider = window_colliders[link_id]
+        minimum, maximum = world_bounds(collider)
+        center = (minimum + maximum) / 2
+        midpoint = (a.location + b.location) / 2
+        require(
+            (midpoint - center).length <= 1e-5,
+            f"apertureが開口中央を通りません: {link_id}",
+        )
+        dimensions = maximum - minimum
+        thin_axis = min(range(3), key=lambda axis: dimensions[axis])
+        direction = segment.normalized()
+        require(
+            abs(direction[thin_axis]) >= 1.0 - 1e-7,
+            f"apertureが壁法線方向ではありません: {link_id}",
+        )
+    legacy_roof_links = [
+        obj.name
+        for obj in objects
+        if obj.name.startswith("LNK_bit-roof-")
+        or obj.get("hs_link_kind") == "bit_roof"
+    ]
+    require(
+        not legacy_roof_links,
+        f"廃止済みbit_roof接続が残っています: {legacy_roof_links}",
+    )
+    return {
+        "aperture_pairs": len(pairs),
+        "aperture_endpoints": len(pairs) * 2,
+        "legacy_bit_roof": len(legacy_roof_links),
+    }
+
+
+def audit_bit_flight_navigation(
+    objects: list[bpy.types.Object],
+) -> dict[str, object]:
+    objects_by_name = {obj.name: obj for obj in objects}
+    metadata = objects_by_name.get("META_Stage")
+    require(
+        metadata is not None and metadata.type == "EMPTY",
+        "META_StageがEmptyとして存在しません",
+    )
+    require(
+        metadata.get("hs_schema_version") == EXPECTED_SCHEMA_VERSION,
+        "META_Stage.hs_schema_versionが2ではありません",
+    )
+    require(
+        metadata.get("hs_stage_id") == EXPECTED_STAGE_ID,
+        "META_Stage.hs_stage_idがschoolではありません",
+    )
+    require(
+        metadata.get("hs_nav_profile") == EXPECTED_HUMAN_NAV_PROFILE,
+        "META_Stage.hs_nav_profileが学校人間用profileと一致しません",
+    )
+    require(
+        metadata.get("hs_bit_nav_profile") == EXPECTED_BIT_NAV_PROFILE,
+        "META_Stage.hs_bit_nav_profileがビット用profileと一致しません",
+    )
+
+    human_nav = [
+        obj
+        for obj in objects
+        if obj.name.startswith("NAV_")
+        and not obj.name.startswith("NAV_BitFlight_")
+    ]
+    require(human_nav, "人間用NAV生成元がありません")
+    bit_only_keys = {
+        "hs_zone_id",
+        "hs_band_id",
+        "hs_space_kind",
+        "hs_center_height_min_m",
+        "hs_center_height_max_m",
+    }
+    for obj in human_nav:
+        require(
+            obj.get("hs_nav_set") == "human",
+            f"人間用NAVのhs_nav_setがhumanではありません: {obj.name}",
+        )
+        require(
+            not bit_only_keys.intersection(hs_properties(obj)),
+            f"人間用NAVへビット飛行帯extrasが混入しています: {obj.name}",
+        )
+
+    expected_bit_names = set()
+    band_keys = set()
+    for (
+        walkable_name,
+        zone_id,
+        band_id,
+        space_kind,
+        minimum_center_height,
+        maximum_center_height,
+    ) in EXPECTED_BIT_FLIGHT_BANDS:
+        band_key = (zone_id, band_id)
+        require(band_key not in band_keys, f"飛行帯IDが重複しています: {band_key}")
+        band_keys.add(band_key)
+        blocker_name = bit_flight_obstacle_name(zone_id, band_id)
+        expected_bit_names.add(walkable_name)
+        expected_bit_names.add(blocker_name)
+        nav_sources = [
+            (walkable_name, "walkable"),
+            (blocker_name, "blocker"),
+        ]
+        center_height = (
+            minimum_center_height + maximum_center_height
+        ) / 2.0
+        for object_name, nav_role in nav_sources:
+            obj = objects_by_name.get(object_name)
             require(
-                abs(direction[thin_axis]) >= 1.0 - 1e-7,
-                f"bit_windowが壁法線方向ではありません: {link_id}",
+                obj is not None and obj.type == "MESH",
+                f"ビット用NAV生成元がありません: {object_name}",
             )
-        elif kind == "bit_roof":
-            midpoint = (a.location + b.location) / 2
-            crossed_guards: list[tuple[bpy.types.Object, float]] = []
-            for guard in roof_guards:
-                minimum, maximum = world_bounds(guard)
-                if (
-                    minimum.x - 1e-5 <= midpoint.x <= maximum.x + 1e-5
-                    and minimum.y - 1e-5 <= midpoint.y <= maximum.y + 1e-5
-                ):
-                    crossed_guards.append((guard, maximum.z))
-            require(
-                len(crossed_guards) == 1,
-                f"bit_roofが横断する屋上柵を一意に特定できません: "
-                f"{link_id} / {[guard.name for guard, _ in crossed_guards]}",
+            require_exact_hs_properties(
+                object_name,
+                obj,
+                bit_flight_nav_properties(
+                    zone_id,
+                    band_id,
+                    space_kind,
+                    minimum_center_height,
+                    maximum_center_height,
+                    nav_role,
+                ),
             )
-            guard, guard_top = crossed_guards[0]
-            require(
-                min(a.location.z, b.location.z) - guard_top >= 0.54,
-                f"bit_roofが{guard.name}へ半径0.54mの空きを持ちません: "
-                f"{link_id} / clearance="
-                f"{min(a.location.z, b.location.z) - guard_top}",
-            )
-    expected_window_links = 58
-    require(kinds["bit_window"] == expected_window_links, f"bit_windowが{expected_window_links}組ではありません: {kinds}")
-    require(kinds["bit_roof"] == 2, f"bit_roofが2組ではありません: {kinds}")
-    return dict(kinds)
+            minimum, maximum = world_bounds(obj)
+            if nav_role == "walkable":
+                require(
+                    minimum.z >= minimum_center_height - 1e-5
+                    and maximum.z <= maximum_center_height + 1e-5
+                    and minimum.z <= center_height + 1e-5
+                    and maximum.z >= center_height - 1e-5,
+                    f"ビット用walkableが許可高度内で帯中心と交差しません: "
+                    f"{object_name}/{minimum.z}..{maximum.z}",
+                )
+            else:
+                require(
+                    minimum.z < center_height < maximum.z,
+                    f"ビット用blockerが帯中心高度を横断しません: "
+                    f"{object_name}/{minimum.z}..{maximum.z}",
+                )
+                require(
+                    len(obj.data.vertices) >= 8,
+                    f"ビット用blockerが空です: {object_name}",
+                )
+                audit_bit_flight_obstacle_geometry(
+                    object_name,
+                    expected_bit_flight_obstacle_bounds(
+                        objects_by_name,
+                        zone_id,
+                        center_height,
+                    ),
+                )
+    actual_bit_names = {
+        obj.name for obj in objects if obj.name.startswith("NAV_BitFlight_")
+    }
+    require(
+        actual_bit_names == expected_bit_names,
+        "ビット用NAV生成元が学校11帯walkable＋11帯blockerと一致しません: "
+        f"missing={sorted(expected_bit_names - actual_bit_names)} / "
+        f"unexpected={sorted(actual_bit_names - expected_bit_names)}",
+    )
+
+    expected_transitions = expected_bit_flight_transitions()
+    actual_transition_names = {
+        obj.name for obj in objects if obj.name.startswith("VOL_BitFlight_")
+    }
+    require(
+        actual_transition_names == set(expected_transitions),
+        "ビット遷移Volumeが承認済み15件と一致しません: "
+        f"missing={sorted(set(expected_transitions) - actual_transition_names)} / "
+        f"unexpected={sorted(actual_transition_names - set(expected_transitions))}",
+    )
+    transition_kind_counts = Counter()
+    transition_ids = set()
+    for object_name, (expected_properties, expected_bounds) in expected_transitions.items():
+        obj = objects_by_name[object_name]
+        require(obj.type == "MESH", f"ビット遷移VolumeがMeshではありません: {object_name}")
+        require_exact_hs_properties(object_name, obj, expected_properties)
+        transition_id = expected_properties["hs_id"]
+        require(
+            transition_id not in transition_ids,
+            f"ビット遷移IDが重複しています: {transition_id}",
+        )
+        transition_ids.add(transition_id)
+        transition_kind_counts[expected_properties["hs_transition_kind"]] += 1
+        actual_minimum, actual_maximum = world_bounds(obj)
+        expected_minimum = Vector(expected_bounds[0])
+        expected_maximum = Vector(expected_bounds[1])
+        require(
+            (actual_minimum - expected_minimum).length <= 1e-5
+            and (actual_maximum - expected_maximum).length <= 1e-5,
+            f"ビット遷移Volume境界が不正です: {object_name}",
+        )
+        route_points_json = expected_properties.get("hs_route_points_json")
+        if route_points_json is not None:
+            for route_point in json.loads(route_points_json):
+                point = Vector(route_point)
+                require(
+                    all(
+                        actual_minimum[axis] - 1e-5
+                        <= point[axis]
+                        <= actual_maximum[axis] + 1e-5
+                        for axis in range(3)
+                    ),
+                    f"遷移route pointがVolume外です: {object_name}/{route_point}",
+                )
+    require(
+        transition_kind_counts
+        == Counter({"surface-route": 10, "vertical": 4, "boundary": 1}),
+        f"ビット遷移方式の件数が不正です: {transition_kind_counts}",
+    )
+
+    bit_spawn = objects_by_name.get("VOL_BitSpawn_Courtyard")
+    require(
+        bit_spawn is not None
+        and bit_spawn.get("hs_role") == "bit_spawn"
+        and bit_spawn.get("hs_zone_id") == "school-exterior"
+        and bit_spawn.get("hs_band_id") == "outdoor-f1",
+        "ビットspawnが学校屋外F1飛行帯へ結び付いていません",
+    )
+
+    boundary = objects_by_name.get("BND_Stage")
+    require(boundary is not None, "BND_Stageがありません")
+    _, boundary_maximum = world_bounds(boundary)
+    require(
+        abs(boundary_maximum.z - 19.0) <= 1e-5,
+        "BND_Stage上端が19.0mではありません",
+    )
+    rooftop_band = next(
+        band
+        for band in EXPECTED_BIT_FLIGHT_BANDS
+        if band[2] == "roof-flight"
+    )
+    rooftop_center_maximum = rooftop_band[5]
+    require(
+        abs(rooftop_center_maximum - 18.0) <= 1e-9,
+        "屋上帯の中心高度上限が18.0mではありません",
+    )
+    require(
+        rooftop_center_maximum + BIT_FLIGHT_SAFETY_ENVELOPE_METERS
+        <= boundary_maximum.z + 1e-9,
+        "屋上帯中心上限と0.54m安全包絡がBND_Stage上端を越えています",
+    )
+
+    return {
+        "human_nav_sources": len(human_nav),
+        "zones": len({zone_id for _, zone_id, *_ in EXPECTED_BIT_FLIGHT_BANDS}),
+        "bands": len(EXPECTED_BIT_FLIGHT_BANDS),
+        "walkable_sources": len(EXPECTED_BIT_FLIGHT_BANDS),
+        "blocker_sources": len(EXPECTED_BIT_FLIGHT_BANDS),
+        "rooftop_blocker_sources": 1,
+        "transitions": len(expected_transitions),
+        "transition_kinds": dict(sorted(transition_kind_counts.items())),
+        "rooftop_center_maximum_m": rooftop_center_maximum,
+        "stage_boundary_maximum_m": boundary_maximum.z,
+        "safety_envelope_m": BIT_FLIGHT_SAFETY_ENVELOPE_METERS,
+    }
 
 
 def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
@@ -2308,7 +3115,10 @@ def audit_semantics(objects: list[bpy.types.Object]) -> None:
     boundary = bpy.data.objects.get("BND_Stage")
     require(boundary is not None, "BND_Stageがありません")
     _, boundary_maximum = world_bounds(boundary)
-    require(abs(boundary_maximum.z - 18.0) <= 1e-5, "BND_Stageが引き上げ後の屋上施設を覆っていません")
+    require(
+        abs(boundary_maximum.z - 19.0) <= 1e-5,
+        "BND_Stage上端がT05-1A契約の19.0mではありません",
+    )
     required_nav = {
         "NAV_Walkable_Interior2F",
         "NAV_Walkable_Interior3F",
@@ -2871,7 +3681,163 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
     }
 
 
-def audit_glb(gltf: dict[str, object]) -> dict[str, int]:
+def audit_glb_bit_flight_contract(
+    nodes: list[dict[str, object]],
+) -> dict[str, int]:
+    nodes_by_name = {
+        node["name"]: node
+        for node in nodes
+        if isinstance(node.get("name"), str)
+    }
+    metadata = nodes_by_name.get("META_Stage")
+    require(metadata is not None, "GLBにMETA_Stageがありません")
+    metadata_extras = metadata.get("extras", {})
+    require(
+        metadata_extras.get("hs_schema_version") == EXPECTED_SCHEMA_VERSION,
+        "GLB META_Stage.hs_schema_versionが2ではありません",
+    )
+    require(
+        metadata_extras.get("hs_stage_id") == EXPECTED_STAGE_ID,
+        "GLB META_Stage.hs_stage_idがschoolではありません",
+    )
+    require(
+        metadata_extras.get("hs_nav_profile") == EXPECTED_HUMAN_NAV_PROFILE,
+        "GLB META_Stage.hs_nav_profileが学校人間用profileと一致しません",
+    )
+    require(
+        metadata_extras.get("hs_bit_nav_profile") == EXPECTED_BIT_NAV_PROFILE,
+        "GLB META_Stage.hs_bit_nav_profileがビット用profileと一致しません",
+    )
+
+    human_nav_nodes = [
+        node
+        for node in nodes
+        if node.get("name", "").startswith("NAV_")
+        and not node.get("name", "").startswith("NAV_BitFlight_")
+    ]
+    require(human_nav_nodes, "GLBに人間用NAV生成元がありません")
+    bit_only_keys = {
+        "hs_zone_id",
+        "hs_band_id",
+        "hs_space_kind",
+        "hs_center_height_min_m",
+        "hs_center_height_max_m",
+    }
+    for node in human_nav_nodes:
+        extras = node.get("extras", {})
+        require(
+            extras.get("hs_nav_set") == "human",
+            f"GLB人間用NAVのhs_nav_setがhumanではありません: {node['name']}",
+        )
+        require(
+            not bit_only_keys.intersection(hs_properties(extras)),
+            f"GLB人間用NAVへビット飛行帯extrasが混入しています: {node['name']}",
+        )
+
+    expected_bit_names = set()
+    for (
+        walkable_name,
+        zone_id,
+        band_id,
+        space_kind,
+        minimum_center_height,
+        maximum_center_height,
+    ) in EXPECTED_BIT_FLIGHT_BANDS:
+        blocker_name = bit_flight_obstacle_name(zone_id, band_id)
+        nav_sources = [
+            (walkable_name, "walkable"),
+            (blocker_name, "blocker"),
+        ]
+        for object_name, nav_role in nav_sources:
+            expected_bit_names.add(object_name)
+            node = nodes_by_name.get(object_name)
+            require(node is not None, f"GLBにビット用NAV生成元がありません: {object_name}")
+            require_exact_hs_properties(
+                object_name,
+                node.get("extras", {}),
+                bit_flight_nav_properties(
+                    zone_id,
+                    band_id,
+                    space_kind,
+                    minimum_center_height,
+                    maximum_center_height,
+                    nav_role,
+                ),
+            )
+    actual_bit_names = {
+        node["name"]
+        for node in nodes
+        if node.get("name", "").startswith("NAV_BitFlight_")
+    }
+    require(
+        actual_bit_names == expected_bit_names,
+        "GLBビット用NAV生成元が学校11帯walkable＋11帯blockerと一致しません",
+    )
+
+    expected_transitions = expected_bit_flight_transitions()
+    actual_transition_names = {
+        node["name"]
+        for node in nodes
+        if node.get("name", "").startswith("VOL_BitFlight_")
+    }
+    require(
+        actual_transition_names == set(expected_transitions),
+        "GLBビット遷移Volumeが承認済み15件と一致しません",
+    )
+    for object_name, (expected_properties, _) in expected_transitions.items():
+        require_exact_hs_properties(
+            object_name,
+            nodes_by_name[object_name].get("extras", {}),
+            expected_properties,
+        )
+
+    aperture_nodes = [
+        node
+        for node in nodes
+        if node.get("name", "").startswith("LNK_bit-window-")
+    ]
+    require(
+        len(aperture_nodes) == 116,
+        f"GLB aperture端点が116件ではありません: {len(aperture_nodes)}",
+    )
+    aperture_ids = Counter()
+    for node in aperture_nodes:
+        match = LINK_PATTERN.match(node["name"])
+        require(match is not None, f"GLB aperture名が契約外です: {node['name']}")
+        link_id, endpoint = match.groups()
+        aperture_ids[link_id] += 1
+        require_exact_hs_properties(
+            node["name"],
+            node.get("extras", {}),
+            expected_aperture_endpoint_properties(link_id, endpoint),
+        )
+    require(
+        len(aperture_ids) == 58 and set(aperture_ids.values()) == {2},
+        "GLB apertureが58組のA/B端点ではありません",
+    )
+    legacy_roof_nodes = [
+        node["name"]
+        for node in nodes
+        if node.get("name", "").startswith("LNK_bit-roof-")
+        or node.get("extras", {}).get("hs_link_kind") == "bit_roof"
+    ]
+    require(
+        not legacy_roof_nodes,
+        f"GLBに廃止済みbit_roof接続が残っています: {legacy_roof_nodes}",
+    )
+    return {
+        "human_nav_sources": len(human_nav_nodes),
+        "bit_nav_sources": len(expected_bit_names),
+        "bit_nav_walkable_sources": len(EXPECTED_BIT_FLIGHT_BANDS),
+        "bit_nav_blocker_sources": len(EXPECTED_BIT_FLIGHT_BANDS),
+        "rooftop_blocker_sources": 1,
+        "bit_flight_transitions": len(expected_transitions),
+        "aperture_endpoints": len(aperture_nodes),
+        "legacy_bit_roof": len(legacy_roof_nodes),
+    }
+
+
+def audit_glb(gltf: dict[str, object]) -> dict[str, object]:
     nodes = gltf.get("nodes", [])
     meshes = gltf.get("meshes", [])
     accessors = gltf.get("accessors", [])
@@ -2888,19 +3854,12 @@ def audit_glb(gltf: dict[str, object]) -> dict[str, int]:
     expected_actor = 33
     expected_fixed = 49
     expected_human = 58
-    expected_link_endpoints = 116
     require(sum(name.startswith("VIS_WindowFrame_") for name in node_names) == expected_frames, f"GLB窓枠が{expected_frames}件ではありません")
     require(sum(name.startswith("VIS_WindowGlass_") for name in node_names) == expected_frames, f"GLB窓ガラスが{expected_frames}件ではありません")
     require(sum(name.startswith("COL_ActorOnly_Window_") for name in node_names) == expected_actor, f"GLB ActorOnly窓が{expected_actor}件ではありません")
     require(sum(name.startswith("COL_ActorOnly_WindowFixed_") for name in node_names) == expected_fixed, f"GLB開放窓帯固定Colliderが{expected_fixed}件ではありません")
     require(sum(name.startswith("COL_HumanOnly_Window_") for name in node_names) == expected_human, f"GLB HumanOnly窓が{expected_human}件ではありません")
-    require(sum(name.startswith("LNK_bit-window-") for name in node_names) == expected_link_endpoints, f"GLB bit_window端点が{expected_link_endpoints}件ではありません")
-    expected_roof_link_endpoints = 4
-    require(
-        sum(name.startswith("LNK_bit-roof-") for name in node_names)
-        == expected_roof_link_endpoints,
-        f"GLB bit_roof端点が{expected_roof_link_endpoints}件ではありません",
-    )
+    bit_flight_counts = audit_glb_bit_flight_contract(nodes)
     require("VOL_PoolWater" in node_names, "GLBにVOL_PoolWaterがありません")
     require(not any("Gym_South" in name for name in node_names), "GLB体育館南面に窓があります")
     require(not any(name.startswith("PRT_") for name in node_names), "GLBにPRT_*があります")
@@ -2967,15 +3926,13 @@ def audit_glb(gltf: dict[str, object]) -> dict[str, int]:
         if name == "VOL_PoolWater":
             require(extras.get("hs_id") == "pool-water", "GLB水Volumeのhs_idが不正です")
             require(extras.get("hs_role") == "water", "GLB水Volumeのhs_roleが不正です")
-        if name.startswith("LNK_bit-"):
-            require(extras.get("hs_bidirectional") is True, f"GLB LNKが双方向ではありません: {name}")
-            require(abs(float(extras.get("hs_link_radius_m")) - 0.54) <= 1e-9, f"GLB LNK半径が不正です: {name}")
     return {
         "nodes": len(nodes),
         "meshes": len(meshes),
         "materials": len(materials),
         "perimeter_joint_vertices": perimeter_joint_vertex_count,
         "perimeter_joint_triangles": perimeter_joint_index_count // 3,
+        "bit_flight": bit_flight_counts,
     }
 
 
@@ -3053,7 +4010,7 @@ def main() -> None:
     require(
         bpy.context.scene.get("b03_architecture_generator_version")
         == EXPECTED_GENERATOR_VERSION,
-        "建築生成版が第5次受入修正版ではありません",
+        "建築生成版がT05-1A汎用飛行帯版ではありません",
     )
     require(
         bpy.context.scene.get("t04_2b_nav_connectivity_version")
@@ -3089,6 +4046,7 @@ def main() -> None:
     audit_hs_ids(export_objects)
     window_counts = audit_windows(export_objects)
     link_counts = audit_links(export_objects)
+    bit_flight_counts = audit_bit_flight_navigation(export_objects)
     stair_guard_counts = audit_stair_guards(export_objects)
     roof_guard_counts = audit_roof_guards()
     acceptance_visuals = audit_acceptance_visuals(export_objects)
@@ -3109,6 +4067,7 @@ def main() -> None:
         "prefixes": dict(sorted(prefixes.items())),
         "windows": window_counts,
         "links": link_counts,
+        "bit_flight": bit_flight_counts,
         "stair_guards": stair_guard_counts,
         "roof_guards": roof_guard_counts,
         "acceptance_visuals": acceptance_visuals,

@@ -13,6 +13,15 @@ import {
 import { SCHOOL_STAGE } from "../../../src/world/stageCatalog";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
 import {
+  BIT_FLIGHT_SHORTEST_ROUTE_POLICY,
+  type BitFlightBandRef,
+  type BitFlightTransition
+} from "../../../src/world/bitFlightNavigation";
+import {
+  BIT_FLIGHT_ENVELOPE_RADIUS_METERS,
+  BIT_FLIGHT_ENVELOPE_RADIUS_WORLD_UNITS
+} from "../../../src/world/bitFlightSafety";
+import {
   V2_PLAYER_BASE_EYE_HEIGHT,
   V2_PLAYER_MAX_EYE_HEIGHT_SCALE,
   createV2PlayerController
@@ -187,6 +196,63 @@ const calculateSha256 = async (data: Uint8Array) => {
   return Array.from(new Uint8Array(digest), (value) =>
     value.toString(16).padStart(2, "0")
   ).join("");
+};
+
+const projectBitTransitionEndpoint = (
+  context: StageSpatialContext,
+  transition: BitFlightTransition,
+  endpoint: "from" | "to"
+) => {
+  const ref: BitFlightBandRef =
+    endpoint === "from" ? transition.from : transition.to;
+  const authoredPosition =
+    endpoint === "from"
+      ? transition.fromPosition
+      : transition.toPosition;
+  const band = context.bitNavigation.getBand(ref);
+  if (!band) {
+    throw new Error(
+      `飛行遷移${transition.id}の${endpoint}飛行帯がありません。`
+    );
+  }
+  const position = authoredPosition.clone();
+  position.y = Math.min(
+    band.maximumCenterHeight,
+    Math.max(band.minimumCenterHeight, position.y)
+  );
+  const location = context.bitNavigation.projectPointInBand(
+    ref,
+    position,
+    2 * BLENDER_METERS_TO_WORLD_UNITS
+  );
+  if (!location) {
+    throw new Error(
+      `飛行遷移${transition.id}の${endpoint}端点を投影できません。`
+    );
+  }
+  return location;
+};
+
+const findBitTransitionRoute = (
+  context: StageSpatialContext,
+  transition: BitFlightTransition,
+  reversed = false
+) => {
+  const from = projectBitTransitionEndpoint(
+    context,
+    transition,
+    reversed ? "to" : "from"
+  );
+  const to = projectBitTransitionEndpoint(
+    context,
+    transition,
+    reversed ? "from" : "to"
+  );
+  return context.bitNavigation.findRoute(
+    from,
+    to,
+    BIT_FLIGHT_SHORTEST_ROUTE_POLICY
+  );
 };
 
 const validatePlayerRampTraversal = (
@@ -521,13 +587,15 @@ const settleScene = async () => {
 };
 
 const validateAssetHashes = async (checks: CheckResult[]) => {
-  const [glbData, navmeshData] = await Promise.all([
+  const [glbData, navmeshData, bitNavmeshData] = await Promise.all([
     fetchBinary(SCHOOL_STAGE.glbUrl),
-    fetchBinary(SCHOOL_STAGE.navmeshUrl)
+    fetchBinary(SCHOOL_STAGE.navmeshUrl),
+    fetchBinary(SCHOOL_STAGE.bitNavmeshUrl)
   ]);
-  const [glbSha256, navmeshSha256] = await Promise.all([
+  const [glbSha256, navmeshSha256, bitNavmeshSha256] = await Promise.all([
     calculateSha256(glbData),
-    calculateSha256(navmeshData)
+    calculateSha256(navmeshData),
+    calculateSha256(bitNavmeshData)
   ]);
   checks.push(
     createCheck(
@@ -539,6 +607,11 @@ const validateAssetHashes = async (checks: CheckResult[]) => {
       "学校NavMesh SHA-256",
       navmeshSha256 === SCHOOL_STAGE.navmeshSha256,
       `catalog=${SCHOOL_STAGE.navmeshSha256} / actual=${navmeshSha256}`
+    ),
+    createCheck(
+      "学校ビット用NavMesh SHA-256",
+      bitNavmeshSha256 === SCHOOL_STAGE.bitNavmeshSha256,
+      `catalog=${SCHOOL_STAGE.bitNavmeshSha256} / actual=${bitNavmeshSha256}`
     )
   );
 };
@@ -554,6 +627,55 @@ const validateLoadedContext = (
   const npcSpawnVolumes = context.volumes.getByRole("npc_spawn");
   const bitSpawnVolumes = context.volumes.getByRole("bit_spawn");
   const waterVolumes = context.volumes.getByRole("water");
+  const bitTransitions = context.bitNavigation.transitions;
+  const apertureTransitions = bitTransitions.filter(
+    (transition) => transition.kind === "aperture"
+  );
+  const verticalTransitions = bitTransitions.filter(
+    (transition) => transition.kind === "vertical"
+  );
+  const surfaceRouteTransitions = bitTransitions.filter(
+    (transition) => transition.kind === "surface-route"
+  );
+  const boundaryTransitions = bitTransitions.filter(
+    (transition) => transition.kind === "boundary"
+  );
+  const unsafeBitTransitionSegments: string[] = [];
+  for (const transition of bitTransitions) {
+    const traversalPoints = [
+      transition.fromPosition,
+      ...transition.traversalPoints,
+      transition.toPosition
+    ];
+    for (let pointIndex = 0; pointIndex < traversalPoints.length; pointIndex += 1) {
+      const point = traversalPoints[pointIndex];
+      const pointHit = context.queries.castMovementSphere(
+        "bit",
+        point,
+        point,
+        BIT_FLIGHT_ENVELOPE_RADIUS_WORLD_UNITS
+      );
+      if (pointHit) {
+        unsafeBitTransitionSegments.push(
+          `${transition.id}:point${pointIndex}:${pointHit.mesh.name}`
+        );
+      }
+      if (pointIndex === 0) {
+        continue;
+      }
+      const segmentHit = context.queries.castMovementSphere(
+        "bit",
+        traversalPoints[pointIndex - 1],
+        point,
+        BIT_FLIGHT_ENVELOPE_RADIUS_WORLD_UNITS
+      );
+      if (segmentHit) {
+        unsafeBitTransitionSegments.push(
+          `${transition.id}:segment${pointIndex - 1}-${pointIndex}:${segmentHit.mesh.name}`
+        );
+      }
+    }
+  }
 
   checks.push(
     createCheck(
@@ -561,8 +683,9 @@ const validateLoadedContext = (
       context.stage === SCHOOL_STAGE &&
         context.metadata.schemaVersion === SCHOOL_STAGE.assetSchemaVersion &&
         context.metadata.stageId === SCHOOL_STAGE.id &&
-        context.metadata.navProfileId === SCHOOL_STAGE.navProfileId,
-      `stage=${context.metadata.stageId} / schema=${context.metadata.schemaVersion} / navProfile=${context.metadata.navProfileId}`
+        context.metadata.navProfileId === SCHOOL_STAGE.navProfileId &&
+        context.metadata.bitNavProfileId === SCHOOL_STAGE.bitNavProfileId,
+      `stage=${context.metadata.stageId} / schema=${context.metadata.schemaVersion} / navProfile=${context.metadata.navProfileId} / bitNavProfile=${context.metadata.bitNavProfileId}`
     ),
     createCheck(
       "学校GLBの厳格意味分類",
@@ -571,15 +694,25 @@ const validateLoadedContext = (
         context.resources.actorOnlyColliders.length === 82 &&
         context.resources.humanOnlyColliders.length === 58 &&
         context.resources.navSourceMeshes.length === 15 &&
+        context.resources.bitFlightNavSourceMeshes.length === 22 &&
         context.markers.all.length === 1 &&
         context.volumes.all.length === 3 &&
-        context.links.all.length === 60 &&
-        context.links.all.filter((link) => link.kind === "bit_window").length ===
-          58 &&
-        context.links.all.filter((link) => link.kind === "bit_roof").length ===
-          2 &&
-        context.links.all.every((link) => link.bidirectional),
-      `VIS=${context.resources.visualMeshes.length} / COL=${context.resources.normalColliders.length} / ActorOnly=${context.resources.actorOnlyColliders.length} / HumanOnly=${context.resources.humanOnlyColliders.length} / NAV=${context.resources.navSourceMeshes.length} / MRK=${context.markers.all.length} / VOL=${context.volumes.all.length} / LNK=${context.links.all.length}`
+        context.links.all.length === 0 &&
+        context.bitNavigation.zones.length === 4 &&
+        context.bitNavigation.bands.length === 11 &&
+        apertureTransitions.length === 58 &&
+        verticalTransitions.length === 4 &&
+        surfaceRouteTransitions.length === 10 &&
+        boundaryTransitions.length === 1 &&
+        bitTransitions.every((transition) => transition.bidirectional),
+      `VIS=${context.resources.visualMeshes.length} / COL=${context.resources.normalColliders.length} / ActorOnly=${context.resources.actorOnlyColliders.length} / HumanOnly=${context.resources.humanOnlyColliders.length} / humanNAV=${context.resources.navSourceMeshes.length} / bitNAV=${context.resources.bitFlightNavSourceMeshes.length} / MRK=${context.markers.all.length} / VOL=${context.volumes.all.length} / humanLNK=${context.links.all.length} / zones=${context.bitNavigation.zones.length} / bands=${context.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length})`
+    ),
+    createCheck(
+      `全ビット飛行遷移の${BIT_FLIGHT_ENVELOPE_RADIUS_METERS.toFixed(2)}m安全包絡`,
+      unsafeBitTransitionSegments.length === 0,
+      unsafeBitTransitionSegments.length === 0
+        ? `${bitTransitions.length}遷移の全端点・全線分で交差0件`
+        : `${unsafeBitTransitionSegments.length}件: ${unsafeBitTransitionSegments.slice(0, 8).join(", ")}`
     ),
     createCheck(
       "3Dスポーン・境界・生成Volume",
@@ -587,8 +720,9 @@ const validateLoadedContext = (
         context.boundary.contains(playerSpawn) &&
         npcSpawnVolumes.length === 1 &&
         bitSpawnVolumes.length === 1 &&
+        bitSpawnVolumes[0].bitFlightBand !== null &&
         waterVolumes.length === 1,
-      `spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)}) / boundary=${context.boundary.contains(playerSpawn)} / npc=${npcSpawnVolumes.length} / bit=${bitSpawnVolumes.length} / water=${waterVolumes.length}`
+      `spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)}) / boundary=${context.boundary.contains(playerSpawn)} / npc=${npcSpawnVolumes.length} / bit=${bitSpawnVolumes.length}:${bitSpawnVolumes[0]?.bitFlightBand?.zoneId ?? "帯なし"}/${bitSpawnVolumes[0]?.bitFlightBand?.bandId ?? "帯なし"} / water=${waterVolumes.length}`
     )
   );
 
@@ -1017,7 +1151,7 @@ const validateLoadedContext = (
     ["VIS_DoorLeaf_RooftopStairHouse_Open", [-9.04, 37.0, 14.5], [-8.96, 38.9, 16.7]],
     ["VIS_Floor_RooftopChangingRoom_M", [-6.6, 38.5, 14.5], [-2.1, 45.5, 14.53]],
     ["VIS_Floor_RooftopChangingRoom_F", [-2.1, 38.5, 14.5], [2.4, 45.5, 14.53]],
-    ["BND_Stage", [-18.4, -12.3, -0.5], [63.2, 51.3, 18.0]]
+    ["BND_Stage", [-18.4, -12.3, -0.5], [63.2, 51.3, 19.0]]
   ] as const;
   const fourFloorBoundsResults = fourFloorBoundsExpectations.map(
     ([name, minimum, maximum]) => ({
@@ -1708,41 +1842,95 @@ const validateLoadedContext = (
     )
   );
 
-  const representativeWindowLink = context.links.all.find(
-    (link) => link.kind === "bit_window"
-  )!;
+  const representativeWindowTransition = apertureTransitions[0];
+  if (!representativeWindowTransition) {
+    throw new Error("代表ビット窓aperture遷移がありません。");
+  }
+  const windowForwardRoute = findBitTransitionRoute(
+    context,
+    representativeWindowTransition
+  );
+  const windowBackwardRoute = findBitTransitionRoute(
+    context,
+    representativeWindowTransition,
+    true
+  );
   const windowPlayerHit = context.queries.castMovementSegment(
     "player",
-    representativeWindowLink.endpointA.position,
-    representativeWindowLink.endpointB.position
+    representativeWindowTransition.fromPosition,
+    representativeWindowTransition.toPosition
   );
   const windowNpcHit = context.queries.castMovementSegment(
     "npc",
-    representativeWindowLink.endpointA.position,
-    representativeWindowLink.endpointB.position
+    representativeWindowTransition.fromPosition,
+    representativeWindowTransition.toPosition
   );
   const windowBitHit = context.queries.castMovementSegment(
     "bit",
-    representativeWindowLink.endpointA.position,
-    representativeWindowLink.endpointB.position
+    representativeWindowTransition.fromPosition,
+    representativeWindowTransition.toPosition
   );
   const windowBeamHit = context.queries.castBeamSegment(
-    representativeWindowLink.endpointA.position,
-    representativeWindowLink.endpointB.position
+    representativeWindowTransition.fromPosition,
+    representativeWindowTransition.toPosition
   );
   const windowSightHit = context.queries.castSightSegment(
-    representativeWindowLink.endpointA.position,
-    representativeWindowLink.endpointB.position
+    representativeWindowTransition.fromPosition,
+    representativeWindowTransition.toPosition
   );
+  const windowForwardTransitions =
+    windowForwardRoute?.steps.filter((step) => step.kind === "transition") ?? [];
+  const windowBackwardTransitions =
+    windowBackwardRoute?.steps.filter((step) => step.kind === "transition") ?? [];
   checks.push(
     createCheck(
-      "実bit_window開口のmover・beam・sight分類",
+      "実ビット窓apertureの双方向経路・mover・beam・sight分類",
       windowPlayerHit?.mesh.name.startsWith("COL_HumanOnly_Window_") === true &&
         windowNpcHit?.mesh === windowPlayerHit.mesh &&
         windowBitHit === null &&
         windowBeamHit === null &&
-        windowSightHit === null,
-      `link=${representativeWindowLink.id} / player=${windowPlayerHit?.mesh.name ?? "clear"} / npc=${windowNpcHit?.mesh.name ?? "clear"} / bit=${windowBitHit?.mesh.name ?? "clear"} / beam=${windowBeamHit?.mesh.name ?? "clear"} / sight=${windowSightHit?.mesh.name ?? "clear"}`
+        windowSightHit === null &&
+        windowForwardTransitions.length === 1 &&
+        windowForwardTransitions[0].traversal.transition ===
+          representativeWindowTransition &&
+        windowForwardTransitions[0].traversal.reversed === false &&
+        windowBackwardTransitions.length === 1 &&
+        windowBackwardTransitions[0].traversal.transition ===
+          representativeWindowTransition &&
+        windowBackwardTransitions[0].traversal.reversed === true,
+      `transition=${representativeWindowTransition.id} / forward=${windowForwardTransitions.map((step) => step.traversal.transition.id).join(">") || "none"} / backward=${windowBackwardTransitions.map((step) => step.traversal.transition.id).join(">") || "none"} / player=${windowPlayerHit?.mesh.name ?? "clear"} / npc=${windowNpcHit?.mesh.name ?? "clear"} / bit=${windowBitHit?.mesh.name ?? "clear"} / beam=${windowBeamHit?.mesh.name ?? "clear"} / sight=${windowSightHit?.mesh.name ?? "clear"}`
+    )
+  );
+
+  const rooftopBoundaryTransition = boundaryTransitions[0];
+  if (!rooftopBoundaryTransition) {
+    throw new Error("屋上boundary遷移がありません。");
+  }
+  const rooftopForwardRoute = findBitTransitionRoute(
+    context,
+    rooftopBoundaryTransition
+  );
+  const rooftopBackwardRoute = findBitTransitionRoute(
+    context,
+    rooftopBoundaryTransition,
+    true
+  );
+  const rooftopForwardTransitions =
+    rooftopForwardRoute?.steps.filter((step) => step.kind === "transition") ?? [];
+  const rooftopBackwardTransitions =
+    rooftopBackwardRoute?.steps.filter((step) => step.kind === "transition") ?? [];
+  checks.push(
+    createCheck(
+      "4F・屋上外周boundaryの双方向経路",
+      rooftopForwardTransitions.length === 1 &&
+        rooftopForwardTransitions[0].traversal.transition ===
+          rooftopBoundaryTransition &&
+        rooftopForwardTransitions[0].traversal.reversed === false &&
+        rooftopBackwardTransitions.length === 1 &&
+        rooftopBackwardTransitions[0].traversal.transition ===
+          rooftopBoundaryTransition &&
+        rooftopBackwardTransitions[0].traversal.reversed === true,
+      `transition=${rooftopBoundaryTransition.id} / forward=${rooftopForwardTransitions.map((step) => step.traversal.transition.id).join(">") || "none"} / backward=${rooftopBackwardTransitions.map((step) => step.traversal.transition.id).join(">") || "none"}`
     )
   );
 
@@ -1933,13 +2121,17 @@ const runValidation = async () => {
       activeContext.resources.actorOnlyColliders.length === 82 &&
       activeContext.resources.humanOnlyColliders.length === 58 &&
       activeContext.resources.navSourceMeshes.length === 15 &&
+      activeContext.resources.bitFlightNavSourceMeshes.length === 22 &&
       activeContext.volumes.getByRole("water").length === 1 &&
-      activeContext.links.all.length === 60;
+      activeContext.links.all.length === 0 &&
+      activeContext.bitNavigation.zones.length === 4 &&
+      activeContext.bitNavigation.bands.length === 11 &&
+      activeContext.bitNavigation.transitions.length === 73;
     checks.push(
       createCheck(
         "学校コンテキスト再読込",
         reloadMetadataValid,
-        `stage=${activeContext.metadata.stageId} / VIS=${activeContext.resources.visualMeshes.length} / COL=${activeContext.resources.normalColliders.length} / ActorOnly=${activeContext.resources.actorOnlyColliders.length} / HumanOnly=${activeContext.resources.humanOnlyColliders.length} / water=${activeContext.volumes.getByRole("water").length} / LNK=${activeContext.links.all.length}`
+        `stage=${activeContext.metadata.stageId} / VIS=${activeContext.resources.visualMeshes.length} / COL=${activeContext.resources.normalColliders.length} / ActorOnly=${activeContext.resources.actorOnlyColliders.length} / HumanOnly=${activeContext.resources.humanOnlyColliders.length} / humanNAV=${activeContext.resources.navSourceMeshes.length} / bitNAV=${activeContext.resources.bitFlightNavSourceMeshes.length} / water=${activeContext.volumes.getByRole("water").length} / humanLNK=${activeContext.links.all.length} / bitTransitions=${activeContext.bitNavigation.transitions.length}`
       )
     );
     await disposeAndInspect(activeContext, baseline, checks, "再読込");

@@ -29,16 +29,6 @@ const REPRESENTATIVE_ROUTE_QUERY_HALF_EXTENTS = Object.freeze({
   y: REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE,
   z: REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE
 });
-const LINK_ENDPOINT_COUNT = 120;
-const LINK_PAIR_COUNT = 60;
-const BIT_WINDOW_PAIR_COUNT = 58;
-const BIT_ROOF_PAIR_COUNT = 2;
-const LINK_PROJECTION_TOLERANCE = 1e-7;
-const NORMAL_WINDOW_REGRESSION = Object.freeze({
-  linkId: "bit-window-f01-courtyardnorth-corridor-02-u03",
-  openingNodeName: "COL_HumanOnly_Window_F01_CourtyardNorth_Corridor_02_U03",
-  entranceNodeName: "COL_BridgeSideRamp_West"
-});
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "../..");
 const INPUT_RELATIVE_PATH = "public/stage-assets/v2/B02/b02_school_blockout.glb";
@@ -48,8 +38,9 @@ const OUTPUT_PATH = resolve(REPOSITORY_ROOT, OUTPUT_RELATIVE_PATH);
 
 const SCHOOL_NAV_PROFILE = Object.freeze({
   id: "school-humanoid-v1",
-  schemaVersion: 1,
+  schemaVersion: 2,
   stageId: "school",
+  bitNavProfileId: "bit-flight-body-0.44-margin-0.10-v1",
   coordinateSpace: "gltf-right-handed-y-up",
   worldScale: 0.25,
   generator: "solo",
@@ -72,13 +63,6 @@ const SCHOOL_NAV_PROFILE = Object.freeze({
     buildBvTree: true
   })
 });
-const LINK_SURFACE_HEIGHT_TOLERANCE_BLENDER =
-  Math.max(
-    SCHOOL_NAV_PROFILE.parameters.ch / SCHOOL_NAV_PROFILE.worldScale * 2,
-    SCHOOL_NAV_PROFILE.parameters.walkableClimb *
-      SCHOOL_NAV_PROFILE.parameters.ch /
-      SCHOOL_NAV_PROFILE.worldScale
-  ) + 1e-5;
 const STAIR_ROUTE_MAX_DISTANCE_BLENDER = 25;
 
 const makeStairPassageBounds = (x, y, z) => Object.freeze({
@@ -896,7 +880,7 @@ const validateMetadataAndNavigationNodes = (nodes) => {
   const metadataNodes = nodes
     .map((node, nodeIndex) => ({ node, nodeIndex }))
     .filter(({ node }) => node.name === "META_Stage");
-  const navigationNodes = nodes
+  const allNavigationNodes = nodes
     .map((node, nodeIndex) => ({ node, nodeIndex }))
     .filter(({ node }) => node.name.startsWith("NAV_"));
   const contractErrors = [];
@@ -904,7 +888,7 @@ const validateMetadataAndNavigationNodes = (nodes) => {
   if (metadataNodes.length !== 1) {
     contractErrors.push(`META_Stageは1件必要です（実際=${metadataNodes.length}件）`);
   }
-  if (navigationNodes.length === 0) {
+  if (allNavigationNodes.length === 0) {
     contractErrors.push("NAV_* Meshがありません");
   }
   if (contractErrors.length > 0) {
@@ -918,7 +902,12 @@ const validateMetadataAndNavigationNodes = (nodes) => {
   const metadataExtras = assertObject(metadataNode.extras, "META_Stage.extras");
   assertExactKeys(
     metadataExtras,
-    ["hs_schema_version", "hs_stage_id", "hs_nav_profile"],
+    [
+      "hs_schema_version",
+      "hs_stage_id",
+      "hs_nav_profile",
+      "hs_bit_nav_profile"
+    ],
     "META_Stage.extras"
   );
   if (metadataExtras.hs_schema_version !== SCHOOL_NAV_PROFILE.schemaVersion) {
@@ -936,33 +925,58 @@ const validateMetadataAndNavigationNodes = (nodes) => {
       `META_Stage.hs_nav_profileが不一致です: ${String(metadataExtras.hs_nav_profile)} != ${SCHOOL_NAV_PROFILE.id}`
     );
   }
+  if (metadataExtras.hs_bit_nav_profile !== SCHOOL_NAV_PROFILE.bitNavProfileId) {
+    fail(
+      `META_Stage.hs_bit_nav_profileが不一致です: ${String(metadataExtras.hs_bit_nav_profile)} != ${SCHOOL_NAV_PROFILE.bitNavProfileId}`
+    );
+  }
 
   const countsByRole = { walkable: 0, blocker: 0, exclude: 0 };
   const countsByArea = { ground: 0, stairs: 0, outdoor: 0, door: 0 };
-  navigationNodes.forEach(({ node }) => {
+  const navigationNodes = [];
+  allNavigationNodes.forEach((entry) => {
+    const { node } = entry;
     if (node.mesh === undefined) {
       fail(`${node.name}はMeshを参照する必要があります。`);
     }
     const extras = assertObject(node.extras, `${node.name}.extras`);
+    if (extras.hs_nav_set === "bit-flight") {
+      return;
+    }
+    if (extras.hs_nav_set !== "human") {
+      fail(`${node.name}.hs_nav_setがhuman/bit-flightではありません。`);
+    }
+    navigationNodes.push(entry);
     const role = extras.hs_nav_role;
     if (!REGISTERED_NAV_ROLES.has(role)) {
       fail(`${node.name}.hs_nav_roleが未登録です: ${String(role)}`);
     }
     if (role === "walkable") {
-      assertExactKeys(extras, ["hs_nav_role", "hs_nav_area"], `${node.name}.extras`);
+      assertExactKeys(
+        extras,
+        ["hs_nav_set", "hs_nav_role", "hs_nav_area"],
+        `${node.name}.extras`
+      );
       const area = extras.hs_nav_area;
       if (!REGISTERED_NAV_AREAS.has(area)) {
         fail(`${node.name}.hs_nav_areaが未登録です: ${String(area)}`);
       }
       countsByArea[area] += 1;
     } else {
-      assertExactKeys(extras, ["hs_nav_role"], `${node.name}.extras`);
+      assertExactKeys(
+        extras,
+        ["hs_nav_set", "hs_nav_role"],
+        `${node.name}.extras`
+      );
     }
     countsByRole[role] += 1;
   });
 
   if (countsByRole.walkable === 0) {
     fail("hs_nav_role=walkableのNAV_* Meshがありません。");
+  }
+  if (navigationNodes.length === 0) {
+    fail("hs_nav_set=humanのNAV_* Meshがありません。");
   }
   if (countsByRole.blocker === 0) {
     fail("hs_nav_role=blockerのNAV_* Meshがありません。");
@@ -1106,76 +1120,6 @@ const readAccessor = (gltf, binary, accessorIndex, expectedKind) => {
 
   return { values, count };
 };
-
-const extractMeshNodeBoundsRecast = (
-  gltf,
-  binary,
-  nodes,
-  worldMatrices,
-  nodeName
-) => {
-  const nodeIndex = nodes.findIndex((node) => node.name === nodeName);
-  if (nodeIndex < 0) {
-    fail(`境界取得対象nodeがありません: ${nodeName}`);
-  }
-  const node = nodes[nodeIndex];
-  if (node.mesh === undefined) {
-    fail(`境界取得対象nodeがMeshを参照していません: ${nodeName}`);
-  }
-  const meshes = assertArray(gltf.meshes, "glTF.meshes");
-  const meshIndex = assertIndex(node.mesh, meshes.length, `${nodeName}.mesh`);
-  const mesh = assertObject(meshes[meshIndex], `glTF.meshes[${meshIndex}]`);
-  const primitives = assertArray(mesh.primitives, `${nodeName}.primitives`);
-  const minimum = {
-    x: Number.POSITIVE_INFINITY,
-    y: Number.POSITIVE_INFINITY,
-    z: Number.POSITIVE_INFINITY
-  };
-  const maximum = {
-    x: Number.NEGATIVE_INFINITY,
-    y: Number.NEGATIVE_INFINITY,
-    z: Number.NEGATIVE_INFINITY
-  };
-
-  primitives.forEach((primitiveValue, primitiveIndex) => {
-    const primitive = assertObject(
-      primitiveValue,
-      `${nodeName}.primitives[${primitiveIndex}]`
-    );
-    const attributes = assertObject(
-      primitive.attributes,
-      `${nodeName}.primitives[${primitiveIndex}].attributes`
-    );
-    if (attributes.POSITION === undefined) {
-      fail(`${nodeName}.primitives[${primitiveIndex}]にPOSITIONがありません。`);
-    }
-    const accessor = readAccessor(gltf, binary, attributes.POSITION, "position");
-    for (let vertexIndex = 0; vertexIndex < accessor.count; vertexIndex += 1) {
-      const offset = vertexIndex * 3;
-      const transformed = transformPosition(
-        worldMatrices[nodeIndex],
-        accessor.values[offset],
-        accessor.values[offset + 1],
-        accessor.values[offset + 2]
-      );
-      const point = {
-        x: transformed[0] * SCHOOL_NAV_PROFILE.worldScale,
-        y: transformed[1] * SCHOOL_NAV_PROFILE.worldScale,
-        z: transformed[2] * SCHOOL_NAV_PROFILE.worldScale
-      };
-      for (const axis of ["x", "y", "z"]) {
-        minimum[axis] = Math.min(minimum[axis], point[axis]);
-        maximum[axis] = Math.max(maximum[axis], point[axis]);
-      }
-    }
-  });
-
-  if (!Number.isFinite(minimum.x) || !Number.isFinite(maximum.x)) {
-    fail(`境界取得対象nodeに頂点がありません: ${nodeName}`);
-  }
-  return { minimum, maximum };
-};
-
 const extractNavigationGeometry = (
   gltf,
   binary,
@@ -1366,346 +1310,6 @@ const projectRepresentativeRoutePoint = (query, point, label) => {
     projectionDistance,
   };
 };
-
-const calculateNavMeshBounds = (positions) => {
-  const minimum = {
-    x: Number.POSITIVE_INFINITY,
-    y: Number.POSITIVE_INFINITY,
-    z: Number.POSITIVE_INFINITY
-  };
-  const maximum = {
-    x: Number.NEGATIVE_INFINITY,
-    y: Number.NEGATIVE_INFINITY,
-    z: Number.NEGATIVE_INFINITY
-  };
-  for (let offset = 0; offset < positions.length; offset += 3) {
-    minimum.x = Math.min(minimum.x, positions[offset]);
-    minimum.y = Math.min(minimum.y, positions[offset + 1]);
-    minimum.z = Math.min(minimum.z, positions[offset + 2]);
-    maximum.x = Math.max(maximum.x, positions[offset]);
-    maximum.y = Math.max(maximum.y, positions[offset + 1]);
-    maximum.z = Math.max(maximum.z, positions[offset + 2]);
-  }
-  return { minimum, maximum };
-};
-
-const countNavMeshPolygons = (navMesh) => {
-  let polygonCount = 0;
-  for (let tileIndex = 0; tileIndex < navMesh.getMaxTiles(); tileIndex += 1) {
-    const header = navMesh.getTile(tileIndex).header();
-    if (header !== null) {
-      polygonCount += header.polyCount();
-    }
-  }
-  if (polygonCount === 0) {
-    fail("NavMeshのpolygon件数が0です。");
-  }
-  return polygonCount;
-};
-
-const collectLinkPairs = (nodes, worldMatrices) => {
-  const pairMap = new Map();
-  nodes.forEach((node, nodeIndex) => {
-    if (!node.name.startsWith("LNK_")) {
-      return;
-    }
-    if (node.mesh !== undefined) {
-      fail(`${node.name}はMeshを参照しないEmptyである必要があります。`);
-    }
-    const extras = assertObject(node.extras, `${node.name}.extras`);
-    assertExactKeys(
-      extras,
-      [
-        "hs_id",
-        "hs_endpoint",
-        "hs_link_kind",
-        "hs_bidirectional",
-        "hs_link_radius_m"
-      ],
-      `${node.name}.extras`
-    );
-    if (typeof extras.hs_id !== "string" || extras.hs_id.length === 0) {
-      fail(`${node.name}.hs_idが非空stringではありません。`);
-    }
-    if (extras.hs_endpoint !== "A" && extras.hs_endpoint !== "B") {
-      fail(`${node.name}.hs_endpointがA/Bではありません。`);
-    }
-    if (extras.hs_link_kind !== "bit_window" && extras.hs_link_kind !== "bit_roof") {
-      fail(`${node.name}.hs_link_kindが学校用特殊接続ではありません。`);
-    }
-    if (extras.hs_bidirectional !== true) {
-      fail(`${node.name}.hs_bidirectionalがtrueではありません。`);
-    }
-    if (extras.hs_link_radius_m !== 0.54) {
-      fail(`${node.name}.hs_link_radius_mが0.54ではありません。`);
-    }
-    const expectedName = `LNK_${extras.hs_id}_${extras.hs_endpoint}`;
-    if (node.name !== expectedName) {
-      fail(`${node.name}がextras由来の期待名${expectedName}と一致しません。`);
-    }
-    const transformed = transformPosition(worldMatrices[nodeIndex], 0, 0, 0);
-    const rawRecast = {
-      x: transformed[0] * SCHOOL_NAV_PROFILE.worldScale,
-      y: transformed[1] * SCHOOL_NAV_PROFILE.worldScale,
-      z: transformed[2] * SCHOOL_NAV_PROFILE.worldScale
-    };
-    const pair = pairMap.get(extras.hs_id) ?? {
-      id: extras.hs_id,
-      kind: extras.hs_link_kind,
-      radiusMeters: extras.hs_link_radius_m,
-      endpointA: null,
-      endpointB: null
-    };
-    if (pair.kind !== extras.hs_link_kind || pair.radiusMeters !== extras.hs_link_radius_m) {
-      fail(`特殊接続pairの契約が端点間で一致しません: ${extras.hs_id}`);
-    }
-    const key = extras.hs_endpoint === "A" ? "endpointA" : "endpointB";
-    if (pair[key] !== null) {
-      fail(`特殊接続端点が重複しています: ${extras.hs_id}/${extras.hs_endpoint}`);
-    }
-    pair[key] = {
-      name: node.name,
-      endpoint: extras.hs_endpoint,
-      rawRecast
-    };
-    pairMap.set(extras.hs_id, pair);
-  });
-
-  const pairs = [...pairMap.values()].sort((left, right) =>
-    left.id.localeCompare(right.id)
-  );
-  if (pairs.length !== LINK_PAIR_COUNT) {
-    fail(`特殊接続pairが${LINK_PAIR_COUNT}組ではありません: ${pairs.length}`);
-  }
-  pairs.forEach((pair) => {
-    if (pair.endpointA === null || pair.endpointB === null) {
-      fail(`特殊接続pairのA/Bが揃っていません: ${pair.id}`);
-    }
-  });
-  const kindCounts = {
-    bit_window: pairs.filter((pair) => pair.kind === "bit_window").length,
-    bit_roof: pairs.filter((pair) => pair.kind === "bit_roof").length
-  };
-  if (
-    kindCounts.bit_window !== BIT_WINDOW_PAIR_COUNT ||
-    kindCounts.bit_roof !== BIT_ROOF_PAIR_COUNT
-  ) {
-    fail(
-      `特殊接続kind件数が不正です: ` +
-      `bit_window=${kindCounts.bit_window}, bit_roof=${kindCounts.bit_roof}`
-    );
-  }
-  return { pairs, kindCounts };
-};
-
-const expectedLinkSurfaceBandBlender = (pair, endpoint) => {
-  if (endpoint.endpoint === "A") {
-    return {
-      id: "outdoor-ground",
-      nominal: -0.3,
-      minimum: -0.3 - LINK_PROJECTION_TOLERANCE,
-      maximum: 0.1 + LINK_PROJECTION_TOLERANCE
-    };
-  }
-  let nominal;
-  let id;
-  if (pair.kind === "bit_roof") {
-    nominal = 14.4;
-    id = "rooftop";
-  } else if (pair.id.includes("-gym-")) {
-    nominal = 0;
-    id = "gym-floor";
-  } else {
-    const floorMatch = pair.id.match(/-f0([1-4])-/);
-    if (floorMatch === null) {
-      fail(`bit_windowの階をhs_idから判定できません: ${pair.id}`);
-    }
-    const floor = Number(floorMatch[1]);
-    nominal = (floor - 1) * 3.6;
-    id = `school-floor-${floor}`;
-  }
-  return {
-    id,
-    nominal,
-    minimum: nominal - LINK_SURFACE_HEIGHT_TOLERANCE_BLENDER,
-    maximum: nominal + LINK_SURFACE_HEIGHT_TOLERANCE_BLENDER
-  };
-};
-
-const projectLinkEndpoint = (
-  query,
-  polygonCount,
-  navMeshBounds,
-  pair,
-  endpoint
-) => {
-  const radius = pair.radiusMeters * SCHOOL_NAV_PROFILE.worldScale;
-  if (endpoint.rawRecast.y < navMeshBounds.minimum.y) {
-    fail(`特殊接続端点がNavMesh下端より下です: ${endpoint.name}`);
-  }
-  const verticalSpan = endpoint.rawRecast.y - navMeshBounds.minimum.y;
-  const searchCenter = {
-    x: endpoint.rawRecast.x,
-    y: navMeshBounds.minimum.y + verticalSpan / 2,
-    z: endpoint.rawRecast.z
-  };
-  const searchHalfExtents = {
-    x: radius,
-    y: verticalSpan / 2,
-    z: radius
-  };
-  const polygonResult = query.queryPolygons(searchCenter, searchHalfExtents, {
-    maxPolys: polygonCount
-  });
-  if (!polygonResult.success) {
-    fail(`特殊接続端点の直下polygon検索に失敗しました: ${endpoint.name}`);
-  }
-  const candidates = [...new Set(polygonResult.polyRefs)]
-    .map((polyRef) => {
-      const closestResult = query.closestPointOnPoly(polyRef, endpoint.rawRecast);
-      if (!closestResult.success) {
-        return null;
-      }
-      const point = closestResult.closestPoint;
-      const verticalDrop = endpoint.rawRecast.y - point.y;
-      const horizontalDistance = Math.hypot(
-        endpoint.rawRecast.x - point.x,
-        endpoint.rawRecast.z - point.z
-      );
-      if (
-        verticalDrop < -LINK_PROJECTION_TOLERANCE ||
-        horizontalDistance > radius + LINK_PROJECTION_TOLERANCE
-      ) {
-        return null;
-      }
-      return { polyRef, point, verticalDrop, horizontalDistance };
-    })
-    .filter((candidate) => candidate !== null)
-    .sort(
-      (left, right) =>
-        left.verticalDrop - right.verticalDrop ||
-        left.horizontalDistance - right.horizontalDistance ||
-        left.polyRef - right.polyRef
-    );
-  if (candidates.length === 0) {
-    fail(`特殊接続端点の直下にNavMesh面がありません: ${endpoint.name}`);
-  }
-  const selected = candidates[0];
-  const projectedBlender = recastPointToBlender(selected.point);
-  const expectedSurfaceBand = expectedLinkSurfaceBandBlender(pair, endpoint);
-  const surfaceHeightError = Math.abs(projectedBlender[2] - expectedSurfaceBand.nominal);
-  if (
-    projectedBlender[2] < expectedSurfaceBand.minimum ||
-    projectedBlender[2] > expectedSurfaceBand.maximum
-  ) {
-    fail(
-      `特殊接続端点が期待する高さ帯へ投影されません: ${endpoint.name}, ` +
-      `actual=${projectedBlender[2]}, ` +
-      `expected=${expectedSurfaceBand.minimum}..${expectedSurfaceBand.maximum}`
-    );
-  }
-  return {
-    name: endpoint.name,
-    endpoint: endpoint.endpoint,
-    rawRecast: recastPointToArray(endpoint.rawRecast),
-    rawBlender: recastPointToBlender(endpoint.rawRecast),
-    projectedRecast: recastPointToArray(selected.point),
-    projectedBlender,
-    polyRef: selected.polyRef,
-    verticalDrop: selected.verticalDrop,
-    horizontalDistance: selected.horizontalDistance,
-    expectedSurfaceBandBlender: expectedSurfaceBand,
-    surfaceHeightErrorBlender: surfaceHeightError
-  };
-};
-
-const validateLinkEndpointProjections = (
-  navMesh,
-  navMeshPositions,
-  nodes,
-  worldMatrices
-) => {
-  const { pairs, kindCounts } = collectLinkPairs(nodes, worldMatrices);
-  const query = new NavMeshQuery(navMesh, {
-    maxNodes: REPRESENTATIVE_ROUTE_PATH_LIMIT
-  });
-  try {
-    const polygonCount = countNavMeshPolygons(navMesh);
-    const navMeshBounds = calculateNavMeshBounds(navMeshPositions);
-    const projectedPairs = pairs.map((pair) => ({
-      ...pair,
-      endpointA: projectLinkEndpoint(
-        query,
-        polygonCount,
-        navMeshBounds,
-        pair,
-        pair.endpointA
-      ),
-      endpointB: projectLinkEndpoint(
-        query,
-        polygonCount,
-        navMeshBounds,
-        pair,
-        pair.endpointB
-      )
-    }));
-    const endpoints = projectedPairs.flatMap((pair) => [
-      { id: pair.id, kind: pair.kind, ...pair.endpointA },
-      { id: pair.id, kind: pair.kind, ...pair.endpointB }
-    ]);
-    if (endpoints.length !== LINK_ENDPOINT_COUNT) {
-      fail(`特殊接続端点が${LINK_ENDPOINT_COUNT}件ではありません: ${endpoints.length}`);
-    }
-    const gymHighWindowEndpointCount = endpoints.filter(
-      (endpoint) => endpoint.kind === "bit_window" && endpoint.id.includes("-gym-")
-    ).length;
-    const roofOutsideEndpointCount = endpoints.filter(
-      (endpoint) => endpoint.kind === "bit_roof" && endpoint.endpoint === "A"
-    ).length;
-    if (gymHighWindowEndpointCount !== 14 || roofOutsideEndpointCount !== 2) {
-      fail(
-        `高所端点件数が不正です: ` +
-        `gym=${gymHighWindowEndpointCount}, roofOutside=${roofOutsideEndpointCount}`
-      );
-    }
-    const projectedHeightDistribution = Object.fromEntries(
-      [...new Set(endpoints.map((endpoint) => endpoint.projectedBlender[2].toFixed(2)))]
-        .sort((left, right) => Number(left) - Number(right))
-        .map((height) => [
-          height,
-          endpoints.filter(
-            (endpoint) => endpoint.projectedBlender[2].toFixed(2) === height
-          ).length
-        ])
-    );
-    const expectedBandDistribution = Object.fromEntries(
-      [...new Set(endpoints.map((endpoint) => endpoint.expectedSurfaceBandBlender.id))]
-        .sort()
-        .map((bandId) => [
-          bandId,
-          endpoints.filter(
-            (endpoint) => endpoint.expectedSurfaceBandBlender.id === bandId
-          ).length
-        ])
-    );
-    return {
-      pairCount: projectedPairs.length,
-      endpointCount: endpoints.length,
-      kindCounts,
-      polygonCount,
-      horizontalRadiusMeters: 0.54,
-      surfaceHeightToleranceBlender: LINK_SURFACE_HEIGHT_TOLERANCE_BLENDER,
-      gymHighWindowEndpointCount,
-      roofOutsideEndpointCount,
-      projectedSurfaceHeightDistributionBlender: projectedHeightDistribution,
-      expectedSurfaceBandDistribution: expectedBandDistribution,
-      pairs: projectedPairs
-    };
-  } finally {
-    query.destroy();
-  }
-};
-
 const validateRepresentativeRoutes = (navMesh) => {
   const query = new NavMeshQuery(navMesh, {
     maxNodes: REPRESENTATIVE_ROUTE_PATH_LIMIT
@@ -1852,121 +1456,6 @@ const segmentIntersectsBounds = (start, end, bounds, axes) => {
   }
   return true;
 };
-
-const pathIntersectsBounds = (path, bounds, axes) => {
-  for (let index = 1; index < path.length; index += 1) {
-    if (segmentIntersectsBounds(path[index - 1], path[index], bounds, axes)) {
-      return true;
-    }
-  }
-  return false;
-};
-
-const boundsToReport = (bounds) => {
-  const firstBlenderCorner = recastPointToBlender(bounds.minimum);
-  const secondBlenderCorner = recastPointToBlender(bounds.maximum);
-  return {
-    minimumRecast: recastPointToArray(bounds.minimum),
-    maximumRecast: recastPointToArray(bounds.maximum),
-    minimumBlender: firstBlenderCorner.map((value, index) =>
-      Math.min(value, secondBlenderCorner[index])
-    ),
-    maximumBlender: firstBlenderCorner.map((value, index) =>
-      Math.max(value, secondBlenderCorner[index])
-    )
-  };
-};
-
-const validateNormalWindowDetour = (
-  navMesh,
-  gltf,
-  binary,
-  nodes,
-  worldMatrices,
-  linkProjectionValidation
-) => {
-  const pair = linkProjectionValidation.pairs.find(
-    (candidate) => candidate.id === NORMAL_WINDOW_REGRESSION.linkId
-  );
-  if (pair === undefined) {
-    fail(`通常窓迂回検証用linkがありません: ${NORMAL_WINDOW_REGRESSION.linkId}`);
-  }
-  const openingBounds = extractMeshNodeBoundsRecast(
-    gltf,
-    binary,
-    nodes,
-    worldMatrices,
-    NORMAL_WINDOW_REGRESSION.openingNodeName
-  );
-  const entranceBounds = extractMeshNodeBoundsRecast(
-    gltf,
-    binary,
-    nodes,
-    worldMatrices,
-    NORMAL_WINDOW_REGRESSION.entranceNodeName
-  );
-  const start = pointFromArray(pair.endpointA.projectedRecast);
-  const end = pointFromArray(pair.endpointB.projectedRecast);
-  const query = new NavMeshQuery(navMesh, {
-    maxNodes: REPRESENTATIVE_ROUTE_PATH_LIMIT
-  });
-  try {
-    const pathResult = query.computePath(start, end, {
-      halfExtents: REPRESENTATIVE_ROUTE_QUERY_HALF_EXTENTS,
-      maxPathPolys: REPRESENTATIVE_ROUTE_PATH_LIMIT,
-      maxStraightPathPoints: REPRESENTATIVE_ROUTE_PATH_LIMIT
-    });
-    if (!pathResult.success || pathResult.path.length === 0) {
-      fail("通常窓の内外を結ぶ正規入口迂回経路を計算できませんでした。");
-    }
-    const endpoint = pathResult.path[pathResult.path.length - 1];
-    const endpointError = distanceBetweenPoints(endpoint, end);
-    const crossesWindowOpening = pathIntersectsBounds(
-      pathResult.path,
-      openingBounds,
-      ["x", "z"]
-    );
-    const crossesNormalEntrance = pathIntersectsBounds(
-      pathResult.path,
-      entranceBounds,
-      ["x", "z"]
-    );
-    const pathDistance = measurePathDistance(pathResult.path);
-    const directDistance = distanceBetweenPoints(start, end);
-    if (
-      endpointError > REPRESENTATIVE_ROUTE_ENDPOINT_TOLERANCE ||
-      crossesWindowOpening ||
-      !crossesNormalEntrance ||
-      pathDistance <= directDistance
-    ) {
-      fail(
-        `通常窓のsurface経路が正規入口へ迂回していません: ` +
-        `endpointError=${endpointError}, window=${crossesWindowOpening}, ` +
-        `entrance=${crossesNormalEntrance}, distance=${pathDistance}/${directDistance}, ` +
-        `pathBlender=${JSON.stringify(pathResult.path.map(recastPointToBlender))}, ` +
-        `entranceBounds=${JSON.stringify(boundsToReport(entranceBounds))}`
-      );
-    }
-    return {
-      linkId: pair.id,
-      openingNodeName: NORMAL_WINDOW_REGRESSION.openingNodeName,
-      entranceNodeName: NORMAL_WINDOW_REGRESSION.entranceNodeName,
-      openingBounds: boundsToReport(openingBounds),
-      entranceBounds: boundsToReport(entranceBounds),
-      startRecast: recastPointToArray(start),
-      endRecast: recastPointToArray(end),
-      pathRecast: pathResult.path.map(recastPointToArray),
-      pathDistance,
-      directDistance,
-      endpointError,
-      crossesWindowOpening,
-      crossesNormalEntrance
-    };
-  } finally {
-    query.destroy();
-  }
-};
-
 const main = async () => {
   await assertInstalledRecastVersion();
   const glbData = await readFile(INPUT_PATH);
@@ -2013,21 +1502,6 @@ const main = async () => {
       fail("復元したNavMeshにpolygon geometryがありません。");
     }
     const representativeRoutes = validateRepresentativeRoutes(restoredNavMesh);
-    const linkEndpointProjections = validateLinkEndpointProjections(
-      restoredNavMesh,
-      navMeshPositions,
-      nodes,
-      worldMatrices
-    );
-    const normalWindowDetour = validateNormalWindowDetour(
-      restoredNavMesh,
-      gltf,
-      binary,
-      nodes,
-      worldMatrices,
-      linkEndpointProjections
-    );
-
     await writeFile(OUTPUT_PATH, navMeshData);
     const profileHash = sha256(Buffer.from(stableStringify(SCHOOL_NAV_PROFILE), "utf8"));
     const report = {
@@ -2072,10 +1546,7 @@ const main = async () => {
           queryHalfExtents: REPRESENTATIVE_ROUTE_QUERY_HALF_EXTENTS,
           routes: representativeRoutes
         },
-        linkEndpointProjections,
-        negativeCases: {
-          normalWindowDetour
-        }
+        bitFlightLinksExcluded: true
       },
       bakeMilliseconds: Number(bakeMilliseconds.toFixed(3))
     };
@@ -2086,8 +1557,27 @@ const main = async () => {
   }
 };
 
-main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`[学校NavMeshベイク失敗] ${message}\n`);
-  process.exitCode = 1;
-});
+export {
+  assertArray,
+  assertExactKeys,
+  assertFiniteNumber,
+  assertInstalledRecastVersion,
+  assertObject,
+  buildSceneGraph,
+  extractNavigationGeometry,
+  fail,
+  parseGlb,
+  sha256,
+  stableStringify
+};
+
+if (
+  typeof process.argv[1] === "string" &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`[学校NavMeshベイク失敗] ${message}\n`);
+    process.exitCode = 1;
+  });
+}

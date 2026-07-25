@@ -8,6 +8,26 @@ import {
   VertexBuffer
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
+import { decodeBitFlightNavBundle } from "./bitFlightNavBundle";
+import { BIT_FLIGHT_ENVELOPE_RADIUS_METERS } from "./bitFlightSafety";
+import {
+  BIT_FLIGHT_AFFORDANCES,
+  BIT_FLIGHT_SPACE_KINDS,
+  BIT_FLIGHT_TRANSITION_KINDS,
+  createBitFlightBandRef,
+  createBitFlightNavigationWorld,
+  toBitFlightBandId,
+  toBitFlightZoneId,
+  type BitFlightAffordance,
+  type BitFlightBand,
+  type BitFlightBandRef,
+  type BitFlightNavigationDefinition,
+  type BitFlightNavigationWorld,
+  type BitFlightSpaceKind,
+  type BitFlightTransitionDefinition,
+  type BitFlightTransitionKind,
+  type BitFlightZone
+} from "./bitFlightNavigation";
 import {
   createNavigationWorld,
   type NavigationWorld
@@ -23,6 +43,7 @@ import {
 import {
   createStageBoundaryContainsQuery,
   createStageSpatialQueries,
+  createStageVolumeContainsSegmentQuery,
   STAGE_VOLUME_ROLES,
   type StageMovementColliderSets,
   type StageSpatialQueries,
@@ -66,6 +87,7 @@ export type StageMetadata = Readonly<{
   schemaVersion: number;
   stageId: string;
   navProfileId: string;
+  bitNavProfileId: string;
   node: TransformNode;
 }>;
 
@@ -78,6 +100,7 @@ export type StageSpatialResources = Readonly<{
   beamBlockers: readonly Mesh[];
   sightBlockers: readonly Mesh[];
   navSourceMeshes: readonly Mesh[];
+  bitFlightNavSourceMeshes: readonly Mesh[];
   semanticMeshes: readonly Mesh[];
   semanticNodes: readonly TransformNode[];
   metadataNode: TransformNode;
@@ -96,6 +119,7 @@ export type StageSpatialContext = Readonly<{
   metadata: StageMetadata;
   resources: StageSpatialResources;
   navigation: NavigationWorld;
+  bitNavigation: BitFlightNavigationWorld;
   markers: StageMarkerRegistry;
   volumes: StageVolumeRegistry;
   links: StageLinkRegistry;
@@ -109,6 +133,9 @@ type NavRole = (typeof NAV_ROLES)[number];
 
 const NAV_AREAS = ["ground", "stairs", "outdoor", "door"] as const;
 type NavArea = (typeof NAV_AREAS)[number];
+
+const NAV_SETS = ["human", "bit-flight"] as const;
+type NavSet = (typeof NAV_SETS)[number];
 
 const PORTAL_ROLES = [
   "room_portal",
@@ -135,8 +162,42 @@ type AuthoredStageLinkEndpoint = Readonly<{
 
 type NavSource = Readonly<{
   mesh: Mesh;
+  navSet: "human";
   role: NavRole;
   area: NavArea | null;
+}>;
+
+type BitFlightNavSource = Readonly<{
+  mesh: Mesh;
+  navSet: "bit-flight";
+  role: "walkable" | "blocker";
+  zoneId: ReturnType<typeof toBitFlightZoneId>;
+  bandId: ReturnType<typeof toBitFlightBandId>;
+  spaceKind: BitFlightSpaceKind;
+  minimumCenterHeight: number;
+  maximumCenterHeight: number;
+}>;
+
+type AuthoredBitFlightTransitionVolume = Readonly<{
+  mesh: Mesh;
+  definition: Omit<
+    BitFlightTransitionDefinition,
+    "fromPosition" | "toPosition" | "traversalPoints" | "region"
+  >;
+  traversalPoints: readonly Vector3[];
+}>;
+
+type AuthoredBitFlightLinkEndpoint = Readonly<{
+  id: string;
+  endpoint: "A" | "B";
+  kind: "aperture";
+  band: BitFlightBandRef;
+  bidirectional: boolean;
+  radiusMeters: number;
+  projectionDistance: number;
+  affordances: readonly BitFlightAffordance[];
+  objectLinkName: string;
+  node: TransformNode;
 }>;
 
 type StageAssetClassification = Readonly<{
@@ -146,11 +207,14 @@ type StageAssetClassification = Readonly<{
   actorOnlyColliders: readonly Mesh[];
   humanOnlyColliders: readonly Mesh[];
   navSources: readonly NavSource[];
+  bitFlightNavSources: readonly BitFlightNavSource[];
   markers: readonly StageMarker[];
   volumes: readonly StageVolume[];
+  bitFlightTransitionVolumes: readonly AuthoredBitFlightTransitionVolume[];
   boundaryMesh: Mesh;
   portals: readonly StagePortal[];
   links: readonly AuthoredStageLinkEndpoint[];
+  bitFlightLinks: readonly AuthoredBitFlightLinkEndpoint[];
 }>;
 
 type Extras = Readonly<Record<string, unknown>>;
@@ -262,6 +326,114 @@ const requireEnum = <T extends readonly string[]>(
   return value as T[number];
 };
 
+const requireStringArrayJson = (
+  objectName: string,
+  extras: Extras,
+  property: string
+): readonly string[] => {
+  const encoded = requireString(objectName, extras, property);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(encoded) as unknown;
+  } catch {
+    throw new Error(`JSON配列として解析できません: ${objectName}.${property}`);
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length === 0 ||
+    parsed.some(
+      (value) =>
+        typeof value !== "string" ||
+        value.length === 0 ||
+        value.trim() !== value
+    )
+  ) {
+    throw new Error(`非空文字列のJSON配列が必要です: ${objectName}.${property}`);
+  }
+  if (new Set(parsed).size !== parsed.length) {
+    throw new Error(`JSON配列に重複値があります: ${objectName}.${property}`);
+  }
+  return Object.freeze(parsed);
+};
+
+const requireBitFlightAffordances = (
+  objectName: string,
+  extras: Extras
+): readonly BitFlightAffordance[] =>
+  Object.freeze(
+    requireStringArrayJson(objectName, extras, "hs_affordances_json").map(
+      (value) => {
+        if (!BIT_FLIGHT_AFFORDANCES.includes(value as BitFlightAffordance)) {
+          throw new Error(
+            `未登録の飛行遷移意味タグです: ${objectName}.${value}`
+          );
+        }
+        return value as BitFlightAffordance;
+      }
+    )
+  );
+
+const parseBitFlightBandRef = (
+  objectName: string,
+  extras: Extras,
+  prefix: "hs_from" | "hs_to" | "hs"
+): BitFlightBandRef => {
+  const zoneProperty =
+    prefix === "hs" ? "hs_zone_id" : `${prefix}_zone_id`;
+  const bandProperty =
+    prefix === "hs" ? "hs_band_id" : `${prefix}_band_id`;
+  return createBitFlightBandRef(
+    toBitFlightZoneId(requireString(objectName, extras, zoneProperty)),
+    toBitFlightBandId(requireString(objectName, extras, bandProperty))
+  );
+};
+
+const parseBitFlightRoutePoints = (
+  objectName: string,
+  extras: Extras
+): readonly Vector3[] => {
+  if (!Object.prototype.hasOwnProperty.call(extras, "hs_route_points_json")) {
+    return Object.freeze([]);
+  }
+  const encoded = requireString(
+    objectName,
+    extras,
+    "hs_route_points_json"
+  );
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(encoded) as unknown;
+  } catch {
+    throw new Error(
+      `通過点JSONを解析できません: ${objectName}.hs_route_points_json`
+    );
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length === 0 ||
+    parsed.some(
+      (point) =>
+        !Array.isArray(point) ||
+        point.length !== 3 ||
+        point.some((value) => typeof value !== "number" || !Number.isFinite(value))
+    )
+  ) {
+    throw new Error(
+      `通過点には有限値3要素のJSON配列が必要です: ${objectName}.hs_route_points_json`
+    );
+  }
+  return Object.freeze(
+    parsed.map(
+      ([x, y, z]) =>
+        new Vector3(
+          -x * BLENDER_METERS_TO_WORLD_UNITS,
+          z * BLENDER_METERS_TO_WORLD_UNITS,
+          -y * BLENDER_METERS_TO_WORLD_UNITS
+        )
+    )
+  );
+};
+
 const assertUnitScale = (node: TransformNode) => {
   if (
     node.scaling.x !== 1 ||
@@ -331,13 +503,68 @@ const assertNameHasSuffix = (objectName: string, prefix: string) => {
   }
 };
 
-const classifyNavSource = (mesh: Mesh): NavSource => {
+const classifyNavSource = (mesh: Mesh): NavSource | BitFlightNavSource => {
   const extras = requireExtras(mesh);
-  assertAllowedHsProperties(mesh.name, extras, ["hs_nav_role", "hs_nav_area"]);
+  const navSet = requireEnum(mesh.name, extras, "hs_nav_set", NAV_SETS);
+  if (navSet === "bit-flight") {
+    if (!mesh.name.startsWith("NAV_BitFlight_")) {
+      throw new Error(
+        `bit-flight生成元はNAV_BitFlight_*名が必要です: ${mesh.name}`
+      );
+    }
+    assertAllowedHsProperties(mesh.name, extras, [
+      "hs_nav_set",
+      "hs_nav_role",
+      "hs_zone_id",
+      "hs_band_id",
+      "hs_space_kind",
+      "hs_center_height_min_m",
+      "hs_center_height_max_m"
+    ]);
+    const minimumCenterHeight =
+      requireFiniteNumber(mesh.name, extras, "hs_center_height_min_m") *
+      BLENDER_METERS_TO_WORLD_UNITS;
+    const maximumCenterHeight =
+      requireFiniteNumber(mesh.name, extras, "hs_center_height_max_m") *
+      BLENDER_METERS_TO_WORLD_UNITS;
+    if (minimumCenterHeight > maximumCenterHeight) {
+      throw new Error(`飛行帯の中心高度範囲が逆転しています: ${mesh.name}`);
+    }
+    return {
+      mesh,
+      navSet,
+      role: requireEnum(
+        mesh.name,
+        extras,
+        "hs_nav_role",
+        ["walkable", "blocker"] as const
+      ),
+      ...parseBitFlightBandRef(mesh.name, extras, "hs"),
+      spaceKind: requireEnum(
+        mesh.name,
+        extras,
+        "hs_space_kind",
+        BIT_FLIGHT_SPACE_KINDS
+      ),
+      minimumCenterHeight,
+      maximumCenterHeight
+    };
+  }
+  if (mesh.name.startsWith("NAV_BitFlight_")) {
+    throw new Error(
+      `NAV_BitFlight_*はhs_nav_set=bit-flightが必要です: ${mesh.name}`
+    );
+  }
+  assertAllowedHsProperties(mesh.name, extras, [
+    "hs_nav_set",
+    "hs_nav_role",
+    "hs_nav_area"
+  ]);
   const role = requireEnum(mesh.name, extras, "hs_nav_role", NAV_ROLES);
   if (role === "walkable") {
     return {
       mesh,
+      navSet,
       role,
       area: requireEnum(mesh.name, extras, "hs_nav_area", NAV_AREAS)
     };
@@ -345,16 +572,78 @@ const classifyNavSource = (mesh: Mesh): NavSource => {
   if (Object.prototype.hasOwnProperty.call(extras, "hs_nav_area")) {
     throw new Error(`blocker/excludeへhs_nav_areaは指定できません: ${mesh.name}`);
   }
-  return { mesh, role, area: null };
+  return { mesh, navSet, role, area: null };
 };
 
 const classifyVolume = (mesh: Mesh): StageVolume => {
   const extras = requireExtras(mesh);
-  assertAllowedHsProperties(mesh.name, extras, ["hs_id", "hs_role"]);
+  const role = requireEnum(mesh.name, extras, "hs_role", STAGE_VOLUME_ROLES);
+  const isBitSpawn = role === "bit_spawn";
+  assertAllowedHsProperties(
+    mesh.name,
+    extras,
+    isBitSpawn
+      ? ["hs_id", "hs_role", "hs_zone_id", "hs_band_id"]
+      : ["hs_id", "hs_role"]
+  );
   return {
     id: requireId(mesh.name, extras),
-    role: requireEnum(mesh.name, extras, "hs_role", STAGE_VOLUME_ROLES),
+    role,
+    bitFlightBand: isBitSpawn
+      ? parseBitFlightBandRef(mesh.name, extras, "hs")
+      : null,
     mesh
+  };
+};
+
+const classifyBitFlightTransitionVolume = (
+  mesh: Mesh
+): AuthoredBitFlightTransitionVolume => {
+  const extras = requireExtras(mesh);
+  assertAllowedHsProperties(mesh.name, extras, [
+    "hs_id",
+    "hs_role",
+    "hs_transition_kind",
+    "hs_from_zone_id",
+    "hs_from_band_id",
+    "hs_to_zone_id",
+    "hs_to_band_id",
+    "hs_bidirectional",
+    "hs_affordances_json",
+    "hs_projection_distance_m",
+    "hs_route_points_json"
+  ]);
+  const role = requireString(mesh.name, extras, "hs_role");
+  if (role !== "bit_flight_transition") {
+    throw new Error(`未登録のVOL_* roleです: ${mesh.name}.${role}`);
+  }
+  const projectionDistance =
+    requireFiniteNumber(mesh.name, extras, "hs_projection_distance_m") *
+    BLENDER_METERS_TO_WORLD_UNITS;
+  if (projectionDistance <= 0) {
+    throw new Error(`飛行遷移の投影距離には正数が必要です: ${mesh.name}`);
+  }
+  return {
+    mesh,
+    definition: {
+      id: requireId(mesh.name, extras),
+      kind: requireEnum(
+        mesh.name,
+        extras,
+        "hs_transition_kind",
+        BIT_FLIGHT_TRANSITION_KINDS
+      ),
+      from: parseBitFlightBandRef(mesh.name, extras, "hs_from"),
+      to: parseBitFlightBandRef(mesh.name, extras, "hs_to"),
+      bidirectional: requireBoolean(
+        mesh.name,
+        extras,
+        "hs_bidirectional"
+      ),
+      affordances: requireBitFlightAffordances(mesh.name, extras),
+      projectionDistance
+    },
+    traversalPoints: parseBitFlightRoutePoints(mesh.name, extras)
   };
 };
 
@@ -400,11 +689,17 @@ const classifyMetadata = (
   assertAllowedHsProperties(node.name, extras, [
     "hs_schema_version",
     "hs_stage_id",
-    "hs_nav_profile"
+    "hs_nav_profile",
+    "hs_bit_nav_profile"
   ]);
   const schemaVersion = requireInteger(node.name, extras, "hs_schema_version");
   const stageId = requireString(node.name, extras, "hs_stage_id");
   const navProfileId = requireString(node.name, extras, "hs_nav_profile");
+  const bitNavProfileId = requireString(
+    node.name,
+    extras,
+    "hs_bit_nav_profile"
+  );
   if (schemaVersion !== stage.assetSchemaVersion) {
     throw new Error(
       `資産schema versionがカタログと一致しません: ${schemaVersion}`
@@ -418,7 +713,12 @@ const classifyMetadata = (
       `GLBのNavMeshプロファイルがカタログと一致しません: ${navProfileId}`
     );
   }
-  return { schemaVersion, stageId, navProfileId, node };
+  if (bitNavProfileId !== stage.bitNavProfileId) {
+    throw new Error(
+      `GLBのビット用NavMeshプロファイルがカタログと一致しません: ${bitNavProfileId}`
+    );
+  }
+  return { schemaVersion, stageId, navProfileId, bitNavProfileId, node };
 };
 
 const classifyMarker = (node: TransformNode): StageMarker => {
@@ -432,12 +732,85 @@ const classifyMarker = (node: TransformNode): StageMarker => {
   };
 };
 
-const classifyLink = (node: TransformNode): AuthoredStageLinkEndpoint => {
+const classifyLink = (
+  node: TransformNode
+): AuthoredStageLinkEndpoint | AuthoredBitFlightLinkEndpoint => {
   const nameMatch = LINK_OBJECT_NAME_PATTERN.exec(node.name);
   if (!nameMatch) {
     throw new Error(`LNK_*名はLNK_<id>_A/Bで指定します: ${node.name}`);
   }
   const extras = requireExtras(node);
+  if (Object.prototype.hasOwnProperty.call(extras, "hs_transition_kind")) {
+    assertAllowedHsProperties(node.name, extras, [
+      "hs_id",
+      "hs_transition_kind",
+      "hs_zone_id",
+      "hs_band_id",
+      "hs_bidirectional",
+      "hs_link_radius_m",
+      "hs_projection_distance_m",
+      "hs_affordances_json",
+      "hs_endpoint"
+    ]);
+    assertUnitScale(node);
+    const endpoint = requireEnum(
+      node.name,
+      extras,
+      "hs_endpoint",
+      ["A", "B"] as const
+    );
+    if (endpoint !== nameMatch[2]) {
+      throw new Error(`LNK_*名とhs_endpointが一致しません: ${node.name}`);
+    }
+    const id = requireId(node.name, extras);
+    if (nameMatch[1] !== id) {
+      throw new Error(`LNK_*名とhs_idが一致しません: ${node.name}`);
+    }
+    const kind = requireEnum(
+      node.name,
+      extras,
+      "hs_transition_kind",
+      BIT_FLIGHT_TRANSITION_KINDS
+    );
+    if (kind !== "aperture") {
+      throw new Error(`LNK_*の飛行遷移方式はapertureだけです: ${node.name}`);
+    }
+    const radiusMeters = requireFiniteNumber(
+      node.name,
+      extras,
+      "hs_link_radius_m"
+    );
+    if (radiusMeters !== BIT_FLIGHT_ENVELOPE_RADIUS_METERS) {
+      throw new Error(
+        `ビット用LNK_*の必要安全包絡半径は${BIT_FLIGHT_ENVELOPE_RADIUS_METERS.toFixed(2)}mです: ${node.name}`
+      );
+    }
+    const projectionDistance =
+      requireFiniteNumber(
+        node.name,
+        extras,
+        "hs_projection_distance_m"
+      ) * BLENDER_METERS_TO_WORLD_UNITS;
+    if (projectionDistance <= 0) {
+      throw new Error(`飛行遷移の投影距離には正数が必要です: ${node.name}`);
+    }
+    return {
+      id,
+      endpoint,
+      kind,
+      band: parseBitFlightBandRef(node.name, extras, "hs"),
+      bidirectional: requireBoolean(
+        node.name,
+        extras,
+        "hs_bidirectional"
+      ),
+      radiusMeters,
+      projectionDistance,
+      affordances: requireBitFlightAffordances(node.name, extras),
+      objectLinkName: nameMatch[1],
+      node
+    };
+  }
   assertAllowedHsProperties(node.name, extras, [
     "hs_id",
     "hs_link_kind",
@@ -491,9 +864,11 @@ const assertUniqueObjectNames = (nodes: readonly TransformNode[]) => {
 const assertUniqueSemanticIds = (
   markers: readonly StageMarker[],
   volumes: readonly StageVolume[],
+  bitFlightTransitionVolumes: readonly AuthoredBitFlightTransitionVolume[],
   boundaryId: string,
   portals: readonly StagePortal[],
-  links: readonly AuthoredStageLinkEndpoint[]
+  links: readonly AuthoredStageLinkEndpoint[],
+  bitFlightLinks: readonly AuthoredBitFlightLinkEndpoint[]
 ) => {
   const owners = new Map<string, string>();
   const register = (id: string, objectName: string) => {
@@ -509,6 +884,9 @@ const assertUniqueSemanticIds = (
   }
   for (const volume of volumes) {
     register(volume.id, volume.mesh.name);
+  }
+  for (const transition of bitFlightTransitionVolumes) {
+    register(transition.definition.id, transition.mesh.name);
   }
   register(boundaryId, "BND_Stage");
   for (const portal of portals) {
@@ -538,12 +916,6 @@ const assertUniqueSemanticIds = (
     ) {
       throw new Error(`LNK_* pairのpropertyが一致しません: ${id}`);
     }
-    if (
-      (endpointA.kind === "bit_window" || endpointA.kind === "bit_roof") &&
-      !endpointA.bidirectional
-    ) {
-      throw new Error(`${endpointA.kind}は双方向必須です: ${id}`);
-    }
     endpointA.node.computeWorldMatrix(true);
     endpointB.node.computeWorldMatrix(true);
     if (
@@ -553,6 +925,47 @@ const assertUniqueSemanticIds = (
       ) === 0
     ) {
       throw new Error(`LNK_*のA/Bには異なる位置が必要です: ${id}`);
+    }
+    register(id, `${endpointA.node.name}/${endpointB.node.name}`);
+  }
+
+  const bitLinksById = new Map<string, AuthoredBitFlightLinkEndpoint[]>();
+  for (const link of bitFlightLinks) {
+    const pair = bitLinksById.get(link.id) ?? [];
+    pair.push(link);
+    bitLinksById.set(link.id, pair);
+  }
+  for (const [id, pair] of bitLinksById) {
+    if (pair.length !== 2) {
+      throw new Error(`ビット用LNK_*はA/Bの2個で構成します: ${id}`);
+    }
+    const endpointA = pair.find((link) => link.endpoint === "A");
+    const endpointB = pair.find((link) => link.endpoint === "B");
+    if (!endpointA || !endpointB) {
+      throw new Error(`ビット用LNK_*のA/B endpointが揃っていません: ${id}`);
+    }
+    if (
+      endpointA.objectLinkName !== endpointB.objectLinkName ||
+      endpointA.kind !== endpointB.kind ||
+      endpointA.bidirectional !== endpointB.bidirectional ||
+      endpointA.radiusMeters !== endpointB.radiusMeters ||
+      endpointA.projectionDistance !== endpointB.projectionDistance ||
+      endpointA.affordances.length !== endpointB.affordances.length ||
+      endpointA.affordances.some(
+        (value, index) => value !== endpointB.affordances[index]
+      )
+    ) {
+      throw new Error(`ビット用LNK_* pairのpropertyが一致しません: ${id}`);
+    }
+    endpointA.node.computeWorldMatrix(true);
+    endpointB.node.computeWorldMatrix(true);
+    if (
+      Vector3.Distance(
+        endpointA.node.getAbsolutePosition(),
+        endpointB.node.getAbsolutePosition()
+      ) === 0
+    ) {
+      throw new Error(`ビット用LNK_*のA/Bには異なる位置が必要です: ${id}`);
     }
     register(id, `${endpointA.node.name}/${endpointB.node.name}`);
   }
@@ -594,7 +1007,9 @@ const classifyStageAsset = (
   const actorOnlyColliders: Mesh[] = [];
   const humanOnlyColliders: Mesh[] = [];
   const navSources: NavSource[] = [];
+  const bitFlightNavSources: BitFlightNavSource[] = [];
   const volumes: StageVolume[] = [];
+  const bitFlightTransitionVolumes: AuthoredBitFlightTransitionVolume[] = [];
   const boundaries: Array<{ id: "stage"; mesh: Mesh }> = [];
   const portals: StagePortal[] = [];
 
@@ -624,12 +1039,22 @@ const classifyStageAsset = (
       assertNameHasSuffix(mesh.name, "NAV_");
       const source = classifyNavSource(mesh);
       configureSemanticMesh(mesh);
-      navSources.push(source);
+      if (source.navSet === "bit-flight") {
+        bitFlightNavSources.push(source);
+      } else {
+        navSources.push(source);
+      }
     } else if (mesh.name.startsWith("VOL_")) {
       assertNameHasSuffix(mesh.name, "VOL_");
-      const volume = classifyVolume(mesh);
       configureSemanticMesh(mesh);
-      volumes.push(volume);
+      const extras = requireExtras(mesh);
+      if (extras.hs_role === "bit_flight_transition") {
+        bitFlightTransitionVolumes.push(
+          classifyBitFlightTransitionVolume(mesh)
+        );
+      } else {
+        volumes.push(classifyVolume(mesh));
+      }
     } else if (mesh.name === "BND_Stage") {
       const boundary = classifyBoundary(mesh);
       configureSemanticMesh(mesh);
@@ -647,6 +1072,7 @@ const classifyStageAsset = (
   const metadataEntries: StageMetadata[] = [];
   const markers: StageMarker[] = [];
   const links: AuthoredStageLinkEndpoint[] = [];
+  const bitFlightLinks: AuthoredBitFlightLinkEndpoint[] = [];
   for (const node of authoredEmptyNodes) {
     assertFiniteNodeTransform(node);
     if (node.name === "META_Stage") {
@@ -655,7 +1081,12 @@ const classifyStageAsset = (
       assertNameHasSuffix(node.name, "MRK_");
       markers.push(classifyMarker(node));
     } else if (node.name.startsWith("LNK_")) {
-      links.push(classifyLink(node));
+      const link = classifyLink(node);
+      if ("band" in link) {
+        bitFlightLinks.push(link);
+      } else {
+        links.push(link);
+      }
     } else {
       throw new Error(`V2資産規約外の作者Empty名です: ${node.name}`);
     }
@@ -674,6 +1105,9 @@ const classifyStageAsset = (
   if (!navSources.some((source) => source.role === "walkable")) {
     throw new Error("hs_nav_role=walkableのNAV_*が必要です");
   }
+  if (bitFlightNavSources.length === 0) {
+    throw new Error("NAV_BitFlight_*が必要です");
+  }
   for (const requiredRole of ["npc_spawn", "bit_spawn"] as const) {
     if (!volumes.some((volume) => volume.role === requiredRole)) {
       throw new Error(`${requiredRole}のVOL_*が必要です`);
@@ -683,9 +1117,11 @@ const classifyStageAsset = (
   assertUniqueSemanticIds(
     markers,
     volumes,
+    bitFlightTransitionVolumes,
     boundaries[0].id,
     portals,
-    links
+    links,
+    bitFlightLinks
   );
 
   return {
@@ -695,11 +1131,14 @@ const classifyStageAsset = (
     actorOnlyColliders,
     humanOnlyColliders,
     navSources,
+    bitFlightNavSources,
     markers,
     volumes,
+    bitFlightTransitionVolumes,
     boundaryMesh: boundaries[0].mesh,
     portals,
-    links
+    links,
+    bitFlightLinks
   };
 };
 
@@ -785,11 +1224,182 @@ const createLinkRegistry = (
   return createStageLinkRegistry(pairs);
 };
 
+const createBitFlightNavigationDefinition = (
+  classification: StageAssetClassification
+): BitFlightNavigationDefinition => {
+  const zonesById = new Map<string, BitFlightZone>();
+  const bandsByKey = new Map<string, BitFlightBand>();
+  const walkableBandKeys = new Set<string>();
+  const bandKey = (ref: BitFlightBandRef) =>
+    JSON.stringify([ref.zoneId, ref.bandId]);
+
+  for (const source of classification.bitFlightNavSources) {
+    const zone = zonesById.get(source.zoneId);
+    if (zone && zone.spaceKind !== source.spaceKind) {
+      throw new Error(
+        `同一飛行ゾーンの空間種別が一致しません: ${source.zoneId}`
+      );
+    }
+    zonesById.set(
+      source.zoneId,
+      zone ??
+        Object.freeze({
+          id: source.zoneId,
+          spaceKind: source.spaceKind
+        })
+    );
+
+    const ref = createBitFlightBandRef(source.zoneId, source.bandId);
+    const key = bandKey(ref);
+    if (source.role === "walkable") {
+      walkableBandKeys.add(key);
+    }
+    const band = bandsByKey.get(key);
+    if (
+      band &&
+      (band.minimumCenterHeight !== source.minimumCenterHeight ||
+        band.maximumCenterHeight !== source.maximumCenterHeight)
+    ) {
+      throw new Error(
+        `同一飛行帯の中心高度範囲が一致しません: ${source.zoneId}/${source.bandId}`
+      );
+    }
+    bandsByKey.set(
+      key,
+      band ??
+        Object.freeze({
+          zoneId: source.zoneId,
+          id: source.bandId,
+          minimumCenterHeight: source.minimumCenterHeight,
+          maximumCenterHeight: source.maximumCenterHeight
+        })
+    );
+  }
+  for (const [key, band] of bandsByKey) {
+    if (!walkableBandKeys.has(key)) {
+      throw new Error(
+        `飛行帯にwalkable生成元がありません: ${band.zoneId}/${band.id}`
+      );
+    }
+  }
+
+  const requireBand = (ref: BitFlightBandRef) => {
+    const band = bandsByKey.get(bandKey(ref));
+    if (!band) {
+      throw new Error(`未登録の飛行帯です: ${ref.zoneId}/${ref.bandId}`);
+    }
+    return band;
+  };
+  const bandCenterHeight = (ref: BitFlightBandRef) => {
+    const band = requireBand(ref);
+    return (band.minimumCenterHeight + band.maximumCenterHeight) / 2;
+  };
+
+  const volumeTransitions = classification.bitFlightTransitionVolumes.map(
+    ({ mesh, definition, traversalPoints }): BitFlightTransitionDefinition => {
+      mesh.computeWorldMatrix(true);
+      const bounds = mesh.getBoundingInfo().boundingBox;
+      const minimum = bounds.minimumWorld.clone();
+      const maximum = bounds.maximumWorld.clone();
+      const contains = createStageBoundaryContainsQuery(mesh);
+      const containsSegment =
+        createStageVolumeContainsSegmentQuery(mesh);
+      const centerX = (bounds.minimumWorld.x + bounds.maximumWorld.x) / 2;
+      const centerZ = (bounds.minimumWorld.z + bounds.maximumWorld.z) / 2;
+      if (definition.kind === "surface-route" && traversalPoints.length === 0) {
+        throw new Error(
+          `surface-routeには通過点が必要です: ${definition.id}`
+        );
+      }
+      const firstTraversalPoint = traversalPoints[0];
+      const lastTraversalPoint = traversalPoints[traversalPoints.length - 1];
+      const fromPosition =
+        firstTraversalPoint ??
+        new Vector3(
+          centerX,
+          bandCenterHeight(definition.from),
+          centerZ
+        );
+      const toPosition =
+        lastTraversalPoint ??
+        new Vector3(
+          centerX,
+          bandCenterHeight(definition.to),
+          centerZ
+        );
+      return Object.freeze({
+        ...definition,
+        fromPosition: fromPosition.clone(),
+        toPosition: toPosition.clone(),
+        traversalPoints,
+        region: Object.freeze({
+          minimum,
+          maximum,
+          contains,
+          containsSegment
+        })
+      });
+    }
+  );
+
+  const bitLinksById = new Map<string, AuthoredBitFlightLinkEndpoint[]>();
+  for (const endpoint of classification.bitFlightLinks) {
+    const pair = bitLinksById.get(endpoint.id) ?? [];
+    pair.push(endpoint);
+    bitLinksById.set(endpoint.id, pair);
+  }
+  const apertureTransitions = [...bitLinksById].map(
+    ([id, endpoints]): BitFlightTransitionDefinition => {
+      const endpointA = endpoints.find((endpoint) => endpoint.endpoint === "A")!;
+      const endpointB = endpoints.find((endpoint) => endpoint.endpoint === "B")!;
+      endpointA.node.computeWorldMatrix(true);
+      endpointB.node.computeWorldMatrix(true);
+      const fromPosition = endpointA.node.getAbsolutePosition().clone();
+      const toPosition = endpointB.node.getAbsolutePosition().clone();
+      requireBand(endpointA.band);
+      requireBand(endpointB.band);
+      return Object.freeze({
+        id,
+        kind: "aperture",
+        from: endpointA.band,
+        to: endpointB.band,
+        bidirectional: endpointA.bidirectional,
+        affordances: endpointA.affordances,
+        fromPosition,
+        toPosition,
+        traversalPoints: Object.freeze([fromPosition.clone(), toPosition.clone()]),
+        region: null,
+        projectionDistance: endpointA.projectionDistance
+      });
+    }
+  );
+
+  for (const volume of classification.volumes) {
+    if (volume.role === "bit_spawn") {
+      if (!volume.bitFlightBand) {
+        throw new Error(`bit_spawnに飛行帯指定がありません: ${volume.id}`);
+      }
+      requireBand(volume.bitFlightBand);
+    }
+  }
+
+  return Object.freeze({
+    zones: Object.freeze([...zonesById.values()]),
+    bands: Object.freeze([...bandsByKey.values()]),
+    transitions: Object.freeze([
+      ...volumeTransitions,
+      ...apertureTransitions
+    ])
+  });
+};
+
 const assertSemanticsInsideBoundary = (
   boundary: StageBoundary,
   markers: readonly StageMarker[],
   volumes: readonly StageVolume[],
-  links: readonly StageLinkPair[]
+  bitFlightTransitionVolumes: readonly AuthoredBitFlightTransitionVolume[],
+  links: readonly StageLinkPair[],
+  bitFlightLinks: readonly AuthoredBitFlightLinkEndpoint[]
 ) => {
   for (const marker of markers) {
     marker.node.computeWorldMatrix(true);
@@ -811,12 +1421,35 @@ const assertSemanticsInsideBoundary = (
       }
     }
   }
+  for (const transition of bitFlightTransitionVolumes) {
+    const positions = transition.mesh.getVerticesData(VertexBuffer.PositionKind)!;
+    const world = transition.mesh.computeWorldMatrix(true);
+    for (let index = 0; index < positions.length; index += 3) {
+      const point = Vector3.TransformCoordinates(
+        Vector3.FromArray(positions, index),
+        world
+      );
+      if (!boundary.contains(point)) {
+        throw new Error(
+          `飛行遷移VOL_*がBND_Stageの外側です: ${transition.mesh.name}`
+        );
+      }
+    }
+  }
 
   for (const link of links) {
     for (const endpoint of [link.endpointA, link.endpointB]) {
       if (!boundary.contains(endpoint.position)) {
         throw new Error(`LNK_*がBND_Stageの外側です: ${endpoint.node.name}`);
       }
+    }
+  }
+  for (const endpoint of bitFlightLinks) {
+    endpoint.node.computeWorldMatrix(true);
+    if (!boundary.contains(endpoint.node.getAbsolutePosition())) {
+      throw new Error(
+        `ビット用LNK_*がBND_Stageの外側です: ${endpoint.node.name}`
+      );
     }
   }
 };
@@ -834,17 +1467,26 @@ const assertCatalogEntry = (stage: StageCatalogEntry) => {
   if (!stage.navmeshUrl.endsWith(".navmesh.bin")) {
     throw new Error(`NavMesh URLが不正です: ${stage.navmeshUrl}`);
   }
+  if (!stage.bitNavmeshUrl.endsWith(".bit-flight.navmesh.bin")) {
+    throw new Error(`ビット用NavMesh URLが不正です: ${stage.bitNavmeshUrl}`);
+  }
   if (!Number.isInteger(stage.assetSchemaVersion) || stage.assetSchemaVersion <= 0) {
     throw new Error(`資産schema versionが不正です: ${stage.assetSchemaVersion}`);
   }
   if (stage.navProfileId.length === 0) {
     throw new Error(`NavMeshプロファイルIDが空です: ${stage.id}`);
   }
+  if (stage.bitNavProfileId.length === 0) {
+    throw new Error(`ビット用NavMeshプロファイルIDが空です: ${stage.id}`);
+  }
   if (!SHA256_PATTERN.test(stage.glbSha256)) {
     throw new Error(`GLB SHA-256が不正です: ${stage.id}`);
   }
   if (!SHA256_PATTERN.test(stage.navmeshSha256)) {
     throw new Error(`NavMesh SHA-256が不正です: ${stage.id}`);
+  }
+  if (!SHA256_PATTERN.test(stage.bitNavmeshSha256)) {
+    throw new Error(`ビット用NavMesh SHA-256が不正です: ${stage.id}`);
   }
 };
 
@@ -902,17 +1544,25 @@ export const loadStageSpatialContext = async (
   stage: StageCatalogEntry
 ): Promise<StageSpatialContext> => {
   assertCatalogEntry(stage);
-  const [glbData, navmeshData] = await Promise.all([
+  const [glbData, navmeshData, bitNavmeshData] = await Promise.all([
     fetchBinary(stage.glbUrl),
-    fetchBinary(stage.navmeshUrl)
+    fetchBinary(stage.navmeshUrl),
+    fetchBinary(stage.bitNavmeshUrl)
   ]);
   await Promise.all([
     assertHash("GLB", glbData, stage.glbSha256),
-    assertHash("NavMesh", navmeshData, stage.navmeshSha256)
+    assertHash("NavMesh", navmeshData, stage.navmeshSha256),
+    assertHash(
+      "ビット用NavMesh",
+      bitNavmeshData,
+      stage.bitNavmeshSha256
+    )
   ]);
 
   let container: AssetContainer | null = null;
   let navigation: NavigationWorld | null = null;
+  let bitNavigation: BitFlightNavigationWorld | null = null;
+  let queries: StageSpatialQueries | null = null;
   try {
     container = await loadGlbContainer(scene, stage, glbData);
     const managementRoot = container.createRootMesh();
@@ -925,7 +1575,21 @@ export const loadStageSpatialContext = async (
 
     const classification = classifyStageAsset(container, managementRoot, stage);
     const links = createLinkRegistry(classification.links);
+    const bitFlightDefinition =
+      createBitFlightNavigationDefinition(classification);
+    const bitNavmeshPayloads = decodeBitFlightNavBundle(bitNavmeshData).map(
+      (payload) =>
+        Object.freeze({
+          zoneId: toBitFlightZoneId(payload.zoneId),
+          bandId: toBitFlightBandId(payload.bandId),
+          data: payload.data
+        })
+    );
     navigation = await createNavigationWorld(navmeshData, links.all);
+    bitNavigation = await createBitFlightNavigationWorld(
+      bitFlightDefinition,
+      bitNavmeshPayloads
+    );
     container.addAllToScene();
 
     const humanMovementColliders = Object.freeze([
@@ -947,15 +1611,22 @@ export const loadStageSpatialContext = async (
     const navSourceMeshes = Object.freeze(
       classification.navSources.map((source) => source.mesh)
     );
+    const bitFlightNavSourceMeshes = Object.freeze(
+      classification.bitFlightNavSources.map((source) => source.mesh)
+    );
     const semanticMeshes = Object.freeze([
       ...classification.volumes.map((volume) => volume.mesh),
+      ...classification.bitFlightTransitionVolumes.map(
+        (transition) => transition.mesh
+      ),
       classification.boundaryMesh,
       ...classification.portals.map((portal) => portal.mesh)
     ]);
     const semanticNodes = Object.freeze([
       classification.metadata.node,
       ...classification.markers.map((marker) => marker.node),
-      ...classification.links.map((link) => link.node)
+      ...classification.links.map((link) => link.node),
+      ...classification.bitFlightLinks.map((link) => link.node)
     ]);
     const resources: StageSpatialResources = Object.freeze({
       visualMeshes: Object.freeze([...classification.visualMeshes]),
@@ -966,6 +1637,7 @@ export const loadStageSpatialContext = async (
       beamBlockers,
       sightBlockers,
       navSourceMeshes,
+      bitFlightNavSourceMeshes,
       semanticMeshes,
       semanticNodes,
       metadataNode: classification.metadata.node,
@@ -974,7 +1646,7 @@ export const loadStageSpatialContext = async (
     });
     const markers = createMarkerRegistry(classification.markers);
     const volumes = createVolumeRegistry(classification.volumes);
-    const queries = createStageSpatialQueries(
+    queries = createStageSpatialQueries(
       scene,
       {
         movementColliders,
@@ -989,32 +1661,46 @@ export const loadStageSpatialContext = async (
       mesh: classification.boundaryMesh,
       contains: createStageBoundaryContainsQuery(classification.boundaryMesh)
     });
-    assertSemanticsInsideBoundary(boundary, markers.all, volumes.all, links.all);
+    assertSemanticsInsideBoundary(
+      boundary,
+      markers.all,
+      volumes.all,
+      classification.bitFlightTransitionVolumes,
+      links.all,
+      classification.bitFlightLinks
+    );
 
     let disposed = false;
     const ownedContainer = container;
     const ownedNavigation = navigation;
+    const ownedBitNavigation = bitNavigation;
+    const ownedQueries = queries;
     return Object.freeze({
       stage,
       metadata: classification.metadata,
       resources,
       navigation: ownedNavigation,
+      bitNavigation: ownedBitNavigation,
       markers,
       volumes,
       links,
       boundary,
-      queries,
+      queries: ownedQueries,
       dispose: () => {
         if (disposed) {
           throw new Error(`StageSpatialContextは破棄済みです: ${stage.id}`);
         }
         disposed = true;
+        ownedQueries.dispose();
+        ownedBitNavigation.dispose();
         ownedNavigation.dispose();
         ownedContainer.removeAllFromScene();
         ownedContainer.dispose();
       }
     });
   } catch (error) {
+    queries?.dispose();
+    bitNavigation?.dispose();
     navigation?.dispose();
     container?.removeAllFromScene();
     container?.dispose();

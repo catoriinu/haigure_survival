@@ -14,6 +14,10 @@ const allowedAssets = new Map<string, string>([
   [
     `/${SCHOOL_STAGE.navmeshUrl}`,
     resolve(repositoryRoot, "public", SCHOOL_STAGE.navmeshUrl)
+  ],
+  [
+    `/${SCHOOL_STAGE.bitNavmeshUrl}`,
+    resolve(repositoryRoot, "public", SCHOOL_STAGE.bitNavmeshUrl)
   ]
 ]);
 

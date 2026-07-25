@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL ブランチ戦略
 
-更新日: 2026-07-21
+更新日: 2026-07-25
 
 ## 1. 目的
 
@@ -47,7 +47,7 @@ flowchart LR
 | T02 | `codex/v2-t02-stage-loader` |
 | T03 | `codex/v2-t03-player-height` |
 | T04 | `codex/v2-t04-navigation-npc` |
-| T05-1 | `codex/v2-t05-bit-flight-safety` |
+| T05-1（A／B統合） | `codex/v2-t05-bit-flight-navigation` |
 | T05-2 | `codex/v2-t05-combat-systems` |
 | B01 | `codex/v2-b01-school-layout` |
 | B02 | `codex/v2-b02-school-blockout` |
@@ -64,10 +64,12 @@ PR #41以降は、レビュー可能な一ブランチ単位へ次のように�
 | B03-1 建築仕上げ | `codex/v2-b03-architecture` |
 | B03-2 内装・最適化 | `codex/v2-b03-interiors` |
 | T04-2B 学校複数階統合 | `codex/v2-t04-school-multifloor` |
-| T05-1 ビット飛行・高さ安全 | `codex/v2-t05-bit-flight-safety` |
+| T05-1 汎用飛行帯ナビゲーション・飛行安全 | `codex/v2-t05-bit-flight-navigation` |
 | T05-2 戦闘システム | `codex/v2-t05-combat-systems` |
 
 確定した実行順は、B03-0とT04-2Aの並行Wave、B03-1、B03-2、T04-2B、T05-1、T05-2、T06、T07とする。並行Wave以外は、直前の依存タスクが`develop`へマージされた後に開始する。
+
+2026-07-25、T05-1AとT05-1Bは実装中に共通型、半径契約、学校資産hash、実飛行受入が相互依存することを確認し、ビルド可能な単一成果として同じブランチで完成・検証した。人間確認により、`codex/v2-t05-bit-flight-navigation`からT05-1統合Pull Requestを`develop`へ作成する方針へ更新した。T05-2はこの統合後の最新`develop`から開始する。
 
 T04-2BでB03-2統合後の階段NAV元形状と上階blockerを修正する作業だけは、`codex/v2-t04-school-multifloor`からローカル限定の`codex/v2-t04-school-nav-asset-fix`を分岐する。修正コミットはT04-2Bへ`--no-ff`でローカルマージし、この補助ブランチ自体はpushまたはPull Request化しない。2026-07-20に北西階段・吹抜け補正`1f34fe2`を`d9a3872`、北東・南西1F踊り場開口補正`fb2caf5`を`b3f2302`、上階Nav blocker補正`c2bcdcc`を`b5e77f7`としてT04へローカルマージ済みである。
 
@@ -124,9 +126,11 @@ gh auth status
 - B01～B03は依存条件を満たし、T系タスクと共有コードまたは同一のBlender／GLB／NavMesh資産を編集しない場合に限り、T系タスクと並行できる。
 - PR #41以降はB03-0とT04-2Aだけを並行できる。T04-2Aは学校`.blend`、GLB、NavMeshバイナリ、カタログハッシュを編集しない。
 - B03-1とB03-2は同じ学校`.blend`とGLBを順番に編集する。T04-2Bは両方の完了後に開始し、T05-1、T05-2、T06、T07はこの順で直列実行する。
-- T05-1は全ビットモード共通の天井・屋外高さ安全、`bit_window`／`bit_roof`固定経路の実飛行、特殊接続前のカーペット解除だけを担当する。T05-2はT05-1完了後に、gun所持NPC・ビットの完成戦闘、全光線、集合、警報、公開処刑を担当する。
-- `bit_window`と`bit_roof`は`LNK_<id>_A/B`で表し、`PRT_*`を使用しない。どちらもビット専用・双方向必須とする。屋上は窓の設置対象外であるだけで、ゲーム、索敵、経路、戦闘の対象から外さない。
-- B03-1はB03-0で承認された窓開口、Collider、`LNK_*`と必要な意味Objectを学校資産へ追加し、B03-2はその名前・位置・開口寸法を維持する。T05-1とT05-2は学校`.blend`、GLB、NavMeshバイナリ、カタログハッシュを編集しない。
+- T05-1は、任意のゾーン・帯を扱う共通型、帯別ビットNavMesh bundle、接続グラフ、非学校fixture、学校データ移行と、全ビットモード共通の3D高さ安全、V1飛行表現、探索・追跡、窓・階段・上下・境界遷移、遷移前のカーペット解除を単一成果として担当する。学校`.blend`、GLB、人間用NavMesh、ビット用NavMesh、カタログハッシュも同じブランチで確定する。
+- T05-1の確定半径契約は、V1実形状・戦闘用被弾球0.44m＋安全余裕0.10m＝移動包絡0.54mとする。上下揺れは中心位置のSweepであり半径へ二重加算しない。現行片羽開放幅1.20mの58窓は両羽全開への資産再設計待ちにせず、同じT05-1担当が0.54m包絡で再検証する。
+- `bit_window`58組は接続先ゾーン・帯を明示したビット専用`aperture`遷移へ移行する。既存`bit_roof`2組は資産・Runtime・監査から完全廃止し、4F屋外帯と屋上外周をつなぐ安全な`boundary`遷移へ置き換える。屋上はゲーム、索敵、経路、戦闘の対象から外さない。
+- 連続的な上下・境界遷移は`VOL_*`の`bit_flight_transition` role、階段は`surface-route`、窓などの狭い通過箇所は`LNK_*`の`aperture`として表す。共通Runtimeは学校、階数、体育館、屋上などの名前で分岐しない。
+- T05-2はT05-1の`develop`統合後に、gun所持NPC・ビットの完成戦闘、全光線、集合、警報、公開処刑を担当し、学校バイナリを変更しない。
 - 並行ブランチはそれぞれ最新の`develop`から作成し、別タスクブランチから派生させない。
 - `.blend`と`.glb`は同時に複数ブランチで編集しない。Blender資産は常に1ブランチ・1担当とする。
 - `docs/plan.md`は統合担当だけが更新し、並行担当は自分の個別計画を更新する。

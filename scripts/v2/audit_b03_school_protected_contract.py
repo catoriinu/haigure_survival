@@ -35,6 +35,8 @@ ALLOWED_NEW_PREFIXES = ("COL_B03_Interior_",)
 ALLOWED_NEW_EXACT_NAMES = {"NAV_Blocker_Interiors"}
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
 T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v09"
+T05_GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
+T05_GENERATOR_VERSION = "t05-1a-bit-flight-navigation-v02"
 T04_ALLOWED_MISSING_EXACT_NAMES = {
     "COL_B03_Prop_Locker_Changing_F_01",
     "COL_B03_Prop_Locker_Changing_F_02",
@@ -114,6 +116,61 @@ T04_ALLOWED_CHANGED_EXACT_NAMES = {
     "NAV_Blocker_School1F",
     "NAV_Blocker_SchoolUpper",
     "NAV_Blocker_StairClosed",
+}
+T05_ALLOWED_MISSING_EXACT_NAMES = {
+    "LNK_bit-roof-north-east_A",
+    "LNK_bit-roof-north-east_B",
+    "LNK_bit-roof-west-south_A",
+    "LNK_bit-roof-west-south_B",
+}
+T05_ALLOWED_CHANGED_EXACT_NAMES = {
+    "NAV_Blocker_Gym",
+    "NAV_Blocker_Perimeter",
+    "NAV_Walkable_EntryTransitions",
+    "NAV_Walkable_Interior1F",
+    "NAV_Walkable_Outdoor",
+    "NAV_Walkable_Rooftop",
+    "NAV_Walkable_Stairs",
+    "VOL_BitSpawn_Courtyard",
+}
+T05_ALLOWED_NEW_EXACT_NAMES = {
+    "NAV_BitFlight_ExteriorF1",
+    "NAV_BitFlight_ExteriorF2",
+    "NAV_BitFlight_ExteriorF3",
+    "NAV_BitFlight_ExteriorF4",
+    "NAV_BitFlight_GymLow",
+    "NAV_BitFlight_GymUpper",
+    "NAV_BitFlight_InteriorF1",
+    "NAV_BitFlight_InteriorF2",
+    "NAV_BitFlight_InteriorF3",
+    "NAV_BitFlight_InteriorF4",
+    "NAV_BitFlight_Obstacle_school_exterior_outdoor_f1",
+    "NAV_BitFlight_Obstacle_school_exterior_outdoor_f2",
+    "NAV_BitFlight_Obstacle_school_exterior_outdoor_f3",
+    "NAV_BitFlight_Obstacle_school_exterior_outdoor_f4",
+    "NAV_BitFlight_Obstacle_school_gym_gym_low",
+    "NAV_BitFlight_Obstacle_school_gym_gym_upper",
+    "NAV_BitFlight_Obstacle_school_interior_interior_f1",
+    "NAV_BitFlight_Obstacle_school_interior_interior_f2",
+    "NAV_BitFlight_Obstacle_school_interior_interior_f3",
+    "NAV_BitFlight_Obstacle_school_interior_interior_f4",
+    "NAV_BitFlight_Obstacle_school_rooftop_roof_flight",
+    "NAV_BitFlight_Rooftop",
+    "VOL_BitFlight_ExteriorF1ToF2",
+    "VOL_BitFlight_ExteriorF2ToF3",
+    "VOL_BitFlight_ExteriorF3ToF4",
+    "VOL_BitFlight_ExteriorF4ToRooftop",
+    "VOL_BitFlight_GymLowToUpper",
+    "VOL_BitFlight_StairNEF1ToF2",
+    "VOL_BitFlight_StairNEF2ToF3",
+    "VOL_BitFlight_StairNEF3ToF4",
+    "VOL_BitFlight_StairNWF1ToF2",
+    "VOL_BitFlight_StairNWF2ToF3",
+    "VOL_BitFlight_StairNWF3ToF4",
+    "VOL_BitFlight_StairNWF4ToRoof",
+    "VOL_BitFlight_StairSWF1ToF2",
+    "VOL_BitFlight_StairSWF2ToF3",
+    "VOL_BitFlight_StairSWF3ToF4",
 }
 
 
@@ -216,47 +273,62 @@ def compare_baseline() -> None:
         name for name in set(expected) & set(current) if expected[name] != current[name]
     )
     correction_version = bpy.context.scene.get(T04_CORRECTION_VERSION_PROPERTY)
-    expected_allowed_changes = (
-        sorted(T04_ALLOWED_CHANGED_EXACT_NAMES)
-        if correction_version == T04_CORRECTION_VERSION
-        else []
+    generator_version = bpy.context.scene.get(T05_GENERATOR_VERSION_PROPERTY)
+    t04_enabled = correction_version == T04_CORRECTION_VERSION
+    t05_enabled = generator_version == T05_GENERATOR_VERSION
+    baseline_aperture_endpoints = {
+        name
+        for name, entry in expected.items()
+        if entry.get("properties", {}).get("hs_link_kind") == "bit_window"
+    }
+    if t05_enabled and len(baseline_aperture_endpoints) != 116:
+        raise RuntimeError(
+            "旧保護baselineの窓接続端点が116件ではありません: "
+            f"{len(baseline_aperture_endpoints)}"
+        )
+    allowed_change_names = (
+        set(T04_ALLOWED_CHANGED_EXACT_NAMES) if t04_enabled else set()
     )
-    expected_allowed_missing = (
-        sorted(T04_ALLOWED_MISSING_EXACT_NAMES)
-        if correction_version == T04_CORRECTION_VERSION
-        else []
+    allowed_missing_names = (
+        set(T04_ALLOWED_MISSING_EXACT_NAMES) if t04_enabled else set()
     )
-    expected_allowed_new = (
-        sorted(T04_ALLOWED_NEW_EXACT_NAMES)
-        if correction_version == T04_CORRECTION_VERSION
-        else []
+    allowed_new_names = (
+        set(T04_ALLOWED_NEW_EXACT_NAMES) if t04_enabled else set()
     )
+    if t05_enabled:
+        allowed_change_names.update(T05_ALLOWED_CHANGED_EXACT_NAMES)
+        allowed_change_names.update(baseline_aperture_endpoints)
+        allowed_missing_names.update(T05_ALLOWED_MISSING_EXACT_NAMES)
+        allowed_new_names.update(T05_ALLOWED_NEW_EXACT_NAMES)
+    expected_allowed_changes = sorted(allowed_change_names)
+    expected_allowed_missing = sorted(allowed_missing_names)
+    expected_allowed_new = sorted(allowed_new_names)
     allowed_missing = sorted(
-        name for name in all_missing if name in T04_ALLOWED_MISSING_EXACT_NAMES
+        name for name in all_missing if name in allowed_missing_names
     )
     missing = sorted(
-        name for name in all_missing if name not in T04_ALLOWED_MISSING_EXACT_NAMES
+        name for name in all_missing if name not in allowed_missing_names
     )
     allowed_changed = sorted(
-        name for name in all_changed if name in T04_ALLOWED_CHANGED_EXACT_NAMES
+        name for name in all_changed if name in allowed_change_names
     )
     changed = sorted(
-        name for name in all_changed if name not in T04_ALLOWED_CHANGED_EXACT_NAMES
+        name for name in all_changed if name not in allowed_change_names
     )
     all_new = sorted(
         name
         for name in set(current) - set(expected)
-        if name in T04_ALLOWED_NEW_EXACT_NAMES
+        if name in allowed_new_names
         or (
             name not in ALLOWED_NEW_EXACT_NAMES
             and not name.startswith(ALLOWED_NEW_PREFIXES)
         )
     )
     allowed_new = sorted(
-        name for name in all_new if name in T04_ALLOWED_NEW_EXACT_NAMES
+        name for name in all_new if name in allowed_new_names
     )
     unexpected = sorted(
-        name for name in all_new if name not in T04_ALLOWED_NEW_EXACT_NAMES
+        name for name in all_new if name not in allowed_new_names
     )
     if (
         missing
@@ -273,12 +345,12 @@ def compare_baseline() -> None:
                     "missing": missing,
                     "changed": changed,
                     "unexpected": unexpected,
-                    "t04_allowed_missing": allowed_missing,
-                    "t04_expected_missing": expected_allowed_missing,
-                    "t04_allowed_changed": allowed_changed,
-                    "t04_expected_changed": expected_allowed_changes,
-                    "t04_allowed_new": allowed_new,
-                    "t04_expected_new": expected_allowed_new,
+                    "allowed_missing": allowed_missing,
+                    "expected_missing": expected_allowed_missing,
+                    "allowed_changed": allowed_changed,
+                    "expected_changed": expected_allowed_changes,
+                    "allowed_new": allowed_new,
+                    "expected_new": expected_allowed_new,
                 },
                 ensure_ascii=False,
                 sort_keys=True,
@@ -290,9 +362,11 @@ def compare_baseline() -> None:
             {
                 "protected": len(expected),
                 "new_interior_objects": len(set(current) - set(expected)),
-                "t04_allowed_missing": allowed_missing,
-                "t04_allowed_changed": allowed_changed,
-                "t04_allowed_new": allowed_new,
+                "t04_contract": t04_enabled,
+                "t05_contract": t05_enabled,
+                "allowed_missing": len(allowed_missing),
+                "allowed_changed": len(allowed_changed),
+                "allowed_new": len(allowed_new),
             },
             ensure_ascii=False,
             sort_keys=True,

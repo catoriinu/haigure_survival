@@ -1,0 +1,2450 @@
+import {
+  MeshBuilder,
+  NullEngine,
+  Scene,
+  Vector3
+} from "@babylonjs/core";
+
+import schoolGlbUrl from "../../../public/stage-assets/v2/B02/b02_school_blockout.glb?url";
+import schoolNavmeshUrl from "../../../public/stage-assets/v2/B02/b02_school_blockout.navmesh.bin?url";
+import schoolBitNavmeshUrl from "../../../public/stage-assets/v2/B02/b02_school_blockout.bit-flight.navmesh.bin?url";
+import {
+  BIT_FLIGHT_TRANSITION_SPEED_WORLD_UNITS_PER_SECOND
+} from "../../../src/world/bitFlightAgent";
+import {
+  encodeBitFlightNavBundle
+} from "../../../src/world/bitFlightNavBundle";
+import {
+  BIT_FLIGHT_BODY_RADIUS_WORLD_UNITS
+} from "../../../src/world/bitFlightSafety";
+import {
+  createBitFlightNavigationWorld,
+  type BitFlightBand,
+  type BitFlightBandRef,
+  type BitFlightNavMeshPayload,
+  type BitFlightNavigationDefinition,
+  type BitFlightNavigationWorld
+} from "../../../src/world/bitFlightNavigation";
+import {
+  SCHOOL_STAGE,
+  type StageCatalogEntry
+} from "../../../src/world/stageCatalog";
+import {
+  loadStageSpatialContext,
+  type StageSpatialContext
+} from "../../../src/world/stageSpatialContext";
+import type { StageVolume } from "../../../src/world/stageSpatialQueries";
+import {
+  createV2BitSystem,
+  type V2BitFlightState,
+  type V2BitSystem
+} from "../../../src/v2/bitSystem";
+import type {
+  V2ExternalAlert,
+  V2HumanTargetSnapshot
+} from "../../../src/v2/combatTypes";
+
+export type BitSystemAcceptanceCheck = Readonly<{
+  name: string;
+  ok: boolean;
+  detail: string;
+}>;
+
+export type BitSystemAcceptanceMetric = Readonly<{
+  label: string;
+  value: string;
+}>;
+
+export type BitSystemAcceptanceFixture = Readonly<{
+  scene: Scene;
+  navigation: BitFlightNavigationWorld;
+  definition: BitFlightNavigationDefinition;
+  payloads: readonly BitFlightNavMeshPayload[];
+  courtyardRef: BitFlightBandRef;
+  concourseRef: BitFlightBandRef;
+  mezzanineRef: BitFlightBandRef;
+  pointInBand(ref: BitFlightBandRef, x: number, z: number): Vector3;
+}>;
+
+export type BitSystemAcceptanceResult = Readonly<{
+  checks: readonly BitSystemAcceptanceCheck[];
+  metrics: readonly BitSystemAcceptanceMetric[];
+}>;
+
+export type BitSystemAcceptanceMode = "all" | "core" | "school";
+
+type QueuedRandom = Readonly<{
+  random(): number;
+  enqueue(...values: readonly number[]): void;
+}>;
+
+type FixtureStage = Readonly<{
+  stage: StageSpatialContext;
+  dispose(): void;
+}>;
+
+type SceneResourceCounts = Readonly<{
+  meshes: number;
+  materials: number;
+  transformNodes: number;
+  textures: number;
+  spriteManagers: number;
+}>;
+
+type LoaderFixtureAssets = Readonly<{
+  catalog: StageCatalogEntry;
+  glb: Uint8Array;
+  humanNavmesh: Uint8Array;
+  bitNavmesh: Uint8Array;
+}>;
+
+const toStageRelativeAssetUrl = (url: string) =>
+  url.startsWith("/") ? url.slice(1) : url;
+
+const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
+  ...SCHOOL_STAGE,
+  glbUrl: toStageRelativeAssetUrl(schoolGlbUrl),
+  navmeshUrl: toStageRelativeAssetUrl(schoolNavmeshUrl),
+  bitNavmeshUrl: toStageRelativeAssetUrl(schoolBitNavmeshUrl)
+});
+
+const ONE_BIT_INITIAL_RANDOM = Object.freeze([
+  0.5,
+  0.5,
+  0.5,
+  0.5,
+  0.5,
+  0,
+  0,
+  0.5
+] as const);
+
+const EMPTY_TARGETS: readonly V2HumanTargetSnapshot[] = Object.freeze([]);
+const EMPTY_ALERTS: readonly V2ExternalAlert[] = Object.freeze([]);
+const MICRO_DELTA_SECONDS = 0.01;
+const SEARCH_SPEED = 0.25;
+const SEARCH_VERTICAL_SPEED = 0.06;
+const BOB_AMPLITUDE = 0.03;
+
+let nextFixtureStageIndex = 0;
+
+const createQueuedRandom = (
+  initialValues: readonly number[] = Object.freeze([])
+): QueuedRandom => {
+  const queue = [...initialValues];
+  return Object.freeze({
+    random: () => queue.shift() ?? 0.5,
+    enqueue: (...values: readonly number[]) => {
+      queue.push(...values);
+    }
+  });
+};
+
+const createFixtureStage = (
+  scene: Scene,
+  navigation: BitFlightNavigationWorld,
+  band: BitFlightBandRef,
+  center: Vector3,
+  isSightBlocked: () => boolean,
+  size: Readonly<{
+    width: number;
+    height: number;
+    depth: number;
+  }> = Object.freeze({ width: 0.04, height: 0.1, depth: 0.04 })
+): FixtureStage => {
+  const fixtureIndex = nextFixtureStageIndex;
+  nextFixtureStageIndex += 1;
+  const mesh = MeshBuilder.CreateBox(
+    `BitAcceptanceSpawn_${fixtureIndex}`,
+    { width: size.width, height: size.height, depth: size.depth },
+    scene
+  );
+  mesh.position.copyFrom(center);
+  mesh.computeWorldMatrix(true);
+  const volume: StageVolume = Object.freeze({
+    id: `bit-acceptance-spawn-${fixtureIndex}`,
+    role: "bit_spawn",
+    bitFlightBand: band,
+    mesh
+  });
+  const stage = Object.freeze({
+    bitNavigation: navigation,
+    volumes: Object.freeze({
+      all: Object.freeze([volume]),
+      getById: (id: string) => (id === volume.id ? volume : null),
+      getByRole: (role: StageVolume["role"]) =>
+        role === "bit_spawn"
+          ? Object.freeze([volume])
+          : Object.freeze([])
+    }),
+    queries: Object.freeze({
+      castMovementSegment: () => null,
+      castMovementSphere: () => null,
+      castBeamSegment: () => null,
+      castSightSegment: () =>
+        isSightBlocked() ? Object.freeze({ blocked: true }) : null,
+      sampleGround: () => null,
+      containsVolume: () => false,
+      dispose: () => {}
+    })
+  }) as unknown as StageSpatialContext;
+  return Object.freeze({
+    stage,
+    dispose: () => mesh.dispose(false, false)
+  });
+};
+
+const createSystem = (
+  scene: Scene,
+  stage: StageSpatialContext,
+  random: () => number,
+  initialBitCount = 1,
+  minimumSpawnDistance = 0
+) =>
+  createV2BitSystem(scene, stage, {
+    initialBitCount,
+    minimumSpawnDistance,
+    spawnMaxAttempts: initialBitCount === 1 ? 8 : 1024,
+    spawnProjectionMaxDistance: initialBitCount === 1 ? 0.35 : 0.75,
+    random
+  });
+
+const createTarget = (
+  id: string,
+  aimPosition: Vector3
+): V2HumanTargetSnapshot =>
+  Object.freeze({
+    id,
+    kind: "npc" as const,
+    footPosition: aimPosition.add(new Vector3(0, -0.2, 0)),
+    aimPosition,
+    collisionRadius: 0.1,
+    alive: true,
+    brainwashed: false
+  });
+
+const createTargetRing = (
+  prefix: string,
+  center: Vector3,
+  radius: number
+): readonly V2HumanTargetSnapshot[] =>
+  Object.freeze(
+    Array.from({ length: 12 }, (_, index) => {
+      const angle = (index / 12) * Math.PI * 2;
+      return createTarget(
+        `${prefix}-${index}`,
+        center.add(
+          new Vector3(
+            Math.cos(angle) * radius,
+            0,
+            Math.sin(angle) * radius
+          )
+        )
+      );
+    })
+  );
+
+const isFiniteFlightState = (state: V2BitFlightState) =>
+  Number.isFinite(state.position.x) &&
+  Number.isFinite(state.position.y) &&
+  Number.isFinite(state.position.z) &&
+  (state.safeCenterHeight === null ||
+    Number.isFinite(state.safeCenterHeight));
+
+const createInitialPositionMap = (
+  states: readonly V2BitFlightState[]
+): ReadonlyMap<string, Vector3> =>
+  new Map(states.map((state) => [state.bitId, state.position.clone()]));
+
+const recordFlightProgress = (
+  states: readonly V2BitFlightState[],
+  initialPositions: ReadonlyMap<string, Vector3>,
+  progressedIds: Set<string>,
+  firstProgressTickById?: Map<string, number>,
+  tick?: number
+) => {
+  for (const state of states) {
+    const initialPosition = initialPositions.get(state.bitId);
+    if (!initialPosition) {
+      continue;
+    }
+    if (
+      state.routePurpose !== null ||
+      state.activeTransition !== null ||
+      state.agentState !== "idle" ||
+      Vector3.DistanceSquared(initialPosition, state.position) > 1e-10
+    ) {
+      progressedIds.add(state.bitId);
+      if (
+        firstProgressTickById &&
+        tick !== undefined &&
+        !firstProgressTickById.has(state.bitId)
+      ) {
+        firstProgressTickById.set(state.bitId, tick);
+      }
+    }
+  }
+};
+
+const percentile = (samples: readonly number[], ratio: number) => {
+  const sorted = [...samples].sort((left, right) => left - right);
+  return sorted[Math.max(0, Math.ceil(sorted.length * ratio) - 1)];
+};
+
+const describeSamples = (samples: readonly number[]) => {
+  const p50 = percentile(samples, 0.5);
+  const p95 = percentile(samples, 0.95);
+  const maximum = Math.max(...samples);
+  const total = samples.reduce((sum, sample) => sum + sample, 0);
+  return Object.freeze({ p50, p95, maximum, total });
+};
+
+const yieldToBrowser = () =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
+
+const captureThrownMessage = (operation: () => unknown) => {
+  try {
+    operation();
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+};
+
+const countSceneResources = (scene: Scene): SceneResourceCounts =>
+  Object.freeze({
+    meshes: scene.meshes.length,
+    materials: scene.materials.length,
+    transformNodes: scene.transformNodes.length,
+    textures: scene.textures.filter(
+      (texture) => texture !== scene.environmentBRDFTexture
+    ).length,
+    spriteManagers: scene.spriteManagers?.length ?? 0
+  });
+
+const sceneResourceCountsEqual = (
+  left: SceneResourceCounts,
+  right: SceneResourceCounts
+) =>
+  left.meshes === right.meshes &&
+  left.materials === right.materials &&
+  left.transformNodes === right.transformNodes &&
+  left.textures === right.textures &&
+  left.spriteManagers === right.spriteManagers;
+
+const LOADER_FIXTURE_STAGE_ID = "t05-loader-fixture";
+const LOADER_FIXTURE_NAV_PROFILE = "t05-loader-human-v1";
+const LOADER_FIXTURE_BIT_NAV_PROFILE = "t05-loader-bit-v1";
+const LOADER_FIXTURE_WORLD_SCALE = 0.25;
+const LOADER_FIXTURE_GLB_URL =
+  "__t05-loader-fixture__/t05_loader_fixture.glb";
+const LOADER_FIXTURE_NAV_URL =
+  "__t05-loader-fixture__/t05_loader_fixture.navmesh.bin";
+const LOADER_FIXTURE_BIT_NAV_URL =
+  "__t05-loader-fixture__/t05_loader_fixture.bit-flight.navmesh.bin";
+
+const createLoaderFixtureGlb = (
+  fixture: BitSystemAcceptanceFixture
+): Uint8Array => {
+  const positions = new Float32Array([
+    -0.5, -0.5, -0.5,
+    0.5, -0.5, -0.5,
+    0.5, 0.5, -0.5,
+    -0.5, 0.5, -0.5,
+    -0.5, -0.5, 0.5,
+    0.5, -0.5, 0.5,
+    0.5, 0.5, 0.5,
+    -0.5, 0.5, 0.5
+  ]);
+  const indices = new Uint16Array([
+    0, 2, 1, 0, 3, 2,
+    4, 5, 6, 4, 6, 7,
+    0, 1, 5, 0, 5, 4,
+    3, 7, 6, 3, 6, 2,
+    0, 4, 7, 0, 7, 3,
+    1, 2, 6, 1, 6, 5
+  ]);
+  const binaryLength = positions.byteLength + indices.byteLength;
+  const binaryPadding = (4 - (binaryLength % 4)) % 4;
+  const binary = new Uint8Array(binaryLength + binaryPadding);
+  binary.set(new Uint8Array(positions.buffer), 0);
+  binary.set(new Uint8Array(indices.buffer), positions.byteLength);
+
+  const nodes: Array<Record<string, unknown>> = [];
+  const meshes: Array<Record<string, unknown>> = [];
+  const addEmptyNode = (
+    name: string,
+    extras: Readonly<Record<string, unknown>>,
+    translation?: readonly [number, number, number]
+  ) => {
+    const node: Record<string, unknown> = { name, extras };
+    if (translation) {
+      node.translation = translation;
+    }
+    nodes.push(node);
+  };
+  const addMeshNode = (
+    name: string,
+    extras: Readonly<Record<string, unknown>>,
+    translation: readonly [number, number, number],
+    scale: readonly [number, number, number]
+  ) => {
+    const meshIndex = meshes.length;
+    meshes.push({
+      name,
+      primitives: [
+        {
+          attributes: { POSITION: 0 },
+          indices: 1,
+          mode: 4
+        }
+      ]
+    });
+    nodes.push({
+      name,
+      mesh: meshIndex,
+      translation,
+      scale,
+      extras
+    });
+  };
+  const authoredCoordinate = (value: number) =>
+    value / LOADER_FIXTURE_WORLD_SCALE;
+  const authoredSize = (value: number) =>
+    value / LOADER_FIXTURE_WORLD_SCALE;
+
+  addEmptyNode("META_Stage", {
+    hs_schema_version: 2,
+    hs_stage_id: LOADER_FIXTURE_STAGE_ID,
+    hs_nav_profile: LOADER_FIXTURE_NAV_PROFILE,
+    hs_bit_nav_profile: LOADER_FIXTURE_BIT_NAV_PROFILE
+  });
+  addEmptyNode(
+    "MRK_PlayerSpawn",
+    {
+      hs_id: "loader-player-spawn",
+      hs_role: "player_spawn"
+    },
+    [0, authoredCoordinate(1.4), 0]
+  );
+  addMeshNode(
+    "BND_Stage",
+    {
+      hs_id: "stage",
+      hs_role: "playable_boundary"
+    },
+    [0, authoredCoordinate(2.5), 0],
+    [
+      authoredSize(20),
+      authoredSize(12),
+      authoredSize(20)
+    ]
+  );
+  addMeshNode(
+    "NAV_LoaderFixtureHuman",
+    {
+      hs_nav_set: "human",
+      hs_nav_role: "walkable",
+      hs_nav_area: "ground"
+    },
+    [0, authoredCoordinate(1.4), 0],
+    [
+      authoredSize(5.6),
+      authoredSize(0.04),
+      authoredSize(5.6)
+    ]
+  );
+
+  fixture.definition.bands.forEach((band, index) => {
+    const zone = fixture.definition.zones.find(
+      (candidate) => candidate.id === band.zoneId
+    );
+    if (!zone) {
+      throw new Error(
+        `loader fixtureの飛行ゾーンがありません: ${band.zoneId}`
+      );
+    }
+    addMeshNode(
+      `NAV_BitFlight_LoaderFixture_${index}`,
+      {
+        hs_nav_set: "bit-flight",
+        hs_nav_role: "walkable",
+        hs_zone_id: band.zoneId,
+        hs_band_id: band.id,
+        hs_space_kind: zone.spaceKind,
+        hs_center_height_min_m: authoredCoordinate(
+          band.minimumCenterHeight
+        ),
+        hs_center_height_max_m: authoredCoordinate(
+          band.maximumCenterHeight
+        )
+      },
+      [
+        0,
+        authoredCoordinate(
+          (band.minimumCenterHeight + band.maximumCenterHeight) / 2
+        ),
+        0
+      ],
+      [
+        authoredSize(5.6),
+        authoredSize(0.04),
+        authoredSize(5.6)
+      ]
+    );
+  });
+
+  addMeshNode(
+    "VOL_LoaderFixtureNpcSpawn",
+    {
+      hs_id: "loader-npc-spawn",
+      hs_role: "npc_spawn"
+    },
+    [
+      authoredCoordinate(1),
+      authoredCoordinate(1.4),
+      authoredCoordinate(1)
+    ],
+    [authoredSize(1), authoredSize(0.8), authoredSize(1)]
+  );
+  addMeshNode(
+    "VOL_LoaderFixtureBitSpawn",
+    {
+      hs_id: "loader-bit-spawn",
+      hs_role: "bit_spawn",
+      hs_zone_id: fixture.courtyardRef.zoneId,
+      hs_band_id: fixture.courtyardRef.bandId
+    },
+    [0, authoredCoordinate(1.4), 0],
+    [
+      authoredSize(4.8),
+      authoredSize(0.8),
+      authoredSize(4.8)
+    ]
+  );
+  addMeshNode(
+    "VOL_LoaderFixtureAtriumLift",
+    {
+      hs_id: "loader-atrium-lift",
+      hs_role: "bit_flight_transition",
+      hs_transition_kind: "vertical",
+      hs_from_zone_id: fixture.concourseRef.zoneId,
+      hs_from_band_id: fixture.concourseRef.bandId,
+      hs_to_zone_id: fixture.mezzanineRef.zoneId,
+      hs_to_band_id: fixture.mezzanineRef.bandId,
+      hs_bidirectional: true,
+      hs_affordances_json: JSON.stringify(["search-vantage"]),
+      hs_projection_distance_m: authoredCoordinate(0.35)
+    },
+    [0, authoredCoordinate(2.5), 0],
+    [
+      authoredSize(1.6),
+      authoredSize(5.4),
+      authoredSize(1.6)
+    ]
+  );
+
+  const gltf = {
+    asset: {
+      version: "2.0",
+      generator: "T05 loader acceptance fixture"
+    },
+    scene: 0,
+    scenes: [{ nodes: nodes.map((_, index) => index) }],
+    nodes,
+    meshes,
+    buffers: [{ byteLength: binary.length }],
+    bufferViews: [
+      {
+        buffer: 0,
+        byteOffset: 0,
+        byteLength: positions.byteLength,
+        target: 34962
+      },
+      {
+        buffer: 0,
+        byteOffset: positions.byteLength,
+        byteLength: indices.byteLength,
+        target: 34963
+      }
+    ],
+    accessors: [
+      {
+        bufferView: 0,
+        byteOffset: 0,
+        componentType: 5126,
+        count: 8,
+        type: "VEC3",
+        min: [-0.5, -0.5, -0.5],
+        max: [0.5, 0.5, 0.5]
+      },
+      {
+        bufferView: 1,
+        byteOffset: 0,
+        componentType: 5123,
+        count: 36,
+        type: "SCALAR",
+        min: [0],
+        max: [7]
+      }
+    ]
+  };
+  const json = new TextEncoder().encode(JSON.stringify(gltf));
+  const jsonPadding = (4 - (json.length % 4)) % 4;
+  const jsonChunkLength = json.length + jsonPadding;
+  const totalLength = 12 + 8 + jsonChunkLength + 8 + binary.length;
+  const result = new Uint8Array(totalLength);
+  const header = new DataView(result.buffer);
+  header.setUint32(0, 0x46546c67, true);
+  header.setUint32(4, 2, true);
+  header.setUint32(8, totalLength, true);
+  header.setUint32(12, jsonChunkLength, true);
+  header.setUint32(16, 0x4e4f534a, true);
+  result.set(json, 20);
+  result.fill(0x20, 20 + json.length, 20 + jsonChunkLength);
+  const binaryHeaderOffset = 20 + jsonChunkLength;
+  header.setUint32(binaryHeaderOffset, binary.length, true);
+  header.setUint32(binaryHeaderOffset + 4, 0x004e4942, true);
+  result.set(binary, binaryHeaderOffset + 8);
+  return result;
+};
+
+const calculateAcceptanceSha256 = async (data: Uint8Array) => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    Uint8Array.from(data).buffer
+  );
+  return Array.from(new Uint8Array(digest), (value) =>
+    value.toString(16).padStart(2, "0")
+  ).join("");
+};
+
+const createLoaderFixtureAssets = async (
+  fixture: BitSystemAcceptanceFixture
+): Promise<LoaderFixtureAssets> => {
+  const glb = createLoaderFixtureGlb(fixture);
+  const humanNavmesh = Uint8Array.from(fixture.payloads[0].data);
+  const bitNavmesh = encodeBitFlightNavBundle(
+    fixture.payloads.map((payload) => ({
+      zoneId: payload.zoneId,
+      bandId: payload.bandId,
+      data: payload.data
+    }))
+  );
+  const [glbSha256, navmeshSha256, bitNavmeshSha256] = await Promise.all([
+    calculateAcceptanceSha256(glb),
+    calculateAcceptanceSha256(humanNavmesh),
+    calculateAcceptanceSha256(bitNavmesh)
+  ]);
+  return Object.freeze({
+    catalog: Object.freeze({
+      id: LOADER_FIXTURE_STAGE_ID,
+      label: "T05 loader fixture",
+      glbUrl: LOADER_FIXTURE_GLB_URL,
+      navmeshUrl: LOADER_FIXTURE_NAV_URL,
+      bitNavmeshUrl: LOADER_FIXTURE_BIT_NAV_URL,
+      assetSchemaVersion: 2,
+      navProfileId: LOADER_FIXTURE_NAV_PROFILE,
+      bitNavProfileId: LOADER_FIXTURE_BIT_NAV_PROFILE,
+      glbSha256,
+      navmeshSha256,
+      bitNavmeshSha256
+    }),
+    glb,
+    humanNavmesh,
+    bitNavmesh
+  });
+};
+
+const installLoaderFixtureFetch = (assets: LoaderFixtureAssets) => {
+  const previousFetch = globalThis.fetch;
+  const payloadBySuffix = new Map<string, Uint8Array>([
+    [LOADER_FIXTURE_GLB_URL, assets.glb],
+    [LOADER_FIXTURE_NAV_URL, assets.humanNavmesh],
+    [LOADER_FIXTURE_BIT_NAV_URL, assets.bitNavmesh]
+  ]);
+  globalThis.fetch = (async (
+    input: RequestInfo | URL,
+    init?: RequestInit
+  ) => {
+    const requestedUrl =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    const fixturePayload = [...payloadBySuffix].find(([suffix]) =>
+      requestedUrl.endsWith(suffix)
+    )?.[1];
+    if (fixturePayload) {
+      return new Response(Uint8Array.from(fixturePayload).buffer, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/octet-stream"
+        }
+      });
+    }
+    return previousFetch(input, init);
+  }) as typeof fetch;
+  return () => {
+    globalThis.fetch = previousFetch;
+  };
+};
+
+const getRequiredFlightState = (system: V2BitSystem) => {
+  const state = system.getFlightStates()[0];
+  if (!state) {
+    throw new Error("検証対象のビット飛行状態がありません。");
+  }
+  return state;
+};
+
+const runActorSphereRadiusCheck = (
+  fixture: BitSystemAcceptanceFixture
+): BitSystemAcceptanceCheck => {
+  const stage = createFixtureStage(
+    fixture.scene,
+    fixture.navigation,
+    fixture.courtyardRef,
+    fixture.pointInBand(fixture.courtyardRef, 0, 0),
+    () => false
+  );
+  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const system = createSystem(fixture.scene, stage.stage, random.random);
+  try {
+    const actors = system.getActorSpheres();
+    const actor = actors[0];
+    return Object.freeze({
+      name: "ビット被弾球は物理半径0.44mのworld換算を使用",
+      ok:
+        actors.length === 1 &&
+        actor !== undefined &&
+        Math.abs(
+          actor.radius - BIT_FLIGHT_BODY_RADIUS_WORLD_UNITS
+        ) <= 1e-8,
+      detail:
+        `actor=${actor?.radius.toFixed(6) ?? "none"} / ` +
+        `expected=${BIT_FLIGHT_BODY_RADIUS_WORLD_UNITS.toFixed(6)} world units`
+    });
+  } finally {
+    system.dispose();
+    stage.dispose();
+  }
+};
+
+const runVisualTargetLossChecks = (
+  fixture: BitSystemAcceptanceFixture
+): readonly BitSystemAcceptanceCheck[] => {
+  const checks: BitSystemAcceptanceCheck[] = [];
+
+  let timeoutSightBlocked = false;
+  const timeoutStage = createFixtureStage(
+    fixture.scene,
+    fixture.navigation,
+    fixture.courtyardRef,
+    fixture.pointInBand(fixture.courtyardRef, 0, 0),
+    () => timeoutSightBlocked
+  );
+  const timeoutRandom = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const timeoutSystem = createSystem(
+    fixture.scene,
+    timeoutStage.stage,
+    timeoutRandom.random
+  );
+  try {
+    const origin = getRequiredFlightState(timeoutSystem).position;
+    const targets = createTargetRing("visual-timeout", origin, 0.2);
+    timeoutRandom.enqueue(0.5);
+    timeoutSystem.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const acquired = timeoutSystem.getTargetStates()[0];
+    timeoutSightBlocked = true;
+    timeoutSystem.update({
+      deltaSeconds: 17.9,
+      elapsedSeconds: 17.9,
+      targets,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const beforeTimeout = timeoutSystem.getTargetStates()[0];
+    timeoutSystem.update({
+      deltaSeconds: 0.1,
+      elapsedSeconds: 18,
+      targets,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const afterTimeout = timeoutSystem.getTargetStates()[0];
+    const escapeState = getRequiredFlightState(timeoutSystem);
+    checks.push({
+      name: "visual標的は遮蔽17.9秒で保持し18.0秒で逃走へ移行",
+      ok:
+        acquired?.provenance === "visual" &&
+        acquired.targetId !== null &&
+        beforeTimeout?.targetId === acquired.targetId &&
+        afterTimeout?.targetId === null &&
+        escapeState.routePurpose === "escape",
+      detail:
+        `acquired=${acquired?.targetId ?? "none"} / ` +
+        `17.9s=${beforeTimeout?.targetId ?? "none"} / ` +
+        `18.0s=${afterTimeout?.targetId ?? "none"} / ` +
+        `route=${escapeState.routePurpose ?? "none"} / ` +
+        `location=${escapeState.zoneId ?? "none"}/${escapeState.bandId ?? "none"} / ` +
+        `agent=${escapeState.agentState}`
+    });
+  } finally {
+    timeoutSystem.dispose();
+    timeoutStage.dispose();
+  }
+
+  let distanceSightBlocked = false;
+  const distanceStage = createFixtureStage(
+    fixture.scene,
+    fixture.navigation,
+    fixture.courtyardRef,
+    fixture.pointInBand(fixture.courtyardRef, 0, 0),
+    () => distanceSightBlocked
+  );
+  const distanceRandom = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const distanceSystem = createSystem(
+    fixture.scene,
+    distanceStage.stage,
+    distanceRandom.random
+  );
+  try {
+    const origin = getRequiredFlightState(distanceSystem).position;
+    const targets = createTargetRing("visual-distance", origin, 2.65);
+    distanceRandom.enqueue(0.5);
+    distanceSystem.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const acquired = distanceSystem.getTargetStates()[0];
+    distanceSightBlocked = true;
+    distanceSystem.update({
+      deltaSeconds: 0.01,
+      elapsedSeconds: 0.01,
+      targets,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const released = distanceSystem.getTargetStates()[0];
+    const escapeState = getRequiredFlightState(distanceSystem);
+    checks.push({
+      name: "visual標的はlast-seen距離2.6超過で直ちに逃走へ移行",
+      ok:
+        acquired?.provenance === "visual" &&
+        acquired.targetId !== null &&
+        released?.targetId === null &&
+        escapeState.routePurpose === "escape",
+      detail:
+        `distance=2.65 / acquired=${acquired?.targetId ?? "none"} / ` +
+        `released=${released?.targetId ?? "none"} / ` +
+        `route=${escapeState.routePurpose ?? "none"} / ` +
+        `location=${escapeState.zoneId ?? "none"}/${escapeState.bandId ?? "none"} / ` +
+        `agent=${escapeState.agentState}`
+    });
+  } finally {
+    distanceSystem.dispose();
+    distanceStage.dispose();
+  }
+
+  const reacquisitionStage = createFixtureStage(
+    fixture.scene,
+    fixture.navigation,
+    fixture.courtyardRef,
+    fixture.pointInBand(fixture.courtyardRef, 0, 0),
+    () => false,
+    Object.freeze({ width: 1, height: 0.1, depth: 1 })
+  );
+  let reacquisitionRandomState = 0x1f83d9ab;
+  let forceReacquisitionChase = false;
+  const reacquisitionRandom = () => {
+    if (forceReacquisitionChase) {
+      return 0.5;
+    }
+    reacquisitionRandomState =
+      (Math.imul(reacquisitionRandomState, 1664525) + 1013904223) >>> 0;
+    return reacquisitionRandomState / 0x1_0000_0000;
+  };
+  const reacquisitionSystem = createSystem(
+    fixture.scene,
+    reacquisitionStage.stage,
+    reacquisitionRandom,
+    5
+  );
+  try {
+    const targets = Object.freeze(
+      reacquisitionSystem
+        .getFlightStates()
+        .flatMap((state) =>
+          createTargetRing(
+            `pending-escape-reacquisition-${state.bitId}`,
+            state.position,
+            0.2
+          )
+        )
+    );
+    const targetIds = new Set(targets.map((target) => target.id));
+    const reacquisitionAlert = Object.freeze({
+      leaderId: "pending-escape-reacquisition-leader",
+      targetId: targets[0].id,
+      remainingSeconds: 100
+    });
+    forceReacquisitionChase = true;
+    reacquisitionSystem.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets,
+      externalAlerts: EMPTY_ALERTS
+    });
+    reacquisitionSystem.update({
+      deltaSeconds: 18,
+      elapsedSeconds: 18,
+      targets: EMPTY_TARGETS,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const releasedStates = reacquisitionSystem.getTargetStates();
+    const releasedFlights = reacquisitionSystem.getFlightStates();
+    const queuedEscapeCount = releasedFlights.filter(
+      (state) => state.routePurpose !== "escape"
+    ).length;
+
+    reacquisitionSystem.update({
+      deltaSeconds: 0.1,
+      elapsedSeconds: 18.1,
+      targets,
+      externalAlerts: Object.freeze([reacquisitionAlert])
+    });
+    const reacquiredPositions = createInitialPositionMap(
+      reacquisitionSystem.getFlightStates()
+    );
+    const reacquiredProgressIds = new Set<string>();
+    for (let frameIndex = 0; frameIndex < 4; frameIndex += 1) {
+      reacquisitionSystem.update({
+        deltaSeconds: 0.1,
+        elapsedSeconds: 18.2 + frameIndex * 0.1,
+        targets,
+        externalAlerts: EMPTY_ALERTS
+      });
+      recordFlightProgress(
+        reacquisitionSystem.getFlightStates(),
+        reacquiredPositions,
+        reacquiredProgressIds
+      );
+    }
+    const reacquiredTargets = reacquisitionSystem.getTargetStates();
+    const reacquiredFlights = reacquisitionSystem.getFlightStates();
+    checks.push({
+      name: "逃走予算待ち中のvisual再標的化で古い逃走要求を破棄し初回追跡を再優先",
+      ok:
+        releasedStates.every((state) => state.targetId === null) &&
+        queuedEscapeCount >= 1 &&
+        reacquiredTargets.length === 5 &&
+        reacquiredTargets.every(
+          (state) =>
+            state.targetId !== null &&
+            targetIds.has(state.targetId) &&
+            (state.provenance === "visual" ||
+              state.provenance === "alert") &&
+            state.mode === "chase"
+        ) &&
+        reacquiredFlights.every((state) => state.routePurpose !== "escape") &&
+        reacquiredProgressIds.size === reacquiredPositions.size,
+      detail:
+        `released=${releasedStates.filter((state) => state.targetId === null).length}/5 / ` +
+        `queued=${queuedEscapeCount} / ` +
+        `reacquired=${reacquiredTargets.filter((state) => state.targetId !== null && targetIds.has(state.targetId)).length}/5 / ` +
+        `progressed=${reacquiredProgressIds.size}/${reacquiredPositions.size}`
+    });
+  } finally {
+    reacquisitionSystem.dispose();
+    reacquisitionStage.dispose();
+  }
+
+  return Object.freeze(checks);
+};
+
+const runCarpetFormationChecks = (
+  fixture: BitSystemAcceptanceFixture
+): readonly BitSystemAcceptanceCheck[] => {
+  const stage = createFixtureStage(
+    fixture.scene,
+    fixture.navigation,
+    fixture.courtyardRef,
+    fixture.pointInBand(fixture.courtyardRef, 0, 0),
+    () => true
+  );
+  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const system = createSystem(fixture.scene, stage.stage, random.random);
+  const checks: BitSystemAcceptanceCheck[] = [];
+  try {
+    const origin = getRequiredFlightState(system).position;
+    const sameBandTarget = createTarget(
+      "carpet-target",
+      origin.add(new Vector3(1, 0, 0))
+    );
+    const alert = Object.freeze({
+      leaderId: "carpet-external-leader",
+      targetId: sameBandTarget.id,
+      remainingSeconds: 100
+    });
+    random.enqueue(0.05);
+    system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets: Object.freeze([sameBandTarget]),
+      externalAlerts: Object.freeze([alert])
+    });
+
+    let stayedInBand = true;
+    let bobStayedZero = true;
+    let retainedFormation = true;
+    for (let frameIndex = 1; frameIndex <= 10; frameIndex += 1) {
+      system.update({
+        deltaSeconds: 0.1,
+        elapsedSeconds: frameIndex * 0.1,
+        targets: Object.freeze([sameBandTarget]),
+        externalAlerts: EMPTY_ALERTS
+      });
+      const flightStates = system.getFlightStates();
+      const targetStates = system.getTargetStates();
+      retainedFormation =
+        retainedFormation &&
+        flightStates.length === 3 &&
+        targetStates.filter((state) => state.mode === "carpet-leader")
+          .length === 1 &&
+        targetStates.filter((state) => state.mode === "carpet-follower")
+          .length === 2;
+      stayedInBand =
+        stayedInBand &&
+        flightStates.every(
+          (state) =>
+            state.zoneId === fixture.courtyardRef.zoneId &&
+            state.bandId === fixture.courtyardRef.bandId &&
+            state.safeCenterHeight !== null &&
+            state.safeCenterHeight >= 1 &&
+            state.safeCenterHeight <= 1.8
+        );
+      bobStayedZero =
+        bobStayedZero &&
+        flightStates.every(
+          (state) =>
+            state.safeCenterHeight !== null &&
+            Math.abs(state.position.y - state.safeCenterHeight) <= 1e-6
+        );
+    }
+
+    const crossBandTarget = createTarget(
+      sameBandTarget.id,
+      fixture.pointInBand(fixture.mezzanineRef, 0, 0)
+    );
+    system.update({
+      deltaSeconds: 0.1,
+      elapsedSeconds: 1.1,
+      targets: Object.freeze([crossBandTarget]),
+      externalAlerts: EMPTY_ALERTS
+    });
+    const releasedStates = system.getFlightStates();
+    const releasedTargetStates = system.getTargetStates();
+    let releasedBeforeTransition =
+      releasedStates.length === 1 &&
+      releasedTargetStates.length === 1 &&
+      releasedTargetStates[0].mode === "chase" &&
+      releasedStates[0].routePurpose === null &&
+      releasedStates[0].activeTransition === null;
+    let observedTransition = releasedStates[0]?.activeTransition !== null;
+    let actorCountStayedReleased = releasedStates.length === 1;
+    for (
+      let frameIndex = 0;
+      frameIndex < 300 && !observedTransition;
+      frameIndex += 1
+    ) {
+      const elapsedSeconds = 1.2 + frameIndex * 0.1;
+      system.update({
+        deltaSeconds: 0.1,
+        elapsedSeconds,
+        targets: Object.freeze([crossBandTarget]),
+        externalAlerts: EMPTY_ALERTS
+      });
+      const flightStates = system.getFlightStates();
+      actorCountStayedReleased =
+        actorCountStayedReleased && flightStates.length === 1;
+      observedTransition = flightStates[0]?.activeTransition !== null;
+      if (observedTransition) {
+        releasedBeforeTransition =
+          releasedBeforeTransition &&
+          system.getTargetStates()[0]?.mode === "chase";
+      }
+    }
+
+    checks.push({
+      name: "絨毯編隊は帯内高度・揺れ0を保ち帯変更前に解除",
+      ok:
+        retainedFormation &&
+        stayedInBand &&
+        bobStayedZero &&
+        releasedBeforeTransition &&
+        actorCountStayedReleased &&
+        observedTransition,
+      detail:
+        `formation=${retainedFormation} / inBand=${stayedInBand} / ` +
+        `bobZero=${bobStayedZero} / released=${releasedBeforeTransition} / ` +
+        `singleActor=${actorCountStayedReleased} / ` +
+        `transition=${observedTransition}`
+    });
+  } finally {
+    system.dispose();
+    stage.dispose();
+  }
+  return Object.freeze(checks);
+};
+
+type SearchMovementKind = "normal" | "vertical" | "diagonal";
+
+type SearchMovementResult = Readonly<{
+  kind: SearchMovementKind;
+  before: V2BitFlightState;
+  after: V2BitFlightState;
+  horizontalDelta: number;
+  verticalDelta: number;
+  movementDistance: number;
+}>;
+
+const runSearchMovementCase = (
+  fixture: BitSystemAcceptanceFixture,
+  kind: SearchMovementKind,
+  scriptedRandom: readonly number[]
+): SearchMovementResult => {
+  const stage = createFixtureStage(
+    fixture.scene,
+    fixture.navigation,
+    fixture.courtyardRef,
+    fixture.pointInBand(fixture.courtyardRef, 0, 0),
+    () => true
+  );
+  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const system = createSystem(fixture.scene, stage.stage, random.random);
+  try {
+    random.enqueue(...scriptedRandom);
+    system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets: EMPTY_TARGETS,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const before = getRequiredFlightState(system);
+    system.update({
+      deltaSeconds: MICRO_DELTA_SECONDS,
+      elapsedSeconds: MICRO_DELTA_SECONDS,
+      targets: EMPTY_TARGETS,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const after = getRequiredFlightState(system);
+    if (before.safeCenterHeight === null || after.safeCenterHeight === null) {
+      throw new Error(`${kind}探索の安全中心高度がありません。`);
+    }
+    const horizontalDelta = Math.hypot(
+      after.position.x - before.position.x,
+      after.position.z - before.position.z
+    );
+    const verticalDelta =
+      after.safeCenterHeight - before.safeCenterHeight;
+    return Object.freeze({
+      kind,
+      before,
+      after,
+      horizontalDelta,
+      verticalDelta,
+      movementDistance: Math.hypot(horizontalDelta, verticalDelta)
+    });
+  } finally {
+    system.dispose();
+    stage.dispose();
+  }
+};
+
+const runBobCheck = (
+  fixture: BitSystemAcceptanceFixture
+): BitSystemAcceptanceCheck => {
+  const stage = createFixtureStage(
+    fixture.scene,
+    fixture.navigation,
+    fixture.courtyardRef,
+    fixture.pointInBand(fixture.courtyardRef, 0, 0),
+    () => true
+  );
+  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const system = createSystem(fixture.scene, stage.stage, random.random);
+  try {
+    random.enqueue(0.2, 0.5, 0.999, 0.5);
+    system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets: EMPTY_TARGETS,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const peakSeconds = Math.PI / (2 * 0.9);
+    system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: peakSeconds,
+      targets: EMPTY_TARGETS,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const state = getRequiredFlightState(system);
+    const bob =
+      state.safeCenterHeight === null
+        ? Number.POSITIVE_INFINITY
+        : state.position.y - state.safeCenterHeight;
+    return Object.freeze({
+      name: "通常飛行の上下揺れは最大0.03",
+      ok:
+        state.routePurpose === "search" &&
+        state.activeTransition === null &&
+        bob > 0.029 &&
+        bob <= BOB_AMPLITUDE + 1e-6,
+      detail:
+        `bob=${Number.isFinite(bob) ? bob.toFixed(6) : "none"} / ` +
+        `limit=${BOB_AMPLITUDE.toFixed(6)}`
+    });
+  } finally {
+    system.dispose();
+    stage.dispose();
+  }
+};
+
+const runTransitionBobCheck = (
+  fixture: BitSystemAcceptanceFixture
+): BitSystemAcceptanceCheck => {
+  const stage = createFixtureStage(
+    fixture.scene,
+    fixture.navigation,
+    fixture.concourseRef,
+    fixture.pointInBand(fixture.concourseRef, 0, 0),
+    () => true
+  );
+  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const system = createSystem(fixture.scene, stage.stage, random.random);
+  try {
+    const target = createTarget(
+      "transition-bob-target",
+      fixture.pointInBand(fixture.mezzanineRef, 0, 0)
+    );
+    random.enqueue(0.5);
+    system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets: Object.freeze([target]),
+      externalAlerts: Object.freeze([
+        Object.freeze({
+          leaderId: "transition-bob-leader",
+          targetId: target.id,
+          remainingSeconds: 10
+        })
+      ])
+    });
+    const before = getRequiredFlightState(system);
+    system.update({
+      deltaSeconds: 1,
+      elapsedSeconds: 1,
+      targets: Object.freeze([target]),
+      externalAlerts: EMPTY_ALERTS
+    });
+    const after = getRequiredFlightState(system);
+    const movement = Vector3.Distance(before.position, after.position);
+    const expectedMovement =
+      BIT_FLIGHT_TRANSITION_SPEED_WORLD_UNITS_PER_SECOND;
+    return Object.freeze({
+      name: "遷移中は上下揺れを停止し物理1m/sで移動",
+      ok:
+        after.agentState === "transition" &&
+        after.activeTransition?.id === "atrium-lift-volume" &&
+        Math.abs(after.position.x - before.position.x) <= 1e-6 &&
+        Math.abs(after.position.z - before.position.z) <= 1e-6 &&
+        Math.abs(movement - expectedMovement) <= 1e-6,
+      detail:
+        `state=${after.agentState} / transition=${after.activeTransition?.id ?? "none"} / ` +
+        `movement=${movement.toFixed(6)} / expected=${expectedMovement.toFixed(6)}`
+    });
+  } finally {
+    system.dispose();
+    stage.dispose();
+  }
+};
+
+type TransitionClearCase = Readonly<{
+  label: string;
+  advanceSeconds: number;
+  expectedBand: BitFlightBandRef;
+  direction: "entrance" | "exit";
+}>;
+
+const runTransitionClearCase = (
+  fixture: BitSystemAcceptanceFixture,
+  testCase: TransitionClearCase
+): BitSystemAcceptanceCheck => {
+  const stage = createFixtureStage(
+    fixture.scene,
+    fixture.navigation,
+    fixture.concourseRef,
+    fixture.pointInBand(fixture.concourseRef, 0, 0),
+    () => true
+  );
+  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const system = createSystem(fixture.scene, stage.stage, random.random);
+  try {
+    const target = createTarget(
+      `transition-clear-${testCase.direction}-target`,
+      fixture.pointInBand(fixture.mezzanineRef, 0, 0)
+    );
+    random.enqueue(0.5);
+    system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets: Object.freeze([target]),
+      externalAlerts: Object.freeze([
+        Object.freeze({
+          leaderId: `transition-clear-${testCase.direction}-leader`,
+          targetId: target.id,
+          remainingSeconds: 100
+        })
+      ])
+    });
+    system.update({
+      deltaSeconds: testCase.advanceSeconds,
+      elapsedSeconds: testCase.advanceSeconds,
+      targets: Object.freeze([target]),
+      externalAlerts: EMPTY_ALERTS
+    });
+    const active = getRequiredFlightState(system);
+    system.update({
+      deltaSeconds: 0.1,
+      elapsedSeconds: testCase.advanceSeconds + 0.1,
+      targets: EMPTY_TARGETS,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const clearing = getRequiredFlightState(system);
+    const movedTowardExpectedEndpoint =
+      testCase.direction === "entrance"
+        ? clearing.position.y < active.position.y
+        : clearing.position.y > active.position.y;
+
+    let final = clearing;
+    let finalElapsedSeconds = testCase.advanceSeconds + 0.1;
+    for (
+      let frameIndex = 0;
+      frameIndex < 200 && final.zoneId === null;
+      frameIndex += 1
+    ) {
+      finalElapsedSeconds =
+        testCase.advanceSeconds + 0.2 + frameIndex * 0.1;
+      system.update({
+        deltaSeconds: 0.1,
+        elapsedSeconds: finalElapsedSeconds,
+        targets: EMPTY_TARGETS,
+        externalAlerts: EMPTY_ALERTS
+      });
+      final = getRequiredFlightState(system);
+    }
+    system.update({
+      deltaSeconds: 0.1,
+      elapsedSeconds: finalElapsedSeconds + 0.1,
+      targets: EMPTY_TARGETS,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const resumed = getRequiredFlightState(system);
+    return Object.freeze({
+      name: `遷移${testCase.label}の標的喪失は近い${testCase.direction === "entrance" ? "入口" : "出口"}へ離脱`,
+      ok:
+        active.agentState === "transition" &&
+        active.activeTransition?.id === "atrium-lift-volume" &&
+        clearing.agentState === "clearing-transition" &&
+        clearing.activeTransition?.id === "atrium-lift-volume" &&
+        movedTowardExpectedEndpoint &&
+        final.zoneId === testCase.expectedBand.zoneId &&
+        final.bandId === testCase.expectedBand.bandId &&
+        resumed.routePurpose === "search" &&
+        resumed.agentState !== "idle",
+      detail:
+        `activeY=${active.position.y.toFixed(4)} / ` +
+        `clearingY=${clearing.position.y.toFixed(4)} / ` +
+        `direction=${testCase.direction} / ` +
+        `final=${final.zoneId ?? "none"}/${final.bandId ?? "none"} / ` +
+        `resumed=${resumed.routePurpose ?? "none"}/${resumed.agentState}`
+    });
+  } finally {
+    system.dispose();
+    stage.dispose();
+  }
+};
+
+const runTransitionClearChecks = (
+  fixture: BitSystemAcceptanceFixture
+): readonly BitSystemAcceptanceCheck[] =>
+  Object.freeze([
+    runTransitionClearCase(
+      fixture,
+      Object.freeze({
+        label: "前半",
+        advanceSeconds: 1,
+        expectedBand: fixture.concourseRef,
+        direction: "entrance"
+      })
+    ),
+    runTransitionClearCase(
+      fixture,
+      Object.freeze({
+        label: "後半",
+        advanceSeconds: 6,
+        expectedBand: fixture.mezzanineRef,
+        direction: "exit"
+      })
+    )
+  ]);
+
+const runTransitionReturnSuppressionCheck = async (
+  fixture: BitSystemAcceptanceFixture
+): Promise<BitSystemAcceptanceCheck> => {
+  const isolatedDefinition: BitFlightNavigationDefinition = Object.freeze({
+    zones: Object.freeze(
+      fixture.definition.zones.filter(
+        (zone) => zone.id === fixture.concourseRef.zoneId
+      )
+    ),
+    bands: Object.freeze(
+      fixture.definition.bands.filter(
+        (band) =>
+          band.zoneId === fixture.concourseRef.zoneId &&
+          (band.id === fixture.concourseRef.bandId ||
+            band.id === fixture.mezzanineRef.bandId)
+      )
+    ),
+    transitions: Object.freeze(
+      fixture.definition.transitions.filter(
+        (transition) => transition.id === "atrium-lift-volume"
+      )
+    )
+  });
+  const isolatedPayloads = Object.freeze(
+    fixture.payloads.filter(
+      (payload) =>
+        payload.zoneId === fixture.concourseRef.zoneId &&
+        (payload.bandId === fixture.concourseRef.bandId ||
+          payload.bandId === fixture.mezzanineRef.bandId)
+    )
+  );
+  const isolatedNavigation = await createBitFlightNavigationWorld(
+    isolatedDefinition,
+    isolatedPayloads
+  );
+  const stage = createFixtureStage(
+    fixture.scene,
+    isolatedNavigation,
+    fixture.concourseRef,
+    fixture.pointInBand(fixture.concourseRef, 0, 0),
+    () => true
+  );
+  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const system = createSystem(fixture.scene, stage.stage, random.random);
+  try {
+    random.enqueue(0.2, 0.5, 0.2);
+    system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets: EMPTY_TARGETS,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const planned = getRequiredFlightState(system);
+    let completed = planned;
+    let completionElapsedSeconds = 0;
+    let observedAscentTransitionId: string | null = null;
+    for (let frameIndex = 1; frameIndex <= 100; frameIndex += 1) {
+      completionElapsedSeconds = frameIndex * 0.1;
+      system.update({
+        deltaSeconds: 0.1,
+        elapsedSeconds: completionElapsedSeconds,
+        targets: EMPTY_TARGETS,
+        externalAlerts: EMPTY_ALERTS
+      });
+      completed = getRequiredFlightState(system);
+      observedAscentTransitionId =
+        completed.activeTransition?.id ?? observedAscentTransitionId;
+      if (
+        completed.zoneId === fixture.mezzanineRef.zoneId &&
+        completed.bandId === fixture.mezzanineRef.bandId &&
+        completed.activeTransition === null
+      ) {
+        break;
+      }
+    }
+
+    random.enqueue(0.2, 0.5, 0.5);
+    system.update({
+      deltaSeconds: 0.5,
+      elapsedSeconds: completionElapsedSeconds + 0.5,
+      targets: EMPTY_TARGETS,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const fallbackPlanned = getRequiredFlightState(system);
+    system.update({
+      deltaSeconds: 0.1,
+      elapsedSeconds: completionElapsedSeconds + 0.6,
+      targets: EMPTY_TARGETS,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const fallbackMoved = getRequiredFlightState(system);
+
+    return Object.freeze({
+      name: "vertical上昇直後3秒はreverseを除外し同帯surface探索へfallback",
+      ok:
+        planned.routePurpose === "search" &&
+        observedAscentTransitionId === "atrium-lift-volume" &&
+        completed.zoneId === fixture.mezzanineRef.zoneId &&
+        completed.bandId === fixture.mezzanineRef.bandId &&
+        completed.activeTransition === null &&
+        fallbackPlanned.routePurpose === "search" &&
+        fallbackPlanned.zoneId === fixture.mezzanineRef.zoneId &&
+        fallbackPlanned.bandId === fixture.mezzanineRef.bandId &&
+        fallbackPlanned.activeTransition === null &&
+        fallbackMoved.zoneId === fixture.mezzanineRef.zoneId &&
+        fallbackMoved.bandId === fixture.mezzanineRef.bandId &&
+        fallbackMoved.activeTransition === null &&
+        fallbackMoved.agentState === "surface" &&
+        Vector3.Distance(fallbackPlanned.position, fallbackMoved.position) > 0,
+      detail:
+        `planned=${planned.routePurpose ?? "none"} / ` +
+        `ascent=${observedAscentTransitionId ?? "none"} / ` +
+        `completed=${completed.zoneId ?? "none"}/${completed.bandId ?? "none"} / ` +
+        `fallback=${fallbackMoved.zoneId ?? "none"}/${fallbackMoved.bandId ?? "none"} / ` +
+        `plan=${fallbackPlanned.routePurpose ?? "none"}/${fallbackPlanned.agentState} / ` +
+        `moved=${Vector3.Distance(fallbackPlanned.position, fallbackMoved.position).toFixed(6)} / ` +
+        `transition=${fallbackMoved.activeTransition?.id ?? "none"}`
+    });
+  } finally {
+    system.dispose();
+    stage.dispose();
+    isolatedNavigation.dispose();
+  }
+};
+
+const runScriptedSearchChecks = async (
+  fixture: BitSystemAcceptanceFixture
+): Promise<readonly BitSystemAcceptanceCheck[]> => {
+  const normal = runSearchMovementCase(
+    fixture,
+    "normal",
+    Object.freeze([0.2, 0.5, 0.999, 0.5])
+  );
+  const vertical = runSearchMovementCase(
+    fixture,
+    "vertical",
+    Object.freeze([0.7, 0.9, 0.999, 0.999, 0.5])
+  );
+  const diagonal = runSearchMovementCase(
+    fixture,
+    "diagonal",
+    Object.freeze([0.9, 0.9, 0.5, 0.999, 0.5])
+  );
+
+  const inBand = (result: SearchMovementResult) =>
+    result.after.zoneId === fixture.courtyardRef.zoneId &&
+    result.after.bandId === fixture.courtyardRef.bandId &&
+    result.after.safeCenterHeight !== null &&
+    result.after.safeCenterHeight >= 1 &&
+    result.after.safeCenterHeight <= 1.8 &&
+    isFiniteFlightState(result.after);
+
+  const returnSuppression =
+    await runTransitionReturnSuppressionCheck(fixture);
+  return Object.freeze([
+    Object.freeze({
+      name: "scripted RNG通常探索の実移動とmicro-dt速度上限",
+      ok:
+        normal.before.routePurpose === "search" &&
+        normal.horizontalDelta > 1e-8 &&
+        Math.abs(normal.verticalDelta) <= 1e-6 &&
+        normal.movementDistance <=
+          SEARCH_SPEED * MICRO_DELTA_SECONDS + 1e-6 &&
+        inBand(normal),
+      detail:
+        `horizontal=${normal.horizontalDelta.toFixed(6)} / ` +
+        `vertical=${normal.verticalDelta.toFixed(6)} / ` +
+        `distance=${normal.movementDistance.toFixed(6)}`
+    }),
+    Object.freeze({
+      name: "scripted RNG純vertical探索を0.06に制限",
+      ok:
+        vertical.before.routePurpose === "search" &&
+        vertical.horizontalDelta <= 1e-6 &&
+        vertical.verticalDelta > 0 &&
+        vertical.movementDistance <=
+          SEARCH_VERTICAL_SPEED * MICRO_DELTA_SECONDS + 1e-6 &&
+        inBand(vertical),
+      detail:
+        `horizontal=${vertical.horizontalDelta.toFixed(6)} / ` +
+        `vertical=${vertical.verticalDelta.toFixed(6)} / ` +
+        `distance=${vertical.movementDistance.toFixed(6)}`
+    }),
+    Object.freeze({
+      name: "scripted RNG斜め探索の実移動とmicro-dt速度上限",
+      ok:
+        diagonal.before.routePurpose === "search" &&
+        diagonal.horizontalDelta > 1e-8 &&
+        diagonal.verticalDelta > 0 &&
+        diagonal.movementDistance <=
+          SEARCH_SPEED * MICRO_DELTA_SECONDS + 1e-6 &&
+        inBand(diagonal),
+      detail:
+        `horizontal=${diagonal.horizontalDelta.toFixed(6)} / ` +
+        `vertical=${diagonal.verticalDelta.toFixed(6)} / ` +
+        `distance=${diagonal.movementDistance.toFixed(6)}`
+    }),
+    runBobCheck(fixture),
+    runTransitionBobCheck(fixture),
+    ...runTransitionClearChecks(fixture),
+    returnSuppression
+  ]);
+};
+
+const runCrossBandChasePerformanceCheck = (
+  fixture: BitSystemAcceptanceFixture
+): Readonly<{
+  check: BitSystemAcceptanceCheck;
+  metric: BitSystemAcceptanceMetric;
+}> => {
+  const stage = createFixtureStage(
+    fixture.scene,
+    fixture.navigation,
+    fixture.courtyardRef,
+    fixture.pointInBand(fixture.courtyardRef, 0, 0),
+    () => true,
+    Object.freeze({ width: 5, height: 0.8, depth: 5 })
+  );
+  let randomState = 0x3c6ef372;
+  let forceChaseMode = false;
+  const random = () => {
+    if (forceChaseMode) {
+      return 0.5;
+    }
+    randomState =
+      (Math.imul(randomState, 1664525) + 1013904223) >>> 0;
+    return randomState / 0x1_0000_0000;
+  };
+  const system = createSystem(
+    fixture.scene,
+    stage.stage,
+    random,
+    99,
+    0.08
+  );
+  try {
+    const initialPositions = createInitialPositionMap(
+      system.getFlightStates()
+    );
+    const progressedIds = new Set<string>();
+    forceChaseMode = true;
+    const target = createTarget(
+      "cross-band-performance-target",
+      fixture.pointInBand(fixture.mezzanineRef, 0, 0)
+    );
+    const targets = Object.freeze([target]);
+    const alert = Object.freeze({
+      leaderId: "cross-band-performance-leader",
+      targetId: target.id,
+      remainingSeconds: 1000
+    });
+    for (let frameIndex = 0; frameIndex < 30; frameIndex += 1) {
+      system.update({
+        deltaSeconds: 0.1,
+        elapsedSeconds: frameIndex * 0.1,
+        targets,
+        externalAlerts:
+          frameIndex === 0 ? Object.freeze([alert]) : EMPTY_ALERTS
+      });
+      recordFlightProgress(
+        system.getFlightStates(),
+        initialPositions,
+        progressedIds
+      );
+    }
+
+    const samples: number[] = [];
+    for (let frameIndex = 0; frameIndex < 300; frameIndex += 1) {
+      const startedAt = performance.now();
+      system.update({
+        deltaSeconds: 0.1,
+        elapsedSeconds: 3 + frameIndex * 0.1,
+        targets,
+        externalAlerts: EMPTY_ALERTS
+      });
+      samples.push(performance.now() - startedAt);
+      recordFlightProgress(
+        system.getFlightStates(),
+        initialPositions,
+        progressedIds
+      );
+    }
+
+    const actors = system.getActorSpheres();
+    const flightStates = system.getFlightStates();
+    const targetStates = system.getTargetStates();
+    const observedCrossBandProgress = flightStates.some(
+      (state) =>
+        state.activeTransition !== null ||
+        (state.zoneId === fixture.mezzanineRef.zoneId &&
+          state.bandId === fixture.mezzanineRef.bandId)
+    );
+    const statistics = describeSamples(samples);
+    const detail =
+      `warmup=30 / measured=${samples.length} / actors=${actors.length} / ` +
+      `p50=${statistics.p50.toFixed(3)}ms / ` +
+      `p95=${statistics.p95.toFixed(3)}ms / ` +
+      `max=${statistics.maximum.toFixed(3)}ms / ` +
+      `crossBand=${observedCrossBandProgress} / ` +
+      `progressed=${progressedIds.size}/${initialPositions.size}`;
+    return Object.freeze({
+      check: Object.freeze({
+        name: "99体の帯間追跡を30+300 tick計測し有限座標を維持",
+        ok:
+          samples.length === 300 &&
+          samples.every(
+            (sample) => Number.isFinite(sample) && sample >= 0
+          ) &&
+          actors.length === 99 &&
+          actors.every(
+            (actor) =>
+              Number.isFinite(actor.center.x) &&
+              Number.isFinite(actor.center.y) &&
+              Number.isFinite(actor.center.z)
+          ) &&
+          flightStates.length === 99 &&
+          flightStates.every(isFiniteFlightState) &&
+          targetStates.length === 99 &&
+          targetStates.every(
+            (state) =>
+              state.targetId === target.id &&
+              state.provenance === "alert" &&
+              state.mode === "chase"
+          ) &&
+          progressedIds.size === initialPositions.size &&
+          observedCrossBandProgress,
+        detail
+      }),
+      metric: Object.freeze({
+        label: "99体帯間追跡 update",
+        value:
+          `p50 ${statistics.p50.toFixed(3)} / ` +
+          `p95 ${statistics.p95.toFixed(3)} / ` +
+          `max ${statistics.maximum.toFixed(3)} ms`
+      })
+    });
+  } finally {
+    system.dispose();
+    stage.dispose();
+  }
+};
+
+const runLoaderFixtureLifecycleCheck = async (
+  fixture: BitSystemAcceptanceFixture
+): Promise<BitSystemAcceptanceCheck> => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const baseline = countSceneResources(scene);
+  const assets = await createLoaderFixtureAssets(fixture);
+  const restoreFetch = installLoaderFixtureFetch(assets);
+  let context: StageSpatialContext | null = null;
+  try {
+    context = await loadStageSpatialContext(scene, assets.catalog);
+    const navigation = context.bitNavigation;
+    const firstZoneId = navigation.zones[0]?.id;
+    if (!firstZoneId) {
+      throw new Error("実loader fixtureに飛行ゾーンがありません。");
+    }
+    const loadedZoneCount = navigation.zones.length;
+    const loadedBandCount = navigation.bands.length;
+    const loadedTransitionCount = navigation.transitions.length;
+    const loaded =
+      context.metadata.stageId === LOADER_FIXTURE_STAGE_ID &&
+      loadedZoneCount === fixture.definition.zones.length &&
+      loadedBandCount === fixture.definition.bands.length &&
+      loadedTransitionCount === 1 &&
+      context.volumes.getByRole("npc_spawn").length === 1 &&
+      context.volumes.getByRole("bit_spawn").length === 1;
+    context.dispose();
+    context = null;
+    const disposedReferenceMessage = captureThrownMessage(() =>
+      navigation.getZone(firstZoneId)
+    );
+    const afterDispose = countSceneResources(scene);
+    return Object.freeze({
+      name: "非学校fixtureを実GLB・両NavMesh・SHA検証経由で読込・破棄",
+      ok:
+        loaded &&
+        disposedReferenceMessage?.includes("破棄済み") === true &&
+        sceneResourceCountsEqual(baseline, afterDispose),
+      detail:
+        `zones=${loadedZoneCount} / ` +
+        `bands=${loadedBandCount} / ` +
+        `transitions=${loadedTransitionCount} / ` +
+        `oldRef=${disposedReferenceMessage ?? "例外なし"} / ` +
+        `baseline=${JSON.stringify(baseline)} / ` +
+        `disposed=${JSON.stringify(afterDispose)}`
+    });
+  } finally {
+    context?.dispose();
+    restoreFetch();
+    scene.dispose();
+    engine.dispose();
+  }
+};
+
+const runSchoolPerformanceAndLifecycleChecks = async (
+  fixture: BitSystemAcceptanceFixture
+): Promise<BitSystemAcceptanceResult> => {
+  document.title = "T05学校受入: 資産読込";
+  await yieldToBrowser();
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const baseline = countSceneResources(scene);
+  const checks: BitSystemAcceptanceCheck[] = [];
+  const metrics: BitSystemAcceptanceMetric[] = [];
+  const loaderFixtureAssets = await createLoaderFixtureAssets(fixture);
+  const restoreFixtureFetch =
+    installLoaderFixtureFetch(loaderFixtureAssets);
+  let schoolContext: StageSpatialContext | null = null;
+  let fixtureContext: StageSpatialContext | null = null;
+  let fixtureSystem: V2BitSystem | null = null;
+  try {
+    schoolContext = await loadStageSpatialContext(
+      scene,
+      SCHOOL_VALIDATION_STAGE
+    );
+    document.title = "T05学校受入: 99体探索 warmup 0/30";
+    await yieldToBrowser();
+    const schoolNavigation = schoolContext.bitNavigation;
+    const schoolZoneId = schoolNavigation.zones[0]?.id;
+    if (!schoolZoneId) {
+      throw new Error("学校Contextに飛行ゾーンがありません。");
+    }
+
+    let searchRandomState = 0xbb67ae85;
+    const searchRandom = () => {
+      searchRandomState =
+        (Math.imul(searchRandomState, 1664525) + 1013904223) >>> 0;
+      return searchRandomState / 0x1_0000_0000;
+    };
+    const searchSystem = createSystem(
+      scene,
+      schoolContext,
+      searchRandom,
+      99,
+      0.08
+    );
+    try {
+      const initialPositions = createInitialPositionMap(
+        searchSystem.getFlightStates()
+      );
+      const progressedIds = new Set<string>();
+      const firstProgressTickById = new Map<string, number>();
+      for (let frameIndex = 0; frameIndex < 30; frameIndex += 1) {
+        searchSystem.update({
+          deltaSeconds: 0.1,
+          elapsedSeconds: frameIndex * 0.1,
+          targets: EMPTY_TARGETS,
+          externalAlerts: EMPTY_ALERTS
+        });
+        recordFlightProgress(
+          searchSystem.getFlightStates(),
+          initialPositions,
+          progressedIds,
+          firstProgressTickById,
+          frameIndex + 1
+        );
+        document.title =
+          `T05学校受入: 99体探索 warmup ${frameIndex + 1}/30`;
+        await yieldToBrowser();
+      }
+      const samples: number[] = [];
+      for (let frameIndex = 0; frameIndex < 300; frameIndex += 1) {
+        const startedAt = performance.now();
+        searchSystem.update({
+          deltaSeconds: 0.1,
+          elapsedSeconds: 3 + frameIndex * 0.1,
+          targets: EMPTY_TARGETS,
+          externalAlerts: EMPTY_ALERTS
+        });
+        samples.push(performance.now() - startedAt);
+        recordFlightProgress(
+          searchSystem.getFlightStates(),
+          initialPositions,
+          progressedIds,
+          firstProgressTickById,
+          30 + frameIndex + 1
+        );
+        document.title =
+          `T05学校受入: 99体探索 measure ${frameIndex + 1}/300`;
+        await yieldToBrowser();
+      }
+      const actors = searchSystem.getActorSpheres();
+      const flightStates = searchSystem.getFlightStates();
+      const statistics = describeSamples(samples);
+      const maximumProgressWaitTicks = Math.max(
+        ...firstProgressTickById.values()
+      );
+      checks.push({
+        name: "学校73遷移Contextで99体探索を30+300 tick計測",
+        ok:
+          schoolNavigation.transitions.length === 73 &&
+          samples.length === 300 &&
+          samples.every(
+            (sample) => Number.isFinite(sample) && sample >= 0
+          ) &&
+          actors.length === 99 &&
+          actors.every(
+            (actor) =>
+              Number.isFinite(actor.center.x) &&
+              Number.isFinite(actor.center.y) &&
+              Number.isFinite(actor.center.z)
+          ) &&
+          flightStates.length === 99 &&
+          flightStates.every(isFiniteFlightState) &&
+          progressedIds.size === initialPositions.size &&
+          firstProgressTickById.size === initialPositions.size,
+        detail:
+          `transitions=${schoolNavigation.transitions.length} / ` +
+          `warmup=30 / measured=${samples.length} / actors=${actors.length} / ` +
+          `p50=${statistics.p50.toFixed(3)}ms / ` +
+          `p95=${statistics.p95.toFixed(3)}ms / ` +
+          `max=${statistics.maximum.toFixed(3)}ms / ` +
+          `total=${statistics.total.toFixed(3)}ms / ` +
+          `progressed=${progressedIds.size}/${initialPositions.size} / ` +
+          `maxWait=${maximumProgressWaitTicks}tick/` +
+          `${(maximumProgressWaitTicks * 0.1).toFixed(1)}s`
+      });
+      metrics.push({
+        label: "学校99体探索 update",
+        value:
+          `p50 ${statistics.p50.toFixed(3)} / ` +
+          `p95 ${statistics.p95.toFixed(3)} / ` +
+          `max ${statistics.maximum.toFixed(3)} / ` +
+          `total ${statistics.total.toFixed(3)} ms`
+      });
+      metrics.push({
+        label: "学校99体探索の最大計画待ち",
+        value:
+          `${maximumProgressWaitTicks} tick / ` +
+          `${(maximumProgressWaitTicks * 0.1).toFixed(1)} s`
+      });
+    } finally {
+      searchSystem.dispose();
+    }
+
+    const adjacentOutdoorTransition = schoolNavigation.transitions.find(
+      (transition) =>
+        transition.id === "school-exterior-f1-f2" &&
+        transition.kind === "vertical"
+    );
+    if (!adjacentOutdoorTransition) {
+      throw new Error("学校屋外F1→F2のvertical遷移がありません。");
+    }
+    let chaseRandomState = 0xa54ff53a;
+    let forceNormalChase = false;
+    const chaseRandom = () => {
+      if (forceNormalChase) {
+        return 0.5;
+      }
+      chaseRandomState =
+        (Math.imul(chaseRandomState, 1664525) + 1013904223) >>> 0;
+      return chaseRandomState / 0x1_0000_0000;
+    };
+    const chaseSystem = createSystem(
+      scene,
+      schoolContext,
+      chaseRandom,
+      99,
+      0.08
+    );
+    try {
+      const initialPositions = createInitialPositionMap(
+        chaseSystem.getFlightStates()
+      );
+      const progressedIds = new Set<string>();
+      const firstProgressTickById = new Map<string, number>();
+      forceNormalChase = true;
+      document.title = "T05学校受入: 99体追跡 warmup 0/30";
+      await yieldToBrowser();
+      const target = createTarget(
+        "school-adjacent-outdoor-target",
+        adjacentOutdoorTransition.toPosition.clone()
+      );
+      const targets = Object.freeze([target]);
+      const alert = Object.freeze({
+        leaderId: "school-performance-external-leader",
+        targetId: target.id,
+        remainingSeconds: 1000
+      });
+      let observedAdjacentVertical = false;
+      for (let frameIndex = 0; frameIndex < 30; frameIndex += 1) {
+        chaseSystem.update({
+          deltaSeconds: 0.1,
+          elapsedSeconds: frameIndex * 0.1,
+          targets,
+          externalAlerts:
+            frameIndex === 0 ? Object.freeze([alert]) : EMPTY_ALERTS
+        });
+        recordFlightProgress(
+          chaseSystem.getFlightStates(),
+          initialPositions,
+          progressedIds,
+          firstProgressTickById,
+          frameIndex + 1
+        );
+        observedAdjacentVertical =
+          observedAdjacentVertical ||
+          chaseSystem
+            .getFlightStates()
+            .some(
+              (state) =>
+                state.activeTransition?.id ===
+                  adjacentOutdoorTransition.id ||
+                (state.zoneId === adjacentOutdoorTransition.to.zoneId &&
+                  state.bandId === adjacentOutdoorTransition.to.bandId)
+            );
+        document.title =
+          `T05学校受入: 99体追跡 warmup ${frameIndex + 1}/30`;
+        await yieldToBrowser();
+      }
+
+      const samples: number[] = [];
+      for (let frameIndex = 0; frameIndex < 300; frameIndex += 1) {
+        const startedAt = performance.now();
+        chaseSystem.update({
+          deltaSeconds: 0.1,
+          elapsedSeconds: 3 + frameIndex * 0.1,
+          targets,
+          externalAlerts: EMPTY_ALERTS
+        });
+        samples.push(performance.now() - startedAt);
+        recordFlightProgress(
+          chaseSystem.getFlightStates(),
+          initialPositions,
+          progressedIds,
+          firstProgressTickById,
+          30 + frameIndex + 1
+        );
+        observedAdjacentVertical =
+          observedAdjacentVertical ||
+          chaseSystem
+            .getFlightStates()
+            .some(
+              (state) =>
+                state.activeTransition?.id ===
+                  adjacentOutdoorTransition.id ||
+                (state.zoneId === adjacentOutdoorTransition.to.zoneId &&
+                  state.bandId === adjacentOutdoorTransition.to.bandId)
+            );
+        document.title =
+          `T05学校受入: 99体追跡 measure ${frameIndex + 1}/300`;
+        await yieldToBrowser();
+      }
+      const actors = chaseSystem.getActorSpheres();
+      const flightStates = chaseSystem.getFlightStates();
+      const targetStates = chaseSystem.getTargetStates();
+      const statistics = describeSamples(samples);
+      const maximumProgressWaitTicks = Math.max(
+        ...firstProgressTickById.values()
+      );
+      checks.push({
+        name: "学校99体の屋外隣接帯vertical追跡を30+300 tick計測",
+        ok:
+          samples.length === 300 &&
+          samples.every(
+            (sample) => Number.isFinite(sample) && sample >= 0
+          ) &&
+          actors.length === 99 &&
+          actors.every(
+            (actor) =>
+              Number.isFinite(actor.center.x) &&
+              Number.isFinite(actor.center.y) &&
+              Number.isFinite(actor.center.z)
+          ) &&
+          flightStates.length === 99 &&
+          flightStates.every(isFiniteFlightState) &&
+          targetStates.length === 99 &&
+          targetStates.every(
+            (state) =>
+              state.targetId === target.id && state.mode === "chase"
+          ) &&
+          progressedIds.size === initialPositions.size &&
+          firstProgressTickById.size === initialPositions.size &&
+          observedAdjacentVertical,
+        detail:
+          `transition=${adjacentOutdoorTransition.id} / ` +
+          `observed=${observedAdjacentVertical} / warmup=30 / ` +
+          `measured=${samples.length} / actors=${actors.length} / ` +
+          `p50=${statistics.p50.toFixed(3)}ms / ` +
+          `p95=${statistics.p95.toFixed(3)}ms / ` +
+          `max=${statistics.maximum.toFixed(3)}ms / ` +
+          `total=${statistics.total.toFixed(3)}ms / ` +
+          `progressed=${progressedIds.size}/${initialPositions.size} / ` +
+          `maxWait=${maximumProgressWaitTicks}tick/` +
+          `${(maximumProgressWaitTicks * 0.1).toFixed(1)}s`
+      });
+      metrics.push({
+        label: "学校99体隣接帯追跡 update",
+        value:
+          `p50 ${statistics.p50.toFixed(3)} / ` +
+          `p95 ${statistics.p95.toFixed(3)} / ` +
+          `max ${statistics.maximum.toFixed(3)} / ` +
+          `total ${statistics.total.toFixed(3)} ms`
+      });
+      metrics.push({
+        label: "学校99体追跡の最大計画待ち",
+        value:
+          `${maximumProgressWaitTicks} tick / ` +
+          `${(maximumProgressWaitTicks * 0.1).toFixed(1)} s`
+      });
+
+      const positionsBeforeLoss = createInitialPositionMap(
+        chaseSystem.getFlightStates()
+      );
+      const unavailableTarget = Object.freeze({
+        ...target,
+        alive: false
+      });
+      const unavailableTargets = Object.freeze([unavailableTarget]);
+      const lossStartedAt = performance.now();
+      chaseSystem.update({
+        deltaSeconds: 0.1,
+        elapsedSeconds: 33,
+        targets: unavailableTargets,
+        externalAlerts: EMPTY_ALERTS
+      });
+      const lossUpdateMilliseconds = performance.now() - lossStartedAt;
+      const escapeProgressedIds = new Set<string>();
+      const escapeStartedIds = new Set<string>();
+      const recordEscapeStarts = (
+        states: readonly V2BitFlightState[]
+      ) => {
+        for (const state of states) {
+          if (state.routePurpose === "escape") {
+            escapeStartedIds.add(state.bitId);
+          }
+        }
+      };
+      recordEscapeStarts(chaseSystem.getFlightStates());
+      recordFlightProgress(
+        chaseSystem.getFlightStates(),
+        positionsBeforeLoss,
+        escapeProgressedIds
+      );
+      for (let frameIndex = 0; frameIndex < 30; frameIndex += 1) {
+        chaseSystem.update({
+          deltaSeconds: 0.1,
+          elapsedSeconds: 33.1 + frameIndex * 0.1,
+          targets: unavailableTargets,
+          externalAlerts: EMPTY_ALERTS
+        });
+        recordEscapeStarts(chaseSystem.getFlightStates());
+        recordFlightProgress(
+          chaseSystem.getFlightStates(),
+          positionsBeforeLoss,
+          escapeProgressedIds
+        );
+      }
+      const afterLossTargets = chaseSystem.getTargetStates();
+      const afterLossFlights = chaseSystem.getFlightStates();
+      checks.push({
+        name: "学校99体の一斉標的喪失を1 tickで処理し逃走計画を公平に完了",
+        ok:
+          Number.isFinite(lossUpdateMilliseconds) &&
+          lossUpdateMilliseconds >= 0 &&
+          afterLossTargets.length === 99 &&
+          afterLossTargets.every((state) => state.targetId === null) &&
+          afterLossFlights.length === 99 &&
+          afterLossFlights.every(isFiniteFlightState) &&
+          escapeStartedIds.size === positionsBeforeLoss.size &&
+          escapeProgressedIds.size === positionsBeforeLoss.size,
+        detail:
+          `lossUpdate=${lossUpdateMilliseconds.toFixed(3)}ms / ` +
+          `released=${afterLossTargets.filter((state) => state.targetId === null).length}/99 / ` +
+          `escapeStarted=${escapeStartedIds.size}/${positionsBeforeLoss.size} / ` +
+          `progressed=${escapeProgressedIds.size}/${positionsBeforeLoss.size}`
+      });
+      metrics.push({
+        label: "学校99体一斉標的喪失 update",
+        value: `${lossUpdateMilliseconds.toFixed(3)} ms`
+      });
+    } finally {
+      chaseSystem.dispose();
+    }
+
+    let mixedRandomState = 0x510e527f;
+    let assignMixedModes = false;
+    let forceMixedChase = false;
+    let mixedModeIndex = 0;
+    const mixedRandom = () => {
+      if (forceMixedChase) {
+        return 0.5;
+      }
+      if (assignMixedModes) {
+        const value = mixedModeIndex % 5 === 0 ? 0.05 : 0.5;
+        mixedModeIndex += 1;
+        return value;
+      }
+      mixedRandomState =
+        (Math.imul(mixedRandomState, 1664525) + 1013904223) >>> 0;
+      return mixedRandomState / 0x1_0000_0000;
+    };
+    const mixedSystem = createSystem(
+      scene,
+      schoolContext,
+      mixedRandom,
+      99,
+      0.08
+    );
+    try {
+      const initialPositions = createInitialPositionMap(
+        mixedSystem.getFlightStates()
+      );
+      const progressedIds = new Set<string>();
+      const sameBandTarget = createTarget(
+        "school-mixed-carpet-target",
+        adjacentOutdoorTransition.fromPosition.clone()
+      );
+      const sameBandTargets = Object.freeze([sameBandTarget]);
+      const mixedAlert = Object.freeze({
+        leaderId: "school-mixed-carpet-external-leader",
+        targetId: sameBandTarget.id,
+        remainingSeconds: 1000
+      });
+      assignMixedModes = true;
+      let observedLeader = false;
+      let observedFollower = false;
+      for (let frameIndex = 0; frameIndex < 40; frameIndex += 1) {
+        mixedSystem.update({
+          deltaSeconds: 0.1,
+          elapsedSeconds: frameIndex * 0.1,
+          targets: sameBandTargets,
+          externalAlerts:
+            frameIndex === 0 ? Object.freeze([mixedAlert]) : EMPTY_ALERTS
+        });
+        const targetStates = mixedSystem.getTargetStates();
+        observedLeader =
+          observedLeader ||
+          targetStates.some((state) => state.mode === "carpet-leader");
+        observedFollower =
+          observedFollower ||
+          targetStates.some((state) => state.mode === "carpet-follower");
+        recordFlightProgress(
+          mixedSystem.getFlightStates(),
+          initialPositions,
+          progressedIds
+        );
+      }
+
+      const crossBandTarget = createTarget(
+        sameBandTarget.id,
+        adjacentOutdoorTransition.toPosition.clone()
+      );
+      const crossBandTargets = Object.freeze([crossBandTarget]);
+      assignMixedModes = false;
+      forceMixedChase = true;
+      const brainwashedSameBandTarget = Object.freeze({
+        ...sameBandTarget,
+        brainwashed: true
+      });
+      mixedSystem.update({
+        deltaSeconds: 0.1,
+        elapsedSeconds: 4,
+        targets: Object.freeze([brainwashedSameBandTarget]),
+        externalAlerts: EMPTY_ALERTS
+      });
+      const releaseTargetStates = mixedSystem.getTargetStates();
+      let observedCrossBandTransition = false;
+      let formationReleased =
+        releaseTargetStates.length === 99 &&
+        releaseTargetStates.every(
+          (state) =>
+            state.mode !== "carpet-leader" &&
+            state.mode !== "carpet-follower"
+        );
+      for (let frameIndex = 0; frameIndex < 40; frameIndex += 1) {
+        mixedSystem.update({
+          deltaSeconds: 0.1,
+          elapsedSeconds: 4.1 + frameIndex * 0.1,
+          targets: crossBandTargets,
+          externalAlerts:
+            frameIndex === 0 ? Object.freeze([mixedAlert]) : EMPTY_ALERTS
+        });
+        const flightStates = mixedSystem.getFlightStates();
+        const targetStates = mixedSystem.getTargetStates();
+        observedCrossBandTransition =
+          observedCrossBandTransition ||
+          flightStates.some((state) => state.activeTransition !== null);
+        formationReleased =
+          formationReleased &&
+          targetStates.length === 99 &&
+          targetStates.every(
+            (state) =>
+              state.mode !== "carpet-leader" &&
+              state.mode !== "carpet-follower"
+          );
+        recordFlightProgress(
+          flightStates,
+          initialPositions,
+          progressedIds
+        );
+      }
+      checks.push({
+        name: "学校99体の混在絨毯編隊を公平予算で計画し帯変更前に全解除",
+        ok:
+          observedLeader &&
+          observedFollower &&
+          progressedIds.size === initialPositions.size &&
+          formationReleased &&
+          observedCrossBandTransition,
+        detail:
+          `leader=${observedLeader} / follower=${observedFollower} / ` +
+          `progressed=${progressedIds.size}/${initialPositions.size} / ` +
+          `released=${formationReleased} / ` +
+          `transition=${observedCrossBandTransition}`
+      });
+    } finally {
+      mixedSystem.dispose();
+    }
+
+    const schoolQueries = schoolContext.queries;
+    schoolContext.dispose();
+    document.title = "T05学校受入: 連続loader lifecycle";
+    await yieldToBrowser();
+    schoolContext = null;
+    const disposedReferenceMessage = captureThrownMessage(() =>
+      schoolNavigation.getZone(schoolZoneId)
+    );
+    const disposedQueriesMessage = captureThrownMessage(() =>
+      schoolQueries.castSightSegment(Vector3.Zero(), Vector3.One())
+    );
+    const afterSchoolDispose = countSceneResources(scene);
+
+    fixtureContext = await loadStageSpatialContext(
+      scene,
+      loaderFixtureAssets.catalog
+    );
+    const fixtureNavigation = fixtureContext.bitNavigation;
+    const fixtureZoneId = fixtureNavigation.zones[0]?.id;
+    if (!fixtureZoneId) {
+      throw new Error("実loader fixtureに飛行ゾーンがありません。");
+    }
+    const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+    fixtureSystem = createSystem(
+      scene,
+      fixtureContext,
+      random.random
+    );
+    random.enqueue(0.2, 0.5, 0.999, 0.5);
+    fixtureSystem.update({
+      deltaSeconds: 0.1,
+      elapsedSeconds: 0.1,
+      targets: EMPTY_TARGETS,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const fixtureState = getRequiredFlightState(fixtureSystem);
+    const fixtureContextActive =
+      fixtureState.zoneId === fixture.courtyardRef.zoneId &&
+      fixtureState.bandId === fixture.courtyardRef.bandId &&
+      isFiniteFlightState(fixtureState);
+
+    fixtureSystem.dispose();
+    fixtureSystem = null;
+    fixtureContext.dispose();
+    fixtureContext = null;
+    const disposedFixtureReferenceMessage = captureThrownMessage(() =>
+      fixtureNavigation.getZone(fixtureZoneId)
+    );
+    const afterFixtureDispose = countSceneResources(scene);
+
+    checks.push({
+      name: "同一Sceneで学校後に非学校fixtureを実loaderで連続読込・破棄",
+      ok:
+        disposedReferenceMessage?.includes("破棄済み") === true &&
+        disposedQueriesMessage?.includes("破棄済み") === true &&
+        disposedFixtureReferenceMessage?.includes("破棄済み") === true &&
+        fixtureContextActive &&
+        sceneResourceCountsEqual(baseline, afterSchoolDispose) &&
+        sceneResourceCountsEqual(baseline, afterFixtureDispose),
+      detail:
+        `schoolOldRef=${disposedReferenceMessage ?? "例外なし"} / ` +
+        `schoolQueries=${disposedQueriesMessage ?? "例外なし"} / ` +
+        `fixtureOldRef=${disposedFixtureReferenceMessage ?? "例外なし"} / ` +
+        `fixtureActive=${fixtureContextActive} / ` +
+        `baseline=${JSON.stringify(baseline)} / ` +
+        `schoolDisposed=${JSON.stringify(afterSchoolDispose)} / ` +
+        `fixtureDisposed=${JSON.stringify(afterFixtureDispose)}`
+    });
+    return Object.freeze({
+      checks: Object.freeze(checks),
+      metrics: Object.freeze(metrics)
+    });
+  } finally {
+    fixtureSystem?.dispose();
+    fixtureContext?.dispose();
+    schoolContext?.dispose();
+    restoreFixtureFetch();
+    scene.dispose();
+    engine.dispose();
+  }
+};
+
+export const runBitSystemAcceptanceTests = async (
+  fixture: BitSystemAcceptanceFixture,
+  mode: BitSystemAcceptanceMode = "all"
+): Promise<BitSystemAcceptanceResult> => {
+  const checks: BitSystemAcceptanceCheck[] = [];
+  const metrics: BitSystemAcceptanceMetric[] = [];
+  if (mode !== "school") {
+    checks.push(
+      runActorSphereRadiusCheck(fixture),
+      ...runVisualTargetLossChecks(fixture),
+      ...runCarpetFormationChecks(fixture),
+      ...(await runScriptedSearchChecks(fixture))
+    );
+    const chasePerformance = runCrossBandChasePerformanceCheck(fixture);
+    checks.push(chasePerformance.check);
+    metrics.push(chasePerformance.metric);
+    try {
+      checks.push(await runLoaderFixtureLifecycleCheck(fixture));
+    } catch (error) {
+      checks.push({
+        name: "非学校fixtureの実loaderライフサイクル検証",
+        ok: false,
+        detail:
+          error instanceof Error ? error.stack ?? error.message : String(error)
+      });
+    }
+  }
+  if (mode !== "core") {
+    try {
+      const schoolAcceptance =
+        await runSchoolPerformanceAndLifecycleChecks(fixture);
+      checks.push(...schoolAcceptance.checks);
+      metrics.push(...schoolAcceptance.metrics);
+    } catch (error) {
+      checks.push({
+        name: "実学校Contextの性能・ライフサイクル検証",
+        ok: false,
+        detail:
+          error instanceof Error ? error.stack ?? error.message : String(error)
+      });
+    }
+  }
+  return Object.freeze({
+    checks: Object.freeze(checks),
+    metrics: Object.freeze(metrics)
+  });
+};
