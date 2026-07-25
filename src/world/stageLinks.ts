@@ -7,9 +7,7 @@ export type StageMoverKind = (typeof STAGE_MOVER_KINDS)[number];
 export const STAGE_LINK_KINDS = [
   "ladder",
   "elevator",
-  "teleport",
-  "bit_window",
-  "bit_roof"
+  "teleport"
 ] as const;
 
 export type StageLinkKind = (typeof STAGE_LINK_KINDS)[number];
@@ -38,12 +36,9 @@ export interface StageLinkRegistry {
 }
 
 export const canStageMoverUseLink = (
-  moverKind: StageMoverKind,
-  linkKind: StageLinkKind
-) =>
-  linkKind === "bit_window" || linkKind === "bit_roof"
-    ? moverKind === "bit"
-    : true;
+  _moverKind: StageMoverKind,
+  _linkKind: StageLinkKind
+) => true;
 
 export const createStageLinkRegistry = (
   pairs: readonly StageLinkPair[]

@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 ステージ資産仕様書
 
-更新日: 2026-07-24
+更新日: 2026-07-25
 対象バージョン: v2
 基準検証: T01 GLB・座標・衝突規約 技術検証
 
@@ -10,9 +10,9 @@
 
 V2のステージ空間の正本は、GLBへ出力された3D形状、EmptyのTransform、Object custom properties由来のglTF Node `extras`である。表示、物理衝突、光線遮蔽、NavMesh生成元、スポーン位置、ゲームプレイ領域、ステージ境界、ポータル、非連続接続を同じ座標系の資産として管理する。
 
-ステージJSONは使用しない。JSON文字マップ、セル、行・列、矩形ゾーンなどへ空間を重複記述してはならない。TypeScriptのステージカタログが保持できるのは、ステージID、表示名、GLB URL、NavMesh URL、整合性検査用ハッシュなどの非空間情報だけである。
+ステージJSONは使用しない。JSON文字マップ、セル、行・列、矩形ゾーンなどへ空間を重複記述してはならない。TypeScriptのステージカタログが保持できるのは、ステージID、表示名、GLB URL、人間用NavMesh URL、ビット用NavMesh bundle URL、プロファイルID、整合性検査用ハッシュなどの非空間情報だけである。
 
-Recast NavMeshバイナリはGLBの`NAV_*`形状から生成する派生物であり、編集元ではない。`LNK_*` Emptyは最終GLBに残る特殊接続の正本であり、RuntimeがNavMesh上へ両端を投影して経路グラフへ加える。NavMeshを変更したい場合はBlender資産またはベイクプロファイルを変更し、GLB監査後に再ベイクする。B03-1の窓配置確認中は`.blend`に`bit_roof` 2組を保持する一方、旧NavMeshへ投影できない接続を配置確認用GLBから除外した。開放窓確定後の最終GLBとNavMeshはT04-2Bで同時に生成・監査済みであり、`LNK_*`を欠いた配置確認用GLBを完成資産として扱わない。
+Recast NavMeshバイナリはGLBの`NAV_*`形状から生成する派生物であり、編集元ではない。人間用NavMeshと、帯ごとのRecast payloadを格納するビット用bundleを分離する。`LNK_*` Emptyと飛行遷移`VOL_*`は最終GLBに残る明示接続の正本であり、Runtimeが対応するNavMeshへ接続する。NavMeshを変更したい場合はBlender資産またはベイクプロファイルを変更し、GLB監査後に対応成果物を再ベイクする。
 
 本規約は規約準拠資産だけを扱う。未知の接頭辞、欠落した必須Object、未知の`hs_*` propertyを読み替える互換処理やフォールバックは作らない。
 
@@ -22,7 +22,8 @@ Recast NavMeshバイナリはGLBの`NAV_*`形状から生成する派生物で�
 |---|---|---|
 | `.blend` | 制作者が編集する資産 | 編集正本 |
 | `.glb` | 実行時に読む3D形状、Transform、Node `extras` | 実行時の空間正本 |
-| `.navmesh.bin` | `NAV_*`と固定ベイクプロファイルから生成したRecastデータ | 再生成可能な派生物 |
+| `.navmesh.bin` | `hs_nav_set=human`の`NAV_*`と人間用プロファイルから生成したRecastデータ | 再生成可能な派生物 |
+| `.bit-flight.navmesh.bin` | `hs_nav_set=bit-flight`の帯別Recast payloadを格納したbundle | 再生成可能な派生物 |
 | TypeScriptカタログ | ID、表示名、URL、ハッシュ、形式バージョン | 非空間情報だけ |
 | ステージJSON | V2では使用しない | 禁止 |
 
@@ -36,6 +37,7 @@ Recast NavMeshバイナリはGLBの`NAV_*`形状から生成する派生物で�
 assets/blender/v2/<ステージID>/<資産名>.blend
 public/stage-assets/v2/<ステージID>/<資産名>.glb
 public/stage-assets/v2/<ステージID>/<資産名>.navmesh.bin
+public/stage-assets/v2/<ステージID>/<資産名>.bit-flight.navmesh.bin
 ```
 
 当面の通常ゲーム対象は学校だけである。T01は技術検証fixtureであり、B02学校は本書の空間Object契約と事前ベイクNavMeshを備えた実ゲーム移行中の資産である。
@@ -47,14 +49,15 @@ public/stage-assets/v2/<ステージID>/<資産名>.navmesh.bin
 | B02 Blender編集元 | `assets/blender/v2/B02/b02_school_blockout.blend` | 学校の制作元。3D意味ObjectとNavMesh生成元を保持 |
 | B02 GLB | `public/stage-assets/v2/B02/b02_school_blockout.glb` | 学校の実行時空間正本。B03-2内装、T04-2B NAV補正、第5次人間受入、学校3D資産全体リファクタリングを統合済み |
 | B02 NavMesh | `public/stage-assets/v2/B02/b02_school_blockout.navmesh.bin` | 同一GLBから事前ベイクするRecast派生物 |
+| B02ビットNavMesh | `public/stage-assets/v2/B02/b02_school_blockout.bit-flight.navmesh.bin` | 同一GLBから帯別に事前ベイクするRecast bundle |
 
-`.blend`はVite配布物へ含めない。GLBとNavMeshバイナリだけを`public`からWeb版・Electron版へコピーする。バイナリ資産は単一担当で編集し、同一ファイルを複数ブランチで並行編集しない。
+`.blend`はVite配布物へ含めない。GLBと両NavMeshバイナリだけを`public`からWeb版・Electron版へコピーする。バイナリ資産は単一担当で編集し、同一ファイルを複数ブランチで並行編集しない。
 
 ### 3.1 B02学校の現行監査基準
 
-- BlenderとGLBは938 Object／Node、816 Meshとする。GLBは5 Material／3 Texture／3 Imageを持つ。
-- 出力内訳は`VIS_*`472件、`COL_*`325件、`NAV_*`15件、`META_Stage`1件、`MRK_*`1件、`VOL_*`3件、`LNK_*`120端点、`BND_Stage`1件とする。`COL_*`は通常185件、`COL_ActorOnly_*`82件、`COL_HumanOnly_*`58件へ排他的に分類する。
-- `LNK_*`は`bit_window`58組と`bit_roof`2組の計60組で、全組がA/Bの2端点、双方向、`hs_link_radius_m=0.54`を持つ。
+- T05-1Aでは既存`VIS_*`472件と`COL_*`325件の形状を維持し、`NAV_BitFlight_*`、飛行遷移`VOL_*`、58組の窓`aperture` metadataを追加する。
+- 窓`LNK_*`は58組／116端点とし、A/Bの2端点、双方向、`hs_link_radius_m=0.54`、接続先ゾーン・帯を明示する。`hs_link_radius_m`はV1物理半径0.44m＋安全余裕0.10mに一致する必要包絡・接続半径であり、ビット本体半径ではない。旧`bit_roof`2組／4端点は完全廃止する。
+- 修正案1では、V1実形状・被弾球の半径0.44mへ安全余裕0.10mを加えた移動包絡半径0.54m、直径1.08mを正本とする。B03承認時の片羽開放幅1.20mは両羽全開へ変更せず維持し、58窓を窓枠・進入角度まで含む実飛行Agentで双方向116/116に再検証済みとする。旧0.64m包絡・直径1.28mを根拠とした未解決扱いと、両羽全開の承認待ちは廃止する。
 - 主玄関、北側校舎北口、北側校舎南口、体育館校庭側は、総高0.30m、各蹴上0.15m、各踏面1.00mの表示2段を共通断面とする。移動衝突は表示段と分離し、地面Z＝-0.30mから床Z＝0.00mへ続く単一の`COL_*Ramp`とする。渡り廊下東西側は表示段を置かず、不可視の`COL_BridgeSideRamp_East`と`COL_BridgeSideRamp_West`で同じ床高差を連続接続する。
 - 男女トイレは各3個室とし、内部仕切りは厚さ0.08m、奥行2.10m、高さ2.10mの`VIS_ToiletStallPartition_*`と`COL_ToiletStallPartition_*`を一致させる。男子小便器3基は背面を東、正面を西へ向け、X＝-2.75～-2.40m、中心Y＝39.6／40.6／41.6mへ配置する。
 - 校庭の`VIS_SiteGround`と`VIS_CourtyardSurface`は草地を表す緑、校門は塀と識別できる青とする。体育館は床を明るい木色、舞台を濃茶、腰壁を淡緑、見切りを濃灰として、同一色の面が重なる箇所を分離する。出入口上部の`VIS_*Lintel`は壁色へ統一する。
@@ -65,10 +68,10 @@ public/stage-assets/v2/<ステージID>/<資産名>.navmesh.bin
 - 階段手すりの共有端点では表示支柱を座標単位で一意化し、転落防止範囲を変えずに重複支柱を生成しない。1階トイレ正面のNav blocker 6箱は`NAV_Blocker_Interiors`だけが所有し、`NAV_Blocker_School1F`へ二重収録しない。
 - 学校正本はArmature、Bone、Action、Animation、Modifier、Shape Key、Vertex Group、非表示Object、Export Collection外Object、空・退化Meshを持たない。GLBはSkin、Animation、Camera、未参照Node／Mesh／Material／Texture／Image／Accessor／BufferView／Bufferを持たない。これらは残骸監査で非空なら失敗とする。不要性を証明できない面・同形状候補は削除せず、T04の人間確認候補一覧で管理する。
 - 体育館舞台階段上部の東西表示壁・衝突壁は、舞台上面からBlender 2.4mの実開口を一致して確保する。NavMeshだけを接続する仮connector面は資産へ残さない。
-- `BND_Stage`のBlender範囲はX＝-18.4～63.2m、Y＝-12.3～51.3m、Z＝-0.5～18.0mとする。プールサイド足元Z＝15.65mへ最大視点高2.0mを加えたZ＝17.65mを内包し、上端に0.35mの余裕を持つ。
+- `BND_Stage`のBlender範囲はX＝-18.4～63.2m、Y＝-12.3～51.3m、Z＝-0.5～19.0mとする。屋上帯の中心上限18.0mへ半径0.54mの移動包絡を加えても内包する。
 - 事前ベイク後は、主玄関から3か所の1F踊り場、各階廊下・代表教室、全階男女トイレ入口、3階段それぞれの1F↔2F↔3F↔4F、北西階段の4F↔屋上、体育館・舞台・体育倉庫、屋上階段室、プールサイド、プール底を含む62代表経路が要求終点へ到達することを検査する。追加2経路は3階・4階のトイレ側通路から正規扉を通って特別教室へ入る。各階段の隣接階経路は指定踊り場を通り、25m以内でなければならない。部分経路を成功扱いせず、要求終点との誤差`1e-5`以下を必須とする。通常窓の内外を結ぶsurface経路が窓開口を短絡せず正規出入口へ迂回することも必須とする。
-- 全120リンク端点は、水平0.54m以内を端点からNavMesh下端まで検索し、端点以下で垂直差、水平差、polygon参照の順に選んだ面へ接続する。体育館高窓14端点、屋上外側2端点を含め、各端点が期待する直下階へ投影されなければならない。
-- 現行`.blend`は1,662,555 bytes・SHA-256 `D8454A7175A8724921D1BB06098C55936C7D0CF5E2DC94949F5CD0B99D7BF762`、GLBは10,702,688 bytes・SHA-256 `BD55458CE7AFA0F2B2B32608E92DD86B588E4B223A74B1254DC1AB58DFDB675E`、NavMeshは512,900 bytes・SHA-256 `0FCF0B136D41E23202925EB8821270C39D18EFEE37A5146F20C9BFA97C03C869`である。NavMeshは19,344 vertices／6,448 trianglesである。Architecture Atlasは4,532 bytes・SHA-256 `4F952C690C5E05045063FF80B74308C971F4CF9186230E4B8F854DAAF1A0FFF5`である。小物`.blend`は168,468 bytes・SHA-256 `560974D7FABAAE9D7FC89FB563F4EEB3964866D8B33EE2C138FF1020C414514C`、確認用GLBは191,148 bytes・SHA-256 `E48FDA1ADFA86530BCB9C2DDC42B257776901388B510D9447D029B9F1F223457`である。学校正本へpackする3 Atlasの外部参照は`.blend`基準のリポジトリ相対パスとする。学校GLB、学校NavMesh、小物確認用GLBは同じ入力から2回連続生成してbytesとSHA-256が一致しなければならない。Blender 5.2の`.blend`保存バイナリ自体は同一シーンでも非決定的なため、保存後の現行値を記録し、決定性は監査済みシーン契約とGLB・NavMeshで判定する。
+- 全116窓端点はID文字列や高さから接続先を推測せず、各端点が明示するゾーン・帯のNavMeshへ投影する。体育館高窓14端点は7.10mの開口を一時通過して体育館上段へ接続する。
+- T05-1A成果物は`.blend` 1,798,182 bytes／SHA-256 `C409334204D58FCA67F2A5701CB7E663F74785F0FB602118B0DA3C3D4C88248B`、GLB 11,383,492 bytes／`6ADA95BFE63DF055A47E63338A31E61FF7E3A0A1E96A6499AC4482F7EBB2EFD0`、人間用NavMesh 512,900 bytes／`0FCF0B136D41E23202925EB8821270C39D18EFEE37A5146F20C9BFA97C03C869`、ビット用bundle 549,695 bytes／`4032750F29FB95549AEB77A35ABB1B69C9AC7A8D07F03CAE3E46A9E37D465830`である。学校GLBと両NavMeshは同じ入力から2回連続生成し、bytesとSHA-256が一致することを確認済みである。
 
 検証専用Viteでは、`publicDir`をリポジトリ全体の`public`へ向けない。検証対象の資産ディレクトリだけを公開し、ビルド後はファイル一覧、容量、SHA-256を公開元と照合する。
 
@@ -193,15 +196,17 @@ EXP_Stage_<stage-id>
 | 閉じた窓 | `VIS_WindowFrame_*`と`VIS_WindowGlass_*` | `COL_ActorOnly_Window_*` | プレイヤー・NPC・ビットを止め、視線と全光線を通す |
 | 指定した開いた窓または割れた窓 | 開口状態に対応する`VIS_WindowFrame_*`、残るガラス羽の`VIS_WindowGlass_*` | 残るガラス羽の`COL_ActorOnly_WindowFixed_*`と実開口の`COL_HumanOnly_Window_*` | 閉じた羽は全移動体を止め、実開口はプレイヤー・NPCを止めてビットを通す。どちらも視線・全光線を通す |
 
-ビット通過窓は見た目が開いた窓か割れた窓かにかかわらず、Runtimeでは`hs_link_kind="bit_window"`の同一契約で扱う。Collider名だけでビット通過経路を推測せず、必ず7.8節の`LNK_<id>_A/B`を組み合わせる。閉じた窓へ`bit_window`を置いてはならない。
+ビット通過窓は見た目が開いた窓か割れた窓かにかかわらず、Runtimeでは`hs_transition_kind="aperture"`の同一契約で扱う。Collider名だけで経路を推測せず、必ず7.8節のビット用`LNK_<id>_A/B`を組み合わせる。閉じた窓へ`aperture`を置いてはならない。
 
 窓位置で通常の床・階段NavMeshが連結しないよう、必要な`NAV_*` blockerも別途用意する。`COL_ActorOnly_Window_*`、`COL_ActorOnly_WindowFixed_*`、`COL_HumanOnly_Window_*`をNavMeshベイク入力へ流用しない。
 
-### 7.3 `NAV_*`と`hs_nav_role`
+### 7.3 `NAV_*`とナビゲーションセット
 
 `NAV_*`はRecast NavMeshを生成するためだけの低ポリMeshである。`VIS_*`、`COL_*`から自動抽出せず、ベイク入力を明示する。
 
-すべての`NAV_*` Objectは、Object custom property `hs_nav_role`を次のいずれかで持つ。
+すべての`NAV_*` Objectは`hs_nav_set`を持ち、`human`または`bit-flight`を明示する。人間用ベイクとビット用ベイクは自分のsetだけを抽出し、別setへフォールバックしない。
+
+人間用`NAV_*`は従来どおり`hs_nav_role`を次のいずれかで持つ。
 
 | `hs_nav_role` | 形状 | ベイク時の意味 |
 |---|---|---|
@@ -216,6 +221,24 @@ EXP_Stage_<stage-id>
 - 通常扉は開口を跨ぐ連続NavMeshで表す。room分割やdoor triggerが不要なら`PRT_*`も作らない。
 - `NAV_*`はGLBへ含めるが、通常Runtimeでは非表示・非衝突・非pickableとする。
 
+ビット用`NAV_BitFlight_*`は、同一飛行帯内の横移動面を表し、次のpropertiesを持つ。
+
+| Key | 型 | 内容 |
+|---|---|---|
+| `hs_nav_set` | string | `bit-flight` |
+| `hs_nav_role` | string | 中心飛行面は`walkable`、障害形状は`blocker` |
+| `hs_zone_id` | string | ステージ資産が定義するopaqueなゾーンID |
+| `hs_band_id` | string | ゾーン内で一意なopaqueな帯ID |
+| `hs_space_kind` | string | `indoor`または`outdoor` |
+| `hs_center_height_min_m` | number | Blender絶対Zで表す許可中心高度下限 |
+| `hs_center_height_max_m` | number | Blender絶対Zで表す許可中心高度上限 |
+
+- 同一ゾーン・帯を複数Meshで構成してよいが、space kindと高度範囲は全Meshで完全一致させる。
+- 各帯は1件以上の`walkable`を持つ。許可中心高度の全域を半径0.54mの移動包絡（V1物理半径0.44m＋安全余裕0.10m）で塞ぎ、帯内のどの高度でも上越し・下越しできない通常`COL_*`と`COL_ActorOnly_*`だけを、2D帯NavMeshの`blocker`として含める。帯内の一部高度だけを塞ぐ机などは2D経路を消さず、T05-1Bの高度決定と3D移動包絡で回避する。該当する全高障害物がない帯では`blocker`を要求しない。`COL_HumanOnly_*`はビット用blockerへ含めない。
+- 帯数、ゾーン数、階高、ID形式、上下順を固定しない。地下、中二階、吹き抜け、段違い床、不均一階高も同じ契約で定義する。
+- 異なる帯は別Recast payloadへベイクする。位置や高さが重なっても、明示遷移なしにpayload間を接続しない。
+- ビット用プロファイルはV1実形状・被弾球の物理半径0.44mと安全余裕0.10m、合計0.54mの移動包絡を前提とする。Runtimeの3D移動包絡を最終権威として維持する。
+
 ### 7.4 `META_Stage`
 
 `META_Stage`はExport Collection内にちょうど1個置く単一Emptyである。locationとrotationを`(0, 0, 0)`、scaleを`(1, 1, 1)`とし、ステージ全体のObject `extras`を保持する。
@@ -224,9 +247,10 @@ EXP_Stage_<stage-id>
 
 | Key | 型 | 内容 |
 |---|---|---|
-| `hs_schema_version` | integer | 本資産契約のschema version。初期値は`1` |
+| `hs_schema_version` | integer | 本資産契約のschema version。T05-1A以降は`2` |
 | `hs_stage_id` | string | TypeScriptカタログのIDと完全一致するID |
-| `hs_nav_profile` | string | ベイクに使用するversion付きRecastプロファイルID |
+| `hs_nav_profile` | string | 人間用ベイクに使用するversion付きRecastプロファイルID |
+| `hs_bit_nav_profile` | string | ビット用ベイクに使用するversion付きRecastプロファイルID |
 
 表示名、GLB URL、NavMesh URLは`META_Stage`へ置かず、TypeScriptカタログで管理する。座標配列、スポーン一覧、ゾーン一覧、セルマップを1つのpropertyへ埋め込んではならない。
 
@@ -264,6 +288,24 @@ MRK_PlayerSpawn_Main
 
 roleには`npc_spawn`、`bit_spawn`、`assembly`、`no_enemy_spawn`、`no_enemy_enter`、`no_combat`、`hazard`、`water`を使用できる。`water`は水面ではなく、水中判定に用いる閉じた3D領域を表す。学校資産は、プール内面に一致する`VOL_PoolWater`を1件持ち、`hs_id="pool-water"`、`hs_role="water"`とする。T04-2Bで読込、内外問い合わせ、プール底へのNavMesh到達、破棄・再読込を確認済みであり、水中水平速度50%と通常速度への復帰はT06で実装する。
 
+`bit_spawn`は`hs_zone_id`と`hs_band_id`を追加し、スポーン先の飛行帯を明示する。高さ、Object名、最寄りの人間用NavMeshから推測しない。
+
+飛行帯・ゾーン間の連続的な遷移は、`hs_role="bit_flight_transition"`の閉じた`VOL_*`で表す。
+
+| Key | 型 | 内容 |
+|---|---|---|
+| `hs_id` | string | ステージ内で一意な遷移ID |
+| `hs_role` | string | `bit_flight_transition` |
+| `hs_transition_kind` | string | `vertical`、`surface-route`、`boundary` |
+| `hs_from_zone_id` / `hs_from_band_id` | string | from帯 |
+| `hs_to_zone_id` / `hs_to_band_id` | string | to帯 |
+| `hs_bidirectional` | boolean | 双方向か |
+| `hs_affordances_json` | string | 登録済みAI意味タグのJSON文字列配列 |
+| `hs_projection_distance_m` | number | 遷移候補から各帯NavMeshへ投影する最大距離 |
+| `hs_route_points_json` | string | `surface-route`と障害物越え`boundary`で使用するBlender座標点列 |
+
+`vertical`はVolume内の安全候補から上下移動位置を選ぶ。`surface-route`は階段・斜路・踊り場に沿う点列を必須とする。`boundary`は屋外・屋上・吹き抜けなどの境界横断を表す。学校、体育館、屋上などの名称をkindへ追加しない。
+
 - Volumeの位置、回転、範囲はMesh形状を正本とする。
 - boxの中心・幅・奥行・高さをpropertiesへ重複記述しない。
 - 閉じたmanifold、外向き法線、自己交差なしとする。
@@ -291,11 +333,11 @@ hs_role = "playable_boundary"
 | `hs_id` | string | 一意なportal ID |
 | `hs_role` | string | `room_portal`、`streaming_portal`、`door_trigger`のいずれか |
 
-`room_portal`と`streaming_portal`で接続先の論理領域が必要な場合は、`hs_from`と`hs_to`へ非空間IDを置く。Portal Mesh自体を衝突やNavMesh接続に使用しない。`bit_window`と`bit_roof`はポータルではなく特殊経路であるため、`PRT_*`では表さず`LNK_*`だけを使用する。
+`room_portal`と`streaming_portal`で接続先の論理領域が必要な場合は、`hs_from`と`hs_to`へ非空間IDを置く。Portal Mesh自体を衝突やNavMesh接続に使用しない。ビット用遷移を`PRT_*`へ重複登録しない。
 
 ### 7.8 `LNK_<id>_A/B`
 
-`LNK_*`は、連続NavMeshで表せない梯子、昇降機、テレポート、ビット通過窓、ビット屋上接近の接続だけに使用する。1つのlinkは次のEmpty 2個で構成する。
+`LNK_*`は、連続NavMeshで表せない梯子、昇降機、テレポート、ビット通過窓などの狭い開口接続だけに使用する。1つのlinkは次のEmpty 2個で構成する。
 
 ```text
 LNK_<id>_A
@@ -307,22 +349,31 @@ LNK_<id>_B
 | Key | 型 | 内容 |
 |---|---|---|
 | `hs_id` | string | Object名の`<id>`と対応するlink ID |
-| `hs_link_kind` | string | `ladder`、`elevator`、`teleport`、`bit_window`、`bit_roof`のいずれか |
+| `hs_link_kind` | string | 人間用は`ladder`、`elevator`、`teleport`のいずれか |
 | `hs_bidirectional` | boolean | 双方向接続か |
 | `hs_link_radius_m` | number | endpointをNavMeshへ接続する半径。メートル |
 
 各端の必須property `hs_endpoint`は、`LNK_<id>_A`で`A`、`LNK_<id>_B`で`B`とする。片端だけのlink、値が一致しないpair、3個以上の同一IDを認めない。
 
-`bit_window`と`bit_roof`には次の追加契約を適用する。
+ビット用`aperture` pairは`hs_link_kind`の代わりに次を両端へ持つ。
 
-- どちらもビット専用かつ双方向必須とし、両端の`hs_bidirectional`を`true`にする。プレイヤーとNPCの経路グラフへ加えない。
-- `bit_window`は指定した開いた窓または割れた窓だけに置き、A/B双方の`hs_link_kind`を`bit_window`とする。Aを屋外の通常飛行高度にある安全な待機位置、Bを室内の床相対高度にある安全な待機位置とし、A/B間の固定経路が窓開口中央を通るようにする。
-- `bit_roof`はA/B双方の`hs_link_kind`を`bit_roof`とし、Aを屋外の安全な待機位置、Bを屋上の安全な着地点とする。屋上への接近と通常移動範囲への帰還を同じpairで表す。屋上は窓の設置対象外だが、ゲームプレイ、NavMesh、索敵、標的追跡、戦闘の対象外ではない。
-- 固定経路上の最高高度はA/Bの高い方を超えない。通常の床・階段用NavMeshを特殊接続の途中へ直結しない。
-- 窓枠、庇、外壁、手すり、屋上構造物を含む固定経路の全区間で、ビット本体と銃口を含む半径約0.44mに0.10mの安全余裕を加え、最低でも半径0.54m以上の空きを確保する。最大揺れ幅を含む移動包絡がこれより大きい場合は、その包絡に0.10mを加えた側を採用する。
-- カーペット編隊を通すために開口または屋上経路を広げない。Runtimeは特殊接続へ入る前に編隊を解除する。
+| Key | 型 | 内容 |
+|---|---|---|
+| `hs_transition_kind` | string | `aperture` |
+| `hs_zone_id` / `hs_band_id` | string | その端点が接続する飛行帯 |
+| `hs_bidirectional` | boolean | 双方向か |
+| `hs_link_radius_m` | number | 必要移動包絡と一致する接続半径0.54m。ビット本体半径ではない |
+| `hs_projection_distance_m` | number | 指定帯への投影距離 |
+| `hs_affordances_json` | string | 意味タグJSON配列 |
+| `hs_endpoint` | string | `A`または`B` |
 
-通常階段、踊り場、通常扉には`LNK_*`を使用しない。窓または屋上の通過判定を`PRT_*`で重複表現しない。旧案の`LINK_*`は無効であり、`LNK_*`へ統一する。
+- 学校の窓58組は双方向、`window-access`と`search-vantage`を持ち、Aを屋外帯、Bを校舎内帯または体育館上段へ明示接続する。
+- 体育館高窓は開口中心7.10mを一時通過するが、接続後は体育館上段の許可高度へ戻る。
+- 旧`bit_roof`2組／4端点は完全廃止する。屋上は4F屋外帯と屋上帯をつなぐ`boundary` Volumeで接続し、旧端点を優先地点やフォールバックへ流用しない。
+- 窓枠、庇、外壁、手すり、屋上構造物を含む全遷移区間で、V1物理半径0.44mと安全余裕0.10mを合計した半径0.54mの移動包絡を確保する。
+- カーペット編隊を通すために開口や境界を広げない。Runtimeは帯・ゾーン変更前に編隊を解除する。
+
+通常階段は人間用には連続NavMesh、ビット用には明示`surface-route`として管理する。窓または境界の通過判定を`PRT_*`で重複表現しない。旧案の`LINK_*`は無効であり、狭い開口だけ`LNK_*`へ統一する。
 
 ## 8. Object custom propertiesとglTF Node `extras`
 
@@ -331,8 +382,8 @@ Object custom propertiesは、glTF exporterのCustom Properties出力を有効�
 - 実行時propertyは`hs_`接頭辞を必須とする。
 - property名はASCII snake_caseとする。
 - 型はstring、boolean、有限number、integerに限定する。
-- IDは空文字、前後空白、大文字、重複を認めない。
-- `position_x`、`bounds`、`cells`、座標配列など、Object TransformやMesh形状と重複する空間データを置かない。
+- `hs_id`は空文字、前後空白、大文字、重複を認めない。飛行ゾーンID・帯IDは前後空白のない非空opaque文字列とし、Runtimeは内容を解析しない。
+- `position_x`、`bounds`、`cells`など、Object TransformやMesh形状と重複する空間データを置かない。階段・斜路・障害物越え境界の通過形状を表す`hs_route_points_json`だけは、遷移実行に必要な明示点列として認める。
 - `hs_link_radius_m`のようにEmptyの形状だけでは表現できない役割固有の単一値は認める。
 - 未登録の`hs_*` property、型不一致、Node `extras`への未出力を監査失敗とする。
 - 接頭辞から決まる分類をpropertyで上書きしない。たとえば`VIS_*`へ衝突roleを付けてもColliderにはならない。
@@ -371,15 +422,17 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 | `movementColliders.bit` | 通常`COL_*`、`COL_ActorOnly_*` |
 | `beamBlockers` | 通常`COL_*`だけ |
 | `sightBlockers` | 通常`COL_*`だけ |
-| `navSourceMeshes` | `NAV_*` |
+| `navSourceMeshes` | `hs_nav_set=human`の`NAV_*` |
+| `bitFlightNavSourceMeshes` | `hs_nav_set=bit-flight`の`NAV_BitFlight_*` |
 | `metadataNode` | `META_Stage` |
 | `markers` | `MRK_*` |
-| `volumes` | `VOL_*` |
+| `volumes` | 通常ゲーム用`VOL_*` |
+| `bitFlightTransitions` | 飛行遷移用`VOL_*`と`LNK_*` |
 | `stageBoundary` | `BND_Stage` |
 | `portals` | `PRT_*` |
-| `links` | `LNK_*` |
+| `links` | 人間用`LNK_*` |
 
-分類順は`COL_ActorOnly_*`、`COL_HumanOnly_*`、通常`COL_*`、その他の順とする。通常`COL_*`の判定式は`name.startsWith("COL_") && !name.startsWith("COL_ActorOnly_") && !name.startsWith("COL_HumanOnly_")`と同値でなければならない。`links`はA/Bを`StageLinkPair`へ組み立て、`StageSpatialContext.links`の`StageLinkRegistry`として公開する。
+分類順は`COL_ActorOnly_*`、`COL_HumanOnly_*`、通常`COL_*`、その他の順とする。通常`COL_*`の判定式は`name.startsWith("COL_") && !name.startsWith("COL_ActorOnly_") && !name.startsWith("COL_HumanOnly_")`と同値でなければならない。人間用pairだけを`StageSpatialContext.links`、ビット用pairとtransition Volumeを`StageSpatialContext.bitNavigation`へ公開する。
 
 すべての作者Nodeがちょうど1つの役割集合へ入り、未分類Nodeと重複分類Nodeが0件であることを要求する。glTFローダーの管理ルートとAssetContainer管理親は作者Nodeではないため、この監査から除外する。
 
@@ -400,9 +453,9 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 - `META_Stage`がEmptyとして1件だけ存在する。
 - `BND_Stage`が閉じたMeshとして1件だけ存在する。
 - `MRK_*`の`player_spawn`が1件だけ存在する。
-- `NAV_*`の`hs_nav_role=walkable`が1件以上存在する。
+- 人間用`NAV_*`の`hs_nav_role=walkable`が1件以上、ビット用`NAV_BitFlight_*`が1件以上存在する。
 - 学校で有効にする各ゲームシステムに必要なmarker roleとvolume roleが存在する。
-- `LNK_*`はA/Bが完全なpairである。`PRT_*`と`LNK_*`は必要な場合だけ存在してよい。`bit_window`と`bit_roof`を使う設計箇所では対応する`LNK_*` pairが存在し、両端の`hs_bidirectional=true`が一致する。
+- `LNK_*`はA/Bが完全なpairである。ビット用pairは両端の遷移方式、双方向性、半径、投影距離、意味タグが一致し、各端点のゾーン・帯が登録済みである。
 - B03-1の学校資産では、校舎1～4階、階段下、体育館、屋上階段室を含む全屋内について、ビットが入り得る範囲の直上を覆う天井`COL_*`が存在し、天井Collider欠落が0件である。
 
 ### 11.3 形状とTransform
@@ -412,15 +465,16 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 - `COL_*`、`VOL_*`、`BND_Stage`、`PRT_*`の必須閉形状に非manifold、自己交差、反転法線がない。
 - `MRK_*`と`LNK_*` Emptyのscaleは`(1, 1, 1)`である。
 - `BND_Stage`が必須marker、volume、link endpointを内包する。
-- `bit_window`／`bit_roof`のA/B間全区間へ半径0.54mの移動包絡を通し、窓枠、壁、庇、外壁、手すり、屋上構造物との交差が0件である。
+- 全飛行遷移区間へV1物理半径0.44m＋安全余裕0.10m＝半径0.54mの移動包絡を通し、窓枠、壁、庇、外壁、手すり、天井、屋上構造物との交差が0件である。
 
 ### 11.4 `extras`と意味
 
 - 必須Object custom propertiesがglTF Node `extras`へ同じ型と値で出力されている。
 - `META_Stage.hs_stage_id`がTypeScriptカタログIDと一致する。
 - `META_Stage.hs_nav_profile`がベイクプロファイルIDと一致する。
+- `META_Stage.hs_bit_nav_profile`がビット用ベイクプロファイルIDと一致する。
 - `hs_id`が役割横断で一意である。ただし同一`LNK_*` pairのA/Bだけは同じIDを持つ。
-- `bit_window`と`bit_roof`はビット専用kindとして登録され、`hs_bidirectional=true`である。
+- 学校の窓58組がビット専用`aperture`として登録され、旧`bit_roof`は0件である。
 - 未登録role、未登録`hs_*` property、座標の重複記述がない。
 
 ### 11.5 分類
@@ -436,27 +490,28 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 
 ## 12. Recast NavMesh派生物
 
-NavMeshベイクの入力は、監査済みの同一GLBに含まれる`NAV_*` Meshと、`META_Stage.hs_nav_profile`が指すversion付きベイクプロファイルだけである。`LNK_<id>_A/B`はNavMeshバイナリへ焼き込まず、同じGLBからRuntimeが読み、両端を読み込んだNavMesh面へ投影して`surface`経路間の`transition`として加える。
+NavMeshベイクの入力は、監査済みの同一GLBに含まれる各nav setと、`META_Stage`が指す対応version付きベイクプロファイルだけである。人間用linkとビット用遷移はNavMesh payloadへ焼き込まず、同じGLBからRuntimeが読み、対応グラフへ加える。
 
 - `VIS_*`や`COL_*`を暗黙のベイク入力にしない。
 - GLBへRuntime管理親の`0.25`縮尺を適用したworld座標でベイクする。
 - `walkableHeight`、`walkableClimb`、`walkableRadius`などのRecast値はversion付き共通プロファイルで固定する。
-- 各`LNK_*`端点の直下に、`hs_link_radius_m`以内で接続できるNavMesh面が存在することをGLBとNavMeshの組で検証する。
+- 人間用linkは人間用NavMesh、ビット用apertureは各端点が明示する帯payloadへ投影できることを検証する。
+- ビット用bundleは帯ごとのRecast payload、zone ID、band IDだけを保持し、空間定義はGLBを正本とする。bundleの欠落、余分、重複、空payload、区間重複・隙間を失敗にする。
 - 通常Web版・Electron版は事前ベイク済みバイナリを読むだけとし、起動時生成を行わない。
 - 実行時生成はベイク結果比較用の開発ツールに限定し、バイナリ欠落時のフォールバックにしない。
-- GLB SHA-256、ベイクプロファイルIDとhash、Recast実装version、NavMesh SHA-256を監査記録へ残す。
-- GLBまたはプロファイルが変わった場合、NavMesh未再生成を監査失敗とする。
+- GLB SHA-256、両ベイクプロファイルIDとhash、Recast実装version、両NavMesh SHA-256を監査記録へ残す。
+- GLBまたはプロファイルが変わった場合、対応NavMesh未再生成を監査失敗とする。
 - NavMeshバイナリを手編集しない。
 
 ## 13. 読み込みと破棄
 
 Runtimeの詳細契約は`docs/spec_stage_runtime_v2.md`を正本とする。資産側では次を要求する。
 
-1. GLB、Node `extras`、NavMeshの監査が完了するまでステージを利用可能にしない。
+1. GLB、Node `extras`、人間用NavMesh、ビット用bundleの監査が完了するまでステージを利用可能にしない。
 2. `VIS_*`だけを表示し、役割集合ごとの衝突・pickable設定を最初の描画前に適用する。
-3. NavMeshバイナリは`NavigationWorld`が所有し、GLBのAssetContainerと同じステージライフサイクルで破棄する。
+3. 人間用NavMeshは`NavigationWorld`、全帯payloadは`BitFlightNavigationWorld`が所有し、GLBのAssetContainerと同じステージライフサイクルで破棄する。
 4. ステージ破棄はAssetContainer単位で行い、作者Mesh、Empty、Material、Texture、管理ルートの参照を残さない。
-5. 再読込時は新しいAssetContainerとNavigationWorldを作り、名前、件数、world bounds、hash、必須roleが初回と一致することを確認する。
+5. 再読込時は新しいAssetContainer、NavigationWorld、BitFlightNavigationWorldを作り、名前、件数、world bounds、hash、必須roleが初回と一致することを確認する。
 
 GLB読込で生成される`EnvironmentBRDFTexture`はBabylon.jsのScene共有資源として扱う。Stage側は明示破棄せず、Sceneのライフサイクルへ委ねる。
 
@@ -504,11 +559,11 @@ npm run build:t01
 ## 15. 当面の対象と移行条件
 
 - 当面の通常ゲーム対象は学校だけとする。
-- B02学校blockoutには`VIS_*`、`COL_*`に加えて`META_*`、`NAV_*`、`MRK_*`、`VOL_*`、`BND_*`を追加済みであり、事前ベイクNavMeshと組み合わせてRuntime移行を行う。
-- `PRT_*`は既存のroom、streaming、door trigger用途だけに使用できる。B03では承認済みの開いた窓・割れた窓へ`COL_HumanOnly_Window_*`と`bit_window` pairを、屋外と屋上の承認済み接続箇所へ`bit_roof` pairを追加し、これらを`PRT_*`では表さない。
+- B02学校は共通飛行契約の最初の利用データとして、屋外4帯、校舎内4帯、体育館2帯、屋上1帯と明示遷移をGLBへ持つ。
+- `PRT_*`は既存のroom、streaming、door trigger用途だけに使用できる。窓58組はビット用`aperture`、屋上外周は`boundary`で表し、旧`bit_roof`は残さない。
 - 屋上は窓の設置対象外であるだけで、B03以後もプレイ可能空間と経路対象に含める。
-- T04は`StageMoverKind`、高さ付きNavMesh位置、通常面と特殊接続を分けた経路、移動者別Collider、link registryまでの共通基盤を担当する。B03資産を使う学校複数階回帰はT04-2B、ビットの床相対高度・天井・衝突安全と窓／屋上の実飛行はT05-1、完成戦闘と全光線はT05-2、学校全域の統合確認はT06で行う。
+- T04は人間用高さ付きNavMeshとlink registry、T05-1Aは汎用飛行帯・別ビットNavMesh・接続グラフ・学校データ移行、T05-1BはV1飛行表現と3D安全・探索・追跡・実遷移を担当する。完成戦闘と全光線はT05-2、学校全域の統合確認はT06で行う。
 - 舞台階段の形状ディテールと同色面の境界表現はB03で仕上げる。
 - 既存8ステージのJSONはV2実行経路から除外し、互換アダプターを作らない。
-- 既存ステージを将来再導入する場合は、ステージごとに`.blend`、規約準拠GLB、事前ベイクNavMeshを作り、通常ステージ監査へ合格させる。
+- 既存ステージを将来再導入する場合は、ステージごとに`.blend`、規約準拠GLB、人間用NavMesh、必要な飛行帯・遷移・ビット用bundleを作り、通常ステージ監査へ合格させる。
 - JSON文字マップをGLB欠落時の代替、NavMesh生成の補助、テストfixtureの正本として残さない。

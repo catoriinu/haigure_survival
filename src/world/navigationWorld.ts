@@ -56,6 +56,10 @@ export type NavigationPath = Readonly<{
 
 export interface NavigationWorld {
   projectPoint(position: Vector3, maxDistance: number): NavigationLocation | null;
+  findSurfacePath(
+    start: NavigationLocation,
+    destination: NavigationLocation
+  ): NavigationSurfaceStep | null;
   findPath(
     start: NavigationLocation,
     destination: NavigationLocation,
@@ -266,12 +270,6 @@ const validateLinkPair = (pair: StageLinkPair) => {
   if (!Number.isFinite(pair.radiusMeters) || pair.radiusMeters <= 0) {
     throw new Error(`LNK_*の半径は正数が必要です: ${pair.id}`);
   }
-  if (
-    (pair.kind === "bit_window" || pair.kind === "bit_roof") &&
-    !pair.bidirectional
-  ) {
-    throw new Error(`${pair.kind}は双方向必須です: ${pair.id}`);
-  }
   if (Vector3.Distance(pair.endpointA.position, pair.endpointB.position) === 0) {
     throw new Error(`LNK_*のA/Bには異なる位置が必要です: ${pair.id}`);
   }
@@ -336,6 +334,17 @@ class RecastNavigationWorld implements NavigationWorld {
     return Vector3.Distance(position, projected) <= maxDistance
       ? createNavigationLocation(projected, result.polyRef)
       : null;
+  }
+
+  findSurfacePath(
+    start: NavigationLocation,
+    destination: NavigationLocation
+  ) {
+    this.assertActive();
+    assertNavigationLocation("経路始点", start);
+    assertNavigationLocation("経路終点", destination);
+    const step = this.findSurfaceStep(start, destination);
+    return step ? cloneNavigationSurfaceStep(step) : null;
   }
 
   findPath(

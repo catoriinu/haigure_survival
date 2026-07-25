@@ -23,6 +23,23 @@ import {
   type NavigationSurfaceStep,
   type NavigationWorld
 } from "../../../src/world/navigationWorld";
+import {
+  BIT_FLIGHT_SHORTEST_ROUTE_POLICY,
+  getBitFlightWorldPosition,
+  type BitFlightBandRef,
+  type BitFlightRoutePolicy,
+  type BitFlightTransition
+} from "../../../src/world/bitFlightNavigation";
+import {
+  createBitFlightAgent,
+  type BitFlightAgentState
+} from "../../../src/world/bitFlightAgent";
+import {
+  BIT_FLIGHT_ENVELOPE_RADIUS_METERS,
+  BIT_FLIGHT_ENVELOPE_RADIUS_WORLD_UNITS,
+  createBitFlightSafety,
+  type BitFlightSafety
+} from "../../../src/world/bitFlightSafety";
 import { createNavigationAgent } from "../../../src/world/navigationAgent";
 import {
   PLAYER_SPRITE_HEIGHT,
@@ -89,7 +106,8 @@ type SceneResourceCounts = Readonly<{
 const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   ...SCHOOL_STAGE,
   glbUrl: "b02_school_blockout.glb",
-  navmeshUrl: "b02_school_blockout.navmesh.bin"
+  navmeshUrl: "b02_school_blockout.navmesh.bin",
+  bitNavmeshUrl: "b02_school_blockout.bit-flight.navmesh.bin"
 });
 
 const blenderPointToBabylon = (point: Vector3) =>
@@ -382,6 +400,200 @@ const requireNavigationLocation = (
   return location;
 };
 
+const projectBitTransitionEndpoint = (
+  context: StageSpatialContext,
+  transition: BitFlightTransition,
+  endpoint: "from" | "to"
+) => {
+  const ref: BitFlightBandRef =
+    endpoint === "from" ? transition.from : transition.to;
+  const authoredPosition =
+    endpoint === "from"
+      ? transition.fromPosition
+      : transition.toPosition;
+  const band = context.bitNavigation.getBand(ref);
+  if (!band) {
+    throw new Error(
+      `飛行遷移${transition.id}の${endpoint}飛行帯がありません。`
+    );
+  }
+  const position = authoredPosition.clone();
+  position.y = Math.min(
+    band.maximumCenterHeight,
+    Math.max(band.minimumCenterHeight, position.y)
+  );
+  const location = context.bitNavigation.projectPointInBand(
+    ref,
+    position,
+    3 * BLENDER_METERS_TO_WORLD_UNITS
+  );
+  if (!location) {
+    throw new Error(
+      `飛行遷移${transition.id}の${endpoint}端点を投影できません。`
+    );
+  }
+  return location;
+};
+
+const findBitTransitionRoute = (
+  context: StageSpatialContext,
+  transition: BitFlightTransition,
+  reversed = false
+) => {
+  const from = projectBitTransitionEndpoint(
+    context,
+    transition,
+    reversed ? "to" : "from"
+  );
+  const to = projectBitTransitionEndpoint(
+    context,
+    transition,
+    reversed ? "from" : "to"
+  );
+  return context.bitNavigation.findRoute(
+    from,
+    to,
+    BIT_FLIGHT_SHORTEST_ROUTE_POLICY
+  );
+};
+
+type BitTransitionAgentAcceptance = Readonly<{
+  transitionId: string;
+  reversed: boolean;
+  targetTraversalUnique: boolean;
+  routeAccepted: boolean;
+  arrived: boolean;
+  passedTargetTransition: boolean;
+  finalBandMatches: boolean;
+  allTicksSafe: boolean;
+  updateCount: number;
+  finalState: BitFlightAgentState;
+}>;
+
+const didBitTransitionAgentPass = (
+  result: BitTransitionAgentAcceptance
+) =>
+  result.targetTraversalUnique &&
+  result.routeAccepted &&
+  result.arrived &&
+  result.passedTargetTransition &&
+  result.finalBandMatches &&
+  result.allTicksSafe;
+
+const describeBitTransitionAgentFailure = (
+  result: BitTransitionAgentAcceptance
+) =>
+  `${result.transitionId}:${result.reversed ? "reverse" : "forward"}` +
+  `(state=${result.finalState},unique=${result.targetTraversalUnique},` +
+  `route=${result.routeAccepted},` +
+  `transition=${result.passedTargetTransition},` +
+  `band=${result.finalBandMatches},safe=${result.allTicksSafe},` +
+  `ticks=${result.updateCount})`;
+
+const executeBitTransitionAgentAcceptance = (
+  context: StageSpatialContext,
+  safety: BitFlightSafety,
+  transition: BitFlightTransition,
+  reversed: boolean
+): BitTransitionAgentAcceptance => {
+  const start = projectBitTransitionEndpoint(
+    context,
+    transition,
+    reversed ? "to" : "from"
+  );
+  const destination = projectBitTransitionEndpoint(
+    context,
+    transition,
+    reversed ? "from" : "to"
+  );
+  const expectedDestination = reversed ? transition.from : transition.to;
+  const agent = createBitFlightAgent(
+    context.bitNavigation,
+    safety,
+    Object.freeze({ waypointTolerance: 0.001 })
+  );
+  let passedTargetTransition = false;
+  let allTicksSafe = safety.isCenterSafe(
+    getBitFlightWorldPosition(start)
+  );
+  let updateCount = 0;
+  let finalSnapshot = agent.getSnapshot();
+  try {
+    const policy: BitFlightRoutePolicy = Object.freeze({
+      canUseTransition: (traversal) =>
+        traversal.transition.id === transition.id &&
+        traversal.reversed === reversed,
+      canUseRouteStep: () => true,
+      additionalSurfaceCruiseHeights: () => Object.freeze([]),
+      additionalTransitionCost: () => 0
+    });
+    const matchingTraversals = context.bitNavigation
+      .getTransitionsFrom(start)
+      .filter(
+        (traversal) =>
+          traversal.transition.id === transition.id &&
+          traversal.reversed === reversed
+      );
+    const targetTraversalUnique = matchingTraversals.length === 1;
+    const preparedRoute = targetTraversalUnique
+      ? context.bitNavigation.findRouteThroughTransition(
+          start,
+          matchingTraversals[0],
+          destination,
+          policy
+        )
+      : null;
+    const routeAccepted =
+      preparedRoute !== null &&
+      agent.setPreparedRoute(start, preparedRoute);
+    finalSnapshot = agent.getSnapshot();
+    while (
+      routeAccepted &&
+      finalSnapshot.state !== "arrived" &&
+      finalSnapshot.state !== "blocked" &&
+      finalSnapshot.state !== "unreachable" &&
+      updateCount < 60
+    ) {
+      finalSnapshot = agent.update(
+        2 * BLENDER_METERS_TO_WORLD_UNITS,
+        1
+      );
+      updateCount += 1;
+      if (
+        (finalSnapshot.transition?.transition.id === transition.id &&
+          finalSnapshot.transition.reversed === reversed) ||
+        (finalSnapshot.location?.zoneId ===
+          expectedDestination.zoneId &&
+          finalSnapshot.location.bandId ===
+            expectedDestination.bandId)
+      ) {
+        passedTargetTransition = true;
+      }
+      if (finalSnapshot.position) {
+        allTicksSafe =
+          allTicksSafe &&
+          safety.isCenterSafe(finalSnapshot.position);
+      }
+    }
+    return Object.freeze({
+      transitionId: transition.id,
+      reversed,
+      targetTraversalUnique,
+      routeAccepted,
+      arrived: finalSnapshot.state === "arrived",
+      passedTargetTransition,
+      finalBandMatches:
+        finalSnapshot.location?.zoneId === expectedDestination.zoneId &&
+        finalSnapshot.location.bandId === expectedDestination.bandId,
+      allTicksSafe,
+      updateCount,
+      finalState: finalSnapshot.state
+    });
+  } finally {
+    agent.dispose();
+  }
+};
+
 const countSceneResources = (targetScene: Scene): SceneResourceCounts => ({
   meshes: targetScene.meshes.length,
   materials: targetScene.materials.length,
@@ -406,6 +618,11 @@ const createProjectionNavigationStub = (
   projectPoint: NavigationWorld["projectPoint"]
 ): NavigationWorld => ({
   projectPoint,
+  findSurfacePath: () => {
+    throw new Error(
+      "spawn sampler検証ではfindSurfacePathを呼び出しません。"
+    );
+  },
   findPath: () => {
     throw new Error("spawn sampler検証ではfindPathを呼び出しません。");
   },
@@ -538,6 +755,10 @@ const createMovementBlockingStage = (
     navigation: Object.freeze({
       projectPoint: (position: Vector3, maxDistance: number) =>
         source.navigation.projectPoint(position, maxDistance),
+      findSurfacePath: (
+        start: NavigationLocation,
+        destination: NavigationLocation
+      ) => source.navigation.findSurfacePath(start, destination),
       findPath: (
         start: NavigationLocation,
         destination: NavigationLocation,
@@ -590,6 +811,42 @@ const createMovementBlockingStage = (
           point: from.add(to).scale(0.5),
           normal: from.subtract(to).normalize(),
           distance: Vector3.Distance(from, to) * 0.5,
+          mesh: source.resources.normalColliders[0]
+        });
+      },
+      castMovementSphere: (
+        moverKind: StageMoverKind,
+        from: Vector3,
+        to: Vector3,
+        radius: number
+      ) => {
+        const horizontalDistanceSquared =
+          (to.x - from.x) ** 2 + (to.z - from.z) ** 2;
+        if (
+          moverKind !== blockedMover ||
+          horizontalDistanceSquared <= 1e-12
+        ) {
+          return source.queries.castMovementSphere(
+            moverKind,
+            from,
+            to,
+            radius
+          );
+        }
+        attempts.push(
+          Object.freeze({
+            moverKind,
+            from: from.clone(),
+            to: to.clone()
+          })
+        );
+        const center = from.add(to).scale(0.5);
+        return Object.freeze({
+          point: center.clone(),
+          center,
+          normal: from.subtract(to).normalize(),
+          distance: Vector3.Distance(from, to) * 0.5,
+          fraction: 0.5,
           mesh: source.resources.normalColliders[0]
         });
       }
@@ -865,27 +1122,27 @@ const runValidation = async () => {
       detail: `lowerY=${lowerProjected?.position.y.toFixed(4) ?? "--"} / upperY=${upperProjected?.position.y.toFixed(4) ?? "--"} / constrain=${lowerConstrained?.position.y.toFixed(4) ?? "--"}/${upperConstrained?.position.y.toFixed(4) ?? "--"} / random=${lowerRandom?.position.y.toFixed(4) ?? "--"}/${upperRandom?.position.y.toFixed(4) ?? "--"} / cross=${getNavigationPathPoints(stackedCrossFloorPath).length}点`
     });
 
-    const bitWindowLink = createValidationLinkPair(
-      "bit-window-validation",
-      "bit_window",
+    const primaryTeleportLink = createValidationLinkPair(
+      "primary-teleport-validation",
+      "teleport",
       new Vector3(3.9, 0.25, -1.5),
       new Vector3(5.1, 0.25, -1.5)
     );
-    const bitRoofLink = createValidationLinkPair(
-      "bit-roof-validation",
-      "bit_roof",
+    const elevatedTeleportLink = createValidationLinkPair(
+      "elevated-teleport-validation",
+      "teleport",
       new Vector3(-9.5, 0.25, -1.5),
       new Vector3(-9.5, 1.05, -1.5)
     );
     const cachedSurfaceBridgeLink = createValidationLinkPair(
-      "bit-window-cache-bridge-validation",
-      "bit_window",
+      "teleport-cache-bridge-validation",
+      "teleport",
       new Vector3(5.7, 0.25, -1.5),
       new Vector3(-6.7, 0.25, -1.5)
     );
     const linkCacheValidationLinks = [
-      bitWindowLink,
-      bitRoofLink,
+      primaryTeleportLink,
+      elevatedTeleportLink,
       cachedSurfaceBridgeLink
     ];
     const queryPrototype = NavMeshQuery.prototype;
@@ -903,11 +1160,11 @@ const runValidation = async () => {
     let constructionPathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let playerPathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let npcPathfindAttempts: readonly RecastPathfindAttempt[] = [];
-    let directBitPathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let repeatedDirectPathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let firstPathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let secondPathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let reversePathfindAttempts: readonly RecastPathfindAttempt[] = [];
-    let directBitPath: NavigationPath | null = null;
+    let repeatedDirectPath: NavigationPath | null = null;
     let firstCachedLinkPath: NavigationPath | null = null;
     let secondCachedLinkPath: NavigationPath | null = null;
     let reverseCachedLinkPath: NavigationPath | null = null;
@@ -975,14 +1232,14 @@ const runValidation = async () => {
       npcPathfindAttempts = Object.freeze(
         recastPathfindAttempts.slice(npcPathfindStartIndex)
       );
-      const directBitPathfindStartIndex = recastPathfindAttempts.length;
-      directBitPath = linkCacheValidationWorld.findPath(
+      const repeatedDirectPathfindStartIndex = recastPathfindAttempts.length;
+      repeatedDirectPath = linkCacheValidationWorld.findPath(
         directStartLocation,
         directDestinationLocation,
-        "bit"
+        "npc"
       );
-      directBitPathfindAttempts = Object.freeze(
-        recastPathfindAttempts.slice(directBitPathfindStartIndex)
+      repeatedDirectPathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(repeatedDirectPathfindStartIndex)
       );
       const startLocation = requireNavigationLocation(
         linkCacheValidationWorld,
@@ -996,7 +1253,7 @@ const runValidation = async () => {
       firstCachedLinkPath = linkCacheValidationWorld.findPath(
         startLocation,
         destinationLocation,
-        "bit"
+        "npc"
       );
       firstPathfindAttempts = Object.freeze(
         recastPathfindAttempts.slice(firstPathfindStartIndex)
@@ -1005,7 +1262,7 @@ const runValidation = async () => {
       secondCachedLinkPath = linkCacheValidationWorld.findPath(
         startLocation,
         destinationLocation,
-        "bit"
+        "npc"
       );
       secondPathfindAttempts = Object.freeze(
         recastPathfindAttempts.slice(secondPathfindStartIndex)
@@ -1014,7 +1271,7 @@ const runValidation = async () => {
       reverseCachedLinkPath = linkCacheValidationWorld.findPath(
         destinationLocation,
         startLocation,
-        "bit"
+        "npc"
       );
       reversePathfindAttempts = Object.freeze(
         recastPathfindAttempts.slice(reversePathfindStartIndex)
@@ -1058,13 +1315,14 @@ const runValidation = async () => {
             )
         : [];
     };
-    const directBitTransitionCount =
-      directBitPath?.steps.filter((step) => step.kind === "transition").length ?? 0;
+    const repeatedDirectTransitionCount =
+      repeatedDirectPath?.steps.filter((step) => step.kind === "transition")
+        .length ?? 0;
     const directSurfacePairKey = playerPathfindAttempts[0]
       ? `${playerPathfindAttempts[0].start}->${playerPathfindAttempts[0].destination}`
       : null;
-    const directBitSurfacePathfindCount = directSurfacePairKey
-      ? directBitPathfindAttempts.filter(
+    const repeatedDirectSurfacePathfindCount = directSurfacePairKey
+      ? repeatedDirectPathfindAttempts.filter(
           (attempt) =>
             `${attempt.start}->${attempt.destination}` === directSurfacePairKey
         ).length
@@ -1082,12 +1340,12 @@ const runValidation = async () => {
         step.kind === "transition" ? [step.link.id] : []
       ) ?? [];
     const expectedCachedTransitionIds = [
-      bitWindowLink.id,
+      primaryTeleportLink.id,
       cachedSurfaceBridgeLink.id
     ];
     const expectedReverseCachedTransitionIds = [
       cachedSurfaceBridgeLink.id,
-      bitWindowLink.id
+      primaryTeleportLink.id
     ];
     const hasExpectedCachedTransitions = (ids: readonly string[]) =>
       ids.length === expectedCachedTransitionIds.length &&
@@ -1105,13 +1363,13 @@ const runValidation = async () => {
       getEndpointSurfacePathfindAttempts(reversePathfindAttempts);
     const firstCachedEndpointSurfaceSteps = getSurfaceStepsBetweenTransitions(
       firstCachedLinkPath,
-      bitWindowLink.id,
+      primaryTeleportLink.id,
       cachedSurfaceBridgeLink.id
     );
     const reverseCachedEndpointSurfaceSteps = getSurfaceStepsBetweenTransitions(
       reverseCachedLinkPath,
       cachedSurfaceBridgeLink.id,
-      bitWindowLink.id
+      primaryTeleportLink.id
     );
     const reverseCachedSurfaceMatches =
       firstCachedEndpointSurfaceSteps.length > 0 &&
@@ -1145,20 +1403,20 @@ const runValidation = async () => {
         constructionPathfindAttempts.length === 0 &&
         playerPathfindAttempts.length === 1 &&
         npcPathfindAttempts.length === 1 &&
-        directBitPath !== null &&
-        directBitTransitionCount === 0 &&
-        directBitPathfindAttempts.length === 1 &&
-        directBitSurfacePathfindCount === 1 &&
+        repeatedDirectPath !== null &&
+        repeatedDirectTransitionCount === 0 &&
+        repeatedDirectPathfindAttempts.length === 1 &&
+        repeatedDirectSurfacePathfindCount === 1 &&
         firstEndpointSurfacePathfindAttempts.length === 0 &&
         secondEndpointSurfacePathfindAttempts.length === 0 &&
         reverseEndpointSurfacePathfindAttempts.length === 0 &&
         reverseCachedSurfaceMatches,
-      detail: `endpoints=${cachedEndpointKeys.size} / build=${constructionPathfindAttempts.length} / normal=${playerPathfindAttempts.length},${npcPathfindAttempts.length} / directBit=${directBitPathfindAttempts.length}(direct=${directBitSurfacePathfindCount}, ${directBitTransitionCount}遷移) / endpoint=${firstEndpointSurfacePathfindAttempts.length},${secondEndpointSurfacePathfindAttempts.length},${reverseEndpointSurfacePathfindAttempts.length} / reversePoints=${reverseCachedSurfaceMatches} / transitions=${firstCachedTransitionIds.join(" > ") || "none"}`
+      detail: `endpoints=${cachedEndpointKeys.size} / build=${constructionPathfindAttempts.length} / normal=${playerPathfindAttempts.length},${npcPathfindAttempts.length} / repeatedDirect=${repeatedDirectPathfindAttempts.length}(direct=${repeatedDirectSurfacePathfindCount}, ${repeatedDirectTransitionCount}遷移) / endpoint=${firstEndpointSurfacePathfindAttempts.length},${secondEndpointSurfacePathfindAttempts.length},${reverseEndpointSurfacePathfindAttempts.length} / reversePoints=${reverseCachedSurfaceMatches} / transitions=${firstCachedTransitionIds.join(" > ") || "none"}`
     });
 
     const highProjectionLink = createValidationLinkPair(
-      "bit-window-high-projection-validation",
-      "bit_window",
+      "teleport-high-projection-validation",
+      "teleport",
       new Vector3(-9.5, 2, -1.5),
       new Vector3(-6.5, 2, -1.5)
     );
@@ -1172,7 +1430,7 @@ const runValidation = async () => {
         highProjectionWorld,
         new Vector3(-9.5, 0.8, -1.5),
         new Vector3(-6.5, 0, -1.5),
-        "bit"
+        "npc"
       );
     } finally {
       highProjectionWorld?.dispose();
@@ -1198,8 +1456,8 @@ const runValidation = async () => {
       highProjectionPath?.steps.reduce((sum, step) => sum + step.distance, 0) ??
       Number.NaN;
     const unsupportedProjectionLink = createValidationLinkPair(
-      "bit-window-unsupported-projection-validation",
-      "bit_window",
+      "teleport-unsupported-projection-validation",
+      "teleport",
       new Vector3(-8, 2, -1.5),
       new Vector3(-6.5, 2, -1.5)
     );
@@ -1242,14 +1500,14 @@ const runValidation = async () => {
     unsupportedProjectionLink.endpointB.node.dispose();
 
     const directSurfaceShortcutLink = createValidationLinkPair(
-      "bit-window-direct-surface-shortcut-validation",
-      "bit_window",
+      "teleport-direct-surface-shortcut-validation",
+      "teleport",
       new Vector3(3, 0.25, -1.5),
       new Vector3(3, 0.25, 1.5)
     );
     let directSurfaceShortcutWorld: NavigationWorld | null = null;
     let directSurfaceNpcPath: NavigationPath | null = null;
-    let directSurfaceBitPath: NavigationPath | null = null;
+    let directSurfacePlayerPath: NavigationPath | null = null;
     try {
       directSurfaceShortcutWorld = await createNavigationWorld(data, [
         directSurfaceShortcutLink
@@ -1260,158 +1518,160 @@ const runValidation = async () => {
         routeEnd,
         "npc"
       );
-      directSurfaceBitPath = findNavigationPath(
+      directSurfacePlayerPath = findNavigationPath(
         directSurfaceShortcutWorld,
         routeStart,
         routeEnd,
-        "bit"
+        "player"
       );
     } finally {
       directSurfaceShortcutWorld?.dispose();
     }
-    const directSurfaceBitTransitions =
-      directSurfaceBitPath?.steps.filter((step) => step.kind === "transition") ??
+    const directSurfacePlayerTransitions =
+      directSurfacePlayerPath?.steps.filter(
+        (step) => step.kind === "transition"
+      ) ??
       [];
     checks.push({
-      name: "通常面成立時のビットA*非実行",
+      name: "通常面成立時の特殊接続グラフ非実行",
       ok:
         directSurfaceNpcPath !== null &&
         directSurfaceNpcPath.steps.every((step) => step.kind === "surface") &&
-        directSurfaceBitPath !== null &&
-        directSurfaceBitPath.steps.every((step) => step.kind === "surface") &&
-        directSurfaceBitTransitions.length === 0 &&
+        directSurfacePlayerPath !== null &&
+        directSurfacePlayerPath.steps.every((step) => step.kind === "surface") &&
+        directSurfacePlayerTransitions.length === 0 &&
         Math.abs(
-          directSurfaceBitPath.distance - directSurfaceNpcPath.distance
+          directSurfacePlayerPath.distance - directSurfaceNpcPath.distance
         ) <= 1e-6,
-      detail: `npc=${directSurfaceNpcPath?.distance.toFixed(4) ?? "--"} / bit=${directSurfaceBitPath?.distance.toFixed(4) ?? "--"} / transitions=${directSurfaceBitTransitions.length}`
+      detail: `npc=${directSurfaceNpcPath?.distance.toFixed(4) ?? "--"} / player=${directSurfacePlayerPath?.distance.toFixed(4) ?? "--"} / transitions=${directSurfacePlayerTransitions.length}`
     });
     directSurfaceShortcutLink.endpointA.node.dispose();
     directSurfaceShortcutLink.endpointB.node.dispose();
 
     const linkedNavigationWorld = await createNavigationWorld(data, [
-      bitWindowLink,
-      bitRoofLink
+      primaryTeleportLink,
+      elevatedTeleportLink
     ]);
     pendingNavigationWorlds.push(linkedNavigationWorld);
 
-    const windowOutside = new Vector3(3.9, 0, -1.5);
-    const windowInside = new Vector3(5.1, 0, -1.5);
-    const windowWithoutLink = findNavigationPath(
+    const primaryLinkStart = new Vector3(3.9, 0, -1.5);
+    const primaryLinkEnd = new Vector3(5.1, 0, -1.5);
+    const primaryWithoutLink = findNavigationPath(
       navigationWorld,
-      windowOutside,
-      windowInside,
-      "bit"
-    );
-    const windowBitForward = findNavigationPath(
-      linkedNavigationWorld,
-      windowOutside,
-      windowInside,
-      "bit"
-    );
-    const windowBitBackward = findNavigationPath(
-      linkedNavigationWorld,
-      windowInside,
-      windowOutside,
-      "bit"
-    );
-    const windowNpcForward = findNavigationPath(
-      linkedNavigationWorld,
-      windowOutside,
-      windowInside,
+      primaryLinkStart,
+      primaryLinkEnd,
       "npc"
     );
-    const windowPlayerForward = findNavigationPath(
+    const primaryNpcForward = findNavigationPath(
       linkedNavigationWorld,
-      windowOutside,
-      windowInside,
+      primaryLinkStart,
+      primaryLinkEnd,
+      "npc"
+    );
+    const primaryNpcBackward = findNavigationPath(
+      linkedNavigationWorld,
+      primaryLinkEnd,
+      primaryLinkStart,
+      "npc"
+    );
+    const primaryPlayerForward = findNavigationPath(
+      linkedNavigationWorld,
+      primaryLinkStart,
+      primaryLinkEnd,
       "player"
     );
-    const windowForwardTransitions =
-      windowBitForward?.steps.filter((step) => step.kind === "transition") ?? [];
-    const windowBackwardTransitions =
-      windowBitBackward?.steps.filter((step) => step.kind === "transition") ?? [];
+    const primaryForwardTransitions =
+      primaryNpcForward?.steps.filter((step) => step.kind === "transition") ?? [];
+    const primaryBackwardTransitions =
+      primaryNpcBackward?.steps.filter((step) => step.kind === "transition") ?? [];
+    const primaryPlayerTransitions =
+      primaryPlayerForward?.steps.filter((step) => step.kind === "transition") ?? [];
     checks.push({
-      name: "bit_windowのビット専用双方向経路",
+      name: "汎用teleportのplayer・NPC双方向経路",
       ok:
-        windowWithoutLink === null &&
-        windowBitForward !== null &&
-        windowBitBackward !== null &&
-        windowNpcForward === null &&
-        windowPlayerForward === null &&
-        windowForwardTransitions.length === 1 &&
-        windowBackwardTransitions.length === 1 &&
-        windowForwardTransitions[0].link.id === bitWindowLink.id &&
-        windowBackwardTransitions[0].link.id === bitWindowLink.id &&
-        windowForwardTransitions[0].from === "A" &&
-        windowBackwardTransitions[0].from === "B",
-      detail: `bit=${windowForwardTransitions.length}/${windowBackwardTransitions.length}遷移 / npc=${windowNpcForward === null ? "不可" : "可"} / player=${windowPlayerForward === null ? "不可" : "可"}`
+        primaryWithoutLink === null &&
+        primaryNpcForward !== null &&
+        primaryNpcBackward !== null &&
+        primaryPlayerForward !== null &&
+        primaryForwardTransitions.length === 1 &&
+        primaryBackwardTransitions.length === 1 &&
+        primaryPlayerTransitions.length === 1 &&
+        primaryForwardTransitions[0].link.id === primaryTeleportLink.id &&
+        primaryBackwardTransitions[0].link.id === primaryTeleportLink.id &&
+        primaryPlayerTransitions[0].link.id === primaryTeleportLink.id &&
+        primaryForwardTransitions[0].from === "A" &&
+        primaryBackwardTransitions[0].from === "B",
+      detail: `npc=${primaryForwardTransitions.length}/${primaryBackwardTransitions.length}遷移 / player=${primaryPlayerTransitions.length}遷移`
     });
 
-    const roofGround = new Vector3(-9.5, 0, -1.5);
-    const roofTop = new Vector3(-9.5, 0.8, -1.5);
-    const roofWithoutLink = findNavigationPath(
+    const lowerIsland = new Vector3(-9.5, 0, -1.5);
+    const upperIsland = new Vector3(-9.5, 0.8, -1.5);
+    const elevatedWithoutLink = findNavigationPath(
       navigationWorld,
-      roofGround,
-      roofTop,
-      "bit"
-    );
-    const roofBitForward = findNavigationPath(
-      linkedNavigationWorld,
-      roofGround,
-      roofTop,
-      "bit"
-    );
-    const roofBitBackward = findNavigationPath(
-      linkedNavigationWorld,
-      roofTop,
-      roofGround,
-      "bit"
-    );
-    const roofNpcForward = findNavigationPath(
-      linkedNavigationWorld,
-      roofGround,
-      roofTop,
+      lowerIsland,
+      upperIsland,
       "npc"
     );
-    const roofForwardTransition = roofBitForward?.steps.find(
+    const elevatedNpcForward = findNavigationPath(
+      linkedNavigationWorld,
+      lowerIsland,
+      upperIsland,
+      "npc"
+    );
+    const elevatedNpcBackward = findNavigationPath(
+      linkedNavigationWorld,
+      upperIsland,
+      lowerIsland,
+      "npc"
+    );
+    const elevatedPlayerForward = findNavigationPath(
+      linkedNavigationWorld,
+      lowerIsland,
+      upperIsland,
+      "player"
+    );
+    const elevatedForwardTransition = elevatedNpcForward?.steps.find(
       (step) => step.kind === "transition"
     );
-    const roofBackwardTransition = roofBitBackward?.steps.find(
+    const elevatedBackwardTransition = elevatedNpcBackward?.steps.find(
       (step) => step.kind === "transition"
     );
-    const roofEndpointMaximumY = Math.max(
-      bitRoofLink.endpointA.position.y,
-      bitRoofLink.endpointB.position.y
+    const elevatedPlayerTransition = elevatedPlayerForward?.steps.find(
+      (step) => step.kind === "transition"
+    );
+    const elevatedEndpointMaximumY = Math.max(
+      elevatedTeleportLink.endpointA.position.y,
+      elevatedTeleportLink.endpointB.position.y
     );
     checks.push({
-      name: "bit_roofの屋上接近・帰還固定経路",
+      name: "高さの異なるNavMesh島を結ぶ汎用teleport",
       ok:
-        roofWithoutLink === null &&
-        roofForwardTransition?.link.id === bitRoofLink.id &&
-        roofBackwardTransition?.link.id === bitRoofLink.id &&
-        roofForwardTransition.from === "A" &&
-        roofBackwardTransition.from === "B" &&
-        roofNpcForward === null &&
-        roofEndpointMaximumY === 1.05,
-      detail: `up=${roofForwardTransition?.link.kind ?? "none"} / down=${roofBackwardTransition?.link.kind ?? "none"} / maxY=${roofEndpointMaximumY.toFixed(2)} / npc=${roofNpcForward === null ? "不可" : "可"}`
+        elevatedWithoutLink === null &&
+        elevatedForwardTransition?.link.id === elevatedTeleportLink.id &&
+        elevatedBackwardTransition?.link.id === elevatedTeleportLink.id &&
+        elevatedPlayerTransition?.link.id === elevatedTeleportLink.id &&
+        elevatedForwardTransition.from === "A" &&
+        elevatedBackwardTransition.from === "B" &&
+        elevatedEndpointMaximumY === 1.05,
+      detail: `up=${elevatedForwardTransition?.link.kind ?? "none"} / down=${elevatedBackwardTransition?.link.kind ?? "none"} / player=${elevatedPlayerTransition?.link.kind ?? "none"} / maxY=${elevatedEndpointMaximumY.toFixed(2)}`
     });
 
     const transitionAgent = createNavigationAgent(
       linkedNavigationWorld,
-      "bit",
+      "npc",
       navigationAgentConfig
     );
-    const windowOutsideLocation = requireNavigationLocation(
+    const primaryStartLocation = requireNavigationLocation(
       linkedNavigationWorld,
-      windowOutside
+      primaryLinkStart
     );
-    const windowInsideLocation = requireNavigationLocation(
+    const primaryEndLocation = requireNavigationLocation(
       linkedNavigationWorld,
-      windowInside
+      primaryLinkEnd
     );
     const transitionAgentStep = transitionAgent.update(
-      windowOutsideLocation,
-      windowInside,
+      primaryStartLocation,
+      primaryLinkEnd,
       10,
       1
     );
@@ -1419,65 +1679,68 @@ const runValidation = async () => {
       name: "特殊接続入口でのtransition-required",
       ok:
         transitionAgentStep.state === "transition-required" &&
-        transitionAgentStep.transition?.link.id === bitWindowLink.id &&
+        transitionAgentStep.transition?.link.id === primaryTeleportLink.id &&
         transitionAgentStep.transition.from === "A" &&
         transitionAgentStep.transition.to === "B" &&
         Vector3.Distance(
           transitionAgentStep.location.position,
-          windowOutsideLocation.position
+          primaryStartLocation.position
         ) <= 1e-5 &&
         Vector3.Distance(
           transitionAgentStep.transition.entry.position,
-          windowOutsideLocation.position
+          primaryStartLocation.position
         ) <= 1e-5 &&
         Vector3.Distance(
           transitionAgentStep.transition.exit.position,
-          windowInsideLocation.position
+          primaryEndLocation.position
         ) <= 1e-5 &&
         Vector3.Distance(
           transitionAgentStep.location.position,
-          windowInsideLocation.position
+          primaryEndLocation.position
         ) >= 0.5,
       detail: `state=${transitionAgentStep.state} / link=${transitionAgentStep.transition?.link.id ?? "none"}`
     });
     transitionAgent.clear();
 
-    const invalidWindowLink = createValidationLinkPair(
-      "bit-window-one-way-validation",
-      "bit_window",
+    const oneWayTeleportLink = createValidationLinkPair(
+      "one-way-teleport-validation",
+      "teleport",
       new Vector3(3.9, 0.25, -1.5),
       new Vector3(5.1, 0.25, -1.5),
       false
     );
-    const invalidRoofLink = createValidationLinkPair(
-      "bit-roof-one-way-validation",
-      "bit_roof",
-      new Vector3(-9.5, 0.25, -1.5),
-      new Vector3(-9.5, 1.05, -1.5),
-      false
-    );
-    let invalidWindowLinkMessage: string | null = null;
+    let oneWayTeleportWorld: NavigationWorld | null = null;
+    let oneWayForward: NavigationPath | null = null;
+    let oneWayBackward: NavigationPath | null = null;
     try {
-      const invalidWorld = await createNavigationWorld(data, [invalidWindowLink]);
-      invalidWorld.dispose();
-    } catch (error) {
-      invalidWindowLinkMessage = error instanceof Error ? error.message : String(error);
+      oneWayTeleportWorld = await createNavigationWorld(data, [
+        oneWayTeleportLink
+      ]);
+      oneWayForward = findNavigationPath(
+        oneWayTeleportWorld,
+        primaryLinkStart,
+        primaryLinkEnd,
+        "npc"
+      );
+      oneWayBackward = findNavigationPath(
+        oneWayTeleportWorld,
+        primaryLinkEnd,
+        primaryLinkStart,
+        "npc"
+      );
+    } finally {
+      oneWayTeleportWorld?.dispose();
     }
-    let invalidRoofLinkMessage: string | null = null;
-    try {
-      const invalidWorld = await createNavigationWorld(data, [invalidRoofLink]);
-      invalidWorld.dispose();
-    } catch (error) {
-      invalidRoofLinkMessage = error instanceof Error ? error.message : String(error);
-    }
+    const oneWayForwardTransitions =
+      oneWayForward?.steps.filter((step) => step.kind === "transition") ?? [];
     checks.push({
-      name: "bit_window・bit_roofの双方向必須契約",
+      name: "汎用teleportの片方向接続",
       ok:
-        invalidWindowLinkMessage?.includes("双方向必須") === true &&
-        invalidWindowLinkMessage.includes(invalidWindowLink.id) &&
-        invalidRoofLinkMessage?.includes("双方向必須") === true &&
-        invalidRoofLinkMessage.includes(invalidRoofLink.id),
-      detail: `window=${invalidWindowLinkMessage ?? "例外なし"} / roof=${invalidRoofLinkMessage ?? "例外なし"}`
+        oneWayForwardTransitions.length === 1 &&
+        oneWayForwardTransitions[0].link.id === oneWayTeleportLink.id &&
+        oneWayForwardTransitions[0].from === "A" &&
+        oneWayBackward === null,
+      detail: `forward=${oneWayForwardTransitions.map((step) => step.link.id).join(">") || "none"} / backward=${oneWayBackward === null ? "不可" : "可"}`
     });
 
     linkedNavigationWorld.dispose();
@@ -1486,10 +1749,9 @@ const runValidation = async () => {
       1
     );
     for (const link of [
-      bitWindowLink,
-      bitRoofLink,
-      invalidWindowLink,
-      invalidRoofLink
+      primaryTeleportLink,
+      elevatedTeleportLink,
+      oneWayTeleportLink
     ]) {
       link.endpointA.node.dispose();
       link.endpointB.node.dispose();
@@ -1723,6 +1985,7 @@ const runValidation = async () => {
       const spawnVolume: StageVolume = Object.freeze({
         id: "sampler-validation",
         role: "npc_spawn",
+        bitFlightBand: null,
         mesh: spawnVolumeMesh
       });
       const emptyMovementColliders = Object.freeze({
@@ -2259,37 +2522,148 @@ const runValidation = async () => {
           .requireSingle("player_spawn")
           .node.getAbsolutePosition();
         const expectedPlayerSpawn = new Vector3(0.375, 0, 0);
-        const windowLinks = schoolContext.links.all.filter(
-          (link) => link.kind === "bit_window"
+        const bitTransitions = schoolContext.bitNavigation.transitions;
+        const apertureTransitions = bitTransitions.filter(
+          (transition) => transition.kind === "aperture"
         );
-        const roofLinks = schoolContext.links.all.filter(
-          (link) => link.kind === "bit_roof"
+        const verticalTransitions = bitTransitions.filter(
+          (transition) => transition.kind === "vertical"
         );
+        const surfaceRouteTransitions = bitTransitions.filter(
+          (transition) => transition.kind === "surface-route"
+        );
+        const boundaryTransitions = bitTransitions.filter(
+          (transition) => transition.kind === "boundary"
+        );
+        const bitSpawnVolumes =
+          schoolContext.volumes.getByRole("bit_spawn");
         const resourceCountsOk =
           schoolContext.resources.visualMeshes.length === 472 &&
           schoolContext.resources.normalColliders.length === 185 &&
           schoolContext.resources.actorOnlyColliders.length === 82 &&
           schoolContext.resources.humanOnlyColliders.length === 58 &&
           schoolContext.resources.navSourceMeshes.length === 15 &&
+          schoolContext.resources.bitFlightNavSourceMeshes.length === 22 &&
           schoolContext.markers.all.length === 1 &&
           schoolContext.volumes.all.length === 3 &&
-          schoolContext.links.all.length === 60 &&
-          windowLinks.length === 58 &&
-          roofLinks.length === 2 &&
-          schoolContext.links.all.every((link) => link.bidirectional);
+          schoolContext.links.all.length === 0 &&
+          schoolContext.bitNavigation.zones.length === 4 &&
+          schoolContext.bitNavigation.bands.length === 11 &&
+          apertureTransitions.length === 58 &&
+          verticalTransitions.length === 4 &&
+          surfaceRouteTransitions.length === 10 &&
+          boundaryTransitions.length === 1 &&
+          bitTransitions.every((transition) => transition.bidirectional);
         checks.push({
           name: "学校GLBの厳格分類と3D意味Object",
           ok:
             schoolContext.metadata.stageId === "school" &&
             schoolContext.metadata.navProfileId === "school-humanoid-v1" &&
+            schoolContext.metadata.bitNavProfileId ===
+              SCHOOL_VALIDATION_STAGE.bitNavProfileId &&
             resourceCountsOk &&
             Vector3.Distance(playerSpawn, expectedPlayerSpawn) <= 1e-5 &&
             schoolContext.boundary.contains(playerSpawn) &&
             schoolContext.volumes.getByRole("npc_spawn").length === 1 &&
-            schoolContext.volumes.getByRole("bit_spawn").length === 1 &&
+            bitSpawnVolumes.length === 1 &&
+            bitSpawnVolumes[0].bitFlightBand !== null &&
             schoolContext.volumes.getByRole("water").length === 1 &&
             schoolConstructionPathfindCount === 0,
-          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / NAV=${schoolContext.resources.navSourceMeshes.length} / VOL=${schoolContext.volumes.all.length} / water=${schoolContext.volumes.getByRole("water").length} / LNK=${schoolContext.links.all.length}(window=${windowLinks.length},roof=${roofLinks.length}) / buildPathfind=${schoolConstructionPathfindCount} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
+          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / humanNAV=${schoolContext.resources.navSourceMeshes.length} / bitNAV=${schoolContext.resources.bitFlightNavSourceMeshes.length} / VOL=${schoolContext.volumes.all.length} / water=${schoolContext.volumes.getByRole("water").length} / humanLNK=${schoolContext.links.all.length} / zones=${schoolContext.bitNavigation.zones.length} / bands=${schoolContext.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length}) / buildPathfind=${schoolConstructionPathfindCount} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
+        });
+
+        const schoolBitSafety = createBitFlightSafety(
+          schoolContext.queries
+        );
+        const transitionAgentResults: BitTransitionAgentAcceptance[] = [];
+        const orderedBitTransitions = Object.freeze([
+          ...bitTransitions.filter(
+            (transition) => transition.kind !== "aperture"
+          ),
+          ...bitTransitions.filter(
+            (transition) => transition.kind === "aperture"
+          )
+        ]);
+        await new Promise<void>((resolve) =>
+          setTimeout(() => resolve(), 0)
+        );
+        for (const transition of orderedBitTransitions) {
+          for (const reversed of [false, true]) {
+            transitionAgentResults.push(
+              executeBitTransitionAgentAcceptance(
+                schoolContext,
+                schoolBitSafety,
+                transition,
+                reversed
+              )
+            );
+            const currentNonWindowResults =
+              transitionAgentResults.filter((result) => {
+                const completedTransition = bitTransitions.find(
+                  (candidate) =>
+                    candidate.id === result.transitionId
+                );
+                return completedTransition?.kind !== "aperture";
+              });
+            summary.textContent =
+              `学校ビット遷移を実測しています。` +
+              `${transitionAgentResults.length}/${bitTransitions.length * 2}` +
+              ` / 非窓PASS=${currentNonWindowResults.filter(
+                didBitTransitionAgentPass
+              ).length}/${currentNonWindowResults.length}`;
+            await new Promise<void>((resolve) =>
+              setTimeout(() => resolve(), 0)
+            );
+          }
+        }
+        const nonWindowTransitionAgentResults =
+          transitionAgentResults.filter((result) => {
+            const transition = bitTransitions.find(
+              (candidate) => candidate.id === result.transitionId
+            );
+            return transition?.kind !== "aperture";
+          });
+        const windowTransitionAgentResults =
+          transitionAgentResults.filter((result) => {
+            const transition = bitTransitions.find(
+              (candidate) => candidate.id === result.transitionId
+            );
+            return transition?.kind === "aperture";
+          });
+        const nonWindowTransitionPasses =
+          nonWindowTransitionAgentResults.filter(
+            didBitTransitionAgentPass
+          );
+        const windowTransitionPasses =
+          windowTransitionAgentResults.filter(didBitTransitionAgentPass);
+        checks.push({
+          name: "学校非窓15遷移の実飛行Agent双方向受入",
+          ok:
+            nonWindowTransitionAgentResults.length === 30 &&
+            nonWindowTransitionPasses.length === 30,
+          detail:
+            `pass=${nonWindowTransitionPasses.length}/` +
+            `${nonWindowTransitionAgentResults.length} / ` +
+            `failures=${nonWindowTransitionAgentResults
+              .filter((result) => !didBitTransitionAgentPass(result))
+              .slice(0, 4)
+              .map(describeBitTransitionAgentFailure)
+              .join(", ") || "none"}`
+        });
+        checks.push({
+          name: "学校58窓遷移の実飛行Agent双方向受入（現行1.20m開口ブロッカー）",
+          ok:
+            windowTransitionAgentResults.length === 116 &&
+            windowTransitionPasses.length === 116,
+          detail:
+            `pass=${windowTransitionPasses.length}/` +
+            `${windowTransitionAgentResults.length} / ` +
+            `現行開口半幅0.60m > 必要安全包絡半径${BIT_FLIGHT_ENVELOPE_RADIUS_METERS.toFixed(2)}m / ` +
+            `failures=${windowTransitionAgentResults
+              .filter((result) => !didBitTransitionAgentPass(result))
+              .slice(0, 4)
+              .map(describeBitTransitionAgentFailure)
+              .join(", ") || "none"}`
         });
 
         const stageDestination = blenderPointToBabylon(
@@ -2869,32 +3243,52 @@ const runValidation = async () => {
           detail: `normal=${normalColliderSet.size} / ActorOnly=${actorOnlyColliderSet.size} / HumanOnly=${humanOnlyColliderSet.size} / player=${schoolContext.resources.movementColliders.player.length} / npc=${schoolContext.resources.movementColliders.npc.length} / bit=${schoolContext.resources.movementColliders.bit.length} / beam=${schoolContext.resources.beamBlockers.length} / sight=${schoolContext.resources.sightBlockers.length}`
         });
 
-        const representativeWindowLink = windowLinks[0];
+        const representativeWindowTransition = apertureTransitions[0];
+        if (!representativeWindowTransition) {
+          throw new Error("代表ビット窓aperture遷移がありません。");
+        }
+        const windowForwardRoute = findBitTransitionRoute(
+          schoolContext,
+          representativeWindowTransition
+        );
+        const windowBackwardRoute = findBitTransitionRoute(
+          schoolContext,
+          representativeWindowTransition,
+          true
+        );
         const realWindowPlayerHit = schoolContext.queries.castMovementSegment(
           "player",
-          representativeWindowLink.endpointA.position,
-          representativeWindowLink.endpointB.position
+          representativeWindowTransition.fromPosition,
+          representativeWindowTransition.toPosition
         );
         const realWindowNpcHit = schoolContext.queries.castMovementSegment(
           "npc",
-          representativeWindowLink.endpointA.position,
-          representativeWindowLink.endpointB.position
+          representativeWindowTransition.fromPosition,
+          representativeWindowTransition.toPosition
         );
         const realWindowBitHit = schoolContext.queries.castMovementSegment(
           "bit",
-          representativeWindowLink.endpointA.position,
-          representativeWindowLink.endpointB.position
+          representativeWindowTransition.fromPosition,
+          representativeWindowTransition.toPosition
         );
         const realWindowBeamHit = schoolContext.queries.castBeamSegment(
-          representativeWindowLink.endpointA.position,
-          representativeWindowLink.endpointB.position
+          representativeWindowTransition.fromPosition,
+          representativeWindowTransition.toPosition
         );
         const realWindowSightHit = schoolContext.queries.castSightSegment(
-          representativeWindowLink.endpointA.position,
-          representativeWindowLink.endpointB.position
+          representativeWindowTransition.fromPosition,
+          representativeWindowTransition.toPosition
         );
+        const windowForwardTransitions =
+          windowForwardRoute?.steps.filter(
+            (step) => step.kind === "transition"
+          ) ?? [];
+        const windowBackwardTransitions =
+          windowBackwardRoute?.steps.filter(
+            (step) => step.kind === "transition"
+          ) ?? [];
         checks.push({
-          name: "実bit_window開口の移動・光線分類",
+          name: "実ビット窓apertureの双方向経路・移動・光線分類",
           ok:
             realWindowPlayerHit?.mesh.name.startsWith(
               "COL_HumanOnly_Window_"
@@ -2902,8 +3296,51 @@ const runValidation = async () => {
             realWindowNpcHit?.mesh === realWindowPlayerHit?.mesh &&
             realWindowBitHit === null &&
             realWindowBeamHit === null &&
-            realWindowSightHit === null,
-          detail: `link=${representativeWindowLink.id} / player=${realWindowPlayerHit?.mesh.name ?? "clear"} / npc=${realWindowNpcHit?.mesh.name ?? "clear"} / bit=${realWindowBitHit?.mesh.name ?? "clear"} / beam=${realWindowBeamHit?.mesh.name ?? "clear"} / sight=${realWindowSightHit?.mesh.name ?? "clear"}`
+            realWindowSightHit === null &&
+            windowForwardTransitions.length === 1 &&
+            windowForwardTransitions[0].traversal.transition ===
+              representativeWindowTransition &&
+            windowForwardTransitions[0].traversal.reversed === false &&
+            windowBackwardTransitions.length === 1 &&
+            windowBackwardTransitions[0].traversal.transition ===
+              representativeWindowTransition &&
+            windowBackwardTransitions[0].traversal.reversed === true,
+          detail: `transition=${representativeWindowTransition.id} / forward=${windowForwardTransitions.map((step) => step.traversal.transition.id).join(">") || "none"} / backward=${windowBackwardTransitions.map((step) => step.traversal.transition.id).join(">") || "none"} / player=${realWindowPlayerHit?.mesh.name ?? "clear"} / npc=${realWindowNpcHit?.mesh.name ?? "clear"} / bit=${realWindowBitHit?.mesh.name ?? "clear"} / beam=${realWindowBeamHit?.mesh.name ?? "clear"} / sight=${realWindowSightHit?.mesh.name ?? "clear"}`
+        });
+
+        const rooftopBoundaryTransition = boundaryTransitions[0];
+        if (!rooftopBoundaryTransition) {
+          throw new Error("屋上boundary遷移がありません。");
+        }
+        const rooftopForwardRoute = findBitTransitionRoute(
+          schoolContext,
+          rooftopBoundaryTransition
+        );
+        const rooftopBackwardRoute = findBitTransitionRoute(
+          schoolContext,
+          rooftopBoundaryTransition,
+          true
+        );
+        const rooftopForwardTransitions =
+          rooftopForwardRoute?.steps.filter(
+            (step) => step.kind === "transition"
+          ) ?? [];
+        const rooftopBackwardTransitions =
+          rooftopBackwardRoute?.steps.filter(
+            (step) => step.kind === "transition"
+          ) ?? [];
+        checks.push({
+          name: "4F・屋上外周boundaryの双方向経路",
+          ok:
+            rooftopForwardTransitions.length === 1 &&
+            rooftopForwardTransitions[0].traversal.transition ===
+              rooftopBoundaryTransition &&
+            rooftopForwardTransitions[0].traversal.reversed === false &&
+            rooftopBackwardTransitions.length === 1 &&
+            rooftopBackwardTransitions[0].traversal.transition ===
+              rooftopBoundaryTransition &&
+            rooftopBackwardTransitions[0].traversal.reversed === true,
+          detail: `transition=${rooftopBoundaryTransition.id} / forward=${rooftopForwardTransitions.map((step) => step.traversal.transition.id).join(">") || "none"} / backward=${rooftopBackwardTransitions.map((step) => step.traversal.transition.id).join(">") || "none"}`
         });
 
         const waterVolume = schoolContext.volumes.getByRole("water")[0];
@@ -3249,26 +3686,33 @@ const runValidation = async () => {
             minimumSpawnDistance: 0.2,
             spawnMaxAttempts: 128,
             spawnProjectionMaxDistance: 0.75,
-            minimumFlightHeight: 0.3,
-            maximumFlightHeight: 0.3,
             random: bitRandom.random
           }
         );
         const bitInitializationRandomCallCount = bitRandom.getCallCount();
         const initialBitActors = bitSystem.getActorSpheres();
         const bitNavigationStart = initialBitActors[1].center.clone();
-        const bitGround = schoolContext.queries.sampleGround(
-          initialBitActors[0].center.add(new Vector3(0, 0.5, 0)),
-          1.5
-        );
+        const bitSpawnBandRef =
+          schoolContext.volumes.getByRole("bit_spawn")[0].bitFlightBand;
+        const bitSpawnBand = bitSpawnBandRef
+          ? schoolContext.bitNavigation.getBand(bitSpawnBandRef)
+          : null;
         checks.push({
-          name: "ビットの物理床相対高度",
+          name: "ビットspawnの明示飛行帯・安全中心高度",
           ok:
-            bitGround !== null &&
-            Math.abs(
-              initialBitActors[0].center.y - bitGround.point.y - 0.3
-            ) <= 1e-6,
-          detail: `centerY=${initialBitActors[0].center.y.toFixed(4)} / groundY=${bitGround?.point.y.toFixed(4) ?? "--"}`
+            bitSpawnBand !== null &&
+            initialBitActors.every(
+              (actor) =>
+                actor.center.y >= bitSpawnBand.minimumCenterHeight &&
+                actor.center.y <= bitSpawnBand.maximumCenterHeight &&
+                bitMovementBlocking.stage.queries.castMovementSphere(
+                  "bit",
+                  actor.center,
+                  actor.center,
+                  BIT_FLIGHT_ENVELOPE_RADIUS_WORLD_UNITS
+                ) === null
+            ),
+          detail: `centerY=${initialBitActors.map((actor) => actor.center.y.toFixed(4)).join(",")} / band=${bitSpawnBand ? `${bitSpawnBand.minimumCenterHeight.toFixed(4)}..${bitSpawnBand.maximumCenterHeight.toFixed(4)}` : "none"}`
         });
 
         const distantPlayerTarget = Object.freeze({
@@ -3294,28 +3738,63 @@ const runValidation = async () => {
           ]
         });
         const bitAlertStates = bitSystem.getTargetStates();
-        const bitFirstPathfindCount = countPathfindAttemptsFrom(
-          bitMovementBlocking.getPathfindAttempts(),
-          "bit",
-          bitNavigationStart
-        );
-        bitSystem.update({
-          deltaSeconds: 0.1,
-          elapsedSeconds: 0.1,
-          targets: [distantPlayerTarget],
-          externalAlerts: []
+        const blockedMovementTarget = Object.freeze({
+          ...distantPlayerTarget,
+          footPosition: initialBitActors[0].center.clone(),
+          aimPosition: initialBitActors[0].center.clone()
         });
-        const bitSecondPathfindCount = countPathfindAttemptsFrom(
-          bitMovementBlocking.getPathfindAttempts(),
-          "bit",
-          bitNavigationStart
-        );
+        const bitFirstMovementAttemptCount =
+          bitMovementBlocking.getAttempts().length;
+        let bitBlockedUpdateCount = 0;
+        while (
+          bitBlockedUpdateCount < 20 &&
+          !bitMovementBlocking.getAttempts().some(
+            (attempt) =>
+              attempt.moverKind === "bit" &&
+              Math.hypot(
+                attempt.from.x - initialBitActors[1].center.x,
+                attempt.from.z - initialBitActors[1].center.z
+              ) <= 1e-6
+          )
+        ) {
+          bitBlockedUpdateCount += 1;
+          bitSystem.update({
+            deltaSeconds: 0.1,
+            elapsedSeconds: bitBlockedUpdateCount * 0.1,
+            targets: [blockedMovementTarget],
+            externalAlerts: []
+          });
+        }
+        const bitSecondMovementAttemptCount =
+          bitMovementBlocking.getAttempts().length;
         const bitAfterBlockedMovement = bitSystem.getActorSpheres()[1];
+        const bitBlockedHorizontalDistance = Math.hypot(
+          bitAfterBlockedMovement.center.x -
+            initialBitActors[1].center.x,
+          bitAfterBlockedMovement.center.z -
+            initialBitActors[1].center.z
+        );
+        const bitBlockedVerticalDistance = Math.abs(
+          bitAfterBlockedMovement.center.y -
+            initialBitActors[1].center.y
+        );
         const bitMovementAttempts = bitMovementBlocking.getAttempts();
         const bitChaseAttempt = bitMovementAttempts.find(
           (attempt) =>
             attempt.moverKind === "bit" &&
-            Vector3.Distance(attempt.from, initialBitActors[1].center) <= 1e-6
+            Math.hypot(
+              attempt.from.x - initialBitActors[1].center.x,
+              attempt.from.z - initialBitActors[1].center.z
+            ) <= 1e-6
+        );
+        const bitBlockedCenterInBand =
+          bitSpawnBand !== null &&
+          bitAfterBlockedMovement.center.y >=
+            bitSpawnBand.minimumCenterHeight &&
+          bitAfterBlockedMovement.center.y <=
+            bitSpawnBand.maximumCenterHeight;
+        const bitBlockedCenterSafe = schoolBitSafety.isCenterSafe(
+          bitAfterBlockedMovement.center
         );
         checks.push({
           name: "ビット発信者visualと受信者alertの分離",
@@ -3338,13 +3817,11 @@ const runValidation = async () => {
           ok:
             bitChaseAttempt !== undefined &&
             bitAlertStates[1].mode === "chase" &&
-            bitFirstPathfindCount >= 1 &&
-            bitSecondPathfindCount === bitFirstPathfindCount + 1 &&
-            Vector3.Distance(
-              bitAfterBlockedMovement.center,
-              initialBitActors[1].center
-            ) <= 1e-6,
-          detail: `mode=${bitAlertStates[1].mode} / attempts=${bitMovementAttempts.length} / pathfind=${bitFirstPathfindCount}->${bitSecondPathfindCount} / moved=${Vector3.Distance(bitAfterBlockedMovement.center, initialBitActors[1].center).toExponential(2)}`
+            bitSecondMovementAttemptCount >= bitFirstMovementAttemptCount &&
+            bitBlockedHorizontalDistance <= 1e-6 &&
+            bitBlockedCenterInBand &&
+            bitBlockedCenterSafe,
+          detail: `mode=${bitAlertStates[1].mode} / attempts=${bitFirstMovementAttemptCount}->${bitSecondMovementAttemptCount} / updates=${bitBlockedUpdateCount} / chaseAttempt=${bitChaseAttempt !== undefined} / horizontal=${bitBlockedHorizontalDistance.toExponential(2)} / vertical=${bitBlockedVerticalDistance.toExponential(2)} / inBand=${bitBlockedCenterInBand} / safe=${bitBlockedCenterSafe}`
         });
         bitSystem.dispose();
 
@@ -3387,8 +3864,6 @@ const runValidation = async () => {
               minimumSpawnDistance: 0.2,
               spawnMaxAttempts: 128,
               spawnProjectionMaxDistance: 0.75,
-              minimumFlightHeight: 0.3,
-              maximumFlightHeight: 0.3,
               random: bitFailureRandom.random
             }
           );
@@ -3413,8 +3888,6 @@ const runValidation = async () => {
             minimumSpawnDistance: 0,
             spawnMaxAttempts: 128,
             spawnProjectionMaxDistance: 0.75,
-            minimumFlightHeight: 0.3,
-            maximumFlightHeight: 0.3,
             random: bitRandom.random
           }
         );
@@ -3458,8 +3931,6 @@ const runValidation = async () => {
             minimumSpawnDistance: 0,
             spawnMaxAttempts: 128,
             spawnProjectionMaxDistance: 0.75,
-            minimumFlightHeight: 0.3,
-            maximumFlightHeight: 0.3,
             random: bitRandom.random
           }
         );
@@ -3513,13 +3984,13 @@ const runValidation = async () => {
         });
         const releasedVisionState = visionBitSystem.getTargetStates()[0];
         checks.push({
-          name: "ビットvisual標的の扇形外解除",
+          name: "ビットvisual標的の扇形外last-seen追跡",
           ok:
             acquiredVisionState.provenance === "visual" &&
             acquiredTarget !== undefined &&
-            releasedVisionState.targetId === null &&
-            releasedVisionState.provenance === null,
-          detail: `acquired=${acquiredVisionState.targetId ?? "none"} / released=${releasedVisionState.targetId ?? "none"}`
+            releasedVisionState.targetId === acquiredVisionState.targetId &&
+            releasedVisionState.provenance === "visual",
+          detail: `acquired=${acquiredVisionState.targetId ?? "none"} / retained=${releasedVisionState.targetId ?? "none"}`
         });
         visionBitSystem.dispose();
 
@@ -3537,8 +4008,12 @@ const runValidation = async () => {
           reloadedContext.resources.actorOnlyColliders.length === 82 &&
           reloadedContext.resources.humanOnlyColliders.length === 58 &&
           reloadedContext.resources.navSourceMeshes.length === 15 &&
+          reloadedContext.resources.bitFlightNavSourceMeshes.length === 22 &&
           reloadedContext.volumes.getByRole("water").length === 1 &&
-          reloadedContext.links.all.length === 60;
+          reloadedContext.links.all.length === 0 &&
+          reloadedContext.bitNavigation.zones.length === 4 &&
+          reloadedContext.bitNavigation.bands.length === 11 &&
+          reloadedContext.bitNavigation.transitions.length === 73;
         reloadedContext.dispose();
         const afterSecondDispose = countSceneResources(spatialScene);
         checks.push({

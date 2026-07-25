@@ -113,8 +113,6 @@ export const createV2SurvivalRuntime = ({
         minimumSpawnDistance: 0.2,
         spawnMaxAttempts: 512,
         spawnProjectionMaxDistance: 0.75,
-        minimumFlightHeight: 0.25,
-        maximumFlightHeight: 0.45,
         random
       });
       ownedAlertCoordinator = createV2AlertCoordinator({

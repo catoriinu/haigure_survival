@@ -1,0 +1,15 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["vite/client"],
+    "noEmit": true
+  },
+  "include": [
+    "main.ts",
+    "bitFlightAgent.test.ts",
+    "bitFlightSafety.test.ts",
+    "bitFlightSurfaceVariant.test.ts",
+    "bitFlightTactics.test.ts",
+    "bitSystemAcceptance.test.ts"
+  ]
+}
