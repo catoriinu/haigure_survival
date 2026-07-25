@@ -116,7 +116,8 @@ const routeAcrossBands: BitFlightRoute = Object.freeze({
     })
   ]),
   destination,
-  distance: 2
+  distance: 2,
+  totalCost: 2
 });
 
 const routeWithinBand: BitFlightRoute = Object.freeze({
@@ -129,7 +130,8 @@ const routeWithinBand: BitFlightRoute = Object.freeze({
     })
   ]),
   destination,
-  distance: 0.5
+  distance: 0.5,
+  totalCost: 0.5
 });
 
 const lowCeilingDestination = createLocation(
@@ -151,7 +153,8 @@ const routeIntoLowCeiling: BitFlightRoute = Object.freeze({
     })
   ]),
   destination: lowCeilingDestination,
-  distance: 0.3
+  distance: 0.3,
+  totalCost: 0.3
 });
 
 const sameHorizontalDestination = createLocation(
@@ -172,7 +175,8 @@ const routeVerticallyWithinBand: BitFlightRoute = Object.freeze({
     })
   ]),
   destination: sameHorizontalDestination,
-  distance: 0.2
+  distance: 0.2,
+  totalCost: 0.2
 });
 
 const nearSnapDestination = createLocation(
@@ -190,7 +194,8 @@ const routeNearSurfaceSnap: BitFlightRoute = Object.freeze({
     })
   ]),
   destination: nearSnapDestination,
-  distance: 0.05
+  distance: 0.05,
+  totalCost: 0.05
 });
 
 const alternateEntry = createLocation(
@@ -248,7 +253,8 @@ const routeAcrossBandsAlternate: BitFlightRoute = Object.freeze({
     })
   ]),
   destination,
-  distance: 4
+  distance: 4,
+  totalCost: 4
 });
 
 type AgentFixture = Readonly<{
@@ -264,7 +270,8 @@ const createAgentFixture = (
     routeAcrossBands
   ]),
   isMovementBlocked: (from: Vector3, to: Vector3) => boolean = () => false,
-  waypointTolerance = 1e-6
+  waypointTolerance = 1e-6,
+  evaluateRouteStepPolicy = true
 ): AgentFixture => {
   let selectedRoutes = [...initialRoutes];
   let findRouteCount = 0;
@@ -308,6 +315,7 @@ const createAgentFixture = (
       findRouteCount += 1;
       return (
         selectedRoutes.find((route) =>
+          !evaluateRouteStepPolicy ||
           route.steps.every((step) => policy.canUseRouteStep(step))
         ) ?? null
       );
@@ -358,6 +366,61 @@ export const runBitFlightAgentTests =
         ok: BIT_FLIGHT_TRANSITION_SPEED_WORLD_UNITS_PER_SECOND === 0.25,
         detail: `${BIT_FLIGHT_TRANSITION_SPEED_WORLD_UNITS_PER_SECOND.toFixed(3)} world units/s`
       }))
+    );
+
+    results.push(
+      executeTest("探索中に安全確認済みの経路を再Sweepしない", () => {
+        const fixture = createAgentFixture();
+        try {
+          const routeAccepted = fixture.agent.setRoute(
+            start,
+            destination,
+            BIT_FLIGHT_SHORTEST_ROUTE_POLICY
+          );
+          const snapshot = fixture.agent.getSnapshot();
+          const sweepCount = fixture.getSweepCount();
+          return {
+            ok:
+              routeAccepted &&
+              snapshot.state === "surface" &&
+              sweepCount === 4,
+            detail: `accepted=${routeAccepted} / state=${snapshot.state} / sweeps=${sweepCount}`
+          };
+        } finally {
+          fixture.agent.dispose();
+        }
+      })
+    );
+
+    results.push(
+      executeTest("安全確認を経由しない探索結果を受理しない", () => {
+        const fixture = createAgentFixture(
+          Object.freeze([routeAcrossBands]),
+          () => false,
+          1e-6,
+          false
+        );
+        try {
+          let message: string | null = null;
+          try {
+            fixture.agent.setRoute(
+              start,
+              destination,
+              BIT_FLIGHT_SHORTEST_ROUTE_POLICY
+            );
+          } catch (error) {
+            message = error instanceof Error ? error.message : String(error);
+          }
+          return {
+            ok:
+              message?.includes("安全判定で除外した辺") === true &&
+              fixture.getSweepCount() === 0,
+            detail: `${message ?? "例外なし"} / sweeps=${fixture.getSweepCount()}`
+          };
+        } finally {
+          fixture.agent.dispose();
+        }
+      })
     );
 
     results.push(

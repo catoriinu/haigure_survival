@@ -146,7 +146,8 @@ const createSurfaceRoute = (
       })
     ]),
     destination,
-    distance
+    distance,
+    totalCost: distance
   });
 
 const createSearchFixture = () => {
@@ -265,6 +266,46 @@ export const runBitFlightTacticsTests =
     );
 
     results.push(
+      executeTest("近接する探索履歴を最新観測へ集約", () => {
+        const history = createBitFlightExplorationHistory();
+        history.record(middleRef, new Vector3(2.1, 3.1, 4.1), 10);
+        history.record(middleRef, new Vector3(2.2, 3.2, 4.2), 20);
+        history.record(middleRef, new Vector3(2.3, 3.3, 4.3), 15);
+        const samples = history.getRecentSamples(20);
+        return {
+          ok:
+            samples.length === 1 &&
+            samples[0].position.equals(new Vector3(2.2, 3.2, 4.2)) &&
+            samples[0].observedAtSeconds === 20,
+          detail: `samples=${samples.length} / latest=${samples[0]?.observedAtSeconds ?? "none"} / position=${samples[0]?.position.toString() ?? "none"}`
+        };
+      })
+    );
+
+    results.push(
+      executeTest("隣接する空間索引から半径内観測を検索", () => {
+        const history = createBitFlightExplorationHistory();
+        history.record(middleRef, new Vector3(0.49, 3, 4), 10);
+        const nearby = history.hasRecentObservation(
+          middleRef,
+          new Vector3(0.51, 3, 4),
+          0.03,
+          10
+        );
+        const distant = history.hasRecentObservation(
+          middleRef,
+          new Vector3(0.7, 3, 4),
+          0.03,
+          10
+        );
+        return {
+          ok: nearby && !distant,
+          detail: `nearby=${nearby} / distant=${distant}`
+        };
+      })
+    );
+
+    results.push(
       executeTest("60秒を過ぎた探索履歴を破棄", () => {
         const history = createBitFlightExplorationHistory();
         history.record(middleRef, new Vector3(2, 3, 4), 0);
@@ -274,6 +315,30 @@ export const runBitFlightTacticsTests =
         return {
           ok: remaining === 0,
           detail: `remaining=${remaining}`
+        };
+      })
+    );
+
+    results.push(
+      executeTest("集約した探索履歴を最新観測時刻から60秒保持", () => {
+        const history = createBitFlightExplorationHistory();
+        history.record(middleRef, new Vector3(2.1, 3.1, 4.1), 0);
+        history.record(middleRef, new Vector3(2.2, 3.2, 4.2), 30);
+        const retained = history.hasRecentObservation(
+          middleRef,
+          new Vector3(2.2, 3.2, 4.2),
+          0.01,
+          90
+        );
+        const expired = history.hasRecentObservation(
+          middleRef,
+          new Vector3(2.2, 3.2, 4.2),
+          0.01,
+          90.001
+        );
+        return {
+          ok: retained && !expired,
+          detail: `retainedAt=90s:${retained} / expiredAt=90.001s:${expired}`
         };
       })
     );
@@ -363,6 +428,7 @@ export const runBitFlightTacticsTests =
 
     results.push(
       executeTest("追跡入口を到達可能な完全経路コストで選択", () => {
+        let postSearchPolicyEvaluationCount = 0;
         const start = createLocation(
           zoneOpen,
           bandLow,
@@ -433,13 +499,20 @@ export const runBitFlightTacticsTests =
               costBias: 0
             })
           ]),
-          BIT_FLIGHT_SHORTEST_ROUTE_POLICY
+          Object.freeze({
+            ...BIT_FLIGHT_SHORTEST_ROUTE_POLICY,
+            canUseRouteStep: () => {
+              postSearchPolicyEvaluationCount += 1;
+              return true;
+            }
+          })
         );
         return {
           ok:
             selection?.candidate.value === "reachable-alternate-entry" &&
-            selection.totalCost === 4,
-          detail: `selected=${selection?.candidate.value ?? "none"} / cost=${selection?.totalCost ?? "none"}`
+            selection.totalCost === 4 &&
+            postSearchPolicyEvaluationCount === 0,
+          detail: `selected=${selection?.candidate.value ?? "none"} / cost=${selection?.totalCost ?? "none"} / policyReevaluations=${postSearchPolicyEvaluationCount}`
         };
       })
     );

@@ -805,6 +805,33 @@ const runValidation = async () => {
         "courtyard-opening|atrium-lift-volume|gallery-ramp",
       detail: completeRouteIds?.join(" > ") ?? "経路なし"
     });
+    const transitionCost = 2.5;
+    const weightedRoute = activeWorld.findRoute(
+      projectRequired(activeWorld, courtyardRef, -2.3, 1.5),
+      projectRequired(activeWorld, galleryRef, 2.3, -1.5),
+      Object.freeze({
+        ...BIT_FLIGHT_SHORTEST_ROUTE_POLICY,
+        additionalTransitionCost: () => transitionCost
+      })
+    );
+    const weightedTransitionCount =
+      weightedRoute?.steps.filter((step) => step.kind === "transition")
+        .length ?? 0;
+    checks.push({
+      name: "経路探索時のpolicy込み確定コストを純距離と分離して保持",
+      ok:
+        weightedRoute !== null &&
+        weightedTransitionCount > 0 &&
+        Math.abs(
+          weightedRoute.totalCost -
+            (weightedRoute.distance +
+              weightedTransitionCount * transitionCost)
+        ) <= 1e-6,
+      detail:
+        `distance=${weightedRoute?.distance.toFixed(3) ?? "none"} / ` +
+        `total=${weightedRoute?.totalCost.toFixed(3) ?? "none"} / ` +
+        `transitions=${weightedTransitionCount}`
+    });
 
     const verticalTransition = activeWorld.transitions.find(
       (transition) => transition.id === "atrium-lift-volume"

@@ -125,6 +125,16 @@ const MICRO_DELTA_SECONDS = 0.01;
 const SEARCH_SPEED = 0.25;
 const SEARCH_VERTICAL_SPEED = 0.06;
 const BOB_AMPLITUDE = 0.03;
+const PERFORMANCE_DELTA_SECONDS = 1 / 60;
+const PERFORMANCE_WARMUP_TICKS = 180;
+const PERFORMANCE_MEASURED_TICKS = 600;
+const PERFORMANCE_P95_BUDGET_MILLISECONDS = 1000 / 60;
+const PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS = 50;
+const PERFORMANCE_TARGET_LOSS_BUDGET_MILLISECONDS = 125;
+const PERFORMANCE_TARGET_LOSS_SETTLE_TICKS = 1200;
+const PERFORMANCE_TARGET_LOSS_RECOVERY_TICKS = 30;
+const PERFORMANCE_TARGET_LOSS_FOLLOW_UP_TICKS = 60;
+const PERFORMANCE_SIGHT_CASTS_PER_99_UPDATE = 17;
 
 let nextFixtureStageIndex = 0;
 
@@ -828,23 +838,32 @@ const runVisualTargetLossChecks = (
     const acquired = distanceSystem.getTargetStates()[0];
     distanceSightBlocked = true;
     distanceSystem.update({
-      deltaSeconds: 0.01,
-      elapsedSeconds: 0.01,
+      deltaSeconds: 0.05,
+      elapsedSeconds: 0.05,
+      targets,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const beforeSightRefresh = distanceSystem.getTargetStates()[0];
+    distanceSystem.update({
+      deltaSeconds: 0.05,
+      elapsedSeconds: 0.1,
       targets,
       externalAlerts: EMPTY_ALERTS
     });
     const released = distanceSystem.getTargetStates()[0];
     const escapeState = getRequiredFlightState(distanceSystem);
     checks.push({
-      name: "visual標的はlast-seen距離2.6超過で直ちに逃走へ移行",
+      name: "visual遮蔽を10Hz視界更新の0.1秒以内に反映して逃走へ移行",
       ok:
         acquired?.provenance === "visual" &&
         acquired.targetId !== null &&
+        beforeSightRefresh?.targetId === acquired.targetId &&
         released?.targetId === null &&
         escapeState.routePurpose === "escape",
       detail:
         `distance=2.65 / acquired=${acquired?.targetId ?? "none"} / ` +
-        `released=${released?.targetId ?? "none"} / ` +
+        `0.05s=${beforeSightRefresh?.targetId ?? "none"} / ` +
+        `0.10s=${released?.targetId ?? "none"} / ` +
         `route=${escapeState.routePurpose ?? "none"} / ` +
         `location=${escapeState.zoneId ?? "none"}/${escapeState.bandId ?? "none"} / ` +
         `agent=${escapeState.agentState}`
@@ -968,6 +987,117 @@ const runVisualTargetLossChecks = (
   }
 
   return Object.freeze(checks);
+};
+
+const runSightCheckBudgetCheck = (
+  fixture: BitSystemAcceptanceFixture
+): BitSystemAcceptanceCheck => {
+  let sightCastCount = 0;
+  const stage = createFixtureStage(
+    fixture.scene,
+    fixture.navigation,
+    fixture.courtyardRef,
+    fixture.pointInBand(fixture.courtyardRef, 0, 0),
+    () => {
+      sightCastCount += 1;
+      return false;
+    },
+    Object.freeze({ width: 5, height: 0.8, depth: 5 })
+  );
+  let randomState = 0x243f6a88;
+  let forceNormalChase = false;
+  const random = () => {
+    if (forceNormalChase) {
+      return 0.5;
+    }
+    randomState =
+      (Math.imul(randomState, 1664525) + 1013904223) >>> 0;
+    return randomState / 0x1_0000_0000;
+  };
+  const system = createSystem(
+    fixture.scene,
+    stage.stage,
+    random,
+    99,
+    0.08
+  );
+  try {
+    const target = createTarget(
+      "sight-budget-target",
+      fixture.pointInBand(fixture.courtyardRef, 0, 0)
+    );
+    const targets = Object.freeze([target]);
+    const alert = Object.freeze({
+      leaderId: "sight-budget-external-leader",
+      targetId: target.id,
+      remainingSeconds: 1000
+    });
+    forceNormalChase = true;
+    for (
+      let frameIndex = 0;
+      frameIndex < PERFORMANCE_WARMUP_TICKS;
+      frameIndex += 1
+    ) {
+      system.update({
+        deltaSeconds: PERFORMANCE_DELTA_SECONDS,
+        elapsedSeconds: frameIndex * PERFORMANCE_DELTA_SECONDS,
+        targets,
+        externalAlerts:
+          frameIndex === 0 ? Object.freeze([alert]) : EMPTY_ALERTS
+      });
+    }
+
+    sightCastCount = 0;
+    let maximumSightCastsPerUpdate = 0;
+    for (
+      let frameIndex = 0;
+      frameIndex < PERFORMANCE_MEASURED_TICKS;
+      frameIndex += 1
+    ) {
+      const beforeUpdate = sightCastCount;
+      system.update({
+        deltaSeconds: PERFORMANCE_DELTA_SECONDS,
+        elapsedSeconds:
+          (PERFORMANCE_WARMUP_TICKS + frameIndex) *
+          PERFORMANCE_DELTA_SECONDS,
+        targets,
+        externalAlerts: EMPTY_ALERTS
+      });
+      maximumSightCastsPerUpdate = Math.max(
+        maximumSightCastsPerUpdate,
+        sightCastCount - beforeUpdate
+      );
+    }
+    const targetStates = system.getTargetStates();
+    const maximumTotalSightCasts =
+      99 *
+        (PERFORMANCE_MEASURED_TICKS * PERFORMANCE_DELTA_SECONDS) /
+        0.1 +
+      PERFORMANCE_SIGHT_CASTS_PER_99_UPDATE;
+    return Object.freeze({
+      name: "99体の視界Rayを10Hzラウンドロビンで描画フレームへ分散",
+      ok:
+        targetStates.length === 99 &&
+        targetStates.every(
+          (state) =>
+            state.targetId === target.id &&
+            state.mode === "chase"
+        ) &&
+        sightCastCount > 0 &&
+        sightCastCount <= maximumTotalSightCasts &&
+        maximumSightCastsPerUpdate <=
+          PERFORMANCE_SIGHT_CASTS_PER_99_UPDATE,
+      detail:
+        `tick=${PERFORMANCE_DELTA_SECONDS.toFixed(6)}s / ` +
+        `measured=${PERFORMANCE_MEASURED_TICKS} / ` +
+        `casts=${sightCastCount}/${maximumTotalSightCasts} / ` +
+        `maxPerUpdate=${maximumSightCastsPerUpdate}/` +
+        `${PERFORMANCE_SIGHT_CASTS_PER_99_UPDATE}`
+    });
+  } finally {
+    system.dispose();
+    stage.dispose();
+  }
 };
 
 const runCarpetFormationChecks = (
@@ -1658,10 +1788,14 @@ const runCrossBandChasePerformanceCheck = (
       targetId: target.id,
       remainingSeconds: 1000
     });
-    for (let frameIndex = 0; frameIndex < 30; frameIndex += 1) {
+    for (
+      let frameIndex = 0;
+      frameIndex < PERFORMANCE_WARMUP_TICKS;
+      frameIndex += 1
+    ) {
       system.update({
-        deltaSeconds: 0.1,
-        elapsedSeconds: frameIndex * 0.1,
+        deltaSeconds: PERFORMANCE_DELTA_SECONDS,
+        elapsedSeconds: frameIndex * PERFORMANCE_DELTA_SECONDS,
         targets,
         externalAlerts:
           frameIndex === 0 ? Object.freeze([alert]) : EMPTY_ALERTS
@@ -1674,11 +1808,17 @@ const runCrossBandChasePerformanceCheck = (
     }
 
     const samples: number[] = [];
-    for (let frameIndex = 0; frameIndex < 300; frameIndex += 1) {
+    for (
+      let frameIndex = 0;
+      frameIndex < PERFORMANCE_MEASURED_TICKS;
+      frameIndex += 1
+    ) {
       const startedAt = performance.now();
       system.update({
-        deltaSeconds: 0.1,
-        elapsedSeconds: 3 + frameIndex * 0.1,
+        deltaSeconds: PERFORMANCE_DELTA_SECONDS,
+        elapsedSeconds:
+          (PERFORMANCE_WARMUP_TICKS + frameIndex) *
+          PERFORMANCE_DELTA_SECONDS,
         targets,
         externalAlerts: EMPTY_ALERTS
       });
@@ -1701,20 +1841,25 @@ const runCrossBandChasePerformanceCheck = (
     );
     const statistics = describeSamples(samples);
     const detail =
-      `warmup=30 / measured=${samples.length} / actors=${actors.length} / ` +
+      `tick=${PERFORMANCE_DELTA_SECONDS.toFixed(6)}s / ` +
+      `warmup=${PERFORMANCE_WARMUP_TICKS} / ` +
+      `measured=${samples.length} / actors=${actors.length} / ` +
       `p50=${statistics.p50.toFixed(3)}ms / ` +
-      `p95=${statistics.p95.toFixed(3)}ms / ` +
-      `max=${statistics.maximum.toFixed(3)}ms / ` +
+      `p95=${statistics.p95.toFixed(3)}/${PERFORMANCE_P95_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
+      `max=${statistics.maximum.toFixed(3)}/${PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
       `crossBand=${observedCrossBandProgress} / ` +
       `progressed=${progressedIds.size}/${initialPositions.size}`;
     return Object.freeze({
       check: Object.freeze({
-        name: "99体の帯間追跡を30+300 tick計測し有限座標を維持",
+        name: "99体の帯間追跡を1/60秒tickで計測し性能予算内に維持",
         ok:
-          samples.length === 300 &&
+          samples.length === PERFORMANCE_MEASURED_TICKS &&
           samples.every(
             (sample) => Number.isFinite(sample) && sample >= 0
           ) &&
+          statistics.p95 <= PERFORMANCE_P95_BUDGET_MILLISECONDS &&
+          statistics.maximum <=
+            PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS &&
           actors.length === 99 &&
           actors.every(
             (actor) =>
@@ -1824,7 +1969,8 @@ const runSchoolPerformanceAndLifecycleChecks = async (
       scene,
       SCHOOL_VALIDATION_STAGE
     );
-    document.title = "T05学校受入: 99体探索 warmup 0/30";
+    document.title =
+      `T05学校受入: 99体探索 warmup 0/${PERFORMANCE_WARMUP_TICKS}`;
     await yieldToBrowser();
     const schoolNavigation = schoolContext.bitNavigation;
     const schoolZoneId = schoolNavigation.zones[0]?.id;
@@ -1851,10 +1997,14 @@ const runSchoolPerformanceAndLifecycleChecks = async (
       );
       const progressedIds = new Set<string>();
       const firstProgressTickById = new Map<string, number>();
-      for (let frameIndex = 0; frameIndex < 30; frameIndex += 1) {
+      for (
+        let frameIndex = 0;
+        frameIndex < PERFORMANCE_WARMUP_TICKS;
+        frameIndex += 1
+      ) {
         searchSystem.update({
-          deltaSeconds: 0.1,
-          elapsedSeconds: frameIndex * 0.1,
+          deltaSeconds: PERFORMANCE_DELTA_SECONDS,
+          elapsedSeconds: frameIndex * PERFORMANCE_DELTA_SECONDS,
           targets: EMPTY_TARGETS,
           externalAlerts: EMPTY_ALERTS
         });
@@ -1866,15 +2016,22 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           frameIndex + 1
         );
         document.title =
-          `T05学校受入: 99体探索 warmup ${frameIndex + 1}/30`;
+          `T05学校受入: 99体探索 warmup ${frameIndex + 1}/` +
+          `${PERFORMANCE_WARMUP_TICKS}`;
         await yieldToBrowser();
       }
       const samples: number[] = [];
-      for (let frameIndex = 0; frameIndex < 300; frameIndex += 1) {
+      for (
+        let frameIndex = 0;
+        frameIndex < PERFORMANCE_MEASURED_TICKS;
+        frameIndex += 1
+      ) {
         const startedAt = performance.now();
         searchSystem.update({
-          deltaSeconds: 0.1,
-          elapsedSeconds: 3 + frameIndex * 0.1,
+          deltaSeconds: PERFORMANCE_DELTA_SECONDS,
+          elapsedSeconds:
+            (PERFORMANCE_WARMUP_TICKS + frameIndex) *
+            PERFORMANCE_DELTA_SECONDS,
           targets: EMPTY_TARGETS,
           externalAlerts: EMPTY_ALERTS
         });
@@ -1884,10 +2041,11 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           initialPositions,
           progressedIds,
           firstProgressTickById,
-          30 + frameIndex + 1
+          PERFORMANCE_WARMUP_TICKS + frameIndex + 1
         );
         document.title =
-          `T05学校受入: 99体探索 measure ${frameIndex + 1}/300`;
+          `T05学校受入: 99体探索 measure ${frameIndex + 1}/` +
+          `${PERFORMANCE_MEASURED_TICKS}`;
         await yieldToBrowser();
       }
       const actors = searchSystem.getActorSpheres();
@@ -1897,13 +2055,16 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         ...firstProgressTickById.values()
       );
       checks.push({
-        name: "学校73遷移Contextで99体探索を30+300 tick計測",
+        name: "学校73遷移Contextで99体探索を1/60秒tick性能予算内に維持",
         ok:
           schoolNavigation.transitions.length === 73 &&
-          samples.length === 300 &&
+          samples.length === PERFORMANCE_MEASURED_TICKS &&
           samples.every(
             (sample) => Number.isFinite(sample) && sample >= 0
           ) &&
+          statistics.p95 <= PERFORMANCE_P95_BUDGET_MILLISECONDS &&
+          statistics.maximum <=
+            PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS &&
           actors.length === 99 &&
           actors.every(
             (actor) =>
@@ -1917,14 +2078,16 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           firstProgressTickById.size === initialPositions.size,
         detail:
           `transitions=${schoolNavigation.transitions.length} / ` +
-          `warmup=30 / measured=${samples.length} / actors=${actors.length} / ` +
+          `tick=${PERFORMANCE_DELTA_SECONDS.toFixed(6)}s / ` +
+          `warmup=${PERFORMANCE_WARMUP_TICKS} / ` +
+          `measured=${samples.length} / actors=${actors.length} / ` +
           `p50=${statistics.p50.toFixed(3)}ms / ` +
-          `p95=${statistics.p95.toFixed(3)}ms / ` +
-          `max=${statistics.maximum.toFixed(3)}ms / ` +
+          `p95=${statistics.p95.toFixed(3)}/${PERFORMANCE_P95_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
+          `max=${statistics.maximum.toFixed(3)}/${PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
           `total=${statistics.total.toFixed(3)}ms / ` +
           `progressed=${progressedIds.size}/${initialPositions.size} / ` +
           `maxWait=${maximumProgressWaitTicks}tick/` +
-          `${(maximumProgressWaitTicks * 0.1).toFixed(1)}s`
+          `${(maximumProgressWaitTicks * PERFORMANCE_DELTA_SECONDS).toFixed(3)}s`
       });
       metrics.push({
         label: "学校99体探索 update",
@@ -1938,7 +2101,7 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         label: "学校99体探索の最大計画待ち",
         value:
           `${maximumProgressWaitTicks} tick / ` +
-          `${(maximumProgressWaitTicks * 0.1).toFixed(1)} s`
+          `${(maximumProgressWaitTicks * PERFORMANCE_DELTA_SECONDS).toFixed(3)} s`
       });
     } finally {
       searchSystem.dispose();
@@ -1976,7 +2139,8 @@ const runSchoolPerformanceAndLifecycleChecks = async (
       const progressedIds = new Set<string>();
       const firstProgressTickById = new Map<string, number>();
       forceNormalChase = true;
-      document.title = "T05学校受入: 99体追跡 warmup 0/30";
+      document.title =
+        `T05学校受入: 99体追跡 warmup 0/${PERFORMANCE_WARMUP_TICKS}`;
       await yieldToBrowser();
       const target = createTarget(
         "school-adjacent-outdoor-target",
@@ -1989,10 +2153,14 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         remainingSeconds: 1000
       });
       let observedAdjacentVertical = false;
-      for (let frameIndex = 0; frameIndex < 30; frameIndex += 1) {
+      for (
+        let frameIndex = 0;
+        frameIndex < PERFORMANCE_WARMUP_TICKS;
+        frameIndex += 1
+      ) {
         chaseSystem.update({
-          deltaSeconds: 0.1,
-          elapsedSeconds: frameIndex * 0.1,
+          deltaSeconds: PERFORMANCE_DELTA_SECONDS,
+          elapsedSeconds: frameIndex * PERFORMANCE_DELTA_SECONDS,
           targets,
           externalAlerts:
             frameIndex === 0 ? Object.freeze([alert]) : EMPTY_ALERTS
@@ -2016,16 +2184,23 @@ const runSchoolPerformanceAndLifecycleChecks = async (
                   state.bandId === adjacentOutdoorTransition.to.bandId)
             );
         document.title =
-          `T05学校受入: 99体追跡 warmup ${frameIndex + 1}/30`;
+          `T05学校受入: 99体追跡 warmup ${frameIndex + 1}/` +
+          `${PERFORMANCE_WARMUP_TICKS}`;
         await yieldToBrowser();
       }
 
       const samples: number[] = [];
-      for (let frameIndex = 0; frameIndex < 300; frameIndex += 1) {
+      for (
+        let frameIndex = 0;
+        frameIndex < PERFORMANCE_MEASURED_TICKS;
+        frameIndex += 1
+      ) {
         const startedAt = performance.now();
         chaseSystem.update({
-          deltaSeconds: 0.1,
-          elapsedSeconds: 3 + frameIndex * 0.1,
+          deltaSeconds: PERFORMANCE_DELTA_SECONDS,
+          elapsedSeconds:
+            (PERFORMANCE_WARMUP_TICKS + frameIndex) *
+            PERFORMANCE_DELTA_SECONDS,
           targets,
           externalAlerts: EMPTY_ALERTS
         });
@@ -2035,7 +2210,7 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           initialPositions,
           progressedIds,
           firstProgressTickById,
-          30 + frameIndex + 1
+          PERFORMANCE_WARMUP_TICKS + frameIndex + 1
         );
         observedAdjacentVertical =
           observedAdjacentVertical ||
@@ -2049,7 +2224,8 @@ const runSchoolPerformanceAndLifecycleChecks = async (
                   state.bandId === adjacentOutdoorTransition.to.bandId)
             );
         document.title =
-          `T05学校受入: 99体追跡 measure ${frameIndex + 1}/300`;
+          `T05学校受入: 99体追跡 measure ${frameIndex + 1}/` +
+          `${PERFORMANCE_MEASURED_TICKS}`;
         await yieldToBrowser();
       }
       const actors = chaseSystem.getActorSpheres();
@@ -2060,12 +2236,15 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         ...firstProgressTickById.values()
       );
       checks.push({
-        name: "学校99体の屋外隣接帯vertical追跡を30+300 tick計測",
+        name: "学校99体の屋外隣接帯vertical追跡を1/60秒tick性能予算内に維持",
         ok:
-          samples.length === 300 &&
+          samples.length === PERFORMANCE_MEASURED_TICKS &&
           samples.every(
             (sample) => Number.isFinite(sample) && sample >= 0
           ) &&
+          statistics.p95 <= PERFORMANCE_P95_BUDGET_MILLISECONDS &&
+          statistics.maximum <=
+            PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS &&
           actors.length === 99 &&
           actors.every(
             (actor) =>
@@ -2085,15 +2264,17 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           observedAdjacentVertical,
         detail:
           `transition=${adjacentOutdoorTransition.id} / ` +
-          `observed=${observedAdjacentVertical} / warmup=30 / ` +
+          `observed=${observedAdjacentVertical} / ` +
+          `tick=${PERFORMANCE_DELTA_SECONDS.toFixed(6)}s / ` +
+          `warmup=${PERFORMANCE_WARMUP_TICKS} / ` +
           `measured=${samples.length} / actors=${actors.length} / ` +
           `p50=${statistics.p50.toFixed(3)}ms / ` +
-          `p95=${statistics.p95.toFixed(3)}ms / ` +
-          `max=${statistics.maximum.toFixed(3)}ms / ` +
+          `p95=${statistics.p95.toFixed(3)}/${PERFORMANCE_P95_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
+          `max=${statistics.maximum.toFixed(3)}/${PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
           `total=${statistics.total.toFixed(3)}ms / ` +
           `progressed=${progressedIds.size}/${initialPositions.size} / ` +
           `maxWait=${maximumProgressWaitTicks}tick/` +
-          `${(maximumProgressWaitTicks * 0.1).toFixed(1)}s`
+          `${(maximumProgressWaitTicks * PERFORMANCE_DELTA_SECONDS).toFixed(3)}s`
       });
       metrics.push({
         label: "学校99体隣接帯追跡 update",
@@ -2107,9 +2288,25 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         label: "学校99体追跡の最大計画待ち",
         value:
           `${maximumProgressWaitTicks} tick / ` +
-          `${(maximumProgressWaitTicks * 0.1).toFixed(1)} s`
+          `${(maximumProgressWaitTicks * PERFORMANCE_DELTA_SECONDS).toFixed(3)} s`
       });
 
+      const measuredEndTick =
+        PERFORMANCE_WARMUP_TICKS + PERFORMANCE_MEASURED_TICKS;
+      for (
+        let frameIndex = 0;
+        frameIndex < PERFORMANCE_TARGET_LOSS_SETTLE_TICKS;
+        frameIndex += 1
+      ) {
+        chaseSystem.update({
+          deltaSeconds: PERFORMANCE_DELTA_SECONDS,
+          elapsedSeconds:
+            (measuredEndTick + frameIndex) *
+            PERFORMANCE_DELTA_SECONDS,
+          targets,
+          externalAlerts: EMPTY_ALERTS
+        });
+      }
       const positionsBeforeLoss = createInitialPositionMap(
         chaseSystem.getFlightStates()
       );
@@ -2118,10 +2315,16 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         alive: false
       });
       const unavailableTargets = Object.freeze([unavailableTarget]);
+      const performanceElapsedSeconds =
+        (
+          measuredEndTick +
+          PERFORMANCE_TARGET_LOSS_SETTLE_TICKS
+        ) *
+        PERFORMANCE_DELTA_SECONDS;
       const lossStartedAt = performance.now();
       chaseSystem.update({
-        deltaSeconds: 0.1,
-        elapsedSeconds: 33,
+        deltaSeconds: PERFORMANCE_DELTA_SECONDS,
+        elapsedSeconds: performanceElapsedSeconds,
         targets: unavailableTargets,
         externalAlerts: EMPTY_ALERTS
       });
@@ -2143,13 +2346,54 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         positionsBeforeLoss,
         escapeProgressedIds
       );
-      for (let frameIndex = 0; frameIndex < 30; frameIndex += 1) {
+      const lossRecoverySamples: number[] = [];
+      for (
+        let frameIndex = 0;
+        frameIndex < PERFORMANCE_TARGET_LOSS_RECOVERY_TICKS;
+        frameIndex += 1
+      ) {
+        const recoveryStartedAt = performance.now();
         chaseSystem.update({
-          deltaSeconds: 0.1,
-          elapsedSeconds: 33.1 + frameIndex * 0.1,
+          deltaSeconds: PERFORMANCE_DELTA_SECONDS,
+          elapsedSeconds:
+            performanceElapsedSeconds +
+            (frameIndex + 1) * PERFORMANCE_DELTA_SECONDS,
           targets: unavailableTargets,
           externalAlerts: EMPTY_ALERTS
         });
+        lossRecoverySamples.push(
+          performance.now() - recoveryStartedAt
+        );
+        recordEscapeStarts(chaseSystem.getFlightStates());
+        recordFlightProgress(
+          chaseSystem.getFlightStates(),
+          positionsBeforeLoss,
+          escapeProgressedIds
+        );
+      }
+      const lossFollowUpSamples: number[] = [];
+      for (
+        let frameIndex = 0;
+        frameIndex < PERFORMANCE_TARGET_LOSS_FOLLOW_UP_TICKS;
+        frameIndex += 1
+      ) {
+        const followUpStartedAt = performance.now();
+        chaseSystem.update({
+          deltaSeconds: PERFORMANCE_DELTA_SECONDS,
+          elapsedSeconds:
+            performanceElapsedSeconds +
+            (
+              PERFORMANCE_TARGET_LOSS_RECOVERY_TICKS +
+              frameIndex +
+              1
+            ) *
+              PERFORMANCE_DELTA_SECONDS,
+          targets: unavailableTargets,
+          externalAlerts: EMPTY_ALERTS
+        });
+        lossFollowUpSamples.push(
+          performance.now() - followUpStartedAt
+        );
         recordEscapeStarts(chaseSystem.getFlightStates());
         recordFlightProgress(
           chaseSystem.getFlightStates(),
@@ -2159,11 +2403,26 @@ const runSchoolPerformanceAndLifecycleChecks = async (
       }
       const afterLossTargets = chaseSystem.getTargetStates();
       const afterLossFlights = chaseSystem.getFlightStates();
+      const lossRecoveryStatistics =
+        describeSamples(lossRecoverySamples);
+      const lossFollowUpStatistics =
+        describeSamples(lossFollowUpSamples);
+      const missingEscapeStates = afterLossFlights.filter(
+        (state) => !escapeStartedIds.has(state.bitId)
+      );
       checks.push({
-        name: "学校99体の一斉標的喪失を1 tickで処理し逃走計画を公平に完了",
+        name: "学校99体の一斉標的喪失と後続逃走を性能予算内で公平に完了",
         ok:
           Number.isFinite(lossUpdateMilliseconds) &&
           lossUpdateMilliseconds >= 0 &&
+          lossUpdateMilliseconds <=
+            PERFORMANCE_TARGET_LOSS_BUDGET_MILLISECONDS &&
+          lossRecoveryStatistics.maximum <=
+            PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS &&
+          lossFollowUpStatistics.p95 <=
+            PERFORMANCE_P95_BUDGET_MILLISECONDS &&
+          lossFollowUpStatistics.maximum <=
+            PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS &&
           afterLossTargets.length === 99 &&
           afterLossTargets.every((state) => state.targetId === null) &&
           afterLossFlights.length === 99 &&
@@ -2171,14 +2430,28 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           escapeStartedIds.size === positionsBeforeLoss.size &&
           escapeProgressedIds.size === positionsBeforeLoss.size,
         detail:
-          `lossUpdate=${lossUpdateMilliseconds.toFixed(3)}ms / ` +
+          `lossUpdate=${lossUpdateMilliseconds.toFixed(3)}/` +
+          `${PERFORMANCE_TARGET_LOSS_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
+          `recoveryMax=${lossRecoveryStatistics.maximum.toFixed(3)}/` +
+          `${PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
+          `followUpP95=${lossFollowUpStatistics.p95.toFixed(3)}/` +
+          `${PERFORMANCE_P95_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
+          `followUpMax=${lossFollowUpStatistics.maximum.toFixed(3)}/` +
+          `${PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
           `released=${afterLossTargets.filter((state) => state.targetId === null).length}/99 / ` +
           `escapeStarted=${escapeStartedIds.size}/${positionsBeforeLoss.size} / ` +
-          `progressed=${escapeProgressedIds.size}/${positionsBeforeLoss.size}`
+          `progressed=${escapeProgressedIds.size}/${positionsBeforeLoss.size} / ` +
+          `missing=${missingEscapeStates.map((state) => `${state.bitId}:${state.zoneId}/${state.bandId}:${state.routePurpose ?? "none"}`).join(",") || "none"}`
       });
       metrics.push({
         label: "学校99体一斉標的喪失 update",
         value: `${lossUpdateMilliseconds.toFixed(3)} ms`
+      });
+      metrics.push({
+        label: "学校99体標的喪失後60fps update",
+        value:
+          `p95 ${lossFollowUpStatistics.p95.toFixed(3)} / ` +
+          `max ${lossFollowUpStatistics.maximum.toFixed(3)} ms`
       });
     } finally {
       chaseSystem.dispose();
@@ -2411,6 +2684,7 @@ export const runBitSystemAcceptanceTests = async (
     checks.push(
       runActorSphereRadiusCheck(fixture),
       ...runVisualTargetLossChecks(fixture),
+      runSightCheckBudgetCheck(fixture),
       ...runCarpetFormationChecks(fixture),
       ...(await runScriptedSearchChecks(fixture))
     );

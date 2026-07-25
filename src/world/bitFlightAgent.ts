@@ -182,11 +182,22 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
       this.state = "blocked";
       return false;
     }
+    const routeStepSafety = new Map<BitFlightRouteStep, boolean>();
     const safePolicy: BitFlightRoutePolicy = Object.freeze({
       canUseTransition: (traversal) =>
         policy.canUseTransition(traversal),
-      canUseRouteStep: (step) =>
-        policy.canUseRouteStep(step) && this.isRouteStepSafe(step),
+      canUseRouteStep: (step) => {
+        if (!policy.canUseRouteStep(step)) {
+          return false;
+        }
+        const cachedSafety = routeStepSafety.get(step);
+        if (cachedSafety !== undefined) {
+          return cachedSafety;
+        }
+        const isSafe = this.isRouteStepSafe(step);
+        routeStepSafety.set(step, isSafe);
+        return isSafe;
+      },
       additionalSurfaceCruiseHeights: (step, band) =>
         Object.freeze([
           ...policy.additionalSurfaceCruiseHeights(step, band),
@@ -212,12 +223,12 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
       this.state = "unreachable";
       return false;
     }
-    if (!this.isRouteSafe(currentLocation, route)) {
+    if (!route.steps.every((step) => routeStepSafety.get(step) === true)) {
       throw new Error(
         "BitFlightNavigationWorldが安全判定で除外した辺を含む経路を返しました。"
       );
     }
-    return this.acceptPreparedRoute(currentLocation, route);
+    return this.acceptRoute(currentLocation, route, "verified");
   }
 
   setPreparedRoute(
@@ -231,12 +242,13 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
       );
     }
     this.navigationWorld.assertPreparedRoute(currentLocation, route);
-    return this.acceptPreparedRoute(currentLocation, route);
+    return this.acceptRoute(currentLocation, route, "verify");
   }
 
-  private acceptPreparedRoute(
+  private acceptRoute(
     currentLocation: BitFlightLocation,
-    route: BitFlightRoute
+    route: BitFlightRoute,
+    safetyStatus: "verify" | "verified"
   ) {
     const currentPosition = getBitFlightWorldPosition(currentLocation);
     const destinationPosition = getBitFlightWorldPosition(route.destination);
@@ -249,7 +261,8 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
     if (
       !this.safety.isCenterSafe(currentPosition) ||
       !this.safety.isCenterSafe(destinationPosition) ||
-      !this.isRouteSafe(currentLocation, route)
+      (safetyStatus === "verify" &&
+        !this.isRouteSafe(currentLocation, route))
     ) {
       this.route = null;
       this.state = "blocked";

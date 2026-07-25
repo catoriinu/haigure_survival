@@ -133,6 +133,8 @@ export type BitFlightRoute = Readonly<{
   steps: readonly BitFlightRouteStep[];
   destination: BitFlightLocation;
   distance: number;
+  /** 経路生成時のpolicy追加費用を含む探索コスト。 */
+  totalCost: number;
   readonly [BIT_FLIGHT_ROUTE_IDENTITY]?: BitFlightRouteIdentity;
 }>;
 
@@ -494,6 +496,7 @@ export const cloneBitFlightRoute = (
     steps: Object.freeze(route.steps.map(cloneBitFlightRouteStep)),
     destination: cloneBitFlightLocation(route.destination),
     distance: route.distance,
+    totalCost: route.totalCost,
     [BIT_FLIGHT_ROUTE_IDENTITY]: route[BIT_FLIGHT_ROUTE_IDENTITY]
   });
 
@@ -722,7 +725,7 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
     const steps = Object.freeze(
       reversedEdges.reverse().map((edge) => edge.step)
     );
-    return this.createPreparedRoute(start, destination, steps);
+    return this.createPreparedRoute(start, destination, steps, distances[1]);
   }
 
   findSurfaceRoute(
@@ -741,7 +744,8 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
       return this.createPreparedRoute(
         start,
         destination,
-        Object.freeze([])
+        Object.freeze([]),
+        0
       );
     }
     const step = this.findSurfaceStep(start, destination, policy);
@@ -751,7 +755,8 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
     return this.createPreparedRoute(
       start,
       destination,
-      Object.freeze([step])
+      Object.freeze([step]),
+      step.distance
     );
   }
 
@@ -845,12 +850,14 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
         }
         steps.push(destinationStep);
       }
+      const distance = steps.reduce((sum, step) => sum + step.distance, 0);
+      const totalCost = distance + additionalTransitionCost;
       const route = this.createPreparedRoute(
         start,
         destination,
-        Object.freeze(steps)
+        Object.freeze(steps),
+        totalCost
       );
-      const totalCost = route.distance + additionalTransitionCost;
       if (!selected || totalCost < selected.totalCost) {
         selected = Object.freeze({ route, totalCost });
       }
@@ -1122,12 +1129,15 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
   private createPreparedRoute(
     start: BitFlightLocation,
     destination: BitFlightLocation,
-    steps: readonly BitFlightRouteStep[]
+    steps: readonly BitFlightRouteStep[],
+    totalCost: number
   ): BitFlightRoute {
+    assertNonNegativeFiniteNumber("飛行経路探索コスト", totalCost);
     return Object.freeze({
       steps,
       destination: cloneBitFlightLocation(destination),
       distance: steps.reduce((sum, step) => sum + step.distance, 0),
+      totalCost,
       [BIT_FLIGHT_ROUTE_IDENTITY]: Object.freeze({
         owner: this.locationOwner,
         startKey: this.createLocationCacheKey(start)

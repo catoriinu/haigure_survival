@@ -35,7 +35,6 @@ import {
 } from "../world/bitFlightSafety";
 import {
   BIT_FLIGHT_TRANSITION_RETURN_SUPPRESSION_SECONDS,
-  calculateBitFlightRouteCost,
   createBitFlightEscapeRoutePolicy,
   createBitFlightExplorationHistory,
   createBitFlightSearchRoutePolicy,
@@ -91,6 +90,8 @@ const TARGET_ROUTE_REFRESH_SECONDS = 0.5;
 const TARGET_ROUTE_MOVE_THRESHOLD = 0.2;
 const TARGET_BAND_VERTICAL_TOLERANCE = 0.1;
 const TARGET_BAND_PROJECTION_TOLERANCE = 0.01;
+const TARGET_SIGHT_CHECK_INTERVAL_SECONDS = 0.1;
+const TARGET_SIGHT_CHECK_MAXIMUM_SHARE_PER_UPDATE = 1 / 3;
 const TARGET_LOST_TIMEOUT_SECONDS = 18;
 const TARGET_LOST_MAXIMUM_DISTANCE = 2.6;
 const ESCAPE_DESIRED_DISTANCE_GAIN = 0.8;
@@ -205,6 +206,8 @@ type RuntimeBit = {
   lastSeenDestination: BitFlightLocation | null;
   lastChasePlanTargetId: string | null;
   pendingEscapeThreatPosition: Vector3 | null;
+  sightTargetId: string | null;
+  sightTargetVisible: boolean;
   targetLostSeconds: number;
   fireSeconds: number;
   carpetLeaderId: string | null;
@@ -661,12 +664,14 @@ export const createV2BitSystem = (
   let searchRoutePlanCursor = 0;
   let chaseRoutePlanCursor = 0;
   let escapeRoutePlanCursor = 0;
+  let sightCheckCursor = 0;
+  let sightCheckCredit = 1;
   let allowedSearchRoutePlanIds = new Set<string>();
   let allowedChaseRoutePlanIds = new Set<string>();
   let allowedEscapeRoutePlanIds = new Set<string>();
   let remainingUnassignedEscapeRoutePlans = 0;
 
-  const selectRoundRobinRoutePlanIds = (
+  const selectRoundRobinBitIds = (
     cursor: number,
     budget: number,
     isEligible: (bit: RuntimeBit) => boolean,
@@ -750,6 +755,8 @@ export const createV2BitSystem = (
         lastSeenDestination: null,
         lastChasePlanTargetId: null,
         pendingEscapeThreatPosition: null,
+        sightTargetId: null,
+        sightTargetVisible: false,
         targetLostSeconds: 0,
         fireSeconds: randomRange(FIRE_INTERVAL_MIN, FIRE_INTERVAL_MAX),
         carpetLeaderId: null,
@@ -820,6 +827,30 @@ export const createV2BitSystem = (
     isInsideVision(bit, target) &&
     isSightClear(bit.root.position, target.aimPosition);
 
+  const getAssignedTargetVisibility = (
+    bit: RuntimeBit,
+    target: V2HumanTargetSnapshot,
+    refreshSight: boolean
+  ) => {
+    if (!isInsideVision(bit, target)) {
+      if (bit.sightTargetId === target.id) {
+        bit.sightTargetVisible = false;
+      }
+      return false;
+    }
+    if (refreshSight) {
+      bit.sightTargetId = target.id;
+      bit.sightTargetVisible = isSightClear(
+        bit.root.position,
+        target.aimPosition
+      );
+    }
+    return (
+      bit.sightTargetId === target.id &&
+      bit.sightTargetVisible
+    );
+  };
+
   const findVisibleTarget = (
     bit: RuntimeBit,
     targets: readonly V2HumanTargetSnapshot[]
@@ -827,7 +858,7 @@ export const createV2BitSystem = (
     let closest: V2HumanTargetSnapshot | null = null;
     let closestDistanceSquared = Number.POSITIVE_INFINITY;
     for (const target of targets) {
-      if (!isTargetable(target) || !canSeeTarget(bit, target)) {
+      if (!canSeeTarget(bit, target)) {
         continue;
       }
       const distanceSquared = Vector3.DistanceSquared(
@@ -943,8 +974,7 @@ export const createV2BitSystem = (
       if (!route) {
         continue;
       }
-      const totalCost =
-        calculateBitFlightRouteCost(route, policy) + candidate.costBias;
+      const totalCost = route.totalCost + candidate.costBias;
       if (!selected || totalCost < selected.totalCost) {
         selected = Object.freeze({
           value: candidate.value,
@@ -1228,6 +1258,8 @@ export const createV2BitSystem = (
     bit.lastSeenDestination = null;
     bit.lastChasePlanTargetId = null;
     bit.targetLostSeconds = 0;
+    bit.sightTargetId = target.id;
+    bit.sightTargetVisible = true;
     bit.pendingEscapeThreatPosition = null;
     bit.mode = nextRandom() < CARPET_MODE_CHANCE ? "carpet-leader" : "chase";
     pendingAlertRequests.push(
@@ -1248,6 +1280,8 @@ export const createV2BitSystem = (
     bit.lastSeenDestination = null;
     bit.lastChasePlanTargetId = null;
     bit.targetLostSeconds = 0;
+    bit.sightTargetId = target.id;
+    bit.sightTargetVisible = false;
     bit.pendingEscapeThreatPosition = null;
     bit.mode =
       nextRandom() < ALERT_CARPET_MODE_CHANCE ? "carpet-leader" : "chase";
@@ -1352,6 +1386,8 @@ export const createV2BitSystem = (
     bit.lastSeenAimPosition = null;
     bit.lastSeenDestination = null;
     bit.targetLostSeconds = 0;
+    bit.sightTargetId = null;
+    bit.sightTargetVisible = false;
     bit.mode = "search";
     bit.hasAttemptedSearchRoute = false;
     bit.pendingEscapeThreatPosition = threatPosition;
@@ -1999,7 +2035,35 @@ export const createV2BitSystem = (
       const targetsById = new Map(
         targets.map((target) => [target.id, target] as const)
       );
-      const searchPlanSelection = selectRoundRobinRoutePlanIds(
+      const sightCheckEligibleCount = bits.filter(
+        (bit) => bit.mode !== "carpet-follower"
+      ).length;
+      sightCheckCredit = Math.min(
+        sightCheckEligibleCount,
+        sightCheckCredit +
+          sightCheckEligibleCount *
+            (deltaSeconds / TARGET_SIGHT_CHECK_INTERVAL_SECONDS)
+      );
+      const maximumSightChecks =
+        sightCheckEligibleCount === 0
+          ? 0
+          : Math.max(
+              1,
+              Math.ceil(
+                sightCheckEligibleCount *
+                  TARGET_SIGHT_CHECK_MAXIMUM_SHARE_PER_UPDATE
+              )
+            );
+      const sightCheckSelection = selectRoundRobinBitIds(
+        sightCheckCursor,
+        Math.min(Math.floor(sightCheckCredit), maximumSightChecks),
+        (bit) => bit.mode !== "carpet-follower",
+        () => false
+      );
+      const allowedSightCheckIds = sightCheckSelection.ids;
+      sightCheckCursor = sightCheckSelection.nextCursor;
+      sightCheckCredit -= allowedSightCheckIds.size;
+      const searchPlanSelection = selectRoundRobinBitIds(
         searchRoutePlanCursor,
         SEARCH_ROUTE_PLAN_BUDGET_PER_UPDATE,
         (bit) =>
@@ -2015,7 +2079,7 @@ export const createV2BitSystem = (
       );
       allowedSearchRoutePlanIds = searchPlanSelection.ids;
       searchRoutePlanCursor = searchPlanSelection.nextCursor;
-      const chasePlanSelection = selectRoundRobinRoutePlanIds(
+      const chasePlanSelection = selectRoundRobinBitIds(
         chaseRoutePlanCursor,
         CHASE_ROUTE_PLAN_BUDGET_PER_UPDATE,
         (bit) => {
@@ -2055,7 +2119,7 @@ export const createV2BitSystem = (
       );
       allowedChaseRoutePlanIds = chasePlanSelection.ids;
       chaseRoutePlanCursor = chasePlanSelection.nextCursor;
-      const escapePlanSelection = selectRoundRobinRoutePlanIds(
+      const escapePlanSelection = selectRoundRobinBitIds(
         escapeRoutePlanCursor,
         ESCAPE_ROUTE_PLAN_BUDGET_PER_UPDATE,
         (bit) =>
@@ -2133,7 +2197,11 @@ export const createV2BitSystem = (
         ) {
           abandonTarget(bit, elapsedSeconds);
         } else if (assignedTarget) {
-          targetVisible = canSeeTarget(bit, assignedTarget);
+          targetVisible = getAssignedTargetVisibility(
+            bit,
+            assignedTarget,
+            allowedSightCheckIds.has(bit.id)
+          );
           if (targetVisible) {
             bit.lastSeenAimPosition = assignedTarget.aimPosition.clone();
             bit.targetLostSeconds = 0;
@@ -2162,6 +2230,7 @@ export const createV2BitSystem = (
           bit.targetProvenance === "visual" &&
           bit.lastSeenAimPosition
         ) {
+          bit.sightTargetVisible = false;
           bit.targetLostSeconds += deltaSeconds;
           chasePosition = bit.lastSeenAimPosition;
           if (
@@ -2177,10 +2246,12 @@ export const createV2BitSystem = (
         }
 
         if (bit.targetId === null) {
-          const visibleTarget = findVisibleTarget(
-            bit,
-            targetSpatialIndex.query(bit.root.position, VISION_RANGE)
-          );
+          const visibleTarget = allowedSightCheckIds.has(bit.id)
+            ? findVisibleTarget(
+                bit,
+                targetSpatialIndex.query(bit.root.position, VISION_RANGE)
+              )
+            : null;
           if (visibleTarget) {
             setVisualTarget(bit, visibleTarget);
             targetVisible = true;
@@ -2193,7 +2264,7 @@ export const createV2BitSystem = (
                 alertTarget.target,
                 alertTarget.leaderId
               );
-              targetVisible = canSeeTarget(bit, alertTarget.target);
+              targetVisible = false;
               chasePosition = alertTarget.target.aimPosition;
             }
           }

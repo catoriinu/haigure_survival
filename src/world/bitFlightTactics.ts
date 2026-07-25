@@ -152,11 +152,31 @@ const cloneExplorationSample = (
     observedAtSeconds: sample.observedAtSeconds
   });
 
+const BIT_FLIGHT_EXPLORATION_SPATIAL_BUCKET_SIZE = 0.5;
+
+const getExplorationSpatialBucketCoordinate = (value: number) =>
+  Math.floor(value / BIT_FLIGHT_EXPLORATION_SPATIAL_BUCKET_SIZE);
+
+const getExplorationSpatialBucketKey = (
+  x: number,
+  y: number,
+  z: number
+) => `${x},${y},${z}`;
+
+const getExplorationSpatialBucketKeyForPosition = (position: Vector3) =>
+  getExplorationSpatialBucketKey(
+    getExplorationSpatialBucketCoordinate(position.x),
+    getExplorationSpatialBucketCoordinate(position.y),
+    getExplorationSpatialBucketCoordinate(position.z)
+  );
+
 class SharedBitFlightExplorationHistory
   implements BitFlightExplorationHistory
 {
-  private samples: BitFlightExplorationSample[] = [];
-  private samplesByBand = new Map<string, BitFlightExplorationSample[]>();
+  private samplesByBand = new Map<
+    string,
+    Map<string, BitFlightExplorationSample>
+  >();
   private lastPrunedAtSeconds: number | null = null;
 
   private static bandKey(band: BitFlightBandRef) {
@@ -170,16 +190,23 @@ class SharedBitFlightExplorationHistory
   ) {
     assertFiniteVector("飛行探索記録位置", position);
     assertNonNegativeFiniteNumber("飛行探索記録時刻", observedAtSeconds);
+    const bandKey = SharedBitFlightExplorationHistory.bandKey(band);
+    const spatialBucketKey =
+      getExplorationSpatialBucketKeyForPosition(position);
+    const bandSamples =
+      this.samplesByBand.get(bandKey) ??
+      new Map<string, BitFlightExplorationSample>();
+    const current = bandSamples.get(spatialBucketKey);
+    if (current && current.observedAtSeconds > observedAtSeconds) {
+      return;
+    }
     const sample = Object.freeze({
       band: cloneBandRef(band),
       position: position.clone(),
       observedAtSeconds
     });
-    this.samples.push(sample);
-    const key = SharedBitFlightExplorationHistory.bandKey(band);
-    const bandSamples = this.samplesByBand.get(key) ?? [];
-    bandSamples.push(sample);
-    this.samplesByBand.set(key, bandSamples);
+    bandSamples.set(spatialBucketKey, sample);
+    this.samplesByBand.set(bandKey, bandSamples);
   }
 
   recordLocation(
@@ -203,24 +230,59 @@ class SharedBitFlightExplorationHistory
     assertNonNegativeFiniteNumber("飛行探索照会半径", radius);
     this.prune(nowSeconds);
     const radiusSquared = radius * radius;
-    return (
-      this.samplesByBand
-        .get(SharedBitFlightExplorationHistory.bandKey(band))
-        ?.some(
-          (sample) =>
-            Vector3.DistanceSquared(sample.position, position) <=
-            radiusSquared
-        ) ?? false
+    const bandSamples = this.samplesByBand.get(
+      SharedBitFlightExplorationHistory.bandKey(band)
     );
+    if (!bandSamples) {
+      return false;
+    }
+    const minimumX = getExplorationSpatialBucketCoordinate(
+      position.x - radius
+    );
+    const maximumX = getExplorationSpatialBucketCoordinate(
+      position.x + radius
+    );
+    const minimumY = getExplorationSpatialBucketCoordinate(
+      position.y - radius
+    );
+    const maximumY = getExplorationSpatialBucketCoordinate(
+      position.y + radius
+    );
+    const minimumZ = getExplorationSpatialBucketCoordinate(
+      position.z - radius
+    );
+    const maximumZ = getExplorationSpatialBucketCoordinate(
+      position.z + radius
+    );
+    for (let x = minimumX; x <= maximumX; x += 1) {
+      for (let y = minimumY; y <= maximumY; y += 1) {
+        for (let z = minimumZ; z <= maximumZ; z += 1) {
+          const sample = bandSamples.get(
+            getExplorationSpatialBucketKey(x, y, z)
+          );
+          if (
+            sample &&
+            Vector3.DistanceSquared(sample.position, position) <=
+              radiusSquared
+          ) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   getRecentSamples(nowSeconds: number) {
     this.prune(nowSeconds);
-    return Object.freeze(this.samples.map(cloneExplorationSample));
+    return Object.freeze(
+      [...this.samplesByBand.values()].flatMap((bandSamples) =>
+        [...bandSamples.values()].map(cloneExplorationSample)
+      )
+    );
   }
 
   clear() {
-    this.samples = [];
     this.samplesByBand.clear();
     this.lastPrunedAtSeconds = null;
   }
@@ -231,25 +293,18 @@ class SharedBitFlightExplorationHistory
       return;
     }
     this.lastPrunedAtSeconds = nowSeconds;
-    const hasExpiredSample = this.samples.some(
-      (sample) =>
-        nowSeconds - sample.observedAtSeconds >
-        BIT_FLIGHT_EXPLORATION_RETENTION_SECONDS
-    );
-    if (!hasExpiredSample) {
-      return;
-    }
-    this.samples = this.samples.filter(
-      (sample) =>
-        nowSeconds - sample.observedAtSeconds <=
-        BIT_FLIGHT_EXPLORATION_RETENTION_SECONDS
-    );
-    this.samplesByBand.clear();
-    for (const sample of this.samples) {
-      const key = SharedBitFlightExplorationHistory.bandKey(sample.band);
-      const bandSamples = this.samplesByBand.get(key) ?? [];
-      bandSamples.push(sample);
-      this.samplesByBand.set(key, bandSamples);
+    for (const [bandKey, bandSamples] of this.samplesByBand) {
+      for (const [spatialBucketKey, sample] of bandSamples) {
+        if (
+          nowSeconds - sample.observedAtSeconds >
+          BIT_FLIGHT_EXPLORATION_RETENTION_SECONDS
+        ) {
+          bandSamples.delete(spatialBucketKey);
+        }
+      }
+      if (bandSamples.size === 0) {
+        this.samplesByBand.delete(bandKey);
+      }
     }
   }
 }
@@ -409,33 +464,6 @@ export const createBitFlightSearchRoutePolicy = (
   });
 };
 
-export const calculateBitFlightRouteCost = (
-  route: BitFlightRoute,
-  policy: BitFlightRoutePolicy
-) => {
-  let cost = 0;
-  for (const [index, step] of route.steps.entries()) {
-    assertNonNegativeFiniteNumber(`飛行経路区間${index}の距離`, step.distance);
-    if (!policy.canUseRouteStep(step)) {
-      return Number.POSITIVE_INFINITY;
-    }
-    cost += step.distance;
-    if (step.kind !== "transition") {
-      continue;
-    }
-    if (!policy.canUseTransition(step.traversal)) {
-      return Number.POSITIVE_INFINITY;
-    }
-    const additionalCost = policy.additionalTransitionCost(step.traversal);
-    assertNonNegativeFiniteNumber(
-      `飛行経路区間${index}の追加コスト`,
-      additionalCost
-    );
-    cost += additionalCost;
-  }
-  return cost;
-};
-
 export const selectLowestCostBitFlightRoute = <T>(
   navigationWorld: BitFlightNavigationWorld,
   start: BitFlightLocation,
@@ -456,8 +484,7 @@ export const selectLowestCostBitFlightRoute = <T>(
     if (!route) {
       continue;
     }
-    const totalCost =
-      calculateBitFlightRouteCost(route, policy) + candidate.costBias;
+    const totalCost = route.totalCost + candidate.costBias;
     if (!selected || totalCost < selected.totalCost) {
       selected = Object.freeze({ candidate, route, totalCost });
     }
