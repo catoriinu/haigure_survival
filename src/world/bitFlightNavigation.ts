@@ -16,6 +16,9 @@ const BIT_FLIGHT_LOCATION_IDENTITY: unique symbol = Symbol(
 const BIT_FLIGHT_ROUTE_IDENTITY: unique symbol = Symbol(
   "BitFlightRouteIdentity"
 );
+const DYNAMIC_SURFACE_STEP_CACHE_MAX_ENTRIES = 8_192;
+const DYNAMIC_SURFACE_ROUTE_VARIANT_CACHE_MAX_ENTRIES = 2_048;
+const VERTICAL_TRANSITION_CANDIDATE_CACHE_MAX_ENTRIES = 4_096;
 
 export type BitFlightZoneId = string & {
   readonly [BIT_FLIGHT_ZONE_ID]: "BitFlightZoneId";
@@ -257,6 +260,8 @@ type BitFlightRouteIdentity = Readonly<{
 
 type RouteNode = Readonly<{
   location: BitFlightLocation;
+  locationKey: string;
+  bandKey: string;
   transitionIndex: number | null;
   endpoint: "from" | "to" | null;
   cacheable: boolean;
@@ -270,6 +275,16 @@ type SurfaceRouteEdge = Readonly<{
   cost: number;
 }>;
 
+type SurfaceRouteVariants = Readonly<{
+  navigationStep: NavigationSurfaceStep;
+  direct: BitFlightSurfaceRouteStep;
+  standardCruiseCandidates: Array<BitFlightSurfaceRouteStep | null>;
+  additionalCruiseCandidatesByHeight: Map<
+    number,
+    BitFlightSurfaceRouteStep
+  >;
+}>;
+
 type TransitionRouteEdge = Readonly<{
   kind: "transition";
   fromIndex: number;
@@ -279,6 +294,65 @@ type TransitionRouteEdge = Readonly<{
 }>;
 
 type RouteEdge = SurfaceRouteEdge | TransitionRouteEdge;
+
+type RouteQueueEntry = Readonly<{
+  index: number;
+  distance: number;
+  estimatedTotalCost: number;
+}>;
+
+const isRouteQueueEntryBefore = (
+  left: RouteQueueEntry,
+  right: RouteQueueEntry
+) =>
+  left.estimatedTotalCost < right.estimatedTotalCost ||
+  (left.estimatedTotalCost === right.estimatedTotalCost &&
+    left.index < right.index);
+
+const pushRouteQueueEntry = (
+  queue: RouteQueueEntry[],
+  entry: RouteQueueEntry
+) => {
+  queue.push(entry);
+  let index = queue.length - 1;
+  while (index > 0) {
+    const parentIndex = Math.floor((index - 1) / 2);
+    if (!isRouteQueueEntryBefore(entry, queue[parentIndex])) {
+      break;
+    }
+    queue[index] = queue[parentIndex];
+    index = parentIndex;
+  }
+  queue[index] = entry;
+};
+
+const popRouteQueueEntry = (queue: RouteQueueEntry[]) => {
+  const first = queue[0];
+  const last = queue.pop();
+  if (!last || queue.length === 0) {
+    return first;
+  }
+  let index = 0;
+  while (true) {
+    const leftIndex = index * 2 + 1;
+    if (leftIndex >= queue.length) {
+      break;
+    }
+    const rightIndex = leftIndex + 1;
+    const childIndex =
+      rightIndex < queue.length &&
+      isRouteQueueEntryBefore(queue[rightIndex], queue[leftIndex])
+        ? rightIndex
+        : leftIndex;
+    if (!isRouteQueueEntryBefore(queue[childIndex], last)) {
+      break;
+    }
+    queue[index] = queue[childIndex];
+    index = childIndex;
+  }
+  queue[index] = last;
+  return first;
+};
 
 const assertNonEmptyId = (label: string, value: string) => {
   if (value.length === 0 || value.trim() !== value) {
@@ -517,6 +591,30 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
     string,
     NavigationSurfaceStep | null
   >();
+  private readonly endpointSurfaceRouteVariantsByDirection = new Map<
+    string,
+    SurfaceRouteVariants
+  >();
+  private readonly dynamicSurfaceRouteVariantsByDirection = new Map<
+    string,
+    SurfaceRouteVariants
+  >();
+  private readonly dynamicSurfaceStepCache = new Map<
+    string,
+    NavigationSurfaceStep | null
+  >();
+  private readonly verticalTransitionCandidateCache = new Map<
+    string,
+    ResolvedTransition | null
+  >();
+  private readonly traversalByDirectionKey = new Map<
+    string,
+    BitFlightTransitionTraversal
+  >();
+  private readonly transitionRouteStepCache = new WeakMap<
+    ResolvedTransition,
+    Map<boolean, BitFlightTransitionRouteStep>
+  >();
   private readonly locationOwner = Symbol("BitFlightNavigationWorld");
   private disposed = false;
 
@@ -566,6 +664,10 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
       const forwardItems = traversalMap.get(forwardKey) ?? [];
       forwardItems.push(forward);
       traversalMap.set(forwardKey, forwardItems);
+      this.traversalByDirectionKey.set(
+        this.createTraversalCacheKey(transition, false),
+        forward
+      );
       if (transition.bidirectional) {
         const reverse: BitFlightTransitionTraversal = Object.freeze({
           transition,
@@ -577,11 +679,20 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
         const reverseItems = traversalMap.get(reverseKey) ?? [];
         reverseItems.push(reverse);
         traversalMap.set(reverseKey, reverseItems);
+        this.traversalByDirectionKey.set(
+          this.createTraversalCacheKey(transition, true),
+          reverse
+        );
       }
     }
     this.traversalsByBandKey = new Map(
       [...traversalMap].map(([key, value]) => [key, Object.freeze(value)])
     );
+  }
+
+  prepareRouteCaches() {
+    this.assertActive();
+    this.prewarmEndpointSurfaceRoutes();
   }
 
   getZone(id: BitFlightZoneId) {
@@ -641,70 +752,132 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
     this.assertActive();
     this.assertLocation("飛行経路始点", start);
     this.assertLocation("飛行経路終点", destination);
+    const startDestinationSurfaceEdge = sameBandRef(start, destination)
+      ? this.createSurfaceEdgeFromLocations(
+          start,
+          destination,
+          0,
+          1,
+          policy,
+          false
+        )
+      : undefined;
+    if (startDestinationSurfaceEdge) {
+      const directDistanceLowerBound = Vector3.Distance(
+        getBitFlightWorldPosition(start),
+        getBitFlightWorldPosition(destination)
+      );
+      if (startDestinationSurfaceEdge.cost === directDistanceLowerBound) {
+        return this.createPreparedRoute(
+          start,
+          destination,
+          Object.freeze([startDestinationSurfaceEdge.step]),
+          startDestinationSurfaceEdge.cost
+        );
+      }
+    }
     const routeTransitions = this.createRouteTransitionCandidates(
       start,
       destination
     );
     const nodes: RouteNode[] = [
-      {
-        location: cloneBitFlightLocation(start),
-        transitionIndex: null,
-        endpoint: null,
-        cacheable: false
-      },
-      {
-        location: cloneBitFlightLocation(destination),
-        transitionIndex: null,
-        endpoint: null,
-        cacheable: false
-      }
+      this.createRouteNode(start, null, null, false),
+      this.createRouteNode(destination, null, null, false)
     ];
     routeTransitions.forEach((transition, transitionIndex) => {
-      nodes.push({
-        location: cloneBitFlightLocation(transition.fromLocation),
-        transitionIndex,
-        endpoint: "from",
-        cacheable: transition.cacheable
-      });
-      nodes.push({
-        location: cloneBitFlightLocation(transition.toLocation),
-        transitionIndex,
-        endpoint: "to",
-        cacheable: transition.cacheable
-      });
+      nodes.push(
+        this.createRouteNode(
+          transition.fromLocation,
+          transitionIndex,
+          "from",
+          transition.cacheable
+        )
+      );
+      nodes.push(
+        this.createRouteNode(
+          transition.toLocation,
+          transitionIndex,
+          "to",
+          transition.cacheable
+        )
+      );
     });
+    const surfaceNodeIndicesByBandKey = new Map<string, number[]>();
+    for (let index = 1; index < nodes.length; index += 1) {
+      const bandKey = nodes[index].bandKey;
+      const indices = surfaceNodeIndicesByBandKey.get(bandKey) ?? [];
+      indices.push(index);
+      surfaceNodeIndicesByBandKey.set(bandKey, indices);
+    }
 
     const distances = nodes.map(() => Number.POSITIVE_INFINITY);
+    const nodePositions = nodes.map((node) =>
+      getBitFlightWorldPosition(node.location)
+    );
+    const destinationPosition = nodePositions[1];
+    const remainingDistanceLowerBounds = nodePositions.map((position) =>
+      Vector3.Distance(position, destinationPosition)
+    );
     const previousEdges: Array<RouteEdge | null> = nodes.map(() => null);
     const visited = nodes.map(() => false);
     distances[0] = 0;
+    const routeQueue: RouteQueueEntry[] = [];
+    pushRouteQueueEntry(
+      routeQueue,
+      {
+        index: 0,
+        distance: 0,
+        estimatedTotalCost: remainingDistanceLowerBounds[0]
+      }
+    );
 
-    for (let iteration = 0; iteration < nodes.length; iteration += 1) {
-      let currentIndex = -1;
-      let currentDistance = Number.POSITIVE_INFINITY;
-      for (let index = 0; index < nodes.length; index += 1) {
-        if (!visited[index] && distances[index] < currentDistance) {
-          currentIndex = index;
-          currentDistance = distances[index];
+    while (routeQueue.length > 0) {
+      let currentEntry: RouteQueueEntry | null = null;
+      while (routeQueue.length > 0 && !currentEntry) {
+        const candidate = popRouteQueueEntry(routeQueue);
+        if (
+          candidate &&
+          !visited[candidate.index] &&
+          candidate.distance === distances[candidate.index]
+        ) {
+          currentEntry = candidate;
         }
       }
-      if (currentIndex < 0 || currentIndex === 1) {
+      if (!currentEntry || currentEntry.index === 1) {
         break;
       }
+      const currentIndex = currentEntry.index;
       visited[currentIndex] = true;
+      const currentDistance = currentEntry.distance;
       for (const edge of this.collectOutgoingEdges(
         nodes,
         routeTransitions,
         currentIndex,
-        policy
+        surfaceNodeIndicesByBandKey.get(
+          nodes[currentIndex].bandKey
+        ) ?? Object.freeze([]),
+        visited,
+        currentDistance,
+        nodePositions,
+        remainingDistanceLowerBounds,
+        () => distances[1],
+        policy,
+        startDestinationSurfaceEdge
       )) {
-        if (visited[edge.toIndex]) {
-          continue;
-        }
         const candidateDistance = currentDistance + edge.cost;
         if (candidateDistance < distances[edge.toIndex]) {
           distances[edge.toIndex] = candidateDistance;
           previousEdges[edge.toIndex] = edge;
+          pushRouteQueueEntry(
+            routeQueue,
+            {
+              index: edge.toIndex,
+              distance: candidateDistance,
+              estimatedTotalCost:
+                candidateDistance +
+                remainingDistanceLowerBounds[edge.toIndex]
+            }
+          );
         }
       }
     }
@@ -992,6 +1165,11 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
     this.assertActive();
     this.disposed = true;
     this.endpointSurfaceStepCache.clear();
+    this.endpointSurfaceRouteVariantsByDirection.clear();
+    this.dynamicSurfaceRouteVariantsByDirection.clear();
+    this.dynamicSurfaceStepCache.clear();
+    this.verticalTransitionCandidateCache.clear();
+    this.traversalByDirectionKey.clear();
     for (const surface of this.surfacesByBandKey.values()) {
       surface.dispose();
     }
@@ -1054,6 +1232,18 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
     }
     const x = clamp(anchor.x, region.minimum.x, region.maximum.x);
     const z = clamp(anchor.z, region.minimum.z, region.maximum.z);
+    const cacheKey = JSON.stringify([
+      resolved.transition.id,
+      x,
+      z
+    ]);
+    if (this.verticalTransitionCandidateCache.has(cacheKey)) {
+      const cached =
+        this.verticalTransitionCandidateCache.get(cacheKey) ?? null;
+      this.verticalTransitionCandidateCache.delete(cacheKey);
+      this.verticalTransitionCandidateCache.set(cacheKey, cached);
+      return cached;
+    }
     const fromLocation = this.projectSurfaceLocation(
       resolved.transition.from,
       new Vector3(x, resolved.fromLocation.safeCenterHeight, z),
@@ -1076,15 +1266,38 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
         getBitFlightWorldPosition(toLocation)
       )
     ) {
+      this.verticalTransitionCandidateCache.set(cacheKey, null);
+      if (
+        this.verticalTransitionCandidateCache.size >
+        VERTICAL_TRANSITION_CANDIDATE_CACHE_MAX_ENTRIES
+      ) {
+        const oldestKey =
+          this.verticalTransitionCandidateCache.keys().next().value;
+        if (oldestKey !== undefined) {
+          this.verticalTransitionCandidateCache.delete(oldestKey);
+        }
+      }
       return null;
     }
-    return Object.freeze({
+    const candidate = Object.freeze({
       transition: resolved.transition,
       fromLocation,
       toLocation,
       projectionDistance: resolved.projectionDistance,
       cacheable: false
     });
+    this.verticalTransitionCandidateCache.set(cacheKey, candidate);
+    if (
+      this.verticalTransitionCandidateCache.size >
+      VERTICAL_TRANSITION_CANDIDATE_CACHE_MAX_ENTRIES
+    ) {
+      const oldestKey =
+        this.verticalTransitionCandidateCache.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.verticalTransitionCandidateCache.delete(oldestKey);
+      }
+    }
+    return candidate;
   }
 
   private isLocationInsideTransitionRegion(
@@ -1126,6 +1339,257 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
     ]);
   }
 
+  private createSurfaceLocationCacheKey(location: BitFlightLocation) {
+    return JSON.stringify([
+      location.zoneId,
+      location.bandId,
+      location.surface.polygonRef,
+      location.surface.position.x,
+      location.surface.position.y,
+      location.surface.position.z
+    ]);
+  }
+
+  private createDirectedSurfaceRouteCacheKey(
+    from: BitFlightLocation,
+    to: BitFlightLocation
+  ) {
+    return this.createDirectedSurfaceRouteCacheKeyFromLocationKeys(
+      this.createLocationCacheKey(from),
+      this.createLocationCacheKey(to)
+    );
+  }
+
+  private createDirectedSurfaceRouteCacheKeyFromLocationKeys(
+    fromKey: string,
+    toKey: string
+  ) {
+    return JSON.stringify([
+      fromKey,
+      toKey
+    ]);
+  }
+
+  private createCanonicalSurfaceStepCacheKey(
+    fromKey: string,
+    toKey: string
+  ) {
+    return JSON.stringify(
+      fromKey > toKey
+        ? [toKey, fromKey]
+        : [fromKey, toKey]
+    );
+  }
+
+  private prewarmEndpointSurfaceRoutes() {
+    const endpointLocationsByBand = new Map<
+      string,
+      Map<string, BitFlightLocation>
+    >();
+    for (const resolved of this.resolvedTransitions) {
+      if (!resolved.cacheable) {
+        continue;
+      }
+      for (const location of [
+        resolved.fromLocation,
+        resolved.toLocation
+      ]) {
+        const bandKey = createBandKey(location);
+        const endpointLocations =
+          endpointLocationsByBand.get(bandKey) ??
+          new Map<string, BitFlightLocation>();
+        endpointLocations.set(
+          this.createLocationCacheKey(location),
+          location
+        );
+        endpointLocationsByBand.set(bandKey, endpointLocations);
+      }
+    }
+
+    for (const endpointLocations of endpointLocationsByBand.values()) {
+      const locations = [...endpointLocations.values()];
+      for (let fromIndex = 0; fromIndex < locations.length; fromIndex += 1) {
+        for (
+          let toIndex = fromIndex;
+          toIndex < locations.length;
+          toIndex += 1
+        ) {
+          this.prewarmEndpointSurfaceRoutePair(
+            locations[fromIndex],
+            locations[toIndex]
+          );
+        }
+      }
+    }
+  }
+
+  private prewarmEndpointSurfaceRoutePair(
+    first: BitFlightLocation,
+    second: BitFlightLocation
+  ) {
+    const firstKey = this.createLocationCacheKey(first);
+    const secondKey = this.createLocationCacheKey(second);
+    const firstSurfaceKey = this.createSurfaceLocationCacheKey(first);
+    const secondSurfaceKey = this.createSurfaceLocationCacheKey(second);
+    const reverseCanonicalDirection =
+      firstSurfaceKey > secondSurfaceKey;
+    const canonicalStart = reverseCanonicalDirection ? second : first;
+    const canonicalDestination = reverseCanonicalDirection ? first : second;
+    const canonicalKey = this.createCanonicalSurfaceStepCacheKey(
+      firstSurfaceKey,
+      secondSurfaceKey
+    );
+    if (!this.endpointSurfaceStepCache.has(canonicalKey)) {
+      this.endpointSurfaceStepCache.set(
+        canonicalKey,
+        this.findNavigationSurfaceStep(
+          canonicalStart,
+          canonicalDestination
+        )
+      );
+    }
+    const canonical =
+      this.endpointSurfaceStepCache.get(canonicalKey) ?? null;
+    if (!canonical) {
+      return;
+    }
+
+    const firstToSecondNavigationStep = reverseCanonicalDirection
+      ? reverseNavigationSurfaceStep(canonical)
+      : canonical;
+    this.getOrCreateEndpointSurfaceRouteVariants(
+      first,
+      second,
+      firstToSecondNavigationStep
+    );
+    if (firstKey === secondKey) {
+      return;
+    }
+    this.getOrCreateEndpointSurfaceRouteVariants(
+      second,
+      first,
+      reverseNavigationSurfaceStep(firstToSecondNavigationStep)
+    );
+  }
+
+  private getOrCreateEndpointSurfaceRouteVariants(
+    start: BitFlightLocation,
+    destination: BitFlightLocation,
+    navigationStep: NavigationSurfaceStep
+  ) {
+    const key = this.createDirectedSurfaceRouteCacheKey(start, destination);
+    const cached =
+      this.endpointSurfaceRouteVariantsByDirection.get(key);
+    if (cached) {
+      return cached;
+    }
+
+    const variants = this.createSurfaceRouteVariants(
+      start,
+      destination,
+      navigationStep,
+      true
+    );
+    this.endpointSurfaceRouteVariantsByDirection.set(key, variants);
+    return variants;
+  }
+
+  private getOrCreateDynamicSurfaceRouteVariants(
+    start: BitFlightLocation,
+    destination: BitFlightLocation,
+    navigationStep: NavigationSurfaceStep
+  ) {
+    const key = this.createDirectedSurfaceRouteCacheKey(start, destination);
+    const cached =
+      this.dynamicSurfaceRouteVariantsByDirection.get(key);
+    if (cached) {
+      this.dynamicSurfaceRouteVariantsByDirection.delete(key);
+      this.dynamicSurfaceRouteVariantsByDirection.set(key, cached);
+      return cached;
+    }
+
+    const variants = this.createSurfaceRouteVariants(
+      start,
+      destination,
+      navigationStep,
+      false
+    );
+    this.dynamicSurfaceRouteVariantsByDirection.set(key, variants);
+    if (
+      this.dynamicSurfaceRouteVariantsByDirection.size >
+      DYNAMIC_SURFACE_ROUTE_VARIANT_CACHE_MAX_ENTRIES
+    ) {
+      const oldestKey =
+        this.dynamicSurfaceRouteVariantsByDirection.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.dynamicSurfaceRouteVariantsByDirection.delete(oldestKey);
+      }
+    }
+    return variants;
+  }
+
+  private createSurfaceRouteVariants(
+    start: BitFlightLocation,
+    destination: BitFlightLocation,
+    navigationStep: NavigationSurfaceStep,
+    prewarmStandardCruiseCandidates: boolean
+  ): SurfaceRouteVariants {
+    const identity = this.createLocationIdentity(start);
+    const band = this.requireBand(start);
+    const direct = createSurfaceRouteStep(
+      identity,
+      band,
+      navigationStep,
+      start.safeCenterHeight,
+      destination.safeCenterHeight
+    );
+    const heightRange =
+      band.maximumCenterHeight - band.minimumCenterHeight;
+    const standardCruiseCandidates: Array<
+      BitFlightSurfaceRouteStep | null
+    > = [
+      band.minimumCenterHeight,
+      band.minimumCenterHeight + heightRange * 0.25,
+      band.minimumCenterHeight + heightRange * 0.5,
+      band.minimumCenterHeight + heightRange * 0.75,
+      band.maximumCenterHeight
+    ].map((cruiseHeight) =>
+      prewarmStandardCruiseCandidates
+        ? createCruiseSurfaceRouteStep(
+            identity,
+            band,
+            navigationStep,
+            start.safeCenterHeight,
+            destination.safeCenterHeight,
+            cruiseHeight
+          )
+        : null
+    );
+    return Object.freeze({
+      navigationStep,
+      direct,
+      standardCruiseCandidates,
+      additionalCruiseCandidatesByHeight: new Map()
+    });
+  }
+
+  private createRouteNode(
+    location: BitFlightLocation,
+    transitionIndex: number | null,
+    endpoint: "from" | "to" | null,
+    cacheable: boolean
+  ): RouteNode {
+    const clonedLocation = cloneBitFlightLocation(location);
+    return {
+      location: clonedLocation,
+      locationKey: this.createLocationCacheKey(clonedLocation),
+      bandKey: createBandKey(clonedLocation),
+      transitionIndex,
+      endpoint,
+      cacheable
+    };
+  }
+
   private createPreparedRoute(
     start: BitFlightLocation,
     destination: BitFlightLocation,
@@ -1145,31 +1609,52 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
     });
   }
 
-  private collectOutgoingEdges(
+  private *collectOutgoingEdges(
     nodes: readonly RouteNode[],
     routeTransitions: readonly ResolvedTransition[],
     fromIndex: number,
-    policy: BitFlightRoutePolicy
+    surfaceToIndices: readonly number[],
+    visited: readonly boolean[],
+    currentDistance: number,
+    nodePositions: readonly Vector3[],
+    remainingDistanceLowerBounds: readonly number[],
+    getBestGoalCost: () => number,
+    policy: BitFlightRoutePolicy,
+    startDestinationSurfaceEdge: SurfaceRouteEdge | null | undefined
   ) {
-    const edges: RouteEdge[] = [];
-    for (let toIndex = 1; toIndex < nodes.length; toIndex += 1) {
-      if (fromIndex === toIndex) {
+    for (const toIndex of surfaceToIndices) {
+      if (fromIndex === toIndex || visited[toIndex]) {
         continue;
       }
-      const surfaceEdge = this.createSurfaceEdge(
-        nodes,
-        fromIndex,
-        toIndex,
-        policy
-      );
+      const routeCostLowerBound =
+        currentDistance +
+        Vector3.Distance(
+          nodePositions[fromIndex],
+          nodePositions[toIndex]
+        ) +
+        remainingDistanceLowerBounds[toIndex];
+      if (routeCostLowerBound >= getBestGoalCost()) {
+        continue;
+      }
+      const surfaceEdge =
+        fromIndex === 0 &&
+        toIndex === 1 &&
+        startDestinationSurfaceEdge !== undefined
+          ? startDestinationSurfaceEdge
+          : this.createSurfaceEdge(
+              nodes,
+              fromIndex,
+              toIndex,
+              policy
+            );
       if (surfaceEdge) {
-        edges.push(surfaceEdge);
+        yield surfaceEdge;
       }
     }
 
     const node = nodes[fromIndex];
     if (node.transitionIndex === null || node.endpoint === null) {
-      return edges;
+      return;
     }
     const resolved = routeTransitions[node.transitionIndex];
     const traversal =
@@ -1179,7 +1664,7 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
           ? this.createTraversal(resolved.transition, true)
           : null;
     if (!traversal || !policy.canUseTransition(traversal)) {
-      return edges;
+      return;
     }
     const additionalCost = policy.additionalTransitionCost(traversal);
     assertNonNegativeFiniteNumber(
@@ -1190,18 +1675,32 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
       2 +
       node.transitionIndex * 2 +
       (node.endpoint === "from" ? 1 : 0);
-    const step = this.createTransitionRouteStep(resolved, traversal);
-    if (!policy.canUseRouteStep(step)) {
-      return edges;
+    if (visited[toIndex]) {
+      return;
     }
-    edges.push({
+    const step = this.createTransitionRouteStep(
+      resolved,
+      traversal,
+      true
+    );
+    if (!policy.canUseRouteStep(step)) {
+      return;
+    }
+    const edge = {
       kind: "transition",
       fromIndex,
       toIndex,
       step,
       cost: step.distance + additionalCost
-    });
-    return edges;
+    } as const;
+    if (
+      currentDistance +
+        edge.cost +
+        remainingDistanceLowerBounds[toIndex] <
+      getBestGoalCost()
+    ) {
+      yield edge;
+    }
   }
 
   private createSurfaceEdge(
@@ -1212,41 +1711,41 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
   ): SurfaceRouteEdge | null {
     const from = nodes[fromIndex].location;
     const to = nodes[toIndex].location;
-    if (!sameBandRef(from, to)) {
+    if (nodes[fromIndex].bandKey !== nodes[toIndex].bandKey) {
       return null;
     }
-    let navigationStep: NavigationSurfaceStep | null;
     const canCache =
       nodes[fromIndex].cacheable && nodes[toIndex].cacheable;
-    if (canCache) {
-      const fromKey = this.createLocationCacheKey(from);
-      const toKey = this.createLocationCacheKey(to);
-      const reverseCanonicalDirection = fromKey > toKey;
-      const canonicalStart = reverseCanonicalDirection ? to : from;
-      const canonicalDestination = reverseCanonicalDirection ? from : to;
-      const key = reverseCanonicalDirection
-        ? `${toKey}:${fromKey}`
-        : `${fromKey}:${toKey}`;
-      if (!this.endpointSurfaceStepCache.has(key)) {
-        this.endpointSurfaceStepCache.set(
-          key,
-          this.findNavigationSurfaceStep(
-            canonicalStart,
-            canonicalDestination
-          )
-        );
-      }
-      const canonical = this.endpointSurfaceStepCache.get(key) ?? null;
-      navigationStep =
-        canonical && reverseCanonicalDirection
-          ? reverseNavigationSurfaceStep(canonical)
-          : canonical;
-    } else {
-      navigationStep = this.findNavigationSurfaceStep(from, to);
-    }
-    const step = navigationStep
-      ? this.selectSurfaceStep(from, to, navigationStep, policy)
-      : null;
+    return this.createSurfaceEdgeFromLocations(
+      from,
+      to,
+      fromIndex,
+      toIndex,
+      policy,
+      canCache,
+      nodes[fromIndex].locationKey,
+      nodes[toIndex].locationKey
+    );
+  }
+
+  private createSurfaceEdgeFromLocations(
+    from: BitFlightLocation,
+    to: BitFlightLocation,
+    fromIndex: number,
+    toIndex: number,
+    policy: BitFlightRoutePolicy,
+    canCache: boolean,
+    fromKey = this.createLocationCacheKey(from),
+    toKey = this.createLocationCacheKey(to)
+  ): SurfaceRouteEdge | null {
+    const step = this.findCachedSurfaceStep(
+      from,
+      to,
+      policy,
+      canCache,
+      fromKey,
+      toKey
+    );
     return step
       ? {
           kind: "surface",
@@ -1258,23 +1757,121 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
       : null;
   }
 
+  private findCachedSurfaceStep(
+    start: BitFlightLocation,
+    destination: BitFlightLocation,
+    policy: BitFlightRoutePolicy,
+    canCachePermanently: boolean,
+    startKey = this.createLocationCacheKey(start),
+    destinationKey = this.createLocationCacheKey(destination)
+  ) {
+    const directionKey =
+      this.createDirectedSurfaceRouteCacheKeyFromLocationKeys(
+        startKey,
+        destinationKey
+      );
+    const variantsByDirection = canCachePermanently
+      ? this.endpointSurfaceRouteVariantsByDirection
+      : this.dynamicSurfaceRouteVariantsByDirection;
+    const cachedVariants = variantsByDirection.get(directionKey) ?? null;
+    if (cachedVariants) {
+      if (!canCachePermanently) {
+        variantsByDirection.delete(directionKey);
+        variantsByDirection.set(directionKey, cachedVariants);
+      }
+      return this.selectSurfaceStep(
+        start,
+        destination,
+        cachedVariants.navigationStep,
+        policy,
+        cachedVariants
+      );
+    }
+
+    const startSurfaceKey =
+      this.createSurfaceLocationCacheKey(start);
+    const destinationSurfaceKey =
+      this.createSurfaceLocationCacheKey(destination);
+    const reverseCanonicalDirection =
+      canCachePermanently &&
+      startSurfaceKey > destinationSurfaceKey;
+    const canonicalStart =
+      reverseCanonicalDirection ? destination : start;
+    const canonicalDestination =
+      reverseCanonicalDirection ? start : destination;
+    const canonicalKey = canCachePermanently
+      ? this.createCanonicalSurfaceStepCacheKey(
+          startSurfaceKey,
+          destinationSurfaceKey
+        )
+      : this.createDirectedSurfaceRouteCacheKeyFromLocationKeys(
+          startSurfaceKey,
+          destinationSurfaceKey
+        );
+    const cache = canCachePermanently
+      ? this.endpointSurfaceStepCache
+      : this.dynamicSurfaceStepCache;
+    if (!cache.has(canonicalKey)) {
+      cache.set(
+        canonicalKey,
+        this.findNavigationSurfaceStep(
+          canonicalStart,
+          canonicalDestination
+        )
+      );
+      if (
+        !canCachePermanently &&
+        cache.size > DYNAMIC_SURFACE_STEP_CACHE_MAX_ENTRIES
+      ) {
+        const oldestKey = cache.keys().next().value;
+        if (oldestKey !== undefined) {
+          cache.delete(oldestKey);
+        }
+      }
+    } else if (!canCachePermanently) {
+      const cached = cache.get(canonicalKey)!;
+      cache.delete(canonicalKey);
+      cache.set(canonicalKey, cached);
+    }
+
+    const canonical = cache.get(canonicalKey) ?? null;
+    if (!canonical) {
+      return null;
+    }
+    const navigationStep = reverseCanonicalDirection
+      ? reverseNavigationSurfaceStep(canonical)
+      : canonical;
+    const routeVariants = canCachePermanently
+      ? this.getOrCreateEndpointSurfaceRouteVariants(
+          start,
+          destination,
+          navigationStep
+        )
+      : this.getOrCreateDynamicSurfaceRouteVariants(
+          start,
+          destination,
+          navigationStep
+        );
+    return this.selectSurfaceStep(
+      start,
+      destination,
+      navigationStep,
+      policy,
+      routeVariants
+    );
+  }
+
   private findSurfaceStep(
     start: BitFlightLocation,
     destination: BitFlightLocation,
     policy: BitFlightRoutePolicy
   ) {
-    const navigationStep = this.findNavigationSurfaceStep(
+    return this.findCachedSurfaceStep(
       start,
-      destination
+      destination,
+      policy,
+      false
     );
-    return navigationStep
-      ? this.selectSurfaceStep(
-          start,
-          destination,
-          navigationStep,
-          policy
-        )
-      : null;
   }
 
   private findNavigationSurfaceStep(
@@ -1289,17 +1886,20 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
     start: BitFlightLocation,
     destination: BitFlightLocation,
     navigationStep: NavigationSurfaceStep,
-    policy: BitFlightRoutePolicy
+    policy: BitFlightRoutePolicy,
+    routeVariants: SurfaceRouteVariants | null = null
   ) {
     const identity = this.createLocationIdentity(start);
     const band = this.requireBand(start);
-    const direct = createSurfaceRouteStep(
-      identity,
-      band,
-      navigationStep,
-      start.safeCenterHeight,
-      destination.safeCenterHeight
-    );
+    const direct =
+      routeVariants?.direct ??
+      createSurfaceRouteStep(
+        identity,
+        band,
+        navigationStep,
+        start.safeCenterHeight,
+        destination.safeCenterHeight
+      );
     if (policy.canUseRouteStep(direct)) {
       return direct;
     }
@@ -1314,15 +1914,22 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
       band.maximumCenterHeight
     ]);
     let selected: BitFlightSurfaceRouteStep | null = null;
-    for (const cruiseHeight of cruiseHeights) {
-      const candidate = createCruiseSurfaceRouteStep(
-        identity,
-        band,
-        navigationStep,
-        start.safeCenterHeight,
-        destination.safeCenterHeight,
-        cruiseHeight
-      );
+    for (let index = 0; index < cruiseHeights.length; index += 1) {
+      let candidate =
+        routeVariants?.standardCruiseCandidates[index] ?? null;
+      if (!candidate) {
+        candidate = createCruiseSurfaceRouteStep(
+          identity,
+          band,
+          navigationStep,
+          start.safeCenterHeight,
+          destination.safeCenterHeight,
+          cruiseHeights[index]
+        );
+        if (routeVariants) {
+          routeVariants.standardCruiseCandidates[index] = candidate;
+        }
+      }
       if (
         policy.canUseRouteStep(candidate) &&
         (!selected || candidate.distance < selected.distance)
@@ -1350,14 +1957,24 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
         throw new Error("追加の帯内巡航高度が重複しています。");
       }
       usedAdditionalCruiseHeights.add(cruiseHeight);
-      const candidate = createCruiseSurfaceRouteStep(
-        identity,
-        band,
-        navigationStep,
-        start.safeCenterHeight,
-        destination.safeCenterHeight,
-        cruiseHeight
-      );
+      let candidate =
+        routeVariants?.additionalCruiseCandidatesByHeight.get(
+          cruiseHeight
+        );
+      if (!candidate) {
+        candidate = createCruiseSurfaceRouteStep(
+          identity,
+          band,
+          navigationStep,
+          start.safeCenterHeight,
+          destination.safeCenterHeight,
+          cruiseHeight
+        );
+        routeVariants?.additionalCruiseCandidatesByHeight.set(
+          cruiseHeight,
+          candidate
+        );
+      }
       if (
         policy.canUseRouteStep(candidate) &&
         (!selected || candidate.distance < selected.distance)
@@ -1372,18 +1989,41 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
     transition: BitFlightTransition,
     reversed: boolean
   ): BitFlightTransitionTraversal {
-    return Object.freeze({
-      transition,
-      from: cloneBandRef(reversed ? transition.to : transition.from),
-      to: cloneBandRef(reversed ? transition.from : transition.to),
-      reversed
-    });
+    const traversal = this.traversalByDirectionKey.get(
+      this.createTraversalCacheKey(transition, reversed)
+    );
+    if (!traversal) {
+      throw new Error(
+        `飛行遷移の向きが登録されていません: ` +
+          `${transition.id}/${reversed ? "reverse" : "forward"}`
+      );
+    }
+    return traversal;
+  }
+
+  private createTraversalCacheKey(
+    transition: BitFlightTransition,
+    reversed: boolean
+  ) {
+    return JSON.stringify([transition.id, reversed]);
   }
 
   private createTransitionRouteStep(
     resolved: ResolvedTransition,
-    traversal: BitFlightTransitionTraversal
+    traversal: BitFlightTransitionTraversal,
+    reuse: boolean = false
   ): BitFlightTransitionRouteStep {
+    let cachedSteps: Map<boolean, BitFlightTransitionRouteStep> | null =
+      null;
+    if (reuse) {
+      cachedSteps =
+        this.transitionRouteStepCache.get(resolved) ??
+        new Map<boolean, BitFlightTransitionRouteStep>();
+      const cached = cachedSteps.get(traversal.reversed);
+      if (cached) {
+        return cached;
+      }
+    }
     const entry = traversal.reversed
       ? resolved.toLocation
       : resolved.fromLocation;
@@ -1398,7 +2038,7 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
       ...authoredPoints.map((point) => point.clone()),
       getBitFlightWorldPosition(exit)
     ]);
-    return Object.freeze({
+    const step = Object.freeze({
       kind: "transition",
       traversal,
       entry: cloneBitFlightLocation(entry),
@@ -1406,6 +2046,11 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
       points,
       distance: calculateVectorPathDistance(points)
     });
+    if (cachedSteps) {
+      cachedSteps.set(traversal.reversed, step);
+      this.transitionRouteStepCache.set(resolved, cachedSteps);
+    }
+    return step;
   }
 
   private resolveTransition(
@@ -1808,4 +2453,15 @@ export const createBitFlightNavigationWorld = async (
     }
     throw error;
   }
+};
+
+export const prepareBitFlightNavigationRouteCaches = (
+  world: BitFlightNavigationWorld
+): void => {
+  if (!(world instanceof RecastBitFlightNavigationWorld)) {
+    throw new Error(
+      "経路キャッシュ準備にはRecastビット飛行NavigationWorldが必要です。"
+    );
+  }
+  world.prepareRouteCaches();
 };

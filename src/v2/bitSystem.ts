@@ -1,5 +1,6 @@
 import {
   Color3,
+  InstancedMesh,
   Mesh,
   MeshBuilder,
   Scene,
@@ -94,7 +95,7 @@ const SEARCH_TRANSITION_CANDIDATE_LIMIT = 1;
 const SEARCH_TRANSITION_FORCE_AFTER_SURFACE_PLANS = 3;
 const SEARCH_ROUTE_PLAN_BUDGET_PER_UPDATE = 4;
 const CHASE_ROUTE_PLAN_BUDGET_PER_UPDATE = 4;
-const ESCAPE_ROUTE_PLAN_BUDGET_PER_UPDATE = 4;
+const ESCAPE_ROUTE_PLAN_BUDGET_PER_UPDATE = 3;
 const SEARCH_OBSERVATION_INTERVAL_SECONDS = 1;
 const SEARCH_OBSERVATION_RADIUS = 0.8;
 const SEARCH_EXPLORED_DESTINATION_PENALTY = 1.5;
@@ -104,6 +105,8 @@ const TARGET_ROUTE_REFRESH_SECONDS = 0.5;
 const TARGET_ROUTE_MOVE_THRESHOLD = 0.2;
 const TARGET_BAND_VERTICAL_TOLERANCE = 0.1;
 const TARGET_BAND_PROJECTION_TOLERANCE = 0.01;
+const TARGET_LOCATION_CANDIDATE_CACHE_MAX_ENTRIES = 4_096;
+export const V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES = 4_096;
 const TARGET_SIGHT_CHECK_INTERVAL_SECONDS = 0.1;
 const TARGET_SIGHT_CHECK_MAXIMUM_SHARE_PER_UPDATE = 1 / 3;
 const TARGET_LOST_TIMEOUT_SECONDS = 18;
@@ -203,13 +206,71 @@ export type V2BitFlightState = Readonly<{
   agentState: BitFlightAgentState;
 }>;
 
+export type V2BitSystemDiagnostics = Readonly<{
+  enabled: boolean;
+  routePlans: Readonly<{
+    search: number;
+    chase: number;
+    escape: number;
+  }>;
+  routePlanMilliseconds: Readonly<{
+    search: number;
+    chase: number;
+    escape: number;
+  }>;
+  sightRays: number;
+  sphereSweeps: number;
+  sphereSweepMilliseconds: number;
+  beamRequests: number;
+  routeSafetyCache: V2BitRouteSafetyCacheDiagnostics;
+}>;
+
+export type V2BitRouteSafetyCacheEntryDiagnostics = Readonly<{
+  size: number;
+  hits: number;
+  misses: number;
+  recomputations: number;
+  evictions: number;
+}>;
+
+export type V2BitRouteSafetyCacheDiagnostics = Readonly<{
+  maximumEntriesPerMap: number;
+  routeStepDescriptors: Readonly<{
+    created: number;
+    reused: number;
+  }>;
+  routeSteps: V2BitRouteSafetyCacheEntryDiagnostics;
+  routeCenters: V2BitRouteSafetyCacheEntryDiagnostics;
+  routeSegments: V2BitRouteSafetyCacheEntryDiagnostics;
+  lowCeilingCruiseHeights: V2BitRouteSafetyCacheEntryDiagnostics;
+}>;
+
+export type V2BitFrameView = Readonly<{
+  actorSpheres: readonly V2ActorSphere[];
+  beamRequests: readonly V2BeamRequest[];
+  targetStates: readonly V2BitTargetState[];
+  flightStates: readonly V2BitFlightState[];
+  diagnostics: V2BitSystemDiagnostics;
+}>;
+
+type V2BitFlightStateSource = Readonly<{
+  actor: V2ActorSphere;
+  zoneId: BitFlightZoneId | null;
+  bandId: BitFlightBandId | null;
+  safeCenterHeight: number | null;
+  heightMode: BitFlightHeightMode | null;
+  routePurpose: V2BitRoutePurpose | null;
+  activeTransitionId: string | null;
+  activeTransitionKind: BitFlightTransitionKind | null;
+  activeTransitionReversed: boolean;
+  agentState: BitFlightAgentState;
+}>;
+
 export interface V2BitSystem {
   update(input: V2BitSystemUpdateInput): void;
-  getActorSpheres(): readonly V2ActorSphere[];
-  getBeamRequests(): readonly V2BeamRequest[];
   takeAlertRequests(): readonly V2AlertRequest[];
-  getTargetStates(): readonly V2BitTargetState[];
-  getFlightStates(): readonly V2BitFlightState[];
+  getFrameView(): V2BitFrameView;
+  setDiagnosticsEnabled(enabled: boolean): void;
   notifyBeamImpact(sourceId: string, targetId: string): boolean;
   prepareForScriptedPhase(): void;
   setAiSuspended(suspended: boolean): void;
@@ -230,8 +291,8 @@ type ActiveAlert = {
 type RuntimeBit = {
   id: string;
   root: TransformNode;
-  body: Mesh;
-  muzzle: Mesh;
+  body: InstancedMesh;
+  muzzle: InstancedMesh;
   profile: V2BitCombatProfile;
   flightAgent: BitFlightAgent;
   navigationLocation: BitFlightLocation | null;
@@ -298,6 +359,32 @@ type SafeRouteCandidate<T> = Readonly<{
   destination: BitFlightLocation;
   route: BitFlightRoute;
   totalCost: number;
+}>;
+
+declare const SAFE_ROUTE_COST_BIAS: unique symbol;
+type SafeRouteCostBias = number & {
+  readonly [SAFE_ROUTE_COST_BIAS]: true;
+};
+
+const ZERO_SAFE_ROUTE_COST_BIAS = 0 as SafeRouteCostBias;
+
+const measureHorizontalProjectionError = (
+  projected: Vector3,
+  original: Vector3
+) =>
+  Math.hypot(
+    projected.x - original.x,
+    projected.z - original.z
+  ) as SafeRouteCostBias;
+
+type SafeRouteInputCandidate<T> = Readonly<{
+  value: T;
+  destination: BitFlightLocation;
+  /**
+   * 実利用値は投影座標との差を表すMath.hypot、または0。
+   * いずれも有限かつ非負であり、経路候補の順序付けにだけ加算する。
+   */
+  costBias: SafeRouteCostBias;
 }>;
 
 const assertNonNegativeInteger = (name: string, value: number) => {
@@ -421,23 +508,20 @@ const createSharedMaterials = (scene: Scene) => {
   }
 };
 
-const createBitVisual = (
+const createSharedVisualSources = (
   scene: Scene,
   materials: Readonly<{
     body: StandardMaterial;
     redBody: StandardMaterial;
     muzzle: StandardMaterial;
-  }>,
-  id: string,
-  isRed: boolean
+  }>
 ) => {
-  let root: TransformNode | null = null;
   let body: Mesh | null = null;
+  let redBody: Mesh | null = null;
   let muzzle: Mesh | null = null;
   try {
-    root = new TransformNode(id, scene);
     body = MeshBuilder.CreateCylinder(
-      `${id}_body`,
+      "v2BitBodySource",
       {
         diameterTop: 0,
         diameterBottom: BIT_BODY_DIAMETER,
@@ -446,19 +530,60 @@ const createBitVisual = (
       },
       scene
     );
-    body.parent = root;
     body.rotation.x = Math.PI / 2;
-    body.material = isRed ? materials.redBody : materials.body;
+    body.material = materials.body;
     body.isPickable = false;
+    body.isVisible = false;
+
+    redBody = new Mesh("v2RedBitBodySource", scene);
+    body.geometry!.applyToMesh(redBody);
+    redBody.rotation.x = Math.PI / 2;
+    redBody.material = materials.redBody;
+    redBody.isPickable = false;
+    redBody.isVisible = false;
 
     muzzle = MeshBuilder.CreateSphere(
-      `${id}_muzzle`,
+      "v2BitMuzzleSource",
       { diameter: BIT_MUZZLE_DIAMETER, segments: 16 },
       scene
     );
-    muzzle.parent = root;
     muzzle.position.z = BIT_MUZZLE_OFFSET;
     muzzle.material = materials.muzzle;
+    muzzle.isPickable = false;
+    muzzle.isVisible = false;
+
+    return Object.freeze({ body, redBody, muzzle });
+  } catch (error) {
+    muzzle?.dispose(false, false);
+    redBody?.dispose(false, false);
+    body?.dispose(false, false);
+    throw error;
+  }
+};
+
+const createBitVisual = (
+  scene: Scene,
+  sources: Readonly<{
+    body: Mesh;
+    redBody: Mesh;
+    muzzle: Mesh;
+  }>,
+  id: string,
+  isRed: boolean
+) => {
+  let root: TransformNode | null = null;
+  let body: InstancedMesh | null = null;
+  let muzzle: InstancedMesh | null = null;
+  try {
+    root = new TransformNode(id, scene);
+    body = (isRed ? sources.redBody : sources.body).createInstance(
+      `${id}_body`
+    );
+    body.parent = root;
+    body.isPickable = false;
+
+    muzzle = sources.muzzle.createInstance(`${id}_muzzle`);
+    muzzle.parent = root;
     muzzle.isPickable = false;
 
     return { root, body, muzzle };
@@ -482,24 +607,100 @@ const routeContainsTransition = (route: BitFlightRoute) =>
 
 const getRouteStepPositions = (step: BitFlightRouteStep) =>
   step.kind === "surface"
-    ? step.points.map(getBitFlightWorldPosition)
+    ? Object.freeze(step.points.map(getBitFlightWorldPosition))
     : step.points;
 
-const isRouteStepSafe = (
-  step: BitFlightRouteStep,
-  safety: BitFlightSafety
-) => {
+const createRouteSafetyPointKey = (point: Vector3) =>
+  JSON.stringify([point.x, point.y, point.z]);
+
+type RouteStepSafetyDescriptor = Readonly<{
+  points: readonly Vector3[];
+  key: string;
+  centerKey: string | null;
+  segmentKeys: readonly (string | null)[];
+}>;
+
+const createRouteSafetySegmentKeyFromPointKeys = (
+  fromKey: string,
+  toKey: string
+) =>
+  fromKey < toKey
+    ? `${fromKey}|${toKey}`
+    : `${toKey}|${fromKey}`;
+
+const createRouteStepSafetyDescriptor = (
+  step: BitFlightRouteStep
+): RouteStepSafetyDescriptor => {
   const points = getRouteStepPositions(step);
-  if (points.length === 0 || !safety.isCenterSafe(points[0])) {
-    return false;
-  }
-  for (let index = 1; index < points.length; index += 1) {
-    if (safety.findMovementCollision(points[index - 1], points[index])) {
-      return false;
-    }
-  }
-  return true;
+  const pointKeys = Object.freeze(
+    points.map(createRouteSafetyPointKey)
+  );
+  const forwardPointsKey = pointKeys.join("|");
+  const reversePointsKey = [...pointKeys].reverse().join("|");
+  const geometryKey =
+    forwardPointsKey < reversePointsKey
+      ? forwardPointsKey
+      : reversePointsKey;
+  return Object.freeze({
+    points,
+    key:
+      `${step.kind}|` +
+      (step.kind === "surface"
+        ? `${step.band.zoneId}|${step.band.bandId}|`
+        : `${step.traversal.transition.id}|`) +
+      geometryKey,
+    centerKey: pointKeys[0] ?? null,
+    segmentKeys: Object.freeze(
+      points.slice(1).map((to, index) => {
+        const from = points[index];
+        return from.equals(to)
+          ? null
+          : createRouteSafetySegmentKeyFromPointKeys(
+              pointKeys[index],
+              pointKeys[index + 1]
+            );
+      })
+    )
+  });
 };
+
+type MutableRouteSafetyCacheEntryDiagnostics = {
+  hits: number;
+  misses: number;
+  recomputations: number;
+  evictions: number;
+};
+
+const createMutableRouteSafetyCacheEntryDiagnostics =
+  (): MutableRouteSafetyCacheEntryDiagnostics => ({
+    hits: 0,
+    misses: 0,
+    recomputations: 0,
+    evictions: 0
+  });
+
+const EMPTY_ROUTE_SAFETY_CACHE_ENTRY_DIAGNOSTICS =
+  Object.freeze<V2BitRouteSafetyCacheEntryDiagnostics>({
+    size: 0,
+    hits: 0,
+    misses: 0,
+    recomputations: 0,
+    evictions: 0
+  });
+
+const EMPTY_ROUTE_SAFETY_CACHE_DIAGNOSTICS =
+  Object.freeze<V2BitRouteSafetyCacheDiagnostics>({
+    maximumEntriesPerMap: V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES,
+    routeStepDescriptors: Object.freeze({
+      created: 0,
+      reused: 0
+    }),
+    routeSteps: EMPTY_ROUTE_SAFETY_CACHE_ENTRY_DIAGNOSTICS,
+    routeCenters: EMPTY_ROUTE_SAFETY_CACHE_ENTRY_DIAGNOSTICS,
+    routeSegments: EMPTY_ROUTE_SAFETY_CACHE_ENTRY_DIAGNOSTICS,
+    lowCeilingCruiseHeights:
+      EMPTY_ROUTE_SAFETY_CACHE_ENTRY_DIAGNOSTICS
+  });
 
 export const createV2BitSystem = (
   scene: Scene,
@@ -508,10 +709,392 @@ export const createV2BitSystem = (
 ): V2BitSystem => {
   assertConfig(config);
 
+  let diagnosticsEnabled = false;
+  let diagnosticSearchRoutePlans = 0;
+  let diagnosticChaseRoutePlans = 0;
+  let diagnosticEscapeRoutePlans = 0;
+  let diagnosticSearchRoutePlanMilliseconds = 0;
+  let diagnosticChaseRoutePlanMilliseconds = 0;
+  let diagnosticEscapeRoutePlanMilliseconds = 0;
+  let diagnosticSightRays = 0;
+  let diagnosticSphereSweeps = 0;
+  let diagnosticSphereSweepMilliseconds = 0;
+  let diagnosticRouteStepDescriptorsCreated = 0;
+  let diagnosticRouteStepDescriptorsReused = 0;
+  let frameDiagnostics: V2BitSystemDiagnostics = Object.freeze({
+    enabled: false,
+    routePlans: Object.freeze({ search: 0, chase: 0, escape: 0 }),
+    routePlanMilliseconds: Object.freeze({
+      search: 0,
+      chase: 0,
+      escape: 0
+    }),
+    sightRays: 0,
+    sphereSweeps: 0,
+    sphereSweepMilliseconds: 0,
+    beamRequests: 0,
+    routeSafetyCache: EMPTY_ROUTE_SAFETY_CACHE_DIAGNOSTICS
+  });
   const navigation = spatial.bitNavigation;
-  const safety = createBitFlightSafety(spatial.queries);
+  const routeStepSafetyDescriptorByStep =
+    new WeakMap<BitFlightRouteStep, RouteStepSafetyDescriptor>();
+  const describeRouteStep = (step: BitFlightRouteStep) => {
+    const cached = routeStepSafetyDescriptorByStep.get(step);
+    if (cached) {
+      if (diagnosticsEnabled) {
+        diagnosticRouteStepDescriptorsReused += 1;
+      }
+      return cached;
+    }
+    const descriptor = createRouteStepSafetyDescriptor(step);
+    routeStepSafetyDescriptorByStep.set(step, descriptor);
+    if (diagnosticsEnabled) {
+      diagnosticRouteStepDescriptorsCreated += 1;
+    }
+    return descriptor;
+  };
+  const safety = createBitFlightSafety(
+    Object.freeze({
+      ...spatial.queries,
+      castMovementSphere: (
+        ...args: Parameters<typeof spatial.queries.castMovementSphere>
+      ) => {
+        const startedAt = diagnosticsEnabled ? performance.now() : 0;
+        const collision =
+          spatial.queries.castMovementSphere(...args);
+        if (diagnosticsEnabled) {
+          diagnosticSphereSweeps += 1;
+          diagnosticSphereSweepMilliseconds +=
+            performance.now() - startedAt;
+        }
+        return collision;
+      }
+    })
+  );
+  const routeStepSafetyByKey = new Map<string, boolean>();
+  const routeCenterSafetyByKey = new Map<string, boolean>();
+  const routeSegmentSafetyByKey = new Map<string, boolean>();
+  const lowCeilingCruiseHeightsByRouteStepKey = new Map<
+    string,
+    readonly number[]
+  >();
+  const routeStepSafetyAccessOrder = new Map<string, true>();
+  const routeStepSafetyDiagnostics =
+    createMutableRouteSafetyCacheEntryDiagnostics();
+  const routeCenterSafetyDiagnostics =
+    createMutableRouteSafetyCacheEntryDiagnostics();
+  const routeSegmentSafetyDiagnostics =
+    createMutableRouteSafetyCacheEntryDiagnostics();
+  const lowCeilingCruiseHeightDiagnostics =
+    createMutableRouteSafetyCacheEntryDiagnostics();
+  const targetLocationCandidatesByPositionKey = new Map<
+    string,
+    readonly Readonly<{
+      destination: BitFlightLocation;
+      projectionError: SafeRouteCostBias;
+    }>[]
+  >();
+  const safeDestinationByTraversalKey = new Map<
+    string,
+    BitFlightLocation | null
+  >();
   const explorationHistory: BitFlightExplorationHistory =
     createBitFlightExplorationHistory();
+
+  const touchRouteStepSafetyKey = (key: string) => {
+    routeStepSafetyAccessOrder.delete(key);
+    routeStepSafetyAccessOrder.set(key, true);
+    if (
+      routeStepSafetyAccessOrder.size >
+      V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES
+    ) {
+      const evictedKey =
+        routeStepSafetyAccessOrder.keys().next().value!;
+      routeStepSafetyAccessOrder.delete(evictedKey);
+      if (routeStepSafetyByKey.delete(evictedKey) && diagnosticsEnabled) {
+        routeStepSafetyDiagnostics.evictions += 1;
+      }
+      if (
+        lowCeilingCruiseHeightsByRouteStepKey.delete(evictedKey) &&
+        diagnosticsEnabled
+      ) {
+        lowCeilingCruiseHeightDiagnostics.evictions += 1;
+      }
+    }
+  };
+  const touchRouteCenterSafetyKey = (
+    key: string,
+    value: boolean
+  ) => {
+    routeCenterSafetyByKey.delete(key);
+    routeCenterSafetyByKey.set(key, value);
+    if (
+      routeCenterSafetyByKey.size >
+      V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES
+    ) {
+      const evictedKey =
+        routeCenterSafetyByKey.keys().next().value!;
+      routeCenterSafetyByKey.delete(evictedKey);
+      if (diagnosticsEnabled) {
+        routeCenterSafetyDiagnostics.evictions += 1;
+      }
+    }
+  };
+  const touchRouteSegmentSafetyKey = (
+    key: string,
+    value: boolean
+  ) => {
+    routeSegmentSafetyByKey.delete(key);
+    routeSegmentSafetyByKey.set(key, value);
+    if (
+      routeSegmentSafetyByKey.size >
+      V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES
+    ) {
+      const evictedKey =
+        routeSegmentSafetyByKey.keys().next().value!;
+      routeSegmentSafetyByKey.delete(evictedKey);
+      if (diagnosticsEnabled) {
+        routeSegmentSafetyDiagnostics.evictions += 1;
+      }
+    }
+  };
+  const touchRouteSafetyComponents = (
+    descriptor: RouteStepSafetyDescriptor
+  ) => {
+    if (descriptor.centerKey !== null) {
+      const centerSafety =
+        routeCenterSafetyByKey.get(descriptor.centerKey);
+      if (centerSafety !== undefined) {
+        touchRouteCenterSafetyKey(
+          descriptor.centerKey,
+          centerSafety
+        );
+      }
+    }
+    for (const segmentKey of descriptor.segmentKeys) {
+      if (segmentKey === null) {
+        continue;
+      }
+      const segmentSafety = routeSegmentSafetyByKey.get(segmentKey);
+      if (segmentSafety !== undefined) {
+        touchRouteSegmentSafetyKey(segmentKey, segmentSafety);
+      }
+    }
+  };
+  const getRouteStepSafety = (
+    descriptor: RouteStepSafetyDescriptor
+  ) => {
+    const value = routeStepSafetyByKey.get(descriptor.key);
+    if (value === undefined) {
+      if (diagnosticsEnabled) {
+        routeStepSafetyDiagnostics.misses += 1;
+      }
+      return undefined;
+    }
+    if (diagnosticsEnabled) {
+      routeStepSafetyDiagnostics.hits += 1;
+    }
+    touchRouteStepSafetyKey(descriptor.key);
+    touchRouteSafetyComponents(descriptor);
+    return value;
+  };
+  const setRouteStepSafety = (key: string, value: boolean) => {
+    routeStepSafetyByKey.set(key, value);
+    touchRouteStepSafetyKey(key);
+  };
+  const getRouteCenterSafety = (key: string) => {
+    const value = routeCenterSafetyByKey.get(key);
+    if (value === undefined) {
+      if (diagnosticsEnabled) {
+        routeCenterSafetyDiagnostics.misses += 1;
+      }
+      return undefined;
+    }
+    if (diagnosticsEnabled) {
+      routeCenterSafetyDiagnostics.hits += 1;
+    }
+    touchRouteCenterSafetyKey(key, value);
+    return value;
+  };
+  const setRouteCenterSafety = (key: string, value: boolean) => {
+    touchRouteCenterSafetyKey(key, value);
+  };
+  const getRouteSegmentSafety = (key: string) => {
+    const value = routeSegmentSafetyByKey.get(key);
+    if (value === undefined) {
+      if (diagnosticsEnabled) {
+        routeSegmentSafetyDiagnostics.misses += 1;
+      }
+      return undefined;
+    }
+    if (diagnosticsEnabled) {
+      routeSegmentSafetyDiagnostics.hits += 1;
+    }
+    touchRouteSegmentSafetyKey(key, value);
+    return value;
+  };
+  const setRouteSegmentSafety = (key: string, value: boolean) => {
+    touchRouteSegmentSafetyKey(key, value);
+  };
+  const getLowCeilingCruiseHeights = (
+    descriptor: RouteStepSafetyDescriptor
+  ) => {
+    const value =
+      lowCeilingCruiseHeightsByRouteStepKey.get(descriptor.key);
+    if (value === undefined) {
+      if (diagnosticsEnabled) {
+        lowCeilingCruiseHeightDiagnostics.misses += 1;
+      }
+      return undefined;
+    }
+    if (diagnosticsEnabled) {
+      lowCeilingCruiseHeightDiagnostics.hits += 1;
+    }
+    touchRouteStepSafetyKey(descriptor.key);
+    touchRouteSafetyComponents(descriptor);
+    return value;
+  };
+  const setLowCeilingCruiseHeights = (
+    key: string,
+    value: readonly number[]
+  ) => {
+    lowCeilingCruiseHeightsByRouteStepKey.set(key, value);
+    touchRouteStepSafetyKey(key);
+  };
+  const createRouteSafetyCacheEntryDiagnostics = (
+    size: number,
+    diagnostics: MutableRouteSafetyCacheEntryDiagnostics
+  ): V2BitRouteSafetyCacheEntryDiagnostics =>
+    Object.freeze({
+      size,
+      hits: diagnostics.hits,
+      misses: diagnostics.misses,
+      recomputations: diagnostics.recomputations,
+      evictions: diagnostics.evictions
+    });
+  const createRouteSafetyCacheDiagnostics =
+    (): V2BitRouteSafetyCacheDiagnostics =>
+      diagnosticsEnabled
+        ? Object.freeze({
+            maximumEntriesPerMap:
+              V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES,
+            routeStepDescriptors: Object.freeze({
+              created: diagnosticRouteStepDescriptorsCreated,
+              reused: diagnosticRouteStepDescriptorsReused
+            }),
+            routeSteps: createRouteSafetyCacheEntryDiagnostics(
+              routeStepSafetyByKey.size,
+              routeStepSafetyDiagnostics
+            ),
+            routeCenters: createRouteSafetyCacheEntryDiagnostics(
+              routeCenterSafetyByKey.size,
+              routeCenterSafetyDiagnostics
+            ),
+            routeSegments: createRouteSafetyCacheEntryDiagnostics(
+              routeSegmentSafetyByKey.size,
+              routeSegmentSafetyDiagnostics
+            ),
+            lowCeilingCruiseHeights:
+              createRouteSafetyCacheEntryDiagnostics(
+                lowCeilingCruiseHeightsByRouteStepKey.size,
+                lowCeilingCruiseHeightDiagnostics
+              )
+          })
+        : EMPTY_ROUTE_SAFETY_CACHE_DIAGNOSTICS;
+  const resetRouteSafetyCacheDiagnostics = () => {
+    diagnosticRouteStepDescriptorsCreated = 0;
+    diagnosticRouteStepDescriptorsReused = 0;
+    for (const diagnostics of [
+      routeStepSafetyDiagnostics,
+      routeCenterSafetyDiagnostics,
+      routeSegmentSafetyDiagnostics,
+      lowCeilingCruiseHeightDiagnostics
+    ]) {
+      diagnostics.hits = 0;
+      diagnostics.misses = 0;
+      diagnostics.recomputations = 0;
+      diagnostics.evictions = 0;
+    }
+  };
+
+  const resetDiagnostics = () => {
+    diagnosticSearchRoutePlans = 0;
+    diagnosticChaseRoutePlans = 0;
+    diagnosticEscapeRoutePlans = 0;
+    diagnosticSearchRoutePlanMilliseconds = 0;
+    diagnosticChaseRoutePlanMilliseconds = 0;
+    diagnosticEscapeRoutePlanMilliseconds = 0;
+    diagnosticSightRays = 0;
+    diagnosticSphereSweeps = 0;
+    diagnosticSphereSweepMilliseconds = 0;
+  };
+  const measureRoutePlan = <T>(
+    purpose: V2BitRoutePurpose,
+    operation: () => T
+  ) => {
+    const startedAt = diagnosticsEnabled ? performance.now() : 0;
+    const result = operation();
+    if (diagnosticsEnabled) {
+      const duration = performance.now() - startedAt;
+      if (purpose === "search") {
+        diagnosticSearchRoutePlans += 1;
+        diagnosticSearchRoutePlanMilliseconds += duration;
+      } else if (purpose === "chase") {
+        diagnosticChaseRoutePlans += 1;
+        diagnosticChaseRoutePlanMilliseconds += duration;
+      } else {
+        diagnosticEscapeRoutePlans += 1;
+        diagnosticEscapeRoutePlanMilliseconds += duration;
+      }
+    }
+    return result;
+  };
+  const findMovementCollision = (from: Vector3, to: Vector3) =>
+    from.equals(to) ? null : safety.findMovementCollision(from, to);
+  const isRouteStepSafeCached = (
+    descriptor: RouteStepSafetyDescriptor
+  ) => {
+    if (descriptor.centerKey === null) {
+      return false;
+    }
+    const points = descriptor.points;
+    let firstPointIsSafe =
+      getRouteCenterSafety(descriptor.centerKey);
+    if (firstPointIsSafe === undefined) {
+      firstPointIsSafe = safety.isCenterSafe(points[0]);
+      if (diagnosticsEnabled) {
+        routeCenterSafetyDiagnostics.recomputations += 1;
+      }
+      setRouteCenterSafety(
+        descriptor.centerKey,
+        firstPointIsSafe
+      );
+    }
+    if (!firstPointIsSafe) {
+      return false;
+    }
+    for (let index = 1; index < points.length; index += 1) {
+      const from = points[index - 1];
+      const to = points[index];
+      const segmentKey = descriptor.segmentKeys[index - 1];
+      if (segmentKey === null) {
+        continue;
+      }
+      let segmentIsSafe = getRouteSegmentSafety(segmentKey);
+      if (segmentIsSafe === undefined) {
+        segmentIsSafe =
+          safety.findMovementCollision(from, to) === null;
+        if (diagnosticsEnabled) {
+          routeSegmentSafetyDiagnostics.recomputations += 1;
+        }
+        setRouteSegmentSafety(segmentKey, segmentIsSafe);
+      }
+      if (!segmentIsSafe) {
+        return false;
+      }
+    }
+    return true;
+  };
 
   const nextRandom = () => {
     const value = config.random();
@@ -581,9 +1164,7 @@ export const createV2BitSystem = (
           heightMode: "band" as const
         })
       );
-      if (safety.isCenterSafe(getBitFlightWorldPosition(selectedLocation))) {
-        return selectedLocation;
-      }
+      return selectedLocation;
     }
 
     const baseLocation = navigation.projectPointInBand(
@@ -615,6 +1196,35 @@ export const createV2BitSystem = (
     }
     return null;
   };
+
+  const getSafeTraversalDestination = (
+    traversal: BitFlightTransitionTraversal
+  ) => {
+    const traversalKey =
+      `${traversal.transition.id}|${traversal.reversed}`;
+    if (!safeDestinationByTraversalKey.has(traversalKey)) {
+      const destinationPoint =
+        getTraversalDestinationPosition(traversal);
+      safeDestinationByTraversalKey.set(
+        traversalKey,
+        findSafeLocation(
+          traversal.to,
+          destinationPoint,
+          destinationPoint.y
+        )
+      );
+    }
+    return safeDestinationByTraversalKey.get(traversalKey) ?? null;
+  };
+
+  for (const band of navigation.bands) {
+    for (const traversal of navigation.getTransitionsFrom({
+      zoneId: band.zoneId,
+      bandId: band.id
+    })) {
+      getSafeTraversalDestination(traversal);
+    }
+  }
 
   const createSpawnRegions = (): readonly SpawnRegion[] =>
     Object.freeze(
@@ -742,7 +1352,19 @@ export const createV2BitSystem = (
   };
 
   const materials = createSharedMaterials(scene);
+  const visualSources = (() => {
+    try {
+      return createSharedVisualSources(scene, materials);
+    } catch (error) {
+      materials.muzzle.dispose();
+      materials.redBody.dispose();
+      materials.body.dispose();
+      throw error;
+    }
+  })();
   const bits: RuntimeBit[] = [];
+  const bitsById = new Map<string, RuntimeBit>();
+  const carpetFollowersByLeaderId = new Map<string, Set<RuntimeBit>>();
   const fadingCarpetFollowers: FadingCarpetFollower[] = [];
   const activeAlerts = new Map<string, ActiveAlert>();
   const closedInternalAlertKeys = new Set<string>();
@@ -759,6 +1381,11 @@ export const createV2BitSystem = (
   let allowedEscapeRoutePlanIds = new Set<string>();
   let remainingUnassignedEscapeRoutePlans = 0;
   let aiSuspended = false;
+  let frameView: V2BitFrameView | null = null;
+
+  const invalidateFrameViews = () => {
+    frameView = null;
+  };
 
   const selectRoundRobinBitIds = (
     cursor: number,
@@ -773,22 +1400,29 @@ export const createV2BitSystem = (
       });
     }
     const normalizedCursor = cursor % bits.length;
-    const ordered = Array.from(
-      { length: bits.length },
-      (_, offset) => bits[(normalizedCursor + offset) % bits.length]
-    );
-    const priority = ordered.filter(
-      (bit) => isEligible(bit) && isPriority(bit)
-    );
-    const regular = ordered.filter(
-      (bit) => isEligible(bit) && !isPriority(bit)
-    );
-    const selected = [...priority, ...regular].slice(0, budget);
-    const lastSelected = selected[selected.length - 1];
+    const selectedIds = new Set<string>();
+    let lastSelectedIndex: number | null = null;
+    for (const priorityPass of [true, false] as const) {
+      for (let offset = 0; offset < bits.length; offset += 1) {
+        if (selectedIds.size >= budget) {
+          break;
+        }
+        const index = (normalizedCursor + offset) % bits.length;
+        const bit = bits[index];
+        if (
+          !selectedIds.has(bit.id) &&
+          isEligible(bit) &&
+          isPriority(bit) === priorityPass
+        ) {
+          selectedIds.add(bit.id);
+          lastSelectedIndex = index;
+        }
+      }
+    }
     return Object.freeze({
-      ids: new Set(selected.map((bit) => bit.id)),
-      nextCursor: lastSelected
-        ? (bits.indexOf(lastSelected) + 1) % bits.length
+      ids: selectedIds,
+      nextCursor: lastSelectedIndex !== null
+        ? (lastSelectedIndex + 1) % bits.length
         : normalizedCursor
     });
   };
@@ -812,7 +1446,7 @@ export const createV2BitSystem = (
         : V2_STANDARD_BIT_COMBAT_PROFILE);
     const visual = createBitVisual(
       scene,
-      materials,
+      visualSources,
       id,
       profile.isRed
     );
@@ -884,6 +1518,8 @@ export const createV2BitSystem = (
       bit.root.position.copyFrom(position);
       bit.root.lookAt(bit.root.position.add(initialDirection));
       bits.push(bit);
+      bitsById.set(bit.id, bit);
+      invalidateFrameViews();
       return bit;
     } catch (error) {
       flightAgent?.dispose();
@@ -905,6 +1541,10 @@ export const createV2BitSystem = (
       bits[index].root.dispose(false);
     }
     bits.length = 0;
+    bitsById.clear();
+    visualSources.muzzle.dispose(false, false);
+    visualSources.redBody.dispose(false, false);
+    visualSources.body.dispose(false, false);
     materials.muzzle.dispose();
     materials.redBody.dispose();
     materials.body.dispose();
@@ -917,8 +1557,12 @@ export const createV2BitSystem = (
   const buildAlertKey = (leaderId: string, targetId: string) =>
     `${leaderId}\u0000${targetId}`;
 
-  const isSightClear = (from: Vector3, to: Vector3) =>
-    spatial.queries.castSightSegment(from, to) === null;
+  const isSightClear = (from: Vector3, to: Vector3) => {
+    if (diagnosticsEnabled) {
+      diagnosticSightRays += 1;
+    }
+    return spatial.queries.castSightSegment(from, to) === null;
+  };
 
   const isInsideVision = (
     bit: RuntimeBit,
@@ -1019,10 +1663,7 @@ export const createV2BitSystem = (
     const bob =
       Math.sin(elapsedSeconds * 0.9 + bit.bobPhase) * BOB_AMPLITUDE;
     if (location.heightMode === "low-ceiling") {
-      const candidate = new Vector3(base.x, base.y + bob, base.z);
-      return safety.findMovementCollision(base, candidate)
-        ? base
-        : candidate;
+      return new Vector3(base.x, base.y + bob, base.z);
     }
     const candidate = new Vector3(
       base.x,
@@ -1033,7 +1674,7 @@ export const createV2BitSystem = (
       ),
       base.z
     );
-    return safety.findMovementCollision(base, candidate) ? base : candidate;
+    return candidate;
   };
 
   const syncStationaryPosition = (
@@ -1050,50 +1691,113 @@ export const createV2BitSystem = (
       elapsedSeconds,
       allowBob
     );
-    if (!safety.findMovementCollision(bit.root.position, destination)) {
+    if (!findMovementCollision(bit.root.position, destination)) {
       bit.root.position.copyFrom(destination);
+      return;
+    }
+    const base = getBitFlightWorldPosition(bit.navigationLocation);
+    if (
+      !destination.equals(base) &&
+      !findMovementCollision(bit.root.position, base)
+    ) {
+      bit.root.position.copyFrom(base);
     }
   };
 
   const selectSafeRoute = <T>(
     start: BitFlightLocation,
-    candidates: readonly Readonly<{
-      value: T;
-      destination: BitFlightLocation;
-      costBias: number;
-    }>[],
+    candidates: readonly SafeRouteInputCandidate<T>[],
     policy: BitFlightRoutePolicy,
     findCandidateRoute: (
       origin: BitFlightLocation,
-      candidate: Readonly<{
-        value: T;
-        destination: BitFlightLocation;
-        costBias: number;
-      }>,
+      candidate: SafeRouteInputCandidate<T>,
       safePolicy: BitFlightRoutePolicy
     ) => BitFlightRoute | null = (origin, candidate, safePolicy) =>
       navigation.findRoute(origin, candidate.destination, safePolicy)
   ): SafeRouteCandidate<T> | null => {
     let selected: SafeRouteCandidate<T> | null = null;
-    const safePolicy: BitFlightRoutePolicy = Object.freeze({
+    const startWorldPosition = getBitFlightWorldPosition(start);
+    const lazySafetyPolicy: BitFlightRoutePolicy = Object.freeze({
       canUseTransition: (traversal) =>
         policy.canUseTransition(traversal),
-      canUseRouteStep: (step) =>
-        policy.canUseRouteStep(step) && isRouteStepSafe(step, safety),
+      canUseRouteStep: (step) => {
+        if (!policy.canUseRouteStep(step)) {
+          return false;
+        }
+        const descriptor = describeRouteStep(step);
+        return getRouteStepSafety(descriptor) !== false;
+      },
       additionalTransitionCost: (traversal) =>
         policy.additionalTransitionCost(traversal),
-      additionalSurfaceCruiseHeights: (step, band) =>
-        Object.freeze([
+      additionalSurfaceCruiseHeights: (step, band) => {
+        const descriptor = describeRouteStep(step);
+        let lowCeilingCruiseHeights =
+          getLowCeilingCruiseHeights(descriptor);
+        if (lowCeilingCruiseHeights === undefined) {
+          lowCeilingCruiseHeights =
+            safety.findLowCeilingCruiseHeights(step, band);
+          if (diagnosticsEnabled) {
+            lowCeilingCruiseHeightDiagnostics.recomputations += 1;
+          }
+          setLowCeilingCruiseHeights(
+            descriptor.key,
+            lowCeilingCruiseHeights
+          );
+        }
+        return Object.freeze([
           ...policy.additionalSurfaceCruiseHeights(step, band),
-          ...safety.findLowCeilingCruiseHeights(step, band)
-        ])
+          ...lowCeilingCruiseHeights
+        ]);
+      }
     });
     for (const candidate of candidates) {
-      const route = findCandidateRoute(
-        start,
-        candidate,
-        safePolicy
-      );
+      /*
+       * BitFlightRoute.totalCostは距離と非負のpolicy追加費用の和なので、
+       * 始終点の直線距離とcostBiasの和が候補総費用のadmissible lower boundになる。
+       * 選択規則はstrict <のため、同値も既選択候補を維持して評価を省略できる。
+       */
+      if (
+        selected &&
+        Vector3.Distance(
+          startWorldPosition,
+          getBitFlightWorldPosition(candidate.destination)
+        ) +
+          candidate.costBias >=
+          selected.totalCost
+      ) {
+        continue;
+      }
+      let route: BitFlightRoute | null = null;
+      while (true) {
+        const plannedRoute = findCandidateRoute(
+          start,
+          candidate,
+          lazySafetyPolicy
+        );
+        if (!plannedRoute) {
+          break;
+        }
+        let routeIsSafe = true;
+        for (const step of plannedRoute.steps) {
+          const descriptor = describeRouteStep(step);
+          let stepIsSafe = getRouteStepSafety(descriptor);
+          if (stepIsSafe === undefined) {
+            stepIsSafe = isRouteStepSafeCached(descriptor);
+            if (diagnosticsEnabled) {
+              routeStepSafetyDiagnostics.recomputations += 1;
+            }
+            setRouteStepSafety(descriptor.key, stepIsSafe);
+          }
+          if (!stepIsSafe) {
+            routeIsSafe = false;
+            break;
+          }
+        }
+        if (routeIsSafe) {
+          route = plannedRoute;
+          break;
+        }
+      }
       if (!route) {
         continue;
       }
@@ -1135,7 +1839,8 @@ export const createV2BitSystem = (
     if (
       !bit.flightAgent.setPreparedRoute(
         bit.navigationLocation,
-        selected.route
+        selected.route,
+        "verified"
       )
     ) {
       bit.routePurpose = null;
@@ -1180,57 +1885,54 @@ export const createV2BitSystem = (
     deltaSeconds: number,
     elapsedSeconds: number
   ) => {
-    const previousLocation = bit.navigationLocation;
     const previousRootPosition = bit.root.position.clone();
-    const snapshot = bit.flightAgent.update(speed, deltaSeconds);
+    const snapshot = bit.flightAgent.update(
+      speed,
+      deltaSeconds,
+      previousRootPosition,
+      (candidate) => {
+        if (!candidate.position) {
+          throw new Error("移動後のBIT飛行位置がありません。");
+        }
+        const allowBob =
+          candidate.transition === null &&
+          bit.mode !== "carpet-leader" &&
+          bit.mode !== "carpet-follower";
+        return candidate.location
+          ? getBobbedPosition(
+              bit,
+              candidate.location,
+              elapsedSeconds,
+              allowBob
+            )
+          : candidate.position;
+      }
+    );
+    if (snapshot.movementBlocked) {
+      if (snapshot.transition === null) {
+        bit.routePurpose = null;
+        bit.routeDestination = null;
+      }
+      bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
+      return "blocked";
+    }
     updateTransitionHistory(
       bit,
       snapshot.transition,
       snapshot.location,
       elapsedSeconds
     );
-    if (!snapshot.position) {
+    if (!snapshot.rootPosition) {
       return snapshot.state;
     }
 
-    const allowBob =
-      snapshot.transition === null &&
-      bit.mode !== "carpet-leader" &&
-      bit.mode !== "carpet-follower";
-    let destination = snapshot.location
-      ? getBobbedPosition(
-          bit,
-          snapshot.location,
-          elapsedSeconds,
-          allowBob
-        )
-      : snapshot.position.clone();
-    let collision = safety.findMovementCollision(
-      previousRootPosition,
-      destination
-    );
-    if (collision && snapshot.location) {
-      destination = snapshot.position.clone();
-      collision = safety.findMovementCollision(
-        previousRootPosition,
-        destination
-      );
-    }
-    if (collision) {
-      bit.flightAgent.clear();
-      bit.navigationLocation = previousLocation;
-      bit.routePurpose = null;
-      bit.routeDestination = null;
-      bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
-      return "blocked";
-    }
-
-    bit.root.position.copyFrom(destination);
+    bit.root.position.copyFrom(snapshot.rootPosition);
     bit.navigationLocation = snapshot.location;
     if (snapshot.facingDirection && snapshot.facingDirection.lengthSquared() > 0) {
       bit.root.lookAt(bit.root.position.add(snapshot.facingDirection));
     }
     if (
+      snapshot.state === "idle" ||
       snapshot.state === "arrived" ||
       snapshot.state === "unreachable" ||
       snapshot.state === "blocked"
@@ -1248,8 +1950,15 @@ export const createV2BitSystem = (
     targetPosition: Vector3
   ): readonly Readonly<{
     destination: BitFlightLocation;
-    projectionError: number;
+    projectionError: SafeRouteCostBias;
   }>[] => {
+    const cacheKey = createRouteSafetyPointKey(targetPosition);
+    const cached = targetLocationCandidatesByPositionKey.get(cacheKey);
+    if (cached) {
+      targetLocationCandidatesByPositionKey.delete(cacheKey);
+      targetLocationCandidatesByPositionKey.set(cacheKey, cached);
+      return cached;
+    }
     const verticalDistances = navigation.bands.map((band) =>
       targetPosition.y < band.minimumCenterHeight
         ? band.minimumCenterHeight - targetPosition.y
@@ -1276,9 +1985,9 @@ export const createV2BitSystem = (
       return [
         Object.freeze({
           destination: location,
-          projectionError: Math.hypot(
-            location.surface.position.x - targetPosition.x,
-            location.surface.position.z - targetPosition.z
+          projectionError: measureHorizontalProjectionError(
+            location.surface.position,
+            targetPosition
           )
         })
       ];
@@ -1286,13 +1995,25 @@ export const createV2BitSystem = (
     const minimumProjectionError = Math.min(
       ...projectedCandidates.map((candidate) => candidate.projectionError)
     );
-    return Object.freeze(
+    const candidates = Object.freeze(
       projectedCandidates.filter(
         (candidate) =>
           candidate.projectionError <=
           minimumProjectionError + TARGET_BAND_PROJECTION_TOLERANCE
       )
     );
+    targetLocationCandidatesByPositionKey.set(cacheKey, candidates);
+    if (
+      targetLocationCandidatesByPositionKey.size >
+      TARGET_LOCATION_CANDIDATE_CACHE_MAX_ENTRIES
+    ) {
+      const oldestKey =
+        targetLocationCandidatesByPositionKey.keys().next().value;
+      if (oldestKey !== undefined) {
+        targetLocationCandidatesByPositionKey.delete(oldestKey);
+      }
+    }
+    return candidates;
   };
 
   const selectTargetDestination = (
@@ -1345,15 +2066,56 @@ export const createV2BitSystem = (
     );
   };
 
+  const registerCarpetFollower = (
+    leader: RuntimeBit,
+    follower: RuntimeBit
+  ) => {
+    const followers =
+      carpetFollowersByLeaderId.get(leader.id) ?? new Set<RuntimeBit>();
+    followers.add(follower);
+    carpetFollowersByLeaderId.set(leader.id, followers);
+  };
+
+  const unregisterRuntimeBit = (bit: RuntimeBit) => {
+    bits.splice(bits.indexOf(bit), 1);
+    bitsById.delete(bit.id);
+    if (bit.mode === "carpet-follower") {
+      const followers = carpetFollowersByLeaderId.get(bit.carpetLeaderId!);
+      followers!.delete(bit);
+      if (followers!.size === 0) {
+        carpetFollowersByLeaderId.delete(bit.carpetLeaderId!);
+      }
+    }
+    invalidateFrameViews();
+  };
+
+  const createFadingMesh = (instance: InstancedMesh) => {
+    const mesh = new Mesh(`${instance.name}_fade`, scene);
+    instance.sourceMesh.geometry!.applyToMesh(mesh);
+    mesh.parent = instance.parent;
+    mesh.position.copyFrom(instance.position);
+    mesh.rotation.copyFrom(instance.rotation);
+    mesh.rotationQuaternion =
+      instance.rotationQuaternion?.clone() ?? null;
+    mesh.scaling.copyFrom(instance.scaling);
+    mesh.material = instance.material;
+    mesh.isPickable = false;
+    return mesh;
+  };
+
   const startCarpetFollowerFade = (follower: RuntimeBit) => {
     follower.flightAgent.dispose();
-    bits.splice(bits.indexOf(follower), 1);
-    follower.body.visibility = 1;
-    follower.muzzle.visibility = 1;
+    unregisterRuntimeBit(follower);
+    const body = createFadingMesh(follower.body);
+    const muzzle = createFadingMesh(follower.muzzle);
+    follower.body.dispose(false, false);
+    follower.muzzle.dispose(false, false);
+    body.name = `${follower.id}_body`;
+    muzzle.name = `${follower.id}_muzzle`;
     fadingCarpetFollowers.push({
       root: follower.root,
-      body: follower.body,
-      muzzle: follower.muzzle,
+      body,
+      muzzle,
       remainingSeconds: CARPET_FOLLOWER_FADE_SECONDS
     });
   };
@@ -1388,14 +2150,11 @@ export const createV2BitSystem = (
   };
 
   const removeCarpetFollowers = (leader: RuntimeBit) => {
-    for (let index = bits.length - 1; index >= 0; index -= 1) {
-      const candidate = bits[index];
-      if (
-        candidate.mode !== "carpet-follower" ||
-        candidate.carpetLeaderId !== leader.id
-      ) {
-        continue;
-      }
+    const followers = carpetFollowersByLeaderId.get(leader.id);
+    if (!followers) {
+      return;
+    }
+    for (const candidate of [...followers]) {
       startCarpetFollowerFade(candidate);
     }
   };
@@ -1686,7 +2445,7 @@ export const createV2BitSystem = (
         Vector3.Distance(leaderPosition, spawnPosition) >
           ALERT_SPAWN_RADIUS ||
         !safety.isCenterSafe(spawnPosition) ||
-        safety.findMovementCollision(leaderPosition, spawnPosition)
+        findMovementCollision(leaderPosition, spawnPosition)
       ) {
         continue;
       }
@@ -1731,31 +2490,29 @@ export const createV2BitSystem = (
     const candidates = navigation
       .getTransitionsFrom(bit.navigationLocation)
       .flatMap((traversal) => {
-        const destinationPoint = getTraversalDestinationPosition(traversal);
-        const destination = findSafeLocation(
-          traversal.to,
-          destinationPoint,
-          destinationPoint.y
-        );
+        const destination =
+          getSafeTraversalDestination(traversal);
         return destination
           ? [Object.freeze({
               value: traversal,
               destination,
-              costBias: 0
+              costBias: ZERO_SAFE_ROUTE_COST_BIAS
             })]
           : [];
       });
-    const selected = selectSafeRoute(
-      bit.navigationLocation,
-      candidates,
-      policy,
-      (origin, candidate, safePolicy) =>
-        navigation.findRouteThroughTransition(
-          origin,
-          candidate.value,
-          candidate.destination,
-          safePolicy
-        )
+    const selected = measureRoutePlan("escape", () =>
+      selectSafeRoute(
+        bit.navigationLocation!,
+        candidates,
+        policy,
+        (origin, candidate, safePolicy) =>
+          navigation.findRouteThroughTransition(
+            origin,
+            candidate.value,
+            candidate.destination,
+            safePolicy
+          )
+      )
     );
     if (selected) {
       assignRoute(bit, selected, "escape");
@@ -1937,7 +2694,7 @@ export const createV2BitSystem = (
           surfaceSpeed: number;
         }>;
         destination: BitFlightLocation;
-        costBias: number;
+        costBias: SafeRouteCostBias;
       }>
     > = [];
     const surfaceCandidate = createSearchSurfaceDestination(
@@ -1952,7 +2709,7 @@ export const createV2BitSystem = (
             surfaceSpeed: surfaceCandidate.surfaceSpeed
           }),
           destination: surfaceCandidate.destination,
-          costBias: 0
+          costBias: ZERO_SAFE_ROUTE_COST_BIAS
         })
       );
     }
@@ -2018,12 +2775,7 @@ export const createV2BitSystem = (
       );
       for (let offset = 0; offset < candidateCount; offset += 1) {
         const traversal = transitions[(cursor + offset) % transitions.length];
-        const destinationPoint = getTraversalDestinationPosition(traversal);
-        const destination = findSafeLocation(
-          traversal.to,
-          destinationPoint,
-          destinationPoint.y
-        );
+        const destination = getSafeTraversalDestination(traversal);
         if (destination) {
           transitionCandidates.push(
             Object.freeze({
@@ -2032,7 +2784,7 @@ export const createV2BitSystem = (
                 surfaceSpeed: movementSpeed
               }),
               destination,
-              costBias: 0
+              costBias: ZERO_SAFE_ROUTE_COST_BIAS
             })
           );
         }
@@ -2043,30 +2795,33 @@ export const createV2BitSystem = (
     } else {
       bit.searchSurfacePlansSinceTransitionAttempt += 1;
     }
-    const selected =
-      selectSafeRoute(
-        current,
-        transitionCandidates,
-        policy,
-        (origin, candidate, safePolicy) =>
-          navigation.findRouteThroughTransition(
-            origin,
-            candidate.value.traversal!,
-            candidate.destination,
-            safePolicy
-          )
-      ) ??
-      selectSafeRoute(
-        current,
-        surfaceCandidates,
-        policy,
-        (origin, candidate, safePolicy) =>
-          navigation.findSurfaceRoute(
-            origin,
-            candidate.destination,
-            safePolicy
-          )
-      );
+    const selected = measureRoutePlan(
+      "search",
+      () =>
+        selectSafeRoute(
+          current,
+          transitionCandidates,
+          policy,
+          (origin, candidate, safePolicy) =>
+            navigation.findRouteThroughTransition(
+              origin,
+              candidate.value.traversal!,
+              candidate.destination,
+              safePolicy
+            )
+        ) ??
+        selectSafeRoute(
+          current,
+          surfaceCandidates,
+          policy,
+          (origin, candidate, safePolicy) =>
+            navigation.findSurfaceRoute(
+              origin,
+              candidate.destination,
+              safePolicy
+            )
+        )
+    );
     if (!selected || !assignRoute(bit, selected, "search")) {
       return false;
     }
@@ -2129,9 +2884,15 @@ export const createV2BitSystem = (
       if (state === "transition" || state === "clearing-transition") {
         return;
       }
-      if (state === "arrived" || state === "blocked" || state === "unreachable") {
+      if (
+        state === "arrived" ||
+        state === "unreachable" ||
+        (state === "blocked" && bit.activeTransition === null)
+      ) {
         clearRoute(bit);
         bit.searchRetrySeconds = SEARCH_RETRY_SECONDS;
+      } else if (state === "blocked") {
+        return;
       } else if (
         bit.routePurpose === "escape" &&
         state === "surface"
@@ -2195,7 +2956,10 @@ export const createV2BitSystem = (
         ) > TARGET_ROUTE_MOVE_THRESHOLD);
     if (shouldRefresh && allowedChaseRoutePlanIds.has(bit.id)) {
       bit.lastChasePlanTargetId = bit.targetId;
-      const selected = selectTargetDestination(bit, targetPosition);
+      const selected = measureRoutePlan(
+        "chase",
+        () => selectTargetDestination(bit, targetPosition)
+      );
       if (selected) {
         assignRoute(
           bit,
@@ -2348,7 +3112,7 @@ export const createV2BitSystem = (
       );
       if (
         !projected ||
-        safety.findMovementCollision(
+        findMovementCollision(
           leader.root.position,
           getBitFlightWorldPosition(projected)
         )
@@ -2374,6 +3138,7 @@ export const createV2BitSystem = (
       follower.lockedDirection.copyFrom(direction);
       follower.carpetAimStartDirection.copyFrom(direction);
       follower.carpetAimSeconds = CARPET_AIM_TURN_SECONDS;
+      registerCarpetFollower(leader, follower);
       const fireInterval = randomV2BitFireInterval(
         "carpet",
         follower.profile,
@@ -2394,6 +3159,12 @@ export const createV2BitSystem = (
   ) => {
     if (!leader.navigationLocation) {
       abortCarpetAtObstacle(leader);
+      return;
+    }
+    if (
+      leader.carpetLeaderId === null &&
+      !allowedChaseRoutePlanIds.has(leader.id)
+    ) {
       return;
     }
     const targetHasSameBandCandidate = buildTargetLocationCandidates(
@@ -2418,7 +3189,10 @@ export const createV2BitSystem = (
       leader.routeRefreshSeconds - deltaSeconds
     );
     if (leader.carpetLeaderId === null) {
-      const selected = selectSameBandTargetDestination(leader, targetPosition);
+      const selected = measureRoutePlan(
+        "chase",
+        () => selectSameBandTargetDestination(leader, targetPosition)
+      );
       if (
         !selected ||
         routeContainsTransition(selected.route) ||
@@ -2471,9 +3245,13 @@ export const createV2BitSystem = (
         shouldRefresh &&
         allowedChaseRoutePlanIds.has(leader.id)
       ) {
-        const selected = selectSameBandTargetDestination(
-          leader,
-          targetPosition
+        const selected = measureRoutePlan(
+          "chase",
+          () =>
+            selectSameBandTargetDestination(
+              leader,
+              targetPosition
+            )
         );
         if (!selected) {
           abortCarpetAtObstacle(leader);
@@ -2535,11 +3313,9 @@ export const createV2BitSystem = (
     }
 
     const right = new Vector3(-direction.z, 0, direction.x);
-    const followers = bits.filter(
-      (candidate) =>
-        candidate.mode === "carpet-follower" &&
-        candidate.carpetLeaderId === leader.id
-    );
+    const followers = [
+      ...(carpetFollowersByLeaderId.get(leader.id) ?? [])
+    ];
     const followerDestinations: BitFlightLocation[] = [];
     for (const follower of followers) {
       if (!follower.navigationLocation) {
@@ -2562,12 +3338,12 @@ export const createV2BitSystem = (
 
     const proposedLeaderRoot =
       getBitFlightWorldPosition(proposedLeaderLocation);
-    const leaderBlocked = safety.findMovementCollision(
+    const leaderBlocked = findMovementCollision(
       leader.root.position,
       proposedLeaderRoot
     );
     const followerBlocked = followers.some((follower, index) =>
-      safety.findMovementCollision(
+      findMovementCollision(
         follower.root.position,
         getBitFlightWorldPosition(followerDestinations[index])
       )
@@ -2759,9 +3535,7 @@ export const createV2BitSystem = (
     const leaderPosition =
       bit.alertLeaderId === null
         ? null
-        : bits.find(
-              (candidate) => candidate.id === bit.alertLeaderId
-            )?.root.position ??
+        : bitsById.get(bit.alertLeaderId)?.root.position ??
           targetsById.get(bit.alertLeaderId)?.aimPosition ??
           null;
     if (
@@ -2781,7 +3555,6 @@ export const createV2BitSystem = (
       enterPostAlertMode(bit, target);
       return;
     }
-    allowedChaseRoutePlanIds.add(bit.id);
     updateChaseRoute(
       bit,
       leaderPosition,
@@ -2933,17 +3706,107 @@ export const createV2BitSystem = (
     }
   };
 
+  const getFrameView = () => {
+    if (frameView === null) {
+      const actorSpheres = Object.freeze(
+        bits.map((bit) =>
+          Object.freeze({
+            id: bit.id,
+            kind: "bit" as const,
+            center: bit.root.position.clone(),
+            radius: BIT_ACTOR_RADIUS
+          })
+        )
+      );
+      const targetStates = Object.freeze(
+        bits.map((bit) =>
+          Object.freeze({
+            bitId: bit.id,
+            mode: bit.mode,
+            isRed: bit.profile.isRed,
+            statMultiplier: bit.profile.statMultiplier,
+            modeTimerSeconds: bit.modeTimerSeconds,
+            attackCooldownSeconds: bit.attackCooldownSeconds,
+            carpetCooldownSeconds: bit.carpetCooldownSeconds,
+            targetId: bit.targetId,
+            provenance: bit.targetProvenance,
+            alertLeaderId: bit.alertLeaderId
+          })
+        )
+      );
+      const flightStateSources: readonly V2BitFlightStateSource[] =
+        bits.map((bit, index) => {
+          const location = bit.navigationLocation;
+          const activeTransition = bit.activeTransition;
+          return {
+            actor: actorSpheres[index],
+            zoneId: location?.zoneId ?? null,
+            bandId: location?.bandId ?? null,
+            safeCenterHeight: location?.safeCenterHeight ?? null,
+            heightMode: location?.heightMode ?? null,
+            routePurpose: bit.routePurpose,
+            activeTransitionId:
+              activeTransition?.transition.id ?? null,
+            activeTransitionKind:
+              activeTransition?.transition.kind ?? null,
+            activeTransitionReversed:
+              activeTransition?.reversed ?? false,
+            agentState: bit.flightAgent.getState()
+          };
+        });
+      let flightStates: readonly V2BitFlightState[] | null = null;
+      frameView = Object.freeze({
+        actorSpheres,
+        beamRequests: frameBeamRequests,
+        targetStates,
+        get flightStates() {
+          flightStates ??= Object.freeze(
+            flightStateSources.map((source) =>
+              Object.freeze({
+                bitId: source.actor.id,
+                zoneId: source.zoneId,
+                bandId: source.bandId,
+                position: source.actor.center.clone(),
+                safeCenterHeight: source.safeCenterHeight,
+                heightMode: source.heightMode,
+                routePurpose: source.routePurpose,
+                activeTransition:
+                  source.activeTransitionId !== null
+                    ? Object.freeze({
+                        id: source.activeTransitionId,
+                        kind: source.activeTransitionKind!,
+                        reversed:
+                          source.activeTransitionReversed
+                      })
+                    : null,
+                agentState: source.agentState
+              })
+            )
+          );
+          return flightStates;
+        },
+        diagnostics: frameDiagnostics
+      });
+    }
+    return frameView;
+  };
+
   return {
     update: ({ deltaSeconds, elapsedSeconds, targets, externalAlerts }) => {
       assertNonNegativeFiniteNumber("ビット更新deltaSeconds", deltaSeconds);
       assertNonNegativeFiniteNumber("ビット更新elapsedSeconds", elapsedSeconds);
+      invalidateFrameViews();
+      resetDiagnostics();
       updateFadingCarpetFollowers(deltaSeconds);
       const targetsById = new Map(
         targets.map((target) => [target.id, target] as const)
       );
-      const sightCheckEligibleCount = bits.filter(
-        (bit) => bit.mode !== "carpet-follower"
-      ).length;
+      let sightCheckEligibleCount = 0;
+      for (const bit of bits) {
+        if (bit.mode !== "carpet-follower") {
+          sightCheckEligibleCount += 1;
+        }
+      }
       sightCheckCredit = Math.min(
         sightCheckEligibleCount,
         sightCheckCredit +
@@ -3004,13 +3867,22 @@ export const createV2BitSystem = (
           if (!target || !isTargetable(target)) {
             return false;
           }
+          const chaseTargetPosition =
+            bit.mode === "alert-receive" && bit.alertLeaderId !== null
+              ? bitsById.get(bit.alertLeaderId)?.root.position ??
+                targetsById.get(bit.alertLeaderId)?.aimPosition ??
+                null
+              : target.aimPosition;
+          if (chaseTargetPosition === null) {
+            return false;
+          }
           if (bit.mode === "carpet-leader") {
             return (
               bit.carpetLeaderId === null ||
               bit.routeDestination === null ||
               Vector3.Distance(
                 getBitFlightWorldPosition(bit.routeDestination),
-                target.aimPosition
+                chaseTargetPosition
               ) > TARGET_ROUTE_MOVE_THRESHOLD
             );
           }
@@ -3019,7 +3891,7 @@ export const createV2BitSystem = (
             bit.routeDestination === null ||
             Vector3.Distance(
               getBitFlightWorldPosition(bit.routeDestination),
-              target.aimPosition
+              chaseTargetPosition
             ) > TARGET_ROUTE_MOVE_THRESHOLD
           );
         },
@@ -3041,14 +3913,9 @@ export const createV2BitSystem = (
       remainingUnassignedEscapeRoutePlans =
         ESCAPE_ROUTE_PLAN_BUDGET_PER_UPDATE -
         allowedEscapeRoutePlanIds.size;
-      const maximumVisionRange = bits.reduce(
-        (maximum, bit) =>
-          Math.max(maximum, bit.profile.visionRange),
-        0
-      );
       const targetSpatialIndex = createV2HumanTargetSpatialIndex(
         targets,
-        Math.max(1, maximumVisionRange)
+        V2_STANDARD_BIT_COMBAT_PROFILE.visionRange
       );
 
       const incomingAlertKeys = new Set<string>();
@@ -3111,9 +3978,7 @@ export const createV2BitSystem = (
         if (!alert.internalBitAlert) {
           continue;
         }
-        const leader = bits.find(
-          (bit) => bit.id === alert.leaderId
-        );
+        const leader = bitsById.get(alert.leaderId);
         const target = targetsById.get(alert.targetId);
         if (
           leader &&
@@ -3346,23 +4211,21 @@ export const createV2BitSystem = (
                 .normalize(),
               false
             );
-            for (const follower of bits) {
-              if (
-                follower.mode === "carpet-follower" &&
-                follower.carpetLeaderId === bit.id
-              ) {
-                emitBeamWhenReady(
-                  follower,
-                  currentTarget,
-                  deltaSeconds,
-                  beamRequests,
-                  "bit-carpet",
-                  follower.root
-                    .getDirection(Vector3.Forward())
-                    .normalize(),
-                  false
-                );
-              }
+            for (
+              const follower of
+                carpetFollowersByLeaderId.get(bit.id) ?? []
+            ) {
+              emitBeamWhenReady(
+                follower,
+                currentTarget,
+                deltaSeconds,
+                beamRequests,
+                "bit-carpet",
+                follower.root
+                  .getDirection(Vector3.Forward())
+                  .normalize(),
+                false
+              );
             }
           }
           if (
@@ -3430,68 +4293,56 @@ export const createV2BitSystem = (
         }
       }
       frameBeamRequests = Object.freeze(beamRequests);
+      if (diagnosticsEnabled) {
+        frameDiagnostics = Object.freeze({
+          enabled: true,
+          routePlans: Object.freeze({
+            search: diagnosticSearchRoutePlans,
+            chase: diagnosticChaseRoutePlans,
+            escape: diagnosticEscapeRoutePlans
+          }),
+          routePlanMilliseconds: Object.freeze({
+            search: diagnosticSearchRoutePlanMilliseconds,
+            chase: diagnosticChaseRoutePlanMilliseconds,
+            escape: diagnosticEscapeRoutePlanMilliseconds
+          }),
+          sightRays: diagnosticSightRays,
+          sphereSweeps: diagnosticSphereSweeps,
+          sphereSweepMilliseconds:
+            diagnosticSphereSweepMilliseconds,
+          beamRequests: beamRequests.length,
+          routeSafetyCache: createRouteSafetyCacheDiagnostics()
+        });
+      }
     },
-    getActorSpheres: () =>
-      Object.freeze(
-        bits.map((bit) =>
-          Object.freeze({
-            id: bit.id,
-            kind: "bit" as const,
-            center: bit.root.position.clone(),
-            radius: BIT_ACTOR_RADIUS
-          })
-        )
-      ),
-    getBeamRequests: () => frameBeamRequests,
+    getFrameView,
     takeAlertRequests: () => {
       const requests = Object.freeze(pendingAlertRequests);
       pendingAlertRequests = [];
       return requests;
     },
-    getTargetStates: () =>
-      Object.freeze(
-        bits.map((bit) =>
-          Object.freeze({
-            bitId: bit.id,
-            mode: bit.mode,
-            isRed: bit.profile.isRed,
-            statMultiplier: bit.profile.statMultiplier,
-            modeTimerSeconds: bit.modeTimerSeconds,
-            attackCooldownSeconds: bit.attackCooldownSeconds,
-            carpetCooldownSeconds: bit.carpetCooldownSeconds,
-            targetId: bit.targetId,
-            provenance: bit.targetProvenance,
-            alertLeaderId: bit.alertLeaderId
-          })
-        )
-      ),
-    getFlightStates: () =>
-      Object.freeze(
-        bits.map((bit) => {
-          const location = bit.navigationLocation;
-          const agentState = bit.flightAgent.getSnapshot().state;
-          const activeTransition = bit.activeTransition;
-          return Object.freeze({
-            bitId: bit.id,
-            zoneId: location?.zoneId ?? null,
-            bandId: location?.bandId ?? null,
-            position: bit.root.position.clone(),
-            safeCenterHeight: location?.safeCenterHeight ?? null,
-            heightMode: location?.heightMode ?? null,
-            routePurpose: bit.routePurpose,
-            activeTransition: activeTransition
-              ? Object.freeze({
-                  id: activeTransition.transition.id,
-                  kind: activeTransition.transition.kind,
-                  reversed: activeTransition.reversed
-                })
-              : null,
-            agentState
-          });
-        })
-      ),
+    setDiagnosticsEnabled: (enabled) => {
+      diagnosticsEnabled = enabled;
+      resetDiagnostics();
+      resetRouteSafetyCacheDiagnostics();
+      frameDiagnostics = Object.freeze({
+        enabled,
+        routePlans: Object.freeze({ search: 0, chase: 0, escape: 0 }),
+        routePlanMilliseconds: Object.freeze({
+          search: 0,
+          chase: 0,
+          escape: 0
+        }),
+        sightRays: 0,
+        sphereSweeps: 0,
+        sphereSweepMilliseconds: 0,
+        beamRequests: 0,
+        routeSafetyCache: createRouteSafetyCacheDiagnostics()
+      });
+      invalidateFrameViews();
+    },
     notifyBeamImpact: (sourceId, targetId) => {
-      const source = bits.find((bit) => bit.id === sourceId);
+      const source = bitsById.get(sourceId);
       if (!source) {
         return false;
       }
@@ -3503,6 +4354,7 @@ export const createV2BitSystem = (
       if (bit.lastHoldTargetId === targetId) {
         return false;
       }
+      invalidateFrameViews();
       if (bit.mode === "carpet-leader") {
         removeCarpetFollowers(bit);
       }
@@ -3518,6 +4370,7 @@ export const createV2BitSystem = (
       return true;
     },
     prepareForScriptedPhase: () => {
+      invalidateFrameViews();
       disposeFadingCarpetFollowers();
       for (let index = bits.length - 1; index >= 0; index -= 1) {
         const bit = bits[index];
@@ -3526,7 +4379,7 @@ export const createV2BitSystem = (
         }
         bit.flightAgent.dispose();
         bit.root.dispose(false);
-        bits.splice(index, 1);
+        unregisterRuntimeBit(bit);
       }
       for (const bit of bits) {
         clearRoute(bit);
@@ -3589,9 +4442,7 @@ export const createV2BitSystem = (
           `bit配置(${assignment.id})`,
           assignment.centerPosition
         );
-        const bit = bits.find(
-          (candidate) => candidate.id === assignment.id
-        );
+        const bit = bitsById.get(assignment.id);
         if (!bit) {
           throw new Error(
             `bit配置対象が存在しません: ${assignment.id}`
@@ -3644,21 +4495,49 @@ export const createV2BitSystem = (
         );
         bit.root.computeWorldMatrix(true);
       }
+      invalidateFrameViews();
     },
     dispose: () => {
+      invalidateFrameViews();
+      routeStepSafetyByKey.clear();
+      routeCenterSafetyByKey.clear();
+      routeSegmentSafetyByKey.clear();
+      lowCeilingCruiseHeightsByRouteStepKey.clear();
+      routeStepSafetyAccessOrder.clear();
+      targetLocationCandidatesByPositionKey.clear();
+      safeDestinationByTraversalKey.clear();
       disposeFadingCarpetFollowers();
       for (let index = bits.length - 1; index >= 0; index -= 1) {
         bits[index].flightAgent.dispose();
         bits[index].root.dispose(false);
       }
       bits.length = 0;
+      bitsById.clear();
+      carpetFollowersByLeaderId.clear();
       activeAlerts.clear();
       closedInternalAlertKeys.clear();
       explorationHistory.clear();
       frameBeamRequests = Object.freeze([]);
       pendingAlertRequests = [];
+      visualSources.muzzle.dispose(false, false);
+      visualSources.redBody.dispose(false, false);
+      visualSources.body.dispose(false, false);
       materials.body.dispose();
       materials.redBody.dispose();
+      frameDiagnostics = Object.freeze({
+        enabled: diagnosticsEnabled,
+        routePlans: Object.freeze({ search: 0, chase: 0, escape: 0 }),
+        routePlanMilliseconds: Object.freeze({
+          search: 0,
+          chase: 0,
+          escape: 0
+        }),
+        sightRays: 0,
+        sphereSweeps: 0,
+        sphereSweepMilliseconds: 0,
+        beamRequests: 0,
+        routeSafetyCache: createRouteSafetyCacheDiagnostics()
+      });
       materials.muzzle.dispose();
     }
   };

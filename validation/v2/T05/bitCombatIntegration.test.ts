@@ -1,4 +1,6 @@
 import {
+  InstancedMesh,
+  Mesh,
   MeshBuilder,
   NullEngine,
   Scene,
@@ -26,6 +28,7 @@ import {
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import {
+  V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES,
   createV2BitSystem,
   type V2BitMode,
   type V2BitSystem
@@ -60,7 +63,7 @@ type CombatHarness = Readonly<{
   scene: Scene;
   system: V2BitSystem;
   random: QueuedRandom;
-  dispose(): void;
+  dispose(systemAlreadyDisposed?: boolean): void;
 }>;
 
 const BAND_CENTER_HEIGHT = 1.4;
@@ -110,11 +113,12 @@ const createQueuedRandom = (
 
 const createLocation = (
   position: Vector3,
-  heightMode: BitFlightHeightMode = "band"
+  heightMode: BitFlightHeightMode = "band",
+  band: BitFlightBandRef = TEST_BAND_REF
 ): BitFlightLocation =>
   Object.freeze({
-    zoneId: TEST_ZONE_ID,
-    bandId: TEST_BAND_ID,
+    zoneId: band.zoneId,
+    bandId: band.bandId,
     surface: Object.freeze({
       position: new Vector3(
         position.x,
@@ -130,7 +134,8 @@ const createLocation = (
 const cloneLocation = (location: BitFlightLocation) =>
   createLocation(
     getBitFlightWorldPosition(location),
-    location.heightMode
+    location.heightMode,
+    location
   );
 
 const createRoute = (
@@ -159,6 +164,7 @@ const createRoute = (
     ]),
     distance
   });
+  policy.additionalSurfaceCruiseHeights(step, TEST_BAND);
   if (!policy.canUseRouteStep(step)) {
     return null;
   }
@@ -262,6 +268,197 @@ const createNavigation = (
   }) as BitFlightNavigationWorld;
 };
 
+const ROUTE_CANDIDATE_PROJECTION_OFFSET = 1 / 128;
+const ROUTE_CANDIDATE_TIE_BAND_ID = toBitFlightBandId(
+  "t05-bit-route-candidate-tie-band"
+);
+const ROUTE_CANDIDATE_BETTER_BAND_ID = toBitFlightBandId(
+  "t05-bit-route-candidate-better-band"
+);
+const ROUTE_CANDIDATE_TIE_BAND_REF = createBitFlightBandRef(
+  TEST_ZONE_ID,
+  ROUTE_CANDIDATE_TIE_BAND_ID
+);
+const ROUTE_CANDIDATE_BETTER_BAND_REF = createBitFlightBandRef(
+  TEST_ZONE_ID,
+  ROUTE_CANDIDATE_BETTER_BAND_ID
+);
+
+type RouteCandidateNavigationFixture = Readonly<{
+  navigation: BitFlightNavigationWorld;
+  resetMeasurements(): void;
+  getFindRouteCounts(): Readonly<{
+    first: number;
+    tied: number;
+    better: number;
+  }>;
+  getPreparedRoutes(): readonly BitFlightRoute[];
+  getExpectedFirstRoute(): BitFlightRoute | null;
+  getExpectedBetterRoute(): BitFlightRoute | null;
+}>;
+
+const createRouteCandidateNavigationFixture = (
+  includeBetterCandidate: boolean
+): RouteCandidateNavigationFixture => {
+  const base = createNavigation();
+  const createCandidateBand = (
+    ref: BitFlightBandRef
+  ): BitFlightBand =>
+    Object.freeze({
+      zoneId: ref.zoneId,
+      id: ref.bandId,
+      minimumCenterHeight: TEST_BAND.minimumCenterHeight,
+      maximumCenterHeight: TEST_BAND.maximumCenterHeight
+    });
+  const tiedBand = createCandidateBand(ROUTE_CANDIDATE_TIE_BAND_REF);
+  const betterBand = createCandidateBand(
+    ROUTE_CANDIDATE_BETTER_BAND_REF
+  );
+  const bands = Object.freeze([
+    TEST_BAND,
+    tiedBand,
+    ...(includeBetterCandidate ? [betterBand] : [])
+  ]);
+  let firstFindRouteCount = 0;
+  let tiedFindRouteCount = 0;
+  let betterFindRouteCount = 0;
+  let expectedFirstRoute: BitFlightRoute | null = null;
+  let expectedBetterRoute: BitFlightRoute | null = null;
+  const preparedRoutes: BitFlightRoute[] = [];
+  const getBand = (ref: BitFlightBandRef) =>
+    bands.find(
+      (band) =>
+        band.zoneId === ref.zoneId && band.id === ref.bandId
+    ) ?? null;
+  const projectPointInBand = (
+    ref: BitFlightBandRef,
+    position: Vector3
+  ) => {
+    const band = getBand(ref)!;
+    const horizontalOffset =
+      ref.bandId === ROUTE_CANDIDATE_TIE_BAND_ID
+        ? -ROUTE_CANDIDATE_PROJECTION_OFFSET
+        : ref.bandId === ROUTE_CANDIDATE_BETTER_BAND_ID
+          ? 0
+          : ROUTE_CANDIDATE_PROJECTION_OFFSET;
+    return createLocation(
+      new Vector3(
+        position.x + horizontalOffset,
+        Math.min(
+          band.maximumCenterHeight,
+          Math.max(band.minimumCenterHeight, position.y)
+        ),
+        position.z
+      ),
+      "band",
+      ref
+    );
+  };
+  const findRoute = (
+    start: BitFlightLocation,
+    destination: BitFlightLocation,
+    policy: BitFlightRoutePolicy
+  ) => {
+    if (destination.bandId === TEST_BAND_ID) {
+      firstFindRouteCount += 1;
+    } else if (
+      destination.bandId === ROUTE_CANDIDATE_TIE_BAND_ID
+    ) {
+      tiedFindRouteCount += 1;
+    } else {
+      betterFindRouteCount += 1;
+    }
+    const route = createRoute(start, destination, policy);
+    if (destination.bandId === TEST_BAND_ID) {
+      expectedFirstRoute = route;
+    } else if (
+      destination.bandId === ROUTE_CANDIDATE_BETTER_BAND_ID
+    ) {
+      expectedBetterRoute = route;
+    }
+    return route;
+  };
+  const navigation = Object.freeze({
+    ...base,
+    bands,
+    getBand,
+    projectPointInBand,
+    findLocationCandidates: (position: Vector3) =>
+      Object.freeze(
+        bands.map((band) =>
+          projectPointInBand(
+            { zoneId: band.zoneId, bandId: band.id },
+            position
+          )
+        )
+      ),
+    findRoute,
+    findSurfaceRoute: findRoute,
+    findRouteThroughTransition: (
+      start: BitFlightLocation,
+      _traversal: BitFlightTransitionTraversal,
+      destination: BitFlightLocation,
+      policy: BitFlightRoutePolicy
+    ) => findRoute(start, destination, policy),
+    assertPreparedRoute: (
+      _currentLocation: BitFlightLocation,
+      route: BitFlightRoute
+    ) => {
+      preparedRoutes.push(route);
+    },
+    applyHeightSelection: (
+      location: BitFlightLocation,
+      selection: BitFlightHeightSelection
+    ) =>
+      createLocation(
+        new Vector3(
+          location.surface.position.x,
+          selection.center.y,
+          location.surface.position.z
+        ),
+        selection.heightMode,
+        location
+      ),
+    constrainMovement: (
+      start: BitFlightLocation,
+      destination: Vector3,
+      heightMode: BitFlightHeightMode
+    ) => createLocation(destination, heightMode, start),
+    randomPointAround: (
+      origin: BitFlightLocation,
+      radius: number
+    ) =>
+      createLocation(
+        getBitFlightWorldPosition(origin).add(
+          new Vector3(Math.min(radius, 2.4), 0, 0)
+        ),
+        origin.heightMode,
+        origin
+      )
+  }) as BitFlightNavigationWorld;
+
+  return Object.freeze({
+    navigation,
+    resetMeasurements: () => {
+      firstFindRouteCount = 0;
+      tiedFindRouteCount = 0;
+      betterFindRouteCount = 0;
+      expectedFirstRoute = null;
+      expectedBetterRoute = null;
+      preparedRoutes.length = 0;
+    },
+    getFindRouteCounts: () =>
+      Object.freeze({
+        first: firstFindRouteCount,
+        tied: tiedFindRouteCount,
+        better: betterFindRouteCount
+      }),
+    getPreparedRoutes: () => Object.freeze([...preparedRoutes]),
+    getExpectedFirstRoute: () => expectedFirstRoute,
+    getExpectedBetterRoute: () => expectedBetterRoute
+  });
+};
+
 const createInitialRandomValues = (
   initialBitCount: number,
   createRedProfile = false
@@ -298,11 +495,13 @@ const createHarness = (
   onMovementSweep: (
     from: Vector3,
     to: Vector3
-  ) => boolean = () => false
+  ) => boolean = () => false,
+  navigationOverride: BitFlightNavigationWorld | null = null
 ): CombatHarness => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
-  const navigation = createNavigation(rejectConstrainedMovement);
+  const navigation =
+    navigationOverride ?? createNavigation(rejectConstrainedMovement);
   const spawn = MeshBuilder.CreateBox(
     `T05BitCombatSpawn_${initialBitCount}`,
     {
@@ -367,8 +566,10 @@ const createHarness = (
     scene,
     system,
     random,
-    dispose: () => {
-      system.dispose();
+    dispose: (systemAlreadyDisposed = false) => {
+      if (!systemAlreadyDisposed) {
+        system.dispose();
+      }
       spawn.dispose(false, false);
       scene.dispose();
       engine.dispose();
@@ -382,9 +583,9 @@ const runRedVerticalSearchSpeedCheck =
     try {
       harness.random.enqueue(0.7, 0, 0.999, 0.5);
       update(harness.system, 0, 0, EMPTY_TARGETS);
-      const before = harness.system.getFlightStates()[0];
+      const before = harness.system.getFrameView().flightStates[0];
       update(harness.system, 1, 1, EMPTY_TARGETS);
-      const after = harness.system.getFlightStates()[0];
+      const after = harness.system.getFrameView().flightStates[0];
       const beforeHeight = before.safeCenterHeight;
       const afterHeight = after.safeCenterHeight;
       const verticalMovement =
@@ -395,7 +596,7 @@ const runRedVerticalSearchSpeedCheck =
         after.position.x - before.position.x,
         after.position.z - before.position.z
       );
-      const targetState = harness.system.getTargetStates()[0];
+      const targetState = harness.system.getFrameView().targetStates[0];
       return Object.freeze({
         name: "combat有効の赤bitは純vertical探索を0.18m/sで実行",
         ok:
@@ -491,12 +692,12 @@ const runRedTransitionSpeedCheck = (
         })
       ])
     );
-    const beforeTransition = system.getFlightStates()[0];
+    const beforeTransition = system.getFrameView().flightStates[0];
     update(system, 1, 1, targets);
-    const activeTransition = system.getFlightStates()[0];
+    const activeTransition = system.getFrameView().flightStates[0];
     update(system, 0.1, 1.1, EMPTY_TARGETS);
-    const clearingTransition = system.getFlightStates()[0];
-    const targetState = system.getTargetStates()[0];
+    const clearingTransition = system.getFrameView().flightStates[0];
+    const targetState = system.getFrameView().targetStates[0];
     const transitionMovement = Vector3.Distance(
       beforeTransition.position,
       activeTransition.position
@@ -579,7 +780,7 @@ const acquireMode = (
 ) => {
   harness.random.enqueue(modeRoll, 0.5);
   update(harness.system, 0, 0, Object.freeze([target]));
-  return harness.system.getTargetStates()[0];
+  return harness.system.getFrameView().targetStates[0];
 };
 
 const acquireInternalAlert = (
@@ -595,12 +796,12 @@ const acquireInternalAlert = (
     )
   );
   update(harness.system, 0, 0, Object.freeze([target]));
-  return harness.system.getTargetStates()[0];
+  return harness.system.getFrameView().targetStates[0];
 };
 
 const getLeaderState = (system: V2BitSystem) =>
   system
-    .getTargetStates()
+    .getFrameView().targetStates
     .find((state) => state.mode === "carpet-leader") ?? null;
 
 const getBitForward = (
@@ -614,6 +815,100 @@ const getBitForward = (
   root.computeWorldMatrix(true);
   return root.getDirection(Vector3.Forward()).normalize();
 };
+
+const runRouteCandidateLowerBoundPruningCheck =
+  (): BitCombatIntegrationCheck => {
+    const tieFixture = createRouteCandidateNavigationFixture(false);
+    const tieHarness = createHarness(
+      1,
+      () => false,
+      false,
+      false,
+      () => false,
+      tieFixture.navigation
+    );
+    let tieOk = false;
+    let tieDetail = "";
+    try {
+      const initialActor =
+        tieHarness.system.getFrameView().actorSpheres[0];
+      const target = createTarget(
+        "route-candidate-tie-target",
+        initialActor.center.clone()
+      );
+      const targets = Object.freeze([target]);
+      tieHarness.random.enqueue(0.1, 0.5);
+      update(tieHarness.system, 0, 0, targets);
+      tieFixture.resetMeasurements();
+      update(tieHarness.system, 0, 0, targets);
+      const counts = tieFixture.getFindRouteCounts();
+      const preparedRoutes = tieFixture.getPreparedRoutes();
+      const expectedFirstRoute = tieFixture.getExpectedFirstRoute();
+      tieOk =
+        counts.first === 1 &&
+        counts.tied === 0 &&
+        counts.better === 0 &&
+        expectedFirstRoute !== null &&
+        preparedRoutes.length === 1 &&
+        preparedRoutes[0] === expectedFirstRoute;
+      tieDetail =
+        `calls=${counts.first}/${counts.tied}/${counts.better} / ` +
+        `prepared=${preparedRoutes.length} / ` +
+        `firstIdentity=${preparedRoutes[0] === expectedFirstRoute}`;
+    } finally {
+      tieHarness.dispose();
+    }
+
+    const betterFixture =
+      createRouteCandidateNavigationFixture(true);
+    const betterHarness = createHarness(
+      1,
+      () => false,
+      false,
+      false,
+      () => false,
+      betterFixture.navigation
+    );
+    let betterOk = false;
+    let betterDetail = "";
+    try {
+      const initialActor =
+        betterHarness.system.getFrameView().actorSpheres[0];
+      const target = createTarget(
+        "route-candidate-better-target",
+        initialActor.center.clone()
+      );
+      const targets = Object.freeze([target]);
+      betterHarness.random.enqueue(0.1, 0.5);
+      update(betterHarness.system, 0, 0, targets);
+      betterFixture.resetMeasurements();
+      update(betterHarness.system, 0, 0, targets);
+      const counts = betterFixture.getFindRouteCounts();
+      const preparedRoutes = betterFixture.getPreparedRoutes();
+      const expectedBetterRoute =
+        betterFixture.getExpectedBetterRoute();
+      betterOk =
+        counts.first === 1 &&
+        counts.tied === 0 &&
+        counts.better === 1 &&
+        expectedBetterRoute !== null &&
+        preparedRoutes.length === 1 &&
+        preparedRoutes[0] === expectedBetterRoute;
+      betterDetail =
+        `calls=${counts.first}/${counts.tied}/${counts.better} / ` +
+        `prepared=${preparedRoutes.length} / ` +
+        `betterIdentity=${preparedRoutes[0] === expectedBetterRoute}`;
+    } finally {
+      betterHarness.dispose();
+    }
+
+    return Object.freeze({
+      name:
+        "経路候補lower boundは同値tieを維持し改善可能候補だけ評価",
+      ok: tieOk && betterOk,
+      detail: `tie[${tieDetail}] / better[${betterDetail}]`
+    });
+  };
 
 const runAlertRequestModeCheck = (): BitCombatIntegrationCheck => {
   const cases = Object.freeze([
@@ -629,7 +924,7 @@ const runAlertRequestModeCheck = (): BitCombatIntegrationCheck => {
   for (const testCase of cases) {
     const harness = createHarness(2);
     try {
-      const origin = harness.system.getFlightStates()[0].position;
+      const origin = harness.system.getFrameView().flightStates[0].position;
       const target = createTarget(
         `alert-request-${testCase.label}`,
         origin.add(new Vector3(1, 0, 0))
@@ -665,7 +960,7 @@ const runAlertAssemblyCompletionCheck =
       (from) => from.x > -0.5
     );
     try {
-      const initialStates = harness.system.getFlightStates();
+      const initialStates = harness.system.getFrameView().flightStates;
       const leaderPosition = initialStates[0].position;
       const target = createTarget(
         "alert-assembly-target",
@@ -687,10 +982,10 @@ const runAlertAssemblyCompletionCheck =
       });
       update(harness.system, 0, 0, targets, Object.freeze([alert]));
       const receiving = harness.system
-        .getTargetStates()
+        .getFrameView().targetStates
         .filter((state) => state.mode === "alert-receive");
 
-      const assignments = harness.system.getActorSpheres().map(
+      const assignments = harness.system.getFrameView().actorSpheres.map(
         (actor, index) =>
           Object.freeze({
             id: actor.id,
@@ -706,7 +1001,7 @@ const runAlertAssemblyCompletionCheck =
       update(harness.system, 0.1, 0.1, targets);
       update(harness.system, 0.1, 0.2, targets);
 
-      const completedStates = harness.system.getTargetStates();
+      const completedStates = harness.system.getFrameView().targetStates;
       const completedLeader = completedStates.find(
         (state) => state.bitId === leader.bitId
       );
@@ -734,7 +1029,7 @@ const runAlertAssemblyCompletionCheck =
 const runAlertTimeoutCheck = (): BitCombatIntegrationCheck => {
   const harness = createHarness(2);
   try {
-    const origin = harness.system.getFlightStates()[0].position;
+    const origin = harness.system.getFrameView().flightStates[0].position;
     const target = createTarget(
       "alert-timeout-target",
       origin.add(new Vector3(1, 0, 0))
@@ -746,7 +1041,7 @@ const runAlertTimeoutCheck = (): BitCombatIntegrationCheck => {
       15,
       Object.freeze([target])
     );
-    const timedOut = harness.system.getTargetStates()[0];
+    const timedOut = harness.system.getFrameView().targetStates[0];
     return Object.freeze({
       name: "alert-send leaderは15秒上限で攻撃せず探索へ復帰",
       ok:
@@ -766,7 +1061,7 @@ const runInternalAlertSpawnAndGlobalSingleCheck =
   (): BitCombatIntegrationCheck => {
     const harness = createHarness(5);
     try {
-      const initialActors = harness.system.getActorSpheres();
+      const initialActors = harness.system.getFrameView().actorSpheres;
       const initialActorIds = new Set(
         initialActors.map((actor) => actor.id)
       );
@@ -790,8 +1085,8 @@ const runInternalAlertSpawnAndGlobalSingleCheck =
         4
       );
       const firstRequests = harness.system.takeAlertRequests();
-      const startedActors = harness.system.getActorSpheres();
-      const startedStates = harness.system.getTargetStates();
+      const startedActors = harness.system.getFrameView().actorSpheres;
+      const startedStates = harness.system.getFrameView().targetStates;
       const spawnedActor = startedActors.find(
         (actor) => !initialActorIds.has(actor.id)
       );
@@ -820,7 +1115,7 @@ const runInternalAlertSpawnAndGlobalSingleCheck =
       );
       const freeFlight = freeState
         ? harness.system
-            .getFlightStates()
+            .getFrameView().flightStates
             .find((state) => state.bitId === freeState.bitId)
         : null;
       const secondTarget = createTarget(
@@ -838,7 +1133,7 @@ const runInternalAlertSpawnAndGlobalSingleCheck =
       );
       const afterConcurrentAttempt = freeState
         ? harness.system
-            .getTargetStates()
+            .getFrameView().targetStates
             .find((state) => state.bitId === freeState.bitId)
         : null;
       const concurrentRequests =
@@ -890,7 +1185,7 @@ const runInternalAlertSpawnFailureFallbackCheck =
       true
     );
     try {
-      const initialActors = harness.system.getActorSpheres();
+      const initialActors = harness.system.getFrameView().actorSpheres;
       const leaderPosition = initialActors[0].center;
       const target = createTarget(
         "internal-alert-spawn-failure-target",
@@ -906,8 +1201,8 @@ const runInternalAlertSpawnFailureFallbackCheck =
         0,
         Object.freeze([target])
       );
-      const afterActors = harness.system.getActorSpheres();
-      const afterStates = harness.system.getTargetStates();
+      const afterActors = harness.system.getFrameView().actorSpheres;
+      const afterStates = harness.system.getFrameView().targetStates;
       const leader = afterStates[0];
       const receiverCount = afterStates.filter(
         (state) => state.mode === "alert-receive"
@@ -935,14 +1230,14 @@ const runInternalAlertRangeCancellationCheck =
   (): BitCombatIntegrationCheck => {
     const harness = createHarness(2);
     try {
-      const origin = harness.system.getFlightStates()[0].position;
+      const origin = harness.system.getFrameView().flightStates[0].position;
       const target = createTarget(
         "internal-alert-range-target",
         origin.add(new Vector3(1, 0, 0))
       );
       const leader = acquireInternalAlert(harness, target, 2);
       const participantIds = harness.system
-        .getTargetStates()
+        .getFrameView().targetStates
         .filter(
           (state) =>
             state.mode === "alert-send" ||
@@ -960,7 +1255,7 @@ const runInternalAlertRangeCancellationCheck =
         Object.freeze([movedTarget])
       );
       const cancelledStates = harness.system
-        .getTargetStates()
+        .getFrameView().targetStates
         .filter((state) => participantIds.includes(state.bitId));
       const allCancelled = cancelledStates.every(
         (state) =>
@@ -998,7 +1293,7 @@ const runAlertReceiveSurfaceSpeedCheck =
   (): BitCombatIntegrationCheck => {
     const harness = createHarness(1, () => true);
     try {
-      const origin = harness.system.getFlightStates()[0].position;
+      const origin = harness.system.getFrameView().flightStates[0].position;
       const leader = createTarget(
         "external-alert-speed-leader",
         origin.add(new Vector3(1, 0, 0))
@@ -1020,8 +1315,8 @@ const runAlertReceiveSurfaceSpeedCheck =
         targets,
         Object.freeze([alert])
       );
-      const beforeState = harness.system.getTargetStates()[0];
-      const beforeFlight = harness.system.getFlightStates()[0];
+      const beforeState = harness.system.getFrameView().targetStates[0];
+      const beforeFlight = harness.system.getFrameView().flightStates[0];
       update(
         harness.system,
         0.1,
@@ -1029,8 +1324,8 @@ const runAlertReceiveSurfaceSpeedCheck =
         targets,
         Object.freeze([alert])
       );
-      const afterState = harness.system.getTargetStates()[0];
-      const afterFlight = harness.system.getFlightStates()[0];
+      const afterState = harness.system.getFrameView().targetStates[0];
+      const afterFlight = harness.system.getFrameView().flightStates[0];
       const movement = Math.hypot(
         afterFlight.position.x - beforeFlight.position.x,
         afterFlight.position.z - beforeFlight.position.z
@@ -1065,22 +1360,22 @@ const runChaseSurfaceSpeedAndRangeCheck =
     }> => {
       const harness = createHarness(1);
       try {
-        const origin = harness.system.getFlightStates()[0].position;
+        const origin = harness.system.getFrameView().flightStates[0].position;
         const target = createTarget(
           `chase-speed-${distance}`,
           origin.add(new Vector3(distance, 0, 0))
         );
         acquireMode(harness, 0.1, target);
-        const before = harness.system.getFlightStates()[0].position;
+        const before = harness.system.getFrameView().flightStates[0].position;
         update(
           harness.system,
           0.4,
           0.4,
           Object.freeze([target])
         );
-        const after = harness.system.getFlightStates()[0].position;
+        const after = harness.system.getFrameView().flightStates[0].position;
         return Object.freeze({
-          mode: harness.system.getTargetStates()[0].mode,
+          mode: harness.system.getFrameView().targetStates[0].mode,
           movement: Math.hypot(
             after.x - before.x,
             after.z - before.z
@@ -1096,7 +1391,7 @@ const runChaseSurfaceSpeedAndRangeCheck =
     const cutoffHarness = createHarness(1);
     try {
       const origin =
-        cutoffHarness.system.getFlightStates()[0].position;
+        cutoffHarness.system.getFrameView().flightStates[0].position;
       const target = createTarget(
         "chase-range-cutoff",
         origin.add(
@@ -1124,7 +1419,7 @@ const runChaseSurfaceSpeedAndRangeCheck =
         0,
         Object.freeze([movedTarget])
       );
-      const abandoned = cutoffHarness.system.getTargetStates()[0];
+      const abandoned = cutoffHarness.system.getFrameView().targetStates[0];
       const expectedOutsideMovement = BASE_SEARCH_SPEED * 0.4;
       const expectedInsideMovement = BASE_CHASE_SPEED * 0.4;
       return Object.freeze({
@@ -1164,7 +1459,7 @@ const runChaseSurfaceSpeedAndRangeCheck =
 const runAttackCooldownCheck = (): BitCombatIntegrationCheck => {
   const harness = createHarness();
   try {
-    const origin = harness.system.getFlightStates()[0].position;
+    const origin = harness.system.getFrameView().flightStates[0].position;
     const target = createTarget(
       "attack-cooldown-target",
       origin.add(new Vector3(1, 0, 0))
@@ -1172,10 +1467,10 @@ const runAttackCooldownCheck = (): BitCombatIntegrationCheck => {
     const targets = Object.freeze([target]);
     const acquired = acquireMode(harness, 0.5, target);
     update(harness.system, 10, 10, targets);
-    const started = harness.system.getTargetStates()[0];
+    const started = harness.system.getFrameView().targetStates[0];
     harness.random.enqueue(0.5, 0.5);
     update(harness.system, 1, 11, targets);
-    const during = harness.system.getTargetStates()[0];
+    const during = harness.system.getFrameView().targetStates[0];
     return Object.freeze({
       name: "攻撃CD中は再捕捉せずモード時間も進行しない",
       ok:
@@ -1208,7 +1503,7 @@ const runAttackCooldownCheck = (): BitCombatIntegrationCheck => {
 const runRandomAttackSpeedCheck = (): BitCombatIntegrationCheck => {
   const harness = createHarness();
   try {
-    const before = harness.system.getFlightStates()[0].position;
+    const before = harness.system.getFrameView().flightStates[0].position;
     const target = createTarget(
       "random-speed-target",
       before.add(new Vector3(1, 0, 0))
@@ -1220,13 +1515,13 @@ const runRandomAttackSpeedCheck = (): BitCombatIntegrationCheck => {
       0.5,
       Object.freeze([target])
     );
-    const after = harness.system.getFlightStates()[0].position;
+    const after = harness.system.getFrameView().flightStates[0].position;
     const horizontalDistance = Math.hypot(
       after.x - before.x,
       after.z - before.z
     );
     const expectedDistance = RANDOM_ATTACK_SPEED * 0.5;
-    const afterState = harness.system.getTargetStates()[0];
+    const afterState = harness.system.getFrameView().targetStates[0];
     return Object.freeze({
       name: "random攻撃移動はrandomAttackSpeedを使用",
       ok:
@@ -1273,14 +1568,15 @@ const createCarpetHarness = (scatterRoll = 0.5) => {
       );
     }
   );
-  const origin = harness.system.getFlightStates()[0].position;
+  const origin = harness.system.getFrameView().flightStates[0].position;
   const target = createTarget(
     "carpet-integration-target",
     origin.add(new Vector3(2, 0, 0))
   );
   harness.random.enqueue(0.95, 0.5, 0.5, scatterRoll);
   update(harness.system, 0, 0, Object.freeze([target]));
-  const state = harness.system.getTargetStates()[0];
+  update(harness.system, 0, 0, Object.freeze([target]));
+  const state = harness.system.getFrameView().targetStates[0];
   movementSweeps.length = 0;
   return Object.freeze({
     harness,
@@ -1302,7 +1598,7 @@ const runCarpetThreeDimensionalSweepAndAimCheck =
       movementSweeps
     } = createCarpetHarness();
     try {
-      const beforeFlights = harness.system.getFlightStates();
+      const beforeFlights = harness.system.getFrameView().flightStates;
       const beforeById = new Map(
         beforeFlights.map((flight) => [flight.bitId, flight] as const)
       );
@@ -1316,8 +1612,8 @@ const runCarpetThreeDimensionalSweepAndAimCheck =
         Object.freeze([target])
       );
 
-      const afterFlights = harness.system.getFlightStates();
-      const afterTargets = harness.system.getTargetStates();
+      const afterFlights = harness.system.getFrameView().flightStates;
+      const afterTargets = harness.system.getFrameView().targetStates;
       const afterById = new Map(
         afterFlights.map((flight) => [flight.bitId, flight] as const)
       );
@@ -1463,7 +1759,7 @@ const runCarpetScatterSteeringCheck =
       createCarpetHarness(scatterRoll);
     try {
       const before = harness.system
-        .getFlightStates()
+        .getFrameView().flightStates
         .find((flight) => flight.bitId === state.bitId) ?? null;
       const deltaSeconds = 0.05;
       update(
@@ -1473,7 +1769,7 @@ const runCarpetScatterSteeringCheck =
         Object.freeze([target])
       );
       const after = harness.system
-        .getFlightStates()
+        .getFrameView().flightStates
         .find((flight) => flight.bitId === state.bitId) ?? null;
       const actualAngle =
         before && after
@@ -1530,7 +1826,7 @@ const runCarpetBeamDirectionLockCheck =
   (): BitCombatIntegrationCheck => {
     const harness = createHarness();
     try {
-      const origin = harness.system.getFlightStates()[0].position;
+      const origin = harness.system.getFrameView().flightStates[0].position;
       const target = createTarget(
         "carpet-direction-lock-target",
         origin.add(new Vector3(2, 0, 0))
@@ -1552,7 +1848,8 @@ const runCarpetBeamDirectionLockCheck =
         0
       );
       update(harness.system, 0, 0, Object.freeze([target]));
-      const targetStates = harness.system.getTargetStates();
+      update(harness.system, 0, 0, Object.freeze([target]));
+      const targetStates = harness.system.getFrameView().targetStates;
       const lockedDirections = new Map<string, Vector3>();
       for (const bit of targetStates) {
         const forward = getBitForward(harness, bit.bitId);
@@ -1567,7 +1864,7 @@ const runCarpetBeamDirectionLockCheck =
         V2_BIT_FIRE_TELEGRAPH_SECONDS,
         Object.freeze([target])
       );
-      const requests = harness.system.getBeamRequests();
+      const requests = harness.system.getFrameView().beamRequests;
       const allDirectionsLocked =
         requests.length === 3 &&
         requests.every((request) => {
@@ -1611,21 +1908,21 @@ const runCarpetFormationFadeCheck =
     const { harness, target, state } = createCarpetHarness();
     try {
       const followers = harness.system
-        .getTargetStates()
+        .getFrameView().targetStates
         .filter((candidate) => candidate.mode === "carpet-follower");
+      const accepted = harness.system.notifyBeamImpact(
+        state.bitId,
+        target.id
+      );
       const followerBodies = followers
         .map((follower) =>
           harness.scene.getMeshByName(`${follower.bitId}_body`)
         )
         .filter((body) => body !== null);
-      const accepted = harness.system.notifyBeamImpact(
-        state.bitId,
-        target.id
-      );
       const immediateCounts = [
-        harness.system.getTargetStates().length,
-        harness.system.getFlightStates().length,
-        harness.system.getActorSpheres().length
+        harness.system.getFrameView().targetStates.length,
+        harness.system.getFrameView().flightStates.length,
+        harness.system.getFrameView().actorSpheres.length
       ];
       const visibleImmediately =
         followerBodies.length === 2 &&
@@ -1693,12 +1990,12 @@ const runCarpetObstacleAbortCooldownCheck =
         Object.freeze([target])
       );
       const afterAbort = harness.system
-        .getTargetStates()
+        .getFrameView().targetStates
         .find((candidate) => candidate.bitId === state.bitId) ?? null;
       const logicalCountsAfterAbort = [
-        harness.system.getTargetStates().length,
-        harness.system.getFlightStates().length,
-        harness.system.getActorSpheres().length
+        harness.system.getFrameView().targetStates.length,
+        harness.system.getFrameView().flightStates.length,
+        harness.system.getFrameView().actorSpheres.length
       ];
 
       setMovementBlocked(false);
@@ -1710,7 +2007,7 @@ const runCarpetObstacleAbortCooldownCheck =
         Object.freeze([target])
       );
       const afterRetry = harness.system
-        .getTargetStates()
+        .getFrameView().targetStates
         .find((candidate) => candidate.bitId === state.bitId) ?? null;
 
       return Object.freeze({
@@ -1743,7 +2040,7 @@ const runCarpetFirstFireCheck = (): BitCombatIntegrationCheck => {
   try {
     const followerIds = new Set(
       harness.system
-        .getTargetStates()
+        .getFrameView().targetStates
         .filter((candidate) => candidate.mode === "carpet-follower")
         .map((candidate) => candidate.bitId)
     );
@@ -1764,7 +2061,7 @@ const runCarpetFirstFireCheck = (): BitCombatIntegrationCheck => {
         elapsedSeconds,
         Object.freeze([target])
       );
-      for (const request of harness.system.getBeamRequests()) {
+      for (const request of harness.system.getFrameView().beamRequests) {
         if (
           followerIds.has(request.sourceId) &&
           !firstFireSeconds.has(request.sourceId)
@@ -1813,10 +2110,10 @@ const runCarpetPassCheck = (): BitCombatIntegrationCheck => {
         Object.freeze([target])
       );
       const leaderFlight = harness.system
-        .getFlightStates()
+        .getFrameView().flightStates
         .find((candidate) => candidate.bitId === leaderId);
       const leaderTarget = harness.system
-        .getTargetStates()
+        .getFrameView().targetStates
         .find((candidate) => candidate.bitId === leaderId);
       if (
         passedAt === null &&
@@ -1869,18 +2166,18 @@ const runCarpetFollowerImpactCheck =
   (): BitCombatIntegrationCheck => {
     const { harness, target, state } = createCarpetHarness();
     try {
-      const before = harness.system.getTargetStates();
+      const before = harness.system.getFrameView().targetStates;
       const followers = before.filter(
         (candidate) => candidate.mode === "carpet-follower"
       );
       const follower = followers[0];
-      const followerBody = follower
-        ? harness.scene.getMeshByName(`${follower.bitId}_body`)
-        : null;
       const accepted = follower
         ? harness.system.notifyBeamImpact(follower.bitId, target.id)
         : false;
-      const after = harness.system.getTargetStates();
+      const followerBody = follower
+        ? harness.scene.getMeshByName(`${follower.bitId}_body`)
+        : null;
+      const after = harness.system.getFrameView().targetStates;
       const leader = after.find(
         (candidate) => candidate.bitId === state.bitId
       );
@@ -1931,6 +2228,524 @@ const runCarpetFollowerImpactCheck =
     }
   };
 
+const runAlertChaseRouteBudgetFairnessCheck =
+  (): BitCombatIntegrationCheck => {
+    const bitCount = 50;
+    const routePlanBudget = 4;
+    const maximumWaitUpdates = Math.ceil(bitCount / routePlanBudget);
+    const harness = createHarness(bitCount, () => true);
+    try {
+      harness.system.setDiagnosticsEnabled(true);
+      const leader = createTarget(
+        "alert-budget-leader",
+        new Vector3(200, BAND_CENTER_HEIGHT, 0)
+      );
+      const target = createTarget(
+        "alert-budget-target",
+        new Vector3(201, BAND_CENTER_HEIGHT, 0)
+      );
+      const targets = Object.freeze([leader, target]);
+      update(
+        harness.system,
+        0,
+        0,
+        targets,
+        Object.freeze([
+          Object.freeze({
+            leaderId: leader.id,
+            targetId: target.id,
+            remainingSeconds: 15
+          })
+        ])
+      );
+      const receivedCount = harness.system
+        .getFrameView().targetStates
+        .filter((state) => state.mode === "alert-receive").length;
+      const plannedIds = new Set<string>();
+      const plansPerUpdate: number[] = [];
+      let latestFirstPlanUpdate = 0;
+      for (
+        let updateIndex = 1;
+        updateIndex <= maximumWaitUpdates;
+        updateIndex += 1
+      ) {
+        update(harness.system, 0, 0, targets);
+        plansPerUpdate.push(
+          harness.system.getFrameView().diagnostics.routePlans.chase
+        );
+        for (const state of harness.system.getFrameView().flightStates) {
+          if (
+            state.routePurpose === "chase" &&
+            !plannedIds.has(state.bitId)
+          ) {
+            plannedIds.add(state.bitId);
+            latestFirstPlanUpdate = updateIndex;
+          }
+        }
+      }
+      return Object.freeze({
+        name: "alert-receive追跡計画は50機でも1更新4件・13更新以内",
+        ok:
+          receivedCount === bitCount &&
+          plannedIds.size === bitCount &&
+          plansPerUpdate.every(
+            (count) => count >= 0 && count <= routePlanBudget
+          ) &&
+          latestFirstPlanUpdate <= maximumWaitUpdates,
+        detail:
+          `received=${receivedCount}/${bitCount} / ` +
+          `planned=${plannedIds.size}/${bitCount} / ` +
+          `perUpdate=${plansPerUpdate.join(",")} / ` +
+          `latest=${latestFirstPlanUpdate}/${maximumWaitUpdates}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runEscapeRouteBudgetFairnessCheck =
+  (): BitCombatIntegrationCheck => {
+    const bitCount = 99;
+    const routePlanBudget = 3;
+    const maximumWaitUpdates = Math.ceil(bitCount / routePlanBudget);
+    const harness = createHarness(bitCount, () => true);
+    try {
+      harness.system.setDiagnosticsEnabled(true);
+      const leader = createTarget(
+        "escape-budget-leader",
+        new Vector3(199, BAND_CENTER_HEIGHT, 0)
+      );
+      const target = createTarget(
+        "escape-budget-target",
+        new Vector3(200, BAND_CENTER_HEIGHT, 0)
+      );
+      const targets = Object.freeze([leader, target]);
+      update(
+        harness.system,
+        0,
+        0,
+        targets,
+        Object.freeze([
+          Object.freeze({
+            leaderId: leader.id,
+            targetId: target.id,
+            remainingSeconds: 15
+          })
+        ])
+      );
+      const receivedCount = harness.system
+        .getFrameView().targetStates
+        .filter((state) => state.mode === "alert-receive").length;
+      const unavailableTarget = Object.freeze({
+        ...target,
+        alive: false
+      });
+      const plansPerUpdate: number[] = [];
+      for (
+        let updateIndex = 1;
+        updateIndex <= maximumWaitUpdates;
+        updateIndex += 1
+      ) {
+        update(
+          harness.system,
+          TICK_SECONDS,
+          updateIndex * TICK_SECONDS,
+          Object.freeze([leader, unavailableTarget])
+        );
+        plansPerUpdate.push(
+          harness.system.getFrameView().diagnostics.routePlans.escape
+        );
+      }
+      const plannedCount = plansPerUpdate.reduce(
+        (sum, count) => sum + count,
+        0
+      );
+      return Object.freeze({
+        name: "一斉標的喪失の逃走計画は99機でも1更新3件・33更新以内",
+        ok:
+          receivedCount === bitCount &&
+          plannedCount === bitCount &&
+          plansPerUpdate.every(
+            (count) => count >= 0 && count <= routePlanBudget
+          ),
+        detail:
+          `received=${receivedCount}/${bitCount} / ` +
+          `planned=${plannedCount}/${bitCount} / ` +
+          `perUpdate=${plansPerUpdate.join(",")} / ` +
+          `latest=${plansPerUpdate.length}/${maximumWaitUpdates}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runRouteSafetyCacheLruCheck =
+  (): BitCombatIntegrationCheck => {
+    const harness = createHarness(1, () => true);
+    let systemDisposed = false;
+    try {
+      harness.system.setDiagnosticsEnabled(true);
+      const bitId = harness.system.getFrameView().actorSpheres[0].id;
+      const createScenarioTargets = (routeIndex: number) => {
+        const origin = new Vector3(
+          routeIndex * 4,
+          BAND_CENTER_HEIGHT,
+          0
+        );
+        return Object.freeze({
+          origin,
+          leader: createTarget(
+            "route-cache-leader",
+            origin.add(new Vector3(1, 0, 0))
+          ),
+          target: createTarget(
+            "route-cache-target",
+            origin.add(new Vector3(2, 0, 0))
+          )
+        });
+      };
+      const firstScenario = createScenarioTargets(0);
+      update(
+        harness.system,
+        0,
+        0,
+        Object.freeze([
+          firstScenario.leader,
+          firstScenario.target
+        ]),
+        Object.freeze([
+          Object.freeze({
+            leaderId: firstScenario.leader.id,
+            targetId: firstScenario.target.id,
+            remainingSeconds: 15
+          })
+        ])
+      );
+      const exerciseRoute = (routeIndex: number) => {
+        const scenario = createScenarioTargets(routeIndex);
+        harness.system.placeBits([
+          Object.freeze({
+            id: bitId,
+            centerPosition: scenario.origin
+          })
+        ]);
+        update(
+          harness.system,
+          0,
+          routeIndex + 1,
+          Object.freeze([scenario.leader, scenario.target])
+        );
+        return harness.system.getFrameView().diagnostics
+          .routeSafetyCache;
+      };
+
+      for (
+        let routeIndex = 0;
+        routeIndex < V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES;
+        routeIndex += 1
+      ) {
+        exerciseRoute(routeIndex);
+      }
+      const filled = harness.system.getFrameView().diagnostics
+        .routeSafetyCache;
+      const filledAtCapacity = [
+        filled.routeSteps,
+        filled.routeCenters,
+        filled.routeSegments,
+        filled.lowCeilingCruiseHeights
+      ].every(
+        (entry) =>
+          entry.size === V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES
+      );
+
+      const beforeRecentTouch = filled;
+      const afterRecentTouch = exerciseRoute(0);
+      const recentTouchUsedCachedResults =
+        afterRecentTouch.routeSteps.recomputations ===
+          beforeRecentTouch.routeSteps.recomputations &&
+        afterRecentTouch.routeCenters.recomputations ===
+          beforeRecentTouch.routeCenters.recomputations &&
+        afterRecentTouch.routeSegments.recomputations ===
+          beforeRecentTouch.routeSegments.recomputations &&
+        afterRecentTouch.lowCeilingCruiseHeights.recomputations ===
+          beforeRecentTouch.lowCeilingCruiseHeights.recomputations;
+
+      const afterOverflow = exerciseRoute(
+        V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES
+      );
+      const afterRecentRevisit = exerciseRoute(0);
+      const recentEntrySurvivedEviction =
+        afterRecentRevisit.routeSteps.recomputations ===
+          afterOverflow.routeSteps.recomputations &&
+        afterRecentRevisit.routeCenters.recomputations ===
+          afterOverflow.routeCenters.recomputations &&
+        afterRecentRevisit.routeSegments.recomputations ===
+          afterOverflow.routeSegments.recomputations &&
+        afterRecentRevisit.lowCeilingCruiseHeights.recomputations ===
+          afterOverflow.lowCeilingCruiseHeights.recomputations;
+
+      const beforeEvictedRevisit = afterRecentRevisit;
+      const afterEvictedRevisit = exerciseRoute(1);
+      const evictedEntryWasRecomputed =
+        afterEvictedRevisit.routeSteps.recomputations ===
+          beforeEvictedRevisit.routeSteps.recomputations + 1 &&
+        afterEvictedRevisit.routeCenters.recomputations ===
+          beforeEvictedRevisit.routeCenters.recomputations + 1 &&
+        afterEvictedRevisit.routeSegments.recomputations ===
+          beforeEvictedRevisit.routeSegments.recomputations + 1 &&
+        afterEvictedRevisit.lowCeilingCruiseHeights.recomputations ===
+          beforeEvictedRevisit.lowCeilingCruiseHeights.recomputations +
+            1;
+      const boundedAfterEviction = [
+        afterEvictedRevisit.routeSteps,
+        afterEvictedRevisit.routeCenters,
+        afterEvictedRevisit.routeSegments,
+        afterEvictedRevisit.lowCeilingCruiseHeights
+      ].every(
+        (entry) =>
+          entry.size <= V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES &&
+          entry.evictions >= 1
+      );
+
+      harness.system.dispose();
+      systemDisposed = true;
+      const disposed = harness.system.getFrameView().diagnostics
+        .routeSafetyCache;
+      const disposeClearedCaches = [
+        disposed.routeSteps,
+        disposed.routeCenters,
+        disposed.routeSegments,
+        disposed.lowCeilingCruiseHeights
+      ].every((entry) => entry.size === 0);
+
+      return Object.freeze({
+        name:
+          "BIT正確座標経路安全cacheを4,096件LRUで連動破棄・再計算",
+        ok:
+          filled.maximumEntriesPerMap ===
+            V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES &&
+          filledAtCapacity &&
+          recentTouchUsedCachedResults &&
+          recentEntrySurvivedEviction &&
+          evictedEntryWasRecomputed &&
+          boundedAfterEviction &&
+          disposeClearedCaches,
+        detail:
+          `capacity=${filled.maximumEntriesPerMap} / ` +
+          `sizes=${afterEvictedRevisit.routeSteps.size},` +
+          `${afterEvictedRevisit.routeCenters.size},` +
+          `${afterEvictedRevisit.routeSegments.size},` +
+          `${afterEvictedRevisit.lowCeilingCruiseHeights.size} / ` +
+          `evictions=${afterEvictedRevisit.routeSteps.evictions},` +
+          `${afterEvictedRevisit.routeCenters.evictions},` +
+          `${afterEvictedRevisit.routeSegments.evictions},` +
+          `${afterEvictedRevisit.lowCeilingCruiseHeights.evictions} / ` +
+          `recent=${recentTouchUsedCachedResults}/${recentEntrySurvivedEviction} / ` +
+          `recomputed=${evictedEntryWasRecomputed} / ` +
+          `disposed=${disposeClearedCaches}`
+      });
+    } finally {
+      harness.dispose(systemDisposed);
+    }
+  };
+
+const runRouteStepDescriptorIdentityReuseCheck =
+  (): BitCombatIntegrationCheck => {
+    const harness = createHarness(1, () => true);
+    try {
+      harness.system.setDiagnosticsEnabled(true);
+      const origin = new Vector3(0, BAND_CENTER_HEIGHT, 0);
+      const leader = createTarget(
+        "route-descriptor-leader",
+        origin.add(new Vector3(1, 0, 0))
+      );
+      const target = createTarget(
+        "route-descriptor-target",
+        origin.add(new Vector3(2, 0, 0))
+      );
+      update(
+        harness.system,
+        0,
+        0,
+        Object.freeze([leader, target]),
+        Object.freeze([
+          Object.freeze({
+            leaderId: leader.id,
+            targetId: target.id,
+            remainingSeconds: 15
+          })
+        ])
+      );
+      update(
+        harness.system,
+        0,
+        1,
+        Object.freeze([leader, target])
+      );
+      const diagnostics = harness.system.getFrameView().diagnostics;
+      const descriptors =
+        diagnostics.routeSafetyCache.routeStepDescriptors;
+      return Object.freeze({
+        name:
+          "同一BitFlightRouteStep identityの安全記述子をpolicy・最終検証で共有",
+        ok:
+          diagnostics.routePlans.chase === 1 &&
+          descriptors.created === 1 &&
+          descriptors.reused === 2,
+        detail:
+          `chase=${diagnostics.routePlans.chase} / ` +
+          `descriptor=${descriptors.created}/${descriptors.reused}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runFrameViewAndSharedGeometryCheck =
+  (): BitCombatIntegrationCheck => {
+    const harness = createHarness(4, () => true);
+    try {
+      const actorsBefore = harness.system.getFrameView().actorSpheres;
+      const targetStatesBefore = harness.system.getFrameView().targetStates;
+      const flightStatesBefore = harness.system.getFrameView().flightStates;
+      const sameFrameViewsAreStable =
+        actorsBefore === harness.system.getFrameView().actorSpheres &&
+        targetStatesBefore === harness.system.getFrameView().targetStates &&
+        flightStatesBefore === harness.system.getFrameView().flightStates;
+      const bodies = targetStatesBefore
+        .map((state) =>
+          harness.scene.getMeshByName(`${state.bitId}_body`)
+        )
+        .filter(
+          (mesh): mesh is InstancedMesh => mesh instanceof InstancedMesh
+        );
+      const muzzles = targetStatesBefore
+        .map((state) =>
+          harness.scene.getMeshByName(`${state.bitId}_muzzle`)
+        )
+        .filter(
+          (mesh): mesh is InstancedMesh => mesh instanceof InstancedMesh
+        );
+      const normalBodySource =
+        harness.scene.getMeshByName("v2BitBodySource");
+      const redBodySource =
+        harness.scene.getMeshByName("v2RedBitBodySource");
+      const muzzleSource =
+        harness.scene.getMeshByName("v2BitMuzzleSource");
+      const sharedGeometry =
+        normalBodySource instanceof Mesh &&
+        redBodySource instanceof Mesh &&
+        normalBodySource.geometry === redBodySource.geometry;
+      const sharedInstances =
+        bodies.length === 4 &&
+        muzzles.length === 4 &&
+        bodies.every((body) => body.sourceMesh === normalBodySource) &&
+        muzzles.every((muzzle) => muzzle.sourceMesh === muzzleSource);
+
+      harness.system.setDiagnosticsEnabled(true);
+      update(harness.system, 0, 0, EMPTY_TARGETS);
+      const diagnostics = harness.system.getFrameView().diagnostics;
+      const nextActors = harness.system.getFrameView().actorSpheres;
+      const previousViewStayedImmutable =
+        actorsBefore.length === 4 &&
+        actorsBefore.every((actor) =>
+          Number.isFinite(actor.center.lengthSquared())
+        );
+      return Object.freeze({
+        name: "BIT frame viewを同一更新内で再利用し本体・先端を共有Instance化",
+        ok:
+          sameFrameViewsAreStable &&
+          nextActors !== actorsBefore &&
+          previousViewStayedImmutable &&
+          sharedGeometry &&
+          sharedInstances &&
+          diagnostics.enabled &&
+          diagnostics.routePlans.search <= 4 &&
+          diagnostics.beamRequests ===
+            harness.system.getFrameView().beamRequests.length,
+        detail:
+          `frameViews=${sameFrameViewsAreStable}/${nextActors !== actorsBefore} / ` +
+          `instances=${bodies.length}/${muzzles.length} / ` +
+          `geometry=${sharedGeometry} / ` +
+          `diagnostics=${diagnostics.enabled}/` +
+          `${diagnostics.routePlans.search}/` +
+          `${diagnostics.sightRays}/` +
+          `${diagnostics.sphereSweeps}/` +
+          `${diagnostics.beamRequests}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runLazyFlightStatesFrameViewCheck =
+  (): BitCombatIntegrationCheck => {
+    const harness = createHarness(1, () => true);
+    try {
+      const previousView = harness.system.getFrameView();
+      const flightStatesDescriptor = Object.getOwnPropertyDescriptor(
+        previousView,
+        "flightStates"
+      );
+      const previousActor = previousView.actorSpheres[0];
+      const previousPosition = previousActor.center.clone();
+      const nextPosition = previousPosition.add(
+        new Vector3(0.4, 0, 0)
+      );
+      if (
+        typeof flightStatesDescriptor?.get !== "function" ||
+        flightStatesDescriptor.value !== undefined
+      ) {
+        return Object.freeze({
+          name: "BIT flightStatesをFrame View内で遅延1回構築",
+          ok: false,
+          detail: "未アクセスflightStatesがgetterではありません。"
+        });
+      }
+
+      harness.system.placeBits([
+        Object.freeze({
+          id: previousActor.id,
+          centerPosition: nextPosition
+        })
+      ]);
+      const currentView = harness.system.getFrameView();
+      const previousFlights = previousView.flightStates;
+      const repeatedPreviousFlights = previousView.flightStates;
+      const currentFlights = currentView.flightStates;
+      const previousViewStayedImmutable =
+        previousFlights.length === 1 &&
+        Vector3.DistanceSquared(
+          previousFlights[0].position,
+          previousPosition
+        ) <= 1e-12;
+      const currentViewChanged =
+        currentFlights.length === 1 &&
+        Vector3.DistanceSquared(
+          currentFlights[0].position,
+          previousPosition
+        ) > 1e-12;
+      return Object.freeze({
+        name: "BIT flightStatesをFrame View内で遅延1回構築",
+        ok:
+          previousFlights === repeatedPreviousFlights &&
+          currentView !== previousView &&
+          currentFlights !== previousFlights &&
+          previousViewStayedImmutable &&
+          currentViewChanged &&
+          Object.isFrozen(previousFlights) &&
+          previousFlights.every(Object.isFrozen),
+        detail:
+          `lazy=${typeof flightStatesDescriptor.get === "function"} / ` +
+          `same=${previousFlights === repeatedPreviousFlights} / ` +
+          `old=${previousViewStayedImmutable} / ` +
+          `next=${currentViewChanged}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
 export const runBitCombatIntegrationTests =
   (
     fixture: BitSystemAcceptanceFixture
@@ -1938,6 +2753,7 @@ export const runBitCombatIntegrationTests =
     Object.freeze([
       runRedVerticalSearchSpeedCheck(),
       runRedTransitionSpeedCheck(fixture),
+      runRouteCandidateLowerBoundPruningCheck(),
       runAlertRequestModeCheck(),
       runAlertAssemblyCompletionCheck(),
       runAlertTimeoutCheck(),
@@ -1955,5 +2771,11 @@ export const runBitCombatIntegrationTests =
       runCarpetObstacleAbortCooldownCheck(),
       runCarpetFirstFireCheck(),
       runCarpetPassCheck(),
-      runCarpetFollowerImpactCheck()
+      runCarpetFollowerImpactCheck(),
+      runAlertChaseRouteBudgetFairnessCheck(),
+      runEscapeRouteBudgetFairnessCheck(),
+      runRouteStepDescriptorIdentityReuseCheck(),
+      runRouteSafetyCacheLruCheck(),
+      runLazyFlightStatesFrameViewCheck(),
+      runFrameViewAndSharedGeometryCheck()
     ]);

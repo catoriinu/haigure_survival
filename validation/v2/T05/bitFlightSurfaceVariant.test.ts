@@ -5,7 +5,7 @@ import {
   Vector3,
   type Mesh
 } from "@babylonjs/core";
-import { exportNavMesh } from "recast-navigation";
+import { exportNavMesh, NavMeshQuery } from "recast-navigation";
 import { generateSoloNavMesh } from "recast-navigation/generators";
 
 import { createBitFlightAgent } from "../../../src/world/bitFlightAgent";
@@ -17,6 +17,7 @@ import {
   toBitFlightBandId,
   toBitFlightZoneId,
   type BitFlightBand,
+  type BitFlightBandRef,
   type BitFlightLocation,
   type BitFlightNavMeshPayload,
   type BitFlightNavigationDefinition,
@@ -87,6 +88,52 @@ const definition: BitFlightNavigationDefinition = Object.freeze({
   bands: Object.freeze([band]),
   transitions: Object.freeze([])
 });
+const equalCostAlternateBandId = toBitFlightBandId(
+  "equal-cost-alternate-band"
+);
+const equalCostAlternateBandRef = createBitFlightBandRef(
+  zoneId,
+  equalCostAlternateBandId
+);
+const equalCostAlternateBand: BitFlightBand = Object.freeze({
+  zoneId,
+  id: equalCostAlternateBandId,
+  minimumCenterHeight: band.minimumCenterHeight,
+  maximumCenterHeight: band.maximumCenterHeight
+});
+const equalCostTransitionDefinition: BitFlightNavigationDefinition =
+  Object.freeze({
+    zones: definition.zones,
+    bands: Object.freeze([band, equalCostAlternateBand]),
+    transitions: Object.freeze([
+      Object.freeze({
+        id: "equal-cost-enter-alternate",
+        kind: "aperture" as const,
+        from: bandRef,
+        to: equalCostAlternateBandRef,
+        bidirectional: false,
+        affordances: Object.freeze(["indoor-access"] as const),
+        fromPosition: new Vector3(-1, navSurfaceHeight, 0),
+        toPosition: new Vector3(-1, navSurfaceHeight, 0),
+        traversalPoints: Object.freeze([]),
+        region: null,
+        projectionDistance: 0.5
+      }),
+      Object.freeze({
+        id: "equal-cost-return-primary",
+        kind: "aperture" as const,
+        from: equalCostAlternateBandRef,
+        to: bandRef,
+        bidirectional: false,
+        affordances: Object.freeze(["indoor-access"] as const),
+        fromPosition: new Vector3(1, navSurfaceHeight, 0),
+        toPosition: new Vector3(1, navSurfaceHeight, 0),
+        traversalPoints: Object.freeze([]),
+        region: null,
+        projectionDistance: 0.5
+      })
+    ])
+  });
 const navParameters = Object.freeze({
   cs: 0.05,
   ch: 0.025,
@@ -174,7 +221,10 @@ const createBlockedGeometry = (): NavGeometry => {
   });
 };
 
-const bakePayload = (geometry: NavGeometry): BitFlightNavMeshPayload => {
+const bakePayload = (
+  geometry: NavGeometry,
+  targetBandRef: BitFlightBandRef = bandRef
+): BitFlightNavMeshPayload => {
   const result = generateSoloNavMesh(
     geometry.positions,
     geometry.indices,
@@ -185,8 +235,8 @@ const bakePayload = (geometry: NavGeometry): BitFlightNavMeshPayload => {
   }
   try {
     return Object.freeze({
-      zoneId,
-      bandId,
+      zoneId: targetBandRef.zoneId,
+      bandId: targetBandRef.bandId,
       data: exportNavMesh(result.navMesh)
     });
   } finally {
@@ -196,7 +246,9 @@ const bakePayload = (geometry: NavGeometry): BitFlightNavMeshPayload => {
 
 const createFixture = async (
   geometry: NavGeometry,
-  createColliders: (scene: Scene) => FixtureColliders
+  createColliders: (scene: Scene) => FixtureColliders,
+  navigationDefinition: BitFlightNavigationDefinition = definition,
+  payloadBandRefs: readonly BitFlightBandRef[] = Object.freeze([bandRef])
 ): Promise<SurfaceVariantFixture> => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
@@ -216,8 +268,12 @@ const createFixture = async (
     volumes: Object.freeze([])
   });
   const world = await createBitFlightNavigationWorld(
-    definition,
-    Object.freeze([bakePayload(geometry)])
+    navigationDefinition,
+    Object.freeze(
+      payloadBandRefs.map((payloadBandRef) =>
+        bakePayload(geometry, payloadBandRef)
+      )
+    )
   );
   return Object.freeze({
     engine,
@@ -238,10 +294,11 @@ const disposeFixture = (fixture: SurfaceVariantFixture) => {
 const projectRequired = (
   world: BitFlightNavigationWorld,
   x: number,
-  z: number
+  z: number,
+  targetBandRef: BitFlightBandRef = bandRef
 ) => {
   const location = world.projectPointInBand(
-    bandRef,
+    targetBandRef,
     new Vector3(x, navSurfaceHeight, z),
     0.5
   );
@@ -310,6 +367,28 @@ const requireOnlySurfaceStep = (route: BitFlightRoute) => {
   return route.steps[0];
 };
 
+const updateAgent = (
+  agent: ReturnType<typeof createBitFlightAgent>,
+  surfaceSpeedWorldUnitsPerSecond: number,
+  deltaSeconds: number
+) => {
+  const previousRootPosition = agent.getSnapshot().position;
+  if (!previousRootPosition) {
+    throw new Error("更新前のBIT飛行位置がありません。");
+  }
+  return agent.update(
+    surfaceSpeedWorldUnitsPerSecond,
+    deltaSeconds,
+    previousRootPosition,
+    (candidate) => {
+      if (!candidate.position) {
+        throw new Error("更新後のBIT飛行位置がありません。");
+      }
+      return candidate.position;
+    }
+  );
+};
+
 const followRoute = (
   fixture: SurfaceVariantFixture,
   start: BitFlightLocation,
@@ -319,7 +398,7 @@ const followRoute = (
     waypointTolerance: 0.001
   });
   try {
-    const accepted = agent.setPreparedRoute(start, route);
+    const accepted = agent.setPreparedRoute(start, route, "verify");
     let snapshot = agent.getSnapshot();
     let allCentersSafe =
       snapshot.position === null ||
@@ -332,7 +411,7 @@ const followRoute = (
       snapshot.state !== "unreachable" &&
       updateCount < 100
     ) {
-      snapshot = agent.update(1, 0.1);
+      snapshot = updateAgent(agent, 1, 0.1);
       allCentersSafe =
         allCentersSafe &&
         (snapshot.position === null ||
@@ -383,7 +462,7 @@ const followDynamicRoute = (
       snapshot.state !== "unreachable" &&
       updateCount < 100
     ) {
-      snapshot = agent.update(1, 0.1);
+      snapshot = updateAgent(agent, 1, 0.1);
       minimumHeight = Math.min(
         minimumHeight,
         snapshot.position?.y ?? Number.POSITIVE_INFINITY
@@ -508,6 +587,145 @@ export const runBitFlightSurfaceVariantTests =
   async (): Promise<readonly BitFlightSurfaceVariantTestResult[]> => {
     await initializeNavigationRuntime();
     const results: BitFlightSurfaceVariantTestResult[] = [];
+
+    results.push(
+      await executeTest(
+        "同帯直達下限はpolicyを1回だけ評価し同cost遷移より先に確定する",
+        async () => {
+          const fixture = await createFixture(
+            createPlaneGeometry(),
+            () =>
+              Object.freeze({
+                movement: Object.freeze([]),
+                ground: Object.freeze([])
+              }),
+            equalCostTransitionDefinition,
+            Object.freeze([bandRef, equalCostAlternateBandRef])
+          );
+          try {
+            const start = projectRequired(fixture.world, -2, 0);
+            const destination = projectRequired(fixture.world, 2, 0);
+            const startPosition = getBitFlightWorldPosition(start);
+            const destinationPosition =
+              getBitFlightWorldPosition(destination);
+            const directDistance = Vector3.Distance(
+              startPosition,
+              destinationPosition
+            );
+            const policyEvents: string[] = [];
+            const directRoute = requireRoute(
+              fixture.world.findRoute(
+                start,
+                destination,
+                Object.freeze({
+                  canUseTransition: (traversal) => {
+                    policyEvents.push(
+                      `can-transition:${traversal.transition.id}`
+                    );
+                    return true;
+                  },
+                  canUseRouteStep: (step) => {
+                    policyEvents.push(
+                      step.kind === "surface"
+                        ? `can-step:surface:${step.band.zoneId}/${step.band.bandId}`
+                        : `can-step:transition:${step.traversal.transition.id}`
+                    );
+                    return true;
+                  },
+                  additionalSurfaceCruiseHeights: () => {
+                    policyEvents.push("additional-surface-height");
+                    return Object.freeze([]);
+                  },
+                  additionalTransitionCost: (traversal) => {
+                    policyEvents.push(
+                      `additional-transition:${traversal.transition.id}`
+                    );
+                    return 0;
+                  }
+                })
+              )
+            );
+            const directStep = requireOnlySurfaceStep(directRoute);
+
+            const alternatePolicyEvaluations: string[] = [];
+            const equalCostAlternateRoute = requireRoute(
+              fixture.world.findRoute(
+                start,
+                destination,
+                Object.freeze({
+                  canUseTransition: () => true,
+                  canUseRouteStep: (step) => {
+                    if (
+                      step.kind !== "surface" ||
+                      step.band.zoneId !== bandRef.zoneId ||
+                      step.band.bandId !== bandRef.bandId
+                    ) {
+                      return true;
+                    }
+                    const first = getBitFlightWorldPosition(step.points[0]);
+                    const last = getBitFlightWorldPosition(
+                      step.points[step.points.length - 1]
+                    );
+                    const allowed =
+                      (first.x === startPosition.x &&
+                        first.z === startPosition.z &&
+                        last.x === -1 &&
+                        last.z === 0) ||
+                      (first.x === 1 &&
+                        first.z === 0 &&
+                        last.x === destinationPosition.x &&
+                        last.z === destinationPosition.z);
+                    alternatePolicyEvaluations.push(
+                      `${step.band.bandId}:${first.x}/${first.y}/${first.z}>` +
+                        `${last.x}/${last.y}/${last.z}:${allowed}`
+                    );
+                    return allowed;
+                  },
+                  additionalSurfaceCruiseHeights: () => Object.freeze([]),
+                  additionalTransitionCost: () => 0
+                })
+              )
+            );
+            const alternateTransitionIds =
+              equalCostAlternateRoute.steps.flatMap((step) =>
+                step.kind === "transition"
+                  ? [step.traversal.transition.id]
+                  : []
+              );
+            return {
+              ok:
+                policyEvents.length === 1 &&
+                policyEvents[0] ===
+                  `can-step:surface:${bandRef.zoneId}/${bandRef.bandId}` &&
+                directRoute.steps.length === 1 &&
+                directStep.distance === directDistance &&
+                directRoute.distance === directDistance &&
+                directRoute.totalCost === directDistance &&
+                alternateTransitionIds.join(",") ===
+                  "equal-cost-enter-alternate,equal-cost-return-primary" &&
+                approximately(
+                  equalCostAlternateRoute.distance,
+                  directDistance
+                ) &&
+                approximately(
+                  equalCostAlternateRoute.totalCost,
+                  directDistance
+                ),
+              detail:
+                `events=${policyEvents.join(",")} / ` +
+                `direct=${directStep.distance}/${directRoute.distance}/` +
+                `${directRoute.totalCost} / ` +
+                `alternate=${alternateTransitionIds.join(">")}/` +
+                `${equalCostAlternateRoute.distance}/` +
+                `${equalCostAlternateRoute.totalCost} / ` +
+                `alternatePolicy=${alternatePolicyEvaluations.join(",")}`
+            };
+          } finally {
+            disposeFixture(fixture);
+          }
+        }
+      )
+    );
 
     results.push(
       await executeTest(
@@ -772,6 +990,145 @@ export const runBitFlightSurfaceVariantTests =
             };
           } finally {
             disposeFixture(fixture);
+          }
+        }
+      )
+    );
+
+    results.push(
+      await executeTest(
+        "同じNavMesh始終点の高度違いは経路形状を共有しDetour再探索しない",
+        async () => {
+          const queryPrototype = NavMeshQuery.prototype;
+          const originalFindPath = queryPrototype.findPath;
+          let recastPathfindCount = 0;
+          queryPrototype.findPath = function (
+            this: NavMeshQuery,
+            ...args: Parameters<NavMeshQuery["findPath"]>
+          ) {
+            recastPathfindCount += 1;
+            return originalFindPath.apply(this, args);
+          };
+          let fixture: SurfaceVariantFixture | null = null;
+          try {
+            fixture = await createFixture(
+              createBlockedGeometry(),
+              createFullHeightColliders
+            );
+            const start = projectRequired(fixture.world, -2, 0);
+            const destination = projectRequired(fixture.world, 2, 0);
+            const baselineRoute = requireRoute(
+              fixture.world.findSurfaceRoute(
+                start,
+                destination,
+                BIT_FLIGHT_SHORTEST_ROUTE_POLICY
+              )
+            );
+            const raisedStartPosition =
+              getBitFlightWorldPosition(start);
+            raisedStartPosition.y = 0.7;
+            const raisedDestinationPosition =
+              getBitFlightWorldPosition(destination);
+            raisedDestinationPosition.y = 0.9;
+            const raisedStart = fixture.world.applyHeightSelection(
+              start,
+              Object.freeze({
+                center: raisedStartPosition,
+                heightMode: "band" as const
+              })
+            );
+            const raisedDestination =
+              fixture.world.applyHeightSelection(
+                destination,
+                Object.freeze({
+                  center: raisedDestinationPosition,
+                  heightMode: "band" as const
+                })
+              );
+            const raisedRoute = requireRoute(
+              fixture.world.findSurfaceRoute(
+                raisedStart,
+                raisedDestination,
+                BIT_FLIGHT_SHORTEST_ROUTE_POLICY
+              )
+            );
+            const baselineStep = requireOnlySurfaceStep(baselineRoute);
+            const raisedStep = requireOnlySurfaceStep(raisedRoute);
+            const baselineSurfacePoints = baselineStep.points.map(
+              (point) => point.surface
+            );
+            const raisedSurfacePoints = raisedStep.points.map(
+              (point) => point.surface
+            );
+            const expectedPlanarPoints = Object.freeze([
+              Object.freeze({ x: -2, z: 0 }),
+              Object.freeze({
+                x: -0.6500000953674316,
+                z: 1.1500000953674316
+              }),
+              Object.freeze({
+                x: 0.6499999761581421,
+                z: 1.1500000953674316
+              }),
+              Object.freeze({ x: 2, z: 0 })
+            ]);
+            const baselineMatchesFixture =
+              baselineSurfacePoints.length ===
+                expectedPlanarPoints.length &&
+              baselineSurfacePoints.every(
+                (point, index) =>
+                  approximately(
+                    point.position.x,
+                    expectedPlanarPoints[index].x
+                  ) &&
+                  approximately(
+                    point.position.z,
+                    expectedPlanarPoints[index].z
+                  )
+              );
+            const raisedMatchesBaseline =
+              raisedSurfacePoints.length ===
+                baselineSurfacePoints.length &&
+              raisedSurfacePoints.every(
+                (point, index) =>
+                  point.polygonRef ===
+                    baselineSurfacePoints[index].polygonRef &&
+                  Vector3.Distance(
+                    point.position,
+                    baselineSurfacePoints[index].position
+                  ) <= 1e-9
+              );
+            return {
+              ok:
+                recastPathfindCount === 1 &&
+                baselineMatchesFixture &&
+                raisedMatchesBaseline &&
+                approximately(
+                  baselineStep.points[0].safeCenterHeight,
+                  navSurfaceHeight
+                ) &&
+                approximately(
+                  raisedStep.points[0].safeCenterHeight,
+                  raisedStart.safeCenterHeight
+                ) &&
+                approximately(
+                  raisedStep.points[
+                    raisedStep.points.length - 1
+                  ].safeCenterHeight,
+                  raisedDestination.safeCenterHeight
+                ),
+              detail:
+                `findPath=${recastPathfindCount} / ` +
+                `points=${baselineSurfacePoints.length}/` +
+                `${raisedSurfacePoints.length} / ` +
+                `fixture=${baselineMatchesFixture} / ` +
+                `shared=${raisedMatchesBaseline}`
+            };
+          } finally {
+            queryPrototype.findPath = originalFindPath;
+            if (fixture) {
+              disposeFixture(fixture);
+            }
           }
         }
       )

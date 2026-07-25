@@ -14,7 +14,8 @@ import {
 } from "../game/characterSprites";
 import {
   createNavigationAgent,
-  type NavigationAgent
+  type NavigationAgent,
+  type NavigationAgentStepResult
 } from "../world/navigationAgent";
 import type { NavigationLocation } from "../world/navigationWorld";
 import { createStageBoundarySpawnSampler } from "../world/stageSpawnSampler";
@@ -27,6 +28,7 @@ import {
   V2_HIT_FADE_DURATION_SECONDS,
   createV2CharacterStateSystem,
   type V2CharacterImpactSource,
+  type V2CharacterStateSnapshot,
   type V2CharacterStateSystem
 } from "./characterStateSystem";
 import {
@@ -80,6 +82,8 @@ export const V2_NPC_CAPTURE_RADIUS = 0.27;
 export const V2_NPC_CAPTURE_DURATION_SECONDS = 20;
 export const V2_NPC_CAPTURE_BREAKAWAY_SECONDS = 2.5;
 export const V2_NPC_CAPTURE_BREAKAWAY_SPEED = 0.27;
+export const V2_NPC_MINIMUM_PATH_REPLANS_PER_UPDATE = 4;
+export const V2_NPC_PATH_REPLAN_DEADLINE_SECONDS = 0.5;
 
 const NPC_EVADE_DISTANCE =
   V2_NPC_CAPTURE_BREAKAWAY_SPEED *
@@ -105,6 +109,7 @@ export type V2NpcSystemOptions = Readonly<{
   stage: StageSpatialContext;
   npcCount: number;
   initialBrainwashedNpcCount: number;
+  diagnosticsEnabled: boolean;
   random: () => number;
 }>;
 
@@ -133,27 +138,58 @@ export type V2NpcExternalThreat = Readonly<{
   sourcePosition: Vector3;
 }>;
 
+export type V2NpcBeamImpact = Readonly<{
+  npcId: string;
+  source: V2CharacterImpactSource;
+}>;
+
+export type V2NpcStateChangeResult = Readonly<{
+  npcId: string;
+  accepted: boolean;
+}>;
+
+export const V2_NPC_EXECUTION_ROLES = [
+  "target",
+  "audience",
+  "shooter"
+] as const;
+export type V2NpcExecutionRole =
+  (typeof V2_NPC_EXECUTION_ROLES)[number];
+
+export type V2NpcExecutionRoleAssignment = Readonly<{
+  npcId: string;
+  role: V2NpcExecutionRole;
+}>;
+
+export type V2NpcFrameView = Readonly<{
+  targets: readonly V2HumanTargetSnapshot[];
+  actorSpheres: readonly V2ActorSphere[];
+  tracking: readonly V2NpcTrackingSnapshot[];
+  captures: readonly V2NpcCaptureSnapshot[];
+  threatenedTargetIds: readonly string[];
+  pathRecalculationCount: number;
+  waitingForPathCount: number;
+  frameViewBuildSequence: number;
+}>;
+
 export interface V2NpcSystem {
   update(
     deltaSeconds: number,
-    playerTarget: V2HumanTargetSnapshot
+    playerTarget: V2HumanTargetSnapshot,
+    alarmTargetEvents: readonly V2AlarmTriggerEvent[]
   ): void;
-  getTargetSnapshots(): readonly V2HumanTargetSnapshot[];
-  getActorSpheres(): readonly V2ActorSphere[];
-  getTrackingSnapshots(): readonly V2NpcTrackingSnapshot[];
-  applyBeamImpact(
-    npcId: string,
-    source: V2CharacterImpactSource
-  ): boolean;
-  prepareExecutionTarget(npcId: string): void;
-  prepareExecutionAudience(npcId: string): void;
-  prepareExecutionShooter(npcId: string): void;
-  enterFormationState(npcId: string): boolean;
+  getFrameView(): V2NpcFrameView;
+  applyBeamImpacts(
+    impacts: readonly V2NpcBeamImpact[]
+  ): readonly V2NpcStateChangeResult[];
+  prepareExecutionRoles(
+    assignments: readonly V2NpcExecutionRoleAssignment[]
+  ): void;
+  enterFormationStates(
+    npcIds: readonly string[]
+  ): readonly V2NpcStateChangeResult[];
   drainBeamRequests(): readonly V2BeamRequest[];
-  getCaptureSnapshots(): readonly V2NpcCaptureSnapshot[];
   drainAlertRequests(): readonly V2AlertRequest[];
-  applyAlarmTargetEvents(events: readonly V2AlarmTriggerEvent[]): void;
-  getThreatenedTargetIds(): readonly string[];
   setExternalThreats(threats: readonly V2NpcExternalThreat[]): void;
   setPlayerBlockedTargetIds(targetIds: readonly string[]): void;
   setVisibleNpcIds(npcIds: readonly string[]): void;
@@ -178,6 +214,7 @@ type NpcRuntime = {
   readonly sprite: Sprite;
   readonly navigationAgent: NavigationAgent;
   readonly stateSystem: V2CharacterStateSystem;
+  stateSnapshot: V2CharacterStateSnapshot;
   navigationLocation: NavigationLocation;
   footPosition: Vector3;
   readonly forward: Vector3;
@@ -201,6 +238,20 @@ type ResolvedPlacement = Readonly<{
   footPosition: Vector3;
   formation: boolean;
 }>;
+
+type MutableNpcTargetSnapshot = {
+  id: string;
+  kind: "npc";
+  footPosition: Vector3;
+  aimPosition: Vector3;
+  hitShape: {
+    center: Vector3;
+    radii: Vector3;
+  };
+  state: V2CharacterState;
+  alive: boolean;
+  brainwashed: boolean;
+};
 
 const assertFiniteVector = (name: string, value: Vector3) => {
   if (
@@ -228,8 +279,8 @@ const assertNpcCount = (
   npcCount: number,
   initialBrainwashedNpcCount: number
 ) => {
-  if (!Number.isInteger(npcCount) || npcCount < 2) {
-    throw new Error("npcCountには2以上の整数が必要です。");
+  if (!Number.isInteger(npcCount) || npcCount < 0) {
+    throw new Error("npcCountには0以上の整数が必要です。");
   }
   if (
     !Number.isInteger(initialBrainwashedNpcCount) ||
@@ -313,25 +364,37 @@ const cloneTargetSnapshot = (
     })
   });
 
-const createNpcTargetSnapshot = (
+const createMutableNpcTargetSnapshot = (
   npc: NpcRuntime
-): V2HumanTargetSnapshot => {
-  const state = npc.stateSystem.getSnapshot().state;
+): MutableNpcTargetSnapshot => {
+  const state = npc.stateSnapshot.state;
   const aimPosition = toAimPosition(npc.footPosition);
-  return Object.freeze({
+  return {
     id: npc.id,
     kind: "npc" as const,
     footPosition: npc.footPosition.clone(),
     aimPosition,
-    hitShape: Object.freeze({
+    hitShape: {
       center: aimPosition.clone(),
       radii: NPC_HIT_RADII.clone()
-    }),
+    },
     state,
     alive: isV2AliveState(state),
     brainwashed: isV2BrainwashState(state)
-  });
+  };
 };
+
+const freezeNpcTargetSnapshot = (
+  snapshot: MutableNpcTargetSnapshot
+): V2HumanTargetSnapshot => {
+  Object.freeze(snapshot.hitShape);
+  return Object.freeze(snapshot);
+};
+
+const createNpcTargetSnapshot = (
+  npc: NpcRuntime
+): V2HumanTargetSnapshot =>
+  freezeNpcTargetSnapshot(createMutableNpcTargetSnapshot(npc));
 
 const getSpriteCellIndex = (state: V2CharacterState) => {
   if (state === "hit-a") {
@@ -355,11 +418,16 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private readonly npcs: readonly NpcRuntime[];
   private readonly npcsById: ReadonlyMap<string, NpcRuntime>;
   private readonly random: () => number;
+  private readonly diagnosticsEnabled: boolean;
   private readonly pendingAlertRequests: V2AlertRequest[] = [];
   private readonly pendingBeamRequests: V2BeamRequest[] = [];
-  private targetSnapshots: readonly V2HumanTargetSnapshot[];
-  private actorSpheres: readonly V2ActorSphere[];
-  private threatenedTargetIds: readonly string[] = Object.freeze([]);
+  private frameView: V2NpcFrameView;
+  private nextReplanPermissionIndex = 0;
+  private replanPermissionStartIndex = 0;
+  private replanPermissionCount = 0;
+  private pathRecalculationCount = 0;
+  private waitingForPathCount = 0;
+  private frameViewBuildSequence = 0;
   private externalThreats: readonly V2NpcExternalThreat[] =
     Object.freeze([]);
   private playerBlockedTargetIds: readonly string[] = Object.freeze([]);
@@ -374,25 +442,41 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
     this.stage = options.stage;
     this.random = options.random;
+    this.diagnosticsEnabled = options.diagnosticsEnabled;
 
-    const spawnSampler = createStageBoundarySpawnSampler(
-      options.stage.boundary,
-      options.stage.navigation,
-      {
-        maxAttempts: options.npcCount * 64,
-        projectionMaxDistance: SPAWN_PROJECTION_MAX_DISTANCE,
-        random: options.random
-      },
-      (point) =>
-        options.stage.queries.containsVolume("no_enemy_spawn", point) ||
-        options.stage.queries.containsVolume("no_enemy_enter", point) ||
-        options.stage.queries.containsVolume("hazard", point) ||
-        options.stage.queries.containsVolume("water", point)
-    );
-    const spawnPoints = spawnSampler.samplePoints(
-      options.npcCount,
-      SPAWN_MINIMUM_DISTANCE
-    );
+    const spawnPoints =
+      options.npcCount === 0
+        ? Object.freeze([])
+        : createStageBoundarySpawnSampler(
+            options.stage.boundary,
+            options.stage.navigation,
+            {
+              maxAttempts: options.npcCount * 64,
+              projectionMaxDistance:
+                SPAWN_PROJECTION_MAX_DISTANCE,
+              random: options.random
+            },
+            (point) =>
+              options.stage.queries.containsVolume(
+                "no_enemy_spawn",
+                point
+              ) ||
+              options.stage.queries.containsVolume(
+                "no_enemy_enter",
+                point
+              ) ||
+              options.stage.queries.containsVolume(
+                "hazard",
+                point
+              ) ||
+              options.stage.queries.containsVolume(
+                "water",
+                point
+              )
+          ).samplePoints(
+            options.npcCount,
+            SPAWN_MINIMUM_DISTANCE
+          );
     const brainwashedIndices = this.pickBrainwashedIndices(
       options.npcCount,
       options.initialBrainwashedNpcCount
@@ -446,6 +530,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           sprite,
           navigationAgent,
           stateSystem,
+          stateSnapshot: stateSystem.getSnapshot(),
           navigationLocation: cloneNavigationLocation(spawnPoint),
           footPosition,
           forward: new Vector3(Math.sin(angle), 0, Math.cos(angle)),
@@ -468,8 +553,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       }
       this.npcs = Object.freeze(npcs);
       this.npcsById = new Map(npcs.map((npc) => [npc.id, npc]));
-      this.targetSnapshots = this.buildTargetSnapshots();
-      this.actorSpheres = this.buildActorSpheres();
+      this.frameView = this.buildFrameView(Object.freeze([]));
       cleanupActions.length = 0;
     } catch (error) {
       for (let index = cleanupActions.length - 1; index >= 0; index -= 1) {
@@ -479,31 +563,50 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
   }
 
-  update(deltaSeconds: number, playerTarget: V2HumanTargetSnapshot) {
+  update(
+    deltaSeconds: number,
+    playerTarget: V2HumanTargetSnapshot,
+    alarmTargetEvents: readonly V2AlarmTriggerEvent[]
+  ) {
     this.assertActive();
     assertNonNegativeFiniteNumber("NPC更新deltaSeconds", deltaSeconds);
     assertTargetSnapshot("プレイヤー標的", playerTarget);
     if (playerTarget.kind !== "player") {
       throw new Error("NPC更新へ渡す外部標的はplayerである必要があります。");
     }
+    this.applyAlarmTargetEvents(alarmTargetEvents);
+    this.pathRecalculationCount = 0;
+    this.waitingForPathCount = 0;
 
     for (const npc of this.npcs) {
       const previousState = npc.lastState;
-      const currentState = npc.stateSystem.update(deltaSeconds).state;
+      npc.stateSnapshot = npc.stateSystem.update(deltaSeconds);
+      const currentState = npc.stateSnapshot.state;
       this.synchronizeStateMode(npc, previousState, currentState);
       npc.lastState = currentState;
       this.synchronizeSpriteVisual(npc);
     }
 
-    const frameTargets = Object.freeze([
-      cloneTargetSnapshot(playerTarget),
-      ...this.npcs
-        .filter((npc) => npc.sprite.isVisible)
-        .map(createNpcTargetSnapshot)
-    ]);
-    const targetsById = new Map(
-      frameTargets.map((target) => [target.id, target])
-    );
+    const visibleNpcs: NpcRuntime[] = [];
+    const frameNpcTargets: MutableNpcTargetSnapshot[] = [];
+    const playerFrameTarget = cloneTargetSnapshot(playerTarget);
+    const mutableFrameTargets: V2HumanTargetSnapshot[] = [
+      playerFrameTarget
+    ];
+    const targetsById = new Map<string, V2HumanTargetSnapshot>();
+    targetsById.set(playerFrameTarget.id, playerFrameTarget);
+    for (const npc of this.npcs) {
+      if (!npc.sprite.isVisible) {
+        continue;
+      }
+      const target = createMutableNpcTargetSnapshot(npc);
+      visibleNpcs.push(npc);
+      frameNpcTargets.push(target);
+      mutableFrameTargets.push(target);
+      targetsById.set(target.id, target);
+    }
+    const frameTargets: readonly V2HumanTargetSnapshot[] =
+      Object.freeze(mutableFrameTargets);
     if (targetsById.size !== frameTargets.length) {
       throw new Error("NPC更新の標的IDが重複しています。");
     }
@@ -547,7 +650,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           );
         }
       }
-      this.finishFrame(threatenedIds);
+      this.finishFrame(threatenedIds, visibleNpcs, frameNpcTargets);
       return;
     }
 
@@ -564,12 +667,14 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       frameTargets,
       NPC_VISION_RANGE
     );
-    for (const npc of this.npcs) {
+    this.prepareReplanPermissions(deltaSeconds);
+    for (let npcIndex = 0; npcIndex < this.npcs.length; npcIndex += 1) {
+      const npc = this.npcs[npcIndex];
       if (!npc.sprite.isVisible) {
         npc.navigationAgent.clear();
         continue;
       }
-      const state = npc.stateSystem.getSnapshot().state;
+      const state = npc.stateSnapshot.state;
       if (
         state !== "brainwash-complete-gun" &&
         state !== "brainwash-complete-no-gun"
@@ -587,7 +692,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         npc.breakawayRemainingSeconds > 0
       ) {
         if (!startedBreakawayNpcIds.has(npc.id)) {
-          this.updateBreakaway(npc, deltaSeconds);
+          this.updateBreakaway(
+            npc,
+            deltaSeconds,
+            this.hasReplanPermission(npcIndex)
+          );
         }
         continue;
       }
@@ -607,12 +716,18 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       threatenedIds.add(target.id);
       threatSourcesByTargetId.set(target.id, npc.footPosition.clone());
       if (state === "brainwash-complete-gun") {
-        this.updateGunNpc(npc, target, deltaSeconds);
+        this.updateGunNpc(
+          npc,
+          target,
+          deltaSeconds,
+          this.hasReplanPermission(npcIndex)
+        );
       } else {
         this.updateNoGunNpc(
           npc,
           target,
           deltaSeconds,
+          this.hasReplanPermission(npcIndex),
           capturedTargetIds,
           threatenedIds,
           threatSourcesByTargetId
@@ -620,20 +735,23 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       }
     }
 
-    for (const npc of this.npcs) {
+    for (let npcIndex = 0; npcIndex < this.npcs.length; npcIndex += 1) {
+      const npc = this.npcs[npcIndex];
       if (!npc.sprite.isVisible) {
         continue;
       }
-      const state = npc.stateSystem.getSnapshot().state;
+      const state = npc.stateSnapshot.state;
       if (!isV2AliveState(state)) {
         continue;
       }
       const threatened = threatenedIds.has(npc.id);
-      npc.stateSystem.setAliveBehaviorState(
-        threatened ? "evade" : "normal"
-      );
-      npc.lastState = npc.stateSystem.getSnapshot().state;
-      this.synchronizeSpriteVisual(npc);
+      const aliveBehaviorState = threatened ? "evade" : "normal";
+      npc.stateSystem.setAliveBehaviorState(aliveBehaviorState);
+      if (state !== aliveBehaviorState) {
+        npc.stateSnapshot = npc.stateSystem.getSnapshot();
+        this.synchronizeSpriteVisual(npc);
+      }
+      npc.lastState = npc.stateSnapshot.state;
       if (capturedTargetIds.has(npc.id)) {
         npc.navigationAgent.clear();
         npc.wanderDestination = null;
@@ -644,100 +762,122 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         if (!threatPosition) {
           throw new Error(`脅威元座標がありません: ${npc.id}`);
         }
-        this.updateEvadingNpc(npc, threatPosition, deltaSeconds);
+        this.updateEvadingNpc(
+          npc,
+          threatPosition,
+          deltaSeconds,
+          this.hasReplanPermission(npcIndex)
+        );
       } else {
-        this.updateNormalNpc(npc, deltaSeconds);
+        this.updateNormalNpc(
+          npc,
+          deltaSeconds,
+          this.hasReplanPermission(npcIndex)
+        );
       }
     }
 
-    this.finishFrame(threatenedIds);
+    this.finishFrame(threatenedIds, visibleNpcs, frameNpcTargets);
   }
 
-  getTargetSnapshots() {
+  getFrameView() {
     this.assertActive();
-    return Object.freeze(
-      this.targetSnapshots.map(cloneTargetSnapshot)
+    return this.frameView;
+  }
+
+  applyBeamImpacts(impacts: readonly V2NpcBeamImpact[]) {
+    this.assertActive();
+    const resolvedImpacts = impacts.map((impact) =>
+      Object.freeze({
+        npc: this.requireNpc(impact.npcId),
+        source: impact.source
+      })
     );
-  }
-
-  getActorSpheres() {
-    this.assertActive();
-    return Object.freeze(
-      this.actorSpheres.map((sphere) =>
-        Object.freeze({ ...sphere, center: sphere.center.clone() })
-      )
-    );
-  }
-
-  getTrackingSnapshots() {
-    this.assertActive();
-    return Object.freeze(
-      this.npcs
-        .filter((npc) => npc.sprite.isVisible)
-        .map((npc) =>
-          Object.freeze({
-            npcId: npc.id,
-            targetId: npc.targetId,
-            provenance: npc.targetProvenance,
-            alertLeaderId: npc.alertLeaderId,
-            alertRemainingSeconds: npc.alertRemainingSeconds
-          })
-        )
-    );
-  }
-
-  applyBeamImpact(npcId: string, source: V2CharacterImpactSource) {
-    this.assertActive();
-    const npc = this.requireNpc(npcId);
-    const accepted = npc.stateSystem.applyImpact(source);
-    if (!accepted) {
-      return false;
+    const results: V2NpcStateChangeResult[] = [];
+    let changed = false;
+    for (const impact of resolvedImpacts) {
+      const accepted = impact.npc.stateSystem.applyImpact(impact.source);
+      results.push(
+        Object.freeze({
+          npcId: impact.npc.id,
+          accepted
+        })
+      );
+      if (!accepted) {
+        continue;
+      }
+      changed = true;
+      this.finishScriptedStateChange(impact.npc);
     }
-    npc.lastState = npc.stateSystem.getSnapshot().state;
-    this.synchronizeSpriteVisual(npc);
-    npc.wanderDestination = null;
-    npc.wanderWaitSeconds = 0;
-    npc.alarmTargetQueue.length = 0;
-    npc.capture = null;
-    npc.breakawayRemainingSeconds = 0;
-    npc.breakawayDestination = null;
-    this.clearTarget(npc);
-    this.releaseCapturesForTarget(npcId);
-    this.targetSnapshots = this.buildTargetSnapshots();
-    this.actorSpheres = this.buildActorSpheres();
-    return true;
-  }
-
-  prepareExecutionTarget(npcId: string) {
-    this.assertActive();
-    const npc = this.requireNpc(npcId);
-    npc.stateSystem.prepareExecutionTarget();
-    this.finishScriptedStateChange(npc);
-  }
-
-  prepareExecutionAudience(npcId: string) {
-    this.assertActive();
-    const npc = this.requireNpc(npcId);
-    npc.stateSystem.prepareExecutionAudience();
-    this.finishScriptedStateChange(npc);
-  }
-
-  prepareExecutionShooter(npcId: string) {
-    this.assertActive();
-    const npc = this.requireNpc(npcId);
-    npc.stateSystem.prepareExecutionShooter();
-    this.finishScriptedStateChange(npc);
-  }
-
-  enterFormationState(npcId: string) {
-    this.assertActive();
-    const npc = this.requireNpc(npcId);
-    const accepted = npc.stateSystem.enterFormationState();
-    if (!accepted) {
-      return false;
+    if (changed) {
+      this.rebuildFrameViewPreservingThreats();
     }
-    this.finishScriptedStateChange(npc);
-    return true;
+    return Object.freeze(results);
+  }
+
+  prepareExecutionRoles(
+    assignments: readonly V2NpcExecutionRoleAssignment[]
+  ) {
+    this.assertActive();
+    const resolvedAssignments = assignments.map((assignment) => {
+      if (!V2_NPC_EXECUTION_ROLES.includes(assignment.role)) {
+        throw new Error(
+          `未登録のNPC公開処刑役割です: ${assignment.role}`
+        );
+      }
+      return Object.freeze({
+        npc: this.requireNpc(assignment.npcId),
+        role: assignment.role
+      });
+    });
+    for (const assignment of resolvedAssignments) {
+      if (
+        assignment.role !== "target" &&
+        isV2AliveState(assignment.npc.stateSnapshot.state)
+      ) {
+        const nextState =
+          assignment.role === "shooter"
+            ? "brainwash-complete-gun"
+            : "brainwash-complete-haigure-formation";
+        throw new Error(
+          `alive対象を公開処刑用状態へ強制遷移できません: ` +
+            `${assignment.npc.stateSnapshot.state} -> ${nextState}`
+        );
+      }
+    }
+    for (const assignment of resolvedAssignments) {
+      if (assignment.role === "target") {
+        assignment.npc.stateSystem.prepareExecutionTarget();
+      } else if (assignment.role === "audience") {
+        assignment.npc.stateSystem.prepareExecutionAudience();
+      } else {
+        assignment.npc.stateSystem.prepareExecutionShooter();
+      }
+      this.finishScriptedStateChange(assignment.npc);
+    }
+    if (resolvedAssignments.length > 0) {
+      this.rebuildFrameViewPreservingThreats();
+    }
+  }
+
+  enterFormationStates(npcIds: readonly string[]) {
+    this.assertActive();
+    const npcs = npcIds.map((npcId) => this.requireNpc(npcId));
+    const results: V2NpcStateChangeResult[] = [];
+    let changed = false;
+    for (const npc of npcs) {
+      const accepted = npc.stateSystem.enterFormationState();
+      results.push(Object.freeze({ npcId: npc.id, accepted }));
+      if (!accepted) {
+        continue;
+      }
+      changed = true;
+      this.finishScriptedStateChange(npc);
+    }
+    if (changed) {
+      this.rebuildFrameViewPreservingThreats();
+    }
+    return Object.freeze(results);
   }
 
   drainBeamRequests() {
@@ -756,23 +896,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     return requests;
   }
 
-  getCaptureSnapshots() {
-    this.assertActive();
-    return Object.freeze(
-      this.npcs.flatMap((npc) =>
-        npc.sprite.isVisible && npc.capture
-          ? [
-              Object.freeze({
-                npcId: npc.id,
-                targetId: npc.capture.targetId,
-                remainingSeconds: npc.capture.remainingSeconds
-              })
-            ]
-          : []
-      )
-    );
-  }
-
   drainAlertRequests() {
     this.assertActive();
     const requests = Object.freeze(
@@ -782,8 +905,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     return requests;
   }
 
-  applyAlarmTargetEvents(events: readonly V2AlarmTriggerEvent[]) {
-    this.assertActive();
+  private applyAlarmTargetEvents(events: readonly V2AlarmTriggerEvent[]) {
+    if (events.length === 0) {
+      return;
+    }
     for (const event of events) {
       assertAlarmTargetEvent(event);
     }
@@ -791,7 +916,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       V2_ALARM_INFLUENCE_RADIUS_WORLD_UNITS *
       V2_ALARM_INFLUENCE_RADIUS_WORLD_UNITS;
     for (const npc of this.npcs) {
-      const state = npc.stateSystem.getSnapshot().state;
+      const state = npc.stateSnapshot.state;
       if (
         !npc.sprite.isVisible ||
         (state !== "brainwash-complete-gun" &&
@@ -833,11 +958,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.navigationAgent.clear();
       this.clearTarget(npc);
     }
-  }
-
-  getThreatenedTargetIds() {
-    this.assertActive();
-    return Object.freeze([...this.threatenedTargetIds]);
   }
 
   setExternalThreats(threats: readonly V2NpcExternalThreat[]) {
@@ -912,14 +1032,13 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         this.releaseCaptureImmediately(npc);
       }
     }
-    this.threatenedTargetIds = Object.freeze(
-      this.threatenedTargetIds.filter(
+    const threatenedTargetIds = Object.freeze(
+      this.frameView.threatenedTargetIds.filter(
         (targetId) =>
           !this.npcsById.has(targetId) || visibleNpcIds.has(targetId)
       )
     );
-    this.targetSnapshots = this.buildTargetSnapshots();
-    this.actorSpheres = this.buildActorSpheres();
+    this.frameView = this.buildFrameView(threatenedTargetIds);
   }
 
   setAiSuspended(suspended: boolean) {
@@ -958,7 +1077,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       const npc = this.requireNpc(assignment.id);
       if (
         assignment.formation &&
-        !isV2BrainwashState(npc.stateSystem.getSnapshot().state)
+        !isV2BrainwashState(npc.stateSnapshot.state)
       ) {
         throw new Error(
           `aliveまたはhit NPCを集合状態へ配置できません: ${assignment.id}`
@@ -1001,14 +1120,13 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       this.clearTarget(npc);
       if (placement.formation) {
         npc.stateSystem.enterFormationState();
+        npc.stateSnapshot = npc.stateSystem.getSnapshot();
       }
-      npc.lastState = npc.stateSystem.getSnapshot().state;
+      npc.lastState = npc.stateSnapshot.state;
       npc.sprite.position.copyFrom(toAimPosition(npc.footPosition));
       this.synchronizeSpriteVisual(npc);
     }
-    this.threatenedTargetIds = Object.freeze([]);
-    this.targetSnapshots = this.buildTargetSnapshots();
-    this.actorSpheres = this.buildActorSpheres();
+    this.frameView = this.buildFrameView(Object.freeze([]));
   }
 
   dispose() {
@@ -1021,6 +1139,54 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.sprite.dispose();
     }
     this.spriteManager.dispose();
+  }
+
+  private prepareReplanPermissions(deltaSeconds: number): void {
+    if (this.npcs.length === 0) {
+      this.replanPermissionCount = 0;
+      this.replanPermissionStartIndex = 0;
+      this.nextReplanPermissionIndex = 0;
+      return;
+    }
+    const proportionalBudget = Math.ceil(
+      (this.npcs.length * deltaSeconds) /
+        V2_NPC_PATH_REPLAN_DEADLINE_SECONDS
+    );
+    this.replanPermissionCount = Math.min(
+      this.npcs.length,
+      Math.max(
+        V2_NPC_MINIMUM_PATH_REPLANS_PER_UPDATE,
+        proportionalBudget
+      )
+    );
+    this.replanPermissionStartIndex =
+      this.nextReplanPermissionIndex;
+    this.nextReplanPermissionIndex =
+      (this.nextReplanPermissionIndex + this.replanPermissionCount) %
+      this.npcs.length;
+  }
+
+  private hasReplanPermission(npcIndex: number): boolean {
+    const offset =
+      (npcIndex -
+        this.replanPermissionStartIndex +
+        this.npcs.length) %
+      this.npcs.length;
+    return offset < this.replanPermissionCount;
+  }
+
+  private recordNavigationStep(
+    movement: NavigationAgentStepResult
+  ): void {
+    if (!this.diagnosticsEnabled) {
+      return;
+    }
+    if (movement.pathRecalculated) {
+      this.pathRecalculationCount += 1;
+    }
+    if (movement.state === "waiting-for-path") {
+      this.waitingForPathCount += 1;
+    }
   }
 
   private synchronizeStateMode(
@@ -1205,9 +1371,15 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private updateGunNpc(
     npc: NpcRuntime,
     target: V2HumanTargetSnapshot,
-    deltaSeconds: number
+    deltaSeconds: number,
+    allowPathRecalculation: boolean
   ) {
-    this.chaseTarget(npc, target, deltaSeconds);
+    this.chaseTarget(
+      npc,
+      target,
+      deltaSeconds,
+      allowPathRecalculation
+    );
     const origin = toAimPosition(npc.footPosition);
     const toTarget = target.aimPosition.subtract(origin);
     const distanceSquared = toTarget.lengthSquared();
@@ -1241,12 +1413,18 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc: NpcRuntime,
     target: V2HumanTargetSnapshot,
     deltaSeconds: number,
+    allowPathRecalculation: boolean,
     capturedTargetIds: Set<string>,
     threatenedIds: Set<string>,
     threatSourcesByTargetId: Map<string, Vector3>
   ) {
     if (npc.alarmTargetQueue.length > 0) {
-      this.chaseTarget(npc, target, deltaSeconds);
+      this.chaseTarget(
+        npc,
+        target,
+        deltaSeconds,
+        allowPathRecalculation
+      );
       return;
     }
     if (
@@ -1276,25 +1454,37 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       );
       return;
     }
-    this.chaseTarget(npc, target, deltaSeconds);
+    this.chaseTarget(
+      npc,
+      target,
+      deltaSeconds,
+      allowPathRecalculation
+    );
   }
 
   private chaseTarget(
     npc: NpcRuntime,
     target: V2HumanTargetSnapshot,
-    deltaSeconds: number
+    deltaSeconds: number,
+    allowPathRecalculation: boolean
   ) {
     npc.wanderDestination = null;
     const movement = npc.navigationAgent.update(
       npc.navigationLocation,
       target.footPosition,
       NPC_CHASE_SPEED,
-      deltaSeconds
+      deltaSeconds,
+      allowPathRecalculation
     );
+    this.recordNavigationStep(movement);
     this.applyNavigationMovement(npc, movement.location);
   }
 
-  private updateNormalNpc(npc: NpcRuntime, deltaSeconds: number) {
+  private updateNormalNpc(
+    npc: NpcRuntime,
+    deltaSeconds: number,
+    allowPathRecalculation: boolean
+  ) {
     if (npc.targetId !== null) {
       this.clearTarget(npc);
     }
@@ -1320,8 +1510,13 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.navigationLocation,
       npc.wanderDestination.position,
       NPC_SEARCH_SPEED,
-      deltaSeconds
+      deltaSeconds,
+      allowPathRecalculation
     );
+    this.recordNavigationStep(movement);
+    if (movement.state === "waiting-for-path") {
+      return;
+    }
     const moved = this.applyNavigationMovement(npc, movement.location);
     if (
       !moved ||
@@ -1337,7 +1532,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private updateEvadingNpc(
     npc: NpcRuntime,
     threatPosition: Vector3,
-    deltaSeconds: number
+    deltaSeconds: number,
+    allowPathRecalculation: boolean
   ) {
     npc.targetId = null;
     npc.targetProvenance = null;
@@ -1367,8 +1563,13 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.navigationLocation,
       npc.wanderDestination.position,
       NPC_CHASE_SPEED,
-      deltaSeconds
+      deltaSeconds,
+      allowPathRecalculation
     );
+    this.recordNavigationStep(movement);
+    if (movement.state === "waiting-for-path") {
+      return;
+    }
     const moved = this.applyNavigationMovement(npc, movement.location);
     if (
       !moved ||
@@ -1380,7 +1581,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
   }
 
-  private updateBreakaway(npc: NpcRuntime, deltaSeconds: number) {
+  private updateBreakaway(
+    npc: NpcRuntime,
+    deltaSeconds: number,
+    allowPathRecalculation: boolean
+  ) {
     npc.breakawayRemainingSeconds = Math.max(
       0,
       npc.breakawayRemainingSeconds - deltaSeconds
@@ -1390,16 +1595,20 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         npc.navigationLocation,
         npc.breakawayDestination.position,
         V2_NPC_CAPTURE_BREAKAWAY_SPEED,
-        deltaSeconds
+        deltaSeconds,
+        allowPathRecalculation
       );
-      const moved = this.applyNavigationMovement(npc, movement.location);
-      if (
-        !moved ||
-        movement.state === "arrived" ||
-        movement.state === "unreachable"
-      ) {
-        npc.navigationAgent.clear();
-        npc.breakawayDestination = null;
+      this.recordNavigationStep(movement);
+      if (movement.state !== "waiting-for-path") {
+        const moved = this.applyNavigationMovement(npc, movement.location);
+        if (
+          !moved ||
+          movement.state === "arrived" ||
+          movement.state === "unreachable"
+        ) {
+          npc.navigationAgent.clear();
+          npc.breakawayDestination = null;
+        }
       }
     }
     if (npc.breakawayRemainingSeconds === 0) {
@@ -1433,51 +1642,83 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     targets: readonly V2HumanTargetSnapshot[],
     excludedTargetIds: ReadonlySet<string>
   ) {
-    let nearest: V2HumanTargetSnapshot | null = null;
-    let nearestDistanceSquared = Number.POSITIVE_INFINITY;
-    for (const target of targets) {
+    const origin = toAimPosition(npc.footPosition);
+    const candidates: Array<{
+      target: V2HumanTargetSnapshot;
+      distanceSquared: number;
+      sourceOrder: number;
+    }> = [];
+    targets.forEach((target, sourceOrder) => {
+      if (excludedTargetIds.has(target.id)) {
+        return;
+      }
+      const distanceSquared = this.getVisualDistanceSquared(
+        npc,
+        target,
+        origin
+      );
+      if (distanceSquared === null) {
+        return;
+      }
+      candidates.push({ target, distanceSquared, sourceOrder });
+    });
+    candidates.sort(
+      (left, right) =>
+        left.distanceSquared - right.distanceSquared ||
+        left.sourceOrder - right.sourceOrder
+    );
+    for (const candidate of candidates) {
       if (
-        excludedTargetIds.has(target.id) ||
-        !this.isVisuallyTargetable(npc, target)
+        this.stage.queries.castSightSegment(
+          origin,
+          candidate.target.aimPosition
+        ) !== null
       ) {
         continue;
       }
-      const distanceSquared = Vector3.DistanceSquared(
-        toAimPosition(npc.footPosition),
-        target.aimPosition
-      );
-      if (distanceSquared < nearestDistanceSquared) {
-        nearest = target;
-        nearestDistanceSquared = distanceSquared;
-      }
+      return candidate.target;
     }
-    return nearest;
+    return null;
   }
 
   private isVisuallyTargetable(
     npc: NpcRuntime,
     target: V2HumanTargetSnapshot
   ) {
-    if (!this.isTargetable(npc, target)) {
-      return false;
-    }
     const origin = toAimPosition(npc.footPosition);
-    const toTarget = target.aimPosition.subtract(origin);
-    const distanceSquared = toTarget.lengthSquared();
-    if (
-      distanceSquared === 0 ||
-      distanceSquared > NPC_VISION_RANGE_SQUARED
-    ) {
-      return false;
-    }
-    const direction = toTarget.scale(1 / Math.sqrt(distanceSquared));
-    if (Vector3.Dot(npc.forward, direction) < NPC_VISION_COSINE) {
+    if (this.getVisualDistanceSquared(npc, target, origin) === null) {
       return false;
     }
     return this.stage.queries.castSightSegment(
       origin,
       target.aimPosition
     ) === null;
+  }
+
+  private getVisualDistanceSquared(
+    npc: NpcRuntime,
+    target: V2HumanTargetSnapshot,
+    origin: Vector3
+  ) {
+    if (!this.isTargetable(npc, target)) {
+      return null;
+    }
+    const toTarget = target.aimPosition.subtract(origin);
+    const distanceSquared = toTarget.lengthSquared();
+    if (
+      distanceSquared === 0 ||
+      distanceSquared > NPC_VISION_RANGE_SQUARED
+    ) {
+      return null;
+    }
+    const inverseDistance = 1 / Math.sqrt(distanceSquared);
+    if (
+      Vector3.Dot(npc.forward, toTarget) * inverseDistance <
+      NPC_VISION_COSINE
+    ) {
+      return null;
+    }
+    return distanceSquared;
   }
 
   private isTargetable(npc: NpcRuntime, target: V2HumanTargetSnapshot) {
@@ -1580,7 +1821,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   }
 
   private finishScriptedStateChange(npc: NpcRuntime) {
-    npc.lastState = npc.stateSystem.getSnapshot().state;
+    npc.stateSnapshot = npc.stateSystem.getSnapshot();
+    npc.lastState = npc.stateSnapshot.state;
     this.synchronizeSpriteVisual(npc);
     npc.navigationAgent.clear();
     npc.wanderDestination = null;
@@ -1591,12 +1833,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.breakawayDestination = null;
     this.clearTarget(npc);
     this.releaseCapturesForTarget(npc.id);
-    this.targetSnapshots = this.buildTargetSnapshots();
-    this.actorSpheres = this.buildActorSpheres();
   }
 
   private synchronizeSpriteVisual(npc: NpcRuntime) {
-    const snapshot = npc.stateSystem.getSnapshot();
+    const snapshot = npc.stateSnapshot;
     npc.sprite.cellIndex = getSpriteCellIndex(snapshot.state);
     npc.sprite.color.a =
       snapshot.hitPhase === "fade"
@@ -1605,37 +1845,126 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         : 1;
   }
 
-  private finishFrame(threatenedIds: ReadonlySet<string>) {
+  private finishFrame(
+    threatenedIds: ReadonlySet<string>,
+    visibleNpcs: readonly NpcRuntime[],
+    frameNpcTargets: MutableNpcTargetSnapshot[]
+  ) {
     for (const npc of this.npcs) {
-      npc.sprite.position.copyFrom(toAimPosition(npc.footPosition));
-      this.synchronizeSpriteVisual(npc);
+      npc.sprite.position.copyFrom(npc.footPosition);
+      npc.sprite.position.y += NPC_SPRITE_CENTER_HEIGHT;
     }
-    this.threatenedTargetIds = Object.freeze([...threatenedIds]);
-    this.targetSnapshots = this.buildTargetSnapshots();
-    this.actorSpheres = this.buildActorSpheres();
-  }
 
-  private buildTargetSnapshots() {
-    return Object.freeze(
-      this.npcs
-        .filter((npc) => npc.sprite.isVisible)
-        .map(createNpcTargetSnapshot)
+    for (let index = 0; index < visibleNpcs.length; index += 1) {
+      const npc = visibleNpcs[index];
+      const target = frameNpcTargets[index];
+      if (target.id !== npc.id) {
+        throw new Error(
+          `NPC frame snapshotの並びが一致しません: ${target.id}/${npc.id}`
+        );
+      }
+      const state = npc.stateSnapshot.state;
+      target.footPosition.copyFrom(npc.footPosition);
+      target.aimPosition.copyFrom(npc.footPosition);
+      target.aimPosition.y += NPC_SPRITE_CENTER_HEIGHT;
+      target.hitShape.center.copyFrom(target.aimPosition);
+      target.state = state;
+      target.alive = isV2AliveState(state);
+      target.brainwashed = isV2BrainwashState(state);
+      freezeNpcTargetSnapshot(target);
+    }
+
+    const targets: readonly V2HumanTargetSnapshot[] =
+      Object.freeze(frameNpcTargets);
+    this.frameView = this.buildFrameViewFromTargets(
+      visibleNpcs,
+      targets,
+      Object.freeze([...threatenedIds])
     );
   }
 
-  private buildActorSpheres(): readonly V2ActorSphere[] {
-    return Object.freeze(
-      this.npcs
-        .filter((npc) => npc.sprite.isVisible)
-        .map((npc) =>
+  private rebuildFrameViewPreservingThreats(): void {
+    this.frameView = this.buildFrameView(
+      this.frameView.threatenedTargetIds
+    );
+  }
+
+  private buildFrameView(
+    threatenedTargetIds: readonly string[]
+  ): V2NpcFrameView {
+    const visibleNpcs: NpcRuntime[] = [];
+    const targets: V2HumanTargetSnapshot[] = [];
+    for (const npc of this.npcs) {
+      if (!npc.sprite.isVisible) {
+        continue;
+      }
+      visibleNpcs.push(npc);
+      targets.push(createNpcTargetSnapshot(npc));
+    }
+    return this.buildFrameViewFromTargets(
+      visibleNpcs,
+      Object.freeze(targets),
+      threatenedTargetIds
+    );
+  }
+
+  private buildFrameViewFromTargets(
+    visibleNpcs: readonly NpcRuntime[],
+    targets: readonly V2HumanTargetSnapshot[],
+    threatenedTargetIds: readonly string[]
+  ): V2NpcFrameView {
+    if (this.diagnosticsEnabled) {
+      this.frameViewBuildSequence += 1;
+    }
+    let actorSpheres: readonly V2ActorSphere[] | null = null;
+    const tracking: V2NpcTrackingSnapshot[] = [];
+    const captures: V2NpcCaptureSnapshot[] = [];
+    for (const npc of visibleNpcs) {
+      tracking.push(
+        Object.freeze({
+          npcId: npc.id,
+          targetId: npc.targetId,
+          provenance: npc.targetProvenance,
+          alertLeaderId: npc.alertLeaderId,
+          alertRemainingSeconds: npc.alertRemainingSeconds
+        })
+      );
+      if (npc.capture) {
+        captures.push(
           Object.freeze({
-            id: npc.id,
-            kind: "npc" as const,
-            center: toAimPosition(npc.footPosition),
-            radius: NPC_COLLISION_RADIUS
+            npcId: npc.id,
+            targetId: npc.capture.targetId,
+            remainingSeconds: npc.capture.remainingSeconds
           })
-        )
-    );
+        );
+      }
+    }
+    return Object.freeze({
+      targets,
+      get actorSpheres() {
+        if (actorSpheres === null) {
+          const spheres: V2ActorSphere[] = [];
+          for (const target of targets) {
+            spheres.push(
+              Object.freeze({
+                id: target.id,
+                kind: "npc" as const,
+                center: target.aimPosition.clone(),
+                radius: NPC_COLLISION_RADIUS
+              })
+            );
+          }
+          actorSpheres = Object.freeze(spheres);
+        }
+        return actorSpheres;
+      },
+      tracking: Object.freeze(tracking),
+      captures: Object.freeze(captures),
+      threatenedTargetIds,
+      pathRecalculationCount: this.pathRecalculationCount,
+      waitingForPathCount: this.waitingForPathCount,
+      frameViewBuildSequence: this.frameViewBuildSequence
+    });
   }
 
   private pickBrainwashedIndices(count: number, brainwashedCount: number) {

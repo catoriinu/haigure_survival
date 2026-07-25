@@ -8,6 +8,7 @@ export type V2AlertCoordinatorOptions = Readonly<{
 }>;
 
 export type V2AlertCoordinator = {
+  readonly activeCount: number;
   update(delta: number): void;
   publish(requests: readonly V2AlertRequest[]): void;
   getActiveAlerts(): readonly V2ExternalAlert[];
@@ -43,10 +44,17 @@ export const createV2AlertCoordinator = ({
   }
 
   const alerts = new Map<string, ActiveAlert>();
+  let activeSnapshot: readonly V2ExternalAlert[] | null = null;
 
   return {
+    get activeCount() {
+      return alerts.size;
+    },
     update: (delta) => {
       assertFiniteNonNegative("delta", delta);
+      if (alerts.size > 0 && delta > 0) {
+        activeSnapshot = null;
+      }
       for (const [key, alert] of alerts) {
         alert.remainingSeconds -= delta;
         if (alert.remainingSeconds <= 0) {
@@ -55,6 +63,9 @@ export const createV2AlertCoordinator = ({
       }
     },
     publish: (requests) => {
+      if (requests.length > 0) {
+        activeSnapshot = null;
+      }
       for (const request of requests) {
         assertIdentifier("leaderId", request.leaderId);
         assertIdentifier("targetId", request.targetId);
@@ -69,8 +80,8 @@ export const createV2AlertCoordinator = ({
         });
       }
     },
-    getActiveAlerts: () =>
-      Object.freeze(
+    getActiveAlerts: () => {
+      activeSnapshot ??= Object.freeze(
         [...alerts.values()].map((alert) =>
           Object.freeze({
             leaderId: alert.leaderId,
@@ -78,9 +89,12 @@ export const createV2AlertCoordinator = ({
             remainingSeconds: alert.remainingSeconds
           })
         )
-      ),
+      );
+      return activeSnapshot;
+    },
     clear: () => {
       alerts.clear();
+      activeSnapshot = null;
     }
   };
 };

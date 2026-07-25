@@ -6,6 +6,7 @@
   },
   "include": [
     "main.ts",
+    "alertCoordinator.test.ts",
     "alarmSystem.test.ts",
     "assemblyLayout.test.ts",
     "beamCombat.test.ts",
@@ -18,7 +19,9 @@
     "bitSystemAcceptance.test.ts",
     "characterStateSystem.test.ts",
     "npcCombat.test.ts",
+    "performanceScenario.test.ts",
     "publicExecutionSystem.test.ts",
-    "survivalRules.test.ts"
+    "survivalRules.test.ts",
+    "survivalRuntimeLifecycle.test.ts"
   ]
 }

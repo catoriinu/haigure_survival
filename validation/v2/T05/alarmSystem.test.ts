@@ -109,6 +109,7 @@ export const runAlarmSystemTests =
           createCandidate("alarm-d", new Vector3(6, 0, 0), 4)
         ]);
         const system = createV2AlarmSystem({
+          diagnosticsEnabled: true,
           candidateProvider: createProvider(candidates),
           random: createRandomSequence([0.75, 0, 0.99, 0])
         });
@@ -160,6 +161,7 @@ export const runAlarmSystemTests =
     results.push(
       executeTest("点滅終了後は使用済み候補を再抽選できる", () => {
         const system = createV2AlarmSystem({
+          diagnosticsEnabled: true,
           candidateProvider: createProvider([
             createCandidate("alarm-reusable", Vector3.Zero(), 1)
           ]),
@@ -231,6 +233,7 @@ export const runAlarmSystemTests =
     results.push(
       executeTest("初回観測は登録だけ行い高速横断を連続判定する", () => {
         const system = createV2AlarmSystem({
+          diagnosticsEnabled: true,
           candidateProvider: createProvider([
             createCandidate("alarm-center", Vector3.Zero(), 1)
           ]),
@@ -263,8 +266,120 @@ export const runAlarmSystemTests =
     );
 
     results.push(
+      executeTest(
+        "不変な入力Snapshot位置を複製せず次frameの区間判定へ共有する",
+        () => {
+          const system = createV2AlarmSystem({
+            diagnosticsEnabled: true,
+            candidateProvider: createProvider([
+              createCandidate("alarm-snapshot", Vector3.Zero(), 1)
+            ]),
+            random: createRandomSequence([0])
+          });
+          try {
+            const stableFootPosition = new Vector3(-1, 0, 0);
+            stableFootPosition.clone = () => {
+              throw new Error(
+                "Alarm入力SnapshotのfootPositionをcloneしてはいけません。"
+              );
+            };
+            Object.freeze(stableFootPosition);
+            const first = system.update({
+              deltaSeconds: 0,
+              humans: [
+                Object.freeze({
+                  id: "player",
+                  footPosition: stableFootPosition,
+                  alive: true
+                })
+              ]
+            });
+            const crossed = system.update({
+              deltaSeconds: 0,
+              humans: [
+                createHuman("player", new Vector3(1, 0, 0))
+              ]
+            });
+            return {
+              ok:
+                first.events.length === 0 &&
+                crossed.events.length === 1 &&
+                crossed.events[0].candidateId === "alarm-snapshot",
+              detail:
+                `first=${first.events.length} / ` +
+                `crossed=${crossed.events.length}`
+            };
+          } finally {
+            system.dispose();
+          }
+        }
+      )
+    );
+
+    results.push(
+      executeTest(
+        "観測対象Mapの直接走査で連続する欠落IDを残さない",
+        () => {
+          const system = createV2AlarmSystem({
+            diagnosticsEnabled: true,
+            candidateProvider: createProvider([
+              createCandidate("alarm-missing-humans", Vector3.Zero(), 1)
+            ]),
+            random: createRandomSequence([0])
+          });
+          try {
+            system.update({
+              deltaSeconds: 0,
+              humans: [
+                createHuman("missing-a", new Vector3(-1, 0, 0)),
+                createHuman("missing-b", new Vector3(-1, 0, 0)),
+                createHuman("remaining", new Vector3(-1, 0, 0))
+              ]
+            });
+            system.update({
+              deltaSeconds: 0,
+              humans: [
+                createHuman("remaining", new Vector3(-1, 0, 0))
+              ]
+            });
+            const reappeared = system.update({
+              deltaSeconds: 0,
+              humans: [
+                createHuman("missing-a", new Vector3(1, 0, 0)),
+                createHuman("missing-b", new Vector3(1, 0, 0)),
+                createHuman("remaining", new Vector3(-1, 0, 0))
+              ]
+            });
+            const crossed = system.update({
+              deltaSeconds: 0,
+              humans: [
+                createHuman("missing-a", new Vector3(-1, 0, 0)),
+                createHuman("missing-b", new Vector3(1, 0, 0)),
+                createHuman("remaining", new Vector3(-1, 0, 0))
+              ]
+            });
+            return {
+              ok:
+                reappeared.events.length === 0 &&
+                crossed.events.length === 1 &&
+                crossed.events[0].targetId === "missing-a",
+              detail:
+                `reappeared=${reappeared.events.length} / ` +
+                `crossed=${crossed.events
+                  .map((event) => event.targetId)
+                  .join(",")}`
+            };
+          } finally {
+            system.dispose();
+          }
+        }
+      )
+    );
+
+    results.push(
       executeTest("同じXZでも別階の移動は発動しない", () => {
         const system = createV2AlarmSystem({
+          diagnosticsEnabled: true,
           candidateProvider: createProvider([
             createCandidate("alarm-ground", Vector3.Zero(), 1)
           ]),
@@ -295,6 +410,7 @@ export const runAlarmSystemTests =
     results.push(
       executeTest("候補追加時点ですでに内部にいる対象は再侵入まで発動しない", () => {
         const system = createV2AlarmSystem({
+          diagnosticsEnabled: true,
           candidateProvider: createProvider([
             createCandidate("alarm-inside", Vector3.Zero(), 1)
           ]),
@@ -335,6 +451,7 @@ export const runAlarmSystemTests =
     results.push(
       executeTest("非生存対象は観測履歴と発動対象から除外する", () => {
         const system = createV2AlarmSystem({
+          diagnosticsEnabled: true,
           candidateProvider: createProvider([
             createCandidate("alarm-alive-only", Vector3.Zero(), 1)
           ]),
@@ -379,6 +496,7 @@ export const runAlarmSystemTests =
     results.push(
       executeTest("発動後5秒間の点滅間隔を0.8秒から0.08秒へ加速する", () => {
         const system = createV2AlarmSystem({
+          diagnosticsEnabled: true,
           candidateProvider: createProvider([
             createCandidate("alarm-blink", Vector3.Zero(), 1)
           ]),
@@ -430,6 +548,7 @@ export const runAlarmSystemTests =
     results.push(
       executeTest("resetで選択・点滅・観測履歴を新規セッションへ戻す", () => {
         const system = createV2AlarmSystem({
+          diagnosticsEnabled: true,
           candidateProvider: createProvider([
             createCandidate("alarm-reset-a", Vector3.Zero(), 1),
             createCandidate("alarm-reset-b", new Vector3(2, 0, 0), 2)
@@ -470,6 +589,7 @@ export const runAlarmSystemTests =
     results.push(
       executeTest("破棄後は全公開操作を拒否する", () => {
         const system = createV2AlarmSystem({
+          diagnosticsEnabled: true,
           candidateProvider: createProvider([
             createCandidate("alarm-dispose", Vector3.Zero(), 1)
           ]),
@@ -477,6 +597,7 @@ export const runAlarmSystemTests =
         });
         system.dispose();
         let getFrameRejected = false;
+        let getDiagnosticsRejected = false;
         let updateRejected = false;
         let resetRejected = false;
         let secondDisposeRejected = false;
@@ -484,6 +605,11 @@ export const runAlarmSystemTests =
           system.getFrame();
         } catch {
           getFrameRejected = true;
+        }
+        try {
+          system.getDiagnostics();
+        } catch {
+          getDiagnosticsRejected = true;
         }
         try {
           system.update({ deltaSeconds: 0, humans: [] });
@@ -503,11 +629,13 @@ export const runAlarmSystemTests =
         return {
           ok:
             getFrameRejected &&
+            getDiagnosticsRejected &&
             updateRejected &&
             resetRejected &&
             secondDisposeRejected,
           detail:
-            `get=${getFrameRejected} / update=${updateRejected} / ` +
+            `frame=${getFrameRejected} / diagnostics=${getDiagnosticsRejected} / ` +
+            `update=${updateRejected} / ` +
             `reset=${resetRejected} / dispose=${secondDisposeRejected}`
         };
       })
@@ -520,6 +648,7 @@ export const runAlarmSystemTests =
         let basisRejected = false;
         try {
           createV2AlarmSystem({
+            diagnosticsEnabled: true,
             candidateProvider: createProvider([duplicate, duplicate]),
             random: createRandomSequence([0])
           });
@@ -528,6 +657,7 @@ export const runAlarmSystemTests =
         }
         try {
           createV2AlarmSystem({
+            diagnosticsEnabled: true,
             candidateProvider: createProvider([
               Object.freeze({
                 ...createCandidate("alarm-basis", Vector3.Zero(), 1),
@@ -543,6 +673,212 @@ export const runAlarmSystemTests =
           ok: duplicateRejected && basisRejected,
           detail: `duplicate=${duplicateRejected} / basis=${basisRejected}`
         };
+      })
+    );
+
+    results.push(
+      executeTest("空間索引で近傍active候補だけを区間検査する", () => {
+        const candidateCount = 128;
+        const candidates = Object.freeze(
+          Array.from({ length: candidateCount }, (_, index) =>
+            createCandidate(
+              `alarm-spatial-${index}`,
+              new Vector3(index * 4, 0, 0),
+              index + 1
+            )
+          )
+        );
+        const system = createV2AlarmSystem({
+          diagnosticsEnabled: true,
+          candidateProvider: createProvider(candidates),
+          random: createRandomSequence(
+            Object.freeze(Array.from({ length: candidateCount }, () => 0))
+          )
+        });
+        try {
+          const activated = system.update({
+            deltaSeconds:
+              V2_ALARM_SELECTION_INTERVAL_SECONDS *
+              (candidateCount - 1),
+            humans: []
+          });
+          const activatedDiagnostics = system.getDiagnostics();
+          system.update({
+            deltaSeconds: 0,
+            humans: [
+              createHuman("player", new Vector3(-1, 0.1, 0))
+            ]
+          });
+          const firstQuery = system.update({
+            deltaSeconds: 0,
+            humans: [
+              createHuman("player", new Vector3(1, 0.1, 0))
+            ]
+          });
+          const firstQueryDiagnostics = system.getDiagnostics();
+          const secondQuery = system.update({
+            deltaSeconds: 0,
+            humans: [
+              createHuman("player", new Vector3(-1, 0.1, 0))
+            ]
+          });
+          const secondQueryDiagnostics = system.getDiagnostics();
+          return {
+            ok:
+              activated.activeCandidateIds.length === candidateCount &&
+              activatedDiagnostics.enabled &&
+              activatedDiagnostics.candidateCount === candidateCount &&
+              activatedDiagnostics.spatialIndexCandidateCount ===
+                candidateCount &&
+              firstQuery.events.length === 0 &&
+              firstQueryDiagnostics.segmentIntersectionTestCount === 1 &&
+              firstQueryDiagnostics.spatialIndexCandidateCount ===
+                candidateCount &&
+              secondQuery.events.length === 0 &&
+              secondQueryDiagnostics.segmentIntersectionTestCount === 1,
+            detail:
+              `total=${activatedDiagnostics.candidateCount} / ` +
+              `indexed=${firstQueryDiagnostics.spatialIndexCandidateCount} / ` +
+              `tests=${firstQueryDiagnostics.segmentIntersectionTestCount},` +
+              secondQueryDiagnostics.segmentIntersectionTestCount
+          };
+        } finally {
+          system.dispose();
+        }
+      })
+    );
+
+    results.push(
+      executeTest("判定誤差内のセル境界進入を空間索引でも発動する", () => {
+        const candidate = Object.freeze({
+          ...createCandidate(
+            "alarm-spatial-boundary",
+            Vector3.Zero(),
+            1
+          ),
+          radius: 1
+        });
+        const system = createV2AlarmSystem({
+          diagnosticsEnabled: true,
+          candidateProvider: createProvider([candidate]),
+          random: createRandomSequence([0])
+        });
+        try {
+          const x = -1 - 2.5e-10;
+          system.update({
+            deltaSeconds: 0,
+            humans: [
+              createHuman("player", new Vector3(x, 0, -1))
+            ]
+          });
+          const triggered = system.update({
+            deltaSeconds: 0,
+            humans: [
+              createHuman("player", new Vector3(x, 0, 1))
+            ]
+          });
+          const triggeredDiagnostics = system.getDiagnostics();
+          return {
+            ok:
+              triggered.events.length === 1 &&
+              triggered.events[0].candidateId ===
+                "alarm-spatial-boundary" &&
+              triggeredDiagnostics.segmentIntersectionTestCount === 1,
+            detail:
+              `events=${triggered.events.length} / ` +
+              `tests=${triggeredDiagnostics.segmentIntersectionTestCount}`
+          };
+        } finally {
+          system.dispose();
+        }
+      })
+    );
+
+    results.push(
+      executeTest("空間索引後もactive候補の発動順を維持する", () => {
+        const system = createV2AlarmSystem({
+          diagnosticsEnabled: true,
+          candidateProvider: createProvider([
+            createCandidate("alarm-order-a", Vector3.Zero(), 1),
+            createCandidate("alarm-order-b", Vector3.Zero(), 2),
+            createCandidate("alarm-order-c", Vector3.Zero(), 3)
+          ]),
+          random: createRandomSequence([0, 0, 0])
+        });
+        try {
+          system.update({
+            deltaSeconds: V2_ALARM_SELECTION_INTERVAL_SECONDS * 2,
+            humans: []
+          });
+          system.update({
+            deltaSeconds: 0,
+            humans: [createHuman("player", new Vector3(-1, 0, 0))]
+          });
+          const triggered = system.update({
+            deltaSeconds: 0,
+            humans: [createHuman("player", new Vector3(1, 0, 0))]
+          });
+          const triggeredDiagnostics = system.getDiagnostics();
+          const completed = system.update({
+            deltaSeconds: V2_ALARM_BLINK_DURATION_SECONDS,
+            humans: []
+          });
+          return {
+            ok:
+              triggered.events
+                .map((event) => event.candidateId)
+                .join("|") ===
+                "alarm-order-a|alarm-order-b|alarm-order-c" &&
+              triggeredDiagnostics.segmentIntersectionTestCount === 3 &&
+              triggeredDiagnostics.spatialIndexCandidateCount === 0 &&
+              completed.blinks.length === 0 &&
+              completed.activeCandidateIds.length === 0,
+            detail:
+              `events=${triggered.events
+                .map((event) => event.candidateId)
+                .join("|")} / ` +
+              `tests=${triggeredDiagnostics.segmentIntersectionTestCount} / ` +
+              `completed=${completed.blinks.length}`
+          };
+        } finally {
+          system.dispose();
+        }
+      })
+    );
+
+    results.push(
+      executeTest("診断無効時は区間交差テスト数を加算しない", () => {
+        const system = createV2AlarmSystem({
+          diagnosticsEnabled: false,
+          candidateProvider: createProvider([
+            createCandidate("alarm-diagnostics-disabled", Vector3.Zero(), 1)
+          ]),
+          random: createRandomSequence([0])
+        });
+        try {
+          system.update({
+            deltaSeconds: 0,
+            humans: [createHuman("player", new Vector3(-1, 0, 0))]
+          });
+          const triggered = system.update({
+            deltaSeconds: 0,
+            humans: [createHuman("player", new Vector3(1, 0, 0))]
+          });
+          const diagnostics = system.getDiagnostics();
+          return {
+            ok:
+              triggered.events.length === 1 &&
+              !diagnostics.enabled &&
+              diagnostics.candidateCount === 0 &&
+              diagnostics.spatialIndexCandidateCount === 0 &&
+              diagnostics.segmentIntersectionTestCount === 0,
+            detail:
+              `events=${triggered.events.length} / enabled=${diagnostics.enabled} / ` +
+              `tests=${diagnostics.segmentIntersectionTestCount}`
+          };
+        } finally {
+          system.dispose();
+        }
       })
     );
 

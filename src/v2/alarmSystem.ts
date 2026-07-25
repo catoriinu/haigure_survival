@@ -20,6 +20,9 @@ export const V2_ALARM_INFLUENCE_RADIUS_METERS =
 const VECTOR_LENGTH_EPSILON = 1e-8;
 const ORTHOGONAL_DOT_EPSILON = 1e-6;
 const INTERSECTION_EPSILON = 1e-9;
+const ACTIVE_CANDIDATE_SPATIAL_CELL_SIZE = 1;
+const ACTIVE_CANDIDATE_SPATIAL_BOUNDS_MARGIN =
+  Math.sqrt(INTERSECTION_EPSILON);
 
 export type V2AlarmCandidate = Readonly<{
   id: string;
@@ -36,6 +39,9 @@ export interface V2AlarmCandidateProvider {
 
 export type V2AlarmHumanSnapshot = Readonly<{
   id: string;
+  /**
+   * 次のupdate後も内容が変化しないフレームSnapshotの位置。
+   */
   footPosition: Vector3;
   alive: boolean;
 }>;
@@ -62,6 +68,13 @@ export type V2AlarmFrame = Readonly<{
   blinks: readonly V2AlarmBlinkSnapshot[];
 }>;
 
+export type V2AlarmDiagnostics = Readonly<{
+  enabled: boolean;
+  candidateCount: number;
+  spatialIndexCandidateCount: number;
+  segmentIntersectionTestCount: number;
+}>;
+
 export type V2AlarmSystemUpdateInput = Readonly<{
   deltaSeconds: number;
   humans: readonly V2AlarmHumanSnapshot[];
@@ -70,11 +83,13 @@ export type V2AlarmSystemUpdateInput = Readonly<{
 export type V2AlarmSystemOptions = Readonly<{
   candidateProvider: V2AlarmCandidateProvider;
   random: () => number;
+  diagnosticsEnabled: boolean;
 }>;
 
 export interface V2AlarmSystem {
   update(input: V2AlarmSystemUpdateInput): V2AlarmFrame;
   getFrame(): V2AlarmFrame;
+  getDiagnostics(): V2AlarmDiagnostics;
   reset(): void;
   dispose(): void;
 }
@@ -87,6 +102,8 @@ type RuntimeAlarmCandidate = Readonly<{
   bitangent: Vector3;
   radius: number;
   verticalTolerance: number;
+  minimum: Vector3;
+  maximum: Vector3;
 }>;
 
 type RuntimeBlink = {
@@ -99,6 +116,12 @@ type RuntimeBlink = {
 type IntersectionInterval = Readonly<{
   minimum: number;
   maximum: number;
+}>;
+
+type ActiveCandidateSpatialIndex = Readonly<{
+  cells: ReadonlyMap<string, readonly RuntimeAlarmCandidate[]>;
+  activationOrderById: ReadonlyMap<string, number>;
+  candidateCount: number;
 }>;
 
 const assertFiniteNumber = (name: string, value: number): void => {
@@ -202,6 +225,24 @@ const buildRuntimeCandidate = (
     );
   }
   const bitangent = Vector3.Cross(supportNormal, tangent).normalize();
+  const halfExtent = new Vector3(
+    candidate.radius *
+      Math.hypot(tangent.x, bitangent.x) +
+      candidate.verticalTolerance * Math.abs(supportNormal.x),
+    candidate.radius *
+      Math.hypot(tangent.y, bitangent.y) +
+      candidate.verticalTolerance * Math.abs(supportNormal.y),
+    candidate.radius *
+      Math.hypot(tangent.z, bitangent.z) +
+      candidate.verticalTolerance * Math.abs(supportNormal.z)
+  ).addInPlace(
+    new Vector3(
+      ACTIVE_CANDIDATE_SPATIAL_BOUNDS_MARGIN,
+      ACTIVE_CANDIDATE_SPATIAL_BOUNDS_MARGIN,
+      ACTIVE_CANDIDATE_SPATIAL_BOUNDS_MARGIN
+    )
+  );
+  const center = candidate.navigationLocation.position;
 
   return Object.freeze({
     id: candidate.id,
@@ -210,8 +251,96 @@ const buildRuntimeCandidate = (
     tangent,
     bitangent,
     radius: candidate.radius,
-    verticalTolerance: candidate.verticalTolerance
+    verticalTolerance: candidate.verticalTolerance,
+    minimum: center.subtract(halfExtent),
+    maximum: center.add(halfExtent)
   });
+};
+
+const getSpatialCellCoordinate = (value: number): number =>
+  Math.floor(value / ACTIVE_CANDIDATE_SPATIAL_CELL_SIZE);
+
+const getSpatialCellKey = (
+  x: number,
+  y: number,
+  z: number
+): string => `${x}:${y}:${z}`;
+
+const buildActiveCandidateSpatialIndex = (
+  activeCandidates: ReadonlyMap<string, RuntimeAlarmCandidate>
+): ActiveCandidateSpatialIndex => {
+  const cells = new Map<string, RuntimeAlarmCandidate[]>();
+  const activationOrderById = new Map<string, number>();
+  let activationOrder = 0;
+  for (const candidate of activeCandidates.values()) {
+    activationOrderById.set(candidate.id, activationOrder);
+    activationOrder += 1;
+    const minimumX = getSpatialCellCoordinate(candidate.minimum.x);
+    const maximumX = getSpatialCellCoordinate(candidate.maximum.x);
+    const minimumY = getSpatialCellCoordinate(candidate.minimum.y);
+    const maximumY = getSpatialCellCoordinate(candidate.maximum.y);
+    const minimumZ = getSpatialCellCoordinate(candidate.minimum.z);
+    const maximumZ = getSpatialCellCoordinate(candidate.maximum.z);
+    for (let x = minimumX; x <= maximumX; x += 1) {
+      for (let y = minimumY; y <= maximumY; y += 1) {
+        for (let z = minimumZ; z <= maximumZ; z += 1) {
+          const key = getSpatialCellKey(x, y, z);
+          const cell = cells.get(key);
+          if (cell) {
+            cell.push(candidate);
+          } else {
+            cells.set(key, [candidate]);
+          }
+        }
+      }
+    }
+  }
+  return Object.freeze({
+    cells,
+    activationOrderById,
+    candidateCount: activeCandidates.size
+  });
+};
+
+const queryActiveCandidateSpatialIndex = (
+  index: ActiveCandidateSpatialIndex,
+  from: Vector3,
+  to: Vector3,
+  queryToken: number,
+  seenQueryTokenByCandidateId: Map<string, number>,
+  output: RuntimeAlarmCandidate[]
+): void => {
+  output.length = 0;
+  const minimumX = getSpatialCellCoordinate(Math.min(from.x, to.x));
+  const maximumX = getSpatialCellCoordinate(Math.max(from.x, to.x));
+  const minimumY = getSpatialCellCoordinate(Math.min(from.y, to.y));
+  const maximumY = getSpatialCellCoordinate(Math.max(from.y, to.y));
+  const minimumZ = getSpatialCellCoordinate(Math.min(from.z, to.z));
+  const maximumZ = getSpatialCellCoordinate(Math.max(from.z, to.z));
+  for (let x = minimumX; x <= maximumX; x += 1) {
+    for (let y = minimumY; y <= maximumY; y += 1) {
+      for (let z = minimumZ; z <= maximumZ; z += 1) {
+        const cell = index.cells.get(getSpatialCellKey(x, y, z));
+        if (!cell) {
+          continue;
+        }
+        for (const candidate of cell) {
+          if (
+            seenQueryTokenByCandidateId.get(candidate.id) === queryToken
+          ) {
+            continue;
+          }
+          seenQueryTokenByCandidateId.set(candidate.id, queryToken);
+          output.push(candidate);
+        }
+      }
+    }
+  }
+  output.sort(
+    (left, right) =>
+      index.activationOrderById.get(left.id)! -
+      index.activationOrderById.get(right.id)!
+  );
 };
 
 const intersectIntervals = (
@@ -256,10 +385,14 @@ const calculateRadialInterval = (
 ): IntersectionInterval | null => {
   const quadratic = deltaU * deltaU + deltaV * deltaV;
   const linear = 2 * (startU * deltaU + startV * deltaV);
-  const constant = startU * startU + startV * startV - radius * radius;
+  const constant =
+    startU * startU +
+    startV * startV -
+    radius * radius -
+    INTERSECTION_EPSILON;
 
   if (quadratic <= INTERSECTION_EPSILON) {
-    return constant <= INTERSECTION_EPSILON
+    return constant <= 0
       ? Object.freeze({ minimum: 0, maximum: 1 })
       : null;
   }
@@ -372,7 +505,8 @@ const createBlinkSnapshot = (blink: RuntimeBlink): V2AlarmBlinkSnapshot =>
 
 export const createV2AlarmSystem = ({
   candidateProvider,
-  random
+  random,
+  diagnosticsEnabled
 }: V2AlarmSystemOptions): V2AlarmSystem => {
   if (typeof candidateProvider?.getCandidates !== "function") {
     throw new Error(
@@ -398,13 +532,26 @@ export const createV2AlarmSystem = ({
   const usedCandidateIds = new Set<string>();
   const blinks = new Map<string, RuntimeBlink>();
   const previousFootPositions = new Map<string, Vector3>();
+  const spatialQueryBuffer: RuntimeAlarmCandidate[] = [];
+  const seenQueryTokenByCandidateId = new Map<string, number>();
   let selectionTimerSeconds = 0;
+  let activeCandidateVersion = 0;
+  let spatialIndexVersion = -1;
+  let spatialIndex = buildActiveCandidateSpatialIndex(activeCandidates);
+  let spatialQueryToken = 0;
+  let segmentIntersectionTestCount = 0;
   let disposed = false;
   let frame: V2AlarmFrame = Object.freeze({
     events: Object.freeze([]),
     activeCandidateIds: Object.freeze([]),
     usedCandidateIds: Object.freeze([]),
     blinks: Object.freeze([])
+  });
+  let diagnostics: V2AlarmDiagnostics = Object.freeze({
+    enabled: diagnosticsEnabled,
+    candidateCount: diagnosticsEnabled ? candidates.length : 0,
+    spatialIndexCandidateCount: 0,
+    segmentIntersectionTestCount: 0
   });
 
   const assertActive = (): void => {
@@ -423,6 +570,21 @@ export const createV2AlarmSystem = ({
     return value;
   };
 
+  const markActiveCandidatesChanged = (): void => {
+    activeCandidateVersion += 1;
+  };
+
+  const requireCurrentSpatialIndex =
+    (): ActiveCandidateSpatialIndex => {
+      if (spatialIndexVersion !== activeCandidateVersion) {
+        spatialIndex = buildActiveCandidateSpatialIndex(
+          activeCandidates
+        );
+        spatialIndexVersion = activeCandidateVersion;
+      }
+      return spatialIndex;
+    };
+
   const selectOneEligibleCandidate = (): void => {
     const eligible = candidates.filter(
       (candidate) =>
@@ -436,6 +598,7 @@ export const createV2AlarmSystem = ({
       eligible[Math.floor(nextRandom() * eligible.length)];
     usedCandidateIds.add(selected.id);
     activeCandidates.set(selected.id, selected);
+    markActiveCandidatesChanged();
   };
 
   const rebuildFrame = (
@@ -452,19 +615,42 @@ export const createV2AlarmSystem = ({
       ),
       activeCandidateIds: Object.freeze([...activeCandidates.keys()]),
       usedCandidateIds: Object.freeze([...usedCandidateIds]),
-      blinks: Object.freeze([...blinks.values()].map(createBlinkSnapshot))
+      blinks: Object.freeze(
+        Array.from(blinks.values(), createBlinkSnapshot)
+      )
     });
     return frame;
   };
 
+  const rebuildDiagnostics = (): V2AlarmDiagnostics => {
+    if (!diagnosticsEnabled) {
+      return diagnostics;
+    }
+    diagnostics = Object.freeze({
+      enabled: true,
+      candidateCount: candidates.length,
+      spatialIndexCandidateCount: spatialIndex.candidateCount,
+      segmentIntersectionTestCount
+    });
+    return diagnostics;
+  };
+
   const resetRuntimeState = (): void => {
-    activeCandidates.clear();
+    if (activeCandidates.size > 0) {
+      activeCandidates.clear();
+      markActiveCandidatesChanged();
+    }
     usedCandidateIds.clear();
     blinks.clear();
     previousFootPositions.clear();
+    seenQueryTokenByCandidateId.clear();
+    spatialQueryBuffer.length = 0;
     selectionTimerSeconds = 0;
+    segmentIntersectionTestCount = 0;
     selectOneEligibleCandidate();
+    requireCurrentSpatialIndex();
     rebuildFrame([]);
+    rebuildDiagnostics();
   };
 
   resetRuntimeState();
@@ -476,6 +662,7 @@ export const createV2AlarmSystem = ({
         "V2AlarmSystem.update.deltaSeconds",
         deltaSeconds
       );
+      segmentIntersectionTestCount = 0;
 
       selectionTimerSeconds += deltaSeconds;
       while (
@@ -504,12 +691,27 @@ export const createV2AlarmSystem = ({
         }
 
         const previous = previousFootPositions.get(human.id);
-        previousFootPositions.set(human.id, human.footPosition.clone());
+        previousFootPositions.set(human.id, human.footPosition);
         if (!previous) {
           continue;
         }
 
-        for (const candidate of [...activeCandidates.values()]) {
+        spatialQueryToken += 1;
+        queryActiveCandidateSpatialIndex(
+          requireCurrentSpatialIndex(),
+          previous,
+          human.footPosition,
+          spatialQueryToken,
+          seenQueryTokenByCandidateId,
+          spatialQueryBuffer
+        );
+        for (const candidate of spatialQueryBuffer) {
+          if (!activeCandidates.has(candidate.id)) {
+            continue;
+          }
+          if (diagnosticsEnabled) {
+            segmentIntersectionTestCount += 1;
+          }
           if (
             !doesMovementEnterCandidate(
               candidate,
@@ -520,6 +722,7 @@ export const createV2AlarmSystem = ({
             continue;
           }
           activeCandidates.delete(candidate.id);
+          markActiveCandidatesChanged();
           blinks.set(candidate.id, {
             candidate,
             elapsedSeconds: 0,
@@ -536,13 +739,13 @@ export const createV2AlarmSystem = ({
         }
       }
 
-      for (const trackedId of [...previousFootPositions.keys()]) {
+      for (const trackedId of previousFootPositions.keys()) {
         if (!humanIds.has(trackedId)) {
           previousFootPositions.delete(trackedId);
         }
       }
 
-      for (const [candidateId, blink] of [...blinks]) {
+      for (const [candidateId, blink] of blinks) {
         blink.elapsedSeconds += deltaSeconds;
         const blinkInterval = calculateBlinkIntervalSeconds(
           blink.elapsedSeconds
@@ -559,11 +762,18 @@ export const createV2AlarmSystem = ({
         }
       }
 
-      return rebuildFrame(events);
+      requireCurrentSpatialIndex();
+      const nextFrame = rebuildFrame(events);
+      rebuildDiagnostics();
+      return nextFrame;
     },
     getFrame: () => {
       assertActive();
       return rebuildFrame([]);
+    },
+    getDiagnostics: () => {
+      assertActive();
+      return diagnostics;
     },
     reset: () => {
       assertActive();
@@ -572,9 +782,12 @@ export const createV2AlarmSystem = ({
     dispose: () => {
       assertActive();
       activeCandidates.clear();
+      markActiveCandidatesChanged();
       usedCandidateIds.clear();
       blinks.clear();
       previousFootPositions.clear();
+      seenQueryTokenByCandidateId.clear();
+      spatialQueryBuffer.length = 0;
       disposed = true;
     }
   };

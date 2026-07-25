@@ -1,5 +1,8 @@
 import { Color3, Vector3, type Scene } from "@babylonjs/core";
 
+import {
+  prepareBitFlightNavigationRouteCaches
+} from "../world/bitFlightNavigation";
 import type { StageSpatialContext } from "../world/stageSpatialContext";
 import {
   createV2NavigationAlarmCandidateProvider
@@ -34,9 +37,15 @@ import {
 } from "./combatTypes";
 import {
   createV2NpcSystem,
+  type V2NpcBeamImpact,
+  type V2NpcExecutionRoleAssignment,
   type V2NpcExternalThreat,
   type V2NpcSystem
 } from "./npcSystem";
+import type {
+  V2PerformanceDiagnostics,
+  V2PerformanceScenario
+} from "./performanceDiagnostics";
 import {
   V2_PLAYER_GUN_BEAM_MAXIMUM_LIFETIME_SECONDS,
   V2_PLAYER_GUN_BEAM_ORIGIN_OFFSET,
@@ -58,16 +67,13 @@ import {
 import {
   areAllV2HumansBrainwashed,
   canV2SurvivalPlayerMove,
-  cloneV2AlarmFrame,
   createV2ExecutionBitPositions,
   selectV2ExecutionAudienceIds,
   selectV2PlayerBlockedNpcIds
 } from "./survivalRules";
 
-const NPC_COUNT = 99;
-const INITIAL_BRAINWASHED_NPC_COUNT = 66;
-const BIT_COUNT = 99;
 const ALERT_DURATION_SECONDS = 15;
+const PERFORMANCE_ALERT_REFRESH_SECONDS = 10;
 const ALL_DEAD_ASSEMBLY_DELAY_SECONDS = 3;
 const PLAYER_ID = "player";
 const EMPTY_ALARM_FRAME: V2AlarmFrame = Object.freeze({
@@ -89,6 +95,7 @@ export type V2SurvivalFrame = Readonly<{
   playerState: V2CharacterState;
   playerCanMove: boolean;
   npcCount: number;
+  brainwashedNpcCount: number;
   bitCount: number;
   activeBeamCount: number;
   activeAlertCount: number;
@@ -109,6 +116,7 @@ export type V2SurvivalFrame = Readonly<{
 }>;
 
 export interface V2SurvivalRuntime {
+  prepareVisualResources(): Promise<void>;
   update(deltaSeconds: number, elapsedSeconds: number): V2SurvivalFrame;
   getFrame(): V2SurvivalFrame;
   canPlayerMove(): boolean;
@@ -118,11 +126,34 @@ export interface V2SurvivalRuntime {
   dispose(): void;
 }
 
+export type V2SurvivalPopulation = Readonly<{
+  npcCount: number;
+  initialBrainwashedNpcCount: number;
+  bitCount: number;
+}>;
+
+export const V2_TEST_SURVIVAL_POPULATION: V2SurvivalPopulation =
+  Object.freeze({
+    npcCount: 50,
+    initialBrainwashedNpcCount: 33,
+    bitCount: 20
+  });
+
+export const V2_PERFORMANCE_ACCEPTANCE_POPULATION:
+  V2SurvivalPopulation = Object.freeze({
+    npcCount: 99,
+    initialBrainwashedNpcCount: 66,
+    bitCount: 50
+  });
+
 export type V2SurvivalRuntimeOptions = Readonly<{
   scene: Scene;
   stage: StageSpatialContext;
   player: V2PlayerController;
   random: () => number;
+  population: V2SurvivalPopulation;
+  performanceDiagnostics: V2PerformanceDiagnostics | null;
+  performanceWorkloadScenario: V2PerformanceScenario | null;
 }>;
 
 const assertNonNegativeFiniteNumber = (name: string, value: number) => {
@@ -138,6 +169,34 @@ const assertFiniteVector = (name: string, value: Vector3) => {
     !Number.isFinite(value.z)
   ) {
     throw new Error(`${name}には有限の3Dベクトルが必要です。`);
+  }
+};
+
+const assertPopulation = (
+  population: V2SurvivalPopulation
+) => {
+  const entries = [
+    ["npcCount", population.npcCount],
+    [
+      "initialBrainwashedNpcCount",
+      population.initialBrainwashedNpcCount
+    ],
+    ["bitCount", population.bitCount]
+  ] as const;
+  for (const [name, value] of entries) {
+    if (!Number.isInteger(value) || value < 0) {
+      throw new Error(
+        `V2SurvivalRuntimeのpopulation.${name}には0以上の整数が必要です。`
+      );
+    }
+  }
+  if (
+    population.initialBrainwashedNpcCount >
+    population.npcCount
+  ) {
+    throw new Error(
+      "V2SurvivalRuntimeの初期洗脳済みNPC数はNPC総数以下である必要があります。"
+    );
   }
 };
 
@@ -166,11 +225,15 @@ export const createV2SurvivalRuntime = ({
   scene,
   stage,
   player,
-  random
+  random,
+  population,
+  performanceDiagnostics,
+  performanceWorkloadScenario
 }: V2SurvivalRuntimeOptions): V2SurvivalRuntime => {
   if (typeof random !== "function") {
     throw new Error("V2SurvivalRuntimeのrandomには関数が必要です。");
   }
+  assertPopulation(population);
 
   const assemblyVenue = selectAssemblyVenueByWeight(
     stage.assemblyVenues.all,
@@ -195,12 +258,14 @@ export const createV2SurvivalRuntime = ({
     ownedNpcSystem = createV2NpcSystem({
       scene,
       stage,
-      npcCount: NPC_COUNT,
-      initialBrainwashedNpcCount: INITIAL_BRAINWASHED_NPC_COUNT,
+      npcCount: population.npcCount,
+      initialBrainwashedNpcCount:
+        population.initialBrainwashedNpcCount,
+      diagnosticsEnabled: performanceDiagnostics !== null,
       random
     });
     ownedBitSystem = createV2BitSystem(scene, stage, {
-      initialBitCount: BIT_COUNT,
+      initialBitCount: population.bitCount,
       minimumSpawnDistance: 0.2,
       spawnMaxAttempts: 512,
       spawnProjectionMaxDistance: 0.75,
@@ -213,6 +278,7 @@ export const createV2SurvivalRuntime = ({
     ownedAlarmSystem = createV2AlarmSystem({
       candidateProvider:
         createV2NavigationAlarmCandidateProvider(stage),
+      diagnosticsEnabled: performanceDiagnostics !== null,
       random
     });
     ownedExecutionSystem =
@@ -222,7 +288,7 @@ export const createV2SurvivalRuntime = ({
         player.getFootPosition(),
         player.getEyePosition()
       ),
-      ...ownedNpcSystem.getTargetSnapshots()
+      ...ownedNpcSystem.getFrameView().targets
     ]);
     ownedBeamSystem = createV2BeamSystem({
       scene,
@@ -232,7 +298,27 @@ export const createV2SurvivalRuntime = ({
         diameter: 0.025,
         color: new Color3(1, 0.16, 0.72),
         alpha: 0.95
-      }
+      },
+      collisionDiagnostics: performanceDiagnostics
+        ? Object.freeze({
+            recordStartContainment: (
+              candidateMeshCount: number,
+              triangulatedMeshCount: number
+            ) => {
+              performanceDiagnostics.count(
+                "beam.start-containment.queries"
+              );
+              performanceDiagnostics.count(
+                "beam.start-containment.candidates",
+                candidateMeshCount
+              );
+              performanceDiagnostics.count(
+                "beam.start-containment.triangulated-meshes",
+                triangulatedMeshCount
+              );
+            }
+          })
+        : undefined
     });
   } catch (error) {
     ownedBeamSystem?.dispose();
@@ -250,8 +336,11 @@ export const createV2SurvivalRuntime = ({
   const alarmSystem = ownedAlarmSystem;
   const executionSystem = ownedExecutionSystem;
   const beamSystem = ownedBeamSystem;
+  bitSystem.setDiagnosticsEnabled(
+    performanceDiagnostics !== null
+  );
   const allNpcIds = Object.freeze(
-    npcSystem.getTargetSnapshots().map((target) => target.id)
+    npcSystem.getFrameView().targets.map((target) => target.id)
   );
 
   let disposed = false;
@@ -265,6 +354,7 @@ export const createV2SurvivalRuntime = ({
   let previousBitThreats: readonly V2NpcExternalThreat[] =
     Object.freeze([]);
   let alarmFrame: V2AlarmFrame = alarmSystem.getFrame();
+  let performanceAlertRefreshSeconds = 0;
 
   const assertActive = () => {
     if (disposed) {
@@ -278,7 +368,7 @@ export const createV2SurvivalRuntime = ({
         player.getFootPosition(),
         player.getEyePosition()
       ),
-      ...npcSystem.getTargetSnapshots()
+      ...npcSystem.getFrameView().targets
     ]);
     return humanTargets;
   };
@@ -298,7 +388,8 @@ export const createV2SurvivalRuntime = ({
       phase,
       playerState: playerCombat.getStateSnapshot().state,
       playerCaptured: npcSystem
-        .getCaptureSnapshots()
+        .getFrameView()
+        .captures
         .some((capture) => capture.targetId === PLAYER_ID),
       executionPlayerRole:
         executionSystem.getFrame().candidate?.playerRole ?? null
@@ -322,7 +413,7 @@ export const createV2SurvivalRuntime = ({
   };
 
   const placeHumansForAssembly = () => {
-    const npcTargets = npcSystem.getTargetSnapshots();
+    const npcTargets = npcSystem.getFrameView().targets;
     const ids = [
       PLAYER_ID,
       ...npcTargets.map((target) => target.id)
@@ -361,13 +452,20 @@ export const createV2SurvivalRuntime = ({
   const prepareExecutionTargetStates = (
     candidate: V2ExecutionCandidate
   ) => {
+    const npcAssignments: V2NpcExecutionRoleAssignment[] = [];
     for (const target of candidate.targets) {
       if (target.kind === "player") {
         playerCombat.prepareExecutionTarget();
       } else {
-        npcSystem.prepareExecutionTarget(target.id);
+        npcAssignments.push(
+          Object.freeze({
+            npcId: target.id,
+            role: "target"
+          })
+        );
       }
     }
+    npcSystem.prepareExecutionRoles(Object.freeze(npcAssignments));
     rebuildHumanTargets();
   };
 
@@ -389,16 +487,21 @@ export const createV2SurvivalRuntime = ({
     } else if (candidate.playerRole === "observer") {
       playerCombat.prepareExecutionAudience();
     }
-    for (const target of npcSystem.getTargetSnapshots()) {
+    const npcAssignments: V2NpcExecutionRoleAssignment[] = [];
+    for (const target of npcSystem.getFrameView().targets) {
       if (targetIds.has(target.id)) {
         continue;
       }
-      if (shooterIds.has(target.id)) {
-        npcSystem.prepareExecutionShooter(target.id);
-      } else {
-        npcSystem.prepareExecutionAudience(target.id);
-      }
+      npcAssignments.push(
+        Object.freeze({
+          npcId: target.id,
+          role: shooterIds.has(target.id)
+            ? "shooter"
+            : "audience"
+        })
+      );
     }
+    npcSystem.prepareExecutionRoles(Object.freeze(npcAssignments));
     rebuildHumanTargets();
   };
 
@@ -424,7 +527,7 @@ export const createV2SurvivalRuntime = ({
       getLookAtPosition(playerPosition, assemblyVenue.center)
     );
     npcSystem.placeNpcs(
-      npcSystem.getTargetSnapshots().map((target) => {
+      npcSystem.getFrameView().targets.map((target) => {
         const position =
           positionById.get(target.id) ?? target.footPosition;
         return Object.freeze({
@@ -446,7 +549,8 @@ export const createV2SurvivalRuntime = ({
     bitSystem.setVisible(usesBitShooters);
     if (usesBitShooters) {
       const bitIds = bitSystem
-        .getActorSpheres()
+        .getFrameView()
+        .actorSpheres
         .map((actor) => actor.id);
       const bitPositions = createV2ExecutionBitPositions(
         assemblyVenue,
@@ -473,7 +577,8 @@ export const createV2SurvivalRuntime = ({
       candidate.targets.map((target) => target.id)
     );
     const bitIds = bitSystem
-      .getActorSpheres()
+      .getFrameView()
+      .actorSpheres
       .map((actor) => actor.id);
     const audienceNpcIds = new Set(
       audienceIds.filter((id) => id !== PLAYER_ID)
@@ -512,7 +617,21 @@ export const createV2SurvivalRuntime = ({
   };
 
   const applyBeamImpacts = (events: V2BeamFrameEvents) => {
+    if (events.impacts.length === 0) {
+      return;
+    }
     const impactedTargetIds = new Set<string>();
+    const npcImpacts: V2NpcBeamImpact[] = [];
+    const notificationEntries: Array<
+      Readonly<{
+        sourceId: string;
+        targetId: string;
+        originKind:
+          V2BeamFrameEvents["impacts"][number]["originKind"];
+        npcImpactIndex: number | null;
+        playerAccepted: boolean;
+      }>
+    > = [];
     for (const event of events.impacts) {
       if (event.hit.kind === "blocker") {
         blockerImpactCount += 1;
@@ -528,18 +647,49 @@ export const createV2SurvivalRuntime = ({
         sourceId: event.sourceId,
         originKind: event.originKind
       });
-      const accepted =
+      const npcImpactIndex =
+        targetId === PLAYER_ID ? null : npcImpacts.length;
+      const playerAccepted =
         targetId === PLAYER_ID
           ? playerCombat.applyImpact(source)
-          : npcSystem.applyBeamImpact(targetId, source);
+          : false;
+      if (npcImpactIndex !== null) {
+        npcImpacts.push(
+          Object.freeze({
+            npcId: targetId,
+            source
+          })
+        );
+      }
+      notificationEntries.push(
+        Object.freeze({
+          sourceId: event.sourceId,
+          targetId,
+          originKind: event.originKind,
+          npcImpactIndex,
+          playerAccepted
+        })
+      );
+    }
+    const npcImpactResults = npcSystem.applyBeamImpacts(
+      Object.freeze(npcImpacts)
+    );
+    for (const entry of notificationEntries) {
+      const accepted =
+        entry.npcImpactIndex === null
+          ? entry.playerAccepted
+          : npcImpactResults[entry.npcImpactIndex].accepted;
       if (
         accepted &&
-        (event.originKind === "bit-chase" ||
-          event.originKind === "bit-fixed" ||
-          event.originKind === "bit-random" ||
-          event.originKind === "bit-carpet")
+        (entry.originKind === "bit-chase" ||
+          entry.originKind === "bit-fixed" ||
+          entry.originKind === "bit-random" ||
+          entry.originKind === "bit-carpet")
       ) {
-        bitSystem.notifyBeamImpact(event.sourceId, targetId);
+        bitSystem.notifyBeamImpact(
+          entry.sourceId,
+          entry.targetId
+        );
       }
     }
   };
@@ -547,12 +697,13 @@ export const createV2SurvivalRuntime = ({
   const buildBitThreats = (): readonly V2NpcExternalThreat[] => {
     const bitPositions = new Map(
       bitSystem
-        .getActorSpheres()
+        .getFrameView()
+        .actorSpheres
         .map((actor) => [actor.id, actor.center] as const)
     );
     const targetIds = new Set<string>();
     const threats: V2NpcExternalThreat[] = [];
-    for (const tracking of bitSystem.getTargetStates()) {
+    for (const tracking of bitSystem.getFrameView().targetStates) {
       if (
         tracking.targetId === null ||
         targetIds.has(tracking.targetId)
@@ -581,16 +732,61 @@ export const createV2SurvivalRuntime = ({
     playerBlockedNpcIds = selectV2PlayerBlockedNpcIds(
       playerTarget.state,
       playerTarget.footPosition,
-      npcSystem.getTargetSnapshots()
+      npcSystem.getFrameView().targets
     );
     npcSystem.setPlayerBlockedTargetIds(
       playerBlockedNpcIds
     );
   };
 
+  const refreshPerformanceCombatAlert = (
+    deltaSeconds: number
+  ) => {
+    performanceAlertRefreshSeconds -= deltaSeconds;
+    if (performanceAlertRefreshSeconds > 0) {
+      return;
+    }
+    const leader = bitSystem.getFrameView().actorSpheres[0];
+    if (!leader) {
+      throw new Error(
+        "性能戦闘シナリオにはBITが1機以上必要です。"
+      );
+    }
+    let target: V2HumanTargetSnapshot | null = null;
+    let nearestDistanceSquared = Number.POSITIVE_INFINITY;
+    for (const candidate of humanTargets) {
+      if (!candidate.alive) {
+        continue;
+      }
+      const distanceSquared = Vector3.DistanceSquared(
+        leader.center,
+        candidate.aimPosition
+      );
+      if (distanceSquared < nearestDistanceSquared) {
+        target = candidate;
+        nearestDistanceSquared = distanceSquared;
+      }
+    }
+    if (!target) {
+      return;
+    }
+    alertCoordinator.publish([
+      Object.freeze({
+        leaderId: leader.id,
+        targetId: target.id
+      })
+    ]);
+    performanceDiagnostics?.count(
+      "scenario.alert-injections"
+    );
+    performanceAlertRefreshSeconds =
+      PERFORMANCE_ALERT_REFRESH_SECONDS;
+  };
+
   const buildExecutionBlocks = () => {
     const blocks: V2ExecutionBlock[] = npcSystem
-      .getCaptureSnapshots()
+      .getFrameView()
+      .captures
       .map((capture) =>
         Object.freeze({
           targetId: capture.targetId,
@@ -615,6 +811,8 @@ export const createV2SurvivalRuntime = ({
     const completed = new Set(
       executionFrame.completedTargetIds
     );
+    const npcIdsEnteringFormation: string[] = [];
+    const completedTargetIds: string[] = [];
     for (const target of executionFrame.candidate?.targets ?? []) {
       if (completed.has(target.id)) {
         continue;
@@ -628,9 +826,15 @@ export const createV2SurvivalRuntime = ({
       if (target.kind === "player") {
         playerCombat.enterFormationState();
       } else {
-        npcSystem.enterFormationState(target.id);
+        npcIdsEnteringFormation.push(target.id);
       }
-      executionSystem.notifyTargetCompleted(target.id);
+      completedTargetIds.push(target.id);
+    }
+    npcSystem.enterFormationStates(
+      Object.freeze(npcIdsEnteringFormation)
+    );
+    for (const targetId of completedTargetIds) {
+      executionSystem.notifyTargetCompleted(targetId);
     }
     rebuildHumanTargets();
     const completedFrame = executionSystem.getFrame();
@@ -651,7 +855,8 @@ export const createV2SurvivalRuntime = ({
     );
     const bitById = new Map(
       bitSystem
-        .getActorSpheres()
+        .getFrameView()
+        .actorSpheres
         .map((actor) => [actor.id, actor] as const)
     );
     const requests: V2BeamRequest[] = [];
@@ -704,15 +909,28 @@ export const createV2SurvivalRuntime = ({
   };
 
   const buildFrame = (): V2SurvivalFrame => {
-    const npcTracking = npcSystem.getTrackingSnapshots();
-    const bitTracking = bitSystem.getTargetStates();
+    const npcFrameView = npcSystem.getFrameView();
+    const npcTracking = npcFrameView.tracking;
+    const bitFrameView = bitSystem.getFrameView();
+    const bitTracking = bitFrameView.targetStates;
     let visualTargetCount = 0;
     let alertTargetCount = 0;
-    for (const tracking of [...npcTracking, ...bitTracking]) {
-      if (tracking.provenance === "visual") {
-        visualTargetCount += 1;
-      } else if (tracking.provenance === "alert") {
-        alertTargetCount += 1;
+    let brainwashedNpcCount = 0;
+    for (const target of npcFrameView.targets) {
+      if (target.brainwashed) {
+        brainwashedNpcCount += 1;
+      }
+    }
+    for (const trackingCollection of [
+      npcTracking,
+      bitTracking
+    ] as const) {
+      for (const tracking of trackingCollection) {
+        if (tracking.provenance === "visual") {
+          visualTargetCount += 1;
+        } else if (tracking.provenance === "alert") {
+          alertTargetCount += 1;
+        }
       }
     }
     const executionFrame = executionSystem.getFrame();
@@ -721,16 +939,16 @@ export const createV2SurvivalRuntime = ({
       assemblyVenueId: assemblyVenue.id,
       playerState: playerCombat.getStateSnapshot().state,
       playerCanMove: canPlayerMove(),
-      npcCount: npcSystem.getTargetSnapshots().length,
-      bitCount: bitSystem.getActorSpheres().length,
+      npcCount: npcFrameView.targets.length,
+      brainwashedNpcCount,
+      bitCount: bitFrameView.actorSpheres.length,
       activeBeamCount: beamSystem.activeCount,
-      activeAlertCount:
-        alertCoordinator.getActiveAlerts().length,
+      activeAlertCount: alertCoordinator.activeCount,
       activeAlarmCount: alarmFrame.activeCandidateIds.length,
       alarmBlinkCount: alarmFrame.blinks.length,
       alarmTriggerCount,
-      alarm: cloneV2AlarmFrame(alarmFrame),
-      captureCount: npcSystem.getCaptureSnapshots().length,
+      alarm: alarmFrame,
+      captureCount: npcFrameView.captures.length,
       executionVariant:
         executionFrame.candidate?.variant ?? null,
       executionPlayerRole:
@@ -752,6 +970,16 @@ export const createV2SurvivalRuntime = ({
   let frame = buildFrame();
 
   return {
+    prepareVisualResources: async () => {
+      assertActive();
+      const beamPreparation =
+        beamSystem.prepareVisualResources();
+      await Promise.resolve();
+      prepareBitFlightNavigationRouteCaches(
+        stage.bitNavigation
+      );
+      await beamPreparation;
+    },
     update: (deltaSeconds, elapsedSeconds) => {
       assertActive();
       assertNonNegativeFiniteNumber(
@@ -762,50 +990,254 @@ export const createV2SurvivalRuntime = ({
         "survival elapsedSeconds",
         elapsedSeconds
       );
+      const npcFrameViewBuildSequenceAtUpdateStart =
+        performanceDiagnostics
+          ? npcSystem.getFrameView().frameViewBuildSequence
+          : 0;
+      let performanceSectionStartedAt = 0;
+      if (performanceDiagnostics) {
+        performanceDiagnostics.count("alarm.candidates", 0);
+        performanceDiagnostics.count(
+          "alarm.spatial-index-candidates",
+          0
+        );
+        performanceDiagnostics.count(
+          "alarm.segment-intersection-tests",
+          0
+        );
+        performanceDiagnostics.count("npc.route-plans", 0);
+        performanceDiagnostics.count(
+          "npc.waiting-for-path",
+          0
+        );
+        performanceDiagnostics.count(
+          "npc.frame-view-builds",
+          0
+        );
+        performanceDiagnostics.count("beam.spawned", 0);
+        performanceDiagnostics.count("beam.active", 0);
+        performanceDiagnostics.count(
+          "beam.start-containment.queries",
+          0
+        );
+        performanceDiagnostics.count(
+          "beam.start-containment.candidates",
+          0
+        );
+        performanceDiagnostics.count(
+          "beam.start-containment.triangulated-meshes",
+          0
+        );
+        for (const kind of ["body", "tip", "impact"] as const) {
+          performanceDiagnostics.count(
+            `beam.pool.${kind}.capacity`,
+            0
+          );
+          performanceDiagnostics.count(
+            `beam.pool.${kind}.in-use`,
+            0
+          );
+        }
+        performanceDiagnostics.count(
+          "bit.route-plans.search",
+          0
+        );
+        performanceDiagnostics.count(
+          "bit.route-plans.chase",
+          0
+        );
+        performanceDiagnostics.count(
+          "bit.route-plans.escape",
+          0
+        );
+        performanceDiagnostics.count("bit.sight-rays", 0);
+        performanceDiagnostics.count("bit.sphere-sweeps", 0);
+        performanceDiagnostics.count(
+          "bit.beam-requests",
+          0
+        );
+        performanceDiagnostics.count(
+          "scenario.alert-injections",
+          0
+        );
+        performanceDiagnostics.count(
+          "scenario.active-alerts",
+          0
+        );
+        performanceDiagnostics.count(
+          "scenario.alive-targets",
+          0
+        );
+        performanceDiagnostics.count("scenario.playing", 0);
+        performanceDiagnostics.count("scenario.npc-count", 0);
+        performanceDiagnostics.count(
+          "scenario.brainwashed-npc-count",
+          0
+        );
+        performanceDiagnostics.count("scenario.bit-count", 0);
+      }
 
       rebuildHumanTargets();
+      performanceSectionStartedAt =
+        performanceDiagnostics?.beginSection("beam") ?? 0;
       applyBeamImpacts(beamSystem.update(deltaSeconds));
+      performanceDiagnostics?.finishSection(
+        "beam",
+        performanceSectionStartedAt
+      );
+      performanceSectionStartedAt =
+        performanceDiagnostics?.beginSection(
+          "player-combat"
+        ) ?? 0;
       playerCombat.update(deltaSeconds);
+      performanceDiagnostics?.finishSection(
+        "player-combat",
+        performanceSectionStartedAt
+      );
       rebuildHumanTargets();
 
       let executionShotEvents:
         | readonly V2ExecutionShotEvent[] = Object.freeze([]);
       if (phase === "playing") {
         alertCoordinator.update(deltaSeconds);
+        if (performanceWorkloadScenario) {
+          refreshPerformanceCombatAlert(deltaSeconds);
+        }
+        performanceSectionStartedAt =
+          performanceDiagnostics?.beginSection("alarm") ?? 0;
         alarmFrame = alarmSystem.update({
           deltaSeconds,
-          humans: humanTargets.map((target) =>
-            Object.freeze({
-              id: target.id,
-              footPosition: target.footPosition,
-              alive: target.alive
-            })
-          )
+          humans: humanTargets
         });
+        performanceDiagnostics?.finishSection(
+          "alarm",
+          performanceSectionStartedAt
+        );
+        if (performanceDiagnostics) {
+          const alarmDiagnostics =
+            alarmSystem.getDiagnostics();
+          performanceDiagnostics.count(
+            "alarm.candidates",
+            alarmDiagnostics.candidateCount
+          );
+          performanceDiagnostics.count(
+            "alarm.spatial-index-candidates",
+            alarmDiagnostics.spatialIndexCandidateCount
+          );
+          performanceDiagnostics.count(
+            "alarm.segment-intersection-tests",
+            alarmDiagnostics.segmentIntersectionTestCount
+          );
+        }
         alarmTriggerCount += alarmFrame.events.length;
-        npcSystem.applyAlarmTargetEvents(alarmFrame.events);
         npcSystem.setExternalThreats(previousBitThreats);
         updatePlayerBlockedNpcIds();
-        npcSystem.update(deltaSeconds, getPlayerTarget());
+        performanceSectionStartedAt =
+          performanceDiagnostics?.beginSection("npc") ?? 0;
+        npcSystem.update(
+          deltaSeconds,
+          getPlayerTarget(),
+          alarmFrame.events
+        );
+        performanceDiagnostics?.finishSection(
+          "npc",
+          performanceSectionStartedAt
+        );
+        const npcFrameView = npcSystem.getFrameView();
+        performanceDiagnostics?.count(
+          "npc.route-plans",
+          npcFrameView.pathRecalculationCount
+        );
+        performanceDiagnostics?.count(
+          "npc.waiting-for-path",
+          npcFrameView.waitingForPathCount
+        );
+        performanceSectionStartedAt =
+          performanceDiagnostics?.beginSection(
+            "player-combat"
+          ) ?? 0;
         playerCombat.setAliveBehaviorState(
           npcSystem
-            .getThreatenedTargetIds()
+            .getFrameView()
+            .threatenedTargetIds
             .includes(PLAYER_ID)
             ? "evade"
             : "normal"
+        );
+        performanceDiagnostics?.finishSection(
+          "player-combat",
+          performanceSectionStartedAt
         );
         rebuildHumanTargets();
 
         const activeAlerts =
           alertCoordinator.getActiveAlerts();
+        performanceDiagnostics?.count(
+          "scenario.active-alerts",
+          activeAlerts.length
+        );
+        performanceSectionStartedAt =
+          performanceDiagnostics?.beginSection("bit") ?? 0;
         bitSystem.update({
           deltaSeconds,
           elapsedSeconds,
           targets: humanTargets,
           externalAlerts: activeAlerts
         });
+        performanceDiagnostics?.finishSection(
+          "bit",
+          performanceSectionStartedAt
+        );
+        if (performanceDiagnostics) {
+          const bitDiagnostics =
+            bitSystem.getFrameView().diagnostics;
+          performanceDiagnostics.count(
+            "bit.route-plans.search",
+            bitDiagnostics.routePlans.search
+          );
+          performanceDiagnostics.count(
+            "bit.route-plans.chase",
+            bitDiagnostics.routePlans.chase
+          );
+          performanceDiagnostics.count(
+            "bit.route-plans.escape",
+            bitDiagnostics.routePlans.escape
+          );
+          performanceDiagnostics.count(
+            "bit.route-plan-ms.search",
+            bitDiagnostics.routePlanMilliseconds.search
+          );
+          performanceDiagnostics.count(
+            "bit.route-plan-ms.chase",
+            bitDiagnostics.routePlanMilliseconds.chase
+          );
+          performanceDiagnostics.count(
+            "bit.route-plan-ms.escape",
+            bitDiagnostics.routePlanMilliseconds.escape
+          );
+          performanceDiagnostics.count(
+            "bit.sight-rays",
+            bitDiagnostics.sightRays
+          );
+          performanceDiagnostics.count(
+            "bit.sphere-sweeps",
+            bitDiagnostics.sphereSweeps
+          );
+          performanceDiagnostics.count(
+            "bit.sphere-sweep-ms",
+            bitDiagnostics.sphereSweepMilliseconds
+          );
+          performanceDiagnostics.count(
+            "bit.beam-requests",
+            bitDiagnostics.beamRequests
+          );
+        }
         previousBitThreats = buildBitThreats();
 
+        performanceSectionStartedAt =
+          performanceDiagnostics?.beginSection(
+            "execution"
+          ) ?? 0;
         const survivors = humanTargets.filter(
           (target) => target.alive
         );
@@ -817,7 +1249,7 @@ export const createV2SurvivalRuntime = ({
             survivors,
             blocks: Object.freeze([]),
             bitShooterCount:
-              bitSystem.getActorSpheres().length
+              bitSystem.getFrameView().actorSpheres.length
           });
           if (
             allDeadSeconds >=
@@ -831,7 +1263,7 @@ export const createV2SurvivalRuntime = ({
             survivors,
             blocks: Object.freeze([]),
             bitShooterCount:
-              bitSystem.getActorSpheres().length
+              bitSystem.getFrameView().actorSpheres.length
           });
         } else {
           allDeadSeconds = 0;
@@ -841,28 +1273,65 @@ export const createV2SurvivalRuntime = ({
               survivors,
               blocks: buildExecutionBlocks(),
               bitShooterCount:
-                bitSystem.getActorSpheres().length
+                bitSystem.getFrameView().actorSpheres.length
             }
           );
           if (candidate) {
             enterExecution(candidate);
           }
         }
+        performanceDiagnostics?.finishSection(
+          "execution",
+          performanceSectionStartedAt
+        );
 
         if (phase === "playing") {
           alertCoordinator.publish([
             ...npcSystem.drainAlertRequests(),
             ...bitSystem.takeAlertRequests()
           ]);
-          for (const request of npcSystem.drainBeamRequests()) {
+          performanceSectionStartedAt =
+            performanceDiagnostics?.beginSection("beam") ?? 0;
+          const npcBeamRequests =
+            npcSystem.drainBeamRequests();
+          const bitBeamRequests =
+            bitSystem.getFrameView().beamRequests;
+          performanceDiagnostics?.count(
+            "beam.spawned",
+            npcBeamRequests.length + bitBeamRequests.length
+          );
+          for (const request of npcBeamRequests) {
             beamSystem.spawn(request);
           }
-          for (const request of bitSystem.getBeamRequests()) {
+          for (const request of bitBeamRequests) {
             beamSystem.spawn(request);
           }
+          performanceDiagnostics?.finishSection(
+            "beam",
+            performanceSectionStartedAt
+          );
         }
       } else {
-        npcSystem.update(deltaSeconds, getPlayerTarget());
+        performanceSectionStartedAt =
+          performanceDiagnostics?.beginSection("npc") ?? 0;
+        npcSystem.update(
+          deltaSeconds,
+          getPlayerTarget(),
+          EMPTY_ALARM_FRAME.events
+        );
+        performanceDiagnostics?.finishSection(
+          "npc",
+          performanceSectionStartedAt
+        );
+        const npcFrameView = npcSystem.getFrameView();
+        performanceDiagnostics?.count(
+          "npc.route-plans",
+          npcFrameView.pathRecalculationCount
+        );
+        performanceDiagnostics?.count(
+          "npc.waiting-for-path",
+          npcFrameView.waitingForPathCount
+        );
         rebuildHumanTargets();
         if (phase === "assembly") {
           const playerTarget = getPlayerTarget();
@@ -873,21 +1342,41 @@ export const createV2SurvivalRuntime = ({
           ) {
             playerCombat.enterFormationState();
           }
-          for (const target of npcSystem.getTargetSnapshots()) {
+          const npcIdsEnteringFormation: string[] = [];
+          for (const target of npcSystem.getFrameView().targets) {
             if (
               target.brainwashed &&
               target.state !==
                 "brainwash-complete-haigure-formation"
             ) {
-              npcSystem.enterFormationState(target.id);
+              npcIdsEnteringFormation.push(target.id);
             }
           }
+          npcSystem.enterFormationStates(
+            Object.freeze(npcIdsEnteringFormation)
+          );
           rebuildHumanTargets();
         } else if (phase === "execution") {
+          performanceSectionStartedAt =
+            performanceDiagnostics?.beginSection(
+              "execution"
+            ) ?? 0;
           completeExecutionTargets();
+          performanceDiagnostics?.finishSection(
+            "execution",
+            performanceSectionStartedAt
+          );
           if (phase === "execution") {
+            performanceSectionStartedAt =
+              performanceDiagnostics?.beginSection(
+                "execution"
+              ) ?? 0;
             executionShotEvents =
               executionSystem.update(deltaSeconds);
+            performanceDiagnostics?.finishSection(
+              "execution",
+              performanceSectionStartedAt
+            );
           }
         }
         npcSystem.drainBeamRequests();
@@ -895,23 +1384,103 @@ export const createV2SurvivalRuntime = ({
       }
 
       if (phase === "execution") {
-        for (const request of createExecutionBeamRequests(
-          executionShotEvents
-        )) {
+        performanceSectionStartedAt =
+          performanceDiagnostics?.beginSection("beam") ?? 0;
+        const executionBeamRequests =
+          createExecutionBeamRequests(executionShotEvents);
+        performanceDiagnostics?.count(
+          "beam.spawned",
+          executionBeamRequests.length
+        );
+        for (const request of executionBeamRequests) {
           beamSystem.spawn(request);
         }
+        performanceDiagnostics?.finishSection(
+          "beam",
+          performanceSectionStartedAt
+        );
       }
       if (
         phase === "playing" ||
         phase === "execution"
       ) {
+        performanceSectionStartedAt =
+          performanceDiagnostics?.beginSection("beam") ?? 0;
+        performanceDiagnostics?.count(
+          "beam.spawned",
+          pendingPlayerBeamRequests.length
+        );
         for (const request of pendingPlayerBeamRequests) {
           beamSystem.spawn(request);
         }
+        performanceDiagnostics?.finishSection(
+          "beam",
+          performanceSectionStartedAt
+        );
       }
       pendingPlayerBeamRequests = [];
+      if (performanceDiagnostics) {
+        let aliveTargetCount = 0;
+        for (const target of humanTargets) {
+          if (target.alive) {
+            aliveTargetCount += 1;
+          }
+        }
+        const npcFrameView = npcSystem.getFrameView();
+        const bitFrameView = bitSystem.getFrameView();
+        performanceDiagnostics.count(
+          "scenario.alive-targets",
+          aliveTargetCount
+        );
+        performanceDiagnostics.count(
+          "scenario.playing",
+          phase === "playing" ? 1 : 0
+        );
+        performanceDiagnostics.count(
+          "scenario.npc-count",
+          npcFrameView.targets.length
+        );
+        performanceDiagnostics.count(
+          "scenario.bit-count",
+          bitFrameView.actorSpheres.length
+        );
+      }
+      performanceDiagnostics?.count(
+        "beam.active",
+        beamSystem.activeCount
+      );
+      performanceDiagnostics?.count(
+        "npc.frame-view-builds",
+        npcSystem.getFrameView().frameViewBuildSequence -
+          npcFrameViewBuildSequenceAtUpdateStart
+      );
+      if (performanceDiagnostics) {
+        const pool = beamSystem.getVisualPoolSnapshot();
+        for (const kind of ["body", "tip", "impact"] as const) {
+          performanceDiagnostics.count(
+            `beam.pool.${kind}.capacity`,
+            pool[kind].capacity
+          );
+          performanceDiagnostics.count(
+            `beam.pool.${kind}.in-use`,
+            pool[kind].inUse
+          );
+        }
+      }
 
+      performanceSectionStartedAt =
+        performanceDiagnostics?.beginSection(
+          "frame-build"
+        ) ?? 0;
       frame = buildFrame();
+      performanceDiagnostics?.count(
+        "scenario.brainwashed-npc-count",
+        frame.brainwashedNpcCount
+      );
+      performanceDiagnostics?.finishSection(
+        "frame-build",
+        performanceSectionStartedAt
+      );
       return frame;
     },
     getFrame: () => {

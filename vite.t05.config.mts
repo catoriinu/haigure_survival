@@ -8,6 +8,7 @@ export default defineConfig({
   root: resolve(repositoryRoot, "validation/v2/T05"),
   publicDir: false,
   base: "./",
+  cacheDir: resolve(repositoryRoot, "node_modules/.vite-t05"),
   optimizeDeps: {
     exclude: ["recast-navigation"]
   },

@@ -1,5 +1,6 @@
 import {
   Color3,
+  InstancedMesh,
   Mesh,
   MeshBuilder,
   Quaternion,
@@ -21,11 +22,17 @@ import type {
 
 export const V2_NORMAL_BEAM_MAX_BODY_LENGTH = 0.75;
 export const V2_NORMAL_BEAM_IMPACT_VISUAL_DURATION_SECONDS = 0.12;
+export const V2_BEAM_VISUAL_POOL_KINDS = [
+  "body",
+  "tip",
+  "impact"
+] as const;
 
 const SEGMENT_LENGTH_EPSILON = 1e-8;
 const SURFACE_DISTANCE_EPSILON = 1e-6;
 const HIT_DISTANCE_EPSILON = 1e-6;
 const HUMAN_TARGET_SPATIAL_CELL_SIZE = 1;
+const BLOCKER_SPATIAL_CELL_SIZE = 2;
 const IMPACT_VISUAL_DIAMETER_MULTIPLIER = 2.5;
 const BEAM_ORIGIN_KINDS: readonly V2BeamOriginKind[] = Object.freeze([
   "bit-chase",
@@ -53,6 +60,21 @@ type BlockerGeometry = Readonly<{
 }>;
 
 const blockerGeometryCache = new WeakMap<Mesh, BlockerGeometry>();
+
+type BlockerBoundsCandidate = Readonly<{
+  mesh: Mesh;
+  minimum: Vector3;
+  maximum: Vector3;
+}>;
+
+type BlockerSpatialIndex = Readonly<{
+  query(point: Vector3): readonly BlockerBoundsCandidate[];
+}>;
+
+const blockerSpatialIndexCache = new WeakMap<
+  readonly Mesh[],
+  BlockerSpatialIndex
+>();
 
 export type V2BeamBlockerHit = Readonly<{
   kind: "blocker";
@@ -97,11 +119,32 @@ export type V2BeamVisualConfig = Readonly<{
   alpha: number;
 }>;
 
+export type V2BeamCollisionDiagnostics = Readonly<{
+  recordStartContainment(
+    candidateMeshCount: number,
+    triangulatedMeshCount: number
+  ): void;
+}>;
+
+export type V2BeamVisualPoolKind =
+  (typeof V2_BEAM_VISUAL_POOL_KINDS)[number];
+
+export type V2BeamVisualPoolKindSnapshot = Readonly<{
+  capacity: number;
+  inUse: number;
+  available: number;
+}>;
+
+export type V2BeamVisualPoolSnapshot = Readonly<
+  Record<V2BeamVisualPoolKind, V2BeamVisualPoolKindSnapshot>
+>;
+
 export type V2BeamSystemConfig = Readonly<{
   scene: Scene;
   stage: StageSpatialContext;
   getHumanTargets(): readonly V2HumanTargetSnapshot[];
   visual: V2BeamVisualConfig;
+  collisionDiagnostics?: V2BeamCollisionDiagnostics;
 }>;
 
 export type V2BeamImpactEvent = Readonly<{
@@ -142,9 +185,11 @@ export type V2ActiveBeamSnapshot = Readonly<{
 
 export interface V2BeamSystem {
   readonly activeCount: number;
+  prepareVisualResources(): Promise<void>;
   spawn(request: V2BeamRequest): string;
   update(deltaSeconds: number): V2BeamFrameEvents;
   getActiveBeams(): readonly V2ActiveBeamSnapshot[];
+  getVisualPoolSnapshot(): V2BeamVisualPoolSnapshot;
   clear(): void;
   dispose(): void;
 }
@@ -160,12 +205,13 @@ type ActiveBeam = {
   speed: number;
   remainingLifetime: number;
   bodyLength: number;
-  bodyMesh: Mesh;
-  tipMesh: Mesh;
+  checkStartContainment: boolean;
+  bodyMesh: InstancedMesh;
+  tipMesh: InstancedMesh;
 };
 
 type ImpactVisual = {
-  mesh: Mesh;
+  mesh: InstancedMesh;
   remainingSeconds: number;
 };
 
@@ -364,6 +410,103 @@ const isInsideBounds = (
   point.z >= minimum.z - SURFACE_DISTANCE_EPSILON &&
   point.z <= maximum.z + SURFACE_DISTANCE_EPSILON;
 
+const blockerSpatialCellKey = (x: number, y: number, z: number) =>
+  `${x}:${y}:${z}`;
+
+const createBlockerSpatialIndex = (
+  blockers: readonly Mesh[]
+): BlockerSpatialIndex => {
+  const cells = new Map<string, BlockerBoundsCandidate[]>();
+  for (const mesh of blockers) {
+    mesh.computeWorldMatrix(true);
+    const bounds = mesh.getBoundingInfo().boundingBox;
+    const candidate = Object.freeze({
+      mesh,
+      minimum: bounds.minimumWorld.clone(),
+      maximum: bounds.maximumWorld.clone()
+    });
+    const minimumCellX = Math.floor(
+      (candidate.minimum.x - SURFACE_DISTANCE_EPSILON) /
+        BLOCKER_SPATIAL_CELL_SIZE
+    );
+    const maximumCellX = Math.floor(
+      (candidate.maximum.x + SURFACE_DISTANCE_EPSILON) /
+        BLOCKER_SPATIAL_CELL_SIZE
+    );
+    const minimumCellY = Math.floor(
+      (candidate.minimum.y - SURFACE_DISTANCE_EPSILON) /
+        BLOCKER_SPATIAL_CELL_SIZE
+    );
+    const maximumCellY = Math.floor(
+      (candidate.maximum.y + SURFACE_DISTANCE_EPSILON) /
+        BLOCKER_SPATIAL_CELL_SIZE
+    );
+    const minimumCellZ = Math.floor(
+      (candidate.minimum.z - SURFACE_DISTANCE_EPSILON) /
+        BLOCKER_SPATIAL_CELL_SIZE
+    );
+    const maximumCellZ = Math.floor(
+      (candidate.maximum.z + SURFACE_DISTANCE_EPSILON) /
+        BLOCKER_SPATIAL_CELL_SIZE
+    );
+    for (let cellX = minimumCellX; cellX <= maximumCellX; cellX += 1) {
+      for (let cellY = minimumCellY; cellY <= maximumCellY; cellY += 1) {
+        for (let cellZ = minimumCellZ; cellZ <= maximumCellZ; cellZ += 1) {
+          const key = blockerSpatialCellKey(cellX, cellY, cellZ);
+          const cell = cells.get(key) ?? [];
+          cell.push(candidate);
+          cells.set(key, cell);
+        }
+      }
+    }
+  }
+  return Object.freeze({
+    query: (point: Vector3) => {
+      const cellX = Math.floor(point.x / BLOCKER_SPATIAL_CELL_SIZE);
+      const cellY = Math.floor(point.y / BLOCKER_SPATIAL_CELL_SIZE);
+      const cellZ = Math.floor(point.z / BLOCKER_SPATIAL_CELL_SIZE);
+      return (
+        cells.get(blockerSpatialCellKey(cellX, cellY, cellZ)) ??
+        Object.freeze([])
+      );
+    }
+  });
+};
+
+const getBlockerSpatialIndex = (
+  blockers: readonly Mesh[]
+): BlockerSpatialIndex => {
+  const cached = blockerSpatialIndexCache.get(blockers);
+  if (cached) {
+    return cached;
+  }
+  const index = createBlockerSpatialIndex(blockers);
+  blockerSpatialIndexCache.set(blockers, index);
+  return index;
+};
+
+const prepareBlockerSpatialIndices = (
+  beamBlockers: readonly Mesh[],
+  sightBlockers: readonly Mesh[]
+): void => {
+  const useSharedIndex =
+    beamBlockers.length === sightBlockers.length &&
+    beamBlockers.every(
+      (blocker, index) => blocker === sightBlockers[index]
+    );
+  if (!useSharedIndex) {
+    getBlockerSpatialIndex(beamBlockers);
+    getBlockerSpatialIndex(sightBlockers);
+    return;
+  }
+  const sharedIndex =
+    blockerSpatialIndexCache.get(beamBlockers) ??
+    blockerSpatialIndexCache.get(sightBlockers) ??
+    createBlockerSpatialIndex(beamBlockers);
+  blockerSpatialIndexCache.set(beamBlockers, sharedIndex);
+  blockerSpatialIndexCache.set(sightBlockers, sharedIndex);
+};
+
 const containsPoint = (mesh: Mesh, point: Vector3): boolean => {
   const geometry = getBlockerGeometry(mesh);
   if (!isInsideBounds(point, geometry.minimum, geometry.maximum)) {
@@ -397,13 +540,34 @@ const containsPoint = (mesh: Mesh, point: Vector3): boolean => {
 
 const findContainingBlocker = (
   blockers: readonly Mesh[],
-  point: Vector3
+  point: Vector3,
+  diagnostics: V2BeamCollisionDiagnostics | undefined
 ): Mesh | null => {
-  for (const blocker of blockers) {
-    if (containsPoint(blocker, point)) {
-      return blocker;
+  const candidates = getBlockerSpatialIndex(blockers).query(point);
+  let triangulatedMeshCount = 0;
+  for (const candidate of candidates) {
+    if (
+      !isInsideBounds(point, candidate.minimum, candidate.maximum)
+    ) {
+      continue;
+    }
+    const geometryWasCached = blockerGeometryCache.has(candidate.mesh);
+    const isContaining = containsPoint(candidate.mesh, point);
+    if (!geometryWasCached) {
+      triangulatedMeshCount += 1;
+    }
+    if (isContaining) {
+      diagnostics?.recordStartContainment(
+        candidates.length,
+        triangulatedMeshCount
+      );
+      return candidate.mesh;
     }
   }
+  diagnostics?.recordStartContainment(
+    candidates.length,
+    triangulatedMeshCount
+  );
   return null;
 };
 
@@ -610,12 +774,17 @@ const castValidatedV2BeamSegment = (
   to: Vector3,
   targets: readonly V2HumanTargetSnapshot[],
   sourceId: string,
-  targetPolicy: V2BeamTargetPolicy
+  targetPolicy: V2BeamTargetPolicy,
+  checkStartContainment: boolean,
+  diagnostics: V2BeamCollisionDiagnostics | undefined
 ): V2BeamSegmentHit | null => {
-  const containingBlocker = findContainingBlocker(
-    stage.resources.beamBlockers,
-    from
-  );
+  const containingBlocker = checkStartContainment
+    ? findContainingBlocker(
+        stage.resources.beamBlockers,
+        from,
+        diagnostics
+      )
+    : null;
   let nearestHit: V2BeamSegmentHit | null = containingBlocker
     ? createStartBlockerHit(containingBlocker, from, to)
     : null;
@@ -667,7 +836,9 @@ export const castV2BeamSegment = (
     to,
     targets,
     sourceId,
-    validatedPolicy
+    validatedPolicy,
+    true,
+    undefined
   );
 };
 
@@ -686,7 +857,8 @@ export const castV2SightSegment = (
 
   const containingBlocker = findContainingBlocker(
     stage.resources.sightBlockers,
-    from
+    from,
+    undefined
   );
   if (containingBlocker) {
     return Object.freeze({
@@ -760,6 +932,160 @@ const createBeamBodyRotation = (direction: Vector3): Quaternion => {
   return Quaternion.RotationAxis(axis, Math.acos(dot));
 };
 
+type BeamVisualPoolBucket = {
+  source: Mesh;
+  available: InstancedMesh[];
+  instances: Set<InstancedMesh>;
+  inUse: Set<InstancedMesh>;
+  nextSerial: number;
+};
+
+type BeamVisualPool = Readonly<{
+  acquire(kind: V2BeamVisualPoolKind, ownerId: string): InstancedMesh;
+  release(kind: V2BeamVisualPoolKind, mesh: InstancedMesh): void;
+  prepare(): Promise<void>;
+  getSnapshot(): V2BeamVisualPoolSnapshot;
+  clear(): void;
+  dispose(): void;
+}>;
+
+const createBeamVisualPool = (
+  scene: Scene,
+  visual: V2BeamVisualConfig
+): BeamVisualPool => {
+  const material = new StandardMaterial("v2NormalBeamMaterial", scene);
+  material.emissiveColor = visual.color.clone();
+  material.diffuseColor = visual.color.clone();
+  material.specularColor = Color3.Black();
+  material.alpha = visual.alpha;
+
+  const bodySource = MeshBuilder.CreateCylinder(
+    "v2NormalBeamPoolSource-body",
+    {
+      height: 1,
+      diameter: visual.diameter,
+      tessellation: 8
+    },
+    scene
+  );
+  const tipSource = MeshBuilder.CreateSphere(
+    "v2NormalBeamPoolSource-tip",
+    {
+      diameter: visual.diameter,
+      segments: 8
+    },
+    scene
+  );
+  const impactSource = MeshBuilder.CreateSphere(
+    "v2NormalBeamPoolSource-impact",
+    {
+      diameter: visual.diameter * IMPACT_VISUAL_DIAMETER_MULTIPLIER,
+      segments: 8
+    },
+    scene
+  );
+  const sources: Readonly<Record<V2BeamVisualPoolKind, Mesh>> =
+    Object.freeze({
+      body: bodySource,
+      tip: tipSource,
+      impact: impactSource
+    });
+  const buckets = {} as Record<V2BeamVisualPoolKind, BeamVisualPoolBucket>;
+  for (const kind of V2_BEAM_VISUAL_POOL_KINDS) {
+    const source = sources[kind];
+    source.material = material;
+    source.isPickable = false;
+    source.isVisible = false;
+    buckets[kind] = {
+      source,
+      available: [],
+      instances: new Set(),
+      inUse: new Set(),
+      nextSerial: 1
+    };
+  }
+
+  let disposed = false;
+  let preparationPromise: Promise<void> | null = null;
+  const pool: BeamVisualPool = {
+    acquire: (kind, ownerId) => {
+      const bucket = buckets[kind];
+      const mesh =
+        bucket.available.pop() ??
+        bucket.source.createInstance(
+          `v2NormalBeamPool-${kind}-${bucket.nextSerial++}`
+        );
+      bucket.instances.add(mesh);
+      bucket.inUse.add(mesh);
+      mesh.name = `${ownerId}-${kind}`;
+      mesh.position.setAll(0);
+      mesh.rotation.setAll(0);
+      mesh.rotationQuaternion = null;
+      mesh.scaling.setAll(1);
+      mesh.isPickable = false;
+      mesh.isVisible = true;
+      mesh.setEnabled(true);
+      return mesh;
+    },
+    release: (kind, mesh) => {
+      const bucket = buckets[kind];
+      bucket.inUse.delete(mesh);
+      mesh.setEnabled(false);
+      mesh.isVisible = false;
+      bucket.available.push(mesh);
+    },
+    prepare: () => {
+      preparationPromise ??= material
+        .forceCompilationAsync(buckets.body.source, {
+          useInstances: true
+        })
+        .then(() => undefined);
+      return preparationPromise;
+    },
+    getSnapshot: () => {
+      const snapshot = {} as Record<
+        V2BeamVisualPoolKind,
+        V2BeamVisualPoolKindSnapshot
+      >;
+      for (const kind of V2_BEAM_VISUAL_POOL_KINDS) {
+        const bucket = buckets[kind];
+        snapshot[kind] = Object.freeze({
+          capacity: bucket.instances.size,
+          inUse: bucket.inUse.size,
+          available: bucket.available.length
+        });
+      }
+      return Object.freeze(snapshot);
+    },
+    clear: () => {
+      for (const kind of V2_BEAM_VISUAL_POOL_KINDS) {
+        const bucket = buckets[kind];
+        for (const mesh of [...bucket.inUse]) {
+          pool.release(kind, mesh);
+        }
+      }
+    },
+    dispose: () => {
+      if (disposed) {
+        return;
+      }
+      for (const kind of V2_BEAM_VISUAL_POOL_KINDS) {
+        const bucket = buckets[kind];
+        for (const mesh of [...bucket.instances]) {
+          mesh.dispose(false, false);
+        }
+        bucket.instances.clear();
+        bucket.inUse.clear();
+        bucket.available.length = 0;
+        bucket.source.dispose(false, false);
+      }
+      material.dispose();
+      disposed = true;
+    }
+  };
+  return Object.freeze(pool);
+};
+
 export const createV2BeamSystem = (
   config: V2BeamSystemConfig
 ): V2BeamSystem => {
@@ -773,10 +1099,14 @@ export const createV2BeamSystem = (
   assertFiniteNumber("beam.visual.color.r", config.visual.color.r);
   assertFiniteNumber("beam.visual.color.g", config.visual.color.g);
   assertFiniteNumber("beam.visual.color.b", config.visual.color.b);
+  prepareBlockerSpatialIndices(
+    config.stage.resources.beamBlockers,
+    config.stage.resources.sightBlockers
+  );
 
+  const visualPool = createBeamVisualPool(config.scene, config.visual);
   const activeBeams = new Map<string, ActiveBeam>();
   const impactVisuals = new Set<ImpactVisual>();
-  let material: StandardMaterial | null = null;
   let nextBeamSerial = 1;
   let disposed = false;
 
@@ -784,23 +1114,6 @@ export const createV2BeamSystem = (
     if (disposed) {
       throw new Error("破棄済みのV2BeamSystemは使用できません");
     }
-  };
-
-  const getMaterial = (): StandardMaterial => {
-    if (material) {
-      return material;
-    }
-    material = new StandardMaterial("v2NormalBeamMaterial", config.scene);
-    material.emissiveColor = config.visual.color.clone();
-    material.diffuseColor = config.visual.color.clone();
-    material.specularColor = Color3.Black();
-    material.alpha = config.visual.alpha;
-    return material;
-  };
-
-  const disposeMaterial = (): void => {
-    material?.dispose();
-    material = null;
   };
 
   const getTailPosition = (beam: ActiveBeam): Vector3 =>
@@ -818,14 +1131,14 @@ export const createV2BeamSystem = (
     beam.bodyMesh.scaling.set(1, beam.bodyLength, 1);
   };
 
-  const disposeBeam = (beam: ActiveBeam): void => {
-    beam.bodyMesh.dispose(false, false);
-    beam.tipMesh.dispose(false, false);
+  const releaseBeam = (beam: ActiveBeam): void => {
+    visualPool.release("body", beam.bodyMesh);
+    visualPool.release("tip", beam.tipMesh);
     activeBeams.delete(beam.id);
   };
 
-  const disposeImpactVisual = (impactVisual: ImpactVisual): void => {
-    impactVisual.mesh.dispose(false, false);
+  const releaseImpactVisual = (impactVisual: ImpactVisual): void => {
+    visualPool.release("impact", impactVisual.mesh);
     impactVisuals.delete(impactVisual);
   };
 
@@ -833,17 +1146,7 @@ export const createV2BeamSystem = (
     beamId: string,
     position: Vector3
   ): void => {
-    const mesh = MeshBuilder.CreateSphere(
-      `${beamId}-impact`,
-      {
-        diameter:
-          config.visual.diameter * IMPACT_VISUAL_DIAMETER_MULTIPLIER,
-        segments: 8
-      },
-      config.scene
-    );
-    mesh.material = getMaterial();
-    mesh.isPickable = false;
+    const mesh = visualPool.acquire("impact", beamId);
     mesh.position.copyFrom(position);
     impactVisuals.add({
       mesh,
@@ -853,19 +1156,19 @@ export const createV2BeamSystem = (
 
   const clearResources = (): void => {
     for (const beam of [...activeBeams.values()]) {
-      disposeBeam(beam);
+      releaseBeam(beam);
     }
     for (const impactVisual of [...impactVisuals]) {
-      disposeImpactVisual(impactVisual);
+      releaseImpactVisual(impactVisual);
     }
-    disposeMaterial();
+    visualPool.clear();
   };
 
   const updateImpactVisuals = (deltaSeconds: number): void => {
     for (const impactVisual of [...impactVisuals]) {
       impactVisual.remainingSeconds -= deltaSeconds;
       if (impactVisual.remainingSeconds <= SEGMENT_LENGTH_EPSILON) {
-        disposeImpactVisual(impactVisual);
+        releaseImpactVisual(impactVisual);
       }
     }
   };
@@ -874,34 +1177,18 @@ export const createV2BeamSystem = (
     get activeCount() {
       return activeBeams.size;
     },
+    prepareVisualResources: () => {
+      requireActiveSystem();
+      return visualPool.prepare();
+    },
     spawn: (request) => {
       requireActiveSystem();
       const targetPolicy = validateBeamRequest(request);
 
       const id = `v2-normal-beam-${nextBeamSerial}`;
       nextBeamSerial += 1;
-      const bodyMesh = MeshBuilder.CreateCylinder(
-        `${id}-body`,
-        {
-          height: 1,
-          diameter: config.visual.diameter,
-          tessellation: 8
-        },
-        config.scene
-      );
-      const tipMesh = MeshBuilder.CreateSphere(
-        `${id}-tip`,
-        {
-          diameter: config.visual.diameter,
-          segments: 8
-        },
-        config.scene
-      );
-      const beamMaterial = getMaterial();
-      bodyMesh.material = beamMaterial;
-      tipMesh.material = beamMaterial;
-      bodyMesh.isPickable = false;
-      tipMesh.isPickable = false;
+      const bodyMesh = visualPool.acquire("body", id);
+      const tipMesh = visualPool.acquire("tip", id);
 
       const direction = request.direction.clone().normalize();
       bodyMesh.rotationQuaternion = createBeamBodyRotation(direction);
@@ -916,6 +1203,7 @@ export const createV2BeamSystem = (
         speed: request.speed,
         remainingLifetime: request.maximumLifetime,
         bodyLength: 0,
+        checkStartContainment: true,
         bodyMesh,
         tipMesh
       };
@@ -952,7 +1240,7 @@ export const createV2BeamSystem = (
             beam.bodyLength - beam.speed * deltaSeconds
           );
           if (beam.bodyLength <= SEGMENT_LENGTH_EPSILON) {
-            disposeBeam(beam);
+            releaseBeam(beam);
           } else {
             updateBeamVisual(beam);
           }
@@ -978,8 +1266,11 @@ export const createV2BeamSystem = (
           nextPosition,
           candidateTargets,
           beam.sourceId,
-          beam.targetPolicy
+          beam.targetPolicy,
+          beam.checkStartContainment,
+          config.collisionDiagnostics
         );
+        beam.checkStartContainment = false;
 
         if (hit) {
           beam.position.copyFrom(hit.point);
@@ -1006,7 +1297,7 @@ export const createV2BeamSystem = (
             createBlockerImpactVisual(beam.id, hit.point);
           }
           if (beam.bodyLength <= SEGMENT_LENGTH_EPSILON) {
-            disposeBeam(beam);
+            releaseBeam(beam);
           }
           continue;
         }
@@ -1031,7 +1322,7 @@ export const createV2BeamSystem = (
             })
           );
           if (beam.bodyLength <= SEGMENT_LENGTH_EPSILON) {
-            disposeBeam(beam);
+            releaseBeam(beam);
           }
         }
       }
@@ -1063,6 +1354,10 @@ export const createV2BeamSystem = (
         )
       );
     },
+    getVisualPoolSnapshot: () => {
+      requireActiveSystem();
+      return visualPool.getSnapshot();
+    },
     clear: () => {
       requireActiveSystem();
       clearResources();
@@ -1072,6 +1367,7 @@ export const createV2BeamSystem = (
         return;
       }
       clearResources();
+      visualPool.dispose();
       disposed = true;
     }
   };

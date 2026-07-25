@@ -263,6 +263,7 @@ type AgentFixture = Readonly<{
   getFindRouteCount(): number;
   getConstrainMovementCount(): number;
   getSweepCount(): number;
+  getStationarySweepCount(): number;
 }>;
 
 const createAgentFixture = (
@@ -277,10 +278,14 @@ const createAgentFixture = (
   let findRouteCount = 0;
   let constrainMovementCount = 0;
   let sweepCount = 0;
+  let stationarySweepCount = 0;
   const safety: BitFlightSafety = {
     envelopeRadius: BIT_FLIGHT_ENVELOPE_RADIUS_WORLD_UNITS,
     findMovementCollision: (from, to) => {
       sweepCount += 1;
+      if (from.equals(to)) {
+        stationarySweepCount += 1;
+      }
       return isMovementBlocked(from, to)
         ? ({} as ReturnType<BitFlightSafety["findMovementCollision"]>)
         : null;
@@ -353,8 +358,31 @@ const createAgentFixture = (
     },
     getFindRouteCount: () => findRouteCount,
     getConstrainMovementCount: () => constrainMovementCount,
-    getSweepCount: () => sweepCount
+    getSweepCount: () => sweepCount,
+    getStationarySweepCount: () => stationarySweepCount
   });
+};
+
+const updateAgent = (
+  agent: ReturnType<typeof createBitFlightAgent>,
+  surfaceSpeedWorldUnitsPerSecond: number,
+  deltaSeconds: number
+) => {
+  const previousRootPosition = agent.getSnapshot().position;
+  if (!previousRootPosition) {
+    throw new Error("更新前のBIT飛行位置がありません。");
+  }
+  return agent.update(
+    surfaceSpeedWorldUnitsPerSecond,
+    deltaSeconds,
+    previousRootPosition,
+    (candidate) => {
+      if (!candidate.position) {
+        throw new Error("更新後のBIT飛行位置がありません。");
+      }
+      return candidate.position;
+    }
+  );
 };
 
 export const runBitFlightAgentTests =
@@ -383,8 +411,11 @@ export const runBitFlightAgentTests =
             ok:
               routeAccepted &&
               snapshot.state === "surface" &&
-              sweepCount === 4,
-            detail: `accepted=${routeAccepted} / state=${snapshot.state} / sweeps=${sweepCount}`
+              sweepCount === 4 &&
+              fixture.getStationarySweepCount() === 0,
+            detail:
+              `accepted=${routeAccepted} / state=${snapshot.state} / ` +
+              `sweeps=${sweepCount} / stationary=${fixture.getStationarySweepCount()}`
           };
         } finally {
           fixture.agent.dispose();
@@ -432,7 +463,7 @@ export const runBitFlightAgentTests =
             destination,
             BIT_FLIGHT_SHORTEST_ROUTE_POLICY
           );
-          const snapshot = fixture.agent.update(0.5, 1);
+          const snapshot = updateAgent(fixture.agent, 0.5, 1);
           return {
             ok:
               routeAccepted &&
@@ -442,6 +473,111 @@ export const runBitFlightAgentTests =
               fixture.getConstrainMovementCount() > 0 &&
               fixture.getSweepCount() > 0,
             detail: `accepted=${routeAccepted} / state=${snapshot.state} / transition=${snapshot.transition?.transition.id ?? "none"} / constrained=${fixture.getConstrainMovementCount()} / sweeps=${fixture.getSweepCount()}`
+          };
+        } finally {
+          fixture.agent.dispose();
+        }
+      })
+    );
+
+    results.push(
+      executeTest("実表示rootの前フレーム位置から現在位置を1回だけSweep", () => {
+        let captureMovement = false;
+        const sweptSegments: { from: Vector3; to: Vector3 }[] = [];
+        const fixture = createAgentFixture(
+          Object.freeze([routeNearSurfaceSnap]),
+          (from, to) => {
+            if (captureMovement) {
+              sweptSegments.push({
+                from: from.clone(),
+                to: to.clone()
+              });
+            }
+            return false;
+          },
+          0.03
+        );
+        try {
+          const routeAccepted = fixture.agent.setRoute(
+            start,
+            nearSnapDestination,
+            BIT_FLIGHT_SHORTEST_ROUTE_POLICY
+          );
+          const rootOffset = new Vector3(0, 0.02, 0);
+          const previousRootPosition =
+            getBitFlightWorldPosition(start).add(rootOffset);
+          const sweepCountBeforeUpdate = fixture.getSweepCount();
+          captureMovement = true;
+          const snapshot = fixture.agent.update(
+            0.03,
+            1,
+            previousRootPosition,
+            (candidate) => {
+              if (!candidate.position) {
+                throw new Error("更新後のBIT飛行位置がありません。");
+              }
+              return candidate.position.add(rootOffset);
+            }
+          );
+          captureMovement = false;
+          const expectedRootPosition =
+            getBitFlightWorldPosition(nearSnapDestination).add(rootOffset);
+          const movementSweep = sweptSegments[0];
+          return {
+            ok:
+              routeAccepted &&
+              !snapshot.movementBlocked &&
+              snapshot.rootPosition?.equals(expectedRootPosition) === true &&
+              movementSweep?.from.equals(previousRootPosition) === true &&
+              movementSweep.to.equals(expectedRootPosition) &&
+              fixture.getSweepCount() - sweepCountBeforeUpdate === 1,
+            detail:
+              `accepted=${routeAccepted} / blocked=${snapshot.movementBlocked} / ` +
+              `from=${movementSweep?.from.toString() ?? "none"} / ` +
+              `to=${movementSweep?.to.toString() ?? "none"} / ` +
+              `updateSweeps=${fixture.getSweepCount() - sweepCountBeforeUpdate}`
+          };
+        } finally {
+          fixture.agent.dispose();
+        }
+      })
+    );
+
+    results.push(
+      executeTest("停止BITはゼロ長Sweepを発行しない", () => {
+        const fixture = createAgentFixture(
+          Object.freeze([routeNearSurfaceSnap])
+        );
+        try {
+          const routeAccepted = fixture.agent.setRoute(
+            start,
+            nearSnapDestination,
+            BIT_FLIGHT_SHORTEST_ROUTE_POLICY
+          );
+          const previousRootPosition = getBitFlightWorldPosition(start).add(
+            new Vector3(0, 0.02, 0)
+          );
+          const sweepCountBeforeUpdate = fixture.getSweepCount();
+          const stationarySweepCountBeforeUpdate =
+            fixture.getStationarySweepCount();
+          const snapshot = fixture.agent.update(
+            0,
+            0,
+            previousRootPosition,
+            () => previousRootPosition
+          );
+          return {
+            ok:
+              routeAccepted &&
+              !snapshot.movementBlocked &&
+              snapshot.rootPosition?.equals(previousRootPosition) === true &&
+              fixture.getSweepCount() === sweepCountBeforeUpdate &&
+              fixture.getStationarySweepCount() ===
+                stationarySweepCountBeforeUpdate,
+            detail:
+              `accepted=${routeAccepted} / blocked=${snapshot.movementBlocked} / ` +
+              `updateSweeps=${fixture.getSweepCount() - sweepCountBeforeUpdate} / ` +
+              `stationarySweeps=${fixture.getStationarySweepCount() - stationarySweepCountBeforeUpdate}`
           };
         } finally {
           fixture.agent.dispose();
@@ -469,7 +605,7 @@ export const runBitFlightAgentTests =
             destination,
             BIT_FLIGHT_SHORTEST_ROUTE_POLICY
           );
-          const snapshot = fixture.agent.update(0.5, 1);
+          const snapshot = updateAgent(fixture.agent, 0.5, 1);
           return {
             ok:
               routeAccepted &&
@@ -496,7 +632,7 @@ export const runBitFlightAgentTests =
             lowCeilingDestination,
             BIT_FLIGHT_SHORTEST_ROUTE_POLICY
           );
-          const snapshot = fixture.agent.update(0.5, 1);
+          const snapshot = updateAgent(fixture.agent, 0.5, 1);
           return {
             ok:
               routeAccepted &&
@@ -526,7 +662,7 @@ export const runBitFlightAgentTests =
             sameHorizontalDestination,
             BIT_FLIGHT_SHORTEST_ROUTE_POLICY
           );
-          const snapshot = fixture.agent.update(0.06, 0.1);
+          const snapshot = updateAgent(fixture.agent, 0.06, 0.1);
           const position = snapshot.position;
           return {
             ok:
@@ -551,7 +687,7 @@ export const runBitFlightAgentTests =
           Object.freeze([routeNearSurfaceSnap]),
           (from, to) =>
             blockSnap &&
-            from.x >= 0.029 &&
+            from.equals(start.surface.position) &&
             to.x === nearSnapDestination.surface.position.x,
           0.03
         );
@@ -562,14 +698,24 @@ export const runBitFlightAgentTests =
             BIT_FLIGHT_SHORTEST_ROUTE_POLICY
           );
           blockSnap = true;
-          const snapshot = fixture.agent.update(0.03, 1);
+          const sweepCountBeforeUpdate = fixture.getSweepCount();
+          const snapshot = updateAgent(fixture.agent, 0.03, 1);
+          const currentSnapshot = fixture.agent.getSnapshot();
           return {
             ok:
               routeAccepted &&
               snapshot.state === "blocked" &&
+              snapshot.movementBlocked &&
               snapshot.position !== null &&
-              Math.abs(snapshot.position.x - 0.03) < 1e-6,
-            detail: `accepted=${routeAccepted} / state=${snapshot.state} / position=${snapshot.position?.toString() ?? "none"}`
+              snapshot.position.equals(start.surface.position) &&
+              snapshot.rootPosition?.equals(start.surface.position) === true &&
+              currentSnapshot.state === "idle" &&
+              fixture.getSweepCount() - sweepCountBeforeUpdate === 1,
+            detail:
+              `accepted=${routeAccepted} / state=${snapshot.state} / ` +
+              `position=${snapshot.position?.toString() ?? "none"} / ` +
+              `current=${currentSnapshot.state} / ` +
+              `updateSweeps=${fixture.getSweepCount() - sweepCountBeforeUpdate}`
           };
         } finally {
           fixture.agent.dispose();
@@ -586,7 +732,7 @@ export const runBitFlightAgentTests =
             blockSnap &&
             from.x === 0.5 &&
             from.z === 0 &&
-            from.y >= 0.47 &&
+            from.y === 0 &&
             to.x === 0.5 &&
             to.y === 0.5 &&
             to.z === 0,
@@ -598,16 +744,26 @@ export const runBitFlightAgentTests =
             destination,
             BIT_FLIGHT_SHORTEST_ROUTE_POLICY
           );
-          fixture.agent.update(0.5, 1);
+          updateAgent(fixture.agent, 0.5, 1);
           blockSnap = true;
-          const snapshot = fixture.agent.update(0.5, 1.9);
+          const sweepCountBeforeUpdate = fixture.getSweepCount();
+          const snapshot = updateAgent(fixture.agent, 0.5, 1.9);
+          const currentSnapshot = fixture.agent.getSnapshot();
           return {
             ok:
               routeAccepted &&
               snapshot.state === "blocked" &&
+              snapshot.movementBlocked &&
               snapshot.position !== null &&
-              Math.abs(snapshot.position.y - 0.475) < 1e-6,
-            detail: `accepted=${routeAccepted} / state=${snapshot.state} / position=${snapshot.position?.toString() ?? "none"}`
+              snapshot.position.equals(entry.surface.position) &&
+              snapshot.rootPosition?.equals(entry.surface.position) === true &&
+              currentSnapshot.state === "idle" &&
+              fixture.getSweepCount() - sweepCountBeforeUpdate === 1,
+            detail:
+              `accepted=${routeAccepted} / state=${snapshot.state} / ` +
+              `position=${snapshot.position?.toString() ?? "none"} / ` +
+              `current=${currentSnapshot.state} / ` +
+              `updateSweeps=${fixture.getSweepCount() - sweepCountBeforeUpdate}`
           };
         } finally {
           fixture.agent.dispose();
@@ -624,8 +780,8 @@ export const runBitFlightAgentTests =
             destination,
             BIT_FLIGHT_SHORTEST_ROUTE_POLICY
           );
-          fixture.agent.update(0.5, 1);
-          const snapshot = fixture.agent.update(0.5, 1);
+          updateAgent(fixture.agent, 0.5, 1);
+          const snapshot = updateAgent(fixture.agent, 0.5, 1);
           const positionY = snapshot.position?.y ?? Number.NaN;
           const facingY = snapshot.facingDirection?.y ?? Number.NaN;
           return {
@@ -649,12 +805,12 @@ export const runBitFlightAgentTests =
             destination,
             BIT_FLIGHT_SHORTEST_ROUTE_POLICY
           );
-          fixture.agent.update(0.5, 1);
-          fixture.agent.update(0.5, 1);
-          const middleSnapshot = fixture.agent.update(0.5, 1);
+          updateAgent(fixture.agent, 0.5, 1);
+          updateAgent(fixture.agent, 0.5, 1);
+          const middleSnapshot = updateAgent(fixture.agent, 0.5, 1);
           fixture.agent.clear();
           const clearingSnapshot = fixture.agent.getSnapshot();
-          const completedSnapshot = fixture.agent.update(0.5, 2);
+          const completedSnapshot = updateAgent(fixture.agent, 0.5, 2);
           return {
             ok:
               Math.abs((middleSnapshot.position?.y ?? Number.NaN) - 0.5) <
@@ -680,14 +836,14 @@ export const runBitFlightAgentTests =
             destination,
             BIT_FLIGHT_SHORTEST_ROUTE_POLICY
           );
-          fixture.agent.update(0.5, 1);
-          fixture.agent.update(0.5, 1);
-          fixture.agent.update(0.5, 1);
+          updateAgent(fixture.agent, 0.5, 1);
+          updateAgent(fixture.agent, 0.5, 1);
+          updateAgent(fixture.agent, 0.5, 1);
           fixture.agent.clear();
           const firstClearSnapshot = fixture.agent.getSnapshot();
           fixture.agent.clear();
           const secondClearSnapshot = fixture.agent.getSnapshot();
-          const completedSnapshot = fixture.agent.update(0.5, 2);
+          const completedSnapshot = updateAgent(fixture.agent, 0.5, 2);
           return {
             ok:
               firstClearSnapshot.state === "clearing-transition" &&
@@ -725,7 +881,7 @@ export const runBitFlightAgentTests =
             destination,
             BIT_FLIGHT_SHORTEST_ROUTE_POLICY
           );
-          const snapshot = fixture.agent.update(0.5, 1);
+          const snapshot = updateAgent(fixture.agent, 0.5, 1);
           return {
             ok:
               routeAccepted &&
@@ -747,7 +903,12 @@ export const runBitFlightAgentTests =
         try {
           let message: string | null = null;
           try {
-            fixture.agent.update(0.5, Number.NaN);
+            fixture.agent.update(
+              0.5,
+              Number.NaN,
+              Vector3.Zero(),
+              () => Vector3.Zero()
+            );
           } catch (error) {
             message = error instanceof Error ? error.message : String(error);
           }

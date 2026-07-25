@@ -3,6 +3,7 @@ import {
   Mesh,
   MeshBuilder,
   NullEngine,
+  Ray,
   Scene,
   Vector3
 } from "@babylonjs/core";
@@ -10,6 +11,7 @@ import {
 import {
   V2_NORMAL_BEAM_MAX_BODY_LENGTH,
   castV2BeamSegment,
+  castV2SightSegment,
   createV2BeamSystem
 } from "../../../src/v2/beamCollision";
 import type {
@@ -20,6 +22,7 @@ import type {
 } from "../../../src/v2/combatTypes";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import { createStageSpatialQueries } from "../../../src/world/stageSpatialQueries";
+import type { StageSpatialQueryDiagnostics } from "../../../src/world/stageSpatialQueries";
 
 export type BeamCombatTestResult = Readonly<{
   name: string;
@@ -97,7 +100,8 @@ const createExecutionPolicy = (
   });
 
 const createBeamFixture = (
-  wallDefinitions: readonly WallDefinition[]
+  wallDefinitions: readonly WallDefinition[],
+  diagnostics?: StageSpatialQueryDiagnostics
 ): BeamFixture => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
@@ -125,7 +129,8 @@ const createBeamFixture = (
     groundColliders: blockers,
     beamBlockers: blockers,
     sightBlockers: blockers,
-    volumes: []
+    volumes: [],
+    diagnostics
   });
   const stage = Object.freeze({
     resources: Object.freeze({
@@ -430,6 +435,8 @@ export const runBeamCombatTests =
           false
         );
         const mutableTargetIds = [target.id];
+        const fixtureMeshCount = fixture.scene.meshes.length;
+        const fixtureMaterialCount = fixture.scene.materials.length;
         const system = createV2BeamSystem({
           scene: fixture.scene,
           stage: fixture.stage,
@@ -441,8 +448,6 @@ export const runBeamCombatTests =
           })
         });
         try {
-          const baselineMeshes = fixture.scene.meshes.length;
-          const baselineMaterials = fixture.scene.materials.length;
           const beamId = system.spawn({
             sourceId: "bit-fast",
             originKind: "bit-fixed",
@@ -466,13 +471,19 @@ export const runBeamCombatTests =
             impact?.targetPolicy.kind === "execution-assigned"
               ? impact.targetPolicy.targetIds
               : [];
-          const cleanBeforeClear =
-            fixture.scene.meshes.length === baselineMeshes &&
-            system.activeCount === 0;
+          const releasedBeforeClear = system.getVisualPoolSnapshot();
           system.clear();
-          const resourcesCleared =
-            fixture.scene.meshes.length === baselineMeshes &&
-            fixture.scene.materials.length === baselineMaterials;
+          const clearedPool = system.getVisualPoolSnapshot();
+          const clearReturnedAll =
+            releasedBeforeClear.body.inUse === 0 &&
+            releasedBeforeClear.tip.inUse === 0 &&
+            clearedPool.body.inUse === 0 &&
+            clearedPool.tip.inUse === 0 &&
+            clearedPool.impact.inUse === 0;
+          system.dispose();
+          const resourcesDisposed =
+            fixture.scene.meshes.length === fixtureMeshCount &&
+            fixture.scene.materials.length === fixtureMaterialCount;
           return {
             ok:
               beamId === impact?.beamId &&
@@ -491,14 +502,17 @@ export const runBeamCombatTests =
               retractFrame.impacts.length === 0 &&
               retractSnapshot.bodyLength < impactSnapshot.bodyLength &&
               completedFrame.impacts.length === 0 &&
-              cleanBeforeClear &&
-              resourcesCleared,
+              system.activeCount === 0 &&
+              clearReturnedAll &&
+              resourcesDisposed,
             detail:
               `impact=${impactFrame.impacts.length} / ` +
               `phase=${impactSnapshot?.phase ?? "--"} / ` +
               `length=${impactSnapshot?.bodyLength.toFixed(3) ?? "--"}->` +
               `${retractSnapshot?.bodyLength.toFixed(3) ?? "--"} / ` +
-              `active=${system.activeCount} / resources=${resourcesCleared}`
+              `active=${system.activeCount} / ` +
+              `pool=${clearedPool.body.capacity}:${clearedPool.tip.capacity} / ` +
+              `disposed=${resourcesDisposed}`
           };
         } finally {
           system.dispose();
@@ -516,6 +530,7 @@ export const runBeamCombatTests =
             size: new Vector3(0.2, 4, 4)
           })
         ]);
+        const fixtureMeshCount = fixture.scene.meshes.length;
         const system = createV2BeamSystem({
           scene: fixture.scene,
           stage: fixture.stage,
@@ -528,7 +543,6 @@ export const runBeamCombatTests =
         });
         try {
           const baselineMeshes = fixture.scene.meshes.length;
-          const baselineMaterials = fixture.scene.materials.length;
           system.spawn({
             sourceId: "npc-wall",
             originKind: "npc-gun",
@@ -544,13 +558,39 @@ export const runBeamCombatTests =
             fixture.scene.meshes.length - baselineMeshes;
           const retractFrame = system.update(0.01);
           const activeAfterRetraction = system.activeCount;
+          const poolBeforeClear = system.getVisualPoolSnapshot();
           const impactVisualRemains =
-            fixture.scene.meshes.length - baselineMeshes === 1;
+            poolBeforeClear.body.inUse === 0 &&
+            poolBeforeClear.tip.inUse === 0 &&
+            poolBeforeClear.impact.inUse === 1;
           system.clear();
-          const meshCountAfterClear = fixture.scene.meshes.length;
-          const materialCountAfterClear = fixture.scene.materials.length;
+          const poolAfterClear = system.getVisualPoolSnapshot();
           const resourcesCleared =
-            meshCountAfterClear === baselineMeshes &&
+            poolAfterClear.body.inUse === 0 &&
+            poolAfterClear.tip.inUse === 0 &&
+            poolAfterClear.impact.inUse === 0;
+          const pooledMeshCount = fixture.scene.meshes.length;
+          system.spawn({
+            sourceId: "npc-wall-reuse",
+            originKind: "npc-gun",
+            targetPolicy: createAliveHumansPolicy(),
+            origin: Vector3.Zero(),
+            direction: Vector3.Right(),
+            speed: 100,
+            maximumLifetime: 2
+          });
+          const reuseImpactFrame = system.update(0.1);
+          const reusedPool = system.getVisualPoolSnapshot();
+          const resourcesReused =
+            reuseImpactFrame.impacts.length === 1 &&
+            reusedPool.body.capacity === poolAfterClear.body.capacity &&
+            reusedPool.tip.capacity === poolAfterClear.tip.capacity &&
+            reusedPool.impact.capacity === poolAfterClear.impact.capacity &&
+            fixture.scene.meshes.length === pooledMeshCount;
+          system.clear();
+          system.dispose();
+          const resourcesDisposed =
+            fixture.scene.meshes.length === fixtureMeshCount &&
             !fixture.scene.materials.some(
               (item) => item.name === "v2NormalBeamMaterial"
             );
@@ -563,14 +603,14 @@ export const runBeamCombatTests =
               retractFrame.impacts.length === 0 &&
               activeAfterRetraction === 0 &&
               impactVisualRemains &&
-              resourcesCleared,
+              resourcesCleared &&
+              resourcesReused &&
+              resourcesDisposed,
             detail:
               `impact=${impactFrame.impacts.length} / ` +
               `x=${impactPosition.x.toFixed(3)} / meshes=${meshCountWithImpact} / ` +
-              `active=${activeAfterRetraction} / resources=${resourcesCleared} ` +
-              `(meshes=${meshCountAfterClear}/${baselineMeshes}, ` +
-              `materials=${materialCountAfterClear}/${baselineMaterials}:` +
-              `${fixture.scene.materials.map((item) => item.name).join(",")})`
+              `active=${activeAfterRetraction} / clear=${resourcesCleared} / ` +
+              `reused=${resourcesReused} / disposed=${resourcesDisposed}`
           };
         } finally {
           system.dispose();
@@ -637,6 +677,794 @@ export const runBeamCombatTests =
               `length=${expirationSnapshot?.bodyLength.toFixed(3) ?? "--"}->` +
               `${retractionSnapshot?.bodyLength.toFixed(3) ?? "--"} / ` +
               `active=${system.activeCount}`
+          };
+        } finally {
+          system.dispose();
+          fixture.dispose();
+        }
+      })
+    );
+
+    results.push(
+      executeTest("光線Poolは高水位まで拡張しclear後に再利用する", () => {
+        const fixture = createBeamFixture([]);
+        const fixtureMeshCount = fixture.scene.meshes.length;
+        const fixtureMaterialCount = fixture.scene.materials.length;
+        const system = createV2BeamSystem({
+          scene: fixture.scene,
+          stage: fixture.stage,
+          getHumanTargets: () => [],
+          visual: Object.freeze({
+            diameter: 0.04,
+            color: new Color3(1, 0.2, 0.6),
+            alpha: 1
+          })
+        });
+        const spawnBeam = (serial: number) =>
+          system.spawn({
+            sourceId: `pool-source-${serial}`,
+            originKind: "bit-fixed",
+            targetPolicy: createAliveHumansPolicy(),
+            origin: new Vector3(serial, 0, 0),
+            direction: Vector3.Right(),
+            speed: 1,
+            maximumLifetime: 10
+          });
+        try {
+          const templatesPrepared =
+            fixture.scene.meshes.length === fixtureMeshCount + 3 &&
+            fixture.scene.materials.length === fixtureMaterialCount + 1;
+          for (let serial = 0; serial < 3; serial += 1) {
+            spawnBeam(serial);
+          }
+          const firstHighWater = system.getVisualPoolSnapshot();
+          const firstMeshCount = fixture.scene.meshes.length;
+          system.clear();
+          const firstClear = system.getVisualPoolSnapshot();
+          for (let serial = 0; serial < 2; serial += 1) {
+            spawnBeam(10 + serial);
+          }
+          const reuseSnapshot = system.getVisualPoolSnapshot();
+          const reusedWithoutGrowth =
+            fixture.scene.meshes.length === firstMeshCount &&
+            reuseSnapshot.body.capacity === 3 &&
+            reuseSnapshot.tip.capacity === 3;
+          system.clear();
+          for (let serial = 0; serial < 5; serial += 1) {
+            spawnBeam(20 + serial);
+          }
+          const expandedSnapshot = system.getVisualPoolSnapshot();
+          system.clear();
+          const expandedClear = system.getVisualPoolSnapshot();
+          const expandedWithoutCap =
+            expandedSnapshot.body.capacity === 5 &&
+            expandedSnapshot.body.inUse === 5 &&
+            expandedSnapshot.tip.capacity === 5 &&
+            expandedSnapshot.tip.inUse === 5;
+          const allReturned =
+            firstClear.body.inUse === 0 &&
+            firstClear.body.available === 3 &&
+            firstClear.tip.inUse === 0 &&
+            firstClear.tip.available === 3 &&
+            expandedClear.body.inUse === 0 &&
+            expandedClear.body.available === 5 &&
+            expandedClear.tip.inUse === 0 &&
+            expandedClear.tip.available === 5 &&
+            system.activeCount === 0;
+          system.dispose();
+          const resourcesDisposed =
+            fixture.scene.meshes.length === fixtureMeshCount &&
+            fixture.scene.materials.length === fixtureMaterialCount;
+          return {
+            ok:
+              templatesPrepared &&
+              firstHighWater.body.capacity === 3 &&
+              firstHighWater.body.inUse === 3 &&
+              firstHighWater.tip.capacity === 3 &&
+              firstHighWater.tip.inUse === 3 &&
+              reusedWithoutGrowth &&
+              expandedWithoutCap &&
+              allReturned &&
+              resourcesDisposed,
+            detail:
+              `prepared=${templatesPrepared} / ` +
+              `highWater=${firstHighWater.body.capacity}->` +
+              `${expandedSnapshot.body.capacity} / ` +
+              `reuse=${reusedWithoutGrowth} / returned=${allReturned} / ` +
+              `disposed=${resourcesDisposed}`
+          };
+        } finally {
+          system.dispose();
+          fixture.dispose();
+        }
+      })
+    );
+
+    results.push(
+      executeTest("空間索引候補へ直接Ray判定しScene全体pickを呼ばない", () => {
+        const rayDiagnostics: Array<
+          Readonly<{
+            kind: string;
+            candidateMeshCount: number;
+            directIntersectionCount: number;
+          }>
+        > = [];
+        const triangleDiagnostics: Array<
+          Readonly<{
+            kind: string;
+            indexedTriangleCount: number;
+            exactTriangleTestCount: number;
+          }>
+        > = [];
+        const fixture = createBeamFixture(
+          [
+            Object.freeze({
+              id: "direct-ray-lower-floor",
+              center: new Vector3(0, -1.1, 0),
+              size: new Vector3(8, 0.2, 8)
+            }),
+            Object.freeze({
+              id: "direct-ray-floor",
+              center: new Vector3(0, -0.1, 0),
+              size: new Vector3(8, 0.2, 8)
+            }),
+            Object.freeze({
+              id: "direct-ray-far-wall",
+              center: new Vector3(3, 1, 0),
+              size: new Vector3(0.2, 2, 2)
+            }),
+            Object.freeze({
+              id: "direct-ray-wall",
+              center: new Vector3(2, 1, 0),
+              size: new Vector3(0.2, 2, 2)
+            }),
+            Object.freeze({
+              id: "direct-ray-coarse-cell-miss",
+              center: new Vector3(1, 1.6, 0),
+              size: new Vector3(0.2, 0.2, 0.2)
+            })
+          ],
+          {
+            recordRayQuery: (
+              kind,
+              candidateMeshCount,
+              directIntersectionCount
+            ) => {
+              rayDiagnostics.push({
+                kind,
+                candidateMeshCount,
+                directIntersectionCount
+              });
+            },
+            recordRayTriangleQuery: (
+              kind,
+              indexedTriangleCount,
+              exactTriangleTestCount
+            ) => {
+              triangleDiagnostics.push({
+                kind,
+                indexedTriangleCount,
+                exactTriangleTestCount
+              });
+            }
+          }
+        );
+        try {
+          fixture.scene.pickWithRay = () => {
+            throw new Error("Scene.pickWithRayを呼び出しました");
+          };
+          fixture.scene.multiPickWithRay = () => {
+            throw new Error("Scene.multiPickWithRayを呼び出しました");
+          };
+          const from = new Vector3(0, 1, 0);
+          const to = new Vector3(4, 1, 0);
+          const beamHit = fixture.stage.queries.castBeamSegment(from, to);
+          const sightHit = castV2SightSegment(fixture.stage, from, to);
+          const movementHit = fixture.stage.queries.castMovementSegment(
+            "npc",
+            from,
+            to
+          );
+          const groundHit = fixture.stage.queries.sampleGround(
+            new Vector3(0, 2, 0),
+            4
+          );
+          const diagnosticKinds = rayDiagnostics
+            .map(({ kind }) => kind)
+            .join("|");
+          const diagnosticsMatch =
+            diagnosticKinds === "beam|sight|movement|ground" &&
+            rayDiagnostics.length === 4 &&
+            rayDiagnostics.every(
+              (
+                { candidateMeshCount, directIntersectionCount },
+                index
+              ) =>
+                candidateMeshCount === 2 &&
+                directIntersectionCount === 0
+            ) &&
+            triangleDiagnostics.length === 4 &&
+            triangleDiagnostics
+              .map(({ kind }) => kind)
+              .join("|") === diagnosticKinds &&
+            triangleDiagnostics.every(
+              ({ indexedTriangleCount, exactTriangleTestCount }) =>
+                indexedTriangleCount > 0 &&
+                indexedTriangleCount < 60 &&
+                exactTriangleTestCount > 0 &&
+                exactTriangleTestCount <= indexedTriangleCount
+            );
+          return {
+            ok:
+              beamHit?.mesh.name === "direct-ray-wall" &&
+              sightHit.occluded &&
+              sightHit.mesh.name === "direct-ray-wall" &&
+              movementHit?.mesh.name === "direct-ray-wall" &&
+              approximately(beamHit.distance, 1.9, 1e-6) &&
+              approximately(sightHit.distance, 1.9, 1e-6) &&
+              groundHit?.mesh.name === "direct-ray-floor" &&
+              approximately(groundHit.point.y, 0, 1e-6) &&
+              groundHit.normal.y > 0 &&
+              diagnosticsMatch,
+            detail:
+              `beam=${beamHit?.mesh.name ?? "none"}:` +
+              `${beamHit?.distance.toFixed(3) ?? "--"} / ` +
+              `sight=${sightHit.mesh?.name ?? "none"}:` +
+              `${sightHit.distance?.toFixed(3) ?? "--"} / ` +
+              `ground=${groundHit?.mesh.name ?? "none"}:` +
+              `${groundHit?.point.y.toFixed(3) ?? "--"} / ` +
+              `diagnostics=${diagnosticKinds} / counts=` +
+              rayDiagnostics
+                .map(
+                  ({ candidateMeshCount, directIntersectionCount }) =>
+                    `${candidateMeshCount}:${directIntersectionCount}`
+                )
+                .join("|") +
+              ` / triangles=` +
+              triangleDiagnostics
+                .map(
+                  ({ indexedTriangleCount, exactTriangleTestCount }) =>
+                    `${indexedTriangleCount}:${exactTriangleTestCount}`
+                )
+                .join("|")
+          };
+        } finally {
+          fixture.dispose();
+        }
+      })
+    );
+
+    results.push(
+      executeTest("直接Rayは旧pickと壁・床・天井・開閉窓の結果が一致", () => {
+        const engine = new NullEngine();
+        const scene = new Scene(engine);
+        const floor = MeshBuilder.CreateBox(
+          "legacy-floor",
+          { width: 6, height: 0.2, depth: 6 },
+          scene
+        );
+        floor.position.y = -0.1;
+        const ceiling = MeshBuilder.CreateBox(
+          "legacy-ceiling",
+          { width: 6, height: 0.2, depth: 6 },
+          scene
+        );
+        ceiling.position.y = 2.1;
+        const openWindow = MeshBuilder.CreateBox(
+          "legacy-open-window",
+          { width: 0.2, height: 2, depth: 2 },
+          scene
+        );
+        openWindow.position.set(1.5, 1, 0);
+        const wall = MeshBuilder.CreateBox(
+          "legacy-wall",
+          { width: 0.2, height: 2, depth: 4 },
+          scene
+        );
+        wall.position.set(3, 1, 0);
+        const staircaseSlope = MeshBuilder.CreateBox(
+          "legacy-staircase-slope",
+          { width: 2, height: 0.2, depth: 2 },
+          scene
+        );
+        staircaseSlope.position.set(-2, 0.5, 0);
+        staircaseSlope.rotation.z = Math.PI / 6;
+        staircaseSlope.scaling.z = 0.75;
+        const movementColliders = Object.freeze([
+          floor,
+          ceiling,
+          openWindow,
+          wall,
+          staircaseSlope
+        ]);
+        const rayBlockers = Object.freeze([floor, ceiling, wall]);
+        for (const mesh of movementColliders) {
+          mesh.computeWorldMatrix(true);
+        }
+        const queries = createStageSpatialQueries(scene, {
+          movementColliders: Object.freeze({
+            player: movementColliders,
+            npc: movementColliders,
+            bit: movementColliders
+          }),
+          groundColliders: Object.freeze([floor]),
+          beamBlockers: rayBlockers,
+          sightBlockers: rayBlockers,
+          volumes: []
+        });
+        const legacyPick = (
+          from: Vector3,
+          to: Vector3,
+          allowedMeshes: ReadonlySet<Mesh>
+        ) => {
+          const distance = Vector3.Distance(from, to);
+          const ray = new Ray(
+            from,
+            to.subtract(from).scaleInPlace(1 / distance),
+            distance
+          );
+          return scene.pickWithRay(
+            ray,
+            (mesh) => mesh instanceof Mesh && allowedMeshes.has(mesh),
+            false
+          );
+        };
+        const matchesLegacyPick = (
+          hit: ReturnType<typeof queries.castBeamSegment>,
+          pick: ReturnType<typeof legacyPick>
+        ) => {
+          if (
+            !hit ||
+            !pick?.hit ||
+            pick.pickedMesh !== hit.mesh ||
+            !pick.pickedPoint
+          ) {
+            return false;
+          }
+          const legacyNormal = pick.getNormal(true, true);
+          return Boolean(
+            legacyNormal &&
+              approximately(hit.distance, pick.distance, 1e-6) &&
+              Vector3.Distance(hit.point, pick.pickedPoint) <= 1e-6 &&
+              Vector3.Distance(hit.normal, legacyNormal) <= 1e-6
+          );
+        };
+        try {
+          const movementSet = new Set(movementColliders);
+          const blockerSet = new Set(rayBlockers);
+          const floorSet = new Set([floor]);
+          const wallFrom = new Vector3(0, 1, 1);
+          const wallTo = new Vector3(5, 1, 1);
+          const ceilingFrom = new Vector3(0, 1, 1);
+          const ceilingTo = new Vector3(0, 3, 1);
+          const floorFrom = new Vector3(0, 1, 1);
+          const floorTo = new Vector3(0, -1, 1);
+          const windowFrom = new Vector3(0, 1, 0);
+          const windowTo = new Vector3(5, 1, 0);
+          const staircaseFrom = new Vector3(-2, 2, 0);
+          const staircaseTo = new Vector3(-2, -1, 0);
+          const insideWallFrom = new Vector3(3, 1, 0);
+          const insideWallTo = new Vector3(5, 1, 0);
+          const wallSurfaceFrom = new Vector3(2.9, 1, 0);
+          const wallSurfaceTo = new Vector3(5, 1, 0);
+          const wallHit = queries.castMovementSegment(
+            "npc",
+            wallFrom,
+            wallTo
+          );
+          const ceilingHit = queries.castMovementSegment(
+            "npc",
+            ceilingFrom,
+            ceilingTo
+          );
+          const floorHit = queries.sampleGround(floorFrom, 2);
+          const beamHit = queries.castBeamSegment(windowFrom, windowTo);
+          const sightHit = queries.castSightSegment(windowFrom, windowTo);
+          const staircaseHit = queries.castMovementSegment(
+            "npc",
+            staircaseFrom,
+            staircaseTo
+          );
+          const insideWallHit = queries.castMovementSegment(
+            "npc",
+            insideWallFrom,
+            insideWallTo
+          );
+          const wallSurfaceHit = queries.castMovementSegment(
+            "npc",
+            wallSurfaceFrom,
+            wallSurfaceTo
+          );
+          const wallMatches = matchesLegacyPick(
+            wallHit,
+            legacyPick(wallFrom, wallTo, movementSet)
+          );
+          const ceilingMatches = matchesLegacyPick(
+            ceilingHit,
+            legacyPick(ceilingFrom, ceilingTo, movementSet)
+          );
+          const floorMatches = matchesLegacyPick(
+            floorHit,
+            legacyPick(floorFrom, floorTo, floorSet)
+          );
+          const beamMatches = matchesLegacyPick(
+            beamHit,
+            legacyPick(windowFrom, windowTo, blockerSet)
+          );
+          const sightMatches = matchesLegacyPick(
+            sightHit,
+            legacyPick(windowFrom, windowTo, blockerSet)
+          );
+          const staircaseMatches = matchesLegacyPick(
+            staircaseHit,
+            legacyPick(
+              staircaseFrom,
+              staircaseTo,
+              movementSet
+            )
+          );
+          const insideWallMatches = matchesLegacyPick(
+            insideWallHit,
+            legacyPick(
+              insideWallFrom,
+              insideWallTo,
+              movementSet
+            )
+          );
+          const wallSurfaceMatches = matchesLegacyPick(
+            wallSurfaceHit,
+            legacyPick(
+              wallSurfaceFrom,
+              wallSurfaceTo,
+              movementSet
+            )
+          );
+          return {
+            ok:
+              wallMatches &&
+              ceilingMatches &&
+              floorMatches &&
+              beamMatches &&
+              sightMatches &&
+              staircaseMatches &&
+              insideWallMatches &&
+              wallSurfaceMatches &&
+              beamHit?.mesh === wall &&
+              sightHit?.mesh === wall,
+            detail:
+              `wall=${wallMatches} / ceiling=${ceilingMatches} / ` +
+              `floor=${floorMatches} / openWindowBeam=${beamMatches} / ` +
+              `openWindowSight=${sightMatches} / ` +
+              `staircase=${staircaseMatches} / ` +
+              `inside=${insideWallMatches} / surface=${wallSurfaceMatches}`
+          };
+        } finally {
+          queries.dispose();
+          scene.dispose();
+          engine.dispose();
+        }
+      })
+    );
+
+    results.push(
+      executeTest("直接Rayの両面命中法線は旧pick同様に入射側を向く", () => {
+        const engine = new NullEngine();
+        const scene = new Scene(engine);
+        const blocker = MeshBuilder.CreatePlane(
+          "double-sided-normal-blocker",
+          {
+            size: 2,
+            sideOrientation: Mesh.DOUBLESIDE
+          },
+          scene
+        );
+        blocker.computeWorldMatrix(true);
+        const blockers = Object.freeze([blocker]);
+        const queries = createStageSpatialQueries(scene, {
+          movementColliders: Object.freeze({
+            player: blockers,
+            npc: blockers,
+            bit: blockers
+          }),
+          groundColliders: blockers,
+          beamBlockers: blockers,
+          sightBlockers: blockers,
+          volumes: []
+        });
+        try {
+          const positiveToNegativeDirection = new Vector3(0, 0, -1);
+          const negativeToPositiveDirection = new Vector3(0, 0, 1);
+          const positiveToNegative = queries.castBeamSegment(
+            new Vector3(0, 0, 1),
+            new Vector3(0, 0, -1)
+          );
+          const negativeToPositive = queries.castBeamSegment(
+            new Vector3(0, 0, -1),
+            new Vector3(0, 0, 1)
+          );
+          const firstDot = positiveToNegative
+            ? Vector3.Dot(
+                positiveToNegative.normal,
+                positiveToNegativeDirection
+              )
+            : Number.POSITIVE_INFINITY;
+          const secondDot = negativeToPositive
+            ? Vector3.Dot(
+                negativeToPositive.normal,
+                negativeToPositiveDirection
+              )
+            : Number.POSITIVE_INFINITY;
+          return {
+            ok:
+              positiveToNegative?.mesh === blocker &&
+              negativeToPositive?.mesh === blocker &&
+              firstDot < 0 &&
+              secondDot < 0,
+            detail:
+              `positiveToNegative=${firstDot.toFixed(3)} / ` +
+              `negativeToPositive=${secondDot.toFixed(3)}`
+          };
+        } finally {
+          queries.dispose();
+          scene.dispose();
+          engine.dispose();
+        }
+      })
+    );
+
+    results.push(
+      executeTest("直接Rayの同距離命中は旧pick同様にScene登録順を優先", () => {
+        const engine = new NullEngine();
+        const scene = new Scene(engine);
+        const firstInScene = MeshBuilder.CreateBox(
+          "same-distance-first-in-scene",
+          { size: 2 },
+          scene
+        );
+        const secondInScene = MeshBuilder.CreateBox(
+          "same-distance-second-in-scene",
+          { size: 2 },
+          scene
+        );
+        firstInScene.position.x = 2;
+        secondInScene.position.x = 2;
+        firstInScene.computeWorldMatrix(true);
+        secondInScene.computeWorldMatrix(true);
+        const reverseOptionOrder = Object.freeze([
+          secondInScene,
+          firstInScene
+        ]);
+        const queries = createStageSpatialQueries(scene, {
+          movementColliders: Object.freeze({
+            player: reverseOptionOrder,
+            npc: reverseOptionOrder,
+            bit: reverseOptionOrder
+          }),
+          groundColliders: reverseOptionOrder,
+          beamBlockers: reverseOptionOrder,
+          sightBlockers: reverseOptionOrder,
+          volumes: []
+        });
+        try {
+          const hit = queries.castMovementSegment(
+            "npc",
+            Vector3.Zero(),
+            new Vector3(4, 0, 0)
+          );
+          return {
+            ok: hit?.mesh === firstInScene,
+            detail: hit?.mesh.name ?? "none"
+          };
+        } finally {
+          queries.dispose();
+          scene.dispose();
+          engine.dispose();
+        }
+      })
+    );
+
+    results.push(
+      executeTest("開始点包含は空間索引とAABBで絞ってから三角形を読む", () => {
+        const fixture = createBeamFixture([
+          Object.freeze({
+            id: "far-blocker",
+            center: new Vector3(100, 0, 0),
+            size: new Vector3(2, 2, 2)
+          }),
+          Object.freeze({
+            id: "containing-blocker",
+            center: Vector3.Zero(),
+            size: new Vector3(2, 2, 2)
+          })
+        ]);
+        let containmentCandidates = -1;
+        let triangulatedMeshes = -1;
+        let system: ReturnType<typeof createV2BeamSystem> | null = null;
+        try {
+          const farBlocker = fixture.blockers[0];
+          const originalGetVerticesData =
+            farBlocker.getVerticesData.bind(farBlocker);
+          let farGeometryRead = false;
+          farBlocker.getVerticesData = (kind, copyWhenShared, forceCopy) => {
+            farGeometryRead = true;
+            return originalGetVerticesData(
+              kind,
+              copyWhenShared,
+              forceCopy
+            );
+          };
+          system = createV2BeamSystem({
+            scene: fixture.scene,
+            stage: fixture.stage,
+            getHumanTargets: () => [],
+            visual: Object.freeze({
+              diameter: 0.04,
+              color: new Color3(1, 0.2, 0.6),
+              alpha: 1
+            }),
+            collisionDiagnostics: {
+              recordStartContainment: (
+                candidateMeshCount,
+                triangulatedMeshCount
+              ) => {
+                containmentCandidates = candidateMeshCount;
+                triangulatedMeshes = triangulatedMeshCount;
+              }
+            }
+          });
+          system.spawn({
+            sourceId: "inside-source",
+            originKind: "bit-fixed",
+            targetPolicy: createAliveHumansPolicy(),
+            origin: Vector3.Zero(),
+            direction: Vector3.Right(),
+            speed: 1,
+            maximumLifetime: 1
+          });
+          const hit = system.update(0.1).impacts[0]?.hit ?? null;
+          return {
+            ok:
+              hit?.kind === "blocker" &&
+              hit.mesh.name === "containing-blocker" &&
+              hit.startedInside &&
+              hit.distance === 0 &&
+              !farGeometryRead &&
+              containmentCandidates === 1 &&
+              triangulatedMeshes === 1,
+            detail:
+              `hit=${hit?.kind === "blocker" ? hit.mesh.name : "none"} / ` +
+              `inside=${hit?.kind === "blocker" ? hit.startedInside : false} / ` +
+              `farGeometryRead=${farGeometryRead} / ` +
+              `diagnostics=${containmentCandidates}:${triangulatedMeshes}`
+          };
+        } finally {
+          system?.dispose();
+          fixture.dispose();
+        }
+      })
+    );
+
+    results.push(
+      executeTest("開始点包含はAABB面の外側ε以内でも旧判定と一致", () => {
+        const fixture = createBeamFixture([
+          Object.freeze({
+            id: "surface-epsilon-blocker",
+            center: new Vector3(3, 0, 0),
+            size: new Vector3(2, 2, 2)
+          })
+        ]);
+        const system = createV2BeamSystem({
+          scene: fixture.scene,
+          stage: fixture.stage,
+          getHumanTargets: () => [],
+          visual: Object.freeze({
+            diameter: 0.04,
+            color: new Color3(1, 0.2, 0.6),
+            alpha: 1
+          })
+        });
+        try {
+          const origin = new Vector3(2 - 0.5e-6, 0, 0);
+          system.spawn({
+            sourceId: "surface-epsilon-source",
+            originKind: "bit-fixed",
+            targetPolicy: createAliveHumansPolicy(),
+            origin,
+            direction: Vector3.Left(),
+            speed: 1,
+            maximumLifetime: 1
+          });
+          const hit = system.update(0.1).impacts[0]?.hit ?? null;
+          return {
+            ok:
+              hit?.kind === "blocker" &&
+              hit.mesh.name === "surface-epsilon-blocker" &&
+              hit.startedInside &&
+              hit.distance === 0 &&
+              hit.point.equals(origin),
+            detail:
+              `hit=${hit?.kind === "blocker" ? hit.mesh.name : "none"} / ` +
+              `inside=${hit?.kind === "blocker" ? hit.startedInside : false} / ` +
+              `distance=${hit?.distance ?? "none"}`
+          };
+        } finally {
+          system.dispose();
+          fixture.dispose();
+        }
+      })
+    );
+
+    results.push(
+      executeTest("ActiveBeamだけ開始点包含を初回区間に限定する", () => {
+        const fixture = createBeamFixture([]);
+        let beamBlockerReads = 0;
+        let containmentDiagnosticCount = 0;
+        const countingStage = {
+          resources: {
+            get beamBlockers() {
+              beamBlockerReads += 1;
+              return fixture.blockers;
+            },
+            sightBlockers: fixture.blockers
+          },
+          queries: fixture.stage.queries
+        } as unknown as StageSpatialContext;
+        const system = createV2BeamSystem({
+          scene: fixture.scene,
+          stage: countingStage,
+          getHumanTargets: () => [],
+          visual: Object.freeze({
+            diameter: 0.04,
+            color: new Color3(1, 0.2, 0.6),
+            alpha: 1
+          }),
+          collisionDiagnostics: {
+            recordStartContainment: () => {
+              containmentDiagnosticCount += 1;
+            }
+          }
+        });
+        try {
+          beamBlockerReads = 0;
+          castV2BeamSegment(
+            countingStage,
+            Vector3.Zero(),
+            Vector3.Right(),
+            [],
+            "one-shot-a",
+            createAliveHumansPolicy()
+          );
+          castV2BeamSegment(
+            countingStage,
+            Vector3.Zero(),
+            Vector3.Right(),
+            [],
+            "one-shot-b",
+            createAliveHumansPolicy()
+          );
+          const oneShotReads = beamBlockerReads;
+          beamBlockerReads = 0;
+          system.spawn({
+            sourceId: "active-beam-source",
+            originKind: "bit-fixed",
+            targetPolicy: createAliveHumansPolicy(),
+            origin: Vector3.Zero(),
+            direction: Vector3.Right(),
+            speed: 1,
+            maximumLifetime: 10
+          });
+          system.update(0.1);
+          system.update(0.1);
+          const activeBeamReads = beamBlockerReads;
+          return {
+            ok:
+              oneShotReads === 2 &&
+              activeBeamReads === 1 &&
+              containmentDiagnosticCount === 1,
+            detail:
+              `oneShotReads=${oneShotReads} / ` +
+              `activeBeamReads=${activeBeamReads} / ` +
+              `diagnostics=${containmentDiagnosticCount}`
           };
         } finally {
           system.dispose();

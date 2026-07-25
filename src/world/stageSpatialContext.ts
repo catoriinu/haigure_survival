@@ -46,6 +46,7 @@ import {
   createStageVolumeContainsSegmentQuery,
   STAGE_VOLUME_ROLES,
   type StageMovementColliderSets,
+  type StageSpatialQueryDiagnostics,
   type StageSpatialQueries,
   type StageVolume,
   type StageVolumeRole
@@ -1785,9 +1786,14 @@ const loadGlbContainer = async (
   return SceneLoader.LoadAssetContainerAsync("", file, scene, null, ".glb");
 };
 
+export type StageSpatialContextLoadOptions = Readonly<{
+  queryDiagnostics?: StageSpatialQueryDiagnostics;
+}>;
+
 export const loadStageSpatialContext = async (
   scene: Scene,
-  stage: StageCatalogEntry
+  stage: StageCatalogEntry,
+  options: StageSpatialContextLoadOptions = {}
 ): Promise<StageSpatialContext> => {
   assertCatalogEntry(stage);
   const [glbData, navmeshData, bitNavmeshData] = await Promise.all([
@@ -1899,7 +1905,8 @@ export const loadStageSpatialContext = async (
         groundColliders: resources.normalColliders,
         beamBlockers,
         sightBlockers,
-        volumes: volumes.all
+        volumes: volumes.all,
+        diagnostics: options.queryDiagnostics
       }
     );
     const boundary: StageBoundary = Object.freeze({

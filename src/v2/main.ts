@@ -16,6 +16,12 @@ import {
   type StageSpatialContext
 } from "../world/stageSpatialContext";
 import {
+  createV2PerformanceDiagnostics,
+  createV2SeededRandom,
+  readV2PerformanceScenario,
+  V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS
+} from "./performanceDiagnostics";
+import {
   createV2PlayerController,
   type V2PlayerController
 } from "./playerController";
@@ -25,9 +31,13 @@ import {
 } from "./playerInput";
 import {
   createV2SurvivalRuntime,
+  V2_PERFORMANCE_ACCEPTANCE_POPULATION,
+  V2_TEST_SURVIVAL_POPULATION,
   type V2SurvivalRuntime
 } from "./survivalRuntime";
 
+const performanceScenario =
+  readV2PerformanceScenario(location.search);
 const canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
 const minimapCanvas = document.getElementById(
   "minimapCanvas"
@@ -43,8 +53,63 @@ const titleMessage = document.getElementById("titleMessage") as HTMLDivElement;
 const titleMode = document.getElementById("titleMode") as HTMLDivElement;
 const titleVersion = document.getElementById("titleVersion") as HTMLDivElement;
 
+if (performanceScenario) {
+  canvas.style.width = "1920px";
+  canvas.style.height = "1080px";
+}
 const engine = new Engine(canvas, true);
 const scene = new Scene(engine);
+const performanceDiagnostics = performanceScenario
+  ? createV2PerformanceDiagnostics(
+      engine,
+      scene,
+      performanceScenario,
+      V2_PERFORMANCE_ACCEPTANCE_POPULATION
+    )
+  : null;
+if (performanceDiagnostics) {
+  window.__v2PerformanceDiagnostics =
+    performanceDiagnostics;
+}
+const stageRayQueryKinds = [
+  "movement",
+  "beam",
+  "sight",
+  "ground"
+] as const;
+const stageQueryDiagnostics = performanceDiagnostics
+  ? Object.freeze({
+      recordRayQuery: (
+        kind: "movement" | "beam" | "sight" | "ground",
+        candidateMeshCount: number,
+        directIntersectionCount: number
+      ) => {
+        performanceDiagnostics.count(`ray.${kind}.queries`);
+        performanceDiagnostics.count(
+          `ray.${kind}.candidates`,
+          candidateMeshCount
+        );
+        performanceDiagnostics.count(
+          `ray.${kind}.intersections`,
+          directIntersectionCount
+        );
+      },
+      recordRayTriangleQuery: (
+        kind: "movement" | "beam" | "sight" | "ground",
+        indexedTriangleCount: number,
+        exactTriangleTestCount: number
+      ) => {
+        performanceDiagnostics.count(
+          `ray.${kind}.indexed-triangles`,
+          indexedTriangleCount
+        );
+        performanceDiagnostics.count(
+          `ray.${kind}.exact-triangle-tests`,
+          exactTriangleTestCount
+        );
+      }
+    })
+  : undefined;
 scene.collisionsEnabled = true;
 scene.clearColor = new Color4(0.48, 0.72, 0.92, 1);
 
@@ -84,7 +149,13 @@ const initializeRuntime = async () => {
   let ownedSurvival: V2SurvivalRuntime | null = null;
 
   try {
-    ownedStage = await loadStageSpatialContext(scene, SCHOOL_STAGE);
+    ownedStage = await loadStageSpatialContext(
+      scene,
+      SCHOOL_STAGE,
+      {
+        queryDiagnostics: stageQueryDiagnostics
+      }
+    );
     ownedInput = createV2PlayerInput(window);
     ownedPlayer = createV2PlayerController({
       scene,
@@ -97,8 +168,20 @@ const initializeRuntime = async () => {
       scene,
       stage: ownedStage,
       player: ownedPlayer,
-      random: Math.random
+      random: performanceScenario
+        ? createV2SeededRandom(performanceScenario.seed)
+        : Math.random,
+      population: performanceScenario
+        ? V2_PERFORMANCE_ACCEPTANCE_POPULATION
+        : V2_TEST_SURVIVAL_POPULATION,
+      performanceDiagnostics,
+      performanceWorkloadScenario: performanceScenario
     });
+    await scene.whenReadyAsync();
+    const visualPreparation =
+      ownedSurvival.prepareVisualResources();
+    scene.render();
+    await visualPreparation;
     return {
       stage: ownedStage,
       player: ownedPlayer,
@@ -112,6 +195,8 @@ const initializeRuntime = async () => {
     ownedPlayer?.dispose();
     ownedInput?.dispose();
     ownedStage?.dispose();
+    performanceDiagnostics?.dispose();
+    delete window.__v2PerformanceDiagnostics;
     scene.dispose();
     engine.dispose();
     throw error;
@@ -130,6 +215,37 @@ titleMessage.style.display = "none";
 let started = false;
 let statusTimer = 0;
 let elapsedSeconds = 0;
+let performanceReportPublished = false;
+
+const configurePerformanceView = () => {
+  if (!performanceScenario) {
+    return;
+  }
+  const courtyardVenue = stage.assemblyVenues.all.find(
+    (venue) =>
+      venue.anchor.node.name ===
+      "MRK_AssemblyAnchor_Courtyard"
+  );
+  if (!courtyardVenue) {
+    throw new Error(
+      "性能シナリオ用の校庭集合会場がありません。"
+    );
+  }
+  const footPosition = player.getFootPosition();
+  const courtyardDirection =
+    courtyardVenue.center.subtract(footPosition);
+  courtyardDirection.y = 0;
+  if (courtyardDirection.lengthSquared() === 0) {
+    throw new Error(
+      "性能シナリオの校庭方向を決定できません。"
+    );
+  }
+  const lookAtPosition =
+    performanceScenario.view === "courtyard"
+      ? footPosition.add(courtyardDirection)
+      : footPosition.subtract(courtyardDirection);
+  player.placeAt(footPosition, lookAtPosition);
+};
 
 const startPlay = () => {
   if (!started) {
@@ -163,22 +279,86 @@ const handleCanvasClick = () => {
 
 canvas.addEventListener("click", handleCanvasClick);
 
+if (performanceScenario) {
+  configurePerformanceView();
+  started = true;
+  titleOverlay.style.display = "none";
+  statusInfo.style.display = "block";
+  helpPanel.style.display = "block";
+  helpPanel.textContent =
+    `性能受入計測\nseed ${performanceScenario.seed}\n` +
+    `view ${performanceScenario.view}`;
+}
+
 engine.runRenderLoop(() => {
   try {
-    const delta = Math.min(engine.getDeltaTime() / 1000, 0.05);
-    const playerFrame = player.update(
-      delta,
-      started && survival.canPlayerMove()
-    );
+    performanceDiagnostics?.beginFrame();
+    if (performanceDiagnostics) {
+      for (const kind of stageRayQueryKinds) {
+        performanceDiagnostics.count(`ray.${kind}.queries`, 0);
+        performanceDiagnostics.count(
+          `ray.${kind}.candidates`,
+          0
+        );
+        performanceDiagnostics.count(
+          `ray.${kind}.intersections`,
+          0
+        );
+        performanceDiagnostics.count(
+          `ray.${kind}.indexed-triangles`,
+          0
+        );
+        performanceDiagnostics.count(
+          `ray.${kind}.exact-triangle-tests`,
+          0
+        );
+      }
+    }
+    const delta = performanceScenario
+      ? V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS / 1000
+      : Math.min(engine.getDeltaTime() / 1000, 0.05);
+    const playerFrame = performanceDiagnostics
+      ? performanceDiagnostics.measure("player", () =>
+          player.update(
+            delta,
+            started && survival.canPlayerMove()
+          )
+        )
+      : player.update(
+          delta,
+          started && survival.canPlayerMove()
+        );
     let survivalFrame = survival.getFrame();
     if (started) {
       elapsedSeconds += delta;
-      survivalFrame = survival.update(delta, elapsedSeconds);
+      survivalFrame = performanceDiagnostics
+        ? performanceDiagnostics.measure(
+            "survival",
+            () => survival.update(delta, elapsedSeconds)
+          )
+        : survival.update(delta, elapsedSeconds);
     }
     statusTimer += delta;
     if (statusTimer >= 0.1) {
       statusTimer = 0;
       const foot = playerFrame.footPosition;
+      const performanceProgress =
+        performanceDiagnostics?.getProgress();
+      if (
+        performanceDiagnostics &&
+        performanceProgress?.status === "complete" &&
+        !performanceReportPublished
+      ) {
+        document.body.dataset.v2PerformanceReport =
+          JSON.stringify(performanceDiagnostics.getReport());
+        performanceReportPublished = true;
+      }
+      const performanceText = performanceProgress
+        ? `\nPERF ${performanceProgress.status} ` +
+          `${performanceProgress.elapsedSeconds.toFixed(1)}s  ` +
+          `${performanceProgress.renderWidth}x` +
+          `${performanceProgress.renderHeight}`
+        : "";
       statusInfo.textContent =
         `学校3D空間\n` +
         `X ${foot.x.toFixed(3)}  Y ${foot.y.toFixed(3)}  Z ${foot.z.toFixed(3)}\n` +
@@ -195,9 +375,17 @@ engine.runRenderLoop(() => {
         `点滅 ${survivalFrame.alarmBlinkCount}  ` +
         `発報 ${survivalFrame.alarmTriggerCount}\n` +
         `着弾 壁 ${survivalFrame.blockerImpactCount}  ` +
-        `標的 ${survivalFrame.actorImpactCount}`;
+        `標的 ${survivalFrame.actorImpactCount}` +
+        performanceText;
     }
-    scene.render();
+    if (performanceDiagnostics) {
+      performanceDiagnostics.measure("render", () => {
+        scene.render();
+      });
+      performanceDiagnostics.finishFrame();
+    } else {
+      scene.render();
+    }
   } catch (error) {
     engine.stopRenderLoop();
     console.error("V2ゲーム更新中に例外が発生したため、更新を停止しました。", error);
@@ -217,6 +405,9 @@ const disposeRuntime = () => {
   engine.stopRenderLoop();
   window.removeEventListener("resize", resize);
   canvas.removeEventListener("click", handleCanvasClick);
+  performanceDiagnostics?.dispose();
+  delete window.__v2PerformanceDiagnostics;
+  delete document.body.dataset.v2PerformanceReport;
   survival.dispose();
   player.dispose();
   stage.dispose();

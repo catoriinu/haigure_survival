@@ -1,7 +1,6 @@
 import { Vector3 } from "@babylonjs/core";
 
 import {
-  cloneBitFlightRoute,
   getBitFlightWorldPosition,
   type BitFlightLocation,
   type BitFlightNavigationWorld,
@@ -44,6 +43,16 @@ export type BitFlightAgentStepResult = Readonly<{
   routeStepCount: number;
 }>;
 
+export type BitFlightAgentUpdateResult = BitFlightAgentStepResult &
+  Readonly<{
+    rootPosition: Vector3 | null;
+    movementBlocked: boolean;
+  }>;
+
+export type BitFlightAgentRootPositionResolver = (
+  candidate: BitFlightAgentStepResult
+) => Vector3;
+
 export interface BitFlightAgent {
   setRoute(
     currentLocation: BitFlightLocation,
@@ -52,12 +61,16 @@ export interface BitFlightAgent {
   ): boolean;
   setPreparedRoute(
     currentLocation: BitFlightLocation,
-    route: BitFlightRoute
+    route: BitFlightRoute,
+    safetyStatus: "verify" | "verified"
   ): boolean;
   update(
     surfaceSpeedWorldUnitsPerSecond: number,
-    deltaSeconds: number
-  ): BitFlightAgentStepResult;
+    deltaSeconds: number,
+    previousRootPosition: Vector3,
+    resolveRootPosition: BitFlightAgentRootPositionResolver
+  ): BitFlightAgentUpdateResult;
+  getState(): BitFlightAgentState;
   getSnapshot(): BitFlightAgentStepResult;
   clear(): void;
   dispose(): void;
@@ -70,6 +83,17 @@ type ActiveTransition = {
   endpoint: BitFlightLocation;
   clearing: boolean;
 };
+
+type BitFlightAgentUpdateCheckpoint = Readonly<{
+  route: BitFlightRoute | null;
+  routeStepIndex: number;
+  surfacePointIndex: number;
+  location: BitFlightLocation | null;
+  position: Vector3 | null;
+  facingDirection: Vector3 | null;
+  activeTransition: ActiveTransition | null;
+  state: BitFlightAgentState;
+}>;
 
 const MOVEMENT_EPSILON = 1e-8;
 
@@ -233,7 +257,8 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
 
   setPreparedRoute(
     currentLocation: BitFlightLocation,
-    route: BitFlightRoute
+    route: BitFlightRoute,
+    safetyStatus: "verify" | "verified"
   ) {
     this.assertActive();
     if (this.activeTransition) {
@@ -242,7 +267,7 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
       );
     }
     this.navigationWorld.assertPreparedRoute(currentLocation, route);
-    return this.acceptRoute(currentLocation, route, "verify");
+    return this.acceptRoute(currentLocation, route, safetyStatus);
   }
 
   private acceptRoute(
@@ -259,23 +284,25 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
     this.surfacePointIndex = 0;
     this.activeTransition = null;
     if (
-      !this.safety.isCenterSafe(currentPosition) ||
-      !this.safety.isCenterSafe(destinationPosition) ||
-      (safetyStatus === "verify" &&
+      safetyStatus === "verify" &&
+      (!this.safety.isCenterSafe(currentPosition) ||
+        !this.safety.isCenterSafe(destinationPosition) ||
         !this.isRouteSafe(currentLocation, route))
     ) {
       this.route = null;
       this.state = "blocked";
       return false;
     }
-    this.route = cloneBitFlightRoute(route);
+    this.route = route;
     this.state = this.route.steps.length === 0 ? "arrived" : "surface";
     return true;
   }
 
   update(
     surfaceSpeedWorldUnitsPerSecond: number,
-    deltaSeconds: number
+    deltaSeconds: number,
+    previousRootPosition: Vector3,
+    resolveRootPosition: BitFlightAgentRootPositionResolver
   ) {
     this.assertActive();
     assertNonNegativeFiniteNumber(
@@ -283,52 +310,82 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
       surfaceSpeedWorldUnitsPerSecond
     );
     assertNonNegativeFiniteNumber("ビット飛行deltaSeconds", deltaSeconds);
+    assertFiniteVector("ビット実root移動始点", previousRootPosition);
+    const checkpoint = this.createUpdateCheckpoint();
+    try {
+      let remainingSeconds = deltaSeconds;
+      let zeroDurationProgress = true;
+      while (zeroDurationProgress) {
+        zeroDurationProgress = false;
 
-    let remainingSeconds = deltaSeconds;
-    let zeroDurationProgress = true;
-    while (zeroDurationProgress) {
-      zeroDurationProgress = false;
+        if (this.activeTransition) {
+          const result = this.advanceActiveTransition(remainingSeconds);
+          remainingSeconds = result.remainingSeconds;
+          zeroDurationProgress = result.completed;
+          if (!result.completed) {
+            break;
+          }
+          continue;
+        }
 
-      if (this.activeTransition) {
-        const result = this.advanceActiveTransition(remainingSeconds);
+        if (!this.route) {
+          break;
+        }
+        if (this.routeStepIndex >= this.route.steps.length) {
+          this.location = cloneBitFlightLocation(this.route.destination);
+          this.position = getBitFlightWorldPosition(this.location);
+          this.state = "arrived";
+          break;
+        }
+
+        const step = this.route.steps[this.routeStepIndex];
+        if (step.kind === "transition") {
+          this.beginTransition(step);
+          zeroDurationProgress = true;
+          continue;
+        }
+
+        const result = this.advanceSurfaceStep(
+          step,
+          surfaceSpeedWorldUnitsPerSecond,
+          remainingSeconds
+        );
         remainingSeconds = result.remainingSeconds;
         zeroDurationProgress = result.completed;
         if (!result.completed) {
           break;
         }
-        continue;
       }
 
-      if (!this.route) {
-        break;
+      const candidate = this.getSnapshot();
+      if (!candidate.position) {
+        return this.createUpdateResult(candidate, null, false);
       }
-      if (this.routeStepIndex >= this.route.steps.length) {
-        this.location = cloneBitFlightLocation(this.route.destination);
-        this.position = getBitFlightWorldPosition(this.location);
-        this.state = "arrived";
-        break;
+      const rootPosition = resolveRootPosition(candidate);
+      assertFiniteVector("ビット実root移動終点", rootPosition);
+      if (
+        !previousRootPosition.equals(rootPosition) &&
+        this.findMovementCollision(previousRootPosition, rootPosition)
+      ) {
+        this.restoreUpdateCheckpoint(checkpoint);
+        this.clear();
+        return this.createUpdateResult(
+          this.getSnapshot(),
+          previousRootPosition,
+          true,
+          "blocked"
+        );
       }
-
-      const step = this.route.steps[this.routeStepIndex];
-      if (step.kind === "transition") {
-        this.beginTransition(step);
-        zeroDurationProgress = true;
-        continue;
-      }
-
-      const result = this.advanceSurfaceStep(
-        step,
-        surfaceSpeedWorldUnitsPerSecond,
-        remainingSeconds
-      );
-      remainingSeconds = result.remainingSeconds;
-      zeroDurationProgress = result.completed;
-      if (!result.completed) {
-        break;
-      }
+      return this.createUpdateResult(candidate, rootPosition, false);
+    } catch (error) {
+      this.restoreUpdateCheckpoint(checkpoint);
+      throw error;
     }
+  }
 
-    return this.getSnapshot();
+  getState() {
+    this.assertActive();
+    return this.state;
   }
 
   getSnapshot() {
@@ -390,7 +447,7 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
     const destination = getBitFlightWorldPosition(route.destination);
     return (
       this.safety.isCenterSafe(destination) &&
-      this.safety.findMovementCollision(cursor, destination) === null
+      this.findMovementCollision(cursor, destination) === null
     );
   }
 
@@ -434,7 +491,7 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
     }
     for (let index = 1; index < points.length; index += 1) {
       if (
-        this.safety.findMovementCollision(
+        this.findMovementCollision(
           points[index - 1],
           points[index]
         )
@@ -469,11 +526,6 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
       const targetPosition = getBitFlightWorldPosition(target);
       const distance = Vector3.Distance(this.position, targetPosition);
       if (distance <= this.config.waypointTolerance) {
-        if (this.safety.findMovementCollision(this.position, targetPosition)) {
-          this.route = null;
-          this.state = "blocked";
-          return { remainingSeconds: 0, completed: false };
-        }
         this.location = cloneBitFlightLocation(target);
         this.position = targetPosition;
         this.surfacePointIndex += 1;
@@ -532,16 +584,6 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
         this.state = "blocked";
         return { remainingSeconds: 0, completed: false };
       }
-      if (
-        this.safety.findMovementCollision(
-          this.position,
-          constrainedPosition
-        )
-      ) {
-        this.route = null;
-        this.state = "blocked";
-        return { remainingSeconds: 0, completed: false };
-      }
       this.facingDirection = constrainedPosition
         .subtract(this.position)
         .normalize();
@@ -554,16 +596,6 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
         Vector3.Distance(this.position, targetPosition) <=
         this.config.waypointTolerance
       ) {
-        if (
-          this.safety.findMovementCollision(
-            this.position,
-            targetPosition
-          )
-        ) {
-          this.route = null;
-          this.state = "blocked";
-          return { remainingSeconds: 0, completed: false };
-        }
         this.location = cloneBitFlightLocation(target);
         this.position = targetPosition;
         this.surfacePointIndex += 1;
@@ -590,11 +622,6 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
     step.points.forEach((point, index) =>
       assertFiniteVector(`飛行遷移経路点${index}`, point)
     );
-    if (!this.isRouteStepSafe(step)) {
-      this.route = null;
-      this.state = "blocked";
-      return;
-    }
     const entryPosition = getBitFlightWorldPosition(step.entry);
     if (
       Vector3.Distance(this.position, entryPosition) >
@@ -628,12 +655,6 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
       const target = active.points[active.nextPointIndex];
       const distance = Vector3.Distance(this.position, target);
       if (distance <= this.config.waypointTolerance) {
-        if (this.safety.findMovementCollision(this.position, target)) {
-          this.route = null;
-          this.activeTransition = null;
-          this.state = "blocked";
-          return { remainingSeconds: 0, completed: false };
-        }
         this.position = target.clone();
         active.nextPointIndex += 1;
         continue;
@@ -656,17 +677,6 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
       const desiredPosition = this.position.add(
         direction.scale(movementDistance)
       );
-      if (
-        this.safety.findMovementCollision(
-          this.position,
-          desiredPosition
-        )
-      ) {
-        this.route = null;
-        this.activeTransition = null;
-        this.state = "blocked";
-        return { remainingSeconds: 0, completed: false };
-      }
       this.position = desiredPosition;
       this.facingDirection = direction;
       remainingSeconds -=
@@ -680,12 +690,6 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
         Vector3.Distance(this.position, target) <=
         this.config.waypointTolerance
       ) {
-        if (this.safety.findMovementCollision(this.position, target)) {
-          this.route = null;
-          this.activeTransition = null;
-          this.state = "blocked";
-          return { remainingSeconds: 0, completed: false };
-        }
         this.position = target.clone();
         active.nextPointIndex += 1;
         continue;
@@ -706,6 +710,67 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
       this.surfacePointIndex = 0;
     }
     return { remainingSeconds, completed: true };
+  }
+
+  private findMovementCollision(from: Vector3, to: Vector3) {
+    if (from.equals(to)) {
+      return null;
+    }
+    return this.safety.findMovementCollision(from, to);
+  }
+
+  private createUpdateCheckpoint(): BitFlightAgentUpdateCheckpoint {
+    return {
+      route: this.route,
+      routeStepIndex: this.routeStepIndex,
+      surfacePointIndex: this.surfacePointIndex,
+      location: this.location,
+      position: this.position,
+      facingDirection: this.facingDirection,
+      activeTransition: this.activeTransition
+        ? {
+            routeStep: this.activeTransition.routeStep,
+            points: this.activeTransition.points,
+            nextPointIndex: this.activeTransition.nextPointIndex,
+            endpoint: this.activeTransition.endpoint,
+            clearing: this.activeTransition.clearing
+          }
+        : null,
+      state: this.state
+    };
+  }
+
+  private restoreUpdateCheckpoint(checkpoint: BitFlightAgentUpdateCheckpoint) {
+    this.route = checkpoint.route;
+    this.routeStepIndex = checkpoint.routeStepIndex;
+    this.surfacePointIndex = checkpoint.surfacePointIndex;
+    this.location = checkpoint.location;
+    this.position = checkpoint.position;
+    this.facingDirection = checkpoint.facingDirection;
+    this.activeTransition = checkpoint.activeTransition
+      ? {
+          routeStep: checkpoint.activeTransition.routeStep,
+          points: checkpoint.activeTransition.points,
+          nextPointIndex: checkpoint.activeTransition.nextPointIndex,
+          endpoint: checkpoint.activeTransition.endpoint,
+          clearing: checkpoint.activeTransition.clearing
+        }
+      : null;
+    this.state = checkpoint.state;
+  }
+
+  private createUpdateResult(
+    snapshot: BitFlightAgentStepResult,
+    rootPosition: Vector3 | null,
+    movementBlocked: boolean,
+    state = snapshot.state
+  ): BitFlightAgentUpdateResult {
+    return Object.freeze({
+      ...snapshot,
+      state,
+      rootPosition: rootPosition?.clone() ?? null,
+      movementBlocked
+    });
   }
 
   private beginSafeTransitionClear() {

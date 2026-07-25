@@ -578,6 +578,7 @@ const executeBitTransitionAgentAcceptance = (
   let allTicksSafe = safety.isCenterSafe(
     getBitFlightWorldPosition(start)
   );
+  let rootPosition = getBitFlightWorldPosition(start);
   let updateCount = 0;
   let finalSnapshot = agent.getSnapshot();
   try {
@@ -607,7 +608,7 @@ const executeBitTransitionAgentAcceptance = (
       : null;
     const routeAccepted =
       preparedRoute !== null &&
-      agent.setPreparedRoute(start, preparedRoute);
+      agent.setPreparedRoute(start, preparedRoute, "verify");
     finalSnapshot = agent.getSnapshot();
     while (
       routeAccepted &&
@@ -616,10 +617,21 @@ const executeBitTransitionAgentAcceptance = (
       finalSnapshot.state !== "unreachable" &&
       updateCount < 60
     ) {
-      finalSnapshot = agent.update(
+      const updateResult = agent.update(
         2 * BLENDER_METERS_TO_WORLD_UNITS,
-        1
+        1,
+        rootPosition,
+        (candidate) => {
+          if (!candidate.position) {
+            throw new Error("更新後のBIT飛行位置がありません。");
+          }
+          return candidate.position;
+        }
       );
+      finalSnapshot = updateResult;
+      if (updateResult.rootPosition) {
+        rootPosition = updateResult.rootPosition;
+      }
       updateCount += 1;
       if (
         (finalSnapshot.transition?.transition.id === transition.id &&
@@ -1223,10 +1235,19 @@ const runValidation = async () => {
     let playerPathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let npcPathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let repeatedDirectPathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let samePolygonPathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let samePositionPathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let disconnectedPathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let firstPathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let secondPathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let reversePathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let repeatedDirectPath: NavigationPath | null = null;
+    let samePolygonSurfaceStep: NavigationSurfaceStep | null = null;
+    let samePositionSurfaceStep: NavigationSurfaceStep | null = null;
+    let disconnectedSurfaceStep: NavigationSurfaceStep | null = null;
+    let samePolygonStart: NavigationLocation | null = null;
+    let samePolygonDestination: NavigationLocation | null = null;
+    let equivalentPositionDestination: NavigationLocation | null = null;
     let firstCachedLinkPath: NavigationPath | null = null;
     let secondCachedLinkPath: NavigationPath | null = null;
     let reverseCachedLinkPath: NavigationPath | null = null;
@@ -1302,6 +1323,49 @@ const runValidation = async () => {
       );
       repeatedDirectPathfindAttempts = Object.freeze(
         recastPathfindAttempts.slice(repeatedDirectPathfindStartIndex)
+      );
+      samePolygonStart = requireNavigationLocation(
+        linkCacheValidationWorld,
+        new Vector3(3, 0, -1.5)
+      );
+      samePolygonDestination = requireNavigationLocation(
+        linkCacheValidationWorld,
+        new Vector3(3.01, 0, -1.5)
+      );
+      const samePolygonPathfindStartIndex = recastPathfindAttempts.length;
+      samePolygonSurfaceStep =
+        linkCacheValidationWorld.findSurfacePath(
+          samePolygonStart,
+          samePolygonDestination
+        );
+      samePolygonPathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(samePolygonPathfindStartIndex)
+      );
+      equivalentPositionDestination = requireNavigationLocation(
+        linkCacheValidationWorld,
+        new Vector3(3.00005, 0, -1.5)
+      );
+      const samePositionPathfindStartIndex = recastPathfindAttempts.length;
+      samePositionSurfaceStep =
+        linkCacheValidationWorld.findSurfacePath(
+          samePolygonStart,
+          equivalentPositionDestination
+        );
+      samePositionPathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(samePositionPathfindStartIndex)
+      );
+      const disconnectedDestination = requireNavigationLocation(
+        linkCacheValidationWorld,
+        new Vector3(-6.5, 0, -1.5)
+      );
+      const disconnectedPathfindStartIndex = recastPathfindAttempts.length;
+      disconnectedSurfaceStep =
+        linkCacheValidationWorld.findSurfacePath(
+          samePolygonStart,
+          disconnectedDestination
+        );
+      disconnectedPathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(disconnectedPathfindStartIndex)
       );
       const startLocation = requireNavigationLocation(
         linkCacheValidationWorld,
@@ -1380,6 +1444,49 @@ const runValidation = async () => {
     const repeatedDirectTransitionCount =
       repeatedDirectPath?.steps.filter((step) => step.kind === "transition")
         .length ?? 0;
+    const samePolygonSurfaceStepMatches =
+      samePolygonStart !== null &&
+      samePolygonDestination !== null &&
+      samePolygonStart.polygonRef === samePolygonDestination.polygonRef &&
+      samePolygonSurfaceStep?.points.length === 2 &&
+      samePolygonSurfaceStep.points[0].polygonRef ===
+        samePolygonStart.polygonRef &&
+      samePolygonSurfaceStep.points[1].polygonRef ===
+        samePolygonDestination.polygonRef &&
+      Vector3.Distance(
+        samePolygonSurfaceStep.points[0].position,
+        samePolygonStart.position
+      ) <= 1e-9 &&
+      Vector3.Distance(
+        samePolygonSurfaceStep.points[1].position,
+        samePolygonDestination.position
+      ) <= 1e-9 &&
+      Math.abs(
+        samePolygonSurfaceStep.distance -
+          Vector3.Distance(
+            samePolygonStart.position,
+            samePolygonDestination.position
+          )
+      ) <= 1e-9;
+    const samePositionSurfaceStepMatches =
+      samePolygonStart !== null &&
+      equivalentPositionDestination !== null &&
+      Vector3.Distance(
+        samePolygonStart.position,
+        equivalentPositionDestination.position
+      ) > 0 &&
+      Vector3.Distance(
+        samePolygonStart.position,
+        equivalentPositionDestination.position
+      ) < 1 / 16_384 &&
+      samePositionSurfaceStep?.points.length === 1 &&
+      samePositionSurfaceStep.points[0].polygonRef ===
+        samePolygonStart.polygonRef &&
+      Vector3.Distance(
+        samePositionSurfaceStep.points[0].position,
+        samePolygonStart.position
+      ) <= 1e-9 &&
+      samePositionSurfaceStep.distance === 0;
     const directSurfacePairKey = playerPathfindAttempts[0]
       ? `${playerPathfindAttempts[0].start}->${playerPathfindAttempts[0].destination}`
       : null;
@@ -1469,11 +1576,17 @@ const runValidation = async () => {
         repeatedDirectTransitionCount === 0 &&
         repeatedDirectPathfindAttempts.length === 1 &&
         repeatedDirectSurfacePathfindCount === 1 &&
+        samePolygonPathfindAttempts.length === 0 &&
+        samePositionPathfindAttempts.length === 0 &&
+        disconnectedPathfindAttempts.length === 0 &&
+        samePolygonSurfaceStepMatches &&
+        samePositionSurfaceStepMatches &&
+        disconnectedSurfaceStep === null &&
         firstEndpointSurfacePathfindAttempts.length === 0 &&
         secondEndpointSurfacePathfindAttempts.length === 0 &&
         reverseEndpointSurfacePathfindAttempts.length === 0 &&
         reverseCachedSurfaceMatches,
-      detail: `endpoints=${cachedEndpointKeys.size} / build=${constructionPathfindAttempts.length} / normal=${playerPathfindAttempts.length},${npcPathfindAttempts.length} / repeatedDirect=${repeatedDirectPathfindAttempts.length}(direct=${repeatedDirectSurfacePathfindCount}, ${repeatedDirectTransitionCount}遷移) / endpoint=${firstEndpointSurfacePathfindAttempts.length},${secondEndpointSurfacePathfindAttempts.length},${reverseEndpointSurfacePathfindAttempts.length} / reversePoints=${reverseCachedSurfaceMatches} / transitions=${firstCachedTransitionIds.join(" > ") || "none"}`
+      detail: `endpoints=${cachedEndpointKeys.size} / build=${constructionPathfindAttempts.length} / normal=${playerPathfindAttempts.length},${npcPathfindAttempts.length} / repeatedDirect=${repeatedDirectPathfindAttempts.length}(direct=${repeatedDirectSurfacePathfindCount}, ${repeatedDirectTransitionCount}遷移) / fast=${samePolygonPathfindAttempts.length},${samePositionPathfindAttempts.length},${disconnectedPathfindAttempts.length}(${samePolygonSurfaceStepMatches}/${samePositionSurfaceStepMatches}/${disconnectedSurfaceStep === null}) / endpoint=${firstEndpointSurfacePathfindAttempts.length},${secondEndpointSurfacePathfindAttempts.length},${reverseEndpointSurfacePathfindAttempts.length} / reversePoints=${reverseCachedSurfaceMatches} / transitions=${firstCachedTransitionIds.join(" > ") || "none"}`
     });
 
     const highProjectionLink = createValidationLinkPair(
@@ -1735,7 +1848,8 @@ const runValidation = async () => {
       primaryStartLocation,
       primaryLinkEnd,
       10,
-      1
+      1,
+      true
     );
     checks.push({
       name: "特殊接続入口でのtransition-required",
@@ -1857,19 +1971,27 @@ const runValidation = async () => {
       "npc",
       navigationAgentConfig
     );
-    const initialAgentStep = cacheAgent.update(routeStartLocation, routeEnd, 0, 0);
+    const initialAgentStep = cacheAgent.update(
+      routeStartLocation,
+      routeEnd,
+      0,
+      0,
+      true
+    );
     const cachedAgentStep = cacheAgent.update(
       routeStartLocation,
       routeEnd,
       0,
-      0.25
+      0.25,
+      true
     );
     const movedAgentTarget = routeEnd.add(new Vector3(0.3, 0, 0));
     const movedTargetAgentStep = cacheAgent.update(
       routeStartLocation,
       movedAgentTarget,
       0,
-      0
+      0,
+      true
     );
     checks.push({
       name: "3D経路追従の初回探索とキャッシュ",
@@ -1897,19 +2019,22 @@ const runValidation = async () => {
       routeStartLocation,
       unreachableTarget,
       1,
-      0
+      0,
+      true
     );
     const unreachableCached = unreachableAgent.update(
       routeStartLocation,
       unreachableTarget,
       1,
-      0.5
+      0.5,
+      true
     );
     const unreachableRetry = unreachableAgent.update(
       routeStartLocation,
       unreachableTarget,
       1,
-      0.5
+      0.5,
+      true
     );
     checks.push({
       name: "到達不能時の停止と期限後再探索",
@@ -1938,13 +2063,20 @@ const runValidation = async () => {
       "npc",
       navigationAgentConfig
     );
-    stuckAgent.update(routeStartLocation, routeEnd, 1, 0);
-    const stuckWaiting = stuckAgent.update(routeStartLocation, routeEnd, 1, 0.3);
+    stuckAgent.update(routeStartLocation, routeEnd, 1, 0, true);
+    const stuckWaiting = stuckAgent.update(
+      routeStartLocation,
+      routeEnd,
+      1,
+      0.3,
+      true
+    );
     const stuckRecalculated = stuckAgent.update(
       routeStartLocation,
       routeEnd,
       1,
-      0.3
+      0.3,
+      true
     );
     checks.push({
       name: "移動停止判定による経路再計算",
@@ -1959,7 +2091,13 @@ const runValidation = async () => {
       "npc",
       navigationAgentConfig
     );
-    const rampAgentStep = rampAgent.update(rampStartLocation, rampEnd, 0.75, 1);
+    const rampAgentStep = rampAgent.update(
+      rampStartLocation,
+      rampEnd,
+      0.75,
+      1,
+      true
+    );
     checks.push({
       name: "3D経路追従の斜面高度",
       ok:
@@ -1978,7 +2116,8 @@ const runValidation = async () => {
       routeStartLocation,
       routeEnd,
       100,
-      1
+      1,
+      true
     );
     const routeEndpoint = routePath[routePath.length - 1];
     checks.push({
@@ -2004,7 +2143,8 @@ const runValidation = async () => {
       routeStartLocation,
       floatingTarget,
       100,
-      1
+      1,
+      true
     );
     checks.push({
       name: "NavMesh投影標的への到着",
@@ -2024,10 +2164,22 @@ const runValidation = async () => {
       "npc",
       navigationAgentConfig
     );
-    clearAgent.update(routeStartLocation, routeEnd, 0, 0);
-    const beforeClear = clearAgent.update(routeStartLocation, routeEnd, 0, 0.1);
+    clearAgent.update(routeStartLocation, routeEnd, 0, 0, true);
+    const beforeClear = clearAgent.update(
+      routeStartLocation,
+      routeEnd,
+      0,
+      0.1,
+      true
+    );
     clearAgent.clear();
-    const afterClear = clearAgent.update(routeStartLocation, routeEnd, 0, 0);
+    const afterClear = clearAgent.update(
+      routeStartLocation,
+      routeEnd,
+      0,
+      0,
+      true
+    );
     checks.push({
       name: "3D経路追従状態のclear",
       ok: !beforeClear.pathRecalculated && afterClear.pathRecalculated,
@@ -3071,7 +3223,8 @@ const runValidation = async () => {
               agentLocation,
               destination,
               0.5,
-              0.1
+              0.1,
+              true
             );
             agentLocation = result.location;
             agentState = result.state;
@@ -3498,19 +3651,22 @@ const runValidation = async () => {
           stage: npcMovementBlocking.stage,
           npcCount: 2,
           initialBrainwashedNpcCount: 2,
+          diagnosticsEnabled: true,
           random: npcRandom.random
         });
         const npcInitializationRandomCallCount = npcRandom.getCallCount();
         const alarmCandidateId = "alarm-t04-tracking";
         const alarmPosition = npcSystem
-          .getTargetSnapshots()[1]
+          .getFrameView()
+          .targets[1]
           .footPosition.add(new Vector3(0.5, 0, 0));
         const alarmRadiusSquared =
           V2_ALARM_INFLUENCE_RADIUS_WORLD_UNITS *
           V2_ALARM_INFLUENCE_RADIUS_WORLD_UNITS;
         const expectedAlarmReceiverIds = new Set(
           npcSystem
-            .getTargetSnapshots()
+            .getFrameView()
+            .targets
             .filter(
               (target) =>
                 target.state === "brainwash-complete-gun" ||
@@ -3540,15 +3696,18 @@ const runValidation = async () => {
           stageDestination.clone(),
           stageDestination.add(new Vector3(0, 0.3, 0))
         );
-        npcSystem.applyAlarmTargetEvents([
-          {
-            candidateId: alarmCandidateId,
-            targetId: "player",
-            position: alarmPosition
-          }
-        ]);
-        npcSystem.update(0, npcAlarmTarget);
-        const npcTracking = npcSystem.getTrackingSnapshots();
+        npcSystem.update(
+          0,
+          npcAlarmTarget,
+          Object.freeze([
+            {
+              candidateId: alarmCandidateId,
+              targetId: "player",
+              position: alarmPosition
+            }
+          ])
+        );
+        const npcTracking = npcSystem.getFrameView().tracking;
         checks.push({
           name: "Alarm発火時の完成NPC優先追跡",
           ok:
@@ -3570,22 +3729,32 @@ const runValidation = async () => {
             )
             .join(" / ")
         });
-        const npcBeforeBlockedMovement = npcSystem.getActorSpheres()[1];
+        const npcBeforeBlockedMovement =
+          npcSystem.getFrameView().actorSpheres[1];
         const npcNavigationStart =
-          npcSystem.getTargetSnapshots()[1].footPosition;
-        npcSystem.update(0.1, npcMovementTarget);
+          npcSystem.getFrameView().targets[1].footPosition;
+        npcSystem.update(
+          0.1,
+          npcMovementTarget,
+          Object.freeze([])
+        );
         const npcFirstPathfindCount = countPathfindAttemptsFrom(
           npcMovementBlocking.getPathfindAttempts(),
           "npc",
           npcNavigationStart
         );
-        npcSystem.update(0.1, npcMovementTarget);
+        npcSystem.update(
+          0.1,
+          npcMovementTarget,
+          Object.freeze([])
+        );
         const npcSecondPathfindCount = countPathfindAttemptsFrom(
           npcMovementBlocking.getPathfindAttempts(),
           "npc",
           npcNavigationStart
         );
-        const npcAfterBlockedMovement = npcSystem.getActorSpheres()[1];
+        const npcAfterBlockedMovement =
+          npcSystem.getFrameView().actorSpheres[1];
         const npcMovementAttempts = npcMovementBlocking.getAttempts();
         const npcChaseAttempt = npcMovementAttempts.find(
           (attempt) =>
@@ -3633,10 +3802,11 @@ const runValidation = async () => {
               stage: firstFloorNpcStage,
               npcCount: 2,
               initialBrainwashedNpcCount: 2,
+              diagnosticsEnabled: true,
               random: routeRandom.random
             });
             const routeNpcStart =
-              routeSystem.getTargetSnapshots()[1].footPosition;
+              routeSystem.getFrameView().targets[1].footPosition;
             const routeAlarmPosition = routeNpcStart.add(
               new Vector3(0.5, 0, 0)
             );
@@ -3646,14 +3816,17 @@ const runValidation = async () => {
               routeAlarmPosition.clone(),
               routeAlarmPosition.add(new Vector3(0, 0.3, 0))
             );
-            routeSystem.applyAlarmTargetEvents([
-              {
-                candidateId: `alarm-t04-route-${destinationIndex}`,
-                targetId: "player",
-                position: routeAlarmPosition
-              }
-            ]);
-            routeSystem.update(0, targetAtAlarm);
+            routeSystem.update(
+              0,
+              targetAtAlarm,
+              Object.freeze([
+                {
+                  candidateId: `alarm-t04-route-${destinationIndex}`,
+                  targetId: "player",
+                  position: routeAlarmPosition
+                }
+              ])
+            );
             const start = routeNpcStart;
             const target = createHumanTargetFixture(
               "player",
@@ -3669,10 +3842,14 @@ const runValidation = async () => {
             let maximumGroundError = 0;
             let updateCount = 0;
             while (!reached && updateCount < 2400) {
-              routeSystem.update(0.25, target);
+              routeSystem.update(
+                0.25,
+                target,
+                Object.freeze([])
+              );
               updateCount += 1;
               const position =
-                routeSystem.getTargetSnapshots()[1].footPosition;
+                routeSystem.getFrameView().targets[1].footPosition;
               const containingStaircase = findContainingStaircase(position);
               if (containingStaircase !== null) {
                 visitedStaircases.add(containingStaircase);
@@ -3698,7 +3875,7 @@ const runValidation = async () => {
                 V2_NPC_CAPTURE_RADIUS + 1e-6;
             }
             const finalPosition =
-              routeSystem.getTargetSnapshots()[1].footPosition;
+              routeSystem.getFrameView().targets[1].footPosition;
             routeSystem.dispose();
             return {
               label,
@@ -3758,10 +3935,11 @@ const runValidation = async () => {
           stage: schoolContext,
           npcCount: 2,
           initialBrainwashedNpcCount: 2,
+          diagnosticsEnabled: true,
           random: unreachableNpcRandom.random
         });
         const unreachableNpcStart =
-          unreachableNpcSystem.getTargetSnapshots()[1].footPosition;
+          unreachableNpcSystem.getFrameView().targets[1].footPosition;
         const unreachableAlarmPosition = unreachableNpcStart.add(
           new Vector3(0.5, 0, 0)
         );
@@ -3771,14 +3949,17 @@ const runValidation = async () => {
           unreachableAlarmPosition.clone(),
           unreachableAlarmPosition.add(new Vector3(0, 0.3, 0))
         );
-        unreachableNpcSystem.applyAlarmTargetEvents([
-          {
-            candidateId: "alarm-t04-unreachable",
-            targetId: "player",
-            position: unreachableAlarmPosition
-          }
-        ]);
-        unreachableNpcSystem.update(0, unreachableTargetAtAlarm);
+        unreachableNpcSystem.update(
+          0,
+          unreachableTargetAtAlarm,
+          Object.freeze([
+            {
+              candidateId: "alarm-t04-unreachable",
+              targetId: "player",
+              position: unreachableAlarmPosition
+            }
+          ])
+        );
         const unreachablePlayerTarget = createHumanTargetFixture(
           "player",
           "player",
@@ -3786,10 +3967,14 @@ const runValidation = async () => {
           new Vector3(100, 100.3, 100)
         );
         for (let updateIndex = 0; updateIndex < 4; updateIndex += 1) {
-          unreachableNpcSystem.update(0.25, unreachablePlayerTarget);
+          unreachableNpcSystem.update(
+            0.25,
+            unreachablePlayerTarget,
+            Object.freeze([])
+          );
         }
         const unreachableNpcEnd =
-          unreachableNpcSystem.getTargetSnapshots()[1].footPosition;
+          unreachableNpcSystem.getFrameView().targets[1].footPosition;
         unreachableNpcSystem.dispose();
         checks.push({
           name: "実V2NpcSystemの到達不能時停止",
@@ -3828,6 +4013,7 @@ const runValidation = async () => {
             stage: npcFailureStage,
             npcCount: 2,
             initialBrainwashedNpcCount: 2,
+            diagnosticsEnabled: true,
             random: npcFailureRandom.random
           });
           unexpectedSystem.dispose();
@@ -3872,7 +4058,7 @@ const runValidation = async () => {
           }
         );
         const bitInitializationRandomCallCount = bitRandom.getCallCount();
-        const initialBitActors = bitSystem.getActorSpheres();
+        const initialBitActors = bitSystem.getFrameView().actorSpheres;
         const bitNavigationStart = initialBitActors[1].center.clone();
         const bitSpawnBandRef =
           schoolContext.volumes.getByRole("bit_spawn")[0].bitFlightBand;
@@ -3916,7 +4102,7 @@ const runValidation = async () => {
             }
           ]
         });
-        const bitAlertStates = bitSystem.getTargetStates();
+        const bitAlertStates = bitSystem.getFrameView().targetStates;
         const blockedMovementTarget = createHumanTargetFixture(
           "player",
           "player",
@@ -3947,7 +4133,8 @@ const runValidation = async () => {
         }
         const bitSecondMovementAttemptCount =
           bitMovementBlocking.getAttempts().length;
-        const bitAfterBlockedMovement = bitSystem.getActorSpheres()[1];
+        const bitAfterBlockedMovement =
+          bitSystem.getFrameView().actorSpheres[1];
         const bitBlockedHorizontalDistance = Math.hypot(
           bitAfterBlockedMovement.center.x -
             initialBitActors[1].center.x,
@@ -4093,7 +4280,7 @@ const runValidation = async () => {
           ]
         });
         const brainwashedTargetState =
-          brainwashedTargetBitSystem.getTargetStates()[0];
+          brainwashedTargetBitSystem.getFrameView().targetStates[0];
         checks.push({
           name: "ビットの洗脳済みNPC標的除外",
           ok:
@@ -4115,7 +4302,8 @@ const runValidation = async () => {
             random: bitRandom.random
           }
         );
-        const visionBitCenter = visionBitSystem.getActorSpheres()[0].center;
+        const visionBitCenter =
+          visionBitSystem.getFrameView().actorSpheres[0].center;
         const ringTargets = Array.from({ length: 12 }, (_, index) => {
           const angle = (index / 12) * Math.PI * 2;
           const aimPosition = visionBitCenter.add(
@@ -4134,11 +4322,13 @@ const runValidation = async () => {
           targets: ringTargets,
           externalAlerts: []
         });
-        const acquiredVisionState = visionBitSystem.getTargetStates()[0];
+        const acquiredVisionState =
+          visionBitSystem.getFrameView().targetStates[0];
         const acquiredTarget = ringTargets.find(
           (target) => target.id === acquiredVisionState.targetId
         );
-        const aimedBitCenter = visionBitSystem.getActorSpheres()[0].center;
+        const aimedBitCenter =
+          visionBitSystem.getFrameView().actorSpheres[0].center;
         const behindDirection = acquiredTarget
           ? acquiredTarget.aimPosition.subtract(aimedBitCenter).normalize()
           : Vector3.Forward();
@@ -4157,7 +4347,8 @@ const runValidation = async () => {
           targets: [behindTarget],
           externalAlerts: []
         });
-        const releasedVisionState = visionBitSystem.getTargetStates()[0];
+        const releasedVisionState =
+          visionBitSystem.getFrameView().targetStates[0];
         checks.push({
           name: "ビットvisual標的の扇形外last-seen追跡",
           ok:
