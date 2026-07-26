@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 3Dステージランタイム仕様書
 
-更新日: 2026-07-25
+更新日: 2026-07-26
 対象バージョン: v2
 
 ## 1. 文書の位置付け
@@ -114,7 +114,7 @@ export type StageMoverKind = "player" | "npc" | "bit";
 3. `container.meshes`と`container.transformNodes`を列挙する。
 4. Object名、Blender型に対応するBabylon Node型、`metadata.gltf.extras`を検査する。
 5. 資産仕様の各集合へ排他的に分類する。
-6. `META_Stage`、必須marker、通常volume、飛行遷移volume、`BND_Stage`、`PRT_*`、人間用link、ビット用aperture pairを検査する。
+6. `META_Stage`、必須marker、通常volume、飛行遷移volume、`BND_Stage`、B04対応ステージの`BND_WorldLimit`、`PRT_*`、人間用link、ビット用aperture pairを検査する。
 7. GLB、人間用NavMesh、ビットNavMesh bundleのカタログハッシュ、schema version、両profileを照合する。
 8. 人間用`LNK_*`だけを`StageLinkPair`へ組み立て、`StageLinkRegistry`を構築する。
 9. `assembly_anchor` Markerと`assembly` Volumeを1対1に結び、`StageAssemblyVenueRegistry`を構築する。
@@ -276,6 +276,10 @@ NPCとビットのランダム出現は多数の点を列挙せず、対応す�
 
 `BND_Stage`はプレイ可能な3D空間を定義する。範囲外時の再配置先は`MRK_PlayerSpawn_*`または最後に確認したNavMesh上の安全点とする。AABBだけで凹形状や上下階を判定しない。
 
+B04対応ステージの`BND_WorldLimit`は、表示・BIT・光線が存在してよい最終空間を定義する。`BND_Stage`とは別の必須境界として`StageSpatialContext.worldBoundary`へ公開し、プレイヤー・NPCの領域外判定や再配置へ流用しない。欠落時に`BND_Stage`、GLB全体AABB、光線寿命へfallbackしない。
+
+BITはCHASE、逃走、明示`boundary`遷移中だけ外周飛行帯を利用できる。通常探索、待機、総当たり探索、Alert集合、初期出現、時間増援の候補から外周を除外し、追跡終了後は学校内の到達可能帯へ戻る。
+
 ### 9.1 集合・公開処刑会場
 
 `StageAssemblyVenueRegistry`は`assembly_anchor` Markerと、`hs_anchor_id`がそのMarker IDを参照する`assembly` Volumeを1対1に組み立てる。
@@ -344,6 +348,7 @@ export interface StageSpatialQueries {
 
 - 移動は`castMovementSegment(moverKind, from, to)`で移動者別Collider集合へ問い合わせる。移動者種別を省略する旧`castActorSegment()`や、呼出側でColliderを推測する互換経路は作らない。
 - ビットの3D安全包絡は`castMovementSphere(moverKind, from, to, radius)`で連続球スイープする。内部の空間索引は最適化にだけ使用し、公開位置や資産契約へセル座標を公開しない。
+- 全光線は更新線分と`BND_WorldLimit`の退出点をキャッシュ済み直方体へのslab判定で求める。退出点では遮蔽衝突、着弾、ダメージ、Alarm、壁命中通知、反射光球を発生させず、約0.2秒の透明化へ移行する。最大寿命20秒は別の安全上限として維持する。
 - 連続球スイープの候補三角形はworld座標AABBを2 world unitの3Dグリッドへ登録し、swept AABBと半径に重なる候補だけへ厳密判定する。同率接触時は元Mesh順・triangle index順を維持する。既知安全中心は`moverKind`、半径、完全一致座標をkeyとする16,384件LRUへ保持し、`dispose()`で索引・cache・移動体別集合をすべて破棄する。これらは内部最適化であり、公開状態や経路探索へセルを導入しない。
 - 通常、固定、トラップ、動的を含む全光線は前フレーム位置から新位置まで連続線分判定し、最初の`beamBlockers`交点で停止・着弾する。
 - 視線は観測点から標的中心まで`sightBlockers`へ線分判定する。
@@ -386,8 +391,10 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 - T04は`StageMoverKind`、`NavigationLocation.polygonRef`、`surface`／`transition`経路、`StageSpatialContext.links`、移動者別`castMovementSegment()`、`transition-required`、水Volumeの読込・問い合わせ・NavMesh到達までの共通基盤を担当する。
 - T05-1Aは汎用飛行ゾーン・帯、別ビットNavMesh bundle、接続グラフ、非学校fixture、学校データ移行を担当する。
 - T05-1Bは11.1節のV1飛行表現、高度・天井・衝突安全、探索・追跡、全遷移の実飛行を担当する。
-- T05-2は既存の戦闘モード、射程維持、通常・固定・トラップ・動的を含む全光線、警報、標的状態遷移を3D空間へ統合する。
-- T06はB03最終学校資産を使い、プレイヤー、NPC、ビット、全階、屋上、全光線、ゲーム進行、水中水平速度50%と通常速度への復帰を通した統合確認を行う。
+- T05-2は既存の戦闘モード、射程維持、通常・固定・トラップ・動的を含む全光線物理、警報、標的状態遷移を3D空間へ統合する。
+- T05-2VはV1光線演出、演出資源再利用、`BND_WorldLimit`退出点での非着弾フェードを担当する。
+- B04は学校外周表示、外周BIT飛行帯、`BND_WorldLimit`の資産と派生NavMeshを担当する。
+- T06はB04とT05-2Vを含む最終学校資産を使い、プレイヤー、NPC、ビット、全階、屋上、外周、全光線、ゲーム進行、水中水平速度50%と通常速度への復帰を通した統合確認を行う。
 
 ## 13. ライフサイクル
 

@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 ステージ資産仕様書
 
-更新日: 2026-07-25
+更新日: 2026-07-26
 対象バージョン: v2
 基準検証: T01 GLB・座標・衝突規約 技術検証
 
@@ -164,6 +164,7 @@ EXP_Stage_<stage-id>
 | `MRK_*` | Empty | 位置と向きを持つマーカー | 無効 | 無効 | 無効 | 不使用 |
 | `VOL_*` | 閉じたMesh | ゲームプレイ領域 | 無効 | 無効 | 無効 | 不使用 |
 | `BND_Stage` | 閉じたMesh | プレイ可能空間の外周境界 | 無効 | 無効 | 無効 | 不使用 |
+| `BND_WorldLimit` | 閉じたMesh | 表示・BIT・光線の最終世界境界 | 無効 | 無効 | 無効 | 不使用 |
 | `PRT_*` | 薄い閉じたMesh | room、streaming、door trigger等のポータル | 無効 | 無効 | 無効 | 不使用 |
 | `LNK_<id>_A/B` | Empty 2個 | 連続NavMeshで表せない接続点対 | 無効 | 無効 | 無効 | 不使用 |
 
@@ -353,6 +354,19 @@ hs_id = "stage"
 hs_role = "playable_boundary"
 ```
 
+B04対応学校は、`BND_Stage`とは別に`BND_WorldLimit`をちょうど1個持つ。`BND_WorldLimit`は塀外の表示、BIT飛行、光線が存在してよい最終空間を囲む閉じた低ポリMeshであり、プレイヤー・NPCの領域外判定、物理衝突、光線遮蔽、着弾面には使用しない。
+
+学校では、外周塀の外面から水平5.0m、上空Blender Z＝24.0mを基準とする。水平範囲は学校生成正本の外周塀外面から導出し、座標をRuntimeへ重複記述しない。外周表示は塀から歩道1.5m、その外側に道路3.5mを配置し、道路外端を地面表示の終端とする。
+
+`BND_WorldLimit`の必須properties:
+
+```text
+hs_id = "world-limit"
+hs_role = "world_boundary"
+```
+
+外周へ`player_spawn`、`npc_spawn`、`bit_spawn`を配置しない。人間用NavMeshは塀外へ延ばさず、BIT用外周飛行帯だけを明示`boundary`遷移で学校内の飛行帯へ接続する。通常探索・待機・総当たり探索・増援出現で外周を使わない制御はT06 Runtimeが担当する。
+
 ### 7.7 `PRT_*`
 
 `PRT_*`はroom接続、streaming境界、明示的なdoor triggerなどが必要な場合だけ作る薄い閉じたMeshである。通常扉を表すためだけには作らない。
@@ -460,6 +474,7 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 | `volumes` | 通常ゲーム用`VOL_*` |
 | `bitFlightTransitions` | 飛行遷移用`VOL_*`と`LNK_*` |
 | `stageBoundary` | `BND_Stage` |
+| `worldBoundary` | `BND_WorldLimit`。B04対応ステージで必須 |
 | `portals` | `PRT_*` |
 | `links` | 人間用`LNK_*` |
 
@@ -485,6 +500,8 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 
 - `META_Stage`がEmptyとして1件だけ存在する。
 - `BND_Stage`が閉じたMeshとして1件だけ存在する。
+- B04対応学校では`BND_WorldLimit`が閉じたMeshとして1件だけ存在し、`BND_Stage`を内包する。水平終端は外周塀外面から5.0m、上端はBlender Z＝24.0mである。
+- B04対応学校では外周の`player_spawn`、`npc_spawn`、`bit_spawn`が0件であり、人間用NavMeshが外周歩道・道路へ延びていない。
 - `MRK_*`の`player_spawn`が1件だけ存在する。
 - B02学校では`assembly_anchor` Markerと`assembly` Volumeが各2件存在し、校庭・体育館の各pairが100件、94件、6件の有限座標配列を持つ。
 - 集合会場の旧4件の`VIS_*`目印が0件である。
@@ -518,7 +535,7 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 - `COL_ActorOnly_*`が全移動者の`movementColliders`へ入り、`beamBlockers`と`sightBlockers`へ入らない。
 - `COL_HumanOnly_*`がプレイヤー・NPCの`movementColliders`だけへ入り、ビットの`movementColliders`、`beamBlockers`、`sightBlockers`へ入らない。
 - 天井`COL_*`が通常Colliderとしてビットの`movementColliders`へ入り、屋内の天井被覆検査に合格する。
-- `NAV_*`、`VOL_*`、`BND_Stage`、`PRT_*`が表示、移動衝突、光線遮蔽へ入らない。
+- `NAV_*`、`VOL_*`、`BND_Stage`、`BND_WorldLimit`、`PRT_*`が表示、移動衝突、光線遮蔽へ入らない。
 - `VIS_*`がActor衝突と光線遮蔽へ入らない。
 
 監査違反は警告ではなくビルド失敗とする。未知Objectを`VIS_*`や`COL_*`へ推測分類しない。
@@ -597,7 +614,7 @@ npm run build:t01
 - B02学校は共通飛行契約の最初の利用データとして、屋外4帯、校舎内4帯、体育館2帯、屋上1帯と明示遷移をGLBへ持つ。
 - `PRT_*`は既存のroom、streaming、door trigger用途だけに使用できる。窓58組はビット用`aperture`、屋上外周は`boundary`で表し、旧`bit_roof`は残さない。
 - 屋上は窓の設置対象外であるだけで、B03以後もプレイ可能空間と経路対象に含める。
-- T04は人間用高さ付きNavMeshとlink registry、T05-1Aは汎用飛行帯・別ビットNavMesh・接続グラフ・学校データ移行、T05-1BはV1飛行表現と3D安全・探索・追跡・実遷移を担当する。完成戦闘と全光線はT05-2、学校全域の統合確認はT06で行う。
+- T04は人間用高さ付きNavMeshとlink registry、T05-1Aは汎用飛行帯・別ビットNavMesh・接続グラフ・学校データ移行、T05-1BはV1飛行表現と3D安全・探索・追跡・実遷移を担当する。完成戦闘と全光線物理はT05-2、V1光線演出と世界境界終了はT05-2V、学校外周資産と`BND_WorldLimit`はB04、学校全域の統合確認はT06で行う。
 - 舞台階段の形状ディテールと同色面の境界表現はB03で仕上げる。
 - 既存8ステージのJSONはV2実行経路から除外し、互換アダプターを作らない。
 - 既存ステージを将来再導入する場合は、ステージごとに`.blend`、規約準拠GLB、人間用NavMesh、必要な飛行帯・遷移・ビット用bundleを作り、通常ステージ監査へ合格させる。
