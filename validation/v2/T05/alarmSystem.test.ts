@@ -587,6 +587,49 @@ export const runAlarmSystemTests =
     );
 
     results.push(
+      executeTest("getFrameは直前updateの発火イベントを保持する", () => {
+        const system = createV2AlarmSystem({
+          diagnosticsEnabled: true,
+          candidateProvider: createProvider([
+            createCandidate("alarm-frame", Vector3.Zero(), 1)
+          ]),
+          random: createRandomSequence([0])
+        });
+        try {
+          system.update({
+            deltaSeconds: 0,
+            humans: [createHuman("player", new Vector3(-1, 0, 0))]
+          });
+          const triggered = system.update({
+            deltaSeconds: 0,
+            humans: [createHuman("player", new Vector3(1, 0, 0))]
+          });
+          const firstRead = system.getFrame();
+          const secondRead = system.getFrame();
+          const nextFrame = system.update({
+            deltaSeconds: 0,
+            humans: [createHuman("player", new Vector3(1, 0, 0))]
+          });
+          return {
+            ok:
+              triggered.events.length === 1 &&
+              firstRead === triggered &&
+              secondRead === triggered &&
+              firstRead.events[0].candidateId === "alarm-frame" &&
+              nextFrame.events.length === 0 &&
+              system.getFrame() === nextFrame,
+            detail:
+              `triggered=${triggered.events.length} / ` +
+              `same=${firstRead === triggered && secondRead === triggered} / ` +
+              `next=${nextFrame.events.length}`
+          };
+        } finally {
+          system.dispose();
+        }
+      })
+    );
+
+    results.push(
       executeTest("破棄後は全公開操作を拒否する", () => {
         const system = createV2AlarmSystem({
           diagnosticsEnabled: true,

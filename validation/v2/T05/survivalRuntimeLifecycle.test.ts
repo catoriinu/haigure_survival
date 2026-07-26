@@ -220,11 +220,13 @@ export const runSurvivalRuntimeLifecycleTests = async (
         ok:
           firstFrame.npcCount === 99 &&
           firstFrame.brainwashedNpcCount === 66 &&
-          firstFrame.bitCount === 50,
+          firstFrame.bitCount === 50 &&
+          !firstFrame.playerCompletionUnlocked,
         detail:
           `npc=${firstFrame.npcCount} / ` +
           `brainwashed=${firstFrame.brainwashedNpcCount} / ` +
-          `bit=${firstFrame.bitCount}`
+          `bit=${firstFrame.bitCount} / ` +
+          `completionUnlocked=${firstFrame.playerCompletionUnlocked}`
       })
     );
     await firstRuntime.prepareVisualResources();
@@ -261,6 +263,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
           secondFrame.npcCount === 99 &&
           secondFrame.brainwashedNpcCount === 66 &&
           secondFrame.bitCount === 50 &&
+          !secondFrame.playerCompletionUnlocked &&
           sceneResourceCountsEqual(firstDelta, secondDelta) &&
           sceneResourceCountsEqual(baseline, afterSecondDispose),
         detail:

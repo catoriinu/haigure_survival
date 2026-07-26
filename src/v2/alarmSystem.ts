@@ -769,7 +769,7 @@ export const createV2AlarmSystem = ({
     },
     getFrame: () => {
       assertActive();
-      return rebuildFrame([]);
+      return frame;
     },
     getDiagnostics: () => {
       assertActive();

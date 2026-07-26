@@ -93,6 +93,7 @@ export type V2SurvivalFrame = Readonly<{
   phase: V2SurvivalPhase;
   assemblyVenueId: string;
   playerState: V2CharacterState;
+  playerCompletionUnlocked: boolean;
   playerCanMove: boolean;
   npcCount: number;
   brainwashedNpcCount: number;
@@ -913,6 +914,7 @@ export const createV2SurvivalRuntime = ({
     const npcTracking = npcFrameView.tracking;
     const bitFrameView = bitSystem.getFrameView();
     const bitTracking = bitFrameView.targetStates;
+    const playerStateSnapshot = playerCombat.getStateSnapshot();
     let visualTargetCount = 0;
     let alertTargetCount = 0;
     let brainwashedNpcCount = 0;
@@ -937,7 +939,9 @@ export const createV2SurvivalRuntime = ({
     return Object.freeze({
       phase,
       assemblyVenueId: assemblyVenue.id,
-      playerState: playerCombat.getStateSnapshot().state,
+      playerState: playerStateSnapshot.state,
+      playerCompletionUnlocked:
+        playerStateSnapshot.playerCompletionUnlocked,
       playerCanMove: canPlayerMove(),
       npcCount: npcFrameView.targets.length,
       brainwashedNpcCount,
