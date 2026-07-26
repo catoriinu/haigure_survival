@@ -132,6 +132,7 @@ const CARPET_FOLLOWER_FADE_SECONDS = 1;
 const LEGACY_CARPET_MODE_CHANCE = 0.1;
 const LEGACY_ALERT_CARPET_MODE_CHANCE = 0.2;
 const ALERT_GATHER_TARGET_COUNT = 4;
+const EXTERNAL_ALERT_RECEIVER_LIMIT = 4;
 const ALERT_GATHER_RADIUS = 0.5;
 const ALERT_SPAWN_RADIUS = 0.2;
 const ALERT_SPAWN_MAX_ATTEMPTS = 8;
@@ -283,7 +284,7 @@ type ActiveAlert = {
   leaderId: string;
   targetId: string;
   remainingSeconds: number;
-  receiverIds: Set<string> | null;
+  receiverIds: Set<string>;
   gatheredIds: Set<string>;
   internalBitAlert: boolean;
 };
@@ -1367,6 +1368,7 @@ export const createV2BitSystem = (
   const carpetFollowersByLeaderId = new Map<string, Set<RuntimeBit>>();
   const fadingCarpetFollowers: FadingCarpetFollower[] = [];
   const activeAlerts = new Map<string, ActiveAlert>();
+  const externalAlertKeyByTargetId = new Map<string, string>();
   const closedInternalAlertKeys = new Set<string>();
   let frameBeamRequests: readonly V2BeamRequest[] = Object.freeze([]);
   let pendingAlertRequests: V2AlertRequest[] = [];
@@ -1556,6 +1558,22 @@ export const createV2BitSystem = (
 
   const buildAlertKey = (leaderId: string, targetId: string) =>
     `${leaderId}\u0000${targetId}`;
+
+  const removeActiveAlert = (alertKey: string) => {
+    const alert = activeAlerts.get(alertKey);
+    if (!alert) {
+      return null;
+    }
+    activeAlerts.delete(alertKey);
+    if (
+      !alert.internalBitAlert &&
+      externalAlertKeyByTargetId.get(alert.targetId) ===
+        alertKey
+    ) {
+      externalAlertKeyByTargetId.delete(alert.targetId);
+    }
+    return alert;
+  };
 
   const isSightClear = (from: Vector3, to: Vector3) => {
     if (diagnosticsEnabled) {
@@ -2331,6 +2349,45 @@ export const createV2BitSystem = (
     bit.fireTelegraphSeconds = 0;
   };
 
+  const isExternalAlertReceiverCandidate = (
+    bit: RuntimeBit,
+    leaderId: string,
+    assignedReceiverIds: ReadonlySet<string>
+  ) =>
+    bit.id !== leaderId &&
+    !assignedReceiverIds.has(bit.id) &&
+    bit.mode !== "alert-send" &&
+    bit.mode !== "alert-receive" &&
+    bit.mode !== "hold" &&
+    bit.mode !== "carpet-leader" &&
+    bit.mode !== "carpet-follower";
+
+  const selectExternalAlertReceivers = (
+    leaderId: string,
+    target: V2HumanTargetSnapshot,
+    assignedReceiverIds: ReadonlySet<string>
+  ) =>
+    bits
+      .filter((bit) =>
+        isExternalAlertReceiverCandidate(
+          bit,
+          leaderId,
+          assignedReceiverIds
+        )
+      )
+      .sort(
+        (left, right) =>
+          Vector3.DistanceSquared(
+            left.root.position,
+            target.aimPosition
+          ) -
+          Vector3.DistanceSquared(
+            right.root.position,
+            target.aimPosition
+          )
+      )
+      .slice(0, EXTERNAL_ALERT_RECEIVER_LIMIT);
+
   function startInternalAlert(
     leader: RuntimeBit,
     target: V2HumanTargetSnapshot
@@ -2595,8 +2652,7 @@ export const createV2BitSystem = (
     for (const alert of activeAlerts.values()) {
       if (
         alert.leaderId === bit.id ||
-        (alert.receiverIds !== null &&
-          !alert.receiverIds.has(bit.id))
+        !alert.receiverIds.has(bit.id)
       ) {
         continue;
       }
@@ -3498,13 +3554,13 @@ export const createV2BitSystem = (
     if (!alert?.internalBitAlert) {
       return;
     }
-    activeAlerts.delete(alertKey);
+    removeActiveAlert(alertKey);
     closedInternalAlertKeys.add(alertKey);
     for (const bit of bits) {
       const isLeader =
         bit.id === alert.leaderId && bit.mode === "alert-send";
       const isReceiver =
-        alert.receiverIds?.has(bit.id) === true &&
+        alert.receiverIds.has(bit.id) &&
         bit.mode === "alert-receive" &&
         bit.alertLeaderId === alert.leaderId &&
         bit.targetId === alert.targetId;
@@ -3585,11 +3641,10 @@ export const createV2BitSystem = (
       alertKey === null ? null : activeAlerts.get(alertKey) ?? null;
     const gathered =
       alert !== null &&
-      alert.receiverIds !== null &&
       alert.gatheredIds.size >= alert.receiverIds.size;
     if (!alert || gathered || bit.modeTimerSeconds === 0) {
       if (alertKey !== null) {
-        activeAlerts.delete(alertKey);
+        removeActiveAlert(alertKey);
         closedInternalAlertKeys.add(alertKey);
       }
       const forward = bit.root
@@ -3919,6 +3974,13 @@ export const createV2BitSystem = (
       );
 
       const incomingAlertKeys = new Set<string>();
+      const incomingExternalAlertsByTarget = new Map<
+        string,
+        Readonly<{
+          leaderId: string;
+          remainingSeconds: number;
+        }>
+      >();
       for (const alert of externalAlerts) {
         if (
           alert.leaderId.length === 0 ||
@@ -3942,20 +4004,85 @@ export const createV2BitSystem = (
           continue;
         }
         const current = activeAlerts.get(alertKey);
-        if (current) {
+        if (current?.internalBitAlert) {
           current.remainingSeconds = Math.max(
             current.remainingSeconds,
             alert.remainingSeconds
           );
-        } else {
-          activeAlerts.set(alertKey, {
-            leaderId: alert.leaderId,
-            targetId: alert.targetId,
-            remainingSeconds: alert.remainingSeconds,
-            receiverIds: null,
-            gatheredIds: new Set<string>(),
-            internalBitAlert: false
-          });
+          continue;
+        }
+        const currentIncoming = incomingExternalAlertsByTarget.get(
+          alert.targetId
+        );
+        incomingExternalAlertsByTarget.set(
+          alert.targetId,
+          Object.freeze({
+            leaderId:
+              currentIncoming?.leaderId ?? alert.leaderId,
+            remainingSeconds: Math.max(
+              currentIncoming?.remainingSeconds ?? 0,
+              alert.remainingSeconds
+            )
+          })
+        );
+      }
+      const assignedExternalAlertReceiverIds = new Set<string>();
+      for (const activeAlert of activeAlerts.values()) {
+        if (activeAlert.internalBitAlert) {
+          continue;
+        }
+        for (const receiverId of activeAlert.receiverIds) {
+          assignedExternalAlertReceiverIds.add(receiverId);
+        }
+      }
+      for (const [
+        targetId,
+        incoming
+      ] of incomingExternalAlertsByTarget) {
+        const currentAlertKey =
+          externalAlertKeyByTargetId.get(targetId);
+        const current =
+          currentAlertKey === undefined
+            ? null
+            : activeAlerts.get(currentAlertKey) ?? null;
+        if (current) {
+          current.remainingSeconds = Math.max(
+            current.remainingSeconds,
+            incoming.remainingSeconds
+          );
+          continue;
+        }
+        const target = targetsById.get(targetId);
+        if (!target || !isTargetable(target)) {
+          continue;
+        }
+        const receivers = selectExternalAlertReceivers(
+          incoming.leaderId,
+          target,
+          assignedExternalAlertReceiverIds
+        );
+        if (receivers.length === 0) {
+          continue;
+        }
+        const receiverIds = new Set(
+          receivers.map((receiver) => receiver.id)
+        );
+        const alertKey = buildAlertKey(
+          incoming.leaderId,
+          targetId
+        );
+        activeAlerts.set(alertKey, {
+          leaderId: incoming.leaderId,
+          targetId,
+          remainingSeconds: incoming.remainingSeconds,
+          receiverIds,
+          gatheredIds: new Set<string>(),
+          internalBitAlert: false
+        });
+        externalAlertKeyByTargetId.set(targetId, alertKey);
+        for (const receiver of receivers) {
+          assignedExternalAlertReceiverIds.add(receiver.id);
+          setAlertTarget(receiver, target, incoming.leaderId);
         }
       }
       for (const alertKey of closedInternalAlertKeys) {
@@ -3967,7 +4094,7 @@ export const createV2BitSystem = (
       for (const [alertKey, alert] of activeAlerts) {
         const target = targetsById.get(alert.targetId);
         if (!target || !isTargetable(target)) {
-          activeAlerts.delete(alertKey);
+          removeActiveAlert(alertKey);
           if (alert.internalBitAlert) {
             closedInternalAlertKeys.add(alertKey);
           }
@@ -4286,7 +4413,7 @@ export const createV2BitSystem = (
       for (const [alertKey, alert] of activeAlerts) {
         alert.remainingSeconds -= deltaSeconds;
         if (alert.remainingSeconds <= 0) {
-          activeAlerts.delete(alertKey);
+          removeActiveAlert(alertKey);
           if (alert.internalBitAlert) {
             closedInternalAlertKeys.add(alertKey);
           }
@@ -4409,6 +4536,7 @@ export const createV2BitSystem = (
         bit.hasAttemptedSearchRoute = false;
       }
       activeAlerts.clear();
+      externalAlertKeyByTargetId.clear();
       closedInternalAlertKeys.clear();
       frameBeamRequests = Object.freeze([]);
       pendingAlertRequests = [];
@@ -4515,6 +4643,7 @@ export const createV2BitSystem = (
       bitsById.clear();
       carpetFollowersByLeaderId.clear();
       activeAlerts.clear();
+      externalAlertKeyByTargetId.clear();
       closedInternalAlertKeys.clear();
       explorationHistory.clear();
       frameBeamRequests = Object.freeze([]);

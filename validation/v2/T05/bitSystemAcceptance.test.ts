@@ -135,6 +135,8 @@ const PERFORMANCE_TARGET_LOSS_SETTLE_TICKS = 1200;
 const PERFORMANCE_TARGET_LOSS_RECOVERY_TICKS = 30;
 const PERFORMANCE_TARGET_LOSS_FOLLOW_UP_TICKS = 60;
 const PERFORMANCE_SIGHT_CASTS_PER_99_UPDATE = 17;
+const PERFORMANCE_STRESS_BIT_COUNT = 99;
+const EXTERNAL_ALERT_RECEIVER_LIMIT = 4;
 
 let nextFixtureStageIndex = 0;
 
@@ -237,6 +239,43 @@ const createTarget = (
     alive: true,
     brainwashed: false
   });
+
+type ExternalAlertStressFixture = Readonly<{
+  targets: readonly V2HumanTargetSnapshot[];
+  alerts: readonly V2ExternalAlert[];
+  targetIds: ReadonlySet<string>;
+}>;
+
+const createExternalAlertStressFixture = (
+  prefix: string,
+  aimPosition: Vector3,
+  bitCount = PERFORMANCE_STRESS_BIT_COUNT
+): ExternalAlertStressFixture => {
+  const targetCount = Math.ceil(
+    bitCount / EXTERNAL_ALERT_RECEIVER_LIMIT
+  );
+  const targets = Object.freeze(
+    Array.from({ length: targetCount }, (_, index) =>
+      createTarget(
+        `${prefix}-target-${index}`,
+        aimPosition.clone()
+      )
+    )
+  );
+  return Object.freeze({
+    targets,
+    alerts: Object.freeze(
+      targets.map((target, index) =>
+        Object.freeze({
+          leaderId: `${prefix}-leader-${index}`,
+          targetId: target.id,
+          remainingSeconds: 1000
+        })
+      )
+    ),
+    targetIds: new Set(targets.map((target) => target.id))
+  });
+};
 
 const createTargetRing = (
   prefix: string,
@@ -1027,16 +1066,10 @@ const runSightCheckBudgetCheck = (
     0.08
   );
   try {
-    const target = createTarget(
+    const stressFixture = createExternalAlertStressFixture(
       "sight-budget-target",
       fixture.pointInBand(fixture.courtyardRef, 0, 0)
     );
-    const targets = Object.freeze([target]);
-    const alert = Object.freeze({
-      leaderId: "sight-budget-external-leader",
-      targetId: target.id,
-      remainingSeconds: 1000
-    });
     forceNormalChase = true;
     for (
       let frameIndex = 0;
@@ -1046,9 +1079,9 @@ const runSightCheckBudgetCheck = (
       system.update({
         deltaSeconds: PERFORMANCE_DELTA_SECONDS,
         elapsedSeconds: frameIndex * PERFORMANCE_DELTA_SECONDS,
-        targets,
+        targets: stressFixture.targets,
         externalAlerts:
-          frameIndex === 0 ? Object.freeze([alert]) : EMPTY_ALERTS
+          frameIndex === 0 ? stressFixture.alerts : EMPTY_ALERTS
       });
     }
 
@@ -1065,7 +1098,7 @@ const runSightCheckBudgetCheck = (
         elapsedSeconds:
           (PERFORMANCE_WARMUP_TICKS + frameIndex) *
           PERFORMANCE_DELTA_SECONDS,
-        targets,
+        targets: stressFixture.targets,
         externalAlerts: EMPTY_ALERTS
       });
       maximumSightCastsPerUpdate = Math.max(
@@ -1085,7 +1118,8 @@ const runSightCheckBudgetCheck = (
         targetStates.length === 99 &&
         targetStates.every(
           (state) =>
-            state.targetId === target.id &&
+            state.targetId !== null &&
+            stressFixture.targetIds.has(state.targetId) &&
             state.mode === "chase"
         ) &&
         sightCastCount > 0 &&
@@ -1783,16 +1817,10 @@ const runCrossBandChasePerformanceCheck = (
     );
     const progressedIds = new Set<string>();
     forceChaseMode = true;
-    const target = createTarget(
-      "cross-band-performance-target",
+    const stressFixture = createExternalAlertStressFixture(
+      "cross-band-performance",
       fixture.pointInBand(fixture.mezzanineRef, 0, 0)
     );
-    const targets = Object.freeze([target]);
-    const alert = Object.freeze({
-      leaderId: "cross-band-performance-leader",
-      targetId: target.id,
-      remainingSeconds: 1000
-    });
     for (
       let frameIndex = 0;
       frameIndex < PERFORMANCE_WARMUP_TICKS;
@@ -1801,9 +1829,9 @@ const runCrossBandChasePerformanceCheck = (
       system.update({
         deltaSeconds: PERFORMANCE_DELTA_SECONDS,
         elapsedSeconds: frameIndex * PERFORMANCE_DELTA_SECONDS,
-        targets,
+        targets: stressFixture.targets,
         externalAlerts:
-          frameIndex === 0 ? Object.freeze([alert]) : EMPTY_ALERTS
+          frameIndex === 0 ? stressFixture.alerts : EMPTY_ALERTS
       });
       recordFlightProgress(
         system.getFrameView().flightStates,
@@ -1824,7 +1852,7 @@ const runCrossBandChasePerformanceCheck = (
         elapsedSeconds:
           (PERFORMANCE_WARMUP_TICKS + frameIndex) *
           PERFORMANCE_DELTA_SECONDS,
-        targets,
+        targets: stressFixture.targets,
         externalAlerts: EMPTY_ALERTS
       });
       samples.push(performance.now() - startedAt);
@@ -1877,7 +1905,8 @@ const runCrossBandChasePerformanceCheck = (
           targetStates.length === 99 &&
           targetStates.every(
             (state) =>
-              state.targetId === target.id &&
+              state.targetId !== null &&
+              stressFixture.targetIds.has(state.targetId) &&
               state.provenance === "alert" &&
               state.mode === "chase"
           ) &&
@@ -2147,16 +2176,10 @@ const runSchoolPerformanceAndLifecycleChecks = async (
       document.title =
         `T05学校受入: 99体追跡 warmup 0/${PERFORMANCE_WARMUP_TICKS}`;
       await yieldToBrowser();
-      const target = createTarget(
-        "school-adjacent-outdoor-target",
+      const stressFixture = createExternalAlertStressFixture(
+        "school-adjacent-outdoor",
         adjacentOutdoorTransition.toPosition.clone()
       );
-      const targets = Object.freeze([target]);
-      const alert = Object.freeze({
-        leaderId: "school-performance-external-leader",
-        targetId: target.id,
-        remainingSeconds: 1000
-      });
       let observedAdjacentVertical = false;
       for (
         let frameIndex = 0;
@@ -2166,9 +2189,9 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         chaseSystem.update({
           deltaSeconds: PERFORMANCE_DELTA_SECONDS,
           elapsedSeconds: frameIndex * PERFORMANCE_DELTA_SECONDS,
-          targets,
+          targets: stressFixture.targets,
           externalAlerts:
-            frameIndex === 0 ? Object.freeze([alert]) : EMPTY_ALERTS
+            frameIndex === 0 ? stressFixture.alerts : EMPTY_ALERTS
         });
         recordFlightProgress(
           chaseSystem.getFrameView().flightStates,
@@ -2206,7 +2229,7 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           elapsedSeconds:
             (PERFORMANCE_WARMUP_TICKS + frameIndex) *
             PERFORMANCE_DELTA_SECONDS,
-          targets,
+          targets: stressFixture.targets,
           externalAlerts: EMPTY_ALERTS
         });
         samples.push(performance.now() - startedAt);
@@ -2262,7 +2285,9 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           targetStates.length === 99 &&
           targetStates.every(
             (state) =>
-              state.targetId === target.id && state.mode === "chase"
+              state.targetId !== null &&
+              stressFixture.targetIds.has(state.targetId) &&
+              state.mode === "chase"
           ) &&
           progressedIds.size === initialPositions.size &&
           firstProgressTickById.size === initialPositions.size &&
@@ -2308,18 +2333,21 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           elapsedSeconds:
             (measuredEndTick + frameIndex) *
             PERFORMANCE_DELTA_SECONDS,
-          targets,
+          targets: stressFixture.targets,
           externalAlerts: EMPTY_ALERTS
         });
       }
       const positionsBeforeLoss = createInitialPositionMap(
         chaseSystem.getFrameView().flightStates
       );
-      const unavailableTarget = Object.freeze({
-        ...target,
-        alive: false
-      });
-      const unavailableTargets = Object.freeze([unavailableTarget]);
+      const unavailableTargets = Object.freeze(
+        stressFixture.targets.map((target) =>
+          Object.freeze({
+            ...target,
+            alive: false
+          })
+        )
+      );
       const performanceElapsedSeconds =
         (
           measuredEndTick +
@@ -2491,16 +2519,10 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         mixedSystem.getFrameView().flightStates
       );
       const progressedIds = new Set<string>();
-      const sameBandTarget = createTarget(
-        "school-mixed-carpet-target",
+      const sameBandStress = createExternalAlertStressFixture(
+        "school-mixed-carpet",
         adjacentOutdoorTransition.fromPosition.clone()
       );
-      const sameBandTargets = Object.freeze([sameBandTarget]);
-      const mixedAlert = Object.freeze({
-        leaderId: "school-mixed-carpet-external-leader",
-        targetId: sameBandTarget.id,
-        remainingSeconds: 1000
-      });
       assignMixedModes = true;
       let observedLeader = false;
       let observedFollower = false;
@@ -2508,9 +2530,9 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         mixedSystem.update({
           deltaSeconds: 0.1,
           elapsedSeconds: frameIndex * 0.1,
-          targets: sameBandTargets,
+          targets: sameBandStress.targets,
           externalAlerts:
-            frameIndex === 0 ? Object.freeze([mixedAlert]) : EMPTY_ALERTS
+            frameIndex === 0 ? sameBandStress.alerts : EMPTY_ALERTS
         });
         const targetStates = mixedSystem.getFrameView().targetStates;
         observedLeader =
@@ -2526,21 +2548,24 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         );
       }
 
-      const crossBandTarget = createTarget(
-        sameBandTarget.id,
+      const crossBandStress = createExternalAlertStressFixture(
+        "school-mixed-carpet",
         adjacentOutdoorTransition.toPosition.clone()
       );
-      const crossBandTargets = Object.freeze([crossBandTarget]);
       assignMixedModes = false;
       forceMixedChase = true;
-      const brainwashedSameBandTarget = Object.freeze({
-        ...sameBandTarget,
-        brainwashed: true
-      });
+      const brainwashedSameBandTargets = Object.freeze(
+        sameBandStress.targets.map((target) =>
+          Object.freeze({
+            ...target,
+            brainwashed: true
+          })
+        )
+      );
       mixedSystem.update({
         deltaSeconds: 0.1,
         elapsedSeconds: 4,
-        targets: Object.freeze([brainwashedSameBandTarget]),
+        targets: brainwashedSameBandTargets,
         externalAlerts: EMPTY_ALERTS
       });
       const releaseTargetStates = mixedSystem.getFrameView().targetStates;
@@ -2556,9 +2581,9 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         mixedSystem.update({
           deltaSeconds: 0.1,
           elapsedSeconds: 4.1 + frameIndex * 0.1,
-          targets: crossBandTargets,
+          targets: crossBandStress.targets,
           externalAlerts:
-            frameIndex === 0 ? Object.freeze([mixedAlert]) : EMPTY_ALERTS
+            frameIndex === 0 ? crossBandStress.alerts : EMPTY_ALERTS
         });
         const flightStates = mixedSystem.getFrameView().flightStates;
         const targetStates = mixedSystem.getFrameView().targetStates;

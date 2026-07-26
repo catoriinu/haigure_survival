@@ -2228,23 +2228,292 @@ const runCarpetFollowerImpactCheck =
     }
   };
 
+const runExternalAlertModeEligibilityCheck =
+  (): BitCombatIntegrationCheck => {
+    const eligibleCases = Object.freeze([
+      Object.freeze({ mode: "chase" as const, roll: 0.1 }),
+      Object.freeze({ mode: "fixed" as const, roll: 0.5 }),
+      Object.freeze({ mode: "random" as const, roll: 0.7 })
+    ]);
+    const details: string[] = [];
+    let eligibleModesOk = true;
+    for (const testCase of eligibleCases) {
+      const harness = createHarness(1);
+      try {
+        const origin =
+          harness.system.getFrameView().actorSpheres[0].center;
+        const visualTarget = createTarget(
+          `external-alert-interrupt-${testCase.mode}-visual`,
+          origin.add(new Vector3(1, 0, 0))
+        );
+        const before = acquireMode(
+          harness,
+          testCase.roll,
+          visualTarget
+        );
+        const alertLeader = createTarget(
+          `external-alert-interrupt-${testCase.mode}-leader`,
+          origin.add(new Vector3(8, 0, 0))
+        );
+        const alertTarget = createTarget(
+          `external-alert-interrupt-${testCase.mode}-target`,
+          origin.add(new Vector3(9, 0, 0))
+        );
+        update(
+          harness.system,
+          0,
+          0,
+          Object.freeze([
+            visualTarget,
+            alertLeader,
+            alertTarget
+          ]),
+          Object.freeze([
+            Object.freeze({
+              leaderId: alertLeader.id,
+              targetId: alertTarget.id,
+              remainingSeconds: 15
+            })
+          ])
+        );
+        const after = harness.system.getFrameView().targetStates[0];
+        const caseOk =
+          before.mode === testCase.mode &&
+          after.mode === "alert-receive" &&
+          after.targetId === alertTarget.id &&
+          after.alertLeaderId === alertLeader.id;
+        eligibleModesOk = eligibleModesOk && caseOk;
+        details.push(
+          `${testCase.mode}:${before.mode}->${after.mode},` +
+            `target=${after.targetId ?? "none"}`
+        );
+      } finally {
+        harness.dispose();
+      }
+    }
+
+    const holdHarness = createHarness(1);
+    let holdOk = false;
+    try {
+      const actor = holdHarness.system.getFrameView().actorSpheres[0];
+      const holdTarget = Object.freeze({
+        ...createTarget(
+          "external-alert-hold-target",
+          actor.center.add(new Vector3(1, 0, 0))
+        ),
+        state: "hit-a" as const
+      });
+      acquireMode(holdHarness, 0.1, holdTarget);
+      const impactAccepted = holdHarness.system.notifyBeamImpact(
+        actor.id,
+        holdTarget.id
+      );
+      const alertLeader = createTarget(
+        "external-alert-hold-leader",
+        actor.center.add(new Vector3(8, 0, 0))
+      );
+      const alertTarget = createTarget(
+        "external-alert-hold-interrupt-target",
+        actor.center.add(new Vector3(9, 0, 0))
+      );
+      update(
+        holdHarness.system,
+        0,
+        0,
+        Object.freeze([holdTarget, alertLeader, alertTarget]),
+        Object.freeze([
+          Object.freeze({
+            leaderId: alertLeader.id,
+            targetId: alertTarget.id,
+            remainingSeconds: 15
+          })
+        ])
+      );
+      const after = holdHarness.system.getFrameView().targetStates[0];
+      holdOk =
+        impactAccepted &&
+        after.mode === "hold" &&
+        after.targetId === holdTarget.id;
+      details.push(
+        `hold:${impactAccepted}/${after.mode},` +
+          `target=${after.targetId ?? "none"}`
+      );
+    } finally {
+      holdHarness.dispose();
+    }
+
+    const carpetHarness = createHarness(1);
+    let carpetOk = false;
+    try {
+      const actor =
+        carpetHarness.system.getFrameView().actorSpheres[0];
+      const visualTarget = createTarget(
+        "external-alert-carpet-visual",
+        actor.center.add(new Vector3(1, 0, 0))
+      );
+      const before = acquireMode(
+        carpetHarness,
+        0.95,
+        visualTarget
+      );
+      const alertLeader = createTarget(
+        "external-alert-carpet-leader",
+        actor.center.add(new Vector3(8, 0, 0))
+      );
+      const alertTarget = createTarget(
+        "external-alert-carpet-target",
+        actor.center.add(new Vector3(9, 0, 0))
+      );
+      update(
+        carpetHarness.system,
+        0,
+        0,
+        Object.freeze([
+          visualTarget,
+          alertLeader,
+          alertTarget
+        ]),
+        Object.freeze([
+          Object.freeze({
+            leaderId: alertLeader.id,
+            targetId: alertTarget.id,
+            remainingSeconds: 15
+          })
+        ])
+      );
+      const after = carpetHarness.system
+        .getFrameView().targetStates
+        .find((state) => state.bitId === actor.id);
+      carpetOk =
+        before.mode === "carpet-leader" &&
+        after?.mode === "carpet-leader" &&
+        after.targetId === visualTarget.id &&
+        carpetHarness.system
+          .getFrameView().targetStates
+          .every((state) => state.mode !== "alert-receive");
+      details.push(
+        `carpet:${before.mode}->${after?.mode ?? "missing"},` +
+          `target=${after?.targetId ?? "none"}`
+      );
+    } finally {
+      carpetHarness.dispose();
+    }
+
+    const alertHarness = createHarness(1);
+    let activeAlertOk = false;
+    try {
+      const actor =
+        alertHarness.system.getFrameView().actorSpheres[0];
+      const firstLeader = createTarget(
+        "external-alert-active-first-leader",
+        actor.center.add(new Vector3(8, 0, 0))
+      );
+      const firstTarget = createTarget(
+        "external-alert-active-first-target",
+        actor.center.add(new Vector3(9, 0, 0))
+      );
+      update(
+        alertHarness.system,
+        0,
+        0,
+        Object.freeze([firstLeader, firstTarget]),
+        Object.freeze([
+          Object.freeze({
+            leaderId: firstLeader.id,
+            targetId: firstTarget.id,
+            remainingSeconds: 15
+          })
+        ])
+      );
+      const before = alertHarness.system.getFrameView().targetStates[0];
+      const secondLeader = createTarget(
+        "external-alert-active-second-leader",
+        actor.center.add(new Vector3(10, 0, 0))
+      );
+      const secondTarget = createTarget(
+        "external-alert-active-second-target",
+        actor.center.add(new Vector3(11, 0, 0))
+      );
+      update(
+        alertHarness.system,
+        0,
+        0,
+        Object.freeze([
+          firstLeader,
+          firstTarget,
+          secondLeader,
+          secondTarget
+        ]),
+        Object.freeze([
+          Object.freeze({
+            leaderId: secondLeader.id,
+            targetId: secondTarget.id,
+            remainingSeconds: 15
+          })
+        ])
+      );
+      const after = alertHarness.system.getFrameView().targetStates[0];
+      activeAlertOk =
+        before.mode === "alert-receive" &&
+        after.mode === "alert-receive" &&
+        after.targetId === firstTarget.id &&
+        after.alertLeaderId === firstLeader.id;
+      details.push(
+        `alert:${before.mode}->${after.mode},` +
+          `target=${after.targetId ?? "none"}`
+      );
+    } finally {
+      alertHarness.dispose();
+    }
+
+    return Object.freeze({
+      name:
+        "外部Alertはchase・fixed・randomを割り込みhold・carpet・alert-receive中を除外",
+      ok: eligibleModesOk && holdOk && carpetOk && activeAlertOk,
+      detail: details.join(" / ")
+    });
+  };
+
 const runAlertChaseRouteBudgetFairnessCheck =
   (): BitCombatIntegrationCheck => {
     const bitCount = 50;
     const routePlanBudget = 4;
-    const maximumWaitUpdates = Math.ceil(bitCount / routePlanBudget);
     const harness = createHarness(bitCount, () => true);
     try {
       harness.system.setDiagnosticsEnabled(true);
-      const leader = createTarget(
-        "alert-budget-leader",
-        new Vector3(200, BAND_CENTER_HEIGHT, 0)
-      );
       const target = createTarget(
         "alert-budget-target",
         new Vector3(201, BAND_CENTER_HEIGHT, 0)
       );
-      const targets = Object.freeze([leader, target]);
+      const firstLeader = createTarget(
+        "alert-budget-first-leader",
+        new Vector3(200, BAND_CENTER_HEIGHT, 0)
+      );
+      const secondLeader = createTarget(
+        "alert-budget-second-leader",
+        new Vector3(199, BAND_CENTER_HEIGHT, 0)
+      );
+      const targets = Object.freeze([
+        firstLeader,
+        secondLeader,
+        target
+      ]);
+      const expectedReceiverIds = new Set(
+        [...harness.system.getFrameView().actorSpheres]
+          .sort(
+            (left, right) =>
+              Vector3.DistanceSquared(
+                left.center,
+                target.aimPosition
+              ) -
+              Vector3.DistanceSquared(
+                right.center,
+                target.aimPosition
+              )
+          )
+          .slice(0, routePlanBudget)
+          .map((actor) => actor.id)
+      );
       update(
         harness.system,
         0,
@@ -2252,51 +2521,73 @@ const runAlertChaseRouteBudgetFairnessCheck =
         targets,
         Object.freeze([
           Object.freeze({
-            leaderId: leader.id,
+            leaderId: firstLeader.id,
+            targetId: target.id,
+            remainingSeconds: 15
+          }),
+          Object.freeze({
+            leaderId: secondLeader.id,
             targetId: target.id,
             remainingSeconds: 15
           })
         ])
       );
-      const receivedCount = harness.system
+      const receivedStates = harness.system
         .getFrameView().targetStates
-        .filter((state) => state.mode === "alert-receive").length;
-      const plannedIds = new Set<string>();
-      const plansPerUpdate: number[] = [];
-      let latestFirstPlanUpdate = 0;
-      for (
-        let updateIndex = 1;
-        updateIndex <= maximumWaitUpdates;
-        updateIndex += 1
-      ) {
-        update(harness.system, 0, 0, targets);
-        plansPerUpdate.push(
-          harness.system.getFrameView().diagnostics.routePlans.chase
-        );
-        for (const state of harness.system.getFrameView().flightStates) {
-          if (
-            state.routePurpose === "chase" &&
-            !plannedIds.has(state.bitId)
-          ) {
-            plannedIds.add(state.bitId);
-            latestFirstPlanUpdate = updateIndex;
-          }
-        }
-      }
+        .filter((state) => state.mode === "alert-receive");
+      const receivedIds = new Set(
+        receivedStates.map((state) => state.bitId)
+      );
+      const nearestFourReceived =
+        receivedIds.size === expectedReceiverIds.size &&
+        [...expectedReceiverIds].every((id) => receivedIds.has(id));
+      const representativeLeaderPreserved = receivedStates.every(
+        (state) =>
+          state.alertLeaderId === firstLeader.id &&
+          state.targetId === target.id
+      );
+      update(
+        harness.system,
+        0,
+        0,
+        targets,
+        Object.freeze([
+          Object.freeze({
+            leaderId: secondLeader.id,
+            targetId: target.id,
+            remainingSeconds: 15
+          })
+        ])
+      );
+      const chasePlans =
+        harness.system.getFrameView().diagnostics.routePlans.chase;
+      const plannedIds = new Set(
+        harness.system
+          .getFrameView().flightStates
+          .filter((state) => state.routePurpose === "chase")
+          .map((state) => state.bitId)
+      );
+      const afterRepeatedLeader = harness.system
+        .getFrameView().targetStates
+        .filter((state) => state.mode === "alert-receive");
       return Object.freeze({
-        name: "alert-receive追跡計画は50機でも1更新4件・13更新以内",
+        name:
+          "同一標的の外部Alertは複数leaderでも近い4機だけ・追跡計画1更新4件",
         ok:
-          receivedCount === bitCount &&
-          plannedIds.size === bitCount &&
-          plansPerUpdate.every(
-            (count) => count >= 0 && count <= routePlanBudget
-          ) &&
-          latestFirstPlanUpdate <= maximumWaitUpdates,
+          receivedStates.length === routePlanBudget &&
+          nearestFourReceived &&
+          representativeLeaderPreserved &&
+          chasePlans === routePlanBudget &&
+          plannedIds.size === routePlanBudget &&
+          [...expectedReceiverIds].every((id) => plannedIds.has(id)) &&
+          afterRepeatedLeader.length === routePlanBudget,
         detail:
-          `received=${receivedCount}/${bitCount} / ` +
-          `planned=${plannedIds.size}/${bitCount} / ` +
-          `perUpdate=${plansPerUpdate.join(",")} / ` +
-          `latest=${latestFirstPlanUpdate}/${maximumWaitUpdates}`
+          `received=${receivedStates.length}/${routePlanBudget} / ` +
+          `nearest=${nearestFourReceived} / ` +
+          `representative=${representativeLeaderPreserved} / ` +
+          `planned=${plannedIds.size}/${routePlanBudget} / ` +
+          `plans=${chasePlans}/${routePlanBudget} / ` +
+          `repeated=${afterRepeatedLeader.length}/${routePlanBudget}`
       });
     } finally {
       harness.dispose();
@@ -2311,35 +2602,61 @@ const runEscapeRouteBudgetFairnessCheck =
     const harness = createHarness(bitCount, () => true);
     try {
       harness.system.setDiagnosticsEnabled(true);
-      const leader = createTarget(
-        "escape-budget-leader",
-        new Vector3(199, BAND_CENTER_HEIGHT, 0)
+      const alertGroups = Object.freeze(
+        Array.from({ length: Math.ceil(bitCount / 4) }, (_, index) => {
+          const target = createTarget(
+            `escape-budget-target-${index}`,
+            new Vector3(
+              200 + index * 0.01,
+              BAND_CENTER_HEIGHT,
+              0
+            )
+          );
+          const leader = createTarget(
+            `escape-budget-leader-${index}`,
+            new Vector3(
+              199 + index * 0.01,
+              BAND_CENTER_HEIGHT,
+              0
+            )
+          );
+          return Object.freeze({ leader, target });
+        })
       );
-      const target = createTarget(
-        "escape-budget-target",
-        new Vector3(200, BAND_CENTER_HEIGHT, 0)
+      const targets = Object.freeze(
+        alertGroups.flatMap(({ leader, target }) => [
+          leader,
+          target
+        ])
       );
-      const targets = Object.freeze([leader, target]);
-      update(
-        harness.system,
-        0,
-        0,
-        targets,
-        Object.freeze([
+      const alerts = Object.freeze(
+        alertGroups.map(({ leader, target }) =>
           Object.freeze({
             leaderId: leader.id,
             targetId: target.id,
             remainingSeconds: 15
           })
-        ])
+        )
+      );
+      update(
+        harness.system,
+        0,
+        0,
+        targets,
+        alerts
       );
       const receivedCount = harness.system
         .getFrameView().targetStates
         .filter((state) => state.mode === "alert-receive").length;
-      const unavailableTarget = Object.freeze({
-        ...target,
-        alive: false
-      });
+      const unavailableTargets = Object.freeze(
+        alertGroups.flatMap(({ leader, target }) => [
+          leader,
+          Object.freeze({
+            ...target,
+            alive: false
+          })
+        ])
+      );
       const plansPerUpdate: number[] = [];
       for (
         let updateIndex = 1;
@@ -2350,7 +2667,7 @@ const runEscapeRouteBudgetFairnessCheck =
           harness.system,
           TICK_SECONDS,
           updateIndex * TICK_SECONDS,
-          Object.freeze([leader, unavailableTarget])
+          unavailableTargets
         );
         plansPerUpdate.push(
           harness.system.getFrameView().diagnostics.routePlans.escape
@@ -2772,6 +3089,7 @@ export const runBitCombatIntegrationTests =
       runCarpetFirstFireCheck(),
       runCarpetPassCheck(),
       runCarpetFollowerImpactCheck(),
+      runExternalAlertModeEligibilityCheck(),
       runAlertChaseRouteBudgetFairnessCheck(),
       runEscapeRouteBudgetFairnessCheck(),
       runRouteStepDescriptorIdentityReuseCheck(),
