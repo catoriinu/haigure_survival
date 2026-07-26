@@ -154,7 +154,10 @@ export const V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES = 4_096;
 const TARGET_SIGHT_CHECK_INTERVAL_SECONDS = 0.1;
 const TARGET_SIGHT_CHECK_MAXIMUM_SHARE_PER_UPDATE = 1 / 3;
 const TARGET_LOST_TIMEOUT_SECONDS = 18;
-const TARGET_LOST_MAXIMUM_DISTANCE = 2.6;
+const TARGET_LOST_DISTANCE_MARGIN = 0.5;
+const CHASE_WINDOW_CONGESTION_COST = 0.75;
+const CHASE_WINDOW_FAILURE_COST = 6;
+const CHASE_WINDOW_FAILURE_PENALTY_SECONDS = 3;
 const ESCAPE_DESIRED_DISTANCE_GAIN = 0.8;
 const ESCAPE_VISIBLE_DESTINATION_PENALTY = 2;
 const ESCAPE_DISTANCE_GAIN_PENALTY = 2;
@@ -334,6 +337,11 @@ type ActiveAlert = {
 };
 
 type SearchRouteKind = "normal" | "random" | "brute-force";
+type ChaseRouteUpdateState =
+  | "moving"
+  | "arrived"
+  | "replan"
+  | "unreachable";
 
 type SearchSurfaceDestination = Readonly<{
   destination: BitFlightLocation;
@@ -389,6 +397,9 @@ type RuntimeBit = {
   lastSeenAimPosition: Vector3 | null;
   lastSeenDestination: BitFlightLocation | null;
   lastChasePlanTargetId: string | null;
+  chaseWindowTransitionId: string | null;
+  failedChaseWindowTransitionId: string | null;
+  failedChaseWindowPenaltySeconds: number;
   pendingEscapeThreatPosition: Vector3 | null;
   sightTargetId: string | null;
   sightTargetVisible: boolean;
@@ -677,6 +688,21 @@ const normalizeHorizontal = (direction: Vector3) => {
 
 const routeContainsTransition = (route: BitFlightRoute) =>
   route.steps.some((step) => step.kind === "transition");
+
+const getFirstWindowAccessTransitionId = (
+  route: BitFlightRoute
+) => {
+  const step = route.steps.find(
+    (step) =>
+      step.kind === "transition" &&
+      step.traversal.transition.affordances.includes(
+        "window-access"
+      )
+  );
+  return step?.kind === "transition"
+    ? step.traversal.transition.id
+    : null;
+};
 
 const getRouteStepPositions = (step: BitFlightRouteStep) =>
   step.kind === "surface"
@@ -1590,6 +1616,9 @@ export const createV2BitSystem = (
         lastSeenAimPosition: null,
         lastSeenDestination: null,
         lastChasePlanTargetId: null,
+        chaseWindowTransitionId: null,
+        failedChaseWindowTransitionId: null,
+        failedChaseWindowPenaltySeconds: 0,
         pendingEscapeThreatPosition: null,
         sightTargetId: null,
         sightTargetVisible: false,
@@ -1716,7 +1745,7 @@ export const createV2BitSystem = (
     target: V2HumanTargetSnapshot,
     refreshSight: boolean
   ) => {
-    if (!isInsideVision(bit, target)) {
+    if (bit.mode !== "chase" && !isInsideVision(bit, target)) {
       if (bit.sightTargetId === target.id) {
         bit.sightTargetVisible = false;
       }
@@ -1734,6 +1763,9 @@ export const createV2BitSystem = (
       bit.sightTargetVisible
     );
   };
+
+  const getChaseAbandonDistance = (bit: RuntimeBit) =>
+    bit.profile.visionRange + TARGET_LOST_DISTANCE_MARGIN;
 
   const findVisibleTarget = (
     bit: RuntimeBit,
@@ -1936,6 +1968,7 @@ export const createV2BitSystem = (
     bit.routePurpose = null;
     bit.routeDestination = null;
     bit.routeRefreshSeconds = 0;
+    bit.chaseWindowTransitionId = null;
     bit.searchRouteKind = null;
     bit.normalPatrolOrigin = null;
     bit.queuedNormalPatrolLeg = null;
@@ -1967,11 +2000,16 @@ export const createV2BitSystem = (
     ) {
       bit.routePurpose = null;
       bit.routeDestination = null;
+      bit.chaseWindowTransitionId = null;
       bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
       return false;
     }
     bit.routePurpose = purpose;
     bit.routeDestination = cloneTargetLocation(selected.destination);
+    bit.chaseWindowTransitionId =
+      purpose === "chase"
+        ? getFirstWindowAccessTransitionId(selected.route)
+        : null;
     bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
     return true;
   };
@@ -2034,6 +2072,7 @@ export const createV2BitSystem = (
       if (snapshot.transition === null) {
         bit.routePurpose = null;
         bit.routeDestination = null;
+        bit.chaseWindowTransitionId = null;
       }
       bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
       return "blocked";
@@ -2062,6 +2101,7 @@ export const createV2BitSystem = (
       if (snapshot.state !== "arrived") {
         bit.routePurpose = null;
         bit.routeDestination = null;
+        bit.chaseWindowTransitionId = null;
         bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
       }
     }
@@ -2145,6 +2185,41 @@ export const createV2BitSystem = (
     if (!bit.navigationLocation) {
       return null;
     }
+    const chasePolicy: BitFlightRoutePolicy = Object.freeze({
+      canUseTransition: (traversal) =>
+        BIT_FLIGHT_SHORTEST_ROUTE_POLICY.canUseTransition(
+          traversal
+        ),
+      canUseRouteStep: (step) =>
+        BIT_FLIGHT_SHORTEST_ROUTE_POLICY.canUseRouteStep(step),
+      additionalSurfaceCruiseHeights: (step, band) =>
+        BIT_FLIGHT_SHORTEST_ROUTE_POLICY.additionalSurfaceCruiseHeights(
+          step,
+          band
+        ),
+      additionalTransitionCost: (traversal) => {
+        const transition = traversal.transition;
+        if (!transition.affordances.includes("window-access")) {
+          return 0;
+        }
+        const failureCost =
+          bit.failedChaseWindowPenaltySeconds > 0 &&
+          bit.failedChaseWindowTransitionId === transition.id
+            ? CHASE_WINDOW_FAILURE_COST
+            : 0;
+        const congestionCount = bits.filter(
+          (candidate) =>
+            candidate.id !== bit.id &&
+            candidate.mode === "chase" &&
+            candidate.targetId === bit.targetId &&
+            candidate.chaseWindowTransitionId === transition.id
+        ).length;
+        return (
+          failureCost +
+          congestionCount * CHASE_WINDOW_CONGESTION_COST
+        );
+      }
+    });
     return selectSafeRoute(
       bit.navigationLocation,
       buildTargetLocationCandidates(targetPosition).map((candidate) =>
@@ -2154,7 +2229,7 @@ export const createV2BitSystem = (
           costBias: candidate.projectionError
         })
       ),
-      BIT_FLIGHT_SHORTEST_ROUTE_POLICY
+      chasePolicy
     );
   };
 
@@ -2386,6 +2461,9 @@ export const createV2BitSystem = (
     bit.lastSeenAimPosition = target.aimPosition.clone();
     bit.lastSeenDestination = null;
     bit.lastChasePlanTargetId = null;
+    bit.chaseWindowTransitionId = null;
+    bit.failedChaseWindowTransitionId = null;
+    bit.failedChaseWindowPenaltySeconds = 0;
     bit.targetLostSeconds = 0;
     bit.sightTargetId = target.id;
     bit.sightTargetVisible = true;
@@ -2435,6 +2513,9 @@ export const createV2BitSystem = (
     bit.lastSeenAimPosition = target.aimPosition.clone();
     bit.lastSeenDestination = null;
     bit.lastChasePlanTargetId = null;
+    bit.chaseWindowTransitionId = null;
+    bit.failedChaseWindowTransitionId = null;
+    bit.failedChaseWindowPenaltySeconds = 0;
     bit.targetLostSeconds = 0;
     bit.sightTargetId = target.id;
     bit.sightTargetVisible = false;
@@ -2725,6 +2806,9 @@ export const createV2BitSystem = (
     bit.alertLeaderId = null;
     bit.lastSeenAimPosition = null;
     bit.lastSeenDestination = null;
+    bit.chaseWindowTransitionId = null;
+    bit.failedChaseWindowTransitionId = null;
+    bit.failedChaseWindowPenaltySeconds = 0;
     bit.targetLostSeconds = 0;
     bit.sightTargetId = null;
     bit.sightTargetVisible = false;
@@ -3835,23 +3919,56 @@ export const createV2BitSystem = (
     deltaSeconds: number,
     elapsedSeconds: number,
     surfaceSpeedOverride: number | null = null
-  ) => {
+  ): ChaseRouteUpdateState => {
     bit.mode = "chase";
     bit.routeRefreshSeconds = Math.max(
       0,
       bit.routeRefreshSeconds - deltaSeconds
     );
+    const evaluateMovementState = (
+      state: ReturnType<typeof advanceAgent>,
+      plannedWindowTransitionId: string | null
+    ): ChaseRouteUpdateState => {
+      const arrivalDistance = Vector3.Distance(
+        bit.root.position,
+        targetPosition
+      );
+      const failedBeforeTarget =
+        state === "blocked" ||
+        state === "unreachable" ||
+        (state === "arrived" && arrivalDistance > FIRE_RANGE);
+      if (failedBeforeTarget) {
+        if (plannedWindowTransitionId !== null) {
+          bit.failedChaseWindowTransitionId =
+            plannedWindowTransitionId;
+          bit.failedChaseWindowPenaltySeconds =
+            CHASE_WINDOW_FAILURE_PENALTY_SECONDS;
+        }
+        clearRoute(bit);
+        if (plannedWindowTransitionId !== null) {
+          bit.routeRefreshSeconds = 0;
+          return "replan";
+        }
+        return "unreachable";
+      }
+      return state === "arrived" ? "arrived" : "moving";
+    };
     if (bit.activeTransition) {
-      advanceAgent(
+      const plannedWindowTransitionId =
+        bit.chaseWindowTransitionId;
+      const state = advanceAgent(
         bit,
         surfaceSpeedOverride ?? bit.profile.chaseSpeed,
         deltaSeconds,
         elapsedSeconds
       );
-      return;
+      return evaluateMovementState(
+        state,
+        plannedWindowTransitionId
+      );
     }
     if (!bit.navigationLocation) {
-      return;
+      return "unreachable";
     }
 
     const hasChaseRoute =
@@ -3870,15 +3987,18 @@ export const createV2BitSystem = (
         () => selectTargetDestination(bit, targetPosition)
       );
       if (selected) {
-        assignRoute(
+        if (!assignRoute(
           bit,
           selected,
           "chase"
-        );
+        )) {
+          return "unreachable";
+        }
         bit.lastSeenDestination = selected.destination;
       } else {
         clearRoute(bit);
         bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
+        return "unreachable";
       }
     }
 
@@ -3895,9 +4015,21 @@ export const createV2BitSystem = (
         (targetDistance > surfaceSpeedThreshold
           ? bit.profile.searchSpeed
           : bit.profile.chaseSpeed);
-      advanceAgent(bit, speed, deltaSeconds, elapsedSeconds);
+      const plannedWindowTransitionId =
+        bit.chaseWindowTransitionId;
+      const state = advanceAgent(
+        bit,
+        speed,
+        deltaSeconds,
+        elapsedSeconds
+      );
+      return evaluateMovementState(
+        state,
+        plannedWindowTransitionId
+      );
     } else {
       syncStationaryPosition(bit, elapsedSeconds, true);
+      return "moving";
     }
   };
 
@@ -5000,6 +5132,13 @@ export const createV2BitSystem = (
           0,
           bit.carpetCooldownSeconds - deltaSeconds
         );
+        bit.failedChaseWindowPenaltySeconds = Math.max(
+          0,
+          bit.failedChaseWindowPenaltySeconds - deltaSeconds
+        );
+        if (bit.failedChaseWindowPenaltySeconds === 0) {
+          bit.failedChaseWindowTransitionId = null;
+        }
         if (aiSuspended) {
           syncStationaryPosition(bit, elapsedSeconds, false);
           continue;
@@ -5025,6 +5164,7 @@ export const createV2BitSystem = (
         let chasePosition: Vector3 | null = null;
         const retainsLockedAttack =
           bit.mode === "fixed" || bit.mode === "random";
+        const usesChaseAbandonRules = bit.mode === "chase";
 
         if (assignedTarget && !isTargetable(assignedTarget)) {
           if (retainsLockedAttack) {
@@ -5062,7 +5202,17 @@ export const createV2BitSystem = (
             bit.lastSeenAimPosition = assignedTarget.aimPosition.clone();
             bit.targetLostSeconds = 0;
             chasePosition = assignedTarget.aimPosition;
-          } else if (bit.targetProvenance === "visual") {
+            if (
+              usesChaseAbandonRules &&
+              Vector3.Distance(
+                bit.root.position,
+                assignedTarget.aimPosition
+              ) > getChaseAbandonDistance(bit)
+            ) {
+              abandonTarget(bit, elapsedSeconds);
+              chasePosition = null;
+            }
+          } else if (usesChaseAbandonRules) {
             bit.targetLostSeconds += deltaSeconds;
             chasePosition = bit.lastSeenAimPosition;
             const lastSeenDistance = bit.lastSeenAimPosition
@@ -5073,18 +5223,22 @@ export const createV2BitSystem = (
               : Number.POSITIVE_INFINITY;
             if (
               bit.targetLostSeconds >= TARGET_LOST_TIMEOUT_SECONDS ||
-              lastSeenDistance > TARGET_LOST_MAXIMUM_DISTANCE
+              lastSeenDistance > getChaseAbandonDistance(bit)
             ) {
               abandonTarget(bit, elapsedSeconds);
               chasePosition = null;
             }
+          } else if (bit.targetProvenance === "visual") {
+            chasePosition =
+              bit.lastSeenAimPosition ?? assignedTarget.aimPosition;
           } else {
             chasePosition = assignedTarget.aimPosition;
           }
         } else if (
           bit.targetId !== null &&
           bit.targetProvenance === "visual" &&
-          bit.lastSeenAimPosition
+          bit.lastSeenAimPosition &&
+          usesChaseAbandonRules
         ) {
           bit.sightTargetVisible = false;
           bit.targetLostSeconds += deltaSeconds;
@@ -5092,7 +5246,7 @@ export const createV2BitSystem = (
           if (
             bit.targetLostSeconds >= TARGET_LOST_TIMEOUT_SECONDS ||
             Vector3.Distance(bit.root.position, bit.lastSeenAimPosition) >
-              TARGET_LOST_MAXIMUM_DISTANCE
+              getChaseAbandonDistance(bit)
           ) {
             abandonTarget(bit, elapsedSeconds);
             chasePosition = null;
@@ -5229,17 +5383,6 @@ export const createV2BitSystem = (
           }
           continue;
         } else {
-          if (
-            config.combatEnabled &&
-            bit.mode === "chase" &&
-            Vector3.Distance(
-              bit.root.position,
-              currentTarget?.aimPosition ?? chasePosition
-            ) > TARGET_LOST_MAXIMUM_DISTANCE
-          ) {
-            abandonTarget(bit, elapsedSeconds);
-            continue;
-          }
           if (config.combatEnabled) {
             bit.modeTimerSeconds = Math.max(
               0,
@@ -5250,12 +5393,19 @@ export const createV2BitSystem = (
               continue;
             }
           }
-          updateChaseRoute(
+          const chaseRouteState = updateChaseRoute(
             bit,
             chasePosition,
             deltaSeconds,
             elapsedSeconds
           );
+          if (
+            chaseRouteState === "unreachable" ||
+            (chaseRouteState === "arrived" && !targetVisible)
+          ) {
+            abandonTarget(bit, elapsedSeconds);
+            continue;
+          }
           if (!bit.activeTransition) {
             pointBitAt(
               bit,

@@ -51,6 +51,10 @@ const NPC_SEARCH_SPEED = 0.2;
 const NPC_CHASE_SPEED = 0.3;
 const NPC_VISION_RANGE = 3;
 const NPC_VISION_RANGE_SQUARED = NPC_VISION_RANGE * NPC_VISION_RANGE;
+const NPC_VISUAL_LOCK_RANGE = 3.5;
+const NPC_VISUAL_LOCK_RANGE_SQUARED =
+  NPC_VISUAL_LOCK_RANGE * NPC_VISUAL_LOCK_RANGE;
+const NPC_LAST_SEEN_MAXIMUM_PATH_DISTANCE = 5;
 const NPC_VISION_COSINE = Math.cos((95 * Math.PI) / 180);
 const NPC_WANDER_RADIUS = 2;
 const NPC_WANDER_MAX_ATTEMPTS = 16;
@@ -209,6 +213,8 @@ type NpcCapture = {
   lastTargetFootPosition: Vector3;
 };
 
+type NpcGunVisualPursuitMode = "live" | "last-seen";
+
 type NpcRuntime = {
   readonly id: string;
   readonly sprite: Sprite;
@@ -223,6 +229,10 @@ type NpcRuntime = {
   wanderWaitSeconds: number;
   targetId: string | null;
   targetProvenance: V2TargetProvenance | null;
+  gunVisualPursuitMode: NpcGunVisualPursuitMode | null;
+  gunLastSeenFootPosition: Vector3 | null;
+  gunLastSeenPathPlanned: boolean;
+  gunVisualSightClear: boolean;
   alertLeaderId: string | null;
   alertRemainingSeconds: number;
   readonly alarmTargetQueue: NpcAlarmTarget[];
@@ -539,6 +549,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           wanderWaitSeconds: this.nextWanderWait(),
           targetId: null,
           targetProvenance: null,
+          gunVisualPursuitMode: null,
+          gunLastSeenFootPosition: null,
+          gunLastSeenPathPlanned: false,
+          gunVisualSightClear: false,
           alertLeaderId: null,
           alertRemainingSeconds: 0,
           alarmTargetQueue: [],
@@ -1337,7 +1351,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       if (
         currentTarget &&
         !capturedTargetIds.has(currentTarget.id) &&
-        this.isVisuallyTargetable(npc, currentTarget)
+        (state === "brainwash-complete-gun"
+          ? this.retainGunVisualTarget(npc, currentTarget)
+          : this.isVisuallyTargetable(npc, currentTarget))
       ) {
         return currentTarget;
       }
@@ -1358,6 +1374,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
     this.setTarget(npc, visibleTarget.id, "visual", null, 0);
     if (state === "brainwash-complete-gun") {
+      npc.gunVisualPursuitMode = "live";
+      npc.gunLastSeenFootPosition =
+        visibleTarget.footPosition.clone();
+      npc.gunLastSeenPathPlanned = false;
+      npc.gunVisualSightClear = true;
       this.pendingAlertRequests.push(
         Object.freeze({
           leaderId: npc.id,
@@ -1368,12 +1389,64 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     return visibleTarget;
   }
 
+  private retainGunVisualTarget(
+    npc: NpcRuntime,
+    target: V2HumanTargetSnapshot
+  ) {
+    if (!this.isTargetable(npc, target)) {
+      return false;
+    }
+    const origin = toAimPosition(npc.footPosition);
+    const distanceSquared = Vector3.DistanceSquared(
+      origin,
+      target.aimPosition
+    );
+    const sightClear =
+      this.stage.queries.castSightSegment(
+        origin,
+        target.aimPosition
+      ) === null;
+    npc.gunVisualSightClear = sightClear;
+    if (sightClear) {
+      if (distanceSquared > NPC_VISUAL_LOCK_RANGE_SQUARED) {
+        return false;
+      }
+      if (npc.gunVisualPursuitMode !== "live") {
+        npc.navigationAgent.clear();
+      }
+      npc.gunVisualPursuitMode = "live";
+      npc.gunLastSeenFootPosition = target.footPosition.clone();
+      npc.gunLastSeenPathPlanned = false;
+      return true;
+    }
+    if (!npc.gunLastSeenFootPosition) {
+      return false;
+    }
+    if (npc.gunVisualPursuitMode !== "last-seen") {
+      npc.navigationAgent.clear();
+      npc.gunLastSeenPathPlanned = false;
+    }
+    npc.gunVisualPursuitMode = "last-seen";
+    return true;
+  }
+
   private updateGunNpc(
     npc: NpcRuntime,
     target: V2HumanTargetSnapshot,
     deltaSeconds: number,
     allowPathRecalculation: boolean
   ) {
+    if (
+      npc.targetProvenance === "visual" &&
+      npc.gunVisualPursuitMode === "last-seen"
+    ) {
+      this.updateGunLastSeenPursuit(
+        npc,
+        deltaSeconds,
+        allowPathRecalculation
+      );
+      return;
+    }
     this.chaseTarget(
       npc,
       target,
@@ -1386,7 +1459,12 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (
       distanceSquared === 0 ||
       distanceSquared > NPC_GUN_RANGE_SQUARED ||
-      this.stage.queries.castSightSegment(origin, target.aimPosition) !== null
+      (npc.targetProvenance === "visual"
+        ? !npc.gunVisualSightClear
+        : this.stage.queries.castSightSegment(
+            origin,
+            target.aimPosition
+          ) !== null)
     ) {
       return;
     }
@@ -1407,6 +1485,54 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       })
     );
     npc.fireCooldownSeconds = this.nextFireInterval();
+  }
+
+  private updateGunLastSeenPursuit(
+    npc: NpcRuntime,
+    deltaSeconds: number,
+    allowPathRecalculation: boolean
+  ) {
+    const destination = npc.gunLastSeenFootPosition!;
+    npc.wanderDestination = null;
+    const movement = npc.navigationAgent.update(
+      npc.navigationLocation,
+      destination,
+      NPC_CHASE_SPEED,
+      deltaSeconds,
+      allowPathRecalculation && !npc.gunLastSeenPathPlanned
+    );
+    this.recordNavigationStep(movement);
+    if (movement.pathRecalculated) {
+      if (
+        movement.pathDistance === null ||
+        movement.pathDistance >
+          NPC_LAST_SEEN_MAXIMUM_PATH_DISTANCE
+      ) {
+        this.clearTarget(npc);
+        return;
+      }
+      npc.gunLastSeenPathPlanned = true;
+    }
+    if (
+      !npc.gunLastSeenPathPlanned ||
+      movement.state === "waiting-for-path"
+    ) {
+      return;
+    }
+    if (
+      movement.state === "unreachable" ||
+      movement.state === "transition-required"
+    ) {
+      this.clearTarget(npc);
+      return;
+    }
+    if (!this.applyNavigationMovement(npc, movement.location)) {
+      this.clearTarget(npc);
+      return;
+    }
+    if (movement.state === "arrived") {
+      this.clearTarget(npc);
+    }
   }
 
   private updateNoGunNpc(
@@ -1537,6 +1663,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   ) {
     npc.targetId = null;
     npc.targetProvenance = null;
+    npc.gunVisualPursuitMode = null;
+    npc.gunLastSeenFootPosition = null;
+    npc.gunLastSeenPathPlanned = false;
+    npc.gunVisualSightClear = false;
     npc.alertLeaderId = null;
     npc.alertRemainingSeconds = 0;
     if (!npc.wanderDestination) {
@@ -1794,12 +1924,20 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.wanderDestination = null;
     if (changed) {
       npc.navigationAgent.clear();
+      npc.gunVisualPursuitMode = null;
+      npc.gunLastSeenFootPosition = null;
+      npc.gunLastSeenPathPlanned = false;
+      npc.gunVisualSightClear = false;
     }
   }
 
   private clearTarget(npc: NpcRuntime) {
     npc.targetId = null;
     npc.targetProvenance = null;
+    npc.gunVisualPursuitMode = null;
+    npc.gunLastSeenFootPosition = null;
+    npc.gunLastSeenPathPlanned = false;
+    npc.gunVisualSightClear = false;
     npc.alertLeaderId = null;
     npc.alertRemainingSeconds = 0;
     npc.navigationAgent.clear();

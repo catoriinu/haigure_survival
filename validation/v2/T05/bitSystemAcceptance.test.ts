@@ -822,22 +822,22 @@ const runVisualTargetLossChecks = (
     const acquired = timeoutSystem.getFrameView().targetStates[0];
     timeoutSightBlocked = true;
     timeoutSystem.update({
-      deltaSeconds: 17.9,
-      elapsedSeconds: 17.9,
+      deltaSeconds: 0.5,
+      elapsedSeconds: 0.5,
       targets,
       externalAlerts: EMPTY_ALERTS
     });
     const beforeTimeout = timeoutSystem.getFrameView().targetStates[0];
     timeoutSystem.update({
-      deltaSeconds: 0.1,
-      elapsedSeconds: 18,
+      deltaSeconds: 0.5,
+      elapsedSeconds: 1,
       targets,
       externalAlerts: EMPTY_ALERTS
     });
     const afterTimeout = timeoutSystem.getFrameView().targetStates[0];
     const escapeState = getRequiredFlightState(timeoutSystem);
     checks.push({
-      name: "visual標的は遮蔽17.9秒で保持し18.0秒で逃走へ移行",
+      name: "visual標的は最終視認位置到達で18秒前に逃走へ移行",
       ok:
         acquired?.provenance === "visual" &&
         acquired.targetId !== null &&
@@ -846,8 +846,8 @@ const runVisualTargetLossChecks = (
         escapeState.routePurpose === "escape",
       detail:
         `acquired=${acquired?.targetId ?? "none"} / ` +
-        `17.9s=${beforeTimeout?.targetId ?? "none"} / ` +
-        `18.0s=${afterTimeout?.targetId ?? "none"} / ` +
+        `0.5s=${beforeTimeout?.targetId ?? "none"} / ` +
+        `1.0s=${afterTimeout?.targetId ?? "none"} / ` +
         `route=${escapeState.routePurpose ?? "none"} / ` +
         `location=${escapeState.zoneId ?? "none"}/${escapeState.bandId ?? "none"} / ` +
         `agent=${escapeState.agentState}`
@@ -857,13 +857,12 @@ const runVisualTargetLossChecks = (
     timeoutStage.dispose();
   }
 
-  let distanceSightBlocked = false;
   const distanceStage = createFixtureStage(
     fixture.scene,
     fixture.navigation,
     fixture.courtyardRef,
     fixture.pointInBand(fixture.courtyardRef, 0, 0),
-    () => distanceSightBlocked
+    () => false
   );
   const distanceRandom = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
   const distanceSystem = createSystem(
@@ -882,34 +881,29 @@ const runVisualTargetLossChecks = (
       externalAlerts: EMPTY_ALERTS
     });
     const acquired = distanceSystem.getFrameView().targetStates[0];
-    distanceSightBlocked = true;
+    const movedTargets = createTargetRing(
+      "visual-distance",
+      origin,
+      3.18
+    );
     distanceSystem.update({
-      deltaSeconds: 0.05,
-      elapsedSeconds: 0.05,
-      targets,
-      externalAlerts: EMPTY_ALERTS
-    });
-    const beforeSightRefresh = distanceSystem.getFrameView().targetStates[0];
-    distanceSystem.update({
-      deltaSeconds: 0.05,
-      elapsedSeconds: 0.1,
-      targets,
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets: movedTargets,
       externalAlerts: EMPTY_ALERTS
     });
     const released = distanceSystem.getFrameView().targetStates[0];
     const escapeState = getRequiredFlightState(distanceSystem);
     checks.push({
-      name: "visual遮蔽を10Hz視界更新の0.1秒以内に反映して逃走へ移行",
+      name: "visual標的は標準視認距離+0.5の3.17超で即時解除",
       ok:
         acquired?.provenance === "visual" &&
         acquired.targetId !== null &&
-        beforeSightRefresh?.targetId === acquired.targetId &&
         released?.targetId === null &&
         escapeState.routePurpose === "escape",
       detail:
-        `distance=2.65 / acquired=${acquired?.targetId ?? "none"} / ` +
-        `0.05s=${beforeSightRefresh?.targetId ?? "none"} / ` +
-        `0.10s=${released?.targetId ?? "none"} / ` +
+        `distance=3.18 / acquired=${acquired?.targetId ?? "none"} / ` +
+        `released=${released?.targetId ?? "none"} / ` +
         `route=${escapeState.routePurpose ?? "none"} / ` +
         `location=${escapeState.zoneId ?? "none"}/${escapeState.bandId ?? "none"} / ` +
         `agent=${escapeState.agentState}`

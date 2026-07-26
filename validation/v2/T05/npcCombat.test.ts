@@ -52,6 +52,7 @@ type NpcFixture = Readonly<{
   ): void;
   getSightCastEnds(): readonly Vector3[];
   getPathfindCount(): number;
+  setPathDistanceOverride(distance: number | null): void;
   getSpriteAlpha(npcId: string): number;
   dispose(): void;
 }>;
@@ -174,6 +175,7 @@ const createNpcFixture = (
     | null = null;
   const sightCastEnds: Vector3[] = [];
   let pathfindCount = 0;
+  let pathDistanceOverride: number | null = null;
 
   const createLocation = (position: Vector3) =>
     Object.freeze({
@@ -215,7 +217,7 @@ const createNpcFixture = (
       return Object.freeze({
         steps: Object.freeze([surface]),
         destination: createLocation(destination.position),
-        distance: surface.distance
+        distance: pathDistanceOverride ?? surface.distance
       });
     },
     constrainMovement: (_start, destination) =>
@@ -285,6 +287,9 @@ const createNpcFixture = (
     getSightCastEnds: () =>
       Object.freeze(sightCastEnds.map((position) => position.clone())),
     getPathfindCount: () => pathfindCount,
+    setPathDistanceOverride: (distance) => {
+      pathDistanceOverride = distance;
+    },
     getSpriteAlpha: (npcId) => {
       const spriteManagers = scene.spriteManagers;
       if (!spriteManagers) {
@@ -1233,11 +1238,11 @@ const testNearestVisibleTargetRayEarlyExitAndTieOrder = () => {
     const tieCastEnds = tieFixture.getSightCastEnds();
     assert(
       tieTracking?.targetId === "player" &&
-        tieCastEnds.length === 2 &&
+        tieCastEnds.length === 1 &&
         tieCastEnds.every((position) =>
           position.equals(player.aimPosition)
         ),
-      "同距離の可視標的で元のframe順または最初の非遮蔽早期終了を維持できません: " +
+      "同距離の可視標的で元のframe順、最初の非遮蔽早期終了、射撃との視線共有を維持できません: " +
         `target=${tieTracking?.targetId ?? "none"} / ` +
         `casts=${tieCastEnds.map((position) => position.toString()).join("|")}`
     );
@@ -1255,7 +1260,7 @@ const testNearestVisibleTargetRayEarlyExitAndTieOrder = () => {
     const blockedCastEnds = blockedFixture.getSightCastEnds();
     assert(
       blockedTracking?.targetId === "npc_1" &&
-        blockedCastEnds.length === 3 &&
+        blockedCastEnds.length === 2 &&
         blockedCastEnds[0].equals(player.aimPosition) &&
         blockedCastEnds
           .slice(1)
@@ -1273,6 +1278,109 @@ const testNearestVisibleTargetRayEarlyExitAndTieOrder = () => {
   } finally {
     blockedFixture.dispose();
     tieFixture.dispose();
+  }
+};
+
+const testGunVisualLockAndLastSeenPath = () => {
+  const fixture = createNpcFixture(1, 1);
+  const overLimitFixture = createNpcFixture(1, 1);
+  try {
+    fixture.system.placeNpcs([
+      {
+        id: "npc_0",
+        footPosition: Vector3.Zero(),
+        formation: false
+      }
+    ]);
+    const initialTarget = createPlayerTarget(
+      new Vector3(0, 0, -1)
+    );
+    fixture.system.update(
+      0,
+      initialTarget,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const acquired = fixture.system.getFrameView().tracking[0];
+    const baselinePathfindCount = fixture.getPathfindCount();
+
+    const outsideFovTarget = createPlayerTarget(
+      new Vector3(0, 0, 1)
+    );
+    fixture.system.update(
+      0,
+      outsideFovTarget,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const retainedOutsideFov =
+      fixture.system.getFrameView().tracking[0];
+
+    fixture.setSightBlocked(true);
+    fixture.system.update(
+      0.1,
+      outsideFovTarget,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const firstLostView = fixture.system.getFrameView();
+    const firstLostPathfindCount = fixture.getPathfindCount();
+    fixture.system.update(
+      0.1,
+      outsideFovTarget,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const secondLostPathfindCount = fixture.getPathfindCount();
+
+    overLimitFixture.system.placeNpcs([
+      {
+        id: "npc_0",
+        footPosition: Vector3.Zero(),
+        formation: false
+      }
+    ]);
+    overLimitFixture.system.update(
+      0,
+      initialTarget,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    overLimitFixture.setPathDistanceOverride(5.01);
+    overLimitFixture.setSightBlocked(true);
+    overLimitFixture.system.update(
+      0.1,
+      initialTarget,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const overLimitTracking =
+      overLimitFixture.system.getFrameView().tracking[0];
+
+    assert(
+      acquired.targetId === "player" &&
+        acquired.provenance === "visual",
+      "銃ありNPCが初回の距離・FOV・視線条件でvisual標的を取得しません。"
+    );
+    assert(
+      retainedOutsideFov.targetId === "player" &&
+        retainedOutsideFov.provenance === "visual",
+      "銃ありNPCが取得済み標的をFOV外だけで解除しました。"
+    );
+    assert(
+      firstLostView.tracking[0].targetId === "player" &&
+        firstLostView.pathRecalculationCount === 1 &&
+        firstLostPathfindCount === baselinePathfindCount + 2 &&
+        secondLostPathfindCount === firstLostPathfindCount,
+      "最終視認位置の経路を公平予算内で一度だけ計画できません。"
+    );
+    assert(
+      overLimitTracking.targetId === null &&
+        overLimitTracking.provenance === null,
+      "経路長5.0を超える最終視認位置追跡を解除しません。"
+    );
+    return (
+      `fov=${acquired.targetId}->${retainedOutsideFov.targetId} / ` +
+      `lastSeenPath=${firstLostPathfindCount}->${secondLostPathfindCount} / ` +
+      `overLimit=${overLimitTracking.targetId ?? "none"}`
+    );
+  } finally {
+    overLimitFixture.dispose();
+    fixture.dispose();
   }
 };
 
@@ -1321,6 +1429,7 @@ const testNavigationAgentReplanPermission = () => {
     );
     assert(
       planned.pathRecalculated &&
+        planned.pathDistance === 2 &&
         fixture.getPathfindCount() === 1 &&
         !continued.pathRecalculated &&
         continued.state === "moving" &&
@@ -1636,6 +1745,10 @@ export const runNpcCombatTests = () =>
     executeTest(
       "NPC最近傍可視Ray早期終了・同距離順",
       testNearestVisibleTargetRayEarlyExitAndTieOrder
+    ),
+    executeTest(
+      "NPC gunのFOV外保持・最終視認位置経路",
+      testGunVisualLockAndLastSeenPath
     ),
     executeTest(
       "NavigationAgent再計画許可",

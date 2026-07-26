@@ -30,6 +30,7 @@ export type NavigationAgentStepResult = Readonly<{
   location: NavigationLocation;
   state: NavigationAgentState;
   pathRecalculated: boolean;
+  pathDistance: number | null;
   transition: NavigationTransitionStep | null;
 }>;
 
@@ -136,6 +137,7 @@ class CachedNavigationAgent implements NavigationAgent {
   private readonly config: NavigationAgentConfig;
   private path: readonly NavigationPathStep[] | null = null;
   private resolvedTarget: NavigationLocation | null = null;
+  private pathDistance: number | null = null;
   private nextStepIndex = 0;
   private nextPointIndex = 0;
   private plannedTarget: Vector3 | null = null;
@@ -209,6 +211,7 @@ class CachedNavigationAgent implements NavigationAgent {
             ? "waiting-for-path"
             : "unreachable",
         pathRecalculated,
+        pathDistance: this.pathDistance,
         transition: null
       };
     }
@@ -232,6 +235,7 @@ class CachedNavigationAgent implements NavigationAgent {
             location: cloneNavigationLocation(currentLocation),
             state: "unreachable",
             pathRecalculated,
+            pathDistance: this.pathDistance,
             transition: null
           };
         }
@@ -239,6 +243,7 @@ class CachedNavigationAgent implements NavigationAgent {
           location,
           state: "transition-required",
           pathRecalculated,
+          pathDistance: this.pathDistance,
           transition: step
         };
       }
@@ -255,6 +260,7 @@ class CachedNavigationAgent implements NavigationAgent {
             location,
             state: "moving",
             pathRecalculated,
+            pathDistance: this.pathDistance,
             transition: null
           };
         }
@@ -272,6 +278,7 @@ class CachedNavigationAgent implements NavigationAgent {
             location: cloneNavigationLocation(currentLocation),
             state: "unreachable",
             pathRecalculated,
+            pathDistance: this.pathDistance,
             transition: null
           };
         }
@@ -296,6 +303,7 @@ class CachedNavigationAgent implements NavigationAgent {
           location,
           state: "moving",
           pathRecalculated,
+          pathDistance: this.pathDistance,
           transition: null
         };
       }
@@ -312,6 +320,7 @@ class CachedNavigationAgent implements NavigationAgent {
           ? "waiting-for-path"
           : "arrived",
       pathRecalculated,
+      pathDistance: this.pathDistance,
       transition: null
     };
   }
@@ -319,6 +328,7 @@ class CachedNavigationAgent implements NavigationAgent {
   clear() {
     this.path = null;
     this.resolvedTarget = null;
+    this.pathDistance = null;
     this.nextStepIndex = 0;
     this.nextPointIndex = 0;
     this.plannedTarget = null;
@@ -343,6 +353,7 @@ class CachedNavigationAgent implements NavigationAgent {
         )
       : null;
     this.path = result ? cloneAndValidatePath(result) : null;
+    this.pathDistance = result?.distance ?? null;
     this.resolvedTarget = result
       ? cloneNavigationLocation(result.destination)
       : null;
@@ -357,6 +368,7 @@ class CachedNavigationAgent implements NavigationAgent {
   private invalidatePath() {
     this.path = null;
     this.resolvedTarget = null;
+    this.pathDistance = null;
     this.nextStepIndex = 0;
     this.nextPointIndex = 0;
     this.secondsSincePathSearch = 0;

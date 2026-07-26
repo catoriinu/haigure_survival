@@ -23,6 +23,7 @@ import {
   type BitFlightNavigationWorld,
   type BitFlightRoute,
   type BitFlightRoutePolicy,
+  type BitFlightTransition,
   type BitFlightTransitionTraversal
 } from "../../../src/world/bitFlightNavigation";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
@@ -39,7 +40,8 @@ import {
   V2_BIT_CARPET_FIRE_INTERVAL_SECONDS,
   V2_BIT_CARPET_PASS_DURATION_SECONDS,
   V2_BIT_FIRE_TELEGRAPH_SECONDS,
-  V2_BIT_RANDOM_DURATION_SECONDS
+  V2_BIT_RANDOM_DURATION_SECONDS,
+  V2_STANDARD_BIT_COMBAT_PROFILE
 } from "../../../src/v2/bitCombatProfile";
 import type {
   V2ExternalAlert,
@@ -71,7 +73,8 @@ const BAND_CENTER_HEIGHT = 1.4;
 const BASE_SEARCH_SPEED = 0.25;
 const BASE_CHASE_SPEED = 0.22;
 const FIRE_RANGE = 1.2;
-const TARGET_LOST_MAXIMUM_DISTANCE = 2.6;
+const TARGET_LOST_MAXIMUM_DISTANCE =
+  V2_STANDARD_BIT_COMBAT_PROFILE.visionRange + 0.5;
 const ALERT_SPAWN_RADIUS = 0.2;
 const RANDOM_ATTACK_SPEED = 0.28;
 const RED_VERTICAL_SEARCH_SPEED = 0.18;
@@ -1937,6 +1940,184 @@ const runRouteCandidateLowerBoundPruningCheck =
     });
   };
 
+const runChaseWindowCongestionCostCheck =
+  (): BitCombatIntegrationCheck => {
+    const baseNavigation = createNavigation();
+    const createWindowTransition = (
+      id: string,
+      x: number
+    ): BitFlightTransition =>
+      Object.freeze({
+        id,
+        kind: "aperture" as const,
+        from: TEST_BAND_REF,
+        to: TEST_BAND_REF,
+        bidirectional: true,
+        affordances: Object.freeze(["window-access" as const]),
+        fromPosition: new Vector3(x, BAND_CENTER_HEIGHT, 0),
+        toPosition: new Vector3(x, BAND_CENTER_HEIGHT, 0),
+        traversalPoints: Object.freeze([
+          new Vector3(x, BAND_CENTER_HEIGHT, 0)
+        ]),
+        region: null
+      });
+    const firstWindow = createWindowTransition(
+      "chase-window-a",
+      0.25
+    );
+    const secondWindow = createWindowTransition(
+      "chase-window-b",
+      -0.25
+    );
+    const createTraversal = (
+      transition: BitFlightTransition
+    ): BitFlightTransitionTraversal =>
+      Object.freeze({
+        transition,
+        from: TEST_BAND_REF,
+        to: TEST_BAND_REF,
+        reversed: false
+      });
+    const firstTraversal = createTraversal(firstWindow);
+    const secondTraversal = createTraversal(secondWindow);
+    const preparedWindowIds: string[] = [];
+    const createWindowRoute = (
+      start: BitFlightLocation,
+      destination: BitFlightLocation,
+      traversal: BitFlightTransitionTraversal,
+      policy: BitFlightRoutePolicy
+    ): BitFlightRoute | null => {
+      if (!policy.canUseTransition(traversal)) {
+        return null;
+      }
+      const distance = Vector3.Distance(
+        getBitFlightWorldPosition(start),
+        getBitFlightWorldPosition(destination)
+      );
+      const step = Object.freeze({
+        kind: "transition" as const,
+        traversal,
+        entry: cloneLocation(start),
+        exit: cloneLocation(destination),
+        points: Object.freeze([
+          getBitFlightWorldPosition(start),
+          getBitFlightWorldPosition(destination)
+        ]),
+        distance
+      });
+      if (!policy.canUseRouteStep(step)) {
+        return null;
+      }
+      return Object.freeze({
+        steps: Object.freeze([step]),
+        destination: cloneLocation(destination),
+        distance,
+        totalCost:
+          distance + policy.additionalTransitionCost(traversal)
+      });
+    };
+    const findWindowRoute = (
+      start: BitFlightLocation,
+      destination: BitFlightLocation,
+      policy: BitFlightRoutePolicy
+    ) => {
+      const firstRoute = createWindowRoute(
+        start,
+        destination,
+        firstTraversal,
+        policy
+      );
+      const secondRoute = createWindowRoute(
+        start,
+        destination,
+        secondTraversal,
+        policy
+      );
+      if (!firstRoute) {
+        return secondRoute;
+      }
+      if (!secondRoute) {
+        return firstRoute;
+      }
+      return firstRoute.totalCost <= secondRoute.totalCost
+        ? firstRoute
+        : secondRoute;
+    };
+    const navigation = Object.freeze({
+      ...baseNavigation,
+      transitions: Object.freeze([firstWindow, secondWindow]),
+      findRoute: findWindowRoute,
+      assertPreparedRoute: (
+        _currentLocation: BitFlightLocation,
+        route: BitFlightRoute
+      ) => {
+        const step = route.steps.find(
+          (candidate) => candidate.kind === "transition"
+        );
+        if (step?.kind === "transition") {
+          preparedWindowIds.push(step.traversal.transition.id);
+        }
+      },
+      getTransitionsFrom: () =>
+        Object.freeze([firstTraversal, secondTraversal])
+    }) as BitFlightNavigationWorld;
+    const harness = createHarness(
+      2,
+      () => false,
+      false,
+      false,
+      () => false,
+      navigation
+    );
+    try {
+      placeHarnessBitsAtSamePosition(harness);
+      const origin =
+        harness.system.getFrameView().flightStates[0].position;
+      const target = createTarget(
+        "chase-window-congestion-target",
+        origin.add(new Vector3(1, 0, 0))
+      );
+      harness.random.enqueue(
+        ...Array.from({ length: 100 }, () => 0.1)
+      );
+      update(
+        harness.system,
+        0,
+        0,
+        Object.freeze([target])
+      );
+      update(
+        harness.system,
+        0,
+        0,
+        Object.freeze([target])
+      );
+      update(
+        harness.system,
+        0.1,
+        0.1,
+        Object.freeze([target])
+      );
+      update(
+        harness.system,
+        0.1,
+        0.2,
+        Object.freeze([target])
+      );
+      return Object.freeze({
+        name:
+          "同一標的CHASEは利用中window-accessへsoft costを付け別窓へ分散",
+        ok:
+          preparedWindowIds.length === 2 &&
+          preparedWindowIds[0] === firstWindow.id &&
+          preparedWindowIds[1] === secondWindow.id,
+        detail: `prepared=${preparedWindowIds.join("->")}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
 const runAlertRequestModeCheck = (): BitCombatIntegrationCheck => {
   const cases = Object.freeze([
     Object.freeze({ label: "chase", roll: 0.1, expected: 0 }),
@@ -2186,8 +2367,9 @@ const runInternalAlertSpawnAndGlobalSingleCheck =
           receiverCount === 4 &&
           spawnDistance <= ALERT_SPAWN_RADIUS + POSITION_EPSILON &&
           orientationMatches &&
-          afterConcurrentAttempt?.mode === "chase" &&
-          afterConcurrentAttempt.provenance === "visual" &&
+          afterConcurrentAttempt?.mode !== "alert-send" &&
+          afterConcurrentAttempt?.mode !== "alert-receive" &&
+          afterConcurrentAttempt?.provenance === "visual" &&
           concurrentRequests.length === 0,
         detail:
           `actors=${initialActors.length}->${startedActors.length} / ` +
@@ -2421,13 +2603,7 @@ const runChaseSurfaceSpeedAndRangeCheck =
         cutoffHarness.system.getFrameView().flightStates[0].position;
       const target = createTarget(
         "chase-range-cutoff",
-        origin.add(
-          new Vector3(
-            TARGET_LOST_MAXIMUM_DISTANCE - 0.1,
-            0,
-            0
-          )
-        )
+        origin.add(new Vector3(2.5, 0, 0))
       );
       const acquired = acquireMode(cutoffHarness, 0.1, target);
       const movedTarget = createTarget(
@@ -2447,37 +2623,71 @@ const runChaseSurfaceSpeedAndRangeCheck =
         Object.freeze([movedTarget])
       );
       const abandoned = cutoffHarness.system.getFrameView().targetStates[0];
+      const fovHarness = createHarness(1);
+      const fovOrigin =
+        fovHarness.system.getFrameView().flightStates[0].position;
+      const initiallyVisible = createTarget(
+        "chase-fov-lock",
+        fovOrigin.add(new Vector3(1, 0, 0))
+      );
+      const fovAcquired = acquireMode(
+        fovHarness,
+        0.1,
+        initiallyVisible
+      );
+      update(
+        fovHarness.system,
+        0,
+        0,
+        Object.freeze([
+          createTarget(
+            initiallyVisible.id,
+            fovOrigin.add(new Vector3(-1, 0, 0))
+          )
+        ])
+      );
+      const retainedOutsideFov =
+        fovHarness.system.getFrameView().targetStates[0];
       const expectedOutsideMovement = BASE_SEARCH_SPEED * 0.4;
       const expectedInsideMovement = BASE_CHASE_SPEED * 0.4;
-      return Object.freeze({
-        name:
-          "combat chaseは1.2m外でsearch速度・内でchase速度、2.6m超で解除",
-        ok:
-          outsideFireRange.mode === "chase" &&
-          insideFireRange.mode === "chase" &&
-          Math.abs(
-            outsideFireRange.movement -
-              expectedOutsideMovement
-          ) <= POSITION_EPSILON &&
-          Math.abs(
-            insideFireRange.movement -
-              expectedInsideMovement
-          ) <= POSITION_EPSILON &&
-          acquired.mode === "chase" &&
-          abandoned.mode === "search" &&
-          abandoned.targetId === null &&
-          Math.abs(
-            abandoned.attackCooldownSeconds -
-              V2_BIT_ATTACK_COOLDOWN_SECONDS
-          ) <= POSITION_EPSILON,
-        detail:
-          `outside(${FIRE_RANGE}m)=${outsideFireRange.movement.toFixed(6)}/` +
-          `${expectedOutsideMovement.toFixed(6)} / ` +
-          `inside=${insideFireRange.movement.toFixed(6)}/` +
-          `${expectedInsideMovement.toFixed(6)} / ` +
-          `cutoff=${acquired.mode}->${abandoned.mode}:` +
-          `${abandoned.attackCooldownSeconds.toFixed(2)}s`
-      });
+      try {
+        return Object.freeze({
+          name:
+            "combat chaseは1.2外／内の速度を分け、FOV外保持・視認距離+0.5で解除",
+          ok:
+            outsideFireRange.mode === "chase" &&
+            insideFireRange.mode === "chase" &&
+            Math.abs(
+              outsideFireRange.movement -
+                expectedOutsideMovement
+            ) <= POSITION_EPSILON &&
+            Math.abs(
+              insideFireRange.movement -
+                expectedInsideMovement
+            ) <= POSITION_EPSILON &&
+            fovAcquired.mode === "chase" &&
+            retainedOutsideFov.mode === "chase" &&
+            retainedOutsideFov.targetId === initiallyVisible.id &&
+            acquired.mode === "chase" &&
+            abandoned.mode === "search" &&
+            abandoned.targetId === null &&
+            Math.abs(
+              abandoned.attackCooldownSeconds -
+                V2_BIT_ATTACK_COOLDOWN_SECONDS
+            ) <= POSITION_EPSILON,
+          detail:
+            `outside(${FIRE_RANGE})=${outsideFireRange.movement.toFixed(6)}/` +
+            `${expectedOutsideMovement.toFixed(6)} / ` +
+            `inside=${insideFireRange.movement.toFixed(6)}/` +
+            `${expectedInsideMovement.toFixed(6)} / ` +
+            `fov=${fovAcquired.mode}->${retainedOutsideFov.mode} / ` +
+            `cutoff=${TARGET_LOST_MAXIMUM_DISTANCE.toFixed(2)}:` +
+            `${acquired.mode}->${abandoned.mode}:` +
+            `${abandoned.attackCooldownSeconds.toFixed(2)}s`
+        });
+      } finally {
+        fovHarness.dispose();
+      }
     } finally {
       cutoffHarness.dispose();
     }
@@ -4108,6 +4318,7 @@ export const runBitCombatIntegrationTests =
       runRedVerticalSearchSpeedCheck(),
       runRedTransitionSpeedCheck(fixture),
       runRouteCandidateLowerBoundPruningCheck(),
+      runChaseWindowCongestionCostCheck(),
       runAlertRequestModeCheck(),
       runAlertAssemblyCompletionCheck(),
       runAlertTimeoutCheck(),
