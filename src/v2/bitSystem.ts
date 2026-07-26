@@ -40,6 +40,7 @@ import {
   createBitFlightExplorationHistory,
   createBitFlightSearchRoutePolicy,
   createBitFlightTransitionHistory,
+  type BitFlightExplorationSample,
   type BitFlightExplorationHistory,
   type BitFlightTransitionHistory
 } from "../world/bitFlightTactics";
@@ -83,12 +84,19 @@ const BIT_MUZZLE_DIAMETER = 0.03;
 const BIT_MUZZLE_OFFSET = BIT_BODY_HEIGHT / 2 + 0.02;
 const BIT_ACTOR_RADIUS = BIT_FLIGHT_BODY_RADIUS_WORLD_UNITS;
 
-const SEARCH_SPEED = 0.25;
+const PROFILE_SEARCH_SPEED_REFERENCE = 0.25;
+const NORMAL_PATROL_SPEED = 0.3;
 const SEARCH_VERTICAL_SPEED = 0.06;
-const SEARCH_RADIUS = 2.4;
+const NORMAL_PATROL_RADIUS = 3;
+const RANDOM_ATTACK_SEARCH_RADIUS = 2.4;
 const SEARCH_RETRY_SECONDS = 0.5;
-const SEARCH_SEGMENT_SECONDS_MIN = 1.2;
-const SEARCH_SEGMENT_SECONDS_MAX = 2.4;
+const RANDOM_ATTACK_ROUTE_SECONDS_MIN = 1.2;
+const RANDOM_ATTACK_ROUTE_SECONDS_MAX = 2.4;
+const NORMAL_PATROL_CANDIDATE_COUNT = 4;
+const NORMAL_PATROL_ROUTE_CANDIDATE_LIMIT = 3;
+const NORMAL_PATROL_MINIMUM_HORIZONTAL_DISTANCE = 1.2;
+const NORMAL_PATROL_RESERVATION_RADIUS = 1;
+const NORMAL_PATROL_REVERSE_PENALTY = 2;
 const SEARCH_TRANSITION_CHANCE = 0.25;
 const SEARCH_NEAR_TRANSITION_DISTANCE = 0.75;
 const SEARCH_TRANSITION_CANDIDATE_LIMIT = 1;
@@ -100,6 +108,42 @@ const SEARCH_OBSERVATION_INTERVAL_SECONDS = 1;
 const SEARCH_OBSERVATION_RADIUS = 0.8;
 const SEARCH_EXPLORED_DESTINATION_PENALTY = 1.5;
 const SEARCH_ORDINARY_TRANSITION_PENALTY = 0.4;
+const BRUTE_FORCE_START_SECONDS = 40;
+const BRUTE_FORCE_CHECK_INTERVAL_SECONDS = 10;
+const BRUTE_FORCE_START_CHANCE = 0.25;
+const BRUTE_FORCE_LOCAL_CANDIDATE_COUNT = 3;
+const BRUTE_FORCE_FRONTIER_CANDIDATE_COUNT = 1;
+const BRUTE_FORCE_TRANSITION_CANDIDATE_COUNT = 1;
+const BRUTE_FORCE_SURFACE_ROUTE_CANDIDATE_LIMIT = 3;
+const BRUTE_FORCE_FRONTIER_STEP = 1;
+const BRUTE_FORCE_FRONTIER_DIAGONAL_STEP =
+  BRUTE_FORCE_FRONTIER_STEP * Math.SQRT1_2;
+const BRUTE_FORCE_FRONTIER_OFFSETS = Object.freeze([
+  new Vector3(BRUTE_FORCE_FRONTIER_STEP, 0, 0),
+  new Vector3(-BRUTE_FORCE_FRONTIER_STEP, 0, 0),
+  new Vector3(0, 0, BRUTE_FORCE_FRONTIER_STEP),
+  new Vector3(0, 0, -BRUTE_FORCE_FRONTIER_STEP),
+  new Vector3(
+    BRUTE_FORCE_FRONTIER_DIAGONAL_STEP,
+    0,
+    BRUTE_FORCE_FRONTIER_DIAGONAL_STEP
+  ),
+  new Vector3(
+    -BRUTE_FORCE_FRONTIER_DIAGONAL_STEP,
+    0,
+    BRUTE_FORCE_FRONTIER_DIAGONAL_STEP
+  ),
+  new Vector3(
+    BRUTE_FORCE_FRONTIER_DIAGONAL_STEP,
+    0,
+    -BRUTE_FORCE_FRONTIER_DIAGONAL_STEP
+  ),
+  new Vector3(
+    -BRUTE_FORCE_FRONTIER_DIAGONAL_STEP,
+    0,
+    -BRUTE_FORCE_FRONTIER_DIAGONAL_STEP
+  )
+]);
 const TRANSITION_IMMEDIATE_RETURN_PENALTY = 8;
 const TARGET_ROUTE_REFRESH_SECONDS = 0.5;
 const TARGET_ROUTE_MOVE_THRESHOLD = 0.2;
@@ -289,6 +333,25 @@ type ActiveAlert = {
   internalBitAlert: boolean;
 };
 
+type SearchRouteKind = "normal" | "random" | "brute-force";
+
+type SearchSurfaceDestination = Readonly<{
+  destination: BitFlightLocation;
+  surfaceSpeed: number;
+  isVertical: boolean;
+}>;
+
+type BruteForceRouteCandidate = SafeRouteInputCandidate<
+  Readonly<{ surfaceSpeed: number }>
+>;
+
+type NormalPatrolLeg = SafeRouteCandidate<
+  Readonly<{ surfaceSpeed: number }>
+> &
+  Readonly<{
+  origin: BitFlightLocation;
+  }>;
+
 type RuntimeBit = {
   id: string;
   root: TransformNode;
@@ -300,12 +363,21 @@ type RuntimeBit = {
   routePurpose: V2BitRoutePurpose | null;
   routeDestination: BitFlightLocation | null;
   routeRefreshSeconds: number;
-  searchSegmentSeconds: number;
+  searchRouteKind: SearchRouteKind | null;
+  normalPatrolOrigin: BitFlightLocation | null;
+  queuedNormalPatrolLeg: NormalPatrolLeg | null;
+  randomAttackRouteSeconds: number;
   searchSurfaceSpeed: number;
   searchRetrySeconds: number;
   hasAttemptedSearchRoute: boolean;
   searchTransitionCursor: number;
   searchSurfacePlansSinceTransitionAttempt: number;
+  bruteForceActive: boolean;
+  bruteForceNextCheckSeconds: number;
+  bruteForcePhaseCursor: number;
+  bruteForceFrontierCursor: number;
+  bruteForceTransitionCursor: number;
+  bruteForceFailedTransitionCandidateCount: number;
   lastExplorationRecordSeconds: number;
   transitionHistory: BitFlightTransitionHistory;
   activeTransition: BitFlightTransitionTraversal | null;
@@ -1218,14 +1290,28 @@ export const createV2BitSystem = (
     return safeDestinationByTraversalKey.get(traversalKey) ?? null;
   };
 
-  for (const band of navigation.bands) {
-    for (const traversal of navigation.getTransitionsFrom({
-      zoneId: band.zoneId,
-      bandId: band.id
-    })) {
-      getSafeTraversalDestination(traversal);
+  const bruteForceTransitionDestinations = (() => {
+    const destinations: BitFlightLocation[] = [];
+    const traversalKeys = new Set<string>();
+    for (const band of navigation.bands) {
+      for (const traversal of navigation.getTransitionsFrom({
+        zoneId: band.zoneId,
+        bandId: band.id
+      })) {
+        const traversalKey =
+          `${traversal.transition.id}|${traversal.reversed}`;
+        if (traversalKeys.has(traversalKey)) {
+          continue;
+        }
+        traversalKeys.add(traversalKey);
+        const destination = getSafeTraversalDestination(traversal);
+        if (destination) {
+          destinations.push(destination);
+        }
+      }
     }
-  }
+    return Object.freeze(destinations);
+  })();
 
   const createSpawnRegions = (): readonly SpawnRegion[] =>
     Object.freeze(
@@ -1384,6 +1470,9 @@ export const createV2BitSystem = (
   let remainingUnassignedEscapeRoutePlans = 0;
   let aiSuspended = false;
   let frameView: V2BitFrameView | null = null;
+  let recentExplorationSamplesForUpdate:
+    | readonly BitFlightExplorationSample[]
+    | null = null;
 
   const invalidateFrameViews = () => {
     frameView = null;
@@ -1439,7 +1528,8 @@ export const createV2BitSystem = (
     if (!safety.isCenterSafe(position)) {
       throw new Error("ビット初期位置に0.54m安全包絡が収まりません。");
     }
-    const id = `v2_bit_${nextBitIndex}`;
+    const bitIndex = nextBitIndex;
+    const id = `v2_bit_${bitIndex}`;
     nextBitIndex += 1;
     const profile =
       inheritedProfile ??
@@ -1474,12 +1564,21 @@ export const createV2BitSystem = (
         routePurpose: null,
         routeDestination: null,
         routeRefreshSeconds: 0,
-        searchSegmentSeconds: 0,
+        searchRouteKind: null,
+        normalPatrolOrigin: null,
+        queuedNormalPatrolLeg: null,
+        randomAttackRouteSeconds: 0,
         searchSurfaceSpeed: profile.searchSpeed,
         searchRetrySeconds: 0,
         hasAttemptedSearchRoute: false,
-        searchTransitionCursor: 0,
+        searchTransitionCursor: bitIndex,
         searchSurfacePlansSinceTransitionAttempt: 0,
+        bruteForceActive: false,
+        bruteForceNextCheckSeconds: BRUTE_FORCE_START_SECONDS,
+        bruteForcePhaseCursor: bitIndex,
+        bruteForceFrontierCursor: bitIndex,
+        bruteForceTransitionCursor: bitIndex,
+        bruteForceFailedTransitionCandidateCount: 0,
         lastExplorationRecordSeconds: Number.NEGATIVE_INFINITY,
         transitionHistory: createBitFlightTransitionHistory(),
         activeTransition: null,
@@ -1837,6 +1936,11 @@ export const createV2BitSystem = (
     bit.routePurpose = null;
     bit.routeDestination = null;
     bit.routeRefreshSeconds = 0;
+    bit.searchRouteKind = null;
+    bit.normalPatrolOrigin = null;
+    bit.queuedNormalPatrolLeg = null;
+    bit.randomAttackRouteSeconds = 0;
+    bit.bruteForceFailedTransitionCandidateCount = 0;
   };
 
   const assignRoute = (
@@ -2672,32 +2776,43 @@ export const createV2BitSystem = (
     return closest;
   };
 
-  const createSearchSurfaceDestination = (
+  const createSearchRoutePolicy = (
     bit: RuntimeBit,
-    movementSpeed: number
-  ): Readonly<{
-    destination: BitFlightLocation;
-    surfaceSpeed: number;
-  }> | null => {
-    const current = bit.navigationLocation;
-    if (!current) {
-      return null;
-    }
-    const band = navigation.getBand(current);
+    elapsedSeconds: number
+  ) =>
+    createBitFlightSearchRoutePolicy({
+      explorationHistory,
+      transitionHistory: bit.transitionHistory,
+      nowSeconds: elapsedSeconds,
+      observationRadius: SEARCH_OBSERVATION_RADIUS,
+      exploredDestinationPenalty: SEARCH_EXPLORED_DESTINATION_PENALTY,
+      ordinaryTransitionPenalty: SEARCH_ORDINARY_TRANSITION_PENALTY,
+      immediateReturnPenalty: TRANSITION_IMMEDIATE_RETURN_PENALTY,
+      returnSuppressionSeconds:
+        BIT_FLIGHT_TRANSITION_RETURN_SUPPRESSION_SECONDS
+    });
+
+  const createSearchSurfaceDestination = (
+    origin: BitFlightLocation,
+    horizontalSpeed: number,
+    verticalSpeed: number,
+    radius: number,
+    movementRoll: number
+  ): SearchSurfaceDestination | null => {
+    const band = navigation.getBand(origin);
     if (!band) {
       throw new Error("探索中の飛行帯がありません。");
     }
-    const movementRoll = nextRandom();
     const isVertical = movementRoll >= 0.65 && movementRoll < 0.8;
     const isDiagonal = movementRoll >= 0.8;
     const horizontal = isVertical
-      ? current
-      : navigation.randomPointAround(current, SEARCH_RADIUS);
+      ? origin
+      : navigation.randomPointAround(origin, radius);
     if (!horizontal) {
       return null;
     }
 
-    let preferredHeight = current.safeCenterHeight;
+    let preferredHeight = origin.safeCenterHeight;
     if (isVertical) {
       const direction = nextRandom() < 0.65 ? -1 : 1;
       preferredHeight += direction * randomRange(0.08, 0.22);
@@ -2715,15 +2830,482 @@ export const createV2BitSystem = (
     return destination
       ? Object.freeze({
           destination,
-          surfaceSpeed: isVertical
-            ? movementSpeed *
-              (SEARCH_VERTICAL_SPEED / SEARCH_SPEED)
-            : movementSpeed
+          surfaceSpeed: isVertical ? verticalSpeed : horizontalSpeed,
+          isVertical
         })
       : null;
   };
 
-  const planSearchRoute = (
+  const getHorizontalDistance = (
+    left: BitFlightLocation,
+    right: BitFlightLocation
+  ) => {
+    const leftPosition = getBitFlightWorldPosition(left);
+    const rightPosition = getBitFlightWorldPosition(right);
+    return Math.hypot(
+      rightPosition.x - leftPosition.x,
+      rightPosition.z - leftPosition.z
+    );
+  };
+
+  const getNormalPatrolReservations = (owner: RuntimeBit) => {
+    const reservations: BitFlightLocation[] = [];
+    for (const bit of bits) {
+      if (
+        bit.id === owner.id ||
+        bit.searchRouteKind !== "normal"
+      ) {
+        continue;
+      }
+      if (
+        bit.routePurpose === "search" &&
+        bit.routeDestination !== null
+      ) {
+        reservations.push(bit.routeDestination);
+      }
+      if (bit.queuedNormalPatrolLeg) {
+        reservations.push(
+          bit.queuedNormalPatrolLeg.destination
+        );
+      }
+    }
+    return reservations;
+  };
+
+  const createRankedNormalPatrolDestinations = (
+    bit: RuntimeBit,
+    origin: BitFlightLocation,
+    previousOrigin: BitFlightLocation | null,
+    elapsedSeconds: number,
+    movementRoll = nextRandom()
+  ) => {
+    const horizontalSpeed =
+      NORMAL_PATROL_SPEED * bit.profile.statMultiplier;
+    const verticalSpeed =
+      SEARCH_VERTICAL_SPEED * bit.profile.statMultiplier;
+    const reservations = getNormalPatrolReservations(bit);
+    const candidates: Array<
+      SafeRouteInputCandidate<
+        Readonly<{ surfaceSpeed: number }>
+      > &
+        Readonly<{
+          conflictsReservation: boolean;
+          horizontalDistance: number;
+          minimumReservationDistance: number;
+          recentlyExplored: boolean;
+          isVertical: boolean;
+        }>
+    > = [];
+    const candidateKeys = new Set<string>();
+    for (
+      let attempt = 0;
+      attempt < NORMAL_PATROL_CANDIDATE_COUNT;
+      attempt += 1
+    ) {
+      const surface = createSearchSurfaceDestination(
+        origin,
+        horizontalSpeed,
+        verticalSpeed,
+        NORMAL_PATROL_RADIUS,
+        movementRoll
+      );
+      if (!surface) {
+        continue;
+      }
+      const destinationPosition = getBitFlightWorldPosition(
+        surface.destination
+      );
+      const candidateKey = JSON.stringify([
+        surface.destination.zoneId,
+        surface.destination.bandId,
+        destinationPosition.x,
+        destinationPosition.y,
+        destinationPosition.z
+      ]);
+      if (candidateKeys.has(candidateKey)) {
+        continue;
+      }
+      candidateKeys.add(candidateKey);
+      const horizontalDistance = getHorizontalDistance(
+        origin,
+        surface.destination
+      );
+      let minimumReservationDistance = Number.POSITIVE_INFINITY;
+      for (const reservation of reservations) {
+        if (!sameBand(surface.destination, reservation)) {
+          continue;
+        }
+        minimumReservationDistance = Math.min(
+          minimumReservationDistance,
+          getHorizontalDistance(surface.destination, reservation)
+        );
+      }
+      const conflictsReservation =
+        minimumReservationDistance <
+        NORMAL_PATROL_RESERVATION_RADIUS;
+      const recentlyExplored = explorationHistory.hasRecentObservation(
+        surface.destination,
+        destinationPosition,
+        SEARCH_OBSERVATION_RADIUS,
+        elapsedSeconds
+      );
+      let reversePenalty = 0;
+      if (previousOrigin) {
+        const previousPosition =
+          getBitFlightWorldPosition(previousOrigin);
+        const originPosition = getBitFlightWorldPosition(origin);
+        const incomingX = originPosition.x - previousPosition.x;
+        const incomingZ = originPosition.z - previousPosition.z;
+        const outgoingX = destinationPosition.x - originPosition.x;
+        const outgoingZ = destinationPosition.z - originPosition.z;
+        const incomingLength = Math.hypot(incomingX, incomingZ);
+        const outgoingLength = Math.hypot(outgoingX, outgoingZ);
+        if (incomingLength > 0 && outgoingLength > 0) {
+          const directionDot =
+            (incomingX * outgoingX + incomingZ * outgoingZ) /
+            (incomingLength * outgoingLength);
+          reversePenalty =
+            Math.max(0, -directionDot) *
+            NORMAL_PATROL_REVERSE_PENALTY;
+        }
+      }
+      const shortDistancePenalty = surface.isVertical
+        ? 0
+        : Math.max(
+            0,
+            NORMAL_PATROL_MINIMUM_HORIZONTAL_DISTANCE -
+              horizontalDistance
+          ) * 2;
+      const longDistancePreference = surface.isVertical
+        ? 0
+        : Math.max(
+            0,
+            NORMAL_PATROL_RADIUS - horizontalDistance
+          ) * 1.25;
+      const basePenalty =
+        (recentlyExplored
+          ? SEARCH_EXPLORED_DESTINATION_PENALTY
+          : 0) +
+        reversePenalty +
+        shortDistancePenalty +
+        longDistancePreference;
+      candidates.push(
+        Object.freeze({
+          value: Object.freeze({
+            surfaceSpeed: surface.surfaceSpeed
+          }),
+          destination: surface.destination,
+          costBias: basePenalty as SafeRouteCostBias,
+          conflictsReservation,
+          horizontalDistance,
+          minimumReservationDistance,
+          recentlyExplored,
+          isVertical: surface.isVertical
+        })
+      );
+    }
+
+    let ranked = candidates;
+    const unreserved = ranked.filter(
+      (candidate) => !candidate.conflictsReservation
+    );
+    const allCandidatesConflict = unreserved.length === 0;
+    if (!allCandidatesConflict) {
+      ranked = unreserved;
+    }
+    const sufficientlyLong = ranked.filter(
+      (candidate) =>
+        candidate.isVertical ||
+        candidate.horizontalDistance >=
+          NORMAL_PATROL_MINIMUM_HORIZONTAL_DISTANCE
+    );
+    if (sufficientlyLong.length > 0) {
+      ranked = sufficientlyLong;
+    }
+    const maximumReservationDistance = allCandidatesConflict
+      ? Math.max(
+          ...ranked.map(
+            (candidate) => candidate.minimumReservationDistance
+          )
+        )
+      : Number.POSITIVE_INFINITY;
+    return ranked
+      .map((candidate) => {
+        const reservationPenalty =
+          allCandidatesConflict &&
+          Number.isFinite(maximumReservationDistance)
+            ? (maximumReservationDistance -
+                candidate.minimumReservationDistance) *
+              100
+            : 0;
+        return Object.freeze({
+          ...candidate,
+          costBias:
+            (candidate.costBias + reservationPenalty) as SafeRouteCostBias
+        });
+      })
+      .sort((left, right) => {
+        const penaltyDifference =
+          left.costBias - right.costBias;
+        if (penaltyDifference !== 0) {
+          return penaltyDifference;
+        }
+        return right.horizontalDistance - left.horizontalDistance;
+      });
+  };
+
+  const selectNormalPatrolLeg = (
+    bit: RuntimeBit,
+    origin: BitFlightLocation,
+    previousOrigin: BitFlightLocation | null,
+    elapsedSeconds: number
+  ): NormalPatrolLeg | null => {
+    const policy = createSearchRoutePolicy(bit, elapsedSeconds);
+    const surfaceCandidates =
+      createRankedNormalPatrolDestinations(
+        bit,
+        origin,
+        previousOrigin,
+        elapsedSeconds
+      ).slice(0, NORMAL_PATROL_ROUTE_CANDIDATE_LIMIT);
+    const originPosition = getBitFlightWorldPosition(origin);
+    const transitions = navigation
+      .getTransitionsFrom(origin)
+      .filter(
+        (traversal) =>
+          bit.transitionHistory.getImmediateReturnPenalty(
+            traversal,
+            elapsedSeconds,
+            BIT_FLIGHT_TRANSITION_RETURN_SUPPRESSION_SECONDS,
+            TRANSITION_IMMEDIATE_RETURN_PENALTY
+          ) === 0
+      )
+      .sort((left, right) => {
+        const policyDifference =
+          policy.additionalTransitionCost(left) -
+          policy.additionalTransitionCost(right);
+        if (policyDifference !== 0) {
+          return policyDifference;
+        }
+        return (
+          Vector3.Distance(
+            originPosition,
+            getTraversalEntryEvaluationPosition(
+              left,
+              originPosition
+            )
+          ) -
+          Vector3.Distance(
+            originPosition,
+            getTraversalEntryEvaluationPosition(
+              right,
+              originPosition
+            )
+          )
+        );
+      });
+    const nearestDiscreteTransitionDistance = transitions.reduce(
+      (nearest, traversal) =>
+        traversal.transition.kind === "vertical"
+          ? nearest
+          : Math.min(
+              nearest,
+              Vector3.Distance(
+                originPosition,
+                getTraversalEntryEvaluationPosition(
+                  traversal,
+                  originPosition
+                )
+              )
+            ),
+      Number.POSITIVE_INFINITY
+    );
+    const transitionCandidates: Array<
+      SafeRouteInputCandidate<
+        Readonly<{
+          traversal: BitFlightTransitionTraversal;
+          surfaceSpeed: number;
+        }>
+      >
+    > = [];
+    const shouldAttemptTransition =
+      transitions.length > 0 &&
+      (nearestDiscreteTransitionDistance <=
+        SEARCH_NEAR_TRANSITION_DISTANCE ||
+        bit.searchSurfacePlansSinceTransitionAttempt >=
+          SEARCH_TRANSITION_FORCE_AFTER_SURFACE_PLANS ||
+        nextRandom() < SEARCH_TRANSITION_CHANCE);
+    if (shouldAttemptTransition) {
+      const cursor = bit.searchTransitionCursor % transitions.length;
+      const candidateCount = Math.min(
+        SEARCH_TRANSITION_CANDIDATE_LIMIT,
+        transitions.length
+      );
+      for (let offset = 0; offset < candidateCount; offset += 1) {
+        const traversal = transitions[(cursor + offset) % transitions.length];
+        const traversalDestination =
+          getSafeTraversalDestination(traversal);
+        if (!traversalDestination) {
+          continue;
+        }
+        const destinationZone = navigation.getZone(
+          traversal.to.zoneId
+        );
+        if (!destinationZone) {
+          throw new Error(
+            `探索遷移先ゾーンがありません: ${traversal.to.zoneId}`
+          );
+        }
+        const continueInside =
+          destinationZone.spaceKind === "indoor" &&
+          traversal.transition.affordances.some(
+            (affordance) =>
+              affordance === "window-access" ||
+              affordance === "indoor-access"
+          );
+        let destination = traversalDestination;
+        let surfaceSpeed =
+          NORMAL_PATROL_SPEED * bit.profile.statMultiplier;
+        let costBias = ZERO_SAFE_ROUTE_COST_BIAS;
+        if (continueInside) {
+          const interiorCandidate =
+            createRankedNormalPatrolDestinations(
+              bit,
+              traversalDestination,
+              origin,
+              elapsedSeconds,
+              0
+            ).find(
+              (candidate) =>
+                !candidate.recentlyExplored &&
+                candidate.horizontalDistance >=
+                  NORMAL_PATROL_MINIMUM_HORIZONTAL_DISTANCE
+            );
+          if (!interiorCandidate) {
+            continue;
+          }
+          destination = interiorCandidate.destination;
+          surfaceSpeed = interiorCandidate.value.surfaceSpeed;
+          costBias = interiorCandidate.costBias;
+        }
+        transitionCandidates.push(
+          Object.freeze({
+            value: Object.freeze({
+              traversal,
+              surfaceSpeed
+            }),
+            destination,
+            costBias
+          })
+        );
+      }
+      bit.searchTransitionCursor =
+        (cursor + candidateCount) % transitions.length;
+      bit.searchSurfacePlansSinceTransitionAttempt = 0;
+    } else {
+      bit.searchSurfacePlansSinceTransitionAttempt += 1;
+    }
+    const transitionSelected = selectSafeRoute(
+      origin,
+      transitionCandidates,
+      policy,
+      (start, candidate, safePolicy) =>
+        navigation.findRouteThroughTransition(
+          start,
+          candidate.value.traversal,
+          candidate.destination,
+          safePolicy
+        )
+    );
+    const surfaceSelected = transitionSelected
+      ? null
+      : selectSafeRoute(
+          origin,
+          surfaceCandidates,
+          policy,
+          (start, candidate, safePolicy) =>
+            navigation.findSurfaceRoute(
+              start,
+              candidate.destination,
+              safePolicy
+            )
+        );
+    const selected = transitionSelected ?? surfaceSelected;
+    if (!selected) {
+      return null;
+    }
+    return Object.freeze({
+      origin,
+      value: Object.freeze({
+        surfaceSpeed: selected.value.surfaceSpeed
+      }),
+      destination: selected.destination,
+      route: selected.route,
+      totalCost: selected.totalCost
+    });
+  };
+
+  const planNormalPatrolLeg = (
+    bit: RuntimeBit,
+    elapsedSeconds: number
+  ) => {
+    const planningQueuedLeg =
+      bit.routePurpose === "search" &&
+      bit.searchRouteKind === "normal" &&
+      bit.routeDestination !== null;
+    if (bit.routePurpose !== null && !planningQueuedLeg) {
+      return false;
+    }
+    const origin = planningQueuedLeg
+      ? bit.routeDestination!
+      : bit.navigationLocation;
+    if (!origin) {
+      return false;
+    }
+    const previousOrigin = planningQueuedLeg
+      ? bit.normalPatrolOrigin
+      : null;
+    const selected = measureRoutePlan("search", () =>
+      selectNormalPatrolLeg(
+        bit,
+        origin,
+        previousOrigin,
+        elapsedSeconds
+      )
+    );
+    if (!selected) {
+      return false;
+    }
+    if (planningQueuedLeg) {
+      bit.queuedNormalPatrolLeg = selected;
+      return true;
+    }
+    if (!assignRoute(bit, selected, "search")) {
+      return false;
+    }
+    bit.searchRouteKind = "normal";
+    bit.normalPatrolOrigin = selected.origin;
+    bit.searchSurfaceSpeed = selected.value.surfaceSpeed;
+    return true;
+  };
+
+  const promoteQueuedNormalPatrolLeg = (bit: RuntimeBit) => {
+    const queued = bit.queuedNormalPatrolLeg;
+    if (!queued) {
+      return false;
+    }
+    bit.queuedNormalPatrolLeg = null;
+    if (!assignRoute(bit, queued, "search")) {
+      clearRoute(bit);
+      return false;
+    }
+    bit.searchRouteKind = "normal";
+    bit.normalPatrolOrigin = queued.origin;
+    bit.searchSurfaceSpeed = queued.value.surfaceSpeed;
+    return true;
+  };
+
+  const planRandomAttackRoute = (
     bit: RuntimeBit,
     elapsedSeconds: number,
     movementSpeed: number
@@ -2732,17 +3314,7 @@ export const createV2BitSystem = (
     if (!current) {
       return false;
     }
-    const policy = createBitFlightSearchRoutePolicy({
-      explorationHistory,
-      transitionHistory: bit.transitionHistory,
-      nowSeconds: elapsedSeconds,
-      observationRadius: SEARCH_OBSERVATION_RADIUS,
-      exploredDestinationPenalty: SEARCH_EXPLORED_DESTINATION_PENALTY,
-      ordinaryTransitionPenalty: SEARCH_ORDINARY_TRANSITION_PENALTY,
-      immediateReturnPenalty: TRANSITION_IMMEDIATE_RETURN_PENALTY,
-      returnSuppressionSeconds:
-        BIT_FLIGHT_TRANSITION_RETURN_SUPPRESSION_SECONDS
-    });
+    const policy = createSearchRoutePolicy(bit, elapsedSeconds);
     const surfaceCandidates: Array<
       Readonly<{
         value: Readonly<{
@@ -2754,8 +3326,12 @@ export const createV2BitSystem = (
       }>
     > = [];
     const surfaceCandidate = createSearchSurfaceDestination(
-      bit,
-      movementSpeed
+      current,
+      movementSpeed,
+      movementSpeed *
+        (SEARCH_VERTICAL_SPEED / PROFILE_SEARCH_SPEED_REFERENCE),
+      RANDOM_ATTACK_SEARCH_RADIUS,
+      nextRandom()
     );
     if (surfaceCandidate) {
       surfaceCandidates.push(
@@ -2881,28 +3457,187 @@ export const createV2BitSystem = (
     if (!selected || !assignRoute(bit, selected, "search")) {
       return false;
     }
+    bit.searchRouteKind = "random";
     bit.searchSurfaceSpeed = selected.value.surfaceSpeed;
-    bit.searchSegmentSeconds = randomRange(
-      SEARCH_SEGMENT_SECONDS_MIN,
-      SEARCH_SEGMENT_SECONDS_MAX
+    bit.randomAttackRouteSeconds = randomRange(
+      RANDOM_ATTACK_ROUTE_SECONDS_MIN,
+      RANDOM_ATTACK_ROUTE_SECONDS_MAX
     );
     return true;
   };
 
-  const updateSearch = (
+  const planBruteForceRoute = (
     bit: RuntimeBit,
-    deltaSeconds: number,
-    elapsedSeconds: number,
-    movementSpeed = bit.profile.searchSpeed
+    elapsedSeconds: number
   ) => {
-    bit.mode = "search";
-    if (
-      bit.pendingEscapeThreatPosition &&
-      !tryPlanPendingEscape(bit, elapsedSeconds)
-    ) {
-      syncStationaryPosition(bit, elapsedSeconds, true);
-      return;
+    const current = bit.navigationLocation;
+    if (!current) {
+      return false;
     }
+    const currentPosition = getBitFlightWorldPosition(current);
+    const candidateByKey = new Map<
+      string,
+      BruteForceRouteCandidate
+    >();
+    const addCandidate = (
+      destination: BitFlightLocation,
+      surfaceSpeed: number
+    ) => {
+      const position = getBitFlightWorldPosition(destination);
+      if (
+        Vector3.DistanceSquared(currentPosition, position) <= 0.0025 ||
+        explorationHistory.hasRecentObservation(
+          destination,
+          position,
+          SEARCH_OBSERVATION_RADIUS,
+          elapsedSeconds
+        )
+      ) {
+        return;
+      }
+      const key = JSON.stringify([
+        destination.zoneId,
+        destination.bandId,
+        position.x,
+        position.y,
+        position.z
+      ]);
+      candidateByKey.set(
+        key,
+        Object.freeze({
+          value: Object.freeze({ surfaceSpeed }),
+          destination,
+          costBias: ZERO_SAFE_ROUTE_COST_BIAS
+        })
+      );
+    };
+    const planningTransitionCandidate =
+      bruteForceTransitionDestinations.length > 0 &&
+      bit.bruteForcePhaseCursor % 2 === 1;
+    let transitionCandidateCount = 0;
+    if (planningTransitionCandidate) {
+      transitionCandidateCount = Math.min(
+        BRUTE_FORCE_TRANSITION_CANDIDATE_COUNT,
+        bruteForceTransitionDestinations.length
+      );
+      const destination =
+        bruteForceTransitionDestinations[
+          bit.bruteForceTransitionCursor %
+            bruteForceTransitionDestinations.length
+        ];
+      addCandidate(
+        destination,
+        NORMAL_PATROL_SPEED * bit.profile.statMultiplier
+      );
+      bit.bruteForceTransitionCursor =
+        (bit.bruteForceTransitionCursor +
+          transitionCandidateCount) %
+        bruteForceTransitionDestinations.length;
+    } else {
+      for (
+        let attempt = 0;
+        attempt < BRUTE_FORCE_LOCAL_CANDIDATE_COUNT;
+        attempt += 1
+      ) {
+        const surface = createSearchSurfaceDestination(
+          current,
+          NORMAL_PATROL_SPEED * bit.profile.statMultiplier,
+          SEARCH_VERTICAL_SPEED * bit.profile.statMultiplier,
+          NORMAL_PATROL_RADIUS,
+          nextRandom()
+        );
+        if (surface) {
+          addCandidate(surface.destination, surface.surfaceSpeed);
+        }
+      }
+      recentExplorationSamplesForUpdate ??=
+        explorationHistory.getRecentSamples(elapsedSeconds);
+      const recentSamples = recentExplorationSamplesForUpdate;
+      for (
+        let candidateIndex = 0;
+        candidateIndex < BRUTE_FORCE_FRONTIER_CANDIDATE_COUNT &&
+        recentSamples.length > 0;
+        candidateIndex += 1
+      ) {
+        const cursor =
+          bit.bruteForceFrontierCursor + candidateIndex;
+        const sample =
+          recentSamples[cursor % recentSamples.length];
+        const offset =
+          BRUTE_FORCE_FRONTIER_OFFSETS[
+            cursor % BRUTE_FORCE_FRONTIER_OFFSETS.length
+          ];
+        const seed = sample.position.add(offset);
+        const destination = findSafeLocation(
+          sample.band,
+          seed,
+          seed.y
+        );
+        if (destination) {
+          addCandidate(
+            destination,
+            NORMAL_PATROL_SPEED * bit.profile.statMultiplier
+          );
+        }
+      }
+    }
+    if (!planningTransitionCandidate) {
+      bit.bruteForceFrontierCursor +=
+        BRUTE_FORCE_FRONTIER_CANDIDATE_COUNT;
+    }
+    bit.bruteForcePhaseCursor += 1;
+    const candidates = [...candidateByKey.values()]
+      .sort(
+        (left, right) =>
+          Vector3.DistanceSquared(
+            currentPosition,
+            getBitFlightWorldPosition(left.destination)
+          ) -
+          Vector3.DistanceSquared(
+            currentPosition,
+            getBitFlightWorldPosition(right.destination)
+          )
+      )
+      .slice(
+        0,
+        planningTransitionCandidate
+          ? BRUTE_FORCE_TRANSITION_CANDIDATE_COUNT
+          : BRUTE_FORCE_SURFACE_ROUTE_CANDIDATE_LIMIT
+      );
+    const policy = createSearchRoutePolicy(bit, elapsedSeconds);
+    const selected = measureRoutePlan("search", () =>
+      selectSafeRoute(current, candidates, policy)
+    );
+    if (!selected) {
+      if (planningTransitionCandidate) {
+        bit.bruteForceFailedTransitionCandidateCount +=
+          transitionCandidateCount;
+      }
+      if (
+        bruteForceTransitionDestinations.length === 0 ||
+        bit.bruteForceFailedTransitionCandidateCount >=
+          bruteForceTransitionDestinations.length
+      ) {
+        bit.bruteForceActive = false;
+        bit.bruteForceFailedTransitionCandidateCount = 0;
+      }
+      return false;
+    }
+    if (planningTransitionCandidate) {
+      bit.bruteForceFailedTransitionCandidateCount = 0;
+    }
+    if (!assignRoute(bit, selected, "search")) {
+      return false;
+    }
+    bit.searchRouteKind = "brute-force";
+    bit.searchSurfaceSpeed = selected.value.surfaceSpeed;
+    return true;
+  };
+
+  const recordExplorationPosition = (
+    bit: RuntimeBit,
+    elapsedSeconds: number
+  ) => {
     if (
       bit.navigationLocation &&
       elapsedSeconds - bit.lastExplorationRecordSeconds >=
@@ -2914,26 +3649,146 @@ export const createV2BitSystem = (
       );
       bit.lastExplorationRecordSeconds = elapsedSeconds;
     }
+  };
+
+  const updateBruteForceSchedule = (
+    bit: RuntimeBit,
+    elapsedSeconds: number
+  ) => {
+    if (elapsedSeconds < bit.bruteForceNextCheckSeconds) {
+      return;
+    }
+    const elapsedCheckIntervals =
+      Math.floor(
+        (elapsedSeconds - BRUTE_FORCE_START_SECONDS) /
+          BRUTE_FORCE_CHECK_INTERVAL_SECONDS
+      ) + 1;
+    bit.bruteForceNextCheckSeconds =
+      BRUTE_FORCE_START_SECONDS +
+      elapsedCheckIntervals *
+        BRUTE_FORCE_CHECK_INTERVAL_SECONDS;
+    if (
+      bit.bruteForceActive ||
+      bit.routePurpose === "escape" ||
+      bit.activeTransition !== null
+    ) {
+      return;
+    }
+    if (nextRandom() < BRUTE_FORCE_START_CHANCE) {
+      clearRoute(bit);
+      bit.bruteForceActive = true;
+      bit.searchRetrySeconds = 0;
+    }
+  };
+
+  const updateNormalSearch = (
+    bit: RuntimeBit,
+    deltaSeconds: number,
+    elapsedSeconds: number
+  ) => {
+    bit.mode = "search";
+    if (
+      bit.pendingEscapeThreatPosition &&
+      !tryPlanPendingEscape(bit, elapsedSeconds)
+    ) {
+      syncStationaryPosition(bit, elapsedSeconds, true);
+      return;
+    }
+    recordExplorationPosition(bit, elapsedSeconds);
     bit.searchRetrySeconds = Math.max(
       0,
       bit.searchRetrySeconds - deltaSeconds
     );
-    bit.searchSegmentSeconds = Math.max(
-      0,
-      bit.searchSegmentSeconds - deltaSeconds
-    );
+    updateBruteForceSchedule(bit, elapsedSeconds);
 
     if (
       bit.routePurpose === "escape" ||
       bit.routePurpose === "search"
     ) {
+      const routePurpose = bit.routePurpose;
+      const activeSearchRouteKind = bit.searchRouteKind;
       const surfaceSpeed =
-        bit.routePurpose === "search"
+        routePurpose === "search"
           ? bit.searchSurfaceSpeed
           : bit.profile.searchSpeed;
       const state = advanceAgent(
         bit,
         surfaceSpeed,
+        deltaSeconds,
+        elapsedSeconds
+      );
+      if (state === "transition" || state === "clearing-transition") {
+        return;
+      }
+      if (
+        state === "unreachable" ||
+        (state === "blocked" && bit.activeTransition === null)
+      ) {
+        clearRoute(bit);
+        bit.searchRetrySeconds = SEARCH_RETRY_SECONDS;
+      } else if (state === "arrived") {
+        if (bit.navigationLocation) {
+          explorationHistory.recordLocation(
+            bit.navigationLocation,
+            elapsedSeconds
+          );
+          bit.lastExplorationRecordSeconds = elapsedSeconds;
+        }
+        if (
+          activeSearchRouteKind === "normal" &&
+          !bit.bruteForceActive &&
+          promoteQueuedNormalPatrolLeg(bit)
+        ) {
+          return;
+        }
+        clearRoute(bit);
+        bit.searchRetrySeconds = 0;
+      } else if (state === "blocked") {
+        return;
+      } else if (
+        routePurpose === "escape" &&
+        state === "surface"
+      ) {
+        return;
+      }
+    }
+
+    if (
+      bit.navigationLocation &&
+      bit.searchRetrySeconds === 0 &&
+      allowedSearchRoutePlanIds.has(bit.id)
+    ) {
+      bit.hasAttemptedSearchRoute = true;
+      const planned = bit.bruteForceActive
+        ? planBruteForceRoute(bit, elapsedSeconds)
+        : planNormalPatrolLeg(bit, elapsedSeconds);
+      if (!planned) {
+        bit.searchRetrySeconds = SEARCH_RETRY_SECONDS;
+      }
+    }
+    if (bit.routePurpose === null) {
+      syncStationaryPosition(bit, elapsedSeconds, true);
+    }
+  };
+
+  const updateRandomAttackMovement = (
+    bit: RuntimeBit,
+    deltaSeconds: number,
+    elapsedSeconds: number
+  ) => {
+    recordExplorationPosition(bit, elapsedSeconds);
+    bit.searchRetrySeconds = Math.max(
+      0,
+      bit.searchRetrySeconds - deltaSeconds
+    );
+    bit.randomAttackRouteSeconds = Math.max(
+      0,
+      bit.randomAttackRouteSeconds - deltaSeconds
+    );
+    if (bit.routePurpose === "search") {
+      const state = advanceAgent(
+        bit,
+        bit.searchSurfaceSpeed,
         deltaSeconds,
         elapsedSeconds
       );
@@ -2949,25 +3804,23 @@ export const createV2BitSystem = (
         bit.searchRetrySeconds = SEARCH_RETRY_SECONDS;
       } else if (state === "blocked") {
         return;
-      } else if (
-        bit.routePurpose === "escape" &&
-        state === "surface"
-      ) {
-        return;
-      } else if (bit.searchSegmentSeconds > 0) {
-        return;
-      } else if (bit.navigationLocation) {
+      } else if (bit.randomAttackRouteSeconds === 0) {
         clearRoute(bit);
       }
     }
-
     if (
       bit.navigationLocation &&
       bit.searchRetrySeconds === 0 &&
       allowedSearchRoutePlanIds.has(bit.id)
     ) {
       bit.hasAttemptedSearchRoute = true;
-      if (!planSearchRoute(bit, elapsedSeconds, movementSpeed)) {
+      if (
+        !planRandomAttackRoute(
+          bit,
+          elapsedSeconds,
+          bit.profile.randomAttackSpeed
+        )
+      ) {
         bit.searchRetrySeconds = SEARCH_RETRY_SECONDS;
       }
     }
@@ -3705,11 +4558,10 @@ export const createV2BitSystem = (
     if (telegraphing) {
       syncStationaryPosition(bit, elapsedSeconds, false);
     } else {
-      updateSearch(
+      updateRandomAttackMovement(
         bit,
         deltaSeconds,
-        elapsedSeconds,
-        bit.profile.randomAttackSpeed
+        elapsedSeconds
       );
     }
     bit.mode = "random";
@@ -3851,6 +4703,7 @@ export const createV2BitSystem = (
       assertNonNegativeFiniteNumber("ビット更新deltaSeconds", deltaSeconds);
       assertNonNegativeFiniteNumber("ビット更新elapsedSeconds", elapsedSeconds);
       invalidateFrameViews();
+      recentExplorationSamplesForUpdate = null;
       resetDiagnostics();
       updateFadingCarpetFollowers(deltaSeconds);
       const targetsById = new Map(
@@ -3891,14 +4744,27 @@ export const createV2BitSystem = (
         searchRoutePlanCursor,
         SEARCH_ROUTE_PLAN_BUDGET_PER_UPDATE,
         (bit) =>
-          (bit.mode === "search" || bit.mode === "random") &&
-          (bit.mode === "random" || bit.targetId === null) &&
           bit.navigationLocation !== null &&
           bit.pendingEscapeThreatPosition === null &&
           bit.searchRetrySeconds <= deltaSeconds &&
-          (bit.routePurpose === null ||
-            (bit.routePurpose === "search" &&
-              bit.searchSegmentSeconds <= deltaSeconds)),
+          (bit.mode === "search"
+            ? bit.targetId === null &&
+              (bit.routePurpose === null ||
+                (bit.routePurpose === "search" &&
+                  bit.searchRouteKind === "normal" &&
+                  bit.normalPatrolOrigin !== null &&
+                  bit.routeDestination !== null &&
+                  sameBand(
+                    bit.normalPatrolOrigin,
+                    bit.routeDestination
+                  ) &&
+                  bit.queuedNormalPatrolLeg === null &&
+                  bit.activeTransition === null))
+            : bit.mode === "random" &&
+              (bit.routePurpose === null ||
+                (bit.routePurpose === "search" &&
+                  bit.searchRouteKind === "random" &&
+                  bit.randomAttackRouteSeconds <= deltaSeconds))),
         (bit) => !bit.hasAttemptedSearchRoute
       );
       allowedSearchRoutePlanIds = searchPlanSelection.ids;
@@ -4149,7 +5015,7 @@ export const createV2BitSystem = (
           bit.mode === "search" &&
           bit.attackCooldownSeconds > 0
         ) {
-          updateSearch(bit, deltaSeconds, elapsedSeconds);
+          updateNormalSearch(bit, deltaSeconds, elapsedSeconds);
           continue;
         }
 
@@ -4266,7 +5132,7 @@ export const createV2BitSystem = (
         const currentTarget =
           bit.targetId === null ? null : targetsById.get(bit.targetId) ?? null;
         if (bit.targetId === null || !chasePosition) {
-          updateSearch(bit, deltaSeconds, elapsedSeconds);
+          updateNormalSearch(bit, deltaSeconds, elapsedSeconds);
           continue;
         }
 
@@ -4534,6 +5400,11 @@ export const createV2BitSystem = (
         bit.carpetLeaderId = null;
         bit.carpetOffset = 0;
         bit.hasAttemptedSearchRoute = false;
+        bit.searchRetrySeconds = 0;
+        bit.bruteForceActive = false;
+        bit.bruteForceNextCheckSeconds =
+          BRUTE_FORCE_START_SECONDS;
+        bit.bruteForceFailedTransitionCandidateCount = 0;
       }
       activeAlerts.clear();
       externalAlertKeyByTargetId.clear();
@@ -4616,6 +5487,16 @@ export const createV2BitSystem = (
         bit.routePurpose = null;
         bit.routeDestination = null;
         bit.routeRefreshSeconds = 0;
+        bit.searchRouteKind = null;
+        bit.normalPatrolOrigin = null;
+        bit.queuedNormalPatrolLeg = null;
+        bit.randomAttackRouteSeconds = 0;
+        bit.searchRetrySeconds = 0;
+        bit.hasAttemptedSearchRoute = false;
+        bit.bruteForceActive = false;
+        bit.bruteForceNextCheckSeconds =
+          BRUTE_FORCE_START_SECONDS;
+        bit.bruteForceFailedTransitionCandidateCount = 0;
         bit.activeTransition = null;
         bit.lastChasePlanTargetId = null;
         bit.root.position.copyFrom(

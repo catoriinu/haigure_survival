@@ -122,12 +122,14 @@ const ONE_BIT_INITIAL_RANDOM = Object.freeze([
 const EMPTY_TARGETS: readonly V2HumanTargetSnapshot[] = Object.freeze([]);
 const EMPTY_ALERTS: readonly V2ExternalAlert[] = Object.freeze([]);
 const MICRO_DELTA_SECONDS = 0.01;
-const SEARCH_SPEED = 0.25;
+const NORMAL_PATROL_SPEED = 0.3;
 const SEARCH_VERTICAL_SPEED = 0.06;
 const BOB_AMPLITUDE = 0.03;
 const PERFORMANCE_DELTA_SECONDS = 1 / 60;
 const PERFORMANCE_WARMUP_TICKS = 180;
 const PERFORMANCE_MEASURED_TICKS = 600;
+const PERFORMANCE_BRUTE_FORCE_MEASURED_TICKS = 600;
+const BRUTE_FORCE_START_SECONDS_FOR_ACCEPTANCE = 40;
 const PERFORMANCE_P95_BUDGET_MILLISECONDS = 1000 / 60;
 const PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS = 50;
 const PERFORMANCE_TARGET_LOSS_BUDGET_MILLISECONDS = 125;
@@ -1621,7 +1623,7 @@ const runTransitionReturnSuppressionCheck = async (
   const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   try {
-    random.enqueue(0.2, 0.5, 0.2);
+    random.enqueue(0.2, 0.5, 0.5, 0.5, 0.5, 0.2);
     system.update({
       deltaSeconds: 0,
       elapsedSeconds: 0,
@@ -1738,7 +1740,7 @@ const runScriptedSearchChecks = async (
         normal.horizontalDelta > 1e-8 &&
         Math.abs(normal.verticalDelta) <= 1e-6 &&
         normal.movementDistance <=
-          SEARCH_SPEED * MICRO_DELTA_SECONDS + 1e-6 &&
+          NORMAL_PATROL_SPEED * MICRO_DELTA_SECONDS + 1e-6 &&
         inBand(normal),
       detail:
         `horizontal=${normal.horizontalDelta.toFixed(6)} / ` +
@@ -1766,7 +1768,7 @@ const runScriptedSearchChecks = async (
         diagonal.horizontalDelta > 1e-8 &&
         diagonal.verticalDelta > 0 &&
         diagonal.movementDistance <=
-          SEARCH_SPEED * MICRO_DELTA_SECONDS + 1e-6 &&
+          NORMAL_PATROL_SPEED * MICRO_DELTA_SECONDS + 1e-6 &&
         inBand(diagonal),
       detail:
         `horizontal=${diagonal.horizontalDelta.toFixed(6)} / ` +
@@ -2026,6 +2028,8 @@ const runSchoolPerformanceAndLifecycleChecks = async (
       0.08
     );
     try {
+      searchSystem.setDiagnosticsEnabled(true);
+      let maximumSearchRoutePlansPerUpdate = 0;
       const initialPositions = createInitialPositionMap(
         searchSystem.getFrameView().flightStates
       );
@@ -2042,8 +2046,13 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           targets: EMPTY_TARGETS,
           externalAlerts: EMPTY_ALERTS
         });
+        const frameView = searchSystem.getFrameView();
+        maximumSearchRoutePlansPerUpdate = Math.max(
+          maximumSearchRoutePlansPerUpdate,
+          frameView.diagnostics.routePlans.search
+        );
         recordFlightProgress(
-          searchSystem.getFrameView().flightStates,
+          frameView.flightStates,
           initialPositions,
           progressedIds,
           firstProgressTickById,
@@ -2070,8 +2079,13 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           externalAlerts: EMPTY_ALERTS
         });
         samples.push(performance.now() - startedAt);
+        const frameView = searchSystem.getFrameView();
+        maximumSearchRoutePlansPerUpdate = Math.max(
+          maximumSearchRoutePlansPerUpdate,
+          frameView.diagnostics.routePlans.search
+        );
         recordFlightProgress(
-          searchSystem.getFrameView().flightStates,
+          frameView.flightStates,
           initialPositions,
           progressedIds,
           firstProgressTickById,
@@ -2082,9 +2096,56 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           `${PERFORMANCE_MEASURED_TICKS}`;
         await yieldToBrowser();
       }
+      const bruteForceSamples: number[] = [];
+      let bruteForceMaximumSample = Number.NEGATIVE_INFINITY;
+      let bruteForceMaximumFrameIndex = 0;
+      let bruteForceMaximumRoutePlans = 0;
+      let bruteForceMaximumRoutePlanMilliseconds = 0;
+      let bruteForceMaximumSphereSweeps = 0;
+      let bruteForceMaximumSphereSweepMilliseconds = 0;
+      for (
+        let frameIndex = 0;
+        frameIndex < PERFORMANCE_BRUTE_FORCE_MEASURED_TICKS;
+        frameIndex += 1
+      ) {
+        const startedAt = performance.now();
+        searchSystem.update({
+          deltaSeconds: PERFORMANCE_DELTA_SECONDS,
+          elapsedSeconds:
+            BRUTE_FORCE_START_SECONDS_FOR_ACCEPTANCE +
+            frameIndex * PERFORMANCE_DELTA_SECONDS,
+          targets: EMPTY_TARGETS,
+          externalAlerts: EMPTY_ALERTS
+        });
+        const sample = performance.now() - startedAt;
+        bruteForceSamples.push(sample);
+        const frameView = searchSystem.getFrameView();
+        if (sample > bruteForceMaximumSample) {
+          bruteForceMaximumSample = sample;
+          bruteForceMaximumFrameIndex = frameIndex;
+          bruteForceMaximumRoutePlans =
+            frameView.diagnostics.routePlans.search;
+          bruteForceMaximumRoutePlanMilliseconds =
+            frameView.diagnostics.routePlanMilliseconds.search;
+          bruteForceMaximumSphereSweeps =
+            frameView.diagnostics.sphereSweeps;
+          bruteForceMaximumSphereSweepMilliseconds =
+            frameView.diagnostics.sphereSweepMilliseconds;
+        }
+        maximumSearchRoutePlansPerUpdate = Math.max(
+          maximumSearchRoutePlansPerUpdate,
+          frameView.diagnostics.routePlans.search
+        );
+        document.title =
+          `T05学校受入: 99体総当たり探索 ${frameIndex + 1}/` +
+          `${PERFORMANCE_BRUTE_FORCE_MEASURED_TICKS}`;
+        await yieldToBrowser();
+      }
       const actors = searchSystem.getFrameView().actorSpheres;
       const flightStates = searchSystem.getFrameView().flightStates;
       const statistics = describeSamples(samples);
+      const bruteForceStatistics =
+        describeSamples(bruteForceSamples);
       const maximumProgressWaitTicks = Math.max(
         ...firstProgressTickById.values()
       );
@@ -2096,8 +2157,17 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           samples.every(
             (sample) => Number.isFinite(sample) && sample >= 0
           ) &&
+          bruteForceSamples.length ===
+            PERFORMANCE_BRUTE_FORCE_MEASURED_TICKS &&
+          bruteForceSamples.every(
+            (sample) => Number.isFinite(sample) && sample >= 0
+          ) &&
           statistics.p95 <= PERFORMANCE_P95_BUDGET_MILLISECONDS &&
           statistics.maximum <=
+            PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS &&
+          bruteForceStatistics.p95 <=
+            PERFORMANCE_P95_BUDGET_MILLISECONDS &&
+          bruteForceStatistics.maximum <=
             PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS &&
           actors.length === 99 &&
           actors.every(
@@ -2109,7 +2179,8 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           flightStates.length === 99 &&
           flightStates.every(isFiniteFlightState) &&
           progressedIds.size === initialPositions.size &&
-          firstProgressTickById.size === initialPositions.size,
+          firstProgressTickById.size === initialPositions.size &&
+          maximumSearchRoutePlansPerUpdate <= 4,
         detail:
           `transitions=${schoolNavigation.transitions.length} / ` +
           `tick=${PERFORMANCE_DELTA_SECONDS.toFixed(6)}s / ` +
@@ -2119,7 +2190,15 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           `p95=${statistics.p95.toFixed(3)}/${PERFORMANCE_P95_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
           `max=${statistics.maximum.toFixed(3)}/${PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
           `total=${statistics.total.toFixed(3)}ms / ` +
+          `bruteP95=${bruteForceStatistics.p95.toFixed(3)}ms / ` +
+          `bruteMax=${bruteForceStatistics.maximum.toFixed(3)}ms / ` +
+          `bruteMaxFrame=${bruteForceMaximumFrameIndex} / ` +
+          `bruteMaxPlans=${bruteForceMaximumRoutePlans}/` +
+          `${bruteForceMaximumRoutePlanMilliseconds.toFixed(3)}ms / ` +
+          `bruteMaxSweeps=${bruteForceMaximumSphereSweeps}/` +
+          `${bruteForceMaximumSphereSweepMilliseconds.toFixed(3)}ms / ` +
           `progressed=${progressedIds.size}/${initialPositions.size} / ` +
+          `maxPlans=${maximumSearchRoutePlansPerUpdate}/4 / ` +
           `maxWait=${maximumProgressWaitTicks}tick/` +
           `${(maximumProgressWaitTicks * PERFORMANCE_DELTA_SECONDS).toFixed(3)}s`
       });
@@ -2136,6 +2215,14 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         value:
           `${maximumProgressWaitTicks} tick / ` +
           `${(maximumProgressWaitTicks * PERFORMANCE_DELTA_SECONDS).toFixed(3)} s`
+      });
+      metrics.push({
+        label: "学校99体総当たり探索 update",
+        value:
+          `p50 ${bruteForceStatistics.p50.toFixed(3)} / ` +
+          `p95 ${bruteForceStatistics.p95.toFixed(3)} / ` +
+          `max ${bruteForceStatistics.maximum.toFixed(3)} / ` +
+          `total ${bruteForceStatistics.total.toFixed(3)} ms`
       });
     } finally {
       searchSystem.dispose();

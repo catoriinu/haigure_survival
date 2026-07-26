@@ -30,6 +30,7 @@ import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import {
   V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES,
   createV2BitSystem,
+  type V2BitFlightState,
   type V2BitMode,
   type V2BitSystem
 } from "../../../src/v2/bitSystem";
@@ -74,6 +75,8 @@ const TARGET_LOST_MAXIMUM_DISTANCE = 2.6;
 const ALERT_SPAWN_RADIUS = 0.2;
 const RANDOM_ATTACK_SPEED = 0.28;
 const RED_VERTICAL_SEARCH_SPEED = 0.18;
+const NORMAL_PATROL_EXPECTED_RANDOM_POINT_CALLS = 4;
+const BRUTE_FORCE_EXPECTED_RANDOM_POINT_CALLS = 3;
 const CARPET_HEIGHT_SPEED = 0.35;
 const CARPET_TARGET_HEIGHT_OFFSET = 1.2;
 const CARPET_SCATTER_RADIANS = 0.35;
@@ -257,7 +260,7 @@ const createNavigation = (
     ) => {
       const position = getBitFlightWorldPosition(origin);
       return createLocation(
-        position.add(new Vector3(Math.min(radius, 2.4), 0, 0))
+        position.add(new Vector3(radius, 0, 0))
       );
     },
     getTransitionsFrom: (
@@ -430,7 +433,7 @@ const createRouteCandidateNavigationFixture = (
     ) =>
       createLocation(
         getBitFlightWorldPosition(origin).add(
-          new Vector3(Math.min(radius, 2.4), 0, 0)
+          new Vector3(radius, 0, 0)
         ),
         origin.heightMode,
         origin
@@ -577,11 +580,1035 @@ const createHarness = (
   });
 };
 
+const placeHarnessBitsAtSamePosition = (
+  harness: CombatHarness,
+  position = new Vector3(0, BAND_CENTER_HEIGHT, 0)
+) => {
+  harness.system.placeBits(
+    harness.system.getFrameView().actorSpheres.map((actor) =>
+      Object.freeze({
+        id: actor.id,
+        centerPosition: position
+      })
+    )
+  );
+};
+
+const runNormalPatrolReachContractCheck =
+  (): BitCombatIntegrationCheck => {
+    const baseNavigation = createNavigation();
+    const radii: number[] = [];
+    let randomPointCallCount = 0;
+    const navigation = Object.freeze({
+      ...baseNavigation,
+      randomPointAround: (
+        origin: BitFlightLocation,
+        radius: number
+      ) => {
+        radii.push(radius);
+        randomPointCallCount += 1;
+        const direction = randomPointCallCount <= 12 ? 1 : -1;
+        return createLocation(
+          getBitFlightWorldPosition(origin).add(
+            new Vector3(direction * radius, 0, 0)
+          ),
+          origin.heightMode,
+          origin
+        );
+      }
+    }) as BitFlightNavigationWorld;
+    const harness = createHarness(
+      1,
+      () => false,
+      false,
+      false,
+      () => false,
+      navigation
+    );
+    try {
+      placeHarnessBitsAtSamePosition(harness);
+      harness.random.enqueue(0.2, 0.5, 0.5, 0.5, 0.5);
+      update(harness.system, 0, 0, EMPTY_TARGETS);
+      const planned = harness.system.getFrameView().flightStates[0];
+      let afterFiveSeconds = planned;
+      let afterElevenSeconds = planned;
+      for (let tick = 1; tick <= 210; tick += 1) {
+        update(
+          harness.system,
+          0.1,
+          tick * 0.1,
+          EMPTY_TARGETS
+        );
+        if (tick === 50) {
+          afterFiveSeconds =
+            harness.system.getFrameView().flightStates[0];
+        }
+        if (tick === 110) {
+          afterElevenSeconds =
+            harness.system.getFrameView().flightStates[0];
+        }
+      }
+      const afterTwentyOneSeconds =
+        harness.system.getFrameView().flightStates[0];
+      const horizontalProgress =
+        afterFiveSeconds.position.x - planned.position.x;
+      const continuedProgress =
+        afterElevenSeconds.position.x - planned.position.x;
+      const thirdLegProgress =
+        afterTwentyOneSeconds.position.x - planned.position.x;
+      return Object.freeze({
+        name: "通常探索は半径3.0・速度0.3でO→A→B→Cへ継続",
+        ok:
+          radii.length >= 4 &&
+          radii.slice(0, 4).every(
+            (radius) => Math.abs(radius - 3) <= POSITION_EPSILON
+          ) &&
+          planned.routePurpose === "search" &&
+          afterFiveSeconds.routePurpose === "search" &&
+          afterFiveSeconds.agentState === "surface" &&
+          horizontalProgress >= 1.49 &&
+          horizontalProgress <= 1.51 &&
+          afterElevenSeconds.routePurpose === "search" &&
+          afterElevenSeconds.agentState === "surface" &&
+          continuedProgress >= 3.28 &&
+          continuedProgress <= 3.32 &&
+          afterTwentyOneSeconds.routePurpose === "search" &&
+          afterTwentyOneSeconds.agentState === "surface" &&
+          thirdLegProgress >= 6.28 &&
+          thirdLegProgress <= 6.34,
+        detail:
+          `radii=${radii.slice(0, 4).join(",")} / ` +
+          `calls=${randomPointCallCount} / ` +
+          `progress=${horizontalProgress.toFixed(6)}/${continuedProgress.toFixed(6)}/${thirdLegProgress.toFixed(6)} / ` +
+          `state=${afterFiveSeconds.agentState}/${afterElevenSeconds.agentState}/${afterTwentyOneSeconds.agentState}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runNormalPatrolDetourLifetimeCheck =
+  (): BitCombatIntegrationCheck => {
+    const baseNavigation = createNavigation();
+    let randomPointCallCount = 0;
+    const findDetourRoute = (
+      start: BitFlightLocation,
+      destination: BitFlightLocation,
+      policy: BitFlightRoutePolicy
+    ): BitFlightRoute | null => {
+      const startPosition = getBitFlightWorldPosition(start);
+      const destinationPosition =
+        getBitFlightWorldPosition(destination);
+      const waypoint = createLocation(
+        startPosition.add(new Vector3(0, 0, 1.5)),
+        start.heightMode,
+        start
+      );
+      const distance =
+        Vector3.Distance(
+          startPosition,
+          getBitFlightWorldPosition(waypoint)
+        ) +
+        Vector3.Distance(
+          getBitFlightWorldPosition(waypoint),
+          destinationPosition
+        );
+      const step = Object.freeze({
+        kind: "surface" as const,
+        band: TEST_BAND_REF,
+        points: Object.freeze([
+          cloneLocation(start),
+          waypoint,
+          cloneLocation(destination)
+        ]),
+        distance
+      });
+      policy.additionalSurfaceCruiseHeights(step, TEST_BAND);
+      if (!policy.canUseRouteStep(step)) {
+        return null;
+      }
+      return Object.freeze({
+        steps: Object.freeze([step]),
+        destination: cloneLocation(destination),
+        distance,
+        totalCost: distance
+      });
+    };
+    const navigation = Object.freeze({
+      ...baseNavigation,
+      randomPointAround: (
+        origin: BitFlightLocation,
+        radius: number
+      ) => {
+        randomPointCallCount += 1;
+        return createLocation(
+          getBitFlightWorldPosition(origin).add(
+            new Vector3(radius, 0, 0)
+          ),
+          origin.heightMode,
+          origin
+        );
+      },
+      findRoute: findDetourRoute,
+      findSurfaceRoute: findDetourRoute
+    }) as BitFlightNavigationWorld;
+    const harness = createHarness(
+      1,
+      () => false,
+      false,
+      false,
+      () => false,
+      navigation
+    );
+    try {
+      placeHarnessBitsAtSamePosition(harness);
+      harness.random.enqueue(0.2, 0.5, 0.5, 0.5, 0.5);
+      update(harness.system, 0, 0, EMPTY_TARGETS);
+      for (let tick = 1; tick <= 120; tick += 1) {
+        update(
+          harness.system,
+          0.1,
+          tick * 0.1,
+          EMPTY_TARGETS
+        );
+      }
+      const state = harness.system.getFrameView().flightStates[0];
+      return Object.freeze({
+        name: "通常探索は12秒継続する迂回経路を時間だけで破棄しない",
+        ok:
+          state.routePurpose === "search" &&
+          state.agentState === "surface" &&
+          state.position.x >= 1.8 &&
+          state.position.x <= 2 &&
+          randomPointCallCount >= 8,
+        detail:
+          `position=${state.position.x.toFixed(3)},${state.position.z.toFixed(3)} / ` +
+          `state=${state.agentState}/${state.routePurpose ?? "none"} / ` +
+          `candidateCalls=${randomPointCallCount}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runNormalPatrolReservationCheck =
+  (): BitCombatIntegrationCheck => {
+    const baseNavigation = createNavigation();
+    let randomPointCallCount = 0;
+    const candidateOffsets = Object.freeze([
+      3,
+      3,
+      3,
+      3,
+      3,
+      -3,
+      2,
+      -2,
+      3,
+      3,
+      3,
+      3,
+      9,
+      -3,
+      3,
+      -2
+    ]);
+    const navigation = Object.freeze({
+      ...baseNavigation,
+      randomPointAround: (
+        origin: BitFlightLocation,
+        _radius: number
+      ) => {
+        const callIndex = randomPointCallCount;
+        randomPointCallCount += 1;
+        const offset = candidateOffsets[callIndex] ?? 3;
+        return createLocation(
+          getBitFlightWorldPosition(origin).add(
+            new Vector3(offset, 0, 0)
+          ),
+          origin.heightMode,
+          origin
+        );
+      }
+    }) as BitFlightNavigationWorld;
+    const harness = createHarness(
+      2,
+      () => false,
+      false,
+      false,
+      () => false,
+      navigation
+    );
+    try {
+      placeHarnessBitsAtSamePosition(harness);
+      harness.random.enqueue(
+        0.2,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.2,
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      );
+      update(harness.system, 0, 0, EMPTY_TARGETS);
+      for (let tick = 1; tick <= 110; tick += 1) {
+        update(
+          harness.system,
+          0.1,
+          tick * 0.1,
+          EMPTY_TARGETS
+        );
+      }
+      const states = harness.system.getFrameView().flightStates;
+      const separation = Math.abs(
+        states[0].position.x - states[1].position.x
+      );
+      return Object.freeze({
+        name: "同帯予約1.0でA・先読みBを分散し到達後も継続",
+        ok:
+          states.length === 2 &&
+          states.every(
+            (state) =>
+              state.routePurpose === "search" &&
+              state.agentState === "surface"
+          ) &&
+          states[0].position.x >= 3.28 &&
+          states[1].position.x <= -3.28 &&
+          separation >= 6.56,
+        detail:
+          `x=${states.map((state) => state.position.x.toFixed(3)).join("/")} / ` +
+          `separation=${separation.toFixed(3)} / ` +
+          `candidateCalls=${randomPointCallCount}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runNormalPatrolReservationBestEffortCheck =
+  (): BitCombatIntegrationCheck => {
+    const baseNavigation = createNavigation();
+    const navigation = Object.freeze({
+      ...baseNavigation,
+      randomPointAround: (
+        origin: BitFlightLocation,
+        radius: number
+      ) =>
+        createLocation(
+          getBitFlightWorldPosition(origin).add(
+            new Vector3(radius, 0, 0)
+          ),
+          origin.heightMode,
+          origin
+        )
+    }) as BitFlightNavigationWorld;
+    const harness = createHarness(
+      2,
+      () => false,
+      false,
+      false,
+      () => false,
+      navigation
+    );
+    try {
+      placeHarnessBitsAtSamePosition(harness);
+      update(harness.system, 0, 0, EMPTY_TARGETS);
+      update(harness.system, 1, 1, EMPTY_TARGETS);
+      const states = harness.system.getFrameView().flightStates;
+      return Object.freeze({
+        name: "予約半径内しか候補がない場合もbest-effortで停止しない",
+        ok:
+          states.length === 2 &&
+          states.every(
+            (state) =>
+              state.routePurpose === "search" &&
+              state.agentState === "surface" &&
+              state.position.x >= 0.29 &&
+              state.position.x <= 0.31
+          ),
+        detail:
+          `states=${states.map((state) =>
+            `${state.position.x.toFixed(3)}/${state.routePurpose ?? "none"}`
+          ).join(",")}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runNormalPatrolReversePenaltyCheck =
+  (): BitCombatIntegrationCheck => {
+    const baseNavigation = createNavigation();
+    const offsets = Object.freeze([
+      3,
+      3,
+      3,
+      3,
+      -3,
+      3,
+      -2,
+      2
+    ]);
+    let randomPointCallCount = 0;
+    const navigation = Object.freeze({
+      ...baseNavigation,
+      randomPointAround: (
+        origin: BitFlightLocation,
+        _radius: number
+      ) => {
+        const offset = offsets[randomPointCallCount] ?? 3;
+        randomPointCallCount += 1;
+        return createLocation(
+          getBitFlightWorldPosition(origin).add(
+            new Vector3(offset, 0, 0)
+          ),
+          origin.heightMode,
+          origin
+        );
+      }
+    }) as BitFlightNavigationWorld;
+    const harness = createHarness(
+      1,
+      () => false,
+      false,
+      false,
+      () => false,
+      navigation
+    );
+    try {
+      placeHarnessBitsAtSamePosition(harness);
+      harness.random.enqueue(0.2, 0.5, 0.5, 0.5, 0.5);
+      update(harness.system, 0, 0, EMPTY_TARGETS);
+      for (let tick = 1; tick <= 110; tick += 1) {
+        update(
+          harness.system,
+          0.1,
+          tick * 0.1,
+          EMPTY_TARGETS
+        );
+      }
+      const state = harness.system.getFrameView().flightStates[0];
+      return Object.freeze({
+        name: "先読み候補が同距離なら直前区間への逆戻りを減点",
+        ok:
+          state.routePurpose === "search" &&
+          state.agentState === "surface" &&
+          state.position.x >= 3.28 &&
+          state.position.x <= 3.32 &&
+          randomPointCallCount >= 8,
+        detail:
+          `x=${state.position.x.toFixed(3)} / ` +
+          `calls=${randomPointCallCount} / ` +
+          `state=${state.routePurpose ?? "none"}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runBruteForceScheduleBoundaryCheck =
+  (): BitCombatIntegrationCheck => {
+    const runCase = (roll: number) => {
+      const baseNavigation = createNavigation();
+      let randomPointCallCount = 0;
+      const navigation = Object.freeze({
+        ...baseNavigation,
+        randomPointAround: (
+          _origin: BitFlightLocation,
+          _radius: number
+        ) => {
+          randomPointCallCount += 1;
+          return null;
+        }
+      }) as BitFlightNavigationWorld;
+      const harness = createHarness(
+        1,
+        () => false,
+        false,
+        false,
+        () => false,
+        navigation
+      );
+      try {
+        placeHarnessBitsAtSamePosition(harness);
+        harness.system.setDiagnosticsEnabled(true);
+        harness.random.enqueue(roll);
+        update(harness.system, 0, 40, EMPTY_TARGETS);
+        return Object.freeze({
+          randomPointCallCount,
+          routePurpose:
+            harness.system.getFrameView().flightStates[0]
+              ?.routePurpose ?? null,
+          searchRoutePlans:
+            harness.system.getFrameView().diagnostics.routePlans.search
+        });
+      } finally {
+        harness.dispose();
+      }
+    };
+    const accepted = runCase(0.249);
+    const rejected = runCase(0.25);
+    return Object.freeze({
+      name: "40秒時点の総当たり開始を10秒周期・25%境界で判定",
+      ok:
+        accepted.randomPointCallCount ===
+          BRUTE_FORCE_EXPECTED_RANDOM_POINT_CALLS &&
+        rejected.randomPointCallCount ===
+          NORMAL_PATROL_EXPECTED_RANDOM_POINT_CALLS &&
+        accepted.routePurpose === "search" &&
+        rejected.routePurpose === null &&
+        accepted.searchRoutePlans === 1 &&
+        rejected.searchRoutePlans === 1,
+      detail:
+        `accepted=${accepted.randomPointCallCount}/${accepted.routePurpose}/${accepted.searchRoutePlans} / ` +
+        `rejected=${rejected.randomPointCallCount}/${rejected.routePurpose}/${rejected.searchRoutePlans}`
+    });
+  };
+
+const runBruteForceScheduleIntervalCheck =
+  (): BitCombatIntegrationCheck => {
+    const baseNavigation = createNavigation();
+    let randomPointCallCount = 0;
+    const navigation = Object.freeze({
+      ...baseNavigation,
+      randomPointAround: () => {
+        randomPointCallCount += 1;
+        return null;
+      }
+    }) as BitFlightNavigationWorld;
+    const harness = createHarness(
+      1,
+      () => false,
+      false,
+      false,
+      () => false,
+      navigation
+    );
+    try {
+      placeHarnessBitsAtSamePosition(harness);
+      harness.random.enqueue(
+        0.5,
+        0.25,
+        0.5,
+        0.5,
+        0.249,
+        0.5,
+        0.5,
+        0.5
+      );
+      update(harness.system, 0, 39, EMPTY_TARGETS);
+      const beforeStart =
+        harness.system.getFrameView().flightStates[0].routePurpose;
+      update(harness.system, 1, 40, EMPTY_TARGETS);
+      const rejectedAtStart =
+        harness.system.getFrameView().flightStates[0].routePurpose;
+      update(harness.system, 9.9, 49.9, EMPTY_TARGETS);
+      const beforeNextBoundary =
+        harness.system.getFrameView().flightStates[0].routePurpose;
+      update(harness.system, 0.5, 50, EMPTY_TARGETS);
+      const acceptedAtNextBoundary =
+        harness.system.getFrameView().flightStates[0].routePurpose;
+      return Object.freeze({
+        name: "総当たり抽選は40秒開始・不成立後50秒まで再抽選しない",
+        ok:
+          beforeStart === null &&
+          rejectedAtStart === null &&
+          beforeNextBoundary === null &&
+          acceptedAtNextBoundary === "search" &&
+          randomPointCallCount === 15,
+        detail:
+          `states=${beforeStart ?? "none"}/${rejectedAtStart ?? "none"}/${beforeNextBoundary ?? "none"}/${acceptedAtNextBoundary ?? "none"} / ` +
+          `candidateCalls=${randomPointCallCount}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runBruteForceFleetPlanningBudgetCheck =
+  (): BitCombatIntegrationCheck => {
+    const bitCount = 50;
+    const baseNavigation = createNavigation();
+    const navigation = Object.freeze({
+      ...baseNavigation,
+      randomPointAround: () => null
+    }) as BitFlightNavigationWorld;
+    const harness = createHarness(
+      bitCount,
+      () => false,
+      false,
+      false,
+      () => false,
+      navigation
+    );
+    try {
+      placeHarnessBitsAtSamePosition(harness);
+      harness.system.setDiagnosticsEnabled(true);
+      const firstUpdateRolls: number[] = [];
+      for (let index = 0; index < bitCount; index += 1) {
+        firstUpdateRolls.push(0.2);
+        if (index < 4) {
+          firstUpdateRolls.push(
+            0.5,
+            0.5,
+            0.5
+          );
+        }
+      }
+      harness.random.enqueue(...firstUpdateRolls);
+      const routePlanCounts: number[] = [];
+      for (let updateIndex = 0; updateIndex < 13; updateIndex += 1) {
+        update(
+          harness.system,
+          0,
+          40 + updateIndex * 0.01,
+          EMPTY_TARGETS
+        );
+        routePlanCounts.push(
+          harness.system.getFrameView().diagnostics.routePlans.search
+        );
+      }
+      const plannedBitCount =
+        harness.system.getFrameView().flightStates.filter(
+          (state) => state.routePurpose === "search"
+        ).length;
+      const maximumPlansPerUpdate = Math.max(...routePlanCounts);
+      update(harness.system, 1, 41, EMPTY_TARGETS);
+      const uniqueMovedPositions = new Set(
+        harness.system.getFrameView().flightStates.map((state) =>
+          [
+            state.position.x.toFixed(3),
+            state.position.y.toFixed(3),
+            state.position.z.toFixed(3)
+          ].join(",")
+        )
+      ).size;
+      return Object.freeze({
+        name: "50機の総当たりを4件以下・13更新以内で分散計画",
+        ok:
+          routePlanCounts
+            .slice(0, -1)
+            .every((count) => count === 4) &&
+          routePlanCounts[routePlanCounts.length - 1] === 2 &&
+          maximumPlansPerUpdate <= 4 &&
+          plannedBitCount === bitCount &&
+          uniqueMovedPositions >= 8,
+        detail:
+          `plans=${routePlanCounts.join(",")} / ` +
+          `max=${maximumPlansPerUpdate} / ` +
+          `planned=${plannedBitCount}/${bitCount} / ` +
+          `positions=${uniqueMovedPositions}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runBruteForceCandidatePagingCheck =
+  (): BitCombatIntegrationCheck => {
+    const baseNavigation = createNavigation();
+    const traversals: readonly BitFlightTransitionTraversal[] =
+      Object.freeze(
+        Array.from({ length: 9 }, (_, index) => {
+          const destination = new Vector3(
+            index + 1,
+            BAND_CENTER_HEIGHT,
+            0
+          );
+          return Object.freeze({
+            transition: Object.freeze({
+              id: `t05-brute-page-${index}`,
+              kind: "aperture" as const,
+              from: TEST_BAND_REF,
+              to: TEST_BAND_REF,
+              bidirectional: false,
+              affordances: Object.freeze([]),
+              fromPosition: new Vector3(
+                0,
+                BAND_CENTER_HEIGHT,
+                0
+              ),
+              toPosition: destination,
+              traversalPoints: Object.freeze([
+                new Vector3(0, BAND_CENTER_HEIGHT, 0),
+                destination
+              ]),
+              region: null
+            }),
+            from: TEST_BAND_REF,
+            to: TEST_BAND_REF,
+            reversed: false
+          });
+        })
+      );
+    const attemptedDestinationXs: number[] = [];
+    const attemptedDestinations: Vector3[] = [];
+    const navigation = Object.freeze({
+      ...baseNavigation,
+      transitions: Object.freeze(
+        traversals.map((traversal) => traversal.transition)
+      ),
+      getTransitionsFrom: () => traversals,
+      randomPointAround: () => null,
+      findSurfaceRoute: () => null,
+      findRoute: (
+        start: BitFlightLocation,
+        destination: BitFlightLocation
+      ) => {
+        const destinationX =
+          getBitFlightWorldPosition(destination).x;
+        attemptedDestinationXs.push(destinationX);
+        attemptedDestinations.push(
+          getBitFlightWorldPosition(destination)
+        );
+        if (destinationX < 9) {
+          return null;
+        }
+        const distance = Vector3.Distance(
+          getBitFlightWorldPosition(start),
+          getBitFlightWorldPosition(destination)
+        );
+        return Object.freeze({
+          steps: Object.freeze([]),
+          destination: cloneLocation(destination),
+          distance,
+          totalCost: distance
+        });
+      }
+    }) as BitFlightNavigationWorld;
+    const harness = createHarness(
+      1,
+      () => false,
+      false,
+      false,
+      () => false,
+      navigation
+    );
+    try {
+      placeHarnessBitsAtSamePosition(harness);
+      harness.system.setDiagnosticsEnabled(true);
+      harness.random.enqueue(0.249, 0.5, 0.5, 0.5);
+      const routePurposes: Array<
+        V2BitFlightState["routePurpose"]
+      > = [];
+      for (
+        let updateIndex = 0;
+        updateIndex < 17;
+        updateIndex += 1
+      ) {
+        update(
+          harness.system,
+          updateIndex === 0 ? 0 : 0.5,
+          40 + updateIndex * 0.5,
+          EMPTY_TARGETS
+        );
+        routePurposes.push(
+          harness.system.getFrameView().flightStates[0].routePurpose
+        );
+      }
+      const attemptsBeforeNinth = [...attemptedDestinationXs];
+      update(harness.system, 0.5, 48.5, EMPTY_TARGETS);
+      routePurposes.push(
+        harness.system.getFrameView().flightStates[0].routePurpose
+      );
+      const attemptedFirstEightTransitions = new Set(
+        attemptsBeforeNinth.filter(
+          (destinationX) =>
+            destinationX >= 1 && destinationX <= 8
+        )
+      );
+      const firstEightFrontierDirections = new Set(
+        attemptedDestinations
+          .filter((_destination, index) => index % 2 === 0)
+          .slice(0, 8)
+          .map(
+            (destination) =>
+              `${destination.x.toFixed(3)},${destination.z.toFixed(3)}`
+          )
+      );
+      return Object.freeze({
+        name: "総当たり遷移は前半8件失敗後も9件目を計画",
+        ok:
+          routePurposes
+            .slice(0, 17)
+            .every((purpose) => purpose === null) &&
+          attemptedFirstEightTransitions.size === 8 &&
+          firstEightFrontierDirections.size === 8 &&
+          attemptedDestinationXs[
+            attemptedDestinationXs.length - 1
+          ] === 9 &&
+          routePurposes[17] === "search",
+        detail:
+          `before9=${attemptsBeforeNinth.join(",")} / ` +
+          `all=${attemptedDestinationXs.join(",")} / ` +
+          `frontier=${[...firstEightFrontierDirections].join("|")} / ` +
+          `states=${routePurposes.map((purpose) => purpose ?? "none").join(",")}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runWindowCursorAndInteriorContinuationCheck =
+  (): BitCombatIntegrationCheck => {
+    const indoorZoneId = toBitFlightZoneId(
+      "t05-bit-window-indoor-zone"
+    );
+    const indoorBandId = toBitFlightBandId(
+      "t05-bit-window-indoor-band"
+    );
+    const indoorBandRef = createBitFlightBandRef(
+      indoorZoneId,
+      indoorBandId
+    );
+    const indoorBand: BitFlightBand = Object.freeze({
+      zoneId: indoorZoneId,
+      id: indoorBandId,
+      minimumCenterHeight: 1,
+      maximumCenterHeight: 1.8
+    });
+    const transitions = Object.freeze(
+      Array.from({ length: 4 }, (_, index) =>
+        Object.freeze({
+          id: `t05-window-${index}`,
+          kind: "aperture" as const,
+          from: TEST_BAND_REF,
+          to: indoorBandRef,
+          bidirectional: false,
+          affordances: Object.freeze(["window-access" as const]),
+          fromPosition: new Vector3(
+            0,
+            BAND_CENTER_HEIGHT,
+            index * 0.1
+          ),
+          toPosition: new Vector3(
+            0.2,
+            BAND_CENTER_HEIGHT,
+            index * 0.1
+          ),
+          traversalPoints: Object.freeze([
+            new Vector3(0, BAND_CENTER_HEIGHT, index * 0.1),
+            new Vector3(0.2, BAND_CENTER_HEIGHT, index * 0.1)
+          ]),
+          region: null
+        })
+      )
+    );
+    const traversals: readonly BitFlightTransitionTraversal[] =
+      Object.freeze(
+        transitions.map((transition) =>
+          Object.freeze({
+            transition,
+            from: TEST_BAND_REF,
+            to: indoorBandRef,
+            reversed: false
+          })
+        )
+      );
+    const planned: Array<
+      Readonly<{
+        transitionId: string;
+        destination: Vector3;
+        exit: Vector3;
+      }>
+    > = [];
+    const getBand = (ref: BitFlightBandRef) =>
+      ref.zoneId === TEST_ZONE_ID && ref.bandId === TEST_BAND_ID
+        ? TEST_BAND
+        : ref.zoneId === indoorZoneId &&
+            ref.bandId === indoorBandId
+          ? indoorBand
+          : null;
+    const projectPointInBand = (
+      ref: BitFlightBandRef,
+      position: Vector3
+    ) => {
+      const band = getBand(ref);
+      return band
+        ? createLocation(
+            new Vector3(
+              position.x,
+              Math.min(
+                band.maximumCenterHeight,
+                Math.max(band.minimumCenterHeight, position.y)
+              ),
+              position.z
+            ),
+            "band",
+            ref
+          )
+        : null;
+    };
+    const createPreparedRoute = (
+      start: BitFlightLocation,
+      destination: BitFlightLocation
+    ): BitFlightRoute => {
+      const distance = Vector3.Distance(
+        getBitFlightWorldPosition(start),
+        getBitFlightWorldPosition(destination)
+      );
+      return Object.freeze({
+        steps: Object.freeze([]),
+        destination: cloneLocation(destination),
+        distance,
+        totalCost: distance
+      });
+    };
+    const navigation = Object.freeze({
+      zones: Object.freeze([
+        Object.freeze({
+          id: TEST_ZONE_ID,
+          spaceKind: "outdoor" as const
+        }),
+        Object.freeze({
+          id: indoorZoneId,
+          spaceKind: "indoor" as const
+        })
+      ]),
+      bands: Object.freeze([TEST_BAND, indoorBand]),
+      transitions,
+      getZone: (id: typeof TEST_ZONE_ID) =>
+        id === TEST_ZONE_ID
+          ? Object.freeze({
+              id: TEST_ZONE_ID,
+              spaceKind: "outdoor" as const
+            })
+          : id === indoorZoneId
+            ? Object.freeze({
+                id: indoorZoneId,
+                spaceKind: "indoor" as const
+              })
+            : null,
+      getBand,
+      projectPointInBand,
+      findLocationCandidates: (position: Vector3) =>
+        Object.freeze([
+          projectPointInBand(TEST_BAND_REF, position)!,
+          projectPointInBand(indoorBandRef, position)!
+        ]),
+      findRoute: (
+        start: BitFlightLocation,
+        destination: BitFlightLocation
+      ) => createPreparedRoute(start, destination),
+      findSurfaceRoute: () => null,
+      findRouteThroughTransition: (
+        start: BitFlightLocation,
+        traversal: BitFlightTransitionTraversal,
+        destination: BitFlightLocation
+      ) => {
+        planned.push(
+          Object.freeze({
+            transitionId: traversal.transition.id,
+            destination:
+              getBitFlightWorldPosition(destination),
+            exit: traversal.transition.toPosition.clone()
+          })
+        );
+        return createPreparedRoute(start, destination);
+      },
+      assertPreparedRoute: () => {},
+      applyHeightSelection: (
+        location: BitFlightLocation,
+        selection: BitFlightHeightSelection
+      ) =>
+        createLocation(
+          new Vector3(
+            location.surface.position.x,
+            selection.center.y,
+            location.surface.position.z
+          ),
+          selection.heightMode,
+          location
+        ),
+      constrainMovement: (
+        start: BitFlightLocation,
+        destination: Vector3,
+        heightMode: BitFlightHeightMode
+      ) => createLocation(destination, heightMode, start),
+      randomPointAround: (
+        origin: BitFlightLocation,
+        radius: number
+      ) =>
+        origin.zoneId === TEST_ZONE_ID
+          ? null
+          : createLocation(
+              getBitFlightWorldPosition(origin).add(
+                new Vector3(Math.min(radius, 2), 0, 0)
+              ),
+              origin.heightMode,
+              origin
+            ),
+      getTransitionsFrom: (ref: BitFlightBandRef) =>
+        ref.zoneId === TEST_ZONE_ID && ref.bandId === TEST_BAND_ID
+          ? traversals
+          : Object.freeze([]),
+      createDebugMeshes: () => Object.freeze([]),
+      dispose: () => {}
+    }) as BitFlightNavigationWorld;
+    const harness = createHarness(
+      4,
+      () => false,
+      false,
+      false,
+      () => false,
+      navigation
+    );
+    try {
+      placeHarnessBitsAtSamePosition(harness);
+      harness.system.setDiagnosticsEnabled(true);
+      update(harness.system, 0, 0, EMPTY_TARGETS);
+      const uniqueTransitionIds = new Set(
+        planned.map((entry) => entry.transitionId)
+      );
+      const continuedInside = planned.every(
+        (entry) =>
+          Math.hypot(
+            entry.destination.x - entry.exit.x,
+            entry.destination.z - entry.exit.z
+          ) >= 1.2
+      );
+      return Object.freeze({
+        name: "生成番号カーソルで4窓へ分散し屋内安全点まで同一経路化",
+        ok:
+          planned.length === 4 &&
+          uniqueTransitionIds.size === 4 &&
+          continuedInside &&
+          harness.system.getFrameView().diagnostics.routePlans.search ===
+            4,
+        detail:
+          `transitions=${[...uniqueTransitionIds].join(",")} / ` +
+          `depths=${planned.map((entry) =>
+            Math.hypot(
+              entry.destination.x - entry.exit.x,
+              entry.destination.z - entry.exit.z
+            ).toFixed(3)
+          ).join(",")} / ` +
+          `plans=${harness.system.getFrameView().diagnostics.routePlans.search}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
 const runRedVerticalSearchSpeedCheck =
   (): BitCombatIntegrationCheck => {
     const harness = createHarness(1, () => false, true);
     try {
-      harness.random.enqueue(0.7, 0, 0.999, 0.5);
+      harness.random.enqueue(
+        0.7,
+        0,
+        0.999,
+        0,
+        0.999,
+        0,
+        0.999,
+        0,
+        0.999,
+        0.5
+      );
       update(harness.system, 0, 0, EMPTY_TARGETS);
       const before = harness.system.getFrameView().flightStates[0];
       update(harness.system, 1, 1, EMPTY_TARGETS);
@@ -3068,6 +4095,16 @@ export const runBitCombatIntegrationTests =
     fixture: BitSystemAcceptanceFixture
   ): readonly BitCombatIntegrationCheck[] =>
     Object.freeze([
+      runNormalPatrolReachContractCheck(),
+      runNormalPatrolDetourLifetimeCheck(),
+      runNormalPatrolReservationCheck(),
+      runNormalPatrolReservationBestEffortCheck(),
+      runNormalPatrolReversePenaltyCheck(),
+      runBruteForceScheduleBoundaryCheck(),
+      runBruteForceScheduleIntervalCheck(),
+      runBruteForceFleetPlanningBudgetCheck(),
+      runBruteForceCandidatePagingCheck(),
+      runWindowCursorAndInteriorContinuationCheck(),
       runRedVerticalSearchSpeedCheck(),
       runRedTransitionSpeedCheck(fixture),
       runRouteCandidateLowerBoundPruningCheck(),
