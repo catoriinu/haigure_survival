@@ -1,20 +1,28 @@
 import {
-  Color3,
+  InstancedMesh,
   Mesh,
   MeshBuilder,
   NullEngine,
   Ray,
   Scene,
+  StandardMaterial,
+  VertexBuffer,
   Vector3
 } from "@babylonjs/core";
 
 import {
+  V2_NORMAL_BEAM_BACK_DIAMETER,
+  V2_NORMAL_BEAM_BODY_DIAMETER,
+  V2_NORMAL_BEAM_FRONT_DIAMETER,
   V2_NORMAL_BEAM_MAX_BODY_LENGTH,
+  V2_NORMAL_BEAM_TIP_DIAMETER,
+  V2_WORLD_BOUNDARY_FADE_DURATION_SECONDS,
   castV2BeamSegment,
   castV2SightSegment,
   createV2BeamSystem
 } from "../../../src/v2/beamCollision";
 import type {
+  V2BeamOriginKind,
   V2BeamTargetPolicy,
   V2CharacterState,
   V2HumanKind,
@@ -23,6 +31,7 @@ import type {
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import { createStageSpatialQueries } from "../../../src/world/stageSpatialQueries";
 import type { StageSpatialQueryDiagnostics } from "../../../src/world/stageSpatialQueries";
+import { createStageWorldBoundary } from "../../../src/world/stageWorldBoundary";
 
 export type BeamCombatTestResult = Readonly<{
   name: string;
@@ -101,7 +110,8 @@ const createExecutionPolicy = (
 
 const createBeamFixture = (
   wallDefinitions: readonly WallDefinition[],
-  diagnostics?: StageSpatialQueryDiagnostics
+  diagnostics?: StageSpatialQueryDiagnostics,
+  worldBoundarySize: number | null = null
 ): BeamFixture => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
@@ -132,11 +142,37 @@ const createBeamFixture = (
     volumes: [],
     diagnostics
   });
+  const stageBoundaryMesh =
+    worldBoundarySize === null
+      ? null
+      : MeshBuilder.CreateBox(
+          "BND_Stage",
+          { size: worldBoundarySize / 2 },
+          scene
+        );
+  const worldBoundaryMesh =
+    worldBoundarySize === null
+      ? null
+      : MeshBuilder.CreateBox(
+          "BND_WorldLimit",
+          { size: worldBoundarySize },
+          scene
+        );
+  stageBoundaryMesh?.computeWorldMatrix(true);
+  worldBoundaryMesh?.computeWorldMatrix(true);
+  const worldBoundary =
+    stageBoundaryMesh && worldBoundaryMesh
+      ? createStageWorldBoundary(
+          worldBoundaryMesh,
+          stageBoundaryMesh
+        )
+      : null;
   const stage = Object.freeze({
     resources: Object.freeze({
       beamBlockers: Object.freeze([...blockers]),
       sightBlockers: Object.freeze([...blockers])
     }),
+    worldBoundary,
     queries
   }) as unknown as StageSpatialContext;
 
@@ -149,6 +185,7 @@ const createBeamFixture = (
       if (disposed) {
         throw new Error("BeamFixtureは破棄済みです");
       }
+      worldBoundary?.dispose();
       queries.dispose();
       scene.dispose();
       engine.dispose();
@@ -441,11 +478,8 @@ export const runBeamCombatTests =
           scene: fixture.scene,
           stage: fixture.stage,
           getHumanTargets: () => [target],
-          visual: Object.freeze({
-            diameter: 0.04,
-            color: new Color3(1, 0.2, 0.6),
-            alpha: 0.9
-          })
+          random: () => 0.5,
+          getOrbVisibilityPredicate: () => () => true
         });
         try {
           const beamId = system.spawn({
@@ -479,7 +513,8 @@ export const runBeamCombatTests =
             releasedBeforeClear.tip.inUse === 0 &&
             clearedPool.body.inUse === 0 &&
             clearedPool.tip.inUse === 0 &&
-            clearedPool.impact.inUse === 0;
+            clearedPool.trail.inUse === 0 &&
+            clearedPool["blocker-impact"].inUse === 0;
           system.dispose();
           const resourcesDisposed =
             fixture.scene.meshes.length === fixtureMeshCount &&
@@ -535,15 +570,12 @@ export const runBeamCombatTests =
           scene: fixture.scene,
           stage: fixture.stage,
           getHumanTargets: () => [],
-          visual: Object.freeze({
-            diameter: 0.04,
-            color: new Color3(0.2, 0.8, 1),
-            alpha: 1
-          })
+          random: () => 0.5,
+          getOrbVisibilityPredicate: () => () => true
         });
         try {
           const baselineMeshes = fixture.scene.meshes.length;
-          system.spawn({
+          const beamId = system.spawn({
             sourceId: "npc-wall",
             originKind: "npc-gun",
             targetPolicy: createAliveHumansPolicy(),
@@ -553,22 +585,35 @@ export const runBeamCombatTests =
             maximumLifetime: 2
           });
           const impactFrame = system.update(0.1);
-          const impactPosition = system.getActiveBeams()[0].position.clone();
+          const impactSnapshot = system.getActiveBeams()[0];
+          const impactPosition = impactSnapshot.position.clone();
+          const body = fixture.scene.getMeshByName(
+            `${beamId}-body`
+          ) as InstancedMesh | null;
+          const bodyPositionAtImpact = body?.position.x ?? Number.NaN;
+          const expectedBodyPositionAtImpact =
+            impactPosition.x -
+            V2_NORMAL_BEAM_TIP_DIAMETER -
+            impactSnapshot.bodyLength / 2;
           const meshCountWithImpact =
             fixture.scene.meshes.length - baselineMeshes;
+          const shortRetractFrame = system.update(0.0001);
+          const bodyPositionAfterShortRetract =
+            body?.position.x ?? Number.NaN;
           const retractFrame = system.update(0.01);
           const activeAfterRetraction = system.activeCount;
           const poolBeforeClear = system.getVisualPoolSnapshot();
           const impactVisualRemains =
             poolBeforeClear.body.inUse === 0 &&
             poolBeforeClear.tip.inUse === 0 &&
-            poolBeforeClear.impact.inUse === 1;
+            poolBeforeClear["blocker-impact"].inUse === 4;
           system.clear();
           const poolAfterClear = system.getVisualPoolSnapshot();
           const resourcesCleared =
             poolAfterClear.body.inUse === 0 &&
             poolAfterClear.tip.inUse === 0 &&
-            poolAfterClear.impact.inUse === 0;
+            poolAfterClear.trail.inUse === 0 &&
+            poolAfterClear["blocker-impact"].inUse === 0;
           const pooledMeshCount = fixture.scene.meshes.length;
           system.spawn({
             sourceId: "npc-wall-reuse",
@@ -585,7 +630,8 @@ export const runBeamCombatTests =
             reuseImpactFrame.impacts.length === 1 &&
             reusedPool.body.capacity === poolAfterClear.body.capacity &&
             reusedPool.tip.capacity === poolAfterClear.tip.capacity &&
-            reusedPool.impact.capacity === poolAfterClear.impact.capacity &&
+            reusedPool["blocker-impact"].capacity ===
+              poolAfterClear["blocker-impact"].capacity &&
             fixture.scene.meshes.length === pooledMeshCount;
           system.clear();
           system.dispose();
@@ -599,7 +645,19 @@ export const runBeamCombatTests =
               impactFrame.impacts.length === 1 &&
               impactFrame.impacts[0].hit.kind === "blocker" &&
               approximately(impactPosition.x, 1.9, 1e-6) &&
-              meshCountWithImpact === 3 &&
+              approximately(
+                bodyPositionAtImpact,
+                expectedBodyPositionAtImpact,
+                1e-6
+              ) &&
+              shortRetractFrame.impacts.length === 0 &&
+              approximately(
+                bodyPositionAfterShortRetract -
+                  bodyPositionAtImpact,
+                0.015,
+                1e-6
+              ) &&
+              meshCountWithImpact === 6 &&
               retractFrame.impacts.length === 0 &&
               activeAfterRetraction === 0 &&
               impactVisualRemains &&
@@ -609,6 +667,8 @@ export const runBeamCombatTests =
             detail:
               `impact=${impactFrame.impacts.length} / ` +
               `x=${impactPosition.x.toFixed(3)} / meshes=${meshCountWithImpact} / ` +
+              `body=${bodyPositionAtImpact.toFixed(3)}->` +
+              `${bodyPositionAfterShortRetract.toFixed(3)} / ` +
               `active=${activeAfterRetraction} / clear=${resourcesCleared} / ` +
               `reused=${resourcesReused} / disposed=${resourcesDisposed}`
           };
@@ -626,11 +686,8 @@ export const runBeamCombatTests =
           scene: fixture.scene,
           stage: fixture.stage,
           getHumanTargets: () => [],
-          visual: Object.freeze({
-            diameter: 0.025,
-            color: new Color3(1, 0.16, 0.72),
-            alpha: 0.95
-          })
+          random: () => 0.5,
+          getOrbVisibilityPredicate: () => () => true
         });
         try {
           const beamId = system.spawn({
@@ -694,11 +751,8 @@ export const runBeamCombatTests =
           scene: fixture.scene,
           stage: fixture.stage,
           getHumanTargets: () => [],
-          visual: Object.freeze({
-            diameter: 0.04,
-            color: new Color3(1, 0.2, 0.6),
-            alpha: 1
-          })
+          random: () => 0.5,
+          getOrbVisibilityPredicate: () => () => true
         });
         const spawnBeam = (serial: number) =>
           system.spawn({
@@ -712,7 +766,7 @@ export const runBeamCombatTests =
           });
         try {
           const templatesPrepared =
-            fixture.scene.meshes.length === fixtureMeshCount + 3 &&
+            fixture.scene.meshes.length === fixtureMeshCount + 4 &&
             fixture.scene.materials.length === fixtureMaterialCount + 1;
           for (let serial = 0; serial < 3; serial += 1) {
             spawnBeam(serial);
@@ -1297,11 +1351,8 @@ export const runBeamCombatTests =
             scene: fixture.scene,
             stage: fixture.stage,
             getHumanTargets: () => [],
-            visual: Object.freeze({
-              diameter: 0.04,
-              color: new Color3(1, 0.2, 0.6),
-              alpha: 1
-            }),
+            random: () => 0.5,
+            getOrbVisibilityPredicate: () => () => true,
             collisionDiagnostics: {
               recordStartContainment: (
                 candidateMeshCount,
@@ -1357,11 +1408,8 @@ export const runBeamCombatTests =
           scene: fixture.scene,
           stage: fixture.stage,
           getHumanTargets: () => [],
-          visual: Object.freeze({
-            diameter: 0.04,
-            color: new Color3(1, 0.2, 0.6),
-            alpha: 1
-          })
+          random: () => 0.5,
+          getOrbVisibilityPredicate: () => () => true
         });
         try {
           const origin = new Vector3(2 - 0.5e-6, 0, 0);
@@ -1407,17 +1455,15 @@ export const runBeamCombatTests =
             },
             sightBlockers: fixture.blockers
           },
+          worldBoundary: fixture.stage.worldBoundary,
           queries: fixture.stage.queries
         } as unknown as StageSpatialContext;
         const system = createV2BeamSystem({
           scene: fixture.scene,
           stage: countingStage,
           getHumanTargets: () => [],
-          visual: Object.freeze({
-            diameter: 0.04,
-            color: new Color3(1, 0.2, 0.6),
-            alpha: 1
-          }),
+          random: () => 0.5,
+          getOrbVisibilityPredicate: () => () => true,
           collisionDiagnostics: {
             recordStartContainment: () => {
               containmentDiagnosticCount += 1;
@@ -1471,6 +1517,585 @@ export const runBeamCombatTests =
           fixture.dispose();
         }
       })
+    );
+
+    results.push(
+      executeTest(
+        "全9 origin kindを境界交点で停止し副作用なしで0.2秒fadeする",
+        () => {
+          const fixture = createBeamFixture([], undefined, 4);
+          const originKinds: readonly V2BeamOriginKind[] =
+            Object.freeze([
+              "bit-chase",
+              "bit-fixed",
+              "bit-random",
+              "bit-carpet",
+              "npc-gun",
+              "player-gun",
+              "execution-bit",
+              "execution-npc",
+              "execution-player"
+            ]);
+          const system = createV2BeamSystem({
+            scene: fixture.scene,
+            stage: fixture.stage,
+            getHumanTargets: () => [],
+            random: () => 0.5,
+            getOrbVisibilityPredicate: () => () => true
+          });
+          const details: string[] = [];
+          let allPassed = true;
+          try {
+            for (const originKind of originKinds) {
+              const beamId = system.spawn({
+                sourceId: `boundary-${originKind}`,
+                originKind,
+                targetPolicy: createAliveHumansPolicy(),
+                origin: Vector3.Zero(),
+                direction: Vector3.Right(),
+                speed: 10,
+                maximumLifetime: 1
+              });
+              system.update(0.1);
+              const exitFrame = system.update(0.15);
+              const snapshot = system.getActiveBeams()[0];
+              const body = fixture.scene.meshes.find(
+                (mesh) => mesh.name === `${beamId}-body`
+              );
+              const tip = fixture.scene.meshes.find(
+                (mesh) => mesh.name === `${beamId}-tip`
+              );
+              const poolAtExit = system.getVisualPoolSnapshot();
+              const trails = fixture.scene.meshes.filter(
+                (mesh) =>
+                  mesh.name === `${beamId}-trail` &&
+                  mesh.isEnabled()
+              ) as InstancedMesh[];
+              const getMaximumTrailAlpha = () =>
+                Math.max(
+                  -1,
+                  ...trails
+                    .filter((trail) => trail.isEnabled())
+                    .map((trail) =>
+                      Number(
+                        trail.instancedBuffers.instanceColor?.a ?? -1
+                      )
+                    )
+                );
+              const bodyVisibilityAtExit = Number(
+                (body as InstancedMesh | undefined)?.instancedBuffers
+                  .instanceColor?.a ?? -1
+              );
+              const tipVisibilityAtExit = Number(
+                (tip as InstancedMesh | undefined)?.instancedBuffers
+                  .instanceColor?.a ?? -1
+              );
+              const trailVisibilityAtExit =
+                getMaximumTrailAlpha();
+              const exitPassed =
+                exitFrame.worldBoundaryExits.length === 1 &&
+                exitFrame.worldBoundaryExits[0].beamId === beamId &&
+                exitFrame.worldBoundaryExits[0].originKind ===
+                  originKind &&
+                approximately(
+                  exitFrame.worldBoundaryExits[0].position.x,
+                  2,
+                  1e-6
+                ) &&
+                exitFrame.impacts.length === 0 &&
+                exitFrame.expirations.length === 0 &&
+                snapshot.phase === "world-boundary-fading" &&
+                approximately(snapshot.position.x, 2, 1e-6) &&
+                approximately(snapshot.velocity.length(), 0, 1e-9) &&
+                approximately(bodyVisibilityAtExit, 0.75, 1e-6) &&
+                approximately(tipVisibilityAtExit, 0.75, 1e-6) &&
+                approximately(trailVisibilityAtExit, 0.75, 1e-6) &&
+                poolAtExit.trail.inUse === trails.length &&
+                trails.length > 0 &&
+                poolAtExit["blocker-impact"].inUse === 0;
+              const fadingFrame = system.update(0.1);
+              const trailVisibilityWhileFading =
+                getMaximumTrailAlpha();
+              const stillFading =
+                fadingFrame.worldBoundaryExits.length === 0 &&
+                system.activeCount === 1 &&
+                trails.some((trail) => trail.isEnabled()) &&
+                approximately(
+                  trailVisibilityWhileFading,
+                  0.25,
+                  1e-6
+                ) &&
+                trailVisibilityWhileFading <
+                  trailVisibilityAtExit;
+              system.update(0.049);
+              const completedFrame = system.update(0.001);
+              const completed =
+                completedFrame.worldBoundaryExits.length === 0 &&
+                completedFrame.impacts.length === 0 &&
+                completedFrame.expirations.length === 0 &&
+                system.activeCount === 0 &&
+                system.getVisualPoolSnapshot().trail.inUse === 0;
+              allPassed =
+                allPassed && exitPassed && stillFading && completed;
+              details.push(
+                `${originKind}=${exitPassed && stillFading && completed}` +
+                  `[${exitPassed}/${stillFading}/${completed}]` +
+                  `(events=${exitFrame.worldBoundaryExits.length}/` +
+                  `${exitFrame.impacts.length}/${exitFrame.expirations.length},` +
+                  `phase=${snapshot?.phase ?? "none"},` +
+                  `x=${snapshot?.position.x ?? "none"},` +
+                  `alpha=${bodyVisibilityAtExit}/` +
+                  `${tipVisibilityAtExit}/` +
+                  `${trailVisibilityAtExit}->` +
+                  `${trailVisibilityWhileFading},` +
+                  `trail=${poolAtExit.trail.inUse}/${trails.length},` +
+                  `active=${system.activeCount})`
+              );
+              system.clear();
+            }
+            return {
+              ok:
+                allPassed &&
+                V2_WORLD_BOUNDARY_FADE_DURATION_SECONDS === 0.2,
+              detail: details.join(" / ")
+            };
+          } finally {
+            system.dispose();
+            fixture.dispose();
+          }
+        }
+      )
+    );
+
+    results.push(
+      executeTest(
+        "退出フレームのtrailを交点時刻まで進めて残時間込みで分割非依存fadeする",
+        () => {
+          const runCase = (
+            label: string,
+            frameDurations: readonly number[]
+          ) => {
+            const fixture = createBeamFixture([], undefined, 4);
+            const system = createV2BeamSystem({
+              scene: fixture.scene,
+              stage: fixture.stage,
+              getHumanTargets: () => [],
+              random: () => 0.5,
+              getOrbVisibilityPredicate: () => () => true
+            });
+            try {
+              const beamId = system.spawn({
+                sourceId: `trail-boundary-${label}`,
+                originKind: "bit-fixed",
+                targetPolicy: createAliveHumansPolicy(),
+                origin: Vector3.Zero(),
+                direction: Vector3.Right(),
+                speed: 10,
+                maximumLifetime: 1
+              });
+              let exits = 0;
+              for (const frameDuration of frameDurations) {
+                exits +=
+                  system.update(frameDuration).worldBoundaryExits.length;
+              }
+              const trails = fixture.scene.meshes.filter(
+                (mesh) =>
+                  mesh.name === `${beamId}-trail` &&
+                  mesh.isEnabled()
+              ) as InstancedMesh[];
+              if (trails.length === 0) {
+                throw new Error("境界fade比較用trailがありません");
+              }
+              const profile = trails
+                .map((trail) =>
+                  Object.freeze({
+                    alpha: Number(
+                      trail.instancedBuffers.instanceColor?.a ?? -1
+                    ),
+                    scale: trail.scaling.x,
+                    positionX: trail.position.x
+                  })
+                )
+                .sort((left, right) => left.scale - right.scale);
+              return Object.freeze({
+                exits,
+                profile,
+                phase: system.getActiveBeams()[0]?.phase ?? "none"
+              });
+            } finally {
+              system.dispose();
+              fixture.dispose();
+            }
+          };
+          const coarse = runCase("coarse", [0.2]);
+          const split = runCase("split", [0.1, 0.1]);
+          const sameProfile =
+            coarse.profile.length === split.profile.length &&
+            coarse.profile.every(
+              (trail, index) =>
+                approximately(
+                  trail.alpha,
+                  split.profile[index].alpha,
+                  1e-6
+                ) &&
+                approximately(
+                  trail.scale,
+                  split.profile[index].scale,
+                  1e-6
+                ) &&
+                approximately(
+                  trail.positionX,
+                  split.profile[index].positionX,
+                  1e-6
+                )
+            );
+          return {
+            ok:
+              sameProfile &&
+              coarse.profile.length === 3 &&
+              coarse.profile.some((trail) => trail.alpha > 0) &&
+              coarse.exits === 1 &&
+              split.exits === 1 &&
+              coarse.phase === "world-boundary-fading" &&
+              split.phase === "world-boundary-fading",
+            detail:
+              `coarse=${JSON.stringify(coarse)} / ` +
+              `split=${JSON.stringify(split)}`
+          };
+        }
+      )
+    );
+
+    results.push(
+      executeTest(
+        "境界より明確に手前のactor・blockerだけ命中し同距離は境界を優先する",
+        () => {
+          const runActorCase = (centerX: number) => {
+            const fixture = createBeamFixture([], undefined, 4);
+            const target = createHuman(
+              `actor-${centerX}`,
+              "npc",
+              new Vector3(centerX, 0, 0),
+              new Vector3(0.1, 0.4, 0.1),
+              "normal",
+              true,
+              false
+            );
+            const system = createV2BeamSystem({
+              scene: fixture.scene,
+              stage: fixture.stage,
+              getHumanTargets: () => [target],
+              random: () => 0.5,
+              getOrbVisibilityPredicate: () => () => true
+            });
+            try {
+              system.spawn({
+                sourceId: `actor-source-${centerX}`,
+                originKind: "player-gun",
+                targetPolicy: createAliveHumansPolicy(),
+                origin: Vector3.Zero(),
+                direction: Vector3.Right(),
+                speed: 10,
+                maximumLifetime: 1
+              });
+              const frame = system.update(0.3);
+              return Object.freeze({
+                impacts: frame.impacts.length,
+                exits: frame.worldBoundaryExits.length
+              });
+            } finally {
+              system.dispose();
+              fixture.dispose();
+            }
+          };
+          const runBlockerCase = (centerX: number) => {
+            const fixture = createBeamFixture(
+              [
+                Object.freeze({
+                  id: `blocker-${centerX}`,
+                  center: new Vector3(centerX, 0, 0),
+                  size: new Vector3(0.2, 2, 2)
+                })
+              ],
+              undefined,
+              4
+            );
+            const system = createV2BeamSystem({
+              scene: fixture.scene,
+              stage: fixture.stage,
+              getHumanTargets: () => [],
+              random: () => 0.5,
+              getOrbVisibilityPredicate: () => () => true
+            });
+            try {
+              system.spawn({
+                sourceId: `blocker-source-${centerX}`,
+                originKind: "npc-gun",
+                targetPolicy: createAliveHumansPolicy(),
+                origin: Vector3.Zero(),
+                direction: Vector3.Right(),
+                speed: 10,
+                maximumLifetime: 1
+              });
+              const frame = system.update(0.3);
+              return Object.freeze({
+                impacts: frame.impacts.length,
+                exits: frame.worldBoundaryExits.length,
+                impactOrbs:
+                  system.getVisualPoolSnapshot()["blocker-impact"].inUse
+              });
+            } finally {
+              system.dispose();
+              fixture.dispose();
+            }
+          };
+          const actorBefore = runActorCase(1.5);
+          const actorTie = runActorCase(2.1);
+          const actorAfter = runActorCase(2.5);
+          const blockerBefore = runBlockerCase(1.5);
+          const blockerTie = runBlockerCase(2.1);
+          const blockerAfter = runBlockerCase(2.5);
+          const ok =
+            actorBefore.impacts === 1 &&
+            actorBefore.exits === 0 &&
+            actorTie.impacts === 0 &&
+            actorTie.exits === 1 &&
+            actorAfter.impacts === 0 &&
+            actorAfter.exits === 1 &&
+            blockerBefore.impacts === 1 &&
+            blockerBefore.exits === 0 &&
+            blockerBefore.impactOrbs === 4 &&
+            blockerTie.impacts === 0 &&
+            blockerTie.exits === 1 &&
+            blockerTie.impactOrbs === 0 &&
+            blockerAfter.impacts === 0 &&
+            blockerAfter.exits === 1 &&
+            blockerAfter.impactOrbs === 0;
+          return {
+            ok,
+            detail:
+              `actor=${JSON.stringify([
+                actorBefore,
+                actorTie,
+                actorAfter
+              ])} / blocker=${JSON.stringify([
+                blockerBefore,
+                blockerTie,
+                blockerAfter
+              ])}`
+          };
+        }
+      )
+    );
+
+    results.push(
+      executeTest(
+        "最大寿命が境界より手前なら従来終了し同距離・境界後なら境界終了する",
+        () => {
+          const runCase = (maximumLifetime: number) => {
+            const fixture = createBeamFixture([], undefined, 4);
+            const system = createV2BeamSystem({
+              scene: fixture.scene,
+              stage: fixture.stage,
+              getHumanTargets: () => [],
+              random: () => 0.5,
+              getOrbVisibilityPredicate: () => () => true
+            });
+            try {
+              system.spawn({
+                sourceId: `lifetime-${maximumLifetime}`,
+                originKind: "execution-bit",
+                targetPolicy: createAliveHumansPolicy(),
+                origin: Vector3.Zero(),
+                direction: Vector3.Right(),
+                speed: 10,
+                maximumLifetime
+              });
+              const frame = system.update(0.3);
+              return Object.freeze({
+                expirations: frame.expirations.length,
+                exits: frame.worldBoundaryExits.length,
+                position:
+                  frame.expirations[0]?.position.x ??
+                  frame.worldBoundaryExits[0]?.position.x ??
+                  Number.NaN
+              });
+            } finally {
+              system.dispose();
+              fixture.dispose();
+            }
+          };
+          const before = runCase(0.1);
+          const tie = runCase(0.2);
+          const after = runCase(0.3);
+          return {
+            ok:
+              before.expirations === 1 &&
+              before.exits === 0 &&
+              approximately(before.position, 1, 1e-6) &&
+              tie.expirations === 0 &&
+              tie.exits === 1 &&
+              approximately(tie.position, 2, 1e-6) &&
+              after.expirations === 0 &&
+              after.exits === 1 &&
+              approximately(after.position, 2, 1e-6),
+            detail:
+              `before=${JSON.stringify(before)} / ` +
+              `tie=${JSON.stringify(tie)} / after=${JSON.stringify(after)}`
+          };
+        }
+      )
+    );
+
+    results.push(
+      executeTest(
+        "V1相当のテーパ本体・後端alpha・先端・trail・反射球profileを共有する",
+        () => {
+          const fixture = createBeamFixture([]);
+          const system = createV2BeamSystem({
+            scene: fixture.scene,
+            stage: fixture.stage,
+            getHumanTargets: () => [],
+            random: () => 0.5,
+            getOrbVisibilityPredicate: () => () => true
+          });
+          try {
+            const bodySource = fixture.scene.getMeshByName(
+              "v2NormalBeamPoolSource-body"
+            );
+            const tipSource = fixture.scene.getMeshByName(
+              "v2NormalBeamPoolSource-tip"
+            );
+            const impactSource = fixture.scene.getMeshByName(
+              "v2NormalBeamPoolSource-blocker-impact"
+            );
+            if (!bodySource || !tipSource || !impactSource) {
+              throw new Error("光線Pool sourceがありません");
+            }
+            const positions = bodySource.getVerticesData(
+              VertexBuffer.PositionKind
+            );
+            const colors = bodySource.getVerticesData(
+              VertexBuffer.ColorKind
+            );
+            if (!positions || !colors) {
+              throw new Error("光線本体の位置・色頂点dataがありません");
+            }
+            let frontRadius = 0;
+            let backRadius = 0;
+            let rearFade = false;
+            let frontOpaque = true;
+            let minimumFrontAlpha = 1;
+            for (let index = 0; index < positions.length; index += 3) {
+              const x = positions[index];
+              const y = positions[index + 1];
+              const z = positions[index + 2];
+              const radius = Math.hypot(x, z);
+              if (approximately(y, 0.5, 1e-6)) {
+                frontRadius = Math.max(frontRadius, radius);
+              }
+              if (approximately(y, -0.5, 1e-6)) {
+                backRadius = Math.max(backRadius, radius);
+              }
+              const alpha = colors[(index / 3) * 4 + 3];
+              if (y < -1 / 6 && alpha < 1) {
+                rearFade = true;
+              }
+              if (y >= -1 / 6 && !approximately(alpha, 1, 1e-6)) {
+                frontOpaque = false;
+              }
+              if (y >= -1 / 6) {
+                minimumFrontAlpha = Math.min(
+                  minimumFrontAlpha,
+                  alpha
+                );
+              }
+            }
+            const material = bodySource.material as StandardMaterial;
+            const tipBounds = tipSource.getBoundingInfo().boundingBox;
+            const impactBounds =
+              impactSource.getBoundingInfo().boundingBox;
+            const beamId = system.spawn({
+              sourceId: "v1-profile",
+              originKind: "bit-carpet",
+              targetPolicy: createAliveHumansPolicy(),
+              origin: Vector3.Zero(),
+              direction: Vector3.Right(),
+              speed: 10,
+              maximumLifetime: 10
+            });
+            system.update(0.0425);
+            const activeBeam = system.getActiveBeams()[0];
+            const bodyInstance = fixture.scene.getMeshByName(
+              `${beamId}-body`
+            ) as InstancedMesh | null;
+            const tipInstance = fixture.scene.getMeshByName(
+              `${beamId}-tip`
+            ) as InstancedMesh | null;
+            const trail = fixture.scene.meshes.find(
+              (mesh) => mesh.name === `${beamId}-trail`
+            );
+            const tipRadius = V2_NORMAL_BEAM_TIP_DIAMETER / 2;
+            const bodyFrontX =
+              (bodyInstance?.position.x ?? Number.NaN) +
+              activeBeam.bodyLength / 2;
+            const tipBackX =
+              (tipInstance?.position.x ?? Number.NaN) - tipRadius;
+            const tipFrontX =
+              (tipInstance?.position.x ?? Number.NaN) + tipRadius;
+            const profileOk =
+              V2_NORMAL_BEAM_BODY_DIAMETER === 0.018 &&
+              V2_NORMAL_BEAM_MAX_BODY_LENGTH === 0.75 &&
+              approximately(
+                frontRadius * 2,
+                V2_NORMAL_BEAM_FRONT_DIAMETER,
+                1e-6
+              ) &&
+              approximately(
+                backRadius * 2,
+                V2_NORMAL_BEAM_BACK_DIAMETER,
+                1e-6
+              ) &&
+              rearFade &&
+              frontOpaque &&
+              approximately(
+                tipBounds.maximum.x - tipBounds.minimum.x,
+                V2_NORMAL_BEAM_TIP_DIAMETER,
+                1e-6
+              ) &&
+              approximately(
+                impactBounds.maximum.x - impactBounds.minimum.x,
+                0.02,
+                1e-6
+              ) &&
+              material.alpha === 0.55 &&
+              approximately(material.emissiveColor.r, 1, 1e-6) &&
+              approximately(material.emissiveColor.g, 0.18, 1e-6) &&
+              approximately(material.emissiveColor.b, 0.74, 1e-6) &&
+              bodyInstance !== null &&
+              tipInstance !== null &&
+              approximately(bodyFrontX, tipBackX, 1e-6) &&
+              approximately(tipFrontX, activeBeam.position.x, 1e-6) &&
+              approximately(trail?.scaling.x ?? -1, 0.03, 1e-6);
+            return {
+              ok: profileOk,
+              detail:
+                `diameter=${V2_NORMAL_BEAM_BODY_DIAMETER} / ` +
+                `front=${(frontRadius * 2).toFixed(4)} / ` +
+                `back=${(backRadius * 2).toFixed(4)} / ` +
+                 `rearFade=${rearFade} / frontOpaque=${frontOpaque} / ` +
+                 `minFrontAlpha=${minimumFrontAlpha} / ` +
+                 `tip=${(tipBounds.maximum.x - tipBounds.minimum.x).toFixed(4)} / ` +
+                 `placement=${bodyFrontX.toFixed(4)}/` +
+                 `${tipBackX.toFixed(4)}/${tipFrontX.toFixed(4)} / ` +
+                 `trail=${trail?.scaling.x.toFixed(4) ?? "none"}`
+             };
+          } finally {
+            system.dispose();
+            fixture.dispose();
+          }
+        }
+      )
     );
 
     return Object.freeze(results);

@@ -4,6 +4,7 @@ import {
   Color3,
   Color4,
   Engine,
+  Frustum,
   FreeCamera,
   HemisphericLight,
   Scene,
@@ -163,14 +164,33 @@ const initializeRuntime = async () => {
       stage: ownedStage,
       input: ownedInput
     });
+    const playerController = ownedPlayer;
     ownedInput = null;
     ownedSurvival = createV2SurvivalRuntime({
       scene,
       stage: ownedStage,
-      player: ownedPlayer,
+      player: playerController,
       random: performanceScenario
         ? createV2SeededRandom(performanceScenario.seed)
         : Math.random,
+      getOrbVisibilityPredicate: () => {
+        const playerCenter = playerController
+          .getFootPosition()
+          .add(playerController.getEyePosition())
+          .scale(0.5);
+        const activeCamera = scene.activeCamera;
+        if (!activeCamera) {
+          throw new Error(
+            "オーブ表示判定にはSceneのactive cameraが必要です"
+          );
+        }
+        const frustumPlanes = Frustum.GetPlanes(
+          activeCamera.getTransformationMatrix()
+        );
+        return (position: Vector3) =>
+          Vector3.DistanceSquared(position, playerCenter) <= 25 &&
+          Frustum.IsPointInFrustum(position, frustumPlanes);
+      },
       population: performanceScenario
         ? V2_PERFORMANCE_ACCEPTANCE_POPULATION
         : V2_TEST_SURVIVAL_POPULATION,

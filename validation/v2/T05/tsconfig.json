@@ -18,10 +18,12 @@
     "bitFlightTactics.test.ts",
     "bitSystemAcceptance.test.ts",
     "characterStateSystem.test.ts",
+    "hitEffectSystem.test.ts",
     "npcCombat.test.ts",
     "performanceScenario.test.ts",
     "publicExecutionSystem.test.ts",
     "survivalRules.test.ts",
-    "survivalRuntimeLifecycle.test.ts"
+    "survivalRuntimeLifecycle.test.ts",
+    "worldBoundary.test.ts"
   ]
 }

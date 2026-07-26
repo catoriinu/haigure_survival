@@ -1,4 +1,4 @@
-import { Color3, Vector3, type Scene } from "@babylonjs/core";
+import { Vector3, type Scene } from "@babylonjs/core";
 
 import {
   prepareBitFlightNavigationRouteCaches
@@ -22,6 +22,7 @@ import {
 } from "./assemblyLayout";
 import {
   createV2BeamSystem,
+  V2_BEAM_VISUAL_POOL_KINDS,
   type V2BeamFrameEvents,
   type V2BeamSystem
 } from "./beamCollision";
@@ -29,6 +30,11 @@ import {
   createV2BitSystem,
   type V2BitSystem
 } from "./bitSystem";
+import {
+  createV2HitEffectSystem,
+  V2_HIT_EFFECT_POOL_KINDS,
+  type V2HitEffectSystem
+} from "./hitEffectSystem";
 import {
   type V2BeamRequest,
   type V2CharacterState,
@@ -152,6 +158,7 @@ export type V2SurvivalRuntimeOptions = Readonly<{
   stage: StageSpatialContext;
   player: V2PlayerController;
   random: () => number;
+  getOrbVisibilityPredicate(): (position: Vector3) => boolean;
   population: V2SurvivalPopulation;
   performanceDiagnostics: V2PerformanceDiagnostics | null;
   performanceWorkloadScenario: V2PerformanceScenario | null;
@@ -227,6 +234,7 @@ export const createV2SurvivalRuntime = ({
   stage,
   player,
   random,
+  getOrbVisibilityPredicate,
   population,
   performanceDiagnostics,
   performanceWorkloadScenario
@@ -234,7 +242,19 @@ export const createV2SurvivalRuntime = ({
   if (typeof random !== "function") {
     throw new Error("V2SurvivalRuntimeのrandomには関数が必要です。");
   }
+  if (typeof getOrbVisibilityPredicate !== "function") {
+    throw new Error(
+      "V2SurvivalRuntimeのgetOrbVisibilityPredicateには関数が必要です。"
+    );
+  }
   assertPopulation(population);
+
+  let visualRandomState = 0x6d2b79f5;
+  const visualRandom = () => {
+    visualRandomState =
+      (Math.imul(visualRandomState, 1664525) + 1013904223) >>> 0;
+    return visualRandomState / 0x1_0000_0000;
+  };
 
   const assemblyVenue = selectAssemblyVenueByWeight(
     stage.assemblyVenues.all,
@@ -252,8 +272,27 @@ export const createV2SurvivalRuntime = ({
   let ownedAlarmSystem: V2AlarmSystem | null = null;
   let ownedExecutionSystem: V2PublicExecutionSystem | null = null;
   let ownedBeamSystem: V2BeamSystem | null = null;
+  let ownedHitEffectSystem: V2HitEffectSystem | null = null;
   let humanTargets: readonly V2HumanTargetSnapshot[] =
     Object.freeze([]);
+  let frameOrbVisibilityPredicate:
+    | ((position: Vector3) => boolean)
+    | null = null;
+  const getFrameOrbVisibilityPredicate = () => {
+    if (frameOrbVisibilityPredicate === null) {
+      const cameraPredicate = getOrbVisibilityPredicate();
+      if (typeof cameraPredicate !== "function") {
+        throw new Error(
+          "V2SurvivalRuntimeのgetOrbVisibilityPredicateは位置判定関数を返す必要があります。"
+        );
+      }
+      frameOrbVisibilityPredicate = (position: Vector3) =>
+        (stage.worldBoundary === null ||
+          stage.worldBoundary.contains(position)) &&
+        cameraPredicate(position);
+    }
+    return frameOrbVisibilityPredicate;
+  };
 
   try {
     ownedNpcSystem = createV2NpcSystem({
@@ -284,6 +323,10 @@ export const createV2SurvivalRuntime = ({
     });
     ownedExecutionSystem =
       createV2PublicExecutionSystem(random);
+    ownedHitEffectSystem = createV2HitEffectSystem({
+      scene,
+      random: visualRandom
+    });
     humanTargets = Object.freeze([
       playerCombat.createTargetSnapshot(
         player.getFootPosition(),
@@ -295,11 +338,8 @@ export const createV2SurvivalRuntime = ({
       scene,
       stage,
       getHumanTargets: () => humanTargets,
-      visual: {
-        diameter: 0.025,
-        color: new Color3(1, 0.16, 0.72),
-        alpha: 0.95
-      },
+      random: visualRandom,
+      getOrbVisibilityPredicate: getFrameOrbVisibilityPredicate,
       collisionDiagnostics: performanceDiagnostics
         ? Object.freeze({
             recordStartContainment: (
@@ -323,6 +363,7 @@ export const createV2SurvivalRuntime = ({
     });
   } catch (error) {
     ownedBeamSystem?.dispose();
+    ownedHitEffectSystem?.dispose();
     ownedExecutionSystem?.reset();
     ownedAlarmSystem?.dispose();
     ownedAlertCoordinator?.clear();
@@ -337,6 +378,7 @@ export const createV2SurvivalRuntime = ({
   const alarmSystem = ownedAlarmSystem;
   const executionSystem = ownedExecutionSystem;
   const beamSystem = ownedBeamSystem;
+  const hitEffectSystem = ownedHitEffectSystem;
   bitSystem.setDiagnosticsEnabled(
     performanceDiagnostics !== null
   );
@@ -404,6 +446,7 @@ export const createV2SurvivalRuntime = ({
     bitSystem.prepareForScriptedPhase();
     bitSystem.setAiSuspended(true);
     beamSystem.clear();
+    hitEffectSystem.clear();
     alertCoordinator.clear();
     alarmFrame = EMPTY_ALARM_FRAME;
     pendingPlayerBeamRequests = [];
@@ -629,6 +672,7 @@ export const createV2SurvivalRuntime = ({
         targetId: string;
         originKind:
           V2BeamFrameEvents["impacts"][number]["originKind"];
+        target: V2HumanTargetSnapshot;
         npcImpactIndex: number | null;
         playerAccepted: boolean;
       }>
@@ -667,6 +711,7 @@ export const createV2SurvivalRuntime = ({
           sourceId: event.sourceId,
           targetId,
           originKind: event.originKind,
+          target: event.hit.actor,
           npcImpactIndex,
           playerAccepted
         })
@@ -680,6 +725,9 @@ export const createV2SurvivalRuntime = ({
         entry.npcImpactIndex === null
           ? entry.playerAccepted
           : npcImpactResults[entry.npcImpactIndex].accepted;
+      if (accepted) {
+        hitEffectSystem.start(entry.target);
+      }
       if (
         accepted &&
         (entry.originKind === "bit-chase" ||
@@ -978,11 +1026,16 @@ export const createV2SurvivalRuntime = ({
       assertActive();
       const beamPreparation =
         beamSystem.prepareVisualResources();
+      const hitEffectPreparation =
+        hitEffectSystem.prepareVisualResources();
       await Promise.resolve();
       prepareBitFlightNavigationRouteCaches(
         stage.bitNavigation
       );
-      await beamPreparation;
+      await Promise.all([
+        beamPreparation,
+        hitEffectPreparation
+      ]);
     },
     update: (deltaSeconds, elapsedSeconds) => {
       assertActive();
@@ -994,6 +1047,7 @@ export const createV2SurvivalRuntime = ({
         "survival elapsedSeconds",
         elapsedSeconds
       );
+      frameOrbVisibilityPredicate = null;
       const npcFrameViewBuildSequenceAtUpdateStart =
         performanceDiagnostics
           ? npcSystem.getFrameView().frameViewBuildSequence
@@ -1032,13 +1086,23 @@ export const createV2SurvivalRuntime = ({
           "beam.start-containment.triangulated-meshes",
           0
         );
-        for (const kind of ["body", "tip", "impact"] as const) {
+        for (const kind of V2_BEAM_VISUAL_POOL_KINDS) {
           performanceDiagnostics.count(
             `beam.pool.${kind}.capacity`,
             0
           );
           performanceDiagnostics.count(
             `beam.pool.${kind}.in-use`,
+            0
+          );
+        }
+        for (const kind of V2_HIT_EFFECT_POOL_KINDS) {
+          performanceDiagnostics.count(
+            `hit-effect.pool.${kind}.capacity`,
+            0
+          );
+          performanceDiagnostics.count(
+            `hit-effect.pool.${kind}.in-use`,
             0
           );
         }
@@ -1423,6 +1487,19 @@ export const createV2SurvivalRuntime = ({
         );
       }
       pendingPlayerBeamRequests = [];
+      performanceSectionStartedAt =
+        performanceDiagnostics?.beginSection(
+          "hit-effect"
+        ) ?? 0;
+      hitEffectSystem.update(
+        deltaSeconds,
+        humanTargets,
+        getFrameOrbVisibilityPredicate()
+      );
+      performanceDiagnostics?.finishSection(
+        "hit-effect",
+        performanceSectionStartedAt
+      );
       if (performanceDiagnostics) {
         let aliveTargetCount = 0;
         for (const target of humanTargets) {
@@ -1460,7 +1537,7 @@ export const createV2SurvivalRuntime = ({
       );
       if (performanceDiagnostics) {
         const pool = beamSystem.getVisualPoolSnapshot();
-        for (const kind of ["body", "tip", "impact"] as const) {
+        for (const kind of V2_BEAM_VISUAL_POOL_KINDS) {
           performanceDiagnostics.count(
             `beam.pool.${kind}.capacity`,
             pool[kind].capacity
@@ -1468,6 +1545,18 @@ export const createV2SurvivalRuntime = ({
           performanceDiagnostics.count(
             `beam.pool.${kind}.in-use`,
             pool[kind].inUse
+          );
+        }
+        const hitEffectPool =
+          hitEffectSystem.getVisualPoolSnapshot();
+        for (const kind of V2_HIT_EFFECT_POOL_KINDS) {
+          performanceDiagnostics.count(
+            `hit-effect.pool.${kind}.capacity`,
+            hitEffectPool[kind].capacity
+          );
+          performanceDiagnostics.count(
+            `hit-effect.pool.${kind}.in-use`,
+            hitEffectPool[kind].inUse
           );
         }
       }
@@ -1579,6 +1668,7 @@ export const createV2SurvivalRuntime = ({
         throw new Error("公開処刑リプレイ対象がありません。");
       }
       beamSystem.clear();
+      hitEffectSystem.clear();
       prepareExecutionTargetStates(candidate);
       const replayFrame = executionSystem.replay();
       prepareExecutionParticipantStates(
@@ -1593,6 +1683,7 @@ export const createV2SurvivalRuntime = ({
     },
     dispose: () => {
       assertActive();
+      hitEffectSystem.dispose();
       beamSystem.dispose();
       executionSystem.reset();
       alarmSystem.dispose();
