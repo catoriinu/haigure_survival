@@ -17,9 +17,10 @@ PR #50のT05-2主要Runtimeは2026-07-26に`develop`へマージ済みである�
 - 光線本体、先端、軌跡光球、着弾光球、命中球、PointLightはpool／instance等の再利用基盤で所有し、発射ごとのMesh生成・破棄へ戻さない。
 - `BND_WorldLimit`は表示・BIT・光線の最終限界であり、`BND_Stage`とは別契約とする。T05-2Vは非学校fixtureでこの契約を先行実装し、B04の学校資産を直接編集しない。
 - 光線線分が`BND_WorldLimit`を横切った場合は正確な退出点で終了し、約0.2秒で透明化する。遮蔽衝突、着弾、ダメージ、Alarm、壁命中通知、反射光球を発生させない。
-- 世界境界判定は、キャッシュした低ポリ直方体への線分slab判定で行い、Scene全Mesh Rayや三角形化を追加しない。
+- 世界境界はBlender X/Y/Z軸に平行でベベルのない閉じた直方体とし、全頂点が各軸のminまたはmax面上にあることを監査する。判定はキャッシュしたmin/maxへの線分slab判定で行い、Scene全Mesh Rayや三角形化を追加しない。
 - 既存の最大寿命20秒は、世界境界内を飛び続ける光線と将来の大型ステージに対する安全上限として維持する。
-- 世界境界が必須のステージでは欠落を読込エラーとし、旧境界や時間終了へ暗黙fallbackしない。非対応fixtureは契約上の対象外として明示的に分離する。
+- `StageCatalogEntry.worldBoundaryMode`と`StageSpatialContext.worldBoundary`をRuntime仕様4節どおり追加する。`required`では`BND_WorldLimit`を正確に1件要求し、`unsupported`ではObjectを持たず`worldBoundary=null`とする。
+- T05-2Vの非学校fixtureを`required`にする。B04前の学校と既存の非対応fixtureは`unsupported`を維持し、旧境界や時間終了へ暗黙fallbackしない。
 - NPC状態別スプライト表示、BIT動的スポーン、プレイヤー開始地点、音声、G／N／H入力は本タスクへ含めない。
 
 ## 実行単位と推奨設定
@@ -37,7 +38,9 @@ PR #50のT05-2主要Runtimeは2026-07-26に`develop`へマージ済みである�
 
 - [ ] `docs/plan.md`、`docs/plans/v2/next_tasks_plan.md`、T05結果、本計画、B03-3／T04-3／T05-3／B04／T06／T07計画、資産・Runtime仕様、ブランチ戦略を読む
 - [ ] V1最終光線実装と現行T05-2の全発射元、pool、命中状態、clear／disposeを比較し、共通演出状態を確定する
-- [ ] 非学校fixtureへ`BND_Stage`と分離した`BND_WorldLimit`を追加し、`StageSpatialContext`へ厳格に公開する
+- [ ] `StageCatalogEntry.worldBoundaryMode`、`StageWorldBoundary`、必須property `StageSpatialContext.worldBoundary`を追加し、非学校fixtureを`required`、B04前の学校と既存非対応fixtureを`unsupported`にする
+- [ ] `required` fixtureへ`BND_Stage`と分離した`BND_WorldLimit`を追加し、欠落・重複・非閉鎖・`BND_Stage`非内包と、`unsupported`への混入を読込エラーにする
+- [ ] `BND_WorldLimit`が軸平行・ベベルなしの直方体で、全頂点とキャッシュmin/maxが一致することを監査する
 - [ ] 光線線分と世界境界の退出点をO(1)で求め、退出時に着弾イベントを発生させず0.2秒フェードへ移行する
 - [ ] テーパ付き本体、後端フェード、大きい先端球、ランダムな周囲軌跡光球を共通表示へ復元する
 - [ ] 壁・床・天井着弾時の反射光球を復元し、世界境界終了時には生成されないことを検証する
@@ -50,4 +53,4 @@ PR #50のT05-2主要Runtimeは2026-07-26に`develop`へマージ済みである�
 
 ## 結果
 
-未着手。PR #50で戦闘・状態・光線物理・集合・警報・公開処刑と仕様維持性能リファクタリングは`develop`へ統合済みである。V1光線演出と世界境界での非着弾フェードを独立したT05-2Vとして実装する。2026-07-26、学校バイナリを所有するB03-3Bとの並行実行へ変更し、T04-3AとT05-3はT05-2V統合後に開始する依存関係を確定した。
+未着手。PR #50で戦闘・状態・光線物理・集合・警報・公開処刑と仕様維持性能リファクタリングは`develop`へ統合済みである。V1光線演出と世界境界での非着弾フェードを独立したT05-2Vとして実装する。2026-07-26、学校バイナリを所有するB03-3Bとの並行実行へ変更し、T04-3AとT05-3はT05-2V統合後に開始する依存関係を確定した。PR #51レビュー対応で、`worldBoundaryMode`による`required`／`unsupported`移行と、必須property `worldBoundary`の型・fixture契約を確定した。

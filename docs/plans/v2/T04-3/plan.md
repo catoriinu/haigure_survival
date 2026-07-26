@@ -14,12 +14,15 @@
 
 ### T04-3A 動的空間基盤
 
-- 静的な`StageSpatialContext`の分類結果を置き換える動的variant管理を追加し、人物Collider、ビーム遮蔽物、視線遮蔽物、BIT障害物の有効集合とrevisionを公開する。
-- 動的扉を含む問い合わせは、キャッシュ作成時の配列だけを信頼せず、現在のactive setまたはrevisionを必ず確認する。
+- `docs/spec_stage_runtime_v2.md` 4節を必読の型正本とし、`DynamicStageSpatialActiveSet`、`DynamicStageSpatialSnapshot`、`DynamicStageSpatialVariants`を同名で実装する。人物Collider、ground Collider、ビーム遮蔽物、視線遮蔽物、BIT障害物の5集合を1つのrevision付きsnapshotとして公開する。
+- 初期variantをrevision 0とし、状態機械と全動的Transformを更新して次の5集合を`replaceActiveSet()`へ渡す。同メソッド内で次revision用の索引・cacheを構築し、集合・cache・revisionを持つsnapshot参照を最後に原子的に差し替える。遮蔽中のエレベーター扉パネルのTransform変更もrevision更新対象とする。
+- 動的扉を含む各問い合わせは開始時の1 snapshotだけを使う。known-safe-center、ground、world三角形、空間索引、扉gate・BIT障害物依存の経路cacheはrevisionをkeyへ含めるか公開前に無効化し、静的配列へのfallbackを追加しない。
+- `StageSpatialResources`は全作者ObjectとAssetContainerだけを所有し、現在有効な集合の正本にしない。`DynamicStageSpatialVariants`はsnapshot、動的索引、cache、購読を所有し、作者Mesh自体は所有しない。
 - 通常の人間用扉は連続NavMesh上のgateとして扱い、閉扉時も人間用NavMesh自体を分断しない。NPCは必要な扉を開けて通る。
 - エレベーターだけを`StageLinkKind: "elevator"`の明示遷移として扱い、`NavigationAgent.completeTransition(...)`で移動完了後の経路を再開する。
 - 20室の通常・荒れ人間用NavMeshタイルを開始時に選択・結合し、プレイヤー、NPC、BIT、空間indexの生成前に確定する。
 - 2の20乗の全体NavMeshを作らず、部屋variantごとの所有タイルを組み立てる。
+- `docs/spec_stage_assets_v2.md` 7.9節のmarker／volume roleと許可`hs_*`を厳格登録し、`StageDoorAssetRegistry`と`StageElevatorAssetRegistry`を非学校fixtureで構築する。未知key、参照不正、孤立・多重所有を許可しない。
 
 ### 教室・トイレ扉状態機械
 
@@ -82,7 +85,10 @@
 ## 公開API・型
 
 - `SchoolRuntimeSettings.roomDisorderLevel`
-- `DynamicStageSpatialVariants`相当のactive set・revision API
+- `DynamicStageSpatialActiveSet`
+- `DynamicStageSpatialSnapshot`
+- `DynamicStageSpatialVariants`
+- `StageSpatialQueries.revision`
 - `DoorState`
 - `ElevatorDoorState`
 - `ElevatorCarState`
@@ -118,6 +124,7 @@
 ## ステップ
 
 - [ ] T04-3A: 動的Collider・遮蔽物active setとrevisionを実装する
+- [ ] T04-3A: 資産仕様7.9節の扉・エレベーターrole、許可`hs_*`、ID参照、Transform規約を厳格分類し、非学校fixtureで監査する
 - [ ] T04-3A: 教室・トイレ扉状態機械とT04専用の非学校fixtureを実装する
 - [ ] T04-3A: エレベーター状態機械、人物ゲート、定員、予約、搬送、`completeTransition()`を実装する
 - [ ] T04-3A: 部屋variant NavMeshタイルの選択・結合基盤を実装する
@@ -128,4 +135,4 @@
 
 ## 結果
 
-未着手。2026-07-26にT04-3AとT04-3Bの責務、動的空間契約、エレベーター定員6人、全キャラクター利用、陣営別回避・追跡、部屋variant組立順を設計確定した。
+未着手。2026-07-26にT04-3AとT04-3Bの責務、動的空間契約、エレベーター定員6人、全キャラクター利用、陣営別回避・追跡、部屋variant組立順を設計確定した。PR #51レビュー対応で、active set／snapshot／revisionの公開型、原子的更新順、動的Transform時のrevision、cache無効化、所有・破棄境界と、資産仕様7.9節の厳格分類を実装契約へ追加した。

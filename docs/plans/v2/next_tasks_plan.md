@@ -159,16 +159,16 @@ PR #50は2026-07-26に`develop`へ統合済みである。B03-3Aで学校拡張�
 - T05-1は学校`.blend`、GLB、人間用NavMesh、帯別ビットNavMesh bundle、カタログハッシュと共通飛行安全を単一担当で更新する。`NAV_BitFlight_*`とGLB extrasを空間定義の正本とし、Runtimeカタログへ座標を重複記述しない。
 - T05-1は`bit_window`58組を、接続元・接続先のゾーンID・帯IDを明示したビット専用`aperture`遷移として移行する。上下・体育館内・屋上外周の連続遷移は`VOL_*`の`bit_flight_transition` role、階段は`surface-route`として表し、同じ成果内で飛行安全と立体挙動へ接続する。
 - T05-2は戦闘状態、全光線物理、集合、警報、公開処刑のRuntimeと、校庭／体育館の集合・公開処刑会場用`MRK_*`／`VOL_*`を所有し、PR #50で完了した。学校トラップと動的3Dマップビームは追加しない。
-- T05-2VはV1相当のテーパ・後端フェード・先端球・軌跡光球・壁着弾反射光球・キャラクター命中演出と、`BND_WorldLimit`退出点での0.2秒非着弾フェードを所有する。学校バイナリ資産を編集しない。
+- T05-2VはV1相当のテーパ・後端フェード・先端球・軌跡光球・壁着弾反射光球・キャラクター命中演出と、`StageCatalogEntry.worldBoundaryMode`、`StageSpatialContext.worldBoundary`、`BND_WorldLimit`退出点での0.2秒非着弾フェードを所有する。非学校fixtureを`required`にし、B04前の学校と既存非対応fixtureは`unsupported`を維持する。学校バイナリ資産を編集しない。
 - B03-3Bは学校生成正本、`.blend`、GLB、両NavMesh生成元、カタログhashの単一担当として、体育館構造と西側校舎延長を所有する。
-- B03-3CはB03-3B統合後の同じ学校バイナリを単一担当として、個別扉、エレベーター可動部、20室variant、NavMeshタイルを所有する。
-- T04-3Aは`src/world`、動的空間variant、扉・エレベーター状態機械、タイルNavMesh、`validation/v2/T04/`と`vite.t04.config.mts`の動的空間専用fixtureを所有し、学校バイナリ、`validation/v2/T05/`、実学校NPC統合を編集しない。
+- B03-3CはB03-3B統合後の同じ学校バイナリを単一担当として、資産仕様7.9節の個別扉・エレベーター可動部、20室variant、NavMeshタイルを所有する。
+- T04-3Aは`src/world`、`DynamicStageSpatialActiveSet`／`DynamicStageSpatialSnapshot`／`DynamicStageSpatialVariants`、扉・エレベーター状態機械、資産仕様7.9節の厳格分類、タイルNavMesh、`validation/v2/T04/`と`vite.t04.config.mts`の動的空間専用fixtureを所有し、学校バイナリ、`validation/v2/T05/`、実学校NPC統合を編集しない。
 - T05-3は`V2PlayerAction`、`drainPressedActions()`、NPC指示、Follow・Leave、局所分離、haigure時間停止、同期射撃、`validation/v2/T05/`と`vite.t05.config.mts`のNPC指示専用fixtureを所有し、`src/world`の動的空間、`validation/v2/T04/`、扉・エレベーター統合を編集しない。共有fixture indexはT04-3Bの統合担当が更新する。
-- B04はB03-3C後の学校生成正本、`.blend`、GLB、両NavMesh、カタログhashの単一担当として、塀外5.0mの歩道・道路、`BND_WorldLimit`、外周BIT飛行帯を所有する。南側有効距離5.0m未満なら不足分だけ南へ延長する。
+- B04はB03-3C後の学校生成正本、`.blend`、GLB、両NavMesh、カタログhashの単一担当として、塀外5.0mの歩道・道路、`BND_WorldLimit`、外周BIT飛行帯を所有し、学校カタログの`worldBoundaryMode`を資産追加と同時に`required`へ切り替える。南側有効距離5.0m未満なら不足分だけ南へ延長する。
 - T04-3BはB03-3C、B04、T04-3A、T05-3を入力として、実学校の部屋抽選、扉・エレベーター、全陣営NPC利用・回避・追跡、動的視線・ビーム・BITを単独統合する。
 - T06はT05-2の状態選択APIへG＝gun、N＝no-gun、H＝haigureを接続し、`brainwash-in-progress`直後の選択解放、完了状態間の再選択、状態別操作案内、G状態だけの照準・左クリック射撃案内、状態別VOICE、入力購読の開始・破棄を実ゲーム入口で担当する。
 - T06は複数の`MRK_PlayerSpawn_*`から開始地点を選び、対応する`VOL_PlayerSpawnExclusion_*`だけをBITと初期洗脳済みNPCの出現禁止へ適用する。BIT用`bit_spawn`は全出現可能飛行帯を覆い、NPC用`npc_spawn`は人間用NavMeshを使う。初期洗脳済みNPCを禁止範囲外で先に必要数生成し、候補不足時に人数を減らすfallbackは作らない。
-- T06はB04の外周飛行帯を、BITの追跡・逃走・明示遷移中だけ利用できるように接続する。通常探索・待機・総当たり探索・時間増援の目的地または出現地点にはしない。
+- T06はB04の外周飛行帯を、BITのCHASE・逃走・明示`boundary`遷移中だけ利用できるように接続する。通常探索・待機・総当たり探索・時間増援の目的地または出現地点にはしない。
 - T06はF＝Follow、E＝Leave、C＝扉操作とG／N／H、候補highlight、既定`roomDisorderLevel` 2を実ゲーム入口へ接続する。タイトル画面の荒れ状態スライダーは将来タスクへ残す。
 - 並行担当は`docs/plan.md`と本ファイルを編集しない。全体計画は統合担当だけが更新する。
 - 各担当は自分の個別計画だけを1ステップごとに更新する。
