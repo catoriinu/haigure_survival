@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 ステージ資産仕様書
 
-更新日: 2026-07-25
+更新日: 2026-07-26
 対象バージョン: v2
 基準検証: T01 GLB・座標・衝突規約 技術検証
 
@@ -164,6 +164,7 @@ EXP_Stage_<stage-id>
 | `MRK_*` | Empty | 位置と向きを持つマーカー | 無効 | 無効 | 無効 | 不使用 |
 | `VOL_*` | 閉じたMesh | ゲームプレイ領域 | 無効 | 無効 | 無効 | 不使用 |
 | `BND_Stage` | 閉じたMesh | プレイ可能空間の外周境界 | 無効 | 無効 | 無効 | 不使用 |
+| `BND_WorldLimit` | 閉じたMesh | 表示・BIT・光線の最終世界境界 | 無効 | 無効 | 無効 | 不使用 |
 | `PRT_*` | 薄い閉じたMesh | room、streaming、door trigger等のポータル | 無効 | 無効 | 無効 | 不使用 |
 | `LNK_<id>_A/B` | Empty 2個 | 連続NavMeshで表せない接続点対 | 無効 | 無効 | 無効 | 不使用 |
 
@@ -184,7 +185,7 @@ EXP_Stage_<stage-id>
 - B03-1では校舎1～4階、階段下、体育館、屋上階段室を含む全屋内空間を検査し、ビットが入り得る範囲の直上に天井`COL_*`の欠落がない状態にする。
 - 表示階段へ衝突を設定せず、踏面を覆う連続斜面`COL_StairRamp_*`を使用する。
 - `COL_Stairs_*`のような段ごとの階段Colliderは作らない。
-- 通常`COL_*`はプレイヤー、NPC、ビットの移動と、通常・固定・トラップ・動的を含む全光線、視線のすべてを遮る。
+- 通常`COL_*`はプレイヤー、NPC、ビットの移動と全光線、視線のすべてを遮る。
 - `COL_ActorOnly_*`はプレイヤー、NPC、ビットの全移動体を止め、視線と全光線を通す。
 - `COL_HumanOnly_*`はプレイヤーとNPCだけを止め、ビット、視線、全光線を通す。
 - 不可視でも衝突を維持するため、Runtimeでは`setEnabled(false)`にせず、`isVisible=false`とする。
@@ -295,7 +296,7 @@ MRK_PlayerSpawn_Main
 | `hs_id` | string | ステージ内で一意な小文字kebab-case ID |
 | `hs_role` | string | Runtimeのvolume role registryに登録された役割 |
 
-roleには`npc_spawn`、`bit_spawn`、`assembly`、`no_enemy_spawn`、`no_enemy_enter`、`no_combat`、`hazard`、`water`を使用できる。`water`は水面ではなく、水中判定に用いる閉じた3D領域を表す。学校資産は、プール内面に一致する`VOL_PoolWater`を1件持ち、`hs_id="pool-water"`、`hs_role="water"`とする。T04-2Bで読込、内外問い合わせ、プール底へのNavMesh到達、破棄・再読込を確認済みであり、水中水平速度50%と通常速度への復帰はT06で実装する。
+基本roleには`npc_spawn`、`bit_spawn`、`assembly`、`no_enemy_spawn`、`no_enemy_enter`、`no_combat`、`hazard`、`water`を使用できる。7.9節の動的資産では追加roleとして`door_sweep`、`elevator_call_mat`、`elevator_threshold`、`elevator_car_occupancy`を使用できる。`water`は水面ではなく、水中判定に用いる閉じた3D領域を表す。学校資産は、プール内面に一致する`VOL_PoolWater`を1件持ち、`hs_id="pool-water"`、`hs_role="water"`とする。T04-2Bで読込、内外問い合わせ、プール底へのNavMesh到達、破棄・再読込を確認済みであり、水中水平速度50%と通常速度への復帰はT06で実装する。
 
 `bit_spawn`は`hs_zone_id`と`hs_band_id`を追加し、スポーン先の飛行帯を明示する。高さ、Object名、最寄りの人間用NavMeshから推測しない。
 
@@ -353,6 +354,21 @@ hs_id = "stage"
 hs_role = "playable_boundary"
 ```
 
+B04対応学校は、`BND_Stage`とは別に`BND_WorldLimit`をちょうど1個持つ。`BND_WorldLimit`は塀外の表示、BIT飛行、光線が存在してよい最終空間を囲む、Blender X/Y/Z軸に平行でベベルのない閉じた直方体Meshとする。6面上の全頂点座標は各軸のminまたはmaxと一致させ、キャッシュするmin/maxと実Mesh境界を一致させる。プレイヤー・NPCの領域外判定、物理衝突、光線遮蔽、着弾面には使用しない。
+
+学校では、外周塀の外面から水平5.0m、上空Blender Z＝24.0mを基準とする。水平範囲は学校生成正本の外周塀外面から導出し、座標をRuntimeへ重複記述しない。外周表示は塀から歩道1.5m、その外側に道路3.5mを配置し、道路外端を地面表示の終端とする。
+
+`BND_WorldLimit`の必須properties:
+
+```text
+hs_id = "world-limit"
+hs_role = "world_boundary"
+```
+
+TypeScriptカタログの`worldBoundaryMode`は、B04対応学校とT05-2Vの対応fixtureで`required`、B04前の学校と非対応fixtureで`unsupported`とする。`required`は`BND_WorldLimit`を正確に1件要求し、`unsupported`は同Objectを持たない。B04では学校資産へのObject追加と同じ変更内で`unsupported`から`required`へ切り替える。
+
+外周へ`player_spawn`、`npc_spawn`、`bit_spawn`を配置しない。人間用NavMeshは塀外へ延ばさず、BIT用外周飛行帯だけを明示`boundary`遷移で学校内の飛行帯へ接続する。通常探索・待機・総当たり探索・増援出現で外周を使わない制御はT06 Runtimeが担当する。
+
 ### 7.7 `PRT_*`
 
 `PRT_*`はroom接続、streaming境界、明示的なdoor triggerなどが必要な場合だけ作る薄い閉じたMeshである。通常扉を表すためだけには作らない。
@@ -405,6 +421,109 @@ LNK_<id>_B
 - カーペット編隊を通すために開口や境界を広げない。Runtimeは帯・ゾーン変更前に編隊を解除する。
 
 通常階段は人間用には連続NavMesh、ビット用には明示`surface-route`として管理する。窓または境界の通過判定を`PRT_*`で重複表現しない。旧案の`LINK_*`は無効であり、狭い開口だけ`LNK_*`へ統一する。
+
+### 7.9 動的扉・エレベーター
+
+B03-3C以降の動的扉とエレベーターは、`MRK_*`のTransform、`VOL_*`の実形状、既存の`VIS_*`／`COL_*`子MeshをID参照で組み立てる。位置、閉姿勢、開姿勢、移動軸、回転軸、停止位置、マット範囲を数値`hs_*`へ重複記述しない。
+
+#### 7.9.1 動的扉
+
+動的扉1件は次の階層を必須とする。`<token>`はObject名を一意にするASCII識別子であり、Runtimeの参照はObject名解析ではなく`hs_id`で行う。
+
+```text
+MRK_Door_<token>
+├─ MRK_DoorPanel_<token>          1件以上
+│  ├─ VIS_DoorPanel_<token>       1件以上
+│  └─ COL_DoorPanel_<token>       1件以上
+├─ MRK_DoorOpenPose_<token>       panelごとに1件
+└─ VOL_DoorSweep_<token>          扉ごとに1件
+```
+
+`MRK_Door_*`の必須properties:
+
+| Key | 型 | 内容 |
+|---|---|---|
+| `hs_id` | string | ステージ内で一意なdoor ID |
+| `hs_role` | string | `door` |
+| `hs_door_class` | string | `room`、`toilet_stall`、`elevator_landing`、`elevator_car`のいずれか |
+| `hs_sweep_id` | string | 同じ扉が所有する`door_sweep` VolumeのID |
+| `hs_elevator_id` | string | elevator系だけ必須。所有する`elevator` ID |
+| `hs_stop_id` | string | `elevator_landing`だけ必須。対応する`elevator_stop` ID |
+
+`MRK_DoorPanel_*`の必須properties:
+
+| Key | 型 | 内容 |
+|---|---|---|
+| `hs_id` | string | ステージ内で一意なpanel ID |
+| `hs_role` | string | `door_panel` |
+| `hs_door_id` | string | 親`door` ID |
+| `hs_motion_kind` | string | `slide`または`swing` |
+| `hs_open_pose_id` | string | このpanel専用の`door_open_pose` ID |
+
+`MRK_DoorOpenPose_*`は`hs_id`、`hs_role="door_open_pose"`、`hs_door_id`、`hs_panel_id`をすべてstringで持つ。`VOL_DoorSweep_*`は`hs_id`、`hs_role="door_sweep"`、`hs_door_id`をすべてstringで持つ。
+
+- `MRK_DoorPanel_*`の親は対応する`MRK_Door_*`、表示・Collider Meshの親は対応panel markerとする。`MRK_DoorOpenPose_*`と`VOL_DoorSweep_*`も同じdoor markerの直下に置く。
+- panel markerのlocal Transformを閉姿勢、open-pose markerの同じdoorローカル座標系におけるTransformを開姿勢とする。子`VIS_*`／`COL_*`には`hs_*`を付けず、親子関係でpanelへ対応付ける。
+- `slide`は閉・開markerのlocal rotationを一致させ、0ではないtranslation差分の正規化を移動軸、長さを移動量とする。`swing`はlocal translationを一致させ、panel markerのlocal `+Z`を蝶番軸、開markerまでの符号付きrotation差分を開角度とする。`swing`の絶対角度は0より大きくπ以下とする。
+- `room`は`slide`、`toilet_stall`は`swing`、`elevator_landing`と`elevator_car`は`slide`だけを許可する。
+- `VOL_DoorSweep_*`は全panelの閉姿勢から開姿勢までの掃引領域を覆う閉じた低ポリMeshとする。
+- 教室・トイレ扉の開閉0.8秒、エレベーター扉の開閉1.0秒はRuntime状態機械の定数とし、資産propertyへ重複させない。
+
+#### 7.9.2 エレベーター
+
+エレベーター1基は、controller、かご、稼働階2件、既存の人間用`LNK_*` pair、扉、占有・安全Volumeを次のID参照で結ぶ。
+
+`MRK_Elevator_*`の必須properties:
+
+| Key | 型 | 内容 |
+|---|---|---|
+| `hs_id` | string | ステージ内で一意なelevator ID |
+| `hs_role` | string | `elevator` |
+| `hs_link_id` | string | `hs_link_kind="elevator"`の`LNK_*` pair ID |
+| `hs_car_id` | string | `elevator_car` ID |
+| `hs_car_door_id` | string | かご側`door` ID |
+| `hs_occupancy_id` | string | `elevator_car_occupancy` Volume ID |
+| `hs_passenger_origin_id` | string | `elevator_passenger_origin` ID |
+| `hs_initial_stop_id` | string | 初期停止階の`elevator_stop` ID |
+
+`MRK_ElevatorCar_*`は`hs_id`、`hs_role="elevator_car"`、`hs_elevator_id`をstringで持つ。かご本体の`VIS_ElevatorCar_*`と通常`COL_ElevatorCar_*`を各1件以上、このcar markerの直下に置く。かご側`MRK_Door_*`、`VOL_ElevatorCarOccupancy_*`、`MRK_ElevatorPassengerOrigin_*`もこのcar markerの子孫に置く。
+
+稼働階ごとの`MRK_ElevatorStop_*`は次を持つ。
+
+| Key | 型 | 内容 |
+|---|---|---|
+| `hs_id` | string | ステージ内で一意なstop ID |
+| `hs_role` | string | `elevator_stop` |
+| `hs_elevator_id` | string | 所有する`elevator` ID |
+| `hs_link_id` | string | controllerと同じ人間用link ID |
+| `hs_endpoint` | string | 1階は`A`、4階は`B` |
+| `hs_floor_index` | integer | `1`または`4` |
+| `hs_landing_door_id` | string | 乗場側`door` ID |
+| `hs_call_mat_id` | string | `elevator_call_mat` Volume ID |
+| `hs_threshold_id` | string | `elevator_threshold` Volume ID |
+| `hs_gate_id` | string | `elevator_human_gate` ID |
+| `hs_wait_id` | string | `elevator_wait` ID |
+
+残る必須Objectとproperties:
+
+| Object | 必須properties |
+|---|---|
+| `MRK_ElevatorPassengerOrigin_*` | `hs_id`、`hs_role="elevator_passenger_origin"`、`hs_elevator_id` |
+| `MRK_ElevatorWait_*` | `hs_id`、`hs_role="elevator_wait"`、`hs_elevator_id`、`hs_stop_id` |
+| `MRK_ElevatorHumanGate_*` | `hs_id`、`hs_role="elevator_human_gate"`、`hs_elevator_id`、`hs_stop_id` |
+| `VOL_ElevatorCallMat_*` | `hs_id`、`hs_role="elevator_call_mat"`、`hs_elevator_id`、`hs_stop_id` |
+| `VOL_ElevatorThreshold_*` | `hs_id`、`hs_role="elevator_threshold"`、`hs_elevator_id`、`hs_stop_id` |
+| `VOL_ElevatorCarOccupancy_*` | `hs_id`、`hs_role="elevator_car_occupancy"`、`hs_elevator_id` |
+
+上表の`hs_id`と参照IDはstringである。`MRK_ElevatorHumanGate_*`の直下には対応する`COL_HumanOnly_ElevatorGate_*`を正確に1件置き、人物だけを遮断する。呼出マット、敷居、かご占有範囲は各`VOL_*`の閉じた実形状を正本とし、半径・AABBをpropertyへ置かない。
+
+- `MRK_ElevatorStop_*`のworld Transformを、かごの停止姿勢とする。1階・4階stopはworld X/Yとrotationを一致させてBlender Zだけを変え、そのtranslation差分からかごの移動軸と移動量を導出する。
+- stopのlocal `+Y`を乗場からかごへ向かう乗車方向、`-Y`を降車方向とする。乗客の相対座標は`MRK_ElevatorPassengerOrigin_*`のcar-local Transformを基準にする。
+- controllerはstopを正確に2件持ち、1階=`A`、4階=`B`とする。`hs_initial_stop_id`は4階stopを参照し、car markerの初期Transformも同stopと一致させる。
+- 各stopは乗場扉、呼出マット、敷居、人物gate、待機markerを各1件所有する。かご扉、占有Volume、乗客基準はエレベーター全体で各1件とする。
+- 2階・3階の固定閉鎖扉は通常の静的`VIS_*`／`COL_*`だけで表し、`door`、`elevator_stop`、call mat、threshold、gate、link endpointを持たせない。
+- `hs_link_id`以外の参照IDは期待するroleのObject 1件へ解決する。`hs_link_id`は`hs_link_kind="elevator"`でA/B各1 Nodeからなる検証済み論理`StageLinkPair` 1件へ解決する。
+- ownerとcomponentが相互参照する箇所は両方向のID一致を要求する。孤立component、規定外の参照、1 componentの複数door／elevator所有、異なるelevator間の参照、同一stop付随物の共有を認めない。
 
 ## 8. Object custom propertiesとglTF Node `extras`
 
@@ -460,12 +579,15 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 | `volumes` | 通常ゲーム用`VOL_*` |
 | `bitFlightTransitions` | 飛行遷移用`VOL_*`と`LNK_*` |
 | `stageBoundary` | `BND_Stage` |
+| `worldBoundary` | `BND_WorldLimit`。B04対応ステージで必須 |
 | `portals` | `PRT_*` |
 | `links` | 人間用`LNK_*` |
 
 分類順は`COL_ActorOnly_*`、`COL_HumanOnly_*`、通常`COL_*`、その他の順とする。通常`COL_*`の判定式は`name.startsWith("COL_") && !name.startsWith("COL_ActorOnly_") && !name.startsWith("COL_HumanOnly_")`と同値でなければならない。人間用pairだけを`StageSpatialContext.links`、ビット用pairとtransition Volumeを`StageSpatialContext.bitNavigation`へ公開する。
 
 `assembly_anchor` Markerと`assembly` Volumeは上記の排他的分類後に`StageAssemblyVenueRegistry`へ1対1で組み立てる。Registryは作者座標配列と選択weightを公開するが、座標や会場名から役割を推測しない。
+
+`door`、`door_panel`、`door_open_pose`、`door_sweep`は排他的な作者Object分類後に内部`StageDoorAssetRegistry`へ組み立てる。`elevator`とそのcar、stop、door、marker、Volume、`LNK_*` pairは内部`StageElevatorAssetRegistry`へ組み立てる。両RegistryはID参照と親子関係を検証する派生索引であり、作者Objectを元の`visualMeshes`、Collider、marker、volume、link集合から重複分類して取り除かない。
 
 すべての作者Nodeがちょうど1つの役割集合へ入り、未分類Nodeと重複分類Nodeが0件であることを要求する。glTFローダーの管理ルートとAssetContainer管理親は作者Nodeではないため、この監査から除外する。
 
@@ -485,6 +607,8 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 
 - `META_Stage`がEmptyとして1件だけ存在する。
 - `BND_Stage`が閉じたMeshとして1件だけ存在する。
+- B04対応学校では`BND_WorldLimit`がBlender軸に平行でベベルのない閉じた直方体Meshとして1件だけ存在し、`BND_Stage`を内包する。水平終端は外周塀外面から5.0m、上端はBlender Z＝24.0mである。
+- B04対応学校では外周の`player_spawn`、`npc_spawn`、`bit_spawn`が0件であり、人間用NavMeshが外周歩道・道路へ延びていない。
 - `MRK_*`の`player_spawn`が1件だけ存在する。
 - B02学校では`assembly_anchor` Markerと`assembly` Volumeが各2件存在し、校庭・体育館の各pairが100件、94件、6件の有限座標配列を持つ。
 - 集合会場の旧4件の`VIS_*`目印が0件である。
@@ -492,6 +616,8 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 - 学校で有効にする各ゲームシステムに必要なmarker roleとvolume roleが存在する。
 - `LNK_*`はA/Bが完全なpairである。ビット用pairは両端の遷移方式、双方向性、半径、投影距離、意味タグが一致し、各端点のゾーン・帯が登録済みである。
 - B03-1の学校資産では、校舎1～4階、階段下、体育館、屋上階段室を含む全屋内について、ビットが入り得る範囲の直上を覆う天井`COL_*`が存在し、天井Collider欠落が0件である。
+- B03-3Cの各動的扉は`door`、1件以上のpanel、panelごとのopen pose、1件のsweep Volume、panelごとの表示・Colliderを持つ。classとmotion kind、親子関係、参照ID、閉・開Transformが7.9.1節に一致する。
+- B03-3Cのエレベーターはcontroller、car、car直下のかご表示・通常Collider各1件以上、1階／4階stop、`elevator` link pair、かご扉、各階乗場扉、occupancy、passenger origin、各階call mat／threshold／gate／waitを7.9.2節の件数で持つ。2階・3階の動的componentは0件である。
 
 ### 11.3 形状とTransform
 
@@ -501,6 +627,8 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 - `MRK_*`と`LNK_*` Emptyのscaleは`(1, 1, 1)`である。
 - `BND_Stage`が必須marker、volume、link endpointを内包する。
 - 全飛行遷移区間へV1物理半径0.44m＋安全余裕0.10m＝半径0.54mの移動包絡を通し、窓枠、壁、庇、外壁、手すり、天井、屋上構造物との交差が0件である。
+- 引き戸の閉・開rotation一致とtranslation差分、開き戸の閉・開translation一致とlocal `+Z`回転、エレベーターstopの同一X/Y・rotationとZ差分を検証し、数値軸・閉位置・開位置propertyが0件である。
+- `BND_WorldLimit`の全頂点がX/Y/Zそれぞれのminまたはmaxの6面上にあり、キャッシュした軸平行min/maxと実Meshの内外判定・線分退出点が一致する。
 
 ### 11.4 `extras`と意味
 
@@ -511,6 +639,7 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 - `hs_id`が役割横断で一意である。ただし同一`LNK_*` pairのA/Bだけは同じIDを持つ。
 - 学校の窓58組がビット専用`aperture`として登録され、旧`bit_roof`は0件である。
 - 未登録role、未登録`hs_*` property、座標の重複記述がない。
+- 動的扉・エレベーターの`hs_link_id`以外の全参照が期待roleのObject 1件へ解決し、`hs_link_id`はA/B各1 Nodeの検証済み`elevator` StageLinkPair 1件へ解決する。規定されたowner／component相互参照は両方向一致し、孤立、規定外参照、多重所有、異なるelevator間参照が0件である。
 
 ### 11.5 分類
 
@@ -518,8 +647,9 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 - `COL_ActorOnly_*`が全移動者の`movementColliders`へ入り、`beamBlockers`と`sightBlockers`へ入らない。
 - `COL_HumanOnly_*`がプレイヤー・NPCの`movementColliders`だけへ入り、ビットの`movementColliders`、`beamBlockers`、`sightBlockers`へ入らない。
 - 天井`COL_*`が通常Colliderとしてビットの`movementColliders`へ入り、屋内の天井被覆検査に合格する。
-- `NAV_*`、`VOL_*`、`BND_Stage`、`PRT_*`が表示、移動衝突、光線遮蔽へ入らない。
+- `NAV_*`、`VOL_*`、`BND_Stage`、`BND_WorldLimit`、`PRT_*`が表示、移動衝突、光線遮蔽へ入らない。
 - `VIS_*`がActor衝突と光線遮蔽へ入らない。
+- 動的扉・エレベーターの子`VIS_*`／`COL_*`は接頭辞どおりの一次集合へ入り、`StageDoorAssetRegistry`／`StageElevatorAssetRegistry`から同じMesh参照を取得できる。子Meshへ`hs_*`を重複付与しない。
 
 監査違反は警告ではなくビルド失敗とする。未知Objectを`VIS_*`や`COL_*`へ推測分類しない。
 
@@ -597,7 +727,7 @@ npm run build:t01
 - B02学校は共通飛行契約の最初の利用データとして、屋外4帯、校舎内4帯、体育館2帯、屋上1帯と明示遷移をGLBへ持つ。
 - `PRT_*`は既存のroom、streaming、door trigger用途だけに使用できる。窓58組はビット用`aperture`、屋上外周は`boundary`で表し、旧`bit_roof`は残さない。
 - 屋上は窓の設置対象外であるだけで、B03以後もプレイ可能空間と経路対象に含める。
-- T04は人間用高さ付きNavMeshとlink registry、T05-1Aは汎用飛行帯・別ビットNavMesh・接続グラフ・学校データ移行、T05-1BはV1飛行表現と3D安全・探索・追跡・実遷移を担当する。完成戦闘と全光線はT05-2、学校全域の統合確認はT06で行う。
+- T04は人間用高さ付きNavMeshとlink registry、T05-1Aは汎用飛行帯・別ビットNavMesh・接続グラフ・学校データ移行、T05-1BはV1飛行表現と3D安全・探索・追跡・実遷移を担当する。完成戦闘と全光線物理はT05-2、V1光線演出と世界境界終了はT05-2V、学校外周資産と`BND_WorldLimit`はB04、学校全域の統合確認はT06で行う。
 - 舞台階段の形状ディテールと同色面の境界表現はB03で仕上げる。
 - 既存8ステージのJSONはV2実行経路から除外し、互換アダプターを作らない。
 - 既存ステージを将来再導入する場合は、ステージごとに`.blend`、規約準拠GLB、人間用NavMesh、必要な飛行帯・遷移・ビット用bundleを作り、通常ステージ監査へ合格させる。

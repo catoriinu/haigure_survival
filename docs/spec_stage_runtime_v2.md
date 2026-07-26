@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 3Dステージランタイム仕様書
 
-更新日: 2026-07-25
+更新日: 2026-07-26
 対象バージョン: v2
 
 ## 1. 文書の位置付け
@@ -39,6 +39,7 @@ export type StageCatalogEntry = Readonly<{
   navmeshUrl: string;
   bitNavmeshUrl: string;
   assetSchemaVersion: number;
+  worldBoundaryMode: "required" | "unsupported";
   navProfileId: string;
   bitNavProfileId: string;
   glbSha256: string;
@@ -48,6 +49,7 @@ export type StageCatalogEntry = Readonly<{
 ```
 
 - `id`はGLBの`META_Stage.hs_stage_id`と一致させる。
+- `worldBoundaryMode`は空間形状ではなく、対応資産世代を厳格に選ぶ非空間契約である。`required`では`BND_WorldLimit`を正確に1件要求し、`unsupported`では同Objectを許可しない。
 - `navProfileId`と`bitNavProfileId`はGLBと各NavMesh生成記録の双方に一致させる。
 - 3資産のいずれかのハッシュが不一致なら読込失敗とし、古い成果物を継続使用しない。
 - 当面のカタログ件数は学校1件とする。
@@ -57,10 +59,18 @@ export type StageCatalogEntry = Readonly<{
 `StageSpatialContext`は、1回のステージ読込で生成したすべての空間資源を所有する。
 
 ```ts
+export type StageWorldBoundary = Readonly<{
+  id: "world-limit";
+  mesh: Mesh;
+  contains(point: Vector3): boolean;
+  findExitPoint(from: Vector3, to: Vector3): Vector3 | null;
+}>;
+
 export type StageSpatialContext = Readonly<{
   stage: StageCatalogEntry;
   metadata: StageMetadata;
   resources: StageSpatialResources;
+  dynamicVariants: DynamicStageSpatialVariants;
   navigation: NavigationWorld;
   bitNavigation: BitFlightNavigationWorld;
   markers: StageMarkerRegistry;
@@ -68,6 +78,7 @@ export type StageSpatialContext = Readonly<{
   assemblyVenues: StageAssemblyVenueRegistry;
   links: StageLinkRegistry;
   boundary: StageBoundary;
+  worldBoundary: StageWorldBoundary | null;
   queries: StageSpatialQueries;
   dispose(): void;
 }>;
@@ -95,6 +106,61 @@ export type StageMoverKind = "player" | "npc" | "bit";
 | `semanticMeshes` | `VOL_*`、`BND_*`、`PRT_*` | 3D意味判定 |
 | `semanticNodes` | `META_*`、`MRK_*`、`LNK_*` | メタデータ・位置・特殊接続 |
 
+`StageSpatialResources`の配列はAssetContainer内に存在する全作者Objectの所有元であり、現在有効な衝突・遮蔽集合の正本にはしない。T04-3A以降の現在値は、次の公開契約だけから取得する。
+
+```ts
+export type DynamicStageSpatialActiveSet = Readonly<{
+  movementColliders: StageMovementColliderSets;
+  groundColliders: readonly Mesh[];
+  beamBlockers: readonly Mesh[];
+  sightBlockers: readonly Mesh[];
+  bitObstacles: readonly Mesh[];
+}>;
+
+export type DynamicStageSpatialSnapshot =
+  DynamicStageSpatialActiveSet &
+  Readonly<{
+    revision: number;
+  }>;
+
+export interface DynamicStageSpatialVariants {
+  readonly revision: number;
+  getSnapshot(): DynamicStageSpatialSnapshot;
+  replaceActiveSet(
+    next: DynamicStageSpatialActiveSet
+  ): DynamicStageSpatialSnapshot;
+  dispose(): void;
+}
+
+export interface StageSpatialQueries {
+  readonly revision: number;
+  castMovementSegment(
+    moverKind: StageMoverKind,
+    from: Vector3,
+    to: Vector3
+  ): SpatialHit | null;
+  castMovementSphere(
+    moverKind: StageMoverKind,
+    from: Vector3,
+    to: Vector3,
+    radius: number
+  ): SpatialSphereSweepHit | null;
+  castBeamSegment(from: Vector3, to: Vector3): SpatialHit | null;
+  castSightSegment(from: Vector3, to: Vector3): SpatialHit | null;
+  sampleGround(origin: Vector3, maxDistance: number): SpatialHit | null;
+  containsVolume(role: StageVolumeRole, point: Vector3): boolean;
+  dispose(): void;
+}
+```
+
+- セッション開始時に通常・荒れvariantと初期扉・エレベーター状態を組み立てた完全な集合をrevision `0`とする。
+- 1回のシミュレーション更新では、状態機械、動的Meshのworld Transform、次の5集合を先に確定して`replaceActiveSet()`へ渡す。同メソッド内で次revision用の動的空間索引・三角形cacheを構築し、5集合・cache・revisionを持つ1個のsnapshot参照を最後に原子的に差し替える。`revision` getterは常にcurrent snapshotの値を返し、集合とrevisionを別々に公開しない。
+- 集合への出入りだけでなく、ビーム・視線を遮るエレベーター扉パネルなどのworld Transformが変わった更新でもrevisionを進める。同一更新内の複数Mesh変更は1回の公開へまとめる。
+- 各問い合わせは開始時の1つのsnapshotだけを使用し、処理途中で別revisionの集合を混在させない。`StageSpatialQueries.revision`は直近に取り込んだsnapshot revisionを返す。
+- 静的作者Meshの索引は再利用してよい。動的Meshのworld三角形、動的空間索引、known-safe-center cache、ground cache、扉gate・BIT障害物に依存する経路判定はrevisionをkeyへ含めるか、新revision公開前に無効化する。
+- `DynamicStageSpatialVariants`はsnapshot、動的索引、cache、購読を所有し、作者Mesh自体は所有しない。既存の静的配列を読む互換wrapperやrevision不一致時のfallbackは追加しない。
+- T04-3A後の`createStageSpatialQueries()`は`DynamicStageSpatialVariants`を受け取り、構築時の`movementColliders`、`groundColliders`、`beamBlockers`、`sightBlockers`配列をoptionsへ保持しない。既存利用元を同じ変更内で新factory契約へ統一する。
+
 移動者別集合は次の表を正本とする。
 
 | Collider | `player` | `npc` | `bit` | 視線・全光線 |
@@ -114,7 +180,7 @@ export type StageMoverKind = "player" | "npc" | "bit";
 3. `container.meshes`と`container.transformNodes`を列挙する。
 4. Object名、Blender型に対応するBabylon Node型、`metadata.gltf.extras`を検査する。
 5. 資産仕様の各集合へ排他的に分類する。
-6. `META_Stage`、必須marker、通常volume、飛行遷移volume、`BND_Stage`、`PRT_*`、人間用link、ビット用aperture pairを検査する。
+6. `META_Stage`、必須marker、通常volume、飛行遷移volume、`BND_Stage`、B04対応ステージの`BND_WorldLimit`、`PRT_*`、人間用link、ビット用aperture pairを検査する。
 7. GLB、人間用NavMesh、ビットNavMesh bundleのカタログハッシュ、schema version、両profileを照合する。
 8. 人間用`LNK_*`だけを`StageLinkPair`へ組み立て、`StageLinkRegistry`を構築する。
 9. `assembly_anchor` Markerと`assembly` Volumeを1対1に結び、`StageAssemblyVenueRegistry`を構築する。
@@ -257,6 +323,8 @@ export interface NavigationWorld {
 - `assembly_anchor`: 集合演出の基準位置。
 - `patrol_anchor`: 明示的な巡回基準が必要な場合だけ使用。
 
+T04-3Aでは資産仕様7.9節に従い、`door`、`door_panel`、`door_open_pose`、`elevator`、`elevator_car`、`elevator_stop`、`elevator_passenger_origin`、`elevator_wait`、`elevator_human_gate`をmarker role registryへ追加する。roleごとの許可`hs_*`、親子関係、ID参照を厳格検証し、未知roleや共通keyだけを読む緩い分類へしない。
+
 NPCとビットのランダム出現は多数の点を列挙せず、対応する3D Volume内からNavMesh上の点を抽選する。`bit_spawn`は対象ゾーンID・帯IDを明示し、ビット用NavMeshだけへ投影する。
 
 ## 9. ボリュームと境界
@@ -274,7 +342,19 @@ NPCとビットのランダム出現は多数の点を列挙せず、対応す�
 - `hazard`
 - `water`: 水中判定に用いる閉じた3D領域。T04-2Bで学校GLBからの読込、内外問い合わせ、プール底へのNavMesh到達、破棄・再読込までを確認済みである。水中水平速度50%と通常速度への復帰はT06で実装する。
 
+T04-3Aでは`door_sweep`、`elevator_call_mat`、`elevator_threshold`、`elevator_car_occupancy`をvolume role registryへ追加し、資産仕様7.9節の所有IDと実形状を正本にする。
+
 `BND_Stage`はプレイ可能な3D空間を定義する。範囲外時の再配置先は`MRK_PlayerSpawn_*`または最後に確認したNavMesh上の安全点とする。AABBだけで凹形状や上下階を判定しない。
+
+B04対応ステージの`BND_WorldLimit`は、表示・BIT・光線が存在してよい最終空間を定義する。`BND_Stage`とは別の境界として必須property `StageSpatialContext.worldBoundary`へ公開し、プレイヤー・NPCの領域外判定や再配置へ流用しない。`findExitPoint()`は内側から外側へ出る線分上の最初の交点だけを返し、それ以外は`null`を返す。
+
+- `worldBoundaryMode="required"`では、閉じた`BND_WorldLimit`が正確に1件あり、`hs_id="world-limit"`、`hs_role="world_boundary"`を持ち、`BND_Stage`を内包することを読込時に検査する。欠落、重複、参照不正、非閉鎖、非内包は読込失敗とする。
+- `worldBoundaryMode="unsupported"`では`BND_WorldLimit`を持たず、`StageSpatialContext.worldBoundary`を`null`とする。Objectが混入していた場合も読込失敗とし、境界終了処理は呼び出さない。
+- T05-2Vの非学校fixtureは`required`として先行実装する。B04前の学校と既存の非対応fixtureは`unsupported`を維持し、B04で学校資産へ`BND_WorldLimit`を追加する同じ変更内で学校カタログを`required`へ切り替える。
+- `unsupported`は対応外を明示する契約であり、欠落時のfallbackではない。`BND_Stage`、GLB全体AABB、最大寿命を世界境界の代用にしない。
+- `BND_WorldLimit` Meshは`semanticMeshes`とAssetContainerが所有する。`StageWorldBoundary`はMesh参照と境界問い合わせcacheだけを所有し、Context破棄時はAssetContainerより先に無効化する。
+
+BITはCHASE、逃走、明示`boundary`遷移中だけ外周飛行帯を利用できる。通常探索、待機、総当たり探索、Alert集合、初期出現、時間増援の候補から外周を除外し、追跡終了後は学校内の到達可能帯へ戻る。
 
 ### 9.1 集合・公開処刑会場
 
@@ -344,8 +424,9 @@ export interface StageSpatialQueries {
 
 - 移動は`castMovementSegment(moverKind, from, to)`で移動者別Collider集合へ問い合わせる。移動者種別を省略する旧`castActorSegment()`や、呼出側でColliderを推測する互換経路は作らない。
 - ビットの3D安全包絡は`castMovementSphere(moverKind, from, to, radius)`で連続球スイープする。内部の空間索引は最適化にだけ使用し、公開位置や資産契約へセル座標を公開しない。
+- 全光線は更新線分と`BND_WorldLimit`の退出点をキャッシュ済み直方体へのslab判定で求める。退出点では遮蔽衝突、着弾、ダメージ、Alarm、壁命中通知、反射光球を発生させず、約0.2秒の透明化へ移行する。最大寿命20秒は別の安全上限として維持する。
 - 連続球スイープの候補三角形はworld座標AABBを2 world unitの3Dグリッドへ登録し、swept AABBと半径に重なる候補だけへ厳密判定する。同率接触時は元Mesh順・triangle index順を維持する。既知安全中心は`moverKind`、半径、完全一致座標をkeyとする16,384件LRUへ保持し、`dispose()`で索引・cache・移動体別集合をすべて破棄する。これらは内部最適化であり、公開状態や経路探索へセルを導入しない。
-- 通常、固定、トラップ、動的を含む全光線は前フレーム位置から新位置まで連続線分判定し、最初の`beamBlockers`交点で停止・着弾する。
+- T05-2で実装済みの通常CHASE、固定、ランダム、カーペット、NPC gun、プレイヤーgun、公開処刑の全発射元は、前フレーム位置から新位置まで連続線分判定し、最初の`beamBlockers`交点で停止・着弾する。
 - 視線は観測点から標的中心まで`sightBlockers`へ線分判定する。
 - 通常索敵は距離、扇形視野、遮蔽物なしの全条件を満たす標的だけを取得する。
 - 通常視認由来の標的は遮蔽時に解除する。アラート由来の標的は期限まで保持できるが、ビームは壁を貫通しない。
@@ -386,14 +467,19 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 - T04は`StageMoverKind`、`NavigationLocation.polygonRef`、`surface`／`transition`経路、`StageSpatialContext.links`、移動者別`castMovementSegment()`、`transition-required`、水Volumeの読込・問い合わせ・NavMesh到達までの共通基盤を担当する。
 - T05-1Aは汎用飛行ゾーン・帯、別ビットNavMesh bundle、接続グラフ、非学校fixture、学校データ移行を担当する。
 - T05-1Bは11.1節のV1飛行表現、高度・天井・衝突安全、探索・追跡、全遷移の実飛行を担当する。
-- T05-2は既存の戦闘モード、射程維持、通常・固定・トラップ・動的を含む全光線、警報、標的状態遷移を3D空間へ統合する。
-- T06はB03最終学校資産を使い、プレイヤー、NPC、ビット、全階、屋上、全光線、ゲーム進行、水中水平速度50%と通常速度への復帰を通した統合確認を行う。
+- T05-2は既存の戦闘モード、射程維持、通常CHASE・固定・ランダム・カーペット・NPC gun・プレイヤーgun・公開処刑の全光線物理、警報、標的状態遷移を3D空間へ統合する。
+- T05-2VはV1光線演出、演出資源再利用、`BND_WorldLimit`退出点での非着弾フェードを担当する。
+- T04-3Aは`DynamicStageSpatialVariants`、revision付き動的問い合わせ、扉・エレベーター状態機械、非学校fixture、部屋variant NavMeshタイル組立基盤を担当する。
+- T04-3BはB03-3C／B04の学校metadata、20室variant、全陣営NPCの扉・エレベーター利用を実学校へ統合する。
+- B04は学校外周表示、外周BIT飛行帯、`BND_WorldLimit`の資産と派生NavMeshを担当する。
+- T06はB04とT05-2Vを含む最終学校資産を使い、プレイヤー、NPC、ビット、全階、屋上、外周、全光線、ゲーム進行、水中水平速度50%と通常速度への復帰を通した統合確認を行う。
+- トラップ光線と動的3DマップビームはT05-2、T05-2V、T06、T07の完了範囲に含めない。将来、対応ステージを移植するタスクで`V2BeamOriginKind`、配置metadata、状態機械、光線物理・演出、専用fixtureを同時に追加する。
 
 ## 13. ライフサイクル
 
 - `StageSpatialContext`構築に失敗した場合、新ContextのAssetContainer、人間用NavMesh、生成済みの全帯ビットNavMesh、debug Mesh、イベント購読を破棄し、旧Contextは維持する。
 - 成功時は入力停止、プレイヤー再配置、新Context有効化、旧Context破棄の順に交換する。
-- `dispose()`はステージ所有のMesh、TransformNode、Material、Texture参照、人間用NavMesh adapter、ビット用NavMesh群、空間問い合わせ索引・三角形cache、Crowd、debug Mesh、イベント購読を1回だけ解放する。破棄済みの`StageSpatialQueries`を保持して問い合わせた場合は失敗させる。
+- `dispose()`は`StageSpatialQueries`、`DynamicStageSpatialVariants`、`StageWorldBoundary`の問い合わせcache・参照を先に無効化し、その後にステージ所有のMesh、TransformNode、Material、Texture参照、人間用NavMesh adapter、ビット用NavMesh群、Crowd、debug Mesh、イベント購読を1回だけ解放する。破棄済みのquery、variant、world boundaryを保持して使用した場合は失敗させる。
 - `recast-navigation`のWASM moduleはアプリ寿命で1回だけ初期化する。ステージごとの`NavMeshQuery`、`NavMesh`、debug Meshは`NavigationWorld.dispose()`で明示的に破棄する。
 - 複数3Dステージを再導入する前に、NavMesh再構築時の明示破棄とWASMメモリ推移を専用試験する。
 
@@ -408,7 +494,9 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 - 修正案1では現行片羽開放幅1.20mの58窓を、V1物理半径0.44m＋余裕0.10m＝半径0.54mの移動包絡と実飛行Agentで双方向116/116に再検証済みとする。旧0.64m包絡・直径1.28mを理由に両羽全開を要求しない。
 - `COL_ActorOnly_Window_*`と`COL_ActorOnly_WindowFixed_*`はプレイヤー・NPC・ビットを止め、`COL_HumanOnly_Window_*`はプレイヤー・NPCだけを止める。いずれも視線と全光線を透過する。
 - T05-1Bでは全モードが帯の許可高度、物理床・天井、V1物理半径0.44m＋安全余裕0.10m＝半径0.54mの移動包絡を満たす。上下揺れは中心Sweepとして検査し、半径へ二重加算しない。標的喪失時は近い遷移端または隣接帯へ離脱し、帯変更前にカーペット編隊を解除する。
-- 壁越しに通常索敵せず、窓越しには視認する。T05-2で通常・固定・トラップ・動的を含む全光線が壁へ着弾し、両種の窓を透過する。
+- 壁越しに通常索敵せず、窓越しには視認する。T05-2で実装済みの通常CHASE、固定、ランダム、カーペット、NPC gun、プレイヤーgun、公開処刑の全発射元が壁へ着弾し、両種の窓を透過する。
+- T04-3Aでは閉→開→閉、開閉中の教室扉遮蔽無効、移動中エレベーター扉パネルの遮蔽追従、旧revision由来cacheの不使用を非学校fixtureで検証する。
+- 動的variantを含む学校の破棄・再読込後に、snapshot、動的索引、world boundary cache、イベント購読が増加しない。
 - T06で全階と屋上を含む学校全域のゲーム進行を統合確認する。
 - 学校の破棄・再読込後にScene資源、NavMesh、イベント購読が増加しない。
 - Web開発版、Web本番ビルド、Electronビルドで同じ人間用NavMeshとビット用bundleを読める。

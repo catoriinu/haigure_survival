@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL ブランチ戦略
 
-更新日: 2026-07-25
+更新日: 2026-07-26
 
 ## 1. 目的
 
@@ -49,9 +49,11 @@ flowchart LR
 | T04 | `codex/v2-t04-navigation-npc` |
 | T05-1（A／B統合） | `codex/v2-t05-bit-flight-navigation` |
 | T05-2 | `codex/v2-t05-combat-systems` |
+| T05-2V | `codex/v2-t05-2v-beam-effects` |
 | B01 | `codex/v2-b01-school-layout` |
 | B02 | `codex/v2-b02-school-blockout` |
 | B03 | `codex/v2-b03-school-lowpoly` |
+| B04 | `codex/v2-b04-school-world-boundary` |
 | T06 | `codex/v2-t06-school-integration` |
 | T07 | `codex/v2-t07-regression-docs` |
 
@@ -66,10 +68,18 @@ PR #41以降は、レビュー可能な一ブランチ単位へ次のように�
 | T04-2B 学校複数階統合 | `codex/v2-t04-school-multifloor` |
 | T05-1 汎用飛行帯ナビゲーション・飛行安全 | `codex/v2-t05-bit-flight-navigation` |
 | T05-2 戦闘システム | `codex/v2-t05-combat-systems` |
+| B03-3A 学校拡張設計確定 | `codex/v2-plan-world-boundary-roadmap` |
+| T05-2V 光線演出・世界境界終了 | `codex/v2-t05-2v-beam-effects` |
+| B03-3B 学校拡張構造資産 | `codex/v2-b03-3-structure` |
+| B03-3C 動的学校アセット | `codex/v2-b03-3-interactive-assets` |
+| T04-3A 動的空間基盤 | `codex/v2-t04-3-dynamic-runtime` |
+| T05-3 同陣営NPC指示 | `codex/v2-t05-3-npc-commands` |
+| B04 学校外周・道路・世界境界資産 | `codex/v2-b04-school-world-boundary` |
+| T04-3B 実学校動的統合 | `codex/v2-t04-3-school-integration` |
 
-確定した実行順は、B03-0とT04-2Aの並行Wave、B03-1、B03-2、T04-2B、T05-1、T05-2、T06、T07とする。並行Wave以外は、直前の依存タスクが`develop`へマージされた後に開始する。
+PR #50までの実行順は、B03-0とT04-2Aの並行Wave、B03-1、B03-2、T04-2B、T05-1、T05-2で完了した。以後はB03-3Aで学校拡張契約を確定し、B03-3BとT05-2Vを並行する。次にB03-3C・T04-3A・T05-3を並行し、B03-3C後にB04、全成果後にT04-3B、T06、T07を直列に実施する。
 
-2026-07-25、T05-1AとT05-1Bは実装中に共通型、半径契約、学校資産hash、実飛行受入が相互依存することを確認し、ビルド可能な単一成果として同じブランチで完成・検証した。`codex/v2-t05-bit-flight-navigation`はPR #49の`15a467f`で`develop`へ統合済みである。T05-2はこの統合後の最新`develop`から`codex/v2-t05-combat-systems`を開始し、主要RuntimeをDraft PR #50へ反映した。V1相当の光線軌跡・周囲光球・着弾・キャラクター命中演出、Alert経路予算・空間Ray・球Sweep・Snapshot・光線資源の性能対応、99 NPC／50 BITの厳格性能受入が残るため、T05-2は未完了として同じブランチで継続する。
+2026-07-26、`codex/v2-t05-combat-systems`はPR #50のマージコミット`27abd9b`で`develop`へ統合済みである。戦闘・状態・光線物理・集合・警報・公開処刑、Alert最大4機、BIT探索分散、窓越しCHASE、仕様維持性能リファクタリングをT05-2の完了範囲とする。V1相当の光線軌跡・周囲光球・着弾・キャラクター命中演出はPR #50へ追加せず、世界境界終了とともにT05-2Vへ分割する。
 
 T04-2BでB03-2統合後の階段NAV元形状と上階blockerを修正する作業だけは、`codex/v2-t04-school-multifloor`からローカル限定の`codex/v2-t04-school-nav-asset-fix`を分岐する。修正コミットはT04-2Bへ`--no-ff`でローカルマージし、この補助ブランチ自体はpushまたはPull Request化しない。2026-07-20に北西階段・吹抜け補正`1f34fe2`を`d9a3872`、北東・南西1F踊り場開口補正`fb2caf5`を`b3f2302`、上階Nav blocker補正`c2bcdcc`を`b5e77f7`としてT04へローカルマージ済みである。
 
@@ -124,14 +134,24 @@ gh auth status
 
 - T02～T04は共通コードへの変更が重なるため、承認済みの並行Waveを除いて直列で`develop`へマージする。
 - B01～B03は依存条件を満たし、T系タスクと共有コードまたは同一のBlender／GLB／NavMesh資産を編集しない場合に限り、T系タスクと並行できる。
-- PR #41以降はB03-0とT04-2Aだけを並行できる。T04-2Aは学校`.blend`、GLB、NavMeshバイナリ、カタログハッシュを編集しない。
-- B03-1とB03-2は同じ学校`.blend`とGLBを順番に編集する。T04-2Bは両方の完了後に開始し、T05-1、T05-2、T06、T07はこの順で直列実行する。
+- PR #41直後の当時のWaveではB03-0とT04-2Aだけを並行した。T04-2Aは学校`.blend`、GLB、NavMeshバイナリ、カタログハッシュを編集せず、このWaveは完了済みである。現行の並行規則は後述するB03-3以降の契約へ置換する。
+- B03-1とB03-2は同じ学校`.blend`とGLBを順番に編集する。T04-2B、T05-1、T05-2までは直列実行済みである。
 - T05-1は、任意のゾーン・帯を扱う共通型、帯別ビットNavMesh bundle、接続グラフ、非学校fixture、学校データ移行と、全ビットモード共通の3D高さ安全、V1飛行表現、探索・追跡、窓・階段・上下・境界遷移、遷移前のカーペット解除を単一成果として担当する。学校`.blend`、GLB、人間用NavMesh、ビット用NavMesh、カタログハッシュも同じブランチで確定する。
 - T05-1の確定半径契約は、V1実形状・戦闘用被弾球0.44m＋安全余裕0.10m＝移動包絡0.54mとする。上下揺れは中心位置のSweepであり半径へ二重加算しない。現行片羽開放幅1.20mの58窓は両羽全開への資産再設計待ちにせず、同じT05-1担当が0.54m包絡で再検証する。
 - `bit_window`58組は接続先ゾーン・帯を明示したビット専用`aperture`遷移へ移行する。既存`bit_roof`2組は資産・Runtime・監査から完全廃止し、4F屋外帯と屋上外周をつなぐ安全な`boundary`遷移へ置き換える。屋上はゲーム、索敵、経路、戦闘の対象から外さない。
 - 連続的な上下・境界遷移は`VOL_*`の`bit_flight_transition` role、階段は`surface-route`、窓などの狭い通過箇所は`LNK_*`の`aperture`として表す。共通Runtimeは学校、階数、体育館、屋上などの名前で分岐しない。
-- T05-2はT05-1の`develop`統合後に、gun所持NPC／プレイヤー・ビットの完成戦闘、全光線、V1相当のテーパ・後端フェード・先端球・軌跡光球・壁着弾反射光球・キャラクター命中演出、集合、警報、公開処刑を担当する。ユーザーが確定した校庭／体育館の集合・公開処刑会場については、学校生成正本、`.blend`、GLB、カタログhashを同じT05-2ブランチで単一編集し、形状不変の両NavMeshが変更されていないことを検証する。学校トラップと動的3Dマップビームは追加しない。
+- T05-2はT05-1の`develop`統合後に、gun所持NPC／プレイヤー・ビットの完成戦闘、全光線物理、集合、警報、公開処刑、性能改善を担当し、PR #50で完了した。校庭／体育館の集合・公開処刑会場は学校生成正本、`.blend`、GLB、カタログhashを同じT05-2ブランチで単一編集し、形状不変の両NavMeshを検証済みである。学校トラップと動的3Dマップビームは追加しない。
+- B03-3Aは設計文書だけを所有し、学校バイナリとRuntimeコードを編集しない。`docs/plan.md`と`docs/plans/v2/next_tasks_plan.md`は統合担当だけが更新する。
+- B03-3BとT05-2Vは、B03-3A統合後の同じ最新`develop`から別worktree・別ブランチで並行できる。B03-3Bだけが学校バイナリ、T05-2Vだけが光線Runtimeと非学校fixtureを所有する。
+- B03-3Bの`develop`統合後にB03-3Cを開始する。B03-3BとB03-3Cは同じ学校`.blend`、生成正本、GLB、両NavMesh、カタログhashを直列で単一編集する。
+- T05-2Vの`develop`統合後にT04-3AとT05-3を開始する。T04-3Aは`src/world`、動的空間、扉・エレベーター状態機械、タイルNavMesh、`validation/v2/T04/`と`vite.t04.config.mts`の専用fixtureを所有する。T05-3は`V2PlayerAction`、`drainPressedActions()`、NPC指示、Follow・Leave、同期射撃、`validation/v2/T05/`と`vite.t05.config.mts`の専用fixtureを所有する。共有fixture indexはどちらも編集せず、T04-3Bの統合担当が更新する。
+- B03-3C、T04-3A、T05-3は別worktreeで並行できる。T05-2VがB03-3Bより先に完了した場合はT04-3A／T05-3を継続中のB03-3Bと重ねられ、B03-3BがT05-2Vより先に完了した場合はB03-3Cを継続中のT05-2Vと重ねられる。学校バイナリ担当だけがその資産を編集し、T04-3AはNPC指示ファイルを、T05-3は動的空間・扉・エレベーター基盤を編集しない。
+- B04はB03-3C統合後の学校`.blend`、生成正本、GLB、両NavMesh、カタログhashの単一担当として、塀外5.0mの歩道・道路、新規`BND_WorldLimit`、外周BIT飛行帯を追加する。南側有効距離が5.0m未満なら不足分だけ南へ延長し、外周へ人間用NavMeshまたは出現Volumeを追加しない。
+- B04はT05-2V、T04-3A、T05-3のいずれかが継続中なら並行できる。学校バイナリの所有はB04だけとする。
+- T04-3BはB03-3C、B04、T04-3A、T05-3の`develop`統合後に単独で実施し、実学校の扉、エレベーター、荒れた教室、全陣営NPC利用・回避・追跡を統合する。
 - T06はT05-2の状態選択APIを通常ゲームへ接続し、`brainwash-in-progress`直後からG＝gun、N＝no-gun、H＝haigureを選択・再選択できる入力、状態別操作案内、G状態だけの照準・左クリック射撃案内、状態別VOICE、入力購読ライフサイクルを担当する。
+- T06はT04-3B後に単独で実施し、B04の外周資産とT05-2Vの世界境界Runtime、F／E／C・G／N／H、候補表示、既定荒れ状態2、音声、ゲーム進行を実学校へ接続する。
+- T07はT06後に単独で実施し、荒れ状態10、多数の動的扉、エレベーター、無制限Follower、同期射撃を含む99 NPC／50 BITの最終回帰を行う。
 - 並行ブランチはそれぞれ最新の`develop`から作成し、別タスクブランチから派生させない。
 - `.blend`と`.glb`は同時に複数ブランチで編集しない。Blender資産は常に1ブランチ・1担当とする。
 - `docs/plan.md`は統合担当だけが更新し、並行担当は自分の個別計画を更新する。
