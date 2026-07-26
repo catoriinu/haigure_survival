@@ -265,6 +265,15 @@ EXP_Stage_<stage-id>
 | `hs_id` | string | ステージ内で一意な小文字kebab-case ID |
 | `hs_role` | string | Runtimeのmarker role registryに登録された役割 |
 
+`hs_role="assembly_anchor"`では、次のpropertiesも必須とする。各座標はBlenderメートル座標の有限値3要素配列を並べたJSON文字列であり、Runtime側へステージ固有の座標生成規則を重複実装しない。
+
+| Key | 型 | 内容 |
+|---|---|---|
+| `hs_selection_weight` | number | 会場抽選に使う0より大きいweight |
+| `hs_assembly_positions_json` | string | 最大人数で使用する集合位置のJSON座標配列 |
+| `hs_execution_audience_positions_json` | string | 最大人数で使用する公開処刑観客位置のJSON座標配列 |
+| `hs_execution_target_positions_json` | string | 最大人数で使用する公開処刑対象位置のJSON座標配列 |
+
 例:
 
 ```text
@@ -290,6 +299,8 @@ roleには`npc_spawn`、`bit_spawn`、`assembly`、`no_enemy_spawn`、`no_enemy_
 
 `bit_spawn`は`hs_zone_id`と`hs_band_id`を追加し、スポーン先の飛行帯を明示する。高さ、Object名、最寄りの人間用NavMeshから推測しない。
 
+`assembly`は`hs_anchor_id`を追加し、同じIDの`assembly_anchor` Markerを参照する。1個のMarkerと1個のVolumeを1会場として厳密に対応付け、参照先欠落、孤立Volume、1対多、多対1を許可しない。Marker位置と3座標配列の全点は、対応Volumeと`BND_Stage`の内側または表面になければならない。集合位置数は公開処刑観客位置数と対象位置数の合計に一致させる。
+
 飛行帯・ゾーン間の連続的な遷移は、`hs_role="bit_flight_transition"`の閉じた`VOL_*`で表す。
 
 | Key | 型 | 内容 |
@@ -312,6 +323,26 @@ roleには`npc_spawn`、`bit_spawn`、`assembly`、`no_enemy_spawn`、`no_enemy_
 - 1つの凹形状へまとめず、凸形状へ分割する。複数Volumeを同じ`hs_role`で使用してよい。
 - `VOL_*`は物理衝突、光線遮蔽、NavMesh生成へ使用しない。
 - `water` Volumeは水面表示Meshと分離し、プール壁・底の内側だけを閉じた形状で覆う。
+
+#### 7.6.1 B02学校の集合・公開処刑会場
+
+B02学校は校庭と体育館の2会場を持つ。`MRK_AssemblyAnchor_Courtyard`と`MRK_AssemblyAnchor_Gym`はいずれも`hs_selection_weight=1`とし、対応する`VOL_Assembly_Courtyard`と`VOL_Assembly_Gym`を`hs_anchor_id`で結ぶ。
+
+作者座標配列は次を正本とする。`row`、`column`、`i`は0始まりで、記載順のままJSON配列へ格納する。
+
+| 会場 | Anchor `(X, Y, Z)` | 集合100人 |
+|---|---|---|
+| 校庭 | `(16.7, 14.5, -0.30)` | `row=0..9`の各行について`column=0..9`を並べ、`(9.95 + 1.50 * column, 7.75 + 1.50 * row, -0.30)` |
+| 体育館 | `(45.4, 9.5, 0.00)` | `row=0..9`の各行について`column=0..9`を並べ、`(39.325 + 1.35 * column, 3.425 + 1.35 * row, 0.00)` |
+
+公開処刑観客94人は各Anchorの`(centerX, centerY, floorZ)`に対し、`i=0..93`の順で`(centerX + 9.0 * cos(2πi / 94), centerY + 9.0 * sin(2πi / 94), floorZ)`とする。対象6人は`yOffset=-0.45, 0.45`の順に、各行で`xOffset=-0.9, 0.0, 0.9`を並べた`(centerX + xOffset, centerY + yOffset, floorZ)`とする。したがって校庭と体育館の両方が、集合と公開処刑の全用途に利用できる。
+
+座標移行後は次の制作目印をBlenderとGLBから削除し、Runtime資産として残さない。
+
+- `VIS_CourtyardCapacityGrid_10x10`
+- `VIS_GymCapacityGrid_10x10`
+- `VIS_GymExecutionAudience_94`
+- `VIS_GymExecutionTargets_06`
 
 `BND_Stage`はちょうど1個の明示的な閉じた低ポリMeshとする。プレイヤーが存在してよい3D空間を囲み、上下限も持つ。`BND_Stage`はout-of-bounds判定用であり、物理壁ではない。移動を止める必要がある位置には別の`COL_*`を置く。
 
@@ -434,6 +465,8 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 
 分類順は`COL_ActorOnly_*`、`COL_HumanOnly_*`、通常`COL_*`、その他の順とする。通常`COL_*`の判定式は`name.startsWith("COL_") && !name.startsWith("COL_ActorOnly_") && !name.startsWith("COL_HumanOnly_")`と同値でなければならない。人間用pairだけを`StageSpatialContext.links`、ビット用pairとtransition Volumeを`StageSpatialContext.bitNavigation`へ公開する。
 
+`assembly_anchor` Markerと`assembly` Volumeは上記の排他的分類後に`StageAssemblyVenueRegistry`へ1対1で組み立てる。Registryは作者座標配列と選択weightを公開するが、座標や会場名から役割を推測しない。
+
 すべての作者Nodeがちょうど1つの役割集合へ入り、未分類Nodeと重複分類Nodeが0件であることを要求する。glTFローダーの管理ルートとAssetContainer管理親は作者Nodeではないため、この監査から除外する。
 
 ## 11. GLB監査
@@ -453,6 +486,8 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 - `META_Stage`がEmptyとして1件だけ存在する。
 - `BND_Stage`が閉じたMeshとして1件だけ存在する。
 - `MRK_*`の`player_spawn`が1件だけ存在する。
+- B02学校では`assembly_anchor` Markerと`assembly` Volumeが各2件存在し、校庭・体育館の各pairが100件、94件、6件の有限座標配列を持つ。
+- 集合会場の旧4件の`VIS_*`目印が0件である。
 - 人間用`NAV_*`の`hs_nav_role=walkable`が1件以上、ビット用`NAV_BitFlight_*`が1件以上存在する。
 - 学校で有効にする各ゲームシステムに必要なmarker roleとvolume roleが存在する。
 - `LNK_*`はA/Bが完全なpairである。ビット用pairは両端の遷移方式、双方向性、半径、投影距離、意味タグが一致し、各端点のゾーン・帯が登録済みである。

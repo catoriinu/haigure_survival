@@ -68,11 +68,18 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 )
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
-GENERATOR_VERSION = "t05-1a-bit-flight-navigation-v02"
+GENERATOR_VERSION = "t05-2-assembly-execution-v01"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
 T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v09"
+
+ASSEMBLY_GUIDE_NAMES = (
+    "VIS_CourtyardCapacityGrid_10x10",
+    "VIS_GymCapacityGrid_10x10",
+    "VIS_GymExecutionAudience_94",
+    "VIS_GymExecutionTargets_06",
+)
 
 GATE_VISUAL_SPECS = (
     ("VIS_Gate_MainClosed", "X", 19.4, 25.4, -12.5),
@@ -222,6 +229,10 @@ GENERATED_PREFIXES = (
 )
 
 GENERATED_EXACT_NAMES = {
+    "MRK_AssemblyAnchor_Courtyard",
+    "MRK_AssemblyAnchor_Gym",
+    "VOL_Assembly_Courtyard",
+    "VOL_Assembly_Gym",
     "VIS_Gate_MainClosed",
     "VIS_Gate_UtilityClosed",
     "NAV_Walkable_Interior2F",
@@ -325,6 +336,7 @@ BIT_FLIGHT_BANDS = (
 )
 
 SOURCE_OBJECTS_TO_REMOVE = {
+    *ASSEMBLY_GUIDE_NAMES,
     "VIS_WindowGuide_1F_Courtyard_1",
     "VIS_WindowGuide_1F_Courtyard_2",
     "VIS_WindowGuide_1F_Courtyard_3",
@@ -1429,6 +1441,160 @@ def create_empty(
     for key, value in properties.items():
         obj[key] = value
     return obj
+
+
+def rounded_position(
+    x: float,
+    y: float,
+    z: float,
+) -> tuple[float, float, float]:
+    return (round(x, 9), round(y, 9), round(z, 9))
+
+
+def assembly_grid_positions(
+    origin_x: float,
+    origin_y: float,
+    spacing: float,
+    floor_z: float,
+) -> list[tuple[float, float, float]]:
+    return [
+        rounded_position(
+            origin_x + spacing * column,
+            origin_y + spacing * row,
+            floor_z,
+        )
+        for row in range(10)
+        for column in range(10)
+    ]
+
+
+def execution_audience_positions(
+    center_x: float,
+    center_y: float,
+    floor_z: float,
+) -> list[tuple[float, float, float]]:
+    return [
+        rounded_position(
+            center_x + 9.0 * math.cos(math.tau * index / 94),
+            center_y + 9.0 * math.sin(math.tau * index / 94),
+            floor_z,
+        )
+        for index in range(94)
+    ]
+
+
+def execution_target_positions(
+    center_x: float,
+    center_y: float,
+    floor_z: float,
+) -> list[tuple[float, float, float]]:
+    return [
+        rounded_position(
+            center_x + x_offset,
+            center_y + y_offset,
+            floor_z,
+        )
+        for y_offset in (-0.45, 0.45)
+        for x_offset in (-0.9, 0.0, 0.9)
+    ]
+
+
+def assembly_anchor_properties(
+    anchor_id: str,
+    assembly_positions: list[tuple[float, float, float]],
+    audience_positions: list[tuple[float, float, float]],
+    target_positions: list[tuple[float, float, float]],
+) -> dict[str, object]:
+    return {
+        "hs_id": anchor_id,
+        "hs_role": "assembly_anchor",
+        "hs_selection_weight": 1,
+        "hs_assembly_positions_json": json.dumps(
+            assembly_positions,
+            allow_nan=False,
+            separators=(",", ":"),
+        ),
+        "hs_execution_audience_positions_json": json.dumps(
+            audience_positions,
+            allow_nan=False,
+            separators=(",", ":"),
+        ),
+        "hs_execution_target_positions_json": json.dumps(
+            target_positions,
+            allow_nan=False,
+            separators=(",", ":"),
+        ),
+    }
+
+
+def build_assembly_venues(
+    semantic_collection: bpy.types.Collection,
+) -> None:
+    venue_specs = (
+        (
+            "Courtyard",
+            "assembly-courtyard",
+            "assembly-volume-courtyard",
+            (16.7, 14.5, -0.30),
+            (9.95, 7.75, 1.50),
+            ((6.7, 4.5, -0.30), (26.7, 24.5, 1.70)),
+        ),
+        (
+            "Gym",
+            "assembly-gym",
+            "assembly-volume-gym",
+            (45.4, 9.5, 0.0),
+            (39.325, 3.425, 1.35),
+            ((35.4, -0.5, 0.0), (55.4, 19.5, 2.0)),
+        ),
+    )
+    for (
+        suffix,
+        anchor_id,
+        volume_id,
+        anchor_position,
+        grid_spec,
+        volume_bounds,
+    ) in venue_specs:
+        center_x, center_y, floor_z = anchor_position
+        origin_x, origin_y, spacing = grid_spec
+        assembly_positions = assembly_grid_positions(
+            origin_x,
+            origin_y,
+            spacing,
+            floor_z,
+        )
+        audience_positions = execution_audience_positions(
+            center_x,
+            center_y,
+            floor_z,
+        )
+        target_positions = execution_target_positions(
+            center_x,
+            center_y,
+            floor_z,
+        )
+        create_empty(
+            f"MRK_AssemblyAnchor_{suffix}",
+            anchor_position,
+            semantic_collection,
+            assembly_anchor_properties(
+                anchor_id,
+                assembly_positions,
+                audience_positions,
+                target_positions,
+            ),
+        )
+        create_mesh_object(
+            f"VOL_Assembly_{suffix}",
+            [volume_bounds],
+            semantic_collection,
+            properties={
+                "hs_id": volume_id,
+                "hs_role": "assembly",
+                "hs_anchor_id": anchor_id,
+            },
+        )
 
 
 def existing_material(name: str) -> bpy.types.Material:
@@ -3608,6 +3774,7 @@ def main() -> None:
     build_vertical_transition_volumes(semantic_collection)
     build_stair_transition_volumes(semantic_collection)
     build_rooftop_boundary_transition(semantic_collection)
+    build_assembly_venues(semantic_collection)
     normalize_export_meshes(export_collection)
     material_result = consolidate_school_materials(export_collection)
     apply_architecture_swatch_uv(

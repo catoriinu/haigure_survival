@@ -122,12 +122,14 @@ const ONE_BIT_INITIAL_RANDOM = Object.freeze([
 const EMPTY_TARGETS: readonly V2HumanTargetSnapshot[] = Object.freeze([]);
 const EMPTY_ALERTS: readonly V2ExternalAlert[] = Object.freeze([]);
 const MICRO_DELTA_SECONDS = 0.01;
-const SEARCH_SPEED = 0.25;
+const NORMAL_PATROL_SPEED = 0.3;
 const SEARCH_VERTICAL_SPEED = 0.06;
 const BOB_AMPLITUDE = 0.03;
 const PERFORMANCE_DELTA_SECONDS = 1 / 60;
 const PERFORMANCE_WARMUP_TICKS = 180;
 const PERFORMANCE_MEASURED_TICKS = 600;
+const PERFORMANCE_BRUTE_FORCE_MEASURED_TICKS = 600;
+const BRUTE_FORCE_START_SECONDS_FOR_ACCEPTANCE = 40;
 const PERFORMANCE_P95_BUDGET_MILLISECONDS = 1000 / 60;
 const PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS = 50;
 const PERFORMANCE_TARGET_LOSS_BUDGET_MILLISECONDS = 125;
@@ -135,6 +137,8 @@ const PERFORMANCE_TARGET_LOSS_SETTLE_TICKS = 1200;
 const PERFORMANCE_TARGET_LOSS_RECOVERY_TICKS = 30;
 const PERFORMANCE_TARGET_LOSS_FOLLOW_UP_TICKS = 60;
 const PERFORMANCE_SIGHT_CASTS_PER_99_UPDATE = 17;
+const PERFORMANCE_STRESS_BIT_COUNT = 99;
+const EXTERNAL_ALERT_RECEIVER_LIMIT = 4;
 
 let nextFixtureStageIndex = 0;
 
@@ -212,6 +216,7 @@ const createSystem = (
   minimumSpawnDistance = 0
 ) =>
   createV2BitSystem(scene, stage, {
+    combatEnabled: false,
     initialBitCount,
     minimumSpawnDistance,
     spawnMaxAttempts: initialBitCount === 1 ? 8 : 1024,
@@ -228,10 +233,51 @@ const createTarget = (
     kind: "npc" as const,
     footPosition: aimPosition.add(new Vector3(0, -0.2, 0)),
     aimPosition,
-    collisionRadius: 0.1,
+    hitShape: Object.freeze({
+      center: aimPosition.clone(),
+      radii: new Vector3(0.1, 0.2, 0.1)
+    }),
+    state: "normal" as const,
     alive: true,
     brainwashed: false
   });
+
+type ExternalAlertStressFixture = Readonly<{
+  targets: readonly V2HumanTargetSnapshot[];
+  alerts: readonly V2ExternalAlert[];
+  targetIds: ReadonlySet<string>;
+}>;
+
+const createExternalAlertStressFixture = (
+  prefix: string,
+  aimPosition: Vector3,
+  bitCount = PERFORMANCE_STRESS_BIT_COUNT
+): ExternalAlertStressFixture => {
+  const targetCount = Math.ceil(
+    bitCount / EXTERNAL_ALERT_RECEIVER_LIMIT
+  );
+  const targets = Object.freeze(
+    Array.from({ length: targetCount }, (_, index) =>
+      createTarget(
+        `${prefix}-target-${index}`,
+        aimPosition.clone()
+      )
+    )
+  );
+  return Object.freeze({
+    targets,
+    alerts: Object.freeze(
+      targets.map((target, index) =>
+        Object.freeze({
+          leaderId: `${prefix}-leader-${index}`,
+          targetId: target.id,
+          remainingSeconds: 1000
+        })
+      )
+    ),
+    targetIds: new Set(targets.map((target) => target.id))
+  });
+};
 
 const createTargetRing = (
   prefix: string,
@@ -704,7 +750,7 @@ const installLoaderFixtureFetch = (assets: LoaderFixtureAssets) => {
 };
 
 const getRequiredFlightState = (system: V2BitSystem) => {
-  const state = system.getFlightStates()[0];
+  const state = system.getFrameView().flightStates[0];
   if (!state) {
     throw new Error("検証対象のビット飛行状態がありません。");
   }
@@ -724,7 +770,7 @@ const runActorSphereRadiusCheck = (
   const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   try {
-    const actors = system.getActorSpheres();
+    const actors = system.getFrameView().actorSpheres;
     const actor = actors[0];
     return Object.freeze({
       name: "ビット被弾球は物理半径0.44mのworld換算を使用",
@@ -773,25 +819,25 @@ const runVisualTargetLossChecks = (
       targets,
       externalAlerts: EMPTY_ALERTS
     });
-    const acquired = timeoutSystem.getTargetStates()[0];
+    const acquired = timeoutSystem.getFrameView().targetStates[0];
     timeoutSightBlocked = true;
     timeoutSystem.update({
-      deltaSeconds: 17.9,
-      elapsedSeconds: 17.9,
+      deltaSeconds: 0.5,
+      elapsedSeconds: 0.5,
       targets,
       externalAlerts: EMPTY_ALERTS
     });
-    const beforeTimeout = timeoutSystem.getTargetStates()[0];
+    const beforeTimeout = timeoutSystem.getFrameView().targetStates[0];
     timeoutSystem.update({
-      deltaSeconds: 0.1,
-      elapsedSeconds: 18,
+      deltaSeconds: 0.5,
+      elapsedSeconds: 1,
       targets,
       externalAlerts: EMPTY_ALERTS
     });
-    const afterTimeout = timeoutSystem.getTargetStates()[0];
+    const afterTimeout = timeoutSystem.getFrameView().targetStates[0];
     const escapeState = getRequiredFlightState(timeoutSystem);
     checks.push({
-      name: "visual標的は遮蔽17.9秒で保持し18.0秒で逃走へ移行",
+      name: "visual標的は最終視認位置到達で18秒前に逃走へ移行",
       ok:
         acquired?.provenance === "visual" &&
         acquired.targetId !== null &&
@@ -800,8 +846,8 @@ const runVisualTargetLossChecks = (
         escapeState.routePurpose === "escape",
       detail:
         `acquired=${acquired?.targetId ?? "none"} / ` +
-        `17.9s=${beforeTimeout?.targetId ?? "none"} / ` +
-        `18.0s=${afterTimeout?.targetId ?? "none"} / ` +
+        `0.5s=${beforeTimeout?.targetId ?? "none"} / ` +
+        `1.0s=${afterTimeout?.targetId ?? "none"} / ` +
         `route=${escapeState.routePurpose ?? "none"} / ` +
         `location=${escapeState.zoneId ?? "none"}/${escapeState.bandId ?? "none"} / ` +
         `agent=${escapeState.agentState}`
@@ -811,13 +857,12 @@ const runVisualTargetLossChecks = (
     timeoutStage.dispose();
   }
 
-  let distanceSightBlocked = false;
   const distanceStage = createFixtureStage(
     fixture.scene,
     fixture.navigation,
     fixture.courtyardRef,
     fixture.pointInBand(fixture.courtyardRef, 0, 0),
-    () => distanceSightBlocked
+    () => false
   );
   const distanceRandom = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
   const distanceSystem = createSystem(
@@ -835,35 +880,30 @@ const runVisualTargetLossChecks = (
       targets,
       externalAlerts: EMPTY_ALERTS
     });
-    const acquired = distanceSystem.getTargetStates()[0];
-    distanceSightBlocked = true;
+    const acquired = distanceSystem.getFrameView().targetStates[0];
+    const movedTargets = createTargetRing(
+      "visual-distance",
+      origin,
+      3.18
+    );
     distanceSystem.update({
-      deltaSeconds: 0.05,
-      elapsedSeconds: 0.05,
-      targets,
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets: movedTargets,
       externalAlerts: EMPTY_ALERTS
     });
-    const beforeSightRefresh = distanceSystem.getTargetStates()[0];
-    distanceSystem.update({
-      deltaSeconds: 0.05,
-      elapsedSeconds: 0.1,
-      targets,
-      externalAlerts: EMPTY_ALERTS
-    });
-    const released = distanceSystem.getTargetStates()[0];
+    const released = distanceSystem.getFrameView().targetStates[0];
     const escapeState = getRequiredFlightState(distanceSystem);
     checks.push({
-      name: "visual遮蔽を10Hz視界更新の0.1秒以内に反映して逃走へ移行",
+      name: "visual標的は標準視認距離+0.5の3.17超で即時解除",
       ok:
         acquired?.provenance === "visual" &&
         acquired.targetId !== null &&
-        beforeSightRefresh?.targetId === acquired.targetId &&
         released?.targetId === null &&
         escapeState.routePurpose === "escape",
       detail:
-        `distance=2.65 / acquired=${acquired?.targetId ?? "none"} / ` +
-        `0.05s=${beforeSightRefresh?.targetId ?? "none"} / ` +
-        `0.10s=${released?.targetId ?? "none"} / ` +
+        `distance=3.18 / acquired=${acquired?.targetId ?? "none"} / ` +
+        `released=${released?.targetId ?? "none"} / ` +
         `route=${escapeState.routePurpose ?? "none"} / ` +
         `location=${escapeState.zoneId ?? "none"}/${escapeState.bandId ?? "none"} / ` +
         `agent=${escapeState.agentState}`
@@ -900,7 +940,7 @@ const runVisualTargetLossChecks = (
   try {
     const targets = Object.freeze(
       reacquisitionSystem
-        .getFlightStates()
+        .getFrameView().flightStates
         .flatMap((state) =>
           createTargetRing(
             `pending-escape-reacquisition-${state.bitId}`,
@@ -928,8 +968,8 @@ const runVisualTargetLossChecks = (
       targets: EMPTY_TARGETS,
       externalAlerts: EMPTY_ALERTS
     });
-    const releasedStates = reacquisitionSystem.getTargetStates();
-    const releasedFlights = reacquisitionSystem.getFlightStates();
+    const releasedStates = reacquisitionSystem.getFrameView().targetStates;
+    const releasedFlights = reacquisitionSystem.getFrameView().flightStates;
     const queuedEscapeCount = releasedFlights.filter(
       (state) => state.routePurpose !== "escape"
     ).length;
@@ -941,7 +981,7 @@ const runVisualTargetLossChecks = (
       externalAlerts: Object.freeze([reacquisitionAlert])
     });
     const reacquiredPositions = createInitialPositionMap(
-      reacquisitionSystem.getFlightStates()
+      reacquisitionSystem.getFrameView().flightStates
     );
     const reacquiredProgressIds = new Set<string>();
     for (let frameIndex = 0; frameIndex < 4; frameIndex += 1) {
@@ -952,13 +992,13 @@ const runVisualTargetLossChecks = (
         externalAlerts: EMPTY_ALERTS
       });
       recordFlightProgress(
-        reacquisitionSystem.getFlightStates(),
+        reacquisitionSystem.getFrameView().flightStates,
         reacquiredPositions,
         reacquiredProgressIds
       );
     }
-    const reacquiredTargets = reacquisitionSystem.getTargetStates();
-    const reacquiredFlights = reacquisitionSystem.getFlightStates();
+    const reacquiredTargets = reacquisitionSystem.getFrameView().targetStates;
+    const reacquiredFlights = reacquisitionSystem.getFrameView().flightStates;
     checks.push({
       name: "逃走予算待ち中のvisual再標的化で古い逃走要求を破棄し初回追跡を再優先",
       ok:
@@ -1022,16 +1062,10 @@ const runSightCheckBudgetCheck = (
     0.08
   );
   try {
-    const target = createTarget(
+    const stressFixture = createExternalAlertStressFixture(
       "sight-budget-target",
       fixture.pointInBand(fixture.courtyardRef, 0, 0)
     );
-    const targets = Object.freeze([target]);
-    const alert = Object.freeze({
-      leaderId: "sight-budget-external-leader",
-      targetId: target.id,
-      remainingSeconds: 1000
-    });
     forceNormalChase = true;
     for (
       let frameIndex = 0;
@@ -1041,9 +1075,9 @@ const runSightCheckBudgetCheck = (
       system.update({
         deltaSeconds: PERFORMANCE_DELTA_SECONDS,
         elapsedSeconds: frameIndex * PERFORMANCE_DELTA_SECONDS,
-        targets,
+        targets: stressFixture.targets,
         externalAlerts:
-          frameIndex === 0 ? Object.freeze([alert]) : EMPTY_ALERTS
+          frameIndex === 0 ? stressFixture.alerts : EMPTY_ALERTS
       });
     }
 
@@ -1060,7 +1094,7 @@ const runSightCheckBudgetCheck = (
         elapsedSeconds:
           (PERFORMANCE_WARMUP_TICKS + frameIndex) *
           PERFORMANCE_DELTA_SECONDS,
-        targets,
+        targets: stressFixture.targets,
         externalAlerts: EMPTY_ALERTS
       });
       maximumSightCastsPerUpdate = Math.max(
@@ -1068,7 +1102,7 @@ const runSightCheckBudgetCheck = (
         sightCastCount - beforeUpdate
       );
     }
-    const targetStates = system.getTargetStates();
+    const targetStates = system.getFrameView().targetStates;
     const maximumTotalSightCasts =
       99 *
         (PERFORMANCE_MEASURED_TICKS * PERFORMANCE_DELTA_SECONDS) /
@@ -1080,7 +1114,8 @@ const runSightCheckBudgetCheck = (
         targetStates.length === 99 &&
         targetStates.every(
           (state) =>
-            state.targetId === target.id &&
+            state.targetId !== null &&
+            stressFixture.targetIds.has(state.targetId) &&
             state.mode === "chase"
         ) &&
         sightCastCount > 0 &&
@@ -1142,8 +1177,8 @@ const runCarpetFormationChecks = (
         targets: Object.freeze([sameBandTarget]),
         externalAlerts: EMPTY_ALERTS
       });
-      const flightStates = system.getFlightStates();
-      const targetStates = system.getTargetStates();
+      const flightStates = system.getFrameView().flightStates;
+      const targetStates = system.getFrameView().targetStates;
       retainedFormation =
         retainedFormation &&
         flightStates.length === 3 &&
@@ -1180,8 +1215,8 @@ const runCarpetFormationChecks = (
       targets: Object.freeze([crossBandTarget]),
       externalAlerts: EMPTY_ALERTS
     });
-    const releasedStates = system.getFlightStates();
-    const releasedTargetStates = system.getTargetStates();
+    const releasedStates = system.getFrameView().flightStates;
+    const releasedTargetStates = system.getFrameView().targetStates;
     let releasedBeforeTransition =
       releasedStates.length === 1 &&
       releasedTargetStates.length === 1 &&
@@ -1202,14 +1237,14 @@ const runCarpetFormationChecks = (
         targets: Object.freeze([crossBandTarget]),
         externalAlerts: EMPTY_ALERTS
       });
-      const flightStates = system.getFlightStates();
+      const flightStates = system.getFrameView().flightStates;
       actorCountStayedReleased =
         actorCountStayedReleased && flightStates.length === 1;
       observedTransition = flightStates[0]?.activeTransition !== null;
       if (observedTransition) {
         releasedBeforeTransition =
           releasedBeforeTransition &&
-          system.getTargetStates()[0]?.mode === "chase";
+          system.getFrameView().targetStates[0]?.mode === "chase";
       }
     }
 
@@ -1582,7 +1617,7 @@ const runTransitionReturnSuppressionCheck = async (
   const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   try {
-    random.enqueue(0.2, 0.5, 0.2);
+    random.enqueue(0.2, 0.5, 0.5, 0.5, 0.5, 0.2);
     system.update({
       deltaSeconds: 0,
       elapsedSeconds: 0,
@@ -1699,7 +1734,7 @@ const runScriptedSearchChecks = async (
         normal.horizontalDelta > 1e-8 &&
         Math.abs(normal.verticalDelta) <= 1e-6 &&
         normal.movementDistance <=
-          SEARCH_SPEED * MICRO_DELTA_SECONDS + 1e-6 &&
+          NORMAL_PATROL_SPEED * MICRO_DELTA_SECONDS + 1e-6 &&
         inBand(normal),
       detail:
         `horizontal=${normal.horizontalDelta.toFixed(6)} / ` +
@@ -1727,7 +1762,7 @@ const runScriptedSearchChecks = async (
         diagonal.horizontalDelta > 1e-8 &&
         diagonal.verticalDelta > 0 &&
         diagonal.movementDistance <=
-          SEARCH_SPEED * MICRO_DELTA_SECONDS + 1e-6 &&
+          NORMAL_PATROL_SPEED * MICRO_DELTA_SECONDS + 1e-6 &&
         inBand(diagonal),
       detail:
         `horizontal=${diagonal.horizontalDelta.toFixed(6)} / ` +
@@ -1774,20 +1809,14 @@ const runCrossBandChasePerformanceCheck = (
   );
   try {
     const initialPositions = createInitialPositionMap(
-      system.getFlightStates()
+      system.getFrameView().flightStates
     );
     const progressedIds = new Set<string>();
     forceChaseMode = true;
-    const target = createTarget(
-      "cross-band-performance-target",
+    const stressFixture = createExternalAlertStressFixture(
+      "cross-band-performance",
       fixture.pointInBand(fixture.mezzanineRef, 0, 0)
     );
-    const targets = Object.freeze([target]);
-    const alert = Object.freeze({
-      leaderId: "cross-band-performance-leader",
-      targetId: target.id,
-      remainingSeconds: 1000
-    });
     for (
       let frameIndex = 0;
       frameIndex < PERFORMANCE_WARMUP_TICKS;
@@ -1796,12 +1825,12 @@ const runCrossBandChasePerformanceCheck = (
       system.update({
         deltaSeconds: PERFORMANCE_DELTA_SECONDS,
         elapsedSeconds: frameIndex * PERFORMANCE_DELTA_SECONDS,
-        targets,
+        targets: stressFixture.targets,
         externalAlerts:
-          frameIndex === 0 ? Object.freeze([alert]) : EMPTY_ALERTS
+          frameIndex === 0 ? stressFixture.alerts : EMPTY_ALERTS
       });
       recordFlightProgress(
-        system.getFlightStates(),
+        system.getFrameView().flightStates,
         initialPositions,
         progressedIds
       );
@@ -1819,20 +1848,20 @@ const runCrossBandChasePerformanceCheck = (
         elapsedSeconds:
           (PERFORMANCE_WARMUP_TICKS + frameIndex) *
           PERFORMANCE_DELTA_SECONDS,
-        targets,
+        targets: stressFixture.targets,
         externalAlerts: EMPTY_ALERTS
       });
       samples.push(performance.now() - startedAt);
       recordFlightProgress(
-        system.getFlightStates(),
+        system.getFrameView().flightStates,
         initialPositions,
         progressedIds
       );
     }
 
-    const actors = system.getActorSpheres();
-    const flightStates = system.getFlightStates();
-    const targetStates = system.getTargetStates();
+    const actors = system.getFrameView().actorSpheres;
+    const flightStates = system.getFrameView().flightStates;
+    const targetStates = system.getFrameView().targetStates;
     const observedCrossBandProgress = flightStates.some(
       (state) =>
         state.activeTransition !== null ||
@@ -1872,7 +1901,8 @@ const runCrossBandChasePerformanceCheck = (
           targetStates.length === 99 &&
           targetStates.every(
             (state) =>
-              state.targetId === target.id &&
+              state.targetId !== null &&
+              stressFixture.targetIds.has(state.targetId) &&
               state.provenance === "alert" &&
               state.mode === "chase"
           ) &&
@@ -1992,8 +2022,10 @@ const runSchoolPerformanceAndLifecycleChecks = async (
       0.08
     );
     try {
+      searchSystem.setDiagnosticsEnabled(true);
+      let maximumSearchRoutePlansPerUpdate = 0;
       const initialPositions = createInitialPositionMap(
-        searchSystem.getFlightStates()
+        searchSystem.getFrameView().flightStates
       );
       const progressedIds = new Set<string>();
       const firstProgressTickById = new Map<string, number>();
@@ -2008,8 +2040,13 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           targets: EMPTY_TARGETS,
           externalAlerts: EMPTY_ALERTS
         });
+        const frameView = searchSystem.getFrameView();
+        maximumSearchRoutePlansPerUpdate = Math.max(
+          maximumSearchRoutePlansPerUpdate,
+          frameView.diagnostics.routePlans.search
+        );
         recordFlightProgress(
-          searchSystem.getFlightStates(),
+          frameView.flightStates,
           initialPositions,
           progressedIds,
           firstProgressTickById,
@@ -2036,8 +2073,13 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           externalAlerts: EMPTY_ALERTS
         });
         samples.push(performance.now() - startedAt);
+        const frameView = searchSystem.getFrameView();
+        maximumSearchRoutePlansPerUpdate = Math.max(
+          maximumSearchRoutePlansPerUpdate,
+          frameView.diagnostics.routePlans.search
+        );
         recordFlightProgress(
-          searchSystem.getFlightStates(),
+          frameView.flightStates,
           initialPositions,
           progressedIds,
           firstProgressTickById,
@@ -2048,9 +2090,56 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           `${PERFORMANCE_MEASURED_TICKS}`;
         await yieldToBrowser();
       }
-      const actors = searchSystem.getActorSpheres();
-      const flightStates = searchSystem.getFlightStates();
+      const bruteForceSamples: number[] = [];
+      let bruteForceMaximumSample = Number.NEGATIVE_INFINITY;
+      let bruteForceMaximumFrameIndex = 0;
+      let bruteForceMaximumRoutePlans = 0;
+      let bruteForceMaximumRoutePlanMilliseconds = 0;
+      let bruteForceMaximumSphereSweeps = 0;
+      let bruteForceMaximumSphereSweepMilliseconds = 0;
+      for (
+        let frameIndex = 0;
+        frameIndex < PERFORMANCE_BRUTE_FORCE_MEASURED_TICKS;
+        frameIndex += 1
+      ) {
+        const startedAt = performance.now();
+        searchSystem.update({
+          deltaSeconds: PERFORMANCE_DELTA_SECONDS,
+          elapsedSeconds:
+            BRUTE_FORCE_START_SECONDS_FOR_ACCEPTANCE +
+            frameIndex * PERFORMANCE_DELTA_SECONDS,
+          targets: EMPTY_TARGETS,
+          externalAlerts: EMPTY_ALERTS
+        });
+        const sample = performance.now() - startedAt;
+        bruteForceSamples.push(sample);
+        const frameView = searchSystem.getFrameView();
+        if (sample > bruteForceMaximumSample) {
+          bruteForceMaximumSample = sample;
+          bruteForceMaximumFrameIndex = frameIndex;
+          bruteForceMaximumRoutePlans =
+            frameView.diagnostics.routePlans.search;
+          bruteForceMaximumRoutePlanMilliseconds =
+            frameView.diagnostics.routePlanMilliseconds.search;
+          bruteForceMaximumSphereSweeps =
+            frameView.diagnostics.sphereSweeps;
+          bruteForceMaximumSphereSweepMilliseconds =
+            frameView.diagnostics.sphereSweepMilliseconds;
+        }
+        maximumSearchRoutePlansPerUpdate = Math.max(
+          maximumSearchRoutePlansPerUpdate,
+          frameView.diagnostics.routePlans.search
+        );
+        document.title =
+          `T05学校受入: 99体総当たり探索 ${frameIndex + 1}/` +
+          `${PERFORMANCE_BRUTE_FORCE_MEASURED_TICKS}`;
+        await yieldToBrowser();
+      }
+      const actors = searchSystem.getFrameView().actorSpheres;
+      const flightStates = searchSystem.getFrameView().flightStates;
       const statistics = describeSamples(samples);
+      const bruteForceStatistics =
+        describeSamples(bruteForceSamples);
       const maximumProgressWaitTicks = Math.max(
         ...firstProgressTickById.values()
       );
@@ -2062,8 +2151,17 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           samples.every(
             (sample) => Number.isFinite(sample) && sample >= 0
           ) &&
+          bruteForceSamples.length ===
+            PERFORMANCE_BRUTE_FORCE_MEASURED_TICKS &&
+          bruteForceSamples.every(
+            (sample) => Number.isFinite(sample) && sample >= 0
+          ) &&
           statistics.p95 <= PERFORMANCE_P95_BUDGET_MILLISECONDS &&
           statistics.maximum <=
+            PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS &&
+          bruteForceStatistics.p95 <=
+            PERFORMANCE_P95_BUDGET_MILLISECONDS &&
+          bruteForceStatistics.maximum <=
             PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS &&
           actors.length === 99 &&
           actors.every(
@@ -2075,7 +2173,8 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           flightStates.length === 99 &&
           flightStates.every(isFiniteFlightState) &&
           progressedIds.size === initialPositions.size &&
-          firstProgressTickById.size === initialPositions.size,
+          firstProgressTickById.size === initialPositions.size &&
+          maximumSearchRoutePlansPerUpdate <= 4,
         detail:
           `transitions=${schoolNavigation.transitions.length} / ` +
           `tick=${PERFORMANCE_DELTA_SECONDS.toFixed(6)}s / ` +
@@ -2085,7 +2184,15 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           `p95=${statistics.p95.toFixed(3)}/${PERFORMANCE_P95_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
           `max=${statistics.maximum.toFixed(3)}/${PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
           `total=${statistics.total.toFixed(3)}ms / ` +
+          `bruteP95=${bruteForceStatistics.p95.toFixed(3)}ms / ` +
+          `bruteMax=${bruteForceStatistics.maximum.toFixed(3)}ms / ` +
+          `bruteMaxFrame=${bruteForceMaximumFrameIndex} / ` +
+          `bruteMaxPlans=${bruteForceMaximumRoutePlans}/` +
+          `${bruteForceMaximumRoutePlanMilliseconds.toFixed(3)}ms / ` +
+          `bruteMaxSweeps=${bruteForceMaximumSphereSweeps}/` +
+          `${bruteForceMaximumSphereSweepMilliseconds.toFixed(3)}ms / ` +
           `progressed=${progressedIds.size}/${initialPositions.size} / ` +
+          `maxPlans=${maximumSearchRoutePlansPerUpdate}/4 / ` +
           `maxWait=${maximumProgressWaitTicks}tick/` +
           `${(maximumProgressWaitTicks * PERFORMANCE_DELTA_SECONDS).toFixed(3)}s`
       });
@@ -2102,6 +2209,14 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         value:
           `${maximumProgressWaitTicks} tick / ` +
           `${(maximumProgressWaitTicks * PERFORMANCE_DELTA_SECONDS).toFixed(3)} s`
+      });
+      metrics.push({
+        label: "学校99体総当たり探索 update",
+        value:
+          `p50 ${bruteForceStatistics.p50.toFixed(3)} / ` +
+          `p95 ${bruteForceStatistics.p95.toFixed(3)} / ` +
+          `max ${bruteForceStatistics.maximum.toFixed(3)} / ` +
+          `total ${bruteForceStatistics.total.toFixed(3)} ms`
       });
     } finally {
       searchSystem.dispose();
@@ -2134,7 +2249,7 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     );
     try {
       const initialPositions = createInitialPositionMap(
-        chaseSystem.getFlightStates()
+        chaseSystem.getFrameView().flightStates
       );
       const progressedIds = new Set<string>();
       const firstProgressTickById = new Map<string, number>();
@@ -2142,16 +2257,10 @@ const runSchoolPerformanceAndLifecycleChecks = async (
       document.title =
         `T05学校受入: 99体追跡 warmup 0/${PERFORMANCE_WARMUP_TICKS}`;
       await yieldToBrowser();
-      const target = createTarget(
-        "school-adjacent-outdoor-target",
+      const stressFixture = createExternalAlertStressFixture(
+        "school-adjacent-outdoor",
         adjacentOutdoorTransition.toPosition.clone()
       );
-      const targets = Object.freeze([target]);
-      const alert = Object.freeze({
-        leaderId: "school-performance-external-leader",
-        targetId: target.id,
-        remainingSeconds: 1000
-      });
       let observedAdjacentVertical = false;
       for (
         let frameIndex = 0;
@@ -2161,12 +2270,12 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         chaseSystem.update({
           deltaSeconds: PERFORMANCE_DELTA_SECONDS,
           elapsedSeconds: frameIndex * PERFORMANCE_DELTA_SECONDS,
-          targets,
+          targets: stressFixture.targets,
           externalAlerts:
-            frameIndex === 0 ? Object.freeze([alert]) : EMPTY_ALERTS
+            frameIndex === 0 ? stressFixture.alerts : EMPTY_ALERTS
         });
         recordFlightProgress(
-          chaseSystem.getFlightStates(),
+          chaseSystem.getFrameView().flightStates,
           initialPositions,
           progressedIds,
           firstProgressTickById,
@@ -2175,7 +2284,7 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         observedAdjacentVertical =
           observedAdjacentVertical ||
           chaseSystem
-            .getFlightStates()
+            .getFrameView().flightStates
             .some(
               (state) =>
                 state.activeTransition?.id ===
@@ -2201,12 +2310,12 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           elapsedSeconds:
             (PERFORMANCE_WARMUP_TICKS + frameIndex) *
             PERFORMANCE_DELTA_SECONDS,
-          targets,
+          targets: stressFixture.targets,
           externalAlerts: EMPTY_ALERTS
         });
         samples.push(performance.now() - startedAt);
         recordFlightProgress(
-          chaseSystem.getFlightStates(),
+          chaseSystem.getFrameView().flightStates,
           initialPositions,
           progressedIds,
           firstProgressTickById,
@@ -2215,7 +2324,7 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         observedAdjacentVertical =
           observedAdjacentVertical ||
           chaseSystem
-            .getFlightStates()
+            .getFrameView().flightStates
             .some(
               (state) =>
                 state.activeTransition?.id ===
@@ -2228,9 +2337,9 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           `${PERFORMANCE_MEASURED_TICKS}`;
         await yieldToBrowser();
       }
-      const actors = chaseSystem.getActorSpheres();
-      const flightStates = chaseSystem.getFlightStates();
-      const targetStates = chaseSystem.getTargetStates();
+      const actors = chaseSystem.getFrameView().actorSpheres;
+      const flightStates = chaseSystem.getFrameView().flightStates;
+      const targetStates = chaseSystem.getFrameView().targetStates;
       const statistics = describeSamples(samples);
       const maximumProgressWaitTicks = Math.max(
         ...firstProgressTickById.values()
@@ -2257,7 +2366,9 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           targetStates.length === 99 &&
           targetStates.every(
             (state) =>
-              state.targetId === target.id && state.mode === "chase"
+              state.targetId !== null &&
+              stressFixture.targetIds.has(state.targetId) &&
+              state.mode === "chase"
           ) &&
           progressedIds.size === initialPositions.size &&
           firstProgressTickById.size === initialPositions.size &&
@@ -2303,18 +2414,21 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           elapsedSeconds:
             (measuredEndTick + frameIndex) *
             PERFORMANCE_DELTA_SECONDS,
-          targets,
+          targets: stressFixture.targets,
           externalAlerts: EMPTY_ALERTS
         });
       }
       const positionsBeforeLoss = createInitialPositionMap(
-        chaseSystem.getFlightStates()
+        chaseSystem.getFrameView().flightStates
       );
-      const unavailableTarget = Object.freeze({
-        ...target,
-        alive: false
-      });
-      const unavailableTargets = Object.freeze([unavailableTarget]);
+      const unavailableTargets = Object.freeze(
+        stressFixture.targets.map((target) =>
+          Object.freeze({
+            ...target,
+            alive: false
+          })
+        )
+      );
       const performanceElapsedSeconds =
         (
           measuredEndTick +
@@ -2340,9 +2454,9 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           }
         }
       };
-      recordEscapeStarts(chaseSystem.getFlightStates());
+      recordEscapeStarts(chaseSystem.getFrameView().flightStates);
       recordFlightProgress(
-        chaseSystem.getFlightStates(),
+        chaseSystem.getFrameView().flightStates,
         positionsBeforeLoss,
         escapeProgressedIds
       );
@@ -2364,9 +2478,9 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         lossRecoverySamples.push(
           performance.now() - recoveryStartedAt
         );
-        recordEscapeStarts(chaseSystem.getFlightStates());
+        recordEscapeStarts(chaseSystem.getFrameView().flightStates);
         recordFlightProgress(
-          chaseSystem.getFlightStates(),
+          chaseSystem.getFrameView().flightStates,
           positionsBeforeLoss,
           escapeProgressedIds
         );
@@ -2394,15 +2508,15 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         lossFollowUpSamples.push(
           performance.now() - followUpStartedAt
         );
-        recordEscapeStarts(chaseSystem.getFlightStates());
+        recordEscapeStarts(chaseSystem.getFrameView().flightStates);
         recordFlightProgress(
-          chaseSystem.getFlightStates(),
+          chaseSystem.getFrameView().flightStates,
           positionsBeforeLoss,
           escapeProgressedIds
         );
       }
-      const afterLossTargets = chaseSystem.getTargetStates();
-      const afterLossFlights = chaseSystem.getFlightStates();
+      const afterLossTargets = chaseSystem.getFrameView().targetStates;
+      const afterLossFlights = chaseSystem.getFrameView().flightStates;
       const lossRecoveryStatistics =
         describeSamples(lossRecoverySamples);
       const lossFollowUpStatistics =
@@ -2483,19 +2597,13 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     );
     try {
       const initialPositions = createInitialPositionMap(
-        mixedSystem.getFlightStates()
+        mixedSystem.getFrameView().flightStates
       );
       const progressedIds = new Set<string>();
-      const sameBandTarget = createTarget(
-        "school-mixed-carpet-target",
+      const sameBandStress = createExternalAlertStressFixture(
+        "school-mixed-carpet",
         adjacentOutdoorTransition.fromPosition.clone()
       );
-      const sameBandTargets = Object.freeze([sameBandTarget]);
-      const mixedAlert = Object.freeze({
-        leaderId: "school-mixed-carpet-external-leader",
-        targetId: sameBandTarget.id,
-        remainingSeconds: 1000
-      });
       assignMixedModes = true;
       let observedLeader = false;
       let observedFollower = false;
@@ -2503,11 +2611,11 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         mixedSystem.update({
           deltaSeconds: 0.1,
           elapsedSeconds: frameIndex * 0.1,
-          targets: sameBandTargets,
+          targets: sameBandStress.targets,
           externalAlerts:
-            frameIndex === 0 ? Object.freeze([mixedAlert]) : EMPTY_ALERTS
+            frameIndex === 0 ? sameBandStress.alerts : EMPTY_ALERTS
         });
-        const targetStates = mixedSystem.getTargetStates();
+        const targetStates = mixedSystem.getFrameView().targetStates;
         observedLeader =
           observedLeader ||
           targetStates.some((state) => state.mode === "carpet-leader");
@@ -2515,30 +2623,33 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           observedFollower ||
           targetStates.some((state) => state.mode === "carpet-follower");
         recordFlightProgress(
-          mixedSystem.getFlightStates(),
+          mixedSystem.getFrameView().flightStates,
           initialPositions,
           progressedIds
         );
       }
 
-      const crossBandTarget = createTarget(
-        sameBandTarget.id,
+      const crossBandStress = createExternalAlertStressFixture(
+        "school-mixed-carpet",
         adjacentOutdoorTransition.toPosition.clone()
       );
-      const crossBandTargets = Object.freeze([crossBandTarget]);
       assignMixedModes = false;
       forceMixedChase = true;
-      const brainwashedSameBandTarget = Object.freeze({
-        ...sameBandTarget,
-        brainwashed: true
-      });
+      const brainwashedSameBandTargets = Object.freeze(
+        sameBandStress.targets.map((target) =>
+          Object.freeze({
+            ...target,
+            brainwashed: true
+          })
+        )
+      );
       mixedSystem.update({
         deltaSeconds: 0.1,
         elapsedSeconds: 4,
-        targets: Object.freeze([brainwashedSameBandTarget]),
+        targets: brainwashedSameBandTargets,
         externalAlerts: EMPTY_ALERTS
       });
-      const releaseTargetStates = mixedSystem.getTargetStates();
+      const releaseTargetStates = mixedSystem.getFrameView().targetStates;
       let observedCrossBandTransition = false;
       let formationReleased =
         releaseTargetStates.length === 99 &&
@@ -2551,12 +2662,12 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         mixedSystem.update({
           deltaSeconds: 0.1,
           elapsedSeconds: 4.1 + frameIndex * 0.1,
-          targets: crossBandTargets,
+          targets: crossBandStress.targets,
           externalAlerts:
-            frameIndex === 0 ? Object.freeze([mixedAlert]) : EMPTY_ALERTS
+            frameIndex === 0 ? crossBandStress.alerts : EMPTY_ALERTS
         });
-        const flightStates = mixedSystem.getFlightStates();
-        const targetStates = mixedSystem.getTargetStates();
+        const flightStates = mixedSystem.getFrameView().flightStates;
+        const targetStates = mixedSystem.getFrameView().targetStates;
         observedCrossBandTransition =
           observedCrossBandTransition ||
           flightStates.some((state) => state.activeTransition !== null);

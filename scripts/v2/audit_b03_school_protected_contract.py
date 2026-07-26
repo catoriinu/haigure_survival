@@ -36,7 +36,7 @@ ALLOWED_NEW_EXACT_NAMES = {"NAV_Blocker_Interiors"}
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
 T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v09"
 T05_GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
-T05_GENERATOR_VERSION = "t05-1a-bit-flight-navigation-v02"
+T05_GENERATOR_VERSION = "t05-2-assembly-execution-v01"
 T04_ALLOWED_MISSING_EXACT_NAMES = {
     "COL_B03_Prop_Locker_Changing_F_01",
     "COL_B03_Prop_Locker_Changing_F_02",
@@ -134,6 +134,8 @@ T05_ALLOWED_CHANGED_EXACT_NAMES = {
     "VOL_BitSpawn_Courtyard",
 }
 T05_ALLOWED_NEW_EXACT_NAMES = {
+    "MRK_AssemblyAnchor_Courtyard",
+    "MRK_AssemblyAnchor_Gym",
     "NAV_BitFlight_ExteriorF1",
     "NAV_BitFlight_ExteriorF2",
     "NAV_BitFlight_ExteriorF3",
@@ -171,6 +173,8 @@ T05_ALLOWED_NEW_EXACT_NAMES = {
     "VOL_BitFlight_StairSWF1ToF2",
     "VOL_BitFlight_StairSWF2ToF3",
     "VOL_BitFlight_StairSWF3ToF4",
+    "VOL_Assembly_Courtyard",
+    "VOL_Assembly_Gym",
 }
 
 

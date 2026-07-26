@@ -46,6 +46,7 @@ import {
   createStageVolumeContainsSegmentQuery,
   STAGE_VOLUME_ROLES,
   type StageMovementColliderSets,
+  type StageSpatialQueryDiagnostics,
   type StageSpatialQueries,
   type StageVolume,
   type StageVolumeRole
@@ -75,6 +76,22 @@ export interface StageMarkerRegistry {
   getById(id: string): StageMarker | null;
   getByRole(role: StageMarkerRole): readonly StageMarker[];
   requireSingle(role: StageMarkerRole): StageMarker;
+}
+
+export type StageAssemblyVenue = Readonly<{
+  id: string;
+  anchor: StageMarker;
+  volume: StageVolume;
+  center: Vector3;
+  selectionWeight: number;
+  assemblyPositions: readonly Vector3[];
+  executionAudiencePositions: readonly Vector3[];
+  executionTargetPositions: readonly Vector3[];
+}>;
+
+export interface StageAssemblyVenueRegistry {
+  readonly all: readonly StageAssemblyVenue[];
+  getById(id: string): StageAssemblyVenue | null;
 }
 
 export type StageBoundary = Readonly<{
@@ -122,6 +139,7 @@ export type StageSpatialContext = Readonly<{
   bitNavigation: BitFlightNavigationWorld;
   markers: StageMarkerRegistry;
   volumes: StageVolumeRegistry;
+  assemblyVenues: StageAssemblyVenueRegistry;
   links: StageLinkRegistry;
   boundary: StageBoundary;
   queries: StageSpatialQueries;
@@ -200,6 +218,19 @@ type AuthoredBitFlightLinkEndpoint = Readonly<{
   node: TransformNode;
 }>;
 
+type AuthoredAssemblyAnchor = Readonly<{
+  marker: StageMarker;
+  selectionWeight: number;
+  assemblyPositions: readonly Vector3[];
+  executionAudiencePositions: readonly Vector3[];
+  executionTargetPositions: readonly Vector3[];
+}>;
+
+type AuthoredAssemblyVolume = Readonly<{
+  volume: StageVolume;
+  anchorId: string;
+}>;
+
 type StageAssetClassification = Readonly<{
   metadata: StageMetadata;
   visualMeshes: readonly Mesh[];
@@ -210,6 +241,8 @@ type StageAssetClassification = Readonly<{
   bitFlightNavSources: readonly BitFlightNavSource[];
   markers: readonly StageMarker[];
   volumes: readonly StageVolume[];
+  assemblyAnchors: readonly AuthoredAssemblyAnchor[];
+  assemblyVolumes: readonly AuthoredAssemblyVolume[];
   bitFlightTransitionVolumes: readonly AuthoredBitFlightTransitionVolume[];
   boundaryMesh: Mesh;
   portals: readonly StagePortal[];
@@ -297,6 +330,20 @@ const requireFiniteNumber = (
   const value = extras[property];
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new Error(`有限数が必要です: ${objectName}.${property}`);
+  }
+  return value;
+};
+
+const requireReferenceId = (
+  objectName: string,
+  extras: Extras,
+  property: string
+): string => {
+  const value = requireString(objectName, extras, property);
+  if (!KEBAB_CASE_ID_PATTERN.test(value)) {
+    throw new Error(
+      `参照IDは小文字kebab-caseで指定します: ${objectName}.${property}`
+    );
   }
   return value;
 };
@@ -395,18 +442,24 @@ const parseBitFlightRoutePoints = (
   if (!Object.prototype.hasOwnProperty.call(extras, "hs_route_points_json")) {
     return Object.freeze([]);
   }
-  const encoded = requireString(
+  return parseWorldPositionArrayJson(
     objectName,
     extras,
     "hs_route_points_json"
   );
+};
+
+const parseWorldPositionArrayJson = (
+  objectName: string,
+  extras: Extras,
+  property: string
+): readonly Vector3[] => {
+  const encoded = requireString(objectName, extras, property);
   let parsed: unknown;
   try {
     parsed = JSON.parse(encoded) as unknown;
   } catch {
-    throw new Error(
-      `通過点JSONを解析できません: ${objectName}.hs_route_points_json`
-    );
+    throw new Error(`座標JSONを解析できません: ${objectName}.${property}`);
   }
   if (
     !Array.isArray(parsed) ||
@@ -419,18 +472,18 @@ const parseBitFlightRoutePoints = (
     )
   ) {
     throw new Error(
-      `通過点には有限値3要素のJSON配列が必要です: ${objectName}.hs_route_points_json`
+      `座標には有限値3要素の非空JSON配列が必要です: ${objectName}.${property}`
     );
   }
   return Object.freeze(
-    parsed.map(
-      ([x, y, z]) =>
-        new Vector3(
-          -x * BLENDER_METERS_TO_WORLD_UNITS,
-          z * BLENDER_METERS_TO_WORLD_UNITS,
-          -y * BLENDER_METERS_TO_WORLD_UNITS
-        )
-    )
+    parsed.map((point) => {
+      const [x, y, z] = point as [number, number, number];
+      return new Vector3(
+        -x * BLENDER_METERS_TO_WORLD_UNITS,
+        z * BLENDER_METERS_TO_WORLD_UNITS,
+        -y * BLENDER_METERS_TO_WORLD_UNITS
+      );
+    })
   );
 };
 
@@ -575,24 +628,45 @@ const classifyNavSource = (mesh: Mesh): NavSource | BitFlightNavSource => {
   return { mesh, navSet, role, area: null };
 };
 
-const classifyVolume = (mesh: Mesh): StageVolume => {
+const classifyVolume = (
+  mesh: Mesh
+): Readonly<{
+  volume: StageVolume;
+  assemblyVolume: AuthoredAssemblyVolume | null;
+}> => {
   const extras = requireExtras(mesh);
   const role = requireEnum(mesh.name, extras, "hs_role", STAGE_VOLUME_ROLES);
   const isBitSpawn = role === "bit_spawn";
+  const isAssembly = role === "assembly";
   assertAllowedHsProperties(
     mesh.name,
     extras,
     isBitSpawn
       ? ["hs_id", "hs_role", "hs_zone_id", "hs_band_id"]
-      : ["hs_id", "hs_role"]
+      : isAssembly
+        ? ["hs_id", "hs_role", "hs_anchor_id"]
+        : ["hs_id", "hs_role"]
   );
-  return {
+  const volume: StageVolume = Object.freeze({
     id: requireId(mesh.name, extras),
     role,
     bitFlightBand: isBitSpawn
       ? parseBitFlightBandRef(mesh.name, extras, "hs")
       : null,
     mesh
+  });
+  return {
+    volume,
+    assemblyVolume: isAssembly
+      ? Object.freeze({
+          volume,
+          anchorId: requireReferenceId(
+            mesh.name,
+            extras,
+            "hs_anchor_id"
+          )
+        })
+      : null
   };
 };
 
@@ -721,14 +795,72 @@ const classifyMetadata = (
   return { schemaVersion, stageId, navProfileId, bitNavProfileId, node };
 };
 
-const classifyMarker = (node: TransformNode): StageMarker => {
+const classifyMarker = (
+  node: TransformNode
+): Readonly<{
+  marker: StageMarker;
+  assemblyAnchor: AuthoredAssemblyAnchor | null;
+}> => {
   const extras = requireExtras(node);
-  assertAllowedHsProperties(node.name, extras, ["hs_id", "hs_role"]);
+  const role = requireEnum(
+    node.name,
+    extras,
+    "hs_role",
+    STAGE_MARKER_ROLES
+  );
+  const isAssemblyAnchor = role === "assembly_anchor";
+  assertAllowedHsProperties(
+    node.name,
+    extras,
+    isAssemblyAnchor
+      ? [
+          "hs_id",
+          "hs_role",
+          "hs_selection_weight",
+          "hs_assembly_positions_json",
+          "hs_execution_audience_positions_json",
+          "hs_execution_target_positions_json"
+        ]
+      : ["hs_id", "hs_role"]
+  );
   assertUnitScale(node);
-  return {
+  const marker: StageMarker = Object.freeze({
     id: requireId(node.name, extras),
-    role: requireEnum(node.name, extras, "hs_role", STAGE_MARKER_ROLES),
+    role,
     node
+  });
+  if (!isAssemblyAnchor) {
+    return { marker, assemblyAnchor: null };
+  }
+  const selectionWeight = requireFiniteNumber(
+    node.name,
+    extras,
+    "hs_selection_weight"
+  );
+  if (selectionWeight <= 0) {
+    throw new Error(`集合会場の選択weightには正数が必要です: ${node.name}`);
+  }
+  return {
+    marker,
+    assemblyAnchor: Object.freeze({
+      marker,
+      selectionWeight,
+      assemblyPositions: parseWorldPositionArrayJson(
+        node.name,
+        extras,
+        "hs_assembly_positions_json"
+      ),
+      executionAudiencePositions: parseWorldPositionArrayJson(
+        node.name,
+        extras,
+        "hs_execution_audience_positions_json"
+      ),
+      executionTargetPositions: parseWorldPositionArrayJson(
+        node.name,
+        extras,
+        "hs_execution_target_positions_json"
+      )
+    })
   };
 };
 
@@ -1009,6 +1141,7 @@ const classifyStageAsset = (
   const navSources: NavSource[] = [];
   const bitFlightNavSources: BitFlightNavSource[] = [];
   const volumes: StageVolume[] = [];
+  const assemblyVolumes: AuthoredAssemblyVolume[] = [];
   const bitFlightTransitionVolumes: AuthoredBitFlightTransitionVolume[] = [];
   const boundaries: Array<{ id: "stage"; mesh: Mesh }> = [];
   const portals: StagePortal[] = [];
@@ -1053,7 +1186,11 @@ const classifyStageAsset = (
           classifyBitFlightTransitionVolume(mesh)
         );
       } else {
-        volumes.push(classifyVolume(mesh));
+        const classified = classifyVolume(mesh);
+        volumes.push(classified.volume);
+        if (classified.assemblyVolume) {
+          assemblyVolumes.push(classified.assemblyVolume);
+        }
       }
     } else if (mesh.name === "BND_Stage") {
       const boundary = classifyBoundary(mesh);
@@ -1071,6 +1208,7 @@ const classifyStageAsset = (
 
   const metadataEntries: StageMetadata[] = [];
   const markers: StageMarker[] = [];
+  const assemblyAnchors: AuthoredAssemblyAnchor[] = [];
   const links: AuthoredStageLinkEndpoint[] = [];
   const bitFlightLinks: AuthoredBitFlightLinkEndpoint[] = [];
   for (const node of authoredEmptyNodes) {
@@ -1079,7 +1217,11 @@ const classifyStageAsset = (
       metadataEntries.push(classifyMetadata(node, stage));
     } else if (node.name.startsWith("MRK_")) {
       assertNameHasSuffix(node.name, "MRK_");
-      markers.push(classifyMarker(node));
+      const classified = classifyMarker(node);
+      markers.push(classified.marker);
+      if (classified.assemblyAnchor) {
+        assemblyAnchors.push(classified.assemblyAnchor);
+      }
     } else if (node.name.startsWith("LNK_")) {
       const link = classifyLink(node);
       if ("band" in link) {
@@ -1134,6 +1276,8 @@ const classifyStageAsset = (
     bitFlightNavSources,
     markers,
     volumes,
+    assemblyAnchors,
+    assemblyVolumes,
     bitFlightTransitionVolumes,
     boundaryMesh: boundaries[0].mesh,
     portals,
@@ -1184,6 +1328,109 @@ const createVolumeRegistry = (
     all,
     getById: (id: string) => byId.get(id) ?? null,
     getByRole: (role: StageVolumeRole) => byRole.get(role)!
+  });
+};
+
+const createAssemblyVenueRegistry = (
+  authoredAnchors: readonly AuthoredAssemblyAnchor[],
+  authoredVolumes: readonly AuthoredAssemblyVolume[],
+  boundary: StageBoundary
+): StageAssemblyVenueRegistry => {
+  const volumeByAnchorId = new Map<string, AuthoredAssemblyVolume>();
+  for (const authoredVolume of authoredVolumes) {
+    if (volumeByAnchorId.has(authoredVolume.anchorId)) {
+      throw new Error(
+        `集合会場anchorへ複数のVOL_*が対応しています: ${authoredVolume.anchorId}`
+      );
+    }
+    volumeByAnchorId.set(authoredVolume.anchorId, authoredVolume);
+  }
+
+  const anchorIds = new Set(
+    authoredAnchors.map((authoredAnchor) => authoredAnchor.marker.id)
+  );
+  for (const authoredVolume of authoredVolumes) {
+    if (!anchorIds.has(authoredVolume.anchorId)) {
+      throw new Error(
+        `集合会場VOL_*の参照先anchorがありません: ${authoredVolume.volume.mesh.name}`
+      );
+    }
+  }
+
+  const venues = authoredAnchors.map((authoredAnchor) => {
+    const authoredVolume = volumeByAnchorId.get(authoredAnchor.marker.id);
+    if (!authoredVolume) {
+      throw new Error(
+        `assembly_anchorへ対応するVOL_*がありません: ${authoredAnchor.marker.node.name}`
+      );
+    }
+    if (
+      authoredAnchor.assemblyPositions.length !==
+      authoredAnchor.executionAudiencePositions.length +
+        authoredAnchor.executionTargetPositions.length
+    ) {
+      throw new Error(
+        `集合人数と公開処刑人数の合計が一致しません: ${authoredAnchor.marker.node.name}`
+      );
+    }
+
+    authoredAnchor.marker.node.computeWorldMatrix(true);
+    const center = authoredAnchor.marker.node.getAbsolutePosition().clone();
+    const containsVolume = createStageBoundaryContainsQuery(
+      authoredVolume.volume.mesh
+    );
+    if (!containsVolume(center)) {
+      throw new Error(
+        `assembly_anchorが対応VOL_*の外側です: ${authoredAnchor.marker.node.name}`
+      );
+    }
+
+    const positionGroups = [
+      ["hs_assembly_positions_json", authoredAnchor.assemblyPositions],
+      [
+        "hs_execution_audience_positions_json",
+        authoredAnchor.executionAudiencePositions
+      ],
+      [
+        "hs_execution_target_positions_json",
+        authoredAnchor.executionTargetPositions
+      ]
+    ] as const;
+    for (const [property, positions] of positionGroups) {
+      for (const position of positions) {
+        if (!containsVolume(position)) {
+          throw new Error(
+            `作者座標が対応VOL_*の外側です: ${authoredAnchor.marker.node.name}.${property}`
+          );
+        }
+        if (!boundary.contains(position)) {
+          throw new Error(
+            `作者座標がBND_Stageの外側です: ${authoredAnchor.marker.node.name}.${property}`
+          );
+        }
+      }
+    }
+
+    return Object.freeze({
+      id: authoredAnchor.marker.id,
+      anchor: authoredAnchor.marker,
+      volume: authoredVolume.volume,
+      center,
+      selectionWeight: authoredAnchor.selectionWeight,
+      assemblyPositions: authoredAnchor.assemblyPositions,
+      executionAudiencePositions:
+        authoredAnchor.executionAudiencePositions,
+      executionTargetPositions: authoredAnchor.executionTargetPositions
+    });
+  });
+  venues.sort((left, right) =>
+    left.id < right.id ? -1 : left.id > right.id ? 1 : 0
+  );
+  const all = Object.freeze(venues);
+  const byId = new Map(all.map((venue) => [venue.id, venue]));
+  return Object.freeze({
+    all,
+    getById: (id: string) => byId.get(id) ?? null
   });
 };
 
@@ -1539,9 +1786,14 @@ const loadGlbContainer = async (
   return SceneLoader.LoadAssetContainerAsync("", file, scene, null, ".glb");
 };
 
+export type StageSpatialContextLoadOptions = Readonly<{
+  queryDiagnostics?: StageSpatialQueryDiagnostics;
+}>;
+
 export const loadStageSpatialContext = async (
   scene: Scene,
-  stage: StageCatalogEntry
+  stage: StageCatalogEntry,
+  options: StageSpatialContextLoadOptions = {}
 ): Promise<StageSpatialContext> => {
   assertCatalogEntry(stage);
   const [glbData, navmeshData, bitNavmeshData] = await Promise.all([
@@ -1653,7 +1905,8 @@ export const loadStageSpatialContext = async (
         groundColliders: resources.normalColliders,
         beamBlockers,
         sightBlockers,
-        volumes: volumes.all
+        volumes: volumes.all,
+        diagnostics: options.queryDiagnostics
       }
     );
     const boundary: StageBoundary = Object.freeze({
@@ -1669,6 +1922,11 @@ export const loadStageSpatialContext = async (
       links.all,
       classification.bitFlightLinks
     );
+    const assemblyVenues = createAssemblyVenueRegistry(
+      classification.assemblyAnchors,
+      classification.assemblyVolumes,
+      boundary
+    );
 
     let disposed = false;
     const ownedContainer = container;
@@ -1683,6 +1941,7 @@ export const loadStageSpatialContext = async (
       bitNavigation: ownedBitNavigation,
       markers,
       volumes,
+      assemblyVenues,
       links,
       boundary,
       queries: ownedQueries,

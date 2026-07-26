@@ -1,5 +1,6 @@
 import {
   Color3,
+  InstancedMesh,
   Mesh,
   MeshBuilder,
   Scene,
@@ -39,6 +40,7 @@ import {
   createBitFlightExplorationHistory,
   createBitFlightSearchRoutePolicy,
   createBitFlightTransitionHistory,
+  type BitFlightExplorationSample,
   type BitFlightExplorationHistory,
   type BitFlightTransitionHistory
 } from "../world/bitFlightTactics";
@@ -55,6 +57,25 @@ import type {
   V2HumanTargetSnapshot,
   V2TargetProvenance
 } from "./combatTypes";
+import { isV2HitState } from "./combatTypes";
+import {
+  V2_BIT_ALERT_DURATION_SECONDS,
+  V2_BIT_ATTACK_COOLDOWN_SECONDS,
+  V2_BIT_CARPET_PASS_DURATION_SECONDS,
+  V2_BIT_CHASE_DURATION_SECONDS,
+  V2_BIT_FIRE_TELEGRAPH_SECONDS,
+  V2_BIT_FIXED_DURATION_SECONDS,
+  V2_BIT_RANDOM_DURATION_SECONDS,
+  V2_BIT_RED_HOLD_SECONDS,
+  V2_STANDARD_BIT_COMBAT_PROFILE,
+  createV2BitCombatProfile,
+  randomV2BitFireInterval,
+  selectV2BitCombatMode,
+  selectV2BitPostAlertMode,
+  type V2BitCombatMode,
+  type V2BitCombatProfile,
+  type V2BitPostAlertMode
+} from "./bitCombatProfile";
 import { createV2HumanTargetSpatialIndex } from "./humanTargetSpatialIndex";
 
 const BIT_BODY_HEIGHT = 0.15;
@@ -63,50 +84,105 @@ const BIT_MUZZLE_DIAMETER = 0.03;
 const BIT_MUZZLE_OFFSET = BIT_BODY_HEIGHT / 2 + 0.02;
 const BIT_ACTOR_RADIUS = BIT_FLIGHT_BODY_RADIUS_WORLD_UNITS;
 
-const VISION_RANGE = 2.67;
-const VISION_COSINE = Math.cos((100 * Math.PI) / 180);
-const SEARCH_SPEED = 0.25;
+const PROFILE_SEARCH_SPEED_REFERENCE = 0.25;
+const NORMAL_PATROL_SPEED = 0.3;
 const SEARCH_VERTICAL_SPEED = 0.06;
-const CHASE_SPEED = 0.22;
-const CHASE_OUT_OF_RANGE_SPEED = 0.25;
-const CARPET_SPEED = 0.75;
-const SEARCH_RADIUS = 2.4;
+const NORMAL_PATROL_RADIUS = 3;
+const RANDOM_ATTACK_SEARCH_RADIUS = 2.4;
 const SEARCH_RETRY_SECONDS = 0.5;
-const SEARCH_SEGMENT_SECONDS_MIN = 1.2;
-const SEARCH_SEGMENT_SECONDS_MAX = 2.4;
+const RANDOM_ATTACK_ROUTE_SECONDS_MIN = 1.2;
+const RANDOM_ATTACK_ROUTE_SECONDS_MAX = 2.4;
+const NORMAL_PATROL_CANDIDATE_COUNT = 4;
+const NORMAL_PATROL_ROUTE_CANDIDATE_LIMIT = 3;
+const NORMAL_PATROL_MINIMUM_HORIZONTAL_DISTANCE = 1.2;
+const NORMAL_PATROL_RESERVATION_RADIUS = 1;
+const NORMAL_PATROL_REVERSE_PENALTY = 2;
 const SEARCH_TRANSITION_CHANCE = 0.25;
 const SEARCH_NEAR_TRANSITION_DISTANCE = 0.75;
 const SEARCH_TRANSITION_CANDIDATE_LIMIT = 1;
 const SEARCH_TRANSITION_FORCE_AFTER_SURFACE_PLANS = 3;
 const SEARCH_ROUTE_PLAN_BUDGET_PER_UPDATE = 4;
 const CHASE_ROUTE_PLAN_BUDGET_PER_UPDATE = 4;
-const ESCAPE_ROUTE_PLAN_BUDGET_PER_UPDATE = 4;
+const ESCAPE_ROUTE_PLAN_BUDGET_PER_UPDATE = 3;
 const SEARCH_OBSERVATION_INTERVAL_SECONDS = 1;
 const SEARCH_OBSERVATION_RADIUS = 0.8;
 const SEARCH_EXPLORED_DESTINATION_PENALTY = 1.5;
 const SEARCH_ORDINARY_TRANSITION_PENALTY = 0.4;
+const BRUTE_FORCE_START_SECONDS = 40;
+const BRUTE_FORCE_CHECK_INTERVAL_SECONDS = 10;
+const BRUTE_FORCE_START_CHANCE = 0.25;
+const BRUTE_FORCE_LOCAL_CANDIDATE_COUNT = 3;
+const BRUTE_FORCE_FRONTIER_CANDIDATE_COUNT = 1;
+const BRUTE_FORCE_TRANSITION_CANDIDATE_COUNT = 1;
+const BRUTE_FORCE_SURFACE_ROUTE_CANDIDATE_LIMIT = 3;
+const BRUTE_FORCE_FRONTIER_STEP = 1;
+const BRUTE_FORCE_FRONTIER_DIAGONAL_STEP =
+  BRUTE_FORCE_FRONTIER_STEP * Math.SQRT1_2;
+const BRUTE_FORCE_FRONTIER_OFFSETS = Object.freeze([
+  new Vector3(BRUTE_FORCE_FRONTIER_STEP, 0, 0),
+  new Vector3(-BRUTE_FORCE_FRONTIER_STEP, 0, 0),
+  new Vector3(0, 0, BRUTE_FORCE_FRONTIER_STEP),
+  new Vector3(0, 0, -BRUTE_FORCE_FRONTIER_STEP),
+  new Vector3(
+    BRUTE_FORCE_FRONTIER_DIAGONAL_STEP,
+    0,
+    BRUTE_FORCE_FRONTIER_DIAGONAL_STEP
+  ),
+  new Vector3(
+    -BRUTE_FORCE_FRONTIER_DIAGONAL_STEP,
+    0,
+    BRUTE_FORCE_FRONTIER_DIAGONAL_STEP
+  ),
+  new Vector3(
+    BRUTE_FORCE_FRONTIER_DIAGONAL_STEP,
+    0,
+    -BRUTE_FORCE_FRONTIER_DIAGONAL_STEP
+  ),
+  new Vector3(
+    -BRUTE_FORCE_FRONTIER_DIAGONAL_STEP,
+    0,
+    -BRUTE_FORCE_FRONTIER_DIAGONAL_STEP
+  )
+]);
 const TRANSITION_IMMEDIATE_RETURN_PENALTY = 8;
 const TARGET_ROUTE_REFRESH_SECONDS = 0.5;
 const TARGET_ROUTE_MOVE_THRESHOLD = 0.2;
 const TARGET_BAND_VERTICAL_TOLERANCE = 0.1;
 const TARGET_BAND_PROJECTION_TOLERANCE = 0.01;
+const TARGET_LOCATION_CANDIDATE_CACHE_MAX_ENTRIES = 4_096;
+export const V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES = 4_096;
 const TARGET_SIGHT_CHECK_INTERVAL_SECONDS = 0.1;
 const TARGET_SIGHT_CHECK_MAXIMUM_SHARE_PER_UPDATE = 1 / 3;
 const TARGET_LOST_TIMEOUT_SECONDS = 18;
-const TARGET_LOST_MAXIMUM_DISTANCE = 2.6;
+const TARGET_LOST_DISTANCE_MARGIN = 0.5;
+const CHASE_WINDOW_CONGESTION_COST = 0.75;
+const CHASE_WINDOW_FAILURE_COST = 6;
+const CHASE_WINDOW_FAILURE_PENALTY_SECONDS = 3;
 const ESCAPE_DESIRED_DISTANCE_GAIN = 0.8;
 const ESCAPE_VISIBLE_DESTINATION_PENALTY = 2;
 const ESCAPE_DISTANCE_GAIN_PENALTY = 2;
 const FIRE_RANGE = 1.2;
-const FIRE_INTERVAL_MIN = 2.4;
-const FIRE_INTERVAL_MAX = 3.2;
 const BEAM_SPEED = 1.58;
 const BEAM_MAXIMUM_LIFETIME = 20;
 const BOB_AMPLITUDE = 0.03;
 const CARPET_FORMATION_SPACING = 0.25;
-const CARPET_MODE_CHANCE = 0.1;
-const ALERT_CARPET_MODE_CHANCE = 0.2;
 const CARPET_PROJECTION_TOLERANCE = 0.04;
+const CARPET_WALL_COOLDOWN_SECONDS = 2.5;
+const CARPET_TARGET_HEIGHT_OFFSET = 1.2;
+const CARPET_HEIGHT_SPEED = 0.35;
+const CARPET_AIM_SCATTER_RADIANS = 0.35;
+const CARPET_TURN_RATE = Math.PI * 0.35;
+const CARPET_STEER_STRENGTH = 0.18;
+const CARPET_AIM_TURN_SECONDS = 1;
+const CARPET_AIM_BLEND = 0.2;
+const CARPET_FOLLOWER_FADE_SECONDS = 1;
+const LEGACY_CARPET_MODE_CHANCE = 0.1;
+const LEGACY_ALERT_CARPET_MODE_CHANCE = 0.2;
+const ALERT_GATHER_TARGET_COUNT = 4;
+const EXTERNAL_ALERT_RECEIVER_LIMIT = 4;
+const ALERT_GATHER_RADIUS = 0.5;
+const ALERT_SPAWN_RADIUS = 0.2;
+const ALERT_SPAWN_MAX_ATTEMPTS = 8;
 const LOCATION_PROJECTION_DISTANCE = 0.75;
 const HEIGHT_PROBE_DISTANCE = 5;
 const HEIGHT_SAMPLE_COUNT = 9;
@@ -118,6 +194,11 @@ const BIT_FLIGHT_AGENT_CONFIG = Object.freeze({
 export type V2BitMode =
   | "search"
   | "chase"
+  | "fixed"
+  | "random"
+  | "alert-send"
+  | "alert-receive"
+  | "hold"
   | "carpet-leader"
   | "carpet-follower";
 
@@ -126,6 +207,7 @@ export type V2BitSystemConfig = Readonly<{
   minimumSpawnDistance: number;
   spawnMaxAttempts: number;
   spawnProjectionMaxDistance: number;
+  combatEnabled: boolean;
   random: () => number;
 }>;
 
@@ -139,9 +221,19 @@ export type V2BitSystemUpdateInput = Readonly<{
 export type V2BitTargetState = Readonly<{
   bitId: string;
   mode: V2BitMode;
+  isRed: boolean;
+  statMultiplier: number;
+  modeTimerSeconds: number;
+  attackCooldownSeconds: number;
+  carpetCooldownSeconds: number;
   targetId: string | null;
   provenance: V2TargetProvenance | null;
   alertLeaderId: string | null;
+}>;
+
+export type V2BitPlacementAssignment = Readonly<{
+  id: string;
+  centerPosition: Vector3;
 }>;
 
 export type V2BitRoutePurpose = "search" | "chase" | "escape";
@@ -162,13 +254,76 @@ export type V2BitFlightState = Readonly<{
   agentState: BitFlightAgentState;
 }>;
 
+export type V2BitSystemDiagnostics = Readonly<{
+  enabled: boolean;
+  routePlans: Readonly<{
+    search: number;
+    chase: number;
+    escape: number;
+  }>;
+  routePlanMilliseconds: Readonly<{
+    search: number;
+    chase: number;
+    escape: number;
+  }>;
+  sightRays: number;
+  sphereSweeps: number;
+  sphereSweepMilliseconds: number;
+  beamRequests: number;
+  routeSafetyCache: V2BitRouteSafetyCacheDiagnostics;
+}>;
+
+export type V2BitRouteSafetyCacheEntryDiagnostics = Readonly<{
+  size: number;
+  hits: number;
+  misses: number;
+  recomputations: number;
+  evictions: number;
+}>;
+
+export type V2BitRouteSafetyCacheDiagnostics = Readonly<{
+  maximumEntriesPerMap: number;
+  routeStepDescriptors: Readonly<{
+    created: number;
+    reused: number;
+  }>;
+  routeSteps: V2BitRouteSafetyCacheEntryDiagnostics;
+  routeCenters: V2BitRouteSafetyCacheEntryDiagnostics;
+  routeSegments: V2BitRouteSafetyCacheEntryDiagnostics;
+  lowCeilingCruiseHeights: V2BitRouteSafetyCacheEntryDiagnostics;
+}>;
+
+export type V2BitFrameView = Readonly<{
+  actorSpheres: readonly V2ActorSphere[];
+  beamRequests: readonly V2BeamRequest[];
+  targetStates: readonly V2BitTargetState[];
+  flightStates: readonly V2BitFlightState[];
+  diagnostics: V2BitSystemDiagnostics;
+}>;
+
+type V2BitFlightStateSource = Readonly<{
+  actor: V2ActorSphere;
+  zoneId: BitFlightZoneId | null;
+  bandId: BitFlightBandId | null;
+  safeCenterHeight: number | null;
+  heightMode: BitFlightHeightMode | null;
+  routePurpose: V2BitRoutePurpose | null;
+  activeTransitionId: string | null;
+  activeTransitionKind: BitFlightTransitionKind | null;
+  activeTransitionReversed: boolean;
+  agentState: BitFlightAgentState;
+}>;
+
 export interface V2BitSystem {
   update(input: V2BitSystemUpdateInput): void;
-  getActorSpheres(): readonly V2ActorSphere[];
-  getBeamRequests(): readonly V2BeamRequest[];
   takeAlertRequests(): readonly V2AlertRequest[];
-  getTargetStates(): readonly V2BitTargetState[];
-  getFlightStates(): readonly V2BitFlightState[];
+  getFrameView(): V2BitFrameView;
+  setDiagnosticsEnabled(enabled: boolean): void;
+  notifyBeamImpact(sourceId: string, targetId: string): boolean;
+  prepareForScriptedPhase(): void;
+  setAiSuspended(suspended: boolean): void;
+  setVisible(visible: boolean): void;
+  placeBits(assignments: readonly V2BitPlacementAssignment[]): void;
   dispose(): void;
 }
 
@@ -176,24 +331,61 @@ type ActiveAlert = {
   leaderId: string;
   targetId: string;
   remainingSeconds: number;
+  receiverIds: Set<string>;
+  gatheredIds: Set<string>;
+  internalBitAlert: boolean;
 };
+
+type SearchRouteKind = "normal" | "random" | "brute-force";
+type ChaseRouteUpdateState =
+  | "moving"
+  | "arrived"
+  | "replan"
+  | "unreachable";
+
+type SearchSurfaceDestination = Readonly<{
+  destination: BitFlightLocation;
+  surfaceSpeed: number;
+  isVertical: boolean;
+}>;
+
+type BruteForceRouteCandidate = SafeRouteInputCandidate<
+  Readonly<{ surfaceSpeed: number }>
+>;
+
+type NormalPatrolLeg = SafeRouteCandidate<
+  Readonly<{ surfaceSpeed: number }>
+> &
+  Readonly<{
+  origin: BitFlightLocation;
+  }>;
 
 type RuntimeBit = {
   id: string;
   root: TransformNode;
-  body: Mesh;
-  muzzle: Mesh;
+  body: InstancedMesh;
+  muzzle: InstancedMesh;
+  profile: V2BitCombatProfile;
   flightAgent: BitFlightAgent;
   navigationLocation: BitFlightLocation | null;
   routePurpose: V2BitRoutePurpose | null;
   routeDestination: BitFlightLocation | null;
   routeRefreshSeconds: number;
-  searchSegmentSeconds: number;
+  searchRouteKind: SearchRouteKind | null;
+  normalPatrolOrigin: BitFlightLocation | null;
+  queuedNormalPatrolLeg: NormalPatrolLeg | null;
+  randomAttackRouteSeconds: number;
   searchSurfaceSpeed: number;
   searchRetrySeconds: number;
   hasAttemptedSearchRoute: boolean;
   searchTransitionCursor: number;
   searchSurfacePlansSinceTransitionAttempt: number;
+  bruteForceActive: boolean;
+  bruteForceNextCheckSeconds: number;
+  bruteForcePhaseCursor: number;
+  bruteForceFrontierCursor: number;
+  bruteForceTransitionCursor: number;
+  bruteForceFailedTransitionCandidateCount: number;
   lastExplorationRecordSeconds: number;
   transitionHistory: BitFlightTransitionHistory;
   activeTransition: BitFlightTransitionTraversal | null;
@@ -205,13 +397,37 @@ type RuntimeBit = {
   lastSeenAimPosition: Vector3 | null;
   lastSeenDestination: BitFlightLocation | null;
   lastChasePlanTargetId: string | null;
+  chaseWindowTransitionId: string | null;
+  failedChaseWindowTransitionId: string | null;
+  failedChaseWindowPenaltySeconds: number;
   pendingEscapeThreatPosition: Vector3 | null;
   sightTargetId: string | null;
   sightTargetVisible: boolean;
   targetLostSeconds: number;
+  modeTimerSeconds: number;
+  attackCooldownSeconds: number;
+  carpetCooldownSeconds: number;
   fireSeconds: number;
+  fireTelegraphSeconds: number;
+  fireLockDirection: Vector3;
+  lockedDirection: Vector3;
+  postAlertMode: V2BitPostAlertMode | null;
+  holdReturnMode: V2BitMode | null;
+  holdTargetId: string | null;
+  holdTimerSeconds: number;
+  lastHoldTargetId: string | null;
+  carpetPassSeconds: number;
   carpetLeaderId: string | null;
   carpetOffset: number;
+  carpetAimStartDirection: Vector3;
+  carpetAimSeconds: number;
+};
+
+type FadingCarpetFollower = {
+  root: TransformNode;
+  body: Mesh;
+  muzzle: Mesh;
+  remainingSeconds: number;
 };
 
 type SpawnRegion = Readonly<{
@@ -227,6 +443,32 @@ type SafeRouteCandidate<T> = Readonly<{
   destination: BitFlightLocation;
   route: BitFlightRoute;
   totalCost: number;
+}>;
+
+declare const SAFE_ROUTE_COST_BIAS: unique symbol;
+type SafeRouteCostBias = number & {
+  readonly [SAFE_ROUTE_COST_BIAS]: true;
+};
+
+const ZERO_SAFE_ROUTE_COST_BIAS = 0 as SafeRouteCostBias;
+
+const measureHorizontalProjectionError = (
+  projected: Vector3,
+  original: Vector3
+) =>
+  Math.hypot(
+    projected.x - original.x,
+    projected.z - original.z
+  ) as SafeRouteCostBias;
+
+type SafeRouteInputCandidate<T> = Readonly<{
+  value: T;
+  destination: BitFlightLocation;
+  /**
+   * 実利用値は投影座標との差を表すMath.hypot、または0。
+   * いずれも有限かつ非負であり、経路候補の順序付けにだけ加算する。
+   */
+  costBias: SafeRouteCostBias;
 }>;
 
 const assertNonNegativeInteger = (name: string, value: number) => {
@@ -274,6 +516,9 @@ const assertConfig = (config: V2BitSystemConfig) => {
     "spawnProjectionMaxDistance",
     config.spawnProjectionMaxDistance
   );
+  if (typeof config.combatEnabled !== "boolean") {
+    throw new Error("combatEnabledにはbooleanが必要です。");
+  }
   if (typeof config.random !== "function") {
     throw new Error("randomには0以上1未満を返す関数が必要です。");
   }
@@ -321,37 +566,46 @@ const getTraversalEntryEvaluationPosition = (
 
 const createSharedMaterials = (scene: Scene) => {
   let body: StandardMaterial | null = null;
+  let redBody: StandardMaterial | null = null;
   let muzzle: StandardMaterial | null = null;
   try {
     body = new StandardMaterial("v2BitBodyMaterial", scene);
     body.diffuseColor = new Color3(0.08, 0.08, 0.09);
     body.specularColor = new Color3(0.35, 0.35, 0.4);
 
+    redBody = new StandardMaterial("v2RedBitBodyMaterial", scene);
+    redBody.diffuseColor = new Color3(0.72, 0.04, 0.06);
+    redBody.emissiveColor = new Color3(0.24, 0.01, 0.01);
+    redBody.specularColor = new Color3(0.55, 0.18, 0.18);
+
     muzzle = new StandardMaterial("v2BitMuzzleMaterial", scene);
     muzzle.diffuseColor = new Color3(1, 0.18, 0.74);
     muzzle.emissiveColor = new Color3(0.7, 0.06, 0.42);
     muzzle.specularColor = Color3.Black();
 
-    return { body, muzzle };
+    return { body, redBody, muzzle };
   } catch (error) {
     muzzle?.dispose();
+    redBody?.dispose();
     body?.dispose();
     throw error;
   }
 };
 
-const createBitVisual = (
+const createSharedVisualSources = (
   scene: Scene,
-  materials: Readonly<{ body: StandardMaterial; muzzle: StandardMaterial }>,
-  id: string
+  materials: Readonly<{
+    body: StandardMaterial;
+    redBody: StandardMaterial;
+    muzzle: StandardMaterial;
+  }>
 ) => {
-  let root: TransformNode | null = null;
   let body: Mesh | null = null;
+  let redBody: Mesh | null = null;
   let muzzle: Mesh | null = null;
   try {
-    root = new TransformNode(id, scene);
     body = MeshBuilder.CreateCylinder(
-      `${id}_body`,
+      "v2BitBodySource",
       {
         diameterTop: 0,
         diameterBottom: BIT_BODY_DIAMETER,
@@ -360,19 +614,60 @@ const createBitVisual = (
       },
       scene
     );
-    body.parent = root;
     body.rotation.x = Math.PI / 2;
     body.material = materials.body;
     body.isPickable = false;
+    body.isVisible = false;
+
+    redBody = new Mesh("v2RedBitBodySource", scene);
+    body.geometry!.applyToMesh(redBody);
+    redBody.rotation.x = Math.PI / 2;
+    redBody.material = materials.redBody;
+    redBody.isPickable = false;
+    redBody.isVisible = false;
 
     muzzle = MeshBuilder.CreateSphere(
-      `${id}_muzzle`,
+      "v2BitMuzzleSource",
       { diameter: BIT_MUZZLE_DIAMETER, segments: 16 },
       scene
     );
-    muzzle.parent = root;
     muzzle.position.z = BIT_MUZZLE_OFFSET;
     muzzle.material = materials.muzzle;
+    muzzle.isPickable = false;
+    muzzle.isVisible = false;
+
+    return Object.freeze({ body, redBody, muzzle });
+  } catch (error) {
+    muzzle?.dispose(false, false);
+    redBody?.dispose(false, false);
+    body?.dispose(false, false);
+    throw error;
+  }
+};
+
+const createBitVisual = (
+  scene: Scene,
+  sources: Readonly<{
+    body: Mesh;
+    redBody: Mesh;
+    muzzle: Mesh;
+  }>,
+  id: string,
+  isRed: boolean
+) => {
+  let root: TransformNode | null = null;
+  let body: InstancedMesh | null = null;
+  let muzzle: InstancedMesh | null = null;
+  try {
+    root = new TransformNode(id, scene);
+    body = (isRed ? sources.redBody : sources.body).createInstance(
+      `${id}_body`
+    );
+    body.parent = root;
+    body.isPickable = false;
+
+    muzzle = sources.muzzle.createInstance(`${id}_muzzle`);
+    muzzle.parent = root;
     muzzle.isPickable = false;
 
     return { root, body, muzzle };
@@ -394,26 +689,117 @@ const normalizeHorizontal = (direction: Vector3) => {
 const routeContainsTransition = (route: BitFlightRoute) =>
   route.steps.some((step) => step.kind === "transition");
 
+const getFirstWindowAccessTransitionId = (
+  route: BitFlightRoute
+) => {
+  const step = route.steps.find(
+    (step) =>
+      step.kind === "transition" &&
+      step.traversal.transition.affordances.includes(
+        "window-access"
+      )
+  );
+  return step?.kind === "transition"
+    ? step.traversal.transition.id
+    : null;
+};
+
 const getRouteStepPositions = (step: BitFlightRouteStep) =>
   step.kind === "surface"
-    ? step.points.map(getBitFlightWorldPosition)
+    ? Object.freeze(step.points.map(getBitFlightWorldPosition))
     : step.points;
 
-const isRouteStepSafe = (
-  step: BitFlightRouteStep,
-  safety: BitFlightSafety
-) => {
+const createRouteSafetyPointKey = (point: Vector3) =>
+  JSON.stringify([point.x, point.y, point.z]);
+
+type RouteStepSafetyDescriptor = Readonly<{
+  points: readonly Vector3[];
+  key: string;
+  centerKey: string | null;
+  segmentKeys: readonly (string | null)[];
+}>;
+
+const createRouteSafetySegmentKeyFromPointKeys = (
+  fromKey: string,
+  toKey: string
+) =>
+  fromKey < toKey
+    ? `${fromKey}|${toKey}`
+    : `${toKey}|${fromKey}`;
+
+const createRouteStepSafetyDescriptor = (
+  step: BitFlightRouteStep
+): RouteStepSafetyDescriptor => {
   const points = getRouteStepPositions(step);
-  if (points.length === 0 || !safety.isCenterSafe(points[0])) {
-    return false;
-  }
-  for (let index = 1; index < points.length; index += 1) {
-    if (safety.findMovementCollision(points[index - 1], points[index])) {
-      return false;
-    }
-  }
-  return true;
+  const pointKeys = Object.freeze(
+    points.map(createRouteSafetyPointKey)
+  );
+  const forwardPointsKey = pointKeys.join("|");
+  const reversePointsKey = [...pointKeys].reverse().join("|");
+  const geometryKey =
+    forwardPointsKey < reversePointsKey
+      ? forwardPointsKey
+      : reversePointsKey;
+  return Object.freeze({
+    points,
+    key:
+      `${step.kind}|` +
+      (step.kind === "surface"
+        ? `${step.band.zoneId}|${step.band.bandId}|`
+        : `${step.traversal.transition.id}|`) +
+      geometryKey,
+    centerKey: pointKeys[0] ?? null,
+    segmentKeys: Object.freeze(
+      points.slice(1).map((to, index) => {
+        const from = points[index];
+        return from.equals(to)
+          ? null
+          : createRouteSafetySegmentKeyFromPointKeys(
+              pointKeys[index],
+              pointKeys[index + 1]
+            );
+      })
+    )
+  });
 };
+
+type MutableRouteSafetyCacheEntryDiagnostics = {
+  hits: number;
+  misses: number;
+  recomputations: number;
+  evictions: number;
+};
+
+const createMutableRouteSafetyCacheEntryDiagnostics =
+  (): MutableRouteSafetyCacheEntryDiagnostics => ({
+    hits: 0,
+    misses: 0,
+    recomputations: 0,
+    evictions: 0
+  });
+
+const EMPTY_ROUTE_SAFETY_CACHE_ENTRY_DIAGNOSTICS =
+  Object.freeze<V2BitRouteSafetyCacheEntryDiagnostics>({
+    size: 0,
+    hits: 0,
+    misses: 0,
+    recomputations: 0,
+    evictions: 0
+  });
+
+const EMPTY_ROUTE_SAFETY_CACHE_DIAGNOSTICS =
+  Object.freeze<V2BitRouteSafetyCacheDiagnostics>({
+    maximumEntriesPerMap: V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES,
+    routeStepDescriptors: Object.freeze({
+      created: 0,
+      reused: 0
+    }),
+    routeSteps: EMPTY_ROUTE_SAFETY_CACHE_ENTRY_DIAGNOSTICS,
+    routeCenters: EMPTY_ROUTE_SAFETY_CACHE_ENTRY_DIAGNOSTICS,
+    routeSegments: EMPTY_ROUTE_SAFETY_CACHE_ENTRY_DIAGNOSTICS,
+    lowCeilingCruiseHeights:
+      EMPTY_ROUTE_SAFETY_CACHE_ENTRY_DIAGNOSTICS
+  });
 
 export const createV2BitSystem = (
   scene: Scene,
@@ -422,10 +808,392 @@ export const createV2BitSystem = (
 ): V2BitSystem => {
   assertConfig(config);
 
+  let diagnosticsEnabled = false;
+  let diagnosticSearchRoutePlans = 0;
+  let diagnosticChaseRoutePlans = 0;
+  let diagnosticEscapeRoutePlans = 0;
+  let diagnosticSearchRoutePlanMilliseconds = 0;
+  let diagnosticChaseRoutePlanMilliseconds = 0;
+  let diagnosticEscapeRoutePlanMilliseconds = 0;
+  let diagnosticSightRays = 0;
+  let diagnosticSphereSweeps = 0;
+  let diagnosticSphereSweepMilliseconds = 0;
+  let diagnosticRouteStepDescriptorsCreated = 0;
+  let diagnosticRouteStepDescriptorsReused = 0;
+  let frameDiagnostics: V2BitSystemDiagnostics = Object.freeze({
+    enabled: false,
+    routePlans: Object.freeze({ search: 0, chase: 0, escape: 0 }),
+    routePlanMilliseconds: Object.freeze({
+      search: 0,
+      chase: 0,
+      escape: 0
+    }),
+    sightRays: 0,
+    sphereSweeps: 0,
+    sphereSweepMilliseconds: 0,
+    beamRequests: 0,
+    routeSafetyCache: EMPTY_ROUTE_SAFETY_CACHE_DIAGNOSTICS
+  });
   const navigation = spatial.bitNavigation;
-  const safety = createBitFlightSafety(spatial.queries);
+  const routeStepSafetyDescriptorByStep =
+    new WeakMap<BitFlightRouteStep, RouteStepSafetyDescriptor>();
+  const describeRouteStep = (step: BitFlightRouteStep) => {
+    const cached = routeStepSafetyDescriptorByStep.get(step);
+    if (cached) {
+      if (diagnosticsEnabled) {
+        diagnosticRouteStepDescriptorsReused += 1;
+      }
+      return cached;
+    }
+    const descriptor = createRouteStepSafetyDescriptor(step);
+    routeStepSafetyDescriptorByStep.set(step, descriptor);
+    if (diagnosticsEnabled) {
+      diagnosticRouteStepDescriptorsCreated += 1;
+    }
+    return descriptor;
+  };
+  const safety = createBitFlightSafety(
+    Object.freeze({
+      ...spatial.queries,
+      castMovementSphere: (
+        ...args: Parameters<typeof spatial.queries.castMovementSphere>
+      ) => {
+        const startedAt = diagnosticsEnabled ? performance.now() : 0;
+        const collision =
+          spatial.queries.castMovementSphere(...args);
+        if (diagnosticsEnabled) {
+          diagnosticSphereSweeps += 1;
+          diagnosticSphereSweepMilliseconds +=
+            performance.now() - startedAt;
+        }
+        return collision;
+      }
+    })
+  );
+  const routeStepSafetyByKey = new Map<string, boolean>();
+  const routeCenterSafetyByKey = new Map<string, boolean>();
+  const routeSegmentSafetyByKey = new Map<string, boolean>();
+  const lowCeilingCruiseHeightsByRouteStepKey = new Map<
+    string,
+    readonly number[]
+  >();
+  const routeStepSafetyAccessOrder = new Map<string, true>();
+  const routeStepSafetyDiagnostics =
+    createMutableRouteSafetyCacheEntryDiagnostics();
+  const routeCenterSafetyDiagnostics =
+    createMutableRouteSafetyCacheEntryDiagnostics();
+  const routeSegmentSafetyDiagnostics =
+    createMutableRouteSafetyCacheEntryDiagnostics();
+  const lowCeilingCruiseHeightDiagnostics =
+    createMutableRouteSafetyCacheEntryDiagnostics();
+  const targetLocationCandidatesByPositionKey = new Map<
+    string,
+    readonly Readonly<{
+      destination: BitFlightLocation;
+      projectionError: SafeRouteCostBias;
+    }>[]
+  >();
+  const safeDestinationByTraversalKey = new Map<
+    string,
+    BitFlightLocation | null
+  >();
   const explorationHistory: BitFlightExplorationHistory =
     createBitFlightExplorationHistory();
+
+  const touchRouteStepSafetyKey = (key: string) => {
+    routeStepSafetyAccessOrder.delete(key);
+    routeStepSafetyAccessOrder.set(key, true);
+    if (
+      routeStepSafetyAccessOrder.size >
+      V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES
+    ) {
+      const evictedKey =
+        routeStepSafetyAccessOrder.keys().next().value!;
+      routeStepSafetyAccessOrder.delete(evictedKey);
+      if (routeStepSafetyByKey.delete(evictedKey) && diagnosticsEnabled) {
+        routeStepSafetyDiagnostics.evictions += 1;
+      }
+      if (
+        lowCeilingCruiseHeightsByRouteStepKey.delete(evictedKey) &&
+        diagnosticsEnabled
+      ) {
+        lowCeilingCruiseHeightDiagnostics.evictions += 1;
+      }
+    }
+  };
+  const touchRouteCenterSafetyKey = (
+    key: string,
+    value: boolean
+  ) => {
+    routeCenterSafetyByKey.delete(key);
+    routeCenterSafetyByKey.set(key, value);
+    if (
+      routeCenterSafetyByKey.size >
+      V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES
+    ) {
+      const evictedKey =
+        routeCenterSafetyByKey.keys().next().value!;
+      routeCenterSafetyByKey.delete(evictedKey);
+      if (diagnosticsEnabled) {
+        routeCenterSafetyDiagnostics.evictions += 1;
+      }
+    }
+  };
+  const touchRouteSegmentSafetyKey = (
+    key: string,
+    value: boolean
+  ) => {
+    routeSegmentSafetyByKey.delete(key);
+    routeSegmentSafetyByKey.set(key, value);
+    if (
+      routeSegmentSafetyByKey.size >
+      V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES
+    ) {
+      const evictedKey =
+        routeSegmentSafetyByKey.keys().next().value!;
+      routeSegmentSafetyByKey.delete(evictedKey);
+      if (diagnosticsEnabled) {
+        routeSegmentSafetyDiagnostics.evictions += 1;
+      }
+    }
+  };
+  const touchRouteSafetyComponents = (
+    descriptor: RouteStepSafetyDescriptor
+  ) => {
+    if (descriptor.centerKey !== null) {
+      const centerSafety =
+        routeCenterSafetyByKey.get(descriptor.centerKey);
+      if (centerSafety !== undefined) {
+        touchRouteCenterSafetyKey(
+          descriptor.centerKey,
+          centerSafety
+        );
+      }
+    }
+    for (const segmentKey of descriptor.segmentKeys) {
+      if (segmentKey === null) {
+        continue;
+      }
+      const segmentSafety = routeSegmentSafetyByKey.get(segmentKey);
+      if (segmentSafety !== undefined) {
+        touchRouteSegmentSafetyKey(segmentKey, segmentSafety);
+      }
+    }
+  };
+  const getRouteStepSafety = (
+    descriptor: RouteStepSafetyDescriptor
+  ) => {
+    const value = routeStepSafetyByKey.get(descriptor.key);
+    if (value === undefined) {
+      if (diagnosticsEnabled) {
+        routeStepSafetyDiagnostics.misses += 1;
+      }
+      return undefined;
+    }
+    if (diagnosticsEnabled) {
+      routeStepSafetyDiagnostics.hits += 1;
+    }
+    touchRouteStepSafetyKey(descriptor.key);
+    touchRouteSafetyComponents(descriptor);
+    return value;
+  };
+  const setRouteStepSafety = (key: string, value: boolean) => {
+    routeStepSafetyByKey.set(key, value);
+    touchRouteStepSafetyKey(key);
+  };
+  const getRouteCenterSafety = (key: string) => {
+    const value = routeCenterSafetyByKey.get(key);
+    if (value === undefined) {
+      if (diagnosticsEnabled) {
+        routeCenterSafetyDiagnostics.misses += 1;
+      }
+      return undefined;
+    }
+    if (diagnosticsEnabled) {
+      routeCenterSafetyDiagnostics.hits += 1;
+    }
+    touchRouteCenterSafetyKey(key, value);
+    return value;
+  };
+  const setRouteCenterSafety = (key: string, value: boolean) => {
+    touchRouteCenterSafetyKey(key, value);
+  };
+  const getRouteSegmentSafety = (key: string) => {
+    const value = routeSegmentSafetyByKey.get(key);
+    if (value === undefined) {
+      if (diagnosticsEnabled) {
+        routeSegmentSafetyDiagnostics.misses += 1;
+      }
+      return undefined;
+    }
+    if (diagnosticsEnabled) {
+      routeSegmentSafetyDiagnostics.hits += 1;
+    }
+    touchRouteSegmentSafetyKey(key, value);
+    return value;
+  };
+  const setRouteSegmentSafety = (key: string, value: boolean) => {
+    touchRouteSegmentSafetyKey(key, value);
+  };
+  const getLowCeilingCruiseHeights = (
+    descriptor: RouteStepSafetyDescriptor
+  ) => {
+    const value =
+      lowCeilingCruiseHeightsByRouteStepKey.get(descriptor.key);
+    if (value === undefined) {
+      if (diagnosticsEnabled) {
+        lowCeilingCruiseHeightDiagnostics.misses += 1;
+      }
+      return undefined;
+    }
+    if (diagnosticsEnabled) {
+      lowCeilingCruiseHeightDiagnostics.hits += 1;
+    }
+    touchRouteStepSafetyKey(descriptor.key);
+    touchRouteSafetyComponents(descriptor);
+    return value;
+  };
+  const setLowCeilingCruiseHeights = (
+    key: string,
+    value: readonly number[]
+  ) => {
+    lowCeilingCruiseHeightsByRouteStepKey.set(key, value);
+    touchRouteStepSafetyKey(key);
+  };
+  const createRouteSafetyCacheEntryDiagnostics = (
+    size: number,
+    diagnostics: MutableRouteSafetyCacheEntryDiagnostics
+  ): V2BitRouteSafetyCacheEntryDiagnostics =>
+    Object.freeze({
+      size,
+      hits: diagnostics.hits,
+      misses: diagnostics.misses,
+      recomputations: diagnostics.recomputations,
+      evictions: diagnostics.evictions
+    });
+  const createRouteSafetyCacheDiagnostics =
+    (): V2BitRouteSafetyCacheDiagnostics =>
+      diagnosticsEnabled
+        ? Object.freeze({
+            maximumEntriesPerMap:
+              V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES,
+            routeStepDescriptors: Object.freeze({
+              created: diagnosticRouteStepDescriptorsCreated,
+              reused: diagnosticRouteStepDescriptorsReused
+            }),
+            routeSteps: createRouteSafetyCacheEntryDiagnostics(
+              routeStepSafetyByKey.size,
+              routeStepSafetyDiagnostics
+            ),
+            routeCenters: createRouteSafetyCacheEntryDiagnostics(
+              routeCenterSafetyByKey.size,
+              routeCenterSafetyDiagnostics
+            ),
+            routeSegments: createRouteSafetyCacheEntryDiagnostics(
+              routeSegmentSafetyByKey.size,
+              routeSegmentSafetyDiagnostics
+            ),
+            lowCeilingCruiseHeights:
+              createRouteSafetyCacheEntryDiagnostics(
+                lowCeilingCruiseHeightsByRouteStepKey.size,
+                lowCeilingCruiseHeightDiagnostics
+              )
+          })
+        : EMPTY_ROUTE_SAFETY_CACHE_DIAGNOSTICS;
+  const resetRouteSafetyCacheDiagnostics = () => {
+    diagnosticRouteStepDescriptorsCreated = 0;
+    diagnosticRouteStepDescriptorsReused = 0;
+    for (const diagnostics of [
+      routeStepSafetyDiagnostics,
+      routeCenterSafetyDiagnostics,
+      routeSegmentSafetyDiagnostics,
+      lowCeilingCruiseHeightDiagnostics
+    ]) {
+      diagnostics.hits = 0;
+      diagnostics.misses = 0;
+      diagnostics.recomputations = 0;
+      diagnostics.evictions = 0;
+    }
+  };
+
+  const resetDiagnostics = () => {
+    diagnosticSearchRoutePlans = 0;
+    diagnosticChaseRoutePlans = 0;
+    diagnosticEscapeRoutePlans = 0;
+    diagnosticSearchRoutePlanMilliseconds = 0;
+    diagnosticChaseRoutePlanMilliseconds = 0;
+    diagnosticEscapeRoutePlanMilliseconds = 0;
+    diagnosticSightRays = 0;
+    diagnosticSphereSweeps = 0;
+    diagnosticSphereSweepMilliseconds = 0;
+  };
+  const measureRoutePlan = <T>(
+    purpose: V2BitRoutePurpose,
+    operation: () => T
+  ) => {
+    const startedAt = diagnosticsEnabled ? performance.now() : 0;
+    const result = operation();
+    if (diagnosticsEnabled) {
+      const duration = performance.now() - startedAt;
+      if (purpose === "search") {
+        diagnosticSearchRoutePlans += 1;
+        diagnosticSearchRoutePlanMilliseconds += duration;
+      } else if (purpose === "chase") {
+        diagnosticChaseRoutePlans += 1;
+        diagnosticChaseRoutePlanMilliseconds += duration;
+      } else {
+        diagnosticEscapeRoutePlans += 1;
+        diagnosticEscapeRoutePlanMilliseconds += duration;
+      }
+    }
+    return result;
+  };
+  const findMovementCollision = (from: Vector3, to: Vector3) =>
+    from.equals(to) ? null : safety.findMovementCollision(from, to);
+  const isRouteStepSafeCached = (
+    descriptor: RouteStepSafetyDescriptor
+  ) => {
+    if (descriptor.centerKey === null) {
+      return false;
+    }
+    const points = descriptor.points;
+    let firstPointIsSafe =
+      getRouteCenterSafety(descriptor.centerKey);
+    if (firstPointIsSafe === undefined) {
+      firstPointIsSafe = safety.isCenterSafe(points[0]);
+      if (diagnosticsEnabled) {
+        routeCenterSafetyDiagnostics.recomputations += 1;
+      }
+      setRouteCenterSafety(
+        descriptor.centerKey,
+        firstPointIsSafe
+      );
+    }
+    if (!firstPointIsSafe) {
+      return false;
+    }
+    for (let index = 1; index < points.length; index += 1) {
+      const from = points[index - 1];
+      const to = points[index];
+      const segmentKey = descriptor.segmentKeys[index - 1];
+      if (segmentKey === null) {
+        continue;
+      }
+      let segmentIsSafe = getRouteSegmentSafety(segmentKey);
+      if (segmentIsSafe === undefined) {
+        segmentIsSafe =
+          safety.findMovementCollision(from, to) === null;
+        if (diagnosticsEnabled) {
+          routeSegmentSafetyDiagnostics.recomputations += 1;
+        }
+        setRouteSegmentSafety(segmentKey, segmentIsSafe);
+      }
+      if (!segmentIsSafe) {
+        return false;
+      }
+    }
+    return true;
+  };
 
   const nextRandom = () => {
     const value = config.random();
@@ -495,9 +1263,7 @@ export const createV2BitSystem = (
           heightMode: "band" as const
         })
       );
-      if (safety.isCenterSafe(getBitFlightWorldPosition(selectedLocation))) {
-        return selectedLocation;
-      }
+      return selectedLocation;
     }
 
     const baseLocation = navigation.projectPointInBand(
@@ -529,6 +1295,49 @@ export const createV2BitSystem = (
     }
     return null;
   };
+
+  const getSafeTraversalDestination = (
+    traversal: BitFlightTransitionTraversal
+  ) => {
+    const traversalKey =
+      `${traversal.transition.id}|${traversal.reversed}`;
+    if (!safeDestinationByTraversalKey.has(traversalKey)) {
+      const destinationPoint =
+        getTraversalDestinationPosition(traversal);
+      safeDestinationByTraversalKey.set(
+        traversalKey,
+        findSafeLocation(
+          traversal.to,
+          destinationPoint,
+          destinationPoint.y
+        )
+      );
+    }
+    return safeDestinationByTraversalKey.get(traversalKey) ?? null;
+  };
+
+  const bruteForceTransitionDestinations = (() => {
+    const destinations: BitFlightLocation[] = [];
+    const traversalKeys = new Set<string>();
+    for (const band of navigation.bands) {
+      for (const traversal of navigation.getTransitionsFrom({
+        zoneId: band.zoneId,
+        bandId: band.id
+      })) {
+        const traversalKey =
+          `${traversal.transition.id}|${traversal.reversed}`;
+        if (traversalKeys.has(traversalKey)) {
+          continue;
+        }
+        traversalKeys.add(traversalKey);
+        const destination = getSafeTraversalDestination(traversal);
+        if (destination) {
+          destinations.push(destination);
+        }
+      }
+    }
+    return Object.freeze(destinations);
+  })();
 
   const createSpawnRegions = (): readonly SpawnRegion[] =>
     Object.freeze(
@@ -656,8 +1465,23 @@ export const createV2BitSystem = (
   };
 
   const materials = createSharedMaterials(scene);
+  const visualSources = (() => {
+    try {
+      return createSharedVisualSources(scene, materials);
+    } catch (error) {
+      materials.muzzle.dispose();
+      materials.redBody.dispose();
+      materials.body.dispose();
+      throw error;
+    }
+  })();
   const bits: RuntimeBit[] = [];
+  const bitsById = new Map<string, RuntimeBit>();
+  const carpetFollowersByLeaderId = new Map<string, Set<RuntimeBit>>();
+  const fadingCarpetFollowers: FadingCarpetFollower[] = [];
   const activeAlerts = new Map<string, ActiveAlert>();
+  const externalAlertKeyByTargetId = new Map<string, string>();
+  const closedInternalAlertKeys = new Set<string>();
   let frameBeamRequests: readonly V2BeamRequest[] = Object.freeze([]);
   let pendingAlertRequests: V2AlertRequest[] = [];
   let nextBitIndex = 0;
@@ -670,6 +1494,15 @@ export const createV2BitSystem = (
   let allowedChaseRoutePlanIds = new Set<string>();
   let allowedEscapeRoutePlanIds = new Set<string>();
   let remainingUnassignedEscapeRoutePlans = 0;
+  let aiSuspended = false;
+  let frameView: V2BitFrameView | null = null;
+  let recentExplorationSamplesForUpdate:
+    | readonly BitFlightExplorationSample[]
+    | null = null;
+
+  const invalidateFrameViews = () => {
+    frameView = null;
+  };
 
   const selectRoundRobinBitIds = (
     cursor: number,
@@ -684,38 +1517,57 @@ export const createV2BitSystem = (
       });
     }
     const normalizedCursor = cursor % bits.length;
-    const ordered = Array.from(
-      { length: bits.length },
-      (_, offset) => bits[(normalizedCursor + offset) % bits.length]
-    );
-    const priority = ordered.filter(
-      (bit) => isEligible(bit) && isPriority(bit)
-    );
-    const regular = ordered.filter(
-      (bit) => isEligible(bit) && !isPriority(bit)
-    );
-    const selected = [...priority, ...regular].slice(0, budget);
-    const lastSelected = selected[selected.length - 1];
+    const selectedIds = new Set<string>();
+    let lastSelectedIndex: number | null = null;
+    for (const priorityPass of [true, false] as const) {
+      for (let offset = 0; offset < bits.length; offset += 1) {
+        if (selectedIds.size >= budget) {
+          break;
+        }
+        const index = (normalizedCursor + offset) % bits.length;
+        const bit = bits[index];
+        if (
+          !selectedIds.has(bit.id) &&
+          isEligible(bit) &&
+          isPriority(bit) === priorityPass
+        ) {
+          selectedIds.add(bit.id);
+          lastSelectedIndex = index;
+        }
+      }
+    }
     return Object.freeze({
-      ids: new Set(selected.map((bit) => bit.id)),
-      nextCursor: lastSelected
-        ? (bits.indexOf(lastSelected) + 1) % bits.length
+      ids: selectedIds,
+      nextCursor: lastSelectedIndex !== null
+        ? (lastSelectedIndex + 1) % bits.length
         : normalizedCursor
     });
   };
 
   const createRuntimeBit = (
     navigationLocation: BitFlightLocation,
-    mode: V2BitMode = "search"
+    mode: V2BitMode = "search",
+    inheritedProfile: V2BitCombatProfile | null = null
   ) => {
     const position = getBitFlightWorldPosition(navigationLocation);
     assertFiniteVector("ビットの飛行位置", position);
     if (!safety.isCenterSafe(position)) {
       throw new Error("ビット初期位置に0.54m安全包絡が収まりません。");
     }
-    const id = `v2_bit_${nextBitIndex}`;
+    const bitIndex = nextBitIndex;
+    const id = `v2_bit_${bitIndex}`;
     nextBitIndex += 1;
-    const visual = createBitVisual(scene, materials, id);
+    const profile =
+      inheritedProfile ??
+      (config.combatEnabled
+        ? createV2BitCombatProfile(nextRandom)
+        : V2_STANDARD_BIT_COMBAT_PROFILE);
+    const visual = createBitVisual(
+      scene,
+      visualSources,
+      id,
+      profile.isRed
+    );
     let flightAgent: BitFlightAgent | null = null;
     try {
       flightAgent = createBitFlightAgent(
@@ -732,17 +1584,27 @@ export const createV2BitSystem = (
       const bit: RuntimeBit = {
         id,
         ...visual,
+        profile,
         flightAgent,
         navigationLocation,
         routePurpose: null,
         routeDestination: null,
         routeRefreshSeconds: 0,
-        searchSegmentSeconds: 0,
-        searchSurfaceSpeed: SEARCH_SPEED,
+        searchRouteKind: null,
+        normalPatrolOrigin: null,
+        queuedNormalPatrolLeg: null,
+        randomAttackRouteSeconds: 0,
+        searchSurfaceSpeed: profile.searchSpeed,
         searchRetrySeconds: 0,
         hasAttemptedSearchRoute: false,
-        searchTransitionCursor: 0,
+        searchTransitionCursor: bitIndex,
         searchSurfacePlansSinceTransitionAttempt: 0,
+        bruteForceActive: false,
+        bruteForceNextCheckSeconds: BRUTE_FORCE_START_SECONDS,
+        bruteForcePhaseCursor: bitIndex,
+        bruteForceFrontierCursor: bitIndex,
+        bruteForceTransitionCursor: bitIndex,
+        bruteForceFailedTransitionCandidateCount: 0,
         lastExplorationRecordSeconds: Number.NEGATIVE_INFINITY,
         transitionHistory: createBitFlightTransitionHistory(),
         activeTransition: null,
@@ -754,17 +1616,40 @@ export const createV2BitSystem = (
         lastSeenAimPosition: null,
         lastSeenDestination: null,
         lastChasePlanTargetId: null,
+        chaseWindowTransitionId: null,
+        failedChaseWindowTransitionId: null,
+        failedChaseWindowPenaltySeconds: 0,
         pendingEscapeThreatPosition: null,
         sightTargetId: null,
         sightTargetVisible: false,
         targetLostSeconds: 0,
-        fireSeconds: randomRange(FIRE_INTERVAL_MIN, FIRE_INTERVAL_MAX),
+        modeTimerSeconds: 0,
+        attackCooldownSeconds: 0,
+        carpetCooldownSeconds: 0,
+        fireSeconds: randomV2BitFireInterval(
+          "chase",
+          profile,
+          nextRandom
+        ),
+        fireTelegraphSeconds: 0,
+        fireLockDirection: initialDirection.clone(),
+        lockedDirection: initialDirection.clone(),
+        postAlertMode: null,
+        holdReturnMode: null,
+        holdTargetId: null,
+        holdTimerSeconds: 0,
+        lastHoldTargetId: null,
+        carpetPassSeconds: 0,
         carpetLeaderId: null,
-        carpetOffset: 0
+        carpetOffset: 0,
+        carpetAimStartDirection: initialDirection.clone(),
+        carpetAimSeconds: 0
       };
       bit.root.position.copyFrom(position);
       bit.root.lookAt(bit.root.position.add(initialDirection));
       bits.push(bit);
+      bitsById.set(bit.id, bit);
+      invalidateFrameViews();
       return bit;
     } catch (error) {
       flightAgent?.dispose();
@@ -786,7 +1671,12 @@ export const createV2BitSystem = (
       bits[index].root.dispose(false);
     }
     bits.length = 0;
+    bitsById.clear();
+    visualSources.muzzle.dispose(false, false);
+    visualSources.redBody.dispose(false, false);
+    visualSources.body.dispose(false, false);
     materials.muzzle.dispose();
+    materials.redBody.dispose();
     materials.body.dispose();
     throw error;
   }
@@ -797,8 +1687,28 @@ export const createV2BitSystem = (
   const buildAlertKey = (leaderId: string, targetId: string) =>
     `${leaderId}\u0000${targetId}`;
 
-  const isSightClear = (from: Vector3, to: Vector3) =>
-    spatial.queries.castSightSegment(from, to) === null;
+  const removeActiveAlert = (alertKey: string) => {
+    const alert = activeAlerts.get(alertKey);
+    if (!alert) {
+      return null;
+    }
+    activeAlerts.delete(alertKey);
+    if (
+      !alert.internalBitAlert &&
+      externalAlertKeyByTargetId.get(alert.targetId) ===
+        alertKey
+    ) {
+      externalAlertKeyByTargetId.delete(alert.targetId);
+    }
+    return alert;
+  };
+
+  const isSightClear = (from: Vector3, to: Vector3) => {
+    if (diagnosticsEnabled) {
+      diagnosticSightRays += 1;
+    }
+    return spatial.queries.castSightSegment(from, to) === null;
+  };
 
   const isInsideVision = (
     bit: RuntimeBit,
@@ -806,7 +1716,10 @@ export const createV2BitSystem = (
   ) => {
     const toTarget = target.aimPosition.subtract(bit.root.position);
     const distanceSquared = toTarget.lengthSquared();
-    if (distanceSquared > VISION_RANGE * VISION_RANGE) {
+    if (
+      distanceSquared >
+      bit.profile.visionRange * bit.profile.visionRange
+    ) {
       return false;
     }
     if (distanceSquared === 0) {
@@ -815,7 +1728,7 @@ export const createV2BitSystem = (
     const forward = bit.root.getDirection(Vector3.Forward()).normalize();
     return (
       Vector3.Dot(forward, toTarget) / Math.sqrt(distanceSquared) >=
-      VISION_COSINE
+      bit.profile.visionCosine
     );
   };
 
@@ -832,7 +1745,7 @@ export const createV2BitSystem = (
     target: V2HumanTargetSnapshot,
     refreshSight: boolean
   ) => {
-    if (!isInsideVision(bit, target)) {
+    if (bit.mode !== "chase" && !isInsideVision(bit, target)) {
       if (bit.sightTargetId === target.id) {
         bit.sightTargetVisible = false;
       }
@@ -850,6 +1763,9 @@ export const createV2BitSystem = (
       bit.sightTargetVisible
     );
   };
+
+  const getChaseAbandonDistance = (bit: RuntimeBit) =>
+    bit.profile.visionRange + TARGET_LOST_DISTANCE_MARGIN;
 
   const findVisibleTarget = (
     bit: RuntimeBit,
@@ -896,10 +1812,7 @@ export const createV2BitSystem = (
     const bob =
       Math.sin(elapsedSeconds * 0.9 + bit.bobPhase) * BOB_AMPLITUDE;
     if (location.heightMode === "low-ceiling") {
-      const candidate = new Vector3(base.x, base.y + bob, base.z);
-      return safety.findMovementCollision(base, candidate)
-        ? base
-        : candidate;
+      return new Vector3(base.x, base.y + bob, base.z);
     }
     const candidate = new Vector3(
       base.x,
@@ -910,7 +1823,7 @@ export const createV2BitSystem = (
       ),
       base.z
     );
-    return safety.findMovementCollision(base, candidate) ? base : candidate;
+    return candidate;
   };
 
   const syncStationaryPosition = (
@@ -927,50 +1840,113 @@ export const createV2BitSystem = (
       elapsedSeconds,
       allowBob
     );
-    if (!safety.findMovementCollision(bit.root.position, destination)) {
+    if (!findMovementCollision(bit.root.position, destination)) {
       bit.root.position.copyFrom(destination);
+      return;
+    }
+    const base = getBitFlightWorldPosition(bit.navigationLocation);
+    if (
+      !destination.equals(base) &&
+      !findMovementCollision(bit.root.position, base)
+    ) {
+      bit.root.position.copyFrom(base);
     }
   };
 
   const selectSafeRoute = <T>(
     start: BitFlightLocation,
-    candidates: readonly Readonly<{
-      value: T;
-      destination: BitFlightLocation;
-      costBias: number;
-    }>[],
+    candidates: readonly SafeRouteInputCandidate<T>[],
     policy: BitFlightRoutePolicy,
     findCandidateRoute: (
       origin: BitFlightLocation,
-      candidate: Readonly<{
-        value: T;
-        destination: BitFlightLocation;
-        costBias: number;
-      }>,
+      candidate: SafeRouteInputCandidate<T>,
       safePolicy: BitFlightRoutePolicy
     ) => BitFlightRoute | null = (origin, candidate, safePolicy) =>
       navigation.findRoute(origin, candidate.destination, safePolicy)
   ): SafeRouteCandidate<T> | null => {
     let selected: SafeRouteCandidate<T> | null = null;
-    const safePolicy: BitFlightRoutePolicy = Object.freeze({
+    const startWorldPosition = getBitFlightWorldPosition(start);
+    const lazySafetyPolicy: BitFlightRoutePolicy = Object.freeze({
       canUseTransition: (traversal) =>
         policy.canUseTransition(traversal),
-      canUseRouteStep: (step) =>
-        policy.canUseRouteStep(step) && isRouteStepSafe(step, safety),
+      canUseRouteStep: (step) => {
+        if (!policy.canUseRouteStep(step)) {
+          return false;
+        }
+        const descriptor = describeRouteStep(step);
+        return getRouteStepSafety(descriptor) !== false;
+      },
       additionalTransitionCost: (traversal) =>
         policy.additionalTransitionCost(traversal),
-      additionalSurfaceCruiseHeights: (step, band) =>
-        Object.freeze([
+      additionalSurfaceCruiseHeights: (step, band) => {
+        const descriptor = describeRouteStep(step);
+        let lowCeilingCruiseHeights =
+          getLowCeilingCruiseHeights(descriptor);
+        if (lowCeilingCruiseHeights === undefined) {
+          lowCeilingCruiseHeights =
+            safety.findLowCeilingCruiseHeights(step, band);
+          if (diagnosticsEnabled) {
+            lowCeilingCruiseHeightDiagnostics.recomputations += 1;
+          }
+          setLowCeilingCruiseHeights(
+            descriptor.key,
+            lowCeilingCruiseHeights
+          );
+        }
+        return Object.freeze([
           ...policy.additionalSurfaceCruiseHeights(step, band),
-          ...safety.findLowCeilingCruiseHeights(step, band)
-        ])
+          ...lowCeilingCruiseHeights
+        ]);
+      }
     });
     for (const candidate of candidates) {
-      const route = findCandidateRoute(
-        start,
-        candidate,
-        safePolicy
-      );
+      /*
+       * BitFlightRoute.totalCostは距離と非負のpolicy追加費用の和なので、
+       * 始終点の直線距離とcostBiasの和が候補総費用のadmissible lower boundになる。
+       * 選択規則はstrict <のため、同値も既選択候補を維持して評価を省略できる。
+       */
+      if (
+        selected &&
+        Vector3.Distance(
+          startWorldPosition,
+          getBitFlightWorldPosition(candidate.destination)
+        ) +
+          candidate.costBias >=
+          selected.totalCost
+      ) {
+        continue;
+      }
+      let route: BitFlightRoute | null = null;
+      while (true) {
+        const plannedRoute = findCandidateRoute(
+          start,
+          candidate,
+          lazySafetyPolicy
+        );
+        if (!plannedRoute) {
+          break;
+        }
+        let routeIsSafe = true;
+        for (const step of plannedRoute.steps) {
+          const descriptor = describeRouteStep(step);
+          let stepIsSafe = getRouteStepSafety(descriptor);
+          if (stepIsSafe === undefined) {
+            stepIsSafe = isRouteStepSafeCached(descriptor);
+            if (diagnosticsEnabled) {
+              routeStepSafetyDiagnostics.recomputations += 1;
+            }
+            setRouteStepSafety(descriptor.key, stepIsSafe);
+          }
+          if (!stepIsSafe) {
+            routeIsSafe = false;
+            break;
+          }
+        }
+        if (routeIsSafe) {
+          route = plannedRoute;
+          break;
+        }
+      }
       if (!route) {
         continue;
       }
@@ -992,6 +1968,12 @@ export const createV2BitSystem = (
     bit.routePurpose = null;
     bit.routeDestination = null;
     bit.routeRefreshSeconds = 0;
+    bit.chaseWindowTransitionId = null;
+    bit.searchRouteKind = null;
+    bit.normalPatrolOrigin = null;
+    bit.queuedNormalPatrolLeg = null;
+    bit.randomAttackRouteSeconds = 0;
+    bit.bruteForceFailedTransitionCandidateCount = 0;
   };
 
   const assignRoute = (
@@ -1012,16 +1994,22 @@ export const createV2BitSystem = (
     if (
       !bit.flightAgent.setPreparedRoute(
         bit.navigationLocation,
-        selected.route
+        selected.route,
+        "verified"
       )
     ) {
       bit.routePurpose = null;
       bit.routeDestination = null;
+      bit.chaseWindowTransitionId = null;
       bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
       return false;
     }
     bit.routePurpose = purpose;
     bit.routeDestination = cloneTargetLocation(selected.destination);
+    bit.chaseWindowTransitionId =
+      purpose === "chase"
+        ? getFirstWindowAccessTransitionId(selected.route)
+        : null;
     bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
     return true;
   };
@@ -1057,57 +2045,55 @@ export const createV2BitSystem = (
     deltaSeconds: number,
     elapsedSeconds: number
   ) => {
-    const previousLocation = bit.navigationLocation;
     const previousRootPosition = bit.root.position.clone();
-    const snapshot = bit.flightAgent.update(speed, deltaSeconds);
+    const snapshot = bit.flightAgent.update(
+      speed,
+      deltaSeconds,
+      previousRootPosition,
+      (candidate) => {
+        if (!candidate.position) {
+          throw new Error("移動後のBIT飛行位置がありません。");
+        }
+        const allowBob =
+          candidate.transition === null &&
+          bit.mode !== "carpet-leader" &&
+          bit.mode !== "carpet-follower";
+        return candidate.location
+          ? getBobbedPosition(
+              bit,
+              candidate.location,
+              elapsedSeconds,
+              allowBob
+            )
+          : candidate.position;
+      }
+    );
+    if (snapshot.movementBlocked) {
+      if (snapshot.transition === null) {
+        bit.routePurpose = null;
+        bit.routeDestination = null;
+        bit.chaseWindowTransitionId = null;
+      }
+      bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
+      return "blocked";
+    }
     updateTransitionHistory(
       bit,
       snapshot.transition,
       snapshot.location,
       elapsedSeconds
     );
-    if (!snapshot.position) {
+    if (!snapshot.rootPosition) {
       return snapshot.state;
     }
 
-    const allowBob =
-      snapshot.transition === null &&
-      bit.mode !== "carpet-leader" &&
-      bit.mode !== "carpet-follower";
-    let destination = snapshot.location
-      ? getBobbedPosition(
-          bit,
-          snapshot.location,
-          elapsedSeconds,
-          allowBob
-        )
-      : snapshot.position.clone();
-    let collision = safety.findMovementCollision(
-      previousRootPosition,
-      destination
-    );
-    if (collision && snapshot.location) {
-      destination = snapshot.position.clone();
-      collision = safety.findMovementCollision(
-        previousRootPosition,
-        destination
-      );
-    }
-    if (collision) {
-      bit.flightAgent.clear();
-      bit.navigationLocation = previousLocation;
-      bit.routePurpose = null;
-      bit.routeDestination = null;
-      bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
-      return "blocked";
-    }
-
-    bit.root.position.copyFrom(destination);
+    bit.root.position.copyFrom(snapshot.rootPosition);
     bit.navigationLocation = snapshot.location;
     if (snapshot.facingDirection && snapshot.facingDirection.lengthSquared() > 0) {
       bit.root.lookAt(bit.root.position.add(snapshot.facingDirection));
     }
     if (
+      snapshot.state === "idle" ||
       snapshot.state === "arrived" ||
       snapshot.state === "unreachable" ||
       snapshot.state === "blocked"
@@ -1115,6 +2101,7 @@ export const createV2BitSystem = (
       if (snapshot.state !== "arrived") {
         bit.routePurpose = null;
         bit.routeDestination = null;
+        bit.chaseWindowTransitionId = null;
         bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
       }
     }
@@ -1125,8 +2112,15 @@ export const createV2BitSystem = (
     targetPosition: Vector3
   ): readonly Readonly<{
     destination: BitFlightLocation;
-    projectionError: number;
+    projectionError: SafeRouteCostBias;
   }>[] => {
+    const cacheKey = createRouteSafetyPointKey(targetPosition);
+    const cached = targetLocationCandidatesByPositionKey.get(cacheKey);
+    if (cached) {
+      targetLocationCandidatesByPositionKey.delete(cacheKey);
+      targetLocationCandidatesByPositionKey.set(cacheKey, cached);
+      return cached;
+    }
     const verticalDistances = navigation.bands.map((band) =>
       targetPosition.y < band.minimumCenterHeight
         ? band.minimumCenterHeight - targetPosition.y
@@ -1153,9 +2147,9 @@ export const createV2BitSystem = (
       return [
         Object.freeze({
           destination: location,
-          projectionError: Math.hypot(
-            location.surface.position.x - targetPosition.x,
-            location.surface.position.z - targetPosition.z
+          projectionError: measureHorizontalProjectionError(
+            location.surface.position,
+            targetPosition
           )
         })
       ];
@@ -1163,13 +2157,25 @@ export const createV2BitSystem = (
     const minimumProjectionError = Math.min(
       ...projectedCandidates.map((candidate) => candidate.projectionError)
     );
-    return Object.freeze(
+    const candidates = Object.freeze(
       projectedCandidates.filter(
         (candidate) =>
           candidate.projectionError <=
           minimumProjectionError + TARGET_BAND_PROJECTION_TOLERANCE
       )
     );
+    targetLocationCandidatesByPositionKey.set(cacheKey, candidates);
+    if (
+      targetLocationCandidatesByPositionKey.size >
+      TARGET_LOCATION_CANDIDATE_CACHE_MAX_ENTRIES
+    ) {
+      const oldestKey =
+        targetLocationCandidatesByPositionKey.keys().next().value;
+      if (oldestKey !== undefined) {
+        targetLocationCandidatesByPositionKey.delete(oldestKey);
+      }
+    }
+    return candidates;
   };
 
   const selectTargetDestination = (
@@ -1179,6 +2185,41 @@ export const createV2BitSystem = (
     if (!bit.navigationLocation) {
       return null;
     }
+    const chasePolicy: BitFlightRoutePolicy = Object.freeze({
+      canUseTransition: (traversal) =>
+        BIT_FLIGHT_SHORTEST_ROUTE_POLICY.canUseTransition(
+          traversal
+        ),
+      canUseRouteStep: (step) =>
+        BIT_FLIGHT_SHORTEST_ROUTE_POLICY.canUseRouteStep(step),
+      additionalSurfaceCruiseHeights: (step, band) =>
+        BIT_FLIGHT_SHORTEST_ROUTE_POLICY.additionalSurfaceCruiseHeights(
+          step,
+          band
+        ),
+      additionalTransitionCost: (traversal) => {
+        const transition = traversal.transition;
+        if (!transition.affordances.includes("window-access")) {
+          return 0;
+        }
+        const failureCost =
+          bit.failedChaseWindowPenaltySeconds > 0 &&
+          bit.failedChaseWindowTransitionId === transition.id
+            ? CHASE_WINDOW_FAILURE_COST
+            : 0;
+        const congestionCount = bits.filter(
+          (candidate) =>
+            candidate.id !== bit.id &&
+            candidate.mode === "chase" &&
+            candidate.targetId === bit.targetId &&
+            candidate.chaseWindowTransitionId === transition.id
+        ).length;
+        return (
+          failureCost +
+          congestionCount * CHASE_WINDOW_CONGESTION_COST
+        );
+      }
+    });
     return selectSafeRoute(
       bit.navigationLocation,
       buildTargetLocationCandidates(targetPosition).map((candidate) =>
@@ -1188,7 +2229,7 @@ export const createV2BitSystem = (
           costBias: candidate.projectionError
         })
       ),
-      BIT_FLIGHT_SHORTEST_ROUTE_POLICY
+      chasePolicy
     );
   };
 
@@ -1222,28 +2263,191 @@ export const createV2BitSystem = (
     );
   };
 
-  const removeCarpetFollowers = (leader: RuntimeBit) => {
-    for (let index = bits.length - 1; index >= 0; index -= 1) {
-      const candidate = bits[index];
-      if (
-        candidate.mode !== "carpet-follower" ||
-        candidate.carpetLeaderId !== leader.id
-      ) {
-        continue;
+  const registerCarpetFollower = (
+    leader: RuntimeBit,
+    follower: RuntimeBit
+  ) => {
+    const followers =
+      carpetFollowersByLeaderId.get(leader.id) ?? new Set<RuntimeBit>();
+    followers.add(follower);
+    carpetFollowersByLeaderId.set(leader.id, followers);
+  };
+
+  const unregisterRuntimeBit = (bit: RuntimeBit) => {
+    bits.splice(bits.indexOf(bit), 1);
+    bitsById.delete(bit.id);
+    if (bit.mode === "carpet-follower") {
+      const followers = carpetFollowersByLeaderId.get(bit.carpetLeaderId!);
+      followers!.delete(bit);
+      if (followers!.size === 0) {
+        carpetFollowersByLeaderId.delete(bit.carpetLeaderId!);
       }
-      candidate.flightAgent.dispose();
-      candidate.root.dispose(false);
-      bits.splice(index, 1);
+    }
+    invalidateFrameViews();
+  };
+
+  const createFadingMesh = (instance: InstancedMesh) => {
+    const mesh = new Mesh(`${instance.name}_fade`, scene);
+    instance.sourceMesh.geometry!.applyToMesh(mesh);
+    mesh.parent = instance.parent;
+    mesh.position.copyFrom(instance.position);
+    mesh.rotation.copyFrom(instance.rotation);
+    mesh.rotationQuaternion =
+      instance.rotationQuaternion?.clone() ?? null;
+    mesh.scaling.copyFrom(instance.scaling);
+    mesh.material = instance.material;
+    mesh.isPickable = false;
+    return mesh;
+  };
+
+  const startCarpetFollowerFade = (follower: RuntimeBit) => {
+    follower.flightAgent.dispose();
+    unregisterRuntimeBit(follower);
+    const body = createFadingMesh(follower.body);
+    const muzzle = createFadingMesh(follower.muzzle);
+    follower.body.dispose(false, false);
+    follower.muzzle.dispose(false, false);
+    body.name = `${follower.id}_body`;
+    muzzle.name = `${follower.id}_muzzle`;
+    fadingCarpetFollowers.push({
+      root: follower.root,
+      body,
+      muzzle,
+      remainingSeconds: CARPET_FOLLOWER_FADE_SECONDS
+    });
+  };
+
+  const updateFadingCarpetFollowers = (deltaSeconds: number) => {
+    for (
+      let index = fadingCarpetFollowers.length - 1;
+      index >= 0;
+      index -= 1
+    ) {
+      const follower = fadingCarpetFollowers[index];
+      follower.remainingSeconds = Math.max(
+        0,
+        follower.remainingSeconds - deltaSeconds
+      );
+      const visibility =
+        follower.remainingSeconds / CARPET_FOLLOWER_FADE_SECONDS;
+      follower.body.visibility = visibility;
+      follower.muzzle.visibility = visibility;
+      if (follower.remainingSeconds === 0) {
+        follower.root.dispose(false);
+        fadingCarpetFollowers.splice(index, 1);
+      }
+    }
+  };
+
+  const disposeFadingCarpetFollowers = () => {
+    for (const follower of fadingCarpetFollowers) {
+      follower.root.dispose(false);
+    }
+    fadingCarpetFollowers.length = 0;
+  };
+
+  const removeCarpetFollowers = (leader: RuntimeBit) => {
+    const followers = carpetFollowersByLeaderId.get(leader.id);
+    if (!followers) {
+      return;
+    }
+    for (const candidate of [...followers]) {
+      startCarpetFollowerFade(candidate);
     }
   };
 
   const convertCarpetToChase = (leader: RuntimeBit) => {
     removeCarpetFollowers(leader);
     leader.mode = "chase";
+    leader.modeTimerSeconds = config.combatEnabled
+      ? V2_BIT_CHASE_DURATION_SECONDS
+      : 0;
     leader.carpetLeaderId = null;
     leader.carpetOffset = 0;
+    leader.carpetPassSeconds = 0;
     leader.lastChasePlanTargetId = null;
     clearRoute(leader);
+  };
+
+  const abortCarpetAtObstacle = (leader: RuntimeBit) => {
+    removeCarpetFollowers(leader);
+    clearRoute(leader);
+    leader.mode = "search";
+    leader.targetId = null;
+    leader.targetProvenance = null;
+    leader.alertLeaderId = null;
+    leader.lastSeenAimPosition = null;
+    leader.lastSeenDestination = null;
+    leader.lastChasePlanTargetId = null;
+    leader.pendingEscapeThreatPosition = null;
+    leader.sightTargetId = null;
+    leader.sightTargetVisible = false;
+    leader.targetLostSeconds = 0;
+    leader.modeTimerSeconds = 0;
+    leader.fireTelegraphSeconds = 0;
+    leader.postAlertMode = null;
+    leader.carpetPassSeconds = 0;
+    leader.carpetLeaderId = null;
+    leader.carpetOffset = 0;
+    leader.carpetCooldownSeconds = CARPET_WALL_COOLDOWN_SECONDS;
+    leader.hasAttemptedSearchRoute = false;
+  };
+
+  const getCombatModeDuration = (
+    mode: V2BitCombatMode
+  ): number =>
+    mode === "chase"
+      ? V2_BIT_CHASE_DURATION_SECONDS
+      : mode === "fixed"
+        ? V2_BIT_FIXED_DURATION_SECONDS
+        : mode === "random"
+          ? V2_BIT_RANDOM_DURATION_SECONDS
+          : mode === "alert-send"
+            ? V2_BIT_ALERT_DURATION_SECONDS
+            : V2_BIT_CHASE_DURATION_SECONDS;
+
+  const getBeamMode = (
+    mode: V2BitMode
+  ): "chase" | "fixed" | "random" | "carpet" =>
+    mode === "fixed"
+      ? "fixed"
+      : mode === "random"
+        ? "random"
+        : mode === "carpet-leader" || mode === "carpet-follower"
+          ? "carpet"
+          : "chase";
+
+  const activateCombatMode = (
+    bit: RuntimeBit,
+    mode: V2BitCombatMode,
+    target: V2HumanTargetSnapshot
+  ) => {
+    const activeMode =
+      mode === "carpet-leader" && bit.carpetCooldownSeconds > 0
+        ? "chase"
+        : mode;
+    bit.mode = activeMode;
+    bit.modeTimerSeconds = getCombatModeDuration(activeMode);
+    bit.attackCooldownSeconds = Math.max(
+      0,
+      bit.attackCooldownSeconds
+    );
+    const direction = target.aimPosition.subtract(bit.root.position);
+    if (direction.lengthSquared() > 0) {
+      bit.lockedDirection.copyFrom(direction.normalize());
+    }
+    bit.fireTelegraphSeconds = 0;
+    const fireInterval = randomV2BitFireInterval(
+      getBeamMode(activeMode),
+      bit.profile,
+      nextRandom
+    );
+    bit.fireSeconds =
+      activeMode === "carpet-leader"
+        ? fireInterval * nextRandom()
+        : fireInterval * 0.3;
+    bit.postAlertMode = null;
+    bit.carpetPassSeconds = 0;
   };
 
   const setVisualTarget = (
@@ -1257,14 +2461,38 @@ export const createV2BitSystem = (
     bit.lastSeenAimPosition = target.aimPosition.clone();
     bit.lastSeenDestination = null;
     bit.lastChasePlanTargetId = null;
+    bit.chaseWindowTransitionId = null;
+    bit.failedChaseWindowTransitionId = null;
+    bit.failedChaseWindowPenaltySeconds = 0;
     bit.targetLostSeconds = 0;
     bit.sightTargetId = target.id;
     bit.sightTargetVisible = true;
     bit.pendingEscapeThreatPosition = null;
-    bit.mode = nextRandom() < CARPET_MODE_CHANCE ? "carpet-leader" : "chase";
-    pendingAlertRequests.push(
-      Object.freeze({ leaderId: bit.id, targetId: target.id })
-    );
+    if (!config.combatEnabled) {
+      bit.mode =
+        nextRandom() < LEGACY_CARPET_MODE_CHANCE &&
+        bit.carpetCooldownSeconds === 0
+          ? "carpet-leader"
+          : "chase";
+      pendingAlertRequests.push(
+        Object.freeze({
+          leaderId: bit.id,
+          targetId: target.id
+        })
+      );
+      return;
+    }
+    const mode = selectV2BitCombatMode(bit.profile, nextRandom);
+    if (
+      mode === "alert-send" &&
+      !startInternalAlert(bit, target)
+    ) {
+      activateCombatMode(bit, "chase", target);
+      return;
+    }
+    if (mode !== "alert-send") {
+      activateCombatMode(bit, mode, target);
+    }
   };
 
   const setAlertTarget = (
@@ -1272,6 +2500,12 @@ export const createV2BitSystem = (
     target: V2HumanTargetSnapshot,
     leaderId: string
   ) => {
+    if (bit.mode === "carpet-leader") {
+      removeCarpetFollowers(bit);
+      bit.carpetLeaderId = null;
+      bit.carpetOffset = 0;
+      bit.carpetPassSeconds = 0;
+    }
     clearRoute(bit);
     bit.targetId = target.id;
     bit.targetProvenance = "alert";
@@ -1279,13 +2513,197 @@ export const createV2BitSystem = (
     bit.lastSeenAimPosition = target.aimPosition.clone();
     bit.lastSeenDestination = null;
     bit.lastChasePlanTargetId = null;
+    bit.chaseWindowTransitionId = null;
+    bit.failedChaseWindowTransitionId = null;
+    bit.failedChaseWindowPenaltySeconds = 0;
     bit.targetLostSeconds = 0;
     bit.sightTargetId = target.id;
     bit.sightTargetVisible = false;
     bit.pendingEscapeThreatPosition = null;
-    bit.mode =
-      nextRandom() < ALERT_CARPET_MODE_CHANCE ? "carpet-leader" : "chase";
+    if (!config.combatEnabled) {
+      bit.mode =
+        nextRandom() < LEGACY_ALERT_CARPET_MODE_CHANCE &&
+        bit.carpetCooldownSeconds === 0
+          ? "carpet-leader"
+          : "chase";
+      return;
+    }
+    bit.postAlertMode = selectV2BitPostAlertMode(nextRandom);
+    bit.mode = "alert-receive";
+    bit.modeTimerSeconds = V2_BIT_ALERT_DURATION_SECONDS;
+    bit.fireTelegraphSeconds = 0;
   };
+
+  const isExternalAlertReceiverCandidate = (
+    bit: RuntimeBit,
+    leaderId: string,
+    assignedReceiverIds: ReadonlySet<string>
+  ) =>
+    bit.id !== leaderId &&
+    !assignedReceiverIds.has(bit.id) &&
+    bit.mode !== "alert-send" &&
+    bit.mode !== "alert-receive" &&
+    bit.mode !== "hold" &&
+    bit.mode !== "carpet-leader" &&
+    bit.mode !== "carpet-follower";
+
+  const selectExternalAlertReceivers = (
+    leaderId: string,
+    target: V2HumanTargetSnapshot,
+    assignedReceiverIds: ReadonlySet<string>
+  ) =>
+    bits
+      .filter((bit) =>
+        isExternalAlertReceiverCandidate(
+          bit,
+          leaderId,
+          assignedReceiverIds
+        )
+      )
+      .sort(
+        (left, right) =>
+          Vector3.DistanceSquared(
+            left.root.position,
+            target.aimPosition
+          ) -
+          Vector3.DistanceSquared(
+            right.root.position,
+            target.aimPosition
+          )
+      )
+      .slice(0, EXTERNAL_ALERT_RECEIVER_LIMIT);
+
+  function startInternalAlert(
+    leader: RuntimeBit,
+    target: V2HumanTargetSnapshot
+  ) {
+    if (
+      Array.from(activeAlerts.values()).some(
+        (alert) => alert.internalBitAlert
+      )
+    ) {
+      return false;
+    }
+    const existingCandidates = bits
+      .filter(
+        (candidate) =>
+          candidate.id !== leader.id &&
+          candidate.mode !== "alert-send" &&
+          candidate.mode !== "alert-receive" &&
+          candidate.mode !== "carpet-follower" &&
+          candidate.attackCooldownSeconds === 0
+      )
+      .sort(
+        (left, right) =>
+          Vector3.DistanceSquared(
+            left.root.position,
+            leader.root.position
+          ) -
+          Vector3.DistanceSquared(
+            right.root.position,
+            leader.root.position
+          )
+      )
+      .slice(0, ALERT_GATHER_TARGET_COUNT);
+    const spawnedReceiver = trySpawnInternalAlertReceiver(leader);
+    const existingReceiverLimit = spawnedReceiver
+      ? ALERT_GATHER_TARGET_COUNT - 1
+      : ALERT_GATHER_TARGET_COUNT;
+    const receivers = existingCandidates.slice(
+      0,
+      existingReceiverLimit
+    );
+    if (spawnedReceiver) {
+      receivers.unshift(spawnedReceiver);
+    }
+    if (receivers.length === 0) {
+      return false;
+    }
+
+    const alertKey = buildAlertKey(leader.id, target.id);
+    const receiverIds = new Set(
+      receivers.map((receiver) => receiver.id)
+    );
+    activeAlerts.set(alertKey, {
+      leaderId: leader.id,
+      targetId: target.id,
+      remainingSeconds: V2_BIT_ALERT_DURATION_SECONDS,
+      receiverIds,
+      gatheredIds: new Set<string>(),
+      internalBitAlert: true
+    });
+    activateCombatMode(leader, "alert-send", target);
+    for (const receiver of receivers) {
+      setAlertTarget(receiver, target, leader.id);
+    }
+    pendingAlertRequests.push(
+      Object.freeze({
+        leaderId: leader.id,
+        targetId: target.id
+      })
+    );
+    return true;
+  }
+
+  function trySpawnInternalAlertReceiver(
+    leader: RuntimeBit
+  ): RuntimeBit | null {
+    const leaderLocation = leader.navigationLocation;
+    if (!leaderLocation) {
+      return null;
+    }
+    const leaderPosition = getBitFlightWorldPosition(leaderLocation);
+    const maximumAttempts = Math.min(
+      config.spawnMaxAttempts,
+      ALERT_SPAWN_MAX_ATTEMPTS
+    );
+    for (
+      let attempt = 0;
+      attempt < maximumAttempts;
+      attempt += 1
+    ) {
+      const angle = nextRandom() * Math.PI * 2;
+      const radius = Math.sqrt(nextRandom()) * ALERT_SPAWN_RADIUS;
+      const desiredPosition = leaderPosition.add(
+        new Vector3(
+          Math.cos(angle) * radius,
+          0,
+          Math.sin(angle) * radius
+        )
+      );
+      const location = navigation.constrainMovement(
+        leaderLocation,
+        desiredPosition,
+        leaderLocation.heightMode
+      );
+      if (
+        !location ||
+        !sameBand(leaderLocation, location)
+      ) {
+        continue;
+      }
+      const spawnPosition = getBitFlightWorldPosition(location);
+      if (
+        Vector3.Distance(leaderPosition, spawnPosition) >
+          ALERT_SPAWN_RADIUS ||
+        !safety.isCenterSafe(spawnPosition) ||
+        findMovementCollision(leaderPosition, spawnPosition)
+      ) {
+        continue;
+      }
+      const receiver = createRuntimeBit(location);
+      const leaderForward = normalizeHorizontal(
+        leader.root.getDirection(Vector3.Forward())
+      );
+      receiver.root.lookAt(
+        receiver.root.position.add(leaderForward)
+      );
+      receiver.lockedDirection.copyFrom(leaderForward);
+      receiver.fireLockDirection.copyFrom(leaderForward);
+      return receiver;
+    }
+    return null;
+  }
 
   const planEscape = (
     bit: RuntimeBit,
@@ -1314,31 +2732,29 @@ export const createV2BitSystem = (
     const candidates = navigation
       .getTransitionsFrom(bit.navigationLocation)
       .flatMap((traversal) => {
-        const destinationPoint = getTraversalDestinationPosition(traversal);
-        const destination = findSafeLocation(
-          traversal.to,
-          destinationPoint,
-          destinationPoint.y
-        );
+        const destination =
+          getSafeTraversalDestination(traversal);
         return destination
           ? [Object.freeze({
               value: traversal,
               destination,
-              costBias: 0
+              costBias: ZERO_SAFE_ROUTE_COST_BIAS
             })]
           : [];
       });
-    const selected = selectSafeRoute(
-      bit.navigationLocation,
-      candidates,
-      policy,
-      (origin, candidate, safePolicy) =>
-        navigation.findRouteThroughTransition(
-          origin,
-          candidate.value,
-          candidate.destination,
-          safePolicy
-        )
+    const selected = measureRoutePlan("escape", () =>
+      selectSafeRoute(
+        bit.navigationLocation!,
+        candidates,
+        policy,
+        (origin, candidate, safePolicy) =>
+          navigation.findRouteThroughTransition(
+            origin,
+            candidate.value,
+            candidate.destination,
+            safePolicy
+          )
+      )
     );
     if (selected) {
       assignRoute(bit, selected, "escape");
@@ -1373,6 +2789,11 @@ export const createV2BitSystem = (
     bit: RuntimeBit,
     elapsedSeconds: number
   ) => {
+    const endedAttack =
+      bit.mode === "chase" ||
+      bit.mode === "fixed" ||
+      bit.mode === "random" ||
+      bit.mode === "carpet-leader";
     const threatPosition =
       bit.lastSeenAimPosition?.clone() ?? bit.root.position.clone();
     if (bit.mode === "carpet-leader") {
@@ -1385,10 +2806,23 @@ export const createV2BitSystem = (
     bit.alertLeaderId = null;
     bit.lastSeenAimPosition = null;
     bit.lastSeenDestination = null;
+    bit.chaseWindowTransitionId = null;
+    bit.failedChaseWindowTransitionId = null;
+    bit.failedChaseWindowPenaltySeconds = 0;
     bit.targetLostSeconds = 0;
     bit.sightTargetId = null;
     bit.sightTargetVisible = false;
     bit.mode = "search";
+    bit.modeTimerSeconds = 0;
+    bit.fireTelegraphSeconds = 0;
+    bit.postAlertMode = null;
+    bit.holdReturnMode = null;
+    bit.holdTargetId = null;
+    bit.holdTimerSeconds = 0;
+    bit.carpetPassSeconds = 0;
+    if (config.combatEnabled && endedAttack) {
+      bit.attackCooldownSeconds = V2_BIT_ATTACK_COOLDOWN_SECONDS;
+    }
     bit.hasAttemptedSearchRoute = false;
     bit.pendingEscapeThreatPosition = threatPosition;
     tryPlanPendingEscape(bit, elapsedSeconds);
@@ -1404,7 +2838,10 @@ export const createV2BitSystem = (
     }> | null = null;
     let closestDistanceSquared = Number.POSITIVE_INFINITY;
     for (const alert of activeAlerts.values()) {
-      if (alert.leaderId === bit.id) {
+      if (
+        alert.leaderId === bit.id ||
+        !alert.receiverIds.has(bit.id)
+      ) {
         continue;
       }
       const target = targetsById.get(alert.targetId);
@@ -1423,31 +2860,43 @@ export const createV2BitSystem = (
     return closest;
   };
 
+  const createSearchRoutePolicy = (
+    bit: RuntimeBit,
+    elapsedSeconds: number
+  ) =>
+    createBitFlightSearchRoutePolicy({
+      explorationHistory,
+      transitionHistory: bit.transitionHistory,
+      nowSeconds: elapsedSeconds,
+      observationRadius: SEARCH_OBSERVATION_RADIUS,
+      exploredDestinationPenalty: SEARCH_EXPLORED_DESTINATION_PENALTY,
+      ordinaryTransitionPenalty: SEARCH_ORDINARY_TRANSITION_PENALTY,
+      immediateReturnPenalty: TRANSITION_IMMEDIATE_RETURN_PENALTY,
+      returnSuppressionSeconds:
+        BIT_FLIGHT_TRANSITION_RETURN_SUPPRESSION_SECONDS
+    });
+
   const createSearchSurfaceDestination = (
-    bit: RuntimeBit
-  ): Readonly<{
-    destination: BitFlightLocation;
-    surfaceSpeed: number;
-  }> | null => {
-    const current = bit.navigationLocation;
-    if (!current) {
-      return null;
-    }
-    const band = navigation.getBand(current);
+    origin: BitFlightLocation,
+    horizontalSpeed: number,
+    verticalSpeed: number,
+    radius: number,
+    movementRoll: number
+  ): SearchSurfaceDestination | null => {
+    const band = navigation.getBand(origin);
     if (!band) {
       throw new Error("探索中の飛行帯がありません。");
     }
-    const movementRoll = nextRandom();
     const isVertical = movementRoll >= 0.65 && movementRoll < 0.8;
     const isDiagonal = movementRoll >= 0.8;
     const horizontal = isVertical
-      ? current
-      : navigation.randomPointAround(current, SEARCH_RADIUS);
+      ? origin
+      : navigation.randomPointAround(origin, radius);
     if (!horizontal) {
       return null;
     }
 
-    let preferredHeight = current.safeCenterHeight;
+    let preferredHeight = origin.safeCenterHeight;
     if (isVertical) {
       const direction = nextRandom() < 0.65 ? -1 : 1;
       preferredHeight += direction * randomRange(0.08, 0.22);
@@ -1465,32 +2914,491 @@ export const createV2BitSystem = (
     return destination
       ? Object.freeze({
           destination,
-          surfaceSpeed: isVertical
-            ? SEARCH_VERTICAL_SPEED
-            : SEARCH_SPEED
+          surfaceSpeed: isVertical ? verticalSpeed : horizontalSpeed,
+          isVertical
         })
       : null;
   };
 
-  const planSearchRoute = (
+  const getHorizontalDistance = (
+    left: BitFlightLocation,
+    right: BitFlightLocation
+  ) => {
+    const leftPosition = getBitFlightWorldPosition(left);
+    const rightPosition = getBitFlightWorldPosition(right);
+    return Math.hypot(
+      rightPosition.x - leftPosition.x,
+      rightPosition.z - leftPosition.z
+    );
+  };
+
+  const getNormalPatrolReservations = (owner: RuntimeBit) => {
+    const reservations: BitFlightLocation[] = [];
+    for (const bit of bits) {
+      if (
+        bit.id === owner.id ||
+        bit.searchRouteKind !== "normal"
+      ) {
+        continue;
+      }
+      if (
+        bit.routePurpose === "search" &&
+        bit.routeDestination !== null
+      ) {
+        reservations.push(bit.routeDestination);
+      }
+      if (bit.queuedNormalPatrolLeg) {
+        reservations.push(
+          bit.queuedNormalPatrolLeg.destination
+        );
+      }
+    }
+    return reservations;
+  };
+
+  const createRankedNormalPatrolDestinations = (
+    bit: RuntimeBit,
+    origin: BitFlightLocation,
+    previousOrigin: BitFlightLocation | null,
+    elapsedSeconds: number,
+    movementRoll = nextRandom()
+  ) => {
+    const horizontalSpeed =
+      NORMAL_PATROL_SPEED * bit.profile.statMultiplier;
+    const verticalSpeed =
+      SEARCH_VERTICAL_SPEED * bit.profile.statMultiplier;
+    const reservations = getNormalPatrolReservations(bit);
+    const candidates: Array<
+      SafeRouteInputCandidate<
+        Readonly<{ surfaceSpeed: number }>
+      > &
+        Readonly<{
+          conflictsReservation: boolean;
+          horizontalDistance: number;
+          minimumReservationDistance: number;
+          recentlyExplored: boolean;
+          isVertical: boolean;
+        }>
+    > = [];
+    const candidateKeys = new Set<string>();
+    for (
+      let attempt = 0;
+      attempt < NORMAL_PATROL_CANDIDATE_COUNT;
+      attempt += 1
+    ) {
+      const surface = createSearchSurfaceDestination(
+        origin,
+        horizontalSpeed,
+        verticalSpeed,
+        NORMAL_PATROL_RADIUS,
+        movementRoll
+      );
+      if (!surface) {
+        continue;
+      }
+      const destinationPosition = getBitFlightWorldPosition(
+        surface.destination
+      );
+      const candidateKey = JSON.stringify([
+        surface.destination.zoneId,
+        surface.destination.bandId,
+        destinationPosition.x,
+        destinationPosition.y,
+        destinationPosition.z
+      ]);
+      if (candidateKeys.has(candidateKey)) {
+        continue;
+      }
+      candidateKeys.add(candidateKey);
+      const horizontalDistance = getHorizontalDistance(
+        origin,
+        surface.destination
+      );
+      let minimumReservationDistance = Number.POSITIVE_INFINITY;
+      for (const reservation of reservations) {
+        if (!sameBand(surface.destination, reservation)) {
+          continue;
+        }
+        minimumReservationDistance = Math.min(
+          minimumReservationDistance,
+          getHorizontalDistance(surface.destination, reservation)
+        );
+      }
+      const conflictsReservation =
+        minimumReservationDistance <
+        NORMAL_PATROL_RESERVATION_RADIUS;
+      const recentlyExplored = explorationHistory.hasRecentObservation(
+        surface.destination,
+        destinationPosition,
+        SEARCH_OBSERVATION_RADIUS,
+        elapsedSeconds
+      );
+      let reversePenalty = 0;
+      if (previousOrigin) {
+        const previousPosition =
+          getBitFlightWorldPosition(previousOrigin);
+        const originPosition = getBitFlightWorldPosition(origin);
+        const incomingX = originPosition.x - previousPosition.x;
+        const incomingZ = originPosition.z - previousPosition.z;
+        const outgoingX = destinationPosition.x - originPosition.x;
+        const outgoingZ = destinationPosition.z - originPosition.z;
+        const incomingLength = Math.hypot(incomingX, incomingZ);
+        const outgoingLength = Math.hypot(outgoingX, outgoingZ);
+        if (incomingLength > 0 && outgoingLength > 0) {
+          const directionDot =
+            (incomingX * outgoingX + incomingZ * outgoingZ) /
+            (incomingLength * outgoingLength);
+          reversePenalty =
+            Math.max(0, -directionDot) *
+            NORMAL_PATROL_REVERSE_PENALTY;
+        }
+      }
+      const shortDistancePenalty = surface.isVertical
+        ? 0
+        : Math.max(
+            0,
+            NORMAL_PATROL_MINIMUM_HORIZONTAL_DISTANCE -
+              horizontalDistance
+          ) * 2;
+      const longDistancePreference = surface.isVertical
+        ? 0
+        : Math.max(
+            0,
+            NORMAL_PATROL_RADIUS - horizontalDistance
+          ) * 1.25;
+      const basePenalty =
+        (recentlyExplored
+          ? SEARCH_EXPLORED_DESTINATION_PENALTY
+          : 0) +
+        reversePenalty +
+        shortDistancePenalty +
+        longDistancePreference;
+      candidates.push(
+        Object.freeze({
+          value: Object.freeze({
+            surfaceSpeed: surface.surfaceSpeed
+          }),
+          destination: surface.destination,
+          costBias: basePenalty as SafeRouteCostBias,
+          conflictsReservation,
+          horizontalDistance,
+          minimumReservationDistance,
+          recentlyExplored,
+          isVertical: surface.isVertical
+        })
+      );
+    }
+
+    let ranked = candidates;
+    const unreserved = ranked.filter(
+      (candidate) => !candidate.conflictsReservation
+    );
+    const allCandidatesConflict = unreserved.length === 0;
+    if (!allCandidatesConflict) {
+      ranked = unreserved;
+    }
+    const sufficientlyLong = ranked.filter(
+      (candidate) =>
+        candidate.isVertical ||
+        candidate.horizontalDistance >=
+          NORMAL_PATROL_MINIMUM_HORIZONTAL_DISTANCE
+    );
+    if (sufficientlyLong.length > 0) {
+      ranked = sufficientlyLong;
+    }
+    const maximumReservationDistance = allCandidatesConflict
+      ? Math.max(
+          ...ranked.map(
+            (candidate) => candidate.minimumReservationDistance
+          )
+        )
+      : Number.POSITIVE_INFINITY;
+    return ranked
+      .map((candidate) => {
+        const reservationPenalty =
+          allCandidatesConflict &&
+          Number.isFinite(maximumReservationDistance)
+            ? (maximumReservationDistance -
+                candidate.minimumReservationDistance) *
+              100
+            : 0;
+        return Object.freeze({
+          ...candidate,
+          costBias:
+            (candidate.costBias + reservationPenalty) as SafeRouteCostBias
+        });
+      })
+      .sort((left, right) => {
+        const penaltyDifference =
+          left.costBias - right.costBias;
+        if (penaltyDifference !== 0) {
+          return penaltyDifference;
+        }
+        return right.horizontalDistance - left.horizontalDistance;
+      });
+  };
+
+  const selectNormalPatrolLeg = (
+    bit: RuntimeBit,
+    origin: BitFlightLocation,
+    previousOrigin: BitFlightLocation | null,
+    elapsedSeconds: number
+  ): NormalPatrolLeg | null => {
+    const policy = createSearchRoutePolicy(bit, elapsedSeconds);
+    const surfaceCandidates =
+      createRankedNormalPatrolDestinations(
+        bit,
+        origin,
+        previousOrigin,
+        elapsedSeconds
+      ).slice(0, NORMAL_PATROL_ROUTE_CANDIDATE_LIMIT);
+    const originPosition = getBitFlightWorldPosition(origin);
+    const transitions = navigation
+      .getTransitionsFrom(origin)
+      .filter(
+        (traversal) =>
+          bit.transitionHistory.getImmediateReturnPenalty(
+            traversal,
+            elapsedSeconds,
+            BIT_FLIGHT_TRANSITION_RETURN_SUPPRESSION_SECONDS,
+            TRANSITION_IMMEDIATE_RETURN_PENALTY
+          ) === 0
+      )
+      .sort((left, right) => {
+        const policyDifference =
+          policy.additionalTransitionCost(left) -
+          policy.additionalTransitionCost(right);
+        if (policyDifference !== 0) {
+          return policyDifference;
+        }
+        return (
+          Vector3.Distance(
+            originPosition,
+            getTraversalEntryEvaluationPosition(
+              left,
+              originPosition
+            )
+          ) -
+          Vector3.Distance(
+            originPosition,
+            getTraversalEntryEvaluationPosition(
+              right,
+              originPosition
+            )
+          )
+        );
+      });
+    const nearestDiscreteTransitionDistance = transitions.reduce(
+      (nearest, traversal) =>
+        traversal.transition.kind === "vertical"
+          ? nearest
+          : Math.min(
+              nearest,
+              Vector3.Distance(
+                originPosition,
+                getTraversalEntryEvaluationPosition(
+                  traversal,
+                  originPosition
+                )
+              )
+            ),
+      Number.POSITIVE_INFINITY
+    );
+    const transitionCandidates: Array<
+      SafeRouteInputCandidate<
+        Readonly<{
+          traversal: BitFlightTransitionTraversal;
+          surfaceSpeed: number;
+        }>
+      >
+    > = [];
+    const shouldAttemptTransition =
+      transitions.length > 0 &&
+      (nearestDiscreteTransitionDistance <=
+        SEARCH_NEAR_TRANSITION_DISTANCE ||
+        bit.searchSurfacePlansSinceTransitionAttempt >=
+          SEARCH_TRANSITION_FORCE_AFTER_SURFACE_PLANS ||
+        nextRandom() < SEARCH_TRANSITION_CHANCE);
+    if (shouldAttemptTransition) {
+      const cursor = bit.searchTransitionCursor % transitions.length;
+      const candidateCount = Math.min(
+        SEARCH_TRANSITION_CANDIDATE_LIMIT,
+        transitions.length
+      );
+      for (let offset = 0; offset < candidateCount; offset += 1) {
+        const traversal = transitions[(cursor + offset) % transitions.length];
+        const traversalDestination =
+          getSafeTraversalDestination(traversal);
+        if (!traversalDestination) {
+          continue;
+        }
+        const destinationZone = navigation.getZone(
+          traversal.to.zoneId
+        );
+        if (!destinationZone) {
+          throw new Error(
+            `探索遷移先ゾーンがありません: ${traversal.to.zoneId}`
+          );
+        }
+        const continueInside =
+          destinationZone.spaceKind === "indoor" &&
+          traversal.transition.affordances.some(
+            (affordance) =>
+              affordance === "window-access" ||
+              affordance === "indoor-access"
+          );
+        let destination = traversalDestination;
+        let surfaceSpeed =
+          NORMAL_PATROL_SPEED * bit.profile.statMultiplier;
+        let costBias = ZERO_SAFE_ROUTE_COST_BIAS;
+        if (continueInside) {
+          const interiorCandidate =
+            createRankedNormalPatrolDestinations(
+              bit,
+              traversalDestination,
+              origin,
+              elapsedSeconds,
+              0
+            ).find(
+              (candidate) =>
+                !candidate.recentlyExplored &&
+                candidate.horizontalDistance >=
+                  NORMAL_PATROL_MINIMUM_HORIZONTAL_DISTANCE
+            );
+          if (!interiorCandidate) {
+            continue;
+          }
+          destination = interiorCandidate.destination;
+          surfaceSpeed = interiorCandidate.value.surfaceSpeed;
+          costBias = interiorCandidate.costBias;
+        }
+        transitionCandidates.push(
+          Object.freeze({
+            value: Object.freeze({
+              traversal,
+              surfaceSpeed
+            }),
+            destination,
+            costBias
+          })
+        );
+      }
+      bit.searchTransitionCursor =
+        (cursor + candidateCount) % transitions.length;
+      bit.searchSurfacePlansSinceTransitionAttempt = 0;
+    } else {
+      bit.searchSurfacePlansSinceTransitionAttempt += 1;
+    }
+    const transitionSelected = selectSafeRoute(
+      origin,
+      transitionCandidates,
+      policy,
+      (start, candidate, safePolicy) =>
+        navigation.findRouteThroughTransition(
+          start,
+          candidate.value.traversal,
+          candidate.destination,
+          safePolicy
+        )
+    );
+    const surfaceSelected = transitionSelected
+      ? null
+      : selectSafeRoute(
+          origin,
+          surfaceCandidates,
+          policy,
+          (start, candidate, safePolicy) =>
+            navigation.findSurfaceRoute(
+              start,
+              candidate.destination,
+              safePolicy
+            )
+        );
+    const selected = transitionSelected ?? surfaceSelected;
+    if (!selected) {
+      return null;
+    }
+    return Object.freeze({
+      origin,
+      value: Object.freeze({
+        surfaceSpeed: selected.value.surfaceSpeed
+      }),
+      destination: selected.destination,
+      route: selected.route,
+      totalCost: selected.totalCost
+    });
+  };
+
+  const planNormalPatrolLeg = (
     bit: RuntimeBit,
     elapsedSeconds: number
+  ) => {
+    const planningQueuedLeg =
+      bit.routePurpose === "search" &&
+      bit.searchRouteKind === "normal" &&
+      bit.routeDestination !== null;
+    if (bit.routePurpose !== null && !planningQueuedLeg) {
+      return false;
+    }
+    const origin = planningQueuedLeg
+      ? bit.routeDestination!
+      : bit.navigationLocation;
+    if (!origin) {
+      return false;
+    }
+    const previousOrigin = planningQueuedLeg
+      ? bit.normalPatrolOrigin
+      : null;
+    const selected = measureRoutePlan("search", () =>
+      selectNormalPatrolLeg(
+        bit,
+        origin,
+        previousOrigin,
+        elapsedSeconds
+      )
+    );
+    if (!selected) {
+      return false;
+    }
+    if (planningQueuedLeg) {
+      bit.queuedNormalPatrolLeg = selected;
+      return true;
+    }
+    if (!assignRoute(bit, selected, "search")) {
+      return false;
+    }
+    bit.searchRouteKind = "normal";
+    bit.normalPatrolOrigin = selected.origin;
+    bit.searchSurfaceSpeed = selected.value.surfaceSpeed;
+    return true;
+  };
+
+  const promoteQueuedNormalPatrolLeg = (bit: RuntimeBit) => {
+    const queued = bit.queuedNormalPatrolLeg;
+    if (!queued) {
+      return false;
+    }
+    bit.queuedNormalPatrolLeg = null;
+    if (!assignRoute(bit, queued, "search")) {
+      clearRoute(bit);
+      return false;
+    }
+    bit.searchRouteKind = "normal";
+    bit.normalPatrolOrigin = queued.origin;
+    bit.searchSurfaceSpeed = queued.value.surfaceSpeed;
+    return true;
+  };
+
+  const planRandomAttackRoute = (
+    bit: RuntimeBit,
+    elapsedSeconds: number,
+    movementSpeed: number
   ) => {
     const current = bit.navigationLocation;
     if (!current) {
       return false;
     }
-    const policy = createBitFlightSearchRoutePolicy({
-      explorationHistory,
-      transitionHistory: bit.transitionHistory,
-      nowSeconds: elapsedSeconds,
-      observationRadius: SEARCH_OBSERVATION_RADIUS,
-      exploredDestinationPenalty: SEARCH_EXPLORED_DESTINATION_PENALTY,
-      ordinaryTransitionPenalty: SEARCH_ORDINARY_TRANSITION_PENALTY,
-      immediateReturnPenalty: TRANSITION_IMMEDIATE_RETURN_PENALTY,
-      returnSuppressionSeconds:
-        BIT_FLIGHT_TRANSITION_RETURN_SUPPRESSION_SECONDS
-    });
+    const policy = createSearchRoutePolicy(bit, elapsedSeconds);
     const surfaceCandidates: Array<
       Readonly<{
         value: Readonly<{
@@ -1498,10 +3406,17 @@ export const createV2BitSystem = (
           surfaceSpeed: number;
         }>;
         destination: BitFlightLocation;
-        costBias: number;
+        costBias: SafeRouteCostBias;
       }>
     > = [];
-    const surfaceCandidate = createSearchSurfaceDestination(bit);
+    const surfaceCandidate = createSearchSurfaceDestination(
+      current,
+      movementSpeed,
+      movementSpeed *
+        (SEARCH_VERTICAL_SPEED / PROFILE_SEARCH_SPEED_REFERENCE),
+      RANDOM_ATTACK_SEARCH_RADIUS,
+      nextRandom()
+    );
     if (surfaceCandidate) {
       surfaceCandidates.push(
         Object.freeze({
@@ -1510,7 +3425,7 @@ export const createV2BitSystem = (
             surfaceSpeed: surfaceCandidate.surfaceSpeed
           }),
           destination: surfaceCandidate.destination,
-          costBias: 0
+          costBias: ZERO_SAFE_ROUTE_COST_BIAS
         })
       );
     }
@@ -1576,21 +3491,16 @@ export const createV2BitSystem = (
       );
       for (let offset = 0; offset < candidateCount; offset += 1) {
         const traversal = transitions[(cursor + offset) % transitions.length];
-        const destinationPoint = getTraversalDestinationPosition(traversal);
-        const destination = findSafeLocation(
-          traversal.to,
-          destinationPoint,
-          destinationPoint.y
-        );
+        const destination = getSafeTraversalDestination(traversal);
         if (destination) {
           transitionCandidates.push(
             Object.freeze({
               value: Object.freeze({
                 traversal,
-                surfaceSpeed: SEARCH_SPEED
+                surfaceSpeed: movementSpeed
               }),
               destination,
-              costBias: 0
+              costBias: ZERO_SAFE_ROUTE_COST_BIAS
             })
           );
         }
@@ -1601,42 +3511,261 @@ export const createV2BitSystem = (
     } else {
       bit.searchSurfacePlansSinceTransitionAttempt += 1;
     }
-    const selected =
-      selectSafeRoute(
-        current,
-        transitionCandidates,
-        policy,
-        (origin, candidate, safePolicy) =>
-          navigation.findRouteThroughTransition(
-            origin,
-            candidate.value.traversal!,
-            candidate.destination,
-            safePolicy
-          )
-      ) ??
-      selectSafeRoute(
-        current,
-        surfaceCandidates,
-        policy,
-        (origin, candidate, safePolicy) =>
-          navigation.findSurfaceRoute(
-            origin,
-            candidate.destination,
-            safePolicy
-          )
-      );
+    const selected = measureRoutePlan(
+      "search",
+      () =>
+        selectSafeRoute(
+          current,
+          transitionCandidates,
+          policy,
+          (origin, candidate, safePolicy) =>
+            navigation.findRouteThroughTransition(
+              origin,
+              candidate.value.traversal!,
+              candidate.destination,
+              safePolicy
+            )
+        ) ??
+        selectSafeRoute(
+          current,
+          surfaceCandidates,
+          policy,
+          (origin, candidate, safePolicy) =>
+            navigation.findSurfaceRoute(
+              origin,
+              candidate.destination,
+              safePolicy
+            )
+        )
+    );
     if (!selected || !assignRoute(bit, selected, "search")) {
       return false;
     }
+    bit.searchRouteKind = "random";
     bit.searchSurfaceSpeed = selected.value.surfaceSpeed;
-    bit.searchSegmentSeconds = randomRange(
-      SEARCH_SEGMENT_SECONDS_MIN,
-      SEARCH_SEGMENT_SECONDS_MAX
+    bit.randomAttackRouteSeconds = randomRange(
+      RANDOM_ATTACK_ROUTE_SECONDS_MIN,
+      RANDOM_ATTACK_ROUTE_SECONDS_MAX
     );
     return true;
   };
 
-  const updateSearch = (
+  const planBruteForceRoute = (
+    bit: RuntimeBit,
+    elapsedSeconds: number
+  ) => {
+    const current = bit.navigationLocation;
+    if (!current) {
+      return false;
+    }
+    const currentPosition = getBitFlightWorldPosition(current);
+    const candidateByKey = new Map<
+      string,
+      BruteForceRouteCandidate
+    >();
+    const addCandidate = (
+      destination: BitFlightLocation,
+      surfaceSpeed: number
+    ) => {
+      const position = getBitFlightWorldPosition(destination);
+      if (
+        Vector3.DistanceSquared(currentPosition, position) <= 0.0025 ||
+        explorationHistory.hasRecentObservation(
+          destination,
+          position,
+          SEARCH_OBSERVATION_RADIUS,
+          elapsedSeconds
+        )
+      ) {
+        return;
+      }
+      const key = JSON.stringify([
+        destination.zoneId,
+        destination.bandId,
+        position.x,
+        position.y,
+        position.z
+      ]);
+      candidateByKey.set(
+        key,
+        Object.freeze({
+          value: Object.freeze({ surfaceSpeed }),
+          destination,
+          costBias: ZERO_SAFE_ROUTE_COST_BIAS
+        })
+      );
+    };
+    const planningTransitionCandidate =
+      bruteForceTransitionDestinations.length > 0 &&
+      bit.bruteForcePhaseCursor % 2 === 1;
+    let transitionCandidateCount = 0;
+    if (planningTransitionCandidate) {
+      transitionCandidateCount = Math.min(
+        BRUTE_FORCE_TRANSITION_CANDIDATE_COUNT,
+        bruteForceTransitionDestinations.length
+      );
+      const destination =
+        bruteForceTransitionDestinations[
+          bit.bruteForceTransitionCursor %
+            bruteForceTransitionDestinations.length
+        ];
+      addCandidate(
+        destination,
+        NORMAL_PATROL_SPEED * bit.profile.statMultiplier
+      );
+      bit.bruteForceTransitionCursor =
+        (bit.bruteForceTransitionCursor +
+          transitionCandidateCount) %
+        bruteForceTransitionDestinations.length;
+    } else {
+      for (
+        let attempt = 0;
+        attempt < BRUTE_FORCE_LOCAL_CANDIDATE_COUNT;
+        attempt += 1
+      ) {
+        const surface = createSearchSurfaceDestination(
+          current,
+          NORMAL_PATROL_SPEED * bit.profile.statMultiplier,
+          SEARCH_VERTICAL_SPEED * bit.profile.statMultiplier,
+          NORMAL_PATROL_RADIUS,
+          nextRandom()
+        );
+        if (surface) {
+          addCandidate(surface.destination, surface.surfaceSpeed);
+        }
+      }
+      recentExplorationSamplesForUpdate ??=
+        explorationHistory.getRecentSamples(elapsedSeconds);
+      const recentSamples = recentExplorationSamplesForUpdate;
+      for (
+        let candidateIndex = 0;
+        candidateIndex < BRUTE_FORCE_FRONTIER_CANDIDATE_COUNT &&
+        recentSamples.length > 0;
+        candidateIndex += 1
+      ) {
+        const cursor =
+          bit.bruteForceFrontierCursor + candidateIndex;
+        const sample =
+          recentSamples[cursor % recentSamples.length];
+        const offset =
+          BRUTE_FORCE_FRONTIER_OFFSETS[
+            cursor % BRUTE_FORCE_FRONTIER_OFFSETS.length
+          ];
+        const seed = sample.position.add(offset);
+        const destination = findSafeLocation(
+          sample.band,
+          seed,
+          seed.y
+        );
+        if (destination) {
+          addCandidate(
+            destination,
+            NORMAL_PATROL_SPEED * bit.profile.statMultiplier
+          );
+        }
+      }
+    }
+    if (!planningTransitionCandidate) {
+      bit.bruteForceFrontierCursor +=
+        BRUTE_FORCE_FRONTIER_CANDIDATE_COUNT;
+    }
+    bit.bruteForcePhaseCursor += 1;
+    const candidates = [...candidateByKey.values()]
+      .sort(
+        (left, right) =>
+          Vector3.DistanceSquared(
+            currentPosition,
+            getBitFlightWorldPosition(left.destination)
+          ) -
+          Vector3.DistanceSquared(
+            currentPosition,
+            getBitFlightWorldPosition(right.destination)
+          )
+      )
+      .slice(
+        0,
+        planningTransitionCandidate
+          ? BRUTE_FORCE_TRANSITION_CANDIDATE_COUNT
+          : BRUTE_FORCE_SURFACE_ROUTE_CANDIDATE_LIMIT
+      );
+    const policy = createSearchRoutePolicy(bit, elapsedSeconds);
+    const selected = measureRoutePlan("search", () =>
+      selectSafeRoute(current, candidates, policy)
+    );
+    if (!selected) {
+      if (planningTransitionCandidate) {
+        bit.bruteForceFailedTransitionCandidateCount +=
+          transitionCandidateCount;
+      }
+      if (
+        bruteForceTransitionDestinations.length === 0 ||
+        bit.bruteForceFailedTransitionCandidateCount >=
+          bruteForceTransitionDestinations.length
+      ) {
+        bit.bruteForceActive = false;
+        bit.bruteForceFailedTransitionCandidateCount = 0;
+      }
+      return false;
+    }
+    if (planningTransitionCandidate) {
+      bit.bruteForceFailedTransitionCandidateCount = 0;
+    }
+    if (!assignRoute(bit, selected, "search")) {
+      return false;
+    }
+    bit.searchRouteKind = "brute-force";
+    bit.searchSurfaceSpeed = selected.value.surfaceSpeed;
+    return true;
+  };
+
+  const recordExplorationPosition = (
+    bit: RuntimeBit,
+    elapsedSeconds: number
+  ) => {
+    if (
+      bit.navigationLocation &&
+      elapsedSeconds - bit.lastExplorationRecordSeconds >=
+        SEARCH_OBSERVATION_INTERVAL_SECONDS
+    ) {
+      explorationHistory.recordLocation(
+        bit.navigationLocation,
+        elapsedSeconds
+      );
+      bit.lastExplorationRecordSeconds = elapsedSeconds;
+    }
+  };
+
+  const updateBruteForceSchedule = (
+    bit: RuntimeBit,
+    elapsedSeconds: number
+  ) => {
+    if (elapsedSeconds < bit.bruteForceNextCheckSeconds) {
+      return;
+    }
+    const elapsedCheckIntervals =
+      Math.floor(
+        (elapsedSeconds - BRUTE_FORCE_START_SECONDS) /
+          BRUTE_FORCE_CHECK_INTERVAL_SECONDS
+      ) + 1;
+    bit.bruteForceNextCheckSeconds =
+      BRUTE_FORCE_START_SECONDS +
+      elapsedCheckIntervals *
+        BRUTE_FORCE_CHECK_INTERVAL_SECONDS;
+    if (
+      bit.bruteForceActive ||
+      bit.routePurpose === "escape" ||
+      bit.activeTransition !== null
+    ) {
+      return;
+    }
+    if (nextRandom() < BRUTE_FORCE_START_CHANCE) {
+      clearRoute(bit);
+      bit.bruteForceActive = true;
+      bit.searchRetrySeconds = 0;
+    }
+  };
+
+  const updateNormalSearch = (
     bit: RuntimeBit,
     deltaSeconds: number,
     elapsedSeconds: number
@@ -1649,34 +3778,23 @@ export const createV2BitSystem = (
       syncStationaryPosition(bit, elapsedSeconds, true);
       return;
     }
-    if (
-      bit.navigationLocation &&
-      elapsedSeconds - bit.lastExplorationRecordSeconds >=
-        SEARCH_OBSERVATION_INTERVAL_SECONDS
-    ) {
-      explorationHistory.recordLocation(
-        bit.navigationLocation,
-        elapsedSeconds
-      );
-      bit.lastExplorationRecordSeconds = elapsedSeconds;
-    }
+    recordExplorationPosition(bit, elapsedSeconds);
     bit.searchRetrySeconds = Math.max(
       0,
       bit.searchRetrySeconds - deltaSeconds
     );
-    bit.searchSegmentSeconds = Math.max(
-      0,
-      bit.searchSegmentSeconds - deltaSeconds
-    );
+    updateBruteForceSchedule(bit, elapsedSeconds);
 
     if (
       bit.routePurpose === "escape" ||
       bit.routePurpose === "search"
     ) {
+      const routePurpose = bit.routePurpose;
+      const activeSearchRouteKind = bit.searchRouteKind;
       const surfaceSpeed =
-        bit.routePurpose === "search"
+        routePurpose === "search"
           ? bit.searchSurfaceSpeed
-          : SEARCH_SPEED;
+          : bit.profile.searchSpeed;
       const state = advanceAgent(
         bit,
         surfaceSpeed,
@@ -1686,18 +3804,36 @@ export const createV2BitSystem = (
       if (state === "transition" || state === "clearing-transition") {
         return;
       }
-      if (state === "arrived" || state === "blocked" || state === "unreachable") {
+      if (
+        state === "unreachable" ||
+        (state === "blocked" && bit.activeTransition === null)
+      ) {
         clearRoute(bit);
         bit.searchRetrySeconds = SEARCH_RETRY_SECONDS;
+      } else if (state === "arrived") {
+        if (bit.navigationLocation) {
+          explorationHistory.recordLocation(
+            bit.navigationLocation,
+            elapsedSeconds
+          );
+          bit.lastExplorationRecordSeconds = elapsedSeconds;
+        }
+        if (
+          activeSearchRouteKind === "normal" &&
+          !bit.bruteForceActive &&
+          promoteQueuedNormalPatrolLeg(bit)
+        ) {
+          return;
+        }
+        clearRoute(bit);
+        bit.searchRetrySeconds = 0;
+      } else if (state === "blocked") {
+        return;
       } else if (
-        bit.routePurpose === "escape" &&
+        routePurpose === "escape" &&
         state === "surface"
       ) {
         return;
-      } else if (bit.searchSegmentSeconds > 0) {
-        return;
-      } else if (bit.navigationLocation) {
-        clearRoute(bit);
       }
     }
 
@@ -1707,7 +3843,68 @@ export const createV2BitSystem = (
       allowedSearchRoutePlanIds.has(bit.id)
     ) {
       bit.hasAttemptedSearchRoute = true;
-      if (!planSearchRoute(bit, elapsedSeconds)) {
+      const planned = bit.bruteForceActive
+        ? planBruteForceRoute(bit, elapsedSeconds)
+        : planNormalPatrolLeg(bit, elapsedSeconds);
+      if (!planned) {
+        bit.searchRetrySeconds = SEARCH_RETRY_SECONDS;
+      }
+    }
+    if (bit.routePurpose === null) {
+      syncStationaryPosition(bit, elapsedSeconds, true);
+    }
+  };
+
+  const updateRandomAttackMovement = (
+    bit: RuntimeBit,
+    deltaSeconds: number,
+    elapsedSeconds: number
+  ) => {
+    recordExplorationPosition(bit, elapsedSeconds);
+    bit.searchRetrySeconds = Math.max(
+      0,
+      bit.searchRetrySeconds - deltaSeconds
+    );
+    bit.randomAttackRouteSeconds = Math.max(
+      0,
+      bit.randomAttackRouteSeconds - deltaSeconds
+    );
+    if (bit.routePurpose === "search") {
+      const state = advanceAgent(
+        bit,
+        bit.searchSurfaceSpeed,
+        deltaSeconds,
+        elapsedSeconds
+      );
+      if (state === "transition" || state === "clearing-transition") {
+        return;
+      }
+      if (
+        state === "arrived" ||
+        state === "unreachable" ||
+        (state === "blocked" && bit.activeTransition === null)
+      ) {
+        clearRoute(bit);
+        bit.searchRetrySeconds = SEARCH_RETRY_SECONDS;
+      } else if (state === "blocked") {
+        return;
+      } else if (bit.randomAttackRouteSeconds === 0) {
+        clearRoute(bit);
+      }
+    }
+    if (
+      bit.navigationLocation &&
+      bit.searchRetrySeconds === 0 &&
+      allowedSearchRoutePlanIds.has(bit.id)
+    ) {
+      bit.hasAttemptedSearchRoute = true;
+      if (
+        !planRandomAttackRoute(
+          bit,
+          elapsedSeconds,
+          bit.profile.randomAttackSpeed
+        )
+      ) {
         bit.searchRetrySeconds = SEARCH_RETRY_SECONDS;
       }
     }
@@ -1720,19 +3917,58 @@ export const createV2BitSystem = (
     bit: RuntimeBit,
     targetPosition: Vector3,
     deltaSeconds: number,
-    elapsedSeconds: number
-  ) => {
+    elapsedSeconds: number,
+    surfaceSpeedOverride: number | null = null
+  ): ChaseRouteUpdateState => {
     bit.mode = "chase";
     bit.routeRefreshSeconds = Math.max(
       0,
       bit.routeRefreshSeconds - deltaSeconds
     );
+    const evaluateMovementState = (
+      state: ReturnType<typeof advanceAgent>,
+      plannedWindowTransitionId: string | null
+    ): ChaseRouteUpdateState => {
+      const arrivalDistance = Vector3.Distance(
+        bit.root.position,
+        targetPosition
+      );
+      const failedBeforeTarget =
+        state === "blocked" ||
+        state === "unreachable" ||
+        (state === "arrived" && arrivalDistance > FIRE_RANGE);
+      if (failedBeforeTarget) {
+        if (plannedWindowTransitionId !== null) {
+          bit.failedChaseWindowTransitionId =
+            plannedWindowTransitionId;
+          bit.failedChaseWindowPenaltySeconds =
+            CHASE_WINDOW_FAILURE_PENALTY_SECONDS;
+        }
+        clearRoute(bit);
+        if (plannedWindowTransitionId !== null) {
+          bit.routeRefreshSeconds = 0;
+          return "replan";
+        }
+        return "unreachable";
+      }
+      return state === "arrived" ? "arrived" : "moving";
+    };
     if (bit.activeTransition) {
-      advanceAgent(bit, CHASE_SPEED, deltaSeconds, elapsedSeconds);
-      return;
+      const plannedWindowTransitionId =
+        bit.chaseWindowTransitionId;
+      const state = advanceAgent(
+        bit,
+        surfaceSpeedOverride ?? bit.profile.chaseSpeed,
+        deltaSeconds,
+        elapsedSeconds
+      );
+      return evaluateMovementState(
+        state,
+        plannedWindowTransitionId
+      );
     }
     if (!bit.navigationLocation) {
-      return;
+      return "unreachable";
     }
 
     const hasChaseRoute =
@@ -1746,28 +3982,54 @@ export const createV2BitSystem = (
         ) > TARGET_ROUTE_MOVE_THRESHOLD);
     if (shouldRefresh && allowedChaseRoutePlanIds.has(bit.id)) {
       bit.lastChasePlanTargetId = bit.targetId;
-      const selected = selectTargetDestination(bit, targetPosition);
+      const selected = measureRoutePlan(
+        "chase",
+        () => selectTargetDestination(bit, targetPosition)
+      );
       if (selected) {
-        assignRoute(
+        if (!assignRoute(
           bit,
           selected,
           "chase"
-        );
+        )) {
+          return "unreachable";
+        }
         bit.lastSeenDestination = selected.destination;
       } else {
         clearRoute(bit);
         bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
+        return "unreachable";
       }
     }
 
     if (bit.routePurpose === "chase") {
+      const surfaceSpeedThreshold = config.combatEnabled
+        ? FIRE_RANGE
+        : bit.profile.visionRange;
+      const targetDistance = Vector3.Distance(
+        bit.root.position,
+        targetPosition
+      );
       const speed =
-        Vector3.Distance(bit.root.position, targetPosition) > VISION_RANGE
-          ? CHASE_OUT_OF_RANGE_SPEED
-          : CHASE_SPEED;
-      advanceAgent(bit, speed, deltaSeconds, elapsedSeconds);
+        surfaceSpeedOverride ??
+        (targetDistance > surfaceSpeedThreshold
+          ? bit.profile.searchSpeed
+          : bit.profile.chaseSpeed);
+      const plannedWindowTransitionId =
+        bit.chaseWindowTransitionId;
+      const state = advanceAgent(
+        bit,
+        speed,
+        deltaSeconds,
+        elapsedSeconds
+      );
+      return evaluateMovementState(
+        state,
+        plannedWindowTransitionId
+      );
     } else {
       syncStationaryPosition(bit, elapsedSeconds, true);
+      return "moving";
     }
   };
 
@@ -1801,10 +4063,72 @@ export const createV2BitSystem = (
     return projected;
   };
 
+  const getCarpetTargetHeight = (
+    origin: BitFlightLocation,
+    targetAimPosition: Vector3
+  ) => {
+    const band = navigation.getBand(origin);
+    if (!band) {
+      return null;
+    }
+    return clamp(
+      targetAimPosition.y + CARPET_TARGET_HEIGHT_OFFSET,
+      band.minimumCenterHeight,
+      band.maximumCenterHeight
+    );
+  };
+
+  const rotateCarpetDirection = (
+    direction: Vector3,
+    radians: number
+  ) => {
+    const cosine = Math.cos(radians);
+    const sine = Math.sin(radians);
+    return new Vector3(
+      direction.x * cosine - direction.z * sine,
+      0,
+      direction.x * sine + direction.z * cosine
+    ).normalize();
+  };
+
+  const steerCarpetDirection = (
+    current: Vector3,
+    desired: Vector3,
+    deltaSeconds: number
+  ) => {
+    const dot = clamp(Vector3.Dot(current, desired), -1, 1);
+    if (dot <= 0) {
+      return current;
+    }
+    const angle = Math.acos(dot);
+    if (angle <= 0.0001) {
+      return current;
+    }
+    const maximumStep = CARPET_TURN_RATE * deltaSeconds;
+    const interpolation = Math.min(1, maximumStep / angle);
+    const sine = Math.sin(angle);
+    const startScale =
+      Math.sin((1 - interpolation) * angle) / sine;
+    const endScale = Math.sin(interpolation * angle) / sine;
+    const turned = current
+      .scale(startScale)
+      .add(desired.scale(endScale));
+    const blended = Vector3.Lerp(
+      current,
+      turned,
+      CARPET_STEER_STRENGTH
+    );
+    blended.y = 0;
+    return blended.lengthSquared() > 0.0001
+      ? blended.normalize()
+      : current;
+  };
+
   const tryCreateCarpetFollowers = (
     leader: RuntimeBit,
     destination: BitFlightLocation,
-    targetAimPosition: Vector3
+    targetAimPosition: Vector3,
+    direction: Vector3
   ) => {
     if (
       !leader.navigationLocation ||
@@ -1813,9 +4137,6 @@ export const createV2BitSystem = (
       leader.mode = "chase";
       return false;
     }
-    const direction = normalizeHorizontal(
-      getBitFlightWorldPosition(destination).subtract(leader.root.position)
-    );
     const right = new Vector3(-direction.z, 0, direction.x);
     const offsets = [
       -CARPET_FORMATION_SPACING,
@@ -1832,7 +4153,7 @@ export const createV2BitSystem = (
       );
       if (
         !projected ||
-        safety.findMovementCollision(
+        findMovementCollision(
           leader.root.position,
           getBitFlightWorldPosition(projected)
         )
@@ -1845,7 +4166,8 @@ export const createV2BitSystem = (
     for (let index = 0; index < offsets.length; index += 1) {
       const follower = createRuntimeBit(
         followerLocations[index],
-        "carpet-follower"
+        "carpet-follower",
+        leader.profile
       );
       follower.targetId = leader.targetId;
       follower.targetProvenance = leader.targetProvenance;
@@ -1854,8 +4176,17 @@ export const createV2BitSystem = (
       follower.lastSeenDestination = destination;
       follower.carpetLeaderId = leader.id;
       follower.carpetOffset = offsets[index];
+      follower.lockedDirection.copyFrom(direction);
+      follower.carpetAimStartDirection.copyFrom(direction);
+      follower.carpetAimSeconds = CARPET_AIM_TURN_SECONDS;
+      registerCarpetFollower(leader, follower);
+      const fireInterval = randomV2BitFireInterval(
+        "carpet",
+        follower.profile,
+        nextRandom
+      );
+      follower.fireSeconds = fireInterval * nextRandom();
       syncStationaryPosition(follower, 0, false);
-      pointBitAt(follower, targetAimPosition);
     }
     leader.carpetLeaderId = leader.id;
     return true;
@@ -1865,32 +4196,44 @@ export const createV2BitSystem = (
     leader: RuntimeBit,
     targetPosition: Vector3,
     targetAimPosition: Vector3,
-    deltaSeconds: number,
-    elapsedSeconds: number
+    deltaSeconds: number
   ) => {
     if (!leader.navigationLocation) {
+      abortCarpetAtObstacle(leader);
+      return;
+    }
+    if (
+      leader.carpetLeaderId === null &&
+      !allowedChaseRoutePlanIds.has(leader.id)
+    ) {
+      return;
+    }
+    const targetHasSameBandCandidate = buildTargetLocationCandidates(
+      targetPosition
+    ).some((candidate) =>
+      sameBand(leader.navigationLocation!, candidate.destination)
+    );
+    if (!targetHasSameBandCandidate) {
       convertCarpetToChase(leader);
+      return;
+    }
+    const carpetTargetHeight = getCarpetTargetHeight(
+      leader.navigationLocation,
+      targetAimPosition
+    );
+    if (carpetTargetHeight === null) {
+      abortCarpetAtObstacle(leader);
       return;
     }
     leader.routeRefreshSeconds = Math.max(
       0,
       leader.routeRefreshSeconds - deltaSeconds
     );
-    const requiresRoutePlan =
-      leader.routeRefreshSeconds === 0 &&
-      (!leader.routeDestination ||
-        leader.carpetLeaderId === null ||
-        Vector3.Distance(
-          getBitFlightWorldPosition(leader.routeDestination),
-          targetPosition
-        ) > TARGET_ROUTE_MOVE_THRESHOLD);
-    if (requiresRoutePlan) {
-      if (!allowedChaseRoutePlanIds.has(leader.id)) {
-        syncStationaryPosition(leader, elapsedSeconds, false);
-        pointBitAt(leader, targetAimPosition);
-        return;
-      }
-      const selected = selectSameBandTargetDestination(leader, targetPosition);
+    if (leader.carpetLeaderId === null) {
+      const selected = measureRoutePlan(
+        "chase",
+        () => selectSameBandTargetDestination(leader, targetPosition)
+      );
       if (
         !selected ||
         routeContainsTransition(selected.route) ||
@@ -1899,58 +4242,125 @@ export const createV2BitSystem = (
         convertCarpetToChase(leader);
         return;
       }
+      const targetDirection = normalizeHorizontal(
+        getBitFlightWorldPosition(selected.destination).subtract(
+          leader.root.position
+        )
+      );
+      const initialAimDirection = leader.root
+        .getDirection(Vector3.Forward())
+        .normalize();
+      const scatterRadians =
+        (nextRandom() - 0.5) * CARPET_AIM_SCATTER_RADIANS;
+      const initialDirection = rotateCarpetDirection(
+        targetDirection,
+        scatterRadians
+      );
+      leader.lockedDirection.copyFrom(initialDirection);
+      leader.carpetAimStartDirection.copyFrom(initialAimDirection);
+      leader.carpetAimSeconds = 0;
+      leader.lastSeenDestination = selected.destination;
       leader.lastChasePlanTargetId = leader.targetId;
       leader.routeDestination = selected.destination;
       leader.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
-      leader.lastSeenDestination = selected.destination;
-    }
-    const destination = leader.routeDestination;
-    if (!destination || !sameBand(leader.navigationLocation, destination)) {
-      convertCarpetToChase(leader);
-      return;
-    }
-    if (
-      leader.carpetLeaderId === null &&
-      !tryCreateCarpetFollowers(leader, destination, targetAimPosition)
-    ) {
-      convertCarpetToChase(leader);
-      return;
+      if (
+        !tryCreateCarpetFollowers(
+          leader,
+          selected.destination,
+          targetAimPosition,
+          initialDirection
+        )
+      ) {
+        convertCarpetToChase(leader);
+        return;
+      }
+    } else {
+      const shouldRefresh =
+        leader.routeRefreshSeconds === 0 &&
+        (leader.routeDestination === null ||
+          Vector3.Distance(
+            getBitFlightWorldPosition(leader.routeDestination),
+            targetPosition
+          ) > TARGET_ROUTE_MOVE_THRESHOLD);
+      if (
+        shouldRefresh &&
+        allowedChaseRoutePlanIds.has(leader.id)
+      ) {
+        const selected = measureRoutePlan(
+          "chase",
+          () =>
+            selectSameBandTargetDestination(
+              leader,
+              targetPosition
+            )
+        );
+        if (!selected) {
+          abortCarpetAtObstacle(leader);
+          return;
+        }
+        leader.lastSeenDestination = selected.destination;
+        leader.lastChasePlanTargetId = leader.targetId;
+        leader.routeDestination = selected.destination;
+        leader.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
+      }
     }
 
-    const direction = normalizeHorizontal(
-      getBitFlightWorldPosition(destination).subtract(leader.root.position)
+    const toTarget = new Vector3(
+      targetPosition.x - leader.root.position.x,
+      0,
+      targetPosition.z - leader.root.position.z
     );
-    const distance = Vector3.Distance(
-      new Vector3(
-        leader.root.position.x,
-        getBitFlightWorldPosition(destination).y,
-        leader.root.position.z
-      ),
-      getBitFlightWorldPosition(destination)
-    );
-    const stepDistance = Math.min(CARPET_SPEED * deltaSeconds, distance);
-    const proposedLeaderPosition = getBitFlightWorldPosition(
+    let direction = normalizeHorizontal(leader.lockedDirection);
+    let passDot = 0;
+    if (toTarget.lengthSquared() > 0.0001) {
+      const targetDirection = toTarget.normalize();
+      passDot = Vector3.Dot(direction, toTarget);
+      if (passDot >= 0) {
+        direction = steerCarpetDirection(
+          direction,
+          targetDirection,
+          deltaSeconds
+        );
+        leader.lockedDirection.copyFrom(direction);
+        passDot = Vector3.Dot(direction, toTarget);
+      }
+    }
+    if (passDot < 0) {
+      leader.carpetPassSeconds += deltaSeconds;
+    } else {
+      leader.carpetPassSeconds = 0;
+    }
+
+    const stepDistance =
+      leader.profile.carpetSpeed * deltaSeconds;
+    const currentLeaderPosition = getBitFlightWorldPosition(
       leader.navigationLocation
-    ).add(direction.scale(stepDistance));
+    );
+    const proposedLeaderPosition = currentLeaderPosition.add(
+      direction.scale(stepDistance)
+    );
+    proposedLeaderPosition.y += clamp(
+      carpetTargetHeight - currentLeaderPosition.y,
+      -CARPET_HEIGHT_SPEED * deltaSeconds,
+      CARPET_HEIGHT_SPEED * deltaSeconds
+    );
     const proposedLeaderLocation = projectCarpetLocation(
       leader.navigationLocation,
       proposedLeaderPosition
     );
     if (!proposedLeaderLocation) {
-      convertCarpetToChase(leader);
+      abortCarpetAtObstacle(leader);
       return;
     }
 
     const right = new Vector3(-direction.z, 0, direction.x);
-    const followers = bits.filter(
-      (candidate) =>
-        candidate.mode === "carpet-follower" &&
-        candidate.carpetLeaderId === leader.id
-    );
+    const followers = [
+      ...(carpetFollowersByLeaderId.get(leader.id) ?? [])
+    ];
     const followerDestinations: BitFlightLocation[] = [];
     for (const follower of followers) {
       if (!follower.navigationLocation) {
-        convertCarpetToChase(leader);
+        abortCarpetAtObstacle(leader);
         return;
       }
       const desiredPosition = getBitFlightWorldPosition(
@@ -1961,7 +4371,7 @@ export const createV2BitSystem = (
         desiredPosition
       );
       if (!projected) {
-        convertCarpetToChase(leader);
+        abortCarpetAtObstacle(leader);
         return;
       }
       followerDestinations.push(projected);
@@ -1969,31 +4379,59 @@ export const createV2BitSystem = (
 
     const proposedLeaderRoot =
       getBitFlightWorldPosition(proposedLeaderLocation);
-    const leaderBlocked = safety.findMovementCollision(
+    const leaderBlocked = findMovementCollision(
       leader.root.position,
       proposedLeaderRoot
     );
     const followerBlocked = followers.some((follower, index) =>
-      safety.findMovementCollision(
+      findMovementCollision(
         follower.root.position,
         getBitFlightWorldPosition(followerDestinations[index])
       )
     );
     if (leaderBlocked || followerBlocked) {
-      convertCarpetToChase(leader);
+      abortCarpetAtObstacle(leader);
       return;
     }
 
     leader.navigationLocation = proposedLeaderLocation;
     leader.root.position.copyFrom(proposedLeaderRoot);
-    pointBitAt(leader, targetAimPosition);
+    const tiltedAimDirection = new Vector3(
+      direction.x,
+      -1,
+      direction.z
+    ).normalize();
+    const carpetAimDirection = Vector3.Lerp(
+      new Vector3(0, -1, 0),
+      tiltedAimDirection,
+      CARPET_AIM_BLEND
+    ).normalize();
+    leader.carpetAimSeconds = Math.min(
+      CARPET_AIM_TURN_SECONDS,
+      leader.carpetAimSeconds + deltaSeconds
+    );
+    const aimProgress =
+      leader.carpetAimSeconds / CARPET_AIM_TURN_SECONDS;
+    const leaderAimDirection = Vector3.Lerp(
+      leader.carpetAimStartDirection,
+      carpetAimDirection,
+      aimProgress
+    ).normalize();
+    pointBitAt(
+      leader,
+      leader.root.position.add(leaderAimDirection)
+    );
     for (let index = 0; index < followers.length; index += 1) {
       const follower = followers[index];
       follower.navigationLocation = followerDestinations[index];
+      follower.lockedDirection.copyFrom(direction);
       follower.root.position.copyFrom(
         getBitFlightWorldPosition(followerDestinations[index])
       );
-      pointBitAt(follower, targetAimPosition);
+      pointBitAt(
+        follower,
+        follower.root.position.add(carpetAimDirection)
+      );
     }
   };
 
@@ -2001,43 +4439,414 @@ export const createV2BitSystem = (
     bit: RuntimeBit,
     target: V2HumanTargetSnapshot,
     deltaSeconds: number,
-    beamRequests: V2BeamRequest[]
+    beamRequests: V2BeamRequest[],
+    originKind:
+      | "bit-chase"
+      | "bit-fixed"
+      | "bit-random"
+      | "bit-carpet",
+    requestedDirection: Vector3,
+    requireTargetInRange: boolean
   ) => {
-    bit.fireSeconds -= deltaSeconds;
+    if (bit.attackCooldownSeconds > 0) {
+      return;
+    }
+    if (bit.fireTelegraphSeconds > 0) {
+      bit.fireTelegraphSeconds = Math.max(
+        0,
+        bit.fireTelegraphSeconds - deltaSeconds
+      );
+      if (bit.fireTelegraphSeconds > 0) {
+        return;
+      }
+      bit.root.computeWorldMatrix(true);
+      const origin = bit.muzzle.getAbsolutePosition();
+      beamRequests.push(
+        Object.freeze({
+          sourceId: bit.id,
+          originKind,
+          targetPolicy: Object.freeze({
+            kind: "alive-humans" as const
+          }),
+          origin: origin.clone(),
+          direction: bit.fireLockDirection.clone(),
+          speed: BEAM_SPEED,
+          maximumLifetime: BEAM_MAXIMUM_LIFETIME
+        })
+      );
+      bit.fireSeconds = randomV2BitFireInterval(
+        getBeamMode(bit.mode),
+        bit.profile,
+        nextRandom
+      );
+      return;
+    }
+
+    bit.fireSeconds = Math.max(0, bit.fireSeconds - deltaSeconds);
     if (
       bit.fireSeconds > 0 ||
-      Vector3.Distance(bit.root.position, target.aimPosition) > FIRE_RANGE
+      (requireTargetInRange &&
+        Vector3.Distance(bit.root.position, target.aimPosition) >
+          FIRE_RANGE)
     ) {
       return;
     }
-    bit.root.computeWorldMatrix(true);
-    const origin = bit.muzzle.getAbsolutePosition();
-    const direction = target.aimPosition.subtract(origin);
-    if (direction.lengthSquared() === 0) {
+    if (requestedDirection.lengthSquared() === 0) {
       return;
     }
-    beamRequests.push(
-      Object.freeze({
-        sourceId: bit.id,
-        origin: origin.clone(),
-        direction: direction.normalize(),
-        speed: BEAM_SPEED,
-        maximumLifetime: BEAM_MAXIMUM_LIFETIME
-      })
+    bit.fireLockDirection.copyFrom(requestedDirection.normalize());
+    bit.fireTelegraphSeconds = V2_BIT_FIRE_TELEGRAPH_SECONDS;
+  };
+
+  const enterPostAlertMode = (
+    bit: RuntimeBit,
+    target: V2HumanTargetSnapshot
+  ) => {
+    const nextMode =
+      bit.postAlertMode ?? selectV2BitPostAlertMode(nextRandom);
+    bit.targetProvenance = "visual";
+    bit.alertLeaderId = null;
+    bit.lastSeenAimPosition = target.aimPosition.clone();
+    activateCombatMode(bit, nextMode, target);
+  };
+
+  const returnAlertReceiverToSearch = (
+    bit: RuntimeBit,
+    applyCooldown: boolean
+  ) => {
+    clearRoute(bit);
+    bit.mode = "search";
+    bit.targetId = null;
+    bit.targetProvenance = null;
+    bit.alertLeaderId = null;
+    bit.lastSeenAimPosition = null;
+    bit.lastSeenDestination = null;
+    bit.lastChasePlanTargetId = null;
+    bit.targetLostSeconds = 0;
+    bit.sightTargetId = null;
+    bit.sightTargetVisible = false;
+    bit.modeTimerSeconds = 0;
+    bit.fireTelegraphSeconds = 0;
+    bit.postAlertMode = null;
+    bit.hasAttemptedSearchRoute = false;
+    if (applyCooldown) {
+      bit.attackCooldownSeconds = V2_BIT_ATTACK_COOLDOWN_SECONDS;
+    }
+  };
+
+  const cancelInternalAlert = (alertKey: string) => {
+    const alert = activeAlerts.get(alertKey);
+    if (!alert?.internalBitAlert) {
+      return;
+    }
+    removeActiveAlert(alertKey);
+    closedInternalAlertKeys.add(alertKey);
+    for (const bit of bits) {
+      const isLeader =
+        bit.id === alert.leaderId && bit.mode === "alert-send";
+      const isReceiver =
+        alert.receiverIds.has(bit.id) &&
+        bit.mode === "alert-receive" &&
+        bit.alertLeaderId === alert.leaderId &&
+        bit.targetId === alert.targetId;
+      if (isLeader || isReceiver) {
+        returnAlertReceiverToSearch(bit, true);
+      }
+    }
+  };
+
+  const updateAlertReceive = (
+    bit: RuntimeBit,
+    target: V2HumanTargetSnapshot,
+    targetsById: ReadonlyMap<string, V2HumanTargetSnapshot>,
+    targetVisible: boolean,
+    deltaSeconds: number,
+    elapsedSeconds: number
+  ) => {
+    bit.modeTimerSeconds = Math.max(
+      0,
+      bit.modeTimerSeconds - deltaSeconds
     );
-    bit.fireSeconds = randomRange(FIRE_INTERVAL_MIN, FIRE_INTERVAL_MAX);
+    const alertKey =
+      bit.alertLeaderId === null
+        ? null
+        : buildAlertKey(bit.alertLeaderId, target.id);
+    const alert =
+      alertKey === null ? null : activeAlerts.get(alertKey) ?? null;
+    const leaderPosition =
+      bit.alertLeaderId === null
+        ? null
+        : bitsById.get(bit.alertLeaderId)?.root.position ??
+          targetsById.get(bit.alertLeaderId)?.aimPosition ??
+          null;
+    if (
+      !alert ||
+      !leaderPosition ||
+      bit.modeTimerSeconds === 0
+    ) {
+      returnAlertReceiverToSearch(bit, true);
+      return;
+    }
+    if (
+      targetVisible ||
+      Vector3.Distance(bit.root.position, leaderPosition) <=
+        ALERT_GATHER_RADIUS
+    ) {
+      alert.gatheredIds.add(bit.id);
+      enterPostAlertMode(bit, target);
+      return;
+    }
+    updateChaseRoute(
+      bit,
+      leaderPosition,
+      deltaSeconds,
+      elapsedSeconds,
+      bit.profile.searchSpeed * 5
+    );
+    bit.mode = "alert-receive";
+    pointBitAt(bit, leaderPosition);
+  };
+
+  const updateAlertSend = (
+    bit: RuntimeBit,
+    deltaSeconds: number,
+    elapsedSeconds: number
+  ) => {
+    bit.modeTimerSeconds = Math.max(
+      0,
+      bit.modeTimerSeconds - deltaSeconds
+    );
+    syncStationaryPosition(bit, elapsedSeconds, false);
+    bit.root.lookAt(bit.root.position.add(Vector3.Up()));
+    const alertKey =
+      bit.targetId === null
+        ? null
+        : buildAlertKey(bit.id, bit.targetId);
+    const alert =
+      alertKey === null ? null : activeAlerts.get(alertKey) ?? null;
+    const gathered =
+      alert !== null &&
+      alert.gatheredIds.size >= alert.receiverIds.size;
+    if (!alert || gathered || bit.modeTimerSeconds === 0) {
+      if (alertKey !== null) {
+        removeActiveAlert(alertKey);
+        closedInternalAlertKeys.add(alertKey);
+      }
+      const forward = bit.root
+        .getDirection(Vector3.Forward())
+        .clone();
+      forward.y = 0;
+      if (forward.lengthSquared() > 0) {
+        bit.root.lookAt(
+          bit.root.position.add(forward.normalize())
+        );
+      }
+      returnAlertReceiverToSearch(
+        bit,
+        !gathered && bit.modeTimerSeconds === 0
+      );
+    }
+  };
+
+  const updateFixedAttack = (
+    bit: RuntimeBit,
+    target: V2HumanTargetSnapshot,
+    deltaSeconds: number,
+    elapsedSeconds: number,
+    beamRequests: V2BeamRequest[]
+  ) => {
+    bit.modeTimerSeconds = Math.max(
+      0,
+      bit.modeTimerSeconds - deltaSeconds
+    );
+    syncStationaryPosition(bit, elapsedSeconds, false);
+    const direction = bit.profile.isRed
+      ? target.aimPosition.subtract(bit.root.position)
+      : bit.lockedDirection;
+    pointBitAt(bit, bit.root.position.add(direction));
+    emitBeamWhenReady(
+      bit,
+      target,
+      deltaSeconds,
+      beamRequests,
+      "bit-fixed",
+      direction,
+      false
+    );
+  };
+
+  const updateRandomAttack = (
+    bit: RuntimeBit,
+    target: V2HumanTargetSnapshot,
+    deltaSeconds: number,
+    elapsedSeconds: number,
+    beamRequests: V2BeamRequest[]
+  ) => {
+    bit.modeTimerSeconds = Math.max(
+      0,
+      bit.modeTimerSeconds - deltaSeconds
+    );
+    const telegraphing = bit.fireTelegraphSeconds > 0;
+    if (telegraphing) {
+      syncStationaryPosition(bit, elapsedSeconds, false);
+    } else {
+      updateRandomAttackMovement(
+        bit,
+        deltaSeconds,
+        elapsedSeconds
+      );
+    }
+    bit.mode = "random";
+    const direction = bit.root
+      .getDirection(Vector3.Forward())
+      .normalize();
+    emitBeamWhenReady(
+      bit,
+      target,
+      deltaSeconds,
+      beamRequests,
+      "bit-random",
+      direction,
+      false
+    );
+  };
+
+  const updateHold = (
+    bit: RuntimeBit,
+    targetsById: ReadonlyMap<string, V2HumanTargetSnapshot>,
+    deltaSeconds: number,
+    elapsedSeconds: number
+  ) => {
+    syncStationaryPosition(bit, elapsedSeconds, false);
+    const target =
+      bit.holdTargetId === null
+        ? null
+        : targetsById.get(bit.holdTargetId) ?? null;
+    if (bit.profile.isRed) {
+      bit.holdTimerSeconds = Math.max(
+        0,
+        bit.holdTimerSeconds - deltaSeconds
+      );
+    }
+    const shouldRelease =
+      !target ||
+      !isV2HitState(target.state) ||
+      (bit.profile.isRed && bit.holdTimerSeconds === 0);
+    if (!shouldRelease) {
+      return;
+    }
+    bit.mode = bit.holdReturnMode ?? "search";
+    bit.holdReturnMode = null;
+    bit.holdTargetId = null;
+    bit.holdTimerSeconds = 0;
+    bit.fireTelegraphSeconds = 0;
+    if (!target || !isTargetable(target)) {
+      abandonTarget(bit, elapsedSeconds);
+    }
+  };
+
+  const getFrameView = () => {
+    if (frameView === null) {
+      const actorSpheres = Object.freeze(
+        bits.map((bit) =>
+          Object.freeze({
+            id: bit.id,
+            kind: "bit" as const,
+            center: bit.root.position.clone(),
+            radius: BIT_ACTOR_RADIUS
+          })
+        )
+      );
+      const targetStates = Object.freeze(
+        bits.map((bit) =>
+          Object.freeze({
+            bitId: bit.id,
+            mode: bit.mode,
+            isRed: bit.profile.isRed,
+            statMultiplier: bit.profile.statMultiplier,
+            modeTimerSeconds: bit.modeTimerSeconds,
+            attackCooldownSeconds: bit.attackCooldownSeconds,
+            carpetCooldownSeconds: bit.carpetCooldownSeconds,
+            targetId: bit.targetId,
+            provenance: bit.targetProvenance,
+            alertLeaderId: bit.alertLeaderId
+          })
+        )
+      );
+      const flightStateSources: readonly V2BitFlightStateSource[] =
+        bits.map((bit, index) => {
+          const location = bit.navigationLocation;
+          const activeTransition = bit.activeTransition;
+          return {
+            actor: actorSpheres[index],
+            zoneId: location?.zoneId ?? null,
+            bandId: location?.bandId ?? null,
+            safeCenterHeight: location?.safeCenterHeight ?? null,
+            heightMode: location?.heightMode ?? null,
+            routePurpose: bit.routePurpose,
+            activeTransitionId:
+              activeTransition?.transition.id ?? null,
+            activeTransitionKind:
+              activeTransition?.transition.kind ?? null,
+            activeTransitionReversed:
+              activeTransition?.reversed ?? false,
+            agentState: bit.flightAgent.getState()
+          };
+        });
+      let flightStates: readonly V2BitFlightState[] | null = null;
+      frameView = Object.freeze({
+        actorSpheres,
+        beamRequests: frameBeamRequests,
+        targetStates,
+        get flightStates() {
+          flightStates ??= Object.freeze(
+            flightStateSources.map((source) =>
+              Object.freeze({
+                bitId: source.actor.id,
+                zoneId: source.zoneId,
+                bandId: source.bandId,
+                position: source.actor.center.clone(),
+                safeCenterHeight: source.safeCenterHeight,
+                heightMode: source.heightMode,
+                routePurpose: source.routePurpose,
+                activeTransition:
+                  source.activeTransitionId !== null
+                    ? Object.freeze({
+                        id: source.activeTransitionId,
+                        kind: source.activeTransitionKind!,
+                        reversed:
+                          source.activeTransitionReversed
+                      })
+                    : null,
+                agentState: source.agentState
+              })
+            )
+          );
+          return flightStates;
+        },
+        diagnostics: frameDiagnostics
+      });
+    }
+    return frameView;
   };
 
   return {
     update: ({ deltaSeconds, elapsedSeconds, targets, externalAlerts }) => {
       assertNonNegativeFiniteNumber("ビット更新deltaSeconds", deltaSeconds);
       assertNonNegativeFiniteNumber("ビット更新elapsedSeconds", elapsedSeconds);
+      invalidateFrameViews();
+      recentExplorationSamplesForUpdate = null;
+      resetDiagnostics();
+      updateFadingCarpetFollowers(deltaSeconds);
       const targetsById = new Map(
         targets.map((target) => [target.id, target] as const)
       );
-      const sightCheckEligibleCount = bits.filter(
-        (bit) => bit.mode !== "carpet-follower"
-      ).length;
+      let sightCheckEligibleCount = 0;
+      for (const bit of bits) {
+        if (bit.mode !== "carpet-follower") {
+          sightCheckEligibleCount += 1;
+        }
+      }
       sightCheckCredit = Math.min(
         sightCheckEligibleCount,
         sightCheckCredit +
@@ -2067,14 +4876,27 @@ export const createV2BitSystem = (
         searchRoutePlanCursor,
         SEARCH_ROUTE_PLAN_BUDGET_PER_UPDATE,
         (bit) =>
-          bit.mode === "search" &&
-          bit.targetId === null &&
           bit.navigationLocation !== null &&
           bit.pendingEscapeThreatPosition === null &&
           bit.searchRetrySeconds <= deltaSeconds &&
-          (bit.routePurpose === null ||
-            (bit.routePurpose === "search" &&
-              bit.searchSegmentSeconds <= deltaSeconds)),
+          (bit.mode === "search"
+            ? bit.targetId === null &&
+              (bit.routePurpose === null ||
+                (bit.routePurpose === "search" &&
+                  bit.searchRouteKind === "normal" &&
+                  bit.normalPatrolOrigin !== null &&
+                  bit.routeDestination !== null &&
+                  sameBand(
+                    bit.normalPatrolOrigin,
+                    bit.routeDestination
+                  ) &&
+                  bit.queuedNormalPatrolLeg === null &&
+                  bit.activeTransition === null))
+            : bit.mode === "random" &&
+              (bit.routePurpose === null ||
+                (bit.routePurpose === "search" &&
+                  bit.searchRouteKind === "random" &&
+                  bit.randomAttackRouteSeconds <= deltaSeconds))),
         (bit) => !bit.hasAttemptedSearchRoute
       );
       allowedSearchRoutePlanIds = searchPlanSelection.ids;
@@ -2084,7 +4906,9 @@ export const createV2BitSystem = (
         CHASE_ROUTE_PLAN_BUDGET_PER_UPDATE,
         (bit) => {
           if (
-            (bit.mode !== "chase" && bit.mode !== "carpet-leader") ||
+            (bit.mode !== "chase" &&
+              bit.mode !== "carpet-leader" &&
+              bit.mode !== "alert-receive") ||
             bit.targetId === null ||
             bit.navigationLocation === null ||
             bit.activeTransition !== null ||
@@ -2096,13 +4920,22 @@ export const createV2BitSystem = (
           if (!target || !isTargetable(target)) {
             return false;
           }
+          const chaseTargetPosition =
+            bit.mode === "alert-receive" && bit.alertLeaderId !== null
+              ? bitsById.get(bit.alertLeaderId)?.root.position ??
+                targetsById.get(bit.alertLeaderId)?.aimPosition ??
+                null
+              : target.aimPosition;
+          if (chaseTargetPosition === null) {
+            return false;
+          }
           if (bit.mode === "carpet-leader") {
             return (
               bit.carpetLeaderId === null ||
               bit.routeDestination === null ||
               Vector3.Distance(
                 getBitFlightWorldPosition(bit.routeDestination),
-                target.aimPosition
+                chaseTargetPosition
               ) > TARGET_ROUTE_MOVE_THRESHOLD
             );
           }
@@ -2111,7 +4944,7 @@ export const createV2BitSystem = (
             bit.routeDestination === null ||
             Vector3.Distance(
               getBitFlightWorldPosition(bit.routeDestination),
-              target.aimPosition
+              chaseTargetPosition
             ) > TARGET_ROUTE_MOVE_THRESHOLD
           );
         },
@@ -2135,9 +4968,17 @@ export const createV2BitSystem = (
         allowedEscapeRoutePlanIds.size;
       const targetSpatialIndex = createV2HumanTargetSpatialIndex(
         targets,
-        VISION_RANGE
+        V2_STANDARD_BIT_COMBAT_PROFILE.visionRange
       );
 
+      const incomingAlertKeys = new Set<string>();
+      const incomingExternalAlertsByTarget = new Map<
+        string,
+        Readonly<{
+          leaderId: string;
+          remainingSeconds: number;
+        }>
+      >();
       for (const alert of externalAlerts) {
         if (
           alert.leaderId.length === 0 ||
@@ -2156,27 +4997,164 @@ export const createV2BitSystem = (
           continue;
         }
         const alertKey = buildAlertKey(alert.leaderId, alert.targetId);
+        incomingAlertKeys.add(alertKey);
+        if (closedInternalAlertKeys.has(alertKey)) {
+          continue;
+        }
         const current = activeAlerts.get(alertKey);
-        if (!current || current.remainingSeconds < alert.remainingSeconds) {
-          activeAlerts.set(alertKey, {
-            leaderId: alert.leaderId,
-            targetId: alert.targetId,
-            remainingSeconds: alert.remainingSeconds
-          });
+        if (current?.internalBitAlert) {
+          current.remainingSeconds = Math.max(
+            current.remainingSeconds,
+            alert.remainingSeconds
+          );
+          continue;
+        }
+        const currentIncoming = incomingExternalAlertsByTarget.get(
+          alert.targetId
+        );
+        incomingExternalAlertsByTarget.set(
+          alert.targetId,
+          Object.freeze({
+            leaderId:
+              currentIncoming?.leaderId ?? alert.leaderId,
+            remainingSeconds: Math.max(
+              currentIncoming?.remainingSeconds ?? 0,
+              alert.remainingSeconds
+            )
+          })
+        );
+      }
+      const assignedExternalAlertReceiverIds = new Set<string>();
+      for (const activeAlert of activeAlerts.values()) {
+        if (activeAlert.internalBitAlert) {
+          continue;
+        }
+        for (const receiverId of activeAlert.receiverIds) {
+          assignedExternalAlertReceiverIds.add(receiverId);
+        }
+      }
+      for (const [
+        targetId,
+        incoming
+      ] of incomingExternalAlertsByTarget) {
+        const currentAlertKey =
+          externalAlertKeyByTargetId.get(targetId);
+        const current =
+          currentAlertKey === undefined
+            ? null
+            : activeAlerts.get(currentAlertKey) ?? null;
+        if (current) {
+          current.remainingSeconds = Math.max(
+            current.remainingSeconds,
+            incoming.remainingSeconds
+          );
+          continue;
+        }
+        const target = targetsById.get(targetId);
+        if (!target || !isTargetable(target)) {
+          continue;
+        }
+        const receivers = selectExternalAlertReceivers(
+          incoming.leaderId,
+          target,
+          assignedExternalAlertReceiverIds
+        );
+        if (receivers.length === 0) {
+          continue;
+        }
+        const receiverIds = new Set(
+          receivers.map((receiver) => receiver.id)
+        );
+        const alertKey = buildAlertKey(
+          incoming.leaderId,
+          targetId
+        );
+        activeAlerts.set(alertKey, {
+          leaderId: incoming.leaderId,
+          targetId,
+          remainingSeconds: incoming.remainingSeconds,
+          receiverIds,
+          gatheredIds: new Set<string>(),
+          internalBitAlert: false
+        });
+        externalAlertKeyByTargetId.set(targetId, alertKey);
+        for (const receiver of receivers) {
+          assignedExternalAlertReceiverIds.add(receiver.id);
+          setAlertTarget(receiver, target, incoming.leaderId);
+        }
+      }
+      for (const alertKey of closedInternalAlertKeys) {
+        if (!incomingAlertKeys.has(alertKey)) {
+          closedInternalAlertKeys.delete(alertKey);
         }
       }
 
       for (const [alertKey, alert] of activeAlerts) {
         const target = targetsById.get(alert.targetId);
         if (!target || !isTargetable(target)) {
-          activeAlerts.delete(alertKey);
+          removeActiveAlert(alertKey);
+          if (alert.internalBitAlert) {
+            closedInternalAlertKeys.add(alertKey);
+          }
         }
+      }
+      const outOfRangeInternalAlertKeys: string[] = [];
+      for (const [alertKey, alert] of activeAlerts) {
+        if (!alert.internalBitAlert) {
+          continue;
+        }
+        const leader = bitsById.get(alert.leaderId);
+        const target = targetsById.get(alert.targetId);
+        if (
+          leader &&
+          target &&
+          Vector3.DistanceSquared(
+            leader.root.position,
+            target.aimPosition
+          ) >
+            (leader.profile.visionRange * 1.5) ** 2
+        ) {
+          outOfRangeInternalAlertKeys.push(alertKey);
+        }
+      }
+      for (const alertKey of outOfRangeInternalAlertKeys) {
+        cancelInternalAlert(alertKey);
       }
 
       const beamRequests: V2BeamRequest[] = [];
       pendingAlertRequests = [];
       for (const bit of [...bits]) {
+        bit.attackCooldownSeconds = Math.max(
+          0,
+          bit.attackCooldownSeconds - deltaSeconds
+        );
+        bit.carpetCooldownSeconds = Math.max(
+          0,
+          bit.carpetCooldownSeconds - deltaSeconds
+        );
+        bit.failedChaseWindowPenaltySeconds = Math.max(
+          0,
+          bit.failedChaseWindowPenaltySeconds - deltaSeconds
+        );
+        if (bit.failedChaseWindowPenaltySeconds === 0) {
+          bit.failedChaseWindowTransitionId = null;
+        }
+        if (aiSuspended) {
+          syncStationaryPosition(bit, elapsedSeconds, false);
+          continue;
+        }
         if (bit.mode === "carpet-follower") {
+          continue;
+        }
+        if (bit.mode === "hold") {
+          updateHold(bit, targetsById, deltaSeconds, elapsedSeconds);
+          continue;
+        }
+        if (
+          bit.mode === "search" &&
+          bit.attackCooldownSeconds > 0
+        ) {
+          updateNormalSearch(bit, deltaSeconds, elapsedSeconds);
           continue;
         }
 
@@ -2184,9 +5162,17 @@ export const createV2BitSystem = (
           bit.targetId === null ? null : targetsById.get(bit.targetId) ?? null;
         let targetVisible = false;
         let chasePosition: Vector3 | null = null;
+        const retainsLockedAttack =
+          bit.mode === "fixed" || bit.mode === "random";
+        const usesChaseAbandonRules = bit.mode === "chase";
 
         if (assignedTarget && !isTargetable(assignedTarget)) {
-          abandonTarget(bit, elapsedSeconds);
+          if (retainsLockedAttack) {
+            chasePosition =
+              bit.lastSeenAimPosition ?? assignedTarget.aimPosition;
+          } else {
+            abandonTarget(bit, elapsedSeconds);
+          }
         } else if (
           assignedTarget &&
           bit.targetProvenance === "alert" &&
@@ -2195,7 +5181,17 @@ export const createV2BitSystem = (
               buildAlertKey(bit.alertLeaderId, assignedTarget.id)
             ))
         ) {
-          abandonTarget(bit, elapsedSeconds);
+          if (retainsLockedAttack) {
+            chasePosition = assignedTarget.aimPosition;
+          } else {
+            const endedAlertReceive =
+              bit.mode === "alert-receive";
+            abandonTarget(bit, elapsedSeconds);
+            if (endedAlertReceive) {
+              bit.attackCooldownSeconds =
+                V2_BIT_ATTACK_COOLDOWN_SECONDS;
+            }
+          }
         } else if (assignedTarget) {
           targetVisible = getAssignedTargetVisibility(
             bit,
@@ -2206,7 +5202,17 @@ export const createV2BitSystem = (
             bit.lastSeenAimPosition = assignedTarget.aimPosition.clone();
             bit.targetLostSeconds = 0;
             chasePosition = assignedTarget.aimPosition;
-          } else if (bit.targetProvenance === "visual") {
+            if (
+              usesChaseAbandonRules &&
+              Vector3.Distance(
+                bit.root.position,
+                assignedTarget.aimPosition
+              ) > getChaseAbandonDistance(bit)
+            ) {
+              abandonTarget(bit, elapsedSeconds);
+              chasePosition = null;
+            }
+          } else if (usesChaseAbandonRules) {
             bit.targetLostSeconds += deltaSeconds;
             chasePosition = bit.lastSeenAimPosition;
             const lastSeenDistance = bit.lastSeenAimPosition
@@ -2217,18 +5223,22 @@ export const createV2BitSystem = (
               : Number.POSITIVE_INFINITY;
             if (
               bit.targetLostSeconds >= TARGET_LOST_TIMEOUT_SECONDS ||
-              lastSeenDistance > TARGET_LOST_MAXIMUM_DISTANCE
+              lastSeenDistance > getChaseAbandonDistance(bit)
             ) {
               abandonTarget(bit, elapsedSeconds);
               chasePosition = null;
             }
+          } else if (bit.targetProvenance === "visual") {
+            chasePosition =
+              bit.lastSeenAimPosition ?? assignedTarget.aimPosition;
           } else {
             chasePosition = assignedTarget.aimPosition;
           }
         } else if (
           bit.targetId !== null &&
           bit.targetProvenance === "visual" &&
-          bit.lastSeenAimPosition
+          bit.lastSeenAimPosition &&
+          usesChaseAbandonRules
         ) {
           bit.sightTargetVisible = false;
           bit.targetLostSeconds += deltaSeconds;
@@ -2236,7 +5246,7 @@ export const createV2BitSystem = (
           if (
             bit.targetLostSeconds >= TARGET_LOST_TIMEOUT_SECONDS ||
             Vector3.Distance(bit.root.position, bit.lastSeenAimPosition) >
-              TARGET_LOST_MAXIMUM_DISTANCE
+              getChaseAbandonDistance(bit)
           ) {
             abandonTarget(bit, elapsedSeconds);
             chasePosition = null;
@@ -2249,7 +5259,10 @@ export const createV2BitSystem = (
           const visibleTarget = allowedSightCheckIds.has(bit.id)
             ? findVisibleTarget(
                 bit,
-                targetSpatialIndex.query(bit.root.position, VISION_RANGE)
+                targetSpatialIndex.query(
+                  bit.root.position,
+                  bit.profile.visionRange
+                )
               )
             : null;
           if (visibleTarget) {
@@ -2273,7 +5286,53 @@ export const createV2BitSystem = (
         const currentTarget =
           bit.targetId === null ? null : targetsById.get(bit.targetId) ?? null;
         if (bit.targetId === null || !chasePosition) {
-          updateSearch(bit, deltaSeconds, elapsedSeconds);
+          updateNormalSearch(bit, deltaSeconds, elapsedSeconds);
+          continue;
+        }
+
+        if (bit.mode === "alert-receive" && currentTarget) {
+          updateAlertReceive(
+            bit,
+            currentTarget,
+            targetsById,
+            targetVisible,
+            deltaSeconds,
+            elapsedSeconds
+          );
+          continue;
+        }
+        if (bit.mode === "alert-send" && currentTarget) {
+          updateAlertSend(
+            bit,
+            deltaSeconds,
+            elapsedSeconds
+          );
+          continue;
+        }
+        if (bit.mode === "fixed" && currentTarget) {
+          updateFixedAttack(
+            bit,
+            currentTarget,
+            deltaSeconds,
+            elapsedSeconds,
+            beamRequests
+          );
+          if (bit.modeTimerSeconds === 0) {
+            abandonTarget(bit, elapsedSeconds);
+          }
+          continue;
+        }
+        if (bit.mode === "random" && currentTarget) {
+          updateRandomAttack(
+            bit,
+            currentTarget,
+            deltaSeconds,
+            elapsedSeconds,
+            beamRequests
+          );
+          if (bit.modeTimerSeconds === 0) {
+            abandonTarget(bit, elapsedSeconds);
+          }
           continue;
         }
 
@@ -2282,39 +5341,87 @@ export const createV2BitSystem = (
             bit,
             chasePosition,
             currentTarget?.aimPosition ?? chasePosition,
-            deltaSeconds,
-            elapsedSeconds
+            deltaSeconds
           );
+          if (bit.mode !== "carpet-leader") {
+            continue;
+          }
+          if (currentTarget) {
+            emitBeamWhenReady(
+              bit,
+              currentTarget,
+              deltaSeconds,
+              beamRequests,
+              "bit-carpet",
+              bit.root
+                .getDirection(Vector3.Forward())
+                .normalize(),
+              false
+            );
+            for (
+              const follower of
+                carpetFollowersByLeaderId.get(bit.id) ?? []
+            ) {
+              emitBeamWhenReady(
+                follower,
+                currentTarget,
+                deltaSeconds,
+                beamRequests,
+                "bit-carpet",
+                follower.root
+                  .getDirection(Vector3.Forward())
+                  .normalize(),
+                false
+              );
+            }
+          }
+          if (
+            bit.carpetPassSeconds >=
+            V2_BIT_CARPET_PASS_DURATION_SECONDS
+          ) {
+            abandonTarget(bit, elapsedSeconds);
+          }
+          continue;
         } else {
-          updateChaseRoute(
+          if (config.combatEnabled) {
+            bit.modeTimerSeconds = Math.max(
+              0,
+              bit.modeTimerSeconds - deltaSeconds
+            );
+            if (bit.modeTimerSeconds === 0) {
+              abandonTarget(bit, elapsedSeconds);
+              continue;
+            }
+          }
+          const chaseRouteState = updateChaseRoute(
             bit,
             chasePosition,
             deltaSeconds,
             elapsedSeconds
           );
+          if (
+            chaseRouteState === "unreachable" ||
+            (chaseRouteState === "arrived" && !targetVisible)
+          ) {
+            abandonTarget(bit, elapsedSeconds);
+            continue;
+          }
           if (!bit.activeTransition) {
             pointBitAt(
               bit,
               currentTarget?.aimPosition ?? chasePosition
             );
           }
-        }
-        if (currentTarget && targetVisible) {
-          emitBeamWhenReady(bit, currentTarget, deltaSeconds, beamRequests);
-          if (bit.mode === "carpet-leader") {
-            for (const follower of bits) {
-              if (
-                follower.mode === "carpet-follower" &&
-                follower.carpetLeaderId === bit.id
-              ) {
-                emitBeamWhenReady(
-                  follower,
-                  currentTarget,
-                  deltaSeconds,
-                  beamRequests
-                );
-              }
-            }
+          if (currentTarget && targetVisible) {
+            emitBeamWhenReady(
+              bit,
+              currentTarget,
+              deltaSeconds,
+              beamRequests,
+              "bit-chase",
+              currentTarget.aimPosition.subtract(bit.root.position),
+              true
+            );
           }
         }
       }
@@ -2322,76 +5429,275 @@ export const createV2BitSystem = (
       for (const [alertKey, alert] of activeAlerts) {
         alert.remainingSeconds -= deltaSeconds;
         if (alert.remainingSeconds <= 0) {
-          activeAlerts.delete(alertKey);
+          removeActiveAlert(alertKey);
+          if (alert.internalBitAlert) {
+            closedInternalAlertKeys.add(alertKey);
+          }
         }
       }
       frameBeamRequests = Object.freeze(beamRequests);
+      if (diagnosticsEnabled) {
+        frameDiagnostics = Object.freeze({
+          enabled: true,
+          routePlans: Object.freeze({
+            search: diagnosticSearchRoutePlans,
+            chase: diagnosticChaseRoutePlans,
+            escape: diagnosticEscapeRoutePlans
+          }),
+          routePlanMilliseconds: Object.freeze({
+            search: diagnosticSearchRoutePlanMilliseconds,
+            chase: diagnosticChaseRoutePlanMilliseconds,
+            escape: diagnosticEscapeRoutePlanMilliseconds
+          }),
+          sightRays: diagnosticSightRays,
+          sphereSweeps: diagnosticSphereSweeps,
+          sphereSweepMilliseconds:
+            diagnosticSphereSweepMilliseconds,
+          beamRequests: beamRequests.length,
+          routeSafetyCache: createRouteSafetyCacheDiagnostics()
+        });
+      }
     },
-    getActorSpheres: () =>
-      Object.freeze(
-        bits.map((bit) =>
-          Object.freeze({
-            id: bit.id,
-            kind: "bit" as const,
-            center: bit.root.position.clone(),
-            radius: BIT_ACTOR_RADIUS
-          })
-        )
-      ),
-    getBeamRequests: () => frameBeamRequests,
+    getFrameView,
     takeAlertRequests: () => {
       const requests = Object.freeze(pendingAlertRequests);
       pendingAlertRequests = [];
       return requests;
     },
-    getTargetStates: () =>
-      Object.freeze(
-        bits.map((bit) =>
-          Object.freeze({
-            bitId: bit.id,
-            mode: bit.mode,
-            targetId: bit.targetId,
-            provenance: bit.targetProvenance,
-            alertLeaderId: bit.alertLeaderId
-          })
-        )
-      ),
-    getFlightStates: () =>
-      Object.freeze(
-        bits.map((bit) => {
-          const location = bit.navigationLocation;
-          const agentState = bit.flightAgent.getSnapshot().state;
-          const activeTransition = bit.activeTransition;
-          return Object.freeze({
-            bitId: bit.id,
-            zoneId: location?.zoneId ?? null,
-            bandId: location?.bandId ?? null,
-            position: bit.root.position.clone(),
-            safeCenterHeight: location?.safeCenterHeight ?? null,
-            heightMode: location?.heightMode ?? null,
-            routePurpose: bit.routePurpose,
-            activeTransition: activeTransition
-              ? Object.freeze({
-                  id: activeTransition.transition.id,
-                  kind: activeTransition.transition.kind,
-                  reversed: activeTransition.reversed
-                })
-              : null,
-            agentState
-          });
-        })
-      ),
+    setDiagnosticsEnabled: (enabled) => {
+      diagnosticsEnabled = enabled;
+      resetDiagnostics();
+      resetRouteSafetyCacheDiagnostics();
+      frameDiagnostics = Object.freeze({
+        enabled,
+        routePlans: Object.freeze({ search: 0, chase: 0, escape: 0 }),
+        routePlanMilliseconds: Object.freeze({
+          search: 0,
+          chase: 0,
+          escape: 0
+        }),
+        sightRays: 0,
+        sphereSweeps: 0,
+        sphereSweepMilliseconds: 0,
+        beamRequests: 0,
+        routeSafetyCache: createRouteSafetyCacheDiagnostics()
+      });
+      invalidateFrameViews();
+    },
+    notifyBeamImpact: (sourceId, targetId) => {
+      const source = bitsById.get(sourceId);
+      if (!source) {
+        return false;
+      }
+      if (source.mode === "carpet-follower") {
+        startCarpetFollowerFade(source);
+        return true;
+      }
+      const bit = source;
+      if (bit.lastHoldTargetId === targetId) {
+        return false;
+      }
+      invalidateFrameViews();
+      if (bit.mode === "carpet-leader") {
+        removeCarpetFollowers(bit);
+      }
+      bit.holdReturnMode = bit.mode;
+      bit.mode = "hold";
+      bit.holdTargetId = targetId;
+      bit.holdTimerSeconds = bit.profile.isRed
+        ? V2_BIT_RED_HOLD_SECONDS
+        : 0;
+      bit.lastHoldTargetId = targetId;
+      bit.fireTelegraphSeconds = 0;
+      clearRoute(bit);
+      return true;
+    },
+    prepareForScriptedPhase: () => {
+      invalidateFrameViews();
+      disposeFadingCarpetFollowers();
+      for (let index = bits.length - 1; index >= 0; index -= 1) {
+        const bit = bits[index];
+        if (bit.mode !== "carpet-follower") {
+          continue;
+        }
+        bit.flightAgent.dispose();
+        bit.root.dispose(false);
+        unregisterRuntimeBit(bit);
+      }
+      for (const bit of bits) {
+        clearRoute(bit);
+        bit.mode = "search";
+        bit.targetId = null;
+        bit.targetProvenance = null;
+        bit.alertLeaderId = null;
+        bit.lastSeenAimPosition = null;
+        bit.lastSeenDestination = null;
+        bit.lastChasePlanTargetId = null;
+        bit.pendingEscapeThreatPosition = null;
+        bit.sightTargetId = null;
+        bit.sightTargetVisible = false;
+        bit.targetLostSeconds = 0;
+        bit.modeTimerSeconds = 0;
+        bit.attackCooldownSeconds = 0;
+        bit.carpetCooldownSeconds = 0;
+        bit.fireTelegraphSeconds = 0;
+        bit.postAlertMode = null;
+        bit.holdReturnMode = null;
+        bit.holdTargetId = null;
+        bit.holdTimerSeconds = 0;
+        bit.lastHoldTargetId = null;
+        bit.carpetPassSeconds = 0;
+        bit.carpetLeaderId = null;
+        bit.carpetOffset = 0;
+        bit.hasAttemptedSearchRoute = false;
+        bit.searchRetrySeconds = 0;
+        bit.bruteForceActive = false;
+        bit.bruteForceNextCheckSeconds =
+          BRUTE_FORCE_START_SECONDS;
+        bit.bruteForceFailedTransitionCandidateCount = 0;
+      }
+      activeAlerts.clear();
+      externalAlertKeyByTargetId.clear();
+      closedInternalAlertKeys.clear();
+      frameBeamRequests = Object.freeze([]);
+      pendingAlertRequests = [];
+    },
+    setAiSuspended: (suspended) => {
+      aiSuspended = suspended;
+    },
+    setVisible: (visible) => {
+      for (const bit of bits) {
+        bit.root.setEnabled(visible);
+      }
+      for (const follower of fadingCarpetFollowers) {
+        follower.root.setEnabled(visible);
+      }
+    },
+    placeBits: (assignments) => {
+      if (assignments.length !== bits.length) {
+        throw new Error(
+          `bit配置指定数が一致しません: expected=${bits.length}, actual=${assignments.length}`
+        );
+      }
+      const assignmentIds = new Set<string>();
+      const resolved = assignments.map((assignment) => {
+        if (assignmentIds.has(assignment.id)) {
+          throw new Error(
+            `bit配置IDが重複しています: ${assignment.id}`
+          );
+        }
+        assignmentIds.add(assignment.id);
+        assertFiniteVector(
+          `bit配置(${assignment.id})`,
+          assignment.centerPosition
+        );
+        const bit = bitsById.get(assignment.id);
+        if (!bit) {
+          throw new Error(
+            `bit配置対象が存在しません: ${assignment.id}`
+          );
+        }
+        const location = navigation
+          .findLocationCandidates(
+            assignment.centerPosition,
+            LOCATION_PROJECTION_DISTANCE
+          )
+          .filter((candidate) =>
+            safety.isCenterSafe(
+              getBitFlightWorldPosition(candidate)
+            )
+          )
+          .sort(
+            (left, right) =>
+              Vector3.DistanceSquared(
+                getBitFlightWorldPosition(left),
+                assignment.centerPosition
+              ) -
+              Vector3.DistanceSquared(
+                getBitFlightWorldPosition(right),
+                assignment.centerPosition
+              )
+          )[0];
+        if (!location) {
+          throw new Error(
+            `bit配置位置を安全な飛行帯へ投影できません: ${assignment.id}`
+          );
+        }
+        return Object.freeze({ bit, location });
+      });
+
+      for (const { bit, location } of resolved) {
+        bit.flightAgent.dispose();
+        bit.flightAgent = createBitFlightAgent(
+          navigation,
+          safety,
+          BIT_FLIGHT_AGENT_CONFIG
+        );
+        bit.navigationLocation = location;
+        bit.routePurpose = null;
+        bit.routeDestination = null;
+        bit.routeRefreshSeconds = 0;
+        bit.searchRouteKind = null;
+        bit.normalPatrolOrigin = null;
+        bit.queuedNormalPatrolLeg = null;
+        bit.randomAttackRouteSeconds = 0;
+        bit.searchRetrySeconds = 0;
+        bit.hasAttemptedSearchRoute = false;
+        bit.bruteForceActive = false;
+        bit.bruteForceNextCheckSeconds =
+          BRUTE_FORCE_START_SECONDS;
+        bit.bruteForceFailedTransitionCandidateCount = 0;
+        bit.activeTransition = null;
+        bit.lastChasePlanTargetId = null;
+        bit.root.position.copyFrom(
+          getBitFlightWorldPosition(location)
+        );
+        bit.root.computeWorldMatrix(true);
+      }
+      invalidateFrameViews();
+    },
     dispose: () => {
+      invalidateFrameViews();
+      routeStepSafetyByKey.clear();
+      routeCenterSafetyByKey.clear();
+      routeSegmentSafetyByKey.clear();
+      lowCeilingCruiseHeightsByRouteStepKey.clear();
+      routeStepSafetyAccessOrder.clear();
+      targetLocationCandidatesByPositionKey.clear();
+      safeDestinationByTraversalKey.clear();
+      disposeFadingCarpetFollowers();
       for (let index = bits.length - 1; index >= 0; index -= 1) {
         bits[index].flightAgent.dispose();
         bits[index].root.dispose(false);
       }
       bits.length = 0;
+      bitsById.clear();
+      carpetFollowersByLeaderId.clear();
       activeAlerts.clear();
+      externalAlertKeyByTargetId.clear();
+      closedInternalAlertKeys.clear();
       explorationHistory.clear();
       frameBeamRequests = Object.freeze([]);
       pendingAlertRequests = [];
+      visualSources.muzzle.dispose(false, false);
+      visualSources.redBody.dispose(false, false);
+      visualSources.body.dispose(false, false);
       materials.body.dispose();
+      materials.redBody.dispose();
+      frameDiagnostics = Object.freeze({
+        enabled: diagnosticsEnabled,
+        routePlans: Object.freeze({ search: 0, chase: 0, escape: 0 }),
+        routePlanMilliseconds: Object.freeze({
+          search: 0,
+          chase: 0,
+          escape: 0
+        }),
+        sightRays: 0,
+        sphereSweeps: 0,
+        sphereSweepMilliseconds: 0,
+        beamRequests: 0,
+        routeSafetyCache: createRouteSafetyCacheDiagnostics()
+      });
       materials.muzzle.dispose();
     }
   };

@@ -68,7 +68,7 @@ EXPECTED_PACKED_ATLAS_PATHS = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "t05-1a-bit-flight-navigation-v02"
+EXPECTED_GENERATOR_VERSION = "t05-2-assembly-execution-v01"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v09"
 EXPECTED_SCHEMA_VERSION = 2
 EXPECTED_STAGE_ID = "school"
@@ -89,6 +89,32 @@ EXPECTED_APERTURE_AFFORDANCES = (
     "indoor-access",
     "outdoor-access",
     "window-access",
+)
+
+ASSEMBLY_GUIDE_NAMES = (
+    "VIS_CourtyardCapacityGrid_10x10",
+    "VIS_GymCapacityGrid_10x10",
+    "VIS_GymExecutionAudience_94",
+    "VIS_GymExecutionTargets_06",
+)
+
+ASSEMBLY_VENUE_SPECS = (
+    (
+        "Courtyard",
+        "assembly-courtyard",
+        "assembly-volume-courtyard",
+        (16.7, 14.5, -0.30),
+        (9.95, 7.75, 1.50),
+        ((6.7, 4.5, -0.30), (26.7, 24.5, 1.70)),
+    ),
+    (
+        "Gym",
+        "assembly-gym",
+        "assembly-volume-gym",
+        (45.4, 9.5, 0.0),
+        (39.325, 3.425, 1.35),
+        ((35.4, -0.5, 0.0), (55.4, 19.5, 2.0)),
+    ),
 )
 
 EXPECTED_BIT_FLIGHT_BANDS = (
@@ -358,6 +384,136 @@ def require_exact_hs_properties(
             f"hs_* extrasの値が不正です: {object_name}.{key} / "
             f"actual={actual[key]!r} / expected={expected_value!r}",
         )
+
+
+def rounded_position(
+    x: float,
+    y: float,
+    z: float,
+) -> tuple[float, float, float]:
+    return (round(x, 9), round(y, 9), round(z, 9))
+
+
+def expected_assembly_grid_positions(
+    origin_x: float,
+    origin_y: float,
+    spacing: float,
+    floor_z: float,
+) -> list[tuple[float, float, float]]:
+    return [
+        rounded_position(
+            origin_x + spacing * column,
+            origin_y + spacing * row,
+            floor_z,
+        )
+        for row in range(10)
+        for column in range(10)
+    ]
+
+
+def expected_execution_audience_positions(
+    center_x: float,
+    center_y: float,
+    floor_z: float,
+) -> list[tuple[float, float, float]]:
+    return [
+        rounded_position(
+            center_x + 9.0 * math.cos(math.tau * index / 94),
+            center_y + 9.0 * math.sin(math.tau * index / 94),
+            floor_z,
+        )
+        for index in range(94)
+    ]
+
+
+def expected_execution_target_positions(
+    center_x: float,
+    center_y: float,
+    floor_z: float,
+) -> list[tuple[float, float, float]]:
+    return [
+        rounded_position(
+            center_x + x_offset,
+            center_y + y_offset,
+            floor_z,
+        )
+        for y_offset in (-0.45, 0.45)
+        for x_offset in (-0.9, 0.0, 0.9)
+    ]
+
+
+def expected_assembly_anchor_properties(
+    anchor_id: str,
+    anchor_position: tuple[float, float, float],
+    grid_spec: tuple[float, float, float],
+) -> dict[str, object]:
+    center_x, center_y, floor_z = anchor_position
+    origin_x, origin_y, spacing = grid_spec
+    return {
+        "hs_id": anchor_id,
+        "hs_role": "assembly_anchor",
+        "hs_selection_weight": 1,
+        "hs_assembly_positions_json": json.dumps(
+            expected_assembly_grid_positions(
+                origin_x,
+                origin_y,
+                spacing,
+                floor_z,
+            ),
+            allow_nan=False,
+            separators=(",", ":"),
+        ),
+        "hs_execution_audience_positions_json": json.dumps(
+            expected_execution_audience_positions(
+                center_x,
+                center_y,
+                floor_z,
+            ),
+            allow_nan=False,
+            separators=(",", ":"),
+        ),
+        "hs_execution_target_positions_json": json.dumps(
+            expected_execution_target_positions(
+                center_x,
+                center_y,
+                floor_z,
+            ),
+            allow_nan=False,
+            separators=(",", ":"),
+        ),
+    }
+
+
+def require_finite_position_array_json(
+    object_name: str,
+    encoded: object,
+    expected_length: int,
+) -> list[list[float]]:
+    require(isinstance(encoded, str), f"座標JSONが文字列ではありません: {object_name}")
+    try:
+        positions = json.loads(encoded)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"座標JSONを解析できません: {object_name}") from error
+    actual_length = len(positions) if isinstance(positions, list) else -1
+    require(
+        isinstance(positions, list) and len(positions) == expected_length,
+        f"座標JSONの要素数が不正です: {object_name} / {actual_length}",
+    )
+    require(
+        all(
+            isinstance(position, list)
+            and len(position) == 3
+            and all(
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(value)
+                for value in position
+            )
+            for position in positions
+        ),
+        f"座標JSONに有限値3要素以外があります: {object_name}",
+    )
+    return positions
 
 
 def bit_flight_nav_properties(
@@ -3097,8 +3253,129 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
     }
 
 
+def audit_assembly_venues(objects: list[bpy.types.Object]) -> None:
+    object_by_name = {obj.name: obj for obj in objects}
+    require(
+        not any(name in bpy.data.objects for name in ASSEMBLY_GUIDE_NAMES),
+        "集合会場の旧VIS_*ガイドが残っています",
+    )
+    expected_anchor_names = {
+        f"MRK_AssemblyAnchor_{suffix}"
+        for suffix, *_ in ASSEMBLY_VENUE_SPECS
+    }
+    expected_volume_names = {
+        f"VOL_Assembly_{suffix}"
+        for suffix, *_ in ASSEMBLY_VENUE_SPECS
+    }
+    actual_anchor_names = {
+        obj.name
+        for obj in objects
+        if obj.get("hs_role") == "assembly_anchor"
+    }
+    actual_volume_names = {
+        obj.name
+        for obj in objects
+        if obj.get("hs_role") == "assembly"
+    }
+    require(
+        actual_anchor_names == expected_anchor_names,
+        f"集合会場anchor構成が不正です: {sorted(actual_anchor_names)}",
+    )
+    require(
+        actual_volume_names == expected_volume_names,
+        f"集合会場Volume構成が不正です: {sorted(actual_volume_names)}",
+    )
+
+    for (
+        suffix,
+        anchor_id,
+        volume_id,
+        anchor_position,
+        grid_spec,
+        volume_bounds,
+    ) in ASSEMBLY_VENUE_SPECS:
+        anchor_name = f"MRK_AssemblyAnchor_{suffix}"
+        volume_name = f"VOL_Assembly_{suffix}"
+        anchor = object_by_name[anchor_name]
+        volume = object_by_name[volume_name]
+        require(anchor.type == "EMPTY", f"集合会場anchorがEmptyではありません: {anchor_name}")
+        require(volume.type == "MESH", f"集合会場VolumeがMeshではありません: {volume_name}")
+        require(
+            (anchor.matrix_world.translation - Vector(anchor_position)).length
+            <= TOLERANCE,
+            f"集合会場anchor位置が不正です: {anchor_name}",
+        )
+        require(
+            sum(abs(value) for value in anchor.rotation_euler) <= TOLERANCE,
+            f"集合会場anchor回転がidentityではありません: {anchor_name}",
+        )
+        require(
+            (anchor.scale - Vector((1.0, 1.0, 1.0))).length <= TOLERANCE,
+            f"集合会場anchor scaleが1ではありません: {anchor_name}",
+        )
+        expected_anchor_properties = expected_assembly_anchor_properties(
+            anchor_id,
+            anchor_position,
+            grid_spec,
+        )
+        require_exact_hs_properties(
+            anchor_name,
+            anchor,
+            expected_anchor_properties,
+        )
+        require_exact_hs_properties(
+            volume_name,
+            volume,
+            {
+                "hs_id": volume_id,
+                "hs_role": "assembly",
+                "hs_anchor_id": anchor_id,
+            },
+        )
+        actual_minimum, actual_maximum = world_bounds(volume)
+        expected_minimum, expected_maximum = map(Vector, volume_bounds)
+        require(
+            (actual_minimum - expected_minimum).length <= TOLERANCE
+            and (actual_maximum - expected_maximum).length <= TOLERANCE,
+            f"集合会場Volume境界が不正です: {volume_name}",
+        )
+
+        position_groups = (
+            (
+                "hs_assembly_positions_json",
+                100,
+            ),
+            (
+                "hs_execution_audience_positions_json",
+                94,
+            ),
+            (
+                "hs_execution_target_positions_json",
+                6,
+            ),
+        )
+        for property_name, expected_length in position_groups:
+            positions = require_finite_position_array_json(
+                f"{anchor_name}.{property_name}",
+                anchor.get(property_name),
+                expected_length,
+            )
+            for position in positions:
+                point = Vector(position)
+                require(
+                    all(
+                        expected_minimum[axis] - TOLERANCE
+                        <= point[axis]
+                        <= expected_maximum[axis] + TOLERANCE
+                        for axis in range(3)
+                    ),
+                    f"作者座標が集合会場Volumeの外側です: {anchor_name}.{property_name}",
+                )
+
+
 def audit_semantics(objects: list[bpy.types.Object]) -> None:
     require(not any(obj.name.startswith("PRT_") for obj in objects), "PRT_*が存在します")
+    audit_assembly_venues(objects)
     water = bpy.data.objects.get("VOL_PoolWater")
     require(water is not None, "VOL_PoolWaterがありません")
     require(water.get("hs_id") == "pool-water", "VOL_PoolWaterのhs_idが不正です")
@@ -3837,6 +4114,100 @@ def audit_glb_bit_flight_contract(
     }
 
 
+def audit_glb_assembly_contract(
+    nodes: list[dict[str, object]],
+) -> dict[str, int]:
+    nodes_by_name = {
+        node.get("name"): node
+        for node in nodes
+        if isinstance(node.get("name"), str)
+    }
+    require(
+        not any(name in nodes_by_name for name in ASSEMBLY_GUIDE_NAMES),
+        "GLBに集合会場の旧VIS_*ガイドが残っています",
+    )
+    expected_anchor_names = {
+        f"MRK_AssemblyAnchor_{suffix}"
+        for suffix, *_ in ASSEMBLY_VENUE_SPECS
+    }
+    expected_volume_names = {
+        f"VOL_Assembly_{suffix}"
+        for suffix, *_ in ASSEMBLY_VENUE_SPECS
+    }
+    actual_anchor_names = {
+        node["name"]
+        for node in nodes
+        if node.get("extras", {}).get("hs_role") == "assembly_anchor"
+    }
+    actual_volume_names = {
+        node["name"]
+        for node in nodes
+        if node.get("extras", {}).get("hs_role") == "assembly"
+    }
+    require(
+        actual_anchor_names == expected_anchor_names,
+        f"GLB集合会場anchor構成が不正です: {sorted(actual_anchor_names)}",
+    )
+    require(
+        actual_volume_names == expected_volume_names,
+        f"GLB集合会場Volume構成が不正です: {sorted(actual_volume_names)}",
+    )
+
+    for (
+        suffix,
+        anchor_id,
+        volume_id,
+        anchor_position,
+        grid_spec,
+        _volume_bounds,
+    ) in ASSEMBLY_VENUE_SPECS:
+        anchor_name = f"MRK_AssemblyAnchor_{suffix}"
+        volume_name = f"VOL_Assembly_{suffix}"
+        anchor = nodes_by_name[anchor_name]
+        volume = nodes_by_name[volume_name]
+        require("mesh" not in anchor, f"GLB集合会場anchorがEmptyではありません: {anchor_name}")
+        require(
+            isinstance(volume.get("mesh"), int),
+            f"GLB集合会場VolumeがMeshではありません: {volume_name}",
+        )
+        expected_anchor_properties = expected_assembly_anchor_properties(
+            anchor_id,
+            anchor_position,
+            grid_spec,
+        )
+        require_exact_hs_properties(
+            anchor_name,
+            anchor.get("extras", {}),
+            expected_anchor_properties,
+        )
+        require_exact_hs_properties(
+            volume_name,
+            volume.get("extras", {}),
+            {
+                "hs_id": volume_id,
+                "hs_role": "assembly",
+                "hs_anchor_id": anchor_id,
+            },
+        )
+        for property_name, expected_length in (
+            ("hs_assembly_positions_json", 100),
+            ("hs_execution_audience_positions_json", 94),
+            ("hs_execution_target_positions_json", 6),
+        ):
+            require_finite_position_array_json(
+                f"{anchor_name}.{property_name}",
+                anchor.get("extras", {}).get(property_name),
+                expected_length,
+            )
+    return {
+        "anchors": len(actual_anchor_names),
+        "volumes": len(actual_volume_names),
+        "assembly_positions": 200,
+        "execution_audience_positions": 188,
+        "execution_target_positions": 12,
+    }
+
+
 def audit_glb(gltf: dict[str, object]) -> dict[str, object]:
     nodes = gltf.get("nodes", [])
     meshes = gltf.get("meshes", [])
@@ -3860,6 +4231,7 @@ def audit_glb(gltf: dict[str, object]) -> dict[str, object]:
     require(sum(name.startswith("COL_ActorOnly_WindowFixed_") for name in node_names) == expected_fixed, f"GLB開放窓帯固定Colliderが{expected_fixed}件ではありません")
     require(sum(name.startswith("COL_HumanOnly_Window_") for name in node_names) == expected_human, f"GLB HumanOnly窓が{expected_human}件ではありません")
     bit_flight_counts = audit_glb_bit_flight_contract(nodes)
+    assembly_counts = audit_glb_assembly_contract(nodes)
     require("VOL_PoolWater" in node_names, "GLBにVOL_PoolWaterがありません")
     require(not any("Gym_South" in name for name in node_names), "GLB体育館南面に窓があります")
     require(not any(name.startswith("PRT_") for name in node_names), "GLBにPRT_*があります")
@@ -3933,6 +4305,7 @@ def audit_glb(gltf: dict[str, object]) -> dict[str, object]:
         "perimeter_joint_vertices": perimeter_joint_vertex_count,
         "perimeter_joint_triangles": perimeter_joint_index_count // 3,
         "bit_flight": bit_flight_counts,
+        "assembly": assembly_counts,
     }
 
 
@@ -4010,7 +4383,7 @@ def main() -> None:
     require(
         bpy.context.scene.get("b03_architecture_generator_version")
         == EXPECTED_GENERATOR_VERSION,
-        "建築生成版がT05-1A汎用飛行帯版ではありません",
+        "建築生成版がT05-2集合・公開処刑会場版ではありません",
     )
     require(
         bpy.context.scene.get("t04_2b_nav_connectivity_version")

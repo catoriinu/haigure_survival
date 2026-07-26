@@ -109,6 +109,7 @@ const queryNodeCapacity = 4096;
 const pathPolygonCapacity = 4096;
 const straightPathPointCapacity = 4096;
 const linkSurfaceEpsilon = 1e-5;
+const straightPathPointEqualityThreshold = 1 / 16_384;
 
 let recastInitialization: Promise<void> | null = null;
 
@@ -696,6 +697,43 @@ class RecastNavigationWorld implements NavigationWorld {
     start: NavigationLocation,
     destination: NavigationLocation
   ): NavigationSurfaceStep | null {
+    const startComponent = this.polygonComponentByRef.get(
+      start.polygonRef
+    );
+    const destinationComponent = this.polygonComponentByRef.get(
+      destination.polygonRef
+    );
+    if (
+      startComponent !== undefined &&
+      destinationComponent !== undefined
+    ) {
+      if (startComponent !== destinationComponent) {
+        return null;
+      }
+      if (start.polygonRef === destination.polygonRef) {
+        const positionsAreEquivalent =
+          Vector3.DistanceSquared(
+            start.position,
+            destination.position
+          ) <
+          straightPathPointEqualityThreshold *
+            straightPathPointEqualityThreshold;
+        const points = Object.freeze(
+          positionsAreEquivalent
+            ? [cloneNavigationLocation(start)]
+            : [
+                cloneNavigationLocation(start),
+                cloneNavigationLocation(destination)
+              ]
+        );
+        return Object.freeze({
+          kind: "surface",
+          points,
+          distance: calculatePointDistance(points)
+        });
+      }
+    }
+
     const corridor = this.query.findPath(
       start.polygonRef,
       destination.polygonRef,

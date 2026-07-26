@@ -56,6 +56,7 @@ export default defineConfig({
   root: resolve(repositoryRoot, "validation/v2/T02"),
   publicDir: false,
   base: "./",
+  cacheDir: resolve(repositoryRoot, "node_modules/.vite-t02"),
   plugins: [allowlistedStageAssets()],
   optimizeDeps: {
     exclude: ["recast-navigation"]

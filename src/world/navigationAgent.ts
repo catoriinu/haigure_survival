@@ -23,12 +23,14 @@ export type NavigationAgentState =
   | "moving"
   | "arrived"
   | "unreachable"
+  | "waiting-for-path"
   | "transition-required";
 
 export type NavigationAgentStepResult = Readonly<{
   location: NavigationLocation;
   state: NavigationAgentState;
   pathRecalculated: boolean;
+  pathDistance: number | null;
   transition: NavigationTransitionStep | null;
 }>;
 
@@ -37,7 +39,8 @@ export interface NavigationAgent {
     currentLocation: NavigationLocation,
     targetPosition: Vector3,
     speed: number,
-    deltaSeconds: number
+    deltaSeconds: number,
+    allowPathRecalculation: boolean
   ): NavigationAgentStepResult;
   clear(): void;
 }
@@ -134,6 +137,7 @@ class CachedNavigationAgent implements NavigationAgent {
   private readonly config: NavigationAgentConfig;
   private path: readonly NavigationPathStep[] | null = null;
   private resolvedTarget: NavigationLocation | null = null;
+  private pathDistance: number | null = null;
   private nextStepIndex = 0;
   private nextPointIndex = 0;
   private plannedTarget: Vector3 | null = null;
@@ -157,12 +161,16 @@ class CachedNavigationAgent implements NavigationAgent {
     currentLocation: NavigationLocation,
     targetPosition: Vector3,
     speed: number,
-    deltaSeconds: number
+    deltaSeconds: number,
+    allowPathRecalculation: boolean
   ): NavigationAgentStepResult {
     assertNavigationLocation("経路追従の現在位置", currentLocation);
     assertFiniteVector("経路追従の標的位置", targetPosition);
     assertNonNegativeFiniteNumber("経路追従速度", speed);
     assertNonNegativeFiniteNumber("経路追従deltaSeconds", deltaSeconds);
+    if (typeof allowPathRecalculation !== "boolean") {
+      throw new Error("経路再計画許可にはbooleanが必要です。");
+    }
 
     this.secondsSincePathSearch += deltaSeconds;
     if (!Number.isFinite(this.secondsSincePathSearch)) {
@@ -190,7 +198,7 @@ class CachedNavigationAgent implements NavigationAgent {
       stuck;
 
     let pathRecalculated = false;
-    if (mustSearch) {
+    if (mustSearch && allowPathRecalculation) {
       pathRecalculated = true;
       this.searchPath(currentLocation, targetPosition);
     }
@@ -198,8 +206,12 @@ class CachedNavigationAgent implements NavigationAgent {
     if (!this.path) {
       return {
         location: cloneNavigationLocation(currentLocation),
-        state: "unreachable",
+        state:
+          mustSearch && !allowPathRecalculation
+            ? "waiting-for-path"
+            : "unreachable",
         pathRecalculated,
+        pathDistance: this.pathDistance,
         transition: null
       };
     }
@@ -223,6 +235,7 @@ class CachedNavigationAgent implements NavigationAgent {
             location: cloneNavigationLocation(currentLocation),
             state: "unreachable",
             pathRecalculated,
+            pathDistance: this.pathDistance,
             transition: null
           };
         }
@@ -230,6 +243,7 @@ class CachedNavigationAgent implements NavigationAgent {
           location,
           state: "transition-required",
           pathRecalculated,
+          pathDistance: this.pathDistance,
           transition: step
         };
       }
@@ -246,6 +260,7 @@ class CachedNavigationAgent implements NavigationAgent {
             location,
             state: "moving",
             pathRecalculated,
+            pathDistance: this.pathDistance,
             transition: null
           };
         }
@@ -263,6 +278,7 @@ class CachedNavigationAgent implements NavigationAgent {
             location: cloneNavigationLocation(currentLocation),
             state: "unreachable",
             pathRecalculated,
+            pathDistance: this.pathDistance,
             transition: null
           };
         }
@@ -287,6 +303,7 @@ class CachedNavigationAgent implements NavigationAgent {
           location,
           state: "moving",
           pathRecalculated,
+          pathDistance: this.pathDistance,
           transition: null
         };
       }
@@ -297,8 +314,13 @@ class CachedNavigationAgent implements NavigationAgent {
 
     return {
       location,
-      state: "arrived",
+      state:
+        !allowPathRecalculation &&
+        (targetMoved || pathConsumedAwayFromEndpoint)
+          ? "waiting-for-path"
+          : "arrived",
       pathRecalculated,
+      pathDistance: this.pathDistance,
       transition: null
     };
   }
@@ -306,6 +328,7 @@ class CachedNavigationAgent implements NavigationAgent {
   clear() {
     this.path = null;
     this.resolvedTarget = null;
+    this.pathDistance = null;
     this.nextStepIndex = 0;
     this.nextPointIndex = 0;
     this.plannedTarget = null;
@@ -330,6 +353,7 @@ class CachedNavigationAgent implements NavigationAgent {
         )
       : null;
     this.path = result ? cloneAndValidatePath(result) : null;
+    this.pathDistance = result?.distance ?? null;
     this.resolvedTarget = result
       ? cloneNavigationLocation(result.destination)
       : null;
@@ -344,6 +368,7 @@ class CachedNavigationAgent implements NavigationAgent {
   private invalidatePath() {
     this.path = null;
     this.resolvedTarget = null;
+    this.pathDistance = null;
     this.nextStepIndex = 0;
     this.nextPointIndex = 0;
     this.secondsSincePathSearch = 0;

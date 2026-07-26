@@ -8,6 +8,7 @@ export default defineConfig({
   root: resolve(repositoryRoot, "validation/v2/T01"),
   publicDir: resolve(repositoryRoot, "public/stage-assets/v2/T01"),
   base: "./",
+  cacheDir: resolve(repositoryRoot, "node_modules/.vite-t01"),
   server: {
     port: 5176,
     strictPort: true
