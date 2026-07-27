@@ -20,6 +20,18 @@ export default defineConfig({
     target: "es2022",
     outDir: resolve(repositoryRoot, "dist/t05-validation"),
     emptyOutDir: true,
-    chunkSizeWarningLimit: 5000
+    chunkSizeWarningLimit: 5000,
+    rollupOptions: {
+      input: {
+        index: resolve(
+          repositoryRoot,
+          "validation/v2/T05/index.html"
+        ),
+        npcCommand: resolve(
+          repositoryRoot,
+          "validation/v2/T05/npc-command.html"
+        )
+      }
+    }
   }
 });

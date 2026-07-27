@@ -190,10 +190,19 @@ export type V2BeamWorldBoundaryExitEvent = Readonly<{
   position: Vector3;
 }>;
 
+export type V2BeamCompletionEvent = Readonly<{
+  beamId: string;
+  sourceId: string;
+  originKind: V2BeamOriginKind;
+  targetPolicy: V2BeamTargetPolicy;
+  frameElapsedSeconds: number;
+}>;
+
 export type V2BeamFrameEvents = Readonly<{
   impacts: readonly V2BeamImpactEvent[];
   expirations: readonly V2BeamExpirationEvent[];
   worldBoundaryExits: readonly V2BeamWorldBoundaryExitEvent[];
+  completions: readonly V2BeamCompletionEvent[];
 }>;
 
 export type V2BeamPhase =
@@ -1258,7 +1267,24 @@ export const createV2BeamSystem = (
     );
   };
 
-  const releaseBeam = (beam: ActiveBeam): void => {
+  const releaseBeam = (
+    beam: ActiveBeam,
+    completion?: Readonly<{
+      events: V2BeamCompletionEvent[];
+      frameElapsedSeconds: number;
+    }>
+  ): void => {
+    if (completion) {
+      completion.events.push(
+        Object.freeze({
+          beamId: beam.id,
+          sourceId: beam.sourceId,
+          originKind: beam.originKind,
+          targetPolicy: beam.targetPolicy,
+          frameElapsedSeconds: completion.frameElapsedSeconds
+        })
+      );
+    }
     visualPool.release("body", beam.bodyMesh);
     visualPool.release("tip", beam.tipMesh);
     activeBeams.delete(beam.id);
@@ -1643,7 +1669,8 @@ export const createV2BeamSystem = (
         return Object.freeze({
           impacts: Object.freeze([]),
           expirations: Object.freeze([]),
-          worldBoundaryExits: Object.freeze([])
+          worldBoundaryExits: Object.freeze([]),
+          completions: Object.freeze([])
         });
       }
 
@@ -1666,9 +1693,12 @@ export const createV2BeamSystem = (
       const impacts: V2BeamImpactEvent[] = [];
       const expirations: V2BeamExpirationEvent[] = [];
       const worldBoundaryExits: V2BeamWorldBoundaryExitEvent[] = [];
+      const completions: V2BeamCompletionEvent[] = [];
 
       for (const beam of [...activeBeams.values()]) {
         if (beam.phase === "world-boundary-fading") {
+          const completionElapsedSeconds =
+            beam.boundaryFadeRemainingSeconds;
           beam.boundaryFadeRemainingSeconds = Math.max(
             0,
             beam.boundaryFadeRemainingSeconds - deltaSeconds
@@ -1676,13 +1706,21 @@ export const createV2BeamSystem = (
           if (
             beam.boundaryFadeRemainingSeconds <= SEGMENT_LENGTH_EPSILON
           ) {
-            releaseBeam(beam);
+            releaseBeam(beam, {
+              events: completions,
+              frameElapsedSeconds: Math.min(
+                deltaSeconds,
+                completionElapsedSeconds
+              )
+            });
           } else {
             updateBeamVisual(beam);
           }
           continue;
         }
         if (beam.phase === "retracting") {
+          const completionElapsedSeconds =
+            beam.bodyLength / beam.speed;
           const shrinkDistance = beam.speed * deltaSeconds;
           beam.bodyLength = Math.max(
             0,
@@ -1693,7 +1731,13 @@ export const createV2BeamSystem = (
             beam.retractLeadRemaining - shrinkDistance
           );
           if (beam.bodyLength <= SEGMENT_LENGTH_EPSILON) {
-            releaseBeam(beam);
+            releaseBeam(beam, {
+              events: completions,
+              frameElapsedSeconds: Math.min(
+                deltaSeconds,
+                completionElapsedSeconds
+              )
+            });
           } else {
             updateBeamVisual(beam);
           }
@@ -1780,7 +1824,13 @@ export const createV2BeamSystem = (
             );
           }
           if (beam.bodyLength <= SEGMENT_LENGTH_EPSILON) {
-            releaseBeam(beam);
+            releaseBeam(beam, {
+              events: completions,
+              frameElapsedSeconds: Math.min(
+                deltaSeconds,
+                hit.distance / beam.speed
+              )
+            });
           }
           continue;
         }
@@ -1837,7 +1887,14 @@ export const createV2BeamSystem = (
           if (
             beam.boundaryFadeRemainingSeconds <= SEGMENT_LENGTH_EPSILON
           ) {
-            releaseBeam(beam);
+            releaseBeam(beam, {
+              events: completions,
+              frameElapsedSeconds: Math.min(
+                deltaSeconds,
+                exitTravelSeconds +
+                  V2_WORLD_BOUNDARY_FADE_DURATION_SECONDS
+              )
+            });
           } else {
             updateBeamVisual(beam);
           }
@@ -1873,7 +1930,10 @@ export const createV2BeamSystem = (
             })
           );
           if (beam.bodyLength <= SEGMENT_LENGTH_EPSILON) {
-            releaseBeam(beam);
+            releaseBeam(beam, {
+              events: completions,
+              frameElapsedSeconds: travelSeconds
+            });
           }
         } else {
           updateBeamVisual(beam);
@@ -1891,7 +1951,8 @@ export const createV2BeamSystem = (
       return Object.freeze({
         impacts: Object.freeze(impacts),
         expirations: Object.freeze(expirations),
-        worldBoundaryExits: Object.freeze(worldBoundaryExits)
+        worldBoundaryExits: Object.freeze(worldBoundaryExits),
+        completions: Object.freeze(completions)
       });
     },
     getActiveBeams: () => {
