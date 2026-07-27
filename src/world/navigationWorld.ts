@@ -100,11 +100,6 @@ type RouteEdge = Readonly<{
   distance: number;
 }>;
 
-type CachedSurfaceStepDirection = Readonly<{
-  step: NavigationSurfaceStep;
-  reversed: boolean;
-}>;
-
 const queryHalfExtents = Object.freeze({ x: 0.5, y: 0.25, z: 0.5 });
 const queryNodeCapacity = 4096;
 const pathPolygonCapacity = 4096;
@@ -186,26 +181,11 @@ const cloneNavigationSurfaceStep = (
     distance: step.distance
   });
 
-const reverseNavigationSurfaceStep = (
-  step: NavigationSurfaceStep
-): NavigationSurfaceStep =>
-  Object.freeze({
-    kind: "surface",
-    points: Object.freeze(
-      [...step.points].reverse().map(cloneNavigationLocation)
-    ),
-    distance: step.distance
-  });
-
-const createUnorderedLinkEndpointPairKey = (
+const createDirectedLinkEndpointPairKey = (
   fromEndpointIndex: number,
   toEndpointIndex: number,
   endpointCount: number
-) => {
-  const lowerEndpointIndex = Math.min(fromEndpointIndex, toEndpointIndex);
-  const upperEndpointIndex = Math.max(fromEndpointIndex, toEndpointIndex);
-  return lowerEndpointIndex * endpointCount + upperEndpointIndex;
-};
+) => fromEndpointIndex * endpointCount + toEndpointIndex;
 
 const calculateNavMeshMinimumY = (navMesh: NavMesh) => {
   const [positions] = getNavMeshPositionsAndIndices(navMesh);
@@ -576,29 +556,22 @@ class RecastNavigationWorld implements NavigationWorld {
         steps.push(edge.transition);
         continue;
       }
-      let surfaceDirection: CachedSurfaceStepDirection | null;
+      let surfaceStep: NavigationSurfaceStep | null;
       if (edge.fromIndex >= 2 && edge.toIndex >= 2) {
-        surfaceDirection = this.getLinkEndpointSurfaceStep(
+        surfaceStep = this.getLinkEndpointSurfaceStep(
           linkEndpointNodes[edge.fromIndex - 2].linkEndpointIndex,
           linkEndpointNodes[edge.toIndex - 2].linkEndpointIndex
         );
       } else {
-        const step = this.findSurfaceStep(
+        surfaceStep = this.findSurfaceStep(
           nodes[edge.fromIndex].location,
           nodes[edge.toIndex].location
         );
-        surfaceDirection = step
-          ? Object.freeze({ step, reversed: false })
-          : null;
       }
-      if (!surfaceDirection) {
+      if (!surfaceStep) {
         throw new Error("NavMesh連結成分内のsurface経路を復元できません。");
       }
-      steps.push(
-        surfaceDirection.reversed
-          ? reverseNavigationSurfaceStep(surfaceDirection.step)
-          : cloneNavigationSurfaceStep(surfaceDirection.step)
-      );
+      steps.push(cloneNavigationSurfaceStep(surfaceStep));
     }
     const frozenSteps = Object.freeze(steps);
     const actualDistance = frozenSteps.reduce(
@@ -813,31 +786,22 @@ class RecastNavigationWorld implements NavigationWorld {
   private getLinkEndpointSurfaceStep(
     fromEndpointIndex: number,
     toEndpointIndex: number
-  ): CachedSurfaceStepDirection | null {
-    const lowerEndpointIndex = Math.min(fromEndpointIndex, toEndpointIndex);
-    const upperEndpointIndex = Math.max(fromEndpointIndex, toEndpointIndex);
-    const key = createUnorderedLinkEndpointPairKey(
-      lowerEndpointIndex,
-      upperEndpointIndex,
+  ): NavigationSurfaceStep | null {
+    const key = createDirectedLinkEndpointPairKey(
+      fromEndpointIndex,
+      toEndpointIndex,
       this.linkEndpointCount
     );
     if (!this.linkEndpointSurfaceStepCache.has(key)) {
       this.linkEndpointSurfaceStepCache.set(
         key,
         this.findSurfaceStep(
-          this.linkEndpoints[lowerEndpointIndex],
-          this.linkEndpoints[upperEndpointIndex]
+          this.linkEndpoints[fromEndpointIndex],
+          this.linkEndpoints[toEndpointIndex]
         )
       );
     }
-    const canonicalStep = this.linkEndpointSurfaceStepCache.get(key) ?? null;
-    if (!canonicalStep) {
-      return null;
-    }
-    return Object.freeze({
-      step: canonicalStep,
-      reversed: fromEndpointIndex !== lowerEndpointIndex
-    });
+    return this.linkEndpointSurfaceStepCache.get(key) ?? null;
   }
 
   private projectLinkEndpoint(

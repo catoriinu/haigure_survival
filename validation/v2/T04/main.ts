@@ -1342,14 +1342,20 @@ const runValidation = async () => {
       new Vector3(-9.5, 0.25, -1.5),
       new Vector3(-9.5, 1.05, -1.5)
     );
+    const cacheEntryTeleportLink = createValidationLinkPair(
+      "teleport-cache-entry-validation",
+      "teleport",
+      new Vector3(-6.7, 0.25, -1.5),
+      new Vector3(3, 0.25, -1.5)
+    );
     const cachedSurfaceBridgeLink = createValidationLinkPair(
       "teleport-cache-bridge-validation",
       "teleport",
-      new Vector3(5.7, 0.25, -1.5),
-      new Vector3(-6.7, 0.25, -1.5)
+      new Vector3(3, 0.25, 1.5),
+      new Vector3(5.5, 0.25, -1.5)
     );
     const linkCacheValidationLinks = [
-      primaryTeleportLink,
+      cacheEntryTeleportLink,
       elevatedTeleportLink,
       cachedSurfaceBridgeLink
     ];
@@ -1375,6 +1381,9 @@ const runValidation = async () => {
     let firstPathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let secondPathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let reversePathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let repeatedReversePathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let nativeForwardPathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let nativeReversePathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let repeatedDirectPath: NavigationPath | null = null;
     let samePolygonSurfaceStep: NavigationSurfaceStep | null = null;
     let samePositionSurfaceStep: NavigationSurfaceStep | null = null;
@@ -1385,6 +1394,9 @@ const runValidation = async () => {
     let firstCachedLinkPath: NavigationPath | null = null;
     let secondCachedLinkPath: NavigationPath | null = null;
     let reverseCachedLinkPath: NavigationPath | null = null;
+    let repeatedReverseCachedLinkPath: NavigationPath | null = null;
+    let nativeForwardSurfaceStep: NavigationSurfaceStep | null = null;
+    let nativeReverseSurfaceStep: NavigationSurfaceStep | null = null;
     let cachedEndpointKeys = new Set<string>();
     let linkCacheValidationWorld: NavigationWorld | null = null;
     queryPrototype.findPath = function (
@@ -1503,11 +1515,11 @@ const runValidation = async () => {
       );
       const startLocation = requireNavigationLocation(
         linkCacheValidationWorld,
-        new Vector3(3.5, 0, -1.5)
+        new Vector3(-6.3, 0, -1.5)
       );
       const destinationLocation = requireNavigationLocation(
         linkCacheValidationWorld,
-        new Vector3(-6.3, 0, -1.5)
+        new Vector3(5.3, 0, -1.5)
       );
       const firstPathfindStartIndex = recastPathfindAttempts.length;
       firstCachedLinkPath = linkCacheValidationWorld.findPath(
@@ -1536,9 +1548,56 @@ const runValidation = async () => {
       reversePathfindAttempts = Object.freeze(
         recastPathfindAttempts.slice(reversePathfindStartIndex)
       );
+      const repeatedReversePathfindStartIndex = recastPathfindAttempts.length;
+      repeatedReverseCachedLinkPath = linkCacheValidationWorld.findPath(
+        destinationLocation,
+        startLocation,
+        "npc"
+      );
+      repeatedReversePathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(repeatedReversePathfindStartIndex)
+      );
+      const nativeForwardStart = requireNavigationLocation(
+        linkCacheValidationWorld,
+        cacheEntryTeleportLink.endpointB.position,
+        0.3
+      );
+      const nativeForwardDestination = requireNavigationLocation(
+        linkCacheValidationWorld,
+        cachedSurfaceBridgeLink.endpointA.position,
+        0.3
+      );
+      const nativeForwardPathfindStartIndex = recastPathfindAttempts.length;
+      nativeForwardSurfaceStep = linkCacheValidationWorld.findSurfacePath(
+        nativeForwardStart,
+        nativeForwardDestination
+      );
+      nativeForwardPathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(nativeForwardPathfindStartIndex)
+      );
+      const nativeReverseStart = requireNavigationLocation(
+        linkCacheValidationWorld,
+        cachedSurfaceBridgeLink.endpointA.position,
+        0.3
+      );
+      const nativeReverseDestination = requireNavigationLocation(
+        linkCacheValidationWorld,
+        cacheEntryTeleportLink.endpointB.position,
+        0.3
+      );
+      const nativeReversePathfindStartIndex = recastPathfindAttempts.length;
+      nativeReverseSurfaceStep = linkCacheValidationWorld.findSurfacePath(
+        nativeReverseStart,
+        nativeReverseDestination
+      );
+      nativeReversePathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(nativeReversePathfindStartIndex)
+      );
     } finally {
       queryPrototype.findPath = originalFindPath;
       linkCacheValidationWorld?.dispose();
+      cacheEntryTeleportLink.endpointA.node.dispose();
+      cacheEntryTeleportLink.endpointB.node.dispose();
       cachedSurfaceBridgeLink.endpointA.node.dispose();
       cachedSurfaceBridgeLink.endpointB.node.dispose();
     }
@@ -1642,13 +1701,17 @@ const runValidation = async () => {
       reverseCachedLinkPath?.steps.flatMap((step) =>
         step.kind === "transition" ? [step.link.id] : []
       ) ?? [];
+    const repeatedReverseCachedTransitionIds =
+      repeatedReverseCachedLinkPath?.steps.flatMap((step) =>
+        step.kind === "transition" ? [step.link.id] : []
+      ) ?? [];
     const expectedCachedTransitionIds = [
-      primaryTeleportLink.id,
+      cacheEntryTeleportLink.id,
       cachedSurfaceBridgeLink.id
     ];
     const expectedReverseCachedTransitionIds = [
       cachedSurfaceBridgeLink.id,
-      primaryTeleportLink.id
+      cacheEntryTeleportLink.id
     ];
     const hasExpectedCachedTransitions = (ids: readonly string[]) =>
       ids.length === expectedCachedTransitionIds.length &&
@@ -1664,44 +1727,106 @@ const runValidation = async () => {
       getEndpointSurfacePathfindAttempts(secondPathfindAttempts);
     const reverseEndpointSurfacePathfindAttempts =
       getEndpointSurfacePathfindAttempts(reversePathfindAttempts);
+    const repeatedReverseEndpointSurfacePathfindAttempts =
+      getEndpointSurfacePathfindAttempts(repeatedReversePathfindAttempts);
+    const nativeForwardEndpointSurfacePathfindAttempts =
+      getEndpointSurfacePathfindAttempts(nativeForwardPathfindAttempts);
+    const nativeReverseEndpointSurfacePathfindAttempts =
+      getEndpointSurfacePathfindAttempts(nativeReversePathfindAttempts);
     const firstCachedEndpointSurfaceSteps = getSurfaceStepsBetweenTransitions(
       firstCachedLinkPath,
-      primaryTeleportLink.id,
+      cacheEntryTeleportLink.id,
       cachedSurfaceBridgeLink.id
     );
     const reverseCachedEndpointSurfaceSteps = getSurfaceStepsBetweenTransitions(
       reverseCachedLinkPath,
       cachedSurfaceBridgeLink.id,
-      primaryTeleportLink.id
+      cacheEntryTeleportLink.id
     );
-    const reverseCachedSurfaceMatches =
-      firstCachedEndpointSurfaceSteps.length > 0 &&
-      firstCachedEndpointSurfaceSteps.length ===
-        reverseCachedEndpointSurfaceSteps.length &&
-      firstCachedEndpointSurfaceSteps.every((forwardStep, stepIndex) => {
-        const reverseStep =
-          reverseCachedEndpointSurfaceSteps[
-            reverseCachedEndpointSurfaceSteps.length - 1 - stepIndex
+    const repeatedReverseCachedEndpointSurfaceSteps =
+      getSurfaceStepsBetweenTransitions(
+        repeatedReverseCachedLinkPath,
+        cachedSurfaceBridgeLink.id,
+        cacheEntryTeleportLink.id
+      );
+    const forwardCachedSurfaceStep = firstCachedEndpointSurfaceSteps[0] ?? null;
+    const reverseCachedSurfaceStep =
+      reverseCachedEndpointSurfaceSteps[0] ?? null;
+    const repeatedReverseCachedSurfaceStep =
+      repeatedReverseCachedEndpointSurfaceSteps[0] ?? null;
+    const reverseCoordinatesMatch =
+      forwardCachedSurfaceStep !== null &&
+      reverseCachedSurfaceStep !== null &&
+      forwardCachedSurfaceStep.points.length ===
+        reverseCachedSurfaceStep.points.length &&
+      forwardCachedSurfaceStep.points.every((forwardPoint, pointIndex) => {
+        const reversePoint =
+          reverseCachedSurfaceStep.points[
+            reverseCachedSurfaceStep.points.length - 1 - pointIndex
           ];
         return (
-          forwardStep.points.length === reverseStep.points.length &&
-          forwardStep.points.every((forwardPoint, pointIndex) => {
-            const reversePoint =
-              reverseStep.points[reverseStep.points.length - 1 - pointIndex];
-            return (
-              forwardPoint.polygonRef === reversePoint.polygonRef &&
-              Vector3.Distance(forwardPoint.position, reversePoint.position) <=
-                1e-6
-            );
-          })
+          Vector3.Distance(forwardPoint.position, reversePoint.position) <= 1e-6
+        );
+      });
+    const directionDependentPolygonRefs =
+      forwardCachedSurfaceStep !== null &&
+      reverseCachedSurfaceStep !== null &&
+      forwardCachedSurfaceStep.points.length ===
+        reverseCachedSurfaceStep.points.length &&
+      forwardCachedSurfaceStep.points.length >= 3 &&
+      forwardCachedSurfaceStep.points.slice(1, -1).some(
+        (forwardPoint, pointIndex) =>
+          forwardPoint.polygonRef !==
+          reverseCachedSurfaceStep.points[
+            reverseCachedSurfaceStep.points.length - 2 - pointIndex
+          ].polygonRef
+      );
+    const forwardCachedSurfaceMatchesNative =
+      forwardCachedSurfaceStep !== null &&
+      nativeForwardSurfaceStep !== null &&
+      forwardCachedSurfaceStep.points.length ===
+        nativeForwardSurfaceStep.points.length &&
+      forwardCachedSurfaceStep.points.every((cachedPoint, pointIndex) => {
+        const nativePoint = nativeForwardSurfaceStep.points[pointIndex];
+        return (
+          cachedPoint.polygonRef === nativePoint.polygonRef &&
+          Vector3.Distance(cachedPoint.position, nativePoint.position) <= 1e-6
+        );
+      });
+    const reverseCachedSurfaceMatchesNative =
+      reverseCachedSurfaceStep !== null &&
+      nativeReverseSurfaceStep !== null &&
+      reverseCachedSurfaceStep.points.length ===
+        nativeReverseSurfaceStep.points.length &&
+      reverseCachedSurfaceStep.points.every((cachedPoint, pointIndex) => {
+        const nativePoint = nativeReverseSurfaceStep.points[pointIndex];
+        return (
+          cachedPoint.polygonRef === nativePoint.polygonRef &&
+          Vector3.Distance(cachedPoint.position, nativePoint.position) <= 1e-6
+        );
+      });
+    const repeatedReverseCacheMatches =
+      reverseCachedSurfaceStep !== null &&
+      repeatedReverseCachedSurfaceStep !== null &&
+      reverseCachedSurfaceStep.points.length ===
+        repeatedReverseCachedSurfaceStep.points.length &&
+      reverseCachedSurfaceStep.points.every((cachedPoint, pointIndex) => {
+        const repeatedPoint =
+          repeatedReverseCachedSurfaceStep.points[pointIndex];
+        return (
+          cachedPoint.polygonRef === repeatedPoint.polygonRef &&
+          Vector3.Distance(cachedPoint.position, repeatedPoint.position) <= 1e-6
         );
       });
     checks.push({
-      name: "特殊接続の連結成分グラフ・順不同キャッシュ",
+      name: "特殊接続の連結成分グラフ・有向surfaceキャッシュ",
       ok:
         hasExpectedCachedTransitions(firstCachedTransitionIds) &&
         hasExpectedCachedTransitions(secondCachedTransitionIds) &&
         hasExpectedReverseCachedTransitions(reverseCachedTransitionIds) &&
+        hasExpectedReverseCachedTransitions(
+          repeatedReverseCachedTransitionIds
+        ) &&
         cachedEndpointKeys.size === linkCacheValidationLinks.length * 2 &&
         constructionPathfindAttempts.length === 0 &&
         playerPathfindAttempts.length === 1 &&
@@ -1716,11 +1841,18 @@ const runValidation = async () => {
         samePolygonSurfaceStepMatches &&
         samePositionSurfaceStepMatches &&
         disconnectedSurfaceStep === null &&
-        firstEndpointSurfacePathfindAttempts.length === 0 &&
+        firstEndpointSurfacePathfindAttempts.length === 1 &&
         secondEndpointSurfacePathfindAttempts.length === 0 &&
-        reverseEndpointSurfacePathfindAttempts.length === 0 &&
-        reverseCachedSurfaceMatches,
-      detail: `endpoints=${cachedEndpointKeys.size} / build=${constructionPathfindAttempts.length} / normal=${playerPathfindAttempts.length},${npcPathfindAttempts.length} / repeatedDirect=${repeatedDirectPathfindAttempts.length}(direct=${repeatedDirectSurfacePathfindCount}, ${repeatedDirectTransitionCount}遷移) / fast=${samePolygonPathfindAttempts.length},${samePositionPathfindAttempts.length},${disconnectedPathfindAttempts.length}(${samePolygonSurfaceStepMatches}/${samePositionSurfaceStepMatches}/${disconnectedSurfaceStep === null}) / endpoint=${firstEndpointSurfacePathfindAttempts.length},${secondEndpointSurfacePathfindAttempts.length},${reverseEndpointSurfacePathfindAttempts.length} / reversePoints=${reverseCachedSurfaceMatches} / transitions=${firstCachedTransitionIds.join(" > ") || "none"}`
+        reverseEndpointSurfacePathfindAttempts.length === 1 &&
+        repeatedReverseEndpointSurfacePathfindAttempts.length === 0 &&
+        nativeForwardEndpointSurfacePathfindAttempts.length === 1 &&
+        nativeReverseEndpointSurfacePathfindAttempts.length === 1 &&
+        reverseCoordinatesMatch &&
+        directionDependentPolygonRefs &&
+        forwardCachedSurfaceMatchesNative &&
+        reverseCachedSurfaceMatchesNative &&
+        repeatedReverseCacheMatches,
+      detail: `endpoints=${cachedEndpointKeys.size} / build=${constructionPathfindAttempts.length} / normal=${playerPathfindAttempts.length},${npcPathfindAttempts.length} / repeatedDirect=${repeatedDirectPathfindAttempts.length}(direct=${repeatedDirectSurfacePathfindCount}, ${repeatedDirectTransitionCount}遷移) / fast=${samePolygonPathfindAttempts.length},${samePositionPathfindAttempts.length},${disconnectedPathfindAttempts.length}(${samePolygonSurfaceStepMatches}/${samePositionSurfaceStepMatches}/${disconnectedSurfaceStep === null}) / endpoint=${firstEndpointSurfacePathfindAttempts.length},${secondEndpointSurfacePathfindAttempts.length},${reverseEndpointSurfacePathfindAttempts.length},${repeatedReverseEndpointSurfacePathfindAttempts.length},native=${nativeForwardEndpointSurfacePathfindAttempts.length},${nativeReverseEndpointSurfacePathfindAttempts.length} / points=${forwardCachedSurfaceStep?.points.length ?? 0} / reverse=${reverseCoordinatesMatch},refs=${directionDependentPolygonRefs},native=${forwardCachedSurfaceMatchesNative}/${reverseCachedSurfaceMatchesNative},cached=${repeatedReverseCacheMatches} / transitions=${firstCachedTransitionIds.join(" > ") || "none"}`
     });
 
     const highProjectionLink = createValidationLinkPair(

@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 B03-3 学校拡張・動的アセット 計画
 
-更新日: 2026-07-27
+更新日: 2026-07-28
 
 ## プロンプト
 
@@ -50,6 +50,7 @@
 - 1階ロッカーは最終的に6台とする。東壁側の2台は長辺を東壁へ寄せて南北に隙間なく並べる。西側には、東壁側の各ロッカーと平行な位置へ正面向き1台と180度反転した1台を背中合わせにした2組を置く。背中合わせ2組は従来の平行ロッカー位置から短辺2個分だけ東へ移し、壁側列との通路を狭める。
 - 左右袖U字階段は、入口から見て奥側の手すりを短尺で止めず、隣接する白壁の際まで連続させて奥側へ通り抜けられない形にする。手前側は階段への出入りを妨げる床立ち手すりを引き続き設けない。
 - 今回の再訂正と全検証が完了したら、差分全体に適した日本語のConventional Commitsメッセージを決めてコミットし、`codex/v2-b03-3-structure`を`origin`へpushし、`develop`向けのdraft Pull Requestを作成する。
+- Pull Request #52の未解決インラインコメント1件を確認し、逆向きsurface cacheで`NavigationLocation`配列と`polygonRef`を単純反転している問題へ対応する。逆方向も`findSurfaceStep()`で独立生成・cacheし、複数の人物用`StageLinkPair`をつなぐ往復経路で、逆向きのpolygon corridorから得た`polygonRef`と一致する回帰テストを追加する。対応後は同一ブランチへコミット・pushし、元スレッドへ検証結果を返信する。明示依頼のないスレッド解決は行わない。
 
 ## 確定方針
 
@@ -183,11 +184,18 @@
 - [x] B03-3B袖階段手すり再訂正: 左右袖階段の奥側手すりを隣接壁際まで延長し、手前側入口を塞がない左右対称形状を監査する
 - [x] B03-3B再訂正派生物・検証: `.blend`、GLB、両NavMesh、カタログhash、固定視点を2回決定的に再生成し、全監査・build・実ブラウザ・Electron・静的検査を再実行して5181番を利用可能に残す
 - [x] B03-3B公開: 最終差分をコミット可能と判定し、日本語のConventional Commitsメッセージでコミット、push、`develop`向けdraft Pull Request作成まで行う
+- [ ] B03-3Bレビュー対応: 逆向きlink endpoint surface cacheを有向化し、方向別`polygonRef`の往復回帰、型検査、T04 build・実ブラウザ、通常build、静的検査を通過させてコミット・push・スレッド返信まで行う
 - [ ] B03-3C: 個別引き戸、トイレ開き戸、エレベーター可動部、人物ゲートを実装する
 - [ ] B03-3C: 20室の通常・荒れvariantと人間用NavMeshタイルを実装する
 - [ ] B03-3C: 資産metadata、建築・内装・NavMesh・決定性監査を更新する
 
 ## 結果
+
+2026-07-28、Pull Request #52へ追加された未解決インラインコメント1件を確認した。`DT_STRAIGHTPATH_ALL_CROSSINGS`が返す中間点の`straightPathRefs`は進行方向に依存する一方、現行のlink endpoint surface cacheは順不同キーで片方向だけを保存し、逆方向では座標と`polygonRef`をまとめて逆順化していた。指摘を妥当と判断し、方向別にDetour経路を生成・cacheして参照を再構成する修正と、複数リンク間surface経路の往復回帰を開始した。
+
+同日00時23分、link endpoint surface cacheのキーを`fromEndpointIndex * endpointCount + toEndpointIndex`の有向キーへ変更し、要求方向の`findSurfaceStep()`を方向別に生成・cacheする実装へ置き換えた。`CachedSurfaceStepDirection`と`reverseNavigationSurfaceStep()`は撤去し、復元時は実方向のsurface stepを複製する。T04の既存fixtureは、2本の`StageLinkPair`間で23点・21内部境界を横断する構成へ変更した。往復座標の逆順一致、方向別`polygonRef`の相違、forward／reverseそれぞれのnative `findSurfacePath()`との参照一致、各方向の初回探索1回・同方向再実行0回を検証する。
+
+同日00時26分、最終fixtureで`typecheck:v2`、通常Web／Electron build、`build:t04`、`build:t05`を通過した。専用worktreeから起動した実ブラウザはT04 69/69、T05 238/238で、対象回帰は23点、`reverse=true`、`refs=true`、forward／reverse native一致、同方向cache再利用を記録し、両画面ともconsole warning・error 0件だった。検証用5196・5197番だけを停止し、`http://127.0.0.1:5181/`はPID 41852で利用可能な状態を維持した。公開型・メソッドシグネチャ、schema、学校GLB・両NavMesh・カタログhashは変更していない。
 
 2026-07-26、B03-3Aとして学校拡張と動的アセットの寸法、対象範囲、資産metadata、タスク分割、並行境界を確定した。プレイヤー、未洗脳NPC、洗脳済みNPCを合計したエレベーター定員6人、`closed / opening / closing`中の人物全面ゲート、実扉パネルへ追従するビーム・視線判定を正本とする。PR #51レビュー対応で、動的扉・エレベーターの必須Object、`hs_*`キー・型、ID参照、Transformによる閉・開姿勢と軸表現を`docs/spec_stage_assets_v2.md` 7.9節へ追加し、B03-3Cが独自schemaを発明しない契約にした。
 
