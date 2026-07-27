@@ -182,7 +182,7 @@
 - [x] B03-3B玄関ロッカー再訂正: 東壁側2台と背中合わせ2台組2組の合計6台を生成正本へ配置し、短辺2個分の東移動、背面密着、通路、待機マット非干渉を監査する
 - [x] B03-3B袖階段手すり再訂正: 左右袖階段の奥側手すりを隣接壁際まで延長し、手前側入口を塞がない左右対称形状を監査する
 - [x] B03-3B再訂正派生物・検証: `.blend`、GLB、両NavMesh、カタログhash、固定視点を2回決定的に再生成し、全監査・build・実ブラウザ・Electron・静的検査を再実行して5181番を利用可能に残す
-- [ ] B03-3B公開: 最終差分をコミット可能と判定し、日本語のConventional Commitsメッセージでコミット、push、`develop`向けdraft Pull Request作成まで行う
+- [x] B03-3B公開: 最終差分をコミット可能と判定し、日本語のConventional Commitsメッセージでコミット、push、`develop`向けdraft Pull Request作成まで行う
 - [ ] B03-3C: 個別引き戸、トイレ開き戸、エレベーター可動部、人物ゲートを実装する
 - [ ] B03-3C: 20室の通常・荒れvariantと人間用NavMeshタイルを実装する
 - [ ] B03-3C: 資産metadata、建築・内装・NavMesh・決定性監査を更新する
@@ -274,3 +274,5 @@ Python 6ファイルのAST、Node 2ファイルの構文、変更テキスト19�
 `DT_STRAIGHTPATH_ALL_CROSSINGS`は人物用NavigationWorldへ適用し、BIT飛行面だけは公開APIを増やさない内部識別子により従来のcorners-onlyを維持した。増加した中間境界点ではNavigationAgentが許容差の半分だけ面内側で次点へ進み、屋上プール折れ斜路を含むT04追跡で距離超過0件を確認した。距離制限緩和、結果クランプ、例外catch、fallbackは追加していない。また、拡張後学校での99体BIT安全判定を維持するため、Collider全体AABB外の点だけsolid-angle triangle走査前に除外し、表面epsilonと変換済みMeshの包含結果が不変であることをT05へ固定した。
 
 通常build、Electron側TypeScript build、`build:t01`～`build:t05`を全件通過した。実ブラウザはT02 47/47、T04 69/69、T05 238/238で、各検証画面のconsole warning・errorは0件だった。通常5181番は`playing`から後続フェーズへ停止せず進行し、NavMesh距離超過、V2更新停止、資産読込エラーは0件だった。自動操作ブラウザでは環境固有のChromium Pointer Lock `UnknownError`が1件だけ発生したが、Electron実ウィンドウでは同じ5181番の成果物で`playing`へ遷移・継続更新し、DevToolsはBabylon.js情報行1件のみでwarning・error 0件だった。変更Python 7ファイルのAST、Node 2ファイルの構文、変更テキスト20ファイルのstrict UTF-8・BOMなし、ローカル絶対パス混入0件、`git diff --check`、全体計画2ファイル非変更を確認した。検証用5182・5184・5185番とElectronを停止し、`http://127.0.0.1:5181/`だけを利用可能な状態に残した。
+
+同日23時27分、B03-3Bの意図した89ファイルを`28a037f`（`feat: 学校構造資産とナビゲーションを拡張する`）としてコミットし、`codex/v2-b03-3-structure`を`origin`へpushした。`develop`向けDraft Pull Request #52「B03-3B 学校構造資産とナビゲーションを拡張」を作成し、base、head、Draft状態をGitHubから再読込して確認した。
