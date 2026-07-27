@@ -16,6 +16,10 @@
 
 > 隣のタスクのT05-3を実装したタスクをまず読み込んでください。その内容が、もうコミットが完了しており、こちらのT04-3Aに統合をして良い状態であれば、こちらを統合headへ切り替えて、推奨手順でこの後、`develop`へのPull Requestを作るところまで行ってください。まだ駄目な状態であれば、次に何をすれば進められるのか提案してください。
 
+2026-07-28 方針変更:
+
+> Pull Requestは作らなくてよいです。このまま後でB03-3Cのbranchへローカルで取り込みます。Pull Requestを作成済みであればcloseしてください。
+
 ## 確定方針
 
 ### T04-3A 動的空間基盤
@@ -139,7 +143,8 @@
 - [x] 統合: 完了済みT05-3の計画・worktree・commit・検証結果を監査し、T04-3Aを統合headへ切り替える
 - [x] 統合: T05 fixtureの空間queryをdynamic variants契約へ移行する
 - [x] 統合: T04／T05／通常Runtimeを再検証する
-- [x] 統合: 統合branchをpushして`develop`向けDraft Pull Requestを作成する
+- [x] 統合: 統合branchをpushし、作成済みDraft Pull Request #54を最新指示に従ってcloseする
+- [ ] 後続: B03-3Cのbranchへ本統合headをローカルで取り込む（別途指示で実施）
 - [ ] T04-3B: B03-3C／B04の実学校metadataを読込み、20室variantを開始時に確定する
 - [ ] T04-3B: 全陣営NPCの扉・エレベーター利用と陣営別回避・追跡を統合する
 - [ ] T04-3B: 実学校で人物移動、ビーム、視線、BIT、スポーン、ライフサイクルを回帰する
@@ -165,3 +170,5 @@ T05 fixtureの旧2引数`createStageSpatialQueries()`全14呼出を、`DynamicSt
 実ブラウザではT04 fixtureが初回／画面再実行／再読込の各102／102、T05 fixtureが各253／253、T05-3専用fixtureが各16／16で、各fixtureのconsole warning／error、Babylon Logger error、unhandled rejectionは0件だった。T05再実行で顕在化した2件は、Babylon Observableの遅延remove完了前にbaselineを採る性能fixtureと、18秒移動後も初期BIT位置のtarget ringを再利用する視認fixtureに原因を限定し、baseline前の1 event-loop待機と現在BIT位置からのtarget ring再生成で安定化した。通常Webは初期読込時のwarning／error 0件と、開始後の`フェーズ playing`、NPC 50体、BIT 20体以上を確認した。自動操作APIからのPointer Lock要求だけはChromium／Computer Use環境側の制約で拒否されたため、productionコードは変更せずPull Requestの検証注記へ残す。
 
 2026-07-28 08:43 +09:00、公開前実装head`bbf4aaa7e11c8b0b02e26d09434d67bac6d1c4b6`を`codex/v2-t04-3-dynamic-runtime`へpushし、`develop`向けDraft Pull Request [#54](https://github.com/catoriinu/haigure_survival/pull/54)を作成した。GitHubから`OPEN`、`MERGEABLE`、Draft、base=`develop`、head=`codex/v2-t04-3-dynamic-runtime`を読み戻した。`origin/develop`は検証基点`4edd8f08c948a7822cd6bd623e25dff142078f18`のままで、`develop`へのmergeは行っていない。
+
+2026-07-28 08:45 +09:00、最新指示に従ってDraft Pull Request #54をcloseし、GitHubから`CLOSED`、`mergedAt=null`を読み戻した。`codex/v2-t04-3-dynamic-runtime`は後でB03-3Cのbranchへローカル統合できるよう残し、remote branchの削除、`develop`へのmerge、B03-3C worktreeの変更は行っていない。
