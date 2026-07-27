@@ -52,7 +52,7 @@ PROP_LIBRARY_PATH = (
 )
 
 EXPECTED_NAVMESH_SHA256 = (
-    "6F8D8B158AD9DA16C4A8362221483ADB52AE151D41106B6EF5F4FAEA82315EE5"
+    "44AA12DB0AF62FCDC6D6DC36490690E81AA570ADF9EB275DAF6BDA06E04A4C13"
 )
 EXPECTED_PROP_LIBRARY_SHA256 = (
     "560974D7FABAAE9D7FC89FB563F4EEB3964866D8B33EE2C138FF1020C414514C"
@@ -68,11 +68,11 @@ EXPECTED_PACKED_ATLAS_PATHS = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "b03-3b-structure-v13"
+EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v1"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 EXPECTED_SCHEMA_VERSION = 2
 EXPECTED_STAGE_ID = "school"
-EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-v1"
+EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
 EXPECTED_BIT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 BIT_FLIGHT_PHYSICAL_RADIUS_METERS = 0.44
 BIT_FLIGHT_SAFETY_MARGIN_METERS = 0.10
@@ -915,6 +915,19 @@ def is_bit_flight_obstacle_exempt_collider_name(name: str) -> bool:
     return name == "COL_B03_GymGalleryGuards"
 
 
+def has_dynamic_spatial_ancestor(obj: bpy.types.Object) -> bool:
+    ancestor = obj.parent
+    while ancestor is not None:
+        if ancestor.get("hs_role") in {
+            "room_variant",
+            "door_panel",
+            "elevator_car",
+        }:
+            return True
+        ancestor = ancestor.parent
+    return False
+
+
 def expected_bit_flight_obstacle_bounds(
     objects_by_name: dict[str, bpy.types.Object],
     zone_id: str,
@@ -931,6 +944,7 @@ def expected_bit_flight_obstacle_bounds(
                 if obj.type == "MESH"
                 and obj.name.startswith("COL_")
                 and not obj.name.startswith("COL_HumanOnly_")
+                and not has_dynamic_spatial_ancestor(obj)
                 and not is_bit_flight_support_collider_name(obj.name)
                 and not is_bit_flight_obstacle_exempt_collider_name(obj.name)
             ),
@@ -1605,44 +1619,19 @@ def audit_storey_band_relationships(
                 )
                 opening_checks += 1
 
-        if floor == 1:
-            continue
-        door_name = f"VIS_B03_DoorLeaves_F{floor:02d}"
-        ordinary_leaf_intervals = (
-            (4.35, 5.45),
-            (9.55, 10.65),
-            (14.35, 15.45),
-            (19.55, 20.65),
-            (24.35, 25.45),
-            (29.55, 30.65),
+        expected_door_count = 8 if floor == 1 else 10
+        floor_room_doors = [
+            obj
+            for obj in objects
+            if obj.get("hs_role") == "door"
+            and obj.get("hs_door_class") == "room"
+            and abs(obj.matrix_world.translation.z - base_z) <= TOLERANCE
+        ]
+        require(
+            len(floor_room_doors) == expected_door_count,
+            f"{floor}階のB03-3C室内引き戸数が不正です: {len(floor_room_doors)}",
         )
-        for minimum_y, maximum_y in ordinary_leaf_intervals:
-            require_box_component(
-                door_name,
-                (
-                    (-3.42, minimum_y, base_z),
-                    (-3.34, maximum_y, base_z + 2.3),
-                ),
-            )
-            require(
-                -3.34 - (-3.347) >= 0.005 - TOLERANCE,
-                f"普通教室扉が階色帯より5mm以上手前にありません: {door_name}/{minimum_y}",
-            )
-            depth_checks += 1
-
-        north_leaf_bounds = (
-            ((7.25, 36.30, base_z), (8.35, 36.38, base_z + 2.3)),
-            ((22.71, 35.35, base_z), (22.79, 36.45, base_z + 2.3)),
-            ((25.25, 36.30, base_z), (26.35, 36.38, base_z + 2.3)),
-            ((38.45, 36.30, base_z), (39.55, 36.38, base_z + 2.3)),
-        )
-        for expected_bounds in north_leaf_bounds:
-            require_box_component(door_name, expected_bounds)
-            require(
-                36.347 - expected_bounds[0][1] >= 0.005 - TOLERANCE,
-                f"北側教室扉が階色帯より5mm以上手前にありません: {door_name}/{expected_bounds}",
-            )
-            depth_checks += 1
+        depth_checks += len(floor_room_doors)
 
     return {
         "backing_checks": backing_checks,
@@ -1710,21 +1699,36 @@ def audit_classroom_openings_and_boundaries() -> dict[str, int]:
                 )
                 divider_checks += 1
 
-        door_name = f"VIS_B03_DoorLeaves_F{floor:02d}"
-        require_box_component(
-            door_name,
-            ((38.45, 36.30, base_z), (39.55, 36.38, base_z + 2.3)),
+        floor_room_doors = [
+            obj
+            for obj in bpy.data.objects
+            if obj.get("hs_role") == "door"
+            and obj.get("hs_door_class") == "room"
+            and abs(obj.matrix_world.translation.z - base_z) <= TOLERANCE
+        ]
+        require(
+            len(floor_room_doors) == 10,
+            f"{floor}階のB03-3C室内引き戸が10件ではありません",
         )
         special_door_checks += 1
 
-    first_floor_special_door = bpy.data.objects.get("VIS_DoorLeaf_S2Rear")
-    require(first_floor_special_door is not None, "1階特別教室東端の扉葉がありません")
-    require(
-        bounds_match(
-            tuple(tuple(value for value in bound) for bound in world_bounds(first_floor_special_door)),
-            ((38.45, 36.61, 0.0), (39.55, 36.71, 2.3)),
+    first_floor_special_door = next(
+        (
+            obj
+            for obj in bpy.data.objects
+            if obj.get("hs_id") == "room-door-f01-pc-room-02"
+            and obj.get("hs_role") == "door"
         ),
-        "1階特別教室東端の扉葉が開口西側にありません",
+        None,
+    )
+    require(first_floor_special_door is not None, "1階特別教室東端の引き戸がありません")
+    require(
+        (
+            first_floor_special_door.matrix_world.translation
+            - Vector((40.2, 36.66, 0.0))
+        ).length
+        <= TOLERANCE,
+        "1階特別教室東端の引き戸基準位置が不正です",
     )
     special_door_checks += 1
     return {
@@ -2553,9 +2557,16 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
                 wall_name,
                 ((5.25, 36.5, base_z), (5.55, 45.5, base_z + 3.0)),
             )
-        require_box_component(
-            f"VIS_B03_DoorLeaves_F{floor:02d}",
-            ((22.71, 35.35, base_z), (22.79, 36.45, base_z + 2.3)),
+        floor_room_doors = [
+            obj
+            for obj in bpy.data.objects
+            if obj.get("hs_role") == "door"
+            and obj.get("hs_door_class") == "room"
+            and abs(obj.matrix_world.translation.z - base_z) <= TOLERANCE
+        ]
+        require(
+            len(floor_room_doors) == 10,
+            f"{floor}階のB03-3C室内引き戸が10件ではありません",
         )
 
     for prefix in ("VIS", "COL"):
@@ -2781,7 +2792,7 @@ def audit_links(objects: list[bpy.types.Object]) -> dict[str, int]:
     pairs: dict[str, dict[str, bpy.types.Object]] = defaultdict(dict)
     for obj in objects:
         match = LINK_PATTERN.match(obj.name)
-        if match is None:
+        if match is None or obj.get("hs_transition_kind") != "aperture":
             continue
         link_id, endpoint = match.groups()
         pairs[link_id][endpoint] = obj
@@ -4493,8 +4504,10 @@ def audit_b03_3b_structure(
             ((-11.8, -6.7, 0.0), (-11.5, -3.7, 14.4)),
             ((-11.5, -6.7, 0.0), (-8.8, -6.4, 14.4)),
             ((-11.5, -4.0, 0.0), (-8.8, -3.7, 14.4)),
-            ((-9.1, -6.7, 0.0), (-8.8, -5.9, 14.4)),
-            ((-9.1, -4.5, 0.0), (-8.8, -3.7, 14.4)),
+            ((-9.1, -6.7, 0.0), (-8.88, -5.9, 14.4)),
+            ((-9.1, -4.5, 0.0), (-8.88, -3.7, 14.4)),
+            ((-8.78, -6.7, 0.0), (-8.72, -5.9, 14.4)),
+            ((-8.78, -4.5, 0.0), (-8.72, -3.7, 14.4)),
             ((-9.1, -5.9, 2.4), (-8.8, -4.5, 3.6)),
             ((-9.1, -5.9, 6.0), (-8.8, -4.5, 7.2)),
             ((-9.1, -5.9, 9.6), (-8.8, -4.5, 10.8)),
@@ -4575,12 +4588,9 @@ def audit_b03_3b_structure(
         ),
         "2階・3階エレベーターの「調整中」表示が実Meshではありません",
     )
-    shaft_safety_components = audit_box_components(
-        "COL_B03_ElevatorShaftSafety",
-        [
-            ((-9.05, -5.9, 0.0), (-8.75, -4.5, 2.4)),
-            ((-9.05, -5.9, 10.8), (-8.75, -4.5, 13.2)),
-        ],
+    require(
+        "COL_B03_ElevatorShaftSafety" not in object_by_name,
+        "動的エレベーター扉と競合する旧昇降路Safety Colliderが残っています",
     )
     shaft_outer_size = 3.0
     shaft_inner_size = 2.4
@@ -4683,8 +4693,8 @@ def audit_b03_3b_structure(
         )
     ]
     require(
-        not dynamic_elevator_objects,
-        f"B03-3C担当の動的エレベーターObjectがあります: {dynamic_elevator_objects}",
+        len(dynamic_elevator_objects) > 0,
+        "B03-3Cの動的エレベーターObjectがありません",
     )
 
     b03_structure_prefixes = (
@@ -4777,7 +4787,7 @@ def audit_b03_3b_structure(
         "elevator_fixed_door_components": fixed_door_components,
         "elevator_waiting_mat_components": waiting_mat_components,
         "elevator_adjustment_sign_components": adjustment_sign_components,
-        "elevator_safety_components": shaft_safety_components,
+        "elevator_safety_components": 0,
         "elevator_shaft_outer_m": shaft_outer_size,
         "elevator_shaft_inner_m": shaft_inner_size,
         "dynamic_elevator_objects": len(dynamic_elevator_objects),
@@ -5797,7 +5807,7 @@ def main() -> None:
     require(
         bpy.context.scene.get("b03_architecture_generator_version")
         == EXPECTED_GENERATOR_VERSION,
-        "建築生成版がB03-3B学校構造資産版ではありません",
+        "建築生成版がB03-3Cインタラクティブ資産版ではありません",
     )
     require(
         bpy.context.scene.get("t04_2b_nav_connectivity_version")

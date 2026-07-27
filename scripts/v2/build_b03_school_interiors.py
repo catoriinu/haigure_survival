@@ -157,6 +157,7 @@ CLASSROOM_REAR_CLEANING_X = -5.20
 CLASSROOM_REAR_WALL_INNER_Y = 2.65
 CLASSROOM_REAR_INTERIOR_X_BOUNDS = (-12.45, -3.65)
 CLASSROOM_TRASH_BIN_PLACEMENT = (-3.8, 7.5)
+CLASSROOM_DESK_ROW_Y_OFFSETS = (0.0, 0.0, -0.20, 0.20, 0.0, 0.0)
 CORRIDOR_CLEANING_LOCKER = (-3.125, 6.8, math.pi / 2)
 MAIN_ENTRY_BAGGAGE_LOCKERS = (
     (-0.425, -5.8, -math.pi / 2),
@@ -282,7 +283,7 @@ WEST_CORRIDOR_SIGN_POSITIONS = {
     3: (5.725, 15.725, 25.725),
     4: (5.725, 15.725, 25.725),
 }
-NORTH_CORRIDOR_SIGN_X = {1: 7.625, 2: 7.625, 3: 7.625, 4: 7.625}
+NORTH_CORRIDOR_SIGN_X = {1: 9.0, 2: 9.0, 3: 9.0, 4: 9.0}
 
 
 def png_chunk(chunk_type: bytes, data: bytes) -> bytes:
@@ -434,11 +435,19 @@ def consolidate_school_materials(
             and (
                 obj.name.startswith("VIS_B03_Interior_")
                 or obj.name.startswith("VIS_B03_Prop_")
+                or (
+                    obj.name.startswith("VIS_RoomVariant_")
+                    and not obj.name.endswith("_FallenFurniture")
+                )
             )
         ):
             continue
 
-        if obj.name.startswith("VIS_B03_Prop_") or obj.name == "VIS_B03_ChangingBenches":
+        if (
+            obj.name.startswith("VIS_B03_Prop_")
+            or obj.name == "VIS_B03_ChangingBenches"
+            or obj.name.endswith("_FallenFurniture")
+        ):
             atlas_name = "FurnitureProps"
         else:
             atlas_name = "Architecture"
@@ -452,11 +461,12 @@ def consolidate_school_materials(
             if polygon.material_index < len(obj.data.materials):
                 old_material = obj.data.materials[polygon.material_index]
                 material_name = old_material.name if old_material else ""
-            swatch = (
-                prop_material_swatch(material_name)
-                if atlas_name == "FurnitureProps"
-                else architecture_swatch(obj.name)
-            )
+            if obj.name.endswith("_FallenFurniture"):
+                swatch = "wood"
+            elif atlas_name == "FurnitureProps":
+                swatch = prop_material_swatch(material_name)
+            else:
+                swatch = architecture_swatch(obj.name)
             coordinates = swatch_uv(atlas_name, swatch)
             for corner_index, loop_index in enumerate(polygon.loop_indices):
                 uv_layer.data[loop_index].uv = coordinates[corner_index % 4]
@@ -969,11 +979,21 @@ def build_classroom(
     for row in range(6):
         for column in range(5):
             x = -11.15 + column * 1.42
-            y = 4.5 + room_y_offset + row * 1.22
+            y = (
+                4.5
+                + room_y_offset
+                + row * 1.22
+                + CLASSROOM_DESK_ROW_Y_OFFSETS[row]
+            )
             rotation = rotations.get((column, row), 0.0)
             desk_positions[(column, row)] = (x, y, rotation)
             room.add_prop(sources, "ClassroomDesk", x, y, rotation)
-            chair_distance = 0.58 if (column, row) in rotations else 0.31
+            if (column, row) == (3, 2):
+                chair_distance = 0.55
+            elif (column, row) in rotations:
+                chair_distance = 0.58
+            else:
+                chair_distance = 0.31
             chair_x = x + math.sin(rotation) * chair_distance
             chair_y = y - math.cos(rotation) * chair_distance
             room.add_prop(
@@ -1095,11 +1115,6 @@ def build_toilet_room(
                 (0.08, 2.10, 2.10),
                 "wall",
                 collider=True,
-            )
-            room.architecture_box(
-                (partition_x - 0.04, 43.70, room.base_z + 0.90),
-                (0.04, 0.90, 1.80),
-                "door",
             )
         for toilet_x in (-5.8, -4.35, -2.95, -1.3, 0.15, 1.55):
             room.add_prop(sources, "WesternToilet", toilet_x, 44.7)
@@ -1456,6 +1471,7 @@ def build_school_interiors(
     visual_collection: bpy.types.Collection,
     collider_collection: bpy.types.Collection,
     nav_collection: bpy.types.Collection,
+    room_variant_names: frozenset[str],
 ) -> dict[str, object]:
     materials = build_atlases()
     source_types = {
@@ -1497,7 +1513,8 @@ def build_school_interiors(
             room.wall_colliders,
             collider_collection,
         )
-        all_colliders.extend(room.colliders)
+        if room.name not in room_variant_names:
+            all_colliders.extend(room.colliders)
         all_colliders.extend(room.wall_colliders)
     create_box_mesh(
         "NAV_Blocker_Interiors",
@@ -1515,6 +1532,7 @@ def build_school_interiors(
         "additional_prop_types": len(ADDITIONAL_PROP_TYPES),
         "atlases": len(materials),
         "classrooms": len(classroom_metrics),
+        "variant_rooms": len(room_variant_names),
         "classroom_metrics": classroom_metrics,
         "classroom_front": "north",
         "north_wing_classroom_front": "east",

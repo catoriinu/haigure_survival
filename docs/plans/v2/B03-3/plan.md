@@ -52,6 +52,16 @@
 - 今回の再訂正と全検証が完了したら、差分全体に適した日本語のConventional Commitsメッセージを決めてコミットし、`codex/v2-b03-3-structure`を`origin`へpushし、`develop`向けのdraft Pull Requestを作成する。
 - Pull Request #52の未解決インラインコメント1件を確認し、逆向きsurface cacheで`NavigationLocation`配列と`polygonRef`を単純反転している問題へ対応する。逆方向も`findSurfaceStep()`で独立生成・cacheし、複数の人物用`StageLinkPair`をつなぐ往復経路で、逆向きのpolygon corridorから得た`polygonRef`と一致する回帰テストを追加する。対応後は同一ブランチへコミット・pushし、元スレッドへ検証結果を返信する。明示依頼のないスレッド解決は行わない。
 
+2026-07-28 B03-3C開始指示:
+
+- B03-3Bが`develop`へ統合された最新状態から、`codex/v2-b03-3-interactive-assets`と専用worktreeを作成し、T05-2Vと並行してB03-3Cを実装する。
+- 20室それぞれへ`normal`／`disordered`の2 variant、重複しない人間用NavMeshタイル所有領域、個別引き戸、全階トイレ個室の開き戸を実装する。
+- エレベーターは資産仕様7.9.2節どおり、1階・4階stop、初期4階のかご、乗場扉、かご扉、呼出マット、敷居、待機marker、占有Volume、乗客基準、人物全面gate、`elevator` link pairを実装する。2階・3階の固定閉鎖資産は維持する。
+- 人間用NavMeshを固定グリッドのtiled生成へ変更し、静的基盤と20室×2 variantのDetour tile payloadを分離する。variant payloadはversion付きheader、安定順manifest、payloadからなる`b02_school_blockout.room-variants.navmesh.bin`へ格納する。
+- B03-3Cは資産先行で実装し、T04-3Aの厳格ローダー統合前は生成正本、Blender、GLB、NavMesh bundle、オフライン監査までを完了可能範囲とする。最終Runtime受入と`develop`統合はT04-3A後に行う。
+- reasoning設定を1つに固定する場合はUltraを使用する。仕様確定後の機械的なBlender生成・再監査だけを分離する場合はHighを使用できる。
+- 実装、検証、計画結果更新、ローカルcommitまでを今回の許可範囲とし、push、Pull Request作成、merge、既存worktree削除は行わない。
+
 ## 確定方針
 
 ### B03-3A 設計契約
@@ -141,8 +151,8 @@
 
 - ブランチ: `codex/v2-b03-3-interactive-assets`
 - 推奨モデル: GPT-5.6 Sol
-- 推奨リーズニング: High
-- Ultra判断: 通常は不要。NavMeshタイル所有や資産監査に複合不具合が発生した場合だけUltraを検討する。
+- 推奨リーズニング: Ultra
+- Ultra判断: 推奨。20室variant、固定グリッドNavMeshタイル所有、Detour bundle、T04-3A引き渡し契約を同時に確定する。仕様確定後の機械的なBlender生成・再監査だけはHighへ下げられる。
 - 開始条件: B03-3Bが`develop`へ統合済みであること。
 - 並行可否: T04-3A、T05-3と並行できる。学校バイナリはB03-3Cだけが編集する。
 
@@ -185,9 +195,19 @@
 - [x] B03-3B再訂正派生物・検証: `.blend`、GLB、両NavMesh、カタログhash、固定視点を2回決定的に再生成し、全監査・build・実ブラウザ・Electron・静的検査を再実行して5181番を利用可能に残す
 - [x] B03-3B公開: 最終差分をコミット可能と判定し、日本語のConventional Commitsメッセージでコミット、push、`develop`向けdraft Pull Request作成まで行う
 - [x] B03-3Bレビュー対応: 逆向きlink endpoint surface cacheを有向化し、方向別`polygonRef`の往復回帰、型検査、T04 build・実ブラウザ、通常build、静的検査を通過させてコミット・push・スレッド返信まで行う
-- [ ] B03-3C: 個別引き戸、トイレ開き戸、エレベーター可動部、人物ゲートを実装する
-- [ ] B03-3C: 20室の通常・荒れvariantと人間用NavMeshタイルを実装する
-- [ ] B03-3C: 資産metadata、建築・内装・NavMesh・決定性監査を更新する
+- [x] B03-3C開始: 2026-07-28に最新`develop` `2f67eff`から`codex/v2-b03-3-interactive-assets`専用worktreeを作成し、学校バイナリの単一編集を確保する
+- [x] B03-3C契約: 20室×2 variant、タイル所有、room variant bundle、カタログ引き渡しを作者資産仕様へ確定する
+- [x] B03-3C扉: 20室の全既存出入口を引き戸、全階トイレ個室を開き戸として7.9.1節のObject階層へ移行する
+- [x] B03-3Cエレベーター: 1階・4階の乗場、初期4階のかご、扉、Volume、marker、人物gate、`elevator` link pairを7.9.2節どおり実装する
+- [x] B03-3C部屋variant: 9普通教室と11特別室へ通常・荒れvariantを実装し、各室の出入口、歩行面、Collider、ビーム・視線・BIT障害物を監査する
+- [x] B03-3C人間NavMesh: 静的tiled基盤と20室×2 variant tile payload bundleを決定的に生成する
+- [x] B03-3C派生物: `.blend`、GLB、静的人間NavMesh、room variant bundle、BIT NavMesh、固定視点を再生成する
+- [x] B03-3C資産受入: Blender／GLB metadata、扉・エレベーター参照、タイル所有重複0件、40 variant到達、2回生成一致を確認する
+- [ ] B03-3C Runtime受入: T04-3A統合後に通常・T01～T05 build、実ブラウザ、通常ゲーム、Electron、consoleを確認する
+- [ ] B03-3Cカタログ同期: T04-3Aの`roomVariantNavmesh` union統合後に最終資産URLとGLB／NavMesh／bundle hashを同期する
+- [x] B03-3C配布検査: UTF-8 BOMなし、Python／Node構文、ローカル絶対パス混入なし、`git diff --check`を確認する
+- [x] B03-3C資産先行完了: 結果欄を最新化し、意図した差分だけを日本語Conventional Commitsメッセージでローカルcommitする
+- [ ] B03-3C最終完了: T04-3A統合後のカタログ同期とRuntime受入を通過し、最終統合可能と判定する
 
 ## 結果
 
@@ -286,3 +306,17 @@ Python 6ファイルのAST、Node 2ファイルの構文、変更テキスト19�
 通常build、Electron側TypeScript build、`build:t01`～`build:t05`を全件通過した。実ブラウザはT02 47/47、T04 69/69、T05 238/238で、各検証画面のconsole warning・errorは0件だった。通常5181番は`playing`から後続フェーズへ停止せず進行し、NavMesh距離超過、V2更新停止、資産読込エラーは0件だった。自動操作ブラウザでは環境固有のChromium Pointer Lock `UnknownError`が1件だけ発生したが、Electron実ウィンドウでは同じ5181番の成果物で`playing`へ遷移・継続更新し、DevToolsはBabylon.js情報行1件のみでwarning・error 0件だった。変更Python 7ファイルのAST、Node 2ファイルの構文、変更テキスト20ファイルのstrict UTF-8・BOMなし、ローカル絶対パス混入0件、`git diff --check`、全体計画2ファイル非変更を確認した。検証用5182・5184・5185番とElectronを停止し、`http://127.0.0.1:5181/`だけを利用可能な状態に残した。
 
 同日23時27分、B03-3Bの意図した89ファイルを`28a037f`（`feat: 学校構造資産とナビゲーションを拡張する`）としてコミットし、`codex/v2-b03-3-structure`を`origin`へpushした。`develop`向けDraft Pull Request #52「B03-3B 学校構造資産とナビゲーションを拡張」を作成し、base、head、Draft状態をGitHubから再読込して確認した。
+
+同日01時42分、`develop`を`89bd9ef`からPR #52のマージコミット`2f67eff`へfast-forwardし、B03-3B先端`5a4a918`が祖先であることを確認した。`codex/v2-b03-3-interactive-assets`の専用worktreeを作成し、HEAD、merge-base、clean状態がすべて`2f67eff`で一致することを確認した。T05-2V worktreeの個別計画差分には触れていない。Blender GUIは学校ファイルではなく未保存の既定シーンを開いており、B03-3Cが学校`.blend`、GLB、両NavMesh、room variant bundleを単一編集できる状態である。push、Pull Request作成、mergeは行わない。
+
+同日、資産仕様へ固定20 room ID、`room_variant` Marker 40件、`room_variant_tile` Volume 20件、variant ancestorによる排他的所属、固定グリッドtile所有を確定した。部屋扉は現物開口を数え直して引き戸38件、トイレ個室は男女各3件×4階の開き戸24件とし、旧結合扉と固定個室扉を残さない。人間用NavMeshは`school-humanoid-room-variants-v2`のlayer付きtiled基盤へ移行し、24-byte header、安定順manifest、raw Detour tile payloadからなるroom variant bundle、`unsupported`／`required`のカタログ引き渡し契約を定義した。現行Runtimeは未知variant roleを厳格拒否するため、`src/world`はT04-3Aの所有範囲として先行変更せず、B03-3Cではオフライン資産受入までを進める。
+
+同日、20室の全既存出入口38件を引き戸、全階24トイレ個室扉を開き戸へ移行し、扉root 65件、panel 74件、open pose 74件、sweep 65件を実装した。エレベーターは初期4階のかご、1階・4階stop、4枚telescopic中央開きの乗場扉2件とかご扉1件、呼出マット、実形状の敷居、待機marker、占有Volume、乗客基準、人物gate、双方向linkを実装し、2階・3階の固定閉鎖表示6 Objectを維持した。9普通教室と11特別室に`normal`／`disordered`を実装し、全荒れ版へ初段差0.10m・短辺1.20m・傾斜約18度の歩行斜路と大型家具障害物を追加した。普通教室の荒れ版は通常版の机1台だけを決定的に置換し、通常版の内装を残す。専用監査はBlenderとGLBの契約703 Object、親子・property・Transform・triangle不一致0件、タイル所有重複0件、家具交差0件、扉sweep包含148件、エレベーター戸袋収容12件、斜路manifold 246件を確認した。20室の通常／荒れ比較20枚と、室内引き戸、トイレ開き戸、4階初期かごの閉／開比較3枚を再生成して目視し、独立レビューも残る指摘なしで通過した。最終GLBとNavMesh派生物のbytes・SHA-256は40 variant到達監査と2回生成一致後に確定する。
+
+同日、普通教室の既存机グリッドでは人物半径控除後に室内中央の床が孤立することを40構成監査で検出した。30台の机と通常内装を維持したまま中段2行を中央から各0.20m外側へ移動し、回転机を含む最小生通路幅1.1134m、人物半径控除後0.3134m以上の連続中央通路を確保した。隣接机へ重なっていた散乱椅子1配置は距離を0.55mへ補正し、最小4.3mm以上の見た目の隙間を確保した。9普通教室の通常／荒れ固定視点、Blender実測、40構成の正しい`roomBounds`中心への完結経路を独立再確認した。
+
+同日、人間用NavMeshを固定global boundsと5 physical Y bandのtiled生成へ移行した。band境界を跨ぐ静的source triangle 2,128件は重心割当せず決定的にclipし、13,900 source triangleを18,684 fragment triangleへ変換した。元面積とfragment合計の差は`3.64e-12`、正面積重複、欠落面積、重複fragment、巻き順不一致はいずれも0件だった。20室×2構成すべてで少なくとも1扉から家具上面を除いた`roomBounds`中心ground polygonへ到達し、20荒れ版すべてで床から斜路低辺、斜路高辺までの2区間を完結した。room／static境界の双方向接続、通常構成とのportal集合一致、20所有Volumeのwatertight／manifold、所有tile重複0件も通過した。
+
+最終GLBは15,419,912 bytes／`e485055c36203017cc2fe0d2df5de84d1397be4b309331a6308ca479bbac36d6`、静的人間NavMeshは3,127,152 bytes／`44aa12db0af62fcdc6d6dc36490690e81aa570adf9eb275daf6bda06e04a4c13`、40 variant・4,066 entryのbundleは1,911,013 bytes／`78a0f481aae3abd6a6e403c60fc0debc1c70941c8b7956f17e35006df10c3afd`、11飛行帯のBIT NavMeshは568,687 bytes／`110568baee435f42a0262b3a3c8e204bdb5a6334c3aa6d77a136ad33c74381e2`となった。GLB、人間用2派生物、BIT NavMeshは各2回生成のbytesとSHA-256が一致した。`src/world/stageCatalog.ts`はT04-3A所有の厳格loaderと`roomVariantNavmesh` unionより先行変更せず、最終URL／hash同期、通常・T01～T05 build、実ブラウザ、通常ゲーム、Electron受入はT04-3A統合後へ明示的に残す。
+
+資産先行フェーズの最終成果物でinteractive、interior、architecture、B03-1保護契約の4監査を通過し、人間用NavMesh `--check`とBIT NavMesh `--check`も通過した。変更・追加text 12ファイルはstrict UTF-8・BOMなし、Python 8ファイルのAST、Node 1ファイルの構文、`package.json` JSON、ローカル絶対パス混入0件、`git diff --check`を確認した。全体計画`docs/plan.md`と`docs/plans/v2/next_tasks_plan.md`、T05-2V固有差分、`src/world/stageCatalog.ts`は変更していない。通常・T01～T05 build、実ブラウザ、通常ゲーム、Electronは未知variant roleを厳格拒否する現行Runtimeへfallbackを追加して先行通過させず、T04-3A統合後の最終受入へ残した。意図した40ファイルだけをローカルcommitし、push、Pull Request作成、mergeは行わない。

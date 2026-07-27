@@ -28,7 +28,8 @@
     "audit:t05:runtime-independence": "node validation/v2/T05/audit_generic_runtime.mjs",
     "typecheck:t05": "npm run audit:t05:runtime-independence && tsc -p validation/v2/T05/tsconfig.json --noEmit",
     "build:t05": "npm run typecheck:t05 && vite build --config vite.t05.config.mts",
-    "bake:v2:school-navmesh": "node scripts/v2/bake_school_navmesh.mjs",
+    "bake:v2:school-navmesh": "node scripts/v2/bake_school_room_variant_navmesh.mjs",
+    "check:v2:school-navmesh": "node scripts/v2/bake_school_room_variant_navmesh.mjs --check",
     "preview": "vite preview",
     "dist": "npm run build && electron-builder"
   },
