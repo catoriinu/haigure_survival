@@ -128,7 +128,7 @@ Follow中はNPCがプレイヤーを視認できる限り追従し、見失っ�
 - [x] 統合: T04-3A側でT05-3の計画・worktree・commit・検証結果を再監査し、統合headへ取り込む
 - [x] 統合: T05 fixtureの旧空間query呼出をdynamic variants契約へ移行する
 - [x] 統合: T04／T05／通常Runtimeを回帰する
-- [ ] 統合: 統合branchをpushして`develop`向けDraft Pull Requestを作成する
+- [x] 統合: 統合branchをpushして`develop`向けDraft Pull Requestを作成する
 
 ## 結果
 
@@ -159,3 +159,5 @@ T04-3Aで必須化されたdynamic variants契約へ、T05 fixtureの旧2引数`
 2026-07-28 08:36 +09:00時点の統合検証では、`audit:v2:dependencies`、`typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`build:t04`、`build:t05`、通常`build`、`git diff --check`がすべてPASSした。実ブラウザではT04 fixtureが初回／画面再実行／再読込の各102／102、T05 fixtureが各253／253、T05-3専用fixtureが各16／16で、各fixtureのconsole warning／error、Babylon Logger error、unhandled rejectionは0件だった。
 
 T05再実行で顕在化した2件は、Babylon Observableの遅延remove完了前にbaselineを採る性能fixtureと、18秒移動後も初期BIT位置のtarget ringを再利用する視認fixtureに原因を限定し、baseline前の1 event-loop待機と現在BIT位置からのtarget ring再生成で安定化した。通常Webは初期読込時のwarning／error 0件と、開始後の`フェーズ playing`、NPC 50体、BIT 20体以上を確認した。自動操作APIからのPointer Lock要求だけはChromium／Computer Use環境側の制約で拒否されたため、productionコードは変更せずPull Requestの検証注記へ残す。学校資産とB03-3C worktreeには触れていない。
+
+2026-07-28 08:43 +09:00、公開前実装head`bbf4aaa7e11c8b0b02e26d09434d67bac6d1c4b6`を`codex/v2-t04-3-dynamic-runtime`へpushし、`develop`向けDraft Pull Request [#54](https://github.com/catoriinu/haigure_survival/pull/54)を作成した。GitHubから`OPEN`、`MERGEABLE`、Draft、base=`develop`、head=`codex/v2-t04-3-dynamic-runtime`を読み戻した。`origin/develop`は検証基点`4edd8f08c948a7822cd6bd623e25dff142078f18`のままで、`develop`へのmergeは行っていない。
