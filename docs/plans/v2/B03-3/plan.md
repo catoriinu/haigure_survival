@@ -184,7 +184,7 @@
 - [x] B03-3B袖階段手すり再訂正: 左右袖階段の奥側手すりを隣接壁際まで延長し、手前側入口を塞がない左右対称形状を監査する
 - [x] B03-3B再訂正派生物・検証: `.blend`、GLB、両NavMesh、カタログhash、固定視点を2回決定的に再生成し、全監査・build・実ブラウザ・Electron・静的検査を再実行して5181番を利用可能に残す
 - [x] B03-3B公開: 最終差分をコミット可能と判定し、日本語のConventional Commitsメッセージでコミット、push、`develop`向けdraft Pull Request作成まで行う
-- [ ] B03-3Bレビュー対応: 逆向きlink endpoint surface cacheを有向化し、方向別`polygonRef`の往復回帰、型検査、T04 build・実ブラウザ、通常build、静的検査を通過させてコミット・push・スレッド返信まで行う
+- [x] B03-3Bレビュー対応: 逆向きlink endpoint surface cacheを有向化し、方向別`polygonRef`の往復回帰、型検査、T04 build・実ブラウザ、通常build、静的検査を通過させてコミット・push・スレッド返信まで行う
 - [ ] B03-3C: 個別引き戸、トイレ開き戸、エレベーター可動部、人物ゲートを実装する
 - [ ] B03-3C: 20室の通常・荒れvariantと人間用NavMeshタイルを実装する
 - [ ] B03-3C: 資産metadata、建築・内装・NavMesh・決定性監査を更新する
@@ -196,6 +196,8 @@
 同日00時23分、link endpoint surface cacheのキーを`fromEndpointIndex * endpointCount + toEndpointIndex`の有向キーへ変更し、要求方向の`findSurfaceStep()`を方向別に生成・cacheする実装へ置き換えた。`CachedSurfaceStepDirection`と`reverseNavigationSurfaceStep()`は撤去し、復元時は実方向のsurface stepを複製する。T04の既存fixtureは、2本の`StageLinkPair`間で23点・21内部境界を横断する構成へ変更した。往復座標の逆順一致、方向別`polygonRef`の相違、forward／reverseそれぞれのnative `findSurfacePath()`との参照一致、各方向の初回探索1回・同方向再実行0回を検証する。
 
 同日00時26分、最終fixtureで`typecheck:v2`、通常Web／Electron build、`build:t04`、`build:t05`を通過した。専用worktreeから起動した実ブラウザはT04 69/69、T05 238/238で、対象回帰は23点、`reverse=true`、`refs=true`、forward／reverse native一致、同方向cache再利用を記録し、両画面ともconsole warning・error 0件だった。検証用5196・5197番だけを停止し、`http://127.0.0.1:5181/`はPID 41852で利用可能な状態を維持した。公開型・メソッドシグネチャ、schema、学校GLB・両NavMesh・カタログhashは変更していない。
+
+同日00時31分、レビュー対応を`a34115e`（`fix: 逆向きNavMesh経路の面参照を再計算する`）としてコミットし、`codex/v2-b03-3-structure`を`origin`へpushした。Pull Request #52の元インラインスレッドへ、修正内容、23点往復回帰、通常build、T04 69/69、T05 238/238、console warning・error 0件を返信した。返信URLは`https://github.com/catoriinu/haigure_survival/pull/52#discussion_r3658597844`である。最新`reviewThreads`を再取得し、対象`PRRT_kwDORA2wms6UGoMp`は`isResolved=false`、`isOutdated=false`のまま、返信が同一スレッドへ追加されたことを確認した。ユーザーから明示されていないため、スレッドのresolveは行っていない。
 
 2026-07-26、B03-3Aとして学校拡張と動的アセットの寸法、対象範囲、資産metadata、タスク分割、並行境界を確定した。プレイヤー、未洗脳NPC、洗脳済みNPCを合計したエレベーター定員6人、`closed / opening / closing`中の人物全面ゲート、実扉パネルへ追従するビーム・視線判定を正本とする。PR #51レビュー対応で、動的扉・エレベーターの必須Object、`hs_*`キー・型、ID参照、Transformによる閉・開姿勢と軸表現を`docs/spec_stage_assets_v2.md` 7.9節へ追加し、B03-3Cが独自schemaを発明しない契約にした。
 
