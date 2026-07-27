@@ -20,6 +20,10 @@
 
 > B03-3を`develop`へマージしました。T05-2Vで最新の`origin/develop`を取得し、T05-2Vへ取り込んで競合を解消してください。
 
+2026-07-28 検証・公開指示:
+
+> 基本的な型検査と実装テストを行い、問題がなければT05-2VブランチをpushしてPull Requestを作成してください。
+
 PR #50のT05-2主要Runtimeは2026-07-26に`develop`へマージ済みである。残作業を同じPRへ追加せず、V1光線演出と共通世界境界終了だけをT05-2Vの独立成果として実装する。
 
 ## 確定方針
@@ -65,6 +69,11 @@ PR #50のT05-2主要Runtimeは2026-07-26に`develop`へマージ済みである�
 - [x] PR #52を含む最新`origin/develop`を取得し、B03-3Bのレビュー済みHEADが統合済みであることを確認する
 - [x] 最新`origin/develop`をT05-2Vへ取り込み、学校資産hashと`worldBoundaryMode: "unsupported"`を両立させて競合を解消する
 - [x] 競合解消後のV2／T04／T05型検査と差分検査を通し、統合結果を記録する
+- [x] 公開前に最新`origin/develop`、branch差分、GitHub CLI認証、同名remote branch／Pull Request不在を再確認する
+- [x] V2とT01～T05の型検査、通常buildと`build:t01`～`build:t05`を再実行する
+- [x] T05ブラウザfixtureの全項目PASSとconsole／Babylon Logger／unhandled rejection 0件を確認する
+- [x] UTF-8、BOM、ローカル絶対パス、差分、競合marker、括弧対応を最終確認して検証結果をcommitする
+- [ ] `codex/v2-t05-2v-beam-effects`をoriginへpushし、`develop`向けDraft Pull Requestを作成する
 
 ## 結果
 
@@ -87,3 +96,11 @@ T05ブラウザfixtureは249／249項目PASSし、公開完了状態`passed`、`
 自動統合された`validation/v2/T04/main.ts`はB03-3Bの新学校件数、57窓、72遷移、有向surface cache、屋上折れ斜路検証と、T05-2Vの`worldBoundary: null`、決定的光線生成引数を両方保持した。`validation/v2/T05/bitSystemAcceptance.test.ts`もB03-3Bの72遷移期待値と、T05-2Vの世界境界fixture、policy、破棄、学校`unsupported`検証を両立している。
 
 `typecheck:v2`、`typecheck:t04`、`typecheck:t05`は全件成功し、T05 Runtime静的検査は`10 files / 4 terms / PASS`だった。テキスト配布検査は変更テキスト90件についてstrict UTF-8、BOMなし、ローカル絶対パスなし、通常差分とindex差分の`git diff --check`を通過した。今回の統合ではpush、Pull Request作成、`develop`への統合を行っていない。
+
+同日、検証・公開指示に基づく事前確認を行った。最新`origin/develop`は`2f67effaf057a005cfde1b085893f8370d95283b`のままで、T05-2Vは2コミット先行、遅れ0件、worktreeは計画更新前にクリーンだった。GitHub CLI 2.96.0の`catoriinu`認証、repository `catoriinu/haigure_survival`、同名remote branchと既存Pull Requestがないことを確認した。
+
+公開前の`typecheck:v2`、`typecheck:t01`～`typecheck:t05`、通常build、`build:t01`～`build:t05`は全件終了コード0だった。V2依存監査とT05 Runtime静的検査`10 files / 4 terms / PASS`も成功した。通常build、T01、T03だけに既知のVite生成サイズwarningがあり、新規の型エラー、依存違反、build errorは0件だった。
+
+T05ブラウザfixtureはPR #52統合後の期待値を含む252／252項目がPASSし、公開完了状態`passed`を確認した。fixture内の異常監視は`Babylon Logger=0 / errors=なし / warnings=なし`で、ブラウザ開発ログのwarning／errorも0件だった。未処理Promise rejectionを含む自動失敗条件は発火していない。
+
+公開対象は`origin/develop`との差分19ファイルで、T05-2Vが所有する光線Runtime、世界境界契約、非学校T05 fixture、統合に必要なT04期待値、本計画に限定されている。strict UTF-8、BOMなし、ローカル絶対パスなし、競合marker 0件、`git diff --check`を確認した。TypeScriptの括弧・構文対応は全型検査と全buildの成功でも確認した。
