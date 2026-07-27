@@ -52,7 +52,7 @@ PROP_LIBRARY_PATH = (
 )
 
 EXPECTED_NAVMESH_SHA256 = (
-    "0FCF0B136D41E23202925EB8821270C39D18EFEE37A5146F20C9BFA97C03C869"
+    "6F8D8B158AD9DA16C4A8362221483ADB52AE151D41106B6EF5F4FAEA82315EE5"
 )
 EXPECTED_PROP_LIBRARY_SHA256 = (
     "560974D7FABAAE9D7FC89FB563F4EEB3964866D8B33EE2C138FF1020C414514C"
@@ -68,8 +68,8 @@ EXPECTED_PACKED_ATLAS_PATHS = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "t05-2-assembly-execution-v01"
-EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v09"
+EXPECTED_GENERATOR_VERSION = "b03-3b-structure-v13"
+EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 EXPECTED_SCHEMA_VERSION = 2
 EXPECTED_STAGE_ID = "school"
 EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-v1"
@@ -80,6 +80,8 @@ BIT_FLIGHT_SAFETY_ENVELOPE_METERS = (
     BIT_FLIGHT_PHYSICAL_RADIUS_METERS + BIT_FLIGHT_SAFETY_MARGIN_METERS
 )
 BIT_FLIGHT_LINK_RADIUS_METERS = BIT_FLIGHT_SAFETY_ENVELOPE_METERS
+WINDOW_LINK_ENDPOINT_OFFSET_METERS = 1.0
+GYM_WINDOW_LINK_ENDPOINT_OFFSET_METERS = 2.30
 BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
     BIT_FLIGHT_SAFETY_ENVELOPE_METERS + 0.05
 )
@@ -111,9 +113,9 @@ ASSEMBLY_VENUE_SPECS = (
         "Gym",
         "assembly-gym",
         "assembly-volume-gym",
-        (45.4, 9.5, 0.0),
-        (39.325, 3.425, 1.35),
-        ((35.4, -0.5, 0.0), (55.4, 19.5, 2.0)),
+        (46.4, 9.5, 0.0),
+        (40.325, 3.425, 1.35),
+        ((36.4, -0.5, 0.0), (56.4, 19.5, 2.0)),
     ),
 )
 
@@ -209,21 +211,21 @@ EXPECTED_BIT_FLIGHT_BANDS = (
 )
 
 GATE_VISUAL_SPECS = (
-    ("VIS_Gate_MainClosed", "X", 19.4, 25.4, -12.5),
+    ("VIS_Gate_MainClosed", "X", 19.4, 25.4, -14.5),
     ("VIS_Gate_UtilityClosed", "Y", 44.5, 50.5, 63.4),
 )
 GATE_COLLIDER_BOUNDS = {
-    "COL_Gate_MainClosed": ((19.4, -12.625, -0.3), (25.4, -12.375, 1.7)),
+    "COL_Gate_MainClosed": ((19.4, -14.625, -0.3), (25.4, -14.375, 1.7)),
     "COL_Gate_UtilityClosed": ((63.275, 44.5, -0.3), (63.525, 50.5, 1.7)),
 }
 PERIMETER_WALL_SPECS = (
-    ("Perimeter_East", "Y", -12.5, 44.5, 63.2, 63.6),
+    ("Perimeter_East", "Y", -14.5, 44.5, 63.2, 63.6),
     ("Perimeter_EastNorth", "Y", 50.5, 51.5, 63.2, 63.6),
     ("Perimeter_NorthEast", "X", 22.4, 63.4, 51.3, 51.7),
     ("Perimeter_NorthWest", "X", -18.6, 22.4, 51.3, 51.7),
-    ("Perimeter_SouthEast", "X", 25.4, 63.4, -12.7, -12.3),
-    ("Perimeter_SouthWest", "X", -18.6, 19.4, -12.7, -12.3),
-    ("Perimeter_West", "Y", -12.5, 51.5, -18.8, -18.4),
+    ("Perimeter_SouthEast", "X", 25.4, 63.4, -14.7, -14.3),
+    ("Perimeter_SouthWest", "X", -18.6, 19.4, -14.7, -14.3),
+    ("Perimeter_West", "Y", -14.5, 51.5, -18.8, -18.4),
 )
 PERIMETER_WALL_Z = (-0.3, 1.7)
 PERIMETER_BLOCK_WIDTH = 0.8
@@ -241,7 +243,7 @@ ROOF_GUARD_SEGMENTS = (
     ),
     (
         "CourtyardWest",
-        (-0.1, -3.4, 14.5),
+        (-0.1, -6.9, 14.5),
         (-0.1, 32.6, 14.5),
         False,
         True,
@@ -262,14 +264,14 @@ ROOF_GUARD_SEGMENTS = (
     ),
     (
         "SouthOuter",
-        (-12.5, -3.4, 14.5),
-        (-0.1, -3.4, 14.5),
+        (-12.5, -6.9, 14.5),
+        (-0.1, -6.9, 14.5),
         False,
         True,
     ),
     (
         "WestOuter",
-        (-12.5, -3.4, 14.5),
+        (-12.5, -6.9, 14.5),
         (-12.5, 38.9, 14.5),
         True,
         True,
@@ -322,10 +324,24 @@ EXPECTED_OPEN_UNITS: dict[str, tuple[int, ...]] = {
     "Gym_East_01": (3,),
     "Gym_East_02": (1,),
     "Gym_East_03": (4,),
-    "Gym_North_02": (1,),
     "Gym_West_01": (4,),
     "Gym_West_02": (2,),
     "Gym_West_03": (1,),
+}
+
+SHORTENED_CONNECTION_WINDOW_SUFFIXES = {
+    "F02_CourtyardNorth_Corridor_03",
+    "F03_CourtyardNorth_Corridor_03",
+}
+SHORTENED_CONNECTION_WINDOW_PORTALS = {
+    "F02_CourtyardNorth_Corridor_03": (
+        ((39.4, 32.4, 3.6), (43.4, 32.6, 6.6)),
+        "COL_HumanOnly_Window_F02_CourtyardNorth_Corridor_03_U01",
+    ),
+    "F03_CourtyardNorth_Corridor_03": (
+        ((39.4, 32.4, 7.2), (43.4, 32.6, 9.6)),
+        "COL_HumanOnly_Window_F03_CourtyardNorth_Corridor_03_U03",
+    ),
 }
 
 
@@ -895,9 +911,14 @@ def is_bit_flight_support_collider_name(name: str) -> bool:
     )
 
 
+def is_bit_flight_obstacle_exempt_collider_name(name: str) -> bool:
+    return name == "COL_B03_GymGalleryGuards"
+
+
 def expected_bit_flight_obstacle_bounds(
     objects_by_name: dict[str, bpy.types.Object],
     zone_id: str,
+    band_id: str,
     center_height: float,
 ) -> list[
     tuple[tuple[float, float, float], tuple[float, float, float]]
@@ -911,6 +932,7 @@ def expected_bit_flight_obstacle_bounds(
                 and obj.name.startswith("COL_")
                 and not obj.name.startswith("COL_HumanOnly_")
                 and not is_bit_flight_support_collider_name(obj.name)
+                and not is_bit_flight_obstacle_exempt_collider_name(obj.name)
             ),
             key=lambda obj: obj.name,
         )
@@ -961,6 +983,8 @@ def expected_bit_flight_obstacle_bounds(
             "COL_Floor_Gym",
             "COL_Floor_GymStorage",
         ):
+            if band_id == "outdoor-f4" and object_name == "COL_Floor_Gym":
+                continue
             exclusion_source = objects_by_name.get(object_name)
             require(
                 exclusion_source is not None
@@ -1026,6 +1050,40 @@ def bounds_match(
         for bound in range(2)
         for axis in range(3)
     )
+
+
+def surface_signature(
+    points: tuple[tuple[float, float, float], ...] | list[Vector],
+) -> tuple[tuple[float, float, float], ...]:
+    return tuple(
+        sorted(
+            tuple(
+                round(float(point[axis]) / TOLERANCE) * TOLERANCE
+                for axis in range(3)
+            )
+            for point in points
+        )
+    )
+
+
+def sloped_surface_signatures(
+    obj: bpy.types.Object,
+) -> set[tuple[tuple[float, float, float], ...]]:
+    signatures = set()
+    for polygon in obj.data.polygons:
+        if len(polygon.vertices) != 4:
+            continue
+        points = [
+            obj.matrix_world @ obj.data.vertices[index].co
+            for index in polygon.vertices
+        ]
+        if max(point.z for point in points) - min(point.z for point in points) <= TOLERANCE:
+            continue
+        normal = obj.matrix_world.to_3x3() @ polygon.normal
+        if abs(normal.z) <= 0.1:
+            continue
+        signatures.add(surface_signature(points))
+    return signatures
 
 
 def expected_linear_guard_component_bounds(
@@ -1224,11 +1282,12 @@ def expected_storey_band_boxes(
     north_classroom_openings = expanded_openings(
         (TOILET_COMMON_OPENING,) + NORTH_CLASSROOM_DOOR_OPENINGS
     )
-    north_entry_openings = (
-        expanded_openings(((0.15, 5.4), (39.4, 43.4)))
-        if floor == 1
-        else ()
-    )
+    if floor == 1:
+        north_entry_openings = expanded_openings(((0.15, 5.4), (39.4, 43.4)))
+    elif floor in (2, 3):
+        north_entry_openings = expanded_openings(((39.4, 43.4),))
+    else:
+        north_entry_openings = ()
     z0, z1 = base_z + 0.15, base_z + 0.25
     boxes = [
         ((-3.351, start, z0), (-3.347, end, z1))
@@ -1420,7 +1479,7 @@ def audit_storey_band_relationships(
         band = bpy.data.objects.get(band_name)
         require(band is not None and band.type == "MESH", f"階色帯がありません: {band_name}")
         components = box_component_bounds(band)
-        expected_component_count = 24 if floor == 1 else 23
+        expected_component_count = 24 if floor in (1, 2, 3) else 23
         require(
             len(components) == expected_component_count,
             f"階色帯の成分数が不正です: {band_name}/{len(components)}",
@@ -1742,11 +1801,11 @@ def audit_perimeter_block_joint_mesh() -> dict[str, int]:
     obj = bpy.data.objects.get(object_name)
     require(obj is not None and obj.type == "MESH", f"塀目地がありません: {object_name}")
     require(
-        len(obj.data.vertices) == 14120,
+        len(obj.data.vertices) == 14320,
         f"塀目地の頂点数が不正です: {len(obj.data.vertices)}",
     )
     require(
-        len(obj.data.polygons) == 3530,
+        len(obj.data.polygons) == 3580,
         f"塀目地のquad数が不正です: {len(obj.data.polygons)}",
     )
     require(
@@ -1756,7 +1815,7 @@ def audit_perimeter_block_joint_mesh() -> dict[str, int]:
     require(
         bounds_match(
             tuple(tuple(value for value in bound) for bound in world_bounds(obj)),
-            ((-18.806, -12.706, -0.3), (63.606, 51.706, 1.7)),
+            ((-18.806, -14.706, -0.3), (63.606, 51.706, 1.7)),
         ),
         f"塀目地のAABBが不正です: {world_bounds(obj)}",
     )
@@ -1955,10 +2014,13 @@ def audit_site_boundary_visuals() -> dict[str, int]:
         site_ground is not None and site_ground.type == "MESH",
         "校門下桟の高さ基準となるSiteGroundがありません",
     )
-    _, site_ground_maximum = world_bounds(site_ground)
+    site_ground_minimum, site_ground_maximum = world_bounds(site_ground)
     require(
+        abs(site_ground_minimum.y + 14.5) <= TOLERANCE
+        and
         abs(site_ground_maximum.z + 0.3) <= TOLERANCE,
-        f"SiteGround上面がz=-0.30ではありません: {site_ground_maximum.z}",
+        "SiteGroundが南側塀中心Y=-14.5mまで連続していません: "
+        f"{tuple(site_ground_minimum)}->{tuple(site_ground_maximum)}",
     )
     gate_components = 0
     for object_name, axis, minimum, maximum, fixed in GATE_VISUAL_SPECS:
@@ -2062,7 +2124,98 @@ def audit_upper_nav_blocker_boundaries() -> dict[str, int]:
             len(matches) == 1,
             f"上階Nav blockerの通路・特別教室境界壁が一意に存在しません: {expected_bounds}/{len(matches)}",
         )
-    return {"special_room_boundary_walls": len(expected_boundary_walls)}
+
+    bridge_ceiling_bounds = (
+        (39.3, 26.65, 6.60),
+        (43.5, 32.35, 7.05),
+    )
+    bridge_ceiling = bpy.data.objects.get("COL_B03_GymBridgeCeiling")
+    require(
+        bridge_ceiling is not None
+        and len(box_component_bounds(bridge_ceiling)) == 1
+        and bounds_match(
+            box_component_bounds(bridge_ceiling)[0],
+            bridge_ceiling_bounds,
+        ),
+        "渡り廊下天井Colliderの物理形状がv10契約と一致しません",
+    )
+    bridge_ceiling_blockers = [
+        actual_bounds
+        for actual_bounds in actual_components
+        if bounds_match(actual_bounds, bridge_ceiling_bounds)
+    ]
+    require(
+        not bridge_ceiling_blockers,
+        "2階渡り廊下の天井上面が人間用Nav blockerへ混入しています",
+    )
+
+    facility_shell = bpy.data.objects.get("COL_RooftopFacilityShell")
+    require(
+        facility_shell is not None and facility_shell.type == "MESH",
+        "屋上階段室・更衣室の物理Colliderがありません",
+    )
+    facility_components = box_component_bounds(facility_shell)
+    facility_roof_bounds = (
+        ((-12.6, 38.9, 16.9), (-6.6, 45.5, 17.0)),
+        ((-6.6, 38.5, 16.9), (-2.1, 45.5, 17.0)),
+        ((-2.1, 38.5, 16.9), (2.4, 45.5, 17.0)),
+    )
+    require(
+        len(facility_components) == 19,
+        f"屋上施設Shellが壁16枚・屋根3枚ではありません: "
+        f"{len(facility_components)}",
+    )
+    for expected_bounds in facility_roof_bounds:
+        physical_matches = [
+            actual_bounds
+            for actual_bounds in facility_components
+            if bounds_match(actual_bounds, expected_bounds)
+        ]
+        blocker_matches = [
+            actual_bounds
+            for actual_bounds in actual_components
+            if bounds_match(actual_bounds, expected_bounds)
+        ]
+        require(
+            len(physical_matches) == 1,
+            f"屋上施設の物理屋根が一意に存在しません: "
+            f"{expected_bounds}/{len(physical_matches)}",
+        )
+        require(
+            not blocker_matches,
+            f"初期生成禁止の屋上施設屋根が人間用Nav blockerへ混入しています: "
+            f"{expected_bounds}",
+        )
+    facility_wall_components = [
+        actual_bounds
+        for actual_bounds in facility_components
+        if not any(
+            bounds_match(actual_bounds, roof_bounds)
+            for roof_bounds in facility_roof_bounds
+        )
+    ]
+    require(
+        len(facility_wall_components) == 16,
+        f"屋上施設Shellから抽出した壁が16枚ではありません: "
+        f"{len(facility_wall_components)}",
+    )
+    for expected_bounds in facility_wall_components:
+        matches = [
+            actual_bounds
+            for actual_bounds in actual_components
+            if bounds_match(actual_bounds, expected_bounds)
+        ]
+        require(
+            len(matches) == 1,
+            f"屋上施設の壁だけを人間用Nav blockerへ保持できていません: "
+            f"{expected_bounds}/{len(matches)}",
+        )
+    return {
+        "special_room_boundary_walls": len(expected_boundary_walls),
+        "excluded_bridge_ceiling_surfaces": 1,
+        "excluded_rooftop_facility_roofs": len(facility_roof_bounds),
+        "included_rooftop_facility_walls": len(facility_wall_components),
+    }
 
 
 def audit_first_floor_nav_blocker_deduplication() -> dict[str, int]:
@@ -2131,16 +2284,16 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     trim_components = audit_box_components(
         "VIS_B03_GymTrim",
         [
-            ((33.59, -9.35, 0.02), (33.63, 4.95, 0.14)),
+            ((33.59, -11.35, 0.02), (33.63, 4.95, 0.14)),
             ((33.59, 8.05, 0.02), (33.63, 26.35, 0.14)),
-            ((57.17, -9.35, 0.02), (57.21, 26.35, 0.14)),
+            ((59.17, -11.35, 0.02), (59.21, 26.35, 0.14)),
             ((33.55, 26.27, 0.02), (39.35, 26.31, 0.14)),
             ((43.45, 26.27, 0.02), (53.60, 26.31, 0.14)),
-            ((55.20, 26.27, 0.02), (57.25, 26.31, 0.14)),
-            ((33.59, -9.35, 0.02), (33.67, -9.27, 9.00)),
+            ((55.20, 26.27, 0.02), (59.25, 26.31, 0.14)),
+            ((33.59, -11.35, 0.02), (33.67, -11.27, 9.00)),
             ((33.59, 26.27, 0.02), (33.67, 26.35, 9.00)),
-            ((57.13, -9.35, 0.02), (57.21, -9.27, 9.00)),
-            ((57.13, 26.27, 0.02), (57.21, 26.35, 9.00)),
+            ((59.13, -11.35, 0.02), (59.21, -11.27, 9.00)),
+            ((59.13, 26.27, 0.02), (59.21, 26.35, 9.00)),
         ],
     )
     for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
@@ -2169,6 +2322,10 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
         ((-6.6, 32.5), (41.4, 45.5)),
         ((-12.6, 32.5), (-6.6, 38.9)),
         ((41.4, 32.5), (47.4, 38.9)),
+        ((-12.6, -7.0), (-11.5, -3.5)),
+        ((-9.1, -7.0), (0.0, -3.5)),
+        ((-11.5, -7.0), (-9.1, -6.4)),
+        ((-11.5, -4.0), (-9.1, -3.5)),
     )
     floor_component_count = 0
     for floor, upper_floor_z in ((2, 3.6), (3, 7.2), (4, 10.8)):
@@ -2179,14 +2336,39 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
             )
             for minimum, maximum in floor_panels
         ]
-        for prefix in ("VIS", "COL"):
-            floor_component_count += audit_box_components(
-                f"{prefix}_B03_Floor_F{floor:02d}",
-                list(expected_floor),
+        expected_visual_floor = expected_floor
+        if floor == 2:
+            f02_visual_floor_panels = (
+                ((-6.0, -3.5), (0.0, 32.5)),
+                ((-12.6, 2.5), (-6.0, 32.5)),
+                ((-6.6, 32.5), (39.3, 45.5)),
+                ((39.3, 32.65), (41.4, 45.5)),
+                ((-12.6, 32.5), (-6.6, 38.9)),
+                ((41.4, 32.65), (43.5, 38.9)),
+                ((43.5, 32.5), (47.4, 38.9)),
+                ((-12.6, -7.0), (-11.5, -3.5)),
+                ((-9.1, -7.0), (0.0, -3.5)),
+                ((-11.5, -7.0), (-9.1, -6.4)),
+                ((-11.5, -4.0), (-9.1, -3.5)),
             )
+            expected_visual_floor = [
+                (
+                    (minimum[0], minimum[1], upper_floor_z - 0.15),
+                    (maximum[0], maximum[1], upper_floor_z),
+                )
+                for minimum, maximum in f02_visual_floor_panels
+            ]
+        floor_component_count += audit_box_components(
+            f"VIS_B03_Floor_F{floor:02d}",
+            list(expected_visual_floor),
+        )
+        floor_component_count += audit_box_components(
+            f"COL_B03_Floor_F{floor:02d}",
+            list(expected_floor),
+        )
 
     first_floor_groups = {
-        "West": tuple(floor_panels[index] for index in (0, 1, 3)),
+        "West": tuple(floor_panels[index] for index in (0, 1, 3, 5, 6, 7, 8)),
         "North": tuple(floor_panels[index] for index in (2, 4)),
     }
     structure_component_count = 0
@@ -2440,11 +2622,11 @@ def audit_roof_guards() -> dict[str, int]:
 
     shared_junctions = (
         (
-            (-12.5, -3.4, 14.5),
+            (-12.5, -6.9, 14.5),
             ("WestOuter", "SouthOuter"),
         ),
         (
-            (-0.1, -3.4, 14.5),
+            (-0.1, -6.9, 14.5),
             ("SouthOuter", "CourtyardWest"),
         ),
         (
@@ -2609,7 +2791,7 @@ def audit_links(objects: list[bpy.types.Object]) -> dict[str, int]:
             obj,
             expected_aperture_endpoint_properties(link_id, endpoint),
         )
-    expected_pairs = 58
+    expected_pairs = 57
     require(len(pairs) == expected_pairs, f"特殊接続が{expected_pairs}組ではありません: {len(pairs)}")
     window_colliders = {
         "bit-window-"
@@ -2619,7 +2801,7 @@ def audit_links(objects: list[bpy.types.Object]) -> dict[str, int]:
     }
     require(
         set(pairs) == set(window_colliders),
-        "aperture接続IDと承認済み58窓Colliderが一致しません",
+        "aperture接続IDと承認済み57窓Colliderが一致しません",
     )
     for link_id, endpoints in pairs.items():
         require(set(endpoints) == {"A", "B"}, f"LNK pairが不完全です: {link_id}")
@@ -2634,13 +2816,23 @@ def audit_links(objects: list[bpy.types.Object]) -> dict[str, int]:
             segment.length / 2 >= BIT_FLIGHT_LINK_RADIUS_METERS,
             f"aperture端点余裕が0.54m未満です: {link_id}",
         )
+        expected_endpoint_offset = (
+            GYM_WINDOW_LINK_ENDPOINT_OFFSET_METERS
+            if link_id.startswith("bit-window-gym-")
+            else WINDOW_LINK_ENDPOINT_OFFSET_METERS
+        )
+        require(
+            abs(segment.length / 2 - expected_endpoint_offset) <= TOLERANCE,
+            f"aperture端点距離が規定値ではありません: {link_id}",
+        )
         collider = window_colliders[link_id]
         minimum, maximum = world_bounds(collider)
         center = (minimum + maximum) / 2
         midpoint = (a.location + b.location) / 2
+        expected_midpoint = center.copy()
         require(
-            (midpoint - center).length <= 1e-5,
-            f"apertureが開口中央を通りません: {link_id}",
+            (midpoint - expected_midpoint).length <= 1e-5,
+            f"apertureが承認済み開口中心を通りません: {link_id}",
         )
         dimensions = maximum - minimum
         thin_axis = min(range(3), key=lambda axis: dimensions[axis])
@@ -2782,6 +2974,7 @@ def audit_bit_flight_navigation(
                     expected_bit_flight_obstacle_bounds(
                         objects_by_name,
                         zone_id,
+                        band_id,
                         center_height,
                     ),
                 )
@@ -2856,10 +3049,11 @@ def audit_bit_flight_navigation(
 
     boundary = objects_by_name.get("BND_Stage")
     require(boundary is not None, "BND_Stageがありません")
-    _, boundary_maximum = world_bounds(boundary)
+    boundary_minimum, boundary_maximum = world_bounds(boundary)
     require(
-        abs(boundary_maximum.z - 19.0) <= 1e-5,
-        "BND_Stage上端が19.0mではありません",
+        abs(boundary_minimum.y + 14.3) <= 1e-5
+        and abs(boundary_maximum.z - 19.0) <= 1e-5,
+        "BND_Stage南端がY=-14.3mまたは上端が19.0mではありません",
     )
     rooftop_band = next(
         band
@@ -2901,10 +3095,10 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
         obj for obj in objects if obj.name.startswith("COL_ActorOnly_WindowFixed_")
     ]
     human = [obj for obj in objects if obj.name.startswith("COL_HumanOnly_Window_")]
-    expected_frames = 82
+    expected_frames = 81
     expected_actor = 33
-    expected_fixed = 49
-    expected_human = 58
+    expected_fixed = 48
+    expected_human = 57
     require(len(frames) == expected_frames, f"窓枠が{expected_frames}件ではありません: {len(frames)}")
     require(len(glass) == expected_frames, f"窓ガラスが{expected_frames}件ではありません: {len(glass)}")
     require(len(actor) == expected_actor, f"ActorOnly窓が{expected_actor}件ではありません: {len(actor)}")
@@ -2920,14 +3114,14 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
     }
     require(
         {obj.name for obj in human} == expected_human_names,
-        "HumanOnly窓の開放ユニットが承認済み58か所と一致しません",
+        "HumanOnly窓の開放ユニットが承認済み57か所と一致しません",
     )
     expected_fixed_names = {
         f"COL_ActorOnly_WindowFixed_{suffix}" for suffix in EXPECTED_OPEN_UNITS
     }
     require(
         {obj.name for obj in fixed_actor} == expected_fixed_names,
-        "開放窓帯の固定ガラスColliderが承認済み49窓帯と一致しません",
+        "開放窓帯の固定ガラスColliderが承認済み48窓帯と一致しません",
     )
     frame_suffixes = {
         frame.name.removeprefix("VIS_WindowFrame_") for frame in frames
@@ -2967,8 +3161,18 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
             require(frame.get("hs_window_panes") == 1, "体育倉庫小窓が1枚ではありません")
             continue
         is_stair_window = "_Stair" in frame.name
+        suffix = frame.name.removeprefix("VIS_WindowFrame_")
         units = frame.get("hs_window_units")
-        require(units in {1, 2, 4}, f"窓帯の2枚ユニット数が不正です: {frame.name}={units}")
+        expected_unit_counts = (
+            {3}
+            if suffix in SHORTENED_CONNECTION_WINDOW_SUFFIXES
+            else {1, 2, 4}
+        )
+        require(
+            units in expected_unit_counts,
+            f"窓帯の2枚ユニット数が不正です: "
+            f"{frame.name}={units}/expected={sorted(expected_unit_counts)}",
+        )
         require(
             frame.get("hs_window_style")
             == ("paired_stair_transom" if is_stair_window else "paired_sliding_band"),
@@ -2988,12 +3192,13 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
             expected_panes = 2
         elif frame.name == "VIS_WindowFrame_F01_CourtyardNorth_Corridor_03":
             expected_panes = 2
+        elif suffix in SHORTENED_CONNECTION_WINDOW_SUFFIXES:
+            expected_panes = 6
         elif any(token in frame.name for token in ("_Ordinary_", "_West_Special_", "_CourtyardNorth_Corridor_", "Gym_")):
             expected_panes = 8
         else:
             expected_panes = 4
         require(frame.get("hs_window_panes") == expected_panes, f"用途別の窓枚数が不正です: {frame.name}")
-        suffix = frame.name.removeprefix("VIS_WindowFrame_")
         open_leaf_text = frame.get("hs_window_open_leaves")
         open_leaf_numbers = tuple(
             int(value) for value in open_leaf_text.split(",") if value
@@ -3010,7 +3215,70 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
             dimensions[1] >= expected_clear_height - 1e-5,
             f"窓帯高さが不足しています: {frame.name}",
         )
-    require(open_leaf_sides == Counter({"R": 30, "L": 28}), f"開放羽の左右数が不正です: {open_leaf_sides}")
+    total_window_panes = sum(int(frame.get("hs_window_panes")) for frame in frames)
+    require(
+        total_window_panes == 403,
+        f"2階・3階接続窓の短縮後pane総数が403枚ではありません: "
+        f"{total_window_panes}",
+    )
+    connection_portal_intersections = 0
+    for suffix, (portal_bounds, human_name) in (
+        SHORTENED_CONNECTION_WINDOW_PORTALS.items()
+    ):
+        frame_name = f"VIS_WindowFrame_{suffix}"
+        glass_name = f"VIS_WindowGlass_{suffix}"
+        fixed_name = f"COL_ActorOnly_WindowFixed_{suffix}"
+        frame = bpy.data.objects.get(frame_name)
+        glass_object = bpy.data.objects.get(glass_name)
+        fixed_object = bpy.data.objects.get(fixed_name)
+        human_object = bpy.data.objects.get(human_name)
+        require(
+            all(
+                obj is not None
+                for obj in (frame, glass_object, fixed_object, human_object)
+            ),
+            f"2階・3階接続窓の構成Objectが不足しています: {suffix}",
+        )
+        frame_minimum, frame_maximum = world_bounds(frame)
+        glass_minimum, glass_maximum = world_bounds(glass_object)
+        fixed_minimum, fixed_maximum = world_bounds(fixed_object)
+        require(
+            abs((frame_minimum.x + frame_maximum.x) / 2 - 35.75)
+            <= TOLERANCE
+            and abs(frame_minimum.x - 32.10) <= TOLERANCE
+            and abs(frame_maximum.x - 39.40) <= TOLERANCE,
+            f"接続窓の3連外枠位置が不正です: "
+            f"{frame_name}/{frame_minimum.x}..{frame_maximum.x}",
+        )
+        require(
+            abs(glass_minimum.x - 32.15) <= TOLERANCE
+            and abs(glass_maximum.x - 39.35) <= TOLERANCE
+            and abs(fixed_minimum.x - 32.15) <= TOLERANCE
+            and abs(fixed_maximum.x - 39.35) <= TOLERANCE,
+            f"接続窓のガラスまたは固定Colliderが開口端X=39.4mを越えています: "
+            f"{suffix}",
+        )
+        for obj in (frame, glass_object, fixed_object, human_object):
+            minimum, maximum = world_bounds(obj)
+            intersects_portal = all(
+                interval_overlaps(
+                    (minimum[axis], maximum[axis]),
+                    (portal_bounds[0][axis], portal_bounds[1][axis]),
+                )
+                for axis in range(3)
+            )
+            connection_portal_intersections += int(intersects_portal)
+            require(
+                not intersects_portal,
+                f"接続窓Objectが固定開放portalと交差しています: "
+                f"{obj.name}/{portal_bounds}",
+            )
+    require(
+        connection_portal_intersections == 0,
+        f"2階・3階接続portalとの窓交差が0件ではありません: "
+        f"{connection_portal_intersections}",
+    )
+    require(open_leaf_sides == Counter({"R": 30, "L": 27}), f"開放羽の左右数が不正です: {open_leaf_sides}")
     if bpy.context.scene.get("b03_window_layout_status") == "final":
         frame_names = {frame.name for frame in frames}
         required_stairs = {
@@ -3038,8 +3306,9 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
         require(sum("F04_North_Special_" in name for name in frame_names) == 6, "4階特別教室の4枚窓3組が不正です")
         require(sum("_CourtyardWest_Corridor_" in name for name in frame_names) == 19, "西側校舎廊下の4枚窓帯数が不正です")
         require(sum("_CourtyardNorth_Corridor_" in name for name in frame_names) == 11, "北側校舎廊下の窓帯数が不正です")
-        require(sum(name.startswith("VIS_WindowFrame_Gym_") for name in frame_names) == 7, "体育館8枚窓帯の配置数が不正です")
+        require(sum(name.startswith("VIS_WindowFrame_Gym_") for name in frame_names) == 6, "体育館8枚窓帯の配置数が不正です")
         require("VIS_WindowFrame_Gym_North_01" not in frame_names, "体育館北面西側の6m壁区画に窓があります")
+        require("VIS_WindowFrame_Gym_North_02" not in frame_names, "撤去指定の体育館北面窓が残っています")
         require("VIS_WindowFrame_GymStorage_North_01" in frame_names, "体育倉庫の閉小窓がありません")
         require(not any("_Toilet" in name for name in frame_names), "トイレに窓があります")
         ordinary_frames = sorted(
@@ -3119,7 +3388,7 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
                 require(frame is not None, f"体育館{side}面の窓が不足しています")
                 minimum, maximum = world_bounds(frame)
                 centers.append(round((minimum.y + maximum.y) / 2, 3))
-        require(gym_west_centers == [-2.925, 8.5, 19.925], f"体育館西面の窓が壁面均等配置ではありません: {gym_west_centers}")
+        require(gym_west_centers == [-4.425, 7.5, 19.425], f"体育館西面の窓が壁面均等配置ではありません: {gym_west_centers}")
         require(gym_east_centers == gym_west_centers, f"体育館東西面の窓位置が一致しません: east={gym_east_centers}, west={gym_west_centers}")
         gym_intervals = []
         for index in (1, 2, 3):
@@ -3127,7 +3396,7 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
             minimum, maximum = world_bounds(frame)
             gym_intervals.append((minimum.y, maximum.y))
         gym_gaps = [
-            gym_intervals[0][0] - (-9.5),
+            gym_intervals[0][0] - (-11.5),
             gym_intervals[1][0] - gym_intervals[0][1],
             gym_intervals[2][0] - gym_intervals[1][1],
             26.5 - gym_intervals[2][1],
@@ -3222,7 +3491,12 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
                 require(frame is not None, f"{floor}階北側廊下窓が不足しています: {index}")
                 minimum, maximum = world_bounds(frame)
                 centers.append(round((minimum.x + maximum.x) / 2, 3))
-            expected_centers = [23.7, 37.85] if floor == 1 else [9.55, 23.7, 37.85]
+            if floor == 1:
+                expected_centers = [23.7, 37.85]
+            elif floor in (2, 3):
+                expected_centers = [9.55, 23.7, 35.75]
+            else:
+                expected_centers = [9.55, 23.7, 37.85]
             require(centers == expected_centers, f"{floor}階北側廊下窓が上階基準の中心線と一致しません: {centers}")
         door_intervals = {
             "F01_North_": ((2.4, 5.4, 0.0, 2.4),),
@@ -3250,6 +3524,8 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
         "actor_only": len(actor),
         "actor_only_fixed": len(fixed_actor),
         "human_only": len(human),
+        "panes": total_window_panes,
+        "connection_portal_intersections": connection_portal_intersections,
     }
 
 
@@ -3371,6 +3647,1144 @@ def audit_assembly_venues(objects: list[bpy.types.Object]) -> None:
                     ),
                     f"作者座標が集合会場Volumeの外側です: {anchor_name}.{property_name}",
                 )
+
+
+def audit_b03_3b_structure(
+    objects: list[bpy.types.Object],
+) -> dict[str, float | int]:
+    object_by_name = {obj.name: obj for obj in objects}
+
+    bridge_floor_components = audit_box_components(
+        "COL_B03_GymBridgeFloor",
+        [((39.3, 26.6, 3.45), (43.5, 32.5, 3.60))],
+    )
+    bridge_ceiling_components = audit_box_components(
+        "COL_B03_GymBridgeCeiling",
+        [((39.3, 26.65, 6.60), (43.5, 32.35, 7.05))],
+    )
+    bridge_envelope_components = audit_box_components(
+        "COL_B03_GymBridgeEnvelope",
+        [
+            ((39.3, 26.70, 3.60), (39.4, 32.30, 6.60)),
+            ((43.4, 26.70, 3.60), (43.5, 32.30, 6.60)),
+            ((39.30, 32.30, 3.60), (39.40, 32.35, 4.35)),
+            ((39.30, 32.30, 4.35), (39.40, 32.40, 6.25)),
+            ((39.30, 32.30, 6.25), (39.40, 32.35, 6.60)),
+            ((43.40, 32.30, 3.60), (43.50, 32.35, 6.60)),
+        ],
+    )
+    bridge_frame_expected = [
+        ((39.3, 26.70, 3.60), (39.4, 32.30, 4.40)),
+        ((39.3, 26.70, 6.10), (39.4, 32.30, 6.60)),
+        ((39.3, 28.50, 4.40), (39.4, 28.60, 6.10)),
+        ((39.3, 30.40, 4.40), (39.4, 30.50, 6.10)),
+        ((43.4, 26.70, 3.60), (43.5, 32.30, 4.40)),
+        ((43.4, 26.70, 6.10), (43.5, 32.30, 6.60)),
+        ((43.4, 28.50, 4.40), (43.5, 28.60, 6.10)),
+        ((43.4, 30.40, 4.40), (43.5, 30.50, 6.10)),
+        ((39.30, 32.30, 3.60), (39.40, 32.35, 4.35)),
+        ((39.30, 32.30, 4.35), (39.40, 32.40, 6.25)),
+        ((39.30, 32.30, 6.25), (39.40, 32.35, 6.60)),
+        ((43.40, 32.30, 3.60), (43.50, 32.35, 6.60)),
+    ]
+    audit_box_components(
+        "VIS_B03_GymBridgeWindowFrames",
+        bridge_frame_expected,
+    )
+    bridge_glass_expected = [
+        ((39.3375, 26.75, 4.40), (39.3625, 28.50, 6.10)),
+        ((39.3375, 28.60, 4.40), (39.3625, 30.40, 6.10)),
+        ((39.3375, 30.50, 4.40), (39.3625, 32.25, 6.10)),
+        ((43.4375, 26.75, 4.40), (43.4625, 28.50, 6.10)),
+        ((43.4375, 28.60, 4.40), (43.4625, 30.40, 6.10)),
+        ((43.4375, 30.50, 4.40), (43.4625, 32.25, 6.10)),
+    ]
+    audit_box_components(
+        "VIS_B03_GymBridgeWindowGlass",
+        bridge_glass_expected,
+    )
+    visual_bridge_floor = object_by_name.get("VIS_B03_GymBridgeFloor")
+    require(
+        visual_bridge_floor is not None
+        and visual_bridge_floor.type == "MESH"
+        and len(visual_bridge_floor.data.vertices) == 8
+        and len(visual_bridge_floor.data.polygons) == 4,
+        "渡り廊下床VISがY端面を除いた4面の単一Meshではありません",
+    )
+    bridge_floor_end_faces = [
+        polygon.index
+        for polygon in visual_bridge_floor.data.polygons
+        if any(
+            all(
+                abs(
+                    (
+                        visual_bridge_floor.matrix_world
+                        @ visual_bridge_floor.data.vertices[index].co
+                    ).y
+                    - endpoint_y
+                )
+                <= TOLERANCE
+                for index in polygon.vertices
+            )
+            for endpoint_y in (26.6, 32.5)
+        )
+    ]
+    require(
+        not bridge_floor_end_faces,
+        f"渡り廊下床VISの接続端に重複面があります: {bridge_floor_end_faces}",
+    )
+    bridge_clear_width = 43.4 - 39.4
+    require(
+        abs(bridge_clear_width - 4.0) <= TOLERANCE,
+        f"渡り廊下の有効幅が4.0mではありません: {bridge_clear_width:.3f}m",
+    )
+    require_architecture_swatch("VIS_B03_GymBridgeFloor", "gym_floor")
+    bridge_school_floor_joint = audit_box_components(
+        "VIS_B03_GymBridgeSchoolFloorJoint",
+        [((39.3, 32.5, 3.45), (43.5, 32.65, 3.60))],
+    )
+    require(
+        len(bpy.data.objects["VIS_B03_GymBridgeSchoolFloorJoint"].data.polygons)
+        == 4,
+        "校舎側の茶色床接続帯に不要な端面があります",
+    )
+    require_architecture_swatch(
+        "VIS_B03_GymBridgeSchoolFloorJoint",
+        "gym_floor",
+    )
+    for object_name in (
+        "VIS_B03_GymBridgeCeiling",
+        "VIS_B03_GymBridgeWindowFrames",
+    ):
+        require_architecture_swatch(object_name, "wall")
+    for wall_name, expected_supports in (
+        (
+            "COL_B03_ExteriorWalls_F01",
+            (
+                ((39.4, 32.35, 2.4), (43.4, 32.65, 2.65)),
+                ((39.4, 32.35, 2.65), (43.4, 32.65, 3.45)),
+            ),
+        ),
+        (
+            "COL_B03_GymExteriorWalls",
+            (
+                ((39.4, 26.35, 2.4), (43.4, 26.65, 3.45)),
+            ),
+        ),
+    ):
+        for expected_support in expected_supports:
+            require_box_component(wall_name, expected_support)
+        wall_components = box_component_bounds(bpy.data.objects[wall_name])
+        sample_y = (
+            expected_supports[0][0][1] + expected_supports[0][1][1]
+        ) / 2.0
+        require(
+            not any(
+                point_in_bounds((41.4, sample_y, 3.525), bounds)
+                for bounds in wall_components
+            ),
+            f"2階渡り廊下接続の白い支持壁上面が茶色床と重複しています: "
+            f"{wall_name}",
+        )
+
+    gallery_floor_expected = [
+        ((33.6, -2.0, 5.10), (34.8, 26.4, 5.25)),
+        ((58.0, -2.0, 5.10), (59.2, 26.4, 5.25)),
+        ((34.8, 25.0, 5.10), (35.8, 26.6, 5.25)),
+        ((39.1, 25.0, 3.45), (43.7, 26.6, 3.60)),
+        ((47.0, 25.0, 5.10), (58.0, 26.6, 5.25)),
+    ]
+    gallery_floor_components = audit_box_components(
+        "COL_B03_GymGalleryFloor",
+        gallery_floor_expected,
+    )
+    gallery_widths = (
+        34.8 - 33.6,
+        59.2 - 58.0,
+        26.2 - 25.0,
+        26.2 - 25.0,
+        26.2 - 25.0,
+    )
+    require(
+        all(abs(width - 1.2) <= TOLERANCE for width in gallery_widths),
+        f"体育館ギャラリーの有効幅が1.2mではありません: {gallery_widths}",
+    )
+    require(
+        abs(gallery_floor_expected[3][1][2] - 3.60) <= TOLERANCE
+        and all(
+            abs(bounds[1][2] - 5.25) <= TOLERANCE
+            for index, bounds in enumerate(gallery_floor_expected)
+            if index != 3
+        ),
+        "体育館ギャラリーの北側中央Z=3.6mまたは東西Z=5.25mが不正です",
+    )
+    require(
+        all(minimum[1] >= -2.0 - TOLERANCE for minimum, _ in gallery_floor_expected),
+        "体育館南辺にギャラリー床が残っています",
+    )
+
+    visual_stair_object = object_by_name.get("VIS_B03_GymGalleryStairs")
+    collider_stair_object = object_by_name.get("COL_B03_GymGalleryStairs")
+    nav_stair_object = object_by_name.get(
+        "NAV_B03_Walkable_GymGalleryStairs"
+    )
+    require(
+        visual_stair_object is not None
+        and collider_stair_object is not None
+        and nav_stair_object is not None,
+        "体育館ギャラリー階段のVIS/COL/NAVが不足しています",
+    )
+    visual_stair_components = box_component_bounds(visual_stair_object)
+    collider_stair_components = box_component_bounds(collider_stair_object)
+    require(
+        len(visual_stair_components) == 194,
+        f"体育館ギャラリー階段VISの部品数が194ではありません: "
+        f"{len(visual_stair_components)}",
+    )
+    require(
+        len(collider_stair_components) == 14,
+        f"体育館ギャラリー階段COLの部品数が14ではありません: "
+        f"{len(collider_stair_components)}",
+    )
+    visual_stair_triangles = sum(
+        len(polygon.vertices) == 3
+        for polygon in visual_stair_object.data.polygons
+    )
+    require(
+        visual_stair_triangles == 0,
+        f"体育館ギャラリー階段VISに三角形面があります: "
+        f"{visual_stair_triangles}",
+    )
+    stage_stair_run_components = [
+        bounds
+        for bounds in visual_stair_components
+        if abs(bounds[1][0] - bounds[0][0] - 1.2) <= TOLERANCE
+        and abs(bounds[1][1] - bounds[0][1] - 0.40) <= TOLERANCE
+        and abs(bounds[1][2] - bounds[0][2] - 0.05) <= TOLERANCE
+    ]
+    require(
+        len(stage_stair_run_components) == 70,
+        f"舞台袖内の幅1.2m階段踏面が左右35段ずつではありません: {len(stage_stair_run_components)}",
+    )
+    stage_stair_tops = sorted(
+        {
+            round(bounds[1][2], 6)
+            for bounds in stage_stair_run_components
+        }
+    )
+    require(
+        len(stage_stair_tops) == 35
+        and all(
+            abs(stage_stair_tops[index + 1] - stage_stair_tops[index] - 0.15)
+            <= TOLERANCE
+            for index in range(len(stage_stair_tops) - 1)
+        ),
+        f"舞台袖内階段の蹴上げが0.15mではありません: {stage_stair_tops}",
+    )
+    north_stair_run_components = [
+        bounds
+        for bounds in visual_stair_components
+        if abs(bounds[1][0] - bounds[0][0] - 0.3) <= TOLERANCE
+        and abs(bounds[1][1] - bounds[0][1] - 1.6) <= TOLERANCE
+        and abs(bounds[1][2] - bounds[0][2] - 0.05) <= TOLERANCE
+    ]
+    require(
+        len(north_stair_run_components) == 22,
+        f"北側ギャラリー昇段が左右11段ずつではありません: {len(north_stair_run_components)}",
+    )
+    expected_ramp_top_surfaces = {
+        surface_signature(points)
+        for points in (
+            (
+                (39.1, 25.0, 3.60),
+                (39.1, 26.6, 3.60),
+                (35.8, 26.6, 5.25),
+                (35.8, 25.0, 5.25),
+            ),
+            (
+                (43.7, 25.0, 3.60),
+                (47.0, 25.0, 5.25),
+                (47.0, 26.6, 5.25),
+                (43.7, 26.6, 3.60),
+            ),
+            (
+                (34.8, -3.80, 0.15),
+                (34.8, -10.20, 2.55),
+                (36.0, -10.20, 2.55),
+                (36.0, -3.80, 0.15),
+            ),
+            (
+                (33.6, -10.20, 2.55),
+                (33.6, -3.00, 5.25),
+                (34.8, -3.00, 5.25),
+                (34.8, -10.20, 2.55),
+            ),
+            (
+                (56.8, -3.80, 0.15),
+                (56.8, -10.20, 2.55),
+                (58.0, -10.20, 2.55),
+                (58.0, -3.80, 0.15),
+            ),
+            (
+                (58.0, -10.20, 2.55),
+                (58.0, -3.00, 5.25),
+                (59.2, -3.00, 5.25),
+                (59.2, -10.20, 2.55),
+            ),
+        )
+    }
+    expected_ramp_bottom_surfaces = {
+        surface_signature(
+            tuple(
+                (x, y, z - 0.15)
+                for x, y, z in surface
+            )
+        )
+        for surface in expected_ramp_top_surfaces
+    }
+    require(
+        sloped_surface_signatures(visual_stair_object)
+        == expected_ramp_top_surfaces | expected_ramp_bottom_surfaces,
+        "体育館ギャラリー階段VISの6傾斜面がv10契約と一致しません",
+    )
+    require(
+        sloped_surface_signatures(collider_stair_object)
+        == expected_ramp_top_surfaces | expected_ramp_bottom_surfaces,
+        "体育館ギャラリー階段COLの6傾斜面がVISと一致しません",
+    )
+    require(
+        sloped_surface_signatures(nav_stair_object)
+        == expected_ramp_top_surfaces,
+        "体育館ギャラリー階段NAVの6歩行面がCOL上面と一致しません",
+    )
+
+    expected_turn_landings = [
+        ((33.6, -11.35, 2.40), (36.0, -10.20, 2.55)),
+        ((56.8, -11.35, 2.40), (59.2, -10.20, 2.55)),
+    ]
+    turn_landing_components = sum(
+        any(
+            bounds_match(component, expected)
+            for component in collider_stair_components
+        )
+        for expected in expected_turn_landings
+    )
+    require(
+        turn_landing_components == len(expected_turn_landings),
+        f"体育館袖階段の左右折り返し踊り場が不足しています: "
+        f"{turn_landing_components}",
+    )
+    expected_upper_landings = [
+        ((33.6, -3.00, 5.10), (34.8, -2.00, 5.25)),
+        ((58.0, -3.00, 5.10), (59.2, -2.00, 5.25)),
+    ]
+    upper_landing_components = sum(
+        any(
+            bounds_match(component, expected)
+            for component in collider_stair_components
+        )
+        for expected in expected_upper_landings
+    )
+    require(
+        upper_landing_components == len(expected_upper_landings),
+        f"体育館袖階段の上部踊り場が階段列幅へ揃っていません: "
+        f"{upper_landing_components}",
+    )
+
+    gallery_guard = object_by_name.get("COL_B03_GymGalleryGuards")
+    require(gallery_guard is not None, "体育館ギャラリー手すりColliderがありません")
+    gallery_guard_bounds = box_component_bounds(gallery_guard)
+    require(
+        abs(max(bounds[1][2] for bounds in gallery_guard_bounds) - 6.35)
+        <= TOLERANCE,
+        "体育館ギャラリーの内側手すり上端が床面+1.1mではありません",
+    )
+    require(
+        len(gallery_guard_bounds) == 38
+        and len(gallery_guard.data.vertices) == 304
+        and len(gallery_guard.data.polygons) == 228,
+        "体育館ギャラリー手すりColliderが38本の単純連続レールではありません: "
+        f"components={len(gallery_guard_bounds)} / "
+        f"vertices={len(gallery_guard.data.vertices)} / "
+        f"polygons={len(gallery_guard.data.polygons)}",
+    )
+    require_architecture_swatch("VIS_B03_GymGalleryGuards", "trim")
+
+    expected_guard_base_segments = [
+        ((34.84, -2.0, 5.25), (34.84, 25.0, 5.25)),
+        ((57.96, -2.0, 5.25), (57.96, 25.0, 5.25)),
+        ((34.84, 25.0, 5.25), (35.8, 25.0, 5.25)),
+        ((39.1, 25.0, 3.60), (43.7, 25.0, 3.60)),
+        ((47.0, 25.0, 5.25), (57.96, 25.0, 5.25)),
+        ((39.1, 25.0, 3.60), (35.8, 25.0, 5.25)),
+        ((43.7, 25.0, 3.60), (47.0, 25.0, 5.25)),
+        ((34.76, -2.15, 0.15), (34.76, -3.80, 0.15)),
+        ((36.04, -3.80, 0.15), (36.04, -10.20, 2.55)),
+        ((34.76, -3.80, 0.15), (34.76, -10.20, 2.55)),
+        ((36.04, -10.20, 2.55), (36.04, -11.30, 2.55)),
+        ((34.84, -10.20, 2.55), (34.84, -3.00, 5.25)),
+        ((34.84, -3.00, 5.25), (34.84, -2.00, 5.25)),
+        ((58.04, -2.15, 0.15), (58.04, -3.80, 0.15)),
+        ((56.76, -3.80, 0.15), (56.76, -10.20, 2.55)),
+        ((58.04, -3.80, 0.15), (58.04, -10.20, 2.55)),
+        ((56.76, -10.20, 2.55), (56.76, -11.30, 2.55)),
+        ((57.96, -10.20, 2.55), (57.96, -3.00, 5.25)),
+        ((57.96, -3.00, 5.25), (57.96, -2.00, 5.25)),
+    ]
+    visual_gallery_guard = object_by_name.get("VIS_B03_GymGalleryGuards")
+    require(
+        visual_gallery_guard is not None,
+        "体育館ギャラリー手すりの実形状VISがありません",
+    )
+    guard_rail_segments = rail_centerline_segments((visual_gallery_guard,))
+    collider_guard_rail_segments = rail_centerline_segments((gallery_guard,))
+    require(
+        len(guard_rail_segments) == len(expected_guard_base_segments) * 2,
+        f"体育館ギャラリー手すりの上下レール数が不正です: "
+        f"{len(guard_rail_segments)}",
+    )
+    require(
+        len(collider_guard_rail_segments)
+        == len(expected_guard_base_segments) * 2,
+        f"体育館ギャラリー手すりColliderの上下レール数が不正です: "
+        f"{len(collider_guard_rail_segments)}",
+    )
+    for segment_index, (start, end) in enumerate(
+        expected_guard_base_segments
+    ):
+        for rail_height in (0.55, 1.05):
+            rail_start = (
+                start[0],
+                start[1],
+                start[2] + rail_height,
+            )
+            rail_end = (
+                end[0],
+                end[1],
+                end[2] + rail_height,
+            )
+            require_rail_segment(
+                guard_rail_segments,
+                rail_start,
+                rail_end,
+                f"体育館ギャラリー落下防止VIS/{segment_index}",
+            )
+            require_rail_segment(
+                collider_guard_rail_segments,
+                rail_start,
+                rail_end,
+                f"体育館ギャラリー落下防止COL/{segment_index}",
+            )
+    for old_near_segment in (
+        ((36.04, -3.40, 0.70), (36.04, -3.80, 0.70)),
+        ((36.04, -3.40, 1.20), (36.04, -3.80, 1.20)),
+        ((56.76, -3.40, 0.70), (56.76, -3.80, 0.70)),
+        ((56.76, -3.40, 1.20), (56.76, -3.80, 1.20)),
+    ):
+        old_start = Vector(old_near_segment[0])
+        old_end = Vector(old_near_segment[1])
+        require(
+            not any(
+                (
+                    (actual_start - old_start).length <= TOLERANCE
+                    and (actual_end - old_end).length <= TOLERANCE
+                )
+                or (
+                    (actual_start - old_end).length <= TOLERANCE
+                    and (actual_end - old_start).length <= TOLERANCE
+                )
+                for actual_start, actual_end in guard_rail_segments
+            ),
+            f"体育館袖階段入口の手前側短い手すりが残っています: "
+            f"{old_near_segment}",
+        )
+    stage_side_walls = object_by_name.get("COL_B03_GymStageSideWalls")
+    require(
+        stage_side_walls is not None,
+        "体育館舞台袖の壁Colliderがありません",
+    )
+    stage_side_wall_components = box_component_bounds(stage_side_walls)
+    for side, guard_x in (("西", 34.76), ("東", 58.04)):
+        matching_walls = [
+            bounds
+            for bounds in stage_side_wall_components
+            if bounds[0][0] - TOLERANCE <= guard_x <= bounds[1][0] + TOLERANCE
+            and abs(bounds[0][1] + 2.15) <= TOLERANCE
+            and abs(bounds[0][2]) <= TOLERANCE
+            and abs(bounds[1][2] - 5.10) <= TOLERANCE
+        ]
+        require(
+            len(matching_walls) == 1,
+            f"体育館{side}袖階段の奥側手すりに接する壁が一意ではありません: "
+            f"{matching_walls}",
+        )
+        wall_gap = abs(matching_walls[0][0][1] - (-2.15))
+        entrance_width = (
+            36.6 - 34.84
+            if side == "西"
+            else 57.96 - 56.2
+        )
+        require(
+            wall_gap <= TOLERANCE,
+            f"体育館{side}袖階段の奥側手すりが壁面へ接していません: "
+            f"X={guard_x}/gap={wall_gap}",
+        )
+        require(
+            entrance_width >= 1.2 - TOLERANCE,
+            f"体育館{side}袖階段の入口有効幅が1.2m未満です: "
+            f"{entrance_width:.3f}m",
+        )
+    require(
+        any(
+            start == (39.1, 25.0, 3.60)
+            and end == (43.7, 25.0, 3.60)
+            for start, end in expected_guard_base_segments
+        ),
+        "体育館北側中央低床の落下防止手すり契約がありません",
+    )
+
+    stage_side_wall_components = audit_box_components(
+        "COL_B03_GymStageSideWalls",
+        [
+            ((33.4, -2.15, 0.0), (33.6, -1.85, 9.0)),
+            ((33.6, -2.15, 0.0), (35.0, -1.85, 5.10)),
+            ((33.6, -2.15, 7.25), (35.0, -1.85, 9.0)),
+            ((35.0, -2.15, 0.0), (36.8, -1.85, 9.0)),
+            ((36.8, -2.15, 2.4), (39.2, -1.85, 9.0)),
+            ((39.2, -2.15, 0.0), (41.4, -1.85, 9.0)),
+            ((51.4, -2.15, 0.0), (53.6, -1.85, 9.0)),
+            ((53.6, -2.15, 2.4), (56.0, -1.85, 9.0)),
+            ((56.0, -2.15, 0.0), (57.8, -1.85, 9.0)),
+            ((57.8, -2.15, 0.0), (59.2, -1.85, 5.10)),
+            ((57.8, -2.15, 7.25), (59.2, -1.85, 9.0)),
+            ((59.2, -2.15, 0.0), (59.4, -1.85, 9.0)),
+        ],
+    )
+    stage_side_door_names = {
+        "VIS_GymStageSideDoor_Open_West",
+        "VIS_GymStageSideDoor_Open_East",
+    }
+    require(
+        stage_side_door_names.isdisjoint(object_by_name),
+        f"開放状態をMesh扉で表した旧Objectが残っています: "
+        f"{stage_side_door_names & set(object_by_name)}",
+    )
+    stage_side_openings = (
+        ((36.8, -2.16, 0.0), (39.2, -1.84, 2.4)),
+        ((53.6, -2.16, 0.0), (56.0, -1.84, 2.4)),
+    )
+    stage_side_wall_object = object_by_name["COL_B03_GymStageSideWalls"]
+    stage_opening_intersections = sum(
+        all(
+            interval_overlaps(
+                (component[0][axis], component[1][axis]),
+                (opening[0][axis], opening[1][axis]),
+            )
+            for axis in range(3)
+        )
+        for component in box_component_bounds(stage_side_wall_object)
+        for opening in stage_side_openings
+    )
+    require(
+        stage_opening_intersections == 0,
+        f"舞台袖の固定開放部に壁Colliderが残っています: "
+        f"{stage_opening_intersections}",
+    )
+
+    gym_roof_components = audit_box_components(
+        "COL_B03_GymRoofWalkable",
+        [((33.4, -11.5, 9.45), (59.4, 26.5, 9.60))],
+    )
+    gym_roof_gap_components = audit_box_components(
+        "COL_B03_GymRoofGapWall",
+        [((33.4, -11.5, 9.10), (59.4, 26.5, 9.45))],
+    )
+    audit_box_components(
+        "VIS_B03_GymRoofGapWall",
+        [((33.4, -11.5, 9.10), (59.4, 26.5, 9.45))],
+    )
+    require_architecture_swatch("VIS_B03_GymRoofGapWall", "wall")
+    gym_roof_guard = object_by_name.get("COL_B03_GymRoofGuards")
+    require(gym_roof_guard is not None, "体育館屋上柵Colliderがありません")
+    gym_roof_guard_bounds = box_component_bounds(gym_roof_guard)
+    require(
+        abs(min(bounds[0][2] for bounds in gym_roof_guard_bounds) - 9.60)
+        <= TOLERANCE
+        and abs(max(bounds[1][2] for bounds in gym_roof_guard_bounds) - 10.70)
+        <= TOLERANCE,
+        "体育館屋上の実形状柵が歩行面から約1.1mではありません",
+    )
+
+    roof_ramp = object_by_name.get("COL_B03_GymRoofRamp")
+    visual_roof_ramp = object_by_name.get("VIS_B03_GymRoofRamp")
+    require(
+        roof_ramp is not None
+        and roof_ramp.type == "MESH"
+        and visual_roof_ramp is not None
+        and visual_roof_ramp.type == "MESH",
+        "体育館屋上接続RampのVIS/COLが不足しています",
+    )
+    ramp_minimum, ramp_maximum = world_bounds(roof_ramp)
+    require(
+        (ramp_minimum - Vector((39.4, 26.5, 7.05))).length <= TOLERANCE
+        and (ramp_maximum - Vector((43.4, 32.5, 9.60))).length <= TOLERANCE,
+        f"体育館屋上接続Ramp境界が不正です: {ramp_minimum}/{ramp_maximum}",
+    )
+    roof_ramp_profile = (
+        (26.5, 9.45),
+        (32.5, 7.05),
+        (32.5, 7.20),
+        (26.5, 9.60),
+    )
+    expected_collider_ramp_vertices = [
+        (x, y, z)
+        for x in (39.4, 43.4)
+        for y, z in roof_ramp_profile
+    ]
+    expected_visual_ramp_vertices = [
+        (x, y, z)
+        for x in (39.401, 43.399)
+        for y, z in roof_ramp_profile
+    ]
+    collider_ramp_vertices = [
+        roof_ramp.matrix_world @ vertex.co
+        for vertex in roof_ramp.data.vertices
+    ]
+    visual_ramp_vertices = [
+        visual_roof_ramp.matrix_world @ vertex.co
+        for vertex in visual_roof_ramp.data.vertices
+    ]
+    require(
+        surface_signature(collider_ramp_vertices)
+        == surface_signature(expected_collider_ramp_vertices)
+        and len(roof_ramp.data.polygons) == 6,
+        "体育館屋上接続Ramp Colliderが閉じた既定断面ではありません",
+    )
+    require(
+        surface_signature(visual_ramp_vertices)
+        == surface_signature(expected_visual_ramp_vertices)
+        and len(visual_roof_ramp.data.polygons) == 4,
+        "体育館屋上接続Ramp VISが接続端面を除いた既定断面ではありません",
+    )
+    ramp_visual_end_faces = [
+        polygon.index
+        for polygon in visual_roof_ramp.data.polygons
+        if any(
+            all(
+                abs(
+                    (
+                        visual_roof_ramp.matrix_world
+                        @ visual_roof_ramp.data.vertices[index].co
+                    ).y
+                    - endpoint_y
+                )
+                <= TOLERANCE
+                for index in polygon.vertices
+            )
+            for endpoint_y in (26.5, 32.5)
+        )
+    ]
+    require(
+        not ramp_visual_end_faces,
+        f"体育館屋上接続Ramp VISの接続端に重複面があります: "
+        f"{ramp_visual_end_faces}",
+    )
+
+    underfill_profile = (
+        (26.5, 7.05),
+        (32.5, 7.05),
+        (26.5, 9.45),
+    )
+    visual_underfill = object_by_name.get("VIS_B03_GymRoofRampUnderfill")
+    collider_underfill = object_by_name.get("COL_B03_GymRoofRampUnderfill")
+    require(
+        visual_underfill is not None
+        and visual_underfill.type == "MESH"
+        and collider_underfill is not None
+        and collider_underfill.type == "MESH",
+        "体育館屋上接続Ramp下の進入防止充填VIS/COLが不足しています",
+    )
+    expected_visual_underfill_vertices = [
+        (x, y, z)
+        for x in (39.401, 43.399)
+        for y, z in underfill_profile
+    ]
+    expected_collider_underfill_vertices = [
+        (x, y, z)
+        for x in (39.4, 43.4)
+        for y, z in underfill_profile
+    ]
+    require(
+        surface_signature(
+            [
+                visual_underfill.matrix_world @ vertex.co
+                for vertex in visual_underfill.data.vertices
+            ]
+        )
+        == surface_signature(expected_visual_underfill_vertices)
+        and len(visual_underfill.data.polygons) == 3,
+        "体育館屋上接続Ramp下のVISが内部重複面なしの直角三角形充填ではありません",
+    )
+    require(
+        surface_signature(
+            [
+                collider_underfill.matrix_world @ vertex.co
+                for vertex in collider_underfill.data.vertices
+            ]
+        )
+        == surface_signature(expected_collider_underfill_vertices)
+        and len(collider_underfill.data.polygons) == 5,
+        "体育館屋上接続Ramp下のColliderが直角三角形充填ではありません",
+    )
+    require_architecture_swatch("VIS_B03_GymRoofRampUnderfill", "wall")
+
+    visual_connection_guards = object_by_name.get(
+        "VIS_B03_GymRoofConnectionGuards"
+    )
+    collider_connection_guards = object_by_name.get(
+        "COL_B03_GymRoofConnectionGuards"
+    )
+    require(
+        visual_connection_guards is not None
+        and visual_connection_guards.type == "MESH"
+        and collider_connection_guards is not None
+        and collider_connection_guards.type == "MESH",
+        "体育館屋上接続Ramp両側の転落防止手すりVIS/COLが不足しています",
+    )
+    require(
+        len(visual_connection_guards.data.vertices) == 144
+        and len(visual_connection_guards.data.polygons) == 108,
+        "体育館屋上接続Rampの実形状手すり部品数が不正です",
+    )
+    require(
+        len(collider_connection_guards.data.vertices) == 32
+        and len(collider_connection_guards.data.polygons) == 24,
+        "体育館屋上接続Rampの手すりCollider部品数が不正です",
+    )
+    connection_guard_segments = (
+        ((39.52, 32.5, 7.20), (39.52, 26.5, 9.60)),
+        ((43.28, 32.5, 7.20), (43.28, 26.5, 9.60)),
+    )
+    visual_connection_guard_rails = rail_centerline_segments(
+        (visual_connection_guards,)
+    )
+    collider_connection_guard_rails = rail_centerline_segments(
+        (collider_connection_guards,)
+    )
+    require(
+        len(visual_connection_guard_rails) == 4
+        and len(collider_connection_guard_rails) == 4,
+        "体育館屋上接続Ramp両側の上下レールが4本ずつではありません",
+    )
+    for segment_index, (start, end) in enumerate(
+        connection_guard_segments
+    ):
+        for rail_height in (0.55, 1.05):
+            rail_start = (
+                start[0],
+                start[1],
+                start[2] + rail_height,
+            )
+            rail_end = (
+                end[0],
+                end[1],
+                end[2] + rail_height,
+            )
+            require_rail_segment(
+                visual_connection_guard_rails,
+                rail_start,
+                rail_end,
+                f"体育館屋上接続Ramp手すりVIS/{segment_index}",
+            )
+            require_rail_segment(
+                collider_connection_guard_rails,
+                rail_start,
+                rail_end,
+                f"体育館屋上接続Ramp手すりCOL/{segment_index}",
+            )
+    require_architecture_swatch(
+        "VIS_B03_GymRoofConnectionGuards",
+        "trim",
+    )
+    roof_ramp_angle = math.degrees(math.atan2(2.4, 6.0))
+    require(
+        abs(roof_ramp_angle - 21.80140948635181) <= TOLERANCE,
+        f"体育館屋上接続Ramp勾配が約21.8度ではありません: {roof_ramp_angle:.3f}",
+    )
+    gym_floor_components = audit_box_components(
+        "COL_Floor_Gym",
+        [((33.4, -11.5, -0.2), (59.4, 26.5, 0.0))],
+    )
+    gym_south_wall_components = audit_box_components(
+        "COL_GymWall_South",
+        [((33.4, -11.65, 0.0), (59.4, -11.35, 9.0))],
+    )
+    gym_envelope_roof_components = audit_box_components(
+        "COL_GymRoof",
+        [((33.4, -11.5, 9.0), (59.4, 26.5, 9.1))],
+    )
+    gym_stage_components = audit_box_components(
+        "COL_GymStage",
+        [((41.4, -11.0, 0.0), (51.4, -2.0, 1.0))],
+    )
+    stage_stair_components = 0
+    for side, first_edge, direction in (
+        ("West", 39.9, 1.0),
+        ("East", 52.9, -1.0),
+    ):
+        for step_index in range(1, 6):
+            if direction > 0:
+                minimum_x = first_edge + (step_index - 1) * 0.3
+                maximum_x = minimum_x + 0.3
+            else:
+                maximum_x = first_edge - (step_index - 1) * 0.3
+                minimum_x = maximum_x - 0.3
+            stage_stair_components += audit_box_components(
+                f"VIS_GymStageStair_{side}_{step_index:02d}",
+                [
+                    (
+                        (minimum_x, -11.0, 0.0),
+                        (maximum_x, -8.6, step_index * 0.2),
+                    )
+                ],
+            )
+    stage_stair_ramp_components = 0
+    for side, expected_bounds in (
+        ("West", ((39.9, -11.0, 0.0), (41.4, -8.6, 1.0))),
+        ("East", ((51.4, -11.0, 0.0), (52.9, -8.6, 1.0))),
+    ):
+        ramp_object = object_by_name.get(f"COL_GymStageStairRamp_{side}")
+        require(
+            ramp_object is not None and ramp_object.type == "MESH",
+            f"体育館舞台{side}側Ramp Colliderがありません",
+        )
+        actual_minimum, actual_maximum = world_bounds(ramp_object)
+        require(
+            (actual_minimum - Vector(expected_bounds[0])).length
+            <= TOLERANCE
+            and (actual_maximum - Vector(expected_bounds[1])).length
+            <= TOLERANCE,
+            f"体育館舞台{side}側Ramp境界が不正です: "
+            f"{actual_minimum}/{actual_maximum}",
+        )
+        stage_stair_ramp_components += 1
+    gym_width = 59.4 - 33.4
+    gym_stage_width = 51.4 - 41.4
+    gym_stage_center_x = (41.4 + 51.4) / 2.0
+    require(
+        abs(gym_width - 26.0) <= TOLERANCE
+        and abs(gym_stage_width - 10.0) <= TOLERANCE
+        and abs(gym_stage_center_x - 46.4) <= TOLERANCE,
+        "体育館東拡幅、舞台縮小、舞台中心東移動の寸法が不正です",
+    )
+
+    west_extension_components = audit_box_components(
+        "COL_B03_WestExtensionFloor_F01",
+        [
+            ((-12.6, -7.0, -0.15), (-11.5, -3.5, 0.0)),
+            ((-9.1, -7.0, -0.15), (0.0, -3.5, 0.0)),
+            ((-11.5, -7.0, -0.15), (-9.1, -6.4, 0.0)),
+            ((-11.5, -4.0, -0.15), (-9.1, -3.5, 0.0)),
+        ],
+    )
+    shaft_components = audit_box_components(
+        "COL_B03_ElevatorShaftShell",
+        [
+            ((-11.8, -6.7, 0.0), (-11.5, -3.7, 14.4)),
+            ((-11.5, -6.7, 0.0), (-8.8, -6.4, 14.4)),
+            ((-11.5, -4.0, 0.0), (-8.8, -3.7, 14.4)),
+            ((-9.1, -6.7, 0.0), (-8.8, -5.9, 14.4)),
+            ((-9.1, -4.5, 0.0), (-8.8, -3.7, 14.4)),
+            ((-9.1, -5.9, 2.4), (-8.8, -4.5, 3.6)),
+            ((-9.1, -5.9, 6.0), (-8.8, -4.5, 7.2)),
+            ((-9.1, -5.9, 9.6), (-8.8, -4.5, 10.8)),
+            ((-9.1, -5.9, 13.2), (-8.8, -4.5, 14.4)),
+            ((-11.8, -6.7, 14.25), (-8.8, -3.7, 14.4)),
+        ],
+    )
+    require(
+        "COL_B03_ElevatorStairPartition" not in object_by_name
+        and "VIS_B03_ElevatorStairPartition" not in object_by_name,
+        "誤った長いエレベーター階段間仕切りが残っています",
+    )
+    stair_wall_components = audit_box_components(
+        "COL_B03_ElevatorStairWall",
+        [
+            (
+                (-8.8, -3.7, floor_base_z),
+                (-6.0, -3.5, floor_base_z + 3.45),
+            )
+            for floor_base_z in (0.0, 3.6, 7.2, 10.8)
+        ],
+    )
+    elevator_hall_opening_width = 0.0 - -6.0
+    require(
+        elevator_hall_opening_width >= 6.0 - TOLERANCE,
+        f"エレベーターホールへの東側開口幅が6.0m未満です: "
+        f"{elevator_hall_opening_width:.3f}m",
+    )
+    fixed_door_components = audit_box_components(
+        "COL_B03_ElevatorClosedDoor_F02_F03",
+        [
+            (
+                (-8.8, -5.9, floor_base_z),
+                (-8.68, -4.5, floor_base_z + 2.4),
+            )
+            for floor_base_z in (3.6, 7.2)
+        ],
+    )
+    waiting_mat_components = audit_box_components(
+        "VIS_B03_ElevatorWaitingMat_F01_F04",
+        [
+            (
+                (-8.68, -5.9, floor_base_z + 0.005),
+                (-7.68, -4.5, floor_base_z + 0.025),
+            )
+            for floor_base_z in (0.0, 10.8)
+        ],
+    )
+    adjustment_sign_components = audit_box_components(
+        "VIS_B03_ElevatorAdjustmentSign_F02_F03",
+        [
+            (
+                (-8.61, -5.72, floor_base_z + 1.02),
+                (-8.57, -4.68, floor_base_z + 1.50),
+            )
+            for floor_base_z in (3.6, 7.2)
+        ],
+    )
+    adjustment_tape = object_by_name.get(
+        "VIS_B03_ElevatorAdjustmentTape_F02_F03"
+    )
+    adjustment_texts = [
+        object_by_name.get(f"VIS_B03_ElevatorAdjustmentText_F{floor:02d}")
+        for floor in (2, 3)
+    ]
+    require(adjustment_tape is not None, "2階・3階エレベーターの×印テープがありません")
+    require(
+        adjustment_tape.type == "MESH"
+        and len(adjustment_tape.data.polygons) == 24,
+        "2階・3階エレベーターの×印テープが4本の実Meshではありません",
+    )
+    require(
+        all(
+            text is not None
+            and text.type == "MESH"
+            and len(text.data.polygons) > 0
+            for text in adjustment_texts
+        ),
+        "2階・3階エレベーターの「調整中」表示が実Meshではありません",
+    )
+    shaft_safety_components = audit_box_components(
+        "COL_B03_ElevatorShaftSafety",
+        [
+            ((-9.05, -5.9, 0.0), (-8.75, -4.5, 2.4)),
+            ((-9.05, -5.9, 10.8), (-8.75, -4.5, 13.2)),
+        ],
+    )
+    shaft_outer_size = 3.0
+    shaft_inner_size = 2.4
+    require(
+        abs(shaft_outer_size - 3.0) <= TOLERANCE
+        and 2.2 <= shaft_inner_size <= 2.4,
+        "エレベーター昇降路の外寸または内寸が不正です",
+    )
+
+    required_nav_sources = {
+        "NAV_Walkable_Interior1F",
+        "NAV_B03_Walkable_GymGallery",
+        "NAV_B03_Walkable_GymGalleryStairs",
+        "NAV_B03_Walkable_GymRooftop",
+        "NAV_B03_Walkable_GymRoofRamp",
+    }
+    require(
+        required_nav_sources <= set(object_by_name),
+        f"B03-3B人間用Nav sourceが不足しています: {required_nav_sources - set(object_by_name)}",
+    )
+    outdoor_nav = object_by_name.get("NAV_Walkable_Outdoor")
+    require(
+        outdoor_nav is not None
+        and len(outdoor_nav.data.vertices) == 8
+        and len(outdoor_nav.data.polygons) == 2
+        and all(polygon.normal.z > 0.0 for polygon in outdoor_nav.data.polygons)
+        and bounds_match(
+            tuple(
+                tuple(value for value in bound)
+                for bound in world_bounds(outdoor_nav)
+            ),
+            ((-18.6, -14.5, -0.3), (63.4, 51.5, 0.0)),
+        ),
+        "人物用屋外Nav sourceの2面または南側塀中心Y=-14.5mまでの延長が不正です",
+    )
+    entry_transition_nav = object_by_name.get("NAV_Walkable_EntryTransitions")
+    require(
+        entry_transition_nav is not None
+        and entry_transition_nav.type == "MESH"
+        and len(entry_transition_nav.data.vertices) == 24
+        and len(entry_transition_nav.data.polygons) == 6,
+        "人物用玄関Nav sourceの6 Ramp契約が不正です",
+    )
+    entry_transition_normal_matrix = (
+        entry_transition_nav.matrix_world.to_3x3().inverted().transposed()
+    )
+    invalid_entry_transition_normals = [
+        polygon.index
+        for polygon in entry_transition_nav.data.polygons
+        if (
+            entry_transition_normal_matrix @ polygon.normal
+        ).normalized().z
+        < math.cos(math.radians(45.0))
+    ]
+    require(
+        not invalid_entry_transition_normals,
+        f"人物用玄関Nav sourceに下向きRampがあります: "
+        f"{invalid_entry_transition_normals}",
+    )
+    entry_transition_bounds = mesh_component_world_bounds(entry_transition_nav)
+    require(
+        len(entry_transition_bounds) == 6,
+        f"人物用玄関Nav sourceの連結成分数が不正です: "
+        f"{len(entry_transition_bounds)}",
+    )
+    main_entry_nav_components = [
+        (minimum, maximum)
+        for minimum, maximum in entry_transition_bounds
+        if abs(minimum.x - 0.0) <= TOLERANCE
+        and abs(maximum.x - 2.10) <= TOLERANCE
+        and abs(minimum.y + 2.5) <= TOLERANCE
+        and abs(maximum.y - 2.5) <= TOLERANCE
+        and abs(minimum.z + 0.30) <= TOLERANCE
+        and abs(maximum.z - 0.0) <= TOLERANCE
+    ]
+    require(
+        len(main_entry_nav_components) == 1,
+        "主玄関Human Nav Rampの低端X=2.10契約が不正です",
+    )
+    main_entry_collider = object_by_name.get("COL_EntryRamp")
+    require(
+        main_entry_collider is not None
+        and abs(world_bounds(main_entry_collider)[1].x - 2.0) <= TOLERANCE,
+        "主玄関の物理ColliderをHuman Nav低端と一緒に変更しています",
+    )
+    dynamic_roles = {
+        "door",
+        "elevator",
+        "elevator_car",
+        "elevator_gate",
+        "elevator_marker",
+    }
+    dynamic_elevator_objects = [
+        obj.name
+        for obj in objects
+        if "elevator" in obj.name.lower()
+        and (
+            obj.name.startswith(("MRK_", "VOL_", "LNK_"))
+            or obj.get("hs_role") in dynamic_roles
+        )
+    ]
+    require(
+        not dynamic_elevator_objects,
+        f"B03-3C担当の動的エレベーターObjectがあります: {dynamic_elevator_objects}",
+    )
+
+    b03_structure_prefixes = (
+        "VIS_B03_GymBridge",
+        "COL_B03_GymBridge",
+        "VIS_B03_GymGallery",
+        "COL_B03_GymGallery",
+        "VIS_B03_GymRoof",
+        "COL_B03_GymRoof",
+        "VIS_B03_WestExtension",
+        "COL_B03_WestExtension",
+        "VIS_B03_Elevator",
+        "COL_B03_Elevator",
+    )
+    b03_structure_objects = [
+        obj for obj in objects if obj.name.startswith(b03_structure_prefixes)
+    ]
+    southernmost_b03_y = min(world_bounds(obj)[0].y for obj in b03_structure_objects)
+    require(
+        southernmost_b03_y >= -11.5 - TOLERANCE,
+        f"B03-3B構造が拡張後の体育館南端を越えています: Y={southernmost_b03_y:.3f}",
+    )
+    south_perimeter = object_by_name.get("VIS_Perimeter_SouthWest")
+    require(south_perimeter is not None, "南西側の既存塀がありません")
+    _, south_perimeter_maximum = world_bounds(south_perimeter)
+    south_remaining_distance = -7.0 - south_perimeter_maximum.y
+    require(
+        abs(south_remaining_distance - 7.3) <= TOLERANCE,
+        f"西側校舎南端から移設後の塀までの距離が7.3mではありません: {south_remaining_distance:.3f}m",
+    )
+    gym_south_remaining_distance = -11.5 - south_perimeter_maximum.y
+    require(
+        abs(gym_south_remaining_distance - 2.8) <= TOLERANCE,
+        f"体育館南端から移設後の塀までの距離が2.8mではありません: "
+        f"{gym_south_remaining_distance:.3f}m",
+    )
+    gym_south_wall = object_by_name.get("COL_GymWall_South")
+    require(gym_south_wall is not None, "体育館南壁Colliderがありません")
+    gym_south_wall_minimum, _ = world_bounds(gym_south_wall)
+    physical_south_passage_width = (
+        gym_south_wall_minimum.y - south_perimeter_maximum.y
+    )
+    require(
+        abs(physical_south_passage_width - 2.65) <= TOLERANCE,
+        f"体育館南壁外面と塀内面の実通路幅が2.65mではありません: "
+        f"{physical_south_passage_width:.3f}m",
+    )
+
+    return {
+        "bridge_floor_components": bridge_floor_components,
+        "bridge_school_floor_joint_components": bridge_school_floor_joint,
+        "bridge_ceiling_components": bridge_ceiling_components,
+        "bridge_envelope_components": bridge_envelope_components,
+        "bridge_clear_width_m": bridge_clear_width,
+        "gallery_floor_components": gallery_floor_components,
+        "gallery_width_m": min(gallery_widths),
+        "gallery_north_transition_steps": len(north_stair_run_components),
+        "gallery_stage_stair_steps": len(stage_stair_run_components),
+        "gallery_stair_rise_m": 0.15,
+        "gallery_low_height_m": 3.6,
+        "gallery_high_height_m": 5.25,
+        "gallery_guard_height_m": 1.1,
+        "gallery_landing_components": turn_landing_components,
+        "gallery_upper_landing_components": upper_landing_components,
+        "gym_stage_side_wall_components": stage_side_wall_components,
+        "gym_stage_side_door_components": 0,
+        "gym_stage_opening_intersections": stage_opening_intersections,
+        "gym_floor_components": gym_floor_components,
+        "gym_south_wall_components": gym_south_wall_components,
+        "gym_envelope_roof_components": gym_envelope_roof_components,
+        "gym_stage_components": gym_stage_components,
+        "gym_stage_stair_components": stage_stair_components,
+        "gym_stage_stair_ramp_components": stage_stair_ramp_components,
+        "gym_width_m": gym_width,
+        "gym_stage_width_m": gym_stage_width,
+        "gym_stage_center_x_m": gym_stage_center_x,
+        "gym_roof_components": gym_roof_components,
+        "gym_roof_gap_components": gym_roof_gap_components,
+        "gym_roof_height_m": 9.6,
+        "gym_roof_guard_height_m": 1.1,
+        "gym_roof_connection_guard_segments": len(
+            connection_guard_segments
+        ),
+        "gym_roof_ramp_underfill_components": 1,
+        "gym_roof_ramp_angle_degrees": roof_ramp_angle,
+        "west_extension_floor_components": west_extension_components,
+        "elevator_shaft_components": shaft_components,
+        "elevator_stair_wall_components": stair_wall_components,
+        "elevator_hall_opening_width_m": elevator_hall_opening_width,
+        "elevator_fixed_door_components": fixed_door_components,
+        "elevator_waiting_mat_components": waiting_mat_components,
+        "elevator_adjustment_sign_components": adjustment_sign_components,
+        "elevator_safety_components": shaft_safety_components,
+        "elevator_shaft_outer_m": shaft_outer_size,
+        "elevator_shaft_inner_m": shaft_inner_size,
+        "dynamic_elevator_objects": len(dynamic_elevator_objects),
+        "south_remaining_distance_m": south_remaining_distance,
+        "gym_south_remaining_distance_m": gym_south_remaining_distance,
+        "b04_required_extension_m": 4.2,
+    }
 
 
 def audit_semantics(objects: list[bpy.types.Object]) -> None:
@@ -4074,8 +5488,8 @@ def audit_glb_bit_flight_contract(
         if node.get("name", "").startswith("LNK_bit-window-")
     ]
     require(
-        len(aperture_nodes) == 116,
-        f"GLB aperture端点が116件ではありません: {len(aperture_nodes)}",
+        len(aperture_nodes) == 114,
+        f"GLB aperture端点が114件ではありません: {len(aperture_nodes)}",
     )
     aperture_ids = Counter()
     for node in aperture_nodes:
@@ -4089,8 +5503,8 @@ def audit_glb_bit_flight_contract(
             expected_aperture_endpoint_properties(link_id, endpoint),
         )
     require(
-        len(aperture_ids) == 58 and set(aperture_ids.values()) == {2},
-        "GLB apertureが58組のA/B端点ではありません",
+        len(aperture_ids) == 57 and set(aperture_ids.values()) == {2},
+        "GLB apertureが57組のA/B端点ではありません",
     )
     legacy_roof_nodes = [
         node["name"]
@@ -4221,10 +5635,10 @@ def audit_glb(gltf: dict[str, object]) -> dict[str, object]:
     require("KHR_lights_punctual" not in extensions, "GLBにLightがあります")
     node_names = [node.get("name") for node in nodes if node.get("name")]
     require(len(node_names) == len(set(node_names)), "GLB Node名が重複しています")
-    expected_frames = 82
+    expected_frames = 81
     expected_actor = 33
-    expected_fixed = 49
-    expected_human = 58
+    expected_fixed = 48
+    expected_human = 57
     require(sum(name.startswith("VIS_WindowFrame_") for name in node_names) == expected_frames, f"GLB窓枠が{expected_frames}件ではありません")
     require(sum(name.startswith("VIS_WindowGlass_") for name in node_names) == expected_frames, f"GLB窓ガラスが{expected_frames}件ではありません")
     require(sum(name.startswith("COL_ActorOnly_Window_") for name in node_names) == expected_actor, f"GLB ActorOnly窓が{expected_actor}件ではありません")
@@ -4281,12 +5695,12 @@ def audit_glb(gltf: dict[str, object]) -> dict[str, object]:
     perimeter_joint_vertex_count = accessors[position_accessor_index].get("count")
     perimeter_joint_index_count = accessors[index_accessor_index].get("count")
     require(
-        perimeter_joint_vertex_count == 14120,
-        f"GLBの塀目地頂点数が14120ではありません: {perimeter_joint_vertex_count}",
+        perimeter_joint_vertex_count == 14320,
+        f"GLBの塀目地頂点数が14320ではありません: {perimeter_joint_vertex_count}",
     )
     require(
-        perimeter_joint_index_count == 21180,
-        f"GLBの塀目地index数が21180ではありません: {perimeter_joint_index_count}",
+        perimeter_joint_index_count == 21480,
+        f"GLBの塀目地index数が21480ではありません: {perimeter_joint_index_count}",
     )
     for node in nodes:
         name = node.get("name", "")
@@ -4383,12 +5797,12 @@ def main() -> None:
     require(
         bpy.context.scene.get("b03_architecture_generator_version")
         == EXPECTED_GENERATOR_VERSION,
-        "建築生成版がT05-2集合・公開処刑会場版ではありません",
+        "建築生成版がB03-3B学校構造資産版ではありません",
     )
     require(
         bpy.context.scene.get("t04_2b_nav_connectivity_version")
         == EXPECTED_T04_CORRECTION_VERSION,
-        "T04補正版がv08ではありません",
+        "T04補正版がv11ではありません",
     )
     require(bpy.context.scene.get("b03_window_layout_status") == "final", "窓配置が最終状態ではありません")
     require(sha256(NAVMESH_PATH) == EXPECTED_NAVMESH_SHA256, "NavMesh SHA-256が変化しています")
@@ -4423,6 +5837,7 @@ def main() -> None:
     stair_guard_counts = audit_stair_guards(export_objects)
     roof_guard_counts = audit_roof_guards()
     acceptance_visuals = audit_acceptance_visuals(export_objects)
+    b03_3b_structure = audit_b03_3b_structure(export_objects)
     audit_semantics(export_objects)
     glb_counts = audit_glb(read_glb_json(GLB_PATH))
     glb_optimization = audit_glb_optimization()
@@ -4444,6 +5859,7 @@ def main() -> None:
         "stair_guards": stair_guard_counts,
         "roof_guards": roof_guard_counts,
         "acceptance_visuals": acceptance_visuals,
+        "b03_3b_structure": b03_3b_structure,
         "glb": glb_counts,
         "glb_optimization": glb_optimization,
     }

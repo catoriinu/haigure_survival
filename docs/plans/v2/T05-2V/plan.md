@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 T05-2V 光線演出・世界境界終了 計画
 
-更新日: 2026-07-27
+更新日: 2026-07-28
 
 ## プロンプト
 
@@ -15,6 +15,10 @@
 > PLEASE IMPLEMENT THIS PLAN:
 >
 > 指定ブランチ`codex/v2-t05-2v-beam-effects`の専用worktreeで、本計画に確定した世界境界契約、V1相当の光線・命中演出、資源再利用、検証を実装してください。学校バイナリは変更せず、コミットまで行い、push、Pull Request、統合は別途指示があるまで実施しないでください。
+
+2026-07-28 B03-3B統合後の同期指示:
+
+> B03-3を`develop`へマージしました。T05-2Vで最新の`origin/develop`を取得し、T05-2Vへ取り込んで競合を解消してください。
 
 PR #50のT05-2主要Runtimeは2026-07-26に`develop`へマージ済みである。残作業を同じPRへ追加せず、V1光線演出と共通世界境界終了だけをT05-2Vの独立成果として実装する。
 
@@ -58,6 +62,9 @@ PR #50のT05-2主要Runtimeは2026-07-26に`develop`へマージ済みである�
 - [ ] プレイヤー1人＋NPC 99人＋BIT 50機の開始直後10秒・定常戦闘60秒で、CPU＋描画workの既存基準を維持する（1920×1080の両ビューでsteady p95が16.9msとなり、16.7ms基準を0.2ms超過）
 - [x] T01～T05、通常Web、Electron、型検査、全build、console、UTF-8 BOMなし、ローカル絶対パスなし、`git diff --check`、括弧対応を回帰する
 - [x] 60Hz前面環境での描画込み最終性能確認をT07へ引き渡し、本計画へ結果を記録する（並行作業中のため全体計画は変更しない）
+- [x] PR #52を含む最新`origin/develop`を取得し、B03-3Bのレビュー済みHEADが統合済みであることを確認する
+- [x] 最新`origin/develop`をT05-2Vへ取り込み、学校資産hashと`worldBoundaryMode: "unsupported"`を両立させて競合を解消する
+- [x] 競合解消後のV2／T04／T05型検査と差分検査を通し、統合結果を記録する
 
 ## 結果
 
@@ -72,3 +79,11 @@ PR #50のT05-2主要Runtimeは2026-07-26に`develop`へマージ済みである�
 T05ブラウザfixtureは249／249項目PASSし、公開完了状態`passed`、`Babylon Logger=0 / errors=なし / warnings=なし`を確認した。完了後console warningの専用probeでは249／250項目、公開完了状態`failed`へ自動遷移することも確認した。`typecheck:v2`、`typecheck:t01`～`typecheck:t05`、通常build、`build:t01`～`build:t05`はすべて成功した。T01～T04、通常Web、Electronも実行確認し、Runtimeのwarning／errorは0件だった。通常build、T01、T03、T05にはVite生成サイズwarningがある。UTF-8 BOM、ローカル絶対パス、`git diff --check`、括弧対応、依存監査も異常なしである。
 
 1920×1080、player 1人＋NPC 99人＋BIT 50機、seed `20260725`の最終計測では、courtyardのcold 10秒がp95 20.7ms／p99 48.2ms／max 57.3ms／Long Task 2件、steady 60秒がp95 16.9ms／p99 23.3ms／max 41.8ms／Long Task 0件だった。awayのcold 10秒はp95 21.0ms／p99 44.0ms／max 61.6ms／Long Task 2件、steady 60秒はp95 16.9ms／p99 24.1ms／max 43.5ms／Long Task 0件だった。両ビューともsteady p95が16.7ms基準を0.2ms超過し、coldも基準未達のため性能受入は未完了とする。cold最大フレームの既存bit区間はcourtyard 51.4ms／away 54.6msで、今回追加したbeam区間は3.2ms／5.2ms、hit-effect区間は1.0ms／1.2msだった。描画込み60Hzの最終判定と既存bitスパイクの解消をT07へ引き継ぐ。並行作業中のため全体計画ファイルは変更していない。
+
+2026-07-28、`origin/develop`を再取得し、PR #52のマージコミット`2f67effaf057a005cfde1b085893f8370d95283b`と、B03-3Bのレビュー済みHEAD`5a4a918cb4192a677c6056528ead5463ac593cfa`が第2親として統合済みであることを確認した。T05-2Vは旧基準`89bd9ef`から1コミット先行、最新`origin/develop`から5コミット遅れており、専用worktreeで競合解消を開始する。push、Pull Request作成、`develop`への統合は行わない。
+
+同日、最新`origin/develop`を`--no-ff --no-commit`で取り込み、唯一の競合`src/world/stageCatalog.ts`を解消した。学校GLB、人間用NavMesh、BIT用NavMeshのB03-3B最終SHA-256と、B04前の学校を`worldBoundaryMode: "unsupported"`とするT05-2V契約を両方維持した。公開3成果物から再計算したSHA-256はカタログ値と全件一致し、競合markerは0件である。
+
+自動統合された`validation/v2/T04/main.ts`はB03-3Bの新学校件数、57窓、72遷移、有向surface cache、屋上折れ斜路検証と、T05-2Vの`worldBoundary: null`、決定的光線生成引数を両方保持した。`validation/v2/T05/bitSystemAcceptance.test.ts`もB03-3Bの72遷移期待値と、T05-2Vの世界境界fixture、policy、破棄、学校`unsupported`検証を両立している。
+
+`typecheck:v2`、`typecheck:t04`、`typecheck:t05`は全件成功し、T05 Runtime静的検査は`10 files / 4 terms / PASS`だった。テキスト配布検査は変更テキスト90件についてstrict UTF-8、BOMなし、ローカル絶対パスなし、通常差分とindex差分の`git diff --check`を通過した。今回の統合ではpush、Pull Request作成、`develop`への統合を行っていない。

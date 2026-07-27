@@ -38,6 +38,7 @@ ATLAS_DEFINITIONS = {
             "gym_stage": (117, 38, 26),
             "gym_wainscot": (92, 117, 98),
             "trim": (72, 78, 79),
+            "elevator_wait": (224, 174, 42),
         },
     },
     "FurnitureProps": {
@@ -158,8 +159,12 @@ CLASSROOM_REAR_INTERIOR_X_BOUNDS = (-12.45, -3.65)
 CLASSROOM_TRASH_BIN_PLACEMENT = (-3.8, 7.5)
 CORRIDOR_CLEANING_LOCKER = (-3.125, 6.8, math.pi / 2)
 MAIN_ENTRY_BAGGAGE_LOCKERS = (
-    (-4.4, -3.125, math.pi),
-    (-2.4, -3.125, math.pi),
+    (-0.425, -5.8, -math.pi / 2),
+    (-0.425, -4.0, -math.pi / 2),
+    (-1.975, -5.8, math.pi / 2),
+    (-2.425, -5.8, -math.pi / 2),
+    (-1.975, -4.0, math.pi / 2),
+    (-2.425, -4.0, -math.pi / 2),
 )
 NORTH_ENTRY_BAGGAGE_LOCKER = (5.025, 40.6, -math.pi / 2)
 NORTH_ENTRY_UMBRELLA_STAND = (5.05, 39.0, math.pi / 2)
@@ -258,7 +263,7 @@ MUSIC_PIANO_PLACEMENT = (40.4, 42.5, -math.pi / 2)
 MUSIC_CHAIR_XS = (29.0, 30.55, 32.1, 33.65, 35.2, 36.75)
 MUSIC_CHAIR_YS = (38.2, 39.55, 40.9, 42.25, 43.6)
 MUSIC_CHAIR_ROTATION = math.pi / 2
-GYM_STAGE_LECTERN = (45.4, -5.0, 1.0)
+GYM_STAGE_LECTERN = (46.4, -5.0, 1.0)
 BULLETIN_BOARD_FURNITURE_PARTS = (
     ((0.0, 0.0, 1.45), (1.80, 0.06, 1.00), "fabric"),
     ((0.0, 0.0, 1.95), (1.92, 0.08, 0.08), "wood"),
@@ -362,6 +367,14 @@ def architecture_swatch(object_name: str) -> str:
     if "gymwainscot" in name:
         return "gym_wainscot"
     if "gymtrim" in name or "storeytrim" in name or "stairguard" in name:
+        return "trim"
+    if (
+        "elevatorwaitingmat" in name
+        or "elevatoradjustmenttape" in name
+        or "elevatoradjustmentsign" in name
+    ):
+        return "elevator_wait"
+    if "elevatoradjustmenttext" in name:
         return "trim"
     if "gymstage" in name and "wall" not in name and "lintel" not in name:
         return "gym_stage"
@@ -1152,7 +1165,7 @@ def build_common_area_rooms(
     main_entry = RoomBuilder.create("F01_MainEntry", 0.0)
     for x, y, rotation in MAIN_ENTRY_BAGGAGE_LOCKERS:
         main_entry.add_prop(sources, "BaggageLocker", x, y, rotation)
-    add_additional_prop(main_entry, "RoomSign", (-1.625, -3.46, 0.0))
+    add_additional_prop(main_entry, "RoomSign", (-1.625, -6.96, 0.0))
     rooms.append(main_entry)
 
     north_entry = RoomBuilder.create("F01_NorthEntry", 0.0)
@@ -1401,13 +1414,12 @@ def build_school_rooms(
 
     gym = RoomBuilder.create("Gym", 0.0)
     gym.add_prop(sources, "BasketballGoal", 33.55, 8.5, -math.pi / 2, 3.35)
-    gym.add_prop(sources, "BasketballGoal", 57.25, 8.5, math.pi / 2, 3.35)
-    gym.add_prop(sources, "VaultingBox", 37.0, 22.5)
-    gym.add_prop(sources, "VaultingBox", 39.0, 22.5)
+    gym.add_prop(sources, "BasketballGoal", 59.25, 8.5, math.pi / 2, 3.35)
+    gym.add_prop(sources, "VaultingBox", 38.0, 22.5)
+    gym.add_prop(sources, "VaultingBox", 40.0, 22.5)
     lectern_x, lectern_y, lectern_z = GYM_STAGE_LECTERN
     gym.add_prop(sources, "StageLectern", lectern_x, lectern_y, 0.0, lectern_z)
-    add_additional_prop(gym, "WallClock", (45.4, 26.3, 3.0))
-    add_additional_prop(gym, "LifePreserverSign", (56.9, 23.5, 0.0), math.pi / 2)
+    add_additional_prop(gym, "LifePreserverSign", (58.9, 23.5, 0.0), math.pi / 2)
     rooms.append(gym)
 
     changing = RoomBuilder.create("RoofChanging", 14.5)

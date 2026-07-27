@@ -25,10 +25,10 @@ export const SCHOOL_STAGE: StageCatalogEntry = Object.freeze({
   assetSchemaVersion: 2,
   navProfileId: "school-humanoid-v1",
   bitNavProfileId: "bit-flight-body-0.44-margin-0.10-v1",
-  glbSha256: "3fbdbd7097af0ce83d9b1231837fb96bc5829842b091553e0e87adacc1e5cabc",
-  navmeshSha256: "0fcf0b136d41e23202925eb8821270c39d18efee37a5146f20c9bfa97c03c869",
+  glbSha256: "9f3ddba1025db782d648ddc81be1919eb2b38b9b5226b0babb29952a74ab16a6",
+  navmeshSha256: "6f8d8b158ad9da16c4a8362221483adb52ae151d41106b6ef5f4faea82315ee5",
   bitNavmeshSha256:
-    "40144b5cb3db56d2db895bde90758665665d7c0495f4a551025fef52941773a0",
+    "1b32c7c55a3b657ee5f3f029bb510fdc5db28b85b07234e111887a00147ec48b",
   worldBoundaryMode: "unsupported"
 });
 

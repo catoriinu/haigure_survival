@@ -40,7 +40,10 @@ import {
   createBitFlightSafety,
   type BitFlightSafety
 } from "../../../src/world/bitFlightSafety";
-import { createNavigationAgent } from "../../../src/world/navigationAgent";
+import {
+  createNavigationAgent,
+  type NavigationAgentState
+} from "../../../src/world/navigationAgent";
 import {
   PLAYER_SPRITE_HEIGHT,
   PLAYER_SPRITE_WIDTH
@@ -460,6 +463,137 @@ const requireNavigationLocation = (
     throw new Error(`検証位置をNavMeshへ投影できません: ${position.toString()}`);
   }
   return location;
+};
+
+type NavigationAgentRouteAcceptance = Readonly<{
+  deltaSeconds: number;
+  pathPointCount: number;
+  maximumSurfacePathPointCount: number;
+  onlyUsesSurfaceSteps: boolean;
+  finalState: NavigationAgentState;
+  reached: boolean;
+  updateCount: number;
+  updateLimit: number;
+  movementDistanceViolationCount: number;
+  maximumMovementDistance: number;
+  maximumMovementDistanceExcess: number;
+  endpointError: number;
+}>;
+
+const schoolNpcNavigationAgentConfig = Object.freeze({
+  projectionMaxDistance: 0.75,
+  targetMoveThreshold: 0.15,
+  pathRefreshIntervalSeconds: 0.5,
+  waypointTolerance: 0.02,
+  stuckDistanceThreshold: 0.005,
+  stuckDurationSeconds: 1
+});
+const schoolNpcChaseSpeed = 0.3;
+const navigationPathPointCapacity = 4096;
+
+const executeNavigationAgentRouteAcceptance = (
+  navigation: NavigationWorld,
+  start: Vector3,
+  destination: Vector3,
+  deltaSeconds: number
+): NavigationAgentRouteAcceptance => {
+  const path = findNavigationPath(
+    navigation,
+    start,
+    destination,
+    "npc",
+    schoolNpcNavigationAgentConfig.projectionMaxDistance
+  );
+  const pathPoints = getNavigationPathPoints(path);
+  const maximumSurfacePathPointCount =
+    path?.steps.reduce(
+      (maximum, step) =>
+        step.kind === "surface"
+          ? Math.max(maximum, step.points.length)
+          : maximum,
+      0
+    ) ?? 0;
+  const projectedDestination = navigation.projectPoint(
+    destination,
+    schoolNpcNavigationAgentConfig.projectionMaxDistance
+  );
+  let location = requireNavigationLocation(
+    navigation,
+    start,
+    schoolNpcNavigationAgentConfig.projectionMaxDistance
+  );
+  const agent = createNavigationAgent(
+    navigation,
+    "npc",
+    schoolNpcNavigationAgentConfig
+  );
+  const movementBudget = schoolNpcChaseSpeed * deltaSeconds;
+  const updateLimit =
+    path === null
+      ? 1
+      : Math.ceil(path.distance / movementBudget) + pathPoints.length + 256;
+  let finalState: NavigationAgentState = "moving";
+  let updateCount = 0;
+  let movementDistanceViolationCount = 0;
+  let maximumMovementDistance = 0;
+  let maximumMovementDistanceExcess = 0;
+  try {
+    while (finalState === "moving" && updateCount < updateLimit) {
+      const previousPosition = location.position;
+      const result = agent.update(
+        location,
+        destination,
+        schoolNpcChaseSpeed,
+        deltaSeconds,
+        true
+      );
+      const movementDistance = Vector3.Distance(
+        previousPosition,
+        result.location.position
+      );
+      maximumMovementDistance = Math.max(
+        maximumMovementDistance,
+        movementDistance
+      );
+      maximumMovementDistanceExcess = Math.max(
+        maximumMovementDistanceExcess,
+        movementDistance - movementBudget
+      );
+      if (
+        movementDistance >
+        movementBudget +
+          schoolNpcNavigationAgentConfig.waypointTolerance +
+          1e-6
+      ) {
+        movementDistanceViolationCount += 1;
+      }
+      location = result.location;
+      finalState = result.state;
+      updateCount += 1;
+    }
+  } finally {
+    agent.clear();
+  }
+  const endpointError = projectedDestination
+    ? Vector3.Distance(location.position, projectedDestination.position)
+    : Number.POSITIVE_INFINITY;
+  return Object.freeze({
+    deltaSeconds,
+    pathPointCount: pathPoints.length,
+    maximumSurfacePathPointCount,
+    onlyUsesSurfaceSteps:
+      path !== null && path.steps.every((step) => step.kind === "surface"),
+    finalState,
+    reached:
+      finalState === "arrived" &&
+      endpointError <= schoolNpcNavigationAgentConfig.waypointTolerance + 1e-6,
+    updateCount,
+    updateLimit,
+    movementDistanceViolationCount,
+    maximumMovementDistance,
+    maximumMovementDistanceExcess,
+    endpointError
+  });
 };
 
 const projectBitTransitionEndpoint = (
@@ -1209,14 +1343,20 @@ const runValidation = async () => {
       new Vector3(-9.5, 0.25, -1.5),
       new Vector3(-9.5, 1.05, -1.5)
     );
+    const cacheEntryTeleportLink = createValidationLinkPair(
+      "teleport-cache-entry-validation",
+      "teleport",
+      new Vector3(-6.7, 0.25, -1.5),
+      new Vector3(3, 0.25, -1.5)
+    );
     const cachedSurfaceBridgeLink = createValidationLinkPair(
       "teleport-cache-bridge-validation",
       "teleport",
-      new Vector3(5.7, 0.25, -1.5),
-      new Vector3(-6.7, 0.25, -1.5)
+      new Vector3(3, 0.25, 1.5),
+      new Vector3(5.5, 0.25, -1.5)
     );
     const linkCacheValidationLinks = [
-      primaryTeleportLink,
+      cacheEntryTeleportLink,
       elevatedTeleportLink,
       cachedSurfaceBridgeLink
     ];
@@ -1242,6 +1382,9 @@ const runValidation = async () => {
     let firstPathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let secondPathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let reversePathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let repeatedReversePathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let nativeForwardPathfindAttempts: readonly RecastPathfindAttempt[] = [];
+    let nativeReversePathfindAttempts: readonly RecastPathfindAttempt[] = [];
     let repeatedDirectPath: NavigationPath | null = null;
     let samePolygonSurfaceStep: NavigationSurfaceStep | null = null;
     let samePositionSurfaceStep: NavigationSurfaceStep | null = null;
@@ -1252,6 +1395,9 @@ const runValidation = async () => {
     let firstCachedLinkPath: NavigationPath | null = null;
     let secondCachedLinkPath: NavigationPath | null = null;
     let reverseCachedLinkPath: NavigationPath | null = null;
+    let repeatedReverseCachedLinkPath: NavigationPath | null = null;
+    let nativeForwardSurfaceStep: NavigationSurfaceStep | null = null;
+    let nativeReverseSurfaceStep: NavigationSurfaceStep | null = null;
     let cachedEndpointKeys = new Set<string>();
     let linkCacheValidationWorld: NavigationWorld | null = null;
     queryPrototype.findPath = function (
@@ -1370,11 +1516,11 @@ const runValidation = async () => {
       );
       const startLocation = requireNavigationLocation(
         linkCacheValidationWorld,
-        new Vector3(3.5, 0, -1.5)
+        new Vector3(-6.3, 0, -1.5)
       );
       const destinationLocation = requireNavigationLocation(
         linkCacheValidationWorld,
-        new Vector3(-6.3, 0, -1.5)
+        new Vector3(5.3, 0, -1.5)
       );
       const firstPathfindStartIndex = recastPathfindAttempts.length;
       firstCachedLinkPath = linkCacheValidationWorld.findPath(
@@ -1403,9 +1549,56 @@ const runValidation = async () => {
       reversePathfindAttempts = Object.freeze(
         recastPathfindAttempts.slice(reversePathfindStartIndex)
       );
+      const repeatedReversePathfindStartIndex = recastPathfindAttempts.length;
+      repeatedReverseCachedLinkPath = linkCacheValidationWorld.findPath(
+        destinationLocation,
+        startLocation,
+        "npc"
+      );
+      repeatedReversePathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(repeatedReversePathfindStartIndex)
+      );
+      const nativeForwardStart = requireNavigationLocation(
+        linkCacheValidationWorld,
+        cacheEntryTeleportLink.endpointB.position,
+        0.3
+      );
+      const nativeForwardDestination = requireNavigationLocation(
+        linkCacheValidationWorld,
+        cachedSurfaceBridgeLink.endpointA.position,
+        0.3
+      );
+      const nativeForwardPathfindStartIndex = recastPathfindAttempts.length;
+      nativeForwardSurfaceStep = linkCacheValidationWorld.findSurfacePath(
+        nativeForwardStart,
+        nativeForwardDestination
+      );
+      nativeForwardPathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(nativeForwardPathfindStartIndex)
+      );
+      const nativeReverseStart = requireNavigationLocation(
+        linkCacheValidationWorld,
+        cachedSurfaceBridgeLink.endpointA.position,
+        0.3
+      );
+      const nativeReverseDestination = requireNavigationLocation(
+        linkCacheValidationWorld,
+        cacheEntryTeleportLink.endpointB.position,
+        0.3
+      );
+      const nativeReversePathfindStartIndex = recastPathfindAttempts.length;
+      nativeReverseSurfaceStep = linkCacheValidationWorld.findSurfacePath(
+        nativeReverseStart,
+        nativeReverseDestination
+      );
+      nativeReversePathfindAttempts = Object.freeze(
+        recastPathfindAttempts.slice(nativeReversePathfindStartIndex)
+      );
     } finally {
       queryPrototype.findPath = originalFindPath;
       linkCacheValidationWorld?.dispose();
+      cacheEntryTeleportLink.endpointA.node.dispose();
+      cacheEntryTeleportLink.endpointB.node.dispose();
       cachedSurfaceBridgeLink.endpointA.node.dispose();
       cachedSurfaceBridgeLink.endpointB.node.dispose();
     }
@@ -1509,13 +1702,17 @@ const runValidation = async () => {
       reverseCachedLinkPath?.steps.flatMap((step) =>
         step.kind === "transition" ? [step.link.id] : []
       ) ?? [];
+    const repeatedReverseCachedTransitionIds =
+      repeatedReverseCachedLinkPath?.steps.flatMap((step) =>
+        step.kind === "transition" ? [step.link.id] : []
+      ) ?? [];
     const expectedCachedTransitionIds = [
-      primaryTeleportLink.id,
+      cacheEntryTeleportLink.id,
       cachedSurfaceBridgeLink.id
     ];
     const expectedReverseCachedTransitionIds = [
       cachedSurfaceBridgeLink.id,
-      primaryTeleportLink.id
+      cacheEntryTeleportLink.id
     ];
     const hasExpectedCachedTransitions = (ids: readonly string[]) =>
       ids.length === expectedCachedTransitionIds.length &&
@@ -1531,44 +1728,106 @@ const runValidation = async () => {
       getEndpointSurfacePathfindAttempts(secondPathfindAttempts);
     const reverseEndpointSurfacePathfindAttempts =
       getEndpointSurfacePathfindAttempts(reversePathfindAttempts);
+    const repeatedReverseEndpointSurfacePathfindAttempts =
+      getEndpointSurfacePathfindAttempts(repeatedReversePathfindAttempts);
+    const nativeForwardEndpointSurfacePathfindAttempts =
+      getEndpointSurfacePathfindAttempts(nativeForwardPathfindAttempts);
+    const nativeReverseEndpointSurfacePathfindAttempts =
+      getEndpointSurfacePathfindAttempts(nativeReversePathfindAttempts);
     const firstCachedEndpointSurfaceSteps = getSurfaceStepsBetweenTransitions(
       firstCachedLinkPath,
-      primaryTeleportLink.id,
+      cacheEntryTeleportLink.id,
       cachedSurfaceBridgeLink.id
     );
     const reverseCachedEndpointSurfaceSteps = getSurfaceStepsBetweenTransitions(
       reverseCachedLinkPath,
       cachedSurfaceBridgeLink.id,
-      primaryTeleportLink.id
+      cacheEntryTeleportLink.id
     );
-    const reverseCachedSurfaceMatches =
-      firstCachedEndpointSurfaceSteps.length > 0 &&
-      firstCachedEndpointSurfaceSteps.length ===
-        reverseCachedEndpointSurfaceSteps.length &&
-      firstCachedEndpointSurfaceSteps.every((forwardStep, stepIndex) => {
-        const reverseStep =
-          reverseCachedEndpointSurfaceSteps[
-            reverseCachedEndpointSurfaceSteps.length - 1 - stepIndex
+    const repeatedReverseCachedEndpointSurfaceSteps =
+      getSurfaceStepsBetweenTransitions(
+        repeatedReverseCachedLinkPath,
+        cachedSurfaceBridgeLink.id,
+        cacheEntryTeleportLink.id
+      );
+    const forwardCachedSurfaceStep = firstCachedEndpointSurfaceSteps[0] ?? null;
+    const reverseCachedSurfaceStep =
+      reverseCachedEndpointSurfaceSteps[0] ?? null;
+    const repeatedReverseCachedSurfaceStep =
+      repeatedReverseCachedEndpointSurfaceSteps[0] ?? null;
+    const reverseCoordinatesMatch =
+      forwardCachedSurfaceStep !== null &&
+      reverseCachedSurfaceStep !== null &&
+      forwardCachedSurfaceStep.points.length ===
+        reverseCachedSurfaceStep.points.length &&
+      forwardCachedSurfaceStep.points.every((forwardPoint, pointIndex) => {
+        const reversePoint =
+          reverseCachedSurfaceStep.points[
+            reverseCachedSurfaceStep.points.length - 1 - pointIndex
           ];
         return (
-          forwardStep.points.length === reverseStep.points.length &&
-          forwardStep.points.every((forwardPoint, pointIndex) => {
-            const reversePoint =
-              reverseStep.points[reverseStep.points.length - 1 - pointIndex];
-            return (
-              forwardPoint.polygonRef === reversePoint.polygonRef &&
-              Vector3.Distance(forwardPoint.position, reversePoint.position) <=
-                1e-6
-            );
-          })
+          Vector3.Distance(forwardPoint.position, reversePoint.position) <= 1e-6
+        );
+      });
+    const directionDependentPolygonRefs =
+      forwardCachedSurfaceStep !== null &&
+      reverseCachedSurfaceStep !== null &&
+      forwardCachedSurfaceStep.points.length ===
+        reverseCachedSurfaceStep.points.length &&
+      forwardCachedSurfaceStep.points.length >= 3 &&
+      forwardCachedSurfaceStep.points.slice(1, -1).some(
+        (forwardPoint, pointIndex) =>
+          forwardPoint.polygonRef !==
+          reverseCachedSurfaceStep.points[
+            reverseCachedSurfaceStep.points.length - 2 - pointIndex
+          ].polygonRef
+      );
+    const forwardCachedSurfaceMatchesNative =
+      forwardCachedSurfaceStep !== null &&
+      nativeForwardSurfaceStep !== null &&
+      forwardCachedSurfaceStep.points.length ===
+        nativeForwardSurfaceStep.points.length &&
+      forwardCachedSurfaceStep.points.every((cachedPoint, pointIndex) => {
+        const nativePoint = nativeForwardSurfaceStep.points[pointIndex];
+        return (
+          cachedPoint.polygonRef === nativePoint.polygonRef &&
+          Vector3.Distance(cachedPoint.position, nativePoint.position) <= 1e-6
+        );
+      });
+    const reverseCachedSurfaceMatchesNative =
+      reverseCachedSurfaceStep !== null &&
+      nativeReverseSurfaceStep !== null &&
+      reverseCachedSurfaceStep.points.length ===
+        nativeReverseSurfaceStep.points.length &&
+      reverseCachedSurfaceStep.points.every((cachedPoint, pointIndex) => {
+        const nativePoint = nativeReverseSurfaceStep.points[pointIndex];
+        return (
+          cachedPoint.polygonRef === nativePoint.polygonRef &&
+          Vector3.Distance(cachedPoint.position, nativePoint.position) <= 1e-6
+        );
+      });
+    const repeatedReverseCacheMatches =
+      reverseCachedSurfaceStep !== null &&
+      repeatedReverseCachedSurfaceStep !== null &&
+      reverseCachedSurfaceStep.points.length ===
+        repeatedReverseCachedSurfaceStep.points.length &&
+      reverseCachedSurfaceStep.points.every((cachedPoint, pointIndex) => {
+        const repeatedPoint =
+          repeatedReverseCachedSurfaceStep.points[pointIndex];
+        return (
+          cachedPoint.polygonRef === repeatedPoint.polygonRef &&
+          Vector3.Distance(cachedPoint.position, repeatedPoint.position) <= 1e-6
         );
       });
     checks.push({
-      name: "特殊接続の連結成分グラフ・順不同キャッシュ",
+      name: "特殊接続の連結成分グラフ・有向surfaceキャッシュ",
       ok:
         hasExpectedCachedTransitions(firstCachedTransitionIds) &&
         hasExpectedCachedTransitions(secondCachedTransitionIds) &&
         hasExpectedReverseCachedTransitions(reverseCachedTransitionIds) &&
+        hasExpectedReverseCachedTransitions(
+          repeatedReverseCachedTransitionIds
+        ) &&
         cachedEndpointKeys.size === linkCacheValidationLinks.length * 2 &&
         constructionPathfindAttempts.length === 0 &&
         playerPathfindAttempts.length === 1 &&
@@ -1583,11 +1842,18 @@ const runValidation = async () => {
         samePolygonSurfaceStepMatches &&
         samePositionSurfaceStepMatches &&
         disconnectedSurfaceStep === null &&
-        firstEndpointSurfacePathfindAttempts.length === 0 &&
+        firstEndpointSurfacePathfindAttempts.length === 1 &&
         secondEndpointSurfacePathfindAttempts.length === 0 &&
-        reverseEndpointSurfacePathfindAttempts.length === 0 &&
-        reverseCachedSurfaceMatches,
-      detail: `endpoints=${cachedEndpointKeys.size} / build=${constructionPathfindAttempts.length} / normal=${playerPathfindAttempts.length},${npcPathfindAttempts.length} / repeatedDirect=${repeatedDirectPathfindAttempts.length}(direct=${repeatedDirectSurfacePathfindCount}, ${repeatedDirectTransitionCount}遷移) / fast=${samePolygonPathfindAttempts.length},${samePositionPathfindAttempts.length},${disconnectedPathfindAttempts.length}(${samePolygonSurfaceStepMatches}/${samePositionSurfaceStepMatches}/${disconnectedSurfaceStep === null}) / endpoint=${firstEndpointSurfacePathfindAttempts.length},${secondEndpointSurfacePathfindAttempts.length},${reverseEndpointSurfacePathfindAttempts.length} / reversePoints=${reverseCachedSurfaceMatches} / transitions=${firstCachedTransitionIds.join(" > ") || "none"}`
+        reverseEndpointSurfacePathfindAttempts.length === 1 &&
+        repeatedReverseEndpointSurfacePathfindAttempts.length === 0 &&
+        nativeForwardEndpointSurfacePathfindAttempts.length === 1 &&
+        nativeReverseEndpointSurfacePathfindAttempts.length === 1 &&
+        reverseCoordinatesMatch &&
+        directionDependentPolygonRefs &&
+        forwardCachedSurfaceMatchesNative &&
+        reverseCachedSurfaceMatchesNative &&
+        repeatedReverseCacheMatches,
+      detail: `endpoints=${cachedEndpointKeys.size} / build=${constructionPathfindAttempts.length} / normal=${playerPathfindAttempts.length},${npcPathfindAttempts.length} / repeatedDirect=${repeatedDirectPathfindAttempts.length}(direct=${repeatedDirectSurfacePathfindCount}, ${repeatedDirectTransitionCount}遷移) / fast=${samePolygonPathfindAttempts.length},${samePositionPathfindAttempts.length},${disconnectedPathfindAttempts.length}(${samePolygonSurfaceStepMatches}/${samePositionSurfaceStepMatches}/${disconnectedSurfaceStep === null}) / endpoint=${firstEndpointSurfacePathfindAttempts.length},${secondEndpointSurfacePathfindAttempts.length},${reverseEndpointSurfacePathfindAttempts.length},${repeatedReverseEndpointSurfacePathfindAttempts.length},native=${nativeForwardEndpointSurfacePathfindAttempts.length},${nativeReverseEndpointSurfacePathfindAttempts.length} / points=${forwardCachedSurfaceStep?.points.length ?? 0} / reverse=${reverseCoordinatesMatch},refs=${directionDependentPolygonRefs},native=${forwardCachedSurfaceMatchesNative}/${reverseCachedSurfaceMatchesNative},cached=${repeatedReverseCacheMatches} / transitions=${firstCachedTransitionIds.join(" > ") || "none"}`
     });
 
     const highProjectionLink = createValidationLinkPair(
@@ -2809,11 +3075,11 @@ const runValidation = async () => {
               ) <= 1e-6
           );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 468 &&
-          schoolContext.resources.normalColliders.length === 185 &&
-          schoolContext.resources.actorOnlyColliders.length === 82 &&
-          schoolContext.resources.humanOnlyColliders.length === 58 &&
-          schoolContext.resources.navSourceMeshes.length === 15 &&
+          schoolContext.resources.visualMeshes.length === 482 &&
+          schoolContext.resources.normalColliders.length === 197 &&
+          schoolContext.resources.actorOnlyColliders.length === 81 &&
+          schoolContext.resources.humanOnlyColliders.length === 57 &&
+          schoolContext.resources.navSourceMeshes.length === 19 &&
           schoolContext.resources.bitFlightNavSourceMeshes.length === 22 &&
           schoolContext.markers.all.length === 3 &&
           assemblyAnchors.length === 2 &&
@@ -2822,7 +3088,7 @@ const runValidation = async () => {
           schoolContext.links.all.length === 0 &&
           schoolContext.bitNavigation.zones.length === 4 &&
           schoolContext.bitNavigation.bands.length === 11 &&
-          apertureTransitions.length === 58 &&
+          apertureTransitions.length === 57 &&
           verticalTransitions.length === 4 &&
           surfaceRouteTransitions.length === 10 &&
           boundaryTransitions.length === 1 &&
@@ -2925,10 +3191,10 @@ const runValidation = async () => {
               .join(", ") || "none"}`
         });
         checks.push({
-          name: "学校58窓遷移の実飛行Agent双方向受入（現行1.20m開口ブロッカー）",
+          name: "学校57窓遷移の実飛行Agent双方向受入（現行1.20m開口ブロッカー）",
           ok:
-            windowTransitionAgentResults.length === 116 &&
-            windowTransitionPasses.length === 116,
+            windowTransitionAgentResults.length === 114 &&
+            windowTransitionPasses.length === 114,
           detail:
             `pass=${windowTransitionPasses.length}/` +
             `${windowTransitionAgentResults.length} / ` +
@@ -3045,6 +3311,246 @@ const runValidation = async () => {
           ["プール底", new Vector3(23.4, 39.0, 14.61)]
         ] as const;
         const schoolNavigation = schoolContext.navigation;
+        const forbiddenInitialSpawnSurfaceRepresentatives = [
+          ["2F渡り廊下屋根", new Vector3(41.4, 29.5, 7.05)],
+          ["屋上階段室屋根", new Vector3(-9.6, 42.2, 17.0)],
+          ["男子更衣室屋根", new Vector3(-4.35, 42.0, 17.0)],
+          ["女子更衣室屋根", new Vector3(0.15, 42.0, 17.0)]
+        ] as const;
+        const forbiddenInitialSpawnSurfaceResults =
+          forbiddenInitialSpawnSurfaceRepresentatives.map(
+            ([label, blenderPoint]) => ({
+              label,
+              projected: schoolNavigation.projectPoint(
+                blenderPointToBabylon(blenderPoint),
+                0.1
+              )
+            })
+          );
+        checks.push({
+          name: "初期NPC生成対象外屋根の人物Nav面除外",
+          ok: forbiddenInitialSpawnSurfaceResults.every(
+            (result) => result.projected === null
+          ),
+          detail: forbiddenInitialSpawnSurfaceResults
+            .map(
+              (result) =>
+                `${result.label}=${result.projected?.position.toString() ?? "null"}`
+            )
+            .join(" / ")
+        });
+
+        const retainedGymRoofRouteRepresentatives = [
+          ["校舎屋上", new Vector3(-5.5, 39.5, 14.4)],
+          ["体育館屋上", new Vector3(41.4, 24.0, 9.6)],
+          ["3F接続床", new Vector3(41.4, 33.4, 7.2)],
+          ["体育館屋上Ramp", new Vector3(41.4, 29.5, 8.4)]
+        ] as const;
+        const retainedGymRoofRouteResults =
+          retainedGymRoofRouteRepresentatives.map(([label, blenderPoint]) => ({
+            label,
+            point: blenderPointToBabylon(blenderPoint),
+            projected: schoolNavigation.projectPoint(
+              blenderPointToBabylon(blenderPoint),
+              0.1
+            )
+          }));
+        const thirdFloorGymRoofStart = retainedGymRoofRouteResults[2];
+        const thirdFloorGymRoofDestination = retainedGymRoofRouteResults[1];
+        const thirdFloorGymRoofForwardPath = findNavigationPath(
+          schoolNavigation,
+          thirdFloorGymRoofStart.point,
+          thirdFloorGymRoofDestination.point,
+          "npc"
+        );
+        const thirdFloorGymRoofBackwardPath = findNavigationPath(
+          schoolNavigation,
+          thirdFloorGymRoofDestination.point,
+          thirdFloorGymRoofStart.point,
+          "npc"
+        );
+        const thirdFloorGymRoofForwardPoints = getNavigationPathPoints(
+          thirdFloorGymRoofForwardPath
+        );
+        const thirdFloorGymRoofBackwardPoints = getNavigationPathPoints(
+          thirdFloorGymRoofBackwardPath
+        );
+        const gymRoofRampBounds = blenderBoundsToBabylon(
+          new Vector3(39.4, 26.5, 7.1),
+          new Vector3(43.4, 32.5, 9.7)
+        );
+        const thirdFloorGymRoofForwardEndpointError =
+          thirdFloorGymRoofDestination.projected &&
+          thirdFloorGymRoofForwardPoints.length > 0
+            ? Vector3.Distance(
+                thirdFloorGymRoofForwardPoints[
+                  thirdFloorGymRoofForwardPoints.length - 1
+                ],
+                thirdFloorGymRoofDestination.projected.position
+              )
+            : Number.POSITIVE_INFINITY;
+        const thirdFloorGymRoofBackwardEndpointError =
+          thirdFloorGymRoofStart.projected &&
+          thirdFloorGymRoofBackwardPoints.length > 0
+            ? Vector3.Distance(
+                thirdFloorGymRoofBackwardPoints[
+                  thirdFloorGymRoofBackwardPoints.length - 1
+                ],
+                thirdFloorGymRoofStart.projected.position
+              )
+            : Number.POSITIVE_INFINITY;
+        checks.push({
+          name: "校舎屋上・体育館屋上・3F屋上Rampの人物Nav維持",
+          ok:
+            retainedGymRoofRouteResults.every(
+              (result) => result.projected !== null
+            ) &&
+            thirdFloorGymRoofForwardPath !== null &&
+            thirdFloorGymRoofBackwardPath !== null &&
+            thirdFloorGymRoofForwardPath.steps.every(
+              (step) => step.kind === "surface"
+            ) &&
+            thirdFloorGymRoofBackwardPath.steps.every(
+              (step) => step.kind === "surface"
+            ) &&
+            pathPassesBounds(
+              thirdFloorGymRoofForwardPoints,
+              gymRoofRampBounds
+            ) &&
+            pathPassesBounds(
+              thirdFloorGymRoofBackwardPoints,
+              gymRoofRampBounds
+            ) &&
+            thirdFloorGymRoofForwardEndpointError <= 1e-5 &&
+            thirdFloorGymRoofBackwardEndpointError <= 1e-5,
+          detail:
+            retainedGymRoofRouteResults
+              .map(
+                (result) =>
+                  `${result.label}=${result.projected?.position.toString() ?? "null"}`
+              )
+              .join(" / ") +
+            ` / path=${thirdFloorGymRoofForwardPoints.length}/${thirdFloorGymRoofBackwardPoints.length}点` +
+            ` / ramp=${pathPassesBounds(thirdFloorGymRoofForwardPoints, gymRoofRampBounds)}/${pathPassesBounds(thirdFloorGymRoofBackwardPoints, gymRoofRampBounds)}` +
+            ` / error=${Number.isFinite(thirdFloorGymRoofForwardEndpointError) ? thirdFloorGymRoofForwardEndpointError.toExponential(1) : "--"}/${Number.isFinite(thirdFloorGymRoofBackwardEndpointError) ? thirdFloorGymRoofBackwardEndpointError.toExponential(1) : "--"}`
+        });
+        const correctedGroundRouteCases = [
+          {
+            label: "体育館南壁・南塀間",
+            start: new Vector3(34.2, -13.2, -0.3),
+            destination: new Vector3(58.6, -13.2, -0.3),
+            requiredMinimum: new Vector3(45.6, -13.3, -0.5),
+            requiredMaximum: new Vector3(47.2, -12.4, -0.1)
+          },
+          {
+            label: "主玄関6台ロッカー間",
+            start: new Vector3(-1.2, -6.6, 0.0),
+            destination: new Vector3(-1.2, -3.0, 0.0),
+            requiredMinimum: new Vector3(-1.70, -5.15, -0.2),
+            requiredMaximum: new Vector3(-0.70, -4.65, 0.2)
+          }
+        ] as const;
+        const correctedGroundRouteResults = correctedGroundRouteCases.map(
+          (route) => {
+            const start = blenderPointToBabylon(route.start);
+            const destination = blenderPointToBabylon(route.destination);
+            const projectedStart = schoolNavigation.projectPoint(start, 0.1);
+            const projectedDestination = schoolNavigation.projectPoint(
+              destination,
+              0.1
+            );
+            const requiredBounds = blenderBoundsToBabylon(
+              route.requiredMinimum,
+              route.requiredMaximum
+            );
+            const actorResults = (["player", "npc"] as const).map((actorKind) => {
+              const forwardPath = findNavigationPath(
+                schoolNavigation,
+                start,
+                destination,
+                actorKind
+              );
+              const backwardPath = findNavigationPath(
+                schoolNavigation,
+                destination,
+                start,
+                actorKind
+              );
+              const forwardPoints = getNavigationPathPoints(forwardPath);
+              const backwardPoints = getNavigationPathPoints(backwardPath);
+              return {
+                actorKind,
+                forwardPath,
+                backwardPath,
+                forwardPoints,
+                backwardPoints,
+                forwardPassesRequired:
+                  pathPassesBounds(forwardPoints, requiredBounds),
+                backwardPassesRequired:
+                  pathPassesBounds(backwardPoints, requiredBounds),
+                forwardEndpointError:
+                  projectedDestination && forwardPoints.length > 0
+                    ? Vector3.Distance(
+                        forwardPoints[forwardPoints.length - 1],
+                        projectedDestination.position
+                      )
+                    : Number.POSITIVE_INFINITY,
+                backwardEndpointError:
+                  projectedStart && backwardPoints.length > 0
+                    ? Vector3.Distance(
+                        backwardPoints[backwardPoints.length - 1],
+                        projectedStart.position
+                      )
+                    : Number.POSITIVE_INFINITY
+              };
+            });
+            return {
+              label: route.label,
+              projectedStart,
+              projectedDestination,
+              actorResults
+            };
+          }
+        );
+        checks.push({
+          name: "南側通路・6台ロッカー間のPlayer/NPC双方向Nav経路",
+          ok: correctedGroundRouteResults.every(
+            (route) =>
+              route.projectedStart !== null &&
+              route.projectedDestination !== null &&
+              route.actorResults.every(
+                (result) =>
+                  result.forwardPath !== null &&
+                  result.backwardPath !== null &&
+                  result.forwardPath.steps.every(
+                    (step) => step.kind === "surface"
+                  ) &&
+                  result.backwardPath.steps.every(
+                    (step) => step.kind === "surface"
+                  ) &&
+                  result.forwardPassesRequired &&
+                  result.backwardPassesRequired &&
+                  result.forwardEndpointError <= 1e-5 &&
+                  result.backwardEndpointError <= 1e-5
+              )
+          ),
+          detail: correctedGroundRouteResults
+            .map(
+              (route) =>
+                `${route.label}:` +
+                route.actorResults
+                  .map(
+                    (result) =>
+                      `${result.actorKind}=` +
+                      `${result.forwardPoints.length}/${result.backwardPoints.length}点,` +
+                      `通過=${result.forwardPassesRequired}/${result.backwardPassesRequired},` +
+                      `誤差=${Number.isFinite(result.forwardEndpointError) ? result.forwardEndpointError.toExponential(1) : "--"}/` +
+                      `${Number.isFinite(result.backwardEndpointError) ? result.backwardEndpointError.toExponential(1) : "--"}`
+                  )
+                  .join(";")
+            )
+            .join(" / ")
+        });
         const roofGuardNorthStartX = 2.4;
         const roofGuardNorthEndX = 47.3;
         const roofGuardPostCount = Math.ceil(
@@ -3154,6 +3660,122 @@ const runValidation = async () => {
                 `${result.label}:projected=${result.projected?.position.y.toFixed(3) ?? "null"},` +
                 `path=${result.forwardPath === null ? "null" : `${getNavigationPathPoints(result.forwardPath).length}点`}/${result.backwardPath === null ? "null" : `${getNavigationPathPoints(result.backwardPath).length}点`},` +
                 `error=${Number.isFinite(result.forwardEndpointError) ? result.forwardEndpointError.toExponential(1) : "--"}/${Number.isFinite(result.backwardEndpointError) ? result.backwardEndpointError.toExponential(1) : "--"}`
+            )
+            .join(" / ")
+        });
+
+        const foldedRampChaseStart = blenderPointToBabylon(
+          new Vector3(32.833, 37.0, 14.7)
+        );
+        const gymBridgeChaseTarget = blenderPointToBabylon(
+          new Vector3(39.88, 35.312, 3.61)
+        );
+        const foldedRampChasePath = findNavigationPath(
+          schoolNavigation,
+          foldedRampChaseStart,
+          gymBridgeChaseTarget,
+          "npc",
+          schoolNpcNavigationAgentConfig.projectionMaxDistance
+        );
+        const foldedRampChasePathPoints =
+          getNavigationPathPoints(foldedRampChasePath);
+        const foldedRampBounds = blenderBoundsToBabylon(
+          new Vector3(9.9, 37.7, 14.4),
+          new Vector3(16.6, 40.3, 15.8)
+        );
+        const foldedRampPathPoints = foldedRampChasePathPoints.filter(
+          (point) =>
+            point.x >= foldedRampBounds.minimum.x &&
+            point.x <= foldedRampBounds.maximum.x &&
+            point.y >= foldedRampBounds.minimum.y &&
+            point.y <= foldedRampBounds.maximum.y &&
+            point.z >= foldedRampBounds.minimum.z &&
+            point.z <= foldedRampBounds.maximum.z
+        );
+        const expectedFoldedRampHeights = [
+          14.85,
+          15.15,
+          15.7,
+          15.4,
+          15.0,
+          14.65
+        ].map((height) => height * BLENDER_METERS_TO_WORLD_UNITS);
+        const matchedFoldedRampHeightCount =
+          expectedFoldedRampHeights.filter((expectedHeight) =>
+            foldedRampPathPoints.some(
+              (point) => Math.abs(point.y - expectedHeight) <= 1e-5
+            )
+          ).length;
+        const foldedRampMaximumSurfacePointCount =
+          foldedRampChasePath?.steps.reduce(
+            (maximum, step) =>
+              step.kind === "surface"
+                ? Math.max(maximum, step.points.length)
+                : maximum,
+            0
+          ) ?? 0;
+        checks.push({
+          name: "屋上プール折れ斜路の全NavMesh境界高度点",
+          ok:
+            foldedRampChasePath !== null &&
+            foldedRampChasePath.steps.every(
+              (step) => step.kind === "surface"
+            ) &&
+            foldedRampChasePathPoints.length > 0 &&
+            foldedRampChasePathPoints.length <= navigationPathPointCapacity &&
+            foldedRampMaximumSurfacePointCount <=
+              navigationPathPointCapacity &&
+            matchedFoldedRampHeightCount ===
+              expectedFoldedRampHeights.length,
+          detail:
+            `path=${foldedRampChasePathPoints.length}点 / ` +
+            `surfaceMax=${foldedRampMaximumSurfacePointCount}点 / ` +
+            `ramp=${foldedRampPathPoints.length}点 / ` +
+            `height=${matchedFoldedRampHeightCount}/${expectedFoldedRampHeights.length} / ` +
+            `observed=${[
+              ...new Set(
+                foldedRampPathPoints.map((point) =>
+                  (
+                    point.y / BLENDER_METERS_TO_WORLD_UNITS
+                  ).toFixed(2)
+                )
+              )
+            ].join(",") || "none"}`
+        });
+
+        const foldedRampAgentResults = [1 / 60, 0.05].map(
+          (deltaSeconds) =>
+            executeNavigationAgentRouteAcceptance(
+              schoolNavigation,
+              foldedRampChaseStart,
+              gymBridgeChaseTarget,
+              deltaSeconds
+            )
+        );
+        checks.push({
+          name: "屋上NPCから2F渡り廊下への実速度NavMesh追跡",
+          ok: foldedRampAgentResults.every(
+            (result) =>
+              result.onlyUsesSurfaceSteps &&
+              result.pathPointCount > 0 &&
+              result.pathPointCount <= navigationPathPointCapacity &&
+              result.maximumSurfacePathPointCount <=
+                navigationPathPointCapacity &&
+              result.movementDistanceViolationCount === 0 &&
+              result.reached &&
+              result.updateCount < result.updateLimit
+          ),
+          detail: foldedRampAgentResults
+            .map(
+              (result) =>
+                `delta=${result.deltaSeconds.toFixed(5)}:` +
+                `state=${result.finalState},reached=${result.reached},` +
+                `updates=${result.updateCount}/${result.updateLimit},` +
+                `path=${result.pathPointCount},surfaceMax=${result.maximumSurfacePathPointCount},` +
+                `over=${result.movementDistanceViolationCount},` +
+                `maxMove=${result.maximumMovementDistance.toFixed(6)},` +
+                `maxExcess=${result.maximumMovementDistanceExcess.toFixed(6)},` +
+                `error=${result.endpointError.toExponential(2)}`
             )
             .join(" / ")
         });
@@ -4364,11 +4986,11 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 468 &&
-          reloadedContext.resources.normalColliders.length === 185 &&
-          reloadedContext.resources.actorOnlyColliders.length === 82 &&
-          reloadedContext.resources.humanOnlyColliders.length === 58 &&
-          reloadedContext.resources.navSourceMeshes.length === 15 &&
+          reloadedContext.resources.visualMeshes.length === 482 &&
+          reloadedContext.resources.normalColliders.length === 197 &&
+          reloadedContext.resources.actorOnlyColliders.length === 81 &&
+          reloadedContext.resources.humanOnlyColliders.length === 57 &&
+          reloadedContext.resources.navSourceMeshes.length === 19 &&
           reloadedContext.resources.bitFlightNavSourceMeshes.length === 22 &&
           reloadedContext.markers.all.length === 3 &&
           reloadedContext.markers.getByRole("assembly_anchor").length === 2 &&
@@ -4386,7 +5008,7 @@ const runValidation = async () => {
           reloadedContext.links.all.length === 0 &&
           reloadedContext.bitNavigation.zones.length === 4 &&
           reloadedContext.bitNavigation.bands.length === 11 &&
-          reloadedContext.bitNavigation.transitions.length === 73;
+          reloadedContext.bitNavigation.transitions.length === 72;
         reloadedContext.dispose();
         const afterSecondDispose = countSceneResources(spatialScene);
         checks.push({

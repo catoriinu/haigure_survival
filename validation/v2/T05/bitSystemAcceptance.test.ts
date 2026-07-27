@@ -2327,9 +2327,9 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         ...firstProgressTickById.values()
       );
       checks.push({
-        name: "学校73遷移Contextで99体探索を1/60秒tick性能予算内に維持",
+        name: "学校72遷移Contextで99体探索を1/60秒tick性能予算内に維持",
         ok:
-          schoolNavigation.transitions.length === 73 &&
+          schoolNavigation.transitions.length === 72 &&
           samples.length === PERFORMANCE_MEASURED_TICKS &&
           samples.every(
             (sample) => Number.isFinite(sample) && sample >= 0

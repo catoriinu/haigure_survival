@@ -7,6 +7,7 @@ import {
   type NavigationSurfaceStep,
   type NavigationWorld
 } from "./navigationWorld";
+import { BIT_FLIGHT_NAVIGATION_LINKS } from "./navigationWorldInternal";
 
 declare const BIT_FLIGHT_ZONE_ID: unique symbol;
 declare const BIT_FLIGHT_BAND_ID: unique symbol;
@@ -2440,7 +2441,10 @@ export const createBitFlightNavigationWorld = async (
       const payload = payloadsByKey.get(key)!;
       surfacesByBandKey.set(
         key,
-        await createNavigationWorld(payload.data, Object.freeze([]))
+        await createNavigationWorld(
+          payload.data,
+          BIT_FLIGHT_NAVIGATION_LINKS
+        )
       );
     }
     return new RecastBitFlightNavigationWorld(
