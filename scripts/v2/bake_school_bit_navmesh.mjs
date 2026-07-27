@@ -852,6 +852,80 @@ const validateBlockerTopExclusion = (
   }
 };
 
+const validateOutdoorF4GymRoofRoute = (navMesh, group) => {
+  if (
+    group.zoneId !== "school-exterior" ||
+    group.bandId !== "outdoor-f4"
+  ) {
+    return null;
+  }
+  const toRecast = ([x, y, z]) => ({
+    x: x * BIT_FLIGHT_NAV_PROFILE.worldScale,
+    y: z * BIT_FLIGHT_NAV_PROFILE.worldScale,
+    z: -y * BIT_FLIGHT_NAV_PROFILE.worldScale
+  });
+  const routeEndpoints = [
+    {
+      id: "gym-rooftop-to-east-outdoor-f4",
+      start: toRecast([45.4, 8.5, 12.2]),
+      end: toRecast([60.0, 8.5, 12.2])
+    },
+    {
+      id: "east-outdoor-f4-to-gym-rooftop",
+      start: toRecast([60.0, 8.5, 12.2]),
+      end: toRecast([45.4, 8.5, 12.2])
+    }
+  ];
+  const halfExtents = { x: 0.25, y: 0.25, z: 0.25 };
+  const query = new NavMeshQuery(navMesh, { maxNodes: 4096 });
+  try {
+    return routeEndpoints.map(({ id, start, end }) => {
+      const projectedStart = query.findClosestPoint(start, { halfExtents });
+      const projectedEnd = query.findClosestPoint(end, { halfExtents });
+      if (
+        !projectedStart.success ||
+        projectedStart.polyRef === 0 ||
+        !projectedEnd.success ||
+        projectedEnd.polyRef === 0
+      ) {
+        fail(`outdoor-f4体育館屋上代表経路の投影に失敗しました: ${id}`);
+      }
+      const pathResult = query.computePath(
+        projectedStart.point,
+        projectedEnd.point,
+        {
+          halfExtents,
+          maxPathPolys: 4096,
+          maxStraightPathPoints: 4096
+        }
+      );
+      if (!pathResult.success || pathResult.path.length === 0) {
+        fail(`outdoor-f4体育館屋上代表経路を計算できません: ${id}`);
+      }
+      const endpoint = pathResult.path[pathResult.path.length - 1];
+      const endpointError = Math.hypot(
+        endpoint.x - projectedEnd.point.x,
+        endpoint.y - projectedEnd.point.y,
+        endpoint.z - projectedEnd.point.z
+      );
+      if (endpointError > 1e-5) {
+        fail(
+          `outdoor-f4体育館屋上代表経路が終点へ到達していません: ` +
+            `${id}/${endpointError}/` +
+            `${JSON.stringify({ endpoint, projectedEnd: projectedEnd.point })}`
+        );
+      }
+      return {
+        id,
+        pathPointCount: pathResult.path.length,
+        endpointError
+      };
+    });
+  } finally {
+    query.destroy();
+  }
+};
+
 const bakeBand = (gltf, binary, worldMatrices, group) => {
   const walkableNodes = group.navigationNodes.filter(
     ({ role }) => role === "walkable"
@@ -926,6 +1000,7 @@ const bakeBand = (gltf, binary, worldMatrices, group) => {
       restored,
       blockerGeometry
     );
+    const representativeRoutes = validateOutdoorF4GymRoofRoute(restored, group);
     return {
       entry: {
         zoneId: group.zoneId,
@@ -945,6 +1020,7 @@ const bakeBand = (gltf, binary, worldMatrices, group) => {
         walkableSourceTriangles: geometry.walkableTriangleCount,
         blockerSourceTriangles: geometry.blockerTriangleCount,
         blockerExclusion,
+        representativeRoutes,
         navVertices: positions.length / 3,
         navTriangles: indices.length / 3,
         bytes: firstData.byteLength,

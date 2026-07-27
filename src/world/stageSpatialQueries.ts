@@ -1667,8 +1667,34 @@ const calculateSolidAngle = (
 const createContainsPointQueryFromTriangles = (
   triangles: readonly WorldTriangle[]
 ) => {
+  let minimumX = Number.POSITIVE_INFINITY;
+  let minimumY = Number.POSITIVE_INFINITY;
+  let minimumZ = Number.POSITIVE_INFINITY;
+  let maximumX = Number.NEGATIVE_INFINITY;
+  let maximumY = Number.NEGATIVE_INFINITY;
+  let maximumZ = Number.NEGATIVE_INFINITY;
+  for (const triangle of triangles) {
+    for (const vertex of triangle) {
+      minimumX = Math.min(minimumX, vertex.x);
+      minimumY = Math.min(minimumY, vertex.y);
+      minimumZ = Math.min(minimumZ, vertex.z);
+      maximumX = Math.max(maximumX, vertex.x);
+      maximumY = Math.max(maximumY, vertex.y);
+      maximumZ = Math.max(maximumZ, vertex.z);
+    }
+  }
   const projectedPoint = Vector3.Zero();
   return (point: Vector3): boolean => {
+    if (
+      point.x < minimumX - SURFACE_DISTANCE_EPSILON ||
+      point.x > maximumX + SURFACE_DISTANCE_EPSILON ||
+      point.y < minimumY - SURFACE_DISTANCE_EPSILON ||
+      point.y > maximumY + SURFACE_DISTANCE_EPSILON ||
+      point.z < minimumZ - SURFACE_DISTANCE_EPSILON ||
+      point.z > maximumZ + SURFACE_DISTANCE_EPSILON
+    ) {
+      return false;
+    }
     let solidAngle = 0;
     for (const triangle of triangles) {
       const distanceToSurface = Vector3.ProjectOnTriangleToRef(

@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  Detour,
   exportNavMesh,
   getNavMeshPositionsAndIndices,
   importNavMesh,
@@ -25,9 +26,9 @@ const REPRESENTATIVE_ROUTE_ENDPOINT_TOLERANCE = 1e-5;
 const REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE = 0.1;
 const REPRESENTATIVE_ROUTE_PATH_LIMIT = 4096;
 const REPRESENTATIVE_ROUTE_QUERY_HALF_EXTENTS = Object.freeze({
-  x: REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE,
-  y: REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE,
-  z: REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE
+  x: REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE * 2,
+  y: REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE * 2,
+  z: REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE * 2
 });
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "../..");
@@ -78,6 +79,39 @@ const makeToiletEntrancePassageBounds = (x, z) => Object.freeze({
 const makeNorthSpecialRoomDoorPassageBounds = (z) => Object.freeze({
   minimum: Object.freeze({ x: 6.0, y: 36.25, z: z - 0.2 }),
   maximum: Object.freeze({ x: 7.2, y: 36.75, z: z + 0.2 })
+});
+
+const makeB03StructurePassageBounds = (x, y, z) => Object.freeze({
+  minimum: Object.freeze({ x: x - 0.8, y: y - 0.8, z: z - 0.4 }),
+  maximum: Object.freeze({ x: x + 0.8, y: y + 0.8, z: z + 0.4 })
+});
+
+const makeB03PortalPassageBounds = (y, z) => Object.freeze({
+  minimum: Object.freeze({ x: 39.4, y: y - 0.2, z: z - 0.4 }),
+  maximum: Object.freeze({ x: 43.4, y: y + 0.2, z: z + 0.4 })
+});
+
+const makeGymStageStairPassageBounds = (side) => Object.freeze({
+  minimum: Object.freeze({
+    x: side === "west" ? 39.9 : 51.4,
+    y: -10.15,
+    z: 0.2
+  }),
+  maximum: Object.freeze({
+    x: side === "west" ? 41.4 : 52.9,
+    y: -9.45,
+    z: 0.8
+  })
+});
+
+const makeGymSouthPassageBounds = () => Object.freeze({
+  minimum: Object.freeze({ x: 45.6, y: -13.3, z: -0.5 }),
+  maximum: Object.freeze({ x: 47.2, y: -12.4, z: -0.1 })
+});
+
+const makeMainEntryLockerAisleBounds = () => Object.freeze({
+  minimum: Object.freeze({ x: -1.70, y: -5.15, z: -0.2 }),
+  maximum: Object.freeze({ x: -0.70, y: -4.65, z: 0.2 })
 });
 
 const REPRESENTATIVE_ROUTES = Object.freeze([
@@ -364,6 +398,22 @@ const REPRESENTATIVE_ROUTES = Object.freeze([
     endBlender: Object.freeze([34.0, 6.5, 0])
   }),
   Object.freeze({
+    id: "gym-south-passage-west-to-east",
+    label: "体育館南側通路・西→東",
+    startBlender: Object.freeze([34.2, -13.2, -0.3]),
+    endBlender: Object.freeze([58.6, -13.2, -0.3]),
+    requiredPassageBlender: makeGymSouthPassageBounds(),
+    maximumDistanceBlender: 30
+  }),
+  Object.freeze({
+    id: "gym-south-passage-east-to-west",
+    label: "体育館南側通路・東→西",
+    startBlender: Object.freeze([58.6, -13.2, -0.3]),
+    endBlender: Object.freeze([34.2, -13.2, -0.3]),
+    requiredPassageBlender: makeGymSouthPassageBounds(),
+    maximumDistanceBlender: 30
+  }),
+  Object.freeze({
     id: "north-wing-to-north-outside",
     label: "北側校舎→北側屋外",
     startBlender: Object.freeze([3.9, 44.5, 0]),
@@ -484,20 +534,201 @@ const REPRESENTATIVE_ROUTES = Object.freeze([
   Object.freeze({
     id: "gym-floor-to-stage",
     label: "体育館床→舞台",
-    startBlender: Object.freeze([45.4, 0, 0]),
-    endBlender: Object.freeze([47.0, -6.5, 1])
+    startBlender: Object.freeze([46.4, 0, 0]),
+    endBlender: Object.freeze([47.0, -3.0, 1])
   }),
   Object.freeze({
     id: "east-ramp-bottom-to-stage",
-    label: "東ランプ下→舞台",
-    startBlender: Object.freeze([53.1, -6.5, 0]),
-    endBlender: Object.freeze([47.0, -6.5, 1])
+    label: "東側舞台階段下→舞台",
+    startBlender: Object.freeze([53.2, -9.8, 0]),
+    endBlender: Object.freeze([51.0, -9.8, 1]),
+    requiredPassageBlender: makeGymStageStairPassageBounds("east"),
+    maximumDistanceBlender: 6
   }),
   Object.freeze({
     id: "west-ramp-bottom-to-stage",
-    label: "西ランプ下→舞台",
-    startBlender: Object.freeze([37.7, -6.5, 0]),
-    endBlender: Object.freeze([47.0, -6.5, 1])
+    label: "西側舞台階段下→舞台",
+    startBlender: Object.freeze([39.6, -9.8, 0]),
+    endBlender: Object.freeze([41.8, -9.8, 1]),
+    requiredPassageBlender: makeGymStageStairPassageBounds("west"),
+    maximumDistanceBlender: 6
+  }),
+  Object.freeze({
+    id: "stage-to-east-ramp-bottom",
+    label: "舞台→東側舞台階段下",
+    startBlender: Object.freeze([51.0, -9.8, 1]),
+    endBlender: Object.freeze([53.2, -9.8, 0]),
+    requiredPassageBlender: makeGymStageStairPassageBounds("east"),
+    maximumDistanceBlender: 6
+  }),
+  Object.freeze({
+    id: "stage-to-west-ramp-bottom",
+    label: "舞台→西側舞台階段下",
+    startBlender: Object.freeze([41.8, -9.8, 1]),
+    endBlender: Object.freeze([39.6, -9.8, 0]),
+    requiredPassageBlender: makeGymStageStairPassageBounds("west"),
+    maximumDistanceBlender: 6
+  }),
+  Object.freeze({
+    id: "north-second-floor-to-gym-gallery",
+    label: "北側校舎2F→渡り廊下→体育館ギャラリー",
+    startBlender: Object.freeze([38.8, 33.0, 3.6]),
+    endBlender: Object.freeze([41.4, 25.8, 3.6]),
+    requiredPassageBlender: Object.freeze([
+      makeB03PortalPassageBounds(32.5, 3.6),
+      makeB03PortalPassageBounds(26.5, 3.6)
+    ])
+  }),
+  Object.freeze({
+    id: "gym-gallery-to-north-second-floor",
+    label: "体育館ギャラリー→渡り廊下→北側校舎2F",
+    startBlender: Object.freeze([41.4, 25.8, 3.6]),
+    endBlender: Object.freeze([38.8, 33.0, 3.6]),
+    requiredPassageBlender: Object.freeze([
+      makeB03PortalPassageBounds(26.5, 3.6),
+      makeB03PortalPassageBounds(32.5, 3.6)
+    ])
+  }),
+  Object.freeze({
+    id: "gym-floor-to-west-gallery-stairs",
+    label: "体育館床→西側袖階段→ギャラリー",
+    startBlender: Object.freeze([35.7, -2.6, 0.15]),
+    endBlender: Object.freeze([34.2, -2.2, 5.25]),
+    requiredPassageBlender: makeB03StructurePassageBounds(34.8, -10.75, 2.55),
+    maximumDistanceBlender: 20
+  }),
+  Object.freeze({
+    id: "gym-west-gallery-stair-lower-flight",
+    label: "体育館西側袖階段の下段",
+    startBlender: Object.freeze([35.4, -3.8, 0.15]),
+    endBlender: Object.freeze([35.4, -10.2, 2.55]),
+    maximumDistanceBlender: 10
+  }),
+  Object.freeze({
+    id: "gym-west-gallery-stair-upper-flight",
+    label: "体育館西側袖階段の上段",
+    startBlender: Object.freeze([34.2, -10.2, 2.55]),
+    endBlender: Object.freeze([34.2, -3.0, 5.25]),
+    maximumDistanceBlender: 10
+  }),
+  Object.freeze({
+    id: "gym-west-gallery-stair-turn",
+    label: "体育館西側袖階段の折り返し踊り場",
+    startBlender: Object.freeze([35.4, -10.75, 2.55]),
+    endBlender: Object.freeze([34.2, -10.75, 2.55]),
+    maximumDistanceBlender: 5
+  }),
+  Object.freeze({
+    id: "west-gallery-stairs-to-gym-floor",
+    label: "ギャラリー→西側袖階段→体育館床",
+    startBlender: Object.freeze([34.2, -2.2, 5.25]),
+    endBlender: Object.freeze([35.7, -2.6, 0.15]),
+    requiredPassageBlender: makeB03StructurePassageBounds(34.8, -10.75, 2.55),
+    maximumDistanceBlender: 20
+  }),
+  Object.freeze({
+    id: "gym-floor-to-east-gallery-stairs",
+    label: "体育館床→東側袖階段→ギャラリー",
+    startBlender: Object.freeze([57.1, -2.6, 0.15]),
+    endBlender: Object.freeze([58.6, -2.2, 5.25]),
+    requiredPassageBlender: makeB03StructurePassageBounds(58.0, -10.75, 2.55),
+    maximumDistanceBlender: 20
+  }),
+  Object.freeze({
+    id: "east-gallery-stairs-to-gym-floor",
+    label: "ギャラリー→東側袖階段→体育館床",
+    startBlender: Object.freeze([58.6, -2.2, 5.25]),
+    endBlender: Object.freeze([57.1, -2.6, 0.15]),
+    requiredPassageBlender: makeB03StructurePassageBounds(58.0, -10.75, 2.55),
+    maximumDistanceBlender: 20
+  }),
+  Object.freeze({
+    id: "gym-gallery-low-to-west-high",
+    label: "体育館北側中央ギャラリー→北西昇段→西側ギャラリー",
+    startBlender: Object.freeze([39.6, 25.8, 3.6]),
+    endBlender: Object.freeze([34.2, 24.0, 5.25]),
+    requiredPassageBlender: makeB03StructurePassageBounds(37.45, 25.8, 4.4),
+    maximumDistanceBlender: 20
+  }),
+  Object.freeze({
+    id: "west-gallery-high-to-low",
+    label: "西側ギャラリー→北西昇段→体育館北側中央ギャラリー",
+    startBlender: Object.freeze([34.2, 24.0, 5.25]),
+    endBlender: Object.freeze([39.6, 25.8, 3.6]),
+    requiredPassageBlender: makeB03StructurePassageBounds(37.45, 25.8, 4.4),
+    maximumDistanceBlender: 20
+  }),
+  Object.freeze({
+    id: "gym-gallery-low-to-east-high",
+    label: "体育館北側中央ギャラリー→北東昇段→東側ギャラリー",
+    startBlender: Object.freeze([43.2, 25.8, 3.6]),
+    endBlender: Object.freeze([58.6, 24.0, 5.25]),
+    requiredPassageBlender: makeB03StructurePassageBounds(45.35, 25.8, 4.425),
+    maximumDistanceBlender: 20
+  }),
+  Object.freeze({
+    id: "east-gallery-high-to-low",
+    label: "東側ギャラリー→北東昇段→体育館北側中央ギャラリー",
+    startBlender: Object.freeze([58.6, 24.0, 5.25]),
+    endBlender: Object.freeze([43.2, 25.8, 3.6]),
+    requiredPassageBlender: makeB03StructurePassageBounds(45.35, 25.8, 4.425),
+    maximumDistanceBlender: 20
+  }),
+  Object.freeze({
+    id: "north-third-floor-to-gym-rooftop",
+    label: "北側校舎3F→渡り廊下屋根Ramp→体育館屋上",
+    startBlender: Object.freeze([38.8, 33.0, 7.2]),
+    endBlender: Object.freeze([41.4, 25.5, 9.6]),
+    requiredPassageBlender: Object.freeze([
+      makeB03PortalPassageBounds(32.5, 7.2),
+      makeB03PortalPassageBounds(26.5, 9.6)
+    ])
+  }),
+  Object.freeze({
+    id: "gym-rooftop-to-north-third-floor",
+    label: "体育館屋上→渡り廊下屋根Ramp→北側校舎3F",
+    startBlender: Object.freeze([41.4, 25.5, 9.6]),
+    endBlender: Object.freeze([38.8, 33.0, 7.2]),
+    requiredPassageBlender: Object.freeze([
+      makeB03PortalPassageBounds(26.5, 9.6),
+      makeB03PortalPassageBounds(32.5, 7.2)
+    ])
+  }),
+  Object.freeze({
+    id: "main-entrance-to-west-extension-first-floor",
+    label: "主玄関→西側延長1Fロッカー通路",
+    startBlender: Object.freeze([-1.5, 0, 0]),
+    endBlender: Object.freeze([-4.4, -5.2, 0])
+  }),
+  Object.freeze({
+    id: "main-entry-locker-aisle-south-to-north",
+    label: "主玄関6台ロッカー間通路・南→北",
+    startBlender: Object.freeze([-1.2, -6.6, 0]),
+    endBlender: Object.freeze([-1.2, -3.0, 0]),
+    requiredPassageBlender: makeMainEntryLockerAisleBounds(),
+    maximumDistanceBlender: 6
+  }),
+  Object.freeze({
+    id: "main-entry-locker-aisle-north-to-south",
+    label: "主玄関6台ロッカー間通路・北→南",
+    startBlender: Object.freeze([-1.2, -3.0, 0]),
+    endBlender: Object.freeze([-1.2, -6.6, 0]),
+    requiredPassageBlender: makeMainEntryLockerAisleBounds(),
+    maximumDistanceBlender: 6
+  }),
+  Object.freeze({
+    id: "fourth-floor-corridor-to-west-extension",
+    label: "4F西側廊下→西側延長4F",
+    startBlender: Object.freeze([-2.0, 0.0, 10.8]),
+    endBlender: Object.freeze([-4.4, -5.2, 10.8])
+  }),
+  Object.freeze({
+    id: "west-extension-first-to-fourth-floor-via-stairs",
+    label: "西側延長1F→南西階段→西側延長4F",
+    startBlender: Object.freeze([-4.4, -5.2, 0]),
+    endBlender: Object.freeze([-4.4, -5.2, 10.8]),
+    requiredPassageBlender: makeStairPassageBounds(-10.8, -1.3, 6.0),
+    maximumDistanceBlender: 65
   })
 ]);
 
@@ -1295,13 +1526,20 @@ const projectRepresentativeRoutePoint = (query, point, label) => {
     halfExtents: REPRESENTATIVE_ROUTE_QUERY_HALF_EXTENTS,
   });
   if (!result.success || result.polyRef === 0) {
-    fail(`代表経路の${label}をNavMeshへ投影できませんでした。`);
+    const diagnostic = query.findClosestPoint(point, {
+      halfExtents: { x: 1, y: 1, z: 1 }
+    });
+    fail(
+      `代表経路の${label}をNavMeshへ投影できませんでした。` +
+      ` nearest=${JSON.stringify(diagnostic)}`
+    );
   }
   const projectionDistance = distanceBetweenPoints(point, result.point);
   if (projectionDistance > REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE) {
     fail(
       `代表経路の${label}投影距離が上限を超えました: ` +
-      `${projectionDistance} > ${REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE}`
+      `${projectionDistance} > ${REPRESENTATIVE_ROUTE_PROJECTION_MAX_DISTANCE}, ` +
+      `nearest=${JSON.stringify(result.point)}`
     );
   }
   return {
@@ -1310,6 +1548,71 @@ const projectRepresentativeRoutePoint = (query, point, label) => {
     projectionDistance,
   };
 };
+
+const computeAllCrossingsPath = (
+  query,
+  projectedStart,
+  projectedEnd
+) => {
+  const corridorResult = query.findPath(
+    projectedStart.polygonRef,
+    projectedEnd.polygonRef,
+    projectedStart.point,
+    projectedEnd.point,
+    {
+      maxPathPolys: REPRESENTATIVE_ROUTE_PATH_LIMIT
+    }
+  );
+  try {
+    if (!corridorResult.success || corridorResult.polys.size === 0) {
+      return {
+        success: false,
+        error: { name: "polygon corridor not found" },
+        path: []
+      };
+    }
+    const straightPathResult = query.findStraightPath(
+      projectedStart.point,
+      projectedEnd.point,
+      corridorResult.polys,
+      {
+        maxStraightPathPoints: REPRESENTATIVE_ROUTE_PATH_LIMIT,
+        straightPathOptions: Detour.DT_STRAIGHTPATH_ALL_CROSSINGS
+      }
+    );
+    try {
+      if (
+        !straightPathResult.success ||
+        straightPathResult.straightPathCount === 0
+      ) {
+        return {
+          success: false,
+          error: { name: "all-crossings straight path not found" },
+          path: []
+        };
+      }
+      const coordinates = straightPathResult.straightPath.toTypedArray();
+      return {
+        success: true,
+        path: Array.from(
+          { length: straightPathResult.straightPathCount },
+          (_, index) => ({
+            x: coordinates[index * 3],
+            y: coordinates[index * 3 + 1],
+            z: coordinates[index * 3 + 2]
+          })
+        )
+      };
+    } finally {
+      straightPathResult.straightPath.destroy();
+      straightPathResult.straightPathFlags.destroy();
+      straightPathResult.straightPathRefs.destroy();
+    }
+  } finally {
+    corridorResult.polys.destroy();
+  }
+};
+
 const validateRepresentativeRoutes = (navMesh) => {
   const query = new NavMeshQuery(navMesh, {
     maxNodes: REPRESENTATIVE_ROUTE_PATH_LIMIT
@@ -1329,11 +1632,11 @@ const validateRepresentativeRoutes = (navMesh) => {
         endRecast,
         `${route.label}の終点`
       );
-      const pathResult = query.computePath(projectedStart.point, projectedEnd.point, {
-        halfExtents: REPRESENTATIVE_ROUTE_QUERY_HALF_EXTENTS,
-        maxPathPolys: REPRESENTATIVE_ROUTE_PATH_LIMIT,
-        maxStraightPathPoints: REPRESENTATIVE_ROUTE_PATH_LIMIT
-      });
+      const pathResult = computeAllCrossingsPath(
+        query,
+        projectedStart,
+        projectedEnd
+      );
       if (!pathResult.success || pathResult.path.length === 0) {
         failures.push(
           `代表経路を計算できませんでした: ${route.label}, ` +
@@ -1368,22 +1671,30 @@ const validateRepresentativeRoutes = (navMesh) => {
       const pathBlender = pathResult.path.map((point) =>
         pointFromArray(recastPointToBlender(point))
       );
-      const passesRequiredPassage =
-        route.requiredPassageBlender === undefined ||
+      const requiredPassagesBlender =
+        route.requiredPassageBlender === undefined
+          ? []
+          : Array.isArray(route.requiredPassageBlender)
+            ? route.requiredPassageBlender
+            : [route.requiredPassageBlender];
+      const passedRequiredPassages = requiredPassagesBlender.map((bounds) =>
         pathBlender.some(
           (point, index) =>
             index > 0 &&
             segmentIntersectsBounds(
               pathBlender[index - 1],
               point,
-              route.requiredPassageBlender,
+              bounds,
               ["x", "y", "z"]
             )
-        );
+        )
+      );
+      const passesRequiredPassage = passedRequiredPassages.every(Boolean);
       if (!passesRequiredPassage) {
         failures.push(
-          `代表経路が指定階段の踊り場を通過していません: ${route.label}, ` +
-          `requiredPassageBlender=${JSON.stringify(route.requiredPassageBlender)}, ` +
+          `代表経路が指定必須区間をすべて通過していません: ${route.label}, ` +
+          `requiredPassageBlender=${JSON.stringify(requiredPassagesBlender)}, ` +
+          `passedRequiredPassages=${JSON.stringify(passedRequiredPassages)}, ` +
           `pathBlender=${JSON.stringify(pathBlender)}`
         );
         return null;
@@ -1414,8 +1725,10 @@ const validateRepresentativeRoutes = (navMesh) => {
         pathRecast: pathResult.path.map(recastPointToArray),
         distance,
         distanceBlender,
-        requiredPassageBlender: route.requiredPassageBlender ?? null,
+        requiredPassageBlender: requiredPassagesBlender,
+        passedRequiredPassages,
         passesRequiredPassage,
+        straightPathOptions: Detour.DT_STRAIGHTPATH_ALL_CROSSINGS,
         maximumDistanceBlender: route.maximumDistanceBlender ?? null,
         startpointError,
         endpointError

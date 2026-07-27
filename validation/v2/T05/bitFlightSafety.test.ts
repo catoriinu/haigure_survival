@@ -24,6 +24,7 @@ import {
   type BitFlightBand
 } from "../../../src/world/bitFlightNavigation";
 import {
+  createStageBoundaryContainsQuery,
   createStageSpatialQueries,
   type StageSpatialQueries
 } from "../../../src/world/stageSpatialQueries";
@@ -632,6 +633,189 @@ export const runBitFlightSafetyTests =
           world.dispose();
         }
       })
+    );
+
+    results.push(
+      executeTest(
+        "unknown-safe AABB外はsolid-angle triangleを走査しない",
+        () => {
+          const world = createTestWorld();
+          const originalProjectOnTriangleToRef =
+            Vector3.ProjectOnTriangleToRef;
+          let projectionCount = 0;
+          let knownSafeCenterHit = true;
+          try {
+            const box = createBox(
+              world,
+              "OutsideBoundsBox",
+              0.2,
+              0.2,
+              0.2,
+              Vector3.Zero()
+            );
+            const queries = createStageSpatialQueries(world.scene, {
+              movementColliders: Object.freeze({
+                player: Object.freeze([]),
+                npc: Object.freeze([]),
+                bit: Object.freeze([box])
+              }),
+              groundColliders: Object.freeze([]),
+              beamBlockers: Object.freeze([]),
+              sightBlockers: Object.freeze([]),
+              volumes: Object.freeze([]),
+              diagnostics: Object.freeze({
+                recordRayQuery: () => {},
+                recordSphereSweep: (
+                  _moverKind,
+                  _visitedNodeCount,
+                  _indexedTriangleCount,
+                  _exactTriangleTestCount,
+                  knownSafe
+                ) => {
+                  knownSafeCenterHit = knownSafe;
+                }
+              })
+            });
+            (world.queries as StageSpatialQueries[]).push(queries);
+            Vector3.ProjectOnTriangleToRef = (
+              vector,
+              p0,
+              p1,
+              p2,
+              ref
+            ) => {
+              projectionCount += 1;
+              return originalProjectOnTriangleToRef(
+                vector,
+                p0,
+                p1,
+                p2,
+                ref
+              );
+            };
+            const point = new Vector3(1.5, 1.5, 1.5);
+            const hit = queries.castMovementSphere(
+              "bit",
+              point,
+              point,
+              0.1
+            );
+            return {
+              ok:
+                hit === null &&
+                !knownSafeCenterHit &&
+                projectionCount === 0,
+              detail:
+                `hit=${hit?.mesh.name ?? "none"} / ` +
+                `knownSafe=${knownSafeCenterHit} / ` +
+                `projections=${projectionCount}`
+            };
+          } finally {
+            Vector3.ProjectOnTriangleToRef =
+              originalProjectOnTriangleToRef;
+            world.dispose();
+          }
+        }
+      )
+    );
+
+    results.push(
+      executeTest("AABB各面の外側ε以内は従来どおり表面扱いする", () => {
+        const world = createTestWorld();
+        try {
+          const box = createBox(
+            world,
+            "SurfaceEpsilonBox",
+            2,
+            2,
+            2,
+            new Vector3(3, 4, 5)
+          );
+          const contains = createStageBoundaryContainsQuery(box);
+          const nearOutsidePoints = [
+            new Vector3(2 - 0.5e-6, 4, 5),
+            new Vector3(4 + 0.5e-6, 4, 5),
+            new Vector3(3, 3 - 0.5e-6, 5),
+            new Vector3(3, 5 + 0.5e-6, 5),
+            new Vector3(3, 4, 4 - 0.5e-6),
+            new Vector3(3, 4, 6 + 0.5e-6)
+          ];
+          const farOutsidePoints = [
+            new Vector3(2 - 2e-6, 4, 5),
+            new Vector3(4 + 2e-6, 4, 5),
+            new Vector3(3, 3 - 2e-6, 5),
+            new Vector3(3, 5 + 2e-6, 5),
+            new Vector3(3, 4, 4 - 2e-6),
+            new Vector3(3, 4, 6 + 2e-6)
+          ];
+          const nearResults = nearOutsidePoints.map(contains);
+          const farResults = farOutsidePoints.map(contains);
+          return {
+            ok:
+              nearResults.every((result) => result) &&
+              farResults.every((result) => !result),
+            detail:
+              `near=${nearResults.join(",")} / ` +
+              `far=${farResults.join(",")}`
+          };
+        } finally {
+          world.dispose();
+        }
+      })
+    );
+
+    results.push(
+      executeTest(
+        "変換済みworld triangleのAABBと包含結果を維持する",
+        () => {
+          const world = createTestWorld();
+          try {
+            const box = createBox(
+              world,
+              "TransformedContainsBox",
+              2,
+              2,
+              2,
+              Vector3.Zero()
+            );
+            box.position.set(2.5, -1.25, 4);
+            box.rotation.set(0.35, -0.6, 0.2);
+            box.scaling.set(-1.5, 0.75, 2);
+            const worldMatrix = box.computeWorldMatrix(true).clone();
+            const contains = createStageBoundaryContainsQuery(box);
+            const inside = Vector3.TransformCoordinates(
+              Vector3.Zero(),
+              worldMatrix
+            );
+            const surface = Vector3.TransformCoordinates(
+              new Vector3(1, 0, 0),
+              worldMatrix
+            );
+            const outside = Vector3.TransformCoordinates(
+              new Vector3(1.01, 0, 0),
+              worldMatrix
+            );
+            const farOutside = Vector3.TransformCoordinates(
+              new Vector3(4, 4, 4),
+              worldMatrix
+            );
+            return {
+              ok:
+                contains(inside) &&
+                contains(surface) &&
+                !contains(outside) &&
+                !contains(farOutside),
+              detail:
+                `inside=${contains(inside)} / ` +
+                `surface=${contains(surface)} / ` +
+                `outside=${contains(outside)} / ` +
+                `far=${contains(farOutside)}`
+            };
+          } finally {
+            world.dispose();
+          }
+        }
+      )
     );
 
     results.push(
