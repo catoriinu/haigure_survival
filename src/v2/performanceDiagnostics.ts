@@ -35,6 +35,7 @@ export type V2PerformanceSection =
   | "player"
   | "survival"
   | "beam"
+  | "hit-effect"
   | "player-combat"
   | "alarm"
   | "npc"

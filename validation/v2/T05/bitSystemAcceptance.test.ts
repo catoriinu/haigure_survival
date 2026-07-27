@@ -98,6 +98,13 @@ type LoaderFixtureAssets = Readonly<{
   bitNavmesh: Uint8Array;
 }>;
 
+type LoaderWorldBoundaryVariant =
+  | "valid"
+  | "missing"
+  | "duplicate"
+  | "invalid-extras"
+  | "outside-stage";
+
 const toStageRelativeAssetUrl = (url: string) =>
   url.startsWith("/") ? url.slice(1) : url;
 
@@ -191,6 +198,7 @@ const createFixtureStage = (
           ? Object.freeze([volume])
           : Object.freeze([])
     }),
+    worldBoundary: null,
     queries: Object.freeze({
       castMovementSegment: () => null,
       castMovementSphere: () => null,
@@ -402,7 +410,8 @@ const LOADER_FIXTURE_BIT_NAV_URL =
   "__t05-loader-fixture__/t05_loader_fixture.bit-flight.navmesh.bin";
 
 const createLoaderFixtureGlb = (
-  fixture: BitSystemAcceptanceFixture
+  fixture: BitSystemAcceptanceFixture,
+  worldBoundaryVariant: LoaderWorldBoundaryVariant = "valid"
 ): Uint8Array => {
   const positions = new Float32Array([
     -0.5, -0.5, -0.5,
@@ -498,6 +507,44 @@ const createLoaderFixtureGlb = (
       authoredSize(20)
     ]
   );
+  if (worldBoundaryVariant !== "missing") {
+    const worldBoundaryExtras =
+      worldBoundaryVariant === "invalid-extras"
+        ? {
+            hs_id: "invalid-world-limit",
+            hs_role: "invalid_world_boundary"
+          }
+        : {
+            hs_id: "world-limit",
+            hs_role: "world_boundary"
+          };
+    const worldBoundaryScale =
+      worldBoundaryVariant === "outside-stage"
+        ? ([
+            authoredSize(18),
+            authoredSize(10),
+            authoredSize(18)
+          ] as const)
+        : ([
+            authoredSize(24),
+            authoredSize(16),
+            authoredSize(24)
+          ] as const);
+    addMeshNode(
+      "BND_WorldLimit",
+      worldBoundaryExtras,
+      [0, authoredCoordinate(2.5), 0],
+      worldBoundaryScale
+    );
+    if (worldBoundaryVariant === "duplicate") {
+      addMeshNode(
+        "BND_WorldLimit",
+        worldBoundaryExtras,
+        [0, authoredCoordinate(2.5), 0],
+        worldBoundaryScale
+      );
+    }
+  }
   addMeshNode(
     "NAV_LoaderFixtureHuman",
     {
@@ -678,9 +725,14 @@ const calculateAcceptanceSha256 = async (data: Uint8Array) => {
 };
 
 const createLoaderFixtureAssets = async (
-  fixture: BitSystemAcceptanceFixture
+  fixture: BitSystemAcceptanceFixture,
+  worldBoundaryVariant: LoaderWorldBoundaryVariant = "valid",
+  worldBoundaryMode: StageCatalogEntry["worldBoundaryMode"] = "required"
 ): Promise<LoaderFixtureAssets> => {
-  const glb = createLoaderFixtureGlb(fixture);
+  const glb = createLoaderFixtureGlb(
+    fixture,
+    worldBoundaryVariant
+  );
   const humanNavmesh = Uint8Array.from(fixture.payloads[0].data);
   const bitNavmesh = encodeBitFlightNavBundle(
     fixture.payloads.map((payload) => ({
@@ -706,7 +758,8 @@ const createLoaderFixtureAssets = async (
       bitNavProfileId: LOADER_FIXTURE_BIT_NAV_PROFILE,
       glbSha256,
       navmeshSha256,
-      bitNavmeshSha256
+      bitNavmeshSha256,
+      worldBoundaryMode
     }),
     glb,
     humanNavmesh,
@@ -1943,17 +1996,46 @@ const runLoaderFixtureLifecycleCheck = async (
     const loadedZoneCount = navigation.zones.length;
     const loadedBandCount = navigation.bands.length;
     const loadedTransitionCount = navigation.transitions.length;
+    const worldBoundary = context.worldBoundary;
+    const worldBoundaryQueries =
+      worldBoundary !== null &&
+      worldBoundary.id === "world-limit" &&
+      worldBoundary.contains(new Vector3(0, 2.5, 0)) &&
+      worldBoundary.contains(new Vector3(12, 10.5, 12)) &&
+      !worldBoundary.contains(new Vector3(12.01, 2.5, 0)) &&
+      Vector3.DistanceSquared(
+        worldBoundary.findExitPoint(
+          new Vector3(0, 2.5, 0),
+          new Vector3(13, 2.5, 0)
+        ) ?? new Vector3(Number.NaN, 0, 0),
+        new Vector3(12, 2.5, 0)
+      ) <= 1e-10 &&
+      Vector3.DistanceSquared(
+        worldBoundary.findExitPoint(
+          new Vector3(0, 2.5, 0),
+          new Vector3(13, 11.1666666667, 13)
+        ) ?? new Vector3(Number.NaN, 0, 0),
+        new Vector3(12, 10.5, 12)
+      ) <= 1e-10 &&
+      worldBoundary.findExitPoint(
+        new Vector3(0, 2.5, 0),
+        new Vector3(1, 2.5, 0)
+      ) === null;
     const loaded =
       context.metadata.stageId === LOADER_FIXTURE_STAGE_ID &&
       loadedZoneCount === fixture.definition.zones.length &&
       loadedBandCount === fixture.definition.bands.length &&
       loadedTransitionCount === 1 &&
       context.volumes.getByRole("npc_spawn").length === 1 &&
-      context.volumes.getByRole("bit_spawn").length === 1;
+      context.volumes.getByRole("bit_spawn").length === 1 &&
+      worldBoundaryQueries;
     context.dispose();
     context = null;
     const disposedReferenceMessage = captureThrownMessage(() =>
       navigation.getZone(firstZoneId)
+    );
+    const disposedWorldBoundaryMessage = captureThrownMessage(() =>
+      worldBoundary?.contains(Vector3.Zero())
     );
     const afterDispose = countSceneResources(scene);
     return Object.freeze({
@@ -1961,12 +2043,15 @@ const runLoaderFixtureLifecycleCheck = async (
       ok:
         loaded &&
         disposedReferenceMessage?.includes("破棄済み") === true &&
+        disposedWorldBoundaryMessage?.includes("破棄済み") === true &&
         sceneResourceCountsEqual(baseline, afterDispose),
       detail:
         `zones=${loadedZoneCount} / ` +
         `bands=${loadedBandCount} / ` +
         `transitions=${loadedTransitionCount} / ` +
+        `boundary=${worldBoundaryQueries} / ` +
         `oldRef=${disposedReferenceMessage ?? "例外なし"} / ` +
+        `oldBoundary=${disposedWorldBoundaryMessage ?? "例外なし"} / ` +
         `baseline=${JSON.stringify(baseline)} / ` +
         `disposed=${JSON.stringify(afterDispose)}`
     });
@@ -1976,6 +2061,102 @@ const runLoaderFixtureLifecycleCheck = async (
     scene.dispose();
     engine.dispose();
   }
+};
+
+const runLoaderWorldBoundaryPolicyCheck = async (
+  fixture: BitSystemAcceptanceFixture
+): Promise<BitSystemAcceptanceCheck> => {
+  const cases = [
+    Object.freeze({
+      label: "required欠落",
+      variant: "missing" as const,
+      mode: "required" as const,
+      shouldLoad: false
+    }),
+    Object.freeze({
+      label: "required重複",
+      variant: "duplicate" as const,
+      mode: "required" as const,
+      shouldLoad: false
+    }),
+    Object.freeze({
+      label: "extras不正",
+      variant: "invalid-extras" as const,
+      mode: "required" as const,
+      shouldLoad: false
+    }),
+    Object.freeze({
+      label: "BND_Stageはみ出し",
+      variant: "outside-stage" as const,
+      mode: "required" as const,
+      shouldLoad: false
+    }),
+    Object.freeze({
+      label: "unsupported混入",
+      variant: "valid" as const,
+      mode: "unsupported" as const,
+      shouldLoad: false
+    }),
+    Object.freeze({
+      label: "unsupported境界なし",
+      variant: "missing" as const,
+      mode: "unsupported" as const,
+      shouldLoad: true
+    })
+  ];
+  const details: string[] = [];
+  let allPassed = true;
+  for (const testCase of cases) {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const baseline = countSceneResources(scene);
+    const assets = await createLoaderFixtureAssets(
+      fixture,
+      testCase.variant,
+      testCase.mode
+    );
+    const restoreFetch = installLoaderFixtureFetch(assets);
+    let context: StageSpatialContext | null = null;
+    let message: string | null = null;
+    let loadedAsExpected = false;
+    try {
+      try {
+        context = await loadStageSpatialContext(
+          scene,
+          assets.catalog
+        );
+        loadedAsExpected =
+          testCase.shouldLoad &&
+          context.worldBoundary === null;
+      } catch (error) {
+        message =
+          error instanceof Error ? error.message : String(error);
+        loadedAsExpected =
+          !testCase.shouldLoad && message.length > 0;
+      }
+      context?.dispose();
+      context = null;
+      const resourcesReturned = sceneResourceCountsEqual(
+        baseline,
+        countSceneResources(scene)
+      );
+      allPassed =
+        allPassed && loadedAsExpected && resourcesReturned;
+      details.push(
+        `${testCase.label}=${loadedAsExpected ? "ok" : message ?? "unexpected-load"}` +
+          `/resources=${resourcesReturned}`
+      );
+    } finally {
+      restoreFetch();
+      scene.dispose();
+      engine.dispose();
+    }
+  }
+  return Object.freeze({
+    name: "worldBoundaryModeとGLB境界個数・extras・内包をloaderで厳格検証",
+    ok: allPassed,
+    detail: details.join(" / ")
+  });
 };
 
 const runSchoolPerformanceAndLifecycleChecks = async (
@@ -2002,6 +2183,8 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     document.title =
       `T05学校受入: 99体探索 warmup 0/${PERFORMANCE_WARMUP_TICKS}`;
     await yieldToBrowser();
+    const schoolWorldBoundaryUnsupported =
+      schoolContext.worldBoundary === null;
     const schoolNavigation = schoolContext.bitNavigation;
     const schoolZoneId = schoolNavigation.zones[0]?.id;
     if (!schoolZoneId) {
@@ -2759,12 +2942,14 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         disposedReferenceMessage?.includes("破棄済み") === true &&
         disposedQueriesMessage?.includes("破棄済み") === true &&
         disposedFixtureReferenceMessage?.includes("破棄済み") === true &&
+        schoolWorldBoundaryUnsupported &&
         fixtureContextActive &&
         sceneResourceCountsEqual(baseline, afterSchoolDispose) &&
         sceneResourceCountsEqual(baseline, afterFixtureDispose),
       detail:
         `schoolOldRef=${disposedReferenceMessage ?? "例外なし"} / ` +
         `schoolQueries=${disposedQueriesMessage ?? "例外なし"} / ` +
+        `schoolBoundaryUnsupported=${schoolWorldBoundaryUnsupported} / ` +
         `fixtureOldRef=${disposedFixtureReferenceMessage ?? "例外なし"} / ` +
         `fixtureActive=${fixtureContextActive} / ` +
         `baseline=${JSON.stringify(baseline)} / ` +
@@ -2803,7 +2988,10 @@ export const runBitSystemAcceptanceTests = async (
     checks.push(chasePerformance.check);
     metrics.push(chasePerformance.metric);
     try {
-      checks.push(await runLoaderFixtureLifecycleCheck(fixture));
+      checks.push(
+        await runLoaderFixtureLifecycleCheck(fixture),
+        await runLoaderWorldBoundaryPolicyCheck(fixture)
+      );
     } catch (error) {
       checks.push({
         name: "非学校fixtureの実loaderライフサイクル検証",

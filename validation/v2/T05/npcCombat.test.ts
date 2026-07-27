@@ -235,6 +235,7 @@ const createNpcFixture = (
       contains: (position: Vector3) =>
         isInside(position) && Math.abs(position.y) <= 0.5
     }),
+    worldBoundary: null,
     queries: Object.freeze({
       castMovementSegment: () => null,
       castMovementSphere: () => null,

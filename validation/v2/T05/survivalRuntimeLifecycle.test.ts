@@ -38,6 +38,7 @@ type SceneResourceCounts = Readonly<{
   particleSystems: number;
   skeletons: number;
   animationGroups: number;
+  lights: number;
   rootNodes: number;
 }>;
 
@@ -117,6 +118,7 @@ const captureSceneResources = (
     particleSystems: scene.particleSystems.length,
     skeletons: scene.skeletons.length,
     animationGroups: scene.animationGroups.length,
+    lights: scene.lights.length,
     rootNodes: scene.rootNodes.length
   });
 };
@@ -190,13 +192,15 @@ const observableCountsEqual = (
 
 const createRuntime = (
   scene: Scene,
-  stage: StageSpatialContext
+  stage: StageSpatialContext,
+  getOrbVisibilityPredicate: () => (position: Vector3) => boolean
 ) =>
   createV2SurvivalRuntime({
     scene,
     stage,
     player: createFakePlayer(stage),
     random: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED),
+    getOrbVisibilityPredicate,
     population: V2_PERFORMANCE_ACCEPTANCE_POPULATION,
     performanceDiagnostics: null,
     performanceWorkloadScenario: null
@@ -212,7 +216,11 @@ export const runSurvivalRuntimeLifecycleTests = async (
   let secondRuntime: V2SurvivalRuntime | null = null;
 
   try {
-    firstRuntime = createRuntime(scene, stage);
+    let orbVisibilityPredicateFactoryCalls = 0;
+    firstRuntime = createRuntime(scene, stage, () => {
+      orbVisibilityPredicateFactoryCalls += 1;
+      return () => true;
+    });
     const firstFrame = firstRuntime.getFrame();
     checks.push(
       Object.freeze({
@@ -230,6 +238,14 @@ export const runSurvivalRuntimeLifecycleTests = async (
       })
     );
     await firstRuntime.prepareVisualResources();
+    firstRuntime.update(1 / 60, 1 / 60);
+    checks.push(
+      Object.freeze({
+        name: "オーブ表示判定を1フレームに1回だけ構築",
+        ok: orbVisibilityPredicateFactoryCalls === 1,
+        detail: `factoryCalls=${orbVisibilityPredicateFactoryCalls}`
+      })
+    );
     const firstActive = captureSceneResources(scene);
     const firstDelta = subtractSceneResources(firstActive, baseline);
     firstRuntime.dispose();
@@ -248,9 +264,10 @@ export const runSurvivalRuntimeLifecycleTests = async (
       })
     );
 
-    secondRuntime = createRuntime(scene, stage);
+    secondRuntime = createRuntime(scene, stage, () => () => true);
     const secondFrame = secondRuntime.getFrame();
     await secondRuntime.prepareVisualResources();
+    secondRuntime.update(1 / 60, 1 / 60);
     const secondActive = captureSceneResources(scene);
     const secondDelta = subtractSceneResources(secondActive, baseline);
     secondRuntime.dispose();

@@ -1,5 +1,6 @@
 import {
   Color3,
+  Color4,
   InstancedMesh,
   Mesh,
   MeshBuilder,
@@ -21,11 +22,18 @@ import type {
 } from "./combatTypes";
 
 export const V2_NORMAL_BEAM_MAX_BODY_LENGTH = 0.75;
-export const V2_NORMAL_BEAM_IMPACT_VISUAL_DURATION_SECONDS = 0.12;
+export const V2_WORLD_BOUNDARY_FADE_DURATION_SECONDS = 0.2;
+export const V2_NORMAL_BEAM_BODY_DIAMETER = 0.018;
+export const V2_NORMAL_BEAM_FRONT_DIAMETER = 0.0144;
+export const V2_NORMAL_BEAM_BACK_DIAMETER = 0.054;
+export const V2_NORMAL_BEAM_TIP_DIAMETER = 0.075;
+export const V2_NORMAL_BEAM_TRAIL_LIFETIME_SECONDS = 0.3;
+export const V2_NORMAL_BEAM_BLOCKER_IMPACT_LIFETIME_SECONDS = 1.6;
 export const V2_BEAM_VISUAL_POOL_KINDS = [
   "body",
   "tip",
-  "impact"
+  "trail",
+  "blocker-impact"
 ] as const;
 
 const SEGMENT_LENGTH_EPSILON = 1e-8;
@@ -33,7 +41,23 @@ const SURFACE_DISTANCE_EPSILON = 1e-6;
 const HIT_DISTANCE_EPSILON = 1e-6;
 const HUMAN_TARGET_SPATIAL_CELL_SIZE = 1;
 const BLOCKER_SPATIAL_CELL_SIZE = 2;
-const IMPACT_VISUAL_DIAMETER_MULTIPLIER = 2.5;
+const BEAM_TRAIL_DIAMETER_MIN = 0.01;
+const BEAM_TRAIL_DIAMETER_MAX = 0.05;
+const BEAM_TRAIL_INTERVAL_MIN_SECONDS = 0.025;
+const BEAM_TRAIL_INTERVAL_MAX_SECONDS = 0.085;
+const BEAM_TRAIL_DRAG = 8.5;
+const BEAM_TRAIL_MIN_SCALE = 0.08;
+const BEAM_TRAIL_FADE_IN_DURATION_SECONDS = 0.05;
+const BEAM_BLOCKER_IMPACT_COUNT_MIN = 2;
+const BEAM_BLOCKER_IMPACT_COUNT_MAX = 5;
+const BEAM_BLOCKER_IMPACT_DIAMETER = 0.02;
+const BEAM_BLOCKER_IMPACT_MIN_SCALE = 0.08;
+const BEAM_BLOCKER_IMPACT_SPEED_MIN = 0.03;
+const BEAM_BLOCKER_IMPACT_SPEED_MAX = 0.075;
+const BEAM_BLOCKER_IMPACT_BOUNCE_JITTER = 1.35;
+const BEAM_BLOCKER_IMPACT_BOUNCE_LIFT = 0.7;
+const BEAM_EFFECT_COLOR = new Color3(1, 0.18, 0.74);
+const BEAM_EFFECT_ALPHA = 0.55;
 const BEAM_ORIGIN_KINDS: readonly V2BeamOriginKind[] = Object.freeze([
   "bit-chase",
   "bit-fixed",
@@ -113,12 +137,6 @@ export type V2SightSegmentResult =
       startedInside: boolean;
     }>;
 
-export type V2BeamVisualConfig = Readonly<{
-  diameter: number;
-  color: Color3;
-  alpha: number;
-}>;
-
 export type V2BeamCollisionDiagnostics = Readonly<{
   recordStartContainment(
     candidateMeshCount: number,
@@ -143,7 +161,8 @@ export type V2BeamSystemConfig = Readonly<{
   scene: Scene;
   stage: StageSpatialContext;
   getHumanTargets(): readonly V2HumanTargetSnapshot[];
-  visual: V2BeamVisualConfig;
+  random(): number;
+  getOrbVisibilityPredicate(): (position: Vector3) => boolean;
   collisionDiagnostics?: V2BeamCollisionDiagnostics;
 }>;
 
@@ -163,12 +182,24 @@ export type V2BeamExpirationEvent = Readonly<{
   position: Vector3;
 }>;
 
+export type V2BeamWorldBoundaryExitEvent = Readonly<{
+  beamId: string;
+  sourceId: string;
+  originKind: V2BeamOriginKind;
+  targetPolicy: V2BeamTargetPolicy;
+  position: Vector3;
+}>;
+
 export type V2BeamFrameEvents = Readonly<{
   impacts: readonly V2BeamImpactEvent[];
   expirations: readonly V2BeamExpirationEvent[];
+  worldBoundaryExits: readonly V2BeamWorldBoundaryExitEvent[];
 }>;
 
-export type V2BeamPhase = "advancing" | "retracting";
+export type V2BeamPhase =
+  | "advancing"
+  | "retracting"
+  | "world-boundary-fading";
 
 export type V2ActiveBeamSnapshot = Readonly<{
   id: string;
@@ -205,13 +236,29 @@ type ActiveBeam = {
   speed: number;
   remainingLifetime: number;
   bodyLength: number;
+  retractLeadRemaining: number;
+  boundaryFadeRemainingSeconds: number;
+  trailTimer: number;
   checkStartContainment: boolean;
   bodyMesh: InstancedMesh;
   tipMesh: InstancedMesh;
 };
 
-type ImpactVisual = {
+type TrailVisual = {
+  ownerBeamId: string;
   mesh: InstancedMesh;
+  velocity: Vector3;
+  remainingSeconds: number;
+  ageSeconds: number;
+  diameter: number;
+  boundaryFadeRemainingSeconds: number | null;
+  boundaryFadeStartAlpha: number | null;
+  boundaryFadeStartScale: number | null;
+};
+
+type BlockerImpactVisual = {
+  mesh: InstancedMesh;
+  velocity: Vector3;
   remainingSeconds: number;
 };
 
@@ -231,13 +278,6 @@ const assertPositiveNumber = (label: string, value: number): void => {
   assertFiniteNumber(label, value);
   if (value <= 0) {
     throw new Error(`${label}は0より大きい必要があります: ${value}`);
-  }
-};
-
-const assertUnitInterval = (label: string, value: number): void => {
-  assertFiniteNumber(label, value);
-  if (value < 0 || value > 1) {
-    throw new Error(`${label}は0以上1以下である必要があります: ${value}`);
   }
 };
 
@@ -949,38 +989,56 @@ type BeamVisualPool = Readonly<{
   dispose(): void;
 }>;
 
-const createBeamVisualPool = (
-  scene: Scene,
-  visual: V2BeamVisualConfig
-): BeamVisualPool => {
+const createBeamVisualPool = (scene: Scene): BeamVisualPool => {
   const material = new StandardMaterial("v2NormalBeamMaterial", scene);
-  material.emissiveColor = visual.color.clone();
-  material.diffuseColor = visual.color.clone();
+  material.emissiveColor = BEAM_EFFECT_COLOR.clone();
+  material.diffuseColor = BEAM_EFFECT_COLOR.clone();
   material.specularColor = Color3.Black();
-  material.alpha = visual.alpha;
+  material.alpha = BEAM_EFFECT_ALPHA;
+  material.backFaceCulling = false;
 
   const bodySource = MeshBuilder.CreateCylinder(
     "v2NormalBeamPoolSource-body",
     {
       height: 1,
-      diameter: visual.diameter,
-      tessellation: 8
+      diameterTop: V2_NORMAL_BEAM_FRONT_DIAMETER,
+      diameterBottom: V2_NORMAL_BEAM_BACK_DIAMETER,
+      tessellation: 12,
+      sideOrientation: Mesh.DOUBLESIDE
     },
     scene
   );
+  const bodyPositions = bodySource.getVerticesData(VertexBuffer.PositionKind)!;
+  const bodyColors: number[] = [];
+  for (let index = 0; index < bodyPositions.length; index += 3) {
+    const y = bodyPositions[index + 1];
+    const alpha = y >= -1 / 6 ? 1 : Math.max(0, (y + 0.5) * 3);
+    bodyColors.push(1, 1, 1, alpha);
+  }
+  bodySource.setVerticesData(VertexBuffer.ColorKind, bodyColors, false, 4);
+  bodySource.useVertexColors = true;
+  bodySource.hasVertexAlpha = true;
   const tipSource = MeshBuilder.CreateSphere(
     "v2NormalBeamPoolSource-tip",
     {
-      diameter: visual.diameter,
-      segments: 8
+      diameter: V2_NORMAL_BEAM_TIP_DIAMETER,
+      segments: 12
     },
     scene
   );
-  const impactSource = MeshBuilder.CreateSphere(
-    "v2NormalBeamPoolSource-impact",
+  const trailSource = MeshBuilder.CreateSphere(
+    "v2NormalBeamPoolSource-trail",
     {
-      diameter: visual.diameter * IMPACT_VISUAL_DIAMETER_MULTIPLIER,
-      segments: 8
+      diameter: 1,
+      segments: 10
+    },
+    scene
+  );
+  const blockerImpactSource = MeshBuilder.CreateSphere(
+    "v2NormalBeamPoolSource-blocker-impact",
+    {
+      diameter: BEAM_BLOCKER_IMPACT_DIAMETER,
+      segments: 10
     },
     scene
   );
@@ -988,11 +1046,14 @@ const createBeamVisualPool = (
     Object.freeze({
       body: bodySource,
       tip: tipSource,
-      impact: impactSource
+      trail: trailSource,
+      "blocker-impact": blockerImpactSource
     });
   const buckets = {} as Record<V2BeamVisualPoolKind, BeamVisualPoolBucket>;
   for (const kind of V2_BEAM_VISUAL_POOL_KINDS) {
     const source = sources[kind];
+    source.registerInstancedBuffer(VertexBuffer.ColorInstanceKind, 4);
+    source.instancedBuffers.instanceColor = new Color4(1, 1, 1, 1);
     source.material = material;
     source.isPickable = false;
     source.isVisible = false;
@@ -1022,6 +1083,7 @@ const createBeamVisualPool = (
       mesh.rotation.setAll(0);
       mesh.rotationQuaternion = null;
       mesh.scaling.setAll(1);
+      mesh.instancedBuffers.instanceColor = new Color4(1, 1, 1, 1);
       mesh.isPickable = false;
       mesh.isVisible = true;
       mesh.setEnabled(true);
@@ -1030,16 +1092,21 @@ const createBeamVisualPool = (
     release: (kind, mesh) => {
       const bucket = buckets[kind];
       bucket.inUse.delete(mesh);
+      mesh.instancedBuffers.instanceColor = new Color4(1, 1, 1, 1);
+      mesh.scaling.setAll(1);
       mesh.setEnabled(false);
       mesh.isVisible = false;
       bucket.available.push(mesh);
     },
     prepare: () => {
-      preparationPromise ??= material
-        .forceCompilationAsync(buckets.body.source, {
+      preparationPromise ??= Promise.all([
+        material.forceCompilationAsync(buckets.body.source, {
+          useInstances: true
+        }),
+        material.forceCompilationAsync(buckets.tip.source, {
           useInstances: true
         })
-        .then(() => undefined);
+      ]).then(() => undefined);
       return preparationPromise;
     },
     getSnapshot: () => {
@@ -1094,19 +1161,31 @@ export const createV2BeamSystem = (
       "V2BeamSystemのgetHumanTargetsには関数が必要です"
     );
   }
-  assertPositiveNumber("beam.visual.diameter", config.visual.diameter);
-  assertUnitInterval("beam.visual.alpha", config.visual.alpha);
-  assertFiniteNumber("beam.visual.color.r", config.visual.color.r);
-  assertFiniteNumber("beam.visual.color.g", config.visual.color.g);
-  assertFiniteNumber("beam.visual.color.b", config.visual.color.b);
+  if (typeof config.random !== "function") {
+    throw new Error("V2BeamSystemのrandomには関数が必要です");
+  }
+  if (typeof config.getOrbVisibilityPredicate !== "function") {
+    throw new Error(
+      "V2BeamSystemのgetOrbVisibilityPredicateには関数が必要です"
+    );
+  }
+  if (
+    config.stage.worldBoundary !== null &&
+    typeof config.stage.worldBoundary?.findExitPoint !== "function"
+  ) {
+    throw new Error(
+      "StageSpatialContext.worldBoundaryにはStageWorldBoundaryまたはnullが必要です"
+    );
+  }
   prepareBlockerSpatialIndices(
     config.stage.resources.beamBlockers,
     config.stage.resources.sightBlockers
   );
 
-  const visualPool = createBeamVisualPool(config.scene, config.visual);
+  const visualPool = createBeamVisualPool(config.scene);
   const activeBeams = new Map<string, ActiveBeam>();
-  const impactVisuals = new Set<ImpactVisual>();
+  const trailVisuals = new Set<TrailVisual>();
+  const blockerImpactVisuals = new Set<BlockerImpactVisual>();
   let nextBeamSerial = 1;
   let disposed = false;
 
@@ -1116,19 +1195,67 @@ export const createV2BeamSystem = (
     }
   };
 
+  const nextRandom = (): number => {
+    const value = config.random();
+    if (!Number.isFinite(value) || value < 0 || value >= 1) {
+      throw new Error("V2BeamSystemのrandomは0以上1未満を返す必要があります");
+    }
+    return value;
+  };
+  const randomInRange = (minimum: number, maximum: number): number =>
+    minimum + nextRandom() * (maximum - minimum);
+  const randomInteger = (minimum: number, maximum: number): number =>
+    minimum + Math.floor(nextRandom() * (maximum - minimum + 1));
+
+  const getBodyFrontPosition = (beam: ActiveBeam): Vector3 =>
+    beam.phase === "retracting"
+      ? beam.position.subtract(
+          beam.direction.scale(beam.retractLeadRemaining)
+        )
+      : beam.position.subtract(
+          beam.direction.scale(V2_NORMAL_BEAM_TIP_DIAMETER)
+        );
   const getTailPosition = (beam: ActiveBeam): Vector3 =>
-    beam.position.subtract(beam.direction.scale(beam.bodyLength));
+    getBodyFrontPosition(beam).subtract(
+      beam.direction.scale(beam.bodyLength)
+    );
 
   const updateBeamVisual = (beam: ActiveBeam): void => {
-    beam.tipMesh.position.copyFrom(beam.position);
+    beam.tipMesh.position.copyFrom(
+      beam.position.subtract(
+        beam.direction.scale(V2_NORMAL_BEAM_TIP_DIAMETER / 2)
+      )
+    );
+    const opacity =
+      beam.phase === "world-boundary-fading"
+        ? Math.max(
+            0,
+            beam.boundaryFadeRemainingSeconds /
+              V2_WORLD_BOUNDARY_FADE_DURATION_SECONDS
+          )
+        : 1;
+    beam.tipMesh.instancedBuffers.instanceColor = new Color4(
+      1,
+      1,
+      1,
+      opacity
+    );
+    beam.tipMesh.setEnabled(beam.phase !== "retracting");
     if (beam.bodyLength <= SEGMENT_LENGTH_EPSILON) {
       beam.bodyMesh.setEnabled(false);
       return;
     }
+    const front = getBodyFrontPosition(beam);
     const tail = getTailPosition(beam);
     beam.bodyMesh.setEnabled(true);
-    beam.bodyMesh.position.copyFrom(tail.add(beam.position).scale(0.5));
+    beam.bodyMesh.position.copyFrom(tail.add(front).scale(0.5));
     beam.bodyMesh.scaling.set(1, beam.bodyLength, 1);
+    beam.bodyMesh.instancedBuffers.instanceColor = new Color4(
+      1,
+      1,
+      1,
+      opacity
+    );
   };
 
   const releaseBeam = (beam: ActiveBeam): void => {
@@ -1137,39 +1264,329 @@ export const createV2BeamSystem = (
     activeBeams.delete(beam.id);
   };
 
-  const releaseImpactVisual = (impactVisual: ImpactVisual): void => {
-    visualPool.release("impact", impactVisual.mesh);
-    impactVisuals.delete(impactVisual);
+  const releaseTrailVisual = (trailVisual: TrailVisual): void => {
+    visualPool.release("trail", trailVisual.mesh);
+    trailVisuals.delete(trailVisual);
   };
 
-  const createBlockerImpactVisual = (
-    beamId: string,
-    position: Vector3
+  const releaseBlockerImpactVisual = (
+    impactVisual: BlockerImpactVisual
   ): void => {
-    const mesh = visualPool.acquire("impact", beamId);
+    visualPool.release("blocker-impact", impactVisual.mesh);
+    blockerImpactVisuals.delete(impactVisual);
+  };
+
+  const createTrailVisual = (
+    beam: ActiveBeam,
+    beamPosition: Vector3,
+    bodyLength: number,
+    shouldRenderOrb: (position: Vector3) => boolean
+  ): TrailVisual | null => {
+    const trailRange = bodyLength / 2;
+    const trailAdvance = randomInRange(0, trailRange);
+    const trailRatio = trailAdvance / V2_NORMAL_BEAM_MAX_BODY_LENGTH;
+    const trailRadius =
+      V2_NORMAL_BEAM_BACK_DIAMETER / 2 +
+      (V2_NORMAL_BEAM_FRONT_DIAMETER / 2 -
+        V2_NORMAL_BEAM_BACK_DIAMETER / 2) *
+        trailRatio;
+    const angle = nextRandom() * Math.PI * 2;
+    const distance = Math.sqrt(nextRandom()) * trailRadius;
+    const basis =
+      Math.abs(beam.direction.y) < 0.99 ? Vector3.Up() : Vector3.Right();
+    const tangent = Vector3.Cross(beam.direction, basis).normalize();
+    const bitangent = Vector3.Cross(tangent, beam.direction).normalize();
+    const offset = tangent
+      .scale(Math.cos(angle) * distance)
+      .add(bitangent.scale(Math.sin(angle) * distance));
+    const position = beamPosition
+      .subtract(
+        beam.direction.scale(
+          V2_NORMAL_BEAM_TIP_DIAMETER + bodyLength
+        )
+      )
+      .add(beam.direction.scale(trailAdvance))
+      .add(offset);
+    if (!shouldRenderOrb(position)) {
+      return null;
+    }
+    const diameter = randomInRange(
+      BEAM_TRAIL_DIAMETER_MIN,
+      BEAM_TRAIL_DIAMETER_MAX
+    );
+    const mesh = visualPool.acquire("trail", beam.id);
     mesh.position.copyFrom(position);
-    impactVisuals.add({
+    mesh.scaling.setAll(diameter);
+    mesh.instancedBuffers.instanceColor = new Color4(1, 1, 1, 0);
+    const trailVisual: TrailVisual = {
+      ownerBeamId: beam.id,
       mesh,
-      remainingSeconds: V2_NORMAL_BEAM_IMPACT_VISUAL_DURATION_SECONDS
-    });
+      velocity: beam.direction.scale(beam.speed * 0.5),
+      remainingSeconds: V2_NORMAL_BEAM_TRAIL_LIFETIME_SECONDS,
+      ageSeconds: 0,
+      diameter,
+      boundaryFadeRemainingSeconds: null,
+      boundaryFadeStartAlpha: null,
+      boundaryFadeStartScale: null
+    };
+    trailVisuals.add(trailVisual);
+    return trailVisual;
+  };
+
+  const createBlockerImpactVisuals = (
+    beamId: string,
+    position: Vector3,
+    incomingDirection: Vector3,
+    surfaceNormal: Vector3,
+    shouldRenderOrb: (position: Vector3) => boolean
+  ): void => {
+    if (!shouldRenderOrb(position)) {
+      return;
+    }
+    const normal = surfaceNormal.clone().normalize();
+    const incoming = incomingDirection.clone().normalize();
+    const reflected = incoming
+      .subtract(normal.scale(2 * Vector3.Dot(incoming, normal)))
+      .normalize();
+    const count = randomInteger(
+      BEAM_BLOCKER_IMPACT_COUNT_MIN,
+      BEAM_BLOCKER_IMPACT_COUNT_MAX
+    );
+    for (let index = 0; index < count; index += 1) {
+      const theta = nextRandom() * Math.PI * 2;
+      const y = nextRandom() * 2 - 1;
+      const horizontal = Math.sqrt(1 - y * y);
+      const jitter = new Vector3(
+        horizontal * Math.cos(theta),
+        y,
+        horizontal * Math.sin(theta)
+      ).scale(BEAM_BLOCKER_IMPACT_BOUNCE_JITTER);
+      const direction = reflected
+        .add(jitter)
+        .add(
+          normal.scale(
+            BEAM_BLOCKER_IMPACT_BOUNCE_LIFT *
+              (0.7 + nextRandom() * 0.6)
+          )
+        )
+        .normalize();
+      const speed = randomInRange(
+        BEAM_BLOCKER_IMPACT_SPEED_MIN,
+        BEAM_BLOCKER_IMPACT_SPEED_MAX
+      );
+      const mesh = visualPool.acquire("blocker-impact", beamId);
+      mesh.position.copyFrom(position);
+      blockerImpactVisuals.add({
+        mesh,
+        velocity: direction.scale(speed),
+        remainingSeconds:
+          V2_NORMAL_BEAM_BLOCKER_IMPACT_LIFETIME_SECONDS
+      });
+    }
   };
 
   const clearResources = (): void => {
     for (const beam of [...activeBeams.values()]) {
       releaseBeam(beam);
     }
-    for (const impactVisual of [...impactVisuals]) {
-      releaseImpactVisual(impactVisual);
+    for (const trailVisual of [...trailVisuals]) {
+      releaseTrailVisual(trailVisual);
+    }
+    for (const impactVisual of [...blockerImpactVisuals]) {
+      releaseBlockerImpactVisual(impactVisual);
     }
     visualPool.clear();
   };
 
-  const updateImpactVisuals = (deltaSeconds: number): void => {
-    for (const impactVisual of [...impactVisuals]) {
+  const updateTrailVisuals = (
+    candidates: readonly TrailVisual[],
+    deltaSeconds: number,
+    shouldRenderOrb: (position: Vector3) => boolean
+  ): void => {
+    for (const trailVisual of candidates) {
+      if (!trailVisuals.has(trailVisual)) {
+        continue;
+      }
+      if (!shouldRenderOrb(trailVisual.mesh.position)) {
+        releaseTrailVisual(trailVisual);
+        continue;
+      }
+      if (trailVisual.boundaryFadeRemainingSeconds !== null) {
+        trailVisual.boundaryFadeRemainingSeconds -= deltaSeconds;
+        if (
+          trailVisual.boundaryFadeRemainingSeconds <=
+          SEGMENT_LENGTH_EPSILON
+        ) {
+          releaseTrailVisual(trailVisual);
+          continue;
+        }
+        const boundaryFade =
+          trailVisual.boundaryFadeRemainingSeconds /
+          V2_WORLD_BOUNDARY_FADE_DURATION_SECONDS;
+        trailVisual.mesh.scaling.setAll(
+          trailVisual.boundaryFadeStartScale!
+        );
+        trailVisual.mesh.instancedBuffers.instanceColor = new Color4(
+          1,
+          1,
+          1,
+          trailVisual.boundaryFadeStartAlpha! * boundaryFade
+        );
+        continue;
+      }
+      trailVisual.remainingSeconds -= deltaSeconds;
+      trailVisual.ageSeconds += deltaSeconds;
+      if (trailVisual.remainingSeconds <= SEGMENT_LENGTH_EPSILON) {
+        releaseTrailVisual(trailVisual);
+        continue;
+      }
+      const velocityDecay = Math.exp(
+        -BEAM_TRAIL_DRAG * deltaSeconds
+      );
+      trailVisual.mesh.position.addInPlace(
+        trailVisual.velocity.scale(
+          (1 - velocityDecay) / BEAM_TRAIL_DRAG
+        )
+      );
+      trailVisual.velocity.scaleInPlace(velocityDecay);
+      const trailScale =
+        trailVisual.remainingSeconds /
+        V2_NORMAL_BEAM_TRAIL_LIFETIME_SECONDS;
+      if (trailScale <= BEAM_TRAIL_MIN_SCALE) {
+        releaseTrailVisual(trailVisual);
+        continue;
+      }
+      const fadeIn = Math.min(
+        1,
+        trailVisual.ageSeconds / BEAM_TRAIL_FADE_IN_DURATION_SECONDS
+      );
+      trailVisual.mesh.scaling.setAll(trailVisual.diameter * trailScale);
+      trailVisual.mesh.instancedBuffers.instanceColor = new Color4(
+        1,
+        1,
+        1,
+        fadeIn
+      );
+    }
+  };
+
+  const advanceTrailTimer = (
+    beam: ActiveBeam,
+    elapsedSeconds: number,
+    segmentStartPosition: Vector3,
+    segmentStartBodyLength: number,
+    shouldRenderOrb: (position: Vector3) => boolean
+  ): void => {
+    let elapsedAtCursor = 0;
+    let timeUntilTrail = beam.trailTimer;
+    while (
+      elapsedAtCursor + timeUntilTrail <=
+      elapsedSeconds + SEGMENT_LENGTH_EPSILON
+    ) {
+      const generationElapsedSeconds = Math.min(
+        elapsedSeconds,
+        elapsedAtCursor + timeUntilTrail
+      );
+      const generationPosition = segmentStartPosition.add(
+        beam.direction.scale(
+          beam.speed * generationElapsedSeconds
+        )
+      );
+      const generationBodyLength = Math.min(
+        V2_NORMAL_BEAM_MAX_BODY_LENGTH,
+        segmentStartBodyLength +
+          beam.speed * generationElapsedSeconds
+      );
+      const trailVisual = createTrailVisual(
+        beam,
+        generationPosition,
+        generationBodyLength,
+        shouldRenderOrb
+      );
+      const remainingAfterGeneration =
+        elapsedSeconds - generationElapsedSeconds;
+      if (
+        trailVisual &&
+        remainingAfterGeneration > SEGMENT_LENGTH_EPSILON
+      ) {
+        updateTrailVisuals(
+          [trailVisual],
+          remainingAfterGeneration,
+          shouldRenderOrb
+        );
+      }
+      elapsedAtCursor = generationElapsedSeconds;
+      timeUntilTrail = randomInRange(
+        BEAM_TRAIL_INTERVAL_MIN_SECONDS,
+        BEAM_TRAIL_INTERVAL_MAX_SECONDS
+      );
+    }
+    beam.trailTimer = Math.max(
+      0,
+      timeUntilTrail - (elapsedSeconds - elapsedAtCursor)
+    );
+  };
+
+  const beginTrailBoundaryFade = (
+    beamId: string,
+    elapsedFadeSeconds: number
+  ): void => {
+    const remainingFadeSeconds = Math.max(
+      0,
+      V2_WORLD_BOUNDARY_FADE_DURATION_SECONDS - elapsedFadeSeconds
+    );
+    for (const trailVisual of [...trailVisuals]) {
+      if (trailVisual.ownerBeamId !== beamId) {
+        continue;
+      }
+      trailVisual.boundaryFadeRemainingSeconds = remainingFadeSeconds;
+      if (remainingFadeSeconds <= SEGMENT_LENGTH_EPSILON) {
+        releaseTrailVisual(trailVisual);
+      } else {
+        trailVisual.velocity.setAll(0);
+        const currentAlpha = Number(
+          trailVisual.mesh.instancedBuffers.instanceColor?.a ?? 1
+        );
+        trailVisual.boundaryFadeStartAlpha = currentAlpha;
+        trailVisual.boundaryFadeStartScale =
+          trailVisual.mesh.scaling.x;
+        trailVisual.mesh.instancedBuffers.instanceColor = new Color4(
+          1,
+          1,
+          1,
+          currentAlpha *
+            (remainingFadeSeconds /
+              V2_WORLD_BOUNDARY_FADE_DURATION_SECONDS)
+        );
+      }
+    }
+  };
+
+  const updateBlockerImpactVisuals = (
+    deltaSeconds: number,
+    shouldRenderOrb: (position: Vector3) => boolean
+  ): void => {
+    for (const impactVisual of [...blockerImpactVisuals]) {
+      if (!shouldRenderOrb(impactVisual.mesh.position)) {
+        releaseBlockerImpactVisual(impactVisual);
+        continue;
+      }
       impactVisual.remainingSeconds -= deltaSeconds;
       if (impactVisual.remainingSeconds <= SEGMENT_LENGTH_EPSILON) {
-        releaseImpactVisual(impactVisual);
+        releaseBlockerImpactVisual(impactVisual);
+        continue;
       }
+      impactVisual.mesh.position.addInPlace(
+        impactVisual.velocity.scale(deltaSeconds)
+      );
+      const scale =
+        impactVisual.remainingSeconds /
+        V2_NORMAL_BEAM_BLOCKER_IMPACT_LIFETIME_SECONDS;
+      if (scale <= BEAM_BLOCKER_IMPACT_MIN_SCALE) {
+        releaseBlockerImpactVisual(impactVisual);
+        continue;
+      }
+      impactVisual.mesh.scaling.setAll(scale);
     }
   };
 
@@ -1203,6 +1620,9 @@ export const createV2BeamSystem = (
         speed: request.speed,
         remainingLifetime: request.maximumLifetime,
         bodyLength: 0,
+        retractLeadRemaining: 0,
+        boundaryFadeRemainingSeconds: 0,
+        trailTimer: nextRandom() * BEAM_TRAIL_INTERVAL_MAX_SECONDS,
         checkStartContainment: true,
         bodyMesh,
         tipMesh
@@ -1222,22 +1642,55 @@ export const createV2BeamSystem = (
       if (deltaSeconds === 0) {
         return Object.freeze({
           impacts: Object.freeze([]),
-          expirations: Object.freeze([])
+          expirations: Object.freeze([]),
+          worldBoundaryExits: Object.freeze([])
         });
       }
 
-      updateImpactVisuals(deltaSeconds);
+      const shouldRenderOrb = config.getOrbVisibilityPredicate();
+      if (typeof shouldRenderOrb !== "function") {
+        throw new Error(
+          "getOrbVisibilityPredicateは位置判定関数を返す必要があります"
+        );
+      }
+      const shouldRenderOrbInWorld = (position: Vector3): boolean =>
+        (config.stage.worldBoundary === null ||
+          config.stage.worldBoundary.contains(position)) &&
+        shouldRenderOrb(position);
+      const frameStartTrailVisuals = [...trailVisuals];
+      const boundaryExitTrailOwners = new Set<string>();
+      updateBlockerImpactVisuals(deltaSeconds, shouldRenderOrbInWorld);
       const targets = config.getHumanTargets();
       validateHumanTargetIds(targets);
       const targetSpatialIndex = createHumanTargetSpatialIndex(targets);
       const impacts: V2BeamImpactEvent[] = [];
       const expirations: V2BeamExpirationEvent[] = [];
+      const worldBoundaryExits: V2BeamWorldBoundaryExitEvent[] = [];
 
       for (const beam of [...activeBeams.values()]) {
+        if (beam.phase === "world-boundary-fading") {
+          beam.boundaryFadeRemainingSeconds = Math.max(
+            0,
+            beam.boundaryFadeRemainingSeconds - deltaSeconds
+          );
+          if (
+            beam.boundaryFadeRemainingSeconds <= SEGMENT_LENGTH_EPSILON
+          ) {
+            releaseBeam(beam);
+          } else {
+            updateBeamVisual(beam);
+          }
+          continue;
+        }
         if (beam.phase === "retracting") {
+          const shrinkDistance = beam.speed * deltaSeconds;
           beam.bodyLength = Math.max(
             0,
-            beam.bodyLength - beam.speed * deltaSeconds
+            beam.bodyLength - shrinkDistance
+          );
+          beam.retractLeadRemaining = Math.max(
+            0,
+            beam.retractLeadRemaining - shrinkDistance
           );
           if (beam.bodyLength <= SEGMENT_LENGTH_EPSILON) {
             releaseBeam(beam);
@@ -1253,17 +1706,28 @@ export const createV2BeamSystem = (
         );
         const travelDistance = beam.speed * travelSeconds;
         const previousPosition = beam.position.clone();
+        const previousBodyLength = beam.bodyLength;
         const nextPosition = previousPosition.add(
           beam.direction.scale(travelDistance)
         );
+        const boundaryExitPoint =
+          config.stage.worldBoundary === null
+            ? null
+            : config.stage.worldBoundary.findExitPoint(
+                previousPosition,
+                nextPosition
+              );
+        const boundaryDistance = boundaryExitPoint
+          ? Vector3.Distance(previousPosition, boundaryExitPoint)
+          : null;
         const candidateTargets = targetSpatialIndex.query(
           previousPosition,
-          nextPosition
+          boundaryExitPoint ?? nextPosition
         );
         const hit = castValidatedV2BeamSegment(
           config.stage,
           previousPosition,
-          nextPosition,
+          boundaryExitPoint ?? nextPosition,
           candidateTargets,
           beam.sourceId,
           beam.targetPolicy,
@@ -1272,7 +1736,11 @@ export const createV2BeamSystem = (
         );
         beam.checkStartContainment = false;
 
-        if (hit) {
+        if (
+          hit &&
+          (boundaryDistance === null ||
+            hit.distance < boundaryDistance - HIT_DISTANCE_EPSILON)
+        ) {
           beam.position.copyFrom(hit.point);
           beam.bodyLength = Math.min(
             V2_NORMAL_BEAM_MAX_BODY_LENGTH,
@@ -1282,7 +1750,16 @@ export const createV2BeamSystem = (
             0,
             beam.remainingLifetime - hit.distance / beam.speed
           );
+          advanceTrailTimer(
+            beam,
+            hit.distance / beam.speed,
+            previousPosition,
+            previousBodyLength,
+            shouldRenderOrbInWorld
+          );
           beam.phase = "retracting";
+          beam.retractLeadRemaining =
+            V2_NORMAL_BEAM_TIP_DIAMETER;
           updateBeamVisual(beam);
           impacts.push(
             Object.freeze({
@@ -1294,10 +1771,75 @@ export const createV2BeamSystem = (
             })
           );
           if (hit.kind === "blocker") {
-            createBlockerImpactVisual(beam.id, hit.point);
+            createBlockerImpactVisuals(
+              beam.id,
+              hit.point,
+              beam.direction,
+              hit.normal,
+              shouldRenderOrbInWorld
+            );
           }
           if (beam.bodyLength <= SEGMENT_LENGTH_EPSILON) {
             releaseBeam(beam);
+          }
+          continue;
+        }
+
+        if (
+          boundaryExitPoint &&
+          boundaryDistance !== null &&
+          boundaryDistance <= travelDistance + HIT_DISTANCE_EPSILON
+        ) {
+          beam.position.copyFrom(boundaryExitPoint);
+          beam.bodyLength = Math.min(
+            V2_NORMAL_BEAM_MAX_BODY_LENGTH,
+            beam.bodyLength + boundaryDistance
+          );
+          const exitTravelSeconds = boundaryDistance / beam.speed;
+          beam.remainingLifetime = Math.max(
+            0,
+            beam.remainingLifetime - exitTravelSeconds
+          );
+          advanceTrailTimer(
+            beam,
+            exitTravelSeconds,
+            previousPosition,
+            previousBodyLength,
+            shouldRenderOrbInWorld
+          );
+          const elapsedFadeSeconds = Math.max(
+            0,
+            deltaSeconds - exitTravelSeconds
+          );
+          updateTrailVisuals(
+            frameStartTrailVisuals.filter(
+              (trailVisual) => trailVisual.ownerBeamId === beam.id
+            ),
+            exitTravelSeconds,
+            shouldRenderOrbInWorld
+          );
+          boundaryExitTrailOwners.add(beam.id);
+          beam.phase = "world-boundary-fading";
+          beam.boundaryFadeRemainingSeconds = Math.max(
+            0,
+            V2_WORLD_BOUNDARY_FADE_DURATION_SECONDS - elapsedFadeSeconds
+          );
+          beginTrailBoundaryFade(beam.id, elapsedFadeSeconds);
+          worldBoundaryExits.push(
+            Object.freeze({
+              beamId: beam.id,
+              sourceId: beam.sourceId,
+              originKind: beam.originKind,
+              targetPolicy: beam.targetPolicy,
+              position: boundaryExitPoint.clone()
+            })
+          );
+          if (
+            beam.boundaryFadeRemainingSeconds <= SEGMENT_LENGTH_EPSILON
+          ) {
+            releaseBeam(beam);
+          } else {
+            updateBeamVisual(beam);
           }
           continue;
         }
@@ -1308,10 +1850,19 @@ export const createV2BeamSystem = (
           beam.bodyLength + travelDistance
         );
         beam.remainingLifetime -= travelSeconds;
-        updateBeamVisual(beam);
+        advanceTrailTimer(
+          beam,
+          travelSeconds,
+          previousPosition,
+          previousBodyLength,
+          shouldRenderOrbInWorld
+        );
         if (beam.remainingLifetime <= SEGMENT_LENGTH_EPSILON) {
           beam.remainingLifetime = 0;
           beam.phase = "retracting";
+          beam.retractLeadRemaining =
+            V2_NORMAL_BEAM_TIP_DIAMETER;
+          updateBeamVisual(beam);
           expirations.push(
             Object.freeze({
               beamId: beam.id,
@@ -1324,12 +1875,23 @@ export const createV2BeamSystem = (
           if (beam.bodyLength <= SEGMENT_LENGTH_EPSILON) {
             releaseBeam(beam);
           }
+        } else {
+          updateBeamVisual(beam);
         }
       }
+      updateTrailVisuals(
+        frameStartTrailVisuals.filter(
+          (trailVisual) =>
+            !boundaryExitTrailOwners.has(trailVisual.ownerBeamId)
+        ),
+        deltaSeconds,
+        shouldRenderOrbInWorld
+      );
 
       return Object.freeze({
         impacts: Object.freeze(impacts),
-        expirations: Object.freeze(expirations)
+        expirations: Object.freeze(expirations),
+        worldBoundaryExits: Object.freeze(worldBoundaryExits)
       });
     },
     getActiveBeams: () => {

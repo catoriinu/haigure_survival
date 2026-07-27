@@ -535,6 +535,7 @@ const createHarness = (
           ? Object.freeze([volume])
           : Object.freeze([])
     }),
+    worldBoundary: null,
     queries: Object.freeze({
       castMovementSegment: () => null,
       castMovementSphere: (
@@ -1677,6 +1678,7 @@ const runRedTransitionSpeedCheck = (
           ? Object.freeze([volume])
           : Object.freeze([])
     }),
+    worldBoundary: null,
     queries: Object.freeze({
       castMovementSegment: () => null,
       castMovementSphere: () => null,

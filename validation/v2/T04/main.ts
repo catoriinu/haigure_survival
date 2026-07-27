@@ -918,6 +918,7 @@ const createBeamValidationStage = (
       beamBlockers: normalColliders,
       sightBlockers: normalColliders
     },
+    worldBoundary: null,
     queries: createStageSpatialQueries(targetScene, {
       movementColliders,
       groundColliders: normalColliders,
@@ -2936,11 +2937,8 @@ const runValidation = async () => {
         scene: spatialScene,
         stage: beamWallStage,
         getHumanTargets: () => [],
-        visual: {
-          diameter: 0.04,
-          color: new Color3(1, 0.4, 0.1),
-          alpha: 1
-        }
+        random: () => 0.5,
+        getOrbVisibilityPredicate: () => () => true
       });
       const highSpeedBeamId = highSpeedBeamSystem.spawn({
         sourceId: "bit-fast",
@@ -2976,11 +2974,8 @@ const runValidation = async () => {
         scene: spatialScene,
         stage: emptyBeamStage,
         getHumanTargets: () => [],
-        visual: {
-          diameter: 0.04,
-          color: new Color3(0.2, 0.8, 1),
-          alpha: 1
-        }
+        random: () => 0.5,
+        getOrbVisibilityPredicate: () => () => true
       });
       const lifetimeBeamId = lifetimeBeamSystem.spawn({
         sourceId: "bit-lifetime",

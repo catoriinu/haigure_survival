@@ -51,7 +51,14 @@ import {
   type StageVolume,
   type StageVolumeRole
 } from "./stageSpatialQueries";
+import {
+  createStageWorldBoundary,
+  type OwnedStageWorldBoundary,
+  type StageWorldBoundary
+} from "./stageWorldBoundary";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "./worldUnits";
+
+export type { StageWorldBoundary } from "./stageWorldBoundary";
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const KEBAB_CASE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -142,6 +149,7 @@ export type StageSpatialContext = Readonly<{
   assemblyVenues: StageAssemblyVenueRegistry;
   links: StageLinkRegistry;
   boundary: StageBoundary;
+  worldBoundary: StageWorldBoundary | null;
   queries: StageSpatialQueries;
   dispose(): void;
 }>;
@@ -245,6 +253,7 @@ type StageAssetClassification = Readonly<{
   assemblyVolumes: readonly AuthoredAssemblyVolume[];
   bitFlightTransitionVolumes: readonly AuthoredBitFlightTransitionVolume[];
   boundaryMesh: Mesh;
+  worldBoundaryMesh: Mesh | null;
   portals: readonly StagePortal[];
   links: readonly AuthoredStageLinkEndpoint[];
   bitFlightLinks: readonly AuthoredBitFlightLinkEndpoint[];
@@ -734,6 +743,21 @@ const classifyBoundary = (mesh: Mesh): { id: "stage"; mesh: Mesh } => {
   return { id, mesh };
 };
 
+const classifyWorldBoundary = (
+  mesh: Mesh
+): { id: "world-limit"; mesh: Mesh } => {
+  const extras = requireExtras(mesh);
+  assertAllowedHsProperties(mesh.name, extras, ["hs_id", "hs_role"]);
+  const id = requireId(mesh.name, extras);
+  const role = requireString(mesh.name, extras, "hs_role");
+  if (id !== "world-limit" || role !== "world_boundary") {
+    throw new Error(
+      "BND_WorldLimitにはhs_id=world-limit、hs_role=world_boundaryが必要です"
+    );
+  }
+  return { id, mesh };
+};
+
 const classifyPortal = (mesh: Mesh): StagePortal => {
   const extras = requireExtras(mesh);
   assertAllowedHsProperties(mesh.name, extras, [
@@ -998,6 +1022,7 @@ const assertUniqueSemanticIds = (
   volumes: readonly StageVolume[],
   bitFlightTransitionVolumes: readonly AuthoredBitFlightTransitionVolume[],
   boundaryId: string,
+  worldBoundaryId: string | null,
   portals: readonly StagePortal[],
   links: readonly AuthoredStageLinkEndpoint[],
   bitFlightLinks: readonly AuthoredBitFlightLinkEndpoint[]
@@ -1021,6 +1046,9 @@ const assertUniqueSemanticIds = (
     register(transition.definition.id, transition.mesh.name);
   }
   register(boundaryId, "BND_Stage");
+  if (worldBoundaryId) {
+    register(worldBoundaryId, "BND_WorldLimit");
+  }
   for (const portal of portals) {
     register(portal.id, portal.mesh.name);
   }
@@ -1144,6 +1172,7 @@ const classifyStageAsset = (
   const assemblyVolumes: AuthoredAssemblyVolume[] = [];
   const bitFlightTransitionVolumes: AuthoredBitFlightTransitionVolume[] = [];
   const boundaries: Array<{ id: "stage"; mesh: Mesh }> = [];
+  const worldBoundaries: Array<{ id: "world-limit"; mesh: Mesh }> = [];
   const portals: StagePortal[] = [];
 
   for (const mesh of authoredMeshes) {
@@ -1196,6 +1225,10 @@ const classifyStageAsset = (
       const boundary = classifyBoundary(mesh);
       configureSemanticMesh(mesh);
       boundaries.push(boundary);
+    } else if (mesh.name === "BND_WorldLimit") {
+      const boundary = classifyWorldBoundary(mesh);
+      configureSemanticMesh(mesh);
+      worldBoundaries.push(boundary);
     } else if (mesh.name.startsWith("PRT_")) {
       assertNameHasSuffix(mesh.name, "PRT_");
       const portal = classifyPortal(mesh);
@@ -1240,6 +1273,19 @@ const classifyStageAsset = (
   if (boundaries.length !== 1) {
     throw new Error(`BND_Stageは1個必要です: ${boundaries.length}個`);
   }
+  if (stage.worldBoundaryMode === "required" && worldBoundaries.length !== 1) {
+    throw new Error(
+      `worldBoundaryMode=requiredではBND_WorldLimitが1個必要です: ${worldBoundaries.length}個`
+    );
+  }
+  if (
+    stage.worldBoundaryMode === "unsupported" &&
+    worldBoundaries.length !== 0
+  ) {
+    throw new Error(
+      `worldBoundaryMode=unsupportedではBND_WorldLimitを使用できません: ${worldBoundaries.length}個`
+    );
+  }
   const playerSpawns = markers.filter((marker) => marker.role === "player_spawn");
   if (playerSpawns.length !== 1) {
     throw new Error(`player_spawnは1個必要です: ${playerSpawns.length}個`);
@@ -1261,6 +1307,7 @@ const classifyStageAsset = (
     volumes,
     bitFlightTransitionVolumes,
     boundaries[0].id,
+    worldBoundaries[0]?.id ?? null,
     portals,
     links,
     bitFlightLinks
@@ -1280,6 +1327,7 @@ const classifyStageAsset = (
     assemblyVolumes,
     bitFlightTransitionVolumes,
     boundaryMesh: boundaries[0].mesh,
+    worldBoundaryMesh: worldBoundaries[0]?.mesh ?? null,
     portals,
     links,
     bitFlightLinks
@@ -1735,6 +1783,12 @@ const assertCatalogEntry = (stage: StageCatalogEntry) => {
   if (!SHA256_PATTERN.test(stage.bitNavmeshSha256)) {
     throw new Error(`ビット用NavMesh SHA-256が不正です: ${stage.id}`);
   }
+  if (
+    stage.worldBoundaryMode !== "required" &&
+    stage.worldBoundaryMode !== "unsupported"
+  ) {
+    throw new Error(`世界境界modeが不正です: ${stage.id}`);
+  }
 };
 
 const resolveAssetUrl = (relativeUrl: string) =>
@@ -1815,6 +1869,7 @@ export const loadStageSpatialContext = async (
   let navigation: NavigationWorld | null = null;
   let bitNavigation: BitFlightNavigationWorld | null = null;
   let queries: StageSpatialQueries | null = null;
+  let worldBoundary: OwnedStageWorldBoundary | null = null;
   try {
     container = await loadGlbContainer(scene, stage, glbData);
     const managementRoot = container.createRootMesh();
@@ -1872,6 +1927,9 @@ export const loadStageSpatialContext = async (
         (transition) => transition.mesh
       ),
       classification.boundaryMesh,
+      ...(classification.worldBoundaryMesh
+        ? [classification.worldBoundaryMesh]
+        : []),
       ...classification.portals.map((portal) => portal.mesh)
     ]);
     const semanticNodes = Object.freeze([
@@ -1914,6 +1972,12 @@ export const loadStageSpatialContext = async (
       mesh: classification.boundaryMesh,
       contains: createStageBoundaryContainsQuery(classification.boundaryMesh)
     });
+    worldBoundary = classification.worldBoundaryMesh
+      ? createStageWorldBoundary(
+          classification.worldBoundaryMesh,
+          classification.boundaryMesh
+        )
+      : null;
     assertSemanticsInsideBoundary(
       boundary,
       markers.all,
@@ -1933,6 +1997,7 @@ export const loadStageSpatialContext = async (
     const ownedNavigation = navigation;
     const ownedBitNavigation = bitNavigation;
     const ownedQueries = queries;
+    const ownedWorldBoundary = worldBoundary;
     return Object.freeze({
       stage,
       metadata: classification.metadata,
@@ -1944,12 +2009,14 @@ export const loadStageSpatialContext = async (
       assemblyVenues,
       links,
       boundary,
+      worldBoundary: ownedWorldBoundary,
       queries: ownedQueries,
       dispose: () => {
         if (disposed) {
           throw new Error(`StageSpatialContextは破棄済みです: ${stage.id}`);
         }
         disposed = true;
+        ownedWorldBoundary?.dispose();
         ownedQueries.dispose();
         ownedBitNavigation.dispose();
         ownedNavigation.dispose();
@@ -1958,6 +2025,7 @@ export const loadStageSpatialContext = async (
       }
     });
   } catch (error) {
+    worldBoundary?.dispose();
     queries?.dispose();
     bitNavigation?.dispose();
     navigation?.dispose();
