@@ -264,7 +264,13 @@ class CachedNavigationAgent implements NavigationAgent {
             transition: null
           };
         }
-        const stepDistance = Math.min(remainingDistance, distance);
+        const isIntermediatePoint =
+          this.nextPointIndex < step.points.length - 1;
+        // 中間点はNavMesh面の境界上なので、許容差内の面側から次の点へ進む。
+        const approachDistance = isIntermediatePoint
+          ? distance - this.config.waypointTolerance * 0.5
+          : distance;
+        const stepDistance = Math.min(remainingDistance, approachDistance);
         const desiredPosition = location.position.add(
           nextPoint.position.subtract(location.position).scale(stepDistance / distance)
         );

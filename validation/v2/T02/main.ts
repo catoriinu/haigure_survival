@@ -709,11 +709,11 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 468 &&
-        context.resources.normalColliders.length === 185 &&
-        context.resources.actorOnlyColliders.length === 82 &&
-        context.resources.humanOnlyColliders.length === 58 &&
-        context.resources.navSourceMeshes.length === 15 &&
+      context.resources.visualMeshes.length === 482 &&
+        context.resources.normalColliders.length === 197 &&
+        context.resources.actorOnlyColliders.length === 81 &&
+        context.resources.humanOnlyColliders.length === 57 &&
+        context.resources.navSourceMeshes.length === 19 &&
         context.resources.bitFlightNavSourceMeshes.length === 22 &&
         context.markers.all.length === 3 &&
         assemblyAnchors.length === 2 &&
@@ -723,7 +723,7 @@ const validateLoadedContext = (
         context.links.all.length === 0 &&
         context.bitNavigation.zones.length === 4 &&
         context.bitNavigation.bands.length === 11 &&
-        apertureTransitions.length === 58 &&
+        apertureTransitions.length === 57 &&
         verticalTransitions.length === 4 &&
         surfaceRouteTransitions.length === 10 &&
         boundaryTransitions.length === 1 &&
@@ -917,6 +917,318 @@ const validateLoadedContext = (
       ...context.resources.normalColliders
     ].map((mesh) => [mesh.name, mesh])
   );
+  const makeRoundTripWaypoints = (waypoints: readonly Vector3[]) => [
+    ...waypoints,
+    ...waypoints.slice(0, -1).reverse()
+  ];
+  const westGymGalleryStairWaypoints = [
+    new Vector3(38.0, -1.4, 0.0),
+    new Vector3(38.0, -2.6, 0.0),
+    new Vector3(35.7, -2.6, 0.15),
+    new Vector3(35.4, -3.8, 0.15),
+    new Vector3(35.4, -10.2, 2.55),
+    new Vector3(35.4, -10.75, 2.55),
+    new Vector3(34.2, -10.75, 2.55),
+    new Vector3(34.2, -10.2, 2.55),
+    new Vector3(34.2, -3.0, 5.25),
+    new Vector3(34.2, -1.6, 5.25)
+  ];
+  const eastGymGalleryStairWaypoints = [
+    new Vector3(54.8, -1.4, 0.0),
+    new Vector3(54.8, -2.6, 0.0),
+    new Vector3(57.1, -2.6, 0.15),
+    new Vector3(57.4, -3.8, 0.15),
+    new Vector3(57.4, -10.2, 2.55),
+    new Vector3(57.4, -10.75, 2.55),
+    new Vector3(58.6, -10.75, 2.55),
+    new Vector3(58.6, -10.2, 2.55),
+    new Vector3(58.6, -3.0, 5.25),
+    new Vector3(58.6, -1.6, 5.25)
+  ];
+  const gymGalleryStairRoundTrips = [
+    validatePlayerWaypointTraversal(
+      context,
+      "体育館西側固定開放口・U字袖階段往復",
+      makeRoundTripWaypoints(westGymGalleryStairWaypoints),
+      [0.0, 5.25]
+    ),
+    validatePlayerWaypointTraversal(
+      context,
+      "体育館東側固定開放口・U字袖階段往復",
+      makeRoundTripWaypoints(eastGymGalleryStairWaypoints),
+      [0.0, 5.25]
+    )
+  ];
+  checks.push(
+    createCheck(
+      "実プレイヤーによる体育館東西固定開放口・U字袖階段往復",
+      gymGalleryStairRoundTrips.every((result) => result.ok),
+      gymGalleryStairRoundTrips
+        .map(
+          (result) =>
+            `${result.label}:Waypoint=${result.reachedWaypoints}/${result.totalWaypoints},` +
+            `最高足元Y=${result.highestFootY.toFixed(3)},` +
+            `最低足元Y=${result.lowestFootY.toFixed(3)},` +
+            `最終水平誤差=${result.finalHorizontalError.toFixed(3)},` +
+            `最終垂直誤差=${result.finalVerticalError.toFixed(3)},` +
+            `境界内=${result.stayedInsideBoundary},` +
+            `エラー=${result.errorMessage ?? "なし"}`
+        )
+        .join(" / ")
+    )
+  );
+  const gymSouthPassageRoundTrip = validatePlayerWaypointTraversal(
+    context,
+    "体育館南壁・南塀間通路往復",
+    makeRoundTripWaypoints([
+      new Vector3(34.2, -13.2, -0.3),
+      new Vector3(46.4, -13.2, -0.3),
+      new Vector3(58.6, -13.2, -0.3)
+    ]),
+    [-0.3, -0.3]
+  );
+  checks.push(
+    createCheck(
+      "南塀2m移設後の体育館南側通路を実プレイヤーで往復",
+      gymSouthPassageRoundTrip.ok,
+      `Waypoint=${gymSouthPassageRoundTrip.reachedWaypoints}/` +
+        `${gymSouthPassageRoundTrip.totalWaypoints},` +
+        `最終水平誤差=${gymSouthPassageRoundTrip.finalHorizontalError.toFixed(3)},` +
+        `最終垂直誤差=${gymSouthPassageRoundTrip.finalVerticalError.toFixed(3)},` +
+        `境界内=${gymSouthPassageRoundTrip.stayedInsideBoundary},` +
+        `エラー=${gymSouthPassageRoundTrip.errorMessage ?? "なし"}`
+    )
+  );
+
+  const westGymGalleryNorthRampWaypoints = [
+    new Vector3(40.0, 25.8, 3.6),
+    new Vector3(39.0, 25.8, 3.6),
+    new Vector3(37.45, 25.8, 4.425),
+    new Vector3(35.8, 25.8, 5.25),
+    new Vector3(34.5, 25.8, 5.25)
+  ];
+  const eastGymGalleryNorthRampWaypoints = [
+    new Vector3(42.8, 25.8, 3.6),
+    new Vector3(43.8, 25.8, 3.6),
+    new Vector3(45.35, 25.8, 4.425),
+    new Vector3(47.0, 25.8, 5.25),
+    new Vector3(47.4, 25.8, 5.25)
+  ];
+  const gymGalleryNorthRampRoundTrips = [
+    validatePlayerWaypointTraversal(
+      context,
+      "体育館北西11段Ramp往復",
+      makeRoundTripWaypoints(westGymGalleryNorthRampWaypoints),
+      [3.6, 5.25]
+    ),
+    validatePlayerWaypointTraversal(
+      context,
+      "体育館北東11段Ramp往復",
+      makeRoundTripWaypoints(eastGymGalleryNorthRampWaypoints),
+      [3.6, 5.25]
+    )
+  ];
+  checks.push(
+    createCheck(
+      "実プレイヤーによる体育館北側東西11段Ramp往復",
+      gymGalleryNorthRampRoundTrips.every((result) => result.ok),
+      gymGalleryNorthRampRoundTrips
+        .map(
+          (result) =>
+            `${result.label}:Waypoint=${result.reachedWaypoints}/${result.totalWaypoints},` +
+            `最高足元Y=${result.highestFootY.toFixed(3)},` +
+            `最低足元Y=${result.lowestFootY.toFixed(3)},` +
+            `最終水平誤差=${result.finalHorizontalError.toFixed(3)},` +
+            `最終垂直誤差=${result.finalVerticalError.toFixed(3)},` +
+            `境界内=${result.stayedInsideBoundary},` +
+            `エラー=${result.errorMessage ?? "なし"}`
+        )
+        .join(" / ")
+    )
+  );
+
+  const westGymStageRampWaypoints = [
+    new Vector3(39.6, -9.8, 0.0),
+    new Vector3(39.9, -9.8, 0.0),
+    new Vector3(40.65, -9.8, 0.5),
+    new Vector3(41.4, -9.8, 1.0),
+    new Vector3(41.8, -9.8, 1.0)
+  ];
+  const eastGymStageRampWaypoints = [
+    new Vector3(53.2, -9.8, 0.0),
+    new Vector3(52.9, -9.8, 0.0),
+    new Vector3(52.15, -9.8, 0.5),
+    new Vector3(51.4, -9.8, 1.0),
+    new Vector3(51.0, -9.8, 1.0)
+  ];
+  const gymStageRampRoundTrips = [
+    validatePlayerWaypointTraversal(
+      context,
+      "体育館舞台西Ramp往復",
+      makeRoundTripWaypoints(westGymStageRampWaypoints),
+      [0.0, 1.0]
+    ),
+    validatePlayerWaypointTraversal(
+      context,
+      "体育館舞台東Ramp往復",
+      makeRoundTripWaypoints(eastGymStageRampWaypoints),
+      [0.0, 1.0]
+    )
+  ];
+  checks.push(
+    createCheck(
+      "実プレイヤーによる体育館舞台東西Ramp往復",
+      gymStageRampRoundTrips.every((result) => result.ok),
+      gymStageRampRoundTrips
+        .map(
+          (result) =>
+            `${result.label}:Waypoint=${result.reachedWaypoints}/${result.totalWaypoints},` +
+            `最高足元Y=${result.highestFootY.toFixed(3)},` +
+            `最低足元Y=${result.lowestFootY.toFixed(3)},` +
+            `最終水平誤差=${result.finalHorizontalError.toFixed(3)},` +
+            `最終垂直誤差=${result.finalVerticalError.toFixed(3)},` +
+            `境界内=${result.stayedInsideBoundary},` +
+            `エラー=${result.errorMessage ?? "なし"}`
+        )
+        .join(" / ")
+    )
+  );
+
+  const gymGalleryCentralGuardAttempt = validatePlayerBarrierAttempt(
+    context,
+    "体育館北側中央低床手すり突進",
+    new Vector3(41.4, 25.8, 3.6),
+    new Vector3(41.4, 24.0, 3.6),
+    0.8,
+    3.55
+  );
+  const gymGalleryCentralGuardHit = context.queries.castMovementSegment(
+    "player",
+    blenderPointToBabylon(new Vector3(41.4, 25.8, 4.15)),
+    blenderPointToBabylon(new Vector3(41.4, 24.0, 4.15))
+  );
+  checks.push(
+    createCheck(
+      "体育館北側中央低床手すりの実Collider転落防止",
+      gymGalleryCentralGuardAttempt.ok &&
+        gymGalleryCentralGuardHit?.mesh.name ===
+          "COL_B03_GymGalleryGuards",
+      `hit=${gymGalleryCentralGuardHit?.mesh.name ?? "clear"} / ` +
+        `実Player進行=${gymGalleryCentralGuardAttempt.maximumProgress.toFixed(4)}/` +
+        `${gymGalleryCentralGuardAttempt.barrierProgress.toFixed(4)} / ` +
+        `最低足元Y=${gymGalleryCentralGuardAttempt.minimumFootY.toFixed(4)}/` +
+        `${gymGalleryCentralGuardAttempt.minimumFootHeight.toFixed(4)} / ` +
+        `境界内=${gymGalleryCentralGuardAttempt.stayedInsideBoundary} / ` +
+        `エラー=${gymGalleryCentralGuardAttempt.errorMessage ?? "なし"}`
+    )
+  );
+  const gymGalleryRearGuardResults = [
+    {
+      label: "西",
+      from: new Vector3(35.4, -2.6, 0.7),
+      to: new Vector3(33.9, -2.6, 0.7)
+    },
+    {
+      label: "東",
+      from: new Vector3(57.4, -2.6, 0.7),
+      to: new Vector3(58.9, -2.6, 0.7)
+    }
+  ].map(({ label, from, to }) => {
+    const fromWorld = blenderPointToBabylon(from);
+    const toWorld = blenderPointToBabylon(to);
+    return {
+      label,
+      player: context.queries.castMovementSegment("player", fromWorld, toWorld),
+      npc: context.queries.castMovementSegment("npc", fromWorld, toWorld)
+    };
+  });
+  checks.push(
+    createCheck(
+      "体育館左右袖階段の奥側手すりを壁際まで閉鎖",
+      gymGalleryRearGuardResults.every(
+        (result) =>
+          result.player?.mesh.name === "COL_B03_GymGalleryGuards" &&
+          result.npc?.mesh.name === "COL_B03_GymGalleryGuards"
+      ),
+      gymGalleryRearGuardResults
+        .map(
+          (result) =>
+            `${result.label}:player=${result.player?.mesh.name ?? "clear"},` +
+            `npc=${result.npc?.mesh.name ?? "clear"}`
+        )
+        .join(" / ")
+    )
+  );
+  const gymGalleryCentralGuardGapFrom = blenderPointToBabylon(
+    new Vector3(41.4, 25.8, 4.4)
+  );
+  const gymGalleryCentralGuardGapTo = blenderPointToBabylon(
+    new Vector3(41.4, 24.0, 4.4)
+  );
+  const gymGalleryCentralGuardGapBeam =
+    context.queries.castBeamSegment(
+      gymGalleryCentralGuardGapFrom,
+      gymGalleryCentralGuardGapTo
+    );
+  const gymGalleryCentralGuardGapSight =
+    context.queries.castSightSegment(
+      gymGalleryCentralGuardGapFrom,
+      gymGalleryCentralGuardGapTo
+    );
+  checks.push(
+    createCheck(
+      "体育館手すりの上下横桟間はビーム・視線を不可視壁で塞がない",
+      gymGalleryCentralGuardGapBeam === null &&
+        gymGalleryCentralGuardGapSight === null,
+      `beam=${gymGalleryCentralGuardGapBeam?.mesh.name ?? "clear"} / ` +
+        `sight=${gymGalleryCentralGuardGapSight?.mesh.name ?? "clear"}`
+    )
+  );
+
+  const schoolSideGymPortalResults = [
+    {
+      floor: "2F",
+      from: new Vector3(41.4, 33.2, 4.6),
+      to: new Vector3(41.4, 32.0, 4.6)
+    },
+    {
+      floor: "3F",
+      from: new Vector3(41.4, 33.2, 8.2),
+      to: new Vector3(41.4, 32.0, 8.2)
+    }
+  ].map(({ floor, from, to }) => {
+    const fromBabylon = blenderPointToBabylon(from);
+    const toBabylon = blenderPointToBabylon(to);
+    return {
+      floor,
+      player: context.queries.castMovementSegment(
+        "player",
+        fromBabylon,
+        toBabylon
+      ),
+      npc: context.queries.castMovementSegment(
+        "npc",
+        fromBabylon,
+        toBabylon
+      )
+    };
+  });
+  checks.push(
+    createCheck(
+      "2F・3F学校側portalの窓Collider無衝突",
+      schoolSideGymPortalResults.every(
+        (result) => result.player === null && result.npc === null
+      ),
+      schoolSideGymPortalResults
+        .map(
+          (result) =>
+            `${result.floor}:player=${result.player?.mesh.name ?? "clear"},` +
+            `npc=${result.npc?.mesh.name ?? "clear"}`
+        )
+        .join(" / ")
+    )
+  );
+
   const specialRoomBoundsExpectations = [
     ["VIS_Floor_SpecialRoom_West", [-12.6, 12.5, 0.0], [-3.5, 32.5, 0.03]],
     ["VIS_Floor_SpecialRoom01", [5.4, 36.5, 0.0], [23.4, 45.5, 0.03]],
@@ -1009,15 +1321,16 @@ const validateLoadedContext = (
   );
 
   const perimeterColliderExpectations = [
-    ["COL_Gate_MainClosed", [19.4, -12.625, -0.3], [25.4, -12.375, 1.7]],
+    ["COL_Gate_MainClosed", [19.4, -14.625, -0.3], [25.4, -14.375, 1.7]],
     ["COL_Gate_UtilityClosed", [63.275, 44.5, -0.3], [63.525, 50.5, 1.7]],
-    ["COL_Perimeter_East", [63.2, -12.5, -0.3], [63.6, 44.5, 1.7]],
+    ["COL_Perimeter_East", [63.2, -14.5, -0.3], [63.6, 44.5, 1.7]],
     ["COL_Perimeter_EastNorth", [63.2, 50.5, -0.3], [63.6, 51.5, 1.7]],
     ["COL_Perimeter_NorthEast", [22.4, 51.3, -0.3], [63.4, 51.7, 1.7]],
     ["COL_Perimeter_NorthWest", [-18.6, 51.3, -0.3], [22.4, 51.7, 1.7]],
-    ["COL_Perimeter_SouthEast", [25.4, -12.7, -0.3], [63.4, -12.3, 1.7]],
-    ["COL_Perimeter_SouthWest", [-18.6, -12.7, -0.3], [19.4, -12.3, 1.7]],
-    ["COL_Perimeter_West", [-18.8, -12.5, -0.3], [-18.4, 51.5, 1.7]]
+    ["COL_Perimeter_SouthEast", [25.4, -14.7, -0.3], [63.4, -14.3, 1.7]],
+    ["COL_Perimeter_SouthWest", [-18.6, -14.7, -0.3], [19.4, -14.3, 1.7]],
+    ["COL_Perimeter_West", [-18.8, -14.5, -0.3], [-18.4, 51.5, 1.7]],
+    ["COL_SiteGround", [-18.6, -14.5, -0.6], [63.4, 51.5, -0.3]]
   ] as const;
   const perimeterColliderBoundsResults = perimeterColliderExpectations.map(
     ([name, minimum, maximum]) => ({
@@ -1030,14 +1343,14 @@ const validateLoadedContext = (
     })
   );
   const perimeterBlockingSegments = [
-    ["COL_Gate_MainClosed", [22.4, -13.0, 1.0], [22.4, -12.0, 1.0]],
+    ["COL_Gate_MainClosed", [22.4, -15.0, 1.0], [22.4, -14.0, 1.0]],
     ["COL_Gate_UtilityClosed", [62.9, 47.5, 1.0], [63.9, 47.5, 1.0]],
     ["COL_Perimeter_East", [62.9, 16.0, 1.0], [63.9, 16.0, 1.0]],
     ["COL_Perimeter_EastNorth", [62.9, 51.0, 1.0], [63.9, 51.0, 1.0]],
     ["COL_Perimeter_NorthEast", [42.0, 50.9, 1.0], [42.0, 52.1, 1.0]],
     ["COL_Perimeter_NorthWest", [0.0, 50.9, 1.0], [0.0, 52.1, 1.0]],
-    ["COL_Perimeter_SouthEast", [45.0, -13.1, 1.0], [45.0, -11.9, 1.0]],
-    ["COL_Perimeter_SouthWest", [0.0, -13.1, 1.0], [0.0, -11.9, 1.0]],
+    ["COL_Perimeter_SouthEast", [45.0, -15.1, 1.0], [45.0, -13.9, 1.0]],
+    ["COL_Perimeter_SouthWest", [0.0, -15.1, 1.0], [0.0, -13.9, 1.0]],
     ["COL_Perimeter_West", [-19.2, 20.0, 1.0], [-18.0, 20.0, 1.0]]
   ] as const;
   const perimeterBlockingResults = perimeterBlockingSegments.map(
@@ -1164,8 +1477,8 @@ const validateLoadedContext = (
   );
 
   const fourFloorBoundsExpectations = [
-    ["VIS_B03_Floor_F04", [-12.6, -3.5, 10.65], [47.4, 45.5, 10.8]],
-    ["COL_B03_Floor_F04", [-12.6, -3.5, 10.65], [47.4, 45.5, 10.8]],
+    ["VIS_B03_Floor_F04", [-12.6, -7.0, 10.65], [47.4, 45.5, 10.8]],
+    ["COL_B03_Floor_F04", [-12.6, -7.0, 10.65], [47.4, 45.5, 10.8]],
     ["VIS_Roof_North", [-12.6, 32.5, 14.4], [47.4, 45.5, 14.5]],
     ["COL_RooftopStairExitRamp", [-9.0, 38.9, 14.3], [-6.9, 40.7, 14.5]],
     ["VIS_RooftopFacilityWalls", [-12.6, 38.5, 14.5], [2.4, 45.5, 16.9]],
@@ -1174,7 +1487,7 @@ const validateLoadedContext = (
     ["VIS_DoorLeaf_RooftopStairHouse_Open", [-9.04, 37.0, 14.5], [-8.96, 38.9, 16.7]],
     ["VIS_Floor_RooftopChangingRoom_M", [-6.6, 38.5, 14.5], [-2.1, 45.5, 14.53]],
     ["VIS_Floor_RooftopChangingRoom_F", [-2.1, 38.5, 14.5], [2.4, 45.5, 14.53]],
-    ["BND_Stage", [-18.4, -12.3, -0.5], [63.2, 51.3, 19.0]]
+    ["BND_Stage", [-18.4, -14.3, -0.5], [63.2, 51.3, 19.0]]
   ] as const;
   const fourFloorBoundsResults = fourFloorBoundsExpectations.map(
     ([name, minimum, maximum]) => ({
@@ -2139,11 +2452,11 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 468 &&
-      activeContext.resources.normalColliders.length === 185 &&
-      activeContext.resources.actorOnlyColliders.length === 82 &&
-      activeContext.resources.humanOnlyColliders.length === 58 &&
-      activeContext.resources.navSourceMeshes.length === 15 &&
+      activeContext.resources.visualMeshes.length === 482 &&
+      activeContext.resources.normalColliders.length === 197 &&
+      activeContext.resources.actorOnlyColliders.length === 81 &&
+      activeContext.resources.humanOnlyColliders.length === 57 &&
+      activeContext.resources.navSourceMeshes.length === 19 &&
       activeContext.resources.bitFlightNavSourceMeshes.length === 22 &&
       activeContext.markers.all.length === 3 &&
       activeContext.markers.getByRole("assembly_anchor").length === 2 &&
@@ -2161,7 +2474,7 @@ const runValidation = async () => {
       activeContext.links.all.length === 0 &&
       activeContext.bitNavigation.zones.length === 4 &&
       activeContext.bitNavigation.bands.length === 11 &&
-      activeContext.bitNavigation.transitions.length === 73;
+      activeContext.bitNavigation.transitions.length === 72;
     checks.push(
       createCheck(
         "学校コンテキスト再読込",

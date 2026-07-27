@@ -336,8 +336,8 @@ def door_clearance_volumes() -> list[tuple[str, Vector, Vector]]:
         (
             (
                 "MainEntry",
-                Vector((-1.20, -4.60, 0.05)),
-                Vector((1.20, 2.45, 2.25)),
+                Vector((-1.70, -6.75, 0.05)),
+                Vector((-0.70, 2.45, 2.25)),
             ),
             (
                 "NorthEntry",
@@ -1968,37 +1968,165 @@ def audit_staff_desk_collider_contract() -> dict[str, int]:
 def audit_acceptance_placements() -> dict[str, int]:
     main_entry = bpy.data.objects["VIS_B03_Interior_F01_MainEntry_FurnitureProps"]
     main_components = connected_component_aabbs(main_entry)
+    if tuple(MAIN_ENTRY_BAGGAGE_LOCKERS) != (
+        (-0.425, -5.8, -math.pi / 2),
+        (-0.425, -4.0, -math.pi / 2),
+        (-1.975, -5.8, math.pi / 2),
+        (-2.425, -5.8, -math.pi / 2),
+        (-1.975, -4.0, math.pi / 2),
+        (-2.425, -4.0, -math.pi / 2),
+    ):
+        raise RuntimeError("主玄関の荷物ロッカー確定配置が変化しています")
+    if len(main_components) != 60:
+        raise RuntimeError(
+            "主玄関の荷物ロッカー表示部品が6台分ではありません: "
+            f"{len(main_components)}"
+        )
     if any(
-        minimum.y < -3.5 - 1e-5 or maximum.y > -2.9 + 1e-5
+        minimum.x < -2.65 - 1e-5
+        or maximum.x > -0.20 + 1e-5
+        or minimum.y < -6.70 - 1e-5
+        or maximum.y > -3.10 + 1e-5
         for minimum, maximum in main_components
     ):
-        raise RuntimeError("主玄関の荷物ロッカーが建物内の南壁際にありません")
-    if min(minimum.x for minimum, _ in main_components) < -5.35:
-        raise RuntimeError("主玄関の家具が南西階段の出入口へ近すぎます")
-    if max(maximum.x for _, maximum in main_components) >= 0.0:
-        raise RuntimeError("主玄関の家具が校庭側へ残っています")
+        raise RuntimeError("主玄関の荷物ロッカーが東壁側の確定範囲にありません")
     main_collider = bpy.data.objects["COL_B03_Interior_F01_MainEntry"]
     main_collider_components = connected_component_aabbs(main_collider)
     if len(main_collider_components) != len(MAIN_ENTRY_BAGGAGE_LOCKERS):
         raise RuntimeError(
-            "主玄関の荷物ロッカーColliderが2台分ではありません: "
+            "主玄関の荷物ロッカーColliderが6台分ではありません: "
             f"{len(main_collider_components)}"
         )
-    for x, y, rotation in MAIN_ENTRY_BAGGAGE_LOCKERS:
-        if abs(rotation - math.pi) > 1e-7:
-            raise RuntimeError("主玄関の荷物ロッカーが屋内を向いていません")
+    expected_back_panels = (
+        ((-0.24, -6.70, 0.0), (-0.20, -4.90, 1.20)),
+        ((-0.24, -4.90, 0.0), (-0.20, -3.10, 1.20)),
+        ((-2.20, -6.70, 0.0), (-2.16, -4.90, 1.20)),
+        ((-2.24, -6.70, 0.0), (-2.20, -4.90, 1.20)),
+        ((-2.20, -4.90, 0.0), (-2.16, -3.10, 1.20)),
+        ((-2.24, -4.90, 0.0), (-2.20, -3.10, 1.20)),
+    )
+    for locker_index, (x, y, rotation) in enumerate(
+        MAIN_ENTRY_BAGGAGE_LOCKERS
+    ):
+        expected_collider = transformed_box_bounds(
+            (x, y, 0.0),
+            (0.0, 0.0, 0.60),
+            PROP_COLLIDER_SIZES["BaggageLocker"],
+            rotation,
+        )
         require_component_bounds(
             "主玄関の荷物ロッカーCollider",
             main_collider_components,
-            box_bounds((x, y, 0.60), PROP_COLLIDER_SIZES["BaggageLocker"]),
+            expected_collider,
         )
         require_component_bounds(
             "主玄関の荷物ロッカー背板",
             main_components,
-            (
-                (x - 0.90, y - 0.225, 0.0),
-                (x + 0.90, y - 0.185, 1.20),
-            ),
+            expected_back_panels[locker_index],
+        )
+    wall_locker_colliders = sorted(
+        (
+            bounds
+            for bounds in main_collider_components
+            if abs(bounds[0].x + 0.65) <= 1e-5
+            and abs(bounds[1].x + 0.20) <= 1e-5
+        ),
+        key=lambda bounds: bounds[0].y,
+    )
+    inner_east_facing_colliders = sorted(
+        (
+            bounds
+            for bounds in main_collider_components
+            if abs(bounds[0].x + 2.20) <= 1e-5
+            and abs(bounds[1].x + 1.75) <= 1e-5
+        ),
+        key=lambda bounds: bounds[0].y,
+    )
+    inner_west_facing_colliders = sorted(
+        (
+            bounds
+            for bounds in main_collider_components
+            if abs(bounds[0].x + 2.65) <= 1e-5
+            and abs(bounds[1].x + 2.20) <= 1e-5
+        ),
+        key=lambda bounds: bounds[0].y,
+    )
+    if not (
+        len(wall_locker_colliders) == 2
+        and len(inner_east_facing_colliders) == 2
+        and len(inner_west_facing_colliders) == 2
+    ):
+        raise RuntimeError(
+            "主玄関ロッカーが壁列2台・背中合わせ2組に分かれていません"
+        )
+    east_wall_inner_x = -0.15
+    east_wall_gap = east_wall_inner_x - max(
+        maximum.x for _, maximum in wall_locker_colliders
+    )
+    wall_row_gap = (
+        wall_locker_colliders[1][0].y
+        - wall_locker_colliders[0][1].y
+    )
+    facing_clearance = (
+        min(minimum.x for minimum, _ in wall_locker_colliders)
+        - max(maximum.x for _, maximum in inner_east_facing_colliders)
+    )
+    back_to_back_gaps = [
+        east_facing[0].x - west_facing[1].x
+        for east_facing, west_facing in zip(
+            inner_east_facing_colliders,
+            inner_west_facing_colliders,
+            strict=True,
+        )
+    ]
+    west_detour = min(
+        minimum.x for minimum, _ in inner_west_facing_colliders
+    ) - (-6.0)
+    positive_overlap_pairs = [
+        (first_index, second_index)
+        for first_index, (first_minimum, first_maximum) in enumerate(
+            main_collider_components
+        )
+        for second_index, (second_minimum, second_maximum) in enumerate(
+            main_collider_components[first_index + 1 :],
+            first_index + 1,
+        )
+        if all(
+            min(first_maximum[axis], second_maximum[axis])
+            - max(first_minimum[axis], second_minimum[axis])
+            > 1e-5
+            for axis in range(3)
+        )
+    ]
+    if abs(east_wall_gap - 0.05) > 1e-5:
+        raise RuntimeError(
+            f"主玄関東側ロッカーと東壁の隙間が0.05mではありません: "
+            f"{east_wall_gap:.3f}m"
+        )
+    if abs(wall_row_gap) > 1e-5:
+        raise RuntimeError(
+            f"主玄関東壁側ロッカー2台が隙間なく並んでいません: "
+            f"{wall_row_gap:.3f}m"
+        )
+    if any(abs(gap) > 1e-5 for gap in back_to_back_gaps):
+        raise RuntimeError(
+            f"主玄関の背中合わせロッカーが密着していません: "
+            f"{back_to_back_gaps}"
+        )
+    if abs(facing_clearance - 1.10) > 1e-5:
+        raise RuntimeError(
+            f"主玄関ロッカー正面間の有効幅が1.10mではありません: "
+            f"{facing_clearance:.3f}m"
+        )
+    if abs(west_detour - 3.35) > 1e-5:
+        raise RuntimeError(
+            f"主玄関ロッカー西側の通路が3.35mではありません: "
+            f"{west_detour:.3f}m"
+        )
+    if positive_overlap_pairs:
+        raise RuntimeError(
+            f"主玄関の荷物ロッカー同士が正の体積で重複しています: "
+            f"{positive_overlap_pairs}"
         )
 
     north_entry = bpy.data.objects["VIS_B03_Interior_F01_NorthEntry_FurnitureProps"]
@@ -2070,7 +2198,7 @@ def audit_acceptance_placements() -> dict[str, int]:
     gym_components = connected_component_aabbs(gym)
     expected_backboards = (
         ((33.55, 7.60, 2.825), (33.60, 9.40, 3.875)),
-        ((57.20, 7.60, 2.825), (57.25, 9.40, 3.875)),
+        ((59.20, 7.60, 2.825), (59.25, 9.40, 3.875)),
     )
     for expected in expected_backboards:
         if not any(bounds_match(component, expected) for component in gym_components):
@@ -2514,6 +2642,26 @@ def audit_link_clearance(interior_colliders: list[bpy.types.Object]) -> int:
     return checked
 
 
+def audit_elevator_lobby_opening() -> dict[str, int]:
+    remaining_objects = [
+        object_name
+        for object_name in (
+            "VIS_B03_Interior_F01_ElevatorLobby_FurnitureProps",
+            "COL_B03_Interior_F01_ElevatorLobby",
+        )
+        if bpy.data.objects.get(object_name) is not None
+    ]
+    if remaining_objects:
+        raise RuntimeError(
+            f"撤去対象のエレベーターホールロッカーが残っています: {remaining_objects}"
+        )
+    return {
+        "lockers": 0,
+        "visual_objects": 0,
+        "collider_objects": 0,
+    }
+
+
 def main() -> None:
     if Path(bpy.data.filepath).resolve() != BLEND_PATH.resolve():
         raise RuntimeError(f"B03-2対象外のBlenderファイルです: {bpy.data.filepath}")
@@ -2569,7 +2717,7 @@ def main() -> None:
 
     generation = json.loads(bpy.context.scene["b03_2_interior_result"])
     if generation.get("scope") != "full_school" or generation.get("rooms") != 34:
-        raise RuntimeError("全校34区画の生成結果ではありません")
+        raise RuntimeError("全校34区画の内装生成結果ではありません")
     if generation.get("wall_collider_objects") != 4:
         raise RuntimeError("全階トイレの専用建築壁Colliderが4 Objectではありません")
     if generation.get("classrooms") != 9:
@@ -2692,6 +2840,8 @@ def main() -> None:
                     f"室内小物数が不正です: {room_name}/{prop_type}="
                     f"{actual_counts.get(prop_type)}/{expected_count}"
                 )
+    if room_counts["Gym"].get("WallClock", 0) != 0:
+        raise RuntimeError("撤去指定の体育館北面壁時計が残っています")
     if room_counts["RoofChanging"].get("CleaningLocker", 0) != 0:
         raise RuntimeError("屋上更衣室に掃除ロッカーが残っています")
     staffroom_collider = bpy.data.objects["COL_B03_Interior_F01_StaffRoom"]
@@ -2786,7 +2936,7 @@ def main() -> None:
         raise RuntimeError("共用部の全校展開が不足しています")
     main_entry_counts = room_counts["F01_MainEntry"]
     if (
-        main_entry_counts.get("BaggageLocker") != 2
+        main_entry_counts.get("BaggageLocker") != 6
         or main_entry_counts.get("ShoeLocker", 0) != 0
         or main_entry_counts.get("UmbrellaStand", 0) != 0
     ):
@@ -2800,6 +2950,12 @@ def main() -> None:
         raise RuntimeError(
             f"北側通用口のロッカー構成が不正です: {north_entry_counts}"
         )
+    if "F01_ElevatorLobby" in room_counts:
+        raise RuntimeError(
+            f"撤去対象のエレベーターホール家具定義が残っています: "
+            f"{room_counts['F01_ElevatorLobby']}"
+        )
+    elevator_lobby_opening = audit_elevator_lobby_opening()
     storey_band_swatches = audit_storey_band_swatches()
     nav_blocker_parity = audit_nav_blocker_parity(interior_colliders, nav_blocker)
     classroom_acceptance = audit_classroom_teacher_desks_and_lockers()
@@ -2871,6 +3027,7 @@ def main() -> None:
         "staff_desk_collider_contract": staff_desk_collider_contract,
         "roof_changing_lockers": roof_changing_lockers,
         "roof_pool_north_sign_support": roof_pool_north_sign_support,
+        "elevator_lobby_opening": elevator_lobby_opening,
         "link_clearance_checks": link_clearance_checks,
         "door_clearance_checks": door_clearance_checks,
         "visual_door_clearance_checks": visual_door_clearance_checks,

@@ -34,9 +34,9 @@ PROTECTED_PREFIXES = (
 ALLOWED_NEW_PREFIXES = ("COL_B03_Interior_",)
 ALLOWED_NEW_EXACT_NAMES = {"NAV_Blocker_Interiors"}
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
-T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v09"
+T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 T05_GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
-T05_GENERATOR_VERSION = "t05-2-assembly-execution-v01"
+T05_GENERATOR_VERSION = "b03-3b-structure-v13"
 T04_ALLOWED_MISSING_EXACT_NAMES = {
     "COL_B03_Prop_Locker_Changing_F_01",
     "COL_B03_Prop_Locker_Changing_F_02",
@@ -118,12 +118,62 @@ T04_ALLOWED_CHANGED_EXACT_NAMES = {
     "NAV_Blocker_StairClosed",
 }
 T05_ALLOWED_MISSING_EXACT_NAMES = {
+    "COL_ActorOnly_WindowFixed_Gym_North_02",
+    "COL_GymStageSideWall_East_Left",
+    "COL_GymStageSideWall_East_Lintel",
+    "COL_GymStageSideWall_East_Right",
+    "COL_GymStageSideWall_West_Left",
+    "COL_GymStageSideWall_West_Lintel",
+    "COL_GymStageSideWall_West_Right",
     "LNK_bit-roof-north-east_A",
     "LNK_bit-roof-north-east_B",
     "LNK_bit-roof-west-south_A",
     "LNK_bit-roof-west-south_B",
+    "LNK_bit-window-gym-north-02-u01_A",
+    "LNK_bit-window-gym-north-02-u01_B",
+    "COL_HumanOnly_Window_Gym_North_02_U01",
+    "VIS_WindowFrame_Gym_North_02",
+    "VIS_WindowGlass_Gym_North_02",
 }
 T05_ALLOWED_CHANGED_EXACT_NAMES = {
+    "COL_ActorOnly_WindowFixed_F02_CourtyardNorth_Corridor_03",
+    "COL_ActorOnly_WindowFixed_F03_CourtyardNorth_Corridor_03",
+    "COL_ActorOnly_WindowFixed_Gym_East_01",
+    "COL_ActorOnly_WindowFixed_Gym_East_02",
+    "COL_ActorOnly_WindowFixed_Gym_East_03",
+    "COL_ActorOnly_WindowFixed_Gym_West_01",
+    "COL_ActorOnly_WindowFixed_Gym_West_02",
+    "COL_ActorOnly_WindowFixed_Gym_West_03",
+    "COL_B03_ExteriorWalls_F02",
+    "COL_B03_ExteriorWalls_F03",
+    "COL_B03_ExteriorWalls_F04",
+    "COL_B03_GymExteriorWalls",
+    "COL_Floor_Gym",
+    "COL_GymRoof",
+    "COL_GymStage",
+    "COL_GymStageStairHeadWall_East",
+    "COL_GymStageStairHeadWall_West",
+    "COL_GymStageStairRamp_East",
+    "COL_GymStageStairRamp_West",
+    "COL_GymWall_South",
+    "COL_Gate_MainClosed",
+    "COL_Gate_UtilityClosed",
+    "COL_Perimeter_East",
+    "COL_Perimeter_EastNorth",
+    "COL_Perimeter_NorthEast",
+    "COL_Perimeter_NorthWest",
+    "COL_Perimeter_SouthEast",
+    "COL_Perimeter_SouthWest",
+    "COL_Perimeter_West",
+    "COL_SiteGround",
+    "COL_HumanOnly_Window_Gym_East_01_U03",
+    "COL_HumanOnly_Window_Gym_East_02_U01",
+    "COL_HumanOnly_Window_Gym_East_03_U04",
+    "COL_HumanOnly_Window_Gym_West_01_U04",
+    "COL_HumanOnly_Window_Gym_West_02_U02",
+    "COL_HumanOnly_Window_Gym_West_03_U01",
+    "COL_HumanOnly_Window_F02_CourtyardNorth_Corridor_03_U01",
+    "COL_HumanOnly_Window_F03_CourtyardNorth_Corridor_03_U03",
     "NAV_Blocker_Gym",
     "NAV_Blocker_Perimeter",
     "NAV_Walkable_EntryTransitions",
@@ -131,9 +181,43 @@ T05_ALLOWED_CHANGED_EXACT_NAMES = {
     "NAV_Walkable_Outdoor",
     "NAV_Walkable_Rooftop",
     "NAV_Walkable_Stairs",
+    "VIS_WindowFrame_Gym_East_01",
+    "VIS_WindowFrame_Gym_East_02",
+    "VIS_WindowFrame_Gym_East_03",
+    "VIS_WindowFrame_Gym_West_01",
+    "VIS_WindowFrame_Gym_West_02",
+    "VIS_WindowFrame_Gym_West_03",
+    "VIS_WindowFrame_F02_CourtyardNorth_Corridor_03",
+    "VIS_WindowFrame_F03_CourtyardNorth_Corridor_03",
+    "VIS_WindowGlass_F02_CourtyardNorth_Corridor_03",
+    "VIS_WindowGlass_F03_CourtyardNorth_Corridor_03",
+    "VIS_WindowGlass_Gym_East_01",
+    "VIS_WindowGlass_Gym_East_02",
+    "VIS_WindowGlass_Gym_East_03",
+    "VIS_WindowGlass_Gym_West_01",
+    "VIS_WindowGlass_Gym_West_02",
+    "VIS_WindowGlass_Gym_West_03",
     "VOL_BitSpawn_Courtyard",
 }
 T05_ALLOWED_NEW_EXACT_NAMES = {
+    "COL_B03_ElevatorClosedDoor_F02_F03",
+    "COL_B03_ElevatorShaftSafety",
+    "COL_B03_ElevatorShaftShell",
+    "COL_B03_ElevatorStairWall",
+    "COL_B03_GymBridgeEnvelope",
+    "COL_B03_GymBridgeCeiling",
+    "COL_B03_GymBridgeFloor",
+    "COL_B03_GymGalleryFloor",
+    "COL_B03_GymGalleryGuards",
+    "COL_B03_GymGalleryStairs",
+    "COL_B03_GymRoofConnectionGuards",
+    "COL_B03_GymRoofGapWall",
+    "COL_B03_GymRoofGuards",
+    "COL_B03_GymRoofRamp",
+    "COL_B03_GymRoofRampUnderfill",
+    "COL_B03_GymRoofWalkable",
+    "COL_B03_GymStageSideWalls",
+    "COL_B03_WestExtensionFloor_F01",
     "MRK_AssemblyAnchor_Courtyard",
     "MRK_AssemblyAnchor_Gym",
     "NAV_BitFlight_ExteriorF1",
@@ -158,6 +242,10 @@ T05_ALLOWED_NEW_EXACT_NAMES = {
     "NAV_BitFlight_Obstacle_school_interior_interior_f4",
     "NAV_BitFlight_Obstacle_school_rooftop_roof_flight",
     "NAV_BitFlight_Rooftop",
+    "NAV_B03_Walkable_GymGallery",
+    "NAV_B03_Walkable_GymGalleryStairs",
+    "NAV_B03_Walkable_GymRoofRamp",
+    "NAV_B03_Walkable_GymRooftop",
     "VOL_BitFlight_ExteriorF1ToF2",
     "VOL_BitFlight_ExteriorF2ToF3",
     "VOL_BitFlight_ExteriorF3ToF4",
@@ -301,8 +389,10 @@ def compare_baseline() -> None:
     )
     if t05_enabled:
         allowed_change_names.update(T05_ALLOWED_CHANGED_EXACT_NAMES)
-        allowed_change_names.update(baseline_aperture_endpoints)
         allowed_missing_names.update(T05_ALLOWED_MISSING_EXACT_NAMES)
+        allowed_change_names.update(
+            baseline_aperture_endpoints - allowed_missing_names
+        )
         allowed_new_names.update(T05_ALLOWED_NEW_EXACT_NAMES)
     expected_allowed_changes = sorted(allowed_change_names)
     expected_allowed_missing = sorted(allowed_missing_names)
