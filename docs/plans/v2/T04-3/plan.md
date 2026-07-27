@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 T04-3 動的空間・扉・エレベーター統合 計画
 
-更新日: 2026-07-26
+更新日: 2026-07-28
 
 ## プロンプト
 
@@ -9,6 +9,8 @@
 1階・4階だけに停止するエレベーターを、プレイヤー、未洗脳NPC、洗脳済みNPCが単独でも利用できるようにする。扉の`closed / opening / closing`中は人物用全面ゲートで駆け込みを防ぎ、実扉パネルだけをビーム・視線遮蔽として扱う。定員は全キャラクター合計6人とし、降車を妨げずに7人目の乗車だけを拒否する。
 
 20室の通常・荒れvariantを開始時に抽選し、プレイヤーと全NPCが倒れた机・棚の上を歩けるNavMeshを組み立てる。閉扉、エレベーター状態、選択variantを、人物移動、ビーム、視線、BIT経路へ動的に反映する。
+
+2026-07-28、最新の`origin/develop`を取得し、`4edd8f08c948a7822cd6bd623e25dff142078f18`以降を基点として、専用ブランチ`codex/v2-t04-3-dynamic-runtime`と専用worktreeを作成してT04-3Aを実装する。B03-3Cが別worktreeで進行中のため、学校`.blend`、GLB、両NavMesh、学校生成スクリプト、カタログhash、B03-3C worktreeを変更しない。各実装ステップで本計画を更新し、型検査、T04 fixture、`build:t04`、実ブラウザ確認まで実施する。commitまでは行い、push、Pull Request作成、`develop`へのmergeは別途指示まで行わない。
 
 ## 確定方針
 
@@ -123,16 +125,25 @@
 
 ## ステップ
 
-- [ ] T04-3A: 動的Collider・遮蔽物active setとrevisionを実装する
-- [ ] T04-3A: 資産仕様7.9節の扉・エレベーターrole、許可`hs_*`、ID参照、Transform規約を厳格分類し、非学校fixtureで監査する
-- [ ] T04-3A: 教室・トイレ扉状態機械とT04専用の非学校fixtureを実装する
-- [ ] T04-3A: エレベーター状態機械、人物ゲート、定員、予約、搬送、`completeTransition()`を実装する
-- [ ] T04-3A: 部屋variant NavMeshタイルの選択・結合基盤を実装する
-- [ ] T04-3A: 開閉、定員、同時要求、呼出、動的遮蔽を自動回帰する
+- [x] T04-3A: 最新`origin/develop`から専用branch／worktreeを作成し、依存関係を導入する
+- [x] T04-3A: 動的Collider・遮蔽物active setとrevisionを実装する
+- [x] T04-3A: 資産仕様7.9節の扉・エレベーターrole、許可`hs_*`、ID参照、Transform規約を厳格分類し、非学校fixtureで監査する
+- [x] T04-3A: 教室・トイレ扉状態機械とT04専用の非学校fixtureを実装する
+- [x] T04-3A: エレベーター状態機械、人物ゲート、定員、予約、搬送、`completeTransition()`を実装する
+- [x] T04-3A: 部屋variant NavMeshタイルの選択・結合基盤を実装する
+- [x] T04-3A: 開閉、定員、同時要求、呼出、動的遮蔽を自動回帰する
 - [ ] T04-3B: B03-3C／B04の実学校metadataを読込み、20室variantを開始時に確定する
 - [ ] T04-3B: 全陣営NPCの扉・エレベーター利用と陣営別回避・追跡を統合する
 - [ ] T04-3B: 実学校で人物移動、ビーム、視線、BIT、スポーン、ライフサイクルを回帰する
 
 ## 結果
 
-未着手。2026-07-26にT04-3AとT04-3Bの責務、動的空間契約、エレベーター定員6人、全キャラクター利用、陣営別回避・追跡、部屋variant組立順を設計確定した。PR #51レビュー対応で、active set／snapshot／revisionの公開型、原子的更新順、動的Transform時のrevision、cache無効化、所有・破棄境界と、資産仕様7.9節の厳格分類を実装契約へ追加した。
+T04-3A完了。2026-07-28、`origin/develop`の`4edd8f08c948a7822cd6bd623e25dff142078f18`から`codex/v2-t04-3-dynamic-runtime`と専用worktreeを作成し、`npm ci`を完了した。
+
+revision 0の`DynamicStageSpatialActiveSet`／`DynamicStageSpatialSnapshot`／`DynamicStageSpatialVariants`、原子的な`replaceActiveSet()`、問い合わせ開始snapshotの固定、revisionごとのworld三角形・空間index・cache・Volume包含判定、`StageSpatialQueries.revision`、`StageSpatialContext`の所有・破棄順を実装した。Transformだけが変わる更新と、エレベーターかごとともに移動する占有Volumeもrevisionへ追従する。
+
+資産仕様7.9節の扉・エレベーターrole、許可`hs_*`、親子関係、型、ID相互参照、Transform、孤立・多重所有を厳格検証するregistryを実装した。通常扉は0.8秒の4状態、1m以内の候補順、移動中だけの遮蔽解除、最終位置と掃引Volumeの占有中止、教室20%とトイレ開放の初期状態を実装した。エレベーターは初期4階開放、1階／4階運行、5秒待機、1秒扉、6秒搬送、走行中呼出保持、乗客便優先、人物ゲート、Actor搬送、到達時刻・Actor ID順の予約、定員6人、降車非阻害、予約取消と`NavigationAgent.completeTransition()`を実装した。
+
+部屋variant基盤はRecast 0.43.1のversion付きtiled bundle、共通tileと部屋ごとの`normal`／`disordered`所有tile、`NavMesh.initTiled()`／`addTile()`組立、`SchoolRuntimeSettings.roomDisorderLevel`、独立`disorder`乱数系列を実装した。実tile fixtureで共通2 tile、各variant 2 tile、荒れ室数0／4／20、seed再現性、normal 3.200m／disordered 4.014mの代表経路、欠落・重複・parameters不一致の拒否を確認した。
+
+最終検証は`audit:v2:dependencies`、`typecheck:v2`、`typecheck:t04`、`build:t04`、通常`build`がすべてPASSした。実ブラウザのT04 fixtureは初回、画面からの再実行、再読込のすべてで102／102 PASS、warning／error、Babylon Logger error、unhandled rejectionは0件だった。通常Web入口もクリック開始後に`フェーズ playing`へ到達した。T04-3A専用fixtureは32件を含み、動的snapshot、資産registry、扉・エレベーター、NavMeshタイルを自動回帰する。学校`.blend`、GLB、両NavMesh、学校生成スクリプト、カタログhash、B03-3C worktree、`validation/v2/T05/`は変更していない。T05専用fixtureに残る旧`createStageSpatialQueries()`呼出の更新は、所有境界どおりT05-3側の統合対象とする。

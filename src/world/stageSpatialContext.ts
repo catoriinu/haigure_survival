@@ -32,6 +32,20 @@ import {
   createNavigationWorld,
   type NavigationWorld
 } from "./navigationWorld";
+import {
+  createDynamicStageSpatialVariants,
+  type DynamicStageSpatialVariants
+} from "./dynamicStageSpatialVariants";
+import {
+  assertAllowedDynamicStageHsProperties,
+  createStageDynamicAssetRegistries,
+  DYNAMIC_STAGE_MARKER_ROLES,
+  DYNAMIC_STAGE_VOLUME_ROLES,
+  type DynamicStageMarkerRole,
+  type DynamicStageVolumeRole,
+  type StageDoorAssetRegistry,
+  type StageElevatorAssetRegistry
+} from "./stageDynamicAssets";
 import type { StageCatalogEntry } from "./stageCatalog";
 import {
   createStageLinkRegistry,
@@ -67,7 +81,8 @@ const LINK_OBJECT_NAME_PATTERN = /^LNK_(.+)_(A|B)$/;
 export const STAGE_MARKER_ROLES = [
   "player_spawn",
   "assembly_anchor",
-  "patrol_anchor"
+  "patrol_anchor",
+  ...DYNAMIC_STAGE_MARKER_ROLES
 ] as const;
 
 export type StageMarkerRole = (typeof STAGE_MARKER_ROLES)[number];
@@ -142,6 +157,9 @@ export type StageSpatialContext = Readonly<{
   stage: StageCatalogEntry;
   metadata: StageMetadata;
   resources: StageSpatialResources;
+  dynamicVariants: DynamicStageSpatialVariants;
+  doorAssets: StageDoorAssetRegistry;
+  elevatorAssets: StageElevatorAssetRegistry;
   navigation: NavigationWorld;
   bitNavigation: BitFlightNavigationWorld;
   markers: StageMarkerRegistry;
@@ -647,15 +665,27 @@ const classifyVolume = (
   const role = requireEnum(mesh.name, extras, "hs_role", STAGE_VOLUME_ROLES);
   const isBitSpawn = role === "bit_spawn";
   const isAssembly = role === "assembly";
-  assertAllowedHsProperties(
-    mesh.name,
-    extras,
-    isBitSpawn
-      ? ["hs_id", "hs_role", "hs_zone_id", "hs_band_id"]
-      : isAssembly
-        ? ["hs_id", "hs_role", "hs_anchor_id"]
-        : ["hs_id", "hs_role"]
-  );
+  if (
+    DYNAMIC_STAGE_VOLUME_ROLES.includes(
+      role as DynamicStageVolumeRole
+    )
+  ) {
+    assertAllowedDynamicStageHsProperties(
+      mesh.name,
+      extras,
+      role as DynamicStageVolumeRole
+    );
+  } else {
+    assertAllowedHsProperties(
+      mesh.name,
+      extras,
+      isBitSpawn
+        ? ["hs_id", "hs_role", "hs_zone_id", "hs_band_id"]
+        : isAssembly
+          ? ["hs_id", "hs_role", "hs_anchor_id"]
+          : ["hs_id", "hs_role"]
+    );
+  }
   const volume: StageVolume = Object.freeze({
     id: requireId(mesh.name, extras),
     role,
@@ -833,20 +863,32 @@ const classifyMarker = (
     STAGE_MARKER_ROLES
   );
   const isAssemblyAnchor = role === "assembly_anchor";
-  assertAllowedHsProperties(
-    node.name,
-    extras,
-    isAssemblyAnchor
-      ? [
-          "hs_id",
-          "hs_role",
-          "hs_selection_weight",
-          "hs_assembly_positions_json",
-          "hs_execution_audience_positions_json",
-          "hs_execution_target_positions_json"
-        ]
-      : ["hs_id", "hs_role"]
-  );
+  if (
+    DYNAMIC_STAGE_MARKER_ROLES.includes(
+      role as DynamicStageMarkerRole
+    )
+  ) {
+    assertAllowedDynamicStageHsProperties(
+      node.name,
+      extras,
+      role as DynamicStageMarkerRole
+    );
+  } else {
+    assertAllowedHsProperties(
+      node.name,
+      extras,
+      isAssemblyAnchor
+        ? [
+            "hs_id",
+            "hs_role",
+            "hs_selection_weight",
+            "hs_assembly_positions_json",
+            "hs_execution_audience_positions_json",
+            "hs_execution_target_positions_json"
+          ]
+        : ["hs_id", "hs_role"]
+    );
+  }
   assertUnitScale(node);
   const marker: StageMarker = Object.freeze({
     id: requireId(node.name, extras),
@@ -1868,6 +1910,7 @@ export const loadStageSpatialContext = async (
   let container: AssetContainer | null = null;
   let navigation: NavigationWorld | null = null;
   let bitNavigation: BitFlightNavigationWorld | null = null;
+  let dynamicVariants: DynamicStageSpatialVariants | null = null;
   let queries: StageSpatialQueries | null = null;
   let worldBoundary: OwnedStageWorldBoundary | null = null;
   try {
@@ -1956,13 +1999,27 @@ export const loadStageSpatialContext = async (
     });
     const markers = createMarkerRegistry(classification.markers);
     const volumes = createVolumeRegistry(classification.volumes);
-    queries = createStageSpatialQueries(
-      scene,
-      {
+    const dynamicAssets = createStageDynamicAssetRegistries({
+      markerNodes: classification.markers.map((marker) => marker.node),
+      volumeMeshes: classification.volumes.map((volume) => volume.mesh),
+      visualMeshes: classification.visualMeshes,
+      normalColliders: classification.normalColliders,
+      humanOnlyColliders: classification.humanOnlyColliders,
+      links: links.all
+    });
+    dynamicVariants = createDynamicStageSpatialVariants(
+      Object.freeze({
         movementColliders,
         groundColliders: resources.normalColliders,
         beamBlockers,
         sightBlockers,
+        bitObstacles: bitMovementColliders
+      })
+    );
+    queries = createStageSpatialQueries(
+      scene,
+      dynamicVariants,
+      {
         volumes: volumes.all,
         diagnostics: options.queryDiagnostics
       }
@@ -1996,12 +2053,16 @@ export const loadStageSpatialContext = async (
     const ownedContainer = container;
     const ownedNavigation = navigation;
     const ownedBitNavigation = bitNavigation;
+    const ownedDynamicVariants = dynamicVariants;
     const ownedQueries = queries;
     const ownedWorldBoundary = worldBoundary;
     return Object.freeze({
       stage,
       metadata: classification.metadata,
       resources,
+      dynamicVariants: ownedDynamicVariants,
+      doorAssets: dynamicAssets.doors,
+      elevatorAssets: dynamicAssets.elevators,
       navigation: ownedNavigation,
       bitNavigation: ownedBitNavigation,
       markers,
@@ -2016,8 +2077,9 @@ export const loadStageSpatialContext = async (
           throw new Error(`StageSpatialContextは破棄済みです: ${stage.id}`);
         }
         disposed = true;
-        ownedWorldBoundary?.dispose();
         ownedQueries.dispose();
+        ownedDynamicVariants.dispose();
+        ownedWorldBoundary?.dispose();
         ownedBitNavigation.dispose();
         ownedNavigation.dispose();
         ownedContainer.removeAllFromScene();
@@ -2025,8 +2087,9 @@ export const loadStageSpatialContext = async (
       }
     });
   } catch (error) {
-    worldBoundary?.dispose();
     queries?.dispose();
+    dynamicVariants?.dispose();
+    worldBoundary?.dispose();
     bitNavigation?.dispose();
     navigation?.dispose();
     container?.removeAllFromScene();

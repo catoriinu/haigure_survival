@@ -24,6 +24,10 @@ import {
   type NavigationWorld
 } from "../../../src/world/navigationWorld";
 import {
+  createDynamicStageSpatialVariants,
+  type DynamicStageSpatialActiveSet
+} from "../../../src/world/dynamicStageSpatialVariants";
+import {
   BIT_FLIGHT_SHORTEST_ROUTE_POLICY,
   getBitFlightWorldPosition,
   type BitFlightBandRef,
@@ -90,6 +94,10 @@ import {
   type V2HumanKind,
   type V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
+import { runDynamicStageSpatialAcceptance } from "./dynamicStageSpatialAcceptance";
+import { runDynamicInteractionAcceptance } from "./dynamicInteractionAcceptance";
+import { runDynamicAssetRegistryAcceptance } from "./dynamicAssetRegistryAcceptance";
+import { runHumanNavTileAcceptance } from "./humanNavTileAcceptance";
 
 import "./style.css";
 
@@ -903,6 +911,22 @@ const captureThrownMessage = (action: () => void) => {
   }
 };
 
+const createFixtureSpatialQueries = (
+  targetScene: Scene,
+  activeSet: DynamicStageSpatialActiveSet,
+  volumes: readonly StageVolume[]
+) => {
+  const dynamicVariants = createDynamicStageSpatialVariants(activeSet);
+  const queries = createStageSpatialQueries(targetScene, dynamicVariants, {
+    volumes
+  });
+  targetScene.onDisposeObservable.addOnce(() => {
+    queries.dispose();
+    dynamicVariants.dispose();
+  });
+  return queries;
+};
+
 const createBeamValidationStage = (
   targetScene: Scene,
   normalColliders: readonly Mesh[],
@@ -919,13 +943,17 @@ const createBeamValidationStage = (
       sightBlockers: normalColliders
     },
     worldBoundary: null,
-    queries: createStageSpatialQueries(targetScene, {
-      movementColliders,
-      groundColliders: normalColliders,
-      beamBlockers: normalColliders,
-      sightBlockers: normalColliders,
-      volumes: []
-    })
+    queries: createFixtureSpatialQueries(
+      targetScene,
+      {
+        movementColliders,
+        groundColliders: normalColliders,
+        beamBlockers: normalColliders,
+        sightBlockers: normalColliders,
+        bitObstacles: movementColliders.bit
+      },
+      []
+    )
   } as unknown as StageSpatialContext;
 };
 
@@ -1108,6 +1136,10 @@ const runValidation = async () => {
   disposeNavigationRuntime();
 
   const checks: ValidationCheck[] = [];
+  checks.push(...runDynamicStageSpatialAcceptance());
+  checks.push(...runDynamicAssetRegistryAcceptance());
+  checks.push(...runDynamicInteractionAcceptance());
+  checks.push(...(await runHumanNavTileAcceptance()));
 
   const alertCoordinator = createV2AlertCoordinator({ alertDuration: 2 });
   alertCoordinator.publish([{ leaderId: "bit-1", targetId: "player" }]);
@@ -2143,6 +2175,28 @@ const runValidation = async () => {
         ) >= 0.5,
       detail: `state=${transitionAgentStep.state} / link=${transitionAgentStep.transition?.link.id ?? "none"}`
     });
+    if (!transitionAgentStep.transition) {
+      throw new Error("特殊接続完了検証に必要なtransitionがありません。");
+    }
+    transitionAgent.completeTransition(transitionAgentStep.transition.exit);
+    const transitionCompletedStep = transitionAgent.update(
+      transitionAgentStep.transition.exit,
+      primaryLinkEnd,
+      10,
+      1,
+      false
+    );
+    const duplicateCompletionMessage = captureThrownMessage(() =>
+      transitionAgent.completeTransition(transitionAgentStep.transition!.exit)
+    );
+    checks.push({
+      name: "completeTransition後の残経路再開",
+      ok:
+        transitionCompletedStep.state !== "transition-required" &&
+        transitionCompletedStep.transition === null &&
+        duplicateCompletionMessage?.includes("完了対象") === true,
+      detail: `state=${transitionCompletedStep.state} / duplicate=${duplicateCompletionMessage ?? "none"}`
+    });
     transitionAgent.clear();
 
     const oneWayTeleportLink = createValidationLinkPair(
@@ -2474,13 +2528,17 @@ const runValidation = async () => {
         npc: Object.freeze([]),
         bit: Object.freeze([])
       });
-      const spawnVolumeQueries = createStageSpatialQueries(spatialScene, {
-        movementColliders: emptyMovementColliders,
-        groundColliders: [],
-        beamBlockers: [],
-        sightBlockers: [],
-        volumes: [spawnVolume]
-      });
+      const spawnVolumeQueries = createFixtureSpatialQueries(
+        spatialScene,
+        {
+          movementColliders: emptyMovementColliders,
+          groundColliders: [],
+          beamBlockers: [],
+          sightBlockers: [],
+          bitObstacles: []
+        },
+        [spawnVolume]
+      );
       const projectToGround = (position: Vector3) =>
         Object.freeze({
           position: new Vector3(position.x, 0, position.z),
@@ -2663,17 +2721,21 @@ const runValidation = async () => {
         ...normalClassificationColliders,
         ...actorClassificationColliders
       ];
-      const classificationQueries = createStageSpatialQueries(spatialScene, {
-        movementColliders: {
-          player: humanMovementClassificationColliders,
-          npc: humanMovementClassificationColliders,
-          bit: bitMovementClassificationColliders
+      const classificationQueries = createFixtureSpatialQueries(
+        spatialScene,
+        {
+          movementColliders: {
+            player: humanMovementClassificationColliders,
+            npc: humanMovementClassificationColliders,
+            bit: bitMovementClassificationColliders
+          },
+          groundColliders: normalClassificationColliders,
+          beamBlockers: normalClassificationColliders,
+          sightBlockers: normalClassificationColliders,
+          bitObstacles: bitMovementClassificationColliders
         },
-        groundColliders: normalClassificationColliders,
-        beamBlockers: normalClassificationColliders,
-        sightBlockers: normalClassificationColliders,
-        volumes: []
-      });
+        []
+      );
       const classificationStart = new Vector3(-2, 0, 0);
       const classificationEnd = new Vector3(4, 0, 0);
       const actorOnlyHits = ["player", "npc", "bit"] as const;
