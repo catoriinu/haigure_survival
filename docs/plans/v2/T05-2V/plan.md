@@ -73,7 +73,7 @@ PR #50のT05-2主要Runtimeは2026-07-26に`develop`へマージ済みである�
 - [x] V2とT01～T05の型検査、通常buildと`build:t01`～`build:t05`を再実行する
 - [x] T05ブラウザfixtureの全項目PASSとconsole／Babylon Logger／unhandled rejection 0件を確認する
 - [x] UTF-8、BOM、ローカル絶対パス、差分、競合marker、括弧対応を最終確認して検証結果をcommitする
-- [ ] `codex/v2-t05-2v-beam-effects`をoriginへpushし、`develop`向けDraft Pull Requestを作成する
+- [x] `codex/v2-t05-2v-beam-effects`をoriginへpushし、`develop`向けDraft Pull Requestを作成する
 
 ## 結果
 
@@ -104,3 +104,5 @@ T05ブラウザfixtureは249／249項目PASSし、公開完了状態`passed`、`
 T05ブラウザfixtureはPR #52統合後の期待値を含む252／252項目がPASSし、公開完了状態`passed`を確認した。fixture内の異常監視は`Babylon Logger=0 / errors=なし / warnings=なし`で、ブラウザ開発ログのwarning／errorも0件だった。未処理Promise rejectionを含む自動失敗条件は発火していない。
 
 公開対象は`origin/develop`との差分19ファイルで、T05-2Vが所有する光線Runtime、世界境界契約、非学校T05 fixture、統合に必要なT04期待値、本計画に限定されている。strict UTF-8、BOMなし、ローカル絶対パスなし、競合marker 0件、`git diff --check`を確認した。TypeScriptの括弧・構文対応は全型検査と全buildの成功でも確認した。
+
+検証済みブランチ`codex/v2-t05-2v-beam-effects`をoriginへpushし、`develop`向けDraft Pull Request #53「T05-2V: 光線演出と世界境界フェードを復元」を作成した。Pull Request本文には変更範囲、実行した検証、性能未達とT07への引継ぎ、B04／T06で行う実学校境界統合を記録した。`develop`への統合は行っていない。
