@@ -1,5 +1,5 @@
 export const CHARACTER_SPRITE_CELL_SIZE = 128;
-export const CHARACTER_SPRITE_FRAME_COUNT = 4;
+export const CHARACTER_SPRITE_FRAME_COUNT = 6;
 export const CHARACTER_SPRITE_IMAGE_WIDTH = 330;
 export const CHARACTER_SPRITE_IMAGE_HEIGHT = 700;
 
@@ -35,13 +35,17 @@ export const NPC_SPRITE_MODES = [
   "normal",
   "hit",
   "brainwash",
-  "gun"
+  "gun",
+  "no-gun",
+  "haigure"
 ] as const;
 export const PLAYER_SPRITE_MODES = [
   "normal",
   "hit",
   "brainwash",
-  "gun"
+  "gun",
+  "no-gun",
+  "haigure"
 ] as const;
 
 export const createDefaultCharacterSpritesheet = () => {
@@ -75,6 +79,8 @@ export const createDefaultCharacterSpritesheet = () => {
   drawFrame(1, "#d4a21f", "#f8f2c2");
   drawFrame(2, "#5c5c5c", "#c7c7c7");
   drawFrame(3, "#5c5c5c", "#c7c7c7", true);
+  drawFrame(4, "#315f72", "#b9e2ec");
+  drawFrame(5, "#713c78", "#ebc7f0");
 
   return canvas.toDataURL("image/png");
 };

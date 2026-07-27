@@ -30,6 +30,11 @@ export type V2PlayerCombatSystemOptions = Readonly<{
   random: () => number;
 }>;
 
+export type V2PlayerGunFireEvent = Readonly<{
+  direction: Vector3;
+  beamRequest: V2BeamRequest;
+}>;
+
 export interface V2PlayerCombatSystem {
   update(deltaSeconds: number): V2CharacterStateSnapshot;
   applyImpact(source: V2CharacterImpactSource): boolean;
@@ -46,7 +51,7 @@ export interface V2PlayerCombatSystem {
   requestGunFire(
     eyePosition: Vector3,
     direction: Vector3
-  ): V2BeamRequest | null;
+  ): V2PlayerGunFireEvent | null;
   getStateSnapshot(): V2CharacterStateSnapshot;
 }
 
@@ -137,16 +142,20 @@ export const createV2PlayerCombatSystem = ({
         throw new Error("プレイヤー光線方向をゼロベクトルにできません。");
       }
       const normalizedDirection = direction.clone().normalize();
-      return Object.freeze({
+      const beamRequest = Object.freeze({
         sourceId: playerId,
         originKind: "player-gun" as const,
         targetPolicy: ALIVE_HUMANS_TARGET_POLICY,
         origin: eyePosition.add(
           normalizedDirection.scale(V2_PLAYER_GUN_BEAM_ORIGIN_OFFSET)
         ),
-        direction: normalizedDirection,
+        direction: normalizedDirection.clone(),
         speed: V2_PLAYER_GUN_BEAM_SPEED,
         maximumLifetime: V2_PLAYER_GUN_BEAM_MAXIMUM_LIFETIME_SECONDS
+      });
+      return Object.freeze({
+        direction: normalizedDirection,
+        beamRequest
       });
     },
     getStateSnapshot: () => stateSystem.getSnapshot()

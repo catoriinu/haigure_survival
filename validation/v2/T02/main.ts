@@ -275,6 +275,7 @@ const validatePlayerRampTraversal = (
   const input: V2PlayerInput = {
     getMoveAxes: () => ({ moveX: 0, moveZ: moving ? 1 : 0 }),
     isDashPressed: () => true,
+    drainPressedActions: () => Object.freeze([]),
     reset: () => undefined,
     dispose: () => undefined
   };
@@ -357,6 +358,7 @@ const validatePlayerWaypointTraversal = (
   const input: V2PlayerInput = {
     getMoveAxes: () => ({ moveX: 0, moveZ: moving ? 1 : 0 }),
     isDashPressed: () => true,
+    drainPressedActions: () => Object.freeze([]),
     reset: () => undefined,
     dispose: () => undefined
   };
@@ -471,6 +473,7 @@ const validatePlayerBarrierAttempt = (
   const input: V2PlayerInput = {
     getMoveAxes: () => ({ moveX: 0, moveZ: 1 }),
     isDashPressed: () => true,
+    drainPressedActions: () => Object.freeze([]),
     reset: () => undefined,
     dispose: () => undefined
   };

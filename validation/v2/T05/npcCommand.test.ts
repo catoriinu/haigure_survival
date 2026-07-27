@@ -1,0 +1,2193 @@
+import {
+  FreeCamera,
+  Frustum,
+  MeshBuilder,
+  NullEngine,
+  Scene,
+  Vector3
+} from "@babylonjs/core";
+
+import {
+  NPC_SPRITE_CENTER_HEIGHT
+} from "../../../src/game/characterSprites";
+import {
+  type V2AlarmTriggerEvent
+} from "../../../src/v2/alarmSystem";
+import {
+  V2_WORLD_BOUNDARY_FADE_DURATION_SECONDS,
+  createV2BeamSystem,
+  type V2BeamCompletionEvent
+} from "../../../src/v2/beamCollision";
+import {
+  isV2AliveState,
+  isV2BrainwashState,
+  type V2CharacterState,
+  type V2HumanTargetSnapshot
+} from "../../../src/v2/combatTypes";
+import {
+  V2_NPC_FOLLOWER_FIRE_COOLDOWN_SECONDS,
+  V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS,
+  V2_NPC_FOLLOWER_FIRE_DELAY_MIN_SECONDS,
+  V2_NPC_FOLLOW_SEPARATION_METERS,
+  V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS,
+  V2_NPC_LEAVE_MAXIMUM_SECONDS,
+  createV2NpcSystem,
+  type V2NpcCommandQuery,
+  type V2NpcSystem
+} from "../../../src/v2/npcSystem";
+import {
+  createV2PlayerCombatSystem
+} from "../../../src/v2/playerCombatSystem";
+import {
+  createV2PlayerInput,
+  type V2PlayerAction
+} from "../../../src/v2/playerInput";
+import type { NavigationWorld } from "../../../src/world/navigationWorld";
+import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
+import { createStageWorldBoundary } from "../../../src/world/stageWorldBoundary";
+import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
+
+export type NpcCommandTestResult = Readonly<{
+  name: string;
+  ok: boolean;
+  detail: string;
+}>;
+
+type NpcCommandFixture = Readonly<{
+  scene: Scene;
+  stage: StageSpatialContext;
+  system: V2NpcSystem;
+  setSightResolver(
+    resolver: ((from: Vector3, to: Vector3) => boolean) | null
+  ): void;
+  setPathsAvailable(available: boolean): void;
+  setMovementBlocked(blocked: boolean): void;
+  getSpriteCellIndex(npcId: string): number;
+  dispose(): void;
+}>;
+
+const EMPTY_ALARM_EVENTS:
+  readonly V2AlarmTriggerEvent[] = Object.freeze([]);
+const ALIVE_HUMANS_POLICY = Object.freeze({
+  kind: "alive-humans" as const
+});
+const TEST_EPSILON = 1e-6;
+
+const assert = (condition: boolean, message: string) => {
+  if (!condition) {
+    throw new Error(message);
+  }
+};
+
+const assertNear = (
+  actual: number,
+  expected: number,
+  tolerance: number,
+  message: string
+) => {
+  assert(
+    Math.abs(actual - expected) <= tolerance,
+    `${message}: expected=${expected}, actual=${actual}`
+  );
+};
+
+const assertThrows = (
+  operation: () => void,
+  message: string
+) => {
+  let thrown = false;
+  try {
+    operation();
+  } catch {
+    thrown = true;
+  }
+  assert(thrown, message);
+};
+
+const executeTest = (
+  name: string,
+  operation: () => string
+): NpcCommandTestResult => {
+  try {
+    return Object.freeze({
+      name,
+      ok: true,
+      detail: operation()
+    });
+  } catch (error) {
+    return Object.freeze({
+      name,
+      ok: false,
+      detail:
+        error instanceof Error
+          ? error.stack ?? error.message
+          : String(error)
+    });
+  }
+};
+
+const createInitializationRandom = (
+  npcCount: number,
+  initialBrainwashedNpcCount: number
+) => {
+  const values: number[] = [];
+  const gridSize = Math.ceil(Math.sqrt(npcCount));
+  for (let index = 0; index < npcCount; index += 1) {
+    values.push(
+      0.05 +
+        (0.9 * (index % gridSize)) /
+          Math.max(1, gridSize - 1),
+      0.5,
+      0.05 +
+        (0.9 * Math.floor(index / gridSize)) /
+          Math.max(1, gridSize - 1)
+    );
+  }
+  for (
+    let index = 0;
+    index < initialBrainwashedNpcCount;
+    index += 1
+  ) {
+    values.push(0);
+  }
+  for (let index = 0; index < npcCount; index += 1) {
+    if (index < initialBrainwashedNpcCount) {
+      const stateRoll =
+        index === 0 ? 0.1 : index === 1 ? 0.6 : 0.95;
+      values.push(stateRoll, 0.5, 0.5);
+      if (stateRoll < 0.45) {
+        values.push(0.5, 0.5);
+      }
+    } else {
+      values.push(0.5, 0.5);
+    }
+  }
+  let valueIndex = 0;
+  return () => {
+    const value = values[valueIndex] ?? 0.5;
+    valueIndex += 1;
+    return value;
+  };
+};
+
+const createNpcCommandFixture = (
+  npcCount: number,
+  initialBrainwashedNpcCount: number,
+  boundaryExtent = 4
+): NpcCommandFixture => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const ground = MeshBuilder.CreateBox(
+    "t05-3-ground",
+    {
+      width: boundaryExtent * 2,
+      height: 1,
+      depth: boundaryExtent * 2
+    },
+    scene
+  );
+  ground.computeWorldMatrix(true);
+
+  let sightResolver:
+    | ((from: Vector3, to: Vector3) => boolean)
+    | null = null;
+  let pathsAvailable = true;
+  let movementBlocked = false;
+
+  const createLocation = (position: Vector3) =>
+    Object.freeze({
+      position: new Vector3(position.x, 0, position.z),
+      polygonRef: 1
+    });
+  const isInside = (position: Vector3) =>
+    Math.abs(position.x) <= boundaryExtent &&
+    Math.abs(position.z) <= boundaryExtent;
+  const navigation: NavigationWorld = {
+    projectPoint: (position, maxDistance) => {
+      if (!isInside(position)) {
+        return null;
+      }
+      const projected = createLocation(position);
+      return Vector3.Distance(
+        position,
+        projected.position
+      ) <= maxDistance
+        ? projected
+        : null;
+    },
+    findSurfacePath: (start, destination) =>
+      Object.freeze({
+        kind: "surface" as const,
+        points: Object.freeze([
+          createLocation(start.position),
+          createLocation(destination.position)
+        ]),
+        distance: Vector3.Distance(
+          start.position,
+          destination.position
+        )
+      }),
+    findPath: (start, destination) => {
+      if (!pathsAvailable) {
+        return null;
+      }
+      const surface = Object.freeze({
+        kind: "surface" as const,
+        points: Object.freeze([
+          createLocation(start.position),
+          createLocation(destination.position)
+        ]),
+        distance: Vector3.Distance(
+          start.position,
+          destination.position
+        )
+      });
+      return Object.freeze({
+        steps: Object.freeze([surface]),
+        destination: createLocation(destination.position),
+        distance: surface.distance
+      });
+    },
+    constrainMovement: (start, destination) => {
+      if (movementBlocked) {
+        return createLocation(start.position);
+      }
+      return isInside(destination)
+        ? createLocation(destination)
+        : null;
+    },
+    randomPointAround: (origin) =>
+      createLocation(origin.position),
+    createDebugMesh: () => ground,
+    dispose: () => undefined
+  };
+
+  const stage = {
+    resources: Object.freeze({
+      beamBlockers: Object.freeze([]),
+      sightBlockers: Object.freeze([])
+    }),
+    navigation,
+    boundary: Object.freeze({
+      id: "t05-3-stage" as const,
+      mesh: ground,
+      contains: (position: Vector3) =>
+        isInside(position) && Math.abs(position.y) <= 0.5
+    }),
+    worldBoundary: null,
+    queries: Object.freeze({
+      castMovementSegment: () => null,
+      castMovementSphere: () => null,
+      castBeamSegment: () => null,
+      castSightSegment: (from: Vector3, to: Vector3) =>
+        sightResolver?.(from, to)
+          ? Object.freeze({
+              point: Vector3.Zero(),
+              normal: Vector3.Up(),
+              distance: 0,
+              mesh: ground
+            })
+          : null,
+      sampleGround: (origin: Vector3) =>
+        Object.freeze({
+          point: new Vector3(origin.x, 0, origin.z),
+          normal: Vector3.Up(),
+          distance: origin.y,
+          mesh: ground
+        }),
+      containsVolume: () => false,
+      dispose: () => undefined
+    })
+  } as unknown as StageSpatialContext;
+
+  const system = createV2NpcSystem({
+    scene,
+    stage,
+    npcCount,
+    initialBrainwashedNpcCount,
+    diagnosticsEnabled: true,
+    random: createInitializationRandom(
+      npcCount,
+      initialBrainwashedNpcCount
+    )
+  });
+
+  return Object.freeze({
+    scene,
+    stage,
+    system,
+    setSightResolver: (resolver) => {
+      sightResolver = resolver;
+    },
+    setPathsAvailable: (available) => {
+      pathsAvailable = available;
+    },
+    setMovementBlocked: (blocked) => {
+      movementBlocked = blocked;
+    },
+    getSpriteCellIndex: (npcId) => {
+      const sprite = scene.spriteManagers
+        ?.flatMap((manager) => manager.sprites)
+        .find((candidate) => candidate.name === npcId);
+      if (!sprite) {
+        throw new Error(
+          `T05-3 fixtureのNPC spriteがありません: ${npcId}`
+        );
+      }
+      return sprite.cellIndex;
+    },
+    dispose: () => {
+      system.dispose();
+      scene.dispose();
+      engine.dispose();
+    }
+  });
+};
+
+const createPlayerTarget = (
+  footPosition: Vector3,
+  state: V2CharacterState = "normal"
+): V2HumanTargetSnapshot => {
+  const aimPosition = footPosition.add(
+    new Vector3(0, 0.3, 0)
+  );
+  return Object.freeze({
+    id: "player",
+    kind: "player" as const,
+    footPosition: footPosition.clone(),
+    aimPosition,
+    hitShape: Object.freeze({
+      center: aimPosition.clone(),
+      radii: new Vector3(0.1, 0.3, 0.1)
+    }),
+    state,
+    alive: isV2AliveState(state),
+    brainwashed: isV2BrainwashState(state)
+  });
+};
+
+const createCommandQuery = (
+  playerTarget: V2HumanTargetSnapshot,
+  isInCameraFrustum: (position: Vector3) => boolean =
+    () => true
+): V2NpcCommandQuery =>
+  Object.freeze({
+    playerTarget,
+    cameraPosition: new Vector3(
+      playerTarget.footPosition.x,
+      playerTarget.footPosition.y + NPC_SPRITE_CENTER_HEIGHT,
+      playerTarget.footPosition.z
+    ),
+    cameraDirection: new Vector3(0, 0, 1),
+    isInCameraFrustum
+  });
+
+const placeNpcs = (
+  system: V2NpcSystem,
+  positions: readonly Vector3[]
+) => {
+  system.placeNpcs(
+    positions.map((footPosition, index) =>
+      Object.freeze({
+        id: `npc_${index}`,
+        footPosition,
+        formation: false
+      })
+    )
+  );
+};
+
+const getNpcTarget = (
+  system: V2NpcSystem,
+  npcId: string
+) => {
+  const target = system
+    .getFrameView()
+    .targets.find((candidate) => candidate.id === npcId);
+  if (!target) {
+    throw new Error(`NPC snapshotがありません: ${npcId}`);
+  }
+  return target;
+};
+
+const getTracking = (
+  system: V2NpcSystem,
+  npcId: string
+) => {
+  const tracking = system
+    .getFrameView()
+    .tracking.find((candidate) => candidate.npcId === npcId);
+  if (!tracking) {
+    throw new Error(`NPC追跡snapshotがありません: ${npcId}`);
+  }
+  return tracking;
+};
+
+const testPlayerActions = () => {
+  const target = new EventTarget() as unknown as Window;
+  const input = createV2PlayerInput(target);
+  const dispatchKey = (
+    code: string,
+    repeat = false
+  ) => {
+    target.dispatchEvent(
+      new KeyboardEvent("keydown", { code, repeat })
+    );
+  };
+  const expectedActions: readonly V2PlayerAction[] =
+    Object.freeze([
+      "npc-follow",
+      "npc-leave",
+      "door-toggle",
+      "select-gun",
+      "select-no-gun",
+      "select-haigure"
+    ]);
+
+  ["KeyF", "KeyE", "KeyC", "KeyG", "KeyN", "KeyH"].forEach(
+    (code) => dispatchKey(code)
+  );
+  dispatchKey("KeyF", true);
+  assert(
+    input.drainPressedActions().join("|") ===
+      expectedActions.join("|"),
+    "F/E/C/G/N/Hのaction順またはrepeat無視が不正です。"
+  );
+  assert(
+    input.drainPressedActions().length === 0,
+    "drain後にactionが残っています。"
+  );
+
+  dispatchKey("KeyF");
+  input.reset();
+  assert(
+    input.drainPressedActions().length === 0,
+    "reset後にactionが残っています。"
+  );
+  dispatchKey("KeyE");
+  target.dispatchEvent(new Event("blur"));
+  assert(
+    input.drainPressedActions().length === 0,
+    "blur後にactionが残っています。"
+  );
+  dispatchKey("KeyC");
+  input.dispose();
+  target.dispatchEvent(
+    new KeyboardEvent("keydown", { code: "KeyG" })
+  );
+  assertThrows(
+    () => input.drainPressedActions(),
+    "dispose後の入力参照が拒否されません。"
+  );
+  return "6 actionを発生順に一度だけdrainし、repeat/reset/blur/disposeを確認";
+};
+
+const testPlayerGunFireEventSnapshot = () => {
+  const gunPlayer = createV2PlayerCombatSystem({
+    playerId: "player",
+    initialState: "brainwash-complete-gun",
+    random: () => 0.5
+  });
+  const callerDirection = new Vector3(0, 0, 4);
+  const event = gunPlayer.requestGunFire(
+    new Vector3(0, 0.3, 0),
+    callerDirection
+  );
+  if (!event) {
+    throw new Error(
+      "gun状態で成立する射撃eventが生成されません。"
+    );
+  }
+  assert(
+    event.direction.equals(new Vector3(0, 0, 1)) &&
+      event.beamRequest.direction.equals(
+        new Vector3(0, 0, 1)
+      ) &&
+      event.direction !== callerDirection &&
+      event.beamRequest.direction !== callerDirection &&
+      event.beamRequest.direction !== event.direction,
+    "成立射撃eventとbeam requestが独立した正規化方向を保持しません。"
+  );
+  callerDirection.set(4, 0, 0);
+  assert(
+    event.direction.equals(new Vector3(0, 0, 1)) &&
+      event.beamRequest.direction.equals(
+        new Vector3(0, 0, 1)
+      ),
+    "caller方向の変更が成立射撃eventへ混入しました。"
+  );
+
+  const unavailableStates: readonly V2CharacterState[] =
+    Object.freeze([
+      "normal",
+      "evade",
+      "brainwash-complete-no-gun",
+      "brainwash-complete-haigure",
+      "brainwash-complete-haigure-formation"
+    ]);
+  for (const state of unavailableStates) {
+    const player = createV2PlayerCombatSystem({
+      playerId: `player-${state}`,
+      initialState: state,
+      random: () => 0.5
+    });
+    assert(
+      player.requestGunFire(
+        new Vector3(0, 0.3, 0),
+        new Vector3(0, 0, 1)
+      ) === null,
+      `射撃不能状態${state}がgun射撃eventを生成しました。`
+    );
+  }
+  return "成立gun方向を独立clone・正規化し、射撃不能5状態はeventなし";
+};
+
+const testCandidateSelection = () => {
+  const fixture = createNpcCommandFixture(5, 0);
+  const player = createPlayerTarget(Vector3.Zero());
+  try {
+    placeNpcs(fixture.system, [
+      new Vector3(0, 0, 0.25),
+      new Vector3(0, 0, 0.25),
+      new Vector3(0, 0, 0.45),
+      new Vector3(0.1, 0, 0.15),
+      new Vector3(0, 0, 0.501)
+    ]);
+    const candidates = fixture.system.getCommandCandidates(
+      createCommandQuery(player)
+    );
+    assert(
+      candidates.map((candidate) => candidate.npcId).join("|") ===
+        "npc_0|npc_1|npc_2|npc_3",
+      "照準角・距離・ID順または2m上限が不正です。"
+    );
+    assertNear(
+      candidates[0].distanceMeters,
+      1,
+      TEST_EPSILON,
+      "物理距離換算が不正です"
+    );
+    assert(
+      candidates.every(
+        (candidate) =>
+          candidate.commandMode === "none" &&
+          candidate.aimPosition instanceof Vector3
+      ),
+      "候補snapshotの公開項目が不正です。"
+    );
+
+    const camera = new FreeCamera(
+      "t05-3-command-camera",
+      new Vector3(0, NPC_SPRITE_CENTER_HEIGHT, 0),
+      fixture.scene
+    );
+    camera.minZ = 0.01;
+    camera.maxZ = 10;
+    camera.setTarget(
+      new Vector3(0, NPC_SPRITE_CENTER_HEIGHT, 1)
+    );
+    fixture.scene.activeCamera = camera;
+    camera.getViewMatrix(true);
+    camera.getProjectionMatrix(true);
+    const frustumPlanes = Frustum.GetPlanes(
+      camera.getTransformationMatrix()
+    );
+    const frustumCandidates =
+      fixture.system.getCommandCandidates(
+        createCommandQuery(
+          player,
+          (position) =>
+            Frustum.IsPointInFrustum(position, frustumPlanes)
+        )
+      );
+    assert(
+      frustumCandidates.length > 0,
+      "実Babylon camera frustum内のNPCが候補になりません。"
+    );
+    placeNpcs(fixture.system, [
+      new Vector3(0, 0, 0.25),
+      new Vector3(0, 0, -0.25),
+      new Vector3(0.1, 0, 0.25),
+      new Vector3(-0.1, 0, 0.25),
+      new Vector3(0, 0, 0.501)
+    ]);
+    const cameraCandidates =
+      fixture.system.getCommandCandidates(
+        createCommandQuery(
+          player,
+          (position) =>
+            Frustum.IsPointInFrustum(position, frustumPlanes)
+        )
+      );
+    assert(
+      cameraCandidates.some(
+        (candidate) => candidate.npcId === "npc_0"
+      ) &&
+        !cameraCandidates.some(
+          (candidate) => candidate.npcId === "npc_1"
+        ),
+      "active cameraの実frustumで前方／後方を選別できません。"
+    );
+
+    const sightStarts: Vector3[] = [];
+    fixture.setSightResolver(
+      (from, to) => {
+        sightStarts.push(from.clone());
+        return to.x > 0.05;
+      }
+    );
+    const visibleCandidates =
+      fixture.system.getCommandCandidates(
+        createCommandQuery(player)
+      );
+    assert(
+      !visibleCandidates.some(
+        (candidate) => candidate.npcId === "npc_2"
+      ),
+      "遮蔽NPCが候補へ残っています。"
+    );
+    assert(
+      sightStarts.length > 0 &&
+        sightStarts.every((from) =>
+          from.equals(player.aimPosition)
+        ),
+      "視線判定がプレイヤー眼位置から開始されていません。"
+    );
+    assert(
+      fixture.system.getCommandCandidates(
+        createCommandQuery(
+          createPlayerTarget(
+            Vector3.Zero(),
+            "brainwash-complete-gun"
+          )
+        )
+      ).length === 0,
+      "異なる陣営のNPCが候補へ残っています。"
+    );
+    return "同陣営・2m・実camera frustum・眼位置LOSを適用し、角度→距離→IDで安定ソート";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testCommandStateEligibility = () => {
+  const aliveFixture = createNpcCommandFixture(2, 0);
+  const brainwashedFixture = createNpcCommandFixture(3, 3);
+  const alivePlayer = createPlayerTarget(Vector3.Zero());
+  const brainwashedPlayer = createPlayerTarget(
+    Vector3.Zero(),
+    "brainwash-complete-gun"
+  );
+  const positions = [
+    new Vector3(-0.1, 0, 0.3),
+    new Vector3(0.1, 0, 0.3)
+  ] as const;
+  try {
+    placeNpcs(aliveFixture.system, positions);
+    aliveFixture.system.setExternalThreats([
+      Object.freeze({
+        targetId: "npc_1",
+        sourcePosition: new Vector3(0.2, 0, 0.3)
+      })
+    ]);
+    aliveFixture.system.update(
+      0.01,
+      alivePlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getNpcTarget(aliveFixture.system, "npc_0").state ===
+        "normal" &&
+        getNpcTarget(aliveFixture.system, "npc_1").state ===
+          "evade" &&
+        aliveFixture.system.getCommandCandidates(
+          createCommandQuery(alivePlayer)
+        ).length === 2,
+      "未洗脳プレイヤーがnormal／evade NPCを対象にできません。"
+    );
+
+    const hitResult = aliveFixture.system.applyBeamImpacts([
+      Object.freeze({
+        npcId: "npc_0",
+        source: Object.freeze({
+          sourceId: "bit_0",
+          originKind: "bit-chase" as const
+        })
+      })
+    ]);
+    assert(
+      hitResult[0].accepted &&
+        !aliveFixture.system
+          .getCommandCandidates(createCommandQuery(alivePlayer))
+          .some((candidate) => candidate.npcId === "npc_0"),
+      "hit NPCが未洗脳プレイヤーの候補へ残っています。"
+    );
+    aliveFixture.system.update(
+      4,
+      alivePlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getNpcTarget(aliveFixture.system, "npc_0").state ===
+        "brainwash-in-progress" &&
+        !aliveFixture.system
+          .getCommandCandidates(
+            createCommandQuery(brainwashedPlayer)
+          )
+          .some((candidate) => candidate.npcId === "npc_0"),
+      "洗脳中NPCが洗脳済みプレイヤーの候補へ残っています。"
+    );
+
+    placeNpcs(brainwashedFixture.system, [
+      new Vector3(-0.1, 0, 0.3),
+      new Vector3(0, 0, 0.3),
+      new Vector3(0.1, 0, 0.3)
+    ]);
+    assert(
+      brainwashedFixture.system
+        .getCommandCandidates(
+          createCommandQuery(brainwashedPlayer)
+        )
+        .map((candidate) => candidate.npcId)
+        .sort()
+        .join("|") === "npc_0|npc_1|npc_2",
+      "洗脳済みプレイヤーがgun／no-gun／haigureを対象にできません。"
+    );
+    const formationResult =
+      brainwashedFixture.system.enterFormationStates([
+        "npc_2"
+      ]);
+    assert(
+      formationResult[0].accepted &&
+        !brainwashedFixture.system
+          .getCommandCandidates(
+            createCommandQuery(brainwashedPlayer)
+          )
+          .some((candidate) => candidate.npcId === "npc_2"),
+      "集合編隊中NPCが候補へ残っています。"
+    );
+    return "normal／evadeと洗脳完了3状態を許可し、hit・洗脳中・集合編隊を除外";
+  } finally {
+    aliveFixture.dispose();
+    brainwashedFixture.dispose();
+  }
+};
+
+const testCommandRequestContract = () => {
+  const fixture = createNpcCommandFixture(2, 0);
+  const player = createPlayerTarget(Vector3.Zero());
+  try {
+    placeNpcs(fixture.system, [
+      new Vector3(0, 0, 0.3),
+      new Vector3(0.1, 0, 0.3)
+    ]);
+    const query = createCommandQuery(player);
+    assertThrows(
+      () =>
+        fixture.system.requestCommand(
+          "npc_missing",
+          "follow",
+          query
+        ),
+      "未知IDがthrowされません。"
+    );
+    assert(
+      !fixture.system.requestCommand(
+        "npc_0",
+        "follow",
+        createCommandQuery(player, () => false)
+      ),
+      "要求時点で対象外の既知IDがfalseになりません。"
+    );
+    assert(
+      getTracking(fixture.system, "npc_1").commandMode ===
+        "none",
+      "対象外要求が別NPCへ暗黙fallbackしました。"
+    );
+    assert(
+      fixture.system.requestCommand("npc_0", "follow", query),
+      "有効なFollow指示が受理されません。"
+    );
+    assert(
+      getTracking(fixture.system, "npc_0").commandMode ===
+        "follow",
+      "Followがframe snapshotへ公開されません。"
+    );
+    assert(
+      fixture.system.cancelFollow("npc_0") &&
+        getTracking(fixture.system, "npc_0").commandMode ===
+          "none" &&
+        !fixture.system.cancelFollow("npc_0"),
+      "定員拒否接続用のFollow解除hookが不正です。"
+    );
+    return "未知ID throw、対象外false、fallbackなし、Follow解除hookを確認";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testFollowMovementAndRelease = () => {
+  const fixture = createNpcCommandFixture(2, 0);
+  const player = createPlayerTarget(Vector3.Zero());
+  try {
+    placeNpcs(fixture.system, [
+      new Vector3(0, 0, 0.25),
+      new Vector3(0, 0, 0.25)
+    ]);
+    const query = createCommandQuery(player);
+    assert(
+      fixture.system.requestCommand("npc_0", "follow", query) &&
+        fixture.system.requestCommand("npc_1", "follow", query),
+      "複数Followerを上限なしで設定できません。"
+    );
+    const before = getNpcTarget(
+      fixture.system,
+      "npc_0"
+    ).footPosition.clone();
+    fixture.system.update(0.2, player, EMPTY_ALARM_EVENTS);
+    const after = getNpcTarget(
+      fixture.system,
+      "npc_0"
+    ).footPosition;
+    assert(
+      Vector3.Distance(before, after) > 0,
+      "重複Followerの局所分離が作動しません。"
+    );
+    assert(
+      Vector3.Distance(
+        getNpcTarget(fixture.system, "npc_0").footPosition,
+        getNpcTarget(fixture.system, "npc_1").footPosition
+      ) > 0,
+      "複数Followerが同一点に残っています。"
+    );
+    for (let frame = 0; frame < 10; frame += 1) {
+      fixture.system.update(
+        0.05,
+        player,
+        EMPTY_ALARM_EVENTS
+      );
+    }
+    const separatedDistance = Vector3.Distance(
+      getNpcTarget(fixture.system, "npc_0").footPosition,
+      getNpcTarget(fixture.system, "npc_1").footPosition
+    );
+    assert(
+      separatedDistance + 0.005 >=
+        V2_NPC_FOLLOW_SEPARATION_METERS *
+          BLENDER_METERS_TO_WORLD_UNITS,
+      `Follower間隔が約0.8mまで分離しません: ${separatedDistance}`
+    );
+
+    fixture.setSightResolver(() => true);
+    fixture.system.update(
+      1.2,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      fixture.system
+        .getFrameView()
+        .tracking.every(
+          (tracking) => tracking.commandMode === "follow"
+        ),
+      "最初の2秒未満の視線喪失でFollowが解除されました。"
+    );
+    fixture.setSightResolver(null);
+    fixture.system.update(0.01, player, EMPTY_ALARM_EVENTS);
+    fixture.setSightResolver(() => true);
+    fixture.system.update(1.2, player, EMPTY_ALARM_EVENTS);
+    assert(
+      fixture.system
+        .getFrameView()
+        .tracking.every(
+          (tracking) => tracking.commandMode === "follow"
+        ),
+      "再視認で視線喪失時間が0へ戻りません。"
+    );
+    fixture.system.update(0.81, player, EMPTY_ALARM_EVENTS);
+    assert(
+      fixture.system
+        .getFrameView()
+        .tracking.every(
+          (tracking) => tracking.commandMode === "none"
+        ),
+      "連続2秒の視線喪失でFollowが解除されません。"
+    );
+
+    fixture.setSightResolver(null);
+    assert(
+      fixture.system.requestCommand("npc_0", "follow", query) &&
+        fixture.system.requestCommand("npc_1", "follow", query),
+      "陣営不一致解除前のFollow再設定に失敗しました。"
+    );
+    fixture.system.update(
+      0.01,
+      createPlayerTarget(
+        Vector3.Zero(),
+        "brainwash-complete-gun"
+      ),
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      fixture.system
+        .getFrameView()
+        .tracking.every(
+          (tracking) => tracking.commandMode === "none"
+        ),
+      "プレイヤーとの陣営不一致でFollowが解除されません。"
+    );
+    assert(
+      fixture.system.requestCommand("npc_0", "follow", query) &&
+        fixture.system.requestCommand("npc_1", "follow", query),
+      "被弾解除前のFollow再設定に失敗しました。"
+    );
+    fixture.system.notifyPlayerImpactAccepted();
+    assert(
+      fixture.system
+        .getFrameView()
+        .tracking.every(
+          (tracking) => tracking.commandMode === "none"
+        ),
+      "未洗脳プレイヤー被弾でFollower全員が解除されません。"
+    );
+
+    assert(
+      fixture.system.requestCommand("npc_0", "follow", query) &&
+        fixture.system.requestCommand("npc_1", "follow", query),
+      "本人被弾解除前のFollow再設定に失敗しました。"
+    );
+    const impactResult = fixture.system.applyBeamImpacts([
+      Object.freeze({
+        npcId: "npc_0",
+        source: Object.freeze({
+          sourceId: "player",
+          originKind: "player-gun" as const
+        })
+      })
+    ]);
+    assert(
+      impactResult[0].accepted &&
+        getTracking(fixture.system, "npc_0").commandMode ===
+          "none" &&
+        getTracking(fixture.system, "npc_1").commandMode ===
+          "follow",
+      "Follower本人への有効被弾が本人だけを解除しません。"
+    );
+    return "約0.8m分離、再視認を含む2秒LOS、陣営不一致、プレイヤー全解除・本人だけ解除を確認";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testFollowStopAndResume = () => {
+  const fixture = createNpcCommandFixture(1, 0);
+  const player = createPlayerTarget(Vector3.Zero());
+  try {
+    placeNpcs(fixture.system, [
+      new Vector3(0, 0, 0.25)
+    ]);
+    assert(
+      fixture.system.requestCommand(
+        "npc_0",
+        "follow",
+        createCommandQuery(player)
+      ),
+      "停止距離検証のFollowが受理されません。"
+    );
+    const stoppedPosition = getNpcTarget(
+      fixture.system,
+      "npc_0"
+    ).footPosition.clone();
+    fixture.system.update(0.5, player, EMPTY_ALARM_EVENTS);
+    assertNear(
+      Vector3.Distance(
+        stoppedPosition,
+        getNpcTarget(fixture.system, "npc_0").footPosition
+      ),
+      0,
+      TEST_EPSILON,
+      "1.0m停止距離で移動しました"
+    );
+
+    const fartherPlayer = createPlayerTarget(
+      new Vector3(0, 0, -0.1)
+    );
+    fixture.system.update(
+      0.5,
+      fartherPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      Vector3.Distance(
+        stoppedPosition,
+        getNpcTarget(fixture.system, "npc_0").footPosition
+      ) > 0,
+      "1.2m超でFollow移動が再開しません。"
+    );
+    return "1.0m停止・1.2m超再開のヒステリシスを確認";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testLeaveLifecycle = () => {
+  const fixture = createNpcCommandFixture(1, 0);
+  const blockedFixture = createNpcCommandFixture(1, 0);
+  const timeoutFixture = createNpcCommandFixture(5, 0);
+  const player = createPlayerTarget(Vector3.Zero());
+  try {
+    const initialPosition = new Vector3(0, 0, 0.3);
+    placeNpcs(fixture.system, [initialPosition]);
+    const query = createCommandQuery(player);
+    assert(
+      fixture.system.requestCommand("npc_0", "follow", query) &&
+        getTracking(fixture.system, "npc_0").commandMode ===
+          "follow" &&
+        fixture.system.requestCommand("npc_0", "leave", query) &&
+        getTracking(fixture.system, "npc_0").commandMode ===
+          "leave",
+      "Followを即時解除する到達可能なLeave指示が受理されません。"
+    );
+    let elapsed = 0;
+    while (
+      getTracking(fixture.system, "npc_0").commandMode ===
+        "leave" &&
+      elapsed < V2_NPC_LEAVE_MAXIMUM_SECONDS
+    ) {
+      fixture.system.update(
+        0.05,
+        player,
+        EMPTY_ALARM_EVENTS
+      );
+      elapsed += 0.05;
+    }
+    const finalPosition = getNpcTarget(
+      fixture.system,
+      "npc_0"
+    ).footPosition;
+    assert(
+      getTracking(fixture.system, "npc_0").commandMode ===
+        "none" &&
+        Vector3.Distance(finalPosition, player.footPosition) >
+          Vector3.Distance(initialPosition, player.footPosition),
+      "Leaveが遠ざかる地点への到達で終了しません。"
+    );
+    fixture.system.setExternalThreats([
+      Object.freeze({
+        targetId: "npc_0",
+        sourcePosition: player.footPosition.clone()
+      })
+    ]);
+    fixture.system.update(
+      0.01,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getNpcTarget(fixture.system, "npc_0").state === "evade",
+      "Leave終了後に既存AIの新規評価へ復帰しません。"
+    );
+
+    placeNpcs(blockedFixture.system, [initialPosition]);
+    blockedFixture.setPathsAvailable(false);
+    assert(
+      !blockedFixture.system.requestCommand(
+        "npc_0",
+        "leave",
+        createCommandQuery(player)
+      ) &&
+        getTracking(
+          blockedFixture.system,
+          "npc_0"
+        ).commandMode === "none",
+      "到達可能地点なしのLeaveが状態を変えずfalseになりません。"
+    );
+
+    placeNpcs(timeoutFixture.system, [
+      new Vector3(-1, 0, -1),
+      new Vector3(1, 0, -1),
+      new Vector3(-1, 0, 1),
+      new Vector3(1, 0, 1),
+      initialPosition
+    ]);
+    assert(
+      timeoutFixture.system.requestCommand(
+        "npc_4",
+        "leave",
+        createCommandQuery(player)
+      ),
+      "timeout検証のLeaveが受理されません。"
+    );
+    timeoutFixture.setPathsAvailable(false);
+    const timeoutStepSeconds =
+      V2_NPC_LEAVE_MAXIMUM_SECONDS / 51 + TEST_EPSILON;
+    for (let frameIndex = 0; frameIndex < 51; frameIndex += 1) {
+      timeoutFixture.system.update(
+        timeoutStepSeconds,
+        player,
+        EMPTY_ALARM_EVENTS
+      );
+    }
+    assert(
+      getTracking(
+        timeoutFixture.system,
+        "npc_4"
+      ).commandMode === "none" &&
+        timeoutFixture.system.getFrameView().waitingForPathCount === 1,
+      "waiting-for-path中のLeaveが5秒でnoneへ戻りません。"
+    );
+    return `Follow即時解除、到達終了、AI復帰、到達不能false、waiting-for-path中${V2_NPC_LEAVE_MAXIMUM_SECONDS}秒終了を確認`;
+  } finally {
+    fixture.dispose();
+    blockedFixture.dispose();
+    timeoutFixture.dispose();
+  }
+};
+
+const testHaigureTimerPauseAndResume = () => {
+  const followFixture = createNpcCommandFixture(3, 3);
+  const leaveFixture = createNpcCommandFixture(3, 3);
+  const player = createPlayerTarget(
+    Vector3.Zero(),
+    "brainwash-complete-gun"
+  );
+  const positions = [
+    new Vector3(-0.1, 0, 0.3),
+    new Vector3(0, 0, 0.3),
+    new Vector3(0.1, 0, 0.3)
+  ] as const;
+  const assertHaigure = (
+    system: V2NpcSystem,
+    message: string
+  ) => {
+    assert(
+      getNpcTarget(system, "npc_2").state ===
+        "brainwash-complete-haigure",
+      message
+    );
+  };
+  try {
+    placeNpcs(followFixture.system, positions);
+    followFixture.system.update(
+      3,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    assertHaigure(
+      followFixture.system,
+      "Follow前3秒でハイグレ状態が予期せず遷移しました。"
+    );
+    assert(
+      followFixture.system.requestCommand(
+        "npc_2",
+        "follow",
+        createCommandQuery(player)
+      ),
+      "ハイグレNPCのFollowが受理されません。"
+    );
+    followFixture.system.update(
+      20,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    assertHaigure(
+      followFixture.system,
+      "Follow中にハイグレ残り時間が進みました。"
+    );
+    assert(
+      followFixture.system.cancelFollow("npc_2"),
+      "ハイグレFollowerを解除できません。"
+    );
+    followFixture.system.update(
+      6.999,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    assertHaigure(
+      followFixture.system,
+      "Follow解除後に保存残時間より早く遷移しました。"
+    );
+    followFixture.system.update(
+      0.001 + TEST_EPSILON,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getNpcTarget(followFixture.system, "npc_2").state ===
+        "brainwash-complete-no-gun",
+      "Follow解除後に3秒の続きから正確に再開しません。"
+    );
+
+    placeNpcs(leaveFixture.system, positions);
+    leaveFixture.system.update(
+      3,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    leaveFixture.setMovementBlocked(true);
+    assert(
+      leaveFixture.system.requestCommand(
+        "npc_2",
+        "leave",
+        createCommandQuery(player)
+      ),
+      "ハイグレNPCのLeaveが受理されません。"
+    );
+    leaveFixture.system.update(
+      V2_NPC_LEAVE_MAXIMUM_SECONDS,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(leaveFixture.system, "npc_2").commandMode ===
+        "none",
+      "移動停止中のLeaveが5秒で終了しません。"
+    );
+    assertHaigure(
+      leaveFixture.system,
+      "Leave中にハイグレ残り時間が進みました。"
+    );
+    leaveFixture.system.update(
+      6.999,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    assertHaigure(
+      leaveFixture.system,
+      "Leave解除後に保存残時間より早く遷移しました。"
+    );
+    leaveFixture.system.update(
+      0.001 + TEST_EPSILON,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getNpcTarget(leaveFixture.system, "npc_2").state ===
+        "brainwash-complete-no-gun",
+      "Leave解除後に3秒の続きから正確に再開しません。"
+    );
+    return "3秒経過→指示中停止→残り7秒の10秒境界をFollow/Leave双方で確認";
+  } finally {
+    followFixture.dispose();
+    leaveFixture.dispose();
+  }
+};
+
+const testBrainwashedFollowersAndSynchronizedFire = () => {
+  const fixture = createNpcCommandFixture(3, 3);
+  const player = createPlayerTarget(
+    Vector3.Zero(),
+    "brainwash-complete-gun"
+  );
+  const playerCombat = createV2PlayerCombatSystem({
+    playerId: "player",
+    initialState: "brainwash-complete-gun",
+    random: () => 0.5
+  });
+  try {
+    placeNpcs(fixture.system, [
+      new Vector3(-0.1, 0, 0.3),
+      new Vector3(0, 0, 0.3),
+      new Vector3(0.1, 0, 0.3)
+    ]);
+    assert(
+      fixture.system
+        .getFrameView()
+        .targets.map((target) => target.state)
+        .join("|") ===
+        "brainwash-complete-gun|brainwash-complete-no-gun|brainwash-complete-haigure",
+      "gun/no-gun/ハイグレの決定的初期状態が不正です。"
+    );
+    assert(
+      fixture.getSpriteCellIndex("npc_0") === 3 &&
+        fixture.getSpriteCellIndex("npc_1") === 4 &&
+        fixture.getSpriteCellIndex("npc_2") === 5,
+      "gun/no-gun/ハイグレの基底表示セル3/4/5が分離されていません。"
+    );
+    const query = createCommandQuery(player);
+    for (const npcId of ["npc_0", "npc_1", "npc_2"]) {
+      assert(
+        fixture.system.requestCommand(npcId, "follow", query),
+        `${npcId}をFollowerへ設定できません。`
+      );
+    }
+    const tracking = fixture.system.getFrameView().tracking;
+    assert(
+      tracking.every(
+        (entry) => entry.commandMode === "follow"
+      ) &&
+        !getTracking(fixture.system, "npc_0")
+          .temporaryGunActive &&
+        getTracking(fixture.system, "npc_1")
+          .temporaryGunActive &&
+        getTracking(fixture.system, "npc_2")
+          .temporaryGunActive,
+      "一時gun能力の付与条件が不正です。"
+    );
+    assert(
+      ["npc_0", "npc_1", "npc_2"].every(
+        (npcId) => fixture.getSpriteCellIndex(npcId) === 3
+      ),
+      "Followerのgun表示セルが不正です。"
+    );
+    const rejectedPlayerImpact = playerCombat.applyImpact(
+      Object.freeze({
+        sourceId: "bit_0",
+        originKind: "bit-chase" as const
+      })
+    );
+    const rejectedFollowerImpact =
+      fixture.system.applyBeamImpacts([
+        Object.freeze({
+          npcId: "npc_1",
+          source: Object.freeze({
+            sourceId: "bit_0",
+            originKind: "bit-chase" as const
+          })
+        })
+      ]);
+    assert(
+      !rejectedPlayerImpact &&
+        !rejectedFollowerImpact[0].accepted &&
+        fixture.system
+          .getFrameView()
+          .tracking.every(
+            (entry) => entry.commandMode === "follow"
+          ),
+      "洗脳済みプレイヤー／Followerへの非受理beam接触でFollowが解除されました。"
+    );
+
+    const fireEvent = playerCombat.requestGunFire(
+      new Vector3(0, 0.3, 0),
+      new Vector3(0, 0, 4)
+    );
+    if (!fireEvent) {
+      throw new Error(
+        "成立するはずのplayer-gun eventが生成されません。"
+      );
+    }
+    assert(
+      fireEvent.direction.equals(new Vector3(0, 0, 1)),
+      "成立player-gun eventの方向snapshotが正規化されません。"
+    );
+    fixture.system.notifyPlayerGunFire(fireEvent);
+    assert(
+      fixture.system
+        .getFrameView()
+        .tracking.every(
+          (entry) => entry.followerFirePhase === "scheduled"
+        ),
+      "洗脳済みFollower全員が同期射撃を予約しません。"
+    );
+    fixture.system.notifyPlayerGunFire(
+      playerCombat.requestGunFire(
+        new Vector3(0, 0.3, 0),
+        new Vector3(1, 0, 0)
+      )!
+    );
+    assert(
+      fixture.system
+        .getFrameView()
+        .tracking.every(
+          (entry) => entry.followerFirePhase === "scheduled"
+        ),
+      "予約中の追加player-gun eventを無視できません。"
+    );
+
+    const observedDelays = new Map<string, number>();
+    const beamIds = new Map<string, string>();
+    let elapsed = 0;
+    while (
+      observedDelays.size < 3 &&
+      elapsed <=
+        V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS + 0.01
+    ) {
+      fixture.system.update(
+        0.001,
+        player,
+        EMPTY_ALARM_EVENTS
+      );
+      elapsed += 0.001;
+      const requests = fixture.system.drainBeamRequests();
+      for (const request of requests) {
+        observedDelays.set(request.sourceId, elapsed);
+        assert(
+          request.originKind === "npc-gun" &&
+            request.direction.equals(
+              new Vector3(0, 0, 1)
+            ),
+          "同期射撃が保存方向を自身の銃口から使用していません。"
+        );
+        const beamId = `follower-${request.sourceId}`;
+        beamIds.set(request.sourceId, beamId);
+        fixture.system.notifyBeamsSpawned([
+          Object.freeze({
+            sourceId: request.sourceId,
+            beamId
+          })
+        ]);
+      }
+    }
+    assert(
+      observedDelays.size === 3 &&
+        [...observedDelays.values()].every(
+          (delay) =>
+            delay + TEST_EPSILON >=
+              V2_NPC_FOLLOWER_FIRE_DELAY_MIN_SECONDS &&
+            delay <=
+              V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS +
+                0.001 +
+                TEST_EPSILON
+        ),
+      `Follower個別遅延が0.3〜0.8秒外です: ${[
+        ...observedDelays.entries()
+      ]
+        .map(([id, delay]) => `${id}=${delay.toFixed(3)}`)
+        .join(", ")}`
+    );
+    assert(
+      fixture.system
+        .getFrameView()
+        .tracking.every(
+          (entry) => entry.followerFirePhase === "active"
+        ),
+      "spawn済み同期射撃がactiveになりません。"
+    );
+    fixture.system.notifyPlayerGunFire(fireEvent);
+    assert(
+      fixture.system
+        .getFrameView()
+        .tracking.every(
+          (entry) => entry.followerFirePhase === "active"
+        ),
+      "active中の追加player-gun eventを無視できません。"
+    );
+
+    const completions: V2BeamCompletionEvent[] = [
+      ...beamIds.entries()
+    ].map(([sourceId, beamId]) =>
+      Object.freeze({
+        beamId,
+        sourceId,
+        originKind: "npc-gun" as const,
+        targetPolicy: ALIVE_HUMANS_POLICY,
+        frameElapsedSeconds: 0.4
+      })
+    );
+    fixture.system.notifyBeamCompletions(completions);
+    assert(
+      fixture.system
+        .getFrameView()
+        .tracking.every(
+          (entry) => entry.followerFirePhase === "cooldown"
+        ),
+      "beam completionからcooldownへ遷移しません。"
+    );
+    fixture.system.notifyPlayerGunFire(fireEvent);
+    fixture.system.update(
+      0.6,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    fixture.system.update(
+      V2_NPC_FOLLOWER_FIRE_COOLDOWN_SECONDS - 0.201,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      fixture.system
+        .getFrameView()
+        .tracking.every(
+          (entry) => entry.followerFirePhase === "cooldown"
+        ),
+      "1秒未満でcooldownが終了しました。"
+    );
+    fixture.system.update(
+      0.001 + TEST_EPSILON,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      fixture.system
+        .getFrameView()
+        .tracking.every(
+          (entry) => entry.followerFirePhase === "idle"
+        ),
+      "beam終了起点の1秒後にidleへ戻りません。"
+    );
+
+    fixture.system.notifyPlayerGunFire(fireEvent);
+    assert(
+      fixture.system.cancelFollow("npc_1") &&
+        fixture.system.drainBeamRequests().length === 0 &&
+        getTracking(fixture.system, "npc_1")
+          .followerFirePhase === "idle" &&
+        !getTracking(fixture.system, "npc_1")
+          .temporaryGunActive &&
+        fixture.getSpriteCellIndex("npc_1") === 4,
+      "Follow解除が未発射予約を取消し一時gunを復元しません。"
+    );
+    fixture.system.clearCommands();
+    assert(
+      fixture.system
+        .getFrameView()
+        .tracking.every(
+          (entry) =>
+            entry.commandMode === "none" &&
+            entry.followerFirePhase === "idle" &&
+            !entry.temporaryGunActive
+        ) &&
+        fixture.getSpriteCellIndex("npc_0") === 3 &&
+        fixture.getSpriteCellIndex("npc_1") === 4 &&
+        fixture.getSpriteCellIndex("npc_2") === 5,
+      "clearCommands後に指示・予約・一時gun表示が残っています。"
+    );
+    return `3 Follower、個別${[
+      ...observedDelays.values()
+    ]
+      .map((delay) => delay.toFixed(3))
+      .join("/")}秒、active・1秒cooldown・復元を確認`;
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testActualBeamCompletionEvents = () => {
+  const fixture = createNpcCommandFixture(1, 1);
+  const player = createPlayerTarget(
+    Vector3.Zero(),
+    "brainwash-complete-gun"
+  );
+  const playerCombat = createV2PlayerCombatSystem({
+    playerId: "player",
+    initialState: "brainwash-complete-gun",
+    random: () => 0.5
+  });
+  const hitTargets: V2HumanTargetSnapshot[] = [];
+  const hitBeamSystem = createV2BeamSystem({
+    scene: fixture.scene,
+    stage: fixture.stage,
+    getHumanTargets: () => hitTargets,
+    random: () => 0.5,
+    getOrbVisibilityPredicate: () => () => true
+  });
+  let boundaryBeamSystem:
+    | ReturnType<typeof createV2BeamSystem>
+    | null = null;
+  let worldBoundary:
+    | ReturnType<typeof createStageWorldBoundary>
+    | null = null;
+  try {
+    placeNpcs(fixture.system, [
+      new Vector3(0, 0, 0.3)
+    ]);
+    assert(
+      fixture.system.requestCommand(
+        "npc_0",
+        "follow",
+        createCommandQuery(player)
+      ),
+      "実beam completion検証のFollowが受理されません。"
+    );
+    const fireEvent = playerCombat.requestGunFire(
+      new Vector3(0, 0.3, 0),
+      Vector3.Right()
+    );
+    if (!fireEvent) {
+      throw new Error(
+        "実beam completion検証のplayer-gun eventがありません。"
+      );
+    }
+    fixture.system.notifyPlayerGunFire(fireEvent);
+    fixture.system.update(
+      V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS +
+        TEST_EPSILON,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    const requests = fixture.system.drainBeamRequests();
+    assert(
+      requests.length === 1,
+      "実beam completion検証の同期射撃requestが1件ではありません。"
+    );
+    const request = requests[0];
+    const enemyAim = request.origin.add(
+      request.direction.scale(0.3)
+    );
+    const enemyRadii = new Vector3(0.05, 0.1, 0.05);
+    hitTargets.push(
+      Object.freeze({
+        id: "enemy",
+        kind: "npc" as const,
+        footPosition: enemyAim.subtract(
+          new Vector3(0, enemyRadii.y, 0)
+        ),
+        aimPosition: enemyAim.clone(),
+        hitShape: Object.freeze({
+          center: enemyAim.clone(),
+          radii: enemyRadii
+        }),
+        state: "normal" as const,
+        alive: true,
+        brainwashed: false
+      })
+    );
+    const followerBeamId = hitBeamSystem.spawn(request);
+    fixture.system.notifyBeamsSpawned([
+      Object.freeze({
+        sourceId: request.sourceId,
+        beamId: followerBeamId
+      })
+    ]);
+    const impactFrame = hitBeamSystem.update(0.5);
+    assert(
+      impactFrame.impacts.length === 1 &&
+        impactFrame.completions.length === 0 &&
+        hitBeamSystem.getActiveBeams()[0].phase ===
+          "retracting",
+      "実beamが命中後の巻戻しへ入りません。"
+    );
+    const retractCompletionFrame =
+      hitBeamSystem.update(0.5);
+    const retractCompletion =
+      retractCompletionFrame.completions[0];
+    assert(
+      retractCompletionFrame.completions.length === 1 &&
+        retractCompletion.beamId === followerBeamId &&
+        retractCompletion.sourceId === "npc_0" &&
+        retractCompletion.originKind === "npc-gun" &&
+        retractCompletion.frameElapsedSeconds > 0 &&
+        retractCompletion.frameElapsedSeconds <= 0.5 &&
+        hitBeamSystem.activeCount === 0,
+      "巻戻し完了時の実completion eventが不正です。"
+    );
+    fixture.system.notifyBeamCompletions(
+      retractCompletionFrame.completions
+    );
+    assert(
+      getTracking(fixture.system, "npc_0")
+        .followerFirePhase === "cooldown",
+      "実beam completionをFollower cooldownへ接続できません。"
+    );
+
+    hitBeamSystem.spawn({
+      sourceId: "clear-source",
+      originKind: "npc-gun",
+      targetPolicy: ALIVE_HUMANS_POLICY,
+      origin: Vector3.Zero(),
+      direction: Vector3.Right(),
+      speed: 1,
+      maximumLifetime: 1
+    });
+    hitBeamSystem.clear();
+    assert(
+      hitBeamSystem.update(0.5).completions.length === 0,
+      "beam clearがcompletion eventを生成しました。"
+    );
+
+    const stageBoundaryMesh = MeshBuilder.CreateBox(
+      "BND_Stage",
+      { size: 1 },
+      fixture.scene
+    );
+    const worldBoundaryMesh = MeshBuilder.CreateBox(
+      "BND_WorldLimit",
+      { size: 2 },
+      fixture.scene
+    );
+    stageBoundaryMesh.computeWorldMatrix(true);
+    worldBoundaryMesh.computeWorldMatrix(true);
+    worldBoundary = createStageWorldBoundary(
+      worldBoundaryMesh,
+      stageBoundaryMesh
+    );
+    const boundaryStage = Object.freeze({
+      ...fixture.stage,
+      worldBoundary
+    }) as StageSpatialContext;
+    boundaryBeamSystem = createV2BeamSystem({
+      scene: fixture.scene,
+      stage: boundaryStage,
+      getHumanTargets: () => [],
+      random: () => 0.5,
+      getOrbVisibilityPredicate: () => () => true
+    });
+    const boundaryBeamId = boundaryBeamSystem.spawn({
+      sourceId: "boundary-follower",
+      originKind: "npc-gun",
+      targetPolicy: ALIVE_HUMANS_POLICY,
+      origin: Vector3.Zero(),
+      direction: Vector3.Right(),
+      speed: 10,
+      maximumLifetime: 2
+    });
+    const exitFrame = boundaryBeamSystem.update(0.2);
+    assert(
+      exitFrame.worldBoundaryExits.length === 1 &&
+        exitFrame.completions.length === 0 &&
+        boundaryBeamSystem.getActiveBeams()[0].phase ===
+          "world-boundary-fading",
+      "世界境界退出後にboundary fadeへ入りません。"
+    );
+    const boundaryCompletionFrame =
+      boundaryBeamSystem.update(0.2);
+    const boundaryCompletion =
+      boundaryCompletionFrame.completions[0];
+    assert(
+      V2_WORLD_BOUNDARY_FADE_DURATION_SECONDS === 0.2 &&
+        boundaryCompletionFrame.completions.length === 1 &&
+        boundaryCompletion.beamId === boundaryBeamId &&
+        boundaryCompletion.sourceId === "boundary-follower" &&
+        boundaryCompletion.frameElapsedSeconds > 0 &&
+        boundaryCompletion.frameElapsedSeconds <= 0.2 &&
+        boundaryBeamSystem.activeCount === 0,
+      "世界境界fade終了時の実completion eventが不正です。"
+    );
+    boundaryBeamSystem.spawn({
+      sourceId: "dispose-source",
+      originKind: "npc-gun",
+      targetPolicy: ALIVE_HUMANS_POLICY,
+      origin: Vector3.Zero(),
+      direction: Vector3.Right(),
+      speed: 1,
+      maximumLifetime: 1
+    });
+    boundaryBeamSystem.dispose();
+    boundaryBeamSystem = null;
+    return "実beamの巻戻し・境界fade完了event、cooldown接続、clear/dispose非通知を確認";
+  } finally {
+    boundaryBeamSystem?.dispose();
+    worldBoundary?.dispose();
+    hitBeamSystem.dispose();
+    fixture.dispose();
+  }
+};
+
+const testActiveBeamSurvivesFollowRelease = () => {
+  const fixture = createNpcCommandFixture(2, 2);
+  const player = createPlayerTarget(
+    Vector3.Zero(),
+    "brainwash-complete-gun"
+  );
+  const playerCombat = createV2PlayerCombatSystem({
+    playerId: "player",
+    initialState: "brainwash-complete-gun",
+    random: () => 0.5
+  });
+  try {
+    placeNpcs(fixture.system, [
+      new Vector3(-0.1, 0, 0.3),
+      new Vector3(0.1, 0, 0.3)
+    ]);
+    assert(
+      fixture.system.requestCommand(
+        "npc_1",
+        "follow",
+        createCommandQuery(player)
+      ),
+      "active beam解除検証のFollowが受理されません。"
+    );
+    const fireEvent = playerCombat.requestGunFire(
+      new Vector3(0, 0.3, 0),
+      new Vector3(0, 0, 1)
+    );
+    if (!fireEvent) {
+      throw new Error(
+        "active beam解除検証のplayer-gun eventがありません。"
+      );
+    }
+    fixture.system.notifyPlayerGunFire(fireEvent);
+    fixture.system.update(
+      V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS + TEST_EPSILON,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    const requests = fixture.system.drainBeamRequests();
+    assert(
+      requests.length === 1 &&
+        requests[0].sourceId === "npc_1",
+      "同期射撃予約を1件発射できません。"
+    );
+    const beamId = "released-follow-active-beam";
+    fixture.system.notifyBeamsSpawned([
+      Object.freeze({
+        sourceId: "npc_1",
+        beamId
+      })
+    ]);
+    assert(
+      getTracking(fixture.system, "npc_1")
+        .followerFirePhase === "active",
+      "Follower beamがactiveになりません。"
+    );
+    assert(
+      fixture.system.cancelFollow("npc_1"),
+      "active beam中のFollowを解除できません。"
+    );
+    const releasedTracking = getTracking(
+      fixture.system,
+      "npc_1"
+    );
+    assert(
+      releasedTracking.commandMode === "none" &&
+        releasedTracking.followerFirePhase === "active" &&
+        !releasedTracking.temporaryGunActive &&
+        fixture.getSpriteCellIndex("npc_1") === 4,
+      "Follow解除が発射済みbeam追跡を維持して一時gunだけ復元しません。"
+    );
+    fixture.system.notifyPlayerGunFire(fireEvent);
+    assert(
+      fixture.system.drainBeamRequests().length === 0 &&
+        getTracking(fixture.system, "npc_1")
+          .followerFirePhase === "active",
+      "Follow解除後のactive beam中に追加予約が生成されました。"
+    );
+    fixture.system.notifyBeamCompletions([
+      Object.freeze({
+        beamId,
+        sourceId: "npc_1",
+        originKind: "npc-gun" as const,
+        targetPolicy: ALIVE_HUMANS_POLICY,
+        frameElapsedSeconds: 0
+      })
+    ]);
+    assert(
+      getTracking(fixture.system, "npc_1")
+        .followerFirePhase === "idle",
+      "Follow解除後の発射済みbeam追跡がcompletionまで継続しません。"
+    );
+    return "active beamはFollow解除後も追跡し、completionでidleへ解放";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testUnlimitedFollowersAndSeparation = () => {
+  const followerCount = 12;
+  const fixture = createNpcCommandFixture(
+    followerCount,
+    followerCount
+  );
+  const player = createPlayerTarget(
+    Vector3.Zero(),
+    "brainwash-complete-gun"
+  );
+  try {
+    placeNpcs(
+      fixture.system,
+      Array.from(
+        { length: followerCount },
+        () => new Vector3(0, 0, 0.3)
+      )
+    );
+    const query = createCommandQuery(player);
+    for (let index = 0; index < followerCount; index += 1) {
+      assert(
+        fixture.system.requestCommand(
+          `npc_${index}`,
+          "follow",
+          query
+        ),
+        `12体中npc_${index}をFollowerへ設定できません。`
+      );
+    }
+    assert(
+      fixture.system
+        .getFrameView()
+        .tracking.filter(
+          (tracking) => tracking.commandMode === "follow"
+        ).length === followerCount,
+      "Follower同時人数に上限が残っています。"
+    );
+    for (let frame = 0; frame < 24; frame += 1) {
+      fixture.system.update(
+        0.05,
+        player,
+        EMPTY_ALARM_EVENTS
+      );
+    }
+    const positions = Array.from(
+      { length: followerCount },
+      (_unused, index) =>
+        getNpcTarget(
+          fixture.system,
+          `npc_${index}`
+        ).footPosition
+    );
+    let minimumDistance = Number.POSITIVE_INFINITY;
+    for (let left = 0; left < positions.length; left += 1) {
+      for (
+        let right = left + 1;
+        right < positions.length;
+        right += 1
+      ) {
+        minimumDistance = Math.min(
+          minimumDistance,
+          Vector3.Distance(positions[left], positions[right])
+        );
+      }
+    }
+    assert(
+      minimumDistance > TEST_EPSILON,
+      "12体Followerの一部が完全に重なったままです。"
+    );
+    assert(
+      fixture.system
+        .getFrameView()
+        .tracking.every(
+          (tracking) => tracking.commandMode === "follow"
+        ),
+      "12体の局所分離中にFollowが解除されました。"
+    );
+    return `12体同時Follow、分離後の最小間隔=${minimumDistance.toFixed(4)}`;
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testAutonomousCombatSuppression = () => {
+  const baselineFixture = createNpcCommandFixture(3, 2);
+  const followerFixture = createNpcCommandFixture(3, 2);
+  const baselinePlayer = createPlayerTarget(Vector3.Zero());
+  const player = createPlayerTarget(
+    Vector3.Zero(),
+    "brainwash-complete-gun"
+  );
+  const positions = [
+    new Vector3(-0.05, 0, 0.1),
+    new Vector3(0.05, 0, 0.1),
+    new Vector3(0, 0, 0.2)
+  ] as const;
+  try {
+    placeNpcs(baselineFixture.system, positions);
+    baselineFixture.system.update(
+      3,
+      baselinePlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    const baselineBeamCount =
+      baselineFixture.system.drainBeamRequests().length;
+    const baselineCaptureCount =
+      baselineFixture.system.getFrameView().captures.length;
+    assert(
+      baselineBeamCount > 0 && baselineCaptureCount > 0,
+      `比較用の自律gun射撃とno-gun捕縛が成立しません: beam=${baselineBeamCount}, capture=${baselineCaptureCount}`
+    );
+
+    placeNpcs(followerFixture.system, positions);
+    const query = createCommandQuery(player);
+    assert(
+      followerFixture.system.requestCommand(
+        "npc_0",
+        "follow",
+        query
+      ) &&
+        followerFixture.system.requestCommand(
+          "npc_1",
+          "follow",
+          query
+        ),
+      "自律戦闘抑制検証のFollower設定に失敗しました。"
+    );
+    followerFixture.system.update(
+      3,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      followerFixture.system.drainBeamRequests().length === 0 &&
+        followerFixture.system.getFrameView().captures.length === 0,
+      "Follow中にgun自律射撃またはno-gun捕縛が発生しました。"
+    );
+    return `比較時beam=${baselineBeamCount}/capture=${baselineCaptureCount}、Follow中はいずれも0`;
+  } finally {
+    baselineFixture.dispose();
+    followerFixture.dispose();
+  }
+};
+
+const testCommandLifecycleCleanup = () => {
+  const fixture = createNpcCommandFixture(2, 2);
+  const player = createPlayerTarget(
+    Vector3.Zero(),
+    "brainwash-complete-gun"
+  );
+  const positions = [
+    new Vector3(-0.1, 0, 0.3),
+    new Vector3(0.1, 0, 0.3)
+  ] as const;
+  const playerCombat = createV2PlayerCombatSystem({
+    playerId: "player",
+    initialState: "brainwash-complete-gun",
+    random: () => 0.5
+  });
+  const fireEvent = playerCombat.requestGunFire(
+    new Vector3(0, 0.3, 0),
+    new Vector3(0, 0, 1)
+  );
+  if (!fireEvent) {
+    throw new Error(
+      "ライフサイクル検証用player-gun eventがありません。"
+    );
+  }
+  const assertClean = (
+    system: V2NpcSystem,
+    operation: string
+  ) => {
+    const tracking = getTracking(system, "npc_1");
+    assert(
+      tracking.commandMode === "none" &&
+        tracking.followerFirePhase === "idle" &&
+        !tracking.temporaryGunActive &&
+        fixture.getSpriteCellIndex("npc_1") === 4 &&
+        system.drainBeamRequests().length === 0,
+      `${operation}後にcommand・予約・一時gun・beam追跡が残っています。`
+    );
+  };
+  const startScheduled = () => {
+    assert(
+      fixture.system.requestCommand(
+        "npc_1",
+        "follow",
+        createCommandQuery(player)
+      ),
+      "ライフサイクル検証のFollowが受理されません。"
+    );
+    fixture.system.notifyPlayerGunFire(fireEvent);
+    const tracking = getTracking(fixture.system, "npc_1");
+    assert(
+      tracking.commandMode === "follow" &&
+        tracking.followerFirePhase === "scheduled" &&
+        tracking.temporaryGunActive,
+      "ライフサイクル検証の予約状態を準備できません。"
+    );
+  };
+  const makeActive = (beamId: string) => {
+    startScheduled();
+    fixture.system.update(
+      V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS + TEST_EPSILON,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    const requests = fixture.system.drainBeamRequests();
+    assert(
+      requests.length === 1 &&
+        requests[0].sourceId === "npc_1",
+      "ライフサイクル検証のbeam requestを準備できません。"
+    );
+    fixture.system.notifyBeamsSpawned([
+      Object.freeze({
+        sourceId: "npc_1",
+        beamId
+      })
+    ]);
+    assert(
+      getTracking(fixture.system, "npc_1")
+        .followerFirePhase === "active",
+      "ライフサイクル検証のactive beamを準備できません。"
+    );
+  };
+
+  const disposedFixture = createNpcCommandFixture(2, 2);
+  let disposedFixtureClosed = false;
+  try {
+    placeNpcs(fixture.system, positions);
+    makeActive("phase-reset-active");
+    fixture.system.setAiSuspended(true);
+    assertClean(fixture.system, "setAiSuspended");
+    fixture.system.setAiSuspended(false);
+
+    startScheduled();
+    placeNpcs(fixture.system, positions);
+    assertClean(fixture.system, "placeNpcs/replay相当");
+
+    makeActive("visibility-active");
+    fixture.system.setVisibleNpcIds(["npc_0"]);
+    fixture.system.setVisibleNpcIds(["npc_0", "npc_1"]);
+    assertClean(fixture.system, "setVisibleNpcIds非表示");
+
+    startScheduled();
+    fixture.system.clearCommands();
+    assertClean(fixture.system, "clearCommands");
+
+    placeNpcs(disposedFixture.system, positions);
+    assert(
+      disposedFixture.system.requestCommand(
+        "npc_1",
+        "follow",
+        createCommandQuery(player)
+      ),
+      "dispose検証のFollowが受理されません。"
+    );
+    disposedFixture.system.notifyPlayerGunFire(fireEvent);
+    disposedFixture.dispose();
+    disposedFixtureClosed = true;
+    assertThrows(
+      () => disposedFixture.system.getFrameView(),
+      "dispose後のcommand snapshot参照が拒否されません。"
+    );
+    assertThrows(
+      () => disposedFixture.system.drainBeamRequests(),
+      "dispose後の予約drainが拒否されません。"
+    );
+    return "phase reset・replay相当・非表示・clear・disposeの残留0を確認";
+  } finally {
+    fixture.dispose();
+    if (!disposedFixtureClosed) {
+      disposedFixture.dispose();
+    }
+  }
+};
+
+export const runNpcCommandTests =
+  (): readonly NpcCommandTestResult[] =>
+    Object.freeze([
+      executeTest("離散入力action", testPlayerActions),
+      executeTest(
+        "プレイヤー成立gun射撃event",
+        testPlayerGunFireEventSnapshot
+      ),
+      executeTest("NPC指示候補抽出", testCandidateSelection),
+      executeTest("NPC指示対象状態", testCommandStateEligibility),
+      executeTest(
+        "NPC指示要求と解除hook",
+        testCommandRequestContract
+      ),
+      executeTest(
+        "Follow移動・視線猶予・被弾解除",
+        testFollowMovementAndRelease
+      ),
+      executeTest(
+        "Follow停止距離ヒステリシス",
+        testFollowStopAndResume
+      ),
+      executeTest("Leave離脱と終了", testLeaveLifecycle),
+      executeTest(
+        "ハイグレ残時間停止・再開",
+        testHaigureTimerPauseAndResume
+      ),
+      executeTest(
+        "洗脳済みFollower同期射撃",
+        testBrainwashedFollowersAndSynchronizedFire
+      ),
+      executeTest(
+        "実beam completion統合",
+        testActualBeamCompletionEvents
+      ),
+      executeTest(
+        "Follow解除後のactive beam継続",
+        testActiveBeamSurvivesFollowRelease
+      ),
+      executeTest(
+        "無制限Follower・多数分離",
+        testUnlimitedFollowersAndSeparation
+      ),
+      executeTest(
+        "Follow中の自律戦闘抑制",
+        testAutonomousCombatSuppression
+      ),
+      executeTest(
+        "commandライフサイクル残留0",
+        testCommandLifecycleCleanup
+      )
+    ]);
