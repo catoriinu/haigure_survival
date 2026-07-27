@@ -991,7 +991,7 @@ const runVisualTargetLossChecks = (
     5
   );
   try {
-    const targets = Object.freeze(
+    const initialTargets = Object.freeze(
       reacquisitionSystem
         .getFrameView().flightStates
         .flatMap((state) =>
@@ -1002,17 +1002,11 @@ const runVisualTargetLossChecks = (
           )
         )
     );
-    const targetIds = new Set(targets.map((target) => target.id));
-    const reacquisitionAlert = Object.freeze({
-      leaderId: "pending-escape-reacquisition-leader",
-      targetId: targets[0].id,
-      remainingSeconds: 100
-    });
     forceReacquisitionChase = true;
     reacquisitionSystem.update({
       deltaSeconds: 0,
       elapsedSeconds: 0,
-      targets,
+      targets: initialTargets,
       externalAlerts: EMPTY_ALERTS
     });
     reacquisitionSystem.update({
@@ -1026,6 +1020,21 @@ const runVisualTargetLossChecks = (
     const queuedEscapeCount = releasedFlights.filter(
       (state) => state.routePurpose !== "escape"
     ).length;
+    const targets = Object.freeze(
+      releasedFlights.flatMap((state) =>
+        createTargetRing(
+          `pending-escape-reacquisition-${state.bitId}`,
+          state.position,
+          0.2
+        )
+      )
+    );
+    const targetIds = new Set(targets.map((target) => target.id));
+    const reacquisitionAlert = Object.freeze({
+      leaderId: "pending-escape-reacquisition-leader",
+      targetId: targets[0].id,
+      remainingSeconds: 100
+    });
 
     reacquisitionSystem.update({
       deltaSeconds: 0.1,

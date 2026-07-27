@@ -50,10 +50,7 @@ import {
   loadStageSpatialContext,
   type StageSpatialContext
 } from "../../../src/world/stageSpatialContext";
-import {
-  createStageSpatialQueries,
-  type StageVolume
-} from "../../../src/world/stageSpatialQueries";
+import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import { createStageWorldBoundary } from "../../../src/world/stageWorldBoundary";
 import { createV2BeamSystem } from "../../../src/v2/beamCollision";
 import { createV2BitSystem } from "../../../src/v2/bitSystem";
@@ -86,6 +83,7 @@ import {
   runPerformanceDiagnosticsLifecycleTests,
   runSurvivalRuntimeLifecycleTests
 } from "./survivalRuntimeLifecycle.test";
+import { createDynamicStageSpatialQueryFixture } from "./stageSpatialQueryFixture";
 import { runWorldBoundaryTests } from "./worldBoundary.test";
 
 import "./style.css";
@@ -608,19 +606,25 @@ const showcaseMovementColliders = Object.freeze({
   npc: Object.freeze([showcaseBlocker]),
   bit: Object.freeze([showcaseBlocker])
 });
-const showcaseQueries = createStageSpatialQueries(scene, {
-  movementColliders: showcaseMovementColliders,
-  groundColliders: Object.freeze([]),
-  beamBlockers: Object.freeze([showcaseBlocker]),
-  sightBlockers: Object.freeze([showcaseBlocker]),
-  volumes: Object.freeze([])
-});
+const showcaseSpatial = createDynamicStageSpatialQueryFixture(
+  scene,
+  {
+    movementColliders: showcaseMovementColliders,
+    groundColliders: Object.freeze([]),
+    beamBlockers: Object.freeze([showcaseBlocker]),
+    sightBlockers: Object.freeze([showcaseBlocker]),
+    bitObstacles: showcaseMovementColliders.bit
+  },
+  { volumes: Object.freeze([]) }
+);
+const showcaseQueries = showcaseSpatial.queries;
 const showcaseStage = Object.freeze({
   resources: Object.freeze({
     beamBlockers: Object.freeze([showcaseBlocker]),
     sightBlockers: Object.freeze([showcaseBlocker])
   }),
   worldBoundary: showcaseWorldBoundary,
+  dynamicVariants: showcaseSpatial.dynamicVariants,
   queries: showcaseQueries
 }) as unknown as StageSpatialContext;
 let showcaseRandomState = 0xa511e9b3;
@@ -732,8 +736,8 @@ const disposeShowcase = () => {
   scene.onBeforeRenderObservable.remove(showcaseObserver);
   showcaseHitEffectSystem.dispose();
   showcaseBeamSystem.dispose();
+  showcaseSpatial.dispose();
   showcaseWorldBoundary.dispose();
-  showcaseQueries.dispose();
   showcaseBlocker.dispose(false, false);
   showcaseStageBoundaryMesh.dispose(false, false);
   showcaseWorldMesh.dispose(false, false);

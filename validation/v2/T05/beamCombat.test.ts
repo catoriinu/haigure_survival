@@ -29,9 +29,9 @@ import type {
   V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
-import { createStageSpatialQueries } from "../../../src/world/stageSpatialQueries";
 import type { StageSpatialQueryDiagnostics } from "../../../src/world/stageSpatialQueries";
 import { createStageWorldBoundary } from "../../../src/world/stageWorldBoundary";
+import { createDynamicStageSpatialQueryFixture } from "./stageSpatialQueryFixture";
 
 export type BeamCombatTestResult = Readonly<{
   name: string;
@@ -134,14 +134,21 @@ const createBeamFixture = (
     npc: Object.freeze([...blockers]),
     bit: Object.freeze([...blockers])
   });
-  const queries = createStageSpatialQueries(scene, {
-    movementColliders,
-    groundColliders: blockers,
-    beamBlockers: blockers,
-    sightBlockers: blockers,
-    volumes: [],
-    diagnostics
-  });
+  const spatialFixture = createDynamicStageSpatialQueryFixture(
+    scene,
+    {
+      movementColliders,
+      groundColliders: blockers,
+      beamBlockers: blockers,
+      sightBlockers: blockers,
+      bitObstacles: movementColliders.bit
+    },
+    {
+      volumes: [],
+      diagnostics
+    }
+  );
+  const queries = spatialFixture.queries;
   const stageBoundaryMesh =
     worldBoundarySize === null
       ? null
@@ -185,8 +192,8 @@ const createBeamFixture = (
       if (disposed) {
         throw new Error("BeamFixtureは破棄済みです");
       }
+      spatialFixture.dispose();
       worldBoundary?.dispose();
-      queries.dispose();
       scene.dispose();
       engine.dispose();
       disposed = true;
@@ -1035,17 +1042,23 @@ export const runBeamCombatTests =
         for (const mesh of movementColliders) {
           mesh.computeWorldMatrix(true);
         }
-        const queries = createStageSpatialQueries(scene, {
-          movementColliders: Object.freeze({
-            player: movementColliders,
-            npc: movementColliders,
-            bit: movementColliders
-          }),
-          groundColliders: Object.freeze([floor]),
-          beamBlockers: rayBlockers,
-          sightBlockers: rayBlockers,
-          volumes: []
+        const movementColliderSets = Object.freeze({
+          player: movementColliders,
+          npc: movementColliders,
+          bit: movementColliders
         });
+        const spatialFixture = createDynamicStageSpatialQueryFixture(
+          scene,
+          {
+            movementColliders: movementColliderSets,
+            groundColliders: Object.freeze([floor]),
+            beamBlockers: rayBlockers,
+            sightBlockers: rayBlockers,
+            bitObstacles: movementColliderSets.bit
+          },
+          { volumes: [] }
+        );
+        const queries = spatialFixture.queries;
         const legacyPick = (
           from: Vector3,
           to: Vector3,
@@ -1193,7 +1206,7 @@ export const runBeamCombatTests =
               `inside=${insideWallMatches} / surface=${wallSurfaceMatches}`
           };
         } finally {
-          queries.dispose();
+          spatialFixture.dispose();
           scene.dispose();
           engine.dispose();
         }
@@ -1214,17 +1227,23 @@ export const runBeamCombatTests =
         );
         blocker.computeWorldMatrix(true);
         const blockers = Object.freeze([blocker]);
-        const queries = createStageSpatialQueries(scene, {
-          movementColliders: Object.freeze({
-            player: blockers,
-            npc: blockers,
-            bit: blockers
-          }),
-          groundColliders: blockers,
-          beamBlockers: blockers,
-          sightBlockers: blockers,
-          volumes: []
+        const movementColliderSets = Object.freeze({
+          player: blockers,
+          npc: blockers,
+          bit: blockers
         });
+        const spatialFixture = createDynamicStageSpatialQueryFixture(
+          scene,
+          {
+            movementColliders: movementColliderSets,
+            groundColliders: blockers,
+            beamBlockers: blockers,
+            sightBlockers: blockers,
+            bitObstacles: movementColliderSets.bit
+          },
+          { volumes: [] }
+        );
+        const queries = spatialFixture.queries;
         try {
           const positiveToNegativeDirection = new Vector3(0, 0, -1);
           const negativeToPositiveDirection = new Vector3(0, 0, 1);
@@ -1259,7 +1278,7 @@ export const runBeamCombatTests =
               `negativeToPositive=${secondDot.toFixed(3)}`
           };
         } finally {
-          queries.dispose();
+          spatialFixture.dispose();
           scene.dispose();
           engine.dispose();
         }
@@ -1288,17 +1307,23 @@ export const runBeamCombatTests =
           secondInScene,
           firstInScene
         ]);
-        const queries = createStageSpatialQueries(scene, {
-          movementColliders: Object.freeze({
-            player: reverseOptionOrder,
-            npc: reverseOptionOrder,
-            bit: reverseOptionOrder
-          }),
-          groundColliders: reverseOptionOrder,
-          beamBlockers: reverseOptionOrder,
-          sightBlockers: reverseOptionOrder,
-          volumes: []
+        const movementColliderSets = Object.freeze({
+          player: reverseOptionOrder,
+          npc: reverseOptionOrder,
+          bit: reverseOptionOrder
         });
+        const spatialFixture = createDynamicStageSpatialQueryFixture(
+          scene,
+          {
+            movementColliders: movementColliderSets,
+            groundColliders: reverseOptionOrder,
+            beamBlockers: reverseOptionOrder,
+            sightBlockers: reverseOptionOrder,
+            bitObstacles: movementColliderSets.bit
+          },
+          { volumes: [] }
+        );
+        const queries = spatialFixture.queries;
         try {
           const hit = queries.castMovementSegment(
             "npc",
@@ -1310,7 +1335,7 @@ export const runBeamCombatTests =
             detail: hit?.mesh.name ?? "none"
           };
         } finally {
-          queries.dispose();
+          spatialFixture.dispose();
           scene.dispose();
           engine.dispose();
         }

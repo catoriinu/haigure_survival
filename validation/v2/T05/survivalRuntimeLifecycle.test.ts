@@ -477,6 +477,9 @@ export const runPerformanceDiagnosticsLifecycleTests = async (
     seed: V2_PERFORMANCE_DEFAULT_SEED,
     view: "courtyard" as const
   });
+  await new Promise<void>((resolve) =>
+    setTimeout(() => resolve(), 0)
+  );
   const baseline = Object.freeze({
     ...captureObservableCounts("scene", scene),
     ...captureObservableCounts("engine", engine)

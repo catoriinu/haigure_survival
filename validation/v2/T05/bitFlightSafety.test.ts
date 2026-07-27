@@ -23,11 +23,15 @@ import {
   toBitFlightZoneId,
   type BitFlightBand
 } from "../../../src/world/bitFlightNavigation";
+import type { DynamicStageSpatialActiveSet } from "../../../src/world/dynamicStageSpatialVariants";
 import {
   createStageBoundaryContainsQuery,
-  createStageSpatialQueries,
-  type StageSpatialQueries
+  type StageSpatialQueryOptions
 } from "../../../src/world/stageSpatialQueries";
+import {
+  createDynamicStageSpatialQueryFixture,
+  type DynamicStageSpatialQueryFixture
+} from "./stageSpatialQueryFixture";
 
 export type BitFlightSafetyTestResult = Readonly<{
   name: string;
@@ -39,7 +43,7 @@ type TestWorld = Readonly<{
   engine: NullEngine;
   scene: Scene;
   colliders: readonly Mesh[];
-  queries: readonly StageSpatialQueries[];
+  spatialFixtures: readonly DynamicStageSpatialQueryFixture[];
   dispose(): void;
 }>;
 
@@ -47,14 +51,14 @@ const createTestWorld = (): TestWorld => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
   const colliders: Mesh[] = [];
-  const queries: StageSpatialQueries[] = [];
+  const spatialFixtures: DynamicStageSpatialQueryFixture[] = [];
   return {
     engine,
     scene,
     colliders,
-    queries,
+    spatialFixtures,
     dispose: () => {
-      queries.forEach((query) => query.dispose());
+      spatialFixtures.forEach((fixture) => fixture.dispose());
       scene.dispose();
       engine.dispose();
     }
@@ -95,20 +99,39 @@ const createTriangleMesh = (
   return mesh;
 };
 
+const createTrackedSpatialQueries = (
+  world: TestWorld,
+  activeSet: DynamicStageSpatialActiveSet,
+  options: StageSpatialQueryOptions
+) => {
+  const fixture = createDynamicStageSpatialQueryFixture(
+    world.scene,
+    activeSet,
+    options
+  );
+  (world.spatialFixtures as DynamicStageSpatialQueryFixture[]).push(
+    fixture
+  );
+  return fixture.queries;
+};
+
 const createQueries = (world: TestWorld) => {
-  const queries = createStageSpatialQueries(world.scene, {
-    movementColliders: Object.freeze({
-      player: Object.freeze([]),
-      npc: Object.freeze([]),
-      bit: Object.freeze([...world.colliders])
-    }),
-    groundColliders: Object.freeze([...world.colliders]),
-    beamBlockers: Object.freeze([]),
-    sightBlockers: Object.freeze([]),
-    volumes: Object.freeze([])
+  const movementColliders = Object.freeze({
+    player: Object.freeze([]),
+    npc: Object.freeze([]),
+    bit: Object.freeze([...world.colliders])
   });
-  (world.queries as StageSpatialQueries[]).push(queries);
-  return queries;
+  return createTrackedSpatialQueries(
+    world,
+    {
+      movementColliders,
+      groundColliders: Object.freeze([...world.colliders]),
+      beamBlockers: Object.freeze([]),
+      sightBlockers: Object.freeze([]),
+      bitObstacles: movementColliders.bit
+    },
+    { volumes: Object.freeze([]) }
+  );
 };
 
 const approximately = (
@@ -404,32 +427,38 @@ export const runBitFlightSafetyTests =
             let knownSafeCenterHit = false;
             let indexedTriangleCount = -1;
             let exactTriangleTestCount = -1;
-            const queries = createStageSpatialQueries(world.scene, {
-              movementColliders: Object.freeze({
-                player: Object.freeze([]),
-                npc: Object.freeze([]),
-                bit: Object.freeze([mesh])
-              }),
-              groundColliders: Object.freeze([]),
-              beamBlockers: Object.freeze([]),
-              sightBlockers: Object.freeze([]),
-              volumes: Object.freeze([]),
-              diagnostics: Object.freeze({
-                recordRayQuery: () => {},
-                recordSphereSweep: (
-                  _moverKind,
-                  _visitedNodeCount,
-                  indexedCount,
-                  exactCount,
-                  knownSafe
-                ) => {
-                  knownSafeCenterHit = knownSafe;
-                  indexedTriangleCount = indexedCount;
-                  exactTriangleTestCount = exactCount;
-                }
-              })
+            const movementColliders = Object.freeze({
+              player: Object.freeze([]),
+              npc: Object.freeze([]),
+              bit: Object.freeze([mesh])
             });
-            (world.queries as StageSpatialQueries[]).push(queries);
+            const queries = createTrackedSpatialQueries(
+              world,
+              {
+                movementColliders,
+                groundColliders: Object.freeze([]),
+                beamBlockers: Object.freeze([]),
+                sightBlockers: Object.freeze([]),
+                bitObstacles: movementColliders.bit
+              },
+              {
+                volumes: Object.freeze([]),
+                diagnostics: Object.freeze({
+                  recordRayQuery: () => {},
+                  recordSphereSweep: (
+                    _moverKind,
+                    _visitedNodeCount,
+                    indexedCount,
+                    exactCount,
+                    knownSafe
+                  ) => {
+                    knownSafeCenterHit = knownSafe;
+                    indexedTriangleCount = indexedCount;
+                    exactTriangleTestCount = exactCount;
+                  }
+                })
+              }
+            );
             queries.castMovementSphere(
               "bit",
               new Vector3(1, 1, -1.5),
@@ -653,30 +682,36 @@ export const runBitFlightSafetyTests =
               0.2,
               Vector3.Zero()
             );
-            const queries = createStageSpatialQueries(world.scene, {
-              movementColliders: Object.freeze({
-                player: Object.freeze([]),
-                npc: Object.freeze([]),
-                bit: Object.freeze([box])
-              }),
-              groundColliders: Object.freeze([]),
-              beamBlockers: Object.freeze([]),
-              sightBlockers: Object.freeze([]),
-              volumes: Object.freeze([]),
-              diagnostics: Object.freeze({
-                recordRayQuery: () => {},
-                recordSphereSweep: (
-                  _moverKind,
-                  _visitedNodeCount,
-                  _indexedTriangleCount,
-                  _exactTriangleTestCount,
-                  knownSafe
-                ) => {
-                  knownSafeCenterHit = knownSafe;
-                }
-              })
+            const movementColliders = Object.freeze({
+              player: Object.freeze([]),
+              npc: Object.freeze([]),
+              bit: Object.freeze([box])
             });
-            (world.queries as StageSpatialQueries[]).push(queries);
+            const queries = createTrackedSpatialQueries(
+              world,
+              {
+                movementColliders,
+                groundColliders: Object.freeze([]),
+                beamBlockers: Object.freeze([]),
+                sightBlockers: Object.freeze([]),
+                bitObstacles: movementColliders.bit
+              },
+              {
+                volumes: Object.freeze([]),
+                diagnostics: Object.freeze({
+                  recordRayQuery: () => {},
+                  recordSphereSweep: (
+                    _moverKind,
+                    _visitedNodeCount,
+                    _indexedTriangleCount,
+                    _exactTriangleTestCount,
+                    knownSafe
+                  ) => {
+                    knownSafeCenterHit = knownSafe;
+                  }
+                })
+              }
+            );
             Vector3.ProjectOnTriangleToRef = (
               vector,
               p0,
@@ -855,40 +890,46 @@ export const runBitFlightSafetyTests =
                 contactCandidateMaterializationCount: number;
               }>
             > = [];
-            const queries = createStageSpatialQueries(world.scene, {
-              movementColliders: Object.freeze({
-                player: Object.freeze([]),
-                npc: Object.freeze([]),
-                bit: Object.freeze([bitMesh])
-              }),
-              groundColliders: Object.freeze([groundOnlyMesh]),
-              beamBlockers: Object.freeze([groundOnlyMesh]),
-              sightBlockers: Object.freeze([groundOnlyMesh]),
-              volumes: Object.freeze([]),
-              diagnostics: Object.freeze({
-                recordRayQuery: () => {},
-                recordSphereSweep: (
-                  _moverKind,
-                  _visitedNodeCount,
-                  indexedTriangleCount,
-                  exactTriangleTestCount,
-                  knownSafeCenterHit,
-                  initialContactProjectionCount,
-                  contactCandidateMaterializationCount
-                ) => {
-                  sphereDiagnostics.push(
-                    Object.freeze({
-                      indexedTriangleCount,
-                      exactTriangleTestCount,
-                      knownSafeCenterHit,
-                      initialContactProjectionCount,
-                      contactCandidateMaterializationCount
-                    })
-                  );
-                }
-              })
+            const movementColliders = Object.freeze({
+              player: Object.freeze([]),
+              npc: Object.freeze([]),
+              bit: Object.freeze([bitMesh])
             });
-            (world.queries as StageSpatialQueries[]).push(queries);
+            const queries = createTrackedSpatialQueries(
+              world,
+              {
+                movementColliders,
+                groundColliders: Object.freeze([groundOnlyMesh]),
+                beamBlockers: Object.freeze([groundOnlyMesh]),
+                sightBlockers: Object.freeze([groundOnlyMesh]),
+                bitObstacles: movementColliders.bit
+              },
+              {
+                volumes: Object.freeze([]),
+                diagnostics: Object.freeze({
+                  recordRayQuery: () => {},
+                  recordSphereSweep: (
+                    _moverKind,
+                    _visitedNodeCount,
+                    indexedTriangleCount,
+                    exactTriangleTestCount,
+                    knownSafeCenterHit,
+                    initialContactProjectionCount,
+                    contactCandidateMaterializationCount
+                  ) => {
+                    sphereDiagnostics.push(
+                      Object.freeze({
+                        indexedTriangleCount,
+                        exactTriangleTestCount,
+                        knownSafeCenterHit,
+                        initialContactProjectionCount,
+                        contactCandidateMaterializationCount
+                      })
+                    );
+                  }
+                })
+              }
+            );
             queries.castMovementSphere(
               "bit",
               new Vector3(-3, 0, 0),
@@ -979,42 +1020,48 @@ export const runBitFlightSafetyTests =
             let knownSafeSweeps = 0;
             let initialContactProjections = 0;
             let contactCandidateMaterializations = 0;
-            const queries = createStageSpatialQueries(world.scene, {
-              movementColliders: Object.freeze({
-                player: Object.freeze([]),
-                npc: Object.freeze([]),
-                bit: Object.freeze([bitMesh])
-              }),
-              groundColliders: Object.freeze([groundOnlyMesh]),
-              beamBlockers: Object.freeze([groundOnlyMesh]),
-              sightBlockers: Object.freeze([groundOnlyMesh]),
-              volumes: Object.freeze([]),
-              diagnostics: Object.freeze({
-                recordRayQuery: () => {},
-                recordSphereSweep: (
-                  _moverKind,
-                  _visitedNodeCount,
-                  indexedTriangleCount,
-                  exactTriangleTestCount,
-                  knownSafeCenterHit,
-                  initialContactProjectionCount,
-                  contactCandidateMaterializationCount
-                ) => {
-                  if (!measuring) {
-                    return;
-                  }
-                  recordedSweeps += 1;
-                  indexedTriangles += indexedTriangleCount;
-                  exactTriangleTests += exactTriangleTestCount;
-                  knownSafeSweeps += knownSafeCenterHit ? 1 : 0;
-                  initialContactProjections +=
-                    initialContactProjectionCount;
-                  contactCandidateMaterializations +=
-                    contactCandidateMaterializationCount;
-                }
-              })
+            const movementColliders = Object.freeze({
+              player: Object.freeze([]),
+              npc: Object.freeze([]),
+              bit: Object.freeze([bitMesh])
             });
-            (world.queries as StageSpatialQueries[]).push(queries);
+            const queries = createTrackedSpatialQueries(
+              world,
+              {
+                movementColliders,
+                groundColliders: Object.freeze([groundOnlyMesh]),
+                beamBlockers: Object.freeze([groundOnlyMesh]),
+                sightBlockers: Object.freeze([groundOnlyMesh]),
+                bitObstacles: movementColliders.bit
+              },
+              {
+                volumes: Object.freeze([]),
+                diagnostics: Object.freeze({
+                  recordRayQuery: () => {},
+                  recordSphereSweep: (
+                    _moverKind,
+                    _visitedNodeCount,
+                    indexedTriangleCount,
+                    exactTriangleTestCount,
+                    knownSafeCenterHit,
+                    initialContactProjectionCount,
+                    contactCandidateMaterializationCount
+                  ) => {
+                    if (!measuring) {
+                      return;
+                    }
+                    recordedSweeps += 1;
+                    indexedTriangles += indexedTriangleCount;
+                    exactTriangleTests += exactTriangleTestCount;
+                    knownSafeSweeps += knownSafeCenterHit ? 1 : 0;
+                    initialContactProjections +=
+                      initialContactProjectionCount;
+                    contactCandidateMaterializations +=
+                      contactCandidateMaterializationCount;
+                  }
+                })
+              }
+            );
             const left = new Vector3(-2, 1.9, 1.9);
             const right = new Vector3(2, 1.9, 1.9);
             queries.castMovementSphere(
@@ -1093,18 +1140,22 @@ export const runBitFlightSafetyTests =
                 )
             );
             const wallSet = new Set(walls);
-            const queries = createStageSpatialQueries(world.scene, {
-              movementColliders: Object.freeze({
-                player: Object.freeze([...walls]),
-                npc: Object.freeze([...walls]),
-                bit: Object.freeze([...walls])
-              }),
-              groundColliders: Object.freeze([]),
-              beamBlockers: Object.freeze([...walls]),
-              sightBlockers: Object.freeze([...walls]),
-              volumes: Object.freeze([])
+            const movementColliders = Object.freeze({
+              player: Object.freeze([...walls]),
+              npc: Object.freeze([...walls]),
+              bit: Object.freeze([...walls])
             });
-            (world.queries as StageSpatialQueries[]).push(queries);
+            const queries = createTrackedSpatialQueries(
+              world,
+              {
+                movementColliders,
+                groundColliders: Object.freeze([]),
+                beamBlockers: Object.freeze([...walls]),
+                sightBlockers: Object.freeze([...walls]),
+                bitObstacles: movementColliders.bit
+              },
+              { volumes: Object.freeze([]) }
+            );
             const radius = 0.54;
             const pathLength = 11;
             let matchedCount = 0;
@@ -1212,36 +1263,42 @@ export const runBitFlightSafetyTests =
             let indexedTriangleCount = -1;
             let exactTriangleTestCount = -1;
             let knownSafeCenterHit = false;
-            const queries = createStageSpatialQueries(world.scene, {
-              movementColliders: Object.freeze({
-                player: Object.freeze([]),
-                npc: Object.freeze([]),
-                bit: Object.freeze([...world.colliders])
-              }),
-              groundColliders: Object.freeze([]),
-              beamBlockers: Object.freeze([]),
-              sightBlockers: Object.freeze([]),
-              volumes: Object.freeze([]),
-              diagnostics: Object.freeze({
-                recordRayQuery: () => {},
-                recordSphereSweep: (
-                  _moverKind,
-                  visitedCount,
-                  indexedCount,
-                  exactCount,
-                  knownSafe
-                ) => {
-                  if (!knownSafe) {
-                    return;
-                  }
-                  visitedNodeCount = visitedCount;
-                  indexedTriangleCount = indexedCount;
-                  exactTriangleTestCount = exactCount;
-                  knownSafeCenterHit = true;
-                }
-              })
+            const movementColliders = Object.freeze({
+              player: Object.freeze([]),
+              npc: Object.freeze([]),
+              bit: Object.freeze([...world.colliders])
             });
-            (world.queries as StageSpatialQueries[]).push(queries);
+            const queries = createTrackedSpatialQueries(
+              world,
+              {
+                movementColliders,
+                groundColliders: Object.freeze([]),
+                beamBlockers: Object.freeze([]),
+                sightBlockers: Object.freeze([]),
+                bitObstacles: movementColliders.bit
+              },
+              {
+                volumes: Object.freeze([]),
+                diagnostics: Object.freeze({
+                  recordRayQuery: () => {},
+                  recordSphereSweep: (
+                    _moverKind,
+                    visitedCount,
+                    indexedCount,
+                    exactCount,
+                    knownSafe
+                  ) => {
+                    if (!knownSafe) {
+                      return;
+                    }
+                    visitedNodeCount = visitedCount;
+                    indexedTriangleCount = indexedCount;
+                    exactTriangleTestCount = exactCount;
+                    knownSafeCenterHit = true;
+                  }
+                })
+              }
+            );
             const from = new Vector3(-50, -50, -50);
             const to = new Vector3(50, 50, 50);
             queries.castMovementSphere("bit", from, from, 0.54);
@@ -1326,36 +1383,42 @@ export const runBitFlightSafetyTests =
           mesh.computeWorldMatrix(true);
           (world.colliders as Mesh[]).push(mesh);
           let selectedTriangleIndex = -1;
-          const queries = createStageSpatialQueries(world.scene, {
-            movementColliders: Object.freeze({
-              player: Object.freeze([]),
-              npc: Object.freeze([]),
-              bit: Object.freeze([mesh])
-            }),
-            groundColliders: Object.freeze([]),
-            beamBlockers: Object.freeze([]),
-            sightBlockers: Object.freeze([]),
-            volumes: Object.freeze([]),
-            diagnostics: Object.freeze({
-              recordRayQuery: () => {},
-              recordSphereSweep: (
-                _moverKind,
-                _visitedNodeCount,
-                _indexedTriangleCount,
-                _exactTriangleTestCount,
-                knownSafeCenterHit,
-                _initialContactProjectionCount,
-                _contactCandidateMaterializationCount,
-                _selectedSceneOrder,
-                triangleIndex
-              ) => {
-                if (knownSafeCenterHit) {
-                  selectedTriangleIndex = triangleIndex;
-                }
-              }
-            })
+          const movementColliders = Object.freeze({
+            player: Object.freeze([]),
+            npc: Object.freeze([]),
+            bit: Object.freeze([mesh])
           });
-          (world.queries as StageSpatialQueries[]).push(queries);
+          const queries = createTrackedSpatialQueries(
+            world,
+            {
+              movementColliders,
+              groundColliders: Object.freeze([]),
+              beamBlockers: Object.freeze([]),
+              sightBlockers: Object.freeze([]),
+              bitObstacles: movementColliders.bit
+            },
+            {
+              volumes: Object.freeze([]),
+              diagnostics: Object.freeze({
+                recordRayQuery: () => {},
+                recordSphereSweep: (
+                  _moverKind,
+                  _visitedNodeCount,
+                  _indexedTriangleCount,
+                  _exactTriangleTestCount,
+                  knownSafeCenterHit,
+                  _initialContactProjectionCount,
+                  _contactCandidateMaterializationCount,
+                  _selectedSceneOrder,
+                  triangleIndex
+                ) => {
+                  if (knownSafeCenterHit) {
+                    selectedTriangleIndex = triangleIndex;
+                  }
+                }
+              })
+            }
+          );
           queries.castMovementSphere(
             "bit",
             new Vector3(-3, 0, 0),

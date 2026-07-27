@@ -34,6 +34,10 @@ Follow中はNPCがプレイヤーを視認できる限り追従し、見失っ�
 > - B03-3C、T04-3A、学校資産、`src/world`の動的空間、T04検証、共有fixture index、全体計画は変更しない。実ゲームのaction消費、highlight、prompt、扉操作はT06／T04-3Bへ残す。
 > - 対象差分だけをセルフレビューし、T04-3Bへ定員拒否hook、T06へ入力action・候補query・状態表示契約を記録する。結果更新後、T05-3差分だけを`T05-3 同陣営NPC指示と同期射撃を実装`でコミットし、push、PR、レビュー操作、mergeは行わない。
 
+2026-07-28 統合指示:
+
+> 隣のタスクのT05-3を実装したタスクをまず読み込んでください。その内容が、もうコミットが完了しており、こちらのT04-3Aに統合をして良い状態であれば、こちらを統合headへ切り替えて、推奨手順でこの後、`develop`へのPull Requestを作るところまで行ってください。まだ駄目な状態であれば、次に何をすれば進められるのか提案してください。
+
 ## 確定方針
 
 ### 対象選択・入力
@@ -121,6 +125,10 @@ Follow中はNPCがプレイヤーを視認できる限り追従し、見失っ�
 - [x] T05-3専用fixture、既存T05、通常Web、Electronを実動確認し、指定typecheck・build・静的監査を完了する
 - [x] 対象差分だけをセルフレビューし、Leaveの再計画待機中5秒解除を修正して専用fixtureへ回帰を追加する
 - [x] T04-3Bへ定員拒否hook、T06へ入力action・候補query・状態表示契約を引き渡す
+- [x] 統合: T04-3A側でT05-3の計画・worktree・commit・検証結果を再監査し、統合headへ取り込む
+- [x] 統合: T05 fixtureの旧空間query呼出をdynamic variants契約へ移行する
+- [x] 統合: T04／T05／通常Runtimeを回帰する
+- [ ] 統合: 統合branchをpushして`develop`向けDraft Pull Requestを作成する
 
 ## 結果
 
@@ -136,10 +144,18 @@ Followは速度0.3、0.8m局所分離、1.0m停止／1.2m再開、最終視認�
 
 洗脳済みFollowerはNPC別の`follower-fire`乱数系列で0.3～0.8秒の予約を作り、保存したプレイヤー射撃方向へ既存NPC gun起点から1発だけ発射する。予約中、active beam中、実beam終了後1秒のcooldown中は追加射撃を無視する。Follow解除時は未発射予約だけを取り消し、active beamは通常終了まで維持する。phase遷移、replay、非表示化、`clearCommands()`、disposeへcommand・予約・方向snapshot・一時gun・beam追跡の消去を接続した。
 
-T05共有`main.ts`と共有fixture indexは変更せず、`npc-command.html`、専用entry、専用fixtureを追加してViteを複数entry化した。専用fixtureは強化後の実ブラウザ初回・画面ボタン再実行とも16/16 PASSで、Leaveの`waitingForPathCount=1`、候補抽出、Follow／Leave、被弾、haigure、12体Follower、局所分離、同期射撃、実beam完了、全消去経路を確認した。既存の学校Stage用Survival lifecycleへRuntime黒箱checkを追加し、active camera候補1件、公開APIのFollow、player gun予約、`assembly`への実phase遷移、active beam 0件、phase guard、dispose後の参照拒否とScene資源baseline復帰を確認した。既存T05 fixtureは253/253 PASS、通常Webは学校scene・NPC 50体・BIT 20体の起動、Electronはbuild済みアプリのscene表示と終了を確認した。ブラウザconsole、Babylon Logger、unhandled rejectionはwarning／error 0件だった。
+T05-3単独commit時点ではT05共有`main.ts`と共有fixture indexを変更せず、`npc-command.html`、専用entry、専用fixtureを追加してViteを複数entry化した。専用fixtureは強化後の実ブラウザ初回・画面ボタン再実行とも16/16 PASSで、Leaveの`waitingForPathCount=1`、候補抽出、Follow／Leave、被弾、haigure、12体Follower、局所分離、同期射撃、実beam完了、全消去経路を確認した。既存の学校Stage用Survival lifecycleへRuntime黒箱checkを追加し、active camera候補1件、公開APIのFollow、player gun予約、`assembly`への実phase遷移、active beam 0件、phase guard、dispose後の参照拒否とScene資源baseline復帰を確認した。既存T05 fixtureは253/253 PASS、通常Webは学校scene・NPC 50体・BIT 20体の起動、Electronはbuild済みアプリのscene表示と終了を確認した。ブラウザconsole、Babylon Logger、unhandled rejectionはwarning／error 0件だった。
 
 `npm run typecheck:v2`、`npm run typecheck:t05`、`npm run build:t05`、`npm run build`はすべてPASSした。通常buildでは既存の大容量chunkに対するVite CLI advisoryだけが出力された。`git diff --check`、UTF-8 BOM、競合marker、ローカルユーザーディレクトリ絶対パス、TypeScriptの型・構文・括弧整合を確認し、対象外の`docs/plan.md`、`docs/plans/v2/next_tasks_plan.md`、`validation/v2/T04/`、`vite.t04.config.mts`、`src/world`、学校資産に差分がないことを確認した。
 
 T04-3Bへの引き渡しは、エレベーター定員拒否時に`cancelNpcFollow(npcId)`を呼ぶ契約とし、実学校の扉・エレベーター統合は実装していない。T06への引き渡しは、`V2PlayerInput.drainPressedActions()`の`npc-follow`／`npc-leave`を消費し、`getNpcCommandCandidates()`の先頭候補を明示IDで`requestNpcCommand()`へ渡すこと、候補・`commandMode`・一時gun・同期射撃phaseを操作UIへ表示することとする。`door-toggle`の実配送、highlight、promptもT06／T04-3Bへ残した。
 
 対象差分だけを`T05-3 同陣営NPC指示と同期射撃を実装`でコミットし、push、Pull Request作成、レビュー操作、`develop`へのmergeは行わない。
+
+2026-07-28、T04-3A統合担当が本タスクのCodex最終報告、個別計画、cleanなworktree、単一commit、検証証跡を再監査し、T04-3A branchへcommit境界を保って取り込んだ。以後は同branchを統合headとする。
+
+T04-3Aで必須化されたdynamic variants契約へ、T05 fixtureの旧2引数`createStageSpatialQueries()`全14呼出を移行した。新fixtureは`DynamicStageSpatialActiveSet`と`StageSpatialQueryOptions`だけを受け、query、dynamic variantsの順に破棄する。旧combined-options、互換wrapper、fallbackは追加しておらず、移行後の`typecheck:t05`はPASSした。
+
+2026-07-28 08:36 +09:00時点の統合検証では、`audit:v2:dependencies`、`typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`build:t04`、`build:t05`、通常`build`、`git diff --check`がすべてPASSした。実ブラウザではT04 fixtureが初回／画面再実行／再読込の各102／102、T05 fixtureが各253／253、T05-3専用fixtureが各16／16で、各fixtureのconsole warning／error、Babylon Logger error、unhandled rejectionは0件だった。
+
+T05再実行で顕在化した2件は、Babylon Observableの遅延remove完了前にbaselineを採る性能fixtureと、18秒移動後も初期BIT位置のtarget ringを再利用する視認fixtureに原因を限定し、baseline前の1 event-loop待機と現在BIT位置からのtarget ring再生成で安定化した。通常Webは初期読込時のwarning／error 0件と、開始後の`フェーズ playing`、NPC 50体、BIT 20体以上を確認した。自動操作APIからのPointer Lock要求だけはChromium／Computer Use環境側の制約で拒否されたため、productionコードは変更せずPull Requestの検証注記へ残す。学校資産とB03-3C worktreeには触れていない。
