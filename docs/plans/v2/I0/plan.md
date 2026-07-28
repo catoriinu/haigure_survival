@@ -160,4 +160,4 @@ GLBは2回の生成で15,442,976 bytes／`c97820435ea50a9c64d61e3bc68615e9f9ad35
 
 レビュー修正後のV2依存監査、通常build、Electron build、T02／T04／T05 buildは全件成功した。実ブラウザはT02 48/48、T04 106/106、T05 255/255でwarning／error 0件、体育館報告座標のY snap回帰と実水平超過拒否、固定3灯の`idleRange=1`・light dirty 0件を確認した。通常Webとbuild済みElectronでは多数のBEAM・着弾中も校舎表示を維持し、V2更新停止は発生しなかった。Electron DevToolsはBabylon.js初期化情報1件だけでwarning／error 0件だった。自動操作ChromiumのPointer Lock要求だけは既知の環境制約で1件失敗するため、実Shift長押しと1ゲーム以上の目視はPull Requestの人間確認観点へ残す。
 
-同日、修正内容に対する人間受入承認を受領した。自動回帰、実ブラウザ、Electron、独立再レビュー、人間確認を合わせ、V0第1重点ゲートは統合差分由来の重大不具合0件で完了とする。第2次人間受入修正commit `5958a2d`と本承認記録を既存Draft Pull Request #55へpushする段階へ移行した。`develop`へのmergeは別途許可されるまで実施しない。
+同日、修正内容に対する人間受入承認を受領した。自動回帰、実ブラウザ、Electron、独立再レビュー、人間確認を合わせ、V0第1重点ゲートは統合差分由来の重大不具合0件で完了とする。第2次人間受入修正commit `5958a2d`と受入完了記録を既存Draft Pull Request #55へfast-forward pushし、ローカル、origin、Pull Requestのhead一致を確認した。Pull RequestはOPEN／Draftを維持し、`develop`へのmergeは別途許可されるまで実施しない。
