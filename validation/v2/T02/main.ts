@@ -770,7 +770,7 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 604 &&
+      context.resources.visualMeshes.length === 606 &&
         context.resources.normalColliders.length === 273 &&
         context.resources.actorOnlyColliders.length === 81 &&
         context.resources.humanOnlyColliders.length === 59 &&
@@ -792,6 +792,7 @@ const validateLoadedContext = (
         verticalTransitions.length === 4 &&
         surfaceRouteTransitions.length === 10 &&
         boundaryTransitions.length === 1 &&
+        context.worldBoundary?.id === "world-limit" &&
         bitTransitions.every((transition) => transition.bidirectional),
       `VIS=${context.resources.visualMeshes.length} / COL=${context.resources.normalColliders.length} / ActorOnly=${context.resources.actorOnlyColliders.length} / HumanOnly=${context.resources.humanOnlyColliders.length} / humanNAV=${context.resources.navSourceMeshes.length} / bitNAV=${context.resources.bitFlightNavSourceMeshes.length} / MRK=${context.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${context.volumes.all.length}(assembly=${assemblyVolumes.length}) / roomVariants=${roomVariants?.variants.length ?? 0}/${roomVariants?.tileVolumes.length ?? 0}/selected=${context.roomVariantSelection.length} / doors=${context.doorAssets.all.length} / elevators=${context.elevatorAssets.all.length} / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${context.links.all.length} / zones=${context.bitNavigation.zones.length} / bands=${context.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length})`
     ),
@@ -2548,7 +2549,7 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 624 &&
+      activeContext.resources.visualMeshes.length === 626 &&
       activeContext.resources.normalColliders.length === 273 &&
       activeContext.resources.actorOnlyColliders.length === 81 &&
       activeContext.resources.humanOnlyColliders.length === 59 &&

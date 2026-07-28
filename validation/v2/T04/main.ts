@@ -3353,7 +3353,7 @@ const runValidation = async () => {
             (selection) => selection.variant === "normal"
           );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 604 &&
+          schoolContext.resources.visualMeshes.length === 606 &&
           schoolContext.resources.normalColliders.length === 273 &&
           schoolContext.resources.actorOnlyColliders.length === 81 &&
           schoolContext.resources.humanOnlyColliders.length === 59 &&
@@ -3373,6 +3373,7 @@ const runValidation = async () => {
           verticalTransitions.length === 4 &&
           surfaceRouteTransitions.length === 10 &&
           boundaryTransitions.length === 1 &&
+          schoolContext.worldBoundary?.id === "world-limit" &&
           bitTransitions.every((transition) => transition.bidirectional);
         checks.push({
           name: "学校GLBの厳格分類と3D意味Object",
@@ -5357,7 +5358,7 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 604 &&
+          reloadedContext.resources.visualMeshes.length === 606 &&
           reloadedContext.resources.normalColliders.length === 273 &&
           reloadedContext.resources.actorOnlyColliders.length === 81 &&
           reloadedContext.resources.humanOnlyColliders.length === 59 &&
@@ -5376,6 +5377,7 @@ const runValidation = async () => {
               venue.executionTargetPositions.length === 6
           ) &&
           reloadedContext.volumes.getByRole("water").length === 1 &&
+          reloadedContext.worldBoundary?.id === "world-limit" &&
           reloadedContext.roomVariants?.variants.length === 40 &&
           reloadedContext.roomVariants.tileVolumes.length === 20 &&
           reloadedContext.roomVariantSelection.length === 20 &&

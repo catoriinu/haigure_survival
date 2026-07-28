@@ -2099,10 +2099,13 @@ def audit_site_boundary_visuals() -> dict[str, int]:
     )
     site_ground_minimum, site_ground_maximum = world_bounds(site_ground)
     require(
-        abs(site_ground_minimum.y + 14.5) <= TOLERANCE
+        abs(site_ground_minimum.x + 18.8) <= TOLERANCE
+        and abs(site_ground_minimum.y + 14.7) <= TOLERANCE
+        and abs(site_ground_maximum.x - 63.6) <= TOLERANCE
+        and abs(site_ground_maximum.y - 51.7) <= TOLERANCE
         and
         abs(site_ground_maximum.z + 0.3) <= TOLERANCE,
-        "SiteGroundが南側塀中心Y=-14.5mまで連続していません: "
+        "SiteGroundが外周塀外面まで連続していません: "
         f"{tuple(site_ground_minimum)}->{tuple(site_ground_maximum)}",
     )
     gate_components = 0
@@ -4907,7 +4910,7 @@ def audit_b03_3b_structure(
         "dynamic_elevator_objects": len(dynamic_elevator_objects),
         "south_remaining_distance_m": south_remaining_distance,
         "gym_south_remaining_distance_m": gym_south_remaining_distance,
-        "b04_required_extension_m": 4.2,
+        "b04_required_extension_m": 0.0,
     }
 
 
