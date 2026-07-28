@@ -73,6 +73,13 @@ const BAND_CLIP_AREA_ABSOLUTE_TOLERANCE = 1e-10;
 const BAND_CLIP_AREA_RELATIVE_TOLERANCE = 1e-8;
 const ROUTE_ENDPOINT_TOLERANCE = 1e-5;
 const ROUTE_PATH_LIMIT = 4096;
+const GLOBAL_ROUTE_QUERY_NODE_CAPACITY = 65535;
+const GLOBAL_ROUTE_PROJECTION_MAX_DISTANCE = 0.75;
+const GLOBAL_ROUTE_QUERY_HALF_EXTENTS = Object.freeze({
+  x: GLOBAL_ROUTE_PROJECTION_MAX_DISTANCE,
+  y: GLOBAL_ROUTE_PROJECTION_MAX_DISTANCE,
+  z: GLOBAL_ROUTE_PROJECTION_MAX_DISTANCE
+});
 const ROOM_ROUTE_OUTSIDE_DISTANCE = 0.15;
 const ROOM_ROUTE_PROJECTION_MAX_DISTANCE = 0.25;
 const ROOM_CENTER_MAXIMUM_HORIZONTAL_PROJECTION_DISTANCE = 0.3;
@@ -2531,84 +2538,36 @@ const generateLayeredTiles = (geometry, label) => {
   }
 };
 
-const generateBandPartitionedStaticTiles = (partition) => {
-  const tiles = [];
-  const tileByKey = new Map();
-  const bandReports = [];
-  partition.assignments.forEach(
-    ({
-      band,
-      geometry,
-      sourceTriangleContributions,
-      fragmentPolygons,
-      fragmentTriangles,
-      fragmentArea
-    }) => {
-      const generatedTiles = generateLayeredTiles(
-        geometry,
-        `静的common/${band.id}`
-      );
-      generatedTiles.forEach((tile) => {
-        const key = tileKey(tile.x, tile.y, tile.layer);
-        const previous = tileByKey.get(key);
-        if (previous !== undefined) {
-          fail(
-            `static commonのband再結合でDetour tile keyが重複しました: ` +
-              `${key}, ${previous.bandId}, ${band.id}`
-          );
-        }
-        tileByKey.set(key, { bandId: band.id, tile });
-        tiles.push(tile);
-      });
-      bandReports.push({
-        bandId: band.id,
-        minimumY: band.minimumY,
-        maximumY: band.maximumY,
-        sourceTriangleContributions,
-        fragmentPolygons,
-        fragmentTriangles,
-        fragmentArea,
-        sourceVertices: geometry.positions.length / 3,
-        generatedTiles: generatedTiles.length,
-        tileStatistics: summarizeTileStatistics(generatedTiles)
-      });
-    }
+const generateGlobalStaticTiles = (geometry) => {
+  const tiles = generateLayeredTiles(
+    geometry,
+    "静的common固定グリッド全体"
   );
-  if (
-    partition.processedSourceTriangleCount !==
-      partition.sourceTriangleCount ||
-    partition.positiveAreaOverlap !== 0 ||
-    partition.missingArea !== 0 ||
-    partition.duplicateFragmentAssignments !== 0 ||
-    partition.windingMismatchCount !== 0
-  ) {
-    fail("static commonのband triangle clip監査が一致しません。");
-  }
   if (
     tiles.length === 0 ||
     tiles.length > SCHOOL_ROOM_VARIANT_NAV_PROFILE.navMeshParams.maxTiles
   ) {
     fail(
-      `static commonのband再結合tile件数がDetour容量外です: ${tiles.length}`
+      `static commonの全体tile件数がDetour容量外です: ${tiles.length}`
     );
   }
-  tiles.sort(compareTileCoordinates);
   const statistics = summarizeTileStatistics(tiles);
   if (
     statistics.maximumLayersAtCoordinate >
     SCHOOL_ROOM_VARIANT_NAV_PROFILE.grid.expectedLayersPerTile
   ) {
     fail(
-      `static commonの同一座標layer数がprofile上限を超えました: ` +
+      `static common全体の同一座標layer数がprofile上限を超えました: ` +
         `${statistics.maximumLayersAtCoordinate} > ` +
         SCHOOL_ROOM_VARIANT_NAV_PROFILE.grid.expectedLayersPerTile
     );
   }
   return {
     tiles,
-    bandReports,
     statistics,
-    uniqueTileKeyCount: tileByKey.size
+    uniqueTileKeyCount: new Set(
+      tiles.map((tile) => tileKey(tile.x, tile.y, tile.layer))
+    ).size
   };
 };
 
@@ -3447,6 +3406,83 @@ const pointDistance = (left, right) =>
     left.z - right.z
   );
 
+const blenderPointToNavMeshPoint = ([x, y, z]) => [
+  x * SCHOOL_ROOM_VARIANT_NAV_PROFILE.worldScale,
+  z * SCHOOL_ROOM_VARIANT_NAV_PROFILE.worldScale,
+  -y * SCHOOL_ROOM_VARIANT_NAV_PROFILE.worldScale
+];
+
+const GLOBAL_ROUTE_SPECS = Object.freeze([
+  ...[
+    {
+      id: "northwest-stair",
+      blenderX: -11.4,
+      blenderY: 38.7
+    },
+    {
+      id: "northeast-stair",
+      blenderX: 43.2,
+      blenderY: 38.3
+    },
+    {
+      id: "southwest-stair",
+      blenderX: -5.4,
+      blenderY: 1.3
+    }
+  ].flatMap(({ id, blenderX, blenderY }) =>
+    [0, 3.6, 7.2].map((startHeight, index) => ({
+      id: `${id}-${index + 1}f-to-${index + 2}f`,
+      start: blenderPointToNavMeshPoint([
+        blenderX,
+        blenderY,
+        startHeight
+      ]),
+      end: blenderPointToNavMeshPoint([
+        blenderX,
+        blenderY,
+        startHeight + 3.6
+      ]),
+      maximumDistance:
+        25 * SCHOOL_ROOM_VARIANT_NAV_PROFILE.worldScale
+    }))
+  ),
+  {
+    id: "northwest-stair-4f-to-rooftop",
+    start: blenderPointToNavMeshPoint([-11.4, 38.7, 10.8]),
+    end: blenderPointToNavMeshPoint([-5.5, 39.5, 14.4]),
+    maximumDistance:
+      25 * SCHOOL_ROOM_VARIANT_NAV_PROFILE.worldScale
+  },
+  {
+    id: "rooftop-to-poolside",
+    start: blenderPointToNavMeshPoint([-5.5, 39.5, 14.4]),
+    end: blenderPointToNavMeshPoint([12, 39, 15.65]),
+    maximumDistance:
+      30 * SCHOOL_ROOM_VARIANT_NAV_PROFILE.worldScale
+  },
+  {
+    id: "poolside-to-pool-bottom",
+    start: blenderPointToNavMeshPoint([12, 39, 15.65]),
+    end: blenderPointToNavMeshPoint([23.4, 39, 14.61]),
+    maximumDistance:
+      20 * SCHOOL_ROOM_VARIANT_NAV_PROFILE.worldScale
+  },
+  {
+    id: "pool-folded-ramp-to-second-floor-bridge",
+    start: blenderPointToNavMeshPoint([32.833, 37, 14.7]),
+    end: blenderPointToNavMeshPoint([39.88, 35.312, 3.61]),
+    maximumDistance:
+      160 * SCHOOL_ROOM_VARIANT_NAV_PROFILE.worldScale
+  },
+  {
+    id: "directed-query-node-capacity-regression",
+    start: blenderPointToNavMeshPoint([14, -1, -0.25]),
+    end: blenderPointToNavMeshPoint([22, 35, 15.7]),
+    maximumDistance:
+      160 * SCHOOL_ROOM_VARIANT_NAV_PROFILE.worldScale
+  }
+]);
+
 const projectRoutePoint = (
   query,
   sourcePoint,
@@ -4208,20 +4244,101 @@ const validateAllRoomVariantAssemblies = (
   return reports;
 };
 
-const bakeOnce = (prepared, validateAcceptance) => {
-  const staticBandGeneration = generateBandPartitionedStaticTiles(
-    prepared.staticBandPartition
+const validateGlobalAllNormalRoutes = (staticTiles, decodedEntries) => {
+  const normalEntries = decodedEntries
+    .filter(({ variantId }) => variantId === "normal")
+    .map((entry) => ({
+      x: entry.tileX,
+      y: entry.tileY,
+      layer: entry.layer,
+      data: entry.data
+    }));
+  const navMesh = assembleTiledNavMesh(
+    [...staticTiles, ...normalEntries],
+    "全20室normalの全校舎経路構成"
   );
-  const commonTiles = staticBandGeneration.tiles;
-  const commonTileStatistics = staticBandGeneration.statistics;
+  let query = null;
+  let queryFilter = null;
+  try {
+    queryFilter = new QueryFilter();
+    queryFilter.includeFlags = 0xffff;
+    queryFilter.excludeFlags = 0;
+    query = new NavMeshQuery(navMesh, {
+      maxNodes: GLOBAL_ROUTE_QUERY_NODE_CAPACITY,
+      defaultQueryFilter: queryFilter
+    });
+    return GLOBAL_ROUTE_SPECS.map((spec) => {
+      const projectedStart = projectRoutePoint(
+        query,
+        spec.start,
+        GLOBAL_ROUTE_QUERY_HALF_EXTENTS,
+        GLOBAL_ROUTE_PROJECTION_MAX_DISTANCE,
+        `${spec.id}の始点`
+      );
+      const projectedEnd = projectRoutePoint(
+        query,
+        spec.end,
+        GLOBAL_ROUTE_QUERY_HALF_EXTENTS,
+        GLOBAL_ROUTE_PROJECTION_MAX_DISTANCE,
+        `${spec.id}の終点`
+      );
+      const forward = findValidatedRoute(
+        query,
+        projectedStart,
+        projectedEnd,
+        `${spec.id}の往路`
+      );
+      const backward = findValidatedRoute(
+        query,
+        projectedEnd,
+        projectedStart,
+        `${spec.id}の復路`
+      );
+      if (
+        forward.distance >
+          spec.maximumDistance + BOUNDS_TOLERANCE ||
+        backward.distance >
+          spec.maximumDistance + BOUNDS_TOLERANCE
+      ) {
+        fail(
+          `${spec.id}の全校舎経路が距離上限を超えました: ` +
+            `往路=${forward.distance}, 復路=${backward.distance}, ` +
+            `上限=${spec.maximumDistance}`
+        );
+      }
+      return {
+        id: spec.id,
+        sourceStart: spec.start,
+        sourceEnd: spec.end,
+        projectedStart: pointArray(projectedStart.point),
+        projectedEnd: pointArray(projectedEnd.point),
+        startProjectionDistance: projectedStart.projectionDistance,
+        endProjectionDistance: projectedEnd.projectionDistance,
+        maximumDistance: spec.maximumDistance,
+        forward,
+        backward
+      };
+    });
+  } finally {
+    query?.destroy();
+    if (queryFilter !== null) {
+      Raw.destroy(queryFilter.raw);
+    }
+    navMesh.destroy();
+  }
+};
+
+const bakeOnce = (prepared, validateAcceptance) => {
+  const staticGeneration = generateGlobalStaticTiles(
+    prepared.staticGeometry
+  );
+  const commonTiles = staticGeneration.tiles;
+  const commonTileStatistics = staticGeneration.statistics;
   const commonReassembly = validateTileSetReassembly(
     commonTiles,
-    "static common物理Y band再結合"
+    "static common固定グリッド全体"
   );
-  const {
-    ownedKeysByRoom: commonOwnedKeysByRoom,
-    ownerByKey: commonOwnerByKey
-  } =
+  const { ownerByKey: commonOwnerByKey } =
     classifyCommonTileOwnership(commonTiles, prepared.volumes);
   const commonByKey = new Map(
     commonTiles.map((tile) => [tileKey(tile.x, tile.y, tile.layer), tile])
@@ -4232,7 +4349,6 @@ const bakeOnce = (prepared, validateAcceptance) => {
   const ownedKeysByRoom = new Map();
   const ownedKeysByVariant = new Map();
   const variantKeyDifferences = [];
-  const discardedVariantTileReports = [];
   const preflightProblems = {
     volumeGridMisalignments: prepared.volumeGridAudit.filter(
       (entry) => !entry.aligned
@@ -4242,7 +4358,6 @@ const bakeOnce = (prepared, validateAcceptance) => {
         (entry) => !entry.containedByVolumeBounds
       ),
     emptyOwnership: [],
-    ownershipLeaks: [],
     exclusiveOwnershipConflicts: [],
     layerCollisions: []
   };
@@ -4259,22 +4374,19 @@ const bakeOnce = (prepared, validateAcceptance) => {
       prepared.physicalBands
     );
     const staticBandAssignment =
-      prepared.staticBandPartition.assignments.find(
+      prepared.variantStaticBandPartition.assignments.find(
         ({ band }) => band.index === physicalBand.index
       );
     if (staticBandAssignment === undefined) {
-      fail(`${roomId}のstatic common band geometryを解決できません。`);
+      fail(`${roomId}のvariant生成用static band geometryを解決できません。`);
     }
-    const bandStaticGeometry = staticBandAssignment.geometry;
     const commonBandTiles = commonTiles.filter((tile) =>
       physicalBandContainsTile(physicalBand, tile)
     );
     if (commonBandTiles.length === 0) {
       fail(`${roomId}の物理Y帯に共通Detour tileがありません。`);
     }
-    const commonOwnedKeys = commonOwnedKeysByRoom.get(roomId);
     let normalKeys = null;
-    const generatedVariants = [];
     for (const variantId of VARIANT_IDS) {
       const pair = roomVariantKey(roomId, variantId);
       const variantGeometry = prepared.variantGeometryByPair.get(pair);
@@ -4282,7 +4394,7 @@ const bakeOnce = (prepared, validateAcceptance) => {
         fail(`variant NAV_* geometryを解決できません: ${roomId}/${variantId}`);
       }
       const combinedGeometry = mergeNavigationGeometry(
-        bandStaticGeometry,
+        staticBandAssignment.geometry,
         variantGeometry
       );
       const generatedVariantTiles = generateLayeredTiles(
@@ -4297,16 +4409,6 @@ const bakeOnce = (prepared, validateAcceptance) => {
       if (variantTiles.length === 0) {
         fail(`${roomId}/${variantId}の物理Y帯にDetour tileがありません。`);
       }
-      const bandTileStatistics = summarizeTileStatistics(variantTiles);
-      const discardedTiles =
-        generatedVariantTiles.length - variantTiles.length;
-      discardedVariantTileReports.push({
-        roomId,
-        variantId,
-        generatedTiles: generatedVariantTiles.length,
-        bandTiles: variantTiles.length,
-        discardedOutsideBandTiles: discardedTiles
-      });
       variantTileStatistics.push({
         roomId,
         variantId,
@@ -4346,11 +4448,6 @@ const bakeOnce = (prepared, validateAcceptance) => {
           ownedKeysByRoom.get(roomId).add(key)
         );
       }
-      generatedVariants.push({
-        variantId,
-        variantGeometry,
-        variantTiles
-      });
       const sortedOwnedKeys = [...actualOwnedKeys].sort((left, right) => {
         const leftTile = variantByKey.get(left);
         const rightTile = variantByKey.get(right);
@@ -4383,85 +4480,18 @@ const bakeOnce = (prepared, validateAcceptance) => {
         sourceVertices: combinedGeometry.positions.length / 3,
         sourceTriangles: combinedGeometry.indices.length / 3,
         generatedTiles: generatedVariantTiles.length,
-        bandTiles: variantTiles.length,
-        discardedOutsideBandTiles: discardedTiles,
         ownedTiles: actualOwnedKeys.size,
         staticBand: {
           bandId: physicalBand.id,
           minimumY: physicalBand.minimumY,
           maximumY: physicalBand.maximumY,
-          sourceTriangles:
-            prepared.staticBandPartition.sourceTriangleCount,
-          sourceTriangleContributions:
-            staticBandAssignment.sourceTriangleContributions,
-          fragmentPolygons:
-            staticBandAssignment.fragmentPolygons,
-          fragmentTriangles:
-            staticBandAssignment.fragmentTriangles,
-          fragmentArea: staticBandAssignment.fragmentArea,
+          sourceVertices: staticBandAssignment.geometry.positions.length / 3,
+          sourceTriangles: staticBandAssignment.geometry.indices.length / 3,
           commonTiles: commonBandTiles.length
         },
-        tileStatistics: {
-          generated: generatedTileStatistics,
-          band: bandTileStatistics
-        }
+        tileStatistics: generatedTileStatistics
       });
     }
-    const roomOwnedUnion = ownedKeysByRoom.get(roomId);
-    const ignoredOwnedRegionKeys = new Set([
-      ...commonOwnedKeys,
-      ...roomOwnedUnion
-    ]);
-    const boundaryKeys = collectExternalBoundaryKeys(
-      ignoredOwnedRegionKeys
-    );
-    const commonBoundaryTiles = commonBandTiles.filter((tile) =>
-      boundaryKeys.has(tileKey(tile.x, tile.y, tile.layer))
-    );
-    if (commonBoundaryTiles.length === 0) {
-      fail(`${roomId}のroom/static境界に共通Detour tileがありません。`);
-    }
-    generatedVariants.forEach(
-      ({ variantId, variantGeometry, variantTiles }) => {
-        const variantBoundaryTiles = variantTiles.filter((tile) =>
-          boundaryKeys.has(tileKey(tile.x, tile.y, tile.layer))
-        );
-        const outsideChanges = collectOutsideOwnedRegionChanges(
-          commonBoundaryTiles,
-          variantBoundaryTiles,
-          new Set()
-        );
-        if (outsideChanges.length === 0) {
-          return;
-        }
-        const currentKeys = [...ignoredOwnedRegionKeys];
-        const requiredKeys = [...new Set([
-          ...currentKeys,
-          ...outsideChanges.map(({ key }) => key)
-        ])];
-        const changedTileKeysByKind = Object.fromEntries(
-          ["structure-changed", "common-only", "variant-only"].map((kind) => [
-            kind,
-            outsideChanges
-              .filter((change) => change.kind === kind)
-              .map(({ key }) => key)
-          ])
-        );
-        preflightProblems.ownershipLeaks.push({
-          roomId,
-          variantId,
-          variantSourceBounds: {
-            minimum: variantGeometry.boundsMin,
-            maximum: variantGeometry.boundsMax
-          },
-          currentTileRange: tileRangeForKeys(currentKeys),
-          requiredMinimumTileRange: tileRangeForKeys(requiredKeys),
-          changedTileCount: outsideChanges.length,
-          changedTiles: outsideChanges,
-          changedTileKeysByKind
-        });
-      }
-    );
   }
 
   const ownerByKey = new Map();
@@ -4507,7 +4537,6 @@ const bakeOnce = (prepared, validateAcceptance) => {
 
   const generationStatistics = {
     common: commonTileStatistics,
-    staticBands: staticBandGeneration.bandReports,
     variants: variantTileStatistics,
     peak: summarizeGenerationPeak(
       commonTileStatistics,
@@ -4527,8 +4556,6 @@ const bakeOnce = (prepared, validateAcceptance) => {
         preflightProblems.variantSourceBoundsOutsideVolumes.length,
       emptyOwnershipCount: preflightProblems.emptyOwnership.length,
       variantKeyDifferenceCount: variantKeyDifferences.length,
-      ownershipLeakPairCount:
-        preflightProblems.ownershipLeaks.length,
       exclusiveOwnershipConflictCount:
         preflightProblems.exclusiveOwnershipConflicts.length,
       layerCollisionCount:
@@ -4536,15 +4563,7 @@ const bakeOnce = (prepared, validateAcceptance) => {
       volumeGridAudit: prepared.volumeGridAudit,
       variantSourceBounds: prepared.variantSourceBoundsAudit,
       variantKeyDifferences,
-      discardedVariantTileReports,
-      generationStatistics,
-      ownershipLeaks: preflightProblems.ownershipLeaks.map((problem) => ({
-        roomId: problem.roomId,
-        variantId: problem.variantId,
-        changedTileCount: problem.changedTileCount,
-        currentTileRange: problem.currentTileRange,
-        requiredMinimumTileRange: problem.requiredMinimumTileRange
-      }))
+      generationStatistics
     };
     fail(
       "room variant NavMeshの所有・layer事前監査に失敗しました。\n" +
@@ -4568,6 +4587,9 @@ const bakeOnce = (prepared, validateAcceptance) => {
         ownerByKey,
         prepared
       )
+    : [];
+  const globalAllNormalRoutes = validateAcceptance
+    ? validateGlobalAllNormalRoutes(staticTiles, decoded.entries)
     : [];
   const disorderedRampAcceptance = connectivity
     .filter(
@@ -4599,44 +4621,11 @@ const bakeOnce = (prepared, validateAcceptance) => {
     staticTileCount: staticTiles.length,
     commonTileCount: commonTiles.length,
     commonReassembly,
-    staticBandPartition: {
-      method: prepared.staticBandPartition.method,
-      bandCount: prepared.physicalBands.length,
-      sourceTriangles:
-        prepared.staticBandPartition.sourceTriangleCount,
-      processedSourceTriangles:
-        prepared.staticBandPartition.processedSourceTriangleCount,
-      splitSourceTriangles:
-        prepared.staticBandPartition.splitSourceTriangles,
-      coplanarBoundarySourceTriangles:
-        prepared.staticBandPartition.coplanarBoundarySourceTriangles,
-      fragmentTriangles:
-        prepared.staticBandPartition.fragmentTriangleCount,
-      maximumFragmentsPerSource:
-        prepared.staticBandPartition.maximumFragmentsPerSource,
-      sourceArea: prepared.staticBandPartition.sourceArea,
-      fragmentArea: prepared.staticBandPartition.fragmentArea,
-      totalAreaDelta:
-        prepared.staticBandPartition.totalAreaDelta,
-      maximumAreaDelta:
-        prepared.staticBandPartition.maximumAreaDelta,
-      positiveAreaOverlap:
-        prepared.staticBandPartition.positiveAreaOverlap,
-      missingArea: prepared.staticBandPartition.missingArea,
-      duplicateFragmentAssignments:
-        prepared.staticBandPartition.duplicateFragmentAssignments,
-      windingMismatchCount:
-        prepared.staticBandPartition.windingMismatchCount,
-      degenerateSourceTriangleCount:
-        prepared.staticBandPartition.degenerateSourceTriangleCount,
-      degenerateFragmentTriangleCount:
-        prepared.staticBandPartition.degenerateFragmentTriangleCount,
-      areaAbsoluteTolerance:
-        prepared.staticBandPartition.areaAbsoluteTolerance,
-      areaRelativeTolerance:
-        prepared.staticBandPartition.areaRelativeTolerance,
-      uniqueTileKeys: staticBandGeneration.uniqueTileKeyCount,
-      bands: staticBandGeneration.bandReports
+    staticGeneration: {
+      method: "single-fixed-grid-global-bake",
+      sourceVertices: prepared.staticGeometry.positions.length / 3,
+      sourceTriangles: prepared.staticGeometry.indices.length / 3,
+      uniqueTileKeys: staticGeneration.uniqueTileKeyCount
     },
     bundleEntryCount: decoded.entries.length,
     ownedTileCounts: Object.fromEntries(
@@ -4645,10 +4634,10 @@ const bakeOnce = (prepared, validateAcceptance) => {
         .map((roomId) => [roomId, ownedKeysByRoom.get(roomId).size])
     ),
     variantKeyDifferences,
-    discardedVariantTileReports,
     variantReports,
     generationStatistics,
     connectivity,
+    globalAllNormalRoutes,
     disorderedRampAcceptance
   };
 };
@@ -4703,10 +4692,10 @@ const main = async () => {
   );
   prepared.roomDoorsByRoom = roomDoorsByRoom;
   prepared.physicalBands = collectPhysicalBands(prepared.volumes);
-  prepared.staticBandPartition = partitionGeometryByPhysicalBands(
+  prepared.variantStaticBandPartition = partitionGeometryByPhysicalBands(
     prepared.staticGeometry,
     prepared.physicalBands,
-    "静的common"
+    "variant生成用静的common"
   );
   prepared.disorderedRampProbesByRoom =
     collectDisorderedRampProbes(prepared, roomDoorsByRoom);
@@ -4815,28 +4804,21 @@ const main = async () => {
       ownedTileCounts: first.ownedTileCounts,
       variantKeySetsMayDifferWithinRoom: true,
       variantKeyDifferences: first.variantKeyDifferences,
-      discardedVariantTileReports:
-        first.discardedVariantTileReports,
       variantKeyUnionOwnedBySingleRoom: true,
       exclusiveRoomOwnership: true,
-      variantBakeUsesRoomPhysicalYBandStaticClippedFragments: true,
-      variantBakeUsesMatchingStaticCommonBand: true,
-      fixedGlobalBoundsAndParametersForBandLocalBake: true,
-      staticCommonBandPartition:
-        first.staticBandPartition,
-      staticCommonBandReassembly: first.commonReassembly,
-      staticCommonTriangleClipComplete:
-        first.staticBandPartition.sourceTriangles ===
-          first.staticBandPartition.processedSourceTriangles &&
-        first.staticBandPartition.positiveAreaOverlap === 0 &&
-        first.staticBandPartition.missingArea === 0 &&
-        first.staticBandPartition.duplicateFragmentAssignments === 0 &&
-        first.staticBandPartition.windingMismatchCount === 0,
+      staticBaseUsesSingleFixedGlobalGrid: true,
+      variantBakeUsesMatchingPhysicalBandOnSameFixedGrid: true,
+      staticCommonGeneration: first.staticGeneration,
+      staticCommonReassembly: first.commonReassembly,
       staticCommonTileKeysUnique:
-        first.staticBandPartition.uniqueTileKeys ===
+        first.staticGeneration.uniqueTileKeys ===
         first.commonTileCount,
-      staticBaseExcludesOnlyOwnedPhysicalYBands: true,
-      outsideOwnedRegionCanonicalStable: true,
+      staticBaseExcludesOnlyRoomOwnedTiles: true,
+      globalAllNormalRouteCount:
+        first.globalAllNormalRoutes.length,
+      globalAllNormalRoutesBidirectional: true,
+      globalAllNormalRoutes:
+        first.globalAllNormalRoutes,
       rawTileHeadersMatchManifest: true,
       staticBaseImportExportRoundTrip: true,
       roomStaticBoundaryBidirectional: true,

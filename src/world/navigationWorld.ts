@@ -101,11 +101,11 @@ type RouteEdge = Readonly<{
 }>;
 
 const queryHalfExtents = Object.freeze({ x: 0.5, y: 0.25, z: 0.5 });
-const queryNodeCapacity = 4096;
-const pathPolygonCapacity = 4096;
+const queryNodeCapacity = 65535;
+const pathPolygonCapacity = 32768;
 const straightPathPointCapacity = 4096;
 const straightPathCornersOnly = 0;
-const linkSurfaceEpsilon = 1e-5;
+const linkSurfaceEpsilon = 0.025;
 const straightPathPointEqualityThreshold = 1 / 16_384;
 
 let recastInitialization: Promise<void> | null = null;
@@ -720,8 +720,11 @@ class RecastNavigationWorld implements NavigationWorld {
       { maxPathPolys: pathPolygonCapacity }
     );
     try {
-      if ((corridor.status & (Detour.DT_BUFFER_TOO_SMALL | Detour.DT_OUT_OF_NODES)) !== 0) {
-        throw new Error("NavMesh経路探索が設定済みの探索上限を超えました。");
+      if ((corridor.status & Detour.DT_OUT_OF_NODES) !== 0) {
+        throw new Error("NavMesh経路探索が設定済みのノード上限を超えました。");
+      }
+      if ((corridor.status & Detour.DT_BUFFER_TOO_SMALL) !== 0) {
+        throw new Error("NavMesh経路探索が設定済みの経路出力上限を超えました。");
       }
       if (
         !corridor.success ||
@@ -814,7 +817,10 @@ class RecastNavigationWorld implements NavigationWorld {
     const recastPosition = toRecastPosition(endpoint.position);
     const verticalRange = endpoint.position.y - this.navMeshMinimumY;
     if (verticalRange < -linkSurfaceEpsilon) {
-      throw new Error(`LNK_*端点の直下にNavMesh面がありません: ${pair.id}_${endpointName}`);
+      throw new Error(
+        `LNK_*端点の直下にNavMesh面がありません: ${pair.id}_${endpointName} ` +
+          `(endpointY=${endpoint.position.y}, navMeshMinimumY=${this.navMeshMinimumY})`
+      );
     }
     const polygonResult = this.query.queryPolygons(
       {
@@ -871,7 +877,10 @@ class RecastNavigationWorld implements NavigationWorld {
     );
     const nearest = candidates[0];
     if (!nearest) {
-      throw new Error(`LNK_*端点の直下にNavMesh面がありません: ${pair.id}_${endpointName}`);
+      throw new Error(
+        `LNK_*端点の直下にNavMesh面がありません: ${pair.id}_${endpointName} ` +
+          `(endpoint=${endpoint.position.toString()}, candidates=${polygonResult.polyRefs.length})`
+      );
     }
     return nearest.location;
   }
@@ -883,16 +892,10 @@ class RecastNavigationWorld implements NavigationWorld {
   }
 }
 
-export const createNavigationWorld = async (
-  navMeshData: Uint8Array,
+export const createNavigationWorldFromNavMesh = (
+  navMesh: NavMesh,
   links: readonly StageLinkPair[]
-): Promise<NavigationWorld> => {
-  if (navMeshData.byteLength === 0) {
-    throw new Error("NavMeshバイナリが空です。");
-  }
-
-  await initializeNavigationRuntime();
-  const { navMesh } = importNavMesh(navMeshData);
+): NavigationWorld => {
   let filter: QueryFilter | null = null;
   let query: NavMeshQuery | null = null;
   try {
@@ -918,4 +921,17 @@ export const createNavigationWorld = async (
     navMesh.destroy();
     throw error;
   }
+};
+
+export const createNavigationWorld = async (
+  navMeshData: Uint8Array,
+  links: readonly StageLinkPair[]
+): Promise<NavigationWorld> => {
+  if (navMeshData.byteLength === 0) {
+    throw new Error("NavMeshバイナリが空です。");
+  }
+
+  await initializeNavigationRuntime();
+  const { navMesh } = importNavMesh(navMeshData);
+  return createNavigationWorldFromNavMesh(navMesh, links);
 };

@@ -745,12 +745,13 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 NavMeshベイクの入力は、監査済みの同一GLBに含まれる各nav setと、`META_Stage`が指す対応version付きベイクプロファイルだけである。人間用linkとビット用遷移はNavMesh payloadへ焼き込まず、同じGLBからRuntimeが読み、対応グラフへ加える。
 
 - B03-3C以降の人間用プロファイルIDは`school-humanoid-room-variants-v2`、generatorは`tiled`とする。固定bounds、origin、cell size、tile size、最大tile数、最大polygon数を静的基盤と40 variantの全ベイクで共有し、subset geometryから再計算しない。
-- 静的common geometryは物理Y band境界で決定的にclipし、各fragmentを安定した巻き順とfan順でtriangulateして1 bandだけへ排他的に割り当てる。境界上の面はhalf-open規則で片側だけに含め、元triangleとfragment合計の面積一致、処理件数、極小面除外、再結合後のtile keyとpayloadの欠落・重複0件を監査する。各bandは固定global bounds／共通parameterのままベイクし、stable physical layer keyで再結合する。これにより同じ水平tileにある4階床と屋上など、非連続な高さのpolygonを同一payloadへ混在させない。
-- 静的`.navmesh.bin`は`room_variant_tile`所有keyをすべて除外する。variant bundleの各entryは、当該室の物理Y bandに属する静的`NAV_*`と当該室・当該variantの`NAV_*`を同じ固定global bounds／共通parameterでベイクしたDetour tile payloadである。variant生成tileが所有Volumeの物理Y band外へ出た場合は失敗とする。
+- 静的common geometryは全校舎を同じ固定global bounds／共通parameterで一括ベイクし、階段・屋上・プール斜路を物理Y band境界で切断しない。抽出時はDetour source layerを物理Y下限から求めるstable layer keyへ正規化し、tile keyの重複、固定容量超過、再結合失敗を監査する。
+- 静的`.navmesh.bin`は`room_variant_tile`所有keyをすべて除外する。variant bundleの各entryは、当該室の物理Y bandへ決定的にclipした静的`NAV_*`と当該室・当該variantの`NAV_*`を、静的基盤と同じ固定global bounds／共通parameterでベイクしたDetour tile payloadである。bundleへ格納するのは所有Volume内のtileだけとし、最終assemblyで静的基盤とのcross-owner edgeが双方向接続することを必須にする。
 - 部屋variant bundleは24-byte little-endian header、BOMなしminified UTF-8 JSON manifest、raw Detour tile payload連結で構成する。magicは`HSRVNAV\0`、format versionは`1`とし、headerへversion、header長、manifest byte長、payload byte長、entry件数を格納する。
 - manifestは`stageId`、`navProfileId`、`navMeshParams`、`entries`だけを持つ。`navMeshParams`は`origin`、`tileWidth`、`tileHeight`、`maxTiles`、`maxPolys`を持つ。各entryは`roomId`、`variantId`、`tileX`、`tileY`、`layer`、payload先頭相対の`offset`、`length`を持つ。
-- entryは`roomId`、`variantId`、`tileX`、`tileY`、`layer`の順に安定sortする。空payload、範囲外、隙間、重複、未参照payload、Detour tile headerとmanifest座標の不一致を失敗にする。同じ室の通常・荒れentryのunionをその室の所有keyとし、静的基盤と20室の所有keyは排他的である。任意のroom／variant切替で旧entryの全keyを除去して新entryを追加できることを監査する。
+- entryは`roomId`、`variantId`、`tileY`、`tileX`、`layer`の順に安定sortする。空payload、範囲外、隙間、重複、未参照payload、Detour tile headerとmanifest座標の不一致を失敗にする。同じ室の通常・荒れentryのunionをその室の所有keyとし、静的基盤と20室の所有keyは排他的である。任意のroom／variant切替で旧entryの全keyを除去して新entryを追加できることを監査する。
 - 40構成すべてで少なくとも1扉の室外点から家具上面を除いた室内中央ground polygonへの完結経路を必須とする。20室の`disordered`は床側probeから斜路低辺、斜路高辺までの2区間が両方完結しなければならない。room／static境界は両owner側から全cross-owner edgeを収集し、各edgeの逆向き接続と`normal`構成の期待portal集合に対する各variantの一致を検証する。
+- 全20室`normal`の最終assemblyで、北西・北東・南西階段の各隣接階、北西階段4階から屋上、屋上からプールサイド、プールサイドからプール底、屋上プール折れ斜路から2階渡り廊下までを双方向に検証する。両端投影、完結したpolygon corridor、`DT_STRAIGHTPATH_ALL_CROSSINGS`の終端一致、距離上限を作者側監査で必須にする。
 - `StageCatalogEntry.roomVariantNavmesh`は`{ mode: "unsupported" }`または`{ mode: "required"; url: string; sha256: string }`の判別可能unionとする。`unsupported`へURL・hashを持たせず、`required`だけがbundle URLと64桁SHA-256を必須とする。互換wrapper、欠落時fallback、Runtime再生成は追加しない。
 - `VIS_*`や`COL_*`を暗黙のベイク入力にしない。
 - GLBへRuntime管理親の`0.25`縮尺を適用したworld座標でベイクする。

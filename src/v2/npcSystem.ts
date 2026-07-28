@@ -12,6 +12,7 @@ import {
   NPC_SPRITE_WIDTH,
   createDefaultCharacterSpritesheet
 } from "../game/characterSprites";
+import { BLENDER_METERS_TO_WORLD_UNITS } from "../world/worldUnits";
 import {
   createNavigationAgent,
   type NavigationAgent,
@@ -46,6 +47,8 @@ import {
   createV2HumanTargetSpatialIndex,
   type V2HumanTargetSpatialIndex
 } from "./humanTargetSpatialIndex";
+import type { V2BeamCompletionEvent } from "./beamCollision";
+import type { V2PlayerGunFireEvent } from "./playerCombatSystem";
 
 const NPC_SEARCH_SPEED = 0.2;
 const NPC_CHASE_SPEED = 0.3;
@@ -88,12 +91,48 @@ export const V2_NPC_CAPTURE_BREAKAWAY_SECONDS = 2.5;
 export const V2_NPC_CAPTURE_BREAKAWAY_SPEED = 0.27;
 export const V2_NPC_MINIMUM_PATH_REPLANS_PER_UPDATE = 4;
 export const V2_NPC_PATH_REPLAN_DEADLINE_SECONDS = 0.5;
+export const V2_NPC_COMMAND_MAXIMUM_DISTANCE_METERS = 2;
+export const V2_NPC_FOLLOW_SPEED = NPC_CHASE_SPEED;
+export const V2_NPC_FOLLOW_SEPARATION_METERS = 0.8;
+export const V2_NPC_FOLLOW_STOP_DISTANCE_METERS = 1;
+export const V2_NPC_FOLLOW_RESUME_DISTANCE_METERS = 1.2;
+export const V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS = 2;
+export const V2_NPC_LEAVE_MAXIMUM_SECONDS = 5;
+export const V2_NPC_FOLLOWER_FIRE_DELAY_MIN_SECONDS = 0.3;
+export const V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS = 0.8;
+export const V2_NPC_FOLLOWER_FIRE_COOLDOWN_SECONDS = 1;
 
 const NPC_EVADE_DISTANCE =
   V2_NPC_CAPTURE_BREAKAWAY_SPEED *
   V2_NPC_CAPTURE_BREAKAWAY_SECONDS;
 
 const NPC_GUN_RANGE_SQUARED = V2_NPC_GUN_RANGE * V2_NPC_GUN_RANGE;
+const NPC_COMMAND_MAXIMUM_DISTANCE =
+  V2_NPC_COMMAND_MAXIMUM_DISTANCE_METERS *
+  BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_FOLLOW_SEPARATION_DISTANCE =
+  V2_NPC_FOLLOW_SEPARATION_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_FOLLOW_STOP_DISTANCE =
+  V2_NPC_FOLLOW_STOP_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_FOLLOW_RESUME_DISTANCE =
+  V2_NPC_FOLLOW_RESUME_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_FOLLOW_LAST_DIRECTION_DISTANCE =
+  1 * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_LEAVE_DESTINATION_DISTANCE =
+  3 * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_LEAVE_ARRIVAL_DISTANCE =
+  0.1 * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_COMMAND_DISTANCE_EPSILON = 1e-6;
+const NPC_LEAVE_DIRECTION_OFFSETS = Object.freeze([
+  0,
+  Math.PI / 6,
+  -Math.PI / 6,
+  Math.PI / 3,
+  -Math.PI / 3,
+  Math.PI / 2,
+  -Math.PI / 2,
+  Math.PI
+]);
 
 const NAVIGATION_AGENT_CONFIG = Object.freeze({
   projectionMaxDistance: NAVIGATION_PROJECTION_MAX_DISTANCE,
@@ -123,6 +162,34 @@ export type V2NpcTrackingSnapshot = Readonly<{
   provenance: V2TargetProvenance | null;
   alertLeaderId: string | null;
   alertRemainingSeconds: number;
+  commandMode: V2NpcCommandMode;
+  temporaryGunActive: boolean;
+  followerFirePhase: V2NpcFollowerFirePhase;
+}>;
+
+export type V2NpcCommandKind = "follow" | "leave";
+
+export type V2NpcCommandMode = "none" | "follow" | "leave";
+
+export type V2NpcFollowerFirePhase =
+  | "idle"
+  | "scheduled"
+  | "active"
+  | "cooldown";
+
+export type V2NpcCommandCandidate = Readonly<{
+  npcId: string;
+  aimPosition: Vector3;
+  distanceMeters: number;
+  aimAngleRadians: number;
+  commandMode: V2NpcCommandMode;
+}>;
+
+export type V2NpcCommandQuery = Readonly<{
+  playerTarget: V2HumanTargetSnapshot;
+  cameraPosition: Vector3;
+  cameraDirection: Vector3;
+  isInCameraFrustum(position: Vector3): boolean;
 }>;
 
 export type V2NpcCaptureSnapshot = Readonly<{
@@ -145,6 +212,11 @@ export type V2NpcExternalThreat = Readonly<{
 export type V2NpcBeamImpact = Readonly<{
   npcId: string;
   source: V2CharacterImpactSource;
+}>;
+
+export type V2NpcBeamSpawn = Readonly<{
+  sourceId: string;
+  beamId: string;
 }>;
 
 export type V2NpcStateChangeResult = Readonly<{
@@ -183,6 +255,22 @@ export interface V2NpcSystem {
     alarmTargetEvents: readonly V2AlarmTriggerEvent[]
   ): void;
   getFrameView(): V2NpcFrameView;
+  getCommandCandidates(
+    query: V2NpcCommandQuery
+  ): readonly V2NpcCommandCandidate[];
+  requestCommand(
+    npcId: string,
+    kind: V2NpcCommandKind,
+    query: V2NpcCommandQuery
+  ): boolean;
+  cancelFollow(npcId: string): boolean;
+  clearCommands(): void;
+  notifyPlayerGunFire(event: V2PlayerGunFireEvent): void;
+  notifyBeamsSpawned(spawns: readonly V2NpcBeamSpawn[]): void;
+  notifyBeamCompletions(
+    completions: readonly V2BeamCompletionEvent[]
+  ): void;
+  notifyPlayerImpactAccepted(): void;
   applyBeamImpacts(
     impacts: readonly V2NpcBeamImpact[]
   ): readonly V2NpcStateChangeResult[];
@@ -215,6 +303,23 @@ type NpcCapture = {
 
 type NpcGunVisualPursuitMode = "live" | "last-seen";
 
+type NpcCommandRuntime = {
+  mode: V2NpcCommandMode;
+  temporaryGunActive: boolean;
+  followLostSightSeconds: number;
+  followLastSeenFootPosition: Vector3 | null;
+  readonly followLastSeenDirection: Vector3;
+  followMovementStopped: boolean;
+  leaveDestination: NavigationLocation | null;
+  leaveElapsedSeconds: number;
+  followerFirePhase: V2NpcFollowerFirePhase;
+  followerFireRemainingSeconds: number;
+  followerFireDirection: Vector3 | null;
+  followerBeamId: string | null;
+  followerBeamRequestQueued: boolean;
+  followerFireRandomState: number;
+};
+
 type NpcRuntime = {
   readonly id: string;
   readonly sprite: Sprite;
@@ -240,6 +345,7 @@ type NpcRuntime = {
   capture: NpcCapture | null;
   breakawayRemainingSeconds: number;
   breakawayDestination: NavigationLocation | null;
+  readonly command: NpcCommandRuntime;
 };
 
 type ResolvedPlacement = Readonly<{
@@ -247,6 +353,11 @@ type ResolvedPlacement = Readonly<{
   navigationLocation: NavigationLocation;
   footPosition: Vector3;
   formation: boolean;
+}>;
+
+type NpcFollowerPosition = Readonly<{
+  id: string;
+  footPosition: Vector3;
 }>;
 
 type MutableNpcTargetSnapshot = {
@@ -406,14 +517,49 @@ const createNpcTargetSnapshot = (
 ): V2HumanTargetSnapshot =>
   freezeNpcTargetSnapshot(createMutableNpcTargetSnapshot(npc));
 
-const getSpriteCellIndex = (state: V2CharacterState) => {
+const isCompletedCommandState = (state: V2CharacterState) =>
+  state === "brainwash-complete-gun" ||
+  state === "brainwash-complete-no-gun" ||
+  state === "brainwash-complete-haigure";
+
+const isPlayerCommandState = (state: V2CharacterState) =>
+  isV2AliveState(state) || isCompletedCommandState(state);
+
+const isNpcCommandStateForPlayer = (
+  npcState: V2CharacterState,
+  playerState: V2CharacterState
+) =>
+  isV2AliveState(playerState)
+    ? isV2AliveState(npcState)
+    : isCompletedCommandState(playerState) &&
+      isCompletedCommandState(npcState);
+
+const getSpriteCellIndex = (
+  state: V2CharacterState,
+  temporaryGunActive: boolean
+) => {
   if (state === "hit-a") {
     return 1;
   }
   if (state === "hit-b") {
     return 2;
   }
-  return isV2BrainwashState(state) ? 3 : 0;
+  if (
+    state === "brainwash-complete-gun" ||
+    temporaryGunActive
+  ) {
+    return 3;
+  }
+  if (state === "brainwash-complete-no-gun") {
+    return 4;
+  }
+  if (
+    state === "brainwash-complete-haigure" ||
+    state === "brainwash-complete-haigure-formation"
+  ) {
+    return 5;
+  }
+  return isV2BrainwashState(state) ? 2 : 0;
 };
 
 const isStoppedState = (state: V2CharacterState) =>
@@ -421,6 +567,42 @@ const isStoppedState = (state: V2CharacterState) =>
   state === "brainwash-in-progress" ||
   state === "brainwash-complete-haigure" ||
   state === "brainwash-complete-haigure-formation";
+
+const createFollowerFireRandomState = (
+  npcId: string,
+  sessionEntropy: number
+) => {
+  let state = 0x811c9dc5;
+  const domain = `${npcId}:follower-fire:${sessionEntropy.toPrecision(17)}`;
+  for (let index = 0; index < domain.length; index += 1) {
+    state ^= domain.charCodeAt(index);
+    state = Math.imul(state, 0x01000193);
+  }
+  return state >>> 0;
+};
+
+const createNpcCommandRuntime = (
+  npcId: string,
+  sessionEntropy: number
+): NpcCommandRuntime => ({
+  mode: "none",
+  temporaryGunActive: false,
+  followLostSightSeconds: 0,
+  followLastSeenFootPosition: null,
+  followLastSeenDirection: Vector3.Zero(),
+  followMovementStopped: false,
+  leaveDestination: null,
+  leaveElapsedSeconds: 0,
+  followerFirePhase: "idle",
+  followerFireRemainingSeconds: 0,
+  followerFireDirection: null,
+  followerBeamId: null,
+  followerBeamRequestQueued: false,
+  followerFireRandomState: createFollowerFireRandomState(
+    npcId,
+    sessionEntropy
+  )
+});
 
 class SchoolV2NpcSystem implements V2NpcSystem {
   private readonly stage: StageSpatialContext;
@@ -441,6 +623,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private externalThreats: readonly V2NpcExternalThreat[] =
     Object.freeze([]);
   private playerBlockedTargetIds: readonly string[] = Object.freeze([]);
+  private previousPlayerFootPosition: Vector3 | null = null;
+  private readonly playerHorizontalDirection = Vector3.Zero();
   private aiSuspended = false;
   private disposed = false;
 
@@ -524,7 +708,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         sprite.width = NPC_SPRITE_WIDTH;
         sprite.height = NPC_SPRITE_HEIGHT;
         sprite.isPickable = false;
-        sprite.cellIndex = getSpriteCellIndex(initialState);
+        sprite.cellIndex = getSpriteCellIndex(initialState, false);
         sprite.color.a = 1;
         const footPosition = this.resolveFootPosition(spawnPoint.position);
         sprite.position.copyFrom(toAimPosition(footPosition));
@@ -562,7 +746,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
               : 0,
           capture: null,
           breakawayRemainingSeconds: 0,
-          breakawayDestination: null
+          breakawayDestination: null,
+          command: createNpcCommandRuntime(id, angle)
         });
       }
       this.npcs = Object.freeze(npcs);
@@ -588,13 +773,39 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (playerTarget.kind !== "player") {
       throw new Error("NPC更新へ渡す外部標的はplayerである必要があります。");
     }
+    if (this.previousPlayerFootPosition) {
+      const playerDisplacement = playerTarget.footPosition.subtract(
+        this.previousPlayerFootPosition
+      );
+      playerDisplacement.y = 0;
+      if (playerDisplacement.lengthSquared() > 0) {
+        this.playerHorizontalDirection.copyFrom(
+          playerDisplacement.normalize()
+        );
+      }
+    }
+    this.previousPlayerFootPosition = playerTarget.footPosition.clone();
+    for (const npc of this.npcs) {
+      if (
+        npc.command.mode !== "none" &&
+        isV2BrainwashState(npc.stateSnapshot.state) !==
+          isV2BrainwashState(playerTarget.state)
+      ) {
+        this.clearNpcCommand(npc, true);
+      }
+    }
     this.applyAlarmTargetEvents(alarmTargetEvents);
     this.pathRecalculationCount = 0;
     this.waitingForPathCount = 0;
 
     for (const npc of this.npcs) {
       const previousState = npc.lastState;
-      npc.stateSnapshot = npc.stateSystem.update(deltaSeconds);
+      const stateDeltaSeconds =
+        npc.command.mode !== "none" &&
+        npc.stateSnapshot.state === "brainwash-complete-haigure"
+          ? 0
+          : deltaSeconds;
+      npc.stateSnapshot = npc.stateSystem.update(stateDeltaSeconds);
       const currentState = npc.stateSnapshot.state;
       this.synchronizeStateMode(npc, previousState, currentState);
       npc.lastState = currentState;
@@ -641,6 +852,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       if (!target.alive) {
         continue;
       }
+      const targetNpc = this.npcsById.get(target.id);
+      if (targetNpc?.command.mode !== "none") {
+        continue;
+      }
       threatenedIds.add(target.id);
       threatSourcesByTargetId.set(
         target.id,
@@ -682,10 +897,20 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       NPC_VISION_RANGE
     );
     this.prepareReplanPermissions(deltaSeconds);
+    const commandNpcIds = this.updateCommands(
+      deltaSeconds,
+      playerFrameTarget
+    );
     for (let npcIndex = 0; npcIndex < this.npcs.length; npcIndex += 1) {
       const npc = this.npcs[npcIndex];
       if (!npc.sprite.isVisible) {
         npc.navigationAgent.clear();
+        continue;
+      }
+      if (
+        commandNpcIds.has(npc.id) ||
+        npc.command.mode !== "none"
+      ) {
         continue;
       }
       const state = npc.stateSnapshot.state;
@@ -754,6 +979,12 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       if (!npc.sprite.isVisible) {
         continue;
       }
+      if (
+        commandNpcIds.has(npc.id) ||
+        npc.command.mode !== "none"
+      ) {
+        continue;
+      }
       const state = npc.stateSnapshot.state;
       if (!isV2AliveState(state)) {
         continue;
@@ -797,6 +1028,263 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   getFrameView() {
     this.assertActive();
     return this.frameView;
+  }
+
+  getCommandCandidates(query: V2NpcCommandQuery) {
+    this.assertActive();
+    assertTargetSnapshot("NPC指示プレイヤー", query.playerTarget);
+    if (query.playerTarget.kind !== "player") {
+      throw new Error("NPC指示元はplayerである必要があります。");
+    }
+    assertFiniteVector("NPC指示camera位置", query.cameraPosition);
+    assertFiniteVector("NPC指示camera方向", query.cameraDirection);
+    if (query.cameraDirection.lengthSquared() === 0) {
+      throw new Error("NPC指示camera方向をゼロベクトルにできません。");
+    }
+    if (!isPlayerCommandState(query.playerTarget.state)) {
+      return Object.freeze([]);
+    }
+
+    const cameraDirection = query.cameraDirection.clone().normalize();
+    const candidates: V2NpcCommandCandidate[] = [];
+    for (const npc of this.npcs) {
+      if (
+        !npc.sprite.isVisible ||
+        !isNpcCommandStateForPlayer(
+          npc.stateSnapshot.state,
+          query.playerTarget.state
+        )
+      ) {
+        continue;
+      }
+      const distance = Vector3.Distance(
+        query.playerTarget.footPosition,
+        npc.footPosition
+      );
+      if (
+        distance >
+        NPC_COMMAND_MAXIMUM_DISTANCE + NPC_COMMAND_DISTANCE_EPSILON
+      ) {
+        continue;
+      }
+      const aimPosition = toAimPosition(npc.footPosition);
+      if (!query.isInCameraFrustum(aimPosition)) {
+        continue;
+      }
+      if (
+        this.stage.queries.castSightSegment(
+          query.playerTarget.aimPosition,
+          aimPosition
+        ) !== null
+      ) {
+        continue;
+      }
+      const cameraToAim = aimPosition.subtract(query.cameraPosition);
+      const aimAngleRadians =
+        cameraToAim.lengthSquared() === 0
+          ? 0
+          : Math.acos(
+              Math.max(
+                -1,
+                Math.min(
+                  1,
+                  Vector3.Dot(
+                    cameraDirection,
+                    cameraToAim.normalize()
+                  )
+                )
+              )
+            );
+      candidates.push(
+        Object.freeze({
+          npcId: npc.id,
+          aimPosition,
+          distanceMeters: distance / BLENDER_METERS_TO_WORLD_UNITS,
+          aimAngleRadians,
+          commandMode: npc.command.mode
+        })
+      );
+    }
+    candidates.sort(
+      (left, right) =>
+        left.aimAngleRadians - right.aimAngleRadians ||
+        left.distanceMeters - right.distanceMeters ||
+        (left.npcId < right.npcId
+          ? -1
+          : left.npcId > right.npcId
+            ? 1
+            : 0)
+    );
+    return Object.freeze(candidates);
+  }
+
+  requestCommand(
+    npcId: string,
+    kind: V2NpcCommandKind,
+    query: V2NpcCommandQuery
+  ) {
+    this.assertActive();
+    const npc = this.requireNpc(npcId);
+    if (kind !== "follow" && kind !== "leave") {
+      throw new Error(`未登録のNPC指示種別です: ${kind}`);
+    }
+    const candidate = this.getCommandCandidates(query).find(
+      (entry) => entry.npcId === npc.id
+    );
+    if (!candidate) {
+      return false;
+    }
+    if (kind === "follow") {
+      this.startFollow(npc, query.playerTarget);
+    } else {
+      const destination = this.createLeaveDestination(
+        npc,
+        query.playerTarget
+      );
+      if (!destination) {
+        return false;
+      }
+      this.startLeave(npc, destination);
+    }
+    this.synchronizeSpriteVisual(npc);
+    this.rebuildFrameViewPreservingThreats();
+    return true;
+  }
+
+  cancelFollow(npcId: string) {
+    this.assertActive();
+    const npc = this.requireNpc(npcId);
+    if (npc.command.mode !== "follow") {
+      return false;
+    }
+    this.clearNpcCommand(npc, true);
+    this.synchronizeSpriteVisual(npc);
+    this.rebuildFrameViewPreservingThreats();
+    return true;
+  }
+
+  clearCommands() {
+    this.assertActive();
+    for (const npc of this.npcs) {
+      this.clearNpcCommand(npc, false);
+      this.clearAutonomousState(npc);
+      this.synchronizeSpriteVisual(npc);
+    }
+    this.previousPlayerFootPosition = null;
+    this.playerHorizontalDirection.setAll(0);
+    this.rebuildFrameViewPreservingThreats();
+  }
+
+  notifyPlayerGunFire(event: V2PlayerGunFireEvent) {
+    this.assertActive();
+    assertFiniteVector("Follower同期射撃方向", event.direction);
+    if (
+      event.direction.lengthSquared() === 0 ||
+      event.beamRequest.originKind !== "player-gun"
+    ) {
+      throw new Error(
+        "Follower同期射撃には成立済みplayer-gun eventが必要です。"
+      );
+    }
+    let changed = false;
+    for (const npc of this.npcs) {
+      if (
+        npc.command.mode !== "follow" ||
+        npc.command.followerFirePhase !== "idle" ||
+        !isCompletedCommandState(npc.stateSnapshot.state)
+      ) {
+        continue;
+      }
+      npc.command.followerFirePhase = "scheduled";
+      npc.command.followerFireRemainingSeconds =
+        V2_NPC_FOLLOWER_FIRE_DELAY_MIN_SECONDS +
+        this.nextFollowerFireRandom(npc) *
+          (V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS -
+            V2_NPC_FOLLOWER_FIRE_DELAY_MIN_SECONDS);
+      npc.command.followerFireDirection =
+        event.direction.clone().normalize();
+      npc.command.followerBeamId = null;
+      npc.command.followerBeamRequestQueued = false;
+      changed = true;
+    }
+    if (changed) {
+      this.rebuildFrameViewPreservingThreats();
+    }
+  }
+
+  notifyBeamsSpawned(spawns: readonly V2NpcBeamSpawn[]) {
+    this.assertActive();
+    let changed = false;
+    for (const spawn of spawns) {
+      if (spawn.beamId.length === 0) {
+        throw new Error("Follower beam IDを空にできません。");
+      }
+      const npc = this.requireNpc(spawn.sourceId);
+      if (
+        npc.command.followerFirePhase !== "scheduled" ||
+        !npc.command.followerBeamRequestQueued
+      ) {
+        continue;
+      }
+      npc.command.followerFirePhase = "active";
+      npc.command.followerFireRemainingSeconds = 0;
+      npc.command.followerFireDirection = null;
+      npc.command.followerBeamId = spawn.beamId;
+      npc.command.followerBeamRequestQueued = false;
+      changed = true;
+    }
+    if (changed) {
+      this.rebuildFrameViewPreservingThreats();
+    }
+  }
+
+  notifyBeamCompletions(
+    completions: readonly V2BeamCompletionEvent[]
+  ) {
+    this.assertActive();
+    let changed = false;
+    for (const completion of completions) {
+      const npc = this.npcsById.get(completion.sourceId);
+      if (
+        !npc ||
+        npc.command.followerFirePhase !== "active" ||
+        npc.command.followerBeamId !== completion.beamId
+      ) {
+        continue;
+      }
+      if (npc.command.mode === "follow") {
+        npc.command.followerFirePhase = "cooldown";
+        npc.command.followerFireRemainingSeconds =
+          V2_NPC_FOLLOWER_FIRE_COOLDOWN_SECONDS +
+          completion.frameElapsedSeconds;
+      } else {
+        this.clearFollowerFireState(npc);
+      }
+      npc.command.followerBeamId = null;
+      changed = true;
+    }
+    if (changed) {
+      this.rebuildFrameViewPreservingThreats();
+    }
+  }
+
+  notifyPlayerImpactAccepted() {
+    this.assertActive();
+    let changed = false;
+    for (const npc of this.npcs) {
+      if (
+        npc.command.mode !== "follow" ||
+        !isV2AliveState(npc.stateSnapshot.state)
+      ) {
+        continue;
+      }
+      this.clearNpcCommand(npc, true);
+      this.synchronizeSpriteVisual(npc);
+      changed = true;
+    }
+    if (changed) {
+      this.rebuildFrameViewPreservingThreats();
+    }
   }
 
   applyBeamImpacts(impacts: readonly V2NpcBeamImpact[]) {
@@ -933,6 +1421,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       const state = npc.stateSnapshot.state;
       if (
         !npc.sprite.isVisible ||
+        npc.command.mode !== "none" ||
         (state !== "brainwash-complete-gun" &&
           state !== "brainwash-complete-no-gun")
       ) {
@@ -1022,13 +1511,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       const visible = visibleNpcIds.has(npc.id);
       npc.sprite.isVisible = visible;
       if (!visible) {
-        npc.navigationAgent.clear();
-        npc.wanderDestination = null;
-        npc.alarmTargetQueue.length = 0;
-        npc.capture = null;
-        npc.breakawayRemainingSeconds = 0;
-        npc.breakawayDestination = null;
-        this.clearTarget(npc);
+        this.clearNpcCommand(npc, false);
+        this.clearAutonomousState(npc);
       }
       this.synchronizeSpriteVisual(npc);
     }
@@ -1062,7 +1546,16 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
     this.aiSuspended = suspended;
     for (const npc of this.npcs) {
+      if (suspended) {
+        this.clearNpcCommand(npc, false);
+        this.clearAutonomousState(npc);
+      }
       npc.navigationAgent.clear();
+    }
+    if (suspended) {
+      this.previousPlayerFootPosition = null;
+      this.playerHorizontalDirection.setAll(0);
+      this.rebuildFrameViewPreservingThreats();
     }
   }
 
@@ -1122,6 +1615,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
     for (const placement of resolvedPlacements) {
       const npc = placement.npc;
+      this.clearNpcCommand(npc, false);
       npc.navigationAgent.clear();
       npc.navigationLocation = placement.navigationLocation;
       npc.footPosition = placement.footPosition;
@@ -1131,6 +1625,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.capture = null;
       npc.breakawayRemainingSeconds = 0;
       npc.breakawayDestination = null;
+      this.removePendingRequestsForNpc(npc.id);
       this.clearTarget(npc);
       if (placement.formation) {
         npc.stateSystem.enterFormationState();
@@ -1145,14 +1640,18 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
   dispose() {
     this.assertActive();
-    this.disposed = true;
     this.pendingAlertRequests.length = 0;
     this.pendingBeamRequests.length = 0;
     for (const npc of this.npcs) {
+      this.clearNpcCommand(npc, false);
+      this.clearAutonomousState(npc);
       npc.navigationAgent.clear();
       npc.sprite.dispose();
     }
+    this.previousPlayerFootPosition = null;
+    this.playerHorizontalDirection.setAll(0);
     this.spriteManager.dispose();
+    this.disposed = true;
   }
 
   private prepareReplanPermissions(deltaSeconds: number): void {
@@ -1201,6 +1700,477 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (movement.state === "waiting-for-path") {
       this.waitingForPathCount += 1;
     }
+  }
+
+  private startFollow(
+    npc: NpcRuntime,
+    playerTarget: V2HumanTargetSnapshot
+  ) {
+    this.clearNpcCommand(npc, true);
+    this.clearAutonomousState(npc);
+    npc.command.mode = "follow";
+    npc.command.temporaryGunActive =
+      npc.stateSnapshot.state === "brainwash-complete-no-gun" ||
+      npc.stateSnapshot.state === "brainwash-complete-haigure";
+    npc.command.followLostSightSeconds = 0;
+    npc.command.followLastSeenFootPosition =
+      playerTarget.footPosition.clone();
+    if (this.playerHorizontalDirection.lengthSquared() > 0) {
+      npc.command.followLastSeenDirection.copyFrom(
+        this.playerHorizontalDirection
+      );
+    }
+    npc.command.followMovementStopped =
+      Vector3.Distance(npc.footPosition, playerTarget.footPosition) <=
+      NPC_FOLLOW_STOP_DISTANCE;
+    this.synchronizeSpriteVisual(npc);
+  }
+
+  private startLeave(
+    npc: NpcRuntime,
+    destination: NavigationLocation
+  ) {
+    this.clearNpcCommand(npc, true);
+    this.clearAutonomousState(npc);
+    npc.command.mode = "leave";
+    npc.command.leaveDestination = cloneNavigationLocation(destination);
+    npc.command.leaveElapsedSeconds = 0;
+    this.synchronizeSpriteVisual(npc);
+  }
+
+  private createLeaveDestination(
+    npc: NpcRuntime,
+    playerTarget: V2HumanTargetSnapshot
+  ) {
+    const away = npc.footPosition.subtract(playerTarget.footPosition);
+    away.y = 0;
+    if (away.lengthSquared() === 0) {
+      away.copyFrom(npc.forward);
+      away.y = 0;
+    }
+    away.normalize();
+    const currentDistanceSquared = Vector3.DistanceSquared(
+      npc.footPosition,
+      playerTarget.footPosition
+    );
+    let selected:
+      | Readonly<{
+          location: NavigationLocation;
+          distanceSquared: number;
+          sourceOrder: number;
+        }>
+      | null = null;
+    for (
+      let sourceOrder = 0;
+      sourceOrder < NPC_LEAVE_DIRECTION_OFFSETS.length;
+      sourceOrder += 1
+    ) {
+      const angle = NPC_LEAVE_DIRECTION_OFFSETS[sourceOrder];
+      const direction = new Vector3(
+        away.x * Math.cos(angle) - away.z * Math.sin(angle),
+        0,
+        away.x * Math.sin(angle) + away.z * Math.cos(angle)
+      );
+      const candidate = npc.navigationLocation.position.add(
+        direction.scale(NPC_LEAVE_DESTINATION_DISTANCE)
+      );
+      const projected = this.stage.navigation.projectPoint(
+        candidate,
+        NAVIGATION_PROJECTION_MAX_DISTANCE
+      );
+      if (
+        !projected ||
+        this.stage.navigation.findPath(
+          npc.navigationLocation,
+          projected,
+          "npc"
+        ) === null
+      ) {
+        continue;
+      }
+      const distanceSquared = Vector3.DistanceSquared(
+        projected.position,
+        playerTarget.footPosition
+      );
+      if (
+        distanceSquared <=
+        currentDistanceSquared + NPC_COMMAND_DISTANCE_EPSILON
+      ) {
+        continue;
+      }
+      if (
+        !selected ||
+        distanceSquared >
+          selected.distanceSquared + NPC_COMMAND_DISTANCE_EPSILON ||
+        (Math.abs(distanceSquared - selected.distanceSquared) <=
+          NPC_COMMAND_DISTANCE_EPSILON &&
+          sourceOrder < selected.sourceOrder)
+      ) {
+        selected = Object.freeze({
+          location: cloneNavigationLocation(projected),
+          distanceSquared,
+          sourceOrder
+        });
+      }
+    }
+    return selected?.location ?? null;
+  }
+
+  private clearAutonomousState(npc: NpcRuntime) {
+    npc.alarmTargetQueue.length = 0;
+    npc.capture = null;
+    npc.breakawayRemainingSeconds = 0;
+    npc.breakawayDestination = null;
+    npc.wanderDestination = null;
+    this.removePendingRequestsForNpc(npc.id);
+    this.clearTarget(npc);
+    this.releaseCapturesForTarget(npc.id);
+  }
+
+  private removePendingRequestsForNpc(npcId: string) {
+    for (
+      let index = this.pendingAlertRequests.length - 1;
+      index >= 0;
+      index -= 1
+    ) {
+      if (this.pendingAlertRequests[index].leaderId === npcId) {
+        this.pendingAlertRequests.splice(index, 1);
+      }
+    }
+    for (
+      let index = this.pendingBeamRequests.length - 1;
+      index >= 0;
+      index -= 1
+    ) {
+      if (this.pendingBeamRequests[index].sourceId === npcId) {
+        this.pendingBeamRequests.splice(index, 1);
+      }
+    }
+  }
+
+  private clearFollowerFireState(npc: NpcRuntime) {
+    if (
+      npc.command.followerFirePhase === "scheduled" &&
+      npc.command.followerBeamRequestQueued
+    ) {
+      this.removePendingRequestsForNpc(npc.id);
+    }
+    npc.command.followerFirePhase = "idle";
+    npc.command.followerFireRemainingSeconds = 0;
+    npc.command.followerFireDirection = null;
+    npc.command.followerBeamId = null;
+    npc.command.followerBeamRequestQueued = false;
+  }
+
+  private clearNpcCommand(
+    npc: NpcRuntime,
+    preserveActiveFollowerBeam: boolean
+  ) {
+    const retainActiveFollowerBeam =
+      preserveActiveFollowerBeam &&
+      npc.command.followerFirePhase === "active";
+    npc.command.mode = "none";
+    npc.command.temporaryGunActive = false;
+    npc.command.followLostSightSeconds = 0;
+    npc.command.followLastSeenFootPosition = null;
+    npc.command.followLastSeenDirection.setAll(0);
+    npc.command.followMovementStopped = false;
+    npc.command.leaveDestination = null;
+    npc.command.leaveElapsedSeconds = 0;
+    if (!retainActiveFollowerBeam) {
+      this.clearFollowerFireState(npc);
+    }
+    npc.navigationAgent.clear();
+    npc.wanderDestination = null;
+    this.synchronizeSpriteVisual(npc);
+  }
+
+  private updateCommands(
+    deltaSeconds: number,
+    playerTarget: V2HumanTargetSnapshot
+  ) {
+    const processedNpcIds = new Set<string>();
+    for (const npc of this.npcs) {
+      if (npc.command.mode === "none") {
+        continue;
+      }
+      processedNpcIds.add(npc.id);
+      if (
+        !npc.sprite.isVisible ||
+        isV2BrainwashState(npc.stateSnapshot.state) !==
+          isV2BrainwashState(playerTarget.state)
+      ) {
+        this.clearNpcCommand(npc, true);
+      }
+    }
+
+    for (const npc of this.npcs) {
+      if (npc.command.mode !== "follow") {
+        continue;
+      }
+      const sightClear =
+        this.stage.queries.castSightSegment(
+          toAimPosition(npc.footPosition),
+          playerTarget.aimPosition
+        ) === null;
+      if (sightClear) {
+        npc.command.followLostSightSeconds = 0;
+        npc.command.followLastSeenFootPosition =
+          playerTarget.footPosition.clone();
+        if (this.playerHorizontalDirection.lengthSquared() > 0) {
+          npc.command.followLastSeenDirection.copyFrom(
+            this.playerHorizontalDirection
+          );
+        }
+        const playerDistance = Vector3.Distance(
+          npc.footPosition,
+          playerTarget.footPosition
+        );
+        if (npc.command.followMovementStopped) {
+          if (playerDistance > NPC_FOLLOW_RESUME_DISTANCE) {
+            npc.command.followMovementStopped = false;
+          }
+        } else if (playerDistance <= NPC_FOLLOW_STOP_DISTANCE) {
+          npc.command.followMovementStopped = true;
+        }
+      } else {
+        npc.command.followLostSightSeconds += deltaSeconds;
+        npc.command.followMovementStopped = false;
+        if (
+          npc.command.followLostSightSeconds >=
+          V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS
+        ) {
+          this.clearNpcCommand(npc, true);
+        }
+      }
+    }
+
+    const followers = Object.freeze(
+      this.npcs
+        .filter((npc) => npc.command.mode === "follow")
+        .map((npc) =>
+          Object.freeze({
+            id: npc.id,
+            footPosition: npc.footPosition.clone()
+          })
+        )
+    );
+    for (let npcIndex = 0; npcIndex < this.npcs.length; npcIndex += 1) {
+      const npc = this.npcs[npcIndex];
+      if (npc.command.mode === "follow") {
+        this.updateFollowMovement(
+          npc,
+          followers,
+          playerTarget,
+          deltaSeconds,
+          this.hasReplanPermission(npcIndex)
+        );
+        this.updateFollowerFire(npc, deltaSeconds);
+      } else if (npc.command.mode === "leave") {
+        this.updateLeaveMovement(
+          npc,
+          deltaSeconds,
+          this.hasReplanPermission(npcIndex)
+        );
+      }
+    }
+    return processedNpcIds;
+  }
+
+  private updateFollowMovement(
+    npc: NpcRuntime,
+    followers: readonly NpcFollowerPosition[],
+    playerTarget: V2HumanTargetSnapshot,
+    deltaSeconds: number,
+    allowPathRecalculation: boolean
+  ) {
+    const separation = this.getFollowerSeparation(npc, followers);
+    let destination: Vector3 | null = null;
+    if (separation.lengthSquared() > 0) {
+      destination = npc.navigationLocation.position.add(
+        separation
+          .normalize()
+          .scale(NPC_FOLLOW_SEPARATION_DISTANCE)
+      );
+    } else if (!npc.command.followMovementStopped) {
+      const lastSeen = npc.command.followLastSeenFootPosition;
+      if (lastSeen) {
+        destination = lastSeen.clone();
+        if (npc.command.followLostSightSeconds > 0) {
+          destination.addInPlace(
+            npc.command.followLastSeenDirection.scale(
+              NPC_FOLLOW_LAST_DIRECTION_DISTANCE
+            )
+          );
+        }
+      }
+    }
+    if (!destination) {
+      npc.navigationAgent.clear();
+      return;
+    }
+    const movement = npc.navigationAgent.update(
+      npc.navigationLocation,
+      destination,
+      V2_NPC_FOLLOW_SPEED,
+      deltaSeconds,
+      allowPathRecalculation
+    );
+    this.recordNavigationStep(movement);
+    if (movement.state === "waiting-for-path") {
+      return;
+    }
+    this.applyNavigationMovement(npc, movement.location);
+    if (
+      npc.command.followLostSightSeconds === 0 &&
+      Vector3.Distance(npc.footPosition, playerTarget.footPosition) <=
+        NPC_FOLLOW_STOP_DISTANCE
+    ) {
+      npc.command.followMovementStopped = true;
+      npc.navigationAgent.clear();
+    }
+  }
+
+  private getFollowerSeparation(
+    npc: NpcRuntime,
+    followers: readonly NpcFollowerPosition[]
+  ) {
+    const separation = Vector3.Zero();
+    for (const other of followers) {
+      if (other.id === npc.id) {
+        continue;
+      }
+      const offset = npc.footPosition.subtract(other.footPosition);
+      offset.y = 0;
+      const distance = offset.length();
+      if (distance >= NPC_FOLLOW_SEPARATION_DISTANCE) {
+        continue;
+      }
+      if (distance === 0) {
+        const pairId =
+          npc.id < other.id
+            ? `${npc.id}:${other.id}`
+            : `${other.id}:${npc.id}`;
+        const pairState = createFollowerFireRandomState(pairId, 0);
+        const angle =
+          (pairState / 0x1_0000_0000) * Math.PI * 2;
+        offset.set(Math.cos(angle), 0, Math.sin(angle));
+        if (npc.id > other.id) {
+          offset.scaleInPlace(-1);
+        }
+      } else {
+        offset.scaleInPlace(1 / distance);
+      }
+      separation.addInPlace(
+        offset.scale(
+          NPC_FOLLOW_SEPARATION_DISTANCE - distance
+        )
+      );
+    }
+    return separation;
+  }
+
+  private updateLeaveMovement(
+    npc: NpcRuntime,
+    deltaSeconds: number,
+    allowPathRecalculation: boolean
+  ) {
+    const movementSeconds = Math.min(
+      deltaSeconds,
+      V2_NPC_LEAVE_MAXIMUM_SECONDS -
+        npc.command.leaveElapsedSeconds
+    );
+    npc.command.leaveElapsedSeconds += movementSeconds;
+    const destination = npc.command.leaveDestination!;
+    const movement = npc.navigationAgent.update(
+      npc.navigationLocation,
+      destination.position,
+      V2_NPC_FOLLOW_SPEED,
+      movementSeconds,
+      allowPathRecalculation
+    );
+    this.recordNavigationStep(movement);
+    if (movement.state === "waiting-for-path") {
+      if (
+        npc.command.leaveElapsedSeconds >=
+        V2_NPC_LEAVE_MAXIMUM_SECONDS
+      ) {
+        this.clearNpcCommand(npc, true);
+      }
+      return;
+    }
+    this.applyNavigationMovement(npc, movement.location);
+    if (
+      movement.state === "arrived" ||
+      Vector3.Distance(
+        npc.navigationLocation.position,
+        destination.position
+      ) <= NPC_LEAVE_ARRIVAL_DISTANCE
+    ) {
+      this.clearNpcCommand(npc, true);
+      return;
+    }
+    if (
+      npc.command.leaveElapsedSeconds >=
+      V2_NPC_LEAVE_MAXIMUM_SECONDS
+    ) {
+      this.clearNpcCommand(npc, true);
+    }
+  }
+
+  private updateFollowerFire(
+    npc: NpcRuntime,
+    deltaSeconds: number
+  ) {
+    if (npc.command.followerFirePhase === "cooldown") {
+      npc.command.followerFireRemainingSeconds = Math.max(
+        0,
+        npc.command.followerFireRemainingSeconds - deltaSeconds
+      );
+      if (npc.command.followerFireRemainingSeconds === 0) {
+        this.clearFollowerFireState(npc);
+      }
+      return;
+    }
+    if (
+      npc.command.followerFirePhase !== "scheduled" ||
+      npc.command.followerBeamRequestQueued
+    ) {
+      return;
+    }
+    npc.command.followerFireRemainingSeconds = Math.max(
+      0,
+      npc.command.followerFireRemainingSeconds - deltaSeconds
+    );
+    if (npc.command.followerFireRemainingSeconds > 0) {
+      return;
+    }
+    this.pendingBeamRequests.push(
+      Object.freeze({
+        sourceId: npc.id,
+        originKind: "npc-gun" as const,
+        targetPolicy: ALIVE_HUMANS_TARGET_POLICY,
+        origin: toAimPosition(npc.footPosition),
+        direction: npc.command.followerFireDirection!.clone(),
+        speed: V2_NPC_GUN_BEAM_SPEED,
+        maximumLifetime: V2_NPC_GUN_BEAM_MAXIMUM_LIFETIME_SECONDS
+      })
+    );
+    npc.command.followerBeamRequestQueued = true;
+  }
+
+  private nextFollowerFireRandom(npc: NpcRuntime) {
+    npc.command.followerFireRandomState =
+      (Math.imul(
+        npc.command.followerFireRandomState,
+        1_664_525
+      ) +
+        1_013_904_223) >>>
+      0;
+    return (
+      npc.command.followerFireRandomState /
+      0x1_0000_0000
+    );
   }
 
   private synchronizeStateMode(
@@ -1959,6 +2929,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   }
 
   private finishScriptedStateChange(npc: NpcRuntime) {
+    this.clearNpcCommand(npc, false);
+    this.removePendingRequestsForNpc(npc.id);
     npc.stateSnapshot = npc.stateSystem.getSnapshot();
     npc.lastState = npc.stateSnapshot.state;
     this.synchronizeSpriteVisual(npc);
@@ -1975,7 +2947,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
   private synchronizeSpriteVisual(npc: NpcRuntime) {
     const snapshot = npc.stateSnapshot;
-    npc.sprite.cellIndex = getSpriteCellIndex(snapshot.state);
+    npc.sprite.cellIndex = getSpriteCellIndex(
+      snapshot.state,
+      npc.command.temporaryGunActive
+    );
     npc.sprite.color.a =
       snapshot.hitPhase === "fade"
         ? snapshot.hitPhaseRemainingSeconds /
@@ -2064,7 +3039,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           targetId: npc.targetId,
           provenance: npc.targetProvenance,
           alertLeaderId: npc.alertLeaderId,
-          alertRemainingSeconds: npc.alertRemainingSeconds
+          alertRemainingSeconds: npc.alertRemainingSeconds,
+          commandMode: npc.command.mode,
+          temporaryGunActive: npc.command.temporaryGunActive,
+          followerFirePhase: npc.command.followerFirePhase
         })
       );
       if (npc.capture) {

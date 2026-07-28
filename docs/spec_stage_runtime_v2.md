@@ -38,6 +38,13 @@ export type StageCatalogEntry = Readonly<{
   glbUrl: string;
   navmeshUrl: string;
   bitNavmeshUrl: string;
+  roomVariantNavmesh:
+    | Readonly<{ mode: "unsupported" }>
+    | Readonly<{
+        mode: "required";
+        url: string;
+        sha256: string;
+      }>;
   assetSchemaVersion: number;
   worldBoundaryMode: "required" | "unsupported";
   navProfileId: string;
@@ -49,9 +56,10 @@ export type StageCatalogEntry = Readonly<{
 ```
 
 - `id`はGLBの`META_Stage.hs_stage_id`と一致させる。
+- `roomVariantNavmesh`は部屋variant非対応時の`unsupported`と、bundle URL・SHA-256を必須にする`required`の判別可能unionとする。互換wrapper、欠落時fallback、Runtime再生成は使用しない。
 - `worldBoundaryMode`は空間形状ではなく、対応資産世代を厳格に選ぶ非空間契約である。`required`では`BND_WorldLimit`を正確に1件要求し、`unsupported`では同Objectを許可しない。
 - `navProfileId`と`bitNavProfileId`はGLBと各NavMesh生成記録の双方に一致させる。
-- 3資産のいずれかのハッシュが不一致なら読込失敗とし、古い成果物を継続使用しない。
+- GLB、静的人間用NavMesh、対応時の部屋variant bundle、ビット用NavMeshのいずれかのハッシュが不一致なら読込失敗とし、古い成果物を継続使用しない。
 - 当面のカタログ件数は学校1件とする。
 
 ## 4. `StageSpatialContext`
@@ -269,6 +277,7 @@ export interface NavigationWorld {
 ```
 
 - `NavigationLocation`はBabylon world座標と、その位置が属するRecast polygonの`polygonRef`を必ず組で保持する。現在地、経路点、目的地、移動拘束結果、ランダム点から`polygonRef`を捨てて`Vector3`だけへ戻してはならない。
+- 固定グリッドtiled学校NavMeshの経路探索は、Detourの16-bit node indexで予約値を除いた最大値に合わせ、`NavMeshQuery` node 65,535件、polygon corridor 32,768件、straight path 4,096点を上限とする。node上限とpolygon corridor上限の超過は区別し、経路なしへ読み替えず例外にする。作者側の全階代表経路監査も同じnode上限で容量内を確認する。
 - 同じ水平位置に上下の床が重なる場合は、現在の`polygonRef`から到達可能な面を使う。X/Z距離だけで最寄りの別階へ再投影しない。
 - 経路なし、投影不能は`null`とし、標的への直進へ切り替えない。
 - 人間用`surface` stepは通常床、段差、階段ランプ、踊り場を通るNavMesh上の3D点列、`transition` stepは人間用`LNK_*`の固定接続を表す。両者を単一の点列へ潰さない。
@@ -277,7 +286,7 @@ export interface NavigationWorld {
 - 通常扉、段差、階段ランプ、踊り場は連続NavMeshとして表す。
 - 梯子、昇降機、テレポートなど、人間用の連続面で表せない接続だけを`StageLinkRegistry`で補う。
 - 人間用`findPath()`へビット用NavMeshやビット遷移を渡さない。ビットも人間用NavMeshへ暗黙にフォールバックしない。
-- 特殊接続A*の端点間`surface`経路は、探索で必要になった時点で初めて計算する。キャッシュキーは順不同の端点index pairとし、`path`または`null`を保持する。逆方向は同じ経路点を反転して再利用し、起動時の全端点間探索、LRU、遷移数上限、直線フォールバックは設けない。
+- 特殊接続A*の端点間`surface`経路は、探索で必要になった時点で初めて計算する。キャッシュキーは始点・終点の向きを含む有向端点index pairとし、方向ごとに`findSurfaceStep()`で得た`polygonRef`付き`path`または`null`を保持する。逆方向へ同じ経路の座標・`polygonRef`を単純反転せず、起動時の全端点間探索、LRU、遷移数上限、直線フォールバックは設けない。
 - `transition.distance`は`entry→作者端点from + 作者端点from→作者端点to + 作者端点to→exit`の3区間合計とする。
 - 人間用経路追従は`transition`入口へ到達した時点で`transition-required`を返す。ビットは後述する独立した飛行経路と遷移実行器を使用する。
 

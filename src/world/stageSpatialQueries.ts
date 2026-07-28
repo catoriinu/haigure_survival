@@ -1,6 +1,11 @@
 import { Mesh, Ray, Scene, Vector3, VertexBuffer } from "@babylonjs/core";
 
 import type { BitFlightBandRef } from "./bitFlightNavigation";
+import {
+  registerDynamicStageSpatialSnapshotResource,
+  type DynamicStageSpatialSnapshot,
+  type DynamicStageSpatialVariants
+} from "./dynamicStageSpatialVariants";
 import { STAGE_MOVER_KINDS, type StageMoverKind } from "./stageLinks";
 
 export const STAGE_VOLUME_ROLES = [
@@ -11,7 +16,11 @@ export const STAGE_VOLUME_ROLES = [
   "no_enemy_enter",
   "no_combat",
   "hazard",
-  "water"
+  "water",
+  "door_sweep",
+  "elevator_call_mat",
+  "elevator_threshold",
+  "elevator_car_occupancy"
 ] as const;
 
 export type StageVolumeRole = (typeof STAGE_VOLUME_ROLES)[number];
@@ -71,6 +80,7 @@ export type StageSpatialQueryDiagnostics = Readonly<{
 }>;
 
 export interface StageSpatialQueries {
+  readonly revision: number;
   castMovementSegment(
     moverKind: StageMoverKind,
     from: Vector3,
@@ -90,10 +100,6 @@ export interface StageSpatialQueries {
 }
 
 export type StageSpatialQueryOptions = Readonly<{
-  movementColliders: StageMovementColliderSets;
-  groundColliders: readonly Mesh[];
-  beamBlockers: readonly Mesh[];
-  sightBlockers: readonly Mesh[];
   volumes: readonly StageVolume[];
   diagnostics?: StageSpatialQueryDiagnostics;
 }>;
@@ -2000,54 +2006,75 @@ const castSphere = (
   };
 };
 
-export const createStageSpatialQueries = (
-  scene: Scene,
-  options: StageSpatialQueryOptions
-): StageSpatialQueries => {
-  let activeScene: Scene | null = scene;
-  const requireActiveScene = () => {
-    if (!activeScene) {
-      throw new Error("破棄済みのStageSpatialQueriesは使用できません。");
-    }
-    return activeScene;
-  };
-  const sceneOrderByMesh = new Map(
-    scene.meshes.map(
-      (mesh, index) => [mesh as Mesh, index] as const
-    )
-  );
+type StageSpatialRevisionResources = Readonly<{
+  movementColliderIndices: Readonly<
+    Record<StageMoverKind, StaticMeshSpatialIndex>
+  >;
+  movementColliderMeshSets: Readonly<
+    Record<StageMoverKind, ReadonlySet<Mesh>>
+  >;
+  groundColliderMeshes: ReadonlySet<Mesh>;
+  beamBlockerMeshes: ReadonlySet<Mesh>;
+  sightBlockerMeshes: ReadonlySet<Mesh>;
+  movementTrianglesByMesh: ReadonlyMap<
+    Mesh,
+    readonly WorldTriangle[]
+  >;
+  movementContainsByMesh: ReadonlyMap<
+    Mesh,
+    (point: Vector3) => boolean
+  >;
+  containsByVolume: ReadonlyMap<
+    StageVolume,
+    (point: Vector3) => boolean
+  >;
+  triangleSpatialIndex: StaticTriangleSpatialIndex;
+  knownSafeCenterCache: KnownSafeCenterCache;
+  sphereSweepScratch: SphereSweepScratch;
+  groundSampleCache: Map<
+    string,
+    Readonly<{ hit: SpatialHit | null }>
+  >;
+  dispose(): void;
+}>;
+
+const createStageSpatialRevisionResources = (
+  snapshot: DynamicStageSpatialSnapshot,
+  sceneOrderByMesh: ReadonlyMap<Mesh, number>,
+  volumes: readonly StageVolume[]
+): StageSpatialRevisionResources => {
   const movementColliderIndices: Readonly<
     Record<StageMoverKind, StaticMeshSpatialIndex>
   > =
     Object.freeze({
       player: createStaticMeshSpatialIndex(
-        options.movementColliders.player,
+        snapshot.movementColliders.player,
         sceneOrderByMesh
       ),
       npc: createStaticMeshSpatialIndex(
-        options.movementColliders.npc,
+        snapshot.movementColliders.npc,
         sceneOrderByMesh
       ),
       bit: createStaticMeshSpatialIndex(
-        options.movementColliders.bit,
+        snapshot.movementColliders.bit,
         sceneOrderByMesh
       )
     });
   const movementColliderMeshes = new Set<Mesh>([
-    ...options.movementColliders.player,
-    ...options.movementColliders.npc,
-    ...options.movementColliders.bit
+    ...snapshot.movementColliders.player,
+    ...snapshot.movementColliders.npc,
+    ...snapshot.movementColliders.bit
   ]);
   const movementColliderMeshSets: Readonly<
     Record<StageMoverKind, ReadonlySet<Mesh>>
   > = Object.freeze({
-    player: new Set(options.movementColliders.player),
-    npc: new Set(options.movementColliders.npc),
-    bit: new Set(options.movementColliders.bit)
+    player: new Set(snapshot.movementColliders.player),
+    npc: new Set(snapshot.movementColliders.npc),
+    bit: new Set(snapshot.movementColliders.bit)
   });
-  const groundColliderMeshes = new Set(options.groundColliders);
-  const beamBlockerMeshes = new Set(options.beamBlockers);
-  const sightBlockerMeshes = new Set(options.sightBlockers);
+  const groundColliderMeshes = new Set(snapshot.groundColliders);
+  const beamBlockerMeshes = new Set(snapshot.beamBlockers);
+  const sightBlockerMeshes = new Set(snapshot.sightBlockers);
   const movementTrianglesByMesh = new Map<
     Mesh,
     readonly WorldTriangle[]
@@ -2056,6 +2083,15 @@ export const createStageSpatialQueries = (
     Mesh,
     (point: Vector3) => boolean
   >();
+  const containsByVolume = new Map<
+    StageVolume,
+    (point: Vector3) => boolean
+  >(
+    volumes.map((volume) => [
+      volume,
+      createContainsPointQuery(volume.mesh)
+    ])
+  );
   const worldTrianglesByMesh = new Map<
     Mesh,
     readonly WorldTriangle[]
@@ -2097,107 +2133,21 @@ export const createStageSpatialQueries = (
     string,
     Readonly<{ hit: SpatialHit | null }>
   >();
-  const volumesByRole = new Map<StageVolumeRole, StageVolume[]>(
-    STAGE_VOLUME_ROLES.map((role) => [role, []])
-  );
-  const containsByVolume = new Map<StageVolume, (point: Vector3) => boolean>();
-  for (const volume of options.volumes) {
-    volumesByRole.get(volume.role)!.push(volume);
-    containsByVolume.set(volume, createContainsPointQuery(volume.mesh));
-  }
 
-  const queries: StageSpatialQueries = {
-    castMovementSegment: (moverKind, from, to) => {
-      requireActiveScene();
-      return castIndexedSegment(
-        "movement",
-        triangleSpatialIndex,
-        movementColliderMeshSets[moverKind],
-        from,
-        to,
-        options.diagnostics
-      );
-    },
-    castMovementSphere: (moverKind, from, to, radius) => {
-      requireActiveScene();
-      return castSphere(
-        moverKind,
-        movementColliderIndices[moverKind],
-        triangleSpatialIndex,
-        movementColliderMeshSets[moverKind],
-        knownSafeCenterCache,
-        movementTrianglesByMesh,
-        movementContainsByMesh,
-        sceneOrderByMesh,
-        sphereSweepScratch,
-        from,
-        to,
-        radius,
-        options.diagnostics
-      );
-    },
-    castBeamSegment: (from, to) => {
-      requireActiveScene();
-      return castIndexedSegment(
-        "beam",
-        triangleSpatialIndex,
-        beamBlockerMeshes,
-        from,
-        to,
-        options.diagnostics
-      );
-    },
-    castSightSegment: (from, to) => {
-      requireActiveScene();
-      return castIndexedSegment(
-        "sight",
-        triangleSpatialIndex,
-        sightBlockerMeshes,
-        from,
-        to,
-        options.diagnostics
-      );
-    },
-    sampleGround: (origin, maxDistance) => {
-      requireActiveScene();
-      const cacheKey =
-        `${exactNumberKey(origin.x)}|${exactNumberKey(origin.y)}|` +
-        `${exactNumberKey(origin.z)}|${exactNumberKey(maxDistance)}`;
-      const cached = groundSampleCache.get(cacheKey);
-      if (cached) {
-        groundSampleCache.delete(cacheKey);
-        groundSampleCache.set(cacheKey, cached);
-        options.diagnostics?.recordRayQuery("ground", 0, 0);
-        return cached.hit ? cloneSpatialHit(cached.hit) : null;
-      }
-      const groundEnd = origin.add(Vector3.Down().scale(maxDistance));
-      const hit = castIndexedSegment(
-        "ground",
-        triangleSpatialIndex,
-        groundColliderMeshes,
-        origin,
-        groundEnd,
-        options.diagnostics,
-        (candidate) => candidate.normal.y > 0
-      );
-      groundSampleCache.set(cacheKey, Object.freeze({ hit }));
-      if (groundSampleCache.size > GROUND_SAMPLE_CACHE_MAX_ENTRIES) {
-        const oldestKey = groundSampleCache.keys().next().value;
-        if (oldestKey !== undefined) {
-          groundSampleCache.delete(oldestKey);
-        }
-      }
-      return hit ? cloneSpatialHit(hit) : null;
-    },
-    containsVolume: (role, point) => {
-      requireActiveScene();
-      return volumesByRole.get(role)!.some((volume) =>
-        containsByVolume.get(volume)!(point)
-      );
-    },
+  return Object.freeze({
+    movementColliderIndices,
+    movementColliderMeshSets,
+    groundColliderMeshes,
+    beamBlockerMeshes,
+    sightBlockerMeshes,
+    movementTrianglesByMesh,
+    movementContainsByMesh,
+    containsByVolume,
+    triangleSpatialIndex,
+    knownSafeCenterCache,
+    sphereSweepScratch,
+    groundSampleCache,
     dispose: () => {
-      requireActiveScene();
-      activeScene = null;
       for (const index of Object.values(movementColliderIndices)) {
         index.dispose();
       }
@@ -2206,9 +2156,172 @@ export const createStageSpatialQueries = (
       groundSampleCache.clear();
       movementTrianglesByMesh.clear();
       movementContainsByMesh.clear();
-      worldTrianglesByMesh.clear();
-      volumesByRole.clear();
       containsByVolume.clear();
+      worldTrianglesByMesh.clear();
+    }
+  });
+};
+
+export const createStageSpatialQueries = (
+  scene: Scene,
+  dynamicVariants: DynamicStageSpatialVariants,
+  options: StageSpatialQueryOptions
+): StageSpatialQueries => {
+  let activeScene: Scene | null = scene;
+  const requireActiveScene = () => {
+    if (!activeScene) {
+      throw new Error("破棄済みのStageSpatialQueriesは使用できません。");
+    }
+    return activeScene;
+  };
+  const sceneOrderByMesh = new Map(
+    scene.meshes.map(
+      (mesh, index) => [mesh as Mesh, index] as const
+    )
+  );
+  const volumesByRole = new Map<StageVolumeRole, StageVolume[]>(
+    STAGE_VOLUME_ROLES.map((role) => [role, []])
+  );
+  for (const volume of options.volumes) {
+    volumesByRole.get(volume.role)!.push(volume);
+  }
+  const revisionResource =
+    registerDynamicStageSpatialSnapshotResource(
+      dynamicVariants,
+      (snapshot) => {
+        const resources = createStageSpatialRevisionResources(
+          snapshot,
+          sceneOrderByMesh,
+          options.volumes
+        );
+        return Object.freeze({
+          value: resources,
+          dispose: resources.dispose
+        });
+      }
+    );
+  let lastSnapshotRevision = dynamicVariants.revision;
+  const withRevisionResources = <T>(
+    callback: (resources: StageSpatialRevisionResources) => T
+  ): T => {
+    requireActiveScene();
+    const snapshot = dynamicVariants.getSnapshot();
+    lastSnapshotRevision = snapshot.revision;
+    return revisionResource.use(snapshot, callback);
+  };
+
+  const queries: StageSpatialQueries = {
+    get revision() {
+      requireActiveScene();
+      return lastSnapshotRevision;
+    },
+    castMovementSegment: (moverKind, from, to) => {
+      return withRevisionResources((resources) =>
+        castIndexedSegment(
+          "movement",
+          resources.triangleSpatialIndex,
+          resources.movementColliderMeshSets[moverKind],
+          from,
+          to,
+          options.diagnostics
+        )
+      );
+    },
+    castMovementSphere: (moverKind, from, to, radius) => {
+      return withRevisionResources((resources) =>
+        castSphere(
+          moverKind,
+          resources.movementColliderIndices[moverKind],
+          resources.triangleSpatialIndex,
+          resources.movementColliderMeshSets[moverKind],
+          resources.knownSafeCenterCache,
+          resources.movementTrianglesByMesh,
+          resources.movementContainsByMesh,
+          sceneOrderByMesh,
+          resources.sphereSweepScratch,
+          from,
+          to,
+          radius,
+          options.diagnostics
+        )
+      );
+    },
+    castBeamSegment: (from, to) => {
+      return withRevisionResources((resources) =>
+        castIndexedSegment(
+          "beam",
+          resources.triangleSpatialIndex,
+          resources.beamBlockerMeshes,
+          from,
+          to,
+          options.diagnostics
+        )
+      );
+    },
+    castSightSegment: (from, to) => {
+      return withRevisionResources((resources) =>
+        castIndexedSegment(
+          "sight",
+          resources.triangleSpatialIndex,
+          resources.sightBlockerMeshes,
+          from,
+          to,
+          options.diagnostics
+        )
+      );
+    },
+    sampleGround: (origin, maxDistance) => {
+      return withRevisionResources((resources) => {
+        const cacheKey =
+          `${exactNumberKey(origin.x)}|${exactNumberKey(origin.y)}|` +
+          `${exactNumberKey(origin.z)}|${exactNumberKey(maxDistance)}`;
+        const cached = resources.groundSampleCache.get(cacheKey);
+        if (cached) {
+          resources.groundSampleCache.delete(cacheKey);
+          resources.groundSampleCache.set(cacheKey, cached);
+          options.diagnostics?.recordRayQuery("ground", 0, 0);
+          return cached.hit ? cloneSpatialHit(cached.hit) : null;
+        }
+        const groundEnd = origin.add(Vector3.Down().scale(maxDistance));
+        const hit = castIndexedSegment(
+          "ground",
+          resources.triangleSpatialIndex,
+          resources.groundColliderMeshes,
+          origin,
+          groundEnd,
+          options.diagnostics,
+          (candidate) => candidate.normal.y > 0
+        );
+        resources.groundSampleCache.set(
+          cacheKey,
+          Object.freeze({ hit })
+        );
+        if (
+          resources.groundSampleCache.size >
+          GROUND_SAMPLE_CACHE_MAX_ENTRIES
+        ) {
+          const oldestKey =
+            resources.groundSampleCache.keys().next().value;
+          if (oldestKey !== undefined) {
+            resources.groundSampleCache.delete(oldestKey);
+          }
+        }
+        return hit ? cloneSpatialHit(hit) : null;
+      });
+    },
+    containsVolume: (role, point) => {
+      return withRevisionResources((resources) =>
+        volumesByRole.get(role)!.some((volume) =>
+          resources.containsByVolume.get(volume)!(point)
+        )
+      );
+    },
+    dispose: () => {
+      requireActiveScene();
+      activeScene = null;
+      revisionResource.dispose();
+      volumesByRole.clear();
+      sceneOrderByMesh.clear();
     }
   };
   return Object.freeze(queries);

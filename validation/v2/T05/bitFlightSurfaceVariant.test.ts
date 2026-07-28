@@ -34,10 +34,11 @@ import {
   type BitFlightSafety
 } from "../../../src/world/bitFlightSafety";
 import { initializeNavigationRuntime } from "../../../src/world/navigationWorld";
+import type { StageSpatialQueries } from "../../../src/world/stageSpatialQueries";
 import {
-  createStageSpatialQueries,
-  type StageSpatialQueries
-} from "../../../src/world/stageSpatialQueries";
+  createDynamicStageSpatialQueryFixture,
+  type DynamicStageSpatialQueryFixture
+} from "./stageSpatialQueryFixture";
 
 export type BitFlightSurfaceVariantTestResult = Readonly<{
   name: string;
@@ -54,6 +55,7 @@ type SurfaceVariantFixture = Readonly<{
   engine: NullEngine;
   scene: Scene;
   world: BitFlightNavigationWorld;
+  spatial: DynamicStageSpatialQueryFixture;
   queries: StageSpatialQueries;
   safety: BitFlightSafety;
 }>;
@@ -256,17 +258,23 @@ const createFixture = async (
   colliders.movement.forEach((collider) =>
     collider.computeWorldMatrix(true)
   );
-  const queries = createStageSpatialQueries(scene, {
-    movementColliders: Object.freeze({
-      player: Object.freeze([]),
-      npc: Object.freeze([]),
-      bit: Object.freeze([...colliders.movement])
-    }),
-    groundColliders: Object.freeze([...colliders.ground]),
-    beamBlockers: Object.freeze([]),
-    sightBlockers: Object.freeze([]),
-    volumes: Object.freeze([])
+  const movementColliders = Object.freeze({
+    player: Object.freeze([]),
+    npc: Object.freeze([]),
+    bit: Object.freeze([...colliders.movement])
   });
+  const spatial = createDynamicStageSpatialQueryFixture(
+    scene,
+    {
+      movementColliders,
+      groundColliders: Object.freeze([...colliders.ground]),
+      beamBlockers: Object.freeze([]),
+      sightBlockers: Object.freeze([]),
+      bitObstacles: movementColliders.bit
+    },
+    { volumes: Object.freeze([]) }
+  );
+  const queries = spatial.queries;
   const world = await createBitFlightNavigationWorld(
     navigationDefinition,
     Object.freeze(
@@ -279,13 +287,14 @@ const createFixture = async (
     engine,
     scene,
     world,
+    spatial,
     queries,
     safety: createBitFlightSafety(queries)
   });
 };
 
 const disposeFixture = (fixture: SurfaceVariantFixture) => {
-  fixture.queries.dispose();
+  fixture.spatial.dispose();
   fixture.world.dispose();
   fixture.scene.dispose();
   fixture.engine.dispose();

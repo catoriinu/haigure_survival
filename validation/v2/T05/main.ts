@@ -3,6 +3,7 @@ import {
   Color3,
   Engine,
   HemisphericLight,
+  Logger,
   MeshBuilder,
   Scene,
   StandardMaterial,
@@ -14,6 +15,7 @@ import { generateSoloNavMesh } from "recast-navigation/generators";
 import schoolGlbUrl from "../../../public/stage-assets/v2/B02/b02_school_blockout.glb?url";
 import schoolNavmeshUrl from "../../../public/stage-assets/v2/B02/b02_school_blockout.navmesh.bin?url";
 import schoolBitNavmeshUrl from "../../../public/stage-assets/v2/B02/b02_school_blockout.bit-flight.navmesh.bin?url";
+import schoolRoomVariantNavmeshUrl from "../../../public/stage-assets/v2/B02/b02_school_blockout.room-variants.navmesh.bin?url";
 import {
   BIT_FLIGHT_TRANSITION_SPEED_WORLD_UNITS_PER_SECOND,
   createBitFlightAgent
@@ -46,11 +48,18 @@ import {
   type StageCatalogEntry
 } from "../../../src/world/stageCatalog";
 import {
+  SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
+} from "../../../src/world/schoolRuntimeSettings";
+import {
   loadStageSpatialContext,
   type StageSpatialContext
 } from "../../../src/world/stageSpatialContext";
 import type { StageVolume } from "../../../src/world/stageSpatialQueries";
+import { createStageWorldBoundary } from "../../../src/world/stageWorldBoundary";
+import { createV2BeamSystem } from "../../../src/v2/beamCollision";
 import { createV2BitSystem } from "../../../src/v2/bitSystem";
+import type { V2HumanTargetSnapshot } from "../../../src/v2/combatTypes";
+import { createV2HitEffectSystem } from "../../../src/v2/hitEffectSystem";
 import {
   runAlertCoordinatorTests
 } from "./alertCoordinator.test";
@@ -69,6 +78,7 @@ import {
   type BitSystemAcceptanceMode
 } from "./bitSystemAcceptance.test";
 import { runCharacterStateSystemTests } from "./characterStateSystem.test";
+import { runHitEffectSystemTests } from "./hitEffectSystem.test";
 import { runNpcCombatTests } from "./npcCombat.test";
 import { runPerformanceScenarioTests } from "./performanceScenario.test";
 import { runPublicExecutionSystemTests } from "./publicExecutionSystem.test";
@@ -77,11 +87,16 @@ import {
   runPerformanceDiagnosticsLifecycleTests,
   runSurvivalRuntimeLifecycleTests
 } from "./survivalRuntimeLifecycle.test";
+import { createDynamicStageSpatialQueryFixture } from "./stageSpatialQueryFixture";
+import { runWorldBoundaryTests } from "./worldBoundary.test";
 
 import "./style.css";
 
 const requestedAcceptanceMode = new URLSearchParams(location.search).get(
   "acceptance"
+);
+const requestedValidationProbe = new URLSearchParams(location.search).get(
+  "validationProbe"
 );
 const acceptanceMode: BitSystemAcceptanceMode =
   requestedAcceptanceMode === "core" ||
@@ -96,7 +111,12 @@ const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   ...SCHOOL_STAGE,
   glbUrl: toStageRelativeAssetUrl(schoolGlbUrl),
   navmeshUrl: toStageRelativeAssetUrl(schoolNavmeshUrl),
-  bitNavmeshUrl: toStageRelativeAssetUrl(schoolBitNavmeshUrl)
+  bitNavmeshUrl: toStageRelativeAssetUrl(schoolBitNavmeshUrl),
+  roomVariantNavmesh: Object.freeze({
+    mode: "required",
+    url: toStageRelativeAssetUrl(schoolRoomVariantNavmeshUrl),
+    sha256: "78a0f481aae3abd6a6e403c60fc0debc1c70941c8b7956f17e35006df10c3afd"
+  })
 });
 
 type ValidationCheck = Readonly<{
@@ -104,6 +124,73 @@ type ValidationCheck = Readonly<{
   ok: boolean;
   detail: string;
 }>;
+
+type T05ValidationState = Readonly<{
+  status: "running" | "passed" | "failed";
+  checks: readonly ValidationCheck[];
+}>;
+
+declare global {
+  interface Window {
+    __T05_VALIDATION__: T05ValidationState;
+  }
+}
+
+const browserErrors: string[] = [];
+const browserWarnings: string[] = [];
+const formatBrowserIssue = (value: unknown) =>
+  value instanceof Error
+    ? `${value.name}: ${value.message}`
+    : String(value);
+const failCompletedValidation = (detail: string): void => {
+  if (document.documentElement.dataset.validationStatus !== "passed") {
+    return;
+  }
+  const failedCheck = Object.freeze({
+    name: "完了後ブラウザ異常監視",
+    ok: false,
+    detail
+  });
+  const checks = Object.freeze([
+    ...window.__T05_VALIDATION__.checks,
+    failedCheck
+  ]);
+  window.__T05_VALIDATION__ = Object.freeze({
+    status: "failed",
+    checks
+  });
+  document.documentElement.dataset.validationStatus = "failed";
+  summary!.dataset.state = "failed";
+  summary!.textContent =
+    `${checks.filter((check) => check.ok).length} / ` +
+    `${checks.length} 項目がPASSしました。`;
+  renderChecks(checks);
+};
+window.addEventListener("error", (event) => {
+  const detail = formatBrowserIssue(event.error ?? event.message);
+  browserErrors.push(detail);
+  failCompletedValidation(`error: ${detail}`);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  const detail =
+    `unhandledrejection: ${formatBrowserIssue(event.reason)}`;
+  browserErrors.push(detail);
+  failCompletedValidation(detail);
+});
+const originalConsoleError = console.error.bind(console);
+console.error = (...values: unknown[]) => {
+  const detail = values.map(formatBrowserIssue).join(" ");
+  browserErrors.push(detail);
+  failCompletedValidation(`console.error: ${detail}`);
+  originalConsoleError(...values);
+};
+const originalConsoleWarn = console.warn.bind(console);
+console.warn = (...values: unknown[]) => {
+  const detail = values.map(formatBrowserIssue).join(" ");
+  browserWarnings.push(detail);
+  failCompletedValidation(`console.warn: ${detail}`);
+  originalConsoleWarn(...values);
+};
 
 const canvas = document.getElementById(
   "render-canvas"
@@ -489,7 +576,187 @@ transitions.forEach((transition, index) => {
   line.color = layerColors[index % layerColors.length];
 });
 
+const showcaseWorldMesh = MeshBuilder.CreateBox(
+  "T05V_Showcase_WorldBoundary",
+  { size: 8 },
+  scene
+);
+showcaseWorldMesh.position.y = 2.5;
+showcaseWorldMesh.isVisible = false;
+showcaseWorldMesh.computeWorldMatrix(true);
+const showcaseStageBoundaryMesh = MeshBuilder.CreateBox(
+  "T05V_Showcase_StageBoundary",
+  { size: 7 },
+  scene
+);
+showcaseStageBoundaryMesh.position.y = 2.5;
+showcaseStageBoundaryMesh.isVisible = false;
+showcaseStageBoundaryMesh.computeWorldMatrix(true);
+const showcaseBlocker = MeshBuilder.CreateBox(
+  "T05V_Showcase_Blocker",
+  { width: 0.15, height: 1.4, depth: 1.2 },
+  scene
+);
+showcaseBlocker.position.set(0, 2.5, -2);
+showcaseBlocker.computeWorldMatrix(true);
+const showcaseBlockerMaterial = new StandardMaterial(
+  "T05V_Showcase_BlockerMaterial",
+  scene
+);
+showcaseBlockerMaterial.diffuseColor.set(0.08, 0.24, 0.32);
+showcaseBlockerMaterial.emissiveColor.set(0.03, 0.18, 0.25);
+showcaseBlocker.material = showcaseBlockerMaterial;
+const showcaseWorldBoundary = createStageWorldBoundary(
+  showcaseWorldMesh,
+  showcaseStageBoundaryMesh
+);
+const showcaseMovementColliders = Object.freeze({
+  player: Object.freeze([showcaseBlocker]),
+  npc: Object.freeze([showcaseBlocker]),
+  bit: Object.freeze([showcaseBlocker])
+});
+const showcaseSpatial = createDynamicStageSpatialQueryFixture(
+  scene,
+  {
+    movementColliders: showcaseMovementColliders,
+    groundColliders: Object.freeze([]),
+    beamBlockers: Object.freeze([showcaseBlocker]),
+    sightBlockers: Object.freeze([showcaseBlocker]),
+    bitObstacles: showcaseMovementColliders.bit
+  },
+  { volumes: Object.freeze([]) }
+);
+const showcaseQueries = showcaseSpatial.queries;
+const showcaseStage = Object.freeze({
+  resources: Object.freeze({
+    beamBlockers: Object.freeze([showcaseBlocker]),
+    sightBlockers: Object.freeze([showcaseBlocker])
+  }),
+  worldBoundary: showcaseWorldBoundary,
+  dynamicVariants: showcaseSpatial.dynamicVariants,
+  queries: showcaseQueries
+}) as unknown as StageSpatialContext;
+let showcaseRandomState = 0xa511e9b3;
+const showcaseRandom = () => {
+  showcaseRandomState =
+    (Math.imul(showcaseRandomState, 1664525) + 1013904223) >>> 0;
+  return showcaseRandomState / 0x1_0000_0000;
+};
+const showcaseBeamSystem = createV2BeamSystem({
+  scene,
+  stage: showcaseStage,
+  getHumanTargets: () => Object.freeze([]),
+  random: showcaseRandom,
+  getOrbVisibilityPredicate: () => () => true
+});
+const showcaseHitEffectSystem = createV2HitEffectSystem({
+  scene,
+  random: showcaseRandom
+});
+const showcaseTarget: V2HumanTargetSnapshot = Object.freeze({
+  id: "t05v-showcase-target",
+  kind: "player",
+  footPosition: new Vector3(-1.25, 2.05, 0),
+  aimPosition: new Vector3(-1.25, 2.5, 0),
+  hitShape: Object.freeze({
+    center: new Vector3(-1.25, 2.5, 0),
+    radii: new Vector3(0.1, 0.24, 0.1)
+  }),
+  state: "hit-a",
+  alive: false,
+  brainwashed: false
+});
+const showcaseOriginKinds = Object.freeze([
+  "bit-chase",
+  "bit-fixed",
+  "bit-random",
+  "bit-carpet",
+  "npc-gun",
+  "player-gun",
+  "execution-bit",
+  "execution-npc",
+  "execution-player"
+] as const);
+let showcaseOriginIndex = 0;
+let showcaseBoundaryCooldownSeconds = 0;
+let showcaseBlockerCooldownSeconds = 0.45;
+let showcaseHitCooldownSeconds = 0;
+let showcaseActive = false;
+let showcasePreparation: Promise<void> | null = null;
+const prepareShowcase = () => {
+  showcasePreparation ??= Promise.all([
+    showcaseBeamSystem.prepareVisualResources(),
+    showcaseHitEffectSystem.prepareVisualResources()
+  ]).then(() => {});
+  return showcasePreparation;
+};
+const showcaseObserver = scene.onBeforeRenderObservable.add(() => {
+  if (!showcaseActive) {
+    return;
+  }
+  const deltaSeconds = engine.getDeltaTime() / 1000;
+  showcaseBoundaryCooldownSeconds -= deltaSeconds;
+  showcaseBlockerCooldownSeconds -= deltaSeconds;
+  showcaseHitCooldownSeconds -= deltaSeconds;
+  if (showcaseBoundaryCooldownSeconds <= 0) {
+    showcaseBeamSystem.spawn({
+      sourceId: "t05v-boundary-showcase",
+      originKind:
+        showcaseOriginKinds[
+          showcaseOriginIndex % showcaseOriginKinds.length
+        ],
+      targetPolicy: Object.freeze({ kind: "alive-humans" }),
+      origin: new Vector3(-3.5, 3.1, 2),
+      direction: Vector3.Right(),
+      speed: 5,
+      maximumLifetime: 10
+    });
+    showcaseOriginIndex += 1;
+    showcaseBoundaryCooldownSeconds = 1.8;
+  }
+  if (showcaseBlockerCooldownSeconds <= 0) {
+    showcaseBeamSystem.spawn({
+      sourceId: "t05v-blocker-showcase",
+      originKind: "npc-gun",
+      targetPolicy: Object.freeze({ kind: "alive-humans" }),
+      origin: new Vector3(-3.5, 2.5, -2),
+      direction: Vector3.Right(),
+      speed: 5,
+      maximumLifetime: 10
+    });
+    showcaseBlockerCooldownSeconds = 1.15;
+  }
+  if (showcaseHitCooldownSeconds <= 0) {
+    showcaseHitEffectSystem.start(showcaseTarget);
+    showcaseHitCooldownSeconds = 4.2;
+  }
+  showcaseBeamSystem.update(deltaSeconds);
+  showcaseHitEffectSystem.update(
+    deltaSeconds,
+    Object.freeze([showcaseTarget]),
+    () => true
+  );
+});
+let showcaseDisposed = false;
+const disposeShowcase = () => {
+  if (showcaseDisposed) {
+    return;
+  }
+  scene.onBeforeRenderObservable.remove(showcaseObserver);
+  showcaseHitEffectSystem.dispose();
+  showcaseBeamSystem.dispose();
+  showcaseSpatial.dispose();
+  showcaseWorldBoundary.dispose();
+  showcaseBlocker.dispose(false, false);
+  showcaseStageBoundaryMesh.dispose(false, false);
+  showcaseWorldMesh.dispose(false, false);
+  showcaseBlockerMaterial.dispose();
+  showcaseDisposed = true;
+};
+
 let activeWorld: BitFlightNavigationWorld | null = null;
+let validationRunning = false;
+let validationHasRun = false;
 
 const disposeActiveWorld = () => {
   activeWorld?.dispose();
@@ -497,12 +764,30 @@ const disposeActiveWorld = () => {
 };
 
 const runValidation = async () => {
+  if (validationRunning) {
+    return;
+  }
+  validationRunning = true;
+  if (validationHasRun) {
+    browserErrors.length = 0;
+    browserWarnings.length = 0;
+  }
+  validationHasRun = true;
+  const loggerErrorsAtStart = Logger.errorsCount;
   runButton.disabled = true;
   summary.dataset.state = "running";
   summary.textContent = "非学校fixtureを生成して検証しています。";
+  document.documentElement.dataset.validationStatus = "running";
+  window.__T05_VALIDATION__ = Object.freeze({
+    status: "running",
+    checks: Object.freeze([])
+  });
   metrics.replaceChildren();
   checkResults.replaceChildren();
   disposeActiveWorld();
+  showcaseActive = false;
+  showcaseBeamSystem.clear();
+  showcaseHitEffectSystem.clear();
 
   const checks: ValidationCheck[] = [];
   const temporaryWorlds: BitFlightNavigationWorld[] = [];
@@ -555,6 +840,7 @@ const runValidation = async () => {
             ? Object.freeze([spawnVolume])
             : Object.freeze([])
       }),
+      worldBoundary: null,
       queries: Object.freeze({
         castMovementSegment: () => null,
         castMovementSphere: () => null,
@@ -738,6 +1024,7 @@ const runValidation = async () => {
             ? Object.freeze([transitionSpawnVolume])
             : Object.freeze([])
       }),
+      worldBoundary: null,
       queries: Object.freeze({
         castMovementSegment: () => null,
         castMovementSphere: () => null,
@@ -1453,7 +1740,11 @@ const runValidation = async () => {
       try {
         lifecycleStage = await loadStageSpatialContext(
           scene,
-          SCHOOL_VALIDATION_STAGE
+          SCHOOL_VALIDATION_STAGE,
+          {
+            roomVariantSelections:
+              SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
+          }
         );
         runtimeLifecycleResults.push(
           ...(await runSurvivalRuntimeLifecycleTests(
@@ -1541,6 +1832,16 @@ const runValidation = async () => {
         ok: result.ok,
         detail: result.detail
       })),
+      ...runHitEffectSystemTests().map((result) => ({
+        name: `T05-2 命中演出: ${result.name}`,
+        ok: result.ok,
+        detail: result.detail
+      })),
+      ...runWorldBoundaryTests().map((result) => ({
+        name: `T05-2V 世界境界: ${result.name}`,
+        ok: result.ok,
+        detail: result.detail
+      })),
       ...runNpcCombatTests().map((result) => ({
         name: `T05-2 NPC戦闘: ${result.name}`,
         ok: result.ok,
@@ -1570,18 +1871,61 @@ const runValidation = async () => {
     setMetric("bundle", `${bundle.byteLength} bytes`);
     setMetric("fixture", "3 zones / 5 bands / 4 transitions");
     setMetric("T05-2単体検証", `${combatSystemResults.length} 項目`);
-    const passed = checks.filter((check) => check.ok).length;
-    summary.dataset.state = passed === checks.length ? "passed" : "failed";
-    summary.textContent = `${passed} / ${checks.length} 項目がPASSしました。`;
   } catch (error) {
     const message =
       error instanceof Error ? error.stack ?? error.message : String(error);
     checks.push({ name: "検証処理", ok: false, detail: message });
-    summary.dataset.state = "failed";
-    summary.textContent = "T05-1A非学校fixture検証に失敗しました。";
   } finally {
     temporaryWorlds.forEach((world) => world.dispose());
+    let showcaseReady = false;
+    try {
+      await prepareShowcase();
+      await scene.whenReadyAsync(true);
+      showcaseReady = true;
+    } catch (error) {
+      checks.push({
+        name: "描画準備・完了確認",
+        ok: false,
+        detail:
+          error instanceof Error
+            ? error.stack ?? error.message
+            : String(error)
+      });
+    }
+    const loggerErrorCount =
+      Logger.errorsCount - loggerErrorsAtStart;
+    checks.push({
+      name: "ブラウザ・console・Babylon異常監視",
+      ok:
+        browserErrors.length === 0 &&
+        browserWarnings.length === 0 &&
+        loggerErrorCount === 0,
+      detail:
+        `Babylon Logger=${loggerErrorCount} / ` +
+        `errors=${browserErrors.join(" | ") || "なし"} / ` +
+        `warnings=${browserWarnings.join(" | ") || "なし"}`
+    });
     renderChecks(checks);
+    const passed = checks.filter((check) => check.ok).length;
+    const status =
+      passed === checks.length ? "passed" : "failed";
+    summary.dataset.state = status;
+    summary.textContent = `${passed} / ${checks.length} 項目がPASSしました。`;
+    document.documentElement.dataset.validationStatus = status;
+    window.__T05_VALIDATION__ = Object.freeze({
+      status,
+      checks: Object.freeze([...checks])
+    });
+    showcaseRandomState = 0xa511e9b3;
+    showcaseOriginIndex = 0;
+    showcaseBoundaryCooldownSeconds = 0;
+    showcaseBlockerCooldownSeconds = 0.45;
+    showcaseHitCooldownSeconds = 0;
+    showcaseActive = showcaseReady;
+    if (requestedValidationProbe === "post-completion-warning") {
+      console.warn("T05完了後console監視probe");
+    }
+    validationRunning = false;
     runButton.disabled = false;
   }
 };
@@ -1591,7 +1935,10 @@ runButton.addEventListener("click", () => {
 });
 
 window.addEventListener("resize", () => engine.resize());
-window.addEventListener("beforeunload", () => disposeActiveWorld());
+window.addEventListener("beforeunload", () => {
+  disposeActiveWorld();
+  disposeShowcase();
+});
 
 engine.runRenderLoop(() => scene.render());
 void runValidation();

@@ -30,8 +30,29 @@ import {
 } from "./bitFlightNavigation";
 import {
   createNavigationWorld,
+  createNavigationWorldFromNavMesh,
   type NavigationWorld
 } from "./navigationWorld";
+import {
+  assembleHumanNavTileBundle,
+  decodeHumanNavTileBundle,
+  type HumanNavRoomVariantSelection,
+  type HumanNavTileBundle
+} from "./humanNavTileBundle";
+import {
+  createDynamicStageSpatialVariants,
+  type DynamicStageSpatialVariants
+} from "./dynamicStageSpatialVariants";
+import {
+  assertAllowedDynamicStageHsProperties,
+  createStageDynamicAssetRegistries,
+  DYNAMIC_STAGE_MARKER_ROLES,
+  DYNAMIC_STAGE_VOLUME_ROLES,
+  type DynamicStageMarkerRole,
+  type DynamicStageVolumeRole,
+  type StageDoorAssetRegistry,
+  type StageElevatorAssetRegistry
+} from "./stageDynamicAssets";
 import type { StageCatalogEntry } from "./stageCatalog";
 import {
   createStageLinkRegistry,
@@ -51,7 +72,22 @@ import {
   type StageVolume,
   type StageVolumeRole
 } from "./stageSpatialQueries";
+import {
+  createStageWorldBoundary,
+  type OwnedStageWorldBoundary,
+  type StageWorldBoundary
+} from "./stageWorldBoundary";
+import {
+  createStageRoomVariantAssetRegistry,
+  isStageRoomVariantMarkerNode,
+  isStageRoomVariantTileMesh,
+  type StageRoomVariantActivation,
+  type StageRoomVariantAssetRegistry,
+  type StageRoomVariantSelectionByRoom
+} from "./stageRoomVariantAssets";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "./worldUnits";
+
+export type { StageWorldBoundary } from "./stageWorldBoundary";
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const KEBAB_CASE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -60,7 +96,8 @@ const LINK_OBJECT_NAME_PATTERN = /^LNK_(.+)_(A|B)$/;
 export const STAGE_MARKER_ROLES = [
   "player_spawn",
   "assembly_anchor",
-  "patrol_anchor"
+  "patrol_anchor",
+  ...DYNAMIC_STAGE_MARKER_ROLES
 ] as const;
 
 export type StageMarkerRole = (typeof STAGE_MARKER_ROLES)[number];
@@ -135,6 +172,11 @@ export type StageSpatialContext = Readonly<{
   stage: StageCatalogEntry;
   metadata: StageMetadata;
   resources: StageSpatialResources;
+  dynamicVariants: DynamicStageSpatialVariants;
+  doorAssets: StageDoorAssetRegistry;
+  elevatorAssets: StageElevatorAssetRegistry;
+  roomVariants: StageRoomVariantAssetRegistry | null;
+  roomVariantSelection: readonly HumanNavRoomVariantSelection[];
   navigation: NavigationWorld;
   bitNavigation: BitFlightNavigationWorld;
   markers: StageMarkerRegistry;
@@ -142,6 +184,7 @@ export type StageSpatialContext = Readonly<{
   assemblyVenues: StageAssemblyVenueRegistry;
   links: StageLinkRegistry;
   boundary: StageBoundary;
+  worldBoundary: StageWorldBoundary | null;
   queries: StageSpatialQueries;
   dispose(): void;
 }>;
@@ -245,9 +288,11 @@ type StageAssetClassification = Readonly<{
   assemblyVolumes: readonly AuthoredAssemblyVolume[];
   bitFlightTransitionVolumes: readonly AuthoredBitFlightTransitionVolume[];
   boundaryMesh: Mesh;
+  worldBoundaryMesh: Mesh | null;
   portals: readonly StagePortal[];
   links: readonly AuthoredStageLinkEndpoint[];
   bitFlightLinks: readonly AuthoredBitFlightLinkEndpoint[];
+  roomVariants: StageRoomVariantAssetRegistry | null;
 }>;
 
 type Extras = Readonly<Record<string, unknown>>;
@@ -638,15 +683,27 @@ const classifyVolume = (
   const role = requireEnum(mesh.name, extras, "hs_role", STAGE_VOLUME_ROLES);
   const isBitSpawn = role === "bit_spawn";
   const isAssembly = role === "assembly";
-  assertAllowedHsProperties(
-    mesh.name,
-    extras,
-    isBitSpawn
-      ? ["hs_id", "hs_role", "hs_zone_id", "hs_band_id"]
-      : isAssembly
-        ? ["hs_id", "hs_role", "hs_anchor_id"]
-        : ["hs_id", "hs_role"]
-  );
+  if (
+    DYNAMIC_STAGE_VOLUME_ROLES.includes(
+      role as DynamicStageVolumeRole
+    )
+  ) {
+    assertAllowedDynamicStageHsProperties(
+      mesh.name,
+      extras,
+      role as DynamicStageVolumeRole
+    );
+  } else {
+    assertAllowedHsProperties(
+      mesh.name,
+      extras,
+      isBitSpawn
+        ? ["hs_id", "hs_role", "hs_zone_id", "hs_band_id"]
+        : isAssembly
+          ? ["hs_id", "hs_role", "hs_anchor_id"]
+          : ["hs_id", "hs_role"]
+    );
+  }
   const volume: StageVolume = Object.freeze({
     id: requireId(mesh.name, extras),
     role,
@@ -734,6 +791,21 @@ const classifyBoundary = (mesh: Mesh): { id: "stage"; mesh: Mesh } => {
   return { id, mesh };
 };
 
+const classifyWorldBoundary = (
+  mesh: Mesh
+): { id: "world-limit"; mesh: Mesh } => {
+  const extras = requireExtras(mesh);
+  assertAllowedHsProperties(mesh.name, extras, ["hs_id", "hs_role"]);
+  const id = requireId(mesh.name, extras);
+  const role = requireString(mesh.name, extras, "hs_role");
+  if (id !== "world-limit" || role !== "world_boundary") {
+    throw new Error(
+      "BND_WorldLimitにはhs_id=world-limit、hs_role=world_boundaryが必要です"
+    );
+  }
+  return { id, mesh };
+};
+
 const classifyPortal = (mesh: Mesh): StagePortal => {
   const extras = requireExtras(mesh);
   assertAllowedHsProperties(mesh.name, extras, [
@@ -809,20 +881,32 @@ const classifyMarker = (
     STAGE_MARKER_ROLES
   );
   const isAssemblyAnchor = role === "assembly_anchor";
-  assertAllowedHsProperties(
-    node.name,
-    extras,
-    isAssemblyAnchor
-      ? [
-          "hs_id",
-          "hs_role",
-          "hs_selection_weight",
-          "hs_assembly_positions_json",
-          "hs_execution_audience_positions_json",
-          "hs_execution_target_positions_json"
-        ]
-      : ["hs_id", "hs_role"]
-  );
+  if (
+    DYNAMIC_STAGE_MARKER_ROLES.includes(
+      role as DynamicStageMarkerRole
+    )
+  ) {
+    assertAllowedDynamicStageHsProperties(
+      node.name,
+      extras,
+      role as DynamicStageMarkerRole
+    );
+  } else {
+    assertAllowedHsProperties(
+      node.name,
+      extras,
+      isAssemblyAnchor
+        ? [
+            "hs_id",
+            "hs_role",
+            "hs_selection_weight",
+            "hs_assembly_positions_json",
+            "hs_execution_audience_positions_json",
+            "hs_execution_target_positions_json"
+          ]
+        : ["hs_id", "hs_role"]
+    );
+  }
   assertUnitScale(node);
   const marker: StageMarker = Object.freeze({
     id: requireId(node.name, extras),
@@ -998,9 +1082,11 @@ const assertUniqueSemanticIds = (
   volumes: readonly StageVolume[],
   bitFlightTransitionVolumes: readonly AuthoredBitFlightTransitionVolume[],
   boundaryId: string,
+  worldBoundaryId: string | null,
   portals: readonly StagePortal[],
   links: readonly AuthoredStageLinkEndpoint[],
-  bitFlightLinks: readonly AuthoredBitFlightLinkEndpoint[]
+  bitFlightLinks: readonly AuthoredBitFlightLinkEndpoint[],
+  roomVariants: StageRoomVariantAssetRegistry | null
 ) => {
   const owners = new Map<string, string>();
   const register = (id: string, objectName: string) => {
@@ -1020,7 +1106,18 @@ const assertUniqueSemanticIds = (
   for (const transition of bitFlightTransitionVolumes) {
     register(transition.definition.id, transition.mesh.name);
   }
+  if (roomVariants) {
+    for (const variant of roomVariants.variants) {
+      register(variant.id, variant.node.name);
+    }
+    for (const tile of roomVariants.tileVolumes) {
+      register(tile.id, tile.mesh.name);
+    }
+  }
   register(boundaryId, "BND_Stage");
+  if (worldBoundaryId) {
+    register(worldBoundaryId, "BND_WorldLimit");
+  }
   for (const portal of portals) {
     register(portal.id, portal.mesh.name);
   }
@@ -1144,6 +1241,7 @@ const classifyStageAsset = (
   const assemblyVolumes: AuthoredAssemblyVolume[] = [];
   const bitFlightTransitionVolumes: AuthoredBitFlightTransitionVolume[] = [];
   const boundaries: Array<{ id: "stage"; mesh: Mesh }> = [];
+  const worldBoundaries: Array<{ id: "world-limit"; mesh: Mesh }> = [];
   const portals: StagePortal[] = [];
 
   for (const mesh of authoredMeshes) {
@@ -1177,6 +1275,13 @@ const classifyStageAsset = (
       } else {
         navSources.push(source);
       }
+    } else if (isStageRoomVariantTileMesh(mesh)) {
+      if (stage.roomVariantNavmesh.mode !== "required") {
+        throw new Error(
+          `roomVariantNavmesh=unsupportedではroom_variant_tileを使用できません: ${mesh.name}`
+        );
+      }
+      configureSemanticMesh(mesh);
     } else if (mesh.name.startsWith("VOL_")) {
       assertNameHasSuffix(mesh.name, "VOL_");
       configureSemanticMesh(mesh);
@@ -1196,6 +1301,10 @@ const classifyStageAsset = (
       const boundary = classifyBoundary(mesh);
       configureSemanticMesh(mesh);
       boundaries.push(boundary);
+    } else if (mesh.name === "BND_WorldLimit") {
+      const boundary = classifyWorldBoundary(mesh);
+      configureSemanticMesh(mesh);
+      worldBoundaries.push(boundary);
     } else if (mesh.name.startsWith("PRT_")) {
       assertNameHasSuffix(mesh.name, "PRT_");
       const portal = classifyPortal(mesh);
@@ -1215,6 +1324,12 @@ const classifyStageAsset = (
     assertFiniteNodeTransform(node);
     if (node.name === "META_Stage") {
       metadataEntries.push(classifyMetadata(node, stage));
+    } else if (isStageRoomVariantMarkerNode(node)) {
+      if (stage.roomVariantNavmesh.mode !== "required") {
+        throw new Error(
+          `roomVariantNavmesh=unsupportedではroom_variantを使用できません: ${node.name}`
+        );
+      }
     } else if (node.name.startsWith("MRK_")) {
       assertNameHasSuffix(node.name, "MRK_");
       const classified = classifyMarker(node);
@@ -1240,6 +1355,19 @@ const classifyStageAsset = (
   if (boundaries.length !== 1) {
     throw new Error(`BND_Stageは1個必要です: ${boundaries.length}個`);
   }
+  if (stage.worldBoundaryMode === "required" && worldBoundaries.length !== 1) {
+    throw new Error(
+      `worldBoundaryMode=requiredではBND_WorldLimitが1個必要です: ${worldBoundaries.length}個`
+    );
+  }
+  if (
+    stage.worldBoundaryMode === "unsupported" &&
+    worldBoundaries.length !== 0
+  ) {
+    throw new Error(
+      `worldBoundaryMode=unsupportedではBND_WorldLimitを使用できません: ${worldBoundaries.length}個`
+    );
+  }
   const playerSpawns = markers.filter((marker) => marker.role === "player_spawn");
   if (playerSpawns.length !== 1) {
     throw new Error(`player_spawnは1個必要です: ${playerSpawns.length}個`);
@@ -1256,14 +1384,30 @@ const classifyStageAsset = (
     }
   }
 
+  const roomVariants =
+    stage.roomVariantNavmesh.mode === "required"
+      ? createStageRoomVariantAssetRegistry({
+          markerNodes: authoredEmptyNodes.filter(
+            isStageRoomVariantMarkerNode
+          ),
+          volumeMeshes: authoredMeshes.filter(isStageRoomVariantTileMesh),
+          visualMeshes,
+          normalColliders,
+          humanNavSourceMeshes: navSources.map((source) => source.mesh),
+          authoredNodes
+        })
+      : null;
+
   assertUniqueSemanticIds(
     markers,
     volumes,
     bitFlightTransitionVolumes,
     boundaries[0].id,
+    worldBoundaries[0]?.id ?? null,
     portals,
     links,
-    bitFlightLinks
+    bitFlightLinks,
+    roomVariants
   );
 
   return {
@@ -1280,9 +1424,11 @@ const classifyStageAsset = (
     assemblyVolumes,
     bitFlightTransitionVolumes,
     boundaryMesh: boundaries[0].mesh,
+    worldBoundaryMesh: worldBoundaries[0]?.mesh ?? null,
     portals,
     links,
-    bitFlightLinks
+    bitFlightLinks,
+    roomVariants
   };
 };
 
@@ -1717,6 +1863,29 @@ const assertCatalogEntry = (stage: StageCatalogEntry) => {
   if (!stage.bitNavmeshUrl.endsWith(".bit-flight.navmesh.bin")) {
     throw new Error(`ビット用NavMesh URLが不正です: ${stage.bitNavmeshUrl}`);
   }
+  if (stage.roomVariantNavmesh.mode === "unsupported") {
+    if (
+      Object.keys(stage.roomVariantNavmesh).length !== 1
+    ) {
+      throw new Error(
+        `roomVariantNavmesh=unsupportedへURL・hashは指定できません: ${stage.id}`
+      );
+    }
+  } else if (stage.roomVariantNavmesh.mode === "required") {
+    if (
+      Object.keys(stage.roomVariantNavmesh).length !== 3 ||
+      !stage.roomVariantNavmesh.url.endsWith(
+        ".room-variants.navmesh.bin"
+      ) ||
+      !SHA256_PATTERN.test(stage.roomVariantNavmesh.sha256)
+    ) {
+      throw new Error(
+        `roomVariantNavmesh=requiredのURL・SHA-256が不正です: ${stage.id}`
+      );
+    }
+  } else {
+    throw new Error(`roomVariantNavmesh.modeが不正です: ${stage.id}`);
+  }
   if (!Number.isInteger(stage.assetSchemaVersion) || stage.assetSchemaVersion <= 0) {
     throw new Error(`資産schema versionが不正です: ${stage.assetSchemaVersion}`);
   }
@@ -1734,6 +1903,12 @@ const assertCatalogEntry = (stage: StageCatalogEntry) => {
   }
   if (!SHA256_PATTERN.test(stage.bitNavmeshSha256)) {
     throw new Error(`ビット用NavMesh SHA-256が不正です: ${stage.id}`);
+  }
+  if (
+    stage.worldBoundaryMode !== "required" &&
+    stage.worldBoundaryMode !== "unsupported"
+  ) {
+    throw new Error(`世界境界modeが不正です: ${stage.id}`);
   }
 };
 
@@ -1786,8 +1961,49 @@ const loadGlbContainer = async (
   return SceneLoader.LoadAssetContainerAsync("", file, scene, null, ".glb");
 };
 
+const assertRoomVariantRegistryMatchesBundle = (
+  registry: StageRoomVariantAssetRegistry,
+  bundle: HumanNavTileBundle
+) => {
+  const registryRoomIds = new Set<string>(registry.roomIds);
+  const bundleRoomIds = new Set(bundle.rooms.map((room) => room.roomId));
+  if (
+    registryRoomIds.size !== bundleRoomIds.size ||
+    [...registryRoomIds].some((roomId) => !bundleRoomIds.has(roomId))
+  ) {
+    throw new Error(
+      "GLBのroom_variant room ID集合がNavMesh bundleと一致しません。"
+    );
+  }
+};
+
+const createRoomVariantActivation = (
+  registry: StageRoomVariantAssetRegistry,
+  selections: readonly HumanNavRoomVariantSelection[]
+): StageRoomVariantActivation => {
+  const selectionByRoom = Object.fromEntries(
+    selections.map((selection) => [
+      selection.roomId,
+      selection.variant
+    ])
+  ) as StageRoomVariantSelectionByRoom;
+  return registry.activate(selectionByRoom);
+};
+
+const applyRoomVariantActivation = (
+  activation: StageRoomVariantActivation
+) => {
+  for (const variant of activation.selectedVariants) {
+    variant.node.setEnabled(true);
+  }
+  for (const variant of activation.unselectedVariants) {
+    variant.node.setEnabled(false);
+  }
+};
+
 export type StageSpatialContextLoadOptions = Readonly<{
   queryDiagnostics?: StageSpatialQueryDiagnostics;
+  roomVariantSelections?: readonly HumanNavRoomVariantSelection[];
 }>;
 
 export const loadStageSpatialContext = async (
@@ -1796,12 +2012,38 @@ export const loadStageSpatialContext = async (
   options: StageSpatialContextLoadOptions = {}
 ): Promise<StageSpatialContext> => {
   assertCatalogEntry(stage);
-  const [glbData, navmeshData, bitNavmeshData] = await Promise.all([
+  if (
+    stage.roomVariantNavmesh.mode === "required" &&
+    !options.roomVariantSelections
+  ) {
+    throw new Error(
+      `roomVariantNavmesh=requiredでは全室variant選択が必要です: ${stage.id}`
+    );
+  }
+  if (
+    stage.roomVariantNavmesh.mode === "unsupported" &&
+    options.roomVariantSelections
+  ) {
+    throw new Error(
+      `roomVariantNavmesh=unsupportedへvariant選択は指定できません: ${stage.id}`
+    );
+  }
+  const roomVariantNavmeshRequest =
+    stage.roomVariantNavmesh.mode === "required"
+      ? fetchBinary(stage.roomVariantNavmesh.url)
+      : Promise.resolve<Uint8Array | null>(null);
+  const [
+    glbData,
+    navmeshData,
+    bitNavmeshData,
+    roomVariantNavmeshData
+  ] = await Promise.all([
     fetchBinary(stage.glbUrl),
     fetchBinary(stage.navmeshUrl),
-    fetchBinary(stage.bitNavmeshUrl)
+    fetchBinary(stage.bitNavmeshUrl),
+    roomVariantNavmeshRequest
   ]);
-  await Promise.all([
+  const hashChecks = [
     assertHash("GLB", glbData, stage.glbSha256),
     assertHash("NavMesh", navmeshData, stage.navmeshSha256),
     assertHash(
@@ -1809,12 +2051,32 @@ export const loadStageSpatialContext = async (
       bitNavmeshData,
       stage.bitNavmeshSha256
     )
-  ]);
+  ];
+  if (stage.roomVariantNavmesh.mode === "required") {
+    if (!roomVariantNavmeshData) {
+      throw new Error(
+        `必須の部屋variant NavMesh bundleがありません: ${stage.id}`
+      );
+    }
+    hashChecks.push(
+      assertHash(
+        "部屋variant NavMesh",
+        roomVariantNavmeshData,
+        stage.roomVariantNavmesh.sha256
+      )
+    );
+  }
+  await Promise.all(hashChecks);
 
   let container: AssetContainer | null = null;
   let navigation: NavigationWorld | null = null;
   let bitNavigation: BitFlightNavigationWorld | null = null;
+  let dynamicVariants: DynamicStageSpatialVariants | null = null;
   let queries: StageSpatialQueries | null = null;
+  let worldBoundary: OwnedStageWorldBoundary | null = null;
+  let roomVariantActivation: StageRoomVariantActivation | null = null;
+  let roomVariantSelection: readonly HumanNavRoomVariantSelection[] =
+    Object.freeze([]);
   try {
     container = await loadGlbContainer(scene, stage, glbData);
     const managementRoot = container.createRootMesh();
@@ -1837,20 +2099,85 @@ export const loadStageSpatialContext = async (
           data: payload.data
         })
     );
-    navigation = await createNavigationWorld(navmeshData, links.all);
+    if (stage.roomVariantNavmesh.mode === "required") {
+      if (
+        !roomVariantNavmeshData ||
+        !options.roomVariantSelections ||
+        !classification.roomVariants
+      ) {
+        throw new Error(
+          `必須の部屋variant資源を組み立てられません: ${stage.id}`
+        );
+      }
+      const roomVariantBundle = await decodeHumanNavTileBundle(
+        roomVariantNavmeshData,
+        navmeshData,
+        stage.id,
+        stage.navProfileId
+      );
+      assertRoomVariantRegistryMatchesBundle(
+        classification.roomVariants,
+        roomVariantBundle
+      );
+      roomVariantActivation = createRoomVariantActivation(
+        classification.roomVariants,
+        options.roomVariantSelections
+      );
+      applyRoomVariantActivation(roomVariantActivation);
+      const assembly = await assembleHumanNavTileBundle(
+        roomVariantBundle,
+        options.roomVariantSelections
+      );
+      roomVariantSelection = assembly.selectedVariants;
+      navigation = createNavigationWorldFromNavMesh(
+        assembly.navMesh,
+        links.all
+      );
+    } else {
+      if (classification.roomVariants) {
+        throw new Error(
+          `roomVariantNavmesh=unsupportedにroom variant registryがあります: ${stage.id}`
+        );
+      }
+      navigation = await createNavigationWorld(navmeshData, links.all);
+    }
     bitNavigation = await createBitFlightNavigationWorld(
       bitFlightDefinition,
       bitNavmeshPayloads
     );
     container.addAllToScene();
 
+    const inactiveVisualMeshes = new Set(
+      roomVariantActivation?.inactive.visualMeshes ?? []
+    );
+    const inactiveNormalColliders = new Set(
+      roomVariantActivation?.inactive.colliderMeshes ?? []
+    );
+    const inactiveHumanNavSources = new Set(
+      roomVariantActivation?.inactive.humanNavSourceMeshes ?? []
+    );
+    const activeVisualMeshes = Object.freeze(
+      classification.visualMeshes.filter(
+        (mesh) => !inactiveVisualMeshes.has(mesh)
+      )
+    );
+    const activeNormalColliders = Object.freeze(
+      classification.normalColliders.filter(
+        (mesh) => !inactiveNormalColliders.has(mesh)
+      )
+    );
+    const activeHumanNavSources = Object.freeze(
+      classification.navSources.filter(
+        (source) => !inactiveHumanNavSources.has(source.mesh)
+      )
+    );
     const humanMovementColliders = Object.freeze([
-      ...classification.normalColliders,
+      ...activeNormalColliders,
       ...classification.actorOnlyColliders,
       ...classification.humanOnlyColliders
     ]);
     const bitMovementColliders = Object.freeze([
-      ...classification.normalColliders,
+      ...activeNormalColliders,
       ...classification.actorOnlyColliders
     ]);
     const movementColliders: StageMovementColliderSets = Object.freeze({
@@ -1858,10 +2185,10 @@ export const loadStageSpatialContext = async (
       npc: humanMovementColliders,
       bit: bitMovementColliders
     });
-    const beamBlockers = Object.freeze([...classification.normalColliders]);
-    const sightBlockers = Object.freeze([...classification.normalColliders]);
+    const beamBlockers = Object.freeze([...activeNormalColliders]);
+    const sightBlockers = Object.freeze([...activeNormalColliders]);
     const navSourceMeshes = Object.freeze(
-      classification.navSources.map((source) => source.mesh)
+      activeHumanNavSources.map((source) => source.mesh)
     );
     const bitFlightNavSourceMeshes = Object.freeze(
       classification.bitFlightNavSources.map((source) => source.mesh)
@@ -1872,17 +2199,26 @@ export const loadStageSpatialContext = async (
         (transition) => transition.mesh
       ),
       classification.boundaryMesh,
-      ...classification.portals.map((portal) => portal.mesh)
+      ...(classification.worldBoundaryMesh
+        ? [classification.worldBoundaryMesh]
+        : []),
+      ...classification.portals.map((portal) => portal.mesh),
+      ...(classification.roomVariants?.tileVolumes.map(
+        (tile) => tile.mesh
+      ) ?? [])
     ]);
     const semanticNodes = Object.freeze([
       classification.metadata.node,
       ...classification.markers.map((marker) => marker.node),
       ...classification.links.map((link) => link.node),
-      ...classification.bitFlightLinks.map((link) => link.node)
+      ...classification.bitFlightLinks.map((link) => link.node),
+      ...(classification.roomVariants?.variants.map(
+        (variant) => variant.node
+      ) ?? [])
     ]);
     const resources: StageSpatialResources = Object.freeze({
-      visualMeshes: Object.freeze([...classification.visualMeshes]),
-      normalColliders: Object.freeze([...classification.normalColliders]),
+      visualMeshes: activeVisualMeshes,
+      normalColliders: activeNormalColliders,
       actorOnlyColliders: Object.freeze([...classification.actorOnlyColliders]),
       humanOnlyColliders: Object.freeze([...classification.humanOnlyColliders]),
       movementColliders,
@@ -1898,13 +2234,27 @@ export const loadStageSpatialContext = async (
     });
     const markers = createMarkerRegistry(classification.markers);
     const volumes = createVolumeRegistry(classification.volumes);
-    queries = createStageSpatialQueries(
-      scene,
-      {
+    const dynamicAssets = createStageDynamicAssetRegistries({
+      markerNodes: classification.markers.map((marker) => marker.node),
+      volumeMeshes: classification.volumes.map((volume) => volume.mesh),
+      visualMeshes: activeVisualMeshes,
+      normalColliders: activeNormalColliders,
+      humanOnlyColliders: classification.humanOnlyColliders,
+      links: links.all
+    });
+    dynamicVariants = createDynamicStageSpatialVariants(
+      Object.freeze({
         movementColliders,
         groundColliders: resources.normalColliders,
         beamBlockers,
         sightBlockers,
+        bitObstacles: bitMovementColliders
+      })
+    );
+    queries = createStageSpatialQueries(
+      scene,
+      dynamicVariants,
+      {
         volumes: volumes.all,
         diagnostics: options.queryDiagnostics
       }
@@ -1914,6 +2264,12 @@ export const loadStageSpatialContext = async (
       mesh: classification.boundaryMesh,
       contains: createStageBoundaryContainsQuery(classification.boundaryMesh)
     });
+    worldBoundary = classification.worldBoundaryMesh
+      ? createStageWorldBoundary(
+          classification.worldBoundaryMesh,
+          classification.boundaryMesh
+        )
+      : null;
     assertSemanticsInsideBoundary(
       boundary,
       markers.all,
@@ -1932,11 +2288,18 @@ export const loadStageSpatialContext = async (
     const ownedContainer = container;
     const ownedNavigation = navigation;
     const ownedBitNavigation = bitNavigation;
+    const ownedDynamicVariants = dynamicVariants;
     const ownedQueries = queries;
+    const ownedWorldBoundary = worldBoundary;
     return Object.freeze({
       stage,
       metadata: classification.metadata,
       resources,
+      dynamicVariants: ownedDynamicVariants,
+      doorAssets: dynamicAssets.doors,
+      elevatorAssets: dynamicAssets.elevators,
+      roomVariants: classification.roomVariants,
+      roomVariantSelection,
       navigation: ownedNavigation,
       bitNavigation: ownedBitNavigation,
       markers,
@@ -1944,6 +2307,7 @@ export const loadStageSpatialContext = async (
       assemblyVenues,
       links,
       boundary,
+      worldBoundary: ownedWorldBoundary,
       queries: ownedQueries,
       dispose: () => {
         if (disposed) {
@@ -1951,6 +2315,8 @@ export const loadStageSpatialContext = async (
         }
         disposed = true;
         ownedQueries.dispose();
+        ownedDynamicVariants.dispose();
+        ownedWorldBoundary?.dispose();
         ownedBitNavigation.dispose();
         ownedNavigation.dispose();
         ownedContainer.removeAllFromScene();
@@ -1959,6 +2325,8 @@ export const loadStageSpatialContext = async (
     });
   } catch (error) {
     queries?.dispose();
+    dynamicVariants?.dispose();
+    worldBoundary?.dispose();
     bitNavigation?.dispose();
     navigation?.dispose();
     container?.removeAllFromScene();

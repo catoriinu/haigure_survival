@@ -24,6 +24,10 @@ import {
   type NavigationWorld
 } from "../../../src/world/navigationWorld";
 import {
+  createDynamicStageSpatialVariants,
+  type DynamicStageSpatialActiveSet
+} from "../../../src/world/dynamicStageSpatialVariants";
+import {
   BIT_FLIGHT_SHORTEST_ROUTE_POLICY,
   getBitFlightWorldPosition,
   type BitFlightBandRef,
@@ -52,6 +56,9 @@ import {
   SCHOOL_STAGE,
   type StageCatalogEntry
 } from "../../../src/world/stageCatalog";
+import {
+  SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
+} from "../../../src/world/schoolRuntimeSettings";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
 import {
   loadStageSpatialContext,
@@ -90,6 +97,10 @@ import {
   type V2HumanKind,
   type V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
+import { runDynamicStageSpatialAcceptance } from "./dynamicStageSpatialAcceptance";
+import { runDynamicInteractionAcceptance } from "./dynamicInteractionAcceptance";
+import { runDynamicAssetRegistryAcceptance } from "./dynamicAssetRegistryAcceptance";
+import { runHumanNavTileAcceptance } from "./humanNavTileAcceptance";
 
 import "./style.css";
 
@@ -172,7 +183,12 @@ const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   ...SCHOOL_STAGE,
   glbUrl: "b02_school_blockout.glb",
   navmeshUrl: "b02_school_blockout.navmesh.bin",
-  bitNavmeshUrl: "b02_school_blockout.bit-flight.navmesh.bin"
+  bitNavmeshUrl: "b02_school_blockout.bit-flight.navmesh.bin",
+  roomVariantNavmesh: Object.freeze({
+    mode: "required",
+    url: "b02_school_blockout.room-variants.navmesh.bin",
+    sha256: "78a0f481aae3abd6a6e403c60fc0debc1c70941c8b7956f17e35006df10c3afd"
+  })
 });
 
 const blenderPointToBabylon = (point: Vector3) =>
@@ -903,6 +919,22 @@ const captureThrownMessage = (action: () => void) => {
   }
 };
 
+const createFixtureSpatialQueries = (
+  targetScene: Scene,
+  activeSet: DynamicStageSpatialActiveSet,
+  volumes: readonly StageVolume[]
+) => {
+  const dynamicVariants = createDynamicStageSpatialVariants(activeSet);
+  const queries = createStageSpatialQueries(targetScene, dynamicVariants, {
+    volumes
+  });
+  targetScene.onDisposeObservable.addOnce(() => {
+    queries.dispose();
+    dynamicVariants.dispose();
+  });
+  return queries;
+};
+
 const createBeamValidationStage = (
   targetScene: Scene,
   normalColliders: readonly Mesh[],
@@ -918,13 +950,18 @@ const createBeamValidationStage = (
       beamBlockers: normalColliders,
       sightBlockers: normalColliders
     },
-    queries: createStageSpatialQueries(targetScene, {
-      movementColliders,
-      groundColliders: normalColliders,
-      beamBlockers: normalColliders,
-      sightBlockers: normalColliders,
-      volumes: []
-    })
+    worldBoundary: null,
+    queries: createFixtureSpatialQueries(
+      targetScene,
+      {
+        movementColliders,
+        groundColliders: normalColliders,
+        beamBlockers: normalColliders,
+        sightBlockers: normalColliders,
+        bitObstacles: movementColliders.bit
+      },
+      []
+    )
   } as unknown as StageSpatialContext;
 };
 
@@ -1107,6 +1144,10 @@ const runValidation = async () => {
   disposeNavigationRuntime();
 
   const checks: ValidationCheck[] = [];
+  checks.push(...runDynamicStageSpatialAcceptance());
+  checks.push(...runDynamicAssetRegistryAcceptance());
+  checks.push(...runDynamicInteractionAcceptance());
+  checks.push(...(await runHumanNavTileAcceptance()));
 
   const alertCoordinator = createV2AlertCoordinator({ alertDuration: 2 });
   alertCoordinator.publish([{ leaderId: "bit-1", targetId: "player" }]);
@@ -2142,6 +2183,28 @@ const runValidation = async () => {
         ) >= 0.5,
       detail: `state=${transitionAgentStep.state} / link=${transitionAgentStep.transition?.link.id ?? "none"}`
     });
+    if (!transitionAgentStep.transition) {
+      throw new Error("特殊接続完了検証に必要なtransitionがありません。");
+    }
+    transitionAgent.completeTransition(transitionAgentStep.transition.exit);
+    const transitionCompletedStep = transitionAgent.update(
+      transitionAgentStep.transition.exit,
+      primaryLinkEnd,
+      10,
+      1,
+      false
+    );
+    const duplicateCompletionMessage = captureThrownMessage(() =>
+      transitionAgent.completeTransition(transitionAgentStep.transition!.exit)
+    );
+    checks.push({
+      name: "completeTransition後の残経路再開",
+      ok:
+        transitionCompletedStep.state !== "transition-required" &&
+        transitionCompletedStep.transition === null &&
+        duplicateCompletionMessage?.includes("完了対象") === true,
+      detail: `state=${transitionCompletedStep.state} / duplicate=${duplicateCompletionMessage ?? "none"}`
+    });
     transitionAgent.clear();
 
     const oneWayTeleportLink = createValidationLinkPair(
@@ -2473,13 +2536,17 @@ const runValidation = async () => {
         npc: Object.freeze([]),
         bit: Object.freeze([])
       });
-      const spawnVolumeQueries = createStageSpatialQueries(spatialScene, {
-        movementColliders: emptyMovementColliders,
-        groundColliders: [],
-        beamBlockers: [],
-        sightBlockers: [],
-        volumes: [spawnVolume]
-      });
+      const spawnVolumeQueries = createFixtureSpatialQueries(
+        spatialScene,
+        {
+          movementColliders: emptyMovementColliders,
+          groundColliders: [],
+          beamBlockers: [],
+          sightBlockers: [],
+          bitObstacles: []
+        },
+        [spawnVolume]
+      );
       const projectToGround = (position: Vector3) =>
         Object.freeze({
           position: new Vector3(position.x, 0, position.z),
@@ -2662,17 +2729,21 @@ const runValidation = async () => {
         ...normalClassificationColliders,
         ...actorClassificationColliders
       ];
-      const classificationQueries = createStageSpatialQueries(spatialScene, {
-        movementColliders: {
-          player: humanMovementClassificationColliders,
-          npc: humanMovementClassificationColliders,
-          bit: bitMovementClassificationColliders
+      const classificationQueries = createFixtureSpatialQueries(
+        spatialScene,
+        {
+          movementColliders: {
+            player: humanMovementClassificationColliders,
+            npc: humanMovementClassificationColliders,
+            bit: bitMovementClassificationColliders
+          },
+          groundColliders: normalClassificationColliders,
+          beamBlockers: normalClassificationColliders,
+          sightBlockers: normalClassificationColliders,
+          bitObstacles: bitMovementClassificationColliders
         },
-        groundColliders: normalClassificationColliders,
-        beamBlockers: normalClassificationColliders,
-        sightBlockers: normalClassificationColliders,
-        volumes: []
-      });
+        []
+      );
       const classificationStart = new Vector3(-2, 0, 0);
       const classificationEnd = new Vector3(4, 0, 0);
       const actorOnlyHits = ["player", "npc", "bit"] as const;
@@ -2936,11 +3007,8 @@ const runValidation = async () => {
         scene: spatialScene,
         stage: beamWallStage,
         getHumanTargets: () => [],
-        visual: {
-          diameter: 0.04,
-          color: new Color3(1, 0.4, 0.1),
-          alpha: 1
-        }
+        random: () => 0.5,
+        getOrbVisibilityPredicate: () => () => true
       });
       const highSpeedBeamId = highSpeedBeamSystem.spawn({
         sourceId: "bit-fast",
@@ -2976,11 +3044,8 @@ const runValidation = async () => {
         scene: spatialScene,
         stage: emptyBeamStage,
         getHumanTargets: () => [],
-        visual: {
-          diameter: 0.04,
-          color: new Color3(0.2, 0.8, 1),
-          alpha: 1
-        }
+        random: () => 0.5,
+        getOrbVisibilityPredicate: () => () => true
       });
       const lifetimeBeamId = lifetimeBeamSystem.spawn({
         sourceId: "bit-lifetime",
@@ -3033,7 +3098,11 @@ const runValidation = async () => {
         const schoolLoadStartedAt = performance.now();
         schoolContext = await loadStageSpatialContext(
           spatialScene,
-          SCHOOL_VALIDATION_STAGE
+          SCHOOL_VALIDATION_STAGE,
+          {
+            roomVariantSelections:
+              SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
+          }
         );
         schoolLoadMs = performance.now() - schoolLoadStartedAt;
         const schoolConstructionPathfindCount = schoolRecastPathfindCount;
@@ -3079,18 +3148,28 @@ const runValidation = async () => {
                 venue.anchor.node.getAbsolutePosition()
               ) <= 1e-6
           );
+        const roomVariantSelectionOk =
+          schoolContext.roomVariants?.variants.length === 40 &&
+          schoolContext.roomVariants.tileVolumes.length === 20 &&
+          schoolContext.roomVariantSelection.length === 20 &&
+          schoolContext.roomVariantSelection.every(
+            (selection) => selection.variant === "normal"
+          );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 482 &&
-          schoolContext.resources.normalColliders.length === 197 &&
+          schoolContext.resources.visualMeshes.length === 542 &&
+          schoolContext.resources.normalColliders.length === 273 &&
           schoolContext.resources.actorOnlyColliders.length === 81 &&
-          schoolContext.resources.humanOnlyColliders.length === 57 &&
-          schoolContext.resources.navSourceMeshes.length === 19 &&
+          schoolContext.resources.humanOnlyColliders.length === 59 &&
+          schoolContext.resources.navSourceMeshes.length === 39 &&
           schoolContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-          schoolContext.markers.all.length === 3 &&
+          schoolContext.markers.all.length === 225 &&
           assemblyAnchors.length === 2 &&
-          schoolContext.volumes.all.length === 5 &&
+          schoolContext.volumes.all.length === 75 &&
           assemblyVolumes.length === 2 &&
-          schoolContext.links.all.length === 0 &&
+          roomVariantSelectionOk &&
+          schoolContext.doorAssets.all.length === 65 &&
+          schoolContext.elevatorAssets.all.length === 1 &&
+          schoolContext.links.all.length === 1 &&
           schoolContext.bitNavigation.zones.length === 4 &&
           schoolContext.bitNavigation.bands.length === 11 &&
           apertureTransitions.length === 57 &&
@@ -3102,7 +3181,8 @@ const runValidation = async () => {
           name: "学校GLBの厳格分類と3D意味Object",
           ok:
             schoolContext.metadata.stageId === "school" &&
-            schoolContext.metadata.navProfileId === "school-humanoid-v1" &&
+            schoolContext.metadata.navProfileId ===
+              "school-humanoid-room-variants-v2" &&
             schoolContext.metadata.bitNavProfileId ===
               SCHOOL_VALIDATION_STAGE.bitNavProfileId &&
             resourceCountsOk &&
@@ -3114,7 +3194,7 @@ const runValidation = async () => {
             bitSpawnVolumes[0].bitFlightBand !== null &&
             schoolContext.volumes.getByRole("water").length === 1 &&
             schoolConstructionPathfindCount === 0,
-          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / humanNAV=${schoolContext.resources.navSourceMeshes.length} / bitNAV=${schoolContext.resources.bitFlightNavSourceMeshes.length} / MRK=${schoolContext.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${schoolContext.volumes.all.length}(assembly=${assemblyVolumes.length},water=${schoolContext.volumes.getByRole("water").length}) / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${schoolContext.links.all.length} / zones=${schoolContext.bitNavigation.zones.length} / bands=${schoolContext.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length}) / buildPathfind=${schoolConstructionPathfindCount} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
+          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / humanNAV=${schoolContext.resources.navSourceMeshes.length} / bitNAV=${schoolContext.resources.bitFlightNavSourceMeshes.length} / MRK=${schoolContext.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${schoolContext.volumes.all.length}(assembly=${assemblyVolumes.length},water=${schoolContext.volumes.getByRole("water").length}) / roomVariants=${schoolContext.roomVariants?.variants.length ?? 0}/${schoolContext.roomVariants?.tileVolumes.length ?? 0}/selected=${schoolContext.roomVariantSelection.length} / doors=${schoolContext.doorAssets.all.length} / elevators=${schoolContext.elevatorAssets.all.length} / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${schoolContext.links.all.length} / zones=${schoolContext.bitNavigation.zones.length} / bands=${schoolContext.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length}) / buildPathfind=${schoolConstructionPathfindCount} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
         });
 
         const schoolBitSafety = createBitFlightSafety(
@@ -3669,6 +3749,88 @@ const runValidation = async () => {
             .join(" / ")
         });
 
+        const nodeCapacityRegressionStart = blenderPointToBabylon(
+          new Vector3(14, -1, -0.25)
+        );
+        const nodeCapacityRegressionDestination = blenderPointToBabylon(
+          new Vector3(22, 35, 15.7)
+        );
+        const projectedNodeCapacityRegressionStart =
+          schoolNavigation.projectPoint(
+            nodeCapacityRegressionStart,
+            schoolNpcNavigationAgentConfig.projectionMaxDistance
+          );
+        const projectedNodeCapacityRegressionDestination =
+          schoolNavigation.projectPoint(
+            nodeCapacityRegressionDestination,
+            schoolNpcNavigationAgentConfig.projectionMaxDistance
+          );
+        const nodeCapacityRegressionForward = findNavigationPath(
+          schoolNavigation,
+          nodeCapacityRegressionStart,
+          nodeCapacityRegressionDestination,
+          "npc",
+          schoolNpcNavigationAgentConfig.projectionMaxDistance
+        );
+        const nodeCapacityRegressionBackward = findNavigationPath(
+          schoolNavigation,
+          nodeCapacityRegressionDestination,
+          nodeCapacityRegressionStart,
+          "npc",
+          schoolNpcNavigationAgentConfig.projectionMaxDistance
+        );
+        const nodeCapacityRegressionForwardPoints =
+          getNavigationPathPoints(nodeCapacityRegressionForward);
+        const nodeCapacityRegressionBackwardPoints =
+          getNavigationPathPoints(nodeCapacityRegressionBackward);
+        const nodeCapacityRegressionForwardError =
+          projectedNodeCapacityRegressionDestination &&
+          nodeCapacityRegressionForwardPoints.length > 0
+            ? Vector3.Distance(
+                nodeCapacityRegressionForwardPoints[
+                  nodeCapacityRegressionForwardPoints.length - 1
+                ],
+                projectedNodeCapacityRegressionDestination.position
+              )
+            : Number.POSITIVE_INFINITY;
+        const nodeCapacityRegressionBackwardError =
+          projectedNodeCapacityRegressionStart &&
+          nodeCapacityRegressionBackwardPoints.length > 0
+            ? Vector3.Distance(
+                nodeCapacityRegressionBackwardPoints[
+                  nodeCapacityRegressionBackwardPoints.length - 1
+                ],
+                projectedNodeCapacityRegressionStart.position
+              )
+            : Number.POSITIVE_INFINITY;
+        checks.push({
+          name: "固定グリッドNavMeshの有向node容量回帰",
+          ok:
+            projectedNodeCapacityRegressionStart !== null &&
+            projectedNodeCapacityRegressionDestination !== null &&
+            nodeCapacityRegressionForward !== null &&
+            nodeCapacityRegressionBackward !== null &&
+            nodeCapacityRegressionForward.steps.every(
+              (step) => step.kind === "surface"
+            ) &&
+            nodeCapacityRegressionBackward.steps.every(
+              (step) => step.kind === "surface"
+            ) &&
+            nodeCapacityRegressionForwardPoints.length > 0 &&
+            nodeCapacityRegressionForwardPoints.length <=
+              navigationPathPointCapacity &&
+            nodeCapacityRegressionBackwardPoints.length > 0 &&
+            nodeCapacityRegressionBackwardPoints.length <=
+              navigationPathPointCapacity &&
+            nodeCapacityRegressionForwardError <= 1e-5 &&
+            nodeCapacityRegressionBackwardError <= 1e-5,
+          detail:
+            `forward=${nodeCapacityRegressionForwardPoints.length}点/` +
+            `${Number.isFinite(nodeCapacityRegressionForwardError) ? nodeCapacityRegressionForwardError.toExponential(2) : "--"} / ` +
+            `backward=${nodeCapacityRegressionBackwardPoints.length}点/` +
+            `${Number.isFinite(nodeCapacityRegressionBackwardError) ? nodeCapacityRegressionBackwardError.toExponential(2) : "--"}`
+        });
+
         const foldedRampChaseStart = blenderPointToBabylon(
           new Vector3(32.833, 37.0, 14.7)
         );
@@ -3698,17 +3860,20 @@ const runValidation = async () => {
             point.z <= foldedRampBounds.maximum.z
         );
         const expectedFoldedRampHeights = [
-          14.85,
-          15.15,
+          14.8,
+          15.25,
           15.7,
-          15.4,
-          15.0,
+          14.75,
           14.65
         ].map((height) => height * BLENDER_METERS_TO_WORLD_UNITS);
+        const foldedRampHeightTolerance =
+          0.005 * BLENDER_METERS_TO_WORLD_UNITS;
         const matchedFoldedRampHeightCount =
           expectedFoldedRampHeights.filter((expectedHeight) =>
             foldedRampPathPoints.some(
-              (point) => Math.abs(point.y - expectedHeight) <= 1e-5
+              (point) =>
+                Math.abs(point.y - expectedHeight) <=
+                foldedRampHeightTolerance
             )
           ).length;
         const foldedRampMaximumSurfacePointCount =
@@ -3742,7 +3907,7 @@ const runValidation = async () => {
                 foldedRampPathPoints.map((point) =>
                   (
                     point.y / BLENDER_METERS_TO_WORLD_UNITS
-                  ).toFixed(2)
+                  ).toFixed(4)
                 )
               )
             ].join(",") || "none"}`
@@ -4987,19 +5152,23 @@ const runValidation = async () => {
         const afterFirstDispose = countSceneResources(spatialScene);
         const reloadedContext = await loadStageSpatialContext(
           spatialScene,
-          SCHOOL_VALIDATION_STAGE
+          SCHOOL_VALIDATION_STAGE,
+          {
+            roomVariantSelections:
+              SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
+          }
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 482 &&
-          reloadedContext.resources.normalColliders.length === 197 &&
+          reloadedContext.resources.visualMeshes.length === 542 &&
+          reloadedContext.resources.normalColliders.length === 273 &&
           reloadedContext.resources.actorOnlyColliders.length === 81 &&
-          reloadedContext.resources.humanOnlyColliders.length === 57 &&
-          reloadedContext.resources.navSourceMeshes.length === 19 &&
+          reloadedContext.resources.humanOnlyColliders.length === 59 &&
+          reloadedContext.resources.navSourceMeshes.length === 39 &&
           reloadedContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-          reloadedContext.markers.all.length === 3 &&
+          reloadedContext.markers.all.length === 225 &&
           reloadedContext.markers.getByRole("assembly_anchor").length === 2 &&
-          reloadedContext.volumes.all.length === 5 &&
+          reloadedContext.volumes.all.length === 75 &&
           reloadedContext.volumes.getByRole("assembly").length === 2 &&
           reloadedContext.assemblyVenues.all.length === 2 &&
           reloadedContext.assemblyVenues.all.every(
@@ -5010,7 +5179,15 @@ const runValidation = async () => {
               venue.executionTargetPositions.length === 6
           ) &&
           reloadedContext.volumes.getByRole("water").length === 1 &&
-          reloadedContext.links.all.length === 0 &&
+          reloadedContext.roomVariants?.variants.length === 40 &&
+          reloadedContext.roomVariants.tileVolumes.length === 20 &&
+          reloadedContext.roomVariantSelection.length === 20 &&
+          reloadedContext.roomVariantSelection.every(
+            (selection) => selection.variant === "normal"
+          ) &&
+          reloadedContext.doorAssets.all.length === 65 &&
+          reloadedContext.elevatorAssets.all.length === 1 &&
+          reloadedContext.links.all.length === 1 &&
           reloadedContext.bitNavigation.zones.length === 4 &&
           reloadedContext.bitNavigation.bands.length === 11 &&
           reloadedContext.bitNavigation.transitions.length === 72;

@@ -1,0 +1,585 @@
+import {
+  Color3,
+  Color4,
+  Mesh,
+  MeshBuilder,
+  PointLight,
+  Scene,
+  StandardMaterial,
+  Vector3,
+  VertexBuffer,
+  type InstancedMesh
+} from "@babylonjs/core";
+
+import {
+  V2_HIT_FADE_DURATION_SECONDS,
+  V2_HIT_FLICKER_DURATION_SECONDS,
+  V2_HIT_FLICKER_INTERVAL_SECONDS
+} from "./characterStateSystem";
+import {
+  isV2HitState,
+  type V2HumanKind,
+  type V2HumanTargetSnapshot
+} from "./combatTypes";
+
+export const V2_HIT_EFFECT_ALPHA = 0.45;
+export const V2_HIT_EFFECT_LIGHT_INTENSITY = 1.1;
+export const V2_HIT_EFFECT_LIGHT_RANGE_RATE = 1.2;
+export const V2_HIT_EFFECT_DIAMETER_MARGIN_RATE = 1.05;
+export const V2_HIT_EFFECT_PINK = Object.freeze(
+  new Color3(1, 0.18, 0.74)
+);
+export const V2_HIT_EFFECT_CYAN = Object.freeze(
+  new Color3(0.2, 0.96, 1)
+);
+export const V2_HIT_EFFECT_ORB_COUNT_MIN = 5;
+export const V2_HIT_EFFECT_ORB_COUNT_MAX = 20;
+export const V2_HIT_EFFECT_POOL_KINDS = Object.freeze([
+  "shell",
+  "material",
+  "light",
+  "orb"
+] as const);
+
+type V2HitEffectPoolKind =
+  (typeof V2_HIT_EFFECT_POOL_KINDS)[number];
+
+export type V2HitEffectPoolState = Readonly<{
+  capacity: number;
+  inUse: number;
+  available: number;
+}>;
+
+export type V2HitEffectPoolSnapshot = Readonly<
+  Record<V2HitEffectPoolKind, V2HitEffectPoolState>
+>;
+
+export type V2HitEffectSystemOptions = Readonly<{
+  scene: Scene;
+  random(): number;
+}>;
+
+export interface V2HitEffectSystem {
+  readonly activeCount: number;
+  prepareVisualResources(): Promise<void>;
+  start(target: V2HumanTargetSnapshot): boolean;
+  update(
+    deltaSeconds: number,
+    targets: readonly V2HumanTargetSnapshot[],
+    shouldRenderOrb: (position: Vector3) => boolean
+  ): void;
+  getVisualPoolSnapshot(): V2HitEffectPoolSnapshot;
+  clear(): void;
+  dispose(): void;
+}
+
+type HitEffectBundle = {
+  mesh: Mesh;
+  material: StandardMaterial;
+  light: PointLight;
+};
+
+type HitFadeOrb = {
+  mesh: InstancedMesh;
+  velocity: Vector3;
+  diameter: number;
+};
+
+type ActiveHitEffect = {
+  targetId: string;
+  kind: V2HumanKind;
+  bundle: HitEffectBundle;
+  diameter: number;
+  phase: "flicker" | "fade";
+  phaseElapsedSeconds: number;
+  phaseRemainingSeconds: number;
+  orbs: HitFadeOrb[];
+};
+
+const HIT_FADE_ORB_MIN_SCALE = 0.08;
+
+const assertNonNegativeFiniteNumber = (
+  label: string,
+  value: number
+): void => {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${label}には0以上の有限値が必要です: ${value}`);
+  }
+};
+
+const assertTarget = (target: V2HumanTargetSnapshot): void => {
+  if (target.id.length === 0 || target.id.trim() !== target.id) {
+    throw new Error("命中演出対象には前後空白のない非空IDが必要です");
+  }
+  const values = [
+    target.hitShape.center.x,
+    target.hitShape.center.y,
+    target.hitShape.center.z,
+    target.hitShape.radii.x,
+    target.hitShape.radii.y,
+    target.hitShape.radii.z
+  ];
+  if (values.some((value) => !Number.isFinite(value))) {
+    throw new Error(`命中演出対象の形状に非有限値があります: ${target.id}`);
+  }
+  if (
+    target.hitShape.radii.x <= 0 ||
+    target.hitShape.radii.y <= 0 ||
+    target.hitShape.radii.z <= 0
+  ) {
+    throw new Error(`命中演出対象の半径は正数である必要があります: ${target.id}`);
+  }
+};
+
+const calculateDiameter = (target: V2HumanTargetSnapshot): number =>
+  Math.hypot(
+    target.hitShape.radii.x * 2,
+    target.hitShape.radii.y * 2
+  ) * V2_HIT_EFFECT_DIAMETER_MARGIN_RATE;
+
+export const createV2HitEffectSystem = ({
+  scene,
+  random
+}: V2HitEffectSystemOptions): V2HitEffectSystem => {
+  if (typeof random !== "function") {
+    throw new Error("V2HitEffectSystemのrandomには関数が必要です");
+  }
+
+  const shellSource = MeshBuilder.CreateSphere(
+    "v2-hit-effect-shell-source",
+    { diameter: 1, segments: 18 },
+    scene
+  );
+  shellSource.isPickable = false;
+  shellSource.visibility = 0;
+  shellSource.setEnabled(false);
+  const shellSourceMaterial = new StandardMaterial(
+    "v2-hit-effect-shell-source-material",
+    scene
+  );
+  shellSourceMaterial.alpha = V2_HIT_EFFECT_ALPHA;
+  shellSourceMaterial.diffuseColor.copyFrom(V2_HIT_EFFECT_PINK);
+  shellSourceMaterial.emissiveColor.copyFrom(V2_HIT_EFFECT_PINK);
+  shellSourceMaterial.specularColor.copyFrom(Color3.Black());
+  shellSourceMaterial.backFaceCulling = false;
+  shellSource.material = shellSourceMaterial;
+
+  const orbSource = MeshBuilder.CreateSphere(
+    "v2-hit-effect-orb-source",
+    { diameter: 1, segments: 10 },
+    scene
+  );
+  orbSource.isPickable = false;
+  orbSource.isVisible = false;
+  const orbMaterial = new StandardMaterial(
+    "v2-hit-effect-orb-material",
+    scene
+  );
+  orbMaterial.alpha = V2_HIT_EFFECT_ALPHA;
+  orbMaterial.diffuseColor.copyFrom(V2_HIT_EFFECT_PINK);
+  orbMaterial.emissiveColor.copyFrom(V2_HIT_EFFECT_PINK);
+  orbMaterial.specularColor.copyFrom(Color3.Black());
+  orbSource.material = orbMaterial;
+  orbSource.registerInstancedBuffer(VertexBuffer.ColorInstanceKind, 4);
+  orbSource.instancedBuffers.instanceColor = new Color4(1, 1, 1, 1);
+
+  const bundles: HitEffectBundle[] = [];
+  const availableBundles: HitEffectBundle[] = [];
+  const orbInstances: InstancedMesh[] = [];
+  const availableOrbs: InstancedMesh[] = [];
+  const activeEffects = new Map<string, ActiveHitEffect>();
+  let nextBundleSerial = 1;
+  let nextOrbSerial = 1;
+  let disposed = false;
+
+  const assertActive = (): void => {
+    if (disposed) {
+      throw new Error("破棄済みのV2HitEffectSystemは使用できません");
+    }
+  };
+
+  const nextRandom = (): number => {
+    const value = random();
+    if (!Number.isFinite(value) || value < 0 || value >= 1) {
+      throw new Error(
+        "V2HitEffectSystemのrandomは0以上1未満を返す必要があります"
+      );
+    }
+    return value;
+  };
+  const randomInRange = (minimum: number, maximum: number): number =>
+    minimum + nextRandom() * (maximum - minimum);
+  const randomInteger = (minimum: number, maximum: number): number =>
+    minimum + Math.floor(nextRandom() * (maximum - minimum + 1));
+
+  const resetBundle = (bundle: HitEffectBundle): void => {
+    bundle.mesh.position.setAll(0);
+    bundle.mesh.rotation.setAll(0);
+    bundle.mesh.scaling.setAll(1);
+    bundle.mesh.visibility = 0;
+    bundle.mesh.setEnabled(false);
+    bundle.material.alpha = V2_HIT_EFFECT_ALPHA;
+    bundle.material.diffuseColor.copyFrom(V2_HIT_EFFECT_PINK);
+    bundle.material.emissiveColor.copyFrom(V2_HIT_EFFECT_PINK);
+    bundle.material.specularColor.copyFrom(Color3.Black());
+    bundle.material.backFaceCulling = false;
+    bundle.light.position.setAll(0);
+    bundle.light.diffuse.copyFrom(V2_HIT_EFFECT_PINK);
+    bundle.light.specular.copyFrom(V2_HIT_EFFECT_PINK);
+    bundle.light.intensity = 0;
+    bundle.light.range = 0;
+    bundle.light.setEnabled(false);
+  };
+
+  const createBundle = (): HitEffectBundle => {
+    const serial = nextBundleSerial;
+    nextBundleSerial += 1;
+    const mesh = shellSource.clone(
+      `v2-hit-effect-shell-${serial}`,
+      null,
+      false
+    );
+    if (!mesh) {
+      throw new Error("命中演出shellのclone作成に失敗しました");
+    }
+    const material = new StandardMaterial(
+      `v2-hit-effect-material-${serial}`,
+      scene
+    );
+    mesh.material = material;
+    mesh.isPickable = false;
+    const light = new PointLight(
+      `v2-hit-effect-light-${serial}`,
+      Vector3.Zero(),
+      scene
+    );
+    const bundle = { mesh, material, light };
+    resetBundle(bundle);
+    bundles.push(bundle);
+    return bundle;
+  };
+
+  const acquireBundle = (): HitEffectBundle => {
+    const bundle = availableBundles.pop() ?? createBundle();
+    resetBundle(bundle);
+    bundle.mesh.visibility = 1;
+    bundle.mesh.setEnabled(true);
+    bundle.light.setEnabled(true);
+    return bundle;
+  };
+
+  const releaseBundle = (bundle: HitEffectBundle): void => {
+    resetBundle(bundle);
+    availableBundles.push(bundle);
+  };
+
+  const resetOrb = (mesh: InstancedMesh): void => {
+    mesh.position.setAll(0);
+    mesh.rotation.setAll(0);
+    mesh.scaling.setAll(1);
+    mesh.instancedBuffers.instanceColor = new Color4(1, 1, 1, 1);
+    mesh.isVisible = false;
+    mesh.setEnabled(false);
+  };
+
+  const acquireOrb = (): InstancedMesh => {
+    let mesh = availableOrbs.pop();
+    if (!mesh) {
+      mesh = orbSource.createInstance(
+        `v2-hit-effect-orb-${nextOrbSerial}`
+      );
+      nextOrbSerial += 1;
+      mesh.isPickable = false;
+      orbInstances.push(mesh);
+    }
+    resetOrb(mesh);
+    mesh.isVisible = true;
+    mesh.setEnabled(true);
+    return mesh;
+  };
+
+  const releaseOrb = (mesh: InstancedMesh): void => {
+    resetOrb(mesh);
+    availableOrbs.push(mesh);
+  };
+
+  const releaseEffect = (effect: ActiveHitEffect): void => {
+    for (const orb of effect.orbs) {
+      releaseOrb(orb.mesh);
+    }
+    effect.orbs.length = 0;
+    releaseBundle(effect.bundle);
+    activeEffects.delete(effect.targetId);
+  };
+
+  const setBundleColor = (
+    bundle: HitEffectBundle,
+    color: Color3
+  ): void => {
+    bundle.material.diffuseColor.copyFrom(color);
+    bundle.material.emissiveColor.copyFrom(color);
+    bundle.light.diffuse.copyFrom(color);
+    bundle.light.specular.copyFrom(color);
+  };
+
+  const createFadeOrbs = (
+    effect: ActiveHitEffect,
+    center: Vector3,
+    shouldRenderOrb: (position: Vector3) => boolean
+  ): void => {
+    if (!shouldRenderOrb(center)) {
+      return;
+    }
+    const isPlayer = effect.kind === "player";
+    const diameter = isPlayer ? 0.04 : 0.02;
+    const offsetMinimum = isPlayer ? 0.01 : 0.005;
+    const offsetMaximum = isPlayer ? 0.07 : 0.03;
+    const speedMinimum = isPlayer ? 0.04 : 0.02;
+    const speedMaximum = isPlayer ? 0.11 : 0.05;
+    const count = randomInteger(
+      V2_HIT_EFFECT_ORB_COUNT_MIN,
+      V2_HIT_EFFECT_ORB_COUNT_MAX
+    );
+    for (let index = 0; index < count; index += 1) {
+      const theta = nextRandom() * Math.PI * 2;
+      const vertical = nextRandom() * 2 - 1;
+      const horizontal = Math.sqrt(1 - vertical * vertical);
+      const direction = new Vector3(
+        horizontal * Math.cos(theta),
+        vertical,
+        horizontal * Math.sin(theta)
+      );
+      const offset = randomInRange(offsetMinimum, offsetMaximum);
+      const mesh = acquireOrb();
+      mesh.position.copyFrom(
+        center.add(
+          direction.scale(effect.diameter / 2 + offset)
+        )
+      );
+      mesh.scaling.setAll(diameter);
+      effect.orbs.push({
+        mesh,
+        velocity: direction.scale(
+          randomInRange(speedMinimum, speedMaximum)
+        ),
+        diameter
+      });
+    }
+  };
+
+  const updateFadeOrbs = (
+    effect: ActiveHitEffect,
+    elapsedSeconds: number,
+    fadeRatio: number,
+    shouldRenderOrb: (position: Vector3) => boolean
+  ): void => {
+    const activeOrbs: HitFadeOrb[] = [];
+    for (const orb of effect.orbs) {
+      if (!shouldRenderOrb(orb.mesh.position)) {
+        releaseOrb(orb.mesh);
+        continue;
+      }
+      orb.mesh.position.addInPlace(
+        orb.velocity.scale(elapsedSeconds)
+      );
+      if (fadeRatio <= HIT_FADE_ORB_MIN_SCALE) {
+        releaseOrb(orb.mesh);
+        continue;
+      }
+      orb.mesh.scaling.setAll(orb.diameter * fadeRatio);
+      orb.mesh.instancedBuffers.instanceColor = new Color4(
+        1,
+        1,
+        1,
+        fadeRatio
+      );
+      activeOrbs.push(orb);
+    }
+    effect.orbs = activeOrbs;
+  };
+
+  const clear = (): void => {
+    for (const effect of [...activeEffects.values()]) {
+      releaseEffect(effect);
+    }
+  };
+
+  return {
+    get activeCount() {
+      return activeEffects.size;
+    },
+    prepareVisualResources: async () => {
+      assertActive();
+      const bundle = acquireBundle();
+      const compilations = [
+        bundle.material.forceCompilationAsync(bundle.mesh),
+        orbMaterial.forceCompilationAsync(orbSource, {
+          useInstances: true
+        })
+      ];
+      await Promise.all(compilations);
+      releaseBundle(bundle);
+    },
+    start: (target) => {
+      assertActive();
+      assertTarget(target);
+      if (activeEffects.has(target.id)) {
+        return false;
+      }
+      const diameter = calculateDiameter(target);
+      const bundle = acquireBundle();
+      bundle.mesh.position.copyFrom(target.hitShape.center);
+      bundle.mesh.scaling.setAll(diameter);
+      bundle.material.alpha = V2_HIT_EFFECT_ALPHA;
+      bundle.light.position.copyFrom(target.hitShape.center);
+      bundle.light.intensity = V2_HIT_EFFECT_LIGHT_INTENSITY;
+      bundle.light.range =
+        diameter * V2_HIT_EFFECT_LIGHT_RANGE_RATE;
+      setBundleColor(bundle, V2_HIT_EFFECT_PINK);
+      activeEffects.set(target.id, {
+        targetId: target.id,
+        kind: target.kind,
+        bundle,
+        diameter,
+        phase: "flicker",
+        phaseElapsedSeconds: 0,
+        phaseRemainingSeconds:
+          V2_HIT_FLICKER_DURATION_SECONDS,
+        orbs: []
+      });
+      return true;
+    },
+    update: (deltaSeconds, targets, shouldRenderOrb) => {
+      assertActive();
+      assertNonNegativeFiniteNumber(
+        "命中演出deltaSeconds",
+        deltaSeconds
+      );
+      if (typeof shouldRenderOrb !== "function") {
+        throw new Error("命中演出のorb表示判定には関数が必要です");
+      }
+      const targetById = new Map<string, V2HumanTargetSnapshot>();
+      for (const target of targets) {
+        assertTarget(target);
+        if (targetById.has(target.id)) {
+          throw new Error(`命中演出対象IDが重複しています: ${target.id}`);
+        }
+        targetById.set(target.id, target);
+      }
+      for (const effect of [...activeEffects.values()]) {
+        const target = targetById.get(effect.targetId);
+        if (!target || !isV2HitState(target.state)) {
+          releaseEffect(effect);
+          continue;
+        }
+        effect.bundle.mesh.position.copyFrom(target.hitShape.center);
+        effect.bundle.light.position.copyFrom(target.hitShape.center);
+        let remainingDeltaSeconds = deltaSeconds;
+        while (remainingDeltaSeconds > 0) {
+          const consumedSeconds = Math.min(
+            remainingDeltaSeconds,
+            effect.phaseRemainingSeconds
+          );
+          effect.phaseElapsedSeconds += consumedSeconds;
+          effect.phaseRemainingSeconds -= consumedSeconds;
+          remainingDeltaSeconds -= consumedSeconds;
+          if (effect.phase === "flicker") {
+            const isPink =
+              Math.floor(
+                effect.phaseElapsedSeconds /
+                  V2_HIT_FLICKER_INTERVAL_SECONDS
+              ) %
+                2 ===
+              0;
+            setBundleColor(
+              effect.bundle,
+              isPink
+                ? V2_HIT_EFFECT_PINK
+                : V2_HIT_EFFECT_CYAN
+            );
+            if (effect.phaseRemainingSeconds > 0) {
+              continue;
+            }
+            effect.phase = "fade";
+            effect.phaseElapsedSeconds = 0;
+            effect.phaseRemainingSeconds =
+              V2_HIT_FADE_DURATION_SECONDS;
+            setBundleColor(effect.bundle, V2_HIT_EFFECT_PINK);
+            createFadeOrbs(
+              effect,
+              target.hitShape.center,
+              shouldRenderOrb
+            );
+            continue;
+          }
+          const fadeRatio =
+            effect.phaseRemainingSeconds /
+            V2_HIT_FADE_DURATION_SECONDS;
+          effect.bundle.material.alpha =
+            V2_HIT_EFFECT_ALPHA * fadeRatio;
+          effect.bundle.light.intensity =
+            V2_HIT_EFFECT_LIGHT_INTENSITY * fadeRatio;
+          updateFadeOrbs(
+            effect,
+            consumedSeconds,
+            fadeRatio,
+            shouldRenderOrb
+          );
+          if (effect.phaseRemainingSeconds <= 0) {
+            releaseEffect(effect);
+            break;
+          }
+        }
+      }
+    },
+    getVisualPoolSnapshot: () => {
+      assertActive();
+      const bundleCapacity = bundles.length;
+      const bundleAvailable = availableBundles.length;
+      const bundleState = Object.freeze({
+        capacity: bundleCapacity,
+        inUse: bundleCapacity - bundleAvailable,
+        available: bundleAvailable
+      });
+      const orbCapacity = orbInstances.length;
+      const orbAvailable = availableOrbs.length;
+      return Object.freeze({
+        shell: bundleState,
+        material: bundleState,
+        light: bundleState,
+        orb: Object.freeze({
+          capacity: orbCapacity,
+          inUse: orbCapacity - orbAvailable,
+          available: orbAvailable
+        })
+      });
+    },
+    clear: () => {
+      assertActive();
+      clear();
+    },
+    dispose: () => {
+      if (disposed) {
+        return;
+      }
+      clear();
+      for (const orb of orbInstances) {
+        orb.dispose();
+      }
+      for (const bundle of bundles) {
+        bundle.light.dispose();
+        bundle.mesh.dispose(false, false);
+        bundle.material.dispose();
+      }
+      shellSource.dispose(false, false);
+      shellSourceMaterial.dispose();
+      orbSource.dispose(false, false);
+      orbMaterial.dispose();
+      availableOrbs.length = 0;
+      orbInstances.length = 0;
+      availableBundles.length = 0;
+      bundles.length = 0;
+      disposed = true;
+    }
+  };
+};
