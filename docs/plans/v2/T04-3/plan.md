@@ -173,3 +173,5 @@ T05 fixtureの旧2引数`createStageSpatialQueries()`全14呼出を、`DynamicSt
 2026-07-28 08:43 +09:00、公開前実装head`bbf4aaa7e11c8b0b02e26d09434d67bac6d1c4b6`を`codex/v2-t04-3-dynamic-runtime`へpushし、`develop`向けDraft Pull Request [#54](https://github.com/catoriinu/haigure_survival/pull/54)を作成した。GitHubから`OPEN`、`MERGEABLE`、Draft、base=`develop`、head=`codex/v2-t04-3-dynamic-runtime`を読み戻した。`origin/develop`は検証基点`4edd8f08c948a7822cd6bd623e25dff142078f18`のままで、`develop`へのmergeは行っていない。
 
 2026-07-28 08:45 +09:00、最新指示に従ってDraft Pull Request #54をcloseし、GitHubから`CLOSED`、`mergedAt=null`を読み戻した。`codex/v2-t04-3-dynamic-runtime`は後でB03-3Cのbranchへローカル統合できるよう残し、remote branchの削除、`develop`へのmerge、B03-3C worktreeの変更は行っていない。
+
+同日のI0第2次人間受入で、体育館西ギャラリー階段Rampの固定グリッドtile境界におけるY=0.475mから0.500mへのDetour snapを3D移動距離へ算入し、水平要求距離0.00504mを超えたと誤判定する停止を修正した。速度予算はXZ水平距離だけを厳格判定し、NavMesh面YとpolygonRefはDetour結果を保持する。報告座標固定回帰は3D距離0.025291321m、水平距離0.003569148m、polygon `6326784`→`6327296`を確認し、別の真の水平超過は引き続き例外とした。最終T04実ブラウザは106/106、warning／error 0件である。

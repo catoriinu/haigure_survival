@@ -2,7 +2,10 @@ import {
   Color3,
   InstancedMesh,
   Light,
+  MeshBuilder,
   NullEngine,
+  PBRMaterial,
+  PointLight,
   Scene,
   StandardMaterial,
   Vector3
@@ -17,7 +20,9 @@ import {
   createV2HitEffectSystem,
   V2_HIT_EFFECT_ALPHA,
   V2_HIT_EFFECT_CYAN,
+  V2_HIT_EFFECT_LIGHT_IDLE_RANGE,
   V2_HIT_EFFECT_LIGHT_INTENSITY,
+  V2_HIT_EFFECT_LIGHT_SLOT_COUNT,
   V2_HIT_EFFECT_PINK
 } from "../../../src/v2/hitEffectSystem";
 
@@ -376,6 +381,18 @@ export const runHitEffectSystemTests =
               light?.falloffType === Light.FALLOFF_GLTF &&
               approximately(
                 light?.range ?? -1,
+                V2_HIT_EFFECT_LIGHT_IDLE_RANGE
+              );
+
+            indirectLightVisible = true;
+            system.update(0, [npc], () => true);
+            const visibleFlicker =
+              approximately(
+                light?.intensity ?? -1,
+                V2_HIT_EFFECT_LIGHT_INTENSITY
+              ) &&
+              approximately(
+                light?.range ?? -1,
                 Math.hypot(
                   npc.hitShape.radii.x * 2,
                   npc.hitShape.radii.y * 2
@@ -383,13 +400,6 @@ export const runHitEffectSystemTests =
                   1.05 *
                   1.2
               );
-
-            indirectLightVisible = true;
-            system.update(0, [npc], () => true);
-            const visibleFlicker = approximately(
-              light?.intensity ?? -1,
-              V2_HIT_EFFECT_LIGHT_INTENSITY
-            );
             system.update(3.5, [npc], () => true);
             const visibleHalfFade = approximately(
               light?.intensity ?? -1,
@@ -397,16 +407,20 @@ export const runHitEffectSystemTests =
             );
             indirectLightVisible = false;
             system.update(0, [npc], () => true);
-            const hiddenHalfFade = approximately(
-              light?.intensity ?? -1,
-              0
-            );
+            const hiddenHalfFade =
+              approximately(light?.intensity ?? -1, 0) &&
+              approximately(
+                light?.range ?? -1,
+                V2_HIT_EFFECT_LIGHT_IDLE_RANGE
+              );
             indirectLightVisible = true;
             system.update(0, [npc], () => true);
-            const restoredHalfFade = approximately(
-              light?.intensity ?? -1,
-              V2_HIT_EFFECT_LIGHT_INTENSITY * 0.5
-            );
+            const restoredHalfFade =
+              approximately(
+                light?.intensity ?? -1,
+                V2_HIT_EFFECT_LIGHT_INTENSITY * 0.5
+              ) &&
+              (light?.range ?? 0) > 0;
             const latestPosition =
               checkedPositions[checkedPositions.length - 1];
             const positionsMatch =
@@ -431,6 +445,162 @@ export const runHitEffectSystemTests =
                 `queries=${checkedPositions.length}`
             };
           } finally {
+            system.dispose();
+            scene.dispose();
+            engine.dispose();
+          }
+        }
+      )
+    );
+
+    results.push(
+      executeTest(
+        "固定3灯を常時enabledで保持し4件同時命中でもStage照明構成を変更しない",
+        () => {
+          const engine = new NullEngine();
+          const scene = new Scene(engine);
+          const stageMesh = MeshBuilder.CreateBox(
+            "stage-pbr-surrogate",
+            { size: 1 },
+            scene
+          );
+          stageMesh.material = new PBRMaterial(
+            "stage-pbr-surrogate-material",
+            scene
+          );
+          const system = createV2HitEffectSystem({
+            scene,
+            random: () => 0.5,
+            isIndirectLightVisible: () => true
+          });
+          const baselineSceneLights = [...scene.lights];
+          const baselineStageLightSources = [...stageMesh.lightSources];
+          const originalMarkSubMeshesAsLightDirty =
+            stageMesh._markSubMeshesAsLightDirty;
+          let stageLightDirtyCount = 0;
+          stageMesh._markSubMeshesAsLightDirty = (dispose = false) => {
+            stageLightDirtyCount += 1;
+            originalMarkSubMeshesAsLightDirty.call(stageMesh, dispose);
+          };
+          try {
+            const targets = [
+              createTarget(
+                "npc-1",
+                "npc",
+                "hit-a",
+                new Vector3(1, 2, 3)
+              ),
+              createTarget(
+                "npc-2",
+                "npc",
+                "hit-a",
+                new Vector3(2, 2, 3)
+              ),
+              createTarget(
+                "npc-3",
+                "npc",
+                "hit-a",
+                new Vector3(3, 2, 3)
+              ),
+              createTarget(
+                "npc-4",
+                "npc",
+                "hit-a",
+                new Vector3(4, 2, 3)
+              )
+            ] as const;
+            const started = targets.every((target) =>
+              system.start(target)
+            );
+            const concurrent = system.getVisualPoolSnapshot();
+            const hitLights = scene.lights.filter(
+              (light): light is PointLight =>
+                light instanceof PointLight &&
+                light.name.startsWith("v2-hit-effect-light-")
+            );
+            const fourthShell = scene.getMeshByName(
+              "v2-hit-effect-shell-4"
+            );
+            const fixedLightProfile =
+              hitLights.length === V2_HIT_EFFECT_LIGHT_SLOT_COUNT &&
+              hitLights.every(
+                (light) =>
+                  light.isEnabled() &&
+                  approximately(
+                    light.intensity,
+                    V2_HIT_EFFECT_LIGHT_INTENSITY
+                  ) &&
+                  light.range > 0
+              );
+            system.update(3, targets, () => true);
+            const fadeStarted = system.getVisualPoolSnapshot();
+            const fourthEffectContinues =
+              fourthShell?.isEnabled() === true &&
+              fadeStarted.orb.inUse === 52;
+            system.update(1, targets, () => true);
+            system.clear();
+            const released = system.getVisualPoolSnapshot();
+            const lightsIdle =
+              hitLights.every(
+                (light) =>
+                  light.isEnabled() &&
+                  approximately(light.intensity, 0) &&
+                  Number.isFinite(light.range) &&
+                  approximately(
+                    light.range,
+                    V2_HIT_EFFECT_LIGHT_IDLE_RANGE
+                  )
+              ) &&
+              released.light.inUse === 0 &&
+              released.light.available ===
+                V2_HIT_EFFECT_LIGHT_SLOT_COUNT;
+            const sceneLightsStable =
+              scene.lights.length === baselineSceneLights.length &&
+              scene.lights.every(
+                (light, index) => light === baselineSceneLights[index]
+              );
+            const stageLightSourcesStable =
+              stageMesh.lightSources.length ===
+                baselineStageLightSources.length &&
+              stageMesh.lightSources.every(
+                (light, index) =>
+                  light === baselineStageLightSources[index]
+              );
+            const topologyStable =
+              sceneLightsStable &&
+              stageLightSourcesStable &&
+              stageLightDirtyCount === 0;
+            return {
+              ok:
+                started &&
+                baselineSceneLights.length ===
+                  V2_HIT_EFFECT_LIGHT_SLOT_COUNT &&
+                baselineStageLightSources.length ===
+                  V2_HIT_EFFECT_LIGHT_SLOT_COUNT &&
+                concurrent.shell.inUse === 4 &&
+                concurrent.material.inUse === 4 &&
+                concurrent.light.capacity ===
+                  V2_HIT_EFFECT_LIGHT_SLOT_COUNT &&
+                concurrent.light.inUse ===
+                  V2_HIT_EFFECT_LIGHT_SLOT_COUNT &&
+                concurrent.light.available === 0 &&
+                fixedLightProfile &&
+                fourthEffectContinues &&
+                lightsIdle &&
+                topologyStable,
+              detail:
+                `sceneLights=${baselineSceneLights.length} / ` +
+                `stageSources=${baselineStageLightSources.length} / ` +
+                `shells=${concurrent.shell.inUse} / ` +
+                `lights=${concurrent.light.inUse}/${concurrent.light.capacity} / ` +
+                `orbs=${fadeStarted.orb.inUse} / ` +
+                `idleRange=${hitLights[0]?.range ?? "none"} / ` +
+                `dirty=${stageLightDirtyCount} / ` +
+                `stable=${topologyStable}`
+            };
+          } finally {
+            stageMesh._markSubMeshesAsLightDirty =
+              originalMarkSubMeshesAsLightDirty;
             system.dispose();
             scene.dispose();
             engine.dispose();

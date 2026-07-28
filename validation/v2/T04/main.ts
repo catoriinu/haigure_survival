@@ -490,9 +490,9 @@ type NavigationAgentRouteAcceptance = Readonly<{
   reached: boolean;
   updateCount: number;
   updateLimit: number;
-  movementDistanceViolationCount: number;
-  maximumMovementDistance: number;
-  maximumMovementDistanceExcess: number;
+  horizontalMovementDistanceViolationCount: number;
+  maximumHorizontalMovementDistance: number;
+  maximumHorizontalMovementDistanceExcess: number;
   endpointError: number;
 }>;
 
@@ -550,9 +550,9 @@ const executeNavigationAgentRouteAcceptance = (
       : Math.ceil(path.distance / movementBudget) + pathPoints.length + 256;
   let finalState: NavigationAgentState = "moving";
   let updateCount = 0;
-  let movementDistanceViolationCount = 0;
-  let maximumMovementDistance = 0;
-  let maximumMovementDistanceExcess = 0;
+  let horizontalMovementDistanceViolationCount = 0;
+  let maximumHorizontalMovementDistance = 0;
+  let maximumHorizontalMovementDistanceExcess = 0;
   try {
     while (finalState === "moving" && updateCount < updateLimit) {
       const previousPosition = location.position;
@@ -563,25 +563,25 @@ const executeNavigationAgentRouteAcceptance = (
         deltaSeconds,
         true
       );
-      const movementDistance = Vector3.Distance(
-        previousPosition,
-        result.location.position
+      const horizontalMovementDistance = Math.hypot(
+        result.location.position.x - previousPosition.x,
+        result.location.position.z - previousPosition.z
       );
-      maximumMovementDistance = Math.max(
-        maximumMovementDistance,
-        movementDistance
+      maximumHorizontalMovementDistance = Math.max(
+        maximumHorizontalMovementDistance,
+        horizontalMovementDistance
       );
-      maximumMovementDistanceExcess = Math.max(
-        maximumMovementDistanceExcess,
-        movementDistance - movementBudget
+      maximumHorizontalMovementDistanceExcess = Math.max(
+        maximumHorizontalMovementDistanceExcess,
+        horizontalMovementDistance - movementBudget
       );
       if (
-        movementDistance >
+        horizontalMovementDistance >
         movementBudget +
           schoolNpcNavigationAgentConfig.waypointTolerance +
           1e-6
       ) {
-        movementDistanceViolationCount += 1;
+        horizontalMovementDistanceViolationCount += 1;
       }
       location = result.location;
       finalState = result.state;
@@ -605,9 +605,9 @@ const executeNavigationAgentRouteAcceptance = (
       endpointError <= schoolNpcNavigationAgentConfig.waypointTolerance + 1e-6,
     updateCount,
     updateLimit,
-    movementDistanceViolationCount,
-    maximumMovementDistance,
-    maximumMovementDistanceExcess,
+    horizontalMovementDistanceViolationCount,
+    maximumHorizontalMovementDistance,
+    maximumHorizontalMovementDistanceExcess,
     endpointError
   });
 };
@@ -861,6 +861,71 @@ const createProjectionNavigationStub = (
   },
   dispose: () => {}
 });
+
+const cloneFixtureNavigationLocation = (
+  location: NavigationLocation
+): NavigationLocation =>
+  Object.freeze({
+    position: location.position.clone(),
+    polygonRef: location.polygonRef
+  });
+
+const createNavigationAgentConstraintStub = (
+  projectedTarget: NavigationLocation,
+  constrainedLocation: NavigationLocation,
+  onConstrainDestination: (destination: Vector3) => void
+): NavigationWorld =>
+  Object.freeze({
+    projectPoint: () => cloneFixtureNavigationLocation(projectedTarget),
+    findSurfacePath: (
+      start: NavigationLocation,
+      destination: NavigationLocation
+    ) =>
+      Object.freeze({
+        kind: "surface" as const,
+        points: Object.freeze([
+          cloneFixtureNavigationLocation(start),
+          cloneFixtureNavigationLocation(destination)
+        ]),
+        distance: Vector3.Distance(start.position, destination.position)
+      }),
+    findPath: (
+      start: NavigationLocation,
+      destination: NavigationLocation
+    ) => {
+      const surfaceStep = Object.freeze({
+        kind: "surface" as const,
+        points: Object.freeze([
+          cloneFixtureNavigationLocation(start),
+          cloneFixtureNavigationLocation(destination)
+        ]),
+        distance: Vector3.Distance(start.position, destination.position)
+      });
+      return Object.freeze({
+        steps: Object.freeze([surfaceStep]),
+        destination: cloneFixtureNavigationLocation(destination),
+        distance: surfaceStep.distance
+      });
+    },
+    constrainMovement: (
+      _start: NavigationLocation,
+      destination: Vector3
+    ) => {
+      onConstrainDestination(destination.clone());
+      return cloneFixtureNavigationLocation(constrainedLocation);
+    },
+    randomPointAround: () => {
+      throw new Error(
+        "NavigationAgent移動拘束検証ではrandomPointAroundを呼び出しません。"
+      );
+    },
+    createDebugMesh: () => {
+      throw new Error(
+        "NavigationAgent移動拘束検証ではcreateDebugMeshを呼び出しません。"
+      );
+    },
+    dispose: () => {}
+  });
 
 const createRandomSequence = (values: readonly number[]) => {
   let callCount = 0;
@@ -2436,6 +2501,138 @@ const runValidation = async () => {
       detail: `positionY=${rampAgentStep.location.position.y.toFixed(4)} / targetY=${rampEnd.y.toFixed(4)}`
     });
 
+    const reportedTileBoundaryStart = Object.freeze({
+      position: new Vector3(
+        -8.849987983703613,
+        0.4749617874622345,
+        2.0998854637145996
+      ),
+      polygonRef: 6326784
+    });
+    const reportedTileBoundaryWaypoint = Object.freeze({
+      position: new Vector3(-8.850000381469727, 0.5, 2.125),
+      polygonRef: 6327296
+    });
+    const reportedTileBoundaryConstrained = Object.freeze({
+      position: new Vector3(
+        -8.850000381469727,
+        0.5,
+        2.10345458984375
+      ),
+      polygonRef: 6327296
+    });
+    const reportedTileBoundaryDesired = new Vector3(
+      -8.849989745654112,
+      0.47852017779347616,
+      2.103454701053599
+    );
+    const observedTileBoundaryDestination = {
+      value: null as Vector3 | null
+    };
+    const reportedTileBoundaryWorld = createNavigationAgentConstraintStub(
+      reportedTileBoundaryWaypoint,
+      reportedTileBoundaryConstrained,
+      (destination) => {
+        observedTileBoundaryDestination.value = destination;
+      }
+    );
+    const reportedTileBoundaryAgent = createNavigationAgent(
+      reportedTileBoundaryWorld,
+      "npc",
+      schoolNpcNavigationAgentConfig
+    );
+    const reportedTileBoundaryDeltaSeconds = 0.0168;
+    const reportedTileBoundaryMovementBudget =
+      schoolNpcChaseSpeed * reportedTileBoundaryDeltaSeconds;
+    const reportedTileBoundaryStep = reportedTileBoundaryAgent.update(
+      reportedTileBoundaryStart,
+      reportedTileBoundaryWaypoint.position,
+      schoolNpcChaseSpeed,
+      reportedTileBoundaryDeltaSeconds,
+      true
+    );
+    const reportedTileBoundaryFullDistance = Vector3.Distance(
+      reportedTileBoundaryStart.position,
+      reportedTileBoundaryStep.location.position
+    );
+    const reportedTileBoundaryHorizontalDistance = Math.hypot(
+      reportedTileBoundaryStep.location.position.x -
+        reportedTileBoundaryStart.position.x,
+      reportedTileBoundaryStep.location.position.z -
+        reportedTileBoundaryStart.position.z
+    );
+    const reportedTileBoundaryDesiredError =
+      observedTileBoundaryDestination.value === null
+        ? Number.POSITIVE_INFINITY
+        : Vector3.Distance(
+            observedTileBoundaryDestination.value,
+            reportedTileBoundaryDesired
+          );
+    checks.push({
+      name: "tiled NavMesh境界のY snapを水平移動超過と誤判定しない",
+      ok:
+        reportedTileBoundaryStep.state === "moving" &&
+        reportedTileBoundaryStep.pathRecalculated &&
+        reportedTileBoundaryStep.location.polygonRef ===
+          reportedTileBoundaryConstrained.polygonRef &&
+        Vector3.Distance(
+          reportedTileBoundaryStep.location.position,
+          reportedTileBoundaryConstrained.position
+        ) <= 1e-12 &&
+        reportedTileBoundaryDesiredError <= 1e-11 &&
+        reportedTileBoundaryFullDistance >
+          reportedTileBoundaryMovementBudget +
+            schoolNpcNavigationAgentConfig.waypointTolerance &&
+        reportedTileBoundaryHorizontalDistance <=
+          reportedTileBoundaryMovementBudget + 1e-12,
+      detail:
+        `delta=${reportedTileBoundaryDeltaSeconds} / ` +
+        `budget=${reportedTileBoundaryMovementBudget.toFixed(9)} / ` +
+        `full=${reportedTileBoundaryFullDistance.toFixed(9)} / ` +
+        `horizontal=${reportedTileBoundaryHorizontalDistance.toFixed(9)} / ` +
+        `desiredError=${reportedTileBoundaryDesiredError.toExponential(2)} / ` +
+        `polygon=${reportedTileBoundaryStart.polygonRef}->${reportedTileBoundaryStep.location.polygonRef}`
+    });
+
+    const horizontalOverrunLocation = Object.freeze({
+      position: new Vector3(
+        reportedTileBoundaryStart.position.x +
+          reportedTileBoundaryMovementBudget +
+          schoolNpcNavigationAgentConfig.waypointTolerance +
+          0.001,
+        reportedTileBoundaryStart.position.y,
+        reportedTileBoundaryStart.position.z
+      ),
+      polygonRef: reportedTileBoundaryStart.polygonRef
+    });
+    const horizontalOverrunWorld = createNavigationAgentConstraintStub(
+      reportedTileBoundaryWaypoint,
+      horizontalOverrunLocation,
+      () => {}
+    );
+    const horizontalOverrunMessage = captureThrownMessage(() => {
+      const horizontalOverrunAgent = createNavigationAgent(
+        horizontalOverrunWorld,
+        "npc",
+        schoolNpcNavigationAgentConfig
+      );
+      horizontalOverrunAgent.update(
+        reportedTileBoundaryStart,
+        reportedTileBoundaryWaypoint.position,
+        schoolNpcChaseSpeed,
+        reportedTileBoundaryDeltaSeconds,
+        true
+      );
+    });
+    checks.push({
+      name: "NavMesh水平移動予算の実超過拒否",
+      ok:
+        horizontalOverrunMessage?.includes(
+          "NavMesh移動拘束結果が指定水平移動距離を超えました。"
+        ) === true,
+      detail: horizontalOverrunMessage ?? "例外なし"
+    });
+
     const waypointAgent = createNavigationAgent(
       navigationWorld,
       "npc",
@@ -3931,7 +4128,7 @@ const runValidation = async () => {
               result.pathPointCount <= navigationPathPointCapacity &&
               result.maximumSurfacePathPointCount <=
                 navigationPathPointCapacity &&
-              result.movementDistanceViolationCount === 0 &&
+              result.horizontalMovementDistanceViolationCount === 0 &&
               result.reached &&
               result.updateCount < result.updateLimit
           ),
@@ -3942,9 +4139,9 @@ const runValidation = async () => {
                 `state=${result.finalState},reached=${result.reached},` +
                 `updates=${result.updateCount}/${result.updateLimit},` +
                 `path=${result.pathPointCount},surfaceMax=${result.maximumSurfacePathPointCount},` +
-                `over=${result.movementDistanceViolationCount},` +
-                `maxMove=${result.maximumMovementDistance.toFixed(6)},` +
-                `maxExcess=${result.maximumMovementDistanceExcess.toFixed(6)},` +
+                `horizontalOver=${result.horizontalMovementDistanceViolationCount},` +
+                `maxHorizontalMove=${result.maximumHorizontalMovementDistance.toFixed(6)},` +
+                `maxHorizontalExcess=${result.maximumHorizontalMovementDistanceExcess.toFixed(6)},` +
                 `error=${result.endpointError.toExponential(2)}`
             )
             .join(" / ")

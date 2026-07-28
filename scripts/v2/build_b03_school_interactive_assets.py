@@ -62,6 +62,13 @@ NAV_GRID_ORIGIN_Y_BLENDER = 52.5
 NAV_TILE_SIZE_BLENDER = 1.0
 NAV_GRID_WIDTH = 84
 NAV_GRID_HEIGHT = 68
+ROOM_DOOR_OPEN_NORMAL_OFFSETS = {
+    ("west", "f01"): -0.04,
+    ("west", "upper"): 0.08,
+    ("north", "f01"): 0.04,
+    ("north", "upper"): -0.04,
+}
+TOILET_STALL_OPEN_ROTATION_Z = -math.radians(85.0)
 
 
 @dataclass(frozen=True)
@@ -764,7 +771,7 @@ def _build_sliding_door(
     collider_collection: bpy.types.Collection,
     semantic_collection: bpy.types.Collection,
     door_material: bpy.types.Material,
-    trim_material: bpy.types.Material,
+    hardware_material: bpy.types.Material,
     parent: bpy.types.Object | None = None,
     elevator_id: str | None = None,
     stop_id: str | None = None,
@@ -823,7 +830,7 @@ def _build_sliding_door(
         uv_swatch=swatch_uv("Architecture", "door"),
         parent=panel,
     )
-    if abs(open_delta[0]) > 0.0:
+    if abs(open_delta[0]) > abs(open_delta[1]):
         handle_center_x = -math.copysign(0.45, open_delta[0])
         handle_boxes = (
             (
@@ -851,7 +858,7 @@ def _build_sliding_door(
                 ),
             ),
         )
-    elif abs(open_delta[1]) > 0.0:
+    else:
         handle_center_y = -math.copysign(0.45, open_delta[1])
         handle_boxes = (
             (
@@ -879,14 +886,12 @@ def _build_sliding_door(
                 ),
             ),
         )
-    else:
-        raise RuntimeError(f"{token}: 引き戸の開方向がありません")
     _create_box_object(
         f"VIS_DoorPanel_Handle_{token}",
         handle_boxes,
         visual_collection,
-        material=trim_material,
-        uv_swatch=swatch_uv("Architecture", "trim"),
+        material=hardware_material,
+        uv_swatch=swatch_uv("FurnitureProps", "door_hardware_yellow"),
         parent=panel,
     )
     _create_box_object(
@@ -1047,7 +1052,7 @@ def _build_room_doors(
     collider_collection: bpy.types.Collection,
     semantic_collection: bpy.types.Collection,
     door_material: bpy.types.Material,
-    trim_material: bpy.types.Material,
+    hardware_material: bpy.types.Material,
 ) -> int:
     count = 0
     for room in ROOM_VARIANT_SPECS:
@@ -1064,12 +1069,26 @@ def _build_room_doors(
                 door_plane = -3.66 if room.base_z == 0.0 else -3.38
                 root_location = (door_plane, opening_center, room.base_z)
                 panel_size = (0.08, 1.20, 2.30)
-                open_delta = (0.0, open_sign * 1.20, 0.0)
+                normal_offset = ROOM_DOOR_OPEN_NORMAL_OFFSETS[
+                    ("west", "f01" if room.base_z == 0.0 else "upper")
+                ]
+                open_delta = (
+                    normal_offset,
+                    open_sign * 1.20,
+                    0.0,
+                )
             else:
                 door_plane = 36.66 if room.base_z == 0.0 else 36.34
                 root_location = (opening_center, door_plane, room.base_z)
                 panel_size = (1.20, 0.08, 2.30)
-                open_delta = (open_sign * 1.20, 0.0, 0.0)
+                normal_offset = ROOM_DOOR_OPEN_NORMAL_OFFSETS[
+                    ("north", "f01" if room.base_z == 0.0 else "upper")
+                ]
+                open_delta = (
+                    open_sign * 1.20,
+                    normal_offset,
+                    0.0,
+                )
             token = f"{_token(room.author_name)}_{opening_index:02d}"
             _build_sliding_door(
                 token=token,
@@ -1083,7 +1102,7 @@ def _build_room_doors(
                 collider_collection=collider_collection,
                 semantic_collection=semantic_collection,
                 door_material=door_material,
-                trim_material=trim_material,
+                hardware_material=hardware_material,
             )
             count += 1
     if count != 38:
@@ -1096,7 +1115,7 @@ def _build_toilet_stall_doors(
     collider_collection: bpy.types.Collection,
     semantic_collection: bpy.types.Collection,
     door_material: bpy.types.Material,
-    trim_material: bpy.types.Material,
+    hardware_material: bpy.types.Material,
 ) -> int:
     stall_groups = (
         ("m", (-5.05, -3.65, -2.25)),
@@ -1156,8 +1175,11 @@ def _build_toilet_stall_doors(
                     (-1.22, -0.075, 0.95),
                     0.06,
                     visual_collection,
-                    material=trim_material,
-                    uv_swatch=swatch_uv("Architecture", "trim"),
+                    material=hardware_material,
+                    uv_swatch=swatch_uv(
+                        "FurnitureProps",
+                        "door_hardware_yellow",
+                    ),
                     parent=panel,
                 )
                 _create_box_object(
@@ -1169,7 +1191,7 @@ def _build_toilet_stall_doors(
                 _create_empty(
                     f"MRK_DoorOpenPose_{token}",
                     semantic_collection,
-                    rotation_z=-math.pi / 2.0,
+                    rotation_z=TOILET_STALL_OPEN_ROTATION_Z,
                     properties={
                         "hs_id": open_pose_id,
                         "hs_role": "door_open_pose",
@@ -1872,14 +1894,14 @@ def build_school_interactive_assets(
         collider_collection,
         semantic_collection,
         door_material,
-        architecture_material,
+        furniture_material,
     )
     toilet_doors = _build_toilet_stall_doors(
         visual_collection,
         collider_collection,
         semantic_collection,
         door_material,
-        architecture_material,
+        furniture_material,
     )
     elevator = _build_elevator(
         visual_collection,

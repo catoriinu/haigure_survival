@@ -310,14 +310,18 @@ class CachedNavigationAgent implements NavigationAgent {
           };
         }
         assertNavigationLocation("NavMesh移動拘束結果", constrainedLocation);
-        const actualDistance = Vector3.Distance(
-          location.position,
-          constrainedLocation.position
+        const actualHorizontalDistance = Math.hypot(
+          constrainedLocation.position.x - location.position.x,
+          constrainedLocation.position.z - location.position.z
         );
-        if (actualDistance > stepDistance + this.config.waypointTolerance) {
+        if (
+          actualHorizontalDistance >
+          stepDistance + this.config.waypointTolerance
+        ) {
           throw new Error(
-            "NavMesh移動拘束結果が指定移動距離を超えました。 " +
-              `actual=${actualDistance}, requested=${stepDistance}, ` +
+            "NavMesh移動拘束結果が指定水平移動距離を超えました。 " +
+              `actualHorizontal=${actualHorizontalDistance}, ` +
+              `requested=${stepDistance}, ` +
               `tolerance=${this.config.waypointTolerance}, ` +
               `from=${location.position.toString()}, ` +
               `desired=${desiredPosition.toString()}, ` +

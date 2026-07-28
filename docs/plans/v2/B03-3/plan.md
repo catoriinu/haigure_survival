@@ -386,3 +386,7 @@ Python 6ファイルのAST、Node 2ファイルの構文、変更テキスト19�
 20室の通常／荒れ比較、引き戸、トイレ扉、エレベーター比較を再生成し、体育館舞台、左右階段、トイレの代表固定視点も更新した。目視では長方形取っ手、通路側ノブ、閉鎖可能なトイレ扉幅、舞台左右各0.80m拡張と左右対称な階段を確認した。最終回帰はT02 48/48、T04 104/104、T05 254/254、T05-3 16/16、通常・T01～T05 build、通常Web読込、build済みElectron実行を通過し、fixtureとElectronのwarning／errorは0件だった。
 
 変更した学校生成・監査・preview用Python 7ファイルとNavMesh用Node 1ファイルは構文検査を通過した。変更テキストはstrict UTF-8、BOMなし、ローカル絶対パスなし、競合marker 0件で、`git diff --check`も通過した。
+
+2026-07-28の第2次人間受入では、教室取っ手38件とトイレノブ24件をFurnitureProps Atlasの`door_hardware_yellow`（RGB 181／153／74）へ統一し、トイレ扉24件の開姿勢を`-85°`とした。教室引き戸は閉姿勢を維持し、west壁の1階X=-0.04m／上階X=+0.08m、north壁の1階Y=+0.04m／上階Y=-0.04mを開姿勢へ加えた。Blender／GLB監査は厚さ0.08mのpanel 38件と厚さ0.30mの隣接壁の間に0.01mの空隙があることを直接確認した。
+
+最終GLBは15,442,976 bytes／`c97820435ea50a9c64d61e3bc68615e9f9ad35eb69993e59b46a59ebc19f6bb7`で二重生成一致し、静的人間NavMesh、room variant bundle、BIT NavMeshのhashは従来値を維持した。interactive、architecture、interior、refactor、保護契約監査、両NavMesh `--check`、T02 48/48、T04 106/106、T05 255/255、通常build、Electron buildを通過した。

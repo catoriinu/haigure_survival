@@ -58,6 +58,7 @@ ATLAS_DEFINITIONS = {
             "piano": (21, 19, 18),
             "accent_orange": (218, 78, 23),
             "accent_red": (180, 42, 34),
+            "door_hardware_yellow": (181, 153, 74),
         },
     },
     "SignsPaper": {
@@ -377,8 +378,6 @@ def architecture_swatch(object_name: str) -> str:
         return "elevator_wait"
     if "elevatoradjustmenttext" in name:
         return "trim"
-    if "doorpanel_handle" in name or "doorpanel_knob" in name:
-        return "trim"
     if "gymstage" in name and "wall" not in name and "lintel" not in name:
         return "gym_stage"
     if "interfloorstructure" in name:
@@ -445,10 +444,17 @@ def consolidate_school_materials(
         ):
             continue
 
+        is_door_hardware = obj.name.startswith(
+            (
+                "VIS_DoorPanel_Handle_",
+                "VIS_DoorPanel_Knob_",
+            )
+        )
         if (
             obj.name.startswith("VIS_B03_Prop_")
             or obj.name == "VIS_B03_ChangingBenches"
             or obj.name.endswith("_FallenFurniture")
+            or is_door_hardware
         ):
             atlas_name = "FurnitureProps"
         else:
@@ -463,7 +469,9 @@ def consolidate_school_materials(
             if polygon.material_index < len(obj.data.materials):
                 old_material = obj.data.materials[polygon.material_index]
                 material_name = old_material.name if old_material else ""
-            if obj.name.endswith("_FallenFurniture"):
+            if is_door_hardware:
+                swatch = "door_hardware_yellow"
+            elif obj.name.endswith("_FallenFurniture"):
                 swatch = "wood"
             elif atlas_name == "FurnitureProps":
                 swatch = prop_material_swatch(material_name)

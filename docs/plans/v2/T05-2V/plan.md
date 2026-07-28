@@ -134,3 +134,7 @@ T05ブラウザfixtureはPR #52統合後の期待値を含む252／252項目がP
 T05回帰はNPC→player→NPCのpool再利用、裏面設定、強度0.4、glTF falloff、遮蔽false／true、点滅中とfade中の動的復帰を通過した。`typecheck:v2`、`typecheck:t05`、通常build、`build:t05`は成功し、T05実ブラウザ254/254とT05-3 16/16はconsole warning／error 0件だった。build済みElectronはNPC命中を含むBEAM・着弾更新を継続し、DevToolsはBabylon.js情報行1件だけでwarning／error 0件だった。薄い壁の反対側、窓越し、player被弾、同時被弾を組み合わせた人間の最終目視はPull RequestのV0第1重点ゲートへ残す。
 
 最終静的検査は変更テキストのstrict UTF-8、BOMなし、ローカル絶対パスなし、競合marker 0件、全buildによるTypeScriptの括弧対応、`git diff --check`を通過した。実stageの閉扉／開扉revisionと窓越し漏光を組み合わせるT05統合回帰は未追加であり、上記の人間目視とともに未完了項目として維持する。
+
+同日の第2次人間受入で残った「校舎PBR Meshだけが一瞬消え、空色とSpriteだけが残る」フラッシュは、プレイ中のPointLight生成とenabled切替がStage 604 Meshのlight defineをdirtyにし、KHR_parallel_shader_compile中の1フレームを未描画にすることが原因だった。`HitEffectSystem`生成時に3灯を同期作成して破棄まで常時enabledとし、待機・遮蔽・返却は`intensity=0`と有限正値`range=1`だけで表す。先着3件だけが間接照明slotを使い、4件目以降もshell、点滅、fade、orbを継続する。
+
+Stage代替PBR Meshを含む4件同時命中回帰はScene light数3、Stage light source数3、light dirty 0、`idleRange=1`を確認した。最終T05実ブラウザは255/255、warning／error 0件で、build済みElectronも多数のBEAM・着弾中に校舎表示を維持し、DevToolsはBabylon.js初期化情報1件だけだった。壁越し、窓越し、player被弾を組み合わせた1ゲーム以上の目視はPull RequestのV0第1重点ゲートへ残す。

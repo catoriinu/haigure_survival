@@ -298,6 +298,7 @@ class DoorSpec:
     parent_name: str | None
     elevator_id: str | None = None
     stop_id: str | None = None
+    wall_axis: str | None = None
 
 
 @dataclass(frozen=True)
@@ -907,11 +908,21 @@ def expected_door_specs() -> tuple[DoorSpec, ...]:
             if room.wall_axis == "west":
                 door_plane = -3.66 if room.base_z == 0.0 else -3.38
                 root_location = (door_plane, opening_center, room.base_z)
-                open_location = (0.0, open_sign * 1.20, 0.0)
+                normal_offset = -0.04 if room.base_z == 0.0 else 0.08
+                open_location = (
+                    normal_offset,
+                    open_sign * 1.20,
+                    0.0,
+                )
             else:
                 door_plane = 36.66 if room.base_z == 0.0 else 36.34
                 root_location = (opening_center, door_plane, room.base_z)
-                open_location = (open_sign * 1.20, 0.0, 0.0)
+                normal_offset = 0.04 if room.base_z == 0.0 else -0.04
+                open_location = (
+                    open_sign * 1.20,
+                    normal_offset,
+                    0.0,
+                )
             result.append(
                 DoorSpec(
                     token=f"{token(room.author_name)}_{opening_index:02d}",
@@ -922,6 +933,7 @@ def expected_door_specs() -> tuple[DoorSpec, ...]:
                     open_location=open_location,
                     open_rotation_z=0.0,
                     parent_name=None,
+                    wall_axis=room.wall_axis,
                 )
             )
 
@@ -945,7 +957,7 @@ def expected_door_specs() -> tuple[DoorSpec, ...]:
                         motion_kind="swing",
                         root_location=(hinge_x, 43.25, base_z),
                         open_location=(0.0, 0.0, 0.0),
-                        open_rotation_z=-math.pi / 2.0,
+                        open_rotation_z=-math.radians(85.0),
                         parent_name=None,
                     )
                 )
@@ -1273,6 +1285,7 @@ def audit_doors(
     motion_kinds = Counter()
     sweep_containment_checks = 0
     elevator_pocket_checks = 0
+    room_wall_clearance_checks = 0
     hardware_counts = Counter()
     expected_hardware_names: set[str] = set()
     for spec in specs:
@@ -1467,7 +1480,9 @@ def audit_doors(
                     f"{hardware.name}: 扉金物に子Objectがあります",
                 )
                 if spec.door_class == "room":
-                    if abs(panel_spec.open_location[0]) > 0.0:
+                    if abs(panel_spec.open_location[0]) > abs(
+                        panel_spec.open_location[1]
+                    ):
                         handle_center = -math.copysign(
                             0.45,
                             panel_spec.open_location[0],
@@ -1571,6 +1586,35 @@ def audit_doors(
                 f"{sweep.name}: panel開姿勢を包含しません: {panel.name}",
             )
             sweep_containment_checks += 2
+
+            if spec.wall_axis is not None:
+                open_world_bounds = transformed_bounds(
+                    collider.local_bounds,
+                    root.world_matrix @ open_pose.local_matrix,
+                )
+                if spec.wall_axis == "west":
+                    normal_axis = 0
+                    wall_minimum = -3.65
+                    wall_maximum = -3.35
+                else:
+                    normal_axis = 2 if glb_coordinates else 1
+                    wall_minimum = -36.65 if glb_coordinates else 36.35
+                    wall_maximum = -36.35 if glb_coordinates else 36.65
+                panel_minimum = open_world_bounds[0][normal_axis]
+                panel_maximum = open_world_bounds[1][normal_axis]
+                panel_center = (panel_minimum + panel_maximum) / 2.0
+                wall_center = (wall_minimum + wall_maximum) / 2.0
+                wall_clearance = (
+                    wall_minimum - panel_maximum
+                    if panel_center < wall_center
+                    else panel_minimum - wall_maximum
+                )
+                require(
+                    wall_clearance >= 0.01 - TOLERANCE,
+                    f"{panel.name}: 開姿勢が隣接壁から0.01m離れていません: "
+                    f"actual={wall_clearance}",
+                )
+                room_wall_clearance_checks += 1
 
             if spec.door_class in {"elevator_car", "elevator_landing"}:
                 horizontal_x = 0
@@ -1682,6 +1726,7 @@ def audit_doors(
         "sweeps": len(sweep_nodes),
         "sweep_containment_checks": sweep_containment_checks,
         "elevator_pocket_checks": elevator_pocket_checks,
+        "room_wall_clearance_checks": room_wall_clearance_checks,
         "hardware": dict(sorted(hardware_counts.items())),
         "classes": dict(sorted(door_classes.items())),
         "motions": dict(sorted(motion_kinds.items())),

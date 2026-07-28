@@ -473,9 +473,9 @@ MRK_Door_<token>
 - `slide`は閉・開markerのlocal rotationを一致させ、0ではないtranslation差分の正規化を移動軸、長さを移動量とする。`swing`はlocal translationを一致させ、panel markerのlocal `+Z`を蝶番軸、開markerまでの符号付きrotation差分を開角度とする。`swing`の絶対角度は0より大きくπ以下とする。
 - `room`は`slide`、`toilet_stall`は`swing`、`elevator_landing`と`elevator_car`は`slide`だけを許可する。
 - `VOL_DoorSweep_*`は全panelの閉姿勢から開姿勢までの掃引領域を覆う閉じた低ポリMeshとする。
-- `room` panelは固定表の1.20m開口を隙間なく閉じる。各panelは開方向と反対側へpanel中心から0.45mの位置に、幅0.16m、高さ0.32m、面からの出幅0.02mの長方形取っ手を両面分まとめた`VIS_DoorPanel_Handle_*`を1件持つ。
-- `toilet_stall` panelのlocal boundsは`(-1.40, -0.02, 0.00)`～`(0.00, 0.02, 1.80)`、sweepは`(-1.42, -0.02, 0.00)`～`(0.02, 1.42, 1.80)`とする。通路側local Y負面の`(-1.22, -0.075, 0.95)`を中心に半径0.06mの低ポリ丸ノブ`VIS_DoorPanel_Knob_*`を1件持つ。
-- 固定開放扉、固定閉鎖扉、`elevator_landing`、`elevator_car`には`VIS_DoorPanel_Handle_*`／`VIS_DoorPanel_Knob_*`を付けない。扉金物は`VIS_*`だけで表し、Colliderや`hs_*`を持たせず、Architecture Atlasの`trim`へ割り当てる。
+- `room` panelは固定表の1.20m開口を閉姿勢で隙間なく閉じる。開姿勢だけ壁法線方向へ離し、厚さ0.08mのpanelと厚さ0.30mの隣接壁の間に0.01mの空隙を確保する。local offsetはwest壁の1階でX=-0.04m、2～4階でX=+0.08m、north壁の1階でY=+0.04m、2～4階でY=-0.04mとする。各panelは1.20mの移動主軸で見た開方向と反対側へpanel中心から0.45mの位置に、幅0.16m、高さ0.32m、面からの出幅0.02mの長方形取っ手を両面分まとめた`VIS_DoorPanel_Handle_*`を1件持つ。
+- `toilet_stall` panelのlocal boundsは`(-1.40, -0.02, 0.00)`～`(0.00, 0.02, 1.80)`、sweepは`(-1.42, -0.02, 0.00)`～`(0.02, 1.42, 1.80)`とする。開姿勢のtranslationは閉姿勢と一致させ、local Z回転を`-85°`として仕切り壁との面一致を避ける。通路側local Y負面の`(-1.22, -0.075, 0.95)`を中心に半径0.06mの低ポリ丸ノブ`VIS_DoorPanel_Knob_*`を1件持つ。
+- 固定開放扉、固定閉鎖扉、`elevator_landing`、`elevator_car`には`VIS_DoorPanel_Handle_*`／`VIS_DoorPanel_Knob_*`を付けない。扉金物は`VIS_*`だけで表し、Colliderや`hs_*`を持たせず、FurnitureProps Atlasの`door_hardware_yellow`（RGB 181／153／74）へ割り当てる。
 - エレベーター扉は1.40m中央開口を4枚のテレスコープ式panelで閉じ、開姿勢では左右0.35m幅の戸袋へ2枚ずつ重ねる。panelは開姿勢で中央開口、かご外形、昇降路内寸から突出してはならない。
 - 教室・トイレ扉の開閉0.8秒、エレベーター扉の開閉1.0秒はRuntime状態機械の定数とし、資産propertyへ重複させない。
 

@@ -20,12 +20,14 @@ if str(SCRIPT_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIRECTORY))
 
 from optimize_b03_school_glb import (
+    GlbDocument,
     accessor_payload,
     collect_used_accessor_indices,
     material_uses_texture,
     read_glb,
 )
 from build_b03_school_interiors import (
+    ATLAS_DEFINITIONS,
     FIRST_FLOOR_WEST_DOOR_OPENINGS,
     NORTH_CLASSROOM_DOOR_OPENINGS,
     ROOF_POOL_NORTH_SIGN_SUPPORT,
@@ -52,7 +54,7 @@ PROP_LIBRARY_PATH = (
 )
 
 EXPECTED_NAVMESH_SHA256 = (
-    "BF4D57AEC72458236964C53DC6632407B90BAEACF86CD6695BD01F1C1C38BE37"
+    "6A35B416EB7069FDB9E8EFF5FA9C62F6CE2D6FEBC9F28765B6041213AD448DD1"
 )
 EXPECTED_PROP_LIBRARY_SHA256 = (
     "560974D7FABAAE9D7FC89FB563F4EEB3964866D8B33EE2C138FF1020C414514C"
@@ -64,6 +66,11 @@ EXPECTED_PACKED_ATLAS_PATHS = {
         "b03_furniture_props_atlas.png",
         "b03_signs_paper_atlas.png",
     )
+}
+EXPECTED_CONSOLIDATED_MATERIAL_NAMES = {
+    *(str(definition["material"]) for definition in ATLAS_DEFINITIONS.values()),
+    "MAT_B03_WindowGlass",
+    "MAT_Pool_Water",
 }
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
@@ -1194,6 +1201,37 @@ def require_architecture_swatch(object_name: str, swatch: str) -> None:
     )
 
 
+def require_furniture_swatch(object_name: str, swatch: str) -> None:
+    obj = bpy.data.objects.get(object_name)
+    require(obj is not None and obj.type == "MESH", f"配色監査対象がありません: {object_name}")
+    material_names = [
+        material.name
+        for material in obj.data.materials
+        if material is not None
+    ]
+    expected_material = str(ATLAS_DEFINITIONS["FurnitureProps"]["material"])
+    require(
+        material_names == [expected_material],
+        f"FurnitureProps Atlasの材質参照が不正です: "
+        f"{object_name}/{material_names}",
+    )
+    uv_layer = obj.data.uv_layers.get("UVMap")
+    require(uv_layer is not None, f"配色監査対象にUVがありません: {object_name}")
+    expected_coordinates = swatch_uv("FurnitureProps", swatch)
+    minimum_u = min(coordinate[0] for coordinate in expected_coordinates)
+    maximum_u = max(coordinate[0] for coordinate in expected_coordinates)
+    minimum_v = min(coordinate[1] for coordinate in expected_coordinates)
+    maximum_v = max(coordinate[1] for coordinate in expected_coordinates)
+    require(
+        all(
+            minimum_u - 1e-6 <= loop.uv.x <= maximum_u + 1e-6
+            and minimum_v - 1e-6 <= loop.uv.y <= maximum_v + 1e-6
+            for loop in uv_layer.data
+        ),
+        f"FurnitureProps Atlasの配色が不正です: {object_name}/{swatch}",
+    )
+
+
 def audit_architecture_atlas_rgb() -> int:
     image = bpy.data.images.get("b03_architecture_atlas.png")
     require(image is not None, "Architecture Atlas画像がBlender正本にありません")
@@ -1223,6 +1261,47 @@ def audit_architecture_atlas_rgb() -> int:
             f"Architecture AtlasのRGBが不正です: cell=({column},{row_from_top}), actual={actual}, expected={expected}",
         )
     return len(expected_cells)
+
+
+def audit_door_hardware_atlas_rgb() -> int:
+    swatch_names = list(ATLAS_DEFINITIONS["FurnitureProps"]["swatches"])
+    require(
+        swatch_names.index("door_hardware_yellow") == 12,
+        "扉金物色がFurnitureProps Atlasの未使用13番セルではありません",
+    )
+    image = bpy.data.images.get("b03_furniture_props_atlas.png")
+    require(image is not None, "FurnitureProps Atlas画像がBlender正本にありません")
+    require(tuple(image.size) == (512, 512), "FurnitureProps Atlas画像寸法が不正です")
+    column = 0
+    row_from_top = 3
+    expected = (181, 153, 74)
+    width, height = image.size
+    x = column * width // 4 + width // 8
+    y = (3 - row_from_top) * height // 4 + height // 8
+    pixel_offset = (y * width + x) * 4
+    actual = tuple(
+        round(float(image.pixels[pixel_offset + channel]) * 255)
+        for channel in range(3)
+    )
+    require(
+        all(
+            actual[channel] in {expected[channel], expected[channel] + 1}
+            for channel in range(3)
+        ),
+        f"扉金物用FurnitureProps AtlasのRGBが不正です: "
+        f"cell=({column},{row_from_top}), actual={actual}, expected={expected}",
+    )
+    return 1
+
+
+def audit_consolidated_materials() -> int:
+    actual_material_names = {material.name for material in bpy.data.materials}
+    require(
+        actual_material_names == EXPECTED_CONSOLIDATED_MATERIAL_NAMES,
+        f"最終材質が5種類へ統合されていません: "
+        f"{sorted(actual_material_names)}",
+    )
+    return len(actual_material_names)
 
 
 def audit_packed_atlas_paths() -> int:
@@ -2265,6 +2344,8 @@ def audit_first_floor_nav_blocker_deduplication() -> dict[str, int]:
 
 def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     atlas_rgb_cells = audit_architecture_atlas_rgb()
+    door_hardware_rgb_cells = audit_door_hardware_atlas_rgb()
+    consolidated_materials = audit_consolidated_materials()
     packed_atlases = audit_packed_atlas_paths()
     expected_swatches = {
         "VIS_SiteGround": "grass",
@@ -2305,7 +2386,7 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
         f"{len(toilet_knob_names)}",
     )
     for object_name in (*room_handle_names, *toilet_knob_names):
-        require_architecture_swatch(object_name, "trim")
+        require_furniture_swatch(object_name, "door_hardware_yellow")
 
     trim_components = audit_box_components(
         "VIS_B03_GymTrim",
@@ -2599,6 +2680,8 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
 
     return {
         "atlas_rgb_cells": atlas_rgb_cells,
+        "door_hardware_rgb_cells": door_hardware_rgb_cells,
+        "consolidated_materials": consolidated_materials,
         "packed_atlases": packed_atlases,
         "swatches": (
             len(expected_swatches)
@@ -2764,18 +2847,6 @@ def audit_roof_guards() -> dict[str, int]:
         "post_spacing_checks": post_spacing_checks,
         "junction_checks": junction_checks,
     }
-
-
-def read_glb_json(path: Path) -> dict[str, object]:
-    with path.open("rb") as stream:
-        header = stream.read(12)
-        magic, version, total_length = struct.unpack("<4sII", header)
-        require(magic == b"glTF", "GLB magicが不正です")
-        require(version == 2, f"GLB versionが2ではありません: {version}")
-        require(total_length == path.stat().st_size, "GLB header長が実容量と不一致です")
-        chunk_length, chunk_type = struct.unpack("<II", stream.read(8))
-        require(chunk_type == 0x4E4F534A, "GLB先頭chunkがJSONではありません")
-        return json.loads(stream.read(chunk_length).decode("utf-8"))
 
 
 def audit_mesh_contract(export_objects: list[bpy.types.Object]) -> None:
@@ -5675,10 +5746,12 @@ def audit_glb_assembly_contract(
     }
 
 
-def audit_glb(gltf: dict[str, object]) -> dict[str, object]:
+def audit_glb(document: GlbDocument) -> dict[str, object]:
+    gltf = document.json_data
     nodes = gltf.get("nodes", [])
     meshes = gltf.get("meshes", [])
     accessors = gltf.get("accessors", [])
+    buffer_views = gltf.get("bufferViews", [])
     materials = gltf.get("materials", [])
     animations = gltf.get("animations", [])
     cameras = gltf.get("cameras", [])
@@ -5688,6 +5761,96 @@ def audit_glb(gltf: dict[str, object]) -> dict[str, object]:
     require("KHR_lights_punctual" not in extensions, "GLBにLightがあります")
     node_names = [node.get("name") for node in nodes if node.get("name")]
     require(len(node_names) == len(set(node_names)), "GLB Node名が重複しています")
+    expected_hardware_material = str(
+        ATLAS_DEFINITIONS["FurnitureProps"]["material"]
+    )
+    room_handle_nodes = [
+        node
+        for node in nodes
+        if node.get("name", "").startswith("VIS_DoorPanel_Handle_")
+    ]
+    toilet_knob_nodes = [
+        node
+        for node in nodes
+        if node.get("name", "").startswith("VIS_DoorPanel_Knob_")
+    ]
+    require(
+        len(room_handle_nodes) == 38,
+        f"GLB室内引き戸の両面取っ手Nodeが38件ではありません: "
+        f"{len(room_handle_nodes)}",
+    )
+    require(
+        len(toilet_knob_nodes) == 24,
+        f"GLBトイレ個室扉の外側ノブNodeが24件ではありません: "
+        f"{len(toilet_knob_nodes)}",
+    )
+    for node in (*room_handle_nodes, *toilet_knob_nodes):
+        node_name = node.get("name", "")
+        mesh_index = node.get("mesh")
+        require(
+            isinstance(mesh_index, int) and 0 <= mesh_index < len(meshes),
+            f"GLB扉金物のMesh参照が不正です: {node_name}/{mesh_index}",
+        )
+        primitives = meshes[mesh_index].get("primitives", [])
+        require(
+            len(primitives) == 1,
+            f"GLB扉金物のPrimitiveが1件ではありません: "
+            f"{node_name}/{len(primitives)}",
+        )
+        primitive = primitives[0]
+        material_index = primitive.get("material")
+        require(
+            isinstance(material_index, int)
+            and 0 <= material_index < len(materials)
+            and materials[material_index].get("name") == expected_hardware_material,
+            f"GLB扉金物の材質参照が不正です: {node_name}/{material_index}",
+        )
+        texcoord_accessor_index = primitive.get("attributes", {}).get("TEXCOORD_0")
+        require(
+            isinstance(texcoord_accessor_index, int)
+            and 0 <= texcoord_accessor_index < len(accessors),
+            f"GLB扉金物にTEXCOORD_0がありません: "
+            f"{node_name}/{texcoord_accessor_index}",
+        )
+        texcoord_accessor = accessors[texcoord_accessor_index]
+        require(
+            texcoord_accessor.get("componentType") == 5126
+            and texcoord_accessor.get("type") == "VEC2",
+            f"GLB扉金物のTEXCOORD_0形式が不正です: "
+            f"{node_name}/{texcoord_accessor}",
+        )
+        payload, _ = accessor_payload(
+            texcoord_accessor,
+            buffer_views,
+            document.binary_data,
+        )
+        texcoords = list(struct.iter_unpack("<ff", payload))
+        require(
+            len(texcoords) == texcoord_accessor.get("count"),
+            f"GLB扉金物のTEXCOORD_0件数が不正です: "
+            f"{node_name}/{len(texcoords)}",
+        )
+        expected_coordinates = swatch_uv(
+            "FurnitureProps",
+            "door_hardware_yellow",
+        )
+        minimum_u = min(coordinate[0] for coordinate in expected_coordinates)
+        maximum_u = max(coordinate[0] for coordinate in expected_coordinates)
+        minimum_v = 1.0 - max(
+            coordinate[1] for coordinate in expected_coordinates
+        )
+        maximum_v = 1.0 - min(
+            coordinate[1] for coordinate in expected_coordinates
+        )
+        require(
+            all(
+                minimum_u - 1e-6 <= coordinate[0] <= maximum_u + 1e-6
+                and minimum_v - 1e-6 <= coordinate[1] <= maximum_v + 1e-6
+                for coordinate in texcoords
+            ),
+            f"GLB扉金物のUVがdoor_hardware_yellowセル外です: "
+            f"{node_name}",
+        )
     expected_frames = 81
     expected_actor = 33
     expected_fixed = 48
@@ -5771,6 +5934,8 @@ def audit_glb(gltf: dict[str, object]) -> dict[str, object]:
         "materials": len(materials),
         "perimeter_joint_vertices": perimeter_joint_vertex_count,
         "perimeter_joint_triangles": perimeter_joint_index_count // 3,
+        "room_door_handles": len(room_handle_nodes),
+        "toilet_door_knobs": len(toilet_knob_nodes),
         "bit_flight": bit_flight_counts,
         "assembly": assembly_counts,
     }
@@ -5892,7 +6057,7 @@ def main() -> None:
     acceptance_visuals = audit_acceptance_visuals(export_objects)
     b03_3b_structure = audit_b03_3b_structure(export_objects)
     audit_semantics(export_objects)
-    glb_counts = audit_glb(read_glb_json(GLB_PATH))
+    glb_counts = audit_glb(read_glb(GLB_PATH))
     glb_optimization = audit_glb_optimization()
     prefixes = Counter(name.split("_", 1)[0] for name in names)
     result = {
