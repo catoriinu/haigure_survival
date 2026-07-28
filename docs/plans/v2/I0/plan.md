@@ -44,6 +44,10 @@ B03-3C統合headで、取り込み済みのT04-3AとT05-3を含む統合差分�
 
 > NPCとBITについて、取得済み標的を基本的に追い続ける個体と、最も近い可視標的へ常に切り替える個体を50%ずつ発生させたいです。BIT生成時とNPC洗脳時に個性を確定し、実現可能性と早期実装できるタスク配置を調査して今後のプランへ組み込んでください。
 
+2026-07-28 人間受入承認・push指示:
+
+> 修正内容について人間受入をOKとします。Pull Requestへpushしてください。
+
 ## 実行単位と推奨設定
 
 - 統合head: `codex/v2-b03-3-interactive-assets`
@@ -97,8 +101,8 @@ B03-3C統合headで、取り込み済みのT04-3AとT05-3を含む統合差分�
 - [x] Blender、GLB、両NavMesh、カタログhash、扉比較画像を再生成し、扉金物、開閉Transform、Collider、sweep、経路、決定性を監査する
 - [x] 関連型検査・build、T02／T04／T05、通常Web、ElectronでShift移動と長時間フラッシュ再発を確認し、console warning／error 0件を確認する
 - [x] 第2次人間受入結果を関連計画へ記録し、独立レビュー、UTF-8 BOMなし、ローカル絶対パスなし、括弧対応、`git diff --check`を通してローカルcommitする
-- [ ] Pull Request作成後、V0第1重点ゲートの実学校受入と破棄・再読込を完了する
-- [ ] 独立レビューとV0の結果を確認し、必要な指摘対応を行う
+- [x] Pull Request作成後、V0第1重点ゲートの実学校受入と破棄・再読込を完了する
+- [x] 独立レビューとV0の結果を確認し、必要な指摘対応を行う
 - [ ] merge許可後にだけ`develop`へ統合し、最新`origin/develop`からB04を開始できる状態にする
 
 ## Pull Request作成後の人間確認観点
@@ -155,3 +159,5 @@ V2依存監査、通常・T01～T05 buildは全件成功した。実ブラウザ
 GLBは2回の生成で15,442,976 bytes／`c97820435ea50a9c64d61e3bc68615e9f9ad35eb69993e59b46a59ebc19f6bb7`が一致した。静的人間NavMeshは3,124,800 bytes／`6a35b416eb7069fdb9e8eff5fa9c62f6ce2d6febc9f28765b6041213ad448dd1`、room variant bundleは1,911,013 bytes／`78a0f481aae3abd6a6e403c60fc0debc1c70941c8b7956f17e35006df10c3afd`、BIT NavMeshは568,363 bytes／`c60c44187e8eeca0889a933b564bb7eab936728148f43e5dd1796c57e82d8d73`で、両`--check`の二重生成一致とカタログ同期を通過した。interactive、architecture、interior、refactor、B03-1保護契約監査と、20室比較、教室引き戸、トイレ扉、エレベーターの固定視点再生成を通過した。
 
 レビュー修正後のV2依存監査、通常build、Electron build、T02／T04／T05 buildは全件成功した。実ブラウザはT02 48/48、T04 106/106、T05 255/255でwarning／error 0件、体育館報告座標のY snap回帰と実水平超過拒否、固定3灯の`idleRange=1`・light dirty 0件を確認した。通常Webとbuild済みElectronでは多数のBEAM・着弾中も校舎表示を維持し、V2更新停止は発生しなかった。Electron DevToolsはBabylon.js初期化情報1件だけでwarning／error 0件だった。自動操作ChromiumのPointer Lock要求だけは既知の環境制約で1件失敗するため、実Shift長押しと1ゲーム以上の目視はPull Requestの人間確認観点へ残す。
+
+同日、修正内容に対する人間受入承認を受領した。自動回帰、実ブラウザ、Electron、独立再レビュー、人間確認を合わせ、V0第1重点ゲートは統合差分由来の重大不具合0件で完了とする。第2次人間受入修正commit `5958a2d`と本承認記録を既存Draft Pull Request #55へpushする段階へ移行した。`develop`へのmergeは別途許可されるまで実施しない。
