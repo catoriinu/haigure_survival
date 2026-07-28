@@ -230,8 +230,8 @@
 - [x] B03-3C NavMesh探索容量是正: 実学校の有向経路でDetour node pool不足を再現し、16-bit index上限の65,535 nodeへ同期して固定回帰を追加する
 - [x] B03-3C統合検証: 資産監査、型検査、通常・T01～T05 build、T02／T04／T05実ブラウザ、通常ゲーム、Electron、consoleを再確認する
 - [x] B03-3Cロードマップ同期: PR作成直前に`9469693`を取り込み、全体計画・次タスク計画・ブランチ戦略と個別計画を最新化する
-- [ ] B03-3C公開: 統合結果をcommitし、branchをpushして`develop`向けDraft Pull Requestを作成する
-- [ ] B03-3C人間受入引き渡し: 部屋variant、扉、エレベーター、NPC指示、光線・世界境界、通常ゲームの確認観点を整理する
+- [x] B03-3C公開: 統合結果をcommitし、branchをpushして`develop`向けDraft Pull Requestを作成する
+- [x] B03-3C人間受入引き渡し: 部屋variant、扉、エレベーター、NPC指示、光線・世界境界、通常ゲームの確認観点を整理する
 
 ## 結果
 
@@ -360,3 +360,5 @@ Python 6ファイルのAST、Node 2ファイルの構文、変更テキスト19�
 統合差分54ファイル中text 53ファイルはstrict UTF-8・BOMなし、ローカル絶対パス混入0件だった。Python 1ファイルのAST、Node 1ファイルの構文、`git diff --check`も通過した。検証用5202・5204・5205・5210番とElectronは停止した。次は統合結果を独立commitし、指定のロードマップcommit `9469693`を取り込んで全体計画と個別計画を最新化してから、branchをpushして`develop`向けDraft Pull Requestを作成する。
 
 同日、統合結果を`285b590`（`feat: 学校動的資産をV2 Runtimeへ統合する`）としてcommitした後、指定のロードマップcommit `9469693`をPull Request作成直前に競合0件で取り込んだ。最新ロードマップでは本統合をI0とし、`develop`マージ前の独立レビューとV0第1重点ゲートを必須にする。I0後は`B04 → T04-3B → T06 → T07 → v2リリース準備`を直列実行し、I0完了前にB04のブランチ作成または書込みを開始しない。現時点の資産・fixture・通常ゲーム・Electronによる事前検証はPull Request作成可否の根拠とし、実学校での長時間NPC追跡、扉・エレベーター・NPC指示・動的遮蔽、同一Scene再読込と破棄後残留0件の独立確認はPull Request作成後の人間受入へ残す。
+
+同日、`codex/v2-b03-3-interactive-assets`をoriginへpushし、`develop`向けDraft Pull Request #55「I0 B03-3C・T04-3A・T05-3を統合」を作成した。GitHubからbase `develop`、head `codex/v2-b03-3-interactive-assets`、OPEN、Draft、MERGEABLEを再読込して確認した。人間確認観点は`docs/plans/v2/I0/plan.md`へ記録した。V0第1重点ゲート、独立レビュー、`develop`へのmerge、B04開始は未完了のまま維持する。
