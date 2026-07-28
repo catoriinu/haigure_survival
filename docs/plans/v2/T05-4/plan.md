@@ -68,7 +68,7 @@
 - [x] T05 fixture、関連型検査、通常・T05 build、実ブラウザで個性の混在とconsole warning／error 0件を確認する
 - [x] 99 NPC／50 BITで視線Ray上限、索引問い合わせ、標的変更数、経路再計画数を計測し、既存T05性能予算を維持する
 - [x] UTF-8 BOMなし、ローカル絶対パスなし、括弧対応、`git diff --check`を確認し、本計画へ結果を記録してcommitする
-- [ ] 別途公開指示がある場合だけpushし、`develop`向けDraft Pull Requestを作成する
+- [x] 別途公開指示がある場合だけpushし、`develop`向けDraft Pull Requestを作成する
 
 ## 結果
 
@@ -85,3 +85,5 @@ T05実ブラウザ回帰は272／272 PASS、warning／errorは0件だった。NP
 最終独立レビューでは、候補集合縮小時の共有credit偏りを修正した後のRuntimeと、全個体巡回、同距離規則、強制優先、最新destinationへの経路同期を再監査し、未解決のP1／P2がないことを確認した。変更9ファイルはUTF-8 BOMなしで、ローカル絶対パス、debug残骸、括弧不整合、`git diff --check`違反がない。
 
 I0統合後のWaveはB04とT05-4を並行とし、学校バイナリとAI Runtimeの所有を分離した。T04-3BはB04とT05-4の両方を入力とし、実学校で個性、動的扉、エレベーター、荒れvariantを統合確認する。同距離規則は独立レビュー結果に従い、`persistent`の初回取得だけ現行frame／source順を維持し、対象ID順は`nearest-visible`へ限定した。
+
+実装commit `bacc11c`を`codex/v2-t05-4-target-selection`へpushし、`develop`向けDraft Pull Request #57を作成した。
