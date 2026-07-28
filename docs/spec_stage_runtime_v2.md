@@ -356,7 +356,7 @@ T04-3Aでは`door_sweep`、`elevator_call_mat`、`elevator_threshold`、`elevato
 
 `BND_Stage`はプレイ可能な3D空間を定義する。範囲外時の再配置先は`MRK_PlayerSpawn_*`または最後に確認したNavMesh上の安全点とする。AABBだけで凹形状や上下階を判定しない。
 
-B04対応ステージの`BND_WorldLimit`は、表示・BIT・光線が存在してよい最終空間を定義する。`BND_Stage`とは別の境界として必須property `StageSpatialContext.worldBoundary`へ公開し、プレイヤー・NPCの領域外判定や再配置へ流用しない。`findExitPoint()`は内側から外側へ出る線分上の最初の交点だけを返し、それ以外は`null`を返す。
+B04対応ステージの`BND_WorldLimit`は、表示と光線が存在してよい最終空間を定義する。`BND_Stage`とは別の境界として必須property `StageSpatialContext.worldBoundary`へ公開し、プレイヤー・NPCの領域外判定や再配置へ流用しない。`findExitPoint()`は内側から外側へ出る線分上の最初の交点だけを返し、それ以外は`null`を返す。学校BITは既存の塀内飛行帯へ維持し、この境界を利用する外周経路を持たない。
 
 - `worldBoundaryMode="required"`では、閉じた`BND_WorldLimit`が正確に1件あり、`hs_id="world-limit"`、`hs_role="world_boundary"`を持ち、`BND_Stage`を内包することを読込時に検査する。欠落、重複、参照不正、非閉鎖、非内包は読込失敗とする。
 - `worldBoundaryMode="unsupported"`では`BND_WorldLimit`を持たず、`StageSpatialContext.worldBoundary`を`null`とする。Objectが混入していた場合も読込失敗とし、境界終了処理は呼び出さない。
@@ -364,7 +364,7 @@ B04対応ステージの`BND_WorldLimit`は、表示・BIT・光線が存在し�
 - `unsupported`は対応外を明示する契約であり、欠落時のfallbackではない。`BND_Stage`、GLB全体AABB、最大寿命を世界境界の代用にしない。
 - `BND_WorldLimit` Meshは`semanticMeshes`とAssetContainerが所有する。`StageWorldBoundary`はMesh参照と境界問い合わせcacheだけを所有し、Context破棄時はAssetContainerより先に無効化する。
 
-BITはCHASE、逃走、明示`boundary`遷移中だけ外周飛行帯を利用できる。通常探索、待機、総当たり探索、Alert集合、初期出現、時間増援の候補から外周を除外し、追跡終了後は学校内の到達可能帯へ戻る。
+BITの通常探索、待機、CHASE、逃走、総当たり探索、Alert集合、初期出現、時間増援は既存の塀内飛行帯だけを利用する。B04は外周飛行帯と塀越え`boundary`遷移を追加しない。
 
 ### 9.1 集合・公開処刑会場
 
@@ -481,8 +481,8 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 - T05-2VはV1光線演出、演出資源再利用、`BND_WorldLimit`退出点での非着弾フェードを担当する。命中間接照明は`HitEffectSystem`生成時に3灯の`PointLight`を同期作成し、同System破棄まで常時enabledの固定slotとして保持する。待機、遮蔽、返却では`intensity=0`、`range=1`の有限正値にし、命中開始・終了時にLightを追加、破棄、有効化、無効化してStage PBR shaderのLight構成を変更しない。同時命中の先着3件だけがslotを取得し、4件目以降も命中shell、点滅、fade、周囲orbは省略せず継続する。
 - T04-3Aは`DynamicStageSpatialVariants`、revision付き動的問い合わせ、扉・エレベーター状態機械、非学校fixture、部屋variant NavMeshタイル組立基盤を担当する。
 - T04-3BはB03-3C／B04の学校metadata、20室variant、全陣営NPCの扉・エレベーター利用を実学校へ統合する。
-- B04は学校外周表示、外周BIT飛行帯、`BND_WorldLimit`の資産と派生NavMeshを担当する。
-- T06はB04とT05-2Vを含む最終学校資産を使い、プレイヤー、NPC、ビット、全階、屋上、外周、全光線、ゲーム進行、水中水平速度50%と通常速度への復帰を通した統合確認を行う。
+- B04は学校外周表示と`BND_WorldLimit`の資産を担当する。両NavMeshは不変とし、外周BIT飛行帯と塀越え遷移は追加しない。
+- T06はB04とT05-2Vを含む最終学校資産を使い、プレイヤー、NPC、ビット、全階、屋上、全光線、ゲーム進行、水中水平速度50%と通常速度への復帰を通した統合確認を行う。外周BIT帯の統合は対象に含めない。
 - トラップ光線と動的3DマップビームはT05-2、T05-2V、T06、T07の完了範囲に含めない。将来、対応ステージを移植するタスクで`V2BeamOriginKind`、配置metadata、状態機械、光線物理・演出、専用fixtureを同時に追加する。
 
 ## 13. ライフサイクル

@@ -2742,13 +2742,13 @@ def audit_active_visual_counts(graph: AssetGraph) -> dict[str, int]:
         for room_id in EXPECTED_ROOM_IDS
     )
     require(
-        normal_visuals == 604,
-        f"{graph.source}: 通常20室選択時のVISが604件ではありません: "
+        normal_visuals == 606,
+        f"{graph.source}: 通常20室選択時のVISが606件ではありません: "
         f"{normal_visuals}",
     )
     require(
-        disordered_visuals == 624,
-        f"{graph.source}: 全荒れ20室選択時のVISが624件ではありません: "
+        disordered_visuals == 626,
+        f"{graph.source}: 全荒れ20室選択時のVISが626件ではありません: "
         f"{disordered_visuals}",
     )
     return {

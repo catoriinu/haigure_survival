@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="800" viewBox="0 0 1400 800">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#86c8f2"/>
+      <stop offset="1" stop-color="#d9edf7"/>
+    </linearGradient>
+  </defs>
+  <rect width="1400" height="800" fill="url(#sky)"/>
+  <rect y="500" width="1400" height="300" fill="#4c5354"/>
+  <polygon points="0,500 1400,500 1170,405 230,405" fill="#d6d2c5"/>
+  <polygon points="230,405 1170,405 1080,360 320,360" fill="#789b65"/>
+
+  <rect x="315" y="270" width="770" height="90" fill="#91999b" stroke="#5f6769" stroke-width="8"/>
+  <rect x="565" y="250" width="270" height="110" fill="#54656b" stroke="#37474f" stroke-width="8"/>
+  <line x1="585" y1="260" x2="585" y2="355" stroke="#263238" stroke-width="6"/>
+  <line x1="620" y1="260" x2="620" y2="355" stroke="#263238" stroke-width="6"/>
+  <line x1="655" y1="260" x2="655" y2="355" stroke="#263238" stroke-width="6"/>
+  <line x1="690" y1="260" x2="690" y2="355" stroke="#263238" stroke-width="6"/>
+  <line x1="725" y1="260" x2="725" y2="355" stroke="#263238" stroke-width="6"/>
+  <line x1="760" y1="260" x2="760" y2="355" stroke="#263238" stroke-width="6"/>
+  <line x1="795" y1="260" x2="795" y2="355" stroke="#263238" stroke-width="6"/>
+
+  <line x1="0" y1="500" x2="1400" y2="500" stroke="#263238" stroke-width="3"/>
+  <line x1="230" y1="405" x2="1170" y2="405" stroke="#607d8b" stroke-width="3"/>
+  <line x1="320" y1="360" x2="1080" y2="360" stroke="#37474f" stroke-width="4"/>
+
+  <rect x="55" y="45" width="800" height="150" rx="10" fill="#ffffff" fill-opacity="0.92"/>
+  <text x="85" y="88" font-family="sans-serif" font-size="30" font-weight="700" fill="#263238">校門・塀越し固定視点 配置確認</text>
+  <text x="85" y="128" font-family="sans-serif" font-size="21" fill="#37474f">塀内 → 歩道1.5m → 道路3.5m。全表示面はZ=-0.30mで完全フラット。</text>
+  <text x="85" y="163" font-family="sans-serif" font-size="19" fill="#b71c1c">縁石・段差・白線・遠景・Collider・スポーンVolume・外周BIT帯なし</text>
+
+  <line x1="350" y1="675" x2="570" y2="675" stroke="#d6d2c5" stroke-width="16"/>
+  <text x="375" y="720" font-family="sans-serif" font-size="20" fill="#ffffff">歩道 1.5m</text>
+  <line x1="640" y1="675" x2="980" y2="675" stroke="#263238" stroke-width="16"/>
+  <text x="745" y="720" font-family="sans-serif" font-size="20" fill="#ffffff">道路 3.5m</text>
+</svg>

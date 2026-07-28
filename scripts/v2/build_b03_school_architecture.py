@@ -81,6 +81,8 @@ GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
 T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
+B04_WORLD_BOUNDARY_VERSION_PROPERTY = "b04_world_boundary_version"
+B04_WORLD_BOUNDARY_VERSION = "b04-school-world-boundary-v1"
 
 ASSEMBLY_GUIDE_NAMES = (
     "VIS_CourtyardCapacityGrid_10x10",
@@ -111,7 +113,19 @@ SITE_GROUND_BOUNDS = (
     (-18.6, -14.5, -0.6),
     (63.4, 51.5, -0.3),
 )
+SITE_GROUND_VISUAL_BOUNDS = (
+    (-18.8, -14.7, -0.6),
+    (63.6, 51.7, -0.3),
+)
 STAGE_BOUNDARY_SOUTH_Y = -14.3
+B04_FENCE_OUTER_BOUNDS_XY = (-18.8, -14.7, 63.6, 51.7)
+B04_SIDEWALK_OUTER_BOUNDS_XY = (-20.3, -16.2, 65.1, 53.2)
+B04_ROAD_OUTER_BOUNDS_XY = (-23.8, -19.7, 68.6, 56.7)
+B04_SURFACE_Z = (-0.35, -0.30)
+B04_WORLD_BOUNDARY_BOUNDS = (
+    (-23.8, -19.7, -0.6),
+    (68.6, 56.7, 24.0),
+)
 
 STAIR_NAV_BLOCKER_SOURCE_NAMES = (
     "COL_StairGuard_NE_Landing",
@@ -278,10 +292,13 @@ GENERATED_PREFIXES = (
 )
 
 GENERATED_EXACT_NAMES = {
+    "BND_WorldLimit",
     "MRK_AssemblyAnchor_Courtyard",
     "MRK_AssemblyAnchor_Gym",
     "VOL_Assembly_Courtyard",
     "VOL_Assembly_Gym",
+    "VIS_B04_Road",
+    "VIS_B04_Sidewalk",
     "VIS_Gate_MainClosed",
     "VIS_Gate_UtilityClosed",
     "NAV_Walkable_Interior2F",
@@ -920,7 +937,7 @@ def append_outward_surface_quad(
 def rebuild_site_boundary_visuals() -> None:
     visual_collection = collection(VIS_COLLECTION_NAME)
     for object_name, bounds in (
-        ("VIS_SiteGround", SITE_GROUND_BOUNDS),
+        ("VIS_SiteGround", SITE_GROUND_VISUAL_BOUNDS),
         ("COL_SiteGround", SITE_GROUND_BOUNDS),
     ):
         vertices: list[tuple[float, float, float]] = []
@@ -1049,6 +1066,77 @@ def create_mesh_object(
     for key, value in (properties or {}).items():
         obj[key] = value
     return obj
+
+
+def rectangular_frame_boxes(
+    inner_bounds_xy: tuple[float, float, float, float],
+    outer_bounds_xy: tuple[float, float, float, float],
+    z_bounds: tuple[float, float],
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    inner_min_x, inner_min_y, inner_max_x, inner_max_y = inner_bounds_xy
+    outer_min_x, outer_min_y, outer_max_x, outer_max_y = outer_bounds_xy
+    z_min, z_max = z_bounds
+    if not (
+        outer_min_x < inner_min_x < inner_max_x < outer_max_x
+        and outer_min_y < inner_min_y < inner_max_y < outer_max_y
+    ):
+        raise RuntimeError(
+            f"不正な矩形リング境界です: inner={inner_bounds_xy}, outer={outer_bounds_xy}"
+        )
+    return [
+        (
+            (outer_min_x, outer_min_y, z_min),
+            (inner_min_x, outer_max_y, z_max),
+        ),
+        (
+            (inner_max_x, outer_min_y, z_min),
+            (outer_max_x, outer_max_y, z_max),
+        ),
+        (
+            (inner_min_x, outer_min_y, z_min),
+            (inner_max_x, inner_min_y, z_max),
+        ),
+        (
+            (inner_min_x, inner_max_y, z_min),
+            (inner_max_x, outer_max_y, z_max),
+        ),
+    ]
+
+
+def build_b04_school_world_boundary(
+    visual_collection: bpy.types.Collection,
+    semantic_collection: bpy.types.Collection,
+    architecture_material: bpy.types.Material,
+) -> None:
+    create_mesh_object(
+        "VIS_B04_Sidewalk",
+        rectangular_frame_boxes(
+            B04_FENCE_OUTER_BOUNDS_XY,
+            B04_SIDEWALK_OUTER_BOUNDS_XY,
+            B04_SURFACE_Z,
+        ),
+        visual_collection,
+        architecture_material,
+    )
+    create_mesh_object(
+        "VIS_B04_Road",
+        rectangular_frame_boxes(
+            B04_SIDEWALK_OUTER_BOUNDS_XY,
+            B04_ROAD_OUTER_BOUNDS_XY,
+            B04_SURFACE_Z,
+        ),
+        visual_collection,
+        architecture_material,
+    )
+    create_mesh_object(
+        "BND_WorldLimit",
+        [B04_WORLD_BOUNDARY_BOUNDS],
+        semantic_collection,
+        properties={
+            "hs_id": "world-limit",
+            "hs_role": "world_boundary",
+        },
+    )
 
 
 def create_open_box_mesh_object(
@@ -5556,6 +5644,9 @@ def is_current_generation() -> bool:
     site_ground = bpy.data.objects.get("COL_SiteGround")
     outdoor_nav = bpy.data.objects.get("NAV_Walkable_Outdoor")
     south_perimeter = bpy.data.objects.get("COL_Perimeter_SouthWest")
+    world_boundary = bpy.data.objects.get("BND_WorldLimit")
+    sidewalk = bpy.data.objects.get("VIS_B04_Sidewalk")
+    road = bpy.data.objects.get("VIS_B04_Road")
     boundary_maximum_z = (
         world_bounds(boundary)[1].z
         if boundary is not None and boundary.type == "MESH"
@@ -5589,6 +5680,8 @@ def is_current_generation() -> bool:
     )
     return (
         bpy.context.scene.get(GENERATOR_VERSION_PROPERTY) == GENERATOR_VERSION
+        and bpy.context.scene.get(B04_WORLD_BOUNDARY_VERSION_PROPERTY)
+        == B04_WORLD_BOUNDARY_VERSION
         and bpy.context.scene.get(T04_CORRECTION_VERSION_PROPERTY)
         == T04_CORRECTION_VERSION
         and metadata is not None
@@ -5607,6 +5700,29 @@ def is_current_generation() -> bool:
         and abs(outdoor_nav_minimum_y + 14.5) <= 1.0e-6
         and south_perimeter_maximum_y is not None
         and abs(south_perimeter_maximum_y + 14.3) <= 1.0e-6
+        and world_boundary is not None
+        and world_boundary.get("hs_id") == "world-limit"
+        and world_boundary.get("hs_role") == "world_boundary"
+        and all(
+            abs(actual - expected) <= 1.0e-5
+            for actual, expected in zip(
+                world_bounds(world_boundary)[0],
+                B04_WORLD_BOUNDARY_BOUNDS[0],
+                strict=True,
+            )
+        )
+        and all(
+            abs(actual - expected) <= 1.0e-5
+            for actual, expected in zip(
+                world_bounds(world_boundary)[1],
+                B04_WORLD_BOUNDARY_BOUNDS[1],
+                strict=True,
+            )
+        )
+        and sidewalk is not None
+        and road is not None
+        and abs(world_bounds(sidewalk)[1].z - B04_SURFACE_Z[1]) <= 1.0e-6
+        and abs(world_bounds(road)[1].z - B04_SURFACE_Z[1]) <= 1.0e-6
         and human_nav_sources
         and all(obj.get("hs_nav_set") == "human" for obj in human_nav_sources)
         and bpy.context.scene.get("b03_window_layout_status") == "final"
@@ -5689,12 +5805,9 @@ def main() -> None:
     specs = build_window_specs()
     if len(specs) != 80 or sum(len(spec.open_leaf_indices) for spec in specs) != 57:
         raise RuntimeError("最終窓帯が80件または開放ユニットが57件ではありません")
-    removed_authoring_data = remove_final_unused_authoring_data()
+    remove_final_unused_authoring_data()
     force_rebuild = "--force" in sys.argv
     if is_current_generation() and not force_rebuild:
-        if removed_authoring_data:
-            bpy.context.preferences.filepaths.save_version = 0
-            bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_PATH), check_existing=False)
         optimization = export_stage(export_collection)
         print_build_result(specs, optimization)
         return
@@ -5807,6 +5920,11 @@ def main() -> None:
     build_stair_transition_volumes(semantic_collection)
     build_rooftop_boundary_transition(semantic_collection)
     build_assembly_venues(semantic_collection)
+    build_b04_school_world_boundary(
+        visual_collection,
+        semantic_collection,
+        architecture_material,
+    )
     normalize_export_meshes(export_collection)
     material_result = consolidate_school_materials(export_collection)
     apply_architecture_swatch_uv(
@@ -5840,6 +5958,14 @@ def main() -> None:
         ("VIS_B03_PerimeterBlockJoints",),
         "trim",
     )
+    apply_architecture_swatch_uv(
+        ("VIS_B04_Sidewalk",),
+        "wall",
+    )
+    apply_architecture_swatch_uv(
+        ("VIS_B04_Road",),
+        "trim",
+    )
     bpy.context.scene["b03_2_material_result"] = json.dumps(
         material_result, ensure_ascii=False, sort_keys=True
     )
@@ -5847,6 +5973,9 @@ def main() -> None:
 
     bpy.context.scene[GENERATOR_VERSION_PROPERTY] = GENERATOR_VERSION
     bpy.context.scene[T04_CORRECTION_VERSION_PROPERTY] = T04_CORRECTION_VERSION
+    bpy.context.scene[B04_WORLD_BOUNDARY_VERSION_PROPERTY] = (
+        B04_WORLD_BOUNDARY_VERSION
+    )
     bpy.context.scene["b03_window_layout_status"] = "final"
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_PATH), check_existing=False)

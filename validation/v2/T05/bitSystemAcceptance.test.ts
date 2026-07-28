@@ -2206,8 +2206,8 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     document.title =
       `T05学校受入: 99体探索 warmup 0/${PERFORMANCE_WARMUP_TICKS}`;
     await yieldToBrowser();
-    const schoolWorldBoundaryUnsupported =
-      schoolContext.worldBoundary === null;
+    const schoolWorldBoundaryRequired =
+      schoolContext.worldBoundary?.id === "world-limit";
     const schoolNavigation = schoolContext.bitNavigation;
     const schoolZoneId = schoolNavigation.zones[0]?.id;
     if (!schoolZoneId) {
@@ -2965,14 +2965,14 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         disposedReferenceMessage?.includes("破棄済み") === true &&
         disposedQueriesMessage?.includes("破棄済み") === true &&
         disposedFixtureReferenceMessage?.includes("破棄済み") === true &&
-        schoolWorldBoundaryUnsupported &&
+        schoolWorldBoundaryRequired &&
         fixtureContextActive &&
         sceneResourceCountsEqual(baseline, afterSchoolDispose) &&
         sceneResourceCountsEqual(baseline, afterFixtureDispose),
       detail:
         `schoolOldRef=${disposedReferenceMessage ?? "例外なし"} / ` +
         `schoolQueries=${disposedQueriesMessage ?? "例外なし"} / ` +
-        `schoolBoundaryUnsupported=${schoolWorldBoundaryUnsupported} / ` +
+        `schoolBoundaryRequired=${schoolWorldBoundaryRequired} / ` +
         `fixtureOldRef=${disposedFixtureReferenceMessage ?? "例外なし"} / ` +
         `fixtureActive=${fixtureContextActive} / ` +
         `baseline=${JSON.stringify(baseline)} / ` +
