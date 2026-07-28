@@ -24,7 +24,7 @@ GLB_PATH = (
     REPOSITORY_ROOT / "public/stage-assets/v2/B02/b02_school_blockout.glb"
 )
 EXPORT_COLLECTION_NAME = "EXP_Stage_school"
-EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v1"
+EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v2"
 EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
 
 GLB_MAGIC = b"glTF"
@@ -1273,6 +1273,8 @@ def audit_doors(
     motion_kinds = Counter()
     sweep_containment_checks = 0
     elevator_pocket_checks = 0
+    hardware_counts = Counter()
+    expected_hardware_names: set[str] = set()
     for spec in specs:
         root_name = f"MRK_Door_{spec.token}"
         sweep_name = f"VOL_DoorSweep_{spec.token}"
@@ -1343,6 +1345,21 @@ def audit_doors(
             not sweep.child_names,
             f"{sweep.name}: Door sweepに子Objectがあります",
         )
+        if spec.door_class == "toilet_stall":
+            expected_sweep_bounds = (
+                Vector((-1.42, -0.02, 0.0)),
+                Vector((0.02, 1.42, 1.80)),
+            )
+            if glb_coordinates:
+                expected_sweep_bounds = convert_bounds(
+                    expected_sweep_bounds
+                )
+            require(
+                bounds_close(sweep.local_bounds, expected_sweep_bounds),
+                f"{sweep.name}: トイレ個室扉sweep境界が不正です: "
+                f"actual={sweep.local_bounds}, "
+                f"expected={expected_sweep_bounds}",
+            )
 
         closed_panel_bounds: list[tuple[Vector, Vector]] = []
         for panel_spec in panel_specs:
@@ -1350,10 +1367,19 @@ def audit_doors(
             visual_name = f"VIS_DoorPanel_{panel_spec.token}"
             collider_name = f"COL_DoorPanel_{panel_spec.token}"
             open_pose_name = f"MRK_DoorOpenPose_{panel_spec.token}"
+            hardware_name = None
+            if spec.door_class == "room":
+                hardware_name = f"VIS_DoorPanel_Handle_{panel_spec.token}"
+            elif spec.door_class == "toilet_stall":
+                hardware_name = f"VIS_DoorPanel_Knob_{panel_spec.token}"
             panel = graph.require_node(panel_name)
             visual = graph.require_node(visual_name)
             collider = graph.require_node(collider_name)
             open_pose = graph.require_node(open_pose_name)
+            expected_panel_children = {visual_name, collider_name}
+            if hardware_name is not None:
+                expected_panel_children.add(hardware_name)
+                expected_hardware_names.add(hardware_name)
 
             require_node_contract(
                 panel,
@@ -1368,8 +1394,8 @@ def audit_doors(
                 },
             )
             require(
-                set(panel.child_names) == {visual_name, collider_name},
-                f"{panel.name}: VIS/COL子が1件ずつではありません",
+                set(panel.child_names) == expected_panel_children,
+                f"{panel.name}: VIS/COL/扉金物の子構成が不正です",
             )
             require_transform(
                 panel,
@@ -1400,6 +1426,105 @@ def audit_doors(
                 bounds_close(visual.local_bounds, collider.local_bounds),
                 f"{panel.name}: VIS/COLの閉状態AABBが一致しません",
             )
+            if spec.door_class == "toilet_stall":
+                expected_panel_bounds = (
+                    Vector((-1.40, -0.02, 0.0)),
+                    Vector((0.0, 0.02, 1.80)),
+                )
+                if glb_coordinates:
+                    expected_panel_bounds = convert_bounds(
+                        expected_panel_bounds
+                    )
+                require(
+                    bounds_close(
+                        collider.local_bounds,
+                        expected_panel_bounds,
+                    ),
+                    f"{panel.name}: トイレ個室扉panel境界が不正です: "
+                    f"actual={collider.local_bounds}, "
+                    f"expected={expected_panel_bounds}",
+                )
+
+            if hardware_name is not None:
+                hardware = graph.require_node(hardware_name)
+                require_node_contract(
+                    hardware,
+                    kind="MESH",
+                    parent_name=panel_name,
+                    properties={},
+                )
+                require_transform(
+                    hardware,
+                    (0.0, 0.0, 0.0),
+                    identity_quaternion(),
+                )
+                require(
+                    hardware.local_bounds is not None,
+                    f"{hardware.name}: 扉金物MeshにAABBがありません",
+                )
+                require(
+                    not hardware.child_names,
+                    f"{hardware.name}: 扉金物に子Objectがあります",
+                )
+                if spec.door_class == "room":
+                    if abs(panel_spec.open_location[0]) > 0.0:
+                        handle_center = -math.copysign(
+                            0.45,
+                            panel_spec.open_location[0],
+                        )
+                        expected_hardware_bounds = (
+                            Vector((handle_center - 0.08, -0.06, 0.89)),
+                            Vector((handle_center + 0.08, 0.06, 1.21)),
+                        )
+                    else:
+                        handle_center = -math.copysign(
+                            0.45,
+                            panel_spec.open_location[1],
+                        )
+                        expected_hardware_bounds = (
+                            Vector((-0.06, handle_center - 0.08, 0.89)),
+                            Vector((0.06, handle_center + 0.08, 1.21)),
+                        )
+                    require(
+                        hardware.triangle_count == 24,
+                        f"{hardware.name}: 両面box2個の24 trianglesではありません",
+                    )
+                    hardware_counts["room_handle"] += 1
+                else:
+                    expected_hardware_bounds = (
+                        Vector(
+                            (
+                                -1.2736654964089394,
+                                -0.12603839933872223,
+                                0.8900000013411045,
+                            )
+                        ),
+                        Vector(
+                            (
+                                -1.1663345035910606,
+                                -0.02396160066127777,
+                                1.0099999986588954,
+                            )
+                        ),
+                    )
+                    require(
+                        hardware.triangle_count == 20,
+                        f"{hardware.name}: 低ポリ丸ノブの20 trianglesではありません",
+                    )
+                    hardware_counts["toilet_knob"] += 1
+                if glb_coordinates:
+                    expected_hardware_bounds = convert_bounds(
+                        expected_hardware_bounds
+                    )
+                require(
+                    bounds_close(
+                        hardware.local_bounds,
+                        expected_hardware_bounds,
+                    ),
+                    f"{hardware.name}: 扉金物AABBが不正です: "
+                    f"actual={hardware.local_bounds}, "
+                    f"expected={expected_hardware_bounds}",
+                )
 
             require_node_contract(
                 open_pose,
@@ -1480,6 +1605,23 @@ def audit_doors(
                 ),
                 f"{root.name}: 1.20m開口を閉じるpanel寸法ではありません",
             )
+        if spec.door_class == "toilet_stall":
+            panel_dimensions = sorted(
+                collider.local_bounds[1][axis]
+                - collider.local_bounds[0][axis]
+                for axis in range(3)
+            )
+            require(
+                all(
+                    abs(actual - expected) <= TOLERANCE
+                    for actual, expected in zip(
+                        panel_dimensions,
+                        (0.04, 1.40, 1.80),
+                        strict=True,
+                    )
+                ),
+                f"{root.name}: 1.40m個室開口を閉じるpanel寸法ではありません",
+            )
         if spec.door_class in {"elevator_car", "elevator_landing"}:
             closed_minimum_x = min(bounds[0][0] for bounds in closed_panel_bounds)
             closed_maximum_x = max(bounds[1][0] for bounds in closed_panel_bounds)
@@ -1506,6 +1648,27 @@ def audit_doors(
         motion_kinds == Counter({"slide": 50, "swing": 24}),
         f"{graph.source}: Door motion内訳が不正です: {motion_kinds}",
     )
+    require(
+        hardware_counts
+        == Counter({"room_handle": 38, "toilet_knob": 24}),
+        f"{graph.source}: 扉金物内訳が不正です: {hardware_counts}",
+    )
+    actual_hardware_names = {
+        name
+        for name in graph.nodes
+        if name.startswith(
+            (
+                "VIS_DoorPanel_Handle_",
+                "VIS_DoorPanel_Knob_",
+            )
+        )
+    }
+    require(
+        actual_hardware_names == expected_hardware_names,
+        f"{graph.source}: 固定扉・エレベーターを含む規定外扉金物があります: "
+        f"missing={sorted(expected_hardware_names - actual_hardware_names)}, "
+        f"extra={sorted(actual_hardware_names - expected_hardware_names)}",
+    )
 
     legacy_found = sorted(LEGACY_OBJECT_NAMES & set(graph.nodes))
     require(
@@ -1519,6 +1682,7 @@ def audit_doors(
         "sweeps": len(sweep_nodes),
         "sweep_containment_checks": sweep_containment_checks,
         "elevator_pocket_checks": elevator_pocket_checks,
+        "hardware": dict(sorted(hardware_counts.items())),
         "classes": dict(sorted(door_classes.items())),
         "motions": dict(sorted(motion_kinds.items())),
     }
@@ -2497,12 +2661,74 @@ def interactive_contract_names(graph: AssetGraph) -> set[str]:
     return result
 
 
+def audit_active_visual_counts(graph: AssetGraph) -> dict[str, int]:
+    static_visuals = 0
+    variant_visuals: Counter[tuple[str, str]] = Counter()
+    for node in graph.nodes.values():
+        if not node.name.startswith("VIS_"):
+            continue
+        parent_name = node.parent_name
+        variant_key: tuple[str, str] | None = None
+        while parent_name is not None:
+            parent = graph.require_node(parent_name)
+            if parent.properties.get("hs_role") == "room_variant":
+                room_id = parent.properties.get("hs_room_id")
+                variant_id = parent.properties.get("hs_variant_id")
+                require(
+                    isinstance(room_id, str)
+                    and isinstance(variant_id, str),
+                    f"{graph.source}: room variantのVIS祖先IDが不正です: "
+                    f"{node.name}",
+                )
+                variant_key = (room_id, variant_id)
+                break
+            parent_name = parent.parent_name
+        if variant_key is None:
+            static_visuals += 1
+        else:
+            variant_visuals[variant_key] += 1
+
+    normal_visuals = static_visuals + sum(
+        variant_visuals[(room_id, "normal")]
+        for room_id in EXPECTED_ROOM_IDS
+    )
+    disordered_visuals = static_visuals + sum(
+        variant_visuals[(room_id, "disordered")]
+        for room_id in EXPECTED_ROOM_IDS
+    )
+    require(
+        normal_visuals == 604,
+        f"{graph.source}: 通常20室選択時のVISが604件ではありません: "
+        f"{normal_visuals}",
+    )
+    require(
+        disordered_visuals == 624,
+        f"{graph.source}: 全荒れ20室選択時のVISが624件ではありません: "
+        f"{disordered_visuals}",
+    )
+    return {
+        "static": static_visuals,
+        "normal": normal_visuals,
+        "all_disordered": disordered_visuals,
+    }
+
+
 def audit_blender_glb_parity(
     blender_graph: AssetGraph,
     glb_graph: AssetGraph,
 ) -> dict[str, int]:
     blender_names = interactive_contract_names(blender_graph)
     glb_names = interactive_contract_names(glb_graph)
+    require(
+        len(blender_names) == 765,
+        "BlenderのB03-3C interactive契約Objectが765件ではありません: "
+        f"{len(blender_names)}",
+    )
+    require(
+        len(glb_names) == 765,
+        "GLBのB03-3C interactive契約Objectが765件ではありません: "
+        f"{len(glb_names)}",
+    )
     require(
         blender_names == glb_names,
         "Blender/GLBのB03-3C Object集合が不一致です: "
@@ -2606,7 +2832,7 @@ def main() -> None:
     require(
         bpy.context.scene.get("b03_architecture_generator_version")
         == EXPECTED_GENERATOR_VERSION,
-        "Blender正本の生成版がB03-3C interactive assets v1ではありません",
+        "Blender正本の生成版がB03-3C interactive assets v2ではありません",
     )
     raw_generation_result = bpy.context.scene.get("b03_3c_interactive_result")
     require(
@@ -2643,6 +2869,7 @@ def main() -> None:
     blender_geometry = audit_blender_geometry()
 
     blender_result = {
+        "active_visuals": audit_active_visual_counts(blender_graph),
         "room_variants": audit_room_variants(
             blender_graph,
             glb_coordinates=False,
@@ -2658,6 +2885,7 @@ def main() -> None:
         "meta": audit_meta(blender_graph),
     }
     glb_result = {
+        "active_visuals": audit_active_visual_counts(glb_graph),
         "room_variants": audit_room_variants(
             glb_graph,
             glb_coordinates=True,

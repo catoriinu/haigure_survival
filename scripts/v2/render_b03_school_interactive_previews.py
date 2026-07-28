@@ -149,10 +149,10 @@ def create_context_frame(
         )
     elif frame_kind == "toilet":
         boxes = (
-            ((-0.98, 0.0, 0.95), (0.16, 0.16, 1.90)),
+            ((-1.48, 0.0, 0.95), (0.16, 0.16, 1.90)),
             ((0.08, 0.0, 0.95), (0.16, 0.16, 1.90)),
-            ((-0.45, 0.0, 1.90), (1.22, 0.16, 0.20)),
-            ((-0.45, 0.0, -0.04), (1.60, 2.20, 0.08)),
+            ((-0.70, 0.0, 1.90), (1.72, 0.16, 0.20)),
+            ((-0.70, 0.0, -0.04), (2.20, 2.20, 0.08)),
         )
     elif frame_kind == "elevator":
         boxes = (
@@ -219,12 +219,12 @@ def create_door_state(
                 for child in panel.children
                 if child.type == "MESH" and child.name.startswith("VIS_")
             )
-            if len(visual_children) != 1:
+            if not visual_children:
                 raise RuntimeError(
-                    f"{panel.name}: 比較対象VISが1件ではありません"
+                    f"{panel.name}: 比較対象VISがありません"
                 )
             if state == "closed":
-                relative_matrix = reference_inverse @ panel.matrix_world
+                open_pose = None
             elif state == "open":
                 open_poses = tuple(
                     child
@@ -236,23 +236,31 @@ def create_door_state(
                     raise RuntimeError(
                         f"{panel.name}: 比較対象open poseが1件ではありません"
                     )
-                relative_matrix = (
-                    reference_inverse
-                    @ door.matrix_world
-                    @ open_poses[0].matrix_basis
-                )
+                open_pose = open_poses[0]
             else:
                 raise RuntimeError(f"未登録の扉比較stateです: {state}")
-            created.append(
-                duplicate_mesh(
-                    visual_children[0],
-                    (
-                        f"B03_INTERACTIVE_PREVIEW_{view['name']}_"
-                        f"{state}_{panel.name}"
-                    ),
-                    stage_matrix @ relative_matrix,
+            for visual_child in visual_children:
+                if state == "closed":
+                    relative_matrix = (
+                        reference_inverse @ visual_child.matrix_world
+                    )
+                else:
+                    relative_matrix = (
+                        reference_inverse
+                        @ door.matrix_world
+                        @ open_pose.matrix_basis
+                        @ visual_child.matrix_basis
+                    )
+                created.append(
+                    duplicate_mesh(
+                        visual_child,
+                        (
+                            f"B03_INTERACTIVE_PREVIEW_{view['name']}_"
+                            f"{state}_{visual_child.name}"
+                        ),
+                        stage_matrix @ relative_matrix,
+                    )
                 )
-            )
 
     for extra_name in view.get("extras", ()):
         extra = bpy.data.objects[str(extra_name)]

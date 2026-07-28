@@ -76,7 +76,7 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
-GENERATOR_VERSION = "b03-3c-interactive-assets-v1"
+GENERATOR_VERSION = "b03-3c-interactive-assets-v2"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -3348,12 +3348,12 @@ def rebuild_gym_envelope_and_stage() -> None:
     for object_name in ("VIS_GymStage", "COL_GymStage"):
         replace_existing_boxes(
             object_name,
-            [((41.4, -11.0, 0.0), (51.4, -2.0, 1.0))],
+            [((40.6, -11.0, 0.0), (52.2, -2.0, 1.0))],
         )
 
     for side, x_minimum, direction in (
-        ("West", 39.9, 1.0),
-        ("East", 52.9, -1.0),
+        ("West", 39.1, 1.0),
+        ("East", 53.7, -1.0),
     ):
         for step_index in range(1, 6):
             if direction > 0:
@@ -3373,8 +3373,8 @@ def rebuild_gym_envelope_and_stage() -> None:
             )
 
     for side, low_x, high_x in (
-        ("West", 39.9, 41.4),
-        ("East", 52.9, 51.4),
+        ("West", 39.1, 40.6),
+        ("East", 53.7, 52.2),
     ):
         replace_stage_ramp_geometry(
             f"COL_GymStageStairRamp_{side}",
@@ -3384,8 +3384,8 @@ def rebuild_gym_envelope_and_stage() -> None:
             -8.6,
         )
     for side, x_minimum, x_maximum in (
-        ("West", 41.25, 41.55),
-        ("East", 51.25, 51.55),
+        ("West", 40.45, 40.75),
+        ("East", 52.05, 52.35),
     ):
         for prefix in ("VIS", "COL"):
             replace_existing_boxes(
@@ -3508,8 +3508,8 @@ def build_b03_3b_structure(
         ((33.6, -2.15, 7.25), (35.0, -1.85, 9.0)),
         ((35.0, -2.15, 0.0), (36.8, -1.85, 9.0)),
         ((36.8, -2.15, 2.4), (39.2, -1.85, 9.0)),
-        ((39.2, -2.15, 0.0), (41.4, -1.85, 9.0)),
-        ((51.4, -2.15, 0.0), (53.6, -1.85, 9.0)),
+        ((39.2, -2.15, 0.0), (40.6, -1.85, 9.0)),
+        ((52.2, -2.15, 0.0), (53.6, -1.85, 9.0)),
         ((53.6, -2.15, 2.4), (56.0, -1.85, 9.0)),
         ((56.0, -2.15, 0.0), (57.8, -1.85, 9.0)),
         ((57.8, -2.15, 0.0), (59.2, -1.85, 5.10)),
@@ -5843,6 +5843,7 @@ def main() -> None:
     bpy.context.scene["b03_2_material_result"] = json.dumps(
         material_result, ensure_ascii=False, sort_keys=True
     )
+    remove_final_unused_authoring_data()
 
     bpy.context.scene[GENERATOR_VERSION_PROPERTY] = GENERATOR_VERSION
     bpy.context.scene[T04_CORRECTION_VERSION_PROPERTY] = T04_CORRECTION_VERSION

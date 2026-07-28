@@ -68,7 +68,7 @@ EXPECTED_PACKED_ATLAS_PATHS = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v1"
+EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v2"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 EXPECTED_SCHEMA_VERSION = 2
 EXPECTED_STAGE_ID = "school"
@@ -2284,6 +2284,28 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
         expected_swatches[f"VIS_B03_Ceiling_F{floor:02d}"] = "ceiling"
     for object_name, swatch in expected_swatches.items():
         require_architecture_swatch(object_name, swatch)
+    room_handle_names = sorted(
+        obj.name
+        for obj in objects
+        if obj.name.startswith("VIS_DoorPanel_Handle_")
+    )
+    toilet_knob_names = sorted(
+        obj.name
+        for obj in objects
+        if obj.name.startswith("VIS_DoorPanel_Knob_")
+    )
+    require(
+        len(room_handle_names) == 38,
+        f"室内引き戸の両面取っ手Objectが38件ではありません: "
+        f"{len(room_handle_names)}",
+    )
+    require(
+        len(toilet_knob_names) == 24,
+        f"トイレ個室扉の外側ノブObjectが24件ではありません: "
+        f"{len(toilet_knob_names)}",
+    )
+    for object_name in (*room_handle_names, *toilet_knob_names):
+        require_architecture_swatch(object_name, "trim")
 
     trim_components = audit_box_components(
         "VIS_B03_GymTrim",
@@ -2578,7 +2600,15 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     return {
         "atlas_rgb_cells": atlas_rgb_cells,
         "packed_atlases": packed_atlases,
-        "swatches": len(expected_swatches) + len(lintels) + 2,
+        "swatches": (
+            len(expected_swatches)
+            + len(lintels)
+            + len(room_handle_names)
+            + len(toilet_knob_names)
+            + 2
+        ),
+        "room_door_handles": len(room_handle_names),
+        "toilet_door_knobs": len(toilet_knob_names),
         "trim_components": trim_components,
         "floor_components": floor_component_count,
         "f01_stair_classroom_boundary_checks": f01_boundary_checks,
@@ -4162,8 +4192,8 @@ def audit_b03_3b_structure(
             ((33.6, -2.15, 7.25), (35.0, -1.85, 9.0)),
             ((35.0, -2.15, 0.0), (36.8, -1.85, 9.0)),
             ((36.8, -2.15, 2.4), (39.2, -1.85, 9.0)),
-            ((39.2, -2.15, 0.0), (41.4, -1.85, 9.0)),
-            ((51.4, -2.15, 0.0), (53.6, -1.85, 9.0)),
+            ((39.2, -2.15, 0.0), (40.6, -1.85, 9.0)),
+            ((52.2, -2.15, 0.0), (53.6, -1.85, 9.0)),
             ((53.6, -2.15, 2.4), (56.0, -1.85, 9.0)),
             ((56.0, -2.15, 0.0), (57.8, -1.85, 9.0)),
             ((57.8, -2.15, 0.0), (59.2, -1.85, 5.10)),
@@ -4436,12 +4466,12 @@ def audit_b03_3b_structure(
     )
     gym_stage_components = audit_box_components(
         "COL_GymStage",
-        [((41.4, -11.0, 0.0), (51.4, -2.0, 1.0))],
+        [((40.6, -11.0, 0.0), (52.2, -2.0, 1.0))],
     )
     stage_stair_components = 0
     for side, first_edge, direction in (
-        ("West", 39.9, 1.0),
-        ("East", 52.9, -1.0),
+        ("West", 39.1, 1.0),
+        ("East", 53.7, -1.0),
     ):
         for step_index in range(1, 6):
             if direction > 0:
@@ -4461,8 +4491,8 @@ def audit_b03_3b_structure(
             )
     stage_stair_ramp_components = 0
     for side, expected_bounds in (
-        ("West", ((39.9, -11.0, 0.0), (41.4, -8.6, 1.0))),
-        ("East", ((51.4, -11.0, 0.0), (52.9, -8.6, 1.0))),
+        ("West", ((39.1, -11.0, 0.0), (40.6, -8.6, 1.0))),
+        ("East", ((52.2, -11.0, 0.0), (53.7, -8.6, 1.0))),
     ):
         ramp_object = object_by_name.get(f"COL_GymStageStairRamp_{side}")
         require(
@@ -4479,14 +4509,24 @@ def audit_b03_3b_structure(
             f"{actual_minimum}/{actual_maximum}",
         )
         stage_stair_ramp_components += 1
+    stage_stair_head_wall_components = 0
+    for side, expected_bounds in (
+        ("West", ((40.45, -11.0, 3.4), (40.75, -2.0, 9.0))),
+        ("East", ((52.05, -11.0, 3.4), (52.35, -2.0, 9.0))),
+    ):
+        for prefix in ("VIS", "COL"):
+            stage_stair_head_wall_components += audit_box_components(
+                f"{prefix}_GymStageStairHeadWall_{side}",
+                [expected_bounds],
+            )
     gym_width = 59.4 - 33.4
-    gym_stage_width = 51.4 - 41.4
-    gym_stage_center_x = (41.4 + 51.4) / 2.0
+    gym_stage_width = 52.2 - 40.6
+    gym_stage_center_x = (40.6 + 52.2) / 2.0
     require(
         abs(gym_width - 26.0) <= TOLERANCE
-        and abs(gym_stage_width - 10.0) <= TOLERANCE
+        and abs(gym_stage_width - 11.6) <= TOLERANCE
         and abs(gym_stage_center_x - 46.4) <= TOLERANCE,
-        "体育館東拡幅、舞台縮小、舞台中心東移動の寸法が不正です",
+        "体育館舞台の左右0.8m拡幅または中心維持の寸法が不正です",
     )
 
     west_extension_components = audit_box_components(
@@ -4768,6 +4808,9 @@ def audit_b03_3b_structure(
         "gym_stage_components": gym_stage_components,
         "gym_stage_stair_components": stage_stair_components,
         "gym_stage_stair_ramp_components": stage_stair_ramp_components,
+        "gym_stage_stair_head_wall_components": (
+            stage_stair_head_wall_components
+        ),
         "gym_width_m": gym_width,
         "gym_stage_width_m": gym_stage_width,
         "gym_stage_center_x_m": gym_stage_center_x,

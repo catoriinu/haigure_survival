@@ -1,6 +1,7 @@
 import {
   Color3,
   InstancedMesh,
+  Light,
   NullEngine,
   Scene,
   StandardMaterial,
@@ -105,7 +106,8 @@ export const runHitEffectSystemTests =
           });
           const system = createV2HitEffectSystem({
             scene,
-            random: () => 0.5
+            random: () => 0.5,
+            isIndirectLightVisible: () => true
           });
           try {
             const normalTarget = createTarget(
@@ -141,10 +143,12 @@ export const runHitEffectSystemTests =
               shell?.isEnabled() === true &&
               approximately(shell.scaling.x, expectedDiameter) &&
               approximately(material?.alpha ?? -1, V2_HIT_EFFECT_ALPHA) &&
+              material?.backFaceCulling === false &&
               colorsMatch(
                 material?.emissiveColor ?? Color3.Black(),
                 V2_HIT_EFFECT_PINK
               ) &&
+              approximately(V2_HIT_EFFECT_LIGHT_INTENSITY, 0.4) &&
               approximately(
                 light?.intensity ?? -1,
                 V2_HIT_EFFECT_LIGHT_INTENSITY
@@ -152,7 +156,8 @@ export const runHitEffectSystemTests =
               approximately(
                 light?.range ?? -1,
                 expectedDiameter * 1.2
-              );
+              ) &&
+              light?.falloffType === Light.FALLOFF_GLTF;
 
             system.update(0.12, [hitTarget], () => true);
             const cyanFlicker = colorsMatch(
@@ -235,7 +240,8 @@ export const runHitEffectSystemTests =
           const scene = new Scene(engine);
           const system = createV2HitEffectSystem({
             scene,
-            random: () => 0.5
+            random: () => 0.5,
+            isIndirectLightVisible: () => true
           });
           try {
             const first = createTarget("npc-1", "npc", "hit-a");
@@ -249,6 +255,17 @@ export const runHitEffectSystemTests =
             system.start(second);
             system.update(3, [first, second], () => true);
             const highWater = system.getVisualPoolSnapshot();
+            const npcShellsCullBackFaces = scene.meshes
+              .filter(
+                (mesh) =>
+                  mesh.name.startsWith("v2-hit-effect-shell-") &&
+                  mesh.name !== "v2-hit-effect-shell-source"
+              )
+              .every(
+                (mesh) =>
+                  (mesh.material as StandardMaterial)
+                    .backFaceCulling === true
+              );
             const npcOrbProfile =
               highWater.orb.inUse === 26 &&
               scene.meshes
@@ -280,6 +297,7 @@ export const runHitEffectSystemTests =
                 highWater.shell.inUse === 2 &&
                 highWater.material.inUse === 2 &&
                 highWater.light.inUse === 2 &&
+                npcShellsCullBackFaces &&
                 npcOrbProfile &&
                 afterClear.shell.inUse === 0 &&
                 afterClear.orb.inUse === 0 &&
@@ -287,7 +305,130 @@ export const runHitEffectSystemTests =
               detail:
                 `bundle=${highWater.shell.capacity} / ` +
                 `orbs=${highWater.orb.capacity} / ` +
+                `npcCull=${npcShellsCullBackFaces} / ` +
                 `npcProfile=${npcOrbProfile} / noGrowth=${noGrowth}`
+            };
+          } finally {
+            system.dispose();
+            scene.dispose();
+            engine.dispose();
+          }
+        }
+      )
+    );
+
+    results.push(
+      executeTest(
+        "bundle再利用時もNPCとplayerの内側描画を混線させず間接照明を動的遮蔽する",
+        () => {
+          const engine = new NullEngine();
+          const scene = new Scene(engine);
+          let indirectLightVisible = true;
+          const checkedPositions: Vector3[] = [];
+          const system = createV2HitEffectSystem({
+            scene,
+            random: () => 0.5,
+            isIndirectLightVisible: (position) => {
+              checkedPositions.push(position.clone());
+              return indirectLightVisible;
+            }
+          });
+          try {
+            const npc = createTarget("npc", "npc", "hit-a");
+            const player = createTarget(
+              "player",
+              "player",
+              "hit-a",
+              new Vector3(2, 2, 3)
+            );
+            system.start(npc);
+            const shell = scene.getMeshByName(
+              "v2-hit-effect-shell-1"
+            );
+            const material = shell?.material as
+              | StandardMaterial
+              | undefined;
+            const light = scene.getLightByName(
+              "v2-hit-effect-light-1"
+            );
+            const firstNpcProfile =
+              material?.backFaceCulling === true &&
+              approximately(
+                light?.intensity ?? -1,
+                V2_HIT_EFFECT_LIGHT_INTENSITY
+              );
+
+            system.clear();
+            system.start(player);
+            const playerProfile =
+              material?.backFaceCulling === false &&
+              approximately(
+                light?.intensity ?? -1,
+                V2_HIT_EFFECT_LIGHT_INTENSITY
+              );
+
+            system.clear();
+            indirectLightVisible = false;
+            system.start(npc);
+            const secondNpcProfile =
+              material?.backFaceCulling === true &&
+              approximately(light?.intensity ?? -1, 0) &&
+              light?.falloffType === Light.FALLOFF_GLTF &&
+              approximately(
+                light?.range ?? -1,
+                Math.hypot(
+                  npc.hitShape.radii.x * 2,
+                  npc.hitShape.radii.y * 2
+                ) *
+                  1.05 *
+                  1.2
+              );
+
+            indirectLightVisible = true;
+            system.update(0, [npc], () => true);
+            const visibleFlicker = approximately(
+              light?.intensity ?? -1,
+              V2_HIT_EFFECT_LIGHT_INTENSITY
+            );
+            system.update(3.5, [npc], () => true);
+            const visibleHalfFade = approximately(
+              light?.intensity ?? -1,
+              V2_HIT_EFFECT_LIGHT_INTENSITY * 0.5
+            );
+            indirectLightVisible = false;
+            system.update(0, [npc], () => true);
+            const hiddenHalfFade = approximately(
+              light?.intensity ?? -1,
+              0
+            );
+            indirectLightVisible = true;
+            system.update(0, [npc], () => true);
+            const restoredHalfFade = approximately(
+              light?.intensity ?? -1,
+              V2_HIT_EFFECT_LIGHT_INTENSITY * 0.5
+            );
+            const latestPosition =
+              checkedPositions[checkedPositions.length - 1];
+            const positionsMatch =
+              checkedPositions.length >= 7 &&
+              latestPosition !== undefined &&
+              latestPosition.equals(npc.hitShape.center);
+
+            return {
+              ok:
+                firstNpcProfile &&
+                playerProfile &&
+                secondNpcProfile &&
+                visibleFlicker &&
+                visibleHalfFade &&
+                hiddenHalfFade &&
+                restoredHalfFade &&
+                positionsMatch,
+              detail:
+                `npc1=${firstNpcProfile} / player=${playerProfile} / ` +
+                `npc2=${secondNpcProfile} / visible=${visibleFlicker} / ` +
+                `fade=${visibleHalfFade}->${hiddenHalfFade}->${restoredHalfFade} / ` +
+                `queries=${checkedPositions.length}`
             };
           } finally {
             system.dispose();
@@ -306,7 +447,8 @@ export const runHitEffectSystemTests =
           const scene = new Scene(engine);
           const system = createV2HitEffectSystem({
             scene,
-            random: () => 0.5
+            random: () => 0.5,
+            isIndirectLightVisible: () => true
           });
           try {
             const hitTarget = createTarget("npc", "npc", "hit-a");

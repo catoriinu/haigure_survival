@@ -651,7 +651,8 @@ const showcaseBeamSystem = createV2BeamSystem({
 });
 const showcaseHitEffectSystem = createV2HitEffectSystem({
   scene,
-  random: showcaseRandom
+  random: showcaseRandom,
+  isIndirectLightVisible: () => true
 });
 const showcaseTarget: V2HumanTargetSnapshot = Object.freeze({
   id: "t05v-showcase-target",

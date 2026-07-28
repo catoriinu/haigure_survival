@@ -512,6 +512,175 @@ export const runDynamicInteractionAcceptance =
       doorVariants = null;
       doorRuntime.dispose();
 
+      const inspectionDoors = [
+        ...Array.from({ length: 38 }, (_, index) =>
+          createDoorAsset(
+            scene,
+            `inspection-room-${index + 1}`,
+            "room",
+            new Vector3(index * 0.5, 0, 0)
+          )
+        ),
+        ...Array.from({ length: 24 }, (_, index) =>
+          createDoorAsset(
+            scene,
+            `inspection-toilet-${index + 1}`,
+            "toilet_stall",
+            new Vector3(30 + index * 0.5, 0, 0)
+          )
+        ),
+        createDoorAsset(
+          scene,
+          "inspection-elevator-landing-1",
+          "elevator_landing",
+          new Vector3(50, 0, 0)
+        ),
+        createDoorAsset(
+          scene,
+          "inspection-elevator-landing-4",
+          "elevator_landing",
+          new Vector3(51, 0, 0)
+        ),
+        createDoorAsset(
+          scene,
+          "inspection-elevator-car",
+          "elevator_car",
+          new Vector3(52, 0, 0)
+        )
+      ] as const;
+      const staticBlocker = MeshBuilder.CreateBox(
+        "COL_InspectionStaticBlocker",
+        { size: 0.05 },
+        scene
+      );
+      staticBlocker.position.x = -0.5;
+      staticBlocker.computeWorldMatrix(true);
+      const fullColliderSet = Object.freeze([
+        staticBlocker,
+        ...inspectionDoors.flatMap((door) =>
+          door.panels.flatMap((panel) => panel.colliderMeshes)
+        )
+      ]);
+      const fullActiveSet = Object.freeze({
+        movementColliders: Object.freeze({
+          player: fullColliderSet,
+          npc: fullColliderSet,
+          bit: fullColliderSet
+        }),
+        groundColliders: fullColliderSet,
+        beamBlockers: fullColliderSet,
+        sightBlockers: fullColliderSet,
+        bitObstacles: fullColliderSet
+      });
+      const inspectionVariants =
+        createDynamicStageSpatialVariants(fullActiveSet);
+      const inspectionQueries = createStageSpatialQueries(
+        scene,
+        inspectionVariants,
+        { volumes: [] }
+      );
+      let inspectionRandomCallCount = 0;
+      const inspectionRuntime = createStageDoorRuntime(
+        createDoorRegistry(inspectionDoors),
+        {
+          random: () => {
+            inspectionRandomCallCount += 1;
+            return 0.5;
+          },
+          checkClosingOccupancy: () => ({
+            finalPoseOccupied: false,
+            sweepOccupied: false
+          })
+        }
+      );
+      const currentInspectionActiveSet =
+        inspectionVariants.getSnapshot();
+      inspectionVariants.replaceActiveSet(
+        currentInspectionActiveSet
+      );
+      const inspectionSnapshot =
+        inspectionRuntime.getSnapshot();
+      const closedPositionHit =
+        inspectionQueries.castBeamSegment(
+          new Vector3(0, 0, -0.1),
+          new Vector3(0, 0, 0.1)
+        );
+      const openPositionHit =
+        inspectionQueries.castBeamSegment(
+          new Vector3(0.2, 0, -0.1),
+          new Vector3(0.2, 0, 0.1)
+        );
+      const staticBlockerHit =
+        inspectionQueries.castBeamSegment(
+          new Vector3(-0.5, 0, -0.1),
+          new Vector3(-0.5, 0, 0.1)
+        );
+      const elevatorPanelsRemainClosed =
+        inspectionDoors
+          .slice(62)
+          .every(
+            (door) =>
+              door.panels[0]?.node.position.x === 0
+          );
+      inspectionRuntime.dispose();
+      const disposedInspectionMessage = captureMessage(() =>
+        inspectionRuntime.getSnapshot()
+      );
+      const reloadedInspectionRuntime =
+        createStageDoorRuntime(
+          createDoorRegistry(inspectionDoors),
+          {
+            random: () => 0.5,
+            checkClosingOccupancy: () => ({
+              finalPoseOccupied: false,
+              sweepOccupied: false
+            })
+          }
+        );
+      const reloadedInspectionSnapshot =
+        reloadedInspectionRuntime.getSnapshot();
+      checks.push({
+        name: "通常ゲーム確認用62扉の全開固定",
+        ok:
+          inspectionRandomCallCount === 38 &&
+          inspectionSnapshot.doors.length === 62 &&
+          inspectionSnapshot.doors.every(
+            (door) =>
+              door.state === "open" &&
+              door.openness === 1
+          ) &&
+          elevatorPanelsRemainClosed &&
+          inspectionVariants.revision === 1 &&
+          inspectionVariants.getSnapshot()
+            .beamBlockers.length === 66 &&
+          closedPositionHit === null &&
+          openPositionHit?.mesh ===
+            inspectionDoors[0]?.panels[0]?.colliderMeshes[0] &&
+          staticBlockerHit?.mesh === staticBlocker &&
+          disposedInspectionMessage?.includes(
+            "破棄済み"
+          ) === true &&
+          reloadedInspectionSnapshot.doors.length ===
+            62 &&
+          reloadedInspectionSnapshot.doors.every(
+            (door) =>
+              door.state === "open" &&
+              door.openness === 1
+          ),
+        detail:
+          `doors=${inspectionSnapshot.doors.length} / ` +
+          `random=${inspectionRandomCallCount} / ` +
+          `revision=${inspectionVariants.revision} / ` +
+          `closed=${closedPositionHit?.mesh.name ?? "none"} / ` +
+          `open=${openPositionHit?.mesh.name ?? "none"} / ` +
+          `static=${staticBlockerHit?.mesh.name ?? "none"} / ` +
+          `disposed=${disposedInspectionMessage ?? "none"} / ` +
+          `reloaded=${reloadedInspectionSnapshot.doors.length}`
+      });
+      reloadedInspectionRuntime.dispose();
+      inspectionQueries.dispose();
+      inspectionVariants.dispose();
+
       const actorPositions = new Map<string, Vector3>();
       const gateStates = new Map<string, boolean>();
       const panelOpenness = new Map<string, number>();

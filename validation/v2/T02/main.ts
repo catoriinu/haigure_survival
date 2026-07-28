@@ -770,7 +770,7 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 542 &&
+      context.resources.visualMeshes.length === 604 &&
         context.resources.normalColliders.length === 273 &&
         context.resources.actorOnlyColliders.length === 81 &&
         context.resources.humanOnlyColliders.length === 59 &&
@@ -1113,18 +1113,18 @@ const validateLoadedContext = (
   );
 
   const westGymStageRampWaypoints = [
-    new Vector3(39.6, -9.8, 0.0),
-    new Vector3(39.9, -9.8, 0.0),
-    new Vector3(40.65, -9.8, 0.5),
-    new Vector3(41.4, -9.8, 1.0),
-    new Vector3(41.8, -9.8, 1.0)
+    new Vector3(38.8, -9.8, 0.0),
+    new Vector3(39.1, -9.8, 0.0),
+    new Vector3(39.85, -9.8, 0.5),
+    new Vector3(40.6, -9.8, 1.0),
+    new Vector3(41.0, -9.8, 1.0)
   ];
   const eastGymStageRampWaypoints = [
-    new Vector3(53.2, -9.8, 0.0),
-    new Vector3(52.9, -9.8, 0.0),
-    new Vector3(52.15, -9.8, 0.5),
-    new Vector3(51.4, -9.8, 1.0),
-    new Vector3(51.0, -9.8, 1.0)
+    new Vector3(54.0, -9.8, 0.0),
+    new Vector3(53.7, -9.8, 0.0),
+    new Vector3(52.95, -9.8, 0.5),
+    new Vector3(52.2, -9.8, 1.0),
+    new Vector3(51.8, -9.8, 1.0)
   ];
   const gymStageRampRoundTrips = [
     validatePlayerWaypointTraversal(
@@ -2548,7 +2548,7 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 562 &&
+      activeContext.resources.visualMeshes.length === 624 &&
       activeContext.resources.normalColliders.length === 273 &&
       activeContext.resources.actorOnlyColliders.length === 81 &&
       activeContext.resources.humanOnlyColliders.length === 59 &&

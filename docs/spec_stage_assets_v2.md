@@ -62,7 +62,7 @@ public/stage-assets/v2/<ステージID>/<資産名>.bit-flight.navmesh.bin
 - 窓`LNK_*`は58組／116端点とし、A/Bの2端点、双方向、`hs_link_radius_m=0.54`、接続先ゾーン・帯を明示する。`hs_link_radius_m`はV1物理半径0.44m＋安全余裕0.10mに一致する必要包絡・接続半径であり、ビット本体半径ではない。旧`bit_roof`2組／4端点は完全廃止する。
 - 修正案1では、V1実形状・被弾球の半径0.44mへ安全余裕0.10mを加えた移動包絡半径0.54m、直径1.08mを正本とする。B03承認時の片羽開放幅1.20mは両羽全開へ変更せず維持し、58窓を窓枠・進入角度まで含む実飛行Agentで双方向116/116に再検証済みとする。旧0.64m包絡・直径1.28mを根拠とした未解決扱いと、両羽全開の承認待ちは廃止する。
 - 主玄関、北側校舎北口、北側校舎南口、体育館校庭側は、総高0.30m、各蹴上0.15m、各踏面1.00mの表示2段を共通断面とする。移動衝突は表示段と分離し、地面Z＝-0.30mから床Z＝0.00mへ続く単一の`COL_*Ramp`とする。渡り廊下東西側は表示段を置かず、不可視の`COL_BridgeSideRamp_East`と`COL_BridgeSideRamp_West`で同じ床高差を連続接続する。
-- 男女トイレは各3個室とし、内部仕切りは厚さ0.08m、奥行2.10m、高さ2.10mの`VIS_ToiletStallPartition_*`と`COL_ToiletStallPartition_*`を一致させる。男子小便器3基は背面を東、正面を西へ向け、X＝-2.75～-2.40m、中心Y＝39.6／40.6／41.6mへ配置する。
+- 男女トイレは各3個室とし、内部仕切りは厚さ0.08m、奥行2.10m、高さ2.10mの`VIS_ToiletStallPartition_*`と`COL_ToiletStallPartition_*`を一致させる。個室扉は蝶番から自由端まで1.40mとして開口を閉じ、通路側だけに半径0.06mの丸ノブを付ける。男子小便器3基は背面を東、正面を西へ向け、X＝-2.75～-2.40m、中心Y＝39.6／40.6／41.6mへ配置する。
 - 校庭の`VIS_SiteGround`と`VIS_CourtyardSurface`は草地を表す緑、校門は塀と識別できる青とする。体育館は床を明るい木色、舞台を濃茶、腰壁を淡緑、見切りを濃灰として、同一色の面が重なる箇所を分離する。出入口上部の`VIS_*Lintel`は壁色へ統一する。
 - 主門と北東門は左右対称の両開き柵形状とし、支柱、上下・中桟、縦桟、中央継ぎを持つ。表示の隙間は意匠だけであり、既存`COL_Gate_*`と`NAV_Blocker_Perimeter`によって移動、NPC、通常ビーム、視線をすべて遮断する。外周7区画は向こう側を見せない連続壁芯を維持し、0.8m×0.4mの5段ブロックと交互目地を外面へ表示する。
 - 主玄関前の校庭には下駄箱や用途不明の箱を置かない。下駄箱代替は`BaggageLocker` 2台を建物内南壁際へ配置し、出入口を塞がない。図書室の本棚24台は本の背表紙を室内へ向けて壁際へ並べ、前後の出入口と窓へ干渉させない。本棚1台は本体8部品と背表紙28冊の計36 components／432 trianglesとする。
@@ -71,6 +71,7 @@ public/stage-assets/v2/<ステージID>/<資産名>.bit-flight.navmesh.bin
 - 階段手すりの共有端点では表示支柱を座標単位で一意化し、転落防止範囲を変えずに重複支柱を生成しない。1階トイレ正面のNav blocker 6箱は`NAV_Blocker_Interiors`だけが所有し、`NAV_Blocker_School1F`へ二重収録しない。
 - 学校正本はArmature、Bone、Action、Animation、Modifier、Shape Key、Vertex Group、非表示Object、Export Collection外Object、空・退化Meshを持たない。GLBはSkin、Animation、Camera、未参照Node／Mesh／Material／Texture／Image／Accessor／BufferView／Bufferを持たない。これらは残骸監査で非空なら失敗とする。不要性を証明できない面・同形状候補は削除せず、T04の人間確認候補一覧で管理する。
 - 体育館舞台階段上部の東西表示壁・衝突壁は、舞台上面からBlender 2.4mの実開口を一致して確保する。NavMeshだけを接続する仮connector面は資産へ残さない。
+- 体育館舞台は中心X＝46.4mを維持してX＝40.6～52.2mの幅11.6mとする。舞台階段は西X＝39.1～40.6m、東X＝52.2～53.7mへ同じ段数・踏面・蹴上げで追従させ、階段上部壁の中心もX＝40.6m／52.2mへ揃える。舞台袖壁は西X＝39.2～40.6m、東X＝52.2～53.6mへ短縮し、既存の袖開口、U字階段、手すり、ギャラリー、体育館外形は維持する。
 - `BND_Stage`のBlender範囲はX＝-18.4～63.2m、Y＝-12.3～51.3m、Z＝-0.5～19.0mとする。屋上帯の中心上限18.0mへ半径0.54mの移動包絡を加えても内包する。
 - 事前ベイク後は、主玄関から3か所の1F踊り場、各階廊下・代表教室、全階男女トイレ入口、3階段それぞれの1F↔2F↔3F↔4F、北西階段の4F↔屋上、体育館・舞台・体育倉庫、屋上階段室、プールサイド、プール底を含む62代表経路が要求終点へ到達することを検査する。追加2経路は3階・4階のトイレ側通路から正規扉を通って特別教室へ入る。各階段の隣接階経路は指定踊り場を通り、25m以内でなければならない。部分経路を成功扱いせず、要求終点との誤差`1e-5`以下を必須とする。通常窓の内外を結ぶsurface経路が窓開口を短絡せず正規出入口へ迂回することも必須とする。
 - 全116窓端点はID文字列や高さから接続先を推測せず、各端点が明示するゾーン・帯のNavMeshへ投影する。体育館高窓14端点は7.10mの開口を一時通過して体育館上段へ接続する。
@@ -437,6 +438,8 @@ B03-3C以降の動的扉とエレベーターは、`MRK_*`のTransform、`VOL_*`
 MRK_Door_<token>
 ├─ MRK_DoorPanel_<token>          1件以上
 │  ├─ VIS_DoorPanel_<token>       1件以上
+│  ├─ VIS_DoorPanel_Handle_<token> roomだけ1件
+│  ├─ VIS_DoorPanel_Knob_<token>   toilet_stallだけ1件
 │  └─ COL_DoorPanel_<token>       1件以上
 ├─ MRK_DoorOpenPose_<token>       panelごとに1件
 └─ VOL_DoorSweep_<token>          扉ごとに1件
@@ -465,12 +468,15 @@ MRK_Door_<token>
 
 `MRK_DoorOpenPose_*`は`hs_id`、`hs_role="door_open_pose"`、`hs_door_id`、`hs_panel_id`をすべてstringで持つ。`VOL_DoorSweep_*`は`hs_id`、`hs_role="door_sweep"`、`hs_door_id`をすべてstringで持つ。
 
-- `MRK_DoorPanel_*`の親は対応する`MRK_Door_*`、表示・Collider Meshの親は対応panel markerとする。`MRK_DoorOpenPose_*`と`VOL_DoorSweep_*`も同じdoor markerの直下に置く。
+- `MRK_DoorPanel_*`の親は対応する`MRK_Door_*`、表示・Collider・扉金物Meshの親は対応panel markerとする。`MRK_DoorOpenPose_*`と`VOL_DoorSweep_*`も同じdoor markerの直下に置く。
 - panel markerのlocal Transformを閉姿勢、open-pose markerの同じdoorローカル座標系におけるTransformを開姿勢とする。子`VIS_*`／`COL_*`には`hs_*`を付けず、親子関係でpanelへ対応付ける。
 - `slide`は閉・開markerのlocal rotationを一致させ、0ではないtranslation差分の正規化を移動軸、長さを移動量とする。`swing`はlocal translationを一致させ、panel markerのlocal `+Z`を蝶番軸、開markerまでの符号付きrotation差分を開角度とする。`swing`の絶対角度は0より大きくπ以下とする。
 - `room`は`slide`、`toilet_stall`は`swing`、`elevator_landing`と`elevator_car`は`slide`だけを許可する。
 - `VOL_DoorSweep_*`は全panelの閉姿勢から開姿勢までの掃引領域を覆う閉じた低ポリMeshとする。
-- `room` panelは固定表の1.20m開口を隙間なく閉じる。エレベーター扉は1.40m中央開口を4枚のテレスコープ式panelで閉じ、開姿勢では左右0.35m幅の戸袋へ2枚ずつ重ねる。panelは開姿勢で中央開口、かご外形、昇降路内寸から突出してはならない。
+- `room` panelは固定表の1.20m開口を隙間なく閉じる。各panelは開方向と反対側へpanel中心から0.45mの位置に、幅0.16m、高さ0.32m、面からの出幅0.02mの長方形取っ手を両面分まとめた`VIS_DoorPanel_Handle_*`を1件持つ。
+- `toilet_stall` panelのlocal boundsは`(-1.40, -0.02, 0.00)`～`(0.00, 0.02, 1.80)`、sweepは`(-1.42, -0.02, 0.00)`～`(0.02, 1.42, 1.80)`とする。通路側local Y負面の`(-1.22, -0.075, 0.95)`を中心に半径0.06mの低ポリ丸ノブ`VIS_DoorPanel_Knob_*`を1件持つ。
+- 固定開放扉、固定閉鎖扉、`elevator_landing`、`elevator_car`には`VIS_DoorPanel_Handle_*`／`VIS_DoorPanel_Knob_*`を付けない。扉金物は`VIS_*`だけで表し、Colliderや`hs_*`を持たせず、Architecture Atlasの`trim`へ割り当てる。
+- エレベーター扉は1.40m中央開口を4枚のテレスコープ式panelで閉じ、開姿勢では左右0.35m幅の戸袋へ2枚ずつ重ねる。panelは開姿勢で中央開口、かご外形、昇降路内寸から突出してはならない。
 - 教室・トイレ扉の開閉0.8秒、エレベーター扉の開閉1.0秒はRuntime状態機械の定数とし、資産propertyへ重複させない。
 
 #### 7.9.2 エレベーター

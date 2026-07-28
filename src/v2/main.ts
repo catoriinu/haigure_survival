@@ -16,6 +16,10 @@ import {
   SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
 } from "../world/schoolRuntimeSettings";
 import {
+  createStageDoorRuntime,
+  type StageDoorRuntime
+} from "../world/stageDoorRuntime";
+import {
   loadStageSpatialContext,
   type StageSpatialContext
 } from "../world/stageSpatialContext";
@@ -148,6 +152,7 @@ const formatLoadError = (error: unknown) =>
 
 const initializeRuntime = async () => {
   let ownedStage: StageSpatialContext | null = null;
+  let ownedDoorRuntime: StageDoorRuntime | null = null;
   let ownedInput: V2PlayerInput | null = null;
   let ownedPlayer: V2PlayerController | null = null;
   let ownedSurvival: V2SurvivalRuntime | null = null;
@@ -161,6 +166,22 @@ const initializeRuntime = async () => {
         roomVariantSelections:
           SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
       }
+    );
+    // 現在の人間向け動作確認では、通常教室とトイレ個室を全開で固定する。
+    ownedDoorRuntime = createStageDoorRuntime(
+      ownedStage.doorAssets,
+      {
+        random: () => 0.5,
+        checkClosingOccupancy: () => ({
+          finalPoseOccupied: false,
+          sweepOccupied: false
+        })
+      }
+    );
+    const currentActiveSet =
+      ownedStage.dynamicVariants.getSnapshot();
+    ownedStage.dynamicVariants.replaceActiveSet(
+      currentActiveSet
     );
     ownedInput = createV2PlayerInput(window);
     ownedPlayer = createV2PlayerController({
@@ -209,6 +230,7 @@ const initializeRuntime = async () => {
     await visualPreparation;
     return {
       stage: ownedStage,
+      doorRuntime: ownedDoorRuntime,
       player: ownedPlayer,
       survival: ownedSurvival
     };
@@ -219,6 +241,7 @@ const initializeRuntime = async () => {
     ownedSurvival?.dispose();
     ownedPlayer?.dispose();
     ownedInput?.dispose();
+    ownedDoorRuntime?.dispose();
     ownedStage?.dispose();
     performanceDiagnostics?.dispose();
     delete window.__v2PerformanceDiagnostics;
@@ -228,7 +251,8 @@ const initializeRuntime = async () => {
   }
 };
 
-const { stage, player, survival } = await initializeRuntime();
+const { stage, doorRuntime, player, survival } =
+  await initializeRuntime();
 
 camera.attachControl(canvas, true);
 canvas.tabIndex = 0;
@@ -435,6 +459,7 @@ const disposeRuntime = () => {
   delete document.body.dataset.v2PerformanceReport;
   survival.dispose();
   player.dispose();
+  doorRuntime.dispose();
   stage.dispose();
   scene.dispose();
   engine.dispose();

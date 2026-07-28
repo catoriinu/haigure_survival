@@ -50,6 +50,7 @@ flowchart LR
 | T05-1（A／B統合） | `codex/v2-t05-bit-flight-navigation` |
 | T05-2 | `codex/v2-t05-combat-systems` |
 | T05-2V | `codex/v2-t05-2v-beam-effects` |
+| T05-4 | `codex/v2-t05-4-target-selection` |
 | B01 | `codex/v2-b01-school-layout` |
 | B02 | `codex/v2-b02-school-blockout` |
 | B03 | `codex/v2-b03-school-lowpoly` |
@@ -75,9 +76,10 @@ PR #41以降は、レビュー可能な一ブランチ単位へ次のように�
 | T04-3A 動的空間基盤 | `codex/v2-t04-3-dynamic-runtime` |
 | T05-3 同陣営NPC指示 | `codex/v2-t05-3-npc-commands` |
 | B04 学校外周・道路・世界境界資産 | `codex/v2-b04-school-world-boundary` |
+| T05-4 NPC・BIT標的選択個性 | `codex/v2-t05-4-target-selection` |
 | T04-3B 実学校動的統合 | `codex/v2-t04-3-school-integration` |
 
-PR #50までの実行順は、B03-0とT04-2Aの並行Wave、B03-1、B03-2、T04-2B、T05-1、T05-2で完了した。以後はB03-3Aで学校拡張契約を確定し、B03-3BとT05-2Vを並行する。次にB03-3C・T04-3A・T05-3を並行し、B03-3C後にB04、全成果後にT04-3B、T06、T07を直列に実施する。
+PR #50までの実行順は、B03-0とT04-2Aの並行Wave、B03-1、B03-2、T04-2B、T05-1、T05-2で完了した。以後はB03-3Aで学校拡張契約を確定し、B03-3BとT05-2Vを並行した。次にB03-3C・T04-3A・T05-3をI0へ統合し、I0後はB04とT05-4を並行する。両成果後にT04-3B、T06、T07を直列に実施する。
 
 2026-07-26、`codex/v2-t05-combat-systems`はPR #50のマージコミット`27abd9b`で`develop`へ統合済みである。戦闘・状態・光線物理・集合・警報・公開処刑、Alert最大4機、BIT探索分散、窓越しCHASE、仕様維持性能リファクタリングをT05-2の完了範囲とする。V1相当の光線軌跡・周囲光球・着弾・キャラクター命中演出はPR #50へ追加せず、世界境界終了とともにT05-2Vへ分割する。
 
@@ -111,7 +113,7 @@ B03-0を開始する場合は、手順1で`docs/plans/v2/T04/plan.md`の「B03-0
 - Pull RequestにはタスクID、目的、主な変更、検証結果、既知の未完成事項、個別計画へのパスを記載する。
 - 対象タスクの完了条件と必要なビルド・テストを満たしてから作成する。
 - `develop`全体がリリース可能であることは要求しないが、そのタスクで変更した範囲は検証済みであることを要求する。
-- I0、B04、T04-3B、T06、T07はPull Request作成後、`develop`へマージする前に`docs/plans/v2/next_tasks_plan.md`の対応する重点動作確認ゲートと独立レビューを完了する。
+- I0、B04、T05-4、T04-3B、T06、T07はPull Request作成後、`develop`へマージする前に`docs/plans/v2/next_tasks_plan.md`の対応する重点動作確認ゲートと独立レビューを完了する。
 - 現在のリポジトリ履歴に合わせ、通常のPull Requestマージで履歴を残す。
 - マージ後、不要になったタスクブランチは削除する。
 
@@ -148,12 +150,14 @@ gh auth status
 - I0は学校バイナリ、動的空間、扉・エレベーター状態機械、NPC指示、T04／T05回帰を同じheadで所有する。B04以降の機能を混在させない。
 - I0のPull Request作成後、`develop`マージ前に第1重点動作確認と独立レビューを完了する。
 - B04はI0の`develop`統合後に開始し、学校`.blend`、生成正本、GLB、両NavMesh、カタログhashの単一担当として、塀外5.0mの歩道・道路、新規`BND_WorldLimit`、外周BIT飛行帯を追加する。南側有効距離が5.0m未満なら不足分だけ南へ延長し、外周へ人間用NavMeshまたは出現Volumeを追加しない。
-- B04は単独で実施し、Pull Requestの`develop`マージ前に資産特化ゲートを完了する。
-- T04-3BはB04の`develop`統合後に単独で実施し、実学校の扉、エレベーター、荒れた教室、全陣営NPC利用・回避・追跡を統合する。Pull Requestの`develop`マージ前に第2重点動作確認を完了する。
+- T05-4はI0の`develop`統合後に開始し、標的選択個性型、決定的50%抽選、NPC／BITの自律visual標的選択、T05 fixtureだけを所有する。学校バイナリ、`src/world`、T04 fixtureを編集しない。
+- B04とT05-4は同じ最新`develop`から別branch／worktreeを作り、並行実施できる。B04は資産特化ゲート、T05-4はAI特化ゲートをそれぞれのPull Requestの`develop`マージ前に完了する。
+- 並行中はB04とT05-4のどちらも`docs/plan.md`、`docs/plans/v2/next_tasks_plan.md`、本書を編集せず、各自の個別計画だけを更新する。
+- T04-3BはB04とT05-4の両方が`develop`へ統合された後に単独で実施し、実学校の扉、エレベーター、荒れた教室、標的選択個性を含む全陣営NPC利用・回避・追跡を統合する。Pull Requestの`develop`マージ前に第2重点動作確認を完了する。
 - T06はT05-2の状態選択APIを通常ゲームへ接続し、`brainwash-in-progress`直後からG＝gun、N＝no-gun、H＝haigureを選択・再選択できる入力、状態別操作案内、G状態だけの照準・左クリック射撃案内、状態別VOICE、入力購読ライフサイクルを担当する。
 - T06はT04-3B後に単独で実施し、B04の外周資産とT05-2Vの世界境界Runtime、F／E／C・G／N／H、候補表示、既定荒れ状態2、音声、ゲーム進行を実学校へ接続する。Pull Requestの`develop`マージ前に最終機能ゲートを完了する。
-- T07はT06後に単独で実施し、荒れ状態10、多数の動的扉、エレベーター、無制限Follower、同期射撃を含む99 NPC／50 BITの性能・最終回帰・仕様書同期を行う。Pull Requestの`develop`マージ前に性能・リリースゲートを完了する。
-- I0後は`B04 → T04-3B → T06 → T07 → v2リリース準備`を直列実行する。次タスクの読み取り調査は並行できるが、依存成果が`develop`へ入る前に次ブランチを作成したり書込みを開始したりしない。
+- T07はT06後に単独で実施し、荒れ状態10、多数の動的扉、エレベーター、無制限Follower、同期射撃、標的選択個性を含む99 NPC／50 BITの性能・最終回帰・仕様書同期を行う。Pull Requestの`develop`マージ前に性能・リリースゲートを完了する。
+- I0後は`B04 + T05-4（並行）→ T04-3B → T06 → T07 → v2リリース準備`の順で実行する。依存成果が`develop`へ入る前にT04-3B以降のブランチを作成したり書込みを開始したりしない。
 - `.blend`と`.glb`は同時に複数ブランチで編集しない。Blender資産は常に1ブランチ・1担当とする。
 - `docs/plan.md`と`docs/plans/v2/next_tasks_plan.md`は統合担当だけが更新する。
 - Pull Request作成前に最新の`develop`を取り込み、競合と回帰を解消する。

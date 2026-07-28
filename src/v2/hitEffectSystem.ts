@@ -1,6 +1,7 @@
 import {
   Color3,
   Color4,
+  Light,
   Mesh,
   MeshBuilder,
   PointLight,
@@ -23,7 +24,7 @@ import {
 } from "./combatTypes";
 
 export const V2_HIT_EFFECT_ALPHA = 0.45;
-export const V2_HIT_EFFECT_LIGHT_INTENSITY = 1.1;
+export const V2_HIT_EFFECT_LIGHT_INTENSITY = 0.4;
 export const V2_HIT_EFFECT_LIGHT_RANGE_RATE = 1.2;
 export const V2_HIT_EFFECT_DIAMETER_MARGIN_RATE = 1.05;
 export const V2_HIT_EFFECT_PINK = Object.freeze(
@@ -57,6 +58,7 @@ export type V2HitEffectPoolSnapshot = Readonly<
 export type V2HitEffectSystemOptions = Readonly<{
   scene: Scene;
   random(): number;
+  isIndirectLightVisible(position: Vector3): boolean;
 }>;
 
 export interface V2HitEffectSystem {
@@ -139,10 +141,16 @@ const calculateDiameter = (target: V2HumanTargetSnapshot): number =>
 
 export const createV2HitEffectSystem = ({
   scene,
-  random
+  random,
+  isIndirectLightVisible
 }: V2HitEffectSystemOptions): V2HitEffectSystem => {
   if (typeof random !== "function") {
     throw new Error("V2HitEffectSystemのrandomには関数が必要です");
+  }
+  if (typeof isIndirectLightVisible !== "function") {
+    throw new Error(
+      "V2HitEffectSystemのisIndirectLightVisibleには関数が必要です"
+    );
   }
 
   const shellSource = MeshBuilder.CreateSphere(
@@ -222,7 +230,7 @@ export const createV2HitEffectSystem = ({
     bundle.material.diffuseColor.copyFrom(V2_HIT_EFFECT_PINK);
     bundle.material.emissiveColor.copyFrom(V2_HIT_EFFECT_PINK);
     bundle.material.specularColor.copyFrom(Color3.Black());
-    bundle.material.backFaceCulling = false;
+    bundle.material.backFaceCulling = true;
     bundle.light.position.setAll(0);
     bundle.light.diffuse.copyFrom(V2_HIT_EFFECT_PINK);
     bundle.light.specular.copyFrom(V2_HIT_EFFECT_PINK);
@@ -253,6 +261,7 @@ export const createV2HitEffectSystem = ({
       Vector3.Zero(),
       scene
     );
+    light.falloffType = Light.FALLOFF_GLTF;
     const bundle = { mesh, material, light };
     resetBundle(bundle);
     bundles.push(bundle);
@@ -320,6 +329,24 @@ export const createV2HitEffectSystem = ({
     bundle.material.emissiveColor.copyFrom(color);
     bundle.light.diffuse.copyFrom(color);
     bundle.light.specular.copyFrom(color);
+  };
+
+  const getPhaseLightIntensity = (
+    effect: ActiveHitEffect
+  ): number =>
+    effect.phase === "flicker"
+      ? V2_HIT_EFFECT_LIGHT_INTENSITY
+      : V2_HIT_EFFECT_LIGHT_INTENSITY *
+        (effect.phaseRemainingSeconds /
+          V2_HIT_FADE_DURATION_SECONDS);
+
+  const updateIndirectLight = (
+    effect: ActiveHitEffect,
+    position: Vector3
+  ): void => {
+    effect.bundle.light.intensity = isIndirectLightVisible(position)
+      ? getPhaseLightIntensity(effect)
+      : 0;
   };
 
   const createFadeOrbs = (
@@ -431,12 +458,12 @@ export const createV2HitEffectSystem = ({
       bundle.mesh.position.copyFrom(target.hitShape.center);
       bundle.mesh.scaling.setAll(diameter);
       bundle.material.alpha = V2_HIT_EFFECT_ALPHA;
+      bundle.material.backFaceCulling = target.kind !== "player";
       bundle.light.position.copyFrom(target.hitShape.center);
-      bundle.light.intensity = V2_HIT_EFFECT_LIGHT_INTENSITY;
       bundle.light.range =
         diameter * V2_HIT_EFFECT_LIGHT_RANGE_RATE;
       setBundleColor(bundle, V2_HIT_EFFECT_PINK);
-      activeEffects.set(target.id, {
+      const effect: ActiveHitEffect = {
         targetId: target.id,
         kind: target.kind,
         bundle,
@@ -446,7 +473,9 @@ export const createV2HitEffectSystem = ({
         phaseRemainingSeconds:
           V2_HIT_FLICKER_DURATION_SECONDS,
         orbs: []
-      });
+      };
+      updateIndirectLight(effect, target.hitShape.center);
+      activeEffects.set(target.id, effect);
       return true;
     },
     update: (deltaSeconds, targets, shouldRenderOrb) => {
@@ -517,8 +546,6 @@ export const createV2HitEffectSystem = ({
             V2_HIT_FADE_DURATION_SECONDS;
           effect.bundle.material.alpha =
             V2_HIT_EFFECT_ALPHA * fadeRatio;
-          effect.bundle.light.intensity =
-            V2_HIT_EFFECT_LIGHT_INTENSITY * fadeRatio;
           updateFadeOrbs(
             effect,
             consumedSeconds,
@@ -529,6 +556,9 @@ export const createV2HitEffectSystem = ({
             releaseEffect(effect);
             break;
           }
+        }
+        if (activeEffects.has(effect.targetId)) {
+          updateIndirectLight(effect, target.hitShape.center);
         }
       }
     },

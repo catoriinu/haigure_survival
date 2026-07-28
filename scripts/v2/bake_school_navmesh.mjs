@@ -93,12 +93,12 @@ const makeB03PortalPassageBounds = (y, z) => Object.freeze({
 
 const makeGymStageStairPassageBounds = (side) => Object.freeze({
   minimum: Object.freeze({
-    x: side === "west" ? 39.9 : 51.4,
+    x: side === "west" ? 39.1 : 52.2,
     y: -10.15,
     z: 0.2
   }),
   maximum: Object.freeze({
-    x: side === "west" ? 41.4 : 52.9,
+    x: side === "west" ? 40.6 : 53.7,
     y: -9.45,
     z: 0.8
   })

@@ -688,6 +688,44 @@ def _create_box_object(
     )
 
 
+def _create_low_poly_sphere_object(
+    name: str,
+    center: tuple[float, float, float],
+    radius: float,
+    target_collection: bpy.types.Collection,
+    *,
+    material: bpy.types.Material,
+    uv_swatch: tuple[tuple[float, float], ...],
+    parent: bpy.types.Object,
+) -> bpy.types.Object:
+    editable = bmesh.new()
+    bmesh.ops.create_icosphere(editable, subdivisions=1, radius=radius)
+    editable.verts.index_update()
+    editable.verts.ensure_lookup_table()
+    vertices = [
+        (
+            float(vertex.co.x) + center[0],
+            float(vertex.co.y) + center[1],
+            float(vertex.co.z) + center[2],
+        )
+        for vertex in editable.verts
+    ]
+    faces = [
+        tuple(vertex.index for vertex in face.verts)
+        for face in editable.faces
+    ]
+    editable.free()
+    return _create_mesh_object(
+        name,
+        vertices,
+        faces,
+        target_collection,
+        material=material,
+        uv_swatch=uv_swatch,
+        parent=parent,
+    )
+
+
 def _create_empty(
     name: str,
     target_collection: bpy.types.Collection,
@@ -726,6 +764,7 @@ def _build_sliding_door(
     collider_collection: bpy.types.Collection,
     semantic_collection: bpy.types.Collection,
     door_material: bpy.types.Material,
+    trim_material: bpy.types.Material,
     parent: bpy.types.Object | None = None,
     elevator_id: str | None = None,
     stop_id: str | None = None,
@@ -782,6 +821,72 @@ def _build_sliding_door(
         visual_collection,
         material=door_material,
         uv_swatch=swatch_uv("Architecture", "door"),
+        parent=panel,
+    )
+    if abs(open_delta[0]) > 0.0:
+        handle_center_x = -math.copysign(0.45, open_delta[0])
+        handle_boxes = (
+            (
+                (
+                    handle_center_x - 0.08,
+                    -panel_half[1] - 0.02,
+                    0.89,
+                ),
+                (
+                    handle_center_x + 0.08,
+                    -panel_half[1],
+                    1.21,
+                ),
+            ),
+            (
+                (
+                    handle_center_x - 0.08,
+                    panel_half[1],
+                    0.89,
+                ),
+                (
+                    handle_center_x + 0.08,
+                    panel_half[1] + 0.02,
+                    1.21,
+                ),
+            ),
+        )
+    elif abs(open_delta[1]) > 0.0:
+        handle_center_y = -math.copysign(0.45, open_delta[1])
+        handle_boxes = (
+            (
+                (
+                    -panel_half[0] - 0.02,
+                    handle_center_y - 0.08,
+                    0.89,
+                ),
+                (
+                    -panel_half[0],
+                    handle_center_y + 0.08,
+                    1.21,
+                ),
+            ),
+            (
+                (
+                    panel_half[0],
+                    handle_center_y - 0.08,
+                    0.89,
+                ),
+                (
+                    panel_half[0] + 0.02,
+                    handle_center_y + 0.08,
+                    1.21,
+                ),
+            ),
+        )
+    else:
+        raise RuntimeError(f"{token}: 引き戸の開方向がありません")
+    _create_box_object(
+        f"VIS_DoorPanel_Handle_{token}",
+        handle_boxes,
+        visual_collection,
+        material=trim_material,
+        uv_swatch=swatch_uv("Architecture", "trim"),
         parent=panel,
     )
     _create_box_object(
@@ -942,6 +1047,7 @@ def _build_room_doors(
     collider_collection: bpy.types.Collection,
     semantic_collection: bpy.types.Collection,
     door_material: bpy.types.Material,
+    trim_material: bpy.types.Material,
 ) -> int:
     count = 0
     for room in ROOM_VARIANT_SPECS:
@@ -977,6 +1083,7 @@ def _build_room_doors(
                 collider_collection=collider_collection,
                 semantic_collection=semantic_collection,
                 door_material=door_material,
+                trim_material=trim_material,
             )
             count += 1
     if count != 38:
@@ -989,6 +1096,7 @@ def _build_toilet_stall_doors(
     collider_collection: bpy.types.Collection,
     semantic_collection: bpy.types.Collection,
     door_material: bpy.types.Material,
+    trim_material: bpy.types.Material,
 ) -> int:
     stall_groups = (
         ("m", (-5.05, -3.65, -2.25)),
@@ -1007,7 +1115,7 @@ def _build_toilet_stall_doors(
                 panel_id = f"{door_id}-panel"
                 open_pose_id = f"{door_id}-open-pose"
                 sweep_id = f"{door_id}-sweep"
-                width = 0.90
+                width = 1.40
                 door = _create_empty(
                     f"MRK_Door_{token}",
                     semantic_collection,
@@ -1041,6 +1149,15 @@ def _build_toilet_stall_doors(
                     visual_collection,
                     material=door_material,
                     uv_swatch=swatch_uv("Architecture", "door"),
+                    parent=panel,
+                )
+                _create_low_poly_sphere_object(
+                    f"VIS_DoorPanel_Knob_{token}",
+                    (-1.22, -0.075, 0.95),
+                    0.06,
+                    visual_collection,
+                    material=trim_material,
+                    uv_swatch=swatch_uv("Architecture", "trim"),
                     parent=panel,
                 )
                 _create_box_object(
@@ -1755,12 +1872,14 @@ def build_school_interactive_assets(
         collider_collection,
         semantic_collection,
         door_material,
+        architecture_material,
     )
     toilet_doors = _build_toilet_stall_doors(
         visual_collection,
         collider_collection,
         semantic_collection,
         door_material,
+        architecture_material,
     )
     elevator = _build_elevator(
         visual_collection,

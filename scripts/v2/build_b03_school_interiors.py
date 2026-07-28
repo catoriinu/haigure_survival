@@ -377,6 +377,8 @@ def architecture_swatch(object_name: str) -> str:
         return "elevator_wait"
     if "elevatoradjustmenttext" in name:
         return "trim"
+    if "doorpanel_handle" in name or "doorpanel_knob" in name:
+        return "trim"
     if "gymstage" in name and "wall" not in name and "lintel" not in name:
         return "gym_stage"
     if "interfloorstructure" in name:

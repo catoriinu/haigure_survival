@@ -301,6 +301,20 @@ export const createV2SurvivalRuntime = ({
     }
     return frameOrbVisibilityPredicate;
   };
+  const isIndirectLightVisible = (position: Vector3) => {
+    const activeCamera = scene.activeCamera;
+    if (!activeCamera) {
+      throw new Error(
+        "命中演出の間接照明判定にはSceneのactive cameraが必要です。"
+      );
+    }
+    return (
+      stage.queries.castBeamSegment(
+        activeCamera.globalPosition,
+        position
+      ) === null
+    );
+  };
 
   try {
     ownedNpcSystem = createV2NpcSystem({
@@ -333,7 +347,8 @@ export const createV2SurvivalRuntime = ({
       createV2PublicExecutionSystem(random);
     ownedHitEffectSystem = createV2HitEffectSystem({
       scene,
-      random: visualRandom
+      random: visualRandom,
+      isIndirectLightVisible
     });
     humanTargets = Object.freeze([
       playerCombat.createTargetSnapshot(
