@@ -4,6 +4,46 @@ export type V2ActorKind = "player" | "npc" | "bit";
 
 export type V2HumanKind = "player" | "npc";
 
+export type V2TargetSelectionActorKind = "npc" | "bit";
+
+export type V2TargetSelectionPersonality =
+  | "persistent"
+  | "nearest-visible";
+
+const TARGET_SELECTION_PERSONALITY_SALT =
+  "haigure-v2:t05-4:target-selection:v1";
+const FNV_1A_OFFSET_BASIS = 0x811c9dc5;
+const FNV_1A_PRIME = 0x01000193;
+
+const hashTargetSelectionKey = (value: string) => {
+  let hash = FNV_1A_OFFSET_BASIS;
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    hash ^= codeUnit & 0xff;
+    hash = Math.imul(hash, FNV_1A_PRIME);
+    hash ^= codeUnit >>> 8;
+    hash = Math.imul(hash, FNV_1A_PRIME);
+  }
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x85ebca6b);
+  hash ^= hash >>> 13;
+  hash = Math.imul(hash, 0xc2b2ae35);
+  hash ^= hash >>> 16;
+  return hash >>> 0;
+};
+
+export const selectV2TargetSelectionPersonality = (
+  actorKind: V2TargetSelectionActorKind,
+  actorId: string
+): V2TargetSelectionPersonality => {
+  const hash = hashTargetSelectionKey(
+    `${TARGET_SELECTION_PERSONALITY_SALT}:${actorKind}:${actorId}`
+  );
+  return (hash & 0x80000000) === 0
+    ? "persistent"
+    : "nearest-visible";
+};
+
 export type V2CharacterState =
   | "normal"
   | "evade"

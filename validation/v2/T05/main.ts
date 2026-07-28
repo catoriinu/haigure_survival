@@ -88,6 +88,7 @@ import {
   runSurvivalRuntimeLifecycleTests
 } from "./survivalRuntimeLifecycle.test";
 import { createDynamicStageSpatialQueryFixture } from "./stageSpatialQueryFixture";
+import { runTargetSelectionTests } from "./targetSelection.test";
 import { runWorldBoundaryTests } from "./worldBoundary.test";
 
 import "./style.css";
@@ -1860,6 +1861,11 @@ const runValidation = async () => {
       })),
       ...runSurvivalRulesTests().map((result) => ({
         name: `T05-2 survival統合契約: ${result.name}`,
+        ok: result.ok,
+        detail: result.detail
+      })),
+      ...runTargetSelectionTests().map((result) => ({
+        name: `T05-4 標的選択個性: ${result.name}`,
         ok: result.ok,
         detail: result.detail
       })),

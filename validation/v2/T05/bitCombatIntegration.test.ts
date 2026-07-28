@@ -1815,6 +1815,1208 @@ const acquireMode = (
   return harness.system.getFrameView().targetStates[0];
 };
 
+const runBitCurrentTargetSightScheduleCheck =
+  (): BitCombatIntegrationCheck => {
+    let sightBlocked = false;
+    const harness = createHarness(1, () => sightBlocked);
+    try {
+      harness.system.setDiagnosticsEnabled(true);
+      const origin =
+        harness.system.getFrameView().actorSpheres[0].center;
+      const target = createTarget(
+        "target-selection-current-sight",
+        origin.add(new Vector3(1, 0, 0))
+      );
+      const acquired = acquireMode(harness, 0.1, target);
+      sightBlocked = true;
+      update(
+        harness.system,
+        0.199,
+        0.199,
+        Object.freeze([target])
+      );
+      const beforeBoundary = harness.system.getFrameView();
+      update(
+        harness.system,
+        0.002,
+        0.201,
+        Object.freeze([target])
+      );
+      const afterBoundary = harness.system.getFrameView();
+      return Object.freeze({
+        name: "BIT現在標的視線確認を5Hz境界で実行",
+        ok:
+          acquired.targetId === target.id &&
+          acquired.mode === "chase" &&
+          beforeBoundary.diagnostics.currentTargetSightCheckCount ===
+            0 &&
+          beforeBoundary.targetStates[0].targetId === target.id &&
+          afterBoundary.diagnostics.currentTargetSightCheckCount ===
+            1 &&
+          afterBoundary.diagnostics.sightRays === 1 &&
+          afterBoundary.targetStates[0].targetId === target.id,
+        detail:
+          `target=${acquired.targetId ?? "none"} / ` +
+          `before=${beforeBoundary.diagnostics.currentTargetSightCheckCount} / ` +
+          `after=${afterBoundary.diagnostics.currentTargetSightCheckCount} / ` +
+          `rays=${afterBoundary.diagnostics.sightRays}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runBitTargetSelectionPersonalityCheck =
+  (): BitCombatIntegrationCheck => {
+    let blockedAlternative = true;
+    let alternativeAimPosition = Vector3.Zero();
+    const harness = createHarness(
+      2,
+      (_from, to) =>
+        blockedAlternative &&
+        Vector3.DistanceSquared(to, alternativeAimPosition) <= 1e-12
+    );
+    try {
+      harness.system.setDiagnosticsEnabled(true);
+      placeHarnessBitsAtSamePosition(harness);
+      const generated = harness.system.getFrameView().targetStates;
+      const generatedPersistent = generated.find(
+        ({ bitId }) => bitId === "v2_bit_0"
+      );
+      const generatedNearest = generated.find(
+        ({ bitId }) => bitId === "v2_bit_1"
+      );
+      const origin =
+        harness.system.getFrameView().actorSpheres[0].center;
+      const initialTarget = createTarget(
+        "target-selection-initial",
+        origin.add(new Vector3(0.5, 0, 0))
+      );
+      const movedInitialTarget = createTarget(
+        initialTarget.id,
+        origin.add(new Vector3(1, 0, 0))
+      );
+      const alternativeTarget = createTarget(
+        "target-selection-alternative",
+        origin.add(new Vector3(0.8, 0, 0))
+      );
+      alternativeAimPosition = alternativeTarget.aimPosition.clone();
+      const initialTargets = Object.freeze([
+        initialTarget,
+        alternativeTarget
+      ]);
+      harness.random.enqueue(0.1, 0.5);
+      update(harness.system, 0, 0, initialTargets);
+      harness.random.enqueue(0.1, 0.5);
+      update(harness.system, 0.1, 0.1, initialTargets);
+      const acquired = harness.system.getFrameView().targetStates;
+      const persistent = acquired.find(
+        ({ bitId }) => bitId === "v2_bit_0"
+      );
+      const nearest = acquired.find(
+        ({ bitId }) => bitId === "v2_bit_1"
+      );
+
+      const movedTargets = Object.freeze([
+        movedInitialTarget,
+        alternativeTarget
+      ]);
+      update(harness.system, 0.89, 0.99, movedTargets);
+      const beforeAlternativeBoundary = harness.system.getFrameView();
+      update(harness.system, 0.12, 1.11, movedTargets);
+      const blockedQuery = harness.system.getFrameView();
+      const blockedNearest = blockedQuery.targetStates.find(
+        ({ bitId }) => bitId === "v2_bit_1"
+      );
+
+      blockedAlternative = false;
+      update(harness.system, 1, 2.11, movedTargets);
+      const switched = harness.system.getFrameView();
+      const switchedPersistent = switched.targetStates.find(
+        ({ bitId }) => bitId === "v2_bit_0"
+      );
+      const switchedNearest = switched.targetStates.find(
+        ({ bitId }) => bitId === "v2_bit_1"
+      );
+
+      const alertLeader = createTarget(
+        "target-selection-alert-leader",
+        origin.add(new Vector3(8, 0, 0))
+      );
+      const forcedTarget = createTarget(
+        "target-selection-forced",
+        origin.add(new Vector3(9, 0, 0))
+      );
+      const forcedTargets = Object.freeze([
+        movedInitialTarget,
+        alternativeTarget,
+        alertLeader,
+        forcedTarget
+      ]);
+      const forcedAlerts = Object.freeze([
+        Object.freeze({
+          leaderId: alertLeader.id,
+          targetId: forcedTarget.id,
+          remainingSeconds: 15
+        })
+      ]);
+      update(
+        harness.system,
+        0,
+        2.11,
+        forcedTargets,
+        forcedAlerts
+      );
+      const forced = harness.system.getFrameView();
+      update(
+        harness.system,
+        1.1,
+        3.21,
+        forcedTargets,
+        forcedAlerts
+      );
+      const forcedHeld = harness.system.getFrameView();
+      return Object.freeze({
+        name:
+          "BIT個性別1Hz切替・遮蔽・同一標的経路保持・強制優先",
+        ok:
+          generatedPersistent?.targetSelectionPersonality ===
+            "persistent" &&
+          generatedNearest?.targetSelectionPersonality ===
+            "nearest-visible" &&
+          generated.every(({ targetId }) => targetId === null) &&
+          persistent?.targetSelectionPersonality === "persistent" &&
+          nearest?.targetSelectionPersonality === "nearest-visible" &&
+          persistent.targetId === initialTarget.id &&
+          nearest.targetId === initialTarget.id &&
+          beforeAlternativeBoundary.diagnostics
+            .personalityRetargetQueryCount === 0 &&
+          blockedQuery.diagnostics.personalityRetargetQueryCount ===
+            1 &&
+          blockedQuery.diagnostics
+            .autonomousVisualTargetChangeCount === 0 &&
+          blockedQuery.diagnostics.routePlans.chase === 0 &&
+          blockedNearest?.targetId === initialTarget.id &&
+          switched.diagnostics.personalityRetargetQueryCount === 1 &&
+          switched.diagnostics.autonomousVisualTargetChangeCount ===
+            1 &&
+          switchedPersistent?.targetId === initialTarget.id &&
+          switchedNearest?.targetId === alternativeTarget.id &&
+          forced.targetStates.every(
+            ({ targetId, provenance, mode }) =>
+              targetId === forcedTarget.id &&
+              provenance === "alert" &&
+              mode === "alert-receive"
+          ) &&
+          forced.diagnostics.forcedTargetChangeCount === 2 &&
+          forced.diagnostics.autonomousVisualTargetChangeCount === 0 &&
+          forcedHeld.targetStates.every(
+            ({ targetId, provenance, mode }) =>
+              targetId === forcedTarget.id &&
+              provenance === "alert" &&
+              mode === "alert-receive"
+          ) &&
+          forcedHeld.diagnostics.forcedTargetChangeCount === 0 &&
+          forcedHeld.diagnostics.personalityRetargetQueryCount === 0 &&
+          forcedHeld.diagnostics.autonomousVisualTargetChangeCount ===
+            0,
+        detail:
+          `generated=${generatedPersistent?.targetSelectionPersonality ?? "missing"}/` +
+          `${generatedNearest?.targetSelectionPersonality ?? "missing"} / ` +
+          `personality=${persistent?.targetSelectionPersonality ?? "missing"}/` +
+          `${nearest?.targetSelectionPersonality ?? "missing"} / ` +
+          `mode=${persistent?.mode ?? "missing"}/` +
+          `${nearest?.mode ?? "missing"}->` +
+          `${blockedNearest?.mode ?? "missing"} / ` +
+          `beforeQuery=${beforeAlternativeBoundary.diagnostics.personalityRetargetQueryCount} / ` +
+          `blocked=${blockedNearest?.targetId ?? "none"}:` +
+          `${blockedQuery.diagnostics.personalityRetargetQueryCount} / ` +
+          `switched=${switchedPersistent?.targetId ?? "none"}/` +
+          `${switchedNearest?.targetId ?? "none"} / ` +
+          `forced=${forced.diagnostics.forcedTargetChangeCount}/` +
+          `${forcedHeld.targetStates[0].provenance ?? "none"}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runBitTargetSelectionTieOrderCheck =
+  (): BitCombatIntegrationCheck => {
+    const harness = createHarness(2);
+    try {
+      harness.system.setDiagnosticsEnabled(true);
+      placeHarnessBitsAtSamePosition(harness);
+      const origin =
+        harness.system.getFrameView().actorSpheres[0].center;
+      const sourceFirstTarget = createTarget(
+        "target-selection-tie-z-source-first",
+        origin.add(new Vector3(0.5, 0, 0.5))
+      );
+      const idFirstTarget = createTarget(
+        "target-selection-tie-a-id-first",
+        origin.add(new Vector3(0.5, 0, -0.5))
+      );
+      const targets = Object.freeze([
+        sourceFirstTarget,
+        idFirstTarget
+      ]);
+
+      harness.random.enqueue(0.1, 0.5);
+      update(harness.system, 0, 0, targets);
+      harness.random.enqueue(0.1, 0.5);
+      update(harness.system, 0.1, 0.1, targets);
+      const states = harness.system.getFrameView().targetStates;
+      const persistent = states.find(
+        ({ bitId }) => bitId === "v2_bit_0"
+      );
+      const nearest = states.find(
+        ({ bitId }) => bitId === "v2_bit_1"
+      );
+      return Object.freeze({
+        name:
+          "BIT同距離候補をpersistentは入力順・nearestはID順で選択",
+        ok:
+          persistent?.targetSelectionPersonality === "persistent" &&
+          persistent.targetId === sourceFirstTarget.id &&
+          nearest?.targetSelectionPersonality ===
+            "nearest-visible" &&
+          nearest.targetId === idFirstTarget.id,
+        detail:
+          `persistent=${persistent?.targetId ?? "none"} / ` +
+          `nearest=${nearest?.targetId ?? "none"}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runBitCurrentAndAlternativeSightShareRayCheck =
+  (): BitCombatIntegrationCheck => {
+    const harness = createHarness(2);
+    try {
+      harness.system.setDiagnosticsEnabled(true);
+      placeHarnessBitsAtSamePosition(harness);
+      const target = createTarget(
+        "target-selection-shared-ray",
+        new Vector3(0, BAND_CENTER_HEIGHT, 2)
+      );
+      const targets = Object.freeze([target]);
+      harness.random.enqueue(
+        ...Array.from({ length: 16 }, () => 0.1)
+      );
+      update(harness.system, 1, 1, targets);
+      const acquired = harness.system
+        .getFrameView()
+        .targetStates.find(({ bitId }) => bitId === "v2_bit_1");
+      const holdAccepted = harness.system.notifyBeamImpact(
+        "v2_bit_0",
+        "target-selection-shared-ray-hold"
+      );
+      update(harness.system, 1, 2, targets);
+      const overlapped = harness.system.getFrameView();
+      const retained = overlapped.targetStates.find(
+        ({ bitId }) => bitId === "v2_bit_1"
+      );
+      return Object.freeze({
+        name: "BIT現在標的5Hz・別候補1HzのRay共有",
+        ok:
+          acquired?.targetId === target.id &&
+          acquired.targetSelectionPersonality ===
+            "nearest-visible" &&
+          acquired.mode === "chase" &&
+          holdAccepted &&
+          overlapped.diagnostics.currentTargetSightCheckCount === 1 &&
+          overlapped.diagnostics.personalityRetargetQueryCount === 1 &&
+          overlapped.diagnostics.sightRays === 1 &&
+          overlapped.diagnostics.autonomousVisualTargetChangeCount ===
+            0 &&
+          retained?.targetId === target.id,
+        detail:
+          `current=${overlapped.diagnostics.currentTargetSightCheckCount} / ` +
+          `alternative=${overlapped.diagnostics.personalityRetargetQueryCount} / ` +
+          `rays=${overlapped.diagnostics.sightRays} / ` +
+          `target=${retained?.targetId ?? "none"}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runBitRetargetCooldownSurvivesCandidateSetShrinkCheck =
+  (): BitCombatIntegrationCheck => {
+    const bitCount = 10;
+    const remainingBitId = "v2_bit_1";
+    const nearestBitIds = Object.freeze([
+      "v2_bit_1",
+      "v2_bit_5",
+      "v2_bit_7",
+      "v2_bit_8",
+      "v2_bit_9"
+    ]);
+    const routeDestinations: Vector3[] = [];
+    let recordRouteDestinations = false;
+    const baseNavigation = createNavigation();
+    const trackedNavigation = Object.freeze({
+      ...baseNavigation,
+      findRoute: (
+        start: BitFlightLocation,
+        destination: BitFlightLocation,
+        policy: BitFlightRoutePolicy
+      ) => {
+        if (recordRouteDestinations) {
+          routeDestinations.push(
+            getBitFlightWorldPosition(destination).clone()
+          );
+        }
+        return baseNavigation.findRoute(
+          start,
+          destination,
+          policy
+        );
+      }
+    }) as BitFlightNavigationWorld;
+    const harness = createHarness(
+      bitCount,
+      () => false,
+      false,
+      false,
+      () => false,
+      trackedNavigation
+    );
+    let holdsAccepted = true;
+    const holdOtherBits = (phase: string) => {
+      for (let index = 0; index < bitCount; index += 1) {
+        const bitId = `v2_bit_${index}`;
+        if (bitId === remainingBitId) {
+          continue;
+        }
+        holdsAccepted =
+          harness.system.notifyBeamImpact(
+            bitId,
+            `target-selection-shrink-${phase}-${bitId}`
+          ) && holdsAccepted;
+      }
+    };
+    try {
+      harness.system.setDiagnosticsEnabled(true);
+      placeHarnessBitsAtSamePosition(harness);
+      const initialTarget = createTarget(
+        "target-selection-shrink-initial",
+        new Vector3(0, BAND_CENTER_HEIGHT, 2)
+      );
+      const movedInitialTarget = createTarget(
+        initialTarget.id,
+        new Vector3(0, BAND_CENTER_HEIGHT, 2)
+      );
+      const alternativeTarget = createTarget(
+        "target-selection-shrink-alternative",
+        new Vector3(0, BAND_CENTER_HEIGHT, 2.4)
+      );
+      const movedAlternativeTarget = createTarget(
+        alternativeTarget.id,
+        new Vector3(0.9, BAND_CENTER_HEIGHT, 1.5)
+      );
+      const initialTargets = Object.freeze([
+        initialTarget,
+        alternativeTarget
+      ]);
+      const movedTargets = Object.freeze([
+        movedInitialTarget,
+        movedAlternativeTarget
+      ]);
+      harness.random.enqueue(
+        ...Array.from({ length: bitCount * 8 }, () => 0.1)
+      );
+      update(harness.system, 1, 1, initialTargets);
+      const acquired = harness.system.getFrameView();
+      update(harness.system, 1, 2, initialTargets);
+      const firstRetargetRound = harness.system.getFrameView();
+
+      recordRouteDestinations = true;
+      holdOtherBits("immediate");
+      update(harness.system, 0.01, 2.01, movedTargets);
+      const immediatelyAfterShrink = harness.system.getFrameView();
+      holdOtherBits("next-round");
+      update(harness.system, 1, 3.01, movedTargets);
+      const nextRetargetRound = harness.system.getFrameView();
+      const routePlansDuringSwitch = routeDestinations.length;
+      const switchedFlight = nextRetargetRound.flightStates.find(
+        ({ bitId }) => bitId === remainingBitId
+      );
+      holdOtherBits("route-sync");
+      update(harness.system, 0.01, 3.02, movedTargets);
+      const routeSynchronized = harness.system.getFrameView();
+      const latestRouteDestination =
+        routeDestinations[routeDestinations.length - 1];
+      const synchronizedTarget = routeSynchronized.targetStates.find(
+        ({ bitId }) => bitId === remainingBitId
+      );
+      return Object.freeze({
+        name:
+          "BIT候補集合急減後の次回1Hz探索・経路予算接続",
+        ok:
+          holdsAccepted &&
+          nearestBitIds.every((bitId) => {
+            const state = acquired.targetStates.find(
+              (candidate) => candidate.bitId === bitId
+            );
+            return (
+              state?.targetSelectionPersonality ===
+                "nearest-visible" &&
+              state.targetId === initialTarget.id &&
+              state.mode === "chase"
+            );
+          }) &&
+          firstRetargetRound.diagnostics
+            .personalityRetargetQueryCount === 4 &&
+          immediatelyAfterShrink.diagnostics
+            .personalityRetargetQueryCount === 0 &&
+          immediatelyAfterShrink.diagnostics
+            .autonomousVisualTargetChangeCount === 0 &&
+          immediatelyAfterShrink.targetStates.find(
+            ({ bitId }) => bitId === remainingBitId
+          )?.targetId === initialTarget.id &&
+          nextRetargetRound.diagnostics
+            .personalityRetargetQueryCount === 1 &&
+          nextRetargetRound.diagnostics
+            .autonomousVisualTargetChangeCount === 1 &&
+          nextRetargetRound.targetStates.find(
+            ({ bitId }) => bitId === remainingBitId
+          )?.targetId === alternativeTarget.id &&
+          routePlansDuringSwitch === 0 &&
+          switchedFlight?.routePurpose === "chase" &&
+          routeSynchronized.diagnostics
+            .personalityRetargetQueryCount === 0 &&
+          nextRetargetRound.diagnostics.routePlans.chase +
+            routeSynchronized.diagnostics.routePlans.chase ===
+            1 &&
+          routeDestinations.length === 1 &&
+          latestRouteDestination !== undefined &&
+          Vector3.DistanceSquared(
+            latestRouteDestination,
+            movedAlternativeTarget.aimPosition
+          ) <= 1e-12 &&
+          synchronizedTarget?.targetId === alternativeTarget.id,
+        detail:
+          `first=${firstRetargetRound.diagnostics.personalityRetargetQueryCount} / ` +
+          `afterShrink=${immediatelyAfterShrink.diagnostics.personalityRetargetQueryCount}:` +
+          `${immediatelyAfterShrink.targetStates.find(({ bitId }) => bitId === remainingBitId)?.targetId ?? "none"} / ` +
+          `next=${nextRetargetRound.diagnostics.personalityRetargetQueryCount}:` +
+          `${nextRetargetRound.targetStates.find(({ bitId }) => bitId === remainingBitId)?.targetId ?? "none"} / ` +
+          `route=${switchedFlight?.routePurpose ?? "none"}->` +
+          `${nextRetargetRound.diagnostics.routePlans.chase}+` +
+          `${routeSynchronized.diagnostics.routePlans.chase},` +
+          `duringSwitch=${routePlansDuringSwitch},` +
+          `latest=${latestRouteDestination?.toString() ?? "none"}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runBitTargetlessPriorityDoesNotStarveCurrentSightChecks =
+  (): BitCombatIntegrationCheck => {
+    const bitCount = 30;
+    const holderId = "v2_bit_0";
+    const baseNavigation = createNavigation();
+    const stationarySearchNavigation = Object.freeze({
+      ...baseNavigation,
+      randomPointAround: () => null
+    }) as BitFlightNavigationWorld;
+    const targetlessRayOrigins = new Set<string>();
+    const expectedTargetlessRayOrigins = new Set<string>();
+    let measurementHalf = 0;
+    let firstHalfHolderSightRays = 0;
+    let secondHalfHolderSightRays = 0;
+    const harness = createHarness(
+      bitCount,
+      (from) => {
+        const holderSightRay = from.x < 0;
+        if (holderSightRay) {
+          if (measurementHalf === 1) {
+            firstHalfHolderSightRays += 1;
+          } else if (measurementHalf === 2) {
+            secondHalfHolderSightRays += 1;
+          }
+        } else {
+          targetlessRayOrigins.add(from.x.toFixed(3));
+        }
+        return !holderSightRay;
+      },
+      false,
+      false,
+      () => false,
+      stationarySearchNavigation
+    );
+    try {
+      harness.system.setDiagnosticsEnabled(true);
+      harness.system.placeBits(
+        harness.system.getFrameView().actorSpheres.map(
+          (actor, index) => {
+            const centerPosition =
+              index === 0
+                ? new Vector3(-0.8, BAND_CENTER_HEIGHT, 0)
+                : new Vector3(
+                    0.1 + index * 0.02,
+                    BAND_CENTER_HEIGHT,
+                    0
+                  );
+            if (index > 0) {
+              expectedTargetlessRayOrigins.add(
+                centerPosition.x.toFixed(3)
+              );
+            }
+            return Object.freeze({
+              id: actor.id,
+              centerPosition
+            });
+          }
+        )
+      );
+      const target = createTarget(
+        "target-selection-mixed-starvation",
+        new Vector3(1.8, BAND_CENTER_HEIGHT, 0)
+      );
+      const targets = Object.freeze([target]);
+      harness.random.enqueue(
+        ...Array.from({ length: bitCount * 8 }, () => 0.1)
+      );
+
+      let elapsedSeconds = 0;
+      update(harness.system, 0, elapsedSeconds, targets);
+      for (let frameIndex = 0; frameIndex < 60; frameIndex += 1) {
+        elapsedSeconds += 1 / 60;
+        update(
+          harness.system,
+          1 / 60,
+          elapsedSeconds,
+          targets
+        );
+      }
+      const afterPriorityPass = harness.system.getFrameView();
+      const targetlessPriorityCoveredAll =
+        targetlessRayOrigins.size ===
+          expectedTargetlessRayOrigins.size &&
+        [...expectedTargetlessRayOrigins].every((origin) =>
+          targetlessRayOrigins.has(origin)
+        );
+
+      let firstHalfCurrentChecks = 0;
+      let firstHalfSightRays = 0;
+      measurementHalf = 1;
+      for (let frameIndex = 0; frameIndex < 60; frameIndex += 1) {
+        elapsedSeconds += 1 / 60;
+        update(
+          harness.system,
+          1 / 60,
+          elapsedSeconds,
+          targets
+        );
+        const diagnostics =
+          harness.system.getFrameView().diagnostics;
+        firstHalfCurrentChecks +=
+          diagnostics.currentTargetSightCheckCount;
+        firstHalfSightRays += diagnostics.sightRays;
+      }
+
+      let secondHalfCurrentChecks = 0;
+      let secondHalfSightRays = 0;
+      measurementHalf = 2;
+      for (let frameIndex = 0; frameIndex < 60; frameIndex += 1) {
+        elapsedSeconds += 1 / 60;
+        update(
+          harness.system,
+          1 / 60,
+          elapsedSeconds,
+          targets
+        );
+        const diagnostics =
+          harness.system.getFrameView().diagnostics;
+        secondHalfCurrentChecks +=
+          diagnostics.currentTargetSightCheckCount;
+        secondHalfSightRays += diagnostics.sightRays;
+      }
+      measurementHalf = 0;
+      const completed = harness.system.getFrameView();
+      const holder = completed.targetStates.find(
+        ({ bitId }) => bitId === holderId
+      );
+      const targetless = completed.targetStates.filter(
+        ({ bitId }) => bitId !== holderId
+      );
+      return Object.freeze({
+        name: "BIT targetless priority混在時も保持標的5Hzを継続",
+        ok:
+          afterPriorityPass.targetStates.find(
+            ({ bitId }) => bitId === holderId
+          )?.targetId === target.id &&
+          targetlessPriorityCoveredAll &&
+          holder?.targetId === target.id &&
+          holder.targetSelectionPersonality === "persistent" &&
+          targetless.every(({ targetId }) => targetId === null) &&
+          firstHalfCurrentChecks >= 4 &&
+          firstHalfCurrentChecks <= 6 &&
+          secondHalfCurrentChecks >= 4 &&
+          secondHalfCurrentChecks <= 6 &&
+          firstHalfHolderSightRays === firstHalfCurrentChecks &&
+          secondHalfHolderSightRays === secondHalfCurrentChecks &&
+          firstHalfSightRays >= firstHalfHolderSightRays &&
+          secondHalfSightRays >= secondHalfHolderSightRays,
+        detail:
+          `targetlessRayOrigins=${targetlessRayOrigins.size}/` +
+          `${expectedTargetlessRayOrigins.size} / ` +
+          `first=current:${firstHalfCurrentChecks},` +
+          `holderRay:${firstHalfHolderSightRays},allRay:${firstHalfSightRays} / ` +
+          `second=current:${secondHalfCurrentChecks},` +
+          `holderRay:${secondHalfHolderSightRays},allRay:${secondHalfSightRays}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runBitTargetSelectionSchedulerBudgetCheck =
+  (): BitCombatIntegrationCheck => {
+    const bitCount = 50;
+    const measuredSightChecksByBitId = new Map<string, number>();
+    let measuredBitIdBySightOrigin = new Map<string, string>();
+    let trackMeasuredSightChecks = false;
+    let unmatchedMeasuredSightCheckCount = 0;
+    const toSightOriginKey = (position: Vector3) =>
+      `${position.x}|${position.y}|${position.z}`;
+    const harness = createHarness(bitCount, (from) => {
+      if (trackMeasuredSightChecks) {
+        const bitId =
+          measuredBitIdBySightOrigin.get(
+            toSightOriginKey(from)
+          ) ?? null;
+        if (bitId === null) {
+          unmatchedMeasuredSightCheckCount += 1;
+        } else {
+          measuredSightChecksByBitId.set(
+            bitId,
+            (measuredSightChecksByBitId.get(bitId) ?? 0) + 1
+          );
+        }
+      }
+      return false;
+    });
+    try {
+      harness.system.setDiagnosticsEnabled(true);
+      const initialActors =
+        harness.system.getFrameView().actorSpheres;
+      harness.system.placeBits(
+        initialActors.map(
+          (actor, index) =>
+            Object.freeze({
+              id: actor.id,
+              centerPosition: new Vector3(
+                0,
+                BAND_CENTER_HEIGHT,
+                index * 4
+              )
+            })
+        )
+      );
+      const initialTargetIdByBitId = new Map(
+        initialActors.map(
+          (actor, index) =>
+            [
+              actor.id,
+              `target-selection-scheduler-budget-${index}`
+            ] as const
+        )
+      );
+      const targets = Object.freeze(
+        initialActors.map((actor, index) =>
+          createTarget(
+            initialTargetIdByBitId.get(actor.id)!,
+            new Vector3(
+              0.5,
+              BAND_CENTER_HEIGHT,
+              index * 4
+            )
+          )
+        )
+      );
+      harness.random.enqueue(
+        ...Array.from({ length: bitCount * 8 }, () => 0.1)
+      );
+      let elapsedSeconds = 0;
+      for (
+        let updateIndex = 0;
+        updateIndex < 6 &&
+        harness.system
+          .getFrameView().targetStates
+          .some(({ targetId }) => targetId === null);
+        updateIndex += 1
+      ) {
+        elapsedSeconds += 1;
+        update(harness.system, 1, elapsedSeconds, targets);
+      }
+      const acquired = harness.system.getFrameView().targetStates;
+
+      for (let frameIndex = 0; frameIndex < 60; frameIndex += 1) {
+        elapsedSeconds += 1 / 60;
+        update(
+          harness.system,
+          1 / 60,
+          elapsedSeconds,
+          targets
+        );
+      }
+      let maximumCurrentChecks = 0;
+      let maximumAlternativeQueries = 0;
+      let maximumChaseRoutePlans = 0;
+      let maximumAutonomousChanges = 0;
+      let totalCurrentChecks = 0;
+      let totalAlternativeQueries = 0;
+      let minimumIdentifiableBitCount = bitCount;
+      for (let frameIndex = 0; frameIndex < 120; frameIndex += 1) {
+        measuredBitIdBySightOrigin = new Map(
+          harness.system
+            .getFrameView()
+            .actorSpheres.map(
+              (actor) =>
+                [toSightOriginKey(actor.center), actor.id] as const
+            )
+        );
+        minimumIdentifiableBitCount = Math.min(
+          minimumIdentifiableBitCount,
+          measuredBitIdBySightOrigin.size
+        );
+        elapsedSeconds += 1 / 60;
+        trackMeasuredSightChecks = true;
+        update(
+          harness.system,
+          1 / 60,
+          elapsedSeconds,
+          targets
+        );
+        trackMeasuredSightChecks = false;
+        const diagnostics =
+          harness.system.getFrameView().diagnostics;
+        totalCurrentChecks +=
+          diagnostics.currentTargetSightCheckCount;
+        totalAlternativeQueries +=
+          diagnostics.personalityRetargetQueryCount;
+        maximumCurrentChecks = Math.max(
+          maximumCurrentChecks,
+          diagnostics.currentTargetSightCheckCount
+        );
+        maximumAlternativeQueries = Math.max(
+          maximumAlternativeQueries,
+          diagnostics.personalityRetargetQueryCount
+        );
+        maximumChaseRoutePlans = Math.max(
+          maximumChaseRoutePlans,
+          diagnostics.routePlans.chase
+        );
+        maximumAutonomousChanges = Math.max(
+          maximumAutonomousChanges,
+          diagnostics.autonomousVisualTargetChangeCount
+        );
+      }
+      elapsedSeconds += 1;
+      update(harness.system, 1, elapsedSeconds, targets);
+      const catchUpDiagnostics =
+        harness.system.getFrameView().diagnostics;
+      const nearestCount = acquired.filter(
+        ({ targetSelectionPersonality }) =>
+          targetSelectionPersonality === "nearest-visible"
+      ).length;
+      const expectedBitIds = new Set(
+        acquired.map(({ bitId }) => bitId)
+      );
+      const measuredSightCheckCounts = [...expectedBitIds].map(
+        (bitId) => measuredSightChecksByBitId.get(bitId) ?? 0
+      );
+      const minimumSightChecksPerBit = Math.min(
+        ...measuredSightCheckCounts
+      );
+      const maximumSightChecksPerBit = Math.max(
+        ...measuredSightCheckCounts
+      );
+      const measuredSeconds = 2;
+      const expectedCurrentChecks =
+        (bitCount * measuredSeconds) / 0.2;
+      const expectedAlternativeQueries =
+        nearestCount * measuredSeconds;
+      const observedCurrentPeriodSeconds =
+        (bitCount * measuredSeconds) / totalCurrentChecks;
+      const observedAlternativePeriodSeconds =
+        (nearestCount * measuredSeconds) /
+        totalAlternativeQueries;
+      return Object.freeze({
+        name:
+          "50 BIT標的選択5Hz・1Hzの全機公平性・catch-up上限",
+        ok:
+          acquired.length === bitCount &&
+          acquired.every(
+            ({ bitId, targetId, mode }) =>
+              targetId === initialTargetIdByBitId.get(bitId) &&
+              mode === "chase"
+          ) &&
+          nearestCount >= 4 &&
+          maximumCurrentChecks <= 5 &&
+          maximumAlternativeQueries <= 1 &&
+          maximumChaseRoutePlans <= 4 &&
+          maximumAutonomousChanges === 0 &&
+          expectedBitIds.size === bitCount &&
+          minimumIdentifiableBitCount === bitCount &&
+          unmatchedMeasuredSightCheckCount === 0 &&
+          measuredSightChecksByBitId.size === bitCount &&
+          minimumSightChecksPerBit >= 9 &&
+          maximumSightChecksPerBit <= 12 &&
+          totalCurrentChecks >= expectedCurrentChecks - 5 &&
+          totalCurrentChecks <= expectedCurrentChecks + 5 &&
+          totalAlternativeQueries >=
+            expectedAlternativeQueries - 4 &&
+          totalAlternativeQueries <=
+            expectedAlternativeQueries + 4 &&
+          observedCurrentPeriodSeconds >= 0.19 &&
+          observedCurrentPeriodSeconds <= 0.21 &&
+          observedAlternativePeriodSeconds >= 0.9 &&
+          observedAlternativePeriodSeconds <= 1.1 &&
+          catchUpDiagnostics.currentTargetSightCheckCount <= 20 &&
+          catchUpDiagnostics.personalityRetargetQueryCount <= 4 &&
+          catchUpDiagnostics.routePlans.chase <= 4,
+        detail:
+          `acquired=${acquired.filter(({ bitId, targetId }) => targetId === initialTargetIdByBitId.get(bitId)).length}/` +
+          `${bitCount},nearest=${nearestCount} / ` +
+          `measured=current:${totalCurrentChecks}/${expectedCurrentChecks},` +
+          `period:${observedCurrentPeriodSeconds.toFixed(3)}s,` +
+          `alternative:${totalAlternativeQueries}/${expectedAlternativeQueries},` +
+          `period:${observedAlternativePeriodSeconds.toFixed(3)}s,` +
+          `actors:${measuredSightChecksByBitId.size}/${bitCount},` +
+          `perActor:${minimumSightChecksPerBit}-${maximumSightChecksPerBit},` +
+          `unmatched:${unmatchedMeasuredSightCheckCount} / ` +
+          `steady=current:${maximumCurrentChecks}/5,` +
+          `alternative:${maximumAlternativeQueries}/1,` +
+          `route:${maximumChaseRoutePlans}/4 / ` +
+          `catchUp=current:${catchUpDiagnostics.currentTargetSightCheckCount}/20,` +
+          `alternative:${catchUpDiagnostics.personalityRetargetQueryCount}/4,` +
+          `route:${catchUpDiagnostics.routePlans.chase}/4`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
+const runBitSimultaneousRetargetBudgetFairnessCheck =
+  (): BitCombatIntegrationCheck => {
+    const bitCount = 10;
+    const routeRecords: Array<
+      Readonly<{
+        start: Vector3;
+        destination: Vector3;
+      }>
+    > = [];
+    let recordRoutes = false;
+    const baseNavigation = createNavigation();
+    const trackedNavigation = Object.freeze({
+      ...baseNavigation,
+      findRoute: (
+        start: BitFlightLocation,
+        destination: BitFlightLocation,
+        policy: BitFlightRoutePolicy
+      ) => {
+        if (recordRoutes) {
+          routeRecords.push(
+            Object.freeze({
+              start: getBitFlightWorldPosition(start).clone(),
+              destination:
+                getBitFlightWorldPosition(destination).clone()
+            })
+          );
+        }
+        return baseNavigation.findRoute(
+          start,
+          destination,
+          policy
+        );
+      }
+    }) as BitFlightNavigationWorld;
+    const harness = createHarness(
+      bitCount,
+      () => false,
+      false,
+      false,
+      () => false,
+      trackedNavigation
+    );
+    try {
+      harness.system.setDiagnosticsEnabled(true);
+      const actors = harness.system.getFrameView().actorSpheres;
+      harness.system.placeBits(
+        actors.map((actor, index) =>
+          Object.freeze({
+            id: actor.id,
+            centerPosition: new Vector3(
+              0,
+              BAND_CENTER_HEIGHT,
+              index * 4
+            )
+          })
+        )
+      );
+      const initialTargetIdByBitId = new Map(
+        actors.map(
+          (actor, index) =>
+            [
+              actor.id,
+              `target-selection-fair-initial-${index}`
+            ] as const
+        )
+      );
+      const alternativeTargetIdByBitId = new Map(
+        actors.map(
+          (actor, index) =>
+            [
+              actor.id,
+              `target-selection-fair-alternative-${index}`
+            ] as const
+        )
+      );
+      const initialTargets = Object.freeze(
+        actors.map((actor, index) =>
+          createTarget(
+            initialTargetIdByBitId.get(actor.id)!,
+            new Vector3(2.4, BAND_CENTER_HEIGHT, index * 4)
+          )
+        )
+      );
+      const alternativeTargets = Object.freeze(
+        actors.map((actor, index) =>
+          createTarget(
+            alternativeTargetIdByBitId.get(actor.id)!,
+            new Vector3(1.2, BAND_CENTER_HEIGHT, index * 4)
+          )
+        )
+      );
+      harness.random.enqueue(
+        ...Array.from({ length: bitCount * 12 }, () => 0.1)
+      );
+      let elapsedSeconds = 1;
+      update(
+        harness.system,
+        1,
+        elapsedSeconds,
+        initialTargets
+      );
+      const acquired = harness.system.getFrameView();
+      const nearestBitIds = new Set(
+        acquired.targetStates
+          .filter(
+            ({ targetSelectionPersonality }) =>
+              targetSelectionPersonality === "nearest-visible"
+          )
+          .map(({ bitId }) => bitId)
+      );
+      const actorIndexByBitId = new Map(
+        actors.map((actor, index) => [actor.id, index] as const)
+      );
+      const alternativeDestinationByBitId = new Map(
+        actors.map(
+          (actor, index) =>
+            [
+              actor.id,
+              alternativeTargets[index].aimPosition
+            ] as const
+        )
+      );
+      const getAlternativeRouteBitId = (
+        route: Readonly<{
+          start: Vector3;
+          destination: Vector3;
+        }>
+      ) => {
+        for (const bitId of nearestBitIds) {
+          const actorIndex = actorIndexByBitId.get(bitId)!;
+          const alternativeDestination =
+            alternativeDestinationByBitId.get(bitId)!;
+          if (
+            Math.abs(route.start.z - actorIndex * 4) <=
+              POSITION_EPSILON &&
+            Vector3.DistanceSquared(
+              route.destination,
+              alternativeDestination
+            ) <=
+              POSITION_EPSILON * POSITION_EPSILON
+          ) {
+            return bitId;
+          }
+        }
+        return null;
+      };
+      const getAlternativeRouteCounts = () => {
+        const counts = new Map<string, number>(
+          [...nearestBitIds].map(
+            (bitId) => [bitId, 0]
+          )
+        );
+        for (const route of routeRecords) {
+          const bitId = getAlternativeRouteBitId(route);
+          if (bitId !== null) {
+            counts.set(bitId, counts.get(bitId)! + 1);
+          }
+        }
+        return counts;
+      };
+      const countAlternativeRoutes = (
+        routes: readonly Readonly<{
+          start: Vector3;
+          destination: Vector3;
+        }>[]
+      ) =>
+        routes.filter(
+          (route) => getAlternativeRouteBitId(route) !== null
+        ).length;
+      const switchTargets = Object.freeze([
+        ...initialTargets,
+        ...alternativeTargets
+      ]);
+      let maximumRetargetQueries = 0;
+      let maximumChaseRoutePlans = 0;
+      let maximumAlternativeRoutePlans = 0;
+      let totalVisualChanges = 0;
+      let completedRounds = 0;
+      const maximumRounds =
+        Math.ceil(nearestBitIds.size / 4) + 2;
+      let switchedBitIds = new Set<string>();
+      recordRoutes = true;
+      while (
+        switchedBitIds.size < nearestBitIds.size &&
+        completedRounds < maximumRounds
+      ) {
+        completedRounds += 1;
+        elapsedSeconds += 1;
+        const routeRecordCountBeforeUpdate = routeRecords.length;
+        update(
+          harness.system,
+          1,
+          elapsedSeconds,
+          switchTargets
+        );
+        const view = harness.system.getFrameView();
+        maximumRetargetQueries = Math.max(
+          maximumRetargetQueries,
+          view.diagnostics.personalityRetargetQueryCount
+        );
+        maximumChaseRoutePlans = Math.max(
+          maximumChaseRoutePlans,
+          view.diagnostics.routePlans.chase
+        );
+        maximumAlternativeRoutePlans = Math.max(
+          maximumAlternativeRoutePlans,
+          countAlternativeRoutes(
+            routeRecords.slice(routeRecordCountBeforeUpdate)
+          )
+        );
+        totalVisualChanges +=
+          view.diagnostics.autonomousVisualTargetChangeCount;
+        switchedBitIds = new Set(
+          view.targetStates
+            .filter(
+              ({ bitId, targetId }) =>
+                nearestBitIds.has(bitId) &&
+                targetId ===
+                  alternativeTargetIdByBitId.get(bitId)
+            )
+            .map(({ bitId }) => bitId)
+        );
+      }
+      let alternativeRouteCounts =
+        getAlternativeRouteCounts();
+      let synchronizationUpdates = 0;
+      const maximumSynchronizationUpdates =
+        Math.ceil(bitCount / 4) + 2;
+      let synchronized = harness.system.getFrameView();
+      while (
+        [...alternativeRouteCounts.values()].some(
+          (count) => count === 0
+        ) &&
+        synchronizationUpdates < maximumSynchronizationUpdates
+      ) {
+        synchronizationUpdates += 1;
+        elapsedSeconds += 0.01;
+        const routeRecordCountBeforeUpdate = routeRecords.length;
+        update(
+          harness.system,
+          0.01,
+          elapsedSeconds,
+          switchTargets
+        );
+        synchronized = harness.system.getFrameView();
+        maximumChaseRoutePlans = Math.max(
+          maximumChaseRoutePlans,
+          synchronized.diagnostics.routePlans.chase
+        );
+        maximumAlternativeRoutePlans = Math.max(
+          maximumAlternativeRoutePlans,
+          countAlternativeRoutes(
+            routeRecords.slice(routeRecordCountBeforeUpdate)
+          )
+        );
+        alternativeRouteCounts =
+          getAlternativeRouteCounts();
+      }
+      const alternativeRouteDetail =
+        [...alternativeRouteCounts]
+          .sort(([left], [right]) =>
+            left.localeCompare(right)
+          )
+          .map(([bitId, count]) => `${bitId}:${count}`)
+          .join(",");
+      return Object.freeze({
+        name:
+          "BIT複数同時1Hz切替を探索4件・経路4件で公平完了",
+        ok:
+          acquired.targetStates.length === bitCount &&
+          acquired.targetStates.every(
+            ({ bitId, targetId, mode }) =>
+              targetId === initialTargetIdByBitId.get(bitId) &&
+              mode === "chase"
+          ) &&
+          nearestBitIds.size >= 4 &&
+          switchedBitIds.size === nearestBitIds.size &&
+          completedRounds <= maximumRounds &&
+          maximumRetargetQueries <= 4 &&
+          maximumChaseRoutePlans <= 4 &&
+          maximumAlternativeRoutePlans <= 4 &&
+          synchronizationUpdates <=
+            maximumSynchronizationUpdates &&
+          alternativeRouteCounts.size === nearestBitIds.size &&
+          [...alternativeRouteCounts.values()].every(
+            (count) => count === 1
+          ) &&
+          countAlternativeRoutes(routeRecords) ===
+            nearestBitIds.size &&
+          synchronized.targetStates.every(
+            ({ bitId, targetId }) =>
+              nearestBitIds.has(bitId)
+                ? targetId ===
+                  alternativeTargetIdByBitId.get(bitId)
+                : targetId === initialTargetIdByBitId.get(bitId)
+          ),
+        detail:
+          `nearest=${nearestBitIds.size} / ` +
+          `switched=${switchedBitIds.size}/${nearestBitIds.size} / ` +
+          `rounds=${completedRounds}/${maximumRounds} / ` +
+          `max=query:${maximumRetargetQueries}/4,` +
+          `route:${maximumChaseRoutePlans}/4,` +
+          `alternativeRoute:${maximumAlternativeRoutePlans}/4 / ` +
+          `routeSync=${synchronizationUpdates}/` +
+          `${maximumSynchronizationUpdates}:` +
+          `${alternativeRouteDetail} / ` +
+          `visualChanges=${totalVisualChanges}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
 const acquireInternalAlert = (
   harness: CombatHarness,
   target: V2HumanTargetSnapshot,
@@ -4321,6 +5523,14 @@ export const runBitCombatIntegrationTests =
       runRedTransitionSpeedCheck(fixture),
       runRouteCandidateLowerBoundPruningCheck(),
       runChaseWindowCongestionCostCheck(),
+      runBitCurrentTargetSightScheduleCheck(),
+      runBitTargetSelectionPersonalityCheck(),
+      runBitTargetSelectionTieOrderCheck(),
+      runBitCurrentAndAlternativeSightShareRayCheck(),
+      runBitRetargetCooldownSurvivesCandidateSetShrinkCheck(),
+      runBitTargetlessPriorityDoesNotStarveCurrentSightChecks(),
+      runBitTargetSelectionSchedulerBudgetCheck(),
+      runBitSimultaneousRetargetBudgetFairnessCheck(),
       runAlertRequestModeCheck(),
       runAlertAssemblyCompletionCheck(),
       runAlertTimeoutCheck(),
