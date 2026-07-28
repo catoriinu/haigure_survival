@@ -36,11 +36,13 @@ import {
   isV2AliveState,
   isV2BrainwashState,
   isV2HitState,
+  selectV2TargetSelectionPersonality,
   type V2ActorSphere,
   type V2AlertRequest,
   type V2BeamRequest,
   type V2CharacterState,
   type V2HumanTargetSnapshot,
+  type V2TargetSelectionPersonality,
   type V2TargetProvenance
 } from "./combatTypes";
 import {
@@ -101,7 +103,13 @@ export const V2_NPC_LEAVE_MAXIMUM_SECONDS = 5;
 export const V2_NPC_FOLLOWER_FIRE_DELAY_MIN_SECONDS = 0.3;
 export const V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS = 0.8;
 export const V2_NPC_FOLLOWER_FIRE_COOLDOWN_SECONDS = 1;
+export const V2_NPC_CURRENT_TARGET_SIGHT_HERTZ = 5;
+export const V2_NPC_PERSONALITY_RETARGET_HERTZ = 1;
+export const V2_NPC_CURRENT_TARGET_SIGHT_MAXIMUM_PER_UPDATE = 20;
+export const V2_NPC_PERSONALITY_RETARGET_MAXIMUM_PER_UPDATE = 4;
 
+const NPC_PERSONALITY_RETARGET_INTERVAL_SECONDS =
+  1 / V2_NPC_PERSONALITY_RETARGET_HERTZ;
 const NPC_EVADE_DISTANCE =
   V2_NPC_CAPTURE_BREAKAWAY_SPEED *
   V2_NPC_CAPTURE_BREAKAWAY_SECONDS;
@@ -160,6 +168,7 @@ export type V2NpcTrackingSnapshot = Readonly<{
   npcId: string;
   targetId: string | null;
   provenance: V2TargetProvenance | null;
+  targetSelectionPersonality: V2TargetSelectionPersonality | null;
   alertLeaderId: string | null;
   alertRemainingSeconds: number;
   commandMode: V2NpcCommandMode;
@@ -245,6 +254,11 @@ export type V2NpcFrameView = Readonly<{
   threatenedTargetIds: readonly string[];
   pathRecalculationCount: number;
   waitingForPathCount: number;
+  currentTargetSightCheckCount: number;
+  personalityRetargetQueryCount: number;
+  sightRayCount: number;
+  autonomousVisualTargetChangeCount: number;
+  forcedTargetChangeCount: number;
   frameViewBuildSequence: number;
 }>;
 
@@ -306,6 +320,7 @@ type NpcGunVisualPursuitMode = "live" | "last-seen";
 type NpcCommandRuntime = {
   mode: V2NpcCommandMode;
   temporaryGunActive: boolean;
+  followSightClear: boolean;
   followLostSightSeconds: number;
   followLastSeenFootPosition: Vector3 | null;
   readonly followLastSeenDirection: Vector3;
@@ -334,10 +349,13 @@ type NpcRuntime = {
   wanderWaitSeconds: number;
   targetId: string | null;
   targetProvenance: V2TargetProvenance | null;
+  targetSelectionPersonality: V2TargetSelectionPersonality | null;
+  personalityRetargetCooldownSeconds: number;
+  visualSightCheckPriority: boolean;
   gunVisualPursuitMode: NpcGunVisualPursuitMode | null;
   gunLastSeenFootPosition: Vector3 | null;
   gunLastSeenPathPlanned: boolean;
-  gunVisualSightClear: boolean;
+  visualTargetSightClear: boolean;
   alertLeaderId: string | null;
   alertRemainingSeconds: number;
   readonly alarmTargetQueue: NpcAlarmTarget[];
@@ -358,6 +376,13 @@ type ResolvedPlacement = Readonly<{
 type NpcFollowerPosition = Readonly<{
   id: string;
   footPosition: Vector3;
+}>;
+
+type NpcSightResultCache = Map<string, boolean>;
+
+type NpcScheduleResult = Readonly<{
+  npcIds: ReadonlySet<string>;
+  nextCursor: number;
 }>;
 
 type MutableNpcTargetSnapshot = {
@@ -522,6 +547,10 @@ const isCompletedCommandState = (state: V2CharacterState) =>
   state === "brainwash-complete-no-gun" ||
   state === "brainwash-complete-haigure";
 
+const isCompletedBrainwashState = (state: V2CharacterState) =>
+  isCompletedCommandState(state) ||
+  state === "brainwash-complete-haigure-formation";
+
 const isPlayerCommandState = (state: V2CharacterState) =>
   isV2AliveState(state) || isCompletedCommandState(state);
 
@@ -587,6 +616,7 @@ const createNpcCommandRuntime = (
 ): NpcCommandRuntime => ({
   mode: "none",
   temporaryGunActive: false,
+  followSightClear: false,
   followLostSightSeconds: 0,
   followLastSeenFootPosition: null,
   followLastSeenDirection: Vector3.Zero(),
@@ -619,7 +649,16 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private replanPermissionCount = 0;
   private pathRecalculationCount = 0;
   private waitingForPathCount = 0;
+  private currentTargetSightCheckCount = 0;
+  private personalityRetargetQueryCount = 0;
+  private sightRayCount = 0;
+  private autonomousVisualTargetChangeCount = 0;
+  private forcedTargetChangeCount = 0;
   private frameViewBuildSequence = 0;
+  private currentTargetSightCredit = 1;
+  private currentTargetSightCursor = 0;
+  private personalityRetargetCredit = 0;
+  private personalityRetargetCursor = 0;
   private externalThreats: readonly V2NpcExternalThreat[] =
     Object.freeze([]);
   private playerBlockedTargetIds: readonly string[] = Object.freeze([]);
@@ -733,10 +772,17 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           wanderWaitSeconds: this.nextWanderWait(),
           targetId: null,
           targetProvenance: null,
+          targetSelectionPersonality: isCompletedBrainwashState(
+            initialState
+          )
+            ? selectV2TargetSelectionPersonality("npc", id)
+            : null,
+          personalityRetargetCooldownSeconds: 0,
+          visualSightCheckPriority: true,
           gunVisualPursuitMode: null,
           gunLastSeenFootPosition: null,
           gunLastSeenPathPlanned: false,
-          gunVisualSightClear: false,
+          visualTargetSightClear: false,
           alertLeaderId: null,
           alertRemainingSeconds: 0,
           alarmTargetQueue: [],
@@ -797,8 +843,17 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.applyAlarmTargetEvents(alarmTargetEvents);
     this.pathRecalculationCount = 0;
     this.waitingForPathCount = 0;
+    this.currentTargetSightCheckCount = 0;
+    this.personalityRetargetQueryCount = 0;
+    this.sightRayCount = 0;
+    this.autonomousVisualTargetChangeCount = 0;
+    this.forcedTargetChangeCount = 0;
 
     for (const npc of this.npcs) {
+      npc.personalityRetargetCooldownSeconds = Math.max(
+        0,
+        npc.personalityRetargetCooldownSeconds - deltaSeconds
+      );
       const previousState = npc.lastState;
       const stateDeltaSeconds =
         npc.command.mode !== "none" &&
@@ -807,6 +862,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           : deltaSeconds;
       npc.stateSnapshot = npc.stateSystem.update(stateDeltaSeconds);
       const currentState = npc.stateSnapshot.state;
+      this.assignTargetSelectionPersonality(npc, currentState);
       this.synchronizeStateMode(npc, previousState, currentState);
       npc.lastState = currentState;
       this.synchronizeSpriteVisual(npc);
@@ -897,10 +953,36 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       NPC_VISION_RANGE
     );
     this.prepareReplanPermissions(deltaSeconds);
-    const commandNpcIds = this.updateCommands(
-      deltaSeconds,
+    const commandNpcIds = this.prepareNpcCommands(
       playerFrameTarget
     );
+    const autonomousCombatNpcs = this.collectAutonomousCombatNpcs(
+      commandNpcIds
+    );
+    this.invalidateAutonomousVisualTargets(
+      autonomousCombatNpcs,
+      targetsById,
+      capturedTargetIds
+    );
+    const currentTargetSightCandidates =
+      this.collectCurrentTargetSightCandidates(
+        autonomousCombatNpcs
+      );
+    const currentTargetSightNpcIds =
+      this.scheduleCurrentTargetSightChecks(
+        currentTargetSightCandidates,
+        deltaSeconds
+      );
+    this.updateCommands(
+      deltaSeconds,
+      playerFrameTarget,
+      currentTargetSightNpcIds
+    );
+    const personalityRetargetNpcIds =
+      this.schedulePersonalityRetargetQueries(
+        autonomousCombatNpcs,
+        deltaSeconds
+      );
     for (let npcIndex = 0; npcIndex < this.npcs.length; npcIndex += 1) {
       const npc = this.npcs[npcIndex];
       if (!npc.sprite.isVisible) {
@@ -945,7 +1027,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         state,
         targetSpatialIndex,
         targetsById,
-        capturedTargetIds
+        capturedTargetIds,
+        currentTargetSightNpcIds.has(npc.id),
+        personalityRetargetNpcIds.has(npc.id)
       );
       if (!target) {
         npc.navigationAgent.clear();
@@ -1460,6 +1544,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.capture = null;
       npc.navigationAgent.clear();
       this.clearTarget(npc);
+      npc.visualSightCheckPriority = true;
     }
   }
 
@@ -1631,6 +1716,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         npc.stateSystem.enterFormationState();
         npc.stateSnapshot = npc.stateSystem.getSnapshot();
       }
+      this.assignTargetSelectionPersonality(
+        npc,
+        npc.stateSnapshot.state
+      );
+      npc.visualSightCheckPriority = true;
       npc.lastState = npc.stateSnapshot.state;
       npc.sprite.position.copyFrom(toAimPosition(npc.footPosition));
       this.synchronizeSpriteVisual(npc);
@@ -1700,6 +1790,196 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (movement.state === "waiting-for-path") {
       this.waitingForPathCount += 1;
     }
+  }
+
+  private collectAutonomousCombatNpcs(
+    commandNpcIds: ReadonlySet<string>
+  ) {
+    const result: NpcRuntime[] = [];
+    for (const npc of this.npcs) {
+      const state = npc.stateSnapshot.state;
+      if (
+        !npc.sprite.isVisible ||
+        commandNpcIds.has(npc.id) ||
+        npc.command.mode !== "none" ||
+        npc.alarmTargetQueue.length > 0 ||
+        npc.capture !== null ||
+        npc.breakawayRemainingSeconds > 0 ||
+        (state !== "brainwash-complete-gun" &&
+          state !== "brainwash-complete-no-gun")
+      ) {
+        continue;
+      }
+      this.requireTargetSelectionPersonality(npc);
+      result.push(npc);
+    }
+    return Object.freeze(result);
+  }
+
+  private collectCurrentTargetSightCandidates(
+    autonomousCombatNpcs: readonly NpcRuntime[]
+  ) {
+    const result = [...autonomousCombatNpcs];
+    for (const npc of this.npcs) {
+      if (!npc.sprite.isVisible) {
+        continue;
+      }
+      if (npc.command.mode === "follow") {
+        result.push(npc);
+        continue;
+      }
+      if (
+        npc.command.mode === "none" &&
+        npc.alarmTargetQueue.length > 0 &&
+        npc.stateSnapshot.state === "brainwash-complete-gun"
+      ) {
+        result.push(npc);
+      }
+    }
+    return Object.freeze(result);
+  }
+
+  private invalidateAutonomousVisualTargets(
+    npcs: readonly NpcRuntime[],
+    targetsById: ReadonlyMap<string, V2HumanTargetSnapshot>,
+    capturedTargetIds: ReadonlySet<string>
+  ) {
+    for (const npc of npcs) {
+      if (npc.targetProvenance !== "visual" || !npc.targetId) {
+        continue;
+      }
+      const target = targetsById.get(npc.targetId);
+      if (
+        !target ||
+        capturedTargetIds.has(target.id) ||
+        !this.isTargetable(npc, target)
+      ) {
+        this.clearTarget(npc);
+      }
+    }
+  }
+
+  private scheduleCurrentTargetSightChecks(
+    candidates: readonly NpcRuntime[],
+    deltaSeconds: number
+  ) {
+    this.currentTargetSightCredit = Math.min(
+      candidates.length,
+      this.currentTargetSightCredit +
+        candidates.length *
+          deltaSeconds *
+          V2_NPC_CURRENT_TARGET_SIGHT_HERTZ
+    );
+    const scheduledCount = Math.min(
+      Math.floor(this.currentTargetSightCredit),
+      V2_NPC_CURRENT_TARGET_SIGHT_MAXIMUM_PER_UPDATE,
+      candidates.length
+    );
+    const priorityCandidates = candidates.filter(
+      (npc) => npc.visualSightCheckPriority
+    );
+    const schedule = this.scheduleNpcIds(
+      candidates,
+      scheduledCount,
+      this.currentTargetSightCursor,
+      priorityCandidates
+    );
+    this.currentTargetSightCredit -= schedule.npcIds.size;
+    this.currentTargetSightCursor = schedule.nextCursor;
+    for (const npcId of schedule.npcIds) {
+      this.requireNpc(npcId).visualSightCheckPriority = false;
+    }
+    return schedule.npcIds;
+  }
+
+  private schedulePersonalityRetargetQueries(
+    candidates: readonly NpcRuntime[],
+    deltaSeconds: number
+  ) {
+    const retargetCandidates = candidates.filter(
+      (npc) =>
+        this.requireTargetSelectionPersonality(npc) ===
+          "nearest-visible" &&
+        npc.targetProvenance === "visual" &&
+        npc.targetId !== null
+    );
+    this.personalityRetargetCredit = Math.min(
+      retargetCandidates.length,
+      this.personalityRetargetCredit +
+        retargetCandidates.length *
+          deltaSeconds *
+          V2_NPC_PERSONALITY_RETARGET_HERTZ
+    );
+    const eligibleRetargetCandidates = retargetCandidates.filter(
+      (npc) => npc.personalityRetargetCooldownSeconds === 0
+    );
+    const perUpdateRateLimit = Math.min(
+      Math.ceil(
+        retargetCandidates.length *
+          deltaSeconds *
+          V2_NPC_PERSONALITY_RETARGET_HERTZ
+      ),
+      V2_NPC_PERSONALITY_RETARGET_MAXIMUM_PER_UPDATE
+    );
+    const scheduledCount = Math.min(
+      Math.floor(this.personalityRetargetCredit),
+      perUpdateRateLimit,
+      eligibleRetargetCandidates.length
+    );
+    const schedule = this.scheduleNpcIds(
+      eligibleRetargetCandidates,
+      scheduledCount,
+      this.personalityRetargetCursor,
+      []
+    );
+    this.personalityRetargetCredit -= schedule.npcIds.size;
+    this.personalityRetargetCursor = schedule.nextCursor;
+    return schedule.npcIds;
+  }
+
+  private scheduleNpcIds(
+    candidates: readonly NpcRuntime[],
+    count: number,
+    cursor: number,
+    priorityCandidates: readonly NpcRuntime[]
+  ): NpcScheduleResult {
+    if (count === 0 || this.npcs.length === 0) {
+      return Object.freeze({
+        npcIds: new Set<string>(),
+        nextCursor: cursor
+      });
+    }
+    const candidateIds = new Set(candidates.map((npc) => npc.id));
+    const priorityCandidateIds = new Set(
+      priorityCandidates.map((npc) => npc.id)
+    );
+    const npcIds = new Set<string>();
+    let nextCursor = cursor;
+    const eligibleIdGroups =
+      priorityCandidateIds.size > 0
+        ? [priorityCandidateIds, candidateIds]
+        : [candidateIds];
+    for (const eligibleIds of eligibleIdGroups) {
+      let visitedCount = 0;
+      while (
+        npcIds.size < count &&
+        visitedCount < this.npcs.length
+      ) {
+        const npc = this.npcs[nextCursor];
+        nextCursor = (nextCursor + 1) % this.npcs.length;
+        visitedCount += 1;
+        if (eligibleIds.has(npc.id)) {
+          npcIds.add(npc.id);
+        }
+      }
+      if (npcIds.size === count) {
+        break;
+      }
+    }
+    return Object.freeze({
+      npcIds,
+      nextCursor
+    });
   }
 
   private startFollow(
@@ -1871,6 +2151,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.command.followerFirePhase === "active";
     npc.command.mode = "none";
     npc.command.temporaryGunActive = false;
+    npc.command.followSightClear = false;
     npc.command.followLostSightSeconds = 0;
     npc.command.followLastSeenFootPosition = null;
     npc.command.followLastSeenDirection.setAll(0);
@@ -1882,11 +2163,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
     npc.navigationAgent.clear();
     npc.wanderDestination = null;
+    npc.visualSightCheckPriority = true;
     this.synchronizeSpriteVisual(npc);
   }
 
-  private updateCommands(
-    deltaSeconds: number,
+  private prepareNpcCommands(
     playerTarget: V2HumanTargetSnapshot
   ) {
     const processedNpcIds = new Set<string>();
@@ -1903,17 +2184,30 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         this.clearNpcCommand(npc, true);
       }
     }
+    return processedNpcIds;
+  }
 
+  private updateCommands(
+    deltaSeconds: number,
+    playerTarget: V2HumanTargetSnapshot,
+    currentTargetSightNpcIds: ReadonlySet<string>
+  ) {
     for (const npc of this.npcs) {
       if (npc.command.mode !== "follow") {
         continue;
       }
-      const sightClear =
-        this.stage.queries.castSightSegment(
-          toAimPosition(npc.footPosition),
-          playerTarget.aimPosition
-        ) === null;
-      if (sightClear) {
+      if (currentTargetSightNpcIds.has(npc.id)) {
+        if (this.diagnosticsEnabled) {
+          this.currentTargetSightCheckCount += 1;
+          this.sightRayCount += 1;
+        }
+        npc.command.followSightClear =
+          this.stage.queries.castSightSegment(
+            toAimPosition(npc.footPosition),
+            playerTarget.aimPosition
+          ) === null;
+      }
+      if (npc.command.followSightClear) {
         npc.command.followLostSightSeconds = 0;
         npc.command.followLastSeenFootPosition =
           playerTarget.footPosition.clone();
@@ -1974,7 +2268,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         );
       }
     }
-    return processedNpcIds;
   }
 
   private updateFollowMovement(
@@ -2292,7 +2585,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     state: "brainwash-complete-gun" | "brainwash-complete-no-gun",
     targetSpatialIndex: V2HumanTargetSpatialIndex,
     targetsById: ReadonlyMap<string, V2HumanTargetSnapshot>,
-    capturedTargetIds: ReadonlySet<string>
+    capturedTargetIds: ReadonlySet<string>,
+    runCurrentTargetSightCheck: boolean,
+    runPersonalityRetargetQuery: boolean
   ) {
     const alarmTarget = npc.alarmTargetQueue[0];
     if (alarmTarget) {
@@ -2313,21 +2608,119 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         `alarm:${alarmTarget.candidateId}`,
         0
       );
+      if (
+        state === "brainwash-complete-gun" &&
+        runCurrentTargetSightCheck
+      ) {
+        if (this.diagnosticsEnabled) {
+          this.currentTargetSightCheckCount += 1;
+          this.sightRayCount += 1;
+        }
+        npc.visualTargetSightClear =
+          this.stage.queries.castSightSegment(
+            toAimPosition(npc.footPosition),
+            target.aimPosition
+          ) === null;
+      }
       return target;
     }
 
+    const personality = this.requireTargetSelectionPersonality(npc);
+    const sightResults: NpcSightResultCache | null =
+      runCurrentTargetSightCheck ||
+      runPersonalityRetargetQuery
+        ? new Map()
+        : null;
+    let currentTarget: V2HumanTargetSnapshot | null = null;
     if (npc.targetProvenance === "visual" && npc.targetId) {
-      const currentTarget = targetsById.get(npc.targetId);
+      currentTarget = targetsById.get(npc.targetId) ?? null;
       if (
-        currentTarget &&
-        !capturedTargetIds.has(currentTarget.id) &&
-        (state === "brainwash-complete-gun"
-          ? this.retainGunVisualTarget(npc, currentTarget)
-          : this.isVisuallyTargetable(npc, currentTarget))
+        !currentTarget ||
+        capturedTargetIds.has(currentTarget.id) ||
+        !this.isTargetable(npc, currentTarget)
       ) {
-        return currentTarget;
+        this.clearTarget(npc);
+        currentTarget = null;
+      } else if (runCurrentTargetSightCheck) {
+        if (this.diagnosticsEnabled) {
+          this.currentTargetSightCheckCount += 1;
+        }
+        const retained =
+          state === "brainwash-complete-gun"
+            ? this.retainGunVisualTarget(
+                npc,
+                currentTarget,
+                sightResults!
+              )
+            : this.isVisuallyTargetable(
+                npc,
+                currentTarget,
+                sightResults!
+              );
+        if (!retained) {
+          this.clearTarget(npc);
+          currentTarget = null;
+        }
       }
-      this.clearTarget(npc);
+    }
+
+    if (
+      currentTarget &&
+      runPersonalityRetargetQuery &&
+      personality === "nearest-visible"
+    ) {
+      npc.personalityRetargetCooldownSeconds =
+        NPC_PERSONALITY_RETARGET_INTERVAL_SECONDS;
+      if (this.diagnosticsEnabled) {
+        this.personalityRetargetQueryCount += 1;
+      }
+      const nearestTarget = this.findNearestVisibleTarget(
+        npc,
+        targetSpatialIndex.query(
+          toAimPosition(npc.footPosition),
+          NPC_VISION_RANGE
+        ),
+        capturedTargetIds,
+        "target-id",
+        sightResults!
+      );
+      if (
+        nearestTarget &&
+        nearestTarget.id !== currentTarget.id
+      ) {
+        this.setAutonomousVisualTarget(npc, nearestTarget);
+        if (state === "brainwash-complete-gun") {
+          this.activateGunVisualTarget(npc, nearestTarget);
+        }
+        return nearestTarget;
+      }
+      if (
+        !runCurrentTargetSightCheck &&
+        sightResults!.has(currentTarget.id)
+      ) {
+        const retained =
+          state === "brainwash-complete-gun"
+            ? this.retainGunVisualTarget(
+                npc,
+                currentTarget,
+                sightResults!
+              )
+            : this.isVisuallyTargetable(
+                npc,
+                currentTarget,
+                sightResults!
+              );
+        if (!retained) {
+          this.clearTarget(npc);
+          currentTarget = null;
+        }
+      }
+    }
+    if (currentTarget) {
+      return currentTarget;
+    }
+    if (!runCurrentTargetSightCheck) {
+      return null;
     }
 
     const visibleTarget = this.findNearestVisibleTarget(
@@ -2336,32 +2729,28 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         toAimPosition(npc.footPosition),
         NPC_VISION_RANGE
       ),
-      capturedTargetIds
+      capturedTargetIds,
+      personality === "nearest-visible"
+        ? "target-id"
+        : "source-order",
+      sightResults!
     );
     if (!visibleTarget) {
       this.clearTarget(npc);
+      npc.visualSightCheckPriority = false;
       return null;
     }
-    this.setTarget(npc, visibleTarget.id, "visual", null, 0);
+    this.setAutonomousVisualTarget(npc, visibleTarget);
     if (state === "brainwash-complete-gun") {
-      npc.gunVisualPursuitMode = "live";
-      npc.gunLastSeenFootPosition =
-        visibleTarget.footPosition.clone();
-      npc.gunLastSeenPathPlanned = false;
-      npc.gunVisualSightClear = true;
-      this.pendingAlertRequests.push(
-        Object.freeze({
-          leaderId: npc.id,
-          targetId: visibleTarget.id
-        })
-      );
+      this.activateGunVisualTarget(npc, visibleTarget);
     }
     return visibleTarget;
   }
 
   private retainGunVisualTarget(
     npc: NpcRuntime,
-    target: V2HumanTargetSnapshot
+    target: V2HumanTargetSnapshot,
+    sightResults: NpcSightResultCache
   ) {
     if (!this.isTargetable(npc, target)) {
       return false;
@@ -2371,12 +2760,12 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       origin,
       target.aimPosition
     );
-    const sightClear =
-      this.stage.queries.castSightSegment(
-        origin,
-        target.aimPosition
-      ) === null;
-    npc.gunVisualSightClear = sightClear;
+    const sightClear = this.castVisualTargetSight(
+      origin,
+      target,
+      sightResults
+    );
+    npc.visualTargetSightClear = sightClear;
     if (sightClear) {
       if (distanceSquared > NPC_VISUAL_LOCK_RANGE_SQUARED) {
         return false;
@@ -2429,12 +2818,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (
       distanceSquared === 0 ||
       distanceSquared > NPC_GUN_RANGE_SQUARED ||
-      (npc.targetProvenance === "visual"
-        ? !npc.gunVisualSightClear
-        : this.stage.queries.castSightSegment(
-            origin,
-            target.aimPosition
-          ) !== null)
+      !npc.visualTargetSightClear
     ) {
       return;
     }
@@ -2636,7 +3020,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.gunVisualPursuitMode = null;
     npc.gunLastSeenFootPosition = null;
     npc.gunLastSeenPathPlanned = false;
-    npc.gunVisualSightClear = false;
+    npc.visualTargetSightClear = false;
     npc.alertLeaderId = null;
     npc.alertRemainingSeconds = 0;
     if (!npc.wanderDestination) {
@@ -2740,7 +3124,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private findNearestVisibleTarget(
     npc: NpcRuntime,
     targets: readonly V2HumanTargetSnapshot[],
-    excludedTargetIds: ReadonlySet<string>
+    excludedTargetIds: ReadonlySet<string>,
+    tieBreak: "source-order" | "target-id",
+    sightResults: NpcSightResultCache
   ) {
     const origin = toAimPosition(npc.footPosition);
     const candidates: Array<{
@@ -2765,14 +3151,21 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     candidates.sort(
       (left, right) =>
         left.distanceSquared - right.distanceSquared ||
-        left.sourceOrder - right.sourceOrder
+        (tieBreak === "source-order"
+          ? left.sourceOrder - right.sourceOrder
+          : left.target.id < right.target.id
+            ? -1
+            : left.target.id > right.target.id
+              ? 1
+              : 0)
     );
     for (const candidate of candidates) {
       if (
-        this.stage.queries.castSightSegment(
+        !this.castVisualTargetSight(
           origin,
-          candidate.target.aimPosition
-        ) !== null
+          candidate.target,
+          sightResults
+        )
       ) {
         continue;
       }
@@ -2783,16 +3176,42 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
   private isVisuallyTargetable(
     npc: NpcRuntime,
-    target: V2HumanTargetSnapshot
+    target: V2HumanTargetSnapshot,
+    sightResults: NpcSightResultCache
   ) {
     const origin = toAimPosition(npc.footPosition);
     if (this.getVisualDistanceSquared(npc, target, origin) === null) {
+      npc.visualTargetSightClear = false;
       return false;
     }
-    return this.stage.queries.castSightSegment(
+    const sightClear = this.castVisualTargetSight(
       origin,
-      target.aimPosition
-    ) === null;
+      target,
+      sightResults
+    );
+    npc.visualTargetSightClear = sightClear;
+    return sightClear;
+  }
+
+  private castVisualTargetSight(
+    origin: Vector3,
+    target: V2HumanTargetSnapshot,
+    sightResults: NpcSightResultCache
+  ) {
+    const cached = sightResults.get(target.id);
+    if (cached !== undefined) {
+      return cached;
+    }
+    if (this.diagnosticsEnabled) {
+      this.sightRayCount += 1;
+    }
+    const sightClear =
+      this.stage.queries.castSightSegment(
+        origin,
+        target.aimPosition
+      ) === null;
+    sightResults.set(target.id, sightClear);
+    return sightClear;
   }
 
   private getVisualDistanceSquared(
@@ -2893,23 +3312,102 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.alertRemainingSeconds = alertRemainingSeconds;
     npc.wanderDestination = null;
     if (changed) {
+      if (this.diagnosticsEnabled) {
+        this.forcedTargetChangeCount += 1;
+      }
       npc.navigationAgent.clear();
       npc.gunVisualPursuitMode = null;
       npc.gunLastSeenFootPosition = null;
       npc.gunLastSeenPathPlanned = false;
-      npc.gunVisualSightClear = false;
+      npc.visualTargetSightClear = false;
     }
   }
 
+  private assignTargetSelectionPersonality(
+    npc: NpcRuntime,
+    state: V2CharacterState
+  ) {
+    if (
+      npc.targetSelectionPersonality !== null ||
+      !isCompletedBrainwashState(state)
+    ) {
+      return;
+    }
+    npc.targetSelectionPersonality =
+      selectV2TargetSelectionPersonality("npc", npc.id);
+    npc.visualSightCheckPriority = true;
+  }
+
+  private requireTargetSelectionPersonality(npc: NpcRuntime) {
+    const personality = npc.targetSelectionPersonality;
+    if (personality === null) {
+      throw new Error(
+        `洗脳完了NPCに標的選択個性がありません: ${npc.id}`
+      );
+    }
+    return personality;
+  }
+
+  private setAutonomousVisualTarget(
+    npc: NpcRuntime,
+    target: V2HumanTargetSnapshot
+  ) {
+    const targetIdChanged = npc.targetId !== target.id;
+    npc.targetId = target.id;
+    npc.targetProvenance = "visual";
+    npc.alertLeaderId = null;
+    npc.alertRemainingSeconds = 0;
+    npc.wanderDestination = null;
+    npc.visualSightCheckPriority = false;
+    if (targetIdChanged) {
+      if (
+        this.requireTargetSelectionPersonality(npc) ===
+        "nearest-visible"
+      ) {
+        npc.personalityRetargetCooldownSeconds =
+          NPC_PERSONALITY_RETARGET_INTERVAL_SECONDS;
+      }
+      if (this.diagnosticsEnabled) {
+        this.autonomousVisualTargetChangeCount += 1;
+      }
+      npc.gunVisualPursuitMode = null;
+      npc.gunLastSeenFootPosition = null;
+      npc.gunLastSeenPathPlanned = false;
+      npc.visualTargetSightClear = true;
+    }
+    return targetIdChanged;
+  }
+
+  private activateGunVisualTarget(
+    npc: NpcRuntime,
+    target: V2HumanTargetSnapshot
+  ) {
+    npc.gunVisualPursuitMode = "live";
+    npc.gunLastSeenFootPosition = target.footPosition.clone();
+    npc.gunLastSeenPathPlanned = false;
+    npc.visualTargetSightClear = true;
+    this.pendingAlertRequests.push(
+      Object.freeze({
+        leaderId: npc.id,
+        targetId: target.id
+      })
+    );
+  }
+
   private clearTarget(npc: NpcRuntime) {
+    const hadTarget =
+      npc.targetId !== null || npc.targetProvenance !== null;
     npc.targetId = null;
     npc.targetProvenance = null;
     npc.gunVisualPursuitMode = null;
     npc.gunLastSeenFootPosition = null;
     npc.gunLastSeenPathPlanned = false;
-    npc.gunVisualSightClear = false;
+    npc.visualTargetSightClear = false;
     npc.alertLeaderId = null;
     npc.alertRemainingSeconds = 0;
+    if (hadTarget) {
+      npc.visualSightCheckPriority = true;
+    }
     npc.navigationAgent.clear();
   }
 
@@ -2932,6 +3430,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.clearNpcCommand(npc, false);
     this.removePendingRequestsForNpc(npc.id);
     npc.stateSnapshot = npc.stateSystem.getSnapshot();
+    this.assignTargetSelectionPersonality(
+      npc,
+      npc.stateSnapshot.state
+    );
     npc.lastState = npc.stateSnapshot.state;
     this.synchronizeSpriteVisual(npc);
     npc.navigationAgent.clear();
@@ -3038,6 +3540,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           npcId: npc.id,
           targetId: npc.targetId,
           provenance: npc.targetProvenance,
+          targetSelectionPersonality:
+            npc.targetSelectionPersonality,
           alertLeaderId: npc.alertLeaderId,
           alertRemainingSeconds: npc.alertRemainingSeconds,
           commandMode: npc.command.mode,
@@ -3079,6 +3583,14 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       threatenedTargetIds,
       pathRecalculationCount: this.pathRecalculationCount,
       waitingForPathCount: this.waitingForPathCount,
+      currentTargetSightCheckCount:
+        this.currentTargetSightCheckCount,
+      personalityRetargetQueryCount:
+        this.personalityRetargetQueryCount,
+      sightRayCount: this.sightRayCount,
+      autonomousVisualTargetChangeCount:
+        this.autonomousVisualTargetChangeCount,
+      forcedTargetChangeCount: this.forcedTargetChangeCount,
       frameViewBuildSequence: this.frameViewBuildSequence
     });
   }

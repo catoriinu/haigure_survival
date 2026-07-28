@@ -15,6 +15,8 @@ import {
 import {
   V2_HIT_FADE_DURATION_SECONDS,
   V2_HIT_FLICKER_DURATION_SECONDS,
+  V2_NPC_BRAINWASH_DECISION_SECONDS,
+  V2_NPC_HAIGURE_DECISION_SECONDS,
   type V2CharacterImpactSource
 } from "../../../src/v2/characterStateSystem";
 import {
@@ -25,11 +27,13 @@ import {
   V2_NPC_MINIMUM_PATH_REPLANS_PER_UPDATE,
   V2_NPC_PATH_REPLAN_DEADLINE_SECONDS,
   createV2NpcSystem,
+  type V2NpcCommandQuery,
   type V2NpcSystem
 } from "../../../src/v2/npcSystem";
 import {
   isV2AliveState,
   isV2BrainwashState,
+  selectV2TargetSelectionPersonality,
   type V2CharacterState,
   type V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
@@ -52,6 +56,10 @@ type NpcFixture = Readonly<{
   ): void;
   getSightCastEnds(): readonly Vector3[];
   getPathfindCount(): number;
+  getPathfindRecords(): readonly Readonly<{
+    start: Vector3;
+    destination: Vector3;
+  }>[];
   setPathDistanceOverride(distance: number | null): void;
   getSpriteAlpha(npcId: string): number;
   dispose(): void;
@@ -155,7 +163,8 @@ const createInitializationRandom = (
 const createNpcFixture = (
   npcCount: number,
   initialBrainwashedNpcCount: number,
-  boundaryExtent = 5
+  boundaryExtent = 5,
+  disableWander = false
 ): NpcFixture => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
@@ -175,6 +184,10 @@ const createNpcFixture = (
     | null = null;
   const sightCastEnds: Vector3[] = [];
   let pathfindCount = 0;
+  const pathfindRecords: Array<{
+    start: Vector3;
+    destination: Vector3;
+  }> = [];
   let pathDistanceOverride: number | null = null;
 
   const createLocation = (position: Vector3) =>
@@ -206,6 +219,10 @@ const createNpcFixture = (
       }),
     findPath: (start, destination) => {
       pathfindCount += 1;
+      pathfindRecords.push({
+        start: start.position.clone(),
+        destination: destination.position.clone()
+      });
       const surface = Object.freeze({
         kind: "surface" as const,
         points: Object.freeze([
@@ -222,7 +239,8 @@ const createNpcFixture = (
     },
     constrainMovement: (_start, destination) =>
       isInside(destination) ? createLocation(destination) : null,
-    randomPointAround: (origin) => createLocation(origin.position),
+    randomPointAround: (origin) =>
+      disableWander ? null : createLocation(origin.position),
     createDebugMesh: () => ground,
     dispose: () => undefined
   };
@@ -288,6 +306,15 @@ const createNpcFixture = (
     getSightCastEnds: () =>
       Object.freeze(sightCastEnds.map((position) => position.clone())),
     getPathfindCount: () => pathfindCount,
+    getPathfindRecords: () =>
+      Object.freeze(
+        pathfindRecords.map(({ start, destination }) =>
+          Object.freeze({
+            start: start.clone(),
+            destination: destination.clone()
+          })
+        )
+      ),
     setPathDistanceOverride: (distance) => {
       pathDistanceOverride = distance;
     },
@@ -332,6 +359,20 @@ const createPlayerTarget = (
   });
 };
 
+const createNpcCommandQuery = (
+  playerTarget: V2HumanTargetSnapshot
+): V2NpcCommandQuery =>
+  Object.freeze({
+    playerTarget,
+    cameraPosition: new Vector3(
+      playerTarget.footPosition.x,
+      playerTarget.footPosition.y + NPC_SPRITE_CENTER_HEIGHT,
+      playerTarget.footPosition.z
+    ),
+    cameraDirection: new Vector3(0, 0, 1),
+    isInCameraFrustum: () => true
+  });
+
 const createAlarmEvent = (
   candidateId: string,
   targetId: string,
@@ -367,6 +408,7 @@ const testInitialStatesAndHitShape = () => {
   const fixture = createNpcFixture(3, 3);
   try {
     const snapshots = fixture.system.getFrameView().targets;
+    const tracking = fixture.system.getFrameView().tracking;
     assert(
       snapshots.map((snapshot) => snapshot.state).join("|") ===
         "brainwash-complete-gun|brainwash-complete-no-gun|brainwash-complete-haigure",
@@ -385,7 +427,70 @@ const testInitialStatesAndHitShape = () => {
       ),
       "state由来フラグまたは楕円体命中形状が不正です。"
     );
-    return "抽選=gun/no-gun/haigure、全snapshotがstate由来の楕円体";
+    assert(
+      tracking.every(
+        ({ targetSelectionPersonality }) =>
+          targetSelectionPersonality !== null
+      ),
+      "初期洗脳完了NPCへ標的選択個性が割り当てられません。"
+    );
+    return "抽選=gun/no-gun/haigure、全snapshotがstate由来の楕円体、個性割当済み";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testDeferredTargetSelectionPersonalityAssignment = () => {
+  const fixture = createNpcFixture(1, 0);
+  try {
+    const initialTracking = fixture.system.getFrameView().tracking[0];
+    assert(
+      initialTracking.targetSelectionPersonality === null,
+      "未洗脳NPCへ標的選択個性が先行割当されました。"
+    );
+    assert(
+      applyNpcBeamImpact(fixture.system, "npc_0", {
+        sourceId: "bit_0",
+        originKind: "bit-chase"
+      }),
+      "個性の遅延割当テストでNPCへの命中が受理されません。"
+    );
+    fixture.system.update(
+      V2_HIT_FLICKER_DURATION_SECONDS +
+        V2_HIT_FADE_DURATION_SECONDS +
+        V2_NPC_BRAINWASH_DECISION_SECONDS +
+        V2_NPC_HAIGURE_DECISION_SECONDS,
+      createPlayerTarget(new Vector3(4, 0, 4)),
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const completedTracking = fixture.system.getFrameView().tracking[0];
+    const expectedPersonality =
+      selectV2TargetSelectionPersonality("npc", "npc_0");
+    assert(
+      completedTracking.targetSelectionPersonality ===
+        expectedPersonality,
+      "初回洗脳完了時の標的選択個性が個体ID固定hashと一致しません。"
+    );
+    fixture.system.prepareExecutionRoles([
+      { npcId: "npc_0", role: "shooter" }
+    ]);
+    fixture.system.update(
+      0,
+      createPlayerTarget(new Vector3(4, 0, 4)),
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const scriptedTracking = fixture.system.getFrameView().tracking[0];
+    assert(
+      scriptedTracking.targetSelectionPersonality ===
+        completedTracking.targetSelectionPersonality,
+      "洗脳完了後の状態遷移で標的選択個性が再割当されました。"
+    );
+    return (
+      `before=${initialTracking.targetSelectionPersonality ?? "none"} / ` +
+      `expected=${expectedPersonality} / ` +
+      `completed=${completedTracking.targetSelectionPersonality} / ` +
+      `scripted=${scriptedTracking.targetSelectionPersonality}`
+    );
   } finally {
     fixture.dispose();
   }
@@ -607,7 +712,7 @@ const testNoGunCaptureAndBreakaway = () => {
       }
     ]);
     const player = createPlayerTarget(Vector3.Zero());
-    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    fixture.system.update(0.1, player, EMPTY_ALARM_TARGET_EVENTS);
     const capture = fixture.system.getFrameView().captures[0];
     assert(
       capture?.npcId === "npc_1" &&
@@ -709,7 +814,7 @@ const testAlarmInterruptsCapture = () => {
       }
     ]);
     const player = createPlayerTarget(Vector3.Zero());
-    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    fixture.system.update(0.1, player, EMPTY_ALARM_TARGET_EVENTS);
     assert(
       fixture.system.getFrameView().captures[0]?.npcId === "npc_1",
       "Alarm優先テストのcaptureが開始しません。"
@@ -756,7 +861,7 @@ const testCaptureEndsWithoutBreakawayWhenTargetIsHit = () => {
       }
     ]);
     const player = createPlayerTarget(Vector3.Zero());
-    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    fixture.system.update(0.1, player, EMPTY_ALARM_TARGET_EVENTS);
     assert(
       fixture.system.getFrameView().captures[0]?.npcId === "npc_1",
       "命中解除テストのcaptureが開始しません。"
@@ -812,7 +917,7 @@ const startNoGunCaptureOfNpc = (
     new Vector3(4, 0, 4)
   );
   fixture.system.update(
-    0,
+    0.1,
     distantPlayer,
     EMPTY_ALARM_TARGET_EVENTS
   );
@@ -1220,36 +1325,80 @@ const placeVisionSelectionNpcs = (system: V2NpcSystem) => {
 };
 
 const testNearestVisibleTargetRayEarlyExitAndTieOrder = () => {
-  const tieFixture = createNpcFixture(3, 1);
+  const nearestTieFixture = createNpcFixture(3, 1);
+  const persistentTieFixture = createNpcFixture(3, 2);
   const blockedFixture = createNpcFixture(3, 1);
   const player = createPlayerTarget(
     new Vector3(1, NPC_SPRITE_CENTER_HEIGHT - 0.3, -1)
   );
   try {
-    placeVisionSelectionNpcs(tieFixture.system);
-    tieFixture.setSightResolver(() => false);
-    tieFixture.system.update(
+    placeVisionSelectionNpcs(nearestTieFixture.system);
+    nearestTieFixture.setSightResolver(() => false);
+    nearestTieFixture.system.update(
       0,
       player,
       EMPTY_ALARM_TARGET_EVENTS
     );
-    const tieTracking = tieFixture.system
+    const nearestTieTracking = nearestTieFixture.system
       .getFrameView()
       .tracking.find(({ npcId }) => npcId === "npc_0");
-    const tieCastEnds = tieFixture.getSightCastEnds();
+    const nearestTieCastEnds =
+      nearestTieFixture.getSightCastEnds();
     assert(
-      tieTracking?.targetId === "player" &&
-        tieCastEnds.length === 1 &&
-        tieCastEnds.every((position) =>
-          position.equals(player.aimPosition)
-        ),
-      "同距離の可視標的で元のframe順、最初の非遮蔽早期終了、射撃との視線共有を維持できません: " +
-        `target=${tieTracking?.targetId ?? "none"} / ` +
-        `casts=${tieCastEnds.map((position) => position.toString()).join("|")}`
+      nearestTieTracking?.targetSelectionPersonality ===
+        "nearest-visible" &&
+        nearestTieTracking.targetId === "npc_1" &&
+        nearestTieCastEnds.length === 1 &&
+        nearestTieCastEnds[0].x === -1 &&
+        nearestTieCastEnds[0].z === -1,
+      "nearest-visibleの同距離標的をID順で選択できません: " +
+        `target=${nearestTieTracking?.targetId ?? "none"} / ` +
+        `casts=${nearestTieCastEnds.map((position) => position.toString()).join("|")}`
+    );
+
+    persistentTieFixture.system.placeNpcs([
+      {
+        id: "npc_0",
+        footPosition: new Vector3(4, 0, 4),
+        formation: false
+      },
+      {
+        id: "npc_1",
+        footPosition: Vector3.Zero(),
+        formation: false
+      },
+      {
+        id: "npc_2",
+        footPosition: new Vector3(-1, 0, -1),
+        formation: false
+      }
+    ]);
+    persistentTieFixture.system.setVisibleNpcIds([
+      "npc_1",
+      "npc_2"
+    ]);
+    persistentTieFixture.setSightResolver(() => false);
+    persistentTieFixture.system.update(
+      0,
+      player,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const persistentTieTracking = persistentTieFixture.system
+      .getFrameView()
+      .tracking.find(({ npcId }) => npcId === "npc_1");
+    const persistentTieCastEnds =
+      persistentTieFixture.getSightCastEnds();
+    assert(
+      persistentTieTracking?.targetSelectionPersonality ===
+        "persistent" &&
+        persistentTieTracking.targetId === "player" &&
+        persistentTieCastEnds.length === 1 &&
+        persistentTieCastEnds[0].equals(player.aimPosition),
+      "persistentの同距離標的を元のframe順で選択できません。"
     );
 
     placeVisionSelectionNpcs(blockedFixture.system);
-    blockedFixture.setSightResolver((_from, to) => to.x > 0);
+    blockedFixture.setSightResolver((_from, to) => to.x < 0);
     blockedFixture.system.update(
       0,
       player,
@@ -1260,25 +1409,766 @@ const testNearestVisibleTargetRayEarlyExitAndTieOrder = () => {
       .tracking.find(({ npcId }) => npcId === "npc_0");
     const blockedCastEnds = blockedFixture.getSightCastEnds();
     assert(
-      blockedTracking?.targetId === "npc_1" &&
+      blockedTracking?.targetId === "player" &&
         blockedCastEnds.length === 2 &&
-        blockedCastEnds[0].equals(player.aimPosition) &&
-        blockedCastEnds
-          .slice(1)
-          .every(
-            (position) =>
-              position.x === -1 &&
-              position.z === -1
-          ),
+        blockedCastEnds[0].x === -1 &&
+        blockedCastEnds[0].z === -1 &&
+        blockedCastEnds[1].equals(player.aimPosition),
       "近い遮蔽標的の次の可視標的で停止せず、遠い候補まで視線Rayを実行しました。"
     );
     return (
-      `tie=${tieTracking?.targetId}:${tieCastEnds.length} / ` +
+      `nearestTie=${nearestTieTracking?.targetId}:` +
+      `${nearestTieCastEnds.length} / ` +
+      `persistentTie=${persistentTieTracking?.targetId}:` +
+      `${persistentTieCastEnds.length} / ` +
       `blocked=${blockedTracking?.targetId}:${blockedCastEnds.length}`
     );
   } finally {
     blockedFixture.dispose();
-    tieFixture.dispose();
+    persistentTieFixture.dispose();
+    nearestTieFixture.dispose();
+  }
+};
+
+const testNpcCurrentTargetSightSchedule = () => {
+  const fixture = createNpcFixture(2, 2);
+  const player = createPlayerTarget(new Vector3(0, 0, -1));
+  try {
+    fixture.system.placeNpcs([
+      {
+        id: "npc_0",
+        footPosition: new Vector3(4, 0, 4),
+        formation: false
+      },
+      {
+        id: "npc_1",
+        footPosition: Vector3.Zero(),
+        formation: false
+      }
+    ]);
+    fixture.system.setVisibleNpcIds(["npc_1"]);
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    const acquired = fixture.system.getFrameView().tracking[0];
+    assert(
+      acquired.targetId === "player" &&
+        acquired.targetSelectionPersonality === "persistent",
+      "5Hz境界テスト用のpersistent NPCが初期標的を取得しません。"
+    );
+
+    fixture.setSightBlocked(true);
+    fixture.system.update(
+      0.199,
+      player,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const beforeBoundary = fixture.system.getFrameView();
+    fixture.system.update(
+      0.002,
+      player,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const afterBoundary = fixture.system.getFrameView();
+    assert(
+      beforeBoundary.currentTargetSightCheckCount === 0 &&
+        beforeBoundary.tracking[0].targetId === "player",
+      "5Hz境界前に現在標的の視線確認を実行しました。"
+    );
+    assert(
+      afterBoundary.currentTargetSightCheckCount === 1 &&
+        afterBoundary.sightRayCount === 1 &&
+        afterBoundary.tracking[0].targetId === null,
+      "5Hz境界で現在標的を再確認して遮蔽を反映できません。"
+    );
+    return (
+      `before=${beforeBoundary.currentTargetSightCheckCount} / ` +
+      `after=${afterBoundary.currentTargetSightCheckCount} / ` +
+      `rays=${afterBoundary.sightRayCount}`
+    );
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testNpcFollowAndAlarmSightSchedules = () => {
+  const followFixture = createNpcFixture(1, 0);
+  const alarmFixture = createNpcFixture(1, 1);
+  const player = createPlayerTarget(Vector3.Zero());
+  try {
+    followFixture.system.placeNpcs([
+      {
+        id: "npc_0",
+        footPosition: new Vector3(0, 0, 0.3),
+        formation: false
+      }
+    ]);
+    assert(
+      followFixture.system.requestCommand(
+        "npc_0",
+        "follow",
+        createNpcCommandQuery(player)
+      ),
+      "5Hz視線確認テストのFollow指示が受理されません。"
+    );
+    followFixture.setSightResolver(() => false);
+    followFixture.system.update(
+      0,
+      player,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const followPriority = followFixture.system.getFrameView();
+    followFixture.setSightResolver(() => true);
+    followFixture.system.update(
+      0.199,
+      player,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const followBeforeBoundary =
+      followFixture.system.getFrameView();
+    followFixture.system.update(
+      0.002,
+      player,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const followAfterBoundary =
+      followFixture.system.getFrameView();
+
+    const alarmPlayer = createPlayerTarget(
+      new Vector3(0, 0, -1)
+    );
+    alarmFixture.system.placeNpcs([
+      {
+        id: "npc_0",
+        footPosition: Vector3.Zero(),
+        formation: false
+      }
+    ]);
+    alarmFixture.setSightResolver(() => false);
+    alarmFixture.system.update(
+      0,
+      alarmPlayer,
+      Object.freeze([
+        createAlarmEvent(
+          "scheduled-alarm-sight",
+          "player",
+          Vector3.Zero()
+        )
+      ])
+    );
+    const alarmPriority = alarmFixture.system.getFrameView();
+    alarmFixture.setSightResolver(() => true);
+    alarmFixture.system.update(
+      0.199,
+      alarmPlayer,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const alarmBeforeBoundary =
+      alarmFixture.system.getFrameView();
+    alarmFixture.system.update(
+      0.002,
+      alarmPlayer,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const alarmAfterBoundary =
+      alarmFixture.system.getFrameView();
+
+    assert(
+      followPriority.currentTargetSightCheckCount === 1 &&
+        followPriority.sightRayCount === 1 &&
+        followBeforeBoundary.currentTargetSightCheckCount === 0 &&
+        followBeforeBoundary.sightRayCount === 0 &&
+        followAfterBoundary.currentTargetSightCheckCount === 1 &&
+        followAfterBoundary.sightRayCount === 1 &&
+        followAfterBoundary.tracking[0].commandMode === "follow",
+      "Follow視線Rayを開始時優先・5Hz共通schedulerで確認できません。"
+    );
+    assert(
+      alarmPriority.currentTargetSightCheckCount === 1 &&
+        alarmPriority.sightRayCount === 1 &&
+        alarmPriority.forcedTargetChangeCount === 1 &&
+        alarmBeforeBoundary.currentTargetSightCheckCount === 0 &&
+        alarmBeforeBoundary.sightRayCount === 0 &&
+        alarmAfterBoundary.currentTargetSightCheckCount === 1 &&
+        alarmAfterBoundary.sightRayCount === 1 &&
+        alarmAfterBoundary.tracking[0].targetId === "player" &&
+        alarmAfterBoundary.tracking[0].provenance === "alert",
+      "Alarm gun視線Rayを受信時優先・5Hz共通schedulerで確認できません。"
+    );
+    return (
+      `follow=${followPriority.currentTargetSightCheckCount}->` +
+      `${followBeforeBoundary.currentTargetSightCheckCount}->` +
+      `${followAfterBoundary.currentTargetSightCheckCount} / ` +
+      `alarm=${alarmPriority.currentTargetSightCheckCount}->` +
+      `${alarmBeforeBoundary.currentTargetSightCheckCount}->` +
+      `${alarmAfterBoundary.currentTargetSightCheckCount}`
+    );
+  } finally {
+    alarmFixture.dispose();
+    followFixture.dispose();
+  }
+};
+
+const testNpcTargetSelectionPersonalitiesAndForcedPriority = () => {
+  const fixture = createNpcFixture(3, 2, 5, true);
+  const initialPlayer = createPlayerTarget(
+    new Vector3(0, 0, -0.5)
+  );
+  const movedPlayer = createPlayerTarget(new Vector3(0, 0, -3));
+  try {
+    fixture.system.prepareExecutionRoles([
+      { npcId: "npc_0", role: "shooter" },
+      { npcId: "npc_1", role: "shooter" }
+    ]);
+    fixture.system.placeNpcs([
+      {
+        id: "npc_0",
+        footPosition: Vector3.Zero(),
+        formation: false
+      },
+      {
+        id: "npc_1",
+        footPosition: new Vector3(0.1, 0, 0),
+        formation: false
+      },
+      {
+        id: "npc_2",
+        footPosition: new Vector3(0, 0, -2),
+        formation: false
+      }
+    ]);
+    fixture.system.update(
+      0,
+      initialPlayer,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    fixture.system.update(
+      0.1,
+      initialPlayer,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const acquiredTracking = fixture.system.getFrameView().tracking;
+    assert(
+      acquiredTracking[0].targetSelectionPersonality ===
+        "nearest-visible" &&
+        acquiredTracking[1].targetSelectionPersonality ===
+          "persistent" &&
+        acquiredTracking[0].targetId === "player" &&
+        acquiredTracking[1].targetId === "player",
+      "個性別retargetテストの初期標的または固定個性が不正です。"
+    );
+
+    fixture.setSightResolver(
+      (_from, to) => Math.abs(to.z + 2) <= 1e-6
+    );
+    fixture.system.update(
+      0.89,
+      movedPlayer,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const beforeAlternativeBoundary = fixture.system.getFrameView();
+    fixture.system.update(
+      0,
+      movedPlayer,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const alternativeCandidateFootPosition = fixture.system
+      .getFrameView()
+      .targets.find(({ id }) => id === "npc_2")!.footPosition;
+    const pathfindCountBeforeSameTargetQuery =
+      fixture.getPathfindCount();
+    fixture.system.update(
+      0.02,
+      movedPlayer,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const blockedAlternative = fixture.system.getFrameView();
+    const pathfindCountAfterSameTargetQuery =
+      fixture.getPathfindCount();
+    const sameTargetQueryPathRecords = fixture
+      .getPathfindRecords()
+      .slice(pathfindCountBeforeSameTargetQuery);
+    const autonomousActorPathCount =
+      sameTargetQueryPathRecords.filter(
+        ({ start }) =>
+          Vector3.DistanceSquared(
+            start,
+            alternativeCandidateFootPosition
+          ) > 1e-12
+      ).length;
+    assert(
+      beforeAlternativeBoundary.personalityRetargetQueryCount === 0 &&
+        beforeAlternativeBoundary.tracking[0].targetId === "player",
+      "1Hz境界前にnearest-visibleの別候補探索を実行しました。"
+    );
+    assert(
+      blockedAlternative.personalityRetargetQueryCount === 1 &&
+        blockedAlternative.autonomousVisualTargetChangeCount === 0 &&
+        blockedAlternative.tracking[0].targetId === "player" &&
+        blockedAlternative.tracking[1].targetId === "player" &&
+        autonomousActorPathCount === 0,
+      "遮蔽された近傍候補を除外した同一標的保持、または経路非再計画が不正です: " +
+        `query=${blockedAlternative.personalityRetargetQueryCount} / ` +
+        `changes=${blockedAlternative.autonomousVisualTargetChangeCount} / ` +
+        `targets=${blockedAlternative.tracking[0].targetId ?? "none"}/` +
+        `${blockedAlternative.tracking[1].targetId ?? "none"} / ` +
+        `path=${pathfindCountBeforeSameTargetQuery}->` +
+        `${pathfindCountAfterSameTargetQuery} / ` +
+        `autonomousPath=${autonomousActorPathCount} / ` +
+        `pathRecords=${sameTargetQueryPathRecords
+          .map(
+            ({ start, destination }) =>
+              `${start.toString()}->${destination.toString()}`
+          )
+          .join("|")}`
+    );
+
+    fixture.setSightResolver(null);
+    const npc0FootPositionBeforeSwitch = fixture.system
+      .getFrameView()
+      .targets.find(({ id }) => id === "npc_0")!.footPosition;
+    const npc2FootPositionBeforeSwitch = fixture.system
+      .getFrameView()
+      .targets.find(({ id }) => id === "npc_2")!.footPosition;
+    const npc0PreviousTargetPathRecord = [
+      ...fixture.getPathfindRecords()
+    ].reverse().find(
+      ({ start, destination }) =>
+        Math.abs(start.x) <= 1e-12 &&
+        Vector3.DistanceSquared(
+          destination,
+          movedPlayer.footPosition
+        ) <= 1e-12
+    );
+    const pathfindCountBeforeTargetSwitch =
+      fixture.getPathfindCount();
+    fixture.system.update(
+      1,
+      movedPlayer,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const switched = fixture.system.getFrameView();
+    const targetSwitchPathRecords = fixture
+      .getPathfindRecords()
+      .slice(pathfindCountBeforeTargetSwitch);
+    const npc0TargetSwitchPathRecords =
+      targetSwitchPathRecords.filter(
+        ({ start }) =>
+          Vector3.DistanceSquared(
+            start,
+            npc0FootPositionBeforeSwitch
+          ) <= 1e-12
+      );
+    assert(
+      switched.personalityRetargetQueryCount === 1 &&
+        switched.autonomousVisualTargetChangeCount === 1 &&
+        switched.tracking[0].targetId === "npc_2" &&
+        switched.tracking[1].targetId === "player",
+      "nearest-visibleだけが1Hzで可視の近傍候補へ切り替わりません。"
+    );
+    assert(
+      targetSwitchPathRecords.length ===
+        switched.pathRecalculationCount &&
+        npc0PreviousTargetPathRecord !== undefined &&
+        switched.pathRecalculationCount > 0 &&
+        switched.pathRecalculationCount <=
+          V2_NPC_MINIMUM_PATH_REPLANS_PER_UPDATE &&
+        npc0TargetSwitchPathRecords.length === 1 &&
+        Vector3.DistanceSquared(
+          npc0TargetSwitchPathRecords[0].destination,
+          npc2FootPositionBeforeSwitch
+        ) <= 1e-12,
+      "自律標的ID切替後の経路が全体予算内で最新destinationへ再計画されません: " +
+        `previous=${npc0PreviousTargetPathRecord?.destination.toString() ?? "none"} / ` +
+        `budget=${switched.pathRecalculationCount}/` +
+        `${V2_NPC_MINIMUM_PATH_REPLANS_PER_UPDATE} / ` +
+        `npc0Paths=${npc0TargetSwitchPathRecords
+          .map(
+            ({ start, destination }) =>
+              `${start.toString()}->${destination.toString()}`
+          )
+          .join("|")}`
+    );
+
+    fixture.system.update(
+      0,
+      movedPlayer,
+      Object.freeze([
+        createAlarmEvent(
+          "target-personality-forced",
+          "player",
+          Vector3.Zero()
+        )
+      ])
+    );
+    const forced = fixture.system.getFrameView();
+    fixture.system.update(
+      1.1,
+      movedPlayer,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const forcedHeld = fixture.system.getFrameView();
+    assert(
+      forced.tracking.slice(0, 2).every(
+        ({ targetId, provenance }) =>
+          targetId === "player" && provenance === "alert"
+      ) &&
+        forced.forcedTargetChangeCount === 2 &&
+        forced.autonomousVisualTargetChangeCount === 0 &&
+        forced.personalityRetargetQueryCount === 0,
+      "強制Alarm標的が個性によるvisual標的より優先されません。"
+    );
+    assert(
+      forcedHeld.tracking.slice(0, 2).every(
+        ({ targetId, provenance }) =>
+          targetId === "player" && provenance === "alert"
+      ) &&
+        forcedHeld.forcedTargetChangeCount === 0 &&
+        forcedHeld.autonomousVisualTargetChangeCount === 0 &&
+        forcedHeld.personalityRetargetQueryCount === 0,
+      "1秒超継続中の強制Alarm標的を個性探索が奪いました。"
+    );
+    return (
+      `blocked=${blockedAlternative.tracking[0].targetId}/` +
+      `${blockedAlternative.personalityRetargetQueryCount} / ` +
+      `sameTargetPath=${pathfindCountBeforeSameTargetQuery}->` +
+      `${pathfindCountAfterSameTargetQuery} / ` +
+      `switched=${switched.tracking[0].targetId}/` +
+      `${switched.tracking[1].targetId},path=` +
+      `${npc0TargetSwitchPathRecords.length}/` +
+      `${switched.pathRecalculationCount} / ` +
+      `forced=${forced.forcedTargetChangeCount}/` +
+      `${forcedHeld.tracking[0].provenance}`
+    );
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testNpcCurrentAndAlternativeSightShareRay = () => {
+  const fixture = createNpcFixture(1, 1, 5, true);
+  const player = createPlayerTarget(new Vector3(0, 0, -1));
+  try {
+    fixture.system.prepareExecutionRoles([
+      { npcId: "npc_0", role: "shooter" }
+    ]);
+    fixture.system.placeNpcs([
+      {
+        id: "npc_0",
+        footPosition: Vector3.Zero(),
+        formation: false
+      }
+    ]);
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    const acquired = fixture.system.getFrameView().tracking[0];
+    fixture.system.update(1, player, EMPTY_ALARM_TARGET_EVENTS);
+    const overlapped = fixture.system.getFrameView();
+    assert(
+      acquired.targetId === "player" &&
+        acquired.targetSelectionPersonality === "nearest-visible" &&
+        overlapped.currentTargetSightCheckCount === 1 &&
+        overlapped.personalityRetargetQueryCount === 1 &&
+        overlapped.sightRayCount === 1 &&
+        overlapped.autonomousVisualTargetChangeCount === 0 &&
+        overlapped.tracking[0].targetId === "player",
+      "同updateの現在標的5Hz確認と別候補1Hz探索で現在標的Rayを共有できません。"
+    );
+    return (
+      `current=${overlapped.currentTargetSightCheckCount} / ` +
+      `alternative=${overlapped.personalityRetargetQueryCount} / ` +
+      `rays=${overlapped.sightRayCount}`
+    );
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testNpcTargetlessPriorityDoesNotStarveCurrentSightChecks = () => {
+  const npcCount = 30;
+  const holderId = "npc_1";
+  const fixture = createNpcFixture(npcCount, npcCount, 5, true);
+  const player = createPlayerTarget(new Vector3(0, 0, -2));
+  const targetlessRayOrigins = new Set<string>();
+  let measurementHalf = 0;
+  let firstHalfHolderSightRays = 0;
+  let secondHalfHolderSightRays = 0;
+  try {
+    fixture.system.prepareExecutionRoles(
+      Array.from({ length: npcCount }, (_, index) => ({
+        npcId: `npc_${index}`,
+        role: "shooter" as const
+      }))
+    );
+    fixture.system.placeNpcs(
+      Array.from({ length: npcCount }, (_, index) => ({
+        id: `npc_${index}`,
+        footPosition:
+          index === 1
+            ? new Vector3(-0.1, 0, 0)
+            : new Vector3(0.1 + index * 0.02, 0, 0),
+        formation: false
+      }))
+    );
+    fixture.setSightResolver((from) => {
+      const holderSightRay = from.x < 0;
+      if (holderSightRay) {
+        if (measurementHalf === 1) {
+          firstHalfHolderSightRays += 1;
+        } else if (measurementHalf === 2) {
+          secondHalfHolderSightRays += 1;
+        }
+      } else {
+        targetlessRayOrigins.add(from.x.toFixed(3));
+      }
+      return !holderSightRay;
+    });
+
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    for (let frameIndex = 0; frameIndex < 60; frameIndex += 1) {
+      fixture.system.update(
+        1 / 60,
+        player,
+        EMPTY_ALARM_TARGET_EVENTS
+      );
+    }
+    const afterPriorityPass = fixture.system.getFrameView();
+    const priorityPassRayOrigins = new Set(targetlessRayOrigins);
+    assert(
+      priorityPassRayOrigins.size === npcCount - 1,
+      "初回1秒時点で全targetless priority NPCの視線試行が一巡しません。"
+    );
+
+    let firstHalfCurrentChecks = 0;
+    let firstHalfSightRays = 0;
+    measurementHalf = 1;
+    for (let frameIndex = 0; frameIndex < 60; frameIndex += 1) {
+      fixture.system.update(
+        1 / 60,
+        player,
+        EMPTY_ALARM_TARGET_EVENTS
+      );
+      const view = fixture.system.getFrameView();
+      firstHalfCurrentChecks += view.currentTargetSightCheckCount;
+      firstHalfSightRays += view.sightRayCount;
+    }
+
+    let secondHalfCurrentChecks = 0;
+    let secondHalfSightRays = 0;
+    measurementHalf = 2;
+    for (let frameIndex = 0; frameIndex < 60; frameIndex += 1) {
+      fixture.system.update(
+        1 / 60,
+        player,
+        EMPTY_ALARM_TARGET_EVENTS
+      );
+      const view = fixture.system.getFrameView();
+      secondHalfCurrentChecks += view.currentTargetSightCheckCount;
+      secondHalfSightRays += view.sightRayCount;
+    }
+    measurementHalf = 0;
+    const completed = fixture.system.getFrameView();
+    const holder = completed.tracking.find(
+      ({ npcId }) => npcId === holderId
+    );
+    const targetless = completed.tracking.filter(
+      ({ npcId }) => npcId !== holderId
+    );
+    assert(
+      afterPriorityPass.tracking.find(
+        ({ npcId }) => npcId === holderId
+      )?.targetId === "player",
+      "初回priority一巡時点で保持NPCが標的を失いました。"
+    );
+    assert(
+      holder?.targetId === "player" &&
+        holder.targetSelectionPersonality === "persistent" &&
+        targetless.every(({ targetId }) => targetId === null),
+      "混在schedulerテストの保持NPCまたはtargetless NPC状態が不正です。"
+    );
+    assert(
+      firstHalfCurrentChecks >= 4 &&
+        firstHalfCurrentChecks <= 6 &&
+        secondHalfCurrentChecks >= 4 &&
+        secondHalfCurrentChecks <= 6 &&
+        firstHalfHolderSightRays === firstHalfCurrentChecks &&
+        secondHalfHolderSightRays === secondHalfCurrentChecks &&
+        firstHalfSightRays >= firstHalfHolderSightRays &&
+        secondHalfSightRays >= secondHalfHolderSightRays,
+      "targetless priority一巡後に保持NPCの5Hz視線確認が継続しません。"
+    );
+    return (
+      `priority=${priorityPassRayOrigins.size}/${npcCount - 1} / ` +
+      `first=current:${firstHalfCurrentChecks},` +
+      `holderRay:${firstHalfHolderSightRays},allRay:${firstHalfSightRays} / ` +
+      `second=current:${secondHalfCurrentChecks},` +
+      `holderRay:${secondHalfHolderSightRays},allRay:${secondHalfSightRays}`
+    );
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testNpcTargetSelectionScheduleBudgets = () => {
+  const npcCount = 99;
+  const fixture = createNpcFixture(npcCount, npcCount);
+  const player = createPlayerTarget(new Vector3(0, 0, -6));
+  const placements = Array.from({ length: npcCount }, (_, index) => ({
+    id: `npc_${index}`,
+    footPosition: new Vector3(
+      ((index % 11) - 5) * 0.04,
+      0,
+      -4.6 + Math.floor(index / 11) * 0.02
+    ),
+    formation: false
+  }));
+  const toSightOriginKey = (position: Vector3) =>
+    `${position.x.toFixed(6)}:${position.z.toFixed(6)}`;
+  const actorIdBySightOrigin = new Map(
+    placements.map(
+      ({ id, footPosition }) =>
+        [toSightOriginKey(footPosition), id] as const
+    )
+  );
+  const sightCheckFramesByActorId = new Map<string, number[]>();
+  let measurementFrameIndex = -1;
+  let unmatchedMeasuredSightRayCount = 0;
+  try {
+    fixture.system.prepareExecutionRoles(
+      Array.from({ length: npcCount }, (_, index) => ({
+        npcId: `npc_${index}`,
+        role: "shooter" as const
+      }))
+    );
+    fixture.system.placeNpcs(placements);
+    fixture.setSightResolver((from) => {
+      if (measurementFrameIndex >= 0) {
+        const actorId =
+          actorIdBySightOrigin.get(toSightOriginKey(from)) ?? null;
+        if (actorId === null) {
+          unmatchedMeasuredSightRayCount += 1;
+        } else {
+          const frames =
+            sightCheckFramesByActorId.get(actorId) ?? [];
+          frames.push(measurementFrameIndex);
+          sightCheckFramesByActorId.set(actorId, frames);
+        }
+      }
+      return false;
+    });
+
+    for (let frameIndex = 0; frameIndex < 120; frameIndex += 1) {
+      fixture.system.update(
+        1 / 60,
+        player,
+        EMPTY_ALARM_TARGET_EVENTS
+      );
+    }
+    const warmedView = fixture.system.getFrameView();
+    const nearestVisibleNpcCount = warmedView.tracking.filter(
+      ({ targetSelectionPersonality }) =>
+        targetSelectionPersonality === "nearest-visible"
+    ).length;
+    const measuredFrameCount = 600;
+    let maximumCurrentChecks = 0;
+    let maximumAlternativeQueries = 0;
+    let measuredCurrentChecks = 0;
+    let measuredAlternativeQueries = 0;
+    let measuredSightRays = 0;
+    for (
+      let frameIndex = 0;
+      frameIndex < measuredFrameCount;
+      frameIndex += 1
+    ) {
+      measurementFrameIndex = frameIndex;
+      fixture.system.update(
+        1 / 60,
+        player,
+        EMPTY_ALARM_TARGET_EVENTS
+      );
+      const view = fixture.system.getFrameView();
+      maximumCurrentChecks = Math.max(
+        maximumCurrentChecks,
+        view.currentTargetSightCheckCount
+      );
+      maximumAlternativeQueries = Math.max(
+        maximumAlternativeQueries,
+        view.personalityRetargetQueryCount
+      );
+      measuredCurrentChecks += view.currentTargetSightCheckCount;
+      measuredAlternativeQueries +=
+        view.personalityRetargetQueryCount;
+      measuredSightRays += view.sightRayCount;
+    }
+    measurementFrameIndex = -1;
+    const steadyView = fixture.system.getFrameView();
+    const measuredSeconds = measuredFrameCount / 60;
+    const expectedCurrentChecks =
+      npcCount * 5 * measuredSeconds;
+    const expectedAlternativeQueries =
+      nearestVisibleNpcCount * measuredSeconds;
+    const measuredSightCheckCounts = placements.map(
+      ({ id }) => sightCheckFramesByActorId.get(id)?.length ?? 0
+    );
+    const minimumActorSightCheckCount = Math.min(
+      ...measuredSightCheckCounts
+    );
+    let maximumActorSightCheckPeriodFrames = 0;
+    for (const frames of sightCheckFramesByActorId.values()) {
+      for (let index = 1; index < frames.length; index += 1) {
+        maximumActorSightCheckPeriodFrames = Math.max(
+          maximumActorSightCheckPeriodFrames,
+          frames[index] - frames[index - 1]
+        );
+      }
+    }
+    fixture.system.update(
+      1,
+      player,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const catchUpView = fixture.system.getFrameView();
+    assert(
+      steadyView.tracking.every(
+        ({ targetId, targetSelectionPersonality }) =>
+          targetId === "player" &&
+          targetSelectionPersonality !== null
+      ),
+      "99 NPCの固定1/60更新で全個体が標的と個性を保持しません。"
+    );
+    assert(
+      maximumCurrentChecks <= 9 &&
+        maximumAlternativeQueries <= 2 &&
+        measuredCurrentChecks >= expectedCurrentChecks - 9 &&
+        measuredCurrentChecks <= expectedCurrentChecks + 9 &&
+        measuredAlternativeQueries >=
+          expectedAlternativeQueries - 2 &&
+        measuredAlternativeQueries <=
+          expectedAlternativeQueries + 2 &&
+        sightCheckFramesByActorId.size === npcCount &&
+        unmatchedMeasuredSightRayCount === 0 &&
+        measuredSightCheckCounts.reduce(
+          (total, count) => total + count,
+          0
+        ) === measuredSightRays &&
+        minimumActorSightCheckCount >= 49 &&
+        maximumActorSightCheckPeriodFrames <= 13 &&
+        catchUpView.currentTargetSightCheckCount <= 20 &&
+        catchUpView.personalityRetargetQueryCount <= 4,
+      "99 NPCの5Hz/1Hzラウンドロビン一巡、測定総量、概周期、またはcatch-up上限が不正です。"
+    );
+    return (
+      `steady=current:${maximumCurrentChecks}/9,` +
+      `alternative:${maximumAlternativeQueries}/2,` +
+      `total:${measuredCurrentChecks}/` +
+      `${expectedCurrentChecks},${measuredAlternativeQueries}/` +
+      `${expectedAlternativeQueries},actors=` +
+      `${sightCheckFramesByActorId.size}/${npcCount},` +
+      `min=${minimumActorSightCheckCount},` +
+      `period=${maximumActorSightCheckPeriodFrames}/13,` +
+      `unmatched=${unmatchedMeasuredSightRayCount} / ` +
+      `catchUp=current:${catchUpView.currentTargetSightCheckCount}/20,` +
+      `alternative:${catchUpView.personalityRetargetQueryCount}/4`
+    );
+  } finally {
+    fixture.dispose();
   }
 };
 
@@ -1317,7 +2207,7 @@ const testGunVisualLockAndLastSeenPath = () => {
 
     fixture.setSightBlocked(true);
     fixture.system.update(
-      0.1,
+      0.2,
       outsideFovTarget,
       EMPTY_ALARM_TARGET_EVENTS
     );
@@ -1345,7 +2235,7 @@ const testGunVisualLockAndLastSeenPath = () => {
     overLimitFixture.setPathDistanceOverride(5.01);
     overLimitFixture.setSightBlocked(true);
     overLimitFixture.system.update(
-      0.1,
+      0.2,
       initialTarget,
       EMPTY_ALARM_TARGET_EVENTS
     );
@@ -1715,6 +2605,10 @@ export const runNpcCombatTests = () =>
   Object.freeze([
     executeTest("NPC初期状態・楕円体snapshot", testInitialStatesAndHitShape),
     executeTest(
+      "NPC標的選択個性の洗脳完了時一回割当",
+      testDeferredTargetSelectionPersonalityAssignment
+    ),
+    executeTest(
       "NPC Alarm受信状態・発火時範囲",
       testAlarmReceiverEligibilityAndRange
     ),
@@ -1746,6 +2640,30 @@ export const runNpcCombatTests = () =>
     executeTest(
       "NPC最近傍可視Ray早期終了・同距離順",
       testNearestVisibleTargetRayEarlyExitAndTieOrder
+    ),
+    executeTest(
+      "NPC現在標的視線確認5Hz境界",
+      testNpcCurrentTargetSightSchedule
+    ),
+    executeTest(
+      "NPC Follow・Alarm視線確認5Hz統合",
+      testNpcFollowAndAlarmSightSchedules
+    ),
+    executeTest(
+      "NPC個性別1Hz切替・遮蔽・強制優先",
+      testNpcTargetSelectionPersonalitiesAndForcedPriority
+    ),
+    executeTest(
+      "NPC現在標的5Hz・別候補1HzのRay共有",
+      testNpcCurrentAndAlternativeSightShareRay
+    ),
+    executeTest(
+      "NPC targetless priority混在時の5Hz飢餓防止",
+      testNpcTargetlessPriorityDoesNotStarveCurrentSightChecks
+    ),
+    executeTest(
+      "NPC標的選択5Hz・1Hz予算",
+      testNpcTargetSelectionScheduleBudgets
     ),
     executeTest(
       "NPC gunのFOV外保持・最終視認位置経路",

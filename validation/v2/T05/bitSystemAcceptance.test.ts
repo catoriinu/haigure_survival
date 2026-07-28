@@ -152,7 +152,9 @@ const PERFORMANCE_TARGET_LOSS_BUDGET_MILLISECONDS = 125;
 const PERFORMANCE_TARGET_LOSS_SETTLE_TICKS = 1200;
 const PERFORMANCE_TARGET_LOSS_RECOVERY_TICKS = 30;
 const PERFORMANCE_TARGET_LOSS_FOLLOW_UP_TICKS = 60;
-const PERFORMANCE_SIGHT_CASTS_PER_99_UPDATE = 17;
+const PERFORMANCE_SIGHT_CHECK_INTERVAL_SECONDS = 0.2;
+const PERFORMANCE_SIGHT_CASTS_PER_99_UPDATE = 9;
+const PERFORMANCE_SIGHT_CATCH_UP_MAXIMUM = 20;
 const PERFORMANCE_STRESS_BIT_COUNT = 99;
 const EXTERNAL_ALERT_RECEIVER_LIMIT = 4;
 
@@ -170,12 +172,15 @@ const createQueuedRandom = (
   });
 };
 
+const toSightOriginKey = (position: Vector3) =>
+  `${position.x}|${position.y}|${position.z}`;
+
 const createFixtureStage = (
   scene: Scene,
   navigation: BitFlightNavigationWorld,
   band: BitFlightBandRef,
   center: Vector3,
-  isSightBlocked: () => boolean,
+  isSightBlocked: (from: Vector3, to: Vector3) => boolean,
   size: Readonly<{
     width: number;
     height: number;
@@ -212,8 +217,8 @@ const createFixtureStage = (
       castMovementSegment: () => null,
       castMovementSphere: () => null,
       castBeamSegment: () => null,
-      castSightSegment: () =>
-        isSightBlocked() ? Object.freeze({ blocked: true }) : null,
+      castSightSegment: (from: Vector3, to: Vector3) =>
+        isSightBlocked(from, to) ? Object.freeze({ blocked: true }) : null,
       sampleGround: () => null,
       containsVolume: () => false,
       dispose: () => {}
@@ -1105,13 +1110,29 @@ const runSightCheckBudgetCheck = (
   fixture: BitSystemAcceptanceFixture
 ): BitSystemAcceptanceCheck => {
   let sightCastCount = 0;
+  let trackMeasuredSightActors = false;
+  let measuredActorIdBySightOrigin = new Map<string, string>();
+  const measuredSightChecksByActorId = new Map<string, number>();
+  let unmatchedMeasuredSightCastCount = 0;
   const stage = createFixtureStage(
     fixture.scene,
     fixture.navigation,
     fixture.courtyardRef,
     fixture.pointInBand(fixture.courtyardRef, 0, 0),
-    () => {
+    (from) => {
       sightCastCount += 1;
+      if (trackMeasuredSightActors) {
+        const actorId =
+          measuredActorIdBySightOrigin.get(toSightOriginKey(from)) ?? null;
+        if (actorId === null) {
+          unmatchedMeasuredSightCastCount += 1;
+        } else {
+          measuredSightChecksByActorId.set(
+            actorId,
+            (measuredSightChecksByActorId.get(actorId) ?? 0) + 1
+          );
+        }
+      }
       return false;
     },
     Object.freeze({ width: 5, height: 0.8, depth: 5 })
@@ -1134,6 +1155,7 @@ const runSightCheckBudgetCheck = (
     0.08
   );
   try {
+    system.setDiagnosticsEnabled(true);
     const stressFixture = createExternalAlertStressFixture(
       "sight-budget-target",
       fixture.pointInBand(fixture.courtyardRef, 0, 0)
@@ -1155,12 +1177,29 @@ const runSightCheckBudgetCheck = (
 
     sightCastCount = 0;
     let maximumSightCastsPerUpdate = 0;
+    let maximumCurrentTargetSightChecksPerUpdate = 0;
+    let minimumIdentifiableActorCount = PERFORMANCE_STRESS_BIT_COUNT;
+    const expectedActorIds = new Set(
+      system.getFrameView().actorSpheres.map((actor) => actor.id)
+    );
     for (
       let frameIndex = 0;
       frameIndex < PERFORMANCE_MEASURED_TICKS;
       frameIndex += 1
     ) {
+      measuredActorIdBySightOrigin = new Map(
+        system
+          .getFrameView()
+          .actorSpheres.map(
+            (actor) => [toSightOriginKey(actor.center), actor.id] as const
+          )
+      );
+      minimumIdentifiableActorCount = Math.min(
+        minimumIdentifiableActorCount,
+        measuredActorIdBySightOrigin.size
+      );
       const beforeUpdate = sightCastCount;
+      trackMeasuredSightActors = true;
       system.update({
         deltaSeconds: PERFORMANCE_DELTA_SECONDS,
         elapsedSeconds:
@@ -1169,19 +1208,56 @@ const runSightCheckBudgetCheck = (
         targets: stressFixture.targets,
         externalAlerts: EMPTY_ALERTS
       });
+      trackMeasuredSightActors = false;
       maximumSightCastsPerUpdate = Math.max(
         maximumSightCastsPerUpdate,
         sightCastCount - beforeUpdate
       );
+      maximumCurrentTargetSightChecksPerUpdate = Math.max(
+        maximumCurrentTargetSightChecksPerUpdate,
+        system.getFrameView().diagnostics.currentTargetSightCheckCount
+      );
     }
+    const measuredSightCastCount = sightCastCount;
+    const measuredActorSightCheckCounts = [...expectedActorIds].map(
+      (actorId) => measuredSightChecksByActorId.get(actorId) ?? 0
+    );
+    const measuredActorSightCheckCount =
+      measuredActorSightCheckCounts.reduce(
+        (total, count) => total + count,
+        0
+      );
+    const minimumActorSightCheckCount = Math.min(
+      ...measuredActorSightCheckCounts
+    );
+    const maximumActorSightCheckCount = Math.max(
+      ...measuredActorSightCheckCounts
+    );
     const targetStates = system.getFrameView().targetStates;
-    const maximumTotalSightCasts =
-      99 *
+    const expectedTotalSightCasts =
+      PERFORMANCE_STRESS_BIT_COUNT *
         (PERFORMANCE_MEASURED_TICKS * PERFORMANCE_DELTA_SECONDS) /
-        0.1 +
+      PERFORMANCE_SIGHT_CHECK_INTERVAL_SECONDS;
+    const minimumTotalSightCasts =
+      Math.floor(expectedTotalSightCasts) -
       PERFORMANCE_SIGHT_CASTS_PER_99_UPDATE;
+    const maximumTotalSightCasts =
+      Math.ceil(expectedTotalSightCasts) +
+      PERFORMANCE_SIGHT_CASTS_PER_99_UPDATE;
+    const beforeCatchUpSightCastCount = sightCastCount;
+    system.update({
+      deltaSeconds: 1,
+      elapsedSeconds:
+        (PERFORMANCE_WARMUP_TICKS + PERFORMANCE_MEASURED_TICKS) *
+        PERFORMANCE_DELTA_SECONDS,
+      targets: stressFixture.targets,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const catchUpSightCastCount =
+      sightCastCount - beforeCatchUpSightCastCount;
+    const catchUpDiagnostics = system.getFrameView().diagnostics;
     return Object.freeze({
-      name: "99体の視界Rayを10Hzラウンドロビンで描画フレームへ分散",
+      name: "99体の視界Rayを5Hzラウンドロビンで描画フレームへ分散",
       ok:
         targetStates.length === 99 &&
         targetStates.every(
@@ -1190,16 +1266,40 @@ const runSightCheckBudgetCheck = (
             stressFixture.targetIds.has(state.targetId) &&
             state.mode === "chase"
         ) &&
-        sightCastCount > 0 &&
-        sightCastCount <= maximumTotalSightCasts &&
+        expectedActorIds.size === PERFORMANCE_STRESS_BIT_COUNT &&
+        minimumIdentifiableActorCount ===
+          PERFORMANCE_STRESS_BIT_COUNT &&
+        unmatchedMeasuredSightCastCount === 0 &&
+        measuredSightChecksByActorId.size === expectedActorIds.size &&
+        minimumActorSightCheckCount > 0 &&
+        measuredActorSightCheckCount === measuredSightCastCount &&
+        measuredSightCastCount >= minimumTotalSightCasts &&
+        measuredSightCastCount <= maximumTotalSightCasts &&
         maximumSightCastsPerUpdate <=
-          PERFORMANCE_SIGHT_CASTS_PER_99_UPDATE,
+          PERFORMANCE_SIGHT_CASTS_PER_99_UPDATE &&
+        maximumCurrentTargetSightChecksPerUpdate <=
+          PERFORMANCE_SIGHT_CASTS_PER_99_UPDATE &&
+        catchUpSightCastCount <=
+          PERFORMANCE_SIGHT_CATCH_UP_MAXIMUM &&
+        catchUpDiagnostics.currentTargetSightCheckCount <=
+          PERFORMANCE_SIGHT_CATCH_UP_MAXIMUM,
       detail:
         `tick=${PERFORMANCE_DELTA_SECONDS.toFixed(6)}s / ` +
         `measured=${PERFORMANCE_MEASURED_TICKS} / ` +
-        `casts=${sightCastCount}/${maximumTotalSightCasts} / ` +
+        `casts=${measuredSightCastCount}/` +
+        `${minimumTotalSightCasts}-${maximumTotalSightCasts} / ` +
+        `actors=${measuredSightChecksByActorId.size}/` +
+        `${expectedActorIds.size} / ` +
+        `perActor=${minimumActorSightCheckCount}-` +
+        `${maximumActorSightCheckCount} / ` +
+        `unmatched=${unmatchedMeasuredSightCastCount} / ` +
         `maxPerUpdate=${maximumSightCastsPerUpdate}/` +
-        `${PERFORMANCE_SIGHT_CASTS_PER_99_UPDATE}`
+        `${PERFORMANCE_SIGHT_CASTS_PER_99_UPDATE} / ` +
+        `current=${maximumCurrentTargetSightChecksPerUpdate}/` +
+        `${PERFORMANCE_SIGHT_CASTS_PER_99_UPDATE} / ` +
+        `catchUp=${catchUpSightCastCount},` +
+        `${catchUpDiagnostics.currentTargetSightCheckCount}/` +
+        `${PERFORMANCE_SIGHT_CATCH_UP_MAXIMUM}`
     });
   } finally {
     system.dispose();
