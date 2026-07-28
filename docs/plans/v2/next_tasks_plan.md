@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 PR #41以降の実行ロードマップ 計画
 
-更新日: 2026-07-26
+更新日: 2026-07-28
 
 ## プロンプト
 
@@ -54,6 +54,25 @@
 - エレベーター定員はプレイヤー、未洗脳NPC、洗脳済みNPCの合計6人とし、全キャラクターが単独利用できる。未洗脳NPCは視認できる敵対便を避け、洗脳済みNPCは階層追跡へ利用できる。
 - T04-3Bで実学校の扉・エレベーター・荒れた教室・全陣営NPCを統合し、その後にT06、T07を直列実行する。
 
+2026-07-28追加指示:
+
+> 今現在、T05-3をT04-3Aに取り込み、それをさらにB03-3Cに取り込んで、そこからdevelopにPull Requestを作ろうとしています。これがすべて完了した場合、次に実施できるタスク、並行作業できるタスク、推奨リーズニングを、この状態を起点に一覧化してください。
+
+> 新しい機能を多く追加しているため、早めに重い動作確認を行いたいです。統合Pull Requestを作成してdevelopへマージする前、B04後、T04-3B後、T06後のどこで重い動作確認を行うべきか整理してください。
+
+- B03-3C、T04-3A、T05-3は、T05-3をT04-3Aへ取り込み、続いてT04-3AをB03-3Cへ取り込んだ統合headから、1件の統合Pull Requestとして`develop`へ反映する。
+- この統合Pull RequestをI0統合ゲートと呼び、`develop`へマージする前に第1重点動作確認を行う。
+- 当初のI0後実装順は`B04 → T04-3B → T06 → T07 → v2リリース準備`としていたが、同日の標的選択個性追加により、現行順序は`B04 + T05-4（並行）→ T04-3B → T06 → T07 → v2リリース準備`へ更新した。
+- B04は資産特化ゲート、T04-3Bは第2重点動作確認、T06は最終機能ゲート、T07は性能・回帰・リリース判定とする。
+
+2026-07-28 NPC・BIT標的選択個性の追加指示:
+
+> NPCとBITについて、取得済みの標的を基本的に追い続ける個体と、自分から最も近い可視標的へ常に切り替える個体を50%ずつ発生させたいです。BIT生成時とNPC洗脳時に個性を確定し、実現可能性と早期実装できるタスク配置を調査して今後のプランへ組み込んでください。
+
+- 既存のNPC最近傍可視探索とBITの可視標的探索を再利用できるため、新規T05-4として実装可能である。
+- I0後はB04とT05-4を別worktreeで並行する。B04は学校バイナリ、T05-4はNPC／BIT標的選択RuntimeとT05 fixtureを所有し、全体計画ファイルを並行branchから編集しない。
+- T04-3BはB04とT05-4の両方が`develop`へ統合された後に開始し、実学校で標的個性、動的扉、エレベーター、荒れvariantを同時回帰する。
+
 ## ステップ
 
 - [x] G0: PR #41のレビュー、必要な手動確認、修正を完了し、`develop`へマージする
@@ -72,15 +91,15 @@
 - [x] T05-1統合Pull RequestをPR #49で`develop`へマージする（`15a467f`）
 - [x] T05-2: gun所持NPC／プレイヤーとビットの完成戦闘、全光線物理、集合、警報、公開処刑、性能リファクタリング、Alert最大4機、BIT探索分散、窓越しCHASEを実装し、PR #50で`develop`へマージする（`27abd9b`）
 - [x] B03-3A: 学校拡張、エレベーター、荒れた教室、動的扉、NPC指示の設計契約と後続ロードマップを確定する
-- [ ] B03-3B: 体育館、渡り廊下、ギャラリー、屋上、西側校舎延長、エレベーター躯体を学校資産へ追加する
-- [ ] T05-2V: V1相当の光線軌跡・周囲光球・着弾・キャラクター命中演出と、`BND_WorldLimit`退出時の非着弾フェードを実装する
-- [ ] B03-3C: 個別扉、エレベーター可動部、20室の通常・荒れvariant、NavMeshタイルを学校資産へ追加する
-- [ ] T04-3A: 動的空間、扉・エレベーター状態機械、人物全面ゲート、部屋variant NavMesh基盤を実装する
-- [ ] T05-3: Follow・Leave、局所分離、haigure時間停止、洗脳済みFollower同期射撃を実装する
-- [ ] B04: B03-3C後の最終外形へ歩道・道路、`BND_WorldLimit`、外周BIT飛行帯を追加する
-- [ ] T04-3B: 実学校へ動的扉、エレベーター、荒れた教室、全陣営NPC利用・追跡を統合する
+- [x] B03-3B: 体育館、渡り廊下、ギャラリー、屋上、西側校舎延長、エレベーター躯体を学校資産へ追加し、PR #52で`develop`へマージする
+- [x] T05-2V: V1相当の光線軌跡・周囲光球・着弾・キャラクター命中演出と、`BND_WorldLimit`退出時の非着弾フェードを実装し、PR #53で`develop`へマージする
+- [ ] I0: T05-3、T04-3A、B03-3Cの成果を統合headへ集約し、資産・Runtime・NPC指示を横断する第1重点動作確認を完了して、統合Pull Requestを`develop`へマージする
+- [ ] B04: I0後の最終学校外形へ歩道・道路、`BND_WorldLimit`、外周BIT飛行帯を追加し、資産特化ゲートを完了する
+- [ ] T05-4: NPC／BITへ`persistent`／`nearest-visible`の標的選択個性を50%ずつ決定的に割り当てる
+- [ ] T04-3B: B04とT05-4の統合後、実学校へ動的扉、エレベーター、荒れた教室、標的選択個性を含む全陣営NPC利用・追跡を統合する
 - [ ] T06: F／E／C・G／N／H、候補表示、既定荒れ状態2、複数開始地点、時間増援、音声、水中、ゲーム進行、資源ライフサイクルを統合する
 - [ ] T07: 性能、回帰試験、Web・Electron、仕様書を最終化する
+- [ ] v2リリース準備: `develop`からリリースブランチを作成し、最終ビルド、バージョン、文書、`main`向けPull Request、リリース後の`develop`同期を完了する
 - [ ] 各タスク完了時に対象個別計画と`docs/plan.md`の結果を更新する
 
 ## タスク単位と依存関係
@@ -98,15 +117,18 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 | 5 | T05-1 汎用飛行帯ナビゲーション・飛行安全 | `codex/v2-t05-bit-flight-navigation` | T04-2B | 共通型、別ビットNavMesh、接続グラフ、非学校fixture、学校`.blend`／GLB／両NavMesh／hash、共通高度安全、V1飛行表現、探索・追跡、全遷移、カーペット解除 | PR #49で`develop`へ統合済み |
 | 6 | T05-2 戦闘システム | `codex/v2-t05-combat-systems` | T05-1 | gun所持NPC／プレイヤー・ビット戦闘、全光線物理、集合会場資産、警報、公開処刑、仕様維持性能改善 | PR #50で`develop`へ統合済み |
 | D0（Wave 0） | B03-3A 学校拡張設計確定 | `codex/v2-plan-world-boundary-roadmap` | T05-2 | 設計文書、アセット・Runtime契約、依存・所有・Ultra判断 | 完了。文書書込みは単独 |
-| 7A | B03-3B 学校構造資産 | `codex/v2-b03-3-structure` | B03-3A | 体育館、渡り廊下、ギャラリー、屋上、西側校舎延長、エレベーター躯体、学校バイナリ | T05-2Vと並行可 |
-| 7B | T05-2V 光線演出・世界境界終了 | `codex/v2-t05-2v-beam-effects` | T05-2、境界契約固定 | V1光線演出、演出pool、世界境界退出点、0.2秒非着弾フェード、非学校fixture | B03-3Bと並行可 |
-| 8A | B03-3C 動的学校アセット | `codex/v2-b03-3-interactive-assets` | B03-3B | 個別扉、エレベーター可動部、20室variant、NavMeshタイル、学校バイナリ | T04-3A、T05-3と並行可 |
-| 8B | T04-3A 動的空間基盤 | `codex/v2-t04-3-dynamic-runtime` | T05-2V | `src/world`、動的Collider・遮蔽、扉・エレベーター状態機械、タイルNavMesh、非学校fixture | B03-3C、T05-3と並行可 |
-| 8C | T05-3 NPC指示 | `codex/v2-t05-3-npc-commands` | T05-2V | Follow・Leave、局所分離、haigure時間停止、同期射撃、非学校fixture | B03-3C、T04-3Aと並行可 |
-| 9 | B04 学校外周・世界境界資産 | `codex/v2-b04-school-world-boundary` | B03-3C | 最終学校外形、歩道・道路、`BND_WorldLimit`、外周BIT飛行帯、両NavMesh、カタログhash | T05-2V／T04-3A／T05-3継続中なら並行可 |
-| 10 | T04-3B 実学校動的統合 | `codex/v2-t04-3-school-integration` | B03-3C、B04、T04-3A、T05-3 | 20室抽選、扉・エレベーター、全陣営NPC利用・回避・追跡、動的視線・ビーム・BIT | 単独 |
+| 7A | B03-3B 学校構造資産 | `codex/v2-b03-3-structure` | B03-3A | 体育館、渡り廊下、ギャラリー、屋上、西側校舎延長、エレベーター躯体、学校バイナリ | PR #52で統合済み |
+| 7B | T05-2V 光線演出・世界境界終了 | `codex/v2-t05-2v-beam-effects` | T05-2、境界契約固定 | V1光線演出、演出pool、世界境界退出点、0.2秒非着弾フェード、非学校fixture | PR #53で統合済み |
+| 8A | B03-3C 動的学校アセット | `codex/v2-b03-3-interactive-assets` | B03-3B | 個別扉、エレベーター可動部、20室variant、NavMeshタイル、学校バイナリ | I0へ統合中 |
+| 8B | T04-3A 動的空間基盤 | `codex/v2-t04-3-dynamic-runtime` | T05-2V | `src/world`、動的Collider・遮蔽、扉・エレベーター状態機械、タイルNavMesh、非学校fixture | T05-3を取り込み、I0へ統合中 |
+| 8C | T05-3 NPC指示 | `codex/v2-t05-3-npc-commands` | T05-2V | Follow・Leave、局所分離、haigure時間停止、同期射撃、非学校fixture | T04-3Aへ統合済み、`develop`未統合 |
+| I0 | B03-3C／T04-3A／T05-3統合ゲート | B03-3C統合head | 8A、8B、8C | 学校バイナリ、動的空間、NPC指示、T04／T05回帰、実学校の早期受入 | 単独。第1重点動作確認後に`develop`へ統合 |
+| 9A | B04 学校外周・世界境界資産 | `codex/v2-b04-school-world-boundary` | I0 | 最終学校外形、歩道・道路、`BND_WorldLimit`、外周BIT飛行帯、両NavMesh、カタログhash | T05-4と並行。資産特化ゲート |
+| 9B | T05-4 NPC・BIT標的選択個性 | `codex/v2-t05-4-target-selection` | I0 | 標的選択個性型、決定的50%抽選、NPC／BIT自律visual標的選択、T05 fixture | B04と並行。AI特化ゲート |
+| 10 | T04-3B 実学校動的統合 | `codex/v2-t04-3-school-integration` | B04、T05-4 | 20室抽選、扉・エレベーター、標的選択個性を含む全陣営NPC利用・回避・追跡、動的視線・ビーム・BIT | 単独。第2重点動作確認 |
 | 11 | T06 学校全体統合 | `codex/v2-t06-school-integration` | T04-3B | F／E／C・G／N／H、候補表示、既定荒れ状態2、開始地点、増援、音声、水中、ゲーム進行、資源破棄 | 単独 |
 | 12 | T07 性能・回帰・仕様書 | `codex/v2-t07-regression-docs` | T06 | 荒れ状態10、動的扉、エレベーター、無制限Followerを含む99 NPC／50 BIT性能と最終仕様書 | 単独 |
+| 13 | v2リリース準備 | `codex/release-v2.0.0` | T07 | バージョン、リリース文書、最終ビルド、`main`向けPull Request、`develop`再同期 | 単独 |
 
 ## 並行実行Wave
 
@@ -120,33 +142,31 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 | 5 | T05-1だけ | T04-2Bマージ後の最新`develop`。A／Bを同一ブランチで実装し、学校バイナリ、GLB、両NavMesh、カタログhash、飛行安全を一体で検証する | T05-2 |
 | 6 | T05-2だけ | PR #50で`develop`へ統合済み | B03-3A設計Wave 0 |
 | D0（承認済みWave 0） | B03-3Aだけ | 文書と設計契約だけを単独更新し、学校バイナリとRuntimeを変更しない | Wave 7A、7B |
-| 7A | B03-3B | B03-3A後の最新`develop`から学校バイナリ専用worktreeを作る | Wave 8A |
-| 7B | T05-2V | B03-3A後の同じ最新`develop`から光線Runtime・非学校fixture専用worktreeを作る | Wave 8B、8C |
-| 8A | B03-3C | B03-3B後に学校バイナリ専用worktreeで開始する | B04 |
-| 8B | T04-3A | T05-2V後に`src/world`とT04専用fixtureのworktreeで開始する | T04-3B |
-| 8C | T05-3 | T05-2V後にNPC指示とT05専用fixtureのworktreeで開始する | T04-3B |
-| 9 | B04 | B03-3Cの最終学校を入力とする。T05-2V／T04-3A／T05-3が継続中なら並行できる | T04-3B |
-| 10 | T04-3Bだけ | B03-3C、B04、T04-3A、T05-3がマージ済みの最新`develop` | T06 |
-| 11 | T06だけ | T04-3Bマージ後の最新`develop` | T07 |
-| 12 | T07だけ | T06マージ後の最新`develop` | v2リリース準備 |
+| 7A | B03-3B | PR #52で`develop`へ統合済み | Wave 8A |
+| 7B | T05-2V | PR #53で`develop`へ統合済み | Wave 8B、8C |
+| 8 | B03-3C、T04-3A、T05-3 | 分離実装を完了し、T05-3からT04-3A、T04-3AからB03-3Cの順に統合headへ集約する | I0 |
+| I0 | 統合Pull Requestと第1重点動作確認 | 資産・Runtime・NPC指示を同じheadで検証し、`develop`へマージする | B04、T05-4 |
+| 9 | B04とT05-4 | I0マージ後の同じ最新`develop`から別branch／worktreeを作り、学校バイナリとAI Runtimeの所有を分離する | 両方の`develop`統合後にT04-3B |
+| 10 | T04-3Bだけ | B04とT05-4の両方を含む最新`develop`で第2重点動作確認まで完了する | T06 |
+| 11 | T06だけ | T04-3Bマージ後の最新`develop`で最終機能ゲートまで完了する | T07 |
+| 12 | T07だけ | T06マージ後の最新`develop`で性能・最終回帰を完了する | v2リリース準備 |
+| 13 | v2リリース準備だけ | T07マージ後の最新`develop`からリリースブランチを作る | `main`統合と`develop`再同期 |
 
-## 並行作業可否マトリクス
+## 現行の並行可否
 
-`可`は、各タスクの直接依存が完了していれば別Codexタスク・別worktreeで同時実行できる組み合わせ、`不可`は直接依存またはファイル所有が重なるため直列にする組み合わせである。Waveは基準となる開始順であり、前のレーンが継続していても直接依存と所有範囲を満たす`可`の組み合わせは重ねてよい。
+2026-07-28時点で、B03-3C、T04-3A、T05-3の分離実装Waveは統合段階へ移った。I0完了後は、学校資産だけを所有するB04と、AI Runtimeだけを所有するT05-4を別worktreeで並行できる。
 
-| タスク | B03-3B | T05-2V | B03-3C | T04-3A | T05-3 | B04 | T04-3B | T06 | T07 |
-|---|---|---|---|---|---|---|---|---|---|
-| B03-3B | - | 可 | 不可 | 可 | 可 | 不可 | 不可 | 不可 | 不可 |
-| T05-2V | 可 | - | 可 | 不可 | 不可 | 可 | 不可 | 不可 | 不可 |
-| B03-3C | 不可 | 可 | - | 可 | 可 | 不可 | 不可 | 不可 | 不可 |
-| T04-3A | 可 | 不可 | 可 | - | 可 | 可 | 不可 | 不可 | 不可 |
-| T05-3 | 可 | 不可 | 可 | 可 | - | 可 | 不可 | 不可 | 不可 |
-| B04 | 不可 | 可 | 不可 | 可 | 可 | - | 不可 | 不可 | 不可 |
-| T04-3B | 不可 | 不可 | 不可 | 不可 | 不可 | 不可 | - | 不可 | 不可 |
-| T06 | 不可 | 不可 | 不可 | 不可 | 不可 | 不可 | 不可 | - | 不可 |
-| T07 | 不可 | 不可 | 不可 | 不可 | 不可 | 不可 | 不可 | 不可 | - |
+| タスク | 依存先 | 同時書込み | 直列化理由 |
+|---|---|---|---|
+| I0 | B03-3C、T04-3A、T05-3 | 不可 | 資産、動的空間、NPC指示を1つの統合headで検証する |
+| B04 | I0 | T05-4と可 | I0の最終学校バイナリだけを更新する |
+| T05-4 | I0 | B04と可 | NPC／BIT標的選択RuntimeとT05 fixtureだけを更新する |
+| T04-3B | B04、T05-4 | 不可 | 両成果を含む実学校へ動的機能を統合する |
+| T06 | T04-3B | 不可 | 実学校Runtimeを通常ゲーム入口へ接続する |
+| T07 | T06 | 不可 | 完成した機能を性能・回帰条件として測定する |
+| v2リリース準備 | T07 | 不可 | T07の確定結果だけをリリース対象にする |
 
-PR #50は2026-07-26に`develop`へ統合済みである。B03-3Aで学校拡張と動的ギミックの契約を確定し、次はB03-3BとT05-2Vを並行する。学校バイナリはB03-3B、B03-3C、B04の順で単一担当が直列更新し、RuntimeはT05-2V後にT04-3AとT05-3を分離して実装する。T04-3Bが全成果を実学校へ統合し、T06、T07を直列実行する。
+次タスクの必読資料、受入項目、既存テストの読み取り調査は並行できる。ただし、依存成果が`develop`へ入る前に次タスクのブランチを作成したり、コード、計画書、バイナリを書き始めたりしない。
 
 ## ファイル所有規則
 
@@ -165,7 +185,8 @@ PR #50は2026-07-26に`develop`へ統合済みである。B03-3Aで学校拡張�
 - T04-3Aは`src/world`、`DynamicStageSpatialActiveSet`／`DynamicStageSpatialSnapshot`／`DynamicStageSpatialVariants`、扉・エレベーター状態機械、資産仕様7.9節の厳格分類、タイルNavMesh、`validation/v2/T04/`と`vite.t04.config.mts`の動的空間専用fixtureを所有し、学校バイナリ、`validation/v2/T05/`、実学校NPC統合を編集しない。
 - T05-3は`V2PlayerAction`、`drainPressedActions()`、NPC指示、Follow・Leave、局所分離、haigure時間停止、同期射撃、`validation/v2/T05/`と`vite.t05.config.mts`のNPC指示専用fixtureを所有し、`src/world`の動的空間、`validation/v2/T04/`、扉・エレベーター統合を編集しない。共有fixture indexはT04-3Bの統合担当が更新する。
 - B04はB03-3C後の学校生成正本、`.blend`、GLB、両NavMesh、カタログhashの単一担当として、塀外5.0mの歩道・道路、`BND_WorldLimit`、外周BIT飛行帯を所有し、学校カタログの`worldBoundaryMode`を資産追加と同時に`required`へ切り替える。南側有効距離5.0m未満なら不足分だけ南へ延長する。
-- T04-3BはB03-3C、B04、T04-3A、T05-3を入力として、実学校の部屋抽選、扉・エレベーター、全陣営NPC利用・回避・追跡、動的視線・ビーム・BITを単独統合する。
+- T05-4は`src/v2/combatTypes.ts`、`src/v2/npcSystem.ts`、`src/v2/bitSystem.ts`とT05標的選択fixtureを所有し、`persistent`／`nearest-visible`、独立した決定的50%抽選、既存強制標的との優先順位を実装する。学校バイナリ、`src/world`、T04 fixtureを編集しない。
+- T04-3BはB03-3C、B04、T04-3A、T05-3、T05-4を入力として、実学校の部屋抽選、扉・エレベーター、標的選択個性を含む全陣営NPC利用・回避・追跡、動的視線・ビーム・BITを単独統合する。
 - T06はT05-2の状態選択APIへG＝gun、N＝no-gun、H＝haigureを接続し、`brainwash-in-progress`直後の選択解放、完了状態間の再選択、状態別操作案内、G状態だけの照準・左クリック射撃案内、状態別VOICE、入力購読の開始・破棄を実ゲーム入口で担当する。
 - T06は複数の`MRK_PlayerSpawn_*`から開始地点を選び、対応する`VOL_PlayerSpawnExclusion_*`だけをBITと初期洗脳済みNPCの出現禁止へ適用する。BIT用`bit_spawn`は全出現可能飛行帯を覆い、NPC用`npc_spawn`は人間用NavMeshを使う。初期洗脳済みNPCを禁止範囲外で先に必要数生成し、候補不足時に人数を減らすfallbackは作らない。
 - T06はB04の外周飛行帯を、BITのCHASE・逃走・明示`boundary`遷移中だけ利用できるように接続する。通常探索・待機・総当たり探索・時間増援の目的地または出現地点にはしない。
@@ -175,32 +196,54 @@ PR #50は2026-07-26に`develop`へ統合済みである。B03-3Aで学校拡張�
 
 ## モデルとリーズニングエフォート
 
-リーズニングは高ければ常に良いとは限らない。複雑なアルゴリズム、複数システム統合、原因が複数候補にまたがる不具合では高い設定を使う。仕様確定後の造形、機械的検証、文書整理ではMediumまたはHighを使い、時間と使用量を抑える。
+| タスク | 推奨モデル | 推奨リーズニング | 選定理由 |
+|---|---|---|---|
+| I0 統合ゲート | GPT-5.6 Sol | Ultra | 学校バイナリ、動的空間、扉・エレベーター、NPC指示、T04／T05回帰を同じheadで横断する |
+| B04 学校外周・世界境界資産 | GPT-5.6 Sol | High | 確定済み外形に対するBlender資産、両NavMesh、境界・スポーン監査が中心である |
+| T05-4 NPC・BIT標的選択個性 | GPT-5.6 Sol | Ultra | NPC／BITの異なる索敵予算、Alarm／Alert／固定攻撃の優先順位、決定的乱数、99 NPC／50 BIT性能を同時に維持する |
+| T04-3B 実学校動的統合 | GPT-5.6 Sol | Ultra | 実学校、20室variant、全陣営NPC、扉、エレベーター、動的視線・ビーム・BITを横断する |
+| T06 学校全体統合 | GPT-5.6 Sol | Ultra | 入力、プレイヤー状態、音声、水中、増援、ゲーム進行、資源ライフサイクルを通常ゲームへ統合する |
+| T07 性能・回帰・仕様書 | GPT-5.6 Sol | High | 完成機能を維持したまま性能計測、最適化、Web・Electron回帰、仕様書同期を行う |
+| v2リリース準備 | GPT-5.6 Sol | High | リリース対象差分、最終ビルド、バージョン、文書、`main`と`develop`の同期を再確認する |
 
-| タスク | 推奨モデル | 推奨リーズニング | Ultra判断 | 代替 |
+## 重点動作確認ゲート
+
+| ゲート | 実施時点 | 強度 | 必須確認 | 通過条件 |
 |---|---|---|---|---|
-| G0 PR #41最終統合 | GPT-5.6 Sol | High | 通常は不要。全差分の再監査をやり直す場合だけUltra候補 | Sol Extra High |
-| B03-0 設計確定 | GPT-5.6 Sol | High | 不要。ユーザー承認と設計比較を重視する | Sol Medium |
-| T04-2A 高さ付きNav基盤 | GPT-5.6 Sol | Ultra | 推奨。重複床、階段、誤投影、到達可能性を同時に扱う | Sol Extra High |
-| B03-1 建築仕上げ | GPT-5.6 Sol | High | 不要。仕様確定後のBlender作業と視覚検証が中心 | Sol Medium |
-| B03-2 内装・最適化 | GPT-5.6 Sol | High | 通常は不要。配置中心ならMediumへ下げてよい | Sol Medium |
-| T04-2B 学校複数階統合 | GPT-5.6 Sol | Ultra | 推奨。実GLB、NavMesh、NPC、窓、回帰を横断する | Sol Extra High |
-| T05-1A 汎用飛行帯ナビゲーション基盤 | GPT-5.6 Sol | Ultra | 推奨。別NavMesh、任意帯、資産契約、接続グラフを同時に扱う | Sol Extra High |
-| T05-1B 飛行安全・立体挙動 | GPT-5.6 Sol | Ultra | 推奨。全モードの3D安全包絡、探索・追跡、遷移実飛行を同時に扱う | Sol Extra High |
-| T05-2 戦闘システム | GPT-5.6 Sol | Ultra | 推奨。戦闘状態と複数の光線・集合・警報が相互作用する | Sol Extra High |
-| B04 学校外周・世界境界資産 | GPT-5.6 Sol | High | 不要。B03-3C最終外形に基づくBlender資産・NavMesh・監査が中心 | Sol Medium |
-| T05-2V 光線演出・世界境界終了 | GPT-5.6 Sol | Ultra | 推奨。全発射元、演出pool、連続判定、世界境界、性能が相互作用する | Sol Extra High |
-| B03-3A 学校拡張設計確定 | GPT-5.6 Sol | High | 不要。文書と設計契約の確定が中心 | Sol Medium |
-| B03-3B 学校構造資産 | GPT-5.6 Sol | High | 不要。確定寸法に基づくBlender資産作業が中心 | Sol Medium |
-| B03-3C 動的学校アセット | GPT-5.6 Sol | High | 通常は不要。複合NavMesh不具合時だけUltra候補 | Sol Medium |
-| T04-3A 動的空間基盤 | GPT-5.6 Sol | Ultra | 推奨。動的遮蔽、状態機械、定員、タイルNavMeshが相互作用する | Sol Extra High |
-| T05-3 NPC指示 | GPT-5.6 Sol | Ultra | 推奨。既存AI、洗脳状態、視線、被弾、同期射撃が相互作用する | Sol Extra High |
-| T04-3B 実学校動的統合 | GPT-5.6 Sol | Ultra | 推奨。実学校、全陣営NPC、扉、エレベーター、動的空間を横断する | Sol Extra High |
-| T06 学校全体統合 | GPT-5.6 Sol | Ultra | 推奨。多数のサブシステムと資源ライフサイクルを統合する | Sol Extra High |
-| T07 性能・回帰 | GPT-5.6 Sol | High | 原因不明の複合ボトルネックだけUltra候補 | Sol Medium |
-| T07 文書整理 | GPT-5.6 Terra | Medium | 不要。読取、結果整理、仕様書反映が中心 | Sol Medium |
+| V0 第1重点ゲート | I0のPull Request作成後、`develop`マージ前 | 重い | B03-3C資産、T04-3A動的空間、T05-3 NPC指示、T04／T05 fixture、実学校の扉・エレベーター・Follow／Leave・同期射撃、破棄・再読込 | 統合差分由来の重大不具合0件、対象build・ブラウザ・Electron受入合格 |
+| V1 資産特化ゲート | B04のPull Request作成後、`develop`マージ前 | 対象集中 | 全周外周、`BND_WorldLimit`、両NavMesh、外周スポーン0件、BIT外周帯、光線の非着弾フェード | 資産・境界・経路・表示の監査と実画面確認に合格 |
+| V1A AI特化ゲート | T05-4のPull Request作成後、`develop`マージ前 | 対象集中 | 50%個性、seed再現、persistent保持、nearest-visible切替、遮蔽、Alarm／Alert／固定攻撃、99 NPC／50 BIT予算 | NPC／BITの意味回帰、決定性、T05性能条件に合格 |
+| V2 第2重点ゲート | T04-3BのPull Request作成後、`develop`マージ前 | 重い | 20室variant、動的扉、エレベーター、全陣営NPC、視線・ビーム・BIT、長時間実学校運用 | 実学校の動的機能とライフサイクルの重大不具合0件 |
+| V3 最終機能ゲート | T06のPull Request作成後、`develop`マージ前 | 最重 | タイトル開始、F／E／C・G／N／H、増援、音声、水中、ゲーム終了、タイトル復帰、再読込 | Web・Electronの完全E2Eと資源残留0件 |
+| V4 性能・リリースゲート | T07のPull Request作成後、`develop`マージ前 | 最終 | 1080p、既定設定、99 NPC、50 BIT、全機能有効時の性能・回帰・仕様書 | T07定量性能条件、全回帰、最終文書監査に合格 |
 
-CodexアプリのUltraは、対応モデルで最大推論を使用し、環境と指示が許す場合は並列委譲にも向く。サブエージェントを使用する場合でも、書込みはファイル所有が分離できる場合だけとし、学校バイナリ資産は常に単一担当とする。
+各機能は、(1) 実装・検証・commit・push・Pull Request作成、(2) 独立レビュー、(3) merge・`develop`同期・worktree整理・次タスク準備を別単位で完了する。重点ゲートはPull Request作成後の独立レビュー段階に含め、通過前にマージしない。
+
+## タスク開始プロンプト
+
+### I0
+
+> B03-3C統合headで、取り込み済みのT04-3AとT05-3を含む統合差分を完成させてください。`docs/plan.md`、本ロードマップ、B03-3／T04-3／T05-3計画、資産・Runtime仕様、ブランチ戦略を読み、学校バイナリ、動的空間、NPC指示の差分を保持してください。対象は競合解消、統合回帰、V0第1重点ゲート、commit、push、`develop`向けPull Request作成です。B04以降の実装、`develop`へのmerge、review threadのresolveは行わないでください。GPT-5.6 Sol / Ultraを使用してください。
+
+### B04
+
+> I0が`develop`へマージ済みの最新`origin/develop`から、`codex/v2-b04-school-world-boundary`と専用worktreeを作成してB04を実装してください。学校生成正本、`.blend`、GLB、両NavMesh、カタログhashだけを単一担当で更新し、歩道・道路、`BND_WorldLimit`、外周BIT飛行帯を追加してください。T05-4のNPC／BIT Runtime、T04-3B、T06は実装しないでください。V1資産特化ゲート、commit、push、Pull Request作成まで行い、mergeは行わないでください。GPT-5.6 Sol / Highを使用してください。
+
+### T05-4
+
+> I0が`develop`へマージ済みの最新`origin/develop`から、`codex/v2-t05-4-target-selection`と専用worktreeを作成してT05-4を実装してください。`docs/plans/v2/T05-4/plan.md`の確定契約に従い、BIT生成時とNPC初回洗脳時に`persistent`／`nearest-visible`を50%ずつ決定的に割り当て、既存のAlarm／Alert／固定攻撃優先順位と視認予算を維持してください。学校バイナリ、B04、T04-3Bは編集しないでください。V1A AI特化ゲート、commit、push、Pull Request作成まで行い、mergeは行わないでください。GPT-5.6 Sol / Ultraを使用してください。
+
+### T04-3B
+
+> B04とT05-4が`develop`へマージ済みの最新`origin/develop`から、`codex/v2-t04-3-school-integration`と専用worktreeを作成してT04-3Bを実装してください。20室variant、動的扉、エレベーター、標的選択個性を含む全陣営NPC、動的視線・ビーム・BITを実学校へ統合し、V2第2重点ゲートを実施してください。T06の通常ゲーム入力・音声・最終進行統合は実装しないでください。commit、push、Pull Request作成まで行い、mergeは行わないでください。GPT-5.6 Sol / Ultraを使用してください。
+
+### T06
+
+> T04-3Bが`develop`へマージ済みの最新`origin/develop`から、`codex/v2-t06-school-integration`と専用worktreeを作成してT06を実装してください。F／E／C・G／N／H、開始地点、出現禁止、時間増援、音声、水中速度、ゲーム進行、破棄・再読込を通常ゲームへ接続し、Web・ElectronでV3最終機能ゲートを実施してください。T07の性能最適化と最終仕様書作業は行わないでください。commit、push、Pull Request作成まで行い、mergeは行わないでください。GPT-5.6 Sol / Ultraを使用してください。
+
+### T07
+
+> T06が`develop`へマージ済みの最新`origin/develop`から、`codex/v2-t07-regression-docs`と専用worktreeを作成してT07を実施してください。1080p・既定設定・99 NPC・50 BIT・全機能有効条件で性能計測と最適化を行い、Web・Electronの最終回帰と仕様書同期を完了してください。V4性能・リリースゲート、commit、push、Pull Request作成まで行い、リリースブランチ作成と`main`へのmergeは行わないでください。GPT-5.6 Sol / Highを使用してください。
 
 ## 各タスク開始時の必読順序
 
@@ -255,3 +298,7 @@ B03-0に限り、上記に加えて`docs/plans/v2/T04/plan.md`の「B03-0への�
 2026-07-26、PR #50へ残作業を追加せず、V1光線演出をT05-2Vへ分割する方針を確定した。さらに、塀外5.0mの歩道・道路、`BND_WorldLimit`、外周BIT飛行帯をB04へ追加した。当初はB04とT05-2Vを並行してT06へ進む予定だったが、この旧順序は同日のB03-3A追加方針で置換済みである。
 
 同日、体育館・渡り廊下・体育館屋上、西側校舎南延長とエレベーター、20室の荒れvariant、動的扉、同陣営NPCへのFollow・Leave・同期射撃を追加する後続計画をB03-3、T04-3、T05-3へ分割した。B03-3Aで設計契約を確定し、B03-3BとT05-2V、続いてB03-3C・T04-3A・T05-3を並行する。B04はB03-3C後の最終外形を入力とし、T04-3B、T06、T07を直列実行する。エレベーターは全キャラクターが利用でき、合計6人を定員とする。
+
+2026-07-28、B03-3BはPR #52、T05-2VはPR #53で`develop`へ統合済みである。B03-3C、T04-3A、T05-3は分離実装から統合段階へ移り、T05-3をT04-3Aへ、T04-3AをB03-3Cへ取り込んだ統合headから1件のPull Requestを作成する方針を確定した。このPull RequestをI0とし、`develop`マージ前にV0第1重点ゲートを通す。
+
+同日、NPC／BITの標的選択個性をT05-4へ分割した。I0後はB04とT05-4を並行し、B04はV1資産特化ゲート、T05-4はV1A AI特化ゲートを通して独立統合する。両成果後に`T04-3B → T06 → T07 → v2リリース準備`を直列実行し、T04-3BでV2第2重点ゲート、T06でV3最終機能ゲート、T07でV4性能・リリースゲートを行う。

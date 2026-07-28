@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 T04-3 動的空間・扉・エレベーター統合 計画
 
-更新日: 2026-07-26
+更新日: 2026-07-28
 
 ## プロンプト
 
@@ -9,6 +9,16 @@
 1階・4階だけに停止するエレベーターを、プレイヤー、未洗脳NPC、洗脳済みNPCが単独でも利用できるようにする。扉の`closed / opening / closing`中は人物用全面ゲートで駆け込みを防ぎ、実扉パネルだけをビーム・視線遮蔽として扱う。定員は全キャラクター合計6人とし、降車を妨げずに7人目の乗車だけを拒否する。
 
 20室の通常・荒れvariantを開始時に抽選し、プレイヤーと全NPCが倒れた机・棚の上を歩けるNavMeshを組み立てる。閉扉、エレベーター状態、選択variantを、人物移動、ビーム、視線、BIT経路へ動的に反映する。
+
+2026-07-28、最新の`origin/develop`を取得し、`4edd8f08c948a7822cd6bd623e25dff142078f18`以降を基点として、専用ブランチ`codex/v2-t04-3-dynamic-runtime`と専用worktreeを作成してT04-3Aを実装する。B03-3Cが別worktreeで進行中のため、学校`.blend`、GLB、両NavMesh、学校生成スクリプト、カタログhash、B03-3C worktreeを変更しない。各実装ステップで本計画を更新し、型検査、T04 fixture、`build:t04`、実ブラウザ確認まで実施する。commitまでは行い、push、Pull Request作成、`develop`へのmergeは別途指示まで行わない。
+
+2026-07-28 統合指示:
+
+> 隣のタスクのT05-3を実装したタスクをまず読み込んでください。その内容が、もうコミットが完了しており、こちらのT04-3Aに統合をして良い状態であれば、こちらを統合headへ切り替えて、推奨手順でこの後、`develop`へのPull Requestを作るところまで行ってください。まだ駄目な状態であれば、次に何をすれば進められるのか提案してください。
+
+2026-07-28 方針変更:
+
+> Pull Requestは作らなくてよいです。このまま後でB03-3Cのbranchへローカルで取り込みます。Pull Requestを作成済みであればcloseしてください。
 
 ## 確定方針
 
@@ -64,6 +74,7 @@
 
 ### T04-3B 実学校・NPC統合
 
+- T05-4で確定した`persistent`／`nearest-visible`の標的選択個性を実学校へ持ち込み、動的扉、エレベーター、部屋variantによる視認・距離・経路変化と同時に回帰する。
 - 全キャラクターがプレイヤー不在でもエレベーターを単独利用できる。
 - NPCは階段所要時間と、かご位置、待機、開閉、移動、定員を含むエレベーター予測時間を比較する。
 - NPCごとにseed固定の忍耐度・危険許容度を持たせ、重要な状態変化時だけ再評価して経路振動を防ぐ。
@@ -118,21 +129,49 @@
 - 推奨モデル: GPT-5.6 Sol
 - 推奨リーズニング: Ultra
 - Ultra判断: 推奨。実学校、NPC、扉、エレベーター、部屋variant、ビーム・視線・BITを横断する。
-- 開始条件: B03-3C、B04、T04-3A、T05-3が`develop`へ統合済みであること。
+- 開始条件: B03-3C、B04、T04-3A、T05-3、T05-4が`develop`へ統合済みであること。
 - 並行可否: 単独で実施する。
 
 ## ステップ
 
-- [ ] T04-3A: 動的Collider・遮蔽物active setとrevisionを実装する
-- [ ] T04-3A: 資産仕様7.9節の扉・エレベーターrole、許可`hs_*`、ID参照、Transform規約を厳格分類し、非学校fixtureで監査する
-- [ ] T04-3A: 教室・トイレ扉状態機械とT04専用の非学校fixtureを実装する
-- [ ] T04-3A: エレベーター状態機械、人物ゲート、定員、予約、搬送、`completeTransition()`を実装する
-- [ ] T04-3A: 部屋variant NavMeshタイルの選択・結合基盤を実装する
-- [ ] T04-3A: 開閉、定員、同時要求、呼出、動的遮蔽を自動回帰する
+- [x] T04-3A: 最新`origin/develop`から専用branch／worktreeを作成し、依存関係を導入する
+- [x] T04-3A: 動的Collider・遮蔽物active setとrevisionを実装する
+- [x] T04-3A: 資産仕様7.9節の扉・エレベーターrole、許可`hs_*`、ID参照、Transform規約を厳格分類し、非学校fixtureで監査する
+- [x] T04-3A: 教室・トイレ扉状態機械とT04専用の非学校fixtureを実装する
+- [x] T04-3A: エレベーター状態機械、人物ゲート、定員、予約、搬送、`completeTransition()`を実装する
+- [x] T04-3A: 部屋variant NavMeshタイルの選択・結合基盤を実装する
+- [x] T04-3A: 開閉、定員、同時要求、呼出、動的遮蔽を自動回帰する
+- [x] 統合: 完了済みT05-3の計画・worktree・commit・検証結果を監査し、T04-3Aを統合headへ切り替える
+- [x] 統合: T05 fixtureの空間queryをdynamic variants契約へ移行する
+- [x] 統合: T04／T05／通常Runtimeを再検証する
+- [x] 統合: 統合branchをpushし、作成済みDraft Pull Request #54を最新指示に従ってcloseする
+- [ ] 後続: B03-3Cのbranchへ本統合headをローカルで取り込む（別途指示で実施）
 - [ ] T04-3B: B03-3C／B04の実学校metadataを読込み、20室variantを開始時に確定する
-- [ ] T04-3B: 全陣営NPCの扉・エレベーター利用と陣営別回避・追跡を統合する
+- [ ] T04-3B: T05-4の標的選択個性を保持したまま、全陣営NPCの扉・エレベーター利用と陣営別回避・追跡を統合する
 - [ ] T04-3B: 実学校で人物移動、ビーム、視線、BIT、スポーン、ライフサイクルを回帰する
 
 ## 結果
 
-未着手。2026-07-26にT04-3AとT04-3Bの責務、動的空間契約、エレベーター定員6人、全キャラクター利用、陣営別回避・追跡、部屋variant組立順を設計確定した。PR #51レビュー対応で、active set／snapshot／revisionの公開型、原子的更新順、動的Transform時のrevision、cache無効化、所有・破棄境界と、資産仕様7.9節の厳格分類を実装契約へ追加した。
+T04-3A完了。2026-07-28、`origin/develop`の`4edd8f08c948a7822cd6bd623e25dff142078f18`から`codex/v2-t04-3-dynamic-runtime`と専用worktreeを作成し、`npm ci`を完了した。
+
+revision 0の`DynamicStageSpatialActiveSet`／`DynamicStageSpatialSnapshot`／`DynamicStageSpatialVariants`、原子的な`replaceActiveSet()`、問い合わせ開始snapshotの固定、revisionごとのworld三角形・空間index・cache・Volume包含判定、`StageSpatialQueries.revision`、`StageSpatialContext`の所有・破棄順を実装した。Transformだけが変わる更新と、エレベーターかごとともに移動する占有Volumeもrevisionへ追従する。
+
+資産仕様7.9節の扉・エレベーターrole、許可`hs_*`、親子関係、型、ID相互参照、Transform、孤立・多重所有を厳格検証するregistryを実装した。通常扉は0.8秒の4状態、1m以内の候補順、移動中だけの遮蔽解除、最終位置と掃引Volumeの占有中止、教室20%とトイレ開放の初期状態を実装した。エレベーターは初期4階開放、1階／4階運行、5秒待機、1秒扉、6秒搬送、走行中呼出保持、乗客便優先、人物ゲート、Actor搬送、到達時刻・Actor ID順の予約、定員6人、降車非阻害、予約取消と`NavigationAgent.completeTransition()`を実装した。
+
+部屋variant基盤はRecast 0.43.1のversion付きtiled bundle、共通tileと部屋ごとの`normal`／`disordered`所有tile、`NavMesh.initTiled()`／`addTile()`組立、`SchoolRuntimeSettings.roomDisorderLevel`、独立`disorder`乱数系列を実装した。実tile fixtureで共通2 tile、各variant 2 tile、荒れ室数0／4／20、seed再現性、normal 3.200m／disordered 4.014mの代表経路、欠落・重複・parameters不一致の拒否を確認した。
+
+T04-3A単独commit時点の最終検証は`audit:v2:dependencies`、`typecheck:v2`、`typecheck:t04`、`build:t04`、通常`build`がすべてPASSした。実ブラウザのT04 fixtureは初回、画面からの再実行、再読込のすべてで102／102 PASS、warning／error、Babylon Logger error、unhandled rejectionは0件だった。通常Web入口もクリック開始後に`フェーズ playing`へ到達した。T04-3A専用fixtureは32件を含み、動的snapshot、資産registry、扉・エレベーター、NavMeshタイルを自動回帰する。学校`.blend`、GLB、両NavMesh、学校生成スクリプト、カタログhash、B03-3C worktreeは変更していない。T05専用fixtureに残っていた旧`createStageSpatialQueries()`呼出の更新は、所有境界どおり後続のT05-3統合で扱った。
+
+2026-07-28、隣接するT05-3タスクのCodex最終報告、個別計画、cleanなworktree、`a8fd588d73fe7204843aa05851b699e458b05a15`の単一commit、T05-3専用16／16、既存T05 253／253、Web・Electron、型検査・buildの完了証跡を照合した。T05-3をmerge commit`bcc6647`で本branchへ取り込み、本branchをT04-3A＋T05-3の統合headへ切り替えた。
+
+T05 fixtureの旧2引数`createStageSpatialQueries()`全14呼出を、`DynamicStageSpatialActiveSet`と`StageSpatialQueryOptions`を分離して受けるT05専用fixture経由でdynamic variants契約へ統一した。旧combined-options、互換wrapper、fallbackは残していない。query、dynamic variantsの順に破棄する所有関係もfixtureへ集約し、`typecheck:t05`がPASSすることを確認した。
+
+2026-07-28 08:36 +09:00時点の統合検証では、`audit:v2:dependencies`、`typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`build:t04`、`build:t05`、通常`build`、`git diff --check`がすべてPASSした。統合差分35テキストのUTF-8 strict decode、BOM、merge marker、ローカル絶対パス検査はいずれも0件で、学校`.blend`、GLB、両NavMesh、学校生成スクリプト、カタログhashの差分も0件だった。
+
+実ブラウザではT04 fixtureが初回／画面再実行／再読込の各102／102、T05 fixtureが各253／253、T05-3専用fixtureが各16／16で、各fixtureのconsole warning／error、Babylon Logger error、unhandled rejectionは0件だった。T05再実行で顕在化した2件は、Babylon Observableの遅延remove完了前にbaselineを採る性能fixtureと、18秒移動後も初期BIT位置のtarget ringを再利用する視認fixtureに原因を限定し、baseline前の1 event-loop待機と現在BIT位置からのtarget ring再生成で安定化した。通常Webは初期読込時のwarning／error 0件と、開始後の`フェーズ playing`、NPC 50体、BIT 20体以上を確認した。自動操作APIからのPointer Lock要求だけはChromium／Computer Use環境側の制約で拒否されたため、productionコードは変更せずPull Requestの検証注記へ残す。
+
+2026-07-28 08:43 +09:00、公開前実装head`bbf4aaa7e11c8b0b02e26d09434d67bac6d1c4b6`を`codex/v2-t04-3-dynamic-runtime`へpushし、`develop`向けDraft Pull Request [#54](https://github.com/catoriinu/haigure_survival/pull/54)を作成した。GitHubから`OPEN`、`MERGEABLE`、Draft、base=`develop`、head=`codex/v2-t04-3-dynamic-runtime`を読み戻した。`origin/develop`は検証基点`4edd8f08c948a7822cd6bd623e25dff142078f18`のままで、`develop`へのmergeは行っていない。
+
+2026-07-28 08:45 +09:00、最新指示に従ってDraft Pull Request #54をcloseし、GitHubから`CLOSED`、`mergedAt=null`を読み戻した。`codex/v2-t04-3-dynamic-runtime`は後でB03-3Cのbranchへローカル統合できるよう残し、remote branchの削除、`develop`へのmerge、B03-3C worktreeの変更は行っていない。
+
+同日のI0第2次人間受入で、体育館西ギャラリー階段Rampの固定グリッドtile境界におけるY=0.475mから0.500mへのDetour snapを3D移動距離へ算入し、水平要求距離0.00504mを超えたと誤判定する停止を修正した。速度予算はXZ水平距離だけを厳格判定し、NavMesh面YとpolygonRefはDetour結果を保持する。報告座標固定回帰は3D距離0.025291321m、水平距離0.003569148m、polygon `6326784`→`6327296`を確認し、別の真の水平超過は引き続き例外とした。最終T04実ブラウザは106/106、warning／error 0件である。

@@ -1,9 +1,20 @@
+export type StageRoomVariantNavmesh =
+  | Readonly<{
+      mode: "unsupported";
+    }>
+  | Readonly<{
+      mode: "required";
+      url: string;
+      sha256: string;
+    }>;
+
 export type StageCatalogEntry = Readonly<{
   id: string;
   label: string;
   glbUrl: string;
   navmeshUrl: string;
   bitNavmeshUrl: string;
+  roomVariantNavmesh: StageRoomVariantNavmesh;
   assetSchemaVersion: number;
   navProfileId: string;
   bitNavProfileId: string;
@@ -22,13 +33,18 @@ export const SCHOOL_STAGE: StageCatalogEntry = Object.freeze({
   navmeshUrl: "stage-assets/v2/B02/b02_school_blockout.navmesh.bin",
   bitNavmeshUrl:
     "stage-assets/v2/B02/b02_school_blockout.bit-flight.navmesh.bin",
+  roomVariantNavmesh: Object.freeze({
+    mode: "required",
+    url: "stage-assets/v2/B02/b02_school_blockout.room-variants.navmesh.bin",
+    sha256: "78a0f481aae3abd6a6e403c60fc0debc1c70941c8b7956f17e35006df10c3afd"
+  }),
   assetSchemaVersion: 2,
-  navProfileId: "school-humanoid-v1",
+  navProfileId: "school-humanoid-room-variants-v2",
   bitNavProfileId: "bit-flight-body-0.44-margin-0.10-v1",
-  glbSha256: "9f3ddba1025db782d648ddc81be1919eb2b38b9b5226b0babb29952a74ab16a6",
-  navmeshSha256: "6f8d8b158ad9da16c4a8362221483adb52ae151d41106b6ef5f4faea82315ee5",
+  glbSha256: "c97820435ea50a9c64d61e3bc68615e9f9ad35eb69993e59b46a59ebc19f6bb7",
+  navmeshSha256: "6a35b416eb7069fdb9e8eff5fa9c62f6ce2d6febc9f28765b6041213ad448dd1",
   bitNavmeshSha256:
-    "1b32c7c55a3b657ee5f3f029bb510fdc5db28b85b07234e111887a00147ec48b",
+    "c60c44187e8eeca0889a933b564bb7eab936728148f43e5dd1796c57e82d8d73",
   worldBoundaryMode: "unsupported"
 });
 

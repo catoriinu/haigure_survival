@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 ステージ資産仕様書
 
-更新日: 2026-07-26
+更新日: 2026-07-28
 対象バージョン: v2
 基準検証: T01 GLB・座標・衝突規約 技術検証
 
@@ -10,9 +10,9 @@
 
 V2のステージ空間の正本は、GLBへ出力された3D形状、EmptyのTransform、Object custom properties由来のglTF Node `extras`である。表示、物理衝突、光線遮蔽、NavMesh生成元、スポーン位置、ゲームプレイ領域、ステージ境界、ポータル、非連続接続を同じ座標系の資産として管理する。
 
-ステージJSONは使用しない。JSON文字マップ、セル、行・列、矩形ゾーンなどへ空間を重複記述してはならない。TypeScriptのステージカタログが保持できるのは、ステージID、表示名、GLB URL、人間用NavMesh URL、ビット用NavMesh bundle URL、プロファイルID、整合性検査用ハッシュなどの非空間情報だけである。
+ステージJSONは使用しない。JSON文字マップ、セル、行・列、矩形ゾーンなどへ空間を重複記述してはならない。TypeScriptのステージカタログが保持できるのは、ステージID、表示名、GLB URL、静的人間用NavMesh URL、部屋variant NavMesh bundle URL、ビット用NavMesh bundle URL、プロファイルID、整合性検査用ハッシュなどの非空間情報だけである。
 
-Recast NavMeshバイナリはGLBの`NAV_*`形状から生成する派生物であり、編集元ではない。人間用NavMeshと、帯ごとのRecast payloadを格納するビット用bundleを分離する。`LNK_*` Emptyと飛行遷移`VOL_*`は最終GLBに残る明示接続の正本であり、Runtimeが対応するNavMeshへ接続する。NavMeshを変更したい場合はBlender資産またはベイクプロファイルを変更し、GLB監査後に対応成果物を再ベイクする。
+Recast NavMeshバイナリはGLBの`NAV_*`形状から生成する派生物であり、編集元ではない。人間用NavMeshは静的基盤と部屋variantごとのDetour tile payload bundleへ分離し、ビット用NavMeshは帯ごとのRecast payloadを別bundleへ格納する。`LNK_*` Emptyと飛行遷移`VOL_*`は最終GLBに残る明示接続の正本であり、Runtimeが対応するNavMeshへ接続する。NavMeshを変更したい場合はBlender資産またはベイクプロファイルを変更し、GLB監査後に対応成果物を再ベイクする。
 
 本規約は規約準拠資産だけを扱う。未知の接頭辞、欠落した必須Object、未知の`hs_*` propertyを読み替える互換処理やフォールバックは作らない。
 
@@ -22,7 +22,8 @@ Recast NavMeshバイナリはGLBの`NAV_*`形状から生成する派生物で�
 |---|---|---|
 | `.blend` | 制作者が編集する資産 | 編集正本 |
 | `.glb` | 実行時に読む3D形状、Transform、Node `extras` | 実行時の空間正本 |
-| `.navmesh.bin` | `hs_nav_set=human`の`NAV_*`と人間用プロファイルから生成したRecastデータ | 再生成可能な派生物 |
+| `.navmesh.bin` | `hs_nav_set=human`の静的`NAV_*`から生成し、部屋所有tileを除外したtiled Recastデータ | 再生成可能な派生物 |
+| `.room-variants.navmesh.bin` | 20室×2 variantの人間用Detour tile payloadを格納したbundle | 再生成可能な派生物 |
 | `.bit-flight.navmesh.bin` | `hs_nav_set=bit-flight`の帯別Recast payloadを格納したbundle | 再生成可能な派生物 |
 | TypeScriptカタログ | ID、表示名、URL、ハッシュ、形式バージョン | 非空間情報だけ |
 | ステージJSON | V2では使用しない | 禁止 |
@@ -37,6 +38,7 @@ Recast NavMeshバイナリはGLBの`NAV_*`形状から生成する派生物で�
 assets/blender/v2/<ステージID>/<資産名>.blend
 public/stage-assets/v2/<ステージID>/<資産名>.glb
 public/stage-assets/v2/<ステージID>/<資産名>.navmesh.bin
+public/stage-assets/v2/<ステージID>/<資産名>.room-variants.navmesh.bin
 public/stage-assets/v2/<ステージID>/<資産名>.bit-flight.navmesh.bin
 ```
 
@@ -48,10 +50,11 @@ public/stage-assets/v2/<ステージID>/<資産名>.bit-flight.navmesh.bin
 | T01 GLB | `public/stage-assets/v2/T01/t01_glb_collision_course.glb` | 座標・縮尺・衝突の検証fixture |
 | B02 Blender編集元 | `assets/blender/v2/B02/b02_school_blockout.blend` | 学校の制作元。3D意味ObjectとNavMesh生成元を保持 |
 | B02 GLB | `public/stage-assets/v2/B02/b02_school_blockout.glb` | 学校の実行時空間正本。B03-2内装、T04-2B NAV補正、第5次人間受入、学校3D資産全体リファクタリングを統合済み |
-| B02 NavMesh | `public/stage-assets/v2/B02/b02_school_blockout.navmesh.bin` | 同一GLBから事前ベイクするRecast派生物 |
+| B02静的NavMesh | `public/stage-assets/v2/B02/b02_school_blockout.navmesh.bin` | 同一GLBから事前ベイクするtiled Recast静的基盤 |
+| B02部屋variant NavMesh | `public/stage-assets/v2/B02/b02_school_blockout.room-variants.navmesh.bin` | 同一GLBから20室×2 variantを事前ベイクするDetour tile bundle |
 | B02ビットNavMesh | `public/stage-assets/v2/B02/b02_school_blockout.bit-flight.navmesh.bin` | 同一GLBから帯別に事前ベイクするRecast bundle |
 
-`.blend`はVite配布物へ含めない。GLBと両NavMeshバイナリだけを`public`からWeb版・Electron版へコピーする。バイナリ資産は単一担当で編集し、同一ファイルを複数ブランチで並行編集しない。
+`.blend`はVite配布物へ含めない。GLBと3種のNavMeshバイナリだけを`public`からWeb版・Electron版へコピーする。バイナリ資産は単一担当で編集し、同一ファイルを複数ブランチで並行編集しない。
 
 ### 3.1 B02学校の現行監査基準
 
@@ -59,7 +62,7 @@ public/stage-assets/v2/<ステージID>/<資産名>.bit-flight.navmesh.bin
 - 窓`LNK_*`は58組／116端点とし、A/Bの2端点、双方向、`hs_link_radius_m=0.54`、接続先ゾーン・帯を明示する。`hs_link_radius_m`はV1物理半径0.44m＋安全余裕0.10mに一致する必要包絡・接続半径であり、ビット本体半径ではない。旧`bit_roof`2組／4端点は完全廃止する。
 - 修正案1では、V1実形状・被弾球の半径0.44mへ安全余裕0.10mを加えた移動包絡半径0.54m、直径1.08mを正本とする。B03承認時の片羽開放幅1.20mは両羽全開へ変更せず維持し、58窓を窓枠・進入角度まで含む実飛行Agentで双方向116/116に再検証済みとする。旧0.64m包絡・直径1.28mを根拠とした未解決扱いと、両羽全開の承認待ちは廃止する。
 - 主玄関、北側校舎北口、北側校舎南口、体育館校庭側は、総高0.30m、各蹴上0.15m、各踏面1.00mの表示2段を共通断面とする。移動衝突は表示段と分離し、地面Z＝-0.30mから床Z＝0.00mへ続く単一の`COL_*Ramp`とする。渡り廊下東西側は表示段を置かず、不可視の`COL_BridgeSideRamp_East`と`COL_BridgeSideRamp_West`で同じ床高差を連続接続する。
-- 男女トイレは各3個室とし、内部仕切りは厚さ0.08m、奥行2.10m、高さ2.10mの`VIS_ToiletStallPartition_*`と`COL_ToiletStallPartition_*`を一致させる。男子小便器3基は背面を東、正面を西へ向け、X＝-2.75～-2.40m、中心Y＝39.6／40.6／41.6mへ配置する。
+- 男女トイレは各3個室とし、内部仕切りは厚さ0.08m、奥行2.10m、高さ2.10mの`VIS_ToiletStallPartition_*`と`COL_ToiletStallPartition_*`を一致させる。個室扉は蝶番から自由端まで1.40mとして開口を閉じ、通路側だけに半径0.06mの丸ノブを付ける。男子小便器3基は背面を東、正面を西へ向け、X＝-2.75～-2.40m、中心Y＝39.6／40.6／41.6mへ配置する。
 - 校庭の`VIS_SiteGround`と`VIS_CourtyardSurface`は草地を表す緑、校門は塀と識別できる青とする。体育館は床を明るい木色、舞台を濃茶、腰壁を淡緑、見切りを濃灰として、同一色の面が重なる箇所を分離する。出入口上部の`VIS_*Lintel`は壁色へ統一する。
 - 主門と北東門は左右対称の両開き柵形状とし、支柱、上下・中桟、縦桟、中央継ぎを持つ。表示の隙間は意匠だけであり、既存`COL_Gate_*`と`NAV_Blocker_Perimeter`によって移動、NPC、通常ビーム、視線をすべて遮断する。外周7区画は向こう側を見せない連続壁芯を維持し、0.8m×0.4mの5段ブロックと交互目地を外面へ表示する。
 - 主玄関前の校庭には下駄箱や用途不明の箱を置かない。下駄箱代替は`BaggageLocker` 2台を建物内南壁際へ配置し、出入口を塞がない。図書室の本棚24台は本の背表紙を室内へ向けて壁際へ並べ、前後の出入口と窓へ干渉させない。本棚1台は本体8部品と背表紙28冊の計36 components／432 trianglesとする。
@@ -68,6 +71,7 @@ public/stage-assets/v2/<ステージID>/<資産名>.bit-flight.navmesh.bin
 - 階段手すりの共有端点では表示支柱を座標単位で一意化し、転落防止範囲を変えずに重複支柱を生成しない。1階トイレ正面のNav blocker 6箱は`NAV_Blocker_Interiors`だけが所有し、`NAV_Blocker_School1F`へ二重収録しない。
 - 学校正本はArmature、Bone、Action、Animation、Modifier、Shape Key、Vertex Group、非表示Object、Export Collection外Object、空・退化Meshを持たない。GLBはSkin、Animation、Camera、未参照Node／Mesh／Material／Texture／Image／Accessor／BufferView／Bufferを持たない。これらは残骸監査で非空なら失敗とする。不要性を証明できない面・同形状候補は削除せず、T04の人間確認候補一覧で管理する。
 - 体育館舞台階段上部の東西表示壁・衝突壁は、舞台上面からBlender 2.4mの実開口を一致して確保する。NavMeshだけを接続する仮connector面は資産へ残さない。
+- 体育館舞台は中心X＝46.4mを維持してX＝40.6～52.2mの幅11.6mとする。舞台階段は西X＝39.1～40.6m、東X＝52.2～53.7mへ同じ段数・踏面・蹴上げで追従させ、階段上部壁の中心もX＝40.6m／52.2mへ揃える。舞台袖壁は西X＝39.2～40.6m、東X＝52.2～53.6mへ短縮し、既存の袖開口、U字階段、手すり、ギャラリー、体育館外形は維持する。
 - `BND_Stage`のBlender範囲はX＝-18.4～63.2m、Y＝-12.3～51.3m、Z＝-0.5～19.0mとする。屋上帯の中心上限18.0mへ半径0.54mの移動包絡を加えても内包する。
 - 事前ベイク後は、主玄関から3か所の1F踊り場、各階廊下・代表教室、全階男女トイレ入口、3階段それぞれの1F↔2F↔3F↔4F、北西階段の4F↔屋上、体育館・舞台・体育倉庫、屋上階段室、プールサイド、プール底を含む62代表経路が要求終点へ到達することを検査する。追加2経路は3階・4階のトイレ側通路から正規扉を通って特別教室へ入る。各階段の隣接階経路は指定踊り場を通り、25m以内でなければならない。部分経路を成功扱いせず、要求終点との誤差`1e-5`以下を必須とする。通常窓の内外を結ぶsurface経路が窓開口を短絡せず正規出入口へ迂回することも必須とする。
 - 全116窓端点はID文字列や高さから接続先を推測せず、各端点が明示するゾーン・帯のNavMeshへ投影する。体育館高窓14端点は7.10mの開口を一時通過して体育館上段へ接続する。
@@ -296,7 +300,7 @@ MRK_PlayerSpawn_Main
 | `hs_id` | string | ステージ内で一意な小文字kebab-case ID |
 | `hs_role` | string | Runtimeのvolume role registryに登録された役割 |
 
-基本roleには`npc_spawn`、`bit_spawn`、`assembly`、`no_enemy_spawn`、`no_enemy_enter`、`no_combat`、`hazard`、`water`を使用できる。7.9節の動的資産では追加roleとして`door_sweep`、`elevator_call_mat`、`elevator_threshold`、`elevator_car_occupancy`を使用できる。`water`は水面ではなく、水中判定に用いる閉じた3D領域を表す。学校資産は、プール内面に一致する`VOL_PoolWater`を1件持ち、`hs_id="pool-water"`、`hs_role="water"`とする。T04-2Bで読込、内外問い合わせ、プール底へのNavMesh到達、破棄・再読込を確認済みであり、水中水平速度50%と通常速度への復帰はT06で実装する。
+基本roleには`npc_spawn`、`bit_spawn`、`assembly`、`no_enemy_spawn`、`no_enemy_enter`、`no_combat`、`hazard`、`water`を使用できる。7.9節の動的資産では追加roleとして`door_sweep`、`elevator_call_mat`、`elevator_threshold`、`elevator_car_occupancy`を、7.10節の部屋variantでは`room_variant_tile`を使用できる。`water`は水面ではなく、水中判定に用いる閉じた3D領域を表す。学校資産は、プール内面に一致する`VOL_PoolWater`を1件持ち、`hs_id="pool-water"`、`hs_role="water"`とする。T04-2Bで読込、内外問い合わせ、プール底へのNavMesh到達、破棄・再読込を確認済みであり、水中水平速度50%と通常速度への復帰はT06で実装する。
 
 `bit_spawn`は`hs_zone_id`と`hs_band_id`を追加し、スポーン先の飛行帯を明示する。高さ、Object名、最寄りの人間用NavMeshから推測しない。
 
@@ -434,6 +438,8 @@ B03-3C以降の動的扉とエレベーターは、`MRK_*`のTransform、`VOL_*`
 MRK_Door_<token>
 ├─ MRK_DoorPanel_<token>          1件以上
 │  ├─ VIS_DoorPanel_<token>       1件以上
+│  ├─ VIS_DoorPanel_Handle_<token> roomだけ1件
+│  ├─ VIS_DoorPanel_Knob_<token>   toilet_stallだけ1件
 │  └─ COL_DoorPanel_<token>       1件以上
 ├─ MRK_DoorOpenPose_<token>       panelごとに1件
 └─ VOL_DoorSweep_<token>          扉ごとに1件
@@ -462,11 +468,15 @@ MRK_Door_<token>
 
 `MRK_DoorOpenPose_*`は`hs_id`、`hs_role="door_open_pose"`、`hs_door_id`、`hs_panel_id`をすべてstringで持つ。`VOL_DoorSweep_*`は`hs_id`、`hs_role="door_sweep"`、`hs_door_id`をすべてstringで持つ。
 
-- `MRK_DoorPanel_*`の親は対応する`MRK_Door_*`、表示・Collider Meshの親は対応panel markerとする。`MRK_DoorOpenPose_*`と`VOL_DoorSweep_*`も同じdoor markerの直下に置く。
+- `MRK_DoorPanel_*`の親は対応する`MRK_Door_*`、表示・Collider・扉金物Meshの親は対応panel markerとする。`MRK_DoorOpenPose_*`と`VOL_DoorSweep_*`も同じdoor markerの直下に置く。
 - panel markerのlocal Transformを閉姿勢、open-pose markerの同じdoorローカル座標系におけるTransformを開姿勢とする。子`VIS_*`／`COL_*`には`hs_*`を付けず、親子関係でpanelへ対応付ける。
 - `slide`は閉・開markerのlocal rotationを一致させ、0ではないtranslation差分の正規化を移動軸、長さを移動量とする。`swing`はlocal translationを一致させ、panel markerのlocal `+Z`を蝶番軸、開markerまでの符号付きrotation差分を開角度とする。`swing`の絶対角度は0より大きくπ以下とする。
 - `room`は`slide`、`toilet_stall`は`swing`、`elevator_landing`と`elevator_car`は`slide`だけを許可する。
 - `VOL_DoorSweep_*`は全panelの閉姿勢から開姿勢までの掃引領域を覆う閉じた低ポリMeshとする。
+- `room` panelは固定表の1.20m開口を閉姿勢で隙間なく閉じる。開姿勢だけ壁法線方向へ離し、厚さ0.08mのpanelと厚さ0.30mの隣接壁の間に0.01mの空隙を確保する。local offsetはwest壁の1階でX=-0.04m、2～4階でX=+0.08m、north壁の1階でY=+0.04m、2～4階でY=-0.04mとする。各panelは1.20mの移動主軸で見た開方向と反対側へpanel中心から0.45mの位置に、幅0.16m、高さ0.32m、面からの出幅0.02mの長方形取っ手を両面分まとめた`VIS_DoorPanel_Handle_*`を1件持つ。
+- `toilet_stall` panelのlocal boundsは`(-1.40, -0.02, 0.00)`～`(0.00, 0.02, 1.80)`、sweepは`(-1.42, -0.02, 0.00)`～`(0.02, 1.42, 1.80)`とする。開姿勢のtranslationは閉姿勢と一致させ、local Z回転を`-85°`として仕切り壁との面一致を避ける。通路側local Y負面の`(-1.22, -0.075, 0.95)`を中心に半径0.06mの低ポリ丸ノブ`VIS_DoorPanel_Knob_*`を1件持つ。
+- 固定開放扉、固定閉鎖扉、`elevator_landing`、`elevator_car`には`VIS_DoorPanel_Handle_*`／`VIS_DoorPanel_Knob_*`を付けない。扉金物は`VIS_*`だけで表し、Colliderや`hs_*`を持たせず、FurnitureProps Atlasの`door_hardware_yellow`（RGB 181／153／74）へ割り当てる。
+- エレベーター扉は1.40m中央開口を4枚のテレスコープ式panelで閉じ、開姿勢では左右0.35m幅の戸袋へ2枚ずつ重ねる。panelは開姿勢で中央開口、かご外形、昇降路内寸から突出してはならない。
 - 教室・トイレ扉の開閉0.8秒、エレベーター扉の開閉1.0秒はRuntime状態機械の定数とし、資産propertyへ重複させない。
 
 #### 7.9.2 エレベーター
@@ -519,11 +529,89 @@ MRK_Door_<token>
 
 - `MRK_ElevatorStop_*`のworld Transformを、かごの停止姿勢とする。1階・4階stopはworld X/Yとrotationを一致させてBlender Zだけを変え、そのtranslation差分からかごの移動軸と移動量を導出する。
 - stopのlocal `+Y`を乗場からかごへ向かう乗車方向、`-Y`を降車方向とする。乗客の相対座標は`MRK_ElevatorPassengerOrigin_*`のcar-local Transformを基準にする。
+- かご床上面はcar-local Z=`0.12`とし、passenger originとoccupancy下端を同じ高さに置く。廊下床からかご床までの0.12m段差と水平隙間は、各stop直下の同形状`VIS_ElevatorThresholdPlate_*`／`COL_ElevatorThresholdPlate_*`で連結する。敷居板の歩行面傾斜は45度以下とする。
+- `MRK_ElevatorWait_*`は対応call matとthresholdの外側へ水平0.25m以上離し、待機者がcall matを占有し続けない位置に置く。call matの水平形状は`VIS_B03_ElevatorWaitingMat_F01_F04`の対応床表示と一致させる。
 - controllerはstopを正確に2件持ち、1階=`A`、4階=`B`とする。`hs_initial_stop_id`は4階stopを参照し、car markerの初期Transformも同stopと一致させる。
 - 各stopは乗場扉、呼出マット、敷居、人物gate、待機markerを各1件所有する。かご扉、占有Volume、乗客基準はエレベーター全体で各1件とする。
 - 2階・3階の固定閉鎖扉は通常の静的`VIS_*`／`COL_*`だけで表し、`door`、`elevator_stop`、call mat、threshold、gate、link endpointを持たせない。
 - `hs_link_id`以外の参照IDは期待するroleのObject 1件へ解決する。`hs_link_id`は`hs_link_kind="elevator"`でA/B各1 Nodeからなる検証済み論理`StageLinkPair` 1件へ解決する。
 - ownerとcomponentが相互参照する箇所は両方向のID一致を要求する。孤立component、規定外の参照、1 componentの複数door／elevator所有、異なるelevator間の参照、同一stop付随物の共有を認めない。
+
+### 7.10 部屋variantとNavMesh tile所有
+
+B03-3Cの対象は、9普通教室と11特別室の合計20室である。`hs_room_id`は次の固定IDだけを使用する。
+
+```text
+f02-classroom-01  f02-classroom-02  f02-classroom-03
+f03-classroom-01  f03-classroom-02  f03-classroom-03
+f04-classroom-01  f04-classroom-02  f04-classroom-03
+f01-infirmary     f01-library       f01-staff-room
+f01-pc-room       f02-council       f02-broadcast
+f02-science       f03-art           f03-home-ec
+f04-ll            f04-music
+```
+
+各室は`normal`と`disordered`を1件ずつ持ち、次のmarkerを合計40件配置する。
+
+```text
+MRK_RoomVariant_<token>
+├─ VIS_*                         variantで切り替える表示だけ
+├─ COL_*                         variantで切り替える通常Colliderだけ
+├─ NAV_*_Blocker                 variantで切り替える人間用障害物
+└─ NAV_*_Walkable                荒れ版だけが持つ歩行面
+```
+
+`MRK_RoomVariant_*`の必須properties:
+
+| Key | 型 | 内容 |
+|---|---|---|
+| `hs_id` | string | `room-variant-<room-id>-<variant-id>`形式の一意ID |
+| `hs_role` | string | `room_variant` |
+| `hs_room_id` | string | 上記20件の固定room ID |
+| `hs_variant_id` | string | `normal`または`disordered` |
+
+- 建築、壁、床、天井、動的扉、エレベーター、意味Object、ビット用`NAV_*`はvariant rootの外へ残す。
+- variant対象の作者Objectは最寄りの`room_variant` ancestorちょうど1件へ所属する。variantの入れ子、複数所属、子`VIS_*`／`COL_*`／`NAV_*`への`hs_room_id`・`hs_variant_id`重複記述を認めない。
+- 現行内装の家具種・台数・決定的な乱れを`normal`として維持する。9普通教室の生徒机は30台を残したまま中段2行だけを室内中央から各0.20m外側へ移し、中央を横切るCollider間1.17m以上の連続通路を作る。`disordered`は決定的な1種類とし、普通教室では各室1台の通常机と同位置の机上物を荒れ版だけから除いて倒れ机の歩行面へ置換する。特別室は通常家具を除去せずに追加物を配置する。少なくとも1扉から室内中央と部屋スポーン受入点への経路を残す。
+- 部屋スポーン受入点は下表の`roomBounds`水平中心から0.30m以内にあるactive variantのground polygon上で、対応door rootの床高から共通profileの`walkableClimb`以内にある最短点を、同じ`room_variant_tile`内から選ぶ監査用の決定点とする。家具上面を候補にしない。これは新しい作者markerやRuntime fallbackではない。同距離ならpoly ref昇順を採用し、同じ所有領域内に投影できなければ生成失敗とする。
+- 椅子は人物通過可能とする。倒れた机・棚の歩行面は初段差0.15m以下、傾斜45度以下、Blender短辺1.20m以上（Runtime 0.30m以上）とし、表示、通常Collider、人間用`NAV_*_Walkable`を一致させる。大型家具は閉じた`NAV_*_Blocker`と通常Colliderを持ち、プレイヤー・NPC・BIT移動、ビーム、視線の動的空間集合へ見た目どおり反映する。
+
+各室はvariant共通の`VOL_RoomVariantTile_<token>`を1件持つ。
+
+| Key | 型 | 内容 |
+|---|---|---|
+| `hs_id` | string | `room-variant-tile-<room-id>`形式の一意ID |
+| `hs_role` | string | `room_variant_tile` |
+| `hs_room_id` | string | 所有する固定room ID |
+
+`room_variant_tile`はvariant rootの外へ置き、固定グリッドtileの所有領域に一致する閉じたMeshとする。位置で頂点をweldした全edgeがちょうど2面に共有されるwatertightかつmanifoldな形状を必須とする。NavMesh三角形のベイク入力には使用せず、生成済みtileを静的基盤または1室へ排他的に割り当てるpartitionだけに使用する。全`room_variant_tile`の内面重複は0件とし、各Detour tile key `(tileX, tileY, layer)`は静的基盤または1室だけが所有する。同じ室の`normal`と`disordered`で生成keyが異なる場合は両者のunionをその室の所有keyとし、静的基盤へ同じkeyを残さない。variant切替時は旧variantの全entryをremoveしてから新variantの全entryをaddし、空tileを表すダミーpayload、欠落keyの補完、再生成fallbackを使用しない。
+
+20室の動的扉は次の固定表で既存開口を網羅する。`roomBounds`と開口区間はBlender X/Yメートルで、west壁はY区間、north壁はX区間を表す。door IDは`room-door-<roomId>-<01始まり連番>`とする。
+
+| roomId | roomBounds `(minX,maxX,minY,maxY)` | 壁 | 開口区間 | 件数 |
+|---|---|---|---|---:|
+| `f01-infirmary` | `(-12.45,-3.65,2.65,12.35)` | west | `3.10..4.30`, `10.70..11.90` | 2 |
+| `f01-library` | `(-12.45,-3.65,12.65,32.35)` | west | `13.10..14.30`, `30.70..31.90` | 2 |
+| `f01-staff-room` | `(5.55,23.25,36.65,45.35)` | north | `6.00..7.20`, `21.60..22.80` | 2 |
+| `f01-pc-room` | `(23.55,41.25,36.65,45.35)` | north | `24.00..25.20`, `39.60..40.80` | 2 |
+| `f02-classroom-01` | `(-12.45,-3.65,2.65,12.35)` | west | `3.10..4.30`, `10.70..11.90` | 2 |
+| `f02-classroom-02` | `(-12.45,-3.65,12.65,22.35)` | west | `13.10..14.30`, `20.70..21.90` | 2 |
+| `f02-classroom-03` | `(-12.45,-3.65,22.65,32.35)` | west | `23.10..24.30`, `30.70..31.90` | 2 |
+| `f02-council` | `(5.55,14.25,36.65,45.35)` | north | `6.00..7.20` | 1 |
+| `f02-broadcast` | `(14.55,23.25,36.65,45.35)` | north | `21.60..22.80` | 1 |
+| `f02-science` | `(23.55,41.25,36.65,45.35)` | north | `24.00..25.20`, `39.60..40.80` | 2 |
+| `f03-classroom-01` | `(-12.45,-3.65,2.65,12.35)` | west | `3.10..4.30`, `10.70..11.90` | 2 |
+| `f03-classroom-02` | `(-12.45,-3.65,12.65,22.35)` | west | `13.10..14.30`, `20.70..21.90` | 2 |
+| `f03-classroom-03` | `(-12.45,-3.65,22.65,32.35)` | west | `23.10..24.30`, `30.70..31.90` | 2 |
+| `f03-art` | `(5.55,23.25,36.65,45.35)` | north | `6.00..7.20`, `21.60..22.80` | 2 |
+| `f03-home-ec` | `(23.55,41.25,36.65,45.35)` | north | `24.00..25.20`, `39.60..40.80` | 2 |
+| `f04-classroom-01` | `(-12.45,-3.65,2.65,12.35)` | west | `3.10..4.30`, `10.70..11.90` | 2 |
+| `f04-classroom-02` | `(-12.45,-3.65,12.65,22.35)` | west | `13.10..14.30`, `20.70..21.90` | 2 |
+| `f04-classroom-03` | `(-12.45,-3.65,22.65,32.35)` | west | `23.10..24.30`, `30.70..31.90` | 2 |
+| `f04-ll` | `(5.55,23.25,36.65,45.35)` | north | `6.00..7.20`, `21.60..22.80` | 2 |
+| `f04-music` | `(23.55,41.25,36.65,45.35)` | north | `24.00..25.20`, `39.60..40.80` | 2 |
+
+普通教室9室は各2件、特別室は合計20件で、`room` doorは合計38件である。全階トイレは男女各3個室、4階分の`toilet_stall` doorを合計24件持つ。旧1階個別扉8件、旧上階結合扉3件、旧トイレ固定扉は残さない。校舎、体育館、渡り廊下の固定開放出入口は動的doorへ変換しない。
 
 ## 8. Object custom propertiesとglTF Node `extras`
 
@@ -589,6 +677,8 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 
 `door`、`door_panel`、`door_open_pose`、`door_sweep`は排他的な作者Object分類後に内部`StageDoorAssetRegistry`へ組み立てる。`elevator`とそのcar、stop、door、marker、Volume、`LNK_*` pairは内部`StageElevatorAssetRegistry`へ組み立てる。両RegistryはID参照と親子関係を検証する派生索引であり、作者Objectを元の`visualMeshes`、Collider、marker、volume、link集合から重複分類して取り除かない。
 
+`room_variant` Markerとその子孫、`room_variant_tile` Volumeは内部`StageRoomVariantAssetRegistry`へ組み立てる。Registryは20室×2 variant、最寄りancestorによる排他的所属、固定tile所有を検証する派生索引であり、作者Objectを接頭辞による一次集合から取り除かない。
+
 すべての作者Nodeがちょうど1つの役割集合へ入り、未分類Nodeと重複分類Nodeが0件であることを要求する。glTFローダーの管理ルートとAssetContainer管理親は作者Nodeではないため、この監査から除外する。
 
 ## 11. GLB監査
@@ -617,7 +707,9 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 - `LNK_*`はA/Bが完全なpairである。ビット用pairは両端の遷移方式、双方向性、半径、投影距離、意味タグが一致し、各端点のゾーン・帯が登録済みである。
 - B03-1の学校資産では、校舎1～4階、階段下、体育館、屋上階段室を含む全屋内について、ビットが入り得る範囲の直上を覆う天井`COL_*`が存在し、天井Collider欠落が0件である。
 - B03-3Cの各動的扉は`door`、1件以上のpanel、panelごとのopen pose、1件のsweep Volume、panelごとの表示・Colliderを持つ。classとmotion kind、親子関係、参照ID、閉・開Transformが7.9.1節に一致する。
+- B03-3Cの`room` doorは固定表どおり38件、`toilet_stall` doorは24件である。旧1階個別室扉8件、旧上階結合室扉3件、旧トイレ固定扉は0件であり、固定開放出入口に動的door metadataがない。
 - B03-3Cのエレベーターはcontroller、car、car直下のかご表示・通常Collider各1件以上、1階／4階stop、`elevator` link pair、かご扉、各階乗場扉、occupancy、passenger origin、各階call mat／threshold／gate／waitを7.9.2節の件数で持つ。2階・3階の動的componentは0件である。
+- B03-3Cの`room_variant` Markerは20室×2の40件、`room_variant_tile` Volumeは20件である。各variantは対象`VIS_*`、`COL_*`、人間用`NAV_*`を各1件以上持ち、静的建築・扉・エレベーター・意味Object・BIT用`NAV_*`を子孫に持たない。
 
 ### 11.3 形状とTransform
 
@@ -640,6 +732,7 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 - 学校の窓58組がビット専用`aperture`として登録され、旧`bit_roof`は0件である。
 - 未登録role、未登録`hs_*` property、座標の重複記述がない。
 - 動的扉・エレベーターの`hs_link_id`以外の全参照が期待roleのObject 1件へ解決し、`hs_link_id`はA/B各1 Nodeの検証済み`elevator` StageLinkPair 1件へ解決する。規定されたowner／component相互参照は両方向一致し、孤立、規定外参照、多重所有、異なるelevator間参照が0件である。
+- `hs_room_id`は固定20 IDだけ、`hs_variant_id`は`normal`／`disordered`だけである。各対象作者Objectの最寄りvariant ancestorは1件、nested variant、複数所属、子へのvariant property重複は0件である。
 
 ### 11.5 分類
 
@@ -657,6 +750,15 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 
 NavMeshベイクの入力は、監査済みの同一GLBに含まれる各nav setと、`META_Stage`が指す対応version付きベイクプロファイルだけである。人間用linkとビット用遷移はNavMesh payloadへ焼き込まず、同じGLBからRuntimeが読み、対応グラフへ加える。
 
+- B03-3C以降の人間用プロファイルIDは`school-humanoid-room-variants-v2`、generatorは`tiled`とする。固定bounds、origin、cell size、tile size、最大tile数、最大polygon数を静的基盤と40 variantの全ベイクで共有し、subset geometryから再計算しない。
+- 静的common geometryは全校舎を同じ固定global bounds／共通parameterで一括ベイクし、階段・屋上・プール斜路を物理Y band境界で切断しない。抽出時はDetour source layerを物理Y下限から求めるstable layer keyへ正規化し、tile keyの重複、固定容量超過、再結合失敗を監査する。
+- 静的`.navmesh.bin`は`room_variant_tile`所有keyをすべて除外する。variant bundleの各entryは、当該室の物理Y bandへ決定的にclipした静的`NAV_*`と当該室・当該variantの`NAV_*`を、静的基盤と同じ固定global bounds／共通parameterでベイクしたDetour tile payloadである。bundleへ格納するのは所有Volume内のtileだけとし、最終assemblyで静的基盤とのcross-owner edgeが双方向接続することを必須にする。
+- 部屋variant bundleは24-byte little-endian header、BOMなしminified UTF-8 JSON manifest、raw Detour tile payload連結で構成する。magicは`HSRVNAV\0`、format versionは`1`とし、headerへversion、header長、manifest byte長、payload byte長、entry件数を格納する。
+- manifestは`stageId`、`navProfileId`、`navMeshParams`、`entries`だけを持つ。`navMeshParams`は`origin`、`tileWidth`、`tileHeight`、`maxTiles`、`maxPolys`を持つ。各entryは`roomId`、`variantId`、`tileX`、`tileY`、`layer`、payload先頭相対の`offset`、`length`を持つ。
+- entryは`roomId`、`variantId`、`tileY`、`tileX`、`layer`の順に安定sortする。空payload、範囲外、隙間、重複、未参照payload、Detour tile headerとmanifest座標の不一致を失敗にする。同じ室の通常・荒れentryのunionをその室の所有keyとし、静的基盤と20室の所有keyは排他的である。任意のroom／variant切替で旧entryの全keyを除去して新entryを追加できることを監査する。
+- 40構成すべてで少なくとも1扉の室外点から家具上面を除いた室内中央ground polygonへの完結経路を必須とする。20室の`disordered`は床側probeから斜路低辺、斜路高辺までの2区間が両方完結しなければならない。room／static境界は両owner側から全cross-owner edgeを収集し、各edgeの逆向き接続と`normal`構成の期待portal集合に対する各variantの一致を検証する。
+- 全20室`normal`の最終assemblyで、北西・北東・南西階段の各隣接階、北西階段4階から屋上、屋上からプールサイド、プールサイドからプール底、屋上プール折れ斜路から2階渡り廊下までを双方向に検証する。両端投影、完結したpolygon corridor、`DT_STRAIGHTPATH_ALL_CROSSINGS`の終端一致、距離上限を作者側監査で必須にする。
+- `StageCatalogEntry.roomVariantNavmesh`は`{ mode: "unsupported" }`または`{ mode: "required"; url: string; sha256: string }`の判別可能unionとする。`unsupported`へURL・hashを持たせず、`required`だけがbundle URLと64桁SHA-256を必須とする。互換wrapper、欠落時fallback、Runtime再生成は追加しない。
 - `VIS_*`や`COL_*`を暗黙のベイク入力にしない。
 - GLBへRuntime管理親の`0.25`縮尺を適用したworld座標でベイクする。
 - `walkableHeight`、`walkableClimb`、`walkableRadius`などのRecast値はversion付き共通プロファイルで固定する。
@@ -664,7 +766,7 @@ NavMeshベイクの入力は、監査済みの同一GLBに含まれる各nav set
 - ビット用bundleは帯ごとのRecast payload、zone ID、band IDだけを保持し、空間定義はGLBを正本とする。bundleの欠落、余分、重複、空payload、区間重複・隙間を失敗にする。
 - 通常Web版・Electron版は事前ベイク済みバイナリを読むだけとし、起動時生成を行わない。
 - 実行時生成はベイク結果比較用の開発ツールに限定し、バイナリ欠落時のフォールバックにしない。
-- GLB SHA-256、両ベイクプロファイルIDとhash、Recast実装version、両NavMesh SHA-256を監査記録へ残す。
+- GLB SHA-256、人間・ビット両ベイクプロファイルIDとhash、Recast実装version、静的人間NavMesh、部屋variant bundle、ビットNavMeshのSHA-256を監査記録へ残す。
 - GLBまたはプロファイルが変わった場合、対応NavMesh未再生成を監査失敗とする。
 - NavMeshバイナリを手編集しない。
 

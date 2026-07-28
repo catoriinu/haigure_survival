@@ -20,6 +20,16 @@ const allowedAssets = new Map<string, string>([
     resolve(repositoryRoot, "public", SCHOOL_STAGE.bitNavmeshUrl)
   ]
 ]);
+if (SCHOOL_STAGE.roomVariantNavmesh.mode === "required") {
+  allowedAssets.set(
+    `/${SCHOOL_STAGE.roomVariantNavmesh.url}`,
+    resolve(
+      repositoryRoot,
+      "public",
+      SCHOOL_STAGE.roomVariantNavmesh.url
+    )
+  );
+}
 
 const contentTypeForPath = (path: string) =>
   path.endsWith(".glb")

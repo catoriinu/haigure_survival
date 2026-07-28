@@ -33,6 +33,7 @@ from build_b03_school_interiors import (
     CLASSROOM_REAR_INTERIOR_X_BOUNDS,
     CLASSROOM_REAR_LOCKER_Y,
     CLASSROOM_REAR_WALL_INNER_Y,
+    CLASSROOM_DESK_ROW_Y_OFFSETS,
     CLASSROOM_SCATTER_VARIANTS,
     CLASSROOM_TRASH_BIN_PLACEMENT,
     COUNCIL_INTERIOR_BOUNDS,
@@ -808,7 +809,12 @@ def audit_classroom_teacher_desks_and_lockers() -> dict[str, int]:
             for row in range(6):
                 for column in range(5):
                     desk_x = -11.15 + column * 1.42
-                    desk_y = 4.5 + room_y_offset + row * 1.22
+                    desk_y = (
+                        4.5
+                        + room_y_offset
+                        + row * 1.22
+                        + CLASSROOM_DESK_ROW_Y_OFFSETS[row]
+                    )
                     rotation = rotations.get((column, row), 0.0)
                     expected_desk_bounds = transformed_box_bounds(
                         (desk_x, desk_y, base_z),
@@ -2689,6 +2695,14 @@ def main() -> None:
         (obj for obj in bpy.data.objects if obj.name.startswith("COL_B03_Interior_")),
         key=lambda obj: obj.name,
     )
+    static_nav_colliders = [
+        obj
+        for obj in interior_colliders
+        if not (
+            obj.parent is not None
+            and obj.parent.get("hs_role") == "room_variant"
+        )
+    ]
     nav_blocker = bpy.data.objects.get("NAV_Blocker_Interiors")
     expected_toilet_wall_colliders = {
         f"COL_B03_Interior_Walls_F{floor:02d}_Toilets" for floor in (1, 2, 3, 4)
@@ -2957,7 +2971,10 @@ def main() -> None:
         )
     elevator_lobby_opening = audit_elevator_lobby_opening()
     storey_band_swatches = audit_storey_band_swatches()
-    nav_blocker_parity = audit_nav_blocker_parity(interior_colliders, nav_blocker)
+    nav_blocker_parity = audit_nav_blocker_parity(
+        static_nav_colliders,
+        nav_blocker,
+    )
     classroom_acceptance = audit_classroom_teacher_desks_and_lockers()
     library_acceptance = audit_library_bookshelves()
     bulletin_board_design = audit_bulletin_board_design()

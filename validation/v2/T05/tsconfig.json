@@ -6,6 +6,8 @@
   },
   "include": [
     "main.ts",
+    "npcCommandMain.ts",
+    "npcCommand.test.ts",
     "alertCoordinator.test.ts",
     "alarmSystem.test.ts",
     "assemblyLayout.test.ts",

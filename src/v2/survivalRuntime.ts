@@ -1,4 +1,4 @@
-import { Vector3, type Scene } from "@babylonjs/core";
+import { Frustum, Vector3, type Scene } from "@babylonjs/core";
 
 import {
   prepareBitFlightNavigationRouteCaches
@@ -44,6 +44,10 @@ import {
 import {
   createV2NpcSystem,
   type V2NpcBeamImpact,
+  type V2NpcBeamSpawn,
+  type V2NpcCommandCandidate,
+  type V2NpcCommandKind,
+  type V2NpcCommandQuery,
   type V2NpcExecutionRoleAssignment,
   type V2NpcExternalThreat,
   type V2NpcSystem
@@ -57,7 +61,8 @@ import {
   V2_PLAYER_GUN_BEAM_ORIGIN_OFFSET,
   V2_PLAYER_GUN_BEAM_SPEED,
   createV2PlayerCombatSystem,
-  type V2PlayerCombatSystem
+  type V2PlayerCombatSystem,
+  type V2PlayerGunFireEvent
 } from "./playerCombatSystem";
 import type { V2PlayerController } from "./playerController";
 import {
@@ -128,6 +133,9 @@ export interface V2SurvivalRuntime {
   getFrame(): V2SurvivalFrame;
   canPlayerMove(): boolean;
   selectPlayerCompletion(state: V2PlayerCompletionState): void;
+  getNpcCommandCandidates(): readonly V2NpcCommandCandidate[];
+  requestNpcCommand(npcId: string, kind: V2NpcCommandKind): boolean;
+  cancelNpcFollow(npcId: string): boolean;
   requestPlayerGunFire(direction: Vector3): boolean;
   replayExecution(): void;
   dispose(): void;
@@ -293,6 +301,20 @@ export const createV2SurvivalRuntime = ({
     }
     return frameOrbVisibilityPredicate;
   };
+  const isIndirectLightVisible = (position: Vector3) => {
+    const activeCamera = scene.activeCamera;
+    if (!activeCamera) {
+      throw new Error(
+        "命中演出の間接照明判定にはSceneのactive cameraが必要です。"
+      );
+    }
+    return (
+      stage.queries.castBeamSegment(
+        activeCamera.globalPosition,
+        position
+      ) === null
+    );
+  };
 
   try {
     ownedNpcSystem = createV2NpcSystem({
@@ -325,7 +347,8 @@ export const createV2SurvivalRuntime = ({
       createV2PublicExecutionSystem(random);
     ownedHitEffectSystem = createV2HitEffectSystem({
       scene,
-      random: visualRandom
+      random: visualRandom,
+      isIndirectLightVisible
     });
     humanTargets = Object.freeze([
       playerCombat.createTargetSnapshot(
@@ -385,6 +408,7 @@ export const createV2SurvivalRuntime = ({
   const allNpcIds = Object.freeze(
     npcSystem.getFrameView().targets.map((target) => target.id)
   );
+  const allNpcIdSet = new Set(allNpcIds);
 
   let disposed = false;
   let phase: V2SurvivalPhase = "playing";
@@ -393,6 +417,7 @@ export const createV2SurvivalRuntime = ({
   let actorImpactCount = 0;
   let alarmTriggerCount = 0;
   let pendingPlayerBeamRequests: V2BeamRequest[] = [];
+  let pendingPlayerGunFireEvents: V2PlayerGunFireEvent[] = [];
   let playerBlockedNpcIds: readonly string[] = Object.freeze([]);
   let previousBitThreats: readonly V2NpcExternalThreat[] =
     Object.freeze([]);
@@ -426,6 +451,28 @@ export const createV2SurvivalRuntime = ({
     return target;
   };
 
+  const createNpcCommandQuery = (): V2NpcCommandQuery => {
+    const activeCamera = scene.activeCamera;
+    if (!activeCamera) {
+      throw new Error(
+        "NPC指示候補の抽出にはSceneのactive cameraが必要です。"
+      );
+    }
+    const frustumPlanes = Frustum.GetPlanes(
+      activeCamera.getTransformationMatrix()
+    );
+    return Object.freeze({
+      playerTarget: playerCombat.createTargetSnapshot(
+        player.getFootPosition(),
+        player.getEyePosition()
+      ),
+      cameraPosition: activeCamera.globalPosition.clone(),
+      cameraDirection: activeCamera.getForwardRay().direction.clone(),
+      isInCameraFrustum: (position: Vector3) =>
+        Frustum.IsPointInFrustum(position, frustumPlanes)
+    });
+  };
+
   const canPlayerMove = () => {
     return canV2SurvivalPlayerMove({
       phase,
@@ -440,6 +487,7 @@ export const createV2SurvivalRuntime = ({
   };
 
   const clearCombatForPhaseTransition = () => {
+    npcSystem.clearCommands();
     npcSystem.setAiSuspended(true);
     npcSystem.setExternalThreats(Object.freeze([]));
     npcSystem.setPlayerBlockedTargetIds(Object.freeze([]));
@@ -450,6 +498,7 @@ export const createV2SurvivalRuntime = ({
     alertCoordinator.clear();
     alarmFrame = EMPTY_ALARM_FRAME;
     pendingPlayerBeamRequests = [];
+    pendingPlayerGunFireEvents = [];
     playerBlockedNpcIds = Object.freeze([]);
     previousBitThreats = Object.freeze([]);
     npcSystem.drainBeamRequests();
@@ -720,6 +769,14 @@ export const createV2SurvivalRuntime = ({
     const npcImpactResults = npcSystem.applyBeamImpacts(
       Object.freeze(npcImpacts)
     );
+    if (
+      notificationEntries.some(
+        (entry) =>
+          entry.targetId === PLAYER_ID && entry.playerAccepted
+      )
+    ) {
+      npcSystem.notifyPlayerImpactAccepted();
+    }
     for (const entry of notificationEntries) {
       const accepted =
         entry.npcImpactIndex === null
@@ -1148,7 +1205,9 @@ export const createV2SurvivalRuntime = ({
       rebuildHumanTargets();
       performanceSectionStartedAt =
         performanceDiagnostics?.beginSection("beam") ?? 0;
-      applyBeamImpacts(beamSystem.update(deltaSeconds));
+      const beamEvents = beamSystem.update(deltaSeconds);
+      applyBeamImpacts(beamEvents);
+      npcSystem.notifyBeamCompletions(beamEvents.completions);
       performanceDiagnostics?.finishSection(
         "beam",
         performanceSectionStartedAt
@@ -1368,9 +1427,18 @@ export const createV2SurvivalRuntime = ({
             "beam.spawned",
             npcBeamRequests.length + bitBeamRequests.length
           );
+          const npcBeamSpawns: V2NpcBeamSpawn[] = [];
           for (const request of npcBeamRequests) {
-            beamSystem.spawn(request);
+            npcBeamSpawns.push(
+              Object.freeze({
+                sourceId: request.sourceId,
+                beamId: beamSystem.spawn(request)
+              })
+            );
           }
+          npcSystem.notifyBeamsSpawned(
+            Object.freeze(npcBeamSpawns)
+          );
           for (const request of bitBeamRequests) {
             beamSystem.spawn(request);
           }
@@ -1476,10 +1544,14 @@ export const createV2SurvivalRuntime = ({
           performanceDiagnostics?.beginSection("beam") ?? 0;
         performanceDiagnostics?.count(
           "beam.spawned",
-          pendingPlayerBeamRequests.length
+          pendingPlayerBeamRequests.length +
+            pendingPlayerGunFireEvents.length
         );
         for (const request of pendingPlayerBeamRequests) {
           beamSystem.spawn(request);
+        }
+        for (const event of pendingPlayerGunFireEvents) {
+          beamSystem.spawn(event.beamRequest);
         }
         performanceDiagnostics?.finishSection(
           "beam",
@@ -1487,6 +1559,7 @@ export const createV2SurvivalRuntime = ({
         );
       }
       pendingPlayerBeamRequests = [];
+      pendingPlayerGunFireEvents = [];
       performanceSectionStartedAt =
         performanceDiagnostics?.beginSection(
           "hit-effect"
@@ -1595,6 +1668,39 @@ export const createV2SurvivalRuntime = ({
       rebuildHumanTargets();
       frame = buildFrame();
     },
+    getNpcCommandCandidates: () => {
+      assertActive();
+      if (phase !== "playing") {
+        return Object.freeze([]);
+      }
+      return npcSystem.getCommandCandidates(
+        createNpcCommandQuery()
+      );
+    },
+    requestNpcCommand: (npcId, kind) => {
+      assertActive();
+      if (!allNpcIdSet.has(npcId)) {
+        throw new Error(`未登録のV2 NPC IDです: ${npcId}`);
+      }
+      if (phase !== "playing") {
+        return false;
+      }
+      return npcSystem.requestCommand(
+        npcId,
+        kind,
+        createNpcCommandQuery()
+      );
+    },
+    cancelNpcFollow: (npcId) => {
+      assertActive();
+      if (!allNpcIdSet.has(npcId)) {
+        throw new Error(`未登録のV2 NPC IDです: ${npcId}`);
+      }
+      if (phase !== "playing") {
+        return false;
+      }
+      return npcSystem.cancelFollow(npcId);
+    },
     requestPlayerGunFire: (direction) => {
       assertActive();
       assertFiniteVector("プレイヤー射撃方向", direction);
@@ -1604,14 +1710,15 @@ export const createV2SurvivalRuntime = ({
         );
       }
       if (phase === "playing") {
-        const request = playerCombat.requestGunFire(
+        const event = playerCombat.requestGunFire(
           player.getEyePosition(),
           direction
         );
-        if (!request) {
+        if (!event) {
           return false;
         }
-        pendingPlayerBeamRequests.push(request);
+        pendingPlayerGunFireEvents.push(event);
+        npcSystem.notifyPlayerGunFire(event);
         return true;
       }
       if (phase !== "execution") {
@@ -1667,6 +1774,7 @@ export const createV2SurvivalRuntime = ({
       if (!candidate) {
         throw new Error("公開処刑リプレイ対象がありません。");
       }
+      npcSystem.clearCommands();
       beamSystem.clear();
       hitEffectSystem.clear();
       prepareExecutionTargetStates(candidate);
@@ -1678,11 +1786,13 @@ export const createV2SurvivalRuntime = ({
       applyExecutionPlacements(replayFrame);
       phase = "execution";
       pendingPlayerBeamRequests = [];
+      pendingPlayerGunFireEvents = [];
       rebuildHumanTargets();
       frame = buildFrame();
     },
     dispose: () => {
       assertActive();
+      npcSystem.clearCommands();
       hitEffectSystem.dispose();
       beamSystem.dispose();
       executionSystem.reset();
@@ -1692,6 +1802,7 @@ export const createV2SurvivalRuntime = ({
       alertCoordinator.clear();
       humanTargets = Object.freeze([]);
       pendingPlayerBeamRequests = [];
+      pendingPlayerGunFireEvents = [];
       disposed = true;
     }
   };

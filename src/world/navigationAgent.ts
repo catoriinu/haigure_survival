@@ -42,6 +42,7 @@ export interface NavigationAgent {
     deltaSeconds: number,
     allowPathRecalculation: boolean
   ): NavigationAgentStepResult;
+  completeTransition(location: NavigationLocation): void;
   clear(): void;
 }
 
@@ -144,6 +145,7 @@ class CachedNavigationAgent implements NavigationAgent {
   private secondsSincePathSearch = 0;
   private stuckAnchor: Vector3 | null = null;
   private stuckElapsedSeconds = 0;
+  private pendingTransition: NavigationTransitionStep | null = null;
 
   constructor(
     navigationWorld: NavigationWorld,
@@ -170,6 +172,24 @@ class CachedNavigationAgent implements NavigationAgent {
     assertNonNegativeFiniteNumber("経路追従deltaSeconds", deltaSeconds);
     if (typeof allowPathRecalculation !== "boolean") {
       throw new Error("経路再計画許可にはbooleanが必要です。");
+    }
+
+    if (this.pendingTransition) {
+      const currentStep = this.path?.[this.nextStepIndex] ?? null;
+      if (
+        !currentStep ||
+        currentStep.kind !== "transition" ||
+        currentStep !== this.pendingTransition
+      ) {
+        throw new Error("実行待ち特殊接続と経路状態が一致しません。");
+      }
+      return {
+        location: cloneNavigationLocation(currentLocation),
+        state: "transition-required",
+        pathRecalculated: false,
+        pathDistance: this.pathDistance,
+        transition: this.pendingTransition
+      };
     }
 
     this.secondsSincePathSearch += deltaSeconds;
@@ -239,6 +259,7 @@ class CachedNavigationAgent implements NavigationAgent {
             transition: null
           };
         }
+        this.pendingTransition = step;
         return {
           location,
           state: "transition-required",
@@ -289,12 +310,23 @@ class CachedNavigationAgent implements NavigationAgent {
           };
         }
         assertNavigationLocation("NavMesh移動拘束結果", constrainedLocation);
-        const actualDistance = Vector3.Distance(
-          location.position,
-          constrainedLocation.position
+        const actualHorizontalDistance = Math.hypot(
+          constrainedLocation.position.x - location.position.x,
+          constrainedLocation.position.z - location.position.z
         );
-        if (actualDistance > stepDistance + this.config.waypointTolerance) {
-          throw new Error("NavMesh移動拘束結果が指定移動距離を超えました。");
+        if (
+          actualHorizontalDistance >
+          stepDistance + this.config.waypointTolerance
+        ) {
+          throw new Error(
+            "NavMesh移動拘束結果が指定水平移動距離を超えました。 " +
+              `actualHorizontal=${actualHorizontalDistance}, ` +
+              `requested=${stepDistance}, ` +
+              `tolerance=${this.config.waypointTolerance}, ` +
+              `from=${location.position.toString()}, ` +
+              `desired=${desiredPosition.toString()}, ` +
+              `constrained=${constrainedLocation.position.toString()}`
+          );
         }
         location = constrainedLocation;
         remainingDistance -= stepDistance;
@@ -331,6 +363,33 @@ class CachedNavigationAgent implements NavigationAgent {
     };
   }
 
+  completeTransition(location: NavigationLocation) {
+    assertNavigationLocation("特殊接続完了位置", location);
+    const pending = this.pendingTransition;
+    const currentStep = this.path?.[this.nextStepIndex] ?? null;
+    if (
+      !pending ||
+      !currentStep ||
+      currentStep.kind !== "transition" ||
+      currentStep !== pending
+    ) {
+      throw new Error("完了対象の特殊接続がありません。");
+    }
+    if (
+      location.polygonRef !== pending.exit.polygonRef ||
+      Vector3.Distance(location.position, pending.exit.position) >
+        this.config.waypointTolerance
+    ) {
+      throw new Error("特殊接続完了位置が予定出口と一致しません。");
+    }
+
+    this.nextStepIndex += 1;
+    this.nextPointIndex = 0;
+    this.pendingTransition = null;
+    this.stuckAnchor = location.position.clone();
+    this.stuckElapsedSeconds = 0;
+  }
+
   clear() {
     this.path = null;
     this.resolvedTarget = null;
@@ -341,6 +400,7 @@ class CachedNavigationAgent implements NavigationAgent {
     this.secondsSincePathSearch = this.config.pathRefreshIntervalSeconds;
     this.stuckAnchor = null;
     this.stuckElapsedSeconds = 0;
+    this.pendingTransition = null;
   }
 
   private searchPath(
@@ -369,6 +429,7 @@ class CachedNavigationAgent implements NavigationAgent {
     this.secondsSincePathSearch = 0;
     this.stuckAnchor = currentLocation.position.clone();
     this.stuckElapsedSeconds = 0;
+    this.pendingTransition = null;
   }
 
   private invalidatePath() {
@@ -380,6 +441,7 @@ class CachedNavigationAgent implements NavigationAgent {
     this.secondsSincePathSearch = 0;
     this.stuckAnchor = null;
     this.stuckElapsedSeconds = 0;
+    this.pendingTransition = null;
   }
 
   private detectStuck(

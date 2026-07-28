@@ -15,6 +15,7 @@ import { generateSoloNavMesh } from "recast-navigation/generators";
 import schoolGlbUrl from "../../../public/stage-assets/v2/B02/b02_school_blockout.glb?url";
 import schoolNavmeshUrl from "../../../public/stage-assets/v2/B02/b02_school_blockout.navmesh.bin?url";
 import schoolBitNavmeshUrl from "../../../public/stage-assets/v2/B02/b02_school_blockout.bit-flight.navmesh.bin?url";
+import schoolRoomVariantNavmeshUrl from "../../../public/stage-assets/v2/B02/b02_school_blockout.room-variants.navmesh.bin?url";
 import {
   BIT_FLIGHT_TRANSITION_SPEED_WORLD_UNITS_PER_SECOND,
   createBitFlightAgent
@@ -47,13 +48,13 @@ import {
   type StageCatalogEntry
 } from "../../../src/world/stageCatalog";
 import {
+  SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
+} from "../../../src/world/schoolRuntimeSettings";
+import {
   loadStageSpatialContext,
   type StageSpatialContext
 } from "../../../src/world/stageSpatialContext";
-import {
-  createStageSpatialQueries,
-  type StageVolume
-} from "../../../src/world/stageSpatialQueries";
+import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import { createStageWorldBoundary } from "../../../src/world/stageWorldBoundary";
 import { createV2BeamSystem } from "../../../src/v2/beamCollision";
 import { createV2BitSystem } from "../../../src/v2/bitSystem";
@@ -86,6 +87,7 @@ import {
   runPerformanceDiagnosticsLifecycleTests,
   runSurvivalRuntimeLifecycleTests
 } from "./survivalRuntimeLifecycle.test";
+import { createDynamicStageSpatialQueryFixture } from "./stageSpatialQueryFixture";
 import { runWorldBoundaryTests } from "./worldBoundary.test";
 
 import "./style.css";
@@ -109,7 +111,12 @@ const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   ...SCHOOL_STAGE,
   glbUrl: toStageRelativeAssetUrl(schoolGlbUrl),
   navmeshUrl: toStageRelativeAssetUrl(schoolNavmeshUrl),
-  bitNavmeshUrl: toStageRelativeAssetUrl(schoolBitNavmeshUrl)
+  bitNavmeshUrl: toStageRelativeAssetUrl(schoolBitNavmeshUrl),
+  roomVariantNavmesh: Object.freeze({
+    mode: "required",
+    url: toStageRelativeAssetUrl(schoolRoomVariantNavmeshUrl),
+    sha256: "78a0f481aae3abd6a6e403c60fc0debc1c70941c8b7956f17e35006df10c3afd"
+  })
 });
 
 type ValidationCheck = Readonly<{
@@ -608,19 +615,25 @@ const showcaseMovementColliders = Object.freeze({
   npc: Object.freeze([showcaseBlocker]),
   bit: Object.freeze([showcaseBlocker])
 });
-const showcaseQueries = createStageSpatialQueries(scene, {
-  movementColliders: showcaseMovementColliders,
-  groundColliders: Object.freeze([]),
-  beamBlockers: Object.freeze([showcaseBlocker]),
-  sightBlockers: Object.freeze([showcaseBlocker]),
-  volumes: Object.freeze([])
-});
+const showcaseSpatial = createDynamicStageSpatialQueryFixture(
+  scene,
+  {
+    movementColliders: showcaseMovementColliders,
+    groundColliders: Object.freeze([]),
+    beamBlockers: Object.freeze([showcaseBlocker]),
+    sightBlockers: Object.freeze([showcaseBlocker]),
+    bitObstacles: showcaseMovementColliders.bit
+  },
+  { volumes: Object.freeze([]) }
+);
+const showcaseQueries = showcaseSpatial.queries;
 const showcaseStage = Object.freeze({
   resources: Object.freeze({
     beamBlockers: Object.freeze([showcaseBlocker]),
     sightBlockers: Object.freeze([showcaseBlocker])
   }),
   worldBoundary: showcaseWorldBoundary,
+  dynamicVariants: showcaseSpatial.dynamicVariants,
   queries: showcaseQueries
 }) as unknown as StageSpatialContext;
 let showcaseRandomState = 0xa511e9b3;
@@ -638,7 +651,8 @@ const showcaseBeamSystem = createV2BeamSystem({
 });
 const showcaseHitEffectSystem = createV2HitEffectSystem({
   scene,
-  random: showcaseRandom
+  random: showcaseRandom,
+  isIndirectLightVisible: () => true
 });
 const showcaseTarget: V2HumanTargetSnapshot = Object.freeze({
   id: "t05v-showcase-target",
@@ -732,8 +746,8 @@ const disposeShowcase = () => {
   scene.onBeforeRenderObservable.remove(showcaseObserver);
   showcaseHitEffectSystem.dispose();
   showcaseBeamSystem.dispose();
+  showcaseSpatial.dispose();
   showcaseWorldBoundary.dispose();
-  showcaseQueries.dispose();
   showcaseBlocker.dispose(false, false);
   showcaseStageBoundaryMesh.dispose(false, false);
   showcaseWorldMesh.dispose(false, false);
@@ -1727,7 +1741,11 @@ const runValidation = async () => {
       try {
         lifecycleStage = await loadStageSpatialContext(
           scene,
-          SCHOOL_VALIDATION_STAGE
+          SCHOOL_VALIDATION_STAGE,
+          {
+            roomVariantSelections:
+              SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
+          }
         );
         runtimeLifecycleResults.push(
           ...(await runSurvivalRuntimeLifecycleTests(

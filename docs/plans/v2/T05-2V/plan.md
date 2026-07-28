@@ -24,6 +24,12 @@
 
 > 基本的な型検査と実装テストを行い、問題がなければT05-2VブランチをpushしてPull Requestを作成してください。
 
+2026-07-28 人間受入による命中演出訂正:
+
+> 自分が光線命中を受けていない時にも、他キャラクターの命中付近で画面全体がフラッシュし、壁が一瞬消えたように見える問題が高頻度で発生します。原因を特定して修正してください。
+>
+> 命中時の光の球そのものは維持し、周囲へ映る間接照明を弱めてください。通常壁など光線を通さない遮蔽物の向こう側へは漏らさず、窓や柵など光線を通す遮蔽物越しの漏光は許容します。
+
 PR #50のT05-2主要Runtimeは2026-07-26に`develop`へマージ済みである。残作業を同じPRへ追加せず、V1光線演出と共通世界境界終了だけをT05-2Vの独立成果として実装する。
 
 ## 確定方針
@@ -38,6 +44,14 @@ PR #50のT05-2主要Runtimeは2026-07-26に`develop`へマージ済みである�
 - `StageCatalogEntry.worldBoundaryMode`と`StageSpatialContext.worldBoundary`をRuntime仕様4節どおり追加する。`required`では`BND_WorldLimit`を正確に1件要求し、`unsupported`ではObjectを持たず`worldBoundary=null`とする。
 - T05-2Vの非学校fixtureを`required`にする。B04前の学校と既存の非対応fixtureは`unsupported`を維持し、旧境界や時間終了へ暗黙fallbackしない。
 - NPC状態別スプライト表示、BIT動的スポーン、プレイヤー開始地点、音声、G／N／H入力は本タスクへ含めない。
+
+### 人間受入訂正の確定方針
+
+- NPC命中球まで`backFaceCulling=false`になっている回帰を修正し、player球だけを両面描画、NPC球を外面だけの片面描画へ戻す。命中球のpink／cyan、emissive、alpha、寸法、周囲orbは変更しない。
+- 命中PointLightの強度を1.1から0.4へ下げ、`Light.FALLOFF_GLTF`を明示して既存range内で滑らかに0へ減衰させる。
+- active cameraから命中中心まで`StageSpatialQueries.castBeamSegment()`で毎frame判定し、通常壁、閉扉などbeam blockerがある時だけ間接照明の強度を0にする。光線を通すActorOnly／HumanOnly窓・柵は遮蔽物に追加せず、弱い漏光を許容する。
+- PointLightごとのcube shadow mapは追加しない。99 NPC／50 BITの同時命中時にshadow mapを増やさず、既存の動的beam blocker集合を照明可視性の正本として再利用する。
+- active camera欠落、可視性callback欠落、旧強度へのfallbackを追加せず、必要なcallbackを必須契約として全利用元へ接続する。
 
 ## 実行単位と推奨設定
 
@@ -74,6 +88,12 @@ PR #50のT05-2主要Runtimeは2026-07-26に`develop`へマージ済みである�
 - [x] T05ブラウザfixtureの全項目PASSとconsole／Babylon Logger／unhandled rejection 0件を確認する
 - [x] UTF-8、BOM、ローカル絶対パス、差分、競合marker、括弧対応を最終確認して検証結果をcommitする
 - [x] `codex/v2-t05-2v-beam-effects`をoriginへpushし、`develop`向けDraft Pull Requestを作成する
+- [x] 人間受入報告と現行V1／V2実装を照合し、NPC球の両面描画と遮蔽なしPBR PointLightを全画面フラッシュの原因として特定する
+- [x] player／NPC別のback-face設定、PointLight強度0.4、glTF falloff、beam blockerによる間接照明遮蔽を実装する
+- [x] pool再利用時の設定混線、遮蔽false／true、fade中復帰をT05回帰へ追加する
+- [ ] 実stageの閉扉／開扉revisionと窓越し漏光をT05統合回帰へ追加する
+- [ ] 実ブラウザでNPC球内、薄い壁の反対側、窓越し、player被弾、同時被弾を確認し、全画面フラッシュと壁越し照明が再発しないことを確認する
+- [x] 関連型検査、通常・T05 build、console、資源pool、UTF-8 BOMなし、括弧対応、`git diff --check`を再確認する
 
 ## 結果
 
@@ -106,3 +126,15 @@ T05ブラウザfixtureはPR #52統合後の期待値を含む252／252項目がP
 公開対象は`origin/develop`との差分19ファイルで、T05-2Vが所有する光線Runtime、世界境界契約、非学校T05 fixture、統合に必要なT04期待値、本計画に限定されている。strict UTF-8、BOMなし、ローカル絶対パスなし、競合marker 0件、`git diff --check`を確認した。TypeScriptの括弧・構文対応は全型検査と全buildの成功でも確認した。
 
 検証済みブランチ`codex/v2-t05-2v-beam-effects`をoriginへpushし、`develop`向けDraft Pull Request #53「T05-2V: 光線演出と世界境界フェードを復元」を作成した。Pull Request本文には変更範囲、実行した検証、性能未達とT07への引継ぎ、B04／T06で行う実学校境界統合を記録した。`develop`への統合は行っていない。
+
+2026-07-28のI0人間受入で、他NPC命中時に画面全体がフラッシュし、壁が消えたように見える問題を確認した。V2共通bundle化でNPC命中球まで両面描画となり、カメラが直径約0.493mの球内へ入るとemissive内面が全画面を覆う。加えて強度1.1のPointLightはglTF由来PBR材で既存rangeが意図した局所打切りにならず、遮蔽判定なしで通常壁の向こうまで0.12秒周期のpink／cyanを照らしていた。playerだけ両面、NPCは片面、強度0.4、glTF falloff、cameraから命中中心までのbeam blocker判定を確定修正とした。実装と回帰は未完了である。
+
+同日、確定修正をI0 branchへ実装した。NPC命中球は裏面カリングを有効、player命中球は両面描画を維持し、pool取得ごとに対象種別を再設定する。PointLightは強度0.4とglTF falloffへ変更した。active cameraから命中中心への`StageSpatialQueries.castBeamSegment`が不透明壁または閉扉へ命中する間はPointLight強度を0とし、窓・柵のようにbeamを通す形状では漏光を許可する。active camera欠落は明示エラーとし、fallbackは追加していない。
+
+T05回帰はNPC→player→NPCのpool再利用、裏面設定、強度0.4、glTF falloff、遮蔽false／true、点滅中とfade中の動的復帰を通過した。`typecheck:v2`、`typecheck:t05`、通常build、`build:t05`は成功し、T05実ブラウザ254/254とT05-3 16/16はconsole warning／error 0件だった。build済みElectronはNPC命中を含むBEAM・着弾更新を継続し、DevToolsはBabylon.js情報行1件だけでwarning／error 0件だった。薄い壁の反対側、窓越し、player被弾、同時被弾を組み合わせた人間の最終目視はPull RequestのV0第1重点ゲートへ残す。
+
+最終静的検査は変更テキストのstrict UTF-8、BOMなし、ローカル絶対パスなし、競合marker 0件、全buildによるTypeScriptの括弧対応、`git diff --check`を通過した。実stageの閉扉／開扉revisionと窓越し漏光を組み合わせるT05統合回帰は未追加であり、上記の人間目視とともに未完了項目として維持する。
+
+同日の第2次人間受入で残った「校舎PBR Meshだけが一瞬消え、空色とSpriteだけが残る」フラッシュは、プレイ中のPointLight生成とenabled切替がStage 604 Meshのlight defineをdirtyにし、KHR_parallel_shader_compile中の1フレームを未描画にすることが原因だった。`HitEffectSystem`生成時に3灯を同期作成して破棄まで常時enabledとし、待機・遮蔽・返却は`intensity=0`と有限正値`range=1`だけで表す。先着3件だけが間接照明slotを使い、4件目以降もshell、点滅、fade、orbを継続する。
+
+Stage代替PBR Meshを含む4件同時命中回帰はScene light数3、Stage light source数3、light dirty 0、`idleRange=1`を確認した。最終T05実ブラウザは255/255、warning／error 0件で、build済みElectronも多数のBEAM・着弾中に校舎表示を維持し、DevToolsはBabylon.js初期化情報1件だけだった。壁越し、窓越し、player被弾を組み合わせた1ゲーム以上の目視はPull RequestのV0第1重点ゲートへ残す。

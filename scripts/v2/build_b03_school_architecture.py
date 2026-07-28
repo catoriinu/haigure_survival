@@ -34,6 +34,10 @@ from build_b03_school_interiors import (
     consolidate_school_materials,
     swatch_uv,
 )
+from build_b03_school_interactive_assets import (
+    ROOM_VARIANT_AUTHOR_NAMES,
+    build_school_interactive_assets,
+)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -71,7 +75,8 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 )
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
-GENERATOR_VERSION = "b03-3b-structure-v13"
+HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
+GENERATOR_VERSION = "b03-3c-interactive-assets-v2"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -251,6 +256,25 @@ GENERATED_PREFIXES = (
     "COL_StairGuardSystem_SW_",
     "VIS_RoofGuard_",
     "COL_RoofGuard_",
+    "MRK_RoomVariant_",
+    "VOL_RoomVariantTile_",
+    "VIS_RoomVariant_",
+    "COL_RoomVariant_",
+    "NAV_RoomVariant_",
+    "MRK_Door_",
+    "MRK_DoorPanel_",
+    "MRK_DoorOpenPose_",
+    "VIS_DoorPanel_",
+    "COL_DoorPanel_",
+    "VOL_DoorSweep_",
+    "MRK_Elevator",
+    "VIS_ElevatorCar_",
+    "VIS_ElevatorThresholdPlate_",
+    "COL_ElevatorCar_",
+    "COL_ElevatorThresholdPlate_",
+    "VOL_Elevator",
+    "COL_HumanOnly_ElevatorGate_",
+    "LNK_school-elevator-",
 )
 
 GENERATED_EXACT_NAMES = {
@@ -394,6 +418,20 @@ SOURCE_OBJECTS_TO_REMOVE = {
     "COL_StairClosure_SW",
     "VIS_Floor_ToiletFront",
     "VIS_Floor_ToiletZone",
+    "VIS_DoorLeaf_Classroom1_Front",
+    "VIS_DoorLeaf_Classroom1_Rear",
+    "VIS_DoorLeaf_S1Front",
+    "VIS_DoorLeaf_S1Rear",
+    "VIS_DoorLeaf_S2Front",
+    "VIS_DoorLeaf_S2Rear",
+    "VIS_DoorLeaf_SpecialRoomWest_Front",
+    "VIS_DoorLeaf_SpecialRoomWest_Rear",
+    "VIS_ToiletStallDoor_Open_F_01",
+    "VIS_ToiletStallDoor_Open_F_02",
+    "VIS_ToiletStallDoor_Open_F_03",
+    "VIS_ToiletStallDoor_Open_M_01",
+    "VIS_ToiletStallDoor_Open_M_02",
+    "VIS_ToiletStallDoor_Open_M_03",
 }
 
 for prefix in ("VIS_", "COL_"):
@@ -2357,39 +2395,6 @@ def upper_interior_wall_boxes(
     return boxes
 
 
-def upper_door_leaf_boxes(
-    floor: int,
-    base_z: float,
-) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
-    del floor
-    boxes = []
-    for index, (start, end) in enumerate(UPPER_WEST_CLASSROOM_DOOR_OPENINGS):
-        if index % 2 == 0:
-            boxes.append(
-                ((-3.42, end + 0.05, base_z), (-3.34, end + 1.15, base_z + 2.3))
-            )
-        else:
-            boxes.append(
-                ((-3.42, start - 1.15, base_z), (-3.34, start - 0.05, base_z + 2.3))
-            )
-    for index, (start, end) in enumerate(NORTH_CLASSROOM_DOOR_OPENINGS):
-        if index == 1:
-            # 西側特別教室の前扉は東端を蝶番として南へ90度開く。
-            boxes.append(
-                ((end - 0.09, 35.35, base_z), (end - 0.01, 36.45, base_z + 2.3))
-            )
-        elif index == 3:
-            # 東側特別教室の東端扉は、1階と同じく開口の西側へ寄せる。
-            boxes.append(
-                ((start - 1.15, 36.30, base_z), (start - 0.05, 36.38, base_z + 2.3))
-            )
-        else:
-            boxes.append(
-                ((end + 0.05, 36.30, base_z), (end + 1.15, 36.38, base_z + 2.3))
-            )
-    return boxes
-
-
 def subtract_intervals(
     minimum: float,
     maximum: float,
@@ -2803,7 +2808,6 @@ def build_upper_floors_and_rooms(
     collider_collection: bpy.types.Collection,
     floor_material: bpy.types.Material,
     wall_material: bpy.types.Material,
-    door_material: bpy.types.Material,
 ) -> list[bpy.types.Object]:
     generated_colliders: list[bpy.types.Object] = []
     first_floor_stair_boundary_caps = [
@@ -2911,12 +2915,6 @@ def build_upper_floors_and_rooms(
             )
         )
 
-        create_mesh_object(
-            f"VIS_B03_DoorLeaves_F{floor:02d}",
-            upper_door_leaf_boxes(floor, base_z),
-            visual_collection,
-            door_material,
-        )
     return generated_colliders
 
 
@@ -3350,12 +3348,12 @@ def rebuild_gym_envelope_and_stage() -> None:
     for object_name in ("VIS_GymStage", "COL_GymStage"):
         replace_existing_boxes(
             object_name,
-            [((41.4, -11.0, 0.0), (51.4, -2.0, 1.0))],
+            [((40.6, -11.0, 0.0), (52.2, -2.0, 1.0))],
         )
 
     for side, x_minimum, direction in (
-        ("West", 39.9, 1.0),
-        ("East", 52.9, -1.0),
+        ("West", 39.1, 1.0),
+        ("East", 53.7, -1.0),
     ):
         for step_index in range(1, 6):
             if direction > 0:
@@ -3375,8 +3373,8 @@ def rebuild_gym_envelope_and_stage() -> None:
             )
 
     for side, low_x, high_x in (
-        ("West", 39.9, 41.4),
-        ("East", 52.9, 51.4),
+        ("West", 39.1, 40.6),
+        ("East", 53.7, 52.2),
     ):
         replace_stage_ramp_geometry(
             f"COL_GymStageStairRamp_{side}",
@@ -3386,8 +3384,8 @@ def rebuild_gym_envelope_and_stage() -> None:
             -8.6,
         )
     for side, x_minimum, x_maximum in (
-        ("West", 41.25, 41.55),
-        ("East", 51.25, 51.55),
+        ("West", 40.45, 40.75),
+        ("East", 52.05, 52.35),
     ):
         for prefix in ("VIS", "COL"):
             replace_existing_boxes(
@@ -3510,8 +3508,8 @@ def build_b03_3b_structure(
         ((33.6, -2.15, 7.25), (35.0, -1.85, 9.0)),
         ((35.0, -2.15, 0.0), (36.8, -1.85, 9.0)),
         ((36.8, -2.15, 2.4), (39.2, -1.85, 9.0)),
-        ((39.2, -2.15, 0.0), (41.4, -1.85, 9.0)),
-        ((51.4, -2.15, 0.0), (53.6, -1.85, 9.0)),
+        ((39.2, -2.15, 0.0), (40.6, -1.85, 9.0)),
+        ((52.2, -2.15, 0.0), (53.6, -1.85, 9.0)),
         ((53.6, -2.15, 2.4), (56.0, -1.85, 9.0)),
         ((56.0, -2.15, 0.0), (57.8, -1.85, 9.0)),
         ((57.8, -2.15, 0.0), (59.2, -1.85, 5.10)),
@@ -3731,8 +3729,10 @@ def build_b03_3b_structure(
         ((-11.8, -6.7, 0.0), (-11.5, -3.7, 14.4)),
         ((-11.5, -6.7, 0.0), (-8.8, -6.4, 14.4)),
         ((-11.5, -4.0, 0.0), (-8.8, -3.7, 14.4)),
-        ((-9.1, -6.7, 0.0), (-8.8, -5.9, 14.4)),
-        ((-9.1, -4.5, 0.0), (-8.8, -3.7, 14.4)),
+        ((-9.1, -6.7, 0.0), (-8.88, -5.9, 14.4)),
+        ((-9.1, -4.5, 0.0), (-8.88, -3.7, 14.4)),
+        ((-8.78, -6.7, 0.0), (-8.72, -5.9, 14.4)),
+        ((-8.78, -4.5, 0.0), (-8.72, -3.7, 14.4)),
         ((-9.1, -5.9, 2.4), (-8.8, -4.5, 3.6)),
         ((-9.1, -5.9, 6.0), (-8.8, -4.5, 7.2)),
         ((-9.1, -5.9, 9.6), (-8.8, -4.5, 10.8)),
@@ -3845,17 +3845,6 @@ def build_b03_3b_structure(
         visual_collection,
         architecture_material,
     )
-    shaft_safety_boxes = [
-        ((-9.05, -5.9, 0.0), (-8.75, -4.5, 2.4)),
-        ((-9.05, -5.9, 10.8), (-8.75, -4.5, 13.2)),
-    ]
-    create_mesh_object(
-        "COL_B03_ElevatorShaftSafety",
-        shaft_safety_boxes,
-        collider_collection,
-    )
-    blocker_names.append("COL_B03_ElevatorShaftSafety")
-
     return {
         "blocker_names": tuple(blocker_names),
         "gallery_nav_sources": ("COL_B03_GymGalleryFloor",),
@@ -5097,6 +5086,19 @@ def is_bit_flight_obstacle_exempt_collider_name(name: str) -> bool:
     return name == "COL_B03_GymGalleryGuards"
 
 
+def has_dynamic_spatial_ancestor(obj: bpy.types.Object) -> bool:
+    ancestor = obj.parent
+    while ancestor is not None:
+        if ancestor.get("hs_role") in {
+            "room_variant",
+            "door_panel",
+            "elevator_car",
+        }:
+            return True
+        ancestor = ancestor.parent
+    return False
+
+
 def build_bit_flight_obstacle_sources(
     nav_collection: bpy.types.Collection,
 ) -> None:
@@ -5109,6 +5111,7 @@ def build_bit_flight_obstacle_sources(
                 if obj.type == "MESH"
                 and obj.name.startswith("COL_")
                 and not obj.name.startswith("COL_HumanOnly_")
+                and not has_dynamic_spatial_ancestor(obj)
                 and not is_bit_flight_support_collider_name(obj.name)
                 and not is_bit_flight_obstacle_exempt_collider_name(obj.name)
             ),
@@ -5414,6 +5417,7 @@ def configure_stage_navigation_contract() -> None:
     if metadata is None or metadata.type != "EMPTY":
         raise RuntimeError("META_Stageがありません")
     metadata["hs_schema_version"] = 2
+    metadata["hs_nav_profile"] = HUMAN_NAV_PROFILE
     metadata["hs_bit_nav_profile"] = BIT_FLIGHT_NAV_PROFILE
 
     for obj in bpy.data.objects:
@@ -5737,7 +5741,6 @@ def main() -> None:
             collider_collection,
             floor_material,
             wall_material,
-            door_material,
         )
     )
     b03_3b_result = build_b03_3b_structure(
@@ -5760,7 +5763,10 @@ def main() -> None:
     build_pool(visual_collection, semantic_collection, water_material)
     build_minimum_props(visual_collection, collider_collection, bench_material)
     interior_result = build_school_interiors(
-        visual_collection, collider_collection, nav_collection
+        visual_collection,
+        collider_collection,
+        nav_collection,
+        ROOM_VARIANT_AUTHOR_NAMES,
     )
     interior_result["removed_redundant_school1f_nav_boxes"] = (
         remove_redundant_first_floor_nav_blocker_boxes()
@@ -5780,6 +5786,18 @@ def main() -> None:
         upper_colliders,
         window_colliders,
         b03_3b_result,
+    )
+    interactive_result = build_school_interactive_assets(
+        visual_collection,
+        collider_collection,
+        nav_collection,
+        semantic_collection,
+        door_material,
+        architecture_material,
+        furniture_material,
+    )
+    bpy.context.scene["b03_3c_interactive_result"] = json.dumps(
+        interactive_result, ensure_ascii=False, sort_keys=True
     )
     configure_stage_navigation_contract()
     build_bit_flight_nav_sources(nav_collection)
@@ -5825,6 +5843,7 @@ def main() -> None:
     bpy.context.scene["b03_2_material_result"] = json.dumps(
         material_result, ensure_ascii=False, sort_keys=True
     )
+    remove_final_unused_authoring_data()
 
     bpy.context.scene[GENERATOR_VERSION_PROPERTY] = GENERATOR_VERSION
     bpy.context.scene[T04_CORRECTION_VERSION_PROPERTY] = T04_CORRECTION_VERSION

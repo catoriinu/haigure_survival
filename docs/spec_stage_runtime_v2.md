@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 3Dステージランタイム仕様書
 
-更新日: 2026-07-26
+更新日: 2026-07-28
 対象バージョン: v2
 
 ## 1. 文書の位置付け
@@ -38,6 +38,13 @@ export type StageCatalogEntry = Readonly<{
   glbUrl: string;
   navmeshUrl: string;
   bitNavmeshUrl: string;
+  roomVariantNavmesh:
+    | Readonly<{ mode: "unsupported" }>
+    | Readonly<{
+        mode: "required";
+        url: string;
+        sha256: string;
+      }>;
   assetSchemaVersion: number;
   worldBoundaryMode: "required" | "unsupported";
   navProfileId: string;
@@ -49,9 +56,10 @@ export type StageCatalogEntry = Readonly<{
 ```
 
 - `id`はGLBの`META_Stage.hs_stage_id`と一致させる。
+- `roomVariantNavmesh`は部屋variant非対応時の`unsupported`と、bundle URL・SHA-256を必須にする`required`の判別可能unionとする。互換wrapper、欠落時fallback、Runtime再生成は使用しない。
 - `worldBoundaryMode`は空間形状ではなく、対応資産世代を厳格に選ぶ非空間契約である。`required`では`BND_WorldLimit`を正確に1件要求し、`unsupported`では同Objectを許可しない。
 - `navProfileId`と`bitNavProfileId`はGLBと各NavMesh生成記録の双方に一致させる。
-- 3資産のいずれかのハッシュが不一致なら読込失敗とし、古い成果物を継続使用しない。
+- GLB、静的人間用NavMesh、対応時の部屋variant bundle、ビット用NavMeshのいずれかのハッシュが不一致なら読込失敗とし、古い成果物を継続使用しない。
 - 当面のカタログ件数は学校1件とする。
 
 ## 4. `StageSpatialContext`
@@ -269,6 +277,8 @@ export interface NavigationWorld {
 ```
 
 - `NavigationLocation`はBabylon world座標と、その位置が属するRecast polygonの`polygonRef`を必ず組で保持する。現在地、経路点、目的地、移動拘束結果、ランダム点から`polygonRef`を捨てて`Vector3`だけへ戻してはならない。
+- 固定グリッドtiled人間用NavMeshでは、隣接tileの共有XZ境界で、`walkableClimb`以内の量子化Y差を持つpolygonへ`constrainMovement()`が遷移できる。`NavigationAgent`は速度×`deltaSeconds`の移動予算超過をXZ水平距離で厳格判定し、Detourが返したYと`polygonRef`をそのまま次の`NavigationLocation`へ保持する。Y差を`waypointTolerance`へ加算せず、Yクランプ、例外握りつぶし、Runtime再生成で代用しない。描画・衝突の足元は`sampleGround()`の物理床を正本とする。
+- 固定グリッドtiled学校NavMeshの経路探索は、Detourの16-bit node indexで予約値を除いた最大値に合わせ、`NavMeshQuery` node 65,535件、polygon corridor 32,768件、straight path 4,096点を上限とする。node上限とpolygon corridor上限の超過は区別し、経路なしへ読み替えず例外にする。作者側の全階代表経路監査も同じnode上限で容量内を確認する。
 - 同じ水平位置に上下の床が重なる場合は、現在の`polygonRef`から到達可能な面を使う。X/Z距離だけで最寄りの別階へ再投影しない。
 - 経路なし、投影不能は`null`とし、標的への直進へ切り替えない。
 - 人間用`surface` stepは通常床、段差、階段ランプ、踊り場を通るNavMesh上の3D点列、`transition` stepは人間用`LNK_*`の固定接続を表す。両者を単一の点列へ潰さない。
@@ -277,7 +287,7 @@ export interface NavigationWorld {
 - 通常扉、段差、階段ランプ、踊り場は連続NavMeshとして表す。
 - 梯子、昇降機、テレポートなど、人間用の連続面で表せない接続だけを`StageLinkRegistry`で補う。
 - 人間用`findPath()`へビット用NavMeshやビット遷移を渡さない。ビットも人間用NavMeshへ暗黙にフォールバックしない。
-- 特殊接続A*の端点間`surface`経路は、探索で必要になった時点で初めて計算する。キャッシュキーは順不同の端点index pairとし、`path`または`null`を保持する。逆方向は同じ経路点を反転して再利用し、起動時の全端点間探索、LRU、遷移数上限、直線フォールバックは設けない。
+- 特殊接続A*の端点間`surface`経路は、探索で必要になった時点で初めて計算する。キャッシュキーは始点・終点の向きを含む有向端点index pairとし、方向ごとに`findSurfaceStep()`で得た`polygonRef`付き`path`または`null`を保持する。逆方向へ同じ経路の座標・`polygonRef`を単純反転せず、起動時の全端点間探索、LRU、遷移数上限、直線フォールバックは設けない。
 - `transition.distance`は`entry→作者端点from + 作者端点from→作者端点to + 作者端点to→exit`の3区間合計とする。
 - 人間用経路追従は`transition`入口へ到達した時点で`transition-required`を返す。ビットは後述する独立した飛行経路と遷移実行器を使用する。
 
@@ -468,7 +478,7 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 - T05-1Aは汎用飛行ゾーン・帯、別ビットNavMesh bundle、接続グラフ、非学校fixture、学校データ移行を担当する。
 - T05-1Bは11.1節のV1飛行表現、高度・天井・衝突安全、探索・追跡、全遷移の実飛行を担当する。
 - T05-2は既存の戦闘モード、射程維持、通常CHASE・固定・ランダム・カーペット・NPC gun・プレイヤーgun・公開処刑の全光線物理、警報、標的状態遷移を3D空間へ統合する。
-- T05-2VはV1光線演出、演出資源再利用、`BND_WorldLimit`退出点での非着弾フェードを担当する。
+- T05-2VはV1光線演出、演出資源再利用、`BND_WorldLimit`退出点での非着弾フェードを担当する。命中間接照明は`HitEffectSystem`生成時に3灯の`PointLight`を同期作成し、同System破棄まで常時enabledの固定slotとして保持する。待機、遮蔽、返却では`intensity=0`、`range=1`の有限正値にし、命中開始・終了時にLightを追加、破棄、有効化、無効化してStage PBR shaderのLight構成を変更しない。同時命中の先着3件だけがslotを取得し、4件目以降も命中shell、点滅、fade、周囲orbは省略せず継続する。
 - T04-3Aは`DynamicStageSpatialVariants`、revision付き動的問い合わせ、扉・エレベーター状態機械、非学校fixture、部屋variant NavMeshタイル組立基盤を担当する。
 - T04-3BはB03-3C／B04の学校metadata、20室variant、全陣営NPCの扉・エレベーター利用を実学校へ統合する。
 - B04は学校外周表示、外周BIT飛行帯、`BND_WorldLimit`の資産と派生NavMeshを担当する。
@@ -488,6 +498,7 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 - V2モジュールにステージJSON、`GridLayout`、`FloorCell`、`worldToCell`、`cellToWorld`、セルBFS参照がない。
 - `StageSpatialContext.links`は人間用pairだけ、`StageSpatialContext.bitNavigation.transitions`はビット用遷移だけを公開し、相互に混在しない。
 - 同じX/Zに重なる上下床の`NavigationLocation`が異なる`polygonRef`を保持し、現在地・目的地・移動結果が別階へ誤投影されない。
+- tiled NavMesh境界の固定回帰では、速度0.3・`deltaSeconds=0.0168`のNPC更新中にYが約0.475から0.5へsnapして隣接polygonへ遷移しても、XZ移動が0.00504の予算内なら追跡を継続し、実際のXZ超過は例外にする。
 - 学校の主玄関、教室扉、校庭、渡り廊下、体育館、北西階段の1階～屋上、北東・南西階段の1階～4階が連続NavMeshで接続される。北東・南西から屋上へは接続せず、屋上移動は北西階段を使う。承認済み特殊接続は通常NavMeshが成立しない場合だけ補助する。
 - 壁を挟んだ`surface`経路が扉へ迂回し、閉鎖地点と窓開口を通常経路として通らない。階段経路の各点は正しい床高と`polygonRef`を持つ。
 - 窓58組はビット用`aperture`としてだけ現れ、プレイヤーとNPCの経路には現れない。旧`bit_roof`は0件で、屋上は`boundary`遷移を使う。

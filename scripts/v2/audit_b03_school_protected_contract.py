@@ -31,12 +31,27 @@ PROTECTED_PREFIXES = (
     "VIS_WindowGlass_",
     "VOL_",
 )
-ALLOWED_NEW_PREFIXES = ("COL_B03_Interior_",)
+ALLOWED_NEW_PREFIXES = (
+    "COL_B03_Interior_",
+    "COL_DoorPanel_",
+    "COL_ElevatorCar_",
+    "COL_ElevatorThresholdPlate_",
+    "COL_HumanOnly_ElevatorGate_",
+    "COL_RoomVariant_",
+    "LNK_school-elevator-",
+    "MRK_Door",
+    "MRK_Elevator",
+    "MRK_RoomVariant_",
+    "NAV_RoomVariant_",
+    "VOL_DoorSweep_",
+    "VOL_Elevator",
+    "VOL_RoomVariantTile_",
+)
 ALLOWED_NEW_EXACT_NAMES = {"NAV_Blocker_Interiors"}
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
 T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 T05_GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
-T05_GENERATOR_VERSION = "b03-3b-structure-v13"
+T05_GENERATOR_VERSION = "b03-3c-interactive-assets-v2"
 T04_ALLOWED_MISSING_EXACT_NAMES = {
     "COL_B03_Prop_Locker_Changing_F_01",
     "COL_B03_Prop_Locker_Changing_F_02",
@@ -201,7 +216,6 @@ T05_ALLOWED_CHANGED_EXACT_NAMES = {
 }
 T05_ALLOWED_NEW_EXACT_NAMES = {
     "COL_B03_ElevatorClosedDoor_F02_F03",
-    "COL_B03_ElevatorShaftSafety",
     "COL_B03_ElevatorShaftShell",
     "COL_B03_ElevatorStairWall",
     "COL_B03_GymBridgeEnvelope",

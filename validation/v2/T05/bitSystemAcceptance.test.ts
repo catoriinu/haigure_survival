@@ -8,6 +8,7 @@ import {
 import schoolGlbUrl from "../../../public/stage-assets/v2/B02/b02_school_blockout.glb?url";
 import schoolNavmeshUrl from "../../../public/stage-assets/v2/B02/b02_school_blockout.navmesh.bin?url";
 import schoolBitNavmeshUrl from "../../../public/stage-assets/v2/B02/b02_school_blockout.bit-flight.navmesh.bin?url";
+import schoolRoomVariantNavmeshUrl from "../../../public/stage-assets/v2/B02/b02_school_blockout.room-variants.navmesh.bin?url";
 import {
   BIT_FLIGHT_TRANSITION_SPEED_WORLD_UNITS_PER_SECOND
 } from "../../../src/world/bitFlightAgent";
@@ -29,6 +30,9 @@ import {
   SCHOOL_STAGE,
   type StageCatalogEntry
 } from "../../../src/world/stageCatalog";
+import {
+  SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
+} from "../../../src/world/schoolRuntimeSettings";
 import {
   loadStageSpatialContext,
   type StageSpatialContext
@@ -112,7 +116,12 @@ const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   ...SCHOOL_STAGE,
   glbUrl: toStageRelativeAssetUrl(schoolGlbUrl),
   navmeshUrl: toStageRelativeAssetUrl(schoolNavmeshUrl),
-  bitNavmeshUrl: toStageRelativeAssetUrl(schoolBitNavmeshUrl)
+  bitNavmeshUrl: toStageRelativeAssetUrl(schoolBitNavmeshUrl),
+  roomVariantNavmesh: Object.freeze({
+    mode: "required",
+    url: toStageRelativeAssetUrl(schoolRoomVariantNavmeshUrl),
+    sha256: "78a0f481aae3abd6a6e403c60fc0debc1c70941c8b7956f17e35006df10c3afd"
+  })
 });
 
 const ONE_BIT_INITIAL_RANDOM = Object.freeze([
@@ -753,6 +762,7 @@ const createLoaderFixtureAssets = async (
       glbUrl: LOADER_FIXTURE_GLB_URL,
       navmeshUrl: LOADER_FIXTURE_NAV_URL,
       bitNavmeshUrl: LOADER_FIXTURE_BIT_NAV_URL,
+      roomVariantNavmesh: Object.freeze({ mode: "unsupported" as const }),
       assetSchemaVersion: 2,
       navProfileId: LOADER_FIXTURE_NAV_PROFILE,
       bitNavProfileId: LOADER_FIXTURE_BIT_NAV_PROFILE,
@@ -991,7 +1001,7 @@ const runVisualTargetLossChecks = (
     5
   );
   try {
-    const targets = Object.freeze(
+    const initialTargets = Object.freeze(
       reacquisitionSystem
         .getFrameView().flightStates
         .flatMap((state) =>
@@ -1002,17 +1012,11 @@ const runVisualTargetLossChecks = (
           )
         )
     );
-    const targetIds = new Set(targets.map((target) => target.id));
-    const reacquisitionAlert = Object.freeze({
-      leaderId: "pending-escape-reacquisition-leader",
-      targetId: targets[0].id,
-      remainingSeconds: 100
-    });
     forceReacquisitionChase = true;
     reacquisitionSystem.update({
       deltaSeconds: 0,
       elapsedSeconds: 0,
-      targets,
+      targets: initialTargets,
       externalAlerts: EMPTY_ALERTS
     });
     reacquisitionSystem.update({
@@ -1026,6 +1030,21 @@ const runVisualTargetLossChecks = (
     const queuedEscapeCount = releasedFlights.filter(
       (state) => state.routePurpose !== "escape"
     ).length;
+    const targets = Object.freeze(
+      releasedFlights.flatMap((state) =>
+        createTargetRing(
+          `pending-escape-reacquisition-${state.bitId}`,
+          state.position,
+          0.2
+        )
+      )
+    );
+    const targetIds = new Set(targets.map((target) => target.id));
+    const reacquisitionAlert = Object.freeze({
+      leaderId: "pending-escape-reacquisition-leader",
+      targetId: targets[0].id,
+      remainingSeconds: 100
+    });
 
     reacquisitionSystem.update({
       deltaSeconds: 0.1,
@@ -2178,7 +2197,11 @@ const runSchoolPerformanceAndLifecycleChecks = async (
   try {
     schoolContext = await loadStageSpatialContext(
       scene,
-      SCHOOL_VALIDATION_STAGE
+      SCHOOL_VALIDATION_STAGE,
+      {
+        roomVariantSelections:
+          SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
+      }
     );
     document.title =
       `T05学校受入: 99体探索 warmup 0/${PERFORMANCE_WARMUP_TICKS}`;

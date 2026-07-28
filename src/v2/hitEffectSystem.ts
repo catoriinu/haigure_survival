@@ -1,6 +1,7 @@
 import {
   Color3,
   Color4,
+  Light,
   Mesh,
   MeshBuilder,
   PointLight,
@@ -23,8 +24,10 @@ import {
 } from "./combatTypes";
 
 export const V2_HIT_EFFECT_ALPHA = 0.45;
-export const V2_HIT_EFFECT_LIGHT_INTENSITY = 1.1;
+export const V2_HIT_EFFECT_LIGHT_INTENSITY = 0.4;
 export const V2_HIT_EFFECT_LIGHT_RANGE_RATE = 1.2;
+export const V2_HIT_EFFECT_LIGHT_IDLE_RANGE = 1;
+export const V2_HIT_EFFECT_LIGHT_SLOT_COUNT = 3;
 export const V2_HIT_EFFECT_DIAMETER_MARGIN_RATE = 1.05;
 export const V2_HIT_EFFECT_PINK = Object.freeze(
   new Color3(1, 0.18, 0.74)
@@ -57,6 +60,7 @@ export type V2HitEffectPoolSnapshot = Readonly<
 export type V2HitEffectSystemOptions = Readonly<{
   scene: Scene;
   random(): number;
+  isIndirectLightVisible(position: Vector3): boolean;
 }>;
 
 export interface V2HitEffectSystem {
@@ -76,7 +80,6 @@ export interface V2HitEffectSystem {
 type HitEffectBundle = {
   mesh: Mesh;
   material: StandardMaterial;
-  light: PointLight;
 };
 
 type HitFadeOrb = {
@@ -89,6 +92,7 @@ type ActiveHitEffect = {
   targetId: string;
   kind: V2HumanKind;
   bundle: HitEffectBundle;
+  lightSlot: PointLight | null;
   diameter: number;
   phase: "flicker" | "fade";
   phaseElapsedSeconds: number;
@@ -139,10 +143,16 @@ const calculateDiameter = (target: V2HumanTargetSnapshot): number =>
 
 export const createV2HitEffectSystem = ({
   scene,
-  random
+  random,
+  isIndirectLightVisible
 }: V2HitEffectSystemOptions): V2HitEffectSystem => {
   if (typeof random !== "function") {
     throw new Error("V2HitEffectSystemのrandomには関数が必要です");
+  }
+  if (typeof isIndirectLightVisible !== "function") {
+    throw new Error(
+      "V2HitEffectSystemのisIndirectLightVisibleには関数が必要です"
+    );
   }
 
   const shellSource = MeshBuilder.CreateSphere(
@@ -185,6 +195,8 @@ export const createV2HitEffectSystem = ({
 
   const bundles: HitEffectBundle[] = [];
   const availableBundles: HitEffectBundle[] = [];
+  const lightSlots: PointLight[] = [];
+  const availableLightSlots: PointLight[] = [];
   const orbInstances: InstancedMesh[] = [];
   const availableOrbs: InstancedMesh[] = [];
   const activeEffects = new Map<string, ActiveHitEffect>();
@@ -222,14 +234,32 @@ export const createV2HitEffectSystem = ({
     bundle.material.diffuseColor.copyFrom(V2_HIT_EFFECT_PINK);
     bundle.material.emissiveColor.copyFrom(V2_HIT_EFFECT_PINK);
     bundle.material.specularColor.copyFrom(Color3.Black());
-    bundle.material.backFaceCulling = false;
-    bundle.light.position.setAll(0);
-    bundle.light.diffuse.copyFrom(V2_HIT_EFFECT_PINK);
-    bundle.light.specular.copyFrom(V2_HIT_EFFECT_PINK);
-    bundle.light.intensity = 0;
-    bundle.light.range = 0;
-    bundle.light.setEnabled(false);
+    bundle.material.backFaceCulling = true;
   };
+
+  const resetLightSlot = (light: PointLight): void => {
+    light.position.setAll(0);
+    light.diffuse.copyFrom(V2_HIT_EFFECT_PINK);
+    light.specular.copyFrom(V2_HIT_EFFECT_PINK);
+    light.intensity = 0;
+    light.range = V2_HIT_EFFECT_LIGHT_IDLE_RANGE;
+  };
+
+  for (
+    let serial = 1;
+    serial <= V2_HIT_EFFECT_LIGHT_SLOT_COUNT;
+    serial += 1
+  ) {
+    const light = new PointLight(
+      `v2-hit-effect-light-${serial}`,
+      Vector3.Zero(),
+      scene
+    );
+    light.falloffType = Light.FALLOFF_GLTF;
+    resetLightSlot(light);
+    lightSlots.push(light);
+  }
+  availableLightSlots.push(...[...lightSlots].reverse());
 
   const createBundle = (): HitEffectBundle => {
     const serial = nextBundleSerial;
@@ -248,12 +278,7 @@ export const createV2HitEffectSystem = ({
     );
     mesh.material = material;
     mesh.isPickable = false;
-    const light = new PointLight(
-      `v2-hit-effect-light-${serial}`,
-      Vector3.Zero(),
-      scene
-    );
-    const bundle = { mesh, material, light };
+    const bundle = { mesh, material };
     resetBundle(bundle);
     bundles.push(bundle);
     return bundle;
@@ -264,13 +289,24 @@ export const createV2HitEffectSystem = ({
     resetBundle(bundle);
     bundle.mesh.visibility = 1;
     bundle.mesh.setEnabled(true);
-    bundle.light.setEnabled(true);
     return bundle;
   };
 
   const releaseBundle = (bundle: HitEffectBundle): void => {
     resetBundle(bundle);
     availableBundles.push(bundle);
+  };
+
+  const acquireLightSlot = (): PointLight | null => {
+    if (availableLightSlots.length === 0) {
+      return null;
+    }
+    return availableLightSlots.pop()!;
+  };
+
+  const releaseLightSlot = (light: PointLight): void => {
+    resetLightSlot(light);
+    availableLightSlots.push(light);
   };
 
   const resetOrb = (mesh: InstancedMesh): void => {
@@ -308,6 +344,9 @@ export const createV2HitEffectSystem = ({
       releaseOrb(orb.mesh);
     }
     effect.orbs.length = 0;
+    if (effect.lightSlot) {
+      releaseLightSlot(effect.lightSlot);
+    }
     releaseBundle(effect.bundle);
     activeEffects.delete(effect.targetId);
   };
@@ -318,8 +357,43 @@ export const createV2HitEffectSystem = ({
   ): void => {
     bundle.material.diffuseColor.copyFrom(color);
     bundle.material.emissiveColor.copyFrom(color);
-    bundle.light.diffuse.copyFrom(color);
-    bundle.light.specular.copyFrom(color);
+  };
+
+  const setEffectColor = (
+    effect: ActiveHitEffect,
+    color: Color3
+  ): void => {
+    setBundleColor(effect.bundle, color);
+    if (effect.lightSlot) {
+      effect.lightSlot.diffuse.copyFrom(color);
+      effect.lightSlot.specular.copyFrom(color);
+    }
+  };
+
+  const getPhaseLightIntensity = (
+    effect: ActiveHitEffect
+  ): number =>
+    effect.phase === "flicker"
+      ? V2_HIT_EFFECT_LIGHT_INTENSITY
+      : V2_HIT_EFFECT_LIGHT_INTENSITY *
+        (effect.phaseRemainingSeconds /
+          V2_HIT_FADE_DURATION_SECONDS);
+
+  const updateIndirectLight = (
+    effect: ActiveHitEffect,
+    position: Vector3
+  ): void => {
+    if (!effect.lightSlot) {
+      return;
+    }
+    if (!isIndirectLightVisible(position)) {
+      effect.lightSlot.intensity = 0;
+      effect.lightSlot.range = V2_HIT_EFFECT_LIGHT_IDLE_RANGE;
+      return;
+    }
+    effect.lightSlot.intensity = getPhaseLightIntensity(effect);
+    effect.lightSlot.range =
+      effect.diameter * V2_HIT_EFFECT_LIGHT_RANGE_RATE;
   };
 
   const createFadeOrbs = (
@@ -428,25 +502,29 @@ export const createV2HitEffectSystem = ({
       }
       const diameter = calculateDiameter(target);
       const bundle = acquireBundle();
+      const lightSlot = acquireLightSlot();
       bundle.mesh.position.copyFrom(target.hitShape.center);
       bundle.mesh.scaling.setAll(diameter);
       bundle.material.alpha = V2_HIT_EFFECT_ALPHA;
-      bundle.light.position.copyFrom(target.hitShape.center);
-      bundle.light.intensity = V2_HIT_EFFECT_LIGHT_INTENSITY;
-      bundle.light.range =
-        diameter * V2_HIT_EFFECT_LIGHT_RANGE_RATE;
-      setBundleColor(bundle, V2_HIT_EFFECT_PINK);
-      activeEffects.set(target.id, {
+      bundle.material.backFaceCulling = target.kind !== "player";
+      if (lightSlot) {
+        lightSlot.position.copyFrom(target.hitShape.center);
+      }
+      const effect: ActiveHitEffect = {
         targetId: target.id,
         kind: target.kind,
         bundle,
+        lightSlot,
         diameter,
         phase: "flicker",
         phaseElapsedSeconds: 0,
         phaseRemainingSeconds:
           V2_HIT_FLICKER_DURATION_SECONDS,
         orbs: []
-      });
+      };
+      setEffectColor(effect, V2_HIT_EFFECT_PINK);
+      updateIndirectLight(effect, target.hitShape.center);
+      activeEffects.set(target.id, effect);
       return true;
     },
     update: (deltaSeconds, targets, shouldRenderOrb) => {
@@ -473,7 +551,7 @@ export const createV2HitEffectSystem = ({
           continue;
         }
         effect.bundle.mesh.position.copyFrom(target.hitShape.center);
-        effect.bundle.light.position.copyFrom(target.hitShape.center);
+        effect.lightSlot?.position.copyFrom(target.hitShape.center);
         let remainingDeltaSeconds = deltaSeconds;
         while (remainingDeltaSeconds > 0) {
           const consumedSeconds = Math.min(
@@ -491,8 +569,8 @@ export const createV2HitEffectSystem = ({
               ) %
                 2 ===
               0;
-            setBundleColor(
-              effect.bundle,
+            setEffectColor(
+              effect,
               isPink
                 ? V2_HIT_EFFECT_PINK
                 : V2_HIT_EFFECT_CYAN
@@ -504,7 +582,7 @@ export const createV2HitEffectSystem = ({
             effect.phaseElapsedSeconds = 0;
             effect.phaseRemainingSeconds =
               V2_HIT_FADE_DURATION_SECONDS;
-            setBundleColor(effect.bundle, V2_HIT_EFFECT_PINK);
+            setEffectColor(effect, V2_HIT_EFFECT_PINK);
             createFadeOrbs(
               effect,
               target.hitShape.center,
@@ -517,8 +595,6 @@ export const createV2HitEffectSystem = ({
             V2_HIT_FADE_DURATION_SECONDS;
           effect.bundle.material.alpha =
             V2_HIT_EFFECT_ALPHA * fadeRatio;
-          effect.bundle.light.intensity =
-            V2_HIT_EFFECT_LIGHT_INTENSITY * fadeRatio;
           updateFadeOrbs(
             effect,
             consumedSeconds,
@@ -529,6 +605,9 @@ export const createV2HitEffectSystem = ({
             releaseEffect(effect);
             break;
           }
+        }
+        if (activeEffects.has(effect.targetId)) {
+          updateIndirectLight(effect, target.hitShape.center);
         }
       }
     },
@@ -541,12 +620,18 @@ export const createV2HitEffectSystem = ({
         inUse: bundleCapacity - bundleAvailable,
         available: bundleAvailable
       });
+      const lightCapacity = lightSlots.length;
+      const lightAvailable = availableLightSlots.length;
       const orbCapacity = orbInstances.length;
       const orbAvailable = availableOrbs.length;
       return Object.freeze({
         shell: bundleState,
         material: bundleState,
-        light: bundleState,
+        light: Object.freeze({
+          capacity: lightCapacity,
+          inUse: lightCapacity - lightAvailable,
+          available: lightAvailable
+        }),
         orb: Object.freeze({
           capacity: orbCapacity,
           inUse: orbCapacity - orbAvailable,
@@ -566,8 +651,10 @@ export const createV2HitEffectSystem = ({
       for (const orb of orbInstances) {
         orb.dispose();
       }
+      for (const light of lightSlots) {
+        light.dispose();
+      }
       for (const bundle of bundles) {
-        bundle.light.dispose();
         bundle.mesh.dispose(false, false);
         bundle.material.dispose();
       }
@@ -579,6 +666,8 @@ export const createV2HitEffectSystem = ({
       orbInstances.length = 0;
       availableBundles.length = 0;
       bundles.length = 0;
+      availableLightSlots.length = 0;
+      lightSlots.length = 0;
       disposed = true;
     }
   };

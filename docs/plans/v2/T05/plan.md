@@ -768,3 +768,11 @@
 - PR #50は`develop`へマージされ、マージコミットは`27abd9b`である。T05-2の戦闘・状態・全光線物理・集合・警報・公開処刑、仕様維持性能リファクタリング、外部Alert最大4機、BIT通常探索分散、窓越しCHASE、銃ありNPC最終視認位置追跡を完了範囲とする。
 - V1相当の光線軌跡・周囲光球・着弾反射光球・キャラクター命中演出は、PR #50へ追加せずT05-2Vへ分割した。塀外5.0mの`BND_WorldLimit`退出時に、着弾・ダメージ・Alarmを発生させず約0.2秒で消す処理も同じT05-2Vへ割り当てた。
 - 学校外周の歩道・道路、`BND_WorldLimit`、外周BIT飛行帯はB04、実学校でCHASE・逃走・明示`boundary`遷移中だけ外周を使うBITモード制御はT06、60Hz前面環境の最終描画性能はT07へ引き渡した。
+
+### 2026-07-28 T05-4 NPC・BIT標的選択個性
+
+- ユーザー指示に基づき、取得済み標的を既存解除条件まで保持する`persistent`と、既存の視認更新機会ごとに最も近い可視標的へ選び直す`nearest-visible`を個体別50%ずつ割り当てる後続タスクをT05-4として追加した。
+- NPCは初回洗脳時、BITは生成時に独立した決定的乱数系列で個性を1回だけ確定する。Alarm／Alert、公開処刑、hold、fixed、random、carpet、Follower同期射撃など明示的な強制標的は個性より優先する。
+- 現行NPCの`selectCombatTarget()`／`findNearestVisibleTarget()`と、BITの可視候補探索／CHASE維持境界を再利用できるため、追加の全件探索や無制限Rayは不要である。同距離は`nearest-visible`だけ対象ID順とし、`persistent`の初回取得は既存のframe／source順を維持する。同じ標的を選び直しただけでは経路再計画しない。
+- I0統合後に、学校バイナリだけを所有するB04と別worktreeで並行する。T05-4は`src/v2/combatTypes.ts`、`src/v2/npcSystem.ts`、`src/v2/bitSystem.ts`、T05 fixtureだけを所有し、詳細契約は`docs/plans/v2/T05-4/plan.md`を正本とする。
+- T04-3BはB04とT05-4の両方が`develop`へ統合された後に開始し、T07では両個性をNPC 99人／BIT 50機へ混在させた標的変更、経路再計画、視線予算、性能を最終回帰する。

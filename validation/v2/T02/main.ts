@@ -11,6 +11,10 @@ import {
 } from "@babylonjs/core";
 
 import { SCHOOL_STAGE } from "../../../src/world/stageCatalog";
+import {
+  SCHOOL_ALL_DISORDERED_ROOM_VARIANT_SELECTIONS,
+  SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
+} from "../../../src/world/schoolRuntimeSettings";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
 import {
   BIT_FLIGHT_SHORTEST_ROUTE_POLICY,
@@ -275,6 +279,7 @@ const validatePlayerRampTraversal = (
   const input: V2PlayerInput = {
     getMoveAxes: () => ({ moveX: 0, moveZ: moving ? 1 : 0 }),
     isDashPressed: () => true,
+    drainPressedActions: () => Object.freeze([]),
     reset: () => undefined,
     dispose: () => undefined
   };
@@ -357,6 +362,7 @@ const validatePlayerWaypointTraversal = (
   const input: V2PlayerInput = {
     getMoveAxes: () => ({ moveX: 0, moveZ: moving ? 1 : 0 }),
     isDashPressed: () => true,
+    drainPressedActions: () => Object.freeze([]),
     reset: () => undefined,
     dispose: () => undefined
   };
@@ -471,6 +477,7 @@ const validatePlayerBarrierAttempt = (
   const input: V2PlayerInput = {
     getMoveAxes: () => ({ moveX: 0, moveZ: 1 }),
     isDashPressed: () => true,
+    drainPressedActions: () => Object.freeze([]),
     reset: () => undefined,
     dispose: () => undefined
   };
@@ -587,14 +594,25 @@ const settleScene = async () => {
 };
 
 const validateAssetHashes = async (checks: CheckResult[]) => {
-  const [glbData, navmeshData, bitNavmeshData] = await Promise.all([
+  if (SCHOOL_STAGE.roomVariantNavmesh.mode !== "required") {
+    throw new Error("学校にはroom variant NavMesh bundleが必要です");
+  }
+  const [glbData, navmeshData, roomVariantNavmeshData, bitNavmeshData] =
+    await Promise.all([
     fetchBinary(SCHOOL_STAGE.glbUrl),
     fetchBinary(SCHOOL_STAGE.navmeshUrl),
+    fetchBinary(SCHOOL_STAGE.roomVariantNavmesh.url),
     fetchBinary(SCHOOL_STAGE.bitNavmeshUrl)
   ]);
-  const [glbSha256, navmeshSha256, bitNavmeshSha256] = await Promise.all([
+  const [
+    glbSha256,
+    navmeshSha256,
+    roomVariantNavmeshSha256,
+    bitNavmeshSha256
+  ] = await Promise.all([
     calculateSha256(glbData),
     calculateSha256(navmeshData),
+    calculateSha256(roomVariantNavmeshData),
     calculateSha256(bitNavmeshData)
   ]);
   checks.push(
@@ -609,11 +627,44 @@ const validateAssetHashes = async (checks: CheckResult[]) => {
       `catalog=${SCHOOL_STAGE.navmeshSha256} / actual=${navmeshSha256}`
     ),
     createCheck(
+      "学校room variant NavMesh bundle SHA-256",
+      roomVariantNavmeshSha256 ===
+        SCHOOL_STAGE.roomVariantNavmesh.sha256,
+      `catalog=${SCHOOL_STAGE.roomVariantNavmesh.sha256} / actual=${roomVariantNavmeshSha256}`
+    ),
+    createCheck(
       "学校ビット用NavMesh SHA-256",
       bitNavmeshSha256 === SCHOOL_STAGE.bitNavmeshSha256,
       `catalog=${SCHOOL_STAGE.bitNavmeshSha256} / actual=${bitNavmeshSha256}`
     )
   );
+};
+
+const roomVariantActivationMatches = (
+  context: StageSpatialContext,
+  expectedVariant: "normal" | "disordered"
+) => {
+  if (!context.roomVariants) {
+    return false;
+  }
+  const activeVisualMeshes = new Set(context.resources.visualMeshes);
+  const activeColliders = new Set(context.resources.normalColliders);
+  const activeNavSources = new Set(context.resources.navSourceMeshes);
+  return context.roomVariants.variants.every((variant) => {
+    const selected = variant.variantId === expectedVariant;
+    return (
+      variant.node.isEnabled() === selected &&
+      variant.visualMeshes.every(
+        (mesh) => activeVisualMeshes.has(mesh) === selected
+      ) &&
+      variant.colliderMeshes.every(
+        (mesh) => activeColliders.has(mesh) === selected
+      ) &&
+      variant.humanNavSourceMeshes.every(
+        (mesh) => activeNavSources.has(mesh) === selected
+      )
+    );
+  });
 };
 
 const validateLoadedContext = (
@@ -642,6 +693,16 @@ const validateLoadedContext = (
   );
   const assemblyAnchors = context.markers.getByRole("assembly_anchor");
   const assemblyVolumes = context.volumes.getByRole("assembly");
+  const roomVariants = context.roomVariants;
+  const roomVariantSelectionValid =
+    roomVariants !== null &&
+    roomVariants.variants.length === 40 &&
+    roomVariants.tileVolumes.length === 20 &&
+    context.roomVariantSelection.length === 20 &&
+    context.roomVariantSelection.every(
+      (selection) => selection.variant === "normal"
+    ) &&
+    roomVariantActivationMatches(context, "normal");
   const assemblyVenueSummaries = context.assemblyVenues.all.map(
     (venue) =>
       `${venue.id}:${venue.volume.id}/${venue.assemblyPositions.length}/${venue.executionAudiencePositions.length}/${venue.executionTargetPositions.length}/w${venue.selectionWeight}`
@@ -709,18 +770,22 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 482 &&
-        context.resources.normalColliders.length === 197 &&
+      context.resources.visualMeshes.length === 604 &&
+        context.resources.normalColliders.length === 273 &&
         context.resources.actorOnlyColliders.length === 81 &&
-        context.resources.humanOnlyColliders.length === 57 &&
-        context.resources.navSourceMeshes.length === 19 &&
+        context.resources.humanOnlyColliders.length === 59 &&
+        context.resources.navSourceMeshes.length === 39 &&
         context.resources.bitFlightNavSourceMeshes.length === 22 &&
-        context.markers.all.length === 3 &&
+        context.markers.all.length === 225 &&
         assemblyAnchors.length === 2 &&
-        context.volumes.all.length === 5 &&
+        context.volumes.all.length === 75 &&
         assemblyVolumes.length === 2 &&
         assemblyVenuesValid &&
-        context.links.all.length === 0 &&
+        roomVariantSelectionValid &&
+        context.doorAssets.all.length === 65 &&
+        context.elevatorAssets.all.length === 1 &&
+        context.elevatorAssets.all[0]?.stops.length === 2 &&
+        context.links.all.length === 1 &&
         context.bitNavigation.zones.length === 4 &&
         context.bitNavigation.bands.length === 11 &&
         apertureTransitions.length === 57 &&
@@ -728,7 +793,7 @@ const validateLoadedContext = (
         surfaceRouteTransitions.length === 10 &&
         boundaryTransitions.length === 1 &&
         bitTransitions.every((transition) => transition.bidirectional),
-      `VIS=${context.resources.visualMeshes.length} / COL=${context.resources.normalColliders.length} / ActorOnly=${context.resources.actorOnlyColliders.length} / HumanOnly=${context.resources.humanOnlyColliders.length} / humanNAV=${context.resources.navSourceMeshes.length} / bitNAV=${context.resources.bitFlightNavSourceMeshes.length} / MRK=${context.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${context.volumes.all.length}(assembly=${assemblyVolumes.length}) / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${context.links.all.length} / zones=${context.bitNavigation.zones.length} / bands=${context.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length})`
+      `VIS=${context.resources.visualMeshes.length} / COL=${context.resources.normalColliders.length} / ActorOnly=${context.resources.actorOnlyColliders.length} / HumanOnly=${context.resources.humanOnlyColliders.length} / humanNAV=${context.resources.navSourceMeshes.length} / bitNAV=${context.resources.bitFlightNavSourceMeshes.length} / MRK=${context.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${context.volumes.all.length}(assembly=${assemblyVolumes.length}) / roomVariants=${roomVariants?.variants.length ?? 0}/${roomVariants?.tileVolumes.length ?? 0}/selected=${context.roomVariantSelection.length} / doors=${context.doorAssets.all.length} / elevators=${context.elevatorAssets.all.length} / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${context.links.all.length} / zones=${context.bitNavigation.zones.length} / bands=${context.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length})`
     ),
     createCheck(
       `全ビット飛行遷移の${BIT_FLIGHT_ENVELOPE_RADIUS_METERS.toFixed(2)}m安全包絡`,
@@ -1048,18 +1113,18 @@ const validateLoadedContext = (
   );
 
   const westGymStageRampWaypoints = [
-    new Vector3(39.6, -9.8, 0.0),
-    new Vector3(39.9, -9.8, 0.0),
-    new Vector3(40.65, -9.8, 0.5),
-    new Vector3(41.4, -9.8, 1.0),
-    new Vector3(41.8, -9.8, 1.0)
+    new Vector3(38.8, -9.8, 0.0),
+    new Vector3(39.1, -9.8, 0.0),
+    new Vector3(39.85, -9.8, 0.5),
+    new Vector3(40.6, -9.8, 1.0),
+    new Vector3(41.0, -9.8, 1.0)
   ];
   const eastGymStageRampWaypoints = [
-    new Vector3(53.2, -9.8, 0.0),
-    new Vector3(52.9, -9.8, 0.0),
-    new Vector3(52.15, -9.8, 0.5),
-    new Vector3(51.4, -9.8, 1.0),
-    new Vector3(51.0, -9.8, 1.0)
+    new Vector3(54.0, -9.8, 0.0),
+    new Vector3(53.7, -9.8, 0.0),
+    new Vector3(52.95, -9.8, 0.5),
+    new Vector3(52.2, -9.8, 1.0),
+    new Vector3(51.8, -9.8, 1.0)
   ];
   const gymStageRampRoundTrips = [
     validatePlayerWaypointTraversal(
@@ -1397,9 +1462,7 @@ const validateLoadedContext = (
     ["VIS_Wall_SpecialRoomWest_CorridorClosed_North", [-3.65, 23.1, 0.0], [-3.35, 24.3, 3.0]],
     ["COL_Wall_SpecialRoomWest_CorridorClosed_North", [-3.65, 23.1, 0.0], [-3.35, 24.3, 3.0]],
     ["VIS_Wall_Lintel_SpecialRoomWest_Rear", [-3.65, 30.7, 2.3], [-3.35, 31.9, 3.0]],
-    ["COL_Wall_Lintel_SpecialRoomWest_Rear", [-3.65, 30.7, 2.3], [-3.35, 31.9, 3.0]],
-    ["VIS_DoorLeaf_SpecialRoomWest_Front", [-3.71, 14.35, 0.0], [-3.61, 15.45, 2.3]],
-    ["VIS_DoorLeaf_SpecialRoomWest_Rear", [-3.71, 29.55, 0.0], [-3.61, 30.65, 2.3]]
+    ["COL_Wall_Lintel_SpecialRoomWest_Rear", [-3.65, 30.7, 2.3], [-3.35, 31.9, 3.0]]
   ] as const;
   const westSpecialRoomBoundsResults = westSpecialRoomBoundsExpectations.map(
     ([name, minimum, maximum]) => ({
@@ -1433,12 +1496,21 @@ const validateLoadedContext = (
       blenderPointToBabylon(new Vector3(-3.2, y, 1.0)),
       blenderPointToBabylon(new Vector3(-3.8, y, 1.0))
     );
-  const westSpecialRoomDoorwayResults = [13.7, 31.3].map((y) => ({
-    y,
-    actor: castWestSpecialRoomOpening(castPlayerMovementSegment, y),
-    beam: castWestSpecialRoomOpening(context.queries.castBeamSegment, y),
-    sight: castWestSpecialRoomOpening(context.queries.castSightSegment, y)
-  }));
+  const westSpecialRoomDoors = [
+    ["room-door-f01-library-01", 13.7, "COL_DoorPanel_F01_Library_01"],
+    ["room-door-f01-library-02", 31.3, "COL_DoorPanel_F01_Library_02"]
+  ] as const;
+  const westSpecialRoomDoorwayResults = westSpecialRoomDoors.map(
+    ([doorId, y, expectedColliderName]) => ({
+      doorId,
+      y,
+      expectedColliderName,
+      door: context.doorAssets.getById(doorId),
+      actor: castWestSpecialRoomOpening(castPlayerMovementSegment, y),
+      beam: castWestSpecialRoomOpening(context.queries.castBeamSegment, y),
+      sight: castWestSpecialRoomOpening(context.queries.castSightSegment, y)
+    })
+  );
   const westSpecialRoomClosedWallResults = [
     [21.3, "COL_Wall_SpecialRoomWest_CorridorClosed_South"],
     [23.7, "COL_Wall_SpecialRoomWest_CorridorClosed_North"]
@@ -1451,14 +1523,15 @@ const validateLoadedContext = (
   }));
   checks.push(
     createCheck(
-      "西側特別教室は前後2扉だけを開口",
+      "西側特別教室は前後2扉だけを持つ",
       westSpecialRoomBoundsResults.every((result) => result.ok) &&
         retiredWestSpecialRoomObjects.every((name) => !schoolMeshByName.has(name)) &&
         westSpecialRoomDoorwayResults.every(
           (result) =>
-            result.actor === null &&
-            result.beam === null &&
-            result.sight === null
+            result.door?.doorClass === "room" &&
+            result.actor?.mesh.name === result.expectedColliderName &&
+            result.beam?.mesh.name === result.expectedColliderName &&
+            result.sight?.mesh.name === result.expectedColliderName
         ) &&
         westSpecialRoomClosedWallResults.every(
           (result) =>
@@ -1468,8 +1541,8 @@ const validateLoadedContext = (
         ),
       `${westSpecialRoomBoundsResults
         .map((result) => `${result.name}=${result.ok ? "一致" : result.detail}`)
-        .join(" / ")} / 旧Object削除=${retiredWestSpecialRoomObjects.every((name) => !schoolMeshByName.has(name))} / 開口=${westSpecialRoomDoorwayResults
-        .map((result) => `${result.y}:actor=${result.actor?.mesh.name ?? "clear"},beam=${result.beam?.mesh.name ?? "clear"},sight=${result.sight?.mesh.name ?? "clear"}`)
+        .join(" / ")} / 旧Object削除=${retiredWestSpecialRoomObjects.every((name) => !schoolMeshByName.has(name))} / 閉扉=${westSpecialRoomDoorwayResults
+        .map((result) => `${result.doorId}@${result.y}:actor=${result.actor?.mesh.name ?? "clear"},beam=${result.beam?.mesh.name ?? "clear"},sight=${result.sight?.mesh.name ?? "clear"}`)
         .join(" / ")} / 壁=${westSpecialRoomClosedWallResults
         .map((result) => `${result.y}:actor=${result.actor?.mesh.name ?? "なし"},beam=${result.beam?.mesh.name ?? "なし"},sight=${result.sight?.mesh.name ?? "なし"}`)
         .join(" / ")}`
@@ -1974,13 +2047,7 @@ const validateLoadedContext = (
     ["VIS_ToiletStallPartition_F_01", [-0.59, 43.25, 0.0], [-0.51, 45.35, 2.1]],
     ["COL_ToiletStallPartition_F_01", [-0.59, 43.25, 0.0], [-0.51, 45.35, 2.1]],
     ["VIS_ToiletStallPartition_F_02", [0.81, 43.25, 0.0], [0.89, 45.35, 2.1]],
-    ["COL_ToiletStallPartition_F_02", [0.81, 43.25, 0.0], [0.89, 45.35, 2.1]],
-    ["VIS_ToiletStallDoor_Open_M_01", [-5.13, 43.25, 0.0], [-5.09, 44.15, 1.8]],
-    ["VIS_ToiletStallDoor_Open_M_02", [-3.73, 43.25, 0.0], [-3.69, 44.15, 1.8]],
-    ["VIS_ToiletStallDoor_Open_M_03", [-2.33, 43.25, 0.0], [-2.29, 44.15, 1.8]],
-    ["VIS_ToiletStallDoor_Open_F_01", [-0.63, 43.25, 0.0], [-0.59, 44.15, 1.8]],
-    ["VIS_ToiletStallDoor_Open_F_02", [0.77, 43.25, 0.0], [0.81, 44.15, 1.8]],
-    ["VIS_ToiletStallDoor_Open_F_03", [2.17, 43.25, 0.0], [2.21, 44.15, 1.8]]
+    ["COL_ToiletStallPartition_F_02", [0.81, 43.25, 0.0], [0.89, 45.35, 2.1]]
   ] as const;
   const toiletBoundsResults = toiletBoundsExpectations.map(
     ([name, minimum, maximum]) => ({
@@ -2000,13 +2067,36 @@ const validateLoadedContext = (
   const urinalFixturesPresent = expectedUrinalFixtureNames.every((name) =>
     toiletMeshByName.has(name)
   );
+  const toiletStallDoors = context.doorAssets.getByClass("toilet_stall");
+  const firstFloorToiletDoorIds = [
+    "toilet-stall-f01-m-01",
+    "toilet-stall-f01-m-02",
+    "toilet-stall-f01-m-03",
+    "toilet-stall-f01-f-01",
+    "toilet-stall-f01-f-02",
+    "toilet-stall-f01-f-03"
+  ];
+  const toiletDoorContractValid =
+    toiletStallDoors.length === 24 &&
+    toiletStallDoors.every(
+      (door) =>
+        door.panels.length === 1 &&
+        door.panels[0]?.motion.kind === "swing"
+    ) &&
+    firstFloorToiletDoorIds.every(
+      (doorId) => context.doorAssets.getById(doorId)?.doorClass === "toilet_stall"
+    );
   checks.push(
     createCheck(
       "男女各3個室と男子小便器3基の契約",
-      toiletBoundsResults.every((result) => result.ok) && urinalFixturesPresent,
+      toiletBoundsResults.every((result) => result.ok) &&
+        toiletDoorContractValid &&
+        urinalFixturesPresent,
       `${toiletBoundsResults
         .map((result) => `${result.name}=${result.ok ? "一致" : result.detail}`)
-        .join(" / ")} / 小便器=${expectedUrinalFixtureNames
+        .join(" / ")} / 開き戸=${toiletStallDoors.length}/24(${firstFloorToiletDoorIds
+        .map((doorId) => `${doorId}:${context.doorAssets.getById(doorId) !== null}`)
+        .join(",")}) / 小便器=${expectedUrinalFixtureNames
         .map((name) => `${name}:${toiletMeshByName.has(name)}`)
         .join(",")}`
     )
@@ -2443,24 +2533,30 @@ const runValidation = async () => {
 
     await validateAssetHashes(checks);
 
-    activeContext = await loadStageSpatialContext(scene, SCHOOL_STAGE);
+    activeContext = await loadStageSpatialContext(scene, SCHOOL_STAGE, {
+      roomVariantSelections:
+        SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
+    });
     await settleScene();
     validateLoadedContext(activeContext, checks);
     await disposeAndInspect(activeContext, baseline, checks, "初回読込");
 
-    activeContext = await loadStageSpatialContext(scene, SCHOOL_STAGE);
+    activeContext = await loadStageSpatialContext(scene, SCHOOL_STAGE, {
+      roomVariantSelections:
+        SCHOOL_ALL_DISORDERED_ROOM_VARIANT_SELECTIONS
+    });
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 482 &&
-      activeContext.resources.normalColliders.length === 197 &&
+      activeContext.resources.visualMeshes.length === 624 &&
+      activeContext.resources.normalColliders.length === 273 &&
       activeContext.resources.actorOnlyColliders.length === 81 &&
-      activeContext.resources.humanOnlyColliders.length === 57 &&
-      activeContext.resources.navSourceMeshes.length === 19 &&
+      activeContext.resources.humanOnlyColliders.length === 59 &&
+      activeContext.resources.navSourceMeshes.length === 59 &&
       activeContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-      activeContext.markers.all.length === 3 &&
+      activeContext.markers.all.length === 225 &&
       activeContext.markers.getByRole("assembly_anchor").length === 2 &&
-      activeContext.volumes.all.length === 5 &&
+      activeContext.volumes.all.length === 75 &&
       activeContext.volumes.getByRole("assembly").length === 2 &&
       activeContext.assemblyVenues.all.length === 2 &&
       activeContext.assemblyVenues.all.every(
@@ -2471,13 +2567,22 @@ const runValidation = async () => {
           venue.executionTargetPositions.length === 6
       ) &&
       activeContext.volumes.getByRole("water").length === 1 &&
-      activeContext.links.all.length === 0 &&
+      activeContext.roomVariants?.variants.length === 40 &&
+      activeContext.roomVariants.tileVolumes.length === 20 &&
+      activeContext.roomVariantSelection.length === 20 &&
+      activeContext.roomVariantSelection.every(
+        (selection) => selection.variant === "disordered"
+      ) &&
+      roomVariantActivationMatches(activeContext, "disordered") &&
+      activeContext.doorAssets.all.length === 65 &&
+      activeContext.elevatorAssets.all.length === 1 &&
+      activeContext.links.all.length === 1 &&
       activeContext.bitNavigation.zones.length === 4 &&
       activeContext.bitNavigation.bands.length === 11 &&
       activeContext.bitNavigation.transitions.length === 72;
     checks.push(
       createCheck(
-        "学校コンテキスト再読込",
+        "学校全荒れvariantコンテキスト再読込",
         reloadMetadataValid,
         `stage=${activeContext.metadata.stageId} / VIS=${activeContext.resources.visualMeshes.length} / COL=${activeContext.resources.normalColliders.length} / ActorOnly=${activeContext.resources.actorOnlyColliders.length} / HumanOnly=${activeContext.resources.humanOnlyColliders.length} / humanNAV=${activeContext.resources.navSourceMeshes.length} / bitNAV=${activeContext.resources.bitFlightNavSourceMeshes.length} / water=${activeContext.volumes.getByRole("water").length} / humanLNK=${activeContext.links.all.length} / bitTransitions=${activeContext.bitNavigation.transitions.length}`
       )
