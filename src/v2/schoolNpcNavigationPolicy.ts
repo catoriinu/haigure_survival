@@ -647,6 +647,30 @@ export const createSchoolNpcNavigationPolicy = ({
     const evaluations: ElevatorCandidateEvaluation[] =
       elevatorCandidates.map((elevatorCandidate, index) => {
         const elevatorSnapshot = elevatorSnapshots[index]!;
+        const fromStopSnapshot = elevatorSnapshot.stops.find(
+          (stop) =>
+            stop.id === elevatorCandidate.fromStop.id
+        );
+        if (!fromStopSnapshot) {
+          throw new Error(
+            `学校NPC経路policyの出発階snapshotがありません: ${elevatorSnapshot.id}/${elevatorCandidate.fromStop.id}`
+          );
+        }
+        const continuesElevatorTraversal =
+          context.traversalState.kind !== "walking" &&
+          "linkId" in context.traversalState &&
+          context.traversalState.linkId ===
+            elevatorCandidate.transition.link.id &&
+          context.traversalState.from ===
+            elevatorCandidate.transition.from &&
+          context.traversalState.to ===
+            elevatorCandidate.transition.to &&
+          context.currentRouteKind === "link" &&
+          context.currentRouteLinkId ===
+            elevatorCandidate.transition.link.id;
+        const allowedByCallMat =
+          fromStopSnapshot.callMatState === "ready" ||
+          continuesElevatorTraversal;
         const estimate =
           elevatorCandidate.binding.runtime.estimateTripSeconds(
             elevatorCandidate.fromStop.id,
@@ -698,7 +722,9 @@ export const createSchoolNpcNavigationPolicy = ({
           context.brainwashed ||
           visibleBrainwashedActorIds.length === 0;
         const comparisonSeconds =
-          allowedByDistance && allowedByFaction
+          allowedByCallMat &&
+          allowedByDistance &&
+          allowedByFaction
             ? walkingSeconds +
               estimate.totalSeconds +
               (boardingMode === "next"
@@ -730,7 +756,9 @@ export const createSchoolNpcNavigationPolicy = ({
             trackingTrip,
             visibleBrainwashedActorIds,
             allowedByDistance,
-            allowedByFaction
+            allowedByFaction,
+            allowedByCallMat,
+            callMatState: fromStopSnapshot.callMatState
           })
         });
       });

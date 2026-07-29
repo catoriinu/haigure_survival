@@ -30,6 +30,10 @@ export type V2NpcTraversalState =
       doorId: string;
     }>
   | (Readonly<{
+      kind: "waiting-elevator-call-input";
+    }> &
+      V2NpcElevatorTraversalRoute)
+  | (Readonly<{
       kind: "waiting-elevator-call";
     }> &
       V2NpcElevatorTraversalRoute)
@@ -50,7 +54,7 @@ export type V2NpcTraversalState =
     }> &
       V2NpcElevatorTraversalRoute)
   | (Readonly<{
-      kind: "waiting-elevator-disembark";
+      kind: "leaving-elevator";
     }> &
       V2NpcElevatorTraversalRoute);
 
@@ -86,11 +90,6 @@ export type V2NpcTraversalRequest =
       npcId: string;
       requestedAtSeconds: number;
     }> &
-      V2NpcElevatorTraversalRoute)
-  | (Readonly<{
-      kind: "elevator-disembark";
-      npcId: string;
-    }> &
       V2NpcElevatorTraversalRoute);
 
 export type V2NpcTraversalResult =
@@ -104,6 +103,11 @@ export type V2NpcTraversalResult =
       npcId: string;
       doorId: string;
     }>
+  | (Readonly<{
+      kind: "elevator-call-accepted";
+      npcId: string;
+    }> &
+      V2NpcElevatorTraversalIdentity)
   | (Readonly<{
       kind: "elevator-ready-for-boarding";
       npcId: string;

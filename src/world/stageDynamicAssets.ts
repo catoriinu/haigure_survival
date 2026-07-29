@@ -17,7 +17,8 @@ export const DYNAMIC_STAGE_MARKER_ROLES = [
   "elevator_stop",
   "elevator_passenger_origin",
   "elevator_wait",
-  "elevator_human_gate"
+  "elevator_human_gate",
+  "elevator_call_indicator"
 ] as const;
 
 export const DYNAMIC_STAGE_VOLUME_ROLES = [
@@ -93,6 +94,7 @@ const DYNAMIC_STAGE_ALLOWED_HS_PROPERTIES = Object.freeze({
     "hs_floor_index",
     "hs_landing_door_id",
     "hs_call_mat_id",
+    "hs_call_indicator_id",
     "hs_threshold_id",
     "hs_gate_id",
     "hs_wait_id"
@@ -113,6 +115,13 @@ const DYNAMIC_STAGE_ALLOWED_HS_PROPERTIES = Object.freeze({
     "hs_role",
     "hs_elevator_id",
     "hs_stop_id"
+  ]),
+  elevator_call_indicator: Object.freeze([
+    "hs_id",
+    "hs_role",
+    "hs_elevator_id",
+    "hs_stop_id",
+    "hs_direction"
   ]),
   door_sweep: Object.freeze([
     "hs_id",
@@ -152,7 +161,8 @@ const DYNAMIC_MARKER_NAME_PREFIXES = Object.freeze({
   elevator_stop: "MRK_ElevatorStop_",
   elevator_passenger_origin: "MRK_ElevatorPassengerOrigin_",
   elevator_wait: "MRK_ElevatorWait_",
-  elevator_human_gate: "MRK_ElevatorHumanGate_"
+  elevator_human_gate: "MRK_ElevatorHumanGate_",
+  elevator_call_indicator: "MRK_ElevatorCallIndicator_"
 } satisfies Readonly<Record<DynamicStageMarkerRole, string>>);
 
 const DYNAMIC_VOLUME_NAME_PREFIXES = Object.freeze({
@@ -254,6 +264,14 @@ export type StageElevatorWaitAsset = Readonly<{
   node: TransformNode;
 }>;
 
+export type StageElevatorCallIndicatorAsset = Readonly<{
+  id: string;
+  node: TransformNode;
+  direction: "up" | "down";
+  baseMesh: Mesh;
+  directionMesh: Mesh;
+}>;
+
 export type StageElevatorStopAsset = Readonly<{
   id: string;
   node: TransformNode;
@@ -264,6 +282,7 @@ export type StageElevatorStopAsset = Readonly<{
   threshold: StageElevatorVolumeAsset<"elevator_threshold">;
   humanGate: StageElevatorHumanGateAsset;
   wait: StageElevatorWaitAsset;
+  callIndicator: StageElevatorCallIndicatorAsset;
 }>;
 
 export type StageElevatorCarAsset = Readonly<{
@@ -1151,6 +1170,9 @@ const createElevatorRegistry = (
   const gates = markers.filter(
     (entry) => entry.role === "elevator_human_gate"
   );
+  const callIndicators = markers.filter(
+    (entry) => entry.role === "elevator_call_indicator"
+  );
   const callMats = volumes.filter(
     (entry) => entry.role === "elevator_call_mat"
   );
@@ -1175,6 +1197,7 @@ const createElevatorRegistry = (
     passengerOrigins.length === 0 &&
     waits.length === 0 &&
     gates.length === 0 &&
+    callIndicators.length === 0 &&
     callMats.length === 0 &&
     thresholds.length === 0 &&
     occupancies.length === 0 &&
@@ -1193,6 +1216,7 @@ const createElevatorRegistry = (
   const usedCarVisuals = new Set<Mesh>();
   const usedCarColliders = new Set<Mesh>();
   const usedGateColliders = new Set<Mesh>();
+  const usedCallIndicatorVisuals = new Set<Mesh>();
   const linksById = new Map(source.links.map((link) => [link.id, link]));
   const assets: StageElevatorAsset[] = [];
 
@@ -1441,8 +1465,24 @@ const createElevatorRegistry = (
         stop.id,
         "elevator_wait"
       );
+      const callIndicator = requireMarker(
+        callIndicators,
+        requireIdValue(
+          stop.node.name,
+          stop.extras,
+          "hs_call_indicator_id"
+        ),
+        stop.id,
+        "elevator_call_indicator"
+      );
 
-      for (const component of [callMat, threshold, gate, wait]) {
+      for (const component of [
+        callMat,
+        threshold,
+        gate,
+        wait,
+        callIndicator
+      ]) {
         if (
           requireIdValue(
             "node" in component
@@ -1478,6 +1518,43 @@ const createElevatorRegistry = (
       assertNoHsProperties(gateColliders[0]);
       usedGateColliders.add(gateColliders[0]);
 
+      requireDescendant(
+        callIndicator.node,
+        stop.node,
+        "elevator call indicator"
+      );
+      const direction = requireEnum(
+        callIndicator.node.name,
+        callIndicator.extras,
+        "hs_direction",
+        ["up", "down"] as const
+      );
+      const expectedDirection = floorIndex === 1 ? "up" : "down";
+      if (direction !== expectedDirection) {
+        throw new Error(
+          `elevator call indicatorは1階=up、4階=downが必要です: ${callIndicator.node.name}.${direction}`
+        );
+      }
+      const baseMeshes = source.visualMeshes.filter(
+        (mesh) =>
+          mesh.parent === callIndicator.node &&
+          mesh.name.startsWith("VIS_ElevatorCallIndicator_Base_")
+      );
+      const directionMeshes = source.visualMeshes.filter(
+        (mesh) =>
+          mesh.parent === callIndicator.node &&
+          mesh.name.startsWith("VIS_ElevatorCallIndicator_Direction_")
+      );
+      if (baseMeshes.length !== 1 || directionMeshes.length !== 1) {
+        throw new Error(
+          `elevator_call_indicator直下にはBaseとDirection表示Meshが各1件必要です: ${callIndicator.node.name}`
+        );
+      }
+      for (const mesh of [...baseMeshes, ...directionMeshes]) {
+        assertNoHsProperties(mesh);
+        usedCallIndicatorVisuals.add(mesh);
+      }
+
       stopAssets.push(
         Object.freeze({
           id: stop.id,
@@ -1503,6 +1580,13 @@ const createElevatorRegistry = (
           wait: Object.freeze({
             id: wait.id,
             node: wait.node
+          }),
+          callIndicator: Object.freeze({
+            id: callIndicator.id,
+            node: callIndicator.node,
+            direction,
+            baseMesh: baseMeshes[0],
+            directionMesh: directionMeshes[0]
           })
         })
       );
@@ -1573,6 +1657,7 @@ const createElevatorRegistry = (
   assertAllClaimed("elevator_passenger_origin", passengerOrigins, claims);
   assertAllClaimed("elevator_wait", waits, claims);
   assertAllClaimed("elevator_human_gate", gates, claims);
+  assertAllClaimed("elevator_call_indicator", callIndicators, claims);
   assertAllClaimed("elevator_call_mat", callMats, claims);
   assertAllClaimed("elevator_threshold", thresholds, claims);
   assertAllClaimed("elevator_car_occupancy", occupancies, claims);
@@ -1587,6 +1672,16 @@ const createElevatorRegistry = (
   if (orphanCarVisual) {
     throw new Error(
       `elevator car表示Meshが孤立しています: ${orphanCarVisual.name}`
+    );
+  }
+  const orphanCallIndicatorVisual = source.visualMeshes.find(
+    (mesh) =>
+      mesh.name.startsWith("VIS_ElevatorCallIndicator_") &&
+      !usedCallIndicatorVisuals.has(mesh)
+  );
+  if (orphanCallIndicatorVisual) {
+    throw new Error(
+      `elevator call indicator表示Meshが孤立しています: ${orphanCallIndicatorVisual.name}`
     );
   }
   const orphanCarCollider = source.normalColliders.find(

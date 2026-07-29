@@ -527,7 +527,17 @@ export const runSchoolNpcNavigationPolicyAcceptance = ({
       characterState: "brainwash-complete-no-gun",
       brainwashed: true,
       targetId: trackingActorId,
-      targetSightClear: true
+      targetSightClear: true,
+      currentRouteKind: "link",
+      currentRouteLinkId: elevator.link.id,
+      traversalState: Object.freeze({
+        kind: "waiting-elevator-call",
+        linkId: elevator.link.id,
+        from: elevatorTransition.from,
+        to: elevatorTransition.to,
+        entryLocation: elevatorTransition.entry,
+        exitLocation: elevatorTransition.exit
+      })
     }
   );
   const targetReservation = trackingElevator.requestBoarding(
@@ -544,6 +554,33 @@ export const runSchoolNpcNavigationPolicyAcceptance = ({
     );
   }
   trackingElevator.completeBoarding(trackingActorId);
+  const lockedNewActorSelection = createPolicy()(
+    createContext(
+      "npc_brainwashed_tracker",
+      firstStopCenter,
+      {
+        behavior: "pursue",
+        characterState: "brainwash-complete-no-gun",
+        brainwashed: true,
+        targetId: trackingActorId,
+        targetSightClear: true
+      }
+    ),
+    Object.freeze([
+      trackingStairs,
+      fastElevatorCandidate
+    ])
+  );
+  add(
+    "locked呼出マットでは未受付NPCがエレベーターを新規選択しない",
+    lockedNewActorSelection?.kind === "surface",
+    `callMat=${trackingElevator
+      .getSnapshot()
+      .stops.find(
+        (stop) => stop.id === elevator.initialStop.id
+      )?.callMatState} / selected=` +
+      `${lockedNewActorSelection?.kind ?? "null"}`
+  );
   const sameTripSelection = trackingPolicy(
     trackingContext,
     Object.freeze([
@@ -551,11 +588,28 @@ export const runSchoolNpcNavigationPolicyAcceptance = ({
       fastElevatorCandidate
     ])
   );
+  const trackingEstimate =
+    trackingElevator.estimateTripSeconds(
+      elevator.initialStop.id,
+      destinationStop.id
+    );
+  const trackingCallMatState = trackingElevator
+    .getSnapshot()
+    .stops.find(
+      (stop) => stop.id === elevator.initialStop.id
+    )?.callMatState;
   add(
     "洗脳済みNPCは追跡対象と同便へ間に合う場合に選択する",
     getSelectedElevatorId(sameTripSelection) ===
       elevator.link.id,
-    `selected=${getSelectedElevatorId(sameTripSelection)}`
+    `selected=${getSelectedElevatorId(sameTripSelection)} / ` +
+      `route=${trackingContext.currentRouteKind}/` +
+      `${trackingContext.currentRouteLinkId}/` +
+      `${trackingContext.traversalState.kind} / ` +
+      `callMat=${trackingCallMatState} / ` +
+      `estimate=${trackingEstimate.totalSeconds}/` +
+      `${trackingEstimate.boardingWindowSeconds}/` +
+      `${trackingEstimate.availableCapacity}`
   );
   const immediateBoardingSelection = createPolicy()(
     trackingContext,

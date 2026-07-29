@@ -96,6 +96,9 @@ import {
 import {
   runSchoolNpcNavigationPolicyAcceptance
 } from "./schoolNpcNavigationPolicyAcceptance";
+import {
+  runElevatorThresholdPlayerAcceptance
+} from "./elevatorThresholdPlayerAcceptance";
 
 export type SchoolIntegrationCheck = Readonly<{
   name: string;
@@ -548,7 +551,7 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
   ) {
     const actor = this.requireActor(npcId);
     actor.traversalState = Object.freeze({
-      kind: "waiting-elevator-call",
+      kind: "waiting-elevator-call-input",
       ...route
     });
     this.requests.push(
@@ -559,6 +562,35 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
         ...route
       })
     );
+  }
+
+  completeElevatorCallApproach(npcId: string) {
+    const actor = this.requireActor(npcId);
+    const state = actor.traversalState;
+    if (state.kind !== "moving-to-elevator-wait") {
+      throw new Error(
+        `待機点到達前のNPC状態が不正です: ${npcId}/${state.kind}`
+      );
+    }
+    actor.traversalState = Object.freeze({
+      ...state,
+      kind: "waiting-elevator-call"
+    });
+  }
+
+  completeAllElevatorCallApproaches() {
+    const completedIds: string[] = [];
+    for (const actor of this.actors.values()) {
+      if (
+        actor.traversalState.kind !==
+        "moving-to-elevator-wait"
+      ) {
+        continue;
+      }
+      this.completeElevatorCallApproach(actor.id);
+      completedIds.push(actor.id);
+    }
+    return Object.freeze(completedIds);
   }
 
   enqueueElevatorBoard(
@@ -621,7 +653,11 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
     const actor = this.requireActor(npcId);
     if (
       actor.traversalState.kind !==
-      "waiting-elevator-call"
+        "waiting-elevator-call-input" &&
+      actor.traversalState.kind !==
+        "moving-to-elevator-wait" &&
+      actor.traversalState.kind !==
+        "waiting-elevator-call"
     ) {
       throw new Error(
         `呼出取消前のNPC状態が不正です: ${npcId}/${actor.traversalState.kind}`
@@ -796,6 +832,25 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
             })
           );
           break;
+        case "elevator-call-accepted": {
+          const state = this.requireElevatorIdentity(
+            actor,
+            result
+          );
+          if (
+            state.kind !==
+            "waiting-elevator-call-input"
+          ) {
+            throw new Error(
+              `elevator-call-accepted結果前のNPC状態が不正です: ${actor.id}`
+            );
+          }
+          actor.traversalState = Object.freeze({
+            ...state,
+            kind: "moving-to-elevator-wait"
+          });
+          break;
+        }
         case "elevator-ready-for-boarding": {
           const state = this.requireElevatorIdentity(
             actor,
@@ -888,19 +943,8 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
           }
           actor.traversalState = Object.freeze({
             ...state,
-            kind: "waiting-elevator-disembark"
+            kind: "leaving-elevator"
           });
-          this.requests.push(
-            Object.freeze({
-              kind: "elevator-disembark",
-              npcId: actor.id,
-              linkId: state.linkId,
-              from: state.from,
-              to: state.to,
-              entryLocation: state.entryLocation,
-              exitLocation: state.exitLocation
-            })
-          );
           break;
         }
         case "elevator-disembarked": {
@@ -908,15 +952,11 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
             actor,
             result
           );
-          if (
-            state.kind !==
-            "waiting-elevator-disembark"
-          ) {
+          if (state.kind !== "leaving-elevator") {
             throw new Error(
               `elevator-disembarked結果前のNPC状態が不正です: ${actor.id}`
             );
           }
-          actor.position.copyFrom(result.location.position);
           actor.completeTransitionCount += 1;
           actor.traversalState = Object.freeze({
             kind: "walking"
@@ -1952,6 +1992,9 @@ const runTraversalCoordinatorAcceptance = async (
         10
       )
     );
+    const callAcceptedFrame = updateCoordinator(0);
+    const callAcceptedActorIds =
+      survival.completeAllElevatorCallApproaches();
     const readyFrame = updateCoordinator(0);
     const readyActorIds = elevatorActorIds.filter(
       (actorId) =>
@@ -2026,6 +2069,7 @@ const runTraversalCoordinatorAcceptance = async (
       })
     ).size;
     const followCancellation = [
+      ...callAcceptedFrame.notifications,
       ...readyFrame.notifications,
       ...boardingFrame.notifications
     ].filter(
@@ -2043,6 +2087,15 @@ const runTraversalCoordinatorAcceptance = async (
       checks,
       "ready時予約保持・実request/result経由の定員6・7人目拒否",
       allElevatorActorsOnCallMat &&
+        callAcceptedActorIds.join("|") ===
+          elevatorActorIds.join("|") &&
+        elevatorActorIds.every(
+          (actorId) =>
+            survival!.countAppliedResult(
+              "elevator-call-accepted",
+              actorId
+            ) === 1
+        ) &&
         allReady &&
         reservationSnapshot.reservations.length ===
           ELEVATOR_CAPACITY &&
@@ -2060,7 +2113,8 @@ const runTraversalCoordinatorAcceptance = async (
           ELEVATOR_CAPACITY &&
         acceptedSafeSlots &&
         uniqueAcceptedSlots === ELEVATOR_CAPACITY,
-      `callMat=${allElevatorActorsOnCallMat} / ready=${allReady} / ` +
+      `callMat=${allElevatorActorsOnCallMat} / accepted=` +
+        `${callAcceptedActorIds.length} / ready=${allReady} / ` +
         `reserved=${reservationSnapshot.reservations.length}->` +
         `${heldReservationSnapshot.reservations.length}@` +
         `${heldReservationSnapshot.carDoorState} / ` +
@@ -2167,7 +2221,41 @@ const runTraversalCoordinatorAcceptance = async (
     const waitingDisembark = acceptedIds.every(
       (actorId) =>
         survival!.getNpcTraversalState(actorId).kind ===
-          "waiting-elevator-disembark"
+          "leaving-elevator"
+    );
+    const unloadingSnapshot = runtime
+      .getElevator(elevator.id)
+      .getSnapshot();
+    const unloadingCallResult = runtime
+      .getElevator(elevator.id)
+      .requestCall(fromStop.id);
+    const unloadingBoardingResult = runtime
+      .getElevator(elevator.id)
+      .requestBoarding({
+        actorId: rejectedIds[0]!,
+        fromStopId: destinationStop.id,
+        destinationStopId: fromStop.id,
+        requestedAtSeconds:
+          unloadingSnapshot.elapsedSeconds
+      });
+    const unloadingEstimate = runtime
+      .getElevator(elevator.id)
+      .estimateTripSeconds(
+        destinationStop.id,
+        fromStop.id
+      );
+    updateCoordinator(
+      ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS +
+        ELEVATOR_TRAVEL_SECONDS
+    );
+    const heldUnloadingSnapshot = runtime
+      .getElevator(elevator.id)
+      .getSnapshot();
+    acceptedIds.forEach((actorId) =>
+      survival!.setActorPosition(
+        actorId,
+        route.exitLocation.position
+      )
     );
     updateCoordinator(0);
     const transitionCountsAfterDisembark =
@@ -2211,6 +2299,22 @@ const runTraversalCoordinatorAcceptance = async (
       "搬送中のNPC本体・戦闘個性・Follow／Leave状態を保持",
       acceptedContractsPreserved &&
         waitingDisembark &&
+        unloadingSnapshot.passengers.length ===
+          acceptedIds.length &&
+        unloadingSnapshot.passengers.every(
+          (passenger) => passenger.state === "arrived"
+        ) &&
+        unloadingCallResult.status === "not-callable" &&
+        unloadingBoardingResult.status === "not-boardable" &&
+        !unloadingEstimate.capacityAvailable &&
+        unloadingEstimate.availableCapacity === 0 &&
+        unloadingEstimate.totalSeconds ===
+          Number.POSITIVE_INFINITY &&
+        heldUnloadingSnapshot.currentStopId ===
+          destinationStop.id &&
+        heldUnloadingSnapshot.carDoorState === "open" &&
+        heldUnloadingSnapshot.passengers.length ===
+          acceptedIds.length &&
         acceptedIds.every(
           (actorId) =>
             survival!.countAppliedResult(
@@ -2219,8 +2323,10 @@ const runTraversalCoordinatorAcceptance = async (
             ) === 1
         ),
       `identity=${acceptedContractsPreserved} / ` +
-        `waitingDisembark=${waitingDisembark} / arrived=` +
-        `${acceptedIds.length}`
+        `leaving=${waitingDisembark} / arrived=` +
+        `${acceptedIds.length} / held=` +
+        `${heldUnloadingSnapshot.currentStopId}/` +
+        `${heldUnloadingSnapshot.passengers.length}`
     );
     pushCheck(
       checks,
@@ -2289,6 +2395,8 @@ const runTraversalCoordinatorAcceptance = async (
       30
     );
     updateCoordinator(0);
+    survival.completeAllElevatorCallApproaches();
+    updateCoordinator(0);
     const batchSnapshot = runtime
       .getElevator(elevator.id)
       .getSnapshot();
@@ -2330,6 +2438,8 @@ const runTraversalCoordinatorAcceptance = async (
       31
     );
     updateCoordinator(0);
+    survival.completeAllElevatorCallApproaches();
+    updateCoordinator(0);
     const approachHumanPosition =
       survival.getNpcPosition(approachHuman.id);
     survival.enqueueElevatorCall(
@@ -2337,6 +2447,8 @@ const runTraversalCoordinatorAcceptance = async (
       reverseRoute,
       32
     );
+    updateCoordinator(0);
+    survival.completeAllElevatorCallApproaches();
     updateCoordinator(0);
     const approachSnapshot = runtime
       .getElevator(elevator.id)
@@ -2378,6 +2490,15 @@ const runTraversalCoordinatorAcceptance = async (
       reverseRoute,
       33
     );
+    survival.enqueueElevatorCall(
+      passengerBrainwashed.id,
+      reverseRoute,
+      35
+    );
+    updateCoordinator(0);
+    survival.completeElevatorCallApproach(
+      passengerHuman.id
+    );
     updateCoordinator(0);
     survival.enqueueElevatorBoard(
       passengerHuman.id,
@@ -2387,10 +2508,8 @@ const runTraversalCoordinatorAcceptance = async (
     updateCoordinator(0);
     const passengerTransitionCount =
       passengerHuman.completeTransitionCount;
-    survival.enqueueElevatorCall(
-      passengerBrainwashed.id,
-      reverseRoute,
-      35
+    survival.completeElevatorCallApproach(
+      passengerBrainwashed.id
     );
     updateCoordinator(0);
     const passengerSafetySnapshot = runtime
@@ -2452,6 +2571,12 @@ const runTraversalCoordinatorAcceptance = async (
       reverseRoute,
       20
     );
+    survival.setActorPosition(
+      phasePassengerId,
+      safetyCallMatCenter
+    );
+    updateCoordinator(0);
+    survival.completeAllElevatorCallApproaches();
     updateCoordinator(0);
     survival.enqueueElevatorBoard(
       phasePassengerId,
@@ -2470,6 +2595,10 @@ const runTraversalCoordinatorAcceptance = async (
     runtime
       .getElevator(elevator.id)
       .requestCall(fromStop.id);
+    survival.setActorPosition(
+      phaseWaitingId,
+      callMatCenter
+    );
     survival.enqueueElevatorCall(
       phaseWaitingId,
       route,
@@ -2528,7 +2657,7 @@ const runTraversalCoordinatorAcceptance = async (
       phaseReservation.status === "accepted" &&
         phaseStateBeforeRelease.passengers.length === 1 &&
         phaseStateBeforeRelease.reservations.length === 1 &&
-        phaseStateBeforeRelease.calls.includes(fromStop.id) &&
+        phaseStateBeforeRelease.calls.length === 0 &&
         phaseStateAfterRelease.passengers.length === 0 &&
         phaseStateAfterRelease.reservations.length === 0 &&
         phaseStateAfterRelease.calls.length === 0 &&
@@ -2569,6 +2698,7 @@ const runTraversalCoordinatorAcceptance = async (
       40
     );
     updateCoordinator(0);
+    survival.completeAllElevatorCallApproaches();
     const waitingBeforeCancel =
       survival.getNpcTraversalState(
         callCancelActor.id
@@ -2599,6 +2729,75 @@ const runTraversalCoordinatorAcceptance = async (
           "elevator-ready-for-boarding",
           callCancelActor.id
         )}`
+    );
+
+    const elevatorRuntime = runtime.getElevator(elevator.id);
+    const remoteCall = elevatorRuntime.requestCall(
+      destinationStop.id
+    );
+    updateCoordinator(0);
+    const lockedStopSnapshot = elevatorRuntime
+      .getSnapshot()
+      .stops.find((stop) => stop.id === fromStop.id);
+    if (!lockedStopSnapshot) {
+      throw new Error(
+        `locked呼出fixtureの停止階snapshotがありません: ${fromStop.id}`
+      );
+    }
+    const lockedActor = survival.addActor({
+      id: "locked-call-mat-actor",
+      state: "brainwash-complete-no-gun",
+      position: callMatCenter
+    });
+    survival.enqueueElevatorCall(
+      lockedActor.id,
+      route,
+      50
+    );
+    updateCoordinator(0);
+    const lockedInputState =
+      survival.getNpcTraversalState(lockedActor.id).kind;
+    const lockedAcceptedBeforeReady =
+      survival.countAppliedResult(
+        "elevator-call-accepted",
+        lockedActor.id
+      );
+    updateCoordinator(
+      ELEVATOR_DOOR_MOTION_SECONDS +
+        ELEVATOR_TRAVEL_SECONDS +
+        ELEVATOR_DOOR_MOTION_SECONDS
+    );
+    const acceptedOnFirstReady =
+      survival.countAppliedResult(
+        "elevator-call-accepted",
+        lockedActor.id
+      );
+    updateCoordinator(0);
+    const acceptedAfterExtraUpdate =
+      survival.countAppliedResult(
+        "elevator-call-accepted",
+        lockedActor.id
+      );
+    const stayedOnCallMat =
+      context.queries.containsVolumeById(
+        fromStop.callMat.id,
+        survival.getNpcPosition(lockedActor.id)
+      );
+    pushCheck(
+      checks,
+      "locked呼出マット滞在者はready初回更新で1回だけ入力",
+      remoteCall.status === "accepted" &&
+        lockedStopSnapshot.callMatState === "locked" &&
+        lockedInputState ===
+          "waiting-elevator-call-input" &&
+        lockedAcceptedBeforeReady === 0 &&
+        acceptedOnFirstReady === 1 &&
+        acceptedAfterExtraUpdate === 1 &&
+        stayedOnCallMat,
+      `locked=${lockedStopSnapshot.callMatState} / state=` +
+        `${lockedInputState} / accepted=` +
+        `${lockedAcceptedBeforeReady}→${acceptedOnFirstReady}→` +
+        `${acceptedAfterExtraUpdate} / stayed=${stayedOnCallMat}`
     );
   } finally {
     coordinator?.dispose();
@@ -2759,6 +2958,25 @@ const runPlayerElevatorTraversalAcceptance = async (
     );
     player.setTransportFootPosition(carCenter);
     updateCoordinator(0);
+    const firstBoardedSnapshot =
+      elevatorRuntime.getSnapshot();
+    const originExitPosition = fromStop.wait.node
+      .getAbsolutePosition()
+      .clone();
+    player.setTransportFootPosition(originExitPosition);
+    const originExitFullyOutside =
+      !context.queries.intersectsVolumeById(
+        elevator.car.occupancy.id,
+        player.createTargetSnapshot().hitShape
+      );
+    updateCoordinator(0);
+    const preDepartureExitSnapshot =
+      elevatorRuntime.getSnapshot();
+    updateCoordinator(0);
+    const heldPreDepartureExitSnapshot =
+      elevatorRuntime.getSnapshot();
+    player.setTransportFootPosition(carCenter);
+    updateCoordinator(0);
     const boardedSnapshot = elevatorRuntime.getSnapshot();
     const boardedPlayerPosition = player.getFootPosition();
     const boardedPlayer =
@@ -2777,6 +2995,16 @@ const runPlayerElevatorTraversalAcceptance = async (
         thresholdSnapshot.reservations.some(
           (reservation) => reservation.actorId === "player"
         ) &&
+        firstBoardedSnapshot.passengers.some(
+          (passenger) => passenger.actorId === "player"
+        ) &&
+        originExitFullyOutside &&
+        preDepartureExitSnapshot.passengers.every(
+          (passenger) => passenger.actorId !== "player"
+        ) &&
+        heldPreDepartureExitSnapshot.passengers.every(
+          (passenger) => passenger.actorId !== "player"
+        ) &&
         boardedPlayer &&
         context.queries.containsVolumeById(
           elevator.car.occupancy.id,
@@ -2785,7 +3013,10 @@ const runPlayerElevatorTraversalAcceptance = async (
       `cancelled=${cancelledSnapshot.reservations.length} / ` +
         `renewed=${renewedSnapshot.reservations.length} / ` +
         `threshold=${thresholdSnapshot.reservations.length} / ` +
-        `boarded=${boardedPlayer}`
+        `preExit=${firstBoardedSnapshot.passengers.length}→` +
+        `${preDepartureExitSnapshot.passengers.length}→` +
+        `${heldPreDepartureExitSnapshot.passengers.length} / ` +
+        `reboarded=${boardedPlayer}`
     );
 
     const rideStartedAtSeconds = boardedSnapshot.elapsedSeconds;
@@ -2901,6 +3132,8 @@ const runPlayerElevatorTraversalAcceptance = async (
             npcRequestedAtOffsetSeconds
         );
       });
+      updateCoordinator(0);
+      survival!.completeAllElevatorCallApproaches();
       player!.setTransportFootPosition(openCarCenter);
       const frame = updateCoordinator(0);
       const snapshot = elevatorRuntime.getSnapshot();
@@ -3965,7 +4198,7 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
       elevatorRuntime.getSnapshot().passengers;
     const intermediateDisembarkId =
       incrementalBoardingIds[1];
-    elevatorRuntime.completeDisembark(
+    elevatorRuntime.completePreDepartureExit(
       intermediateDisembarkId
     );
     incrementalBoardingIds
@@ -4038,7 +4271,7 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
     );
     afterIncrementalBoarding.passengers.forEach(
       (passenger) =>
-        elevatorRuntime.completeDisembark(
+        elevatorRuntime.completePreDepartureExit(
           passenger.actorId
         )
     );
@@ -4067,6 +4300,15 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
       `${destinationStop.floorIndex}F→${fromStop.floorIndex}F→` +
         `${destinationStop.floorIndex}F / elapsed=` +
         `${secondOutbound.elapsedSeconds.toFixed(1)}`
+    );
+
+    checks.push(
+      runElevatorThresholdPlayerAcceptance({
+        scene,
+        stage: context,
+        runtime,
+        update: driver.update
+      })
     );
 
     runtime.dispose();

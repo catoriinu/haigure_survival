@@ -43,6 +43,7 @@ type WaitingElevatorCall = Readonly<{
   >;
   elevator: StageElevatorAsset;
   fromStop: StageElevatorStopAsset;
+  callAccepted: boolean;
 }>;
 
 type PendingBoarding = Readonly<{
@@ -65,6 +66,10 @@ type PlayerElevatorTraversalRoute = Readonly<{
 }>;
 
 type PlayerElevatorTraversalState =
+  | Readonly<{
+      kind: "awaiting-call";
+      route: PlayerElevatorTraversalRoute;
+    }>
   | Readonly<{
       kind: "calling";
       route: PlayerElevatorTraversalRoute;
@@ -301,6 +306,8 @@ export const createSchoolStageTraversalCoordinator = ({
   const boardedRouteByNpcId =
     new Map<string, V2NpcElevatorTraversalRoute>();
   const arrivedPassengerIds = new Set<string>();
+  const previousPlayerCallMatIds = new Set<string>();
+  const playerCallMatEntryIds = new Set<string>();
   let playerElevatorTraversal: PlayerElevatorTraversalState | null =
     null;
   let disposed = false;
@@ -365,6 +372,50 @@ export const createSchoolStageTraversalCoordinator = ({
     footPosition: Vector3
   ) => stage.queries.containsVolumeById(volumeId, footPosition);
 
+  const requireHumanTarget = (actorId: string) => {
+    const target = survival
+      .getHumanTargets()
+      .find((candidate) => candidate.id === actorId);
+    if (!target) {
+      throw new Error(
+        `学校traversalのActor snapshotがありません: ${actorId}`
+      );
+    }
+    return target;
+  };
+
+  const isActorFullyOutsideVolume = (
+    actorId: string,
+    volumeId: string
+  ) =>
+    !stage.queries.intersectsVolumeById(
+      volumeId,
+      requireHumanTarget(actorId).hitShape
+    );
+
+  const refreshPlayerCallMatEntries = () => {
+    const footPosition = player.getFootPosition();
+    const currentIds = new Set<string>();
+    for (const elevator of stage.elevatorAssets.all) {
+      for (const stop of elevator.stops) {
+        if (
+          !isPlayerInsideVolume(
+            stop.callMat.id,
+            footPosition
+          )
+        ) {
+          continue;
+        }
+        currentIds.add(stop.callMat.id);
+        if (!previousPlayerCallMatIds.has(stop.callMat.id)) {
+          playerCallMatEntryIds.add(stop.callMat.id);
+        }
+      }
+    }
+    previousPlayerCallMatIds.clear();
+    currentIds.forEach((id) => previousPlayerCallMatIds.add(id));
+  };
+
   const getPlayerRouteOccupancy = (
     route: PlayerElevatorTraversalRoute,
     footPosition: Vector3
@@ -398,6 +449,7 @@ export const createSchoolStageTraversalCoordinator = ({
     for (const elevator of stage.elevatorAssets.all) {
       for (const fromStop of elevator.stops) {
         if (
+          !playerCallMatEntryIds.has(fromStop.callMat.id) ||
           !isPlayerInsideVolume(
             fromStop.callMat.id,
             footPosition
@@ -444,10 +496,6 @@ export const createSchoolStageTraversalCoordinator = ({
       }
       if (
         !isPlayerInsideVolume(
-          fromStop.threshold.id,
-          footPosition
-        ) &&
-        !isPlayerInsideVolume(
           elevator.car.occupancy.id,
           footPosition
         )
@@ -471,15 +519,23 @@ export const createSchoolStageTraversalCoordinator = ({
     footPosition: Vector3
   ) => {
     if (playerElevatorTraversal !== null) {
+      playerCallMatEntryIds.clear();
       return;
     }
-    const route =
-      findPlayerCallMatRoute(footPosition) ??
-      findPlayerOpenElevatorRoute(footPosition);
-    if (route) {
+    const callRoute = findPlayerCallMatRoute(footPosition);
+    if (callRoute) {
+      playerCallMatEntryIds.delete(callRoute.fromStop.callMat.id);
+      playerElevatorTraversal = Object.freeze({
+        kind: "awaiting-call",
+        route: callRoute
+      });
+      return;
+    }
+    const openRoute = findPlayerOpenElevatorRoute(footPosition);
+    if (openRoute) {
       playerElevatorTraversal = Object.freeze({
         kind: "calling",
-        route
+        route: openRoute
       });
     }
   };
@@ -506,8 +562,7 @@ export const createSchoolStageTraversalCoordinator = ({
       stopSnapshot.landingDoorState === "open" &&
       !stopSnapshot.humanGateEnabled &&
       !snapshot.passengers.some(
-        (passenger) =>
-          passenger.destinationStopId === snapshot.currentStopId
+        (passenger) => passenger.state === "arrived"
       )
     );
   };
@@ -525,6 +580,14 @@ export const createSchoolStageTraversalCoordinator = ({
     );
     if (traversal.kind === "riding") {
       const snapshot = elevatorRuntime.getSnapshot();
+      const passenger = snapshot.passengers.find(
+        (candidate) => candidate.actorId === PLAYER_ID
+      );
+      if (!passenger) {
+        throw new Error(
+          `プレイヤー乗客snapshotがありません: ${traversal.route.elevator.id}`
+        );
+      }
       const destinationSnapshot = snapshot.stops.find(
         (stop) =>
           stop.id === traversal.route.destinationStop.id
@@ -534,6 +597,31 @@ export const createSchoolStageTraversalCoordinator = ({
           `プレイヤー降車階snapshotがありません: ${traversal.route.elevator.id}/${traversal.route.destinationStop.id}`
         );
       }
+      const departureSnapshot = snapshot.stops.find(
+        (stop) => stop.id === traversal.route.fromStop.id
+      );
+      if (!departureSnapshot) {
+        throw new Error(
+          `プレイヤー乗車階snapshotがありません: ${traversal.route.elevator.id}/${traversal.route.fromStop.id}`
+        );
+      }
+      if (
+        passenger.state === "riding" &&
+        snapshot.carState === "stopped" &&
+        snapshot.currentStopId ===
+          traversal.route.fromStop.id &&
+        snapshot.carDoorState === "open" &&
+        departureSnapshot.landingDoorState === "open" &&
+        !departureSnapshot.humanGateEnabled &&
+        isActorFullyOutsideVolume(
+          PLAYER_ID,
+          traversal.route.elevator.car.occupancy.id
+        )
+      ) {
+        elevatorRuntime.completePreDepartureExit(PLAYER_ID);
+        playerElevatorTraversal = null;
+        return;
+      }
       if (
         snapshot.carState === "stopped" &&
         snapshot.currentStopId ===
@@ -541,9 +629,10 @@ export const createSchoolStageTraversalCoordinator = ({
         snapshot.carDoorState === "open" &&
         destinationSnapshot.landingDoorState === "open" &&
         !destinationSnapshot.humanGateEnabled &&
-        !isPlayerInsideVolume(
-          traversal.route.elevator.car.occupancy.id,
-          footPosition
+        passenger.state === "arrived" &&
+        isActorFullyOutsideVolume(
+          PLAYER_ID,
+          traversal.route.elevator.car.occupancy.id
         )
       ) {
         elevatorRuntime.completeDisembark(PLAYER_ID);
@@ -563,8 +652,36 @@ export const createSchoolStageTraversalCoordinator = ({
       playerElevatorTraversal = null;
       return;
     }
-    if (occupancy.callMat) {
-      elevatorRuntime.requestCall(traversal.route.fromStop.id);
+    if (traversal.kind === "awaiting-call") {
+      if (!occupancy.callMat) {
+        playerElevatorTraversal = null;
+        return;
+      }
+      const snapshot = elevatorRuntime.getSnapshot();
+      const stopSnapshot = snapshot.stops.find(
+        (stop) => stop.id === traversal.route.fromStop.id
+      );
+      if (!stopSnapshot) {
+        throw new Error(
+          `プレイヤー呼出階snapshotがありません: ${traversal.route.elevator.id}/${traversal.route.fromStop.id}`
+        );
+      }
+      if (stopSnapshot.callMatState !== "ready") {
+        return;
+      }
+      const callResult = elevatorRuntime.requestCall(
+        traversal.route.fromStop.id
+      );
+      if (callResult.status !== "accepted") {
+        throw new Error(
+          `ready呼出マットのプレイヤー呼出が受理されませんでした: ${traversal.route.elevator.id}/${traversal.route.fromStop.id}`
+        );
+      }
+      playerElevatorTraversal = Object.freeze({
+        kind: "calling",
+        route: traversal.route
+      });
+      return;
     }
     if (
       playerElevatorTraversal?.kind === "reserved" &&
@@ -669,17 +786,83 @@ export const createSchoolStageTraversalCoordinator = ({
     >
   ) => {
     const route = resolveElevatorRoute(request);
-    runtime
-      .getElevator(route.elevator.id)
-      .requestCall(route.fromStop.id);
+    if (waitingElevatorCallByNpcId.has(request.npcId)) {
+      throw new Error(
+        `NPCのエレベーター呼出入力が重複しています: ${request.npcId}/${request.linkId}`
+      );
+    }
     waitingElevatorCallByNpcId.set(
       request.npcId,
       Object.freeze({
         request,
         elevator: route.elevator,
-        fromStop: route.fromStop
+        fromStop: route.fromStop,
+        callAccepted: false
       })
     );
+  };
+
+  const resolveElevatorCallInputs = (
+    results: V2NpcTraversalResult[]
+  ) => {
+    for (const [npcId, waiting] of waitingElevatorCallByNpcId) {
+      if (waiting.callAccepted) {
+        continue;
+      }
+      const traversalState =
+        survival.getNpcTraversalState(npcId);
+      if (
+        traversalState.kind !==
+        "waiting-elevator-call-input"
+      ) {
+        continue;
+      }
+      if (
+        !stage.queries.containsVolumeById(
+          waiting.fromStop.callMat.id,
+          survival.getNpcPosition(npcId)
+        )
+      ) {
+        continue;
+      }
+      const elevatorRuntime = runtime.getElevator(
+        waiting.elevator.id
+      );
+      const snapshot = elevatorRuntime.getSnapshot();
+      const stopSnapshot = snapshot.stops.find(
+        (stop) => stop.id === waiting.fromStop.id
+      );
+      if (!stopSnapshot) {
+        throw new Error(
+          `NPC呼出階snapshotがありません: ${waiting.elevator.id}/${waiting.fromStop.id}`
+        );
+      }
+      if (stopSnapshot.callMatState !== "ready") {
+        continue;
+      }
+      const callResult = elevatorRuntime.requestCall(
+        waiting.fromStop.id
+      );
+      if (callResult.status !== "accepted") {
+        throw new Error(
+          `ready呼出マットのNPC呼出が受理されませんでした: ${npcId}/${waiting.elevator.id}/${waiting.fromStop.id}`
+        );
+      }
+      waitingElevatorCallByNpcId.set(
+        npcId,
+        Object.freeze({
+          ...waiting,
+          callAccepted: true
+        })
+      );
+      results.push(
+        Object.freeze({
+          kind: "elevator-call-accepted",
+          npcId,
+          ...createElevatorIdentity(waiting.request)
+        })
+      );
+    }
   };
 
   const processElevatorCallCancel = (
@@ -819,7 +1002,7 @@ export const createSchoolStageTraversalCoordinator = ({
             route,
             currentStopId
           );
-        elevatorRuntime.completeDisembark(actorId);
+        elevatorRuntime.completePreDepartureExit(actorId);
         survival.setNpcTransportPosition(
           actorId,
           retreatLocation.position
@@ -969,32 +1152,46 @@ export const createSchoolStageTraversalCoordinator = ({
     }
   };
 
-  const processDisembark = (
-    request: Extract<
-      V2NpcTraversalRequest,
-      {
-        kind: "elevator-disembark";
-      }
-    >,
+  const resolveCompletedNpcDisembarks = (
     results: V2NpcTraversalResult[]
   ) => {
-    const route = resolveElevatorRoute(request);
-    const elevatorRuntime = runtime.getElevator(route.elevator.id);
-    elevatorRuntime.completeDisembark(request.npcId);
-    boardedRouteByNpcId.delete(request.npcId);
-    survival.setNpcTransportPosition(
-      request.npcId,
-      request.exitLocation.position
-    );
-    arrivedPassengerIds.delete(request.npcId);
-    results.push(
-      Object.freeze({
-        kind: "elevator-disembarked",
-        npcId: request.npcId,
-        ...createElevatorIdentity(request),
-        location: request.exitLocation
-      })
-    );
+    for (const [npcId, route] of boardedRouteByNpcId) {
+      const traversalState =
+        survival.getNpcTraversalState(npcId);
+      if (traversalState.kind !== "leaving-elevator") {
+        continue;
+      }
+      const resolved = resolveElevatorRoute(route);
+      const elevatorRuntime = runtime.getElevator(
+        resolved.elevator.id
+      );
+      const snapshot = elevatorRuntime.getSnapshot();
+      const passenger = snapshot.passengers.find(
+        (candidate) => candidate.actorId === npcId
+      );
+      if (!passenger || passenger.state !== "arrived") {
+        continue;
+      }
+      if (
+        !isActorFullyOutsideVolume(
+          npcId,
+          resolved.elevator.car.occupancy.id
+        )
+      ) {
+        continue;
+      }
+      elevatorRuntime.completeDisembark(npcId);
+      boardedRouteByNpcId.delete(npcId);
+      arrivedPassengerIds.delete(npcId);
+      results.push(
+        Object.freeze({
+          kind: "elevator-disembarked",
+          npcId,
+          ...createElevatorIdentity(route),
+          location: route.exitLocation
+        })
+      );
+    }
   };
 
   const detectCompletedDoorPasses = (
@@ -1083,6 +1280,7 @@ export const createSchoolStageTraversalCoordinator = ({
     const candidates: ReadyElevatorReservationCandidate[] = [];
     for (const [npcId, waiting] of waitingElevatorCallByNpcId) {
       if (
+        !waiting.callAccepted ||
         survival.getNpcTraversalState(npcId).kind !==
         "waiting-elevator-call"
       ) {
@@ -1288,6 +1486,7 @@ export const createSchoolStageTraversalCoordinator = ({
       for (const passenger of snapshot.passengers) {
         if (
           passenger.actorId === PLAYER_ID ||
+          passenger.state !== "arrived" ||
           passenger.destinationStopId !==
             snapshot.currentStopId ||
           arrivedPassengerIds.has(passenger.actorId)
@@ -1353,19 +1552,20 @@ export const createSchoolStageTraversalCoordinator = ({
           case "elevator-board":
             pendingBoardings.push(collectBoarding(request));
             break;
-          case "elevator-disembark":
-            processDisembark(request, results);
-            break;
         }
       }
+      refreshPlayerCallMatEntries();
       processDoorCloseAttempts(doorCloseAttempts);
       detectCompletedDoorPasses(results);
+      resolveCompletedNpcDisembarks(results);
       processBoardingGroups(pendingBoardings, results);
+      resolveElevatorCallInputs(results);
       updatePlayerElevatorTraversalState();
       resolveReadyElevatorCalls(results);
       updatePlayerElevatorTraversalState();
       runtime.update(deltaSeconds);
       resolveOpenedDoors(results);
+      resolveElevatorCallInputs(results);
       updatePlayerElevatorTraversalState();
       resolveReadyElevatorCalls(results);
       updatePlayerElevatorTraversalState();
@@ -1380,6 +1580,7 @@ export const createSchoolStageTraversalCoordinator = ({
       player.syncStageSpatialSnapshot(
         snapshot.spatialSnapshot
       );
+      playerCallMatEntryIds.clear();
       return Object.freeze({
         runtimeSnapshot: snapshot,
         notifications
@@ -1393,6 +1594,8 @@ export const createSchoolStageTraversalCoordinator = ({
       waitingElevatorCallByNpcId.clear();
       boardedRouteByNpcId.clear();
       arrivedPassengerIds.clear();
+      previousPlayerCallMatIds.clear();
+      playerCallMatEntryIds.clear();
       playerElevatorTraversal = null;
       survival.releaseNpcTraversalForScriptedPhase();
     },
@@ -1405,6 +1608,8 @@ export const createSchoolStageTraversalCoordinator = ({
       waitingElevatorCallByNpcId.clear();
       boardedRouteByNpcId.clear();
       arrivedPassengerIds.clear();
+      previousPlayerCallMatIds.clear();
+      playerCallMatEntryIds.clear();
       playerElevatorTraversal = null;
       disposed = true;
     }

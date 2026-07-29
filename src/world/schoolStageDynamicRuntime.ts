@@ -23,6 +23,7 @@ import {
   type StageElevatorSnapshot,
   type StageElevatorSpatialSnapshot
 } from "./stageElevatorRuntime";
+import { createStageElevatorCallIndicatorAdapter } from "./stageElevatorCallIndicator";
 import {
   type StageDoorAssetRegistry,
   type StageDoorPanelAsset,
@@ -284,7 +285,10 @@ const createElevatorRuntimeInput = (
       humanGateCollider: stop.humanGate.collider,
       setHumanGateEnabled: (enabled: boolean) => {
         stop.humanGate.collider.checkCollisions = enabled;
-      }
+      },
+      callIndicator: createStageElevatorCallIndicatorAdapter(
+        stop.callIndicator
+      )
     })
   ),
   carDoorPanels: Object.freeze(

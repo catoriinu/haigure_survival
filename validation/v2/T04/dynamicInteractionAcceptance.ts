@@ -1,6 +1,9 @@
 import {
+  Color3,
+  DynamicTexture,
   MeshBuilder,
   NullEngine,
+  PBRMaterial,
   Quaternion,
   Scene,
   TransformNode,
@@ -27,6 +30,7 @@ import {
   createStageElevatorRuntime,
   type ElevatorPassengerReservation
 } from "../../../src/world/stageElevatorRuntime";
+import { createStageElevatorCallIndicatorAdapter } from "../../../src/world/stageElevatorCallIndicator";
 import {
   createSchoolRuntimeSettings,
   selectDisorderedRoomIds
@@ -681,9 +685,102 @@ export const runDynamicInteractionAcceptance =
       inspectionQueries.dispose();
       inspectionVariants.dispose();
 
+      const indicatorRoot = new TransformNode(
+        "MRK_ElevatorCallIndicator_RuntimeFixture",
+        scene
+      );
+      const indicatorBase = MeshBuilder.CreateBox(
+        "VIS_ElevatorCallIndicator_Base_RuntimeFixture",
+        { size: 0.1 },
+        scene
+      );
+      indicatorBase.parent = indicatorRoot;
+      const indicatorDirection = MeshBuilder.CreateBox(
+        "VIS_ElevatorCallIndicator_Direction_RuntimeFixture",
+        { size: 0.05 },
+        scene
+      );
+      indicatorDirection.parent = indicatorRoot;
+      const indicatorSourceMaterial = new PBRMaterial(
+        "MAT_ElevatorCallIndicator_RuntimeFixture",
+        scene
+      );
+      indicatorSourceMaterial.albedoTexture = new DynamicTexture(
+        "TEX_ElevatorCallIndicator_RuntimeFixture",
+        { width: 4, height: 4 },
+        scene,
+        false
+      );
+      indicatorBase.material = indicatorSourceMaterial;
+      const indicatorTextureCountBeforeAdapter =
+        scene.textures.length;
+      const materialAdapter =
+        createStageElevatorCallIndicatorAdapter({
+          id: "indicator-material-fixture",
+          node: indicatorRoot,
+          direction: "up",
+          baseMesh: indicatorBase,
+          directionMesh: indicatorDirection
+        });
+      materialAdapter.setPresentation("ready", "primary");
+      const readyMaterial = indicatorBase.material as PBRMaterial;
+      materialAdapter.setPresentation("ready", "primary");
+      const repeatedReadyMaterial =
+        indicatorBase.material as PBRMaterial;
+      materialAdapter.setPresentation("unloading", "black");
+      const blackMaterial = indicatorBase.material as PBRMaterial;
+      const indicatorTextureCountDuringAdapter =
+        scene.textures.length;
+      materialAdapter.dispose();
+      checks.push({
+        name: "エレベーター呼出indicator専用material",
+        ok:
+          readyMaterial !== indicatorSourceMaterial &&
+          repeatedReadyMaterial === readyMaterial &&
+          readyMaterial.albedoColor.equalsWithEpsilon(
+            Color3.FromHexString("#36C96B")
+          ) &&
+          blackMaterial.albedoColor.equalsWithEpsilon(
+            Color3.FromHexString("#050505")
+          ) &&
+          indicatorBase.material === indicatorSourceMaterial &&
+          indicatorTextureCountDuringAdapter ===
+            indicatorTextureCountBeforeAdapter &&
+          scene.textures.length ===
+            indicatorTextureCountBeforeAdapter,
+        detail:
+          `ready=${readyMaterial.albedoColor.toHexString()} / ` +
+          `black=${blackMaterial.albedoColor.toHexString()} / ` +
+          `restored=${indicatorBase.material === indicatorSourceMaterial} / ` +
+          `textures=${indicatorTextureCountBeforeAdapter}->${indicatorTextureCountDuringAdapter}->${scene.textures.length}`
+      });
+
       const actorPositions = new Map<string, Vector3>();
       const gateStates = new Map<string, boolean>();
       const panelOpenness = new Map<string, number>();
+      const callIndicatorPresentations = new Map<
+        string,
+        readonly [string, string]
+      >();
+      const callIndicatorUpdateCounts = new Map<string, number>();
+      const disposedCallIndicators = new Set<string>();
+      const createCallIndicatorAdapter = (id: string) =>
+        Object.freeze({
+          id,
+          setPresentation: (state: string, phase: string) => {
+            callIndicatorPresentations.set(
+              id,
+              Object.freeze([state, phase])
+            );
+            callIndicatorUpdateCounts.set(
+              id,
+              (callIndicatorUpdateCounts.get(id) ?? 0) + 1
+            );
+          },
+          dispose: () => {
+            disposedCallIndicators.add(id);
+          }
+        });
       const carRoot = new TransformNode("MRK_ElevatorCar_RuntimeFixture", scene);
       const firstFloorRoot = new TransformNode(
         "MRK_ElevatorStop_RuntimeFixture_1",
@@ -735,7 +832,8 @@ export const runDynamicInteractionAcceptance =
             landingDoorPanels: [firstFloorPanel.adapter],
             humanGateCollider: firstFloorGate,
             setHumanGateEnabled: (enabled) =>
-              gateStates.set("stop-1", enabled)
+              gateStates.set("stop-1", enabled),
+            callIndicator: createCallIndicatorAdapter("indicator-1")
           },
           {
             id: "stop-4",
@@ -744,7 +842,8 @@ export const runDynamicInteractionAcceptance =
             landingDoorPanels: [fourthFloorPanel.adapter],
             humanGateCollider: fourthFloorGate,
             setHumanGateEnabled: (enabled) =>
-              gateStates.set("stop-4", enabled)
+              gateStates.set("stop-4", enabled),
+            callIndicator: createCallIndicatorAdapter("indicator-4")
           }
         ],
         carDoorPanels: [carPanel.adapter],
@@ -788,6 +887,10 @@ export const runDynamicInteractionAcceptance =
       });
       const initialElevator = elevator.getSnapshot();
       const initialElevatorSpatial = elevator.getSpatialSnapshot();
+      const initialFirstIndicatorPresentation =
+        callIndicatorPresentations.get("indicator-1");
+      const initialFourthIndicatorPresentation =
+        callIndicatorPresentations.get("indicator-4");
       elevatorVariants = createDynamicStageSpatialVariants(
         initialElevatorSpatial
       );
@@ -807,6 +910,33 @@ export const runDynamicInteractionAcceptance =
         lowerDoorRayFrom,
         lowerDoorRayTo
       );
+      actorPositions.set(
+        "actor-pre-departure-exit",
+        new Vector3(0, 6, 0)
+      );
+      const preDepartureReservation = elevator.requestBoarding(
+        createReservation("actor-pre-departure-exit", 0)
+      );
+      elevator.completeBoarding("actor-pre-departure-exit");
+      elevator.completePreDepartureExit(
+        "actor-pre-departure-exit"
+      );
+      const afterPreDepartureExit = elevator.getSnapshot();
+      checks.push({
+        name: "エレベーター出発前退避",
+        ok:
+          preDepartureReservation.status === "accepted" &&
+          afterPreDepartureExit.passengers.length === 0 &&
+          afterPreDepartureExit.dwellRemainingSeconds === null &&
+          afterPreDepartureExit.stops.every(
+            (stop) => stop.callMatState === "ready"
+          ),
+        detail:
+          `reservation=${preDepartureReservation.status} / ` +
+          `passengers=${afterPreDepartureExit.passengers.length} / ` +
+          `dwell=${afterPreDepartureExit.dwellRemainingSeconds ?? "none"} / ` +
+          `states=${afterPreDepartureExit.stops.map((stop) => `${stop.id}:${stop.callMatState}`).join(",")}`
+      });
       const reservations = Array.from({ length: 7 }, (_, index) =>
         createReservation(`actor-${index}`, 1)
       ).reverse();
@@ -839,6 +969,11 @@ export const runDynamicInteractionAcceptance =
           panelOpenness.get("car-panel") === 1 &&
           panelOpenness.get("landing-panel-4") === 1 &&
           panelOpenness.get("landing-panel-1") === 0 &&
+          initialElevator.stops.every(
+            (stop) => stop.callMatState === "ready"
+          ) &&
+          initialFirstIndicatorPresentation?.[0] === "ready" &&
+          initialFourthIndicatorPresentation?.[0] === "ready" &&
           capacityResults.filter((result) => result.status === "accepted")
             .length === 6 &&
           capacityResults[0]?.status === "capacity-reached" &&
@@ -850,10 +985,20 @@ export const runDynamicInteractionAcceptance =
         elevator.cancelBoardingReservation(reservation.actorId);
       }
       elevator.completeBoarding("actor-0");
+      const countdownStartSpatialRevision =
+        elevator.getSpatialSnapshot().revision;
+      const countdownBeforeBlink = elevator.update(0.499);
+      const countdownBeforeBlinkPresentation =
+        callIndicatorPresentations.get("indicator-4");
+      const countdownBlink = elevator.update(0.001);
+      const countdownBlinkPresentation =
+        callIndicatorPresentations.get("indicator-4");
+      const countdownBlinkSpatialRevision =
+        elevator.getSpatialSnapshot().revision;
       const actorZeroCarLocal = actorPositions
         .get("actor-0")!
         .subtract(initialElevator.carPosition);
-      const afterFiveSeconds = elevator.update(5);
+      const afterFiveSeconds = elevator.update(4.5);
       const afterFiveSpatial = elevator.getSpatialSnapshot();
       const closingStartOpenness = panelOpenness.get("car-panel");
       const afterClosing = elevator.update(1);
@@ -864,7 +1009,10 @@ export const runDynamicInteractionAcceptance =
       const actorHalfway = actorPositions.get("actor-0")!;
       const carPanelHalfwayY =
         carPanel.mesh.getBoundingInfo().boundingBox.centerWorld.y;
+      doorMotionBlocked = true;
       const arrivedClosed = elevator.update(3);
+      doorMotionBlocked = false;
+      const arrivalOpening = elevator.update(0);
       const arrivedOpen = elevator.update(1);
       const arrivedOpenSpatial = elevator.getSpatialSnapshot();
       const arrivedOpenOpenness = panelOpenness.get("landing-panel-1");
@@ -882,6 +1030,20 @@ export const runDynamicInteractionAcceptance =
         name: "エレベーター5秒待機・1秒扉・6秒搬送",
         ok:
           afterFiveSeconds.carDoorState === "closing" &&
+          countdownBlink.stops.find(
+            (stop) => stop.id === "stop-4"
+          )?.callMatState === "departure-countdown" &&
+          countdownBeforeBlink.stops.find(
+            (stop) => stop.id === "stop-4"
+          )?.callMatState === "departure-countdown" &&
+          countdownBeforeBlinkPresentation?.[0] ===
+            "departure-countdown" &&
+          countdownBeforeBlinkPresentation?.[1] === "primary" &&
+          countdownBlinkPresentation?.[0] ===
+            "departure-countdown" &&
+          countdownBlinkPresentation?.[1] === "black" &&
+          countdownStartSpatialRevision ===
+            countdownBlinkSpatialRevision &&
           afterClosing.carState === "moving" &&
           Math.abs(halfwayTravel.carTravelProgress - 0.5) < 1e-9 &&
           Vector3.Distance(
@@ -889,9 +1051,18 @@ export const runDynamicInteractionAcceptance =
             halfwayTravel.carPosition.add(actorZeroCarLocal)
           ) < 1e-9 &&
           arrivedClosed.currentStopId === "stop-1" &&
+          arrivedClosed.carDoorState === "closed" &&
+          arrivedClosed.passengers[0]?.state === "arrived" &&
+          arrivedClosed.stops.find((stop) => stop.id === "stop-1")
+            ?.callMatState === "called" &&
+          arrivedClosed.stops.find((stop) => stop.id === "stop-4")
+            ?.callMatState === "locked" &&
+          arrivalOpening.carDoorState === "opening" &&
+          arrivalOpening.stops.find((stop) => stop.id === "stop-1")
+            ?.callMatState === "called" &&
           arrivedOpen.carDoorState === "open" &&
           arrivedOpen.passengers.length === 1,
-        detail: `after5=${afterFiveSeconds.carDoorState} / after1=${afterClosing.carState} / half=${halfwayTravel.carTravelProgress} / arrival=${arrivedOpen.currentStopId}:${arrivedOpen.carDoorState}`
+        detail: `countdown=${countdownBlink.stops.map((stop) => `${stop.id}:${stop.callMatState}`).join(",")} / after5=${afterFiveSeconds.carDoorState} / after1=${afterClosing.carState} / half=${halfwayTravel.carTravelProgress} / arrival=${arrivedClosed.carDoorState}:${arrivedClosed.stops.map((stop) => `${stop.id}:${stop.callMatState}`).join(",")}->${arrivalOpening.carDoorState}->${arrivedOpen.carDoorState}`
       });
       checks.push({
         name: "エレベーター人物gateと実panel動的遮蔽",
@@ -918,6 +1089,58 @@ export const runDynamicInteractionAcceptance =
           openHumanGateHit === null &&
           openPanelBeamHit === null,
         detail: `revision=${initialElevatorSpatial.revision}->${afterFiveSpatial.revision}->${afterClosingSpatial.revision}->${halfwaySpatial.revision}->${arrivedOpenSpatial.revision} / query=${elevatorQueries.revision} / carY=${carPanelHalfwayY.toFixed(3)} / gate=${gateStates.get("stop-1")}/${gateStates.get("stop-4")}`
+      });
+      actorPositions.set("actor-arrival-wait", new Vector3(0, 0, 0));
+      const arrivedEstimate = elevator.estimateTripSeconds(
+        "stop-1",
+        "stop-4"
+      );
+      const arrivedBoarding = elevator.requestBoarding({
+        actorId: "actor-arrival-wait",
+        fromStopId: "stop-1",
+        destinationStopId: "stop-4",
+        requestedAtSeconds: 19
+      });
+      const arrivedCall = elevator.requestCall("stop-4");
+      const unloadingSpatialRevision =
+        elevator.getSpatialSnapshot().revision;
+      const unloadingBlink = elevator.update(0.5);
+      const arrivedPreDepartureExitMessage = captureMessage(() =>
+        elevator.completePreDepartureExit("actor-0")
+      );
+      checks.push({
+        name: "エレベーター到着客の完全降車待ち・自動復路禁止",
+        ok:
+          arrivedOpen.passengers[0]?.state === "arrived" &&
+          arrivedOpen.stops.find((stop) => stop.id === "stop-1")
+            ?.callMatState === "unloading" &&
+          arrivedOpen.stops.find((stop) => stop.id === "stop-4")
+            ?.callMatState === "locked" &&
+          arrivedBoarding.status === "not-boardable" &&
+          arrivedCall.status === "not-callable" &&
+          arrivedEstimate.capacityAvailable === false &&
+          arrivedEstimate.availableCapacity === 0 &&
+          arrivedEstimate.waitSeconds === Number.POSITIVE_INFINITY &&
+          arrivedEstimate.totalSeconds === Number.POSITIVE_INFINITY &&
+          arrivedPreDepartureExitMessage?.includes(
+            "到着済み"
+          ) === true &&
+          unloadingBlink.carDoorState === "open" &&
+          unloadingBlink.currentStopId === "stop-1" &&
+          unloadingBlink.targetStopId === null &&
+          elevator.getSpatialSnapshot().revision ===
+            unloadingSpatialRevision &&
+          callIndicatorPresentations.get("indicator-1")?.[0] ===
+            "unloading" &&
+          callIndicatorPresentations.get("indicator-1")?.[1] ===
+            "black",
+        detail:
+          `passenger=${arrivedOpen.passengers[0]?.state ?? "none"} / ` +
+          `states=${arrivedOpen.stops.map((stop) => `${stop.id}:${stop.callMatState}`).join(",")} / ` +
+          `boarding=${arrivedBoarding.status} / call=${arrivedCall.status} / ` +
+          `preDeparture=${arrivedPreDepartureExitMessage ?? "none"} / ` +
+          `estimate=${arrivedEstimate.waitSeconds} / ` +
+          `revision=${unloadingSpatialRevision}->${elevator.getSpatialSnapshot().revision}`
       });
       elevator.completeDisembark("actor-0");
       actorPositions.set("actor-return", new Vector3(0, 0, 0));
@@ -964,9 +1187,12 @@ export const runDynamicInteractionAcceptance =
         destinationStopId: "stop-4",
         requestedAtSeconds: 21
       });
-      elevator.requestCall("stop-1");
+      const rejectedCallDuringTravel = elevator.requestCall("stop-1");
       const heldDuringTravel = elevator.getSnapshot();
+      doorMotionBlocked = true;
       const arrivedForCall = elevator.update(6);
+      doorMotionBlocked = false;
+      const arrivalOpeningForCall = elevator.update(0);
       const openedAtUpdateBoundary = elevator.update(10);
       actorPositions.set("actor-boundary", new Vector3(0, 6, 0));
       const boundaryReservation = elevator.requestBoarding({
@@ -977,9 +1203,9 @@ export const runDynamicInteractionAcceptance =
       });
       const heldOpenByReservation = elevator.update(10);
       elevator.cancelBoardingReservation("actor-boundary");
-      const reverseDeparture = elevator.update(0);
+      const idleAfterCancel = elevator.update(0);
       checks.push({
-        name: "エレベーター両方向呼出・占有待機・走行中呼出保持",
+        name: "エレベーター両方向呼出・占有待機・走行中追加呼出禁止",
         ok:
           occupancyBlockedCall.carDoorState === "open" &&
           gateAtBlockedCall === false &&
@@ -989,29 +1215,77 @@ export const runDynamicInteractionAcceptance =
           closingPanelBeamHit === null &&
           callMoving.carState === "moving" &&
           notBoardable.status === "not-boardable" &&
-          heldDuringTravel.calls.includes("stop-1") &&
+          rejectedCallDuringTravel.status === "not-callable" &&
+          heldDuringTravel.calls.length === 1 &&
+          heldDuringTravel.calls.includes("stop-4") &&
+          !heldDuringTravel.calls.includes("stop-1") &&
           arrivedForCall.currentStopId === "stop-4" &&
-          arrivedForCall.calls.includes("stop-1") &&
+          arrivedForCall.carDoorState === "closed" &&
+          arrivedForCall.calls.length === 1 &&
+          arrivedForCall.calls.includes("stop-4") &&
+          arrivedForCall.stops.find(
+            (stop) => stop.id === "stop-4"
+          )?.callMatState === "called" &&
+          arrivedForCall.stops.find(
+            (stop) => stop.id === "stop-1"
+          )?.callMatState === "locked" &&
+          arrivalOpeningForCall.carDoorState === "opening" &&
+          arrivalOpeningForCall.stops.find(
+            (stop) => stop.id === "stop-4"
+          )?.callMatState === "called" &&
           openedAtUpdateBoundary.carDoorState === "open" &&
-          reverseDeparture.carDoorState === "closing" &&
-          reverseDeparture.targetStopId === "stop-1" &&
+          openedAtUpdateBoundary.stops.every(
+            (stop) => stop.callMatState === "ready"
+          ) &&
+          idleAfterCancel.carDoorState === "open" &&
+          idleAfterCancel.targetStopId === null &&
           invalidStopMessage?.includes("未登録") === true,
-        detail: `blocked=${occupancyBlockedCall.carDoorState} / moving=${callMoving.carState} / held=${heldDuringTravel.calls.join(",")} / reverse=${reverseDeparture.targetStopId} / invalid=${invalidStopMessage ?? "none"}`
+        detail: `blocked=${occupancyBlockedCall.carDoorState} / moving=${callMoving.carState} / call=${rejectedCallDuringTravel.status} / held=${heldDuringTravel.calls.join(",")} / arrival=${arrivedForCall.carDoorState}:${arrivedForCall.calls.join(",")} / idle=${idleAfterCancel.targetStopId ?? "none"} / invalid=${invalidStopMessage ?? "none"}`
       });
       checks.push({
         name: "エレベーター開扉完了境界・予約中の閉扉抑止",
         ok:
           openedAtUpdateBoundary.carState === "stopped" &&
           openedAtUpdateBoundary.carDoorState === "open" &&
-          openedAtUpdateBoundary.calls.includes("stop-1") &&
+          openedAtUpdateBoundary.calls.length === 0 &&
           boundaryReservation.status === "accepted" &&
           heldOpenByReservation.carState === "stopped" &&
           heldOpenByReservation.carDoorState === "open" &&
           heldOpenByReservation.reservations.length === 1 &&
-          heldOpenByReservation.calls.includes("stop-1") &&
-          reverseDeparture.carDoorState === "closing" &&
-          reverseDeparture.targetStopId === "stop-1",
-        detail: `boundary=${openedAtUpdateBoundary.carState}:${openedAtUpdateBoundary.carDoorState} / reservation=${boundaryReservation.status}:${heldOpenByReservation.reservations.length} / afterCancel=${reverseDeparture.carDoorState}:${reverseDeparture.targetStopId}`
+          heldOpenByReservation.stops.find(
+            (stop) => stop.id === "stop-4"
+          )?.callMatState === "ready" &&
+          heldOpenByReservation.stops.find(
+            (stop) => stop.id === "stop-1"
+          )?.callMatState === "locked" &&
+          idleAfterCancel.stops.every(
+            (stop) => stop.callMatState === "ready"
+          ),
+        detail: `boundary=${openedAtUpdateBoundary.carState}:${openedAtUpdateBoundary.carDoorState} / reservation=${boundaryReservation.status}:${heldOpenByReservation.reservations.length} / afterCancel=${idleAfterCancel.carDoorState}:${idleAfterCancel.targetStopId}`
+      });
+      const stableIndicatorUpdateCounts = new Map(
+        callIndicatorUpdateCounts
+      );
+      elevator.update(0.1);
+      const stableIndicatorsUnchanged = [
+        "indicator-1",
+        "indicator-4"
+      ].every(
+        (id) =>
+          callIndicatorUpdateCounts.get(id) ===
+          stableIndicatorUpdateCounts.get(id)
+      );
+      elevator.dispose();
+      checks.push({
+        name: "エレベーター呼出表示の差分更新・破棄",
+        ok:
+          stableIndicatorsUnchanged &&
+          disposedCallIndicators.has("indicator-1") &&
+          disposedCallIndicators.has("indicator-4"),
+        detail:
+          `updates=${[...callIndicatorUpdateCounts.entries()]
+            .map(([id, count]) => `${id}:${count}`)
+            .join(",")} / disposed=${[...disposedCallIndicators].join(",")}`
       });
 
       const roomIds = Array.from(

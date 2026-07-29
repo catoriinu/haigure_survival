@@ -1786,6 +1786,25 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       }
 
       this.requireElevatorTraversalIdentity(npc, result);
+      if (result.kind === "elevator-call-accepted") {
+        this.requireElevatorTraversalKind(
+          npc,
+          "waiting-elevator-call-input"
+        );
+        const elevatorRoute = this.createNpcElevatorTraversalRoute(npc);
+        npc.navigationAgent.clear();
+        npc.selectedRouteKind = "link";
+        npc.selectedElevatorTransition =
+          cloneNavigationTransition(
+            npc.pendingNavigationTransition!
+          );
+        npc.traversalState = Object.freeze({
+          kind: "moving-to-elevator-wait",
+          ...elevatorRoute
+        });
+        frameViewChanged = true;
+        continue;
+      }
       if (result.kind === "elevator-ready-for-boarding") {
         this.requireElevatorTraversalKind(
           npc,
@@ -1878,15 +1897,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       if (result.kind === "elevator-arrived") {
         this.requireElevatorTraversalKind(npc, "riding-elevator");
         const elevatorRoute = this.createNpcElevatorTraversalRoute(npc);
-        this.pendingTraversalRequests.push(
-          Object.freeze({
-            kind: "elevator-disembark",
-            npcId: npc.id,
-            ...elevatorRoute
-          })
-        );
         npc.traversalState = Object.freeze({
-          kind: "waiting-elevator-disembark",
+          kind: "leaving-elevator",
           ...elevatorRoute
         });
         frameViewChanged = true;
@@ -1895,7 +1907,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
       this.requireElevatorTraversalKind(
         npc,
-        "waiting-elevator-disembark"
+        "leaving-elevator"
       );
       const pendingTransition = npc.pendingNavigationTransition;
       if (!pendingTransition) {
@@ -1906,8 +1918,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       assertFiniteVector("NPC降車位置", result.location.position);
       npc.navigationAgent.completeTransition(result.location);
       npc.navigationLocation = cloneNavigationLocation(result.location);
-      npc.footPosition = this.resolveFootPosition(result.location.position);
-      npc.sprite.position.copyFrom(toAimPosition(npc.footPosition));
       npc.pendingNavigationTransition = null;
       npc.traversalState = createWalkingV2NpcTraversalState();
       frameViewChanged = true;
@@ -2400,16 +2410,13 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
   private beginNpcElevatorCall(
     npc: NpcRuntime,
-    transition: NavigationTransitionStep,
-    moveToWait: boolean
+    transition: NavigationTransitionStep
   ) {
     npc.pendingNavigationTransition =
       cloneNavigationTransition(transition);
     const elevatorRoute = this.createNpcElevatorTraversalRoute(npc);
     npc.traversalState = Object.freeze({
-      kind: moveToWait
-        ? "moving-to-elevator-wait"
-        : "waiting-elevator-call",
+      kind: "waiting-elevator-call-input",
       ...elevatorRoute
     });
     this.pendingTraversalRequests.push(
@@ -2424,7 +2431,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
   private reconsiderWaitingElevatorCall(npc: NpcRuntime) {
     const state = npc.traversalState;
-    if (state.kind !== "waiting-elevator-call") {
+    if (
+      state.kind !== "waiting-elevator-call-input" &&
+      state.kind !== "waiting-elevator-call"
+    ) {
       throw new Error(
         `呼出待機再評価対象NPCの状態が不正です: ${npc.id}/${state.kind}`
       );
@@ -2496,10 +2506,21 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       targetPosition
     );
     if (
-      npc.traversalState.kind === "waiting-elevator-call" &&
+      (npc.traversalState.kind ===
+        "waiting-elevator-call-input" ||
+        npc.traversalState.kind ===
+          "waiting-elevator-call") &&
       allowPathRecalculation
     ) {
       this.reconsiderWaitingElevatorCall(npc);
+    }
+    if (npc.traversalState.kind === "leaving-elevator") {
+      this.updateNpcElevatorDisembarkMovement(
+        npc,
+        speed,
+        deltaSeconds
+      );
+      return this.createTraversalWaitingStep(npc);
     }
     if (!isV2NpcTraversalWalkingEnabled(npc.traversalState)) {
       return this.createTraversalWaitingStep(npc);
@@ -2606,12 +2627,59 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         pathDistance: movement.pathDistance
       });
     }
-    this.beginNpcElevatorCall(npc, transition, false);
-    return Object.freeze({
-      ...this.createTraversalWaitingStep(npc),
-      pathRecalculated: movement.pathRecalculated,
-      pathDistance: movement.pathDistance
-    });
+    throw new Error(
+      `NPCが呼出マットへ進入せずエレベーター遷移点へ到達しました: ${npc.id}/${transition.link.id}`
+    );
+  }
+
+  private updateNpcElevatorDisembarkMovement(
+    npc: NpcRuntime,
+    speed: number,
+    deltaSeconds: number
+  ) {
+    const state = npc.traversalState;
+    if (state.kind !== "leaving-elevator") {
+      throw new Error(
+        `NPC降車移動対象のtraversal状態が不正です: ${npc.id}/${state.kind}`
+      );
+    }
+    const offset = state.exitLocation.position.subtract(
+      npc.footPosition
+    );
+    const distance = offset.length();
+    if (distance === 0) {
+      return;
+    }
+    const movementDistance = Math.min(
+      distance,
+      speed * deltaSeconds
+    );
+    if (movementDistance === 0) {
+      return;
+    }
+    const nextPosition = npc.footPosition.add(
+      offset.scale(movementDistance / distance)
+    );
+    const nextFootPosition = this.resolveFootPosition(
+      nextPosition
+    );
+    const movementHit = this.stage.queries.castMovementSegment(
+      "npc",
+      toAimPosition(npc.footPosition),
+      toAimPosition(nextFootPosition)
+    );
+    if (movementHit) {
+      return;
+    }
+    const horizontal = nextFootPosition.subtract(
+      npc.footPosition
+    );
+    horizontal.y = 0;
+    if (horizontal.lengthSquared() > 0) {
+      npc.forward.copyFrom(horizontal.normalize());
+    }
+    npc.footPosition = nextFootPosition;
+    npc.sprite.position.copyFrom(toAimPosition(npc.footPosition));
   }
 
   private createTraversalWaitingStep(
@@ -4164,14 +4232,20 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       if (
         npc.traversalState.kind === "walking" &&
         selectedElevatorTransition &&
-        this.elevatorHumanGateColliders.has(movementHit.mesh)
+        this.elevatorHumanGateColliders.has(movementHit.mesh) &&
+        this.stage.queries.containsVolumeById(
+          this.requireNpcElevatorStopTraversal(
+            selectedElevatorTransition.link.id,
+            selectedElevatorTransition.from
+          ).callMatId,
+          npc.footPosition
+        )
       ) {
         npc.navigationAgent.clear();
         npc.selectedElevatorTransition = null;
         this.beginNpcElevatorCall(
           npc,
-          selectedElevatorTransition,
-          true
+          selectedElevatorTransition
         );
         return false;
       }
@@ -4222,7 +4296,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
     npc.navigationAgent.clear();
     npc.selectedElevatorTransition = null;
-    this.beginNpcElevatorCall(npc, transition, true);
+    this.beginNpcElevatorCall(npc, transition);
   }
 
   private resolveFootPosition(navigationPosition: Vector3) {
@@ -4683,11 +4757,12 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc: NpcRuntime,
     kind:
       | "waiting-elevator-call"
+      | "waiting-elevator-call-input"
       | "moving-to-elevator-wait"
       | "approaching-elevator-board"
       | "waiting-elevator-board"
       | "riding-elevator"
-      | "waiting-elevator-disembark"
+      | "leaving-elevator"
   ) {
     if (npc.traversalState.kind !== kind) {
       throw new Error(

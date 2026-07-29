@@ -3451,13 +3451,13 @@ const runValidation = async () => {
             (selection) => selection.variant === "normal"
           );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 606 &&
+          schoolContext.resources.visualMeshes.length === 609 &&
           schoolContext.resources.normalColliders.length === 273 &&
           schoolContext.resources.actorOnlyColliders.length === 81 &&
           schoolContext.resources.humanOnlyColliders.length === 59 &&
           schoolContext.resources.navSourceMeshes.length === 39 &&
           schoolContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-          schoolContext.markers.all.length === 225 &&
+          schoolContext.markers.all.length === 227 &&
           assemblyAnchors.length === 2 &&
           schoolContext.volumes.all.length === 75 &&
           assemblyVolumes.length === 2 &&
@@ -5465,13 +5465,13 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 606 &&
+          reloadedContext.resources.visualMeshes.length === 609 &&
           reloadedContext.resources.normalColliders.length === 273 &&
           reloadedContext.resources.actorOnlyColliders.length === 81 &&
           reloadedContext.resources.humanOnlyColliders.length === 59 &&
           reloadedContext.resources.navSourceMeshes.length === 39 &&
           reloadedContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-          reloadedContext.markers.all.length === 225 &&
+          reloadedContext.markers.all.length === 227 &&
           reloadedContext.markers.getByRole("assembly_anchor").length === 2 &&
           reloadedContext.volumes.all.length === 75 &&
           reloadedContext.volumes.getByRole("assembly").length === 2 &&
