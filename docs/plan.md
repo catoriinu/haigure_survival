@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 複数セッション実装ロードマップ 計画
 
-更新日: 2026-07-28
+更新日: 2026-07-29
 
 ## プロンプト
 
@@ -315,10 +315,10 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - [x] B03-3A: 学校拡張、エレベーター、荒れた教室、動的扉、NPC指示の設計契約と後続ロードマップを確定
 - [x] B03-3B: 体育館、渡り廊下、ギャラリー、屋上、西側校舎延長、エレベーター躯体をPR #52で`develop`へ統合
 - [x] T05-2V: V1光線軌跡・光球・着弾・命中演出と、世界境界での非着弾フェードをPR #53で`develop`へ統合
-- [ ] I0: T05-3、T04-3A、B03-3Cを統合headへ集約し、第1重点動作確認後に統合Pull Requestを`develop`へマージ
-- [ ] B04: I0後の最終外形へ塀外5.0mの歩道・道路、`BND_WorldLimit`、外周BIT飛行帯を追加し、資産特化ゲートを完了
-- [ ] T05-4: NPC／BITへ`persistent`／`nearest-visible`の標的選択個性を50%ずつ決定的に割り当て、AI特化ゲートを完了
-- [ ] T04-3B: B04とT05-4の統合後、実学校へ動的扉、エレベーター、荒れた教室、標的選択個性を含む全陣営NPC利用・追跡を統合
+- [x] I0: T05-3、T04-3A、B03-3Cを統合headへ集約し、第1重点動作確認後に`develop`へ統合
+- [x] B04: 最終学校外形へ歩道・道路と`BND_WorldLimit`を追加し、`worldBoundaryMode = "required"`、非nullの`worldBoundary`、外周BIT飛行帯なし・外周BIT経路0件の資産契約を`develop`へ統合
+- [x] T05-4: NPC／BITへ`persistent`／`nearest-visible`の標的選択個性を50%ずつ決定的に割り当て、`develop`へ統合
+- [ ] T04-3B: `origin/develop`の`3803e51`から実装中。実学校へ動的扉、エレベーター、荒れた教室、標的選択個性を含む全陣営NPC利用・追跡を統合し、検証・独立レビュー・単一commitまで完了する（push／Pull Request／mergeなし）
 - [ ] T06: F／E／C・G／N／H、候補表示、既定荒れ状態2、学校3Dステージ統合
 - [ ] T07: 性能調整、学校回帰試験、仕様書更新
 - [ ] v2リリース準備: 最終ビルド、バージョン、リリース文書、`main`向けPull Request、リリース後の`develop`同期
@@ -333,17 +333,17 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - B03-0とT04-2Aは完了した。B03-1は進行中であり、B03-2はB03-1の窓契約確定、検証完了、Pull Requestの`develop`統合後に開始する。
 - T04-2BはT04-2AとB03-2の両方が完了してから開始する。
 - B03-3BとT05-2Vは、それぞれPR #52とPR #53で`develop`へ統合済みである。
-- B03-3C、T04-3A、T05-3は分離実装を終え、T05-3からT04-3A、T04-3AからB03-3Cの順にI0統合headへ集約する。
-- B04とT05-4はI0統合Pull Requestの`develop`マージ後、同じ最新`develop`から別branch／worktreeで並行開始する。未マージのI0 headから派生させない。
-- T04-3BはB04とT05-4の両方の統合後、T06はT04-3B後、T07はT06後、v2リリース準備はT07後に直列実行する。
+- B03-3C、T04-3A、T05-3を集約したI0、B04、T05-4は`origin/develop`の`3803e51`までに統合済みである。
+- T04-3Bは全依存を含む`origin/develop`の`3803e51`から専用branch／worktreeを作成して単独実装中である。
+- T06はT04-3Bの`develop`統合後、T07はT06後、v2リリース準備はT07後に直列実行する。
 - B01はT01完了後に開始でき、T02～T05-2と並行できる。
 - B02はB01で間取りが承認され、T01の資産規約が確定してから開始する。
 - B03の開始条件であるB02ブロックアウトとT03プレイヤー移動は完了済みである。後続作業はPR #41統合を追加の開始条件とする。
 
 ## 並行作業規則
 
-- B03-3B／T05-2VとB03-3C／T04-3A／T05-3の旧並行Waveは完了または統合段階へ移った。
-- I0後は、学校バイナリだけを所有するB04と、AI Runtimeだけを所有するT05-4に限って書込みを並行できる。両branchは全体計画を編集せず、自分の個別計画だけを更新する。
+- B03-3B／T05-2V、B03-3C／T04-3A／T05-3、B04／T05-4の並行Waveはすべて完了し、`develop`へ統合済みである。
+- 現在はT04-3Bだけを書き込み対象とし、学校`.blend`、GLB、両NavMesh、生成器、カタログhashを変更しない。
 - T04-3B、T06、T07、v2リリース準備は依存順に直列実行する。依存成果が`develop`へ入る前に次ブランチを作成したり、コード、計画書、バイナリを書き始めたりしない。
 - Blender系タスクは、コードと3Dステージ資産を同時編集しない場合に限りコード系タスクと並行できる。
 - 同一`.blend`、`.glb`、`docs/plan.md`を複数セッションから同時編集しない。
@@ -362,10 +362,10 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 
 ## 重点動作確認
 
-- I0のPull Request作成後、`develop`マージ前に第1重点動作確認を行う。B03-3C資産、T04-3A動的空間、T05-3 NPC指示、T04／T05 fixture、実学校の扉・エレベーター・Follow／Leave・同期射撃、破棄・再読込を同じheadで確認する。
-- B04のPull Request作成後、`develop`マージ前に資産特化ゲートを行う。全周外周、`BND_WorldLimit`、両NavMesh、外周スポーン0件、BIT外周帯、光線の非着弾フェードを確認する。
-- T05-4のPull Request作成後、`develop`マージ前にAI特化ゲートを行う。50%個性、seed再現、persistent保持、nearest-visible切替、遮蔽、Alarm／Alert／固定攻撃、99 NPC／50 BIT予算を確認する。
-- T04-3BのPull Request作成後、`develop`マージ前に第2重点動作確認を行う。20室variant、動的扉、エレベーター、全陣営NPC、視線・ビーム・BITを実学校で長時間確認する。
+- I0の第1重点動作確認は完了済みである。B03-3C資産、T04-3A動的空間、T05-3 NPC指示、T04／T05 fixture、実学校の扉・エレベーター・Follow／Leave・同期射撃、破棄・再読込を同じheadで確認した。
+- B04の資産特化ゲートは完了済みである。全周外周、`BND_WorldLimit`、両NavMesh、外周スポーン0件、`worldBoundaryMode = "required"`、非nullの`worldBoundary`、外周BIT経路0件、光線の非着弾フェードを確認対象とする。
+- T05-4のAI特化ゲートは完了済みである。50%個性、seed再現、persistent保持、nearest-visible切替、遮蔽、Alarm／Alert／固定攻撃、99 NPC／50 BIT予算を確認対象とする。
+- T04-3Bは今回の単一commit前に第2重点動作確認相当を行う。20室variant、動的扉、エレベーター、全陣営NPC、視線・ビーム・BITを実学校で長時間確認し、push／Pull Request／mergeは行わない。
 - T06のPull Request作成後、`develop`マージ前に最終機能ゲートを行う。タイトル開始から終了・タイトル復帰・再読込まで、F／E／C・G／N／H、増援、音声、水中、資源破棄をWeb・Electronで完全E2E確認する。
 - T07のPull Request作成後、`develop`マージ前に性能・リリースゲートを行う。1080p・既定設定・99 NPC・50 BIT・全機能有効条件の定量性能、最終回帰、仕様書を確認する。
 
@@ -737,3 +737,9 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - BITは生成時、NPCは初回洗脳時に、既存の状態・移動・射撃乱数と独立した決定的乱数系列で個性を1回だけ確定する。Alarm／Alert、公開処刑、hold、fixed、random、carpet、Follower同期射撃などの強制標的は個性より優先する。
 - 現行のNPC最近傍可視探索とBIT可視候補探索を再利用でき、追加の全件探索や無制限Rayは不要である。詳細仕様、所有範囲、検証は`docs/plans/v2/T05-4/plan.md`を正本とする。
 - I0後にB04とT05-4を並行し、両方の`develop`統合後にT04-3Bを開始する。T07では両個性をNPC 99人／BIT 50機へ混在させて性能を最終回帰する。
+
+### 2026-07-29 T04-3B開始時点
+
+- `origin/develop`の`3803e51`にはI0、B04、T05-4が統合済みであり、T04-3Bの全依存を満たしている。
+- B04の確定契約は、学校カタログの`worldBoundaryMode`を`required`、`StageSpatialContext.worldBoundary`を非nullとし、外周BIT飛行帯を設けず外周BIT経路を0件に保つ。
+- T04-3Bは`codex/v2-t04-3-school-integration`と専用worktreeで実装中である。今回の完了境界は実装、計画更新、全検証、独立レビュー、単一commitまでとし、push、Pull Request作成、merge、review thread操作、worktree削除は行わない。

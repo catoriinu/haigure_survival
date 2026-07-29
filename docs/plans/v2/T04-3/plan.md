@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 T04-3 動的空間・扉・エレベーター統合 計画
 
-更新日: 2026-07-28
+更新日: 2026-07-29
 
 ## プロンプト
 
@@ -19,6 +19,86 @@
 2026-07-28 方針変更:
 
 > Pull Requestは作らなくてよいです。このまま後でB03-3Cのbranchへローカルで取り込みます。Pull Requestを作成済みであればcloseしてください。
+
+2026-07-29 T04-3B実装指示:
+
+> PLEASE IMPLEMENT THIS PLAN:
+>
+> # T04-3B 実学校動的統合 実装計画
+>
+> ## 概要
+>
+> - 実行直前に`origin/develop`を再取得し、B03-3C・B04・T04-3A・T05-3・T05-4が祖先であることを再確認する。確認済みHEADは`3803e51`。
+> - `codex/v2-t04-3-school-integration`と専用worktree `../fps_survival20251226-t04-3-school-integration`を最新`origin/develop`から作成する。
+> - 現worktreeの未コミット人口調整は変更・stash・取り込みをせず、学校`.blend`、GLB、両NavMesh、生成器、カタログhashも変更しない。
+> - T04-3個別計画へ今回のプロンプト、正確な日付、工程、最終結果を記録し、各工程後にチェックを更新する。全体計画・ロードマップ・ブランチ戦略は、I0／B04／T05-4の統合済み状態と「外周BIT飛行帯なし」の最新契約へ同期する。
+>
+> ## 実装変更
+>
+> ### 20室variantと動的空間
+>
+> - `createSchoolRoomVariantSelections(settings, seed)`を追加し、Stage読込前に20室のnormal／disorderedを確定する。荒れ室数はレベル0／2／10で0／4／20室、同seedでは同一結果、セッション中は不変とする。
+> - 選択variantから人間用NavMesh、Collider、視線・ビーム・BIT障害物を組み立てた後に、スポーンと空間indexを生成する。
+> - 静的基底集合から通常扉パネルとエレベーター人物ゲートを除外し、通常扉snapshot、エレベーターsnapshot、選択variant基底を`SchoolStageDynamicRuntime`で合成する。
+> - 更新順を「前更新の要求取込→呼出・予約・占有判定→扉・かご・搬送更新→active setを1回だけ原子公開→プレイヤー・ビーム・NPC・BIT更新→次更新の要求蓄積」に固定する。Transformだけが変化した場合もrevisionを進める。
+> - revision 0の時点で、部屋選択、通常扉の初期状態、4階開放中のエレベーター状態をすべて反映する。
+>
+> ### 扉・エレベーター
+>
+> - 実学校の38室扉、24トイレ扉、3エレベーター扉を実資産adapterへ接続する。室扉は20%閉、トイレ扉は全開で開始する。
+> - 全陣営NPCが必要な閉扉を開け、記録した進入側から反対側へ抜けて人物楕円体が最終位置・掃引Volumeの両方を離れた時点を「通過完了」とする。完了時に30%で閉扉を1回だけ試し、占有中なら破棄して再試行しない。
+> - 移動中の扉パネルは人物・ビーム・視線・BIT集合から外し、完全open／closed時は実パネル位置で全集合へ戻す。
+> - エレベーターは1階／4階、4階開放開始、初回待機5秒、開閉1秒、走行6秒、予約込み定員6人を維持する。同時要求は要求時刻、同一時刻はActor ID順で処理する。
+> - プレイヤー、未洗脳NPC、洗脳済みNPCを同じactor bridgeで搬送し、かご相対座標、視線、戦闘、標的選択個性、Follow／Leave状態を保持する。7人目の乗車だけを拒否し、降車は常に許可する。Follow中NPCが拒否された場合だけFollowを解除する。
+> - 通常ゲームのC入力、候補highlight、F／E、G／N／H、音声、既定荒れレベル2のゲーム入口接続はT06へ残す。T04-3Bでは本番用APIと実学校fixtureまでを完成させる。
+>
+> ### NPC経路・陣営動作
+>
+> - `NavigationWorld`は階段のsurface経路を見つけても即決せず、surface経路とエレベーターlink経路を列挙し、必須の`NavigationRoutePolicy`で比較する。互換overloadや暗黙fallbackは追加せず、全利用元を明示policyへ移行する。
+> - `StageElevatorTripEstimate`で現在のかご位置、呼出、待機、開閉、走行、予約、定員を含む予測時間を返す。
+> - NPCごとの`patience`と`riskTolerance`をセッションseed＋安定NPC IDから0～1で決定する。階段時間は経路距離÷現在速度、エレベーター時間は前後の歩行時間＋予測時間とする。
+> - エレベーターを選ぶ条件は `elevatorSeconds + riskPenalty <= stairsSeconds + 5 * patience`。`evade`中は呼出マットまでの水平距離3.0m以内を候補とし、敵への露出中だけ`5 * (1 - riskTolerance)`秒を加算する。
+> - 未洗脳NPCの「視認中の洗脳済みNPCがいる便を避ける」規則は絶対条件とし、traitsでは緩和しない。洗脳済みNPCは同便、次便、階段の順に追跡可能性を比較する。
+> - 経路比較の再評価は、標的・目的階・陣営・指示・`evade`状態の変更、扉の安定状態到達、かご到着／出発、予約／定員結果、敵視認状態の変更、stuckに限定する。同点では現経路を維持し、初回同点は階段を選ぶ。
+> - NPCとの境界は`V2NpcTraversalRequest`／`V2NpcTraversalResult`のメッセージ型にし、開扉、通過完了、呼出、予約、乗車、降車を受け渡す。搬送中もNPC本体を再配置・再生成せず、`NavigationAgent.completeTransition()`を降車時に1回だけ実行する。
+>
+> ### 動的consumer
+>
+> - `StageSpatialQueries`へVolume ID指定の包含・人物楕円体交差queryと、revision対応のビーム／視線開始点包含queryを追加する。座標推測、AABB代用、旧静的配列fallbackは設けない。
+> - プレイヤーcontrollerへsnapshot同期と、視点・入力・運動状態を保つ搬送位置更新APIを追加する。revision更新時に`surroundingMeshes`と接地集合を同じsnapshotへ同期する。
+> - ビーム開始点包含とprewarmを静的`stage.resources`から外し、現行9発射元すべてをrevision付きqueryへ統一する。トラップ光線と動的3Dマップビームは追加しない。
+> - BITは全StageLinkの呼出・予約・乗車・利用を禁止し、独自飛行遷移だけを維持する。revision変更時は障害物依存cacheを破棄し、進行区間を新snapshotで再検証して不安全時だけ再経路計画する。到達不能中はrevision変更時に再探索する。
+> - 破棄時は扉状態、予約、乗客、NPC traversal state、revision資源、BIT cache、購読をすべて解放する。
+>
+> ## 公開API・型
+>
+> - `createSchoolRoomVariantSelections(...)`
+> - `SchoolStageDynamicRuntime`／`SchoolStageDynamicRuntimeSnapshot`
+> - `StageElevatorRuntime.estimateTripSeconds(...)`／`StageElevatorTripEstimate`
+> - 必須`NavigationRoutePolicy`と、明示的な距離policy・学校NPC policy
+> - `StageSpatialQueries.containsVolumeById(...)`、人物楕円体交差、動的blocker包含query
+> - `V2NpcTraversalState`／`V2NpcTraversalRequest`／`V2NpcTraversalResult`
+> - プレイヤーのsnapshot同期・状態保持搬送API
+>
+> 既存APIの互換wrapper、未定義時fallback、静的Colliderへの退避経路は追加せず、利用元を新契約へ統一する。
+>
+> ## テスト計画
+>
+> - T04実学校統合fixtureを追加し、完了条件を`document.documentElement.dataset.validationStatus === "passed"`へ統一する。
+> - 自動回帰で、variant 0／4／20室、seed再現、65扉metadata、全陣営開扉、30%閉扉、占有中止、定員6、7人目拒否、降車保証、単独呼出・往復・搬送を確認する。
+> - 階段／エレベーター双方の選択、traits再現、再評価の非振動、陣営別回避・追跡、閉扉時の視認解除、かご内戦闘、T05-4の`persistent`／`nearest-visible`とAlarm／Alert優先順位を回帰する。
+> - 全9光線、視線、人物衝突、接地、BIT経路をclosed→opening→open→closing→closedで確認し、同一更新中は同じrevisionだけを使用すること、BITの呼出・予約・乗車・elevator link利用が0件であることを検証する。
+> - B04の`worldBoundary`が非null、外周BIT経路0件、学校資産hash不変、破棄・再読込後のScene／NavMesh／snapshot／予約／購読残留0件を確認する。
+> - 実行コマンドは依存監査、学校NavMesh check、V2／T04／T05型検査、T04／T05／通常build、`git diff --check`。T04・T05 fixtureは実行時点の全件PASSを記録し、古い件数を固定しない。
+> - WebとElectronの両方で、NPC 50体（初期洗脳済み10体）／BIT 20機を10分、NPC 99体（初期洗脳済み66体）／BIT 50機を2分実行する。後者はクラッシュ・停止・意味回帰を見る短時間stressであり、FPS合否や最終性能最適化はT07へ残す。
+> - console warning／error、Babylon Logger error、unhandled rejectionを個別に0件確認し、通常ゲームの既存Pointer Lock・移動も回帰する。
+> - UTF-8 strict・BOMなし、ローカル絶対パス混入、競合marker、括弧対応を検査し、独立レビュー後に単一commit `feat: T04-3Bの実学校動的統合を実装`を作成する。
+>
+> ## 前提・完了境界
+>
+> - 陣営安全規則は固定し、忍耐度・危険許容度は待機対階段と再評価時機だけへ影響させる。
+> - 現worktreeの人口差分は保護し、検証fixture側の明示設定で50／10／20を再現する。
+> - 完了範囲は実装、計画更新、全検証、独立レビュー、commitまで。push、Pull Request作成、merge、review thread操作、worktree削除は行わない。
 
 ## 確定方針
 
@@ -85,6 +165,24 @@
 - 同じかごに敵対陣営が存在しても、通常の視認・戦闘・逃走処理を停止しない。
 - BITは呼出、乗車、エレベーターリンク利用を行わない。
 
+#### 2026-07-29 確定した経路・安全規則
+
+- NPCの`patience`と`riskTolerance`はセッションseedと安定NPC IDから各0以上1以下で決定し、生成順に依存させない。
+- 階段時間はsurface経路距離を現在速度で割り、エレベーター時間は乗場までの歩行、現在のかご位置、呼出、待機、開閉、走行、予約、定員、降車後の歩行を合算する。
+- エレベーター選択条件は`elevatorSeconds + riskPenalty <= stairsSeconds + 5 * patience`とする。
+- `evade`中は呼出マットまでの水平距離3.0m以内を候補とし、敵へ露出中だけ`5 * (1 - riskTolerance)`秒を加算する。
+- 未洗脳NPCが視認中の洗脳済みNPCと同じ便を避ける規則は絶対条件とし、個体値では緩和しない。
+- 経路比較の再評価は、標的、目的階、陣営、指示、`evade`状態、扉の安定状態、かごの到着・出発、予約・定員結果、敵視認状態、stuckの変化時だけ行う。同点では現在経路を維持し、初回同点は階段を選ぶ。
+- 通常扉の通過完了は、記録した進入側から反対側へ抜け、人物楕円体が最終位置Volumeと掃引Volumeの両方を離れた時点とする。
+- V2第2重点ゲートは、WebとElectronでNPC 50体・初期洗脳済み10体・BIT 20機を各10分、NPC 99体・初期洗脳済み66体・BIT 50機を各2分実行する。後者は意味回帰と停止の短時間stressであり、最終性能合否はT07へ残す。
+
+#### T04-3B 更新順と所有境界
+
+- 一更新を「前更新の要求取込、呼出・予約・占有判定、扉・かご・搬送更新、active setの1回原子公開、プレイヤー・ビーム・NPC・BIT更新、次更新の要求蓄積」の順に固定する。
+- 静的基底集合から通常扉パネルとエレベーター人物ゲートを除外し、選択variant、通常扉snapshot、エレベーターsnapshotを重複なく合成する。
+- T04-3Bは本番利用可能なRuntime APIと実学校fixtureまでを担当する。C、F、E、G、N、H、候補highlight、音声、通常ゲーム入口の既定荒れレベル2接続はT06へ残す。
+- 学校`.blend`、GLB、人間用NavMesh、BIT用NavMesh、生成器、カタログhashを変更しない。
+
 ### 荒れた教室選択
 
 - `SchoolRuntimeSettings.roomDisorderLevel`は整数0～10、既定値2とする。
@@ -108,6 +206,19 @@
 - `requestDoorToggle(...)`
 - `getDoorInteractionCandidates(...)`
 - エレベーター呼出、乗車予約、状態snapshot API
+- `createSchoolRoomVariantSelections(...)`
+- `SchoolStageDynamicRuntime`
+- `SchoolStageDynamicRuntimeSnapshot`
+- `StageElevatorRuntime.estimateTripSeconds(...)`
+- `StageElevatorTripEstimate`
+- 必須`NavigationRoutePolicy`
+- `StageSpatialQueries.containsVolumeById(...)`
+- `StageSpatialQueries.intersectsVolumeById(...)`
+- revision対応のビーム・視線開始点包含query
+- `V2NpcTraversalState`
+- `V2NpcTraversalRequest`
+- `V2NpcTraversalResult`
+- プレイヤーの動的snapshot同期・状態保持搬送API
 
 既存の静的APIとの互換wrapperや未定義時fallbackは追加せず、利用元を調査して新契約へ統一する。
 
@@ -146,11 +257,33 @@
 - [x] 統合: T04／T05／通常Runtimeを再検証する
 - [x] 統合: 統合branchをpushし、作成済みDraft Pull Request #54を最新指示に従ってcloseする
 - [ ] 後続: B03-3Cのbranchへ本統合headをローカルで取り込む（別途指示で実施）
-- [ ] T04-3B: B03-3C／B04の実学校metadataを読込み、20室variantを開始時に確定する
-- [ ] T04-3B: T05-4の標的選択個性を保持したまま、全陣営NPCの扉・エレベーター利用と陣営別回避・追跡を統合する
-- [ ] T04-3B: 実学校で人物移動、ビーム、視線、BIT、スポーン、ライフサイクルを回帰する
+- [x] T04-3B: 2026-07-29時点の最新`origin/develop`と開始依存を再確認し、専用branch／worktreeを作成して依存関係を導入する
+- [x] T04-3B: B03-3C／B04の実学校metadataを読込み、20室variantを開始時に確定する
+- [x] T04-3B: 実学校の通常扉・エレベーターadapterと、1更新1回の動的active set合成を実装する
+- [x] T04-3B: 階段とエレベーターを比較する必須経路policy、予測時間、NPC traversal messageを実装する
+- [x] T04-3B: T05-4の標的選択個性を保持したまま、全陣営NPCの扉・エレベーター利用と陣営別回避・追跡を統合する
+- [x] T04-3B: プレイヤー衝突、全9光線、視線、BITの動的revision追従を統合する
+- [x] T04-3B: 実学校専用fixtureへvariant、扉、エレベーター、全陣営NPC、動的consumer、破棄・再読込回帰を追加する
+- [x] T04-3B: 実学校で人物移動、ビーム、視線、BIT、スポーン、ライフサイクルを回帰する
+- [x] T04-3B: V2第2重点ゲート、テキスト配布検査、独立レビューを完了し、計画結果を更新してcommitする
 
 ## 結果
+
+T04-3B開始。2026-07-29 08:45 +09:00、`git fetch --prune origin`後の`origin/develop`が`3803e5100a0a60e349240ca92957c4677a88a82a`でローカル`develop`と一致し、B03-3C `cd2514a`、B04 `3469729`、T04-3A `7b6489b`、T05-3 `a8fd588`、T05-4 `6bcf9e6`がすべて祖先であることを確認した。現worktreeの`src/v2/survivalRuntime.ts`と`validation/v2/T05/performanceScenario.test.ts`にある未コミット人口調整を保護し、`codex/v2-t04-3-school-integration`と専用worktreeを最新`origin/develop`から作成して`npm ci`を完了した。学校資産、他worktree、push、Pull Request、mergeには変更を加えていない。
+
+`createSchoolRoomVariantSelections(settings, seed)`を追加し、20室のnormal／disorderedをStage読込前に確定する契約へ統一した。実学校loaderは選択variantを反映した基底集合から通常扉panelとエレベーター人物gateを除外し、通常扉とエレベーター1基（1階乗場・4階乗場・かごの3扉）のrevision 0 snapshotを合成してから動的query、スポーン、NavMesh利用元を公開する。`SchoolStageDynamicRuntime`は実資産adapterを所有し、扉・かご・搬送を更新した後、変更がある更新につき`replaceActiveSet()`を1回だけ呼び出す。
+
+必須`NavigationRoutePolicy`へ全利用元を移行し、距離policyと実学校NPC policyを分離した。学校policyはseed＋NPC IDで`patience`／`riskTolerance`を固定し、階段時間と`StageElevatorTripEstimate`を含むエレベーター時間、`evade`の3m制限と露出penalty、未洗脳NPCの可視危険便絶対回避を比較する。再評価signatureは標的、目的階、陣営、指示、`evade`、扉安定状態、かご到着・出発、予約・定員、敵視認、stuck revisionだけで構成し、同点は現経路、初回は階段を選ぶ。
+
+`V2NpcTraversalState`／`Request`／`Result`と実学校coordinatorを追加し、全陣営NPCの開扉、反対側への通過完了、呼出マット退避、予約、乗車、搬送、降車をメッセージ境界で接続した。定員拒否時はFollow中NPCだけを解除し、降車時の`NavigationAgent.completeTransition()`はNPC本体を維持したまま1回だけ実行する。プレイヤーは同じactor portから視点・入力・運動状態を保持して搬送する。プレイヤーCollider／接地、ビーム開始点包含と全発射元、視線、BIT障害物cacheは同じrevision snapshotへ追従し、BITのStageLink利用は禁止した。
+
+実学校専用fixtureを`/school-integration.html`へ追加し、20室variant、65扉metadata、全陣営の開扉、30%閉扉と占有中止、エレベーター定員・搬送、階段／エレベーターpolicy、動的consumer、BITのStageLink不使用、`worldBoundary`、破棄・再読込を実資産上で回帰した。独立レビューで、ready予約の更新前確定と複数更新保持、opening完了後のopen snapshot境界、4占有Volume、陣営安全、同一扉の複数通過、scripted phase解放、実際の脅威Actorと視認状態を使う`evade`評価、呼出待機・接近中の限定再評価を重点確認し、残存P0／P1／P2なしとなった。
+
+2026-07-29の最終自動回帰はT04が107／107、実学校が56／56、T05が279／279、NPCコマンド専用fixtureが16／16で、すべて`document.documentElement.dataset.validationStatus === "passed"`へ到達した。`audit:v2:dependencies`、`check:v2:school-navmesh`、`typecheck:v2`、`typecheck:t02`、`typecheck:t04`、`typecheck:t05`、`build:t04`、`build:t05`、通常`build`、Electron build、`git diff --check`もすべてPASSした。学校NavMesh checkはGLB `c1362f...`、静的NavMesh `6a35b4...`、部屋variant `78a0f4...`を確認し、学校`.blend`、GLB、両NavMesh、生成器、カタログhashの差分は0件だった。
+
+V2第2重点ゲートの50／10／20は、Webが612.076秒・8491 frame・終了時50／46／26・spatial revision 305、Electronが600.766秒・8647 frame・終了時50／47／24・revision 177でPASSした。99／66／50は、合格境界でconsoleを取得して直ちに停止したWebが123.095秒・1707 frame・終了時99／90／51・revision 48、Electronが124.208秒・1780 frame・終了時99／89／55・revision 32でPASSした。いずれもphaseは`playing`、errorはnull、要求区間内のconsole warning／error、Babylon Logger error、unhandled rejection、Electron renderer診断は各0件だった。高負荷Webの初回測定後にタブを停止せず残したところ、要求時間外の公開処刑遷移でBIT配置例外を観測したため、要求された2分区間とconsole証跡を分離する目的で新規タブを再実行し、上記の合格境界で停止した。
+
+通常Electronでは実画面を左クリックして`renderCanvas`のPointer Lockと`playing`開始を確認し、対象windowを前面化した実OSのW押下保持で足元Xが0.375から0.372へ移動した。renderer診断は0件だった。変更40テキストはUTF-8 strict、BOMなし、競合markerなし、末尾空白なし、ローカル絶対パスなしを確認し、括弧対応は型検査と3種buildで検証した。元worktreeの未コミット人口調整2ファイルは変更せず、push、Pull Request作成、merge、review thread操作、worktree削除は行っていない。
 
 T04-3A完了。2026-07-28、`origin/develop`の`4edd8f08c948a7822cd6bd623e25dff142078f18`から`codex/v2-t04-3-dynamic-runtime`と専用worktreeを作成し、`npm ci`を完了した。
 

@@ -5,6 +5,7 @@ import {
   type NavigationLocation,
   type NavigationPath,
   type NavigationPathStep,
+  type NavigationRoutePolicy,
   type NavigationTransitionStep,
   type NavigationWorld
 } from "./navigationWorld";
@@ -35,6 +36,7 @@ export type NavigationAgentStepResult = Readonly<{
 }>;
 
 export interface NavigationAgent {
+  readonly stuckRevision: number;
   update(
     currentLocation: NavigationLocation,
     targetPosition: Vector3,
@@ -135,6 +137,7 @@ const cloneAndValidatePath = (path: NavigationPath): readonly NavigationPathStep
 class CachedNavigationAgent implements NavigationAgent {
   private readonly navigationWorld: NavigationWorld;
   private readonly moverKind: StageMoverKind;
+  private readonly routePolicy: NavigationRoutePolicy;
   private readonly config: NavigationAgentConfig;
   private path: readonly NavigationPathStep[] | null = null;
   private resolvedTarget: NavigationLocation | null = null;
@@ -145,18 +148,26 @@ class CachedNavigationAgent implements NavigationAgent {
   private secondsSincePathSearch = 0;
   private stuckAnchor: Vector3 | null = null;
   private stuckElapsedSeconds = 0;
+  private currentStuckRevision = 0;
+  private stuckSignaled = false;
   private pendingTransition: NavigationTransitionStep | null = null;
 
   constructor(
     navigationWorld: NavigationWorld,
     moverKind: StageMoverKind,
+    routePolicy: NavigationRoutePolicy,
     config: NavigationAgentConfig
   ) {
     assertConfig(config);
     this.navigationWorld = navigationWorld;
     this.moverKind = moverKind;
+    this.routePolicy = routePolicy;
     this.config = Object.freeze({ ...config });
     this.secondsSincePathSearch = config.pathRefreshIntervalSeconds;
+  }
+
+  get stuckRevision() {
+    return this.currentStuckRevision;
   }
 
   update(
@@ -198,6 +209,12 @@ class CachedNavigationAgent implements NavigationAgent {
     }
 
     const stuck = this.detectStuck(currentLocation, speed, deltaSeconds);
+    if (stuck && !this.stuckSignaled) {
+      this.currentStuckRevision += 1;
+      this.stuckSignaled = true;
+    } else if (!stuck) {
+      this.stuckSignaled = false;
+    }
     const targetMoved =
       this.plannedTarget !== null &&
       Vector3.Distance(this.plannedTarget, targetPosition) >=
@@ -388,6 +405,7 @@ class CachedNavigationAgent implements NavigationAgent {
     this.pendingTransition = null;
     this.stuckAnchor = location.position.clone();
     this.stuckElapsedSeconds = 0;
+    this.stuckSignaled = false;
   }
 
   clear() {
@@ -400,6 +418,7 @@ class CachedNavigationAgent implements NavigationAgent {
     this.secondsSincePathSearch = this.config.pathRefreshIntervalSeconds;
     this.stuckAnchor = null;
     this.stuckElapsedSeconds = 0;
+    this.stuckSignaled = false;
     this.pendingTransition = null;
   }
 
@@ -415,7 +434,8 @@ class CachedNavigationAgent implements NavigationAgent {
       ? this.navigationWorld.findPath(
           currentLocation,
           projectedTarget,
-          this.moverKind
+          this.moverKind,
+          this.routePolicy
         )
       : null;
     this.path = result ? cloneAndValidatePath(result) : null;
@@ -429,6 +449,7 @@ class CachedNavigationAgent implements NavigationAgent {
     this.secondsSincePathSearch = 0;
     this.stuckAnchor = currentLocation.position.clone();
     this.stuckElapsedSeconds = 0;
+    this.stuckSignaled = false;
     this.pendingTransition = null;
   }
 
@@ -441,6 +462,7 @@ class CachedNavigationAgent implements NavigationAgent {
     this.secondsSincePathSearch = 0;
     this.stuckAnchor = null;
     this.stuckElapsedSeconds = 0;
+    this.stuckSignaled = false;
     this.pendingTransition = null;
   }
 
@@ -477,5 +499,12 @@ class CachedNavigationAgent implements NavigationAgent {
 export const createNavigationAgent = (
   navigationWorld: NavigationWorld,
   moverKind: StageMoverKind,
+  routePolicy: NavigationRoutePolicy,
   config: NavigationAgentConfig
-): NavigationAgent => new CachedNavigationAgent(navigationWorld, moverKind, config);
+): NavigationAgent =>
+  new CachedNavigationAgent(
+    navigationWorld,
+    moverKind,
+    routePolicy,
+    config
+  );

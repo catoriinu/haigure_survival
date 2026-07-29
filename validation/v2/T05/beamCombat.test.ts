@@ -1343,7 +1343,7 @@ export const runBeamCombatTests =
     );
 
     results.push(
-      executeTest("開始点包含は空間索引とAABBで絞ってから三角形を読む", () => {
+      executeTest("開始点包含は動的空間queryへ委譲する", () => {
         const fixture = createBeamFixture([
           Object.freeze({
             id: "far-blocker",
@@ -1406,7 +1406,7 @@ export const runBeamCombatTests =
               hit.distance === 0 &&
               !farGeometryRead &&
               containmentCandidates === 1 &&
-              triangulatedMeshes === 1,
+              triangulatedMeshes === 0,
             detail:
               `hit=${hit?.kind === "blocker" ? hit.mesh.name : "none"} / ` +
               `inside=${hit?.kind === "blocker" ? hit.startedInside : false} / ` +
@@ -1421,67 +1421,78 @@ export const runBeamCombatTests =
     );
 
     results.push(
-      executeTest("開始点包含はAABB面の外側ε以内でも旧判定と一致", () => {
+      executeTest("視線開始点包含はsight queryへ委譲する", () => {
         const fixture = createBeamFixture([
           Object.freeze({
-            id: "surface-epsilon-blocker",
+            id: "sight-containing-blocker",
             center: new Vector3(3, 0, 0),
             size: new Vector3(2, 2, 2)
           })
         ]);
-        const system = createV2BeamSystem({
-          scene: fixture.scene,
-          stage: fixture.stage,
-          getHumanTargets: () => [],
-          random: () => 0.5,
-          getOrbVisibilityPredicate: () => () => true
-        });
+        const baseQueries = fixture.stage.queries;
+        const queriedKinds: string[] = [];
+        const dynamicStage = {
+          worldBoundary: fixture.stage.worldBoundary,
+          queries: Object.freeze({
+            ...baseQueries,
+            findContainingBlocker: (
+              kind: "beam" | "sight",
+              point: Vector3
+            ) => {
+              queriedKinds.push(kind);
+              return baseQueries.findContainingBlocker(kind, point);
+            }
+          })
+        } as unknown as StageSpatialContext;
         try {
-          const origin = new Vector3(2 - 0.5e-6, 0, 0);
-          system.spawn({
-            sourceId: "surface-epsilon-source",
-            originKind: "bit-fixed",
-            targetPolicy: createAliveHumansPolicy(),
+          const origin = new Vector3(3, 0, 0);
+          const hit = castV2SightSegment(
+            dynamicStage,
             origin,
-            direction: Vector3.Left(),
-            speed: 1,
-            maximumLifetime: 1
-          });
-          const hit = system.update(0.1).impacts[0]?.hit ?? null;
+            new Vector3(5, 0, 0)
+          );
           return {
             ok:
-              hit?.kind === "blocker" &&
-              hit.mesh.name === "surface-epsilon-blocker" &&
+              hit.occluded &&
+              hit.mesh.name === "sight-containing-blocker" &&
               hit.startedInside &&
               hit.distance === 0 &&
-              hit.point.equals(origin),
+              hit.point.equals(origin) &&
+              queriedKinds.length === 1 &&
+              queriedKinds[0] === "sight",
             detail:
-              `hit=${hit?.kind === "blocker" ? hit.mesh.name : "none"} / ` +
-              `inside=${hit?.kind === "blocker" ? hit.startedInside : false} / ` +
-              `distance=${hit?.distance ?? "none"}`
+              `hit=${hit.occluded ? hit.mesh.name : "none"} / ` +
+              `inside=${hit.occluded ? hit.startedInside : false} / ` +
+              `query=${queriedKinds.join(",") || "none"}`
           };
         } finally {
-          system.dispose();
           fixture.dispose();
         }
       })
     );
 
     results.push(
-      executeTest("ActiveBeamだけ開始点包含を初回区間に限定する", () => {
+      executeTest("ActiveBeamは初回とrevision変更後だけ開始点包含を再確認", () => {
         const fixture = createBeamFixture([]);
-        let beamBlockerReads = 0;
+        let revision = fixture.stage.queries.revision;
+        let containmentQueryCount = 0;
         let containmentDiagnosticCount = 0;
+        const baseQueries = fixture.stage.queries;
         const countingStage = {
-          resources: {
-            get beamBlockers() {
-              beamBlockerReads += 1;
-              return fixture.blockers;
-            },
-            sightBlockers: fixture.blockers
-          },
           worldBoundary: fixture.stage.worldBoundary,
-          queries: fixture.stage.queries
+          queries: {
+            ...baseQueries,
+            get revision() {
+              return revision;
+            },
+            findContainingBlocker: (
+              kind: "beam" | "sight",
+              point: Vector3
+            ) => {
+              containmentQueryCount += 1;
+              return baseQueries.findContainingBlocker(kind, point);
+            }
+          }
         } as unknown as StageSpatialContext;
         const system = createV2BeamSystem({
           scene: fixture.scene,
@@ -1496,7 +1507,6 @@ export const runBeamCombatTests =
           }
         });
         try {
-          beamBlockerReads = 0;
           castV2BeamSegment(
             countingStage,
             Vector3.Zero(),
@@ -1513,8 +1523,8 @@ export const runBeamCombatTests =
             "one-shot-b",
             createAliveHumansPolicy()
           );
-          const oneShotReads = beamBlockerReads;
-          beamBlockerReads = 0;
+          const oneShotQueries = containmentQueryCount;
+          containmentQueryCount = 0;
           system.spawn({
             sourceId: "active-beam-source",
             originKind: "bit-fixed",
@@ -1526,15 +1536,21 @@ export const runBeamCombatTests =
           });
           system.update(0.1);
           system.update(0.1);
-          const activeBeamReads = beamBlockerReads;
+          const stableRevisionQueries = containmentQueryCount;
+          revision += 1;
+          system.update(0.1);
+          system.update(0.1);
+          const revisedQueries = containmentQueryCount;
           return {
             ok:
-              oneShotReads === 2 &&
-              activeBeamReads === 1 &&
-              containmentDiagnosticCount === 1,
+              oneShotQueries === 2 &&
+              stableRevisionQueries === 1 &&
+              revisedQueries === 2 &&
+              containmentDiagnosticCount === 2,
             detail:
-              `oneShotReads=${oneShotReads} / ` +
-              `activeBeamReads=${activeBeamReads} / ` +
+              `oneShotQueries=${oneShotQueries} / ` +
+              `stableRevisionQueries=${stableRevisionQueries} / ` +
+              `revisedQueries=${revisedQueries} / ` +
               `diagnostics=${containmentDiagnosticCount}`
           };
         } finally {

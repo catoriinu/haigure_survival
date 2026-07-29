@@ -10,7 +10,14 @@ import {
   NPC_SPRITE_CENTER_HEIGHT
 } from "../../../src/game/characterSprites";
 import type { PlayerVerticalState } from "../../../src/game/playerHeight";
+import {
+  DISTANCE_NAVIGATION_ROUTE_POLICY,
+  type NavigationRouteCandidate
+} from "../../../src/world/navigationWorld";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
+import type {
+  V2NpcNavigationRouteContext
+} from "../../../src/v2/npcSystem";
 import {
   createV2PerformanceDiagnostics,
   createV2SeededRandom,
@@ -48,6 +55,11 @@ type SceneResourceCounts = Readonly<{
 
 type ObservableCounts = Readonly<Record<string, number>>;
 
+const selectDistanceNavigationRoute = (
+  _context: V2NpcNavigationRouteContext,
+  candidates: readonly NavigationRouteCandidate[]
+) => DISTANCE_NAVIGATION_ROUTE_POLICY.selectRoute(candidates);
+
 const createFakePlayer = (
   stage: StageSpatialContext
 ): V2PlayerController => {
@@ -63,6 +75,12 @@ const createFakePlayer = (
     verticalVelocity: 0,
     supportY: spawn.y
   });
+  const setFootPosition = (nextFootPosition: Vector3) => {
+    footPosition = nextFootPosition.clone();
+    eyePosition = footPosition.add(
+      new Vector3(0, (1 / 3) * eyeHeightScale, 0)
+    );
+  };
 
   return {
     update: () =>
@@ -80,12 +98,9 @@ const createFakePlayer = (
         new Vector3(0, (1 / 3) * eyeHeightScale, 0)
       );
     },
-    placeAt: (nextFootPosition) => {
-      footPosition = nextFootPosition.clone();
-      eyePosition = footPosition.add(
-        new Vector3(0, (1 / 3) * eyeHeightScale, 0)
-      );
-    },
+    syncStageSpatialSnapshot: () => {},
+    setTransportFootPosition: setFootPosition,
+    placeAt: setFootPosition,
     resetToSpawn: () => {
       footPosition = spawn.clone();
       eyePosition = footPosition.add(
@@ -207,7 +222,9 @@ const createRuntime = (
     getOrbVisibilityPredicate,
     population: V2_PERFORMANCE_ACCEPTANCE_POPULATION,
     performanceDiagnostics: null,
-    performanceWorkloadScenario: null
+    performanceWorkloadScenario: null,
+    releaseStageTraversalForScriptedPhase: () => {},
+    selectNavigationRoute: selectDistanceNavigationRoute
   });
 
 export const runSurvivalRuntimeLifecycleTests = async (
@@ -307,6 +324,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
     let activeBeamCountAfterTransition = -1;
     let phaseGuardedCandidateCount = -1;
     let phaseGuardedRequestAccepted = true;
+    let scriptedPhaseTraversalReleaseCount = 0;
     let disposedAccessRejected = false;
     try {
       const seededRandom = createV2SeededRandom(
@@ -325,7 +343,11 @@ export const runSurvivalRuntimeLifecycleTests = async (
           bitCount: 0
         }),
         performanceDiagnostics: null,
-        performanceWorkloadScenario: null
+        performanceWorkloadScenario: null,
+        releaseStageTraversalForScriptedPhase: () => {
+          scriptedPhaseTraversalReleaseCount += 1;
+        },
+        selectNavigationRoute: selectDistanceNavigationRoute
       });
       const npcSprite = scene.spriteManagers
         ?.flatMap((manager) => manager.sprites)
@@ -441,6 +463,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
           followVisibleBeforeTransition &&
           fireAccepted &&
           phaseAfterTransition === "assembly" &&
+          scriptedPhaseTraversalReleaseCount === 1 &&
           activeBeamCountAfterTransition === 0 &&
           phaseGuardedCandidateCount === 0 &&
           !phaseGuardedRequestAccepted &&
@@ -454,6 +477,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
           `follow=${followVisible}->${followVisibleBeforeTransition} / ` +
           `fire=${fireAccepted} / ` +
           `phase=${phaseAfterTransition} / ` +
+          `traversalRelease=${scriptedPhaseTraversalReleaseCount} / ` +
           `beams=${activeBeamCountAfterTransition} / ` +
           `guardCandidates=${phaseGuardedCandidateCount} / ` +
           `guardRequest=${phaseGuardedRequestAccepted} / ` +

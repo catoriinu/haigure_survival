@@ -30,9 +30,11 @@ import {
   V2_NPC_FOLLOWER_FIRE_DELAY_MIN_SECONDS,
   V2_NPC_FOLLOW_SEPARATION_METERS,
   V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS,
+  V2_NPC_CURRENT_TARGET_SIGHT_HERTZ,
   V2_NPC_LEAVE_MAXIMUM_SECONDS,
   createV2NpcSystem,
   type V2NpcCommandQuery,
+  type V2NpcNavigationRouteContext,
   type V2NpcSystem
 } from "../../../src/v2/npcSystem";
 import {
@@ -42,7 +44,11 @@ import {
   createV2PlayerInput,
   type V2PlayerAction
 } from "../../../src/v2/playerInput";
-import type { NavigationWorld } from "../../../src/world/navigationWorld";
+import {
+  DISTANCE_NAVIGATION_ROUTE_POLICY,
+  type NavigationRouteCandidate,
+  type NavigationWorld
+} from "../../../src/world/navigationWorld";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import { createStageWorldBoundary } from "../../../src/world/stageWorldBoundary";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
@@ -72,6 +78,11 @@ const ALIVE_HUMANS_POLICY = Object.freeze({
   kind: "alive-humans" as const
 });
 const TEST_EPSILON = 1e-6;
+
+const selectDistanceNavigationRoute = (
+  _context: V2NpcNavigationRouteContext,
+  candidates: readonly NavigationRouteCandidate[]
+) => DISTANCE_NAVIGATION_ROUTE_POLICY.selectRoute(candidates);
 
 const assert = (condition: boolean, message: string) => {
   if (!condition) {
@@ -227,7 +238,7 @@ const createNpcCommandFixture = (
           destination.position
         )
       }),
-    findPath: (start, destination) => {
+    findPath: (start, destination, _moverKind, routePolicy) => {
       if (!pathsAvailable) {
         return null;
       }
@@ -242,11 +253,19 @@ const createNpcCommandFixture = (
           destination.position
         )
       });
-      return Object.freeze({
+      const path = Object.freeze({
         steps: Object.freeze([surface]),
         destination: createLocation(destination.position),
         distance: surface.distance
       });
+      return routePolicy.selectRoute(
+        Object.freeze([
+          Object.freeze({
+            kind: "surface" as const,
+            path
+          })
+        ])
+      )?.path ?? null;
     },
     constrainMovement: (start, destination) => {
       if (movementBlocked) {
@@ -268,6 +287,15 @@ const createNpcCommandFixture = (
       sightBlockers: Object.freeze([])
     }),
     navigation,
+    doorAssets: Object.freeze({
+      all: Object.freeze([]),
+      getById: () => null,
+      getByClass: () => Object.freeze([])
+    }),
+    elevatorAssets: Object.freeze({
+      all: Object.freeze([]),
+      getById: () => null
+    }),
     boundary: Object.freeze({
       id: "t05-3-stage" as const,
       mesh: ground,
@@ -276,6 +304,7 @@ const createNpcCommandFixture = (
     }),
     worldBoundary: null,
     queries: Object.freeze({
+      revision: 0,
       castMovementSegment: () => null,
       castMovementSphere: () => null,
       castBeamSegment: () => null,
@@ -294,8 +323,11 @@ const createNpcCommandFixture = (
           normal: Vector3.Up(),
           distance: origin.y,
           mesh: ground
-        }),
+      }),
       containsVolume: () => false,
+      containsVolumeById: () => false,
+      intersectsVolumeById: () => false,
+      findContainingBlocker: () => null,
       dispose: () => undefined
     })
   } as unknown as StageSpatialContext;
@@ -309,7 +341,8 @@ const createNpcCommandFixture = (
     random: createInitializationRandom(
       npcCount,
       initialBrainwashedNpcCount
-    )
+    ),
+    selectNavigationRoute: selectDistanceNavigationRoute
   });
 
   return Object.freeze({
@@ -686,8 +719,10 @@ const testCommandStateEligibility = () => {
     placeNpcs(aliveFixture.system, positions);
     aliveFixture.system.setExternalThreats([
       Object.freeze({
+        sourceId: "bit-threat",
         targetId: "npc_1",
-        sourcePosition: new Vector3(0.2, 0, 0.3)
+        sourcePosition: new Vector3(0.2, 0, 0.3),
+        sightClear: true
       })
     ]);
     aliveFixture.system.update(
@@ -893,7 +928,11 @@ const testFollowMovementAndRelease = () => {
       "最初の2秒未満の視線喪失でFollowが解除されました。"
     );
     fixture.setSightResolver(null);
-    fixture.system.update(0.01, player, EMPTY_ALARM_EVENTS);
+    fixture.system.update(
+      1 / V2_NPC_CURRENT_TARGET_SIGHT_HERTZ,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
     fixture.setSightResolver(() => true);
     fixture.system.update(1.2, player, EMPTY_ALARM_EVENTS);
     assert(
@@ -1074,8 +1113,10 @@ const testLeaveLifecycle = () => {
     );
     fixture.system.setExternalThreats([
       Object.freeze({
+        sourceId: "player-threat",
         targetId: "npc_0",
-        sourcePosition: player.footPosition.clone()
+        sourcePosition: player.footPosition.clone(),
+        sightClear: true
       })
     ]);
     fixture.system.update(

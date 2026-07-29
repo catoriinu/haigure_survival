@@ -15,6 +15,9 @@ import {
   SCHOOL_ALL_DISORDERED_ROOM_VARIANT_SELECTIONS,
   SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
 } from "../../../src/world/schoolRuntimeSettings";
+import {
+  createSchoolStageDynamicSpatialInitializer
+} from "../../../src/world/schoolStageDynamicRuntime";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
 import {
   BIT_FLIGHT_SHORTEST_ROUTE_POLICY,
@@ -2535,6 +2538,8 @@ const runValidation = async () => {
     await validateAssetHashes(checks);
 
     activeContext = await loadStageSpatialContext(scene, SCHOOL_STAGE, {
+      initializeDynamicSpatial:
+        createSchoolStageDynamicSpatialInitializer(0),
       roomVariantSelections:
         SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
     });
@@ -2543,6 +2548,8 @@ const runValidation = async () => {
     await disposeAndInspect(activeContext, baseline, checks, "初回読込");
 
     activeContext = await loadStageSpatialContext(scene, SCHOOL_STAGE, {
+      initializeDynamicSpatial:
+        createSchoolStageDynamicSpatialInitializer(0),
       roomVariantSelections:
         SCHOOL_ALL_DISORDERED_ROOM_VARIANT_SELECTIONS
     });

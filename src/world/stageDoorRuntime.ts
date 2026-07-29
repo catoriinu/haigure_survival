@@ -1,6 +1,15 @@
-import { Mesh, Quaternion, Vector3 } from "@babylonjs/core";
+import {
+  Matrix,
+  Mesh,
+  Quaternion,
+  Vector3
+} from "@babylonjs/core";
 
-import type { StageMovementColliderSets } from "./stageSpatialQueries";
+import {
+  intersectsCharacterEllipsoidWithMeshAtWorldMatrix,
+  type StageCharacterEllipsoid,
+  type StageMovementColliderSets
+} from "./stageSpatialQueries";
 import {
   type StageDoorAsset,
   type StageDoorAssetRegistry,
@@ -152,7 +161,7 @@ const freezeClosingRequest = (
     )
   });
 
-const applyPanelTransform = (
+export const applyStageDoorPanelOpenness = (
   panel: StageDoorPanelAsset,
   openness: number
 ): void => {
@@ -189,9 +198,44 @@ const applyDoorTransform = (
   openness: number
 ): void => {
   for (const panel of door.panels) {
-    applyPanelTransform(panel, openness);
+    applyStageDoorPanelOpenness(panel, openness);
   }
 };
+
+export const intersectsStageDoorClosedPose = (
+  door: StageDoorAsset,
+  ellipsoid: StageCharacterEllipsoid
+): boolean =>
+  door.panels.some((panel) => {
+    const parent = panel.node.parent;
+    if (!parent) {
+      throw new Error(
+        `扉panelに親Nodeがありません: ${door.id}/${panel.id}`
+      );
+    }
+    const currentPanelWorld =
+      panel.node.computeWorldMatrix(true);
+    const closedPanelWorld = Matrix.Compose(
+      panel.closedTransform.scaling,
+      panel.closedTransform.rotation,
+      panel.closedTransform.position
+    ).multiply(parent.computeWorldMatrix(true));
+    const inverseCurrentPanelWorld =
+      Matrix.Invert(currentPanelWorld);
+    return panel.colliderMeshes.some((collider) => {
+      const colliderRelativeToPanel =
+        collider
+          .computeWorldMatrix(true)
+          .multiply(inverseCurrentPanelWorld);
+      const closedColliderWorld =
+        colliderRelativeToPanel.multiply(closedPanelWorld);
+      return intersectsCharacterEllipsoidWithMeshAtWorldMatrix(
+        collider,
+        closedColliderWorld,
+        ellipsoid
+      );
+    });
+  });
 
 const isStable = (state: DoorState): boolean =>
   state === "closed" || state === "open";
@@ -256,9 +300,9 @@ export const getDoorInteractionCandidates = (
 };
 
 class StageDoorRuntimeImplementation implements StageDoorRuntime {
-  private readonly states: readonly MutableDoorState[];
-  private readonly byId: ReadonlyMap<string, MutableDoorState>;
-  private readonly options: StageDoorRuntimeOptions;
+  private readonly states: MutableDoorState[];
+  private readonly byId: Map<string, MutableDoorState>;
+  private options: StageDoorRuntimeOptions | null;
   private currentSnapshot: StageDoorRuntimeSnapshot;
   private currentSpatialSnapshot: StageDoorSpatialSnapshot;
   private disposed = false;
@@ -360,7 +404,7 @@ class StageDoorRuntimeImplementation implements StageDoorRuntime {
       });
     }
 
-    const occupancy = this.options.checkClosingOccupancy(
+    const occupancy = this.options!.checkClosingOccupancy(
       freezeClosingRequest(runtimeState.door)
     );
     if (
@@ -452,6 +496,29 @@ class StageDoorRuntimeImplementation implements StageDoorRuntime {
     if (this.disposed) {
       return;
     }
+    const revision = this.currentSnapshot.revision;
+    this.states.length = 0;
+    this.byId.clear();
+    this.options = null;
+    this.currentSnapshot = Object.freeze({
+      revision,
+      doors: Object.freeze([])
+    });
+    const emptyColliders = Object.freeze([]);
+    this.currentSpatialSnapshot = Object.freeze({
+      revision,
+      transformsChanged: false,
+      activePanelColliders: emptyColliders,
+      movementColliders: Object.freeze({
+        player: emptyColliders,
+        npc: emptyColliders,
+        bit: emptyColliders
+      }),
+      groundColliders: emptyColliders,
+      beamBlockers: emptyColliders,
+      sightBlockers: emptyColliders,
+      bitObstacles: emptyColliders
+    });
     this.disposed = true;
   }
 

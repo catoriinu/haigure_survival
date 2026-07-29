@@ -28,6 +28,7 @@ import {
   V2_NPC_PATH_REPLAN_DEADLINE_SECONDS,
   createV2NpcSystem,
   type V2NpcCommandQuery,
+  type V2NpcNavigationRouteContext,
   type V2NpcSystem
 } from "../../../src/v2/npcSystem";
 import {
@@ -38,7 +39,11 @@ import {
   type V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
 import { createNavigationAgent } from "../../../src/world/navigationAgent";
-import type { NavigationWorld } from "../../../src/world/navigationWorld";
+import {
+  DISTANCE_NAVIGATION_ROUTE_POLICY,
+  type NavigationRouteCandidate,
+  type NavigationWorld
+} from "../../../src/world/navigationWorld";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 
 export type NpcCombatTestResult = Readonly<{
@@ -67,6 +72,11 @@ type NpcFixture = Readonly<{
 
 const EMPTY_ALARM_TARGET_EVENTS:
   readonly V2AlarmTriggerEvent[] = Object.freeze([]);
+
+const selectDistanceNavigationRoute = (
+  _context: V2NpcNavigationRouteContext,
+  candidates: readonly NavigationRouteCandidate[]
+) => DISTANCE_NAVIGATION_ROUTE_POLICY.selectRoute(candidates);
 
 const applyNpcBeamImpact = (
   system: V2NpcSystem,
@@ -164,7 +174,10 @@ const createNpcFixture = (
   npcCount: number,
   initialBrainwashedNpcCount: number,
   boundaryExtent = 5,
-  disableWander = false
+  disableWander = false,
+  observeRouteContext:
+    | ((context: V2NpcNavigationRouteContext) => void)
+    | null = null
 ): NpcFixture => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
@@ -217,7 +230,7 @@ const createNpcFixture = (
         ]),
         distance: Vector3.Distance(start.position, destination.position)
       }),
-    findPath: (start, destination) => {
+    findPath: (start, destination, _moverKind, routePolicy) => {
       pathfindCount += 1;
       pathfindRecords.push({
         start: start.position.clone(),
@@ -231,11 +244,19 @@ const createNpcFixture = (
         ]),
         distance: Vector3.Distance(start.position, destination.position)
       });
-      return Object.freeze({
+      const path = Object.freeze({
         steps: Object.freeze([surface]),
         destination: createLocation(destination.position),
         distance: pathDistanceOverride ?? surface.distance
       });
+      return routePolicy.selectRoute(
+        Object.freeze([
+          Object.freeze({
+            kind: "surface" as const,
+            path
+          })
+        ])
+      )?.path ?? null;
     },
     constrainMovement: (_start, destination) =>
       isInside(destination) ? createLocation(destination) : null,
@@ -247,6 +268,15 @@ const createNpcFixture = (
 
   const stage = {
     navigation,
+    doorAssets: Object.freeze({
+      all: Object.freeze([]),
+      getById: () => null,
+      getByClass: () => Object.freeze([])
+    }),
+    elevatorAssets: Object.freeze({
+      all: Object.freeze([]),
+      getById: () => null
+    }),
     boundary: Object.freeze({
       id: "stage" as const,
       mesh: ground,
@@ -255,6 +285,7 @@ const createNpcFixture = (
     }),
     worldBoundary: null,
     queries: Object.freeze({
+      revision: 0,
       castMovementSegment: () => null,
       castMovementSphere: () => null,
       castBeamSegment: () => null,
@@ -275,8 +306,11 @@ const createNpcFixture = (
           normal: Vector3.Up(),
           distance: origin.y,
           mesh: ground
-        }),
+      }),
       containsVolume: () => false,
+      containsVolumeById: () => false,
+      intersectsVolumeById: () => false,
+      findContainingBlocker: () => null,
       dispose: () => undefined
     })
   } as unknown as StageSpatialContext;
@@ -290,7 +324,13 @@ const createNpcFixture = (
     random: createInitializationRandom(
       npcCount,
       initialBrainwashedNpcCount
-    )
+    ),
+    selectNavigationRoute: (context, candidates) => {
+      if (observeRouteContext) {
+        observeRouteContext(context);
+      }
+      return selectDistanceNavigationRoute(context, candidates);
+    }
   });
 
   return Object.freeze({
@@ -1199,7 +1239,21 @@ const testScriptedExecutionAndFade = () => {
 };
 
 const testExternalThreatAndPlayerBlocking = () => {
-  const fixture = createNpcFixture(3, 0);
+  const evadeRouteContexts: V2NpcNavigationRouteContext[] = [];
+  const fixture = createNpcFixture(
+    3,
+    0,
+    5,
+    false,
+    (context) => {
+      if (
+        context.npcId === "npc_0" &&
+        context.behavior === "evade"
+      ) {
+        evadeRouteContexts.push(context);
+      }
+    }
+  );
   try {
     placeThreeNpcs(fixture.system);
     const before = new Map(
@@ -1210,8 +1264,10 @@ const testExternalThreatAndPlayerBlocking = () => {
     );
     fixture.system.setExternalThreats([
       {
+        sourceId: "external-threat",
         targetId: "npc_0",
-        sourcePosition: new Vector3(-1, 0, 0)
+        sourcePosition: new Vector3(-1, 0, 0),
+        sightClear: true
       }
     ]);
     fixture.system.setPlayerBlockedTargetIds(["npc_1", "npc_2"]);
@@ -1245,6 +1301,15 @@ const testExternalThreatAndPlayerBlocking = () => {
       fixture.system.getFrameView().threatenedTargetIds.includes("npc_0"),
       "外部脅威対象が脅威一覧へ統合されません。"
     );
+    const exposedContext =
+      evadeRouteContexts[evadeRouteContexts.length - 1];
+    assert(
+      exposedContext?.targetId === "external-threat" &&
+        exposedContext.targetSightClear,
+      `evade経路へ脅威ID・露出状態が渡りません: ` +
+        `${exposedContext?.targetId ?? "null"}/` +
+        `${exposedContext?.targetSightClear ?? false}`
+    );
 
     fixture.system.setExternalThreats([]);
     fixture.system.setPlayerBlockedTargetIds([]);
@@ -1260,7 +1325,10 @@ const testExternalThreatAndPlayerBlocking = () => {
         .every((snapshot) => snapshot.state === "normal"),
       "空集合を設定した次frameに脅威・停止状態が解除されません。"
     );
-    return "外部脅威evade・逃走、複数NPC停止、空集合で次frame解除";
+    return (
+      "外部脅威evade・逃走、経路policyへ脅威ID・露出状態、" +
+      "複数NPC停止、空集合で次frame解除"
+    );
   } finally {
     fixture.dispose();
   }
@@ -2277,14 +2345,19 @@ const testGunVisualLockAndLastSeenPath = () => {
 
 const testNavigationAgentReplanPermission = () => {
   const fixture = createNpcFixture(2, 0);
-  const agent = createNavigationAgent(fixture.navigation, "npc", {
-    projectionMaxDistance: 0.75,
-    targetMoveThreshold: 0.15,
-    pathRefreshIntervalSeconds: 0.5,
-    waypointTolerance: 0.02,
-    stuckDistanceThreshold: 0.005,
-    stuckDurationSeconds: 1
-  });
+  const agent = createNavigationAgent(
+    fixture.navigation,
+    "npc",
+    DISTANCE_NAVIGATION_ROUTE_POLICY,
+    {
+      projectionMaxDistance: 0.75,
+      targetMoveThreshold: 0.15,
+      pathRefreshIntervalSeconds: 0.5,
+      waypointTolerance: 0.02,
+      stuckDistanceThreshold: 0.005,
+      stuckDurationSeconds: 1
+    }
+  );
   try {
     const start = Object.freeze({
       position: Vector3.Zero(),

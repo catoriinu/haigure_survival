@@ -1,0 +1,612 @@
+import { spawn, spawnSync } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const electronExecutable = require("electron");
+const repositoryRoot = resolve(
+  import.meta.dirname,
+  "..",
+  "..",
+  ".."
+);
+
+const readArgument = (name) => {
+  const index = process.argv.indexOf(name);
+  if (index < 0 || index + 1 >= process.argv.length) {
+    throw new Error(`${name}の値が必要です。`);
+  }
+  return process.argv[index + 1];
+};
+
+const profile = readArgument("--profile");
+if (
+  profile !== "baseline" &&
+  profile !== "high" &&
+  profile !== "interaction"
+) {
+  throw new Error(
+    "--profileにはbaseline、high、interactionのいずれかが必要です。"
+  );
+}
+const devServerUrl = readArgument("--url");
+const parsedDevServerUrl = new URL(devServerUrl);
+if (
+  parsedDevServerUrl.hostname !== "127.0.0.1" &&
+  parsedDevServerUrl.hostname !== "localhost"
+) {
+  throw new Error("--urlにはローカルVite URLが必要です。");
+}
+if (profile !== "interaction") {
+  parsedDevServerUrl.searchParams.set(
+    "schoolStress",
+    profile
+  );
+  parsedDevServerUrl.searchParams.set("seed", "20260729");
+}
+const applicationUrl = parsedDevServerUrl.toString();
+const expectedDurationSeconds =
+  profile === "baseline"
+    ? 600
+    : profile === "high"
+      ? 120
+      : 0;
+const CDP_COMMAND_TIMEOUT_MILLISECONDS = 10_000;
+
+const wait = (milliseconds) =>
+  new Promise((resolveWait) =>
+    setTimeout(resolveWait, milliseconds)
+  );
+
+const acquirePort = () =>
+  new Promise((resolvePort, rejectPort) => {
+    const server = createServer();
+    server.once("error", rejectPort);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        server.close();
+        rejectPort(
+          new Error("Electron CDP用portを取得できません。")
+        );
+        return;
+      }
+      const port = address.port;
+      server.close((error) => {
+        if (error) {
+          rejectPort(error);
+          return;
+        }
+        resolvePort(port);
+      });
+    });
+  });
+
+const waitForDebuggerTarget = async (port, child) => {
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(
+        `Electronがrenderer接続前に終了しました: ${child.exitCode}`
+      );
+    }
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${port}/json/list`
+      );
+      if (response.ok) {
+        const targets = await response.json();
+        const target = targets.find(
+          (candidate) =>
+            candidate.type === "page" &&
+            (profile === "interaction"
+              ? candidate.url === applicationUrl
+              : candidate.url.includes(
+                  `schoolStress=${profile}`
+                ))
+        );
+        if (target) {
+          return target;
+        }
+      }
+    } catch {
+      // Chromiumのremote debugging起動完了まで再試行する。
+    }
+    await wait(500);
+  }
+  throw new Error(
+    "Electron rendererのCDP targetを120秒以内に取得できませんでした。"
+  );
+};
+
+const connectCdp = async (webSocketDebuggerUrl) => {
+  const socket = new WebSocket(webSocketDebuggerUrl);
+  await new Promise((resolveOpen, rejectOpen) => {
+    socket.addEventListener("open", resolveOpen, {
+      once: true
+    });
+    socket.addEventListener(
+      "error",
+      () =>
+        rejectOpen(
+          new Error("Electron rendererのCDP接続に失敗しました。")
+        ),
+      { once: true }
+    );
+  });
+
+  let nextCommandId = 1;
+  const pending = new Map();
+  const listeners = new Set();
+  socket.addEventListener("message", (event) => {
+    const message = JSON.parse(String(event.data));
+    if (typeof message.id === "number") {
+      const request = pending.get(message.id);
+      if (!request) {
+        return;
+      }
+      pending.delete(message.id);
+      clearTimeout(request.timeoutId);
+      if (message.error) {
+        request.reject(
+          new Error(
+            `${request.method}: ${message.error.message}`
+          )
+        );
+        return;
+      }
+      request.resolve(message.result);
+      return;
+    }
+    listeners.forEach((listener) => listener(message));
+  });
+  socket.addEventListener("close", () => {
+    const error = new Error(
+      "Electron rendererのCDP接続が閉じました。"
+    );
+    pending.forEach((request) => {
+      clearTimeout(request.timeoutId);
+      request.reject(error);
+    });
+    pending.clear();
+  });
+
+  const send = (method, params = {}) =>
+    new Promise((resolveCommand, rejectCommand) => {
+      const id = nextCommandId;
+      nextCommandId += 1;
+      const timeoutId = setTimeout(() => {
+        pending.delete(id);
+        rejectCommand(
+          new Error(
+            `${method}: CDP commandが${CDP_COMMAND_TIMEOUT_MILLISECONDS}ms以内に完了しませんでした。`
+          )
+        );
+      }, CDP_COMMAND_TIMEOUT_MILLISECONDS);
+      pending.set(id, {
+        method,
+        timeoutId,
+        resolve: resolveCommand,
+        reject: rejectCommand
+      });
+      socket.send(JSON.stringify({ id, method, params }));
+    });
+
+  return Object.freeze({
+    socket,
+    send,
+    addListener: (listener) => listeners.add(listener)
+  });
+};
+
+const evaluate = async (cdp, expression) => {
+  const result = await cdp.send("Runtime.evaluate", {
+    expression,
+    awaitPromise: true,
+    returnByValue: true
+  });
+  if (result.exceptionDetails) {
+    throw new Error(
+      result.exceptionDetails.exception?.description ??
+        result.exceptionDetails.text
+    );
+  }
+  return result.result.value;
+};
+
+const stopElectron = async (child) => {
+  if (child.exitCode !== null) {
+    return;
+  }
+  child.kill();
+  const exited = await Promise.race([
+    new Promise((resolveExit) =>
+      child.once("exit", () => resolveExit(true))
+    ),
+    wait(5_000).then(() => false)
+  ]);
+  if (exited) {
+    return;
+  }
+  if (process.platform === "win32") {
+    spawnSync(
+      "taskkill",
+      ["/PID", String(child.pid), "/T", "/F"],
+      { stdio: "ignore" }
+    );
+    return;
+  }
+  child.kill("SIGKILL");
+};
+
+const remoteDebuggingPort = await acquirePort();
+const electronUserDataDirectory = await mkdtemp(
+  join(tmpdir(), "haigure-t04-electron-")
+);
+const electronOutput = [];
+const child = spawn(
+  electronExecutable,
+  [
+    `--remote-debugging-port=${remoteDebuggingPort}`,
+    "--disable-background-timer-throttling",
+    "--disable-renderer-backgrounding",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-features=CalculateNativeWinOcclusion",
+    `--user-data-dir=${electronUserDataDirectory}`,
+    "."
+  ],
+  {
+    cwd: repositoryRoot,
+    env: {
+      ...process.env,
+      VITE_DEV_SERVER_URL: applicationUrl,
+      ELECTRON_DISABLE_SECURITY_WARNINGS: "true"
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  }
+);
+child.stdout.setEncoding("utf8");
+child.stderr.setEncoding("utf8");
+child.stdout.on("data", (chunk) => electronOutput.push(chunk));
+child.stderr.on("data", (chunk) => electronOutput.push(chunk));
+
+let cdp = null;
+const rendererDiagnostics = [];
+let finalReport = null;
+let outputPayload = null;
+try {
+  const target = await waitForDebuggerTarget(
+    remoteDebuggingPort,
+    child
+  );
+  cdp = await connectCdp(target.webSocketDebuggerUrl);
+  cdp.addListener((message) => {
+    if (
+      message.method === "Runtime.consoleAPICalled" &&
+      ["warning", "error", "assert"].includes(
+        message.params.type
+      )
+    ) {
+      rendererDiagnostics.push({
+        source: "console",
+        level: message.params.type,
+        text: message.params.args
+          .map(
+            (argument) =>
+              argument.value ??
+              argument.description ??
+              argument.type
+          )
+          .join(" ")
+      });
+    }
+    if (message.method === "Runtime.exceptionThrown") {
+      rendererDiagnostics.push({
+        source: "exception",
+        level: "error",
+        text:
+          message.params.exceptionDetails.exception
+            ?.description ??
+          message.params.exceptionDetails.text
+      });
+    }
+    if (
+      message.method === "Log.entryAdded" &&
+      ["warning", "error"].includes(
+        message.params.entry.level
+      )
+    ) {
+      rendererDiagnostics.push({
+        source: "log",
+        level: message.params.entry.level,
+        text: message.params.entry.text
+      });
+    }
+  });
+  await cdp.send("Runtime.enable");
+  await cdp.send("Log.enable");
+
+  if (profile === "interaction") {
+    const readinessDeadline = Date.now() + 120_000;
+    let ready = false;
+    while (Date.now() < readinessDeadline) {
+      const state = await evaluate(
+        cdp,
+        `(() => ({
+          hint: document.querySelector("#titleStartHint")?.textContent ?? "",
+          overlayDisplay: document.querySelector("#titleOverlay")?.style.display ?? "",
+          canvas: (() => {
+            const canvas = document.querySelector("#renderCanvas");
+            if (!(canvas instanceof HTMLCanvasElement)) {
+              return null;
+            }
+            const bounds = canvas.getBoundingClientRect();
+            return {
+              x: bounds.left + bounds.width * 0.5,
+              y: bounds.top + bounds.height * 0.5
+            };
+          })()
+        }))()`
+      );
+      if (
+        state.hint === "左クリック：開始" &&
+        state.overlayDisplay === "flex" &&
+        state.canvas
+      ) {
+        ready = true;
+        break;
+      }
+      await wait(500);
+    }
+    if (!ready) {
+      throw new Error(
+        "Electron通常ゲームが120秒以内に開始可能状態へ到達しませんでした。"
+      );
+    }
+    await wait(1_000);
+    let beforeMove = await evaluate(
+      cdp,
+      `(() => ({
+        pointerLockElementId:
+          document.pointerLockElement?.id ?? null,
+        overlayDisplay:
+          document.querySelector("#titleOverlay")?.style.display ?? "",
+        statusText:
+          document.querySelector("#statusInfo")?.textContent ?? ""
+      }))()`
+    );
+    if (beforeMove.pointerLockElementId !== "renderCanvas") {
+      process.stdout.write(
+        "Electron interaction: 実画面クリックによるPointer Lockを待機します。\n"
+      );
+      const pointerLockDeadline = Date.now() + 60_000;
+      while (
+        beforeMove.pointerLockElementId !== "renderCanvas" &&
+        Date.now() < pointerLockDeadline
+      ) {
+        await wait(500);
+        beforeMove = await evaluate(
+          cdp,
+          `(() => ({
+            pointerLockElementId:
+              document.pointerLockElement?.id ?? null,
+            overlayDisplay:
+              document.querySelector("#titleOverlay")?.style.display ?? "",
+            statusText:
+              document.querySelector("#statusInfo")?.textContent ?? ""
+          }))()`
+        );
+      }
+    }
+    const parseFootPosition = (statusText) => {
+      const match =
+        /X (-?\d+(?:\.\d+)?)\s+Y (-?\d+(?:\.\d+)?)\s+Z (-?\d+(?:\.\d+)?)/.exec(
+          statusText
+        );
+      if (!match) {
+        throw new Error(
+          "Electron通常ゲームの足元座標をHUDから取得できません。"
+        );
+      }
+      return Object.freeze({
+        x: Number(match[1]),
+        y: Number(match[2]),
+        z: Number(match[3])
+      });
+    };
+    const beforePosition = parseFootPosition(
+      beforeMove.statusText
+    );
+    process.stdout.write(
+      "Electron interaction: 実OSキーWによる移動を20秒間待機します。\n"
+    );
+    const readMovementState = async () => {
+      const state = await evaluate(
+        cdp,
+        `(() => ({
+          pointerLockElementId:
+            document.pointerLockElement?.id ?? null,
+          statusText:
+            document.querySelector("#statusInfo")?.textContent ?? ""
+        }))()`
+      );
+      const position = parseFootPosition(state.statusText);
+      return Object.freeze({
+        state,
+        position,
+        distance: Math.hypot(
+          position.x - beforePosition.x,
+          position.z - beforePosition.z
+        )
+      });
+    };
+    const realInputDeadline = Date.now() + 20_000;
+    let movement = await readMovementState();
+    while (
+      movement.distance <= 0.001 &&
+      Date.now() < realInputDeadline
+    ) {
+      await wait(250);
+      movement = await readMovementState();
+    }
+    if (movement.distance <= 0.001) {
+      await cdp.send("Input.dispatchKeyEvent", {
+        type: "rawKeyDown",
+        key: "w",
+        code: "KeyW",
+        windowsVirtualKeyCode: 87,
+        nativeVirtualKeyCode: 87
+      });
+      await wait(1_500);
+      await cdp.send("Input.dispatchKeyEvent", {
+        type: "keyUp",
+        key: "w",
+        code: "KeyW",
+        windowsVirtualKeyCode: 87,
+        nativeVirtualKeyCode: 87
+      });
+      await wait(500);
+      movement = await readMovementState();
+    }
+    const afterMove = movement.state;
+    const afterPosition = movement.position;
+    const movementDistance = movement.distance;
+    if (
+      beforeMove.pointerLockElementId !== "renderCanvas" ||
+      afterMove.pointerLockElementId !== "renderCanvas" ||
+      beforeMove.overlayDisplay !== "none" ||
+      !afterMove.statusText.includes("フェーズ playing") ||
+      movementDistance <= 0.001
+    ) {
+      throw new Error(
+        "Electron通常ゲームの開始、Pointer Lock、W移動を確認できませんでした: " +
+          JSON.stringify({
+            beforeMove,
+            afterMove,
+            movementDistance
+          })
+      );
+    }
+    outputPayload = Object.freeze({
+      interaction: Object.freeze({
+        pointerLockElementId:
+          afterMove.pointerLockElementId,
+        phase: "playing",
+        beforePosition,
+        afterPosition,
+        movementDistance
+      })
+    });
+  } else {
+    const deadline =
+      Date.now() + (expectedDurationSeconds + 120) * 1000;
+    let lastProgressSecond = -30;
+    let firstReport = null;
+    let previousFrameCount = -1;
+    let previousSimulationElapsedSeconds = -1;
+    let lastFrameProgressAt = Date.now();
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null) {
+        throw new Error(
+          `Electronがstress完了前に終了しました: ${child.exitCode}`
+        );
+      }
+      const report = await evaluate(
+        cdp,
+        `JSON.parse(document.body.dataset.v2RuntimeStressReport ?? "null")`
+      );
+      if (report) {
+        finalReport = report;
+        firstReport ??= report;
+        if (
+          report.frameCount > previousFrameCount &&
+          report.simulationElapsedSeconds >
+            previousSimulationElapsedSeconds
+        ) {
+          previousFrameCount = report.frameCount;
+          previousSimulationElapsedSeconds =
+            report.simulationElapsedSeconds;
+          lastFrameProgressAt = Date.now();
+        } else if (
+          Date.now() - lastFrameProgressAt > 15_000
+        ) {
+          throw new Error(
+            "Electron rendererのframe更新が15秒以上停止しました。"
+          );
+        }
+        const progressSecond = Math.floor(
+          report.wallElapsedSeconds
+        );
+        if (progressSecond - lastProgressSecond >= 30) {
+          lastProgressSecond = progressSecond;
+          process.stdout.write(
+            `Electron ${profile}: ${progressSecond}/${expectedDurationSeconds}s ` +
+              `frames=${report.frameCount} revision=${report.spatialRevision}\n`
+          );
+        }
+        if (report.status === "failed") {
+          throw new Error(
+            `Electron renderer stress失敗: ${report.error}`
+          );
+        }
+        if (report.status === "passed") {
+          break;
+        }
+      }
+      await wait(5_000);
+    }
+    if (
+      finalReport?.status !== "passed" ||
+      firstReport === null ||
+      finalReport.frameCount <= firstReport.frameCount ||
+      finalReport.simulationElapsedSeconds <=
+        firstReport.simulationElapsedSeconds
+    ) {
+      throw new Error(
+        `Electron ${profile} stressが更新を継続した状態で期限内に完了しませんでした。`
+      );
+    }
+    outputPayload = Object.freeze({
+      report: finalReport
+    });
+  }
+  if (rendererDiagnostics.length > 0) {
+    throw new Error(
+      `Electron rendererにwarning／errorが${rendererDiagnostics.length}件あります。`
+    );
+  }
+  process.stdout.write(
+    `${JSON.stringify({
+      application: "electron",
+      profile,
+      url: applicationUrl,
+      ...outputPayload,
+      rendererDiagnostics,
+      processOutput: electronOutput.join("").slice(-4_000)
+    })}\n`
+  );
+} finally {
+  if (
+    cdp &&
+    cdp.socket.readyState === WebSocket.OPEN
+  ) {
+    try {
+      await evaluate(
+        cdp,
+        "setTimeout(() => window.close(), 0); true"
+      );
+      await wait(500);
+    } catch {
+      // target終了後はprocess側の終了確認へ進む。
+    }
+    cdp.socket.close();
+  }
+  await stopElectron(child);
+  await rm(electronUserDataDirectory, {
+    recursive: true,
+    force: true
+  });
+}

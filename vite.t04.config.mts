@@ -20,6 +20,15 @@ export default defineConfig({
     target: "es2022",
     outDir: resolve(repositoryRoot, "dist/t04-validation"),
     emptyOutDir: true,
-    chunkSizeWarningLimit: 5000
+    chunkSizeWarningLimit: 5000,
+    rollupOptions: {
+      input: {
+        main: resolve(repositoryRoot, "validation/v2/T04/index.html"),
+        schoolIntegration: resolve(
+          repositoryRoot,
+          "validation/v2/T04/school-integration.html"
+        )
+      }
+    }
   }
 });

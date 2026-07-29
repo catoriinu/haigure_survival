@@ -5,7 +5,6 @@ import {
   Mesh,
   MeshBuilder,
   Quaternion,
-  Ray,
   Scene,
   StandardMaterial,
   Vector3,
@@ -37,10 +36,8 @@ export const V2_BEAM_VISUAL_POOL_KINDS = [
 ] as const;
 
 const SEGMENT_LENGTH_EPSILON = 1e-8;
-const SURFACE_DISTANCE_EPSILON = 1e-6;
 const HIT_DISTANCE_EPSILON = 1e-6;
 const HUMAN_TARGET_SPATIAL_CELL_SIZE = 1;
-const BLOCKER_SPATIAL_CELL_SIZE = 2;
 const BEAM_TRAIL_DIAMETER_MIN = 0.01;
 const BEAM_TRAIL_DIAMETER_MAX = 0.05;
 const BEAM_TRAIL_INTERVAL_MIN_SECONDS = 0.025;
@@ -69,36 +66,6 @@ const BEAM_ORIGIN_KINDS: readonly V2BeamOriginKind[] = Object.freeze([
   "execution-npc",
   "execution-player"
 ]);
-const CONTAINMENT_RAY_DIRECTION = new Vector3(
-  0.7385489459,
-  0.4615930912,
-  0.4938376187
-).normalize();
-
-type WorldTriangle = readonly [Vector3, Vector3, Vector3];
-
-type BlockerGeometry = Readonly<{
-  minimum: Vector3;
-  maximum: Vector3;
-  triangles: readonly WorldTriangle[];
-}>;
-
-const blockerGeometryCache = new WeakMap<Mesh, BlockerGeometry>();
-
-type BlockerBoundsCandidate = Readonly<{
-  mesh: Mesh;
-  minimum: Vector3;
-  maximum: Vector3;
-}>;
-
-type BlockerSpatialIndex = Readonly<{
-  query(point: Vector3): readonly BlockerBoundsCandidate[];
-}>;
-
-const blockerSpatialIndexCache = new WeakMap<
-  readonly Mesh[],
-  BlockerSpatialIndex
->();
 
 export type V2BeamBlockerHit = Readonly<{
   kind: "blocker";
@@ -398,228 +365,6 @@ const assertBeamOriginKind = (originKind: V2BeamOriginKind): void => {
   }
 };
 
-const buildBlockerGeometry = (mesh: Mesh): BlockerGeometry => {
-  const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
-  const indices = mesh.getIndices();
-  if (
-    !positions ||
-    !indices ||
-    indices.length === 0 ||
-    indices.length % 3 !== 0
-  ) {
-    throw new Error(`ビーム遮蔽Meshに三角形形状がありません: ${mesh.name}`);
-  }
-
-  const world = mesh.computeWorldMatrix(true);
-  const triangles: WorldTriangle[] = [];
-  for (let index = 0; index < indices.length; index += 3) {
-    triangles.push([
-      Vector3.TransformCoordinates(
-        Vector3.FromArray(positions, indices[index] * 3),
-        world
-      ),
-      Vector3.TransformCoordinates(
-        Vector3.FromArray(positions, indices[index + 1] * 3),
-        world
-      ),
-      Vector3.TransformCoordinates(
-        Vector3.FromArray(positions, indices[index + 2] * 3),
-        world
-      )
-    ]);
-  }
-
-  const bounds = mesh.getBoundingInfo().boundingBox;
-  return Object.freeze({
-    minimum: bounds.minimumWorld.clone(),
-    maximum: bounds.maximumWorld.clone(),
-    triangles: Object.freeze(triangles)
-  });
-};
-
-const getBlockerGeometry = (mesh: Mesh): BlockerGeometry => {
-  const cached = blockerGeometryCache.get(mesh);
-  if (cached) {
-    return cached;
-  }
-  const geometry = buildBlockerGeometry(mesh);
-  blockerGeometryCache.set(mesh, geometry);
-  return geometry;
-};
-
-const isInsideBounds = (
-  point: Vector3,
-  minimum: Vector3,
-  maximum: Vector3
-): boolean =>
-  point.x >= minimum.x - SURFACE_DISTANCE_EPSILON &&
-  point.x <= maximum.x + SURFACE_DISTANCE_EPSILON &&
-  point.y >= minimum.y - SURFACE_DISTANCE_EPSILON &&
-  point.y <= maximum.y + SURFACE_DISTANCE_EPSILON &&
-  point.z >= minimum.z - SURFACE_DISTANCE_EPSILON &&
-  point.z <= maximum.z + SURFACE_DISTANCE_EPSILON;
-
-const blockerSpatialCellKey = (x: number, y: number, z: number) =>
-  `${x}:${y}:${z}`;
-
-const createBlockerSpatialIndex = (
-  blockers: readonly Mesh[]
-): BlockerSpatialIndex => {
-  const cells = new Map<string, BlockerBoundsCandidate[]>();
-  for (const mesh of blockers) {
-    mesh.computeWorldMatrix(true);
-    const bounds = mesh.getBoundingInfo().boundingBox;
-    const candidate = Object.freeze({
-      mesh,
-      minimum: bounds.minimumWorld.clone(),
-      maximum: bounds.maximumWorld.clone()
-    });
-    const minimumCellX = Math.floor(
-      (candidate.minimum.x - SURFACE_DISTANCE_EPSILON) /
-        BLOCKER_SPATIAL_CELL_SIZE
-    );
-    const maximumCellX = Math.floor(
-      (candidate.maximum.x + SURFACE_DISTANCE_EPSILON) /
-        BLOCKER_SPATIAL_CELL_SIZE
-    );
-    const minimumCellY = Math.floor(
-      (candidate.minimum.y - SURFACE_DISTANCE_EPSILON) /
-        BLOCKER_SPATIAL_CELL_SIZE
-    );
-    const maximumCellY = Math.floor(
-      (candidate.maximum.y + SURFACE_DISTANCE_EPSILON) /
-        BLOCKER_SPATIAL_CELL_SIZE
-    );
-    const minimumCellZ = Math.floor(
-      (candidate.minimum.z - SURFACE_DISTANCE_EPSILON) /
-        BLOCKER_SPATIAL_CELL_SIZE
-    );
-    const maximumCellZ = Math.floor(
-      (candidate.maximum.z + SURFACE_DISTANCE_EPSILON) /
-        BLOCKER_SPATIAL_CELL_SIZE
-    );
-    for (let cellX = minimumCellX; cellX <= maximumCellX; cellX += 1) {
-      for (let cellY = minimumCellY; cellY <= maximumCellY; cellY += 1) {
-        for (let cellZ = minimumCellZ; cellZ <= maximumCellZ; cellZ += 1) {
-          const key = blockerSpatialCellKey(cellX, cellY, cellZ);
-          const cell = cells.get(key) ?? [];
-          cell.push(candidate);
-          cells.set(key, cell);
-        }
-      }
-    }
-  }
-  return Object.freeze({
-    query: (point: Vector3) => {
-      const cellX = Math.floor(point.x / BLOCKER_SPATIAL_CELL_SIZE);
-      const cellY = Math.floor(point.y / BLOCKER_SPATIAL_CELL_SIZE);
-      const cellZ = Math.floor(point.z / BLOCKER_SPATIAL_CELL_SIZE);
-      return (
-        cells.get(blockerSpatialCellKey(cellX, cellY, cellZ)) ??
-        Object.freeze([])
-      );
-    }
-  });
-};
-
-const getBlockerSpatialIndex = (
-  blockers: readonly Mesh[]
-): BlockerSpatialIndex => {
-  const cached = blockerSpatialIndexCache.get(blockers);
-  if (cached) {
-    return cached;
-  }
-  const index = createBlockerSpatialIndex(blockers);
-  blockerSpatialIndexCache.set(blockers, index);
-  return index;
-};
-
-const prepareBlockerSpatialIndices = (
-  beamBlockers: readonly Mesh[],
-  sightBlockers: readonly Mesh[]
-): void => {
-  const useSharedIndex =
-    beamBlockers.length === sightBlockers.length &&
-    beamBlockers.every(
-      (blocker, index) => blocker === sightBlockers[index]
-    );
-  if (!useSharedIndex) {
-    getBlockerSpatialIndex(beamBlockers);
-    getBlockerSpatialIndex(sightBlockers);
-    return;
-  }
-  const sharedIndex =
-    blockerSpatialIndexCache.get(beamBlockers) ??
-    blockerSpatialIndexCache.get(sightBlockers) ??
-    createBlockerSpatialIndex(beamBlockers);
-  blockerSpatialIndexCache.set(beamBlockers, sharedIndex);
-  blockerSpatialIndexCache.set(sightBlockers, sharedIndex);
-};
-
-const containsPoint = (mesh: Mesh, point: Vector3): boolean => {
-  const geometry = getBlockerGeometry(mesh);
-  if (!isInsideBounds(point, geometry.minimum, geometry.maximum)) {
-    return false;
-  }
-
-  const ray = new Ray(point, CONTAINMENT_RAY_DIRECTION, Number.MAX_VALUE);
-  const distances: number[] = [];
-  for (const triangle of geometry.triangles) {
-    const intersection = ray.intersectsTriangle(...triangle);
-    if (!intersection || intersection.distance < -SURFACE_DISTANCE_EPSILON) {
-      continue;
-    }
-    if (Math.abs(intersection.distance) <= SURFACE_DISTANCE_EPSILON) {
-      return true;
-    }
-    distances.push(intersection.distance);
-  }
-
-  distances.sort((left, right) => left - right);
-  let uniqueIntersections = 0;
-  let previousDistance = Number.NEGATIVE_INFINITY;
-  for (const distance of distances) {
-    if (distance - previousDistance > SURFACE_DISTANCE_EPSILON) {
-      uniqueIntersections += 1;
-      previousDistance = distance;
-    }
-  }
-  return uniqueIntersections % 2 === 1;
-};
-
-const findContainingBlocker = (
-  blockers: readonly Mesh[],
-  point: Vector3,
-  diagnostics: V2BeamCollisionDiagnostics | undefined
-): Mesh | null => {
-  const candidates = getBlockerSpatialIndex(blockers).query(point);
-  let triangulatedMeshCount = 0;
-  for (const candidate of candidates) {
-    if (
-      !isInsideBounds(point, candidate.minimum, candidate.maximum)
-    ) {
-      continue;
-    }
-    const geometryWasCached = blockerGeometryCache.has(candidate.mesh);
-    const isContaining = containsPoint(candidate.mesh, point);
-    if (!geometryWasCached) {
-      triangulatedMeshCount += 1;
-    }
-    if (isContaining) {
-      diagnostics?.recordStartContainment(
-        candidates.length,
-        triangulatedMeshCount
-      );
-      return candidate.mesh;
-    }
-  }
-  diagnostics?.recordStartContainment(
-    candidates.length,
-    triangulatedMeshCount
-  );
-  return null;
-};
-
 const getStartHitNormal = (from: Vector3, to: Vector3): Vector3 => {
   const reverseDirection = from.subtract(to);
   if (reverseDirection.lengthSquared() <= SEGMENT_LENGTH_EPSILON ** 2) {
@@ -828,12 +573,14 @@ const castValidatedV2BeamSegment = (
   diagnostics: V2BeamCollisionDiagnostics | undefined
 ): V2BeamSegmentHit | null => {
   const containingBlocker = checkStartContainment
-    ? findContainingBlocker(
-        stage.resources.beamBlockers,
-        from,
-        diagnostics
-      )
+    ? stage.queries.findContainingBlocker("beam", from)
     : null;
+  if (checkStartContainment) {
+    diagnostics?.recordStartContainment(
+      containingBlocker === null ? 0 : 1,
+      0
+    );
+  }
   let nearestHit: V2BeamSegmentHit | null = containingBlocker
     ? createStartBlockerHit(containingBlocker, from, to)
     : null;
@@ -904,10 +651,9 @@ export const castV2SightSegment = (
   assertFiniteVector("sight.from", from);
   assertFiniteVector("sight.to", to);
 
-  const containingBlocker = findContainingBlocker(
-    stage.resources.sightBlockers,
-    from,
-    undefined
+  const containingBlocker = stage.queries.findContainingBlocker(
+    "sight",
+    from
   );
   if (containingBlocker) {
     return Object.freeze({
@@ -1186,15 +932,11 @@ export const createV2BeamSystem = (
       "StageSpatialContext.worldBoundaryにはStageWorldBoundaryまたはnullが必要です"
     );
   }
-  prepareBlockerSpatialIndices(
-    config.stage.resources.beamBlockers,
-    config.stage.resources.sightBlockers
-  );
-
   const visualPool = createBeamVisualPool(config.scene);
   const activeBeams = new Map<string, ActiveBeam>();
   const trailVisuals = new Set<TrailVisual>();
   const blockerImpactVisuals = new Set<BlockerImpactVisual>();
+  let observedSpatialRevision = config.stage.queries.revision;
   let nextBeamSerial = 1;
   let disposed = false;
 
@@ -1672,6 +1414,13 @@ export const createV2BeamSystem = (
           worldBoundaryExits: Object.freeze([]),
           completions: Object.freeze([])
         });
+      }
+      const spatialRevision = config.stage.queries.revision;
+      if (spatialRevision !== observedSpatialRevision) {
+        observedSpatialRevision = spatialRevision;
+        for (const beam of activeBeams.values()) {
+          beam.checkStartContainment = true;
+        }
       }
 
       const shouldRenderOrb = config.getOrbVisibilityPredicate();

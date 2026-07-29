@@ -755,6 +755,16 @@ export const runDynamicInteractionAcceptance =
             carRoot.computeWorldMatrix(true);
             carPanel.mesh.computeWorldMatrix(true);
           },
+          getBoardingWorldPosition: (slotIndex) =>
+            carRoot
+              .getAbsolutePosition()
+              .add(
+                new Vector3(
+                  ((slotIndex % 3) - 1) * 0.01,
+                  0,
+                  Math.floor(slotIndex / 3) * 0.01
+                )
+              ),
           worldToCarLocal: (position) =>
             position.subtract(carRoot.getAbsolutePosition()),
           carLocalToWorld: (position) =>
@@ -839,10 +849,10 @@ export const runDynamicInteractionAcceptance =
       for (const reservation of reservations.slice(1, 6)) {
         elevator.cancelBoardingReservation(reservation.actorId);
       }
+      elevator.completeBoarding("actor-0");
       const actorZeroCarLocal = actorPositions
         .get("actor-0")!
         .subtract(initialElevator.carPosition);
-      elevator.completeBoarding("actor-0");
       const afterFiveSeconds = elevator.update(5);
       const afterFiveSpatial = elevator.getSpatialSnapshot();
       const closingStartOpenness = panelOpenness.get("car-panel");
@@ -957,7 +967,17 @@ export const runDynamicInteractionAcceptance =
       elevator.requestCall("stop-1");
       const heldDuringTravel = elevator.getSnapshot();
       const arrivedForCall = elevator.update(6);
-      const reverseDeparture = elevator.update(1);
+      const openedAtUpdateBoundary = elevator.update(10);
+      actorPositions.set("actor-boundary", new Vector3(0, 6, 0));
+      const boundaryReservation = elevator.requestBoarding({
+        actorId: "actor-boundary",
+        fromStopId: "stop-4",
+        destinationStopId: "stop-1",
+        requestedAtSeconds: 22
+      });
+      const heldOpenByReservation = elevator.update(10);
+      elevator.cancelBoardingReservation("actor-boundary");
+      const reverseDeparture = elevator.update(0);
       checks.push({
         name: "エレベーター両方向呼出・占有待機・走行中呼出保持",
         ok:
@@ -972,10 +992,26 @@ export const runDynamicInteractionAcceptance =
           heldDuringTravel.calls.includes("stop-1") &&
           arrivedForCall.currentStopId === "stop-4" &&
           arrivedForCall.calls.includes("stop-1") &&
+          openedAtUpdateBoundary.carDoorState === "open" &&
           reverseDeparture.carDoorState === "closing" &&
           reverseDeparture.targetStopId === "stop-1" &&
           invalidStopMessage?.includes("未登録") === true,
         detail: `blocked=${occupancyBlockedCall.carDoorState} / moving=${callMoving.carState} / held=${heldDuringTravel.calls.join(",")} / reverse=${reverseDeparture.targetStopId} / invalid=${invalidStopMessage ?? "none"}`
+      });
+      checks.push({
+        name: "エレベーター開扉完了境界・予約中の閉扉抑止",
+        ok:
+          openedAtUpdateBoundary.carState === "stopped" &&
+          openedAtUpdateBoundary.carDoorState === "open" &&
+          openedAtUpdateBoundary.calls.includes("stop-1") &&
+          boundaryReservation.status === "accepted" &&
+          heldOpenByReservation.carState === "stopped" &&
+          heldOpenByReservation.carDoorState === "open" &&
+          heldOpenByReservation.reservations.length === 1 &&
+          heldOpenByReservation.calls.includes("stop-1") &&
+          reverseDeparture.carDoorState === "closing" &&
+          reverseDeparture.targetStopId === "stop-1",
+        detail: `boundary=${openedAtUpdateBoundary.carState}:${openedAtUpdateBoundary.carDoorState} / reservation=${boundaryReservation.status}:${heldOpenByReservation.reservations.length} / afterCancel=${reverseDeparture.carDoorState}:${reverseDeparture.targetStopId}`
       });
 
       const roomIds = Array.from(

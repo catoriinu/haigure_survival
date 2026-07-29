@@ -51,6 +51,9 @@ import {
   SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
 } from "../../../src/world/schoolRuntimeSettings";
 import {
+  createSchoolStageDynamicSpatialInitializer
+} from "../../../src/world/schoolStageDynamicRuntime";
+import {
   loadStageSpatialContext,
   type StageSpatialContext
 } from "../../../src/world/stageSpatialContext";
@@ -1744,6 +1747,8 @@ const runValidation = async () => {
           scene,
           SCHOOL_VALIDATION_STAGE,
           {
+            initializeDynamicSpatial:
+              createSchoolStageDynamicSpatialInitializer(0),
             roomVariantSelections:
               SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
           }

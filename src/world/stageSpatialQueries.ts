@@ -1,4 +1,11 @@
-import { Mesh, Ray, Scene, Vector3, VertexBuffer } from "@babylonjs/core";
+import {
+  Matrix,
+  Mesh,
+  Ray,
+  Scene,
+  Vector3,
+  VertexBuffer
+} from "@babylonjs/core";
 
 import type { BitFlightBandRef } from "./bitFlightNavigation";
 import {
@@ -31,6 +38,13 @@ export type StageVolume = Readonly<{
   bitFlightBand: BitFlightBandRef | null;
   mesh: Mesh;
 }>;
+
+export type StageCharacterEllipsoid = Readonly<{
+  center: Vector3;
+  radii: Vector3;
+}>;
+
+export type StageSpatialBlockerKind = "beam" | "sight";
 
 export type SpatialHit = Readonly<{
   point: Vector3;
@@ -96,6 +110,15 @@ export interface StageSpatialQueries {
   castSightSegment(from: Vector3, to: Vector3): SpatialHit | null;
   sampleGround(origin: Vector3, maxDistance: number): SpatialHit | null;
   containsVolume(role: StageVolumeRole, point: Vector3): boolean;
+  containsVolumeById(id: string, point: Vector3): boolean;
+  intersectsVolumeById(
+    id: string,
+    ellipsoid: StageCharacterEllipsoid
+  ): boolean;
+  findContainingBlocker(
+    kind: StageSpatialBlockerKind,
+    point: Vector3
+  ): Mesh | null;
   dispose(): void;
 }
 
@@ -112,6 +135,30 @@ const SWEEP_TIME_EPSILON = 1e-9;
 const SWEEP_DISTANCE_EPSILON = 1e-9;
 const KNOWN_SAFE_CENTER_CACHE_MAX_ENTRIES = 16_384;
 const GROUND_SAMPLE_CACHE_MAX_ENTRIES = 65_536;
+
+const assertFiniteVector = (name: string, value: Vector3) => {
+  if (
+    !Number.isFinite(value.x) ||
+    !Number.isFinite(value.y) ||
+    !Number.isFinite(value.z)
+  ) {
+    throw new Error(`${name}には有限の3D座標が必要です。`);
+  }
+};
+
+const assertCharacterEllipsoid = (
+  ellipsoid: StageCharacterEllipsoid
+) => {
+  assertFiniteVector("人物楕円体の中心", ellipsoid.center);
+  assertFiniteVector("人物楕円体の半径", ellipsoid.radii);
+  if (
+    ellipsoid.radii.x <= 0 ||
+    ellipsoid.radii.y <= 0 ||
+    ellipsoid.radii.z <= 0
+  ) {
+    throw new Error("人物楕円体の各半径には正の有限値が必要です。");
+  }
+};
 
 type StaticMeshSpatialIndex = Readonly<{
   query(from: Vector3, to: Vector3, padding?: number): readonly Mesh[];
@@ -214,14 +261,15 @@ const cloneSpatialHit = (hit: SpatialHit): SpatialHit =>
 
 type WorldTriangle = readonly [Vector3, Vector3, Vector3];
 
-const buildWorldTriangles = (mesh: Mesh): readonly WorldTriangle[] => {
+const buildWorldTrianglesAtMatrix = (
+  mesh: Mesh,
+  world: Matrix
+): readonly WorldTriangle[] => {
   const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
   const indices = mesh.getIndices();
   if (!positions || !indices || indices.length % 3 !== 0) {
     throw new Error(`閉じた三角形Meshが必要です: ${mesh.name}`);
   }
-
-  const world = mesh.computeWorldMatrix(true);
   const triangles: WorldTriangle[] = [];
   for (let index = 0; index < indices.length; index += 3) {
     triangles.push([
@@ -241,6 +289,12 @@ const buildWorldTriangles = (mesh: Mesh): readonly WorldTriangle[] => {
   }
   return triangles;
 };
+
+const buildWorldTriangles = (mesh: Mesh): readonly WorldTriangle[] =>
+  buildWorldTrianglesAtMatrix(
+    mesh,
+    mesh.computeWorldMatrix(true)
+  );
 
 type IndexedWorldTriangle = Readonly<{
   sceneOrder: number;
@@ -1720,6 +1774,74 @@ const createContainsPointQueryFromTriangles = (
 const createContainsPointQuery = (mesh: Mesh) =>
   createContainsPointQueryFromTriangles(buildWorldTriangles(mesh));
 
+const createIntersectsEllipsoidQueryFromTriangles = (
+  triangles: readonly WorldTriangle[],
+  containsPoint: (point: Vector3) => boolean
+) => {
+  const scaledFirst = Vector3.Zero();
+  const scaledSecond = Vector3.Zero();
+  const scaledThird = Vector3.Zero();
+  const projectedPoint = Vector3.Zero();
+  const origin = Vector3.Zero();
+  return (ellipsoid: StageCharacterEllipsoid): boolean => {
+    if (containsPoint(ellipsoid.center)) {
+      return true;
+    }
+    for (const triangle of triangles) {
+      scaledFirst.set(
+        (triangle[0].x - ellipsoid.center.x) /
+          ellipsoid.radii.x,
+        (triangle[0].y - ellipsoid.center.y) /
+          ellipsoid.radii.y,
+        (triangle[0].z - ellipsoid.center.z) /
+          ellipsoid.radii.z
+      );
+      scaledSecond.set(
+        (triangle[1].x - ellipsoid.center.x) /
+          ellipsoid.radii.x,
+        (triangle[1].y - ellipsoid.center.y) /
+          ellipsoid.radii.y,
+        (triangle[1].z - ellipsoid.center.z) /
+          ellipsoid.radii.z
+      );
+      scaledThird.set(
+        (triangle[2].x - ellipsoid.center.x) /
+          ellipsoid.radii.x,
+        (triangle[2].y - ellipsoid.center.y) /
+          ellipsoid.radii.y,
+        (triangle[2].z - ellipsoid.center.z) /
+          ellipsoid.radii.z
+      );
+      const distance = Vector3.ProjectOnTriangleToRef(
+        origin,
+        scaledFirst,
+        scaledSecond,
+        scaledThird,
+        projectedPoint
+      );
+      if (distance <= 1 + SURFACE_DISTANCE_EPSILON) {
+        return true;
+      }
+    }
+    return false;
+  };
+};
+
+export const intersectsCharacterEllipsoidWithMeshAtWorldMatrix = (
+  mesh: Mesh,
+  world: Matrix,
+  ellipsoid: StageCharacterEllipsoid
+): boolean => {
+  assertCharacterEllipsoid(ellipsoid);
+  const triangles = buildWorldTrianglesAtMatrix(mesh, world);
+  const containsPoint =
+    createContainsPointQueryFromTriangles(triangles);
+  return createIntersectsEllipsoidQueryFromTriangles(
+    triangles,
+    containsPoint
+  )(ellipsoid);
+};
+
 const segmentIntersectsTriangleBoundary = (
   from: Vector3,
   to: Vector3,
@@ -2016,6 +2138,9 @@ type StageSpatialRevisionResources = Readonly<{
   groundColliderMeshes: ReadonlySet<Mesh>;
   beamBlockerMeshes: ReadonlySet<Mesh>;
   sightBlockerMeshes: ReadonlySet<Mesh>;
+  blockerIndices: Readonly<
+    Record<StageSpatialBlockerKind, StaticMeshSpatialIndex>
+  >;
   movementTrianglesByMesh: ReadonlyMap<
     Mesh,
     readonly WorldTriangle[]
@@ -2026,6 +2151,14 @@ type StageSpatialRevisionResources = Readonly<{
   >;
   containsByVolume: ReadonlyMap<
     StageVolume,
+    (point: Vector3) => boolean
+  >;
+  intersectsEllipsoidByVolume: ReadonlyMap<
+    StageVolume,
+    (ellipsoid: StageCharacterEllipsoid) => boolean
+  >;
+  containsByBlocker: ReadonlyMap<
+    Mesh,
     (point: Vector3) => boolean
   >;
   triangleSpatialIndex: StaticTriangleSpatialIndex;
@@ -2075,6 +2208,16 @@ const createStageSpatialRevisionResources = (
   const groundColliderMeshes = new Set(snapshot.groundColliders);
   const beamBlockerMeshes = new Set(snapshot.beamBlockers);
   const sightBlockerMeshes = new Set(snapshot.sightBlockers);
+  const blockerIndices = Object.freeze({
+    beam: createStaticMeshSpatialIndex(
+      snapshot.beamBlockers,
+      sceneOrderByMesh
+    ),
+    sight: createStaticMeshSpatialIndex(
+      snapshot.sightBlockers,
+      sceneOrderByMesh
+    )
+  });
   const movementTrianglesByMesh = new Map<
     Mesh,
     readonly WorldTriangle[]
@@ -2083,15 +2226,6 @@ const createStageSpatialRevisionResources = (
     Mesh,
     (point: Vector3) => boolean
   >();
-  const containsByVolume = new Map<
-    StageVolume,
-    (point: Vector3) => boolean
-  >(
-    volumes.map((volume) => [
-      volume,
-      createContainsPointQuery(volume.mesh)
-    ])
-  );
   const worldTrianglesByMesh = new Map<
     Mesh,
     readonly WorldTriangle[]
@@ -2105,6 +2239,27 @@ const createStageSpatialRevisionResources = (
     worldTrianglesByMesh.set(mesh, triangles);
     return triangles;
   };
+  const containsByVolume = new Map<
+    StageVolume,
+    (point: Vector3) => boolean
+  >();
+  const intersectsEllipsoidByVolume = new Map<
+    StageVolume,
+    (ellipsoid: StageCharacterEllipsoid) => boolean
+  >();
+  for (const volume of volumes) {
+    const triangles = getWorldTriangles(volume.mesh);
+    const containsPoint =
+      createContainsPointQueryFromTriangles(triangles);
+    containsByVolume.set(volume, containsPoint);
+    intersectsEllipsoidByVolume.set(
+      volume,
+      createIntersectsEllipsoidQueryFromTriangles(
+        triangles,
+        containsPoint
+      )
+    );
+  }
   for (const mesh of movementColliderMeshes) {
     const triangles = getWorldTriangles(mesh);
     movementTrianglesByMesh.set(mesh, triangles);
@@ -2121,6 +2276,21 @@ const createStageSpatialRevisionResources = (
   ]);
   for (const mesh of allTriangleMeshes) {
     getWorldTriangles(mesh);
+  }
+  const containsByBlocker = new Map<
+    Mesh,
+    (point: Vector3) => boolean
+  >();
+  for (const mesh of new Set([
+    ...beamBlockerMeshes,
+    ...sightBlockerMeshes
+  ])) {
+    containsByBlocker.set(
+      mesh,
+      createContainsPointQueryFromTriangles(
+        getWorldTriangles(mesh)
+      )
+    );
   }
   const triangleSpatialIndex = createStaticTriangleSpatialIndex(
     worldTrianglesByMesh,
@@ -2140,9 +2310,12 @@ const createStageSpatialRevisionResources = (
     groundColliderMeshes,
     beamBlockerMeshes,
     sightBlockerMeshes,
+    blockerIndices,
     movementTrianglesByMesh,
     movementContainsByMesh,
     containsByVolume,
+    intersectsEllipsoidByVolume,
+    containsByBlocker,
     triangleSpatialIndex,
     knownSafeCenterCache,
     sphereSweepScratch,
@@ -2151,12 +2324,17 @@ const createStageSpatialRevisionResources = (
       for (const index of Object.values(movementColliderIndices)) {
         index.dispose();
       }
+      for (const index of Object.values(blockerIndices)) {
+        index.dispose();
+      }
       triangleSpatialIndex.dispose();
       knownSafeCenterCache.dispose();
       groundSampleCache.clear();
       movementTrianglesByMesh.clear();
       movementContainsByMesh.clear();
       containsByVolume.clear();
+      intersectsEllipsoidByVolume.clear();
+      containsByBlocker.clear();
       worldTrianglesByMesh.clear();
     }
   });
@@ -2182,7 +2360,12 @@ export const createStageSpatialQueries = (
   const volumesByRole = new Map<StageVolumeRole, StageVolume[]>(
     STAGE_VOLUME_ROLES.map((role) => [role, []])
   );
+  const volumesById = new Map<string, StageVolume>();
   for (const volume of options.volumes) {
+    if (volumesById.has(volume.id)) {
+      throw new Error(`Stage Volume IDが重複しています: ${volume.id}`);
+    }
+    volumesById.set(volume.id, volume);
     volumesByRole.get(volume.role)!.push(volume);
   }
   const revisionResource =
@@ -2213,6 +2396,7 @@ export const createStageSpatialQueries = (
   const queries: StageSpatialQueries = {
     get revision() {
       requireActiveScene();
+      lastSnapshotRevision = dynamicVariants.revision;
       return lastSnapshotRevision;
     },
     castMovementSegment: (moverKind, from, to) => {
@@ -2316,11 +2500,49 @@ export const createStageSpatialQueries = (
         )
       );
     },
+    containsVolumeById: (id, point) => {
+      requireActiveScene();
+      const volume = volumesById.get(id);
+      if (!volume) {
+        throw new Error(`未登録のStage Volume IDです: ${id}`);
+      }
+      assertFiniteVector(`Stage Volume ${id}の包含判定点`, point);
+      return withRevisionResources((resources) =>
+        resources.containsByVolume.get(volume)!(point)
+      );
+    },
+    intersectsVolumeById: (id, ellipsoid) => {
+      requireActiveScene();
+      const volume = volumesById.get(id);
+      if (!volume) {
+        throw new Error(`未登録のStage Volume IDです: ${id}`);
+      }
+      assertCharacterEllipsoid(ellipsoid);
+      return withRevisionResources((resources) =>
+        resources.intersectsEllipsoidByVolume.get(volume)!(ellipsoid)
+      );
+    },
+    findContainingBlocker: (kind, point) => {
+      assertFiniteVector(`${kind} blockerの包含判定点`, point);
+      return withRevisionResources((resources) => {
+        const blockers = resources.blockerIndices[kind].query(
+          point,
+          point
+        );
+        for (const blocker of blockers) {
+          if (resources.containsByBlocker.get(blocker)!(point)) {
+            return blocker;
+          }
+        }
+        return null;
+      });
+    },
     dispose: () => {
       requireActiveScene();
       activeScene = null;
       revisionResource.dispose();
       volumesByRole.clear();
+      volumesById.clear();
       sceneOrderByMesh.clear();
     }
   };
