@@ -114,6 +114,10 @@
 >
 > 扉の敷居の前後約1メートルで、扉の表側・裏側のどちらからでも開閉できる仕組みか確認してください。引き戸の取っ手が外側にしか見えないため、教室の内側から開けない見た目との不一致を懸念しています。機能的に表裏どちらからでも開閉できるのであれば問題ありません。
 
+2026-07-29 公開指示:
+
+> プッシュしてPull Request作成を行ってください。
+
 - 読み取り診断により、通常ゲームはNPC traversal要求だけを処理し、プレイヤーの呼出、予約、乗車、降車を生成していないことを根本原因として確認した。既存fixtureはRuntime直呼出またはNPC要求注入であり、この通常入口の欠落を検出していなかった。
 - 黄色い待機マットは表示と`elevator_call_mat` Volumeをともに1.5m×1.5mへ拡張する。敷居との非重複を維持するため、エレベーター側の既存端を固定して廊下側へ広げる。
 - マット内にプレイヤーがいる間は呼出を維持し、到着後は予約を保持する。マット占有者自身が開扉を止めないよう、エレベーター扉の実掃引範囲と待機範囲を分離する。
@@ -294,6 +298,8 @@
 - [x] T04-3B人間受入修正: エレベーター視認時のガクつきを再現・計測し、原因を修正する
 - [x] T04-3B人間受入修正: 実プレイヤー経路、マット寸法、開閉占有、通常Web／Electronを回帰する
 - [x] T04-3B人間受入修正: 全自動検証と独立レビューを完了し、結果を更新してcommitする
+- [x] T04-3B公開: ブランチをoriginへpushし、local／origin SHAを照合する
+- [x] T04-3B公開: `develop`向けDraft Pull Requestを作成し、base／head／状態を読み戻す
 
 ## 結果
 
@@ -324,6 +330,8 @@ V2第2重点ゲートの50／10／20は、Webが612.076秒・8491 frame・終了
 通常Webはローカルサーバーの左クリックで`playing`、NPC 50、BIT 20へ到達し、通常Electronは独立した実画面スモークで同じ人口、学校・NPC・BIT・ビームの継続描画を確認した。Electron稼働中のwarning／error、Babylon Logger error、unhandled rejection、Issuesは各0件で、Pointer Lock要求失敗ログもなかった。アプリ内ブラウザの自動クリックだけはroot document制約によるPointer Lock要求エラーを出すため、これは製品Runtimeのconsole判定から分離した。
 
 人間受入後修正は`fix: 実学校エレベーターの呼出と動的空間負荷を修正`としてcommitし、push、Pull Request作成、merge、review thread操作、worktree削除は行わない。
+
+2026-07-29の追加指示により公開境界をpushとPull Request作成まで拡張した。公開前実装head `dfcdca1a864e32802fac6b7cb11e6a42f349805d`を`origin/codex/v2-t04-3-school-integration`へpushし、local／origin SHA一致を確認した。`develop`向けDraft Pull Request [#58](https://github.com/catoriinu/haigure_survival/pull/58)を作成し、`OPEN`、Draft、base=`develop`、head=`codex/v2-t04-3-school-integration`、PR head=`dfcdca1a864e32802fac6b7cb11e6a42f349805d`を読み戻した。merge、review thread操作、worktree削除は行っていない。
 
 T04-3A完了。2026-07-28、`origin/develop`の`4edd8f08c948a7822cd6bd623e25dff142078f18`から`codex/v2-t04-3-dynamic-runtime`と専用worktreeを作成し、`npm ci`を完了した。
 
