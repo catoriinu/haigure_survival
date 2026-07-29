@@ -530,7 +530,7 @@ MRK_Door_<token>
 - `MRK_ElevatorStop_*`のworld Transformを、かごの停止姿勢とする。1階・4階stopはworld X/Yとrotationを一致させてBlender Zだけを変え、そのtranslation差分からかごの移動軸と移動量を導出する。
 - stopのlocal `+Y`を乗場からかごへ向かう乗車方向、`-Y`を降車方向とする。乗客の相対座標は`MRK_ElevatorPassengerOrigin_*`のcar-local Transformを基準にする。
 - かご床上面はcar-local Z=`0.12`とし、passenger originとoccupancy下端を同じ高さに置く。廊下床からかご床までの0.12m段差と水平隙間は、各stop直下の同形状`VIS_ElevatorThresholdPlate_*`／`COL_ElevatorThresholdPlate_*`で連結する。敷居板の歩行面傾斜は45度以下とする。
-- `MRK_ElevatorWait_*`は対応call matとthresholdの外側へ水平0.25m以上離し、待機者がcall matを占有し続けない位置に置く。call matの水平形状は`VIS_B03_ElevatorWaitingMat_F01_F04`の対応床表示と一致させる。
+- `MRK_ElevatorWait_*`は対応call matとthresholdの外側へ水平0.25m以上離し、待機者がcall matを占有し続けない位置に置く。call matと`VIS_B03_ElevatorWaitingMat_F01_F04`の対応床表示は、エレベーター側の既存端を維持して廊下側へ広げた水平1.5m×1.5mの同一形状とする。
 - controllerはstopを正確に2件持ち、1階=`A`、4階=`B`とする。`hs_initial_stop_id`は4階stopを参照し、car markerの初期Transformも同stopと一致させる。
 - 各stopは乗場扉、呼出マット、敷居、人物gate、待機markerを各1件所有する。かご扉、占有Volume、乗客基準はエレベーター全体で各1件とする。
 - 2階・3階の固定閉鎖扉は通常の静的`VIS_*`／`COL_*`だけで表し、`door`、`elevator_stop`、call mat、threshold、gate、link endpointを持たせない。

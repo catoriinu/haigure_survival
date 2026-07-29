@@ -1367,7 +1367,7 @@ def _build_elevator(
         )
         _create_box_object(
             f"VOL_ElevatorCallMat_F{floor:02d}",
-            (((-0.70, -2.62, 0.00), (0.70, -1.62, 0.05)),),
+            (((-0.75, -3.12, 0.00), (0.75, -1.62, 0.05)),),
             semantic_collection,
             properties={
                 "hs_id": call_mat_id,

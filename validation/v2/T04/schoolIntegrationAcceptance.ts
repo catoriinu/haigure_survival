@@ -658,6 +658,15 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
     return this.appliedResults.length;
   }
 
+  getAppliedResultNpcIds(kind: V2NpcTraversalResult["kind"]) {
+    this.assertActive();
+    return Object.freeze(
+      this.appliedResults
+        .filter((result) => result.kind === kind)
+        .map((result) => result.npcId)
+    );
+  }
+
   getScriptedPhaseTraversalReleaseCount() {
     this.assertActive();
     return this.scriptedPhaseTraversalReleaseCount;
@@ -2601,6 +2610,477 @@ const runTraversalCoordinatorAcceptance = async (
   return countSceneResources(scene);
 };
 
+const runPlayerElevatorTraversalAcceptance = async (
+  scene: Scene,
+  selections: ReturnType<
+    typeof createSchoolRoomVariantSelections
+  >,
+  checks: SchoolIntegrationCheck[]
+) => {
+  let context: Nullable<StageSpatialContext> = null;
+  let runtime: Nullable<SchoolStageDynamicRuntime> = null;
+  let player: Nullable<TraversalFixturePlayer> = null;
+  let survival: Nullable<StrictTraversalSurvivalHarness> = null;
+  let coordinator: Nullable<
+    ReturnType<typeof createSchoolStageTraversalCoordinator>
+  > = null;
+  try {
+    context = await loadStageSpatialContext(
+      scene,
+      SCHOOL_VALIDATION_STAGE,
+      {
+        initializeDynamicSpatial:
+          createSchoolStageDynamicSpatialInitializer(
+            SCHOOL_INTEGRATION_SEED
+          ),
+        roomVariantSelections: selections
+      }
+    );
+    const elevator = context.elevatorAssets.all[0];
+    if (!elevator) {
+      throw new Error(
+        "実プレイヤー搬送fixtureのエレベーターがありません。"
+      );
+    }
+    const destinationStop = elevator.initialStop;
+    const fromStop = elevator.stops.find(
+      (stop) => stop.id !== destinationStop.id
+    );
+    if (!fromStop) {
+      throw new Error(
+        `実プレイヤー搬送fixtureの反対停止階がありません: ${elevator.id}`
+      );
+    }
+    if (
+      fromStop.floorIndex !== 1 ||
+      destinationStop.floorIndex !== 4
+    ) {
+      throw new Error(
+        `実プレイヤー搬送fixtureの停止階が1階→4階ではありません: ${fromStop.floorIndex}→${destinationStop.floorIndex}`
+      );
+    }
+
+    const callMatCenter = requireWorldCenter(
+      fromStop.callMat.mesh
+    );
+    player = createTraversalFixturePlayer(callMatCenter);
+    const playerReference = player;
+    const verticalStateBeforeRide = player.getVerticalState();
+    const eyeOffsetBeforeRide = player
+      .getEyePosition()
+      .subtract(player.getFootPosition());
+    survival = new StrictTraversalSurvivalHarness(
+      () => player!.createTargetSnapshot()
+    );
+    runtime = createSchoolStageDynamicRuntime({
+      staticActiveSet: context.staticSpatialActiveSet,
+      doorAssets: context.doorAssets,
+      elevatorAssets: context.elevatorAssets,
+      dynamicVariants: context.dynamicVariants,
+      queries: context.queries,
+      actors: createSchoolStageActorPort(player, survival)
+    });
+    coordinator = createSchoolStageTraversalCoordinator({
+      stage: context,
+      runtime,
+      survival,
+      player,
+      doorCloseRandom: () => 0.5
+    });
+    const updateCoordinator = (deltaSeconds: number) =>
+      coordinator!.update(deltaSeconds);
+    const elevatorRuntime = runtime.getElevator(elevator.id);
+
+    updateCoordinator(0);
+    const firstCallSnapshot = elevatorRuntime.getSnapshot();
+    updateCoordinator(0);
+    const heldCallSnapshot = elevatorRuntime.getSnapshot();
+    updateCoordinator(ELEVATOR_DOOR_MOTION_SECONDS);
+    const departedSnapshot = elevatorRuntime.getSnapshot();
+    updateCoordinator(ELEVATOR_TRAVEL_SECONDS);
+    const openingSnapshot = elevatorRuntime.getSnapshot();
+    const readyFrame = updateCoordinator(
+      ELEVATOR_DOOR_MOTION_SECONDS
+    );
+    const readySnapshot = elevatorRuntime.getSnapshot();
+    const readyFrameElevator =
+      readyFrame.runtimeSnapshot.elevators.find(
+        (snapshot) => snapshot.id === elevator.id
+      );
+    if (!readyFrameElevator) {
+      throw new Error(
+        `実プレイヤー搬送fixtureの返却snapshotにエレベーターがありません: ${elevator.id}`
+      );
+    }
+    const playerReservationReady =
+      readySnapshot.reservations.some(
+        (reservation) => reservation.actorId === "player"
+      );
+    const returnedPlayerReservationReady =
+      readyFrameElevator.reservations.some(
+        (reservation) => reservation.actorId === "player"
+      );
+    pushCheck(
+      checks,
+      "実プレイヤーが1階呼出マット滞在中は呼出を維持",
+      firstCallSnapshot.calls.includes(fromStop.id) &&
+        heldCallSnapshot.calls.includes(fromStop.id) &&
+        firstCallSnapshot.carDoorState === "closing" &&
+        departedSnapshot.carState === "moving" &&
+        openingSnapshot.carDoorState === "opening" &&
+        readySnapshot.currentStopId === fromStop.id &&
+        readySnapshot.carDoorState === "open" &&
+        playerReservationReady &&
+        returnedPlayerReservationReady,
+      `calls=${firstCallSnapshot.calls.includes(fromStop.id)}/` +
+        `${heldCallSnapshot.calls.includes(fromStop.id)} / ` +
+        `motion=${firstCallSnapshot.carDoorState}→` +
+        `${departedSnapshot.carState}→` +
+        `${openingSnapshot.carDoorState}→` +
+        `${readySnapshot.carDoorState} / reserved=` +
+        `${playerReservationReady}/${returnedPlayerReservationReady}`
+    );
+
+    const outsidePosition = new Vector3(1_500, 1_000, 1_000);
+    player.setTransportFootPosition(outsidePosition);
+    updateCoordinator(0);
+    const cancelledSnapshot = elevatorRuntime.getSnapshot();
+    player.setTransportFootPosition(callMatCenter);
+    updateCoordinator(0);
+    const renewedSnapshot = elevatorRuntime.getSnapshot();
+    const thresholdCenter = requireWorldCenter(
+      fromStop.threshold.mesh
+    );
+    player.setTransportFootPosition(thresholdCenter);
+    updateCoordinator(0);
+    const thresholdSnapshot = elevatorRuntime.getSnapshot();
+    const carCenter = requireWorldCenter(
+      elevator.car.occupancy.mesh
+    );
+    player.setTransportFootPosition(carCenter);
+    updateCoordinator(0);
+    const boardedSnapshot = elevatorRuntime.getSnapshot();
+    const boardedPlayerPosition = player.getFootPosition();
+    const boardedPlayer =
+      boardedSnapshot.passengers.some(
+        (passenger) => passenger.actorId === "player"
+      );
+    pushCheck(
+      checks,
+      "実プレイヤー予約は待機領域離脱で取消し再進入で復帰",
+      cancelledSnapshot.reservations.every(
+        (reservation) => reservation.actorId !== "player"
+      ) &&
+        renewedSnapshot.reservations.some(
+          (reservation) => reservation.actorId === "player"
+        ) &&
+        thresholdSnapshot.reservations.some(
+          (reservation) => reservation.actorId === "player"
+        ) &&
+        boardedPlayer &&
+        context.queries.containsVolumeById(
+          elevator.car.occupancy.id,
+          boardedPlayerPosition
+        ),
+      `cancelled=${cancelledSnapshot.reservations.length} / ` +
+        `renewed=${renewedSnapshot.reservations.length} / ` +
+        `threshold=${thresholdSnapshot.reservations.length} / ` +
+        `boarded=${boardedPlayer}`
+    );
+
+    const rideStartedAtSeconds = boardedSnapshot.elapsedSeconds;
+    updateCoordinator(ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS);
+    const closingSnapshot = elevatorRuntime.getSnapshot();
+    updateCoordinator(ELEVATOR_DOOR_MOTION_SECONDS);
+    const movingSnapshot = elevatorRuntime.getSnapshot();
+    updateCoordinator(ELEVATOR_TRAVEL_SECONDS);
+    const destinationOpeningSnapshot =
+      elevatorRuntime.getSnapshot();
+    updateCoordinator(ELEVATOR_DOOR_MOTION_SECONDS);
+    const destinationOpenSnapshot =
+      elevatorRuntime.getSnapshot();
+    const rideElapsedSeconds =
+      destinationOpenSnapshot.elapsedSeconds -
+      rideStartedAtSeconds;
+    const playerPositionAtArrival = player.getFootPosition();
+    const verticalStateAtArrival = player.getVerticalState();
+    const eyeOffsetAtArrival = player
+      .getEyePosition()
+      .subtract(playerPositionAtArrival);
+    const exitPosition = destinationStop.wait.node
+      .getAbsolutePosition()
+      .clone();
+    const exitIsOutsideTraversalVolumes =
+      !context.queries.containsVolumeById(
+        elevator.car.occupancy.id,
+        exitPosition
+      ) &&
+      !context.queries.containsVolumeById(
+        destinationStop.callMat.id,
+        exitPosition
+      ) &&
+      !context.queries.containsVolumeById(
+        destinationStop.threshold.id,
+        exitPosition
+      );
+    player.setTransportFootPosition(exitPosition);
+    updateCoordinator(0);
+    const disembarkedSnapshot = elevatorRuntime.getSnapshot();
+    const playerIdentityAndMotionPreserved =
+      player === playerReference &&
+      verticalStateAtArrival.grounded ===
+        verticalStateBeforeRide.grounded &&
+      verticalStateAtArrival.verticalVelocity ===
+        verticalStateBeforeRide.verticalVelocity &&
+      Vector3.Distance(
+        eyeOffsetAtArrival,
+        eyeOffsetBeforeRide
+      ) <= POSITION_EPSILON;
+    pushCheck(
+      checks,
+      "実プレイヤーを5+1+6+1秒で搬送し退出時に降車完了",
+      closingSnapshot.carDoorState === "closing" &&
+        movingSnapshot.carState === "moving" &&
+        destinationOpeningSnapshot.carDoorState ===
+          "opening" &&
+        destinationOpenSnapshot.currentStopId ===
+          destinationStop.id &&
+        destinationOpenSnapshot.carDoorState === "open" &&
+        Math.abs(
+          rideElapsedSeconds -
+            (ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS +
+              ELEVATOR_DOOR_MOTION_SECONDS +
+              ELEVATOR_TRAVEL_SECONDS +
+              ELEVATOR_DOOR_MOTION_SECONDS)
+        ) <= POSITION_EPSILON &&
+        context.queries.containsVolumeById(
+          elevator.car.occupancy.id,
+          playerPositionAtArrival
+        ) &&
+        exitIsOutsideTraversalVolumes &&
+        disembarkedSnapshot.passengers.every(
+          (passenger) => passenger.actorId !== "player"
+        ) &&
+        Vector3.Distance(
+          player.getFootPosition(),
+          exitPosition
+        ) <= POSITION_EPSILON &&
+        playerIdentityAndMotionPreserved,
+      `motion=${closingSnapshot.carDoorState}→` +
+        `${movingSnapshot.carState}→` +
+        `${destinationOpeningSnapshot.carDoorState}→` +
+        `${destinationOpenSnapshot.carDoorState} / ` +
+        `elapsed=${rideElapsedSeconds.toFixed(1)} / ` +
+        `exit=${exitIsOutsideTraversalVolumes} / ` +
+        `preserved=${playerIdentityAndMotionPreserved}`
+    );
+
+    const openCarCenter = requireWorldCenter(
+      elevator.car.occupancy.mesh
+    );
+    const mixedCallMatCenter = requireWorldCenter(
+      destinationStop.callMat.mesh
+    );
+    const mixedRoute = requireElevatorRoute(context, elevator);
+    const runMixedCapacityScenario = (
+      npcIds: readonly string[],
+      npcRequestedAtOffsetSeconds: number
+    ) => {
+      const playerRequestedAtSeconds =
+        elevatorRuntime.getSnapshot().elapsedSeconds;
+      npcIds.forEach((npcId) => {
+        survival!.addActor({
+          id: npcId,
+          state: "brainwash-complete-gun",
+          position: mixedCallMatCenter
+        });
+        survival!.enqueueElevatorCall(
+          npcId,
+          mixedRoute,
+          playerRequestedAtSeconds +
+            npcRequestedAtOffsetSeconds
+        );
+      });
+      player!.setTransportFootPosition(openCarCenter);
+      const frame = updateCoordinator(0);
+      const snapshot = elevatorRuntime.getSnapshot();
+      const returnedSnapshot =
+        frame.runtimeSnapshot.elevators.find(
+          (candidate) => candidate.id === elevator.id
+        );
+      if (!returnedSnapshot) {
+        throw new Error(
+          `混在定員fixtureの返却snapshotにエレベーターがありません: ${elevator.id}`
+        );
+      }
+      const acceptedActorIds = [
+        ...snapshot.reservations.map(
+          (reservation) => reservation.actorId
+        ),
+        ...snapshot.passengers.map(
+          (passenger) => passenger.actorId
+        )
+      ].sort();
+      const returnedAcceptedActorIds = [
+        ...returnedSnapshot.reservations.map(
+          (reservation) => reservation.actorId
+        ),
+        ...returnedSnapshot.passengers.map(
+          (passenger) => passenger.actorId
+        )
+      ].sort();
+      const npcIdSet = new Set(npcIds);
+      const rejectedNpcIds =
+        survival!.getAppliedResultNpcIds(
+          "elevator-boarding-rejected"
+        ).filter((npcId) => npcIdSet.has(npcId));
+      const playerAccepted = snapshot.passengers.some(
+        (passenger) => passenger.actorId === "player"
+      );
+      const acceptedNpcStatesReady = acceptedActorIds
+        .filter((actorId) => actorId !== "player")
+        .every(
+          (actorId) =>
+            survival!.getNpcTraversalState(actorId).kind ===
+            "approaching-elevator-board"
+        );
+      const rejectedNpcStatesWalking = rejectedNpcIds.every(
+        (actorId) =>
+          survival!.getNpcTraversalState(actorId).kind ===
+          "walking"
+      );
+      coordinator!.releaseForScriptedPhase();
+      npcIds.forEach((npcId) =>
+        survival!.setActorPosition(npcId, outsidePosition)
+      );
+      player!.setTransportFootPosition(exitPosition);
+      return Object.freeze({
+        acceptedActorIds: Object.freeze(acceptedActorIds),
+        rejectedNpcIds: Object.freeze(rejectedNpcIds),
+        playerAccepted,
+        acceptedNpcStatesReady,
+        rejectedNpcStatesWalking,
+        returnedSnapshotMatches:
+          returnedAcceptedActorIds.join("|") ===
+          acceptedActorIds.join("|"),
+        capacityUsed:
+          snapshot.reservations.length +
+          snapshot.passengers.length
+      });
+    };
+
+    const playerEarlierNpcIds = Object.freeze([
+      "q-player-earlier-01",
+      "q-player-earlier-02",
+      "q-player-earlier-03",
+      "q-player-earlier-04",
+      "q-player-earlier-05",
+      "q-player-earlier-06",
+      "q-player-earlier-07"
+    ]);
+    const playerEarlier = runMixedCapacityScenario(
+      playerEarlierNpcIds,
+      1
+    );
+    const playerEarlierAccepted = Object.freeze([
+      "player",
+      ...playerEarlierNpcIds.slice(0, 5)
+    ].sort());
+    pushCheck(
+      checks,
+      "player早着時もNPCと同じ要求時刻順で定員6",
+      playerEarlier.playerAccepted &&
+        playerEarlier.capacityUsed === ELEVATOR_CAPACITY &&
+        playerEarlier.acceptedActorIds.join("|") ===
+          playerEarlierAccepted.join("|") &&
+        playerEarlier.rejectedNpcIds.join("|") ===
+          playerEarlierNpcIds.slice(5).join("|") &&
+        playerEarlier.acceptedNpcStatesReady &&
+        playerEarlier.rejectedNpcStatesWalking &&
+        playerEarlier.returnedSnapshotMatches,
+      `accepted=${playerEarlier.acceptedActorIds.join(",")} / ` +
+        `rejected=${playerEarlier.rejectedNpcIds.join(",")} / ` +
+        `returned=${playerEarlier.returnedSnapshotMatches}`
+    );
+
+    const playerLaterNpcIds = Object.freeze([
+      "a-player-later-01",
+      "a-player-later-02",
+      "a-player-later-03",
+      "a-player-later-04",
+      "a-player-later-05",
+      "a-player-later-06",
+      "a-player-later-07"
+    ]);
+    const playerLater = runMixedCapacityScenario(
+      playerLaterNpcIds,
+      -1
+    );
+    pushCheck(
+      checks,
+      "player遅着時は優先せず先着NPC6人で満員",
+      !playerLater.playerAccepted &&
+        playerLater.capacityUsed === ELEVATOR_CAPACITY &&
+        playerLater.acceptedActorIds.join("|") ===
+          playerLaterNpcIds.slice(0, 6).join("|") &&
+        playerLater.rejectedNpcIds.join("|") ===
+          playerLaterNpcIds.slice(6).join("|") &&
+        playerLater.acceptedNpcStatesReady &&
+        playerLater.rejectedNpcStatesWalking &&
+        playerLater.returnedSnapshotMatches,
+      `accepted=${playerLater.acceptedActorIds.join(",")} / ` +
+        `rejected=${playerLater.rejectedNpcIds.join(",")} / ` +
+        `player=${playerLater.playerAccepted} / ` +
+        `returned=${playerLater.returnedSnapshotMatches}`
+    );
+
+    const playerTieNpcIds = Object.freeze([
+      "a-player-tie",
+      "m-player-tie",
+      "n-player-tie",
+      "q-player-tie",
+      "r-player-tie",
+      "y-player-tie",
+      "z-player-tie"
+    ]);
+    const playerTie = runMixedCapacityScenario(
+      playerTieNpcIds,
+      0
+    );
+    const playerTieAccepted = Object.freeze([
+      "a-player-tie",
+      "m-player-tie",
+      "n-player-tie",
+      "player",
+      "q-player-tie",
+      "r-player-tie"
+    ].sort());
+    pushCheck(
+      checks,
+      "同時刻はplayerを含めActor ID順で予約・拒否",
+      playerTie.playerAccepted &&
+        playerTie.capacityUsed === ELEVATOR_CAPACITY &&
+        playerTie.acceptedActorIds.join("|") ===
+          playerTieAccepted.join("|") &&
+        playerTie.rejectedNpcIds.join("|") ===
+          "y-player-tie|z-player-tie" &&
+        playerTie.acceptedNpcStatesReady &&
+        playerTie.rejectedNpcStatesWalking &&
+        playerTie.returnedSnapshotMatches,
+      `accepted=${playerTie.acceptedActorIds.join(",")} / ` +
+        `rejected=${playerTie.rejectedNpcIds.join(",")} / ` +
+        `returned=${playerTie.returnedSnapshotMatches}`
+    );
+  } finally {
+    coordinator?.dispose();
+    runtime?.dispose();
+    survival?.dispose();
+    player?.dispose();
+    context?.dispose();
+  }
+  return countSceneResources(scene);
+};
+
 const waitForEmptyElevatorTrip = (
   runtime: SchoolStageDynamicRuntime,
   update: (deltaSeconds: number) => SchoolStageDynamicRuntimeSnapshot,
@@ -3198,36 +3678,29 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
           radii: rejectedBoardingActor.radii.clone()
         })
       );
-    const closingBlockedSnapshot = driver.update(
+    const closingStartSnapshot = driver.update(
       ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS
     );
-    const closingBlocked = elevatorRuntime.getSnapshot();
+    const closingStart = elevatorRuntime.getSnapshot();
     rejectedBoardingActor.position.set(
       1_200,
       1_000,
       1_000
     );
     rejectedBoardingActor.radii.setAll(0.001);
-    const closingStartSnapshot = driver.update(0);
-    const closingStart = elevatorRuntime.getSnapshot();
     pushCheck(
       checks,
-      "エレベーターclosingは呼出マット占有中に開始しない",
+      "呼出マット占有中でもエレベーターclosingを開始",
       callMatOccupiedBeforeClosing &&
-        closingBlocked.carDoorState === "open" &&
-        closingBlocked.carState === "stopped" &&
-        closingBlocked.dwellRemainingSeconds === 0 &&
-        closingBlockedSnapshot.revision ===
-          beforeElevatorMotionRevision &&
         closingStart.carDoorState === "closing" &&
+        closingStart.carState === "stopped" &&
+        closingStart.dwellRemainingSeconds === 0 &&
         closingStartSnapshot.revision ===
           beforeElevatorMotionRevision + 1,
-      `occupied=${callMatOccupiedBeforeClosing} / blocked=` +
-        `${closingBlocked.carState}:${closingBlocked.carDoorState} / ` +
-        `released=${closingStart.carDoorState} / dwell=` +
-        `${closingBlocked.dwellRemainingSeconds} / revision=` +
-        `${beforeElevatorMotionRevision}→${closingBlockedSnapshot.revision}` +
-        `→${closingStartSnapshot.revision}`
+      `occupied=${callMatOccupiedBeforeClosing} / ` +
+        `motion=${closingStart.carState}:${closingStart.carDoorState} / ` +
+        `dwell=${closingStart.dwellRemainingSeconds} / revision=` +
+        `${beforeElevatorMotionRevision}→${closingStartSnapshot.revision}`
     );
     const closingPanelsExcluded = inspectElevatorMotionPanels(
       closingStartSnapshot,
@@ -3607,6 +4080,12 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
         level2,
         checks
       );
+    const afterPlayerCoordinatorDispose =
+      await runPlayerElevatorTraversalAcceptance(
+        scene,
+        level2,
+        checks
+      );
 
     const reloadedContext = await loadStageSpatialContext(
       scene,
@@ -3649,10 +4128,17 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
           baseline,
           afterCoordinatorDispose
         ) &&
+        sceneResourceCountsEqual(
+          baseline,
+          afterPlayerCoordinatorDispose
+        ) &&
         sceneResourceCountsEqual(baseline, afterSecondDispose),
       `clean=${reloadStateClean} / baseline=${formatSceneResourceCounts(baseline)} / ` +
         `first=${formatSceneResourceCounts(afterFirstDispose)} / ` +
         `coordinator=${formatSceneResourceCounts(afterCoordinatorDispose)} / ` +
+        `playerCoordinator=${formatSceneResourceCounts(
+          afterPlayerCoordinatorDispose
+        )} / ` +
         `second=${formatSceneResourceCounts(afterSecondDispose)}`
     );
   } finally {

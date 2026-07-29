@@ -4664,8 +4664,8 @@ def audit_b03_3b_structure(
         "VIS_B03_ElevatorWaitingMat_F01_F04",
         [
             (
-                (-8.68, -5.9, floor_base_z + 0.005),
-                (-7.68, -4.5, floor_base_z + 0.025),
+                (-8.68, -5.95, floor_base_z + 0.005),
+                (-7.18, -4.45, floor_base_z + 0.025),
             )
             for floor_base_z in (0.0, 10.8)
         ],

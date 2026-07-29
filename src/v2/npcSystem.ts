@@ -2496,7 +2496,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       targetPosition
     );
     if (
-      npc.traversalState.kind === "waiting-elevator-call"
+      npc.traversalState.kind === "waiting-elevator-call" &&
+      allowPathRecalculation
     ) {
       this.reconsiderWaitingElevatorCall(npc);
     }

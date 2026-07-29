@@ -526,7 +526,6 @@ class SchoolStageDynamicRuntimeImplementation
                 );
               }
               const volumeIds = [
-                stop.callMat.id,
                 stop.threshold.id,
                 stop.landingDoor.sweepId,
                 elevator.car.door.sweepId
