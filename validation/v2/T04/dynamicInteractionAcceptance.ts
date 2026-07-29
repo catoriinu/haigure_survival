@@ -727,7 +727,20 @@ export const runDynamicInteractionAcceptance =
       materialAdapter.setPresentation("ready", "primary");
       const repeatedReadyMaterial =
         indicatorBase.material as PBRMaterial;
-      materialAdapter.setPresentation("unloading", "black");
+      materialAdapter.setPresentation("called", "primary");
+      const calledMaterial = indicatorBase.material as PBRMaterial;
+      materialAdapter.setPresentation("unloading", "primary");
+      const unloadingMaterial =
+        indicatorBase.material as PBRMaterial;
+      materialAdapter.setPresentation(
+        "departure-countdown",
+        "primary"
+      );
+      const departureCountdownMaterial =
+        indicatorBase.material as PBRMaterial;
+      materialAdapter.setPresentation("locked", "primary");
+      const lockedMaterial = indicatorBase.material as PBRMaterial;
+      materialAdapter.setPresentation("called", "black");
       const blackMaterial = indicatorBase.material as PBRMaterial;
       const indicatorTextureCountDuringAdapter =
         scene.textures.length;
@@ -740,6 +753,18 @@ export const runDynamicInteractionAcceptance =
           readyMaterial.albedoColor.equalsWithEpsilon(
             Color3.FromHexString("#36C96B")
           ) &&
+          calledMaterial.albedoColor.equalsWithEpsilon(
+            Color3.FromHexString("#E8B52E")
+          ) &&
+          unloadingMaterial.albedoColor.equalsWithEpsilon(
+            Color3.FromHexString("#E8B52E")
+          ) &&
+          departureCountdownMaterial.albedoColor.equalsWithEpsilon(
+            Color3.FromHexString("#E34242")
+          ) &&
+          lockedMaterial.albedoColor.equalsWithEpsilon(
+            Color3.FromHexString("#E34242")
+          ) &&
           blackMaterial.albedoColor.equalsWithEpsilon(
             Color3.FromHexString("#050505")
           ) &&
@@ -750,6 +775,10 @@ export const runDynamicInteractionAcceptance =
             indicatorTextureCountBeforeAdapter,
         detail:
           `ready=${readyMaterial.albedoColor.toHexString()} / ` +
+          `called=${calledMaterial.albedoColor.toHexString()} / ` +
+          `unloading=${unloadingMaterial.albedoColor.toHexString()} / ` +
+          `departure=${departureCountdownMaterial.albedoColor.toHexString()} / ` +
+          `locked=${lockedMaterial.albedoColor.toHexString()} / ` +
           `black=${blackMaterial.albedoColor.toHexString()} / ` +
           `restored=${indicatorBase.material === indicatorSourceMaterial} / ` +
           `textures=${indicatorTextureCountBeforeAdapter}->${indicatorTextureCountDuringAdapter}->${scene.textures.length}`
@@ -973,7 +1002,9 @@ export const runDynamicInteractionAcceptance =
             (stop) => stop.callMatState === "ready"
           ) &&
           initialFirstIndicatorPresentation?.[0] === "ready" &&
+          initialFirstIndicatorPresentation?.[1] === "primary" &&
           initialFourthIndicatorPresentation?.[0] === "ready" &&
+          initialFourthIndicatorPresentation?.[1] === "primary" &&
           capacityResults.filter((result) => result.status === "accepted")
             .length === 6 &&
           capacityResults[0]?.status === "capacity-reached" &&
@@ -1045,6 +1076,9 @@ export const runDynamicInteractionAcceptance =
           countdownStartSpatialRevision ===
             countdownBlinkSpatialRevision &&
           afterClosing.carState === "moving" &&
+          afterFiveSeconds.stops.every(
+            (stop) => stop.callMatState === "locked"
+          ) &&
           Math.abs(halfwayTravel.carTravelProgress - 0.5) < 1e-9 &&
           Vector3.Distance(
             actorHalfway,
@@ -1104,7 +1138,15 @@ export const runDynamicInteractionAcceptance =
       const arrivedCall = elevator.requestCall("stop-4");
       const unloadingSpatialRevision =
         elevator.getSpatialSnapshot().revision;
-      const unloadingBlink = elevator.update(0.5);
+      const unloadingPresentationBeforeWait =
+        callIndicatorPresentations.get("indicator-1");
+      const unloadingUpdateCountBeforeWait =
+        callIndicatorUpdateCounts.get("indicator-1");
+      const unloadingSteady = elevator.update(0.5);
+      const unloadingPresentationAfterWait =
+        callIndicatorPresentations.get("indicator-1");
+      const unloadingUpdateCountAfterWait =
+        callIndicatorUpdateCounts.get("indicator-1");
       const arrivedPreDepartureExitMessage = captureMessage(() =>
         elevator.completePreDepartureExit("actor-0")
       );
@@ -1125,15 +1167,18 @@ export const runDynamicInteractionAcceptance =
           arrivedPreDepartureExitMessage?.includes(
             "到着済み"
           ) === true &&
-          unloadingBlink.carDoorState === "open" &&
-          unloadingBlink.currentStopId === "stop-1" &&
-          unloadingBlink.targetStopId === null &&
+          unloadingSteady.carDoorState === "open" &&
+          unloadingSteady.currentStopId === "stop-1" &&
+          unloadingSteady.targetStopId === null &&
           elevator.getSpatialSnapshot().revision ===
             unloadingSpatialRevision &&
-          callIndicatorPresentations.get("indicator-1")?.[0] ===
+          unloadingPresentationBeforeWait?.[0] ===
             "unloading" &&
-          callIndicatorPresentations.get("indicator-1")?.[1] ===
-            "black",
+          unloadingPresentationBeforeWait?.[1] === "primary" &&
+          unloadingPresentationAfterWait?.[0] === "unloading" &&
+          unloadingPresentationAfterWait?.[1] === "primary" &&
+          unloadingUpdateCountAfterWait ===
+            unloadingUpdateCountBeforeWait,
         detail:
           `passenger=${arrivedOpen.passengers[0]?.state ?? "none"} / ` +
           `states=${arrivedOpen.stops.map((stop) => `${stop.id}:${stop.callMatState}`).join(",")} / ` +
@@ -1164,7 +1209,31 @@ export const runDynamicInteractionAcceptance =
         elevator.requestCall("stop-invalid")
       );
       elevator.requestCall("stop-4");
+      const calledPrimaryPresentation =
+        callIndicatorPresentations.get("indicator-4");
+      const lockedPrimaryPresentation =
+        callIndicatorPresentations.get("indicator-1");
+      const calledBlinkStartSpatialRevision =
+        elevator.getSpatialSnapshot().revision;
+      const calledUpdateCountBeforeBlink =
+        callIndicatorUpdateCounts.get("indicator-4");
+      const lockedUpdateCountBeforeBlink =
+        callIndicatorUpdateCounts.get("indicator-1");
       doorMotionBlocked = true;
+      const calledBeforeBlink = elevator.update(0.499);
+      const calledBeforeBlinkPresentation =
+        callIndicatorPresentations.get("indicator-4");
+      const calledUpdateCountBeforeBoundary =
+        callIndicatorUpdateCounts.get("indicator-4");
+      const calledBlink = elevator.update(0.001);
+      const calledBlinkPresentation =
+        callIndicatorPresentations.get("indicator-4");
+      const calledBlinkSpatialRevision =
+        elevator.getSpatialSnapshot().revision;
+      const calledUpdateCountAfterBlink =
+        callIndicatorUpdateCounts.get("indicator-4");
+      const lockedUpdateCountAfterBlink =
+        callIndicatorUpdateCounts.get("indicator-1");
       const occupancyBlockedCall = elevator.update(0);
       const gateAtBlockedCall = gateStates.get("stop-1");
       doorMotionBlocked = false;
@@ -1204,6 +1273,39 @@ export const runDynamicInteractionAcceptance =
       const heldOpenByReservation = elevator.update(10);
       elevator.cancelBoardingReservation("actor-boundary");
       const idleAfterCancel = elevator.update(0);
+      checks.push({
+        name: "エレベーター呼出中の黄色点滅・反対階の赤点灯",
+        ok:
+          calledPrimaryPresentation?.[0] === "called" &&
+          calledPrimaryPresentation?.[1] === "primary" &&
+          lockedPrimaryPresentation?.[0] === "locked" &&
+          lockedPrimaryPresentation?.[1] === "primary" &&
+          calledBeforeBlink.stops.find(
+            (stop) => stop.id === "stop-4"
+          )?.callMatState === "called" &&
+          calledBeforeBlinkPresentation?.[0] === "called" &&
+          calledBeforeBlinkPresentation?.[1] === "primary" &&
+          calledBlink.stops.find(
+            (stop) => stop.id === "stop-4"
+          )?.callMatState === "called" &&
+          calledBlinkPresentation?.[0] === "called" &&
+          calledBlinkPresentation?.[1] === "black" &&
+          calledBlinkStartSpatialRevision ===
+            calledBlinkSpatialRevision &&
+          calledUpdateCountBeforeBlink !== undefined &&
+          lockedUpdateCountBeforeBlink !== undefined &&
+          calledUpdateCountBeforeBoundary ===
+            calledUpdateCountBeforeBlink &&
+          calledUpdateCountAfterBlink ===
+            calledUpdateCountBeforeBlink + 1 &&
+          lockedUpdateCountAfterBlink ===
+            lockedUpdateCountBeforeBlink,
+        detail:
+          `called=${calledPrimaryPresentation?.join("/")}->${calledBeforeBlinkPresentation?.join("/")}->${calledBlinkPresentation?.join("/")} / ` +
+          `locked=${lockedPrimaryPresentation?.join("/")} / ` +
+          `updates=${calledUpdateCountBeforeBlink}->${calledUpdateCountBeforeBoundary}->${calledUpdateCountAfterBlink} / ` +
+          `revision=${calledBlinkStartSpatialRevision}->${calledBlinkSpatialRevision}`
+      });
       checks.push({
         name: "エレベーター両方向呼出・占有待機・走行中追加呼出禁止",
         ok:

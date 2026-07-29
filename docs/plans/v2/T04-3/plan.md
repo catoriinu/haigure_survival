@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 T04-3 動的空間・扉・エレベーター統合 計画
 
-更新日: 2026-07-29
+更新日: 2026-07-30
 
 ## プロンプト
 
@@ -138,7 +138,19 @@
 >
 > 空車で開扉中、または到着客が全員降りた状態は緑とする。到着客がまだかご内に残っている間は黄色／黒点滅、誰かが新しく乗車して発車待機に入ったら赤／黒点滅、閉扉開始後は赤とする。
 
-## エレベーター状態遷移図
+2026-07-29 第3次人間受入表示・検討指示:
+
+> 黄色点滅と赤点滅の意味を、待っている状態に使うよう整理したい。緑のマットへ入って呼出した後、かごがその階へ来るのを待っている間、特にかごが移動中の状態は黄色点滅とする。反対方向へ移動して、すぐにはその階の呼出へ反応できない状態は赤点滅とする。黄色点滅と黄色点灯、赤点滅と赤点灯の割当を入れ替えることで実現できるか検討し、実装前に計画を提示する。
+
+2026-07-29 第3次人間受入表示・整理指示:
+
+> 表示の強さは、緑点灯、黄色／黒点滅、黄色点灯、赤／黒点滅、赤点灯の順に上がっていく整理が自然で、信号に近いと考える。したがって`departure-countdown`は赤／黒点滅、`locked`は赤点灯のままにし、黄色側だけ`called`を黄色／黒点滅、`unloading`を黄色点灯へ入れ替える案を検討する。
+
+2026-07-29 第3次人間受入表示・実装指示:
+
+> この整理で確定し、実装を修正する。
+
+## エレベーター状態遷移図（変更前実装）
 
 ```mermaid
 stateDiagram-v2
@@ -175,8 +187,46 @@ stateDiagram-v2
     end note
 ```
 
-- 緑は「現在、新しい呼出または乗車を受け付けられる」、黄色は「その階への便が確定している」、黄色／黒点滅は「到着客の完全降車待ち」、赤／黒点滅は「新規乗車後の発車待ち」、赤は「現在は新しい呼出・乗車を受け付けられない」を意味する。
-- 目的階が確定済みの場合、行先階は赤から緑を挟まず黄色へ変わる。便が完了してアイドルへ戻る場合だけ、かごがない側を含む両階が緑へ戻る。
+- 変更前は、緑を「現在、新しい呼出または乗車を受け付けられる」、黄色を「その階への便が確定している」、黄色／黒点滅を「到着客の完全降車待ち」、赤／黒点滅を「新規乗車後の発車待ち」、赤を「現在は新しい呼出・乗車を受け付けられない」意味としていた。
+- 変更前も、目的階が確定済みの場合は行先階を赤から緑を挟まず黄色へ変え、便が完了してアイドルへ戻る場合だけ、かごがない側を含む両階を緑へ戻していた。
+
+## エレベーター状態遷移図（第3次確定仕様）
+
+```mermaid
+stateDiagram-v2
+    direction LR
+
+    state "アイドル・呼出可能<br/>かご側: ready／緑点灯<br/>かごなし側: ready／緑点灯" as Idle
+    state "かごなし階の呼出受付・出発準備<br/>かご側: locked／赤点灯<br/>呼出階: called／黄色黒点滅" as RemoteCalled
+    state "かご側から新規乗車・5秒待機<br/>かご側: departure-countdown／赤黒点滅<br/>かごなし側: locked／赤点灯" as DepartureCountdown
+    state "乗車便の閉扉中<br/>出発階: locked／赤点灯<br/>行先階: locked／赤点灯" as PassengerClosing
+    state "走行中<br/>出発階: locked／赤点灯<br/>行先階: called／黄色黒点滅" as Moving
+    state "行先階で開扉中<br/>出発階: locked／赤点灯<br/>行先階: called／黄色黒点滅" as Opening
+    state "到着客の降車待ち<br/>反対階: locked／赤点灯<br/>到着階: unloading／黄色点灯" as Unloading
+
+    [*] --> Idle: 初期状態・4階開扉
+    Idle --> RemoteCalled: かごなし階の緑マットへ進入
+    Idle --> DepartureCountdown: かご側で新規乗車完了
+    RemoteCalled --> Moving: 閉扉完了・空車便が走行開始
+    DepartureCountdown --> PassengerClosing: 5秒経過・予約処理完了・占有なし
+    PassengerClosing --> Moving: 閉扉完了・乗車便が走行開始
+    Moving --> Opening: 行先階へ到着
+    Opening --> Idle: 開扉完了・到着客なし
+    Opening --> Unloading: 開扉完了・到着客あり
+    Unloading --> Idle: 到着客が全員完全降車
+```
+
+| 状態 | 変更前表示 | 第3次確定表示 | 確定後の意味 |
+|---|---|---|---|
+| `ready` | 緑点灯 | 緑点灯 | 現在、新しい呼出または乗車が可能 |
+| `called` | 黄色点灯 | 黄色／黒点滅 | その階への便が確定し、完全開扉まで待っている |
+| `unloading` | 黄色／黒点滅 | 黄色点灯 | かごが到着済みで、到着客の完全降車中 |
+| `departure-countdown` | 赤／黒点滅 | 赤／黒点滅 | 新規乗車済みで、まもなく閉扉・発車する |
+| `locked` | 赤点灯 | 赤点灯 | 閉扉・走行などにより、新しい呼出または乗車ができない |
+
+- 状態遷移、呼出受付、予約、5秒待機、閉扉、走行、開扉、完全降車の契約は変更しない。黄色側だけ`called`と`unloading`の点灯・点滅割当を入れ替え、赤側の`departure-countdown`と`locked`は現行表示を維持する。
+- 表示の強さは、`ready`緑点灯、`called`黄色／黒点滅、`unloading`黄色点灯、`departure-countdown`赤／黒点滅、`locked`赤点灯の順とする。これは信号に近い危険度・制約度の順位であり、一つのマットが毎回5状態すべてをこの順に通ることを要求しない。
+- `called`の黄色／黒点滅は物理的な6秒走行中だけに限定せず、呼出受理後から行先階の完全開扉まで維持する。`locked`は待機表示ではなく、現在利用できないことを示す最終段階の赤点灯とする。
 
 ## 確定方針
 
@@ -219,11 +269,11 @@ stateDiagram-v2
 
 - `ElevatorCallMatState`は`ready / called / unloading / departure-countdown / locked`の5状態とし、各停止階のsnapshotに必須で含める。
 - `ready`は緑点灯とする。エレベーターがアイドルで新しい呼出を受けられる場合は、かごがある階と反対階をともに`ready`とする。空車での開扉完了、または到着客が全員降車して新規乗車者がいない状態も`ready`とする。
-- `called`は黄色点灯とする。その階の呼出が受理された後、かごの移動中と到着後の開扉完了前まで使用する。目的階が確定済みの場合は`locked`から`ready`を挟まず`called`へ移る。
-- `unloading`は黄色と黒を0.5秒ごとに切り替える。扉が完全に開いた到着階で、同階を目的地とする`arrived`乗客が1人以上かご内に残っている間だけ使用する。最後の到着客が降車すると`ready`へ移る。
+- `called`は黄色と黒を0.5秒ごとに切り替える。その階の呼出が受理された後、かごの移動中と到着後の開扉完了前まで使用する。目的階が確定済みの場合は`locked`から`ready`を挟まず`called`へ移る。
+- `unloading`は黄色点灯とする。扉が完全に開いた到着階で、同階を目的地とする`arrived`乗客が1人以上かご内に残っている間だけ使用する。最後の到着客が降車すると`ready`へ移る。
 - `departure-countdown`は赤と黒を0.5秒ごとに切り替える。全到着客の降車後、その階から最初の新規乗車が完了して5秒待機を開始した時点から、実際に閉扉を開始するまで使用する。占有により閉扉を延期している間も維持する。
 - `locked`は赤点灯とする。その階が新しい呼出を受けられない状態を表し、他階での`called`、`unloading`、`departure-countdown`、閉扉、走行、開扉中は、行先として黄色表示される階を除く反対階を`locked`とする。
-- 便の状態遷移は、アイドル時の両階緑、呼出階黄色・出発階赤、発車待機階の赤／黒点滅・反対階赤、走行先黄色・出発階赤、到着客残留階の黄色／黒点滅・反対階赤、全降車後の両階緑の順とする。
+- 表示の強さは、緑点灯、黄色／黒点滅、黄色点灯、赤／黒点滅、赤点灯の順とする。便の状態遷移は、アイドル時の両階緑、呼出階の黄色／黒点滅・出発階赤、発車待機階の赤／黒点滅・反対階赤、走行先の黄色／黒点滅・出発階赤、到着客残留階の黄色点灯・反対階赤、全降車後の両階緑を基本とし、一つのマットが毎回5状態すべてを通ることは要求しない。
 - 1階には乗場から見て上向き、4階には乗場から見て下向きの明るい塗りつぶし三角を常時表示し、黒点滅中にも方向を判別できるようにする。三角はマット幅の約60%とし、表示面のちらつきを起こさない高さへ置く。
 - 両階を含む既存の共用表示Meshを階別のcall indicator資産へ分離し、停止階IDと専用roleで厳密に関連付ける。Runtimeは階別materialを所有・破棄し、意味状態または0.5秒の点滅位相が変わった時だけ表示を更新する。表示だけの変化では動的空間revisionを進めない。
 
@@ -383,6 +433,11 @@ stateDiagram-v2
 - [x] T04-3B第2次人間受入修正: 全5表示状態、両階の組合せ、全陣営の呼出・降車・再乗車、定員・戦闘・経路選択を自動回帰する
 - [x] T04-3B第2次人間受入修正: Web／Electronの実操作、表示、Pointer Lock、console、資産決定性、全対象typecheck・buildを確認する
 - [x] T04-3B第2次人間受入修正: 独立レビュー、UTF-8・BOM・括弧・差分検査後に結果を更新し、追加修正を1commitへまとめる
+- [x] T04-3B第3次人間受入表示: 現行5状態と点灯・点滅実装を照合し、4表示の入替だけで実現できる範囲を計画化する
+- [x] T04-3B第3次人間受入表示: 表示入替案についてユーザー確認を得る
+- [x] T04-3B第3次人間受入表示: `unloading`に代えて`called`を0.5秒点滅対象へ変更し、`departure-countdown`の点滅と`locked`の点灯を維持して状態図・表示仕様・fixtureを同期する
+- [x] T04-3B第3次人間受入表示: 両階の全5状態、0.5秒境界、開扉完了、降車完了、表示だけでは空間revisionが進まないことを回帰する
+- [x] T04-3B第3次人間受入表示: T04型検査・build、実学校fixture、通常Web／Electron表示、console、配布検査を完了して1commitへまとめる
 
 ## 結果
 
@@ -427,6 +482,16 @@ V2第2重点ゲートの50／10／20は、Webが612.076秒・8491 frame・終了
 パッケージ版Electronの実画面では左クリック開始、Pointer Lock、playing継続、NPC 50体、BIT 23機、ビーム描画を確認した。DevTools consoleはBabylon.js起動情報1件だけでwarning／error 0件だった。内蔵ブラウザ版もPointer Lock自体は取得したが、Chromium自動操作環境が取得成功と同時に既知外形の`UnknownError`を返したため、製品Runtimeのconsole判定はElectronで行った。
 
 独立レビューでは、空車呼出便が目的階へ到着して開扉を占有で待つ境界と、敷居fixtureの扉枠側余白に2件の指摘があった。呼出は開扉完了まで保持し、`closed`と`opening`の到着階を`called`、反対階を`locked`に固定してから、完全openで両階`ready`へ移す回帰を追加した。敷居の左右offsetはRuntime尺度±0.07、資産尺度±0.28mへ拡張し、人物直径0.20に対する開口0.35の中心安全上限0.075直前まで検証する。修正後の再レビューは残存P0／P1／P2なし、T04 112／112、実学校65／65、敷居800回失敗0、console 0、T04 build、V2／T05型検査、`git diff --check`、UTF-8 strict、BOM、競合marker、ローカル絶対パス検査がすべてPASSした。変更は`fix: エレベーター敷居と呼出状態を改善`の1commitへまとめる。push、Pull Request更新、merge、review thread操作、worktree削除は行わない。
+
+2026-07-29 23:51 +09:00、第3次人間受入表示の検討では、現行の5状態と表示adapterを照合し、状態機械を変えずに黄色側だけを入れ替える案へ修正した。点滅対象は現行の`unloading / departure-countdown`から`called / departure-countdown`へ変更し、`unloading`は黄色点灯、`locked`は赤点灯とする。表示の強さは緑点灯、黄色／黒点滅、黄色点灯、赤／黒点滅、赤点灯の順とし、黄色点滅を行先階のサービス待ち、赤点滅を発車警告、赤点灯を利用不可とする。これは危険度・制約度の順位であり、各マットが毎回5状態すべてを順に通る契約ではない。今回行ったのは状態図、意味、実装・検証工程の計画化だけであり、Runtime、fixture、資産、commit、push、Pull Requestは変更していない。
+
+2026-07-29 23:57 +09:00、ユーザー確認後に`StageElevatorRuntime`の点滅対象を`called / departure-countdown`へ変更した。T04 fixtureは、呼出直後から0.499秒までは`called / primary`、0.500秒境界で`called / black`、反対階は`locked / primary`を維持し、表示位相だけでは空間revisionを進めない契約へ更新した。到着客が残る`unloading`は0.5秒経過後も`primary`かつ表示更新回数不変として回帰する。状態機械、呼出・予約・搬送契約、学校資産、NavMeshには変更を加えておらず、自動回帰と実表示確認は次工程で行う。
+
+2026-07-30 00:02 +09:00、実materialの5状態を`ready=#36C96B`、`called / unloading=#E8B52E`、`departure-countdown / locked=#E34242`、黒位相`#050505`として自動回帰へ追加した。実ブラウザではT04 fixtureが113／113、実学校fixtureが65／65で`document.documentElement.dataset.validationStatus === "passed"`へ到達し、通常Webも開始後に`フェーズ playing`へ到達した。T04、実学校、通常Webのconsole warning／errorは各0件だった。T04型検査とT04 buildもPASSしており、全体型検査・通常／Electron build・配布検査は次工程で行う。
+
+2026-07-30 00:13 +09:00、第3次人間受入表示の最終自動回帰はT04 fixtureが113／113、実学校fixtureが65／65で、いずれも`document.documentElement.dataset.validationStatus === "passed"`へ到達した。通常Webは開始後に`フェーズ playing`へ到達し、3ページのconsole warning／errorは各0件だった。Electron相互作用検証は実画面クリック後の`pointerLockElementId=renderCanvas`、`phase=playing`、移動距離0.265m、renderer diagnostics 0件でPASSした。`typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`build:t04`、通常renderer／Electron build、依存監査、学校NavMesh check、`git diff --check`、UTF-8 strict、BOM、競合marker、ローカル絶対パス検査もすべてPASSした。学校資産、NavMesh、生成器、カタログの差分は0件で、元worktreeの未コミット人口調整は維持している。最終独立レビューと単一commitは次工程で完了する。
+
+2026-07-30 00:15 +09:00、最終独立レビューは基準HEAD `bf1d69b4b1458385af0012d2cf265218377b4800`からの指定3ファイルだけを対象に再確認し、残存P0／P1／P2なしとなった。Runtimeは状態機械を変えず点滅対象だけを`unloading`から`called`へ置換し、fixtureは5色、0.5秒境界、点灯固定、両階の組合せ、表示のみで空間revision不変を回帰している。変更は`fix: エレベーター呼出マットの表示順を調整`の1commitへまとめる。push、Pull Request更新、merge、review thread操作、worktree削除は行わない。
 
 T04-3A完了。2026-07-28、`origin/develop`の`4edd8f08c948a7822cd6bd623e25dff142078f18`から`codex/v2-t04-3-dynamic-runtime`と専用worktreeを作成し、`npm ci`を完了した。
 

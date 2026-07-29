@@ -1230,7 +1230,7 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
     this.stops.forEach((stop) => {
       const state = this.getCallMatState(stop);
       const blinking =
-        state === "unloading" ||
+        state === "called" ||
         state === "departure-countdown";
       const previous =
         this.indicatorPresentationByStopId.get(stop.id);
