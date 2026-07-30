@@ -13,6 +13,19 @@ export type ElevatorDoorState =
   | "closing";
 export type ElevatorCarState = "stopped" | "moving";
 export type ElevatorDoorMotion = "opening" | "closing";
+export type ElevatorCallMatState =
+  | "ready"
+  | "called"
+  | "unloading"
+  | "departure-countdown"
+  | "locked";
+export type ElevatorCallMatVisualPhase = "primary" | "black";
+export type ElevatorPassengerState = "riding" | "arrived";
+
+export type ElevatorCallRequestResult = Readonly<{
+  status: "accepted" | "not-callable";
+  stopId: string;
+}>;
 
 export type ElevatorPassengerReservation = Readonly<{
   actorId: string;
@@ -41,6 +54,15 @@ export type StageElevatorDoorPanelAdapter = Readonly<{
   setOpenness(openness: number): void;
 }>;
 
+export type StageElevatorCallIndicatorAdapter = Readonly<{
+  id: string;
+  setPresentation(
+    state: ElevatorCallMatState,
+    visualPhase: ElevatorCallMatVisualPhase
+  ): void;
+  dispose(): void;
+}>;
+
 export type StageElevatorStopInput = Readonly<{
   id: string;
   floorIndex: ElevatorFloorIndex;
@@ -48,11 +70,13 @@ export type StageElevatorStopInput = Readonly<{
   landingDoorPanels: readonly StageElevatorDoorPanelAdapter[];
   humanGateCollider: Mesh;
   setHumanGateEnabled(enabled: boolean): void;
+  callIndicator: StageElevatorCallIndicatorAdapter;
 }>;
 
 export interface StageElevatorCarAdapter {
   getWorldPosition(): Vector3;
   setWorldPosition(position: Vector3): void;
+  getBoardingWorldPosition(slotIndex: number): Vector3;
   worldToCarLocal(position: Vector3): Vector3;
   carLocalToWorld(position: Vector3): Vector3;
 }
@@ -94,6 +118,7 @@ export type StageElevatorSpatialSnapshot = Readonly<{
 export type ElevatorPassengerSnapshot = Readonly<{
   actorId: string;
   destinationStopId: string;
+  state: ElevatorPassengerState;
   carLocalPosition: Vector3;
 }>;
 
@@ -104,6 +129,7 @@ export type ElevatorStopSnapshot = Readonly<{
   doorProgress: number;
   humanGateEnabled: boolean;
   callPending: boolean;
+  callMatState: ElevatorCallMatState;
 }>;
 
 export type StageElevatorSnapshot = Readonly<{
@@ -123,8 +149,19 @@ export type StageElevatorSnapshot = Readonly<{
   stops: readonly ElevatorStopSnapshot[];
 }>;
 
+export type StageElevatorTripEstimate = Readonly<{
+  fromStopId: string;
+  destinationStopId: string;
+  capacityAvailable: boolean;
+  availableCapacity: number;
+  waitSeconds: number;
+  boardingWindowSeconds: number;
+  rideSeconds: number;
+  totalSeconds: number;
+}>;
+
 export interface StageElevatorRuntime {
-  requestCall(stopId: string): void;
+  requestCall(stopId: string): ElevatorCallRequestResult;
   requestBoarding(
     reservation: ElevatorPassengerReservation
   ): ElevatorBoardingReservationResult;
@@ -133,10 +170,17 @@ export interface StageElevatorRuntime {
   ): readonly ElevatorBoardingReservationResult[];
   cancelBoardingReservation(actorId: string): void;
   completeBoarding(actorId: string): void;
+  completePreDepartureExit(actorId: string): void;
   completeDisembark(actorId: string): void;
+  releaseHumanTraversalForScriptedPhase(): void;
+  estimateTripSeconds(
+    fromStopId: string,
+    destinationStopId: string
+  ): StageElevatorTripEstimate;
   getSnapshot(): StageElevatorSnapshot;
   getSpatialSnapshot(): StageElevatorSpatialSnapshot;
   update(deltaSeconds: number): StageElevatorSnapshot;
+  dispose(): void;
 }
 
 type RuntimeStop = StageElevatorStopInput;
@@ -144,7 +188,14 @@ type RuntimeStop = StageElevatorStopInput;
 type RuntimePassenger = Readonly<{
   actorId: string;
   destinationStopId: string;
+  state: ElevatorPassengerState;
+  slotIndex: number;
   carLocalPosition: Vector3;
+}>;
+
+type ElevatorCallIndicatorPresentation = Readonly<{
+  state: ElevatorCallMatState;
+  visualPhase: ElevatorCallMatVisualPhase;
 }>;
 
 const assertOpaqueId = (name: string, value: string) => {
@@ -236,6 +287,14 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
   private readonly actors: StageElevatorActorAdapter;
   private readonly occupancy: StageElevatorOccupancyAdapter;
   private readonly gateEnabledByStopId = new Map<string, boolean>();
+  private readonly indicatorPresentationByStopId = new Map<
+    string,
+    ElevatorCallIndicatorPresentation
+  >();
+  private readonly indicatorBlinkStartedAtByStopId = new Map<
+    string,
+    number
+  >();
   private readonly calls = new Set<string>();
   private readonly reservations = new Map<
     string,
@@ -255,6 +314,8 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
   private spatialRevision = 0;
   private spatialDirty = false;
   private spatialSnapshot!: StageElevatorSpatialSnapshot;
+  private currentSnapshot: StageElevatorSnapshot | null = null;
+  private active = true;
 
   constructor(input: StageElevatorRuntimeInput) {
     assertOpaqueId("エレベーターID", input.id);
@@ -273,6 +334,7 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
     const stopIds = new Set<string>();
     const floorIndices = new Set<ElevatorFloorIndex>();
     const humanGateColliders = new Set<Mesh>();
+    const callIndicatorIds = new Set<string>();
     const stops = input.stops.map((stop, stopIndex) => {
       assertOpaqueId(`停止階${stopIndex}のID`, stop.id);
       assertFiniteVector(`停止階${stop.id}のかご位置`, stop.carPosition);
@@ -303,6 +365,16 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
         );
       }
       humanGateColliders.add(stop.humanGateCollider);
+      assertOpaqueId(
+        `停止階${stop.id}の呼出indicator ID`,
+        stop.callIndicator.id
+      );
+      if (callIndicatorIds.has(stop.callIndicator.id)) {
+        throw new Error(
+          `呼出indicator IDが停止階間で重複しています: ${stop.callIndicator.id}`
+        );
+      }
+      callIndicatorIds.add(stop.callIndicator.id);
       return Object.freeze({
         ...stop,
         carPosition: stop.carPosition.clone(),
@@ -336,19 +408,36 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
     this.applyPanelOpenness();
     this.publishSpatialSnapshot(false);
     this.spatialDirty = false;
+    this.refreshCallIndicators();
   }
 
   requestCall(stopId: string) {
+    this.assertActive();
     const stop = this.getStop(stopId);
+    if (this.getCallMatState(stop) !== "ready") {
+      return Object.freeze({
+        status: "not-callable",
+        stopId: stop.id
+      }) satisfies ElevatorCallRequestResult;
+    }
     if (
       this.carState === "stopped" &&
       this.currentStop === stop &&
       this.doorState === "open"
     ) {
       this.calls.delete(stop.id);
-      return;
+      this.refreshCallIndicators();
+      return Object.freeze({
+        status: "accepted",
+        stopId: stop.id
+      }) satisfies ElevatorCallRequestResult;
     }
     this.calls.add(stop.id);
+    this.refreshCallIndicators();
+    return Object.freeze({
+      status: "accepted",
+      stopId: stop.id
+    }) satisfies ElevatorCallRequestResult;
   }
 
   requestBoarding(
@@ -364,6 +453,7 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
   ):
     | ElevatorBoardingReservationResult
     | readonly ElevatorBoardingReservationResult[] {
+    this.assertActive();
     const multiple = Array.isArray(input);
     const requested = multiple
       ? [...input]
@@ -405,7 +495,9 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
     const boardable =
       this.carState === "stopped" &&
       this.doorState === "open" &&
-      this.currentStop !== null;
+      this.currentStop !== null &&
+      !this.hasArrivedPassengers() &&
+      !this.hasRemoteCall();
     const resultByActorId = new Map<
       string,
       ElevatorBoardingReservationResult
@@ -461,6 +553,7 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
       });
     }
 
+    this.refreshCallIndicators();
     const results = Object.freeze(
       requested.map((reservation) => resultByActorId.get(reservation.actorId)!)
     );
@@ -468,13 +561,16 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
   }
 
   cancelBoardingReservation(actorId: string) {
+    this.assertActive();
     assertOpaqueId("予約取消Actor ID", actorId);
     if (!this.reservations.delete(actorId)) {
       throw new Error(`取消対象の乗車予約がありません: ${actorId}`);
     }
+    this.refreshCallIndicators();
   }
 
   completeBoarding(actorId: string) {
+    this.assertActive();
     assertOpaqueId("乗車完了Actor ID", actorId);
     const reservation = this.reservations.get(actorId);
     if (!reservation) {
@@ -487,7 +583,36 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
     ) {
       throw new Error("扉が完全開放された予約出発階でのみ乗車完了できます。");
     }
+    if (this.hasArrivedPassengers()) {
+      throw new Error(
+        "到着客が全員完全降車するまで新しい乗車を完了できません。"
+      );
+    }
 
+    const occupiedSlotIndices = new Set(
+      [...this.passengers.values()].map(
+        (passenger) => passenger.slotIndex
+      )
+    );
+    const slotIndex = Array.from(
+      { length: ELEVATOR_CAPACITY },
+      (_, index) => index
+    ).find((index) => !occupiedSlotIndices.has(index));
+    if (slotIndex === undefined) {
+      throw new Error(
+        `乗車完了時に空きslotがありません: ${actorId}`
+      );
+    }
+    const boardingPosition =
+      this.car.getBoardingWorldPosition(slotIndex);
+    assertFiniteVector(
+      `Actor ${actorId}のかご内乗車位置`,
+      boardingPosition
+    );
+    this.actors.setActorPosition(
+      actorId,
+      boardingPosition.clone()
+    );
     const actorPosition = this.actors.getActorPosition(actorId);
     assertFiniteVector(`Actor ${actorId}の乗車位置`, actorPosition);
     const carLocalPosition = this.car.worldToCarLocal(actorPosition);
@@ -499,6 +624,8 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
       Object.freeze({
         actorId,
         destinationStopId: reservation.destinationStopId,
+        state: "riding",
+        slotIndex,
         carLocalPosition: carLocalPosition.clone()
       })
     );
@@ -506,9 +633,11 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
       this.dwellRemainingSeconds =
         ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS;
     }
+    this.refreshCallIndicators();
   }
 
   completeDisembark(actorId: string) {
+    this.assertActive();
     assertOpaqueId("降車完了Actor ID", actorId);
     if (
       this.carState !== "stopped" ||
@@ -517,15 +646,162 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
     ) {
       throw new Error("扉が完全開放された停止階でのみ降車完了できます。");
     }
-    if (!this.passengers.delete(actorId)) {
+    const passenger = this.passengers.get(actorId);
+    if (!passenger) {
       throw new Error(`降車対象の乗客がいません: ${actorId}`);
     }
-    if (this.passengers.size === 0) {
+    if (passenger.state !== "arrived") {
+      throw new Error(
+        `目的階へ到着していない乗客は降車完了できません: ${actorId}`
+      );
+    }
+    this.passengers.delete(actorId);
+    if (!this.hasRidingPassengers()) {
       this.dwellRemainingSeconds = null;
     }
+    this.refreshCallIndicators();
+  }
+
+  completePreDepartureExit(actorId: string) {
+    this.assertActive();
+    assertOpaqueId("出発前退避Actor ID", actorId);
+    if (
+      this.carState !== "stopped" ||
+      this.doorState !== "open" ||
+      this.currentStop === null
+    ) {
+      throw new Error(
+        "扉が完全開放された出発階でのみ出発前退避を完了できます。"
+      );
+    }
+    const passenger = this.passengers.get(actorId);
+    if (!passenger) {
+      throw new Error(
+        `出発前退避対象の乗客がいません: ${actorId}`
+      );
+    }
+    if (passenger.state !== "riding") {
+      throw new Error(
+        `到着済みの乗客は出発前退避できません: ${actorId}`
+      );
+    }
+    this.passengers.delete(actorId);
+    if (!this.hasRidingPassengers()) {
+      this.dwellRemainingSeconds = null;
+    }
+    this.refreshCallIndicators();
+  }
+
+  releaseHumanTraversalForScriptedPhase() {
+    this.assertActive();
+    this.calls.clear();
+    this.reservations.clear();
+    this.passengers.clear();
+    this.dwellRemainingSeconds = null;
+    this.refreshCallIndicators();
+  }
+
+  estimateTripSeconds(
+    fromStopId: string,
+    destinationStopId: string
+  ): StageElevatorTripEstimate {
+    this.assertActive();
+    const fromStop = this.getStop(fromStopId);
+    const destinationStop = this.getStop(destinationStopId);
+    if (fromStop === destinationStop) {
+      throw new Error(
+        "予測経路の出発階と目的階は異なる必要があります。"
+      );
+    }
+    if (this.hasArrivedPassengers()) {
+      return Object.freeze({
+        fromStopId: fromStop.id,
+        destinationStopId: destinationStop.id,
+        capacityAvailable: false,
+        availableCapacity: 0,
+        waitSeconds: Number.POSITIVE_INFINITY,
+        boardingWindowSeconds: Number.POSITIVE_INFINITY,
+        rideSeconds:
+          ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS +
+          ELEVATOR_DOOR_MOTION_SECONDS +
+          ELEVATOR_TRAVEL_SECONDS +
+          ELEVATOR_DOOR_MOTION_SECONDS,
+        totalSeconds: Number.POSITIVE_INFINITY
+      });
+    }
+
+    const nextOpen = this.estimateNextOpenStop();
+    const committedAtBoarding =
+      nextOpen.stop === fromStop
+        ? [...this.passengers.values()].filter(
+            (passenger) =>
+              passenger.destinationStopId !== fromStop.id
+          ).length +
+          [...this.reservations.values()].filter(
+            (reservation) =>
+              reservation.destinationStopId !== fromStop.id
+          ).length
+        : 0;
+    const availableCapacity = Math.max(
+      0,
+      ELEVATOR_CAPACITY - committedAtBoarding
+    );
+    let waitSeconds = nextOpen.seconds;
+    if (nextOpen.stop !== fromStop) {
+      const reservationDwellSeconds =
+        [...this.reservations.values()].some(
+          (reservation) =>
+            reservation.fromStopId === nextOpen.stop.id
+        )
+          ? ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS
+          : 0;
+      const currentDwellSeconds =
+        this.carState === "stopped" &&
+        this.currentStop === nextOpen.stop &&
+        this.doorState === "open"
+          ? (this.dwellRemainingSeconds ?? 0)
+          : 0;
+      waitSeconds +=
+        Math.max(
+          reservationDwellSeconds,
+          currentDwellSeconds
+        ) +
+        ELEVATOR_DOOR_MOTION_SECONDS +
+        ELEVATOR_TRAVEL_SECONDS +
+        ELEVATOR_DOOR_MOTION_SECONDS;
+    }
+
+    const boardingDwellSeconds =
+      this.carState === "stopped" &&
+      this.currentStop === fromStop &&
+      this.doorState === "open" &&
+      this.dwellRemainingSeconds !== null
+        ? this.dwellRemainingSeconds
+        : ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS;
+    const rideSeconds =
+      boardingDwellSeconds +
+      ELEVATOR_DOOR_MOTION_SECONDS +
+      ELEVATOR_TRAVEL_SECONDS +
+      ELEVATOR_DOOR_MOTION_SECONDS;
+
+    return Object.freeze({
+      fromStopId: fromStop.id,
+      destinationStopId: destinationStop.id,
+      capacityAvailable: availableCapacity > 0,
+      availableCapacity,
+      waitSeconds,
+      boardingWindowSeconds:
+        waitSeconds + boardingDwellSeconds,
+      rideSeconds,
+      totalSeconds: waitSeconds + rideSeconds
+    });
   }
 
   getSnapshot(): StageElevatorSnapshot {
+    this.assertActive();
+    if (this.currentSnapshot !== null) {
+      return this.currentSnapshot;
+    }
     const carPosition = this.car.getWorldPosition();
     assertFiniteVector("かご位置", carPosition);
     const doorProgress = this.getDoorProgress();
@@ -548,6 +824,7 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
           Object.freeze({
             actorId: passenger.actorId,
             destinationStopId: passenger.destinationStopId,
+            state: passenger.state,
             carLocalPosition: passenger.carLocalPosition.clone()
           })
         )
@@ -562,12 +839,13 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
           landingDoorState: isCurrent ? this.doorState : "closed",
           doorProgress: isCurrent ? doorProgress : 0,
           humanGateEnabled: this.gateEnabledByStopId.get(stop.id)!,
-          callPending: this.calls.has(stop.id)
+          callPending: this.calls.has(stop.id),
+          callMatState: this.getCallMatState(stop)
         });
       })
     );
 
-    return Object.freeze({
+    this.currentSnapshot = Object.freeze({
       id: this.id,
       elapsedSeconds: this.elapsedSeconds,
       carState: this.carState,
@@ -586,13 +864,16 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
       passengers,
       stops
     });
+    return this.currentSnapshot;
   }
 
   getSpatialSnapshot() {
+    this.assertActive();
     return this.spatialSnapshot;
   }
 
   update(deltaSeconds: number): StageElevatorSnapshot {
+    this.assertActive();
     assertNonNegativeFiniteNumber(
       "エレベーター更新deltaSeconds",
       deltaSeconds
@@ -617,10 +898,19 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
         if (remainingSeconds === 0) {
           break;
         }
+        const motionState = this.doorState;
         remainingSeconds = this.advanceDoorMotion(remainingSeconds);
+        const doorStateAfterMotion =
+          this.doorState as ElevatorDoorState;
         if (
-          this.doorState === "opening" ||
-          this.doorState === "closing"
+          motionState === "opening" &&
+          doorStateAfterMotion === "open"
+        ) {
+          break;
+        }
+        if (
+          doorStateAfterMotion === "opening" ||
+          doorStateAfterMotion === "closing"
         ) {
           break;
         }
@@ -650,6 +940,10 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
         throw new Error("開扉状態に現在停止階がありません。");
       }
       this.calls.delete(this.currentStop.id);
+
+      if (this.hasArrivedPassengers()) {
+        break;
+      }
 
       if (
         this.dwellRemainingSeconds !== null &&
@@ -697,7 +991,74 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
       this.publishSpatialSnapshot(true);
       this.spatialDirty = false;
     }
+    this.refreshCallIndicators();
     return this.getSnapshot();
+  }
+
+  dispose() {
+    this.assertActive();
+    this.active = false;
+    this.calls.clear();
+    this.reservations.clear();
+    this.passengers.clear();
+    this.gateEnabledByStopId.clear();
+    this.stops.forEach((stop) => stop.callIndicator.dispose());
+    this.indicatorPresentationByStopId.clear();
+    this.indicatorBlinkStartedAtByStopId.clear();
+    this.spatialDirty = false;
+    this.currentSnapshot = null;
+  }
+
+  private estimateNextOpenStop(): Readonly<{
+    stop: RuntimeStop;
+    seconds: number;
+  }> {
+    if (this.carState === "moving") {
+      if (!this.targetStop) {
+        throw new Error("移動中のかごに目的階がありません。");
+      }
+      return Object.freeze({
+        stop: this.targetStop,
+        seconds:
+          ELEVATOR_TRAVEL_SECONDS -
+          this.travelElapsedSeconds +
+          ELEVATOR_DOOR_MOTION_SECONDS
+      });
+    }
+    if (!this.currentStop) {
+      throw new Error("停止中のかごに現在停止階がありません。");
+    }
+    switch (this.doorState) {
+      case "open":
+        return Object.freeze({
+          stop: this.currentStop,
+          seconds: 0
+        });
+      case "opening":
+        return Object.freeze({
+          stop: this.currentStop,
+          seconds:
+            ELEVATOR_DOOR_MOTION_SECONDS -
+            this.doorElapsedSeconds
+        });
+      case "closed":
+        return Object.freeze({
+          stop: this.currentStop,
+          seconds: ELEVATOR_DOOR_MOTION_SECONDS
+        });
+      case "closing":
+        if (!this.targetStop) {
+          throw new Error("閉扉中のかごに目的階がありません。");
+        }
+        return Object.freeze({
+          stop: this.targetStop,
+          seconds:
+            ELEVATOR_DOOR_MOTION_SECONDS -
+            this.doorElapsedSeconds +
+            ELEVATOR_TRAVEL_SECONDS +
+            ELEVATOR_DOOR_MOTION_SECONDS
+        });
+    }
   }
 
   private advanceDoorMotion(availableSeconds: number) {
@@ -728,10 +1089,7 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
       this.applyPanelOpenness();
       this.markSpatialChanged();
       this.calls.delete(this.currentStop.id);
-      this.dwellRemainingSeconds =
-        this.passengers.size > 0
-          ? ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS
-          : null;
+      this.dwellRemainingSeconds = null;
       return remainingSeconds;
     }
 
@@ -768,7 +1126,6 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
     this.car.setWorldPosition(position);
     this.carryPassengers();
     if (consumed > 0) {
-      this.applyPanelOpenness();
       this.markSpatialChanged();
     }
 
@@ -785,7 +1142,20 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
     this.targetStop = null;
     this.carState = "stopped";
     this.travelElapsedSeconds = 0;
-    this.calls.delete(arrivedStop.id);
+    this.passengers.forEach((passenger, actorId) => {
+      if (passenger.destinationStopId !== arrivedStop.id) {
+        throw new Error(
+          `到着階と乗客の目的階が一致しません: ${actorId}/${passenger.destinationStopId}/${arrivedStop.id}`
+        );
+      }
+      this.passengers.set(
+        actorId,
+        Object.freeze({
+          ...passenger,
+          state: "arrived"
+        })
+      );
+    });
     this.applyPanelOpenness();
     this.markSpatialChanged();
     return remainingSeconds;
@@ -807,18 +1177,143 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
     });
   }
 
+  private getCallMatState(stop: RuntimeStop): ElevatorCallMatState {
+    if (this.carState === "moving") {
+      return this.targetStop === stop ? "called" : "locked";
+    }
+    if (!this.currentStop) {
+      throw new Error("呼出マット状態の算出時に現在停止階がありません。");
+    }
+
+    if (this.doorState === "opening") {
+      return this.currentStop === stop ? "called" : "locked";
+    }
+    if (this.doorState === "closing") {
+      const emptyCarCallTrip =
+        !this.hasRidingPassengers() && this.targetStop !== null;
+      return emptyCarCallTrip && this.targetStop === stop
+        ? "called"
+        : "locked";
+    }
+    if (this.doorState === "closed") {
+      if (
+        this.hasArrivedPassengers() ||
+        this.calls.has(this.currentStop.id)
+      ) {
+        return this.currentStop === stop ? "called" : "locked";
+      }
+      const emptyCarCallTrip =
+        !this.hasRidingPassengers() && this.targetStop !== null;
+      return emptyCarCallTrip && this.targetStop === stop
+        ? "called"
+        : "locked";
+    }
+
+    if (this.hasArrivedPassengers()) {
+      return this.currentStop === stop ? "unloading" : "locked";
+    }
+    if (this.hasRidingPassengers()) {
+      return this.currentStop === stop
+        ? "departure-countdown"
+        : "locked";
+    }
+
+    const remoteCalledStop = this.stops.find(
+      (candidate) =>
+        candidate !== this.currentStop && this.calls.has(candidate.id)
+    );
+    if (remoteCalledStop) {
+      return remoteCalledStop === stop ? "called" : "locked";
+    }
+
+    if (this.reservations.size > 0) {
+      return this.currentStop === stop ? "ready" : "locked";
+    }
+    return "ready";
+  }
+
+  private refreshCallIndicators() {
+    this.currentSnapshot = null;
+    this.stops.forEach((stop) => {
+      const state = this.getCallMatState(stop);
+      const blinking =
+        state === "called" ||
+        state === "departure-countdown";
+      const previous =
+        this.indicatorPresentationByStopId.get(stop.id);
+      if (previous?.state !== state) {
+        if (blinking) {
+          this.indicatorBlinkStartedAtByStopId.set(
+            stop.id,
+            this.elapsedSeconds
+          );
+        } else {
+          this.indicatorBlinkStartedAtByStopId.delete(stop.id);
+        }
+      }
+      const blinkStartedAt =
+        this.indicatorBlinkStartedAtByStopId.get(stop.id) ??
+        this.elapsedSeconds;
+      const blackPhase =
+        Math.floor(
+          (this.elapsedSeconds - blinkStartedAt) / 0.5
+        ) %
+          2 ===
+        1;
+      const visualPhase: ElevatorCallMatVisualPhase =
+        blinking && blackPhase ? "black" : "primary";
+      if (
+        previous?.state === state &&
+        previous.visualPhase === visualPhase
+      ) {
+        return;
+      }
+      stop.callIndicator.setPresentation(state, visualPhase);
+      this.indicatorPresentationByStopId.set(
+        stop.id,
+        Object.freeze({ state, visualPhase })
+      );
+    });
+  }
+
+  private hasArrivedPassengers() {
+    return [...this.passengers.values()].some(
+      (passenger) => passenger.state === "arrived"
+    );
+  }
+
+  private hasRidingPassengers() {
+    return [...this.passengers.values()].some(
+      (passenger) => passenger.state === "riding"
+    );
+  }
+
+  private hasRemoteCall() {
+    return (
+      this.currentStop !== null &&
+      this.stops.some(
+        (stop) =>
+          stop !== this.currentStop && this.calls.has(stop.id)
+      )
+    );
+  }
+
   private resolveDepartureTarget() {
     if (!this.currentStop) {
       throw new Error("移動先選択時に現在停止階がありません。");
     }
-    if (this.passengers.size > 0) {
+    if (this.hasArrivedPassengers()) {
+      return null;
+    }
+    if (this.hasRidingPassengers()) {
       const passengerDestination = [...this.passengers.values()]
+        .filter((passenger) => passenger.state === "riding")
         .sort((left, right) =>
           compareActorIds(left.actorId, right.actorId)
         )
         .map((passenger) => this.getStop(passenger.destinationStopId))
         .find((stop) => stop !== this.currentStop);
-      return passengerDestination ?? this.getOppositeStop(this.currentStop);
+      return passengerDestination ?? null;
     }
     return (
       this.stops.find(
@@ -853,11 +1348,36 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
     const activeHumanGates = this.stops
       .filter((stop) => this.gateEnabledByStopId.get(stop.id) === true)
       .map((stop) => stop.humanGateCollider);
+    const movingPanelBlockers = new Set<Mesh>();
+    if (
+      this.doorState === "opening" ||
+      this.doorState === "closing"
+    ) {
+      for (const panel of this.carDoorPanels) {
+        for (const blocker of panel.blockerMeshes) {
+          movingPanelBlockers.add(blocker);
+        }
+      }
+      if (!this.currentStop) {
+        throw new Error(
+          "扉panel移動中のエレベーターに現在停止階がありません。"
+        );
+      }
+      for (const panel of this.currentStop.landingDoorPanels) {
+        for (const blocker of panel.blockerMeshes) {
+          movingPanelBlockers.add(blocker);
+        }
+      }
+    }
+    const panelBlockers = Object.freeze(
+      this.allPanelBlockers.filter(
+        (blocker) => !movingPanelBlockers.has(blocker)
+      )
+    );
     const humanMovementColliders = Object.freeze([
-      ...this.allPanelBlockers,
+      ...panelBlockers,
       ...activeHumanGates
     ]);
-    const panelBlockers = Object.freeze([...this.allPanelBlockers]);
     this.spatialSnapshot = Object.freeze({
       revision: this.spatialRevision,
       movementColliders: Object.freeze({
@@ -911,14 +1431,6 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
     return stop;
   }
 
-  private getOppositeStop(stop: RuntimeStop) {
-    const opposite = this.stops.find((candidate) => candidate !== stop);
-    if (!opposite) {
-      throw new Error("反対側のエレベーター停止階がありません。");
-    }
-    return opposite;
-  }
-
   private setHumanGateEnabled(stop: RuntimeStop, enabled: boolean) {
     if (this.gateEnabledByStopId.get(stop.id) === enabled) {
       return;
@@ -926,6 +1438,12 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
     stop.setHumanGateEnabled(enabled);
     this.gateEnabledByStopId.set(stop.id, enabled);
     this.markSpatialChanged();
+  }
+
+  private assertActive() {
+    if (!this.active) {
+      throw new Error("破棄済みのStageElevatorRuntimeは使用できません。");
+    }
   }
 }
 

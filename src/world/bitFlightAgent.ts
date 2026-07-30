@@ -40,6 +40,8 @@ export type BitFlightAgentStepResult = Readonly<{
   facingDirection: Vector3 | null;
   transition: BitFlightTransitionTraversal | null;
   routeStepIndex: number;
+  surfacePointIndex: number;
+  transitionPointIndex: number;
   routeStepCount: number;
 }>;
 
@@ -400,6 +402,9 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
       transition:
         this.activeTransition?.routeStep.traversal ?? null,
       routeStepIndex: this.routeStepIndex,
+      surfacePointIndex: this.surfacePointIndex,
+      transitionPointIndex:
+        this.activeTransition?.nextPointIndex ?? 0,
       routeStepCount: this.route?.steps.length ?? 0
     });
   }

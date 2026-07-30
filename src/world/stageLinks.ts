@@ -36,9 +36,9 @@ export interface StageLinkRegistry {
 }
 
 export const canStageMoverUseLink = (
-  _moverKind: StageMoverKind,
+  moverKind: StageMoverKind,
   _linkKind: StageLinkKind
-) => true;
+) => moverKind !== "bit";
 
 export const createStageLinkRegistry = (
   pairs: readonly StageLinkPair[]

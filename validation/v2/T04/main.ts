@@ -17,9 +17,12 @@ import { generateSoloNavMesh } from "recast-navigation/generators";
 
 import {
   createNavigationWorld,
+  DISTANCE_NAVIGATION_ROUTE_POLICY,
   initializeNavigationRuntime,
   type NavigationLocation,
   type NavigationPath,
+  type NavigationRouteCandidate,
+  type NavigationRoutePolicy,
   type NavigationSurfaceStep,
   type NavigationWorld
 } from "../../../src/world/navigationWorld";
@@ -59,6 +62,9 @@ import {
 import {
   SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
 } from "../../../src/world/schoolRuntimeSettings";
+import {
+  createSchoolStageDynamicSpatialInitializer
+} from "../../../src/world/schoolStageDynamicRuntime";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
 import {
   loadStageSpatialContext,
@@ -82,7 +88,8 @@ import { createV2AlertCoordinator } from "../../../src/v2/alertCoordinator";
 import { createV2BitSystem } from "../../../src/v2/bitSystem";
 import {
   V2_NPC_CAPTURE_RADIUS,
-  createV2NpcSystem
+  createV2NpcSystem,
+  type V2NpcNavigationRouteContext
 } from "../../../src/v2/npcSystem";
 import {
   castV2BeamSegment,
@@ -113,6 +120,24 @@ type ValidationCheck = Readonly<{
 const ALIVE_HUMANS_BEAM_POLICY: V2BeamTargetPolicy = Object.freeze({
   kind: "alive-humans"
 });
+
+const SURFACE_ONLY_NAVIGATION_ROUTE_POLICY: NavigationRoutePolicy =
+  Object.freeze({
+    selectRoute: (candidates) =>
+      candidates.find((candidate) => candidate.kind === "surface") ??
+      null
+  });
+
+const selectDistanceNavigationRoute = (
+  _context: V2NpcNavigationRouteContext,
+  candidates: readonly NavigationRouteCandidate[]
+) => DISTANCE_NAVIGATION_ROUTE_POLICY.selectRoute(candidates);
+
+const selectSurfaceNavigationRoute = (
+  _context: V2NpcNavigationRouteContext,
+  candidates: readonly NavigationRouteCandidate[]
+) =>
+  SURFACE_ONLY_NAVIGATION_ROUTE_POLICY.selectRoute(candidates);
 
 const createHumanTargetFixture = (
   id: string,
@@ -465,7 +490,37 @@ const findNavigationPath = (
     projectionMaxDistance
   );
   return startLocation && destinationLocation
-    ? navigation.findPath(startLocation, destinationLocation, moverKind)
+    ? navigation.findPath(
+        startLocation,
+        destinationLocation,
+        moverKind,
+        DISTANCE_NAVIGATION_ROUTE_POLICY
+      )
+    : null;
+};
+
+const findSurfaceNavigationPath = (
+  navigation: NavigationWorld,
+  start: Vector3,
+  destination: Vector3,
+  moverKind: "player" | "npc" = "npc",
+  projectionMaxDistance = 0.1
+) => {
+  const startLocation = navigation.projectPoint(
+    start,
+    projectionMaxDistance
+  );
+  const destinationLocation = navigation.projectPoint(
+    destination,
+    projectionMaxDistance
+  );
+  return startLocation && destinationLocation
+    ? navigation.findPath(
+        startLocation,
+        destinationLocation,
+        moverKind,
+        SURFACE_ONLY_NAVIGATION_ROUTE_POLICY
+      )
     : null;
 };
 
@@ -541,6 +596,7 @@ const executeNavigationAgentRouteAcceptance = (
   const agent = createNavigationAgent(
     navigation,
     "npc",
+    DISTANCE_NAVIGATION_ROUTE_POLICY,
     schoolNpcNavigationAgentConfig
   );
   const movementBudget = schoolNpcChaseSpeed * deltaSeconds;
@@ -1072,7 +1128,8 @@ const createMovementBlockingStage = (
       findPath: (
         start: NavigationLocation,
         destination: NavigationLocation,
-        moverKind: StageMoverKind
+        moverKind: StageMoverKind,
+        routePolicy: NavigationRoutePolicy
       ) => {
         pathfindAttempts.push(
           Object.freeze({
@@ -1083,7 +1140,12 @@ const createMovementBlockingStage = (
             })
           })
         );
-        return source.navigation.findPath(start, destination, moverKind);
+        return source.navigation.findPath(
+          start,
+          destination,
+          moverKind,
+          routePolicy
+        );
       },
       constrainMovement: (
         start: NavigationLocation,
@@ -1202,6 +1264,7 @@ const setMetric = (label: string, value: string) => {
 const runValidation = async () => {
   runButton.disabled = true;
   downloadButton.disabled = true;
+  document.documentElement.dataset.validationStatus = "running";
   summary.dataset.state = "running";
   summary.textContent = "Recastを初期化し、NavMeshを生成しています。";
   metrics.replaceChildren();
@@ -1553,7 +1616,8 @@ const runValidation = async () => {
       linkCacheValidationWorld.findPath(
         directStartLocation,
         directDestinationLocation,
-        "player"
+        "player",
+        DISTANCE_NAVIGATION_ROUTE_POLICY
       );
       playerPathfindAttempts = Object.freeze(
         recastPathfindAttempts.slice(playerPathfindStartIndex)
@@ -1562,7 +1626,8 @@ const runValidation = async () => {
       linkCacheValidationWorld.findPath(
         directStartLocation,
         directDestinationLocation,
-        "npc"
+        "npc",
+        DISTANCE_NAVIGATION_ROUTE_POLICY
       );
       npcPathfindAttempts = Object.freeze(
         recastPathfindAttempts.slice(npcPathfindStartIndex)
@@ -1571,7 +1636,8 @@ const runValidation = async () => {
       repeatedDirectPath = linkCacheValidationWorld.findPath(
         directStartLocation,
         directDestinationLocation,
-        "npc"
+        "npc",
+        DISTANCE_NAVIGATION_ROUTE_POLICY
       );
       repeatedDirectPathfindAttempts = Object.freeze(
         recastPathfindAttempts.slice(repeatedDirectPathfindStartIndex)
@@ -1631,7 +1697,8 @@ const runValidation = async () => {
       firstCachedLinkPath = linkCacheValidationWorld.findPath(
         startLocation,
         destinationLocation,
-        "npc"
+        "npc",
+        DISTANCE_NAVIGATION_ROUTE_POLICY
       );
       firstPathfindAttempts = Object.freeze(
         recastPathfindAttempts.slice(firstPathfindStartIndex)
@@ -1640,7 +1707,8 @@ const runValidation = async () => {
       secondCachedLinkPath = linkCacheValidationWorld.findPath(
         startLocation,
         destinationLocation,
-        "npc"
+        "npc",
+        DISTANCE_NAVIGATION_ROUTE_POLICY
       );
       secondPathfindAttempts = Object.freeze(
         recastPathfindAttempts.slice(secondPathfindStartIndex)
@@ -1649,7 +1717,8 @@ const runValidation = async () => {
       reverseCachedLinkPath = linkCacheValidationWorld.findPath(
         destinationLocation,
         startLocation,
-        "npc"
+        "npc",
+        DISTANCE_NAVIGATION_ROUTE_POLICY
       );
       reversePathfindAttempts = Object.freeze(
         recastPathfindAttempts.slice(reversePathfindStartIndex)
@@ -1658,7 +1727,8 @@ const runValidation = async () => {
       repeatedReverseCachedLinkPath = linkCacheValidationWorld.findPath(
         destinationLocation,
         startLocation,
-        "npc"
+        "npc",
+        DISTANCE_NAVIGATION_ROUTE_POLICY
       );
       repeatedReversePathfindAttempts = Object.freeze(
         recastPathfindAttempts.slice(repeatedReversePathfindStartIndex)
@@ -1935,11 +2005,11 @@ const runValidation = async () => {
         ) &&
         cachedEndpointKeys.size === linkCacheValidationLinks.length * 2 &&
         constructionPathfindAttempts.length === 0 &&
-        playerPathfindAttempts.length === 1 &&
-        npcPathfindAttempts.length === 1 &&
+        playerPathfindAttempts.length === 3 &&
+        npcPathfindAttempts.length === 3 &&
         repeatedDirectPath !== null &&
         repeatedDirectTransitionCount === 0 &&
-        repeatedDirectPathfindAttempts.length === 1 &&
+        repeatedDirectPathfindAttempts.length === 3 &&
         repeatedDirectSurfacePathfindCount === 1 &&
         samePolygonPathfindAttempts.length === 0 &&
         samePositionPathfindAttempts.length === 0 &&
@@ -2055,6 +2125,7 @@ const runValidation = async () => {
     let directSurfaceShortcutWorld: NavigationWorld | null = null;
     let directSurfaceNpcPath: NavigationPath | null = null;
     let directSurfacePlayerPath: NavigationPath | null = null;
+    let directSurfaceOnlyPath: NavigationPath | null = null;
     try {
       directSurfaceShortcutWorld = await createNavigationWorld(data, [
         directSurfaceShortcutLink
@@ -2071,6 +2142,12 @@ const runValidation = async () => {
         routeEnd,
         "player"
       );
+      directSurfaceOnlyPath = findSurfaceNavigationPath(
+        directSurfaceShortcutWorld,
+        routeStart,
+        routeEnd,
+        "npc"
+      );
     } finally {
       directSurfaceShortcutWorld?.dispose();
     }
@@ -2079,18 +2156,27 @@ const runValidation = async () => {
         (step) => step.kind === "transition"
       ) ??
       [];
+    const directSurfaceOnlyTransitions =
+      directSurfaceOnlyPath?.steps.filter(
+        (step) => step.kind === "transition"
+      ) ?? [];
     checks.push({
-      name: "通常面成立時の特殊接続グラフ非実行",
+      name: "通常面と特殊接続を列挙してpolicyで選択",
       ok:
         directSurfaceNpcPath !== null &&
-        directSurfaceNpcPath.steps.every((step) => step.kind === "surface") &&
         directSurfacePlayerPath !== null &&
-        directSurfacePlayerPath.steps.every((step) => step.kind === "surface") &&
-        directSurfacePlayerTransitions.length === 0 &&
+        directSurfacePlayerTransitions.length === 1 &&
+        directSurfaceOnlyPath !== null &&
+        directSurfaceOnlyPath.steps.every(
+          (step) => step.kind === "surface"
+        ) &&
+        directSurfaceOnlyTransitions.length === 0 &&
+        directSurfaceNpcPath.distance <
+          directSurfaceOnlyPath.distance &&
         Math.abs(
           directSurfacePlayerPath.distance - directSurfaceNpcPath.distance
         ) <= 1e-6,
-      detail: `npc=${directSurfaceNpcPath?.distance.toFixed(4) ?? "--"} / player=${directSurfacePlayerPath?.distance.toFixed(4) ?? "--"} / transitions=${directSurfacePlayerTransitions.length}`
+      detail: `distance=${directSurfaceNpcPath?.distance.toFixed(4) ?? "--"} / surface=${directSurfaceOnlyPath?.distance.toFixed(4) ?? "--"} / player=${directSurfacePlayerPath?.distance.toFixed(4) ?? "--"} / transitions=${directSurfacePlayerTransitions.length}/${directSurfaceOnlyTransitions.length}`
     });
     directSurfaceShortcutLink.endpointA.node.dispose();
     directSurfaceShortcutLink.endpointB.node.dispose();
@@ -2206,6 +2292,7 @@ const runValidation = async () => {
     const transitionAgent = createNavigationAgent(
       linkedNavigationWorld,
       "npc",
+      DISTANCE_NAVIGATION_ROUTE_POLICY,
       navigationAgentConfig
     );
     const primaryStartLocation = requireNavigationLocation(
@@ -2363,6 +2450,7 @@ const runValidation = async () => {
     const cacheAgent = createNavigationAgent(
       navigationWorld,
       "npc",
+      DISTANCE_NAVIGATION_ROUTE_POLICY,
       navigationAgentConfig
     );
     const initialAgentStep = cacheAgent.update(
@@ -2406,6 +2494,7 @@ const runValidation = async () => {
     const unreachableAgent = createNavigationAgent(
       navigationWorld,
       "npc",
+      DISTANCE_NAVIGATION_ROUTE_POLICY,
       navigationAgentConfig
     );
     const unreachableTarget = new Vector3(-6.5, 0, -1.5);
@@ -2455,6 +2544,7 @@ const runValidation = async () => {
     const stuckAgent = createNavigationAgent(
       navigationWorld,
       "npc",
+      DISTANCE_NAVIGATION_ROUTE_POLICY,
       navigationAgentConfig
     );
     stuckAgent.update(routeStartLocation, routeEnd, 1, 0, true);
@@ -2483,6 +2573,7 @@ const runValidation = async () => {
     const rampAgent = createNavigationAgent(
       navigationWorld,
       "npc",
+      DISTANCE_NAVIGATION_ROUTE_POLICY,
       navigationAgentConfig
     );
     const rampAgentStep = rampAgent.update(
@@ -2539,6 +2630,7 @@ const runValidation = async () => {
     const reportedTileBoundaryAgent = createNavigationAgent(
       reportedTileBoundaryWorld,
       "npc",
+      DISTANCE_NAVIGATION_ROUTE_POLICY,
       schoolNpcNavigationAgentConfig
     );
     const reportedTileBoundaryDeltaSeconds = 0.0168;
@@ -2614,6 +2706,7 @@ const runValidation = async () => {
       const horizontalOverrunAgent = createNavigationAgent(
         horizontalOverrunWorld,
         "npc",
+        DISTANCE_NAVIGATION_ROUTE_POLICY,
         schoolNpcNavigationAgentConfig
       );
       horizontalOverrunAgent.update(
@@ -2636,6 +2729,7 @@ const runValidation = async () => {
     const waypointAgent = createNavigationAgent(
       navigationWorld,
       "npc",
+      DISTANCE_NAVIGATION_ROUTE_POLICY,
       navigationAgentConfig
     );
     const waypointStep = waypointAgent.update(
@@ -2658,6 +2752,7 @@ const runValidation = async () => {
     const projectedTargetAgent = createNavigationAgent(
       navigationWorld,
       "npc",
+      DISTANCE_NAVIGATION_ROUTE_POLICY,
       navigationAgentConfig
     );
     const floatingTarget = routeEnd.add(new Vector3(0, 0.05, 0));
@@ -2688,6 +2783,7 @@ const runValidation = async () => {
     const clearAgent = createNavigationAgent(
       navigationWorld,
       "npc",
+      DISTANCE_NAVIGATION_ROUTE_POLICY,
       navigationAgentConfig
     );
     clearAgent.update(routeStartLocation, routeEnd, 0, 0, true);
@@ -3297,6 +3393,8 @@ const runValidation = async () => {
           spatialScene,
           SCHOOL_VALIDATION_STAGE,
           {
+            initializeDynamicSpatial:
+              createSchoolStageDynamicSpatialInitializer(0),
             roomVariantSelections:
               SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
           }
@@ -3353,13 +3451,13 @@ const runValidation = async () => {
             (selection) => selection.variant === "normal"
           );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 606 &&
+          schoolContext.resources.visualMeshes.length === 609 &&
           schoolContext.resources.normalColliders.length === 273 &&
           schoolContext.resources.actorOnlyColliders.length === 81 &&
           schoolContext.resources.humanOnlyColliders.length === 59 &&
           schoolContext.resources.navSourceMeshes.length === 39 &&
           schoolContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-          schoolContext.markers.all.length === 225 &&
+          schoolContext.markers.all.length === 227 &&
           assemblyAnchors.length === 2 &&
           schoolContext.volumes.all.length === 75 &&
           assemblyVolumes.length === 2 &&
@@ -3493,7 +3591,7 @@ const runValidation = async () => {
           new Vector3(47.0, -6.5, 1.0)
         );
         const npcPathfindStartCount = schoolRecastPathfindCount;
-        const schoolPath = findNavigationPath(
+        const schoolPath = findSurfaceNavigationPath(
           schoolContext.navigation,
           playerSpawn,
           stageDestination,
@@ -3502,7 +3600,7 @@ const runValidation = async () => {
         const npcDirectPathfindCount =
           schoolRecastPathfindCount - npcPathfindStartCount;
         const playerPathfindStartCount = schoolRecastPathfindCount;
-        const playerSchoolPath = findNavigationPath(
+        const playerSchoolPath = findSurfaceNavigationPath(
           schoolContext.navigation,
           playerSpawn,
           stageDestination,
@@ -3545,8 +3643,8 @@ const runValidation = async () => {
             playerSchoolPath !== null &&
             projectedStageDestination !== null &&
             schoolPathEndpointError <= 1e-5 &&
-            npcDirectPathfindCount === 1 &&
-            playerDirectPathfindCount === 1 &&
+            npcDirectPathfindCount === 3 &&
+            playerDirectPathfindCount === 3 &&
             actorWallHit !== null &&
             beamWallHit !== null &&
             sightWallHit !== null &&
@@ -3889,13 +3987,13 @@ const runValidation = async () => {
           ([label, blenderPoint]) => {
             const point = blenderPointToBabylon(blenderPoint);
             const projected = schoolNavigation.projectPoint(point, 0.1);
-            const forwardPath = findNavigationPath(
+            const forwardPath = findSurfaceNavigationPath(
               schoolNavigation,
               playerSpawn,
               point,
               "npc"
             );
-            const backwardPath = findNavigationPath(
+            const backwardPath = findSurfaceNavigationPath(
               schoolNavigation,
               point,
               playerSpawn,
@@ -3963,14 +4061,16 @@ const runValidation = async () => {
             nodeCapacityRegressionDestination,
             schoolNpcNavigationAgentConfig.projectionMaxDistance
           );
-        const nodeCapacityRegressionForward = findNavigationPath(
+        const nodeCapacityRegressionForward =
+          findSurfaceNavigationPath(
           schoolNavigation,
           nodeCapacityRegressionStart,
           nodeCapacityRegressionDestination,
           "npc",
           schoolNpcNavigationAgentConfig.projectionMaxDistance
         );
-        const nodeCapacityRegressionBackward = findNavigationPath(
+        const nodeCapacityRegressionBackward =
+          findSurfaceNavigationPath(
           schoolNavigation,
           nodeCapacityRegressionDestination,
           nodeCapacityRegressionStart,
@@ -4194,6 +4294,7 @@ const runValidation = async () => {
           const agent = createNavigationAgent(
             schoolNavigation,
             "npc",
+            DISTANCE_NAVIGATION_ROUTE_POLICY,
             navigationAgentConfig
           );
           const agentPoints = [agentLocation.position.clone()];
@@ -4637,7 +4738,8 @@ const runValidation = async () => {
           npcCount: 2,
           initialBrainwashedNpcCount: 2,
           diagnosticsEnabled: true,
-          random: npcRandom.random
+          random: npcRandom.random,
+          selectNavigationRoute: selectSurfaceNavigationRoute
         });
         const npcInitializationRandomCallCount = npcRandom.getCallCount();
         const alarmCandidateId = "alarm-t04-tracking";
@@ -4788,7 +4890,8 @@ const runValidation = async () => {
               npcCount: 2,
               initialBrainwashedNpcCount: 2,
               diagnosticsEnabled: true,
-              random: routeRandom.random
+              random: routeRandom.random,
+              selectNavigationRoute: selectSurfaceNavigationRoute
             });
             const routeNpcStart =
               routeSystem.getFrameView().targets[1].footPosition;
@@ -4921,7 +5024,8 @@ const runValidation = async () => {
           npcCount: 2,
           initialBrainwashedNpcCount: 2,
           diagnosticsEnabled: true,
-          random: unreachableNpcRandom.random
+          random: unreachableNpcRandom.random,
+          selectNavigationRoute: selectSurfaceNavigationRoute
         });
         const unreachableNpcStart =
           unreachableNpcSystem.getFrameView().targets[1].footPosition;
@@ -4999,7 +5103,8 @@ const runValidation = async () => {
             npcCount: 2,
             initialBrainwashedNpcCount: 2,
             diagnosticsEnabled: true,
-            random: npcFailureRandom.random
+            random: npcFailureRandom.random,
+            selectNavigationRoute: selectSurfaceNavigationRoute
           });
           unexpectedSystem.dispose();
         });
@@ -5352,19 +5457,21 @@ const runValidation = async () => {
           spatialScene,
           SCHOOL_VALIDATION_STAGE,
           {
+            initializeDynamicSpatial:
+              createSchoolStageDynamicSpatialInitializer(0),
             roomVariantSelections:
               SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
           }
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 606 &&
+          reloadedContext.resources.visualMeshes.length === 609 &&
           reloadedContext.resources.normalColliders.length === 273 &&
           reloadedContext.resources.actorOnlyColliders.length === 81 &&
           reloadedContext.resources.humanOnlyColliders.length === 59 &&
           reloadedContext.resources.navSourceMeshes.length === 39 &&
           reloadedContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-          reloadedContext.markers.all.length === 225 &&
+          reloadedContext.markers.all.length === 227 &&
           reloadedContext.markers.getByRole("assembly_anchor").length === 2 &&
           reloadedContext.volumes.all.length === 75 &&
           reloadedContext.volumes.getByRole("assembly").length === 2 &&
@@ -5430,12 +5537,17 @@ const runValidation = async () => {
     setMetric("入力三角形", `${navGeometry.indices.length / 3}`);
 
     const passedCount = checks.filter((check) => check.ok).length;
-    summary.dataset.state = passedCount === checks.length ? "passed" : "failed";
+    const validationStatus =
+      passedCount === checks.length ? "passed" : "failed";
+    document.documentElement.dataset.validationStatus =
+      validationStatus;
+    summary.dataset.state = validationStatus;
     summary.textContent = `${passedCount} / ${checks.length} 項目がPASSしました。`;
     downloadButton.disabled = false;
   } catch (error) {
     const message = error instanceof Error ? error.stack ?? error.message : String(error);
     checks.push({ name: "検証処理", ok: false, detail: message });
+    document.documentElement.dataset.validationStatus = "failed";
     summary.dataset.state = "failed";
     summary.textContent = "NavMesh技術検証に失敗しました。";
   } finally {

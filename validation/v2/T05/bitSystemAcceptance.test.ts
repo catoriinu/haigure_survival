@@ -34,10 +34,22 @@ import {
   SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
 } from "../../../src/world/schoolRuntimeSettings";
 import {
+  createSchoolStageDynamicSpatialInitializer
+} from "../../../src/world/schoolStageDynamicRuntime";
+import {
+  canStageMoverUseLink,
+  STAGE_LINK_KINDS,
+  type StageLinkRegistry
+} from "../../../src/world/stageLinks";
+import {
   loadStageSpatialContext,
   type StageSpatialContext
 } from "../../../src/world/stageSpatialContext";
-import type { StageVolume } from "../../../src/world/stageSpatialQueries";
+import type {
+  SpatialSphereSweepHit,
+  StageSpatialQueries,
+  StageVolume
+} from "../../../src/world/stageSpatialQueries";
 import {
   createV2BitSystem,
   type V2BitFlightState,
@@ -86,6 +98,20 @@ type FixtureStage = Readonly<{
   stage: StageSpatialContext;
   dispose(): void;
 }>;
+
+type DynamicBitBlockerMode =
+  | Readonly<{ kind: "none" }>
+  | Readonly<{ kind: "point"; center: Vector3 }>
+  | Readonly<{ kind: "all-segments" }>;
+
+type DynamicBitRevisionFixtureStage = FixtureStage &
+  Readonly<{
+    setPointBlocker(center: Vector3): void;
+    setAllSegmentsBlocked(): void;
+    clearBlocker(): void;
+    getRevision(): number;
+    getStageLinkAccessCount(): number;
+  }>;
 
 type SceneResourceCounts = Readonly<{
   meshes: number;
@@ -227,6 +253,203 @@ const createFixtureStage = (
   return Object.freeze({
     stage,
     dispose: () => mesh.dispose(false, false)
+  });
+};
+
+const DYNAMIC_BIT_BLOCKER_RADIUS = 0.02;
+
+const findSegmentPointFraction = (
+  from: Vector3,
+  to: Vector3,
+  point: Vector3,
+  expandedRadius: number
+) => {
+  const segment = to.subtract(from);
+  const segmentLengthSquared = segment.lengthSquared();
+  const fraction =
+    segmentLengthSquared === 0
+      ? 0
+      : Math.min(
+          1,
+          Math.max(
+            0,
+            Vector3.Dot(point.subtract(from), segment) /
+              segmentLengthSquared
+          )
+        );
+  const closest = from.add(segment.scale(fraction));
+  return Vector3.DistanceSquared(closest, point) <=
+    expandedRadius * expandedRadius
+    ? Object.freeze({ fraction, closest })
+    : null;
+};
+
+const createDynamicBitRevisionFixtureStage = (
+  scene: Scene,
+  navigation: BitFlightNavigationWorld,
+  band: BitFlightBandRef,
+  center: Vector3
+): DynamicBitRevisionFixtureStage => {
+  const fixtureIndex = nextFixtureStageIndex;
+  nextFixtureStageIndex += 1;
+  const spawnMesh = MeshBuilder.CreateBox(
+    `BitDynamicRevisionSpawn_${fixtureIndex}`,
+    { width: 0.04, height: 0.1, depth: 0.04 },
+    scene
+  );
+  spawnMesh.position.copyFrom(center);
+  spawnMesh.computeWorldMatrix(true);
+  const blockerMesh = MeshBuilder.CreateBox(
+    `BitDynamicRevisionBlocker_${fixtureIndex}`,
+    {
+      width: DYNAMIC_BIT_BLOCKER_RADIUS * 2,
+      height: DYNAMIC_BIT_BLOCKER_RADIUS * 2,
+      depth: DYNAMIC_BIT_BLOCKER_RADIUS * 2
+    },
+    scene
+  );
+  blockerMesh.setEnabled(false);
+  const volume: StageVolume = Object.freeze({
+    id: `bit-dynamic-revision-spawn-${fixtureIndex}`,
+    role: "bit_spawn",
+    bitFlightBand: band,
+    mesh: spawnMesh
+  });
+  let revision = 0;
+  let blockerMode: DynamicBitBlockerMode = Object.freeze({ kind: "none" });
+  let stageLinkAccessCount = 0;
+
+  const createSweepHit = (
+    from: Vector3,
+    to: Vector3,
+    fraction: number,
+    centerAtHit: Vector3,
+    blockerCenter: Vector3
+  ): SpatialSphereSweepHit => {
+    const normal = centerAtHit.subtract(blockerCenter);
+    if (normal.lengthSquared() === 0) {
+      normal.copyFrom(Vector3.Up());
+    } else {
+      normal.normalize();
+    }
+    return Object.freeze({
+      point: blockerCenter.clone(),
+      normal,
+      distance: Vector3.Distance(from, centerAtHit),
+      mesh: blockerMesh,
+      center: centerAtHit,
+      fraction
+    });
+  };
+
+  const queries: StageSpatialQueries = {
+    get revision() {
+      return revision;
+    },
+    castMovementSegment: () => null,
+    castMovementSphere: (moverKind, from, to, radius) => {
+      if (moverKind !== "bit" || blockerMode.kind === "none") {
+        return null;
+      }
+      if (blockerMode.kind === "all-segments") {
+        if (from.equals(to)) {
+          return null;
+        }
+        const fraction = 0.5;
+        const centerAtHit = Vector3.Lerp(from, to, fraction);
+        return createSweepHit(
+          from,
+          to,
+          fraction,
+          centerAtHit,
+          centerAtHit
+        );
+      }
+      const intersection = findSegmentPointFraction(
+        from,
+        to,
+        blockerMode.center,
+        radius + DYNAMIC_BIT_BLOCKER_RADIUS
+      );
+      return intersection
+        ? createSweepHit(
+            from,
+            to,
+            intersection.fraction,
+            intersection.closest,
+            blockerMode.center
+          )
+        : null;
+    },
+    castBeamSegment: () => null,
+    castSightSegment: () => null,
+    sampleGround: () => null,
+    containsVolume: () => false,
+    containsVolumeById: () => false,
+    intersectsVolumeById: () => false,
+    findContainingBlocker: () => null,
+    dispose: () => {}
+  };
+  const links: StageLinkRegistry = {
+    get all() {
+      stageLinkAccessCount += 1;
+      return Object.freeze([]);
+    },
+    getById: () => {
+      stageLinkAccessCount += 1;
+      return null;
+    },
+    getByKind: () => {
+      stageLinkAccessCount += 1;
+      return Object.freeze([]);
+    }
+  };
+  const stage = Object.freeze({
+    bitNavigation: navigation,
+    volumes: Object.freeze({
+      all: Object.freeze([volume]),
+      getById: (id: string) => (id === volume.id ? volume : null),
+      getByRole: (role: StageVolume["role"]) =>
+        role === "bit_spawn"
+          ? Object.freeze([volume])
+          : Object.freeze([])
+    }),
+    links,
+    worldBoundary: null,
+    queries
+  }) as unknown as StageSpatialContext;
+
+  const advanceRevision = (nextMode: DynamicBitBlockerMode) => {
+    blockerMode = nextMode;
+    revision += 1;
+  };
+  return Object.freeze({
+    stage,
+    setPointBlocker: (blockerCenter: Vector3) => {
+      blockerMesh.position.copyFrom(blockerCenter);
+      blockerMesh.computeWorldMatrix(true);
+      blockerMesh.setEnabled(true);
+      advanceRevision(
+        Object.freeze({
+          kind: "point" as const,
+          center: blockerCenter.clone()
+        })
+      );
+    },
+    setAllSegmentsBlocked: () => {
+      blockerMesh.setEnabled(false);
+      advanceRevision(Object.freeze({ kind: "all-segments" as const }));
+    },
+    clearBlocker: () => {
+      blockerMesh.setEnabled(false);
+      advanceRevision(Object.freeze({ kind: "none" as const }));
+    },
+    getRevision: () => revision,
+    getStageLinkAccessCount: () => stageLinkAccessCount,
+    dispose: () => {
+      blockerMesh.dispose(false, false);
+      spawnMesh.dispose(false, false);
+    }
   });
 };
 
@@ -1948,6 +2171,327 @@ const runScriptedSearchChecks = async (
   ]);
 };
 
+const runDynamicRevisionSurfaceChecks = (
+  fixture: BitSystemAcceptanceFixture
+): readonly BitSystemAcceptanceCheck[] => {
+  const stage = createDynamicBitRevisionFixtureStage(
+    fixture.scene,
+    fixture.navigation,
+    fixture.courtyardRef,
+    fixture.pointInBand(fixture.courtyardRef, -0.8, 0)
+  );
+  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const system = createSystem(fixture.scene, stage.stage, random.random);
+  system.setDiagnosticsEnabled(true);
+  try {
+    const target = createTarget(
+      "dynamic-revision-surface-target",
+      fixture.pointInBand(fixture.courtyardRef, 0.8, 0)
+    );
+    const targets = Object.freeze([target]);
+    const initialPosition = getRequiredFlightState(system).position;
+    system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets,
+      externalAlerts: Object.freeze([
+        Object.freeze({
+          leaderId: "dynamic-revision-surface-leader",
+          targetId: target.id,
+          remainingSeconds: 100
+        })
+      ])
+    });
+    system.update({
+      deltaSeconds: 3,
+      elapsedSeconds: 3,
+      targets,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const progressed = getRequiredFlightState(system);
+
+    stage.setPointBlocker(
+      Vector3.Lerp(initialPosition, progressed.position, 0.5)
+    );
+    system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 3,
+      targets,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const pastBlockerState = getRequiredFlightState(system);
+    const pastBlockerDiagnostics = system.getFrameView().diagnostics;
+    const revisionAfterPastBlocker = stage.getRevision();
+
+    stage.setPointBlocker(
+      Vector3.Lerp(pastBlockerState.position, target.aimPosition, 0.5)
+    );
+    system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 3,
+      targets,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const futureBlockerState = getRequiredFlightState(system);
+    const futureBlockerDiagnostics = system.getFrameView().diagnostics;
+    const revisionAfterFutureBlocker = stage.getRevision();
+    const stageLinkAccessCount = stage.getStageLinkAccessCount();
+
+    return Object.freeze([
+      Object.freeze({
+        name: "BIT surface経路はrevision後も通過済み区間の障害物を再検証しない",
+        ok:
+          progressed.routePurpose === "chase" &&
+          Vector3.Distance(initialPosition, progressed.position) > 0.3 &&
+          revisionAfterPastBlocker === 1 &&
+          pastBlockerState.routePurpose === "chase" &&
+          pastBlockerState.agentState === "surface" &&
+          pastBlockerDiagnostics.routePlans.chase === 0 &&
+          pastBlockerDiagnostics.routeSafetyCache.routeSteps.recomputations >
+            0,
+        detail:
+          `moved=${Vector3.Distance(initialPosition, progressed.position).toFixed(6)} / ` +
+          `revision=${revisionAfterPastBlocker} / ` +
+          `route=${pastBlockerState.routePurpose ?? "none"}/${pastBlockerState.agentState} / ` +
+          `chasePlans=${pastBlockerDiagnostics.routePlans.chase} / ` +
+          `routeRecomputations=${pastBlockerDiagnostics.routeSafetyCache.routeSteps.recomputations}`
+      }),
+      Object.freeze({
+        name: "BIT surface経路はrevision後の未通過区間障害物で再計画",
+        ok:
+          revisionAfterFutureBlocker === 2 &&
+          futureBlockerDiagnostics.routePlans.chase > 0 &&
+          futureBlockerDiagnostics.routeSafetyCache.routeSteps.recomputations >
+            0,
+        detail:
+          `revision=${revisionAfterFutureBlocker} / ` +
+          `route=${futureBlockerState.routePurpose ?? "none"}/${futureBlockerState.agentState} / ` +
+          `chasePlans=${futureBlockerDiagnostics.routePlans.chase} / ` +
+          `routeRecomputations=${futureBlockerDiagnostics.routeSafetyCache.routeSteps.recomputations}`
+      }),
+      Object.freeze({
+        name: "BIT動的surface経路fixtureはStageLinkを利用しない",
+        ok:
+          stageLinkAccessCount === 0 &&
+          STAGE_LINK_KINDS.every(
+            (kind) => !canStageMoverUseLink("bit", kind)
+          ),
+        detail:
+          `registryAccess=${stageLinkAccessCount} / ` +
+          `allowed=${STAGE_LINK_KINDS.filter((kind) => canStageMoverUseLink("bit", kind)).join(",") || "none"}`
+      })
+    ]);
+  } finally {
+    system.dispose();
+    stage.dispose();
+  }
+};
+
+const runDynamicRevisionTransitionChecks = (
+  fixture: BitSystemAcceptanceFixture
+): readonly BitSystemAcceptanceCheck[] => {
+  const transitionStart = fixture.pointInBand(
+    fixture.concourseRef,
+    0,
+    0
+  );
+  const stage = createDynamicBitRevisionFixtureStage(
+    fixture.scene,
+    fixture.navigation,
+    fixture.concourseRef,
+    transitionStart
+  );
+  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const system = createSystem(fixture.scene, stage.stage, random.random);
+  system.setDiagnosticsEnabled(true);
+  try {
+    const target = createTarget(
+      "dynamic-revision-transition-target",
+      fixture.pointInBand(fixture.mezzanineRef, 0, 0)
+    );
+    const targets = Object.freeze([target]);
+    system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets,
+      externalAlerts: Object.freeze([
+        Object.freeze({
+          leaderId: "dynamic-revision-transition-leader",
+          targetId: target.id,
+          remainingSeconds: 100
+        })
+      ])
+    });
+    system.update({
+      deltaSeconds: 5,
+      elapsedSeconds: 5,
+      targets,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const progressed = getRequiredFlightState(system);
+
+    stage.setPointBlocker(
+      Vector3.Lerp(transitionStart, progressed.position, 0.35)
+    );
+    system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 5,
+      targets,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const pastBlockerState = getRequiredFlightState(system);
+    const pastBlockerDiagnostics = system.getFrameView().diagnostics;
+
+    stage.setPointBlocker(
+      Vector3.Lerp(pastBlockerState.position, target.aimPosition, 0.5)
+    );
+    system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 5,
+      targets,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const clearingState = getRequiredFlightState(system);
+    const forwardBlockerDiagnostics = system.getFrameView().diagnostics;
+
+    stage.clearBlocker();
+    let afterClear = clearingState;
+    let elapsedSeconds = 5;
+    for (
+      let index = 0;
+      index < 100 && afterClear.activeTransition !== null;
+      index += 1
+    ) {
+      elapsedSeconds += 0.1;
+      system.update({
+        deltaSeconds: 0.1,
+        elapsedSeconds,
+        targets,
+        externalAlerts: EMPTY_ALERTS
+      });
+      afterClear = getRequiredFlightState(system);
+    }
+    system.update({
+      deltaSeconds: 0,
+      elapsedSeconds,
+      targets,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const replannedState = getRequiredFlightState(system);
+    const replannedDiagnostics = system.getFrameView().diagnostics;
+    const stageLinkAccessCount = stage.getStageLinkAccessCount();
+
+    return Object.freeze([
+      Object.freeze({
+        name: "BIT transition経路はrevision後も通過済み遷移点を再検証しない",
+        ok:
+          progressed.agentState === "transition" &&
+          progressed.activeTransition?.id === "atrium-lift-volume" &&
+          pastBlockerState.agentState === "transition" &&
+          pastBlockerState.activeTransition?.id === "atrium-lift-volume" &&
+          pastBlockerDiagnostics.routePlans.chase === 0 &&
+          pastBlockerDiagnostics.routeSafetyCache.routeSteps.recomputations >
+            0,
+        detail:
+          `progressedY=${progressed.position.y.toFixed(6)} / ` +
+          `state=${pastBlockerState.agentState} / ` +
+          `transition=${pastBlockerState.activeTransition?.id ?? "none"} / ` +
+          `chasePlans=${pastBlockerDiagnostics.routePlans.chase} / ` +
+          `routeRecomputations=${pastBlockerDiagnostics.routeSafetyCache.routeSteps.recomputations}`
+      }),
+      Object.freeze({
+        name: "BIT transition経路はrevision後の未通過遷移点障害物で安全離脱後に再計画",
+        ok:
+          clearingState.agentState === "clearing-transition" &&
+          clearingState.activeTransition?.id === "atrium-lift-volume" &&
+          forwardBlockerDiagnostics.routeSafetyCache.routeSteps
+            .recomputations > 0 &&
+          afterClear.activeTransition === null &&
+          replannedDiagnostics.routePlans.chase > 0,
+        detail:
+          `clearing=${clearingState.agentState}/${clearingState.activeTransition?.id ?? "none"} / ` +
+          `cleared=${afterClear.zoneId ?? "none"}/${afterClear.bandId ?? "none"}/${afterClear.agentState} / ` +
+          `replanned=${replannedState.routePurpose ?? "none"}/${replannedState.agentState} / ` +
+          `chasePlans=${replannedDiagnostics.routePlans.chase} / ` +
+          `routeRecomputations=${forwardBlockerDiagnostics.routeSafetyCache.routeSteps.recomputations}`
+      }),
+      Object.freeze({
+        name: "BIT動的transition経路fixtureはStageLinkを利用しない",
+        ok: stageLinkAccessCount === 0,
+        detail: `registryAccess=${stageLinkAccessCount}`
+      })
+    ]);
+  } finally {
+    system.dispose();
+    stage.dispose();
+  }
+};
+
+const runDynamicRevisionUnreachableRecoveryCheck = (
+  fixture: BitSystemAcceptanceFixture
+): BitSystemAcceptanceCheck => {
+  const stage = createDynamicBitRevisionFixtureStage(
+    fixture.scene,
+    fixture.navigation,
+    fixture.courtyardRef,
+    fixture.pointInBand(fixture.courtyardRef, 0, 0)
+  );
+  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const system = createSystem(fixture.scene, stage.stage, random.random);
+  system.setDiagnosticsEnabled(true);
+  try {
+    stage.setAllSegmentsBlocked();
+    random.enqueue(0.2, 0.5, 0.999, 0.5);
+    system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets: EMPTY_TARGETS,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const unreachableState = getRequiredFlightState(system);
+    const unreachableDiagnostics = system.getFrameView().diagnostics;
+
+    stage.clearBlocker();
+    random.enqueue(0.2, 0.5, 0.999, 0.5);
+    system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets: EMPTY_TARGETS,
+      externalAlerts: EMPTY_ALERTS
+    });
+    const recoveredState = getRequiredFlightState(system);
+    const recoveredDiagnostics = system.getFrameView().diagnostics;
+    const stageLinkAccessCount = stage.getStageLinkAccessCount();
+
+    return Object.freeze({
+      name: "到達不能中のBITはrevision変更時に待機時間を待たず再探索",
+      ok:
+        unreachableDiagnostics.routePlans.search > 0 &&
+        unreachableState.routePurpose === null &&
+        recoveredDiagnostics.routePlans.search > 0 &&
+        recoveredState.routePurpose === "search" &&
+        recoveredState.agentState === "surface" &&
+        stageLinkAccessCount === 0,
+      detail:
+        `blockedRevision=1/${unreachableState.routePurpose ?? "none"}/${unreachableState.agentState}/plans=${unreachableDiagnostics.routePlans.search} / ` +
+        `recoveredRevision=${stage.getRevision()}/${recoveredState.routePurpose ?? "none"}/${recoveredState.agentState}/plans=${recoveredDiagnostics.routePlans.search} / ` +
+        `stageLinkAccess=${stageLinkAccessCount}`
+    });
+  } finally {
+    system.dispose();
+    stage.dispose();
+  }
+};
+
+const runDynamicRevisionChecks = (
+  fixture: BitSystemAcceptanceFixture
+): readonly BitSystemAcceptanceCheck[] =>
+  Object.freeze([
+    ...runDynamicRevisionSurfaceChecks(fixture),
+    ...runDynamicRevisionTransitionChecks(fixture),
+    runDynamicRevisionUnreachableRecoveryCheck(fixture)
+  ]);
+
 const runCrossBandChasePerformanceCheck = (
   fixture: BitSystemAcceptanceFixture
 ): Readonly<{
@@ -2106,7 +2650,10 @@ const runLoaderFixtureLifecycleCheck = async (
   const restoreFetch = installLoaderFixtureFetch(assets);
   let context: StageSpatialContext | null = null;
   try {
-    context = await loadStageSpatialContext(scene, assets.catalog);
+    context = await loadStageSpatialContext(scene, assets.catalog, {
+      initializeDynamicSpatial:
+        createSchoolStageDynamicSpatialInitializer(0)
+    });
     const navigation = context.bitNavigation;
     const firstZoneId = navigation.zones[0]?.id;
     if (!firstZoneId) {
@@ -2242,7 +2789,11 @@ const runLoaderWorldBoundaryPolicyCheck = async (
       try {
         context = await loadStageSpatialContext(
           scene,
-          assets.catalog
+          assets.catalog,
+          {
+            initializeDynamicSpatial:
+              createSchoolStageDynamicSpatialInitializer(0)
+          }
         );
         loadedAsExpected =
           testCase.shouldLoad &&
@@ -2299,6 +2850,8 @@ const runSchoolPerformanceAndLifecycleChecks = async (
       scene,
       SCHOOL_VALIDATION_STAGE,
       {
+        initializeDynamicSpatial:
+          createSchoolStageDynamicSpatialInitializer(0),
         roomVariantSelections:
           SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
       }
@@ -3024,7 +3577,11 @@ const runSchoolPerformanceAndLifecycleChecks = async (
 
     fixtureContext = await loadStageSpatialContext(
       scene,
-      loaderFixtureAssets.catalog
+      loaderFixtureAssets.catalog,
+      {
+        initializeDynamicSpatial:
+          createSchoolStageDynamicSpatialInitializer(0)
+      }
     );
     const fixtureNavigation = fixtureContext.bitNavigation;
     const fixtureZoneId = fixtureNavigation.zones[0]?.id;
@@ -3105,7 +3662,8 @@ export const runBitSystemAcceptanceTests = async (
       ...runVisualTargetLossChecks(fixture),
       runSightCheckBudgetCheck(fixture),
       ...runCarpetFormationChecks(fixture),
-      ...(await runScriptedSearchChecks(fixture))
+      ...(await runScriptedSearchChecks(fixture)),
+      ...runDynamicRevisionChecks(fixture)
     );
     const chasePerformance = runCrossBandChasePerformanceCheck(fixture);
     checks.push(chasePerformance.check);

@@ -381,6 +381,8 @@ type RuntimeBit = {
   navigationLocation: BitFlightLocation | null;
   routePurpose: V2BitRoutePurpose | null;
   routeDestination: BitFlightLocation | null;
+  activeRoute: BitFlightRoute | null;
+  spatialReplanPending: boolean;
   routeRefreshSeconds: number;
   searchRouteKind: SearchRouteKind | null;
   normalPatrolOrigin: BitFlightLocation | null;
@@ -742,9 +744,10 @@ const createRouteSafetySegmentKeyFromPointKeys = (
     : `${toKey}|${fromKey}`;
 
 const createRouteStepSafetyDescriptor = (
-  step: BitFlightRouteStep
+  step: BitFlightRouteStep,
+  routePoints: readonly Vector3[] = getRouteStepPositions(step)
 ): RouteStepSafetyDescriptor => {
-  const points = getRouteStepPositions(step);
+  const points = routePoints;
   const pointKeys = Object.freeze(
     points.map(createRouteSafetyPointKey)
   );
@@ -857,6 +860,7 @@ export const createV2BitSystem = (
     routeSafetyCache: EMPTY_ROUTE_SAFETY_CACHE_DIAGNOSTICS
   });
   const navigation = spatial.bitNavigation;
+  let observedSpatialRevision = spatial.queries.revision;
   const routeStepSafetyDescriptorByStep =
     new WeakMap<BitFlightRouteStep, RouteStepSafetyDescriptor>();
   const describeRouteStep = (step: BitFlightRouteStep) => {
@@ -1617,6 +1621,8 @@ export const createV2BitSystem = (
         navigationLocation,
         routePurpose: null,
         routeDestination: null,
+        activeRoute: null,
+        spatialReplanPending: false,
         routeRefreshSeconds: 0,
         searchRouteKind: null,
         normalPatrolOrigin: null,
@@ -2021,6 +2027,8 @@ export const createV2BitSystem = (
     bit.flightAgent.clear();
     bit.routePurpose = null;
     bit.routeDestination = null;
+    bit.activeRoute = null;
+    bit.spatialReplanPending = false;
     bit.routeRefreshSeconds = 0;
     bit.chaseWindowTransitionId = null;
     bit.searchRouteKind = null;
@@ -2054,18 +2062,125 @@ export const createV2BitSystem = (
     ) {
       bit.routePurpose = null;
       bit.routeDestination = null;
+      bit.activeRoute = null;
+      bit.spatialReplanPending = false;
       bit.chaseWindowTransitionId = null;
       bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
       return false;
     }
     bit.routePurpose = purpose;
     bit.routeDestination = cloneTargetLocation(selected.destination);
+    bit.activeRoute = selected.route;
+    bit.spatialReplanPending = false;
     bit.chaseWindowTransitionId =
       purpose === "chase"
         ? getFirstWindowAccessTransitionId(selected.route)
         : null;
     bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
     return true;
+  };
+
+  const clearDynamicSpatialCaches = () => {
+    routeStepSafetyByKey.clear();
+    routeCenterSafetyByKey.clear();
+    routeSegmentSafetyByKey.clear();
+    lowCeilingCruiseHeightsByRouteStepKey.clear();
+    routeStepSafetyAccessOrder.clear();
+    targetLocationCandidatesByPositionKey.clear();
+    safeDestinationByTraversalKey.clear();
+  };
+
+  const isRemainingRouteStepSafeForCurrentRevision = (
+    step: BitFlightRouteStep,
+    points: readonly Vector3[]
+  ) => {
+    const descriptor = createRouteStepSafetyDescriptor(
+      step,
+      points
+    );
+    let safe = getRouteStepSafety(descriptor);
+    if (safe === undefined) {
+      safe = isRouteStepSafeCached(descriptor);
+      if (diagnosticsEnabled) {
+        routeStepSafetyDiagnostics.recomputations += 1;
+      }
+      setRouteStepSafety(descriptor.key, safe);
+    }
+    return safe;
+  };
+
+  const isActiveRouteProgressSafeForCurrentRevision = (
+    bit: RuntimeBit
+  ) => {
+    if (!bit.activeRoute) {
+      return true;
+    }
+    const progress = bit.flightAgent.getSnapshot();
+    const routeStepIndex = progress.routeStepIndex;
+    const activeStep = bit.activeRoute.steps[routeStepIndex];
+    if (activeStep === undefined) {
+      return true;
+    }
+    if (progress.position === null) {
+      throw new Error(
+        `BIT ${bit.id}のactive route進行位置がありません。`
+      );
+    }
+    const remainingPoints =
+      activeStep.kind === "surface"
+        ? activeStep.points
+            .slice(progress.surfacePointIndex)
+            .map(getBitFlightWorldPosition)
+        : activeStep.points.slice(
+            progress.transitionPointIndex
+          );
+    return isRemainingRouteStepSafeForCurrentRevision(
+      activeStep,
+      Object.freeze([
+        progress.position.clone(),
+        ...remainingPoints
+      ])
+    );
+  };
+
+  const requestSpatialRouteReplan = (bit: RuntimeBit) => {
+    const transition = bit.flightAgent.getSnapshot().transition;
+    if (transition) {
+      bit.flightAgent.clear();
+      bit.activeRoute = null;
+      bit.spatialReplanPending = true;
+      bit.routeRefreshSeconds = 0;
+      bit.searchRetrySeconds = 0;
+      return;
+    }
+    clearRoute(bit);
+    bit.searchRetrySeconds = 0;
+    bit.hasAttemptedSearchRoute = false;
+    bit.lastChasePlanTargetId = null;
+  };
+
+  const syncDynamicSpatialRevision = () => {
+    const revision = spatial.queries.revision;
+    if (revision === observedSpatialRevision) {
+      return;
+    }
+    observedSpatialRevision = revision;
+    clearDynamicSpatialCaches();
+    for (const bit of bits) {
+      if (
+        bit.activeRoute &&
+        !isActiveRouteProgressSafeForCurrentRevision(bit)
+      ) {
+        requestSpatialRouteReplan(bit);
+        continue;
+      }
+      if (
+        bit.flightAgent.getState() === "unreachable" ||
+        (bit.routePurpose === null && bit.searchRetrySeconds > 0)
+      ) {
+        requestSpatialRouteReplan(bit);
+      }
+    }
   };
 
   const updateTransitionHistory = (
@@ -2126,6 +2241,8 @@ export const createV2BitSystem = (
       if (snapshot.transition === null) {
         bit.routePurpose = null;
         bit.routeDestination = null;
+        bit.activeRoute = null;
+        bit.spatialReplanPending = false;
         bit.chaseWindowTransitionId = null;
       }
       bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
@@ -2146,15 +2263,33 @@ export const createV2BitSystem = (
     if (snapshot.facingDirection && snapshot.facingDirection.lengthSquared() > 0) {
       bit.root.lookAt(bit.root.position.add(snapshot.facingDirection));
     }
+    const completedSpatialReplanClear =
+      bit.spatialReplanPending && snapshot.state === "idle";
+    if (completedSpatialReplanClear) {
+      bit.routePurpose = null;
+      bit.routeDestination = null;
+      bit.activeRoute = null;
+      bit.spatialReplanPending = false;
+      bit.chaseWindowTransitionId = null;
+      bit.routeRefreshSeconds = 0;
+      bit.searchRetrySeconds = 0;
+      bit.hasAttemptedSearchRoute = false;
+      bit.lastChasePlanTargetId = null;
+    }
     if (
       snapshot.state === "idle" ||
       snapshot.state === "arrived" ||
       snapshot.state === "unreachable" ||
       snapshot.state === "blocked"
     ) {
-      if (snapshot.state !== "arrived") {
+      bit.activeRoute = null;
+      if (
+        snapshot.state !== "arrived" &&
+        !completedSpatialReplanClear
+      ) {
         bit.routePurpose = null;
         bit.routeDestination = null;
+        bit.spatialReplanPending = false;
         bit.chaseWindowTransitionId = null;
         bit.routeRefreshSeconds = TARGET_ROUTE_REFRESH_SECONDS;
       }
@@ -4951,6 +5086,7 @@ export const createV2BitSystem = (
       invalidateFrameViews();
       recentExplorationSamplesForUpdate = null;
       resetDiagnostics();
+      syncDynamicSpatialRevision();
       updateFadingCarpetFollowers(deltaSeconds);
       const targetsById = new Map(
         targets.map((target) => [target.id, target] as const)
@@ -5858,6 +5994,8 @@ export const createV2BitSystem = (
         bit.navigationLocation = location;
         bit.routePurpose = null;
         bit.routeDestination = null;
+        bit.activeRoute = null;
+        bit.spatialReplanPending = false;
         bit.routeRefreshSeconds = 0;
         bit.searchRouteKind = null;
         bit.normalPatrolOrigin = null;

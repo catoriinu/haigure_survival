@@ -1,3 +1,5 @@
+import type { HumanNavRoomVariantSelection } from "./humanNavTileBundle";
+
 export const SCHOOL_ROOM_DISORDER_LEVEL_MIN = 0;
 export const SCHOOL_ROOM_DISORDER_LEVEL_MAX = 10;
 export const SCHOOL_ROOM_DISORDER_LEVEL_DEFAULT = 2;
@@ -172,5 +174,28 @@ export const selectDisorderedRoomIds = (
   );
   return Object.freeze(
     roomIds.filter((_roomId, index) => selectedIndices.has(index))
+  );
+};
+
+export const createSchoolRoomVariantSelections = (
+  settings: SchoolRuntimeSettings,
+  seed: number
+): readonly HumanNavRoomVariantSelection[] => {
+  const disorderedRoomIds = new Set(
+    selectDisorderedRoomIds(
+      SCHOOL_ROOM_VARIANT_ROOM_IDS,
+      settings,
+      seed
+    )
+  );
+  return Object.freeze(
+    SCHOOL_ROOM_VARIANT_ROOM_IDS.map((roomId) =>
+      Object.freeze({
+        roomId,
+        variant: disorderedRoomIds.has(roomId)
+          ? ("disordered" as const)
+          : ("normal" as const)
+      })
+    )
   );
 };

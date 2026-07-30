@@ -28,7 +28,8 @@ type InvalidFixtureVariant =
   | "orphan"
   | "multiple-owners"
   | "invalid-slide-transform"
-  | "invalid-swing-transform";
+  | "invalid-swing-transform"
+  | "invalid-indicator-direction";
 
 type DoorFixtureOptions = Readonly<{
   doorId: string;
@@ -241,7 +242,8 @@ const createElevatorLink = (
 const createElevatorStopComponents = (
   collector: FixtureCollector,
   stop: TransformNode,
-  floorIndex: 1 | 4
+  floorIndex: 1 | 4,
+  invalidDirection = false
 ): void => {
   const suffix = String(floorIndex);
   const stopId = `elevator-stop-${suffix}`;
@@ -249,6 +251,7 @@ const createElevatorStopComponents = (
   const thresholdId = `elevator-threshold-${suffix}`;
   const gateId = `elevator-gate-${suffix}`;
   const waitId = `elevator-wait-${suffix}`;
+  const callIndicatorId = `elevator-call-indicator-${suffix}`;
 
   createVolume(
     collector,
@@ -303,6 +306,37 @@ const createElevatorStopComponents = (
     },
     stop
   );
+  const callIndicator = createMarker(
+    collector,
+    `MRK_ElevatorCallIndicator_Floor${suffix}`,
+    {
+      hs_id: callIndicatorId,
+      hs_role: "elevator_call_indicator",
+      hs_elevator_id: "elevator-main",
+      hs_stop_id: stopId,
+      hs_direction:
+        floorIndex === 1
+          ? invalidDirection
+            ? "down"
+            : "up"
+          : "down"
+    },
+    stop
+  );
+  const indicatorBase = MeshBuilder.CreateBox(
+    `VIS_ElevatorCallIndicator_Base_Floor${suffix}`,
+    { width: 1.5, height: 0.02, depth: 1.5 },
+    collector.scene
+  );
+  indicatorBase.parent = callIndicator;
+  collector.visualMeshes.push(indicatorBase);
+  const indicatorDirection = MeshBuilder.CreateBox(
+    `VIS_ElevatorCallIndicator_Direction_Floor${suffix}`,
+    { width: 0.9, height: 0.01, depth: 0.9 },
+    collector.scene
+  );
+  indicatorDirection.parent = callIndicator;
+  collector.visualMeshes.push(indicatorDirection);
 };
 
 const createFixtureSource = (
@@ -370,6 +404,7 @@ const createFixtureSource = (
       hs_floor_index: 1,
       hs_landing_door_id: "elevator-landing-door-1",
       hs_call_mat_id: "elevator-call-mat-1",
+      hs_call_indicator_id: "elevator-call-indicator-1",
       hs_threshold_id: "elevator-threshold-1",
       hs_gate_id: "elevator-gate-1",
       hs_wait_id: "elevator-wait-1"
@@ -388,6 +423,7 @@ const createFixtureSource = (
       hs_floor_index: 4,
       hs_landing_door_id: "elevator-landing-door-4",
       hs_call_mat_id: "elevator-call-mat-4",
+      hs_call_indicator_id: "elevator-call-indicator-4",
       hs_threshold_id: "elevator-threshold-4",
       hs_gate_id: "elevator-gate-4",
       hs_wait_id: "elevator-wait-4"
@@ -470,7 +506,12 @@ const createFixtureSource = (
     car
   );
 
-  createElevatorStopComponents(collector, stop1, 1);
+  createElevatorStopComponents(
+    collector,
+    stop1,
+    1,
+    variant === "invalid-indicator-direction"
+  );
   createElevatorStopComponents(collector, stop4, 4);
   createElevatorLink(
     collector,
@@ -582,11 +623,21 @@ export const runDynamicAssetRegistryAcceptance =
             firstStop.threshold.id === "elevator-threshold-1" &&
             firstStop.humanGate.id === "elevator-gate-1" &&
             firstStop.wait.id === "elevator-wait-1" &&
+            firstStop.callIndicator.id ===
+              "elevator-call-indicator-1" &&
+            firstStop.callIndicator.direction === "up" &&
+            firstStop.callIndicator.baseMesh.name ===
+              "VIS_ElevatorCallIndicator_Base_Floor1" &&
             fourthStop?.floorIndex === 4 &&
             fourthStop.callMat.id === "elevator-call-mat-4" &&
             fourthStop.threshold.id === "elevator-threshold-4" &&
             fourthStop.humanGate.id === "elevator-gate-4" &&
-            fourthStop.wait.id === "elevator-wait-4",
+            fourthStop.wait.id === "elevator-wait-4" &&
+            fourthStop.callIndicator.id ===
+              "elevator-call-indicator-4" &&
+            fourthStop.callIndicator.direction === "down" &&
+            fourthStop.callIndicator.directionMesh.name ===
+              "VIS_ElevatorCallIndicator_Direction_Floor4",
           detail:
             `doors=${registries.doors.all.length} / ` +
             `elevators=${registries.elevators.all.length} / ` +
@@ -642,6 +693,11 @@ export const runDynamicAssetRegistryAcceptance =
           name: "swing扉Transform不正の拒否",
           variant: "invalid-swing-transform" as const,
           expected: "swing扉の閉・開local translation"
+        }),
+        Object.freeze({
+          name: "呼出indicator階方向不正の拒否",
+          variant: "invalid-indicator-direction" as const,
+          expected: "1階=up、4階=down"
         })
       ]);
       for (const rejectionCase of rejectionCases) {

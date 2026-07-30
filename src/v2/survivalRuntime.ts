@@ -3,6 +3,9 @@ import { Frustum, Vector3, type Scene } from "@babylonjs/core";
 import {
   prepareBitFlightNavigationRouteCaches
 } from "../world/bitFlightNavigation";
+import type {
+  NavigationRouteCandidate
+} from "../world/navigationWorld";
 import type { StageSpatialContext } from "../world/stageSpatialContext";
 import {
   createV2NavigationAlarmCandidateProvider
@@ -39,7 +42,8 @@ import {
   type V2BeamRequest,
   type V2CharacterState,
   type V2HumanTargetSnapshot,
-  type V2PlayerCompletionState
+  type V2PlayerCompletionState,
+  type V2TargetProvenance
 } from "./combatTypes";
 import {
   createV2NpcSystem,
@@ -50,8 +54,15 @@ import {
   type V2NpcCommandQuery,
   type V2NpcExecutionRoleAssignment,
   type V2NpcExternalThreat,
+  type V2NpcNavigationRouteContext,
   type V2NpcSystem
 } from "./npcSystem";
+import type {
+  V2NpcTraversalNotification,
+  V2NpcTraversalRequest,
+  V2NpcTraversalResult,
+  V2NpcTraversalState
+} from "./npcTraversal";
 import type {
   V2PerformanceDiagnostics,
   V2PerformanceScenario
@@ -123,9 +134,59 @@ export type V2SurvivalFrame = Readonly<{
   executionCompletedTargetCount: number;
   visualTargetCount: number;
   alertTargetCount: number;
+  npcPlayerTargetCount: number;
+  bitPlayerTargetCount: number;
   blockerImpactCount: number;
   actorImpactCount: number;
 }>;
+
+export type V2TargetTrackingSample = Readonly<{
+  targetId: string | null;
+  provenance: V2TargetProvenance | null;
+}>;
+
+export type V2TargetTrackingSummary = Readonly<{
+  visualTargetCount: number;
+  alertTargetCount: number;
+  npcPlayerTargetCount: number;
+  bitPlayerTargetCount: number;
+}>;
+
+export const summarizeV2TargetTracking = (
+  npcTracking: readonly V2TargetTrackingSample[],
+  bitTracking: readonly V2TargetTrackingSample[]
+): V2TargetTrackingSummary => {
+  let visualTargetCount = 0;
+  let alertTargetCount = 0;
+  let npcPlayerTargetCount = 0;
+  let bitPlayerTargetCount = 0;
+  for (const tracking of npcTracking) {
+    if (tracking.targetId === PLAYER_ID) {
+      npcPlayerTargetCount += 1;
+    }
+    if (tracking.provenance === "visual") {
+      visualTargetCount += 1;
+    } else if (tracking.provenance === "alert") {
+      alertTargetCount += 1;
+    }
+  }
+  for (const tracking of bitTracking) {
+    if (tracking.targetId === PLAYER_ID) {
+      bitPlayerTargetCount += 1;
+    }
+    if (tracking.provenance === "visual") {
+      visualTargetCount += 1;
+    } else if (tracking.provenance === "alert") {
+      alertTargetCount += 1;
+    }
+  }
+  return Object.freeze({
+    visualTargetCount,
+    alertTargetCount,
+    npcPlayerTargetCount,
+    bitPlayerTargetCount
+  });
+};
 
 export interface V2SurvivalRuntime {
   prepareVisualResources(): Promise<void>;
@@ -136,6 +197,15 @@ export interface V2SurvivalRuntime {
   getNpcCommandCandidates(): readonly V2NpcCommandCandidate[];
   requestNpcCommand(npcId: string, kind: V2NpcCommandKind): boolean;
   cancelNpcFollow(npcId: string): boolean;
+  getHumanTargets(): readonly V2HumanTargetSnapshot[];
+  releaseNpcTraversalForScriptedPhase(): void;
+  drainNpcTraversalRequests(): readonly V2NpcTraversalRequest[];
+  applyNpcTraversalResults(
+    results: readonly V2NpcTraversalResult[]
+  ): readonly V2NpcTraversalNotification[];
+  getNpcTraversalState(npcId: string): V2NpcTraversalState;
+  getNpcPosition(npcId: string): Vector3;
+  setNpcTransportPosition(npcId: string, position: Vector3): void;
   requestPlayerGunFire(direction: Vector3): boolean;
   replayExecution(): void;
   dispose(): void;
@@ -170,6 +240,11 @@ export type V2SurvivalRuntimeOptions = Readonly<{
   population: V2SurvivalPopulation;
   performanceDiagnostics: V2PerformanceDiagnostics | null;
   performanceWorkloadScenario: V2PerformanceScenario | null;
+  releaseStageTraversalForScriptedPhase(): void;
+  selectNavigationRoute(
+    context: V2NpcNavigationRouteContext,
+    candidates: readonly NavigationRouteCandidate[]
+  ): NavigationRouteCandidate | null;
 }>;
 
 const assertNonNegativeFiniteNumber = (name: string, value: number) => {
@@ -245,7 +320,9 @@ export const createV2SurvivalRuntime = ({
   getOrbVisibilityPredicate,
   population,
   performanceDiagnostics,
-  performanceWorkloadScenario
+  performanceWorkloadScenario,
+  releaseStageTraversalForScriptedPhase,
+  selectNavigationRoute
 }: V2SurvivalRuntimeOptions): V2SurvivalRuntime => {
   if (typeof random !== "function") {
     throw new Error("V2SurvivalRuntimeのrandomには関数が必要です。");
@@ -253,6 +330,14 @@ export const createV2SurvivalRuntime = ({
   if (typeof getOrbVisibilityPredicate !== "function") {
     throw new Error(
       "V2SurvivalRuntimeのgetOrbVisibilityPredicateには関数が必要です。"
+    );
+  }
+  if (
+    typeof releaseStageTraversalForScriptedPhase !==
+    "function"
+  ) {
+    throw new Error(
+      "V2SurvivalRuntimeのreleaseStageTraversalForScriptedPhaseには関数が必要です。"
     );
   }
   assertPopulation(population);
@@ -324,7 +409,8 @@ export const createV2SurvivalRuntime = ({
       initialBrainwashedNpcCount:
         population.initialBrainwashedNpcCount,
       diagnosticsEnabled: performanceDiagnostics !== null,
-      random
+      random,
+      selectNavigationRoute
     });
     ownedBitSystem = createV2BitSystem(scene, stage, {
       initialBitCount: population.bitCount,
@@ -487,6 +573,7 @@ export const createV2SurvivalRuntime = ({
   };
 
   const clearCombatForPhaseTransition = () => {
+    releaseStageTraversalForScriptedPhase();
     npcSystem.clearCommands();
     npcSystem.setAiSuspended(true);
     npcSystem.setExternalThreats(Object.freeze([]));
@@ -822,11 +909,25 @@ export const createV2SurvivalRuntime = ({
           `bit脅威元位置がありません: ${tracking.bitId}`
         );
       }
+      const target = humanTargets.find(
+        (candidate) => candidate.id === tracking.targetId
+      );
+      if (!target) {
+        throw new Error(
+          `bit脅威対象snapshotがありません: ${tracking.targetId}`
+        );
+      }
       targetIds.add(tracking.targetId);
       threats.push(
         Object.freeze({
+          sourceId: tracking.bitId,
           targetId: tracking.targetId,
-          sourcePosition: sourcePosition.clone()
+          sourcePosition: sourcePosition.clone(),
+          sightClear:
+            stage.queries.castSightSegment(
+              sourcePosition,
+              target.aimPosition
+            ) === null
         })
       );
     }
@@ -1020,24 +1121,14 @@ export const createV2SurvivalRuntime = ({
     const bitFrameView = bitSystem.getFrameView();
     const bitTracking = bitFrameView.targetStates;
     const playerStateSnapshot = playerCombat.getStateSnapshot();
-    let visualTargetCount = 0;
-    let alertTargetCount = 0;
+    const targetTrackingSummary = summarizeV2TargetTracking(
+      npcTracking,
+      bitTracking
+    );
     let brainwashedNpcCount = 0;
     for (const target of npcFrameView.targets) {
       if (target.brainwashed) {
         brainwashedNpcCount += 1;
-      }
-    }
-    for (const trackingCollection of [
-      npcTracking,
-      bitTracking
-    ] as const) {
-      for (const tracking of trackingCollection) {
-        if (tracking.provenance === "visual") {
-          visualTargetCount += 1;
-        } else if (tracking.provenance === "alert") {
-          alertTargetCount += 1;
-        }
       }
     }
     const executionFrame = executionSystem.getFrame();
@@ -1069,8 +1160,14 @@ export const createV2SurvivalRuntime = ({
         executionFrame.candidate?.targets.length ?? 0,
       executionCompletedTargetCount:
         executionFrame.completedTargetIds.length,
-      visualTargetCount,
-      alertTargetCount,
+      visualTargetCount:
+        targetTrackingSummary.visualTargetCount,
+      alertTargetCount:
+        targetTrackingSummary.alertTargetCount,
+      npcPlayerTargetCount:
+        targetTrackingSummary.npcPlayerTargetCount,
+      bitPlayerTargetCount:
+        targetTrackingSummary.bitPlayerTargetCount,
       blockerImpactCount,
       actorImpactCount
     });
@@ -1200,6 +1297,14 @@ export const createV2SurvivalRuntime = ({
           0
         );
         performanceDiagnostics.count("scenario.bit-count", 0);
+        performanceDiagnostics.count(
+          "scenario.npc-player-targets",
+          0
+        );
+        performanceDiagnostics.count(
+          "scenario.bit-player-targets",
+          0
+        );
       }
 
       rebuildHumanTargets();
@@ -1643,6 +1748,14 @@ export const createV2SurvivalRuntime = ({
         "scenario.brainwashed-npc-count",
         frame.brainwashedNpcCount
       );
+      performanceDiagnostics?.count(
+        "scenario.npc-player-targets",
+        frame.npcPlayerTargetCount
+      );
+      performanceDiagnostics?.count(
+        "scenario.bit-player-targets",
+        frame.bitPlayerTargetCount
+      );
       performanceDiagnostics?.finishSection(
         "frame-build",
         performanceSectionStartedAt
@@ -1700,6 +1813,40 @@ export const createV2SurvivalRuntime = ({
         return false;
       }
       return npcSystem.cancelFollow(npcId);
+    },
+    getHumanTargets: () => {
+      assertActive();
+      return rebuildHumanTargets();
+    },
+    releaseNpcTraversalForScriptedPhase: () => {
+      assertActive();
+      npcSystem.releaseTraversalForScriptedPhase();
+      rebuildHumanTargets();
+    },
+    drainNpcTraversalRequests: () => {
+      assertActive();
+      return npcSystem.drainTraversalRequests();
+    },
+    applyNpcTraversalResults: (results) => {
+      assertActive();
+      const notifications =
+        npcSystem.applyTraversalResults(results);
+      rebuildHumanTargets();
+      return notifications;
+    },
+    getNpcTraversalState: (npcId) => {
+      assertActive();
+      return npcSystem.getTraversalState(npcId);
+    },
+    getNpcPosition: (npcId) => {
+      assertActive();
+      return npcSystem.getNpcPosition(npcId);
+    },
+    setNpcTransportPosition: (npcId, position) => {
+      assertActive();
+      assertFiniteVector("NPC搬送位置", position);
+      npcSystem.setNpcTransportPosition(npcId, position);
+      rebuildHumanTargets();
     },
     requestPlayerGunFire: (direction) => {
       assertActive();

@@ -41,6 +41,7 @@ import {
 } from "./humanNavTileBundle";
 import {
   createDynamicStageSpatialVariants,
+  type DynamicStageSpatialActiveSet,
   type DynamicStageSpatialVariants
 } from "./dynamicStageSpatialVariants";
 import {
@@ -172,6 +173,7 @@ export type StageSpatialContext = Readonly<{
   stage: StageCatalogEntry;
   metadata: StageMetadata;
   resources: StageSpatialResources;
+  staticSpatialActiveSet: DynamicStageSpatialActiveSet;
   dynamicVariants: DynamicStageSpatialVariants;
   doorAssets: StageDoorAssetRegistry;
   elevatorAssets: StageElevatorAssetRegistry;
@@ -2004,6 +2006,20 @@ const applyRoomVariantActivation = (
 export type StageSpatialContextLoadOptions = Readonly<{
   queryDiagnostics?: StageSpatialQueryDiagnostics;
   roomVariantSelections?: readonly HumanNavRoomVariantSelection[];
+  initializeDynamicSpatial?(
+    input: StageDynamicSpatialInitializationInput
+  ): StageDynamicSpatialInitialization;
+}>;
+
+export type StageDynamicSpatialInitializationInput = Readonly<{
+  activeSet: DynamicStageSpatialActiveSet;
+  doorAssets: StageDoorAssetRegistry;
+  elevatorAssets: StageElevatorAssetRegistry;
+}>;
+
+export type StageDynamicSpatialInitialization = Readonly<{
+  staticActiveSet: DynamicStageSpatialActiveSet;
+  initialActiveSet: DynamicStageSpatialActiveSet;
 }>;
 
 export const loadStageSpatialContext = async (
@@ -2180,13 +2196,55 @@ export const loadStageSpatialContext = async (
       ...activeNormalColliders,
       ...classification.actorOnlyColliders
     ]);
-    const movementColliders: StageMovementColliderSets = Object.freeze({
+    const fullMovementColliders: StageMovementColliderSets =
+      Object.freeze({
       player: humanMovementColliders,
       npc: humanMovementColliders,
       bit: bitMovementColliders
     });
-    const beamBlockers = Object.freeze([...activeNormalColliders]);
-    const sightBlockers = Object.freeze([...activeNormalColliders]);
+    const fullBeamBlockers = Object.freeze([...activeNormalColliders]);
+    const fullSightBlockers = Object.freeze([...activeNormalColliders]);
+    const dynamicAssets = createStageDynamicAssetRegistries({
+      markerNodes: classification.markers.map((marker) => marker.node),
+      volumeMeshes: classification.volumes.map((volume) => volume.mesh),
+      visualMeshes: activeVisualMeshes,
+      normalColliders: activeNormalColliders,
+      humanOnlyColliders: classification.humanOnlyColliders,
+      links: links.all
+    });
+    const fullActiveSet: DynamicStageSpatialActiveSet = Object.freeze({
+      movementColliders: fullMovementColliders,
+      groundColliders: activeNormalColliders,
+      beamBlockers: fullBeamBlockers,
+      sightBlockers: fullSightBlockers,
+      bitObstacles: bitMovementColliders
+    });
+    const hasDynamicAssets =
+      dynamicAssets.doors.all.length > 0 ||
+      dynamicAssets.elevators.all.length > 0;
+    if (
+      hasDynamicAssets &&
+      options.initializeDynamicSpatial === undefined
+    ) {
+      throw new Error(
+        `動的資産を持つStageにはinitializeDynamicSpatialが必要です: ${stage.id}`
+      );
+    }
+    const dynamicSpatialInitialization =
+      options.initializeDynamicSpatial
+        ? options.initializeDynamicSpatial({
+            activeSet: fullActiveSet,
+            doorAssets: dynamicAssets.doors,
+            elevatorAssets: dynamicAssets.elevators
+          })
+        : Object.freeze({
+            staticActiveSet: fullActiveSet,
+            initialActiveSet: fullActiveSet
+          });
+    const staticSpatialActiveSet =
+      dynamicSpatialInitialization.staticActiveSet;
+    const initialActiveSet =
+      dynamicSpatialInitialization.initialActiveSet;
     const navSourceMeshes = Object.freeze(
       activeHumanNavSources.map((source) => source.mesh)
     );
@@ -2221,9 +2279,9 @@ export const loadStageSpatialContext = async (
       normalColliders: activeNormalColliders,
       actorOnlyColliders: Object.freeze([...classification.actorOnlyColliders]),
       humanOnlyColliders: Object.freeze([...classification.humanOnlyColliders]),
-      movementColliders,
-      beamBlockers,
-      sightBlockers,
+      movementColliders: fullMovementColliders,
+      beamBlockers: fullBeamBlockers,
+      sightBlockers: fullSightBlockers,
       navSourceMeshes,
       bitFlightNavSourceMeshes,
       semanticMeshes,
@@ -2234,23 +2292,8 @@ export const loadStageSpatialContext = async (
     });
     const markers = createMarkerRegistry(classification.markers);
     const volumes = createVolumeRegistry(classification.volumes);
-    const dynamicAssets = createStageDynamicAssetRegistries({
-      markerNodes: classification.markers.map((marker) => marker.node),
-      volumeMeshes: classification.volumes.map((volume) => volume.mesh),
-      visualMeshes: activeVisualMeshes,
-      normalColliders: activeNormalColliders,
-      humanOnlyColliders: classification.humanOnlyColliders,
-      links: links.all
-    });
-    dynamicVariants = createDynamicStageSpatialVariants(
-      Object.freeze({
-        movementColliders,
-        groundColliders: resources.normalColliders,
-        beamBlockers,
-        sightBlockers,
-        bitObstacles: bitMovementColliders
-      })
-    );
+    dynamicVariants =
+      createDynamicStageSpatialVariants(initialActiveSet);
     queries = createStageSpatialQueries(
       scene,
       dynamicVariants,
@@ -2295,6 +2338,7 @@ export const loadStageSpatialContext = async (
       stage,
       metadata: classification.metadata,
       resources,
+      staticSpatialActiveSet,
       dynamicVariants: ownedDynamicVariants,
       doorAssets: dynamicAssets.doors,
       elevatorAssets: dynamicAssets.elevators,

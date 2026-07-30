@@ -75,7 +75,7 @@ EXPECTED_CONSOLIDATED_MATERIAL_NAMES = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v2"
+EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v3"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 EXPECTED_SCHEMA_VERSION = 2
 EXPECTED_STAGE_ID = "school"
@@ -4660,16 +4660,11 @@ def audit_b03_3b_structure(
             for floor_base_z in (3.6, 7.2)
         ],
     )
-    waiting_mat_components = audit_box_components(
-        "VIS_B03_ElevatorWaitingMat_F01_F04",
-        [
-            (
-                (-8.68, -5.9, floor_base_z + 0.005),
-                (-7.68, -4.5, floor_base_z + 0.025),
-            )
-            for floor_base_z in (0.0, 10.8)
-        ],
+    require(
+        "VIS_B03_ElevatorWaitingMat_F01_F04" not in object_by_name,
+        "旧共用エレベーター待機マットが残っています",
     )
+    waiting_mat_components = 0
     adjustment_sign_components = audit_box_components(
         "VIS_B03_ElevatorAdjustmentSign_F02_F03",
         [

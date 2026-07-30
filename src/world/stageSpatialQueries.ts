@@ -1,4 +1,11 @@
-import { Mesh, Ray, Scene, Vector3, VertexBuffer } from "@babylonjs/core";
+import {
+  Matrix,
+  Mesh,
+  Ray,
+  Scene,
+  Vector3,
+  VertexBuffer
+} from "@babylonjs/core";
 
 import type { BitFlightBandRef } from "./bitFlightNavigation";
 import {
@@ -31,6 +38,13 @@ export type StageVolume = Readonly<{
   bitFlightBand: BitFlightBandRef | null;
   mesh: Mesh;
 }>;
+
+export type StageCharacterEllipsoid = Readonly<{
+  center: Vector3;
+  radii: Vector3;
+}>;
+
+export type StageSpatialBlockerKind = "beam" | "sight";
 
 export type SpatialHit = Readonly<{
   point: Vector3;
@@ -96,6 +110,15 @@ export interface StageSpatialQueries {
   castSightSegment(from: Vector3, to: Vector3): SpatialHit | null;
   sampleGround(origin: Vector3, maxDistance: number): SpatialHit | null;
   containsVolume(role: StageVolumeRole, point: Vector3): boolean;
+  containsVolumeById(id: string, point: Vector3): boolean;
+  intersectsVolumeById(
+    id: string,
+    ellipsoid: StageCharacterEllipsoid
+  ): boolean;
+  findContainingBlocker(
+    kind: StageSpatialBlockerKind,
+    point: Vector3
+  ): Mesh | null;
   dispose(): void;
 }
 
@@ -113,9 +136,42 @@ const SWEEP_DISTANCE_EPSILON = 1e-9;
 const KNOWN_SAFE_CENTER_CACHE_MAX_ENTRIES = 16_384;
 const GROUND_SAMPLE_CACHE_MAX_ENTRIES = 65_536;
 
+const assertFiniteVector = (name: string, value: Vector3) => {
+  if (
+    !Number.isFinite(value.x) ||
+    !Number.isFinite(value.y) ||
+    !Number.isFinite(value.z)
+  ) {
+    throw new Error(`${name}には有限の3D座標が必要です。`);
+  }
+};
+
+const assertCharacterEllipsoid = (
+  ellipsoid: StageCharacterEllipsoid
+) => {
+  assertFiniteVector("人物楕円体の中心", ellipsoid.center);
+  assertFiniteVector("人物楕円体の半径", ellipsoid.radii);
+  if (
+    ellipsoid.radii.x <= 0 ||
+    ellipsoid.radii.y <= 0 ||
+    ellipsoid.radii.z <= 0
+  ) {
+    throw new Error("人物楕円体の各半径には正の有限値が必要です。");
+  }
+};
+
 type StaticMeshSpatialIndex = Readonly<{
   query(from: Vector3, to: Vector3, padding?: number): readonly Mesh[];
   dispose(): void;
+}>;
+
+type MeshWorldBounds = Readonly<{
+  minimumX: number;
+  minimumY: number;
+  minimumZ: number;
+  maximumX: number;
+  maximumY: number;
+  maximumZ: number;
 }>;
 
 const spatialCellKey = (x: number, y: number, z: number) => `${x}:${y}:${z}`;
@@ -197,6 +253,79 @@ const createStaticMeshSpatialIndex = (
   return Object.freeze(index);
 };
 
+const createLayeredStaticMeshSpatialIndex = (
+  baseIndex: StaticMeshSpatialIndex,
+  activeMeshes: ReadonlySet<Mesh>,
+  dynamicBoundsByMesh: ReadonlyMap<Mesh, MeshWorldBounds>,
+  sceneOrderByMesh: ReadonlyMap<Mesh, number>
+): StaticMeshSpatialIndex => {
+  const active = new Set(activeMeshes);
+  const dynamicBounds = new Map(dynamicBoundsByMesh);
+  const query = (
+    from: Vector3,
+    to: Vector3,
+    padding = 0
+  ): readonly Mesh[] => {
+    const candidates = new Set<Mesh>();
+    for (const mesh of baseIndex.query(from, to, padding)) {
+      if (active.has(mesh) && !dynamicBounds.has(mesh)) {
+        candidates.add(mesh);
+      }
+    }
+    const minimumX =
+      Math.min(from.x, to.x) -
+      padding -
+      SWEEP_DISTANCE_EPSILON;
+    const minimumY =
+      Math.min(from.y, to.y) -
+      padding -
+      SWEEP_DISTANCE_EPSILON;
+    const minimumZ =
+      Math.min(from.z, to.z) -
+      padding -
+      SWEEP_DISTANCE_EPSILON;
+    const maximumX =
+      Math.max(from.x, to.x) +
+      padding +
+      SWEEP_DISTANCE_EPSILON;
+    const maximumY =
+      Math.max(from.y, to.y) +
+      padding +
+      SWEEP_DISTANCE_EPSILON;
+    const maximumZ =
+      Math.max(from.z, to.z) +
+      padding +
+      SWEEP_DISTANCE_EPSILON;
+    for (const [mesh, bounds] of dynamicBounds) {
+      if (
+        bounds.maximumX < minimumX ||
+        bounds.minimumX > maximumX ||
+        bounds.maximumY < minimumY ||
+        bounds.minimumY > maximumY ||
+        bounds.maximumZ < minimumZ ||
+        bounds.minimumZ > maximumZ
+      ) {
+        continue;
+      }
+      candidates.add(mesh);
+    }
+    return Object.freeze(
+      [...candidates].sort(
+        (left, right) =>
+          sceneOrderByMesh.get(left)! -
+          sceneOrderByMesh.get(right)!
+      )
+    );
+  };
+  return Object.freeze({
+    query,
+    dispose: () => {
+      active.clear();
+      dynamicBounds.clear();
+    }
+  });
+};
+
 const toSpatialHit = (
   pickedPoint: Vector3,
   pickedNormal: Vector3,
@@ -214,14 +343,15 @@ const cloneSpatialHit = (hit: SpatialHit): SpatialHit =>
 
 type WorldTriangle = readonly [Vector3, Vector3, Vector3];
 
-const buildWorldTriangles = (mesh: Mesh): readonly WorldTriangle[] => {
+const buildWorldTrianglesAtMatrix = (
+  mesh: Mesh,
+  world: Matrix
+): readonly WorldTriangle[] => {
   const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
   const indices = mesh.getIndices();
   if (!positions || !indices || indices.length % 3 !== 0) {
     throw new Error(`閉じた三角形Meshが必要です: ${mesh.name}`);
   }
-
-  const world = mesh.computeWorldMatrix(true);
   const triangles: WorldTriangle[] = [];
   for (let index = 0; index < indices.length; index += 3) {
     triangles.push([
@@ -241,6 +371,12 @@ const buildWorldTriangles = (mesh: Mesh): readonly WorldTriangle[] => {
   }
   return triangles;
 };
+
+const buildWorldTriangles = (mesh: Mesh): readonly WorldTriangle[] =>
+  buildWorldTrianglesAtMatrix(
+    mesh,
+    mesh.computeWorldMatrix(true)
+  );
 
 type IndexedWorldTriangle = Readonly<{
   sceneOrder: number;
@@ -1720,6 +1856,74 @@ const createContainsPointQueryFromTriangles = (
 const createContainsPointQuery = (mesh: Mesh) =>
   createContainsPointQueryFromTriangles(buildWorldTriangles(mesh));
 
+const createIntersectsEllipsoidQueryFromTriangles = (
+  triangles: readonly WorldTriangle[],
+  containsPoint: (point: Vector3) => boolean
+) => {
+  const scaledFirst = Vector3.Zero();
+  const scaledSecond = Vector3.Zero();
+  const scaledThird = Vector3.Zero();
+  const projectedPoint = Vector3.Zero();
+  const origin = Vector3.Zero();
+  return (ellipsoid: StageCharacterEllipsoid): boolean => {
+    if (containsPoint(ellipsoid.center)) {
+      return true;
+    }
+    for (const triangle of triangles) {
+      scaledFirst.set(
+        (triangle[0].x - ellipsoid.center.x) /
+          ellipsoid.radii.x,
+        (triangle[0].y - ellipsoid.center.y) /
+          ellipsoid.radii.y,
+        (triangle[0].z - ellipsoid.center.z) /
+          ellipsoid.radii.z
+      );
+      scaledSecond.set(
+        (triangle[1].x - ellipsoid.center.x) /
+          ellipsoid.radii.x,
+        (triangle[1].y - ellipsoid.center.y) /
+          ellipsoid.radii.y,
+        (triangle[1].z - ellipsoid.center.z) /
+          ellipsoid.radii.z
+      );
+      scaledThird.set(
+        (triangle[2].x - ellipsoid.center.x) /
+          ellipsoid.radii.x,
+        (triangle[2].y - ellipsoid.center.y) /
+          ellipsoid.radii.y,
+        (triangle[2].z - ellipsoid.center.z) /
+          ellipsoid.radii.z
+      );
+      const distance = Vector3.ProjectOnTriangleToRef(
+        origin,
+        scaledFirst,
+        scaledSecond,
+        scaledThird,
+        projectedPoint
+      );
+      if (distance <= 1 + SURFACE_DISTANCE_EPSILON) {
+        return true;
+      }
+    }
+    return false;
+  };
+};
+
+export const intersectsCharacterEllipsoidWithMeshAtWorldMatrix = (
+  mesh: Mesh,
+  world: Matrix,
+  ellipsoid: StageCharacterEllipsoid
+): boolean => {
+  assertCharacterEllipsoid(ellipsoid);
+  const triangles = buildWorldTrianglesAtMatrix(mesh, world);
+  const containsPoint =
+    createContainsPointQueryFromTriangles(triangles);
+  return createIntersectsEllipsoidQueryFromTriangles(
+    triangles,
+    containsPoint
+  )(ellipsoid);
+};
+
 const segmentIntersectsTriangleBoundary = (
   from: Vector3,
   to: Vector3,
@@ -2006,6 +2210,145 @@ const castSphere = (
   };
 };
 
+const createLayeredTriangleSpatialIndex = (
+  baseIndex: StaticTriangleSpatialIndex,
+  dynamicIndicesByMesh: ReadonlyMap<
+    Mesh,
+    StaticTriangleSpatialIndex
+  >,
+  movementMeshes: Readonly<
+    Record<StageMoverKind, ReadonlySet<Mesh>>
+  >,
+  sceneOrderByMesh: ReadonlyMap<Mesh, number>
+): StaticTriangleSpatialIndex => {
+  const dynamicIndices = new Map(dynamicIndicesByMesh);
+  const movementMeshSets: Record<StageMoverKind, Set<Mesh>> = {
+    player: new Set(movementMeshes.player),
+    npc: new Set(movementMeshes.npc),
+    bit: new Set(movementMeshes.bit)
+  };
+  const query: StaticTriangleSpatialIndex["query"] = (
+    from,
+    to,
+    padding,
+    allowedMeshes
+  ) => {
+    const staticAllowedMeshes = new Set(
+      [...allowedMeshes].filter(
+        (mesh) => !dynamicIndices.has(mesh)
+      )
+    );
+    const baseResult = baseIndex.query(
+      from,
+      to,
+      padding,
+      staticAllowedMeshes
+    );
+    const candidatesByMesh = new Map(
+      baseResult.candidatesByMesh
+    );
+    let visitedNodeCount = baseResult.visitedNodeCount;
+    let indexedTriangleCount = baseResult.indexedTriangleCount;
+    for (const [mesh, dynamicIndex] of dynamicIndices) {
+      if (!allowedMeshes.has(mesh)) {
+        continue;
+      }
+      const result = dynamicIndex.query(
+        from,
+        to,
+        padding,
+        new Set([mesh])
+      );
+      visitedNodeCount += result.visitedNodeCount;
+      indexedTriangleCount += result.indexedTriangleCount;
+      const candidates = result.candidatesByMesh.get(mesh);
+      if (candidates) {
+        candidatesByMesh.set(mesh, candidates);
+      }
+    }
+    return Object.freeze({
+      candidatesByMesh,
+      orderedMeshes: Object.freeze(
+        [...candidatesByMesh.keys()].sort(
+          (left, right) =>
+            sceneOrderByMesh.get(left)! -
+            sceneOrderByMesh.get(right)!
+        )
+      ),
+      visitedNodeCount,
+      indexedTriangleCount
+    });
+  };
+  const visitMovementSphereCandidates: StaticTriangleSpatialIndex["visitMovementSphereCandidates"] =
+    (
+      moverKind,
+      from,
+      to,
+      padding,
+      state,
+      context,
+      visitor
+    ) => {
+      const allowedMeshes = movementMeshSets[moverKind];
+      const baseState: TriangleCandidateVisitState = {
+        visitedNodeCount: 0,
+        indexedTriangleCount: 0
+      };
+      let indexedTriangleCount = 0;
+      baseIndex.visitMovementSphereCandidates(
+        moverKind,
+        from,
+        to,
+        padding,
+        baseState,
+        undefined,
+        (_unused, candidate) => {
+          if (
+            allowedMeshes.has(candidate.mesh) &&
+            !dynamicIndices.has(candidate.mesh)
+          ) {
+            indexedTriangleCount += 1;
+            visitor(context, candidate);
+          }
+        }
+      );
+      let visitedNodeCount = baseState.visitedNodeCount;
+      for (const [mesh, dynamicIndex] of dynamicIndices) {
+        if (!allowedMeshes.has(mesh)) {
+          continue;
+        }
+        const dynamicState: TriangleCandidateVisitState = {
+          visitedNodeCount: 0,
+          indexedTriangleCount: 0
+        };
+        dynamicIndex.visitMovementSphereCandidates(
+          moverKind,
+          from,
+          to,
+          padding,
+          dynamicState,
+          context,
+          visitor
+        );
+        visitedNodeCount += dynamicState.visitedNodeCount;
+        indexedTriangleCount +=
+          dynamicState.indexedTriangleCount;
+      }
+      state.visitedNodeCount = visitedNodeCount;
+      state.indexedTriangleCount = indexedTriangleCount;
+    };
+  return Object.freeze({
+    query,
+    visitMovementSphereCandidates,
+    dispose: () => {
+      dynamicIndices.clear();
+      for (const moverKind of STAGE_MOVER_KINDS) {
+        movementMeshSets[moverKind].clear();
+      }
+    }
+  });
+};
+
 type StageSpatialRevisionResources = Readonly<{
   movementColliderIndices: Readonly<
     Record<StageMoverKind, StaticMeshSpatialIndex>
@@ -2016,6 +2359,9 @@ type StageSpatialRevisionResources = Readonly<{
   groundColliderMeshes: ReadonlySet<Mesh>;
   beamBlockerMeshes: ReadonlySet<Mesh>;
   sightBlockerMeshes: ReadonlySet<Mesh>;
+  blockerIndices: Readonly<
+    Record<StageSpatialBlockerKind, StaticMeshSpatialIndex>
+  >;
   movementTrianglesByMesh: ReadonlyMap<
     Mesh,
     readonly WorldTriangle[]
@@ -2028,6 +2374,14 @@ type StageSpatialRevisionResources = Readonly<{
     StageVolume,
     (point: Vector3) => boolean
   >;
+  intersectsEllipsoidByVolume: ReadonlyMap<
+    StageVolume,
+    (ellipsoid: StageCharacterEllipsoid) => boolean
+  >;
+  containsByBlocker: ReadonlyMap<
+    Mesh,
+    (point: Vector3) => boolean
+  >;
   triangleSpatialIndex: StaticTriangleSpatialIndex;
   knownSafeCenterCache: KnownSafeCenterCache;
   sphereSweepScratch: SphereSweepScratch;
@@ -2038,126 +2392,480 @@ type StageSpatialRevisionResources = Readonly<{
   dispose(): void;
 }>;
 
-const createStageSpatialRevisionResources = (
-  snapshot: DynamicStageSpatialSnapshot,
+type MeshRevisionCacheRecord = {
+  mesh: Mesh;
+  worldMatrix: readonly number[];
+  bounds: MeshWorldBounds;
+  triangles: readonly WorldTriangle[];
+  containsPoint(point: Vector3): boolean;
+  intersectsEllipsoid(
+    ellipsoid: StageCharacterEllipsoid
+  ): boolean;
+  triangleSpatialIndex: StaticTriangleSpatialIndex | null;
+  referenceCount: number;
+  retired: boolean;
+};
+
+type StageSpatialRevisionResourceCache = Readonly<{
+  prepare(
+    snapshot: DynamicStageSpatialSnapshot
+  ): StageSpatialRevisionResources;
+  dispose(): void;
+}>;
+
+const MESH_MEMBERSHIP_PLAYER = 1 << 0;
+const MESH_MEMBERSHIP_NPC = 1 << 1;
+const MESH_MEMBERSHIP_BIT = 1 << 2;
+const MESH_MEMBERSHIP_GROUND = 1 << 3;
+const MESH_MEMBERSHIP_BEAM = 1 << 4;
+const MESH_MEMBERSHIP_SIGHT = 1 << 5;
+
+const createMeshMembershipByMesh = (
+  snapshot: DynamicStageSpatialSnapshot
+) => {
+  const membershipByMesh = new Map<Mesh, number>();
+  const add = (meshes: readonly Mesh[], membership: number) => {
+    for (const mesh of meshes) {
+      membershipByMesh.set(
+        mesh,
+        (membershipByMesh.get(mesh) ?? 0) | membership
+      );
+    }
+  };
+  add(
+    snapshot.movementColliders.player,
+    MESH_MEMBERSHIP_PLAYER
+  );
+  add(snapshot.movementColliders.npc, MESH_MEMBERSHIP_NPC);
+  add(snapshot.movementColliders.bit, MESH_MEMBERSHIP_BIT);
+  add(snapshot.groundColliders, MESH_MEMBERSHIP_GROUND);
+  add(snapshot.beamBlockers, MESH_MEMBERSHIP_BEAM);
+  add(snapshot.sightBlockers, MESH_MEMBERSHIP_SIGHT);
+  return membershipByMesh;
+};
+
+const matrixValuesEqual = (
+  left: readonly number[],
+  right: Matrix
+) => {
+  const rightValues = right.m;
+  for (let index = 0; index < 16; index += 1) {
+    if (left[index] !== rightValues[index]) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const createStageSpatialRevisionResourceCache = (
+  initialSnapshot: DynamicStageSpatialSnapshot,
   sceneOrderByMesh: ReadonlyMap<Mesh, number>,
   volumes: readonly StageVolume[]
-): StageSpatialRevisionResources => {
-  const movementColliderIndices: Readonly<
+): StageSpatialRevisionResourceCache => {
+  const currentRecordByMesh =
+    new Map<Mesh, MeshRevisionCacheRecord>();
+  const promotedMeshes = new Set<Mesh>();
+  let activeResourceCount = 0;
+  let disposed = false;
+  let finalized = false;
+
+  const disposeRecord = (record: MeshRevisionCacheRecord) => {
+    record.triangleSpatialIndex?.dispose();
+    record.triangleSpatialIndex = null;
+  };
+  const retireRecord = (record: MeshRevisionCacheRecord) => {
+    record.retired = true;
+    if (record.referenceCount === 0) {
+      disposeRecord(record);
+    }
+  };
+  const createRecord = (
+    mesh: Mesh,
+    world: Matrix
+  ): MeshRevisionCacheRecord => {
+    const triangles = buildWorldTrianglesAtMatrix(mesh, world);
+    const containsPoint =
+      createContainsPointQueryFromTriangles(triangles);
+    const bounds = mesh.getBoundingInfo().boundingBox;
+    return {
+      mesh,
+      worldMatrix: Object.freeze([...world.m]),
+      bounds: Object.freeze({
+        minimumX: bounds.minimumWorld.x,
+        minimumY: bounds.minimumWorld.y,
+        minimumZ: bounds.minimumWorld.z,
+        maximumX: bounds.maximumWorld.x,
+        maximumY: bounds.maximumWorld.y,
+        maximumZ: bounds.maximumWorld.z
+      }),
+      triangles,
+      containsPoint,
+      intersectsEllipsoid:
+        createIntersectsEllipsoidQueryFromTriangles(
+          triangles,
+          containsPoint
+        ),
+      triangleSpatialIndex: null,
+      referenceCount: 0,
+      retired: false
+    };
+  };
+  const getRecord = (mesh: Mesh) => {
+    const world = mesh.computeWorldMatrix(true);
+    const current = currentRecordByMesh.get(mesh);
+    if (current && matrixValuesEqual(current.worldMatrix, world)) {
+      return current;
+    }
+    const next = createRecord(mesh, world.clone());
+    currentRecordByMesh.set(mesh, next);
+    if (current) {
+      retireRecord(current);
+    }
+    return next;
+  };
+  const getTriangleSpatialIndex = (
+    record: MeshRevisionCacheRecord
+  ) => {
+    if (record.triangleSpatialIndex) {
+      return record.triangleSpatialIndex;
+    }
+    const meshSet = new Set([record.mesh]);
+    record.triangleSpatialIndex =
+      createStaticTriangleSpatialIndex(
+        new Map([[record.mesh, record.triangles]]),
+        sceneOrderByMesh,
+        {
+          player: meshSet,
+          npc: meshSet,
+          bit: meshSet
+        }
+      );
+    return record.triangleSpatialIndex;
+  };
+
+  // 初期snapshotを不変baseとして保持し、Transformまたは集合所属が
+  // 一度でも変わったMeshだけをrevisionごとの動的層へ昇格する。
+  const initialMembershipByMesh =
+    createMeshMembershipByMesh(initialSnapshot);
+  const initialWorldMatrixByMesh =
+    new Map<Mesh, readonly number[]>();
+  const initialRecordsByMesh =
+    new Map<Mesh, MeshRevisionCacheRecord>();
+  for (const mesh of new Set([
+    ...initialMembershipByMesh.keys(),
+    ...volumes.map((volume) => volume.mesh)
+  ])) {
+    const record = getRecord(mesh);
+    initialRecordsByMesh.set(mesh, record);
+    if (initialMembershipByMesh.has(mesh)) {
+      initialWorldMatrixByMesh.set(mesh, record.worldMatrix);
+    }
+  }
+  const initialMovementMeshSets: Readonly<
+    Record<StageMoverKind, ReadonlySet<Mesh>>
+  > = Object.freeze({
+    player: new Set(initialSnapshot.movementColliders.player),
+    npc: new Set(initialSnapshot.movementColliders.npc),
+    bit: new Set(initialSnapshot.movementColliders.bit)
+  });
+  const initialTriangleMeshes = new Set(
+    initialMembershipByMesh.keys()
+  );
+  const initialTrianglesByMesh = new Map(
+    [...initialTriangleMeshes].map((mesh) => [
+      mesh,
+      initialRecordsByMesh.get(mesh)!.triangles
+    ])
+  );
+  const baseMovementColliderIndices: Readonly<
     Record<StageMoverKind, StaticMeshSpatialIndex>
-  > =
-    Object.freeze({
-      player: createStaticMeshSpatialIndex(
-        snapshot.movementColliders.player,
+  > = Object.freeze({
+    player: createStaticMeshSpatialIndex(
+      initialSnapshot.movementColliders.player,
+      sceneOrderByMesh
+    ),
+    npc: createStaticMeshSpatialIndex(
+      initialSnapshot.movementColliders.npc,
+      sceneOrderByMesh
+    ),
+    bit: createStaticMeshSpatialIndex(
+      initialSnapshot.movementColliders.bit,
+      sceneOrderByMesh
+    )
+  });
+  const baseBlockerIndices: Readonly<
+    Record<StageSpatialBlockerKind, StaticMeshSpatialIndex>
+  > = Object.freeze({
+    beam: createStaticMeshSpatialIndex(
+      initialSnapshot.beamBlockers,
+      sceneOrderByMesh
+    ),
+    sight: createStaticMeshSpatialIndex(
+      initialSnapshot.sightBlockers,
+      sceneOrderByMesh
+    )
+  });
+  const baseTriangleSpatialIndex =
+    createStaticTriangleSpatialIndex(
+      initialTrianglesByMesh,
+      sceneOrderByMesh,
+      initialMovementMeshSets
+    );
+  initialTrianglesByMesh.clear();
+  initialRecordsByMesh.clear();
+
+  const finalize = () => {
+    if (!disposed || activeResourceCount !== 0 || finalized) {
+      return;
+    }
+    finalized = true;
+    for (const index of Object.values(
+      baseMovementColliderIndices
+    )) {
+      index.dispose();
+    }
+    for (const index of Object.values(baseBlockerIndices)) {
+      index.dispose();
+    }
+    baseTriangleSpatialIndex.dispose();
+  };
+  const releaseRecords = (
+    records: ReadonlySet<MeshRevisionCacheRecord>
+  ) => {
+    // 旧revisionのquery leaseが残る間は、そのworld triangle/BVHを保持する。
+    for (const record of records) {
+      record.referenceCount -= 1;
+      if (record.retired && record.referenceCount === 0) {
+        disposeRecord(record);
+      }
+    }
+    activeResourceCount -= 1;
+    finalize();
+  };
+
+  const prepare = (
+    snapshot: DynamicStageSpatialSnapshot
+  ): StageSpatialRevisionResources => {
+    const membershipByMesh =
+      createMeshMembershipByMesh(snapshot);
+    for (const mesh of new Set([
+      ...initialMembershipByMesh.keys(),
+      ...membershipByMesh.keys()
+    ])) {
+      if (
+        (initialMembershipByMesh.get(mesh) ?? 0) !==
+        (membershipByMesh.get(mesh) ?? 0)
+      ) {
+        promotedMeshes.add(mesh);
+      }
+    }
+
+    const requiredMeshes = new Set([
+      ...membershipByMesh.keys(),
+      ...volumes.map((volume) => volume.mesh)
+    ]);
+    const recordsByMesh =
+      new Map<Mesh, MeshRevisionCacheRecord>();
+    for (const mesh of requiredMeshes) {
+      const record = getRecord(mesh);
+      recordsByMesh.set(mesh, record);
+      const initialWorldMatrix =
+        initialWorldMatrixByMesh.get(mesh);
+      if (
+        membershipByMesh.has(mesh) &&
+        (!initialWorldMatrix ||
+          !matrixValuesEqual(
+            initialWorldMatrix,
+            mesh.getWorldMatrix()
+          ))
+      ) {
+        promotedMeshes.add(mesh);
+      }
+    }
+    for (const [mesh, record] of currentRecordByMesh) {
+      if (requiredMeshes.has(mesh)) {
+        continue;
+      }
+      currentRecordByMesh.delete(mesh);
+      retireRecord(record);
+    }
+
+    const movementColliderMeshes = new Set<Mesh>([
+      ...snapshot.movementColliders.player,
+      ...snapshot.movementColliders.npc,
+      ...snapshot.movementColliders.bit
+    ]);
+    const movementColliderMeshSets: Readonly<
+      Record<StageMoverKind, ReadonlySet<Mesh>>
+    > = Object.freeze({
+      player: new Set(snapshot.movementColliders.player),
+      npc: new Set(snapshot.movementColliders.npc),
+      bit: new Set(snapshot.movementColliders.bit)
+    });
+    const groundColliderMeshes = new Set(
+      snapshot.groundColliders
+    );
+    const beamBlockerMeshes = new Set(snapshot.beamBlockers);
+    const sightBlockerMeshes = new Set(snapshot.sightBlockers);
+    const dynamicRecordsByMesh = new Map(
+      [...membershipByMesh.keys()]
+        .filter((mesh) => promotedMeshes.has(mesh))
+        .map((mesh) => [mesh, recordsByMesh.get(mesh)!])
+    );
+    const dynamicBoundsFor = (
+      activeMeshes: ReadonlySet<Mesh>
+    ) =>
+      new Map(
+        [...dynamicRecordsByMesh]
+          .filter(([mesh]) => activeMeshes.has(mesh))
+          .map(([mesh, record]) => [mesh, record.bounds])
+      );
+    const movementColliderIndices: Readonly<
+      Record<StageMoverKind, StaticMeshSpatialIndex>
+    > = Object.freeze({
+      player: createLayeredStaticMeshSpatialIndex(
+        baseMovementColliderIndices.player,
+        movementColliderMeshSets.player,
+        dynamicBoundsFor(movementColliderMeshSets.player),
         sceneOrderByMesh
       ),
-      npc: createStaticMeshSpatialIndex(
-        snapshot.movementColliders.npc,
+      npc: createLayeredStaticMeshSpatialIndex(
+        baseMovementColliderIndices.npc,
+        movementColliderMeshSets.npc,
+        dynamicBoundsFor(movementColliderMeshSets.npc),
         sceneOrderByMesh
       ),
-      bit: createStaticMeshSpatialIndex(
-        snapshot.movementColliders.bit,
+      bit: createLayeredStaticMeshSpatialIndex(
+        baseMovementColliderIndices.bit,
+        movementColliderMeshSets.bit,
+        dynamicBoundsFor(movementColliderMeshSets.bit),
         sceneOrderByMesh
       )
     });
-  const movementColliderMeshes = new Set<Mesh>([
-    ...snapshot.movementColliders.player,
-    ...snapshot.movementColliders.npc,
-    ...snapshot.movementColliders.bit
-  ]);
-  const movementColliderMeshSets: Readonly<
-    Record<StageMoverKind, ReadonlySet<Mesh>>
-  > = Object.freeze({
-    player: new Set(snapshot.movementColliders.player),
-    npc: new Set(snapshot.movementColliders.npc),
-    bit: new Set(snapshot.movementColliders.bit)
-  });
-  const groundColliderMeshes = new Set(snapshot.groundColliders);
-  const beamBlockerMeshes = new Set(snapshot.beamBlockers);
-  const sightBlockerMeshes = new Set(snapshot.sightBlockers);
-  const movementTrianglesByMesh = new Map<
-    Mesh,
-    readonly WorldTriangle[]
-  >();
-  const movementContainsByMesh = new Map<
-    Mesh,
-    (point: Vector3) => boolean
-  >();
-  const containsByVolume = new Map<
-    StageVolume,
-    (point: Vector3) => boolean
-  >(
-    volumes.map((volume) => [
-      volume,
-      createContainsPointQuery(volume.mesh)
-    ])
-  );
-  const worldTrianglesByMesh = new Map<
-    Mesh,
-    readonly WorldTriangle[]
-  >();
-  const getWorldTriangles = (mesh: Mesh) => {
-    const existing = worldTrianglesByMesh.get(mesh);
-    if (existing) {
-      return existing;
-    }
-    const triangles = buildWorldTriangles(mesh);
-    worldTrianglesByMesh.set(mesh, triangles);
-    return triangles;
-  };
-  for (const mesh of movementColliderMeshes) {
-    const triangles = getWorldTriangles(mesh);
-    movementTrianglesByMesh.set(mesh, triangles);
-    movementContainsByMesh.set(
-      mesh,
-      createContainsPointQueryFromTriangles(triangles)
+    const blockerIndices: Readonly<
+      Record<StageSpatialBlockerKind, StaticMeshSpatialIndex>
+    > = Object.freeze({
+      beam: createLayeredStaticMeshSpatialIndex(
+        baseBlockerIndices.beam,
+        beamBlockerMeshes,
+        dynamicBoundsFor(beamBlockerMeshes),
+        sceneOrderByMesh
+      ),
+      sight: createLayeredStaticMeshSpatialIndex(
+        baseBlockerIndices.sight,
+        sightBlockerMeshes,
+        dynamicBoundsFor(sightBlockerMeshes),
+        sceneOrderByMesh
+      )
+    });
+    const dynamicTriangleIndicesByMesh = new Map(
+      [...dynamicRecordsByMesh].map(([mesh, record]) => [
+        mesh,
+        getTriangleSpatialIndex(record)
+      ])
     );
-  }
-  const allTriangleMeshes = new Set<Mesh>([
-    ...movementColliderMeshes,
-    ...groundColliderMeshes,
-    ...beamBlockerMeshes,
-    ...sightBlockerMeshes
-  ]);
-  for (const mesh of allTriangleMeshes) {
-    getWorldTriangles(mesh);
-  }
-  const triangleSpatialIndex = createStaticTriangleSpatialIndex(
-    worldTrianglesByMesh,
-    sceneOrderByMesh,
-    movementColliderMeshSets
-  );
-  const knownSafeCenterCache = createKnownSafeCenterCache();
-  const sphereSweepScratch = createSphereSweepScratch();
-  const groundSampleCache = new Map<
-    string,
-    Readonly<{ hit: SpatialHit | null }>
-  >();
+    const triangleSpatialIndex =
+      createLayeredTriangleSpatialIndex(
+        baseTriangleSpatialIndex,
+        dynamicTriangleIndicesByMesh,
+        movementColliderMeshSets,
+        sceneOrderByMesh
+      );
+    const movementTrianglesByMesh = new Map(
+      [...movementColliderMeshes].map((mesh) => [
+        mesh,
+        recordsByMesh.get(mesh)!.triangles
+      ])
+    );
+    const movementContainsByMesh = new Map(
+      [...movementColliderMeshes].map((mesh) => [
+        mesh,
+        recordsByMesh.get(mesh)!.containsPoint
+      ])
+    );
+    const containsByVolume = new Map(
+      volumes.map((volume) => [
+        volume,
+        recordsByMesh.get(volume.mesh)!.containsPoint
+      ])
+    );
+    const intersectsEllipsoidByVolume = new Map(
+      volumes.map((volume) => [
+        volume,
+        recordsByMesh.get(volume.mesh)!.intersectsEllipsoid
+      ])
+    );
+    const containsByBlocker = new Map(
+      [...new Set([
+        ...beamBlockerMeshes,
+        ...sightBlockerMeshes
+      ])].map((mesh) => [
+        mesh,
+        recordsByMesh.get(mesh)!.containsPoint
+      ])
+    );
+    const retainedRecords = new Set(recordsByMesh.values());
+    for (const record of retainedRecords) {
+      record.referenceCount += 1;
+    }
+    activeResourceCount += 1;
+    const knownSafeCenterCache = createKnownSafeCenterCache();
+    const sphereSweepScratch = createSphereSweepScratch();
+    const groundSampleCache = new Map<
+      string,
+      Readonly<{ hit: SpatialHit | null }>
+    >();
+
+    return Object.freeze({
+      movementColliderIndices,
+      movementColliderMeshSets,
+      groundColliderMeshes,
+      beamBlockerMeshes,
+      sightBlockerMeshes,
+      blockerIndices,
+      movementTrianglesByMesh,
+      movementContainsByMesh,
+      containsByVolume,
+      intersectsEllipsoidByVolume,
+      containsByBlocker,
+      triangleSpatialIndex,
+      knownSafeCenterCache,
+      sphereSweepScratch,
+      groundSampleCache,
+      dispose: () => {
+        for (const index of Object.values(
+          movementColliderIndices
+        )) {
+          index.dispose();
+        }
+        for (const index of Object.values(blockerIndices)) {
+          index.dispose();
+        }
+        triangleSpatialIndex.dispose();
+        knownSafeCenterCache.dispose();
+        groundSampleCache.clear();
+        movementTrianglesByMesh.clear();
+        movementContainsByMesh.clear();
+        containsByVolume.clear();
+        intersectsEllipsoidByVolume.clear();
+        containsByBlocker.clear();
+        releaseRecords(retainedRecords);
+      }
+    });
+  };
 
   return Object.freeze({
-    movementColliderIndices,
-    movementColliderMeshSets,
-    groundColliderMeshes,
-    beamBlockerMeshes,
-    sightBlockerMeshes,
-    movementTrianglesByMesh,
-    movementContainsByMesh,
-    containsByVolume,
-    triangleSpatialIndex,
-    knownSafeCenterCache,
-    sphereSweepScratch,
-    groundSampleCache,
+    prepare,
     dispose: () => {
-      for (const index of Object.values(movementColliderIndices)) {
-        index.dispose();
+      disposed = true;
+      for (const record of currentRecordByMesh.values()) {
+        retireRecord(record);
       }
-      triangleSpatialIndex.dispose();
-      knownSafeCenterCache.dispose();
-      groundSampleCache.clear();
-      movementTrianglesByMesh.clear();
-      movementContainsByMesh.clear();
-      containsByVolume.clear();
-      worldTrianglesByMesh.clear();
+      currentRecordByMesh.clear();
+      promotedMeshes.clear();
+      initialMembershipByMesh.clear();
+      initialWorldMatrixByMesh.clear();
+      finalize();
     }
   });
 };
@@ -2182,18 +2890,26 @@ export const createStageSpatialQueries = (
   const volumesByRole = new Map<StageVolumeRole, StageVolume[]>(
     STAGE_VOLUME_ROLES.map((role) => [role, []])
   );
+  const volumesById = new Map<string, StageVolume>();
   for (const volume of options.volumes) {
+    if (volumesById.has(volume.id)) {
+      throw new Error(`Stage Volume IDが重複しています: ${volume.id}`);
+    }
+    volumesById.set(volume.id, volume);
     volumesByRole.get(volume.role)!.push(volume);
   }
+  const revisionResourceCache =
+    createStageSpatialRevisionResourceCache(
+      dynamicVariants.getSnapshot(),
+      sceneOrderByMesh,
+      options.volumes
+    );
   const revisionResource =
     registerDynamicStageSpatialSnapshotResource(
       dynamicVariants,
       (snapshot) => {
-        const resources = createStageSpatialRevisionResources(
-          snapshot,
-          sceneOrderByMesh,
-          options.volumes
-        );
+        const resources =
+          revisionResourceCache.prepare(snapshot);
         return Object.freeze({
           value: resources,
           dispose: resources.dispose
@@ -2213,6 +2929,7 @@ export const createStageSpatialQueries = (
   const queries: StageSpatialQueries = {
     get revision() {
       requireActiveScene();
+      lastSnapshotRevision = dynamicVariants.revision;
       return lastSnapshotRevision;
     },
     castMovementSegment: (moverKind, from, to) => {
@@ -2316,11 +3033,50 @@ export const createStageSpatialQueries = (
         )
       );
     },
+    containsVolumeById: (id, point) => {
+      requireActiveScene();
+      const volume = volumesById.get(id);
+      if (!volume) {
+        throw new Error(`未登録のStage Volume IDです: ${id}`);
+      }
+      assertFiniteVector(`Stage Volume ${id}の包含判定点`, point);
+      return withRevisionResources((resources) =>
+        resources.containsByVolume.get(volume)!(point)
+      );
+    },
+    intersectsVolumeById: (id, ellipsoid) => {
+      requireActiveScene();
+      const volume = volumesById.get(id);
+      if (!volume) {
+        throw new Error(`未登録のStage Volume IDです: ${id}`);
+      }
+      assertCharacterEllipsoid(ellipsoid);
+      return withRevisionResources((resources) =>
+        resources.intersectsEllipsoidByVolume.get(volume)!(ellipsoid)
+      );
+    },
+    findContainingBlocker: (kind, point) => {
+      assertFiniteVector(`${kind} blockerの包含判定点`, point);
+      return withRevisionResources((resources) => {
+        const blockers = resources.blockerIndices[kind].query(
+          point,
+          point
+        );
+        for (const blocker of blockers) {
+          if (resources.containsByBlocker.get(blocker)!(point)) {
+            return blocker;
+          }
+        }
+        return null;
+      });
+    },
     dispose: () => {
       requireActiveScene();
       activeScene = null;
       revisionResource.dispose();
+      revisionResourceCache.dispose();
       volumesByRole.clear();
+      volumesById.clear();
       sceneOrderByMesh.clear();
     }
   };

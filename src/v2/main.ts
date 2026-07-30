@@ -13,12 +13,16 @@ import {
 
 import { SCHOOL_STAGE } from "../world/stageCatalog";
 import {
-  SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
+  SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS,
+  createSchoolRoomVariantSelections,
+  createSchoolRuntimeRandom,
+  createSchoolRuntimeSettings
 } from "../world/schoolRuntimeSettings";
 import {
-  createStageDoorRuntime,
-  type StageDoorRuntime
-} from "../world/stageDoorRuntime";
+  createSchoolStageDynamicRuntime,
+  createSchoolStageDynamicSpatialInitializer,
+  type SchoolStageDynamicRuntime
+} from "../world/schoolStageDynamicRuntime";
 import {
   loadStageSpatialContext,
   type StageSpatialContext
@@ -43,9 +47,41 @@ import {
   V2_TEST_SURVIVAL_POPULATION,
   type V2SurvivalRuntime
 } from "./survivalRuntime";
+import {
+  createSchoolStageActorPort,
+  createSchoolStageTraversalCoordinator,
+  type SchoolStageTraversalCoordinator
+} from "./schoolStageTraversalCoordinator";
+import {
+  createSchoolNpcNavigationPolicy,
+  type SchoolNpcNavigationPolicy
+} from "./schoolNpcNavigationPolicy";
+import {
+  readV2RuntimeStressScenario,
+  type V2RuntimeStressReport
+} from "./runtimeStressScenario";
 
 const performanceScenario =
   readV2PerformanceScenario(location.search);
+const runtimeStressScenario =
+  readV2RuntimeStressScenario(location.search);
+if (performanceScenario && runtimeStressScenario) {
+  throw new Error(
+    "performanceとschoolStressは同時に実行できません。"
+  );
+}
+const runtimeSeed =
+  performanceScenario?.seed ?? runtimeStressScenario?.seed ?? 0;
+const runtimePopulation = performanceScenario
+  ? V2_PERFORMANCE_ACCEPTANCE_POPULATION
+  : runtimeStressScenario?.population ??
+    V2_TEST_SURVIVAL_POPULATION;
+const roomVariantSelections = runtimeStressScenario
+  ? createSchoolRoomVariantSelections(
+      createSchoolRuntimeSettings(2),
+      runtimeStressScenario.seed
+    )
+  : SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS;
 const canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
 const minimapCanvas = document.getElementById(
   "minimapCanvas"
@@ -152,10 +188,16 @@ const formatLoadError = (error: unknown) =>
 
 const initializeRuntime = async () => {
   let ownedStage: StageSpatialContext | null = null;
-  let ownedDoorRuntime: StageDoorRuntime | null = null;
+  let ownedDynamicRuntime: SchoolStageDynamicRuntime | null =
+    null;
+  let ownedTraversalCoordinator:
+    | SchoolStageTraversalCoordinator
+    | null = null;
   let ownedInput: V2PlayerInput | null = null;
   let ownedPlayer: V2PlayerController | null = null;
   let ownedSurvival: V2SurvivalRuntime | null = null;
+  let selectNavigationRoute: SchoolNpcNavigationPolicy | null =
+    null;
 
   try {
     ownedStage = await loadStageSpatialContext(
@@ -163,25 +205,12 @@ const initializeRuntime = async () => {
       SCHOOL_STAGE,
       {
         queryDiagnostics: stageQueryDiagnostics,
-        roomVariantSelections:
-          SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
+        initializeDynamicSpatial:
+          createSchoolStageDynamicSpatialInitializer(
+            runtimeSeed
+          ),
+        roomVariantSelections
       }
-    );
-    // 現在の人間向け動作確認では、通常教室とトイレ個室を全開で固定する。
-    ownedDoorRuntime = createStageDoorRuntime(
-      ownedStage.doorAssets,
-      {
-        random: () => 0.5,
-        checkClosingOccupancy: () => ({
-          finalPoseOccupied: false,
-          sweepOccupied: false
-        })
-      }
-    );
-    const currentActiveSet =
-      ownedStage.dynamicVariants.getSnapshot();
-    ownedStage.dynamicVariants.replaceActiveSet(
-      currentActiveSet
     );
     ownedInput = createV2PlayerInput(window);
     ownedPlayer = createV2PlayerController({
@@ -196,8 +225,8 @@ const initializeRuntime = async () => {
       scene,
       stage: ownedStage,
       player: playerController,
-      random: performanceScenario
-        ? createV2SeededRandom(performanceScenario.seed)
+      random: performanceScenario || runtimeStressScenario
+        ? createV2SeededRandom(runtimeSeed)
         : Math.random,
       getOrbVisibilityPredicate: () => {
         const playerCenter = playerController
@@ -217,12 +246,73 @@ const initializeRuntime = async () => {
           Vector3.DistanceSquared(position, playerCenter) <= 25 &&
           Frustum.IsPointInFrustum(position, frustumPlanes);
       },
-      population: performanceScenario
-        ? V2_PERFORMANCE_ACCEPTANCE_POPULATION
-        : V2_TEST_SURVIVAL_POPULATION,
+      population: runtimePopulation,
       performanceDiagnostics,
-      performanceWorkloadScenario: performanceScenario
+      performanceWorkloadScenario: performanceScenario,
+      releaseStageTraversalForScriptedPhase: () => {
+        if (ownedTraversalCoordinator === null) {
+          throw new Error(
+            "実学校traversal coordinatorの初期化前にphase解放が要求されました。"
+          );
+        }
+        ownedTraversalCoordinator.releaseForScriptedPhase();
+      },
+      selectNavigationRoute: (context, candidates) => {
+        if (selectNavigationRoute === null) {
+          throw new Error(
+            "実学校NPC経路policyの初期化前に経路選択が要求されました。"
+          );
+        }
+        return selectNavigationRoute(context, candidates);
+      }
     });
+    const survivalRuntime = ownedSurvival;
+    ownedDynamicRuntime = createSchoolStageDynamicRuntime({
+      staticActiveSet: ownedStage.staticSpatialActiveSet,
+      doorAssets: ownedStage.doorAssets,
+      elevatorAssets: ownedStage.elevatorAssets,
+      dynamicVariants: ownedStage.dynamicVariants,
+      queries: ownedStage.queries,
+      actors: createSchoolStageActorPort(
+        playerController,
+        survivalRuntime
+      )
+    });
+    selectNavigationRoute = createSchoolNpcNavigationPolicy({
+      seed: runtimeSeed,
+      elevatorAssets: ownedStage.elevatorAssets,
+      dynamicRuntime: ownedDynamicRuntime,
+      queries: ownedStage.queries,
+      getHumanTargets: () =>
+        survivalRuntime.getHumanTargets()
+    });
+    ownedTraversalCoordinator =
+      createSchoolStageTraversalCoordinator({
+        stage: ownedStage,
+        runtime: ownedDynamicRuntime,
+        survival: survivalRuntime,
+        player: playerController,
+        doorCloseRandom: createSchoolRuntimeRandom(
+          runtimeSeed,
+          "door-behavior"
+        )
+      });
+    if (runtimeStressScenario) {
+      const initialFrame = survivalRuntime.getFrame();
+      if (
+        initialFrame.npcCount !==
+          runtimeStressScenario.population.npcCount ||
+        initialFrame.brainwashedNpcCount !==
+          runtimeStressScenario.population
+            .initialBrainwashedNpcCount ||
+        initialFrame.bitCount !==
+          runtimeStressScenario.population.bitCount
+      ) {
+        throw new Error(
+          "実学校stressの初期人口が要求値と一致しません。"
+        );
+      }
+    }
     await scene.whenReadyAsync();
     const visualPreparation =
       ownedSurvival.prepareVisualResources();
@@ -230,18 +320,22 @@ const initializeRuntime = async () => {
     await visualPreparation;
     return {
       stage: ownedStage,
-      doorRuntime: ownedDoorRuntime,
+      dynamicRuntime: ownedDynamicRuntime,
+      traversalCoordinator: ownedTraversalCoordinator,
       player: ownedPlayer,
-      survival: ownedSurvival
+      survival: ownedSurvival,
+      navigationPolicy: selectNavigationRoute
     };
   } catch (error) {
     console.error("V2実行環境の初期化に失敗しました。", error);
     titleStartHint.textContent = "読込エラー";
     titleMessage.textContent = formatLoadError(error);
+    ownedTraversalCoordinator?.dispose();
+    ownedDynamicRuntime?.dispose();
     ownedSurvival?.dispose();
+    selectNavigationRoute?.dispose();
     ownedPlayer?.dispose();
     ownedInput?.dispose();
-    ownedDoorRuntime?.dispose();
     ownedStage?.dispose();
     performanceDiagnostics?.dispose();
     delete window.__v2PerformanceDiagnostics;
@@ -251,7 +345,14 @@ const initializeRuntime = async () => {
   }
 };
 
-const { stage, doorRuntime, player, survival } =
+const {
+  stage,
+  dynamicRuntime,
+  traversalCoordinator,
+  player,
+  survival,
+  navigationPolicy
+} =
   await initializeRuntime();
 
 camera.attachControl(canvas, true);
@@ -265,6 +366,58 @@ let started = false;
 let statusTimer = 0;
 let elapsedSeconds = 0;
 let performanceReportPublished = false;
+const runtimeStressStartedAt = runtimeStressScenario
+  ? performance.now()
+  : null;
+const runtimeStressInitialFrame = runtimeStressScenario
+  ? survival.getFrame()
+  : null;
+const runtimeStressInitialBrainwashedNpcCount =
+  runtimeStressInitialFrame?.brainwashedNpcCount ?? 0;
+let runtimeStressFrameCount = 0;
+let runtimeStressStatus: V2RuntimeStressReport["status"] =
+  "running";
+
+const publishRuntimeStressReport = (
+  status: V2RuntimeStressReport["status"],
+  error: string | null
+) => {
+  if (
+    runtimeStressScenario === null ||
+    runtimeStressStartedAt === null
+  ) {
+    return;
+  }
+  const currentFrame = survival.getFrame();
+  const report: V2RuntimeStressReport = Object.freeze({
+    status,
+    profile: runtimeStressScenario.profile,
+    seed: runtimeStressScenario.seed,
+    durationSeconds: runtimeStressScenario.durationSeconds,
+    wallElapsedSeconds:
+      (performance.now() - runtimeStressStartedAt) / 1000,
+    simulationElapsedSeconds: elapsedSeconds,
+    frameCount: runtimeStressFrameCount,
+    population: runtimeStressScenario.population,
+    initialNpcCount:
+      runtimeStressInitialFrame?.npcCount ?? 0,
+    initialBrainwashedNpcCount:
+      runtimeStressInitialBrainwashedNpcCount,
+    initialBitCount:
+      runtimeStressInitialFrame?.bitCount ?? 0,
+    currentNpcCount: currentFrame.npcCount,
+    currentBrainwashedNpcCount:
+      currentFrame.brainwashedNpcCount,
+    currentBitCount: currentFrame.bitCount,
+    phase: currentFrame.phase,
+    spatialRevision: stage.queries.revision,
+    error
+  });
+  document.body.dataset.v2RuntimeStressReport =
+    JSON.stringify(report);
+  document.documentElement.dataset.validationStatus =
+    status;
+};
 
 const configurePerformanceView = () => {
   if (!performanceScenario) {
@@ -338,6 +491,19 @@ if (performanceScenario) {
     `性能受入計測\nseed ${performanceScenario.seed}\n` +
     `view ${performanceScenario.view}`;
 }
+if (runtimeStressScenario) {
+  started = true;
+  titleOverlay.style.display = "none";
+  statusInfo.style.display = "block";
+  helpPanel.style.display = "block";
+  helpPanel.textContent =
+    `実学校stress ${runtimeStressScenario.profile}\n` +
+    `seed ${runtimeStressScenario.seed}\n` +
+    `NPC ${runtimeStressScenario.population.npcCount} / ` +
+    `初期洗脳 ${runtimeStressScenario.population.initialBrainwashedNpcCount} / ` +
+    `BIT ${runtimeStressScenario.population.bitCount}`;
+  publishRuntimeStressReport("running", null);
+}
 
 engine.runRenderLoop(() => {
   try {
@@ -366,6 +532,7 @@ engine.runRenderLoop(() => {
     const delta = performanceScenario
       ? V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS / 1000
       : Math.min(engine.getDeltaTime() / 1000, 0.05);
+    traversalCoordinator.update(delta);
     const playerFrame = performanceDiagnostics
       ? performanceDiagnostics.measure("player", () =>
           player.update(
@@ -386,6 +553,18 @@ engine.runRenderLoop(() => {
             () => survival.update(delta, elapsedSeconds)
           )
         : survival.update(delta, elapsedSeconds);
+    }
+    if (runtimeStressScenario) {
+      runtimeStressFrameCount += 1;
+      if (
+        runtimeStressStatus === "running" &&
+        runtimeStressStartedAt !== null &&
+        (performance.now() - runtimeStressStartedAt) / 1000 >=
+          runtimeStressScenario.durationSeconds
+      ) {
+        runtimeStressStatus = "passed";
+        publishRuntimeStressReport(runtimeStressStatus, null);
+      }
     }
     statusTimer += delta;
     if (statusTimer >= 0.1) {
@@ -420,12 +599,17 @@ engine.runRenderLoop(() => {
         `視認 ${survivalFrame.visualTargetCount}  ` +
         `警戒対象 ${survivalFrame.alertTargetCount}  ` +
         `共有 ${survivalFrame.activeAlertCount}\n` +
+        `プレイヤー標的 NPC ${survivalFrame.npcPlayerTargetCount}  ` +
+        `BIT ${survivalFrame.bitPlayerTargetCount}\n` +
         `警報 稼働 ${survivalFrame.activeAlarmCount}  ` +
         `点滅 ${survivalFrame.alarmBlinkCount}  ` +
         `発報 ${survivalFrame.alarmTriggerCount}\n` +
         `着弾 壁 ${survivalFrame.blockerImpactCount}  ` +
         `標的 ${survivalFrame.actorImpactCount}` +
         performanceText;
+      if (runtimeStressScenario) {
+        publishRuntimeStressReport(runtimeStressStatus, null);
+      }
     }
     if (performanceDiagnostics) {
       performanceDiagnostics.measure("render", () => {
@@ -437,6 +621,11 @@ engine.runRenderLoop(() => {
     }
   } catch (error) {
     engine.stopRenderLoop();
+    runtimeStressStatus = "failed";
+    publishRuntimeStressReport(
+      runtimeStressStatus,
+      formatLoadError(error)
+    );
     console.error("V2ゲーム更新中に例外が発生したため、更新を停止しました。", error);
     throw error;
   }
@@ -457,9 +646,15 @@ const disposeRuntime = () => {
   performanceDiagnostics?.dispose();
   delete window.__v2PerformanceDiagnostics;
   delete document.body.dataset.v2PerformanceReport;
+  delete document.body.dataset.v2RuntimeStressReport;
+  if (runtimeStressScenario) {
+    delete document.documentElement.dataset.validationStatus;
+  }
+  traversalCoordinator.dispose();
+  dynamicRuntime.dispose();
   survival.dispose();
+  navigationPolicy.dispose();
   player.dispose();
-  doorRuntime.dispose();
   stage.dispose();
   scene.dispose();
   engine.dispose();

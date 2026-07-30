@@ -1,0 +1,698 @@
+import { Vector3 } from "@babylonjs/core";
+
+import type {
+  NavigationLocation,
+  NavigationRouteCandidate,
+  NavigationSurfaceStep,
+  NavigationTransitionStep
+} from "../../../src/world/navigationWorld";
+import type {
+  SchoolStageDynamicRuntime
+} from "../../../src/world/schoolStageDynamicRuntime";
+import {
+  ELEVATOR_DOOR_MOTION_SECONDS,
+  ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS,
+  ELEVATOR_TRAVEL_SECONDS
+} from "../../../src/world/stageElevatorRuntime";
+import type {
+  StageElevatorAsset,
+  StageElevatorStopAsset
+} from "../../../src/world/stageDynamicAssets";
+import type {
+  StageSpatialContext
+} from "../../../src/world/stageSpatialContext";
+import type {
+  V2CharacterState,
+  V2HumanTargetSnapshot
+} from "../../../src/v2/combatTypes";
+import type {
+  V2NpcNavigationRouteContext
+} from "../../../src/v2/npcSystem";
+import {
+  createSchoolNpcNavigationPolicy,
+  createSchoolNpcNavigationTraits
+} from "../../../src/v2/schoolNpcNavigationPolicy";
+
+export type SchoolNpcNavigationPolicyCheck = Readonly<{
+  name: string;
+  ok: boolean;
+  detail: string;
+}>;
+
+export type SchoolNpcNavigationPolicyAcceptanceInput =
+  Readonly<{
+    stage: StageSpatialContext;
+    runtime: SchoolStageDynamicRuntime;
+    updateRuntime(deltaSeconds: number): void;
+    trackingActorId: string;
+  }>;
+
+const createLocation = (
+  position: Vector3
+): NavigationLocation =>
+  Object.freeze({
+    position: position.clone(),
+    polygonRef: 1
+  });
+
+const createSurfaceStep = (
+  position: Vector3,
+  distance: number
+): NavigationSurfaceStep =>
+  Object.freeze({
+    kind: "surface",
+    points: Object.freeze([createLocation(position)]),
+    distance
+  });
+
+const createSurfaceCandidate = (
+  position: Vector3,
+  distance: number
+): NavigationRouteCandidate =>
+  Object.freeze({
+    kind: "surface",
+    path: Object.freeze({
+      steps: Object.freeze([
+        createSurfaceStep(position, distance)
+      ]),
+      destination: createLocation(position),
+      distance
+    })
+  });
+
+const requireOtherStop = (
+  elevator: StageElevatorAsset,
+  fromStop: StageElevatorStopAsset
+) => {
+  const destinationStop = elevator.stops.find(
+    (stop) => stop !== fromStop
+  );
+  if (!destinationStop) {
+    throw new Error(
+      `エレベーターの反対停止階がありません: ${elevator.id}`
+    );
+  }
+  return destinationStop;
+};
+
+const createElevatorCandidate = (
+  elevator: StageElevatorAsset,
+  walkingDistance: number,
+  exitWalkingDistance = 0
+): NavigationRouteCandidate => {
+  const fromStop = elevator.initialStop;
+  const destinationStop = requireOtherStop(
+    elevator,
+    fromStop
+  );
+  const entry = createLocation(
+    fromStop.node.getAbsolutePosition()
+  );
+  const exit = createLocation(
+    destinationStop.node.getAbsolutePosition()
+  );
+  const transition: NavigationTransitionStep =
+    Object.freeze({
+      kind: "transition",
+      link: elevator.link,
+      from: fromStop.endpoint,
+      to: destinationStop.endpoint,
+      entry,
+      exit,
+      distance: 0
+    });
+  return Object.freeze({
+    kind: "link",
+    path: Object.freeze({
+      steps: Object.freeze([
+        createSurfaceStep(entry.position, walkingDistance),
+        transition,
+        createSurfaceStep(exit.position, exitWalkingDistance)
+      ]),
+      destination: exit,
+      distance: walkingDistance + exitWalkingDistance
+    })
+  });
+};
+
+const createTarget = (
+  id: string,
+  state: V2CharacterState,
+  footPosition: Vector3
+): V2HumanTargetSnapshot => {
+  const brainwashed = state.startsWith("brainwash-");
+  const aimPosition = footPosition.add(
+    new Vector3(0, 0.2, 0)
+  );
+  return Object.freeze({
+    id,
+    kind: "npc",
+    footPosition: footPosition.clone(),
+    aimPosition,
+    hitShape: Object.freeze({
+      center: aimPosition.clone(),
+      radii: new Vector3(0.1, 0.2, 0.1)
+    }),
+    state,
+    alive: true,
+    brainwashed
+  });
+};
+
+const createContext = (
+  npcId: string,
+  position: Vector3,
+  overrides: Partial<V2NpcNavigationRouteContext> = {}
+): V2NpcNavigationRouteContext =>
+  Object.freeze({
+    npcId,
+    behavior: "wander",
+    speed: 0.2,
+    characterState: "normal",
+    brainwashed: false,
+    commandMode: "none",
+    targetId: null,
+    targetProvenance: null,
+    targetSelectionPersonality: null,
+    targetSightClear: false,
+    currentRouteKind: null,
+    currentRouteLinkId: null,
+    traversalState: Object.freeze({
+      kind: "walking"
+    }),
+    location: createLocation(position),
+    stuckRevision: 0,
+    reservationResultRevision: 0,
+    ...overrides
+  });
+
+const getSelectedElevatorId = (
+  candidate: NavigationRouteCandidate | null
+) => {
+  const transition = candidate?.path.steps.find(
+    (
+      step
+    ): step is NavigationTransitionStep =>
+      step.kind === "transition"
+  );
+  return transition?.link.id ?? null;
+};
+
+export const runSchoolNpcNavigationPolicyAcceptance = ({
+  stage,
+  runtime,
+  updateRuntime,
+  trackingActorId
+}: SchoolNpcNavigationPolicyAcceptanceInput):
+  readonly SchoolNpcNavigationPolicyCheck[] => {
+  const checks: SchoolNpcNavigationPolicyCheck[] = [];
+  const add = (
+    name: string,
+    ok: boolean,
+    detail: string
+  ) => {
+    checks.push(Object.freeze({ name, ok, detail }));
+  };
+
+  const traits = createSchoolNpcNavigationTraits(
+    730_429,
+    "npc_traits"
+  );
+  const repeatedTraits = createSchoolNpcNavigationTraits(
+    730_429,
+    "npc_traits"
+  );
+  const otherTraits = createSchoolNpcNavigationTraits(
+    730_429,
+    "npc_traits_other"
+  );
+  add(
+    "traitsはseedとNPC IDから再現する",
+    traits.patience === repeatedTraits.patience &&
+      traits.riskTolerance ===
+        repeatedTraits.riskTolerance &&
+      (traits.patience !== otherTraits.patience ||
+        traits.riskTolerance !==
+          otherTraits.riskTolerance) &&
+      traits.patience >= 0 &&
+      traits.patience <= 1 &&
+      traits.riskTolerance >= 0 &&
+      traits.riskTolerance <= 1,
+    `patience=${traits.patience.toFixed(6)} risk=${traits.riskTolerance.toFixed(6)}`
+  );
+
+  const elevators = stage.elevatorAssets.all;
+  if (elevators.length !== 1) {
+    throw new Error(
+      `学校NPC policy fixtureにはエレベーター1基が必要です: ${elevators.length}`
+    );
+  }
+  const elevator = elevators[0];
+  const firstStopCenter = elevator.initialStop.callMat.mesh
+    .getBoundingInfo()
+    .boundingBox.centerWorld.clone();
+  let targets: readonly V2HumanTargetSnapshot[] =
+    Object.freeze([
+      createTarget("npc_policy", "normal", firstStopCenter)
+    ]);
+  const createdPolicies: ReturnType<
+    typeof createSchoolNpcNavigationPolicy
+  >[] = [];
+  const createPolicy = () => {
+    const policy = createSchoolNpcNavigationPolicy({
+      seed: 730_429,
+      elevatorAssets: stage.elevatorAssets,
+      dynamicRuntime: runtime,
+      queries: stage.queries,
+      getHumanTargets: () => targets
+    });
+    createdPolicies.push(policy);
+    return policy;
+  };
+
+  const fastElevatorCandidate = createElevatorCandidate(
+    elevator,
+    0
+  );
+  const elevatorTransition =
+    fastElevatorCandidate.path.steps.find(
+      (
+        step
+      ): step is NavigationTransitionStep =>
+        step.kind === "transition"
+    );
+  if (!elevatorTransition) {
+    throw new Error(
+      "学校NPC policy fixtureのエレベーター遷移がありません。"
+    );
+  }
+  const stairsLong = createSurfaceCandidate(
+    firstStopCenter,
+    100
+  );
+  const policy = createPolicy();
+  const fastSelection = policy(
+    createContext("npc_policy", firstStopCenter),
+    Object.freeze([
+      stairsLong,
+      fastElevatorCandidate
+    ])
+  );
+  add(
+    "実学校1基の予測時間と階段時間を比較する",
+    getSelectedElevatorId(fastSelection) ===
+      elevator.link.id,
+    `selected=${getSelectedElevatorId(fastSelection)}`
+  );
+  const waitPointSelection = createPolicy()(
+    createContext("npc_wait_point", firstStopCenter, {
+      traversalState: Object.freeze({
+        kind: "moving-to-elevator-wait",
+        linkId: elevator.link.id,
+        from: elevatorTransition.from,
+        to: elevatorTransition.to,
+        entryLocation: elevatorTransition.entry,
+        exitLocation: elevatorTransition.exit
+      })
+    }),
+    Object.freeze([
+      stairsLong,
+      fastElevatorCandidate
+    ])
+  );
+  add(
+    "呼出後の待機点移動はエレベーターlinkを再選択しない",
+    waitPointSelection?.kind === "surface",
+    `selected=${waitPointSelection?.kind ?? "null"}`
+  );
+
+  const stairsShort = createSurfaceCandidate(
+    firstStopCenter,
+    0.001
+  );
+  const stairsSelection = createPolicy()(
+    createContext("npc_policy", firstStopCenter),
+    Object.freeze([
+      stairsShort,
+      fastElevatorCandidate
+    ])
+  );
+  add(
+    "短い階段経路をエレベーターより優先する",
+    stairsSelection?.kind === "surface",
+    `selected=${stairsSelection?.kind ?? "null"}`
+  );
+
+  const changedCandidates = Object.freeze([
+    createSurfaceCandidate(firstStopCenter, 0.001),
+    createElevatorCandidate(elevator, 100)
+  ]);
+  const stableSelection = policy(
+    createContext("npc_policy", firstStopCenter),
+    changedCandidates
+  );
+  add(
+    "重要状態不変時は経路比較を振動させない",
+    getSelectedElevatorId(stableSelection) ===
+      elevator.link.id,
+    `selected=${getSelectedElevatorId(stableSelection)}`
+  );
+  const stuckSelection = policy(
+    createContext("npc_policy", firstStopCenter, {
+      stuckRevision: 1
+    }),
+    changedCandidates
+  );
+  add(
+    "stuck revision変更時だけ経路を再評価する",
+    stuckSelection?.kind === "surface",
+    `selected=${stuckSelection?.kind ?? "null"}`
+  );
+  const reservationPolicy = createPolicy();
+  reservationPolicy(
+    createContext("npc_policy", firstStopCenter),
+    Object.freeze([stairsLong, fastElevatorCandidate])
+  );
+  const reservationSelection = reservationPolicy(
+    createContext("npc_policy", firstStopCenter, {
+      reservationResultRevision: 1
+    }),
+    changedCandidates
+  );
+  add(
+    "予約・定員結果の受信時に経路を再評価する",
+    reservationSelection?.kind === "surface",
+    `selected=${reservationSelection?.kind ?? "null"}`
+  );
+
+  const farPosition = firstStopCenter.add(
+    new Vector3(100, 0, 100)
+  );
+  targets = Object.freeze([
+    createTarget("npc_policy", "evade", farPosition)
+  ]);
+  const evadeSelection = createPolicy()(
+    createContext("npc_policy", farPosition, {
+      behavior: "evade",
+      characterState: "evade",
+      targetId: "enemy",
+      targetSightClear: true
+    }),
+    Object.freeze([
+      stairsLong,
+      fastElevatorCandidate
+    ])
+  );
+  add(
+    "evadeは呼出マット水平3m外のエレベーターを選ばない",
+    evadeSelection?.kind === "surface",
+    `selected=${evadeSelection?.kind ?? "null"}`
+  );
+
+  const carCenter = elevator.car.occupancy.mesh
+    .getBoundingInfo()
+    .boundingBox.centerWorld.clone();
+  const requesterPosition = carCenter.add(
+    new Vector3(0.01, 0, 0)
+  );
+  const brainwashedPosition = carCenter.add(
+    new Vector3(-0.01, 0, 0)
+  );
+  targets = Object.freeze([
+    createTarget(
+      "npc_policy",
+      "normal",
+      requesterPosition
+    ),
+    createTarget(
+      "npc_visible_brainwashed",
+      "brainwash-complete-no-gun",
+      brainwashedPosition
+    )
+  ]);
+  const safeSelection = createPolicy()(
+    createContext("npc_policy", requesterPosition),
+    Object.freeze([
+      stairsLong,
+      createElevatorCandidate(elevator, 0)
+    ])
+  );
+  add(
+    "未洗脳NPCは可視の洗脳済みNPCがいる便を絶対回避する",
+    safeSelection?.kind === "surface",
+    `selected=${safeSelection?.kind ?? "null"}`
+  );
+
+  const destinationStop = requireOtherStop(
+    elevator,
+    elevator.initialStop
+  );
+  const trackingElevator = runtime.getElevator(elevator.id);
+  const fullTripActorIds = Object.freeze(
+    Array.from(
+      { length: 6 },
+      (_, index) => `npc_policy_full_${index}`
+    )
+  );
+  targets = Object.freeze([
+    createTarget(
+      "npc_policy",
+      "normal",
+      firstStopCenter
+    ),
+    ...fullTripActorIds.map((actorId) =>
+      createTarget(
+        actorId,
+        "brainwash-complete-no-gun",
+        carCenter
+      )
+    )
+  ]);
+  const fullTripResults = trackingElevator.requestBoarding(
+    fullTripActorIds.map((actorId, index) =>
+      Object.freeze({
+        actorId,
+        fromStopId: elevator.initialStop.id,
+        destinationStopId: destinationStop.id,
+        requestedAtSeconds: index
+      })
+    )
+  );
+  const safeNextTripSelection = createPolicy()(
+    createContext("npc_policy", firstStopCenter),
+    Object.freeze([
+      stairsLong,
+      fastElevatorCandidate
+    ])
+  );
+  add(
+    "未洗脳NPCは可視の敵が降りる現便と次便を分離する",
+    fullTripResults.every(
+      (result) => result.status === "accepted"
+    ) &&
+      getSelectedElevatorId(safeNextTripSelection) ===
+        elevator.link.id,
+    `capacity=${trackingElevator.estimateTripSeconds(
+      elevator.initialStop.id,
+      destinationStop.id
+    ).availableCapacity} / selected=` +
+      `${getSelectedElevatorId(safeNextTripSelection)}`
+  );
+  for (const actorId of fullTripActorIds) {
+    trackingElevator.cancelBoardingReservation(actorId);
+  }
+
+  targets = Object.freeze([
+    createTarget(
+      "npc_brainwashed_tracker",
+      "brainwash-complete-no-gun",
+      firstStopCenter
+    ),
+    createTarget(
+      trackingActorId,
+      "normal",
+      carCenter
+    )
+  ]);
+  const trackingPolicy = createPolicy();
+  const trackingStairs = createSurfaceCandidate(
+    firstStopCenter,
+    5
+  );
+  const trackingContext = createContext(
+    "npc_brainwashed_tracker",
+    firstStopCenter,
+    {
+      behavior: "pursue",
+      characterState: "brainwash-complete-no-gun",
+      brainwashed: true,
+      targetId: trackingActorId,
+      targetSightClear: true,
+      currentRouteKind: "link",
+      currentRouteLinkId: elevator.link.id,
+      traversalState: Object.freeze({
+        kind: "waiting-elevator-call",
+        linkId: elevator.link.id,
+        from: elevatorTransition.from,
+        to: elevatorTransition.to,
+        entryLocation: elevatorTransition.entry,
+        exitLocation: elevatorTransition.exit
+      })
+    }
+  );
+  const targetReservation = trackingElevator.requestBoarding(
+    Object.freeze({
+      actorId: trackingActorId,
+      fromStopId: elevator.initialStop.id,
+      destinationStopId: destinationStop.id,
+      requestedAtSeconds: 1
+    })
+  );
+  if (targetReservation.status !== "accepted") {
+    throw new Error(
+      `追跡対象の乗車予約が拒否されました: ${targetReservation.status}`
+    );
+  }
+  trackingElevator.completeBoarding(trackingActorId);
+  const lockedNewActorSelection = createPolicy()(
+    createContext(
+      "npc_brainwashed_tracker",
+      firstStopCenter,
+      {
+        behavior: "pursue",
+        characterState: "brainwash-complete-no-gun",
+        brainwashed: true,
+        targetId: trackingActorId,
+        targetSightClear: true
+      }
+    ),
+    Object.freeze([
+      trackingStairs,
+      fastElevatorCandidate
+    ])
+  );
+  add(
+    "locked呼出マットでは未受付NPCがエレベーターを新規選択しない",
+    lockedNewActorSelection?.kind === "surface",
+    `callMat=${trackingElevator
+      .getSnapshot()
+      .stops.find(
+        (stop) => stop.id === elevator.initialStop.id
+      )?.callMatState} / selected=` +
+      `${lockedNewActorSelection?.kind ?? "null"}`
+  );
+  const sameTripSelection = trackingPolicy(
+    trackingContext,
+    Object.freeze([
+      trackingStairs,
+      fastElevatorCandidate
+    ])
+  );
+  const trackingEstimate =
+    trackingElevator.estimateTripSeconds(
+      elevator.initialStop.id,
+      destinationStop.id
+    );
+  const trackingCallMatState = trackingElevator
+    .getSnapshot()
+    .stops.find(
+      (stop) => stop.id === elevator.initialStop.id
+    )?.callMatState;
+  add(
+    "洗脳済みNPCは追跡対象と同便へ間に合う場合に選択する",
+    getSelectedElevatorId(sameTripSelection) ===
+      elevator.link.id,
+    `selected=${getSelectedElevatorId(sameTripSelection)} / ` +
+      `route=${trackingContext.currentRouteKind}/` +
+      `${trackingContext.currentRouteLinkId}/` +
+      `${trackingContext.traversalState.kind} / ` +
+      `callMat=${trackingCallMatState} / ` +
+      `estimate=${trackingEstimate.totalSeconds}/` +
+      `${trackingEstimate.boardingWindowSeconds}/` +
+      `${trackingEstimate.availableCapacity}`
+  );
+  const immediateBoardingSelection = createPolicy()(
+    trackingContext,
+    Object.freeze([
+      createSurfaceCandidate(firstStopCenter, 7.5),
+      createElevatorCandidate(elevator, 0, 2)
+    ])
+  );
+  add(
+    "降車後歩行が長くても乗車前に間に合えば同便を選択する",
+    getSelectedElevatorId(immediateBoardingSelection) ===
+      elevator.link.id,
+    `selected=${getSelectedElevatorId(immediateBoardingSelection)}`
+  );
+  const lateApproachSelection = createPolicy()(
+    trackingContext,
+    Object.freeze([
+      createSurfaceCandidate(firstStopCenter, 7.5),
+      createElevatorCandidate(elevator, 2)
+    ])
+  );
+  add(
+    "同便の残り乗車時間へ間に合わなければ次便として比較する",
+    lateApproachSelection?.kind === "surface",
+    `dwell=${trackingElevator.getSnapshot().dwellRemainingSeconds} / ` +
+      `selected=${lateApproachSelection?.kind ?? "null"}`
+  );
+
+  updateRuntime(ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS);
+  updateRuntime(ELEVATOR_DOOR_MOTION_SECONDS);
+  const departedSnapshot = trackingElevator.getSnapshot();
+  const nextTripSelection = createPolicy()(
+    trackingContext,
+    Object.freeze([
+      createSurfaceCandidate(firstStopCenter, 20),
+      fastElevatorCandidate
+    ])
+  );
+  add(
+    "同便へ間に合わなくても階段が長ければ次便を選択する",
+    departedSnapshot.carState === "moving" &&
+      getSelectedElevatorId(nextTripSelection) ===
+        elevator.link.id,
+    `car=${departedSnapshot.carState} / selected=` +
+      `${getSelectedElevatorId(nextTripSelection)}`
+  );
+  const stairsFallbackSelection = createPolicy()(
+    trackingContext,
+    Object.freeze([
+      trackingStairs,
+      fastElevatorCandidate
+    ])
+  );
+  add(
+    "同便へ間に合わず階段が短ければ階段で追跡する",
+    departedSnapshot.carState === "moving" &&
+      stairsFallbackSelection?.kind === "surface",
+    `car=${departedSnapshot.carState} / selected=` +
+      `${stairsFallbackSelection?.kind ?? "null"}`
+  );
+
+  updateRuntime(ELEVATOR_TRAVEL_SECONDS);
+  updateRuntime(ELEVATOR_DOOR_MOTION_SECONDS);
+  trackingElevator.completeDisembark(trackingActorId);
+  trackingElevator.requestCall(elevator.initialStop.id);
+  updateRuntime(0);
+  updateRuntime(ELEVATOR_DOOR_MOTION_SECONDS);
+  updateRuntime(ELEVATOR_TRAVEL_SECONDS);
+  updateRuntime(ELEVATOR_DOOR_MOTION_SECONDS);
+  const restoredElevator = trackingElevator.getSnapshot();
+  if (
+    restoredElevator.currentStopId !== elevator.initialStop.id ||
+    restoredElevator.carDoorState !== "open" ||
+    restoredElevator.passengers.length !== 0 ||
+    restoredElevator.reservations.length !== 0
+  ) {
+    throw new Error(
+      "学校NPC経路policy fixture後にエレベーター初期状態を復元できません。"
+    );
+  }
+  for (const createdPolicy of createdPolicies) {
+    createdPolicy.dispose();
+  }
+
+  return Object.freeze(checks);
+};

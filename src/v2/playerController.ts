@@ -9,6 +9,9 @@ import {
   type PlayerVerticalState
 } from "../game/playerHeight";
 import { createPlayerMotionController } from "../game/playerMotion";
+import type {
+  DynamicStageSpatialSnapshot
+} from "../world/dynamicStageSpatialVariants";
 import type { StageSpatialContext } from "../world/stageSpatialContext";
 import type { V2PlayerInput } from "./playerInput";
 
@@ -47,6 +50,8 @@ export type V2PlayerController = {
   getEyePosition(): Vector3;
   getVerticalState(): PlayerVerticalState;
   setEyeHeightScale(scale: number): void;
+  syncStageSpatialSnapshot(snapshot: DynamicStageSpatialSnapshot): void;
+  setTransportFootPosition(footPosition: Vector3): void;
   placeAt(footPosition: Vector3, lookAtPosition: Vector3): void;
   resetToSpawn(): void;
   dispose(): void;
@@ -106,7 +111,8 @@ export const createV2PlayerController = ({
   eyeHeightScale: initialEyeHeightScale = 1
 }: V2PlayerControllerOptions): V2PlayerController => {
   assertEyeHeightScale(initialEyeHeightScale);
-  if (stage.resources.movementColliders.player.length === 0) {
+  const initialSpatialSnapshot = stage.dynamicVariants.getSnapshot();
+  if (initialSpatialSnapshot.movementColliders.player.length === 0) {
     throw new Error("V2プレイヤーには1個以上のactor colliderが必要です。");
   }
 
@@ -118,7 +124,7 @@ export const createV2PlayerController = ({
     throw new Error("player_spawnがBND_Stageの外側にあります。");
   }
 
-  const actorColliderSet = new Set(stage.resources.movementColliders.player);
+  const groundColliderSet = new Set(initialSpatialSnapshot.groundColliders);
   const collisionMesh = new Mesh("V2PlayerCollision", scene);
   collisionMesh.isVisible = false;
   collisionMesh.isPickable = false;
@@ -133,7 +139,9 @@ export const createV2PlayerController = ({
     PLAYER_SPRITE_HEIGHT * 0.5,
     0
   );
-  collisionMesh.surroundingMeshes = [...stage.resources.movementColliders.player];
+  collisionMesh.surroundingMeshes = [
+    ...initialSpatialSnapshot.movementColliders.player
+  ];
 
   const motion = createPlayerMotionController({
     moveInertiaAt60Fps: PLAYER_MOVE_INERTIA_AT_60_FPS,
@@ -158,6 +166,8 @@ export const createV2PlayerController = ({
   const cameraHorizontalForward = Vector3.Zero();
   let eyeHeightScale = initialEyeHeightScale;
   let movementYaw = Math.atan2(spawnForward.x, spawnForward.z);
+  let synchronizedSpatialRevision =
+    initialSpatialSnapshot.revision;
   let disposed = false;
 
   const assertActive = () => {
@@ -181,8 +191,25 @@ export const createV2PlayerController = ({
     camera.position.copyFrom(getEyePosition());
   };
 
+  const syncStageSpatialSnapshot = (
+    snapshot: DynamicStageSpatialSnapshot
+  ) => {
+    assertActive();
+    if (snapshot.revision === synchronizedSpatialRevision) {
+      return;
+    }
+    collisionMesh.surroundingMeshes = [
+      ...snapshot.movementColliders.player
+    ];
+    groundColliderSet.clear();
+    for (const collider of snapshot.groundColliders) {
+      groundColliderSet.add(collider);
+    }
+    synchronizedSpatialRevision = snapshot.revision;
+  };
+
   const resyncHeightOrThrow = (operation: string) => {
-    const state = height.resync(collisionMesh, actorColliderSet);
+    const state = height.resync(collisionMesh, groundColliderSet);
     if (!state.grounded) {
       throw new Error(`${operation}でプレイヤーを接地できません。`);
     }
@@ -205,6 +232,17 @@ export const createV2PlayerController = ({
     camera.setTarget(camera.position.add(spawnForward));
     camera.cameraDirection.set(0, 0, 0);
     movementYaw = Math.atan2(spawnForward.x, spawnForward.z);
+  };
+
+  const setTransportFootPosition = (footPosition: Vector3) => {
+    assertActive();
+    assertFiniteVector("プレイヤー搬送足元", footPosition);
+    if (!stage.boundary.contains(footPosition)) {
+      throw new Error("プレイヤー搬送足元がBND_Stageの外側です。");
+    }
+    collisionMesh.position.copyFrom(footPosition);
+    collisionMesh.computeWorldMatrix(true);
+    syncCameraPosition();
   };
 
   const placeAt = (
@@ -294,7 +332,7 @@ export const createV2PlayerController = ({
         collisionMesh,
         requestedDisplacement,
         delta,
-        actorColliderSet
+        groundColliderSet
       );
 
       if (!stage.boundary.contains(collisionMesh.position)) {
@@ -327,6 +365,8 @@ export const createV2PlayerController = ({
       eyeHeightScale = scale;
       syncCameraPosition();
     },
+    syncStageSpatialSnapshot,
+    setTransportFootPosition,
     placeAt,
     resetToSpawn,
     dispose: () => {

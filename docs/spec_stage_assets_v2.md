@@ -288,6 +288,7 @@ MRK_PlayerSpawn_Main
 ```
 
 学校の通常ゲーム資産は`player_spawn`をちょうど1個持つ。NPCやビットのランダム出現範囲は点の集合ではなく`VOL_*`で表す。位置やEuler角をpropertiesへ重複記述しない。
+7.9節の動的資産では追加marker roleとして`elevator_call_indicator`を使用できる。
 
 ### 7.6 `VOL_*`と`BND_Stage`
 
@@ -510,6 +511,7 @@ MRK_Door_<token>
 | `hs_floor_index` | integer | `1`または`4` |
 | `hs_landing_door_id` | string | 乗場側`door` ID |
 | `hs_call_mat_id` | string | `elevator_call_mat` Volume ID |
+| `hs_call_indicator_id` | string | `elevator_call_indicator` Marker ID |
 | `hs_threshold_id` | string | `elevator_threshold` Volume ID |
 | `hs_gate_id` | string | `elevator_human_gate` ID |
 | `hs_wait_id` | string | `elevator_wait` ID |
@@ -521,18 +523,19 @@ MRK_Door_<token>
 | `MRK_ElevatorPassengerOrigin_*` | `hs_id`、`hs_role="elevator_passenger_origin"`、`hs_elevator_id` |
 | `MRK_ElevatorWait_*` | `hs_id`、`hs_role="elevator_wait"`、`hs_elevator_id`、`hs_stop_id` |
 | `MRK_ElevatorHumanGate_*` | `hs_id`、`hs_role="elevator_human_gate"`、`hs_elevator_id`、`hs_stop_id` |
+| `MRK_ElevatorCallIndicator_*` | `hs_id`、`hs_role="elevator_call_indicator"`、`hs_elevator_id`、`hs_stop_id`、`hs_direction="up"`または`"down"` |
 | `VOL_ElevatorCallMat_*` | `hs_id`、`hs_role="elevator_call_mat"`、`hs_elevator_id`、`hs_stop_id` |
 | `VOL_ElevatorThreshold_*` | `hs_id`、`hs_role="elevator_threshold"`、`hs_elevator_id`、`hs_stop_id` |
 | `VOL_ElevatorCarOccupancy_*` | `hs_id`、`hs_role="elevator_car_occupancy"`、`hs_elevator_id` |
 
-上表の`hs_id`と参照IDはstringである。`MRK_ElevatorHumanGate_*`の直下には対応する`COL_HumanOnly_ElevatorGate_*`を正確に1件置き、人物だけを遮断する。呼出マット、敷居、かご占有範囲は各`VOL_*`の閉じた実形状を正本とし、半径・AABBをpropertyへ置かない。
+上表の`hs_id`と参照IDはstringである。`MRK_ElevatorHumanGate_*`の直下には対応する`COL_HumanOnly_ElevatorGate_*`を正確に1件置き、人物だけを遮断する。`MRK_ElevatorCallIndicator_*`の直下には`VIS_ElevatorCallIndicator_Base_*`と`VIS_ElevatorCallIndicator_Direction_*`を各1件置き、1階は`up`、4階は`down`とする。呼出マット、敷居、かご占有範囲は各`VOL_*`の閉じた実形状を正本とし、半径・AABBをpropertyへ置かない。
 
 - `MRK_ElevatorStop_*`のworld Transformを、かごの停止姿勢とする。1階・4階stopはworld X/Yとrotationを一致させてBlender Zだけを変え、そのtranslation差分からかごの移動軸と移動量を導出する。
 - stopのlocal `+Y`を乗場からかごへ向かう乗車方向、`-Y`を降車方向とする。乗客の相対座標は`MRK_ElevatorPassengerOrigin_*`のcar-local Transformを基準にする。
-- かご床上面はcar-local Z=`0.12`とし、passenger originとoccupancy下端を同じ高さに置く。廊下床からかご床までの0.12m段差と水平隙間は、各stop直下の同形状`VIS_ElevatorThresholdPlate_*`／`COL_ElevatorThresholdPlate_*`で連結する。敷居板の歩行面傾斜は45度以下とする。
-- `MRK_ElevatorWait_*`は対応call matとthresholdの外側へ水平0.25m以上離し、待機者がcall matを占有し続けない位置に置く。call matの水平形状は`VIS_B03_ElevatorWaitingMat_F01_F04`の対応床表示と一致させる。
+- かご床上面はcar-local Z=`0.12`とし、passenger originとoccupancy下端を同じ高さに置く。廊下床からかご床までの0.12m段差と水平隙間は、各stop直下の同形状`VIS_ElevatorThresholdPlate_*`／`COL_ElevatorThresholdPlate_*`で連結する。敷居は廊下側から0.24mで0.12m上がる約26.6度の斜面と、かご側の0.10m水平部を一つの閉形状にし、かご床前面を水平部終端まで後退させて乗降線上の垂直な衝突継ぎ目を作らない。開口幅は1.40mを維持する。
+- `MRK_ElevatorWait_*`は対応call matとthresholdの外側へ水平0.25m以上離し、待機者がcall matを占有し続けない位置に置く。call matと対応する`VIS_ElevatorCallIndicator_Base_*`は、エレベーター側の既存端を維持して廊下側へ広げた水平1.5m×1.5mの同一形状とする。`VIS_ElevatorCallIndicator_Direction_*`は明色の塗りつぶし三角とし、乗場から見て1階は上向き、4階は下向きとする。
 - controllerはstopを正確に2件持ち、1階=`A`、4階=`B`とする。`hs_initial_stop_id`は4階stopを参照し、car markerの初期Transformも同stopと一致させる。
-- 各stopは乗場扉、呼出マット、敷居、人物gate、待機markerを各1件所有する。かご扉、占有Volume、乗客基準はエレベーター全体で各1件とする。
+- 各stopは乗場扉、呼出マット、呼出indicator、敷居、人物gate、待機markerを各1件所有する。かご扉、占有Volume、乗客基準はエレベーター全体で各1件とする。
 - 2階・3階の固定閉鎖扉は通常の静的`VIS_*`／`COL_*`だけで表し、`door`、`elevator_stop`、call mat、threshold、gate、link endpointを持たせない。
 - `hs_link_id`以外の参照IDは期待するroleのObject 1件へ解決する。`hs_link_id`は`hs_link_kind="elevator"`でA/B各1 Nodeからなる検証済み論理`StageLinkPair` 1件へ解決する。
 - ownerとcomponentが相互参照する箇所は両方向のID一致を要求する。孤立component、規定外の参照、1 componentの複数door／elevator所有、異なるelevator間の参照、同一stop付随物の共有を認めない。
@@ -675,7 +678,7 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 
 `assembly_anchor` Markerと`assembly` Volumeは上記の排他的分類後に`StageAssemblyVenueRegistry`へ1対1で組み立てる。Registryは作者座標配列と選択weightを公開するが、座標や会場名から役割を推測しない。
 
-`door`、`door_panel`、`door_open_pose`、`door_sweep`は排他的な作者Object分類後に内部`StageDoorAssetRegistry`へ組み立てる。`elevator`とそのcar、stop、door、marker、Volume、`LNK_*` pairは内部`StageElevatorAssetRegistry`へ組み立てる。両RegistryはID参照と親子関係を検証する派生索引であり、作者Objectを元の`visualMeshes`、Collider、marker、volume、link集合から重複分類して取り除かない。
+`door`、`door_panel`、`door_open_pose`、`door_sweep`は排他的な作者Object分類後に内部`StageDoorAssetRegistry`へ組み立てる。`elevator`とそのcar、stop、door、marker、呼出indicator、Volume、`LNK_*` pairは内部`StageElevatorAssetRegistry`へ組み立てる。両RegistryはID参照と親子関係を検証する派生索引であり、作者Objectを元の`visualMeshes`、Collider、marker、volume、link集合から重複分類して取り除かない。
 
 `room_variant` Markerとその子孫、`room_variant_tile` Volumeは内部`StageRoomVariantAssetRegistry`へ組み立てる。Registryは20室×2 variant、最寄りancestorによる排他的所属、固定tile所有を検証する派生索引であり、作者Objectを接頭辞による一次集合から取り除かない。
 
@@ -708,7 +711,7 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 - B03-1の学校資産では、校舎1～4階、階段下、体育館、屋上階段室を含む全屋内について、ビットが入り得る範囲の直上を覆う天井`COL_*`が存在し、天井Collider欠落が0件である。
 - B03-3Cの各動的扉は`door`、1件以上のpanel、panelごとのopen pose、1件のsweep Volume、panelごとの表示・Colliderを持つ。classとmotion kind、親子関係、参照ID、閉・開Transformが7.9.1節に一致する。
 - B03-3Cの`room` doorは固定表どおり38件、`toilet_stall` doorは24件である。旧1階個別室扉8件、旧上階結合室扉3件、旧トイレ固定扉は0件であり、固定開放出入口に動的door metadataがない。
-- B03-3Cのエレベーターはcontroller、car、car直下のかご表示・通常Collider各1件以上、1階／4階stop、`elevator` link pair、かご扉、各階乗場扉、occupancy、passenger origin、各階call mat／threshold／gate／waitを7.9.2節の件数で持つ。2階・3階の動的componentは0件である。
+- B03-3Cのエレベーターはcontroller、car、car直下のかご表示・通常Collider各1件以上、1階／4階stop、`elevator` link pair、かご扉、各階乗場扉、occupancy、passenger origin、各階call mat／call indicator／threshold／gate／waitを7.9.2節の件数で持つ。2階・3階の動的componentは0件である。
 - B03-3Cの`room_variant` Markerは20室×2の40件、`room_variant_tile` Volumeは20件である。各variantは対象`VIS_*`、`COL_*`、人間用`NAV_*`を各1件以上持ち、静的建築・扉・エレベーター・意味Object・BIT用`NAV_*`を子孫に持たない。
 
 ### 11.3 形状とTransform

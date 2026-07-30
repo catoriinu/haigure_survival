@@ -2,6 +2,7 @@ import {
   Sprite,
   SpriteManager,
   Vector3,
+  type Mesh,
   type Scene
 } from "@babylonjs/core";
 
@@ -18,7 +19,12 @@ import {
   type NavigationAgent,
   type NavigationAgentStepResult
 } from "../world/navigationAgent";
-import type { NavigationLocation } from "../world/navigationWorld";
+import type {
+  NavigationLocation,
+  NavigationRouteCandidate,
+  NavigationRoutePolicy,
+  NavigationTransitionStep
+} from "../world/navigationWorld";
 import { createStageBoundarySpawnSampler } from "../world/stageSpawnSampler";
 import type { StageSpatialContext } from "../world/stageSpatialContext";
 import {
@@ -50,6 +56,17 @@ import {
   type V2HumanTargetSpatialIndex
 } from "./humanTargetSpatialIndex";
 import type { V2BeamCompletionEvent } from "./beamCollision";
+import {
+  cloneV2NpcTraversalState,
+  createWalkingV2NpcTraversalState,
+  isV2NpcElevatorTraversalState,
+  isV2NpcTraversalWalkingEnabled,
+  type V2NpcElevatorTraversalRoute,
+  type V2NpcTraversalNotification,
+  type V2NpcTraversalRequest,
+  type V2NpcTraversalResult,
+  type V2NpcTraversalState
+} from "./npcTraversal";
 import type { V2PlayerGunFireEvent } from "./playerCombatSystem";
 
 const NPC_SEARCH_SPEED = 0.2;
@@ -113,6 +130,8 @@ const NPC_PERSONALITY_RETARGET_INTERVAL_SECONDS =
 const NPC_EVADE_DISTANCE =
   V2_NPC_CAPTURE_BREAKAWAY_SPEED *
   V2_NPC_CAPTURE_BREAKAWAY_SECONDS;
+const NPC_EVADE_ELEVATOR_DISTANCE =
+  3 * BLENDER_METERS_TO_WORLD_UNITS;
 
 const NPC_GUN_RANGE_SQUARED = V2_NPC_GUN_RANGE * V2_NPC_GUN_RANGE;
 const NPC_COMMAND_MAXIMUM_DISTANCE =
@@ -155,6 +174,33 @@ const ALIVE_HUMANS_TARGET_POLICY = Object.freeze({
   kind: "alive-humans" as const
 });
 
+export type V2NpcNavigationBehavior =
+  | "wander"
+  | "follow"
+  | "leave"
+  | "pursue"
+  | "evade"
+  | "breakaway";
+
+export type V2NpcNavigationRouteContext = Readonly<{
+  npcId: string;
+  behavior: V2NpcNavigationBehavior;
+  speed: number;
+  characterState: V2CharacterState;
+  brainwashed: boolean;
+  commandMode: V2NpcCommandMode;
+  targetId: string | null;
+  targetProvenance: V2TargetProvenance | null;
+  targetSelectionPersonality: V2TargetSelectionPersonality | null;
+  targetSightClear: boolean;
+  currentRouteKind: NavigationRouteCandidate["kind"] | null;
+  currentRouteLinkId: string | null;
+  traversalState: V2NpcTraversalState;
+  location: NavigationLocation;
+  stuckRevision: number;
+  reservationResultRevision: number;
+}>;
+
 export type V2NpcSystemOptions = Readonly<{
   scene: Scene;
   stage: StageSpatialContext;
@@ -162,6 +208,10 @@ export type V2NpcSystemOptions = Readonly<{
   initialBrainwashedNpcCount: number;
   diagnosticsEnabled: boolean;
   random: () => number;
+  selectNavigationRoute(
+    context: V2NpcNavigationRouteContext,
+    candidates: readonly NavigationRouteCandidate[]
+  ): NavigationRouteCandidate | null;
 }>;
 
 export type V2NpcTrackingSnapshot = Readonly<{
@@ -174,6 +224,7 @@ export type V2NpcTrackingSnapshot = Readonly<{
   commandMode: V2NpcCommandMode;
   temporaryGunActive: boolean;
   followerFirePhase: V2NpcFollowerFirePhase;
+  traversalState: V2NpcTraversalState;
 }>;
 
 export type V2NpcCommandKind = "follow" | "leave";
@@ -214,8 +265,10 @@ export type V2NpcPlacementAssignment = Readonly<{
 }>;
 
 export type V2NpcExternalThreat = Readonly<{
+  sourceId: string;
   targetId: string;
   sourcePosition: Vector3;
+  sightClear: boolean;
 }>;
 
 export type V2NpcBeamImpact = Readonly<{
@@ -262,6 +315,22 @@ export type V2NpcFrameView = Readonly<{
   frameViewBuildSequence: number;
 }>;
 
+const EMPTY_V2_NPC_FRAME_VIEW: V2NpcFrameView = Object.freeze({
+  targets: Object.freeze([]),
+  actorSpheres: Object.freeze([]),
+  tracking: Object.freeze([]),
+  captures: Object.freeze([]),
+  threatenedTargetIds: Object.freeze([]),
+  pathRecalculationCount: 0,
+  waitingForPathCount: 0,
+  currentTargetSightCheckCount: 0,
+  personalityRetargetQueryCount: 0,
+  sightRayCount: 0,
+  autonomousVisualTargetChangeCount: 0,
+  forcedTargetChangeCount: 0,
+  frameViewBuildSequence: 0
+});
+
 export interface V2NpcSystem {
   update(
     deltaSeconds: number,
@@ -296,6 +365,14 @@ export interface V2NpcSystem {
   ): readonly V2NpcStateChangeResult[];
   drainBeamRequests(): readonly V2BeamRequest[];
   drainAlertRequests(): readonly V2AlertRequest[];
+  drainTraversalRequests(): readonly V2NpcTraversalRequest[];
+  applyTraversalResults(
+    results: readonly V2NpcTraversalResult[]
+  ): readonly V2NpcTraversalNotification[];
+  getTraversalState(npcId: string): V2NpcTraversalState;
+  getNpcPosition(npcId: string): Vector3;
+  setNpcTransportPosition(npcId: string, position: Vector3): void;
+  releaseTraversalForScriptedPhase(): void;
   setExternalThreats(threats: readonly V2NpcExternalThreat[]): void;
   setPlayerBlockedTargetIds(targetIds: readonly string[]): void;
   setVisibleNpcIds(npcIds: readonly string[]): void;
@@ -339,9 +416,15 @@ type NpcRuntime = {
   readonly id: string;
   readonly sprite: Sprite;
   readonly navigationAgent: NavigationAgent;
+  readonly navigationRoutePolicy: NavigationRoutePolicy;
   readonly stateSystem: V2CharacterStateSystem;
   stateSnapshot: V2CharacterStateSnapshot;
   navigationLocation: NavigationLocation;
+  navigationBehavior: V2NpcNavigationBehavior;
+  navigationSpeed: number;
+  navigationTargetPosition: Vector3;
+  selectedRouteKind: NavigationRouteCandidate["kind"] | null;
+  selectedElevatorTransition: NavigationTransitionStep | null;
   footPosition: Vector3;
   readonly forward: Vector3;
   lastState: V2CharacterState;
@@ -356,6 +439,8 @@ type NpcRuntime = {
   gunLastSeenFootPosition: Vector3 | null;
   gunLastSeenPathPlanned: boolean;
   visualTargetSightClear: boolean;
+  evadeThreatId: string | null;
+  evadeThreatSightClear: boolean;
   alertLeaderId: string | null;
   alertRemainingSeconds: number;
   readonly alarmTargetQueue: NpcAlarmTarget[];
@@ -364,6 +449,9 @@ type NpcRuntime = {
   breakawayRemainingSeconds: number;
   breakawayDestination: NavigationLocation | null;
   readonly command: NpcCommandRuntime;
+  traversalState: V2NpcTraversalState;
+  pendingNavigationTransition: NavigationTransitionStep | null;
+  reservationResultRevision: number;
 };
 
 type ResolvedPlacement = Readonly<{
@@ -376,6 +464,20 @@ type ResolvedPlacement = Readonly<{
 type NpcFollowerPosition = Readonly<{
   id: string;
   footPosition: Vector3;
+}>;
+
+type NpcElevatorStopTraversal = Readonly<{
+  stopId: string;
+  callMatId: string;
+  callMatCenter: Vector3;
+  waitLocation: NavigationLocation;
+  oppositeLocation: NavigationLocation;
+}>;
+
+type NpcEvadeThreat = Readonly<{
+  sourceId: string;
+  sourceAimPosition: Vector3;
+  sightClear: boolean;
 }>;
 
 type NpcSightResultCache = Map<string, boolean>;
@@ -489,12 +591,30 @@ const toAimPosition = (footPosition: Vector3) =>
     footPosition.z
   );
 
+const toElevatorEndpointKey = (
+  linkId: string,
+  endpoint: "A" | "B"
+) => `${linkId}:${endpoint}`;
+
 const cloneNavigationLocation = (
   location: NavigationLocation
 ): NavigationLocation =>
   Object.freeze({
     position: location.position.clone(),
     polygonRef: location.polygonRef
+  });
+
+const cloneNavigationTransition = (
+  transition: NavigationTransitionStep
+): NavigationTransitionStep =>
+  Object.freeze({
+    kind: "transition",
+    link: transition.link,
+    from: transition.from,
+    to: transition.to,
+    entry: cloneNavigationLocation(transition.entry),
+    exit: cloneNavigationLocation(transition.exit),
+    distance: transition.distance
   });
 
 const cloneTargetSnapshot = (
@@ -637,12 +757,20 @@ const createNpcCommandRuntime = (
 class SchoolV2NpcSystem implements V2NpcSystem {
   private readonly stage: StageSpatialContext;
   private readonly spriteManager: SpriteManager;
-  private readonly npcs: readonly NpcRuntime[];
-  private readonly npcsById: ReadonlyMap<string, NpcRuntime>;
+  private readonly npcs: NpcRuntime[];
+  private readonly npcsById: Map<string, NpcRuntime>;
   private readonly random: () => number;
   private readonly diagnosticsEnabled: boolean;
+  private readonly selectNavigationRoute: V2NpcSystemOptions["selectNavigationRoute"];
+  private readonly doorIdByCollider: ReadonlyMap<Mesh, string>;
+  private readonly elevatorHumanGateColliders: ReadonlySet<Mesh>;
+  private readonly elevatorStopByLinkEndpoint: ReadonlyMap<
+    string,
+    NpcElevatorStopTraversal
+  >;
   private readonly pendingAlertRequests: V2AlertRequest[] = [];
   private readonly pendingBeamRequests: V2BeamRequest[] = [];
+  private readonly pendingTraversalRequests: V2NpcTraversalRequest[] = [];
   private frameView: V2NpcFrameView;
   private nextReplanPermissionIndex = 0;
   private replanPermissionStartIndex = 0;
@@ -664,6 +792,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private playerBlockedTargetIds: readonly string[] = Object.freeze([]);
   private previousPlayerFootPosition: Vector3 | null = null;
   private readonly playerHorizontalDirection = Vector3.Zero();
+  private traversalElapsedSeconds = 0;
   private aiSuspended = false;
   private disposed = false;
 
@@ -672,10 +801,70 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (typeof options.random !== "function") {
       throw new Error("randomには0以上1未満を返す関数が必要です。");
     }
+    if (typeof options.selectNavigationRoute !== "function") {
+      throw new Error("selectNavigationRouteには関数が必要です。");
+    }
 
     this.stage = options.stage;
     this.random = options.random;
     this.diagnosticsEnabled = options.diagnosticsEnabled;
+    this.selectNavigationRoute = options.selectNavigationRoute;
+    const doorIdByCollider = new Map<Mesh, string>();
+    for (const door of options.stage.doorAssets.all) {
+      if (door.doorClass !== "room" && door.doorClass !== "toilet_stall") {
+        continue;
+      }
+      for (const panel of door.panels) {
+        for (const collider of panel.colliderMeshes) {
+          doorIdByCollider.set(collider, door.id);
+        }
+      }
+    }
+    this.doorIdByCollider = doorIdByCollider;
+    this.elevatorHumanGateColliders = new Set(
+      options.stage.elevatorAssets.all.flatMap((elevator) =>
+        elevator.stops.map((stop) => stop.humanGate.collider)
+      )
+    );
+    const elevatorStopByLinkEndpoint = new Map<
+      string,
+      NpcElevatorStopTraversal
+    >();
+    for (const elevator of options.stage.elevatorAssets.all) {
+      for (const stop of elevator.stops) {
+        const waitLocation = options.stage.navigation.projectPoint(
+          stop.wait.node.getAbsolutePosition(),
+          NAVIGATION_PROJECTION_MAX_DISTANCE
+        );
+        const oppositeEndpoint =
+          stop.endpoint === "A"
+            ? elevator.link.endpointB
+            : elevator.link.endpointA;
+        const oppositeLocation = options.stage.navigation.projectPoint(
+          oppositeEndpoint.position,
+          NAVIGATION_PROJECTION_MAX_DISTANCE
+        );
+        if (!waitLocation || !oppositeLocation) {
+          throw new Error(
+            `NPCエレベーター停止階をNavMeshへ投影できません: ${elevator.id}/${stop.id}`
+          );
+        }
+        stop.callMat.mesh.computeWorldMatrix(true);
+        elevatorStopByLinkEndpoint.set(
+          toElevatorEndpointKey(elevator.link.id, stop.endpoint),
+          Object.freeze({
+            stopId: stop.id,
+            callMatId: stop.callMat.id,
+            callMatCenter:
+              stop.callMat.mesh.getBoundingInfo().boundingBox.centerWorld.clone(),
+            waitLocation: cloneNavigationLocation(waitLocation),
+            oppositeLocation:
+              cloneNavigationLocation(oppositeLocation)
+          })
+        );
+      }
+    }
+    this.elevatorStopByLinkEndpoint = elevatorStopByLinkEndpoint;
 
     const spawnPoints =
       options.npcCount === 0
@@ -752,19 +941,52 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         const footPosition = this.resolveFootPosition(spawnPoint.position);
         sprite.position.copyFrom(toAimPosition(footPosition));
         const angle = this.nextRandom() * Math.PI * 2;
+        const command = createNpcCommandRuntime(id, angle);
+        let npc: NpcRuntime;
+        const navigationRoutePolicy: NavigationRoutePolicy = Object.freeze({
+          selectRoute: (candidates) => {
+            const selected = this.selectNavigationRoute(
+              this.createNavigationRouteContext(npc),
+              candidates
+            );
+            npc.selectedRouteKind = selected?.kind ?? null;
+            const elevatorTransition = selected?.path.steps.find(
+              (
+                step
+              ): step is NavigationTransitionStep =>
+                step.kind === "transition" &&
+                step.link.kind === "elevator"
+            );
+            this.synchronizeApproachingElevatorRouteSelection(
+              npc,
+              elevatorTransition ?? null
+            );
+            npc.selectedElevatorTransition = elevatorTransition
+              ? cloneNavigationTransition(elevatorTransition)
+              : null;
+            return selected;
+          }
+        });
         const navigationAgent = createNavigationAgent(
           options.stage.navigation,
           "npc",
+          navigationRoutePolicy,
           NAVIGATION_AGENT_CONFIG
         );
         cleanupActions.push(() => navigationAgent.clear());
-        npcs.push({
+        npc = {
           id,
           sprite,
           navigationAgent,
+          navigationRoutePolicy,
           stateSystem,
           stateSnapshot: stateSystem.getSnapshot(),
           navigationLocation: cloneNavigationLocation(spawnPoint),
+          navigationBehavior: "wander",
+          navigationSpeed: NPC_SEARCH_SPEED,
+          navigationTargetPosition: footPosition.clone(),
+          selectedRouteKind: null,
+          selectedElevatorTransition: null,
           footPosition,
           forward: new Vector3(Math.sin(angle), 0, Math.cos(angle)),
           lastState: initialState,
@@ -783,6 +1005,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           gunLastSeenFootPosition: null,
           gunLastSeenPathPlanned: false,
           visualTargetSightClear: false,
+          evadeThreatId: null,
+          evadeThreatSightClear: false,
           alertLeaderId: null,
           alertRemainingSeconds: 0,
           alarmTargetQueue: [],
@@ -793,10 +1017,14 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           capture: null,
           breakawayRemainingSeconds: 0,
           breakawayDestination: null,
-          command: createNpcCommandRuntime(id, angle)
-        });
+          command,
+          traversalState: createWalkingV2NpcTraversalState(),
+          pendingNavigationTransition: null,
+          reservationResultRevision: 0
+        };
+        npcs.push(npc);
       }
-      this.npcs = Object.freeze(npcs);
+      this.npcs = npcs;
       this.npcsById = new Map(npcs.map((npc) => [npc.id, npc]));
       this.frameView = this.buildFrameView(Object.freeze([]));
       cleanupActions.length = 0;
@@ -815,6 +1043,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   ) {
     this.assertActive();
     assertNonNegativeFiniteNumber("NPC更新deltaSeconds", deltaSeconds);
+    this.traversalElapsedSeconds += deltaSeconds;
+    if (!Number.isFinite(this.traversalElapsedSeconds)) {
+      throw new Error("NPC traversal経過時間が有限値になりません。");
+    }
     assertTargetSnapshot("プレイヤー標的", playerTarget);
     if (playerTarget.kind !== "player") {
       throw new Error("NPC更新へ渡す外部標的はplayerである必要があります。");
@@ -893,7 +1125,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
 
     const threatenedIds = new Set<string>();
-    const threatSourcesByTargetId = new Map<string, Vector3>();
+    const threatSourcesByTargetId = new Map<string, NpcEvadeThreat>();
     const capturedTargetIds = new Set<string>(
       this.playerBlockedTargetIds
     );
@@ -915,7 +1147,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       threatenedIds.add(target.id);
       threatSourcesByTargetId.set(
         target.id,
-        threat.sourcePosition.clone()
+        Object.freeze({
+          sourceId: threat.sourceId,
+          sourceAimPosition: threat.sourcePosition.clone(),
+          sightClear: threat.sightClear
+        })
       );
     }
 
@@ -924,7 +1160,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         if (!npc.sprite.isVisible) {
           continue;
         }
-        npc.navigationAgent.clear();
+        this.clearNavigationAgent(npc);
         if (npc.capture) {
           capturedTargetIds.add(npc.capture.targetId);
           this.registerCaptureThreat(
@@ -986,7 +1222,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     for (let npcIndex = 0; npcIndex < this.npcs.length; npcIndex += 1) {
       const npc = this.npcs[npcIndex];
       if (!npc.sprite.isVisible) {
-        npc.navigationAgent.clear();
+        this.clearNavigationAgent(npc);
         continue;
       }
       if (
@@ -1001,7 +1237,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         state !== "brainwash-complete-no-gun"
       ) {
         if (isStoppedState(state)) {
-          npc.navigationAgent.clear();
+          this.clearNavigationAgent(npc);
         }
         continue;
       }
@@ -1032,12 +1268,19 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         personalityRetargetNpcIds.has(npc.id)
       );
       if (!target) {
-        npc.navigationAgent.clear();
+        this.clearNavigationAgent(npc);
         continue;
       }
 
       threatenedIds.add(target.id);
-      threatSourcesByTargetId.set(target.id, npc.footPosition.clone());
+      threatSourcesByTargetId.set(
+        target.id,
+        Object.freeze({
+          sourceId: npc.id,
+          sourceAimPosition: toAimPosition(npc.footPosition),
+          sightClear: npc.visualTargetSightClear
+        })
+      );
       if (state === "brainwash-complete-gun") {
         this.updateGunNpc(
           npc,
@@ -1082,18 +1325,18 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       }
       npc.lastState = npc.stateSnapshot.state;
       if (capturedTargetIds.has(npc.id)) {
-        npc.navigationAgent.clear();
+        this.clearNavigationAgent(npc);
         npc.wanderDestination = null;
         continue;
       }
       if (threatened) {
-        const threatPosition = threatSourcesByTargetId.get(npc.id);
-        if (!threatPosition) {
+        const threat = threatSourcesByTargetId.get(npc.id);
+        if (!threat) {
           throw new Error(`脅威元座標がありません: ${npc.id}`);
         }
         this.updateEvadingNpc(
           npc,
-          threatPosition,
+          threat,
           deltaSeconds,
           this.hasReplanPermission(npcIndex)
         );
@@ -1491,6 +1734,234 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     return requests;
   }
 
+  drainTraversalRequests() {
+    this.assertActive();
+    const requests = Object.freeze(
+      this.pendingTraversalRequests.map((request) => {
+        if (!("entryLocation" in request)) {
+          return Object.freeze({ ...request });
+        }
+        return Object.freeze({
+          ...request,
+          entryLocation: cloneNavigationLocation(request.entryLocation),
+          exitLocation: cloneNavigationLocation(request.exitLocation)
+        });
+      })
+    );
+    this.pendingTraversalRequests.length = 0;
+    return requests;
+  }
+
+  applyTraversalResults(results: readonly V2NpcTraversalResult[]) {
+    this.assertActive();
+    const notifications: V2NpcTraversalNotification[] = [];
+    let frameViewChanged = false;
+    for (const result of results) {
+      const npc = this.requireNpc(result.npcId);
+      if (result.kind === "door-opened") {
+        this.requireDoorTraversalState(
+          npc,
+          "waiting-door-open",
+          result.doorId
+        );
+        npc.traversalState = Object.freeze({
+          kind: "passing-door",
+          doorId: result.doorId
+        });
+        frameViewChanged = true;
+        continue;
+      }
+      if (result.kind === "door-pass-detected") {
+        this.requireDoorTraversalState(npc, "passing-door", result.doorId);
+        this.pendingTraversalRequests.push(
+          Object.freeze({
+            kind: "door-pass-complete",
+            npcId: npc.id,
+            doorId: result.doorId
+          })
+        );
+        npc.traversalState = createWalkingV2NpcTraversalState();
+        frameViewChanged = true;
+        continue;
+      }
+
+      this.requireElevatorTraversalIdentity(npc, result);
+      if (result.kind === "elevator-call-accepted") {
+        this.requireElevatorTraversalKind(
+          npc,
+          "waiting-elevator-call-input"
+        );
+        const elevatorRoute = this.createNpcElevatorTraversalRoute(npc);
+        npc.navigationAgent.clear();
+        npc.selectedRouteKind = "link";
+        npc.selectedElevatorTransition =
+          cloneNavigationTransition(
+            npc.pendingNavigationTransition!
+          );
+        npc.traversalState = Object.freeze({
+          kind: "moving-to-elevator-wait",
+          ...elevatorRoute
+        });
+        frameViewChanged = true;
+        continue;
+      }
+      if (result.kind === "elevator-ready-for-boarding") {
+        this.requireElevatorTraversalKind(
+          npc,
+          "waiting-elevator-call"
+        );
+        const elevatorRoute = this.createNpcElevatorTraversalRoute(npc);
+        npc.traversalState = Object.freeze({
+          kind: "approaching-elevator-board",
+          ...elevatorRoute
+        });
+        frameViewChanged = true;
+        continue;
+      }
+      if (result.kind === "elevator-boarded") {
+        this.requireElevatorTraversalKind(
+          npc,
+          "waiting-elevator-board"
+        );
+        const elevatorRoute = this.createNpcElevatorTraversalRoute(npc);
+        npc.traversalState = Object.freeze({
+          kind: "riding-elevator",
+          ...elevatorRoute
+        });
+        npc.reservationResultRevision += 1;
+        frameViewChanged = true;
+        continue;
+      }
+      if (result.kind === "elevator-safety-evicted") {
+        this.requireElevatorTraversalKind(
+          npc,
+          "riding-elevator"
+        );
+        assertFiniteVector(
+          "NPC安全退避位置",
+          result.location.position
+        );
+        npc.navigationAgent.clear();
+        npc.selectedRouteKind = null;
+        npc.selectedElevatorTransition = null;
+        npc.pendingNavigationTransition = null;
+        npc.navigationLocation = cloneNavigationLocation(
+          result.location
+        );
+        npc.footPosition = this.resolveFootPosition(
+          result.location.position
+        );
+        npc.sprite.position.copyFrom(
+          toAimPosition(npc.footPosition)
+        );
+        npc.traversalState = createWalkingV2NpcTraversalState();
+        npc.reservationResultRevision += 1;
+        frameViewChanged = true;
+        continue;
+      }
+      if (result.kind === "elevator-boarding-rejected") {
+        if (
+          npc.traversalState.kind !==
+            "waiting-elevator-call" &&
+          npc.traversalState.kind !==
+            "approaching-elevator-board" &&
+          npc.traversalState.kind !==
+            "waiting-elevator-board"
+        ) {
+          throw new Error(
+            `NPC乗車拒否前のtraversal状態が不正です: ${npc.id}/${npc.traversalState.kind}`
+          );
+        }
+        if (
+          result.reason === "capacity-reached" &&
+          npc.command.mode === "follow"
+        ) {
+          this.clearNpcCommand(npc, true);
+          notifications.push(
+            Object.freeze({
+              kind: "follow-cancelled",
+              npcId: npc.id,
+              reason: "elevator-capacity-reached"
+            })
+          );
+        }
+        npc.navigationAgent.clear();
+        npc.selectedRouteKind = null;
+        npc.selectedElevatorTransition = null;
+        npc.pendingNavigationTransition = null;
+        npc.traversalState = createWalkingV2NpcTraversalState();
+        npc.reservationResultRevision += 1;
+        frameViewChanged = true;
+        continue;
+      }
+      if (result.kind === "elevator-arrived") {
+        this.requireElevatorTraversalKind(npc, "riding-elevator");
+        const elevatorRoute = this.createNpcElevatorTraversalRoute(npc);
+        npc.traversalState = Object.freeze({
+          kind: "leaving-elevator",
+          ...elevatorRoute
+        });
+        frameViewChanged = true;
+        continue;
+      }
+
+      this.requireElevatorTraversalKind(
+        npc,
+        "leaving-elevator"
+      );
+      const pendingTransition = npc.pendingNavigationTransition;
+      if (!pendingTransition) {
+        throw new Error(
+          `NPCの降車完了対象transitionがありません: ${npc.id}`
+        );
+      }
+      assertFiniteVector("NPC降車位置", result.location.position);
+      npc.navigationAgent.completeTransition(result.location);
+      npc.navigationLocation = cloneNavigationLocation(result.location);
+      npc.pendingNavigationTransition = null;
+      npc.traversalState = createWalkingV2NpcTraversalState();
+      frameViewChanged = true;
+    }
+    if (frameViewChanged) {
+      this.rebuildFrameViewPreservingThreats();
+    }
+    return Object.freeze(notifications);
+  }
+
+  getTraversalState(npcId: string) {
+    this.assertActive();
+    return cloneV2NpcTraversalState(
+      this.requireNpc(npcId).traversalState
+    );
+  }
+
+  getNpcPosition(npcId: string) {
+    this.assertActive();
+    return this.requireNpc(npcId).footPosition.clone();
+  }
+
+  setNpcTransportPosition(npcId: string, position: Vector3) {
+    this.assertActive();
+    assertFiniteVector("NPC搬送位置", position);
+    const npc = this.requireNpc(npcId);
+    npc.footPosition = position.clone();
+    npc.sprite.position.copyFrom(toAimPosition(npc.footPosition));
+    this.rebuildFrameViewPreservingThreats();
+  }
+
+  releaseTraversalForScriptedPhase() {
+    this.assertActive();
+    this.pendingTraversalRequests.length = 0;
+    for (const npc of this.npcs) {
+      npc.navigationAgent.clear();
+      npc.selectedRouteKind = null;
+      npc.selectedElevatorTransition = null;
+      npc.pendingNavigationTransition = null;
+      npc.traversalState = createWalkingV2NpcTraversalState();
+    }
+    this.rebuildFrameViewPreservingThreats();
+  }
+
   private applyAlarmTargetEvents(events: readonly V2AlarmTriggerEvent[]) {
     if (events.length === 0) {
       return;
@@ -1542,7 +2013,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.breakawayDestination = null;
       npc.wanderDestination = null;
       npc.capture = null;
-      npc.navigationAgent.clear();
+      this.clearNavigationAgent(npc);
       this.clearTarget(npc);
       npc.visualSightCheckPriority = true;
     }
@@ -1551,16 +2022,26 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   setExternalThreats(threats: readonly V2NpcExternalThreat[]) {
     this.assertActive();
     for (const threat of threats) {
+      if (threat.sourceId.length === 0) {
+        throw new Error("外部脅威の発生元IDを空にできません。");
+      }
       if (threat.targetId.length === 0) {
         throw new Error("外部脅威の対象IDを空にできません。");
       }
       assertFiniteVector("外部脅威の発生元", threat.sourcePosition);
+      if (typeof threat.sightClear !== "boolean") {
+        throw new Error(
+          "外部脅威の視線状態にはbooleanが必要です。"
+        );
+      }
     }
     this.externalThreats = Object.freeze(
       threats.map((threat) =>
         Object.freeze({
+          sourceId: threat.sourceId,
           targetId: threat.targetId,
-          sourcePosition: threat.sourcePosition.clone()
+          sourcePosition: threat.sourcePosition.clone(),
+          sightClear: threat.sightClear
         })
       )
     );
@@ -1635,7 +2116,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         this.clearNpcCommand(npc, false);
         this.clearAutonomousState(npc);
       }
-      npc.navigationAgent.clear();
+      this.clearNavigationAgent(npc);
     }
     if (suspended) {
       this.previousPlayerFootPosition = null;
@@ -1702,7 +2183,12 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       const npc = placement.npc;
       this.clearNpcCommand(npc, false);
       npc.navigationAgent.clear();
+      npc.selectedRouteKind = null;
+      npc.selectedElevatorTransition = null;
       npc.navigationLocation = placement.navigationLocation;
+      npc.pendingNavigationTransition = null;
+      npc.traversalState = createWalkingV2NpcTraversalState();
+      this.removePendingTraversalRequestsForNpc(npc.id);
       npc.footPosition = placement.footPosition;
       npc.wanderDestination = null;
       npc.wanderWaitSeconds = this.nextWanderWait();
@@ -1732,14 +2218,25 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.assertActive();
     this.pendingAlertRequests.length = 0;
     this.pendingBeamRequests.length = 0;
+    this.pendingTraversalRequests.length = 0;
     for (const npc of this.npcs) {
       this.clearNpcCommand(npc, false);
       this.clearAutonomousState(npc);
       npc.navigationAgent.clear();
+      npc.selectedRouteKind = null;
+      npc.selectedElevatorTransition = null;
+      npc.pendingNavigationTransition = null;
+      npc.traversalState = createWalkingV2NpcTraversalState();
       npc.sprite.dispose();
     }
+    this.npcs.length = 0;
+    this.npcsById.clear();
+    this.frameView = EMPTY_V2_NPC_FRAME_VIEW;
+    this.externalThreats = Object.freeze([]);
+    this.playerBlockedTargetIds = Object.freeze([]);
     this.previousPlayerFootPosition = null;
     this.playerHorizontalDirection.setAll(0);
+    this.traversalElapsedSeconds = 0;
     this.spriteManager.dispose();
     this.disposed = true;
   }
@@ -1776,6 +2273,434 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         this.npcs.length) %
       this.npcs.length;
     return offset < this.replanPermissionCount;
+  }
+
+  private createNavigationRouteContext(
+    npc: NpcRuntime
+  ): V2NpcNavigationRouteContext {
+    return Object.freeze({
+      npcId: npc.id,
+      behavior: npc.navigationBehavior,
+      speed: npc.navigationSpeed,
+      characterState: npc.stateSnapshot.state,
+      brainwashed: isV2BrainwashState(npc.stateSnapshot.state),
+      commandMode: npc.command.mode,
+      targetId:
+        npc.navigationBehavior === "evade"
+          ? npc.evadeThreatId
+          : npc.targetId,
+      targetProvenance: npc.targetProvenance,
+      targetSelectionPersonality: npc.targetSelectionPersonality,
+      targetSightClear:
+        npc.navigationBehavior === "evade"
+          ? npc.evadeThreatSightClear
+          : npc.visualTargetSightClear,
+      currentRouteKind: npc.selectedRouteKind,
+      currentRouteLinkId:
+        npc.selectedElevatorTransition?.link.id ?? null,
+      traversalState: cloneV2NpcTraversalState(npc.traversalState),
+      location: cloneNavigationLocation(npc.navigationLocation),
+      stuckRevision: npc.navigationAgent.stuckRevision,
+      reservationResultRevision: npc.reservationResultRevision
+    });
+  }
+
+  private synchronizeApproachingElevatorRouteSelection(
+    npc: NpcRuntime,
+    selectedTransition: NavigationTransitionStep | null
+  ) {
+    const state = npc.traversalState;
+    if (state.kind !== "approaching-elevator-board") {
+      return;
+    }
+    if (
+      selectedTransition?.link.id === state.linkId &&
+      selectedTransition.from === state.from &&
+      selectedTransition.to === state.to
+    ) {
+      return;
+    }
+    const route = this.createNpcElevatorTraversalRoute(npc);
+    this.pendingTraversalRequests.push(
+      Object.freeze({
+        kind: "elevator-reservation-cancel",
+        npcId: npc.id,
+        ...route
+      })
+    );
+    npc.pendingNavigationTransition = null;
+    npc.traversalState = createWalkingV2NpcTraversalState();
+  }
+
+  private createNpcElevatorTraversalRoute(
+    npc: NpcRuntime
+  ): V2NpcElevatorTraversalRoute {
+    const transition = npc.pendingNavigationTransition;
+    if (!transition || transition.link.kind !== "elevator") {
+      throw new Error(
+        `NPCのエレベーターtransitionがありません: ${npc.id}`
+      );
+    }
+    return Object.freeze({
+      linkId: transition.link.id,
+      from: transition.from,
+      to: transition.to,
+      entryLocation: cloneNavigationLocation(transition.entry),
+      exitLocation: cloneNavigationLocation(transition.exit)
+    });
+  }
+
+  private requireNpcElevatorStopTraversal(
+    linkId: string,
+    from: "A" | "B"
+  ) {
+    const stop = this.elevatorStopByLinkEndpoint.get(
+      toElevatorEndpointKey(linkId, from)
+    );
+    if (!stop) {
+      throw new Error(
+        `NPC用エレベーター停止階がありません: ${linkId}/${from}`
+      );
+    }
+    return stop;
+  }
+
+  private findNpcElevatorEvadeDestination(npc: NpcRuntime) {
+    let selected:
+      | Readonly<{
+          stop: NpcElevatorStopTraversal;
+          verticalDistance: number;
+          distanceSquared: number;
+        }>
+      | null = null;
+    const maximumDistanceSquared =
+      NPC_EVADE_ELEVATOR_DISTANCE *
+      NPC_EVADE_ELEVATOR_DISTANCE;
+    for (const stop of this.elevatorStopByLinkEndpoint.values()) {
+      const offsetX = npc.footPosition.x - stop.callMatCenter.x;
+      const offsetZ = npc.footPosition.z - stop.callMatCenter.z;
+      const distanceSquared =
+        offsetX * offsetX + offsetZ * offsetZ;
+      if (distanceSquared > maximumDistanceSquared) {
+        continue;
+      }
+      const verticalDistance = Math.abs(
+        npc.navigationLocation.position.y -
+          stop.waitLocation.position.y
+      );
+      if (
+        !selected ||
+        verticalDistance < selected.verticalDistance ||
+        (verticalDistance === selected.verticalDistance &&
+          (distanceSquared < selected.distanceSquared ||
+            (distanceSquared === selected.distanceSquared &&
+              stop.stopId < selected.stop.stopId)))
+      ) {
+        selected = Object.freeze({
+          stop,
+          verticalDistance,
+          distanceSquared
+        });
+      }
+    }
+    return selected
+      ? cloneNavigationLocation(selected.stop.oppositeLocation)
+      : null;
+  }
+
+  private beginNpcElevatorCall(
+    npc: NpcRuntime,
+    transition: NavigationTransitionStep
+  ) {
+    npc.pendingNavigationTransition =
+      cloneNavigationTransition(transition);
+    const elevatorRoute = this.createNpcElevatorTraversalRoute(npc);
+    npc.traversalState = Object.freeze({
+      kind: "waiting-elevator-call-input",
+      ...elevatorRoute
+    });
+    this.pendingTraversalRequests.push(
+      Object.freeze({
+        kind: "elevator-call",
+        npcId: npc.id,
+        ...elevatorRoute,
+        requestedAtSeconds: this.traversalElapsedSeconds
+      })
+    );
+  }
+
+  private reconsiderWaitingElevatorCall(npc: NpcRuntime) {
+    const state = npc.traversalState;
+    if (
+      state.kind !== "waiting-elevator-call-input" &&
+      state.kind !== "waiting-elevator-call"
+    ) {
+      throw new Error(
+        `呼出待機再評価対象NPCの状態が不正です: ${npc.id}/${state.kind}`
+      );
+    }
+    const route = this.createNpcElevatorTraversalRoute(npc);
+    const projectedTarget = this.stage.navigation.projectPoint(
+      npc.navigationTargetPosition,
+      NAVIGATION_PROJECTION_MAX_DISTANCE
+    );
+    const selectedPath = projectedTarget
+      ? this.stage.navigation.findPath(
+          npc.navigationLocation,
+          projectedTarget,
+          "npc",
+          npc.navigationRoutePolicy
+        )
+      : null;
+    const selectedTransition = selectedPath?.steps.find(
+      (
+        step
+      ): step is NavigationTransitionStep =>
+        step.kind === "transition" &&
+        step.link.kind === "elevator"
+    );
+    if (
+      selectedTransition?.link.id === state.linkId &&
+      selectedTransition.from === state.from &&
+      selectedTransition.to === state.to
+    ) {
+      return;
+    }
+    this.pendingTraversalRequests.push(
+      Object.freeze({
+        kind: "elevator-call-cancel",
+        npcId: npc.id,
+        ...route
+      })
+    );
+    npc.navigationAgent.clear();
+    npc.selectedRouteKind = null;
+    npc.selectedElevatorTransition = null;
+    npc.pendingNavigationTransition = null;
+    npc.traversalState = createWalkingV2NpcTraversalState();
+  }
+
+  private setNavigationIntent(
+    npc: NpcRuntime,
+    behavior: V2NpcNavigationBehavior,
+    speed: number,
+    targetPosition: Vector3
+  ) {
+    npc.navigationBehavior = behavior;
+    npc.navigationSpeed = speed;
+    npc.navigationTargetPosition.copyFrom(targetPosition);
+  }
+
+  private updateNavigation(
+    npc: NpcRuntime,
+    behavior: V2NpcNavigationBehavior,
+    targetPosition: Vector3,
+    speed: number,
+    deltaSeconds: number,
+    allowPathRecalculation: boolean
+  ): NavigationAgentStepResult {
+    this.setNavigationIntent(
+      npc,
+      behavior,
+      speed,
+      targetPosition
+    );
+    if (
+      (npc.traversalState.kind ===
+        "waiting-elevator-call-input" ||
+        npc.traversalState.kind ===
+          "waiting-elevator-call") &&
+      allowPathRecalculation
+    ) {
+      this.reconsiderWaitingElevatorCall(npc);
+    }
+    if (npc.traversalState.kind === "leaving-elevator") {
+      this.updateNpcElevatorDisembarkMovement(
+        npc,
+        speed,
+        deltaSeconds
+      );
+      return this.createTraversalWaitingStep(npc);
+    }
+    if (!isV2NpcTraversalWalkingEnabled(npc.traversalState)) {
+      return this.createTraversalWaitingStep(npc);
+    }
+    const resolvedTargetPosition =
+      npc.traversalState.kind === "moving-to-elevator-wait"
+        ? this.requireNpcElevatorStopTraversal(
+            npc.traversalState.linkId,
+            npc.traversalState.from
+          ).waitLocation.position
+        : targetPosition;
+    const movement = npc.navigationAgent.update(
+      npc.navigationLocation,
+      resolvedTargetPosition,
+      speed,
+      deltaSeconds,
+      allowPathRecalculation
+    );
+    if (npc.traversalState.kind === "moving-to-elevator-wait") {
+      if (
+        movement.state === "unreachable" ||
+        movement.state === "transition-required"
+      ) {
+        throw new Error(
+          `NPCがエレベーター待機点へ到達できません: ${npc.id}/${npc.traversalState.linkId}`
+        );
+      }
+      if (movement.state === "arrived") {
+        if (!this.applyNavigationMovement(npc, movement.location)) {
+          return Object.freeze({
+            ...this.createTraversalWaitingStep(npc),
+            pathRecalculated: movement.pathRecalculated,
+            pathDistance: movement.pathDistance
+          });
+        }
+        const elevatorRoute = this.createNpcElevatorTraversalRoute(npc);
+        npc.navigationAgent.clear();
+        npc.selectedRouteKind = "link";
+        npc.selectedElevatorTransition =
+          cloneNavigationTransition(
+            npc.pendingNavigationTransition!
+          );
+        npc.traversalState = Object.freeze({
+          kind: "waiting-elevator-call",
+          ...elevatorRoute
+        });
+        return Object.freeze({
+          ...this.createTraversalWaitingStep(npc),
+          pathRecalculated: movement.pathRecalculated,
+          pathDistance: movement.pathDistance
+        });
+      }
+      return movement;
+    }
+    if (
+      movement.state !== "transition-required" ||
+      movement.transition?.link.kind !== "elevator"
+    ) {
+      return movement;
+    }
+    if (!this.applyNavigationMovement(npc, movement.location)) {
+      return Object.freeze({
+        ...this.createTraversalWaitingStep(npc),
+        pathRecalculated: movement.pathRecalculated,
+        pathDistance: movement.pathDistance
+      });
+    }
+    const transition = movement.transition;
+    if (npc.traversalState.kind === "approaching-elevator-board") {
+      if (
+        npc.traversalState.linkId !== transition.link.id ||
+        npc.traversalState.from !== transition.from ||
+        npc.traversalState.to !== transition.to
+      ) {
+        throw new Error(
+          `NPCの乗車待ち経路がtransitionと一致しません: ${npc.id}/${transition.link.id}`
+        );
+      }
+      npc.pendingNavigationTransition =
+        cloneNavigationTransition(transition);
+      const elevatorRoute = this.createNpcElevatorTraversalRoute(npc);
+      this.pendingTraversalRequests.push(
+        Object.freeze({
+          kind: "elevator-board",
+          npcId: npc.id,
+          ...elevatorRoute,
+          requestedAtSeconds: this.traversalElapsedSeconds
+        })
+      );
+      npc.traversalState = Object.freeze({
+        kind: "waiting-elevator-board",
+        ...elevatorRoute
+      });
+      return Object.freeze({
+        ...this.createTraversalWaitingStep(npc),
+        pathRecalculated: movement.pathRecalculated,
+        pathDistance: movement.pathDistance
+      });
+    }
+    if (npc.traversalState.kind !== "walking") {
+      return Object.freeze({
+        ...this.createTraversalWaitingStep(npc),
+        pathRecalculated: movement.pathRecalculated,
+        pathDistance: movement.pathDistance
+      });
+    }
+    throw new Error(
+      `NPCが呼出マットへ進入せずエレベーター遷移点へ到達しました: ${npc.id}/${transition.link.id}`
+    );
+  }
+
+  private updateNpcElevatorDisembarkMovement(
+    npc: NpcRuntime,
+    speed: number,
+    deltaSeconds: number
+  ) {
+    const state = npc.traversalState;
+    if (state.kind !== "leaving-elevator") {
+      throw new Error(
+        `NPC降車移動対象のtraversal状態が不正です: ${npc.id}/${state.kind}`
+      );
+    }
+    const offset = state.exitLocation.position.subtract(
+      npc.footPosition
+    );
+    const distance = offset.length();
+    if (distance === 0) {
+      return;
+    }
+    const movementDistance = Math.min(
+      distance,
+      speed * deltaSeconds
+    );
+    if (movementDistance === 0) {
+      return;
+    }
+    const nextPosition = npc.footPosition.add(
+      offset.scale(movementDistance / distance)
+    );
+    const nextFootPosition = this.resolveFootPosition(
+      nextPosition
+    );
+    const movementHit = this.stage.queries.castMovementSegment(
+      "npc",
+      toAimPosition(npc.footPosition),
+      toAimPosition(nextFootPosition)
+    );
+    if (movementHit) {
+      return;
+    }
+    const horizontal = nextFootPosition.subtract(
+      npc.footPosition
+    );
+    horizontal.y = 0;
+    if (horizontal.lengthSquared() > 0) {
+      npc.forward.copyFrom(horizontal.normalize());
+    }
+    npc.footPosition = nextFootPosition;
+    npc.sprite.position.copyFrom(toAimPosition(npc.footPosition));
+  }
+
+  private createTraversalWaitingStep(
+    npc: NpcRuntime
+  ): NavigationAgentStepResult {
+    return Object.freeze({
+      location: cloneNavigationLocation(npc.navigationLocation),
+      state: "waiting-for-path",
+      pathRecalculated: false,
+      pathDistance: null,
+      transition: null
+    });
+  }
+
+  private clearNavigationAgent(npc: NpcRuntime) {
+    if (isV2NpcElevatorTraversalState(npc.traversalState)) {
+      return;
+    }
+    npc.navigationAgent.clear();
+    npc.selectedRouteKind = null;
+    npc.selectedElevatorTransition = null;
   }
 
   private recordNavigationStep(
@@ -2040,6 +2965,12 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           sourceOrder: number;
         }>
       | null = null;
+    this.setNavigationIntent(
+      npc,
+      "leave",
+      V2_NPC_FOLLOW_SPEED,
+      playerTarget.footPosition
+    );
     for (
       let sourceOrder = 0;
       sourceOrder < NPC_LEAVE_DIRECTION_OFFSETS.length;
@@ -2063,7 +2994,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         this.stage.navigation.findPath(
           npc.navigationLocation,
           projected,
-          "npc"
+          "npc",
+          npc.navigationRoutePolicy
         ) === null
       ) {
         continue;
@@ -2161,7 +3093,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (!retainActiveFollowerBeam) {
       this.clearFollowerFireState(npc);
     }
-    npc.navigationAgent.clear();
+    this.clearNavigationAgent(npc);
     npc.wanderDestination = null;
     npc.visualSightCheckPriority = true;
     this.synchronizeSpriteVisual(npc);
@@ -2299,11 +3231,12 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       }
     }
     if (!destination) {
-      npc.navigationAgent.clear();
+      this.clearNavigationAgent(npc);
       return;
     }
-    const movement = npc.navigationAgent.update(
-      npc.navigationLocation,
+    const movement = this.updateNavigation(
+      npc,
+      "follow",
       destination,
       V2_NPC_FOLLOW_SPEED,
       deltaSeconds,
@@ -2320,7 +3253,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         NPC_FOLLOW_STOP_DISTANCE
     ) {
       npc.command.followMovementStopped = true;
-      npc.navigationAgent.clear();
+      this.clearNavigationAgent(npc);
     }
   }
 
@@ -2375,8 +3308,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     );
     npc.command.leaveElapsedSeconds += movementSeconds;
     const destination = npc.command.leaveDestination!;
-    const movement = npc.navigationAgent.update(
-      npc.navigationLocation,
+    const movement = this.updateNavigation(
+      npc,
+      "leave",
       destination.position,
       V2_NPC_FOLLOW_SPEED,
       movementSeconds,
@@ -2535,7 +3469,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     targetsById: ReadonlyMap<string, V2HumanTargetSnapshot>,
     capturedTargetIds: Set<string>,
     threatenedIds: Set<string>,
-    threatSourcesByTargetId: Map<string, Vector3>
+    threatSourcesByTargetId: Map<string, NpcEvadeThreat>
   ) {
     const startedBreakawayNpcIds = new Set<string>();
     for (const npc of this.npcs) {
@@ -2569,14 +3503,28 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc: NpcRuntime,
     targetId: string,
     threatenedIds: Set<string>,
-    threatSourcesByTargetId: Map<string, Vector3>
+    threatSourcesByTargetId: Map<string, NpcEvadeThreat>
   ) {
     threatenedIds.add(npc.id);
     threatenedIds.add(targetId);
-    threatSourcesByTargetId.set(targetId, npc.footPosition.clone());
+    threatSourcesByTargetId.set(
+      targetId,
+      Object.freeze({
+        sourceId: npc.id,
+        sourceAimPosition: toAimPosition(npc.footPosition),
+        sightClear: true
+      })
+    );
     const target = this.npcsById.get(targetId);
     if (target) {
-      threatSourcesByTargetId.set(npc.id, target.footPosition.clone());
+      threatSourcesByTargetId.set(
+        npc.id,
+        Object.freeze({
+          sourceId: target.id,
+          sourceAimPosition: toAimPosition(target.footPosition),
+          sightClear: true
+        })
+      );
     }
   }
 
@@ -2771,7 +3719,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         return false;
       }
       if (npc.gunVisualPursuitMode !== "live") {
-        npc.navigationAgent.clear();
+        this.clearNavigationAgent(npc);
       }
       npc.gunVisualPursuitMode = "live";
       npc.gunLastSeenFootPosition = target.footPosition.clone();
@@ -2782,7 +3730,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       return false;
     }
     if (npc.gunVisualPursuitMode !== "last-seen") {
-      npc.navigationAgent.clear();
+      this.clearNavigationAgent(npc);
       npc.gunLastSeenPathPlanned = false;
     }
     npc.gunVisualPursuitMode = "last-seen";
@@ -2848,8 +3796,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   ) {
     const destination = npc.gunLastSeenFootPosition!;
     npc.wanderDestination = null;
-    const movement = npc.navigationAgent.update(
-      npc.navigationLocation,
+    const movement = this.updateNavigation(
+      npc,
+      "pursue",
       destination,
       NPC_CHASE_SPEED,
       deltaSeconds,
@@ -2896,7 +3845,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     allowPathRecalculation: boolean,
     capturedTargetIds: Set<string>,
     threatenedIds: Set<string>,
-    threatSourcesByTargetId: Map<string, Vector3>
+    threatSourcesByTargetId: Map<string, NpcEvadeThreat>
   ) {
     if (npc.alarmTargetQueue.length > 0) {
       this.chaseTarget(
@@ -2919,7 +3868,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         lastTargetFootPosition: target.footPosition.clone()
       };
       capturedTargetIds.add(target.id);
-      npc.navigationAgent.clear();
+      this.clearNavigationAgent(npc);
       this.pendingAlertRequests.push(
         Object.freeze({
           leaderId: npc.id,
@@ -2949,8 +3898,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     allowPathRecalculation: boolean
   ) {
     npc.wanderDestination = null;
-    const movement = npc.navigationAgent.update(
-      npc.navigationLocation,
+    const movement = this.updateNavigation(
+      npc,
+      "pursue",
       target.footPosition,
       NPC_CHASE_SPEED,
       deltaSeconds,
@@ -2965,6 +3915,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     deltaSeconds: number,
     allowPathRecalculation: boolean
   ) {
+    npc.evadeThreatId = null;
+    npc.evadeThreatSightClear = false;
     if (npc.targetId !== null) {
       this.clearTarget(npc);
     }
@@ -2976,7 +3928,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.wanderDestination = this.createWanderDestination(
         npc.navigationLocation
       );
-      npc.navigationAgent.clear();
+      this.clearNavigationAgent(npc);
       if (!npc.wanderDestination) {
         npc.wanderWaitSeconds = this.nextWanderWait();
         return;
@@ -2986,8 +3938,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       return;
     }
 
-    const movement = npc.navigationAgent.update(
-      npc.navigationLocation,
+    const movement = this.updateNavigation(
+      npc,
+      "wander",
       npc.wanderDestination.position,
       NPC_SEARCH_SPEED,
       deltaSeconds,
@@ -3003,7 +3956,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       movement.state === "arrived" ||
       movement.state === "unreachable"
     ) {
-      npc.navigationAgent.clear();
+      this.clearNavigationAgent(npc);
       npc.wanderDestination = null;
       npc.wanderWaitSeconds = this.nextWanderWait();
     }
@@ -3011,10 +3964,12 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
   private updateEvadingNpc(
     npc: NpcRuntime,
-    threatPosition: Vector3,
+    threat: NpcEvadeThreat,
     deltaSeconds: number,
     allowPathRecalculation: boolean
   ) {
+    npc.evadeThreatId = threat.sourceId;
+    npc.evadeThreatSightClear = threat.sightClear;
     npc.targetId = null;
     npc.targetProvenance = null;
     npc.gunVisualPursuitMode = null;
@@ -3024,27 +3979,35 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.alertLeaderId = null;
     npc.alertRemainingSeconds = 0;
     if (!npc.wanderDestination) {
-      const away = npc.footPosition.subtract(threatPosition);
-      away.y = 0;
-      if (away.lengthSquared() === 0) {
-        away.copyFrom(npc.forward).scaleInPlace(-1);
-      } else {
-        away.normalize();
+      npc.wanderDestination =
+        this.findNpcElevatorEvadeDestination(npc);
+      if (!npc.wanderDestination) {
+        const away = npc.footPosition.subtract(
+          threat.sourceAimPosition
+        );
+        away.y = 0;
+        if (away.lengthSquared() === 0) {
+          away.copyFrom(npc.forward).scaleInPlace(-1);
+        } else {
+          away.normalize();
+        }
+        const candidate = npc.navigationLocation.position.add(
+          away.scale(NPC_WANDER_RADIUS)
+        );
+        npc.wanderDestination =
+          this.stage.navigation.constrainMovement(
+            npc.navigationLocation,
+            candidate
+          );
       }
-      const candidate = npc.navigationLocation.position.add(
-        away.scale(NPC_WANDER_RADIUS)
-      );
-      npc.wanderDestination = this.stage.navigation.constrainMovement(
-        npc.navigationLocation,
-        candidate
-      );
-      npc.navigationAgent.clear();
+      this.clearNavigationAgent(npc);
       if (!npc.wanderDestination) {
         return;
       }
     }
-    const movement = npc.navigationAgent.update(
-      npc.navigationLocation,
+    const movement = this.updateNavigation(
+      npc,
+      "evade",
       npc.wanderDestination.position,
       NPC_CHASE_SPEED,
       deltaSeconds,
@@ -3060,7 +4023,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       movement.state === "arrived" ||
       movement.state === "unreachable"
     ) {
-      npc.navigationAgent.clear();
+      this.clearNavigationAgent(npc);
       npc.wanderDestination = null;
     }
   }
@@ -3075,8 +4038,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.breakawayRemainingSeconds - deltaSeconds
     );
     if (npc.breakawayDestination) {
-      const movement = npc.navigationAgent.update(
-        npc.navigationLocation,
+      const movement = this.updateNavigation(
+        npc,
+        "breakaway",
         npc.breakawayDestination.position,
         V2_NPC_CAPTURE_BREAKAWAY_SPEED,
         deltaSeconds,
@@ -3090,13 +4054,13 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           movement.state === "arrived" ||
           movement.state === "unreachable"
         ) {
-          npc.navigationAgent.clear();
+          this.clearNavigationAgent(npc);
           npc.breakawayDestination = null;
         }
       }
     }
     if (npc.breakawayRemainingSeconds === 0) {
-      npc.navigationAgent.clear();
+      this.clearNavigationAgent(npc);
       npc.breakawayDestination = null;
     }
   }
@@ -3257,14 +4221,50 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     const nextFootPosition = this.resolveFootPosition(nextLocation.position);
     const currentAimPosition = toAimPosition(npc.footPosition);
     const nextAimPosition = toAimPosition(nextFootPosition);
-    if (
-      this.stage.queries.castMovementSegment(
-        "npc",
-        currentAimPosition,
-        nextAimPosition
-      ) !== null
-    ) {
-      npc.navigationAgent.clear();
+    const movementHit = this.stage.queries.castMovementSegment(
+      "npc",
+      currentAimPosition,
+      nextAimPosition
+    );
+    if (movementHit) {
+      const selectedElevatorTransition =
+        npc.selectedElevatorTransition;
+      if (
+        npc.traversalState.kind === "walking" &&
+        selectedElevatorTransition &&
+        this.elevatorHumanGateColliders.has(movementHit.mesh) &&
+        this.stage.queries.containsVolumeById(
+          this.requireNpcElevatorStopTraversal(
+            selectedElevatorTransition.link.id,
+            selectedElevatorTransition.from
+          ).callMatId,
+          npc.footPosition
+        )
+      ) {
+        npc.navigationAgent.clear();
+        npc.selectedElevatorTransition = null;
+        this.beginNpcElevatorCall(
+          npc,
+          selectedElevatorTransition
+        );
+        return false;
+      }
+      this.clearNavigationAgent(npc);
+      const doorId = this.doorIdByCollider.get(movementHit.mesh);
+      if (doorId && npc.traversalState.kind === "walking") {
+        npc.pendingNavigationTransition = null;
+        npc.traversalState = Object.freeze({
+          kind: "waiting-door-open",
+          doorId
+        });
+        this.pendingTraversalRequests.push(
+          Object.freeze({
+            kind: "door-open",
+            npcId: npc.id,
+            doorId
+          })
+        );
+      }
       return false;
     }
     const horizontal = new Vector3(displacement.x, 0, displacement.z);
@@ -3273,7 +4273,30 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
     npc.navigationLocation = cloneNavigationLocation(nextLocation);
     npc.footPosition = nextFootPosition;
+    this.tryBeginNpcElevatorCallFromMat(npc);
     return true;
+  }
+
+  private tryBeginNpcElevatorCallFromMat(npc: NpcRuntime) {
+    const transition = npc.selectedElevatorTransition;
+    if (!transition || npc.traversalState.kind !== "walking") {
+      return;
+    }
+    const stop = this.requireNpcElevatorStopTraversal(
+      transition.link.id,
+      transition.from
+    );
+    if (
+      !this.stage.queries.containsVolumeById(
+        stop.callMatId,
+        npc.footPosition
+      )
+    ) {
+      return;
+    }
+    npc.navigationAgent.clear();
+    npc.selectedElevatorTransition = null;
+    this.beginNpcElevatorCall(npc, transition);
   }
 
   private resolveFootPosition(navigationPosition: Vector3) {
@@ -3315,7 +4338,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       if (this.diagnosticsEnabled) {
         this.forcedTargetChangeCount += 1;
       }
-      npc.navigationAgent.clear();
+      this.clearNavigationAgent(npc);
       npc.gunVisualPursuitMode = null;
       npc.gunLastSeenFootPosition = null;
       npc.gunLastSeenPathPlanned = false;
@@ -3408,7 +4431,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (hadTarget) {
       npc.visualSightCheckPriority = true;
     }
-    npc.navigationAgent.clear();
+    this.clearNavigationAgent(npc);
   }
 
   private releaseCapturesForTarget(targetId: string) {
@@ -3436,7 +4459,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     );
     npc.lastState = npc.stateSnapshot.state;
     this.synchronizeSpriteVisual(npc);
-    npc.navigationAgent.clear();
+    this.clearNavigationAgent(npc);
     npc.wanderDestination = null;
     npc.wanderWaitSeconds = 0;
     npc.alarmTargetQueue.length = 0;
@@ -3546,7 +4569,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           alertRemainingSeconds: npc.alertRemainingSeconds,
           commandMode: npc.command.mode,
           temporaryGunActive: npc.command.temporaryGunActive,
-          followerFirePhase: npc.command.followerFirePhase
+          followerFirePhase: npc.command.followerFirePhase,
+          traversalState: cloneV2NpcTraversalState(
+            npc.traversalState
+          )
         })
       );
       if (npc.capture) {
@@ -3672,6 +4698,77 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       }
     }
     return null;
+  }
+
+  private requireDoorTraversalState(
+    npc: NpcRuntime,
+    kind: "waiting-door-open" | "passing-door",
+    doorId: string
+  ) {
+    const state = npc.traversalState;
+    if (state.kind !== kind || state.doorId !== doorId) {
+      throw new Error(
+        `NPC扉traversal結果が現在状態と一致しません: ${npc.id}/${kind}/${doorId}`
+      );
+    }
+  }
+
+  private removePendingTraversalRequestsForNpc(npcId: string) {
+    for (
+      let index = this.pendingTraversalRequests.length - 1;
+      index >= 0;
+      index -= 1
+    ) {
+      if (this.pendingTraversalRequests[index].npcId === npcId) {
+        this.pendingTraversalRequests.splice(index, 1);
+      }
+    }
+  }
+
+  private requireElevatorTraversalIdentity(
+    npc: NpcRuntime,
+    result: Extract<V2NpcTraversalResult, { linkId: string }>
+  ) {
+    const state = npc.traversalState;
+    if (
+      !isV2NpcElevatorTraversalState(state) ||
+      state.linkId !== result.linkId ||
+      state.from !== result.from ||
+      state.to !== result.to
+    ) {
+      throw new Error(
+        `NPCエレベーターtraversal結果が現在状態と一致しません: ${npc.id}/${result.linkId}`
+      );
+    }
+    const transition = npc.pendingNavigationTransition;
+    if (
+      !transition ||
+      transition.link.id !== result.linkId ||
+      transition.from !== result.from ||
+      transition.to !== result.to
+    ) {
+      throw new Error(
+        `NPCエレベーターtransitionが結果と一致しません: ${npc.id}/${result.linkId}`
+      );
+    }
+  }
+
+  private requireElevatorTraversalKind(
+    npc: NpcRuntime,
+    kind:
+      | "waiting-elevator-call"
+      | "waiting-elevator-call-input"
+      | "moving-to-elevator-wait"
+      | "approaching-elevator-board"
+      | "waiting-elevator-board"
+      | "riding-elevator"
+      | "leaving-elevator"
+  ) {
+    if (npc.traversalState.kind !== kind) {
+      throw new Error(
+        `NPCエレベーターtraversal状態が一致しません: ${npc.id}/${kind}`
+      );
+    }
   }
 
   private requireNpc(npcId: string) {

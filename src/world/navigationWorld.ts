@@ -55,6 +55,36 @@ export type NavigationPath = Readonly<{
   distance: number;
 }>;
 
+export type NavigationRouteCandidate = Readonly<{
+  kind: "surface" | "link";
+  path: NavigationPath;
+}>;
+
+export type NavigationRoutePolicy = Readonly<{
+  selectRoute(
+    candidates: readonly NavigationRouteCandidate[]
+  ): NavigationRouteCandidate | null;
+}>;
+
+export const DISTANCE_NAVIGATION_ROUTE_POLICY: NavigationRoutePolicy =
+  Object.freeze({
+    selectRoute: (candidates) => {
+      let selected: NavigationRouteCandidate | null = null;
+      for (const candidate of candidates) {
+        if (
+          !selected ||
+          candidate.path.distance < selected.path.distance ||
+          (candidate.path.distance === selected.path.distance &&
+            candidate.kind === "surface" &&
+            selected.kind === "link")
+        ) {
+          selected = candidate;
+        }
+      }
+      return selected;
+    }
+  });
+
 export interface NavigationWorld {
   projectPoint(position: Vector3, maxDistance: number): NavigationLocation | null;
   findSurfacePath(
@@ -64,7 +94,8 @@ export interface NavigationWorld {
   findPath(
     start: NavigationLocation,
     destination: NavigationLocation,
-    moverKind: StageMoverKind
+    moverKind: StageMoverKind,
+    routePolicy: NavigationRoutePolicy
   ): NavigationPath | null;
   constrainMovement(
     start: NavigationLocation,
@@ -336,20 +367,43 @@ class RecastNavigationWorld implements NavigationWorld {
   findPath(
     start: NavigationLocation,
     destination: NavigationLocation,
-    moverKind: StageMoverKind
+    moverKind: StageMoverKind,
+    routePolicy: NavigationRoutePolicy
   ) {
     this.assertActive();
     assertNavigationLocation("経路始点", start);
     assertNavigationLocation("経路終点", destination);
 
+    const candidates: NavigationRouteCandidate[] = [];
+    const selectRoute = () => {
+      if (candidates.length === 0) {
+        return null;
+      }
+      const frozenCandidates = Object.freeze([...candidates]);
+      const selected = routePolicy.selectRoute(frozenCandidates);
+      if (selected === null) {
+        return null;
+      }
+      if (!frozenCandidates.includes(selected)) {
+        throw new Error(
+          "NavigationRoutePolicyは提示された候補またはnullを返す必要があります。"
+        );
+      }
+      return selected.path;
+    };
     const directSurfaceStep = this.findSurfaceStep(start, destination);
     if (directSurfaceStep) {
       const step = cloneNavigationSurfaceStep(directSurfaceStep);
-      return Object.freeze({
-        steps: Object.freeze([step]),
-        destination: cloneNavigationLocation(destination),
-        distance: step.distance
-      });
+      candidates.push(
+        Object.freeze({
+          kind: "surface",
+          path: Object.freeze({
+            steps: Object.freeze([step]),
+            destination: cloneNavigationLocation(destination),
+            distance: step.distance
+          })
+        })
+      );
     }
     const availableLinks = this.resolvedLinks.flatMap((link, linkIndex) =>
       canStageMoverUseLink(moverKind, link.pair.kind)
@@ -363,7 +417,7 @@ class RecastNavigationWorld implements NavigationWorld {
         : []
     );
     if (availableLinks.length === 0) {
-      return null;
+      return selectRoute();
     }
 
     const linkEndpointNodes: LinkEndpointRouteNode[] = [];
@@ -493,96 +547,146 @@ class RecastNavigationWorld implements NavigationWorld {
           edges.push(edge);
         }
       }
-      edges.push(...(transitionEdgesByFromIndex.get(fromIndex) ?? []));
+      edges.push(
+        ...(transitionEdgesByFromIndex.get(fromIndex) ?? [])
+      );
       return edges;
     };
 
-    const distances = nodes.map(() => Number.POSITIVE_INFINITY);
-    const estimatedDistances = nodes.map(() => Number.POSITIVE_INFINITY);
-    const previousEdges: Array<RouteEdge | null> = nodes.map(() => null);
-    const visited = nodes.map(() => false);
-    distances[0] = 0;
-    estimatedDistances[0] = Vector3.Distance(
-      nodes[0].location.position,
-      nodes[1].location.position
-    );
-    for (let iteration = 0; iteration < nodes.length; iteration += 1) {
-      let currentIndex = -1;
-      let currentEstimatedDistance = Number.POSITIVE_INFINITY;
-      for (let index = 0; index < nodes.length; index += 1) {
-        if (!visited[index] && estimatedDistances[index] < currentEstimatedDistance) {
-          currentIndex = index;
-          currentEstimatedDistance = estimatedDistances[index];
+    {
+      const routeStateCount = nodes.length * 2;
+      const createRouteStateIndex = (
+        nodeIndex: number,
+        usedTransition: boolean
+      ) => nodeIndex * 2 + (usedTransition ? 1 : 0);
+      const startStateIndex = createRouteStateIndex(0, false);
+      const destinationStateIndex = createRouteStateIndex(1, true);
+      const distances = Array.from(
+        { length: routeStateCount },
+        () => Number.POSITIVE_INFINITY
+      );
+      const previousStates: Array<
+        Readonly<{
+          edge: RouteEdge;
+          fromStateIndex: number;
+        }> | null
+      > = Array.from({ length: routeStateCount }, () => null);
+      const visited = Array.from(
+        { length: routeStateCount },
+        () => false
+      );
+      distances[startStateIndex] = 0;
+      for (
+        let iteration = 0;
+        iteration < routeStateCount;
+        iteration += 1
+      ) {
+        let currentStateIndex = -1;
+        let currentDistance = Number.POSITIVE_INFINITY;
+        for (
+          let candidateStateIndex = 0;
+          candidateStateIndex < routeStateCount;
+          candidateStateIndex += 1
+        ) {
+          if (
+            !visited[candidateStateIndex] &&
+            distances[candidateStateIndex] < currentDistance
+          ) {
+            currentStateIndex = candidateStateIndex;
+            currentDistance = distances[candidateStateIndex];
+          }
+        }
+        if (
+          currentStateIndex < 0 ||
+          currentStateIndex === destinationStateIndex
+        ) {
+          break;
+        }
+        visited[currentStateIndex] = true;
+        const currentNodeIndex = Math.floor(
+          currentStateIndex / 2
+        );
+        const usedTransition = currentStateIndex % 2 === 1;
+        for (const edge of collectOutgoingEdges(currentNodeIndex)) {
+          const nextStateIndex = createRouteStateIndex(
+            edge.toIndex,
+            usedTransition || edge.transition !== null
+          );
+          if (visited[nextStateIndex]) {
+            continue;
+          }
+          const candidateDistance =
+            distances[currentStateIndex] + edge.distance;
+          if (
+            candidateDistance < distances[nextStateIndex]
+          ) {
+            distances[nextStateIndex] = candidateDistance;
+            previousStates[nextStateIndex] = Object.freeze({
+              edge,
+              fromStateIndex: currentStateIndex
+            });
+          }
         }
       }
-      if (currentIndex < 0 || currentIndex === 1) {
-        break;
+
+      if (Number.isFinite(distances[destinationStateIndex])) {
+        const reversedEdges: RouteEdge[] = [];
+      let routeStateIndex = destinationStateIndex;
+      while (routeStateIndex !== startStateIndex) {
+        const previous = previousStates[routeStateIndex];
+        if (!previous) {
+          throw new Error(
+            "NavMesh経路グラフの復元に失敗しました。"
+          );
+        }
+        reversedEdges.push(previous.edge);
+        routeStateIndex = previous.fromStateIndex;
       }
-      visited[currentIndex] = true;
-      for (const edge of collectOutgoingEdges(currentIndex)) {
-        if (visited[edge.toIndex]) {
+      const steps: NavigationPathStep[] = [];
+      for (const edge of reversedEdges.reverse()) {
+        if (edge.transition) {
+          steps.push(edge.transition);
           continue;
         }
-        const candidateDistance = distances[currentIndex] + edge.distance;
-        if (candidateDistance < distances[edge.toIndex]) {
-          distances[edge.toIndex] = candidateDistance;
-          estimatedDistances[edge.toIndex] =
-            candidateDistance +
-            Vector3.Distance(
-              nodes[edge.toIndex].location.position,
-              nodes[1].location.position
-            );
-          previousEdges[edge.toIndex] = edge;
+        let surfaceStep: NavigationSurfaceStep | null;
+        if (edge.fromIndex >= 2 && edge.toIndex >= 2) {
+          surfaceStep = this.getLinkEndpointSurfaceStep(
+            linkEndpointNodes[edge.fromIndex - 2]
+              .linkEndpointIndex,
+            linkEndpointNodes[edge.toIndex - 2]
+              .linkEndpointIndex
+          );
+        } else {
+          surfaceStep = this.findSurfaceStep(
+            nodes[edge.fromIndex].location,
+            nodes[edge.toIndex].location
+          );
         }
+        if (!surfaceStep) {
+          throw new Error(
+            "NavMesh連結成分内のsurface経路を復元できません。"
+          );
+        }
+        steps.push(cloneNavigationSurfaceStep(surfaceStep));
       }
-    }
-
-    if (!Number.isFinite(distances[1])) {
-      return null;
-    }
-    const reversedEdges: RouteEdge[] = [];
-    let nodeIndex = 1;
-    while (nodeIndex !== 0) {
-      const edge = previousEdges[nodeIndex];
-      if (!edge) {
-        throw new Error("NavMesh経路グラフの復元に失敗しました。");
-      }
-      reversedEdges.push(edge);
-      nodeIndex = edge.fromIndex;
-    }
-    const steps: NavigationPathStep[] = [];
-    for (const edge of reversedEdges.reverse()) {
-      if (edge.transition) {
-        steps.push(edge.transition);
-        continue;
-      }
-      let surfaceStep: NavigationSurfaceStep | null;
-      if (edge.fromIndex >= 2 && edge.toIndex >= 2) {
-        surfaceStep = this.getLinkEndpointSurfaceStep(
-          linkEndpointNodes[edge.fromIndex - 2].linkEndpointIndex,
-          linkEndpointNodes[edge.toIndex - 2].linkEndpointIndex
-        );
-      } else {
-        surfaceStep = this.findSurfaceStep(
-          nodes[edge.fromIndex].location,
-          nodes[edge.toIndex].location
+      const frozenSteps = Object.freeze(steps);
+      const actualDistance = frozenSteps.reduce(
+        (sum, step) => sum + step.distance,
+        0
+      );
+        candidates.push(
+          Object.freeze({
+            kind: "link",
+            path: Object.freeze({
+              steps: frozenSteps,
+              destination: cloneNavigationLocation(destination),
+              distance: actualDistance
+            })
+          })
         );
       }
-      if (!surfaceStep) {
-        throw new Error("NavMesh連結成分内のsurface経路を復元できません。");
-      }
-      steps.push(cloneNavigationSurfaceStep(surfaceStep));
     }
-    const frozenSteps = Object.freeze(steps);
-    const actualDistance = frozenSteps.reduce(
-      (sum, step) => sum + step.distance,
-      0
-    );
-    return Object.freeze({
-      steps: frozenSteps,
-      destination: cloneNavigationLocation(destination),
-      distance: actualDistance
-    });
+    return selectRoute();
   }
 
   constrainMovement(start: NavigationLocation, destination: Vector3) {

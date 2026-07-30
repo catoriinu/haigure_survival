@@ -76,7 +76,7 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
-GENERATOR_VERSION = "b03-3c-interactive-assets-v2"
+GENERATOR_VERSION = "b03-3c-interactive-assets-v3"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -283,6 +283,7 @@ GENERATED_PREFIXES = (
     "VOL_DoorSweep_",
     "MRK_Elevator",
     "VIS_ElevatorCar_",
+    "VIS_ElevatorCallIndicator_",
     "VIS_ElevatorThresholdPlate_",
     "COL_ElevatorCar_",
     "COL_ElevatorThresholdPlate_",
@@ -3920,19 +3921,6 @@ def build_b03_3b_structure(
             architecture_material,
         )
 
-    waiting_mat_boxes = [
-        (
-            (-8.68, -5.9, floor_base_z + 0.005),
-            (-7.68, -4.5, floor_base_z + 0.025),
-        )
-        for floor_base_z in (0.0, 10.8)
-    ]
-    create_mesh_object(
-        "VIS_B03_ElevatorWaitingMat_F01_F04",
-        waiting_mat_boxes,
-        visual_collection,
-        architecture_material,
-    )
     return {
         "blocker_names": tuple(blocker_names),
         "gallery_nav_sources": ("COL_B03_GymGalleryFloor",),

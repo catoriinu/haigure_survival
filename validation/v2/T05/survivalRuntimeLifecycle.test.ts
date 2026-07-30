@@ -10,15 +10,24 @@ import {
   NPC_SPRITE_CENTER_HEIGHT
 } from "../../../src/game/characterSprites";
 import type { PlayerVerticalState } from "../../../src/game/playerHeight";
+import {
+  DISTANCE_NAVIGATION_ROUTE_POLICY,
+  type NavigationRouteCandidate
+} from "../../../src/world/navigationWorld";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
+import type {
+  V2NpcNavigationRouteContext
+} from "../../../src/v2/npcSystem";
 import {
   createV2PerformanceDiagnostics,
   createV2SeededRandom,
-  V2_PERFORMANCE_DEFAULT_SEED
+  V2_PERFORMANCE_DEFAULT_SEED,
+  type V2PerformanceDiagnostics
 } from "../../../src/v2/performanceDiagnostics";
 import type { V2PlayerController } from "../../../src/v2/playerController";
 import {
   createV2SurvivalRuntime,
+  summarizeV2TargetTracking,
   V2_PERFORMANCE_ACCEPTANCE_POPULATION,
   type V2SurvivalRuntime
 } from "../../../src/v2/survivalRuntime";
@@ -48,6 +57,11 @@ type SceneResourceCounts = Readonly<{
 
 type ObservableCounts = Readonly<Record<string, number>>;
 
+const selectDistanceNavigationRoute = (
+  _context: V2NpcNavigationRouteContext,
+  candidates: readonly NavigationRouteCandidate[]
+) => DISTANCE_NAVIGATION_ROUTE_POLICY.selectRoute(candidates);
+
 const createFakePlayer = (
   stage: StageSpatialContext
 ): V2PlayerController => {
@@ -63,6 +77,12 @@ const createFakePlayer = (
     verticalVelocity: 0,
     supportY: spawn.y
   });
+  const setFootPosition = (nextFootPosition: Vector3) => {
+    footPosition = nextFootPosition.clone();
+    eyePosition = footPosition.add(
+      new Vector3(0, (1 / 3) * eyeHeightScale, 0)
+    );
+  };
 
   return {
     update: () =>
@@ -80,12 +100,9 @@ const createFakePlayer = (
         new Vector3(0, (1 / 3) * eyeHeightScale, 0)
       );
     },
-    placeAt: (nextFootPosition) => {
-      footPosition = nextFootPosition.clone();
-      eyePosition = footPosition.add(
-        new Vector3(0, (1 / 3) * eyeHeightScale, 0)
-      );
-    },
+    syncStageSpatialSnapshot: () => {},
+    setTransportFootPosition: setFootPosition,
+    placeAt: setFootPosition,
     resetToSpawn: () => {
       footPosition = spawn.clone();
       eyePosition = footPosition.add(
@@ -197,7 +214,8 @@ const observableCountsEqual = (
 const createRuntime = (
   scene: Scene,
   stage: StageSpatialContext,
-  getOrbVisibilityPredicate: () => (position: Vector3) => boolean
+  getOrbVisibilityPredicate: () => (position: Vector3) => boolean,
+  performanceDiagnostics: V2PerformanceDiagnostics | null = null
 ) =>
   createV2SurvivalRuntime({
     scene,
@@ -206,8 +224,10 @@ const createRuntime = (
     random: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED),
     getOrbVisibilityPredicate,
     population: V2_PERFORMANCE_ACCEPTANCE_POPULATION,
-    performanceDiagnostics: null,
-    performanceWorkloadScenario: null
+    performanceDiagnostics,
+    performanceWorkloadScenario: null,
+    releaseStageTraversalForScriptedPhase: () => {},
+    selectNavigationRoute: selectDistanceNavigationRoute
   });
 
 export const runSurvivalRuntimeLifecycleTests = async (
@@ -221,10 +241,25 @@ export const runSurvivalRuntimeLifecycleTests = async (
 
   try {
     let orbVisibilityPredicateFactoryCalls = 0;
-    firstRuntime = createRuntime(scene, stage, () => {
-      orbVisibilityPredicateFactoryCalls += 1;
-      return () => true;
-    });
+    const performanceDiagnostics =
+      createV2PerformanceDiagnostics(
+        scene.getEngine(),
+        scene,
+        Object.freeze({
+          seed: V2_PERFORMANCE_DEFAULT_SEED,
+          view: "courtyard"
+        }),
+        V2_PERFORMANCE_ACCEPTANCE_POPULATION
+      );
+    firstRuntime = createRuntime(
+      scene,
+      stage,
+      () => {
+        orbVisibilityPredicateFactoryCalls += 1;
+        return () => true;
+      },
+      performanceDiagnostics
+    );
     const firstFrame = firstRuntime.getFrame();
     checks.push(
       Object.freeze({
@@ -233,16 +268,113 @@ export const runSurvivalRuntimeLifecycleTests = async (
           firstFrame.npcCount === 99 &&
           firstFrame.brainwashedNpcCount === 66 &&
           firstFrame.bitCount === 50 &&
+          firstFrame.npcPlayerTargetCount === 0 &&
+          firstFrame.bitPlayerTargetCount === 0 &&
           !firstFrame.playerCompletionUnlocked,
         detail:
           `npc=${firstFrame.npcCount} / ` +
           `brainwashed=${firstFrame.brainwashedNpcCount} / ` +
           `bit=${firstFrame.bitCount} / ` +
+          `playerTargets=${firstFrame.npcPlayerTargetCount}+` +
+          `${firstFrame.bitPlayerTargetCount} / ` +
           `completionUnlocked=${firstFrame.playerCompletionUnlocked}`
       })
     );
     await firstRuntime.prepareVisualResources();
-    firstRuntime.update(1 / 60, 1 / 60);
+    performanceDiagnostics.beginFrame();
+    const firstUpdatedFrame = firstRuntime.update(1 / 60, 1 / 60);
+    performanceDiagnostics.finishFrame();
+    const fixedTrackingSummary = summarizeV2TargetTracking(
+      Object.freeze([
+        Object.freeze({
+          targetId: "player",
+          provenance: "visual" as const
+        }),
+        Object.freeze({
+          targetId: "npc-1",
+          provenance: "alert" as const
+        }),
+        Object.freeze({
+          targetId: "player",
+          provenance: "alert" as const
+        }),
+        Object.freeze({
+          targetId: null,
+          provenance: null
+        })
+      ]),
+      Object.freeze([
+        Object.freeze({
+          targetId: "player",
+          provenance: "visual" as const
+        }),
+        Object.freeze({
+          targetId: "npc-2",
+          provenance: "visual" as const
+        }),
+        Object.freeze({
+          targetId: "player",
+          provenance: "alert" as const
+        })
+      ])
+    );
+    checks.push(
+      Object.freeze({
+        name: "固定trackingから非0の標的数を厳密集計",
+        ok:
+          fixedTrackingSummary.visualTargetCount === 3 &&
+          fixedTrackingSummary.alertTargetCount === 3 &&
+          fixedTrackingSummary.npcPlayerTargetCount === 2 &&
+          fixedTrackingSummary.bitPlayerTargetCount === 2,
+        detail:
+          `visual=${fixedTrackingSummary.visualTargetCount} / ` +
+          `alert=${fixedTrackingSummary.alertTargetCount} / ` +
+          `npcPlayer=${fixedTrackingSummary.npcPlayerTargetCount} / ` +
+          `bitPlayer=${fixedTrackingSummary.bitPlayerTargetCount}`
+      })
+    );
+    const performanceReport =
+      performanceDiagnostics.getReport();
+    const npcPlayerTargets =
+      performanceReport.cold.counters[
+        "scenario.npc-player-targets"
+      ];
+    const bitPlayerTargets =
+      performanceReport.cold.counters[
+        "scenario.bit-player-targets"
+      ];
+    checks.push(
+      Object.freeze({
+        name: "プレイヤーを狙うNPC／BIT数を個別集計",
+        ok:
+          Number.isInteger(
+            firstUpdatedFrame.npcPlayerTargetCount
+          ) &&
+          firstUpdatedFrame.npcPlayerTargetCount >= 0 &&
+          firstUpdatedFrame.npcPlayerTargetCount <=
+            firstUpdatedFrame.npcCount &&
+          Number.isInteger(
+            firstUpdatedFrame.bitPlayerTargetCount
+          ) &&
+          firstUpdatedFrame.bitPlayerTargetCount >= 0 &&
+          firstUpdatedFrame.bitPlayerTargetCount <=
+            firstUpdatedFrame.bitCount &&
+          npcPlayerTargets?.sampleCount === 1 &&
+          npcPlayerTargets.first ===
+            firstUpdatedFrame.npcPlayerTargetCount &&
+          bitPlayerTargets?.sampleCount === 1 &&
+          bitPlayerTargets.first ===
+            firstUpdatedFrame.bitPlayerTargetCount,
+        detail:
+          `npc=${firstUpdatedFrame.npcPlayerTargetCount}/` +
+          `${firstUpdatedFrame.npcCount} / ` +
+          `bit=${firstUpdatedFrame.bitPlayerTargetCount}/` +
+          `${firstUpdatedFrame.bitCount} / ` +
+          `counterSamples=${npcPlayerTargets?.sampleCount ?? 0}+` +
+          `${bitPlayerTargets?.sampleCount ?? 0}`
+      })
+    );
+    performanceDiagnostics.dispose();
     checks.push(
       Object.freeze({
         name: "オーブ表示判定を1フレームに1回だけ構築",
@@ -307,6 +439,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
     let activeBeamCountAfterTransition = -1;
     let phaseGuardedCandidateCount = -1;
     let phaseGuardedRequestAccepted = true;
+    let scriptedPhaseTraversalReleaseCount = 0;
     let disposedAccessRejected = false;
     try {
       const seededRandom = createV2SeededRandom(
@@ -325,7 +458,11 @@ export const runSurvivalRuntimeLifecycleTests = async (
           bitCount: 0
         }),
         performanceDiagnostics: null,
-        performanceWorkloadScenario: null
+        performanceWorkloadScenario: null,
+        releaseStageTraversalForScriptedPhase: () => {
+          scriptedPhaseTraversalReleaseCount += 1;
+        },
+        selectNavigationRoute: selectDistanceNavigationRoute
       });
       const npcSprite = scene.spriteManagers
         ?.flatMap((manager) => manager.sprites)
@@ -441,6 +578,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
           followVisibleBeforeTransition &&
           fireAccepted &&
           phaseAfterTransition === "assembly" &&
+          scriptedPhaseTraversalReleaseCount === 1 &&
           activeBeamCountAfterTransition === 0 &&
           phaseGuardedCandidateCount === 0 &&
           !phaseGuardedRequestAccepted &&
@@ -454,6 +592,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
           `follow=${followVisible}->${followVisibleBeforeTransition} / ` +
           `fire=${fireAccepted} / ` +
           `phase=${phaseAfterTransition} / ` +
+          `traversalRelease=${scriptedPhaseTraversalReleaseCount} / ` +
           `beams=${activeBeamCountAfterTransition} / ` +
           `guardCandidates=${phaseGuardedCandidateCount} / ` +
           `guardRequest=${phaseGuardedRequestAccepted} / ` +

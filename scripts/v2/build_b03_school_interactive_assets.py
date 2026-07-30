@@ -326,6 +326,80 @@ def _append_ramp(
     )
 
 
+def _append_threshold_ramp_with_plateau(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    minimum_x: float,
+    maximum_x: float,
+    ramp_start_y: float,
+    ramp_end_y: float,
+    plateau_end_y: float,
+    bottom_z: float,
+    hall_floor_z: float,
+    car_floor_z: float,
+) -> None:
+    profile = (
+        (ramp_start_y, bottom_z),
+        (plateau_end_y, bottom_z),
+        (plateau_end_y, car_floor_z),
+        (ramp_end_y, car_floor_z),
+        (ramp_start_y, hall_floor_z),
+    )
+    offset = len(vertices)
+    vertices.extend(
+        (x, y, z)
+        for x in (minimum_x, maximum_x)
+        for y, z in profile
+    )
+    profile_size = len(profile)
+    faces.extend(
+        (
+            tuple(offset + index for index in reversed(range(profile_size))),
+            tuple(
+                offset + profile_size + index
+                for index in range(profile_size)
+            ),
+            *(
+                (
+                    offset + index,
+                    offset + ((index + 1) % profile_size),
+                    offset + profile_size + ((index + 1) % profile_size),
+                    offset + profile_size + index,
+                )
+                for index in range(profile_size)
+            ),
+        )
+    )
+
+
+def _append_triangular_prism(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    points_xy: tuple[
+        tuple[float, float],
+        tuple[float, float],
+        tuple[float, float],
+    ],
+    bottom_z: float,
+    top_z: float,
+) -> None:
+    offset = len(vertices)
+    vertices.extend(
+        (x, y, z)
+        for z in (bottom_z, top_z)
+        for x, y in points_xy
+    )
+    faces.extend(
+        (
+            (offset, offset + 2, offset + 1),
+            (offset + 3, offset + 4, offset + 5),
+            (offset, offset + 1, offset + 4, offset + 3),
+            (offset + 1, offset + 2, offset + 5, offset + 4),
+            (offset + 2, offset, offset + 3, offset + 5),
+        )
+    )
+
+
 def _normal_collider_boxes(
     collider: bpy.types.Object,
 ) -> tuple[
@@ -1266,7 +1340,7 @@ def _build_elevator(
         parent=controller,
     )
     car_boxes = (
-        ((-1.10, -1.08, 0.00), (1.10, 0.95, 0.12)),
+        ((-1.10, -0.98, 0.00), (1.10, 0.95, 0.12)),
         ((-1.10, -1.08, 2.30), (1.10, 0.95, 2.42)),
         ((-1.10, 0.87, 0.12), (1.10, 0.95, 2.30)),
         ((-1.10, -0.94, 0.12), (-1.02, 0.87, 2.30)),
@@ -1328,6 +1402,9 @@ def _build_elevator(
         stop_id = f"school-elevator-stop-f{floor:02d}"
         landing_door_id = f"school-elevator-landing-door-f{floor:02d}"
         call_mat_id = f"school-elevator-call-mat-f{floor:02d}"
+        call_indicator_id = (
+            f"school-elevator-call-indicator-f{floor:02d}"
+        )
         threshold_id = f"school-elevator-threshold-f{floor:02d}"
         gate_id = f"school-elevator-human-gate-f{floor:02d}"
         wait_id = f"school-elevator-wait-f{floor:02d}"
@@ -1345,6 +1422,7 @@ def _build_elevator(
                 "hs_floor_index": floor,
                 "hs_landing_door_id": landing_door_id,
                 "hs_call_mat_id": call_mat_id,
+                "hs_call_indicator_id": call_indicator_id,
                 "hs_threshold_id": threshold_id,
                 "hs_gate_id": gate_id,
                 "hs_wait_id": wait_id,
@@ -1367,7 +1445,7 @@ def _build_elevator(
         )
         _create_box_object(
             f"VOL_ElevatorCallMat_F{floor:02d}",
-            (((-0.70, -2.62, 0.00), (0.70, -1.62, 0.05)),),
+            (((-0.75, -3.12, 0.00), (0.75, -1.62, 0.05)),),
             semantic_collection,
             properties={
                 "hs_id": call_mat_id,
@@ -1377,9 +1455,59 @@ def _build_elevator(
             },
             parent=stop,
         )
+        call_indicator = _create_empty(
+            f"MRK_ElevatorCallIndicator_F{floor:02d}",
+            semantic_collection,
+            properties={
+                "hs_id": call_indicator_id,
+                "hs_role": "elevator_call_indicator",
+                "hs_elevator_id": elevator_id,
+                "hs_stop_id": stop_id,
+                "hs_direction": "up" if floor == 1 else "down",
+            },
+            parent=stop,
+        )
+        _create_box_object(
+            f"VIS_ElevatorCallIndicator_Base_F{floor:02d}",
+            (((-0.75, -3.12, 0.005), (0.75, -1.62, 0.025)),),
+            visual_collection,
+            material=architecture_material,
+            uv_swatch=swatch_uv("Architecture", "elevator_wait"),
+            parent=call_indicator,
+        )
+        direction_vertices: list[tuple[float, float, float]] = []
+        direction_faces: list[tuple[int, ...]] = []
+        if floor == 1:
+            direction_points = (
+                (0.0, -1.82),
+                (-0.45, -2.72),
+                (0.45, -2.72),
+            )
+        else:
+            direction_points = (
+                (0.0, -2.92),
+                (0.45, -2.02),
+                (-0.45, -2.02),
+            )
+        _append_triangular_prism(
+            direction_vertices,
+            direction_faces,
+            direction_points,
+            0.027,
+            0.037,
+        )
+        _create_mesh_object(
+            f"VIS_ElevatorCallIndicator_Direction_F{floor:02d}",
+            direction_vertices,
+            direction_faces,
+            visual_collection,
+            material=architecture_material,
+            uv_swatch=swatch_uv("Architecture", "elevator_direction"),
+            parent=call_indicator,
+        )
         _create_box_object(
             f"VOL_ElevatorThreshold_F{floor:02d}",
-            (((-0.70, -1.55, 0.00), (0.70, -0.95, 0.10)),),
+            (((-0.70, -1.32, -0.02), (0.70, -0.98, 0.12)),),
             semantic_collection,
             properties={
                 "hs_id": threshold_id,
@@ -1391,17 +1519,17 @@ def _build_elevator(
         )
         threshold_vertices: list[tuple[float, float, float]] = []
         threshold_faces: list[tuple[int, ...]] = []
-        _append_ramp(
+        _append_threshold_ramp_with_plateau(
             threshold_vertices,
             threshold_faces,
             -0.70,
             0.70,
-            -1.20,
+            -1.32,
             -1.08,
+            -0.98,
             -0.02,
             0.00,
             0.12,
-            "y+",
         )
         _create_mesh_object(
             f"VIS_ElevatorThresholdPlate_F{floor:02d}",
@@ -1465,6 +1593,7 @@ def _build_elevator(
         "controllers": 1,
         "cars": 1,
         "stops": len(stop_specs),
+        "call_indicators": len(stop_specs),
         "landing_doors": len(stop_specs),
         "car_doors": 1,
         "link_endpoints": len(stop_specs),

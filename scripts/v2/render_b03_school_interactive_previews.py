@@ -58,11 +58,30 @@ DOOR_COMPARISON_VIEWS = (
         "extras": (
             "VIS_ElevatorCar_School",
             "VIS_ElevatorThresholdPlate_F04",
+            "VIS_ElevatorCallIndicator_Base_F04",
+            "VIS_ElevatorCallIndicator_Direction_F04",
         ),
         "frame_kind": "elevator",
         "stage_rotation_z": 0.0,
         "camera": (0.0, -11.5, 4.2),
         "target": (0.0, -0.85, 1.2),
+        "lens": 50.0,
+    },
+    {
+        "name": "elevator-f01-call-indicator",
+        "reference": "MRK_ElevatorStop_F01",
+        "doors": (
+            "MRK_Door_ElevatorLanding_F01",
+        ),
+        "extras": (
+            "VIS_ElevatorThresholdPlate_F01",
+            "VIS_ElevatorCallIndicator_Base_F01",
+            "VIS_ElevatorCallIndicator_Direction_F01",
+        ),
+        "frame_kind": "elevator",
+        "stage_rotation_z": 0.0,
+        "camera": (0.0, -11.5, 4.2),
+        "target": (0.0, -1.25, 0.75),
         "lens": 50.0,
     },
 )

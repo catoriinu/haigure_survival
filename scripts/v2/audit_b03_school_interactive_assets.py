@@ -24,7 +24,7 @@ GLB_PATH = (
     REPOSITORY_ROOT / "public/stage-assets/v2/B02/b02_school_blockout.glb"
 )
 EXPORT_COLLECTION_NAME = "EXP_Stage_school"
-EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v2"
+EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v3"
 EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
 
 GLB_MAGIC = b"glTF"
@@ -277,6 +277,7 @@ DYNAMIC_ROLES = frozenset(
         "elevator_passenger_origin",
         "elevator_stop",
         "elevator_call_mat",
+        "elevator_call_indicator",
         "elevator_threshold",
         "elevator_human_gate",
         "elevator_wait",
@@ -1745,6 +1746,7 @@ def audit_elevator(
         "elevator_passenger_origin": 1,
         "elevator_stop": 2,
         "elevator_call_mat": 2,
+        "elevator_call_indicator": 2,
         "elevator_threshold": 2,
         "elevator_human_gate": 2,
         "elevator_wait": 2,
@@ -1874,17 +1876,9 @@ def audit_elevator(
             f"{volume.name}: 閉じた非退化VolumeのAABBではありません",
         )
 
-    waiting_mat = graph.require_node(
-        "VIS_B03_ElevatorWaitingMat_F01_F04"
-    )
     require(
-        waiting_mat.kind == "MESH"
-        and waiting_mat.local_bounds is not None,
-        f"{graph.source}: エレベーター待機マット表示が実Meshではありません",
-    )
-    waiting_mat_world_bounds = transformed_bounds(
-        waiting_mat.local_bounds,
-        waiting_mat.world_matrix,
+        "VIS_B03_ElevatorWaitingMat_F01_F04" not in graph.nodes,
+        f"{graph.source}: 旧共用エレベーター待機マットが残っています",
     )
 
     for floor, endpoint, base_z in ((1, "A", 0.0), (4, "B", 10.8)):
@@ -1892,6 +1886,9 @@ def audit_elevator(
         stop_id = f"school-elevator-stop-f{floor:02d}"
         landing_door_id = f"school-elevator-landing-door-f{floor:02d}"
         call_mat_id = f"school-elevator-call-mat-f{floor:02d}"
+        call_indicator_id = (
+            f"school-elevator-call-indicator-f{floor:02d}"
+        )
         threshold_id = f"school-elevator-threshold-f{floor:02d}"
         gate_id = f"school-elevator-human-gate-f{floor:02d}"
         wait_id = f"school-elevator-wait-f{floor:02d}"
@@ -1910,6 +1907,7 @@ def audit_elevator(
                 "hs_floor_index": floor,
                 "hs_landing_door_id": landing_door_id,
                 "hs_call_mat_id": call_mat_id,
+                "hs_call_indicator_id": call_indicator_id,
                 "hs_threshold_id": threshold_id,
                 "hs_gate_id": gate_id,
                 "hs_wait_id": wait_id,
@@ -1929,6 +1927,7 @@ def audit_elevator(
         expected_stop_children = {
             f"MRK_Door_ElevatorLanding_{suffix}",
             f"VOL_ElevatorCallMat_{suffix}",
+            f"MRK_ElevatorCallIndicator_{suffix}",
             f"VOL_ElevatorThreshold_{suffix}",
             f"VIS_ElevatorThresholdPlate_{suffix}",
             f"COL_ElevatorThresholdPlate_{suffix}",
@@ -1938,6 +1937,99 @@ def audit_elevator(
         require(
             set(stop.child_names) == expected_stop_children,
             f"{stop.name}: Stop直下構成が不正です",
+        )
+
+        call_indicator = graph.require_node(
+            f"MRK_ElevatorCallIndicator_{suffix}"
+        )
+        require_node_contract(
+            call_indicator,
+            kind="EMPTY",
+            parent_name=stop.name,
+            properties={
+                "hs_id": call_indicator_id,
+                "hs_role": "elevator_call_indicator",
+                "hs_elevator_id": "school-elevator",
+                "hs_stop_id": stop_id,
+                "hs_direction": "up" if floor == 1 else "down",
+            },
+        )
+        indicator_base_name = (
+            f"VIS_ElevatorCallIndicator_Base_{suffix}"
+        )
+        indicator_direction_name = (
+            f"VIS_ElevatorCallIndicator_Direction_{suffix}"
+        )
+        require(
+            set(call_indicator.child_names)
+            == {indicator_base_name, indicator_direction_name},
+            f"{call_indicator.name}: 表示MeshがBase/Direction各1件ではありません",
+        )
+        indicator_base = graph.require_node(indicator_base_name)
+        indicator_direction = graph.require_node(indicator_direction_name)
+        for indicator_mesh in (indicator_base, indicator_direction):
+            require_node_contract(
+                indicator_mesh,
+                kind="MESH",
+                parent_name=call_indicator.name,
+                properties={},
+            )
+            require(
+                indicator_mesh.local_bounds is not None,
+                f"{indicator_mesh.name}: 表示MeshにAABBがありません",
+            )
+        expected_indicator_base_bounds = bounds_from_points(
+            [
+                Vector(
+                    convert_location(
+                        (x, y, z),
+                        glb_coordinates=glb_coordinates,
+                    )
+                )
+                for x in (-0.75, 0.75)
+                for y in (-3.12, -1.62)
+                for z in (0.005, 0.025)
+            ]
+        )
+        require(
+            bounds_close(
+                indicator_base.local_bounds,
+                expected_indicator_base_bounds,
+            ),
+            f"{indicator_base.name}: 1.5m四方の表示範囲ではありません",
+        )
+        expected_direction_points = (
+            (
+                (0.0, -1.82),
+                (-0.45, -2.72),
+                (0.45, -2.72),
+            )
+            if floor == 1
+            else (
+                (0.0, -2.92),
+                (0.45, -2.02),
+                (-0.45, -2.02),
+            )
+        )
+        expected_direction_bounds = bounds_from_points(
+            [
+                Vector(
+                    convert_location(
+                        (x, y, z),
+                        glb_coordinates=glb_coordinates,
+                    )
+                )
+                for x, y in expected_direction_points
+                for z in (0.027, 0.037)
+            ]
+        )
+        require(
+            bounds_close(
+                indicator_direction.local_bounds,
+                expected_direction_bounds,
+            )
+            and indicator_direction.triangle_count == 8,
+            f"{indicator_direction.name}: 明色塗りつぶし三角柱ではありません",
         )
 
         component_specs = (
@@ -2039,13 +2131,22 @@ def audit_elevator(
                     )
                 )
                 for x in (-0.70, 0.70)
-                for y in (-1.20, -1.08)
+                for y in (-1.32, -0.98)
                 for z in (-0.02, 0.12)
             ]
         )
         require(
             bounds_close(threshold_collider.local_bounds, expected_plate_bounds),
-            f"{threshold_collider.name}: 0.12m乗降隙間を塞いでいません",
+            f"{threshold_collider.name}: 0.24m斜面と0.10m水平部の範囲ではありません",
+        )
+        require(
+            bounds_close(
+                graph.require_node(
+                    f"VOL_ElevatorThreshold_{suffix}"
+                ).local_bounds,
+                expected_plate_bounds,
+            ),
+            f"VOL_ElevatorThreshold_{suffix}: 敷居実形状全域を包含していません",
         )
 
         gate = graph.require_node(f"MRK_ElevatorHumanGate_{suffix}")
@@ -2085,15 +2186,19 @@ def audit_elevator(
             call_mat.local_bounds,
             call_mat.world_matrix,
         )
+        indicator_base_world_bounds = transformed_bounds(
+            indicator_base.local_bounds,
+            indicator_base.world_matrix,
+        )
         require(
             all(
                 abs(call_mat_world_bounds[bound][axis]
-                    - waiting_mat_world_bounds[bound][axis])
+                    - indicator_base_world_bounds[bound][axis])
                 <= TOLERANCE
                 for bound in (0, 1)
                 for axis in horizontal_axes
             ),
-            f"{call_mat.name}: visible waiting matの水平範囲と一致しません",
+            f"{call_mat.name}: call indicator Baseの水平範囲と一致しません",
         )
         for volume in (call_mat, threshold):
             require(
@@ -2185,6 +2290,7 @@ def audit_elevator(
         "cars": 1,
         "stops": 2,
         "call_mats": 2,
+        "call_indicators": 2,
         "thresholds": 2,
         "wait_markers": 2,
         "occupancy_volumes": 1,
@@ -2293,6 +2399,74 @@ def audit_blender_geometry() -> dict[str, int]:
     removed_visual_components = 0
     approach_bounds_checks = 0
     manifold_checks = 0
+    threshold_profile_checks = 0
+
+    for floor in (1, 4):
+        suffix = f"F{floor:02d}"
+        visual = bpy.data.objects[
+            f"VIS_ElevatorThresholdPlate_{suffix}"
+        ]
+        collider = bpy.data.objects[
+            f"COL_ElevatorThresholdPlate_{suffix}"
+        ]
+        visual_vertices = mesh_vertex_coordinates(visual)
+        collider_vertices = mesh_vertex_coordinates(collider)
+        visual_faces = mesh_faces(visual)
+        collider_faces = mesh_faces(collider)
+        require(
+            visual_vertices == collider_vertices
+            and visual_faces == collider_faces,
+            f"{suffix}: 敷居のVIS/COL輪郭が一致しません",
+        )
+        require(
+            len(visual_vertices) == 10 and len(visual_faces) == 7,
+            f"{suffix}: 敷居が10頂点7面の連続形状ではありません",
+        )
+        for side_offset in (0, 5):
+            ramp_start = visual_vertices[side_offset + 4]
+            ramp_end = visual_vertices[side_offset + 3]
+            plateau_end = visual_vertices[side_offset + 2]
+            require(
+                coordinates_close(
+                    ramp_start,
+                    (
+                        -0.70 if side_offset == 0 else 0.70,
+                        -1.32,
+                        0.00,
+                    ),
+                )
+                and coordinates_close(
+                    ramp_end,
+                    (
+                        -0.70 if side_offset == 0 else 0.70,
+                        -1.08,
+                        0.12,
+                    ),
+                )
+                and coordinates_close(
+                    plateau_end,
+                    (
+                        -0.70 if side_offset == 0 else 0.70,
+                        -0.98,
+                        0.12,
+                    ),
+                ),
+                f"{suffix}: 0.24m斜面または0.10m水平部が不正です",
+            )
+        ramp_angle_degrees = math.degrees(math.atan2(0.12, 0.24))
+        require(
+            abs(ramp_angle_degrees - 26.5650511771) <= TOLERANCE,
+            f"{suffix}: 敷居斜面が約26.6度ではありません",
+        )
+        threshold_profile_checks += 1
+
+    car_floor_vertices = mesh_vertex_coordinates(
+        bpy.data.objects["COL_ElevatorCar_School"]
+    )[:8]
+    require(
+        all(vertex[1] >= -0.98 - TOLERANCE for vertex in car_floor_vertices),
+        "かご床の前面が敷居水平部へ重なっています",
+    )
 
     for room in ROOM_SPECS:
         room_token = token(room.author_name)
@@ -2656,6 +2830,7 @@ def audit_blender_geometry() -> dict[str, int]:
         "approach_bounds_checks": approach_bounds_checks,
         "door_sign_intersections": len(door_sign_intersections),
         "manifold_checks": manifold_checks,
+        "threshold_profile_checks": threshold_profile_checks,
     }
 
 
@@ -2742,13 +2917,13 @@ def audit_active_visual_counts(graph: AssetGraph) -> dict[str, int]:
         for room_id in EXPECTED_ROOM_IDS
     )
     require(
-        normal_visuals == 606,
-        f"{graph.source}: 通常20室選択時のVISが606件ではありません: "
+        normal_visuals == 609,
+        f"{graph.source}: 通常20室選択時のVISが609件ではありません: "
         f"{normal_visuals}",
     )
     require(
-        disordered_visuals == 626,
-        f"{graph.source}: 全荒れ20室選択時のVISが626件ではありません: "
+        disordered_visuals == 629,
+        f"{graph.source}: 全荒れ20室選択時のVISが629件ではありません: "
         f"{disordered_visuals}",
     )
     return {
@@ -2765,13 +2940,13 @@ def audit_blender_glb_parity(
     blender_names = interactive_contract_names(blender_graph)
     glb_names = interactive_contract_names(glb_graph)
     require(
-        len(blender_names) == 765,
-        "BlenderのB03-3C interactive契約Objectが765件ではありません: "
+        len(blender_names) == 771,
+        "BlenderのB03-3C interactive契約Objectが771件ではありません: "
         f"{len(blender_names)}",
     )
     require(
-        len(glb_names) == 765,
-        "GLBのB03-3C interactive契約Objectが765件ではありません: "
+        len(glb_names) == 771,
+        "GLBのB03-3C interactive契約Objectが771件ではありません: "
         f"{len(glb_names)}",
     )
     require(
@@ -2891,6 +3066,7 @@ def main() -> None:
             "elevator": {
                 "car_doors": 1,
                 "cars": 1,
+                "call_indicators": 2,
                 "controllers": 1,
                 "landing_doors": 2,
                 "link_endpoints": 2,

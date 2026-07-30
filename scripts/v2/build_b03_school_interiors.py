@@ -39,6 +39,7 @@ ATLAS_DEFINITIONS = {
             "gym_wainscot": (92, 117, 98),
             "trim": (72, 78, 79),
             "elevator_wait": (224, 174, 42),
+            "elevator_direction": (242, 242, 234),
         },
     },
     "FurnitureProps": {
@@ -372,10 +373,13 @@ def architecture_swatch(object_name: str) -> str:
         return "trim"
     if (
         "elevatorwaitingmat" in name
+        or "elevatorcallindicator_base" in name
         or "elevatoradjustmenttape" in name
         or "elevatoradjustmentsign" in name
     ):
         return "elevator_wait"
+    if "elevatorcallindicator_direction" in name:
+        return "elevator_direction"
     if "elevatoradjustmenttext" in name:
         return "trim"
     if "gymstage" in name and "wall" not in name and "lintel" not in name:
