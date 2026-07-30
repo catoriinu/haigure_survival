@@ -39,8 +39,8 @@ NAVMESH_PATHS = {
     "room_variants": (
         REPOSITORY_ROOT
         / "public/stage-assets/v2/B02/b02_school_blockout.room-variants.navmesh.bin",
-        1_911_013,
-        "78A0F481AAE3ABD6A6E403C60FC0DEBC1C70941C8B7956F17E35006DF10C3AFD",
+        1_910_934,
+        "95C032FCD4D169A4AD590C1B8F3EB2DC0E30DA4EBD74E1EAC035D2A191D559A8",
     ),
 }
 EXPECTED_OBJECTS = {

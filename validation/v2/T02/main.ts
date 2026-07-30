@@ -115,6 +115,8 @@ console.error = (...values: unknown[]) => {
 
 let running = false;
 let activeContext: StageSpatialContext | null = null;
+// seed=2では図書室の前後2扉が閉じ、構造Colliderを決定的に検証できる。
+const T02_DOOR_FIXTURE_SEED = 2;
 
 const createCheck = (
   name: string,
@@ -773,13 +775,13 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 606 &&
+      context.resources.visualMeshes.length === 609 &&
         context.resources.normalColliders.length === 273 &&
         context.resources.actorOnlyColliders.length === 81 &&
         context.resources.humanOnlyColliders.length === 59 &&
         context.resources.navSourceMeshes.length === 39 &&
         context.resources.bitFlightNavSourceMeshes.length === 22 &&
-        context.markers.all.length === 225 &&
+        context.markers.all.length === 227 &&
         assemblyAnchors.length === 2 &&
         context.volumes.all.length === 75 &&
         assemblyVolumes.length === 2 &&
@@ -2539,7 +2541,7 @@ const runValidation = async () => {
 
     activeContext = await loadStageSpatialContext(scene, SCHOOL_STAGE, {
       initializeDynamicSpatial:
-        createSchoolStageDynamicSpatialInitializer(0),
+        createSchoolStageDynamicSpatialInitializer(T02_DOOR_FIXTURE_SEED),
       roomVariantSelections:
         SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
     });
@@ -2549,20 +2551,20 @@ const runValidation = async () => {
 
     activeContext = await loadStageSpatialContext(scene, SCHOOL_STAGE, {
       initializeDynamicSpatial:
-        createSchoolStageDynamicSpatialInitializer(0),
+        createSchoolStageDynamicSpatialInitializer(T02_DOOR_FIXTURE_SEED),
       roomVariantSelections:
         SCHOOL_ALL_DISORDERED_ROOM_VARIANT_SELECTIONS
     });
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 626 &&
+      activeContext.resources.visualMeshes.length === 629 &&
       activeContext.resources.normalColliders.length === 273 &&
       activeContext.resources.actorOnlyColliders.length === 81 &&
       activeContext.resources.humanOnlyColliders.length === 59 &&
       activeContext.resources.navSourceMeshes.length === 59 &&
       activeContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-      activeContext.markers.all.length === 225 &&
+      activeContext.markers.all.length === 227 &&
       activeContext.markers.getByRole("assembly_anchor").length === 2 &&
       activeContext.volumes.all.length === 75 &&
       activeContext.volumes.getByRole("assembly").length === 2 &&

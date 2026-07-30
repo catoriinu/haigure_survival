@@ -60,6 +60,7 @@ ATLAS_DEFINITIONS = {
             "accent_orange": (218, 78, 23),
             "accent_red": (180, 42, 34),
             "door_hardware_yellow": (181, 153, 74),
+            "fabric_ivory": (232, 222, 188),
         },
     },
     "SignsPaper": {
@@ -151,8 +152,17 @@ PROP_COLLIDER_LOCAL_CENTERS = {
     "StageLectern": (0.0, -0.01, STAGE_LECTERN_COLLIDER_HEIGHT / 2.0),
 }
 
-STAFFROOM_INTERIOR_BOUNDS = (5.4, 23.4, 36.5, 45.5)
-STAFFROOM_CLEANING_LOCKER = (7.0, 44.8, 0.0)
+STAFFROOM_INTERIOR_BOUNDS = (5.55, 23.25, 36.65, 45.35)
+STAFFROOM_ISLAND_XS = (7.2, 11.9, 16.6, 21.3)
+STAFFROOM_DESK_YS = (40.65, 41.35)
+STAFFROOM_CLEANING_LOCKER = (5.775, 44.90, math.pi / 2)
+STAFFROOM_WEST_BOOKSHELVES = (
+    (5.71, 44.00, math.pi / 2),
+    (5.71, 43.10, math.pi / 2),
+)
+STAFFROOM_EAST_BOOKSHELVES = tuple(
+    (23.09, y, -math.pi / 2) for y in (44.90, 44.00, 43.10)
+)
 CLASSROOM_REAR_LOCKER_Y = 2.875
 CLASSROOM_REAR_BAGGAGE_XS = (-10.65, -8.65, -6.65)
 CLASSROOM_REAR_CLEANING_X = -5.20
@@ -160,6 +170,34 @@ CLASSROOM_REAR_WALL_INNER_Y = 2.65
 CLASSROOM_REAR_INTERIOR_X_BOUNDS = (-12.45, -3.65)
 CLASSROOM_TRASH_BIN_PLACEMENT = (-3.8, 7.5)
 CLASSROOM_DESK_ROW_Y_OFFSETS = (0.0, 0.0, -0.20, 0.20, 0.0, 0.0)
+INFIRMARY_NORTH_STORAGE_PLACEMENTS = (
+    ("Bookshelf", -11.80, 12.19, 0.0),
+    ("MedicalCabinet", -10.75, 12.125, 0.0),
+    ("MedicalCabinet", -9.55, 12.125, 0.0),
+    ("WashBasin", -8.35, 12.10, 0.0),
+    ("CleaningLocker", -7.30, 12.125, 0.0),
+)
+INFIRMARY_TRASH_BIN = (-6.70, 12.20, 0.0)
+INFIRMARY_BED_PLACEMENTS = (
+    (-10.75, 4.55, math.pi / 2),
+    (-7.80, 4.55, math.pi / 2),
+)
+INFIRMARY_CURTAIN_SEGMENTS = (
+    (-9.275, 8.20, 5.65, 0.0),
+    (-12.10, 5.60, 5.20, math.pi / 2),
+    (-6.45, 5.60, 5.20, math.pi / 2),
+    (-9.275, 5.60, 5.20, math.pi / 2),
+)
+INFIRMARY_STAFF_DESK = (-10.25, 10.70, -math.pi / 2)
+INFIRMARY_STAFF_CHAIR = (-11.15, 10.70, math.pi / 2)
+INFIRMARY_JOINED_DESKS = (
+    (-5.95, 9.80, 0.0),
+    (-5.30, 9.80, 0.0),
+)
+INFIRMARY_JOINED_CHAIRS = (
+    (-6.50, 9.80, math.pi / 2),
+    (-4.75, 9.80, -math.pi / 2),
+)
 CORRIDOR_CLEANING_LOCKER = (-3.125, 6.8, math.pi / 2)
 MAIN_ENTRY_BAGGAGE_LOCKERS = (
     (-0.425, -5.8, -math.pi / 2),
@@ -174,34 +212,67 @@ NORTH_ENTRY_UMBRELLA_STAND = (5.05, 39.0, math.pi / 2)
 COUNCIL_INTERIOR_BOUNDS = (5.55, 14.4, 36.65, 45.35)
 LIBRARY_WEST_WALL_INNER_X = -12.45
 LIBRARY_EAST_WALL_INNER_X = -3.65
+LIBRARY_EAST_SHELF_SERVICE_GAP = 0.15
+LIBRARY_EAST_SHELF_X = (
+    LIBRARY_EAST_WALL_INNER_X
+    - LIBRARY_EAST_SHELF_SERVICE_GAP
+    - 0.16
+)
+LIBRARY_AISLE_WIDTH = (
+    8.80
+    - LIBRARY_EAST_SHELF_SERVICE_GAP
+    - (0.32 + 0.64 + 0.64 + 0.32)
+) / 3.0
+LIBRARY_DENSE_ROW_XS = (
+    LIBRARY_WEST_WALL_INNER_X + 0.16,
+    LIBRARY_WEST_WALL_INNER_X + 0.32 + LIBRARY_AISLE_WIDTH + 0.16,
+    LIBRARY_WEST_WALL_INNER_X + 0.32 + LIBRARY_AISLE_WIDTH + 0.48,
+    LIBRARY_WEST_WALL_INNER_X
+    + 0.32
+    + LIBRARY_AISLE_WIDTH
+    + 0.64
+    + LIBRARY_AISLE_WIDTH
+    + 0.16,
+    LIBRARY_WEST_WALL_INNER_X
+    + 0.32
+    + LIBRARY_AISLE_WIDTH
+    + 0.64
+    + LIBRARY_AISLE_WIDTH
+    + 0.48,
+)
+LIBRARY_DENSE_ROW_ROTATIONS = (
+    math.pi / 2,
+    -math.pi / 2,
+    math.pi / 2,
+    -math.pi / 2,
+    math.pi / 2,
+)
+LIBRARY_SOUTH_TO_WALL_AISLE = 1.48
+LIBRARY_BLOCK_AISLE = 1.50
+LIBRARY_SOUTH_BLOCK_YS = tuple(14.90 + index * 0.90 for index in range(5))
+LIBRARY_NORTH_BLOCK_YS = tuple(20.90 + index * 0.90 for index in range(5))
+LIBRARY_NORTHWEST_SHELF_YS = (28.0, 28.9, 29.8, 30.7, 31.6)
+LIBRARY_EAST_SHELF_YS = tuple(15.30 + index * 0.90 for index in range(17))
+LIBRARY_SOUTH_SHELF_XS = tuple(-12.0 + index * 0.90 for index in range(8))
 LIBRARY_BOOKSHELF_PLACEMENTS = (
     *(
-        (LIBRARY_WEST_WALL_INNER_X + 0.16, y, math.pi / 2)
-        for y in (13.1, 14.0, 14.9, 15.8, 16.7)
-    ),
-    *(
-        (LIBRARY_WEST_WALL_INNER_X + 0.16, y, math.pi / 2)
-        for y in (28.0, 28.9, 29.8, 30.7, 31.6)
-    ),
-    *(
-        (-3.81, y, -math.pi / 2)
-        for y in (
-            16.2,
-            17.1,
-            18.0,
-            18.9,
-            19.8,
-            20.7,
-            21.6,
-            22.5,
-            23.4,
-            24.3,
-            25.2,
-            26.1,
-            27.0,
-            27.9,
+        (x, y, rotation)
+        for y_values in (LIBRARY_SOUTH_BLOCK_YS, LIBRARY_NORTH_BLOCK_YS)
+        for x, rotation in zip(
+            LIBRARY_DENSE_ROW_XS,
+            LIBRARY_DENSE_ROW_ROTATIONS,
         )
+        for y in y_values
     ),
+    *(
+        (LIBRARY_WEST_WALL_INNER_X + 0.16, y, math.pi / 2)
+        for y in LIBRARY_NORTHWEST_SHELF_YS
+    ),
+    *(
+        (LIBRARY_EAST_SHELF_X, y, -math.pi / 2)
+        for y in LIBRARY_EAST_SHELF_YS
+    ),
+    *((x, 12.81, math.pi) for x in LIBRARY_SOUTH_SHELF_XS),
 )
 FIRST_FLOOR_WEST_DOOR_OPENINGS = (
     (3.1, 4.3),
@@ -852,7 +923,7 @@ def add_additional_prop(
         "SewingMachine": [((0, 0, 0.86), (0.45, 0.2, 0.25), "porcelain"), ((-0.12, 0, 1.05), (0.12, 0.18, 0.2), "metal_gray")],
         "MusicStand": [((0, 0, 0.65), (0.05, 0.05, 1.1), "metal_dark"), ((0, 0, 1.18), (0.5, 0.05, 0.32), "metal_dark")],
         "AvRack": [((0, 0, 0.75), (0.7, 0.5, 1.5), "metal_dark"), ((0, -0.26, 0.9), (0.52, 0.03, 0.3), "plastic_black")],
-        "InfirmaryCurtain": [((0, 0, 1.35), (2.0, 0.05, 1.8), "fabric_green")],
+        "InfirmaryCurtain": [((0, 0, 1.35), (2.0, 0.05, 1.8), "fabric_ivory")],
         "RoomSign": [((0, 0, 1.7), (0.45, 0.04, 0.18), "sign_2")],
         "LifePreserverSign": [((0, 0, 1.2), (0.7, 0.12, 0.7), "safety")],
     }
@@ -893,6 +964,24 @@ def add_additional_prop(
             z + local_center[2],
         )
         room.add_collider(collider_center, size, rotation_z)
+
+
+def add_infirmary_curtain(
+    room: RoomBuilder,
+    x: float,
+    y: float,
+    length: float,
+    rotation_z: float,
+) -> None:
+    room.counts["InfirmaryCurtain"] = (
+        room.counts.get("InfirmaryCurtain", 0) + 1
+    )
+    room.box(
+        (x, y, room.base_z + 1.35),
+        (length, 0.05, 1.80),
+        "fabric_ivory",
+        rotation_z,
+    )
 
 
 def add_wall_blackboard(
@@ -936,48 +1025,92 @@ def add_table_group(
         )
 
 
-CLASSROOM_SCATTER_VARIANTS = (
+CLASSROOM_LAYOUT_VARIANTS = (
     {
-        (0, 5): -0.08,
-        (4, 4): 0.07,
-        (1, 3): 0.06,
-        (3, 2): -0.07,
-        (4, 0): -0.08,
+        "pattern": "A",
+        "desk_adjustments": {},
+        "chair_adjustments": {},
     },
     {
-        (0, 5): -0.11,
-        (4, 4): 0.09,
-        (1, 3): 0.08,
-        (3, 2): -0.08,
-        (0, 1): 0.07,
-        (4, 0): -0.09,
+        "pattern": "B",
+        "desk_adjustments": {},
+        "chair_adjustments": {
+            (0, 0): (0.0, 0.0, -0.20),
+            (2, 0): (0.0, 0.0, 0.17),
+            (4, 1): (0.0, 0.0, -0.23),
+            (1, 2): (0.0, 0.0, 0.19),
+            (3, 3): (0.0, 0.0, -0.16),
+            (0, 4): (0.0, 0.0, 0.24),
+            (4, 5): (0.0, 0.0, -0.21),
+        },
     },
     {
-        (0, 5): -0.12,
-        (4, 4): 0.10,
-        (1, 3): 0.09,
-        (3, 2): -0.09,
-        (0, 1): 0.08,
-        (4, 0): -0.10,
-        (2, 0): 0.07,
+        "pattern": "C",
+        "desk_adjustments": {
+            (1, 0): (0.06, -0.04, -0.12),
+            (3, 0): (-0.05, 0.07, 0.10),
+            (0, 1): (0.08, 0.03, 0.15),
+            (2, 2): (-0.07, -0.05, -0.09),
+            (4, 2): (-0.05, 0.08, 0.13),
+            (1, 3): (0.09, -0.06, -0.14),
+            (3, 4): (-0.08, 0.04, 0.11),
+            (2, 5): (0.05, 0.07, -0.08),
+        },
+        "chair_adjustments": {
+            (1, 0): (0.08, -0.04, 0.09),
+            (3, 0): (-0.06, 0.07, -0.08),
+            (0, 1): (0.05, -0.08, -0.11),
+            (2, 2): (-0.09, 0.05, 0.13),
+            (4, 2): (0.04, -0.07, -0.10),
+            (1, 3): (0.11, 0.03, 0.08),
+            (3, 4): (-0.07, -0.06, -0.12),
+            (2, 5): (0.06, 0.09, 0.11),
+        },
     },
 )
 
 CLASSROOM_DESKTOP_PROP_VARIANTS = (
     (
-        ("ClosedBook", (0, 3), 0.12, 0.0),
-        ("PencilCase", (1, 1), 0.12, 0.0),
+        ("ClosedBook", (0, 1), 0.12, 0.00),
+        ("PencilCase", (3, 1), -0.10, 0.02),
+        ("SinglePaper", (1, 2), 0.08, -0.03),
+        ("OpenBook", (4, 2), -0.04, 0.00),
+        ("PaperStack", (2, 3), 0.10, 0.03),
+        ("ClosedBook", (0, 4), -0.11, -0.02),
+        ("PencilCase", (3, 5), 0.09, 0.02),
     ),
     (
-        ("ClosedBook", (0, 3), 0.12, 0.0),
-        ("OpenBook", (2, 4), 0.0, 0.0),
-        ("SinglePaper", (4, 2), -0.10, 0.0),
-        ("PencilCase", (1, 1), 0.12, 0.0),
+        ("OpenBook", (1, 0), 0.00, 0.01),
+        ("PaperStack", (4, 1), -0.09, -0.02),
+        ("PencilCase", (0, 2), 0.11, 0.02),
+        ("ClosedBook", (3, 3), -0.10, 0.00),
+        ("SinglePaper", (2, 4), 0.07, -0.03),
+        ("OpenBook", (1, 5), -0.03, 0.00),
     ),
     (
-        ("OpenBook", (2, 4), 0.0, 0.0),
-        ("SinglePaper", (4, 2), -0.10, 0.0),
-        ("PencilCase", (1, 1), 0.12, 0.0),
+        ("PencilCase", (4, 0), 0.10, 0.02),
+        ("SinglePaper", (1, 3), -0.08, -0.03),
+        ("ClosedBook", (2, 5), 0.07, 0.01),
+    ),
+)
+
+CLASSROOM_FLOOR_PROP_VARIANTS = (
+    (),
+    (
+        ("SinglePaper", -11.85, 3.50, -0.24),
+        ("ClosedBook", -10.44, 5.10, 0.13),
+        ("PencilCase", -7.60, 7.55, -0.18),
+        ("OpenBook", -12.02, 5.25, 0.10),
+        ("PaperStack", -4.15, 8.20, -0.08),
+    ),
+    (
+        ("SinglePaper", -11.55, 3.55, 0.29),
+        ("ClosedBook", -9.02, 6.30, -0.17),
+        ("PencilCase", -7.60, 9.95, 0.12),
+        ("OpenBook", -12.00, 6.65, -0.11),
+        ("PaperStack", -4.15, 5.95, 0.21),
+        ("SinglePaper", -11.95, 8.15, -0.27),
+        ("ClosedBook", -4.20, 9.40, 0.10),
     ),
 )
 
@@ -987,35 +1120,40 @@ def build_classroom(
     sources: dict[str, bpy.types.Object],
     room_y_offset: float,
     variant_index: int,
-) -> dict[str, float | int]:
-    rotations = CLASSROOM_SCATTER_VARIANTS[variant_index]
+) -> dict[str, float | int | str]:
+    layout = CLASSROOM_LAYOUT_VARIANTS[variant_index]
+    desk_adjustments = layout["desk_adjustments"]
+    chair_adjustments = layout["chair_adjustments"]
     desk_positions: dict[tuple[int, int], tuple[float, float, float]] = {}
     for row in range(6):
         for column in range(5):
-            x = -11.15 + column * 1.42
-            y = (
+            base_x = -11.15 + column * 1.42
+            base_y = (
                 4.5
                 + room_y_offset
                 + row * 1.22
                 + CLASSROOM_DESK_ROW_Y_OFFSETS[row]
             )
-            rotation = rotations.get((column, row), 0.0)
+            desk_dx, desk_dy, rotation = desk_adjustments.get(
+                (column, row),
+                (0.0, 0.0, 0.0),
+            )
+            x = base_x + desk_dx
+            y = base_y + desk_dy
             desk_positions[(column, row)] = (x, y, rotation)
             room.add_prop(sources, "ClassroomDesk", x, y, rotation)
-            if (column, row) == (3, 2):
-                chair_distance = 0.55
-            elif (column, row) in rotations:
-                chair_distance = 0.58
-            else:
-                chair_distance = 0.31
-            chair_x = x + math.sin(rotation) * chair_distance
-            chair_y = y - math.cos(rotation) * chair_distance
+            chair_dx, chair_dy, chair_rotation = chair_adjustments.get(
+                (column, row),
+                (0.0, 0.0, 0.0),
+            )
+            chair_x = x + math.sin(rotation) * 0.31 + chair_dx
+            chair_y = y - math.cos(rotation) * 0.31 + chair_dy
             room.add_prop(
                 sources,
                 "ClassroomChair",
                 chair_x,
                 chair_y,
-                math.pi + rotation,
+                math.pi + rotation + chair_rotation,
             )
     add_wall_blackboard(room, sources, -8.05, 12.34 + room_y_offset, math.pi)
     for locker_x in CLASSROOM_REAR_BAGGAGE_XS:
@@ -1055,20 +1193,37 @@ def build_classroom(
         variant_index
     ]:
         desk_x, desk_y, desk_rotation = desk_positions[key]
+        cosine = math.cos(desk_rotation)
+        sine = math.sin(desk_rotation)
         add_desktop_prop(
             room,
             sources,
             prop_type,
-            desk_x + offset_x,
-            desk_y + offset_y,
+            desk_x + offset_x * cosine - offset_y * sine,
+            desk_y + offset_x * sine + offset_y * cosine,
             desk_rotation,
         )
-    scattered = len(rotations)
+    for prop_type, x, y, rotation in CLASSROOM_FLOOR_PROP_VARIANTS[
+        variant_index
+    ]:
+        room.add_prop(
+            sources,
+            prop_type,
+            x,
+            y + room_y_offset,
+            rotation,
+        )
+    moved_desks = len(desk_adjustments)
+    moved_chairs = len(chair_adjustments)
     return {
-        "scattered_sets": scattered,
-        "stored_chairs": 30 - scattered,
-        "scatter_ratio": scattered / 30,
-        "book_paper_spots": len(CLASSROOM_DESKTOP_PROP_VARIANTS[variant_index]),
+        "pattern": layout["pattern"],
+        "moved_desks": moved_desks,
+        "moved_chairs": moved_chairs,
+        "stored_chairs": 30 - moved_chairs,
+        "desktop_prop_spots": len(
+            CLASSROOM_DESKTOP_PROP_VARIANTS[variant_index]
+        ),
+        "floor_prop_spots": len(CLASSROOM_FLOOR_PROP_VARIANTS[variant_index]),
     }
 
 
@@ -1240,48 +1395,78 @@ def build_common_area_rooms(
 
 def build_school_rooms(
     sources: dict[str, bpy.types.Object],
-) -> tuple[list[RoomBuilder], dict[str, dict[str, float | int]]]:
+) -> tuple[list[RoomBuilder], dict[str, dict[str, float | int | str]]]:
     rooms: list[RoomBuilder] = []
-    classroom_metrics: dict[str, dict[str, float | int]] = {}
+    classroom_metrics: dict[str, dict[str, float | int | str]] = {}
     for floor, base_z in ((2, 3.6), (3, 7.2), (4, 10.8)):
         for room_index, room_y_offset in enumerate((0.0, 10.0, 20.0), 1):
             name = f"F{floor:02d}_Classroom{room_index:02d}"
             classroom = RoomBuilder.create(name, base_z)
-            variant_index = (floor + room_index) % len(CLASSROOM_SCATTER_VARIANTS)
+            variant_index = (floor + room_index) % len(
+                CLASSROOM_LAYOUT_VARIANTS
+            )
             classroom_metrics[name] = build_classroom(
                 classroom, sources, room_y_offset, variant_index
             )
             rooms.append(classroom)
 
     infirmary = RoomBuilder.create("F01_Infirmary", 0.0)
-    infirmary.add_prop(sources, "InfirmaryBed", -10.8, 5.0)
-    infirmary.add_prop(sources, "InfirmaryBed", -10.8, 7.2)
-    infirmary.add_prop(sources, "StaffChair", -5.35, 5.2, -math.pi / 2)
-    infirmary.add_prop(sources, "Bookshelf", -7.2, 10.8, math.pi / 2)
-    infirmary.add_prop(sources, "CleaningLocker", -10.7, 11.7, math.pi / 2)
-    infirmary.add_prop(sources, "StaffDesk", -6.2, 5.2, math.pi / 2)
-    add_additional_prop(infirmary, "MedicalCabinet", (-5.0, 10.8, 0.0), math.pi / 2)
-    add_additional_prop(infirmary, "InfirmaryCurtain", (-9.5, 6.1, 0.0), math.pi / 2)
-    add_additional_prop(infirmary, "WashBasin", (-5.0, 8.8, 0.0), math.pi / 2)
+    for prop_type, x, y, rotation in INFIRMARY_NORTH_STORAGE_PLACEMENTS:
+        if prop_type in {"Bookshelf", "CleaningLocker"}:
+            infirmary.add_prop(sources, prop_type, x, y, rotation)
+        else:
+            add_additional_prop(
+                infirmary,
+                prop_type,
+                (x, y, infirmary.base_z),
+                rotation,
+            )
+    add_additional_prop(infirmary, "TrashBin", INFIRMARY_TRASH_BIN)
+    for x, y, rotation in INFIRMARY_BED_PLACEMENTS:
+        infirmary.add_prop(sources, "InfirmaryBed", x, y, rotation)
+    for x, y, length, rotation in INFIRMARY_CURTAIN_SEGMENTS:
+        add_infirmary_curtain(infirmary, x, y, length, rotation)
+    infirmary.add_prop(sources, "StaffDesk", *INFIRMARY_STAFF_DESK)
+    infirmary.add_prop(sources, "StaffChair", *INFIRMARY_STAFF_CHAIR)
+    add_desktop_prop(
+        infirmary,
+        sources,
+        "SinglePaper",
+        -10.25,
+        10.35,
+        -math.pi / 2,
+        0.72,
+    )
+    add_desktop_prop(
+        infirmary,
+        sources,
+        "ClosedBook",
+        -10.25,
+        10.80,
+        -math.pi / 2,
+        0.72,
+    )
+    for x, y, rotation in INFIRMARY_JOINED_DESKS:
+        infirmary.add_prop(sources, "ClassroomDesk", x, y, rotation)
+    for x, y, rotation in INFIRMARY_JOINED_CHAIRS:
+        infirmary.add_prop(sources, "ClassroomChair", x, y, rotation)
     add_additional_prop(infirmary, "RoomSign", (-3.34, 10.275, 0.0), math.pi / 2)
     rooms.append(infirmary)
 
     library = RoomBuilder.create("F01_Library", 0.0)
     for x, y, rotation in LIBRARY_BOOKSHELF_PLACEMENTS:
         library.add_prop(sources, "Bookshelf", x, y, rotation)
-    for x in (-9.7, -6.5):
-        for y in (18.0, 24.0):
+    for x in (-10.20, -6.90):
+        for y in (27.00, 30.20):
             add_table_group(library, sources, x, y)
-    library.add_prop(sources, "StaffDesk", -8.1, 30.8)
-    library.add_prop(sources, "StaffChair", -8.1, 30.0, math.pi)
-    add_desktop_prop(library, sources, "OpenBook", -9.7, 18.0, 0.15)
-    add_desktop_prop(library, sources, "ClosedBook", -6.5, 24.0, -0.12)
-    add_additional_prop(library, "BulletinBoard", (-8.0, 12.68, 0.0), math.pi)
+    add_desktop_prop(library, sources, "OpenBook", -10.20, 27.00, 0.15)
+    add_desktop_prop(library, sources, "ClosedBook", -6.90, 30.20, -0.12)
+    add_additional_prop(library, "BulletinBoard", (-8.05, 32.32, 0.0))
     rooms.append(library)
 
     staff = RoomBuilder.create("F01_StaffRoom", 0.0)
-    for island, island_x in enumerate((7.2, 14.4, 21.0)):
-        for row, desk_y in enumerate((40.65, 41.35)):
+    for island_x in STAFFROOM_ISLAND_XS:
+        for row, desk_y in enumerate(STAFFROOM_DESK_YS):
             desk_rotation = 0.0 if row == 0 else math.pi
             chair_y = 39.95 if row == 0 else 42.05
             chair_rotation = math.pi if row == 0 else 0.0
@@ -1304,13 +1489,16 @@ def build_school_rooms(
                         desk_rotation,
                         0.72,
                     )
-    staff.add_prop(sources, "Bookshelf", 5.8, 44.0, math.pi / 2)
-    staff.add_prop(sources, "Bookshelf", 23.0, 44.0, math.pi / 2)
+    for placement in (
+        *STAFFROOM_WEST_BOOKSHELVES,
+        *STAFFROOM_EAST_BOOKSHELVES,
+    ):
+        staff.add_prop(sources, "Bookshelf", *placement)
     staff.add_prop(sources, "CleaningLocker", *STAFFROOM_CLEANING_LOCKER)
     add_additional_prop(staff, "BulletinBoard", (14.4, 36.68, 0.0), math.pi)
     add_additional_prop(staff, "WallClock", (18.0, 36.67, 0.0), math.pi)
     add_additional_prop(staff, "TrashBin", STAFFROOM_TRASH_BIN)
-    add_desktop_prop(staff, sources, "PaperStack", 15.1, 40.65, 0.08, 0.72)
+    add_desktop_prop(staff, sources, "PaperStack", 12.60, 40.65, 0.08, 0.72)
     rooms.append(staff)
 
     pc = RoomBuilder.create("F01_PcRoom", 0.0)
