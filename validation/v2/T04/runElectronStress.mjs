@@ -26,10 +26,12 @@ const profile = readArgument("--profile");
 if (
   profile !== "baseline" &&
   profile !== "high" &&
-  profile !== "interaction"
+  profile !== "interaction" &&
+  profile !== "fixture" &&
+  profile !== "hud"
 ) {
   throw new Error(
-    "--profileにはbaseline、high、interactionのいずれかが必要です。"
+    "--profileにはbaseline、high、interaction、fixture、hudのいずれかが必要です。"
   );
 }
 const devServerUrl = readArgument("--url");
@@ -40,7 +42,7 @@ if (
 ) {
   throw new Error("--urlにはローカルVite URLが必要です。");
 }
-if (profile !== "interaction") {
+if (profile === "baseline" || profile === "high") {
   parsedDevServerUrl.searchParams.set(
     "schoolStress",
     profile
@@ -54,7 +56,8 @@ const expectedDurationSeconds =
     : profile === "high"
       ? 120
       : 0;
-const CDP_COMMAND_TIMEOUT_MILLISECONDS = 10_000;
+const CDP_COMMAND_TIMEOUT_MILLISECONDS =
+  profile === "fixture" ? 60_000 : 10_000;
 
 const wait = (milliseconds) =>
   new Promise((resolveWait) =>
@@ -102,7 +105,9 @@ const waitForDebuggerTarget = async (port, child) => {
         const target = targets.find(
           (candidate) =>
             candidate.type === "page" &&
-            (profile === "interaction"
+            (profile === "interaction" ||
+            profile === "fixture" ||
+            profile === "hud"
               ? candidate.url === applicationUrl
               : candidate.url.includes(
                   `schoolStress=${profile}`
@@ -329,7 +334,7 @@ try {
   await cdp.send("Runtime.enable");
   await cdp.send("Log.enable");
 
-  if (profile === "interaction") {
+  if (profile === "interaction" || profile === "hud") {
     const readinessDeadline = Date.now() + 120_000;
     let ready = false;
     while (Date.now() < readinessDeadline) {
@@ -401,6 +406,77 @@ try {
         );
       }
     }
+    const hudLayout = await evaluate(
+      cdp,
+      `(() => {
+        const status = document.querySelector("#statusInfo");
+        const help = document.querySelector("#helpPanel");
+        const minimap = document.querySelector("#minimapCanvas");
+        const minimapReadout = document.querySelector("#minimapReadout");
+        if (
+          !(status instanceof HTMLElement) ||
+          !(help instanceof HTMLElement) ||
+          !(minimap instanceof HTMLElement) ||
+          !(minimapReadout instanceof HTMLElement)
+        ) {
+          return null;
+        }
+        const statusBounds = status.getBoundingClientRect();
+        const helpBounds = help.getBoundingClientRect();
+        return {
+          statusDisplay: getComputedStyle(status).display,
+          statusTop: statusBounds.top,
+          statusLeft: statusBounds.left,
+          statusBottom: statusBounds.bottom,
+          helpDisplay: getComputedStyle(help).display,
+          helpTop: helpBounds.top,
+          minimapDisplay: getComputedStyle(minimap).display,
+          minimapReadoutDisplay:
+            getComputedStyle(minimapReadout).display,
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight
+        };
+      })()`
+    );
+    if (profile === "hud") {
+      const targetCounterLine = beforeMove.statusText
+        .split("\n")
+        .find((line) => line.startsWith("プレイヤー標的"));
+      if (
+        beforeMove.pointerLockElementId !== "renderCanvas" ||
+        beforeMove.overlayDisplay !== "none" ||
+        !beforeMove.statusText.includes("フェーズ playing") ||
+        !/プレイヤー標的 NPC \d+\s+BIT \d+/.test(
+          beforeMove.statusText
+        ) ||
+        !hudLayout ||
+        hudLayout.statusDisplay !== "block" ||
+        Math.abs(hudLayout.statusTop - 12) > 0.5 ||
+        Math.abs(hudLayout.statusLeft - 12) > 0.5 ||
+        hudLayout.helpDisplay !== "block" ||
+        hudLayout.statusBottom > hudLayout.helpTop ||
+        hudLayout.minimapDisplay !== "none" ||
+        hudLayout.minimapReadoutDisplay !== "none"
+      ) {
+        throw new Error(
+          "Electron通常ゲームのHUD配置を確認できませんでした: " +
+            JSON.stringify({
+              beforeMove,
+              hudLayout
+            })
+        );
+      }
+      outputPayload = Object.freeze({
+        hud: Object.freeze({
+          pointerLockElementId:
+            beforeMove.pointerLockElementId,
+          phase: "playing",
+          targetCounterLine,
+          layout: hudLayout
+        })
+      });
+    }
+    if (profile === "interaction") {
     const parseFootPosition = (statusText) => {
       const match =
         /X (-?\d+(?:\.\d+)?)\s+Y (-?\d+(?:\.\d+)?)\s+Z (-?\d+(?:\.\d+)?)/.exec(
@@ -479,13 +555,25 @@ try {
       afterMove.pointerLockElementId !== "renderCanvas" ||
       beforeMove.overlayDisplay !== "none" ||
       !afterMove.statusText.includes("フェーズ playing") ||
+      !/プレイヤー標的 NPC \d+\s+BIT \d+/.test(
+        afterMove.statusText
+      ) ||
+      !hudLayout ||
+      hudLayout.statusDisplay !== "block" ||
+      Math.abs(hudLayout.statusTop - 12) > 0.5 ||
+      Math.abs(hudLayout.statusLeft - 12) > 0.5 ||
+      hudLayout.helpDisplay !== "block" ||
+      hudLayout.statusBottom > hudLayout.helpTop ||
+      hudLayout.minimapDisplay !== "none" ||
+      hudLayout.minimapReadoutDisplay !== "none" ||
       movementDistance <= 0.001
     ) {
       throw new Error(
-        "Electron通常ゲームの開始、Pointer Lock、W移動を確認できませんでした: " +
+        "Electron通常ゲームの開始、HUD配置、Pointer Lock、W移動を確認できませんでした: " +
           JSON.stringify({
             beforeMove,
             afterMove,
+            hudLayout,
             movementDistance
           })
       );
@@ -497,8 +585,47 @@ try {
         phase: "playing",
         beforePosition,
         afterPosition,
-        movementDistance
+        movementDistance,
+        hudLayout
       })
+    });
+    }
+  } else if (profile === "fixture") {
+    const fixtureDeadline = Date.now() + 120_000;
+    let fixtureState = null;
+    while (Date.now() < fixtureDeadline) {
+      fixtureState = await evaluate(
+        cdp,
+        `(() => ({
+          status:
+            document.documentElement?.dataset.validationStatus ??
+            null,
+          summary:
+            document.querySelector("#summary")?.textContent ?? "",
+          failures: Array.from(
+            document.querySelectorAll("li")
+          )
+            .map((item) => item.textContent ?? "")
+            .filter((text) => text.includes("FAIL"))
+            .slice(-3)
+        }))()`
+      );
+      if (
+        fixtureState.status === "passed" ||
+        fixtureState.status === "failed"
+      ) {
+        break;
+      }
+      await wait(500);
+    }
+    if (fixtureState?.status !== "passed") {
+      throw new Error(
+        "Electron fixtureが120秒以内にPASSしませんでした: " +
+          JSON.stringify(fixtureState)
+      );
+    }
+    outputPayload = Object.freeze({
+      fixture: Object.freeze(fixtureState)
     });
   } else {
     const deadline =

@@ -166,6 +166,8 @@ export const createV2PlayerController = ({
   const cameraHorizontalForward = Vector3.Zero();
   let eyeHeightScale = initialEyeHeightScale;
   let movementYaw = Math.atan2(spawnForward.x, spawnForward.z);
+  let synchronizedSpatialRevision =
+    initialSpatialSnapshot.revision;
   let disposed = false;
 
   const assertActive = () => {
@@ -193,6 +195,9 @@ export const createV2PlayerController = ({
     snapshot: DynamicStageSpatialSnapshot
   ) => {
     assertActive();
+    if (snapshot.revision === synchronizedSpatialRevision) {
+      return;
+    }
     collisionMesh.surroundingMeshes = [
       ...snapshot.movementColliders.player
     ];
@@ -200,6 +205,7 @@ export const createV2PlayerController = ({
     for (const collider of snapshot.groundColliders) {
       groundColliderSet.add(collider);
     }
+    synchronizedSpatialRevision = snapshot.revision;
   };
 
   const resyncHeightOrThrow = (operation: string) => {

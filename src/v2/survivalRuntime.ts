@@ -42,7 +42,8 @@ import {
   type V2BeamRequest,
   type V2CharacterState,
   type V2HumanTargetSnapshot,
-  type V2PlayerCompletionState
+  type V2PlayerCompletionState,
+  type V2TargetProvenance
 } from "./combatTypes";
 import {
   createV2NpcSystem,
@@ -133,9 +134,59 @@ export type V2SurvivalFrame = Readonly<{
   executionCompletedTargetCount: number;
   visualTargetCount: number;
   alertTargetCount: number;
+  npcPlayerTargetCount: number;
+  bitPlayerTargetCount: number;
   blockerImpactCount: number;
   actorImpactCount: number;
 }>;
+
+export type V2TargetTrackingSample = Readonly<{
+  targetId: string | null;
+  provenance: V2TargetProvenance | null;
+}>;
+
+export type V2TargetTrackingSummary = Readonly<{
+  visualTargetCount: number;
+  alertTargetCount: number;
+  npcPlayerTargetCount: number;
+  bitPlayerTargetCount: number;
+}>;
+
+export const summarizeV2TargetTracking = (
+  npcTracking: readonly V2TargetTrackingSample[],
+  bitTracking: readonly V2TargetTrackingSample[]
+): V2TargetTrackingSummary => {
+  let visualTargetCount = 0;
+  let alertTargetCount = 0;
+  let npcPlayerTargetCount = 0;
+  let bitPlayerTargetCount = 0;
+  for (const tracking of npcTracking) {
+    if (tracking.targetId === PLAYER_ID) {
+      npcPlayerTargetCount += 1;
+    }
+    if (tracking.provenance === "visual") {
+      visualTargetCount += 1;
+    } else if (tracking.provenance === "alert") {
+      alertTargetCount += 1;
+    }
+  }
+  for (const tracking of bitTracking) {
+    if (tracking.targetId === PLAYER_ID) {
+      bitPlayerTargetCount += 1;
+    }
+    if (tracking.provenance === "visual") {
+      visualTargetCount += 1;
+    } else if (tracking.provenance === "alert") {
+      alertTargetCount += 1;
+    }
+  }
+  return Object.freeze({
+    visualTargetCount,
+    alertTargetCount,
+    npcPlayerTargetCount,
+    bitPlayerTargetCount
+  });
+};
 
 export interface V2SurvivalRuntime {
   prepareVisualResources(): Promise<void>;
@@ -1070,24 +1121,14 @@ export const createV2SurvivalRuntime = ({
     const bitFrameView = bitSystem.getFrameView();
     const bitTracking = bitFrameView.targetStates;
     const playerStateSnapshot = playerCombat.getStateSnapshot();
-    let visualTargetCount = 0;
-    let alertTargetCount = 0;
+    const targetTrackingSummary = summarizeV2TargetTracking(
+      npcTracking,
+      bitTracking
+    );
     let brainwashedNpcCount = 0;
     for (const target of npcFrameView.targets) {
       if (target.brainwashed) {
         brainwashedNpcCount += 1;
-      }
-    }
-    for (const trackingCollection of [
-      npcTracking,
-      bitTracking
-    ] as const) {
-      for (const tracking of trackingCollection) {
-        if (tracking.provenance === "visual") {
-          visualTargetCount += 1;
-        } else if (tracking.provenance === "alert") {
-          alertTargetCount += 1;
-        }
       }
     }
     const executionFrame = executionSystem.getFrame();
@@ -1119,8 +1160,14 @@ export const createV2SurvivalRuntime = ({
         executionFrame.candidate?.targets.length ?? 0,
       executionCompletedTargetCount:
         executionFrame.completedTargetIds.length,
-      visualTargetCount,
-      alertTargetCount,
+      visualTargetCount:
+        targetTrackingSummary.visualTargetCount,
+      alertTargetCount:
+        targetTrackingSummary.alertTargetCount,
+      npcPlayerTargetCount:
+        targetTrackingSummary.npcPlayerTargetCount,
+      bitPlayerTargetCount:
+        targetTrackingSummary.bitPlayerTargetCount,
       blockerImpactCount,
       actorImpactCount
     });
@@ -1250,6 +1297,14 @@ export const createV2SurvivalRuntime = ({
           0
         );
         performanceDiagnostics.count("scenario.bit-count", 0);
+        performanceDiagnostics.count(
+          "scenario.npc-player-targets",
+          0
+        );
+        performanceDiagnostics.count(
+          "scenario.bit-player-targets",
+          0
+        );
       }
 
       rebuildHumanTargets();
@@ -1692,6 +1747,14 @@ export const createV2SurvivalRuntime = ({
       performanceDiagnostics?.count(
         "scenario.brainwashed-npc-count",
         frame.brainwashedNpcCount
+      );
+      performanceDiagnostics?.count(
+        "scenario.npc-player-targets",
+        frame.npcPlayerTargetCount
+      );
+      performanceDiagnostics?.count(
+        "scenario.bit-player-targets",
+        frame.bitPlayerTargetCount
       );
       performanceDiagnostics?.finishSection(
         "frame-build",

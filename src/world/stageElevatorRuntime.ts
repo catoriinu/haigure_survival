@@ -314,6 +314,7 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
   private spatialRevision = 0;
   private spatialDirty = false;
   private spatialSnapshot!: StageElevatorSpatialSnapshot;
+  private currentSnapshot: StageElevatorSnapshot | null = null;
   private active = true;
 
   constructor(input: StageElevatorRuntimeInput) {
@@ -425,6 +426,7 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
       this.doorState === "open"
     ) {
       this.calls.delete(stop.id);
+      this.refreshCallIndicators();
       return Object.freeze({
         status: "accepted",
         stopId: stop.id
@@ -797,6 +799,9 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
 
   getSnapshot(): StageElevatorSnapshot {
     this.assertActive();
+    if (this.currentSnapshot !== null) {
+      return this.currentSnapshot;
+    }
     const carPosition = this.car.getWorldPosition();
     assertFiniteVector("かご位置", carPosition);
     const doorProgress = this.getDoorProgress();
@@ -840,7 +845,7 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
       })
     );
 
-    return Object.freeze({
+    this.currentSnapshot = Object.freeze({
       id: this.id,
       elapsedSeconds: this.elapsedSeconds,
       carState: this.carState,
@@ -859,6 +864,7 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
       passengers,
       stops
     });
+    return this.currentSnapshot;
   }
 
   getSpatialSnapshot() {
@@ -1000,6 +1006,7 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
     this.indicatorPresentationByStopId.clear();
     this.indicatorBlinkStartedAtByStopId.clear();
     this.spatialDirty = false;
+    this.currentSnapshot = null;
   }
 
   private estimateNextOpenStop(): Readonly<{
@@ -1119,7 +1126,6 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
     this.car.setWorldPosition(position);
     this.carryPassengers();
     if (consumed > 0) {
-      this.applyPanelOpenness();
       this.markSpatialChanged();
     }
 
@@ -1227,6 +1233,7 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
   }
 
   private refreshCallIndicators() {
+    this.currentSnapshot = null;
     this.stops.forEach((stop) => {
       const state = this.getCallMatState(stop);
       const blinking =

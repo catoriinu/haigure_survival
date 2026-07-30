@@ -440,6 +440,7 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
   private requests: V2NpcTraversalRequest[] = [];
   private readonly appliedResults: V2NpcTraversalResult[] = [];
   private scriptedPhaseTraversalReleaseCount = 0;
+  private humanTargetReadCount = 0;
   private active = true;
 
   constructor(
@@ -708,6 +709,11 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
     return this.scriptedPhaseTraversalReleaseCount;
   }
 
+  getHumanTargetReadCount() {
+    this.assertActive();
+    return this.humanTargetReadCount;
+  }
+
   prepareVisualResources(): Promise<void> {
     this.assertActive();
     return Promise.resolve();
@@ -761,6 +767,7 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
 
   getHumanTargets(): readonly V2HumanTargetSnapshot[] {
     this.assertActive();
+    this.humanTargetReadCount += 1;
     return Object.freeze([
       this.getPlayerTarget(),
       ...[...this.actors.values()].map(
@@ -1709,6 +1716,19 @@ const runTraversalCoordinatorAcceptance = async (
       }
       return frame;
     };
+    const idleTargetReadCountBefore =
+      survival.getHumanTargetReadCount();
+    updateCoordinator(0);
+    const idleTargetReadCount =
+      survival.getHumanTargetReadCount() -
+      idleTargetReadCountBefore;
+    checks.push(
+      Object.freeze({
+        name: "エレベーター待機者なし更新で人物snapshot構築を省略",
+        ok: idleTargetReadCount === 0,
+        detail: `humanTargetReads=${idleTargetReadCount}`
+      })
+    );
 
     const closedRoomDoors = context.doorAssets
       .getByClass("room")

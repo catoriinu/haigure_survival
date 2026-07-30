@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 T04-3 動的空間・扉・エレベーター統合 計画
 
-更新日: 2026-07-30
+更新日: 2026-07-31
 
 ## プロンプト
 
@@ -149,6 +149,17 @@
 2026-07-29 第3次人間受入表示・実装指示:
 
 > この整理で確定し、実装を修正する。
+
+2026-07-31 追跡負荷の計測・低リスク軽量化・HUD配置修正指示:
+
+> 前回の概要に記載した「低リスクな重複処理の削減」と「プレイヤーを狙うNPC／BIT数の直接計測」を実装する。
+>
+> 現在の計測用HUDは操作説明と重なって見にくい。V2ではV1のミニマップが表示されていないため、計測用HUDを旧ミニマップのあった画面左上へ移し、他の操作説明と重ならない位置にする。
+
+- V2の通常入口には`minimapCanvas`と`minimapReadout`のDOM・旧配置CSSが残っているが、起動時に非表示化され、描画処理も接続されていない。今回ミニマップ自体は復元せず、空いている左上領域を計測HUDへ使用する。
+- 直接計測値は、既存のNPC／BIT frame view構築中に`targetId === "player"`を数え、追加の全件走査を作らず`scenario.npc-player-targets`／`scenario.bit-player-targets`へ記録する。通常HUDにも両値を表示する。
+- 低リスク軽量化は、同一状態のエレベーターsnapshot再構築、待機者がいない`resolveReadyElevatorCalls()`の人物snapshot構築、同じ空間revisionのプレイヤーCollider・接地集合再同期、走行中の閉扉panel openness再適用を対象とする。AI頻度、人数、視認・経路・扉・エレベーター仕様は変更しない。
+- 計測HUDは旧ミニマップと同じ左上12pxへ移す。操作説明は現行位置を維持し、1280×720と1920×1080で非重複を確認する。
 
 ## エレベーター状態遷移図（変更前実装）
 
@@ -438,6 +449,12 @@ stateDiagram-v2
 - [x] T04-3B第3次人間受入表示: `unloading`に代えて`called`を0.5秒点滅対象へ変更し、`departure-countdown`の点滅と`locked`の点灯を維持して状態図・表示仕様・fixtureを同期する
 - [x] T04-3B第3次人間受入表示: 両階の全5状態、0.5秒境界、開扉完了、降車完了、表示だけでは空間revisionが進まないことを回帰する
 - [x] T04-3B第3次人間受入表示: T04型検査・build、実学校fixture、通常Web／Electron表示、console、配布検査を完了して1commitへまとめる
+- [x] T04-3B追跡負荷修正: 現行ミニマップ、計測HUD、操作説明のDOM・CSS・実表示と、エレベーター重複処理の呼出経路を確認する
+- [x] T04-3B追跡負荷修正: プレイヤーを狙うNPC／BIT数を既存frame view構築と同時に集計し、性能診断と通常HUDへ追加する
+- [x] T04-3B追跡負荷修正: エレベーターsnapshot、待機者なし予約解決、同一revisionのプレイヤー空間同期、走行中panel更新の重複を削減する
+- [x] T04-3B追跡負荷修正: 計測HUDを旧ミニマップ位置の左上へ移し、操作説明との重なりを解消する
+- [x] T04-3B追跡負荷修正: 対象fixture・型検査・build・通常Web／Electron・1280×720／1920×1080レイアウトを回帰する
+- [x] T04-3B追跡負荷修正: 独立レビュー、UTF-8・BOM・括弧・差分検査、結果更新後に1commitへまとめる
 
 ## 結果
 
@@ -492,6 +509,12 @@ V2第2重点ゲートの50／10／20は、Webが612.076秒・8491 frame・終了
 2026-07-30 00:13 +09:00、第3次人間受入表示の最終自動回帰はT04 fixtureが113／113、実学校fixtureが65／65で、いずれも`document.documentElement.dataset.validationStatus === "passed"`へ到達した。通常Webは開始後に`フェーズ playing`へ到達し、3ページのconsole warning／errorは各0件だった。Electron相互作用検証は実画面クリック後の`pointerLockElementId=renderCanvas`、`phase=playing`、移動距離0.265m、renderer diagnostics 0件でPASSした。`typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`build:t04`、通常renderer／Electron build、依存監査、学校NavMesh check、`git diff --check`、UTF-8 strict、BOM、競合marker、ローカル絶対パス検査もすべてPASSした。学校資産、NavMesh、生成器、カタログの差分は0件で、元worktreeの未コミット人口調整は維持している。最終独立レビューと単一commitは次工程で完了する。
 
 2026-07-30 00:15 +09:00、最終独立レビューは基準HEAD `bf1d69b4b1458385af0012d2cf265218377b4800`からの指定3ファイルだけを対象に再確認し、残存P0／P1／P2なしとなった。Runtimeは状態機械を変えず点滅対象だけを`unloading`から`called`へ置換し、fixtureは5色、0.5秒境界、点灯固定、両階の組合せ、表示のみで空間revision不変を回帰している。変更は`fix: エレベーター呼出マットの表示順を調整`の1commitへまとめる。push、Pull Request更新、merge、review thread操作、worktree削除は行わない。
+
+2026-07-31 00:51 +09:00、追跡負荷修正として、既存のNPC／BIT tracking走査内でプレイヤーを標的にする数を直接集計し、frame、性能診断counter、通常HUDへ同じ値を公開した。追加の全件走査は作っていない。エレベーターsnapshotは同一更新中に再利用し、待機者がいない呼出解決では人物snapshotを構築せず、プレイヤーは同一空間revisionのCollider・接地集合再同期を省略する。走行中は空間revisionと実かご・乗客Transform更新を維持したまま、閉じた扉panelのopenness再適用だけを削除した。計測HUDは旧ミニマップ位置の左上12pxへ移し、操作説明は上270pxを維持した。V2の旧ミニマップDOMは引き続き非表示で、描画処理の復元は行っていない。
+
+回帰はV2／T04／T05型検査、T04／T05／通常・Electron build、T04 production previewのElectron fixture 113／113、実学校fixture 66／66、T05 Web fixture 280／280、学校NavMesh check、`git diff --check`がPASSした。通常Webの1280×720と1920×1080ではHUDが上12px・左12px・下166px、操作説明が上270pxで非重複となり、標的数が実フレーム値へ更新されることを確認した。通常Electronの実画面クリックではPointer Lock、`playing`、同じ非重複配置、旧ミニマップ非表示、renderer warning／error 0件を確認した。Web自動クリックだけは既知のroot document制約によるPointer Lock要求errorを返すため、製品Runtimeのconsole判定から分離した。学校GLBと3種NavMeshのhashは不変で、資産差分、UTF-8不正、BOM、競合marker、追加行のローカル絶対パスは0件だった。
+
+2026-07-31 01:01 +09:00、独立レビューで、実人口の初回更新がNPC／BITとも0件だったため、標的数を常時0にする退行を既存テストでは検出できないP2指摘を受けた。実ランタイムのNPC／BIT tracking集計を追加走査なしの`summarizeV2TargetTracking()`へ集約し、固定tracking snapshotから`visual=3 / alert=3 / npcPlayer=2 / bitPlayer=2`を厳密検証する回帰を追加した。修正後はV2／T04／T05型検査、T04／T05／通常・Electron build、T05 Electron fixture 281／281、Electronスクリプト構文、`git diff --check`がPASSし、renderer診断は0件だった。再レビューは残存P0／P1／P2なし。変更12ファイルはUTF-8 strict、BOMなし、競合markerなし、追加行のローカル絶対パスなし、学校資産差分なしを再確認した。変更は`perf: エレベーター追跡負荷と計測HUDを改善`の1commitへまとめ、push、Pull Request更新、merge、review thread操作、worktree削除は行わない。
 
 T04-3A完了。2026-07-28、`origin/develop`の`4edd8f08c948a7822cd6bd623e25dff142078f18`から`codex/v2-t04-3-dynamic-runtime`と専用worktreeを作成し、`npm ci`を完了した。
 

@@ -1271,6 +1271,12 @@ export const createSchoolStageTraversalCoordinator = ({
   const resolveReadyElevatorCalls = (
     results: V2NpcTraversalResult[]
   ) => {
+    if (
+      waitingElevatorCallByNpcId.size === 0 &&
+      playerElevatorTraversal?.kind !== "calling"
+    ) {
+      return;
+    }
     const targets = survival.getHumanTargets();
     const targetById = new Map(
       targets.map((target) => [target.id, target] as const)

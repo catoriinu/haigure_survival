@@ -599,6 +599,8 @@ engine.runRenderLoop(() => {
         `視認 ${survivalFrame.visualTargetCount}  ` +
         `警戒対象 ${survivalFrame.alertTargetCount}  ` +
         `共有 ${survivalFrame.activeAlertCount}\n` +
+        `プレイヤー標的 NPC ${survivalFrame.npcPlayerTargetCount}  ` +
+        `BIT ${survivalFrame.bitPlayerTargetCount}\n` +
         `警報 稼働 ${survivalFrame.activeAlarmCount}  ` +
         `点滅 ${survivalFrame.alarmBlinkCount}  ` +
         `発報 ${survivalFrame.alarmTriggerCount}\n` +

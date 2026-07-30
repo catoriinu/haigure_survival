@@ -248,6 +248,25 @@ export const runElevatorThresholdPlayerAcceptance = ({
     stage,
     input
   });
+  const playerCollision = scene.getMeshByName(
+    "V2PlayerCollision"
+  );
+  if (!playerCollision) {
+    throw new Error(
+      "敷居player fixtureにV2PlayerCollisionがありません。"
+    );
+  }
+  let synchronizedRevision =
+    stage.dynamicVariants.getSnapshot().revision;
+  const initialSurroundingMeshes =
+    playerCollision.surroundingMeshes;
+  controller.syncStageSpatialSnapshot(
+    stage.dynamicVariants.getSnapshot()
+  );
+  const repeatedRevisionPreservedSurroundingMeshes =
+    playerCollision.surroundingMeshes ===
+    initialSurroundingMeshes;
+  let revisionUpdateReplacedSurroundingMeshes = false;
   let attempts = 0;
   let failures = 0;
   let maximumStalledFrames = 0;
@@ -261,9 +280,17 @@ export const runElevatorThresholdPlayerAcceptance = ({
         elevator,
         stop
       );
-      controller.syncStageSpatialSnapshot(
-        runtime.getSnapshot().spatialSnapshot
-      );
+      const spatialSnapshot =
+        runtime.getSnapshot().spatialSnapshot;
+      const surroundingMeshesBeforeSync =
+        playerCollision.surroundingMeshes;
+      controller.syncStageSpatialSnapshot(spatialSnapshot);
+      if (spatialSnapshot.revision !== synchronizedRevision) {
+        revisionUpdateReplacedSurroundingMeshes ||=
+          playerCollision.surroundingMeshes !==
+          surroundingMeshesBeforeSync;
+        synchronizedRevision = spatialSnapshot.revision;
+      }
 
       const callMatCenter = getMeshCenter(stop.callMat.mesh);
       elevator.car.node.computeWorldMatrix(true);
@@ -352,9 +379,13 @@ export const runElevatorThresholdPlayerAcceptance = ({
           2 *
           2 *
           REPETITIONS &&
-      failures === 0,
+      failures === 0 &&
+      repeatedRevisionPreservedSurroundingMeshes &&
+      revisionUpdateReplacedSurroundingMeshes,
     detail:
       `attempts=${attempts} / failures=${failures} / ` +
-      `stall=${maximumStalledFrames} / airborne=${maximumAirborneFrames}`
+      `stall=${maximumStalledFrames} / airborne=${maximumAirborneFrames} / ` +
+      `sameRevision=${repeatedRevisionPreservedSurroundingMeshes} / ` +
+      `newRevision=${revisionUpdateReplacedSurroundingMeshes}`
   });
 };
