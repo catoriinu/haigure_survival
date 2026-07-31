@@ -1072,6 +1072,13 @@ def audit_room_variants(
             f"NAV_RoomVariant_{room_token}_Disordered_Blocker",
             f"NAV_RoomVariant_{room_token}_Disordered_Walkable",
         }
+        if room.author_name == "F01_Infirmary":
+            normal_children.add(
+                "VIS_B03_Interior_F01_Infirmary_Curtains"
+            )
+            disordered_children.add(
+                "VIS_RoomVariant_F01_Infirmary_Disordered_Curtains"
+            )
         if room.has_signs_paper:
             normal_children.add(
                 f"VIS_B03_Interior_{room.author_name}_SignsPaper"
@@ -2401,6 +2408,29 @@ def audit_blender_geometry() -> dict[str, int]:
     manifold_checks = 0
     threshold_profile_checks = 0
 
+    normal_curtains = bpy.data.objects[
+        "VIS_B03_Interior_F01_Infirmary_Curtains"
+    ]
+    disordered_curtains = bpy.data.objects[
+        "VIS_RoomVariant_F01_Infirmary_Disordered_Curtains"
+    ]
+    require(
+        mesh_vertex_coordinates(normal_curtains)
+        == mesh_vertex_coordinates(disordered_curtains)
+        and mesh_faces(normal_curtains) == mesh_faces(disordered_curtains),
+        "保健室の通常・荒れ版カーテン形状が一致しません",
+    )
+    for curtains in (normal_curtains, disordered_curtains):
+        require(
+            tuple(
+                material.name
+                for material in curtains.data.materials
+                if material is not None
+            )
+            == ("MAT_B03_InfirmaryCurtain",),
+            f"{curtains.name}: カーテン専用Materialではありません",
+        )
+
     for floor in (1, 4):
         suffix = f"F{floor:02d}"
         visual = bpy.data.objects[
@@ -2829,6 +2859,7 @@ def audit_blender_geometry() -> dict[str, int]:
         "removed_visual_components": removed_visual_components,
         "approach_bounds_checks": approach_bounds_checks,
         "door_sign_intersections": len(door_sign_intersections),
+        "infirmary_curtain_variant_parity": 1,
         "manifold_checks": manifold_checks,
         "threshold_profile_checks": threshold_profile_checks,
     }
@@ -2917,13 +2948,13 @@ def audit_active_visual_counts(graph: AssetGraph) -> dict[str, int]:
         for room_id in EXPECTED_ROOM_IDS
     )
     require(
-        normal_visuals == 609,
-        f"{graph.source}: 通常20室選択時のVISが609件ではありません: "
+        normal_visuals == 610,
+        f"{graph.source}: 通常20室選択時のVISが610件ではありません: "
         f"{normal_visuals}",
     )
     require(
-        disordered_visuals == 629,
-        f"{graph.source}: 全荒れ20室選択時のVISが629件ではありません: "
+        disordered_visuals == 630,
+        f"{graph.source}: 全荒れ20室選択時のVISが630件ではありません: "
         f"{disordered_visuals}",
     )
     return {
@@ -2940,13 +2971,13 @@ def audit_blender_glb_parity(
     blender_names = interactive_contract_names(blender_graph)
     glb_names = interactive_contract_names(glb_graph)
     require(
-        len(blender_names) == 771,
-        "BlenderのB03-3C interactive契約Objectが771件ではありません: "
+        len(blender_names) == 773,
+        "BlenderのB03-3C interactive契約Objectが773件ではありません: "
         f"{len(blender_names)}",
     )
     require(
-        len(glb_names) == 771,
-        "GLBのB03-3C interactive契約Objectが771件ではありません: "
+        len(glb_names) == 773,
+        "GLBのB03-3C interactive契約Objectが773件ではありません: "
         f"{len(glb_names)}",
     )
     require(

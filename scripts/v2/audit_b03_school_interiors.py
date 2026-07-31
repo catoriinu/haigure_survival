@@ -43,6 +43,13 @@ from build_b03_school_interiors import (
     FIRST_FLOOR_WEST_DOOR_OPENINGS,
     GYM_STAGE_LECTERN,
     INFIRMARY_BED_PLACEMENTS,
+    INFIRMARY_CURTAIN_BASE_COLOR,
+    INFIRMARY_CURTAIN_CENTER_Z,
+    INFIRMARY_CURTAIN_FOLD_DEPTH,
+    INFIRMARY_CURTAIN_HEIGHT,
+    INFIRMARY_CURTAIN_MATERIAL_NAME,
+    INFIRMARY_CURTAIN_OPACITY,
+    INFIRMARY_CURTAIN_RGB,
     INFIRMARY_CURTAIN_SEGMENTS,
     INFIRMARY_JOINED_CHAIRS,
     INFIRMARY_JOINED_DESKS,
@@ -97,6 +104,7 @@ from build_b03_school_interiors import (
     TOILET_SIGN_PLACEMENTS,
     UPPER_WEST_CLASSROOM_DOOR_OPENINGS,
     architecture_swatch,
+    infirmary_curtain_segment_count,
 )
 
 
@@ -471,7 +479,7 @@ def audit_visual_door_clearance(interior_visuals: list[bpy.types.Object]) -> int
     furniture_components = [
         (visual.name, component_index, minimum, maximum)
         for visual in interior_visuals
-        if visual.name.endswith("_FurnitureProps")
+        if visual.name.endswith(("_FurnitureProps", "_Curtains"))
         for component_index, (minimum, maximum) in enumerate(
             connected_component_aabbs(visual),
             1,
@@ -1356,8 +1364,10 @@ def audit_bulletin_board_design() -> dict[str, int]:
 
 def audit_infirmary_layout() -> dict[str, float | int]:
     furniture = bpy.data.objects["VIS_B03_Interior_F01_Infirmary_FurnitureProps"]
+    curtains = bpy.data.objects["VIS_B03_Interior_F01_Infirmary_Curtains"]
     collider = bpy.data.objects["COL_B03_Interior_F01_Infirmary"]
     visual_components = connected_component_aabbs(furniture)
+    curtain_components = connected_component_aabbs(curtains)
     collider_components = connected_component_aabbs(collider)
 
     storage_bounds: list[tuple[Vector, Vector]] = []
@@ -1424,24 +1434,90 @@ def audit_infirmary_layout() -> dict[str, float | int]:
         if abs(dimensions.x - 0.90) > 1e-5 or abs(dimensions.y - 2.00) > 1e-5:
             raise RuntimeError("保健室ベッドが南枕・北足の向きではありません")
 
+    actual_curtain_materials = tuple(
+        material.name for material in curtains.data.materials
+    )
+    if actual_curtain_materials != (INFIRMARY_CURTAIN_MATERIAL_NAME,):
+        raise RuntimeError(
+            "保健室カーテンの専用材質が不正です: "
+            f"{actual_curtain_materials}"
+        )
+    curtain_material = bpy.data.materials[INFIRMARY_CURTAIN_MATERIAL_NAME]
+    texture_nodes = tuple(
+        node
+        for node in curtain_material.node_tree.nodes
+        if node.bl_idname == "ShaderNodeTexImage"
+    )
+    if texture_nodes:
+        raise RuntimeError("保健室カーテン専用材質へ不要なTextureがあります")
+    shader = curtain_material.node_tree.nodes.get("Principled BSDF")
+    if shader is None:
+        raise RuntimeError("保健室カーテンにPrincipled BSDFがありません")
+    if any(
+        abs(float(actual) - expected) > 1e-6
+        for actual, expected in zip(
+            shader.inputs["Base Color"].default_value,
+            INFIRMARY_CURTAIN_BASE_COLOR,
+            strict=True,
+        )
+    ):
+        raise RuntimeError("保健室カーテンのアイボリー色が確定値と違います")
+    if (
+        abs(
+            float(shader.inputs["Alpha"].default_value)
+            - INFIRMARY_CURTAIN_OPACITY
+        )
+        > 1e-6
+    ):
+        raise RuntimeError("保健室カーテンの不透明度が97%ではありません")
+    if curtain_material.surface_render_method != "DITHERED":
+        raise RuntimeError("保健室カーテンが透過描画設定ではありません")
+    if curtain_material.use_backface_culling:
+        raise RuntimeError("保健室カーテンが両面表示ではありません")
+
     curtain_checks = 0
     for x, y, length, rotation in INFIRMARY_CURTAIN_SEGMENTS:
         expected = transformed_box_bounds(
             (x, y, 0.0),
-            (0.0, 0.0, 1.35),
-            (length, 0.05, 1.80),
+            (0.0, 0.0, INFIRMARY_CURTAIN_CENTER_Z),
+            (
+                length,
+                INFIRMARY_CURTAIN_FOLD_DEPTH * 2.0,
+                INFIRMARY_CURTAIN_HEIGHT,
+            ),
             rotation,
         )
         require_component_bounds(
             "保健室アイボリーカーテン",
-            visual_components,
+            curtain_components,
             expected,
         )
         curtain_checks += 1
-    if ATLAS_DEFINITIONS["FurnitureProps"]["swatches"]["fabric_ivory"] != (
-        232,
-        222,
-        188,
+    expected_curtain_faces = sum(
+        infirmary_curtain_segment_count(length)
+        for _x, _y, length, _rotation in INFIRMARY_CURTAIN_SEGMENTS
+    )
+    if len(curtains.data.polygons) != expected_curtain_faces:
+        raise RuntimeError(
+            "保健室カーテンの蛇腹面数が不正です: "
+            f"{len(curtains.data.polygons)}/{expected_curtain_faces}"
+        )
+    if any(len(polygon.vertices) != 4 for polygon in curtains.data.polygons):
+        raise RuntimeError("保健室カーテンの蛇腹面が四角面ではありません")
+    expected_curtain_vertices = sum(
+        (infirmary_curtain_segment_count(length) + 1) * 2
+        for _x, _y, length, _rotation in INFIRMARY_CURTAIN_SEGMENTS
+    )
+    if len(curtains.data.vertices) != expected_curtain_vertices:
+        raise RuntimeError(
+            "保健室カーテンの頂点数が不正です: "
+            f"{len(curtains.data.vertices)}/{expected_curtain_vertices}"
+        )
+    if len(curtain_components) != len(INFIRMARY_CURTAIN_SEGMENTS):
+        raise RuntimeError("保健室カーテンが4枚の連結成分ではありません")
+    if (
+        ATLAS_DEFINITIONS["FurnitureProps"]["swatches"]["fabric_ivory"]
+        != INFIRMARY_CURTAIN_RGB
     ):
         raise RuntimeError("保健室カーテンのアイボリー色が確定値と違います")
     curtain_zone_area = (
@@ -1503,7 +1579,11 @@ def audit_infirmary_layout() -> dict[str, float | int]:
     return {
         "north_storage": len(storage_bounds),
         "beds": len(INFIRMARY_BED_PLACEMENTS),
-        "curtains": curtain_checks,
+        "curtain_panels": curtain_checks,
+        "curtain_fold_segments": expected_curtain_faces,
+        "curtain_vertices": expected_curtain_vertices,
+        "curtain_triangles": expected_curtain_faces * 2,
+        "curtain_opacity": INFIRMARY_CURTAIN_OPACITY,
         "curtain_zone_ratio": round(curtain_zone_ratio, 6),
         "joined_desks": len(INFIRMARY_JOINED_DESKS),
     }
@@ -3597,8 +3677,64 @@ def main() -> None:
     repeated_meshes = len(mesh_indices) - len(set(mesh_indices))
     if repeated_meshes:
         raise RuntimeError(f"共有Mesh参照があります: {repeated_meshes}")
-    if len(gltf.get("materials", [])) != 5:
-        raise RuntimeError("MaterialがAtlas 3系統＋透明2系統ではありません")
+    materials = gltf.get("materials", [])
+    if len(materials) != 6:
+        raise RuntimeError("MaterialがAtlas 3系統＋透明3系統ではありません")
+    curtain_material_indices = tuple(
+        material_index
+        for material_index, material in enumerate(materials)
+        if material.get("name") == INFIRMARY_CURTAIN_MATERIAL_NAME
+    )
+    if len(curtain_material_indices) != 1:
+        raise RuntimeError("GLBの保健室カーテンMaterialが1件ではありません")
+    curtain_material_index = curtain_material_indices[0]
+    curtain_material = materials[curtain_material_index]
+    curtain_pbr = curtain_material.get("pbrMetallicRoughness", {})
+    base_color_factor = curtain_pbr.get("baseColorFactor")
+    if (
+        not isinstance(base_color_factor, list)
+        or len(base_color_factor) != 4
+        or any(
+            abs(float(actual) - expected) > 1e-6
+            for actual, expected in zip(
+                base_color_factor,
+                INFIRMARY_CURTAIN_BASE_COLOR,
+                strict=True,
+            )
+        )
+    ):
+        raise RuntimeError("GLBの保健室カーテン色または不透明度が不正です")
+    if curtain_material.get("alphaMode") != "BLEND":
+        raise RuntimeError("GLBの保健室カーテンがAlpha Blendではありません")
+    if curtain_material.get("doubleSided") is not True:
+        raise RuntimeError("GLBの保健室カーテンが両面表示ではありません")
+    if "baseColorTexture" in curtain_pbr:
+        raise RuntimeError("GLBの保健室カーテンへ不要なTexture参照があります")
+    curtain_node_names = {
+        "VIS_B03_Interior_F01_Infirmary_Curtains",
+        "VIS_RoomVariant_F01_Infirmary_Disordered_Curtains",
+    }
+    curtain_nodes = tuple(
+        node
+        for node in gltf.get("nodes", [])
+        if node.get("name") in curtain_node_names
+    )
+    if {node.get("name") for node in curtain_nodes} != curtain_node_names:
+        raise RuntimeError("GLBの通常・荒れ版カーテンNodeが揃っていません")
+    meshes = gltf.get("meshes", [])
+    for node in curtain_nodes:
+        mesh_index = node.get("mesh")
+        if not isinstance(mesh_index, int) or mesh_index >= len(meshes):
+            raise RuntimeError(f"GLBのカーテンMesh参照が不正です: {node}")
+        primitives = meshes[mesh_index].get("primitives", [])
+        if (
+            len(primitives) != 1
+            or primitives[0].get("material") != curtain_material_index
+        ):
+            raise RuntimeError(
+                "GLBのカーテンが専用Materialの単一primitiveではありません: "
+                f"{node.get('name')}"
+            )
     if len(gltf.get("textures", [])) != 3 or len(gltf.get("images", [])) != 3:
         raise RuntimeError("GLBのAtlas Texture/Imageが3枚ではありません")
 

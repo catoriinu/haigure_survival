@@ -188,6 +188,17 @@ INFIRMARY_CURTAIN_SEGMENTS = (
     (-6.45, 5.60, 5.20, math.pi / 2),
     (-9.275, 5.60, 5.20, math.pi / 2),
 )
+INFIRMARY_CURTAIN_MATERIAL_NAME = "MAT_B03_InfirmaryCurtain"
+INFIRMARY_CURTAIN_OPACITY = 0.97
+INFIRMARY_CURTAIN_RGB = (232, 222, 188)
+INFIRMARY_CURTAIN_BASE_COLOR = (
+    *(channel / 255.0 for channel in INFIRMARY_CURTAIN_RGB),
+    INFIRMARY_CURTAIN_OPACITY,
+)
+INFIRMARY_CURTAIN_HEIGHT = 1.80
+INFIRMARY_CURTAIN_CENTER_Z = 1.35
+INFIRMARY_CURTAIN_FOLD_DEPTH = 0.07
+INFIRMARY_CURTAIN_FOLD_PITCH = 0.35
 INFIRMARY_STAFF_DESK = (-10.25, 10.70, -math.pi / 2)
 INFIRMARY_STAFF_CHAIR = (-11.15, 10.70, math.pi / 2)
 INFIRMARY_JOINED_DESKS = (
@@ -431,6 +442,24 @@ def build_atlases() -> dict[str, bpy.types.Material]:
     return materials
 
 
+def build_infirmary_curtain_material() -> bpy.types.Material:
+    material = bpy.data.materials.get(INFIRMARY_CURTAIN_MATERIAL_NAME)
+    if material is None:
+        material = bpy.data.materials.new(INFIRMARY_CURTAIN_MATERIAL_NAME)
+    material.diffuse_color = INFIRMARY_CURTAIN_BASE_COLOR
+    material.use_nodes = True
+    material.use_backface_culling = False
+    material.surface_render_method = "DITHERED"
+    material.node_tree.nodes.clear()
+    output = material.node_tree.nodes.new("ShaderNodeOutputMaterial")
+    shader = material.node_tree.nodes.new("ShaderNodeBsdfPrincipled")
+    material.node_tree.links.new(shader.outputs["BSDF"], output.inputs["Surface"])
+    shader.inputs["Base Color"].default_value = INFIRMARY_CURTAIN_BASE_COLOR
+    shader.inputs["Roughness"].default_value = 0.82
+    shader.inputs["Alpha"].default_value = INFIRMARY_CURTAIN_OPACITY
+    return material
+
+
 def architecture_swatch(object_name: str) -> str:
     name = object_name.lower()
     floor_match = re.search(r"(?:_|^)f0?([1-4])(?:_|$)", name)
@@ -483,7 +512,11 @@ def consolidate_school_materials(
         atlas_name: bpy.data.materials[str(definition["material"])]
         for atlas_name, definition in ATLAS_DEFINITIONS.items()
     }
-    transparent_names = {"MAT_B03_WindowGlass", "MAT_Pool_Water"}
+    transparent_names = {
+        INFIRMARY_CURTAIN_MATERIAL_NAME,
+        "MAT_B03_WindowGlass",
+        "MAT_Pool_Water",
+    }
     remapped_visuals = 0
     cleared_function_meshes = 0
 
@@ -633,6 +666,45 @@ class MeshBatch:
             self.faces.append(tuple(offset + index for index in face))
             self.face_uvs.append(uv)
 
+    def add_corrugated_curtain(
+        self,
+        center: tuple[float, float, float],
+        length: float,
+        height: float,
+        fold_depth: float,
+        segment_count: int,
+        swatch: str,
+        rotation_z: float,
+    ) -> None:
+        transform = Matrix.Translation(Vector(center)) @ Matrix.Rotation(
+            rotation_z, 4, "Z"
+        )
+        offset = len(self.vertices)
+        lower_z = -height / 2.0
+        upper_z = height / 2.0
+        for station_index in range(segment_count + 1):
+            local_x = -length / 2.0 + length * station_index / segment_count
+            if station_index in {0, segment_count}:
+                local_y = 0.0
+            else:
+                local_y = fold_depth if station_index % 2 else -fold_depth
+            self.vertices.extend(
+                (
+                    tuple(transform @ Vector((local_x, local_y, lower_z))),
+                    tuple(transform @ Vector((local_x, local_y, upper_z))),
+                )
+            )
+        uv = swatch_uv(self.atlas_name, swatch)
+        for segment_index in range(segment_count):
+            lower_left = offset + segment_index * 2
+            upper_left = lower_left + 1
+            lower_right = lower_left + 2
+            upper_right = lower_left + 3
+            self.faces.append(
+                (lower_left, lower_right, upper_right, upper_left)
+            )
+            self.face_uvs.append(uv)
+
     def add_source(
         self,
         source: bpy.types.Object,
@@ -725,6 +797,7 @@ class RoomBuilder:
     base_z: float
     architecture: MeshBatch
     furniture: MeshBatch
+    curtains: MeshBatch
     signs: MeshBatch
     colliders: list[tuple[tuple[float, float, float], tuple[float, float, float]]]
     wall_colliders: list[
@@ -738,6 +811,7 @@ class RoomBuilder:
             name,
             base_z,
             MeshBatch("Architecture"),
+            MeshBatch("FurnitureProps"),
             MeshBatch("FurnitureProps"),
             MeshBatch("SignsPaper"),
             [],
@@ -976,11 +1050,21 @@ def add_infirmary_curtain(
     room.counts["InfirmaryCurtain"] = (
         room.counts.get("InfirmaryCurtain", 0) + 1
     )
-    room.box(
-        (x, y, room.base_z + 1.35),
-        (length, 0.05, 1.80),
+    room.curtains.add_corrugated_curtain(
+        (x, y, room.base_z + INFIRMARY_CURTAIN_CENTER_Z),
+        length,
+        INFIRMARY_CURTAIN_HEIGHT,
+        INFIRMARY_CURTAIN_FOLD_DEPTH,
+        infirmary_curtain_segment_count(length),
         "fabric_ivory",
         rotation_z,
+    )
+
+
+def infirmary_curtain_segment_count(length: float) -> int:
+    return max(
+        4,
+        2 * round(length / (2 * INFIRMARY_CURTAIN_FOLD_PITCH)),
     )
 
 
@@ -1676,6 +1760,7 @@ def build_school_interiors(
     room_variant_names: frozenset[str],
 ) -> dict[str, object]:
     materials = build_atlases()
+    curtain_material = build_infirmary_curtain_material()
     source_types = {
         "ClassroomDesk", "ClassroomChair", "StaffDesk", "StaffChair", "Blackboard",
         "StageLectern", "LargeWoodTable", "CleaningLocker", "BaggageLocker",
@@ -1699,6 +1784,12 @@ def build_school_interiors(
             f"VIS_B03_Interior_{room.name}_FurnitureProps",
             visual_collection,
             materials["FurnitureProps"],
+        ) is not None:
+            visual_objects += 1
+        if room.curtains.create(
+            f"VIS_B03_Interior_{room.name}_Curtains",
+            visual_collection,
+            curtain_material,
         ) is not None:
             visual_objects += 1
         if room.signs.create(
@@ -1733,6 +1824,14 @@ def build_school_interiors(
         "wall_collider_objects": sum(bool(room.wall_colliders) for room in rooms),
         "additional_prop_types": len(ADDITIONAL_PROP_TYPES),
         "atlases": len(materials),
+        "infirmary_curtain": {
+            "opacity": INFIRMARY_CURTAIN_OPACITY,
+            "fold_depth": INFIRMARY_CURTAIN_FOLD_DEPTH,
+            "segments": sum(
+                infirmary_curtain_segment_count(length)
+                for _x, _y, length, _rotation in INFIRMARY_CURTAIN_SEGMENTS
+            ),
+        },
         "classrooms": len(classroom_metrics),
         "variant_rooms": len(room_variant_names),
         "classroom_metrics": classroom_metrics,

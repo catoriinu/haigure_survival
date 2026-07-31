@@ -29,6 +29,7 @@ from optimize_b03_school_glb import (
 from build_b03_school_interiors import (
     ATLAS_DEFINITIONS,
     FIRST_FLOOR_WEST_DOOR_OPENINGS,
+    INFIRMARY_CURTAIN_MATERIAL_NAME,
     NORTH_CLASSROOM_DOOR_OPENINGS,
     ROOF_POOL_NORTH_SIGN_SUPPORT,
     TOILET_COMMON_OPENING,
@@ -69,6 +70,7 @@ EXPECTED_PACKED_ATLAS_PATHS = {
 }
 EXPECTED_CONSOLIDATED_MATERIAL_NAMES = {
     *(str(definition["material"]) for definition in ATLAS_DEFINITIONS.values()),
+    INFIRMARY_CURTAIN_MATERIAL_NAME,
     "MAT_B03_WindowGlass",
     "MAT_Pool_Water",
 }
@@ -1298,7 +1300,7 @@ def audit_consolidated_materials() -> int:
     actual_material_names = {material.name for material in bpy.data.materials}
     require(
         actual_material_names == EXPECTED_CONSOLIDATED_MATERIAL_NAMES,
-        f"最終材質が5種類へ統合されていません: "
+        f"最終材質が6種類へ統合されていません: "
         f"{sorted(actual_material_names)}",
     )
     return len(actual_material_names)

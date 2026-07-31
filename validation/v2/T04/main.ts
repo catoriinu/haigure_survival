@@ -3451,7 +3451,7 @@ const runValidation = async () => {
             (selection) => selection.variant === "normal"
           );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 609 &&
+          schoolContext.resources.visualMeshes.length === 610 &&
           schoolContext.resources.normalColliders.length === 273 &&
           schoolContext.resources.actorOnlyColliders.length === 81 &&
           schoolContext.resources.humanOnlyColliders.length === 59 &&
@@ -5465,7 +5465,7 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 609 &&
+          reloadedContext.resources.visualMeshes.length === 610 &&
           reloadedContext.resources.normalColliders.length === 273 &&
           reloadedContext.resources.actorOnlyColliders.length === 81 &&
           reloadedContext.resources.humanOnlyColliders.length === 59 &&

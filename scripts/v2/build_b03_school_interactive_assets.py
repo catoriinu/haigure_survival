@@ -1787,7 +1787,7 @@ def _build_room_variants(
 
         normal_visuals = tuple(
             obj
-            for suffix in ("FurnitureProps", "SignsPaper")
+            for suffix in ("FurnitureProps", "Curtains", "SignsPaper")
             if (
                 obj := bpy.data.objects.get(
                     f"VIS_B03_Interior_{room.author_name}_{suffix}"
@@ -1824,7 +1824,7 @@ def _build_room_variants(
                 f"VIS_B03_Interior_{room.author_name}",
                 f"VIS_RoomVariant_{token}_Disordered",
             )
-            if excluded_bounds:
+            if excluded_bounds and not source.name.endswith("_Curtains"):
                 disordered_visual = _copy_mesh_excluding_bounds(
                     source,
                     target_name,
