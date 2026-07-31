@@ -1907,6 +1907,13 @@ const assertCatalogEntry = (stage: StageCatalogEntry) => {
     throw new Error(`ビット用NavMesh SHA-256が不正です: ${stage.id}`);
   }
   if (
+    stage.depthPrePassMaterialNames.some((name) => name.length === 0) ||
+    new Set(stage.depthPrePassMaterialNames).size !==
+      stage.depthPrePassMaterialNames.length
+  ) {
+    throw new Error(`深度プリパスMaterial名が不正です: ${stage.id}`);
+  }
+  if (
     stage.worldBoundaryMode !== "required" &&
     stage.worldBoundaryMode !== "unsupported"
   ) {
@@ -1961,6 +1968,23 @@ const loadGlbContainer = async (
     type: "model/gltf-binary"
   });
   return SceneLoader.LoadAssetContainerAsync("", file, scene, null, ".glb");
+};
+
+const configureStageMaterials = (
+  container: AssetContainer,
+  stage: StageCatalogEntry
+) => {
+  for (const materialName of stage.depthPrePassMaterialNames) {
+    const matchingMaterials = container.materials.filter(
+      (material) => material.name === materialName
+    );
+    if (matchingMaterials.length !== 1) {
+      throw new Error(
+        `深度プリパス対象Materialが1件ではありません: ${materialName}=${matchingMaterials.length}`
+      );
+    }
+    matchingMaterials[0].needDepthPrePass = true;
+  }
 };
 
 const assertRoomVariantRegistryMatchesBundle = (
@@ -2095,6 +2119,7 @@ export const loadStageSpatialContext = async (
     Object.freeze([]);
   try {
     container = await loadGlbContainer(scene, stage, glbData);
+    configureStageMaterials(container, stage);
     const managementRoot = container.createRootMesh();
     managementRoot.name = `StageAssetRoot_${stage.id}`;
     managementRoot.scaling.setAll(BLENDER_METERS_TO_WORLD_UNITS);

@@ -1469,7 +1469,7 @@ def audit_infirmary_layout() -> dict[str, float | int]:
         )
         > 1e-6
     ):
-        raise RuntimeError("保健室カーテンの不透明度が97%ではありません")
+        raise RuntimeError("保健室カーテンの不透明度が95%ではありません")
     if curtain_material.surface_render_method != "DITHERED":
         raise RuntimeError("保健室カーテンが透過描画設定ではありません")
     if curtain_material.use_backface_culling:

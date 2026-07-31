@@ -10,7 +10,7 @@
 
 V2のステージ空間の正本は、GLBへ出力された3D形状、EmptyのTransform、Object custom properties由来のglTF Node `extras`である。表示、物理衝突、光線遮蔽、NavMesh生成元、スポーン位置、ゲームプレイ領域、ステージ境界、ポータル、非連続接続を同じ座標系の資産として管理する。
 
-ステージJSONは使用しない。JSON文字マップ、セル、行・列、矩形ゾーンなどへ空間を重複記述してはならない。TypeScriptのステージカタログが保持できるのは、ステージID、表示名、GLB URL、静的人間用NavMesh URL、部屋variant NavMesh bundle URL、ビット用NavMesh bundle URL、プロファイルID、整合性検査用ハッシュなどの非空間情報だけである。
+ステージJSONは使用しない。JSON文字マップ、セル、行・列、矩形ゾーンなどへ空間を重複記述してはならない。TypeScriptのステージカタログが保持できるのは、ステージID、表示名、GLB URL、静的人間用NavMesh URL、部屋variant NavMesh bundle URL、ビット用NavMesh bundle URL、プロファイルID、整合性検査用ハッシュ、深度プリパス対象Material名などの非空間情報だけである。
 
 Recast NavMeshバイナリはGLBの`NAV_*`形状から生成する派生物であり、編集元ではない。人間用NavMeshは静的基盤と部屋variantごとのDetour tile payload bundleへ分離し、ビット用NavMeshは帯ごとのRecast payloadを別bundleへ格納する。`LNK_*` Emptyと飛行遷移`VOL_*`は最終GLBに残る明示接続の正本であり、Runtimeが対応するNavMeshへ接続する。NavMeshを変更したい場合はBlender資産またはベイクプロファイルを変更し、GLB監査後に対応成果物を再ベイクする。
 

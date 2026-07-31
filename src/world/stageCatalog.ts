@@ -21,6 +21,7 @@ export type StageCatalogEntry = Readonly<{
   glbSha256: string;
   navmeshSha256: string;
   bitNavmeshSha256: string;
+  depthPrePassMaterialNames: readonly string[];
   worldBoundaryMode: "required" | "unsupported";
 }>;
 
@@ -41,10 +42,13 @@ export const SCHOOL_STAGE: StageCatalogEntry = Object.freeze({
   assetSchemaVersion: 2,
   navProfileId: "school-humanoid-room-variants-v2",
   bitNavProfileId: "bit-flight-body-0.44-margin-0.10-v1",
-  glbSha256: "31b0f6201a55440f7802260c841f321c34491e1641fc74ac2d29dd9faf4c6a19",
+  glbSha256: "74019ca3ada943d4153ed2e8095332801e07d80a33d34085277bbf35ce79a069",
   navmeshSha256: "6a35b416eb7069fdb9e8eff5fa9c62f6ce2d6febc9f28765b6041213ad448dd1",
   bitNavmeshSha256:
     "c60c44187e8eeca0889a933b564bb7eab936728148f43e5dd1796c57e82d8d73",
+  depthPrePassMaterialNames: Object.freeze([
+    "MAT_B03_InfirmaryCurtain"
+  ]),
   worldBoundaryMode: "required"
 });
 

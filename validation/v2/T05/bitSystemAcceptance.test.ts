@@ -997,6 +997,7 @@ const createLoaderFixtureAssets = async (
       glbSha256,
       navmeshSha256,
       bitNavmeshSha256,
+      depthPrePassMaterialNames: Object.freeze([]),
       worldBoundaryMode
     }),
     glb,

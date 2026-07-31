@@ -6,6 +6,7 @@ import {
   FreeCamera,
   HemisphericLight,
   Logger,
+  PBRMaterial,
   Scene,
   Vector3
 } from "@babylonjs/core";
@@ -708,6 +709,22 @@ const validateLoadedContext = (
       (selection) => selection.variant === "normal"
     ) &&
     roomVariantActivationMatches(context, "normal");
+  const infirmaryCurtainMaterials =
+    context.resources.assetContainer.materials.filter(
+      (material) => material.name === "MAT_B03_InfirmaryCurtain"
+    );
+  const infirmaryCurtainMaterial = infirmaryCurtainMaterials[0];
+  const normalInfirmaryCurtain =
+    context.resources.assetContainer.meshes.find(
+      (mesh) =>
+        mesh.name === "VIS_B03_Interior_F01_Infirmary_Curtains"
+    );
+  const disorderedInfirmaryCurtain =
+    context.resources.assetContainer.meshes.find(
+      (mesh) =>
+        mesh.name ===
+        "VIS_RoomVariant_F01_Infirmary_Disordered_Curtains"
+    );
   const assemblyVenueSummaries = context.assemblyVenues.all.map(
     (venue) =>
       `${venue.id}:${venue.volume.id}/${venue.assemblyPositions.length}/${venue.executionAudiencePositions.length}/${venue.executionTargetPositions.length}/w${venue.selectionWeight}`
@@ -772,6 +789,18 @@ const validateLoadedContext = (
         context.metadata.navProfileId === SCHOOL_STAGE.navProfileId &&
         context.metadata.bitNavProfileId === SCHOOL_STAGE.bitNavProfileId,
       `stage=${context.metadata.stageId} / schema=${context.metadata.schemaVersion} / navProfile=${context.metadata.navProfileId} / bitNavProfile=${context.metadata.bitNavProfileId}`
+    ),
+    createCheck(
+      "保健室カーテンの透明描画契約",
+      infirmaryCurtainMaterials.length === 1 &&
+        infirmaryCurtainMaterial instanceof PBRMaterial &&
+        infirmaryCurtainMaterial.needDepthPrePass &&
+        Math.abs(infirmaryCurtainMaterial.alpha - 0.95) <= 1e-6 &&
+        infirmaryCurtainMaterial.transparencyMode ===
+          PBRMaterial.PBRMATERIAL_ALPHABLEND &&
+        normalInfirmaryCurtain?.material === infirmaryCurtainMaterial &&
+        disorderedInfirmaryCurtain?.material === infirmaryCurtainMaterial,
+      `materials=${infirmaryCurtainMaterials.length} / pbr=${infirmaryCurtainMaterial instanceof PBRMaterial} / depthPrePass=${infirmaryCurtainMaterial?.needDepthPrePass ?? false} / alpha=${infirmaryCurtainMaterial?.alpha ?? "なし"} / transparencyMode=${infirmaryCurtainMaterial?.transparencyMode ?? "なし"} / normal=${normalInfirmaryCurtain?.material === infirmaryCurtainMaterial} / disordered=${disorderedInfirmaryCurtain?.material === infirmaryCurtainMaterial}`
     ),
     createCheck(
       "学校GLBの厳格意味分類",

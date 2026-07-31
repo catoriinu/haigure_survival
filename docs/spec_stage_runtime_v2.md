@@ -52,6 +52,7 @@ export type StageCatalogEntry = Readonly<{
   glbSha256: string;
   navmeshSha256: string;
   bitNavmeshSha256: string;
+  depthPrePassMaterialNames: readonly string[];
 }>;
 ```
 
@@ -59,6 +60,7 @@ export type StageCatalogEntry = Readonly<{
 - `roomVariantNavmesh`は部屋variant非対応時の`unsupported`と、bundle URL・SHA-256を必須にする`required`の判別可能unionとする。互換wrapper、欠落時fallback、Runtime再生成は使用しない。
 - `worldBoundaryMode`は空間形状ではなく、対応資産世代を厳格に選ぶ非空間契約である。`required`では`BND_WorldLimit`を正確に1件要求し、`unsupported`では同Objectを許可しない。
 - `navProfileId`と`bitNavProfileId`はGLBと各NavMesh生成記録の双方に一致させる。
+- `depthPrePassMaterialNames`は、半透明面の重なり順を安定させるため、透明Color pass前に深度を確定するMaterial名を重複なく列挙する。各名前はGLB内のMaterialちょうど1件と一致しなければ読込失敗とする。
 - GLB、静的人間用NavMesh、対応時の部屋variant bundle、ビット用NavMeshのいずれかのハッシュが不一致なら読込失敗とし、古い成果物を継続使用しない。
 - 当面のカタログ件数は学校1件とする。
 
