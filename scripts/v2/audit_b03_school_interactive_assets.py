@@ -32,6 +32,13 @@ GLB_VERSION = 2
 JSON_CHUNK_TYPE = 0x4E4F534A
 TOLERANCE = 1.0e-5
 OVERLAP_TOLERANCE = 1.0e-4
+INFIRMARY_CURTAIN_PANEL_NAMES = ("North", "West", "East", "Divider")
+INFIRMARY_NORMAL_CURTAIN_BEAM_SIGHT_COLLIDER_NAME = (
+    "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains"
+)
+INFIRMARY_DISORDERED_CURTAIN_BEAM_SIGHT_COLLIDER_NAME = (
+    "COL_BeamSightOnly_RoomVariant_F01_Infirmary_Disordered_Curtains"
+)
 
 
 @dataclass(frozen=True)
@@ -1073,11 +1080,19 @@ def audit_room_variants(
             f"NAV_RoomVariant_{room_token}_Disordered_Walkable",
         }
         if room.author_name == "F01_Infirmary":
+            normal_children.update(
+                f"VIS_B03_Interior_F01_Infirmary_Curtain_{panel_name}"
+                for panel_name in INFIRMARY_CURTAIN_PANEL_NAMES
+            )
+            disordered_children.update(
+                f"VIS_RoomVariant_F01_Infirmary_Disordered_Curtain_{panel_name}"
+                for panel_name in INFIRMARY_CURTAIN_PANEL_NAMES
+            )
             normal_children.add(
-                "VIS_B03_Interior_F01_Infirmary_Curtains"
+                INFIRMARY_NORMAL_CURTAIN_BEAM_SIGHT_COLLIDER_NAME
             )
             disordered_children.add(
-                "VIS_RoomVariant_F01_Infirmary_Disordered_Curtains"
+                INFIRMARY_DISORDERED_CURTAIN_BEAM_SIGHT_COLLIDER_NAME
             )
         if room.has_signs_paper:
             normal_children.add(
@@ -1158,7 +1173,8 @@ def audit_room_variants(
             )
             require(
                 child_prefixes["VIS"] >= 1
-                and child_prefixes["COL"] == 1
+                and child_prefixes["COL"]
+                == (2 if room.author_name == "F01_Infirmary" else 1)
                 and child_prefixes["NAV"]
                 == (1 if variant_id == "normal" else 2),
                 f"{marker.name}: VIS/COL/NAV構成が不正です: {child_prefixes}",
@@ -2408,28 +2424,57 @@ def audit_blender_geometry() -> dict[str, int]:
     manifold_checks = 0
     threshold_profile_checks = 0
 
-    normal_curtains = bpy.data.objects[
-        "VIS_B03_Interior_F01_Infirmary_Curtains"
+    for panel_name in INFIRMARY_CURTAIN_PANEL_NAMES:
+        normal_curtain = bpy.data.objects[
+            f"VIS_B03_Interior_F01_Infirmary_Curtain_{panel_name}"
+        ]
+        disordered_curtain = bpy.data.objects[
+            "VIS_RoomVariant_F01_Infirmary_Disordered_Curtain_"
+            f"{panel_name}"
+        ]
+        require(
+            mesh_vertex_coordinates(normal_curtain)
+            == mesh_vertex_coordinates(disordered_curtain)
+            and mesh_faces(normal_curtain) == mesh_faces(disordered_curtain),
+            f"保健室の通常・荒れ版{panel_name}カーテン形状が一致しません",
+        )
+        for curtain in (normal_curtain, disordered_curtain):
+            require(
+                tuple(
+                    material.name
+                    for material in curtain.data.materials
+                    if material is not None
+                )
+                == ("MAT_B03_InfirmaryCurtain",),
+                f"{curtain.name}: カーテン専用Materialではありません",
+            )
+
+    normal_beam_sight_collider = bpy.data.objects[
+        INFIRMARY_NORMAL_CURTAIN_BEAM_SIGHT_COLLIDER_NAME
     ]
-    disordered_curtains = bpy.data.objects[
-        "VIS_RoomVariant_F01_Infirmary_Disordered_Curtains"
+    disordered_beam_sight_collider = bpy.data.objects[
+        INFIRMARY_DISORDERED_CURTAIN_BEAM_SIGHT_COLLIDER_NAME
     ]
     require(
-        mesh_vertex_coordinates(normal_curtains)
-        == mesh_vertex_coordinates(disordered_curtains)
-        and mesh_faces(normal_curtains) == mesh_faces(disordered_curtains),
-        "保健室の通常・荒れ版カーテン形状が一致しません",
+        mesh_vertex_coordinates(normal_beam_sight_collider)
+        == mesh_vertex_coordinates(disordered_beam_sight_collider)
+        and mesh_faces(normal_beam_sight_collider)
+        == mesh_faces(disordered_beam_sight_collider),
+        "保健室カーテンの通常・荒れ版ビーム・視線遮蔽形状が一致しません",
     )
-    for curtains in (normal_curtains, disordered_curtains):
+    for collider in (
+        normal_beam_sight_collider,
+        disordered_beam_sight_collider,
+    ):
         require(
-            tuple(
-                material.name
-                for material in curtains.data.materials
-                if material is not None
-            )
-            == ("MAT_B03_InfirmaryCurtain",),
-            f"{curtains.name}: カーテン専用Materialではありません",
+            not collider.data.materials,
+            f"{collider.name}: ビーム・視線遮蔽へMaterialがあります",
         )
+        require(
+            len(mesh_connected_components(collider)) == 4,
+            f"{collider.name}: ビーム・視線遮蔽が4面ではありません",
+        )
+        require_closed_manifold(collider)
 
     for floor in (1, 4):
         suffix = f"F{floor:02d}"
@@ -2847,6 +2892,7 @@ def audit_blender_geometry() -> dict[str, int]:
                 obj.get("hs_role") in closed_roles
                 or obj.name.startswith("COL_DoorPanel_")
                 or obj.name.startswith("COL_ElevatorThresholdPlate_")
+                or obj.name.startswith("COL_BeamSightOnly_")
             )
         ):
             require_closed_manifold(obj)
@@ -2859,7 +2905,9 @@ def audit_blender_geometry() -> dict[str, int]:
         "removed_visual_components": removed_visual_components,
         "approach_bounds_checks": approach_bounds_checks,
         "door_sign_intersections": len(door_sign_intersections),
-        "infirmary_curtain_variant_parity": 1,
+        "infirmary_curtain_variant_parity": (
+            len(INFIRMARY_CURTAIN_PANEL_NAMES) + 1
+        ),
         "manifold_checks": manifold_checks,
         "threshold_profile_checks": threshold_profile_checks,
     }
@@ -2948,13 +2996,13 @@ def audit_active_visual_counts(graph: AssetGraph) -> dict[str, int]:
         for room_id in EXPECTED_ROOM_IDS
     )
     require(
-        normal_visuals == 610,
-        f"{graph.source}: 通常20室選択時のVISが610件ではありません: "
+        normal_visuals == 613,
+        f"{graph.source}: 通常20室選択時のVISが613件ではありません: "
         f"{normal_visuals}",
     )
     require(
-        disordered_visuals == 630,
-        f"{graph.source}: 全荒れ20室選択時のVISが630件ではありません: "
+        disordered_visuals == 633,
+        f"{graph.source}: 全荒れ20室選択時のVISが633件ではありません: "
         f"{disordered_visuals}",
     )
     return {
@@ -2971,13 +3019,13 @@ def audit_blender_glb_parity(
     blender_names = interactive_contract_names(blender_graph)
     glb_names = interactive_contract_names(glb_graph)
     require(
-        len(blender_names) == 773,
-        "BlenderのB03-3C interactive契約Objectが773件ではありません: "
+        len(blender_names) == 781,
+        "BlenderのB03-3C interactive契約Objectが781件ではありません: "
         f"{len(blender_names)}",
     )
     require(
-        len(glb_names) == 773,
-        "GLBのB03-3C interactive契約Objectが773件ではありません: "
+        len(glb_names) == 781,
+        "GLBのB03-3C interactive契約Objectが781件ではありません: "
         f"{len(glb_names)}",
     )
     require(

@@ -256,6 +256,7 @@ GENERATED_PREFIXES = (
     "COL_ActorOnly_Window_",
     "COL_ActorOnly_WindowFixed_",
     "COL_HumanOnly_Window_",
+    "COL_BeamSightOnly_",
     "LNK_bit-window-",
     "LNK_bit-roof-",
     "VOL_BitFlight_",
@@ -5187,6 +5188,7 @@ def build_bit_flight_obstacle_sources(
                 if obj.type == "MESH"
                 and obj.name.startswith("COL_")
                 and not obj.name.startswith("COL_HumanOnly_")
+                and not obj.name.startswith("COL_BeamSightOnly_")
                 and not has_dynamic_spatial_ancestor(obj)
                 and not is_bit_flight_support_collider_name(obj.name)
                 and not is_bit_flight_obstacle_exempt_collider_name(obj.name)

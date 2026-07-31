@@ -183,20 +183,29 @@ INFIRMARY_BED_PLACEMENTS = (
     (-7.80, 4.55, math.pi / 2),
 )
 INFIRMARY_CURTAIN_SEGMENTS = (
-    (-9.275, 8.20, 5.65, 0.0),
-    (-12.10, 5.60, 5.20, math.pi / 2),
-    (-6.45, 5.60, 5.20, math.pi / 2),
-    (-9.275, 5.60, 5.20, math.pi / 2),
+    ("North", -9.275, 6.62, 5.65, 0.0),
+    ("West", -12.10, 4.81, 3.62, math.pi / 2),
+    ("East", -6.45, 4.81, 3.62, math.pi / 2),
+    ("Divider", -9.275, 4.81, 3.62, math.pi / 2),
+)
+INFIRMARY_CURTAIN_BEAM_SIGHT_COLLIDER_NAME = (
+    "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains"
 )
 INFIRMARY_CURTAIN_MATERIAL_NAME = "MAT_B03_InfirmaryCurtain"
-INFIRMARY_CURTAIN_OPACITY = 0.95
+INFIRMARY_CURTAIN_OPACITY = 0.96
 INFIRMARY_CURTAIN_RGB = (232, 222, 188)
 INFIRMARY_CURTAIN_BASE_COLOR = (
     *(channel / 255.0 for channel in INFIRMARY_CURTAIN_RGB),
     INFIRMARY_CURTAIN_OPACITY,
 )
-INFIRMARY_CURTAIN_HEIGHT = 1.80
-INFIRMARY_CURTAIN_CENTER_Z = 1.35
+INFIRMARY_CURTAIN_BOTTOM_Z = 0.45
+INFIRMARY_CEILING_UNDERSIDE_Z = 3.00
+INFIRMARY_CURTAIN_HEIGHT = (
+    INFIRMARY_CEILING_UNDERSIDE_Z - INFIRMARY_CURTAIN_BOTTOM_Z
+)
+INFIRMARY_CURTAIN_CENTER_Z = (
+    INFIRMARY_CEILING_UNDERSIDE_Z + INFIRMARY_CURTAIN_BOTTOM_Z
+) / 2.0
 INFIRMARY_CURTAIN_FOLD_DEPTH = 0.07
 INFIRMARY_CURTAIN_FOLD_PITCH = 0.35
 INFIRMARY_STAFF_DESK = (-10.25, 10.70, -math.pi / 2)
@@ -797,7 +806,7 @@ class RoomBuilder:
     base_z: float
     architecture: MeshBatch
     furniture: MeshBatch
-    curtains: MeshBatch
+    curtain_panels: dict[str, MeshBatch]
     signs: MeshBatch
     colliders: list[tuple[tuple[float, float, float], tuple[float, float, float]]]
     wall_colliders: list[
@@ -812,7 +821,7 @@ class RoomBuilder:
             base_z,
             MeshBatch("Architecture"),
             MeshBatch("FurnitureProps"),
-            MeshBatch("FurnitureProps"),
+            {},
             MeshBatch("SignsPaper"),
             [],
             [],
@@ -1042,6 +1051,7 @@ def add_additional_prop(
 
 def add_infirmary_curtain(
     room: RoomBuilder,
+    panel_name: str,
     x: float,
     y: float,
     length: float,
@@ -1050,7 +1060,8 @@ def add_infirmary_curtain(
     room.counts["InfirmaryCurtain"] = (
         room.counts.get("InfirmaryCurtain", 0) + 1
     )
-    room.curtains.add_corrugated_curtain(
+    panel = MeshBatch("FurnitureProps")
+    panel.add_corrugated_curtain(
         (x, y, room.base_z + INFIRMARY_CURTAIN_CENTER_Z),
         length,
         INFIRMARY_CURTAIN_HEIGHT,
@@ -1059,6 +1070,7 @@ def add_infirmary_curtain(
         "fabric_ivory",
         rotation_z,
     )
+    room.curtain_panels[panel_name] = panel
 
 
 def infirmary_curtain_segment_count(length: float) -> int:
@@ -1066,6 +1078,30 @@ def infirmary_curtain_segment_count(length: float) -> int:
         4,
         2 * round(length / (2 * INFIRMARY_CURTAIN_FOLD_PITCH)),
     )
+
+
+def infirmary_curtain_beam_sight_boxes(
+    base_z: float,
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    boxes = []
+    for _panel_name, x, y, length, rotation_z in INFIRMARY_CURTAIN_SEGMENTS:
+        size = rotated_box_aabb_size(
+            (
+                length,
+                INFIRMARY_CURTAIN_FOLD_DEPTH * 2.0,
+                INFIRMARY_CURTAIN_HEIGHT,
+            ),
+            rotation_z,
+        )
+        center = (x, y, base_z + INFIRMARY_CURTAIN_CENTER_Z)
+        minimum = tuple(
+            center[index] - size[index] / 2.0 for index in range(3)
+        )
+        maximum = tuple(
+            center[index] + size[index] / 2.0 for index in range(3)
+        )
+        boxes.append((minimum, maximum))
+    return boxes
 
 
 def add_wall_blackboard(
@@ -1508,8 +1544,15 @@ def build_school_rooms(
     add_additional_prop(infirmary, "TrashBin", INFIRMARY_TRASH_BIN)
     for x, y, rotation in INFIRMARY_BED_PLACEMENTS:
         infirmary.add_prop(sources, "InfirmaryBed", x, y, rotation)
-    for x, y, length, rotation in INFIRMARY_CURTAIN_SEGMENTS:
-        add_infirmary_curtain(infirmary, x, y, length, rotation)
+    for panel_name, x, y, length, rotation in INFIRMARY_CURTAIN_SEGMENTS:
+        add_infirmary_curtain(
+            infirmary,
+            panel_name,
+            x,
+            y,
+            length,
+            rotation,
+        )
     infirmary.add_prop(sources, "StaffDesk", *INFIRMARY_STAFF_DESK)
     infirmary.add_prop(sources, "StaffChair", *INFIRMARY_STAFF_CHAIR)
     add_desktop_prop(
@@ -1786,12 +1829,13 @@ def build_school_interiors(
             materials["FurnitureProps"],
         ) is not None:
             visual_objects += 1
-        if room.curtains.create(
-            f"VIS_B03_Interior_{room.name}_Curtains",
-            visual_collection,
-            curtain_material,
-        ) is not None:
-            visual_objects += 1
+        for panel_name, curtain_panel in room.curtain_panels.items():
+            if curtain_panel.create(
+                f"VIS_B03_Interior_{room.name}_Curtain_{panel_name}",
+                visual_collection,
+                curtain_material,
+            ) is not None:
+                visual_objects += 1
         if room.signs.create(
             f"VIS_B03_Interior_{room.name}_SignsPaper",
             visual_collection,
@@ -1806,6 +1850,12 @@ def build_school_interiors(
             room.wall_colliders,
             collider_collection,
         )
+        if room.name == "F01_Infirmary":
+            create_box_mesh(
+                INFIRMARY_CURTAIN_BEAM_SIGHT_COLLIDER_NAME,
+                infirmary_curtain_beam_sight_boxes(room.base_z),
+                collider_collection,
+            )
         if room.name not in room_variant_names:
             all_colliders.extend(room.colliders)
         all_colliders.extend(room.wall_colliders)
@@ -1829,8 +1879,10 @@ def build_school_interiors(
             "fold_depth": INFIRMARY_CURTAIN_FOLD_DEPTH,
             "segments": sum(
                 infirmary_curtain_segment_count(length)
-                for _x, _y, length, _rotation in INFIRMARY_CURTAIN_SEGMENTS
+                for _panel_name, _x, _y, length, _rotation
+                in INFIRMARY_CURTAIN_SEGMENTS
             ),
+            "beam_sight_only_boxes": len(INFIRMARY_CURTAIN_SEGMENTS),
         },
         "classrooms": len(classroom_metrics),
         "variant_rooms": len(room_variant_names),

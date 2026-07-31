@@ -32,6 +32,7 @@ PROTECTED_PREFIXES = (
     "VOL_",
 )
 ALLOWED_NEW_PREFIXES = (
+    "COL_BeamSightOnly_",
     "COL_B03_Interior_",
     "COL_DoorPanel_",
     "COL_ElevatorCar_",

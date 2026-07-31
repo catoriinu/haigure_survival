@@ -108,9 +108,10 @@ export type StageMoverKind = "player" | "npc" | "bit";
 | `normalColliders` | 通常`COL_*` | 全移動体、全光線、視線を遮る |
 | `actorOnlyColliders` | `COL_ActorOnly_*` | プレイヤー・NPC・ビットだけを遮る |
 | `humanOnlyColliders` | `COL_HumanOnly_*` | プレイヤー・NPCだけを遮る |
+| `beamSightOnlyColliders` | `COL_BeamSightOnly_*` | 移動体を通し、全ビームと視線だけを遮る |
 | `movementColliders` | 上記3集合から`StageMoverKind`別に構成 | 移動線分判定 |
-| `beamBlockers` | 通常`COL_*`だけ | 全ビーム遮蔽 |
-| `sightBlockers` | 通常`COL_*`だけ | 視線遮蔽 |
+| `beamBlockers` | 通常`COL_*`と`COL_BeamSightOnly_*` | 全ビーム遮蔽 |
+| `sightBlockers` | 通常`COL_*`と`COL_BeamSightOnly_*` | 視線遮蔽 |
 | `navSourceMeshes` | `hs_nav_set=human`の`NAV_*` | 人間用検証・再ベイク |
 | `bitFlightNavSourceMeshes` | `hs_nav_set=bit-flight`の`NAV_BitFlight_*` | ビット用検証・再ベイク |
 | `semanticMeshes` | `VOL_*`、`BND_*`、`PRT_*` | 3D意味判定 |
@@ -178,6 +179,7 @@ export interface StageSpatialQueries {
 | 通常`COL_*` | 停止 | 停止 | 停止 | 遮蔽 |
 | `COL_ActorOnly_*` | 停止 | 停止 | 停止 | 透過 |
 | `COL_HumanOnly_*` | 停止 | 停止 | 透過 | 透過 |
+| `COL_BeamSightOnly_*` | 透過 | 透過 | 透過 | 遮蔽 |
 
 閉じた窓は`COL_ActorOnly_Window_*`とし、全移動体を止めながら視線と全光線を通す。指定した開いた窓または割れた窓は、残るガラス羽を`COL_ActorOnly_WindowFixed_*`、実開口を`COL_HumanOnly_Window_*`とする。前者は全移動体を止め、後者はプレイヤーとNPCを止めてビットを通す。どちらも視線と全光線を通す。`PRT_*`の既存room、streaming、door trigger用途は維持するが、ビット遷移を`PRT_*`や人間用`StageLinkRegistry`へ登録しない。
 
@@ -442,7 +444,7 @@ export interface StageSpatialQueries {
 - 視線は観測点から標的中心まで`sightBlockers`へ線分判定する。
 - 通常索敵は距離、扇形視野、遮蔽物なしの全条件を満たす標的だけを取得する。
 - 通常視認由来の標的は遮蔽時に解除する。アラート由来の標的は期限まで保持できるが、ビームは壁を貫通しない。
-- 床高は下向き3D Rayで`normalColliders`の支持面へ問い合わせる。窓用の`COL_ActorOnly_*`と`COL_HumanOnly_*`を床支持面にせず、NavMeshの高さも物理接地面の代用にしない。
+- 床高は下向き3D Rayで`normalColliders`の支持面へ問い合わせる。窓用の`COL_ActorOnly_*`、`COL_HumanOnly_*`、`COL_BeamSightOnly_*`を床支持面にせず、NavMeshの高さも物理接地面の代用にしない。
 
 ## 11. AI移動
 
@@ -506,6 +508,7 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 - 窓58組はビット用`aperture`としてだけ現れ、プレイヤーとNPCの経路には現れない。旧`bit_roof`は0件で、屋上は`boundary`遷移を使う。
 - 修正案1では現行片羽開放幅1.20mの58窓を、V1物理半径0.44m＋余裕0.10m＝半径0.54mの移動包絡と実飛行Agentで双方向116/116に再検証済みとする。旧0.64m包絡・直径1.28mを理由に両羽全開を要求しない。
 - `COL_ActorOnly_Window_*`と`COL_ActorOnly_WindowFixed_*`はプレイヤー・NPC・ビットを止め、`COL_HumanOnly_Window_*`はプレイヤー・NPCだけを止める。いずれも視線と全光線を透過する。
+- `COL_BeamSightOnly_*`はプレイヤー・NPC・ビットの移動と3種NavMeshを通し、ゲーム内の全ビームと視線だけを遮る。
 - T05-1Bでは全モードが帯の許可高度、物理床・天井、V1物理半径0.44m＋安全余裕0.10m＝半径0.54mの移動包絡を満たす。上下揺れは中心Sweepとして検査し、半径へ二重加算しない。標的喪失時は近い遷移端または隣接帯へ離脱し、帯変更前にカーペット編隊を解除する。
 - 壁越しに通常索敵せず、窓越しには視認する。T05-2で実装済みの通常CHASE、固定、ランダム、カーペット、NPC gun、プレイヤーgun、公開処刑の全発射元が壁へ着弾し、両種の窓を透過する。
 - T04-3Aでは閉→開→閉、開閉中の教室扉遮蔽無効、移動中エレベーター扉パネルの遮蔽追従、旧revision由来cacheの不使用を非学校fixtureで検証する。

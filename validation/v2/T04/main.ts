@@ -3451,10 +3451,13 @@ const runValidation = async () => {
             (selection) => selection.variant === "normal"
           );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 610 &&
+          schoolContext.resources.visualMeshes.length === 613 &&
           schoolContext.resources.normalColliders.length === 273 &&
           schoolContext.resources.actorOnlyColliders.length === 81 &&
           schoolContext.resources.humanOnlyColliders.length === 59 &&
+          schoolContext.resources.beamSightOnlyColliders.length === 1 &&
+          schoolContext.resources.beamSightOnlyColliders[0]?.name ===
+            "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
           schoolContext.resources.navSourceMeshes.length === 39 &&
           schoolContext.resources.bitFlightNavSourceMeshes.length === 22 &&
           schoolContext.markers.all.length === 227 &&
@@ -3490,7 +3493,7 @@ const runValidation = async () => {
             bitSpawnVolumes[0].bitFlightBand !== null &&
             schoolContext.volumes.getByRole("water").length === 1 &&
             schoolConstructionPathfindCount === 0,
-          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / humanNAV=${schoolContext.resources.navSourceMeshes.length} / bitNAV=${schoolContext.resources.bitFlightNavSourceMeshes.length} / MRK=${schoolContext.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${schoolContext.volumes.all.length}(assembly=${assemblyVolumes.length},water=${schoolContext.volumes.getByRole("water").length}) / roomVariants=${schoolContext.roomVariants?.variants.length ?? 0}/${schoolContext.roomVariants?.tileVolumes.length ?? 0}/selected=${schoolContext.roomVariantSelection.length} / doors=${schoolContext.doorAssets.all.length} / elevators=${schoolContext.elevatorAssets.all.length} / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${schoolContext.links.all.length} / zones=${schoolContext.bitNavigation.zones.length} / bands=${schoolContext.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length}) / buildPathfind=${schoolConstructionPathfindCount} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
+          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / BeamSightOnly=${schoolContext.resources.beamSightOnlyColliders.length}:${schoolContext.resources.beamSightOnlyColliders[0]?.name ?? "なし"} / humanNAV=${schoolContext.resources.navSourceMeshes.length} / bitNAV=${schoolContext.resources.bitFlightNavSourceMeshes.length} / MRK=${schoolContext.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${schoolContext.volumes.all.length}(assembly=${assemblyVolumes.length},water=${schoolContext.volumes.getByRole("water").length}) / roomVariants=${schoolContext.roomVariants?.variants.length ?? 0}/${schoolContext.roomVariants?.tileVolumes.length ?? 0}/selected=${schoolContext.roomVariantSelection.length} / doors=${schoolContext.doorAssets.all.length} / elevators=${schoolContext.elevatorAssets.all.length} / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${schoolContext.links.all.length} / zones=${schoolContext.bitNavigation.zones.length} / bands=${schoolContext.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length}) / buildPathfind=${schoolConstructionPathfindCount} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
         });
 
         const schoolBitSafety = createBitFlightSafety(
@@ -4568,6 +4571,9 @@ const runValidation = async () => {
         const humanOnlyColliderSet = new Set(
           schoolContext.resources.humanOnlyColliders
         );
+        const beamSightOnlyColliderSet = new Set(
+          schoolContext.resources.beamSightOnlyColliders
+        );
         const expectedPlayerAndNpcColliders = [
           ...normalColliderSet,
           ...actorOnlyColliderSet,
@@ -4600,13 +4606,55 @@ const runValidation = async () => {
             ) &&
             setMatches(
               new Set(schoolContext.resources.beamBlockers),
-              [...normalColliderSet]
+              [...normalColliderSet, ...beamSightOnlyColliderSet]
             ) &&
             setMatches(
               new Set(schoolContext.resources.sightBlockers),
-              [...normalColliderSet]
+              [...normalColliderSet, ...beamSightOnlyColliderSet]
             ),
-          detail: `normal=${normalColliderSet.size} / ActorOnly=${actorOnlyColliderSet.size} / HumanOnly=${humanOnlyColliderSet.size} / player=${schoolContext.resources.movementColliders.player.length} / npc=${schoolContext.resources.movementColliders.npc.length} / bit=${schoolContext.resources.movementColliders.bit.length} / beam=${schoolContext.resources.beamBlockers.length} / sight=${schoolContext.resources.sightBlockers.length}`
+          detail: `normal=${normalColliderSet.size} / ActorOnly=${actorOnlyColliderSet.size} / HumanOnly=${humanOnlyColliderSet.size} / BeamSightOnly=${beamSightOnlyColliderSet.size} / player=${schoolContext.resources.movementColliders.player.length} / npc=${schoolContext.resources.movementColliders.npc.length} / bit=${schoolContext.resources.movementColliders.bit.length} / beam=${schoolContext.resources.beamBlockers.length} / sight=${schoolContext.resources.sightBlockers.length}`
+        });
+
+        const curtainRayFrom = blenderPointToBabylon(
+          new Vector3(-11.0, 6.0, 1.5)
+        );
+        const curtainRayTo = blenderPointToBabylon(
+          new Vector3(-11.0, 7.0, 1.5)
+        );
+        const curtainPlayerHit = schoolContext.queries.castMovementSegment(
+          "player",
+          curtainRayFrom,
+          curtainRayTo
+        );
+        const curtainNpcHit = schoolContext.queries.castMovementSegment(
+          "npc",
+          curtainRayFrom,
+          curtainRayTo
+        );
+        const curtainBitHit = schoolContext.queries.castMovementSegment(
+          "bit",
+          curtainRayFrom,
+          curtainRayTo
+        );
+        const curtainBeamHit = schoolContext.queries.castBeamSegment(
+          curtainRayFrom,
+          curtainRayTo
+        );
+        const curtainSightHit = schoolContext.queries.castSightSegment(
+          curtainRayFrom,
+          curtainRayTo
+        );
+        const expectedCurtainBlockerName =
+          "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains";
+        checks.push({
+          name: "実保健室カーテンのmover透過・beam・sight遮蔽",
+          ok:
+            curtainPlayerHit === null &&
+            curtainNpcHit === null &&
+            curtainBitHit === null &&
+            curtainBeamHit?.mesh.name === expectedCurtainBlockerName &&
+            curtainSightHit?.mesh.name === expectedCurtainBlockerName,
+          detail: `player=${curtainPlayerHit?.mesh.name ?? "clear"} / npc=${curtainNpcHit?.mesh.name ?? "clear"} / bit=${curtainBitHit?.mesh.name ?? "clear"} / beam=${curtainBeamHit?.mesh.name ?? "clear"} / sight=${curtainSightHit?.mesh.name ?? "clear"}`
         });
 
         const representativeWindowTransition = apertureTransitions[0];
@@ -5465,10 +5513,13 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 610 &&
+          reloadedContext.resources.visualMeshes.length === 613 &&
           reloadedContext.resources.normalColliders.length === 273 &&
           reloadedContext.resources.actorOnlyColliders.length === 81 &&
           reloadedContext.resources.humanOnlyColliders.length === 59 &&
+          reloadedContext.resources.beamSightOnlyColliders.length === 1 &&
+          reloadedContext.resources.beamSightOnlyColliders[0]?.name ===
+            "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
           reloadedContext.resources.navSourceMeshes.length === 39 &&
           reloadedContext.resources.bitFlightNavSourceMeshes.length === 22 &&
           reloadedContext.markers.all.length === 227 &&

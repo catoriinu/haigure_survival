@@ -953,6 +953,7 @@ def expected_bit_flight_obstacle_bounds(
                 if obj.type == "MESH"
                 and obj.name.startswith("COL_")
                 and not obj.name.startswith("COL_HumanOnly_")
+                and not obj.name.startswith("COL_BeamSightOnly_")
                 and not has_dynamic_spatial_ancestor(obj)
                 and not is_bit_flight_support_collider_name(obj.name)
                 and not is_bit_flight_obstacle_exempt_collider_name(obj.name)

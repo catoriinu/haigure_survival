@@ -151,6 +151,7 @@ export type StageSpatialResources = Readonly<{
   normalColliders: readonly Mesh[];
   actorOnlyColliders: readonly Mesh[];
   humanOnlyColliders: readonly Mesh[];
+  beamSightOnlyColliders: readonly Mesh[];
   movementColliders: StageMovementColliderSets;
   beamBlockers: readonly Mesh[];
   sightBlockers: readonly Mesh[];
@@ -282,6 +283,7 @@ type StageAssetClassification = Readonly<{
   normalColliders: readonly Mesh[];
   actorOnlyColliders: readonly Mesh[];
   humanOnlyColliders: readonly Mesh[];
+  beamSightOnlyColliders: readonly Mesh[];
   navSources: readonly NavSource[];
   bitFlightNavSources: readonly BitFlightNavSource[];
   markers: readonly StageMarker[];
@@ -1237,6 +1239,7 @@ const classifyStageAsset = (
   const normalColliders: Mesh[] = [];
   const actorOnlyColliders: Mesh[] = [];
   const humanOnlyColliders: Mesh[] = [];
+  const beamSightOnlyColliders: Mesh[] = [];
   const navSources: NavSource[] = [];
   const bitFlightNavSources: BitFlightNavSource[] = [];
   const volumes: StageVolume[] = [];
@@ -1248,7 +1251,12 @@ const classifyStageAsset = (
 
   for (const mesh of authoredMeshes) {
     assertFiniteMeshGeometry(mesh);
-    if (mesh.name.startsWith("COL_ActorOnly_")) {
+    if (mesh.name.startsWith("COL_BeamSightOnly_")) {
+      assertNameHasSuffix(mesh.name, "COL_BeamSightOnly_");
+      assertNoHsProperties(mesh);
+      configureSemanticMesh(mesh);
+      beamSightOnlyColliders.push(mesh);
+    } else if (mesh.name.startsWith("COL_ActorOnly_")) {
       assertNameHasSuffix(mesh.name, "COL_ActorOnly_");
       assertNoHsProperties(mesh);
       configureActorCollider(mesh);
@@ -1395,6 +1403,7 @@ const classifyStageAsset = (
           volumeMeshes: authoredMeshes.filter(isStageRoomVariantTileMesh),
           visualMeshes,
           normalColliders,
+          beamSightOnlyColliders,
           humanNavSourceMeshes: navSources.map((source) => source.mesh),
           authoredNodes
         })
@@ -1418,6 +1427,7 @@ const classifyStageAsset = (
     normalColliders,
     actorOnlyColliders,
     humanOnlyColliders,
+    beamSightOnlyColliders,
     navSources,
     bitFlightNavSources,
     markers,
@@ -2194,6 +2204,9 @@ export const loadStageSpatialContext = async (
     const inactiveNormalColliders = new Set(
       roomVariantActivation?.inactive.colliderMeshes ?? []
     );
+    const inactiveBeamSightOnlyColliders = new Set(
+      roomVariantActivation?.inactive.beamSightOnlyColliders ?? []
+    );
     const inactiveHumanNavSources = new Set(
       roomVariantActivation?.inactive.humanNavSourceMeshes ?? []
     );
@@ -2205,6 +2218,11 @@ export const loadStageSpatialContext = async (
     const activeNormalColliders = Object.freeze(
       classification.normalColliders.filter(
         (mesh) => !inactiveNormalColliders.has(mesh)
+      )
+    );
+    const activeBeamSightOnlyColliders = Object.freeze(
+      classification.beamSightOnlyColliders.filter(
+        (mesh) => !inactiveBeamSightOnlyColliders.has(mesh)
       )
     );
     const activeHumanNavSources = Object.freeze(
@@ -2227,8 +2245,14 @@ export const loadStageSpatialContext = async (
       npc: humanMovementColliders,
       bit: bitMovementColliders
     });
-    const fullBeamBlockers = Object.freeze([...activeNormalColliders]);
-    const fullSightBlockers = Object.freeze([...activeNormalColliders]);
+    const fullBeamBlockers = Object.freeze([
+      ...activeNormalColliders,
+      ...activeBeamSightOnlyColliders
+    ]);
+    const fullSightBlockers = Object.freeze([
+      ...activeNormalColliders,
+      ...activeBeamSightOnlyColliders
+    ]);
     const dynamicAssets = createStageDynamicAssetRegistries({
       markerNodes: classification.markers.map((marker) => marker.node),
       volumeMeshes: classification.volumes.map((volume) => volume.mesh),
@@ -2304,6 +2328,7 @@ export const loadStageSpatialContext = async (
       normalColliders: activeNormalColliders,
       actorOnlyColliders: Object.freeze([...classification.actorOnlyColliders]),
       humanOnlyColliders: Object.freeze([...classification.humanOnlyColliders]),
+      beamSightOnlyColliders: activeBeamSightOnlyColliders,
       movementColliders: fullMovementColliders,
       beamBlockers: fullBeamBlockers,
       sightBlockers: fullSightBlockers,
