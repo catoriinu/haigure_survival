@@ -34,6 +34,11 @@ import {
   V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS
 } from "./performanceDiagnostics";
 import {
+  createV2AlarmFloorVisualSystem,
+  V2_ALARM_FLOOR_VISUALIZATION_ENABLED,
+  type V2AlarmFloorVisualSystem
+} from "./alarmFloorVisualSystem";
+import {
   createV2PlayerController,
   type V2PlayerController
 } from "./playerController";
@@ -196,6 +201,8 @@ const initializeRuntime = async () => {
   let ownedInput: V2PlayerInput | null = null;
   let ownedPlayer: V2PlayerController | null = null;
   let ownedSurvival: V2SurvivalRuntime | null = null;
+  let ownedAlarmFloorVisual: V2AlarmFloorVisualSystem | null =
+    null;
   let selectNavigationRoute: SchoolNpcNavigationPolicy | null =
     null;
 
@@ -267,6 +274,10 @@ const initializeRuntime = async () => {
       }
     });
     const survivalRuntime = ownedSurvival;
+    if (V2_ALARM_FLOOR_VISUALIZATION_ENABLED) {
+      ownedAlarmFloorVisual =
+        createV2AlarmFloorVisualSystem(scene);
+    }
     ownedDynamicRuntime = createSchoolStageDynamicRuntime({
       staticActiveSet: ownedStage.staticSpatialActiveSet,
       doorAssets: ownedStage.doorAssets,
@@ -324,6 +335,7 @@ const initializeRuntime = async () => {
       traversalCoordinator: ownedTraversalCoordinator,
       player: ownedPlayer,
       survival: ownedSurvival,
+      alarmFloorVisual: ownedAlarmFloorVisual,
       navigationPolicy: selectNavigationRoute
     };
   } catch (error) {
@@ -332,6 +344,7 @@ const initializeRuntime = async () => {
     titleMessage.textContent = formatLoadError(error);
     ownedTraversalCoordinator?.dispose();
     ownedDynamicRuntime?.dispose();
+    ownedAlarmFloorVisual?.dispose();
     ownedSurvival?.dispose();
     selectNavigationRoute?.dispose();
     ownedPlayer?.dispose();
@@ -351,6 +364,7 @@ const {
   traversalCoordinator,
   player,
   survival,
+  alarmFloorVisual,
   navigationPolicy
 } =
   await initializeRuntime();
@@ -554,6 +568,11 @@ engine.runRenderLoop(() => {
           )
         : survival.update(delta, elapsedSeconds);
     }
+    alarmFloorVisual?.update({
+      frame: survivalFrame.alarm,
+      playerFootPosition: playerFrame.footPosition,
+      elapsedSeconds
+    });
     if (runtimeStressScenario) {
       runtimeStressFrameCount += 1;
       if (
@@ -652,6 +671,7 @@ const disposeRuntime = () => {
   }
   traversalCoordinator.dispose();
   dynamicRuntime.dispose();
+  alarmFloorVisual?.dispose();
   survival.dispose();
   navigationPolicy.dispose();
   player.dispose();

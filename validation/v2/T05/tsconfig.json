@@ -10,6 +10,7 @@
     "npcCommand.test.ts",
     "alertCoordinator.test.ts",
     "alarmSystem.test.ts",
+    "alarmFloorVisualSystem.test.ts",
     "assemblyLayout.test.ts",
     "beamCombat.test.ts",
     "bitCombatIntegration.test.ts",

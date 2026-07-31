@@ -101,6 +101,7 @@ const PLAYER_ID = "player";
 const EMPTY_ALARM_FRAME: V2AlarmFrame = Object.freeze({
   events: Object.freeze([]),
   activeCandidateIds: Object.freeze([]),
+  activeFloors: Object.freeze([]),
   usedCandidateIds: Object.freeze([]),
   blinks: Object.freeze([])
 });

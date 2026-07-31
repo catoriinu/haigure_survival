@@ -67,6 +67,9 @@ import {
   runAlertCoordinatorTests
 } from "./alertCoordinator.test";
 import { runAlarmSystemTests } from "./alarmSystem.test";
+import {
+  runAlarmFloorVisualSystemTests
+} from "./alarmFloorVisualSystem.test";
 import { runAssemblyLayoutTests } from "./assemblyLayout.test";
 import { runBeamCombatTests } from "./beamCombat.test";
 import { runBitCombatIntegrationTests } from "./bitCombatIntegration.test";
@@ -1811,6 +1814,11 @@ const runValidation = async () => {
       })),
       ...runAlarmSystemTests().map((result) => ({
         name: `T05-2 アラーム: ${result.name}`,
+        ok: result.ok,
+        detail: result.detail
+      })),
+      ...runAlarmFloorVisualSystemTests().map((result) => ({
+        name: `T05-2 アラーム床表示: ${result.name}`,
         ok: result.ok,
         detail: result.detail
       })),
