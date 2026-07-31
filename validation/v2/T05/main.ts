@@ -62,6 +62,17 @@ import { createStageWorldBoundary } from "../../../src/world/stageWorldBoundary"
 import { createV2BeamSystem } from "../../../src/v2/beamCollision";
 import { createV2BitSystem } from "../../../src/v2/bitSystem";
 import type { V2HumanTargetSnapshot } from "../../../src/v2/combatTypes";
+
+const createFixtureNavigationAreas = () => {
+  const area = Object.freeze({ id: "fixture-area", volumes: Object.freeze([]) });
+  return Object.freeze({
+    all: Object.freeze([area]),
+    portals: Object.freeze([]),
+    getById: (id: string) => (id === area.id ? area : null),
+    resolve: () => Object.freeze({ area, portal: null }),
+    dispose: () => {}
+  });
+};
 import { createV2HitEffectSystem } from "../../../src/v2/hitEffectSystem";
 import {
   runAlertCoordinatorTests
@@ -836,10 +847,12 @@ const runValidation = async () => {
       id: "fixture-bit-spawn",
       role: "bit_spawn",
       bitFlightBand: courtyardRef,
+      navigationAreaId: null,
       mesh: spawnVolumeMesh
     });
     const runtimeStage = Object.freeze({
       bitNavigation: activeWorld,
+      navigationAreas: createFixtureNavigationAreas(),
       volumes: Object.freeze({
         all: Object.freeze([spawnVolume]),
         getById: (id: string) => (id === spawnVolume.id ? spawnVolume : null),
@@ -870,7 +883,14 @@ const runValidation = async () => {
       minimumSpawnDistance: 0.08,
       spawnMaxAttempts: 1024,
       spawnProjectionMaxDistance: 0.75,
-      random: runtimeRandom
+      random: runtimeRandom,
+      resolveTargetNavigationArea: (target: V2HumanTargetSnapshot) =>
+        Object.freeze({
+          targetId: target.id,
+          areaId: "fixture-area",
+          revision: 0,
+          anchor: target.footPosition.clone()
+        })
     });
     try {
       const initialActors =
@@ -1019,10 +1039,12 @@ const runValidation = async () => {
       id: "fixture-transition-bit-spawn",
       role: "bit_spawn",
       bitFlightBand: concourseRef,
+      navigationAreaId: null,
       mesh: transitionSpawnMesh
     });
     const transitionRuntimeStage = Object.freeze({
       bitNavigation: activeWorld,
+      navigationAreas: createFixtureNavigationAreas(),
       volumes: Object.freeze({
         all: Object.freeze([transitionSpawnVolume]),
         getById: (id: string) =>
@@ -1052,7 +1074,14 @@ const runValidation = async () => {
         minimumSpawnDistance: 0,
         spawnMaxAttempts: 8,
         spawnProjectionMaxDistance: 0.35,
-        random: () => 0.5
+        random: () => 0.5,
+        resolveTargetNavigationArea: (target: V2HumanTargetSnapshot) =>
+          Object.freeze({
+            targetId: target.id,
+            areaId: "fixture-area",
+            revision: 0,
+            anchor: target.footPosition.clone()
+          })
       }
     );
     try {

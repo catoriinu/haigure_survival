@@ -266,8 +266,19 @@ const createNpcFixture = (
     dispose: () => undefined
   };
 
+  const navigationArea = Object.freeze({
+    id: "t05-npc-combat-area",
+    volumes: Object.freeze([])
+  });
   const stage = {
     navigation,
+    navigationAreas: Object.freeze({
+      all: Object.freeze([navigationArea]),
+      portals: Object.freeze([]),
+      getById: (id: string) => id === navigationArea.id ? navigationArea : null,
+      resolve: () => Object.freeze({ area: navigationArea, portal: null }),
+      dispose: () => undefined
+    }),
     doorAssets: Object.freeze({
       all: Object.freeze([]),
       getById: () => null,
@@ -325,6 +336,13 @@ const createNpcFixture = (
       npcCount,
       initialBrainwashedNpcCount
     ),
+    resolveTargetNavigationArea: (target) =>
+      Object.freeze({
+        targetId: target.id,
+        areaId: navigationArea.id,
+        revision: 0,
+        anchor: target.footPosition.clone()
+      }),
     selectNavigationRoute: (context, candidates) => {
       if (observeRouteContext) {
         observeRouteContext(context);
@@ -2351,8 +2369,6 @@ const testNavigationAgentReplanPermission = () => {
     DISTANCE_NAVIGATION_ROUTE_POLICY,
     {
       projectionMaxDistance: 0.75,
-      targetMoveThreshold: 0.15,
-      pathRefreshIntervalSeconds: 0.5,
       waypointTolerance: 0.02,
       stuckDistanceThreshold: 0.005,
       stuckDurationSeconds: 1
@@ -2368,6 +2384,7 @@ const testNavigationAgentReplanPermission = () => {
       new Vector3(2, 0, 0),
       1,
       0.1,
+      0.1,
       false
     );
     assert(
@@ -2382,12 +2399,14 @@ const testNavigationAgentReplanPermission = () => {
       new Vector3(2, 0, 0),
       1,
       0.1,
+      0.1,
       true
     );
     const continued = agent.update(
       planned.location,
       new Vector3(2, 0, 2),
       1,
+      0.1,
       0.1,
       false
     );
@@ -2407,6 +2426,7 @@ const testNavigationAgentReplanPermission = () => {
       planned.location,
       new Vector3(2, 0, 2),
       1,
+      0.1,
       0.1,
       false
     );
@@ -2661,7 +2681,7 @@ const testNpcFairReplanBudgetAndFrameView = () => {
         elapsedSinceFirstBudget <=
           V2_NPC_PATH_REPLAN_DEADLINE_SECONDS &&
         completedView === fixture.system.getFrameView(),
-      "公平な全体予算で99件を0.5秒以内に処理できません。"
+      "公平な全体予算で99件を2秒以内に処理できません。"
     );
     return (
       `first=${firstBudgetView.pathRecalculationCount}/` +

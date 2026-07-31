@@ -56,6 +56,11 @@ import {
 } from "./stageDynamicAssets";
 import type { StageCatalogEntry } from "./stageCatalog";
 import {
+  createStageNavigationAreaRegistry,
+  type AuthoredStageNavigationAreaPortal,
+  type StageNavigationAreaRegistry
+} from "./stageNavigationAreas";
+import {
   createStageLinkRegistry,
   STAGE_LINK_KINDS,
   type StageLinkKind,
@@ -184,6 +189,7 @@ export type StageSpatialContext = Readonly<{
   bitNavigation: BitFlightNavigationWorld;
   markers: StageMarkerRegistry;
   volumes: StageVolumeRegistry;
+  navigationAreas: StageNavigationAreaRegistry;
   assemblyVenues: StageAssemblyVenueRegistry;
   links: StageLinkRegistry;
   boundary: StageBoundary;
@@ -204,13 +210,17 @@ type NavSet = (typeof NAV_SETS)[number];
 const PORTAL_ROLES = [
   "room_portal",
   "streaming_portal",
-  "door_trigger"
+  "door_trigger",
+  "navigation_area_portal"
 ] as const;
 type PortalRole = (typeof PORTAL_ROLES)[number];
 
 type StagePortal = Readonly<{
   id: string;
   role: PortalRole;
+  fromAreaId: string | null;
+  toAreaId: string | null;
+  bidirectional: boolean | null;
   mesh: Mesh;
 }>;
 
@@ -687,6 +697,7 @@ const classifyVolume = (
   const role = requireEnum(mesh.name, extras, "hs_role", STAGE_VOLUME_ROLES);
   const isBitSpawn = role === "bit_spawn";
   const isAssembly = role === "assembly";
+  const isNavigationArea = role === "navigation_area";
   if (
     DYNAMIC_STAGE_VOLUME_ROLES.includes(
       role as DynamicStageVolumeRole
@@ -705,7 +716,9 @@ const classifyVolume = (
         ? ["hs_id", "hs_role", "hs_zone_id", "hs_band_id"]
         : isAssembly
           ? ["hs_id", "hs_role", "hs_anchor_id"]
-          : ["hs_id", "hs_role"]
+          : isNavigationArea
+            ? ["hs_id", "hs_role", "hs_area_id"]
+            : ["hs_id", "hs_role"]
     );
   }
   const volume: StageVolume = Object.freeze({
@@ -713,6 +726,9 @@ const classifyVolume = (
     role,
     bitFlightBand: isBitSpawn
       ? parseBitFlightBandRef(mesh.name, extras, "hs")
+      : null,
+    navigationAreaId: isNavigationArea
+      ? requireReferenceId(mesh.name, extras, "hs_area_id")
       : null,
     mesh
   });
@@ -812,13 +828,15 @@ const classifyWorldBoundary = (
 
 const classifyPortal = (mesh: Mesh): StagePortal => {
   const extras = requireExtras(mesh);
-  assertAllowedHsProperties(mesh.name, extras, [
-    "hs_id",
-    "hs_role",
-    "hs_from",
-    "hs_to"
-  ]);
   const role = requireEnum(mesh.name, extras, "hs_role", PORTAL_ROLES);
+  const isNavigationAreaPortal = role === "navigation_area_portal";
+  assertAllowedHsProperties(
+    mesh.name,
+    extras,
+    isNavigationAreaPortal
+      ? ["hs_id", "hs_role", "hs_from", "hs_to", "hs_bidirectional"]
+      : ["hs_id", "hs_role", "hs_from", "hs_to"]
+  );
   const hasFrom = Object.prototype.hasOwnProperty.call(extras, "hs_from");
   const hasTo = Object.prototype.hasOwnProperty.call(extras, "hs_to");
   if (hasFrom !== hasTo) {
@@ -828,7 +846,20 @@ const classifyPortal = (mesh: Mesh): StagePortal => {
     requireString(mesh.name, extras, "hs_from");
     requireString(mesh.name, extras, "hs_to");
   }
-  return { id: requireId(mesh.name, extras), role, mesh };
+  return {
+    id: requireId(mesh.name, extras),
+    role,
+    fromAreaId: isNavigationAreaPortal
+      ? requireReferenceId(mesh.name, extras, "hs_from")
+      : null,
+    toAreaId: isNavigationAreaPortal
+      ? requireReferenceId(mesh.name, extras, "hs_to")
+      : null,
+    bidirectional: isNavigationAreaPortal
+      ? requireBoolean(mesh.name, extras, "hs_bidirectional")
+      : null,
+    mesh
+  };
 };
 
 const classifyMetadata = (
@@ -2342,6 +2373,20 @@ export const loadStageSpatialContext = async (
     });
     const markers = createMarkerRegistry(classification.markers);
     const volumes = createVolumeRegistry(classification.volumes);
+    const navigationAreas = createStageNavigationAreaRegistry(
+      volumes.all,
+      classification.portals
+        .filter((portal) => portal.role === "navigation_area_portal")
+        .map((portal): AuthoredStageNavigationAreaPortal =>
+          Object.freeze({
+            id: portal.id,
+            fromAreaId: portal.fromAreaId!,
+            toAreaId: portal.toAreaId!,
+            bidirectional: portal.bidirectional!,
+            mesh: portal.mesh
+          })
+        )
+    );
     dynamicVariants =
       createDynamicStageSpatialVariants(initialActiveSet);
     queries = createStageSpatialQueries(
@@ -2383,6 +2428,7 @@ export const loadStageSpatialContext = async (
     const ownedBitNavigation = bitNavigation;
     const ownedDynamicVariants = dynamicVariants;
     const ownedQueries = queries;
+    const ownedNavigationAreas = navigationAreas;
     const ownedWorldBoundary = worldBoundary;
     return Object.freeze({
       stage,
@@ -2398,6 +2444,7 @@ export const loadStageSpatialContext = async (
       bitNavigation: ownedBitNavigation,
       markers,
       volumes,
+      navigationAreas: ownedNavigationAreas,
       assemblyVenues,
       links,
       boundary,
@@ -2409,6 +2456,7 @@ export const loadStageSpatialContext = async (
         }
         disposed = true;
         ownedQueries.dispose();
+        ownedNavigationAreas.dispose();
         ownedDynamicVariants.dispose();
         ownedWorldBoundary?.dispose();
         ownedBitNavigation.dispose();

@@ -68,6 +68,11 @@ import type {
   V2PerformanceScenario
 } from "./performanceDiagnostics";
 import {
+  createV2TargetNavigationAreaTracker,
+  type V2TargetNavigationAreaFrame,
+  type V2TargetNavigationAreaTracker
+} from "./pursuitNavigation";
+import {
   V2_PLAYER_GUN_BEAM_MAXIMUM_LIFETIME_SECONDS,
   V2_PLAYER_GUN_BEAM_ORIGIN_OFFSET,
   V2_PLAYER_GUN_BEAM_SPEED,
@@ -367,8 +372,11 @@ export const createV2SurvivalRuntime = ({
   let ownedExecutionSystem: V2PublicExecutionSystem | null = null;
   let ownedBeamSystem: V2BeamSystem | null = null;
   let ownedHitEffectSystem: V2HitEffectSystem | null = null;
+  let ownedTargetNavigationAreaTracker: V2TargetNavigationAreaTracker | null =
+    createV2TargetNavigationAreaTracker(stage.navigationAreas);
   let humanTargets: readonly V2HumanTargetSnapshot[] =
     Object.freeze([]);
+  let targetNavigationAreaFrame: V2TargetNavigationAreaFrame = new Map();
   let frameOrbVisibilityPredicate:
     | ((position: Vector3) => boolean)
     | null = null;
@@ -411,6 +419,15 @@ export const createV2SurvivalRuntime = ({
         population.initialBrainwashedNpcCount,
       diagnosticsEnabled: performanceDiagnostics !== null,
       random,
+      resolveTargetNavigationArea: (target) => {
+        const snapshot = targetNavigationAreaFrame.get(target.id);
+        if (!snapshot) {
+          throw new Error(
+            `追跡標的のNavigation Area snapshotがありません: ${target.id}`
+          );
+        }
+        return snapshot;
+      },
       selectNavigationRoute
     });
     ownedBitSystem = createV2BitSystem(scene, stage, {
@@ -419,7 +436,16 @@ export const createV2SurvivalRuntime = ({
       spawnMaxAttempts: 512,
       spawnProjectionMaxDistance: 0.75,
       combatEnabled: true,
-      random
+      random,
+      resolveTargetNavigationArea: (target) => {
+        const snapshot = targetNavigationAreaFrame.get(target.id);
+        if (!snapshot) {
+          throw new Error(
+            `追跡標的のNavigation Area snapshotがありません: ${target.id}`
+          );
+        }
+        return snapshot;
+      }
     });
     ownedAlertCoordinator = createV2AlertCoordinator({
       alertDuration: ALERT_DURATION_SECONDS
@@ -444,6 +470,9 @@ export const createV2SurvivalRuntime = ({
       ),
       ...ownedNpcSystem.getFrameView().targets
     ]);
+    targetNavigationAreaFrame = ownedTargetNavigationAreaTracker.update(
+      humanTargets
+    );
     ownedBeamSystem = createV2BeamSystem({
       scene,
       stage,
@@ -479,6 +508,7 @@ export const createV2SurvivalRuntime = ({
     ownedAlertCoordinator?.clear();
     ownedBitSystem?.dispose();
     ownedNpcSystem?.dispose();
+    ownedTargetNavigationAreaTracker?.dispose();
     throw error;
   }
 
@@ -489,6 +519,7 @@ export const createV2SurvivalRuntime = ({
   const executionSystem = ownedExecutionSystem;
   const beamSystem = ownedBeamSystem;
   const hitEffectSystem = ownedHitEffectSystem;
+  const targetNavigationAreaTracker = ownedTargetNavigationAreaTracker;
   bitSystem.setDiagnosticsEnabled(
     performanceDiagnostics !== null
   );
@@ -1273,6 +1304,8 @@ export const createV2SurvivalRuntime = ({
           "bit.route-plans.escape",
           0
         );
+        performanceDiagnostics.count("bit.pursuit.area", 0);
+        performanceDiagnostics.count("bit.pursuit.detail", 0);
         performanceDiagnostics.count("bit.sight-rays", 0);
         performanceDiagnostics.count("bit.sphere-sweeps", 0);
         performanceDiagnostics.count(
@@ -1328,6 +1361,9 @@ export const createV2SurvivalRuntime = ({
         performanceSectionStartedAt
       );
       rebuildHumanTargets();
+      targetNavigationAreaFrame = targetNavigationAreaTracker.update(
+        humanTargets
+      );
 
       let executionShotEvents:
         | readonly V2ExecutionShotEvent[] = Object.freeze([]);
@@ -1385,6 +1421,14 @@ export const createV2SurvivalRuntime = ({
           "npc.waiting-for-path",
           npcFrameView.waitingForPathCount
         );
+        performanceDiagnostics?.count(
+          "npc.pursuit.area",
+          npcFrameView.areaPursuitCount
+        );
+        performanceDiagnostics?.count(
+          "npc.pursuit.detail",
+          npcFrameView.detailPursuitCount
+        );
         performanceSectionStartedAt =
           performanceDiagnostics?.beginSection(
             "player-combat"
@@ -1435,6 +1479,14 @@ export const createV2SurvivalRuntime = ({
           performanceDiagnostics.count(
             "bit.route-plans.escape",
             bitDiagnostics.routePlans.escape
+          );
+          performanceDiagnostics.count(
+            "bit.pursuit.area",
+            bitDiagnostics.areaPursuitCount
+          );
+          performanceDiagnostics.count(
+            "bit.pursuit.detail",
+            bitDiagnostics.detailPursuitCount
           );
           performanceDiagnostics.count(
             "bit.route-plan-ms.search",
@@ -1573,6 +1625,14 @@ export const createV2SurvivalRuntime = ({
         performanceDiagnostics?.count(
           "npc.waiting-for-path",
           npcFrameView.waitingForPathCount
+        );
+        performanceDiagnostics?.count(
+          "npc.pursuit.area",
+          npcFrameView.areaPursuitCount
+        );
+        performanceDiagnostics?.count(
+          "npc.pursuit.detail",
+          npcFrameView.detailPursuitCount
         );
         rebuildHumanTargets();
         if (phase === "assembly") {
@@ -1947,6 +2007,7 @@ export const createV2SurvivalRuntime = ({
       alarmSystem.dispose();
       bitSystem.dispose();
       npcSystem.dispose();
+      targetNavigationAreaTracker.dispose();
       alertCoordinator.clear();
       humanTargets = Object.freeze([]);
       pendingPlayerBeamRequests = [];

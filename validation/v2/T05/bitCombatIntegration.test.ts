@@ -51,6 +51,17 @@ import type {
   BitSystemAcceptanceFixture
 } from "./bitSystemAcceptance.test";
 
+const createFixtureNavigationAreas = () => {
+  const area = Object.freeze({ id: "fixture-area", volumes: Object.freeze([]) });
+  return Object.freeze({
+    all: Object.freeze([area]),
+    portals: Object.freeze([]),
+    getById: (id: string) => (id === area.id ? area : null),
+    resolve: () => Object.freeze({ area, portal: null }),
+    dispose: () => {}
+  });
+};
+
 export type BitCombatIntegrationCheck = Readonly<{
   name: string;
   ok: boolean;
@@ -523,10 +534,12 @@ const createHarness = (
     id: `t05-bit-combat-spawn-${initialBitCount}`,
     role: "bit_spawn",
     bitFlightBand: TEST_BAND_REF,
+    navigationAreaId: null,
     mesh: spawn
   });
   const spatial = Object.freeze({
     bitNavigation: navigation,
+    navigationAreas: createFixtureNavigationAreas(),
     volumes: Object.freeze({
       all: Object.freeze([volume]),
       getById: (id: string) => (id === volume.id ? volume : null),
@@ -566,7 +579,14 @@ const createHarness = (
     minimumSpawnDistance: 0,
     spawnMaxAttempts: 8,
     spawnProjectionMaxDistance: 0.35,
-    random: random.random
+    random: random.random,
+    resolveTargetNavigationArea: (target: V2HumanTargetSnapshot) =>
+      Object.freeze({
+        targetId: target.id,
+        areaId: "fixture-area",
+        revision: 0,
+        anchor: target.footPosition.clone()
+      })
   });
 
   return Object.freeze({
@@ -1666,10 +1686,12 @@ const runRedTransitionSpeedCheck = (
     id: "t05-red-bit-transition-spawn",
     role: "bit_spawn",
     bitFlightBand: fixture.concourseRef,
+    navigationAreaId: null,
     mesh: spawn
   });
   const spatial = Object.freeze({
     bitNavigation: fixture.navigation,
+    navigationAreas: createFixtureNavigationAreas(),
     volumes: Object.freeze({
       all: Object.freeze([volume]),
       getById: (id: string) => (id === volume.id ? volume : null),
@@ -1698,7 +1720,14 @@ const runRedTransitionSpeedCheck = (
     minimumSpawnDistance: 0,
     spawnMaxAttempts: 8,
     spawnProjectionMaxDistance: 0.35,
-    random: random.random
+    random: random.random,
+    resolveTargetNavigationArea: (target: V2HumanTargetSnapshot) =>
+      Object.freeze({
+        targetId: target.id,
+        areaId: "fixture-area",
+        revision: 0,
+        anchor: target.footPosition.clone()
+      })
   });
   try {
     const target = createTarget(

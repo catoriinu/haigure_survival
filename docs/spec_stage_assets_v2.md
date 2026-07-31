@@ -389,6 +389,30 @@ TypeScriptカタログの`worldBoundaryMode`は、B04対応学校とT05-2Vの対
 
 `room_portal`と`streaming_portal`で接続先の論理領域が必要な場合は、`hs_from`と`hs_to`へ非空間IDを置く。Portal Mesh自体を衝突やNavMesh接続に使用しない。ビット用遷移を`PRT_*`へ重複登録しない。
 
+#### 7.7.1 Navigation Areaと接続Portal
+
+Navigation Areaは、遠距離追跡を対象の現在座標へ毎回引き直さず、対象が属する論理領域の固定代表点まで進めるためのV2共通ステージ基盤である。学校の階番号、一定間隔のグリッド、座標の高さ順などをRuntimeが推測してはならない。学校、広い屋外、吹き抜けを持つ商業施設を含む各ステージは、作者がその移動構造に合わせた任意形状のAreaと接続PortalをGLBへ明示する。
+
+Areaは複数の閉じた`VOL_NavigationArea_*` Meshを同じ`hs_area_id`で束ねてよい。これにより、L字形、離れた床片を通路で結ぶ形、上下に重なる領域を、巨大なAABBや単純な12m格子で近似せず表現できる。必須propertiesは次のとおり。
+
+| Key | 型 | 内容 |
+|---|---|---|
+| `hs_id` | string | Volume pieceとして一意なID |
+| `hs_role` | string | `navigation_area`固定 |
+| `hs_area_id` | string | 複数pieceを束ねるopaqueなArea ID |
+
+Area間の通過境界は薄い閉じた`PRT_NavigationArea_*` Meshで表す。必須propertiesは`hs_id`、`hs_role="navigation_area_portal"`、`hs_from`、`hs_to`、`hs_bidirectional`である。Portalは追跡状態の切替境界であり、物理衝突、光線遮蔽、NavMesh生成、実際の接続可否を代替しない。移動可能性の正本は引き続き人間用またはBIT用NavMeshと明示遷移である。
+
+分割粒度は、将来のステージ制作時に次のトレードオフを明示的に判断する。
+
+- 粗すぎるAreaは、壁越しや長い迂回路の先にいる対象を早期に「同一Area」と判定し、詳細経路探索へ戻すため、最適化効果を失う。完全な壁、階層差、長い迂回、入口が限定された棟や区画は、同じAreaへまとめない。
+- 細かすぎるAreaは、対象移動によるrevision変更と追跡者の境界通過を増やし、再計画回数、作者作業、監査対象を増やす。視認や戦闘上ほぼ同じ連続空間を、距離だけを理由に細分化しない。
+- Area境界は、扉、廊下の分岐、階段・エレベーターの出入口、屋内外ゲートなど、経路選択が実際に変わる狭窄部へ置く。壁の両側が近いという理由だけで接続Portalを置かない。
+- Areaの代表点から対象Area内へ入る経路がNavMesh上で成立し、Portalを横切った直後に元Areaへ戻らないことを監査する。境界付近ではPortal包含中の直前Areaを保持するため、Area Volumeの重複で遷移を表現しない。
+- `player_spawn`、`npc_spawn`、`bit_spawn`をPortal内部へ配置しない。初期位置はちょうど1つのAreaに含める。通常移動可能領域にAreaの欠落やPortal以外の重複を残さない。
+
+新規ステージは、Area ID集合、Volume piece、Portal参照、双方向性、スポーン包含、代表的な全接続経路を資産監査へ追加する。Area情報を持たない旧ステージへ座標推測や自動格子生成でフォールバックせず、そのステージのGLBを本契約へ移行してから二段階追跡を有効にする。分割の見直しはゲームバランス調整であると同時に性能契約の変更であり、NPC 99体とステージ想定BIT数による追跡負荷を再計測する。
+
 ### 7.8 `LNK_<id>_A/B`
 
 `LNK_*`は、連続NavMeshで表せない梯子、昇降機、テレポート、ビット通過窓などの狭い開口接続だけに使用する。1つのlinkは次のEmpty 2個で構成する。

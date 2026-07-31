@@ -289,6 +289,8 @@ GENERATED_PREFIXES = (
     "COL_ElevatorCar_",
     "COL_ElevatorThresholdPlate_",
     "VOL_Elevator",
+    "VOL_NavigationArea_",
+    "PRT_NavigationArea_",
     "COL_HumanOnly_ElevatorGate_",
     "LNK_school-elevator-",
 )
@@ -2157,6 +2159,58 @@ def build_assembly_venues(
                 "hs_id": volume_id,
                 "hs_role": "assembly",
                 "hs_anchor_id": anchor_id,
+            },
+        )
+
+
+def build_navigation_areas(
+    semantic_collection: bpy.types.Collection,
+) -> None:
+    stage_minimum_x = -18.39
+    stage_maximum_x = 63.19
+    stage_minimum_y = -14.29
+    stage_maximum_y = 51.29
+    area_specs = (
+        ("Ground", "school-ground", -0.49, 3.55),
+        ("Upper01", "school-upper-01", 3.59999, 7.15),
+        ("Upper02", "school-upper-02", 7.19999, 10.75),
+        ("Upper03", "school-upper-03", 10.79999, 14.35),
+        ("Roof", "school-roof", 14.39999, 19.0),
+    )
+    for suffix, area_id, minimum_z, maximum_z in area_specs:
+        create_mesh_object(
+            f"VOL_NavigationArea_{suffix}",
+            [
+                (
+                    (stage_minimum_x, stage_minimum_y, minimum_z),
+                    (stage_maximum_x, stage_maximum_y, maximum_z),
+                )
+            ],
+            semantic_collection,
+            properties={
+                "hs_id": f"navigation-area-piece-{area_id}",
+                "hs_role": "navigation_area",
+                "hs_area_id": area_id,
+            },
+        )
+    for index in range(len(area_specs) - 1):
+        from_spec = area_specs[index]
+        to_spec = area_specs[index + 1]
+        create_mesh_object(
+            f"PRT_NavigationArea_{index + 1:02d}",
+            [
+                (
+                    (stage_minimum_x, stage_minimum_y, from_spec[3]),
+                    (stage_maximum_x, stage_maximum_y, to_spec[2]),
+                )
+            ],
+            semantic_collection,
+            properties={
+                "hs_id": f"navigation-area-portal-{index + 1:02d}",
+                "hs_role": "navigation_area_portal",
+                "hs_from": from_spec[1],
+                "hs_to": to_spec[1],
+                "hs_bidirectional": True,
             },
         )
 
@@ -5910,6 +5964,7 @@ def main() -> None:
     build_stair_transition_volumes(semantic_collection)
     build_rooftop_boundary_transition(semantic_collection)
     build_assembly_venues(semantic_collection)
+    build_navigation_areas(semantic_collection)
     build_b04_school_world_boundary(
         visual_collection,
         semantic_collection,

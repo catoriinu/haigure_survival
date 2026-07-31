@@ -27,7 +27,8 @@ export const STAGE_VOLUME_ROLES = [
   "door_sweep",
   "elevator_call_mat",
   "elevator_threshold",
-  "elevator_car_occupancy"
+  "elevator_car_occupancy",
+  "navigation_area"
 ] as const;
 
 export type StageVolumeRole = (typeof STAGE_VOLUME_ROLES)[number];
@@ -36,6 +37,7 @@ export type StageVolume = Readonly<{
   id: string;
   role: StageVolumeRole;
   bitFlightBand: BitFlightBandRef | null;
+  navigationAreaId: string | null;
   mesh: Mesh;
 }>;
 

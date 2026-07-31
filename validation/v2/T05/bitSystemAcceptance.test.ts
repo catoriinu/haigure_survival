@@ -60,6 +60,17 @@ import type {
   V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
 
+const createFixtureNavigationAreas = () => {
+  const area = Object.freeze({ id: "fixture-area", volumes: Object.freeze([]) });
+  return Object.freeze({
+    all: Object.freeze([area]),
+    portals: Object.freeze([]),
+    getById: (id: string) => (id === area.id ? area : null),
+    resolve: () => Object.freeze({ area, portal: null }),
+    dispose: () => {}
+  });
+};
+
 export type BitSystemAcceptanceCheck = Readonly<{
   name: string;
   ok: boolean;
@@ -226,10 +237,12 @@ const createFixtureStage = (
     id: `bit-acceptance-spawn-${fixtureIndex}`,
     role: "bit_spawn",
     bitFlightBand: band,
+    navigationAreaId: null,
     mesh
   });
   const stage = Object.freeze({
     bitNavigation: navigation,
+    navigationAreas: createFixtureNavigationAreas(),
     volumes: Object.freeze({
       all: Object.freeze([volume]),
       getById: (id: string) => (id === volume.id ? volume : null),
@@ -313,6 +326,7 @@ const createDynamicBitRevisionFixtureStage = (
     id: `bit-dynamic-revision-spawn-${fixtureIndex}`,
     role: "bit_spawn",
     bitFlightBand: band,
+    navigationAreaId: null,
     mesh: spawnMesh
   });
   let revision = 0;
@@ -406,6 +420,7 @@ const createDynamicBitRevisionFixtureStage = (
   };
   const stage = Object.freeze({
     bitNavigation: navigation,
+    navigationAreas: createFixtureNavigationAreas(),
     volumes: Object.freeze({
       all: Object.freeze([volume]),
       getById: (id: string) => (id === volume.id ? volume : null),
@@ -466,7 +481,14 @@ const createSystem = (
     minimumSpawnDistance,
     spawnMaxAttempts: initialBitCount === 1 ? 8 : 1024,
     spawnProjectionMaxDistance: initialBitCount === 1 ? 0.35 : 0.75,
-    random
+    random,
+    resolveTargetNavigationArea: (target: V2HumanTargetSnapshot) =>
+      Object.freeze({
+        targetId: target.id,
+        areaId: "fixture-area",
+        revision: 0,
+        anchor: target.footPosition.clone()
+      })
   });
 
 const createTarget = (
