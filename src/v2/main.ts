@@ -730,6 +730,10 @@ engine.runRenderLoop(() => {
         `集合地点 ${survivalFrame.assemblyVenueId}\n` +
         `NPC ${survivalFrame.npcCount}  BIT ${survivalFrame.bitCount}  ` +
         `BEAM ${survivalFrame.activeBeamCount}\n` +
+        `NPC内訳 未洗脳 ${survivalFrame.npcHudCounts.unbrainwashed}  ` +
+        `ハイグレ ${survivalFrame.npcHudCounts.haigure}  ` +
+        `gun ${survivalFrame.npcHudCounts.gun}  ` +
+        `no-gun ${survivalFrame.npcHudCounts.noGun}\n` +
         `視認 ${survivalFrame.visualTargetCount}  ` +
         `警戒対象 ${survivalFrame.alertTargetCount}  ` +
         `共有 ${survivalFrame.activeAlertCount}\n` +
