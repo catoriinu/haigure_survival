@@ -929,14 +929,6 @@ export const createV2SurvivalRuntime = ({
     if (events.impacts.length === 0) {
       return;
     }
-    for (const event of events.impacts) {
-      audioEventQueue.enqueue(
-        Object.freeze({
-          kind: "beam-impact" as const,
-          position: event.hit.point.clone()
-        })
-      );
-    }
     const impactedTargetIds = new Set<string>();
     const npcImpacts: V2NpcBeamImpact[] = [];
     const notificationEntries: Array<
@@ -946,6 +938,7 @@ export const createV2SurvivalRuntime = ({
         originKind:
           V2BeamFrameEvents["impacts"][number]["originKind"];
         target: V2HumanTargetSnapshot;
+        impactPosition: Vector3;
         npcImpactIndex: number | null;
         playerAccepted: boolean;
       }>
@@ -985,6 +978,7 @@ export const createV2SurvivalRuntime = ({
           targetId,
           originKind: event.originKind,
           target: event.hit.actor,
+          impactPosition: event.hit.point.clone(),
           npcImpactIndex,
           playerAccepted
         })
@@ -1007,6 +1001,12 @@ export const createV2SurvivalRuntime = ({
           ? entry.playerAccepted
           : npcImpactResults[entry.npcImpactIndex].accepted;
       if (accepted) {
+        audioEventQueue.enqueue(
+          Object.freeze({
+            kind: "character-hit" as const,
+            position: entry.impactPosition.clone()
+          })
+        );
         hitEffectSystem.start(entry.target);
       }
       if (

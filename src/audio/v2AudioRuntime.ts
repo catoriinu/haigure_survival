@@ -45,7 +45,7 @@ export type V2GameplayAudioBridgeEvent =
       position: Vector3;
     }>
   | Readonly<{
-      kind: "beam-impact";
+      kind: "character-hit";
       position: Vector3;
     }>
   | Readonly<{
@@ -125,7 +125,7 @@ export const createV2GameplayAudioBridge = ({
           sfxDirector.playBitTarget(() => position);
         } else if (event.kind === "beam-shot") {
           sfxDirector.playBeamNonTarget(() => position);
-        } else if (event.kind === "beam-impact") {
+        } else if (event.kind === "character-hit") {
           sfxDirector.playHit(() => position);
         } else if (event.kind === "alarm") {
           if (assets.isSeAvailable(alarm)) {

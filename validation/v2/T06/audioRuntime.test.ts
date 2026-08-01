@@ -110,7 +110,7 @@ export const runAudioRuntimeTests = async () =>
       );
       queue.enqueue(
         Object.freeze({
-          kind: "beam-impact" as const,
+          kind: "character-hit" as const,
           position: new Vector3(3, 0, 0)
         })
       );
@@ -124,7 +124,7 @@ export const runAudioRuntimeTests = async () =>
       const second = queue.drain();
       assert(
         first.map((event) => event.kind).join(",") ===
-          "bit-target,beam-shot,beam-impact,alarm" &&
+          "bit-target,beam-shot,character-hit,alarm" &&
           second.length === 0,
         `一回drain後にイベントが残っています: first=${first.length}, second=${second.length}`
       );
@@ -146,7 +146,7 @@ export const runAudioRuntimeTests = async () =>
       );
       queue.enqueue(
         Object.freeze({
-          kind: "beam-impact" as const,
+          kind: "character-hit" as const,
           position: Vector3.Zero()
         })
       );
@@ -214,7 +214,7 @@ export const runAudioRuntimeTests = async () =>
               position: new Vector3(2, 0, 0)
             }),
             Object.freeze({
-              kind: "beam-impact" as const,
+              kind: "character-hit" as const,
               position: new Vector3(3, 0, 0)
             }),
             Object.freeze({
@@ -243,7 +243,7 @@ export const runAudioRuntimeTests = async () =>
           ),
           "SEイベントのworld位置が配送中に失われました。"
         );
-        return "bit-target／beam-shot／beam-impact／alarmを各1回配送";
+        return "bit-target／beam-shot／character-hit／alarmを各1回配送";
       } finally {
         bridge.dispose();
       }

@@ -13,7 +13,7 @@ export type V2GameplayAudioEvent =
       position: Vector3;
     }>
   | Readonly<{
-      kind: "beam-impact";
+      kind: "character-hit";
       position: Vector3;
     }>
   | Readonly<{
