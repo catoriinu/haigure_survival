@@ -45,7 +45,11 @@ export type V2PlayerFrame = Readonly<{
 }>;
 
 export type V2PlayerController = {
-  update(delta: number, allowMove: boolean): V2PlayerFrame;
+  update(
+    delta: number,
+    allowMove: boolean,
+    horizontalSpeedScale: number
+  ): V2PlayerFrame;
   getFootPosition(): Vector3;
   getEyePosition(): Vector3;
   getVerticalState(): PlayerVerticalState;
@@ -75,6 +79,14 @@ const assertEyeHeightScale = (scale: number) => {
   ) {
     throw new Error(
       `eyeHeightScaleは${V2_PLAYER_MIN_EYE_HEIGHT_SCALE}以上${V2_PLAYER_MAX_EYE_HEIGHT_SCALE}以下の有限値が必要です。`
+    );
+  }
+};
+
+const assertHorizontalSpeedScale = (scale: number) => {
+  if (!Number.isFinite(scale) || scale < 0) {
+    throw new Error(
+      "horizontalSpeedScaleには0以上の有限値が必要です。"
     );
   }
 };
@@ -290,12 +302,13 @@ export const createV2PlayerController = ({
   });
 
   return {
-    update: (delta, allowMove) => {
+    update: (delta, allowMove, horizontalSpeedScale) => {
       assertActive();
       assertDelta(delta);
       if (typeof allowMove !== "boolean") {
         throw new Error("allowMoveにはbooleanが必要です。");
       }
+      assertHorizontalSpeedScale(horizontalSpeedScale);
       frameStartFootPosition.copyFrom(collisionMesh.position);
       height.capture(frameStartHeightSnapshot);
       if (!stage.boundary.contains(frameStartFootPosition)) {
@@ -326,7 +339,7 @@ export const createV2PlayerController = ({
         movementYaw,
         delta,
         allowMove,
-        moveSpeed
+        moveSpeed * horizontalSpeedScale
       );
       const heightFrame = height.move(
         collisionMesh,

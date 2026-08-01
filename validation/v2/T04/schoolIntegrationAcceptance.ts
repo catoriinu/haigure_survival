@@ -730,6 +730,11 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
     return this.unexpected("getFrame");
   }
 
+  drainAudioEvents() {
+    this.assertActive();
+    return Object.freeze([]);
+  }
+
   canPlayerMove() {
     this.assertActive();
     return true;

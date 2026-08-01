@@ -954,6 +954,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
               options.stage.queries.containsVolume(
                 "water",
                 point
+              ) ||
+              options.stage.navigationAreas.portals.some(
+                (portal) => portal.contains(point)
               )
           ).samplePoints(
             options.npcCount,

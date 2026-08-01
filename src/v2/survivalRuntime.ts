@@ -46,6 +46,12 @@ import {
   type V2TargetProvenance
 } from "./combatTypes";
 import {
+  createV2GameplayAudioEventQueue,
+  type V2GameplayAudioEvent
+} from "./gameplayAudioEventQueue";
+
+export type { V2GameplayAudioEvent } from "./gameplayAudioEventQueue";
+import {
   createV2NpcSystem,
   type V2NpcBeamImpact,
   type V2NpcBeamSpawn,
@@ -245,6 +251,7 @@ export interface V2SurvivalRuntime {
   prepareVisualResources(): Promise<void>;
   update(deltaSeconds: number, elapsedSeconds: number): V2SurvivalFrame;
   getFrame(): V2SurvivalFrame;
+  drainAudioEvents(): readonly V2GameplayAudioEvent[];
   canPlayerMove(): boolean;
   selectPlayerCompletion(state: V2PlayerCompletionState): void;
   getNpcCommandCandidates(): readonly V2NpcCommandCandidate[];
@@ -569,6 +576,12 @@ export const createV2SurvivalRuntime = ({
   let alarmTriggerCount = 0;
   let pendingPlayerBeamRequests: V2BeamRequest[] = [];
   let pendingPlayerGunFireEvents: V2PlayerGunFireEvent[] = [];
+  const audioEventQueue = createV2GameplayAudioEventQueue();
+  const previousBitTargetIds = new Map(
+    bitSystem
+      .getFrameView()
+      .targetStates.map((target) => [target.bitId, target.targetId])
+  );
   let playerBlockedNpcIds: readonly string[] = Object.freeze([]);
   let previousBitThreats: readonly V2NpcExternalThreat[] =
     Object.freeze([]);
@@ -590,6 +603,45 @@ export const createV2SurvivalRuntime = ({
       ...npcSystem.getFrameView().targets
     ]);
     return humanTargets;
+  };
+
+  const recordBeamSpawn = (request: V2BeamRequest) => {
+    audioEventQueue.enqueue(
+      Object.freeze({
+        kind: "beam-shot" as const,
+        originKind: request.originKind,
+        position: request.origin.clone()
+      })
+    );
+    return beamSystem.spawn(request);
+  };
+
+  const recordBitTargetEvents = () => {
+    const frameView = bitSystem.getFrameView();
+    const positionById = new Map(
+      frameView.actorSpheres.map((actor) => [actor.id, actor.center])
+    );
+    for (const target of frameView.targetStates) {
+      const previousTargetId = previousBitTargetIds.get(target.bitId) ?? null;
+      if (
+        target.targetId !== null &&
+        target.targetId !== previousTargetId
+      ) {
+        const position = positionById.get(target.bitId);
+        if (!position) {
+          throw new Error(
+            `BIT音声イベントの位置がありません: ${target.bitId}`
+          );
+        }
+        audioEventQueue.enqueue(
+          Object.freeze({
+            kind: "bit-target" as const,
+            position: position.clone()
+          })
+        );
+      }
+      previousBitTargetIds.set(target.bitId, target.targetId);
+    }
   };
 
   const getPlayerTarget = () => {
@@ -648,6 +700,8 @@ export const createV2SurvivalRuntime = ({
     beamSystem.clear();
     hitEffectSystem.clear();
     alertCoordinator.clear();
+    audioEventQueue.clear();
+    previousBitTargetIds.clear();
     alarmFrame = EMPTY_ALARM_FRAME;
     pendingPlayerBeamRequests = [];
     pendingPlayerGunFireEvents = [];
@@ -874,6 +928,14 @@ export const createV2SurvivalRuntime = ({
   const applyBeamImpacts = (events: V2BeamFrameEvents) => {
     if (events.impacts.length === 0) {
       return;
+    }
+    for (const event of events.impacts) {
+      audioEventQueue.enqueue(
+        Object.freeze({
+          kind: "beam-impact" as const,
+          position: event.hit.point.clone()
+        })
+      );
     }
     const impactedTargetIds = new Set<string>();
     const npcImpacts: V2NpcBeamImpact[] = [];
@@ -1126,6 +1188,7 @@ export const createV2SurvivalRuntime = ({
         rebuildHumanTargets();
       }
       phase = "execution-complete";
+      audioEventQueue.clear();
     }
   };
 
@@ -1423,6 +1486,14 @@ export const createV2SurvivalRuntime = ({
           deltaSeconds,
           humans: humanTargets
         });
+        for (const event of alarmFrame.events) {
+          audioEventQueue.enqueue(
+            Object.freeze({
+              kind: "alarm" as const,
+              position: event.position.clone()
+            })
+          );
+        }
         performanceDiagnostics?.finishSection(
           "alarm",
           performanceSectionStartedAt
@@ -1530,6 +1601,7 @@ export const createV2SurvivalRuntime = ({
           targets: humanTargets,
           externalAlerts: activeAlerts
         });
+        recordBitTargetEvents();
         performanceDiagnostics?.finishSection(
           "bit",
           performanceSectionStartedAt
@@ -1659,7 +1731,7 @@ export const createV2SurvivalRuntime = ({
             npcBeamSpawns.push(
               Object.freeze({
                 sourceId: request.sourceId,
-                beamId: beamSystem.spawn(request)
+                beamId: recordBeamSpawn(request)
               })
             );
           }
@@ -1667,7 +1739,7 @@ export const createV2SurvivalRuntime = ({
             Object.freeze(npcBeamSpawns)
           );
           for (const request of bitBeamRequests) {
-            beamSystem.spawn(request);
+            recordBeamSpawn(request);
           }
           performanceDiagnostics?.finishSection(
             "beam",
@@ -1768,7 +1840,7 @@ export const createV2SurvivalRuntime = ({
           executionBeamRequests.length
         );
         for (const request of executionBeamRequests) {
-          beamSystem.spawn(request);
+          recordBeamSpawn(request);
         }
         performanceDiagnostics?.finishSection(
           "beam",
@@ -1787,10 +1859,10 @@ export const createV2SurvivalRuntime = ({
             pendingPlayerGunFireEvents.length
         );
         for (const request of pendingPlayerBeamRequests) {
-          beamSystem.spawn(request);
+          recordBeamSpawn(request);
         }
         for (const event of pendingPlayerGunFireEvents) {
-          beamSystem.spawn(event.beamRequest);
+          recordBeamSpawn(event.beamRequest);
         }
         performanceDiagnostics?.finishSection(
           "beam",
@@ -1899,6 +1971,10 @@ export const createV2SurvivalRuntime = ({
     getFrame: () => {
       assertActive();
       return frame;
+    },
+    drainAudioEvents: () => {
+      assertActive();
+      return audioEventQueue.drain();
     },
     canPlayerMove: () => {
       assertActive();
@@ -2097,6 +2173,8 @@ export const createV2SurvivalRuntime = ({
       phase = "execution";
       pendingPlayerBeamRequests = [];
       pendingPlayerGunFireEvents = [];
+      audioEventQueue.clear();
+      previousBitTargetIds.clear();
       rebuildHumanTargets();
       frame = buildFrame();
     },
@@ -2114,6 +2192,8 @@ export const createV2SurvivalRuntime = ({
       humanTargets = Object.freeze([]);
       pendingPlayerBeamRequests = [];
       pendingPlayerGunFireEvents = [];
+      audioEventQueue.dispose();
+      previousBitTargetIds.clear();
       disposed = true;
     }
   };

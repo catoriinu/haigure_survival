@@ -14,6 +14,7 @@ export type VolumePanel = {
   setVisible: (visible: boolean) => void;
   setLevel: (category: AudioCategory, level: number) => void;
   getLevel: (category: AudioCategory) => number;
+  dispose: () => void;
 };
 
 const volumeCategories: { id: AudioCategory; label: string }[] = [
@@ -116,6 +117,9 @@ export const createVolumePanel = ({
     setLevel: (category, level) => {
       setLevel(category, level, false);
     },
-    getLevel: (category) => levels[category]
+    getLevel: (category) => levels[category],
+    dispose: () => {
+      root.remove();
+    }
   };
 };
