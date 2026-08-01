@@ -143,8 +143,8 @@
 - [x] 単一BIT搬送APIを追加し、安全な飛行帯への投影、Agent・経路・Area履歴の再初期化を同時に行う
 - [x] Follower同期射撃Cooldownを0.6秒へ変更し、常時反発を廃止して狭路では中央へ戻る安定隊列Anchorへ置き換える
 - [x] 未洗脳NPCへ12m・左右各95度・3Hzの洗脳状態NPC／BIT視認を追加し、複数脅威から最小距離を最大化する逃走先を選ぶ
-- [ ] Audio、T04扉、T05 BIT／NPC、T06、通常Web、Electron、型検査、build、配布テキスト検査を完了する
-- [ ] 検証結果を記録し、計画どおり分割commit、push、Draft PR #64更新まで行う
+- [x] Audio、T04扉、T05 BIT／NPC、T06、通常Web、Electron、型検査、build、配布テキスト検査を完了する
+- [x] 検証結果を記録し、計画どおり分割commit、push、Draft PR #64更新まで行う
 
 ## 完了条件
 
@@ -215,3 +215,25 @@ C操作が通常学校で候補0件となっていた原因は、扉Runtimeが�
 - `git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、学校バイナリ・生成器・全NavMesh・カタログhash・`src/world/**`差分0件を確認した。
 
 未洗脳NPC自身による洗脳済みNPC／BITの能動的な視界探索と、複数脅威から逃走元を選ぶ仕様変更は、ユーザー指示どおりこの追加修正へ含めず、次の設計タスクへ残す。push、Pull Request更新、レビュー、merge、`develop`同期、worktree整理も行わない。
+
+### 2026-08-02 通常ゲームRuntime追加修正結果
+
+光線の衝突音声eventを`character-hit`へ統一し、人物へのImpactが受理されて`hit-a`へ遷移した時だけ人物ごとに1回発行するよう変更した。壁・扉などの遮蔽物への衝突、同一frameの重複、既に被弾中・洗脳中・洗脳完了済みの人物では発行しない。
+
+room扉の`VIS_DoorPanel_Handle_*`とtoilet扉の`VIS_DoorPanel_Knob_*`を必須操作Anchorとして資産読込時に解決し、候補距離・角度、安定ソート、HUDの枠とC表示を同じ現在world位置へ統一した。room／toiletとも占有による閉鎖要求拒否を廃止した。開閉中は人物・BITの移動Collider、光線・視線・BIT遮蔽から除外し、閉鎖完了直前に最終パネルと交差するプレイヤー・NPC・BITを両側のNavigation契約を満たす最短候補へ再配置する。再取得した占有snapshotで全対象がパネル外にあることを確認した後だけ`closed`を公開してColliderを戻す。単一BIT再配置では飛行帯投影とAgent・経路・Area・探索履歴の再初期化を同時に行う。
+
+Follower同期射撃Cooldownを正確に0.6秒へ短縮し、個体別0.3～0.8秒の発射遅延は維持した。毎frameの反発を削除し、NPC IDから決まる半径0.8m以内の隊列Anchorへ置き換えた。AnchorをNavMeshへ十分近く投影できない扉・階段などの狭路ではプレイヤー最終視認位置の中央追従へ戻り、一時的な重なりを許容する。Followの12m視認、遮蔽中5m維持、5秒連続見失い解除、速度0.5、Alarm・直接脅威・自律脅威よりFollowを優先する契約は維持した。
+
+Follow／Leave中でない生存未洗脳NPCへ、最大12m・左右各95度・遮蔽あり・3Hzラウンドロビンの自律脅威探索を追加した。洗脳状態NPCは空間index、BITは毎frame渡す脅威snapshotから探索し、次の探索で非視認なら自律脅威だけを解除する。直接脅威は別provenanceで維持し、複数脅威では全脅威への距離を減らさない候補を優先して、最小脅威距離、主脅威距離、制約済み候補への移動距離、固定順で選ぶ。候補ごとの`findPath()`を既存経路予算外で最大16回呼ぶ初期実装は99体性能fixtureで検出して削除し、選択後の実経路計算だけを既存Navigation再計画予算へ通した。通常Web初期化で検出したNPC spawnのPortal判定は、NavMesh投影点ではなく接地補正後の足元へ統一した。
+
+最終検証結果は次のとおり。
+
+- `typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t04`、`build:t05`、`build:t06`、通常`build`はすべてPASSした。
+- T04通常fixtureは115／115、実学校動的統合fixtureは68／68 PASS。room／toiletの占有中閉鎖開始、動作中の人物・BIT・光線・視線遮蔽0、人物・BIT退避後の`closed`公開、閉・開・途中のAnchor追従を確認した。
+- T05 NPC指示fixtureは22／22 PASS。0.6秒Cooldown境界、安定隊列、狭路の中央追従、12m／95度境界、遮蔽、洗脳NPC・BIT、複数脅威、3Hz公平性、視認解除、直接脅威維持、Follow優先を確認した。T05統合fixtureは296／296 PASSし、99体学校探索の最大計画待ち1 tick、99体隣接帯追跡2 tickを維持した。
+- T06専用fixtureは26／26 PASS。現在の取っ手位置を基準にした1m内外境界、F／E／C一回配送、HUD、音声event一回drain、既定音量VOICE／BGM／SE=0、保存値・MUTE、session再生成を確認した。
+- 通常Webは`http://127.0.0.1:5175/`でタイトル画面まで初期化し、VOICE／BGM／SE panel、Canvas 2件、favicon用data linkを確認した。新規タブのconsole warning／error、Babylon Logger error、未処理例外は0件だった。
+- Electron受入は全12項目PASS。Canvas開始とPointer Lock、洗脳選択解放、G→N→H→G、gun射撃、N移動、H停止、Enter復帰、再開始、BGM／SE／VOICE読込を確認し、console、renderer、unhandled rejection、load failure、render process異常は0件だった。
+- `git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、括弧・構文を確認した。学校Blender正本、GLB、生成器、全NavMesh、カタログhash、全体計画の差分は0件である。`src/world/**`はBIT有向経路cacheと今回明示された扉Runtime／動的Actor連携／資産型だけを変更した。
+
+実装を計画、命中音、取っ手操作、通常扉閉鎖退避、Follower、自律脅威回避、Portal足元判定、回帰補正、fixture更新、最終結果へ分割してcommitした。全検証後に`codex/v2-t06-runtime-core`を一度pushし、Draft Pull Request #64の本文へ検証結果、対象外、T06-2への引き渡しを反映する。レビュー、merge、`develop`同期、worktree整理は行わない。
