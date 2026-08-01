@@ -29,9 +29,13 @@ import {
   V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS,
   V2_NPC_FOLLOWER_FIRE_DELAY_MIN_SECONDS,
   V2_NPC_FOLLOW_SEPARATION_METERS,
+  V2_NPC_FOLLOW_SIGHT_DISTANCE_METERS,
   V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS,
+  V2_NPC_FOLLOW_SPEED,
+  V2_NPC_FOLLOW_TRACKING_DISTANCE_METERS,
   V2_NPC_CURRENT_TARGET_SIGHT_HERTZ,
   V2_NPC_LEAVE_MAXIMUM_SECONDS,
+  V2_NPC_LEAVE_SPEED,
   createV2NpcSystem,
   type V2NpcCommandQuery,
   type V2NpcNavigationRouteContext,
@@ -936,7 +940,7 @@ const testFollowMovementAndRelease = () => {
 
     fixture.setSightResolver(() => true);
     fixture.system.update(
-      1.2,
+      V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS + 0.1,
       player,
       EMPTY_ALARM_EVENTS
     );
@@ -946,16 +950,44 @@ const testFollowMovementAndRelease = () => {
         .tracking.every(
           (tracking) => tracking.commandMode === "follow"
         ),
-      "最初の2秒未満の視線喪失でFollowが解除されました。"
+      "5m以内の視線遮蔽でFollowが解除されました。"
+    );
+    const distantPlayer = createPlayerTarget(
+      new Vector3(0, 0, -2)
+    );
+    fixture.setMovementBlocked(true);
+    fixture.setSightResolver(null);
+    fixture.system.update(
+      1 / V2_NPC_CURRENT_TARGET_SIGHT_HERTZ,
+      distantPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    fixture.setSightResolver(() => true);
+    fixture.system.update(
+      V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS - 0.8,
+      distantPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      fixture.system
+        .getFrameView()
+        .tracking.every(
+          (tracking) => tracking.commandMode === "follow"
+        ),
+      "5m超で最初の5秒未満の視線喪失によりFollowが解除されました。"
     );
     fixture.setSightResolver(null);
     fixture.system.update(
       1 / V2_NPC_CURRENT_TARGET_SIGHT_HERTZ,
-      player,
+      distantPlayer,
       EMPTY_ALARM_EVENTS
     );
     fixture.setSightResolver(() => true);
-    fixture.system.update(1.2, player, EMPTY_ALARM_EVENTS);
+    fixture.system.update(
+      V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS - 0.8,
+      distantPlayer,
+      EMPTY_ALARM_EVENTS
+    );
     assert(
       fixture.system
         .getFrameView()
@@ -964,15 +996,16 @@ const testFollowMovementAndRelease = () => {
         ),
       "再視認で視線喪失時間が0へ戻りません。"
     );
-    fixture.system.update(0.81, player, EMPTY_ALARM_EVENTS);
+    fixture.system.update(0.81, distantPlayer, EMPTY_ALARM_EVENTS);
     assert(
       fixture.system
         .getFrameView()
         .tracking.every(
           (tracking) => tracking.commandMode === "none"
         ),
-      "連続2秒の視線喪失でFollowが解除されません。"
+      "5m超かつ連続5秒の視線喪失でFollowが解除されません。"
     );
+    fixture.setMovementBlocked(false);
 
     fixture.setSightResolver(null);
     assert(
@@ -1033,7 +1066,7 @@ const testFollowMovementAndRelease = () => {
           "follow",
       "Follower本人への有効被弾が本人だけを解除しません。"
     );
-    return "約0.8m分離、再視認を含む2秒LOS、陣営不一致、プレイヤー全解除・本人だけ解除を確認";
+    return "約0.8m分離、5m近距離維持、再視認を含む5秒LOS、陣営不一致、プレイヤー全解除・本人だけ解除を確認";
   } finally {
     fixture.dispose();
   }
@@ -1092,6 +1125,375 @@ const testFollowStopAndResume = () => {
     return "1.0m停止・1.2m超再開のヒステリシスを確認";
   } finally {
     fixture.dispose();
+  }
+};
+
+const testFollowAndLeaveSpeeds = () => {
+  const aliveFixture = createNpcCommandFixture(1, 0);
+  const brainwashedFixture = createNpcCommandFixture(3, 3);
+  const alivePlayer = createPlayerTarget(Vector3.Zero());
+  const brainwashedPlayer = createPlayerTarget(
+    Vector3.Zero(),
+    "brainwash-complete-gun"
+  );
+  const stepSeconds = 0.2;
+  const followStart = new Vector3(0, 0, 0.4);
+  const assertFollowStep = (
+    fixture: NpcCommandFixture,
+    npcId: string,
+    player: V2HumanTargetSnapshot,
+    positions: readonly Vector3[]
+  ) => {
+    placeNpcs(fixture.system, positions);
+    assert(
+      fixture.system.requestCommand(
+        npcId,
+        "follow",
+        createCommandQuery(player)
+      ),
+      `${npcId}の速度検証用Followが受理されません。`
+    );
+    fixture.system.update(0, player, EMPTY_ALARM_EVENTS);
+    const before = getNpcTarget(
+      fixture.system,
+      npcId
+    ).footPosition.clone();
+    fixture.system.update(
+      stepSeconds,
+      player,
+      EMPTY_ALARM_EVENTS
+    );
+    assertNear(
+      Vector3.Distance(
+        before,
+        getNpcTarget(fixture.system, npcId).footPosition
+      ),
+      V2_NPC_FOLLOW_SPEED * stepSeconds,
+      TEST_EPSILON,
+      `${npcId}のFollow速度が0.5ではありません`
+    );
+    assert(
+      fixture.system.cancelFollow(npcId),
+      `${npcId}の速度検証用Followを解除できません。`
+    );
+  };
+  try {
+    assert(
+      V2_NPC_FOLLOW_SPEED === 0.5 &&
+        V2_NPC_LEAVE_SPEED === 0.3,
+      `Follow／Leave速度定数が不正です: ${V2_NPC_FOLLOW_SPEED}/${V2_NPC_LEAVE_SPEED}`
+    );
+    assertFollowStep(
+      aliveFixture,
+      "npc_0",
+      alivePlayer,
+      [followStart]
+    );
+
+    const expectedBrainwashedStates = [
+      "brainwash-complete-gun",
+      "brainwash-complete-no-gun",
+      "brainwash-complete-haigure"
+    ] as const;
+    for (
+      let targetIndex = 0;
+      targetIndex < expectedBrainwashedStates.length;
+      targetIndex += 1
+    ) {
+      const positions = [
+        new Vector3(-3, 0, 3),
+        new Vector3(3, 0, 3),
+        new Vector3(0, 0, -3)
+      ];
+      positions[targetIndex] = followStart;
+      const npcId = `npc_${targetIndex}`;
+      placeNpcs(brainwashedFixture.system, positions);
+      assert(
+        getNpcTarget(brainwashedFixture.system, npcId).state ===
+          expectedBrainwashedStates[targetIndex],
+        `${npcId}の速度検証状態が不正です。`
+      );
+      assertFollowStep(
+        brainwashedFixture,
+        npcId,
+        brainwashedPlayer,
+        positions
+      );
+    }
+
+    placeNpcs(aliveFixture.system, [followStart]);
+    const leaveBefore = getNpcTarget(
+      aliveFixture.system,
+      "npc_0"
+    ).footPosition.clone();
+    assert(
+      aliveFixture.system.requestCommand(
+        "npc_0",
+        "leave",
+        createCommandQuery(alivePlayer)
+      ),
+      "速度検証用Leaveが受理されません。"
+    );
+    aliveFixture.system.update(
+      0,
+      alivePlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    aliveFixture.system.update(
+      stepSeconds,
+      alivePlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assertNear(
+      Vector3.Distance(
+        leaveBefore,
+        getNpcTarget(aliveFixture.system, "npc_0").footPosition
+      ),
+      V2_NPC_LEAVE_SPEED * stepSeconds,
+      TEST_EPSILON,
+      "Leave速度が従来の0.3ではありません"
+    );
+    return "normal／gun／no-gun／haigureのFollow速度0.5、Leave速度0.3を確認";
+  } finally {
+    aliveFixture.dispose();
+    brainwashedFixture.dispose();
+  }
+};
+
+const testFollowDistanceAndOcclusion = () => {
+  const fixture = createNpcCommandFixture(1, 0, 5);
+  const initialPlayer = createPlayerTarget(Vector3.Zero());
+  const start = new Vector3(0, 0, 0.4);
+  const requestFollow = () => {
+    assert(
+      fixture.system.requestCommand(
+        "npc_0",
+        "follow",
+        createCommandQuery(initialPlayer)
+      ),
+      "距離・遮蔽検証用Followが受理されません。"
+    );
+  };
+  try {
+    assert(
+      V2_NPC_FOLLOW_TRACKING_DISTANCE_METERS === 5 &&
+        V2_NPC_FOLLOW_SIGHT_DISTANCE_METERS === 12 &&
+        V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS === 5,
+      "Follow距離契約5m／12m／5秒が不正です。"
+    );
+
+    placeNpcs(fixture.system, [start]);
+    requestFollow();
+    fixture.setSightResolver(() => true);
+    const nearOccludedPlayer = createPlayerTarget(
+      new Vector3(0, 0, -0.8)
+    );
+    fixture.system.update(
+      0,
+      nearOccludedPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    fixture.system.update(
+      V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS + 0.1,
+      nearOccludedPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(fixture.system, "npc_0").commandMode ===
+        "follow" &&
+        Vector3.Distance(
+          getNpcTarget(fixture.system, "npc_0").footPosition,
+          nearOccludedPlayer.footPosition
+        ) <= TEST_EPSILON,
+      "5m以内の遮蔽中に現在player位置を追従し続けません。"
+    );
+
+    fixture.setMovementBlocked(true);
+    fixture.setSightResolver(null);
+    placeNpcs(fixture.system, [start]);
+    requestFollow();
+    fixture.setSightResolver(() => true);
+    const sightBoundaryPlayer = createPlayerTarget(
+      new Vector3(
+        0,
+        0,
+        start.z -
+          V2_NPC_FOLLOW_SIGHT_DISTANCE_METERS *
+            BLENDER_METERS_TO_WORLD_UNITS
+      )
+    );
+    fixture.system.update(
+      V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS - 0.01,
+      sightBoundaryPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    fixture.setSightResolver(null);
+    fixture.system.update(
+      0.02,
+      sightBoundaryPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(fixture.system, "npc_0").commandMode ===
+        "follow",
+      "5秒直前に回復した12m境界のLOSを再確認せずFollowを解除しました。"
+    );
+
+    placeNpcs(fixture.system, [start]);
+    requestFollow();
+    const outsideSightPlayer = createPlayerTarget(
+      new Vector3(
+        0,
+        0,
+        start.z -
+          (V2_NPC_FOLLOW_SIGHT_DISTANCE_METERS *
+            BLENDER_METERS_TO_WORLD_UNITS +
+            0.001)
+      )
+    );
+    fixture.system.update(
+      0,
+      outsideSightPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    fixture.system.update(
+      V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS - 0.001,
+      outsideSightPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(fixture.system, "npc_0").commandMode ===
+        "follow",
+      "12m超の最初の5秒未満でFollowが解除されました。"
+    );
+    fixture.system.update(
+      0.002,
+      outsideSightPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(fixture.system, "npc_0").commandMode ===
+        "none",
+      "12m超かつ5m超のLOS不成立が5秒続いてもFollowが解除されません。"
+    );
+    return "遮蔽中5m追跡、LOS clearの12m境界、12m超の5秒解除を確認";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testFollowAlarmPriority = () => {
+  const fixture = createNpcCommandFixture(4, 3);
+  const aliveFixture = createNpcCommandFixture(1, 0);
+  const player = createPlayerTarget(
+    Vector3.Zero(),
+    "brainwash-complete-gun"
+  );
+  const alarmEvent = Object.freeze({
+    candidateId: "alarm-follow-priority",
+    targetId: "npc_3",
+    position: new Vector3(0, 0, 0.4)
+  });
+  try {
+    const alivePlayer = createPlayerTarget(Vector3.Zero());
+    placeNpcs(aliveFixture.system, [
+      new Vector3(0, 0, 0.4)
+    ]);
+    assert(
+      aliveFixture.system.requestCommand(
+        "npc_0",
+        "follow",
+        createCommandQuery(alivePlayer)
+      ),
+      "未洗脳external threat検証用Followが受理されません。"
+    );
+    aliveFixture.system.setExternalThreats([
+      Object.freeze({
+        sourceId: "bit-follow-priority",
+        targetId: "npc_0",
+        sourcePosition: new Vector3(0, 0, -1),
+        sightClear: true
+      })
+    ]);
+    aliveFixture.system.update(
+      0.2,
+      alivePlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    const aliveTracking = getTracking(
+      aliveFixture.system,
+      "npc_0"
+    );
+    assert(
+      aliveTracking.commandMode === "follow" &&
+        aliveTracking.targetId === null &&
+        getNpcTarget(aliveFixture.system, "npc_0").state ===
+          "normal",
+      "未洗脳Followerがexternal threatでevadeへ上書きされました。"
+    );
+
+    placeNpcs(fixture.system, [
+      new Vector3(0, 0, 0.4),
+      new Vector3(3, 0, 3),
+      new Vector3(-3, 0, 3),
+      new Vector3(0, 0, -3.8)
+    ]);
+    fixture.system.update(0, player, [alarmEvent]);
+    const alarmTracking = getTracking(fixture.system, "npc_0");
+    assert(
+      alarmTracking.targetId === "npc_3" &&
+        alarmTracking.provenance === "alert",
+      "Follow開始前のAlarm標的が成立しません。"
+    );
+    assert(
+      fixture.system.requestCommand(
+        "npc_0",
+        "follow",
+        createCommandQuery(player)
+      ),
+      "Alarm標的保持中のFollowが受理されません。"
+    );
+    const startedTracking = getTracking(
+      fixture.system,
+      "npc_0"
+    );
+    assert(
+      startedTracking.commandMode === "follow" &&
+        startedTracking.targetId === null &&
+        startedTracking.provenance === null,
+      "Follow開始時に既存Alarm標的が消去されません。"
+    );
+
+    fixture.system.update(0.2, player, [alarmEvent]);
+    const followingTracking = getTracking(
+      fixture.system,
+      "npc_0"
+    );
+    assert(
+      followingTracking.commandMode === "follow" &&
+        followingTracking.targetId === null &&
+        followingTracking.provenance === null,
+      "Follow中のAlarmが指示または標的を上書きしました。"
+    );
+    assert(
+      fixture.system.cancelFollow("npc_0"),
+      "Alarm遅延適用検証前にFollowを解除できません。"
+    );
+    fixture.system.update(0, player, EMPTY_ALARM_EVENTS);
+    const releasedTracking = getTracking(
+      fixture.system,
+      "npc_0"
+    );
+    assert(
+      releasedTracking.commandMode === "none" &&
+        releasedTracking.targetId === null &&
+        releasedTracking.provenance === null,
+      "Follow中に無視したAlarmが解除後に遅延適用されました。"
+    );
+    return "未洗脳external threat抑制、開始前Alarm消去、Follow中Alarm無視、解除後の遅延適用なしを確認";
+  } finally {
+    fixture.dispose();
+    aliveFixture.dispose();
   }
 };
 
@@ -2227,6 +2629,18 @@ export const runNpcCommandTests =
       executeTest(
         "Follow停止距離ヒステリシス",
         testFollowStopAndResume
+      ),
+      executeTest(
+        "Follow／Leave速度",
+        testFollowAndLeaveSpeeds
+      ),
+      executeTest(
+        "Follow距離・遮蔽契約",
+        testFollowDistanceAndOcclusion
+      ),
+      executeTest(
+        "FollowのAlarm優先",
+        testFollowAlarmPriority
       ),
       executeTest("Leave離脱と終了", testLeaveLifecycle),
       executeTest(

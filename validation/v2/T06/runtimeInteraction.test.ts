@@ -1,6 +1,17 @@
-import { Vector3 } from "@babylonjs/core";
+import {
+  MeshBuilder,
+  NullEngine,
+  Scene,
+  TransformNode,
+  Vector3
+} from "@babylonjs/core";
 
-import type { StageDoorInteractionCandidate } from "../../../src/world/stageDoorRuntime";
+import {
+  getDoorInteractionCandidates,
+  type StageDoorInteractionCandidate
+} from "../../../src/world/stageDoorRuntime";
+import type { StageDoorAsset } from "../../../src/world/stageDynamicAssets";
+import { V2_PLAYER_BASE_EYE_HEIGHT } from "../../../src/v2/playerController";
 import type { V2PlayerCompletionState } from "../../../src/v2/combatTypes";
 import type { V2NpcCommandCandidate } from "../../../src/v2/npcSystem";
 import { createV2PlayerInput } from "../../../src/v2/playerInput";
@@ -78,6 +89,54 @@ const playingFrame = Object.freeze({
 
 export const runRuntimeInteractionTests = async () =>
   Promise.all([
+    executeTest("通常眼高では欠落する床原点扉を足元基準で取得", () => {
+      const engine = new NullEngine();
+      const scene = new Scene(engine);
+      const doorNode = new TransformNode("T06DoorRoot", scene);
+      doorNode.position.z = 0.15;
+      const sweepMesh = MeshBuilder.CreateBox(
+        "T06DoorSweep",
+        { size: 0.1 },
+        scene
+      );
+      const door = Object.freeze({
+        id: "door-floor-root",
+        doorClass: "room" as const,
+        node: doorNode,
+        panels: Object.freeze([]),
+        sweepId: "door-floor-root-sweep",
+        sweepMesh,
+        elevatorId: null,
+        stopId: null
+      }) satisfies StageDoorAsset;
+      try {
+        const forward = Vector3.Forward();
+        const eyeCandidates = getDoorInteractionCandidates(
+          Object.freeze([door]),
+          Object.freeze({
+            origin: new Vector3(0, V2_PLAYER_BASE_EYE_HEIGHT, 0),
+            forward
+          })
+        );
+        const footCandidates = getDoorInteractionCandidates(
+          Object.freeze([door]),
+          Object.freeze({
+            origin: Vector3.Zero(),
+            forward
+          })
+        );
+        assert(
+          eyeCandidates.length === 0 &&
+            footCandidates[0]?.door.id === door.id &&
+            Math.abs(footCandidates[0].distanceMeters - 0.6) < 1e-6,
+          `扉候補の眼高／足元契約が不正です: eye=${eyeCandidates.length}, foot=${footCandidates.length}, distance=${footCandidates[0]?.distanceMeters ?? "none"}`
+        );
+        return "眼高1.33mでは0件、床原点から水平0.6mでは先頭候補1件";
+      } finally {
+        scene.dispose();
+        engine.dispose();
+      }
+    }),
     executeTest("入力drainからRuntimeへの一回配送", () => {
       const input = createV2PlayerInput(window);
       const calls = createInteractionCalls();

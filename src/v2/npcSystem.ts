@@ -120,11 +120,14 @@ export const V2_NPC_COARSE_REFRESH_SECONDS = 2;
 export const V2_NPC_DETAIL_ENTER_DISTANCE_METERS = 12;
 export const V2_NPC_DETAIL_EXIT_DISTANCE_METERS = 18;
 export const V2_NPC_COMMAND_MAXIMUM_DISTANCE_METERS = 2;
-export const V2_NPC_FOLLOW_SPEED = NPC_CHASE_SPEED;
+export const V2_NPC_FOLLOW_SPEED = 0.5;
+export const V2_NPC_LEAVE_SPEED = NPC_CHASE_SPEED;
 export const V2_NPC_FOLLOW_SEPARATION_METERS = 0.8;
 export const V2_NPC_FOLLOW_STOP_DISTANCE_METERS = 1;
 export const V2_NPC_FOLLOW_RESUME_DISTANCE_METERS = 1.2;
-export const V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS = 2;
+export const V2_NPC_FOLLOW_TRACKING_DISTANCE_METERS = 5;
+export const V2_NPC_FOLLOW_SIGHT_DISTANCE_METERS = 12;
+export const V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS = 5;
 export const V2_NPC_LEAVE_MAXIMUM_SECONDS = 5;
 export const V2_NPC_FOLLOWER_FIRE_DELAY_MIN_SECONDS = 0.3;
 export const V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS = 0.8;
@@ -159,6 +162,10 @@ const NPC_FOLLOW_STOP_DISTANCE =
   V2_NPC_FOLLOW_STOP_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
 const NPC_FOLLOW_RESUME_DISTANCE =
   V2_NPC_FOLLOW_RESUME_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_FOLLOW_TRACKING_DISTANCE =
+  V2_NPC_FOLLOW_TRACKING_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_FOLLOW_SIGHT_DISTANCE =
+  V2_NPC_FOLLOW_SIGHT_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
 const NPC_FOLLOW_LAST_DIRECTION_DISTANCE =
   1 * BLENDER_METERS_TO_WORLD_UNITS;
 const NPC_LEAVE_DESTINATION_DISTANCE =
@@ -3235,7 +3242,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.setNavigationIntent(
       npc,
       "leave",
-      V2_NPC_FOLLOW_SPEED,
+      V2_NPC_LEAVE_SPEED,
       playerTarget.footPosition
     );
     for (
@@ -3395,7 +3402,23 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       if (npc.command.mode !== "follow") {
         continue;
       }
-      if (currentTargetSightNpcIds.has(npc.id)) {
+      const playerDistance = Vector3.Distance(
+        npc.footPosition,
+        playerTarget.footPosition
+      );
+      if (playerDistance > NPC_FOLLOW_SIGHT_DISTANCE) {
+        npc.command.followSightClear = false;
+      }
+      const followGraceWouldExpire =
+        !npc.command.followSightClear &&
+        playerDistance > NPC_FOLLOW_TRACKING_DISTANCE &&
+        npc.command.followLostSightSeconds + deltaSeconds >=
+          V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS;
+      if (
+        playerDistance <= NPC_FOLLOW_SIGHT_DISTANCE &&
+        (currentTargetSightNpcIds.has(npc.id) ||
+          followGraceWouldExpire)
+      ) {
         if (this.diagnosticsEnabled) {
           this.currentTargetSightCheckCount += 1;
           this.sightRayCount += 1;
@@ -3406,7 +3429,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
             playerTarget.aimPosition
           ) === null;
       }
-      if (npc.command.followSightClear) {
+      if (
+        npc.command.followSightClear ||
+        playerDistance <= NPC_FOLLOW_TRACKING_DISTANCE
+      ) {
         npc.command.followLostSightSeconds = 0;
         npc.command.followLastSeenFootPosition =
           playerTarget.footPosition.clone();
@@ -3415,10 +3441,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
             this.playerHorizontalDirection
           );
         }
-        const playerDistance = Vector3.Distance(
-          npc.footPosition,
-          playerTarget.footPosition
-        );
         if (npc.command.followMovementStopped) {
           if (playerDistance > NPC_FOLLOW_RESUME_DISTANCE) {
             npc.command.followMovementStopped = false;
@@ -3579,7 +3601,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc,
       "leave",
       destination.position,
-      V2_NPC_FOLLOW_SPEED,
+      V2_NPC_LEAVE_SPEED,
       movementSeconds,
       allowPathRecalculation
     );

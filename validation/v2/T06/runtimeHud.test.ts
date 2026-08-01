@@ -9,6 +9,7 @@ import {
 
 import type { StageDoorInteractionCandidate } from "../../../src/world/stageDoorRuntime";
 import type { V2NpcCommandCandidate } from "../../../src/v2/npcSystem";
+import { V2_PLAYER_BASE_EYE_HEIGHT } from "../../../src/v2/playerController";
 import {
   createV2RuntimeHudController
 } from "../../../src/ui/v2RuntimeHud";
@@ -90,6 +91,7 @@ export const runRuntimeHudTests = async () =>
         camera
       });
       try {
+        scene.render();
         hud.update({
           active: true,
           frame: Object.freeze({
@@ -156,6 +158,81 @@ export const runRuntimeHudTests = async () =>
           "Pointer Lock解除相当のinactive更新でHUDが消えません。"
         );
         return "候補・解放・gun/no-gun・inactive・clearをDOMへ同期";
+      } finally {
+        hud.dispose();
+        host.remove();
+        scene.dispose();
+        engine.dispose();
+      }
+    }),
+    executeTest("扉HUDを床原点でなく扉中央高へ投影", () => {
+      const engine = new NullEngine();
+      const scene = new Scene(engine);
+      const camera = new FreeCamera(
+        "T06DoorHudCamera",
+        new Vector3(0, V2_PLAYER_BASE_EYE_HEIGHT, -0.15),
+        scene
+      );
+      camera.minZ = 0.01;
+      camera.setTarget(
+        new Vector3(0, V2_PLAYER_BASE_EYE_HEIGHT, 0)
+      );
+      scene.activeCamera = camera;
+      const host = document.createElement("div");
+      const canvas = document.createElement("canvas");
+      Object.defineProperty(canvas, "getBoundingClientRect", {
+        configurable: true,
+        value: () => new DOMRect(100, 50, 800, 450)
+      });
+      host.appendChild(canvas);
+      document.body.appendChild(host);
+
+      const doorNode = new TransformNode("T06DoorHudRoot", scene);
+      const sweepMesh = MeshBuilder.CreateBox(
+        "T06DoorHudSweep",
+        { size: 0.1 },
+        scene
+      );
+      sweepMesh.position.set(0, 0.275, 0);
+      const doorCandidate = Object.freeze({
+        door: Object.freeze({
+          id: "door-eye-height",
+          doorClass: "room" as const,
+          node: doorNode,
+          panels: Object.freeze([]),
+          sweepId: "door-eye-height-sweep",
+          sweepMesh,
+          elevatorId: null,
+          stopId: null
+        }),
+        angleRadians: 0,
+        distanceMeters: 0.6
+      }) satisfies StageDoorInteractionCandidate;
+      const hud = createV2RuntimeHudController({
+        host,
+        canvas,
+        camera
+      });
+      try {
+        scene.render();
+        hud.update({
+          active: true,
+          frame: Object.freeze({
+            phase: "playing" as const,
+            playerState: "normal" as const,
+            playerCompletionUnlocked: false
+          }),
+          npcCandidates: Object.freeze([]),
+          doorCandidates: Object.freeze([doorCandidate])
+        });
+        const doorMarker = getRole(host, "door-target");
+        assert(
+          !doorMarker.hidden &&
+            doorMarker.style.left.length > 0 &&
+            doorMarker.style.top.length > 0,
+          "水平視点で扉中央のC promptが表示されません。"
+        );
+        return "床面より高いsweep中央を水平視点のC promptへ投影";
       } finally {
         hud.dispose();
         host.remove();

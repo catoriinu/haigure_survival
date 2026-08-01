@@ -302,9 +302,11 @@ export const createV2RuntimeHudController = ({
       }
       const doorCandidate = doorCandidates[0];
       if (doorCandidate) {
+        doorCandidate.door.sweepMesh.computeWorldMatrix(true);
         projectTarget(
           doorMarker,
-          doorCandidate.door.node.getAbsolutePosition(),
+          doorCandidate.door.sweepMesh.getBoundingInfo().boundingBox
+            .centerWorld,
           canvasRect
         );
       }

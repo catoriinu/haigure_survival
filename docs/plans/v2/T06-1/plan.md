@@ -34,6 +34,22 @@
 
 > 各種音量について、テスト中は0にしておく。VOICE／BGM／SEのデフォルトをすべて0とする。
 
+### 2026-08-01 Follow・扉操作の追加修正指示
+
+> NPCのFollowはAlarmなどの自律命令より優先し、Alarmで上書きされないようにする。未洗脳・洗脳後のどちらにも同じ規則を適用する。Follow速度は通常NPCより速く、プレイヤーの通常移動速度の約80%となる切りのよい値にする。Cキーの扉開閉は、通常学校で候補表示も開閉も発生しない現象を調査し、実装済み機能の不具合であれば修正する。
+
+### 2026-08-01 Follow継続条件の追加修正指示
+
+> 階段でNPCが視界内にいるように見えてもFollowが途切れることがあるため、現行の継続条件を調査する。視線から一時的に外れても、ある程度近くにいる間はFollowを維持できる余裕のある条件へ変更する。NPCとBITの直線視界距離も確認する。
+
+### 2026-08-01 Follow視界距離の確定指示
+
+> Follow中のプレイヤーを見つける直線視界は最大12mとする。12m以内で視線が通れば維持し、視線が通らなくても5m以内なら維持する。視線が通らず、かつ5mを超えた状態が連続5秒続いた場合に解除する。
+
+### 2026-08-01 優先範囲の確定指示
+
+> 現在修正中のFollow継続条件と扉修正を最優先で完了する。未洗脳NPC自身の視界探索と、複数脅威から逃走元を選ぶ設計は、この修正完了後の別タスクとして進める。
+
 ## 目的
 
 既に実装済みの入力・状態・NPC指示・扉・学校動的Runtime APIを、学校バイナリへ触れず通常ゲーム入口へ接続する。F／E／C・G／N／H、候補表示、既定荒れ状態2、音声、水中速度50%、開始・破棄ライフサイクルを実プレイで成立させる。
@@ -44,6 +60,7 @@
 - 複数`MRK_PlayerSpawn_*`、`VOL_PlayerSpawnExclusion_*`、追加`npc_spawn`／`bit_spawn` Volumeの資産化。
 - 時間増援と開始地点に追従する出現禁止の最終統合。これらはT06-2が担当する。
 - 荒れ版教室の見た目・配置変更、タイトル画面の荒れ状態スライダー、T07性能最適化。
+- 未洗脳NPC自身が洗脳済みNPC／BITを能動的に発見する視界探索と、複数脅威から最寄りまたは最適な逃走元を選ぶ仕様変更。
 
 ## 依存と開始条件
 
@@ -92,6 +109,18 @@
 - [x] 保存済み設定がない場合のVOICE／BGM／SE既定値をすべて0へ変更する
 - [x] 保存済み音量、0～10の即時変更、MUTEの既存仕様を維持する
 - [x] T06専用fixtureで既定値0と保存済み設定の保持を検証する
+
+### Follow優先・継続条件・C扉操作の追加修正
+
+- [x] Alarm、自律AI、Follow、視線喪失の現行優先順位と、通常プレイヤー・NPCの実効速度を調査する
+- [x] C入力から扉候補、HUD、`requestDoorToggle()`までの接続と、通常学校で候補が0件になる座標契約違反を特定する
+- [x] Follow速度を`0.5 world unit/s`へ変更し、Leave速度は従来値`0.3`から変更しない
+- [x] Follow中は既存どおりAlarm・外部脅威より優先し、Follow開始前のAlarmとFollow中のAlarmが遅延適用されない契約を回帰テストへ固定する
+- [x] Follow直線視界を最大12mとし、5m以内なら遮蔽中も現在位置へ追従する。視界不成立かつ5m超が連続5秒続いた場合だけ解除する
+- [x] 5秒解除の直前は5Hzの通常視線slotを待たず最新LOSを再確認し、5秒直前に視界が戻ったNPCを誤解除しない境界条件を回帰テストへ固定する
+- [x] 通常入口の扉候補originをカメラ眼位置からプレイヤー足元へ修正し、HUDは扉sweep中央へ投影する。学校資産と`src/world/**`は変更しない
+- [x] T04／T05／T06 fixture、型検査、build、通常Web、ElectronでFollow・Alarm・階段相当遮蔽・C表示／開閉・console状態を検証する
+- [x] 追加修正結果と検証証跡を本計画へ記録し、対象差分だけをローカルcommitする。push・Pull Request更新は別途指示があるまで行わない
 
 ## 完了条件
 
@@ -142,3 +171,23 @@
 - `typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t04`、`build:t05`、`build:t06`、通常`build`はすべてPASSした。`git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、禁止所有ファイル差分なしを確認した。
 
 本回帰修正はlocal commitまでを対象とし、`origin/codex/v2-t06-runtime-core`とDraft Pull Request #64は別途指示があるまで更新しない。
+
+### 2026-08-01 Follow継続条件・C扉操作の追加修正結果
+
+Follow速度を従来の`0.3 world unit/s`から`0.5 world unit/s`へ変更し、Leave速度は`0.3`として別定数へ分離した。未洗脳、gun、no-gun、haigureの全Followerへ同じ速度を適用する。Follow開始時に既存のAlarm・自律標的・保留要求を消去し、Follow中に到着したAlarmと外部脅威を無視する既存優先契約をテストへ固定した。
+
+Followの直線視界上限を12m、遮蔽中も現在のプレイヤー位置を追跡する近距離を5m、視界不成立かつ5m超での解除猶予を連続5秒へ変更した。独立レビューで、5秒直前に視界が回復しても5Hz視線slotより先に解除され得る境界競合を検出したため、猶予満了直前かつ12m以内では最新LOSを必ず再確認するよう修正し、この時系列を回帰テストへ追加した。これにより、階段などで一時遮蔽されても5m以内なら無期限に維持し、5mを超えても視線が12m以内で再度通るか、5秒前に戻ればFollowを維持する。
+
+C操作が通常学校で候補0件となっていた原因は、扉Runtimeが床面の扉rootまで1m以内を要求する一方、通常入口が高さ1.33mのカメラ眼位置を候補originへ渡していた座標契約不一致だった。候補originをプレイヤー足元へ変更し、HUDのC promptは床rootではなく扉sweep meshのworld中央へ投影した。眼位置では0件、同じ水平位置の足元では0.6m先の扉が先頭候補となる実StageDoorRuntimeテスト、C一回配送、扉中央HUD投影を追加した。学校資産と`src/world/**`は変更していない。
+
+追加修正後の検証結果は次のとおり。
+
+- `typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t04`、`build:t05`、`build:t06`、通常`build`はすべてPASSした。
+- T05全体fixtureは295／295 PASS、NPC指示fixtureは19／19 PASS。Follow速度0.5、Leave速度0.3、normal／gun／no-gun／haigure共通適用、Alarm優先、5m遮蔽追跡、12m LOS、5秒直前の再視認、12m超5秒解除を確認し、console warning／errorとBabylon Logger errorは0件だった。
+- T06 fixtureは26／26 PASS。通常眼高では欠落する床原点扉を足元基準で取得し、F／E／C一回配送、扉sweep中央へのC prompt投影、候補消去を確認した。console warning／errorとBabylon Logger errorは0件だった。
+- T04通常fixtureは115／115 PASS、実学校動的統合fixtureは67／67 PASSで、各console warning／errorは0件だった。
+- 通常Webは最終コードで開始後30秒間`playing`を継続し、BIT帯内移動例外、更新停止、favicon 404は再発しなかった。in-app BrowserからのPointer Lock要求だけは制御面固有の`WrongDocumentError`となるため、実Pointer Lockを伴う連続操作はElectronで確認した。
+- Electron受入は全12項目PASS。Canvas開始とPointer Lock、`brainwash-in-progress`、G→N→H→G、gun射撃、N移動、H移動停止、Enter復帰、再開始、HUD／音量root重複0、BGM 1件・SE 22件・VOICE 314件の読込を確認した。音声失敗、console、renderer、load、render process消失、unresponsiveはすべて0件だった。位置依存のF／E／CはT05／T06の実Runtime fixtureで補完した。
+- `git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、学校バイナリ・生成器・全NavMesh・カタログhash・`src/world/**`差分0件を確認した。
+
+未洗脳NPC自身による洗脳済みNPC／BITの能動的な視界探索と、複数脅威から逃走元を選ぶ仕様変更は、ユーザー指示どおりこの追加修正へ含めず、次の設計タスクへ残す。push、Pull Request更新、レビュー、merge、`develop`同期、worktree整理も行わない。
