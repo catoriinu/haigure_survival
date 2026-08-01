@@ -21,6 +21,7 @@ import {
 import {
   isV2AliveState,
   isV2BrainwashState,
+  type V2ActorSphere,
   type V2CharacterState,
   type V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
@@ -34,6 +35,7 @@ import {
   V2_NPC_FOLLOW_SPEED,
   V2_NPC_FOLLOW_TRACKING_DISTANCE_METERS,
   V2_NPC_CURRENT_TARGET_SIGHT_HERTZ,
+  V2_NPC_AUTONOMOUS_THREAT_SIGHT_HERTZ,
   V2_NPC_LEAVE_MAXIMUM_SECONDS,
   V2_NPC_LEAVE_SPEED,
   createV2NpcSystem,
@@ -2496,6 +2498,314 @@ const testNarrowPassageFormationFallback = () => {
   }
 };
 
+const createBitThreat = (
+  id: string,
+  center: Vector3
+): V2ActorSphere =>
+  Object.freeze({
+    id,
+    kind: "bit" as const,
+    center: center.clone(),
+    radius: 0.05
+  });
+
+const testAutonomousThreatVisionAndEscape = () => {
+  const fixture = createNpcCommandFixture(2, 1);
+  const player = createPlayerTarget(Vector3.Zero());
+  const observerId = "npc_1";
+  const brainwashedId = "npc_0";
+  try {
+    placeNpcs(fixture.system, [
+      new Vector3(0, 0, 1),
+      Vector3.Zero()
+    ]);
+    const orientationPlayer = createPlayerTarget(
+      new Vector3(0, 0, 0.45)
+    );
+    assert(
+      fixture.system.requestCommand(
+        observerId,
+        "follow",
+        createCommandQuery(orientationPlayer)
+      ),
+      "自律視界検証前の正面方向設定に失敗しました。"
+    );
+    fixture.system.update(0, orientationPlayer, EMPTY_ALARM_EVENTS);
+    fixture.system.update(
+      0.2,
+      orientationPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      fixture.system.cancelFollow(observerId),
+      "自律視界検証前のFollow解除に失敗しました。"
+    );
+    fixture.setMovementBlocked(true);
+    const observer = getNpcTarget(fixture.system, observerId);
+    const observerAim = observer.aimPosition;
+    const updateSight = () =>
+      fixture.system.update(
+        1 / V2_NPC_AUTONOMOUS_THREAT_SIGHT_HERTZ + 0.001,
+        player,
+        EMPTY_ALARM_EVENTS
+      );
+
+    fixture.system.setNpcTransportPosition(
+      brainwashedId,
+      observer.footPosition.add(new Vector3(0, 0, 1))
+    );
+    fixture.system.setAutonomousThreatActors(Object.freeze([]));
+    updateSight();
+    let view = fixture.system.getFrameView();
+    assert(
+      getTracking(fixture.system, observerId).evadeThreatIds.includes(
+        brainwashedId
+      ) && view.autonomousThreatVisibleCount >= 1,
+      `未洗脳NPCが正面の洗脳済みNPCを自律視認しません: ` +
+        `states=${view.targets.map((target) => `${target.id}:${target.state}`).join(",")}` +
+        ` / threats=${getTracking(fixture.system, observerId).evadeThreatIds.join(",")}` +
+        ` / scans=${view.autonomousThreatSightCheckCount}` +
+        ` / visible=${view.autonomousThreatVisibleCount}`
+    );
+
+    fixture.system.setNpcTransportPosition(
+      brainwashedId,
+      new Vector3(20, 0, 20)
+    );
+    fixture.system.setAutonomousThreatActors(
+      Object.freeze([
+        createBitThreat(
+          "bit-range",
+          observerAim.add(new Vector3(0, 0, 3))
+        )
+      ])
+    );
+    updateSight();
+    assert(
+      getTracking(fixture.system, observerId).evadeThreatIds.includes(
+        "bit-range"
+      ),
+      "12m境界上のBITを自律視認しません。"
+    );
+
+    fixture.system.setAutonomousThreatActors(
+      Object.freeze([
+        createBitThreat(
+          "bit-range",
+          observerAim.add(new Vector3(0, 0, 3.001))
+        )
+      ])
+    );
+    updateSight();
+    assert(
+      !getTracking(fixture.system, observerId).evadeThreatIds.includes(
+        "bit-range"
+      ),
+      "12m超のBIT視認が次回3Hz探索で解除されません。"
+    );
+
+    const insideAngle = (94.9 * Math.PI) / 180;
+    const outsideAngle = (95.1 * Math.PI) / 180;
+    fixture.system.setAutonomousThreatActors(
+      Object.freeze([
+        createBitThreat(
+          "bit-angle",
+          observerAim.add(
+            new Vector3(
+              Math.sin(insideAngle) * 2,
+              0,
+              Math.cos(insideAngle) * 2
+            )
+          )
+        )
+      ])
+    );
+    updateSight();
+    assert(
+      getTracking(fixture.system, observerId).evadeThreatIds.includes(
+        "bit-angle"
+      ),
+      "左右95度内側のBITを自律視認しません。"
+    );
+    fixture.system.setAutonomousThreatActors(
+      Object.freeze([
+        createBitThreat(
+          "bit-angle",
+          observerAim.add(
+            new Vector3(
+              Math.sin(outsideAngle) * 2,
+              0,
+              Math.cos(outsideAngle) * 2
+            )
+          )
+        )
+      ])
+    );
+    updateSight();
+    assert(
+      !getTracking(fixture.system, observerId).evadeThreatIds.includes(
+        "bit-angle"
+      ),
+      "左右95度外側のBITを自律視認しました。"
+    );
+
+    fixture.setSightResolver(() => true);
+    fixture.system.setAutonomousThreatActors(
+      Object.freeze([
+        createBitThreat(
+          "bit-occluded",
+          observerAim.add(new Vector3(0, 0, 2))
+        )
+      ])
+    );
+    updateSight();
+    assert(
+      !getTracking(fixture.system, observerId).evadeThreatIds.includes(
+        "bit-occluded"
+      ),
+      "遮蔽されたBITを自律視認しました。"
+    );
+
+    fixture.system.setExternalThreats(
+      Object.freeze([
+        Object.freeze({
+          sourceId: "direct-threat",
+          targetId: observerId,
+          sourcePosition: observerAim.add(new Vector3(0, 0, -1)),
+          sightClear: false
+        })
+      ])
+    );
+    updateSight();
+    assert(
+      getTracking(fixture.system, observerId).evadeThreatIds.join("|") ===
+        "direct-threat",
+      "自律視認解除時に直接脅威まで消えました。"
+    );
+
+    fixture.setSightResolver(null);
+    fixture.system.setExternalThreats(Object.freeze([]));
+    fixture.system.setAutonomousThreatActors(
+      Object.freeze([
+        createBitThreat(
+          "bit-left",
+          observerAim.add(new Vector3(-0.5, 0, 1))
+        ),
+        createBitThreat(
+          "bit-right",
+          observerAim.add(new Vector3(0.5, 0, 1))
+        )
+      ])
+    );
+    updateSight();
+    view = fixture.system.getFrameView();
+    assert(
+      getTracking(fixture.system, observerId).evadeThreatIds.length === 2 &&
+        view.autonomousThreatMaximumSourceCount === 2 &&
+        view.autonomousThreatSightCheckCount === 1,
+      "複数BIT脅威または3Hz探索診断値が不正です。"
+    );
+    const beforeEscape = getNpcTarget(
+      fixture.system,
+      observerId
+    ).footPosition.clone();
+    fixture.setMovementBlocked(false);
+    fixture.system.update(0, player, EMPTY_ALARM_EVENTS);
+    for (let frame = 0; frame < 5; frame += 1) {
+      fixture.system.update(0.05, player, EMPTY_ALARM_EVENTS);
+    }
+    const afterEscape = getNpcTarget(
+      fixture.system,
+      observerId
+    ).footPosition;
+    assert(
+      afterEscape.z < beforeEscape.z &&
+        Vector3.Distance(afterEscape, observerAim) >
+          Vector3.Distance(beforeEscape, observerAim),
+      `複数脅威から最小距離を広げる方向へ逃走しません: ${beforeEscape.toString()} -> ${afterEscape.toString()}`
+    );
+
+    const followPlayer = createPlayerTarget(
+      afterEscape.add(new Vector3(0, 0, 0.4))
+    );
+    assert(
+      fixture.system.requestCommand(
+        observerId,
+        "follow",
+        createCommandQuery(followPlayer)
+      ),
+      "脅威回避中のFollow指示が受理されません。"
+    );
+    fixture.system.update(0.01, followPlayer, EMPTY_ALARM_EVENTS);
+    assert(
+      getTracking(fixture.system, observerId).commandMode === "follow" &&
+        getTracking(fixture.system, observerId).evadeThreatIds.length === 0,
+      "Followが自律視認・直接脅威・Alarmより優先されません。"
+    );
+    return "洗脳NPC・BIT、12m／95度、遮蔽、3Hz解除、直接脅威維持、複数脅威、Follow優先を確認";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testAutonomousThreatRoundRobinFairness = () => {
+  const fixture = createNpcCommandFixture(4, 0);
+  const player = createPlayerTarget(new Vector3(0, 0, -3));
+  const positions = [
+    new Vector3(-2, 0, 0),
+    new Vector3(-0.7, 0, 0),
+    new Vector3(0.7, 0, 0),
+    new Vector3(2, 0, 0)
+  ];
+  try {
+    placeNpcs(fixture.system, positions);
+    fixture.setMovementBlocked(true);
+    fixture.system.setAutonomousThreatActors(
+      Object.freeze(
+        positions.flatMap((position, observerIndex) =>
+          [
+            new Vector3(0, 0, 0.5),
+            new Vector3(0.5, 0, 0),
+            new Vector3(0, 0, -0.5),
+            new Vector3(-0.5, 0, 0)
+          ].map((offset, directionIndex) =>
+            createBitThreat(
+              `bit-fair-${observerIndex}-${directionIndex}`,
+              position
+                .add(offset)
+                .add(new Vector3(0, NPC_SPRITE_CENTER_HEIGHT, 0))
+            )
+          )
+        )
+      )
+    );
+    let scheduledCheckCount = 0;
+    for (let frame = 0; frame < 4; frame += 1) {
+      fixture.system.update(
+        1 / 12 + 0.001,
+        player,
+        EMPTY_ALARM_EVENTS
+      );
+      scheduledCheckCount +=
+        fixture.system.getFrameView()
+          .autonomousThreatSightCheckCount;
+    }
+    assert(
+      Array.from({ length: 4 }, (_unused, index) =>
+        getTracking(fixture.system, `npc_${index}`)
+      ).every((tracking) => tracking.evadeThreatIds.length > 0),
+      "3Hzラウンドロビンが4体すべてへ公平に到達しません。"
+    );
+    assert(
+      scheduledCheckCount >= 4,
+      `3Hzラウンドロビンの探索回数が不足しています: ${scheduledCheckCount}`
+    );
+    return `4体すべてを3Hzラウンドロビンで探索、checks=${scheduledCheckCount}`;
+  } finally {
+    fixture.dispose();
+  }
+};
+
 const testAutonomousCombatSuppression = () => {
   const baselineFixture = createNpcCommandFixture(3, 2);
   const followerFixture = createNpcCommandFixture(3, 2);
@@ -2748,6 +3058,14 @@ export const runNpcCommandTests =
       executeTest(
         "狭路の隊列Anchor fallback",
         testNarrowPassageFormationFallback
+      ),
+      executeTest(
+        "未洗脳NPCの自律脅威視認・回避",
+        testAutonomousThreatVisionAndEscape
+      ),
+      executeTest(
+        "自律脅威探索3Hz公平性",
+        testAutonomousThreatRoundRobinFairness
       ),
       executeTest(
         "Follow中の自律戦闘抑制",

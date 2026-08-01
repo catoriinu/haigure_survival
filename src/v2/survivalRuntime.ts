@@ -697,6 +697,7 @@ export const createV2SurvivalRuntime = ({
     npcSystem.clearCommands();
     npcSystem.setAiSuspended(true);
     npcSystem.setExternalThreats(Object.freeze([]));
+    npcSystem.setAutonomousThreatActors(Object.freeze([]));
     npcSystem.setPlayerBlockedTargetIds(Object.freeze([]));
     bitSystem.prepareForScriptedPhase();
     bitSystem.setAiSuspended(true);
@@ -1519,6 +1520,9 @@ export const createV2SurvivalRuntime = ({
         }
         alarmTriggerCount += alarmFrame.events.length;
         npcSystem.setExternalThreats(previousBitThreats);
+        npcSystem.setAutonomousThreatActors(
+          bitSystem.getFrameView().actorSpheres
+        );
         updatePlayerBlockedNpcIds();
         performanceSectionStartedAt =
           performanceDiagnostics?.beginSection("npc") ?? 0;
