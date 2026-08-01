@@ -219,6 +219,7 @@ export type StageDoorPanelAsset = Readonly<{
   node: TransformNode;
   openPoseNode: TransformNode;
   visualMeshes: readonly Mesh[];
+  interactionAnchorMesh: Mesh | null;
   colliderMeshes: readonly Mesh[];
   closedTransform: StageNodeLocalTransform;
   openTransform: StageNodeLocalTransform;
@@ -1019,6 +1020,26 @@ const createDoorRegistry = (
           `door_panel直下にはVIS_DoorPanel_*とCOL_DoorPanel_*が各1件以上必要です: ${panel.node.name}`
         );
       }
+      const interactionAnchorPrefix =
+        doorClass === "room"
+          ? "VIS_DoorPanel_Handle_"
+          : doorClass === "toilet_stall"
+            ? "VIS_DoorPanel_Knob_"
+            : null;
+      const interactionAnchorMeshes = visualMeshes.filter(
+        (mesh) =>
+          interactionAnchorPrefix !== null &&
+          mesh.name.startsWith(interactionAnchorPrefix)
+      );
+      if (
+        interactionAnchorMeshes.length !==
+        (interactionAnchorPrefix === null ? 0 : 1)
+      ) {
+        throw new Error(
+          `${doorClass} door_panelの操作Anchor数が不正です: ` +
+            `${panel.node.name}.${interactionAnchorMeshes.length}`
+        );
+      }
       for (const mesh of [...visualMeshes, ...colliderMeshes]) {
         assertNoHsProperties(mesh);
       }
@@ -1034,6 +1055,8 @@ const createDoorRegistry = (
           node: panel.node,
           openPoseNode: openPose.node,
           visualMeshes: Object.freeze([...visualMeshes]),
+          interactionAnchorMesh:
+            interactionAnchorMeshes[0] ?? null,
           colliderMeshes: Object.freeze([...colliderMeshes]),
           closedTransform,
           openTransform,

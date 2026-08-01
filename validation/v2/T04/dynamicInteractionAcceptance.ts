@@ -154,6 +154,14 @@ const createDoorAsset = (
     scene
   );
   collider.parent = panelNode;
+  const interactionAnchor = MeshBuilder.CreateBox(
+    doorClass === "toilet_stall"
+      ? `VIS_DoorPanel_Knob_${id}`
+      : `VIS_DoorPanel_Handle_${id}`,
+    { size: 0.02 },
+    scene
+  );
+  interactionAnchor.parent = panelNode;
   const sweep = MeshBuilder.CreateBox(
     `VOL_DoorSweep_${id}`,
     { width: 0.25, height: 0.2, depth: 0.1 },
@@ -166,7 +174,8 @@ const createDoorAsset = (
     doorId: id,
     node: panelNode,
     openPoseNode,
-    visualMeshes: Object.freeze([]),
+    visualMeshes: Object.freeze([interactionAnchor]),
+    interactionAnchorMesh: interactionAnchor,
     colliderMeshes: Object.freeze([collider]),
     closedTransform: localTransform(Vector3.Zero()),
     openTransform: Object.freeze({

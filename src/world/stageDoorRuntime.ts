@@ -88,6 +88,7 @@ export type StageDoorInteractionView = Readonly<{
 
 export type StageDoorInteractionCandidate = Readonly<{
   door: StageDoorAsset;
+  interactionPosition: Vector3;
   angleRadians: number;
   distanceMeters: number;
 }>;
@@ -240,6 +241,37 @@ export const intersectsStageDoorClosedPose = (
 const isStable = (state: DoorState): boolean =>
   state === "closed" || state === "open";
 
+const getDoorInteractionPosition = (
+  door: StageDoorAsset,
+  viewOrigin: Vector3
+): Vector3 => {
+  const anchors = door.panels.map((panel) => {
+    const anchor = panel.interactionAnchorMesh;
+    if (!anchor) {
+      throw new Error(
+        `通常扉の操作Anchorがありません: ${door.id}/${panel.id}`
+      );
+    }
+    anchor.computeWorldMatrix(true);
+    return Object.freeze({
+      panelId: panel.id,
+      position:
+        anchor.getBoundingInfo().boundingBox.centerWorld.clone()
+    });
+  });
+  anchors.sort(
+    (left, right) =>
+      Vector3.DistanceSquared(left.position, viewOrigin) -
+        Vector3.DistanceSquared(right.position, viewOrigin) ||
+      (left.panelId < right.panelId
+        ? -1
+        : left.panelId > right.panelId
+          ? 1
+          : 0)
+  );
+  return anchors[0].position;
+};
+
 export const getDoorInteractionCandidates = (
   doors: readonly StageDoorAsset[],
   view: StageDoorInteractionView
@@ -253,7 +285,7 @@ export const getDoorInteractionCandidates = (
   const forward = view.forward.scale(1 / Math.sqrt(forwardLengthSquared));
   const candidates: StageDoorInteractionCandidate[] = [];
   for (const door of doors) {
-    const position = door.node.getAbsolutePosition();
+    const position = getDoorInteractionPosition(door, view.origin);
     const offset = position.subtract(view.origin);
     const distanceWorldUnits = offset.length();
     if (
@@ -280,6 +312,7 @@ export const getDoorInteractionCandidates = (
     candidates.push(
       Object.freeze({
         door,
+        interactionPosition: position.clone(),
         angleRadians,
         distanceMeters:
           distanceWorldUnits / BLENDER_METERS_TO_WORLD_UNITS

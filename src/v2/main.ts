@@ -862,7 +862,7 @@ engine.runRenderLoop(() => {
       : Object.freeze([]);
     const doorCandidates = interactionActive
       ? dynamicRuntime.doors.getDoorInteractionCandidates({
-          origin: playerFrame.footPosition.clone(),
+          origin: playerFrame.eyePosition.clone(),
           forward: camera.getForwardRay().direction.clone()
         })
       : Object.freeze([]);

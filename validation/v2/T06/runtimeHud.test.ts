@@ -82,6 +82,7 @@ export const runRuntimeHudTests = async () =>
           elevatorId: null,
           stopId: null
         }),
+        interactionPosition: Vector3.Zero(),
         angleRadians: 0,
         distanceMeters: 0.5
       }) satisfies StageDoorInteractionCandidate;
@@ -205,6 +206,7 @@ export const runRuntimeHudTests = async () =>
           elevatorId: null,
           stopId: null
         }),
+        interactionPosition: new Vector3(0, 0.275, 0),
         angleRadians: 0,
         distanceMeters: 0.6
       }) satisfies StageDoorInteractionCandidate;
@@ -230,9 +232,9 @@ export const runRuntimeHudTests = async () =>
           !doorMarker.hidden &&
             doorMarker.style.left.length > 0 &&
             doorMarker.style.top.length > 0,
-          "水平視点で扉中央のC promptが表示されません。"
+          "水平視点で取っ手位置のC promptが表示されません。"
         );
-        return "床面より高いsweep中央を水平視点のC promptへ投影";
+        return "現在の取っ手world位置をC promptへ投影";
       } finally {
         hud.dispose();
         host.remove();

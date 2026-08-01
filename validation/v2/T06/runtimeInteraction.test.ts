@@ -1,6 +1,7 @@
 import {
   MeshBuilder,
   NullEngine,
+  Quaternion,
   Scene,
   TransformNode,
   Vector3
@@ -41,6 +42,7 @@ const createDoorCandidate = (
   Object.freeze({
     door: Object.freeze({ id: doorId }) as
       StageDoorInteractionCandidate["door"],
+    interactionPosition: Vector3.Zero(),
     angleRadians: 0,
     distanceMeters: 0.5
   });
@@ -89,7 +91,7 @@ const playingFrame = Object.freeze({
 
 export const runRuntimeInteractionTests = async () =>
   Promise.all([
-    executeTest("通常眼高では欠落する床原点扉を足元基準で取得", () => {
+    executeTest("現在の取っ手位置を眼位置基準で扉候補へ取得", () => {
       const engine = new NullEngine();
       const scene = new Scene(engine);
       const doorNode = new TransformNode("T06DoorRoot", scene);
@@ -99,11 +101,53 @@ export const runRuntimeInteractionTests = async () =>
         { size: 0.1 },
         scene
       );
+      const panelNode = new TransformNode("T06DoorPanel", scene);
+      panelNode.parent = doorNode;
+      const openPoseNode = new TransformNode("T06DoorOpenPose", scene);
+      openPoseNode.parent = doorNode;
+      const handleMesh = MeshBuilder.CreateBox(
+        "VIS_DoorPanel_Handle_T06",
+        { size: 0.05 },
+        scene
+      );
+      handleMesh.parent = panelNode;
+      handleMesh.position.set(0, V2_PLAYER_BASE_EYE_HEIGHT, 0);
+      const colliderMesh = MeshBuilder.CreateBox(
+        "COL_DoorPanel_T06",
+        { size: 0.05 },
+        scene
+      );
+      colliderMesh.parent = panelNode;
       const door = Object.freeze({
         id: "door-floor-root",
         doorClass: "room" as const,
         node: doorNode,
-        panels: Object.freeze([]),
+        panels: Object.freeze([
+          Object.freeze({
+            id: "door-floor-root-panel",
+            doorId: "door-floor-root",
+            node: panelNode,
+            openPoseNode,
+            visualMeshes: Object.freeze([handleMesh]),
+            interactionAnchorMesh: handleMesh,
+            colliderMeshes: Object.freeze([colliderMesh]),
+            closedTransform: Object.freeze({
+              position: Vector3.Zero(),
+              rotation: Quaternion.Identity(),
+              scaling: Vector3.One()
+            }),
+            openTransform: Object.freeze({
+              position: Vector3.Zero(),
+              rotation: Quaternion.Identity(),
+              scaling: Vector3.One()
+            }),
+            motion: Object.freeze({
+              kind: "slide" as const,
+              axis: Vector3.Right(),
+              distance: 0
+            })
+          })
+        ]),
         sweepId: "door-floor-root-sweep",
         sweepMesh,
         elevatorId: null,
@@ -118,20 +162,22 @@ export const runRuntimeInteractionTests = async () =>
             forward
           })
         );
-        const footCandidates = getDoorInteractionCandidates(
+        const offsetEyeCandidates = getDoorInteractionCandidates(
           Object.freeze([door]),
           Object.freeze({
-            origin: Vector3.Zero(),
+            origin: new Vector3(0, V2_PLAYER_BASE_EYE_HEIGHT, -0.3),
             forward
           })
         );
         assert(
-          eyeCandidates.length === 0 &&
-            footCandidates[0]?.door.id === door.id &&
-            Math.abs(footCandidates[0].distanceMeters - 0.6) < 1e-6,
-          `扉候補の眼高／足元契約が不正です: eye=${eyeCandidates.length}, foot=${footCandidates.length}, distance=${footCandidates[0]?.distanceMeters ?? "none"}`
+          eyeCandidates[0]?.door.id === door.id &&
+            offsetEyeCandidates[0]?.door.id === door.id &&
+            offsetEyeCandidates[0].interactionPosition.equals(
+              handleMesh.getBoundingInfo().boundingBox.centerWorld
+            ),
+          `取っ手基準の扉候補が不正です: eye=${eyeCandidates.length}, offset=${offsetEyeCandidates.length}`
         );
-        return "眼高1.33mでは0件、床原点から水平0.6mでは先頭候補1件";
+        return "閉状態の取っ手world中央を眼位置基準で候補へ取得";
       } finally {
         scene.dispose();
         engine.dispose();
