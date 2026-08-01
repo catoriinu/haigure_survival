@@ -323,11 +323,23 @@ export const runSurvivalRulesTests =
             })
           ]),
           activeCandidateIds: Object.freeze(["alarm-01"]),
+          activeFloors: Object.freeze([
+            Object.freeze({
+              candidateId: "alarm-01",
+              position: new Vector3(1, 2, 3),
+              supportNormal: Vector3.Up(),
+              tangent: Vector3.Right(),
+              radius: 0.25
+            })
+          ]),
           usedCandidateIds: Object.freeze(["alarm-01"]),
           blinks: Object.freeze([
             Object.freeze({
               candidateId: "alarm-01",
               position: new Vector3(4, 5, 6),
+              supportNormal: Vector3.Up(),
+              tangent: Vector3.Right(),
+              radius: 0.25,
               elapsedSeconds: 1,
               remainingSeconds: 4,
               blinkIntervalSeconds: 0.4,
@@ -337,6 +349,7 @@ export const runSurvivalRulesTests =
         });
         const cloned = cloneV2AlarmFrame(source);
         cloned.events[0].position.x = 10;
+        cloned.activeFloors[0].supportNormal.x = 11;
         cloned.blinks[0].position.z = 20;
         source.events[0].position.y = 30;
         source.blinks[0].position.x = 40;
@@ -344,15 +357,20 @@ export const runSurvivalRulesTests =
           ok:
             cloned !== source &&
             cloned.events !== source.events &&
+            cloned.activeFloors !== source.activeFloors &&
             cloned.blinks !== source.blinks &&
             cloned.events[0].position !==
               source.events[0].position &&
             cloned.blinks[0].position !==
               source.blinks[0].position &&
+            cloned.activeFloors[0].supportNormal !==
+              source.activeFloors[0].supportNormal &&
             cloned.events[0].position.x === 10 &&
             cloned.events[0].position.y === 2 &&
             cloned.blinks[0].position.x === 4 &&
             cloned.blinks[0].position.z === 20 &&
+            cloned.activeFloors[0].supportNormal.x === 11 &&
+            source.activeFloors[0].supportNormal.x === 0 &&
             source.events[0].position.x === 1 &&
             source.blinks[0].position.z === 6 &&
             Object.isFrozen(cloned.events) &&

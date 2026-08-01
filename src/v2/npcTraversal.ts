@@ -30,6 +30,10 @@ export type V2NpcTraversalState =
       doorId: string;
     }>
   | (Readonly<{
+      kind: "moving-to-elevator-call-mat";
+    }> &
+      V2NpcElevatorTraversalRoute)
+  | (Readonly<{
       kind: "waiting-elevator-call-input";
     }> &
       V2NpcElevatorTraversalRoute)
@@ -167,6 +171,7 @@ export const isV2NpcTraversalWalkingEnabled = (
 ): boolean =>
   state.kind === "walking" ||
   state.kind === "passing-door" ||
+  state.kind === "moving-to-elevator-call-mat" ||
   state.kind === "moving-to-elevator-wait" ||
   state.kind === "approaching-elevator-board";
 

@@ -161,6 +161,15 @@
 - 低リスク軽量化は、同一状態のエレベーターsnapshot再構築、待機者がいない`resolveReadyElevatorCalls()`の人物snapshot構築、同じ空間revisionのプレイヤーCollider・接地集合再同期、走行中の閉扉panel openness再適用を対象とする。AI頻度、人数、視認・経路・扉・エレベーター仕様は変更しない。
 - 計測HUDは旧ミニマップと同じ左上12pxへ移す。操作説明は現行位置を維持し、1280×720と1920×1080で非重複を確認する。
 
+2026-07-31 アラーム床可視化指示:
+
+> 現在アラーム床が実装されているのであれば、案1として分かりやすく色を付けてください。後で簡単に消せるようにもしてください。
+
+- 稼働中のアラーム床は、床面に沿う直径約1mの水色半透明リングとして、プレイヤーから約12m以内だけ表示する。ゆっくりした明滅で稼働中であることを示す。
+- 発報後は既存の5秒間点滅状態に合わせ、水色と黒のリングを切り替える。点滅終了後は表示を消す。
+- 学校3D資産、GLB、NavMesh、生成器、カタログhashは変更しない。衝突、視線、ビーム、BITの空間集合にも追加しない。
+- 表示は独立したRuntimeモジュール、明示的な有効化定数、固定数のmaterialとthin instanceで構成し、一箇所の定数変更または今回の単独commitのrevertで撤去できるようにする。
+
 ## エレベーター状態遷移図（変更前実装）
 
 ```mermaid
@@ -455,6 +464,12 @@ stateDiagram-v2
 - [x] T04-3B追跡負荷修正: 計測HUDを旧ミニマップ位置の左上へ移し、操作説明との重なりを解消する
 - [x] T04-3B追跡負荷修正: 対象fixture・型検査・build・通常Web／Electron・1280×720／1920×1080レイアウトを回帰する
 - [x] T04-3B追跡負荷修正: 独立レビュー、UTF-8・BOM・括弧・差分検査、結果更新後に1commitへまとめる
+- [x] T04-3Bアラーム床可視化: 現行の候補選択、侵入発報、5秒点滅、通常入口の未描画状態と資産非変更境界を確認する
+- [x] T04-3Bアラーム床可視化: 稼働候補と点滅候補の床面姿勢をimmutable frame snapshotへ公開する
+- [x] T04-3Bアラーム床可視化: 独立モジュールと有効化定数で近距離水色リング、低速明滅、水色／黒点滅、thin instance再利用、破棄を実装する
+- [x] T04-3Bアラーム床可視化: alarm fixtureと描画fixtureへ位置・姿勢・近距離抽出・状態遷移・資源破棄の回帰を追加する
+- [x] T04-3Bアラーム床可視化: V2／T05型検査、T05／通常build、通常Web／Electron表示、console、資産不変を確認する
+- [x] T04-3Bアラーム床可視化: 独立レビュー、UTF-8・BOM・括弧・差分検査、結果更新後に1commitへまとめる
 
 ## 結果
 
@@ -539,3 +554,9 @@ T05 fixtureの旧2引数`createStageSpatialQueries()`全14呼出を、`DynamicSt
 2026-07-28 08:45 +09:00、最新指示に従ってDraft Pull Request #54をcloseし、GitHubから`CLOSED`、`mergedAt=null`を読み戻した。`codex/v2-t04-3-dynamic-runtime`は後でB03-3Cのbranchへローカル統合できるよう残し、remote branchの削除、`develop`へのmerge、B03-3C worktreeの変更は行っていない。
 
 同日のI0第2次人間受入で、体育館西ギャラリー階段Rampの固定グリッドtile境界におけるY=0.475mから0.500mへのDetour snapを3D移動距離へ算入し、水平要求距離0.00504mを超えたと誤判定する停止を修正した。速度予算はXZ水平距離だけを厳格判定し、NavMesh面YとpolygonRefはDetour結果を保持する。報告座標固定回帰は3D距離0.025291321m、水平距離0.003569148m、polygon `6326784`→`6327296`を確認し、別の真の水平超過は引き続き例外とした。最終T04実ブラウザは106/106、warning／error 0件である。
+
+2026-07-31 22:17 +09:00、アラーム床の案1可視化を完了した。稼働候補は発報判定と同じ位置、床面法線、接線、半径をimmutable frame snapshotとして公開し、候補集合が変わらない更新では同一snapshot配列を再利用する。通常入口へ独立した`V2AlarmFloorVisualSystem`を接続し、プレイヤーから3 world units（12m）以内の稼働床だけを直径約0.96mの水色半透明ringとして2.5秒周期で低速明滅させる。発報後は既存の5秒点滅位相に従って水色／黒ringを切り替え、終了時に消去する。
+
+描画資源は稼働、水色発報、黒発報の3 Mesh／3 Materialだけを固定所有し、各群をthin instanceで合成する。候補の座標・近距離集合・点滅群が変わった時だけinstance bufferを更新し、通常更新では再生成しない。表示Meshはpickとcollisionを無効にし、人物、視線、ビーム、BITの空間集合へ追加していない。`V2_ALARM_FLOOR_VISUALIZATION_ENABLED`を`false`へ変更すれば通常入口で生成されず、今回の単独commitだけでも撤去できる。学校`.blend`、GLB、3種NavMesh、生成器、カタログhashの差分は0件である。
+
+確定版の自動回帰はT05実ブラウザ285／285 PASS、`document.documentElement.dataset.validationStatus === "passed"`、console warning／error 0件だった。床面snapshot、同一集合再利用、12m近距離抽出、thin instance位置、非pick・非collision、水色／黒点滅、低速明滅、3 Mesh／3 Materialの破棄を回帰した。`typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`build:t04`、`build:t05`、通常renderer／Electron build、学校NavMesh check、`git diff --check`はPASSした。通常Webは`playing`、NPC 50、BIT 20、警報稼働を確認した。内蔵ブラウザ固有のPointer Lock拒否は製品判定から分離し、Electron実画面クリックではPointer Lock、`playing`、HUD表示、renderer warning／error 0件を確認した。差分11ファイルはUTF-8 strict、BOMなし、競合markerなし、追加行のローカル絶対pathなしで、静的再レビューに残るP0／P1／P2はない。変更は単一commitへまとめ、push、Pull Request更新、merge、review thread操作、worktree削除は行わない。

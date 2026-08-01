@@ -995,6 +995,36 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
     this.requireActor(npcId).position.copyFrom(position);
   }
 
+  beginTargetNavigationAreaTransport(
+    targetId: string,
+    _position: Vector3
+  ) {
+    this.assertActive();
+    if (targetId !== "player") {
+      this.requireActor(targetId);
+    }
+  }
+
+  updateTargetNavigationAreaTransportPosition(
+    targetId: string,
+    _position: Vector3
+  ) {
+    this.assertActive();
+    if (targetId !== "player") {
+      this.requireActor(targetId);
+    }
+  }
+
+  relocateTargetNavigationArea(
+    targetId: string,
+    _position: Vector3
+  ) {
+    this.assertActive();
+    if (targetId !== "player") {
+      this.requireActor(targetId);
+    }
+  }
+
   requestPlayerGunFire(_direction: Vector3) {
     this.assertActive();
     return false;
@@ -1186,6 +1216,8 @@ const createDoorDynamicRayProbe = (
       context.queries.containsVolume(role, point),
     containsVolumeById: (id, point) =>
       context.queries.containsVolumeById(id, point),
+    intersectsVolumeSegmentById: (id, from, to) =>
+      context.queries.intersectsVolumeSegmentById(id, from, to),
     intersectsVolumeById: (id, ellipsoid) =>
       context.queries.intersectsVolumeById(id, ellipsoid),
     findContainingBlocker: (kind, point) => {
@@ -1960,6 +1992,36 @@ const runTraversalCoordinatorAcceptance = async (
     }
     const callMatCenter = requireWorldCenter(
       fromStop.callMat.mesh
+    );
+    const callMatBounds =
+      fromStop.callMat.mesh.getBoundingInfo().boundingBox;
+    const callMatSweepFrom = new Vector3(
+      callMatBounds.minimumWorld.x - 0.25,
+      callMatCenter.y,
+      callMatCenter.z
+    );
+    const callMatSweepTo = new Vector3(
+      callMatBounds.maximumWorld.x + 0.25,
+      callMatCenter.y,
+      callMatCenter.z
+    );
+    pushCheck(
+      checks,
+      "1更新で呼出マットを飛び越す移動区間も実Volume交差で検出",
+      !context.queries.containsVolumeById(
+        fromStop.callMat.id,
+        callMatSweepFrom
+      ) &&
+        !context.queries.containsVolumeById(
+          fromStop.callMat.id,
+          callMatSweepTo
+        ) &&
+        context.queries.intersectsVolumeSegmentById(
+          fromStop.callMat.id,
+          callMatSweepFrom,
+          callMatSweepTo
+        ),
+      `from=${callMatSweepFrom.toString()} / to=${callMatSweepTo.toString()}`
     );
     const elevatorActorIds = Array.from(
       { length: 8 },
@@ -3488,9 +3550,9 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
       context.doorAssets.getByClass("elevator_car");
     pushCheck(
       checks,
-      "実学校65扉metadata",
-      context.doorAssets.all.length === 65 &&
-        roomDoors.length === 38 &&
+      "実学校67扉metadata",
+      context.doorAssets.all.length === 67 &&
+        roomDoors.length === 40 &&
         toiletDoors.length === 24 &&
         elevatorLandingDoors.length === 2 &&
         elevatorCarDoors.length === 1 &&

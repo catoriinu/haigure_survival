@@ -45,6 +45,7 @@ import {
   type BitFlightTransitionHistory
 } from "../world/bitFlightTactics";
 import type { StageSpatialContext } from "../world/stageSpatialContext";
+import type { StageNavigationAreaCursor } from "../world/stageNavigationAreas";
 import {
   createStageBoundaryContainsQuery,
   type StageVolume
@@ -62,6 +63,10 @@ import {
   isV2HitState,
   selectV2TargetSelectionPersonality
 } from "./combatTypes";
+import type {
+  V2PursuitPhase,
+  V2TargetNavigationAreaSnapshot
+} from "./pursuitNavigation";
 import {
   V2_BIT_ALERT_DURATION_SECONDS,
   V2_BIT_ATTACK_COOLDOWN_SECONDS,
@@ -215,6 +220,9 @@ export type V2BitSystemConfig = Readonly<{
   spawnProjectionMaxDistance: number;
   combatEnabled: boolean;
   random: () => number;
+  resolveTargetNavigationArea: (
+    target: V2HumanTargetSnapshot
+  ) => V2TargetNavigationAreaSnapshot;
 }>;
 
 export type V2BitSystemUpdateInput = Readonly<{
@@ -281,6 +289,8 @@ export type V2BitSystemDiagnostics = Readonly<{
   sphereSweeps: number;
   sphereSweepMilliseconds: number;
   beamRequests: number;
+  areaPursuitCount: number;
+  detailPursuitCount: number;
   routeSafetyCache: V2BitRouteSafetyCacheDiagnostics;
 }>;
 
@@ -412,6 +422,13 @@ type RuntimeBit = {
   lastSeenAimPosition: Vector3 | null;
   lastSeenDestination: BitFlightLocation | null;
   lastChasePlanTargetId: string | null;
+  pursuitPhase: V2PursuitPhase;
+  pursuitTargetId: string | null;
+  pursuitTargetAreaId: string | null;
+  pursuitTargetAreaRevision: number;
+  pursuitActorAreaCursor: StageNavigationAreaCursor | null;
+  pursuitActorAreaPosition: Vector3 | null;
+  pursuitAnchor: Vector3 | null;
   chaseWindowTransitionId: string | null;
   failedChaseWindowTransitionId: string | null;
   failedChaseWindowPenaltySeconds: number;
@@ -537,6 +554,11 @@ const assertConfig = (config: V2BitSystemConfig) => {
   }
   if (typeof config.random !== "function") {
     throw new Error("randomには0以上1未満を返す関数が必要です。");
+  }
+  if (typeof config.resolveTargetNavigationArea !== "function") {
+    throw new Error(
+      "resolveTargetNavigationAreaには標的Area snapshot解決関数が必要です。"
+    );
   }
 };
 
@@ -857,6 +879,8 @@ export const createV2BitSystem = (
     sphereSweeps: 0,
     sphereSweepMilliseconds: 0,
     beamRequests: 0,
+    areaPursuitCount: 0,
+    detailPursuitCount: 0,
     routeSafetyCache: EMPTY_ROUTE_SAFETY_CACHE_DIAGNOSTICS
   });
   const navigation = spatial.bitNavigation;
@@ -1653,6 +1677,13 @@ export const createV2BitSystem = (
         lastSeenAimPosition: null,
         lastSeenDestination: null,
         lastChasePlanTargetId: null,
+        pursuitPhase: "detail",
+        pursuitTargetId: null,
+        pursuitTargetAreaId: null,
+        pursuitTargetAreaRevision: 0,
+        pursuitActorAreaCursor: null,
+        pursuitActorAreaPosition: null,
+        pursuitAnchor: null,
         chaseWindowTransitionId: null,
         failedChaseWindowTransitionId: null,
         failedChaseWindowPenaltySeconds: 0,
@@ -2215,6 +2246,7 @@ export const createV2BitSystem = (
     elapsedSeconds: number
   ) => {
     const previousRootPosition = bit.root.position.clone();
+    const previousTransition = bit.activeTransition;
     const snapshot = bit.flightAgent.update(
       speed,
       deltaSeconds,
@@ -2260,6 +2292,27 @@ export const createV2BitSystem = (
 
     bit.root.position.copyFrom(snapshot.rootPosition);
     bit.navigationLocation = snapshot.location;
+    const completedFlightTransition =
+      previousTransition !== null &&
+      snapshot.transition === null;
+    if (completedFlightTransition) {
+      bit.pursuitActorAreaCursor =
+        spatial.navigationAreas.locate(bit.root.position);
+      bit.pursuitActorAreaPosition = bit.root.position.clone();
+    } else if (
+      snapshot.transition === null &&
+      bit.pursuitActorAreaCursor !== null &&
+      bit.pursuitActorAreaPosition !== null &&
+      !bit.pursuitActorAreaPosition.equals(bit.root.position)
+    ) {
+      bit.pursuitActorAreaCursor =
+        spatial.navigationAreas.advance(
+          bit.pursuitActorAreaCursor,
+          bit.pursuitActorAreaPosition,
+          bit.root.position
+        );
+      bit.pursuitActorAreaPosition.copyFrom(bit.root.position);
+    }
     if (snapshot.facingDirection && snapshot.facingDirection.lengthSquared() > 0) {
       bit.root.lookAt(bit.root.position.add(snapshot.facingDirection));
     }
@@ -4147,11 +4200,49 @@ export const createV2BitSystem = (
   const updateChaseRoute = (
     bit: RuntimeBit,
     targetPosition: Vector3,
+    targetAreaSnapshot: V2TargetNavigationAreaSnapshot | null,
     deltaSeconds: number,
     elapsedSeconds: number,
     surfaceSpeedOverride: number | null = null
   ): ChaseRouteUpdateState => {
     bit.mode = "chase";
+    let navigationTargetPosition = targetPosition;
+    if (targetAreaSnapshot !== null) {
+      if (
+        bit.pursuitActorAreaCursor === null ||
+        bit.pursuitActorAreaPosition === null
+      ) {
+        bit.pursuitActorAreaCursor =
+          spatial.navigationAreas.locate(bit.root.position);
+        bit.pursuitActorAreaPosition = bit.root.position.clone();
+      }
+      const actorAreaId = bit.pursuitActorAreaCursor.areaId;
+      const targetAreaChanged =
+        bit.pursuitTargetId !== targetAreaSnapshot.targetId ||
+        bit.pursuitTargetAreaId !== targetAreaSnapshot.areaId ||
+        bit.pursuitTargetAreaRevision !== targetAreaSnapshot.revision;
+      if (targetAreaChanged) {
+        bit.pursuitTargetId = targetAreaSnapshot.targetId;
+        bit.pursuitTargetAreaId = targetAreaSnapshot.areaId;
+        bit.pursuitTargetAreaRevision = targetAreaSnapshot.revision;
+        bit.pursuitPhase =
+          actorAreaId === targetAreaSnapshot.areaId
+            ? "detail"
+            : "area";
+        bit.pursuitAnchor = targetAreaSnapshot.anchor.clone();
+        bit.routeRefreshSeconds = 0;
+      } else if (
+        bit.pursuitPhase === "area" &&
+        actorAreaId === targetAreaSnapshot.areaId
+      ) {
+        bit.pursuitPhase = "detail";
+        bit.routeRefreshSeconds = 0;
+      }
+      navigationTargetPosition =
+        bit.pursuitPhase === "area"
+          ? bit.pursuitAnchor!
+          : targetPosition;
+    }
     bit.routeRefreshSeconds = Math.max(
       0,
       bit.routeRefreshSeconds - deltaSeconds
@@ -4162,7 +4253,7 @@ export const createV2BitSystem = (
     ): ChaseRouteUpdateState => {
       const arrivalDistance = Vector3.Distance(
         bit.root.position,
-        targetPosition
+        navigationTargetPosition
       );
       const failedBeforeTarget =
         state === "blocked" ||
@@ -4213,13 +4304,13 @@ export const createV2BitSystem = (
       (!hasChaseRoute ||
         Vector3.Distance(
           getBitFlightWorldPosition(bit.routeDestination!),
-          targetPosition
+          navigationTargetPosition
         ) > TARGET_ROUTE_MOVE_THRESHOLD);
     if (shouldRefresh && allowedChaseRoutePlanIds.has(bit.id)) {
       bit.lastChasePlanTargetId = bit.targetId;
       const selected = measureRoutePlan(
         "chase",
-        () => selectTargetDestination(bit, targetPosition)
+        () => selectTargetDestination(bit, navigationTargetPosition)
       );
       if (selected) {
         if (!assignRoute(
@@ -4243,7 +4334,7 @@ export const createV2BitSystem = (
         : bit.profile.visionRange;
       const targetDistance = Vector3.Distance(
         bit.root.position,
-        targetPosition
+        navigationTargetPosition
       );
       const speed =
         surfaceSpeedOverride ??
@@ -4639,6 +4730,8 @@ export const createV2BitSystem = (
 
     leader.navigationLocation = proposedLeaderLocation;
     leader.root.position.copyFrom(proposedLeaderRoot);
+    leader.pursuitActorAreaCursor = null;
+    leader.pursuitActorAreaPosition = null;
     const tiltedAimDirection = new Vector3(
       direction.x,
       -1,
@@ -4671,6 +4764,8 @@ export const createV2BitSystem = (
       follower.root.position.copyFrom(
         getBitFlightWorldPosition(followerDestinations[index])
       );
+      follower.pursuitActorAreaCursor = null;
+      follower.pursuitActorAreaPosition = null;
       pointBitAt(
         follower,
         follower.root.position.add(carpetAimDirection)
@@ -4846,6 +4941,7 @@ export const createV2BitSystem = (
     updateChaseRoute(
       bit,
       leaderPosition,
+      null,
       deltaSeconds,
       elapsedSeconds,
       bit.profile.searchSpeed * 5
@@ -5740,6 +5836,9 @@ export const createV2BitSystem = (
           const chaseRouteState = updateChaseRoute(
             bit,
             chasePosition,
+            currentTarget === null
+              ? null
+              : config.resolveTargetNavigationArea(currentTarget),
             deltaSeconds,
             elapsedSeconds
           );
@@ -5781,6 +5880,18 @@ export const createV2BitSystem = (
       }
       frameBeamRequests = Object.freeze(beamRequests);
       if (diagnosticsEnabled) {
+        let areaPursuitCount = 0;
+        let detailPursuitCount = 0;
+        for (const bit of bits) {
+          if (bit.targetId === null) {
+            continue;
+          }
+          if (bit.pursuitPhase === "area") {
+            areaPursuitCount += 1;
+          } else {
+            detailPursuitCount += 1;
+          }
+        }
         frameDiagnostics = Object.freeze({
           enabled: true,
           routePlans: Object.freeze({
@@ -5806,6 +5917,8 @@ export const createV2BitSystem = (
           sphereSweepMilliseconds:
             diagnosticSphereSweepMilliseconds,
           beamRequests: beamRequests.length,
+          areaPursuitCount,
+          detailPursuitCount,
           routeSafetyCache: createRouteSafetyCacheDiagnostics()
         });
       }
@@ -5836,6 +5949,8 @@ export const createV2BitSystem = (
         sphereSweeps: 0,
         sphereSweepMilliseconds: 0,
         beamRequests: 0,
+        areaPursuitCount: 0,
+        detailPursuitCount: 0,
         routeSafetyCache: createRouteSafetyCacheDiagnostics()
       });
       invalidateFrameViews();
@@ -6012,6 +6127,8 @@ export const createV2BitSystem = (
         bit.root.position.copyFrom(
           getBitFlightWorldPosition(location)
         );
+        bit.pursuitActorAreaCursor = null;
+        bit.pursuitActorAreaPosition = null;
         bit.root.computeWorldMatrix(true);
       }
       invalidateFrameViews();
@@ -6060,6 +6177,8 @@ export const createV2BitSystem = (
         sphereSweeps: 0,
         sphereSweepMilliseconds: 0,
         beamRequests: 0,
+        areaPursuitCount: 0,
+        detailPursuitCount: 0,
         routeSafetyCache: createRouteSafetyCacheDiagnostics()
       });
       materials.muzzle.dispose();

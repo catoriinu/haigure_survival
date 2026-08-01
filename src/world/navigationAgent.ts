@@ -13,8 +13,6 @@ import type { StageMoverKind } from "./stageLinks";
 
 export type NavigationAgentConfig = Readonly<{
   projectionMaxDistance: number;
-  targetMoveThreshold: number;
-  pathRefreshIntervalSeconds: number;
   waypointTolerance: number;
   stuckDistanceThreshold: number;
   stuckDurationSeconds: number;
@@ -32,6 +30,7 @@ export type NavigationAgentStepResult = Readonly<{
   state: NavigationAgentState;
   pathRecalculated: boolean;
   pathDistance: number | null;
+  remainingPathDistance: number | null;
   transition: NavigationTransitionStep | null;
 }>;
 
@@ -40,6 +39,7 @@ export interface NavigationAgent {
   update(
     currentLocation: NavigationLocation,
     targetPosition: Vector3,
+    goalRevision: number,
     speed: number,
     deltaSeconds: number,
     allowPathRecalculation: boolean
@@ -79,11 +79,6 @@ const assertNonNegativeFiniteNumber = (name: string, value: number) => {
 
 const assertConfig = (config: NavigationAgentConfig) => {
   assertPositiveFiniteNumber("NavMesh投影最大距離", config.projectionMaxDistance);
-  assertPositiveFiniteNumber("標的移動再探索閾値", config.targetMoveThreshold);
-  assertPositiveFiniteNumber(
-    "経路再探索間隔",
-    config.pathRefreshIntervalSeconds
-  );
   assertPositiveFiniteNumber("経路点到達許容値", config.waypointTolerance);
   assertPositiveFiniteNumber(
     "停止判定移動距離",
@@ -144,8 +139,7 @@ class CachedNavigationAgent implements NavigationAgent {
   private pathDistance: number | null = null;
   private nextStepIndex = 0;
   private nextPointIndex = 0;
-  private plannedTarget: Vector3 | null = null;
-  private secondsSincePathSearch = 0;
+  private plannedGoalRevision: number | null = null;
   private stuckAnchor: Vector3 | null = null;
   private stuckElapsedSeconds = 0;
   private currentStuckRevision = 0;
@@ -163,7 +157,6 @@ class CachedNavigationAgent implements NavigationAgent {
     this.moverKind = moverKind;
     this.routePolicy = routePolicy;
     this.config = Object.freeze({ ...config });
-    this.secondsSincePathSearch = config.pathRefreshIntervalSeconds;
   }
 
   get stuckRevision() {
@@ -173,12 +166,16 @@ class CachedNavigationAgent implements NavigationAgent {
   update(
     currentLocation: NavigationLocation,
     targetPosition: Vector3,
+    goalRevision: number,
     speed: number,
     deltaSeconds: number,
     allowPathRecalculation: boolean
   ): NavigationAgentStepResult {
     assertNavigationLocation("経路追従の現在位置", currentLocation);
     assertFiniteVector("経路追従の標的位置", targetPosition);
+    if (!Number.isInteger(goalRevision) || goalRevision < 0) {
+      throw new Error("経路追従goalRevisionには0以上の整数が必要です。");
+    }
     assertNonNegativeFiniteNumber("経路追従速度", speed);
     assertNonNegativeFiniteNumber("経路追従deltaSeconds", deltaSeconds);
     if (typeof allowPathRecalculation !== "boolean") {
@@ -199,13 +196,9 @@ class CachedNavigationAgent implements NavigationAgent {
         state: "transition-required",
         pathRecalculated: false,
         pathDistance: this.pathDistance,
+        remainingPathDistance: this.calculateRemainingPathDistance(currentLocation),
         transition: this.pendingTransition
       };
-    }
-
-    this.secondsSincePathSearch += deltaSeconds;
-    if (!Number.isFinite(this.secondsSincePathSearch)) {
-      throw new Error("経路再探索までの経過時間が有限値になりません。");
     }
 
     const stuck = this.detectStuck(currentLocation, speed, deltaSeconds);
@@ -215,29 +208,22 @@ class CachedNavigationAgent implements NavigationAgent {
     } else if (!stuck) {
       this.stuckSignaled = false;
     }
-    const targetMoved =
-      this.plannedTarget !== null &&
-      Vector3.Distance(this.plannedTarget, targetPosition) >=
-        this.config.targetMoveThreshold;
+    const goalChanged = this.plannedGoalRevision !== goalRevision;
     const pathConsumedAwayFromEndpoint =
       this.path !== null &&
       this.resolvedTarget !== null &&
       this.nextStepIndex >= this.path.length &&
       Vector3.Distance(currentLocation.position, this.resolvedTarget.position) >
         this.config.waypointTolerance;
-    const refreshExpired =
-      this.secondsSincePathSearch >= this.config.pathRefreshIntervalSeconds;
     const mustSearch =
-      this.plannedTarget === null ||
-      targetMoved ||
+      goalChanged ||
       pathConsumedAwayFromEndpoint ||
-      refreshExpired ||
       stuck;
 
     let pathRecalculated = false;
     if (mustSearch && allowPathRecalculation) {
       pathRecalculated = true;
-      this.searchPath(currentLocation, targetPosition);
+      this.searchPath(currentLocation, targetPosition, goalRevision);
     }
 
     if (!this.path) {
@@ -249,6 +235,7 @@ class CachedNavigationAgent implements NavigationAgent {
             : "unreachable",
         pathRecalculated,
         pathDistance: this.pathDistance,
+        remainingPathDistance: null,
         transition: null
       };
     }
@@ -273,6 +260,7 @@ class CachedNavigationAgent implements NavigationAgent {
             state: "unreachable",
             pathRecalculated,
             pathDistance: this.pathDistance,
+            remainingPathDistance: null,
             transition: null
           };
         }
@@ -282,6 +270,7 @@ class CachedNavigationAgent implements NavigationAgent {
           state: "transition-required",
           pathRecalculated,
           pathDistance: this.pathDistance,
+          remainingPathDistance: this.calculateRemainingPathDistance(location),
           transition: step
         };
       }
@@ -299,6 +288,7 @@ class CachedNavigationAgent implements NavigationAgent {
             state: "moving",
             pathRecalculated,
             pathDistance: this.pathDistance,
+            remainingPathDistance: this.calculateRemainingPathDistance(location),
             transition: null
           };
         }
@@ -323,6 +313,7 @@ class CachedNavigationAgent implements NavigationAgent {
             state: "unreachable",
             pathRecalculated,
             pathDistance: this.pathDistance,
+            remainingPathDistance: null,
             transition: null
           };
         }
@@ -359,6 +350,7 @@ class CachedNavigationAgent implements NavigationAgent {
           state: "moving",
           pathRecalculated,
           pathDistance: this.pathDistance,
+          remainingPathDistance: this.calculateRemainingPathDistance(location),
           transition: null
         };
       }
@@ -371,11 +363,12 @@ class CachedNavigationAgent implements NavigationAgent {
       location,
       state:
         !allowPathRecalculation &&
-        (targetMoved || pathConsumedAwayFromEndpoint)
+        (goalChanged || pathConsumedAwayFromEndpoint)
           ? "waiting-for-path"
           : "arrived",
       pathRecalculated,
       pathDistance: this.pathDistance,
+      remainingPathDistance: 0,
       transition: null
     };
   }
@@ -414,8 +407,7 @@ class CachedNavigationAgent implements NavigationAgent {
     this.pathDistance = null;
     this.nextStepIndex = 0;
     this.nextPointIndex = 0;
-    this.plannedTarget = null;
-    this.secondsSincePathSearch = this.config.pathRefreshIntervalSeconds;
+    this.plannedGoalRevision = null;
     this.stuckAnchor = null;
     this.stuckElapsedSeconds = 0;
     this.stuckSignaled = false;
@@ -424,7 +416,8 @@ class CachedNavigationAgent implements NavigationAgent {
 
   private searchPath(
     currentLocation: NavigationLocation,
-    targetPosition: Vector3
+    targetPosition: Vector3,
+    goalRevision: number
   ) {
     const projectedTarget = this.navigationWorld.projectPoint(
       targetPosition,
@@ -445,8 +438,7 @@ class CachedNavigationAgent implements NavigationAgent {
       : null;
     this.nextStepIndex = 0;
     this.nextPointIndex = 0;
-    this.plannedTarget = targetPosition.clone();
-    this.secondsSincePathSearch = 0;
+    this.plannedGoalRevision = goalRevision;
     this.stuckAnchor = currentLocation.position.clone();
     this.stuckElapsedSeconds = 0;
     this.stuckSignaled = false;
@@ -459,11 +451,48 @@ class CachedNavigationAgent implements NavigationAgent {
     this.pathDistance = null;
     this.nextStepIndex = 0;
     this.nextPointIndex = 0;
-    this.secondsSincePathSearch = 0;
+    this.plannedGoalRevision = null;
     this.stuckAnchor = null;
     this.stuckElapsedSeconds = 0;
     this.stuckSignaled = false;
     this.pendingTransition = null;
+  }
+
+  private calculateRemainingPathDistance(
+    currentLocation: NavigationLocation
+  ): number | null {
+    if (!this.path) {
+      return null;
+    }
+
+    let distance = 0;
+    let cursor = currentLocation.position;
+    for (
+      let stepIndex = this.nextStepIndex;
+      stepIndex < this.path.length;
+      stepIndex += 1
+    ) {
+      const step = this.path[stepIndex];
+      if (step.kind === "transition") {
+        distance += Vector3.Distance(cursor, step.entry.position);
+        distance += step.distance;
+        cursor = step.exit.position;
+        continue;
+      }
+
+      const firstPointIndex =
+        stepIndex === this.nextStepIndex ? this.nextPointIndex : 0;
+      for (
+        let pointIndex = firstPointIndex;
+        pointIndex < step.points.length;
+        pointIndex += 1
+      ) {
+        const point = step.points[pointIndex].position;
+        distance += Vector3.Distance(cursor, point);
+        cursor = point;
+      }
+    }
+    return distance;
   }
 
   private detectStuck(

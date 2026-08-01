@@ -115,6 +115,10 @@ export const runAlarmSystemTests =
         });
         try {
           const initial = system.getFrame();
+          const unchanged = system.update({
+            deltaSeconds: 0,
+            humans: []
+          });
           const afterFirstInterval = system.update({
             deltaSeconds: V2_ALARM_SELECTION_INTERVAL_SECONDS,
             humans: []
@@ -130,6 +134,19 @@ export const runAlarmSystemTests =
           return {
             ok:
               hasSameIds(initial.activeCandidateIds, ["alarm-d"]) &&
+              initial.activeFloors.length === 1 &&
+              initial.activeFloors[0].candidateId === "alarm-d" &&
+              initial.activeFloors[0].position.equals(
+                new Vector3(6, 0, 0)
+              ) &&
+              initial.activeFloors[0].supportNormal.equals(
+                Vector3.Up()
+              ) &&
+              initial.activeFloors[0].tangent.equals(
+                Vector3.Right()
+              ) &&
+              initial.activeFloors[0].radius === 0.25 &&
+              unchanged.activeFloors === initial.activeFloors &&
               hasSameIds(afterFirstInterval.activeCandidateIds, [
                 "alarm-d",
                 "alarm-a"
@@ -187,6 +204,9 @@ export const runAlarmSystemTests =
           return {
             ok:
               triggered.blinks.length === 1 &&
+              triggered.blinks[0].supportNormal.equals(Vector3.Up()) &&
+              triggered.blinks[0].tangent.equals(Vector3.Right()) &&
+              triggered.blinks[0].radius === 0.25 &&
               blinkCompleted.blinks.length === 0 &&
               blinkCompleted.activeCandidateIds.length === 0 &&
               hasSameIds(reselected.activeCandidateIds, [

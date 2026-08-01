@@ -281,7 +281,7 @@ export interface NavigationWorld {
 ```
 
 - `NavigationLocation`はBabylon world座標と、その位置が属するRecast polygonの`polygonRef`を必ず組で保持する。現在地、経路点、目的地、移動拘束結果、ランダム点から`polygonRef`を捨てて`Vector3`だけへ戻してはならない。
-- 固定グリッドtiled人間用NavMeshでは、隣接tileの共有XZ境界で、`walkableClimb`以内の量子化Y差を持つpolygonへ`constrainMovement()`が遷移できる。`NavigationAgent`は速度×`deltaSeconds`の移動予算超過をXZ水平距離で厳格判定し、Detourが返したYと`polygonRef`をそのまま次の`NavigationLocation`へ保持する。Y差を`waypointTolerance`へ加算せず、Yクランプ、例外握りつぶし、Runtime再生成で代用しない。描画・衝突の足元は`sampleGround()`の物理床を正本とする。
+- 固定グリッドtiled人間用NavMeshでは、隣接tileの共有XZ境界で、`walkableClimb`以内の量子化Y差を持つpolygonへ`constrainMovement()`が遷移できる。`NavigationAgent`は速度×`deltaSeconds`の移動予算超過をXZ水平距離で厳格判定し、Detourが返したYと`polygonRef`をそのまま次の`NavigationLocation`へ保持する。Y差を`waypointTolerance`へ加算せず、Yクランプ、例外握りつぶし、Runtime再生成で代用しない。NPCの初期配置、外部再配置、明示遷移の着地では`sampleGround()`の物理床を確認するが、通常のNavMesh追従中は各Actor・各更新で同じ床rayを重複発行せず、`NavigationLocation.position.y`を足元へ使用する。実学校fixtureで階段を含む物理床との誤差を継続監査する。
 - 固定グリッドtiled学校NavMeshの経路探索は、Detourの16-bit node indexで予約値を除いた最大値に合わせ、`NavMeshQuery` node 65,535件、polygon corridor 32,768件、straight path 4,096点を上限とする。node上限とpolygon corridor上限の超過は区別し、経路なしへ読み替えず例外にする。作者側の全階代表経路監査も同じnode上限で容量内を確認する。
 - 同じ水平位置に上下の床が重なる場合は、現在の`polygonRef`から到達可能な面を使う。X/Z距離だけで最寄りの別階へ再投影しない。
 - 経路なし、投影不能は`null`とし、標的への直進へ切り替えない。
@@ -309,6 +309,32 @@ export interface NavigationWorld {
 - ビット用`aperture`の`hs_link_radius_m=0.54`は、端点を帯別NavMeshへ接続する探索半径であり、必要移動包絡と一致させた値である。V1実形状・被弾球の半径0.44mそのものを表すpropertyではない。
 - route policyは遷移の利用可否と追加コストだけを提供し、共通ナビゲーションへ探索・追跡・逃走などのAIモードを埋め込まない。
 - 破棄時は全帯の`NavMeshQuery`、filter、NavMesh、debug Mesh、経路cacheを同じContext所有単位で解放する。
+
+### 6.2 Navigation Area追跡基盤
+
+`StageNavigationAreaRegistry`は、資産仕様7.7.1節の`navigation_area` Volumeを`hs_area_id`で束ね、`navigation_area_portal`との接続を検証する。包含判定は実Volume形状で行い、AABB、階番号、高さ帯、固定距離グリッドへ置換しない。Area IDはopaque文字列であり、学校以外のステージでも同じAPIを使用する。
+
+標的Areaは、全人間分を毎フレーム先行生成せず、実際に参照された標的だけを遅延解決する。同じフレームで同じ標的を追うNPCとBITは1つの`V2TargetNavigationAreaSnapshot`を共有する。snapshotは標的ID、Area ID、Area内の固定追跡点、revisionを持つ。revisionは標的が別Areaへ確定遷移した場合だけ進め、同じArea内の座標変化では進めない。Portal内部では直前Areaを保持し、境界上の数値揺れで全追跡者を往復再計画させない。
+
+Area APIは、spawn・teleport・エレベーター降車・外部再配置に使う`locate(point)`と、連続移動に使う`advance(cursor, from, to)`へ分ける。`advance()`は現在Areaに接続するPortalだけを常時検査し、Portalのworld AABBをbroad phaseとした後、近傍だけを実Volume三角形で判定する。Portal横断時だけ接続先と現在Areaの包含を確認し、薄いPortalを1更新で飛び越す移動も線分交差で検出する。Portalを通らず現在Area外へ出る通常移動は契約違反であり、全Area再検索へフォールバックしない。
+
+遅延Trackerは、前フレームに参照されなかった標的のcursorを保持し続けない。次に参照された時点の座標を`locate()`し、複数Areaを移動した未参照期間を1本の連続線分として扱わない。エレベーター乗車開始時は出発Areaを確定し、搬送中はAreaを凍結して位置だけ同期する。降車、搭乗取消後の退出、安全退避では`locate()`を1回行い、目的階のAreaとrevisionを原子的に公開する。
+
+対象を追うNPCとBITの追跡は、Alarmだけでなく通常視認、Alert伝播、持続標的など、正確な現在座標を常時必要としない遠距離モードへ共通適用する。Follow、Leave、最終視認位置、固定地点待機、巡回、ランダム探索、集合演出、扉・エレベーター・捕獲など、精密位置または固定位置がゲーム性となる移動へは適用しない。
+
+追跡状態は次の3段階とする。
+
+1. `area`: 追跡者と標的が別Areaにいる間、標的snapshotの固定追跡点を目的地とする。同じsnapshot revision中は、標的の細かな移動だけを理由に経路を再探索しない。
+2. `coarse`: 追跡者が標的と同じAreaに入り、既存経路の残りNavMesh距離が12mを超える間、2秒間隔で標的の最新座標へ目的地を更新する。更新位相は安定Actor IDで分散し、直線距離だけで`detail`へ昇格させない。
+3. `detail`: 既存経路の残りNavMesh距離が12m以内になった時点から、標的の現在座標を目的地とする。最後に経路へ採用した座標から標的が累積0.15 world unit移動した場合だけ再計画を要求する。残りNavMesh距離または水平直線距離が18m以上なら`coarse`へ戻し、12mから18mの間では現在Phaseを維持する。
+
+Area境界による`area`から`coarse`への切替は一方向とし、距離LODによる`coarse`と`detail`だけを双方向遷移にする。これにより、迂回経路が一時的に別Areaを通る場合やPortal付近の揺れで`area`へ戻らない。標的が別Areaへ移った場合は新snapshotに対して状態を再判定する。Areaへ到達不能な場合も直線追跡へフォールバックせず、そのrevisionの到達不能結果を保持し、revision変更またはstuck通知で再試行する。
+
+標的Area変更で多数の追跡者が同時に期限切れになっても、同一フレームですべての経路を再探索しない。NPCの再計画は要求Queueで管理し、要求がなければ0件、要求があっても最大4件／フレームとする。優先順は移動安全・stuck・evade・プレイヤー指示、`detail`、標的／Area変更、`coarse`、通常徘徊であり、同一優先度は要求時刻、Actor ID順とする。同一Actorの未処理要求中に標的が動いた場合は要求数を増やさず最新座標へ置換する。60Hz受入では`detail`要求を1秒以内、`coarse`／`area`要求を2秒以内に処理する。診断ではPhase別人数、昇格・降格数、再計画待機数、統合数、最大待機時間を公開する。
+
+Alarm発生位置は対象NPCの選定だけに使用し、追跡目的地や固定地点には使用しない。Alarm対象人数と`detail`人数には上限を設けず、99 NPC全員が12m以内へ集まれば全員が`detail`になり得る。最悪条件の実測が性能基準を満たさない場合も暗黙に人数制限へ変更せず、未解決性能課題として記録して別途仕様判断する。
+
+Area分割の粗さと細かさはRuntimeだけでは補正しない。新規ステージ制作時は資産仕様7.7.1節の設計・監査を必須とし、ステージ固有の自然な移動区画を作者が定義する。Runtimeは任意形状と任意IDを受け入れる一方、壁の意味や入口を推測して自動分割しない。
 
 ## 7. NavMesh生成と読込
 

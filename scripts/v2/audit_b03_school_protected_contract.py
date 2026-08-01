@@ -220,6 +220,11 @@ T05_ALLOWED_CHANGED_EXACT_NAMES = {
 }
 T05_ALLOWED_NEW_EXACT_NAMES = {
     "COL_B03_ElevatorClosedDoor_F02_F03",
+    "VOL_NavigationArea_Ground",
+    "VOL_NavigationArea_Roof",
+    "VOL_NavigationArea_Upper01",
+    "VOL_NavigationArea_Upper02",
+    "VOL_NavigationArea_Upper03",
     "COL_B03_ElevatorShaftShell",
     "COL_B03_ElevatorStairWall",
     "COL_B03_GymBridgeEnvelope",

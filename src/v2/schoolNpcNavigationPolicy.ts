@@ -593,7 +593,9 @@ export const createSchoolNpcNavigationPolicy = ({
       });
     if (
       context.traversalState.kind ===
-      "moving-to-elevator-wait"
+        "moving-to-elevator-call-mat" ||
+      context.traversalState.kind ===
+        "moving-to-elevator-wait"
     ) {
       const selectedCandidateKey = surfaceCandidate
         ? createCandidateKey(surfaceCandidate)
@@ -602,7 +604,7 @@ export const createSchoolNpcNavigationPolicy = ({
         context.npcId,
         Object.freeze({
           signature:
-            "moving-to-elevator-wait:surface-only",
+            `${context.traversalState.kind}:surface-only`,
           selectedCandidateKey
         })
       );
