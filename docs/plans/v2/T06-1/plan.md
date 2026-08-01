@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 T06-1 通常ゲームRuntime接続 計画
 
-更新日: 2026-08-01
+更新日: 2026-08-02
 
 ## プロンプト
 
@@ -50,6 +50,19 @@
 
 > 現在修正中のFollow継続条件と扉修正を最優先で完了する。未洗脳NPC自身の視界探索と、複数脅威から逃走元を選ぶ設計は、この修正完了後の別タスクとして進める。
 
+### 2026-08-02 通常ゲームRuntime追加修正指示
+
+> PLEASE IMPLEMENT THIS PLAN:
+>
+> - 既存の専用worktreeと`codex/v2-t06-runtime-core`を継続使用し、ローカル2commitを保持したままDraft PR #64へ追加する。
+> - 光線命中音は、壁などへの衝突では鳴らさず、人物へのImpactが受理されて`hit-a`へ遷移した瞬間だけ1回鳴らす。
+> - C操作の候補判定とHUD表示を、固定Sweep中心ではなく、現在の扉Transformに追従する取っ手／ノブ位置へ統一する。
+> - room扉とtoilet扉は占有中でも閉鎖を開始し、開閉中は人物・BIT・光線・視線を透過させる。閉鎖完了前に最終扉面と交差するプレイヤー・NPC・BITを安全側へ移動し、全対象がパネル外へ出てから閉鎖状態とColliderを公開する。
+> - Follower同期射撃Cooldownを1.0秒から0.6秒へ変更する。常時反発する分離処理を、狭路では中央追従へ戻る安定隊列Anchorへ置き換える。
+> - Follow／Leave中でない未洗脳NPCは、最大12m・左右各95度・遮蔽判定あり・3Hzで洗脳状態NPCと全BITを能動的に視認する。複数脅威では最寄りを主脅威としつつ、全脅威から最も安全な逃走先を選ぶ。FollowはAlarm、直接脅威、自律視認より優先する。
+> - BGM／SE／VOICEの既定音量はすべて0のままとする。
+> - 実装は計画、命中音、取っ手操作、トイレ閉鎖、Follower、NPC自律回避、最終結果にcommitを分ける。全検証後にpushし、Draft PR #64を更新する。レビュー、merge、`develop`同期、worktree整理は行わない。
+
 ## 目的
 
 既に実装済みの入力・状態・NPC指示・扉・学校動的Runtime APIを、学校バイナリへ触れず通常ゲーム入口へ接続する。F／E／C・G／N／H、候補表示、既定荒れ状態2、音声、水中速度50%、開始・破棄ライフサイクルを実プレイで成立させる。
@@ -60,7 +73,7 @@
 - 複数`MRK_PlayerSpawn_*`、`VOL_PlayerSpawnExclusion_*`、追加`npc_spawn`／`bit_spawn` Volumeの資産化。
 - 時間増援と開始地点に追従する出現禁止の最終統合。これらはT06-2が担当する。
 - 荒れ版教室の見た目・配置変更、タイトル画面の荒れ状態スライダー、T07性能最適化。
-- 未洗脳NPC自身が洗脳済みNPC／BITを能動的に発見する視界探索と、複数脅威から最寄りまたは最適な逃走元を選ぶ仕様変更。
+- 今回明示された未洗脳NPCの自律視界探索と複数脅威回避は対象へ移す。洗脳済みプレイヤーを自律視認脅威へ加える変更は対象外とする。
 
 ## 依存と開始条件
 
@@ -71,8 +84,8 @@
 ## ファイル所有
 
 - 主担当: `src/v2/main.ts`、通常ゲーム入口に必要な`src/v2/**`、操作表示・音声接続に必要な`src/ui/**`・`src/audio/**`、T06-1専用fixture・設定、本計画。
-- 通常Runtime回帰修正では、BIT帯内経路cache契約の修正を`src/world/bitFlightNavigation.ts`とT05回帰へ限定する。それ以外の共有変更はT06-1内でRuntime API利用側へ寄せる。
-- 編集禁止: 学校Blender正本、GLB、全NavMesh、学校生成器・監査器、`src/world/stageCatalog.ts`、`src/world/bitFlightNavigation.ts`以外の`src/world/**`、B03-3D計画、全体計画。
+- 通常Runtime回帰修正では、BIT帯内経路cache契約の修正を`src/world/bitFlightNavigation.ts`とT05回帰へ限定する。今回の追加修正では扉Runtime、動的Actor連携、取っ手資産型に必要な`src/world/stageDoorRuntime.ts`、`src/world/schoolStageDynamicRuntime.ts`、`src/world/stageDynamicAssets.ts`だけを追加所有する。
+- 編集禁止: 学校Blender正本、GLB、全NavMesh、学校生成器・監査器、`src/world/stageCatalog.ts`、上記以外の`src/world/**`、B03-3D計画、全体計画。
 
 ## 実行単位と推奨設定
 
@@ -122,12 +135,23 @@
 - [x] T04／T05／T06 fixture、型検査、build、通常Web、ElectronでFollow・Alarm・階段相当遮蔽・C表示／開閉・console状態を検証する
 - [x] 追加修正結果と検証証跡を本計画へ記録し、対象差分だけをローカルcommitする。push・Pull Request更新は別途指示があるまで行わない
 
+### 2026-08-02 Runtime追加修正
+
+- [ ] 人物Impactが受理されて`hit-a`へ遷移した時だけ`character-hit`音声eventを1回発行し、壁・重複・受理拒否では発行しない
+- [ ] roomの取っ手とtoiletのノブを必須操作Anchorとして解決し、カメラ眼位置から現在Anchorまでの距離・角度を候補判定とHUD投影へ共用する
+- [ ] room／toiletの占有時閉鎖拒否を廃止し、開閉中の全遮蔽を無効のまま、閉鎖完了前に交差する人物とBITを両側の安全位置へ退避する
+- [ ] 単一BIT搬送APIを追加し、安全な飛行帯への投影、Agent・経路・Area履歴の再初期化を同時に行う
+- [ ] Follower同期射撃Cooldownを0.6秒へ変更し、常時反発を廃止して狭路では中央へ戻る安定隊列Anchorへ置き換える
+- [ ] 未洗脳NPCへ12m・左右各95度・3Hzの洗脳状態NPC／BIT視認を追加し、複数脅威から最小距離を最大化する逃走先を選ぶ
+- [ ] Audio、T04扉、T05 BIT／NPC、T06、通常Web、Electron、型検査、build、配布テキスト検査を完了する
+- [ ] 検証結果を記録し、計画どおり分割commit、push、Draft PR #64更新まで行う
+
 ## 完了条件
 
 - 通常ゲームでF／E／C・G／N／Hと候補表示が既存Runtime APIを通して動作する。
 - 通常ゲームの既定荒れ状態2、状態別挙動・案内・VOICE、水中速度50%が成立する。
 - Pointer Lock、タイトル復帰、再読込後も入力・UI・Audio購読の重複が0件である。
-- 学校バイナリ、生成器、全NavMesh、カタログhash、`src/world/bitFlightNavigation.ts`以外の`src/world/**`の差分が0件である。
+- 学校バイナリ、生成器、全NavMesh、カタログhashと、今回所有する扉Runtime／資産型以外の`src/world/**`の差分が0件である。
 - 型検査、build、fixture、実ブラウザ、Electronに合格する。
 
 ## 次タスク開始用プロンプト
