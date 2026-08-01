@@ -72,6 +72,9 @@ type NpcCommandFixture = Readonly<{
   ): void;
   setPathsAvailable(available: boolean): void;
   setMovementBlocked(blocked: boolean): void;
+  setProjectionResolver(
+    resolver: ((position: Vector3) => Vector3 | null) | null
+  ): void;
   getSpriteCellIndex(npcId: string): number;
   dispose(): void;
 }>;
@@ -208,6 +211,9 @@ const createNpcCommandFixture = (
     | null = null;
   let pathsAvailable = true;
   let movementBlocked = false;
+  let projectionResolver:
+    | ((position: Vector3) => Vector3 | null)
+    | null = null;
 
   const createLocation = (position: Vector3) =>
     Object.freeze({
@@ -222,7 +228,13 @@ const createNpcCommandFixture = (
       if (!isInside(position)) {
         return null;
       }
-      const projected = createLocation(position);
+      const resolvedPosition = projectionResolver
+        ? projectionResolver(position)
+        : position;
+      if (!resolvedPosition) {
+        return null;
+      }
+      const projected = createLocation(resolvedPosition);
       return Vector3.Distance(
         position,
         projected.position
@@ -381,6 +393,9 @@ const createNpcCommandFixture = (
     },
     setMovementBlocked: (blocked) => {
       movementBlocked = blocked;
+    },
+    setProjectionResolver: (resolver) => {
+      projectionResolver = resolver;
     },
     getSpriteCellIndex: (npcId) => {
       const sprite = scene.spriteManagers
@@ -1945,6 +1960,10 @@ const testBrainwashedFollowersAndSynchronizedFire = () => {
     );
     fixture.system.notifyBeamCompletions(completions);
     assert(
+      V2_NPC_FOLLOWER_FIRE_COOLDOWN_SECONDS === 0.6,
+      `Follower同期射撃Cooldownが0.6秒ではありません: ${V2_NPC_FOLLOWER_FIRE_COOLDOWN_SECONDS}`
+    );
+    assert(
       fixture.system
         .getFrameView()
         .tracking.every(
@@ -1969,7 +1988,7 @@ const testBrainwashedFollowersAndSynchronizedFire = () => {
         .tracking.every(
           (entry) => entry.followerFirePhase === "cooldown"
         ),
-      "1秒未満でcooldownが終了しました。"
+      "beam完了時点から0.6秒未満でcooldownが終了しました。"
     );
     fixture.system.update(
       0.001 + TEST_EPSILON,
@@ -1982,7 +2001,7 @@ const testBrainwashedFollowersAndSynchronizedFire = () => {
         .tracking.every(
           (entry) => entry.followerFirePhase === "idle"
         ),
-      "beam終了起点の1秒後にidleへ戻りません。"
+      "beam完了時点から0.6秒後にidleへ戻りません。"
     );
 
     fixture.system.notifyPlayerGunFire(fireEvent);
@@ -2400,6 +2419,21 @@ const testUnlimitedFollowersAndSeparation = () => {
       minimumDistance > TEST_EPSILON,
       "12体Followerの一部が完全に重なったままです。"
     );
+    for (let frame = 0; frame < 10; frame += 1) {
+      fixture.system.update(0.05, player, EMPTY_ALARM_EVENTS);
+    }
+    const maximumSettledDrift = Math.max(
+      ...positions.map((position, index) =>
+        Vector3.Distance(
+          position,
+          getNpcTarget(fixture.system, `npc_${index}`).footPosition
+        )
+      )
+    );
+    assert(
+      maximumSettledDrift <= TEST_EPSILON,
+      `安定隊列Anchor到達後もFollowerが振動します: ${maximumSettledDrift}`
+    );
     assert(
       fixture.system
         .getFrameView()
@@ -2408,7 +2442,55 @@ const testUnlimitedFollowersAndSeparation = () => {
         ),
       "12体の局所分離中にFollowが解除されました。"
     );
-    return `12体同時Follow、分離後の最小間隔=${minimumDistance.toFixed(4)}`;
+    return `12体同時Follow、最小間隔=${minimumDistance.toFixed(4)}、静止後drift=${maximumSettledDrift.toFixed(4)}`;
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testNarrowPassageFormationFallback = () => {
+  const fixture = createNpcCommandFixture(2, 2);
+  const player = createPlayerTarget(
+    Vector3.Zero(),
+    "brainwash-complete-gun"
+  );
+  try {
+    placeNpcs(fixture.system, [
+      new Vector3(0, 0, 0.45),
+      new Vector3(0, 0, 0.48)
+    ]);
+    const query = createCommandQuery(player);
+    assert(
+      fixture.system.requestCommand("npc_0", "follow", query) &&
+        fixture.system.requestCommand("npc_1", "follow", query),
+      "狭路fallback検証のFollowが受理されません。"
+    );
+    fixture.setProjectionResolver(() => Vector3.Zero());
+    const distances: number[] = [];
+    for (let frame = 0; frame < 24; frame += 1) {
+      fixture.system.update(0.05, player, EMPTY_ALARM_EVENTS);
+      distances.push(
+        Vector3.Distance(
+          getNpcTarget(fixture.system, "npc_0").footPosition,
+          player.footPosition
+        )
+      );
+    }
+    assert(
+      distances.every(
+        (distance, index) =>
+          index === 0 || distance <= distances[index - 1] + TEST_EPSILON
+      ),
+      `狭路fallback中に追従先が反転しました: ${distances.join(",")}`
+    );
+    assert(
+      Math.abs(getNpcTarget(fixture.system, "npc_0").footPosition.x) <=
+          TEST_EPSILON &&
+        Math.abs(getNpcTarget(fixture.system, "npc_1").footPosition.x) <=
+          TEST_EPSILON,
+      "狭路で隊列Anchorを捨てて中央追従へ戻りません。"
+    );
+    return "隊列AnchorがNavMeshへ近接投影できない狭路では中央追従し、目的地反転なし";
   } finally {
     fixture.dispose();
   }
@@ -2662,6 +2744,10 @@ export const runNpcCommandTests =
       executeTest(
         "無制限Follower・多数分離",
         testUnlimitedFollowersAndSeparation
+      ),
+      executeTest(
+        "狭路の隊列Anchor fallback",
+        testNarrowPassageFormationFallback
       ),
       executeTest(
         "Follow中の自律戦闘抑制",

@@ -131,7 +131,7 @@ export const V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS = 5;
 export const V2_NPC_LEAVE_MAXIMUM_SECONDS = 5;
 export const V2_NPC_FOLLOWER_FIRE_DELAY_MIN_SECONDS = 0.3;
 export const V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS = 0.8;
-export const V2_NPC_FOLLOWER_FIRE_COOLDOWN_SECONDS = 1;
+export const V2_NPC_FOLLOWER_FIRE_COOLDOWN_SECONDS = 0.6;
 export const V2_NPC_CURRENT_TARGET_SIGHT_HERTZ = 5;
 export const V2_NPC_PERSONALITY_RETARGET_HERTZ = 1;
 export const V2_NPC_CURRENT_TARGET_SIGHT_MAXIMUM_PER_UPDATE = 20;
@@ -158,6 +158,12 @@ const NPC_COMMAND_MAXIMUM_DISTANCE =
   BLENDER_METERS_TO_WORLD_UNITS;
 const NPC_FOLLOW_SEPARATION_DISTANCE =
   V2_NPC_FOLLOW_SEPARATION_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_FOLLOW_FORMATION_PROJECTION_DISTANCE =
+  0.2 * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_FOLLOW_FORMATION_STOP_DISTANCE =
+  0.1 * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_FOLLOW_FORMATION_RESUME_DISTANCE =
+  0.2 * BLENDER_METERS_TO_WORLD_UNITS;
 const NPC_FOLLOW_STOP_DISTANCE =
   V2_NPC_FOLLOW_STOP_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
 const NPC_FOLLOW_RESUME_DISTANCE =
@@ -442,6 +448,7 @@ type NpcCommandRuntime = {
   followLostSightSeconds: number;
   followLastSeenFootPosition: Vector3 | null;
   readonly followLastSeenDirection: Vector3;
+  readonly followFormationOffset: Vector3;
   followMovementStopped: boolean;
   leaveDestination: NavigationLocation | null;
   leaveElapsedSeconds: number;
@@ -516,11 +523,6 @@ type ResolvedPlacement = Readonly<{
   navigationLocation: NavigationLocation;
   footPosition: Vector3;
   formation: boolean;
-}>;
-
-type NpcFollowerPosition = Readonly<{
-  id: string;
-  footPosition: Vector3;
 }>;
 
 type NpcElevatorStopTraversal = Readonly<{
@@ -787,6 +789,16 @@ const createFollowerFireRandomState = (
   return state >>> 0;
 };
 
+const createFollowerFormationOffset = (npcId: string) => {
+  const state = createFollowerFireRandomState(npcId, 0);
+  const angle = (state / 0x1_0000_0000) * Math.PI * 2;
+  return new Vector3(
+    Math.cos(angle) * NPC_FOLLOW_SEPARATION_DISTANCE,
+    0,
+    Math.sin(angle) * NPC_FOLLOW_SEPARATION_DISTANCE
+  );
+};
+
 const createNpcCommandRuntime = (
   npcId: string,
   sessionEntropy: number
@@ -797,6 +809,7 @@ const createNpcCommandRuntime = (
   followLostSightSeconds: 0,
   followLastSeenFootPosition: null,
   followLastSeenDirection: Vector3.Zero(),
+  followFormationOffset: createFollowerFormationOffset(npcId),
   followMovementStopped: false,
   leaveDestination: null,
   leaveElapsedSeconds: 0,
@@ -3460,22 +3473,15 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       }
     }
 
-    const followers = Object.freeze(
-      this.npcs
-        .filter((npc) => npc.command.mode === "follow")
-        .map((npc) =>
-          Object.freeze({
-            id: npc.id,
-            footPosition: npc.footPosition.clone()
-          })
-        )
-    );
+    const followerCount = this.npcs.filter(
+      (npc) => npc.command.mode === "follow"
+    ).length;
     for (let npcIndex = 0; npcIndex < this.npcs.length; npcIndex += 1) {
       const npc = this.npcs[npcIndex];
       if (npc.command.mode === "follow") {
         this.updateFollowMovement(
           npc,
-          followers,
+          followerCount,
           playerTarget,
           deltaSeconds,
           this.hasReplanPermission(npcIndex)
@@ -3493,31 +3499,61 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
   private updateFollowMovement(
     npc: NpcRuntime,
-    followers: readonly NpcFollowerPosition[],
+    followerCount: number,
     playerTarget: V2HumanTargetSnapshot,
     deltaSeconds: number,
     allowPathRecalculation: boolean
   ) {
-    const separation = this.getFollowerSeparation(npc, followers);
     let destination: Vector3 | null = null;
-    if (separation.lengthSquared() > 0) {
-      destination = npc.navigationLocation.position.add(
-        separation
-          .normalize()
-          .scale(NPC_FOLLOW_SEPARATION_DISTANCE)
-      );
-    } else if (!npc.command.followMovementStopped) {
-      const lastSeen = npc.command.followLastSeenFootPosition;
-      if (lastSeen) {
-        destination = lastSeen.clone();
-        if (npc.command.followLostSightSeconds > 0) {
-          destination.addInPlace(
-            npc.command.followLastSeenDirection.scale(
-              NPC_FOLLOW_LAST_DIRECTION_DISTANCE
-            )
+    let usesFormationAnchor = false;
+    const lastSeen = npc.command.followLastSeenFootPosition;
+    if (lastSeen) {
+      const centralDestination = lastSeen.clone();
+      if (npc.command.followLostSightSeconds > 0) {
+        centralDestination.addInPlace(
+          npc.command.followLastSeenDirection.scale(
+            NPC_FOLLOW_LAST_DIRECTION_DISTANCE
+          )
+        );
+      }
+      if (followerCount > 1) {
+        const requestedFormationDestination =
+          centralDestination.add(npc.command.followFormationOffset);
+        const projectedFormationDestination =
+          this.stage.navigation.projectPoint(
+            requestedFormationDestination,
+            NAVIGATION_PROJECTION_MAX_DISTANCE
           );
+        if (
+          projectedFormationDestination &&
+          Vector3.Distance(
+            requestedFormationDestination,
+            projectedFormationDestination.position
+          ) <= NPC_FOLLOW_FORMATION_PROJECTION_DISTANCE
+        ) {
+          destination = projectedFormationDestination.position.clone();
+          usesFormationAnchor = true;
         }
       }
+      if (!destination) {
+        destination = centralDestination;
+      }
+    }
+    if (destination && usesFormationAnchor) {
+      const formationDistance = Vector3.Distance(
+        npc.footPosition,
+        destination
+      );
+      if (npc.command.followMovementStopped) {
+        if (formationDistance > NPC_FOLLOW_FORMATION_RESUME_DISTANCE) {
+          npc.command.followMovementStopped = false;
+        }
+      } else if (formationDistance <= NPC_FOLLOW_FORMATION_STOP_DISTANCE) {
+        npc.command.followMovementStopped = true;
+      }
+    }
+    if (npc.command.followMovementStopped) {
+      destination = null;
     }
     if (!destination) {
       this.clearNavigationAgent(npc);
@@ -3536,53 +3572,19 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       return;
     }
     this.applyNavigationMovement(npc, movement.location);
+    const stopDistance = usesFormationAnchor
+      ? NPC_FOLLOW_FORMATION_STOP_DISTANCE
+      : NPC_FOLLOW_STOP_DISTANCE;
+    const stopTarget = usesFormationAnchor
+      ? destination
+      : playerTarget.footPosition;
     if (
       npc.command.followLostSightSeconds === 0 &&
-      Vector3.Distance(npc.footPosition, playerTarget.footPosition) <=
-        NPC_FOLLOW_STOP_DISTANCE
+      Vector3.Distance(npc.footPosition, stopTarget) <= stopDistance
     ) {
       npc.command.followMovementStopped = true;
       this.clearNavigationAgent(npc);
     }
-  }
-
-  private getFollowerSeparation(
-    npc: NpcRuntime,
-    followers: readonly NpcFollowerPosition[]
-  ) {
-    const separation = Vector3.Zero();
-    for (const other of followers) {
-      if (other.id === npc.id) {
-        continue;
-      }
-      const offset = npc.footPosition.subtract(other.footPosition);
-      offset.y = 0;
-      const distance = offset.length();
-      if (distance >= NPC_FOLLOW_SEPARATION_DISTANCE) {
-        continue;
-      }
-      if (distance === 0) {
-        const pairId =
-          npc.id < other.id
-            ? `${npc.id}:${other.id}`
-            : `${other.id}:${npc.id}`;
-        const pairState = createFollowerFireRandomState(pairId, 0);
-        const angle =
-          (pairState / 0x1_0000_0000) * Math.PI * 2;
-        offset.set(Math.cos(angle), 0, Math.sin(angle));
-        if (npc.id > other.id) {
-          offset.scaleInPlace(-1);
-        }
-      } else {
-        offset.scaleInPlace(1 / distance);
-      }
-      separation.addInPlace(
-        offset.scale(
-          NPC_FOLLOW_SEPARATION_DISTANCE - distance
-        )
-      );
-    }
-    return separation;
   }
 
   private updateLeaveMovement(
