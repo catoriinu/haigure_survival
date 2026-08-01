@@ -233,8 +233,8 @@ PC室の通常版は変更しない。生成前後でPC室の表示形状、Coll
 - [x] 最新の`origin/develop`をfetchし、本ブランチへ取り込んで競合を解消する
 - [x] 統合後の資産・NavMesh・Runtime契約を再生成または同期する
 - [x] 全資産監査、NavMesh決定性、型検査、build、通常ゲーム／Electron、UTF-8・BOM・公開差分を再検証する
-- [ ] ブランチをoriginへpushし、`develop`宛てのDraft Pull Requestを作成する
-- [ ] push先head、Pull Request head、状態、検証結果を本計画へ記録する
+- [x] ブランチをoriginへpushし、`develop`宛てのDraft Pull Requestを作成する
+- [x] push先head、Pull Request head、状態、検証結果を本計画へ記録する
 
 ## 2026-08-01 最新develop統合・Pull Request公開結果
 
@@ -242,4 +242,6 @@ PC室の通常版は変更しない。生成前後でPC室の表示形状、Coll
 
 統合後のBlender正本は3,356,471 byte、SHA-256 `932689abc43a720c32bc39ca4454b19a1186eeee4af0a2629bd2f256a1d2a24f`、学校GLBは17,400,964 byte、SHA-256 `4e5be8242399eb688871e62fd965099cf819c7c228d0244d2a8917e99a0a513f`となった。人物用NavMeshは3,123,476 byte／`530fa01f472a7f3ab4f983c6360aa41c296f3170ae44334e67e26377ed5d977b`、Room Variant NavMesh bundleは1,914,182 byte／`a6e23357b5379f25629a7642aae420913a999efec7ec07955107b3f59d27c8d6`、BIT用NavMeshは565,399 byte／`e7e0a76429ba1c9bcfcb26a18071db2307ca394632fb727a0559140244cac62a`で決定的に再現した。
 
-建築・内装・インタラクティブ資産・リファクター・B03-1保護契約・B04学校境界の6監査、人物／Room Variant／BIT NavMesh決定性、共通／T04／T05型検査、`npm run build`を通過した。Electron fixtureはT04が115/115、T05が293/293で、renderer diagnosticsはともに0件だった。通常ゲームはHTTP 200、`playing`、NPC 50・BIT 20まで到達し、校舎／体育館の箱山を登頂後に柵外へ落下でき、renderer diagnosticsは0件だった。通常ゲームのinteraction／HUDプロファイルはアプリ例外ではなく、Electron自動化からroot documentのPointer Lockを取得できない既知の制約により未成立だった。pushとDraft Pull Request作成は未実施である。
+建築・内装・インタラクティブ資産・リファクター・B03-1保護契約・B04学校境界の6監査、人物／Room Variant／BIT NavMesh決定性、共通／T04／T05型検査、`npm run build`を通過した。Electron fixtureはT04が115/115、T05が293/293で、renderer diagnosticsはともに0件だった。通常ゲームはHTTP 200、`playing`、NPC 50・BIT 20まで到達し、校舎／体育館の箱山を登頂後に柵外へ落下でき、renderer diagnosticsは0件だった。通常ゲームのinteraction／HUDプロファイルはアプリ例外ではなく、Electron自動化からroot documentのPointer Lockを取得できない既知の制約により未成立だった。
+
+統合結果をmerge commit `002788f`として`origin/codex/v2-school-normal-layouts-f01`へpushし、`develop`宛てのDraft Pull Request #60（`https://github.com/catoriinu/haigure_survival/pull/60`）を作成した。Pull Request作成時点でlocal head、origin head、Pull Request headはいずれも`002788f`で一致し、状態はopen・draft、baseは`develop`だった。Pull Requestのmergeとreview threadの解決は行っていない。
