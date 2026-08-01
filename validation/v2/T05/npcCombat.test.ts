@@ -22,9 +22,11 @@ import {
 import {
   V2_NPC_CAPTURE_BREAKAWAY_SPEED,
   V2_NPC_CAPTURE_DURATION_SECONDS,
+  V2_NPC_DETAIL_ENTER_DISTANCE_METERS,
+  V2_NPC_DETAIL_EXIT_DISTANCE_METERS,
   V2_NPC_GUN_BEAM_MAXIMUM_LIFETIME_SECONDS,
   V2_NPC_GUN_BEAM_SPEED,
-  V2_NPC_MINIMUM_PATH_REPLANS_PER_UPDATE,
+  V2_NPC_MAXIMUM_PATH_REPLANS_PER_UPDATE,
   V2_NPC_PATH_REPLAN_DEADLINE_SECONDS,
   createV2NpcSystem,
   type V2NpcCommandQuery,
@@ -66,6 +68,7 @@ type NpcFixture = Readonly<{
     destination: Vector3;
   }>[];
   setPathDistanceOverride(distance: number | null): void;
+  setPathWaypoints(waypoints: readonly Vector3[]): void;
   getSpriteAlpha(npcId: string): number;
   dispose(): void;
 }>;
@@ -127,7 +130,8 @@ const assertThrows = (operation: () => void, message: string) => {
 
 const createInitializationRandom = (
   npcCount: number,
-  initialBrainwashedNpcCount: number
+  initialBrainwashedNpcCount: number,
+  brainwashedStateRoll: number | null
 ) => {
   const spawnCoordinates = [
     [0.2, 0.5, 0.2],
@@ -153,7 +157,9 @@ const createInitializationRandom = (
   }
   for (let index = 0; index < npcCount; index += 1) {
     if (index < initialBrainwashedNpcCount) {
-      const stateRoll = index === 0 ? 0.1 : index === 1 ? 0.6 : 0.95;
+      const stateRoll =
+        brainwashedStateRoll ??
+        (index === 0 ? 0.1 : index === 1 ? 0.6 : 0.95);
       values.push(stateRoll, 0.5, 0.5);
       if (stateRoll < 0.45) {
         values.push(0.5, 0.5);
@@ -177,7 +183,8 @@ const createNpcFixture = (
   disableWander = false,
   observeRouteContext:
     | ((context: V2NpcNavigationRouteContext) => void)
-    | null = null
+    | null = null,
+  brainwashedStateRoll: number | null = null
 ): NpcFixture => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
@@ -202,6 +209,7 @@ const createNpcFixture = (
     destination: Vector3;
   }> = [];
   let pathDistanceOverride: number | null = null;
+  let pathWaypoints: readonly Vector3[] = Object.freeze([]);
 
   const createLocation = (position: Vector3) =>
     Object.freeze({
@@ -236,13 +244,20 @@ const createNpcFixture = (
         start: start.position.clone(),
         destination: destination.position.clone()
       });
+      const surfacePoints = Object.freeze([
+        createLocation(start.position),
+        ...pathWaypoints.map(createLocation),
+        createLocation(destination.position)
+      ]);
       const surface = Object.freeze({
         kind: "surface" as const,
-        points: Object.freeze([
-          createLocation(start.position),
-          createLocation(destination.position)
-        ]),
-        distance: Vector3.Distance(start.position, destination.position)
+        points: surfacePoints,
+        distance: surfacePoints.slice(1).reduce(
+          (distance, point, index) =>
+            distance +
+            Vector3.Distance(surfacePoints[index].position, point.position),
+          0
+        )
       });
       const path = Object.freeze({
         steps: Object.freeze([surface]),
@@ -276,7 +291,8 @@ const createNpcFixture = (
       all: Object.freeze([navigationArea]),
       portals: Object.freeze([]),
       getById: (id: string) => id === navigationArea.id ? navigationArea : null,
-      resolve: () => Object.freeze({ area: navigationArea, portal: null }),
+      locate: () => Object.freeze({ areaId: navigationArea.id, portalId: null }),
+      advance: (cursor: Readonly<{ areaId: string; portalId: string | null }>) => cursor,
       dispose: () => undefined
     }),
     doorAssets: Object.freeze({
@@ -320,6 +336,7 @@ const createNpcFixture = (
       }),
       containsVolume: () => false,
       containsVolumeById: () => false,
+      intersectsVolumeSegmentById: () => false,
       intersectsVolumeById: () => false,
       findContainingBlocker: () => null,
       dispose: () => undefined
@@ -334,7 +351,8 @@ const createNpcFixture = (
     diagnosticsEnabled: true,
     random: createInitializationRandom(
       npcCount,
-      initialBrainwashedNpcCount
+      initialBrainwashedNpcCount,
+      brainwashedStateRoll
     ),
     resolveTargetNavigationArea: (target) =>
       Object.freeze({
@@ -375,6 +393,11 @@ const createNpcFixture = (
       ),
     setPathDistanceOverride: (distance) => {
       pathDistanceOverride = distance;
+    },
+    setPathWaypoints: (waypoints) => {
+      pathWaypoints = Object.freeze(
+        waypoints.map((waypoint) => waypoint.clone())
+      );
     },
     getSpriteAlpha: (npcId) => {
       const spriteManagers = scene.spriteManagers;
@@ -806,6 +829,7 @@ const testNoGunCaptureAndBreakaway = () => {
       .getFrameView()
       .targets
       .find((snapshot) => snapshot.id === "npc_1")!.footPosition;
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
     fixture.system.update(1, player, EMPTY_ALARM_TARGET_EVENTS);
     const breakawayPosition = fixture.system
       .getFrameView()
@@ -1289,6 +1313,11 @@ const testExternalThreatAndPlayerBlocking = () => {
       }
     ]);
     fixture.system.setPlayerBlockedTargetIds(["npc_1", "npc_2"]);
+    fixture.system.update(
+      0,
+      createPlayerTarget(new Vector3(4, 0, 4)),
+      EMPTY_ALARM_TARGET_EVENTS
+    );
     fixture.system.update(
       1,
       createPlayerTarget(new Vector3(4, 0, 4)),
@@ -1790,7 +1819,14 @@ const testNpcTargetSelectionPersonalitiesAndForcedPriority = () => {
         blockedAlternative.autonomousVisualTargetChangeCount === 0 &&
         blockedAlternative.tracking[0].targetId === "player" &&
         blockedAlternative.tracking[1].targetId === "player" &&
-        autonomousActorPathCount === 0,
+        autonomousActorPathCount <= 1 &&
+        sameTargetQueryPathRecords.every(
+          ({ destination }) =>
+            Vector3.DistanceSquared(
+              destination,
+              movedPlayer.footPosition
+            ) <= 1e-12
+        ),
       "遮蔽された近傍候補を除外した同一標的保持、または経路非再計画が不正です: " +
         `query=${blockedAlternative.personalityRetargetQueryCount} / ` +
         `changes=${blockedAlternative.autonomousVisualTargetChangeCount} / ` +
@@ -1808,12 +1844,6 @@ const testNpcTargetSelectionPersonalitiesAndForcedPriority = () => {
     );
 
     fixture.setSightResolver(null);
-    const npc0FootPositionBeforeSwitch = fixture.system
-      .getFrameView()
-      .targets.find(({ id }) => id === "npc_0")!.footPosition;
-    const npc2FootPositionBeforeSwitch = fixture.system
-      .getFrameView()
-      .targets.find(({ id }) => id === "npc_2")!.footPosition;
     const npc0PreviousTargetPathRecord = [
       ...fixture.getPathfindRecords()
     ].reverse().find(
@@ -1832,15 +1862,24 @@ const testNpcTargetSelectionPersonalitiesAndForcedPriority = () => {
       EMPTY_ALARM_TARGET_EVENTS
     );
     const switched = fixture.system.getFrameView();
+    const npc2FootPositionAtPathRequest = switched.targets.find(
+      ({ id }) => id === "npc_2"
+    )!.footPosition;
+    fixture.system.update(
+      0,
+      movedPlayer,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const switchedPath = fixture.system.getFrameView();
     const targetSwitchPathRecords = fixture
       .getPathfindRecords()
       .slice(pathfindCountBeforeTargetSwitch);
     const npc0TargetSwitchPathRecords =
       targetSwitchPathRecords.filter(
-        ({ start }) =>
+        ({ destination }) =>
           Vector3.DistanceSquared(
-            start,
-            npc0FootPositionBeforeSwitch
+            destination,
+            npc2FootPositionAtPathRequest
           ) <= 1e-12
       );
     assert(
@@ -1852,20 +1891,22 @@ const testNpcTargetSelectionPersonalitiesAndForcedPriority = () => {
     );
     assert(
       targetSwitchPathRecords.length ===
-        switched.pathRecalculationCount &&
+        switched.pathRecalculationCount +
+          switchedPath.pathRecalculationCount &&
         npc0PreviousTargetPathRecord !== undefined &&
-        switched.pathRecalculationCount > 0 &&
-        switched.pathRecalculationCount <=
-          V2_NPC_MINIMUM_PATH_REPLANS_PER_UPDATE &&
+        switchedPath.pathRecalculationCount > 0 &&
+        switched.pathRecalculationCount +
+          switchedPath.pathRecalculationCount <=
+          V2_NPC_MAXIMUM_PATH_REPLANS_PER_UPDATE &&
         npc0TargetSwitchPathRecords.length === 1 &&
         Vector3.DistanceSquared(
           npc0TargetSwitchPathRecords[0].destination,
-          npc2FootPositionBeforeSwitch
+          npc2FootPositionAtPathRequest
         ) <= 1e-12,
       "自律標的ID切替後の経路が全体予算内で最新destinationへ再計画されません: " +
         `previous=${npc0PreviousTargetPathRecord?.destination.toString() ?? "none"} / ` +
-        `budget=${switched.pathRecalculationCount}/` +
-        `${V2_NPC_MINIMUM_PATH_REPLANS_PER_UPDATE} / ` +
+        `budget=${switched.pathRecalculationCount}+${switchedPath.pathRecalculationCount}/` +
+        `${V2_NPC_MAXIMUM_PATH_REPLANS_PER_UPDATE} / ` +
         `npc0Paths=${npc0TargetSwitchPathRecords
           .map(
             ({ start, destination }) =>
@@ -2297,6 +2338,11 @@ const testGunVisualLockAndLastSeenPath = () => {
       outsideFovTarget,
       EMPTY_ALARM_TARGET_EVENTS
     );
+    fixture.system.update(
+      0,
+      outsideFovTarget,
+      EMPTY_ALARM_TARGET_EVENTS
+    );
     const firstLostView = fixture.system.getFrameView();
     const firstLostPathfindCount = fixture.getPathfindCount();
     fixture.system.update(
@@ -2655,10 +2701,10 @@ const testNpcFairReplanBudgetAndFrameView = () => {
     }
     assert(
       firstBudgetView !== initialView &&
-        firstBudgetView.pathRecalculationCount ===
-          V2_NPC_MINIMUM_PATH_REPLANS_PER_UPDATE &&
+      firstBudgetView.pathRecalculationCount ===
+          V2_NPC_MAXIMUM_PATH_REPLANS_PER_UPDATE &&
         firstBudgetView.waitingForPathCount ===
-          npcCount - V2_NPC_MINIMUM_PATH_REPLANS_PER_UPDATE,
+          npcCount - V2_NPC_MAXIMUM_PATH_REPLANS_PER_UPDATE,
       "99件同時要求の初回予算または待機件数が不正です。"
     );
 
@@ -2691,6 +2737,276 @@ const testNpcFairReplanBudgetAndFrameView = () => {
     );
   } finally {
     fixture.dispose();
+  }
+};
+
+const testNpcPursuitDistanceLodAndCumulativeTargetMovement = () => {
+  const fixture = createNpcFixture(1, 1, 30, true);
+  try {
+    fixture.system.placeNpcs([
+      {
+        id: "npc_0",
+        footPosition: Vector3.Zero(),
+        formation: false
+      }
+    ]);
+    const initialPlayerPosition = new Vector3(2.9975, 0, 0);
+    const initialPlayer = createPlayerTarget(initialPlayerPosition);
+    fixture.system.update(
+      0,
+      initialPlayer,
+      Object.freeze([
+        createAlarmEvent("pursuit-lod", "player", Vector3.Zero())
+      ])
+    );
+    fixture.system.update(0, initialPlayer, EMPTY_ALARM_TARGET_EVENTS);
+    assert(
+      fixture.system.getFrameView().tracking[0].pursuitPhase === "coarse",
+      "残り経路未確定時にcoarseで開始されません。"
+    );
+
+    fixture.system.update(0, initialPlayer, EMPTY_ALARM_TARGET_EVENTS);
+    fixture.system.update(0, initialPlayer, EMPTY_ALARM_TARGET_EVENTS);
+    assert(
+      fixture.system.getFrameView().tracking[0].pursuitPhase === "detail",
+      "残りNavMesh経路12m以内でcoarseからdetailへ昇格しません。"
+    );
+
+    const pathfindCountBeforeMicroMovement = fixture.getPathfindCount();
+    for (const offset of [0.051, 0.102, 0.153]) {
+      fixture.system.update(
+        0,
+        createPlayerTarget(initialPlayerPosition.add(new Vector3(offset, 0, 0))),
+        EMPTY_ALARM_TARGET_EVENTS
+      );
+    }
+    const queuedAfterCumulativeMovement =
+      fixture.system.getFrameView().replanQueuedCount;
+    fixture.system.update(
+      0,
+      createPlayerTarget(initialPlayerPosition.add(new Vector3(0.153, 0, 0))),
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const microMovementPaths = fixture
+      .getPathfindRecords()
+      .slice(pathfindCountBeforeMicroMovement);
+    assert(
+      queuedAfterCumulativeMovement === 1 &&
+        microMovementPaths.length === 1 &&
+        Vector3.DistanceSquared(
+          microMovementPaths[0].destination,
+          initialPlayerPosition.add(new Vector3(0.153, 0, 0))
+        ) <= 1e-12,
+      "detailの累積0.15移動が1件へ統合され、最新座標へ再計画されません。"
+        + ` queued=${queuedAfterCumulativeMovement} / paths=${microMovementPaths.map(({ destination }) => destination.toString()).join("|")}`
+    );
+
+    const npcPosition = fixture.system.getFrameView().targets[0].footPosition;
+    fixture.system.update(
+      0,
+      createPlayerTarget(npcPosition.add(new Vector3(4, 0, 0))),
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    assert(
+      fixture.system.getFrameView().tracking[0].pursuitPhase === "detail",
+      "12mから18mのヒステリシス帯でdetailを維持しません。"
+    );
+    fixture.system.update(
+      0,
+      createPlayerTarget(npcPosition.add(new Vector3(4.5, 0, 0))),
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    assert(
+      fixture.system.getFrameView().tracking[0].pursuitPhase === "coarse",
+      "水平18mでdetailからcoarseへ降格しません。"
+    );
+    return (
+      `enter=11.99m<=${V2_NPC_DETAIL_ENTER_DISTANCE_METERS}m / ` +
+      `exit=${V2_NPC_DETAIL_EXIT_DISTANCE_METERS}m / ` +
+      `microPaths=${microMovementPaths.length}`
+    );
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testNpcPursuitWallDetourRemainsCoarse = () => {
+  const fixture = createNpcFixture(1, 1, 30, true);
+  try {
+    fixture.system.placeNpcs([
+      {
+        id: "npc_0",
+        footPosition: Vector3.Zero(),
+        formation: false
+      }
+    ]);
+    fixture.setPathWaypoints([new Vector3(0, 0, 4)]);
+    const player = createPlayerTarget(new Vector3(2, 0, 0));
+    fixture.system.update(
+      0,
+      player,
+      Object.freeze([
+        createAlarmEvent("wall-detour", "player", Vector3.Zero())
+      ])
+    );
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    const tracking = fixture.system.getFrameView().tracking[0];
+    assert(
+      tracking.pursuitPhase === "coarse",
+      "水平距離12m未満でも既存NavMesh経路が12m超ならcoarseを維持しません。"
+    );
+    return "direct=8m / detour>12m / phase=coarse";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testNpcPursuitAllDetailWorstCase = () => {
+  const npcCount = 99;
+  const fixture = createNpcFixture(npcCount, npcCount, 30, true);
+  try {
+    fixture.system.placeNpcs(
+      Array.from({ length: npcCount }, (_, index) => ({
+        id: `npc_${index}`,
+        footPosition: new Vector3(
+          (index % 11) * 0.01,
+          0,
+          Math.floor(index / 11) * 0.01
+        ),
+        formation: false
+      }))
+    );
+    const player = createPlayerTarget(new Vector3(2.5, 0, 0));
+    let maximumUpdateMilliseconds = 0;
+    let maximumPathRecalculationCount = 0;
+    for (let updateIndex = 0; updateIndex < 180; updateIndex += 1) {
+      const startedAt = performance.now();
+      fixture.system.update(
+        1 / 60,
+        player,
+        updateIndex === 0
+          ? Object.freeze([
+              createAlarmEvent("all-detail", "player", Vector3.Zero())
+            ])
+          : EMPTY_ALARM_TARGET_EVENTS
+      );
+      maximumUpdateMilliseconds = Math.max(
+        maximumUpdateMilliseconds,
+        performance.now() - startedAt
+      );
+      maximumPathRecalculationCount = Math.max(
+        maximumPathRecalculationCount,
+        fixture.system.getFrameView().pathRecalculationCount
+      );
+    }
+    const finalView = fixture.system.getFrameView();
+    const detailCount = finalView.tracking.filter(
+      ({ pursuitPhase }) => pursuitPhase === "detail"
+    ).length;
+    assert(
+      detailCount === npcCount &&
+        maximumPathRecalculationCount <=
+          V2_NPC_MAXIMUM_PATH_REPLANS_PER_UPDATE &&
+        maximumUpdateMilliseconds < 50,
+      "99 NPC全員detailの最悪条件で停止、再計画上限超過、または50ms超更新が発生しました: " +
+        `detail=${detailCount}/${npcCount} / replans=${maximumPathRecalculationCount} / max=${maximumUpdateMilliseconds.toFixed(3)}ms`
+    );
+    return (
+      `detail=${detailCount}/${npcCount} / ` +
+      `replans<=${maximumPathRecalculationCount} / ` +
+      `max=${maximumUpdateMilliseconds.toFixed(3)}ms`
+    );
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testNpcCoarseRefreshStaggerAndStationarySuppression = () => {
+  const npcCount = 8;
+  const movingFixture = createNpcFixture(
+    npcCount,
+    npcCount,
+    30,
+    true,
+    null,
+    0.6
+  );
+  const stationaryFixture = createNpcFixture(
+    npcCount,
+    npcCount,
+    30,
+    true,
+    null,
+    0.6
+  );
+  const placements = Array.from({ length: npcCount }, (_, index) => ({
+    id: `npc_${index}`,
+    footPosition: new Vector3(0, 0, index * 0.01),
+    formation: false
+  }));
+  try {
+    movingFixture.system.placeNpcs(placements);
+    stationaryFixture.system.placeNpcs(placements);
+    const initialPlayer = createPlayerTarget(new Vector3(25, 0, 0));
+    for (const fixture of [movingFixture, stationaryFixture]) {
+      fixture.system.update(
+        0,
+        initialPlayer,
+        Object.freeze([
+          createAlarmEvent("coarse-stagger", "player", Vector3.Zero())
+        ])
+      );
+      fixture.system.update(0, initialPlayer, EMPTY_ALARM_TARGET_EVENTS);
+      fixture.system.update(0, initialPlayer, EMPTY_ALARM_TARGET_EVENTS);
+      fixture.system.update(0, initialPlayer, EMPTY_ALARM_TARGET_EVENTS);
+    }
+
+    const movingPathCountBefore = movingFixture.getPathfindCount();
+    let movingMaximumReplans = 0;
+    for (let frameIndex = 1; frameIndex <= 120; frameIndex += 1) {
+      movingFixture.system.update(
+        1 / 60,
+        createPlayerTarget(new Vector3(25 + frameIndex * 0.001, 0, 0)),
+        EMPTY_ALARM_TARGET_EVENTS
+      );
+      movingMaximumReplans = Math.max(
+        movingMaximumReplans,
+        movingFixture.system.getFrameView().pathRecalculationCount
+      );
+    }
+    movingFixture.system.update(
+      0,
+      createPlayerTarget(new Vector3(25.12, 0, 0)),
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const movingPeriodicPaths =
+      movingFixture.getPathfindCount() - movingPathCountBefore;
+
+    const stationaryPathCountBefore = stationaryFixture.getPathfindCount();
+    for (let frameIndex = 0; frameIndex < 240; frameIndex += 1) {
+      stationaryFixture.system.update(
+        1 / 60,
+        initialPlayer,
+        EMPTY_ALARM_TARGET_EVENTS
+      );
+    }
+    const stationaryPeriodicPaths =
+      stationaryFixture.getPathfindCount() - stationaryPathCountBefore;
+    assert(
+      movingPeriodicPaths === npcCount &&
+        movingMaximumReplans === 1 &&
+        stationaryPeriodicPaths === 0,
+      "coarse更新がActor IDで分散されないか、静止標的へ無意味な再計画が発生しました: " +
+        `moving=${movingPeriodicPaths}/${npcCount} / max=${movingMaximumReplans} / stationary=${stationaryPeriodicPaths}`
+    );
+    return (
+      `moving=${movingPeriodicPaths}/${npcCount} / ` +
+      `max=${movingMaximumReplans} / stationary=${stationaryPeriodicPaths}`
+    );
+  } finally {
+    movingFixture.dispose();
+    stationaryFixture.dispose();
   }
 };
 
@@ -2778,5 +3094,21 @@ export const runNpcCombatTests = () =>
     executeTest(
       "NPC公平再計画予算・frame view",
       testNpcFairReplanBudgetAndFrameView
+    ),
+    executeTest(
+      "NPC追跡距離LOD・累積標的移動",
+      testNpcPursuitDistanceLodAndCumulativeTargetMovement
+    ),
+    executeTest(
+      "NPC追跡の壁越し経路距離LOD",
+      testNpcPursuitWallDetourRemainsCoarse
+    ),
+    executeTest(
+      "NPC追跡99体全員detail最悪条件",
+      testNpcPursuitAllDetailWorstCase
+    ),
+    executeTest(
+      "NPC coarse更新のActor ID分散・静止時抑止",
+      testNpcCoarseRefreshStaggerAndStationarySuppression
     )
   ]);

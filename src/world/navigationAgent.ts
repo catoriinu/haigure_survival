@@ -30,6 +30,7 @@ export type NavigationAgentStepResult = Readonly<{
   state: NavigationAgentState;
   pathRecalculated: boolean;
   pathDistance: number | null;
+  remainingPathDistance: number | null;
   transition: NavigationTransitionStep | null;
 }>;
 
@@ -195,6 +196,7 @@ class CachedNavigationAgent implements NavigationAgent {
         state: "transition-required",
         pathRecalculated: false,
         pathDistance: this.pathDistance,
+        remainingPathDistance: this.calculateRemainingPathDistance(currentLocation),
         transition: this.pendingTransition
       };
     }
@@ -233,6 +235,7 @@ class CachedNavigationAgent implements NavigationAgent {
             : "unreachable",
         pathRecalculated,
         pathDistance: this.pathDistance,
+        remainingPathDistance: null,
         transition: null
       };
     }
@@ -257,6 +260,7 @@ class CachedNavigationAgent implements NavigationAgent {
             state: "unreachable",
             pathRecalculated,
             pathDistance: this.pathDistance,
+            remainingPathDistance: null,
             transition: null
           };
         }
@@ -266,6 +270,7 @@ class CachedNavigationAgent implements NavigationAgent {
           state: "transition-required",
           pathRecalculated,
           pathDistance: this.pathDistance,
+          remainingPathDistance: this.calculateRemainingPathDistance(location),
           transition: step
         };
       }
@@ -283,6 +288,7 @@ class CachedNavigationAgent implements NavigationAgent {
             state: "moving",
             pathRecalculated,
             pathDistance: this.pathDistance,
+            remainingPathDistance: this.calculateRemainingPathDistance(location),
             transition: null
           };
         }
@@ -307,6 +313,7 @@ class CachedNavigationAgent implements NavigationAgent {
             state: "unreachable",
             pathRecalculated,
             pathDistance: this.pathDistance,
+            remainingPathDistance: null,
             transition: null
           };
         }
@@ -343,6 +350,7 @@ class CachedNavigationAgent implements NavigationAgent {
           state: "moving",
           pathRecalculated,
           pathDistance: this.pathDistance,
+          remainingPathDistance: this.calculateRemainingPathDistance(location),
           transition: null
         };
       }
@@ -360,6 +368,7 @@ class CachedNavigationAgent implements NavigationAgent {
           : "arrived",
       pathRecalculated,
       pathDistance: this.pathDistance,
+      remainingPathDistance: 0,
       transition: null
     };
   }
@@ -447,6 +456,43 @@ class CachedNavigationAgent implements NavigationAgent {
     this.stuckElapsedSeconds = 0;
     this.stuckSignaled = false;
     this.pendingTransition = null;
+  }
+
+  private calculateRemainingPathDistance(
+    currentLocation: NavigationLocation
+  ): number | null {
+    if (!this.path) {
+      return null;
+    }
+
+    let distance = 0;
+    let cursor = currentLocation.position;
+    for (
+      let stepIndex = this.nextStepIndex;
+      stepIndex < this.path.length;
+      stepIndex += 1
+    ) {
+      const step = this.path[stepIndex];
+      if (step.kind === "transition") {
+        distance += Vector3.Distance(cursor, step.entry.position);
+        distance += step.distance;
+        cursor = step.exit.position;
+        continue;
+      }
+
+      const firstPointIndex =
+        stepIndex === this.nextStepIndex ? this.nextPointIndex : 0;
+      for (
+        let pointIndex = firstPointIndex;
+        pointIndex < step.points.length;
+        pointIndex += 1
+      ) {
+        const point = step.points[pointIndex].position;
+        distance += Vector3.Distance(cursor, point);
+        cursor = point;
+      }
+    }
+    return distance;
   }
 
   private detectStuck(

@@ -57,7 +57,8 @@ const createFixtureNavigationAreas = () => {
     all: Object.freeze([area]),
     portals: Object.freeze([]),
     getById: (id: string) => (id === area.id ? area : null),
-    resolve: () => Object.freeze({ area, portal: null }),
+    locate: () => Object.freeze({ areaId: area.id, portalId: null }),
+    advance: (cursor: Readonly<{ areaId: string; portalId: string | null }>) => cursor,
     dispose: () => {}
   });
 };

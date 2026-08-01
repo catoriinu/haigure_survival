@@ -69,7 +69,6 @@ import type {
 } from "./performanceDiagnostics";
 import {
   createV2TargetNavigationAreaTracker,
-  type V2TargetNavigationAreaFrame,
   type V2TargetNavigationAreaTracker
 } from "./pursuitNavigation";
 import {
@@ -212,6 +211,9 @@ export interface V2SurvivalRuntime {
   getNpcTraversalState(npcId: string): V2NpcTraversalState;
   getNpcPosition(npcId: string): Vector3;
   setNpcTransportPosition(npcId: string, position: Vector3): void;
+  beginTargetNavigationAreaTransport(targetId: string, position: Vector3): void;
+  updateTargetNavigationAreaTransportPosition(targetId: string, position: Vector3): void;
+  relocateTargetNavigationArea(targetId: string, position: Vector3): void;
   requestPlayerGunFire(direction: Vector3): boolean;
   replayExecution(): void;
   dispose(): void;
@@ -376,7 +378,6 @@ export const createV2SurvivalRuntime = ({
     createV2TargetNavigationAreaTracker(stage.navigationAreas);
   let humanTargets: readonly V2HumanTargetSnapshot[] =
     Object.freeze([]);
-  let targetNavigationAreaFrame: V2TargetNavigationAreaFrame = new Map();
   let frameOrbVisibilityPredicate:
     | ((position: Vector3) => boolean)
     | null = null;
@@ -419,15 +420,8 @@ export const createV2SurvivalRuntime = ({
         population.initialBrainwashedNpcCount,
       diagnosticsEnabled: performanceDiagnostics !== null,
       random,
-      resolveTargetNavigationArea: (target) => {
-        const snapshot = targetNavigationAreaFrame.get(target.id);
-        if (!snapshot) {
-          throw new Error(
-            `追跡標的のNavigation Area snapshotがありません: ${target.id}`
-          );
-        }
-        return snapshot;
-      },
+      resolveTargetNavigationArea: (target) =>
+        ownedTargetNavigationAreaTracker!.resolve(target.id),
       selectNavigationRoute
     });
     ownedBitSystem = createV2BitSystem(scene, stage, {
@@ -437,15 +431,8 @@ export const createV2SurvivalRuntime = ({
       spawnProjectionMaxDistance: 0.75,
       combatEnabled: true,
       random,
-      resolveTargetNavigationArea: (target) => {
-        const snapshot = targetNavigationAreaFrame.get(target.id);
-        if (!snapshot) {
-          throw new Error(
-            `追跡標的のNavigation Area snapshotがありません: ${target.id}`
-          );
-        }
-        return snapshot;
-      }
+      resolveTargetNavigationArea: (target) =>
+        ownedTargetNavigationAreaTracker!.resolve(target.id)
     });
     ownedAlertCoordinator = createV2AlertCoordinator({
       alertDuration: ALERT_DURATION_SECONDS
@@ -470,9 +457,7 @@ export const createV2SurvivalRuntime = ({
       ),
       ...ownedNpcSystem.getFrameView().targets
     ]);
-    targetNavigationAreaFrame = ownedTargetNavigationAreaTracker.update(
-      humanTargets
-    );
+    ownedTargetNavigationAreaTracker.beginFrame(humanTargets);
     ownedBeamSystem = createV2BeamSystem({
       scene,
       stage,
@@ -651,7 +636,12 @@ export const createV2SurvivalRuntime = ({
         })
       )
     );
-    rebuildHumanTargets();
+    for (const target of rebuildHumanTargets()) {
+      targetNavigationAreaTracker.relocate(
+        target.id,
+        target.footPosition
+      );
+    }
   };
 
   const enterAssembly = () => {
@@ -778,7 +768,12 @@ export const createV2SurvivalRuntime = ({
         )
       );
     }
-    rebuildHumanTargets();
+    for (const target of rebuildHumanTargets()) {
+      targetNavigationAreaTracker.relocate(
+        target.id,
+        target.footPosition
+      );
+    }
   };
 
   const placeHumansForExecution = (
@@ -1361,9 +1356,7 @@ export const createV2SurvivalRuntime = ({
         performanceSectionStartedAt
       );
       rebuildHumanTargets();
-      targetNavigationAreaFrame = targetNavigationAreaTracker.update(
-        humanTargets
-      );
+      targetNavigationAreaTracker.beginFrame(humanTargets);
 
       let executionShotEvents:
         | readonly V2ExecutionShotEvent[] = Object.freeze([]);
@@ -1426,8 +1419,32 @@ export const createV2SurvivalRuntime = ({
           npcFrameView.areaPursuitCount
         );
         performanceDiagnostics?.count(
+          "npc.pursuit.coarse",
+          npcFrameView.coarsePursuitCount
+        );
+        performanceDiagnostics?.count(
           "npc.pursuit.detail",
           npcFrameView.detailPursuitCount
+        );
+        performanceDiagnostics?.count(
+          "npc.pursuit.promotions",
+          npcFrameView.pursuitPromotionCount
+        );
+        performanceDiagnostics?.count(
+          "npc.pursuit.demotions",
+          npcFrameView.pursuitDemotionCount
+        );
+        performanceDiagnostics?.count(
+          "npc.replan.queued",
+          npcFrameView.replanQueuedCount
+        );
+        performanceDiagnostics?.count(
+          "npc.replan.coalesced",
+          npcFrameView.replanCoalescedCount
+        );
+        performanceDiagnostics?.count(
+          "npc.replan.max-wait-ms",
+          npcFrameView.replanMaximumWaitSeconds * 1000
         );
         performanceSectionStartedAt =
           performanceDiagnostics?.beginSection(
@@ -1629,6 +1646,10 @@ export const createV2SurvivalRuntime = ({
         performanceDiagnostics?.count(
           "npc.pursuit.area",
           npcFrameView.areaPursuitCount
+        );
+        performanceDiagnostics?.count(
+          "npc.pursuit.coarse",
+          npcFrameView.coarsePursuitCount
         );
         performanceDiagnostics?.count(
           "npc.pursuit.detail",
@@ -1892,6 +1913,17 @@ export const createV2SurvivalRuntime = ({
       assertActive();
       const notifications =
         npcSystem.applyTraversalResults(results);
+      for (const result of results) {
+        if (
+          result.kind === "elevator-disembarked" ||
+          result.kind === "elevator-safety-evicted"
+        ) {
+          targetNavigationAreaTracker.relocate(
+            result.npcId,
+            result.location.position
+          );
+        }
+      }
       rebuildHumanTargets();
       return notifications;
     },
@@ -1908,6 +1940,24 @@ export const createV2SurvivalRuntime = ({
       assertFiniteVector("NPC搬送位置", position);
       npcSystem.setNpcTransportPosition(npcId, position);
       rebuildHumanTargets();
+    },
+    beginTargetNavigationAreaTransport: (targetId, position) => {
+      assertActive();
+      assertFiniteVector("標的Navigation Area搬送開始位置", position);
+      targetNavigationAreaTracker.beginTransport(targetId, position);
+    },
+    updateTargetNavigationAreaTransportPosition: (targetId, position) => {
+      assertActive();
+      assertFiniteVector("標的Navigation Area搬送位置", position);
+      targetNavigationAreaTracker.updateTransportPosition(
+        targetId,
+        position
+      );
+    },
+    relocateTargetNavigationArea: (targetId, position) => {
+      assertActive();
+      assertFiniteVector("標的Navigation Area再配置位置", position);
+      targetNavigationAreaTracker.relocate(targetId, position);
     },
     requestPlayerGunFire: (direction) => {
       assertActive();

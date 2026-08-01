@@ -156,9 +156,13 @@ export const createSchoolStageActorPort = (
       requireFiniteVector(`Actor ${actorId}の搬送位置`, position);
       if (actorId === PLAYER_ID) {
         player.setTransportFootPosition(position);
-        return;
+      } else {
+        survival.setNpcTransportPosition(actorId, position);
       }
-      survival.setNpcTransportPosition(actorId, position);
+      survival.updateTargetNavigationAreaTransportPosition(
+        actorId,
+        position
+      );
     },
     getActorEllipsoids: () =>
       Object.freeze(
@@ -619,6 +623,10 @@ export const createSchoolStageTraversalCoordinator = ({
         )
       ) {
         elevatorRuntime.completePreDepartureExit(PLAYER_ID);
+        survival.relocateTargetNavigationArea(
+          PLAYER_ID,
+          player.getFootPosition()
+        );
         playerElevatorTraversal = null;
         return;
       }
@@ -636,6 +644,10 @@ export const createSchoolStageTraversalCoordinator = ({
         )
       ) {
         elevatorRuntime.completeDisembark(PLAYER_ID);
+        survival.relocateTargetNavigationArea(
+          PLAYER_ID,
+          player.getFootPosition()
+        );
         playerElevatorTraversal = null;
       }
       return;
@@ -687,6 +699,10 @@ export const createSchoolStageTraversalCoordinator = ({
       playerElevatorTraversal?.kind === "reserved" &&
       occupancy.car
     ) {
+      survival.beginTargetNavigationAreaTransport(
+        PLAYER_ID,
+        player.getFootPosition()
+      );
       elevatorRuntime.completeBoarding(PLAYER_ID);
       playerElevatorTraversal = Object.freeze({
         kind: "riding",
@@ -1137,6 +1153,10 @@ export const createSchoolStageTraversalCoordinator = ({
             `乗車開始NPCの予約がありません: ${pending.request.npcId}`
           );
         }
+        survival.beginTargetNavigationAreaTransport(
+          pending.request.npcId,
+          survival.getNpcPosition(pending.request.npcId)
+        );
         elevatorRuntime.completeBoarding(
           pending.request.npcId
         );

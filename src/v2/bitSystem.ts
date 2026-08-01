@@ -45,6 +45,7 @@ import {
   type BitFlightTransitionHistory
 } from "../world/bitFlightTactics";
 import type { StageSpatialContext } from "../world/stageSpatialContext";
+import type { StageNavigationAreaCursor } from "../world/stageNavigationAreas";
 import {
   createStageBoundaryContainsQuery,
   type StageVolume
@@ -425,7 +426,8 @@ type RuntimeBit = {
   pursuitTargetId: string | null;
   pursuitTargetAreaId: string | null;
   pursuitTargetAreaRevision: number;
-  pursuitActorAreaId: string | null;
+  pursuitActorAreaCursor: StageNavigationAreaCursor | null;
+  pursuitActorAreaPosition: Vector3 | null;
   pursuitAnchor: Vector3 | null;
   chaseWindowTransitionId: string | null;
   failedChaseWindowTransitionId: string | null;
@@ -1679,7 +1681,8 @@ export const createV2BitSystem = (
         pursuitTargetId: null,
         pursuitTargetAreaId: null,
         pursuitTargetAreaRevision: 0,
-        pursuitActorAreaId: null,
+        pursuitActorAreaCursor: null,
+        pursuitActorAreaPosition: null,
         pursuitAnchor: null,
         chaseWindowTransitionId: null,
         failedChaseWindowTransitionId: null,
@@ -2243,6 +2246,7 @@ export const createV2BitSystem = (
     elapsedSeconds: number
   ) => {
     const previousRootPosition = bit.root.position.clone();
+    const previousTransition = bit.activeTransition;
     const snapshot = bit.flightAgent.update(
       speed,
       deltaSeconds,
@@ -2288,6 +2292,27 @@ export const createV2BitSystem = (
 
     bit.root.position.copyFrom(snapshot.rootPosition);
     bit.navigationLocation = snapshot.location;
+    const completedFlightTransition =
+      previousTransition !== null &&
+      snapshot.transition === null;
+    if (completedFlightTransition) {
+      bit.pursuitActorAreaCursor =
+        spatial.navigationAreas.locate(bit.root.position);
+      bit.pursuitActorAreaPosition = bit.root.position.clone();
+    } else if (
+      snapshot.transition === null &&
+      bit.pursuitActorAreaCursor !== null &&
+      bit.pursuitActorAreaPosition !== null &&
+      !bit.pursuitActorAreaPosition.equals(bit.root.position)
+    ) {
+      bit.pursuitActorAreaCursor =
+        spatial.navigationAreas.advance(
+          bit.pursuitActorAreaCursor,
+          bit.pursuitActorAreaPosition,
+          bit.root.position
+        );
+      bit.pursuitActorAreaPosition.copyFrom(bit.root.position);
+    }
     if (snapshot.facingDirection && snapshot.facingDirection.lengthSquared() > 0) {
       bit.root.lookAt(bit.root.position.add(snapshot.facingDirection));
     }
@@ -4183,11 +4208,15 @@ export const createV2BitSystem = (
     bit.mode = "chase";
     let navigationTargetPosition = targetPosition;
     if (targetAreaSnapshot !== null) {
-      const actorArea = spatial.navigationAreas.resolve(
-        bit.root.position,
-        bit.pursuitActorAreaId
-      );
-      bit.pursuitActorAreaId = actorArea.area.id;
+      if (
+        bit.pursuitActorAreaCursor === null ||
+        bit.pursuitActorAreaPosition === null
+      ) {
+        bit.pursuitActorAreaCursor =
+          spatial.navigationAreas.locate(bit.root.position);
+        bit.pursuitActorAreaPosition = bit.root.position.clone();
+      }
+      const actorAreaId = bit.pursuitActorAreaCursor.areaId;
       const targetAreaChanged =
         bit.pursuitTargetId !== targetAreaSnapshot.targetId ||
         bit.pursuitTargetAreaId !== targetAreaSnapshot.areaId ||
@@ -4197,14 +4226,14 @@ export const createV2BitSystem = (
         bit.pursuitTargetAreaId = targetAreaSnapshot.areaId;
         bit.pursuitTargetAreaRevision = targetAreaSnapshot.revision;
         bit.pursuitPhase =
-          actorArea.area.id === targetAreaSnapshot.areaId
+          actorAreaId === targetAreaSnapshot.areaId
             ? "detail"
             : "area";
         bit.pursuitAnchor = targetAreaSnapshot.anchor.clone();
         bit.routeRefreshSeconds = 0;
       } else if (
         bit.pursuitPhase === "area" &&
-        actorArea.area.id === targetAreaSnapshot.areaId
+        actorAreaId === targetAreaSnapshot.areaId
       ) {
         bit.pursuitPhase = "detail";
         bit.routeRefreshSeconds = 0;
@@ -4701,6 +4730,8 @@ export const createV2BitSystem = (
 
     leader.navigationLocation = proposedLeaderLocation;
     leader.root.position.copyFrom(proposedLeaderRoot);
+    leader.pursuitActorAreaCursor = null;
+    leader.pursuitActorAreaPosition = null;
     const tiltedAimDirection = new Vector3(
       direction.x,
       -1,
@@ -4733,6 +4764,8 @@ export const createV2BitSystem = (
       follower.root.position.copyFrom(
         getBitFlightWorldPosition(followerDestinations[index])
       );
+      follower.pursuitActorAreaCursor = null;
+      follower.pursuitActorAreaPosition = null;
       pointBitAt(
         follower,
         follower.root.position.add(carpetAimDirection)
@@ -6094,6 +6127,8 @@ export const createV2BitSystem = (
         bit.root.position.copyFrom(
           getBitFlightWorldPosition(location)
         );
+        bit.pursuitActorAreaCursor = null;
+        bit.pursuitActorAreaPosition = null;
         bit.root.computeWorldMatrix(true);
       }
       invalidateFrameViews();

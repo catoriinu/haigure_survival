@@ -295,7 +295,8 @@ const createNpcCommandFixture = (
       all: Object.freeze([navigationArea]),
       portals: Object.freeze([]),
       getById: (id: string) => id === navigationArea.id ? navigationArea : null,
-      resolve: () => Object.freeze({ area: navigationArea, portal: null }),
+      locate: () => Object.freeze({ areaId: navigationArea.id, portalId: null }),
+      advance: (cursor: Readonly<{ areaId: string; portalId: string | null }>) => cursor,
       dispose: () => undefined
     }),
     doorAssets: Object.freeze({
@@ -337,6 +338,7 @@ const createNpcCommandFixture = (
       }),
       containsVolume: () => false,
       containsVolumeById: () => false,
+      intersectsVolumeSegmentById: () => false,
       intersectsVolumeById: () => false,
       findContainingBlocker: () => null,
       dispose: () => undefined
@@ -897,6 +899,7 @@ const testFollowMovementAndRelease = () => {
       fixture.system,
       "npc_0"
     ).footPosition.clone();
+    fixture.system.update(0, player, EMPTY_ALARM_EVENTS);
     fixture.system.update(0.2, player, EMPTY_ALARM_EVENTS);
     const after = getNpcTarget(
       fixture.system,
@@ -1068,6 +1071,11 @@ const testFollowStopAndResume = () => {
 
     const fartherPlayer = createPlayerTarget(
       new Vector3(0, 0, -0.1)
+    );
+    fixture.system.update(
+      0,
+      fartherPlayer,
+      EMPTY_ALARM_EVENTS
     );
     fixture.system.update(
       0.5,

@@ -25,6 +25,7 @@ import type {
   NavigationRoutePolicy,
   NavigationTransitionStep
 } from "../world/navigationWorld";
+import type { StageNavigationAreaCursor } from "../world/stageNavigationAreas";
 import { createStageBoundarySpawnSampler } from "../world/stageSpawnSampler";
 import type { StageSpatialContext } from "../world/stageSpatialContext";
 import type {
@@ -112,9 +113,12 @@ export const V2_NPC_CAPTURE_RADIUS = 0.27;
 export const V2_NPC_CAPTURE_DURATION_SECONDS = 20;
 export const V2_NPC_CAPTURE_BREAKAWAY_SECONDS = 2.5;
 export const V2_NPC_CAPTURE_BREAKAWAY_SPEED = 0.27;
-export const V2_NPC_MINIMUM_PATH_REPLANS_PER_UPDATE = 1;
 export const V2_NPC_MAXIMUM_PATH_REPLANS_PER_UPDATE = 4;
 export const V2_NPC_PATH_REPLAN_DEADLINE_SECONDS = 2;
+export const V2_NPC_DETAIL_PATH_REPLAN_DEADLINE_SECONDS = 1;
+export const V2_NPC_COARSE_REFRESH_SECONDS = 2;
+export const V2_NPC_DETAIL_ENTER_DISTANCE_METERS = 12;
+export const V2_NPC_DETAIL_EXIT_DISTANCE_METERS = 18;
 export const V2_NPC_COMMAND_MAXIMUM_DISTANCE_METERS = 2;
 export const V2_NPC_FOLLOW_SPEED = NPC_CHASE_SPEED;
 export const V2_NPC_FOLLOW_SEPARATION_METERS = 0.8;
@@ -137,6 +141,13 @@ const NPC_EVADE_DISTANCE =
   V2_NPC_CAPTURE_BREAKAWAY_SECONDS;
 const NPC_EVADE_ELEVATOR_DISTANCE =
   3 * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_DETAIL_ENTER_DISTANCE =
+  V2_NPC_DETAIL_ENTER_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_DETAIL_EXIT_DISTANCE =
+  V2_NPC_DETAIL_EXIT_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_DETAIL_TARGET_MOVEMENT_THRESHOLD = 0.15;
+
+type NpcNavigationReplanPriority = 0 | 1 | 2 | 3 | 4;
 
 const NPC_GUN_RANGE_SQUARED = V2_NPC_GUN_RANGE * V2_NPC_GUN_RANGE;
 const NPC_COMMAND_MAXIMUM_DISTANCE =
@@ -231,6 +242,7 @@ export type V2NpcTrackingSnapshot = Readonly<{
   temporaryGunActive: boolean;
   followerFirePhase: V2NpcFollowerFirePhase;
   traversalState: V2NpcTraversalState;
+  pursuitPhase: V2PursuitPhase;
 }>;
 
 export type V2NpcCommandKind = "follow" | "leave";
@@ -314,7 +326,13 @@ export type V2NpcFrameView = Readonly<{
   pathRecalculationCount: number;
   waitingForPathCount: number;
   areaPursuitCount: number;
+  coarsePursuitCount: number;
   detailPursuitCount: number;
+  pursuitPromotionCount: number;
+  pursuitDemotionCount: number;
+  replanQueuedCount: number;
+  replanCoalescedCount: number;
+  replanMaximumWaitSeconds: number;
   currentTargetSightCheckCount: number;
   personalityRetargetQueryCount: number;
   sightRayCount: number;
@@ -332,7 +350,13 @@ const EMPTY_V2_NPC_FRAME_VIEW: V2NpcFrameView = Object.freeze({
   pathRecalculationCount: 0,
   waitingForPathCount: 0,
   areaPursuitCount: 0,
+  coarsePursuitCount: 0,
   detailPursuitCount: 0,
+  pursuitPromotionCount: 0,
+  pursuitDemotionCount: 0,
+  replanQueuedCount: 0,
+  replanCoalescedCount: 0,
+  replanMaximumWaitSeconds: 0,
   currentTargetSightCheckCount: 0,
   personalityRetargetQueryCount: 0,
   sightRayCount: 0,
@@ -433,7 +457,13 @@ type NpcRuntime = {
   navigationBehavior: V2NpcNavigationBehavior;
   navigationSpeed: number;
   navigationTargetPosition: Vector3;
+  navigationPendingTargetPosition: Vector3 | null;
   navigationGoalRevision: number;
+  navigationReplanRequestedAtSeconds: number | null;
+  navigationReplanPriority: NpcNavigationReplanPriority;
+  navigationRemainingPathDistance: number | null;
+  navigationAgentCleared: boolean;
+  navigationLastStuckRevision: number;
   selectedRouteKind: NavigationRouteCandidate["kind"] | null;
   selectedElevatorTransition: NavigationTransitionStep | null;
   footPosition: Vector3;
@@ -458,8 +488,11 @@ type NpcRuntime = {
   pursuitTargetId: string | null;
   pursuitTargetAreaId: string | null;
   pursuitTargetAreaRevision: number;
-  pursuitActorAreaId: string | null;
+  pursuitActorAreaCursor: StageNavigationAreaCursor;
+  pursuitActorAreaPosition: Vector3;
   pursuitAnchor: Vector3;
+  readonly pursuitCoarseRefreshOffsetSeconds: number;
+  pursuitCoarseRefreshRemainingSeconds: number;
   readonly alarmTargetQueue: NpcAlarmTarget[];
   fireCooldownSeconds: number;
   capture: NpcCapture | null;
@@ -789,9 +822,12 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private readonly pendingBeamRequests: V2BeamRequest[] = [];
   private readonly pendingTraversalRequests: V2NpcTraversalRequest[] = [];
   private frameView: V2NpcFrameView;
-  private nextReplanPermissionIndex = 0;
-  private replanPermissionStartIndex = 0;
-  private replanPermissionCount = 0;
+  private readonly grantedReplanNpcIds = new Set<string>();
+  private readonly queuedReplanNpcs: NpcRuntime[] = [];
+  private replanCoalescedCount = 0;
+  private replanMaximumWaitSeconds = 0;
+  private pursuitPromotionCount = 0;
+  private pursuitDemotionCount = 0;
   private pathRecalculationCount = 0;
   private waitingForPathCount = 0;
   private currentTargetSightCheckCount = 0;
@@ -1009,7 +1045,13 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           navigationBehavior: "wander",
           navigationSpeed: NPC_SEARCH_SPEED,
           navigationTargetPosition: footPosition.clone(),
+          navigationPendingTargetPosition: null,
           navigationGoalRevision: 0,
+          navigationReplanRequestedAtSeconds: null,
+          navigationReplanPriority: 4,
+          navigationRemainingPathDistance: null,
+          navigationAgentCleared: true,
+          navigationLastStuckRevision: 0,
           selectedRouteKind: null,
           selectedElevatorTransition: null,
           footPosition,
@@ -1038,11 +1080,16 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           pursuitTargetId: null,
           pursuitTargetAreaId: null,
           pursuitTargetAreaRevision: -1,
-          pursuitActorAreaId: this.stage.navigationAreas.resolve(
-            footPosition,
-            null
-          ).area.id,
+          pursuitActorAreaCursor:
+            this.stage.navigationAreas.locate(footPosition),
+          pursuitActorAreaPosition: footPosition.clone(),
           pursuitAnchor: footPosition.clone(),
+          pursuitCoarseRefreshOffsetSeconds:
+            ((index + 0.5) / Math.max(1, options.npcCount)) *
+            V2_NPC_COARSE_REFRESH_SECONDS,
+          pursuitCoarseRefreshRemainingSeconds:
+            ((index + 0.5) / Math.max(1, options.npcCount)) *
+            V2_NPC_COARSE_REFRESH_SECONDS,
           alarmTargetQueue: [],
           fireCooldownSeconds:
             initialState === "brainwash-complete-gun"
@@ -1109,6 +1156,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.applyAlarmTargetEvents(alarmTargetEvents);
     this.pathRecalculationCount = 0;
     this.waitingForPathCount = 0;
+    this.replanCoalescedCount = 0;
+    this.replanMaximumWaitSeconds = 0;
+    this.pursuitPromotionCount = 0;
+    this.pursuitDemotionCount = 0;
     this.currentTargetSightCheckCount = 0;
     this.personalityRetargetQueryCount = 0;
     this.sightRayCount = 0;
@@ -1222,7 +1273,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       frameTargets,
       NPC_VISION_RANGE
     );
-    this.prepareReplanPermissions(deltaSeconds);
+    this.prepareReplanPermissions();
     const commandNpcIds = this.prepareNpcCommands(
       playerFrameTarget
     );
@@ -1885,6 +1936,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         npc.footPosition = this.resolveFootPosition(
           result.location.position
         );
+        this.relocateNavigationAreaCursor(npc);
         npc.sprite.position.copyFrom(
           toAimPosition(npc.footPosition)
         );
@@ -1952,6 +2004,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       assertFiniteVector("NPC降車位置", result.location.position);
       npc.navigationAgent.completeTransition(result.location);
       npc.navigationLocation = cloneNavigationLocation(result.location);
+      npc.footPosition = this.resolveFootPosition(result.location.position);
+      this.relocateNavigationAreaCursor(npc);
       npc.pendingNavigationTransition = null;
       npc.traversalState = createWalkingV2NpcTraversalState();
       frameViewChanged = true;
@@ -2224,6 +2278,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.traversalState = createWalkingV2NpcTraversalState();
       this.removePendingTraversalRequestsForNpc(npc.id);
       npc.footPosition = placement.footPosition;
+      this.relocateNavigationAreaCursor(npc);
       npc.wanderDestination = null;
       npc.wanderWaitSeconds = this.nextWanderWait();
       npc.alarmTargetQueue.length = 0;
@@ -2275,39 +2330,42 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.disposed = true;
   }
 
-  private prepareReplanPermissions(deltaSeconds: number): void {
-    if (this.npcs.length === 0) {
-      this.replanPermissionCount = 0;
-      this.replanPermissionStartIndex = 0;
-      this.nextReplanPermissionIndex = 0;
+  private prepareReplanPermissions(): void {
+    this.grantedReplanNpcIds.clear();
+    this.queuedReplanNpcs.length = 0;
+    for (const npc of this.npcs) {
+      if (npc.navigationReplanRequestedAtSeconds !== null) {
+        this.queuedReplanNpcs.push(npc);
+        if (this.diagnosticsEnabled) {
+          this.replanMaximumWaitSeconds = Math.max(
+            this.replanMaximumWaitSeconds,
+            this.traversalElapsedSeconds -
+              npc.navigationReplanRequestedAtSeconds
+          );
+        }
+      }
+    }
+    if (this.queuedReplanNpcs.length === 0) {
       return;
     }
-    const proportionalBudget = Math.ceil(
-      (this.npcs.length * deltaSeconds) /
-        V2_NPC_PATH_REPLAN_DEADLINE_SECONDS
+    this.queuedReplanNpcs.sort((left, right) =>
+      left.navigationReplanPriority - right.navigationReplanPriority ||
+      left.navigationReplanRequestedAtSeconds! -
+        right.navigationReplanRequestedAtSeconds! ||
+      left.id.localeCompare(right.id)
     );
-    this.replanPermissionCount = Math.min(
-      this.npcs.length,
+    const grantedCount = Math.min(
       V2_NPC_MAXIMUM_PATH_REPLANS_PER_UPDATE,
-      Math.max(
-        V2_NPC_MINIMUM_PATH_REPLANS_PER_UPDATE,
-        proportionalBudget
-      )
+      this.queuedReplanNpcs.length
     );
-    this.replanPermissionStartIndex =
-      this.nextReplanPermissionIndex;
-    this.nextReplanPermissionIndex =
-      (this.nextReplanPermissionIndex + this.replanPermissionCount) %
-      this.npcs.length;
+    for (let index = 0; index < grantedCount; index += 1) {
+      const npc = this.queuedReplanNpcs[index];
+      this.grantedReplanNpcIds.add(npc.id);
+    }
   }
 
   private hasReplanPermission(npcIndex: number): boolean {
-    const offset =
-      (npcIndex -
-        this.replanPermissionStartIndex +
-        this.npcs.length) %
-      this.npcs.length;
-    return offset < this.replanPermissionCount;
+    return this.grantedReplanNpcIds.has(this.npcs[npcIndex].id);
   }
 
   private createNavigationRouteContext(
@@ -2521,18 +2579,52 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     speed: number,
     targetPosition: Vector3
   ) {
-    if (
-      npc.navigationBehavior !== behavior ||
-      Vector3.Distance(
-        npc.navigationTargetPosition,
-        targetPosition
-      ) >= 0.15
-    ) {
-      npc.navigationGoalRevision += 1;
+    const behaviorChanged = npc.navigationBehavior !== behavior;
+    const pendingTarget = npc.navigationPendingTargetPosition;
+    const acceptedTarget = npc.navigationTargetPosition;
+    const targetMovedEnough =
+      Vector3.Distance(acceptedTarget, targetPosition) >=
+      NPC_DETAIL_TARGET_MOVEMENT_THRESHOLD;
+    if (behaviorChanged || npc.navigationAgentCleared || targetMovedEnough) {
+      const priority: NpcNavigationReplanPriority =
+        behavior === "evade" ||
+        behavior === "follow" ||
+        behavior === "leave"
+          ? 0
+          : behavior === "pursue"
+            ? npc.pursuitPhase === "detail"
+              ? 1
+              : npc.pursuitPhase === "area"
+                ? 2
+                : 3
+            : 4;
+      if (pendingTarget) {
+        if (!pendingTarget.equals(targetPosition)) {
+          pendingTarget.copyFrom(targetPosition);
+          if (this.diagnosticsEnabled) {
+            this.replanCoalescedCount += 1;
+          }
+        }
+        npc.navigationReplanPriority = Math.min(
+          npc.navigationReplanPriority,
+          priority
+        ) as NpcNavigationReplanPriority;
+      } else {
+        npc.navigationPendingTargetPosition = targetPosition.clone();
+        npc.navigationGoalRevision += 1;
+        npc.navigationReplanPriority = priority;
+        npc.navigationReplanRequestedAtSeconds =
+          this.traversalElapsedSeconds;
+      }
+      npc.navigationAgentCleared = false;
+    } else if (pendingTarget && !pendingTarget.equals(targetPosition)) {
+      pendingTarget.copyFrom(targetPosition);
+      if (this.diagnosticsEnabled) {
+        this.replanCoalescedCount += 1;
+      }
     }
     npc.navigationBehavior = behavior;
     npc.navigationSpeed = speed;
-    npc.navigationTargetPosition.copyFrom(targetPosition);
   }
 
   private updateNavigation(
@@ -2569,13 +2661,17 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (!isV2NpcTraversalWalkingEnabled(npc.traversalState)) {
       return this.createTraversalWaitingStep(npc);
     }
+    const intendedTargetPosition =
+      npc.navigationPendingTargetPosition ??
+      npc.navigationTargetPosition;
     const resolvedTargetPosition =
+      npc.traversalState.kind === "moving-to-elevator-call-mat" ||
       npc.traversalState.kind === "moving-to-elevator-wait"
         ? this.requireNpcElevatorStopTraversal(
             npc.traversalState.linkId,
             npc.traversalState.from
           ).waitLocation.position
-        : targetPosition;
+        : intendedTargetPosition;
     const movement = npc.navigationAgent.update(
       npc.navigationLocation,
       resolvedTargetPosition,
@@ -2584,7 +2680,32 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       deltaSeconds,
       allowPathRecalculation
     );
-    if (npc.traversalState.kind === "moving-to-elevator-wait") {
+    npc.navigationRemainingPathDistance =
+      movement.remainingPathDistance;
+    if (movement.pathRecalculated) {
+      if (npc.navigationPendingTargetPosition) {
+        npc.navigationTargetPosition.copyFrom(
+          npc.navigationPendingTargetPosition
+        );
+        npc.navigationPendingTargetPosition = null;
+      }
+      npc.navigationReplanRequestedAtSeconds = null;
+    }
+    if (
+      npc.navigationAgent.stuckRevision !==
+      npc.navigationLastStuckRevision
+    ) {
+      npc.navigationLastStuckRevision =
+        npc.navigationAgent.stuckRevision;
+      this.requestNavigationReplan(npc, 0);
+    }
+    if (
+      npc.traversalState.kind === "moving-to-elevator-call-mat" ||
+      npc.traversalState.kind === "moving-to-elevator-wait"
+    ) {
+      const approachingCallMat =
+        npc.traversalState.kind ===
+        "moving-to-elevator-call-mat";
       if (
         movement.state === "unreachable" ||
         movement.state === "transition-required"
@@ -2598,7 +2719,20 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           return Object.freeze({
             ...this.createTraversalWaitingStep(npc),
             pathRecalculated: movement.pathRecalculated,
-            pathDistance: movement.pathDistance
+            pathDistance: movement.pathDistance,
+            remainingPathDistance: movement.remainingPathDistance
+          });
+        }
+        if (approachingCallMat) {
+          this.beginNpcElevatorCall(
+            npc,
+            npc.pendingNavigationTransition!
+          );
+          return Object.freeze({
+            ...this.createTraversalWaitingStep(npc),
+            pathRecalculated: movement.pathRecalculated,
+            pathDistance: movement.pathDistance,
+            remainingPathDistance: movement.remainingPathDistance
           });
         }
         const elevatorRoute = this.createNpcElevatorTraversalRoute(npc);
@@ -2615,7 +2749,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         return Object.freeze({
           ...this.createTraversalWaitingStep(npc),
           pathRecalculated: movement.pathRecalculated,
-          pathDistance: movement.pathDistance
+          pathDistance: movement.pathDistance,
+          remainingPathDistance: movement.remainingPathDistance
         });
       }
       return movement;
@@ -2630,7 +2765,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       return Object.freeze({
         ...this.createTraversalWaitingStep(npc),
         pathRecalculated: movement.pathRecalculated,
-        pathDistance: movement.pathDistance
+        pathDistance: movement.pathDistance,
+        remainingPathDistance: movement.remainingPathDistance
       });
     }
     const transition = movement.transition;
@@ -2662,19 +2798,29 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       return Object.freeze({
         ...this.createTraversalWaitingStep(npc),
         pathRecalculated: movement.pathRecalculated,
-        pathDistance: movement.pathDistance
+        pathDistance: movement.pathDistance,
+        remainingPathDistance: movement.remainingPathDistance
       });
     }
     if (npc.traversalState.kind !== "walking") {
       return Object.freeze({
         ...this.createTraversalWaitingStep(npc),
         pathRecalculated: movement.pathRecalculated,
-        pathDistance: movement.pathDistance
+        pathDistance: movement.pathDistance,
+        remainingPathDistance: movement.remainingPathDistance
       });
     }
-    throw new Error(
-      `NPCが呼出マットへ進入せずエレベーター遷移点へ到達しました: ${npc.id}/${transition.link.id}`
-    );
+    this.clearNavigationAgent(npc);
+    npc.pendingNavigationTransition =
+      cloneNavigationTransition(transition);
+    npc.selectedRouteKind = "link";
+    npc.selectedElevatorTransition =
+      cloneNavigationTransition(transition);
+    npc.traversalState = Object.freeze({
+      kind: "moving-to-elevator-call-mat",
+      ...this.createNpcElevatorTraversalRoute(npc)
+    });
+    return this.createTraversalWaitingStep(npc);
   }
 
   private updateNpcElevatorDisembarkMovement(
@@ -2735,6 +2881,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       state: "waiting-for-path",
       pathRecalculated: false,
       pathDistance: null,
+      remainingPathDistance: null,
       transition: null
     });
   }
@@ -2744,8 +2891,31 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       return;
     }
     npc.navigationAgent.clear();
+    npc.navigationAgentCleared = true;
+    npc.navigationRemainingPathDistance = null;
+    npc.navigationPendingTargetPosition = null;
+    npc.navigationReplanRequestedAtSeconds = null;
     npc.selectedRouteKind = null;
     npc.selectedElevatorTransition = null;
+  }
+
+  private requestNavigationReplan(
+    npc: NpcRuntime,
+    priority: NpcNavigationReplanPriority
+  ): void {
+    if (npc.navigationReplanRequestedAtSeconds === null) {
+      npc.navigationGoalRevision += 1;
+      npc.navigationReplanRequestedAtSeconds =
+        this.traversalElapsedSeconds;
+      npc.navigationReplanPriority = priority;
+      npc.navigationPendingTargetPosition =
+        npc.navigationTargetPosition.clone();
+      return;
+    }
+    npc.navigationReplanPriority = Math.min(
+      npc.navigationReplanPriority,
+      priority
+    ) as NpcNavigationReplanPriority;
   }
 
   private recordNavigationStep(
@@ -3944,11 +4114,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   ) {
     npc.wanderDestination = null;
     const targetArea = this.resolveTargetNavigationArea(target);
-    const actorArea = this.stage.navigationAreas.resolve(
-      npc.footPosition,
-      npc.pursuitActorAreaId
-    );
-    npc.pursuitActorAreaId = actorArea.area.id;
+    const actorAreaId = npc.pursuitActorAreaCursor.areaId;
     const targetAreaChanged =
       npc.pursuitTargetId !== target.id ||
       npc.pursuitTargetAreaId !== targetArea.areaId ||
@@ -3957,21 +4123,65 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.pursuitTargetId = target.id;
       npc.pursuitTargetAreaId = targetArea.areaId;
       npc.pursuitTargetAreaRevision = targetArea.revision;
-      npc.pursuitAnchor.copyFrom(targetArea.anchor);
+      npc.pursuitAnchor.copyFrom(target.footPosition);
       npc.pursuitPhase =
-        actorArea.area.id === targetArea.areaId ? "detail" : "area";
-      npc.navigationGoalRevision += 1;
+        actorAreaId === targetArea.areaId ? "coarse" : "area";
+      npc.pursuitCoarseRefreshRemainingSeconds =
+        npc.pursuitCoarseRefreshOffsetSeconds;
+      this.requestNavigationReplan(npc, 2);
     } else if (
       npc.pursuitPhase === "area" &&
-      actorArea.area.id === targetArea.areaId
+      actorAreaId === targetArea.areaId
+    ) {
+      npc.pursuitPhase = "coarse";
+      this.pursuitPromotionCount += 1;
+      npc.pursuitAnchor.copyFrom(target.footPosition);
+      npc.pursuitCoarseRefreshRemainingSeconds =
+        npc.pursuitCoarseRefreshOffsetSeconds;
+      this.requestNavigationReplan(npc, 2);
+    } else if (
+      npc.pursuitPhase === "coarse" &&
+      npc.navigationRemainingPathDistance !== null &&
+      npc.navigationRemainingPathDistance <=
+        NPC_DETAIL_ENTER_DISTANCE
     ) {
       npc.pursuitPhase = "detail";
-      npc.navigationGoalRevision += 1;
+      this.pursuitPromotionCount += 1;
+      this.requestNavigationReplan(npc, 1);
+    } else if (npc.pursuitPhase === "detail") {
+      const horizontalDistance = Math.hypot(
+        npc.footPosition.x - target.footPosition.x,
+        npc.footPosition.z - target.footPosition.z
+      );
+      if (
+        horizontalDistance >= NPC_DETAIL_EXIT_DISTANCE ||
+        (npc.navigationRemainingPathDistance !== null &&
+          npc.navigationRemainingPathDistance >=
+            NPC_DETAIL_EXIT_DISTANCE)
+      ) {
+        npc.pursuitPhase = "coarse";
+        this.pursuitDemotionCount += 1;
+        npc.pursuitAnchor.copyFrom(target.footPosition);
+        npc.pursuitCoarseRefreshRemainingSeconds =
+          npc.pursuitCoarseRefreshOffsetSeconds;
+        this.requestNavigationReplan(npc, 3);
+      }
+    }
+    if (npc.pursuitPhase === "coarse") {
+      npc.pursuitCoarseRefreshRemainingSeconds -= deltaSeconds;
+      if (npc.pursuitCoarseRefreshRemainingSeconds <= 0) {
+        npc.pursuitCoarseRefreshRemainingSeconds +=
+          V2_NPC_COARSE_REFRESH_SECONDS;
+        if (!npc.pursuitAnchor.equals(target.footPosition)) {
+          npc.pursuitAnchor.copyFrom(target.footPosition);
+          this.requestNavigationReplan(npc, 3);
+        }
+      }
     }
     const destination =
-      npc.pursuitPhase === "area"
-        ? npc.pursuitAnchor
-        : target.footPosition;
+      npc.pursuitPhase === "detail"
+        ? target.footPosition
+        : npc.pursuitAnchor;
     const movement = this.updateNavigation(
       npc,
       "pursue",
@@ -4292,6 +4502,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (displacement.lengthSquared() === 0) {
       return true;
     }
+    const previousFootPosition = npc.footPosition;
     const nextFootPosition = nextLocation.position.clone();
     const currentAimPosition = toAimPosition(npc.footPosition);
     const nextAimPosition = toAimPosition(nextFootPosition);
@@ -4307,12 +4518,13 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         npc.traversalState.kind === "walking" &&
         selectedElevatorTransition &&
         this.elevatorHumanGateColliders.has(movementHit.mesh) &&
-        this.stage.queries.containsVolumeById(
+        this.stage.queries.intersectsVolumeSegmentById(
           this.requireNpcElevatorStopTraversal(
             selectedElevatorTransition.link.id,
             selectedElevatorTransition.from
           ).callMatId,
-          npc.footPosition
+          previousFootPosition,
+          nextFootPosition
         )
       ) {
         npc.navigationAgent.clear();
@@ -4345,13 +4557,34 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (horizontal.lengthSquared() > 0) {
       npc.forward.copyFrom(horizontal.normalize());
     }
+    npc.pursuitActorAreaCursor =
+      this.stage.navigationAreas.advance(
+        npc.pursuitActorAreaCursor,
+        npc.pursuitActorAreaPosition,
+        nextFootPosition
+      );
+    npc.pursuitActorAreaPosition.copyFrom(nextFootPosition);
     npc.navigationLocation = cloneNavigationLocation(nextLocation);
     npc.footPosition = nextFootPosition;
-    this.tryBeginNpcElevatorCallFromMat(npc);
+    this.tryBeginNpcElevatorCallFromMat(
+      npc,
+      previousFootPosition,
+      nextFootPosition
+    );
     return true;
   }
 
-  private tryBeginNpcElevatorCallFromMat(npc: NpcRuntime) {
+  private relocateNavigationAreaCursor(npc: NpcRuntime): void {
+    npc.pursuitActorAreaCursor =
+      this.stage.navigationAreas.locate(npc.footPosition);
+    npc.pursuitActorAreaPosition.copyFrom(npc.footPosition);
+  }
+
+  private tryBeginNpcElevatorCallFromMat(
+    npc: NpcRuntime,
+    from: Vector3,
+    to: Vector3
+  ) {
     const transition = npc.selectedElevatorTransition;
     if (!transition || npc.traversalState.kind !== "walking") {
       return;
@@ -4361,9 +4594,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       transition.from
     );
     if (
-      !this.stage.queries.containsVolumeById(
+      !this.stage.queries.intersectsVolumeSegmentById(
         stop.callMatId,
-        npc.footPosition
+        from,
+        to
       )
     ) {
       return;
@@ -4636,11 +4870,14 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     const tracking: V2NpcTrackingSnapshot[] = [];
     const captures: V2NpcCaptureSnapshot[] = [];
     let areaPursuitCount = 0;
+    let coarsePursuitCount = 0;
     let detailPursuitCount = 0;
     for (const npc of visibleNpcs) {
       if (npc.targetId !== null) {
         if (npc.pursuitPhase === "area") {
           areaPursuitCount += 1;
+        } else if (npc.pursuitPhase === "coarse") {
+          coarsePursuitCount += 1;
         } else {
           detailPursuitCount += 1;
         }
@@ -4659,7 +4896,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           followerFirePhase: npc.command.followerFirePhase,
           traversalState: cloneV2NpcTraversalState(
             npc.traversalState
-          )
+          ),
+          pursuitPhase: npc.pursuitPhase
         })
       );
       if (npc.capture) {
@@ -4697,7 +4935,18 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       pathRecalculationCount: this.pathRecalculationCount,
       waitingForPathCount: this.waitingForPathCount,
       areaPursuitCount,
+      coarsePursuitCount,
       detailPursuitCount,
+      pursuitPromotionCount: this.pursuitPromotionCount,
+      pursuitDemotionCount: this.pursuitDemotionCount,
+      replanQueuedCount: this.npcs.reduce(
+        (count, npc) =>
+          count +
+          (npc.navigationReplanRequestedAtSeconds === null ? 0 : 1),
+        0
+      ),
+      replanCoalescedCount: this.replanCoalescedCount,
+      replanMaximumWaitSeconds: this.replanMaximumWaitSeconds,
       currentTargetSightCheckCount:
         this.currentTargetSightCheckCount,
       personalityRetargetQueryCount:

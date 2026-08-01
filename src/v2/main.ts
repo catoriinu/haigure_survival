@@ -156,6 +156,26 @@ const stageQueryDiagnostics = performanceDiagnostics
           `ray.${kind}.exact-triangle-tests`,
           exactTriangleTestCount
         );
+      },
+      recordNavigationAreaQuery: (
+        kind: "locate" | "advance",
+        testedPortalCount: number,
+        transitioned: boolean,
+        durationMilliseconds: number
+      ) => {
+        performanceDiagnostics.count(`area.${kind}.queries`);
+        performanceDiagnostics.count(
+          `area.${kind}.portal-tests`,
+          testedPortalCount
+        );
+        performanceDiagnostics.count(
+          `area.${kind}.transitions`,
+          transitioned ? 1 : 0
+        );
+        performanceDiagnostics.count(
+          `area.${kind}.milliseconds`,
+          durationMilliseconds
+        );
       }
     })
   : undefined;

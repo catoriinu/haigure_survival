@@ -1,9 +1,12 @@
 import { Vector3 } from "@babylonjs/core";
 
-import type { StageNavigationAreaRegistry } from "../world/stageNavigationAreas";
+import type {
+  StageNavigationAreaCursor,
+  StageNavigationAreaRegistry
+} from "../world/stageNavigationAreas";
 import type { V2HumanTargetSnapshot } from "./combatTypes";
 
-export type V2PursuitPhase = "area" | "detail";
+export type V2PursuitPhase = "area" | "coarse" | "detail";
 
 export type V2TargetNavigationAreaSnapshot = Readonly<{
   targetId: string;
@@ -12,28 +15,29 @@ export type V2TargetNavigationAreaSnapshot = Readonly<{
   anchor: Vector3;
 }>;
 
-export type V2TargetNavigationAreaFrame = ReadonlyMap<
-  string,
-  V2TargetNavigationAreaSnapshot
->;
-
 export interface V2TargetNavigationAreaTracker {
-  update(
-    targets: readonly V2HumanTargetSnapshot[]
-  ): V2TargetNavigationAreaFrame;
+  beginFrame(targets: readonly V2HumanTargetSnapshot[]): void;
+  resolve(targetId: string): V2TargetNavigationAreaSnapshot;
+  beginTransport(targetId: string, position: Vector3): void;
+  updateTransportPosition(targetId: string, position: Vector3): void;
+  relocate(targetId: string, position: Vector3): void;
   dispose(): void;
 }
 
 type MutableTrackedTarget = {
-  areaId: string;
+  cursor: StageNavigationAreaCursor;
   revision: number;
   anchor: Vector3;
+  position: Vector3;
 };
 
 export const createV2TargetNavigationAreaTracker = (
   areas: StageNavigationAreaRegistry
 ): V2TargetNavigationAreaTracker => {
   const tracked = new Map<string, MutableTrackedTarget>();
+  const transportingTargetIds = new Set<string>();
+  const frameTargets = new Map<string, V2HumanTargetSnapshot>();
+  const frameSnapshots = new Map<string, V2TargetNavigationAreaSnapshot>();
   let disposed = false;
   const assertActive = () => {
     if (disposed) {
@@ -41,50 +45,125 @@ export const createV2TargetNavigationAreaTracker = (
     }
   };
   return Object.freeze({
-    update: (targets: readonly V2HumanTargetSnapshot[]) => {
+    beginFrame: (targets: readonly V2HumanTargetSnapshot[]) => {
       assertActive();
-      const activeIds = new Set(targets.map((target) => target.id));
+      frameTargets.clear();
+      for (const target of targets) {
+        frameTargets.set(target.id, target);
+      }
       for (const targetId of tracked.keys()) {
-        if (!activeIds.has(targetId)) {
+        if (!frameTargets.has(targetId)) {
+          tracked.delete(targetId);
+          transportingTargetIds.delete(targetId);
+          continue;
+        }
+        if (
+          !frameSnapshots.has(targetId) &&
+          !transportingTargetIds.has(targetId)
+        ) {
           tracked.delete(targetId);
         }
       }
-      const frame = new Map<string, V2TargetNavigationAreaSnapshot>();
-      for (const target of targets) {
-        const previous = tracked.get(target.id) ?? null;
-        const location = areas.resolve(
-          target.footPosition,
-          previous?.areaId ?? null
+      frameSnapshots.clear();
+    },
+    resolve: (targetId: string) => {
+      assertActive();
+      const cached = frameSnapshots.get(targetId);
+      if (cached) {
+        return cached;
+      }
+      const target = frameTargets.get(targetId);
+      if (!target) {
+        throw new Error(
+          `追跡標的のNavigation Area入力がありません: ${targetId}`
         );
-        let current = previous;
-        if (!current) {
-          current = {
-            areaId: location.area.id,
-            revision: 0,
-            anchor: target.footPosition.clone()
-          };
-          tracked.set(target.id, current);
-        } else if (current.areaId !== location.area.id) {
-          current.areaId = location.area.id;
+      }
+      let current = tracked.get(targetId) ?? null;
+      if (!current) {
+        current = {
+          cursor: areas.locate(target.footPosition),
+          revision: 0,
+          anchor: target.footPosition.clone(),
+          position: target.footPosition.clone()
+        };
+        tracked.set(targetId, current);
+      } else if (
+        !transportingTargetIds.has(targetId) &&
+        !current.position.equals(target.footPosition)
+      ) {
+        const nextCursor = areas.advance(
+          current.cursor,
+          current.position,
+          target.footPosition
+        );
+        if (nextCursor.areaId !== current.cursor.areaId) {
           current.revision += 1;
           current.anchor.copyFrom(target.footPosition);
         }
-        frame.set(
-          target.id,
-          Object.freeze({
-            targetId: target.id,
-            areaId: current.areaId,
-            revision: current.revision,
-            anchor: current.anchor.clone()
-          })
+        current.cursor = nextCursor;
+        current.position.copyFrom(target.footPosition);
+      }
+      const snapshot = Object.freeze({
+        targetId,
+        areaId: current.cursor.areaId,
+        revision: current.revision,
+        anchor: current.anchor.clone()
+      });
+      frameSnapshots.set(targetId, snapshot);
+      return snapshot;
+    },
+    beginTransport: (targetId: string, position: Vector3) => {
+      assertActive();
+      const previous = tracked.get(targetId) ?? null;
+      const cursor = areas.locate(position);
+      const areaChanged =
+        previous !== null &&
+        previous.cursor.areaId !== cursor.areaId;
+      tracked.set(targetId, {
+        cursor,
+        revision:
+          previous === null
+            ? 0
+            : previous.revision + (areaChanged ? 1 : 0),
+        anchor:
+          previous === null || areaChanged
+            ? position.clone()
+            : previous.anchor.clone(),
+        position: position.clone()
+      });
+      transportingTargetIds.add(targetId);
+      frameSnapshots.delete(targetId);
+    },
+    updateTransportPosition: (targetId: string, position: Vector3) => {
+      assertActive();
+      if (!transportingTargetIds.has(targetId)) {
+        throw new Error(
+          `搬送開始前の標的Area位置更新です: ${targetId}`
         );
       }
-      return frame;
+      tracked.get(targetId)!.position.copyFrom(position);
+      frameSnapshots.delete(targetId);
+    },
+    relocate: (targetId: string, position: Vector3) => {
+      assertActive();
+      const cursor = areas.locate(position);
+      const previous = tracked.get(targetId) ?? null;
+      tracked.set(targetId, {
+        cursor,
+        revision: previous === null ? 0 : previous.revision + 1,
+        anchor: position.clone(),
+        position: position.clone()
+      });
+      transportingTargetIds.delete(targetId);
+      frameSnapshots.delete(targetId);
     },
     dispose: () => {
       assertActive();
       disposed = true;
       tracked.clear();
+      transportingTargetIds.clear();
+      frameTargets.clear();
+      frameSnapshots.clear();
     }
   });
 };

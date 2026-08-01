@@ -1,7 +1,11 @@
 import { Vector3 } from "@babylonjs/core";
 
-import { createStageBoundaryContainsQuery } from "./stageSpatialQueries";
+import {
+  createStageBoundaryContainsQuery,
+  createStageVolumeIntersectsSegmentQuery
+} from "./stageSpatialQueries";
 import type { StageVolume } from "./stageSpatialQueries";
+import type { StageSpatialQueryDiagnostics } from "./stageSpatialQueries";
 
 export type StageNavigationArea = Readonly<{
   id: string;
@@ -14,21 +18,24 @@ export type StageNavigationAreaPortal = Readonly<{
   toAreaId: string;
   bidirectional: boolean;
   contains(point: Vector3): boolean;
+  intersects(from: Vector3, to: Vector3): boolean;
 }>;
 
-export type StageNavigationAreaLocation = Readonly<{
-  area: StageNavigationArea;
-  portal: StageNavigationAreaPortal | null;
+export type StageNavigationAreaCursor = Readonly<{
+  areaId: string;
+  portalId: string | null;
 }>;
 
 export interface StageNavigationAreaRegistry {
   readonly all: readonly StageNavigationArea[];
   readonly portals: readonly StageNavigationAreaPortal[];
   getById(id: string): StageNavigationArea | null;
-  resolve(
-    point: Vector3,
-    previousAreaId: string | null
-  ): StageNavigationAreaLocation;
+  locate(point: Vector3): StageNavigationAreaCursor;
+  advance(
+    cursor: StageNavigationAreaCursor,
+    from: Vector3,
+    to: Vector3
+  ): StageNavigationAreaCursor;
   dispose(): void;
 }
 
@@ -42,7 +49,8 @@ export type AuthoredStageNavigationAreaPortal = Readonly<{
 
 export const createStageNavigationAreaRegistry = (
   volumes: readonly StageVolume[],
-  authoredPortals: readonly AuthoredStageNavigationAreaPortal[]
+  authoredPortals: readonly AuthoredStageNavigationAreaPortal[],
+  diagnostics?: StageSpatialQueryDiagnostics
 ): StageNavigationAreaRegistry => {
   const areaVolumes = volumes.filter(
     (volume) => volume.role === "navigation_area"
@@ -85,10 +93,24 @@ export const createStageNavigationAreaRegistry = (
         fromAreaId: portal.fromAreaId,
         toAreaId: portal.toAreaId,
         bidirectional: portal.bidirectional,
-        contains: createStageBoundaryContainsQuery(portal.mesh)
+        contains: createStageBoundaryContainsQuery(portal.mesh),
+        intersects: createStageVolumeIntersectsSegmentQuery(portal.mesh)
       });
     })
   );
+  const portalsByAreaId = new Map<string, readonly StageNavigationAreaPortal[]>();
+  for (const area of all) {
+    portalsByAreaId.set(
+      area.id,
+      Object.freeze(
+        portals.filter(
+          (portal) =>
+            portal.fromAreaId === area.id ||
+            (portal.bidirectional && portal.toAreaId === area.id)
+        )
+      )
+    );
+  }
   let disposed = false;
   const assertActive = () => {
     if (disposed) {
@@ -102,27 +124,14 @@ export const createStageNavigationAreaRegistry = (
       assertActive();
       return byId.get(id) ?? null;
     },
-    resolve: (point: Vector3, previousAreaId: string | null) => {
+    locate: (point: Vector3) => {
       assertActive();
+      const startedAt = diagnostics ? performance.now() : 0;
       const portal = portals.find((candidate) => candidate.contains(point)) ?? null;
       if (portal) {
-        if (previousAreaId === null) {
-          throw new Error(
-            `Navigation Area Portal内の初期位置は禁止されています: ${portal.id}`
-          );
-        }
-        if (
-          previousAreaId !== portal.fromAreaId &&
-          previousAreaId !== portal.toAreaId
-        ) {
-          throw new Error(
-            `直前AreaとPortal接続が一致しません: ${previousAreaId}/${portal.id}`
-          );
-        }
-        return Object.freeze({
-          area: byId.get(previousAreaId)!,
-          portal
-        });
+        throw new Error(
+          `Navigation Area Portal内の初期位置は禁止されています: ${portal.id}`
+        );
       }
       const containingAreaIds = new Set<string>();
       for (const volume of areaVolumes) {
@@ -136,12 +145,95 @@ export const createStageNavigationAreaRegistry = (
         );
       }
       const areaId = containingAreaIds.values().next().value as string;
-      return Object.freeze({ area: byId.get(areaId)!, portal: null });
+      diagnostics?.recordNavigationAreaQuery?.(
+        "locate",
+        portals.length,
+        false,
+        performance.now() - startedAt
+      );
+      return Object.freeze({ areaId, portalId: null });
+    },
+    advance: (
+      cursor: StageNavigationAreaCursor,
+      from: Vector3,
+      to: Vector3
+    ) => {
+      assertActive();
+      const startedAt = diagnostics ? performance.now() : 0;
+      const currentArea = byId.get(cursor.areaId);
+      if (!currentArea) {
+        throw new Error(`Navigation Area cursorが不正です: ${cursor.areaId}`);
+      }
+      const connectedPortals = portalsByAreaId.get(cursor.areaId)!;
+      const crossedPortal = connectedPortals.find(
+        (portal) =>
+          portal.id === cursor.portalId ||
+          portal.intersects(from, to)
+      ) ?? null;
+      if (!crossedPortal) {
+        diagnostics?.recordNavigationAreaQuery?.(
+          "advance",
+          connectedPortals.length,
+          false,
+          performance.now() - startedAt
+        );
+        return cursor.portalId === null
+          ? cursor
+          : Object.freeze({ areaId: cursor.areaId, portalId: null });
+      }
+      if (crossedPortal.contains(to)) {
+        diagnostics?.recordNavigationAreaQuery?.(
+          "advance",
+          connectedPortals.length,
+          false,
+          performance.now() - startedAt
+        );
+        return Object.freeze({
+          areaId: cursor.areaId,
+          portalId: crossedPortal.id
+        });
+      }
+      const destinationAreaId =
+        crossedPortal.fromAreaId === cursor.areaId
+          ? crossedPortal.toAreaId
+          : crossedPortal.fromAreaId;
+      const destinationArea = byId.get(destinationAreaId)!;
+      if (
+        destinationArea.volumes.some((volume) =>
+          containsByVolume.get(volume)!(to)
+        )
+      ) {
+        diagnostics?.recordNavigationAreaQuery?.(
+          "advance",
+          connectedPortals.length,
+          true,
+          performance.now() - startedAt
+        );
+        return Object.freeze({ areaId: destinationAreaId, portalId: null });
+      }
+      if (
+        currentArea.volumes.some((volume) =>
+          containsByVolume.get(volume)!(to)
+        )
+      ) {
+        diagnostics?.recordNavigationAreaQuery?.(
+          "advance",
+          connectedPortals.length,
+          false,
+          performance.now() - startedAt
+        );
+        return Object.freeze({ areaId: cursor.areaId, portalId: null });
+      }
+      throw new Error(
+        `Navigation Area Portal横断後の位置が接続Area外です: ${crossedPortal.id} / ` +
+          `area=${cursor.areaId} / from=${from.toString()} / to=${to.toString()}`
+      );
     },
     dispose: () => {
       assertActive();
       disposed = true;
       containsByVolume.clear();
+      portalsByAreaId.clear();
       byId.clear();
       volumesByAreaId.clear();
     }

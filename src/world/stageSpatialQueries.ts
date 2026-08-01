@@ -82,6 +82,12 @@ export type StageSpatialQueryDiagnostics = Readonly<{
     indexedTriangleCount: number,
     exactTriangleTestCount: number
   ): void;
+  recordNavigationAreaQuery?(
+    kind: "locate" | "advance",
+    testedPortalCount: number,
+    transitioned: boolean,
+    durationMilliseconds: number
+  ): void;
   recordSphereSweep?(
     moverKind: StageMoverKind,
     visitedNodeCount: number,
@@ -113,6 +119,11 @@ export interface StageSpatialQueries {
   sampleGround(origin: Vector3, maxDistance: number): SpatialHit | null;
   containsVolume(role: StageVolumeRole, point: Vector3): boolean;
   containsVolumeById(id: string, point: Vector3): boolean;
+  intersectsVolumeSegmentById(
+    id: string,
+    from: Vector3,
+    to: Vector3
+  ): boolean;
   intersectsVolumeById(
     id: string,
     ellipsoid: StageCharacterEllipsoid
@@ -2376,6 +2387,10 @@ type StageSpatialRevisionResources = Readonly<{
     StageVolume,
     (point: Vector3) => boolean
   >;
+  intersectsSegmentByVolume: ReadonlyMap<
+    StageVolume,
+    (from: Vector3, to: Vector3) => boolean
+  >;
   intersectsEllipsoidByVolume: ReadonlyMap<
     StageVolume,
     (ellipsoid: StageCharacterEllipsoid) => boolean
@@ -2400,6 +2415,7 @@ type MeshRevisionCacheRecord = {
   bounds: MeshWorldBounds;
   triangles: readonly WorldTriangle[];
   containsPoint(point: Vector3): boolean;
+  intersectsSegment(from: Vector3, to: Vector3): boolean;
   intersectsEllipsoid(
     ellipsoid: StageCharacterEllipsoid
   ): boolean;
@@ -2489,6 +2505,37 @@ const createStageSpatialRevisionResourceCache = (
     const containsPoint =
       createContainsPointQueryFromTriangles(triangles);
     const bounds = mesh.getBoundingInfo().boundingBox;
+    const segmentMovement = Vector3.Zero();
+    const segmentInterval: SweepInterval = {
+      minimum: 0,
+      maximum: 1
+    };
+    const intersectsSegment = (from: Vector3, to: Vector3) => {
+      to.subtractToRef(from, segmentMovement);
+      if (
+        !segmentIntersectsExpandedBounds(
+          from,
+          segmentMovement,
+          0,
+          bounds.minimumWorld.x,
+          bounds.minimumWorld.y,
+          bounds.minimumWorld.z,
+          bounds.maximumWorld.x,
+          bounds.maximumWorld.y,
+          bounds.maximumWorld.z,
+          segmentInterval
+        )
+      ) {
+        return false;
+      }
+      return (
+        containsPoint(from) ||
+        containsPoint(to) ||
+        triangles.some((triangle) =>
+          segmentIntersectsTriangleBoundary(from, to, triangle)
+        )
+      );
+    };
     return {
       mesh,
       worldMatrix: Object.freeze([...world.m]),
@@ -2502,6 +2549,7 @@ const createStageSpatialRevisionResourceCache = (
       }),
       triangles,
       containsPoint,
+      intersectsSegment,
       intersectsEllipsoid:
         createIntersectsEllipsoidQueryFromTriangles(
           triangles,
@@ -2791,6 +2839,12 @@ const createStageSpatialRevisionResourceCache = (
         recordsByMesh.get(volume.mesh)!.containsPoint
       ])
     );
+    const intersectsSegmentByVolume = new Map(
+      volumes.map((volume) => [
+        volume,
+        recordsByMesh.get(volume.mesh)!.intersectsSegment
+      ])
+    );
     const intersectsEllipsoidByVolume = new Map(
       volumes.map((volume) => [
         volume,
@@ -2828,6 +2882,7 @@ const createStageSpatialRevisionResourceCache = (
       movementTrianglesByMesh,
       movementContainsByMesh,
       containsByVolume,
+      intersectsSegmentByVolume,
       intersectsEllipsoidByVolume,
       containsByBlocker,
       triangleSpatialIndex,
@@ -2849,6 +2904,7 @@ const createStageSpatialRevisionResourceCache = (
         movementTrianglesByMesh.clear();
         movementContainsByMesh.clear();
         containsByVolume.clear();
+        intersectsSegmentByVolume.clear();
         intersectsEllipsoidByVolume.clear();
         containsByBlocker.clear();
         releaseRecords(retainedRecords);
@@ -3046,6 +3102,18 @@ export const createStageSpatialQueries = (
         resources.containsByVolume.get(volume)!(point)
       );
     },
+    intersectsVolumeSegmentById: (id, from, to) => {
+      requireActiveScene();
+      const volume = volumesById.get(id);
+      if (!volume) {
+        throw new Error(`未登録のStage Volume IDです: ${id}`);
+      }
+      assertFiniteVector(`Stage Volume ${id}の線分始点`, from);
+      assertFiniteVector(`Stage Volume ${id}の線分終点`, to);
+      return withRevisionResources((resources) =>
+        resources.intersectsSegmentByVolume.get(volume)!(from, to)
+      );
+    },
     intersectsVolumeById: (id, ellipsoid) => {
       requireActiveScene();
       const volume = volumesById.get(id);
@@ -3090,3 +3158,37 @@ export const createStageBoundaryContainsQuery = (boundaryMesh: Mesh) =>
 
 export const createStageVolumeContainsSegmentQuery = (volumeMesh: Mesh) =>
   createContainsSegmentQueryFromTriangles(buildWorldTriangles(volumeMesh));
+
+export const createStageVolumeIntersectsSegmentQuery = (volumeMesh: Mesh) => {
+  const triangles = buildWorldTriangles(volumeMesh);
+  const contains = createContainsPointQueryFromTriangles(triangles);
+  const bounds = volumeMesh.getBoundingInfo().boundingBox;
+  const movement = Vector3.Zero();
+  const interval: SweepInterval = { minimum: 0, maximum: 1 };
+  return (from: Vector3, to: Vector3): boolean => {
+    to.subtractToRef(from, movement);
+    if (
+      !segmentIntersectsExpandedBounds(
+        from,
+        movement,
+        0,
+        bounds.minimumWorld.x,
+        bounds.minimumWorld.y,
+        bounds.minimumWorld.z,
+        bounds.maximumWorld.x,
+        bounds.maximumWorld.y,
+        bounds.maximumWorld.z,
+        interval
+      )
+    ) {
+      return false;
+    }
+    return (
+      contains(from) ||
+      contains(to) ||
+      triangles.some((triangle) =>
+        segmentIntersectsTriangleBoundary(from, to, triangle)
+      )
+    );
+  };
+};

@@ -2385,7 +2385,8 @@ export const loadStageSpatialContext = async (
             bidirectional: portal.bidirectional!,
             mesh: portal.mesh
           })
-        )
+        ),
+      options.queryDiagnostics
     );
     dynamicVariants =
       createDynamicStageSpatialVariants(initialActiveSet);
