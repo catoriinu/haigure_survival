@@ -945,6 +945,24 @@ def expected_door_specs() -> tuple[DoorSpec, ...]:
                 )
             )
 
+    for token_value, door_id, center_x in (
+        ("RoofChangingMale_01", "room-door-roof-changing-male-01", -4.80),
+        ("RoofChangingFemale_01", "room-door-roof-changing-female-01", -0.30),
+    ):
+        result.append(
+            DoorSpec(
+                token=token_value,
+                door_id=door_id,
+                door_class="room",
+                motion_kind="slide",
+                root_location=(center_x, 38.48, 14.50),
+                open_location=(1.20, -0.04, 0.0),
+                open_rotation_z=0.0,
+                parent_name=None,
+                wall_axis="north",
+            )
+        )
+
     for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
         for gender, hinge_positions in (
             ("m", (-5.05, -3.65, -2.25)),
@@ -1268,7 +1286,7 @@ def audit_doors(
     glb_coordinates: bool,
 ) -> dict[str, Any]:
     specs = expected_door_specs()
-    require(len(specs) == 65, "監査側DoorSpecが65件ではありません")
+    require(len(specs) == 67, "監査側DoorSpecが67件ではありません")
     expected_by_id = {spec.door_id: spec for spec in specs}
     require(
         len(expected_by_id) == len(specs),
@@ -1279,8 +1297,8 @@ def audit_doors(
         for spec in specs
     )
     require(
-        expected_panel_count == 74,
-        "監査側DoorPanelSpecが74件ではありません",
+        expected_panel_count == 76,
+        "監査側DoorPanelSpecが76件ではありません",
     )
 
     door_nodes = graph.role_nodes("door")
@@ -1288,10 +1306,10 @@ def audit_doors(
     open_pose_nodes = graph.role_nodes("door_open_pose")
     sweep_nodes = graph.role_nodes("door_sweep")
     for role, nodes, expected_count in (
-        ("door", door_nodes, 65),
+        ("door", door_nodes, 67),
         ("door_panel", panel_nodes, expected_panel_count),
         ("door_open_pose", open_pose_nodes, expected_panel_count),
-        ("door_sweep", sweep_nodes, 65),
+        ("door_sweep", sweep_nodes, 67),
     ):
         require(
             len(nodes) == expected_count,
@@ -1704,7 +1722,7 @@ def audit_doors(
         door_classes
         == Counter(
             {
-                "room": 38,
+                "room": 40,
                 "toilet_stall": 24,
                 "elevator_landing": 2,
                 "elevator_car": 1,
@@ -1713,12 +1731,12 @@ def audit_doors(
         f"{graph.source}: Door class内訳が不正です: {door_classes}",
     )
     require(
-        motion_kinds == Counter({"slide": 50, "swing": 24}),
+        motion_kinds == Counter({"slide": 52, "swing": 24}),
         f"{graph.source}: Door motion内訳が不正です: {motion_kinds}",
     )
     require(
         hardware_counts
-        == Counter({"room_handle": 38, "toilet_knob": 24}),
+        == Counter({"room_handle": 40, "toilet_knob": 24}),
         f"{graph.source}: 扉金物内訳が不正です: {hardware_counts}",
     )
     actual_hardware_names = {
@@ -2996,13 +3014,13 @@ def audit_active_visual_counts(graph: AssetGraph) -> dict[str, int]:
         for room_id in EXPECTED_ROOM_IDS
     )
     require(
-        normal_visuals == 613,
-        f"{graph.source}: 通常20室選択時のVISが613件ではありません: "
+        normal_visuals == 619,
+        f"{graph.source}: 通常20室選択時のVISが619件ではありません: "
         f"{normal_visuals}",
     )
     require(
-        disordered_visuals == 633,
-        f"{graph.source}: 全荒れ20室選択時のVISが633件ではありません: "
+        disordered_visuals == 639,
+        f"{graph.source}: 全荒れ20室選択時のVISが639件ではありません: "
         f"{disordered_visuals}",
     )
     return {
@@ -3019,13 +3037,13 @@ def audit_blender_glb_parity(
     blender_names = interactive_contract_names(blender_graph)
     glb_names = interactive_contract_names(glb_graph)
     require(
-        len(blender_names) == 781,
-        "BlenderのB03-3C interactive契約Objectが781件ではありません: "
+        len(blender_names) == 795,
+        "BlenderのB03-3C interactive契約Objectが795件ではありません: "
         f"{len(blender_names)}",
     )
     require(
-        len(glb_names) == 781,
-        "GLBのB03-3C interactive契約Objectが781件ではありません: "
+        len(glb_names) == 795,
+        "GLBのB03-3C interactive契約Objectが795件ではありません: "
         f"{len(glb_names)}",
     )
     require(
@@ -3152,6 +3170,7 @@ def main() -> None:
                 "stops": 2,
             },
             "room_doors": 38,
+            "rooftop_changing_doors": 2,
             "room_variants": {
                 "markers": 40,
                 "rooms": 20,

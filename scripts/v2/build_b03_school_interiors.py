@@ -40,6 +40,9 @@ ATLAS_DEFINITIONS = {
             "trim": (72, 78, 79),
             "elevator_wait": (224, 174, 42),
             "elevator_direction": (242, 242, 234),
+            "crate_wood": (126, 76, 35),
+            "crate_light": (183, 133, 72),
+            "crate_gray": (111, 104, 91),
         },
     },
     "FurnitureProps": {
@@ -61,6 +64,7 @@ ATLAS_DEFINITIONS = {
             "accent_red": (180, 42, 34),
             "door_hardware_yellow": (181, 153, 74),
             "fabric_ivory": (232, 222, 188),
+            "cabinet_glass": (137, 164, 169),
         },
     },
     "SignsPaper": {
@@ -108,6 +112,7 @@ ADDITIONAL_PROP_TYPES = (
     "InfirmaryCurtain",
     "RoomSign",
     "LifePreserverSign",
+    "LifePreserverRing",
 )
 
 IMPASSABLE_ADDITIONAL_PROP_TYPES = {
@@ -332,31 +337,49 @@ TOILET_SIGN_PLACEMENTS = (
     (-5.825, 38.34, math.pi),
     (0.725, 38.34, math.pi),
 )
-ROOF_POOL_NORTH_SIGN_SUPPORT = (
-    (39.5, 45.28, 15.5),
-    (0.10, 0.24, 0.10),
-)
 ROOF_CHANGING_BAGGAGE_LOCKER_XS = (-5.4, -3.16, -0.8, 1.19)
+ROOF_CHANGING_BENCH_PLACEMENTS = (
+    (-6.375, 41.5, math.pi / 2),
+    (-2.475, 41.5, math.pi / 2),
+    (-1.725, 41.5, math.pi / 2),
+    (1.875, 41.5, math.pi / 2),
+)
+ROOF_POOL_LIFE_PRESERVER_PLACEMENTS = (
+    (20.5, 38.8, 15.37, math.radians(8.0)),
+    (28.5, 39.3, 15.37, math.radians(-12.0)),
+)
 STAFFROOM_TRASH_BIN = (19.0, 36.8, 0.0)
 ART_INTERIOR_BOUNDS = (5.4, 23.4, 36.5, 45.5)
-ART_TABLE_XS = (8.0, 14.4, 20.8)
-ART_TABLE_YS = (39.5, 43.0)
-ART_EASEL_XS = (9.0, 11.6, 14.2, 16.8, 19.4)
-ART_EASEL_Y = 37.6
+ART_LIFE_DRAWING_CENTER = (14.4, 41.0)
+ART_LIFE_DRAWING_CHAIR_RADIUS = 3.25
+ART_LIFE_DRAWING_EASEL_RADIUS = 2.35
 ART_BOOKSHELF_PLACEMENTS = (
-    (5.75, 39.5, math.pi / 2),
-    (5.75, 41.5, math.pi / 2),
+    (5.56, 43.90, math.pi / 2),
+    (5.56, 43.00, math.pi / 2),
 )
-ART_CLEANING_LOCKER = (5.775, 44.0, math.pi / 2)
+ART_CLEANING_LOCKER = (5.625, 44.80, math.pi / 2)
+ART_BAGGAGE_LOCKER = (23.175, 44.60, -math.pi / 2)
 LL_INTERIOR_BOUNDS = (5.4, 23.4, 36.5, 45.5)
-LL_DESK_XS = (6.7, 9.9, 13.1, 16.3, 19.5, 22.7)
+LL_DESK_XS = (7.7, 10.9, 14.1, 17.3, 20.5)
 LL_DESK_YS = (38.2, 39.9, 41.6, 43.3)
-LL_AV_RACK = (5.9, 44.7)
-LL_BAGGAGE_LOCKER_XS = (7.2, 9.2)
-MUSIC_PIANO_PLACEMENT = (40.4, 42.5, -math.pi / 2)
-MUSIC_CHAIR_XS = (29.0, 30.55, 32.1, 33.65, 35.2, 36.75)
+LL_AV_RACK = (5.6625, 44.80, math.pi / 2)
+LL_BAGGAGE_LOCKER_PLACEMENTS = (
+    (5.625, 43.55, math.pi / 2),
+    (5.625, 41.75, math.pi / 2),
+)
+LL_MEDICAL_CABINET = (23.175, 44.80, -math.pi / 2)
+MUSIC_PIANO_PLACEMENT = (38.8, 41.0, 0.0)
+MUSIC_PIANO_STOOL = (38.8, 39.70, 0.0)
+MUSIC_CHAIR_XS = (28.0, 29.55, 31.1, 32.65, 34.2, 35.75)
 MUSIC_CHAIR_YS = (38.2, 39.55, 40.9, 42.25, 43.6)
 MUSIC_CHAIR_ROTATION = math.pi / 2
+MUSIC_WEST_STORAGE_PLACEMENTS = (
+    ("CleaningLocker", 23.625, 44.80, math.pi / 2),
+    ("Bookshelf", 23.56, 43.90, math.pi / 2),
+    ("Bookshelf", 23.56, 43.00, math.pi / 2),
+    ("BaggageLocker", 23.625, 41.65, math.pi / 2),
+    ("BaggageLocker", 23.625, 39.85, math.pi / 2),
+)
 GYM_STAGE_LECTERN = (46.4, -5.0, 1.0)
 BULLETIN_BOARD_FURNITURE_PARTS = (
     ((0.0, 0.0, 1.45), (1.80, 0.06, 1.00), "fabric"),
@@ -507,9 +530,19 @@ def architecture_swatch(object_name: str) -> str:
         return "door"
     if "windowframe" in name:
         return "roof"
+    if "escapecrates_dark" in name:
+        return "crate_wood"
+    if "escapecrates_light" in name:
+        return "crate_light"
+    if "escapecrates_gray" in name:
+        return "crate_gray"
     if "stair" in name or "floor" in name:
         return "floor"
-    if "roof" in name or "pool" in name or "rail" in name:
+    if "poolwater" in name:
+        return "roof"
+    if "pool" in name:
+        return "wall"
+    if "roof" in name or "rail" in name:
         return "roof"
     return "wall"
 
@@ -674,6 +707,102 @@ class MeshBatch:
         for face in faces:
             self.faces.append(tuple(offset + index for index in face))
             self.face_uvs.append(uv)
+
+    def add_cylinder(
+        self,
+        center: tuple[float, float, float],
+        radius: float,
+        depth: float,
+        segments: int,
+        swatch: str,
+        rotation_z: float = 0.0,
+        axis: str = "z",
+    ) -> None:
+        if segments < 3:
+            raise RuntimeError("円柱の分割数は3以上が必要です")
+        transform = Matrix.Translation(Vector(center)) @ Matrix.Rotation(
+            rotation_z, 4, "Z"
+        )
+        offset = len(self.vertices)
+        half_depth = depth / 2.0
+        for side in (-half_depth, half_depth):
+            for index in range(segments):
+                angle = math.tau * index / segments
+                first = math.cos(angle) * radius
+                second = math.sin(angle) * radius
+                if axis == "x":
+                    local = (side, first, second)
+                elif axis == "y":
+                    local = (first, side, second)
+                elif axis == "z":
+                    local = (first, second, side)
+                else:
+                    raise RuntimeError(f"未対応の円柱軸です: {axis}")
+                self.vertices.append(tuple(transform @ Vector(local)))
+        uv = swatch_uv(self.atlas_name, swatch)
+        for index in range(segments):
+            following = (index + 1) % segments
+            self.faces.append(
+                (
+                    offset + index,
+                    offset + following,
+                    offset + segments + following,
+                    offset + segments + index,
+                )
+            )
+            self.face_uvs.append(uv)
+        self.faces.append(tuple(offset + index for index in reversed(range(segments))))
+        self.face_uvs.append(tuple(uv[index % 4] for index in range(segments)))
+        self.faces.append(tuple(offset + segments + index for index in range(segments)))
+        self.face_uvs.append(tuple(uv[index % 4] for index in range(segments)))
+
+    def add_torus(
+        self,
+        center: tuple[float, float, float],
+        major_radius: float,
+        minor_radius: float,
+        major_segments: int,
+        minor_segments: int,
+        swatches: tuple[str, ...],
+        rotation_z: float = 0.0,
+    ) -> None:
+        if major_segments < 6 or minor_segments < 3:
+            raise RuntimeError("トーラスの分割数が不足しています")
+        if major_segments % len(swatches) != 0:
+            raise RuntimeError("トーラスの色帯が等分できません")
+        transform = Matrix.Translation(Vector(center)) @ Matrix.Rotation(
+            rotation_z, 4, "Z"
+        )
+        offset = len(self.vertices)
+        for major_index in range(major_segments):
+            major_angle = math.tau * major_index / major_segments
+            major_cosine = math.cos(major_angle)
+            major_sine = math.sin(major_angle)
+            for minor_index in range(minor_segments):
+                minor_angle = math.tau * minor_index / minor_segments
+                radial = major_radius + minor_radius * math.cos(minor_angle)
+                local = (
+                    radial * major_cosine,
+                    radial * major_sine,
+                    minor_radius * math.sin(minor_angle),
+                )
+                self.vertices.append(tuple(transform @ Vector(local)))
+        band_size = major_segments // len(swatches)
+        for major_index in range(major_segments):
+            next_major = (major_index + 1) % major_segments
+            swatch = swatches[major_index // band_size]
+            uv = swatch_uv(self.atlas_name, swatch)
+            for minor_index in range(minor_segments):
+                next_minor = (minor_index + 1) % minor_segments
+                self.faces.append(
+                    (
+                        offset + major_index * minor_segments + minor_index,
+                        offset + next_major * minor_segments + minor_index,
+                        offset + next_major * minor_segments + next_minor,
+                        offset + major_index * minor_segments + next_minor,
+                    )
+                )
+                self.face_uvs.append(uv)
 
     def add_corrugated_curtain(
         self,
@@ -978,13 +1107,35 @@ def add_additional_prop(
         "FireExtinguisher": [((0, 0, 0.32), (0.24, 0.18, 0.64), "accent_red")],
         "TrashBin": [((0, 0, 0.25), (0.3, 0.3, 0.5), "metal_gray")],
         "UmbrellaStand": [((0, 0, 0.3), (0.9, 0.3, 0.6), "metal_gray")],
-        "WashBasin": [((0, 0, 0.72), (1.2, 0.5, 0.26), "porcelain"), ((0, 0, 0.35), (1.0, 0.38, 0.7), "metal_gray")],
+        "WashBasin": [
+            ((0, 0, 0.36), (1.00, 0.38, 0.72), "metal_gray"),
+            ((0, -0.03, 0.76), (0.88, 0.30, 0.06), "metal_dark"),
+            ((0, -0.205, 0.79), (1.20, 0.09, 0.10), "porcelain"),
+            ((0, 0.205, 0.79), (1.20, 0.09, 0.10), "porcelain"),
+            ((-0.555, 0, 0.79), (0.09, 0.32, 0.10), "porcelain"),
+            ((0.555, 0, 0.79), (0.09, 0.32, 0.10), "porcelain"),
+            ((0, 0.14, 0.93), (0.06, 0.06, 0.28), "metal_gray"),
+            ((0, 0.05, 1.04), (0.06, 0.18, 0.06), "metal_gray"),
+        ],
         "Mirror": [((0, 0, 1.5), (0.9, 0.03, 0.6), "metal_gray")],
         "PcTower": [((0, 0, 0.23), (0.2, 0.45, 0.45), "plastic_black")],
         "KeyboardMouse": [((0, 0, 0.74), (0.45, 0.18, 0.04), "plastic_black")],
         "ScienceStool": [((0, 0, 0.45), (0.35, 0.35, 0.08), "wood"), ((0, 0, 0.22), (0.2, 0.2, 0.44), "metal_gray")],
         "LabBench": [((0, 0, 0.72), (1.8, 0.75, 0.26), "wood"), ((0, 0, 0.34), (1.55, 0.58, 0.68), "metal_gray"), ((0.48, 0, 0.88), (0.48, 0.38, 0.08), "porcelain")],
-        "MedicalCabinet": [((0, 0, 0.9), (1.2, 0.45, 1.8), "metal_gray")],
+        "MedicalCabinet": [
+            ((0, 0.015, 0.42), (1.20, 0.42, 0.84), "metal_gray"),
+            ((-0.585, 0, 1.31), (0.03, 0.45, 0.98), "metal_gray"),
+            ((0.585, 0, 1.31), (0.03, 0.45, 0.98), "metal_gray"),
+            ((0, 0, 1.785), (1.20, 0.45, 0.03), "metal_gray"),
+            ((0, 0, 0.835), (1.20, 0.45, 0.05), "metal_gray"),
+            ((0, -0.205, 1.31), (0.03, 0.03, 0.90), "metal_gray"),
+            ((-0.30, -0.205, 1.31), (0.54, 0.03, 0.86), "cabinet_glass"),
+            ((0.30, -0.205, 1.31), (0.54, 0.03, 0.86), "cabinet_glass"),
+            ((0, 0.0, 1.12), (1.12, 0.38, 0.04), "metal_gray"),
+            ((0, 0.0, 1.48), (1.12, 0.38, 0.04), "metal_gray"),
+            ((-0.05, -0.235, 1.31), (0.03, 0.03, 0.22), "metal_dark"),
+            ((0.05, -0.235, 1.31), (0.03, 0.03, 0.22), "metal_dark"),
+        ],
         "BroadcastConsole": [
             ((0, 0, 0.36), (1.6, 0.75, 0.72), "metal_gray"),
             ((0, -0.04, 0.76), (1.45, 0.55, 0.08), "metal_dark"),
@@ -1003,12 +1154,18 @@ def add_additional_prop(
             ((0, -0.025, 1.13), (0.52, 0.02, 0.65), "accent_orange"),
         ],
         "KitchenIsland": [((0, 0, 0.72), (1.8, 0.9, 0.26), "porcelain"), ((0, 0, 0.34), (1.55, 0.7, 0.68), "wood")],
-        "SewingMachine": [((0, 0, 0.86), (0.45, 0.2, 0.25), "porcelain"), ((-0.12, 0, 1.05), (0.12, 0.18, 0.2), "metal_gray")],
+        "SewingMachine": [
+            ((0, 0, 0.84), (0.50, 0.22, 0.08), "porcelain"),
+            ((0.18, 0, 1.00), (0.10, 0.20, 0.32), "porcelain"),
+            ((-0.02, 0, 1.15), (0.40, 0.20, 0.14), "porcelain"),
+            ((-0.18, 0, 0.99), (0.03, 0.03, 0.24), "metal_dark"),
+        ],
         "MusicStand": [((0, 0, 0.65), (0.05, 0.05, 1.1), "metal_dark"), ((0, 0, 1.18), (0.5, 0.05, 0.32), "metal_dark")],
         "AvRack": [((0, 0, 0.75), (0.7, 0.5, 1.5), "metal_dark"), ((0, -0.26, 0.9), (0.52, 0.03, 0.3), "plastic_black")],
         "InfirmaryCurtain": [((0, 0, 1.35), (2.0, 0.05, 1.8), "fabric_ivory")],
         "RoomSign": [((0, 0, 1.7), (0.45, 0.04, 0.18), "sign_2")],
         "LifePreserverSign": [((0, 0, 1.2), (0.7, 0.12, 0.7), "safety")],
+        "LifePreserverRing": [],
     }
     cosine = math.cos(rotation_z)
     sine = math.sin(rotation_z)
@@ -1030,10 +1187,24 @@ def add_additional_prop(
                 z + lz,
             )
             room.box(target, size, swatch, rotation_z, signs=True)
+    if prop_type == "SewingMachine":
+        wheel_local = Vector((0.255, -0.12, 1.10))
+        wheel_world = Matrix.Translation(Vector(position)) @ Matrix.Rotation(
+            rotation_z, 4, "Z"
+        ) @ wheel_local
+        room.furniture.add_cylinder(
+            tuple(wheel_world),
+            0.11,
+            0.04,
+            8,
+            "metal_gray",
+            rotation_z,
+            "y",
+        )
     if prop_type in IMPASSABLE_ADDITIONAL_PROP_TYPES:
         size = {
             "TeacherDesk": (1.2, 0.6, 0.72),
-            "ChangingBench": (1.8, 0.45, 0.48), "WashBasin": (1.2, 0.5, 0.85),
+            "ChangingBench": (1.8, 0.45, 0.48), "WashBasin": (1.2, 0.5, 1.07),
             "LabBench": (1.8, 0.75, 0.92), "MedicalCabinet": (1.2, 0.45, 1.8),
             "BroadcastConsole": (1.6, 0.75, 1.09), "KitchenIsland": (1.8, 0.9, 0.9),
             "AvRack": (0.7, 0.525, 1.5),
@@ -1047,6 +1218,32 @@ def add_additional_prop(
             z + local_center[2],
         )
         room.add_collider(collider_center, size, rotation_z)
+
+
+def add_life_preserver_ring(
+    room: RoomBuilder,
+    position: tuple[float, float, float],
+    rotation_z: float,
+) -> None:
+    room.counts["LifePreserverRing"] = (
+        room.counts.get("LifePreserverRing", 0) + 1
+    )
+    room.furniture.add_torus(
+        position,
+        0.36,
+        0.09,
+        24,
+        6,
+        (
+            "accent_red",
+            "porcelain",
+            "accent_red",
+            "porcelain",
+            "accent_red",
+            "porcelain",
+        ),
+        rotation_z,
+    )
 
 
 def add_infirmary_curtain(
@@ -1500,14 +1697,8 @@ def build_common_area_rooms(
     rooms.append(gym_storage)
 
     roof_pool = RoomBuilder.create("RoofPoolSafety", 14.5)
-    add_additional_prop(
-        roof_pool, "LifePreserverSign", (22.0, 36.8, 14.5), math.pi
-    )
-    add_additional_prop(
-        roof_pool, "LifePreserverSign", (39.5, 45.1, 14.5), 0.0
-    )
-    support_center, support_size = ROOF_POOL_NORTH_SIGN_SUPPORT
-    roof_pool.architecture_box(support_center, support_size, "trim")
+    for x, y, z, rotation in ROOF_POOL_LIFE_PRESERVER_PLACEMENTS:
+        add_life_preserver_ring(roof_pool, (x, y, z), rotation)
     add_additional_prop(roof_pool, "RoomSign", (2.42, 39.1, 14.5), math.pi / 2)
     rooms.append(roof_pool)
     return rooms
@@ -1656,8 +1847,11 @@ def build_school_rooms(
     for chair_x in (7.8, 8.8, 9.8, 10.8):
         council.add_prop(sources, "ClassroomChair", chair_x, 40.38, math.pi)
         council.add_prop(sources, "ClassroomChair", chair_x, 41.62, 0.0)
-    council.add_prop(sources, "StaffDesk", 12.5, 44.2)
-    council.add_prop(sources, "StaffChair", 12.5, 43.4, math.pi)
+    council.add_prop(sources, "StaffDesk", 11.455, 41.0, math.pi / 2)
+    council.add_prop(sources, "StaffChair", 12.20, 41.0, -math.pi / 2)
+    add_desktop_prop(council, sources, "PaperStack", 11.455, 40.82, math.pi / 2, 0.72)
+    add_desktop_prop(council, sources, "SinglePaper", 11.455, 41.08, math.pi / 2, 0.72)
+    add_desktop_prop(council, sources, "SinglePaper", 11.455, 41.25, math.pi / 2, 0.72)
     council.add_prop(sources, "BaggageLocker", 6.45, 45.125)
     add_additional_prop(council, "BulletinBoard", (13.3, 45.31, 3.6))
     rooms.append(council)
@@ -1667,8 +1861,8 @@ def build_school_rooms(
         broadcast, "BroadcastConsole", (18.8, 41.2, 3.6), math.pi
     )
     add_additional_prop(broadcast, "AvRack", (15.2, 44.7, 3.6))
-    broadcast.add_prop(sources, "StaffDesk", 16.4, 38.5)
-    broadcast.add_prop(sources, "StaffDesk", 21.2, 38.5)
+    broadcast.add_prop(sources, "StaffDesk", 17.0, 38.5)
+    broadcast.add_prop(sources, "StaffDesk", 20.6, 38.5)
     broadcast.add_prop(sources, "BaggageLocker", 16.7, 44.8)
     broadcast.add_prop(sources, "StaffChair", 18.2, 42.15, 0.0)
     broadcast.add_prop(sources, "StaffChair", 19.4, 42.15, 0.0)
@@ -1688,18 +1882,36 @@ def build_school_rooms(
                 add_additional_prop(science, "ScienceStool", (x + dx, y - 0.72, 3.6))
                 add_additional_prop(science, "ScienceStool", (x + dx, y + 0.72, 3.6))
     add_wall_blackboard(science, sources, 41.34, 41.0, math.pi / 2)
-    add_additional_prop(science, "MedicalCabinet", (40.5, 44.7, 3.6))
-    science.add_prop(sources, "Bookshelf", 27.0, 44.8)
-    science.add_prop(sources, "Bookshelf", 28.2, 44.8)
-    science.add_prop(sources, "CleaningLocker", 29.4, 44.8)
+    science.add_prop(sources, "CleaningLocker", 23.625, 44.80, math.pi / 2)
+    science.add_prop(sources, "Bookshelf", 23.56, 43.90, math.pi / 2)
+    science.add_prop(sources, "Bookshelf", 23.56, 43.00, math.pi / 2)
+    add_additional_prop(
+        science, "MedicalCabinet", (41.175, 44.80, 3.6), -math.pi / 2
+    )
     rooms.append(science)
 
     art = RoomBuilder.create("F03_Art", 7.2)
-    for x in ART_TABLE_XS:
-        for y in ART_TABLE_YS:
-            add_table_group(art, sources, x, y)
-    for x in ART_EASEL_XS:
-        add_additional_prop(art, "Easel", (x, ART_EASEL_Y, 7.2), math.pi / 2)
+    center_x, center_y = ART_LIFE_DRAWING_CENTER
+    art.add_prop(sources, "ClassroomChair", center_x, center_y, 0.0)
+    for index in range(8):
+        angle = math.tau * index / 8.0
+        chair_x = center_x + math.cos(angle) * ART_LIFE_DRAWING_CHAIR_RADIUS
+        chair_y = center_y + math.sin(angle) * ART_LIFE_DRAWING_CHAIR_RADIUS
+        easel_x = center_x + math.cos(angle) * ART_LIFE_DRAWING_EASEL_RADIUS
+        easel_y = center_y + math.sin(angle) * ART_LIFE_DRAWING_EASEL_RADIUS
+        art.add_prop(
+            sources,
+            "ClassroomChair",
+            chair_x,
+            chair_y,
+            angle - math.pi / 2,
+        )
+        add_additional_prop(
+            art,
+            "Easel",
+            (easel_x, easel_y, 7.2),
+            angle + math.pi / 2,
+        )
     add_wall_blackboard(art, sources, 23.34, 41.0, math.pi / 2)
     for x, y, rotation in ART_BOOKSHELF_PLACEMENTS:
         art.add_prop(sources, "Bookshelf", x, y, rotation)
@@ -1711,6 +1923,7 @@ def build_school_rooms(
         locker_y,
         locker_rotation,
     )
+    art.add_prop(sources, "BaggageLocker", *ART_BAGGAGE_LOCKER)
     rooms.append(art)
 
     home = RoomBuilder.create("F03_HomeEc", 7.2)
@@ -1722,9 +1935,12 @@ def build_school_rooms(
             for dx in (-0.6, 0.0, 0.6):
                 home.add_prop(sources, "ClassroomChair", x + dx, y - 0.72, math.pi)
                 home.add_prop(sources, "ClassroomChair", x + dx, y + 0.72, 0.0)
-    add_additional_prop(home, "WashBasin", (40.5, 44.5, 7.2), math.pi / 2)
+    for sink_y in (39.8, 41.0, 42.2):
+        add_additional_prop(
+            home, "WashBasin", (23.65, sink_y, 7.2), math.pi / 2
+        )
     add_wall_blackboard(home, sources, 41.34, 39.4, math.pi / 2)
-    home.add_prop(sources, "CleaningLocker", 27.0, 44.8)
+    home.add_prop(sources, "CleaningLocker", 40.6, 44.5, math.pi / 2)
     rooms.append(home)
 
     ll = RoomBuilder.create("F04_LL", 10.8)
@@ -1733,14 +1949,29 @@ def build_school_rooms(
             ll.add_prop(sources, "ClassroomDesk", x, y, -math.pi / 2)
             ll.add_prop(sources, "ClassroomChair", x - 0.31, y, math.pi / 2)
     add_wall_blackboard(ll, sources, 23.34, 41.0, math.pi / 2)
-    add_additional_prop(ll, "AvRack", (*LL_AV_RACK, 10.8))
-    for x in LL_BAGGAGE_LOCKER_XS:
-        ll.add_prop(sources, "BaggageLocker", x, 44.8)
+    av_x, av_y, av_rotation = LL_AV_RACK
+    add_additional_prop(ll, "AvRack", (av_x, av_y, 10.8), av_rotation)
+    for x, y, rotation in LL_BAGGAGE_LOCKER_PLACEMENTS:
+        ll.add_prop(sources, "BaggageLocker", x, y, rotation)
+    cabinet_x, cabinet_y, cabinet_rotation = LL_MEDICAL_CABINET
+    add_additional_prop(
+        ll,
+        "MedicalCabinet",
+        (cabinet_x, cabinet_y, 10.8),
+        cabinet_rotation,
+    )
     rooms.append(ll)
 
     music = RoomBuilder.create("F04_Music", 10.8)
     piano_x, piano_y, piano_rotation = MUSIC_PIANO_PLACEMENT
     music.add_prop(sources, "GrandPiano", piano_x, piano_y, piano_rotation)
+    stool_x, stool_y, stool_rotation = MUSIC_PIANO_STOOL
+    add_additional_prop(
+        music,
+        "ScienceStool",
+        (stool_x, stool_y, 10.8),
+        stool_rotation,
+    )
     for y in MUSIC_CHAIR_YS:
         for x in MUSIC_CHAIR_XS:
             music.add_prop(
@@ -1751,9 +1982,8 @@ def build_school_rooms(
                 MUSIC_CHAIR_ROTATION,
             )
     add_wall_blackboard(music, sources, 41.34, 41.0, math.pi / 2)
-    music.add_prop(sources, "Bookshelf", 34.5, 44.8)
-    music.add_prop(sources, "Bookshelf", 35.7, 44.8)
-    music.add_prop(sources, "CleaningLocker", 36.9, 44.8)
+    for prop_type, x, y, rotation in MUSIC_WEST_STORAGE_PLACEMENTS:
+        music.add_prop(sources, prop_type, x, y, rotation)
     rooms.append(music)
 
     gym = RoomBuilder.create("Gym", 0.0)
@@ -1769,9 +1999,10 @@ def build_school_rooms(
     changing = RoomBuilder.create("RoofChanging", 14.5)
     for x in ROOF_CHANGING_BAGGAGE_LOCKER_XS:
         changing.add_prop(sources, "BaggageLocker", x, 44.8)
-    add_additional_prop(changing, "ChangingBench", (-4.2, 41.3, 14.5))
-    add_additional_prop(changing, "ChangingBench", (0.2, 41.3, 14.5))
-    add_additional_prop(changing, "Mirror", (-2.1, 45.3, 14.5))
+    for x, y, rotation in ROOF_CHANGING_BENCH_PLACEMENTS:
+        add_additional_prop(
+            changing, "ChangingBench", (x, y, 14.5), rotation
+        )
     add_additional_prop(changing, "RoomSign", (-3.775, 38.48, 14.5))
     rooms.append(changing)
 

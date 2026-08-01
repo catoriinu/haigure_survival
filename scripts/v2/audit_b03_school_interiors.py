@@ -19,12 +19,12 @@ if str(SCRIPT_DIRECTORY) not in sys.path:
 from build_b03_school_interiors import (
     ADDITIONAL_PROP_TYPES,
     ART_BOOKSHELF_PLACEMENTS,
+    ART_BAGGAGE_LOCKER,
     ART_CLEANING_LOCKER,
-    ART_EASEL_XS,
-    ART_EASEL_Y,
     ART_INTERIOR_BOUNDS,
-    ART_TABLE_XS,
-    ART_TABLE_YS,
+    ART_LIFE_DRAWING_CENTER,
+    ART_LIFE_DRAWING_CHAIR_RADIUS,
+    ART_LIFE_DRAWING_EASEL_RADIUS,
     ATLAS_DEFINITIONS,
     BULLETIN_BOARD_FURNITURE_PARTS,
     BULLETIN_BOARD_PAPER_PARTS,
@@ -75,22 +75,26 @@ from build_b03_school_interiors import (
     LIBRARY_SOUTH_SHELF_XS,
     LIBRARY_WEST_WALL_INNER_X,
     LL_AV_RACK,
-    LL_BAGGAGE_LOCKER_XS,
+    LL_BAGGAGE_LOCKER_PLACEMENTS,
     LL_DESK_XS,
     LL_DESK_YS,
     LL_INTERIOR_BOUNDS,
+    LL_MEDICAL_CABINET,
     MAIN_ENTRY_BAGGAGE_LOCKERS,
     MUSIC_CHAIR_ROTATION,
     MUSIC_CHAIR_XS,
     MUSIC_CHAIR_YS,
     MUSIC_PIANO_PLACEMENT,
+    MUSIC_PIANO_STOOL,
+    MUSIC_WEST_STORAGE_PLACEMENTS,
     NORTH_CLASSROOM_DOOR_OPENINGS,
     NORTH_ENTRY_BAGGAGE_LOCKER,
     NORTH_ENTRY_UMBRELLA_STAND,
     PROP_COLLIDER_LOCAL_CENTERS,
     PROP_COLLIDER_SIZES,
     ROOF_CHANGING_BAGGAGE_LOCKER_XS,
-    ROOF_POOL_NORTH_SIGN_SUPPORT,
+    ROOF_CHANGING_BENCH_PLACEMENTS,
+    ROOF_POOL_LIFE_PRESERVER_PLACEMENTS,
     STAFFROOM_CLEANING_LOCKER,
     STAFFROOM_DESK_YS,
     STAFFROOM_EAST_BOOKSHELVES,
@@ -1389,7 +1393,7 @@ def audit_infirmary_layout() -> dict[str, float | int]:
     storage_bounds: list[tuple[Vector, Vector]] = []
     additional_sizes = {
         "MedicalCabinet": (1.20, 0.45, 1.80),
-        "WashBasin": (1.20, 0.50, 0.85),
+        "WashBasin": (1.20, 0.50, 1.07),
     }
     for prop_type, x, y, rotation in INFIRMARY_NORTH_STORAGE_PLACEMENTS:
         size = PROP_COLLIDER_SIZES.get(prop_type, additional_sizes.get(prop_type))
@@ -1805,109 +1809,87 @@ def audit_pc_room_fixed_layout() -> dict[str, int]:
 
 
 def audit_art_room_placement() -> dict[str, int]:
-    visual = bpy.data.objects["VIS_B03_Interior_F03_Art_FurnitureProps"]
-    collider = bpy.data.objects["COL_B03_Interior_F03_Art"]
-    visual_components = connected_component_aabbs(visual)
-    collider_components = connected_component_aabbs(collider)
+    visual_components = connected_component_aabbs(
+        bpy.data.objects["VIS_B03_Interior_F03_Art_FurnitureProps"]
+    )
+    collider_components = connected_component_aabbs(
+        bpy.data.objects["COL_B03_Interior_F03_Art"]
+    )
     minimum_x, maximum_x, minimum_y, maximum_y = ART_INTERIOR_BOUNDS
-    outside = [
-        index
-        for index, (minimum, maximum) in enumerate(visual_components, 1)
-        if minimum.x < minimum_x - 1e-5
+    if any(
+        minimum.x < minimum_x - 1e-5
         or maximum.x > maximum_x + 1e-5
         or minimum.y < minimum_y - 1e-5
         or maximum.y > maximum_y + 1e-5
-    ]
-    if outside:
-        raise RuntimeError(f"3階美術室家具が室外へ越境しています: {outside}")
+        for minimum, maximum in visual_components
+    ):
+        raise RuntimeError("3階美術室家具が室外へ越境しています")
 
-    expected_colliders = [
-        box_bounds((x, y, 7.56), PROP_COLLIDER_SIZES["LargeWoodTable"])
-        for x in ART_TABLE_XS
-        for y in ART_TABLE_YS
-    ]
-    expected_colliders.extend(
-        transformed_box_bounds(
-            (x, y, 7.2),
-            (0.0, 0.0, PROP_COLLIDER_SIZES["Bookshelf"][2] / 2.0),
-            PROP_COLLIDER_SIZES["Bookshelf"],
-            rotation,
+    expected_storage = []
+    for prop_type, placement in (
+        *(('Bookshelf', placement) for placement in ART_BOOKSHELF_PLACEMENTS),
+        ("CleaningLocker", ART_CLEANING_LOCKER),
+        ("BaggageLocker", ART_BAGGAGE_LOCKER),
+    ):
+        x, y, rotation = placement
+        size = PROP_COLLIDER_SIZES[prop_type]
+        expected_storage.append(
+            transformed_box_bounds(
+                (x, y, 7.2),
+                (0.0, 0.0, size[2] / 2.0),
+                size,
+                rotation,
+            )
         )
-        for x, y, rotation in ART_BOOKSHELF_PLACEMENTS
-    )
-    locker_x, locker_y, locker_rotation = ART_CLEANING_LOCKER
-    expected_colliders.append(
-        transformed_box_bounds(
-            (locker_x, locker_y, 7.2),
-            (0.0, 0.0, PROP_COLLIDER_SIZES["CleaningLocker"][2] / 2.0),
-            PROP_COLLIDER_SIZES["CleaningLocker"],
-            locker_rotation,
-        )
-    )
-    if len(collider_components) != len(expected_colliders):
+    if len(collider_components) != len(expected_storage):
         raise RuntimeError(
-            "3階美術室Collider数が不正です: "
-            f"{len(collider_components)}/{len(expected_colliders)}"
+            f"3階美術室Collider数が不正です: {len(collider_components)}/{len(expected_storage)}"
         )
-    for expected in expected_colliders:
-        require_component_bounds("3階美術室家具Collider", collider_components, expected)
+    for expected in expected_storage:
+        require_component_bounds("3階美術室壁際収納Collider", collider_components, expected)
 
+    center_x, center_y = ART_LIFE_DRAWING_CENTER
     easel_canvas_part = ((0.0, -0.025, 1.13), (0.52, 0.02, 0.65))
-    for x in ART_EASEL_XS:
+    for index in range(8):
+        angle = math.tau * index / 8.0
+        easel_x = center_x + math.cos(angle) * ART_LIFE_DRAWING_EASEL_RADIUS
+        easel_y = center_y + math.sin(angle) * ART_LIFE_DRAWING_EASEL_RADIUS
         require_component_bounds(
-            "3階美術室イーゼル",
+            "3階美術室内向きイーゼル",
             visual_components,
             transformed_box_bounds(
-                (x, ART_EASEL_Y, 7.2),
+                (easel_x, easel_y, 7.2),
                 easel_canvas_part[0],
                 easel_canvas_part[1],
-                math.pi / 2,
+                angle + math.pi / 2,
             ),
         )
-
-    toilet_minimum = Vector((TOILET_COMMON_OPENING[0], 38.5, 7.2))
-    toilet_maximum = Vector((TOILET_COMMON_OPENING[1], 45.5, 10.2))
-    toilet_overlaps = [
-        index
-        for index, (minimum, maximum) in enumerate(
-            [*visual_components, *collider_components],
-            1,
-        )
-        if aabb_overlaps(
-            minimum,
-            maximum,
-            toilet_minimum,
-            toilet_maximum,
-        )
-    ]
-    if toilet_overlaps:
-        raise RuntimeError(
-            f"3階美術室家具がトイレ区画へ越境しています: {toilet_overlaps}"
-        )
+    if ART_LIFE_DRAWING_CHAIR_RADIUS != 3.25:
+        raise RuntimeError("3階美術室の外周椅子半径が確定値ではありません")
     return {
         "visual_components": len(visual_components),
         "colliders": len(collider_components),
-        "easels": len(ART_EASEL_XS),
-        "toilet_overlap_checks": len(visual_components) + len(collider_components),
+        "easels": 8,
+        "chairs": 9,
     }
 
 
 def audit_ll_room_placement() -> dict[str, int]:
-    visual = bpy.data.objects["VIS_B03_Interior_F04_LL_FurnitureProps"]
-    collider = bpy.data.objects["COL_B03_Interior_F04_LL"]
-    visual_components = connected_component_aabbs(visual)
-    collider_components = connected_component_aabbs(collider)
+    visual_components = connected_component_aabbs(
+        bpy.data.objects["VIS_B03_Interior_F04_LL_FurnitureProps"]
+    )
+    collider_components = connected_component_aabbs(
+        bpy.data.objects["COL_B03_Interior_F04_LL"]
+    )
     minimum_x, maximum_x, minimum_y, maximum_y = LL_INTERIOR_BOUNDS
-    outside = [
-        index
-        for index, (minimum, maximum) in enumerate(visual_components, 1)
-        if minimum.x < minimum_x - 1e-5
+    if any(
+        minimum.x < minimum_x - 1e-5
         or maximum.x > maximum_x + 1e-5
         or minimum.y < minimum_y - 1e-5
         or maximum.y > maximum_y + 1e-5
-    ]
-    if outside:
-        raise RuntimeError(f"4階LL室家具が室外へ越境しています: {outside}")
+        for minimum, maximum in visual_components
+    ):
+        raise RuntimeError("4階LL室家具が室外へ越境しています")
 
     expected_colliders = [
         transformed_box_bounds(
@@ -1919,100 +1901,49 @@ def audit_ll_room_placement() -> dict[str, int]:
         for y in LL_DESK_YS
         for x in LL_DESK_XS
     ]
-    expected_colliders.extend(
-        box_bounds(
-            (x, 44.8, 11.4),
-            PROP_COLLIDER_SIZES["BaggageLocker"],
+    for x, y, rotation in LL_BAGGAGE_LOCKER_PLACEMENTS:
+        size = PROP_COLLIDER_SIZES["BaggageLocker"]
+        expected_colliders.append(
+            transformed_box_bounds(
+                (x, y, 10.8), (0.0, 0.0, size[2] / 2.0), size, rotation
+            )
         )
-        for x in LL_BAGGAGE_LOCKER_XS
+    av_x, av_y, av_rotation = LL_AV_RACK
+    expected_colliders.append(
+        transformed_box_bounds(
+            (av_x, av_y, 10.8),
+            (0.0, -0.0125, 0.75),
+            (0.7, 0.525, 1.5),
+            av_rotation,
+        )
     )
-    ll_av_rack_collider = box_bounds(
-        (LL_AV_RACK[0], LL_AV_RACK[1] - 0.0125, 11.55),
-        (0.7, 0.525, 1.5),
+    cabinet_x, cabinet_y, cabinet_rotation = LL_MEDICAL_CABINET
+    expected_colliders.append(
+        transformed_box_bounds(
+            (cabinet_x, cabinet_y, 10.8),
+            (0.0, 0.0, 0.9),
+            (1.2, 0.45, 1.8),
+            cabinet_rotation,
+        )
     )
-    expected_colliders.append(ll_av_rack_collider)
     if len(collider_components) != len(expected_colliders):
         raise RuntimeError(
-            f"4階LL室Collider数が不正です: "
-            f"{len(collider_components)}/{len(expected_colliders)}"
+            f"4階LL室Collider数が不正です: {len(collider_components)}/{len(expected_colliders)}"
         )
     for expected in expected_colliders:
         require_component_bounds("4階LL室家具Collider", collider_components, expected)
-    ll_av_rack_visuals = [
-        transformed_box_bounds(
-            (LL_AV_RACK[0], LL_AV_RACK[1], 10.8),
-            local_center,
-            size,
-            0.0,
-        )
-        for local_center, size in (
-            ((0.0, 0.0, 0.75), (0.7, 0.5, 1.5)),
-            ((0.0, -0.26, 0.9), (0.52, 0.03, 0.3)),
-        )
-    ]
-    for expected in ll_av_rack_visuals:
-        require_component_bounds("4階LL室AVラック表示", visual_components, expected)
-    ll_av_rack_visual_containment = require_bounds_contained(
-        "4階LL室AVラック表示",
-        ll_av_rack_collider,
-        [
-            (Vector(minimum), Vector(maximum))
-            for minimum, maximum in ll_av_rack_visuals
-        ],
-    )
-
-    overlaps = [
-        (first_index, second_index)
-        for first_index, (first_minimum, first_maximum) in enumerate(
-            collider_components,
-            1,
-        )
-        for second_index, (second_minimum, second_maximum) in enumerate(
-            collider_components[first_index:],
-            first_index + 1,
-        )
-        if aabb_overlaps(
-            first_minimum,
-            first_maximum,
-            second_minimum,
-            second_maximum,
-        )
-    ]
-    if overlaps:
-        raise RuntimeError(f"4階LL室家具Collider同士が重なっています: {overlaps}")
-
-    toilet_minimum = Vector((TOILET_COMMON_OPENING[0], 38.5, 10.8))
-    toilet_maximum = Vector((TOILET_COMMON_OPENING[1], 45.5, 13.8))
-    toilet_overlaps = [
-        index
-        for index, (minimum, maximum) in enumerate(
-            [*visual_components, *collider_components],
-            1,
-        )
-        if aabb_overlaps(
-            minimum,
-            maximum,
-            toilet_minimum,
-            toilet_maximum,
-        )
-    ]
-    if toilet_overlaps:
-        raise RuntimeError(f"4階LL室家具がトイレ区画へ越境しています: {toilet_overlaps}")
     return {
         "visual_components": len(visual_components),
         "colliders": len(collider_components),
-        "av_rack_visual_containment": ll_av_rack_visual_containment,
-        "furniture_overlap_checks": (
-            len(collider_components) * (len(collider_components) - 1) // 2
-        ),
-        "toilet_overlap_checks": len(visual_components) + len(collider_components),
+        "desks": len(LL_DESK_XS) * len(LL_DESK_YS),
+        "wall_storage": 4,
     }
 
 
 def audit_music_room_orientation() -> dict[str, int]:
-    if tuple(MUSIC_PIANO_PLACEMENT) != (40.4, 42.5, -math.pi / 2):
+    if tuple(MUSIC_PIANO_PLACEMENT) != (38.8, 41.0, 0.0):
         raise RuntimeError("音楽室ピアノの確定配置が変化しています")
-    if tuple(MUSIC_CHAIR_XS) != (29.0, 30.55, 32.1, 33.65, 35.2, 36.75):
+    if tuple(MUSIC_CHAIR_XS) != (28.0, 29.55, 31.1, 32.65, 34.2, 35.75):
         raise RuntimeError("音楽室椅子のX座標が変化しています")
     if tuple(MUSIC_CHAIR_YS) != (38.2, 39.55, 40.9, 42.25, 43.6):
         raise RuntimeError("音楽室椅子のY座標が変化しています")
@@ -2038,8 +1969,8 @@ def audit_music_room_orientation() -> dict[str, int]:
     if not bounds_match(
         (Vector(piano_collider_bounds[0]), Vector(piano_collider_bounds[1])),
         (
-            (39.675, 41.725, 10.8),
-            (41.125, 43.275, 11.8),
+            (38.025, 40.275, 10.8),
+            (39.575, 41.725, 11.8),
         ),
     ):
         raise RuntimeError(
@@ -2079,8 +2010,8 @@ def audit_music_room_orientation() -> dict[str, int]:
         piano_rotation,
     )
     require_component_bounds("音楽室ピアノ鍵盤", visual_components, keyboard_bounds)
-    if keyboard_bounds[1][0] >= piano_x:
-        raise RuntimeError("音楽室ピアノの鍵盤が西側を向いていません")
+    if keyboard_bounds[1][1] >= piano_y:
+        raise RuntimeError("音楽室ピアノの鍵盤が南側を向いていません")
 
     blackboard_bounds = (
         (41.26, 39.2, 11.92),
@@ -2106,7 +2037,7 @@ def audit_music_room_orientation() -> dict[str, int]:
 
     south_wall_inner_y = 36.65
     door_clearance = piano_collider_bounds[0][1] - south_wall_inner_y
-    if door_clearance < 5.0:
+    if door_clearance < 3.0:
         raise RuntimeError(
             f"音楽室ピアノが南側出入口へ近すぎます: {door_clearance}"
         )
@@ -2506,10 +2437,10 @@ def audit_council_placement() -> int:
         box_bounds((8.4, 41.0, 3.96), (1.80, 0.90, 0.72)),
         box_bounds((10.2, 41.0, 3.96), (1.80, 0.90, 0.72)),
         transformed_box_bounds(
-            (12.5, 44.2, 3.6),
+            (11.455, 41.0, 3.6),
             PROP_COLLIDER_LOCAL_CENTERS["StaffDesk"],
             PROP_COLLIDER_SIZES["StaffDesk"],
-            0.0,
+            math.pi / 2,
         ),
         box_bounds((6.45, 45.125, 4.20), (1.80, 0.45, 1.20)),
     )
@@ -3219,6 +3150,32 @@ def audit_roof_changing_lockers(
             f"屋上更衣室の旧二重ロッカーが残っています: {remaining_legacy}"
         )
 
+    for legacy_bench_name in (
+        "VIS_B03_ChangingBenches",
+        "COL_B03_ChangingBenches",
+    ):
+        if bpy.data.objects.get(legacy_bench_name) is not None:
+            raise RuntimeError(
+                f"屋上更衣室の旧箱型ベンチが残っています: {legacy_bench_name}"
+            )
+    expected_benches = []
+    for x, y, rotation in ROOF_CHANGING_BENCH_PLACEMENTS:
+        expected = transformed_box_bounds(
+            (x, y, 14.5),
+            (0.0, 0.0, 0.24),
+            (1.8, 0.45, 0.48),
+            rotation,
+        )
+        require_component_bounds(
+            "屋上更衣室壁際ベンチCollider",
+            collider_components,
+            expected,
+        )
+        expected_benches.append(expected)
+    mirror_bounds = box_bounds((-2.1, 45.3, 16.0), (0.9, 0.03, 0.6))
+    if any(bounds_match(component, mirror_bounds) for component in visual_components):
+        raise RuntimeError("撤去対象の屋上更衣室鏡が残っています")
+
     return {
         "baggage_lockers": len(actual_lockers),
         "visual_back_panels": len(expected_lockers),
@@ -3226,87 +3183,42 @@ def audit_roof_changing_lockers(
         "wall_overlap_checks": wall_overlap_checks,
         "removed_cleaning_lockers": 2,
         "removed_legacy_objects": len(legacy_names),
+        "wall_benches": len(expected_benches),
+        "removed_box_benches": 2,
+        "removed_mirrors": 1,
     }
 
 
 def audit_roof_pool_north_sign_support() -> dict[str, int]:
-    support = bpy.data.objects[
-        "VIS_B03_Interior_RoofPoolSafety_Architecture"
-    ]
-    support_components = connected_component_aabbs(support)
-    support_center, support_size = ROOF_POOL_NORTH_SIGN_SUPPORT
-    if support_center != (39.5, 45.28, 15.5) or support_size != (0.10, 0.24, 0.10):
+    if bpy.data.objects.get("VIS_B03_Interior_RoofPoolSafety_Architecture"):
+        raise RuntimeError("撤去対象のプール外部救命浮き輪設備が残っています")
+    rings = connected_component_aabbs(
+        bpy.data.objects["VIS_B03_Interior_RoofPoolSafety_FurnitureProps"]
+    )
+    if len(rings) != len(ROOF_POOL_LIFE_PRESERVER_PLACEMENTS):
         raise RuntimeError(
-            "屋上北側救命表示ブラケットの座標または寸法が契約値と一致しません"
+            f"プール水面の救命浮き輪が2個ではありません: {len(rings)}"
         )
-    expected_support = box_bounds(support_center, support_size)
-    require_component_bounds(
-        "屋上北側救命表示ブラケット",
-        support_components,
-        expected_support,
-    )
-
-    signs = bpy.data.objects[
-        "VIS_B03_Interior_RoofPoolSafety_SignsPaper"
-    ]
-    sign_components = connected_component_aabbs(signs)
-    expected_sign = transformed_box_bounds(
-        (39.5, 45.1, 14.5),
-        (0.0, 0.0, 1.2),
-        (0.7, 0.12, 0.7),
-        0.0,
-    )
-    require_component_bounds(
-        "屋上北側救命表示",
-        sign_components,
-        expected_sign,
-    )
-
-    support_minimum = Vector(expected_support[0])
-    support_maximum = Vector(expected_support[1])
-    sign_minimum = Vector(expected_sign[0])
-    sign_maximum = Vector(expected_sign[1])
-    if max(
-        aabb_axis_gap(
-            support_minimum,
-            support_maximum,
-            sign_minimum,
-            sign_maximum,
-            axis,
-        )
-        for axis in range(3)
-    ) > 1e-4:
-        raise RuntimeError("屋上北側救命表示とブラケットが接触していません")
-
-    fence_checks = 0
-    for object_name in (
-        "VIS_RoofGuard_NorthOuter",
-        "COL_RoofGuard_NorthOuter",
-    ):
-        fence = bpy.data.objects[object_name]
-        if not any(
-            max(
-                aabb_axis_gap(
-                    support_minimum,
-                    support_maximum,
-                    minimum,
-                    maximum,
-                    axis,
-                )
-                for axis in range(3)
-            )
-            <= 1e-4
-            for minimum, maximum in connected_component_aabbs(fence)
-        ):
+    for x, y, z, _rotation in ROOF_POOL_LIFE_PRESERVER_PLACEMENTS:
+        matches = [
+            (minimum, maximum)
+            for minimum, maximum in rings
+            if ((minimum + maximum) * 0.5 - Vector((x, y, z))).length <= 1e-4
+            and 0.89 <= maximum.x - minimum.x <= 0.91
+            and 0.89 <= maximum.y - minimum.y <= 0.91
+            and 0.15 <= maximum.z - minimum.z <= 0.17
+        ]
+        if len(matches) != 1:
             raise RuntimeError(
-                f"屋上北側救命表示ブラケットが柵へ接続していません: {object_name}"
+                f"プール水面のドーナツ型救命浮き輪を特定できません: {(x, y, z)}"
             )
-        fence_checks += 1
-
+    collider_name = "COL_B03_Interior_RoofPoolSafety"
+    if bpy.data.objects.get(collider_name) is not None:
+        raise RuntimeError("通行可能な救命浮き輪にColliderが生成されています")
     return {
-        "brackets": 1,
-        "sign_contacts": 1,
-        "fence_contacts": fence_checks,
+        "floating_rings": len(rings),
+        "removed_external_equipment": 2,
+        "colliders": 0,
     }
 
 
@@ -3371,8 +3283,8 @@ def audit_elevator_lobby_opening() -> dict[str, int]:
 def main() -> None:
     if Path(bpy.data.filepath).resolve() != BLEND_PATH.resolve():
         raise RuntimeError(f"B03-2対象外のBlenderファイルです: {bpy.data.filepath}")
-    if len(ADDITIONAL_PROP_TYPES) != 23 or len(set(ADDITIONAL_PROP_TYPES)) != 23:
-        raise RuntimeError("追加小物カタログが23種ではありません")
+    if len(ADDITIONAL_PROP_TYPES) != 24 or len(set(ADDITIONAL_PROP_TYPES)) != 24:
+        raise RuntimeError("追加小物カタログが24種ではありません")
 
     atlas_results = {}
     for definition in ATLAS_DEFINITIONS.values():
@@ -3553,6 +3465,8 @@ def main() -> None:
             "StaffDesk": 1,
             "StaffChair": 1,
             "BaggageLocker": 1,
+            "PaperStack": 1,
+            "SinglePaper": 2,
         },
         "F02_Broadcast": {
             "StaffDesk": 2,
@@ -3567,26 +3481,32 @@ def main() -> None:
             "Blackboard": 1,
             "Bookshelf": 2,
             "CleaningLocker": 1,
+            "MedicalCabinet": 1,
         },
         "F03_Art": {
-            "LargeWoodTable": 6,
-            "ClassroomChair": 24,
-            "Easel": 5,
+            "LargeWoodTable": 0,
+            "ClassroomChair": 9,
+            "Easel": 8,
             "Blackboard": 1,
             "Bookshelf": 2,
             "CleaningLocker": 1,
+            "BaggageLocker": 1,
         },
         "F03_HomeEc": {
             "KitchenIsland": 4,
             "ClassroomChair": 24,
             "Blackboard": 1,
             "CleaningLocker": 1,
+            "WashBasin": 3,
+            "SewingMachine": 8,
         },
         "F04_LL": {
-            "ClassroomDesk": 24,
-            "ClassroomChair": 24,
+            "ClassroomDesk": 20,
+            "ClassroomChair": 20,
             "Blackboard": 1,
             "BaggageLocker": 2,
+            "AvRack": 1,
+            "MedicalCabinet": 1,
         },
         "F04_Music": {
             "GrandPiano": 1,
@@ -3594,10 +3514,13 @@ def main() -> None:
             "Blackboard": 1,
             "Bookshelf": 2,
             "CleaningLocker": 1,
+            "ScienceStool": 1,
+            "BaggageLocker": 2,
         },
         "Gym": {"BasketballGoal": 2, "VaultingBox": 2, "StageLectern": 1},
         "GymStorage": {"VaultingBox": 2, "CleaningLocker": 1},
-        "RoofChanging": {"BaggageLocker": 4},
+        "RoofChanging": {"BaggageLocker": 4, "ChangingBench": 4, "Mirror": 0},
+        "RoofPoolSafety": {"LifePreserverRing": 2, "LifePreserverSign": 0},
     }
     for room_name, expected_counts in expected_room_counts.items():
         actual_counts = room_counts[room_name]

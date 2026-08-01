@@ -119,7 +119,7 @@ const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   roomVariantNavmesh: Object.freeze({
     mode: "required",
     url: toStageRelativeAssetUrl(schoolRoomVariantNavmeshUrl),
-    sha256: "95c032fcd4d169a4ad590c1b8f3eb2dc0e30da4ebd74e1eac035d2a191d559a8"
+    sha256: "bba65b3864e9c4c136b0ee9e8f80abd81672b5b5b56de5a0e2ea5c37037cd9ba"
   })
 });
 

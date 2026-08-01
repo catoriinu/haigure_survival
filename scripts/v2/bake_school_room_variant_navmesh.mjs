@@ -779,7 +779,7 @@ const collectRoomDoorContract = (nodes, worldMatrices) => {
       );
     }
   });
-  const doorCandidates = nodes
+  const allRoomDoorCandidates = nodes
     .map((node, nodeIndex) => ({ node, nodeIndex }))
     .filter(
       ({ node }) =>
@@ -790,6 +790,34 @@ const collectRoomDoorContract = (nodes, worldMatrices) => {
         node.extras.hs_role === "door" &&
         node.extras.hs_door_class === "room"
     );
+  const nonVariantRoomDoorIds = new Set([
+    "room-door-roof-changing-male-01",
+    "room-door-roof-changing-female-01"
+  ]);
+  const unexpectedRoomDoorIds = allRoomDoorCandidates
+    .map(({ node }) => node.extras.hs_id)
+    .filter(
+      (doorId) =>
+        !expectedDoorToRoom.has(doorId) &&
+        !nonVariantRoomDoorIds.has(doorId)
+    );
+  if (unexpectedRoomDoorIds.length !== 0) {
+    fail(
+      `Room Variant対象外の未登録room doorがあります: ` +
+        `${unexpectedRoomDoorIds.join(",")}`
+    );
+  }
+  const actualNonVariantRoomDoorIds = new Set(
+    allRoomDoorCandidates
+      .map(({ node }) => node.extras.hs_id)
+      .filter((doorId) => nonVariantRoomDoorIds.has(doorId))
+  );
+  if (actualNonVariantRoomDoorIds.size !== nonVariantRoomDoorIds.size) {
+    fail("屋上男女更衣室のRoom Variant対象外room doorが2件ではありません。");
+  }
+  const doorCandidates = allRoomDoorCandidates.filter(({ node }) =>
+    expectedDoorToRoom.has(node.extras.hs_id)
+  );
   if (doorCandidates.length !== expectedDoorToRoom.size) {
     fail(
       `固定20室のroom doorは${expectedDoorToRoom.size}件必要です` +
@@ -3459,6 +3487,18 @@ const GLOBAL_ROUTE_SPECS = Object.freeze([
     end: blenderPointToNavMeshPoint([12, 39, 15.65]),
     maximumDistance:
       30 * SCHOOL_ROOM_VARIANT_NAV_PROFILE.worldScale
+  },
+  {
+    id: "school-rooftop-escape-crate-mound",
+    start: blenderPointToNavMeshPoint([-3.0, 12.5, 14.5]),
+    end: blenderPointToNavMeshPoint([0.2, 12.5, 15.7]),
+    maximumDistance: 5 * SCHOOL_ROOM_VARIANT_NAV_PROFILE.worldScale
+  },
+  {
+    id: "gym-rooftop-escape-crate-mound",
+    start: blenderPointToNavMeshPoint([35.4, -8.5, 9.6]),
+    end: blenderPointToNavMeshPoint([35.4, -11.7, 10.8]),
+    maximumDistance: 5 * SCHOOL_ROOM_VARIANT_NAV_PROFILE.worldScale
   },
   {
     id: "poolside-to-pool-bottom",

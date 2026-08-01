@@ -150,6 +150,7 @@ T05_ALLOWED_MISSING_EXACT_NAMES = {
     "COL_HumanOnly_Window_Gym_North_02_U01",
     "VIS_WindowFrame_Gym_North_02",
     "VIS_WindowGlass_Gym_North_02",
+    "COL_B03_ChangingBenches",
 }
 T05_ALLOWED_CHANGED_EXACT_NAMES = {
     "COL_ActorOnly_WindowFixed_F02_CourtyardNorth_Corridor_03",
@@ -214,6 +215,7 @@ T05_ALLOWED_CHANGED_EXACT_NAMES = {
     "VIS_WindowGlass_Gym_West_02",
     "VIS_WindowGlass_Gym_West_03",
     "VOL_BitSpawn_Courtyard",
+    "COL_RooftopFacilityShell",
 }
 T05_ALLOWED_NEW_EXACT_NAMES = {
     "COL_B03_ElevatorClosedDoor_F02_F03",
@@ -230,9 +232,11 @@ T05_ALLOWED_NEW_EXACT_NAMES = {
     "COL_B03_GymRoofGuards",
     "COL_B03_GymRoofRamp",
     "COL_B03_GymRoofRampUnderfill",
+    "COL_B03_GymRoofEscapeCrateRamp",
     "COL_B03_GymRoofWalkable",
     "COL_B03_GymStageSideWalls",
     "COL_B03_WestExtensionFloor_F01",
+    "COL_B03_SchoolRoofEscapeCrateRamp",
     "MRK_AssemblyAnchor_Courtyard",
     "MRK_AssemblyAnchor_Gym",
     "NAV_BitFlight_ExteriorF1",
