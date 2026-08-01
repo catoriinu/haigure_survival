@@ -26,13 +26,21 @@
 > - T06専用fixture、T04／T05回帰、通常Web、Electron、UTF-8 BOMなし、括弧・構文、禁止所有差分0件を検証する。
 > - T06-1差分だけをcommit・pushし、検証結果、対象外、T06-2への引き渡しを記載したDraft PRを作成する。
 
+### 2026-08-01 通常Runtime回帰修正指示
+
+> ローカルサーバーの通常ゲームで`favicon.ico`の404と、`RouteFollowingBitFlightAgent.advanceSurfaceStep()`から「帯内移動拘束結果が指定移動距離を超えました。」が発生し、`main.ts`のゲーム更新が停止した。faviconの404とゲーム停止原因を分離し、例外を抑止するfallbackではなく、帯内移動の距離契約または拘束位置の原因を特定して解決する。
+
+### 2026-08-01 テスト中の音量指示
+
+> 各種音量について、テスト中は0にしておく。VOICE／BGM／SEのデフォルトをすべて0とする。
+
 ## 目的
 
 既に実装済みの入力・状態・NPC指示・扉・学校動的Runtime APIを、学校バイナリへ触れず通常ゲーム入口へ接続する。F／E／C・G／N／H、候補表示、既定荒れ状態2、音声、水中速度50%、開始・破棄ライフサイクルを実プレイで成立させる。
 
 ## 対象外
 
-- Blender正本、GLB、静的人間用NavMesh、Room Variant NavMesh、BIT用NavMesh、生成器、資産監査器、`src/world/stageCatalog.ts`の変更。
+- Blender正本、GLB、静的人間用NavMesh、Room Variant NavMesh、BIT用NavMesh、生成器、資産監査器、`src/world/stageCatalog.ts`の変更。通常Runtime回帰修正で原因となった`src/world/bitFlightNavigation.ts`だけは対象に含める。
 - 複数`MRK_PlayerSpawn_*`、`VOL_PlayerSpawnExclusion_*`、追加`npc_spawn`／`bit_spawn` Volumeの資産化。
 - 時間増援と開始地点に追従する出現禁止の最終統合。これらはT06-2が担当する。
 - 荒れ版教室の見た目・配置変更、タイトル画面の荒れ状態スライダー、T07性能最適化。
@@ -46,8 +54,8 @@
 ## ファイル所有
 
 - 主担当: `src/v2/main.ts`、通常ゲーム入口に必要な`src/v2/**`、操作表示・音声接続に必要な`src/ui/**`・`src/audio/**`、T06-1専用fixture・設定、本計画。
-- 共有変更が必要な場合はT06-1内でRuntime API利用側へ寄せ、`src/world/**`は変更しない。
-- 編集禁止: 学校Blender正本、GLB、全NavMesh、学校生成器・監査器、`src/world/stageCatalog.ts`、B03-3D計画、全体計画。
+- 通常Runtime回帰修正では、BIT帯内経路cache契約の修正を`src/world/bitFlightNavigation.ts`とT05回帰へ限定する。それ以外の共有変更はT06-1内でRuntime API利用側へ寄せる。
+- 編集禁止: 学校Blender正本、GLB、全NavMesh、学校生成器・監査器、`src/world/stageCatalog.ts`、`src/world/bitFlightNavigation.ts`以外の`src/world/**`、B03-3D計画、全体計画。
 
 ## 実行単位と推奨設定
 
@@ -71,12 +79,26 @@
 - [x] 型検査、build、T04／T05回帰、T06-1 fixture、実ブラウザ、Electronで入力・UI・Pointer Lock・音声・水中・再読込を確認する
 - [x] 結果を本計画へ記録し、実装・検証・commit・push・Pull Request作成まで行う。レビュー、merge、worktree整理は別タスクとする
 
+### 通常Runtime回帰修正
+
+- [x] `favicon.ico`の404とBIT更新停止を分離し、停止例外の発生箇所と呼出経路を特定する
+- [x] `constrainMovement()`の距離guardとpolygon参照契約を確認し、正逆で座標列が同じでも中間`polygonRef`が異なる再現条件をT05 fixtureへ固定する
+- [x] 現行の移動速度・NavMesh・安全包絡契約を維持して原因を修正し、例外抑止fallbackは追加しない
+- [x] T05専用回帰、T06、通常Web・Electron、型検査・build・console状態を確認する
+- [x] 修正結果を本計画へ記録し、対象差分だけをcommit対象として確定する。push・PR更新は別途指示があるまで行わない
+
+### テスト用既定音量
+
+- [x] 保存済み設定がない場合のVOICE／BGM／SE既定値をすべて0へ変更する
+- [x] 保存済み音量、0～10の即時変更、MUTEの既存仕様を維持する
+- [x] T06専用fixtureで既定値0と保存済み設定の保持を検証する
+
 ## 完了条件
 
 - 通常ゲームでF／E／C・G／N／Hと候補表示が既存Runtime APIを通して動作する。
 - 通常ゲームの既定荒れ状態2、状態別挙動・案内・VOICE、水中速度50%が成立する。
 - Pointer Lock、タイトル復帰、再読込後も入力・UI・Audio購読の重複が0件である。
-- 学校バイナリ、生成器、全NavMesh、カタログhash、`src/world/**`の差分が0件である。
+- 学校バイナリ、生成器、全NavMesh、カタログhash、`src/world/bitFlightNavigation.ts`以外の`src/world/**`の差分が0件である。
 - 型検査、build、fixture、実ブラウザ、Electronに合格する。
 
 ## 次タスク開始用プロンプト
@@ -102,3 +124,21 @@
 複数開始地点、追加出現Volume、時間増援、タイトル画面の荒れ状態スライダーは計画どおりT06-2以降へ残す。レビュー、merge、`develop`同期、worktree整理は本タスクでは行わない。
 
 実装・検証差分を`8a0575f`としてcommitし、`origin/codex/v2-t06-runtime-core`へpushした。Draft Pull Request #64を作成し、本計画、検証結果、対象外、T06-2への引き渡しを記録した。
+
+### 2026-08-01 通常Runtime回帰修正結果
+
+通常探索40秒以降に利用されるBITの総当たり経路は、複数transition endpoint間の恒久surface cacheを通る。旧実装は正逆を無方向のcanonical keyへまとめ、Recastのstraight pathを座標と`polygonRef`ごと単純反転していた。しかし`DT_STRAIGHTPATH_ALL_CROSSINGS`の境界点では中間`polygonRef`が進行方向に依存するため、逆向き経路が別polygonの参照を保持していた。これを次frameの`moveAlongSurface()`へ渡すと、要求移動量を超える面内補正が発生し、速度契約を守る既存guardが「帯内移動拘束結果が指定移動距離を超えました。」として停止していた。
+
+`src/world/bitFlightNavigation.ts`のendpoint surface cacheを完全な有向keyへ変更し、prewarmでも正方向と逆方向をRecastへ個別に問い合わせるようにした。座標列の単純反転処理と無方向keyは削除した。Agentの速度、`waypointTolerance=0.03`、距離超過guard、NavMesh、安全包絡には変更を加えていない。学校バイナリ、全NavMesh、生成器、カタログhashも変更していない。ユーザー環境のSurvival乱数は`Math.random`を含むため同じ実経路の例外値は再捕捉できなかったが、4点経路の正逆座標一致と中間`polygonRef`不一致を方向別fixtureで決定的に再現し、旧cacheなら片方向探索欠落またはnative逆経路不一致となる条件を固定した。
+
+通常入口には空のdata faviconを明示し、ゲーム停止と無関係だった`favicon.ico`の404も除去した。テスト中の音量指示に従い、保存設定がない場合のVOICE／BGM／SE既定値をすべて0へ変更した。保存済み設定、0～10の即時変更、MUTEは維持し、実ブラウザの今回のテスト設定も3カテゴリすべてMUTEへ保存して再読込後の保持を確認した。
+
+回帰修正後の検証結果は次のとおり。
+
+- T05実ブラウザは295／295 PASS。方向別cache項目は`points=4/4`、`directedRefs=true`、正逆`findPath=2/2`、native正逆との位置・`polygonRef`一致、再利用時の再探索なし、通常BIT速度0.25と赤BIT速度0.75の正逆Agent追従4件すべて`arrived`を確認した。console warning／errorは0件だった。
+- T06実ブラウザは既定音量0の検証追加後24／24 PASS。保存済み3カテゴリ値と未知fieldの保持、0～10・MUTE、AudioManager破棄を含み、console warning／errorは0件だった。
+- 修正後のElectron high stressは120秒設定を完走し、wall 123.85秒、simulation 92.85秒、1,861 frame、99 NPC／50初期BIT、`phase=playing`、Runtime errorなし、renderer diagnostics 0件だった。総当たり探索開始の40秒を越えて同例外は再発しなかった。
+- 通常Webはタイトル初期化と再読込に成功し、VOICE／BGM／SEがすべてMUTE表示で保持された。console warning／errorと`favicon.ico`の404は0件だった。
+- `typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t04`、`build:t05`、`build:t06`、通常`build`はすべてPASSした。`git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、禁止所有ファイル差分なしを確認した。
+
+本回帰修正はlocal commitまでを対象とし、`origin/codex/v2-t06-runtime-core`とDraft Pull Request #64は別途指示があるまで更新しない。

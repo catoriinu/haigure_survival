@@ -14,6 +14,7 @@ import {
   createBitFlightBandRef,
   createBitFlightNavigationWorld,
   getBitFlightWorldPosition,
+  prepareBitFlightNavigationRouteCaches,
   toBitFlightBandId,
   toBitFlightZoneId,
   type BitFlightBand,
@@ -130,6 +131,52 @@ const equalCostTransitionDefinition: BitFlightNavigationDefinition =
         affordances: Object.freeze(["indoor-access"] as const),
         fromPosition: new Vector3(1, navSurfaceHeight, 0),
         toPosition: new Vector3(1, navSurfaceHeight, 0),
+        traversalPoints: Object.freeze([]),
+        region: null,
+        projectionDistance: 0.5
+      })
+    ])
+  });
+const directedCacheAlternateBandId = toBitFlightBandId(
+  "directed-cache-alternate-band"
+);
+const directedCacheAlternateBandRef = createBitFlightBandRef(
+  zoneId,
+  directedCacheAlternateBandId
+);
+const directedCacheAlternateBand: BitFlightBand = Object.freeze({
+  zoneId,
+  id: directedCacheAlternateBandId,
+  minimumCenterHeight: band.minimumCenterHeight,
+  maximumCenterHeight: band.maximumCenterHeight
+});
+const directedEndpointCacheDefinition: BitFlightNavigationDefinition =
+  Object.freeze({
+    zones: definition.zones,
+    bands: Object.freeze([band, directedCacheAlternateBand]),
+    transitions: Object.freeze([
+      Object.freeze({
+        id: "directed-cache-west",
+        kind: "aperture" as const,
+        from: bandRef,
+        to: directedCacheAlternateBandRef,
+        bidirectional: true,
+        affordances: Object.freeze(["indoor-access"] as const),
+        fromPosition: new Vector3(-2, navSurfaceHeight, 0),
+        toPosition: new Vector3(-2, navSurfaceHeight, 0),
+        traversalPoints: Object.freeze([]),
+        region: null,
+        projectionDistance: 0.5
+      }),
+      Object.freeze({
+        id: "directed-cache-east",
+        kind: "aperture" as const,
+        from: bandRef,
+        to: directedCacheAlternateBandRef,
+        bidirectional: true,
+        affordances: Object.freeze(["indoor-access"] as const),
+        fromPosition: new Vector3(2, navSurfaceHeight, 0),
+        toPosition: new Vector3(2, navSurfaceHeight, 0),
         traversalPoints: Object.freeze([]),
         region: null,
         projectionDistance: 0.5
@@ -498,6 +545,79 @@ const followDynamicRoute = (
     agent.dispose();
   }
 };
+
+const followPreparedRouteAtRuntimeRate = (
+  fixture: SurfaceVariantFixture,
+  start: BitFlightLocation,
+  route: BitFlightRoute,
+  surfaceSpeedWorldUnitsPerSecond: number
+) => {
+  const agent = createBitFlightAgent(fixture.world, fixture.safety, {
+    waypointTolerance: 0.03
+  });
+  try {
+    const accepted = agent.setPreparedRoute(start, route, "verify");
+    let snapshot = agent.getSnapshot();
+    let updateCount = 0;
+    while (
+      accepted &&
+      snapshot.state !== "arrived" &&
+      snapshot.state !== "blocked" &&
+      snapshot.state !== "unreachable" &&
+      updateCount < 5_000
+    ) {
+      snapshot = updateAgent(
+        agent,
+        surfaceSpeedWorldUnitsPerSecond,
+        1 / 60
+      );
+      updateCount += 1;
+    }
+    return Object.freeze({
+      accepted,
+      state: snapshot.state,
+      updateCount
+    });
+  } finally {
+    agent.dispose();
+  }
+};
+
+const requireSurfaceStepForBand = (
+  route: BitFlightRoute,
+  targetBandRef: BitFlightBandRef
+) => {
+  const steps = route.steps.filter(
+    (
+      step
+    ): step is Extract<BitFlightRouteStep, { kind: "surface" }> =>
+      step.kind === "surface" &&
+      step.band.zoneId === targetBandRef.zoneId &&
+      step.band.bandId === targetBandRef.bandId
+  );
+  if (steps.length !== 1) {
+    throw new Error(
+      `指定飛行帯のsurface stepが1本ではありません: ${steps.length}`
+    );
+  }
+  return steps[0];
+};
+
+const surfaceStepMatches = (
+  actual: BitFlightSurfaceRouteStep,
+  expected: BitFlightSurfaceRouteStep
+) =>
+  actual.points.length === expected.points.length &&
+  actual.points.every((point, index) => {
+    const expectedPoint = expected.points[index];
+    return (
+      point.surface.polygonRef === expectedPoint.surface.polygonRef &&
+      Vector3.Distance(
+        point.surface.position,
+        expectedPoint.surface.position
+      ) <= 1e-6
+    );
+  });
 
 const executeTest = async (
   name: string,
@@ -1132,6 +1252,243 @@ export const runBitFlightSurfaceVariantTests =
                 `${raisedSurfacePoints.length} / ` +
                 `fixture=${baselineMatchesFixture} / ` +
                 `shared=${raisedMatchesBaseline}`
+            };
+          } finally {
+            queryPrototype.findPath = originalFindPath;
+            if (fixture) {
+              disposeFixture(fixture);
+            }
+          }
+        }
+      )
+    );
+
+    results.push(
+      await executeTest(
+        "恒久endpoint surface cacheは正逆を個別探索し方向依存polygonRefを保持する",
+        async () => {
+          const queryPrototype = NavMeshQuery.prototype;
+          const originalFindPath = queryPrototype.findPath;
+          const pathfindDirections: Array<readonly [number, number]> = [];
+          let fixture: SurfaceVariantFixture | null = null;
+          queryPrototype.findPath = function (
+            this: NavMeshQuery,
+            ...args: Parameters<NavMeshQuery["findPath"]>
+          ) {
+            pathfindDirections.push(Object.freeze([args[0], args[1]]));
+            return originalFindPath.apply(this, args);
+          };
+          try {
+            fixture = await createFixture(
+              createBlockedGeometry(),
+              createFullHeightColliders,
+              directedEndpointCacheDefinition,
+              Object.freeze([bandRef, directedCacheAlternateBandRef])
+            );
+            const primaryWest = projectRequired(fixture.world, -2.2, 0);
+            const primaryEast = projectRequired(fixture.world, 2.2, 0);
+            const alternateWest = projectRequired(
+              fixture.world,
+              -2,
+              0,
+              directedCacheAlternateBandRef
+            );
+            const alternateEast = projectRequired(
+              fixture.world,
+              2,
+              0,
+              directedCacheAlternateBandRef
+            );
+            const westPolygonRef = alternateWest.surface.polygonRef;
+            const eastPolygonRef = alternateEast.surface.polygonRef;
+            prepareBitFlightNavigationRouteCaches(fixture.world);
+            const forwardEndpointPathfindCount =
+              pathfindDirections.filter(
+                ([startRef, destinationRef]) =>
+                  startRef === westPolygonRef &&
+                  destinationRef === eastPolygonRef
+              ).length;
+            const reverseEndpointPathfindCount =
+              pathfindDirections.filter(
+                ([startRef, destinationRef]) =>
+                  startRef === eastPolygonRef &&
+                  destinationRef === westPolygonRef
+              ).length;
+            const nativeForwardStep = requireOnlySurfaceStep(
+              requireRoute(
+                fixture.world.findSurfaceRoute(
+                  alternateWest,
+                  alternateEast,
+                  BIT_FLIGHT_SHORTEST_ROUTE_POLICY
+                )
+              )
+            );
+            const nativeReverseStep = requireOnlySurfaceStep(
+              requireRoute(
+                fixture.world.findSurfaceRoute(
+                  alternateEast,
+                  alternateWest,
+                  BIT_FLIGHT_SHORTEST_ROUTE_POLICY
+                )
+              )
+            );
+            const reverseCoordinatesMatch =
+              nativeForwardStep.points.length ===
+                nativeReverseStep.points.length &&
+              nativeForwardStep.points.every((forwardPoint, index) => {
+                const reversePoint =
+                  nativeReverseStep.points[
+                    nativeReverseStep.points.length - 1 - index
+                  ];
+                return (
+                  Vector3.Distance(
+                    forwardPoint.surface.position,
+                    reversePoint.surface.position
+                  ) <= 1e-6
+                );
+              });
+            const directionDependentPolygonRefs =
+              nativeForwardStep.points.length >= 3 &&
+              nativeForwardStep.points.slice(1, -1).some(
+                (forwardPoint, index) =>
+                  forwardPoint.surface.polygonRef !==
+                  nativeReverseStep.points[
+                    nativeReverseStep.points.length - 2 - index
+                  ].surface.polygonRef
+              );
+
+            const cacheRoutePolicy: BitFlightRoutePolicy = Object.freeze({
+              ...BIT_FLIGHT_SHORTEST_ROUTE_POLICY,
+              canUseRouteStep: (step) => {
+                if (
+                  step.kind !== "surface" ||
+                  step.band.bandId === directedCacheAlternateBandId
+                ) {
+                  return true;
+                }
+                const positions = getSurfaceStepPositions(step);
+                return (
+                  positions.every((position) => position.x <= -1.5) ||
+                  positions.every((position) => position.x >= 1.5)
+                );
+              }
+            });
+            const forwardRoute = requireRoute(
+              fixture.world.findRoute(
+                primaryWest,
+                primaryEast,
+                cacheRoutePolicy
+              )
+            );
+            const reverseRoute = requireRoute(
+              fixture.world.findRoute(
+                primaryEast,
+                primaryWest,
+                cacheRoutePolicy
+              )
+            );
+            const pathfindCountAfterFirstPass = pathfindDirections.length;
+            const repeatedForwardRoute = requireRoute(
+              fixture.world.findRoute(
+                primaryWest,
+                primaryEast,
+                cacheRoutePolicy
+              )
+            );
+            const repeatedReverseRoute = requireRoute(
+              fixture.world.findRoute(
+                primaryEast,
+                primaryWest,
+                cacheRoutePolicy
+              )
+            );
+
+            const cachedForwardStep = requireSurfaceStepForBand(
+              forwardRoute,
+              directedCacheAlternateBandRef
+            );
+            const cachedReverseStep = requireSurfaceStepForBand(
+              reverseRoute,
+              directedCacheAlternateBandRef
+            );
+            const repeatedCachedForwardStep = requireSurfaceStepForBand(
+              repeatedForwardRoute,
+              directedCacheAlternateBandRef
+            );
+            const repeatedCachedReverseStep = requireSurfaceStepForBand(
+              repeatedReverseRoute,
+              directedCacheAlternateBandRef
+            );
+            const forwardMatchesNative = surfaceStepMatches(
+              cachedForwardStep,
+              nativeForwardStep
+            );
+            const reverseMatchesNative = surfaceStepMatches(
+              cachedReverseStep,
+              nativeReverseStep
+            );
+            const repeatedCacheStable =
+              surfaceStepMatches(
+                repeatedCachedForwardStep,
+                cachedForwardStep
+              ) &&
+              surfaceStepMatches(
+                repeatedCachedReverseStep,
+                cachedReverseStep
+              ) &&
+              pathfindDirections.length === pathfindCountAfterFirstPass;
+            const runtimeRateResults = [
+              followPreparedRouteAtRuntimeRate(
+                fixture,
+                primaryWest,
+                forwardRoute,
+                0.25
+              ),
+              followPreparedRouteAtRuntimeRate(
+                fixture,
+                primaryEast,
+                reverseRoute,
+                0.25
+              ),
+              followPreparedRouteAtRuntimeRate(
+                fixture,
+                primaryWest,
+                forwardRoute,
+                0.75
+              ),
+              followPreparedRouteAtRuntimeRate(
+                fixture,
+                primaryEast,
+                reverseRoute,
+                0.75
+              )
+            ];
+            return {
+              ok:
+                reverseCoordinatesMatch &&
+                directionDependentPolygonRefs &&
+                forwardEndpointPathfindCount > 0 &&
+                reverseEndpointPathfindCount > 0 &&
+                forwardMatchesNative &&
+                reverseMatchesNative &&
+                repeatedCacheStable &&
+                runtimeRateResults.every(
+                  (result) => result.accepted && result.state === "arrived"
+                ),
+              detail:
+                `points=${nativeForwardStep.points.length}/` +
+                `${nativeReverseStep.points.length} / ` +
+                `directedRefs=${directionDependentPolygonRefs} / ` +
+                `findPath=${forwardEndpointPathfindCount}/` +
+                `${reverseEndpointPathfindCount} / ` +
+                `native=${forwardMatchesNative}/${reverseMatchesNative} / ` +
+                `cache=${repeatedCacheStable} / ` +
+                `agent=${runtimeRateResults
+                  .map(
+                    (result) =>
+                      `${result.state}:${result.updateCount}`
+                  )
+                  .join(",")}`
             };
           } finally {
             queryPrototype.findPath = originalFindPath;

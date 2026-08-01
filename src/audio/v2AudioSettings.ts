@@ -4,9 +4,9 @@ export type V2AudioVolumeLevels = Readonly<Record<AudioCategory, number>>;
 
 export const V2_DEFAULT_AUDIO_VOLUME_LEVELS: V2AudioVolumeLevels =
   Object.freeze({
-    voice: 5,
-    bgm: 5,
-    se: 5,
+    voice: 0,
+    bgm: 0,
+    se: 0,
   });
 
 export const V2_TITLE_SETTINGS_STORAGE_KEY = "haigure-survival.title-settings";

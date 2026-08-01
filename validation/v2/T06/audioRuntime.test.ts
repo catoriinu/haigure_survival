@@ -428,6 +428,20 @@ export const runAudioRuntimeTests = async () =>
       );
       return "level 0をMUTE、10を既存base gain、5を50%として即時反映";
     }),
+    executeTest("保存設定なしの既定音量は全category 0", () => {
+      const store = createV2AudioVolumeSettingsStore({
+        getItem: () => null,
+        setItem: () => {
+          throw new Error("保存設定なしのloadで書込みが発生しました。");
+        }
+      });
+      const loaded = store.load();
+      assert(
+        loaded.voice === 0 && loaded.bgm === 0 && loaded.se === 0,
+        `保存設定なしの既定音量が0ではありません: ${JSON.stringify(loaded)}`
+      );
+      return "VOICE／BGM／SEの既定値はすべて0";
+    }),
     executeTest("音量保存と既存タイトル設定の保持", () => {
       const values = new Map<string, string>();
       values.set(
