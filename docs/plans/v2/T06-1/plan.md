@@ -69,7 +69,7 @@
 - [x] BGM・SE・VOICEと既存音量設定・ミュートをV2学校入口へ接続し、多重再生と購読残留を防ぐ
 - [x] reset、blur、Pointer Lock解除、タイトル復帰、再読込、disposeでaction、UI、Audio、購読が残留しないことを検証する
 - [x] 型検査、build、T04／T05回帰、T06-1 fixture、実ブラウザ、Electronで入力・UI・Pointer Lock・音声・水中・再読込を確認する
-- [ ] 結果を本計画へ記録し、実装・検証・commit・push・Pull Request作成まで行う。レビュー、merge、worktree整理は別タスクとする
+- [x] 結果を本計画へ記録し、実装・検証・commit・push・Pull Request作成まで行う。レビュー、merge、worktree整理は別タスクとする
 
 ## 完了条件
 
@@ -100,3 +100,5 @@
 - `git diff --check`、Electron harness構文、UTF-8 BOMなし、ローカル絶対パスなしを確認した。学校バイナリ、生成器、全NavMesh、カタログhash、`src/world/**`、全体計画の差分は0件だった。
 
 複数開始地点、追加出現Volume、時間増援、タイトル画面の荒れ状態スライダーは計画どおりT06-2以降へ残す。レビュー、merge、`develop`同期、worktree整理は本タスクでは行わない。
+
+実装・検証差分を`8a0575f`としてcommitし、`origin/codex/v2-t06-runtime-core`へpushした。Draft Pull Request #64を作成し、本計画、検証結果、対象外、T06-2への引き渡しを記録した。
