@@ -40,6 +40,7 @@ import {
 } from "./hitEffectSystem";
 import {
   type V2BeamRequest,
+  type V2ActorSphere,
   type V2CharacterState,
   type V2HumanTargetSnapshot,
   type V2PlayerCompletionState,
@@ -258,6 +259,7 @@ export interface V2SurvivalRuntime {
   requestNpcCommand(npcId: string, kind: V2NpcCommandKind): boolean;
   cancelNpcFollow(npcId: string): boolean;
   getHumanTargets(): readonly V2HumanTargetSnapshot[];
+  getBitActors(): readonly V2ActorSphere[];
   releaseNpcTraversalForScriptedPhase(): void;
   drainNpcTraversalRequests(): readonly V2NpcTraversalRequest[];
   applyNpcTraversalResults(
@@ -266,6 +268,7 @@ export interface V2SurvivalRuntime {
   getNpcTraversalState(npcId: string): V2NpcTraversalState;
   getNpcPosition(npcId: string): Vector3;
   setNpcTransportPosition(npcId: string, position: Vector3): void;
+  relocateBit(bitId: string, candidates: readonly Vector3[]): Vector3;
   beginTargetNavigationAreaTransport(targetId: string, position: Vector3): void;
   updateTargetNavigationAreaTransportPosition(targetId: string, position: Vector3): void;
   relocateTargetNavigationArea(targetId: string, position: Vector3): void;
@@ -2028,6 +2031,10 @@ export const createV2SurvivalRuntime = ({
       assertActive();
       return rebuildHumanTargets();
     },
+    getBitActors: () => {
+      assertActive();
+      return bitSystem.getFrameView().actorSpheres;
+    },
     releaseNpcTraversalForScriptedPhase: () => {
       assertActive();
       npcSystem.releaseTraversalForScriptedPhase();
@@ -2068,6 +2075,10 @@ export const createV2SurvivalRuntime = ({
       assertFiniteVector("NPC搬送位置", position);
       npcSystem.setNpcTransportPosition(npcId, position);
       rebuildHumanTargets();
+    },
+    relocateBit: (bitId, candidates) => {
+      assertActive();
+      return bitSystem.relocateBit(bitId, candidates);
     },
     beginTargetNavigationAreaTransport: (targetId, position) => {
       assertActive();

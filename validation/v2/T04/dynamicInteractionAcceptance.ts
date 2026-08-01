@@ -400,8 +400,7 @@ export const runDynamicInteractionAcceptance =
         )
       ] as const;
       const randomValues = [0.1, 0.9];
-      let finalPoseOccupied = false;
-      let sweepOccupied = false;
+      const resolvedClosingDoorIds: string[] = [];
       const options: StageDoorRuntimeOptions = {
         random: () => {
           const value = randomValues.shift();
@@ -410,10 +409,9 @@ export const runDynamicInteractionAcceptance =
           }
           return value;
         },
-        checkClosingOccupancy: () => ({
-          finalPoseOccupied,
-          sweepOccupied
-        })
+        resolveClosingOccupancy: (request) => {
+          resolvedClosingDoorIds.push(request.door.id);
+        }
       };
       const doorRuntime = createStageDoorRuntime(
         createDoorRegistry(doors),
@@ -491,13 +489,8 @@ export const runDynamicInteractionAcceptance =
         detail: `moving=${movingSpatial.activePanelColliders.length} / half=${halfway.openness}:${halfwayPanelX} / final=${opened.state}:${openedPanelX} / revision=${movingSpatial.revision}->${doorHalfwaySpatial.revision}->${openedSpatial.revision}`
       });
 
-      finalPoseOccupied = true;
-      const finalPoseBlocked = doorRuntime.requestDoorToggle("room-front");
-      finalPoseOccupied = false;
-      sweepOccupied = true;
-      const sweepBlocked = doorRuntime.requestDoorToggle("room-front");
-      sweepOccupied = false;
       const closing = doorRuntime.requestDoorToggle("room-front");
+      const busyClosing = doorRuntime.requestDoorToggle("room-front");
       const closingSpatial = doorRuntime.getSpatialSnapshot();
       doorRuntime.update(0.8);
       const closedSpatial = doorRuntime.getSpatialSnapshot();
@@ -507,22 +500,18 @@ export const runDynamicInteractionAcceptance =
         doorRayTo
       );
       checks.push({
-        name: "通常扉の占有中止と閉扉",
+        name: "通常扉の閉鎖開始・完了前退避Callbackと閉扉",
         ok:
-          finalPoseBlocked.status === "blocked" &&
-          finalPoseBlocked.finalPoseOccupied &&
-          !finalPoseBlocked.sweepOccupied &&
-          sweepBlocked.status === "blocked" &&
-          !sweepBlocked.finalPoseOccupied &&
-          sweepBlocked.sweepOccupied &&
           closing.status === "started" &&
+          busyClosing.status === "busy" &&
           closingSpatial.activePanelColliders.length === 3 &&
+          resolvedClosingDoorIds.join(",") === "room-front" &&
           doorRuntime.getDoorState("room-front").state === "closed" &&
           doors[0].panels[0].node.position.x === 0 &&
           closedSpatial.activePanelColliders.length === 4 &&
           closedDoorBeamHit?.mesh ===
             doors[0].panels[0].colliderMeshes[0],
-        detail: `blocked=${finalPoseBlocked.status}/${sweepBlocked.status} / closing=${closing.status}:${closingSpatial.activePanelColliders.length} / final=${doorRuntime.getDoorState("room-front").state}:${closedSpatial.activePanelColliders.length}`
+        detail: `closing=${closing.status}/${busyClosing.status}:${closingSpatial.activePanelColliders.length} / resolved=${resolvedClosingDoorIds.join(",")} / final=${doorRuntime.getDoorState("room-front").state}:${closedSpatial.activePanelColliders.length}`
       });
       doorQueries.dispose();
       doorQueries = null;
@@ -605,10 +594,7 @@ export const runDynamicInteractionAcceptance =
             inspectionRandomCallCount += 1;
             return 0.5;
           },
-          checkClosingOccupancy: () => ({
-            finalPoseOccupied: false,
-            sweepOccupied: false
-          })
+          resolveClosingOccupancy: () => {}
         }
       );
       const currentInspectionActiveSet =
@@ -649,10 +635,7 @@ export const runDynamicInteractionAcceptance =
           createDoorRegistry(inspectionDoors),
           {
             random: () => 0.5,
-            checkClosingOccupancy: () => ({
-              finalPoseOccupied: false,
-              sweepOccupied: false
-            })
+            resolveClosingOccupancy: () => {}
           }
         );
       const reloadedInspectionSnapshot =

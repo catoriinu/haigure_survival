@@ -352,7 +352,8 @@ const initializeRuntime = async () => {
       queries: ownedStage.queries,
       actors: createSchoolStageActorPort(
         playerController,
-        survivalRuntime
+        survivalRuntime,
+        ownedStage
       )
     });
     selectNavigationRoute = createSchoolNpcNavigationPolicy({

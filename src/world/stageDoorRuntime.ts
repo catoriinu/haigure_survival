@@ -69,16 +69,11 @@ export type StageDoorClosingOccupancyRequest = Readonly<{
   finalPanels: readonly StageDoorClosingPanel[];
 }>;
 
-export type StageDoorClosingOccupancyResult = Readonly<{
-  finalPoseOccupied: boolean;
-  sweepOccupied: boolean;
-}>;
-
 export type StageDoorRuntimeOptions = Readonly<{
   random: () => number;
-  checkClosingOccupancy(
+  resolveClosingOccupancy(
     request: StageDoorClosingOccupancyRequest
-  ): StageDoorClosingOccupancyResult;
+  ): void;
 }>;
 
 export type StageDoorInteractionView = Readonly<{
@@ -101,12 +96,6 @@ export type StageDoorToggleResult =
   | Readonly<{
       status: "busy";
       state: "opening" | "closing";
-    }>
-  | Readonly<{
-      status: "blocked";
-      state: "open";
-      finalPoseOccupied: boolean;
-      sweepOccupied: boolean;
     }>;
 
 export type StageDoorRuntimeUpdate = Readonly<{
@@ -437,27 +426,6 @@ class StageDoorRuntimeImplementation implements StageDoorRuntime {
       });
     }
 
-    const occupancy = this.options!.checkClosingOccupancy(
-      freezeClosingRequest(runtimeState.door)
-    );
-    if (
-      typeof occupancy.finalPoseOccupied !== "boolean" ||
-      typeof occupancy.sweepOccupied !== "boolean"
-    ) {
-      throw new Error(
-        `扉占有判定はfinalPoseOccupiedとsweepOccupiedをbooleanで返す必要があります: ${doorId}`
-      );
-    }
-    if (occupancy.finalPoseOccupied || occupancy.sweepOccupied) {
-      runtimeState.state = "open";
-      runtimeState.openness = 1;
-      return Object.freeze({
-        status: "blocked",
-        state: "open",
-        finalPoseOccupied: occupancy.finalPoseOccupied,
-        sweepOccupied: occupancy.sweepOccupied
-      });
-    }
     runtimeState.state = "closing";
     this.publish(false);
     return Object.freeze({
@@ -510,6 +478,9 @@ class StageDoorRuntimeImplementation implements StageDoorRuntime {
         runtimeState.openness <= OPENNESS_EPSILON
       ) {
         runtimeState.openness = 0;
+        this.options!.resolveClosingOccupancy(
+          freezeClosingRequest(runtimeState.door)
+        );
         runtimeState.state = "closed";
         changed = true;
       }

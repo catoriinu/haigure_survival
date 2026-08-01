@@ -145,7 +145,8 @@ const createElevatorIdentity = (
 
 export const createSchoolStageActorPort = (
   player: V2PlayerController,
-  survival: V2SurvivalRuntime
+  survival: V2SurvivalRuntime,
+  stage: StageSpatialContext
 ): SchoolStageActorPort =>
   Object.freeze({
     getActorPosition: (actorId: string) =>
@@ -172,7 +173,88 @@ export const createSchoolStageActorPort = (
             radii: target.hitShape.radii.clone()
           })
         )
-      )
+      ),
+    getDoorActors: () =>
+      Object.freeze([
+        ...survival.getHumanTargets().map((target) =>
+          Object.freeze({
+            id: target.id,
+            kind: "human" as const,
+            position: target.footPosition.clone(),
+            ellipsoid: Object.freeze({
+              center: target.hitShape.center.clone(),
+              radii: target.hitShape.radii.clone()
+            })
+          })
+        ),
+        ...survival.getBitActors().map((actor) =>
+          Object.freeze({
+            id: actor.id,
+            kind: "bit" as const,
+            position: actor.center.clone(),
+            ellipsoid: Object.freeze({
+              center: actor.center.clone(),
+              radii: new Vector3(
+                actor.radius,
+                actor.radius,
+                actor.radius
+              )
+            })
+          })
+        )
+      ]),
+    relocateDoorActor: (
+      actorId: string,
+      candidates: readonly Vector3[]
+    ) => {
+      if (candidates.length === 0) {
+        throw new Error(`扉Actor退避候補がありません: ${actorId}`);
+      }
+      const bit = survival
+        .getBitActors()
+        .find((candidate) => candidate.id === actorId);
+      if (bit) {
+        return survival.relocateBit(actorId, candidates);
+      }
+      const resolved = candidates
+        .map((candidate: Vector3, index: number) => {
+          const projected = stage.navigation.projectPoint(
+            candidate,
+            0.75
+          );
+          return projected
+            ? Object.freeze({
+                index,
+                distanceSquared: Vector3.DistanceSquared(
+                  projected.position,
+                  candidate
+                ),
+                position: projected.position.clone()
+              })
+            : null;
+        })
+        .filter((candidate) => candidate !== null)
+        .sort(
+          (left, right) =>
+            left.index - right.index ||
+            left.distanceSquared - right.distanceSquared
+        )[0];
+      if (!resolved) {
+        throw new Error(
+          `人物Actor退避候補をNavMeshへ投影できません: ${actorId}`
+        );
+      }
+      if (actorId === PLAYER_ID) {
+        player.setTransportFootPosition(resolved.position);
+      } else {
+        survival.setNpcTransportPosition(actorId, resolved.position);
+      }
+      survival.relocateTargetNavigationArea(
+        actorId,
+        resolved.position
+      );
+      return resolved.position.clone();
+    }
   });
 
 const requireElevatorStop = (

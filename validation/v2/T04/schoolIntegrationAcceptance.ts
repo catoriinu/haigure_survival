@@ -302,7 +302,33 @@ const createFixtureActors = () => {
             radii: actor.radii.clone()
           })
         )
-      )
+      ),
+    getDoorActors: () =>
+      Object.freeze(
+        [...actors.values()].map((actor) =>
+          Object.freeze({
+            id: actor.id,
+            kind: "human" as const,
+            position: actor.position.clone(),
+            ellipsoid: Object.freeze({
+              center: actor.position.clone(),
+              radii: actor.radii.clone()
+            })
+          })
+        )
+      ),
+    relocateDoorActor: (
+      actorId: string,
+      candidates: readonly Vector3[]
+    ) => {
+      const candidate = candidates[0];
+      if (!candidate) {
+        throw new Error(`fixture扉退避候補がありません: ${actorId}`);
+      }
+      const actor = requireActor(actors, actorId);
+      actor.position.copyFrom(candidate);
+      return actor.position.clone();
+    }
   });
   return Object.freeze({
     actors,
@@ -781,6 +807,11 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
     ]);
   }
 
+  getBitActors() {
+    this.assertActive();
+    return Object.freeze([]);
+  }
+
   releaseNpcTraversalForScriptedPhase() {
     this.assertActive();
     this.requests = [];
@@ -998,6 +1029,10 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
   ) {
     this.assertActive();
     this.requireActor(npcId).position.copyFrom(position);
+  }
+
+  relocateBit(_bitId: string, _candidates: readonly Vector3[]): Vector3 {
+    return this.unexpected("relocateBit");
   }
 
   beginTargetNavigationAreaTransport(
@@ -1704,7 +1739,7 @@ const runTraversalCoordinatorAcceptance = async (
       elevatorAssets: context.elevatorAssets,
       dynamicVariants: context.dynamicVariants,
       queries: context.queries,
-      actors: createSchoolStageActorPort(player, survival)
+      actors: createSchoolStageActorPort(player, survival, context)
     });
     const doorCloseValues = [0.1, 0.5, 0.1, 0.1, 0.5];
     let doorCloseRandomCount = 0;
@@ -1840,7 +1875,7 @@ const runTraversalCoordinatorAcceptance = async (
       context.doorAssets.getByClass("toilet_stall")[0];
     if (!occupancyDoor) {
       throw new Error(
-        "占有中止fixtureのトイレ扉がありません。"
+        "占有中閉鎖fixtureのトイレ扉がありません。"
       );
     }
     const occupancyPass = requireDoorTraversalPositions(
@@ -1872,14 +1907,14 @@ const runTraversalCoordinatorAcceptance = async (
       );
     updateCoordinator(0);
     updateCoordinator(0);
-    const blockedDoorState =
+    const occupiedClosingDoorState =
       runtime.doors.getDoorState(occupancyDoor.id);
     survival.setActorPosition(
       "door-blocker",
       farPosition
     );
     updateCoordinator(STAGE_DOOR_TRAVEL_SECONDS * 2);
-    const noRetryDoorState =
+    const completedDoorState =
       runtime.doors.getDoorState(occupancyDoor.id);
 
     pushCheck(
@@ -1914,15 +1949,16 @@ const runTraversalCoordinatorAcceptance = async (
     );
     pushCheck(
       checks,
-      "通過後30%閉扉・占有中止・再試行なし",
+      "通過後30%閉扉・占有中も閉鎖開始・再試行不要",
       unbrainwashedFinalState.state === "closed" &&
         brainwashedFinalState.state === "open" &&
         blockerIntersects &&
-        blockedDoorState.state === "open" &&
-        noRetryDoorState.state === "open" &&
+        occupiedClosingDoorState.state === "closing" &&
+        completedDoorState.state === "closed" &&
         doorCloseRandomCount === 3,
-      `30%=closed / 70%=open / blocked=${blockerIntersects}/` +
-        `${blockedDoorState.state} / retry=${doorCloseRandomCount - 3}`
+      `30%=closed / 70%=open / occupied=${blockerIntersects}/` +
+        `${occupiedClosingDoorState.state}->${completedDoorState.state}` +
+        ` / retry=${doorCloseRandomCount - 3}`
     );
 
     const sharedDoor = closedRoomDoors[3];
@@ -2964,7 +3000,7 @@ const runPlayerElevatorTraversalAcceptance = async (
       elevatorAssets: context.elevatorAssets,
       dynamicVariants: context.dynamicVariants,
       queries: context.queries,
-      actors: createSchoolStageActorPort(player, survival)
+      actors: createSchoolStageActorPort(player, survival, context)
     });
     coordinator = createSchoolStageTraversalCoordinator({
       stage: context,
@@ -3678,6 +3714,8 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
     const doorCycleSpatial: ReturnType<typeof inspectDoorSpatialContract>[] =
       [];
     const closedDoorCollider = getPanelColliders(closedRoomDoor)[0];
+    const closedRoomDoorPanelCenter =
+      requireWorldCenter(closedDoorCollider);
     const closedDoorRaySegment =
       createDoorRaySegment(closedDoorCollider);
     const dynamicRayProbe = createDoorDynamicRayProbe(
@@ -3823,6 +3861,41 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
       actors.actors,
       "actor-08-occupancy"
     );
+    runtime.doors.requestDoorToggle(closedRoomDoor.id);
+    runtime.update(STAGE_DOOR_TRAVEL_SECONDS);
+    occupancyActor.position.copyFrom(closedRoomDoorPanelCenter);
+    occupancyActor.radii.setAll(0.05);
+    const roomOccupancyIntersects =
+      intersectsStageDoorClosedPose(
+        closedRoomDoor,
+        Object.freeze({
+          center: occupancyActor.position.clone(),
+          radii: occupancyActor.radii.clone()
+        })
+      );
+    const roomOccupancyResult =
+      runtime.doors.requestDoorToggle(closedRoomDoor.id);
+    runtime.update(STAGE_DOOR_TRAVEL_SECONDS);
+    const roomOccupancyCleared =
+      !intersectsStageDoorClosedPose(
+        closedRoomDoor,
+        Object.freeze({
+          center: occupancyActor.position.clone(),
+          radii: occupancyActor.radii.clone()
+        })
+      );
+    pushCheck(
+      checks,
+      "教室引き戸も人物を最終パネル外へ退避して閉鎖",
+      roomOccupancyIntersects &&
+        roomOccupancyResult.status === "started" &&
+        roomOccupancyResult.state === "closing" &&
+        runtime.doors.getDoorState(closedRoomDoor.id).state === "closed" &&
+        roomOccupancyCleared,
+      `intersects=${roomOccupancyIntersects} / ` +
+        `status=${roomOccupancyResult.status} / ` +
+        `cleared=${roomOccupancyCleared}`
+    );
     occupancyActor.position.copyFrom(requireWorldCenter(occupancyDoor.sweepMesh));
     occupancyActor.radii.setAll(0.05);
     const occupancyIntersects = context.queries.intersectsVolumeById(
@@ -3834,21 +3907,29 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
     );
     const occupancyResult =
       runtime.doors.requestDoorToggle(occupancyDoor.id);
-    occupancyActor.position.set(1_100, 1_000, 1_000);
-    occupancyActor.radii.setAll(0.001);
+    runtime.update(0.8);
+    const occupancyActorAfter = occupancyActor.position.clone();
+    const occupancyCleared =
+      !intersectsStageDoorClosedPose(
+        occupancyDoor,
+        Object.freeze({
+          center: occupancyActor.position.clone(),
+          radii: occupancyActor.radii.clone()
+        })
+      );
     pushCheck(
       checks,
-      "人物楕円体による最終位置・掃引Volume占有中止",
+      "人物楕円体を最終パネル外へ退避して閉鎖",
       occupancyIntersects &&
-        occupancyResult.status === "blocked" &&
-        occupancyResult.state === "open" &&
-        (occupancyResult.finalPoseOccupied ||
-          occupancyResult.sweepOccupied),
+        occupancyResult.status === "started" &&
+        occupancyResult.state === "closing" &&
+        runtime.doors.getDoorState(occupancyDoor.id).state === "closed" &&
+        occupancyCleared,
       `intersects=${occupancyIntersects} / status=${occupancyResult.status}` +
-        (occupancyResult.status === "blocked"
-          ? ` / final=${occupancyResult.finalPoseOccupied} / sweep=${occupancyResult.sweepOccupied}`
-          : "")
+        ` / actor=${occupancyActorAfter.toString()} / cleared=${occupancyCleared}`
     );
+    occupancyActor.position.set(1_100, 1_000, 1_000);
+    occupancyActor.radii.setAll(0.001);
 
     const fromStop = elevatorAsset.initialStop;
     const destinationStop = elevatorAsset.stops.find(
