@@ -228,7 +228,7 @@ export type V2SurvivalPopulation = Readonly<{
 export const V2_TEST_SURVIVAL_POPULATION: V2SurvivalPopulation =
   Object.freeze({
     npcCount: 50,
-    initialBrainwashedNpcCount: 33,
+    initialBrainwashedNpcCount: 10,
     bitCount: 20
   });
 
