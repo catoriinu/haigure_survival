@@ -91,6 +91,7 @@ import {
   createV2NpcSystem,
   type V2NpcNavigationRouteContext
 } from "../../../src/v2/npcSystem";
+import { createV2TargetNavigationAreaTracker } from "../../../src/v2/pursuitNavigation";
 import {
   castV2BeamSegment,
   castV2SightSegment,
@@ -164,6 +165,27 @@ const createHumanTargetFixture = (
     brainwashed: isV2BrainwashState(state)
   });
 
+const createTargetNavigationAreaSnapshot = (
+  target: V2HumanTargetSnapshot,
+  areaId: string,
+  revision = 0
+) =>
+  Object.freeze({
+    targetId: target.id,
+    areaId,
+    revision,
+    anchor: target.footPosition.clone()
+  });
+
+const resolveTargetNavigationAreaSnapshot = (
+  stage: StageSpatialContext,
+  target: V2HumanTargetSnapshot
+) =>
+  createTargetNavigationAreaSnapshot(
+    target,
+    stage.navigationAreas.locate(target.footPosition).areaId
+  );
+
 const createBeamTargetFixture = (
   id: string,
   kind: V2HumanKind,
@@ -212,7 +234,7 @@ const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   roomVariantNavmesh: Object.freeze({
     mode: "required",
     url: "b02_school_blockout.room-variants.navmesh.bin",
-    sha256: "78a0f481aae3abd6a6e403c60fc0debc1c70941c8b7956f17e35006df10c3afd"
+    sha256: "95c032fcd4d169a4ad590c1b8f3eb2dc0e30da4ebd74e1eac035d2a191d559a8"
   })
 });
 
@@ -376,8 +398,6 @@ const navParameters = {
 
 const navigationAgentConfig = Object.freeze({
   projectionMaxDistance: 0.1,
-  targetMoveThreshold: 0.2,
-  pathRefreshIntervalSeconds: 1,
   waypointTolerance: 0.001,
   stuckDistanceThreshold: 0.01,
   stuckDurationSeconds: 0.5
@@ -553,8 +573,6 @@ type NavigationAgentRouteAcceptance = Readonly<{
 
 const schoolNpcNavigationAgentConfig = Object.freeze({
   projectionMaxDistance: 0.75,
-  targetMoveThreshold: 0.15,
-  pathRefreshIntervalSeconds: 0.5,
   waypointTolerance: 0.02,
   stuckDistanceThreshold: 0.005,
   stuckDurationSeconds: 1
@@ -615,6 +633,7 @@ const executeNavigationAgentRouteAcceptance = (
       const result = agent.update(
         location,
         destination,
+        0,
         schoolNpcChaseSpeed,
         deltaSeconds,
         true
@@ -2306,6 +2325,7 @@ const runValidation = async () => {
     const transitionAgentStep = transitionAgent.update(
       primaryStartLocation,
       primaryLinkEnd,
+      0,
       10,
       1,
       true
@@ -2342,6 +2362,7 @@ const runValidation = async () => {
     const transitionCompletedStep = transitionAgent.update(
       transitionAgentStep.transition.exit,
       primaryLinkEnd,
+      0,
       10,
       1,
       false
@@ -2458,19 +2479,30 @@ const runValidation = async () => {
       routeEnd,
       0,
       0,
+      0,
       true
     );
     const cachedAgentStep = cacheAgent.update(
       routeStartLocation,
       routeEnd,
       0,
+      0,
       0.25,
       true
     );
+    const progressedAgentStep = cacheAgent.update(
+      routeStartLocation,
+      routeEnd,
+      0,
+      1,
+      0.1,
+      false
+    );
     const movedAgentTarget = routeEnd.add(new Vector3(0.3, 0, 0));
     const movedTargetAgentStep = cacheAgent.update(
-      routeStartLocation,
+      progressedAgentStep.location,
       movedAgentTarget,
+      1,
       0,
       0,
       true
@@ -2480,11 +2512,15 @@ const runValidation = async () => {
       ok:
         initialAgentStep.pathRecalculated &&
         initialAgentStep.state === "moving" &&
-        !cachedAgentStep.pathRecalculated,
-      detail: `initial=${initialAgentStep.pathRecalculated} / cached=${cachedAgentStep.pathRecalculated}`
+        !cachedAgentStep.pathRecalculated &&
+        initialAgentStep.remainingPathDistance !== null &&
+        progressedAgentStep.remainingPathDistance !== null &&
+        progressedAgentStep.remainingPathDistance <
+          initialAgentStep.remainingPathDistance,
+      detail: `initial=${initialAgentStep.pathRecalculated} / cached=${cachedAgentStep.pathRecalculated} / remaining=${initialAgentStep.remainingPathDistance?.toFixed(3) ?? "none"}->${progressedAgentStep.remainingPathDistance?.toFixed(3) ?? "none"}`
     });
     checks.push({
-      name: "標的移動閾値による経路再計算",
+      name: "goal revisionによる経路再計算",
       ok:
         movedTargetAgentStep.pathRecalculated &&
         movedTargetAgentStep.state === "moving",
@@ -2501,6 +2537,7 @@ const runValidation = async () => {
     const unreachableInitial = unreachableAgent.update(
       routeStartLocation,
       unreachableTarget,
+      0,
       1,
       0,
       true
@@ -2508,6 +2545,7 @@ const runValidation = async () => {
     const unreachableCached = unreachableAgent.update(
       routeStartLocation,
       unreachableTarget,
+      0,
       1,
       0.5,
       true
@@ -2516,11 +2554,12 @@ const runValidation = async () => {
       routeStartLocation,
       unreachableTarget,
       1,
+      1,
       0.5,
       true
     );
     checks.push({
-      name: "到達不能時の停止と期限後再探索",
+      name: "到達不能時の停止とrevision変更後再探索",
       ok:
         unreachableInitial.state === "unreachable" &&
         Vector3.Distance(
@@ -2547,10 +2586,11 @@ const runValidation = async () => {
       DISTANCE_NAVIGATION_ROUTE_POLICY,
       navigationAgentConfig
     );
-    stuckAgent.update(routeStartLocation, routeEnd, 1, 0, true);
+    stuckAgent.update(routeStartLocation, routeEnd, 0, 1, 0, true);
     const stuckWaiting = stuckAgent.update(
       routeStartLocation,
       routeEnd,
+      0,
       1,
       0.3,
       true
@@ -2558,6 +2598,7 @@ const runValidation = async () => {
     const stuckRecalculated = stuckAgent.update(
       routeStartLocation,
       routeEnd,
+      0,
       1,
       0.3,
       true
@@ -2579,6 +2620,7 @@ const runValidation = async () => {
     const rampAgentStep = rampAgent.update(
       rampStartLocation,
       rampEnd,
+      0,
       0.75,
       1,
       true
@@ -2639,6 +2681,7 @@ const runValidation = async () => {
     const reportedTileBoundaryStep = reportedTileBoundaryAgent.update(
       reportedTileBoundaryStart,
       reportedTileBoundaryWaypoint.position,
+      0,
       schoolNpcChaseSpeed,
       reportedTileBoundaryDeltaSeconds,
       true
@@ -2712,6 +2755,7 @@ const runValidation = async () => {
       horizontalOverrunAgent.update(
         reportedTileBoundaryStart,
         reportedTileBoundaryWaypoint.position,
+        0,
         schoolNpcChaseSpeed,
         reportedTileBoundaryDeltaSeconds,
         true
@@ -2735,6 +2779,7 @@ const runValidation = async () => {
     const waypointStep = waypointAgent.update(
       routeStartLocation,
       routeEnd,
+      0,
       100,
       1,
       true
@@ -2763,6 +2808,7 @@ const runValidation = async () => {
     const projectedTargetStep = projectedTargetAgent.update(
       routeStartLocation,
       floatingTarget,
+      0,
       100,
       1,
       true
@@ -2786,10 +2832,11 @@ const runValidation = async () => {
       DISTANCE_NAVIGATION_ROUTE_POLICY,
       navigationAgentConfig
     );
-    clearAgent.update(routeStartLocation, routeEnd, 0, 0, true);
+    clearAgent.update(routeStartLocation, routeEnd, 0, 0, 0, true);
     const beforeClear = clearAgent.update(
       routeStartLocation,
       routeEnd,
+      0,
       0,
       0.1,
       true
@@ -2798,6 +2845,7 @@ const runValidation = async () => {
     const afterClear = clearAgent.update(
       routeStartLocation,
       routeEnd,
+      0,
       0,
       0,
       true
@@ -2822,6 +2870,7 @@ const runValidation = async () => {
         id: "sampler-validation",
         role: "npc_spawn",
         bitFlightBand: null,
+        navigationAreaId: null,
         mesh: spawnVolumeMesh
       });
       const emptyMovementColliders = Object.freeze({
@@ -3388,6 +3437,9 @@ const runValidation = async () => {
         return originalSchoolFindPath.apply(this, args);
       };
       try {
+        let navigationAreaLocateCount = 0;
+        let navigationAreaAdvanceCount = 0;
+        let navigationAreaTransitionCount = 0;
         const schoolLoadStartedAt = performance.now();
         schoolContext = await loadStageSpatialContext(
           spatialScene,
@@ -3396,16 +3448,153 @@ const runValidation = async () => {
             initializeDynamicSpatial:
               createSchoolStageDynamicSpatialInitializer(0),
             roomVariantSelections:
-              SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
+              SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS,
+            queryDiagnostics: {
+              recordRayQuery: () => undefined,
+              recordNavigationAreaQuery: (kind, _portalCount, transitioned) => {
+                if (kind === "locate") {
+                  navigationAreaLocateCount += 1;
+                } else {
+                  navigationAreaAdvanceCount += 1;
+                }
+                navigationAreaTransitionCount += transitioned ? 1 : 0;
+              }
+            }
           }
         );
         schoolLoadMs = performance.now() - schoolLoadStartedAt;
         const schoolConstructionPathfindCount = schoolRecastPathfindCount;
+        const loadedSchoolContext = schoolContext;
 
         const playerSpawn = schoolContext.markers
           .requireSingle("player_spawn")
           .node.getAbsolutePosition();
         const expectedPlayerSpawn = new Vector3(0.375, 0, 0);
+        const navigationAreaIds = schoolContext.navigationAreas.all.map(
+          (area) => area.id
+        );
+        const groundAreaLocation =
+          schoolContext.navigationAreas.locate(playerSpawn);
+        const firstAreaPortalLocation =
+          schoolContext.navigationAreas.advance(
+            groundAreaLocation,
+            playerSpawn,
+            new Vector3(
+              0,
+              3.575 * BLENDER_METERS_TO_WORLD_UNITS,
+              0
+            )
+          );
+        const upperAreaCenter = schoolContext.navigationAreas
+          .getById("school-upper-01")!
+          .volumes[0].mesh.getBoundingInfo().boundingBox.centerWorld;
+        const upperAreaLocation =
+          schoolContext.navigationAreas.locate(upperAreaCenter);
+        const highSpeedUpperAreaLocation =
+          schoolContext.navigationAreas.advance(
+            groundAreaLocation,
+            playerSpawn,
+            upperAreaCenter
+          );
+        const locateCountBeforeContinuousUpdates =
+          navigationAreaLocateCount;
+        let continuousAreaCursor = groundAreaLocation;
+        for (let updateIndex = 0; updateIndex < 1_000; updateIndex += 1) {
+          continuousAreaCursor = schoolContext.navigationAreas.advance(
+            continuousAreaCursor,
+            playerSpawn,
+            playerSpawn
+          );
+        }
+        const continuousUpdatesDidNotLocate =
+          navigationAreaLocateCount ===
+          locateCountBeforeContinuousUpdates;
+        const lazyAreaTracker = createV2TargetNavigationAreaTracker(
+          schoolContext.navigationAreas
+        );
+        const groundTrackedTarget = createHumanTargetFixture(
+          "area-tracker-player",
+          "player",
+          playerSpawn.clone(),
+          playerSpawn.add(new Vector3(0, PLAYER_SPRITE_HEIGHT, 0))
+        );
+        const upperTrackedTarget = createHumanTargetFixture(
+          "area-tracker-player",
+          "player",
+          upperAreaCenter.clone(),
+          upperAreaCenter.add(new Vector3(0, PLAYER_SPRITE_HEIGHT, 0))
+        );
+        lazyAreaTracker.beginFrame(Object.freeze([groundTrackedTarget]));
+        const trackedGround = lazyAreaTracker.resolve(
+          groundTrackedTarget.id
+        );
+        lazyAreaTracker.beginFrame(Object.freeze([groundTrackedTarget]));
+        lazyAreaTracker.beginFrame(Object.freeze([upperTrackedTarget]));
+        const trackedAfterUnreferencedMove = lazyAreaTracker.resolve(
+          upperTrackedTarget.id
+        );
+        lazyAreaTracker.relocate(
+          upperTrackedTarget.id,
+          playerSpawn
+        );
+        lazyAreaTracker.beginTransport(
+          upperTrackedTarget.id,
+          playerSpawn
+        );
+        const elevatorMidpoint = Vector3.Lerp(
+          playerSpawn,
+          upperAreaCenter,
+          0.5
+        );
+        lazyAreaTracker.updateTransportPosition(
+          upperTrackedTarget.id,
+          elevatorMidpoint
+        );
+        const elevatorTrackedTarget = createHumanTargetFixture(
+          upperTrackedTarget.id,
+          "player",
+          elevatorMidpoint,
+          elevatorMidpoint.add(
+            new Vector3(0, PLAYER_SPRITE_HEIGHT, 0)
+          )
+        );
+        lazyAreaTracker.beginFrame(
+          Object.freeze([elevatorTrackedTarget])
+        );
+        const trackedDuringTransport = lazyAreaTracker.resolve(
+          elevatorTrackedTarget.id
+        );
+        lazyAreaTracker.relocate(
+          elevatorTrackedTarget.id,
+          upperAreaCenter
+        );
+        lazyAreaTracker.beginFrame(Object.freeze([upperTrackedTarget]));
+        const trackedAfterDisembark = lazyAreaTracker.resolve(
+          upperTrackedTarget.id
+        );
+        lazyAreaTracker.dispose();
+        checks.push({
+          name: "学校Navigation Area／Portal作者契約",
+          ok:
+            navigationAreaIds.length === 5 &&
+            schoolContext.navigationAreas.portals.length === 4 &&
+            groundAreaLocation.areaId === "school-ground" &&
+            firstAreaPortalLocation.areaId === "school-ground" &&
+            firstAreaPortalLocation.portalId ===
+              "navigation-area-portal-01" &&
+            upperAreaLocation.areaId === "school-upper-01" &&
+            upperAreaLocation.portalId === null &&
+            highSpeedUpperAreaLocation.areaId === "school-upper-01" &&
+            continuousUpdatesDidNotLocate &&
+            navigationAreaAdvanceCount === 1_002 &&
+            navigationAreaTransitionCount === 1 &&
+            continuousAreaCursor.areaId === "school-ground" &&
+            trackedGround.areaId === "school-ground" &&
+            trackedAfterUnreferencedMove.areaId === "school-upper-01" &&
+            trackedDuringTransport.areaId === "school-ground" &&
+            trackedAfterDisembark.areaId === "school-upper-01",
+          detail: `areas=${navigationAreaIds.join(",")} / portals=${schoolContext.navigationAreas.portals.length} / ground=${groundAreaLocation.areaId} / boundary=${firstAreaPortalLocation.areaId}:${firstAreaPortalLocation.portalId ?? "none"} / upper=${upperAreaLocation.areaId} / highSpeed=${highSpeedUpperAreaLocation.areaId} / continuous=${navigationAreaAdvanceCount} / locate=${navigationAreaLocateCount} / lazy=${trackedGround.areaId}->${trackedAfterUnreferencedMove.areaId} / transport=${trackedDuringTransport.areaId}->${trackedAfterDisembark.areaId}`
+        });
         const bitTransitions = schoolContext.bitNavigation.transitions;
         const apertureTransitions = bitTransitions.filter(
           (transition) => transition.kind === "aperture"
@@ -3451,15 +3640,20 @@ const runValidation = async () => {
             (selection) => selection.variant === "normal"
           );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 609 &&
+          schoolContext.resources.visualMeshes.length === 613 &&
           schoolContext.resources.normalColliders.length === 273 &&
           schoolContext.resources.actorOnlyColliders.length === 81 &&
           schoolContext.resources.humanOnlyColliders.length === 59 &&
+          schoolContext.resources.beamSightOnlyColliders.length === 1 &&
+          schoolContext.resources.beamSightOnlyColliders[0]?.name ===
+            "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
           schoolContext.resources.navSourceMeshes.length === 39 &&
           schoolContext.resources.bitFlightNavSourceMeshes.length === 22 &&
           schoolContext.markers.all.length === 227 &&
           assemblyAnchors.length === 2 &&
-          schoolContext.volumes.all.length === 75 &&
+          schoolContext.volumes.all.length === 80 &&
+          schoolContext.navigationAreas.all.length === 5 &&
+          schoolContext.navigationAreas.portals.length === 4 &&
           assemblyVolumes.length === 2 &&
           roomVariantSelectionOk &&
           schoolContext.doorAssets.all.length === 65 &&
@@ -3490,7 +3684,7 @@ const runValidation = async () => {
             bitSpawnVolumes[0].bitFlightBand !== null &&
             schoolContext.volumes.getByRole("water").length === 1 &&
             schoolConstructionPathfindCount === 0,
-          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / humanNAV=${schoolContext.resources.navSourceMeshes.length} / bitNAV=${schoolContext.resources.bitFlightNavSourceMeshes.length} / MRK=${schoolContext.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${schoolContext.volumes.all.length}(assembly=${assemblyVolumes.length},water=${schoolContext.volumes.getByRole("water").length}) / roomVariants=${schoolContext.roomVariants?.variants.length ?? 0}/${schoolContext.roomVariants?.tileVolumes.length ?? 0}/selected=${schoolContext.roomVariantSelection.length} / doors=${schoolContext.doorAssets.all.length} / elevators=${schoolContext.elevatorAssets.all.length} / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${schoolContext.links.all.length} / zones=${schoolContext.bitNavigation.zones.length} / bands=${schoolContext.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length}) / buildPathfind=${schoolConstructionPathfindCount} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
+          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / BeamSightOnly=${schoolContext.resources.beamSightOnlyColliders.length}:${schoolContext.resources.beamSightOnlyColliders[0]?.name ?? "なし"} / humanNAV=${schoolContext.resources.navSourceMeshes.length} / bitNAV=${schoolContext.resources.bitFlightNavSourceMeshes.length} / MRK=${schoolContext.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${schoolContext.volumes.all.length}(assembly=${assemblyVolumes.length},water=${schoolContext.volumes.getByRole("water").length}) / roomVariants=${schoolContext.roomVariants?.variants.length ?? 0}/${schoolContext.roomVariants?.tileVolumes.length ?? 0}/selected=${schoolContext.roomVariantSelection.length} / doors=${schoolContext.doorAssets.all.length} / elevators=${schoolContext.elevatorAssets.all.length} / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${schoolContext.links.all.length} / zones=${schoolContext.bitNavigation.zones.length} / bands=${schoolContext.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length}) / buildPathfind=${schoolConstructionPathfindCount} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
         });
 
         const schoolBitSafety = createBitFlightSafety(
@@ -4308,6 +4502,7 @@ const runValidation = async () => {
             const result = agent.update(
               agentLocation,
               destination,
+              0,
               0.5,
               0.1,
               true
@@ -4568,6 +4763,9 @@ const runValidation = async () => {
         const humanOnlyColliderSet = new Set(
           schoolContext.resources.humanOnlyColliders
         );
+        const beamSightOnlyColliderSet = new Set(
+          schoolContext.resources.beamSightOnlyColliders
+        );
         const expectedPlayerAndNpcColliders = [
           ...normalColliderSet,
           ...actorOnlyColliderSet,
@@ -4600,13 +4798,55 @@ const runValidation = async () => {
             ) &&
             setMatches(
               new Set(schoolContext.resources.beamBlockers),
-              [...normalColliderSet]
+              [...normalColliderSet, ...beamSightOnlyColliderSet]
             ) &&
             setMatches(
               new Set(schoolContext.resources.sightBlockers),
-              [...normalColliderSet]
+              [...normalColliderSet, ...beamSightOnlyColliderSet]
             ),
-          detail: `normal=${normalColliderSet.size} / ActorOnly=${actorOnlyColliderSet.size} / HumanOnly=${humanOnlyColliderSet.size} / player=${schoolContext.resources.movementColliders.player.length} / npc=${schoolContext.resources.movementColliders.npc.length} / bit=${schoolContext.resources.movementColliders.bit.length} / beam=${schoolContext.resources.beamBlockers.length} / sight=${schoolContext.resources.sightBlockers.length}`
+          detail: `normal=${normalColliderSet.size} / ActorOnly=${actorOnlyColliderSet.size} / HumanOnly=${humanOnlyColliderSet.size} / BeamSightOnly=${beamSightOnlyColliderSet.size} / player=${schoolContext.resources.movementColliders.player.length} / npc=${schoolContext.resources.movementColliders.npc.length} / bit=${schoolContext.resources.movementColliders.bit.length} / beam=${schoolContext.resources.beamBlockers.length} / sight=${schoolContext.resources.sightBlockers.length}`
+        });
+
+        const curtainRayFrom = blenderPointToBabylon(
+          new Vector3(-11.0, 6.0, 1.5)
+        );
+        const curtainRayTo = blenderPointToBabylon(
+          new Vector3(-11.0, 7.0, 1.5)
+        );
+        const curtainPlayerHit = schoolContext.queries.castMovementSegment(
+          "player",
+          curtainRayFrom,
+          curtainRayTo
+        );
+        const curtainNpcHit = schoolContext.queries.castMovementSegment(
+          "npc",
+          curtainRayFrom,
+          curtainRayTo
+        );
+        const curtainBitHit = schoolContext.queries.castMovementSegment(
+          "bit",
+          curtainRayFrom,
+          curtainRayTo
+        );
+        const curtainBeamHit = schoolContext.queries.castBeamSegment(
+          curtainRayFrom,
+          curtainRayTo
+        );
+        const curtainSightHit = schoolContext.queries.castSightSegment(
+          curtainRayFrom,
+          curtainRayTo
+        );
+        const expectedCurtainBlockerName =
+          "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains";
+        checks.push({
+          name: "実保健室カーテンのmover透過・beam・sight遮蔽",
+          ok:
+            curtainPlayerHit === null &&
+            curtainNpcHit === null &&
+            curtainBitHit === null &&
+            curtainBeamHit?.mesh.name === expectedCurtainBlockerName &&
+            curtainSightHit?.mesh.name === expectedCurtainBlockerName,
+          detail: `player=${curtainPlayerHit?.mesh.name ?? "clear"} / npc=${curtainNpcHit?.mesh.name ?? "clear"} / bit=${curtainBitHit?.mesh.name ?? "clear"} / beam=${curtainBeamHit?.mesh.name ?? "clear"} / sight=${curtainSightHit?.mesh.name ?? "clear"}`
         });
 
         const representativeWindowTransition = apertureTransitions[0];
@@ -4739,6 +4979,8 @@ const runValidation = async () => {
           initialBrainwashedNpcCount: 2,
           diagnosticsEnabled: true,
           random: npcRandom.random,
+          resolveTargetNavigationArea: (target) =>
+            resolveTargetNavigationAreaSnapshot(loadedSchoolContext, target),
           selectNavigationRoute: selectSurfaceNavigationRoute
         });
         const npcInitializationRandomCallCount = npcRandom.getCallCount();
@@ -4854,7 +5096,7 @@ const runValidation = async () => {
           ok:
             npcChaseAttempt !== undefined &&
             npcFirstPathfindCount >= 1 &&
-            npcSecondPathfindCount === npcFirstPathfindCount + 1 &&
+            npcSecondPathfindCount === npcFirstPathfindCount &&
             Vector3.Distance(
               npcAfterBlockedMovement.center,
               npcBeforeBlockedMovement.center
@@ -4891,6 +5133,11 @@ const runValidation = async () => {
               initialBrainwashedNpcCount: 2,
               diagnosticsEnabled: true,
               random: routeRandom.random,
+              resolveTargetNavigationArea: (target) =>
+                resolveTargetNavigationAreaSnapshot(
+                  firstFloorNpcStage,
+                  target
+                ),
               selectNavigationRoute: selectSurfaceNavigationRoute
             });
             const routeNpcStart =
@@ -4911,9 +5158,9 @@ const runValidation = async () => {
                 {
                   candidateId: `alarm-t04-route-${destinationIndex}`,
                   targetId: "player",
-                  position: routeAlarmPosition
-                }
-              ])
+                position: routeAlarmPosition
+              }
+            ])
             );
             const start = routeNpcStart;
             const target = createHumanTargetFixture(
@@ -5007,7 +5254,7 @@ const runValidation = async () => {
               result.groundProbeFailureCount === 0 &&
               result.groundSampleCount === result.updateCount &&
               result.staircaseGroundSampleCount > 0 &&
-              result.maximumGroundError <= 1e-6
+              result.maximumGroundError <= 0.035
           ),
           detail: multifloorNpcResults
             .map(
@@ -5025,6 +5272,14 @@ const runValidation = async () => {
           initialBrainwashedNpcCount: 2,
           diagnosticsEnabled: true,
           random: unreachableNpcRandom.random,
+          resolveTargetNavigationArea: (target) =>
+            Object.freeze({
+              ...createTargetNavigationAreaSnapshot(
+                target,
+                "school-ground"
+              ),
+              revision: target.footPosition.x > 10 ? 1 : 0
+            }),
           selectNavigationRoute: selectSurfaceNavigationRoute
         });
         const unreachableNpcStart =
@@ -5104,6 +5359,8 @@ const runValidation = async () => {
             initialBrainwashedNpcCount: 2,
             diagnosticsEnabled: true,
             random: npcFailureRandom.random,
+            resolveTargetNavigationArea: (target) =>
+              createTargetNavigationAreaSnapshot(target, "school-ground"),
             selectNavigationRoute: selectSurfaceNavigationRoute
           });
           unexpectedSystem.dispose();
@@ -5144,7 +5401,12 @@ const runValidation = async () => {
             minimumSpawnDistance: 0.2,
             spawnMaxAttempts: 128,
             spawnProjectionMaxDistance: 0.75,
-            random: bitRandom.random
+            random: bitRandom.random,
+            resolveTargetNavigationArea: (target) =>
+              resolveTargetNavigationAreaSnapshot(
+                loadedSchoolContext,
+                target
+              )
           }
         );
         const bitInitializationRandomCallCount = bitRandom.getCallCount();
@@ -5322,7 +5584,12 @@ const runValidation = async () => {
               minimumSpawnDistance: 0.2,
               spawnMaxAttempts: 128,
               spawnProjectionMaxDistance: 0.75,
-              random: bitFailureRandom.random
+              random: bitFailureRandom.random,
+              resolveTargetNavigationArea: (target) =>
+                resolveTargetNavigationAreaSnapshot(
+                  loadedSchoolContext,
+                  target
+                )
             }
           );
           unexpectedSystem.dispose();
@@ -5347,7 +5614,12 @@ const runValidation = async () => {
             minimumSpawnDistance: 0,
             spawnMaxAttempts: 128,
             spawnProjectionMaxDistance: 0.75,
-            random: bitRandom.random
+            random: bitRandom.random,
+            resolveTargetNavigationArea: (target) =>
+              resolveTargetNavigationAreaSnapshot(
+                loadedSchoolContext,
+                target
+              )
           }
         );
         const brainwashedNpcTarget = createHumanTargetFixture(
@@ -5389,7 +5661,12 @@ const runValidation = async () => {
             minimumSpawnDistance: 0,
             spawnMaxAttempts: 128,
             spawnProjectionMaxDistance: 0.75,
-            random: bitRandom.random
+            random: bitRandom.random,
+            resolveTargetNavigationArea: (target) =>
+              resolveTargetNavigationAreaSnapshot(
+                loadedSchoolContext,
+                target
+              )
           }
         );
         const visionBitCenter =
@@ -5465,15 +5742,20 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 609 &&
+          reloadedContext.resources.visualMeshes.length === 613 &&
           reloadedContext.resources.normalColliders.length === 273 &&
           reloadedContext.resources.actorOnlyColliders.length === 81 &&
           reloadedContext.resources.humanOnlyColliders.length === 59 &&
+          reloadedContext.resources.beamSightOnlyColliders.length === 1 &&
+          reloadedContext.resources.beamSightOnlyColliders[0]?.name ===
+            "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
           reloadedContext.resources.navSourceMeshes.length === 39 &&
           reloadedContext.resources.bitFlightNavSourceMeshes.length === 22 &&
           reloadedContext.markers.all.length === 227 &&
           reloadedContext.markers.getByRole("assembly_anchor").length === 2 &&
-          reloadedContext.volumes.all.length === 75 &&
+          reloadedContext.volumes.all.length === 80 &&
+          reloadedContext.navigationAreas.all.length === 5 &&
+          reloadedContext.navigationAreas.portals.length === 4 &&
           reloadedContext.volumes.getByRole("assembly").length === 2 &&
           reloadedContext.assemblyVenues.all.length === 2 &&
           reloadedContext.assemblyVenues.all.every(

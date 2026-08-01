@@ -6,6 +6,8 @@ import {
   FreeCamera,
   HemisphericLight,
   Logger,
+  Mesh,
+  PBRMaterial,
   Scene,
   Vector3
 } from "@babylonjs/core";
@@ -115,6 +117,8 @@ console.error = (...values: unknown[]) => {
 
 let running = false;
 let activeContext: StageSpatialContext | null = null;
+// seed=2では図書室の前後2扉が閉じ、構造Colliderを決定的に検証できる。
+const T02_DOOR_FIXTURE_SEED = 2;
 
 const createCheck = (
   name: string,
@@ -706,6 +710,30 @@ const validateLoadedContext = (
       (selection) => selection.variant === "normal"
     ) &&
     roomVariantActivationMatches(context, "normal");
+  const infirmaryCurtainMaterials =
+    context.resources.assetContainer.materials.filter(
+      (material) => material.name === "MAT_B03_InfirmaryCurtain"
+    );
+  const infirmaryCurtainMaterial = infirmaryCurtainMaterials[0];
+  const normalInfirmaryCurtains =
+    context.resources.assetContainer.meshes.filter((mesh) =>
+      mesh.name.startsWith(
+        "VIS_B03_Interior_F01_Infirmary_Curtain_"
+      )
+    );
+  const disorderedInfirmaryCurtains =
+    context.resources.assetContainer.meshes.filter((mesh) =>
+      mesh.name.startsWith(
+        "VIS_RoomVariant_F01_Infirmary_Disordered_Curtain_"
+      )
+    );
+  const allInfirmaryCurtains = [
+    ...normalInfirmaryCurtains,
+    ...disorderedInfirmaryCurtains
+  ];
+  const allInfirmaryCurtainMeshes = allInfirmaryCurtains.filter(
+    (curtain): curtain is Mesh => curtain instanceof Mesh
+  );
   const assemblyVenueSummaries = context.assemblyVenues.all.map(
     (venue) =>
       `${venue.id}:${venue.volume.id}/${venue.assemblyPositions.length}/${venue.executionAudiencePositions.length}/${venue.executionTargetPositions.length}/w${venue.selectionWeight}`
@@ -772,14 +800,35 @@ const validateLoadedContext = (
       `stage=${context.metadata.stageId} / schema=${context.metadata.schemaVersion} / navProfile=${context.metadata.navProfileId} / bitNavProfile=${context.metadata.bitNavProfileId}`
     ),
     createCheck(
+      "保健室カーテンの透明描画契約",
+      infirmaryCurtainMaterials.length === 1 &&
+        infirmaryCurtainMaterial instanceof PBRMaterial &&
+        infirmaryCurtainMaterial.needDepthPrePass &&
+        Math.abs(infirmaryCurtainMaterial.alpha - 0.96) <= 1e-6 &&
+        infirmaryCurtainMaterial.transparencyMode ===
+          PBRMaterial.PBRMATERIAL_ALPHABLEND &&
+        normalInfirmaryCurtains.length === 4 &&
+        disorderedInfirmaryCurtains.length === 4 &&
+        allInfirmaryCurtains.every(
+          (curtain) => curtain.material === infirmaryCurtainMaterial
+        ) &&
+        allInfirmaryCurtainMeshes.length === 8 &&
+        new Set(allInfirmaryCurtainMeshes.map((curtain) => curtain.geometry))
+          .size === 8,
+      `materials=${infirmaryCurtainMaterials.length} / pbr=${infirmaryCurtainMaterial instanceof PBRMaterial} / depthPrePass=${infirmaryCurtainMaterial?.needDepthPrePass ?? false} / alpha=${infirmaryCurtainMaterial?.alpha ?? "なし"} / transparencyMode=${infirmaryCurtainMaterial?.transparencyMode ?? "なし"} / normal=${normalInfirmaryCurtains.length} / disordered=${disorderedInfirmaryCurtains.length} / meshes=${allInfirmaryCurtainMeshes.length} / sharedMaterial=${allInfirmaryCurtains.filter((curtain) => curtain.material === infirmaryCurtainMaterial).length}/8 / geometries=${new Set(allInfirmaryCurtainMeshes.map((curtain) => curtain.geometry)).size}`
+    ),
+    createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 606 &&
+      context.resources.visualMeshes.length === 613 &&
         context.resources.normalColliders.length === 273 &&
         context.resources.actorOnlyColliders.length === 81 &&
         context.resources.humanOnlyColliders.length === 59 &&
+        context.resources.beamSightOnlyColliders.length === 1 &&
+        context.resources.beamSightOnlyColliders[0]?.name ===
+          "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
         context.resources.navSourceMeshes.length === 39 &&
         context.resources.bitFlightNavSourceMeshes.length === 22 &&
-        context.markers.all.length === 225 &&
+        context.markers.all.length === 227 &&
         assemblyAnchors.length === 2 &&
         context.volumes.all.length === 75 &&
         assemblyVolumes.length === 2 &&
@@ -797,7 +846,7 @@ const validateLoadedContext = (
         boundaryTransitions.length === 1 &&
         context.worldBoundary?.id === "world-limit" &&
         bitTransitions.every((transition) => transition.bidirectional),
-      `VIS=${context.resources.visualMeshes.length} / COL=${context.resources.normalColliders.length} / ActorOnly=${context.resources.actorOnlyColliders.length} / HumanOnly=${context.resources.humanOnlyColliders.length} / humanNAV=${context.resources.navSourceMeshes.length} / bitNAV=${context.resources.bitFlightNavSourceMeshes.length} / MRK=${context.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${context.volumes.all.length}(assembly=${assemblyVolumes.length}) / roomVariants=${roomVariants?.variants.length ?? 0}/${roomVariants?.tileVolumes.length ?? 0}/selected=${context.roomVariantSelection.length} / doors=${context.doorAssets.all.length} / elevators=${context.elevatorAssets.all.length} / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${context.links.all.length} / zones=${context.bitNavigation.zones.length} / bands=${context.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length})`
+      `VIS=${context.resources.visualMeshes.length} / COL=${context.resources.normalColliders.length} / ActorOnly=${context.resources.actorOnlyColliders.length} / HumanOnly=${context.resources.humanOnlyColliders.length} / BeamSightOnly=${context.resources.beamSightOnlyColliders.length}:${context.resources.beamSightOnlyColliders[0]?.name ?? "なし"} / humanNAV=${context.resources.navSourceMeshes.length} / bitNAV=${context.resources.bitFlightNavSourceMeshes.length} / MRK=${context.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${context.volumes.all.length}(assembly=${assemblyVolumes.length}) / roomVariants=${roomVariants?.variants.length ?? 0}/${roomVariants?.tileVolumes.length ?? 0}/selected=${context.roomVariantSelection.length} / doors=${context.doorAssets.all.length} / elevators=${context.elevatorAssets.all.length} / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${context.links.all.length} / zones=${context.bitNavigation.zones.length} / bands=${context.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length})`
     ),
     createCheck(
       `全ビット飛行遷移の${BIT_FLIGHT_ENVELOPE_RADIUS_METERS.toFixed(2)}m安全包絡`,
@@ -2242,6 +2291,9 @@ const validateLoadedContext = (
   const normalColliderSet = new Set(context.resources.normalColliders);
   const actorOnlyColliderSet = new Set(context.resources.actorOnlyColliders);
   const humanOnlyColliderSet = new Set(context.resources.humanOnlyColliders);
+  const beamSightOnlyColliderSet = new Set(
+    context.resources.beamSightOnlyColliders
+  );
   const playerColliderSet = new Set(
     context.resources.movementColliders.player
   );
@@ -2266,9 +2318,58 @@ const validateLoadedContext = (
       setMatches(playerColliderSet, expectedPlayerAndNpcColliders) &&
         setMatches(npcColliderSet, expectedPlayerAndNpcColliders) &&
         setMatches(bitColliderSet, expectedBitColliders) &&
-        setMatches(beamBlockerSet, [...normalColliderSet]) &&
-        setMatches(sightBlockerSet, [...normalColliderSet]),
-      `player=${playerColliderSet.size} / npc=${npcColliderSet.size} / bit=${bitColliderSet.size} / beam=${beamBlockerSet.size} / sight=${sightBlockerSet.size} / normal=${normalColliderSet.size} / ActorOnly=${actorOnlyColliderSet.size} / HumanOnly=${humanOnlyColliderSet.size}`
+        setMatches(beamBlockerSet, [
+          ...normalColliderSet,
+          ...beamSightOnlyColliderSet
+        ]) &&
+        setMatches(sightBlockerSet, [
+          ...normalColliderSet,
+          ...beamSightOnlyColliderSet
+        ]),
+      `player=${playerColliderSet.size} / npc=${npcColliderSet.size} / bit=${bitColliderSet.size} / beam=${beamBlockerSet.size} / sight=${sightBlockerSet.size} / normal=${normalColliderSet.size} / ActorOnly=${actorOnlyColliderSet.size} / HumanOnly=${humanOnlyColliderSet.size} / BeamSightOnly=${beamSightOnlyColliderSet.size}`
+    )
+  );
+
+  const curtainRayFrom = blenderPointToBabylon(
+    new Vector3(-11.0, 6.0, 1.5)
+  );
+  const curtainRayTo = blenderPointToBabylon(
+    new Vector3(-11.0, 7.0, 1.5)
+  );
+  const curtainPlayerHit = context.queries.castMovementSegment(
+    "player",
+    curtainRayFrom,
+    curtainRayTo
+  );
+  const curtainNpcHit = context.queries.castMovementSegment(
+    "npc",
+    curtainRayFrom,
+    curtainRayTo
+  );
+  const curtainBitHit = context.queries.castMovementSegment(
+    "bit",
+    curtainRayFrom,
+    curtainRayTo
+  );
+  const curtainBeamHit = context.queries.castBeamSegment(
+    curtainRayFrom,
+    curtainRayTo
+  );
+  const curtainSightHit = context.queries.castSightSegment(
+    curtainRayFrom,
+    curtainRayTo
+  );
+  const expectedCurtainBlockerName =
+    "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains";
+  checks.push(
+    createCheck(
+      "保健室カーテンのmover透過・beam・sight遮蔽",
+      curtainPlayerHit === null &&
+        curtainNpcHit === null &&
+        curtainBitHit === null &&
+        curtainBeamHit?.mesh.name === expectedCurtainBlockerName &&
+        curtainSightHit?.mesh.name === expectedCurtainBlockerName,
+      `player=${curtainPlayerHit?.mesh.name ?? "clear"} / npc=${curtainNpcHit?.mesh.name ?? "clear"} / bit=${curtainBitHit?.mesh.name ?? "clear"} / beam=${curtainBeamHit?.mesh.name ?? "clear"} / sight=${curtainSightHit?.mesh.name ?? "clear"}`
     )
   );
 
@@ -2539,7 +2640,7 @@ const runValidation = async () => {
 
     activeContext = await loadStageSpatialContext(scene, SCHOOL_STAGE, {
       initializeDynamicSpatial:
-        createSchoolStageDynamicSpatialInitializer(0),
+        createSchoolStageDynamicSpatialInitializer(T02_DOOR_FIXTURE_SEED),
       roomVariantSelections:
         SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
     });
@@ -2549,20 +2650,23 @@ const runValidation = async () => {
 
     activeContext = await loadStageSpatialContext(scene, SCHOOL_STAGE, {
       initializeDynamicSpatial:
-        createSchoolStageDynamicSpatialInitializer(0),
+        createSchoolStageDynamicSpatialInitializer(T02_DOOR_FIXTURE_SEED),
       roomVariantSelections:
         SCHOOL_ALL_DISORDERED_ROOM_VARIANT_SELECTIONS
     });
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 626 &&
+      activeContext.resources.visualMeshes.length === 633 &&
       activeContext.resources.normalColliders.length === 273 &&
       activeContext.resources.actorOnlyColliders.length === 81 &&
       activeContext.resources.humanOnlyColliders.length === 59 &&
+      activeContext.resources.beamSightOnlyColliders.length === 1 &&
+      activeContext.resources.beamSightOnlyColliders[0]?.name ===
+        "COL_BeamSightOnly_RoomVariant_F01_Infirmary_Disordered_Curtains" &&
       activeContext.resources.navSourceMeshes.length === 59 &&
       activeContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-      activeContext.markers.all.length === 225 &&
+      activeContext.markers.all.length === 227 &&
       activeContext.markers.getByRole("assembly_anchor").length === 2 &&
       activeContext.volumes.all.length === 75 &&
       activeContext.volumes.getByRole("assembly").length === 2 &&
@@ -2592,7 +2696,7 @@ const runValidation = async () => {
       createCheck(
         "学校全荒れvariantコンテキスト再読込",
         reloadMetadataValid,
-        `stage=${activeContext.metadata.stageId} / VIS=${activeContext.resources.visualMeshes.length} / COL=${activeContext.resources.normalColliders.length} / ActorOnly=${activeContext.resources.actorOnlyColliders.length} / HumanOnly=${activeContext.resources.humanOnlyColliders.length} / humanNAV=${activeContext.resources.navSourceMeshes.length} / bitNAV=${activeContext.resources.bitFlightNavSourceMeshes.length} / water=${activeContext.volumes.getByRole("water").length} / humanLNK=${activeContext.links.all.length} / bitTransitions=${activeContext.bitNavigation.transitions.length}`
+        `stage=${activeContext.metadata.stageId} / VIS=${activeContext.resources.visualMeshes.length} / COL=${activeContext.resources.normalColliders.length} / ActorOnly=${activeContext.resources.actorOnlyColliders.length} / HumanOnly=${activeContext.resources.humanOnlyColliders.length} / BeamSightOnly=${activeContext.resources.beamSightOnlyColliders.length}:${activeContext.resources.beamSightOnlyColliders[0]?.name ?? "なし"} / humanNAV=${activeContext.resources.navSourceMeshes.length} / bitNAV=${activeContext.resources.bitFlightNavSourceMeshes.length} / water=${activeContext.volumes.getByRole("water").length} / humanLNK=${activeContext.links.all.length} / bitTransitions=${activeContext.bitNavigation.transitions.length}`
       )
     );
     await disposeAndInspect(activeContext, baseline, checks, "再読込");

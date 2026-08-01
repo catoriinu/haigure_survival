@@ -162,6 +162,16 @@ export const cloneV2AlarmFrame = (
     activeCandidateIds: Object.freeze([
       ...source.activeCandidateIds
     ]),
+    activeFloors: Object.freeze(
+      source.activeFloors.map((floor) =>
+        Object.freeze({
+          ...floor,
+          position: floor.position.clone(),
+          supportNormal: floor.supportNormal.clone(),
+          tangent: floor.tangent.clone()
+        })
+      )
+    ),
     usedCandidateIds: Object.freeze([
       ...source.usedCandidateIds
     ]),
@@ -169,7 +179,9 @@ export const cloneV2AlarmFrame = (
       source.blinks.map((blink) =>
         Object.freeze({
           ...blink,
-          position: blink.position.clone()
+          position: blink.position.clone(),
+          supportNormal: blink.supportNormal.clone(),
+          tangent: blink.tangent.clone()
         })
       )
     )

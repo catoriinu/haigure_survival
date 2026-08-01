@@ -52,9 +52,20 @@ export type V2AlarmTriggerEvent = Readonly<{
   position: Vector3;
 }>;
 
+export type V2AlarmFloorSnapshot = Readonly<{
+  candidateId: string;
+  position: Vector3;
+  supportNormal: Vector3;
+  tangent: Vector3;
+  radius: number;
+}>;
+
 export type V2AlarmBlinkSnapshot = Readonly<{
   candidateId: string;
   position: Vector3;
+  supportNormal: Vector3;
+  tangent: Vector3;
+  radius: number;
   elapsedSeconds: number;
   remainingSeconds: number;
   blinkIntervalSeconds: number;
@@ -64,6 +75,7 @@ export type V2AlarmBlinkSnapshot = Readonly<{
 export type V2AlarmFrame = Readonly<{
   events: readonly V2AlarmTriggerEvent[];
   activeCandidateIds: readonly string[];
+  activeFloors: readonly V2AlarmFloorSnapshot[];
   usedCandidateIds: readonly string[];
   blinks: readonly V2AlarmBlinkSnapshot[];
 }>;
@@ -104,6 +116,7 @@ type RuntimeAlarmCandidate = Readonly<{
   verticalTolerance: number;
   minimum: Vector3;
   maximum: Vector3;
+  floorSnapshot: V2AlarmFloorSnapshot;
 }>;
 
 type RuntimeBlink = {
@@ -243,6 +256,13 @@ const buildRuntimeCandidate = (
     )
   );
   const center = candidate.navigationLocation.position;
+  const floorSnapshot: V2AlarmFloorSnapshot = Object.freeze({
+    candidateId: candidate.id,
+    position: Object.freeze(center.clone()) as Vector3,
+    supportNormal: Object.freeze(supportNormal.clone()) as Vector3,
+    tangent: Object.freeze(tangent.clone()) as Vector3,
+    radius: candidate.radius
+  });
 
   return Object.freeze({
     id: candidate.id,
@@ -253,7 +273,8 @@ const buildRuntimeCandidate = (
     radius: candidate.radius,
     verticalTolerance: candidate.verticalTolerance,
     minimum: center.subtract(halfExtent),
-    maximum: center.add(halfExtent)
+    maximum: center.add(halfExtent),
+    floorSnapshot
   });
 };
 
@@ -488,10 +509,13 @@ const calculateBlinkIntervalSeconds = (elapsedSeconds: number): number => {
   );
 };
 
+const createFloorSnapshot = (
+  candidate: RuntimeAlarmCandidate
+): V2AlarmFloorSnapshot => candidate.floorSnapshot;
+
 const createBlinkSnapshot = (blink: RuntimeBlink): V2AlarmBlinkSnapshot =>
   Object.freeze({
-    candidateId: blink.candidate.id,
-    position: blink.candidate.navigationLocation.position.clone(),
+    ...createFloorSnapshot(blink.candidate),
     elapsedSeconds: blink.elapsedSeconds,
     remainingSeconds: Math.max(
       0,
@@ -536,6 +560,9 @@ export const createV2AlarmSystem = ({
   const seenQueryTokenByCandidateId = new Map<string, number>();
   let selectionTimerSeconds = 0;
   let activeCandidateVersion = 0;
+  let activeFloorSnapshotVersion = -1;
+  let activeFloorSnapshots: readonly V2AlarmFloorSnapshot[] =
+    Object.freeze([]);
   let spatialIndexVersion = -1;
   let spatialIndex = buildActiveCandidateSpatialIndex(activeCandidates);
   let spatialQueryToken = 0;
@@ -544,6 +571,7 @@ export const createV2AlarmSystem = ({
   let frame: V2AlarmFrame = Object.freeze({
     events: Object.freeze([]),
     activeCandidateIds: Object.freeze([]),
+    activeFloors: Object.freeze([]),
     usedCandidateIds: Object.freeze([]),
     blinks: Object.freeze([])
   });
@@ -585,6 +613,20 @@ export const createV2AlarmSystem = ({
       return spatialIndex;
     };
 
+  const requireCurrentActiveFloorSnapshots =
+    (): readonly V2AlarmFloorSnapshot[] => {
+      if (activeFloorSnapshotVersion !== activeCandidateVersion) {
+        activeFloorSnapshots = Object.freeze(
+          Array.from(
+            activeCandidates.values(),
+            createFloorSnapshot
+          )
+        );
+        activeFloorSnapshotVersion = activeCandidateVersion;
+      }
+      return activeFloorSnapshots;
+    };
+
   const selectOneEligibleCandidate = (): void => {
     const eligible = candidates.filter(
       (candidate) =>
@@ -614,6 +656,7 @@ export const createV2AlarmSystem = ({
         )
       ),
       activeCandidateIds: Object.freeze([...activeCandidates.keys()]),
+      activeFloors: requireCurrentActiveFloorSnapshots(),
       usedCandidateIds: Object.freeze([...usedCandidateIds]),
       blinks: Object.freeze(
         Array.from(blinks.values(), createBlinkSnapshot)

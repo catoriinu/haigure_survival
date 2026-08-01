@@ -10,7 +10,7 @@
 
 V2のステージ空間の正本は、GLBへ出力された3D形状、EmptyのTransform、Object custom properties由来のglTF Node `extras`である。表示、物理衝突、光線遮蔽、NavMesh生成元、スポーン位置、ゲームプレイ領域、ステージ境界、ポータル、非連続接続を同じ座標系の資産として管理する。
 
-ステージJSONは使用しない。JSON文字マップ、セル、行・列、矩形ゾーンなどへ空間を重複記述してはならない。TypeScriptのステージカタログが保持できるのは、ステージID、表示名、GLB URL、静的人間用NavMesh URL、部屋variant NavMesh bundle URL、ビット用NavMesh bundle URL、プロファイルID、整合性検査用ハッシュなどの非空間情報だけである。
+ステージJSONは使用しない。JSON文字マップ、セル、行・列、矩形ゾーンなどへ空間を重複記述してはならない。TypeScriptのステージカタログが保持できるのは、ステージID、表示名、GLB URL、静的人間用NavMesh URL、部屋variant NavMesh bundle URL、ビット用NavMesh bundle URL、プロファイルID、整合性検査用ハッシュ、深度プリパス対象Material名などの非空間情報だけである。
 
 Recast NavMeshバイナリはGLBの`NAV_*`形状から生成する派生物であり、編集元ではない。人間用NavMeshは静的基盤と部屋variantごとのDetour tile payload bundleへ分離し、ビット用NavMeshは帯ごとのRecast payloadを別bundleへ格納する。`LNK_*` Emptyと飛行遷移`VOL_*`は最終GLBに残る明示接続の正本であり、Runtimeが対応するNavMeshへ接続する。NavMeshを変更したい場合はBlender資産またはベイクプロファイルを変更し、GLB監査後に対応成果物を再ベイクする。
 
@@ -163,6 +163,7 @@ EXP_Stage_<stage-id>
 | `COL_*` | Mesh | 通常の不可視衝突 | 無効 | 有効 | 有効 | 不使用 |
 | `COL_ActorOnly_*` | Mesh | 全移動体専用の不可視衝突 | 無効 | 有効 | 無効 | 不使用 |
 | `COL_HumanOnly_*` | Mesh | プレイヤー・NPC専用の不可視衝突 | 無効 | 有効 | 無効 | 不使用 |
+| `COL_BeamSightOnly_*` | 閉じたMesh | ビーム・視線専用の不可視遮蔽 | 無効 | 無効 | 有効 | 不使用 |
 | `NAV_*` | Mesh | Recastベイク入力 | 無効 | 無効 | 無効 | 使用 |
 | `META_Stage` | Empty | ステージ全体メタデータ | 無効 | 無効 | 無効 | 不使用 |
 | `MRK_*` | Empty | 位置と向きを持つマーカー | 無効 | 無効 | 無効 | 不使用 |
@@ -172,7 +173,7 @@ EXP_Stage_<stage-id>
 | `PRT_*` | 薄い閉じたMesh | room、streaming、door trigger等のポータル | 無効 | 無効 | 無効 | 不使用 |
 | `LNK_<id>_A/B` | Empty 2個 | 連続NavMeshで表せない接続点対 | 無効 | 無効 | 無効 | 不使用 |
 
-`COL_ActorOnly_*`と`COL_HumanOnly_*`は通常`COL_*`より先に判定し、排他的に分類する。専用Colliderを通常`COL_*`へも重複登録してはならない。
+`COL_BeamSightOnly_*`、`COL_ActorOnly_*`、`COL_HumanOnly_*`は通常`COL_*`より先に判定し、排他的に分類する。専用Colliderを通常`COL_*`へも重複登録してはならない。
 
 ### 7.1 `VIS_*`
 
@@ -181,7 +182,7 @@ EXP_Stage_<stage-id>
 - 透明ガラスは`VIS_WindowGlass_*`とし、ガラスMaterialを共有して透明Object数を抑える。
 - `VIS_*`を光線・視線の遮蔽Meshとして使用しない。
 
-### 7.2 `COL_*`、`COL_ActorOnly_*`、`COL_HumanOnly_*`
+### 7.2 `COL_*`、`COL_ActorOnly_*`、`COL_HumanOnly_*`、`COL_BeamSightOnly_*`
 
 - 表示形状と衝突形状を別Meshにする。
 - 閉じた低ポリ形状とし、法線を外向きにする。
@@ -192,6 +193,7 @@ EXP_Stage_<stage-id>
 - 通常`COL_*`はプレイヤー、NPC、ビットの移動と全光線、視線のすべてを遮る。
 - `COL_ActorOnly_*`はプレイヤー、NPC、ビットの全移動体を止め、視線と全光線を通す。
 - `COL_HumanOnly_*`はプレイヤーとNPCだけを止め、ビット、視線、全光線を通す。
+- `COL_BeamSightOnly_*`はプレイヤー、NPC、ビットの移動を通し、ゲーム内の全ビームと視線だけを遮る。床支持、移動障害物、NavMeshベイク入力には使用しない。
 - 不可視でも衝突を維持するため、Runtimeでは`setEnabled(false)`にせず、`isVisible=false`とする。
 
 学校窓は壁を実際に開口し、表示と移動衝突を分離する。
@@ -203,7 +205,7 @@ EXP_Stage_<stage-id>
 
 ビット通過窓は見た目が開いた窓か割れた窓かにかかわらず、Runtimeでは`hs_transition_kind="aperture"`の同一契約で扱う。Collider名だけで経路を推測せず、必ず7.8節のビット用`LNK_<id>_A/B`を組み合わせる。閉じた窓へ`aperture`を置いてはならない。
 
-窓位置で通常の床・階段NavMeshが連結しないよう、必要な`NAV_*` blockerも別途用意する。`COL_ActorOnly_Window_*`、`COL_ActorOnly_WindowFixed_*`、`COL_HumanOnly_Window_*`をNavMeshベイク入力へ流用しない。
+窓位置で通常の床・階段NavMeshが連結しないよう、必要な`NAV_*` blockerも別途用意する。`COL_ActorOnly_Window_*`、`COL_ActorOnly_WindowFixed_*`、`COL_HumanOnly_Window_*`、`COL_BeamSightOnly_*`をNavMeshベイク入力へ流用しない。
 
 ### 7.3 `NAV_*`とナビゲーションセット
 
@@ -239,7 +241,7 @@ EXP_Stage_<stage-id>
 | `hs_center_height_max_m` | number | Blender絶対Zで表す許可中心高度上限 |
 
 - 同一ゾーン・帯を複数Meshで構成してよいが、space kindと高度範囲は全Meshで完全一致させる。
-- 各帯は1件以上の`walkable`を持つ。許可中心高度の全域を半径0.54mの移動包絡（V1物理半径0.44m＋安全余裕0.10m）で塞ぎ、帯内のどの高度でも上越し・下越しできない通常`COL_*`と`COL_ActorOnly_*`だけを、2D帯NavMeshの`blocker`として含める。帯内の一部高度だけを塞ぐ机などは2D経路を消さず、T05-1Bの高度決定と3D移動包絡で回避する。該当する全高障害物がない帯では`blocker`を要求しない。`COL_HumanOnly_*`はビット用blockerへ含めない。
+- 各帯は1件以上の`walkable`を持つ。許可中心高度の全域を半径0.54mの移動包絡（V1物理半径0.44m＋安全余裕0.10m）で塞ぎ、帯内のどの高度でも上越し・下越しできない通常`COL_*`と`COL_ActorOnly_*`だけを、2D帯NavMeshの`blocker`として含める。帯内の一部高度だけを塞ぐ机などは2D経路を消さず、T05-1Bの高度決定と3D移動包絡で回避する。該当する全高障害物がない帯では`blocker`を要求しない。`COL_HumanOnly_*`と`COL_BeamSightOnly_*`はビット用blockerへ含めない。
 - 帯数、ゾーン数、階高、ID形式、上下順を固定しない。地下、中二階、吹き抜け、段違い床、不均一階高も同じ契約で定義する。
 - 異なる帯は別Recast payloadへベイクする。位置や高さが重なっても、明示遷移なしにpayload間を接続しない。
 - ビット用プロファイルはV1実形状・被弾球の物理半径0.44mと安全余裕0.10m、合計0.54mの移動包絡を前提とする。Runtimeの3D移動包絡を最終権威として維持する。
@@ -386,6 +388,30 @@ TypeScriptカタログの`worldBoundaryMode`は、B04対応学校とT05-2Vの対
 | `hs_role` | string | `room_portal`、`streaming_portal`、`door_trigger`のいずれか |
 
 `room_portal`と`streaming_portal`で接続先の論理領域が必要な場合は、`hs_from`と`hs_to`へ非空間IDを置く。Portal Mesh自体を衝突やNavMesh接続に使用しない。ビット用遷移を`PRT_*`へ重複登録しない。
+
+#### 7.7.1 Navigation Areaと接続Portal
+
+Navigation Areaは、遠距離追跡を対象の現在座標へ毎回引き直さず、対象が属する論理領域の固定代表点まで進めるためのV2共通ステージ基盤である。学校の階番号、一定間隔のグリッド、座標の高さ順などをRuntimeが推測してはならない。学校、広い屋外、吹き抜けを持つ商業施設を含む各ステージは、作者がその移動構造に合わせた任意形状のAreaと接続PortalをGLBへ明示する。
+
+Areaは複数の閉じた`VOL_NavigationArea_*` Meshを同じ`hs_area_id`で束ねてよい。これにより、L字形、離れた床片を通路で結ぶ形、上下に重なる領域を、巨大なAABBや単純な12m格子で近似せず表現できる。必須propertiesは次のとおり。
+
+| Key | 型 | 内容 |
+|---|---|---|
+| `hs_id` | string | Volume pieceとして一意なID |
+| `hs_role` | string | `navigation_area`固定 |
+| `hs_area_id` | string | 複数pieceを束ねるopaqueなArea ID |
+
+Area間の通過境界は薄い閉じた`PRT_NavigationArea_*` Meshで表す。必須propertiesは`hs_id`、`hs_role="navigation_area_portal"`、`hs_from`、`hs_to`、`hs_bidirectional`である。Portalは追跡状態の切替境界であり、物理衝突、光線遮蔽、NavMesh生成、実際の接続可否を代替しない。移動可能性の正本は引き続き人間用またはBIT用NavMeshと明示遷移である。
+
+分割粒度は、将来のステージ制作時に次のトレードオフを明示的に判断する。
+
+- 粗すぎるAreaは、壁越しや長い迂回路の先にいる対象を早期に「同一Area」と判定し、詳細経路探索へ戻すため、最適化効果を失う。完全な壁、階層差、長い迂回、入口が限定された棟や区画は、同じAreaへまとめない。
+- 細かすぎるAreaは、対象移動によるrevision変更と追跡者の境界通過を増やし、再計画回数、作者作業、監査対象を増やす。視認や戦闘上ほぼ同じ連続空間を、距離だけを理由に細分化しない。
+- Area境界は、扉、廊下の分岐、階段・エレベーターの出入口、屋内外ゲートなど、経路選択が実際に変わる狭窄部へ置く。壁の両側が近いという理由だけで接続Portalを置かない。
+- Areaの代表点から対象Area内へ入る経路がNavMesh上で成立し、Portalを横切った直後に元Areaへ戻らないことを監査する。境界付近ではPortal包含中の直前Areaを保持するため、Area Volumeの重複で遷移を表現しない。
+- `player_spawn`、`npc_spawn`、`bit_spawn`をPortal内部へ配置しない。初期位置はちょうど1つのAreaに含める。通常移動可能領域にAreaの欠落やPortal以外の重複を残さない。
+
+新規ステージは、Area ID集合、Volume piece、Portal参照、双方向性、スポーン包含、通常横断と高速横断、代表的な全接続経路を資産監査へ追加する。Area情報を持たない旧ステージへ座標推測や自動格子生成でフォールバックせず、そのステージのGLBを本契約へ移行してから三段階追跡を有効にする。分割の見直しはゲームバランス調整であると同時に性能契約の変更であり、NPC 99体とステージ想定BIT数による追跡負荷を再計測する。
 
 ### 7.8 `LNK_<id>_A/B`
 
@@ -658,11 +684,12 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 | `normalColliders` | 通常`COL_*` |
 | `actorOnlyColliders` | `COL_ActorOnly_*` |
 | `humanOnlyColliders` | `COL_HumanOnly_*` |
+| `beamSightOnlyColliders` | `COL_BeamSightOnly_*` |
 | `movementColliders.player` | 通常`COL_*`、`COL_ActorOnly_*`、`COL_HumanOnly_*` |
 | `movementColliders.npc` | 通常`COL_*`、`COL_ActorOnly_*`、`COL_HumanOnly_*` |
 | `movementColliders.bit` | 通常`COL_*`、`COL_ActorOnly_*` |
-| `beamBlockers` | 通常`COL_*`だけ |
-| `sightBlockers` | 通常`COL_*`だけ |
+| `beamBlockers` | 通常`COL_*`と`COL_BeamSightOnly_*` |
+| `sightBlockers` | 通常`COL_*`と`COL_BeamSightOnly_*` |
 | `navSourceMeshes` | `hs_nav_set=human`の`NAV_*` |
 | `bitFlightNavSourceMeshes` | `hs_nav_set=bit-flight`の`NAV_BitFlight_*` |
 | `metadataNode` | `META_Stage` |
@@ -674,7 +701,7 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 | `portals` | `PRT_*` |
 | `links` | 人間用`LNK_*` |
 
-分類順は`COL_ActorOnly_*`、`COL_HumanOnly_*`、通常`COL_*`、その他の順とする。通常`COL_*`の判定式は`name.startsWith("COL_") && !name.startsWith("COL_ActorOnly_") && !name.startsWith("COL_HumanOnly_")`と同値でなければならない。人間用pairだけを`StageSpatialContext.links`、ビット用pairとtransition Volumeを`StageSpatialContext.bitNavigation`へ公開する。
+分類順は`COL_BeamSightOnly_*`、`COL_ActorOnly_*`、`COL_HumanOnly_*`、通常`COL_*`、その他の順とする。通常`COL_*`の判定式は`name.startsWith("COL_") && !name.startsWith("COL_BeamSightOnly_") && !name.startsWith("COL_ActorOnly_") && !name.startsWith("COL_HumanOnly_")`と同値でなければならない。人間用pairだけを`StageSpatialContext.links`、ビット用pairとtransition Volumeを`StageSpatialContext.bitNavigation`へ公開する。
 
 `assembly_anchor` Markerと`assembly` Volumeは上記の排他的分類後に`StageAssemblyVenueRegistry`へ1対1で組み立てる。Registryは作者座標配列と選択weightを公開するが、座標や会場名から役割を推測しない。
 
@@ -742,6 +769,7 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 - 作者Nodeの未分類0件、重複分類0件である。
 - `COL_ActorOnly_*`が全移動者の`movementColliders`へ入り、`beamBlockers`と`sightBlockers`へ入らない。
 - `COL_HumanOnly_*`がプレイヤー・NPCの`movementColliders`だけへ入り、ビットの`movementColliders`、`beamBlockers`、`sightBlockers`へ入らない。
+- `COL_BeamSightOnly_*`が`beamSightOnlyColliders`、`beamBlockers`、`sightBlockers`へ入り、全移動者の`movementColliders`、床支持、ビット障害物、3種NavMesh生成元へ入らない。
 - 天井`COL_*`が通常Colliderとしてビットの`movementColliders`へ入り、屋内の天井被覆検査に合格する。
 - `NAV_*`、`VOL_*`、`BND_Stage`、`BND_WorldLimit`、`PRT_*`が表示、移動衝突、光線遮蔽へ入らない。
 - `VIS_*`がActor衝突と光線遮蔽へ入らない。

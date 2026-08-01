@@ -47,6 +47,7 @@ export const runDynamicStageSpatialAcceptance =
       id: "VOL_ElevatorCarOccupancy_DynamicSpatialAcceptance",
       role: "elevator_car_occupancy",
       bitFlightBand: null,
+      navigationAreaId: null,
       mesh: occupancyMesh
     });
     const movementColliders = Object.freeze({

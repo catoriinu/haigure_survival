@@ -29,6 +29,7 @@ from optimize_b03_school_glb import (
 from build_b03_school_interiors import (
     ATLAS_DEFINITIONS,
     FIRST_FLOOR_WEST_DOOR_OPENINGS,
+    INFIRMARY_CURTAIN_MATERIAL_NAME,
     NORTH_CLASSROOM_DOOR_OPENINGS,
     ROOF_POOL_NORTH_SIGN_SUPPORT,
     TOILET_COMMON_OPENING,
@@ -69,6 +70,7 @@ EXPECTED_PACKED_ATLAS_PATHS = {
 }
 EXPECTED_CONSOLIDATED_MATERIAL_NAMES = {
     *(str(definition["material"]) for definition in ATLAS_DEFINITIONS.values()),
+    INFIRMARY_CURTAIN_MATERIAL_NAME,
     "MAT_B03_WindowGlass",
     "MAT_Pool_Water",
 }
@@ -951,6 +953,7 @@ def expected_bit_flight_obstacle_bounds(
                 if obj.type == "MESH"
                 and obj.name.startswith("COL_")
                 and not obj.name.startswith("COL_HumanOnly_")
+                and not obj.name.startswith("COL_BeamSightOnly_")
                 and not has_dynamic_spatial_ancestor(obj)
                 and not is_bit_flight_support_collider_name(obj.name)
                 and not is_bit_flight_obstacle_exempt_collider_name(obj.name)
@@ -1298,7 +1301,7 @@ def audit_consolidated_materials() -> int:
     actual_material_names = {material.name for material in bpy.data.materials}
     require(
         actual_material_names == EXPECTED_CONSOLIDATED_MATERIAL_NAMES,
-        f"最終材質が5種類へ統合されていません: "
+        f"最終材質が6種類へ統合されていません: "
         f"{sorted(actual_material_names)}",
     )
     return len(actual_material_names)
@@ -4909,8 +4912,51 @@ def audit_b03_3b_structure(
     }
 
 
+def audit_navigation_areas(objects: list[bpy.types.Object]) -> dict[str, int]:
+    areas = sorted(
+        (obj for obj in objects if obj.get("hs_role") == "navigation_area"),
+        key=lambda obj: obj.name,
+    )
+    portals = sorted(
+        (
+            obj
+            for obj in objects
+            if obj.get("hs_role") == "navigation_area_portal"
+        ),
+        key=lambda obj: obj.name,
+    )
+    expected_area_ids = (
+        "school-ground",
+        "school-upper-01",
+        "school-upper-02",
+        "school-upper-03",
+        "school-roof",
+    )
+    require(len(areas) == len(expected_area_ids), f"Navigation Area数が不正です: {len(areas)}")
+    require(len(portals) == len(expected_area_ids) - 1, f"Navigation Area Portal数が不正です: {len(portals)}")
+    require(
+        {obj.get("hs_area_id") for obj in areas} == set(expected_area_ids),
+        f"Navigation Area IDが不正です: {[obj.get('hs_area_id') for obj in areas]}",
+    )
+    for index, portal in enumerate(portals):
+        require(portal.type == "MESH", f"Navigation Area PortalがMeshではありません: {portal.name}")
+        require(bool(portal.get("hs_bidirectional")), f"Navigation Area Portalが双方向ではありません: {portal.name}")
+        require(
+            portal.get("hs_from") == expected_area_ids[index]
+            and portal.get("hs_to") == expected_area_ids[index + 1],
+            f"Navigation Area Portal参照が不正です: {portal.name}",
+        )
+    return {"areas": len(areas), "portals": len(portals)}
+
+
 def audit_semantics(objects: list[bpy.types.Object]) -> None:
-    require(not any(obj.name.startswith("PRT_") for obj in objects), "PRT_*が存在します")
+    unexpected_portals = [
+        obj.name
+        for obj in objects
+        if obj.name.startswith("PRT_")
+        and obj.get("hs_role") != "navigation_area_portal"
+    ]
+    require(not unexpected_portals, f"未許可のPRT_*が存在します: {unexpected_portals}")
     audit_assembly_venues(objects)
     water = bpy.data.objects.get("VOL_PoolWater")
     require(water is not None, "VOL_PoolWaterがありません")
@@ -5862,7 +5908,27 @@ def audit_glb(document: GlbDocument) -> dict[str, object]:
     assembly_counts = audit_glb_assembly_contract(nodes)
     require("VOL_PoolWater" in node_names, "GLBにVOL_PoolWaterがありません")
     require(not any("Gym_South" in name for name in node_names), "GLB体育館南面に窓があります")
-    require(not any(name.startswith("PRT_") for name in node_names), "GLBにPRT_*があります")
+    glb_navigation_areas = [
+        node
+        for node in nodes
+        if node.get("extras", {}).get("hs_role") == "navigation_area"
+    ]
+    glb_navigation_area_portals = [
+        node
+        for node in nodes
+        if node.get("extras", {}).get("hs_role") == "navigation_area_portal"
+    ]
+    require(len(glb_navigation_areas) == 5, f"GLB Navigation Area数が不正です: {len(glb_navigation_areas)}")
+    require(len(glb_navigation_area_portals) == 4, f"GLB Navigation Area Portal数が不正です: {len(glb_navigation_area_portals)}")
+    require(
+        not any(
+            name.startswith("PRT_")
+            and nodes[index].get("extras", {}).get("hs_role")
+            != "navigation_area_portal"
+            for index, name in enumerate(node_names)
+        ),
+        "GLBに未許可のPRT_*があります",
+    )
     perimeter_joint_nodes = [
         node
         for node in nodes
@@ -6054,6 +6120,7 @@ def main() -> None:
     roof_guard_counts = audit_roof_guards()
     acceptance_visuals = audit_acceptance_visuals(export_objects)
     b03_3b_structure = audit_b03_3b_structure(export_objects)
+    navigation_area_counts = audit_navigation_areas(export_objects)
     audit_semantics(export_objects)
     glb_counts = audit_glb(read_glb(GLB_PATH))
     glb_optimization = audit_glb_optimization()
@@ -6076,6 +6143,7 @@ def main() -> None:
         "roof_guards": roof_guard_counts,
         "acceptance_visuals": acceptance_visuals,
         "b03_3b_structure": b03_3b_structure,
+        "navigation_areas": navigation_area_counts,
         "glb": glb_counts,
         "glb_optimization": glb_optimization,
     }

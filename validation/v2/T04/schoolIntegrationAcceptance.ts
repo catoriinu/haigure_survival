@@ -179,7 +179,7 @@ const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   roomVariantNavmesh: Object.freeze({
     mode: "required",
     url: "b02_school_blockout.room-variants.navmesh.bin",
-    sha256: "78a0f481aae3abd6a6e403c60fc0debc1c70941c8b7956f17e35006df10c3afd"
+    sha256: "95c032fcd4d169a4ad590c1b8f3eb2dc0e30da4ebd74e1eac035d2a191d559a8"
   })
 });
 
@@ -995,6 +995,36 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
     this.requireActor(npcId).position.copyFrom(position);
   }
 
+  beginTargetNavigationAreaTransport(
+    targetId: string,
+    _position: Vector3
+  ) {
+    this.assertActive();
+    if (targetId !== "player") {
+      this.requireActor(targetId);
+    }
+  }
+
+  updateTargetNavigationAreaTransportPosition(
+    targetId: string,
+    _position: Vector3
+  ) {
+    this.assertActive();
+    if (targetId !== "player") {
+      this.requireActor(targetId);
+    }
+  }
+
+  relocateTargetNavigationArea(
+    targetId: string,
+    _position: Vector3
+  ) {
+    this.assertActive();
+    if (targetId !== "player") {
+      this.requireActor(targetId);
+    }
+  }
+
   requestPlayerGunFire(_direction: Vector3) {
     this.assertActive();
     return false;
@@ -1186,6 +1216,8 @@ const createDoorDynamicRayProbe = (
       context.queries.containsVolume(role, point),
     containsVolumeById: (id, point) =>
       context.queries.containsVolumeById(id, point),
+    intersectsVolumeSegmentById: (id, from, to) =>
+      context.queries.intersectsVolumeSegmentById(id, from, to),
     intersectsVolumeById: (id, ellipsoid) =>
       context.queries.intersectsVolumeById(id, ellipsoid),
     findContainingBlocker: (kind, point) => {
@@ -1960,6 +1992,36 @@ const runTraversalCoordinatorAcceptance = async (
     }
     const callMatCenter = requireWorldCenter(
       fromStop.callMat.mesh
+    );
+    const callMatBounds =
+      fromStop.callMat.mesh.getBoundingInfo().boundingBox;
+    const callMatSweepFrom = new Vector3(
+      callMatBounds.minimumWorld.x - 0.25,
+      callMatCenter.y,
+      callMatCenter.z
+    );
+    const callMatSweepTo = new Vector3(
+      callMatBounds.maximumWorld.x + 0.25,
+      callMatCenter.y,
+      callMatCenter.z
+    );
+    pushCheck(
+      checks,
+      "1更新で呼出マットを飛び越す移動区間も実Volume交差で検出",
+      !context.queries.containsVolumeById(
+        fromStop.callMat.id,
+        callMatSweepFrom
+      ) &&
+        !context.queries.containsVolumeById(
+          fromStop.callMat.id,
+          callMatSweepTo
+        ) &&
+        context.queries.intersectsVolumeSegmentById(
+          fromStop.callMat.id,
+          callMatSweepFrom,
+          callMatSweepTo
+        ),
+      `from=${callMatSweepFrom.toString()} / to=${callMatSweepTo.toString()}`
     );
     const elevatorActorIds = Array.from(
       { length: 8 },

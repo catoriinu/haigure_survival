@@ -7,7 +7,10 @@ from dataclasses import dataclass
 import bmesh
 import bpy
 
-from build_b03_school_interiors import swatch_uv
+from build_b03_school_interiors import (
+    INFIRMARY_CURTAIN_BEAM_SIGHT_COLLIDER_NAME,
+    swatch_uv,
+)
 
 
 ROOM_VARIANT_IDS = (
@@ -69,6 +72,9 @@ ROOM_DOOR_OPEN_NORMAL_OFFSETS = {
     ("north", "upper"): -0.04,
 }
 TOILET_STALL_OPEN_ROTATION_Z = -math.radians(85.0)
+INFIRMARY_DISORDERED_CURTAIN_BEAM_SIGHT_COLLIDER_NAME = (
+    "COL_BeamSightOnly_RoomVariant_F01_Infirmary_Disordered_Curtains"
+)
 
 
 @dataclass(frozen=True)
@@ -1794,6 +1800,18 @@ def _build_room_variants(
                 )
             )
             is not None
+        ) + tuple(
+            sorted(
+                (
+                    obj
+                    for obj in bpy.data.objects
+                    if obj.type == "MESH"
+                    and obj.name.startswith(
+                        f"VIS_B03_Interior_{room.author_name}_Curtain_"
+                    )
+                ),
+                key=lambda obj: obj.name,
+            )
         )
         if not normal_visuals:
             raise RuntimeError(f"部屋variantの表示がありません: {room.author_name}")
@@ -1804,6 +1822,22 @@ def _build_room_variants(
         if normal_collider is None or normal_collider.type != "MESH":
             raise RuntimeError(f"部屋variantのColliderがありません: {room.author_name}")
         normal_collider.parent = normal_marker
+        if room.author_name == "F01_Infirmary":
+            normal_beam_sight_collider = bpy.data.objects.get(
+                INFIRMARY_CURTAIN_BEAM_SIGHT_COLLIDER_NAME
+            )
+            if (
+                normal_beam_sight_collider is None
+                or normal_beam_sight_collider.type != "MESH"
+            ):
+                raise RuntimeError("保健室カーテンのビーム・視線遮蔽Meshがありません")
+            normal_beam_sight_collider.parent = normal_marker
+            _copy_mesh_object(
+                normal_beam_sight_collider,
+                INFIRMARY_DISORDERED_CURTAIN_BEAM_SIGHT_COLLIDER_NAME,
+                collider_collection,
+                disordered_marker,
+            )
         _create_variant_nav_from_collider(
             normal_collider,
             f"NAV_RoomVariant_{token}_Normal_Blocker",
@@ -1824,7 +1858,12 @@ def _build_room_variants(
                 f"VIS_B03_Interior_{room.author_name}",
                 f"VIS_RoomVariant_{token}_Disordered",
             )
-            if excluded_bounds:
+            if (
+                excluded_bounds
+                and not source.name.startswith(
+                    f"VIS_B03_Interior_{room.author_name}_Curtain_"
+                )
+            ):
                 disordered_visual = _copy_mesh_excluding_bounds(
                     source,
                     target_name,

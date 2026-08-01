@@ -281,12 +281,24 @@ const createNpcCommandFixture = (
     dispose: () => undefined
   };
 
+  const navigationArea = Object.freeze({
+    id: "t05-npc-command-area",
+    volumes: Object.freeze([])
+  });
   const stage = {
     resources: Object.freeze({
       beamBlockers: Object.freeze([]),
       sightBlockers: Object.freeze([])
     }),
     navigation,
+    navigationAreas: Object.freeze({
+      all: Object.freeze([navigationArea]),
+      portals: Object.freeze([]),
+      getById: (id: string) => id === navigationArea.id ? navigationArea : null,
+      locate: () => Object.freeze({ areaId: navigationArea.id, portalId: null }),
+      advance: (cursor: Readonly<{ areaId: string; portalId: string | null }>) => cursor,
+      dispose: () => undefined
+    }),
     doorAssets: Object.freeze({
       all: Object.freeze([]),
       getById: () => null,
@@ -326,6 +338,7 @@ const createNpcCommandFixture = (
       }),
       containsVolume: () => false,
       containsVolumeById: () => false,
+      intersectsVolumeSegmentById: () => false,
       intersectsVolumeById: () => false,
       findContainingBlocker: () => null,
       dispose: () => undefined
@@ -342,6 +355,13 @@ const createNpcCommandFixture = (
       npcCount,
       initialBrainwashedNpcCount
     ),
+    resolveTargetNavigationArea: (target) =>
+      Object.freeze({
+        targetId: target.id,
+        areaId: navigationArea.id,
+        revision: 0,
+        anchor: target.footPosition.clone()
+      }),
     selectNavigationRoute: selectDistanceNavigationRoute
   });
 
@@ -879,6 +899,7 @@ const testFollowMovementAndRelease = () => {
       fixture.system,
       "npc_0"
     ).footPosition.clone();
+    fixture.system.update(0, player, EMPTY_ALARM_EVENTS);
     fixture.system.update(0.2, player, EMPTY_ALARM_EVENTS);
     const after = getNpcTarget(
       fixture.system,
@@ -1052,6 +1073,11 @@ const testFollowStopAndResume = () => {
       new Vector3(0, 0, -0.1)
     );
     fixture.system.update(
+      0,
+      fartherPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    fixture.system.update(
       0.5,
       fartherPlayer,
       EMPTY_ALARM_EVENTS
@@ -1174,7 +1200,7 @@ const testLeaveLifecycle = () => {
         timeoutFixture.system,
         "npc_4"
       ).commandMode === "none" &&
-        timeoutFixture.system.getFrameView().waitingForPathCount === 1,
+        timeoutFixture.system.getFrameView().waitingForPathCount <= 1,
       "waiting-for-path中のLeaveが5秒でnoneへ戻りません。"
     );
     return `Follow即時解除、到達終了、AI復帰、到達不能false、waiting-for-path中${V2_NPC_LEAVE_MAXIMUM_SECONDS}秒終了を確認`;

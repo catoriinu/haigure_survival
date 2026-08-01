@@ -34,14 +34,45 @@ from build_b03_school_interiors import (
     CLASSROOM_REAR_LOCKER_Y,
     CLASSROOM_REAR_WALL_INNER_Y,
     CLASSROOM_DESK_ROW_Y_OFFSETS,
-    CLASSROOM_SCATTER_VARIANTS,
+    CLASSROOM_DESKTOP_PROP_VARIANTS,
+    CLASSROOM_FLOOR_PROP_VARIANTS,
+    CLASSROOM_LAYOUT_VARIANTS,
     CLASSROOM_TRASH_BIN_PLACEMENT,
     COUNCIL_INTERIOR_BOUNDS,
     CORRIDOR_CLEANING_LOCKER,
     FIRST_FLOOR_WEST_DOOR_OPENINGS,
     GYM_STAGE_LECTERN,
+    INFIRMARY_BED_PLACEMENTS,
+    INFIRMARY_CEILING_UNDERSIDE_Z,
+    INFIRMARY_CURTAIN_BASE_COLOR,
+    INFIRMARY_CURTAIN_BEAM_SIGHT_COLLIDER_NAME,
+    INFIRMARY_CURTAIN_BOTTOM_Z,
+    INFIRMARY_CURTAIN_CENTER_Z,
+    INFIRMARY_CURTAIN_FOLD_DEPTH,
+    INFIRMARY_CURTAIN_HEIGHT,
+    INFIRMARY_CURTAIN_MATERIAL_NAME,
+    INFIRMARY_CURTAIN_OPACITY,
+    INFIRMARY_CURTAIN_RGB,
+    INFIRMARY_CURTAIN_SEGMENTS,
+    INFIRMARY_JOINED_CHAIRS,
+    INFIRMARY_JOINED_DESKS,
+    INFIRMARY_NORTH_STORAGE_PLACEMENTS,
+    INFIRMARY_STAFF_CHAIR,
+    INFIRMARY_STAFF_DESK,
+    INFIRMARY_TRASH_BIN,
+    LIBRARY_AISLE_WIDTH,
+    LIBRARY_BLOCK_AISLE,
     LIBRARY_BOOKSHELF_PLACEMENTS,
+    LIBRARY_DENSE_ROW_XS,
+    LIBRARY_EAST_SHELF_SERVICE_GAP,
+    LIBRARY_EAST_SHELF_X,
+    LIBRARY_EAST_SHELF_YS,
     LIBRARY_EAST_WALL_INNER_X,
+    LIBRARY_NORTH_BLOCK_YS,
+    LIBRARY_NORTHWEST_SHELF_YS,
+    LIBRARY_SOUTH_BLOCK_YS,
+    LIBRARY_SOUTH_TO_WALL_AISLE,
+    LIBRARY_SOUTH_SHELF_XS,
     LIBRARY_WEST_WALL_INNER_X,
     LL_AV_RACK,
     LL_BAGGAGE_LOCKER_XS,
@@ -61,8 +92,12 @@ from build_b03_school_interiors import (
     ROOF_CHANGING_BAGGAGE_LOCKER_XS,
     ROOF_POOL_NORTH_SIGN_SUPPORT,
     STAFFROOM_CLEANING_LOCKER,
+    STAFFROOM_DESK_YS,
+    STAFFROOM_EAST_BOOKSHELVES,
     STAFFROOM_INTERIOR_BOUNDS,
+    STAFFROOM_ISLAND_XS,
     STAFFROOM_TRASH_BIN,
+    STAFFROOM_WEST_BOOKSHELVES,
     TOILET_COMMON_OPENING,
     TOILET_FRONT_DOOR_HEIGHT,
     TOILET_FRONT_DOOR_OPENINGS,
@@ -72,6 +107,8 @@ from build_b03_school_interiors import (
     TOILET_SIGN_PLACEMENTS,
     UPPER_WEST_CLASSROOM_DOOR_OPENINGS,
     architecture_swatch,
+    infirmary_curtain_segment_count,
+    infirmary_curtain_beam_sight_boxes,
 )
 
 
@@ -79,6 +116,34 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 BLEND_PATH = REPOSITORY_ROOT / "assets/blender/v2/B02/b02_school_blockout.blend"
 GLB_PATH = REPOSITORY_ROOT / "public/stage-assets/v2/B02/b02_school_blockout.glb"
 TEXTURE_DIRECTORY = REPOSITORY_ROOT / "assets/textures/v2/B03"
+
+CLASSROOM_SMALL_PROP_PARTS = {
+    "ClosedBook": (
+        ((0.0, 0.0, 0.015), (0.25, 0.18, 0.02)),
+        ((0.0, 0.0, 0.005), (0.25, 0.18, 0.01)),
+    ),
+    "OpenBook": (
+        ((-0.1125, 0.0, 0.02), (0.215, 0.25, 0.02)),
+        ((0.1125, 0.0, 0.02), (0.215, 0.25, 0.02)),
+        ((0.0, 0.0, 0.02), (0.01, 0.25, 0.04)),
+    ),
+    "PaperStack": (((0.0, 0.0, 0.0125), (0.297, 0.21, 0.025)),),
+    "SinglePaper": (((0.0, 0.0, 0.001), (0.297, 0.21, 0.002)),),
+    "PencilCase": (((0.0, 0.0, 0.025), (0.20, 0.07, 0.05)),),
+}
+CLASSROOM_SMALL_PROP_FOOTPRINTS = {
+    "ClosedBook": (0.25, 0.18),
+    "OpenBook": (0.44, 0.25),
+    "PaperStack": (0.297, 0.21),
+    "SinglePaper": (0.297, 0.21),
+    "PencilCase": (0.20, 0.07),
+}
+CLASSROOM_PAPER_PROP_TYPES = {
+    "ClosedBook",
+    "OpenBook",
+    "PaperStack",
+    "SinglePaper",
+}
 
 
 def sha256(path: Path) -> str:
@@ -418,7 +483,10 @@ def audit_visual_door_clearance(interior_visuals: list[bpy.types.Object]) -> int
     furniture_components = [
         (visual.name, component_index, minimum, maximum)
         for visual in interior_visuals
-        if visual.name.endswith("_FurnitureProps")
+        if (
+            visual.name.endswith("_FurnitureProps")
+            or "_Curtain_" in visual.name
+        )
         for component_index, (minimum, maximum) in enumerate(
             connected_component_aabbs(visual),
             1,
@@ -634,6 +702,18 @@ def require_component_bounds(
         raise RuntimeError(f"{label}のAABBが見つかりません: {expected}")
 
 
+def consume_component_bounds(
+    label: str,
+    components: list[tuple[Vector, Vector]],
+    expected: tuple[tuple[float, float, float], tuple[float, float, float]],
+) -> None:
+    for index, component in enumerate(components):
+        if bounds_match(component, expected):
+            components.pop(index)
+            return
+    raise RuntimeError(f"{label}のAABBが見つかりません: {expected}")
+
+
 def require_bounds_contained(
     label: str,
     container: tuple[
@@ -794,6 +874,12 @@ def audit_classroom_teacher_desks_and_lockers() -> dict[str, int]:
     bulletin_board_absence_checks = 0
     blackboard_alignment_checks = 0
     desk_collider_checks = 0
+    desk_visual_checks = 0
+    chair_layout_checks = 0
+    desktop_prop_spot_checks = 0
+    floor_prop_spot_checks = 0
+    small_prop_component_checks = 0
+    small_prop_room_checks = 0
     blackboard_x = -8.05
     for floor, base_z in ((2, 3.6), (3, 7.2), (4, 10.8)):
         for room_index, room_y_offset in enumerate((0.0, 10.0, 20.0), 1):
@@ -804,8 +890,22 @@ def audit_classroom_teacher_desks_and_lockers() -> dict[str, int]:
             collider = bpy.data.objects[f"COL_B03_Interior_{room_name}"]
             visual_components = connected_component_aabbs(visual)
             collider_components = connected_component_aabbs(collider)
-            variant_index = (floor + room_index) % len(CLASSROOM_SCATTER_VARIANTS)
-            rotations = CLASSROOM_SCATTER_VARIANTS[variant_index]
+            paper_object = bpy.data.objects[
+                f"VIS_B03_Interior_{room_name}_SignsPaper"
+            ]
+            paper_components = connected_component_aabbs(paper_object)
+            unmatched_paper_components = list(paper_components)
+            unmatched_furniture_components = list(visual_components)
+            variant_index = (floor + room_index) % len(
+                CLASSROOM_LAYOUT_VARIANTS
+            )
+            desk_adjustments = CLASSROOM_LAYOUT_VARIANTS[variant_index][
+                "desk_adjustments"
+            ]
+            chair_adjustments = CLASSROOM_LAYOUT_VARIANTS[variant_index][
+                "chair_adjustments"
+            ]
+            desk_positions: dict[tuple[int, int], tuple[float, float, float]] = {}
             for row in range(6):
                 for column in range(5):
                     desk_x = -11.15 + column * 1.42
@@ -815,7 +915,17 @@ def audit_classroom_teacher_desks_and_lockers() -> dict[str, int]:
                         + row * 1.22
                         + CLASSROOM_DESK_ROW_Y_OFFSETS[row]
                     )
-                    rotation = rotations.get((column, row), 0.0)
+                    desk_dx, desk_dy, rotation = desk_adjustments.get(
+                        (column, row),
+                        (0.0, 0.0, 0.0),
+                    )
+                    desk_x += desk_dx
+                    desk_y += desk_dy
+                    desk_positions[(column, row)] = (
+                        desk_x,
+                        desk_y,
+                        rotation,
+                    )
                     expected_desk_bounds = transformed_box_bounds(
                         (desk_x, desk_y, base_z),
                         (
@@ -832,6 +942,105 @@ def audit_classroom_teacher_desks_and_lockers() -> dict[str, int]:
                         expected_desk_bounds,
                     )
                     desk_collider_checks += 1
+                    require_component_bounds(
+                        f"{room_name} 生徒机天板",
+                        visual_components,
+                        transformed_box_bounds(
+                            (desk_x, desk_y, base_z),
+                            (0.0, 0.0, 0.68),
+                            (0.65, 0.45, 0.04),
+                            rotation,
+                        ),
+                    )
+                    desk_visual_checks += 1
+                    chair_dx, chair_dy, chair_rotation = chair_adjustments.get(
+                        (column, row),
+                        (0.0, 0.0, 0.0),
+                    )
+                    chair_x = desk_x + math.sin(rotation) * 0.31 + chair_dx
+                    chair_y = desk_y - math.cos(rotation) * 0.31 + chair_dy
+                    require_component_bounds(
+                        f"{room_name} 生徒椅子座面",
+                        visual_components,
+                        transformed_box_bounds(
+                            (chair_x, chair_y, base_z),
+                            (0.0, 0.0, 0.43),
+                            (0.42, 0.45, 0.035),
+                            math.pi + rotation + chair_rotation,
+                        ),
+                    )
+                    chair_layout_checks += 1
+            small_prop_expectations = []
+            for prop_type, key, offset_x, offset_y in (
+                CLASSROOM_DESKTOP_PROP_VARIANTS[variant_index]
+            ):
+                footprint_x, footprint_y = CLASSROOM_SMALL_PROP_FOOTPRINTS[
+                    prop_type
+                ]
+                if (
+                    abs(offset_x) + footprint_x / 2.0 > 0.325 + 1e-4
+                    or abs(offset_y) + footprint_y / 2.0 > 0.225 + 1e-4
+                ):
+                    raise RuntimeError(
+                        f"{room_name}の机上小物が机天板内に収まりません: "
+                        f"{prop_type}/{key}"
+                    )
+                desk_x, desk_y, desk_rotation = desk_positions[key]
+                cosine = math.cos(desk_rotation)
+                sine = math.sin(desk_rotation)
+                prop_x = desk_x + offset_x * cosine - offset_y * sine
+                prop_y = desk_y + offset_x * sine + offset_y * cosine
+                small_prop_expectations.append(
+                    (
+                        "机上",
+                        prop_type,
+                        (prop_x, prop_y, base_z + 0.70),
+                        desk_rotation,
+                    )
+                )
+                desktop_prop_spot_checks += 1
+            for prop_type, x, y, rotation in CLASSROOM_FLOOR_PROP_VARIANTS[
+                variant_index
+            ]:
+                small_prop_expectations.append(
+                    (
+                        "床上",
+                        prop_type,
+                        (x, y + room_y_offset, base_z),
+                        rotation,
+                    )
+                )
+                floor_prop_spot_checks += 1
+            for placement_label, prop_type, origin, rotation in (
+                small_prop_expectations
+            ):
+                for part_index, (local_center, size) in enumerate(
+                    CLASSROOM_SMALL_PROP_PARTS[prop_type],
+                    1,
+                ):
+                    expected = transformed_box_bounds(
+                        origin,
+                        local_center,
+                        size,
+                        rotation,
+                    )
+                    target_components = (
+                        unmatched_paper_components
+                        if prop_type in CLASSROOM_PAPER_PROP_TYPES
+                        else unmatched_furniture_components
+                    )
+                    consume_component_bounds(
+                        f"{room_name} {placement_label}{prop_type}#{part_index}",
+                        target_components,
+                        expected,
+                    )
+                    small_prop_component_checks += 1
+            if unmatched_paper_components:
+                raise RuntimeError(
+                    f"{room_name}に仕様外の紙・本小物成分が残っています: "
+                    f"{len(unmatched_paper_components)}"
+                )
+            small_prop_room_checks += 1
             teacher_y = 11.25 + room_y_offset
             teacher_bounds = box_bounds(
                 (blackboard_x, teacher_y, base_z + 0.36),
@@ -875,10 +1084,6 @@ def audit_classroom_teacher_desks_and_lockers() -> dict[str, int]:
                 8.7 + room_y_offset,
                 base_z,
             )
-            paper_object = bpy.data.objects[
-                f"VIS_B03_Interior_{room_name}_SignsPaper"
-            ]
-            paper_components = connected_component_aabbs(paper_object)
             for local_center, size, _swatch in BULLETIN_BOARD_FURNITURE_PARTS:
                 old_bounds = transformed_box_bounds(
                     old_bulletin_origin,
@@ -983,6 +1188,12 @@ def audit_classroom_teacher_desks_and_lockers() -> dict[str, int]:
         "bulletin_board_absence_checks": bulletin_board_absence_checks,
         "blackboard_alignment_checks": blackboard_alignment_checks,
         "desk_collider_checks": desk_collider_checks,
+        "desk_visual_checks": desk_visual_checks,
+        "chair_layout_checks": chair_layout_checks,
+        "desktop_prop_spot_checks": desktop_prop_spot_checks,
+        "floor_prop_spot_checks": floor_prop_spot_checks,
+        "small_prop_component_checks": small_prop_component_checks,
+        "small_prop_room_checks": small_prop_room_checks,
     }
 
 
@@ -994,101 +1205,140 @@ def audit_library_bookshelves() -> dict[str, int]:
     shelf_bounds: list[tuple[Vector, Vector]] = []
     orientation_checks = 0
     for x, y, rotation in LIBRARY_BOOKSHELF_PLACEMENTS:
-        if abs(rotation) <= 1.0:
-            raise RuntimeError(f"図書室本棚が壁と平行ではありません: {(x, y, rotation)}")
-        expected = box_bounds((x, y, 0.90), (0.32, 0.90, 1.80))
+        expected = transformed_box_bounds(
+            (x, y, 0.0),
+            (0.0, 0.0, 0.90),
+            PROP_COLLIDER_SIZES["Bookshelf"],
+            rotation,
+        )
         require_component_bounds("図書室本棚Collider", collider_components, expected)
         shelf_bounds.append((Vector(expected[0]), Vector(expected[1])))
-        if rotation > 0:
-            back_panel = (
-                (x - 0.16, y - 0.45, 0.0),
-                (x - 0.12, y + 0.45, 1.80),
-            )
-            wall_gap = expected[0][0] - LIBRARY_WEST_WALL_INNER_X
-            if wall_gap < -1e-5:
-                raise RuntimeError("図書室西壁本棚が壁へ食い込んでいます")
-            if wall_gap > 1e-5:
-                raise RuntimeError(
-                    f"図書室西壁本棚が壁際から離れています: gap={wall_gap:.6f}m"
-                )
-        else:
-            back_panel = (
-                (x + 0.12, y - 0.45, 0.0),
-                (x + 0.16, y + 0.45, 1.80),
-            )
-            wall_gap = LIBRARY_EAST_WALL_INNER_X - expected[1][0]
-            if wall_gap < -1e-5:
-                raise RuntimeError("図書室東壁本棚が壁へ食い込んでいます")
-            if wall_gap > 1e-5:
-                raise RuntimeError(
-                    f"図書室東壁本棚が壁際から離れています: gap={wall_gap:.6f}m"
-                )
+        back_panel = transformed_box_bounds(
+            (x, y, 0.0),
+            (0.0, 0.14, 0.90),
+            (0.90, 0.04, 1.80),
+            rotation,
+        )
         require_component_bounds("図書室本棚背板", visual_components, back_panel)
         orientation_checks += 1
 
-    opening_clearances = (
-        (Vector((-12.31, 17.45, 0.0)), Vector((-11.90, 27.55, 1.90))),
-        (Vector((-4.00, 12.90, 0.0)), Vector((-3.60, 15.65, 1.90))),
-        (Vector((-4.00, 30.50, 0.0)), Vector((-3.60, 32.50, 1.90))),
-    )
-    violations = [
-        (shelf_index, clearance_index)
-        for shelf_index, (minimum, maximum) in enumerate(shelf_bounds, 1)
-        for clearance_index, (clearance_minimum, clearance_maximum) in enumerate(
-            opening_clearances,
-            1,
-        )
-        if aabb_overlaps(minimum, maximum, clearance_minimum, clearance_maximum)
-    ]
-    if violations:
-        raise RuntimeError(f"図書室本棚が窓・扉・開扉葉へ干渉しています: {violations}")
-
-    relevant_openings = [
-        obj
-        for obj in bpy.data.objects
-        if obj.type == "MESH"
-        and obj.name.startswith("VIS_")
-        and ("Door" in obj.name or "WindowFrame" in obj.name or "WindowGlass" in obj.name)
-    ]
-    mesh_overlap_violations = [
-        f"shelf#{shelf_index}/{opening.name}#{opening_index}"
-        for shelf_index, (minimum, maximum) in enumerate(shelf_bounds, 1)
-        for opening in relevant_openings
-        for opening_index, (opening_minimum, opening_maximum) in enumerate(
-            connected_component_aabbs(opening),
-            1,
-        )
-        if aabb_overlaps(minimum, maximum, opening_minimum, opening_maximum)
-    ]
-    if mesh_overlap_violations:
+    if len(shelf_bounds) != 80:
         raise RuntimeError(
-            "図書室本棚が実際の扉・窓Meshへ重なっています:\n"
-            + "\n".join(mesh_overlap_violations)
+            f"図書室本棚が80台ではありません: {len(shelf_bounds)}"
         )
-    east_shelf_maximum_y = max(
-        maximum.y
-        for (minimum, maximum), (_, _, rotation) in zip(
+    expected_west_rows = len(LIBRARY_SOUTH_BLOCK_YS) + len(
+        LIBRARY_NORTH_BLOCK_YS
+    ) + len(LIBRARY_NORTHWEST_SHELF_YS)
+    west_wall_rows = [
+        placement
+        for placement in LIBRARY_BOOKSHELF_PLACEMENTS
+        if abs(placement[0] - (LIBRARY_WEST_WALL_INNER_X + 0.16)) < 1e-5
+        and abs(placement[2] - math.pi / 2) < 1e-5
+    ]
+    if len(west_wall_rows) != expected_west_rows:
+        raise RuntimeError("図書室西窓側の本棚列数が不正です")
+
+    east_rows = [
+        (minimum, maximum)
+        for (minimum, maximum), (x, y, rotation) in zip(
             shelf_bounds,
             LIBRARY_BOOKSHELF_PLACEMENTS,
         )
-        if rotation < 0
+        if abs(x - LIBRARY_EAST_SHELF_X) < 1e-5
+        and abs(rotation + math.pi / 2) < 1e-5
+        and any(abs(y - expected_y) < 1e-5 for expected_y in LIBRARY_EAST_SHELF_YS)
+    ]
+    if len(east_rows) != 17:
+        raise RuntimeError(f"図書室東壁本棚が17台ではありません: {len(east_rows)}")
+    east_back_gap = (
+        LIBRARY_EAST_WALL_INNER_X
+        - max(maximum.x for _, maximum in east_rows)
     )
-    rear_door_clearance = 30.50 - east_shelf_maximum_y
-    if abs(rear_door_clearance - 2.15) > 1e-5:
+    if abs(east_back_gap - LIBRARY_EAST_SHELF_SERVICE_GAP) > 1e-5:
         raise RuntimeError(
-            "図書室廊下側本棚と後方扉の離隔が2.15mではありません: "
-            f"{rear_door_clearance:.6f}m"
+            "図書室東壁本棚の扉収納用隙間が0.15mではありません: "
+            f"{east_back_gap:.6f}m"
         )
+
+    open_door_handle_minimum_x = -3.76
+    door_track_clearance = open_door_handle_minimum_x - max(
+        maximum.x for _, maximum in east_rows
+    )
+    if door_track_clearance < 0.039:
+        raise RuntimeError(
+            "図書室東壁本棚が開扉パネルまたは取っ手へ近すぎます: "
+            f"{door_track_clearance:.6f}m"
+        )
+    south_door_clearance = min(minimum.y for minimum, _ in east_rows) - 14.30
+    north_door_clearance = 30.70 - max(maximum.y for _, maximum in east_rows)
+    if (
+        abs(south_door_clearance - 0.55) > 1e-5
+        or abs(north_door_clearance - 0.55) > 1e-5
+    ):
+        raise RuntimeError(
+            "図書室東壁本棚の南北扉端離隔が各0.55mではありません: "
+            f"south={south_door_clearance:.6f}, "
+            f"north={north_door_clearance:.6f}"
+        )
+
+    first_pair_west_front = LIBRARY_DENSE_ROW_XS[1] - 0.16
+    first_pair_east_front = LIBRARY_DENSE_ROW_XS[2] + 0.16
+    second_pair_west_front = LIBRARY_DENSE_ROW_XS[3] - 0.16
+    second_pair_east_front = LIBRARY_DENSE_ROW_XS[4] + 0.16
+    aisle_widths = (
+        first_pair_west_front - (LIBRARY_DENSE_ROW_XS[0] + 0.16),
+        second_pair_west_front - first_pair_east_front,
+        (LIBRARY_EAST_SHELF_X - 0.16) - second_pair_east_front,
+    )
+    if any(abs(width - LIBRARY_AISLE_WIDTH) > 1e-5 for width in aisle_widths):
+        raise RuntimeError(f"図書室東西通路が均等ではありません: {aisle_widths}")
+    south_wall_front_y = 12.81 + 0.16
+    south_block_minimum_y = min(LIBRARY_SOUTH_BLOCK_YS) - 0.45
+    south_to_wall_aisle = south_block_minimum_y - south_wall_front_y
+    block_aisle = (
+        min(LIBRARY_NORTH_BLOCK_YS)
+        - 0.45
+        - (max(LIBRARY_SOUTH_BLOCK_YS) + 0.45)
+    )
+    if (
+        abs(south_to_wall_aisle - LIBRARY_SOUTH_TO_WALL_AISLE) > 1e-5
+        or abs(block_aisle - LIBRARY_BLOCK_AISLE) > 1e-5
+    ):
+        raise RuntimeError(
+            "図書室南壁・書架ブロック間の通路幅が設計値と一致しません: "
+            f"south={south_to_wall_aisle:.6f}, blocks={block_aisle:.6f}"
+        )
+
+    overlaps = [
+        (first_index, second_index)
+        for first_index, (first_minimum, first_maximum) in enumerate(
+            shelf_bounds,
+            1,
+        )
+        for second_index, (second_minimum, second_maximum) in enumerate(
+            shelf_bounds[first_index:],
+            first_index + 1,
+        )
+        if aabb_overlaps(
+            first_minimum,
+            first_maximum,
+            second_minimum,
+            second_maximum,
+        )
+    ]
+    if overlaps:
+        raise RuntimeError(f"図書室本棚同士が重なっています: {overlaps[:10]}")
     return {
         "bookshelves": len(shelf_bounds),
         "orientation_checks": orientation_checks,
-        "opening_clearance_checks": len(shelf_bounds) * len(opening_clearances),
+        "aisle_checks": len(aisle_widths) + 2,
+        "door_clearance_checks": len(east_rows) + 3,
     }
 
 
 def audit_bulletin_board_design() -> dict[str, int]:
-    origin = (-8.0, 12.68, 0.0)
-    rotation = math.pi
+    origin = (-8.05, 32.32, 0.0)
+    rotation = 0.0
     furniture = bpy.data.objects["VIS_B03_Interior_F01_Library_FurnitureProps"]
     signs = bpy.data.objects["VIS_B03_Interior_F01_Library_SignsPaper"]
     furniture_components = connected_component_aabbs(furniture)
@@ -1107,15 +1357,450 @@ def audit_bulletin_board_design() -> dict[str, int]:
         BULLETIN_BOARD_FURNITURE_PARTS[0][1],
         rotation,
     )
-    board_front_y = board_bounds[1][1]
+    board_front_y = board_bounds[0][1]
     for local_center, size, _swatch in BULLETIN_BOARD_PAPER_PARTS:
         expected = transformed_box_bounds(origin, local_center, size, rotation)
         require_component_bounds("図書室掲示板の掲示紙", sign_components, expected)
-        if expected[0][1] < board_front_y + 0.005 - 1e-5:
+        if expected[1][1] > board_front_y - 0.005 + 1e-5:
             raise RuntimeError("図書室掲示板の掲示紙が板面へ埋没しています")
     return {
         "furniture_parts": len(BULLETIN_BOARD_FURNITURE_PARTS),
         "papers": len(BULLETIN_BOARD_PAPER_PARTS),
+    }
+
+
+def audit_infirmary_layout() -> dict[str, float | int]:
+    furniture = bpy.data.objects["VIS_B03_Interior_F01_Infirmary_FurnitureProps"]
+    curtains = tuple(
+        bpy.data.objects[
+            f"VIS_B03_Interior_F01_Infirmary_Curtain_{panel_name}"
+        ]
+        for panel_name, _x, _y, _length, _rotation
+        in INFIRMARY_CURTAIN_SEGMENTS
+    )
+    beam_sight_collider = bpy.data.objects[
+        INFIRMARY_CURTAIN_BEAM_SIGHT_COLLIDER_NAME
+    ]
+    collider = bpy.data.objects["COL_B03_Interior_F01_Infirmary"]
+    visual_components = connected_component_aabbs(furniture)
+    beam_sight_components = connected_component_aabbs(beam_sight_collider)
+    collider_components = connected_component_aabbs(collider)
+
+    storage_bounds: list[tuple[Vector, Vector]] = []
+    additional_sizes = {
+        "MedicalCabinet": (1.20, 0.45, 1.80),
+        "WashBasin": (1.20, 0.50, 0.85),
+    }
+    for prop_type, x, y, rotation in INFIRMARY_NORTH_STORAGE_PLACEMENTS:
+        size = PROP_COLLIDER_SIZES.get(prop_type, additional_sizes.get(prop_type))
+        if size is None:
+            raise RuntimeError(f"保健室北壁設備の寸法がありません: {prop_type}")
+        local_center = PROP_COLLIDER_LOCAL_CENTERS.get(
+            prop_type,
+            (0.0, 0.0, size[2] / 2.0),
+        )
+        expected = transformed_box_bounds(
+            (x, y, 0.0),
+            local_center,
+            size,
+            rotation,
+        )
+        require_component_bounds(
+            f"保健室北壁{prop_type}Collider",
+            collider_components,
+            expected,
+        )
+        storage_bounds.append((Vector(expected[0]), Vector(expected[1])))
+    storage_bounds.sort(key=lambda bounds: bounds[0].x)
+    for previous, current in zip(storage_bounds, storage_bounds[1:]):
+        if abs(previous[1].x - current[0].x) > 1e-5:
+            raise RuntimeError("保健室北壁設備の間に隙間があります")
+    if any(abs(maximum.y - 12.35) > 1e-5 for _, maximum in storage_bounds):
+        raise RuntimeError("保健室北壁設備の背面が北壁へ揃っていません")
+
+    trash_bounds = box_bounds(
+        (
+            INFIRMARY_TRASH_BIN[0],
+            INFIRMARY_TRASH_BIN[1],
+            INFIRMARY_TRASH_BIN[2] + 0.25,
+        ),
+        (0.30, 0.30, 0.50),
+    )
+    require_component_bounds(
+        "保健室ごみ箱",
+        visual_components,
+        trash_bounds,
+    )
+    if abs(storage_bounds[-1][1].x - trash_bounds[0][0]) > 1e-5:
+        raise RuntimeError("保健室清掃用具入れとごみ箱が接していません")
+
+    bed_bounds = []
+    for x, y, rotation in INFIRMARY_BED_PLACEMENTS:
+        expected = transformed_box_bounds(
+            (x, y, 0.0),
+            (0.0, 0.0, 0.275),
+            PROP_COLLIDER_SIZES["InfirmaryBed"],
+            rotation,
+        )
+        require_component_bounds(
+            "保健室ベッドCollider",
+            collider_components,
+            expected,
+        )
+        dimensions = Vector(expected[1]) - Vector(expected[0])
+        if abs(dimensions.x - 0.90) > 1e-5 or abs(dimensions.y - 2.00) > 1e-5:
+            raise RuntimeError("保健室ベッドが南枕・北足の向きではありません")
+        bed_bounds.append(expected)
+
+    for curtain in curtains:
+        actual_curtain_materials = tuple(
+            material.name for material in curtain.data.materials
+        )
+        if actual_curtain_materials != (INFIRMARY_CURTAIN_MATERIAL_NAME,):
+            raise RuntimeError(
+                f"{curtain.name}: 保健室カーテンの専用材質が不正です: "
+                f"{actual_curtain_materials}"
+            )
+    curtain_material = bpy.data.materials[INFIRMARY_CURTAIN_MATERIAL_NAME]
+    texture_nodes = tuple(
+        node
+        for node in curtain_material.node_tree.nodes
+        if node.bl_idname == "ShaderNodeTexImage"
+    )
+    if texture_nodes:
+        raise RuntimeError("保健室カーテン専用材質へ不要なTextureがあります")
+    shader = curtain_material.node_tree.nodes.get("Principled BSDF")
+    if shader is None:
+        raise RuntimeError("保健室カーテンにPrincipled BSDFがありません")
+    if any(
+        abs(float(actual) - expected) > 1e-6
+        for actual, expected in zip(
+            shader.inputs["Base Color"].default_value,
+            INFIRMARY_CURTAIN_BASE_COLOR,
+            strict=True,
+        )
+    ):
+        raise RuntimeError("保健室カーテンのアイボリー色が確定値と違います")
+    if (
+        abs(
+            float(shader.inputs["Alpha"].default_value)
+            - INFIRMARY_CURTAIN_OPACITY
+        )
+        > 1e-6
+    ):
+        raise RuntimeError("保健室カーテンの不透明度が96%ではありません")
+    if curtain_material.surface_render_method != "DITHERED":
+        raise RuntimeError("保健室カーテンが透過描画設定ではありません")
+    if curtain_material.use_backface_culling:
+        raise RuntimeError("保健室カーテンが両面表示ではありません")
+
+    curtain_bounds_by_panel = {}
+    expected_curtain_faces = 0
+    expected_curtain_vertices = 0
+    for (
+        panel_name,
+        x,
+        y,
+        length,
+        rotation,
+    ), curtain in zip(INFIRMARY_CURTAIN_SEGMENTS, curtains, strict=True):
+        expected = transformed_box_bounds(
+            (x, y, 0.0),
+            (0.0, 0.0, INFIRMARY_CURTAIN_CENTER_Z),
+            (
+                length,
+                INFIRMARY_CURTAIN_FOLD_DEPTH * 2.0,
+                INFIRMARY_CURTAIN_HEIGHT,
+            ),
+            rotation,
+        )
+        curtain_components = connected_component_aabbs(curtain)
+        if len(curtain_components) != 1:
+            raise RuntimeError(
+                f"{curtain.name}: カーテン1枚が単一の連結成分ではありません"
+            )
+        require_component_bounds(
+            f"保健室アイボリーカーテン{panel_name}",
+            curtain_components,
+            expected,
+        )
+        segment_count = infirmary_curtain_segment_count(length)
+        vertex_count = (segment_count + 1) * 2
+        if len(curtain.data.polygons) != segment_count:
+            raise RuntimeError(
+                f"{curtain.name}: 蛇腹面数が不正です: "
+                f"{len(curtain.data.polygons)}/{segment_count}"
+            )
+        if any(len(polygon.vertices) != 4 for polygon in curtain.data.polygons):
+            raise RuntimeError(f"{curtain.name}: 蛇腹面が四角面ではありません")
+        if len(curtain.data.vertices) != vertex_count:
+            raise RuntimeError(
+                f"{curtain.name}: 頂点数が不正です: "
+                f"{len(curtain.data.vertices)}/{vertex_count}"
+            )
+        curtain_bounds_by_panel[panel_name] = expected
+        expected_curtain_faces += segment_count
+        expected_curtain_vertices += vertex_count
+    if (
+        ATLAS_DEFINITIONS["FurnitureProps"]["swatches"]["fabric_ivory"]
+        != INFIRMARY_CURTAIN_RGB
+    ):
+        raise RuntimeError("保健室カーテンのアイボリー色が確定値と違います")
+
+    north_curtain = next(
+        segment
+        for segment in INFIRMARY_CURTAIN_SEGMENTS
+        if segment[0] == "North"
+    )
+    vertical_curtains = tuple(
+        segment
+        for segment in INFIRMARY_CURTAIN_SEGMENTS
+        if segment[0] != "North"
+    )
+    bed_foot_y = max(bounds[1][1] for bounds in bed_bounds)
+    foot_clearance = curtain_bounds_by_panel["North"][0][1] - bed_foot_y
+    if abs(foot_clearance - 1.00) > 1e-5:
+        raise RuntimeError(
+            "保健室ベッド足先から北側カーテン実表面までの間隔が"
+            f"1.00mではありません: {foot_clearance:.6f}m"
+        )
+    vertical_lengths = {segment[3] for segment in vertical_curtains}
+    if len(vertical_lengths) != 1:
+        raise RuntimeError("保健室の南北カーテン3枚が同じ長さではありません")
+    for panel_name, _x, y, length, _rotation in vertical_curtains:
+        if (
+            abs(y - length / 2.0 - 3.00) > 1e-5
+            or abs(y + length / 2.0 - north_curtain[2]) > 1e-5
+        ):
+            raise RuntimeError(
+                f"保健室の{panel_name}カーテンが南端維持または北側横カーテン"
+                "中心線との接続条件を満たしていません"
+            )
+    for panel_name, bounds in curtain_bounds_by_panel.items():
+        if (
+            abs(bounds[0][2] - INFIRMARY_CURTAIN_BOTTOM_Z) > 1e-5
+            or abs(bounds[1][2] - INFIRMARY_CEILING_UNDERSIDE_Z) > 1e-5
+        ):
+            raise RuntimeError(
+                f"保健室の{panel_name}カーテンが床上0.45mから天井下面まで"
+                "届いていません"
+            )
+
+    expected_beam_sight_boxes = infirmary_curtain_beam_sight_boxes(0.0)
+    if len(beam_sight_components) != len(expected_beam_sight_boxes):
+        raise RuntimeError(
+            "保健室カーテンのビーム・視線遮蔽が4面ではありません"
+        )
+    for expected in expected_beam_sight_boxes:
+        require_component_bounds(
+            "保健室カーテンのビーム・視線遮蔽",
+            beam_sight_components,
+            expected,
+        )
+    if beam_sight_collider.data.materials:
+        raise RuntimeError(
+            "保健室カーテンのビーム・視線遮蔽へMaterialが付いています"
+        )
+    if not is_closed_mesh(beam_sight_collider):
+        raise RuntimeError(
+            "保健室カーテンのビーム・視線遮蔽が閉じたMeshではありません"
+        )
+    if (
+        len(beam_sight_collider.data.vertices)
+        != len(expected_beam_sight_boxes) * 8
+        or len(beam_sight_collider.data.polygons)
+        != len(expected_beam_sight_boxes) * 6
+    ):
+        raise RuntimeError(
+            "保健室カーテンのビーム・視線遮蔽形状が薄型Box 4個ではありません"
+        )
+
+    for x, y, rotation in INFIRMARY_JOINED_DESKS:
+        require_component_bounds(
+            "保健室接合机Collider",
+            collider_components,
+            transformed_box_bounds(
+                (x, y, 0.0),
+                (0.0, 0.0, 0.35),
+                PROP_COLLIDER_SIZES["ClassroomDesk"],
+                rotation,
+            ),
+        )
+    first_desk = transformed_box_bounds(
+        (INFIRMARY_JOINED_DESKS[0][0], INFIRMARY_JOINED_DESKS[0][1], 0.0),
+        (0.0, 0.0, 0.35),
+        PROP_COLLIDER_SIZES["ClassroomDesk"],
+        INFIRMARY_JOINED_DESKS[0][2],
+    )
+    second_desk = transformed_box_bounds(
+        (INFIRMARY_JOINED_DESKS[1][0], INFIRMARY_JOINED_DESKS[1][1], 0.0),
+        (0.0, 0.0, 0.35),
+        PROP_COLLIDER_SIZES["ClassroomDesk"],
+        INFIRMARY_JOINED_DESKS[1][2],
+    )
+    if abs(first_desk[1][0] - second_desk[0][0]) > 1e-5:
+        raise RuntimeError("保健室の机1・2が接合されていません")
+    for x, y, rotation in INFIRMARY_JOINED_CHAIRS:
+        require_component_bounds(
+            "保健室向かい合わせ椅子座面",
+            visual_components,
+            transformed_box_bounds(
+                (x, y, 0.0),
+                (0.0, 0.0, 0.43),
+                (0.42, 0.45, 0.035),
+                rotation,
+            ),
+        )
+
+    require_component_bounds(
+        "保健室職員椅子座面",
+        visual_components,
+        transformed_box_bounds(
+            (INFIRMARY_STAFF_CHAIR[0], INFIRMARY_STAFF_CHAIR[1], 0.0),
+            (0.0, 0.0, 0.51),
+            (0.48, 0.46, 0.08),
+            INFIRMARY_STAFF_CHAIR[2],
+        ),
+    )
+    return {
+        "north_storage": len(storage_bounds),
+        "beds": len(INFIRMARY_BED_PLACEMENTS),
+        "curtain_panels": len(curtains),
+        "curtain_fold_segments": expected_curtain_faces,
+        "curtain_vertices": expected_curtain_vertices,
+        "curtain_triangles": expected_curtain_faces * 2,
+        "curtain_opacity": INFIRMARY_CURTAIN_OPACITY,
+        "curtain_foot_clearance_m": round(foot_clearance, 6),
+        "curtain_beam_sight_boxes": len(expected_beam_sight_boxes),
+        "joined_desks": len(INFIRMARY_JOINED_DESKS),
+    }
+
+
+def audit_staffroom_storage_layout() -> dict[str, int]:
+    furniture = bpy.data.objects["VIS_B03_Interior_F01_StaffRoom_FurnitureProps"]
+    collider = bpy.data.objects["COL_B03_Interior_F01_StaffRoom"]
+    visual_components = connected_component_aabbs(furniture)
+    collider_components = connected_component_aabbs(collider)
+    minimum_x, maximum_x, minimum_y, maximum_y = STAFFROOM_INTERIOR_BOUNDS
+
+    placements = (
+        ("CleaningLocker", STAFFROOM_CLEANING_LOCKER),
+        *(("Bookshelf", placement) for placement in STAFFROOM_WEST_BOOKSHELVES),
+        *(("Bookshelf", placement) for placement in STAFFROOM_EAST_BOOKSHELVES),
+    )
+    storage_bounds: list[tuple[str, Vector, Vector]] = []
+    for prop_type, (x, y, rotation) in placements:
+        size = PROP_COLLIDER_SIZES[prop_type]
+        expected = transformed_box_bounds(
+            (x, y, 0.0),
+            (0.0, 0.0, size[2] / 2.0),
+            size,
+            rotation,
+        )
+        require_component_bounds(
+            f"職員室{prop_type}Collider",
+            collider_components,
+            expected,
+        )
+        expected_minimum = Vector(expected[0])
+        expected_maximum = Vector(expected[1])
+        if (
+            expected_minimum.x < minimum_x - 1e-5
+            or expected_maximum.x > maximum_x + 1e-5
+            or expected_minimum.y < minimum_y - 1e-5
+            or expected_maximum.y > maximum_y + 1e-5
+        ):
+            raise RuntimeError(f"職員室{prop_type}が室内境界外です")
+        storage_bounds.append((prop_type, expected_minimum, expected_maximum))
+        if prop_type == "Bookshelf":
+            require_component_bounds(
+                "職員室本棚背板",
+                visual_components,
+                transformed_box_bounds(
+                    (x, y, 0.0),
+                    (0.0, 0.14, 0.90),
+                    (0.90, 0.04, 1.80),
+                    rotation,
+                ),
+            )
+
+    west = sorted(
+        (
+            (minimum, maximum)
+            for _prop_type, minimum, maximum in storage_bounds
+            if abs(minimum.x - minimum_x) < 1e-5
+        ),
+        key=lambda bounds: bounds[0].y,
+        reverse=True,
+    )
+    east = sorted(
+        (
+            (minimum, maximum)
+            for _prop_type, minimum, maximum in storage_bounds
+            if abs(maximum.x - maximum_x) < 1e-5
+        ),
+        key=lambda bounds: bounds[0].y,
+        reverse=True,
+    )
+    if len(west) != 3 or len(east) != 3:
+        raise RuntimeError("職員室の西壁3台・東壁3台の収納列が不足しています")
+    for row in (west, east):
+        if abs(row[0][1].y - maximum_y) > 1e-5:
+            raise RuntimeError("職員室収納列が北壁側から始まっていません")
+        for northern, southern in zip(row, row[1:]):
+            if abs(northern[0].y - southern[1].y) > 1e-5:
+                raise RuntimeError("職員室壁際収納の間に隙間があります")
+    return {
+        "west_storage": len(west),
+        "east_bookshelves": len(east),
+        "islands": len(STAFFROOM_ISLAND_XS),
+    }
+
+
+def audit_pc_room_fixed_layout() -> dict[str, int]:
+    collider = bpy.data.objects["COL_B03_Interior_F01_PcRoom"]
+    collider_components = connected_component_aabbs(collider)
+    desk_checks = 0
+    for row_y in (38.5, 40.9, 43.0):
+        for column in range(6):
+            x = 24.8 + column * 3.1
+            require_component_bounds(
+                "PC室職員机Collider",
+                collider_components,
+                transformed_box_bounds(
+                    (x, row_y, 0.0),
+                    PROP_COLLIDER_LOCAL_CENTERS["StaffDesk"],
+                    PROP_COLLIDER_SIZES["StaffDesk"],
+                    -math.pi / 2,
+                ),
+            )
+            desk_checks += 1
+    for prop_type, x, y, rotation in (
+        ("BaggageLocker", 29.0, 44.8, 0.0),
+        ("BaggageLocker", 31.2, 44.8, 0.0),
+        ("CleaningLocker", 32.7, 44.8, 0.0),
+    ):
+        size = PROP_COLLIDER_SIZES[prop_type]
+        require_component_bounds(
+            f"PC室{prop_type}Collider",
+            collider_components,
+            transformed_box_bounds(
+                (x, y, 0.0),
+                (0.0, 0.0, size[2] / 2.0),
+                size,
+                rotation,
+            ),
+        )
+    require_component_bounds(
+        "PC室AVラックCollider",
+        collider_components,
+        box_bounds((40.8, 44.6875, 0.75), (0.70, 0.525, 1.50)),
+    )
+    return {
+        "desks": desk_checks,
+        "baggage_lockers": 2,
+        "cleaning_lockers": 1,
+        "av_racks": 1,
     }
 
 
@@ -1923,8 +2608,8 @@ def audit_staff_desk_collider_contract() -> dict[str, int]:
         return Vector(collider_bounds[0]), Vector(collider_bounds[1])
 
     staffroom_colliders: list[tuple[Vector, Vector]] = []
-    for island_x in (7.2, 14.4, 21.0):
-        for row, desk_y in enumerate((40.65, 41.35)):
+    for island_x in STAFFROOM_ISLAND_XS:
+        for row, desk_y in enumerate(STAFFROOM_DESK_YS):
             rotation = 0.0 if row == 0 else math.pi
             for desk_x in (island_x - 0.7, island_x + 0.7):
                 staffroom_colliders.append(
@@ -1961,8 +2646,8 @@ def audit_staff_desk_collider_contract() -> dict[str, int]:
     audit_instance(
         "保健室",
         "F01_Infirmary",
-        (-6.2, 5.2, 0.0),
-        math.pi / 2,
+        (INFIRMARY_STAFF_DESK[0], INFIRMARY_STAFF_DESK[1], 0.0),
+        INFIRMARY_STAFF_DESK[2],
     )
     return {
         "collider_checks": collider_checks,
@@ -2197,8 +2882,23 @@ def audit_acceptance_placements() -> dict[str, int]:
         raise RuntimeError("北側通用口の荷物ロッカーが出入口へ近すぎます")
 
     staff = bpy.data.objects["VIS_B03_Interior_F01_StaffRoom_FurnitureProps"]
-    if max(maximum.y for _, maximum in connected_component_aabbs(staff)) > 45.15:
-        raise RuntimeError("職員室の掲示板または時計が北窓面に残っています")
+    staff_components = connected_component_aabbs(staff)
+    for local_center, size, _swatch in BULLETIN_BOARD_FURNITURE_PARTS:
+        require_component_bounds(
+            "職員室南壁掲示板",
+            staff_components,
+            transformed_box_bounds(
+                (14.4, 36.68, 0.0),
+                local_center,
+                size,
+                math.pi,
+            ),
+        )
+    require_component_bounds(
+        "職員室南壁時計",
+        staff_components,
+        box_bounds((18.0, 36.67, 1.9), (0.35, 0.04, 0.35)),
+    )
 
     gym = bpy.data.objects["VIS_B03_Interior_Gym_FurnitureProps"]
     gym_components = connected_component_aabbs(gym)
@@ -2751,11 +3451,56 @@ def main() -> None:
             or classroom_counts.get("BulletinBoard", 0) != 0
         ):
             raise RuntimeError(f"普通教室の必須家具数が不正です: {room_name}")
-        if not 0.15 <= metrics["scatter_ratio"] <= 0.25:
-            raise RuntimeError(f"普通教室の散乱率が範囲外です: {room_name}")
-        if not 2 <= metrics["book_paper_spots"] <= 4:
-            raise RuntimeError(f"普通教室の本・紙配置が範囲外です: {room_name}")
-        if metrics["stored_chairs"] + metrics["scattered_sets"] != 30:
+        floor = int(room_name[1:3])
+        room_index = int(room_name[-2:])
+        variant_index = (floor + room_index) % len(CLASSROOM_LAYOUT_VARIANTS)
+        expected_small_prop_counts = Counter(
+            prop_type
+            for prop_type, *_rest in (
+                *CLASSROOM_DESKTOP_PROP_VARIANTS[variant_index],
+                *CLASSROOM_FLOOR_PROP_VARIANTS[variant_index],
+            )
+        )
+        for prop_type in CLASSROOM_SMALL_PROP_PARTS:
+            if classroom_counts.get(prop_type, 0) != expected_small_prop_counts.get(
+                prop_type,
+                0,
+            ):
+                raise RuntimeError(
+                    f"普通教室{room_name}の{prop_type}数が不正です: "
+                    f"{classroom_counts.get(prop_type, 0)}/"
+                    f"{expected_small_prop_counts.get(prop_type, 0)}"
+                )
+        expected_metrics = (
+            {
+                "pattern": "A",
+                "moved_desks": 0,
+                "moved_chairs": 0,
+                "desktop_prop_spots": 7,
+                "floor_prop_spots": 0,
+            },
+            {
+                "pattern": "B",
+                "moved_desks": 0,
+                "moved_chairs": 7,
+                "desktop_prop_spots": 6,
+                "floor_prop_spots": 5,
+            },
+            {
+                "pattern": "C",
+                "moved_desks": 8,
+                "moved_chairs": 8,
+                "desktop_prop_spots": 3,
+                "floor_prop_spots": 7,
+            },
+        )[variant_index]
+        for key, expected in expected_metrics.items():
+            if metrics.get(key) != expected:
+                raise RuntimeError(
+                    f"普通教室{room_name}の{key}が不正です: "
+                    f"{metrics.get(key)}/{expected}"
+                )
+        if metrics["stored_chairs"] + metrics["moved_chairs"] != 30:
             raise RuntimeError(f"普通教室の椅子状態数が不正です: {room_name}")
     if generation.get("classroom_front") != "north":
         raise RuntimeError("西側校舎の教室前方が北ではありません")
@@ -2769,19 +3514,27 @@ def main() -> None:
             "StaffChair": 1,
             "Bookshelf": 1,
             "CleaningLocker": 1,
+            "MedicalCabinet": 2,
+            "WashBasin": 1,
+            "TrashBin": 1,
+            "InfirmaryCurtain": 4,
+            "ClassroomDesk": 2,
+            "ClassroomChair": 2,
+            "SinglePaper": 1,
+            "ClosedBook": 1,
         },
         "F01_Library": {
-            "Bookshelf": 24,
+            "Bookshelf": 80,
             "LargeWoodTable": 4,
             "ClassroomChair": 16,
-            "StaffDesk": 1,
-            "StaffChair": 1,
+            "StaffDesk": 0,
+            "StaffChair": 0,
         },
         "F01_StaffRoom": {
-            "StaffDesk": 12,
-            "StaffChair": 12,
-            "PcMonitor": 6,
-            "Bookshelf": 2,
+            "StaffDesk": 16,
+            "StaffChair": 16,
+            "PcMonitor": 8,
+            "Bookshelf": 5,
             "CleaningLocker": 1,
             "TrashBin": 1,
         },
@@ -2849,10 +3602,10 @@ def main() -> None:
     for room_name, expected_counts in expected_room_counts.items():
         actual_counts = room_counts[room_name]
         for prop_type, expected_count in expected_counts.items():
-            if actual_counts.get(prop_type) != expected_count:
+            if actual_counts.get(prop_type, 0) != expected_count:
                 raise RuntimeError(
                     f"室内小物数が不正です: {room_name}/{prop_type}="
-                    f"{actual_counts.get(prop_type)}/{expected_count}"
+                    f"{actual_counts.get(prop_type, 0)}/{expected_count}"
                 )
     if room_counts["Gym"].get("WallClock", 0) != 0:
         raise RuntimeError("撤去指定の体育館北面壁時計が残っています")
@@ -2860,25 +3613,17 @@ def main() -> None:
         raise RuntimeError("屋上更衣室に掃除ロッカーが残っています")
     staffroom_collider = bpy.data.objects["COL_B03_Interior_F01_StaffRoom"]
     locker_x, locker_y, locker_rotation = STAFFROOM_CLEANING_LOCKER
-    if locker_rotation != 0.0:
-        raise RuntimeError("職員室の掃除ロッカー回転が監査前提と一致しません")
     locker_width, locker_depth, locker_height = PROP_COLLIDER_SIZES[
         "CleaningLocker"
     ]
-    locker_minimum = Vector(
-        (
-            locker_x - locker_width / 2,
-            locker_y - locker_depth / 2,
-            0.0,
-        )
+    locker_bounds = transformed_box_bounds(
+        (locker_x, locker_y, 0.0),
+        (0.0, 0.0, locker_height / 2.0),
+        (locker_width, locker_depth, locker_height),
+        locker_rotation,
     )
-    locker_maximum = Vector(
-        (
-            locker_x + locker_width / 2,
-            locker_y + locker_depth / 2,
-            locker_height,
-        )
-    )
+    locker_minimum = Vector(locker_bounds[0])
+    locker_maximum = Vector(locker_bounds[1])
     room_min_x, room_max_x, room_min_y, room_max_y = STAFFROOM_INTERIOR_BOUNDS
     if not (
         room_min_x <= locker_minimum.x
@@ -2978,6 +3723,9 @@ def main() -> None:
     classroom_acceptance = audit_classroom_teacher_desks_and_lockers()
     library_acceptance = audit_library_bookshelves()
     bulletin_board_design = audit_bulletin_board_design()
+    infirmary_layout = audit_infirmary_layout()
+    staffroom_storage_layout = audit_staffroom_storage_layout()
+    pc_room_fixed_layout = audit_pc_room_fixed_layout()
     art_room_acceptance = audit_art_room_placement()
     ll_room_acceptance = audit_ll_room_placement()
     music_room_orientation = audit_music_room_orientation()
@@ -3016,8 +3764,99 @@ def main() -> None:
     repeated_meshes = len(mesh_indices) - len(set(mesh_indices))
     if repeated_meshes:
         raise RuntimeError(f"共有Mesh参照があります: {repeated_meshes}")
-    if len(gltf.get("materials", [])) != 5:
-        raise RuntimeError("MaterialがAtlas 3系統＋透明2系統ではありません")
+    materials = gltf.get("materials", [])
+    if len(materials) != 6:
+        raise RuntimeError("MaterialがAtlas 3系統＋透明3系統ではありません")
+    curtain_material_indices = tuple(
+        material_index
+        for material_index, material in enumerate(materials)
+        if material.get("name") == INFIRMARY_CURTAIN_MATERIAL_NAME
+    )
+    if len(curtain_material_indices) != 1:
+        raise RuntimeError("GLBの保健室カーテンMaterialが1件ではありません")
+    curtain_material_index = curtain_material_indices[0]
+    curtain_material = materials[curtain_material_index]
+    curtain_pbr = curtain_material.get("pbrMetallicRoughness", {})
+    base_color_factor = curtain_pbr.get("baseColorFactor")
+    if (
+        not isinstance(base_color_factor, list)
+        or len(base_color_factor) != 4
+        or any(
+            abs(float(actual) - expected) > 1e-6
+            for actual, expected in zip(
+                base_color_factor,
+                INFIRMARY_CURTAIN_BASE_COLOR,
+                strict=True,
+            )
+        )
+    ):
+        raise RuntimeError("GLBの保健室カーテン色または不透明度が不正です")
+    if curtain_material.get("alphaMode") != "BLEND":
+        raise RuntimeError("GLBの保健室カーテンがAlpha Blendではありません")
+    if curtain_material.get("doubleSided") is not True:
+        raise RuntimeError("GLBの保健室カーテンが両面表示ではありません")
+    if "baseColorTexture" in curtain_pbr:
+        raise RuntimeError("GLBの保健室カーテンへ不要なTexture参照があります")
+    curtain_node_names = {
+        f"VIS_B03_Interior_F01_Infirmary_Curtain_{panel_name}"
+        for panel_name, _x, _y, _length, _rotation
+        in INFIRMARY_CURTAIN_SEGMENTS
+    } | {
+        f"VIS_RoomVariant_F01_Infirmary_Disordered_Curtain_{panel_name}"
+        for panel_name, _x, _y, _length, _rotation
+        in INFIRMARY_CURTAIN_SEGMENTS
+    }
+    curtain_nodes = tuple(
+        node
+        for node in gltf.get("nodes", [])
+        if node.get("name") in curtain_node_names
+    )
+    if {node.get("name") for node in curtain_nodes} != curtain_node_names:
+        raise RuntimeError("GLBの通常・荒れ版カーテンNodeが揃っていません")
+    meshes = gltf.get("meshes", [])
+    for node in curtain_nodes:
+        mesh_index = node.get("mesh")
+        if not isinstance(mesh_index, int) or mesh_index >= len(meshes):
+            raise RuntimeError(f"GLBのカーテンMesh参照が不正です: {node}")
+        primitives = meshes[mesh_index].get("primitives", [])
+        if (
+            len(primitives) != 1
+            or primitives[0].get("material") != curtain_material_index
+        ):
+            raise RuntimeError(
+                "GLBのカーテンが専用Materialの単一primitiveではありません: "
+                f"{node.get('name')}"
+            )
+    beam_sight_node_names = {
+        INFIRMARY_CURTAIN_BEAM_SIGHT_COLLIDER_NAME,
+        "COL_BeamSightOnly_RoomVariant_F01_Infirmary_Disordered_Curtains",
+    }
+    beam_sight_nodes = tuple(
+        node
+        for node in gltf.get("nodes", [])
+        if node.get("name") in beam_sight_node_names
+    )
+    if {
+        node.get("name") for node in beam_sight_nodes
+    } != beam_sight_node_names:
+        raise RuntimeError(
+            "GLBの通常・荒れ版カーテン用ビーム・視線遮蔽Nodeが揃っていません"
+        )
+    for node in beam_sight_nodes:
+        mesh_index = node.get("mesh")
+        if not isinstance(mesh_index, int) or mesh_index >= len(meshes):
+            raise RuntimeError(
+                f"GLBのカーテン遮蔽Mesh参照が不正です: {node}"
+            )
+        primitives = meshes[mesh_index].get("primitives", [])
+        if (
+            len(primitives) != 1
+            or "material" in primitives[0]
+        ):
+            raise RuntimeError(
+                "GLBのカーテン遮蔽が無材質の単一primitiveではありません: "
+                f"{node.get('name')}"
+            )
     if len(gltf.get("textures", [])) != 3 or len(gltf.get("images", [])) != 3:
         raise RuntimeError("GLBのAtlas Texture/Imageが3枚ではありません")
 
@@ -3035,6 +3874,9 @@ def main() -> None:
         "classroom_acceptance": classroom_acceptance,
         "library_acceptance": library_acceptance,
         "bulletin_board_design": bulletin_board_design,
+        "infirmary_layout": infirmary_layout,
+        "staffroom_storage_layout": staffroom_storage_layout,
+        "pc_room_fixed_layout": pc_room_fixed_layout,
         "art_room_acceptance": art_room_acceptance,
         "ll_room_acceptance": ll_room_acceptance,
         "music_room_orientation": music_room_orientation,

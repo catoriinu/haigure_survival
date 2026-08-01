@@ -60,6 +60,18 @@ import type {
   V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
 
+const createFixtureNavigationAreas = () => {
+  const area = Object.freeze({ id: "fixture-area", volumes: Object.freeze([]) });
+  return Object.freeze({
+    all: Object.freeze([area]),
+    portals: Object.freeze([]),
+    getById: (id: string) => (id === area.id ? area : null),
+    locate: () => Object.freeze({ areaId: area.id, portalId: null }),
+    advance: (cursor: Readonly<{ areaId: string; portalId: string | null }>) => cursor,
+    dispose: () => {}
+  });
+};
+
 export type BitSystemAcceptanceCheck = Readonly<{
   name: string;
   ok: boolean;
@@ -146,7 +158,7 @@ const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   roomVariantNavmesh: Object.freeze({
     mode: "required",
     url: toStageRelativeAssetUrl(schoolRoomVariantNavmeshUrl),
-    sha256: "78a0f481aae3abd6a6e403c60fc0debc1c70941c8b7956f17e35006df10c3afd"
+    sha256: "95c032fcd4d169a4ad590c1b8f3eb2dc0e30da4ebd74e1eac035d2a191d559a8"
   })
 });
 
@@ -226,10 +238,12 @@ const createFixtureStage = (
     id: `bit-acceptance-spawn-${fixtureIndex}`,
     role: "bit_spawn",
     bitFlightBand: band,
+    navigationAreaId: null,
     mesh
   });
   const stage = Object.freeze({
     bitNavigation: navigation,
+    navigationAreas: createFixtureNavigationAreas(),
     volumes: Object.freeze({
       all: Object.freeze([volume]),
       getById: (id: string) => (id === volume.id ? volume : null),
@@ -313,6 +327,7 @@ const createDynamicBitRevisionFixtureStage = (
     id: `bit-dynamic-revision-spawn-${fixtureIndex}`,
     role: "bit_spawn",
     bitFlightBand: band,
+    navigationAreaId: null,
     mesh: spawnMesh
   });
   let revision = 0;
@@ -386,6 +401,7 @@ const createDynamicBitRevisionFixtureStage = (
     sampleGround: () => null,
     containsVolume: () => false,
     containsVolumeById: () => false,
+    intersectsVolumeSegmentById: () => false,
     intersectsVolumeById: () => false,
     findContainingBlocker: () => null,
     dispose: () => {}
@@ -406,6 +422,7 @@ const createDynamicBitRevisionFixtureStage = (
   };
   const stage = Object.freeze({
     bitNavigation: navigation,
+    navigationAreas: createFixtureNavigationAreas(),
     volumes: Object.freeze({
       all: Object.freeze([volume]),
       getById: (id: string) => (id === volume.id ? volume : null),
@@ -466,7 +483,14 @@ const createSystem = (
     minimumSpawnDistance,
     spawnMaxAttempts: initialBitCount === 1 ? 8 : 1024,
     spawnProjectionMaxDistance: initialBitCount === 1 ? 0.35 : 0.75,
-    random
+    random,
+    resolveTargetNavigationArea: (target: V2HumanTargetSnapshot) =>
+      Object.freeze({
+        targetId: target.id,
+        areaId: "fixture-area",
+        revision: 0,
+        anchor: target.footPosition.clone()
+      })
   });
 
 const createTarget = (
@@ -997,6 +1021,7 @@ const createLoaderFixtureAssets = async (
       glbSha256,
       navmeshSha256,
       bitNavmeshSha256,
+      depthPrePassMaterialNames: Object.freeze([]),
       worldBoundaryMode
     }),
     glb,

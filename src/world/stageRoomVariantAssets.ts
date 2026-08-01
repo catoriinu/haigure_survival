@@ -41,6 +41,7 @@ export type StageRoomVariantAsset = Readonly<{
   node: TransformNode;
   visualMeshes: readonly Mesh[];
   colliderMeshes: readonly Mesh[];
+  beamSightOnlyColliders: readonly Mesh[];
   humanNavSourceMeshes: readonly Mesh[];
 }>;
 
@@ -53,6 +54,7 @@ export type StageRoomVariantTileVolume = Readonly<{
 export type StageRoomVariantMeshPartition = Readonly<{
   visualMeshes: readonly Mesh[];
   colliderMeshes: readonly Mesh[];
+  beamSightOnlyColliders: readonly Mesh[];
   humanNavSourceMeshes: readonly Mesh[];
 }>;
 
@@ -86,6 +88,7 @@ export type StageRoomVariantAssetRegistrySource = Readonly<{
   volumeMeshes: readonly Mesh[];
   visualMeshes: readonly Mesh[];
   normalColliders: readonly Mesh[];
+  beamSightOnlyColliders: readonly Mesh[];
   humanNavSourceMeshes: readonly Mesh[];
   authoredNodes: readonly TransformNode[];
 }>;
@@ -110,6 +113,7 @@ type AuthoredRoomVariantTile = Readonly<{
 type VariantMeshAccumulator = {
   visualMeshes: Mesh[];
   colliderMeshes: Mesh[];
+  beamSightOnlyColliders: Mesh[];
   humanNavSourceMeshes: Mesh[];
 };
 
@@ -133,6 +137,10 @@ const ROOM_VARIANT_VISUAL_PREFIXES = Object.freeze([
 const ROOM_VARIANT_COLLIDER_PREFIXES = Object.freeze([
   "COL_B03_Interior_",
   "COL_RoomVariant_"
+]);
+const ROOM_VARIANT_BEAM_SIGHT_ONLY_COLLIDER_PREFIXES = Object.freeze([
+  "COL_BeamSightOnly_B03_Interior_",
+  "COL_BeamSightOnly_RoomVariant_"
 ]);
 const ROOM_VARIANT_NAV_PREFIX = "NAV_RoomVariant_";
 
@@ -595,6 +603,28 @@ const assertVariantCollider = (mesh: Mesh): void => {
   assertAllowedHsProperties(mesh.name, readExtras(mesh), []);
 };
 
+const assertVariantBeamSightOnlyCollider = (mesh: Mesh): void => {
+  if (
+    !mesh.name.startsWith("COL_BeamSightOnly_") ||
+    mesh.name.length === "COL_BeamSightOnly_".length
+  ) {
+    throw new Error(
+      `room_variantのビーム・視線専用遮蔽はCOL_BeamSightOnly_*名が必要です: ${mesh.name}`
+    );
+  }
+  if (
+    !ROOM_VARIANT_BEAM_SIGHT_ONLY_COLLIDER_PREFIXES.some((prefix) =>
+      mesh.name.startsWith(prefix)
+    )
+  ) {
+    throw new Error(
+      `room_variant配下へ静的なビーム・視線専用遮蔽を配置できません: ${mesh.name}`
+    );
+  }
+  assertNoForbiddenDynamicMesh(mesh);
+  assertAllowedHsProperties(mesh.name, readExtras(mesh), []);
+};
+
 const assertVariantHumanNavSource = (mesh: Mesh): void => {
   if (
     !mesh.name.startsWith("NAV_") ||
@@ -733,6 +763,9 @@ const freezeMeshPartition = (
     colliderMeshes: Object.freeze(
       variants.flatMap((variant) => variant.colliderMeshes)
     ),
+    beamSightOnlyColliders: Object.freeze(
+      variants.flatMap((variant) => variant.beamSightOnlyColliders)
+    ),
     humanNavSourceMeshes: Object.freeze(
       variants.flatMap((variant) => variant.humanNavSourceMeshes)
     )
@@ -773,6 +806,10 @@ export const createStageRoomVariantAssetRegistry = (
   assertUniqueReferences("visualMeshes", source.visualMeshes);
   assertUniqueReferences("normalColliders", source.normalColliders);
   assertUniqueReferences(
+    "beamSightOnlyColliders",
+    source.beamSightOnlyColliders
+  );
+  assertUniqueReferences(
     "humanNavSourceMeshes",
     source.humanNavSourceMeshes
   );
@@ -784,6 +821,11 @@ export const createStageRoomVariantAssetRegistry = (
   assertSourceMembership(
     "normalColliders",
     source.normalColliders,
+    authoredNodes
+  );
+  assertSourceMembership(
+    "beamSightOnlyColliders",
+    source.beamSightOnlyColliders,
     authoredNodes
   );
   assertSourceMembership(
@@ -812,6 +854,11 @@ export const createStageRoomVariantAssetRegistry = (
     primaryClassification,
     "normalColliders",
     source.normalColliders
+  );
+  registerPrimaryClassification(
+    primaryClassification,
+    "beamSightOnlyColliders",
+    source.beamSightOnlyColliders
   );
   registerPrimaryClassification(
     primaryClassification,
@@ -930,6 +977,7 @@ export const createStageRoomVariantAssetRegistry = (
     if (
       !node.name.startsWith("VIS_RoomVariant_") &&
       !node.name.startsWith("COL_RoomVariant_") &&
+      !node.name.startsWith("COL_BeamSightOnly_RoomVariant_") &&
       !node.name.startsWith("NAV_RoomVariant_")
     ) {
       continue;
@@ -947,6 +995,7 @@ export const createStageRoomVariantAssetRegistry = (
     accumulators.set(variant, {
       visualMeshes: [],
       colliderMeshes: [],
+      beamSightOnlyColliders: [],
       humanNavSourceMeshes: []
     });
   }
@@ -982,13 +1031,17 @@ export const createStageRoomVariantAssetRegistry = (
       const mesh = node as Mesh;
       assertVariantCollider(mesh);
       accumulator.colliderMeshes.push(mesh);
+    } else if (classification === "beamSightOnlyColliders") {
+      const mesh = node as Mesh;
+      assertVariantBeamSightOnlyCollider(mesh);
+      accumulator.beamSightOnlyColliders.push(mesh);
     } else if (classification === "humanNavSourceMeshes") {
       const mesh = node as Mesh;
       assertVariantHumanNavSource(mesh);
       accumulator.humanNavSourceMeshes.push(mesh);
     } else {
       throw new Error(
-        `room_variant配下にはVIS_*、通常COL_*、人間用NAV_*だけを配置できます: ${node.name} (${classification ?? "未分類"})`
+        `room_variant配下にはVIS_*、通常COL_*、COL_BeamSightOnly_*、人間用NAV_*だけを配置できます: ${node.name} (${classification ?? "未分類"})`
       );
     }
   }
@@ -1026,6 +1079,9 @@ export const createStageRoomVariantAssetRegistry = (
           node: authored.node,
           visualMeshes: freezeSortedMeshes(meshes.visualMeshes),
           colliderMeshes: freezeSortedMeshes(meshes.colliderMeshes),
+          beamSightOnlyColliders: freezeSortedMeshes(
+            meshes.beamSightOnlyColliders
+          ),
           humanNavSourceMeshes: freezeSortedMeshes(
             meshes.humanNavSourceMeshes
           )
