@@ -2036,7 +2036,7 @@ const testBrainwashedFollowersAndSynchronizedFire = () => {
       ...observedDelays.values()
     ]
       .map((delay) => delay.toFixed(3))
-      .join("/")}秒、active・1秒cooldown・復元を確認`;
+      .join("/")}秒、active・0.6秒cooldown・復元を確認`;
   } finally {
     fixture.dispose();
   }

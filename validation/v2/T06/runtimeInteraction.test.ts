@@ -9,6 +9,7 @@ import {
 
 import {
   getDoorInteractionCandidates,
+  STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS,
   type StageDoorInteractionCandidate
 } from "../../../src/world/stageDoorRuntime";
 import type { StageDoorAsset } from "../../../src/world/stageDynamicAssets";
@@ -153,6 +154,11 @@ export const runRuntimeInteractionTests = async () =>
         elevatorId: null,
         stopId: null
       }) satisfies StageDoorAsset;
+      doorNode.computeWorldMatrix(true);
+      panelNode.computeWorldMatrix(true);
+      handleMesh.computeWorldMatrix(true);
+      const handlePosition =
+        handleMesh.getBoundingInfo().boundingBox.centerWorld.clone();
       try {
         const forward = Vector3.Forward();
         const eyeCandidates = getDoorInteractionCandidates(
@@ -165,17 +171,38 @@ export const runRuntimeInteractionTests = async () =>
         const offsetEyeCandidates = getDoorInteractionCandidates(
           Object.freeze([door]),
           Object.freeze({
-            origin: new Vector3(0, V2_PLAYER_BASE_EYE_HEIGHT, -0.3),
+            origin: new Vector3(
+              0,
+              handlePosition.y,
+              handlePosition.z -
+                STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS * 0.99
+            ),
+            forward
+          })
+        );
+        const outsideCandidates = getDoorInteractionCandidates(
+          Object.freeze([door]),
+          Object.freeze({
+            origin: new Vector3(
+              0,
+              handlePosition.y,
+              handlePosition.z -
+                STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS * 1.01
+            ),
             forward
           })
         );
         assert(
           eyeCandidates[0]?.door.id === door.id &&
             offsetEyeCandidates[0]?.door.id === door.id &&
+            outsideCandidates.length === 0 &&
             offsetEyeCandidates[0].interactionPosition.equals(
-              handleMesh.getBoundingInfo().boundingBox.centerWorld
+              handlePosition
             ),
-          `取っ手基準の扉候補が不正です: eye=${eyeCandidates.length}, offset=${offsetEyeCandidates.length}`
+          `取っ手基準の扉候補が不正です: eye=${eyeCandidates.length}, ` +
+            `offset=${offsetEyeCandidates.length}, ` +
+            `handle=${handlePosition.toString()}, ` +
+            `limit=${STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS}`
         );
         return "閉状態の取っ手world中央を眼位置基準で候補へ取得";
       } finally {

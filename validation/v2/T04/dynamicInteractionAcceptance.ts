@@ -98,6 +98,12 @@ const createDoorRegistryAssetFixture = (scene: Scene) => {
     scene
   );
   visual.parent = panel;
+  const interactionAnchor = MeshBuilder.CreateBox(
+    "VIS_DoorPanel_Handle_RegistryFixture",
+    { size: 0.02 },
+    scene
+  );
+  interactionAnchor.parent = panel;
   const collider = MeshBuilder.CreateBox(
     "COL_DoorPanel_RegistryFixture",
     { size: 0.05 },
@@ -115,7 +121,15 @@ const createDoorRegistryAssetFixture = (scene: Scene) => {
     hs_role: "door_sweep",
     hs_door_id: "registry-door"
   });
-  return { door, panel, openPose, visual, collider, sweep };
+  return {
+    door,
+    panel,
+    openPose,
+    visual,
+    interactionAnchor,
+    collider,
+    sweep
+  };
 };
 
 const captureMessage = (action: () => void) => {
@@ -278,7 +292,10 @@ export const runDynamicInteractionAcceptance =
           registryFixture.openPose
         ],
         volumeMeshes: [registryFixture.sweep],
-        visualMeshes: [registryFixture.visual],
+        visualMeshes: [
+          registryFixture.visual,
+          registryFixture.interactionAnchor
+        ],
         normalColliders: [registryFixture.collider],
         humanOnlyColliders: [],
         links: []
@@ -444,7 +461,8 @@ export const runDynamicInteractionAcceptance =
           initial.doors.find((door) => door.id === "toilet")?.state ===
             "open" &&
           candidates[0]?.door.id === "room-front" &&
-          candidates[1]?.door.id === "room-side" &&
+          candidates[1]?.door.id === "toilet" &&
+          candidates[2]?.door.id === "room-side" &&
           candidates.every(
             (candidate) => candidate.door.id !== "toilet-far"
           ) &&
