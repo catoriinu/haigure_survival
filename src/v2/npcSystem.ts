@@ -507,6 +507,7 @@ type NpcRuntime = {
   evadeThreatId: string | null;
   evadeThreatSightClear: boolean;
   evadeThreatSetKey: string;
+  evadeNavigationReplanPriority: NpcNavigationReplanPriority;
   readonly autonomousVisualThreats: Map<string, NpcEvadeThreat>;
   alertLeaderId: string | null;
   alertRemainingSeconds: number;
@@ -549,6 +550,7 @@ type NpcEvadeThreat = Readonly<{
   sourceId: string;
   sourceAimPosition: Vector3;
   sightClear: boolean;
+  provenance: "direct" | "autonomous";
 }>;
 
 type NpcEvadeThreatsByTargetId = Map<
@@ -562,6 +564,13 @@ const addNpcEvadeThreat = (
   threat: NpcEvadeThreat
 ) => {
   const threats = threatsByTargetId.get(targetId) ?? new Map();
+  const existing = threats.get(threat.sourceId);
+  if (
+    existing?.provenance === "direct" &&
+    threat.provenance === "autonomous"
+  ) {
+    return;
+  }
   threats.set(threat.sourceId, threat);
   threatsByTargetId.set(targetId, threats);
 };
@@ -1136,6 +1145,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           evadeThreatId: null,
           evadeThreatSightClear: false,
           evadeThreatSetKey: "",
+          evadeNavigationReplanPriority: 4,
           autonomousVisualThreats: new Map(),
           alertLeaderId: null,
           alertRemainingSeconds: 0,
@@ -1303,7 +1313,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         Object.freeze({
           sourceId: threat.sourceId,
           sourceAimPosition: threat.sourcePosition.clone(),
-          sightClear: threat.sightClear
+          sightClear: threat.sightClear,
+          provenance: "direct" as const
         })
       );
     }
@@ -1463,7 +1474,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         Object.freeze({
           sourceId: npc.id,
           sourceAimPosition: toAimPosition(npc.footPosition),
-          sightClear: npc.visualTargetSightClear
+          sightClear: npc.visualTargetSightClear,
+          provenance: "direct" as const
         })
       );
       if (state === "brainwash-complete-gun") {
@@ -2742,10 +2754,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       NPC_DETAIL_TARGET_MOVEMENT_THRESHOLD;
     if (behaviorChanged || npc.navigationAgentCleared || targetMovedEnough) {
       const priority: NpcNavigationReplanPriority =
-        behavior === "evade" ||
-        behavior === "follow" ||
-        behavior === "leave"
-          ? 0
+        behavior === "evade"
+          ? npc.evadeNavigationReplanPriority
+          : behavior === "follow" || behavior === "leave"
+            ? 0
           : behavior === "pursue"
             ? npc.pursuitPhase === "detail"
               ? 1
@@ -3182,18 +3194,29 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     );
     this.autonomousThreatSightCredit -= schedule.npcIds.size;
     this.autonomousThreatSightCursor = schedule.nextCursor;
+    if (schedule.npcIds.size === 0) {
+      return;
+    }
     const brainwashedNpcs = frameTargets.filter(
       (target) =>
         target.kind === "npc" &&
         isV2BrainwashState(target.state)
     );
+    const brainwashedNpcSpatialIndex =
+      createV2HumanTargetSpatialIndex(
+        brainwashedNpcs,
+        NPC_VISION_RANGE
+      );
     for (const npcId of schedule.npcIds) {
       const npc = this.requireNpc(npcId);
       const hadVisualThreat = npc.autonomousVisualThreats.size > 0;
       npc.autonomousVisualThreats.clear();
       this.autonomousThreatSightCheckCount += 1;
       const origin = toAimPosition(npc.footPosition);
-      for (const target of brainwashedNpcs) {
+      for (const target of brainwashedNpcSpatialIndex.query(
+        origin,
+        NPC_VISION_RANGE
+      )) {
         if (
           this.isAutonomousThreatVisible(
             npc,
@@ -3206,7 +3229,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
             Object.freeze({
               sourceId: target.id,
               sourceAimPosition: target.aimPosition.clone(),
-              sightClear: true
+              sightClear: true,
+              provenance: "autonomous" as const
             })
           );
         }
@@ -3224,7 +3248,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
             Object.freeze({
               sourceId: actor.id,
               sourceAimPosition: actor.center.clone(),
-              sightClear: true
+              sightClear: true,
+              provenance: "autonomous" as const
             })
           );
         }
@@ -3560,6 +3585,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.evadeThreatSetKey = "";
     npc.evadeThreatId = null;
     npc.evadeThreatSightClear = false;
+    npc.evadeNavigationReplanPriority = 4;
     npc.alarmTargetQueue.length = 0;
     npc.capture = null;
     npc.breakawayRemainingSeconds = 0;
@@ -4048,7 +4074,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       Object.freeze({
         sourceId: npc.id,
         sourceAimPosition: toAimPosition(npc.footPosition),
-        sightClear: true
+        sightClear: true,
+        provenance: "direct" as const
       })
     );
     const target = this.npcsById.get(targetId);
@@ -4059,7 +4086,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         Object.freeze({
           sourceId: target.id,
           sourceAimPosition: toAimPosition(target.footPosition),
-          sightClear: true
+          sightClear: true,
+          provenance: "direct" as const
         })
       );
     }
@@ -4524,6 +4552,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.evadeThreatId = null;
     npc.evadeThreatSightClear = false;
     npc.evadeThreatSetKey = "";
+    npc.evadeNavigationReplanPriority = 4;
     if (npc.targetId !== null) {
       this.clearTarget(npc);
     }
@@ -4594,6 +4623,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (!primaryThreat) {
       throw new Error(`回避脅威集合が空です: ${npc.id}`);
     }
+    npc.evadeNavigationReplanPriority = orderedThreats.some(
+      (threat) => threat.provenance === "direct"
+    )
+      ? 0
+      : 4;
     const threatSetKey = orderedThreats
       .map((threat) => threat.sourceId)
       .sort()
@@ -4705,15 +4739,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
     let selected: ScoredDestination | null = null;
     for (const candidate of candidateLocations) {
-      const path = this.stage.navigation.findPath(
-        npc.navigationLocation,
-        candidate.location,
-        "npc",
-        npc.navigationRoutePolicy
-      );
-      if (!path) {
-        continue;
-      }
       const threatDistances = threats.map((threat) =>
         Vector3.Distance(
           candidate.location.position,
@@ -4729,7 +4754,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         ),
         minimumThreatDistance: Math.min(...threatDistances),
         primaryThreatDistance: threatDistances[0],
-        pathDistance: path.distance,
+        pathDistance: Vector3.Distance(
+          npc.navigationLocation.position,
+          candidate.location.position
+        ),
         sourceOrder: candidate.sourceOrder
       });
       if (
