@@ -992,26 +992,30 @@ class SchoolV2NpcSystem implements V2NpcSystem {
                 SPAWN_PROJECTION_MAX_DISTANCE,
               random: options.random
             },
-            (point) =>
-              options.stage.queries.containsVolume(
-                "no_enemy_spawn",
-                point
-              ) ||
-              options.stage.queries.containsVolume(
-                "no_enemy_enter",
-                point
-              ) ||
-              options.stage.queries.containsVolume(
-                "hazard",
-                point
-              ) ||
-              options.stage.queries.containsVolume(
-                "water",
-                point
-              ) ||
-              options.stage.navigationAreas.portals.some(
-                (portal) => portal.contains(point)
-              )
+            (point) => {
+              const footPosition = this.resolveFootPosition(point);
+              return (
+                options.stage.queries.containsVolume(
+                  "no_enemy_spawn",
+                  footPosition
+                ) ||
+                options.stage.queries.containsVolume(
+                  "no_enemy_enter",
+                  footPosition
+                ) ||
+                options.stage.queries.containsVolume(
+                  "hazard",
+                  footPosition
+                ) ||
+                options.stage.queries.containsVolume(
+                  "water",
+                  footPosition
+                ) ||
+                options.stage.navigationAreas.portals.some(
+                  (portal) => portal.contains(footPosition)
+                )
+              );
+            }
           ).samplePoints(
             options.npcCount,
             SPAWN_MINIMUM_DISTANCE
