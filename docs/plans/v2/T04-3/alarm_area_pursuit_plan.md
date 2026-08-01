@@ -24,6 +24,12 @@ NPCの観測位置、未処理の最新目的地、最後に採用した経路�
 
 学校`.blend`、GLB、NavMesh、生成器、カタログhash、5 Area／4 Portalは変更しない。通常視認、Alert、標的選択個性、Follow／Leave、evade、最終視認位置、扉、エレベーターを回帰し、99 NPC／66初期洗脳済みNPC／50 BITを含むWeb／Electron負荷検証を行う。人数上限や旧静的追跡へのfallbackは追加せず、独立観点レビューと単一commitまでを完了範囲とする。push、Pull Request、mergeは行わない。
 
+2026-08-01 PR #59インラインコメント対応指示:
+
+> プルリク59番にインラインコメントがつきました。内容を確認して、妥当かどうかを判断し、修正して、インラインコメントに返信してください。
+
+最新HEAD `174046ee9eb51239855abfe45e81eed57f4bf605`の未解決3スレッドを確認し、いずれも妥当と判定した。エレベーター状態遷移時のNavigation Agent clearと再計画要求を共通処理で同期し、今フレームに経路探索を実行できない状態へ再計画枠を付与しない。Portalと交差せず現在Areaを離れた移動はRuntime契約違反として明示的に失敗させる。対象回帰、型検査、build、fixture後に同じPRブランチへcommit／pushし、各元スレッドへ修正内容と検証結果を返信する。スレッド解決とmergeは行わない。
+
 ## ステップ
 
 - [x] 最新remote、dirty差分、既存worktree、学校レイアウト資産、Blender所有状態を確認し、専用branch／worktreeを作成する。
@@ -44,6 +50,11 @@ NPCの観測位置、未処理の最新目的地、最後に採用した経路�
 - [x] Runtime仕様、性能診断、HUD、T04／T05 fixtureを三段階追跡契約へ更新する。
 - [x] 通常ゲーム、Web／Electron stress、実操作、console、破棄再読込、資産hash不変、テキスト配布を検証する。
 - [x] 独立観点レビュー後、最新結果を記録して修正用の単一commitを作成する。
+- [x] PR #59の最新base／headと全未解決review threadを取得し、3件の指摘の妥当性をコード上の実行順から判定する。
+- [x] エレベーター状態遷移時のAgent clear、再計画要求、探索可能状態のQueue許可を修正する。
+- [x] PortalなしArea離脱の契約違反検出と対象回帰テストを追加する。
+- [x] V2／T04／T05型検査、対象build／fixture、差分・UTF-8検査を実行する。
+- [x] 修正結果を記録し、単一commitをPR #59へpushして3件の元スレッドへ返信する。
 
 ## 結果
 
@@ -58,3 +69,7 @@ Navigation Areaは`locate()`／`advance()` cursor APIへ統一し、標的snapsh
 seed 20260801でWeb／Electronの99 NPC／初期洗脳66 NPC／50 BITを120秒完走した。Web／Electronの50 NPC／初期洗脳10 NPC／20 BITも600秒完走し、途中で発見した呼出マット回帰を修正後、最終ソースでは99体120秒を再完走した。
 
 基準`c87589d`と1920×1080・同一seedで各3回測定したsteady中央値は、total frame p95が66.7msから23.1msへ約65%改善した。一方、NPC section p95は2.4msから10.6msへ悪化し、10%以内の計画基準は未達である。古い標的位置へ停止していた基準では60秒のNPC経路探索が203件、修正後は最新位置へ追随して3,857件となったことが主因である。Area `advance`時間は60秒中央値99.1msまで軽量化した。2026-08-01の人間受入ではAlarm床発動時を含めて体感上の重さが大幅に改善し、本タスクの性能改善を完了と判断した。追跡人数、0.15閾値、detail上限なしは維持し、NPC sectionの追加最適化は本タスクを妨げないT07の計測・最適化候補として扱う。
+
+PR #59の未解決インラインコメント3件はいずれも妥当と判断した。エレベーター状態遷移時のAgent clearを共通処理へ統一し、再計画できない乗車待機・乗車中・降車中などの状態をQueue対象外にした。呼出待機中の手動経路探索はpending目的地を消費し、同一Actorが再計画枠を占有し続けない。Navigation AreaはPortalと交差しない移動でも現在Area内への到達を確認し、直接離脱を契約違反として失敗させる。
+
+追加回帰4件を含むT05 fixtureは293／293、T04 fixtureは115／115、実学校統合fixtureは67／67でPASSした。V2／T04／T05型検査、通常／Electron／T04／T05 build、学校NavMesh check、UTF-8 strict・BOMなし、ローカル絶対パス・競合marker、`git diff --check`を確認した。ブラウザのconsole warning／error、Babylon Logger、unhandled rejectionは0件だった。修正は同じPR branchへ単一commitでpushし、元の3スレッドへ判断・修正・検証結果を個別返信する。スレッドはResolveしない。

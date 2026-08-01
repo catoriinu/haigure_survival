@@ -1877,7 +1877,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           "waiting-elevator-call-input"
         );
         const elevatorRoute = this.createNpcElevatorTraversalRoute(npc);
-        npc.navigationAgent.clear();
+        this.resetNavigationAgentForTraversalChange(npc);
         npc.selectedRouteKind = "link";
         npc.selectedElevatorTransition =
           cloneNavigationTransition(
@@ -1896,6 +1896,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           "waiting-elevator-call"
         );
         const elevatorRoute = this.createNpcElevatorTraversalRoute(npc);
+        this.resetNavigationAgentForTraversalChange(npc);
         npc.traversalState = Object.freeze({
           kind: "approaching-elevator-board",
           ...elevatorRoute
@@ -1909,6 +1910,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           "waiting-elevator-board"
         );
         const elevatorRoute = this.createNpcElevatorTraversalRoute(npc);
+        this.deferNavigationReplan(npc);
         npc.traversalState = Object.freeze({
           kind: "riding-elevator",
           ...elevatorRoute
@@ -1926,7 +1928,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           "NPC安全退避位置",
           result.location.position
         );
-        npc.navigationAgent.clear();
+        this.resetNavigationAgentForTraversalChange(npc);
         npc.selectedRouteKind = null;
         npc.selectedElevatorTransition = null;
         npc.pendingNavigationTransition = null;
@@ -1971,7 +1973,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
             })
           );
         }
-        npc.navigationAgent.clear();
+        this.resetNavigationAgentForTraversalChange(npc);
         npc.selectedRouteKind = null;
         npc.selectedElevatorTransition = null;
         npc.pendingNavigationTransition = null;
@@ -1983,6 +1985,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       if (result.kind === "elevator-arrived") {
         this.requireElevatorTraversalKind(npc, "riding-elevator");
         const elevatorRoute = this.createNpcElevatorTraversalRoute(npc);
+        this.deferNavigationReplan(npc);
         npc.traversalState = Object.freeze({
           kind: "leaving-elevator",
           ...elevatorRoute
@@ -2041,7 +2044,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.assertActive();
     this.pendingTraversalRequests.length = 0;
     for (const npc of this.npcs) {
-      npc.navigationAgent.clear();
+      this.resetNavigationAgentForTraversalChange(npc);
       npc.selectedRouteKind = null;
       npc.selectedElevatorTransition = null;
       npc.pendingNavigationTransition = null;
@@ -2270,7 +2273,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     for (const placement of resolvedPlacements) {
       const npc = placement.npc;
       this.clearNpcCommand(npc, false);
-      npc.navigationAgent.clear();
+      this.resetNavigationAgentForTraversalChange(npc);
       npc.selectedRouteKind = null;
       npc.selectedElevatorTransition = null;
       npc.navigationLocation = placement.navigationLocation;
@@ -2334,7 +2337,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.grantedReplanNpcIds.clear();
     this.queuedReplanNpcs.length = 0;
     for (const npc of this.npcs) {
-      if (npc.navigationReplanRequestedAtSeconds !== null) {
+      if (
+        npc.navigationReplanRequestedAtSeconds !== null &&
+        this.canExecuteNavigationReplan(npc)
+      ) {
         this.queuedReplanNpcs.push(npc);
         if (this.diagnosticsEnabled) {
           this.replanMaximumWaitSeconds = Math.max(
@@ -2533,8 +2539,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       );
     }
     const route = this.createNpcElevatorTraversalRoute(npc);
+    const intendedTargetPosition =
+      npc.navigationPendingTargetPosition ??
+      npc.navigationTargetPosition;
     const projectedTarget = this.stage.navigation.projectPoint(
-      npc.navigationTargetPosition,
+      intendedTargetPosition,
       NAVIGATION_PROJECTION_MAX_DISTANCE
     );
     const selectedPath = projectedTarget
@@ -2557,6 +2566,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       selectedTransition.from === state.from &&
       selectedTransition.to === state.to
     ) {
+      this.acceptPendingNavigationTarget(npc);
       return;
     }
     this.pendingTraversalRequests.push(
@@ -2566,11 +2576,18 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         ...route
       })
     );
-    npc.navigationAgent.clear();
+    this.acceptPendingNavigationTarget(npc);
+    this.resetNavigationAgentForTraversalChange(npc);
     npc.selectedRouteKind = null;
     npc.selectedElevatorTransition = null;
     npc.pendingNavigationTransition = null;
     npc.traversalState = createWalkingV2NpcTraversalState();
+    this.setNavigationIntent(
+      npc,
+      npc.navigationBehavior,
+      npc.navigationSpeed,
+      intendedTargetPosition
+    );
   }
 
   private setNavigationIntent(
@@ -2580,6 +2597,12 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     targetPosition: Vector3
   ) {
     const behaviorChanged = npc.navigationBehavior !== behavior;
+    npc.navigationBehavior = behavior;
+    npc.navigationSpeed = speed;
+    if (!this.canExecuteNavigationReplan(npc)) {
+      this.deferNavigationReplan(npc);
+      return;
+    }
     const pendingTarget = npc.navigationPendingTargetPosition;
     const acceptedTarget = npc.navigationTargetPosition;
     const targetMovedEnough =
@@ -2623,8 +2646,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         this.replanCoalescedCount += 1;
       }
     }
-    npc.navigationBehavior = behavior;
-    npc.navigationSpeed = speed;
   }
 
   private updateNavigation(
@@ -2736,7 +2757,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           });
         }
         const elevatorRoute = this.createNpcElevatorTraversalRoute(npc);
-        npc.navigationAgent.clear();
+        this.resetNavigationAgentForTraversalChange(npc);
         npc.selectedRouteKind = "link";
         npc.selectedElevatorTransition =
           cloneNavigationTransition(
@@ -2795,6 +2816,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         kind: "waiting-elevator-board",
         ...elevatorRoute
       });
+      this.deferNavigationReplan(npc);
       return Object.freeze({
         ...this.createTraversalWaitingStep(npc),
         pathRecalculated: movement.pathRecalculated,
@@ -2890,13 +2912,40 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (isV2NpcElevatorTraversalState(npc.traversalState)) {
       return;
     }
-    npc.navigationAgent.clear();
+    this.resetNavigationAgentForTraversalChange(npc);
+    npc.selectedRouteKind = null;
+    npc.selectedElevatorTransition = null;
+  }
+
+  private canExecuteNavigationReplan(npc: NpcRuntime): boolean {
+    return (
+      isV2NpcTraversalWalkingEnabled(npc.traversalState) ||
+      npc.traversalState.kind === "waiting-elevator-call-input" ||
+      npc.traversalState.kind === "waiting-elevator-call"
+    );
+  }
+
+  private deferNavigationReplan(npc: NpcRuntime): void {
     npc.navigationAgentCleared = true;
     npc.navigationRemainingPathDistance = null;
     npc.navigationPendingTargetPosition = null;
     npc.navigationReplanRequestedAtSeconds = null;
-    npc.selectedRouteKind = null;
-    npc.selectedElevatorTransition = null;
+  }
+
+  private resetNavigationAgentForTraversalChange(npc: NpcRuntime): void {
+    npc.navigationAgent.clear();
+    this.deferNavigationReplan(npc);
+  }
+
+  private acceptPendingNavigationTarget(npc: NpcRuntime): void {
+    if (npc.navigationPendingTargetPosition) {
+      npc.navigationTargetPosition.copyFrom(
+        npc.navigationPendingTargetPosition
+      );
+    }
+    npc.navigationPendingTargetPosition = null;
+    npc.navigationReplanRequestedAtSeconds = null;
+    npc.navigationAgentCleared = false;
   }
 
   private requestNavigationReplan(
@@ -4527,7 +4576,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           nextFootPosition
         )
       ) {
-        npc.navigationAgent.clear();
+        this.resetNavigationAgentForTraversalChange(npc);
         npc.selectedElevatorTransition = null;
         this.beginNpcElevatorCall(
           npc,
@@ -4602,7 +4651,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     ) {
       return;
     }
-    npc.navigationAgent.clear();
+    this.resetNavigationAgentForTraversalChange(npc);
     npc.selectedElevatorTransition = null;
     this.beginNpcElevatorCall(npc, transition);
   }
@@ -4942,7 +4991,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       replanQueuedCount: this.npcs.reduce(
         (count, npc) =>
           count +
-          (npc.navigationReplanRequestedAtSeconds === null ? 0 : 1),
+          (npc.navigationReplanRequestedAtSeconds === null ||
+            !this.canExecuteNavigationReplan(npc)
+            ? 0
+            : 1),
         0
       ),
       replanCoalescedCount: this.replanCoalescedCount,

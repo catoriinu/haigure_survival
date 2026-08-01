@@ -171,12 +171,21 @@ export const createStageNavigationAreaRegistry = (
           portal.intersects(from, to)
       ) ?? null;
       if (!crossedPortal) {
+        const remainsInCurrentArea = currentArea.volumes.some((volume) =>
+          containsByVolume.get(volume)!(to)
+        );
         diagnostics?.recordNavigationAreaQuery?.(
           "advance",
           connectedPortals.length,
           false,
           performance.now() - startedAt
         );
+        if (!remainsInCurrentArea) {
+          throw new Error(
+            `Navigation AreaをPortalなしで離脱しました: area=${cursor.areaId} / ` +
+              `from=${from.toString()} / to=${to.toString()}`
+          );
+        }
         return cursor.portalId === null
           ? cursor
           : Object.freeze({ areaId: cursor.areaId, portalId: null });

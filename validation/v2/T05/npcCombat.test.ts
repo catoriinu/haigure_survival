@@ -44,9 +44,13 @@ import { createNavigationAgent } from "../../../src/world/navigationAgent";
 import {
   DISTANCE_NAVIGATION_ROUTE_POLICY,
   type NavigationRouteCandidate,
+  type NavigationTransitionStep,
   type NavigationWorld
 } from "../../../src/world/navigationWorld";
+import { createStageNavigationAreaRegistry } from "../../../src/world/stageNavigationAreas";
+import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
+import type { V2NpcTraversalState } from "../../../src/v2/npcTraversal";
 
 export type NpcCombatTestResult = Readonly<{
   name: string;
@@ -72,6 +76,28 @@ type NpcFixture = Readonly<{
   getSpriteAlpha(npcId: string): number;
   dispose(): void;
 }>;
+
+type NpcRuntimeTestAccess = {
+  npcs: Array<{
+    id: string;
+    footPosition: Vector3;
+    navigationLocation: Readonly<{
+      position: Vector3;
+      polygonRef: number;
+    }>;
+    navigationPendingTargetPosition: Vector3 | null;
+    navigationGoalRevision: number;
+    navigationReplanRequestedAtSeconds: number | null;
+    navigationAgentCleared: boolean;
+    pendingNavigationTransition: NavigationTransitionStep | null;
+    traversalState: V2NpcTraversalState;
+  }>;
+  prepareReplanPermissions(): void;
+  hasReplanPermission(npcIndex: number): boolean;
+  reconsiderWaitingElevatorCall(
+    npc: NpcRuntimeTestAccess["npcs"][number]
+  ): void;
+};
 
 const EMPTY_ALARM_TARGET_EVENTS:
   readonly V2AlarmTriggerEvent[] = Object.freeze([]);
@@ -2670,6 +2696,240 @@ const testZeroNpcUpdate = () => {
   }
 };
 
+const createTestElevatorTransition = (
+  position: Vector3
+): NavigationTransitionStep => {
+  const entry = Object.freeze({
+    position: position.clone(),
+    polygonRef: 1
+  });
+  const exit = Object.freeze({
+    position: position.clone(),
+    polygonRef: 1
+  });
+  return Object.freeze({
+    kind: "transition",
+    link: Object.freeze({
+      id: "npc-test-elevator-link",
+      kind: "elevator",
+      bidirectional: true,
+      radiusMeters: 1,
+      endpointA: Object.freeze({
+        endpoint: "A",
+        position: entry.position,
+        node: null
+      }),
+      endpointB: Object.freeze({
+        endpoint: "B",
+        position: exit.position,
+        node: null
+      })
+    }) as unknown as NavigationTransitionStep["link"],
+    from: "A",
+    to: "B",
+    entry,
+    exit,
+    distance: 0
+  });
+};
+
+const testNpcElevatorClearQueuesReplan = () => {
+  const fixture = createNpcFixture(1, 1, 30, true);
+  try {
+    const runtime = (fixture.system as unknown as NpcRuntimeTestAccess).npcs[0];
+    const transition = createTestElevatorTransition(runtime.footPosition);
+    runtime.pendingNavigationTransition = transition;
+    runtime.navigationAgentCleared = false;
+    runtime.navigationReplanRequestedAtSeconds = null;
+    runtime.traversalState = Object.freeze({
+      kind: "waiting-elevator-call-input",
+      linkId: transition.link.id,
+      from: transition.from,
+      to: transition.to,
+      entryLocation: transition.entry,
+      exitLocation: transition.exit
+    });
+
+    fixture.system.applyTraversalResults([
+      Object.freeze({
+        kind: "elevator-call-accepted",
+        npcId: runtime.id,
+        linkId: transition.link.id,
+        from: transition.from,
+        to: transition.to
+      })
+    ]);
+    const traversalState = fixture.system.getTraversalState(runtime.id);
+
+    assert(
+      traversalState.kind === "moving-to-elevator-wait" &&
+        runtime.navigationAgentCleared &&
+        runtime.navigationReplanRequestedAtSeconds === null &&
+        runtime.navigationPendingTargetPosition === null,
+      "elevator-call-acceptedのAgent clearが次回再計画状態と同期されません。"
+    );
+    return "call-accepted後はmoving-to-waitかつ再計画待ち";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testNpcElevatorBlockedStatesDoNotConsumeReplanBudget = () => {
+  const npcCount = 5;
+  const fixture = createNpcFixture(npcCount, npcCount, 30, true);
+  try {
+    const systemAccess = fixture.system as unknown as NpcRuntimeTestAccess;
+    const runtimes = systemAccess.npcs;
+    const transition = createTestElevatorTransition(runtimes[0].footPosition);
+    const route = Object.freeze({
+      linkId: transition.link.id,
+      from: transition.from,
+      to: transition.to,
+      entryLocation: transition.entry,
+      exitLocation: transition.exit
+    });
+    runtimes[0].traversalState = Object.freeze({
+      kind: "waiting-elevator-board",
+      ...route
+    });
+    runtimes[1].traversalState = Object.freeze({
+      kind: "riding-elevator",
+      ...route
+    });
+    runtimes[2].traversalState = Object.freeze({
+      kind: "leaving-elevator",
+      ...route,
+      exitLocation: Object.freeze({
+        position: runtimes[2].footPosition.clone(),
+        polygonRef: 1
+      })
+    });
+    runtimes[3].traversalState = Object.freeze({
+      kind: "waiting-door-open",
+      doorId: "npc-test-door"
+    });
+    runtimes[4].traversalState = Object.freeze({ kind: "walking" });
+    for (const runtime of runtimes) {
+      runtime.navigationPendingTargetPosition = new Vector3(2, 0, 0);
+      runtime.navigationGoalRevision += 1;
+      runtime.navigationReplanRequestedAtSeconds = 0;
+      runtime.navigationAgentCleared = false;
+    }
+
+    systemAccess.prepareReplanPermissions();
+    const permissions = runtimes.map((_runtime, index) =>
+      systemAccess.hasReplanPermission(index)
+    );
+    assert(
+      permissions.join("|") === "false|false|false|false|true",
+      "探索不能なエレベーター／扉状態が再計画枠を占有しました: " +
+        permissions.join("|")
+    );
+    return "探索不能4体=0枠 / walking 1体=1枠";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testNpcElevatorWaitingCallConsumesManualReplan = () => {
+  const fixture = createNpcFixture(1, 1, 30, true);
+  try {
+    const systemAccess = fixture.system as unknown as NpcRuntimeTestAccess;
+    const runtime = systemAccess.npcs[0];
+    const transition = createTestElevatorTransition(runtime.footPosition);
+    fixture.navigation.findPath = (_start, destination) =>
+      Object.freeze({
+        steps: Object.freeze([transition]),
+        destination: Object.freeze({
+          position: destination.position.clone(),
+          polygonRef: destination.polygonRef
+        }),
+        distance: transition.distance
+      });
+    runtime.pendingNavigationTransition = transition;
+    runtime.navigationPendingTargetPosition = new Vector3(2, 0, 0);
+    runtime.navigationGoalRevision += 1;
+    runtime.navigationReplanRequestedAtSeconds = 0;
+    runtime.navigationAgentCleared = false;
+    runtime.traversalState = Object.freeze({
+      kind: "waiting-elevator-call",
+      linkId: transition.link.id,
+      from: transition.from,
+      to: transition.to,
+      entryLocation: transition.entry,
+      exitLocation: transition.exit
+    });
+
+    systemAccess.reconsiderWaitingElevatorCall(runtime);
+    assert(
+      runtime.traversalState.kind === "waiting-elevator-call" &&
+        runtime.navigationReplanRequestedAtSeconds === null &&
+        runtime.navigationPendingTargetPosition === null,
+      "同じエレベーター便を維持した手動経路比較が再計画要求を消費しません。"
+    );
+    return "同じ便を維持して要求1件を消費";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testNavigationAreaRejectsExitWithoutPortal = () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const firstMesh = MeshBuilder.CreateBox(
+    "navigation-area-test-first",
+    { size: 2 },
+    scene
+  );
+  const secondMesh = MeshBuilder.CreateBox(
+    "navigation-area-test-second",
+    { size: 2 },
+    scene
+  );
+  secondMesh.position.x = 4;
+  firstMesh.computeWorldMatrix(true);
+  secondMesh.computeWorldMatrix(true);
+  const volumes: readonly StageVolume[] = Object.freeze([
+    Object.freeze({
+      id: "navigation-area-test-first",
+      role: "navigation_area",
+      bitFlightBand: null,
+      navigationAreaId: "first",
+      mesh: firstMesh
+    }),
+    Object.freeze({
+      id: "navigation-area-test-second",
+      role: "navigation_area",
+      bitFlightBand: null,
+      navigationAreaId: "second",
+      mesh: secondMesh
+    })
+  ]);
+  const registry = createStageNavigationAreaRegistry(volumes, Object.freeze([]));
+  try {
+    const from = Vector3.Zero();
+    const cursor = registry.locate(from);
+    const sameAreaCursor = registry.advance(
+      cursor,
+      from,
+      new Vector3(0.5, 0, 0)
+    );
+    assert(
+      sameAreaCursor.areaId === "first",
+      "Portalなしの同一Area移動が拒否されました。"
+    );
+    assertThrows(
+      () => registry.advance(cursor, from, new Vector3(4, 0, 0)),
+      "Portalなしで現在Areaを離れた移動が契約違反になりません。"
+    );
+    return "同一Areaは維持 / Portalなし離脱は例外";
+  } finally {
+    registry.dispose();
+    scene.dispose();
+    engine.dispose();
+  }
+};
+
 const testNpcFairReplanBudgetAndFrameView = () => {
   const npcCount = 99;
   const fixture = createNpcFixture(npcCount, 0, 30);
@@ -3091,6 +3351,22 @@ export const runNpcCombatTests = () =>
       testNpcFrameViewBuildsOncePerBulkChange
     ),
     executeTest("NPC 0件更新", testZeroNpcUpdate),
+    executeTest(
+      "NPCエレベーターclear後の再計画同期",
+      testNpcElevatorClearQueuesReplan
+    ),
+    executeTest(
+      "NPCエレベーター探索不能状態の再計画枠除外",
+      testNpcElevatorBlockedStatesDoNotConsumeReplanBudget
+    ),
+    executeTest(
+      "NPCエレベーター呼出待機の手動再計画消費",
+      testNpcElevatorWaitingCallConsumesManualReplan
+    ),
+    executeTest(
+      "Navigation AreaのPortalなし離脱拒否",
+      testNavigationAreaRejectsExitWithoutPortal
+    ),
     executeTest(
       "NPC公平再計画予算・frame view",
       testNpcFairReplanBudgetAndFrameView
