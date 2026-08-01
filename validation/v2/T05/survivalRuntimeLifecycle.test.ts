@@ -27,6 +27,7 @@ import {
 import type { V2PlayerController } from "../../../src/v2/playerController";
 import {
   createV2SurvivalRuntime,
+  summarizeV2NpcHudCounts,
   summarizeV2TargetTracking,
   V2_PERFORMANCE_ACCEPTANCE_POPULATION,
   type V2SurvivalRuntime
@@ -240,6 +241,34 @@ export const runSurvivalRuntimeLifecycleTests = async (
   let secondRuntime: V2SurvivalRuntime | null = null;
 
   try {
+    const allStateHudCounts = summarizeV2NpcHudCounts(
+      Object.freeze([
+        "normal",
+        "evade",
+        "hit-a",
+        "hit-b",
+        "brainwash-in-progress",
+        "brainwash-complete-gun",
+        "brainwash-complete-no-gun",
+        "brainwash-complete-haigure",
+        "brainwash-complete-haigure-formation"
+      ])
+    );
+    checks.push(
+      Object.freeze({
+        name: "NPCの全状態をHUDの4分類へ集計",
+        ok:
+          allStateHudCounts.unbrainwashed === 2 &&
+          allStateHudCounts.haigure === 5 &&
+          allStateHudCounts.gun === 1 &&
+          allStateHudCounts.noGun === 1,
+        detail:
+          `unbrainwashed=${allStateHudCounts.unbrainwashed} / ` +
+          `haigure=${allStateHudCounts.haigure} / ` +
+          `gun=${allStateHudCounts.gun} / ` +
+          `noGun=${allStateHudCounts.noGun}`
+      })
+    );
     let orbVisibilityPredicateFactoryCalls = 0;
     const performanceDiagnostics =
       createV2PerformanceDiagnostics(
@@ -266,6 +295,11 @@ export const runSurvivalRuntimeLifecycleTests = async (
         name: "実人口99/66/50の初期frameを構築",
         ok:
           firstFrame.npcCount === 99 &&
+          firstFrame.npcHudCounts.unbrainwashed +
+            firstFrame.npcHudCounts.haigure +
+            firstFrame.npcHudCounts.gun +
+            firstFrame.npcHudCounts.noGun ===
+            firstFrame.npcCount &&
           firstFrame.brainwashedNpcCount === 66 &&
           firstFrame.bitCount === 50 &&
           firstFrame.npcPlayerTargetCount === 0 &&
@@ -273,6 +307,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
           !firstFrame.playerCompletionUnlocked,
         detail:
           `npc=${firstFrame.npcCount} / ` +
+          `hud=${JSON.stringify(firstFrame.npcHudCounts)} / ` +
           `brainwashed=${firstFrame.brainwashedNpcCount} / ` +
           `bit=${firstFrame.bitCount} / ` +
           `playerTargets=${firstFrame.npcPlayerTargetCount}+` +

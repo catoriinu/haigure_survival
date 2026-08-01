@@ -116,6 +116,53 @@ export type V2SurvivalPhase =
   | "execution"
   | "execution-complete";
 
+export type V2NpcHudCategory =
+  | "unbrainwashed"
+  | "haigure"
+  | "gun"
+  | "no-gun";
+
+export type V2NpcHudCounts = Readonly<{
+  unbrainwashed: number;
+  haigure: number;
+  gun: number;
+  noGun: number;
+}>;
+
+const V2_NPC_HUD_CATEGORY_BY_STATE = Object.freeze({
+  normal: "unbrainwashed",
+  evade: "unbrainwashed",
+  "hit-a": "haigure",
+  "hit-b": "haigure",
+  "brainwash-in-progress": "haigure",
+  "brainwash-complete-gun": "gun",
+  "brainwash-complete-no-gun": "no-gun",
+  "brainwash-complete-haigure": "haigure",
+  "brainwash-complete-haigure-formation": "haigure"
+} satisfies Readonly<Record<V2CharacterState, V2NpcHudCategory>>);
+
+export const summarizeV2NpcHudCounts = (
+  states: readonly V2CharacterState[]
+): V2NpcHudCounts => {
+  let unbrainwashed = 0;
+  let haigure = 0;
+  let gun = 0;
+  let noGun = 0;
+  for (const state of states) {
+    const category = V2_NPC_HUD_CATEGORY_BY_STATE[state];
+    if (category === "unbrainwashed") {
+      unbrainwashed += 1;
+    } else if (category === "haigure") {
+      haigure += 1;
+    } else if (category === "gun") {
+      gun += 1;
+    } else {
+      noGun += 1;
+    }
+  }
+  return Object.freeze({ unbrainwashed, haigure, gun, noGun });
+};
+
 export type V2SurvivalFrame = Readonly<{
   phase: V2SurvivalPhase;
   assemblyVenueId: string;
@@ -123,6 +170,7 @@ export type V2SurvivalFrame = Readonly<{
   playerCompletionUnlocked: boolean;
   playerCanMove: boolean;
   npcCount: number;
+  npcHudCounts: V2NpcHudCounts;
   brainwashedNpcCount: number;
   bitCount: number;
   activeBeamCount: number;
@@ -1158,6 +1206,9 @@ export const createV2SurvivalRuntime = ({
         brainwashedNpcCount += 1;
       }
     }
+    const npcHudCounts = summarizeV2NpcHudCounts(
+      npcFrameView.targets.map((target) => target.state)
+    );
     const executionFrame = executionSystem.getFrame();
     return Object.freeze({
       phase,
@@ -1167,6 +1218,7 @@ export const createV2SurvivalRuntime = ({
         playerStateSnapshot.playerCompletionUnlocked,
       playerCanMove: canPlayerMove(),
       npcCount: npcFrameView.targets.length,
+      npcHudCounts,
       brainwashedNpcCount,
       bitCount: bitFrameView.actorSpheres.length,
       activeBeamCount: beamSystem.activeCount,
