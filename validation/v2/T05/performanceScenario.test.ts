@@ -58,9 +58,9 @@ export const runPerformanceScenarioTests =
         assert(
           V2_TEST_SURVIVAL_POPULATION.npcCount === 50 &&
             V2_TEST_SURVIVAL_POPULATION
-              .initialBrainwashedNpcCount === 33 &&
+              .initialBrainwashedNpcCount === 10 &&
             V2_TEST_SURVIVAL_POPULATION.bitCount === 20,
-          "通常テスト人口が50／33／20ではありません。"
+          "通常テスト人口が50／10／20ではありません。"
         );
         assert(
           V2_PERFORMANCE_ACCEPTANCE_POPULATION.npcCount === 99 &&
@@ -69,7 +69,7 @@ export const runPerformanceScenarioTests =
             V2_PERFORMANCE_ACCEPTANCE_POPULATION.bitCount === 50,
           "性能受入人口が99／66／50ではありません。"
         );
-        return "通常50／33／20、性能99／66／50";
+        return "通常50／10／20、性能99／66／50";
       }
     ),
     executeTest(
