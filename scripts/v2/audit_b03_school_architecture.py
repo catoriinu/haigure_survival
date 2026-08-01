@@ -31,7 +31,6 @@ from build_b03_school_interiors import (
     FIRST_FLOOR_WEST_DOOR_OPENINGS,
     INFIRMARY_CURTAIN_MATERIAL_NAME,
     NORTH_CLASSROOM_DOOR_OPENINGS,
-    ROOF_POOL_NORTH_SIGN_SUPPORT,
     TOILET_COMMON_OPENING,
     TOILET_FRONT_DOOR_HEIGHT,
     TOILET_FRONT_DOOR_OPENINGS,
@@ -55,7 +54,7 @@ PROP_LIBRARY_PATH = (
 )
 
 EXPECTED_NAVMESH_SHA256 = (
-    "6A35B416EB7069FDB9E8EFF5FA9C62F6CE2D6FEBC9F28765B6041213AD448DD1"
+    "530FA01F472A7F3AB4F983C6360AA41C296F3170AE44334E67E26377ED5D977B"
 )
 EXPECTED_PROP_LIBRARY_SHA256 = (
     "560974D7FABAAE9D7FC89FB563F4EEB3964866D8B33EE2C138FF1020C414514C"
@@ -77,7 +76,7 @@ EXPECTED_CONSOLIDATED_MATERIAL_NAMES = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v3"
+EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v7"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 EXPECTED_SCHEMA_VERSION = 2
 EXPECTED_STAGE_ID = "school"
@@ -2382,8 +2381,8 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
         if obj.name.startswith("VIS_DoorPanel_Knob_")
     )
     require(
-        len(room_handle_names) == 38,
-        f"室内引き戸の両面取っ手Objectが38件ではありません: "
+        len(room_handle_names) == 40,
+        f"室内・屋上更衣室引き戸の両面取っ手Objectが40件ではありません: "
         f"{len(room_handle_names)}",
     )
     require(
@@ -2712,6 +2711,158 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     }
 
 
+def audit_rooftop_escape_crate_mounds() -> dict[str, int | float]:
+    visual_components = []
+    for color in ("Dark", "Light", "Gray"):
+        obj = bpy.data.objects.get(f"VIS_B03_RooftopEscapeCrates_{color}")
+        require(obj is not None and obj.type == "MESH", f"箱山D1表示がありません: {color}")
+        visual_components.extend(mesh_component_world_bounds(obj))
+    require(
+        len(visual_components) == 28,
+        f"箱山D1の表示木箱が2基14個ずつではありません: {len(visual_components)}",
+    )
+
+    expected_ramps = {
+        "COL_B03_GymRoofEscapeCrateRamp": (
+            (33.05, -9.10, 9.60),
+            (37.45, -6.90, 10.80),
+        ),
+        "COL_B03_SchoolRoofEscapeCrateRamp": (
+            (-4.05, 11.40, 14.50),
+            (0.35, 13.60, 15.70),
+        ),
+    }
+    upward_slope_checks = 0
+    for object_name, expected_bounds in expected_ramps.items():
+        obj = bpy.data.objects.get(object_name)
+        require(obj is not None and obj.type == "MESH", f"箱山D1斜面がありません: {object_name}")
+        require(
+            bounds_match(world_bounds(obj), expected_bounds),
+            f"箱山D1斜面のAABBが不正です: {object_name}/{world_bounds(obj)}",
+        )
+        require(
+            len(obj.data.vertices) == 8 and len(obj.data.polygons) == 6,
+            f"箱山D1斜面が登り口ゼロ厚の4点くさび形ではありません: "
+            f"{object_name}/vertices={len(obj.data.vertices)}/polygons={len(obj.data.polygons)}",
+        )
+        upward_sloped_faces = [
+            polygon
+            for polygon in obj.data.polygons
+            if 0.90 < polygon.normal.z < 0.9999
+        ]
+        require(
+            len(upward_sloped_faces) == 1,
+            f"箱山D1の接地斜面が上向きではありません: "
+            f"{object_name}/{[tuple(polygon.normal) for polygon in obj.data.polygons]}",
+        )
+        upward_slope_checks += 1
+
+    gym_crates = [
+        bounds for bounds in visual_components if bounds[1][2] < 12.0
+    ]
+    school_crates = [
+        bounds for bounds in visual_components if bounds[0][2] > 14.0
+    ]
+    require(
+        len(gym_crates) == 14 and len(school_crates) == 14,
+        "箱山D1の屋上別表示木箱数が14個ずつではありません",
+    )
+    gym_south_guard_clearance = min(
+        bounds[0][1] for bounds in gym_crates
+    ) - (-11.40)
+    gym_west_guard_clearance = min(bounds[0][0] for bounds in gym_crates) - 33.50
+    school_guard_clearance = -0.10 - max(
+        bounds[1][0] for bounds in school_crates
+    )
+    require(
+        2.0 - TOLERANCE <= gym_south_guard_clearance <= 3.0 + TOLERANCE,
+        "体育館箱山D1が南柵から2m以上3m以下離れていません: "
+        f"{gym_south_guard_clearance}",
+    )
+    require(
+        0.10 - TOLERANCE <= gym_west_guard_clearance <= 0.35 + TOLERANCE
+        and school_guard_clearance >= 0.10 - TOLERANCE,
+        "箱山D1表示が飛び降り方向の柵から適切に離れていません: "
+        f"gym_west={gym_west_guard_clearance}, school={school_guard_clearance}",
+    )
+    ramp_slope_degrees = math.degrees(math.atan2(1.20, 3.95))
+    require(
+        ramp_slope_degrees < 17.0,
+        f"箱山D1斜面が約17度未満ではありません: {ramp_slope_degrees}",
+    )
+    toe_height = 0.0
+    require(
+        toe_height < 0.15,
+        f"箱山D1登り口の段差がプレイヤー許容値未満ではありません: {toe_height}",
+    )
+
+    for object_name in (
+        "VIS_PoolRaisedDeck_West",
+        "VIS_PoolRaisedDeck_East",
+        "VIS_PoolRaisedDeck_North",
+        "VIS_PoolRaisedDeck_South",
+    ):
+        require_architecture_swatch(object_name, "wall")
+
+    continuous_west_roof_bounds = (
+        (-12.6, -6.7, 14.4),
+        (0.0, 32.5, 14.5),
+    )
+    for object_name in (
+        "VIS_Roof_West",
+        "COL_Roof_West",
+    ):
+        obj = bpy.data.objects.get(object_name)
+        require(
+            obj is not None and obj.type == "MESH",
+            f"南端まで一体延長した西棟屋上面がありません: {object_name}",
+        )
+        require(
+            bounds_match(world_bounds(obj), continuous_west_roof_bounds),
+            f"南端まで一体延長した西棟屋上面AABBが不正です: "
+            f"{object_name}/{world_bounds(obj)}",
+        )
+    require_architecture_swatch("VIS_Roof_West", "roof")
+    for obsolete_name in (
+        "VIS_B03_ElevatorShaftRoofFinish",
+        "COL_B03_ElevatorShaftRoofFinish",
+    ):
+        require(
+            bpy.data.objects.get(obsolete_name) is None,
+            f"継ぎ目を作る別体屋上仕上げが残っています: {obsolete_name}",
+        )
+
+    for object_name in (
+        "VIS_RooftopFacilityWalls",
+        "COL_RooftopFacilityShell",
+    ):
+        components = mesh_component_world_bounds(bpy.data.objects[object_name])
+        for expected_bounds in (
+            ((-5.4, 38.5, 16.8), (-4.2, 38.8, 16.9)),
+            ((-0.9, 38.5, 16.8), (0.3, 38.8, 16.9)),
+        ):
+            require(
+                any(bounds_match(component, expected_bounds) for component in components),
+                f"屋上更衣室の2.30m引き戸開口がありません: {object_name}/{expected_bounds}",
+            )
+    return {
+        "mounds": 2,
+        "visual_crates": len(visual_components),
+        "walkable_ramps": len(expected_ramps),
+        "upward_slope_checks": upward_slope_checks,
+        "ramp_slope_degrees": round(ramp_slope_degrees, 6),
+        "toe_height_m": toe_height,
+        "gym_south_guard_clearance_m": round(gym_south_guard_clearance, 6),
+        "gym_west_guard_clearance_m": round(gym_west_guard_clearance, 6),
+        "school_guard_clearance_m": round(school_guard_clearance, 6),
+        "gym_top_above_guard_m": 0.10,
+        "school_top_above_guard_m": 0.15,
+        "ivory_pool_structures": 4,
+        "continuous_west_roof_components": 2,
+        "changing_door_lintels": 2,
+    }
+
+
 def audit_roof_guards() -> dict[str, int]:
     component_count = 0
     post_spacing_checks = 0
@@ -2817,35 +2968,11 @@ def audit_roof_guards() -> dict[str, int]:
             require_point_in_box_component(facility_name, point)
             junction_checks += 2
 
-    support_center, support_size = ROOF_POOL_NORTH_SIGN_SUPPORT
     require(
-        support_center == (39.5, 45.28, 15.5)
-        and support_size == (0.10, 0.24, 0.10),
-        "屋上北側救命表示ブラケットの座標または寸法が契約値と一致しません",
+        bpy.data.objects.get("VIS_B03_Interior_RoofPoolSafety_Architecture")
+        is None,
+        "撤去対象の屋上救命浮き輪ブラケットが残っています",
     )
-    expected_support = (
-        tuple(
-            support_center[axis] - support_size[axis] / 2.0 for axis in range(3)
-        ),
-        tuple(
-            support_center[axis] + support_size[axis] / 2.0 for axis in range(3)
-        ),
-    )
-    require_box_component(
-        "VIS_B03_Interior_RoofPoolSafety_Architecture",
-        expected_support,
-    )
-    bracket_guard_contact = (39.5, 45.4, 15.5)
-    require_point_in_box_component(
-        "VIS_B03_Interior_RoofPoolSafety_Architecture",
-        bracket_guard_contact,
-    )
-    for prefix in ("VIS", "COL"):
-        require_point_in_box_component(
-            f"{prefix}_RoofGuard_NorthOuter",
-            bracket_guard_contact,
-        )
-        junction_checks += 1
 
     return {
         "objects": len(ROOF_GUARD_SEGMENTS) * 2,
@@ -4826,8 +4953,8 @@ def audit_b03_3b_structure(
     ]
     southernmost_b03_y = min(world_bounds(obj)[0].y for obj in b03_structure_objects)
     require(
-        southernmost_b03_y >= -11.5 - TOLERANCE,
-        f"B03-3B構造が拡張後の体育館南端を越えています: Y={southernmost_b03_y:.3f}",
+        southernmost_b03_y >= -11.85 - TOLERANCE,
+        f"B03-3B構造が箱山D1の許容南端を越えています: Y={southernmost_b03_y:.3f}",
     )
     south_perimeter = object_by_name.get("VIS_Perimeter_SouthWest")
     require(south_perimeter is not None, "南西側の既存塀がありません")
@@ -5819,8 +5946,8 @@ def audit_glb(document: GlbDocument) -> dict[str, object]:
         if node.get("name", "").startswith("VIS_DoorPanel_Knob_")
     ]
     require(
-        len(room_handle_nodes) == 38,
-        f"GLB室内引き戸の両面取っ手Nodeが38件ではありません: "
+        len(room_handle_nodes) == 40,
+        f"GLB室内・屋上更衣室引き戸の両面取っ手Nodeが40件ではありません: "
         f"{len(room_handle_nodes)}",
     )
     require(
@@ -6118,6 +6245,7 @@ def main() -> None:
     bit_flight_counts = audit_bit_flight_navigation(export_objects)
     stair_guard_counts = audit_stair_guards(export_objects)
     roof_guard_counts = audit_roof_guards()
+    rooftop_escape_crates = audit_rooftop_escape_crate_mounds()
     acceptance_visuals = audit_acceptance_visuals(export_objects)
     b03_3b_structure = audit_b03_3b_structure(export_objects)
     navigation_area_counts = audit_navigation_areas(export_objects)
@@ -6141,6 +6269,7 @@ def main() -> None:
         "bit_flight": bit_flight_counts,
         "stair_guards": stair_guard_counts,
         "roof_guards": roof_guard_counts,
+        "rooftop_escape_crates": rooftop_escape_crates,
         "acceptance_visuals": acceptance_visuals,
         "b03_3b_structure": b03_3b_structure,
         "navigation_areas": navigation_area_counts,

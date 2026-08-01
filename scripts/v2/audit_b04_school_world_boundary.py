@@ -27,20 +27,20 @@ NAVMESH_PATHS = {
     "human": (
         REPOSITORY_ROOT
         / "public/stage-assets/v2/B02/b02_school_blockout.navmesh.bin",
-        3_124_800,
-        "6A35B416EB7069FDB9E8EFF5FA9C62F6CE2D6FEBC9F28765B6041213AD448DD1",
+        3_123_476,
+        "530FA01F472A7F3AB4F983C6360AA41C296F3170AE44334E67E26377ED5D977B",
     ),
     "bit": (
         REPOSITORY_ROOT
         / "public/stage-assets/v2/B02/b02_school_blockout.bit-flight.navmesh.bin",
-        568_363,
-        "C60C44187E8EECA0889A933B564BB7EAB936728148F43E5DD1796C57E82D8D73",
+        565_399,
+        "E7E0A76429BA1C9BCFCB26A18071DB2307CA394632FB727A0559140244CAC62A",
     ),
     "room_variants": (
         REPOSITORY_ROOT
         / "public/stage-assets/v2/B02/b02_school_blockout.room-variants.navmesh.bin",
-        1_910_934,
-        "95C032FCD4D169A4AD590C1B8F3EB2DC0E30DA4EBD74E1EAC035D2A191D559A8",
+        1_914_182,
+        "A6E23357B5379F25629A7642AAE420913A999EFEC7EC07955107B3F59D27C8D6",
     ),
 }
 EXPECTED_OBJECTS = {

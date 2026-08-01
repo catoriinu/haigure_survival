@@ -52,7 +52,7 @@ ALLOWED_NEW_EXACT_NAMES = {"NAV_Blocker_Interiors"}
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
 T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 T05_GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
-T05_GENERATOR_VERSION = "b03-3c-interactive-assets-v3"
+T05_GENERATOR_VERSION = "b03-3c-interactive-assets-v7"
 T04_ALLOWED_MISSING_EXACT_NAMES = {
     "COL_B03_Prop_Locker_Changing_F_01",
     "COL_B03_Prop_Locker_Changing_F_02",
@@ -150,6 +150,7 @@ T05_ALLOWED_MISSING_EXACT_NAMES = {
     "COL_HumanOnly_Window_Gym_North_02_U01",
     "VIS_WindowFrame_Gym_North_02",
     "VIS_WindowGlass_Gym_North_02",
+    "COL_B03_ChangingBenches",
 }
 T05_ALLOWED_CHANGED_EXACT_NAMES = {
     "COL_ActorOnly_WindowFixed_F02_CourtyardNorth_Corridor_03",
@@ -181,6 +182,7 @@ T05_ALLOWED_CHANGED_EXACT_NAMES = {
     "COL_Perimeter_SouthEast",
     "COL_Perimeter_SouthWest",
     "COL_Perimeter_West",
+    "COL_Roof_West",
     "COL_SiteGround",
     "COL_HumanOnly_Window_Gym_East_01_U03",
     "COL_HumanOnly_Window_Gym_East_02_U01",
@@ -214,9 +216,15 @@ T05_ALLOWED_CHANGED_EXACT_NAMES = {
     "VIS_WindowGlass_Gym_West_02",
     "VIS_WindowGlass_Gym_West_03",
     "VOL_BitSpawn_Courtyard",
+    "COL_RooftopFacilityShell",
 }
 T05_ALLOWED_NEW_EXACT_NAMES = {
     "COL_B03_ElevatorClosedDoor_F02_F03",
+    "VOL_NavigationArea_Ground",
+    "VOL_NavigationArea_Roof",
+    "VOL_NavigationArea_Upper01",
+    "VOL_NavigationArea_Upper02",
+    "VOL_NavigationArea_Upper03",
     "COL_B03_ElevatorShaftShell",
     "COL_B03_ElevatorStairWall",
     "COL_B03_GymBridgeEnvelope",
@@ -230,9 +238,11 @@ T05_ALLOWED_NEW_EXACT_NAMES = {
     "COL_B03_GymRoofGuards",
     "COL_B03_GymRoofRamp",
     "COL_B03_GymRoofRampUnderfill",
+    "COL_B03_GymRoofEscapeCrateRamp",
     "COL_B03_GymRoofWalkable",
     "COL_B03_GymStageSideWalls",
     "COL_B03_WestExtensionFloor_F01",
+    "COL_B03_SchoolRoofEscapeCrateRamp",
     "MRK_AssemblyAnchor_Courtyard",
     "MRK_AssemblyAnchor_Gym",
     "NAV_BitFlight_ExteriorF1",

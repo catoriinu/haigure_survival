@@ -80,6 +80,9 @@ VIEWS = (
     ("62_gym_bridge_gallery_terminal_interior", (41.4, 30.5, 5.5), (41.4, 25.7, 3.7), 40.0),
     ("63_main_entry_six_lockers", (-7.0, -6.5, 2.6), (-1.4, -4.9, 0.6), 35.0),
     ("64_gym_south_passage", (61.5, -12.8, 1.7), (36.0, -12.8, 0.6), 52.0),
+    ("65_gym_roof_escape_crates", (29.0, -1.0, 13.0), (35.4, -9.5, 10.2), 52.0),
+    ("66_school_roof_escape_crates", (-10.0, 18.0, 18.0), (-2.0, 12.5, 15.1), 52.0),
+    ("67_west_roof_south_extension", (-21.0, -17.0, 20.0), (-6.3, -4.2, 14.5), 52.0),
 )
 
 SCHOOL_FULL_PREFIXES = (

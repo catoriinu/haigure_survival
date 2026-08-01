@@ -179,7 +179,7 @@ const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   roomVariantNavmesh: Object.freeze({
     mode: "required",
     url: "b02_school_blockout.room-variants.navmesh.bin",
-    sha256: "95c032fcd4d169a4ad590c1b8f3eb2dc0e30da4ebd74e1eac035d2a191d559a8"
+    sha256: "a6e23357b5379f25629a7642aae420913a999efec7ec07955107b3f59d27c8d6"
   })
 });
 
@@ -3550,9 +3550,9 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
       context.doorAssets.getByClass("elevator_car");
     pushCheck(
       checks,
-      "実学校65扉metadata",
-      context.doorAssets.all.length === 65 &&
-        roomDoors.length === 38 &&
+      "実学校67扉metadata",
+      context.doorAssets.all.length === 67 &&
+        roomDoors.length === 40 &&
         toiletDoors.length === 24 &&
         elevatorLandingDoors.length === 2 &&
         elevatorCarDoors.length === 1 &&

@@ -7,6 +7,7 @@ import {
   Frustum,
   FreeCamera,
   HemisphericLight,
+  Ray,
   Scene,
   Vector3
 } from "@babylonjs/core";
@@ -70,17 +71,36 @@ const performanceScenario =
   readV2PerformanceScenario(location.search);
 const runtimeStressScenario =
   readV2RuntimeStressScenario(location.search);
-if (performanceScenario && runtimeStressScenario) {
+const rampValidationTarget = (() => {
+  const requested = new URLSearchParams(location.search).get(
+    "rampValidation"
+  );
+  if (requested === null || requested === "gym" || requested === "school") {
+    return requested;
+  }
+  throw new Error("rampValidationにはgymまたはschoolが必要です。");
+})();
+if (
+  [performanceScenario, runtimeStressScenario, rampValidationTarget].filter(
+    (scenario) => scenario !== null
+  ).length > 1
+) {
   throw new Error(
-    "performanceとschoolStressは同時に実行できません。"
+    "performance、schoolStress、rampValidationは同時に実行できません。"
   );
 }
 const runtimeSeed =
   performanceScenario?.seed ?? runtimeStressScenario?.seed ?? 0;
 const runtimePopulation = performanceScenario
   ? V2_PERFORMANCE_ACCEPTANCE_POPULATION
-  : runtimeStressScenario?.population ??
-    V2_TEST_SURVIVAL_POPULATION;
+  : rampValidationTarget
+    ? Object.freeze({
+        npcCount: 0,
+        initialBrainwashedNpcCount: 0,
+        bitCount: 0
+      })
+    : runtimeStressScenario?.population ??
+      V2_TEST_SURVIVAL_POPULATION;
 const roomVariantSelections = runtimeStressScenario
   ? createSchoolRoomVariantSelections(
       createSchoolRuntimeSettings(2),
@@ -411,6 +431,81 @@ const runtimeStressInitialBrainwashedNpcCount =
 let runtimeStressFrameCount = 0;
 let runtimeStressStatus: V2RuntimeStressReport["status"] =
   "running";
+
+if (rampValidationTarget) {
+  const colliderName =
+    rampValidationTarget === "gym"
+      ? "COL_B03_GymRoofEscapeCrateRamp"
+      : "COL_B03_SchoolRoofEscapeCrateRamp";
+  const rampCollider = stage.resources.normalColliders.find(
+    (mesh) => mesh.name === colliderName
+  );
+  if (!rampCollider) {
+    throw new Error(`箱山登坂検証対象がありません: ${colliderName}`);
+  }
+  rampCollider.computeWorldMatrix(true);
+  const bounds = rampCollider.getBoundingInfo().boundingBox;
+  const placement =
+    rampValidationTarget === "gym"
+      ? Object.freeze({
+          start: new Vector3(
+            bounds.minimumWorld.x - 0.05,
+            bounds.minimumWorld.y + 0.005,
+            bounds.centerWorld.z
+          ),
+          end: new Vector3(
+            bounds.maximumWorld.x - 0.025,
+            bounds.maximumWorld.y,
+            bounds.centerWorld.z
+          )
+        })
+      : Object.freeze({
+          start: new Vector3(
+            bounds.maximumWorld.x + 0.05,
+            bounds.minimumWorld.y - 0.02,
+            bounds.centerWorld.z
+          ),
+          end: new Vector3(
+            bounds.minimumWorld.x + 0.025,
+            bounds.maximumWorld.y,
+            bounds.centerWorld.z
+          )
+        });
+  document.body.dataset.rampValidationPlacement = JSON.stringify({
+    target: rampValidationTarget,
+    bounds: {
+      minimum: bounds.minimumWorld.asArray(),
+      maximum: bounds.maximumWorld.asArray()
+    },
+    start: placement.start.asArray(),
+    end: placement.end.asArray(),
+    supportHits: scene
+      .multiPickWithRay(
+        new Ray(
+          placement.start.add(new Vector3(0, 0.2, 0)),
+          Vector3.Down(),
+          0.4
+        ),
+        (mesh) =>
+          stage.resources.normalColliders.some(
+            (collider) => collider === mesh
+          )
+      )
+      ?.map((hit) => ({
+        mesh: hit.pickedMesh?.name ?? null,
+        point: hit.pickedPoint?.asArray() ?? null,
+        normal: hit.getNormal(true, false)?.asArray() ?? null
+      })) ?? []
+  });
+  player.placeAt(placement.start, placement.end);
+  started = true;
+  titleOverlay.style.display = "none";
+  statusInfo.style.display = "block";
+  helpPanel.style.display = "block";
+  helpPanel.textContent =
+    `箱山登坂検証 ${rampValidationTarget}\n` +
+    "W: 登坂  Shift: ダッシュ";
+}
 
 const publishRuntimeStressReport = (
   status: V2RuntimeStressReport["status"],

@@ -1190,6 +1190,43 @@ def _build_room_doors(
     return count
 
 
+def _build_rooftop_changing_doors(
+    visual_collection: bpy.types.Collection,
+    collider_collection: bpy.types.Collection,
+    semantic_collection: bpy.types.Collection,
+    door_material: bpy.types.Material,
+    hardware_material: bpy.types.Material,
+) -> int:
+    specs = (
+        (
+            "RoofChangingMale_01",
+            "room-door-roof-changing-male-01",
+            -4.80,
+        ),
+        (
+            "RoofChangingFemale_01",
+            "room-door-roof-changing-female-01",
+            -0.30,
+        ),
+    )
+    for token, door_id, center_x in specs:
+        _build_sliding_door(
+            token=token,
+            door_id=door_id,
+            door_class="room",
+            root_location=(center_x, 38.48, 14.50),
+            root_rotation_z=0.0,
+            panel_size=(1.20, 0.08, 2.30),
+            open_delta=(1.20, -0.04, 0.0),
+            visual_collection=visual_collection,
+            collider_collection=collider_collection,
+            semantic_collection=semantic_collection,
+            door_material=door_material,
+            hardware_material=hardware_material,
+        )
+    return len(specs)
+
+
 def _build_toilet_stall_doors(
     visual_collection: bpy.types.Collection,
     collider_collection: bpy.types.Collection,
@@ -2064,6 +2101,13 @@ def build_school_interactive_assets(
         door_material,
         furniture_material,
     )
+    rooftop_changing_doors = _build_rooftop_changing_doors(
+        visual_collection,
+        collider_collection,
+        semantic_collection,
+        door_material,
+        furniture_material,
+    )
     toilet_doors = _build_toilet_stall_doors(
         visual_collection,
         collider_collection,
@@ -2087,6 +2131,7 @@ def build_school_interactive_assets(
     )
     return {
         "room_doors": room_doors,
+        "rooftop_changing_doors": rooftop_changing_doors,
         "toilet_stall_doors": toilet_doors,
         "elevator": elevator,
         "room_variants": variants,

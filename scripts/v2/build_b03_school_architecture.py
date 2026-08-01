@@ -76,7 +76,7 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
-GENERATOR_VERSION = "b03-3c-interactive-assets-v3"
+GENERATOR_VERSION = "b03-3c-interactive-assets-v7"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -1959,6 +1959,59 @@ def align_existing_storey_sources() -> None:
     replace_mesh_geometry("BND_Stage", boundary_vertices, boundary_faces)
 
 
+def raise_rooftop_changing_door_lintels(
+    visual_collection: bpy.types.Collection,
+    collider_collection: bpy.types.Collection,
+    wall_material: bpy.types.Material,
+) -> None:
+    opening_spans = ((-5.4, -4.2), (-0.9, 0.3))
+    for object_name, target_collection, material in (
+        ("VIS_RooftopFacilityWalls", visual_collection, wall_material),
+        ("COL_RooftopFacilityShell", collider_collection, None),
+    ):
+        obj = bpy.data.objects.get(object_name)
+        if obj is None or obj.type != "MESH":
+            raise RuntimeError(f"屋上更衣室壁がありません: {object_name}")
+        boxes = []
+        changed = 0
+        matched = 0
+        for minimum, maximum in mesh_component_world_bounds(obj):
+            updated_minimum = tuple(minimum)
+            if (
+                abs(minimum.y - 38.5) <= 1.0e-4
+                and abs(maximum.y - 38.8) <= 1.0e-4
+                and abs(maximum.z - 16.9) <= 1.0e-4
+                and any(
+                    abs(minimum.x - minimum_x) <= 1.0e-4
+                    and abs(maximum.x - maximum_x) <= 1.0e-4
+                    for minimum_x, maximum_x in opening_spans
+                )
+            ):
+                matched += 1
+                if abs(minimum.z - 16.7) <= 1.0e-4:
+                    changed += 1
+                elif abs(minimum.z - 16.8) > 1.0e-4:
+                    raise RuntimeError(
+                        f"屋上更衣室引き戸の欄間下端が不正です: {object_name}={minimum.z}"
+                    )
+                updated_minimum = (minimum.x, minimum.y, 16.8)
+            boxes.append((updated_minimum, tuple(maximum)))
+        if matched != 2:
+            raise RuntimeError(
+                f"屋上更衣室引き戸の欄間対象数が不正です: {object_name}={matched}"
+            )
+        old_mesh = obj.data
+        bpy.data.objects.remove(obj, do_unlink=True)
+        if old_mesh.users == 0:
+            bpy.data.meshes.remove(old_mesh)
+        create_mesh_object(
+            object_name,
+            boxes,
+            target_collection,
+            material,
+        )
+
+
 def align_acceptance_geometry() -> None:
     for name in ("VIS_MainEntryDoor_Open_North", "VIS_MainEntryDoor_Open_South"):
         obj = bpy.data.objects.get(name)
@@ -3547,6 +3600,11 @@ def build_b03_3b_structure(
 ) -> dict[str, tuple[str, ...]]:
     blocker_names: list[str] = []
     rebuild_gym_envelope_and_stage()
+    for object_name in ("VIS_Roof_West", "COL_Roof_West"):
+        replace_existing_boxes(
+            object_name,
+            [((-12.6, -6.7, 14.4), (0.0, 32.5, 14.5))],
+        )
 
     bridge_floor_boxes = [
         ((39.3, 26.6, 3.45), (43.5, 32.5, 3.60)),
@@ -4297,23 +4355,144 @@ def build_minimum_props(
             visual_collection,
         )
 
-    bench_boxes = [
-        ((-5.6, 40.2, 14.5), (-3.1, 40.7, 14.92)),
-        ((-1.1, 40.2, 14.5), (1.4, 40.7, 14.92)),
-    ]
-    create_mesh_object(
-        "VIS_B03_ChangingBenches",
-        bench_boxes,
-        visual_collection,
-        bench_material,
-    )
-    create_mesh_object(
-        "COL_B03_ChangingBenches", bench_boxes, collider_collection
-    )
-
     for source in sources.values():
         unlink_and_remove_object(source)
     remove_unused_prop_material_duplicates()
+
+
+def append_oriented_box(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    center: tuple[float, float, float],
+    size: tuple[float, float, float],
+    rotation_z: float,
+) -> None:
+    transform = Matrix.Translation(Vector(center)) @ Matrix.Rotation(
+        rotation_z, 4, "Z"
+    )
+    half_x, half_y, half_z = (dimension / 2.0 for dimension in size)
+    local_vertices = (
+        (-half_x, -half_y, -half_z),
+        (half_x, -half_y, -half_z),
+        (half_x, half_y, -half_z),
+        (-half_x, half_y, -half_z),
+        (-half_x, -half_y, half_z),
+        (half_x, -half_y, half_z),
+        (half_x, half_y, half_z),
+        (-half_x, half_y, half_z),
+    )
+    offset = len(vertices)
+    vertices.extend(tuple(transform @ Vector(vertex)) for vertex in local_vertices)
+    faces.extend(
+        tuple(offset + index for index in face)
+        for face in (
+            (0, 3, 2, 1),
+            (4, 5, 6, 7),
+            (0, 1, 5, 4),
+            (1, 2, 6, 5),
+            (2, 3, 7, 6),
+            (3, 0, 4, 7),
+        )
+    )
+
+
+def build_rooftop_escape_crate_mounds(
+    visual_collection: bpy.types.Collection,
+    collider_collection: bpy.types.Collection,
+    architecture_material: bpy.types.Material,
+) -> dict[str, tuple[str, ...]]:
+    mound_length_scale = 1.24
+    local_crates = (
+        (0.38, -0.55, 0.15, 0.76, 1.00, 0.30, -2.0, "Dark"),
+        (0.38, 0.55, 0.15, 0.76, 1.00, 0.30, 2.0, "Light"),
+        (1.08, -0.55, 0.30, 0.76, 1.00, 0.60, 0.0, "Light"),
+        (1.08, 0.55, 0.30, 0.76, 1.00, 0.60, 0.0, "Gray"),
+        (1.78, -0.55, 0.45, 0.76, 1.00, 0.90, 0.0, "Gray"),
+        (1.78, 0.55, 0.45, 0.76, 1.00, 0.90, 0.0, "Dark"),
+        (2.58, -0.55, 0.60, 0.92, 1.00, 1.20, 0.0, "Dark"),
+        (2.58, 0.55, 0.60, 0.92, 1.00, 1.20, 0.0, "Light"),
+        (0.72, -0.92, 0.18, 0.58, 0.48, 0.36, -5.0, "Gray"),
+        (0.88, 0.94, 0.20, 0.62, 0.46, 0.40, 4.0, "Dark"),
+        (1.48, -0.96, 0.28, 0.64, 0.44, 0.56, 3.0, "Light"),
+        (1.56, 0.95, 0.30, 0.58, 0.46, 0.60, -4.0, "Gray"),
+        (2.28, -0.96, 0.40, 0.66, 0.44, 0.80, -3.0, "Dark"),
+        (2.34, 0.96, 0.42, 0.62, 0.44, 0.84, 5.0, "Light"),
+    )
+    placements = (
+        ("Gym", (37.50, -8.00, 9.60), math.pi),
+        ("School", (-4.00, 12.50, 14.50), 0.0),
+    )
+    batches: dict[str, tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]] = {
+        key: ([], []) for key in ("Dark", "Light", "Gray")
+    }
+    for _site, origin, mound_rotation in placements:
+        transform = Matrix.Translation(Vector(origin)) @ Matrix.Rotation(
+            mound_rotation, 4, "Z"
+        )
+        for u, v, local_z, size_u, size_v, size_z, degrees, color in local_crates:
+            center = transform @ Vector((u * mound_length_scale, v, local_z))
+            vertices, faces = batches[color]
+            append_oriented_box(
+                vertices,
+                faces,
+                tuple(center),
+                (size_u * mound_length_scale, size_v, size_z),
+                mound_rotation + math.radians(degrees),
+            )
+    for color, (vertices, faces) in batches.items():
+        name = f"VIS_B03_RooftopEscapeCrates_{color}"
+        mesh = bpy.data.meshes.new(name)
+        mesh.from_pydata(vertices, [], faces)
+        mesh.update(calc_edges=True)
+        obj = bpy.data.objects.new(name, mesh)
+        visual_collection.objects.link(obj)
+        mesh.materials.append(architecture_material)
+
+    gym_vertices: list[tuple[float, float, float]] = []
+    gym_faces: list[tuple[int, ...]] = []
+    append_xz_profile_prism(
+        gym_vertices,
+        gym_faces,
+        (-9.10, -6.90),
+        (
+            (37.45, 9.60),
+            (33.50, 10.80),
+            (33.05, 10.80),
+            (33.05, 10.76),
+        ),
+    )
+    gym_mesh = bpy.data.meshes.new("COL_B03_GymRoofEscapeCrateRamp")
+    gym_mesh.from_pydata(gym_vertices, [], gym_faces)
+    gym_mesh.update(calc_edges=True)
+    gym_collider = bpy.data.objects.new(
+        "COL_B03_GymRoofEscapeCrateRamp", gym_mesh
+    )
+    collider_collection.objects.link(gym_collider)
+
+    school_vertices: list[tuple[float, float, float]] = []
+    school_faces: list[tuple[int, ...]] = []
+    append_xz_profile_prism(
+        school_vertices,
+        school_faces,
+        (11.40, 13.60),
+        (
+            (-4.05, 14.50),
+            (0.35, 15.66),
+            (0.35, 15.70),
+            (-0.10, 15.70),
+        ),
+    )
+    school_mesh = bpy.data.meshes.new("COL_B03_SchoolRoofEscapeCrateRamp")
+    school_mesh.from_pydata(school_vertices, [], school_faces)
+    school_mesh.update(calc_edges=True)
+    school_collider = bpy.data.objects.new(
+        "COL_B03_SchoolRoofEscapeCrateRamp", school_mesh
+    )
+    collider_collection.objects.link(school_collider)
+    return {
+        "gym_nav_sources": (gym_collider.name,),
+        "school_nav_sources": (school_collider.name,),
+    }
 
 
 def world_bounds(obj: bpy.types.Object) -> tuple[Vector, Vector]:
@@ -4939,6 +5118,7 @@ def build_nav_sources(
     generated_upper_colliders: list[bpy.types.Object],
     window_colliders: list[bpy.types.Object],
     b03_3b_result: dict[str, tuple[str, ...]],
+    escape_mound_result: dict[str, tuple[str, ...]],
 ) -> None:
     stair_blocker = bpy.data.objects.get("NAV_Blocker_StairClosed")
     if stair_blocker is not None:
@@ -4992,6 +5172,7 @@ def build_nav_sources(
             "COL_PoolDeckAccessRamp_West",
             "COL_PoolBasinRamp_East",
             "COL_PoolBasinFloor",
+            *escape_mound_result["school_nav_sources"],
         ],
         nav_collection,
         {"hs_nav_role": "walkable", "hs_nav_area": "ground"},
@@ -5009,7 +5190,8 @@ def build_nav_sources(
     create_gym_gallery_stair_nav_source(nav_collection)
     copy_meshes_into_object(
         "NAV_B03_Walkable_GymRooftop",
-        list(b03_3b_result["gym_rooftop_nav_sources"]),
+        list(b03_3b_result["gym_rooftop_nav_sources"])
+        + list(escape_mound_result["gym_nav_sources"]),
         nav_collection,
         {"hs_nav_role": "walkable", "hs_nav_area": "ground"},
     )
@@ -5866,6 +6048,11 @@ def main() -> None:
     door_material = architecture_material
     water_material = existing_material("MAT_Pool_Water")
     bench_material = furniture_material
+    raise_rooftop_changing_door_lintels(
+        visual_collection,
+        collider_collection,
+        wall_material,
+    )
     frame_material = make_material(
         "MAT_B03_WindowFrame", (0.36, 0.39, 0.41, 1.0), metallic=0.15, roughness=0.38
     )
@@ -5919,6 +6106,11 @@ def main() -> None:
     window_colliders.extend(storage_window_colliders)
     build_pool(visual_collection, semantic_collection, water_material)
     build_minimum_props(visual_collection, collider_collection, bench_material)
+    escape_mound_result = build_rooftop_escape_crate_mounds(
+        visual_collection,
+        collider_collection,
+        architecture_material,
+    )
     interior_result = build_school_interiors(
         visual_collection,
         collider_collection,
@@ -5943,6 +6135,7 @@ def main() -> None:
         upper_colliders,
         window_colliders,
         b03_3b_result,
+        escape_mound_result,
     )
     interactive_result = build_school_interactive_assets(
         visual_collection,

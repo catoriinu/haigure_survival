@@ -234,7 +234,7 @@ const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   roomVariantNavmesh: Object.freeze({
     mode: "required",
     url: "b02_school_blockout.room-variants.navmesh.bin",
-    sha256: "95c032fcd4d169a4ad590c1b8f3eb2dc0e30da4ebd74e1eac035d2a191d559a8"
+    sha256: "a6e23357b5379f25629a7642aae420913a999efec7ec07955107b3f59d27c8d6"
   })
 });
 
@@ -3640,8 +3640,8 @@ const runValidation = async () => {
             (selection) => selection.variant === "normal"
           );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 613 &&
-          schoolContext.resources.normalColliders.length === 273 &&
+          schoolContext.resources.visualMeshes.length === 619 &&
+          schoolContext.resources.normalColliders.length === 276 &&
           schoolContext.resources.actorOnlyColliders.length === 81 &&
           schoolContext.resources.humanOnlyColliders.length === 59 &&
           schoolContext.resources.beamSightOnlyColliders.length === 1 &&
@@ -3649,14 +3649,14 @@ const runValidation = async () => {
             "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
           schoolContext.resources.navSourceMeshes.length === 39 &&
           schoolContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-          schoolContext.markers.all.length === 227 &&
+          schoolContext.markers.all.length === 233 &&
           assemblyAnchors.length === 2 &&
-          schoolContext.volumes.all.length === 80 &&
+          schoolContext.volumes.all.length === 82 &&
           schoolContext.navigationAreas.all.length === 5 &&
           schoolContext.navigationAreas.portals.length === 4 &&
           assemblyVolumes.length === 2 &&
           roomVariantSelectionOk &&
-          schoolContext.doorAssets.all.length === 65 &&
+          schoolContext.doorAssets.all.length === 67 &&
           schoolContext.elevatorAssets.all.length === 1 &&
           schoolContext.links.all.length === 1 &&
           schoolContext.bitNavigation.zones.length === 4 &&
@@ -4444,7 +4444,7 @@ const runValidation = async () => {
 
         const upperSpecialRoomRoutes = [
           ["3F", 7.2, 11.5, 40.75],
-          ["4F", 10.8, 8.0, 40.0]
+          ["4F", 10.8, 9.3, 40.0]
         ].map(([floor, baseZ, destinationX, destinationY]) => {
           const z = baseZ as number;
           const start = blenderPointToBabylon(new Vector3(3.9, 40.0, z));
@@ -5742,8 +5742,8 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 613 &&
-          reloadedContext.resources.normalColliders.length === 273 &&
+          reloadedContext.resources.visualMeshes.length === 619 &&
+          reloadedContext.resources.normalColliders.length === 276 &&
           reloadedContext.resources.actorOnlyColliders.length === 81 &&
           reloadedContext.resources.humanOnlyColliders.length === 59 &&
           reloadedContext.resources.beamSightOnlyColliders.length === 1 &&
@@ -5751,9 +5751,9 @@ const runValidation = async () => {
             "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
           reloadedContext.resources.navSourceMeshes.length === 39 &&
           reloadedContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-          reloadedContext.markers.all.length === 227 &&
+          reloadedContext.markers.all.length === 233 &&
           reloadedContext.markers.getByRole("assembly_anchor").length === 2 &&
-          reloadedContext.volumes.all.length === 80 &&
+          reloadedContext.volumes.all.length === 82 &&
           reloadedContext.navigationAreas.all.length === 5 &&
           reloadedContext.navigationAreas.portals.length === 4 &&
           reloadedContext.volumes.getByRole("assembly").length === 2 &&
@@ -5773,7 +5773,7 @@ const runValidation = async () => {
           reloadedContext.roomVariantSelection.every(
             (selection) => selection.variant === "normal"
           ) &&
-          reloadedContext.doorAssets.all.length === 65 &&
+          reloadedContext.doorAssets.all.length === 67 &&
           reloadedContext.elevatorAssets.all.length === 1 &&
           reloadedContext.links.all.length === 1 &&
           reloadedContext.bitNavigation.zones.length === 4 &&

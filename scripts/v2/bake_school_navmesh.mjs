@@ -504,7 +504,7 @@ const REPRESENTATIVE_ROUTES = Object.freeze([
     id: "fourth-floor-toilet-passage-to-special-room",
     label: "4階トイレ側通路→特別教室正規扉",
     startBlender: Object.freeze([3.9, 40.0, 10.8]),
-    endBlender: Object.freeze([8.0, 40.0, 10.8]),
+    endBlender: Object.freeze([9.3, 40.0, 10.8]),
     requiredPassageBlender: makeNorthSpecialRoomDoorPassageBounds(10.8)
   }),
   Object.freeze({

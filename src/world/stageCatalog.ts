@@ -37,15 +37,15 @@ export const SCHOOL_STAGE: StageCatalogEntry = Object.freeze({
   roomVariantNavmesh: Object.freeze({
     mode: "required",
     url: "stage-assets/v2/B02/b02_school_blockout.room-variants.navmesh.bin",
-    sha256: "95c032fcd4d169a4ad590c1b8f3eb2dc0e30da4ebd74e1eac035d2a191d559a8"
+    sha256: "a6e23357b5379f25629a7642aae420913a999efec7ec07955107b3f59d27c8d6"
   }),
   assetSchemaVersion: 2,
   navProfileId: "school-humanoid-room-variants-v2",
   bitNavProfileId: "bit-flight-body-0.44-margin-0.10-v1",
-  glbSha256: "0914e9f04bfca2d6d65a33b97a025e0eb529aec1907a3cfaf8070fc36de06444",
-  navmeshSha256: "6a35b416eb7069fdb9e8eff5fa9c62f6ce2d6febc9f28765b6041213ad448dd1",
+  glbSha256: "4e5be8242399eb688871e62fd965099cf819c7c228d0244d2a8917e99a0a513f",
+  navmeshSha256: "530fa01f472a7f3ab4f983c6360aa41c296f3170ae44334e67e26377ed5d977b",
   bitNavmeshSha256:
-    "c60c44187e8eeca0889a933b564bb7eab936728148f43e5dd1796c57e82d8d73",
+    "e7e0a76429ba1c9bcfcb26a18071db2307ca394632fb727a0559140244cac62a",
   depthPrePassMaterialNames: Object.freeze([
     "MAT_B03_InfirmaryCurtain"
   ]),
