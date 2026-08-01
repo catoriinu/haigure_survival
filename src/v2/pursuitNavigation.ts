@@ -50,18 +50,37 @@ export const createV2TargetNavigationAreaTracker = (
       frameTargets.clear();
       for (const target of targets) {
         frameTargets.set(target.id, target);
+        const current = tracked.get(target.id) ?? null;
+        if (!current) {
+          tracked.set(target.id, {
+            cursor: areas.locate(target.footPosition),
+            revision: 0,
+            anchor: target.footPosition.clone(),
+            position: target.footPosition.clone()
+          });
+          continue;
+        }
+        if (
+          !transportingTargetIds.has(target.id) &&
+          !current.position.equals(target.footPosition)
+        ) {
+          const nextCursor = areas.advance(
+            current.cursor,
+            current.position,
+            target.footPosition
+          );
+          if (nextCursor.areaId !== current.cursor.areaId) {
+            current.revision += 1;
+            current.anchor.copyFrom(target.footPosition);
+          }
+          current.cursor = nextCursor;
+          current.position.copyFrom(target.footPosition);
+        }
       }
       for (const targetId of tracked.keys()) {
         if (!frameTargets.has(targetId)) {
           tracked.delete(targetId);
           transportingTargetIds.delete(targetId);
-          continue;
-        }
-        if (
-          !frameSnapshots.has(targetId) &&
-          !transportingTargetIds.has(targetId)
-        ) {
-          tracked.delete(targetId);
         }
       }
       frameSnapshots.clear();
@@ -78,30 +97,11 @@ export const createV2TargetNavigationAreaTracker = (
           `追跡標的のNavigation Area入力がありません: ${targetId}`
         );
       }
-      let current = tracked.get(targetId) ?? null;
+      const current = tracked.get(targetId) ?? null;
       if (!current) {
-        current = {
-          cursor: areas.locate(target.footPosition),
-          revision: 0,
-          anchor: target.footPosition.clone(),
-          position: target.footPosition.clone()
-        };
-        tracked.set(targetId, current);
-      } else if (
-        !transportingTargetIds.has(targetId) &&
-        !current.position.equals(target.footPosition)
-      ) {
-        const nextCursor = areas.advance(
-          current.cursor,
-          current.position,
-          target.footPosition
+        throw new Error(
+          `追跡標的のNavigation Area履歴がありません: ${targetId}`
         );
-        if (nextCursor.areaId !== current.cursor.areaId) {
-          current.revision += 1;
-          current.anchor.copyFrom(target.footPosition);
-        }
-        current.cursor = nextCursor;
-        current.position.copyFrom(target.footPosition);
       }
       const snapshot = Object.freeze({
         targetId,
