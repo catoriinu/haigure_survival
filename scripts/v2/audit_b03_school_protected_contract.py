@@ -52,7 +52,7 @@ ALLOWED_NEW_EXACT_NAMES = {"NAV_Blocker_Interiors"}
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
 T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 T05_GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
-T05_GENERATOR_VERSION = "b03-3c-interactive-assets-v3"
+T05_GENERATOR_VERSION = "b03-3c-interactive-assets-v7"
 T04_ALLOWED_MISSING_EXACT_NAMES = {
     "COL_B03_Prop_Locker_Changing_F_01",
     "COL_B03_Prop_Locker_Changing_F_02",
@@ -182,6 +182,7 @@ T05_ALLOWED_CHANGED_EXACT_NAMES = {
     "COL_Perimeter_SouthEast",
     "COL_Perimeter_SouthWest",
     "COL_Perimeter_West",
+    "COL_Roof_West",
     "COL_SiteGround",
     "COL_HumanOnly_Window_Gym_East_01_U03",
     "COL_HumanOnly_Window_Gym_East_02_U01",

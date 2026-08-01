@@ -54,7 +54,7 @@ PROP_LIBRARY_PATH = (
 )
 
 EXPECTED_NAVMESH_SHA256 = (
-    "A6E41AA0FDE1522C5B100BF023BD8C8636A8998A14256183583627119952F8E3"
+    "530FA01F472A7F3AB4F983C6360AA41C296F3170AE44334E67E26377ED5D977B"
 )
 EXPECTED_PROP_LIBRARY_SHA256 = (
     "560974D7FABAAE9D7FC89FB563F4EEB3964866D8B33EE2C138FF1020C414514C"
@@ -76,7 +76,7 @@ EXPECTED_CONSOLIDATED_MATERIAL_NAMES = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v3"
+EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v7"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 EXPECTED_SCHEMA_VERSION = 2
 EXPECTED_STAGE_ID = "school"
@@ -2724,14 +2724,15 @@ def audit_rooftop_escape_crate_mounds() -> dict[str, int | float]:
 
     expected_ramps = {
         "COL_B03_GymRoofEscapeCrateRamp": (
-            (34.30, -11.85, 9.45),
-            (36.50, -8.45, 10.80),
+            (33.05, -9.10, 9.60),
+            (37.45, -6.90, 10.80),
         ),
         "COL_B03_SchoolRoofEscapeCrateRamp": (
-            (-3.05, 11.40, 14.35),
+            (-4.05, 11.40, 14.50),
             (0.35, 13.60, 15.70),
         ),
     }
+    upward_slope_checks = 0
     for object_name, expected_bounds in expected_ramps.items():
         obj = bpy.data.objects.get(object_name)
         require(obj is not None and obj.type == "MESH", f"箱山D1斜面がありません: {object_name}")
@@ -2739,6 +2740,61 @@ def audit_rooftop_escape_crate_mounds() -> dict[str, int | float]:
             bounds_match(world_bounds(obj), expected_bounds),
             f"箱山D1斜面のAABBが不正です: {object_name}/{world_bounds(obj)}",
         )
+        require(
+            len(obj.data.vertices) == 8 and len(obj.data.polygons) == 6,
+            f"箱山D1斜面が登り口ゼロ厚の4点くさび形ではありません: "
+            f"{object_name}/vertices={len(obj.data.vertices)}/polygons={len(obj.data.polygons)}",
+        )
+        upward_sloped_faces = [
+            polygon
+            for polygon in obj.data.polygons
+            if 0.90 < polygon.normal.z < 0.9999
+        ]
+        require(
+            len(upward_sloped_faces) == 1,
+            f"箱山D1の接地斜面が上向きではありません: "
+            f"{object_name}/{[tuple(polygon.normal) for polygon in obj.data.polygons]}",
+        )
+        upward_slope_checks += 1
+
+    gym_crates = [
+        bounds for bounds in visual_components if bounds[1][2] < 12.0
+    ]
+    school_crates = [
+        bounds for bounds in visual_components if bounds[0][2] > 14.0
+    ]
+    require(
+        len(gym_crates) == 14 and len(school_crates) == 14,
+        "箱山D1の屋上別表示木箱数が14個ずつではありません",
+    )
+    gym_south_guard_clearance = min(
+        bounds[0][1] for bounds in gym_crates
+    ) - (-11.40)
+    gym_west_guard_clearance = min(bounds[0][0] for bounds in gym_crates) - 33.50
+    school_guard_clearance = -0.10 - max(
+        bounds[1][0] for bounds in school_crates
+    )
+    require(
+        2.0 - TOLERANCE <= gym_south_guard_clearance <= 3.0 + TOLERANCE,
+        "体育館箱山D1が南柵から2m以上3m以下離れていません: "
+        f"{gym_south_guard_clearance}",
+    )
+    require(
+        0.10 - TOLERANCE <= gym_west_guard_clearance <= 0.35 + TOLERANCE
+        and school_guard_clearance >= 0.10 - TOLERANCE,
+        "箱山D1表示が飛び降り方向の柵から適切に離れていません: "
+        f"gym_west={gym_west_guard_clearance}, school={school_guard_clearance}",
+    )
+    ramp_slope_degrees = math.degrees(math.atan2(1.20, 3.95))
+    require(
+        ramp_slope_degrees < 17.0,
+        f"箱山D1斜面が約17度未満ではありません: {ramp_slope_degrees}",
+    )
+    toe_height = 0.0
+    require(
+        toe_height < 0.15,
+        f"箱山D1登り口の段差がプレイヤー許容値未満ではありません: {toe_height}",
+    )
 
     for object_name in (
         "VIS_PoolRaisedDeck_West",
@@ -2747,6 +2803,34 @@ def audit_rooftop_escape_crate_mounds() -> dict[str, int | float]:
         "VIS_PoolRaisedDeck_South",
     ):
         require_architecture_swatch(object_name, "wall")
+
+    continuous_west_roof_bounds = (
+        (-12.6, -6.7, 14.4),
+        (0.0, 32.5, 14.5),
+    )
+    for object_name in (
+        "VIS_Roof_West",
+        "COL_Roof_West",
+    ):
+        obj = bpy.data.objects.get(object_name)
+        require(
+            obj is not None and obj.type == "MESH",
+            f"南端まで一体延長した西棟屋上面がありません: {object_name}",
+        )
+        require(
+            bounds_match(world_bounds(obj), continuous_west_roof_bounds),
+            f"南端まで一体延長した西棟屋上面AABBが不正です: "
+            f"{object_name}/{world_bounds(obj)}",
+        )
+    require_architecture_swatch("VIS_Roof_West", "roof")
+    for obsolete_name in (
+        "VIS_B03_ElevatorShaftRoofFinish",
+        "COL_B03_ElevatorShaftRoofFinish",
+    ):
+        require(
+            bpy.data.objects.get(obsolete_name) is None,
+            f"継ぎ目を作る別体屋上仕上げが残っています: {obsolete_name}",
+        )
 
     for object_name in (
         "VIS_RooftopFacilityWalls",
@@ -2765,9 +2849,16 @@ def audit_rooftop_escape_crate_mounds() -> dict[str, int | float]:
         "mounds": 2,
         "visual_crates": len(visual_components),
         "walkable_ramps": len(expected_ramps),
+        "upward_slope_checks": upward_slope_checks,
+        "ramp_slope_degrees": round(ramp_slope_degrees, 6),
+        "toe_height_m": toe_height,
+        "gym_south_guard_clearance_m": round(gym_south_guard_clearance, 6),
+        "gym_west_guard_clearance_m": round(gym_west_guard_clearance, 6),
+        "school_guard_clearance_m": round(school_guard_clearance, 6),
         "gym_top_above_guard_m": 0.10,
         "school_top_above_guard_m": 0.15,
         "ivory_pool_structures": 4,
+        "continuous_west_roof_components": 2,
         "changing_door_lintels": 2,
     }
 

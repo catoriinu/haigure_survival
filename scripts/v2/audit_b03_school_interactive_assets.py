@@ -24,7 +24,7 @@ GLB_PATH = (
     REPOSITORY_ROOT / "public/stage-assets/v2/B02/b02_school_blockout.glb"
 )
 EXPORT_COLLECTION_NAME = "EXP_Stage_school"
-EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v3"
+EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v7"
 EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
 
 GLB_MAGIC = b"glTF"

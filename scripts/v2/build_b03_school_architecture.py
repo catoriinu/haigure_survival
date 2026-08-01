@@ -76,7 +76,7 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
-GENERATOR_VERSION = "b03-3c-interactive-assets-v3"
+GENERATOR_VERSION = "b03-3c-interactive-assets-v7"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -3546,6 +3546,11 @@ def build_b03_3b_structure(
 ) -> dict[str, tuple[str, ...]]:
     blocker_names: list[str] = []
     rebuild_gym_envelope_and_stage()
+    for object_name in ("VIS_Roof_West", "COL_Roof_West"):
+        replace_existing_boxes(
+            object_name,
+            [((-12.6, -6.7, 14.4), (0.0, 32.5, 14.5))],
+        )
 
     bridge_floor_boxes = [
         ((39.3, 26.6, 3.45), (43.5, 32.5, 3.60)),
@@ -4342,6 +4347,7 @@ def build_rooftop_escape_crate_mounds(
     collider_collection: bpy.types.Collection,
     architecture_material: bpy.types.Material,
 ) -> dict[str, tuple[str, ...]]:
+    mound_length_scale = 1.24
     local_crates = (
         (0.38, -0.55, 0.15, 0.76, 1.00, 0.30, -2.0, "Dark"),
         (0.38, 0.55, 0.15, 0.76, 1.00, 0.30, 2.0, "Light"),
@@ -4359,8 +4365,8 @@ def build_rooftop_escape_crate_mounds(
         (2.34, 0.96, 0.42, 0.62, 0.44, 0.84, 5.0, "Light"),
     )
     placements = (
-        ("Gym", (35.40, -8.45, 9.60), -math.pi / 2),
-        ("School", (-3.05, 12.50, 14.50), 0.0),
+        ("Gym", (37.50, -8.00, 9.60), math.pi),
+        ("School", (-4.00, 12.50, 14.50), 0.0),
     )
     batches: dict[str, tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]] = {
         key: ([], []) for key in ("Dark", "Light", "Gray")
@@ -4370,13 +4376,13 @@ def build_rooftop_escape_crate_mounds(
             mound_rotation, 4, "Z"
         )
         for u, v, local_z, size_u, size_v, size_z, degrees, color in local_crates:
-            center = transform @ Vector((u, v, local_z))
+            center = transform @ Vector((u * mound_length_scale, v, local_z))
             vertices, faces = batches[color]
             append_oriented_box(
                 vertices,
                 faces,
                 tuple(center),
-                (size_u, size_v, size_z),
+                (size_u * mound_length_scale, size_v, size_z),
                 mound_rotation + math.radians(degrees),
             )
     for color, (vertices, faces) in batches.items():
@@ -4390,16 +4396,15 @@ def build_rooftop_escape_crate_mounds(
 
     gym_vertices: list[tuple[float, float, float]] = []
     gym_faces: list[tuple[int, ...]] = []
-    append_profile_prism(
+    append_xz_profile_prism(
         gym_vertices,
         gym_faces,
-        (34.30, 36.50),
+        (-9.10, -6.90),
         (
-            (-8.45, 9.60),
-            (-11.40, 10.80),
-            (-11.85, 10.80),
-            (-11.85, 10.65),
-            (-8.45, 9.45),
+            (37.45, 9.60),
+            (33.50, 10.80),
+            (33.05, 10.80),
+            (33.05, 10.76),
         ),
     )
     gym_mesh = bpy.data.meshes.new("COL_B03_GymRoofEscapeCrateRamp")
@@ -4417,11 +4422,10 @@ def build_rooftop_escape_crate_mounds(
         school_faces,
         (11.40, 13.60),
         (
-            (-3.05, 14.50),
-            (-0.10, 15.70),
+            (-4.05, 14.50),
+            (0.35, 15.66),
             (0.35, 15.70),
-            (0.35, 15.55),
-            (-3.05, 14.35),
+            (-0.10, 15.70),
         ),
     )
     school_mesh = bpy.data.meshes.new("COL_B03_SchoolRoofEscapeCrateRamp")

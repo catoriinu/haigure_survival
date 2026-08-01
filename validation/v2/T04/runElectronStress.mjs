@@ -28,10 +28,12 @@ if (
   profile !== "high" &&
   profile !== "interaction" &&
   profile !== "fixture" &&
-  profile !== "hud"
+  profile !== "hud" &&
+  profile !== "ramp-school" &&
+  profile !== "ramp-gym"
 ) {
   throw new Error(
-    "--profileにはbaseline、high、interaction、fixture、hudのいずれかが必要です。"
+    "--profileにはbaseline、high、interaction、fixture、hud、ramp-school、ramp-gymのいずれかが必要です。"
   );
 }
 const devServerUrl = readArgument("--url");
@@ -48,6 +50,12 @@ if (profile === "baseline" || profile === "high") {
     profile
   );
   parsedDevServerUrl.searchParams.set("seed", "20260729");
+}
+if (profile === "ramp-school" || profile === "ramp-gym") {
+  parsedDevServerUrl.searchParams.set(
+    "rampValidation",
+    profile === "ramp-school" ? "school" : "gym"
+  );
 }
 const applicationUrl = parsedDevServerUrl.toString();
 const expectedDurationSeconds =
@@ -107,7 +115,9 @@ const waitForDebuggerTarget = async (port, child) => {
             candidate.type === "page" &&
             (profile === "interaction" ||
             profile === "fixture" ||
-            profile === "hud"
+            profile === "hud" ||
+            profile === "ramp-school" ||
+            profile === "ramp-gym"
               ? candidate.url === applicationUrl
               : candidate.url.includes(
                   `schoolStress=${profile}`
@@ -590,6 +600,161 @@ try {
       })
     });
     }
+  } else if (
+    profile === "ramp-school" ||
+    profile === "ramp-gym"
+  ) {
+    const target = profile === "ramp-school" ? "school" : "gym";
+    const parseFootPosition = (statusText) => {
+      const match =
+        /X (-?\d+(?:\.\d+)?)\s+Y (-?\d+(?:\.\d+)?)\s+Z (-?\d+(?:\.\d+)?)/.exec(
+          statusText
+        );
+      if (!match) {
+        throw new Error(
+          "Electron箱山登坂検証の足元座標をHUDから取得できません。"
+        );
+      }
+      return Object.freeze({
+        x: Number(match[1]),
+        y: Number(match[2]),
+        z: Number(match[3])
+      });
+    };
+    const readinessDeadline = Date.now() + 120_000;
+    let beforeState = null;
+    while (Date.now() < readinessDeadline) {
+      beforeState = await evaluate(
+        cdp,
+        `(() => ({
+          statusText:
+            document.querySelector("#statusInfo")?.textContent ?? "",
+          helpText:
+            document.querySelector("#helpPanel")?.textContent ?? ""
+        }))()`
+      );
+      if (
+        beforeState.statusText.includes("フェーズ playing") &&
+        beforeState.helpText.includes(`箱山登坂検証 ${target}`)
+      ) {
+        break;
+      }
+      await wait(500);
+    }
+    if (
+      !beforeState?.statusText.includes("フェーズ playing") ||
+      !beforeState.helpText.includes(`箱山登坂検証 ${target}`)
+    ) {
+      throw new Error(
+        "Electron箱山登坂検証が120秒以内に開始しませんでした。"
+      );
+    }
+    const beforePosition = parseFootPosition(
+      beforeState.statusText
+    );
+    await cdp.send("Input.dispatchKeyEvent", {
+      type: "rawKeyDown",
+      key: "Shift",
+      code: "ShiftLeft",
+      windowsVirtualKeyCode: 16,
+      nativeVirtualKeyCode: 16
+    });
+    await cdp.send("Input.dispatchKeyEvent", {
+      type: "rawKeyDown",
+      key: "w",
+      code: "KeyW",
+      windowsVirtualKeyCode: 87,
+      nativeVirtualKeyCode: 87,
+      modifiers: 8
+    });
+    const samples = [];
+    for (let index = 0; index < 40; index += 1) {
+      await wait(250);
+      const statusText = await evaluate(
+        cdp,
+        `document.querySelector("#statusInfo")?.textContent ?? ""`
+      );
+      samples.push(parseFootPosition(statusText));
+    }
+    await cdp.send("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      key: "w",
+      code: "KeyW",
+      windowsVirtualKeyCode: 87,
+      nativeVirtualKeyCode: 87
+    });
+    await cdp.send("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      key: "Shift",
+      code: "ShiftLeft",
+      windowsVirtualKeyCode: 16,
+      nativeVirtualKeyCode: 16
+    });
+    await wait(500);
+    const afterState = await evaluate(
+      cdp,
+      `(() => ({
+        statusText:
+          document.querySelector("#statusInfo")?.textContent ?? "",
+        placement:
+          JSON.parse(document.body.dataset.rampValidationPlacement ?? "null")
+      }))()`
+    );
+    const afterPosition = parseFootPosition(afterState.statusText);
+    const progress = (position) =>
+      target === "school"
+        ? beforePosition.x - position.x
+        : position.x - beforePosition.x;
+    const progressSamples = samples.map(progress);
+    const minimumProgressDelta = Math.min(
+      ...progressSamples.slice(1).map(
+        (value, index) => value - progressSamples[index]
+      )
+    );
+    const horizontalProgress = progress(afterPosition);
+    const heightGain = afterPosition.y - beforePosition.y;
+    const maximumProgress = Math.max(...progressSamples);
+    const peakHeightGain = Math.max(
+      ...samples.map((position) => position.y - beforePosition.y)
+    );
+    const completedDrop = afterPosition.y < beforePosition.y - 1.0;
+    if (
+      maximumProgress < 1.2 ||
+      peakHeightGain < 0.2 ||
+      !completedDrop ||
+      minimumProgressDelta < -0.01
+    ) {
+      throw new Error(
+        "Electron箱山登坂検証で登坂から柵外への落下まで安定して移動できませんでした: " +
+          JSON.stringify({
+            target,
+            beforePosition,
+            afterPosition,
+            horizontalProgress,
+            heightGain,
+            maximumProgress,
+            peakHeightGain,
+            completedDrop,
+            minimumProgressDelta,
+            placement: afterState.placement
+          })
+      );
+    }
+    outputPayload = Object.freeze({
+      ramp: Object.freeze({
+        target,
+        beforePosition,
+        afterPosition,
+        horizontalProgress,
+        heightGain,
+        maximumProgress,
+        peakHeightGain,
+        completedDrop,
+        minimumProgressDelta,
+        samples: samples.length,
+        placement: afterState.placement
+      })
+    });
   } else if (profile === "fixture") {
     const fixtureDeadline = Date.now() + 120_000;
     let fixtureState = null;

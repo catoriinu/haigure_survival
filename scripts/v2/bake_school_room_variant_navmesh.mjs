@@ -3496,8 +3496,8 @@ const GLOBAL_ROUTE_SPECS = Object.freeze([
   },
   {
     id: "gym-rooftop-escape-crate-mound",
-    start: blenderPointToNavMeshPoint([35.4, -8.5, 9.6]),
-    end: blenderPointToNavMeshPoint([35.4, -11.7, 10.8]),
+    start: blenderPointToNavMeshPoint([37.1, -8.0, 9.6]),
+    end: blenderPointToNavMeshPoint([33.3, -8.0, 10.8]),
     maximumDistance: 5 * SCHOOL_ROOM_VARIANT_NAV_PROFILE.worldScale
   },
   {
