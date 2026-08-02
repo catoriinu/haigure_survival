@@ -891,6 +891,41 @@ class MeshBatch:
             corners = tuple(uv[index % 4] for index in range(len(polygon.vertices)))
             self.face_uvs.append(corners)
 
+    def add_source_matrix(
+        self,
+        source: bpy.types.Object,
+        transform: Matrix,
+        swatch_override: str | None = None,
+    ) -> None:
+        offset = len(self.vertices)
+        self.vertices.extend(
+            tuple(transform @ vertex.co) for vertex in source.data.vertices
+        )
+        for polygon in source.data.polygons:
+            self.faces.append(
+                tuple(offset + index for index in polygon.vertices)
+            )
+            material_name = ""
+            if polygon.material_index < len(source.data.materials):
+                material = source.data.materials[polygon.material_index]
+                material_name = material.name if material else ""
+            swatch = swatch_override or prop_material_swatch(material_name)
+            uv = swatch_uv(self.atlas_name, swatch)
+            self.face_uvs.append(
+                tuple(uv[index % 4] for index in range(len(polygon.vertices)))
+            )
+
+    def add_batch(self, source: "MeshBatch", transform: Matrix) -> None:
+        offset = len(self.vertices)
+        self.vertices.extend(
+            tuple(transform @ Vector(vertex)) for vertex in source.vertices
+        )
+        self.faces.extend(
+            tuple(offset + index for index in face)
+            for face in source.faces
+        )
+        self.face_uvs.extend(source.face_uvs)
+
     def create(
         self,
         name: str,
@@ -924,8 +959,19 @@ def prop_material_swatch(material_name: str) -> str:
         "MAT_Prop_Blackboard": "blackboard",
         "MAT_Prop_Paper": "wood_light",
         "MAT_Prop_AccentOrange": "accent_orange",
+        "MAT_Prop_AccentRed": "accent_red",
     }
     return mappings.get(name, "wood_light")
+
+
+@dataclass(frozen=True)
+class RoomPlacement:
+    kind: str
+    prop_type: str
+    position: tuple[float, float, float]
+    rotation_z: float
+    panel_name: str | None = None
+    length: float | None = None
 
 
 def import_prop_sources(names: set[str]) -> dict[str, bpy.types.Object]:
@@ -967,6 +1013,7 @@ class RoomBuilder:
         tuple[tuple[float, float, float], tuple[float, float, float]]
     ]
     counts: dict[str, int]
+    placements: list[RoomPlacement]
 
     @classmethod
     def create(cls, name: str, base_z: float) -> "RoomBuilder":
@@ -980,6 +1027,7 @@ class RoomBuilder:
             [],
             [],
             {},
+            [],
         )
 
     def add_prop(
@@ -992,6 +1040,14 @@ class RoomBuilder:
         z_offset: float = 0.0,
     ) -> None:
         self.counts[prop_type] = self.counts.get(prop_type, 0) + 1
+        self.placements.append(
+            RoomPlacement(
+                "prop",
+                prop_type,
+                (x, y, self.base_z + z_offset),
+                rotation_z,
+            )
+        )
         paper_swatches = {
             "ClosedBook": "book_blue",
             "OpenBook": "book_red",
@@ -1120,6 +1176,9 @@ def add_additional_prop(
     if prop_type not in ADDITIONAL_PROP_TYPES:
         raise RuntimeError(f"未定義の追加小物です: {prop_type}")
     room.counts[prop_type] = room.counts.get(prop_type, 0) + 1
+    room.placements.append(
+        RoomPlacement("additional", prop_type, position, rotation_z)
+    )
     x, y, z = position
     definitions = {
         "TeacherDesk": [
@@ -1291,6 +1350,16 @@ def add_infirmary_curtain(
 ) -> None:
     room.counts["InfirmaryCurtain"] = (
         room.counts.get("InfirmaryCurtain", 0) + 1
+    )
+    room.placements.append(
+        RoomPlacement(
+            "curtain",
+            "InfirmaryCurtain",
+            (x, y, room.base_z),
+            rotation_z,
+            panel_name,
+            length,
+        )
     )
     panel = MeshBatch("FurnitureProps")
     panel.add_corrugated_curtain(
@@ -2031,13 +2100,27 @@ def build_school_rooms(
     rooms.append(music)
 
     gym = RoomBuilder.create("Gym", 0.0)
-    gym.add_prop(sources, "BasketballGoal", 33.55, 8.5, -math.pi / 2, 3.35)
-    gym.add_prop(sources, "BasketballGoal", 59.25, 8.5, math.pi / 2, 3.35)
+    for goal_y in (3.0, 17.0):
+        gym.add_prop(
+            sources,
+            "BasketballGoal",
+            33.55,
+            goal_y,
+            -math.pi / 2,
+            3.35,
+        )
+        gym.add_prop(
+            sources,
+            "BasketballGoal",
+            59.25,
+            goal_y,
+            math.pi / 2,
+            3.35,
+        )
     gym.add_prop(sources, "VaultingBox", 38.0, 22.5)
     gym.add_prop(sources, "VaultingBox", 40.0, 22.5)
     lectern_x, lectern_y, lectern_z = GYM_STAGE_LECTERN
     gym.add_prop(sources, "StageLectern", lectern_x, lectern_y, 0.0, lectern_z)
-    add_additional_prop(gym, "LifePreserverSign", (58.9, 23.5, 0.0), math.pi / 2)
     rooms.append(gym)
 
     changing = RoomBuilder.create("RoofChanging", 14.5)

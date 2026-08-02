@@ -235,7 +235,7 @@ const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   roomVariantNavmesh: Object.freeze({
     mode: "required",
     url: "b02_school_blockout.room-variants.navmesh.bin",
-    sha256: "a6e23357b5379f25629a7642aae420913a999efec7ec07955107b3f59d27c8d6"
+    sha256: "86f141f015e1bd3195d0f4702097a79b2a81a0bcb4ce7610045fe42afcd89f8f"
   })
 });
 
@@ -3659,7 +3659,7 @@ const runValidation = async () => {
             (selection) => selection.variant === "normal"
           );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 619 &&
+          schoolContext.resources.visualMeshes.length === 618 &&
           schoolContext.resources.normalColliders.length === 276 &&
           schoolContext.resources.actorOnlyColliders.length === 81 &&
           schoolContext.resources.humanOnlyColliders.length === 59 &&
@@ -5793,7 +5793,7 @@ const runValidation = async () => {
         );
         const reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 619 &&
+          reloadedContext.resources.visualMeshes.length === 618 &&
           reloadedContext.resources.normalColliders.length === 276 &&
           reloadedContext.resources.actorOnlyColliders.length === 81 &&
           reloadedContext.resources.humanOnlyColliders.length === 59 &&

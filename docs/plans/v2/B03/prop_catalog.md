@@ -1,6 +1,6 @@
 # B03-P 学校小物ライブラリ カタログ
 
-更新日: 2026-07-24
+更新日: 2026-08-02
 
 ## 位置付け
 
@@ -35,8 +35,8 @@
 | `VIS_Prop_GrandPiano` | 音楽室 | 1.55×1.45×1.00 | 床置き | 不可 | `COL_Prop_GrandPiano` | 116 | PlasticBlack、Paper、MetalDark、AccentOrange |
 | `VIS_Prop_InfirmaryBed` | 保健室 | 2.00×0.90×0.55 | 床置き | 不可 | `COL_Prop_InfirmaryBed` | 72 | Fabric、MetalGray、Paper |
 | `VIS_Prop_PcMonitor` | PC室、職員室 | 0.55×0.18×0.45 | 底面中央 | 可 | なし | 38 | PlasticBlack、MetalDark、MetalGray |
-| `VIS_Prop_BasketballGoal` | 体育館 | 1.80×0.70×1.05 | 壁付け | 可 | なし | 240 | Paper、AccentOrange、MetalGray |
-| `VIS_Prop_VaultingBox` | 体育館 | 1.20×0.60×1.00 | 床置き | 不可 | `COL_Prop_VaultingBox` | 24 | Wood、Fabric |
+| `VIS_Prop_BasketballGoal` | 体育館 | 1.80×0.70×1.205 | 壁付け | 可 | なし | 288 | Porcelain、AccentRed |
+| `VIS_Prop_VaultingBox` | 体育館 | 1.20×0.60×1.00 | 床置き | 不可 | `COL_Prop_VaultingBox` | 96 | Wood、MetalDark、Fabric |
 | `VIS_Prop_Bookshelf` | 図書室 | 0.90×0.32×1.80 | 床置き | 不可 | `COL_Prop_Bookshelf` | 432 | Wood、AccentOrange、Fabric、Blackboard、Paper、MetalDark |
 | `VIS_Prop_ClosedBook` | 教室、図書室、職員室 | 0.25×0.18×0.025 | 底面中央 | 可 | なし | 24 | Paper、AccentOrange |
 | `VIS_Prop_OpenBook` | 教室、図書室、職員室 | 0.44×0.25×0.04 | 底面中央 | 可 | なし | 36 | Paper、AccentOrange |
@@ -47,17 +47,19 @@
 ## 実測結果
 
 - 表示小物22種、簡略Collider 10種、Library Mesh合計32個
-- 表示小物2,192三角形、Collider 120三角形
-- 共有Material 9種。全表示Meshのdatablockはsingle-user
+- 表示小物2,312三角形、Collider 120三角形
+- 共有Material 10種。全表示Meshのdatablockはsingle-user
 - Object名とMesh Data名は全32個で一致し、正本のrotationは0、scaleは1
 - 通行不可10種だけに12三角形の箱Colliderを設定
 - 教室机、教室椅子、職員椅子、PCモニターの転倒・回転は、専用小物を作らず、Preview内で正本Meshの複製後Transformだけを変更
 - 通常状態の教室机・椅子と、本・筆箱の机上配置、単紙の床上配置を組み合わせた小規模な教室散乱見本をPreviewへ収録
 - 大型机は全利用先で椅子を収納できるよう、ライブラリ本体から脚同士をつなぐ横棒を撤去した
 - 教室椅子は全体寸法0.42×0.45×0.78mを維持する。木製背板は厚さ0.06m・上端0.78m、背面の金属支柱上端は0.77mとし、正面・上面から支柱を露出させない
+- バスケットゴールは白いバックボードへ赤い長方形枠を付け、支持部とリングを赤一色にする。リング下は上径0.45m、下径0.26m、高さ0.36mの先細り中空ネットとし、リング上の独立した横棒は持たない
+- 跳び箱は高さ0.225mの台形部品4段と上面クッションで構成し、3か所の段境界へ厚さ0.012mの黒線を入れる
 - 本棚は本体8部品と色の異なる背表紙28冊の計36 components／432 trianglesとし、室内側から本が並んで見える正面を持つ。学校本体では24台を壁沿いに内向きで並べ、前後の出入口と窓へ干渉させない
 - 掃除ロッカーの正面9部品とPCモニター画面は、不透明な本体内へ隠れる箱面を持たない前面quadとする。表示外形は変更しない
 - `StaffDesk`と`StageLectern`のColliderは、表示外形の非対称な前後中心を含めて一致させ、隣接配置で不要なCollider重複を作らない
-- ライブラリ`.blend`は168,468 bytes、SHA-256は`560974D7FABAAE9D7FC89FB563F4EEB3964866D8B33EE2C138FF1020C414514C`
-- 確認用GLBは191,148 bytes、SHA-256は`E48FDA1ADFA86530BCB9C2DDC42B257776901388B510D9447D029B9F1F223457`
-- 確認用GLBはScene 1、Node 32、Mesh 32、Material 9、Camera 0、Animation 0。確認用床、人型、照明、配置例は未収録
+- ライブラリ`.blend`は171,859 bytes、SHA-256は`F1163A1E2B1291AED2B81A10102BCBD7F74F0F7C018BA210389E4797B92B42BD`
+- 確認用GLBは200,228 bytes、SHA-256は`F755E4404C4BED00A97441B653541CA07EDF1473636269D3A620C2FF2522C9D0`
+- 確認用GLBはScene 1、Node 32、Mesh 32、Material 10、Camera 0、Animation 0。確認用床、人型、照明、配置例は未収録

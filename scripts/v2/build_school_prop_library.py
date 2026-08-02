@@ -94,7 +94,7 @@ EXPECTED_VISUAL_DIMENSIONS = {
     "VIS_Prop_GrandPiano": (1.55, 1.45, 1.00),
     "VIS_Prop_InfirmaryBed": (2.00, 0.90, 0.55),
     "VIS_Prop_PcMonitor": (0.55, 0.18, 0.45),
-    "VIS_Prop_BasketballGoal": (1.80, 0.70, 1.05),
+    "VIS_Prop_BasketballGoal": (1.80, 0.70, 1.205),
     "VIS_Prop_VaultingBox": (1.20, 0.60, 1.00),
     "VIS_Prop_Bookshelf": (0.90, 0.32, 1.80),
     "VIS_Prop_ClosedBook": (0.25, 0.18, 0.03),
@@ -201,6 +201,9 @@ def build_materials() -> dict[str, bpy.types.Material]:
         "paper": make_material("MAT_Prop_Paper", (0.90, 0.87, 0.76, 1.0)),
         "accent": make_material(
             "MAT_Prop_AccentOrange", (0.83, 0.25, 0.035, 1.0), metallic=0.25
+        ),
+        "accent_red": make_material(
+            "MAT_Prop_AccentRed", (0.70, 0.035, 0.025, 1.0), metallic=0.20
         ),
     }
 
@@ -364,6 +367,48 @@ def add_rectangular_frustum(
     mesh.from_pydata(vertices, [], faces)
     mesh.update()
     obj = bpy.data.objects.new("TemporaryFrustum", mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    assign_material(obj, material)
+    return obj
+
+
+def add_open_circular_frustum(
+    top_radius: float,
+    bottom_radius: float,
+    z_top: float,
+    z_bottom: float,
+    center_xy: tuple[float, float],
+    material: bpy.types.Material,
+    *,
+    segments: int = 12,
+) -> bpy.types.Object:
+    center_x, center_y = center_xy
+    vertices = []
+    for z, radius in ((z_top, top_radius), (z_bottom, bottom_radius)):
+        for index in range(segments):
+            angle = math.tau * index / segments
+            vertices.append(
+                (
+                    center_x + math.cos(angle) * radius,
+                    center_y + math.sin(angle) * radius,
+                    z,
+                )
+            )
+    faces = []
+    for index in range(segments):
+        following = (index + 1) % segments
+        faces.append(
+            (
+                index,
+                following,
+                segments + following,
+                segments + index,
+            )
+        )
+    mesh = bpy.data.meshes.new("TemporaryOpenCircularFrustum")
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new("TemporaryOpenCircularFrustum", mesh)
     bpy.context.scene.collection.objects.link(obj)
     assign_material(obj, material)
     return obj
@@ -681,25 +726,64 @@ def build_pc_monitor(materials: dict[str, bpy.types.Material]) -> list[bpy.types
 
 def build_basketball_goal(materials: dict[str, bpy.types.Material]) -> list[bpy.types.Object]:
     return [
-        add_box((1.80, 0.05, 1.05), (0.0, 0.025, 0.0), materials["paper"]),
-        add_box((0.72, 0.02, 0.50), (0.0, 0.055, -0.08), materials["accent"]),
-        add_torus(0.225, 0.018, (0.0, 0.40, -0.30), materials["accent"]),
-        add_box((0.05, 0.70, 0.05), (0.0, 0.35, -0.30), materials["metal_gray"]),
-        add_box((0.60, 0.05, 0.05), (0.0, 0.24, 0.43), materials["metal_gray"]),
+        add_box((1.80, 0.05, 1.05), (0.0, 0.025, 0.0), materials["porcelain"]),
+        add_box((0.72, 0.02, 0.025), (0.0, 0.055, 0.17), materials["accent_red"]),
+        add_box((0.72, 0.02, 0.025), (0.0, 0.055, -0.33), materials["accent_red"]),
+        add_box((0.025, 0.02, 0.50), (-0.3475, 0.055, -0.08), materials["accent_red"]),
+        add_box((0.025, 0.02, 0.50), (0.3475, 0.055, -0.08), materials["accent_red"]),
+        add_torus(
+            0.225,
+            0.018,
+            (0.0, 0.40, -0.30),
+            materials["accent_red"],
+        ),
+        add_box((0.05, 0.70, 0.05), (0.0, 0.35, -0.30), materials["accent_red"]),
+        add_open_circular_frustum(
+            0.225,
+            0.13,
+            -0.32,
+            -0.68,
+            (0.0, 0.40),
+            materials["porcelain"],
+        ),
     ]
 
 
 def build_vaulting_box(materials: dict[str, bpy.types.Material]) -> list[bpy.types.Object]:
-    return [
-        add_rectangular_frustum(
-            (1.20, 0.60),
-            (0.90, 0.42),
-            0.0,
-            0.90,
-            materials["wood"],
-        ),
-        add_box((0.92, 0.44, 0.10), (0.0, 0.0, 0.95), materials["fabric"]),
-    ]
+    parts = []
+    tier_sizes = (
+        ((1.20, 0.60), (1.125, 0.555)),
+        ((1.125, 0.555), (1.05, 0.51)),
+        ((1.05, 0.51), (0.975, 0.465)),
+        ((0.975, 0.465), (0.90, 0.42)),
+    )
+    for tier_index, (bottom_size, top_size) in enumerate(tier_sizes):
+        z_min = tier_index * 0.225
+        parts.append(
+            add_rectangular_frustum(
+                bottom_size,
+                top_size,
+                z_min,
+                z_min + 0.225,
+                materials["wood"],
+            )
+        )
+    for z, size in (
+        (0.225, (1.125, 0.555)),
+        (0.450, (1.05, 0.51)),
+        (0.675, (0.975, 0.465)),
+    ):
+        parts.append(
+            add_box(
+                (size[0], size[1], 0.012),
+                (0.0, 0.0, z),
+                materials["metal_dark"],
+            )
+        )
+    parts.append(
+        add_box((0.92, 0.44, 0.10), (0.0, 0.0, 0.95), materials["fabric"])
+    )
+    return parts
 
 
 def build_bookshelf(materials: dict[str, bpy.types.Material]) -> list[bpy.types.Object]:
@@ -1219,7 +1303,11 @@ def audit_library() -> dict[str, object]:
         if obj.name in FLOOR_ORIGIN_VISUALS and abs(minimum.z) > 1.0e-5:
             raise RuntimeError(f"床置き原点が底面にありません: {obj.name}, minZ={minimum.z}")
         if obj.name in WALL_ORIGIN_VISUALS:
-            if abs(minimum.y) > 1.0e-5 or abs(minimum.z + maximum.z) > 1.0e-5:
+            requires_centered_z = obj.name != "VIS_Prop_BasketballGoal"
+            if abs(minimum.y) > 1.0e-5 or (
+                requires_centered_z
+                and abs(minimum.z + maximum.z) > 1.0e-5
+            ):
                 raise RuntimeError(
                     f"壁付け原点が取付面中央にありません: {obj.name}, bounds={minimum}/{maximum}"
                 )
@@ -1407,8 +1495,8 @@ def audit_library() -> dict[str, object]:
             if slot.material is not None
         }
     )
-    if len(used_materials) > 9:
-        raise RuntimeError(f"Material予算超過です: {len(used_materials)}/9")
+    if len(used_materials) > 10:
+        raise RuntimeError(f"Material予算超過です: {len(used_materials)}/10")
 
     result = {
         "visualCount": len(visuals),

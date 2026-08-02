@@ -57,7 +57,7 @@ EXPECTED_NAVMESH_SHA256 = (
     "530FA01F472A7F3AB4F983C6360AA41C296F3170AE44334E67E26377ED5D977B"
 )
 EXPECTED_PROP_LIBRARY_SHA256 = (
-    "560974D7FABAAE9D7FC89FB563F4EEB3964866D8B33EE2C138FF1020C414514C"
+    "F1163A1E2B1291AED2B81A10102BCBD7F74F0F7C018BA210389E4797B92B42BD"
 )
 EXPECTED_PACKED_ATLAS_PATHS = {
     image_name: REPOSITORY_ROOT / "assets/textures/v2/B03" / image_name
@@ -76,7 +76,7 @@ EXPECTED_CONSOLIDATED_MATERIAL_NAMES = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v7"
+EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v10"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 EXPECTED_SCHEMA_VERSION = 2
 EXPECTED_STAGE_ID = "school"
@@ -2387,7 +2387,7 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     )
     require(
         len(toilet_knob_names) == 24,
-        f"トイレ個室扉の外側ノブObjectが24件ではありません: "
+        f"トイレ個室扉の両面ノブObjectが24件ではありません: "
         f"{len(toilet_knob_names)}",
     )
     for object_name in (*room_handle_names, *toilet_knob_names):
@@ -5952,7 +5952,7 @@ def audit_glb(document: GlbDocument) -> dict[str, object]:
     )
     require(
         len(toilet_knob_nodes) == 24,
-        f"GLBトイレ個室扉の外側ノブNodeが24件ではありません: "
+        f"GLBトイレ個室扉の両面ノブNodeが24件ではありません: "
         f"{len(toilet_knob_nodes)}",
     )
     for node in (*room_handle_nodes, *toilet_knob_nodes):

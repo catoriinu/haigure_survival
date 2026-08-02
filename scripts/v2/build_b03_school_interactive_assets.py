@@ -6,9 +6,23 @@ from dataclasses import dataclass
 
 import bmesh
 import bpy
+from mathutils import Euler, Matrix, Vector
 
 from build_b03_school_interiors import (
+    INFIRMARY_CURTAIN_CENTER_Z,
+    INFIRMARY_CURTAIN_FOLD_DEPTH,
+    INFIRMARY_CURTAIN_HEIGHT,
     INFIRMARY_CURTAIN_BEAM_SIGHT_COLLIDER_NAME,
+    MeshBatch,
+    PROP_COLLIDER_LOCAL_CENTERS,
+    PROP_COLLIDER_SIZES,
+    RoomBuilder,
+    RoomPlacement,
+    add_additional_prop,
+    build_school_rooms,
+    import_prop_sources,
+    infirmary_curtain_segment_count,
+    remove_imported_sources,
     swatch_uv,
 )
 
@@ -72,6 +86,11 @@ ROOM_DOOR_OPEN_NORMAL_OFFSETS = {
     ("north", "upper"): -0.04,
 }
 TOILET_STALL_OPEN_ROTATION_Z = -math.radians(85.0)
+TOILET_STALL_KNOB_CENTERS = (
+    (-1.22, -0.075, 0.95),
+    (-1.22, 0.075, 0.95),
+)
+TOILET_STALL_KNOB_RADIUS = 0.06
 INFIRMARY_DISORDERED_CURTAIN_BEAM_SIGHT_COLLIDER_NAME = (
     "COL_BeamSightOnly_RoomVariant_F01_Infirmary_Disordered_Curtains"
 )
@@ -249,6 +268,95 @@ ROOM_VARIANT_SPECS = (
         ((24.0, 25.2), (39.6, 40.8)),
     ),
 )
+
+VARIANT_SOURCE_TYPES = {
+    "ClassroomDesk",
+    "ClassroomChair",
+    "StaffDesk",
+    "StaffChair",
+    "Blackboard",
+    "StageLectern",
+    "LargeWoodTable",
+    "CleaningLocker",
+    "BaggageLocker",
+    "GrandPiano",
+    "InfirmaryBed",
+    "PcMonitor",
+    "BasketballGoal",
+    "VaultingBox",
+    "Bookshelf",
+    "ClosedBook",
+    "OpenBook",
+    "PaperStack",
+    "SinglePaper",
+    "PencilCase",
+    "WesternToilet",
+    "Urinal",
+}
+PAPER_SWATCHES = {
+    "ClosedBook": "book_blue",
+    "OpenBook": "book_red",
+    "PaperStack": "paper",
+    "SinglePaper": "paper_white",
+}
+CLASSROOM_DESKTOP_PROP_TYPES = frozenset((*PAPER_SWATCHES, "PencilCase"))
+CLASSROOM_PATTERN_BY_AUTHOR = {
+    "F02_Classroom01": "A",
+    "F02_Classroom02": "B",
+    "F02_Classroom03": "C",
+    "F03_Classroom01": "B",
+    "F03_Classroom02": "C",
+    "F03_Classroom03": "A",
+    "F04_Classroom01": "C",
+    "F04_Classroom02": "A",
+    "F04_Classroom03": "B",
+}
+UNCHANGED_DISORDERED_ROOM_IDS = frozenset(
+    room_id
+    for author_name, room_id in zip(
+        (
+            "F02_Classroom01",
+            "F02_Classroom02",
+            "F02_Classroom03",
+            "F03_Classroom01",
+            "F03_Classroom02",
+            "F03_Classroom03",
+            "F04_Classroom01",
+            "F04_Classroom02",
+            "F04_Classroom03",
+        ),
+        ROOM_VARIANT_IDS[:9],
+        strict=True,
+    )
+    if CLASSROOM_PATTERN_BY_AUTHOR[author_name] == "A"
+)
+
+
+@dataclass(frozen=True)
+class PlacementOverride:
+    offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    rotation_x: float = 0.0
+    rotation_y: float = 0.0
+    rotation_z_delta: float = 0.0
+    target_pivot: tuple[float, float, float] | None = None
+    rest_z: float | None = None
+
+
+@dataclass(frozen=True)
+class WalkableRampSpec:
+    bounds_xy: tuple[float, float, float, float]
+    direction: str
+    base_z: float
+
+
+@dataclass
+class ReplayedPlacement:
+    furniture: MeshBatch
+    signs: MeshBatch
+    collider_boxes: list[
+        tuple[tuple[float, float, float], tuple[float, float, float]]
+    ]
+    local_pivot: tuple[float, float, float]
 
 
 def _append_box(
@@ -775,9 +883,9 @@ def _create_box_object(
     )
 
 
-def _create_low_poly_sphere_object(
+def _create_low_poly_spheres_object(
     name: str,
-    center: tuple[float, float, float],
+    centers: tuple[tuple[float, float, float], ...],
     radius: float,
     target_collection: bpy.types.Collection,
     *,
@@ -785,23 +893,27 @@ def _create_low_poly_sphere_object(
     uv_swatch: tuple[tuple[float, float], ...],
     parent: bpy.types.Object,
 ) -> bpy.types.Object:
-    editable = bmesh.new()
-    bmesh.ops.create_icosphere(editable, subdivisions=1, radius=radius)
-    editable.verts.index_update()
-    editable.verts.ensure_lookup_table()
-    vertices = [
-        (
-            float(vertex.co.x) + center[0],
-            float(vertex.co.y) + center[1],
-            float(vertex.co.z) + center[2],
+    vertices: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    for center in centers:
+        editable = bmesh.new()
+        bmesh.ops.create_icosphere(editable, subdivisions=1, radius=radius)
+        editable.verts.index_update()
+        editable.verts.ensure_lookup_table()
+        vertex_offset = len(vertices)
+        vertices.extend(
+            (
+                float(vertex.co.x) + center[0],
+                float(vertex.co.y) + center[1],
+                float(vertex.co.z) + center[2],
+            )
+            for vertex in editable.verts
         )
-        for vertex in editable.verts
-    ]
-    faces = [
-        tuple(vertex.index for vertex in face.verts)
-        for face in editable.faces
-    ]
-    editable.free()
+        faces.extend(
+            tuple(vertex_offset + vertex.index for vertex in face.verts)
+            for face in editable.faces
+        )
+        editable.free()
     return _create_mesh_object(
         name,
         vertices,
@@ -1287,10 +1399,10 @@ def _build_toilet_stall_doors(
                     uv_swatch=swatch_uv("Architecture", "door"),
                     parent=panel,
                 )
-                _create_low_poly_sphere_object(
+                _create_low_poly_spheres_object(
                     f"VIS_DoorPanel_Knob_{token}",
-                    (-1.22, -0.075, 0.95),
-                    0.06,
+                    TOILET_STALL_KNOB_CENTERS,
+                    TOILET_STALL_KNOB_RADIUS,
                     visual_collection,
                     material=hardware_material,
                     uv_swatch=swatch_uv(
@@ -1795,6 +1907,723 @@ def _tile_aligned_room_bounds(
     )
 
 
+def _batch_bounds(
+    *batches: MeshBatch,
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    vertices = [vertex for batch in batches for vertex in batch.vertices]
+    if not vertices:
+        return ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
+    return (
+        tuple(min(vertex[axis] for vertex in vertices) for axis in range(3)),
+        tuple(max(vertex[axis] for vertex in vertices) for axis in range(3)),
+    )
+
+
+def _box_corners(
+    minimum: tuple[float, float, float],
+    maximum: tuple[float, float, float],
+) -> tuple[Vector, ...]:
+    return tuple(
+        Vector((x, y, z))
+        for x in (minimum[0], maximum[0])
+        for y in (minimum[1], maximum[1])
+        for z in (minimum[2], maximum[2])
+    )
+
+
+def _transformed_box_bounds(
+    box: tuple[tuple[float, float, float], tuple[float, float, float]],
+    transform: Matrix,
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    corners = tuple(transform @ corner for corner in _box_corners(*box))
+    return (
+        tuple(min(corner[axis] for corner in corners) for axis in range(3)),
+        tuple(max(corner[axis] for corner in corners) for axis in range(3)),
+    )
+
+
+def _source_collider_boxes(
+    prop_type: str,
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    size = PROP_COLLIDER_SIZES.get(prop_type)
+    if size is None:
+        return []
+    center = PROP_COLLIDER_LOCAL_CENTERS.get(
+        prop_type,
+        (0.0, 0.0, size[2] / 2.0),
+    )
+    return [
+        (
+            tuple(center[axis] - size[axis] / 2.0 for axis in range(3)),
+            tuple(center[axis] + size[axis] / 2.0 for axis in range(3)),
+        )
+    ]
+
+
+def _replay_local_placement(
+    placement: RoomPlacement,
+    sources: dict[str, bpy.types.Object],
+) -> ReplayedPlacement:
+    furniture = MeshBatch("FurnitureProps")
+    signs = MeshBatch("SignsPaper")
+    collider_boxes: list[
+        tuple[tuple[float, float, float], tuple[float, float, float]]
+    ] = []
+    if placement.kind == "prop":
+        source = sources[placement.prop_type]
+        target = signs if placement.prop_type in PAPER_SWATCHES else furniture
+        target.add_source_matrix(
+            source,
+            Matrix.Identity(4),
+            PAPER_SWATCHES.get(placement.prop_type),
+        )
+        collider_boxes.extend(_source_collider_boxes(placement.prop_type))
+    elif placement.kind == "additional":
+        temporary = RoomBuilder.create("VariantReplay", 0.0)
+        add_additional_prop(
+            temporary,
+            placement.prop_type,
+            (0.0, 0.0, 0.0),
+        )
+        furniture.add_batch(temporary.furniture, Matrix.Identity(4))
+        signs.add_batch(temporary.signs, Matrix.Identity(4))
+        collider_boxes.extend(temporary.colliders)
+    else:
+        raise RuntimeError(
+            f"個別再配置に未対応のplacement種別です: {placement.kind}"
+        )
+    minimum, maximum = _batch_bounds(furniture, signs)
+    local_pivot = (
+        (minimum[0] + maximum[0]) / 2.0,
+        (minimum[1] + maximum[1]) / 2.0,
+        minimum[2],
+    )
+    return ReplayedPlacement(
+        furniture,
+        signs,
+        collider_boxes,
+        local_pivot,
+    )
+
+
+def _placement_transform(
+    placement: RoomPlacement,
+    replayed: ReplayedPlacement,
+    override: PlacementOverride,
+) -> Matrix:
+    local_pivot = Vector(replayed.local_pivot)
+    if override.target_pivot is None:
+        original_rotation = Matrix.Rotation(placement.rotation_z, 3, "Z")
+        target_pivot = (
+            Vector(placement.position)
+            + original_rotation @ local_pivot
+            + Vector(override.offset)
+        )
+    else:
+        target_pivot = Vector(override.target_pivot)
+    rotation = Euler(
+        (
+            override.rotation_x,
+            override.rotation_y,
+            placement.rotation_z + override.rotation_z_delta,
+        ),
+        "XYZ",
+    ).to_matrix().to_4x4()
+    transform = (
+        Matrix.Translation(target_pivot)
+        @ rotation
+        @ Matrix.Translation(-local_pivot)
+    )
+    if override.rest_z is not None:
+        vertices = [
+            transform @ Vector(vertex)
+            for batch in (replayed.furniture, replayed.signs)
+            for vertex in batch.vertices
+        ]
+        vertices.extend(
+            transform @ corner
+            for box in replayed.collider_boxes
+            for corner in _box_corners(*box)
+        )
+        minimum_z = min(vertex.z for vertex in vertices)
+        transform = Matrix.Translation(
+            (0.0, 0.0, override.rest_z - minimum_z)
+        ) @ transform
+    return transform
+
+
+def _placement_occurrences(
+    room: RoomBuilder,
+) -> dict[str, list[RoomPlacement]]:
+    result: dict[str, list[RoomPlacement]] = {}
+    for placement in room.placements:
+        if placement.kind == "curtain":
+            continue
+        result.setdefault(placement.prop_type, []).append(placement)
+    return result
+
+
+def _classroom_desktop_prop_owners(
+    room: RoomBuilder,
+) -> dict[tuple[str, int], int]:
+    desks = [
+        placement
+        for placement in room.placements
+        if placement.prop_type == "ClassroomDesk"
+    ]
+    occurrence_by_type: dict[str, int] = {}
+    owners: dict[tuple[str, int], int] = {}
+    for placement in room.placements:
+        occurrence = occurrence_by_type.get(placement.prop_type, 0)
+        occurrence_by_type[placement.prop_type] = occurrence + 1
+        if (
+            placement.prop_type not in CLASSROOM_DESKTOP_PROP_TYPES
+            or not math.isclose(
+                placement.position[2],
+                room.base_z + 0.70,
+                abs_tol=1.0e-6,
+            )
+        ):
+            continue
+        owner_index = min(
+            range(len(desks)),
+            key=lambda index: (
+                desks[index].position[0] - placement.position[0]
+            ) ** 2
+            + (
+                desks[index].position[1] - placement.position[1]
+            ) ** 2,
+        )
+        owners[(placement.prop_type, occurrence)] = owner_index
+    return owners
+
+
+def _room_overrides(
+    room: RoomVariantSpec,
+    normal_room: RoomBuilder,
+) -> dict[tuple[str, int], PlacementOverride]:
+    overrides: dict[tuple[str, int], PlacementOverride] = {}
+    by_type = _placement_occurrences(normal_room)
+
+    def assign(
+        prop_type: str,
+        index: int,
+        override: PlacementOverride,
+    ) -> None:
+        if index >= len(by_type.get(prop_type, ())):
+            raise RuntimeError(
+                f"{room.room_id}: {prop_type}[{index}]が通常配置にありません"
+            )
+        overrides[(prop_type, index)] = override
+
+    pattern = CLASSROOM_PATTERN_BY_AUTHOR.get(room.author_name)
+    if pattern == "A":
+        return overrides
+    if pattern == "B":
+        fallen_desk_indices = (1, 4, 7, 13, 18, 22, 26)
+        desk_offsets = (
+            (0.70, 0.45),
+            (-0.55, 0.62),
+            (0.58, -0.48),
+            (-0.68, -0.42),
+            (0.46, 0.58),
+            (-0.62, 0.36),
+            (0.52, -0.54),
+        )
+        for sequence, index in enumerate(fallen_desk_indices):
+            assign(
+                "ClassroomDesk",
+                index,
+                PlacementOverride(
+                    offset=(*desk_offsets[sequence], 0.0),
+                    rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1),
+                    rotation_z_delta=math.radians((-18, 27, -31, 22, 35, -24, 16)[sequence]),
+                    rest_z=room.base_z,
+                ),
+            )
+        chair_indices = (0, 2, 4, 6, 9, 11, 13, 16, 19, 22, 25, 28)
+        chair_offsets = (
+            (0.72, -0.48),
+            (-0.62, 0.56),
+            (0.58, 0.60),
+            (-0.70, -0.45),
+            (0.65, -0.52),
+            (-0.60, 0.48),
+            (0.55, 0.62),
+        )
+        for sequence, index in enumerate(chair_indices):
+            offset_x, offset_y = (
+                chair_offsets[sequence]
+                if sequence < 7
+                else ((0.08 if sequence % 2 else -0.08), 0.06)
+            )
+            assign(
+                "ClassroomChair",
+                index,
+                PlacementOverride(
+                    offset=(offset_x, offset_y, 0.0),
+                    rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1),
+                    rotation_z_delta=math.radians((sequence * 19) % 47 - 23),
+                    rest_z=room.base_z,
+                ),
+            )
+        for sequence, index in enumerate((5, 8, 14, 17, 21, 27)):
+            assign(
+                "ClassroomChair",
+                index,
+                PlacementOverride(
+                    offset=(0.10 * (-1 if sequence % 2 else 1), 0.08, 0.0),
+                    rotation_z_delta=math.radians((-14, 18, -11, 15, -17, 12)[sequence]),
+                ),
+            )
+        desktop_prop_owners = _classroom_desktop_prop_owners(normal_room)
+        prop_scatter_offsets = (
+            (0.30, -0.24),
+            (-0.32, 0.22),
+            (0.26, 0.28),
+            (-0.28, -0.25),
+            (0.34, 0.18),
+            (-0.30, 0.27),
+            (0.27, -0.29),
+        )
+        for (prop_type, prop_index), desk_index in desktop_prop_owners.items():
+            if desk_index not in fallen_desk_indices:
+                continue
+            desk_sequence = fallen_desk_indices.index(desk_index)
+            desk = by_type["ClassroomDesk"][desk_index]
+            desk_offset = desk_offsets[desk_sequence]
+            scatter_offset = prop_scatter_offsets[desk_sequence]
+            assign(
+                prop_type,
+                prop_index,
+                PlacementOverride(
+                    target_pivot=(
+                        desk.position[0] + desk_offset[0] + scatter_offset[0],
+                        desk.position[1] + desk_offset[1] + scatter_offset[1],
+                        room.base_z + 0.01,
+                    ),
+                    rotation_z_delta=math.radians(17 * (desk_sequence + 1)),
+                    rest_z=room.base_z + 0.01,
+                ),
+            )
+        return overrides
+    if pattern == "C":
+        maximum_y = room.bounds_xy[3]
+        barricade_desks = (20, 21, 22, 23, 24, 25, 26, 27, 28, 29)
+        barricade_chairs = (20, 21, 22, 23, 24, 25, 26, 27, 28, 29)
+        desk_targets = (
+            (-4.80, maximum_y - 1.28, room.base_z),
+            (-5.27, maximum_y - 0.72, room.base_z),
+            (-5.65, maximum_y - 1.42, room.base_z),
+            (-5.00, maximum_y - 1.05, room.base_z + 0.32),
+            (-5.50, maximum_y - 0.78, room.base_z + 0.35),
+            (-5.87, maximum_y - 1.26, room.base_z + 0.38),
+            (-5.17, maximum_y - 1.20, room.base_z + 0.64),
+            (-5.67, maximum_y - 1.00, room.base_z + 0.68),
+            (-5.37, maximum_y - 0.86, room.base_z + 0.94),
+            (-5.75, maximum_y - 1.18, room.base_z + 0.92),
+        )
+        for sequence, index in enumerate(barricade_desks):
+            assign(
+                "ClassroomDesk",
+                index,
+                PlacementOverride(
+                    target_pivot=desk_targets[sequence],
+                    rotation_x=math.radians((72, -78, 86, -68, 74, -82, 61, -70, 55, -58)[sequence]),
+                    rotation_z_delta=math.radians((-28, 19, 43, -35, 12, 31, -18, 48, -42, 26)[sequence]),
+                    rest_z=desk_targets[sequence][2],
+                ),
+            )
+        chair_targets = (
+            (-4.63, maximum_y - 1.48, room.base_z),
+            (-4.93, maximum_y - 0.58, room.base_z),
+            (-6.03, maximum_y - 0.78, room.base_z),
+            (-6.17, maximum_y - 1.42, room.base_z),
+            (-4.73, maximum_y - 0.92, room.base_z + 0.42),
+            (-6.07, maximum_y - 1.10, room.base_z + 0.46),
+            (-4.97, maximum_y - 1.40, room.base_z + 0.70),
+            (-5.79, maximum_y - 0.66, room.base_z + 0.72),
+            (-5.27, maximum_y - 1.08, room.base_z + 1.00),
+            (-5.65, maximum_y - 1.30, room.base_z + 1.08),
+        )
+        for sequence, index in enumerate(barricade_chairs):
+            assign(
+                "ClassroomChair",
+                index,
+                PlacementOverride(
+                    target_pivot=chair_targets[sequence],
+                    rotation_x=math.radians((88, -83, 75, -79, 64, -70, 58, -62, 49, -52)[sequence]),
+                    rotation_z_delta=math.radians((24, -31, 47, -18, 36, -42, 14, 53, -27, 32)[sequence]),
+                    rest_z=chair_targets[sequence][2],
+                ),
+            )
+        for sequence, index in enumerate((0, 2, 4, 6, 8, 10, 12, 14, 16, 18)):
+            assign(
+                "ClassroomDesk",
+                index,
+                PlacementOverride(
+                    offset=(0.30 * (-1 if sequence % 2 else 1), 0.22 * ((sequence % 3) - 1), 0.0),
+                    rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1),
+                    rotation_z_delta=math.radians((sequence * 23) % 61 - 30),
+                    rest_z=room.base_z,
+                ),
+            )
+        for sequence, index in enumerate((1, 3, 5, 7, 9, 11, 13, 15, 17, 19)):
+            assign(
+                "ClassroomChair",
+                index,
+                PlacementOverride(
+                    offset=(0.18 * (-1 if sequence % 2 else 1), 0.14 * ((sequence % 3) - 1), 0.0),
+                    rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1),
+                    rotation_z_delta=math.radians((sequence * 17) % 53 - 26),
+                    rest_z=room.base_z,
+                ),
+            )
+        assign(
+            "ClassroomDesk",
+            3,
+            PlacementOverride(
+                target_pivot=(-6.65, room.bounds_xy[2] + 1.25, room.base_z),
+                rotation_z_delta=math.radians(6.0),
+            ),
+        )
+        assign(
+            "TeacherDesk",
+            0,
+            PlacementOverride(
+                target_pivot=(-6.30, maximum_y - 1.05, room.base_z),
+                rotation_z_delta=math.radians(8.0),
+            ),
+        )
+        assign(
+            "CleaningLocker",
+            0,
+            PlacementOverride(
+                target_pivot=(
+                    -6.25,
+                    room.bounds_xy[2] + 0.35,
+                    room.base_z,
+                ),
+                rotation_y=math.pi / 2.0,
+                rotation_z_delta=math.radians(-12.0),
+                rest_z=room.base_z,
+            ),
+        )
+        assign(
+            "BaggageLocker",
+            2,
+            PlacementOverride(
+                offset=(-0.12, 0.18, 0.0),
+                rotation_x=math.radians(64.0),
+                rest_z=room.base_z,
+            ),
+        )
+        for prop_type in PAPER_SWATCHES:
+            for index in range(len(by_type.get(prop_type, ()))):
+                assign(
+                    prop_type,
+                    index,
+                    PlacementOverride(
+                        offset=(
+                            0.22 * ((index % 3) - 1),
+                            0.18 * ((index % 4) - 1.5),
+                            0.0,
+                        ),
+                        rotation_z_delta=math.radians(29 * (index + 1)),
+                        rest_z=room.base_z + 0.01,
+                    ),
+                )
+        return overrides
+
+    if room.author_name == "F01_Infirmary":
+        assign(
+            "ClassroomDesk",
+            0,
+            PlacementOverride(
+                offset=(-0.18, -0.12, 0.0),
+                rotation_x=math.pi / 2.0,
+                rotation_z_delta=math.radians(-18.0),
+                rest_z=0.0,
+            ),
+        )
+        assign(
+            "ClassroomDesk",
+            1,
+            PlacementOverride(
+                target_pivot=(-8.20, 8.35, 0.0),
+                rotation_x=-math.pi / 2.0,
+                rotation_z_delta=math.radians(32.0),
+                rest_z=0.0,
+            ),
+        )
+        assign("ClassroomChair", 0, PlacementOverride(offset=(-0.35, 0.28, 0.0), rotation_z_delta=math.radians(12.0)))
+        assign("ClassroomChair", 1, PlacementOverride(offset=(0.25, -0.32, 0.0), rotation_z_delta=math.radians(-16.0)))
+        assign("StaffChair", 0, PlacementOverride(target_pivot=(-11.78, 9.35, 0.0), rotation_z_delta=math.radians(8.0)))
+    elif room.author_name == "F01_Library":
+        for sequence, index in enumerate((7, 12, 19, 31, 38, 44)):
+            assign(
+                "Bookshelf",
+                index,
+                PlacementOverride(
+                    rotation_x=math.pi / 2.0,
+                    rotation_z_delta=math.radians((-8, 6, -5, 9, -7, 4)[sequence]),
+                    rest_z=0.0,
+                ),
+            )
+        for sequence, index in enumerate((0, 3, 5, 8, 10, 14)):
+            assign("ClassroomChair", index, PlacementOverride(offset=(0.08 * (-1 if sequence % 2 else 1), 0.10, 0.0), rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians(13 * sequence - 24), rest_z=0.0))
+        for sequence, index in enumerate((1, 4, 7, 11, 13)):
+            assign("ClassroomChair", index, PlacementOverride(offset=(0.18 * (-1 if sequence % 2 else 1), 0.14, 0.0), rotation_z_delta=math.radians((-15, 12, -18, 16, -11)[sequence])))
+    elif room.author_name == "F01_StaffRoom":
+        for sequence, index in enumerate((0, 3, 5, 8, 10, 13, 15)):
+            assign("StaffChair", index, PlacementOverride(offset=(0.10 * (-1 if sequence % 2 else 1), 0.12, 0.0), rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians(11 * sequence - 28), rest_z=0.0))
+        for sequence, index in enumerate((1, 4, 7, 11, 14)):
+            assign("StaffChair", index, PlacementOverride(offset=(0.30 * (-1 if sequence % 2 else 1), 0.22 * ((sequence % 3) - 1), 0.0), rotation_z_delta=math.radians((-18, 14, -12, 17, -15)[sequence])))
+        for sequence, index in enumerate((0, 3, 6)):
+            assign("PcMonitor", index, PlacementOverride(rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians((-12, 17, -9)[sequence]), rest_z=0.72))
+        assign("PaperStack", 0, PlacementOverride(offset=(0.65, -0.45, 0.0), rotation_z_delta=math.radians(28.0), rest_z=0.01))
+    elif room.author_name == "F01_PcRoom":
+        for sequence, index in enumerate((0, 2, 5, 7, 9, 12, 15, 17)):
+            assign("StaffChair", index, PlacementOverride(offset=(0.12 * (-1 if sequence % 2 else 1), 0.10, 0.0), rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians(9 * sequence - 27), rest_z=0.0))
+        for sequence, index in enumerate((1, 4, 6, 10, 13, 16)):
+            assign("StaffChair", index, PlacementOverride(offset=(0.28 * (-1 if sequence % 2 else 1), 0.18 * ((sequence % 3) - 1), 0.0), rotation_z_delta=math.radians((-16, 13, -11, 17, -14, 10)[sequence])))
+        for sequence, index in enumerate((0, 4, 8, 12, 16)):
+            assign("PcMonitor", index, PlacementOverride(rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians(12 * sequence - 20), rest_z=0.72))
+            assign("KeyboardMouse", index, PlacementOverride(offset=(0.38 * (-1 if sequence % 2 else 1), 0.24, 0.0), rotation_z_delta=math.radians(21 * sequence), rest_z=0.01 if sequence >= 3 else 0.73))
+        for sequence, index in enumerate((2, 9, 14)):
+            assign("PcTower", index, PlacementOverride(offset=(-0.42, 0.30 * (-1 if sequence % 2 else 1), 0.0), rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians(18 * sequence - 15), rest_z=0.0))
+            assign("KeyboardMouse", index, PlacementOverride(offset=(0.46 * (-1 if sequence % 2 else 1), -0.32 + 0.18 * sequence, 0.0), rotation_z_delta=math.radians(24 * sequence - 19), rest_z=0.01))
+    elif room.author_name == "F02_Council":
+        assign("LargeWoodTable", 0, PlacementOverride(rotation_z_delta=math.radians(-10.0)))
+        for sequence, index in enumerate((0, 1, 2, 3, 4, 6)):
+            assign("ClassroomChair", index, PlacementOverride(offset=(0.06 * (-1 if sequence % 2 else 1), -0.08 if index % 2 == 0 else 0.08, 0.0), rotation_x=(math.pi / 2.0) * (-1 if index % 2 else 1), rotation_z_delta=math.radians((-10, 12, -8, 14, -11, 9)[sequence]), rest_z=3.6))
+        assign("StaffChair", 0, PlacementOverride(offset=(-0.08, 0.10, 0.0), rotation_x=-math.pi / 2.0, rotation_z_delta=math.radians(12.0), rest_z=3.6))
+        assign("PaperStack", 0, PlacementOverride(offset=(-1.10, 0.42, 0.0), rotation_z_delta=math.radians(31.0), rest_z=3.61))
+        for index in range(len(by_type.get("SinglePaper", ()))):
+            assign("SinglePaper", index, PlacementOverride(offset=(-0.75 - 0.28 * index, (-0.30, 0.18)[index % 2], 0.0), rotation_z_delta=math.radians(37 * (index + 1)), rest_z=3.605))
+    elif room.author_name == "F02_Broadcast":
+        assign("StaffDesk", 1, PlacementOverride(rotation_z_delta=math.radians(-10.0)))
+        assign("StaffChair", 0, PlacementOverride(offset=(-0.08, 0.10, 0.0), rotation_x=math.pi / 2.0, rotation_z_delta=math.radians(-14.0), rest_z=3.6))
+        assign("StaffChair", 1, PlacementOverride(offset=(0.22, 0.20, 0.0), rotation_z_delta=math.radians(13.0)))
+        assign("PcMonitor", 0, PlacementOverride(rotation_x=math.pi / 2.0, rotation_z_delta=math.radians(-10.0), rest_z=4.40))
+    elif room.author_name == "F02_Science":
+        for sequence, index in enumerate(range(18)):
+            assign("ScienceStool", index, PlacementOverride(offset=(0.08 * (-1 if sequence % 2 else 1), 0.06, 0.0), rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians((sequence * 13) % 41 - 20), rest_z=3.6))
+        for sequence, index in enumerate(range(18, 26)):
+            assign("ScienceStool", index, PlacementOverride(offset=(0.18 * (-1 if sequence % 2 else 1), 0.12, 0.0), rotation_z_delta=math.radians((-15, 12, -10, 16, -13, 11, -17, 14)[sequence])))
+        assign("Bookshelf", 1, PlacementOverride(rotation_x=math.pi / 2.0, rotation_z_delta=math.radians(5.0), rest_z=3.6))
+    elif room.author_name == "F03_Art":
+        for sequence, index in enumerate((0, 1, 2, 3, 4)):
+            assign("Easel", index, PlacementOverride(offset=(0.08 * (-1 if sequence % 2 else 1), 0.06, 0.0), rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians(12 * sequence - 24), rest_z=7.2))
+        for sequence, index in enumerate((5, 6)):
+            assign("Easel", index, PlacementOverride(offset=(0.22 * (-1 if sequence % 2 else 1), 0.16, 0.0), rotation_z_delta=math.radians((-14, 17)[sequence])))
+        fallen_chairs = (1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 16, 18, 21, 23)
+        for sequence, index in enumerate(fallen_chairs):
+            assign("ClassroomChair", index, PlacementOverride(offset=(0.07 * (-1 if sequence % 2 else 1), 0.06, 0.0), rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians((sequence * 11) % 43 - 21), rest_z=7.2))
+        for sequence, index in enumerate((4, 7, 10, 13, 17, 22)):
+            assign("ClassroomChair", index, PlacementOverride(offset=(0.18 * (-1 if sequence % 2 else 1), 0.14, 0.0), rotation_z_delta=math.radians((-13, 16, -11, 14, -17, 12)[sequence])))
+        assign("LargeWoodTable", 3, PlacementOverride(rotation_z_delta=math.radians(-10.0)))
+        assign("Bookshelf", 1, PlacementOverride(rotation_x=math.pi / 2.0, rotation_z_delta=math.radians(5.0), rest_z=7.2))
+    elif room.author_name == "F03_HomeEc":
+        for sequence, index in enumerate(range(12)):
+            assign("ClassroomChair", index, PlacementOverride(offset=(0.08 * (-1 if sequence % 2 else 1), 0.06, 0.0), rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians((sequence * 13) % 45 - 22), rest_z=7.2))
+        for sequence, index in enumerate(range(12, 20)):
+            assign("ClassroomChair", index, PlacementOverride(offset=(0.18 * (-1 if sequence % 2 else 1), 0.12, 0.0), rotation_z_delta=math.radians((-14, 12, -10, 16, -13, 11, -15, 13)[sequence])))
+        for sequence, index in enumerate((1, 8)):
+            assign("SewingMachine", index, PlacementOverride(rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians((-12, 15)[sequence]), rest_z=8.0))
+        for sequence, index in enumerate((4, 10)):
+            assign("SewingMachine", index, PlacementOverride(offset=(0.16 * (-1 if sequence % 2 else 1), 0.08, 0.0), rotation_z_delta=math.radians((-10, 13)[sequence])))
+    elif room.author_name == "F04_LL":
+        for sequence, index in enumerate((2, 16)):
+            assign("ClassroomDesk", index, PlacementOverride(offset=(0.16 * (-1 if sequence % 2 else 1), 0.10, 0.0), rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians((-14, 17)[sequence]), rest_z=10.8))
+        for sequence, index in enumerate((5, 10, 18)):
+            assign("ClassroomDesk", index, PlacementOverride(offset=(0.16 * (-1 if sequence % 2 else 1), 0.10, 0.0), rotation_z_delta=math.radians((-12, 15, -10)[sequence])))
+        for sequence, index in enumerate((0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 19)):
+            assign("ClassroomChair", index, PlacementOverride(offset=(0.08 * (-1 if sequence % 2 else 1), 0.06, 0.0), rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians((sequence * 13) % 47 - 23), rest_z=10.8))
+        for sequence, index in enumerate((1, 5, 9, 13, 17)):
+            assign("ClassroomChair", index, PlacementOverride(offset=(0.18 * (-1 if sequence % 2 else 1), 0.12, 0.0), rotation_z_delta=math.radians((-14, 12, -10, 16, -13)[sequence])))
+        assign("BaggageLocker", 1, PlacementOverride(rotation_x=math.pi / 2.0, rotation_z_delta=math.radians(4.0), rest_z=10.8))
+    elif room.author_name == "F04_Music":
+        for sequence, index in enumerate((0, 2, 5, 7, 10, 12, 15, 17, 20, 23, 26, 28)):
+            assign("ClassroomChair", index, PlacementOverride(offset=(0.08 * (-1 if sequence % 2 else 1), 0.06, 0.0), rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians((sequence * 11) % 45 - 22), rest_z=10.8))
+        for sequence, index in enumerate((1, 4, 6, 9, 11, 14, 18, 21, 24, 27)):
+            assign("ClassroomChair", index, PlacementOverride(offset=(0.18 * (-1 if sequence % 2 else 1), 0.12 * ((sequence % 3) - 1), 0.0), rotation_z_delta=math.radians((sequence * 13) % 39 - 19)))
+        assign("ScienceStool", 0, PlacementOverride(offset=(0.22, -0.18, 0.0), rotation_z_delta=math.radians(12.0)))
+    return overrides
+
+
+def _variant_extra_props(
+    room: RoomVariantSpec,
+) -> tuple[tuple[str, tuple[float, float, float], float], ...]:
+    if CLASSROOM_PATTERN_BY_AUTHOR.get(room.author_name) == "B":
+        minimum_y = room.bounds_xy[2]
+        return tuple(
+            (
+                ("SinglePaper", "ClosedBook", "PencilCase")[index % 3],
+                (-10.9 + (index % 4) * 1.55, minimum_y + 2.3 + (index // 4) * 1.25, room.base_z + 0.01),
+                math.radians(index * 23 - 41),
+            )
+            for index in range(9)
+        )
+    if CLASSROOM_PATTERN_BY_AUTHOR.get(room.author_name) == "C":
+        minimum_y = room.bounds_xy[2]
+        return tuple(
+            (
+                ("SinglePaper", "ClosedBook", "OpenBook", "PencilCase")[index % 4],
+                (-11.2 + (index % 5) * 1.35, minimum_y + 2.0 + (index // 5) * 1.15, room.base_z + 0.01),
+                math.radians(index * 19 - 52),
+            )
+            for index in range(14)
+        )
+    if room.author_name == "F01_Library":
+        return tuple(
+            (
+                ("ClosedBook", "OpenBook")[index % 2],
+                (-11.25 + (index % 4) * 1.95, 16.2 + (index // 4) * 3.0, 0.01),
+                math.radians(index * 29 - 70),
+            )
+            for index in range(12)
+        )
+    if room.author_name == "F01_StaffRoom":
+        return tuple(
+            (
+                "SinglePaper",
+                (7.4 + (index % 6) * 1.8, 38.2 + (index // 6) * 2.4, room.base_z + 0.006),
+                math.radians(index * 31 - 55),
+            )
+            for index in range(12)
+        )
+    if room.author_name == "F02_Council":
+        paper_positions = (
+            (8.0, 39.25),
+            (9.1, 39.00),
+            (10.2, 39.25),
+            (11.2, 39.20),
+            (8.4, 42.30),
+            (9.7, 42.50),
+            (11.0, 42.30),
+        )
+        return tuple(
+            (
+                "SinglePaper",
+                (x, y, room.base_z + 0.006),
+                math.radians(index * 31 - 55),
+            )
+            for index, (x, y) in enumerate(paper_positions)
+        )
+    return ()
+
+
+def _create_disordered_infirmary_curtains(
+    visual_collection: bpy.types.Collection,
+    collider_collection: bpy.types.Collection,
+    parent: bpy.types.Object,
+) -> None:
+    curtain_material = bpy.data.materials.get("MAT_B03_InfirmaryCurtain")
+    if curtain_material is None:
+        raise RuntimeError("保健室カーテンMaterialがありません")
+    curtain_specs = {
+        "North": ((-10.6875, 6.62, 0.0), 2.825, 0.0),
+        "West": ((-12.10, 4.81, 0.0), 3.62, math.pi / 2.0),
+        "Divider": ((-9.275, 4.81, 0.0), 3.62, math.pi / 2.0),
+    }
+    collider_boxes: list[
+        tuple[tuple[float, float, float], tuple[float, float, float]]
+    ] = []
+    for panel_name, (position, length, rotation_z) in curtain_specs.items():
+        panel = MeshBatch("FurnitureProps")
+        panel.add_corrugated_curtain(
+            (
+                position[0],
+                position[1],
+                INFIRMARY_CURTAIN_CENTER_Z,
+            ),
+            length,
+            INFIRMARY_CURTAIN_HEIGHT,
+            INFIRMARY_CURTAIN_FOLD_DEPTH,
+            infirmary_curtain_segment_count(length),
+            "fabric_ivory",
+            rotation_z,
+        )
+        obj = panel.create(
+            f"VIS_RoomVariant_F01_Infirmary_Disordered_Curtain_{panel_name}",
+            visual_collection,
+            curtain_material,
+        )
+        if obj is None:
+            raise RuntimeError(f"保健室荒れ版{panel_name}カーテンが空です")
+        obj.parent = parent
+        half_length = length / 2.0
+        half_depth = INFIRMARY_CURTAIN_FOLD_DEPTH
+        if abs(rotation_z) < 1.0e-6:
+            minimum = (
+                position[0] - half_length,
+                position[1] - half_depth,
+                0.45,
+            )
+            maximum = (
+                position[0] + half_length,
+                position[1] + half_depth,
+                3.0,
+            )
+        else:
+            minimum = (
+                position[0] - half_depth,
+                position[1] - half_length,
+                0.45,
+            )
+            maximum = (
+                position[0] + half_depth,
+                position[1] + half_length,
+                3.0,
+            )
+        collider_boxes.append((minimum, maximum))
+
+    gathered = MeshBatch("FurnitureProps")
+    gathered_segments = (
+        ((-6.45, 3.15, INFIRMARY_CURTAIN_CENTER_Z), 0.82, math.pi / 2.0),
+        ((-6.82, 2.82, INFIRMARY_CURTAIN_CENTER_Z), 0.74, 0.0),
+    )
+    for center, length, rotation_z in gathered_segments:
+        gathered.add_corrugated_curtain(
+            center,
+            length,
+            INFIRMARY_CURTAIN_HEIGHT,
+            0.12,
+            4,
+            "fabric_ivory",
+            rotation_z,
+        )
+        if abs(rotation_z) < 1.0e-6:
+            collider_boxes.append(
+                (
+                    (center[0] - length / 2.0, center[1] - 0.12, 0.45),
+                    (center[0] + length / 2.0, center[1] + 0.12, 3.0),
+                )
+            )
+        else:
+            collider_boxes.append(
+                (
+                    (center[0] - 0.12, center[1] - length / 2.0, 0.45),
+                    (center[0] + 0.12, center[1] + length / 2.0, 3.0),
+                )
+            )
+    gathered_obj = gathered.create(
+        "VIS_RoomVariant_F01_Infirmary_Disordered_Curtain_East",
+        visual_collection,
+        curtain_material,
+    )
+    if gathered_obj is None:
+        raise RuntimeError("保健室荒れ版の集約カーテンが空です")
+    gathered_obj.parent = parent
+    _create_box_object(
+        INFIRMARY_DISORDERED_CURTAIN_BEAM_SIGHT_COLLIDER_NAME,
+        tuple(collider_boxes),
+        collider_collection,
+        parent=parent,
+    )
+
+
 def _build_room_variants(
     visual_collection: bpy.types.Collection,
     collider_collection: bpy.types.Collection,
@@ -1804,8 +2633,20 @@ def _build_room_variants(
 ) -> dict[str, int]:
     marker_count = 0
     volume_count = 0
+    unchanged_count = 0
+    signs_material = bpy.data.materials.get("MAT_B03_Atlas_SignsPaper")
+    if signs_material is None:
+        raise RuntimeError("SignsPaper atlas Materialがありません")
+    sources = import_prop_sources(VARIANT_SOURCE_TYPES)
+    normal_rooms, _classroom_metrics = build_school_rooms(sources)
+    normal_rooms_by_name = {room.name: room for room in normal_rooms}
     for room in ROOM_VARIANT_SPECS:
         token = _token(room.author_name)
+        normal_room = normal_rooms_by_name.get(room.author_name)
+        if normal_room is None:
+            raise RuntimeError(
+                f"荒れ版の通常配置記録がありません: {room.author_name}"
+            )
         normal_marker = _create_empty(
             f"MRK_RoomVariant_{token}_Normal",
             semantic_collection,
@@ -1869,179 +2710,141 @@ def _build_room_variants(
             ):
                 raise RuntimeError("保健室カーテンのビーム・視線遮蔽Meshがありません")
             normal_beam_sight_collider.parent = normal_marker
-            _copy_mesh_object(
-                normal_beam_sight_collider,
-                INFIRMARY_DISORDERED_CURTAIN_BEAM_SIGHT_COLLIDER_NAME,
-                collider_collection,
-                disordered_marker,
-            )
         _create_variant_nav_from_collider(
             normal_collider,
             f"NAV_RoomVariant_{token}_Normal_Blocker",
             nav_collection,
             normal_marker,
         )
-
-        placement = _select_disordered_placement(room, normal_collider)
-        removed_box_indices = placement["removed_box_indices"]
-        normal_boxes = _normal_collider_boxes(normal_collider)
-        excluded_bounds = tuple(
-            normal_boxes[index]
-            for index in removed_box_indices
-        )
         for source in normal_visuals:
             source.parent = normal_marker
-            target_name = source.name.replace(
-                f"VIS_B03_Interior_{room.author_name}",
-                f"VIS_RoomVariant_{token}_Disordered",
-            )
-            if (
-                excluded_bounds
-                and not source.name.startswith(
-                    f"VIS_B03_Interior_{room.author_name}_Curtain_"
+
+        if room.room_id in UNCHANGED_DISORDERED_ROOM_IDS:
+            for source in normal_visuals:
+                target_name = source.name.replace(
+                    f"VIS_B03_Interior_{room.author_name}",
+                    f"VIS_RoomVariant_{token}_Disordered",
                 )
-            ):
-                disordered_visual = _copy_mesh_excluding_bounds(
-                    source,
-                    target_name,
-                    visual_collection,
-                    disordered_marker,
-                    excluded_bounds,
-                )
-                if source.name.endswith("_FurnitureProps"):
-                    if (
-                        len(disordered_visual.data.vertices)
-                        >= len(source.data.vertices)
-                    ):
-                        raise RuntimeError(
-                            f"{source.name}: 荒れ版で置換する通常机の表示形状"
-                            "が見つかりません"
-                        )
-            else:
                 _copy_mesh_object(
                     source,
                     target_name,
                     visual_collection,
                     disordered_marker,
                 )
+            disordered_collider = _copy_mesh_object(
+                normal_collider,
+                f"COL_RoomVariant_{token}_Disordered",
+                collider_collection,
+                disordered_marker,
+            )
+            _create_variant_nav_from_collider(
+                disordered_collider,
+                f"NAV_RoomVariant_{token}_Disordered_Blocker",
+                nav_collection,
+                disordered_marker,
+            )
+            unchanged_count += 1
+        else:
+            overrides = _room_overrides(room, normal_room)
+            disordered_furniture = MeshBatch("FurnitureProps")
+            disordered_signs = MeshBatch("SignsPaper")
+            disordered_collider_boxes: list[
+                tuple[
+                    tuple[float, float, float],
+                    tuple[float, float, float],
+                ]
+            ] = []
+            occurrence_counts: dict[str, int] = {}
+            for placement in normal_room.placements:
+                if placement.kind == "curtain":
+                    continue
+                occurrence = occurrence_counts.get(placement.prop_type, 0)
+                occurrence_counts[placement.prop_type] = occurrence + 1
+                override = overrides.get(
+                    (placement.prop_type, occurrence),
+                    PlacementOverride(),
+                )
+                replayed = _replay_local_placement(placement, sources)
+                transform = _placement_transform(
+                    placement,
+                    replayed,
+                    override,
+                )
+                disordered_furniture.add_batch(
+                    replayed.furniture,
+                    transform,
+                )
+                disordered_signs.add_batch(
+                    replayed.signs,
+                    transform,
+                )
+                disordered_collider_boxes.extend(
+                    _transformed_box_bounds(box, transform)
+                    for box in replayed.collider_boxes
+                )
 
-        disordered_vertices, disordered_faces = _collider_without_boxes(
-            normal_collider,
-            removed_box_indices,
-        )
-        ramp_box = placement["ramp_box"]
-        ramp_direction = placement["ramp_direction"]
-        shelf_minimum, shelf_maximum = placement["shelf_box"]
-        ramp_minimum_x = ramp_box[0][0]
-        ramp_maximum_x = ramp_box[1][0]
-        ramp_minimum_y = ramp_box[0][1]
-        ramp_maximum_y = ramp_box[1][1]
-        _append_ramp(
-            disordered_vertices,
-            disordered_faces,
-            ramp_minimum_x,
-            ramp_maximum_x,
-            ramp_minimum_y,
-            ramp_maximum_y,
-            room.base_z + 0.02,
-            room.base_z + 0.12,
-            room.base_z + 0.65,
-            ramp_direction,
-        )
-        _append_box(
-            disordered_vertices,
-            disordered_faces,
-            shelf_minimum,
-            shelf_maximum,
-        )
-        disordered_collider = _create_mesh_object(
-            f"COL_RoomVariant_{token}_Disordered",
-            disordered_vertices,
-            disordered_faces,
-            collider_collection,
-            parent=disordered_marker,
-        )
-        (
-            disordered_blocker_vertices,
-            disordered_blocker_faces,
-        ) = _collider_without_boxes(
-            normal_collider,
-            removed_box_indices,
-        )
-        _append_box(
-            disordered_blocker_vertices,
-            disordered_blocker_faces,
-            shelf_minimum,
-            shelf_maximum,
-        )
-        _create_mesh_object(
-            f"NAV_RoomVariant_{token}_Disordered_Blocker",
-            disordered_blocker_vertices,
-            disordered_blocker_faces,
-            nav_collection,
-            properties={
-                "hs_nav_set": "human",
-                "hs_nav_role": "blocker",
-            },
-            parent=disordered_marker,
-        )
+            for prop_type, position, rotation_z in _variant_extra_props(room):
+                source = sources[prop_type]
+                transform = (
+                    Matrix.Translation(Vector(position))
+                    @ Matrix.Rotation(rotation_z, 4, "Z")
+                )
+                if prop_type in PAPER_SWATCHES:
+                    disordered_signs.add_source_matrix(
+                        source,
+                        transform,
+                        PAPER_SWATCHES[prop_type],
+                    )
+                else:
+                    disordered_furniture.add_source_matrix(
+                        source,
+                        transform,
+                    )
 
-        disordered_walkable_vertices: list[tuple[float, float, float]] = []
-        disordered_walkable_faces: list[tuple[int, ...]] = []
-        _append_ramp(
-            disordered_walkable_vertices,
-            disordered_walkable_faces,
-            ramp_minimum_x,
-            ramp_maximum_x,
-            ramp_minimum_y,
-            ramp_maximum_y,
-            room.base_z + 0.02,
-            room.base_z + 0.12,
-            room.base_z + 0.65,
-            ramp_direction,
-        )
-        _create_mesh_object(
-            f"NAV_RoomVariant_{token}_Disordered_Walkable",
-            disordered_walkable_vertices,
-            disordered_walkable_faces,
-            nav_collection,
-            properties={
-                "hs_nav_set": "human",
-                "hs_nav_role": "walkable",
-                "hs_nav_area": "ground",
-            },
-            parent=disordered_marker,
-        )
+            furniture_obj = disordered_furniture.create(
+                f"VIS_RoomVariant_{token}_Disordered_FurnitureProps",
+                visual_collection,
+                furniture_material,
+            )
+            if furniture_obj is None:
+                raise RuntimeError(
+                    f"{room.room_id}: 荒れ版FurniturePropsが空です"
+                )
+            furniture_obj.parent = disordered_marker
+            if disordered_signs.faces:
+                signs_obj = disordered_signs.create(
+                    f"VIS_RoomVariant_{token}_Disordered_SignsPaper",
+                    visual_collection,
+                    signs_material,
+                )
+                if signs_obj is None:
+                    raise RuntimeError(
+                        f"{room.room_id}: 荒れ版SignsPaperが空です"
+                    )
+                signs_obj.parent = disordered_marker
 
-        disorder_visual_vertices: list[tuple[float, float, float]] = []
-        disorder_visual_faces: list[tuple[int, ...]] = []
-        _append_ramp(
-            disorder_visual_vertices,
-            disorder_visual_faces,
-            ramp_minimum_x,
-            ramp_maximum_x,
-            ramp_minimum_y,
-            ramp_maximum_y,
-            room.base_z + 0.02,
-            room.base_z + 0.12,
-            room.base_z + 0.65,
-            ramp_direction,
-        )
-        _append_box(
-            disorder_visual_vertices,
-            disorder_visual_faces,
-            shelf_minimum,
-            shelf_maximum,
-        )
-        _create_mesh_object(
-            f"VIS_RoomVariant_{token}_Disordered_FallenFurniture",
-            disorder_visual_vertices,
-            disorder_visual_faces,
-            visual_collection,
-            material=furniture_material,
-            uv_swatch=swatch_uv("FurnitureProps", "wood"),
-            parent=disordered_marker,
-        )
+            if not disordered_collider_boxes:
+                raise RuntimeError(
+                    f"{room.room_id}: 荒れ版Collider箱がありません"
+                )
+            disordered_collider = _create_box_object(
+                f"COL_RoomVariant_{token}_Disordered",
+                tuple(disordered_collider_boxes),
+                collider_collection,
+                parent=disordered_marker,
+            )
+            _create_variant_nav_from_collider(
+                disordered_collider,
+                f"NAV_RoomVariant_{token}_Disordered_Blocker",
+                nav_collection,
+                disordered_marker,
+            )
+            if room.author_name == "F01_Infirmary":
+                _create_disordered_infirmary_curtains(
+                    visual_collection,
+                    collider_collection,
+                    disordered_marker,
+                )
 
         owner_minimum_x, owner_maximum_x, owner_minimum_y, owner_maximum_y = (
             _tile_aligned_room_bounds(room.bounds_xy)
@@ -2071,6 +2874,8 @@ def _build_room_variants(
         )
         volume_count += 1
 
+    remove_imported_sources(sources)
+
     if marker_count != 40 or volume_count != 20:
         raise RuntimeError(
             "部屋variant件数が不正です: "
@@ -2082,6 +2887,7 @@ def _build_room_variants(
         "rooms": len(ROOM_VARIANT_SPECS),
         "markers": marker_count,
         "tile_volumes": volume_count,
+        "unchanged_disordered_rooms": unchanged_count,
     }
 
 

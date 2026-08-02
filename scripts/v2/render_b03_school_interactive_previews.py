@@ -49,6 +49,18 @@ DOOR_COMPARISON_VIEWS = (
         "lens": 52.0,
     },
     {
+        "name": "door-toilet-swing-f01-m-01-inside",
+        "reference": "MRK_Door_ToiletStall_F01_M_01",
+        "doors": (
+            "MRK_Door_ToiletStall_F01_M_01",
+        ),
+        "frame_kind": "toilet",
+        "stage_rotation_z": 0.0,
+        "camera": (1.2, 10.0, 3.6),
+        "target": (0.0, 0.0, 0.95),
+        "lens": 52.0,
+    },
+    {
         "name": "elevator-f04-initial-car",
         "reference": "MRK_ElevatorStop_F04",
         "doors": (
