@@ -1,6 +1,7 @@
 import { Logger } from "@babylonjs/core";
 
 import { runAudioRuntimeTests } from "./audioRuntime.test";
+import { runCharacterAssignmentTests } from "./characterAssignments.test";
 import { runRoomVariantTests } from "./roomVariant.test";
 import { runRuntimeHudTests } from "./runtimeHud.test";
 import { runRuntimeInteractionTests } from "./runtimeInteraction.test";
@@ -204,6 +205,7 @@ const runValidation = async () => {
     ...(await runRuntimeHudTests()),
     ...(await runRoomVariantTests()),
     ...(await runAudioRuntimeTests()),
+    ...(await runCharacterAssignmentTests()),
     ...(await runRuntimeSessionLifecycleTests())
   ];
   const elapsedMilliseconds = performance.now() - startedAt;

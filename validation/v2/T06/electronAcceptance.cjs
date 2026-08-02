@@ -114,6 +114,11 @@ const inspectDom = (window) =>
         pointerLockId: document.pointerLockElement?.id ?? null,
         hudRootCount: document.querySelectorAll('[data-v2-runtime-hud="root"]').length,
         volumeRootCount: document.querySelectorAll('[data-ui="volume-panel"]').length,
+        characterSettingsRootCount: document.querySelectorAll('[data-ui="v2-character-settings"]').length,
+        portraitSelectCount: document.querySelectorAll('[data-ui="v2-player-portrait-select"]').length,
+        portraitSelection: document.querySelector('[data-ui="v2-player-portrait-select"]')?.value ?? null,
+        voiceSelectCount: document.querySelectorAll('[data-ui="v2-player-voice-select"]').length,
+        voiceSelection: document.querySelector('[data-ui="v2-player-voice-select"]')?.value ?? null,
         completionGuideVisible: roleVisible("completion-guide"),
         crosshairVisible: roleVisible("crosshair"),
         fireGuideVisible: roleVisible("fire-guide"),
@@ -323,12 +328,18 @@ const run = async () => {
       snapshot.titleHint === "左クリック：開始" &&
       snapshot.titleVisible &&
       snapshot.hudRootCount === 1 &&
-      snapshot.volumeRootCount === 1,
+      snapshot.volumeRootCount === 1 &&
+      snapshot.characterSettingsRootCount === 1,
     120_000
   );
   addCheck("初回session所有root", {
     hudRootCount: initialTitle.hudRootCount,
-    volumeRootCount: initialTitle.volumeRootCount
+    volumeRootCount: initialTitle.volumeRootCount,
+    characterSettingsRootCount: initialTitle.characterSettingsRootCount,
+    portraitSelectCount: initialTitle.portraitSelectCount,
+    portraitSelection: initialTitle.portraitSelection,
+    voiceSelectCount: initialTitle.voiceSelectCount,
+    voiceSelection: initialTitle.voiceSelection
   });
 
   await sendCanvasClick(testWindow);
@@ -455,13 +466,15 @@ const run = async () => {
       snapshot.titleVisible &&
       snapshot.pointerLockId === null &&
       snapshot.hudRootCount === 1 &&
-      snapshot.volumeRootCount === 1,
+      snapshot.volumeRootCount === 1 &&
+      snapshot.characterSettingsRootCount === 1,
     120_000
   );
   addCheck("Enterタイトル復帰とroot重複0", {
     pointerLockId: returnedTitle.pointerLockId,
     hudRootCount: returnedTitle.hudRootCount,
-    volumeRootCount: returnedTitle.volumeRootCount
+    volumeRootCount: returnedTitle.volumeRootCount,
+    characterSettingsRootCount: returnedTitle.characterSettingsRootCount
   });
 
   await sendCanvasClick(testWindow);
@@ -472,13 +485,15 @@ const run = async () => {
       !snapshot.titleVisible &&
       snapshot.pointerLockId === "renderCanvas" &&
       snapshot.hudRootCount === 1 &&
-      snapshot.volumeRootCount === 1,
+      snapshot.volumeRootCount === 1 &&
+      snapshot.characterSettingsRootCount === 1,
     10_000
   );
   addCheck("再開始とsession root維持", {
     pointerLockId: restarted.pointerLockId,
     hudRootCount: restarted.hudRootCount,
-    volumeRootCount: restarted.volumeRootCount
+    volumeRootCount: restarted.volumeRootCount,
+    characterSettingsRootCount: restarted.characterSettingsRootCount
   });
 
   await wait(2_000);

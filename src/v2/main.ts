@@ -24,9 +24,15 @@ import {
   applyV2AudioVolumeLevels,
   createV2AudioVolumeSettingsStore,
   createV2GameplayAudioBridge,
-  createV2VoiceRuntime
+  createV2VoiceRuntime,
+  getV2VoiceProfileIds
 } from "../audio/v2AudioRuntime";
 import { createVolumePanel } from "../ui/volumePanel";
+import {
+  V2_PORTRAIT_ASSET_INVENTORY,
+  createV2CharacterSettingsPanel,
+  createV2CharacterSettingsStore
+} from "../ui/v2CharacterSettings";
 import { createV2RuntimeHudController } from "../ui/v2RuntimeHud";
 import {
   createSchoolStageDynamicRuntime,
@@ -72,6 +78,7 @@ import {
   V2_TEST_SURVIVAL_POPULATION,
   type V2SurvivalRuntime
 } from "./survivalRuntime";
+import { createV2CharacterAssignments } from "./v2CharacterAssignments";
 import {
   createSchoolStageActorPort,
   createSchoolStageTraversalCoordinator,
@@ -449,6 +456,9 @@ let ownedAudio: AudioManager | null = null;
 let ownedVolumePanel: ReturnType<
   typeof createVolumePanel
 > | null = null;
+let ownedCharacterSettingsPanel: ReturnType<
+  typeof createV2CharacterSettingsPanel
+> | null = null;
 let ownedGameplayAudioBridge: ReturnType<
   typeof createV2GameplayAudioBridge
 > | null = null;
@@ -464,6 +474,7 @@ const disposeRuntime = async () => {
   engine.stopRenderLoop();
   eventScope.dispose();
   ownedRuntimeHud?.dispose();
+  ownedCharacterSettingsPanel?.dispose();
   ownedVolumePanel?.dispose();
   ownedGameplayAudioBridge?.dispose();
   ownedVoiceRuntime?.dispose();
@@ -517,6 +528,32 @@ const volumePanel = createVolumePanel({
   }
 });
 ownedVolumePanel = volumePanel;
+const characterSettingsStore = createV2CharacterSettingsStore(
+  localStorage,
+  V2_PORTRAIT_ASSET_INVENTORY.directories,
+  audioAssets.voiceDirectories
+);
+const characterSettings = characterSettingsStore.load();
+const characterSettingsPanel = createV2CharacterSettingsPanel({
+  parent: titleOverlay,
+  initialSettings: characterSettings,
+  portraitDirectories: V2_PORTRAIT_ASSET_INVENTORY.directories,
+  voiceDirectories: audioAssets.voiceDirectories,
+  onChange: (nextSettings) => {
+    characterSettingsStore.save(nextSettings);
+    requestSessionRebuild();
+  }
+});
+ownedCharacterSettingsPanel = characterSettingsPanel;
+const characterAssignments = createV2CharacterAssignments({
+  actorIds: survival.getHumanTargets().map((target) => target.id),
+  playerActorId: "player",
+  voiceProfileIds: getV2VoiceProfileIds(),
+  portraitDirectories: V2_PORTRAIT_ASSET_INVENTORY.directories,
+  playerVoiceDirectory: characterSettings.voiceDirectory,
+  playerPortraitDirectory: characterSettings.portraitDirectory,
+  random: Math.random
+});
 const gameplayAudioBridge = createV2GameplayAudioBridge({
   audio,
   assets: audioAssets,
@@ -526,6 +563,7 @@ ownedGameplayAudioBridge = gameplayAudioBridge;
 const voiceRuntime = createV2VoiceRuntime({
   audio,
   random: Math.random,
+  assignments: characterAssignments,
   baseOptions: Object.freeze({
     volume: 0.72,
     maxDistance: 4.17,

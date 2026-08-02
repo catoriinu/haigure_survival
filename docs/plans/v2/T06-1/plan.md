@@ -203,8 +203,8 @@
 - [x] R actionとdispatcherを公開処刑専用へ置換し、進行中／完了後の再演、通常全phase無効、queue・Traversal残留0を実装する
 - [x] Enterをゲーム開始後の全phaseでタイトル復帰へ統一し、R用session再生成APIを削除する
 - [x] F／E／C成功Feedback、mode別色、180ms発光、対象変更・clear・dispose時の即時消去を実装する
-- [ ] 全actorのCharacter／VOICE割当、portrait対応、重複なしshuffle、タイトルの自キャラ／自ボイス選択、設定保存を実装する
-- [ ] 仕様書と全体ロードマップへR／EnterとI3／T06-5を同期する
+- [x] 全actorのCharacter／VOICE割当、portrait対応、重複なしshuffle、タイトルの自キャラ／自ボイス選択、設定保存を実装する
+- [x] 仕様書と全体ロードマップへR／EnterとI3／T06-5を同期する
 - [ ] T05／T06 fixture、全typecheck／build、通常Web、Electron、配布テキスト、差分所有を検証する
 - [ ] 実装結果と証跡を記録し、6commitを一度pushしてDraft PR #64を更新する
 

@@ -12,6 +12,7 @@ import type {
   V2CharacterState,
   V2HumanTargetSnapshot,
 } from "../v2/combatTypes";
+import type { V2CharacterAssignments } from "../v2/v2CharacterAssignments";
 
 type V2VoiceHaigureState = Readonly<{
   enter: readonly string[];
@@ -42,12 +43,19 @@ const V2_VOICE_PROFILES: readonly V2VoiceProfile[] = Object.freeze(
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([id, states]) => Object.freeze({ id, states })),
 );
+const V2_VOICE_PROFILES_BY_ID: ReadonlyMap<string, V2VoiceProfile> = new Map(
+  V2_VOICE_PROFILES.map((profile) => [profile.id, profile]),
+);
+
+export const getV2VoiceProfileIds = (): readonly string[] =>
+  Object.freeze(V2_VOICE_PROFILES.map((profile) => profile.id));
 
 export type V2VoiceAudio = Pick<AudioManager, "playVoice">;
 
 export type V2VoiceRuntimeOptions = Readonly<{
   audio: V2VoiceAudio;
   random: () => number;
+  assignments: V2CharacterAssignments;
   baseOptions: SpatialPlayOptions;
   loopOptions: SpatialPlayOptions;
 }>;
@@ -81,13 +89,14 @@ const isV2VoiceIdleState = (state: V2CharacterState): boolean =>
 const isV2VoiceHitState = (state: V2CharacterState): boolean =>
   state === "hit-a" || state === "hit-b";
 
-const compareSnapshotId = (
-  left: V2HumanTargetSnapshot,
-  right: V2HumanTargetSnapshot,
-): number => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
-
 const createV2VoiceRuntimeInternal = (
-  { audio, random, baseOptions, loopOptions }: V2VoiceRuntimeOptions,
+  {
+    audio,
+    random,
+    assignments,
+    baseOptions,
+    loopOptions,
+  }: V2VoiceRuntimeOptions,
   assets: V2AudioAssetCatalog,
 ): V2VoiceRuntime => {
   if (baseOptions.loop) {
@@ -95,6 +104,24 @@ const createV2VoiceRuntimeInternal = (
   }
   if (!loopOptions.loop) {
     throw new Error("V2 VOICEのloopOptions.loopはtrueが必要です。");
+  }
+  if (assignments.length === 0) {
+    throw new Error("V2 VOICEのCharacter割当にはactorが必要です。");
+  }
+  const configuredProfilesByActorId = new Map<string, V2VoiceProfile>();
+  for (const assignment of assignments) {
+    if (configuredProfilesByActorId.has(assignment.actorId)) {
+      throw new Error(
+        `V2 VOICEのCharacter割当actor IDが重複しています: ${assignment.actorId}`,
+      );
+    }
+    const profile = V2_VOICE_PROFILES_BY_ID.get(assignment.voiceProfileId);
+    if (profile === undefined) {
+      throw new Error(
+        `V2 VOICE manifestにprofileがありません: ${assignment.voiceProfileId}`,
+      );
+    }
+    configuredProfilesByActorId.set(assignment.actorId, profile);
   }
   let actors: Map<string, V2VoiceActor> | null = null;
   let disposed = false;
@@ -119,19 +146,28 @@ const createV2VoiceRuntimeInternal = (
     if (snapshots.length === 0) {
       throw new Error("V2 VOICEの初回snapshotにはactorが必要です。");
     }
-    const sortedSnapshots = [...snapshots].sort(compareSnapshotId);
-    const initialized = new Map<string, V2VoiceActor>();
-    for (let index = 0; index < sortedSnapshots.length; index += 1) {
-      const snapshot = sortedSnapshots[index];
-      if (initialized.has(snapshot.id)) {
+    const snapshotsById = new Map<string, V2HumanTargetSnapshot>();
+    for (const snapshot of snapshots) {
+      if (snapshotsById.has(snapshot.id)) {
         throw new Error(`V2 VOICEのactor IDが重複しています: ${snapshot.id}`);
       }
-      const profile = V2_VOICE_PROFILES[index % V2_VOICE_PROFILES.length];
-      if (!profile) {
-        throw new Error("V2 VOICE manifestにprofileがありません。");
+      snapshotsById.set(snapshot.id, snapshot);
+    }
+    if (snapshotsById.size !== configuredProfilesByActorId.size) {
+      throw new Error(
+        "V2 VOICEのCharacter割当と初回snapshotのactor集合が一致しません。",
+      );
+    }
+    const initialized = new Map<string, V2VoiceActor>();
+    for (const [actorId, profile] of configuredProfilesByActorId) {
+      const snapshot = snapshotsById.get(actorId);
+      if (snapshot === undefined) {
+        throw new Error(
+          `V2 VOICEのCharacter割当actor snapshotがありません: ${actorId}`,
+        );
       }
-      initialized.set(snapshot.id, {
-        id: snapshot.id,
+      initialized.set(actorId, {
+        id: actorId,
         profile,
         position: snapshot.aimPosition.clone(),
         currentState: snapshot.state,

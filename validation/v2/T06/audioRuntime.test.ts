@@ -25,6 +25,7 @@ import type {
   V2CharacterState,
   V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
+import type { V2CharacterAssignments } from "../../../src/v2/v2CharacterAssignments";
 import {
   createV2GameplayAudioEventQueue
 } from "../../../src/v2/gameplayAudioEventQueue";
@@ -59,13 +60,14 @@ const createSpatialHandle = (): SpatialHandle => {
 };
 
 const createSnapshot = (
-  state: V2CharacterState
+  state: V2CharacterState,
+  id = "player"
 ): V2HumanTargetSnapshot => {
   const footPosition = Vector3.Zero();
   const aimPosition = new Vector3(0, 1, 0);
   return Object.freeze({
-    id: "player",
-    kind: "player" as const,
+    id,
+    kind: id === "player" ? ("player" as const) : ("npc" as const),
     footPosition,
     aimPosition,
     hitShape: Object.freeze({
@@ -78,6 +80,14 @@ const createSnapshot = (
       state.startsWith("brainwash-")
   });
 };
+
+const PLAYER_CHARACTER_ASSIGNMENTS: V2CharacterAssignments = Object.freeze([
+  Object.freeze({
+    actorId: "player",
+    voiceProfileId: "01",
+    portraitDirectory: "01_hgsv_mb"
+  })
+]);
 
 const createVoiceAssetCatalog = (): V2AudioAssetCatalog =>
   Object.freeze({
@@ -299,6 +309,7 @@ export const runAudioRuntimeTests = async () =>
             }
           }),
           random: () => 0,
+          assignments: PLAYER_CHARACTER_ASSIGNMENTS,
           baseOptions: Object.freeze({
             volume: 1,
             maxDistance: 5,
@@ -360,6 +371,7 @@ export const runAudioRuntimeTests = async () =>
             }
           }),
           random: () => 0,
+          assignments: PLAYER_CHARACTER_ASSIGNMENTS,
           baseOptions: Object.freeze({
             volume: 1,
             maxDistance: 5,
@@ -388,6 +400,70 @@ export const runAudioRuntimeTests = async () =>
           `allowIdle=trueの期限到達でidle VOICEが1回再生されません: ${playCountAfterIdle}`
         );
         return "停止中0回、許可後のidle期限到達で1回再生";
+      } finally {
+        runtime.dispose();
+      }
+    }),
+    executeTest("VOICEの明示Character割当", () => {
+      const playedUrls: string[] = [];
+      const runtime = createV2VoiceRuntimeForAssetCatalog(
+        {
+          audio: Object.freeze({
+            playVoice: (url: string) => {
+              playedUrls.push(url);
+              return createSpatialHandle();
+            }
+          }),
+          random: () => 0,
+          assignments: Object.freeze([
+            Object.freeze({
+              actorId: "npc-01",
+              voiceProfileId: "02",
+              portraitDirectory: "02_hgsv_mb"
+            }),
+            Object.freeze({
+              actorId: "player",
+              voiceProfileId: "01",
+              portraitDirectory: "01_hgsv_mb"
+            })
+          ]),
+          baseOptions: Object.freeze({
+            volume: 1,
+            maxDistance: 5,
+            loop: false
+          }),
+          loopOptions: Object.freeze({
+            volume: 1,
+            maxDistance: 5,
+            loop: true
+          })
+        },
+        createVoiceAssetCatalog()
+      );
+      try {
+        runtime.update(
+          0,
+          false,
+          Object.freeze([
+            createSnapshot("normal", "player"),
+            createSnapshot("normal", "npc-01")
+          ])
+        );
+        runtime.update(
+          0,
+          false,
+          Object.freeze([
+            createSnapshot("hit-a", "player"),
+            createSnapshot("hit-a", "npc-01")
+          ])
+        );
+        assert(
+          playedUrls.length === 2 &&
+            playedUrls[0].includes("/02_cool/") &&
+            playedUrls[1].includes("/01_devil/"),
+          `明示したactor→VOICE profileの対応が失われました: ${playedUrls.join(" | ")}`
+        );
+        return "snapshot順ではなく明示割当の02→NPC、01→playerを再生";
       } finally {
         runtime.dispose();
       }
