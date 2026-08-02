@@ -2178,18 +2178,19 @@ export const createV2SurvivalRuntime = ({
     },
     replayExecution: () => {
       assertActive();
-      if (phase !== "execution-complete") {
+      if (
+        phase !== "execution" &&
+        phase !== "execution-complete"
+      ) {
         throw new Error(
-          "公開処刑リプレイは処刑完了後に開始してください。"
+          "公開処刑リプレイは処刑中または完了後に開始してください。"
         );
       }
       const candidate = executionSystem.getFrame().candidate;
       if (!candidate) {
         throw new Error("公開処刑リプレイ対象がありません。");
       }
-      npcSystem.clearCommands();
-      beamSystem.clear();
-      hitEffectSystem.clear();
+      clearCombatForPhaseTransition();
       prepareExecutionTargetStates(candidate);
       const replayFrame = executionSystem.replay();
       prepareExecutionParticipantStates(
@@ -2198,10 +2199,6 @@ export const createV2SurvivalRuntime = ({
       );
       applyExecutionPlacements(replayFrame);
       phase = "execution";
-      pendingPlayerBeamRequests = [];
-      pendingPlayerGunFireEvents = [];
-      audioEventQueue.clear();
-      previousBitTargetIds.clear();
       rebuildHumanTargets();
       frame = buildFrame();
     },

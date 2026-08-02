@@ -10,7 +10,7 @@ export type V2PlayerAction =
   | "select-gun"
   | "select-no-gun"
   | "select-haigure"
-  | "retry";
+  | "replay-execution";
 
 export type V2PlayerInput = {
   getMoveAxes(): V2PlayerMoveAxes;
@@ -30,7 +30,7 @@ const ACTION_BY_CODE = new Map<string, V2PlayerAction>([
   ["KeyG", "select-gun"],
   ["KeyN", "select-no-gun"],
   ["KeyH", "select-haigure"],
-  ["KeyR", "retry"]
+  ["KeyR", "replay-execution"]
 ]);
 
 export const createV2PlayerInput = (target: Window): V2PlayerInput => {

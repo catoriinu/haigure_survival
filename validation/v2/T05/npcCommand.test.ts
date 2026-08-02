@@ -569,7 +569,7 @@ const testPlayerActions = () => {
       "select-gun",
       "select-no-gun",
       "select-haigure",
-      "retry"
+      "replay-execution"
     ]);
 
   ["KeyF", "KeyE", "KeyC", "KeyG", "KeyN", "KeyH", "KeyR"].forEach(

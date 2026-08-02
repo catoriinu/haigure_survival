@@ -57,7 +57,7 @@ import {
   type V2PlayerInput
 } from "./playerInput";
 import {
-  dispatchV2RuntimeRetry,
+  dispatchV2RuntimeExecutionReplay,
   dispatchV2RuntimeInteractions,
   resolveV2HorizontalSpeedScale
 } from "./runtimeInteraction";
@@ -150,13 +150,12 @@ if (performanceScenario) {
 const engine = new Engine(canvas, true);
 
 type V2RuntimeSession = Readonly<{
-  start(): void;
   dispose(): Promise<void>;
 }>;
 
 const createRuntimeSession = async (
   sessionSeed: number,
-  requestSessionRebuild: (startImmediately: boolean) => void
+  requestSessionRebuild: () => void
 ): Promise<V2RuntimeSession> => {
 const scene = new Scene(engine);
 const performanceDiagnostics = performanceScenario
@@ -740,6 +739,25 @@ const startPlay = (requestPointerLock: boolean) => {
   }
 };
 
+const updateGameplayHelp = (phase: ReturnType<typeof survival.getFrame>["phase"]) => {
+  if (
+    performanceScenario !== null ||
+    runtimeStressScenario !== null ||
+    rampValidationTarget !== null
+  ) {
+    return;
+  }
+  helpPanel.textContent =
+    "操作説明\n" +
+    "WASD: 移動  Shift: ダッシュ\n" +
+    "F: 追従  E: 離脱  C: 扉\n" +
+    "G: 銃  N: 非武装  H: ハイグレ\n" +
+    "Enter: タイトルへ戻る" +
+    (phase === "execution" || phase === "execution-complete"
+      ? "\nR: リプレイ"
+      : "");
+};
+
 const handleCanvasClick: EventListener = () => {
   const wasStarted = started;
   const hadPointerLock =
@@ -871,18 +889,15 @@ engine.runRenderLoop(() => {
             playerElevatorTraversal
           );
     }
-    const retryDispatchResult = dispatchV2RuntimeRetry({
+    const executionReplayResult = dispatchV2RuntimeExecutionReplay({
       actions,
       frame: survivalFrame,
       survival
     });
-    if (retryDispatchResult === "session-retry-requested") {
-      requestSessionRebuild(true);
-      return;
-    }
-    if (retryDispatchResult === "execution-replayed") {
+    if (executionReplayResult === "execution-replayed") {
       survivalFrame = survival.getFrame();
     }
+    updateGameplayHelp(survivalFrame.phase);
     const interactionActive =
       started &&
       document.pointerLockElement ===
@@ -1014,13 +1029,12 @@ eventScope.listen(window, "resize", resize);
 
 const handleReturnToTitleKey: EventListener = (event) => {
   if ((event as KeyboardEvent).code === "Enter" && started) {
-    requestSessionRebuild(false);
+    requestSessionRebuild();
   }
 };
 eventScope.listen(window, "keydown", handleReturnToTitleKey);
 
 return Object.freeze({
-  start: () => startPlay(false),
   dispose: disposeRuntime
 });
 } catch (error) {
@@ -1048,7 +1062,7 @@ const showSessionLoading = () => {
   helpPanel.style.display = "none";
 };
 
-const rebuildSession = (startImmediately: boolean) => {
+const rebuildSession = () => {
   if (sessionTransition !== null || runtimeTerminated) {
     return;
   }
@@ -1058,7 +1072,6 @@ const rebuildSession = (startImmediately: boolean) => {
     activeSession = await transitionV2RuntimeSession({
       currentSession: previousSession,
       runtimeSeed,
-      startImmediately,
       isCancelled: () => runtimeTerminated,
       exitPointerLock: () => document.exitPointerLock(),
       showLoading: showSessionLoading,

@@ -2,10 +2,7 @@ import type {
   StageDoorInteractionCandidate,
   StageDoorRuntime
 } from "../world/stageDoorRuntime";
-import {
-  isV2PlayerCompletionState,
-  type V2PlayerCompletionState
-} from "./combatTypes";
+import type { V2PlayerCompletionState } from "./combatTypes";
 import type { V2NpcCommandCandidate } from "./npcSystem";
 import type { V2PlayerAction } from "./playerInput";
 import type { V2SurvivalFrame, V2SurvivalRuntime } from "./survivalRuntime";
@@ -32,20 +29,19 @@ export type V2RuntimeInteractionSurvivalPort = Pick<
   "requestNpcCommand" | "selectPlayerCompletion"
 >;
 
-export type V2RuntimeRetrySurvivalPort = Pick<
+export type V2RuntimeExecutionReplaySurvivalPort = Pick<
   V2SurvivalRuntime,
   "replayExecution"
 >;
 
-export type V2RuntimeRetryDispatchResult =
+export type V2RuntimeExecutionReplayDispatchResult =
   | "ignored"
-  | "session-retry-requested"
   | "execution-replayed";
 
-export type V2RuntimeRetryDispatch = Readonly<{
+export type V2RuntimeExecutionReplayDispatch = Readonly<{
   actions: readonly V2PlayerAction[];
-  frame: Pick<V2SurvivalFrame, "phase" | "playerState">;
-  survival: V2RuntimeRetrySurvivalPort;
+  frame: Pick<V2SurvivalFrame, "phase">;
+  survival: V2RuntimeExecutionReplaySurvivalPort;
 }>;
 
 export type V2RuntimeInteractionDoorPort = Pick<
@@ -62,23 +58,20 @@ export type V2RuntimeInteractionDispatch = Readonly<{
   doors: V2RuntimeInteractionDoorPort;
 }>;
 
-export const dispatchV2RuntimeRetry = ({
+export const dispatchV2RuntimeExecutionReplay = ({
   actions,
   frame,
   survival
-}: V2RuntimeRetryDispatch): V2RuntimeRetryDispatchResult => {
-  if (!actions.includes("retry")) {
+}: V2RuntimeExecutionReplayDispatch): V2RuntimeExecutionReplayDispatchResult => {
+  if (!actions.includes("replay-execution")) {
     return "ignored";
   }
-  if (frame.phase === "execution-complete") {
+  if (
+    frame.phase === "execution" ||
+    frame.phase === "execution-complete"
+  ) {
     survival.replayExecution();
     return "execution-replayed";
-  }
-  if (
-    frame.phase === "playing" &&
-    isV2PlayerCompletionState(frame.playerState)
-  ) {
-    return "session-retry-requested";
   }
   return "ignored";
 };
@@ -106,7 +99,7 @@ export const dispatchV2RuntimeInteractions = ({
   const doorCandidate = doorCandidates[0];
 
   for (const action of actions) {
-    if (action === "retry") {
+    if (action === "replay-execution") {
       continue;
     }
     if (action === "npc-follow") {

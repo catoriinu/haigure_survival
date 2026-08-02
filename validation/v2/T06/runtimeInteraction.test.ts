@@ -20,12 +20,12 @@ import { createV2PlayerInput } from "../../../src/v2/playerInput";
 import {
   V2_NORMAL_HORIZONTAL_SPEED_SCALE,
   V2_WATER_HORIZONTAL_SPEED_SCALE,
-  dispatchV2RuntimeRetry,
+  dispatchV2RuntimeExecutionReplay,
   dispatchV2RuntimeInteractions,
   resolveV2HorizontalSpeedScale,
+  type V2RuntimeExecutionReplaySurvivalPort,
   type V2RuntimeInteractionDoorPort,
-  type V2RuntimeInteractionSurvivalPort,
-  type V2RuntimeRetrySurvivalPort
+  type V2RuntimeInteractionSurvivalPort
 } from "../../../src/v2/runtimeInteraction";
 
 import { assert, executeTest } from "./testUtils";
@@ -271,7 +271,7 @@ export const runRuntimeInteractionTests = async () =>
             calls.selections.length === 3,
           `drain後の配送件数が不正です: NPC=${calls.commands.length}, door=${calls.doorIds.length}, select=${calls.selections.length}`
         );
-        return "repeatを除く7 actionを初回だけ配送、Rを含め2回目とreset後は0件";
+        return "repeatを除く7 actionを初回だけ配送、公開処刑Rを含め2回目とreset後は0件";
       } finally {
         input.dispose();
       }
@@ -396,81 +396,52 @@ export const runRuntimeInteractionTests = async () =>
       );
       return "同一dispatch内でも4操作を入力順に配送";
     }),
-    executeTest("Rリトライ・公開処刑リプレイの状態guard", () => {
+    executeTest("公開処刑Rリプレイのphase guard", () => {
       let replayCount = 0;
       const survival = Object.freeze({
         replayExecution: () => {
           replayCount += 1;
         }
-      }) satisfies V2RuntimeRetrySurvivalPort;
-      const retryActions = Object.freeze(["retry", "retry"] as const);
-      const completedStates = Object.freeze([
-        "brainwash-complete-gun",
-        "brainwash-complete-no-gun",
-        "brainwash-complete-haigure"
+      }) satisfies V2RuntimeExecutionReplaySurvivalPort;
+      const replayActions = Object.freeze([
+        "replay-execution",
+        "replay-execution"
       ] as const);
-      const completedResults = completedStates.map((playerState) =>
-        dispatchV2RuntimeRetry({
-          actions: retryActions,
-          frame: Object.freeze({
-            phase: "playing" as const,
-            playerState
-          }),
-          survival
-        })
-      );
       const ignoredResults = [
-        dispatchV2RuntimeRetry({
-          actions: retryActions,
-          frame: Object.freeze({
-            phase: "playing" as const,
-            playerState: "normal" as const
-          }),
+        dispatchV2RuntimeExecutionReplay({
+          actions: replayActions,
+          frame: Object.freeze({ phase: "playing" as const }),
           survival
         }),
-        dispatchV2RuntimeRetry({
-          actions: retryActions,
-          frame: Object.freeze({
-            phase: "assembly" as const,
-            playerState: "brainwash-complete-gun" as const
-          }),
+        dispatchV2RuntimeExecutionReplay({
+          actions: replayActions,
+          frame: Object.freeze({ phase: "assembly" as const }),
           survival
         }),
-        dispatchV2RuntimeRetry({
-          actions: retryActions,
-          frame: Object.freeze({
-            phase: "execution" as const,
-            playerState: "brainwash-complete-gun" as const
-          }),
-          survival
-        }),
-        dispatchV2RuntimeRetry({
+        dispatchV2RuntimeExecutionReplay({
           actions: Object.freeze([]),
-          frame: Object.freeze({
-            phase: "execution-complete" as const,
-            playerState: "brainwash-complete-gun" as const
-          }),
+          frame: Object.freeze({ phase: "execution" as const }),
           survival
         })
       ];
-      const replayResult = dispatchV2RuntimeRetry({
-        actions: retryActions,
-        frame: Object.freeze({
-          phase: "execution-complete" as const,
-          playerState: "brainwash-complete-gun" as const
-        }),
+      const executionResult = dispatchV2RuntimeExecutionReplay({
+        actions: replayActions,
+        frame: Object.freeze({ phase: "execution" as const }),
+        survival
+      });
+      const completeResult = dispatchV2RuntimeExecutionReplay({
+        actions: replayActions,
+        frame: Object.freeze({ phase: "execution-complete" as const }),
         survival
       });
       assert(
-        completedResults.every(
-          (result) => result === "session-retry-requested"
-        ) &&
-          ignoredResults.every((result) => result === "ignored") &&
-          replayResult === "execution-replayed" &&
-          replayCount === 1,
-        `R配送guardが不正です: completed=${completedResults.join("|")} / ignored=${ignoredResults.join("|")} / replay=${replayResult}:${replayCount}`
+        ignoredResults.every((result) => result === "ignored") &&
+          executionResult === "execution-replayed" &&
+          completeResult === "execution-replayed" &&
+          replayCount === 2,
+        `R配送guardが不正です: ignored=${ignoredResults.join("|")} / execution=${executionResult} / complete=${completeResult} / count=${replayCount}`
       );
-      return "洗脳完了3状態はsession再生成、execution-completeは1回replay、他状態は無効";
+      return "execution中・完了後だけ1dispatchにつき1回replay、通常状態とactionなしは無効";
     }),
     executeTest("水Volume内外の水平速度倍率", () => {
       const transitions = [false, true, true, false, true, false].map(

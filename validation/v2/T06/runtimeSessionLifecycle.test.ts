@@ -3,7 +3,6 @@ import {
   transitionV2RuntimeSession,
   type V2ManagedRuntimeSession
 } from "../../../src/v2/runtimeSessionLifecycle";
-import { createV2SeededRandom } from "../../../src/v2/performanceDiagnostics";
 
 import { assert, assertThrows, executeTest } from "./testUtils";
 
@@ -68,62 +67,14 @@ export const runRuntimeSessionLifecycleTests = async () => {
       );
       return "listenと二重disposeを例外として拒否";
     }),
-    executeTest("Rリトライは旧session破棄後に即時開始する", async () => {
-      const events: string[] = [];
-      const previousSession: V2ManagedRuntimeSession = Object.freeze({
-        start: () => {
-          throw new Error("旧sessionを再開始してはいけません。");
-        },
-        dispose: async () => {
-          events.push("dispose-old");
-        }
-      });
-      const nextSession: V2ManagedRuntimeSession = Object.freeze({
-        start: () => {
-          events.push("start-new");
-        },
-        dispose: async () => {
-          events.push("dispose-new");
-        }
-      });
-      const transitioned = await transitionV2RuntimeSession({
-        currentSession: previousSession,
-        runtimeSeed: 0x5430_0601,
-        startImmediately: true,
-        isCancelled: () => false,
-        exitPointerLock: () => {
-          events.push("exit-pointer-lock");
-        },
-        showLoading: () => {
-          events.push("show-loading");
-        },
-        createSession: async () => {
-          events.push("create-new");
-          return nextSession;
-        }
-      });
-      assert(
-        transitioned === nextSession &&
-          events.join("|") ===
-            "show-loading|dispose-old|create-new|start-new",
-        `Rリトライのsession順序が不正です: ${events.join("|")}`
-      );
-      return `order=${events.join("|")} / Pointer Lock維持`;
-    }),
     executeTest("タイトル復帰はPointer Lock解除後に停止状態で再生成する", async () => {
       const events: string[] = [];
       const previousSession: V2ManagedRuntimeSession = Object.freeze({
-        start: () => {
-          throw new Error("旧sessionを再開始してはいけません。");
-        },
         dispose: async () => {
           events.push("dispose-old");
         }
       });
       const nextSession: V2ManagedRuntimeSession = Object.freeze({
-        start: () => {
-          events.push("start-new");
-        },
         dispose: async () => {
           events.push("dispose-new");
         }
@@ -131,7 +82,6 @@ export const runRuntimeSessionLifecycleTests = async () => {
       const transitioned = await transitionV2RuntimeSession({
         currentSession: previousSession,
         runtimeSeed: 0x5430_0601,
-        startImmediately: false,
         isCancelled: () => false,
         exitPointerLock: () => {
           events.push("exit-pointer-lock");
@@ -167,7 +117,6 @@ export const runRuntimeSessionLifecycleTests = async () => {
         });
         subscriptionCount += 1;
         return Object.freeze({
-          start: () => {},
           dispose: async () => {
             scope.dispose();
             subscriptionCount -= 1;
@@ -180,7 +129,6 @@ export const runRuntimeSessionLifecycleTests = async () => {
         const nextSession = await transitionV2RuntimeSession({
           currentSession: session,
           runtimeSeed: 0x5430_0601,
-          startImmediately: true,
           isCancelled: () => false,
           exitPointerLock: () => {},
           showLoading: () => {},
@@ -212,14 +160,12 @@ export const runRuntimeSessionLifecycleTests = async () => {
         let terminated = false;
         const transitioned = await transitionV2RuntimeSession({
           currentSession: Object.freeze({
-            start: () => {},
             dispose: async () => {
               events.push("dispose-old");
               terminated = true;
             }
           }),
           runtimeSeed: 0x5430_0601,
-          startImmediately: true,
           isCancelled: () => terminated,
           exitPointerLock: () => {},
           showLoading: () => {
@@ -246,9 +192,6 @@ export const runRuntimeSessionLifecycleTests = async () => {
         const events: string[] = [];
         let terminated = false;
         const nextSession: V2ManagedRuntimeSession = Object.freeze({
-          start: () => {
-            events.push("start-new");
-          },
           dispose: async () => {
             events.push("dispose-new");
           }
@@ -256,7 +199,6 @@ export const runRuntimeSessionLifecycleTests = async () => {
         const transitioned = await transitionV2RuntimeSession({
           currentSession: null,
           runtimeSeed: 0x5430_0601,
-          startImmediately: true,
           isCancelled: () => terminated,
           exitPointerLock: () => {},
           showLoading: () => {
@@ -274,50 +216,7 @@ export const runRuntimeSessionLifecycleTests = async () => {
               "show-loading|create-new|dispose-new",
           `新session生成後の終了判定が不正です: ${events.join("|")}`
         );
-        return "新session生成中に終了した場合はstartせず即dispose";
-      }
-    ),
-    executeTest(
-      "Rリトライは通常session factoryへ同一seedを伝播する",
-      async () => {
-        const runtimeSeed = 0x5430_0601;
-        const receivedSeeds: number[] = [];
-        type SeededSession = V2ManagedRuntimeSession &
-          Readonly<{ randomSequence: readonly number[] }>;
-        const createSession = async (
-          receivedSeed: number
-        ): Promise<SeededSession> => {
-          receivedSeeds.push(receivedSeed);
-          const random = createV2SeededRandom(receivedSeed);
-          return Object.freeze({
-            randomSequence: Object.freeze(
-              Array.from({ length: 12 }, () => random())
-            ),
-            start: () => {},
-            dispose: async () => {}
-          });
-        };
-
-        const initialSession = await createSession(runtimeSeed);
-        const retriedSession = await transitionV2RuntimeSession({
-          currentSession: initialSession,
-          runtimeSeed,
-          startImmediately: true,
-          isCancelled: () => false,
-          exitPointerLock: () => {},
-          showLoading: () => {},
-          createSession
-        });
-        assert(
-          retriedSession !== null &&
-            receivedSeeds.join("|") ===
-              `${runtimeSeed}|${runtimeSeed}` &&
-            JSON.stringify(initialSession.randomSequence) ===
-              JSON.stringify(retriedSession.randomSequence) &&
-            new Set(initialSession.randomSequence).size > 1,
-          "通常session factoryへ初回とR再生成で同じruntimeSeedが渡されません。"
-        );
-        return `factory seeds=${receivedSeeds.join("|")} / sequence=${initialSession.randomSequence.slice(0, 3).join(",")}`;
+        return "新session生成中に終了した場合は即dispose";
       }
     )
   ]);
