@@ -1087,6 +1087,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         const footPosition = this.resolveFootPosition(spawnPoint.position);
         sprite.position.copyFrom(footPosition);
         sprite.position.y += visual.height / 2;
+        visual.syncPresentation();
         const angle = this.nextRandom() * Math.PI * 2;
         const command = createNpcCommandRuntime(id, angle);
         let npc: NpcRuntime;
@@ -5702,11 +5703,13 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         ? snapshot.hitPhaseRemainingSeconds /
           V2_HIT_FADE_DURATION_SECONDS
         : 1;
+    npc.visual.syncPresentation();
   }
 
   private synchronizeSpritePosition(npc: NpcRuntime) {
     npc.sprite.position.copyFrom(npc.footPosition);
     npc.sprite.position.y += npc.visual.height / 2;
+    npc.visual.syncPresentation();
   }
 
   private finishFrame(

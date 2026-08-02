@@ -5,12 +5,14 @@ import { createTitledSettingsPanelRoot } from "./settingsPanelShared";
 export type V2CharacterSettings = Readonly<{
   portraitDirectory: string | null;
   voiceDirectory: string | null;
+  enableCharacterSpriteVerticalAngle: boolean;
 }>;
 
 export const V2_DEFAULT_CHARACTER_SETTINGS: V2CharacterSettings =
   Object.freeze({
     portraitDirectory: null,
     voiceDirectory: null,
+    enableCharacterSpriteVerticalAngle: true,
   });
 
 export type V2PortraitAssetInventory = Readonly<{
@@ -90,6 +92,20 @@ const normalizeDirectory = (
   return Object.freeze({ value: null, changed: true });
 };
 
+const normalizeCharacterSpriteVerticalAngle = (
+  value: unknown,
+): Readonly<{ value: boolean; changed: boolean }> => {
+  if (value === undefined) {
+    return Object.freeze({ value: true, changed: true });
+  }
+  if (typeof value !== "boolean") {
+    throw new Error(
+      "enableCharacterSpriteVerticalAngleにはbooleanが必要です。",
+    );
+  }
+  return Object.freeze({ value, changed: false });
+};
+
 const writeSettings = (
   storage: V2CharacterSettingsStorage,
   root: Record<string, unknown>,
@@ -106,6 +122,8 @@ const writeSettings = (
         ...playerSettings,
         portraitDirectory: settings.portraitDirectory,
         voiceDirectory: settings.voiceDirectory,
+        enableCharacterSpriteVerticalAngle:
+          settings.enableCharacterSpriteVerticalAngle,
       },
     }),
   );
@@ -149,15 +167,22 @@ export const createV2CharacterSettingsStore = (
         playerSettings.voiceDirectory,
         voiceDirectorySet,
       );
+      const enableCharacterSpriteVerticalAngle =
+        normalizeCharacterSpriteVerticalAngle(
+          playerSettings.enableCharacterSpriteVerticalAngle,
+        );
       const settings = Object.freeze({
         portraitDirectory: portraitDirectory.value,
         voiceDirectory: voiceDirectory.value,
+        enableCharacterSpriteVerticalAngle:
+          enableCharacterSpriteVerticalAngle.value,
       });
       if (
         storedSettings.changed ||
         !isJsonRecord(storedSettings.root.playerSettings) ||
         portraitDirectory.changed ||
-        voiceDirectory.changed
+        voiceDirectory.changed ||
+        enableCharacterSpriteVerticalAngle.changed
       ) {
         writeSettings(storage, storedSettings.root, settings);
       }
@@ -296,9 +321,26 @@ export const createV2CharacterSettingsPanel = ({
     panel.appendChild(voice.row);
   }
 
+  const verticalAngleRow = document.createElement("label");
+  verticalAngleRow.className = "player-settings-panel__checkbox-row";
+  verticalAngleRow.dataset.ui =
+    "v2-character-sprite-vertical-angle-row";
+  const verticalAngleCheckbox = document.createElement("input");
+  verticalAngleCheckbox.className = "player-settings-panel__checkbox";
+  verticalAngleCheckbox.type = "checkbox";
+  verticalAngleCheckbox.dataset.ui =
+    "v2-character-sprite-vertical-angle-checkbox";
+  const verticalAngleLabel = document.createElement("span");
+  verticalAngleLabel.className = "player-settings-panel__checkbox-label";
+  verticalAngleLabel.textContent = "キャラ画像を地面に垂直表示";
+  verticalAngleRow.append(verticalAngleCheckbox, verticalAngleLabel);
+  panel.appendChild(verticalAngleRow);
+
   const render = (): void => {
     portrait.select.value = settings.portraitDirectory ?? "";
     voice.select.value = settings.voiceDirectory ?? "";
+    verticalAngleCheckbox.checked =
+      settings.enableCharacterSpriteVerticalAngle;
   };
   const emit = (): void => onChange(Object.freeze({ ...settings }));
   const handlePortraitChange = (): void => {
@@ -317,8 +359,20 @@ export const createV2CharacterSettingsPanel = ({
     render();
     emit();
   };
+  const handleVerticalAngleChange = (): void => {
+    settings = Object.freeze({
+      ...settings,
+      enableCharacterSpriteVerticalAngle: verticalAngleCheckbox.checked,
+    });
+    render();
+    emit();
+  };
   portrait.select.addEventListener("change", handlePortraitChange);
   voice.select.addEventListener("change", handleVoiceChange);
+  verticalAngleCheckbox.addEventListener(
+    "change",
+    handleVerticalAngleChange,
+  );
   render();
   parent.appendChild(root);
 
@@ -358,6 +412,10 @@ export const createV2CharacterSettingsPanel = ({
       assertActive();
       portrait.select.removeEventListener("change", handlePortraitChange);
       voice.select.removeEventListener("change", handleVoiceChange);
+      verticalAngleCheckbox.removeEventListener(
+        "change",
+        handleVerticalAngleChange,
+      );
       root.remove();
       disposed = true;
     },

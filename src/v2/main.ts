@@ -86,6 +86,7 @@ import {
   type V2SurvivalRuntime
 } from "./survivalRuntime";
 import { createV2CharacterAssignments } from "./v2CharacterAssignments";
+import { resolveV2CharacterFacingYaw } from "./v2CharacterFacing";
 import {
   createV2CharacterVisualRuntime,
   type V2CharacterVisualRuntime
@@ -345,7 +346,11 @@ const initializeRuntime = async () => {
     });
     ownedCharacterVisuals = await createV2CharacterVisualRuntime({
       scene,
-      assignments: characterAssignments
+      assignments: characterAssignments,
+      orientationMode:
+        characterSettings.enableCharacterSpriteVerticalAngle
+          ? "upright"
+          : "camera-facing"
     });
     const characterVisuals = ownedCharacterVisuals;
     ownedSurvival = createV2SurvivalRuntime({
@@ -632,6 +637,8 @@ titleMessage.style.display = "none";
 let started = false;
 let statusTimer = 0;
 let elapsedSeconds = 0;
+let characterFacingYaw = 0;
+const logicalRenderCameraPosition = Vector3.Zero();
 let performanceReportPublished = false;
 const runtimeStressStartedAt = runtimeStressScenario
   ? performance.now()
@@ -979,13 +986,21 @@ engine.runRenderLoop(() => {
     if (executionReplayResult === "execution-replayed") {
       survivalFrame = survival.getFrame();
     }
+    const characterViewForward = camera.getDirection(
+      Vector3.Forward(scene.useRightHandedSystem)
+    );
+    characterFacingYaw = resolveV2CharacterFacingYaw({
+      viewForward: characterViewForward,
+      viewUp: camera.getDirection(Vector3.Up()),
+      fallbackYaw: characterFacingYaw
+    });
+    characterVisuals.setFacingYaw(characterFacingYaw);
     playerCharacterVisual.update({
       active: started,
       state: survivalFrame.playerState,
       footPosition: player.getFootPosition(),
-      viewForward: camera.getDirection(
-        Vector3.Forward(scene.useRightHandedSystem)
-      )
+      viewForward: characterViewForward,
+      facingYaw: characterFacingYaw
     });
     updateGameplayHelp(survivalFrame.phase);
     const interactionActive =
@@ -1097,13 +1112,22 @@ engine.runRenderLoop(() => {
         publishRuntimeStressReport(runtimeStressStatus, null);
       }
     }
-    if (performanceDiagnostics) {
-      performanceDiagnostics.measure("render", () => {
+    const renderScene = () => {
+      const cameraRenderOffset =
+        playerCharacterVisual.getCameraRenderOffset();
+      logicalRenderCameraPosition.copyFrom(camera.position);
+      camera.position.addInPlace(cameraRenderOffset);
+      try {
         scene.render();
-      });
+      } finally {
+        camera.position.copyFrom(logicalRenderCameraPosition);
+      }
+    };
+    if (performanceDiagnostics) {
+      performanceDiagnostics.measure("render", renderScene);
       performanceDiagnostics.finishFrame();
     } else {
-      scene.render();
+      renderScene();
     }
   } catch (error) {
     engine.stopRenderLoop();

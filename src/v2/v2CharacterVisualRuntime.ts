@@ -1,11 +1,20 @@
-import { Sprite, SpriteManager, type Scene } from "@babylonjs/core";
+import {
+  Color3,
+  Color4,
+  Material,
+  Mesh,
+  MeshBuilder,
+  Sprite,
+  SpriteManager,
+  StandardMaterial,
+  VertexBuffer,
+  type Scene,
+} from "@babylonjs/core";
 import {
   CHARACTER_SPRITE_CELL_SIZE,
   CHARACTER_SPRITE_FRAME_COUNT,
   CHARACTER_SPRITE_IMAGE_HEIGHT,
   CHARACTER_SPRITE_IMAGE_WIDTH,
-  NPC_SPRITE_HEIGHT,
-  NPC_SPRITE_WIDTH,
   createDefaultCharacterSpritesheet,
 } from "../game/characterSprites";
 import type { V2CharacterState } from "./combatTypes";
@@ -39,15 +48,26 @@ export type V2ResolvedPortraitFiles = Readonly<
 
 export type V2CharacterVisualSpriteSource = "default" | "portrait";
 
+export type V2CharacterVisualOrientationMode =
+  | "upright"
+  | "camera-facing";
+
+export const V2_CHARACTER_VISUAL_MAX_WIDTH = 1 / 3;
+export const V2_CHARACTER_VISUAL_MAX_HEIGHT = 2 / 3;
+
 export type V2CharacterVisualSpriteHandle = Readonly<{
   sprite: Sprite;
+  presentationMesh: Mesh | null;
   width: number;
   height: number;
   setState(state: V2CharacterState, temporaryGunActive: boolean): void;
+  syncPresentation(): void;
   dispose(): void;
 }>;
 
 export type V2CharacterVisualRuntime = Readonly<{
+  orientationMode: V2CharacterVisualOrientationMode;
+  setFacingYaw(yaw: number): void;
   createSprite(
     actorId: string,
     instanceName: string,
@@ -58,6 +78,7 @@ export type V2CharacterVisualRuntime = Readonly<{
 export type V2CharacterVisualRuntimeOptions = Readonly<{
   scene: Scene;
   assignments: V2CharacterAssignments;
+  orientationMode: V2CharacterVisualOrientationMode;
 }>;
 
 type V2CharacterVisualSheet = Readonly<{
@@ -73,13 +94,26 @@ type V2CharacterVisualSheet = Readonly<{
 
 type V2CharacterVisualManagerResource = {
   manager: SpriteManager;
+  presentationMaterial: StandardMaterial | null;
   sheet: V2CharacterVisualSheet;
   capacity: number;
   activeSpriteCount: number;
 };
 
+type V2CharacterVisualPresentation = {
+  mesh: Mesh;
+  uvData: Float32Array;
+  colorData: Float32Array;
+  lastCellIndex: number;
+  lastWidth: number;
+  lastHeight: number;
+  lastVisible: boolean;
+  lastColor: Color4;
+};
+
 type V2CharacterVisualSpriteRecord = {
   sprite: Sprite;
+  presentation: V2CharacterVisualPresentation | null;
   managerResource: V2CharacterVisualManagerResource;
   disposed: boolean;
 };
@@ -176,8 +210,8 @@ export const calculateV2CharacterVisualSize = (
     );
   }
   const scale = Math.min(
-    NPC_SPRITE_WIDTH / imageWidth,
-    NPC_SPRITE_HEIGHT / imageHeight,
+    V2_CHARACTER_VISUAL_MAX_WIDTH / imageWidth,
+    V2_CHARACTER_VISUAL_MAX_HEIGHT / imageHeight,
   );
   return Object.freeze({
     width: imageWidth * scale,
@@ -354,9 +388,155 @@ const assertAssignments = (assignments: V2CharacterAssignments): void => {
   }
 };
 
+const fillPresentationColorData = (
+  target: Float32Array,
+  color: Color4,
+): void => {
+  for (let vertexIndex = 0; vertexIndex < 4; vertexIndex += 1) {
+    const offset = vertexIndex * 4;
+    target[offset] = color.r;
+    target[offset + 1] = color.g;
+    target[offset + 2] = color.b;
+    target[offset + 3] = color.a;
+  }
+};
+
+const updatePresentationUvData = (
+  target: Float32Array,
+  cellIndex: number,
+  frameCount: number,
+): void => {
+  const left = cellIndex / frameCount;
+  const right = (cellIndex + 1) / frameCount;
+  target[0] = left;
+  target[1] = 1;
+  target[2] = right;
+  target[3] = 1;
+  target[4] = right;
+  target[5] = 0;
+  target[6] = left;
+  target[7] = 0;
+};
+
+const createPresentationMaterial = (
+  directory: string,
+  manager: SpriteManager,
+  scene: Scene,
+): StandardMaterial => {
+  manager.texture.hasAlpha = true;
+  const material = new StandardMaterial(
+    `V2CharacterVisualPresentationMaterial_${directory}`,
+    scene,
+  );
+  material.disableLighting = true;
+  material.backFaceCulling = false;
+  material.specularColor = Color3.Black();
+  material.diffuseColor = Color3.White();
+  material.emissiveColor = Color3.White();
+  material.linkEmissiveWithDiffuse = true;
+  material.diffuseTexture = manager.texture;
+  material.useAlphaFromDiffuseTexture = true;
+  material.transparencyMode = Material.MATERIAL_ALPHATESTANDBLEND;
+  material.alphaCutOff = 0.01;
+  material.needDepthPrePass = true;
+  return material;
+};
+
+const createPresentation = (
+  instanceName: string,
+  material: StandardMaterial,
+  frameCount: number,
+  scene: Scene,
+): V2CharacterVisualPresentation => {
+  const mesh = MeshBuilder.CreatePlane(
+    `${instanceName}_upright`,
+    { size: 1, updatable: true },
+    scene,
+  );
+  mesh.material = material;
+  mesh.isPickable = false;
+  mesh.isVisible = false;
+  mesh.hasVertexAlpha = true;
+
+  const uvData = new Float32Array(8);
+  updatePresentationUvData(uvData, 0, frameCount);
+  mesh.setVerticesData(VertexBuffer.UVKind, uvData, true);
+
+  const colorData = new Float32Array(16);
+  const initialColor = new Color4(1, 1, 1, 1);
+  fillPresentationColorData(colorData, initialColor);
+  mesh.setVerticesData(VertexBuffer.ColorKind, colorData, true);
+
+  return {
+    mesh,
+    uvData,
+    colorData,
+    lastCellIndex: -1,
+    lastWidth: -1,
+    lastHeight: -1,
+    lastVisible: false,
+    lastColor: new Color4(-1, -1, -1, -1),
+  };
+};
+
+const syncPresentation = (
+  presentation: V2CharacterVisualPresentation,
+  sprite: Sprite,
+  frameCount: number,
+  facingYaw: number,
+): void => {
+  presentation.mesh.position.copyFrom(sprite.position);
+  presentation.mesh.rotation.set(0, facingYaw, 0);
+
+  if (
+    presentation.lastWidth !== sprite.width ||
+    presentation.lastHeight !== sprite.height
+  ) {
+    presentation.mesh.scaling.set(sprite.width, sprite.height, 1);
+    presentation.lastWidth = sprite.width;
+    presentation.lastHeight = sprite.height;
+  }
+
+  if (presentation.lastCellIndex !== sprite.cellIndex) {
+    updatePresentationUvData(
+      presentation.uvData,
+      sprite.cellIndex,
+      frameCount,
+    );
+    presentation.mesh.updateVerticesData(
+      VertexBuffer.UVKind,
+      presentation.uvData,
+      false,
+    );
+    presentation.lastCellIndex = sprite.cellIndex;
+  }
+
+  const spriteColor = sprite.color;
+  if (
+    presentation.lastColor.r !== spriteColor.r ||
+    presentation.lastColor.g !== spriteColor.g ||
+    presentation.lastColor.b !== spriteColor.b ||
+    presentation.lastColor.a !== spriteColor.a
+  ) {
+    fillPresentationColorData(presentation.colorData, spriteColor);
+    presentation.mesh.updateVerticesData(
+      VertexBuffer.ColorKind,
+      presentation.colorData,
+      false,
+    );
+    presentation.lastColor.copyFrom(spriteColor);
+  }
+
+  if (presentation.lastVisible !== sprite.isVisible) {
+    presentation.mesh.isVisible = sprite.isVisible;
+    presentation.lastVisible = sprite.isVisible;
+  }
+};
+
 export const createV2CharacterVisualRuntime = async ({
   scene,
   assignments,
+  orientationMode,
 }: V2CharacterVisualRuntimeOptions): Promise<V2CharacterVisualRuntime> => {
   assertAssignments(assignments);
   const assignmentsByActorId = new Map(
@@ -405,8 +585,15 @@ export const createV2CharacterVisualRuntime = async ({
         { width: sheet.cellWidth, height: sheet.cellHeight },
         scene,
       );
+      if (orientationMode === "upright") {
+        manager.layerMask = 0;
+      }
       managerResources.set(directory, {
         manager,
+        presentationMaterial:
+          orientationMode === "upright"
+            ? createPresentationMaterial(directory, manager, scene)
+            : null,
         sheet,
         capacity,
         activeSpriteCount: 0,
@@ -414,6 +601,7 @@ export const createV2CharacterVisualRuntime = async ({
     }
   } catch (error) {
     for (const resource of managerResources.values()) {
+      resource.presentationMaterial?.dispose(false, false);
       resource.manager.dispose();
     }
     for (const blobUrl of blobUrls) {
@@ -429,6 +617,8 @@ export const createV2CharacterVisualRuntime = async ({
     }
   };
 
+  let facingYaw = 0;
+
   const disposeSpriteRecord = (
     record: V2CharacterVisualSpriteRecord,
     rejectDuplicate: boolean,
@@ -442,12 +632,28 @@ export const createV2CharacterVisualRuntime = async ({
       return;
     }
     record.disposed = true;
+    record.presentation?.mesh.dispose();
     record.sprite.dispose();
     record.managerResource.activeSpriteCount -= 1;
     spriteRecords.delete(record);
   };
 
   return Object.freeze({
+    orientationMode,
+    setFacingYaw: (yaw) => {
+      assertActive();
+      if (!Number.isFinite(yaw)) {
+        throw new Error(
+          `V2 Character表示の水平yawには有限値が必要です: ${yaw}`,
+        );
+      }
+      facingYaw = yaw;
+      for (const record of spriteRecords) {
+        if (record.presentation !== null) {
+          record.presentation.mesh.rotation.set(0, facingYaw, 0);
+        }
+      }
+    },
     createSprite: (actorId, instanceName) => {
       assertActive();
       if (instanceName.length === 0) {
@@ -476,16 +682,35 @@ export const createV2CharacterVisualRuntime = async ({
         false,
         managerResource.sheet.source,
       );
+      const presentation =
+        orientationMode === "upright"
+          ? createPresentation(
+              instanceName,
+              managerResource.presentationMaterial as StandardMaterial,
+              managerResource.sheet.frameCount,
+              scene,
+            )
+          : null;
       const record: V2CharacterVisualSpriteRecord = {
         sprite,
+        presentation,
         managerResource,
         disposed: false,
       };
       managerResource.activeSpriteCount += 1;
       spriteRecords.add(record);
+      if (presentation !== null) {
+        syncPresentation(
+          presentation,
+          sprite,
+          managerResource.sheet.frameCount,
+          facingYaw,
+        );
+      }
 
       return Object.freeze({
         sprite,
+        presentationMesh: presentation?.mesh ?? null,
         width: managerResource.sheet.width,
         height: managerResource.sheet.height,
         setState: (state, temporaryGunActive) => {
@@ -501,6 +726,22 @@ export const createV2CharacterVisualRuntime = async ({
             managerResource.sheet.source,
           );
         },
+        syncPresentation: () => {
+          assertActive();
+          if (record.disposed) {
+            throw new Error(
+              `破棄済みのV2 Character表示Spriteは同期できません: ${instanceName}`,
+            );
+          }
+          if (record.presentation !== null) {
+            syncPresentation(
+              record.presentation,
+              sprite,
+              managerResource.sheet.frameCount,
+              facingYaw,
+            );
+          }
+        },
         dispose: () => {
           assertActive();
           disposeSpriteRecord(record, true);
@@ -514,6 +755,7 @@ export const createV2CharacterVisualRuntime = async ({
         disposeSpriteRecord(record, false);
       }
       for (const resource of managerResources.values()) {
+        resource.presentationMaterial?.dispose(false, false);
         resource.manager.dispose();
       }
       managerResources.clear();

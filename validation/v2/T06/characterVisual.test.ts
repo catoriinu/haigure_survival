@@ -1,9 +1,18 @@
-import { NullEngine, Scene, Vector3 } from "@babylonjs/core";
+import {
+  Color4,
+  NullEngine,
+  Scene,
+  Vector3,
+  VertexBuffer
+} from "@babylonjs/core";
 
 import { resolveV2FirstPersonCharacterVisualFrame } from "../../../src/v2/v2PlayerCharacterVisual";
 import { V2_DEFAULT_PORTRAIT_DIRECTORY } from "../../../src/v2/v2CharacterAssignments";
+import { resolveV2CharacterFacingYaw } from "../../../src/v2/v2CharacterFacing";
 import {
   V2_PORTRAIT_IMAGE_BASE_NAMES,
+  V2_CHARACTER_VISUAL_MAX_HEIGHT,
+  V2_CHARACTER_VISUAL_MAX_WIDTH,
   calculateV2CharacterVisualSize,
   createV2CharacterVisualRuntime,
   createV2PortraitFileInventoryFromPublicPaths,
@@ -56,6 +65,7 @@ export const runCharacterVisualTests = async (): Promise<
     }),
     executeTest("Character画像の状態cellと縦横比", () => {
       const size = calculateV2CharacterVisualSize(832, 1216);
+      const defaultSize = calculateV2CharacterVisualSize(330, 700);
       assert(
         getV2CharacterVisualCellIndex("normal", false, "portrait") === 0 &&
           getV2CharacterVisualCellIndex("evade", false, "portrait") === 1 &&
@@ -77,17 +87,21 @@ export const runCharacterVisualTests = async (): Promise<
             "portrait"
           ) === 7 &&
           Math.abs(size.width / size.height - 832 / 1216) <= 0.000001 &&
-          size.width <= 0.2 &&
-          size.height <= 0.425,
+          Math.abs(size.width - V2_CHARACTER_VISUAL_MAX_WIDTH) <= 0.000001 &&
+          Math.abs(size.height - 1216 / 2496) <= 0.000001 &&
+          Math.abs(defaultSize.width - 11 / 35) <= 0.000001 &&
+          Math.abs(defaultSize.height - V2_CHARACTER_VISUAL_MAX_HEIGHT) <=
+            0.000001,
         `状態cellまたは縦横比が不正です: ${JSON.stringify(size)}`
       );
-      return "portrait 8cell、temporary gun、縦横比を維持";
+      return "portrait 8cell、temporary gun、V1最終の幅1/3・高さ2/3上限";
     }),
-    executeTest("組込みCharacter表示Runtimeの所有契約", async () => {
+    executeTest("camera-facing Character表示Runtimeの所有契約", async () => {
       const engine = new NullEngine();
       const scene = new Scene(engine);
       const runtime = await createV2CharacterVisualRuntime({
         scene,
+        orientationMode: "camera-facing",
         assignments: Object.freeze([
           Object.freeze({
             actorId: "player",
@@ -99,10 +113,13 @@ export const runCharacterVisualTests = async (): Promise<
       try {
         const handle = runtime.createSprite("player", "fixture-player");
         handle.setState("brainwash-complete-gun", false);
+        handle.syncPresentation();
         assert(
           handle.sprite.cellIndex === 3 &&
             handle.width > 0 &&
-            handle.height > handle.width,
+            handle.height > handle.width &&
+            handle.presentationMesh === null &&
+            handle.sprite.manager.layerMask !== 0,
           "組込みCharacter表示の状態または寸法が不正です。"
         );
         let unknownActorRejected = false;
@@ -122,18 +139,132 @@ export const runCharacterVisualTests = async (): Promise<
           unknownActorRejected && duplicateDisposeRejected,
           "未割当actorまたはSprite二重破棄が拒否されません。"
         );
-        return "default状態、未割当actor、Sprite二重破棄を検証";
+        return "Sprite描画、default状態、未割当actor、Sprite二重破棄を検証";
       } finally {
         runtime.dispose();
         scene.dispose();
         engine.dispose();
       }
     }),
+    executeTest("upright Character表示Runtimeの同期と破棄", async () => {
+      const engine = new NullEngine();
+      const scene = new Scene(engine);
+      const runtime = await createV2CharacterVisualRuntime({
+        scene,
+        orientationMode: "upright",
+        assignments: Object.freeze([
+          Object.freeze({
+            actorId: "player",
+            voiceProfileId: "01",
+            portraitDirectory: V2_DEFAULT_PORTRAIT_DIRECTORY
+          })
+        ])
+      });
+      let runtimeDisposed = false;
+      try {
+        const first = runtime.createSprite("player", "fixture-upright-first");
+        const second = runtime.createSprite("player", "fixture-upright-second");
+        const firstMesh = first.presentationMesh;
+        const secondMesh = second.presentationMesh;
+        assert(
+          firstMesh !== null &&
+            secondMesh !== null &&
+            firstMesh.material === secondMesh.material &&
+            first.sprite.manager.layerMask === 0,
+          "upright Planeまたは共有Materialが作成されません。"
+        );
+
+        runtime.setFacingYaw(Math.PI / 3);
+        first.sprite.position.copyFromFloats(1, 2, 3);
+        first.sprite.color = new Color4(0.25, 0.5, 0.75, 0.4);
+        first.sprite.isVisible = true;
+        first.setState("hit-a", false);
+        first.syncPresentation();
+        const uvData = firstMesh.getVerticesData(VertexBuffer.UVKind);
+        const colorData = firstMesh.getVerticesData(VertexBuffer.ColorKind);
+        assert(
+          firstMesh.position.equalsWithEpsilon(
+            new Vector3(1, 2, 3),
+            0.000001
+          ) &&
+            firstMesh.scaling.equalsWithEpsilon(
+              new Vector3(first.width, first.height, 1),
+              0.000001
+            ) &&
+            firstMesh.rotation.x === 0 &&
+            Math.abs(firstMesh.rotation.y - Math.PI / 3) <= 0.000001 &&
+            firstMesh.rotation.z === 0 &&
+            firstMesh.isVisible &&
+            uvData !== null &&
+            Math.abs((uvData[0] as number) - 1 / 6) <= 0.000001 &&
+            Math.abs((uvData[2] as number) - 2 / 6) <= 0.000001 &&
+            colorData !== null &&
+            Math.abs((colorData[0] as number) - 0.25) <= 0.000001 &&
+            Math.abs((colorData[3] as number) - 0.4) <= 0.000001,
+          "upright Planeへ位置・寸法・yaw・cell UV・色alphaが同期されません。"
+        );
+
+        first.sprite.isVisible = false;
+        first.syncPresentation();
+        assert(!firstMesh.isVisible, "upright Planeへ非表示が同期されません。");
+
+        const sharedMaterial = firstMesh.material;
+        first.dispose();
+        assert(
+          firstMesh.isDisposed() &&
+            sharedMaterial !== null &&
+            scene.materials.includes(sharedMaterial),
+          "handle破棄でPlaneだけを破棄できません。"
+        );
+        runtime.dispose();
+        runtimeDisposed = true;
+        assert(
+          secondMesh.isDisposed() && !scene.materials.includes(sharedMaterial),
+          "Runtime破棄で残存Planeと共有Materialが破棄されません。"
+        );
+        return "SpriteManager描画を隠し、world-up Planeを共有Materialで同期・破棄";
+      } finally {
+        if (!runtimeDisposed) {
+          runtime.dispose();
+        }
+        scene.dispose();
+        engine.dispose();
+      }
+    }),
+    executeTest("Character水平yawの真下安定化", () => {
+      const forwardYaw = resolveV2CharacterFacingYaw({
+        viewForward: new Vector3(1, 0, 0),
+        viewUp: new Vector3(0, 1, 0),
+        fallbackYaw: 0
+      });
+      const downwardYaw = resolveV2CharacterFacingYaw({
+        viewForward: new Vector3(0, -1, 0),
+        viewUp: new Vector3(1, 0, 0),
+        fallbackYaw: 0
+      });
+      const fallbackYaw = resolveV2CharacterFacingYaw({
+        viewForward: new Vector3(0, -1, 0),
+        viewUp: new Vector3(0, 1, 0),
+        fallbackYaw: -Math.PI / 4
+      });
+      assert(
+        Math.abs(forwardYaw - Math.PI / 2) <= 0.000001 &&
+          Math.abs(downwardYaw - Math.PI / 2) <= 0.000001 &&
+          Math.abs(fallbackYaw + Math.PI / 4) <= 0.000001,
+        `水平yawの前方・真下・予備値が不正です: ${JSON.stringify({
+          forwardYaw,
+          downwardYaw,
+          fallbackYaw
+        })}`
+      );
+      return "通常は前方、真下はカメラ上方、退化時は前frame yawを維持";
+    }),
     executeTest("一人称Character表示の無効状態", () => {
       const frame = resolveV2FirstPersonCharacterVisualFrame({
         active: false,
         footPosition: new Vector3(1, 2, 3),
         viewForward: new Vector3(0, -1, 0),
+        facingYaw: 0,
         spriteHeight: 0.4
       });
       assert(
@@ -141,6 +272,10 @@ export const runCharacterVisualTests = async (): Promise<
           frame.alpha === 0 &&
           frame.position.equalsWithEpsilon(
             new Vector3(1, 2.2, 3),
+            0.000001
+          ) &&
+          frame.cameraRenderOffset.equalsWithEpsilon(
+            Vector3.Zero(),
             0.000001
           ),
         `無効時の表示frameが不正です: ${JSON.stringify({
@@ -157,6 +292,7 @@ export const runCharacterVisualTests = async (): Promise<
         active: true,
         footPosition: Vector3.Zero(),
         viewForward: new Vector3(0, -Math.sin(angle), Math.cos(angle)),
+        facingYaw: 0,
         spriteHeight: 0.4
       });
       assert(
@@ -171,31 +307,41 @@ export const runCharacterVisualTests = async (): Promise<
         active: true,
         footPosition: Vector3.Zero(),
         viewForward: new Vector3(0, -Math.sin(angle), Math.cos(angle)),
+        facingYaw: 0,
         spriteHeight: 0.4
       });
       assert(
         frame.visible &&
           Math.abs(frame.alpha - 0.5) <= 0.000001 &&
-          Math.abs(frame.position.z - 0.02) <= 0.000001,
+          Math.abs(frame.position.z + (1 / 3) * 0.14) <= 0.000001 &&
+          Math.abs(frame.cameraRenderOffset.z + (1 / 3) * 0.07) <=
+            0.000001 &&
+          Math.abs(frame.cameraRenderOffset.y - (1 / 3) * 0.085) <=
+            0.000001,
         `中間補間が不正です: ${JSON.stringify({
           alpha: frame.alpha,
           position: frame.position.asArray()
         })}`
       );
-      return "72.5度でalpha 0.5、前方offset 0.02";
+      return "72.5度でalpha 0.5、V1同等のカメラ・画像offset";
     }),
     executeTest("一人称Character表示の真下", () => {
       const frame = resolveV2FirstPersonCharacterVisualFrame({
         active: true,
         footPosition: new Vector3(1, 2, 3),
         viewForward: new Vector3(0, -1, 0),
+        facingYaw: 0,
         spriteHeight: 0.4
       });
       assert(
         frame.visible &&
           frame.alpha === 1 &&
           frame.position.equalsWithEpsilon(
-            new Vector3(1, 2.2, 3),
+            new Vector3(1, 2.2, 3 - (2 / 3) * 0.14),
+            0.000001
+          ) &&
+          frame.cameraRenderOffset.equalsWithEpsilon(
+            new Vector3(0, (1 / 3) * 0.17, -(1 / 3) * 0.14),
             0.000001
           ),
         `真下表示が不正です: ${JSON.stringify({

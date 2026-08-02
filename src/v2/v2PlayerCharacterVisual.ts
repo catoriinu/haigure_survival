@@ -1,23 +1,26 @@
 import { Vector3 } from "@babylonjs/core";
 
 import type { V2CharacterState } from "./combatTypes";
+import { createV2CharacterBackwardDirection } from "./v2CharacterFacing";
 import type { V2CharacterVisualRuntime } from "./v2CharacterVisualRuntime";
 
 const FIRST_PERSON_START_ANGLE_RADIANS = (55 * Math.PI) / 180;
 const FIRST_PERSON_MAX_ANGLE_RADIANS = Math.PI / 2;
-const FIRST_PERSON_MAX_FORWARD_OFFSET = 0.04;
-const HORIZONTAL_DIRECTION_EPSILON_SQUARED = 0.000001;
+const FIRST_PERSON_MAX_HORIZONTAL_OFFSET = (1 / 3) * 0.14;
+const FIRST_PERSON_MAX_VERTICAL_OFFSET = (1 / 3) * 0.17;
 
 export type V2FirstPersonCharacterVisualFrame = Readonly<{
   visible: boolean;
   alpha: number;
   position: Vector3;
+  cameraRenderOffset: Vector3;
 }>;
 
 export type V2FirstPersonCharacterVisualFrameOptions = Readonly<{
   active: boolean;
   footPosition: Vector3;
   viewForward: Vector3;
+  facingYaw: number;
   spriteHeight: number;
 }>;
 
@@ -44,11 +47,15 @@ export const resolveV2FirstPersonCharacterVisualFrame = ({
   active,
   footPosition,
   viewForward,
+  facingYaw,
   spriteHeight
 }: V2FirstPersonCharacterVisualFrameOptions):
   V2FirstPersonCharacterVisualFrame => {
   assertFiniteVector("プレイヤー画像の足元位置", footPosition);
   assertFiniteVector("プレイヤー画像の視線方向", viewForward);
+  if (!Number.isFinite(facingYaw)) {
+    throw new Error("プレイヤー画像のyawには有限値が必要です。");
+  }
   assertPositiveFiniteNumber("プレイヤー画像の高さ", spriteHeight);
   const normalizedForward = viewForward.clone();
   if (normalizedForward.lengthSquared() === 0) {
@@ -69,28 +76,23 @@ export const resolveV2FirstPersonCharacterVisualFrame = ({
   );
   const alpha = active ? smoothstep(linearBlend) : 0;
   const position = footPosition.clone();
-  const horizontalForward = new Vector3(
-    normalizedForward.x,
-    0,
-    normalizedForward.z
-  );
-  if (
-    alpha > 0 &&
-    horizontalForward.lengthSquared() >
-      HORIZONTAL_DIRECTION_EPSILON_SQUARED
-  ) {
-    horizontalForward.normalize();
-    position.addInPlace(
-      horizontalForward.scale(
-        FIRST_PERSON_MAX_FORWARD_OFFSET * alpha
-      )
-    );
+  const cameraRenderOffset = Vector3.Zero();
+  if (alpha > 0) {
+    const backward = createV2CharacterBackwardDirection(facingYaw);
+    const horizontalOffset =
+      FIRST_PERSON_MAX_HORIZONTAL_OFFSET * alpha;
+    cameraRenderOffset.copyFrom(backward);
+    cameraRenderOffset.scaleInPlace(horizontalOffset);
+    position.addInPlace(backward.scale(horizontalOffset * 2));
+    cameraRenderOffset.y =
+      FIRST_PERSON_MAX_VERTICAL_OFFSET * alpha;
   }
   position.y += spriteHeight / 2;
   return Object.freeze({
     visible: alpha > 0,
     alpha,
-    position
+    position,
+    cameraRenderOffset
   });
 };
 
@@ -99,10 +101,12 @@ export type V2PlayerCharacterVisualUpdate = Readonly<{
   state: V2CharacterState;
   footPosition: Vector3;
   viewForward: Vector3;
+  facingYaw: number;
 }>;
 
 export interface V2PlayerCharacterVisual {
   update(update: V2PlayerCharacterVisualUpdate): void;
+  getCameraRenderOffset(): Vector3;
   clear(): void;
   dispose(): void;
 }
@@ -117,6 +121,7 @@ export const createV2PlayerCharacterVisual = (
   const sprite = handle.sprite;
   sprite.isPickable = false;
   sprite.isVisible = false;
+  const cameraRenderOffset = Vector3.Zero();
   let disposed = false;
 
   const assertActive = (): void => {
@@ -128,22 +133,31 @@ export const createV2PlayerCharacterVisual = (
   const clear = (): void => {
     sprite.isVisible = false;
     sprite.color.a = 0;
+    cameraRenderOffset.setAll(0);
+    handle.syncPresentation();
   };
 
   return Object.freeze({
     update: (update: V2PlayerCharacterVisualUpdate) => {
       assertActive();
-      const { active, state, footPosition, viewForward } = update;
+      const { active, state, footPosition, viewForward, facingYaw } = update;
       handle.setState(state, false);
       const frame = resolveV2FirstPersonCharacterVisualFrame({
         active,
         footPosition,
         viewForward,
+        facingYaw,
         spriteHeight: handle.height
       });
       sprite.position.copyFrom(frame.position);
       sprite.color.a = frame.alpha;
       sprite.isVisible = frame.visible;
+      cameraRenderOffset.copyFrom(frame.cameraRenderOffset);
+      handle.syncPresentation();
+    },
+    getCameraRenderOffset: () => {
+      assertActive();
+      return cameraRenderOffset.clone();
     },
     clear: () => {
       assertActive();

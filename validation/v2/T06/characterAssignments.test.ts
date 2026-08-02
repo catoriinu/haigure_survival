@@ -190,10 +190,58 @@ export const runCharacterAssignmentTests = async () =>
       assert(
         loaded.portraitDirectory === null &&
           loaded.voiceDirectory === null &&
+          loaded.enableCharacterSpriteVerticalAngle === true &&
           fixture.getWriteCount() === 0,
         `保存なしのrandom既定値または無書込み契約が不正です: ${JSON.stringify(loaded)}`
       );
-      return "自キャラ／自ボイスともnull（ランダム選択）、load書込み0回";
+      return "自キャラ／自ボイスはrandom、地面垂直表示true、load書込み0回";
+    }),
+    executeTest("Character縦角度の既存設定正規化・false保持", () => {
+      const missingFixture = createStorage({
+        language: "ja",
+        playerSettings: {
+          portraitDirectory: null,
+          voiceDirectory: null,
+          futurePlayerField: "keep"
+        }
+      });
+      const missingStore = createV2CharacterSettingsStore(
+        missingFixture.storage,
+        Object.freeze(["01_hgsv_mb"]),
+        Object.freeze(["01_devil"])
+      );
+      const normalized = missingStore.load();
+      const normalizedRoot = missingFixture.read() as {
+        playerSettings?: Record<string, unknown>;
+      };
+      const falseFixture = createStorage({
+        playerSettings: {
+          portraitDirectory: null,
+          voiceDirectory: null,
+          enableCharacterSpriteVerticalAngle: false
+        }
+      });
+      const falseStore = createV2CharacterSettingsStore(
+        falseFixture.storage,
+        Object.freeze(["01_hgsv_mb"]),
+        Object.freeze(["01_devil"])
+      );
+      const loadedFalse = falseStore.load();
+      assert(
+        normalized.enableCharacterSpriteVerticalAngle === true &&
+          normalizedRoot.playerSettings
+            ?.enableCharacterSpriteVerticalAngle === true &&
+          normalizedRoot.playerSettings?.futurePlayerField === "keep" &&
+          missingFixture.getWriteCount() === 1 &&
+          loadedFalse.enableCharacterSpriteVerticalAngle === false &&
+          falseFixture.getWriteCount() === 0,
+        `縦角度の正規化またはfalse保持が不正です: ${JSON.stringify({
+          normalized,
+          normalizedRoot,
+          loadedFalse
+        })}`
+      );
+      return "未設定だけtrueへ1回正規化し、保存済みfalseと未知fieldを保持";
     }),
     executeTest("Character設定保存時の既存field保持", () => {
       const fixture = createStorage({
@@ -215,7 +263,8 @@ export const runCharacterAssignmentTests = async () =>
       store.save(
         Object.freeze({
           portraitDirectory: V2_DEFAULT_PORTRAIT_DIRECTORY,
-          voiceDirectory: null
+          voiceDirectory: null,
+          enableCharacterSpriteVerticalAngle: false
         })
       );
       const stored = fixture.read() as {
@@ -233,10 +282,11 @@ export const runCharacterAssignmentTests = async () =>
           stored.playerSettings?.futurePlayerField === true &&
           stored.playerSettings?.portraitDirectory ===
             V2_DEFAULT_PORTRAIT_DIRECTORY &&
-          stored.playerSettings?.voiceDirectory === null,
+          stored.playerSettings?.voiceDirectory === null &&
+          stored.playerSettings?.enableCharacterSpriteVerticalAngle === false,
         `Character部分保存で既存設定が失われました: ${JSON.stringify(stored)}`
       );
-      return "組込みdefaultを保存し、音量・未知fieldを保持して部分保存";
+      return "組込みdefaultと縦角度falseを保存し、音量・未知fieldを保持";
     }),
     executeTest("Character割当の再生成境界", () => {
       const options = Object.freeze({
@@ -278,7 +328,8 @@ export const runCharacterAssignmentTests = async () =>
         parent: host,
         initialSettings: Object.freeze({
           portraitDirectory: null,
-          voiceDirectory: null
+          voiceDirectory: null,
+          enableCharacterSpriteVerticalAngle: true
         }),
         portraitDirectories: Object.freeze([]),
         voiceDirectories: Object.freeze(["01_devil", "02_cool"]),
@@ -322,7 +373,8 @@ export const runCharacterAssignmentTests = async () =>
         parent: host,
         initialSettings: Object.freeze({
           portraitDirectory: V2_DEFAULT_PORTRAIT_DIRECTORY,
-          voiceDirectory: null
+          voiceDirectory: null,
+          enableCharacterSpriteVerticalAngle: true
         }),
         portraitDirectories: Object.freeze([
           "01_hgsv_mb",
@@ -354,6 +406,61 @@ export const runCharacterAssignmentTests = async () =>
           "自キャラselectの実画像変更が即時通知されません。"
         );
         return "random→default→実画像の順で表示し、defaultと実画像を選択可能";
+      } finally {
+        panel.dispose();
+        host.remove();
+      }
+    }),
+    executeTest("Character設定panelの地面垂直表示切替", () => {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      let changedVerticalAngle: boolean | undefined;
+      const panel = createV2CharacterSettingsPanel({
+        parent: host,
+        initialSettings: Object.freeze({
+          portraitDirectory: null,
+          voiceDirectory: null,
+          enableCharacterSpriteVerticalAngle: true
+        }),
+        portraitDirectories: Object.freeze([]),
+        voiceDirectories: Object.freeze([]),
+        onChange: (settings) => {
+          changedVerticalAngle =
+            settings.enableCharacterSpriteVerticalAngle;
+        }
+      });
+      try {
+        const checkbox = panel.root.querySelector<HTMLInputElement>(
+          '[data-ui="v2-character-sprite-vertical-angle-checkbox"]'
+        );
+        const row = panel.root.querySelector<HTMLElement>(
+          '[data-ui="v2-character-sprite-vertical-angle-row"]'
+        );
+        assert(
+          checkbox !== null &&
+            checkbox.checked &&
+            row?.textContent === "キャラ画像を地面に垂直表示",
+          "地面垂直表示checkboxの既定状態または説明が不正です。"
+        );
+        checkbox.checked = false;
+        checkbox.dispatchEvent(new Event("change"));
+        assert(
+          changedVerticalAngle === false &&
+            panel.getSettings().enableCharacterSpriteVerticalAngle === false,
+          "地面垂直表示checkboxの変更が即時通知されません。"
+        );
+        panel.setSettings(
+          Object.freeze({
+            portraitDirectory: null,
+            voiceDirectory: null,
+            enableCharacterSpriteVerticalAngle: true
+          })
+        );
+        assert(
+          checkbox.checked,
+          "setSettingsで地面垂直表示checkboxが更新されません。"
+        );
+        return "既定true、checkbox false通知、setSettings true反映";
       } finally {
         panel.dispose();
         host.remove();
