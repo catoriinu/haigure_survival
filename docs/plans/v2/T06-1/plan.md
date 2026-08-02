@@ -609,7 +609,7 @@ Character Materialから`needDepthPrePass`を削除し、`forceDepthWrite`へ置
 - [x] NPC／BITの空間索引、表示同期、Follower snapshot、frame view共有を実装し、T05回帰を更新する
 - [x] Character、HUD、Audioの毎frame割り当てとDOM／Mesh更新を削減し、T06回帰を更新する
 - [x] portrait資産カタログとタイトル設定root処理を共通化する
-- [ ] 荒れ状態を既定2へ戻し、明示的な全荒れ確認queryを追加する
+- [x] 荒れ状態を既定2へ戻し、明示的な全荒れ確認queryを追加する
 - [ ] 修正後性能、全fixture、typecheck、build、Web、Electron、配布テキスト、所有範囲を検証する
 - [ ] 実装結果と検証証跡を本計画へ反映し、分割commitをpushしてPull Request #64 HEAD一致を確認する
 
@@ -624,3 +624,5 @@ NPC／BITは、人物索引を自律脅威探索へ共有し、scheduled探索�
 CharacterはMeshの位置・yawが同値ならTransform更新を省略し、プレイヤー一人称計算とcamera offsetをToRefへ統一した。mainも同frameの足元snapshotと再利用Vectorを渡し、視線Vector、help text、空候補、render callbackの毎frame生成を除去した。HUDはViewport／投影Vectorを再利用し、hidden、色、座標が同じ要素のDOM属性を書き換えない。VOICEはactor Mapと最新snapshot参照を再利用し、Audio event queueは空drain singletonと非空配列の所有権移譲へ変更した。T06実ブラウザ63／63、`typecheck:v2`／`typecheck:t06`、`build:t06`はPASSし、同一HUD frameのDOM mutation 0件、空Audio drainの同一identity、ToRef計算、Babylon Logger／console warning／error 0件を確認した。
 
 portraitのdirectory・状態ファイル解析と`import.meta.glob`を単一カタログへ統合し、Character設定とCharacter Runtimeが同じinventoryを参照するよう整理した。Audio／Character設定のJSON root読込・section保存も中立な共通moduleへ移し、rootとsection双方の未知field保持、既存の不正値正規化、音量既定0を維持した。依存監査では循環や旧source依存は0件で、共通moduleの配置をGameplay層外へ置いた。T06の設定・Character・Audio fixtureを含む63／63がPASSした。
+
+Room Variantは通常・performance・stress・rampの共通既定値を荒れ状態2へ戻した。`roomVariantReview`未指定は2、`?roomVariantReview=all-disordered`だけ10とし、数値指定や未定義値は例外として拒否する。旧定数や数値fallbackは残していない。T06 fixtureでは既定4／20室、確認query 20／20室、無効query拒否、0／2／10のseed決定性を確認した。Pull Request上の該当review threadはresolveしない。

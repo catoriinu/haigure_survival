@@ -3,7 +3,11 @@ import {
   createSchoolRoomVariantSelections,
   createSchoolRuntimeSettings
 } from "../../../src/world/schoolRuntimeSettings";
-import { V2_ROOM_VARIANT_VISUAL_REVIEW_LEVEL } from "../../../src/v2/roomVariantVisualReview";
+import {
+  V2_ALL_DISORDERED_ROOM_VARIANT_REVIEW_LEVEL,
+  V2_DEFAULT_ROOM_VARIANT_LEVEL,
+  resolveV2RoomVariantLevel
+} from "../../../src/v2/roomVariantVisualReview";
 
 import { assert, assertThrows, executeTest } from "./testUtils";
 
@@ -15,20 +19,49 @@ const countDisordered = (
 
 export const runRoomVariantTests = async () =>
   Promise.all([
-    executeTest("通常入口の全教室荒れ版確認値", () => {
+    executeTest("通常入口の既定値は荒れ状態2", () => {
+      const level = resolveV2RoomVariantLevel("");
       const selections = createSchoolRoomVariantSelections(
         createSchoolRuntimeSettings(
-          V2_ROOM_VARIANT_VISUAL_REVIEW_LEVEL
+          level
         ),
         0
       );
       assert(
-        V2_ROOM_VARIANT_VISUAL_REVIEW_LEVEL === 10 &&
+        level === V2_DEFAULT_ROOM_VARIANT_LEVEL &&
+          level === 2 &&
+          countDisordered(selections) === 4,
+        "通常入口の既定値で荒れ版4室になりません。"
+      );
+      return "既定値2 / 荒れ版4室 / 通常・性能・stress・ramp入口で共用";
+    }),
+    executeTest("確認queryだけ全教室を荒れ状態10にする", () => {
+      const level = resolveV2RoomVariantLevel(
+        "?roomVariantReview=all-disordered"
+      );
+      const selections = createSchoolRoomVariantSelections(
+        createSchoolRuntimeSettings(level),
+        0
+      );
+      assert(
+        level === V2_ALL_DISORDERED_ROOM_VARIANT_REVIEW_LEVEL &&
+          level === 10 &&
           countDisordered(selections) ===
             SCHOOL_ROOM_VARIANT_ROOM_IDS.length,
-        "通常入口の見た目確認値で全20室が荒れ版になりません。"
+        "確認queryで全20室が荒れ版になりません。"
       );
-      return "確認値10 / 荒れ版20室 / 通常・性能・stress入口で共用";
+      return "all-disordered / 荒れ版20室";
+    }),
+    executeTest("未定義の確認queryを拒否する", () => {
+      assertThrows(
+        () => resolveV2RoomVariantLevel("?roomVariantReview=10"),
+        "数値による旧方式の指定が拒否されません。"
+      );
+      assertThrows(
+        () => resolveV2RoomVariantLevel("?roomVariantReview=ordered"),
+        "未定義の確認値が拒否されません。"
+      );
+      return "数値指定と未定義値を例外として拒否";
     }),
     executeTest("荒れ状態0／2／10の選択件数", () => {
       const seed = 0x5430_0601;

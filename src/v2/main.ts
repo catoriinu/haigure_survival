@@ -105,7 +105,7 @@ import {
   readV2RuntimeStressScenario,
   type V2RuntimeStressReport
 } from "./runtimeStressScenario";
-import { V2_ROOM_VARIANT_VISUAL_REVIEW_LEVEL } from "./roomVariantVisualReview";
+import { resolveV2RoomVariantLevel } from "./roomVariantVisualReview";
 
 const V2_GAMEPLAY_HELP_TEXT =
   "操作説明\n" +
@@ -148,6 +148,7 @@ if (
 }
 const runtimeSeed =
   performanceScenario?.seed ?? runtimeStressScenario?.seed ?? 0;
+const roomVariantLevel = resolveV2RoomVariantLevel(location.search);
 const runtimePopulation = performanceScenario
   ? V2_PERFORMANCE_ACCEPTANCE_POPULATION
   : rampValidationTarget
@@ -161,13 +162,13 @@ const runtimePopulation = performanceScenario
 const roomVariantSelections = runtimeStressScenario
   ? createSchoolRoomVariantSelections(
       createSchoolRuntimeSettings(
-        V2_ROOM_VARIANT_VISUAL_REVIEW_LEVEL
+        roomVariantLevel
       ),
       runtimeStressScenario.seed
     )
   : createSchoolRoomVariantSelections(
       createSchoolRuntimeSettings(
-        V2_ROOM_VARIANT_VISUAL_REVIEW_LEVEL
+        roomVariantLevel
       ),
       runtimeSeed
     );
