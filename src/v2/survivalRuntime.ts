@@ -515,7 +515,19 @@ export const createV2SurvivalRuntime = ({
     ownedHitEffectSystem = createV2HitEffectSystem({
       scene,
       random: visualRandom,
-      isIndirectLightVisible
+      isIndirectLightVisible,
+      resolveVisualEnvelope: (target) => {
+        const size = characterVisuals.getActorVisualSize(target.id);
+        return Object.freeze({
+          center: new Vector3(
+            target.footPosition.x,
+            target.footPosition.y + size.height / 2,
+            target.footPosition.z
+          ),
+          width: size.width,
+          height: size.height
+        });
+      }
     });
     humanTargets = Object.freeze([
       playerCombat.createTargetSnapshot(

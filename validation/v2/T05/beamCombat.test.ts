@@ -28,6 +28,7 @@ import type {
   V2HumanKind,
   V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
+import { V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT } from "../../../src/v2/v2TransparentRenderingOrder";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import type { StageSpatialQueryDiagnostics } from "../../../src/world/stageSpatialQueries";
 import { createStageWorldBoundary } from "../../../src/world/stageWorldBoundary";
@@ -614,6 +615,17 @@ export const runBeamCombatTests =
             poolBeforeClear.body.inUse === 0 &&
             poolBeforeClear.tip.inUse === 0 &&
             poolBeforeClear["blocker-impact"].inUse === 4;
+          const activeImpactMeshes = fixture.scene.meshes.filter(
+            (mesh) =>
+              mesh.name === `${beamId}-blocker-impact` && mesh.isEnabled()
+          );
+          const impactAlphaIndexMatches =
+            activeImpactMeshes.length === 4 &&
+            activeImpactMeshes.every(
+              (mesh) =>
+                mesh.alphaIndex ===
+                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT
+            );
           system.clear();
           const poolAfterClear = system.getVisualPoolSnapshot();
           const resourcesCleared =
@@ -622,7 +634,7 @@ export const runBeamCombatTests =
             poolAfterClear.trail.inUse === 0 &&
             poolAfterClear["blocker-impact"].inUse === 0;
           const pooledMeshCount = fixture.scene.meshes.length;
-          system.spawn({
+          const reuseBeamId = system.spawn({
             sourceId: "npc-wall-reuse",
             originKind: "npc-gun",
             targetPolicy: createAliveHumansPolicy(),
@@ -633,8 +645,21 @@ export const runBeamCombatTests =
           });
           const reuseImpactFrame = system.update(0.1);
           const reusedPool = system.getVisualPoolSnapshot();
+          const reusedActiveImpactMeshes = fixture.scene.meshes.filter(
+            (mesh) =>
+              mesh.name === `${reuseBeamId}-blocker-impact` &&
+              mesh.isEnabled()
+          );
+          const reusedImpactAlphaIndexMatches =
+            reusedActiveImpactMeshes.length === 4 &&
+            reusedActiveImpactMeshes.every(
+              (mesh) =>
+                mesh.alphaIndex ===
+                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT
+            );
           const resourcesReused =
             reuseImpactFrame.impacts.length === 1 &&
+            reusedImpactAlphaIndexMatches &&
             reusedPool.body.capacity === poolAfterClear.body.capacity &&
             reusedPool.tip.capacity === poolAfterClear.tip.capacity &&
             reusedPool["blocker-impact"].capacity ===
@@ -668,6 +693,7 @@ export const runBeamCombatTests =
               retractFrame.impacts.length === 0 &&
               activeAfterRetraction === 0 &&
               impactVisualRemains &&
+              impactAlphaIndexMatches &&
               resourcesCleared &&
               resourcesReused &&
               resourcesDisposed,
@@ -2010,7 +2036,10 @@ export const runBeamCombatTests =
             const impactSource = fixture.scene.getMeshByName(
               "v2NormalBeamPoolSource-blocker-impact"
             );
-            if (!bodySource || !tipSource || !impactSource) {
+            const trailSource = fixture.scene.getMeshByName(
+              "v2NormalBeamPoolSource-trail"
+            );
+            if (!bodySource || !tipSource || !trailSource || !impactSource) {
               throw new Error("光線Pool sourceがありません");
             }
             const positions = bodySource.getVerticesData(
@@ -2087,6 +2116,14 @@ export const runBeamCombatTests =
             const profileOk =
               V2_NORMAL_BEAM_BODY_DIAMETER === 0.018 &&
               V2_NORMAL_BEAM_MAX_BODY_LENGTH === 0.75 &&
+              bodySource.alphaIndex ===
+                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+              tipSource.alphaIndex ===
+                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+              trailSource.alphaIndex ===
+                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+              impactSource.alphaIndex ===
+                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
               approximately(
                 frontRadius * 2,
                 V2_NORMAL_BEAM_FRONT_DIAMETER,
@@ -2115,6 +2152,12 @@ export const runBeamCombatTests =
               approximately(material.emissiveColor.b, 0.74, 1e-6) &&
               bodyInstance !== null &&
               tipInstance !== null &&
+              bodyInstance.alphaIndex ===
+                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+              tipInstance.alphaIndex ===
+                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+              trail?.alphaIndex ===
+                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
               approximately(bodyFrontX, tipBackX, 1e-6) &&
               approximately(tipFrontX, activeBeam.position.x, 1e-6) &&
               approximately(trail?.scaling.x ?? -1, 0.03, 1e-6);

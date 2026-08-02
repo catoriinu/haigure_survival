@@ -10,6 +10,12 @@ import { resolveV2FirstPersonCharacterVisualFrame } from "../../../src/v2/v2Play
 import { V2_DEFAULT_PORTRAIT_DIRECTORY } from "../../../src/v2/v2CharacterAssignments";
 import { resolveV2CharacterFacingYaw } from "../../../src/v2/v2CharacterFacing";
 import {
+  V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT,
+  V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER,
+  V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER
+} from "../../../src/v2/v2TransparentRenderingOrder";
+import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
+import {
   V2_PORTRAIT_IMAGE_BASE_NAMES,
   V2_CHARACTER_VISUAL_MAX_HEIGHT,
   V2_CHARACTER_VISUAL_MAX_WIDTH,
@@ -66,6 +72,8 @@ export const runCharacterVisualTests = async (): Promise<
     executeTest("Character画像の状態cellと縦横比", () => {
       const size = calculateV2CharacterVisualSize(832, 1216);
       const defaultSize = calculateV2CharacterVisualSize(330, 700);
+      const expectedMaximumHeight =
+        1.7 * BLENDER_METERS_TO_WORLD_UNITS;
       assert(
         getV2CharacterVisualCellIndex("normal", false, "portrait") === 0 &&
           getV2CharacterVisualCellIndex("evade", false, "portrait") === 1 &&
@@ -87,14 +95,19 @@ export const runCharacterVisualTests = async (): Promise<
             "portrait"
           ) === 7 &&
           Math.abs(size.width / size.height - 832 / 1216) <= 0.000001 &&
-          Math.abs(size.width - V2_CHARACTER_VISUAL_MAX_WIDTH) <= 0.000001 &&
-          Math.abs(size.height - 1216 / 2496) <= 0.000001 &&
-          Math.abs(defaultSize.width - 11 / 35) <= 0.000001 &&
+          V2_CHARACTER_VISUAL_MAX_WIDTH === 1 / 3 &&
+          Math.abs(V2_CHARACTER_VISUAL_MAX_HEIGHT - expectedMaximumHeight) <=
+            0.000001 &&
+          Math.abs(size.width - (832 / 1216) * expectedMaximumHeight) <=
+            0.000001 &&
+          Math.abs(size.height - expectedMaximumHeight) <= 0.000001 &&
+          Math.abs(defaultSize.width - (330 / 700) * expectedMaximumHeight) <=
+            0.000001 &&
           Math.abs(defaultSize.height - V2_CHARACTER_VISUAL_MAX_HEIGHT) <=
             0.000001,
         `状態cellまたは縦横比が不正です: ${JSON.stringify(size)}`
       );
-      return "portrait 8cell、temporary gun、V1最終の幅1/3・高さ2/3上限";
+      return "portrait 8cell、temporary gun、幅1/3・学校実寸1.70m上限";
     }),
     executeTest("camera-facing Character表示Runtimeの所有契約", async () => {
       const engine = new NullEngine();
@@ -112,12 +125,15 @@ export const runCharacterVisualTests = async (): Promise<
       });
       try {
         const handle = runtime.createSprite("player", "fixture-player");
+        const playerSize = runtime.getActorVisualSize("player");
         handle.setState("brainwash-complete-gun", false);
         handle.syncPresentation();
         assert(
           handle.sprite.cellIndex === 3 &&
             handle.width > 0 &&
             handle.height > handle.width &&
+            playerSize.width === handle.width &&
+            playerSize.height === handle.height &&
             handle.presentationMesh === null &&
             handle.sprite.manager.layerMask !== 0,
           "組込みCharacter表示の状態または寸法が不正です。"
@@ -128,6 +144,12 @@ export const runCharacterVisualTests = async (): Promise<
         } catch {
           unknownActorRejected = true;
         }
+        let unknownActorSizeRejected = false;
+        try {
+          runtime.getActorVisualSize("unknown");
+        } catch {
+          unknownActorSizeRejected = true;
+        }
         handle.dispose();
         let duplicateDisposeRejected = false;
         try {
@@ -136,10 +158,12 @@ export const runCharacterVisualTests = async (): Promise<
           duplicateDisposeRejected = true;
         }
         assert(
-          unknownActorRejected && duplicateDisposeRejected,
-          "未割当actorまたはSprite二重破棄が拒否されません。"
+          unknownActorRejected &&
+            unknownActorSizeRejected &&
+            duplicateDisposeRejected,
+          "未割当actorの生成・寸法取得またはSprite二重破棄が拒否されません。"
         );
-        return "Sprite描画、default状態、未割当actor、Sprite二重破棄を検証";
+        return "Sprite描画、actor寸法取得、未割当actor、二重破棄を検証";
       } finally {
         runtime.dispose();
         scene.dispose();
@@ -157,6 +181,11 @@ export const runCharacterVisualTests = async (): Promise<
             actorId: "player",
             voiceProfileId: "01",
             portraitDirectory: V2_DEFAULT_PORTRAIT_DIRECTORY
+          }),
+          Object.freeze({
+            actorId: "npc-001",
+            voiceProfileId: "02",
+            portraitDirectory: V2_DEFAULT_PORTRAIT_DIRECTORY
           })
         ])
       });
@@ -164,14 +193,26 @@ export const runCharacterVisualTests = async (): Promise<
       try {
         const first = runtime.createSprite("player", "fixture-upright-first");
         const second = runtime.createSprite("player", "fixture-upright-second");
+        const npc = runtime.createSprite("npc-001", "fixture-upright-npc");
         const firstMesh = first.presentationMesh;
         const secondMesh = second.presentationMesh;
+        const npcMesh = npc.presentationMesh;
         assert(
           firstMesh !== null &&
             secondMesh !== null &&
+            npcMesh !== null &&
             firstMesh.material === secondMesh.material &&
-            first.sprite.manager.layerMask === 0,
-          "upright Planeまたは共有Materialが作成されません。"
+            firstMesh.material === npcMesh.material &&
+            first.sprite.manager.layerMask === 0 &&
+            npcMesh.alphaIndex ===
+              V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER &&
+            firstMesh.alphaIndex ===
+              V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER &&
+            V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER <
+              V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+            V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT <
+              V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER,
+          "upright Plane、共有Materialまたは透明描画順が不正です。"
         );
 
         runtime.setFacingYaw(Math.PI / 3);
@@ -219,10 +260,12 @@ export const runCharacterVisualTests = async (): Promise<
         runtime.dispose();
         runtimeDisposed = true;
         assert(
-          secondMesh.isDisposed() && !scene.materials.includes(sharedMaterial),
+          secondMesh.isDisposed() &&
+            npcMesh.isDisposed() &&
+            !scene.materials.includes(sharedMaterial),
           "Runtime破棄で残存Planeと共有Materialが破棄されません。"
         );
-        return "SpriteManager描画を隠し、world-up Planeを共有Materialで同期・破棄";
+        return "world-up Planeを共有し、NPC < effect < player順で同期・破棄";
       } finally {
         if (!runtimeDisposed) {
           runtime.dispose();

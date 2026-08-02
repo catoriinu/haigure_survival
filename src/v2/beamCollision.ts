@@ -19,6 +19,7 @@ import type {
   V2BeamTargetPolicy,
   V2HumanTargetSnapshot
 } from "./combatTypes";
+import { V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT } from "./v2TransparentRenderingOrder";
 
 export const V2_NORMAL_BEAM_MAX_BODY_LENGTH = 0.75;
 export const V2_WORLD_BOUNDARY_FADE_DURATION_SECONDS = 0.2;
@@ -812,6 +813,7 @@ const createBeamVisualPool = (scene: Scene): BeamVisualPool => {
     source.material = material;
     source.isPickable = false;
     source.isVisible = false;
+    source.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT;
     buckets[kind] = {
       source,
       available: [],
@@ -841,6 +843,7 @@ const createBeamVisualPool = (scene: Scene): BeamVisualPool => {
       mesh.instancedBuffers.instanceColor = new Color4(1, 1, 1, 1);
       mesh.isPickable = false;
       mesh.isVisible = true;
+      mesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT;
       mesh.setEnabled(true);
       return mesh;
     },

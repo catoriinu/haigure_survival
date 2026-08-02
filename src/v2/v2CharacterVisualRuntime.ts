@@ -17,11 +17,16 @@ import {
   CHARACTER_SPRITE_IMAGE_WIDTH,
   createDefaultCharacterSpritesheet,
 } from "../game/characterSprites";
+import { BLENDER_METERS_TO_WORLD_UNITS } from "../world/worldUnits";
 import type { V2CharacterState } from "./combatTypes";
 import {
   V2_DEFAULT_PORTRAIT_DIRECTORY,
   type V2CharacterAssignments,
 } from "./v2CharacterAssignments";
+import {
+  V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER,
+  V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER,
+} from "./v2TransparentRenderingOrder";
 
 export const V2_PORTRAIT_IMAGE_BASE_NAMES = Object.freeze([
   "normal",
@@ -53,7 +58,13 @@ export type V2CharacterVisualOrientationMode =
   | "camera-facing";
 
 export const V2_CHARACTER_VISUAL_MAX_WIDTH = 1 / 3;
-export const V2_CHARACTER_VISUAL_MAX_HEIGHT = 2 / 3;
+export const V2_CHARACTER_VISUAL_MAX_HEIGHT =
+  1.7 * BLENDER_METERS_TO_WORLD_UNITS;
+
+export type V2CharacterVisualSize = Readonly<{
+  width: number;
+  height: number;
+}>;
 
 export type V2CharacterVisualSpriteHandle = Readonly<{
   sprite: Sprite;
@@ -68,6 +79,7 @@ export type V2CharacterVisualSpriteHandle = Readonly<{
 export type V2CharacterVisualRuntime = Readonly<{
   orientationMode: V2CharacterVisualOrientationMode;
   setFacingYaw(yaw: number): void;
+  getActorVisualSize(actorId: string): V2CharacterVisualSize;
   createSprite(
     actorId: string,
     instanceName: string,
@@ -198,7 +210,7 @@ export const resolveV2PortraitFiles = (
 export const calculateV2CharacterVisualSize = (
   imageWidth: number,
   imageHeight: number,
-): Readonly<{ width: number; height: number }> => {
+): V2CharacterVisualSize => {
   if (!Number.isFinite(imageWidth) || imageWidth <= 0) {
     throw new Error(
       `V2 Character画像の幅には正の有限値が必要です: ${imageWidth}`,
@@ -443,6 +455,7 @@ const createPresentationMaterial = (
 };
 
 const createPresentation = (
+  actorId: string,
   instanceName: string,
   material: StandardMaterial,
   frameCount: number,
@@ -454,6 +467,10 @@ const createPresentation = (
     scene,
   );
   mesh.material = material;
+  mesh.alphaIndex =
+    actorId === V2_CHARACTER_VISUAL_PLAYER_ACTOR_ID
+      ? V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER
+      : V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER;
   mesh.isPickable = false;
   mesh.isVisible = false;
   mesh.hasVertexAlpha = true;
@@ -638,6 +655,20 @@ export const createV2CharacterVisualRuntime = async ({
     spriteRecords.delete(record);
   };
 
+  const getActorManagerResource = (
+    actorId: string,
+  ): V2CharacterVisualManagerResource => {
+    const assignment = assignmentsByActorId.get(actorId);
+    if (assignment === undefined) {
+      throw new Error(
+        `V2 Character表示にactor割当がありません: ${actorId}`,
+      );
+    }
+    return managerResources.get(
+      assignment.portraitDirectory,
+    ) as V2CharacterVisualManagerResource;
+  };
+
   return Object.freeze({
     orientationMode,
     setFacingYaw: (yaw) => {
@@ -654,23 +685,23 @@ export const createV2CharacterVisualRuntime = async ({
         }
       }
     },
+    getActorVisualSize: (actorId) => {
+      assertActive();
+      const managerResource = getActorManagerResource(actorId);
+      return Object.freeze({
+        width: managerResource.sheet.width,
+        height: managerResource.sheet.height,
+      });
+    },
     createSprite: (actorId, instanceName) => {
       assertActive();
       if (instanceName.length === 0) {
         throw new Error("V2 Character表示Spriteのinstance nameが空です。");
       }
-      const assignment = assignmentsByActorId.get(actorId);
-      if (assignment === undefined) {
-        throw new Error(
-          `V2 Character表示にactor割当がありません: ${actorId}`,
-        );
-      }
-      const managerResource = managerResources.get(
-        assignment.portraitDirectory,
-      ) as V2CharacterVisualManagerResource;
+      const managerResource = getActorManagerResource(actorId);
       if (managerResource.activeSpriteCount >= managerResource.capacity) {
         throw new Error(
-          `V2 Character表示SpriteManagerのcapacityを超えました: ${assignment.portraitDirectory}`,
+          `V2 Character表示SpriteManagerのcapacityを超えました: ${actorId}`,
         );
       }
       const sprite = new Sprite(instanceName, managerResource.manager);
@@ -685,6 +716,7 @@ export const createV2CharacterVisualRuntime = async ({
       const presentation =
         orientationMode === "upright"
           ? createPresentation(
+              actorId,
               instanceName,
               managerResource.presentationMaterial as StandardMaterial,
               managerResource.sheet.frameCount,

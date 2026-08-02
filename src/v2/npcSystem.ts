@@ -34,7 +34,6 @@ import {
   type V2AlarmTriggerEvent
 } from "./alarmSystem";
 import {
-  V2_HIT_FADE_DURATION_SECONDS,
   createV2CharacterStateSystem,
   type V2CharacterImpactSource,
   type V2CharacterStateSnapshot,
@@ -5698,11 +5697,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       snapshot.state,
       npc.command.temporaryGunActive
     );
-    npc.sprite.color.a =
-      snapshot.hitPhase === "fade"
-        ? snapshot.hitPhaseRemainingSeconds /
-          V2_HIT_FADE_DURATION_SECONDS
-        : 1;
+    npc.sprite.color.a = 1;
     npc.visual.syncPresentation();
   }
 

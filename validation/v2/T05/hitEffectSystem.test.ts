@@ -18,6 +18,7 @@ import type {
 } from "../../../src/v2/combatTypes";
 import {
   createV2HitEffectSystem,
+  type V2HitEffectVisualEnvelope,
   V2_HIT_EFFECT_ALPHA,
   V2_HIT_EFFECT_CYAN,
   V2_HIT_EFFECT_LIGHT_IDLE_RANGE,
@@ -25,6 +26,7 @@ import {
   V2_HIT_EFFECT_LIGHT_SLOT_COUNT,
   V2_HIT_EFFECT_PINK
 } from "../../../src/v2/hitEffectSystem";
+import { V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT } from "../../../src/v2/v2TransparentRenderingOrder";
 
 export type HitEffectSystemTestResult = Readonly<{
   name: string;
@@ -93,6 +95,15 @@ const createTarget = (
   });
 };
 
+const resolveHitShapeVisualEnvelope = (
+  target: V2HumanTargetSnapshot
+): V2HitEffectVisualEnvelope =>
+  Object.freeze({
+    center: target.hitShape.center.clone(),
+    width: target.hitShape.radii.x * 2,
+    height: target.hitShape.radii.y * 2
+  });
+
 export const runHitEffectSystemTests =
   (): readonly HitEffectSystemTestResult[] => {
     const results: HitEffectSystemTestResult[] = [];
@@ -112,7 +123,8 @@ export const runHitEffectSystemTests =
           const system = createV2HitEffectSystem({
             scene,
             random: () => 0.5,
-            isIndirectLightVisible: () => true
+            isIndirectLightVisible: () => true,
+            resolveVisualEnvelope: resolveHitShapeVisualEnvelope
           });
           try {
             const normalTarget = createTarget(
@@ -146,6 +158,8 @@ export const runHitEffectSystemTests =
               started &&
               duplicateRejected &&
               shell?.isEnabled() === true &&
+              shell.alphaIndex ===
+                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
               approximately(shell.scaling.x, expectedDiameter) &&
               approximately(material?.alpha ?? -1, V2_HIT_EFFECT_ALPHA) &&
               material?.backFaceCulling === false &&
@@ -184,10 +198,14 @@ export const runHitEffectSystemTests =
               fadeStart.orb.inUse === 13 &&
               orbSource?.isVisible === false &&
               orbSource.isEnabled() &&
+              orbSource.alphaIndex ===
+                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
               activePlayerOrbs.length === 13 &&
               activePlayerOrbs.every(
                 (mesh) =>
                   mesh.isVisible &&
+                  mesh.alphaIndex ===
+                    V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
                   approximately(mesh.scaling.x, 0.04)
               );
             system.update(0.5, [hitTarget], () => true);
@@ -246,7 +264,8 @@ export const runHitEffectSystemTests =
           const system = createV2HitEffectSystem({
             scene,
             random: () => 0.5,
-            isIndirectLightVisible: () => true
+            isIndirectLightVisible: () => true,
+            resolveVisualEnvelope: resolveHitShapeVisualEnvelope
           });
           try {
             const first = createTarget("npc-1", "npc", "hit-a");
@@ -266,11 +285,13 @@ export const runHitEffectSystemTests =
                   mesh.name.startsWith("v2-hit-effect-shell-") &&
                   mesh.name !== "v2-hit-effect-shell-source"
               )
-              .every(
-                (mesh) =>
-                  (mesh.material as StandardMaterial)
-                    .backFaceCulling === true
-              );
+                .every(
+                  (mesh) =>
+                    mesh.alphaIndex ===
+                      V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+                    (mesh.material as StandardMaterial)
+                      .backFaceCulling === true
+                );
             const npcOrbProfile =
               highWater.orb.inUse === 26 &&
               scene.meshes
@@ -280,7 +301,12 @@ export const runHitEffectSystemTests =
                     mesh.name.startsWith("v2-hit-effect-orb-") &&
                     mesh.isEnabled()
                 )
-                .every((mesh) => approximately(mesh.scaling.x, 0.02));
+                .every(
+                  (mesh) =>
+                    mesh.alphaIndex ===
+                      V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+                    approximately(mesh.scaling.x, 0.02)
+                );
             const meshCountAtHighWater = scene.meshes.length;
             const materialCountAtHighWater = scene.materials.length;
             const lightCountAtHighWater = scene.lights.length;
@@ -330,13 +356,22 @@ export const runHitEffectSystemTests =
           const scene = new Scene(engine);
           let indirectLightVisible = true;
           const checkedPositions: Vector3[] = [];
+          let visualCenter = new Vector3(4, 5, 6);
+          let visualWidth = 0.3;
+          let visualHeight = 0.6;
           const system = createV2HitEffectSystem({
             scene,
             random: () => 0.5,
             isIndirectLightVisible: (position) => {
               checkedPositions.push(position.clone());
               return indirectLightVisible;
-            }
+            },
+            resolveVisualEnvelope: () =>
+              Object.freeze({
+                center: visualCenter.clone(),
+                width: visualWidth,
+                height: visualHeight
+              })
           });
           try {
             const npc = createTarget("npc", "npc", "hit-a");
@@ -355,9 +390,16 @@ export const runHitEffectSystemTests =
               | undefined;
             const light = scene.getLightByName(
               "v2-hit-effect-light-1"
-            );
+            ) as PointLight | null;
             const firstNpcProfile =
               material?.backFaceCulling === true &&
+              shell?.alphaIndex ===
+                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+              shell.position.equals(visualCenter) &&
+              approximately(
+                shell.scaling.x,
+                Math.hypot(visualWidth, visualHeight) * 1.05
+              ) &&
               approximately(
                 light?.intensity ?? -1,
                 V2_HIT_EFFECT_LIGHT_INTENSITY
@@ -367,6 +409,8 @@ export const runHitEffectSystemTests =
             system.start(player);
             const playerProfile =
               material?.backFaceCulling === false &&
+              shell?.alphaIndex ===
+                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
               approximately(
                 light?.intensity ?? -1,
                 V2_HIT_EFFECT_LIGHT_INTENSITY
@@ -385,18 +429,24 @@ export const runHitEffectSystemTests =
               );
 
             indirectLightVisible = true;
+            visualCenter = new Vector3(7, 8, 9);
+            visualWidth = 0.5;
+            visualHeight = 0.9;
             system.update(0, [npc], () => true);
             const visibleFlicker =
+              shell?.position.equals(visualCenter) === true &&
+              approximately(
+                shell.scaling.x,
+                Math.hypot(visualWidth, visualHeight) * 1.05
+              ) &&
+              light?.position.equals(visualCenter) === true &&
               approximately(
                 light?.intensity ?? -1,
                 V2_HIT_EFFECT_LIGHT_INTENSITY
               ) &&
               approximately(
                 light?.range ?? -1,
-                Math.hypot(
-                  npc.hitShape.radii.x * 2,
-                  npc.hitShape.radii.y * 2
-                ) *
+                Math.hypot(visualWidth, visualHeight) *
                   1.05 *
                   1.2
               );
@@ -426,7 +476,7 @@ export const runHitEffectSystemTests =
             const positionsMatch =
               checkedPositions.length >= 7 &&
               latestPosition !== undefined &&
-              latestPosition.equals(npc.hitShape.center);
+              latestPosition.equals(visualCenter);
 
             return {
               ok:
@@ -471,7 +521,8 @@ export const runHitEffectSystemTests =
           const system = createV2HitEffectSystem({
             scene,
             random: () => 0.5,
-            isIndirectLightVisible: () => true
+            isIndirectLightVisible: () => true,
+            resolveVisualEnvelope: resolveHitShapeVisualEnvelope
           });
           const baselineSceneLights = [...scene.lights];
           const baselineStageLightSources = [...stageMesh.lightSources];
@@ -618,7 +669,8 @@ export const runHitEffectSystemTests =
           const system = createV2HitEffectSystem({
             scene,
             random: () => 0.5,
-            isIndirectLightVisible: () => true
+            isIndirectLightVisible: () => true,
+            resolveVisualEnvelope: resolveHitShapeVisualEnvelope
           });
           try {
             const hitTarget = createTarget("npc", "npc", "hit-a");
@@ -655,6 +707,96 @@ export const runHitEffectSystemTests =
           }
         }
       )
+    );
+
+    results.push(
+      executeTest("表示包絡callbackとcenter・width・heightを厳格検証する", () => {
+        const engine = new NullEngine();
+        const scene = new Scene(engine);
+        let missingResolverRejected = false;
+        try {
+          createV2HitEffectSystem({
+            scene,
+            random: () => 0.5,
+            isIndirectLightVisible: () => true
+          } as unknown as Parameters<typeof createV2HitEffectSystem>[0]);
+        } catch {
+          missingResolverRejected = true;
+        }
+
+        let visualEnvelope = Object.freeze({
+          center: new Vector3(4, 5, 6),
+          width: 0.3,
+          height: 0.6
+        }) as V2HitEffectVisualEnvelope;
+        const system = createV2HitEffectSystem({
+          scene,
+          random: () => 0.5,
+          isIndirectLightVisible: () => true,
+          resolveVisualEnvelope: () => visualEnvelope
+        });
+        try {
+          const target = createTarget("npc", "npc", "hit-a");
+          const invalidEnvelopes: unknown[] = [
+            null,
+            Object.freeze({ center: { x: 1, y: 2, z: 3 }, width: 1, height: 1 }),
+            Object.freeze({
+              center: new Vector3(Number.NaN, 2, 3),
+              width: 1,
+              height: 1
+            }),
+            Object.freeze({ center: new Vector3(1, 2, 3), width: 0, height: 1 }),
+            Object.freeze({
+              center: new Vector3(1, 2, 3),
+              width: 1,
+              height: Number.POSITIVE_INFINITY
+            })
+          ];
+          let invalidStartRejections = 0;
+          for (const invalidEnvelope of invalidEnvelopes) {
+            visualEnvelope = invalidEnvelope as V2HitEffectVisualEnvelope;
+            try {
+              system.start(target);
+            } catch {
+              invalidStartRejections += 1;
+            }
+          }
+
+          visualEnvelope = Object.freeze({
+            center: new Vector3(4, 5, 6),
+            width: 0.3,
+            height: 0.6
+          });
+          const validStarted = system.start(target);
+          visualEnvelope = Object.freeze({
+            center: new Vector3(4, 5, 6),
+            width: 0.3,
+            height: 0
+          });
+          let invalidUpdateRejected = false;
+          try {
+            system.update(0, [target], () => true);
+          } catch {
+            invalidUpdateRejected = true;
+          }
+          system.clear();
+          return {
+            ok:
+              missingResolverRejected &&
+              invalidStartRejections === invalidEnvelopes.length &&
+              validStarted &&
+              invalidUpdateRejected,
+            detail:
+              `missing=${missingResolverRejected} / ` +
+              `start=${invalidStartRejections}/${invalidEnvelopes.length} / ` +
+              `update=${invalidUpdateRejected}`
+          };
+        } finally {
+          system.dispose();
+          scene.dispose();
+          engine.dispose();
+        }
+      })
     );
 
     return Object.freeze(results);

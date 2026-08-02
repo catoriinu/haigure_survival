@@ -126,6 +126,22 @@
 - 既定は地面へ垂直なPlane表示とし、カメラpitchを追従させず、安定した水平yawだけを追従する。上下角度を含めて常に正面を向く従来のBabylon Sprite表示も設定で選択可能なまま維持する。
 - プレイヤーの一人称自画像は、55度以上の下向きで足元へ段階的に現れる現行条件を維持し、地面垂直表示では下半身を透視投影の自然な角度で描画する。真下付近でも水平向きが失われない安定yawを使用する。
 
+### 2026-08-02 Character実寸・ビーム描画順・命中フェード修正指示
+
+> ビーム命中時、NPCのCharacter画像がビームや命中光よりカメラ手前へ描画される。プレイヤーは現状のままでよいが、NPCは極端な近距離を除き、Character画像の周囲に発射中のビーム、残光、命中光球が見える描画へ修正する。
+>
+> 命中光球をCharacter画像の大きさに合わせて可変にできるなら、画像全体を包む大きさへ変更する。
+>
+> `hit-a`／`hit-b`の点滅終了後、命中光球がフェードアウトする時に`hit-a`のCharacter画像まで一瞬消える。光球だけをフェードさせ、Character画像は消さない。
+>
+> 学校の扉付き出入口と現在のCharacter画像を実寸比較し、背の高いCharacterでも160～170cm程度にする。現在が大きすぎる場合は、最大1m×2m相当の枠を90cm×180cm相当へ下げる案など、学校尺度に合う値へ調整する。
+
+- 学校は`1 Blender m = 0.25 world unit`で、教室引き戸・通常出入口は高さ2.30m、体育館系は2.40m、トイレ個室扉は1.80mである。現行portraitの非透明表示高は約1.59～1.92m、組込みdefaultは2.67mであり、希望上限1.70mに対して大きすぎる。
+- 0.9m×1.8mを学校尺度へそのまま変換するとportraitの横幅制限が先に効いて非透明表示高が約1.07～1.30mまで縮むため採用しない。表示上限高を明示的な1.70mへ変更し、現行portraitを約1.51～1.70m、組込みdefaultを1.70mへ揃える。表示寸法は衝突・照準寸法から独立したまま維持する。
+- 同じrendering groupとdepth testを維持したまま、透明描画の`alphaIndex`をNPC Character、ビーム／残光／命中演出、プレイヤーCharacterの順へ明示する。group分離やdepth clearは追加しない。
+- V1最終契約と同じく、命中光球は対象Character表示の幅・高さの対角径へmarginを掛け、表示中心へ追従する。衝突ellipsoidは変更しない。
+- NPC Characterのalphaは命中光球のfade進捗から分離して常時1とし、状態cellだけを`hit-a`へ維持する。
+
 ## 目的
 
 既に実装済みの入力・状態・NPC指示・扉・学校動的Runtime APIを、学校バイナリへ触れず通常ゲーム入口へ接続する。F／E／C・G／N／H、候補表示、既定荒れ状態2、音声、水中速度50%、開始・破棄ライフサイクルを実プレイで成立させる。
@@ -262,6 +278,16 @@
 - [x] T06 fixture、関連T04／T05回帰、型検査、build、通常Web、Electronでサイズ・2mode・足元表示・console・資源破棄を検証する
 - [x] 実装結果と証跡を本計画へ記録し、対象差分だけをローカルcommitする。push・Pull Request更新は別途指示があるまで行わない
 
+### 2026-08-02 Character実寸・ビーム描画順・命中フェード修正
+
+- [x] 学校GLB・生成正本・単位変換とportrait 17件のalpha境界を読み取り専用監査し、扉高、現行表示高、候補上限を実寸比較する
+- [x] Character表示上限高を1.70mへ変更し、portraitと組込みdefaultを衝突・照準寸法から独立して縮小する
+- [x] NPC Character、ビーム／残光／命中演出、プレイヤーCharacterの透明描画順を`alphaIndex`で固定し、既存depth testを維持する
+- [x] Character Runtimeからactor別表示寸法を取得し、命中光球を表示中心・表示矩形の対角径へ追従させる
+- [x] `hit-a` fade中もNPC Characterのalphaを1に維持し、光球・orb・PointLightだけをfadeさせる
+- [x] T05／T06 fixture、全typecheck／build、通常Web、Electronで実寸、前後関係、光球包含、fade、近距離、player維持、console・資源破棄を検証する
+- [x] 実装結果と証跡を本計画へ記録し、対象差分だけをローカルcommitする。push・Pull Request更新は別途指示があるまで行わない
+
 ## 完了条件
 
 - 通常ゲームでF／E／C・G／N／Hと候補表示が既存Runtime APIを通して動作する。
@@ -276,7 +302,7 @@
 - NPCは状態連動Character billboard、プレイヤーは下向き時の一人称足元表示を持ち、session再生成・破棄後に描画資源が残留しない。
 - F／E／C成功時の対象別色を維持しつつ、入力成功が明確に分かる強い発光を再生する。拒否、busy、同状態、候補なしでは発光しない。
 - 公開処刑中に`executionPlayerRole === "shooter"`なら通常Character状態にかかわらず照準と左クリック案内が表示され、観客・処刑対象・完了後には表示されない。
-- Character画像は元画像比率を維持して幅`1/3`・高さ`2/3 world unit`以内へ収まり、衝突・照準サイズへ影響しない。
+- Character画像は元画像比率を維持して幅`1/3 world unit`・高さ`1.70m`以内へ収まり、衝突・照準サイズへ影響しない。
 - 地面垂直表示を既定とし、NPCとプレイヤー画像はカメラの水平yawだけを安定して追従する。常時正面表示へ切り替えても状態・割当・破棄契約を維持する。
 - プレイヤーが55度以上足元を見た場合、地面垂直表示の下半身が自然な透視角で現れ、真下付近でも向き反転・消失を起こさない。
 
@@ -434,7 +460,7 @@ F／E／C成功時の180ms Feedbackは対象別色を維持したまま、中間
 
 ### 2026-08-02 Character表示サイズ・縦角度修正結果
 
-Character画像の表示寸法を衝突・照準寸法から分離し、元画像の縦横比を保ったまま幅`1/3`・高さ`2/3 world unit`へ収めるV1最終式へ戻した。従来の幅`0.2`基準と比べ、実画像の縦横比に応じて約1.57～1.67倍の表示となる。`NPC_SPRITE_WIDTH`／`NPC_SPRITE_HEIGHT`など既存の衝突・照準契約は変更していない。
+この時点ではCharacter画像の表示寸法を衝突・照準寸法から分離し、元画像の縦横比を保ったまま幅`1/3`・高さ`2/3 world unit`へ収めるV1最終式へ戻した。後続の実寸監査に基づく最大高`1.70m`への再調整は次節を正とする。`NPC_SPRITE_WIDTH`／`NPC_SPRITE_HEIGHT`など既存の衝突・照準契約は変更していない。
 
 タイトルのPLAYER SETTINGSへ「キャラ画像を地面に垂直表示」を追加し、既定値を有効にした。設定は既存のCharacter設定rootへ保存し、未設定の既存データだけを有効へ一度正規化する。保存済みの無効値、音量、未知fieldは保持する。無効にした場合は従来のカメラ上下角も含めて常時正面を向くSprite表示へ切り替わり、設定変更時のsession再生成後も同じCharacter割当を使う。
 
@@ -449,5 +475,25 @@ Character画像の表示寸法を衝突・照準寸法から分離し、元画�
 - 通常Webは17種類の実Character画像が拡大表示されること、地面垂直表示の既定ON、OFF時の従来表示、ONへの復帰とsession再生成を確認した。最終保存状態は地面垂直表示ONである。
 - Character表示専用Electron受入は、既定ON、Canvas Pointer Lock、正面表示、90度真下でのプレイヤー下半身表示をPASSし、console、renderer、load、render process消失、unresponsiveはすべて0件だった。通常Electron受入も全項目PASSし、音声resource失敗と各診断は0件だった。
 - `typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t04`、`build:t05`、`build:t06`、通常`build`はすべてPASSした。`git diff --check`、Electron harness構文、UTF-8 BOMなし、ローカル絶対パスなし、括弧・構文、禁止所有ファイル差分なしを確認した。学校Blender正本、GLB、生成器、全NavMesh、カタログhash、`src/world/**`、画像・音声バイナリは変更していない。
+
+今回の追加差分はローカルcommitまでを対象とし、push、Draft Pull Request #64更新、レビュー、merge、`develop`同期、worktree整理は行わない。通常プレイ用の`http://127.0.0.1:5175/`は継続起動する。
+
+### 2026-08-02 Character実寸・ビーム描画順・命中フェード修正結果
+
+学校の正本単位、生成器、配布GLBを読み取り専用で照合し、`1 Blender unit = 1m`、通常Runtimeの`1m = 0.25 world unit`を確認した。教室引き戸は高さ2.30m、トイレ個室扉は1.80mである。ローカル配布済みportrait 17件のalpha境界も実測し、Character表示の最大高を従来の`2/3 world unit`から厳密な`1.70m`へ変更した。幅上限`1/3 world unit`と元画像比率は維持し、一般portraitの実表示高は約1.51～1.70m、組込みdefaultは1.70mとなる。衝突、照準、移動Ellipsoidは変更していない。
+
+地面垂直表示の透明描画順を、同じrendering groupと既存depth testのまま、NPC Character、ビーム／残光／命中演出、プレイヤーCharacterの順へ`alphaIndex`で固定した。これによりNPCは前面にある光を上書きせず、実際にNPCより後方にある光や遮蔽物は従来どおりdepth testで隠れる。プレイヤーCharacterは従来どおり光の内側から見える順序を維持する。camera-facing modeのSpriteManager契約、rendering group、depth clearは変更していない。
+
+Character Runtimeへactor別の実表示幅・高さを返す必須APIを追加した。命中光球は衝突Ellipsoidではなく、対象の足元と実表示高から得る表示中心へ置き、直径を`hypot(width, height) * 1.05`として画像矩形全体を包むようにした。対象の移動や表示寸法へ毎frame追従し、PointLightの位置・rangeとfade orbの開始面も同じ包絡へ同期する。NPCは球の外側から前面だけを見る設定、プレイヤーは球の内側からも見える設定を維持した。
+
+`hit-a`／`hit-b`後の命中光fade中にNPC Characterまで透明化していた直接代入を削除し、NPC Character alphaを常時1に維持した。fadeするのは命中光球、orb、PointLightだけであり、光が消える瞬間もCharacter画像は消えない。
+
+最終検証結果は次のとおり。
+
+- T05実ブラウザfixtureは303／303、T06実ブラウザfixtureは55／55 PASS。actor表示寸法、NPC／effect／playerの順序、sourceとpool再利用instanceの`alphaIndex`、可変表示中心・直径、包絡不正値拒否、fade中のCharacter alpha=1を確認し、fixtureタブのconsole warning／errorは0件だった。
+- `typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t04`、`build:t05`、`build:t06`、通常`build`はすべてPASSした。通常buildには既知のVite chunk-size warningだけがあり、終了codeは0だった。
+- 通常Webで実画像の高さと学校出入口との余裕、NPC、ビーム、残光の前後関係を画面確認した。Codex内蔵ブラウザのPointer Lock要求では環境固有の`WrongDocumentError`が記録されるため、Pointer Lockと診断0件の判定はElectron受入へ分離した。
+- Character表示専用Electron受入は既定の地面垂直表示、Canvas Pointer Lock、正面表示、真下のプレイヤー下半身表示をPASSした。通常Electron受入は`normal`から`hit-a`／`hit-b`を経て洗脳進行へ移る実経路、G→N→H→G、gun射撃、Enter復帰、再開始をPASSし、console、renderer、load、render process消失、unresponsiveはすべて0件だった。
+- 学校Blender正本、GLB、生成器、全NavMesh、カタログhash、`src/world/**`、画像・音声バイナリは変更していない。
 
 今回の追加差分はローカルcommitまでを対象とし、push、Draft Pull Request #64更新、レビュー、merge、`develop`同期、worktree整理は行わない。通常プレイ用の`http://127.0.0.1:5175/`は継続起動する。

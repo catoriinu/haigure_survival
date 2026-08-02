@@ -1358,8 +1358,8 @@ const testScriptedExecutionAndFade = async () => {
       EMPTY_ALARM_TARGET_EVENTS
     );
     assert(
-      Math.abs(fixture.getSpriteAlpha("npc_1") - 0.5) < 0.000001,
-      "fade中間時のNPC alphaが0.5ではありません。"
+      fixture.getSpriteAlpha("npc_1") === 1,
+      "fade中間時にNPC Characterまで透明化されました。"
     );
     fixture.system.update(
       V2_HIT_FADE_DURATION_SECONDS * 0.5,
@@ -1370,7 +1370,7 @@ const testScriptedExecutionAndFade = async () => {
       fixture.getSpriteAlpha("npc_1") === 1,
       "fade以外のNPC alphaが1へ復帰しません。"
     );
-    return "hit観客・射手正規化、alive誤用拒否、fade alpha=1→0→1";
+    return "hit観客・射手正規化、alive誤用拒否、命中光fade中もCharacter alpha=1";
   } finally {
     fixture.dispose();
   }
