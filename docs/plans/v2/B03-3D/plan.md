@@ -110,7 +110,7 @@ PR #60で確定した通常版配置を保護基準とし、普通教室9室と�
 - [x] 通常版と荒れ版0／2／10、代表経路、扉・エレベーター、NPC／BIT、視線・ビームをfixture、実ブラウザ、Electronで回帰する
 - [x] 結果を本計画へ記録し、実装・検証・commitまで行う。push、Pull Request作成、レビュー、merge、worktree整理は別の明示許可とする
 - [x] PR #65の未解決インライン指摘3件について、既存回転を反映したpivot、倒れた机に属する机上小物、転倒PCタワー席の入力機器を修正し、正本・派生物・関連検証を更新する
-- [ ] インライン対応結果をcommitして同じPRへpushし、各スレッドへ修正内容と検証結果を返信する。スレッド解決とmergeは行わない
+- [x] インライン対応結果をcommitして同じPRへpushし、各スレッドへ修正内容と検証結果を返信する。スレッド解決とmergeは行わない
 
 ## 完了条件
 
@@ -214,3 +214,5 @@ LL教室の荒れ版は、案2「室内で強い混乱」で承認済みとす�
 PR #65の未解決P2インライン指摘3件を確認し、すべて妥当と判断した。空overrideのtarget pivotは、未回転のlocal pivotを単純加算せず、既存のZ回転を掛けたworld位置から差分回転するよう修正した。普通教室Bでは小物種別のoccurrenceを交互に選ぶ方式を廃止し、机上高と最寄り机から所有関係を決定して、倒れた机1・18・22・26番に属するOpenBook 2点、ClosedBook 1点、SinglePaper 1点を各机の移動先付近の床へ散乱させた。PC室では転倒PCタワー2・9・14番席に対応するKeyboardMouseも床へ散乱させた。
 
 Blender対象チェックでは空overrideと通常配置行列の最大誤差`1.75e-7`、机上小物4点の所有机、PCタワー3席のKeyboardMouse overrideを確認した。正本とGLBは2回生成でbytes／SHA-256が一致し、Room Variant／BIT NavMeshの`--check`もPASSした。学校architecture、interiors、interactive assets、protected contract、B04 world boundary、generator refactorの各監査、比較画像25枚の再生成・代表4室の目視、通常build、T02／T04／T05 buildはPASSした。Electron実学校動的統合fixtureは67/67、renderer diagnostics 0件でPASSした。
+
+修正commit `8ee9914`をPR #65のbranchへpushし、3件の元スレッドへ修正内容・対象チェック・資産監査・build・Electron結果を個別に返信した。再取得時点で全3スレッドは返信2件ずつを持ち、`isResolved=false`のままである。既存行の更新により2件は`isOutdated=true`となったが、outdatedを解決済みの代用にはしていない。スレッド解決、merge、T06-1 worktreeの変更は実施していない。
