@@ -63,6 +63,22 @@
 > - BGM／SE／VOICEの既定音量はすべて0のままとする。
 > - 実装は計画、命中音、取っ手操作、トイレ閉鎖、Follower、NPC自律回避、最終結果にcommitを分ける。全検証後にpushし、Draft PR #64を更新する。レビュー、merge、`develop`同期、worktree整理は行わない。
 
+### 2026-08-02 T06-1追補・B03-3D資産連携・v2.0前機能拡張指示
+
+> PLEASE IMPLEMENT THIS PLAN:
+>
+> - Runtime修正は既存worktree・branch・Draft PR #64を継続する。トイレ内側ノブだけは学校資産の単一所有を守り、B03-3D branchで実装してT06-2統合時に通常ゲームへ入れる。
+> - NPCの自律閉扉は実装済みの全陣営共通・通過後30%閉鎖・後続通過者がいる間は閉めない仕様を維持する。BGM／SE／VOICEのテスト用既定音量は0を維持する。
+> - 移動中のNPC同士は重なってよい。停止時は同じ階・Navigation Area内のプレイヤーおよび停止NPCから水平0.8m以上離れた安定Rest Slotを選ぶ。gun NPCは0.8m未満まで自ら接近せず、0.8m停止／1.0m再移動とする。
+> - gun／no-gun洗脳済みNPCが標的を失った場合は既存Wander相当の探索へ戻し、haigure、formation、捕獲・公開処刑中は停止を維持する。
+> - プレイヤーのエレベーター呼出・予約・乗車・目的階snapshotを毎frame NPCへ渡す。Followerは同じ便を優先し、満員・乗り遅れでもFollowを解除せず次便または別経路で追う。既知の搬送追跡中は5秒見失いタイマーを停止する。未洗脳Followerの陣営安全判定は維持する。
+> - Follower同期射撃は1人1本のまま、個体・射撃ごとにyaw／pitchをそれぞれ一様分布の±3度で独立にずらす。0.3～0.8秒遅延と0.6秒Cooldownは維持する。
+> - `V2PlayerAction`へ`retry`を追加し、KeyRを1回だけdrainする。通常ゲームのプレイヤー洗脳完了後は同じ設定・seedのsessionを再生成し、`execution-complete`では既存公開処刑をリプレイする。他のphaseでは無効にする。
+> - Alarm追跡速度だけをFollowと同じ0.5へ変更する。Alarm床候補は安定hashで4件中3件を残し、新規追加間隔を5秒から7.5秒へ変更して総合出現量を約半分にする。
+> - T06-1は計画、NPC停止・探索、Followerエレベーター・射撃、R、Alarm、結果にcommitを分け、全検証後にpushしてDraft PR #64を更新する。レビュー、merge、`develop`同期、worktree整理は行わない。
+> - B03-3Dは単一`VIS_DoorPanel_Knob_*` Meshへ廊下側・個室側の球形ノブを生成し、既存Anchor 1件契約を維持する。学校GLB／Blender／hashをT06-1へ混ぜない。
+> - v2.0前の順序を`B03-3D + T06-1 → T06-2 → I2設計 → T06-3 + B05 → T06-4 → T07 → v2.0リリース準備`へ更新する。I2でミニマップとMissionを相談・設計し、T06-3でV1相当ミニマップ、B05で意味付きLocation資産、T06-4でプレイヤー／NPC Mission Runtimeを実装する。
+
 ## 目的
 
 既に実装済みの入力・状態・NPC指示・扉・学校動的Runtime APIを、学校バイナリへ触れず通常ゲーム入口へ接続する。F／E／C・G／N／H、候補表示、既定荒れ状態2、音声、水中速度50%、開始・破棄ライフサイクルを実プレイで成立させる。
@@ -85,7 +101,7 @@
 
 - 主担当: `src/v2/main.ts`、通常ゲーム入口に必要な`src/v2/**`、操作表示・音声接続に必要な`src/ui/**`・`src/audio/**`、T06-1専用fixture・設定、本計画。
 - 通常Runtime回帰修正では、BIT帯内経路cache契約の修正を`src/world/bitFlightNavigation.ts`とT05回帰へ限定する。今回の追加修正では扉Runtime、動的Actor連携、取っ手資産型に必要な`src/world/stageDoorRuntime.ts`、`src/world/schoolStageDynamicRuntime.ts`、`src/world/stageDynamicAssets.ts`だけを追加所有する。
-- 編集禁止: 学校Blender正本、GLB、全NavMesh、学校生成器・監査器、`src/world/stageCatalog.ts`、上記以外の`src/world/**`、B03-3D計画、全体計画。
+- 編集禁止: 学校Blender正本、GLB、全NavMesh、学校生成器・監査器、`src/world/stageCatalog.ts`、上記以外の`src/world/**`、B03-3D計画。今回明示されたv2.0前ロードマップ更新に限り、全体計画・次タスク計画・branch戦略を追加所有する。
 
 ## 実行単位と推奨設定
 
@@ -145,6 +161,20 @@
 - [x] 未洗脳NPCへ12m・左右各95度・3Hzの洗脳状態NPC／BIT視認を追加し、複数脅威から最小距離を最大化する逃走先を選ぶ
 - [x] Audio、T04扉、T05 BIT／NPC、T06、通常Web、Electron、型検査、build、配布テキスト検査を完了する
 - [x] 検証結果を記録し、計画どおり分割commit、push、Draft PR #64更新まで行う
+
+### 2026-08-02 T06-1追補
+
+- [x] T06-1／B03-3Dのbranch、dirty差分、Draft PR #64、未保存Blender、単一資産所有を再監査する
+- [x] 今回の依頼、確定値、Runtime／資産の配送境界を本計画へ記録する
+- [x] 全体計画、次タスク計画、branch戦略へI2、T06-3、B05、T06-4を追加し、T07とv2.0リリース準備の依存を更新する
+- [ ] NPC停止時の安定Rest Slot、gunの0.8m停止／1.0m再移動、洗脳済みgun／no-gunの探索復帰を実装・検証する
+- [ ] プレイヤーのエレベーター搬送snapshot、Followerの同便／次便追跡、搬送中の見失い停止、陣営安全維持を実装・検証する
+- [ ] Follower同期射撃へ個体・射撃ごとのyaw／pitch各±3度を追加し、遅延・Cooldown・1人1本を回帰する
+- [ ] Rの一回drain、通常リトライ、公開処刑リプレイ、対象外phase無効、HUD消去を実装・検証する
+- [ ] Alarm由来速度0.5、候補約75%、追加間隔7.5秒、総量約50%、Follow優先を実装・検証する
+- [ ] NPC通過後30%閉扉、後続待機、room／toilet閉鎖退避、既定音量0を回帰する
+- [ ] T04～T06 fixture、型検査、build、通常Web、Electron、配布テキスト検査を完了する
+- [ ] 実装結果と証跡を記録し、分割commit、push、Draft PR #64更新まで行う
 
 ## 完了条件
 

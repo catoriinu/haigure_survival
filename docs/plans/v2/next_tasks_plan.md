@@ -84,7 +84,16 @@
 - PR #59の実学校動的統合・追跡性能修正、PR #60の通常版教室配置、PR #61の通常テスト人口50／初期洗脳済み10／BIT 20は`origin/develop`の`e8f922d`までに統合済みである。
 - Wave 0Eの統合監査とWave 0Fの人口更新を完了した。Wave 0Gは`e8f922d`から文書専用branch／worktreeで開始し、コード・Blender正本・GLB・NavMesh・既存worktreeを変更しない。
 - 次の並行WaveはB03-3D荒れ版教室配置とT06-1通常ゲームRuntime接続である。B03-3Dだけが学校バイナリと生成器を単一編集し、T06-1は学校バイナリ、カタログhash、`src/world/**`を変更しない。
-- T06-2学校最終統合はB03-3DとT06-1の両Pull Requestが独立レビュー後に`develop`へ統合されてから開始する。T07はT06-2統合後に開始する。
+- T06-2学校最終統合はB03-3DとT06-1の両Pull Requestが独立レビュー後に`develop`へ統合されてから開始する。当時はT07をT06-2直後としていたが、2026-08-02の追加指示でI2、T06-3、B05、T06-4を間へ追加した。
+
+2026-08-02 ミニマップ・Mission追加指示:
+
+> ミニマップとMission機能を両方ともv2.0リリース前へ追加する。ミニマップはV1と同様に画面左上へ現在階の平面図を表示し、近くの階段位置も分かるようにする。Missionは未洗脳プレイヤーの場所移動・Follower獲得、洗脳済みプレイヤーの生存者洗脳、NPC個別Missionを扱う。Locationの区別・表示、Mission内容、確率などは実装前に相談して確定し、最終T07では両機能を有効にして性能・回帰を行う。
+
+- 現行順序を`B03-3D + T06-1 → T06-2 → I2設計 → T06-3 + B05 → T06-4 → T07 → v2.0リリース準備`へ更新する。
+- I2は相談専用で、階別地図、階段表示、意味付きLocation ID／表示名／Volume／Anchor、Mission候補、達成・失敗・再抽選、20秒付与率を確定する。コード・資産は変更しない。
+- T06-3は左上180px円形ミニマップ、B05は承認済みMission Location資産、T06-4はプレイヤー／NPC Mission Runtimeを担当する。
+- Mission優先順位の初期案は`Follow > Alarm > Mission > 自律Evade／Search／Wander`とし、直接危険時の扱い、Mission内容、確率、期限、同時数、対象消失時の処理はI2で確定する。
 
 ## ステップ
 
@@ -116,7 +125,11 @@
 - [ ] B03-3D: 通常版との変更前比較とユーザー承認後、20室の荒れ版配置を学校資産へ実装する
 - [ ] T06-1: 学校バイナリを変更せず、F／E／C・G／N／H、候補表示、既定荒れ状態2、音声、水中、ゲーム進行、資源ライフサイクルを通常ゲームへ接続する
 - [ ] T06-2: B03-3DとT06-1を含む最新`develop`で、複数開始地点、動的出現禁止、NPC／BIT出現Volume、時間増援、V3最終機能ゲートを統合する
-- [ ] T07: 性能、回帰試験、Web・Electron、仕様書を最終化する
+- [ ] I2 ミニマップ・Mission設計: 階別地図、階段表示、Location契約、Mission候補・達成・失敗・再抽選・20秒付与率をユーザー相談で確定する
+- [ ] T06-3 ミニマップ: 左上180px円形Mapへ現在階平面図、プレイヤー、同階NPC／BIT、視野、方角、近隣階段アイコンを表示する
+- [ ] B05 Mission Location資産: 承認済みLocationを意味付きVolume／Anchorとして学校資産へ単一編集する
+- [ ] T06-4 Mission Runtime: プレイヤー／NPC Mission、動的エリア名追従、seed付き20秒scheduler、HUDを実装する
+- [ ] T07: ミニマップとMissionを有効にして性能、回帰試験、Web・Electron、仕様書を最終化する
 - [ ] v2リリース準備: `develop`からリリースブランチを作成し、最終ビルド、バージョン、文書、`main`向けPull Request、リリース後の`develop`同期を完了する
 - [ ] 各タスク完了時に対象個別計画と`docs/plan.md`の結果を更新する
 
@@ -150,8 +163,12 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 | 13A | B03-3D 荒れ版教室配置 | `codex/v2-b03-3-disordered-classrooms` | I1、PR #60 | 学校生成正本、Blender、GLB、3種NavMesh、カタログhash、比較画像 | T06-1と並行可 |
 | 13B | T06-1 通常ゲームRuntime接続 | `codex/v2-t06-runtime-core` | I1、PR #59 | `src/v2/**`中心の入力・UI・音声・水中・ライフサイクル。学校バイナリと`src/world/**`は不変 | B03-3Dと並行可 |
 | 14 | T06-2 学校最終統合 | `codex/v2-t06-school-integration` | B03-3D、T06-1 | 複数開始地点、出現禁止、NPC／BIT出現Volume、時間増援、最終学校E2E | 単独 |
-| 15 | T07 性能・回帰・仕様書 | `codex/v2-t07-regression-docs` | T06-2 | 荒れ状態10、動的扉、エレベーター、無制限Followerを含む99 NPC／50 BIT性能と最終仕様書 | 単独 |
-| 16 | v2リリース準備 | `codex/release-v2.0.0` | T07 | バージョン、リリース文書、最終ビルド、`main`向けPull Request、`develop`再同期 | 単独 |
+| 15 | I2 ミニマップ・Mission設計 | `codex/v2-map-mission-design` | T06-2 | 階別地図、階段、Location契約、Mission候補・状態遷移・20秒付与率のユーザー相談。コード・資産変更なし | 単独 |
+| 16A | T06-3 ミニマップ | `codex/v2-minimap` | I2 | 左上180px円形Map、現在階平面図、プレイヤー、同階NPC／BIT、視野、方角、近隣階段。静的背景を初期化時生成 | B05と並行可 |
+| 16B | B05 Mission Location資産 | `codex/v2-mission-locations` | I2 | 承認済みLocation ID／表示名／Volume／Anchor、学校生成正本・Blender・GLB・NavMesh・hash | T06-3と並行可 |
+| 17 | T06-4 Mission Runtime | `codex/v2-missions` | T06-3、B05 | プレイヤー／NPC Mission、動的エリア名、seed付き20秒scheduler、HUD、優先順位 | 単独 |
+| 18 | T07 性能・回帰・仕様書 | `codex/v2-t07-regression-docs` | T06-4 | ミニマップとMissionを含む99 NPC／50 BIT性能、Web／Electron最終回帰、最終仕様書 | 単独 |
+| 19 | v2リリース準備 | `codex/release-v2.0.0` | T07 | バージョン、リリース文書、最終ビルド、`main`向けPull Request、`develop`再同期 | 単独 |
 
 ## 並行実行Wave
 
@@ -173,9 +190,12 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 | 10 | T04-3B、通常版配置、人口更新 | PR #59、#60、#61で`develop`へ統合済み | I1 Wave 0G |
 | I1（Wave 0G） | ロードマップ文書だけ | `e8f922d`から専用branch／worktreeで全体計画を単独更新する | Wave 13A、13B |
 | 13 | B03-3DとT06-1 | 別branch／worktreeで並行する。B03-3Dだけが学校バイナリを編集し、T06-1は`src/world/**`も不変とする | T06-2 |
-| 14 | T06-2だけ | B03-3DとT06-1の両方がレビュー後に`develop`へマージ済みの最新headから開始する | T07 |
-| 15 | T07だけ | T06-2マージ後の最新`develop`で性能・最終回帰を完了する | v2リリース準備 |
-| 16 | v2リリース準備だけ | T07マージ後の最新`develop`からリリースブランチを作る | `main`統合と`develop`再同期 |
+| 14 | T06-2だけ | B03-3DとT06-1の両方がレビュー後に`develop`へマージ済みの最新headから開始する | I2 |
+| 15 | I2だけ | T06-2マージ後にユーザー相談でミニマップ・Location・Mission契約を確定し、コード・資産は変更しない | Wave 16A、16B |
+| 16 | T06-3とB05 | I2確定後、Runtime UIと学校資産を別branch／worktreeで並行する | T06-4 |
+| 17 | T06-4だけ | T06-3とB05がレビュー後に`develop`へマージ済みの最新headから開始する | T07 |
+| 18 | T07だけ | T06-4マージ後の最新`develop`で両機能を含む性能・最終回帰を完了する | v2リリース準備 |
+| 19 | v2リリース準備だけ | T07マージ後の最新`develop`からリリースブランチを作る | `main`統合と`develop`再同期 |
 
 ## 現行の並行可否
 
@@ -191,7 +211,11 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 | B03-3D | I1、PR #60 | T06-1と可 | 学校バイナリだけを単一編集する |
 | T06-1 | I1、PR #59 | B03-3Dと可 | `src/v2/**`中心とし、学校バイナリ、カタログhash、`src/world/**`を変更しない |
 | T06-2 | B03-3D、T06-1 | 不可 | 両成果と学校資産・Runtimeを一つの最終E2Eへ統合する |
-| T07 | T06-2 | 不可 | 完成した機能を性能・回帰条件として測定する |
+| I2 | T06-2 | 不可 | ユーザー相談でミニマップ・Location・Mission契約を確定する |
+| T06-3 | I2 | B05と可 | Runtime UIだけを所有し、学校バイナリを編集しない |
+| B05 | I2 | T06-3と可 | 学校バイナリとLocation資産を単一編集する |
+| T06-4 | T06-3、B05 | 不可 | Map・Location成果をMission状態機械へ統合する |
+| T07 | T06-4 | 不可 | ミニマップとMissionを含む完成機能を性能・回帰条件として測定する |
 | v2リリース準備 | T07 | 不可 | T07の確定結果だけをリリース対象にする |
 
 次タスクの必読資料、受入項目、既存テストの読み取り調査は並行できる。ただし、I1が`develop`へ入る前にB03-3D／T06-1のbranchを作成せず、B03-3DとT06-1が両方とも`develop`へ入る前にT06-2のbranchを作成したり書込みを始めたりしない。
@@ -236,7 +260,11 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 | B03-3D 荒れ版教室配置 | GPT-5.6 Sol | High | 視覚相談と学校バイナリ単一編集を中心に、20室の表示・Collider・遮蔽・NavMeshを一致させる |
 | T06-1 通常ゲームRuntime接続 | GPT-5.6 Sol | Ultra | 入力、Pointer Lock、UI、状態、音声、水中、破棄・再読込を同じ通常ゲームライフサイクルへ接続する |
 | T06-2 学校最終統合 | GPT-5.6 Sol | Ultra | 学校意味Object、3種NavMesh、開始・出現抽選、時間増援、全機能E2Eを同じseedで横断する |
-| T07 性能・回帰・仕様書 | GPT-5.6 Sol | High | 完成機能を維持したまま性能計測、最適化、Web・Electron回帰、仕様書同期を行う |
+| I2 ミニマップ・Mission設計 | GPT-5.6 Sol | High | ユーザー相談と既存Area／Volume契約を照合し、実装前の意味・表示・状態遷移を固定する |
+| T06-3 ミニマップ | GPT-5.6 Sol | High | 既存空間snapshotを低負荷な2D表示へ接続し、静的／動的描画を分離する |
+| B05 Mission Location資産 | GPT-5.6 Sol | High | 承認済みLocationのBlender単一編集、NavMesh不変性、意味Object監査が中心である |
+| T06-4 Mission Runtime | GPT-5.6 Sol | Ultra | プレイヤー／NPC別Mission、優先順位、動的Location、seed schedulerを既存状態機械へ統合する |
+| T07 性能・回帰・仕様書 | GPT-5.6 Sol | High | ミニマップとMissionを含む完成機能を維持して性能計測、Web・Electron回帰、仕様書同期を行う |
 | v2リリース準備 | GPT-5.6 Sol | High | リリース対象差分、最終ビルド、バージョン、文書、`main`と`develop`の同期を再確認する |
 
 ## 重点動作確認ゲート
@@ -250,7 +278,8 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 | V2A 荒れ版資産ゲート | B03-3DのPull Request作成前 | 対象集中 | 通常版不変、荒れ版20室、表示・Collider・遮蔽・NavMesh一致、通行可能性 | 資産監査、決定性、実画面確認に合格 |
 | V2B Runtime接続ゲート | T06-1のPull Request作成前 | 重い | F／E／C・G／N／H、候補UI、Pointer Lock、音声、水中、破棄・再読込 | Web・Electronの入力・UI・Audio残留0件 |
 | V3 最終機能ゲート | T06-2のPull Request作成後、`develop`マージ前 | 最重 | タイトル開始、複数開始地点、出現禁止、F／E／C・G／N／H、増援、音声、水中、ゲーム終了、タイトル復帰、再読込 | Web・Electronの完全E2Eと資源残留0件 |
-| V4 性能・リリースゲート | T07のPull Request作成後、`develop`マージ前 | 最終 | 1080p、既定設定、99 NPC、50 BIT、全機能有効時の性能・回帰・仕様書 | T07定量性能条件、全回帰、最終文書監査に合格 |
+| V3A ミニマップ・Mission機能ゲート | T06-4のPull Request作成後、`develop`マージ前 | 最重 | 階別Map、階段、Location、プレイヤー／NPC Mission、優先順位、達成・失敗・再抽選、HUD | Web・Electronの機能E2E、決定性、資源残留0件 |
+| V4 性能・リリースゲート | T07のPull Request作成後、`develop`マージ前 | 最終 | ミニマップとMission有効、1080p、既定設定、99 NPC、50 BIT時の性能・回帰・仕様書 | T07定量性能条件、全回帰、最終文書監査に合格 |
 
 各機能は、(1) 実装・検証・commit・push・Pull Request作成、(2) 独立レビュー、(3) merge・`develop`同期・worktree整理・次タスク準備を別単位で完了する。重点ゲートはPull Request作成後の独立レビュー段階に含め、通過前にマージしない。
 
@@ -284,9 +313,21 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 
 > B03-3DとT06-1が独立レビュー後に`develop`へマージ済みの最新`origin/develop`から、`codex/v2-t06-school-integration`と専用worktreeを作成してT06-2を開始してください。資産編集前に、全`MRK_PlayerSpawn_*`候補の俯瞰画像、抽選方式、各`VOL_PlayerSpawnExclusion_*`寸法、`npc_spawn`／`bit_spawn` Volume範囲を提示し、私の承認を得てください。承認後、学校資産を単一担当で更新し、複数開始地点、動的出現禁止、NPC／BIT出現、BIT時間増援、B03-3D荒れ版、T06-1入力・音声・水中、扉・エレベーター・Follower、世界境界を通常ゲームへ統合してください。V3最終機能ゲート、実装・検証・commit・push・Pull Request作成までを対象とし、レビューとmerge、T07は行わないでください。GPT-5.6 Sol / Ultraを使用してください。
 
+### I2
+
+> T06-2が`develop`へマージ済みの最新状態から、ミニマップとMissionの設計相談を開始してください。階別地図、階段表示、意味付きLocation ID／表示名／Volume／Anchor、Mission候補、達成・失敗・再抽選、20秒付与率、直接危険時を含む優先順位を提案し、私の承認で確定してください。コード、Blender、GLB、NavMesh、生成器、カタログhashは変更しないでください。GPT-5.6 Sol / Highを使用してください。
+
+### T06-3／B05
+
+> I2の設計が承認・文書化済みの最新`origin/develop`から、T06-3 `codex/v2-minimap`とB05 `codex/v2-mission-locations`を別worktreeで開始してください。T06-3は学校バイナリを変更せず左上180px円形ミニマップを実装し、B05は承認済みLocation Volume／Anchorだけを学校資産へ単一編集してください。各タスクを独立検証・commit・push・Pull Request化し、レビュー、merge、T06-4は行わないでください。GPT-5.6 Sol / Highを使用してください。
+
+### T06-4
+
+> T06-3とB05が独立レビュー後に`develop`へマージ済みの最新`origin/develop`から、`codex/v2-missions`と専用worktreeを作成してください。未洗脳プレイヤーの移動・Follower獲得、洗脳済みプレイヤーの生存者洗脳、NPC個別Mission、動的エリア名追従、seed付き20秒scheduler、HUDをI2確定契約どおり実装してください。V3A機能ゲート、commit、push、Pull Request作成まで行い、レビュー、merge、T07は行わないでください。GPT-5.6 Sol / Ultraを使用してください。
+
 ### T07
 
-> T06-2が`develop`へマージ済みの最新`origin/develop`から、`codex/v2-t07-regression-docs`と専用worktreeを作成してT07を実施してください。1080p・既定設定・99 NPC・50 BIT・全機能有効条件で性能計測と最適化を行い、Web・Electronの最終回帰と仕様書同期を完了してください。V4性能・リリースゲート、commit、push、Pull Request作成まで行い、リリースブランチ作成と`main`へのmergeは行わないでください。GPT-5.6 Sol / Highを使用してください。
+> T06-4が`develop`へマージ済みの最新`origin/develop`から、`codex/v2-t07-regression-docs`と専用worktreeを作成してT07を実施してください。ミニマップとMissionを有効にした1080p・既定設定・99 NPC・50 BIT条件で性能計測と最適化を行い、Web・Electronの最終回帰と仕様書同期を完了してください。V4性能・リリースゲート、commit、push、Pull Request作成まで行い、リリースブランチ作成と`main`へのmergeは行わないでください。GPT-5.6 Sol / Highを使用してください。
 
 ## 各タスク開始時の必読順序
 
@@ -351,3 +392,5 @@ B03-0に限り、上記に加えて`docs/plans/v2/T04/plan.md`の「B03-0への�
 2026-08-01、PR #59、PR #60、PR #61は`origin/develop`の`e8f922d`までに統合済みとなった。現行コードではF／E／C・G／N／Hの入力収集、NPC指示、扉操作、状態選択API、荒れ状態抽選は存在するが、通常ゲーム入口はactionを消費せず全室normalを選択する。現行学校資産の開始Marker、NPC／BIT出現Volumeは各1系統である。
 
 この事実に基づき、後続をB03-3D、T06-1、T06-2、T07へ再編した。B03-3Dは学校バイナリ単一編集、T06-1は`src/v2/**`中心で学校資産・`src/world/**`不変とし、両者だけを並行可能とする。T06-2は両成果を含む最新`develop`から複数開始地点、動的出現禁止、出現Volume、時間増援、V3最終機能ゲートを単独統合する。T07はT06-2後に直列実施する。
+
+2026-08-02、ミニマップとMissionをv2.0リリース前へ追加する指示により、現行順序を`B03-3D + T06-1 → T06-2 → I2設計 → T06-3 + B05 → T06-4 → T07 → v2.0リリース準備`へ更新した。I2は相談専用、T06-3とB05はRuntime／資産を分離して並行、T06-4は両成果をMission状態機械へ統合する。T07は両機能を有効にした99 NPC／50 BIT条件で最終性能・回帰を行う。
