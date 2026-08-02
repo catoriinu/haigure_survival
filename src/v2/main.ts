@@ -155,6 +155,7 @@ type V2RuntimeSession = Readonly<{
 }>;
 
 const createRuntimeSession = async (
+  sessionSeed: number,
   requestSessionRebuild: (startImmediately: boolean) => void
 ): Promise<V2RuntimeSession> => {
 const scene = new Scene(engine);
@@ -284,7 +285,7 @@ const initializeRuntime = async () => {
         queryDiagnostics: stageQueryDiagnostics,
         initializeDynamicSpatial:
           createSchoolStageDynamicSpatialInitializer(
-            runtimeSeed
+            sessionSeed
           ),
         roomVariantSelections
       }
@@ -303,7 +304,7 @@ const initializeRuntime = async () => {
       scene,
       stage: ownedStage,
       player: playerController,
-      random: createV2SeededRandom(runtimeSeed),
+      random: createV2SeededRandom(sessionSeed),
       getOrbVisibilityPredicate: () => {
         const playerCenter = playerController
           .getFootPosition()
@@ -360,7 +361,7 @@ const initializeRuntime = async () => {
       )
     });
     selectNavigationRoute = createSchoolNpcNavigationPolicy({
-      seed: runtimeSeed,
+      seed: sessionSeed,
       elevatorAssets: ownedStage.elevatorAssets,
       dynamicRuntime: ownedDynamicRuntime,
       queries: ownedStage.queries,
@@ -374,7 +375,7 @@ const initializeRuntime = async () => {
         survival: survivalRuntime,
         player: playerController,
         doorCloseRandom: createSchoolRuntimeRandom(
-          runtimeSeed,
+          sessionSeed,
           "door-behavior"
         )
       });
@@ -1036,6 +1037,7 @@ return Object.freeze({
 
 let activeSession: V2RuntimeSession | null = null;
 let sessionTransition: Promise<void> | null = null;
+let runtimeTerminated = false;
 
 const showSessionLoading = () => {
   titleOverlay.style.display = "flex";
@@ -1047,7 +1049,7 @@ const showSessionLoading = () => {
 };
 
 const rebuildSession = (startImmediately: boolean) => {
-  if (sessionTransition !== null) {
+  if (sessionTransition !== null || runtimeTerminated) {
     return;
   }
   sessionTransition = (async () => {
@@ -1055,13 +1057,19 @@ const rebuildSession = (startImmediately: boolean) => {
     activeSession = null;
     activeSession = await transitionV2RuntimeSession({
       currentSession: previousSession,
+      runtimeSeed,
       startImmediately,
+      isCancelled: () => runtimeTerminated,
       exitPointerLock: () => document.exitPointerLock(),
       showLoading: showSessionLoading,
-      createSession: () => createRuntimeSession(rebuildSession)
+      createSession: (sessionSeed) =>
+        createRuntimeSession(sessionSeed, rebuildSession)
     });
   })()
     .catch((error: unknown) => {
+      if (runtimeTerminated) {
+        return;
+      }
       console.error(
         "V2 Runtime sessionの再初期化に失敗しました。",
         error
@@ -1073,7 +1081,10 @@ const rebuildSession = (startImmediately: boolean) => {
 };
 
 try {
-  activeSession = await createRuntimeSession(rebuildSession);
+  activeSession = await createRuntimeSession(
+    runtimeSeed,
+    rebuildSession
+  );
 } catch {
   activeSession = null;
 }
@@ -1081,7 +1092,10 @@ try {
 window.addEventListener(
   "beforeunload",
   () => {
-    void activeSession?.dispose();
+    runtimeTerminated = true;
+    const session = activeSession;
+    activeSession = null;
+    void session?.dispose();
     engine.dispose();
   },
   { once: true }

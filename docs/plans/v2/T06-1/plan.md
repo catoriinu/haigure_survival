@@ -172,6 +172,7 @@
 - [x] 配送前回帰で、乗車前取消と実搬送完了を1frameの終端snapshotへ分離し、取消時だけFollowerの保存目的地と見失い停止を即時解除する
 - [x] Follower同期射撃へ個体・射撃ごとのyaw／pitch各±3度を追加し、遅延・Cooldown・1人1本を回帰する
 - [x] Rの一回drain、通常リトライ、公開処刑リプレイ、対象外phase無効、HUD消去を実装・検証する
+- [x] 配送前レビューで、session遷移中の`beforeunload`を終了契約へ接続し、旧session破棄後と新session生成後の両地点で再生成を中止する
 - [x] Alarm由来速度0.5、候補約75%、追加間隔7.5秒、総量約50%、Follow優先を実装・検証する
 - [ ] NPC通過後30%閉扉、後続待機、room／toilet閉鎖退避、既定音量0を回帰する
 - [ ] T04～T06 fixture、型検査、build、通常Web、Electron、配布テキスト検査を完了する

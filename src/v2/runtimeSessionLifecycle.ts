@@ -23,27 +23,38 @@ export type V2RuntimeSessionTransitionOptions<
   TSession extends V2ManagedRuntimeSession
 > = Readonly<{
   currentSession: TSession | null;
+  runtimeSeed: number;
   startImmediately: boolean;
+  isCancelled(): boolean;
   exitPointerLock(): void;
   showLoading(): void;
-  createSession(): Promise<TSession>;
+  createSession(runtimeSeed: number): Promise<TSession>;
 }>;
 
 export const transitionV2RuntimeSession = async <
   TSession extends V2ManagedRuntimeSession
 >({
   currentSession,
+  runtimeSeed,
   startImmediately,
+  isCancelled,
   exitPointerLock,
   showLoading,
   createSession
-}: V2RuntimeSessionTransitionOptions<TSession>): Promise<TSession> => {
+}: V2RuntimeSessionTransitionOptions<TSession>): Promise<TSession | null> => {
   if (!startImmediately) {
     exitPointerLock();
   }
   showLoading();
   await currentSession?.dispose();
-  const nextSession = await createSession();
+  if (isCancelled()) {
+    return null;
+  }
+  const nextSession = await createSession(runtimeSeed);
+  if (isCancelled()) {
+    await nextSession.dispose();
+    return null;
+  }
   if (startImmediately) {
     nextSession.start();
   }
