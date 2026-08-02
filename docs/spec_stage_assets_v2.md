@@ -586,8 +586,8 @@ f04-ll            f04-music
 MRK_RoomVariant_<token>
 ├─ VIS_*                         variantで切り替える表示だけ
 ├─ COL_*                         variantで切り替える通常Colliderだけ
-├─ NAV_*_Blocker                 variantで切り替える人間用障害物
-└─ NAV_*_Walkable                荒れ版だけが持つ歩行面
+├─ NAV_*_Blocker                 各variantがちょうど1件持つ人間用障害物
+└─ NAV_*_Walkable                明示的な歩行面を作者が設けたvariantだけが持つ任意Node
 ```
 
 `MRK_RoomVariant_*`の必須properties:
@@ -601,9 +601,11 @@ MRK_RoomVariant_<token>
 
 - 建築、壁、床、天井、動的扉、エレベーター、意味Object、ビット用`NAV_*`はvariant rootの外へ残す。
 - variant対象の作者Objectは最寄りの`room_variant` ancestorちょうど1件へ所属する。variantの入れ子、複数所属、子`VIS_*`／`COL_*`／`NAV_*`への`hs_room_id`・`hs_variant_id`重複記述を認めない。
-- 現行内装の家具種・台数・決定的な乱れを`normal`として維持する。9普通教室の生徒机は30台を残したまま中段2行だけを室内中央から各0.20m外側へ移し、中央を横切るCollider間1.17m以上の連続通路を作る。`disordered`は決定的な1種類とし、普通教室では各室1台の通常机と同位置の机上物を荒れ版だけから除いて倒れ机の歩行面へ置換する。特別室は通常家具を除去せずに追加物を配置する。少なくとも1扉から室内中央と部屋スポーン受入点への経路を残す。
+- 現行内装の家具種・台数を`normal`として維持する。9普通教室の生徒机は30台を残したまま中段2行だけを室内中央から各0.20m外側へ移し、中央を横切るCollider間1.17m以上の連続通路を作る。
+- 普通教室の`disordered`は決定的なA/B/Cの3パターンとする。Aは`f02-classroom-01`、`f03-classroom-03`、`f04-classroom-02`で、表示、Collider、人間用NavMesh tile payloadを`normal`と同一に保つ。Bは`f02-classroom-02`、`f03-classroom-01`、`f04-classroom-03`で、登録済みの両扉から室内中央への通行を残す。Cは`f02-classroom-03`、`f03-classroom-02`、`f04-classroom-01`で、後扉`room-door-<room-id>-01`から室内中央へ通行可能とし、黒板側の前扉`room-door-<room-id>-02`は室内側の家具バリケードによって通行不能にする。
+- 11特別室の`disordered`は承認済み配置を使用し、登録済み扉すべてから室内中央への通行を残す。1扉の生徒会室・放送室はその1扉、その他の特別室は両扉を検査対象とする。
 - 部屋スポーン受入点は下表の`roomBounds`水平中心から0.30m以内にあるactive variantのground polygon上で、対応door rootの床高から共通profileの`walkableClimb`以内にある最短点を、同じ`room_variant_tile`内から選ぶ監査用の決定点とする。家具上面を候補にしない。これは新しい作者markerやRuntime fallbackではない。同距離ならpoly ref昇順を採用し、同じ所有領域内に投影できなければ生成失敗とする。
-- 椅子は人物通過可能とする。倒れた机・棚の歩行面は初段差0.15m以下、傾斜45度以下、Blender短辺1.20m以上（Runtime 0.30m以上）とし、表示、通常Collider、人間用`NAV_*_Walkable`を一致させる。大型家具は閉じた`NAV_*_Blocker`と通常Colliderを持ち、プレイヤー・NPC・BIT移動、ビーム、視線の動的空間集合へ見た目どおり反映する。
+- 椅子は人物通過可能とする。倒れた机・棚を各室共通の歩行斜路として扱わず、家具上面の`NAV_*_Walkable`を20室の`disordered`へ一律に要求しない。承認済み配置で明示的に人物が通る面を設ける場合だけ、初段差0.15m以下、傾斜45度以下、Blender短辺1.20m以上（Runtime 0.30m以上）とし、表示、通常Collider、人間用`NAV_*_Walkable`を一致させる。それ以外の大型家具は閉じた`NAV_*_Blocker`と通常Colliderを持ち、プレイヤー・NPC・BIT移動、ビーム、視線の動的空間集合へ見た目どおり反映する。
 
 各室はvariant共通の`VOL_RoomVariantTile_<token>`を1件持つ。
 
@@ -739,7 +741,7 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 - B03-3Cの各動的扉は`door`、1件以上のpanel、panelごとのopen pose、1件のsweep Volume、panelごとの表示・Colliderを持つ。classとmotion kind、親子関係、参照ID、閉・開Transformが7.9.1節に一致する。
 - B03-3Cの`room` doorは固定表どおり38件、`toilet_stall` doorは24件である。旧1階個別室扉8件、旧上階結合室扉3件、旧トイレ固定扉は0件であり、固定開放出入口に動的door metadataがない。
 - B03-3Cのエレベーターはcontroller、car、car直下のかご表示・通常Collider各1件以上、1階／4階stop、`elevator` link pair、かご扉、各階乗場扉、occupancy、passenger origin、各階call mat／call indicator／threshold／gate／waitを7.9.2節の件数で持つ。2階・3階の動的componentは0件である。
-- B03-3Cの`room_variant` Markerは20室×2の40件、`room_variant_tile` Volumeは20件である。各variantは対象`VIS_*`、`COL_*`、人間用`NAV_*`を各1件以上持ち、静的建築・扉・エレベーター・意味Object・BIT用`NAV_*`を子孫に持たない。
+- B03-3Cの`room_variant` Markerは20室×2の40件、`room_variant_tile` Volumeは20件である。各variantは対象`VIS_*`、`COL_*`を各1件以上、人間用`NAV_*_Blocker`をちょうど1件持つ。人間用`NAV_*_Walkable`は承認済み配置に明示的な歩行面がある場合だけ任意に持ち、静的建築・扉・エレベーター・意味Object・BIT用`NAV_*`を子孫に持たない。
 
 ### 11.3 形状とTransform
 
@@ -787,7 +789,8 @@ NavMeshベイクの入力は、監査済みの同一GLBに含まれる各nav set
 - 部屋variant bundleは24-byte little-endian header、BOMなしminified UTF-8 JSON manifest、raw Detour tile payload連結で構成する。magicは`HSRVNAV\0`、format versionは`1`とし、headerへversion、header長、manifest byte長、payload byte長、entry件数を格納する。
 - manifestは`stageId`、`navProfileId`、`navMeshParams`、`entries`だけを持つ。`navMeshParams`は`origin`、`tileWidth`、`tileHeight`、`maxTiles`、`maxPolys`を持つ。各entryは`roomId`、`variantId`、`tileX`、`tileY`、`layer`、payload先頭相対の`offset`、`length`を持つ。
 - entryは`roomId`、`variantId`、`tileY`、`tileX`、`layer`の順に安定sortする。空payload、範囲外、隙間、重複、未参照payload、Detour tile headerとmanifest座標の不一致を失敗にする。同じ室の通常・荒れentryのunionをその室の所有keyとし、静的基盤と20室の所有keyは排他的である。任意のroom／variant切替で旧entryの全keyを除去して新entryを追加できることを監査する。
-- 40構成すべてで少なくとも1扉の室外点から家具上面を除いた室内中央ground polygonへの完結経路を必須とする。20室の`disordered`は床側probeから斜路低辺、斜路高辺までの2区間が両方完結しなければならない。room／static境界は両owner側から全cross-owner edgeを収集し、各edgeの逆向き接続と`normal`構成の期待portal集合に対する各variantの一致を検証する。
+- 40構成の扉受入は固定表で厳密に検査する。全20室の`normal`は登録済み扉すべての室外点から家具上面を除いた室内中央ground polygonへの完結経路を必須とする。普通教室Aの3室は`normal`と`disordered`のNavMesh tile座標・payload bytesを一致させる。普通教室Bの3室と11特別室の`disordered`は登録済み扉すべてから同じ室内中央へ到達可能とする。普通教室Cの3室の`disordered`だけは後扉`-01`から到達可能、黒板側の前扉`-02`から到達不能を必須とする。通行可能扉のstraight path終端は、室内中央投影上限0.30m＋人間Nav半径0.10mの直径0.20m＝0.50m以内、かつ中央ground polygonとの高さ差が`walkableClimb` 3 cell×`ch` 0.0125m＝0.0375m以内で、所有Volume内に留まらなければならない。通行不能な前扉`-02`は終端誤差1e-5mの厳密判定を使用する。いずれもpolygon corridorを1 polygon以上、straight pathを2点以上持つことを必須とし、件数、経路長、終端距離、高さ差を記録する。
+- `disordered`専用`NAV_*_Walkable`、家具斜路、床側・低辺・高辺probeを20室へ一律に要求しない。room／static境界は両owner側から全cross-owner edgeを収集し、各edgeの逆向き接続と`normal`構成の期待portal集合に対する各variantの一致を検証する。普通教室Cも前扉の境界portalを削除せず、室内側バリケードによって経路だけを遮断する。
 - 全20室`normal`の最終assemblyで、北西・北東・南西階段の各隣接階、北西階段4階から屋上、屋上からプールサイド、プールサイドからプール底、屋上プール折れ斜路から2階渡り廊下までを双方向に検証する。両端投影、完結したpolygon corridor、`DT_STRAIGHTPATH_ALL_CROSSINGS`の終端一致、距離上限を作者側監査で必須にする。
 - `StageCatalogEntry.roomVariantNavmesh`は`{ mode: "unsupported" }`または`{ mode: "required"; url: string; sha256: string }`の判別可能unionとする。`unsupported`へURL・hashを持たせず、`required`だけがbundle URLと64桁SHA-256を必須とする。互換wrapper、欠落時fallback、Runtime再生成は追加しない。
 - `VIS_*`や`COL_*`を暗黙のベイク入力にしない。

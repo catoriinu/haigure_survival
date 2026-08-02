@@ -89,16 +89,6 @@ const ROOM_ROUTE_QUERY_HALF_EXTENTS = Object.freeze({
   y: 0.45,
   z: 0.3
 });
-const RAMP_INITIAL_STEP_MAXIMUM = 0.15;
-const RAMP_MINIMUM_HEIGHT_GAIN = 0.04;
-const RAMP_MINIMUM_TRIANGLE_RISE = 0.1;
-const RAMP_MAXIMUM_SLOPE_DEGREES = 45;
-const RAMP_ROUTE_PROJECTION_MAX_DISTANCE = 0.08;
-const RAMP_ROUTE_QUERY_HALF_EXTENTS = Object.freeze({
-  x: 0.08,
-  y: 0.08,
-  z: 0.08
-});
 const VARIANT_MARKER_PREFIX = "MRK_RoomVariant_";
 const VARIANT_TILE_VOLUME_PREFIX = "VOL_RoomVariantTile_";
 const REGISTERED_NAV_AREAS = new Set([
@@ -178,6 +168,106 @@ const ROOM_BOUNDS_BY_ID = Object.freeze({
 });
 const VARIANT_IDS = Object.freeze(["normal", "disordered"]);
 const VARIANT_ID_SET = new Set(VARIANT_IDS);
+const UNCHANGED_CLASSROOM_ROOM_IDS = Object.freeze([
+  "f02-classroom-01",
+  "f03-classroom-03",
+  "f04-classroom-02"
+]);
+const MODERATELY_DISORDERED_CLASSROOM_ROOM_IDS = Object.freeze([
+  "f02-classroom-02",
+  "f03-classroom-01",
+  "f04-classroom-03"
+]);
+const FRONT_BLOCKED_CLASSROOM_ROOM_IDS = Object.freeze([
+  "f02-classroom-03",
+  "f03-classroom-02",
+  "f04-classroom-01"
+]);
+const FRONT_BLOCKED_CLASSROOM_ROOM_ID_SET = new Set(
+  FRONT_BLOCKED_CLASSROOM_ROOM_IDS
+);
+const DISORDERED_DOOR_ACCESS_BY_ROOM_ID = Object.freeze({
+  "f02-classroom-01": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1, 2]),
+    blockedDoorNumbers: Object.freeze([])
+  }),
+  "f02-classroom-02": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1, 2]),
+    blockedDoorNumbers: Object.freeze([])
+  }),
+  "f02-classroom-03": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1]),
+    blockedDoorNumbers: Object.freeze([2])
+  }),
+  "f03-classroom-01": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1, 2]),
+    blockedDoorNumbers: Object.freeze([])
+  }),
+  "f03-classroom-02": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1]),
+    blockedDoorNumbers: Object.freeze([2])
+  }),
+  "f03-classroom-03": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1, 2]),
+    blockedDoorNumbers: Object.freeze([])
+  }),
+  "f04-classroom-01": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1]),
+    blockedDoorNumbers: Object.freeze([2])
+  }),
+  "f04-classroom-02": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1, 2]),
+    blockedDoorNumbers: Object.freeze([])
+  }),
+  "f04-classroom-03": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1, 2]),
+    blockedDoorNumbers: Object.freeze([])
+  }),
+  "f01-infirmary": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1, 2]),
+    blockedDoorNumbers: Object.freeze([])
+  }),
+  "f01-library": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1, 2]),
+    blockedDoorNumbers: Object.freeze([])
+  }),
+  "f01-staff-room": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1, 2]),
+    blockedDoorNumbers: Object.freeze([])
+  }),
+  "f01-pc-room": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1, 2]),
+    blockedDoorNumbers: Object.freeze([])
+  }),
+  "f02-council": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1]),
+    blockedDoorNumbers: Object.freeze([])
+  }),
+  "f02-broadcast": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1]),
+    blockedDoorNumbers: Object.freeze([])
+  }),
+  "f02-science": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1, 2]),
+    blockedDoorNumbers: Object.freeze([])
+  }),
+  "f03-art": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1, 2]),
+    blockedDoorNumbers: Object.freeze([])
+  }),
+  "f03-home-ec": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1, 2]),
+    blockedDoorNumbers: Object.freeze([])
+  }),
+  "f04-ll": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1, 2]),
+    blockedDoorNumbers: Object.freeze([])
+  }),
+  "f04-music": Object.freeze({
+    reachableDoorNumbers: Object.freeze([1, 2]),
+    blockedDoorNumbers: Object.freeze([])
+  })
+});
 
 const SCHOOL_ROOM_VARIANT_NAV_PROFILE = Object.freeze({
   id: "school-humanoid-room-variants-v2",
@@ -237,6 +327,25 @@ const SCHOOL_ROOM_VARIANT_NAV_PROFILE = Object.freeze({
     expectedLayersPerTile: 5,
     maxObstacles: 128
   })
+});
+const HUMAN_NAV_RADIUS =
+  SCHOOL_ROOM_VARIANT_NAV_PROFILE.parameters.walkableRadius *
+  SCHOOL_ROOM_VARIANT_NAV_PROFILE.parameters.cs;
+const ROOM_CENTER_ROUTE_ENDPOINT_MAXIMUM_DISTANCE =
+  ROOM_CENTER_MAXIMUM_HORIZONTAL_PROJECTION_DISTANCE + HUMAN_NAV_RADIUS * 2;
+const ROOM_CENTER_ROUTE_ENDPOINT_MAXIMUM_HEIGHT_DELTA =
+  SCHOOL_ROOM_VARIANT_NAV_PROFILE.parameters.walkableClimb *
+  SCHOOL_ROOM_VARIANT_NAV_PROFILE.parameters.ch;
+const STRICT_ROUTE_ENDPOINT_POLICY = Object.freeze({
+  maximumStartDistance: ROUTE_ENDPOINT_TOLERANCE,
+  maximumEndDistance: ROUTE_ENDPOINT_TOLERANCE,
+  maximumEndHeightDelta: ROUTE_ENDPOINT_TOLERANCE
+});
+const ROOM_CENTER_ROUTE_ENDPOINT_POLICY = Object.freeze({
+  maximumStartDistance: ROUTE_ENDPOINT_TOLERANCE,
+  maximumEndDistance: ROOM_CENTER_ROUTE_ENDPOINT_MAXIMUM_DISTANCE,
+  maximumEndHeightDelta:
+    ROOM_CENTER_ROUTE_ENDPOINT_MAXIMUM_HEIGHT_DELTA
 });
 
 const assertNonEmptyString = (value, label) => {
@@ -301,6 +410,111 @@ const tileKey = (x, y, layer) => `${x}/${y}/${layer}`;
 const roomVariantKey = (roomId, variantId) => `${roomId}\u0000${variantId}`;
 const bundleEntryKey = (entry) =>
   `${entry.roomId}\u0000${entry.variantId}\u0000${entry.tileX}/${entry.tileY}/${entry.layer}`;
+const roomDoorId = (roomId, doorNumber) =>
+  `room-door-${roomId}-${String(doorNumber).padStart(2, "0")}`;
+
+const expectedDoorAccessForVariant = (roomId, variantId) => {
+  if (!ROOM_ID_SET.has(roomId) || !VARIANT_ID_SET.has(variantId)) {
+    fail(`未登録のroom/variant扉通行契約です: ${roomId}/${variantId}`);
+  }
+  const doorCount = ROOM_DOOR_COUNTS[roomId];
+  const allDoorNumbers = Array.from(
+    { length: doorCount },
+    (_, index) => index + 1
+  );
+  if (variantId === "normal") {
+    return {
+      requiredReachableDoorIds: allDoorNumbers.map((doorNumber) =>
+        roomDoorId(roomId, doorNumber)
+      ),
+      requiredBlockedDoorIds: []
+    };
+  }
+  const access = DISORDERED_DOOR_ACCESS_BY_ROOM_ID[roomId];
+  if (access === undefined) {
+    fail(`${roomId}/disorderedの固定扉通行契約がありません。`);
+  }
+  return {
+    requiredReachableDoorIds: access.reachableDoorNumbers.map((doorNumber) =>
+      roomDoorId(roomId, doorNumber)
+    ),
+    requiredBlockedDoorIds: access.blockedDoorNumbers.map((doorNumber) =>
+      roomDoorId(roomId, doorNumber)
+    )
+  };
+};
+
+const validateFixedRoomVariantAccessContract = () => {
+  const ordinaryClassroomRoomIds = ROOM_IDS.slice(0, 9);
+  const classifiedClassroomRoomIds = [
+    ...UNCHANGED_CLASSROOM_ROOM_IDS,
+    ...MODERATELY_DISORDERED_CLASSROOM_ROOM_IDS,
+    ...FRONT_BLOCKED_CLASSROOM_ROOM_IDS
+  ];
+  if (
+    UNCHANGED_CLASSROOM_ROOM_IDS.length !== 3 ||
+    MODERATELY_DISORDERED_CLASSROOM_ROOM_IDS.length !== 3 ||
+    FRONT_BLOCKED_CLASSROOM_ROOM_IDS.length !== 3 ||
+    new Set(classifiedClassroomRoomIds).size !==
+      ordinaryClassroomRoomIds.length ||
+    ordinaryClassroomRoomIds.some(
+      (roomId) => !classifiedClassroomRoomIds.includes(roomId)
+    )
+  ) {
+    fail("普通教室A/B/Cの固定room ID分類が9室を排他的に網羅していません。");
+  }
+  const configuredAccessRoomIds = Object.keys(
+    DISORDERED_DOOR_ACCESS_BY_ROOM_ID
+  );
+  if (
+    configuredAccessRoomIds.length !== ROOM_IDS.length ||
+    configuredAccessRoomIds.some((roomId) => !ROOM_ID_SET.has(roomId))
+  ) {
+    fail("disordered固定扉通行仕様表のroom ID集合が固定20室と一致しません。");
+  }
+  ROOM_IDS.forEach((roomId) => {
+    const access = DISORDERED_DOOR_ACCESS_BY_ROOM_ID[roomId];
+    const expectedDoorNumbers = Array.from(
+      { length: ROOM_DOOR_COUNTS[roomId] },
+      (_, index) => index + 1
+    );
+    const actualDoorNumbers = [
+      ...access.reachableDoorNumbers,
+      ...access.blockedDoorNumbers
+    ];
+    if (
+      new Set(actualDoorNumbers).size !== actualDoorNumbers.length ||
+      actualDoorNumbers.some(
+        (doorNumber) =>
+          !Number.isInteger(doorNumber) ||
+          !expectedDoorNumbers.includes(doorNumber)
+      ) ||
+      expectedDoorNumbers.some(
+        (doorNumber) => !actualDoorNumbers.includes(doorNumber)
+      )
+    ) {
+      fail(`${roomId}/disorderedの固定扉通行仕様が全扉を排他的に網羅していません。`);
+    }
+    const expectedReachableDoorNumbers =
+      FRONT_BLOCKED_CLASSROOM_ROOM_ID_SET.has(roomId)
+        ? [1]
+        : expectedDoorNumbers;
+    const expectedBlockedDoorNumbers =
+      FRONT_BLOCKED_CLASSROOM_ROOM_ID_SET.has(roomId) ? [2] : [];
+    if (
+      !arraysEqual(
+        Uint8Array.from(access.reachableDoorNumbers),
+        Uint8Array.from(expectedReachableDoorNumbers)
+      ) ||
+      !arraysEqual(
+        Uint8Array.from(access.blockedDoorNumbers),
+        Uint8Array.from(expectedBlockedDoorNumbers)
+      )
+    ) {
+      fail(`${roomId}/disorderedの固定扉通行仕様がA/B/C・特別室契約と一致しません。`);
+    }
+  });
+};
 
 const assertProfileGrid = () => {
   const profile = SCHOOL_ROOM_VARIANT_NAV_PROFILE;
@@ -729,10 +943,13 @@ const collectAssetContract = (nodes) => {
     fail("静的な人間用blocker NAV_*が必要です。");
   }
   variantMarkers.forEach((marker) => {
-    if (marker.navigationNodes.length === 0) {
+    const blockerNodes = marker.navigationNodes.filter(
+      ({ node }) => node.extras.hs_nav_role === "blocker"
+    );
+    if (blockerNodes.length !== 1) {
       fail(
-        `room_variant配下に人間用NAV_*がありません: ` +
-          `${marker.roomId}/${marker.variantId}`
+        `room_variant配下の人間用blocker NAV_*は1件必要です: ` +
+          `${marker.roomId}/${marker.variantId}, 実際=${blockerNodes.length}件`
       );
     }
   });
@@ -754,6 +971,7 @@ const collectAssetContract = (nodes) => {
 };
 
 const collectRoomDoorContract = (nodes, worldMatrices) => {
+  validateFixedRoomVariantAccessContract();
   const configuredRoomIds = Object.keys(ROOM_DOOR_COUNTS);
   const configuredBoundsRoomIds = Object.keys(ROOM_BOUNDS_BY_ID);
   if (
@@ -1602,7 +1820,6 @@ const extractPreparedGeometry = (
   assertGeometryInsideFixedBounds(staticGeometry, "静的NAV_*");
 
   const variantGeometryByPair = new Map();
-  const disorderedWalkableGeometryByRoom = new Map();
   contract.variantMarkers.forEach((marker) => {
     const geometry = extractNavigationGeometry(
       gltf,
@@ -1618,31 +1835,6 @@ const extractPreparedGeometry = (
       roomVariantKey(marker.roomId, marker.variantId),
       geometry
     );
-    if (marker.variantId === "disordered") {
-      const walkableNodes = marker.navigationNodes.filter(
-        ({ node }) => node.extras.hs_nav_role === "walkable"
-      );
-      if (walkableNodes.length !== 1) {
-        fail(
-          `${marker.roomId}/disorderedの専用walkable NAV_*は1件必要です` +
-            `（実際=${walkableNodes.length}件）。`
-        );
-      }
-      const walkableGeometry = extractNavigationGeometry(
-        gltf,
-        binary,
-        worldMatrices,
-        walkableNodes
-      );
-      assertGeometryInsideFixedBounds(
-        walkableGeometry,
-        `${marker.roomId}/disorderedのwalkable NAV_*`
-      );
-      disorderedWalkableGeometryByRoom.set(
-        marker.roomId,
-        walkableGeometry
-      );
-    }
   });
 
   const volumes = contract.volumes.map((volume) => {
@@ -1664,212 +1856,8 @@ const extractPreparedGeometry = (
   return {
     staticGeometry,
     variantGeometryByPair,
-    disorderedWalkableGeometryByRoom,
     volumes
   };
-};
-
-const averagePoints = (points) =>
-  [0, 1, 2].map(
-    (axis) =>
-      points.reduce((sum, point) => sum + point[axis], 0) /
-      points.length
-  );
-
-const interpolatePoints = (start, end, factor) =>
-  start.map(
-    (component, axis) =>
-      component + (end[axis] - component) * factor
-  );
-
-const collectDisorderedRampProbes = (prepared, doorsByRoom) => {
-  const maximumSlopeCosine =
-    Math.cos((RAMP_MAXIMUM_SLOPE_DEGREES * Math.PI) / 180);
-  const probesByRoom = new Map();
-  ROOM_IDS.forEach((roomId) => {
-    const geometry =
-      prepared.disorderedWalkableGeometryByRoom.get(roomId);
-    const doors = doorsByRoom.get(roomId);
-    const volume = prepared.volumes.find(
-      (candidate) => candidate.roomId === roomId
-    );
-    if (
-      geometry === undefined ||
-      doors === undefined ||
-      doors.length === 0 ||
-      volume === undefined
-    ) {
-      fail(`荒れ家具ramp監査対象を解決できません: ${roomId}`);
-    }
-    const floorY = doors[0].position[1];
-    const candidates = [];
-    for (
-      let indexOffset = 0;
-      indexOffset < geometry.indices.length;
-      indexOffset += 3
-    ) {
-      const vertices = geometry.indices
-        .slice(indexOffset, indexOffset + 3)
-        .map((vertexIndex) => [
-          geometry.positions[vertexIndex * 3],
-          geometry.positions[vertexIndex * 3 + 1],
-          geometry.positions[vertexIndex * 3 + 2]
-        ]);
-      const edgeA = vertices[1].map(
-        (value, axis) => value - vertices[0][axis]
-      );
-      const edgeB = vertices[2].map(
-        (value, axis) => value - vertices[0][axis]
-      );
-      const normal = [
-        edgeA[1] * edgeB[2] - edgeA[2] * edgeB[1],
-        edgeA[2] * edgeB[0] - edgeA[0] * edgeB[2],
-        edgeA[0] * edgeB[1] - edgeA[1] * edgeB[0]
-      ];
-      const doubledArea = Math.hypot(...normal);
-      if (doubledArea <= RAY_INTERSECTION_TOLERANCE) {
-        continue;
-      }
-      const upwardNormal = normal[1] / doubledArea;
-      const heights = vertices.map((vertex) => vertex[1]);
-      const minimumY = Math.min(...heights);
-      const maximumY = Math.max(...heights);
-      const rise = maximumY - minimumY;
-      const initialStep = minimumY - floorY;
-      if (
-        upwardNormal + GRID_ALIGNMENT_TOLERANCE <
-          maximumSlopeCosine ||
-        rise + GRID_ALIGNMENT_TOLERANCE <
-          RAMP_MINIMUM_TRIANGLE_RISE ||
-        initialStep < -BOUNDS_TOLERANCE ||
-        initialStep >
-          RAMP_INITIAL_STEP_MAXIMUM + GRID_ALIGNMENT_TOLERANCE
-      ) {
-        continue;
-      }
-      const slopeDegrees =
-        (Math.acos(Math.max(-1, Math.min(1, upwardNormal))) * 180) /
-        Math.PI;
-      candidates.push({
-        triangleIndex: indexOffset / 3,
-        vertices,
-        minimumY,
-        maximumY,
-        rise,
-        initialStep,
-        slopeDegrees,
-        area: doubledArea / 2
-      });
-    }
-    candidates.sort(
-      (left, right) =>
-        right.rise - left.rise ||
-        right.area - left.area ||
-        left.triangleIndex - right.triangleIndex
-    );
-    const candidate = candidates[0];
-    if (candidate === undefined) {
-      fail(
-        `${roomId}/disorderedに初段差${RAMP_INITIAL_STEP_MAXIMUM}m以下、` +
-          `傾斜${RAMP_MAXIMUM_SLOPE_DEGREES}度以下の荒れ家具歩行面がありません。`
-      );
-    }
-    const surfaceCandidates = candidates.filter(
-      (other) =>
-        Math.abs(other.minimumY - candidate.minimumY) <=
-          BOUNDS_TOLERANCE &&
-        Math.abs(other.maximumY - candidate.maximumY) <=
-          BOUNDS_TOLERANCE &&
-        Math.abs(other.slopeDegrees - candidate.slopeDegrees) <=
-          GRID_ALIGNMENT_TOLERANCE
-    );
-    const surfaceVertexByKey = new Map();
-    surfaceCandidates.forEach(({ vertices }) => {
-      vertices.forEach((vertex) => {
-        surfaceVertexByKey.set(
-          vertex.map((value) => value.toPrecision(17)).join("/"),
-          vertex
-        );
-      });
-    });
-    const surfaceVertices = [...surfaceVertexByKey.values()];
-    const lowVertices = surfaceVertices.filter(
-      (vertex) =>
-        Math.abs(vertex[1] - candidate.minimumY) <= BOUNDS_TOLERANCE
-    );
-    const highVertices = surfaceVertices.filter(
-      (vertex) =>
-        Math.abs(vertex[1] - candidate.maximumY) <= BOUNDS_TOLERANCE
-    );
-    const lowEdgeCenter = averagePoints(lowVertices);
-    const highEdgeCenter = averagePoints(highVertices);
-    const edgeToEdgeHorizontalRun = Math.hypot(
-      highEdgeCenter[0] - lowEdgeCenter[0],
-      highEdgeCenter[2] - lowEdgeCenter[2]
-    );
-    const probeInsetDistance =
-      SCHOOL_ROOM_VARIANT_NAV_PROFILE.parameters.walkableRadius *
-      SCHOOL_ROOM_VARIANT_NAV_PROFILE.parameters.cs;
-    if (
-      edgeToEdgeHorizontalRun <
-      probeInsetDistance * 2 - BOUNDS_TOLERANCE
-    ) {
-      fail(
-        `${roomId}/disorderedの荒れ家具ramp水平長が両辺からのprobe insetに` +
-          `不足しています: ${edgeToEdgeHorizontalRun} < ` +
-          `${probeInsetDistance * 2}`
-      );
-    }
-    const probeInsetFactor =
-      probeInsetDistance / edgeToEdgeHorizontalRun;
-    const lowToHighHorizontalDirection = [
-      (highEdgeCenter[0] - lowEdgeCenter[0]) /
-        edgeToEdgeHorizontalRun,
-      (highEdgeCenter[2] - lowEdgeCenter[2]) /
-        edgeToEdgeHorizontalRun
-    ];
-    const floorProbe = [
-      lowEdgeCenter[0] -
-        lowToHighHorizontalDirection[0] * probeInsetDistance,
-      floorY,
-      lowEdgeCenter[2] -
-        lowToHighHorizontalDirection[1] * probeInsetDistance
-    ];
-    const lowProbe = interpolatePoints(
-      lowEdgeCenter,
-      highEdgeCenter,
-      probeInsetFactor
-    );
-    const highProbe = interpolatePoints(
-      highEdgeCenter,
-      lowEdgeCenter,
-      probeInsetFactor
-    );
-    if (
-      !pointInsideClosedMesh(floorProbe, volume.geometry) ||
-      !pointInsideClosedMesh(lowProbe, volume.geometry) ||
-      !pointInsideClosedMesh(highProbe, volume.geometry)
-    ) {
-      fail(`${roomId}/disorderedの荒れ家具ramp probeが所有Volume外です。`);
-    }
-    probesByRoom.set(roomId, {
-      roomId,
-      sourceNames: geometry.sourceStatistics.map(({ name }) => name),
-      triangleIndices: surfaceCandidates.map(
-        ({ triangleIndex }) => triangleIndex
-      ),
-      slopeDegrees: candidate.slopeDegrees,
-      initialStep: candidate.initialStep,
-      sourceRise: candidate.rise,
-      edgeToEdgeHorizontalRun,
-      probeInsetDistance,
-      floorProbe,
-      lowProbe,
-      highProbe,
-      expectedProbeHeightGain: highProbe[1] - lowProbe[1]
-    });
-  });
-  return probesByRoom;
 };
 
 const collectVariantSourceBoundsAudit = (prepared) =>
@@ -2671,15 +2659,18 @@ const summarizeCanonicalDifference = (leftText, rightText) => {
 };
 
 const assertSameKeySet = (left, right, label) => {
-  if (left.size !== right.size) {
+  const leftOnly = [...left].filter((key) => !right.has(key));
+  const rightOnly = [...right].filter((key) => !left.has(key));
+  if (leftOnly.length > 0 || rightOnly.length > 0) {
     fail(
-      `${label}のtile key件数が一致しません: ${left.size} != ${right.size}`
+      `${label}のkey集合が一致しません: ` +
+        JSON.stringify({
+          leftCount: left.size,
+          rightCount: right.size,
+          leftOnly,
+          rightOnly
+        })
     );
-  }
-  for (const key of left) {
-    if (!right.has(key)) {
-      fail(`${label}のtile keyが一致しません: ${key}`);
-    }
   }
 };
 
@@ -3712,7 +3703,8 @@ const findValidatedRoute = (
   query,
   projectedStart,
   projectedEnd,
-  label
+  label,
+  endpointPolicy
 ) => {
   const corridor = query.findPath(
     projectedStart.polygonRef,
@@ -3735,8 +3727,8 @@ const findValidatedRoute = (
       }
     );
     try {
-      if (!straight.success || straight.straightPathCount === 0) {
-        fail(`${label}のstraight pathを計算できません。`);
+      if (!straight.success || straight.straightPathCount < 2) {
+        fail(`${label}のstraight pathは2点以上必要です。`);
       }
       const coordinates = straight.straightPath.toTypedArray();
       const points = Array.from(
@@ -3755,13 +3747,23 @@ const findValidatedRoute = (
         points.at(-1),
         projectedEnd.point
       );
+      const endHeightError = Math.abs(
+        points.at(-1).y - projectedEnd.point.y
+      );
+      let distance = 0;
+      for (let index = 1; index < points.length; index += 1) {
+        distance += pointDistance(points[index - 1], points[index]);
+      }
       if (
-        startError > ROUTE_ENDPOINT_TOLERANCE ||
-        endError > ROUTE_ENDPOINT_TOLERANCE
+        startError > endpointPolicy.maximumStartDistance ||
+        endError > endpointPolicy.maximumEndDistance ||
+        endHeightError > endpointPolicy.maximumEndHeightDelta
       ) {
         fail(
-          `${label}が投影済み両端へ到達していません: ` +
+          `${label}が投影済み両端の受入範囲へ到達していません: ` +
             `startError=${startError}, endError=${endError}, ` +
+            `endHeightError=${endHeightError}, ` +
+            `endpointPolicy=${JSON.stringify(endpointPolicy)}, ` +
             `projectedStart=${JSON.stringify(
               pointArray(projectedStart.point)
             )}, actualStart=${JSON.stringify(pointArray(points[0]))}, ` +
@@ -3769,20 +3771,20 @@ const findValidatedRoute = (
               pointArray(projectedEnd.point)
             )}, actualEnd=${JSON.stringify(pointArray(points.at(-1)))}, ` +
             `corridorPolygons=${corridor.polys.size}, ` +
-            `straightPathPoints=${points.length}`
+            `straightPathPoints=${points.length}, ` +
+            `routeDistance=${distance}`
         );
       }
-      let distance = 0;
-      for (let index = 1; index < points.length; index += 1) {
-        distance += pointDistance(points[index - 1], points[index]);
-      }
       return {
+        corridorPolygonCount: corridor.polys.size,
         pointCount: points.length,
         distance,
         start: pointArray(points[0]),
         end: pointArray(points.at(-1)),
         startError,
-        endError
+        endError,
+        endHeightError,
+        endpointPolicy
       };
     } finally {
       straight.straightPath.destroy();
@@ -3840,220 +3842,139 @@ const validateRoomDoorRoute = (
     roomId,
     `${roomId}/${variantId}の室内中央`
   );
+  const expectedAccess = expectedDoorAccessForVariant(roomId, variantId);
   const attempts = doors.map((door) => {
+    const expectedReachable =
+      expectedAccess.requiredReachableDoorIds.includes(door.doorId);
+    const endpointPolicy = expectedReachable
+      ? ROOM_CENTER_ROUTE_ENDPOINT_POLICY
+      : STRICT_ROUTE_ENDPOINT_POLICY;
+    const outwardX = door.position[0] - center[0];
+    const outwardZ = door.position[2] - center[2];
+    const outwardLength = Math.hypot(outwardX, outwardZ);
+    if (outwardLength <= BOUNDS_TOLERANCE) {
+      fail(`${door.doorId}の室外方向を決定できません。`);
+    }
+    const outside = [
+      door.position[0] +
+        (outwardX / outwardLength) * ROOM_ROUTE_OUTSIDE_DISTANCE,
+      door.position[1],
+      door.position[2] +
+        (outwardZ / outwardLength) * ROOM_ROUTE_OUTSIDE_DISTANCE
+    ];
+    if (pointInsideClosedMesh(outside, volume.geometry)) {
+      fail(`${door.doorId}の室外probeが所有Volume内です。`);
+    }
+    const projectedOutside = projectRoutePoint(
+      query,
+      outside,
+      ROOM_ROUTE_QUERY_HALF_EXTENTS,
+      ROOM_ROUTE_PROJECTION_MAX_DISTANCE,
+      `${roomId}/${variantId}/${door.doorId}の室外点`
+    );
+    if (
+      pointInsideClosedMesh(
+        pointArray(projectedOutside.point),
+        volume.geometry
+      )
+    ) {
+      fail(`${door.doorId}の投影済み室外点が所有Volume内です。`);
+    }
+    assertProjectedPointOwner(
+      ownerByPolygonRef,
+      projectedOutside,
+      null,
+      `${roomId}/${variantId}/${door.doorId}の室外点`
+    );
+    if (
+      !pointInsideClosedMesh(
+        pointArray(projectedCenter.point),
+        volume.geometry
+      )
+    ) {
+      fail(`${roomId}/${variantId}の投影済み室内中央が所有Volume外です。`);
+    }
+    const result = {
+      doorId: door.doorId,
+      outside,
+      center,
+      projectedOutside: pointArray(projectedOutside.point),
+      projectedCenter: pointArray(projectedCenter.point),
+      outsideProjectionDistance: projectedOutside.projectionDistance,
+      centerProjectionDistance: projectedCenter.projectionDistance,
+      centerHorizontalProjectionDistance: projectedCenter.horizontalDistance,
+      centerProjectionHeight: projectedCenter.point.y,
+      centerProjectionHeightDelta: projectedCenter.heightDelta,
+      centerProjectionCandidateCount: projectedCenter.candidateCount,
+      centerProjectionPolygonRef: projectedCenter.polygonRef,
+      centerOwnerRoomId,
+      expectedReachable,
+      endpointAcceptance: expectedReachable
+        ? "room-center-clearance"
+        : "strict-blockage-probe"
+    };
     try {
-      const outwardX = door.position[0] - center[0];
-      const outwardZ = door.position[2] - center[2];
-      const outwardLength = Math.hypot(outwardX, outwardZ);
-      if (outwardLength <= BOUNDS_TOLERANCE) {
-        fail(`${door.doorId}の室外方向を決定できません。`);
-      }
-      const outside = [
-        door.position[0] +
-          (outwardX / outwardLength) * ROOM_ROUTE_OUTSIDE_DISTANCE,
-        door.position[1],
-        door.position[2] +
-          (outwardZ / outwardLength) * ROOM_ROUTE_OUTSIDE_DISTANCE
-      ];
-      if (pointInsideClosedMesh(outside, volume.geometry)) {
-        fail(`${door.doorId}の室外probeが所有Volume内です。`);
-      }
-      const projectedOutside = projectRoutePoint(
-        query,
-        outside,
-        ROOM_ROUTE_QUERY_HALF_EXTENTS,
-        ROOM_ROUTE_PROJECTION_MAX_DISTANCE,
-        `${roomId}/${variantId}/${door.doorId}の室外点`
-      );
-      if (
-        pointInsideClosedMesh(
-          pointArray(projectedOutside.point),
-          volume.geometry
-        )
-      ) {
-        fail(`${door.doorId}の投影済み室外点が所有Volume内です。`);
-      }
-      assertProjectedPointOwner(
-        ownerByPolygonRef,
-        projectedOutside,
-        null,
-        `${roomId}/${variantId}/${door.doorId}の室外点`
-      );
-      if (
-        !pointInsideClosedMesh(
-          pointArray(projectedCenter.point),
-          volume.geometry
-        )
-      ) {
-        fail(`${roomId}/${variantId}の投影済み室内中央が所有Volume外です。`);
-      }
       const route = findValidatedRoute(
         query,
         projectedOutside,
         projectedCenter,
-        `${roomId}/${variantId}/${door.doorId}から室内中央`
+        `${roomId}/${variantId}/${door.doorId}から室内中央`,
+        endpointPolicy
       );
+      if (!pointInsideClosedMesh(route.end, volume.geometry)) {
+        fail(
+          `${roomId}/${variantId}/${door.doorId}の経路終端が` +
+            `所有Volume外です: ${JSON.stringify(route.end)}`
+        );
+      }
       return {
-        doorId: door.doorId,
+        ...result,
         success: true,
-        outside,
-        center,
-        projectedOutside: pointArray(projectedOutside.point),
-        projectedCenter: pointArray(projectedCenter.point),
-        outsideProjectionDistance:
-          projectedOutside.projectionDistance,
-        centerProjectionDistance: projectedCenter.projectionDistance,
-        centerHorizontalProjectionDistance:
-          projectedCenter.horizontalDistance,
-        centerProjectionHeight: projectedCenter.point.y,
-        centerProjectionHeightDelta: projectedCenter.heightDelta,
-        centerProjectionCandidateCount:
-          projectedCenter.candidateCount,
-        centerProjectionPolygonRef:
-          projectedCenter.polygonRef,
-        centerOwnerRoomId,
         route
       };
     } catch (error) {
       return {
-        doorId: door.doorId,
+        ...result,
         success: false,
-        error: error instanceof Error ? error.message : String(error)
+        routeError: error instanceof Error ? error.message : String(error)
       };
     }
   });
-  const successful = attempts.find(({ success }) => success);
-  if (successful === undefined) {
+  const reachableDoorIds = attempts
+    .filter(({ success }) => success)
+    .map(({ doorId }) => doorId);
+  const blockedDoorIds = attempts
+    .filter(({ success }) => !success)
+    .map(({ doorId }) => doorId);
+  const doorAccessMismatch =
+    expectedAccess.requiredReachableDoorIds.length !==
+      reachableDoorIds.length ||
+    expectedAccess.requiredReachableDoorIds.some(
+      (doorId) => !reachableDoorIds.includes(doorId)
+    ) ||
+    expectedAccess.requiredBlockedDoorIds.length !== blockedDoorIds.length ||
+    expectedAccess.requiredBlockedDoorIds.some(
+      (doorId) => !blockedDoorIds.includes(doorId)
+    );
+  if (doorAccessMismatch) {
     fail(
-      `${roomId}/${variantId}でdoor外から室内中央へ到達できません: ` +
-        JSON.stringify(attempts)
+      `${roomId}/${variantId}の固定扉通行契約が一致しません: ` +
+        JSON.stringify({
+          ...expectedAccess,
+          actualReachableDoorIds: reachableDoorIds,
+          actualBlockedDoorIds: blockedDoorIds,
+          attempts
+        })
     );
   }
   return {
-    requiredSuccessfulDoorCount: 1,
-    successfulDoorCount: attempts.filter(({ success }) => success).length,
-    selectedDoorId: successful.doorId,
+    ...expectedAccess,
+    reachableDoorIds,
+    blockedDoorIds,
+    successfulDoorCount: reachableDoorIds.length,
+    blockedDoorCount: blockedDoorIds.length,
+    contractMatched: true,
     attempts
-  };
-};
-
-const validateDisorderedRampRoute = (
-  query,
-  roomId,
-  volume,
-  rampProbe,
-  ownerByPolygonRef
-) => {
-  if (rampProbe === undefined) {
-    fail(`${roomId}/disorderedの荒れ家具ramp probeがありません。`);
-  }
-  const projectedFloor = projectRoutePoint(
-    query,
-    rampProbe.floorProbe,
-    RAMP_ROUTE_QUERY_HALF_EXTENTS,
-    RAMP_ROUTE_PROJECTION_MAX_DISTANCE,
-    `${roomId}/disorderedの荒れ家具ramp床側点`
-  );
-  const projectedLow = projectRoutePoint(
-    query,
-    rampProbe.lowProbe,
-    RAMP_ROUTE_QUERY_HALF_EXTENTS,
-    RAMP_ROUTE_PROJECTION_MAX_DISTANCE,
-    `${roomId}/disorderedの荒れ家具ramp低点`
-  );
-  const projectedHigh = projectRoutePoint(
-    query,
-    rampProbe.highProbe,
-    RAMP_ROUTE_QUERY_HALF_EXTENTS,
-    RAMP_ROUTE_PROJECTION_MAX_DISTANCE,
-    `${roomId}/disorderedの荒れ家具ramp高点`
-  );
-  const projectedFloorArray = pointArray(projectedFloor.point);
-  const projectedLowArray = pointArray(projectedLow.point);
-  const projectedHighArray = pointArray(projectedHigh.point);
-  if (
-    !pointInsideClosedMesh(projectedFloorArray, volume.geometry) ||
-    !pointInsideClosedMesh(projectedLowArray, volume.geometry) ||
-    !pointInsideClosedMesh(projectedHighArray, volume.geometry)
-  ) {
-    fail(`${roomId}/disorderedの投影済み荒れ家具probeが所有Volume外です。`);
-  }
-  const floorOwnerRoomId = assertProjectedPointOwner(
-    ownerByPolygonRef,
-    projectedFloor,
-    roomId,
-    `${roomId}/disorderedの荒れ家具ramp床側点`
-  );
-  const lowOwnerRoomId = assertProjectedPointOwner(
-    ownerByPolygonRef,
-    projectedLow,
-    roomId,
-    `${roomId}/disorderedの荒れ家具ramp低点`
-  );
-  const highOwnerRoomId = assertProjectedPointOwner(
-    ownerByPolygonRef,
-    projectedHigh,
-    roomId,
-    `${roomId}/disorderedの荒れ家具ramp高点`
-  );
-  const walkableClimb =
-    SCHOOL_ROOM_VARIANT_NAV_PROFILE.parameters.walkableClimb *
-    SCHOOL_ROOM_VARIANT_NAV_PROFILE.parameters.ch;
-  const floorHeightDelta = Math.abs(
-    projectedFloor.point.y - rampProbe.floorProbe[1]
-  );
-  if (floorHeightDelta > walkableClimb + BOUNDS_TOLERANCE) {
-    fail(
-      `${roomId}/disorderedの荒れ家具ramp床側点が床高から` +
-        `walkableClimbを超えています: ` +
-        `${floorHeightDelta} > ${walkableClimb}, ` +
-        `source=${JSON.stringify(rampProbe.floorProbe)}, ` +
-        `projected=${JSON.stringify(projectedFloorArray)}`
-    );
-  }
-  const heightGain = projectedHigh.point.y - projectedLow.point.y;
-  if (heightGain < RAMP_MINIMUM_HEIGHT_GAIN) {
-    fail(
-      `${roomId}/disorderedの荒れ家具ramp高低差が不足しています: ` +
-        `${heightGain} < ${RAMP_MINIMUM_HEIGHT_GAIN}, ` +
-        `sourceExpected=${rampProbe.expectedProbeHeightGain}, ` +
-        `sourceLow=${JSON.stringify(rampProbe.lowProbe)}, ` +
-        `projectedLow=${JSON.stringify(projectedLowArray)}, ` +
-        `lowProjectionDistance=${projectedLow.projectionDistance}, ` +
-        `sourceHigh=${JSON.stringify(rampProbe.highProbe)}, ` +
-        `projectedHigh=${JSON.stringify(projectedHighArray)}, ` +
-        `highProjectionDistance=${projectedHigh.projectionDistance}`
-    );
-  }
-  const floorToLowRoute = findValidatedRoute(
-    query,
-    projectedFloor,
-    projectedLow,
-    `${roomId}/disorderedの荒れ家具ramp床側点から低点`
-  );
-  const lowToHighRoute = findValidatedRoute(
-    query,
-    projectedLow,
-    projectedHigh,
-    `${roomId}/disorderedの荒れ家具ramp低点から高点`
-  );
-  return {
-    ...rampProbe,
-    projectedFloor: projectedFloorArray,
-    projectedLow: projectedLowArray,
-    projectedHigh: projectedHighArray,
-    floorProjectionDistance: projectedFloor.projectionDistance,
-    lowProjectionDistance: projectedLow.projectionDistance,
-    highProjectionDistance: projectedHigh.projectionDistance,
-    floorOwnerRoomId,
-    lowOwnerRoomId,
-    highOwnerRoomId,
-    floorHeightDelta,
-    heightGain,
-    routes: {
-      floorToLow: floorToLowRoute,
-      lowToHigh: lowToHighRoute
-    }
   };
 };
 
@@ -4179,16 +4100,6 @@ const validateRoomVariantAssembly = (
       doors,
       ownerByPolygonRef
     );
-    const disorderedRamp =
-      targetVariantId === "disordered"
-        ? validateDisorderedRampRoute(
-            query,
-            targetRoomId,
-            volume,
-            prepared.disorderedRampProbesByRoom.get(targetRoomId),
-            ownerByPolygonRef
-          )
-        : null;
     return {
       targetRoomId,
       targetVariantId,
@@ -4203,8 +4114,7 @@ const validateRoomVariantAssembly = (
       roomStaticBidirectionalPortalCount:
         roomStaticPortalKeys.length,
       roomStaticPortalKeys,
-      doorToCenter,
-      disorderedRamp
+      doorToCenter
     };
   } finally {
     query?.destroy();
@@ -4284,6 +4194,70 @@ const validateAllRoomVariantAssemblies = (
   return reports;
 };
 
+const validateUnchangedClassroomVariantPayloads = (decodedEntries) =>
+  [...UNCHANGED_CLASSROOM_ROOM_IDS]
+    .sort(codeUnitCompare)
+    .map((roomId) => {
+      const entriesForVariant = (variantId) =>
+        decodedEntries
+          .filter(
+            (entry) =>
+              entry.roomId === roomId && entry.variantId === variantId
+          )
+          .sort(
+            (left, right) =>
+              left.tileY - right.tileY ||
+              left.tileX - right.tileX ||
+              left.layer - right.layer
+          );
+      const normalEntries = entriesForVariant("normal");
+      const disorderedEntries = entriesForVariant("disordered");
+      if (
+        normalEntries.length === 0 ||
+        normalEntries.length !== disorderedEntries.length
+      ) {
+        fail(
+          `${roomId}のAパターンnormal/disordered tile件数が一致しません: ` +
+            `normal=${normalEntries.length}, ` +
+            `disordered=${disorderedEntries.length}`
+        );
+      }
+      normalEntries.forEach((normalEntry, index) => {
+        const disorderedEntry = disorderedEntries[index];
+        const normalKey = tileKey(
+          normalEntry.tileX,
+          normalEntry.tileY,
+          normalEntry.layer
+        );
+        const disorderedKey = tileKey(
+          disorderedEntry.tileX,
+          disorderedEntry.tileY,
+          disorderedEntry.layer
+        );
+        if (
+          normalKey !== disorderedKey ||
+          !arraysEqual(normalEntry.data, disorderedEntry.data)
+        ) {
+          fail(
+            `${roomId}のAパターンnormal/disordered NavMesh payloadが` +
+              `同一ではありません: normal=${normalKey}, ` +
+              `disordered=${disorderedKey}`
+          );
+        }
+      });
+      const payload = Buffer.concat(
+        normalEntries.map(({ data }) => Buffer.from(data))
+      );
+      return {
+        roomId,
+        normalEntryCount: normalEntries.length,
+        disorderedEntryCount: disorderedEntries.length,
+        payloadBytes: payload.byteLength,
+        payloadSha256: sha256(payload),
+        identical: true
+      };
+    });
+
 const validateGlobalAllNormalRoutes = (staticTiles, decodedEntries) => {
   const normalEntries = decodedEntries
     .filter(({ variantId }) => variantId === "normal")
@@ -4326,13 +4300,15 @@ const validateGlobalAllNormalRoutes = (staticTiles, decodedEntries) => {
         query,
         projectedStart,
         projectedEnd,
-        `${spec.id}の往路`
+        `${spec.id}の往路`,
+        STRICT_ROUTE_ENDPOINT_POLICY
       );
       const backward = findValidatedRoute(
         query,
         projectedEnd,
         projectedStart,
-        `${spec.id}の復路`
+        `${spec.id}の復路`,
+        STRICT_ROUTE_ENDPOINT_POLICY
       );
       if (
         forward.distance >
@@ -4620,6 +4596,8 @@ const bakeOnce = (prepared, validateAcceptance) => {
   const bundle = encodeBundle(bundleEntries);
   const decoded = decodeBundle(bundle);
   validateBundleTileHeaders(decoded, ownedKeysByVariant);
+  const unchangedClassroomVariantEquivalence =
+    validateUnchangedClassroomVariantPayloads(decoded.entries);
   const connectivity = validateAcceptance
     ? validateAllRoomVariantAssemblies(
         staticTiles,
@@ -4631,30 +4609,6 @@ const bakeOnce = (prepared, validateAcceptance) => {
   const globalAllNormalRoutes = validateAcceptance
     ? validateGlobalAllNormalRoutes(staticTiles, decoded.entries)
     : [];
-  const disorderedRampAcceptance = connectivity
-    .filter(
-      ({ targetVariantId }) => targetVariantId === "disordered"
-    )
-    .map(({ targetRoomId, disorderedRamp }) => {
-      if (disorderedRamp === null) {
-        fail(
-          `${targetRoomId}/disorderedの荒れ家具ramp受入結果がありません。`
-        );
-      }
-      return {
-        roomId: targetRoomId,
-        ...disorderedRamp
-      };
-    });
-  if (
-    validateAcceptance &&
-    disorderedRampAcceptance.length !== ROOM_IDS.length
-  ) {
-    fail(
-      `disordered ramp受入件数が20件ではありません: ` +
-        `${disorderedRampAcceptance.length}`
-    );
-  }
   return {
     base,
     bundle,
@@ -4678,7 +4632,7 @@ const bakeOnce = (prepared, validateAcceptance) => {
     generationStatistics,
     connectivity,
     globalAllNormalRoutes,
-    disorderedRampAcceptance
+    unchangedClassroomVariantEquivalence
   };
 };
 
@@ -4737,8 +4691,6 @@ const main = async () => {
     prepared.physicalBands,
     "variant生成用静的common"
   );
-  prepared.disorderedRampProbesByRoom =
-    collectDisorderedRampProbes(prepared, roomDoorsByRoom);
   prepared.volumes.forEach((volume) => {
     volume.grid = validateVolumeGridAlignment(volume);
   });
@@ -4921,25 +4873,85 @@ const main = async () => {
           ROOM_CENTER_MAXIMUM_HORIZONTAL_PROJECTION_DISTANCE,
         equalDistanceTieBreak: "polygon-ref-ascending"
       },
+      roomCenterRouteEndpointPolicy: {
+        humanNavRadius: HUMAN_NAV_RADIUS,
+        maximumDistanceFormula:
+          "room-center-projection-maximum + 2 * human-nav-radius",
+        maximumDistance:
+          ROOM_CENTER_ROUTE_ENDPOINT_MAXIMUM_DISTANCE,
+        maximumHeightDelta:
+          ROOM_CENTER_ROUTE_ENDPOINT_MAXIMUM_HEIGHT_DELTA,
+        requiredCorridorPolygonCountMinimum: 1,
+        requiredStraightPathPointCountMinimum: 2,
+        actualEndpointMustRemainInsideOwnedRoomVolume: true
+      },
+      blockedDoorEndpointPolicy: STRICT_ROUTE_ENDPOINT_POLICY,
       roomCenterProjectedToOwnedActiveNavmesh: true,
       roomCenterProjectionDistanceAndHeightReportedPerAssembly: true,
       roomDoorOutsideProjectedToStaticNavmesh: true,
-      roomDoorOutsideToCenterReachable: true,
-      disorderedRampProbePolicy: {
-        edgeInsetDistance:
-          SCHOOL_ROOM_VARIANT_NAV_PROFILE.parameters.walkableRadius *
-          SCHOOL_ROOM_VARIANT_NAV_PROFILE.parameters.cs,
-        minimumProjectedHeightGain: RAMP_MINIMUM_HEIGHT_GAIN,
-        maximumEndpointProjectionDistance:
-          RAMP_ROUTE_PROJECTION_MAX_DISTANCE,
-        requiredRouteSequence: "floor-to-low-to-high"
+      roomVariantBlockerRequiredPerConfiguration: 1,
+      roomVariantBlockerConfigurationCount:
+        contract.variantMarkers.length,
+      roomDoorAccessContract: {
+        normal: "all-registered-doors-reachable",
+        unchangedClassroomRoomIds: UNCHANGED_CLASSROOM_ROOM_IDS,
+        moderatelyDisorderedClassroomRoomIds:
+          MODERATELY_DISORDERED_CLASSROOM_ROOM_IDS,
+        frontBlockedClassroomRoomIds:
+          FRONT_BLOCKED_CLASSROOM_ROOM_IDS,
+        disorderedSpecialRooms:
+          "all-registered-doors-reachable",
+        frontBlockedClassroomRearDoorNumber: 1,
+        frontBlockedClassroomFrontDoorNumber: 2
       },
-      disorderedRampEndpointsProjectedToOwnedActiveNavmesh: true,
-      disorderedFurnitureRampLowToHighReachable: true,
-      disorderedRampAcceptanceCount:
-        first.disorderedRampAcceptance.length,
-      disorderedRampAcceptance:
-        first.disorderedRampAcceptance,
+      roomDoorAccessContractMatched:
+        first.connectivity.length ===
+          ROOM_IDS.length * VARIANT_IDS.length &&
+        first.connectivity.every(
+          ({ doorToCenter }) => doorToCenter.contractMatched === true
+        ),
+      normalAllRegisteredDoorRoutesReachable:
+        first.connectivity.filter(
+          ({ targetVariantId }) => targetVariantId === "normal"
+        ).length === ROOM_IDS.length &&
+        first.connectivity
+          .filter(({ targetVariantId }) => targetVariantId === "normal")
+          .every(
+            ({ doorToCenter }) =>
+              doorToCenter.blockedDoorCount === 0 &&
+              doorToCenter.successfulDoorCount ===
+                doorToCenter.attempts.length
+          ),
+      disorderedRequiredDoorRoutesMatched:
+        first.connectivity.filter(
+          ({ targetVariantId }) => targetVariantId === "disordered"
+        ).length === ROOM_IDS.length &&
+        first.connectivity
+          .filter(
+            ({ targetVariantId }) => targetVariantId === "disordered"
+          )
+          .every(
+            ({ doorToCenter }) => doorToCenter.contractMatched === true
+          ),
+      disorderedFrontDoorBlockedCount:
+        first.connectivity.filter(
+          ({ targetRoomId, targetVariantId, doorToCenter }) =>
+            targetVariantId === "disordered" &&
+            FRONT_BLOCKED_CLASSROOM_ROOM_ID_SET.has(targetRoomId) &&
+            doorToCenter.blockedDoorIds.includes(
+              roomDoorId(targetRoomId, 2)
+            )
+        ).length,
+      unchangedClassroomVariantPayloadCount:
+        first.unchangedClassroomVariantEquivalence.length,
+      unchangedClassroomNormalDisorderedPayloadsIdentical:
+        first.unchangedClassroomVariantEquivalence.length ===
+          UNCHANGED_CLASSROOM_ROOM_IDS.length &&
+        first.unchangedClassroomVariantEquivalence.every(
+          ({ identical }) => identical === true
+        ),
+      unchangedClassroomVariantEquivalence:
+        first.unchangedClassroomVariantEquivalence,
       deterministicDoubleBake: true,
       generationStatistics: first.generationStatistics,
       connectivity: first.connectivity,

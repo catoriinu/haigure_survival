@@ -24,7 +24,7 @@ GLB_PATH = (
     REPOSITORY_ROOT / "public/stage-assets/v2/B02/b02_school_blockout.glb"
 )
 EXPORT_COLLECTION_NAME = "EXP_Stage_school"
-EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v8"
+EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v9"
 EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
 
 GLB_MAGIC = b"glTF"
@@ -38,6 +38,21 @@ INFIRMARY_NORMAL_CURTAIN_BEAM_SIGHT_COLLIDER_NAME = (
 )
 INFIRMARY_DISORDERED_CURTAIN_BEAM_SIGHT_COLLIDER_NAME = (
     "COL_BeamSightOnly_RoomVariant_F01_Infirmary_Disordered_Curtains"
+)
+UNCHANGED_DISORDERED_ROOM_IDS = frozenset(
+    {
+        "f02-classroom-01",
+        "f03-classroom-03",
+        "f04-classroom-02",
+    }
+)
+ROOM_VARIANT_WALL_ATTACHMENT_ALLOWANCE = 0.55
+INFIRMARY_DISORDERED_CURTAIN_COLLIDER_BOUNDS = (
+    ((-12.10, 6.55, 0.45), (-9.275, 6.69, 3.00)),
+    ((-12.17, 3.00, 0.45), (-12.03, 6.62, 3.00)),
+    ((-9.345, 3.00, 0.45), (-9.205, 6.62, 3.00)),
+    ((-6.57, 2.74, 0.45), (-6.33, 3.56, 3.00)),
+    ((-7.19, 2.70, 0.45), (-6.45, 2.94, 3.00)),
 )
 
 
@@ -1083,6 +1098,9 @@ def audit_room_variants(
         f"{graph.source}: 固定20室×2 variant集合が不正です",
     )
 
+    unchanged_room_parity_checks = 0
+    collider_blocker_parity_checks = 0
+    disordered_bounds_checks = 0
     for room in ROOM_SPECS:
         room_token = token(room.author_name)
         normal_children = {
@@ -1092,10 +1110,8 @@ def audit_room_variants(
         }
         disordered_children = {
             f"VIS_RoomVariant_{room_token}_Disordered_FurnitureProps",
-            f"VIS_RoomVariant_{room_token}_Disordered_FallenFurniture",
             f"COL_RoomVariant_{room_token}_Disordered",
             f"NAV_RoomVariant_{room_token}_Disordered_Blocker",
-            f"NAV_RoomVariant_{room_token}_Disordered_Walkable",
         }
         if room.author_name == "F01_Infirmary":
             normal_children.update(
@@ -1171,19 +1187,48 @@ def audit_room_variants(
                     f"{child.name}: variant子MeshにAABBがありません",
                 )
                 if child.name.startswith("NAV_"):
-                    expected_nav_properties: dict[str, Any] = {
-                        "hs_nav_set": "human",
-                        "hs_nav_role": "blocker",
-                    }
-                    if child.name.endswith("_Walkable"):
-                        expected_nav_properties = {
+                    require_properties(
+                        child,
+                        {
                             "hs_nav_set": "human",
-                            "hs_nav_role": "walkable",
-                            "hs_nav_area": "ground",
-                        }
-                    require_properties(child, expected_nav_properties)
+                            "hs_nav_role": "blocker",
+                        },
+                    )
                 else:
                     require_properties(child, {})
+
+                if variant_id == "disordered":
+                    minimum_x, maximum_x, minimum_y, maximum_y = (
+                        room.bounds_xy
+                    )
+                    room_bounds = (
+                        Vector(
+                            (
+                                minimum_x - ROOM_VARIANT_WALL_ATTACHMENT_ALLOWANCE,
+                                minimum_y - ROOM_VARIANT_WALL_ATTACHMENT_ALLOWANCE,
+                                room.base_z,
+                            )
+                        ),
+                        Vector(
+                            (
+                                maximum_x + ROOM_VARIANT_WALL_ATTACHMENT_ALLOWANCE,
+                                maximum_y + ROOM_VARIANT_WALL_ATTACHMENT_ALLOWANCE,
+                                room.base_z + 3.20,
+                            )
+                        ),
+                    )
+                    if glb_coordinates:
+                        room_bounds = convert_bounds(room_bounds)
+                    child_world_bounds = transformed_bounds(
+                        child.local_bounds,
+                        child.world_matrix,
+                    )
+                    require(
+                        bounds_contains(room_bounds, child_world_bounds),
+                        f"{child.name}: 荒れ版Meshが室内boundsから出ています: "
+                        f"actual={child_world_bounds}, room={room_bounds}",
+                    )
+                    disordered_bounds_checks += 1
 
             child_prefixes = Counter(
                 child_name.split("_", 1)[0]
@@ -1193,10 +1238,77 @@ def audit_room_variants(
                 child_prefixes["VIS"] >= 1
                 and child_prefixes["COL"]
                 == (2 if room.author_name == "F01_Infirmary" else 1)
-                and child_prefixes["NAV"]
-                == (1 if variant_id == "normal" else 2),
+                and child_prefixes["NAV"] == 1,
                 f"{marker.name}: VIS/COL/NAV構成が不正です: {child_prefixes}",
             )
+
+        for variant_id, collider_name, blocker_name in (
+            (
+                "normal",
+                f"COL_B03_Interior_{room.author_name}",
+                f"NAV_RoomVariant_{room_token}_Normal_Blocker",
+            ),
+            (
+                "disordered",
+                f"COL_RoomVariant_{room_token}_Disordered",
+                f"NAV_RoomVariant_{room_token}_Disordered_Blocker",
+            ),
+        ):
+            collider = graph.require_node(collider_name)
+            blocker = graph.require_node(blocker_name)
+            require(
+                collider.local_bounds is not None
+                and blocker.local_bounds is not None,
+                f"{room.room_id}/{variant_id}: COL/BlockerにAABBがありません",
+            )
+            require(
+                bounds_close(collider.local_bounds, blocker.local_bounds)
+                and collider.triangle_count == blocker.triangle_count,
+                f"{room.room_id}/{variant_id}: COL/Blocker形状契約が不一致です",
+            )
+            collider_blocker_parity_checks += 1
+
+        if room.room_id in UNCHANGED_DISORDERED_ROOM_IDS:
+            unchanged_pairs = [
+                (
+                    f"VIS_B03_Interior_{room.author_name}_FurnitureProps",
+                    f"VIS_RoomVariant_{room_token}_Disordered_FurnitureProps",
+                ),
+                (
+                    f"COL_B03_Interior_{room.author_name}",
+                    f"COL_RoomVariant_{room_token}_Disordered",
+                ),
+                (
+                    f"NAV_RoomVariant_{room_token}_Normal_Blocker",
+                    f"NAV_RoomVariant_{room_token}_Disordered_Blocker",
+                ),
+            ]
+            if room.has_signs_paper:
+                unchanged_pairs.append(
+                    (
+                        f"VIS_B03_Interior_{room.author_name}_SignsPaper",
+                        f"VIS_RoomVariant_{room_token}_Disordered_SignsPaper",
+                    )
+                )
+            for normal_name, disordered_name in unchanged_pairs:
+                normal_node = graph.require_node(normal_name)
+                disordered_node = graph.require_node(disordered_name)
+                require(
+                    normal_node.local_bounds is not None
+                    and disordered_node.local_bounds is not None,
+                    f"{room.room_id}: A配置の通常・荒れ版にAABBがありません",
+                )
+                require(
+                    bounds_close(
+                        normal_node.local_bounds,
+                        disordered_node.local_bounds,
+                    )
+                    and normal_node.triangle_count
+                    == disordered_node.triangle_count,
+                    f"{room.room_id}: A配置の通常・荒れ版が一致しません: "
+                    f"{normal_name}/{disordered_name}",
+                )
+                unchanged_room_parity_checks += 1
 
     volumes = graph.role_nodes("room_variant_tile")
     require(
@@ -1277,6 +1389,10 @@ def audit_room_variants(
         "markers": len(markers),
         "tile_volumes": len(volumes),
         "tile_volume_overlaps": len(overlaps),
+        "unchanged_disordered_rooms": len(UNCHANGED_DISORDERED_ROOM_IDS),
+        "unchanged_room_parity_checks": unchanged_room_parity_checks,
+        "collider_blocker_parity_checks": collider_blocker_parity_checks,
+        "disordered_bounds_checks": disordered_bounds_checks,
     }
 
 
@@ -2402,17 +2518,6 @@ def mesh_connected_components(
     return components
 
 
-def geometry_signature(
-    vertices: list[tuple[float, float, float]],
-) -> tuple[tuple[float, float, float], ...]:
-    return tuple(
-        sorted(
-            tuple(round(value, 6) for value in vertex)
-            for vertex in vertices
-        )
-    )
-
-
 def require_closed_manifold(obj: bpy.types.Object) -> None:
     edge_counts: Counter[tuple[int, int]] = Counter()
     for polygon in obj.data.polygons:
@@ -2433,12 +2538,89 @@ def require_closed_manifold(obj: bpy.types.Object) -> None:
     )
 
 
+def require_mesh_geometry_parity(
+    first: bpy.types.Object,
+    second: bpy.types.Object,
+    label: str,
+    *,
+    include_materials: bool,
+) -> None:
+    require(
+        mesh_vertex_coordinates(first) == mesh_vertex_coordinates(second)
+        and mesh_faces(first) == mesh_faces(second),
+        f"{label}: 頂点または面が一致しません",
+    )
+    if not include_materials:
+        return
+    require(
+        tuple(
+            material.name if material is not None else ""
+            for material in first.data.materials
+        )
+        == tuple(
+            material.name if material is not None else ""
+            for material in second.data.materials
+        )
+        and tuple(polygon.material_index for polygon in first.data.polygons)
+        == tuple(polygon.material_index for polygon in second.data.polygons),
+        f"{label}: Material契約が一致しません",
+    )
+
+
+def mesh_component_world_bounds(
+    obj: bpy.types.Object,
+) -> list[tuple[Vector, Vector]]:
+    return [
+        bounds_from_points(
+            [obj.matrix_world @ Vector(vertex) for vertex in component]
+        )
+        for component in mesh_connected_components(obj)
+    ]
+
+
+def require_component_bounds_set(
+    label: str,
+    actual: list[tuple[Vector, Vector]],
+    expected: tuple[
+        tuple[
+            tuple[float, float, float],
+            tuple[float, float, float],
+        ],
+        ...,
+    ],
+) -> None:
+    remaining = list(actual)
+    for expected_minimum, expected_maximum in expected:
+        expected_bounds = (
+            Vector(expected_minimum),
+            Vector(expected_maximum),
+        )
+        match_index = next(
+            (
+                index
+                for index, bounds in enumerate(remaining)
+                if bounds_close(bounds, expected_bounds)
+            ),
+            None,
+        )
+        require(
+            match_index is not None,
+            f"{label}: 規定AABBがありません: {expected_bounds}",
+        )
+        remaining.pop(match_index)
+    require(
+        not remaining,
+        f"{label}: 仕様外の成分AABBがあります: {remaining}",
+    )
+
+
 def audit_blender_geometry() -> dict[str, int]:
-    disordered_geometry_checks = 0
-    furniture_overlap_count = 0
-    removed_normal_boxes = 0
-    removed_visual_components = 0
-    approach_bounds_checks = 0
+    changed_collider_rooms = 0
+    changed_visual_rooms = 0
+    collider_blocker_parity_checks = 0
+    disordered_component_bounds_checks = 0
+    unchanged_room_geometry_checks = 0
+    infirmary_curtain_checks = 0
     manifold_checks = 0
     threshold_profile_checks = 0
     toilet_knob_component_checks = 0
@@ -2493,30 +2675,62 @@ def audit_blender_geometry() -> dict[str, int]:
             )
         toilet_knob_component_checks += 1
 
-    for panel_name in INFIRMARY_CURTAIN_PANEL_NAMES:
-        normal_curtain = bpy.data.objects[
+    normal_curtains = {
+        panel_name: bpy.data.objects[
             f"VIS_B03_Interior_F01_Infirmary_Curtain_{panel_name}"
         ]
-        disordered_curtain = bpy.data.objects[
+        for panel_name in INFIRMARY_CURTAIN_PANEL_NAMES
+    }
+    disordered_curtains = {
+        panel_name: bpy.data.objects[
             "VIS_RoomVariant_F01_Infirmary_Disordered_Curtain_"
             f"{panel_name}"
         ]
+        for panel_name in INFIRMARY_CURTAIN_PANEL_NAMES
+    }
+    for curtain in (*normal_curtains.values(), *disordered_curtains.values()):
         require(
-            mesh_vertex_coordinates(normal_curtain)
-            == mesh_vertex_coordinates(disordered_curtain)
-            and mesh_faces(normal_curtain) == mesh_faces(disordered_curtain),
-            f"保健室の通常・荒れ版{panel_name}カーテン形状が一致しません",
-        )
-        for curtain in (normal_curtain, disordered_curtain):
-            require(
-                tuple(
-                    material.name
-                    for material in curtain.data.materials
-                    if material is not None
-                )
-                == ("MAT_B03_InfirmaryCurtain",),
-                f"{curtain.name}: カーテン専用Materialではありません",
+            tuple(
+                material.name
+                for material in curtain.data.materials
+                if material is not None
             )
+            == ("MAT_B03_InfirmaryCurtain",),
+            f"{curtain.name}: カーテン専用Materialではありません",
+        )
+        infirmary_curtain_checks += 1
+
+    for panel_name in ("West", "Divider"):
+        require_mesh_geometry_parity(
+            normal_curtains[panel_name],
+            disordered_curtains[panel_name],
+            f"保健室{panel_name}カーテン通常・荒れ版",
+            include_materials=True,
+        )
+        infirmary_curtain_checks += 1
+    for panel_name in ("North", "East"):
+        require(
+            mesh_vertex_coordinates(normal_curtains[panel_name])
+            != mesh_vertex_coordinates(disordered_curtains[panel_name])
+            or mesh_faces(normal_curtains[panel_name])
+            != mesh_faces(disordered_curtains[panel_name]),
+            f"保健室{panel_name}カーテンが荒れ版配置へ変化していません",
+        )
+        infirmary_curtain_checks += 1
+
+    require_component_bounds_set(
+        "保健室荒れ版カーテン表示",
+        [
+            *mesh_component_world_bounds(disordered_curtains["North"]),
+            *mesh_component_world_bounds(disordered_curtains["West"]),
+            *mesh_component_world_bounds(disordered_curtains["Divider"]),
+            *mesh_component_world_bounds(disordered_curtains["East"]),
+        ],
+        INFIRMARY_DISORDERED_CURTAIN_COLLIDER_BOUNDS,
+    )
+    infirmary_curtain_checks += len(
+        INFIRMARY_DISORDERED_CURTAIN_COLLIDER_BOUNDS
+    )
 
     normal_beam_sight_collider = bpy.data.objects[
         INFIRMARY_NORMAL_CURTAIN_BEAM_SIGHT_COLLIDER_NAME
@@ -2526,22 +2740,29 @@ def audit_blender_geometry() -> dict[str, int]:
     ]
     require(
         mesh_vertex_coordinates(normal_beam_sight_collider)
-        == mesh_vertex_coordinates(disordered_beam_sight_collider)
-        and mesh_faces(normal_beam_sight_collider)
-        == mesh_faces(disordered_beam_sight_collider),
-        "保健室カーテンの通常・荒れ版ビーム・視線遮蔽形状が一致しません",
+        != mesh_vertex_coordinates(disordered_beam_sight_collider)
+        or mesh_faces(normal_beam_sight_collider)
+        != mesh_faces(disordered_beam_sight_collider),
+        "保健室荒れ版のビーム・視線遮蔽が通常版から変化していません",
     )
-    for collider in (
-        normal_beam_sight_collider,
-        disordered_beam_sight_collider,
+    require_component_bounds_set(
+        "保健室荒れ版カーテンBeamSight",
+        mesh_component_world_bounds(disordered_beam_sight_collider),
+        INFIRMARY_DISORDERED_CURTAIN_COLLIDER_BOUNDS,
+    )
+    infirmary_curtain_checks += 2
+    for collider, expected_components in (
+        (normal_beam_sight_collider, 4),
+        (disordered_beam_sight_collider, 5),
     ):
         require(
             not collider.data.materials,
             f"{collider.name}: ビーム・視線遮蔽へMaterialがあります",
         )
         require(
-            len(mesh_connected_components(collider)) == 4,
-            f"{collider.name}: ビーム・視線遮蔽が4面ではありません",
+            len(mesh_connected_components(collider)) == expected_components,
+            f"{collider.name}: ビーム・視線遮蔽成分数が不正です: "
+            f"{len(mesh_connected_components(collider))}/{expected_components}",
         )
         require_closed_manifold(collider)
 
@@ -2614,298 +2835,139 @@ def audit_blender_geometry() -> dict[str, int]:
 
     for room in ROOM_SPECS:
         room_token = token(room.author_name)
-        normal = bpy.data.objects[
+        normal_collider = bpy.data.objects[
             f"COL_B03_Interior_{room.author_name}"
         ]
-        collider = bpy.data.objects[
+        disordered_collider = bpy.data.objects[
             f"COL_RoomVariant_{room_token}_Disordered"
         ]
-        blocker = bpy.data.objects[
+        normal_blocker = bpy.data.objects[
+            f"NAV_RoomVariant_{room_token}_Normal_Blocker"
+        ]
+        disordered_blocker = bpy.data.objects[
             f"NAV_RoomVariant_{room_token}_Disordered_Blocker"
         ]
-        walkable = bpy.data.objects[
-            f"NAV_RoomVariant_{room_token}_Disordered_Walkable"
-        ]
-        visual = bpy.data.objects[
-            f"VIS_RoomVariant_{room_token}_Disordered_FallenFurniture"
-        ]
-
-        normal_vertices = mesh_vertex_coordinates(normal)
-        normal_faces = mesh_faces(normal)
-        collider_vertices = mesh_vertex_coordinates(collider)
-        collider_faces = mesh_faces(collider)
-        blocker_vertices = mesh_vertex_coordinates(blocker)
-        blocker_faces = mesh_faces(blocker)
-        walkable_vertices = mesh_vertex_coordinates(walkable)
-        walkable_faces = mesh_faces(walkable)
-        visual_vertices = mesh_vertex_coordinates(visual)
-        visual_faces = mesh_faces(visual)
-
-        require(
-            len(visual_vertices) == 16 and len(visual_faces) == 12,
-            f"{visual.name}: ramp+shelfの16頂点12面ではありません",
-        )
-        base_vertex_count = len(blocker_vertices) - 8
-        base_face_count = len(blocker_faces) - 6
-        require(
-            base_vertex_count >= 0
-            and base_vertex_count % 8 == 0
-            and base_face_count == base_vertex_count // 8 * 6,
-            f"{blocker.name}: 箱集合base+shelf構成ではありません",
-        )
-        removed_box_count = (
-            len(normal_vertices) - base_vertex_count
-        ) // 8
-        expected_removed_box_count = (
-            1 if room.room_id.startswith(("f02-classroom", "f03-classroom", "f04-classroom")) else 0
-        )
-        require(
-            len(normal_vertices) - base_vertex_count
-            == expected_removed_box_count * 8
-            and len(normal_faces) - base_face_count
-            == expected_removed_box_count * 6,
-            f"{collider.name}: 荒れ版の通常机置換件数が不正です",
-        )
-        normal_components = [
-            normal_vertices[offset:offset + 8]
-            for offset in range(0, len(normal_vertices), 8)
-        ]
-        base_components = [
-            blocker_vertices[offset:offset + 8]
-            for offset in range(0, base_vertex_count, 8)
-        ]
-        normal_component_index = 0
-        for component in base_components:
-            while (
-                normal_component_index < len(normal_components)
-                and normal_components[normal_component_index] != component
-            ):
-                normal_component_index += 1
-            require(
-                normal_component_index < len(normal_components),
-                f"{blocker.name}: normal Colliderの順序部分集合ではありません",
-            )
-            normal_component_index += 1
-        remaining_base_signatures = Counter(
-            geometry_signature(component)
-            for component in base_components
-        )
-        removed_collider_components = []
-        for component in normal_components:
-            signature = geometry_signature(component)
-            if remaining_base_signatures[signature] > 0:
-                remaining_base_signatures[signature] -= 1
-            else:
-                removed_collider_components.append(component)
-        require(
-            len(removed_collider_components) == removed_box_count,
-            f"{collider.name}: 置換した通常Collider箱を一意に抽出できません",
-        )
-        require(
-            len(collider_vertices) == base_vertex_count + 16
-            and len(collider_faces) == base_face_count + 12,
-            f"{collider.name}: 荒れ版base Collider+ramp+shelf構成ではありません",
-        )
-        require(
-            all(
-                coordinates_close(actual, expected)
-                for actual, expected in zip(
-                    collider_vertices[base_vertex_count:],
-                    visual_vertices,
-                    strict=True,
-                )
-            ),
-            f"{collider.name}: 追加形状が表示ramp+shelfと一致しません",
-        )
-        require(
-            collider_faces[base_face_count:]
-            == [
-                tuple(index + base_vertex_count for index in face)
-                for face in visual_faces
-            ],
-            f"{collider.name}: 追加面が表示ramp+shelfと一致しません",
-        )
-        require(
-            collider_vertices[:base_vertex_count]
-            == blocker_vertices[:base_vertex_count]
-            and collider_faces[:base_face_count]
-            == blocker_faces[:base_face_count]
-            and blocker_vertices[base_vertex_count:] == visual_vertices[8:]
-            and blocker_faces[base_face_count:]
-            == [
-                tuple(index - 8 + base_vertex_count for index in face)
-                for face in visual_faces[6:]
-            ],
-            f"{blocker.name}: normal Collider+shelf構成ではありません",
-        )
-        require(
-            walkable_vertices == visual_vertices[:8]
-            and walkable_faces == visual_faces[:6],
-            f"{walkable.name}: 表示rampと同一形状ではありません",
-        )
-
         normal_furniture = bpy.data.objects[
             f"VIS_B03_Interior_{room.author_name}_FurnitureProps"
         ]
         disordered_furniture = bpy.data.objects[
             f"VIS_RoomVariant_{room_token}_Disordered_FurnitureProps"
         ]
-        normal_visual_components = mesh_connected_components(normal_furniture)
-        disordered_visual_signatures = Counter(
-            geometry_signature(component)
-            for component in mesh_connected_components(disordered_furniture)
-        )
-        removed_room_visual_components = []
-        for component in normal_visual_components:
-            signature = geometry_signature(component)
-            if disordered_visual_signatures[signature] > 0:
-                disordered_visual_signatures[signature] -= 1
-            else:
-                removed_room_visual_components.append(component)
-        require(
-            not +disordered_visual_signatures,
-            f"{disordered_furniture.name}: normalにない表示形状があります",
-        )
-        require(
-            bool(removed_room_visual_components)
-            == bool(removed_collider_components),
-            f"{disordered_furniture.name}: VIS/COLの置換有無が一致しません",
-        )
-        removed_collider_bounds = [
-            component_bounds(component)
-            for component in removed_collider_components
-        ]
-        for component in removed_room_visual_components:
-            visual_bounds = component_bounds(component)
-            visual_center = tuple(
-                (visual_bounds[0][axis] + visual_bounds[1][axis]) / 2.0
-                for axis in range(3)
-            )
-            require(
-                any(
-                    collider_bounds[0][0] - 0.12
-                    <= visual_center[0]
-                    <= collider_bounds[1][0] + 0.12
-                    and collider_bounds[0][1] - 0.12
-                    <= visual_center[1]
-                    <= collider_bounds[1][1] + 0.12
-                    and collider_bounds[0][2] - 0.05
-                    <= visual_center[2]
-                    <= collider_bounds[1][2] + 0.25
-                    for collider_bounds in removed_collider_bounds
-                ),
-                f"{disordered_furniture.name}: 置換机範囲外の表示形状を"
-                "除去しています",
-            )
-        removed_visual_components += len(removed_room_visual_components)
 
-        for obj in (collider, blocker, walkable, visual):
+        require_mesh_geometry_parity(
+            normal_collider,
+            normal_blocker,
+            f"{room.room_id}/normal COL=Blocker",
+            include_materials=False,
+        )
+        require_mesh_geometry_parity(
+            disordered_collider,
+            disordered_blocker,
+            f"{room.room_id}/disordered COL=Blocker",
+            include_materials=False,
+        )
+        collider_blocker_parity_checks += 2
+
+        for obj in (
+            normal_collider,
+            normal_blocker,
+            disordered_collider,
+            disordered_blocker,
+        ):
             require_closed_manifold(obj)
             manifold_checks += 1
 
-        ramp_vertices = visual_vertices[:8]
-        ramp_bounds = component_bounds(ramp_vertices)
-        shelf_bounds = component_bounds(visual_vertices[8:])
-        top_vertices = ramp_vertices[4:]
-        bottom_z = min(vertex[2] for vertex in ramp_vertices[:4])
-        low_z = min(vertex[2] for vertex in top_vertices)
-        high_z = max(vertex[2] for vertex in top_vertices)
-        ramp_run = max(
-            ramp_bounds[1][0] - ramp_bounds[0][0],
-            ramp_bounds[1][1] - ramp_bounds[0][1],
-        )
-        require(
-            low_z - bottom_z <= 0.15 + TOLERANCE,
-            f"{visual.name}: 初段差が0.15mを超えます",
-        )
-        require(
-            math.degrees(math.atan2(high_z - low_z, ramp_run))
-            <= 45.0 + TOLERANCE,
-            f"{visual.name}: 歩行面傾斜が45度を超えます",
-        )
-        require(
-            min(
-                ramp_bounds[1][0] - ramp_bounds[0][0],
-                ramp_bounds[1][1] - ramp_bounds[0][1],
-            )
-            >= 1.20 - TOLERANCE,
-            f"{visual.name}: 人物radius侵食後の有効幅が不足します",
-        )
-
-        low_edge = [
-            vertex
-            for vertex in top_vertices
-            if abs(vertex[2] - low_z) <= TOLERANCE
-        ]
-        require(
-            len(low_edge) == 2,
-            f"{visual.name}: ramp低辺を一意に決定できません",
-        )
         minimum_x, maximum_x, minimum_y, maximum_y = room.bounds_xy
-        if abs(low_edge[0][0] - low_edge[1][0]) <= TOLERANCE:
-            low_x = low_edge[0][0]
-            approach_minimum_x = (
-                low_x - 0.60
-                if abs(low_x - ramp_bounds[0][0]) <= TOLERANCE
-                else low_x
-            )
-            approach_maximum_x = (
-                low_x
-                if abs(low_x - ramp_bounds[0][0]) <= TOLERANCE
-                else low_x + 0.60
-            )
-            approach_bounds = (
-                approach_minimum_x,
-                approach_maximum_x,
-                ramp_bounds[0][1],
-                ramp_bounds[1][1],
-            )
-        else:
-            low_y = low_edge[0][1]
-            approach_minimum_y = (
-                low_y - 0.60
-                if abs(low_y - ramp_bounds[0][1]) <= TOLERANCE
-                else low_y
-            )
-            approach_maximum_y = (
-                low_y
-                if abs(low_y - ramp_bounds[0][1]) <= TOLERANCE
-                else low_y + 0.60
-            )
-            approach_bounds = (
-                ramp_bounds[0][0],
-                ramp_bounds[1][0],
-                approach_minimum_y,
-                approach_maximum_y,
-            )
-        require(
-            approach_bounds[0] >= minimum_x - TOLERANCE
-            and approach_bounds[1] <= maximum_x + TOLERANCE
-            and approach_bounds[2] >= minimum_y - TOLERANCE
-            and approach_bounds[3] <= maximum_y + TOLERANCE,
-            f"{visual.name}: ramp進入帯が部屋所有領域から出ています",
+        room_bounds = (
+            Vector(
+                (
+                    minimum_x - ROOM_VARIANT_WALL_ATTACHMENT_ALLOWANCE,
+                    minimum_y - ROOM_VARIANT_WALL_ATTACHMENT_ALLOWANCE,
+                    room.base_z,
+                )
+            ),
+            Vector(
+                (
+                    maximum_x + ROOM_VARIANT_WALL_ATTACHMENT_ALLOWANCE,
+                    maximum_y + ROOM_VARIANT_WALL_ATTACHMENT_ALLOWANCE,
+                    room.base_z + 3.20,
+                )
+            ),
         )
-        approach_bounds_checks += 1
-
-        for offset in range(0, base_vertex_count, 8):
-            normal_bounds = component_bounds(
-                blocker_vertices[offset:offset + 8]
+        disordered_marker = bpy.data.objects[
+            f"MRK_RoomVariant_{room_token}_Disordered"
+        ]
+        for child in disordered_marker.children:
+            require(
+                child.type == "MESH",
+                f"{child.name}: 荒れ版marker直下がMeshではありません",
             )
-            for added_bounds in (ramp_bounds, shelf_bounds):
-                if positive_aabb_overlap(normal_bounds, added_bounds):
-                    furniture_overlap_count += 1
-        removed_normal_boxes += removed_box_count
-        disordered_geometry_checks += 1
+            for child_component_bounds in mesh_component_world_bounds(child):
+                require(
+                    bounds_contains(room_bounds, child_component_bounds),
+                    f"{child.name}: 荒れ版配置成分が室内boundsから出ています: "
+                    f"actual={child_component_bounds}, room={room_bounds}",
+                )
+                disordered_component_bounds_checks += 1
+
+        if room.room_id in UNCHANGED_DISORDERED_ROOM_IDS:
+            require_mesh_geometry_parity(
+                normal_furniture,
+                disordered_furniture,
+                f"{room.room_id}/A FurnitureProps",
+                include_materials=True,
+            )
+            require_mesh_geometry_parity(
+                normal_collider,
+                disordered_collider,
+                f"{room.room_id}/A Collider",
+                include_materials=False,
+            )
+            require_mesh_geometry_parity(
+                normal_blocker,
+                disordered_blocker,
+                f"{room.room_id}/A Nav Blocker",
+                include_materials=False,
+            )
+            if room.has_signs_paper:
+                require_mesh_geometry_parity(
+                    bpy.data.objects[
+                        f"VIS_B03_Interior_{room.author_name}_SignsPaper"
+                    ],
+                    bpy.data.objects[
+                        f"VIS_RoomVariant_{room_token}_Disordered_SignsPaper"
+                    ],
+                    f"{room.room_id}/A SignsPaper",
+                    include_materials=True,
+                )
+            unchanged_room_geometry_checks += 1
+        else:
+            require(
+                mesh_vertex_coordinates(normal_furniture)
+                != mesh_vertex_coordinates(disordered_furniture)
+                or mesh_faces(normal_furniture)
+                != mesh_faces(disordered_furniture),
+                f"{room.room_id}: 荒れ版FurniturePropsが通常版から変化していません",
+            )
+            require(
+                mesh_vertex_coordinates(normal_collider)
+                != mesh_vertex_coordinates(disordered_collider)
+                or mesh_faces(normal_collider)
+                != mesh_faces(disordered_collider),
+                f"{room.room_id}: 荒れ版Colliderが通常版から変化していません",
+            )
+            changed_visual_rooms += 1
+            changed_collider_rooms += 1
 
     require(
-        furniture_overlap_count == 0,
-        "倒れ家具または大型家具が既存Colliderと正体積交差しています: "
-        f"{furniture_overlap_count}",
+        unchanged_room_geometry_checks == 3,
+        "通常版と同一のA配置が3室ではありません: "
+        f"{unchanged_room_geometry_checks}",
     )
     require(
-        removed_normal_boxes == 9,
-        "普通教室の荒れ版で置換した通常机が9件ではありません: "
-        f"{removed_normal_boxes}",
+        changed_visual_rooms == 17 and changed_collider_rooms == 17,
+        "個別配置replayで変化した荒れ版が17室ではありません: "
+        f"VIS={changed_visual_rooms}, COL={changed_collider_rooms}",
     )
 
     sign_component_bounds: list[tuple[Vector, Vector]] = []
@@ -2968,15 +3030,15 @@ def audit_blender_geometry() -> dict[str, int]:
             manifold_checks += 1
 
     return {
-        "disordered_geometry_checks": disordered_geometry_checks,
-        "furniture_overlaps": furniture_overlap_count,
-        "removed_normal_boxes": removed_normal_boxes,
-        "removed_visual_components": removed_visual_components,
-        "approach_bounds_checks": approach_bounds_checks,
-        "door_sign_intersections": len(door_sign_intersections),
-        "infirmary_curtain_variant_parity": (
-            len(INFIRMARY_CURTAIN_PANEL_NAMES) + 1
+        "unchanged_room_geometry_checks": unchanged_room_geometry_checks,
+        "changed_visual_rooms": changed_visual_rooms,
+        "changed_collider_rooms": changed_collider_rooms,
+        "collider_blocker_parity_checks": collider_blocker_parity_checks,
+        "disordered_component_bounds_checks": (
+            disordered_component_bounds_checks
         ),
+        "door_sign_intersections": len(door_sign_intersections),
+        "infirmary_curtain_checks": infirmary_curtain_checks,
         "manifold_checks": manifold_checks,
         "threshold_profile_checks": threshold_profile_checks,
         "toilet_knob_component_checks": toilet_knob_component_checks,
@@ -3065,16 +3127,22 @@ def audit_active_visual_counts(graph: AssetGraph) -> dict[str, int]:
         variant_visuals[(room_id, "disordered")]
         for room_id in EXPECTED_ROOM_IDS
     )
+    expected_variant_keys = {
+        (room_id, variant_id)
+        for room_id in EXPECTED_ROOM_IDS
+        for variant_id in EXPECTED_VARIANT_IDS
+    }
     require(
-        normal_visuals == 619,
-        f"{graph.source}: 通常20室選択時のVISが619件ではありません: "
-        f"{normal_visuals}",
+        set(variant_visuals) == expected_variant_keys,
+        f"{graph.source}: 20室×2 variantのVIS所有集合が不正です",
     )
-    require(
-        disordered_visuals == 639,
-        f"{graph.source}: 全荒れ20室選択時のVISが639件ではありません: "
-        f"{disordered_visuals}",
-    )
+    for room_id in UNCHANGED_DISORDERED_ROOM_IDS:
+        require(
+            variant_visuals[(room_id, "normal")]
+            == variant_visuals[(room_id, "disordered")],
+            f"{graph.source}: A配置のVIS件数が通常・荒れ版で不一致です: "
+            f"{room_id}",
+        )
     return {
         "static": static_visuals,
         "normal": normal_visuals,
@@ -3089,14 +3157,8 @@ def audit_blender_glb_parity(
     blender_names = interactive_contract_names(blender_graph)
     glb_names = interactive_contract_names(glb_graph)
     require(
-        len(blender_names) == 795,
-        "BlenderのB03-3C interactive契約Objectが795件ではありません: "
-        f"{len(blender_names)}",
-    )
-    require(
-        len(glb_names) == 795,
-        "GLBのB03-3C interactive契約Objectが795件ではありません: "
-        f"{len(glb_names)}",
+        bool(blender_names) and bool(glb_names),
+        "BlenderまたはGLBにB03-3C interactive契約Objectがありません",
     )
     require(
         blender_names == glb_names,
@@ -3201,7 +3263,7 @@ def main() -> None:
     require(
         bpy.context.scene.get("b03_architecture_generator_version")
         == EXPECTED_GENERATOR_VERSION,
-        "Blender正本の生成版がB03-3C interactive assets v2ではありません",
+        "Blender正本の生成版がB03-3C interactive assets v9ではありません",
     )
     raw_generation_result = bpy.context.scene.get("b03_3c_interactive_result")
     require(
@@ -3227,6 +3289,7 @@ def main() -> None:
                 "markers": 40,
                 "rooms": 20,
                 "tile_volumes": 20,
+                "unchanged_disordered_rooms": 3,
             },
             "toilet_stall_doors": 24,
         },

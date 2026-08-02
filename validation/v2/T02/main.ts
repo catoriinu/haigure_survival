@@ -819,8 +819,8 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 613 &&
-        context.resources.normalColliders.length === 273 &&
+      context.resources.visualMeshes.length === 618 &&
+        context.resources.normalColliders.length === 276 &&
         context.resources.actorOnlyColliders.length === 81 &&
         context.resources.humanOnlyColliders.length === 59 &&
         context.resources.beamSightOnlyColliders.length === 1 &&
@@ -828,13 +828,13 @@ const validateLoadedContext = (
           "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
         context.resources.navSourceMeshes.length === 39 &&
         context.resources.bitFlightNavSourceMeshes.length === 22 &&
-        context.markers.all.length === 227 &&
+        context.markers.all.length === 233 &&
         assemblyAnchors.length === 2 &&
-        context.volumes.all.length === 75 &&
+        context.volumes.all.length === 82 &&
         assemblyVolumes.length === 2 &&
         assemblyVenuesValid &&
         roomVariantSelectionValid &&
-        context.doorAssets.all.length === 65 &&
+        context.doorAssets.all.length === 67 &&
         context.elevatorAssets.all.length === 1 &&
         context.elevatorAssets.all[0]?.stops.length === 2 &&
         context.links.all.length === 1 &&
@@ -1374,8 +1374,8 @@ const validateLoadedContext = (
     blenderPointToBabylon(new Vector3(-8.05, 27.5, 1.0))
   );
   const southDividerHit = castPlayerMovementSegment(
-    blenderPointToBabylon(new Vector3(-8.05, 11.5, 1.0)),
-    blenderPointToBabylon(new Vector3(-8.05, 13.5, 1.0))
+    blenderPointToBabylon(new Vector3(-8.05, 11.5, 2.8)),
+    blenderPointToBabylon(new Vector3(-8.05, 13.5, 2.8))
   );
   const northSpecialDividerHit = castPlayerMovementSegment(
     blenderPointToBabylon(new Vector3(22.5, 39.0, 1.0)),
@@ -2657,18 +2657,18 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 633 &&
-      activeContext.resources.normalColliders.length === 273 &&
+      activeContext.resources.visualMeshes.length === 618 &&
+      activeContext.resources.normalColliders.length === 276 &&
       activeContext.resources.actorOnlyColliders.length === 81 &&
       activeContext.resources.humanOnlyColliders.length === 59 &&
       activeContext.resources.beamSightOnlyColliders.length === 1 &&
       activeContext.resources.beamSightOnlyColliders[0]?.name ===
         "COL_BeamSightOnly_RoomVariant_F01_Infirmary_Disordered_Curtains" &&
-      activeContext.resources.navSourceMeshes.length === 59 &&
+      activeContext.resources.navSourceMeshes.length === 39 &&
       activeContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-      activeContext.markers.all.length === 227 &&
+      activeContext.markers.all.length === 233 &&
       activeContext.markers.getByRole("assembly_anchor").length === 2 &&
-      activeContext.volumes.all.length === 75 &&
+      activeContext.volumes.all.length === 82 &&
       activeContext.volumes.getByRole("assembly").length === 2 &&
       activeContext.assemblyVenues.all.length === 2 &&
       activeContext.assemblyVenues.all.every(
@@ -2686,7 +2686,7 @@ const runValidation = async () => {
         (selection) => selection.variant === "disordered"
       ) &&
       roomVariantActivationMatches(activeContext, "disordered") &&
-      activeContext.doorAssets.all.length === 65 &&
+      activeContext.doorAssets.all.length === 67 &&
       activeContext.elevatorAssets.all.length === 1 &&
       activeContext.links.all.length === 1 &&
       activeContext.bitNavigation.zones.length === 4 &&
