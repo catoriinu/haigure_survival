@@ -205,4 +205,4 @@ LL教室の荒れ版は、案2「室内で強い混乱」で承認済みとす�
 
 `audit:v2:dependencies`、`typecheck:v2`、`typecheck:t02`、`typecheck:t04`、`typecheck:t05`、`build`、`build:t02`、`build:t04`、`build:t05`はすべてPASSした。実ブラウザではT02が50/50、T04本体が115/115、実学校動的統合が67/67、T05本体が294/294、NPCコマンドが16/16でPASSし、全ページのwarning／errorは0件だった。Electron fixtureも実学校動的統合67/67、renderer diagnostics 0件でPASSした。資産意味契約へ追随するため、T02の通常／荒れ固定資源数と構造壁検証線、T04の通常表示mesh固定値を同期したが、`src/v2/**`とT06-1 worktreeは変更していない。
 
-本branchへ実装・生成物・監査・比較画像・本計画をcommitする。push、Pull Request作成、レビュー、merge、worktree整理は実施しない。
+本branchへ実装・生成物・監査・比較画像・本計画をcommitした。2026-08-02の追加指示に基づき、`codex/v2-b03-3-disordered-classrooms`をpushし、`develop`向けDraft PR #65を作成した。レビュー、merge、worktree整理は実施していない。T06-1のdirty worktreeには触れず、後続統合時に両branchで更新されたT02／T04／T05の4検証ファイルを調整・再検証する引き継ぎ事項をPR本文へ記録した。
