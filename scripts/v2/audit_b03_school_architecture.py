@@ -76,7 +76,7 @@ EXPECTED_CONSOLIDATED_MATERIAL_NAMES = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v7"
+EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v8"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 EXPECTED_SCHEMA_VERSION = 2
 EXPECTED_STAGE_ID = "school"
@@ -2387,7 +2387,7 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     )
     require(
         len(toilet_knob_names) == 24,
-        f"トイレ個室扉の外側ノブObjectが24件ではありません: "
+        f"トイレ個室扉の両面ノブObjectが24件ではありません: "
         f"{len(toilet_knob_names)}",
     )
     for object_name in (*room_handle_names, *toilet_knob_names):
@@ -5952,7 +5952,7 @@ def audit_glb(document: GlbDocument) -> dict[str, object]:
     )
     require(
         len(toilet_knob_nodes) == 24,
-        f"GLBトイレ個室扉の外側ノブNodeが24件ではありません: "
+        f"GLBトイレ個室扉の両面ノブNodeが24件ではありません: "
         f"{len(toilet_knob_nodes)}",
     )
     for node in (*room_handle_nodes, *toilet_knob_nodes):

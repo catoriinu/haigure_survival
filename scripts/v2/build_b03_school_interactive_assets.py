@@ -72,6 +72,11 @@ ROOM_DOOR_OPEN_NORMAL_OFFSETS = {
     ("north", "upper"): -0.04,
 }
 TOILET_STALL_OPEN_ROTATION_Z = -math.radians(85.0)
+TOILET_STALL_KNOB_CENTERS = (
+    (-1.22, -0.075, 0.95),
+    (-1.22, 0.075, 0.95),
+)
+TOILET_STALL_KNOB_RADIUS = 0.06
 INFIRMARY_DISORDERED_CURTAIN_BEAM_SIGHT_COLLIDER_NAME = (
     "COL_BeamSightOnly_RoomVariant_F01_Infirmary_Disordered_Curtains"
 )
@@ -775,9 +780,9 @@ def _create_box_object(
     )
 
 
-def _create_low_poly_sphere_object(
+def _create_low_poly_spheres_object(
     name: str,
-    center: tuple[float, float, float],
+    centers: tuple[tuple[float, float, float], ...],
     radius: float,
     target_collection: bpy.types.Collection,
     *,
@@ -785,23 +790,27 @@ def _create_low_poly_sphere_object(
     uv_swatch: tuple[tuple[float, float], ...],
     parent: bpy.types.Object,
 ) -> bpy.types.Object:
-    editable = bmesh.new()
-    bmesh.ops.create_icosphere(editable, subdivisions=1, radius=radius)
-    editable.verts.index_update()
-    editable.verts.ensure_lookup_table()
-    vertices = [
-        (
-            float(vertex.co.x) + center[0],
-            float(vertex.co.y) + center[1],
-            float(vertex.co.z) + center[2],
+    vertices: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    for center in centers:
+        editable = bmesh.new()
+        bmesh.ops.create_icosphere(editable, subdivisions=1, radius=radius)
+        editable.verts.index_update()
+        editable.verts.ensure_lookup_table()
+        vertex_offset = len(vertices)
+        vertices.extend(
+            (
+                float(vertex.co.x) + center[0],
+                float(vertex.co.y) + center[1],
+                float(vertex.co.z) + center[2],
+            )
+            for vertex in editable.verts
         )
-        for vertex in editable.verts
-    ]
-    faces = [
-        tuple(vertex.index for vertex in face.verts)
-        for face in editable.faces
-    ]
-    editable.free()
+        faces.extend(
+            tuple(vertex_offset + vertex.index for vertex in face.verts)
+            for face in editable.faces
+        )
+        editable.free()
     return _create_mesh_object(
         name,
         vertices,
@@ -1287,10 +1296,10 @@ def _build_toilet_stall_doors(
                     uv_swatch=swatch_uv("Architecture", "door"),
                     parent=panel,
                 )
-                _create_low_poly_sphere_object(
+                _create_low_poly_spheres_object(
                     f"VIS_DoorPanel_Knob_{token}",
-                    (-1.22, -0.075, 0.95),
-                    0.06,
+                    TOILET_STALL_KNOB_CENTERS,
+                    TOILET_STALL_KNOB_RADIUS,
                     visual_collection,
                     material=hardware_material,
                     uv_swatch=swatch_uv(

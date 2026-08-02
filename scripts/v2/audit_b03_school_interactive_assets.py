@@ -24,7 +24,7 @@ GLB_PATH = (
     REPOSITORY_ROOT / "public/stage-assets/v2/B02/b02_school_blockout.glb"
 )
 EXPORT_COLLECTION_NAME = "EXP_Stage_school"
-EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v7"
+EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v8"
 EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
 
 GLB_MAGIC = b"glTF"
@@ -1559,14 +1559,14 @@ def audit_doors(
                         Vector(
                             (
                                 -1.1663345035910606,
-                                -0.02396160066127777,
+                                0.12603839933872223,
                                 1.0099999986588954,
                             )
                         ),
                     )
                     require(
-                        hardware.triangle_count == 20,
-                        f"{hardware.name}: 低ポリ丸ノブの20 trianglesではありません",
+                        hardware.triangle_count == 40,
+                        f"{hardware.name}: 両面低ポリ丸ノブの40 trianglesではありません",
                     )
                     hardware_counts["toilet_knob"] += 1
                 if glb_coordinates:
@@ -2441,6 +2441,57 @@ def audit_blender_geometry() -> dict[str, int]:
     approach_bounds_checks = 0
     manifold_checks = 0
     threshold_profile_checks = 0
+    toilet_knob_component_checks = 0
+
+    expected_knob_component_bounds = (
+        (
+            Vector(
+                (-1.2736654964089394, -0.12603839933872223, 0.8900000013411045)
+            ),
+            Vector(
+                (-1.1663345035910606, -0.02396160066127777, 1.0099999986588954)
+            ),
+        ),
+        (
+            Vector(
+                (-1.2736654964089394, 0.02396160066127777, 0.8900000013411045)
+            ),
+            Vector(
+                (-1.1663345035910606, 0.12603839933872223, 1.0099999986588954)
+            ),
+        ),
+    )
+    toilet_knobs = sorted(
+        (
+            obj
+            for obj in bpy.data.objects
+            if obj.name.startswith("VIS_DoorPanel_Knob_")
+        ),
+        key=lambda obj: obj.name,
+    )
+    require(
+        len(toilet_knobs) == 24,
+        f"トイレ個室扉の両面ノブObjectが24件ではありません: {len(toilet_knobs)}",
+    )
+    for knob in toilet_knobs:
+        components = sorted(
+            mesh_connected_components(knob),
+            key=lambda component: component_bounds(component)[0].y,
+        )
+        require(
+            len(components) == 2,
+            f"{knob.name}: 単一Mesh内のノブ球が2成分ではありません",
+        )
+        for component, expected_bounds in zip(
+            components,
+            expected_knob_component_bounds,
+            strict=True,
+        ):
+            require(
+                bounds_close(component_bounds(component), expected_bounds),
+                f"{knob.name}: 両面ノブ球の配置が不正です",
+            )
+        toilet_knob_component_checks += 1
 
     for panel_name in INFIRMARY_CURTAIN_PANEL_NAMES:
         normal_curtain = bpy.data.objects[
@@ -2928,6 +2979,7 @@ def audit_blender_geometry() -> dict[str, int]:
         ),
         "manifold_checks": manifold_checks,
         "threshold_profile_checks": threshold_profile_checks,
+        "toilet_knob_component_checks": toilet_knob_component_checks,
     }
 
 
