@@ -31,6 +31,7 @@ import {
 } from "./beamCollision";
 import {
   createV2BitSystem,
+  type V2BitFrameView,
   type V2BitSystem
 } from "./bitSystem";
 import {
@@ -640,19 +641,18 @@ export const createV2SurvivalRuntime = ({
     return beamSystem.spawn(request);
   };
 
-  const recordBitTargetEvents = () => {
-    const frameView = bitSystem.getFrameView();
-    const positionById = new Map(
-      frameView.actorSpheres.map((actor) => [actor.id, actor.center])
-    );
+  const recordBitTargetEvents = (
+    frameView: V2BitFrameView,
+    actorById: ReadonlyMap<string, V2ActorSphere>
+  ) => {
     for (const target of frameView.targetStates) {
       const previousTargetId = previousBitTargetIds.get(target.bitId) ?? null;
       if (
         target.targetId !== null &&
         target.targetId !== previousTargetId
       ) {
-        const position = positionById.get(target.bitId);
-        if (!position) {
+        const actor = actorById.get(target.bitId);
+        if (!actor) {
           throw new Error(
             `BIT音声イベントの位置がありません: ${target.bitId}`
           );
@@ -660,7 +660,7 @@ export const createV2SurvivalRuntime = ({
         audioEventQueue.enqueue(
           Object.freeze({
             kind: "bit-target" as const,
-            position: position.clone()
+            position: actor.center.clone()
           })
         );
       }
@@ -1049,31 +1049,27 @@ export const createV2SurvivalRuntime = ({
     }
   };
 
-  const buildBitThreats = (): readonly V2NpcExternalThreat[] => {
-    const bitPositions = new Map(
-      bitSystem
-        .getFrameView()
-        .actorSpheres
-        .map((actor) => [actor.id, actor.center] as const)
-    );
+  const buildBitThreats = (
+    frameView: V2BitFrameView,
+    actorById: ReadonlyMap<string, V2ActorSphere>,
+    humanTargetById: ReadonlyMap<string, V2HumanTargetSnapshot>
+  ): readonly V2NpcExternalThreat[] => {
     const targetIds = new Set<string>();
     const threats: V2NpcExternalThreat[] = [];
-    for (const tracking of bitSystem.getFrameView().targetStates) {
+    for (const tracking of frameView.targetStates) {
       if (
         tracking.targetId === null ||
         targetIds.has(tracking.targetId)
       ) {
         continue;
       }
-      const sourcePosition = bitPositions.get(tracking.bitId);
-      if (!sourcePosition) {
+      const source = actorById.get(tracking.bitId);
+      if (!source) {
         throw new Error(
           `bit脅威元位置がありません: ${tracking.bitId}`
         );
       }
-      const target = humanTargets.find(
-        (candidate) => candidate.id === tracking.targetId
-      );
+      const target = humanTargetById.get(tracking.targetId);
       if (!target) {
         throw new Error(
           `bit脅威対象snapshotがありません: ${tracking.targetId}`
@@ -1084,10 +1080,10 @@ export const createV2SurvivalRuntime = ({
         Object.freeze({
           sourceId: tracking.bitId,
           targetId: tracking.targetId,
-          sourcePosition: sourcePosition.clone(),
+          sourcePosition: source.center.clone(),
           sightClear:
             stage.queries.castSightSegment(
-              sourcePosition,
+              source.center,
               target.aimPosition
             ) === null
         })
@@ -1636,14 +1632,23 @@ export const createV2SurvivalRuntime = ({
           targets: humanTargets,
           externalAlerts: activeAlerts
         });
-        recordBitTargetEvents();
+        const bitFrameView = bitSystem.getFrameView();
+        const bitActorById = new Map<string, V2ActorSphere>();
+        for (const actor of bitFrameView.actorSpheres) {
+          bitActorById.set(actor.id, actor);
+        }
+        const humanTargetById =
+          new Map<string, V2HumanTargetSnapshot>();
+        for (const target of humanTargets) {
+          humanTargetById.set(target.id, target);
+        }
+        recordBitTargetEvents(bitFrameView, bitActorById);
         performanceDiagnostics?.finishSection(
           "bit",
           performanceSectionStartedAt
         );
         if (performanceDiagnostics) {
-          const bitDiagnostics =
-            bitSystem.getFrameView().diagnostics;
+          const bitDiagnostics = bitFrameView.diagnostics;
           performanceDiagnostics.count(
             "bit.route-plans.search",
             bitDiagnostics.routePlans.search
@@ -1693,7 +1698,11 @@ export const createV2SurvivalRuntime = ({
             bitDiagnostics.beamRequests
           );
         }
-        previousBitThreats = buildBitThreats();
+        previousBitThreats = buildBitThreats(
+          bitFrameView,
+          bitActorById,
+          humanTargetById
+        );
 
         performanceSectionStartedAt =
           performanceDiagnostics?.beginSection(
@@ -1710,7 +1719,7 @@ export const createV2SurvivalRuntime = ({
             survivors,
             blocks: Object.freeze([]),
             bitShooterCount:
-              bitSystem.getFrameView().actorSpheres.length
+              bitFrameView.actorSpheres.length
           });
           if (
             allDeadSeconds >=
@@ -1724,7 +1733,7 @@ export const createV2SurvivalRuntime = ({
             survivors,
             blocks: Object.freeze([]),
             bitShooterCount:
-              bitSystem.getFrameView().actorSpheres.length
+              bitFrameView.actorSpheres.length
           });
         } else {
           allDeadSeconds = 0;
@@ -1734,7 +1743,7 @@ export const createV2SurvivalRuntime = ({
               survivors,
               blocks: buildExecutionBlocks(),
               bitShooterCount:
-                bitSystem.getFrameView().actorSpheres.length
+                bitFrameView.actorSpheres.length
             }
           );
           if (candidate) {
@@ -1755,8 +1764,7 @@ export const createV2SurvivalRuntime = ({
             performanceDiagnostics?.beginSection("beam") ?? 0;
           const npcBeamRequests =
             npcSystem.drainBeamRequests();
-          const bitBeamRequests =
-            bitSystem.getFrameView().beamRequests;
+          const bitBeamRequests = bitFrameView.beamRequests;
           performanceDiagnostics?.count(
             "beam.spawned",
             npcBeamRequests.length + bitBeamRequests.length
@@ -1910,11 +1918,14 @@ export const createV2SurvivalRuntime = ({
         performanceDiagnostics?.beginSection(
           "hit-effect"
         ) ?? 0;
-      hitEffectSystem.update(
-        deltaSeconds,
-        humanTargets,
-        getFrameOrbVisibilityPredicate()
-      );
+      if (hitEffectSystem.activeCount > 0) {
+        performanceDiagnostics?.count("hit-effect.updates");
+        hitEffectSystem.update(
+          deltaSeconds,
+          humanTargets,
+          getFrameOrbVisibilityPredicate()
+        );
+      }
       performanceDiagnostics?.finishSection(
         "hit-effect",
         performanceSectionStartedAt
@@ -2061,7 +2072,7 @@ export const createV2SurvivalRuntime = ({
     },
     getHumanTargets: () => {
       assertActive();
-      return rebuildHumanTargets();
+      return humanTargets;
     },
     getBitActors: () => {
       assertActive();

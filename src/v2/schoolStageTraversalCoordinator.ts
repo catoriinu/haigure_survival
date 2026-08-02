@@ -403,6 +403,13 @@ export const createSchoolStageTraversalCoordinator = ({
   let playerElevatorTraversalTerminalSnapshot:
     | V2PlayerElevatorTraversalSnapshot
     | null = null;
+  let playerElevatorTraversalSnapshotCache:
+    | Readonly<{
+        route: PlayerElevatorTraversalRoute;
+        phase: V2PlayerElevatorTraversalSnapshot["phase"];
+        snapshot: V2PlayerElevatorTraversalSnapshot;
+      }>
+    | null = null;
   let disposed = false;
 
   const assertActive = () => {
@@ -838,6 +845,7 @@ export const createSchoolStageTraversalCoordinator = ({
     route: PlayerElevatorTraversalRoute,
     phase: "cancelled" | "completed"
   ) => {
+    playerElevatorTraversalSnapshotCache = null;
     playerElevatorTraversalTerminalSnapshot =
       createPlayerElevatorTraversalSnapshot(route, phase);
   };
@@ -845,16 +853,31 @@ export const createSchoolStageTraversalCoordinator = ({
   const getPlayerElevatorTraversalSnapshot = () => {
     const traversal = playerElevatorTraversal;
     if (!traversal) {
+      playerElevatorTraversalSnapshotCache = null;
       return playerElevatorTraversalTerminalSnapshot;
     }
-    return createPlayerElevatorTraversalSnapshot(
-      traversal.route,
+    const phase =
       traversal.kind === "riding"
         ? "riding"
         : traversal.kind === "reserved"
           ? "reserved"
-          : "calling"
+          : "calling";
+    if (
+      playerElevatorTraversalSnapshotCache?.route === traversal.route &&
+      playerElevatorTraversalSnapshotCache.phase === phase
+    ) {
+      return playerElevatorTraversalSnapshotCache.snapshot;
+    }
+    const snapshot = createPlayerElevatorTraversalSnapshot(
+      traversal.route,
+      phase
     );
+    playerElevatorTraversalSnapshotCache = Object.freeze({
+      route: traversal.route,
+      phase,
+      snapshot
+    });
+    return snapshot;
   };
 
   const beginDoorOpen = (
@@ -1775,6 +1798,7 @@ export const createSchoolStageTraversalCoordinator = ({
       playerCallMatEntryIds.clear();
       playerElevatorTraversal = null;
       playerElevatorTraversalTerminalSnapshot = null;
+      playerElevatorTraversalSnapshotCache = null;
       survival.releaseNpcTraversalForScriptedPhase();
     },
     dispose: () => {
@@ -1790,6 +1814,7 @@ export const createSchoolStageTraversalCoordinator = ({
       playerCallMatEntryIds.clear();
       playerElevatorTraversal = null;
       playerElevatorTraversalTerminalSnapshot = null;
+      playerElevatorTraversalSnapshotCache = null;
       disposed = true;
     }
   });

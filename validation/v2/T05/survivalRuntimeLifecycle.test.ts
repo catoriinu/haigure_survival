@@ -345,6 +345,19 @@ export const runSurvivalRuntimeLifecycleTests = async (
     performanceDiagnostics.beginFrame();
     const firstUpdatedFrame = firstRuntime.update(1 / 60, 1 / 60, null);
     performanceDiagnostics.finishFrame();
+    const firstHumanTargets = firstRuntime.getHumanTargets();
+    const repeatedHumanTargets = firstRuntime.getHumanTargets();
+    checks.push(
+      Object.freeze({
+        name: "Human target snapshotを状態更新まで再利用",
+        ok:
+          firstHumanTargets === repeatedHumanTargets &&
+          firstHumanTargets.length === firstUpdatedFrame.npcCount + 1,
+        detail:
+          `same=${firstHumanTargets === repeatedHumanTargets} / ` +
+          `targets=${firstHumanTargets.length}`
+      })
+    );
     const fixedTrackingSummary = summarizeV2TargetTracking(
       Object.freeze([
         Object.freeze({
@@ -404,6 +417,16 @@ export const runSurvivalRuntimeLifecycleTests = async (
       performanceReport.cold.counters[
         "scenario.bit-player-targets"
       ];
+    const idleHitEffectUpdates =
+      performanceReport.cold.counters["hit-effect.updates"];
+    checks.push(
+      Object.freeze({
+        name: "active hit effect 0件時の更新を省略",
+        ok: idleHitEffectUpdates === undefined,
+        detail:
+          `updateSamples=${idleHitEffectUpdates?.sampleCount ?? 0}`
+      })
+    );
     checks.push(
       Object.freeze({
         name: "プレイヤーを狙うNPC／BIT数を個別集計",

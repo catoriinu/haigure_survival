@@ -59,7 +59,9 @@ import {
 import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import type { V2NpcTraversalState } from "../../../src/v2/npcTraversal";
+import { createV2PlanarSpatialIndex } from "../../../src/v2/planarSpatialIndex";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
+import type { V2CharacterVisualRuntime } from "../../../src/v2/v2CharacterVisualRuntime";
 import { createDefaultV2CharacterVisualRuntime } from "../characterVisualFixture";
 
 export type NpcCombatTestResult = Readonly<{
@@ -89,6 +91,8 @@ type NpcFixture = Readonly<{
   setPathDistanceOverride(distance: number | null): void;
   setPathWaypoints(waypoints: readonly Vector3[]): void;
   getSpriteAlpha(npcId: string): number;
+  getPresentationSyncCount(): number;
+  resetPresentationSyncCount(): void;
   dispose(): void;
 }>;
 
@@ -433,10 +437,28 @@ const createNpcFixture = async (
       ...Array.from({ length: npcCount }, (_, index) => `npc_${index}`)
     ])
   );
+  let presentationSyncCount = 0;
+  const countingCharacterVisuals: V2CharacterVisualRuntime = Object.freeze({
+    orientationMode: characterVisuals.orientationMode,
+    setFacingYaw: (yaw) => characterVisuals.setFacingYaw(yaw),
+    getActorVisualSize: (actorId) =>
+      characterVisuals.getActorVisualSize(actorId),
+    createSprite: (actorId, instanceName) => {
+      const handle = characterVisuals.createSprite(actorId, instanceName);
+      return Object.freeze({
+        ...handle,
+        syncPresentation: () => {
+          presentationSyncCount += 1;
+          handle.syncPresentation();
+        }
+      });
+    },
+    dispose: () => characterVisuals.dispose()
+  });
   const system = createV2NpcSystem({
     scene,
     stage,
-    characterVisuals,
+    characterVisuals: countingCharacterVisuals,
     npcCount,
     initialBrainwashedNpcCount,
     diagnosticsEnabled: true,
@@ -507,9 +529,13 @@ const createNpcFixture = async (
       }
       return sprite.color.a;
     },
+    getPresentationSyncCount: () => presentationSyncCount,
+    resetPresentationSyncCount: () => {
+      presentationSyncCount = 0;
+    },
     dispose: () => {
       system.dispose();
-      characterVisuals.dispose();
+      countingCharacterVisuals.dispose();
       scene.dispose();
       engine.dispose();
     }
@@ -3755,6 +3781,51 @@ const testBrainwashedSearchRecovery = async () => {
   }
 };
 
+const testNpcPresentationSyncsOncePerVisibleNpcUpdate = async () => {
+  const fixture = await createNpcFixture(3, 0, 5, true);
+  const player = createPlayerTarget(new Vector3(4, 0, 4));
+  try {
+    fixture.resetPresentationSyncCount();
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    assert(
+      fixture.getPresentationSyncCount() === 3,
+      `通常更新の表示同期回数が表示NPC数と一致しません: ${fixture.getPresentationSyncCount()}`
+    );
+
+    fixture.system.setVisibleNpcIds(Object.freeze(["npc_0", "npc_2"]));
+    fixture.resetPresentationSyncCount();
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    assert(
+      fixture.getPresentationSyncCount() === 2,
+      `非表示NPCを含めて表示同期しました: ${fixture.getPresentationSyncCount()}`
+    );
+    return "通常updateでは最終位置確定後に表示NPCごと1回だけpresentationを同期";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testPlanarSpatialIndexPreservesSourceOrder = () => {
+  const items = Object.freeze([
+    Object.freeze({ id: "source-0", position: new Vector3(1, 0, 0) }),
+    Object.freeze({ id: "source-1", position: new Vector3(-1, 0, 0) }),
+    Object.freeze({ id: "source-2", position: new Vector3(8, 0, 0) })
+  ]);
+  const index = createV2PlanarSpatialIndex(
+    items,
+    (item) => item.position,
+    2
+  );
+  const nearbyIds = index
+    .query(Vector3.Zero(), 2)
+    .map((item) => item.id);
+  assert(
+    nearbyIds.join("|") === "source-0|source-1",
+    `平面空間索引が入力順または近傍cellを維持しません: ${nearbyIds.join("|")}`
+  );
+  return "cell走査順に依存せず、近傍候補を入力順で返す";
+};
+
 export const runNpcCombatTests = async () =>
   Object.freeze(await Promise.all([
     executeTest("NPC初期状態・楕円体snapshot", testInitialStatesAndHitShape),
@@ -3887,5 +3958,13 @@ export const runNpcCombatTests = async () =>
     executeTest(
       "洗脳済みNPCの標的消失後探索復帰",
       testBrainwashedSearchRecovery
+    ),
+    executeTest(
+      "NPC表示同期のupdate内一回化",
+      testNpcPresentationSyncsOncePerVisibleNpcUpdate
+    ),
+    executeTest(
+      "NPC／BIT平面空間索引の入力順",
+      testPlanarSpatialIndexPreservesSourceOrder
     )
   ]));

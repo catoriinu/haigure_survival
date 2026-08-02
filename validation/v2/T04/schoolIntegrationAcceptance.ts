@@ -3017,8 +3017,12 @@ const runPlayerElevatorTraversalAcceptance = async (
     const firstCallSnapshot = elevatorRuntime.getSnapshot();
     const playerCallingTraversal =
       coordinator.getPlayerElevatorTraversalSnapshot();
+    const repeatedPlayerCallingTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     updateCoordinator(0);
     const heldCallSnapshot = elevatorRuntime.getSnapshot();
+    const heldPlayerCallingTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     updateCoordinator(ELEVATOR_DOOR_MOTION_SECONDS);
     const departedSnapshot = elevatorRuntime.getSnapshot();
     updateCoordinator(ELEVATOR_TRAVEL_SECONDS);
@@ -3028,6 +3032,8 @@ const runPlayerElevatorTraversalAcceptance = async (
     );
     const readySnapshot = elevatorRuntime.getSnapshot();
     const playerReservedTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
+    const repeatedPlayerReservedTraversal =
       coordinator.getPlayerElevatorTraversalSnapshot();
     const readyFrameElevator =
       readyFrame.runtimeSnapshot.elevators.find(
@@ -3065,6 +3071,20 @@ const runPlayerElevatorTraversalAcceptance = async (
         `${openingSnapshot.carDoorState}→` +
         `${readySnapshot.carDoorState} / reserved=` +
         `${playerReservationReady}/${returnedPlayerReservationReady}`
+    );
+    pushCheck(
+      checks,
+      "プレイヤーエレベーターsnapshotを状態遷移まで再利用",
+      playerCallingTraversal !== null &&
+        playerCallingTraversal === repeatedPlayerCallingTraversal &&
+        playerCallingTraversal === heldPlayerCallingTraversal &&
+        playerReservedTraversal !== null &&
+        playerReservedTraversal === repeatedPlayerReservedTraversal &&
+        playerReservedTraversal !== playerCallingTraversal,
+      `calling=${playerCallingTraversal === repeatedPlayerCallingTraversal}/` +
+        `${playerCallingTraversal === heldPlayerCallingTraversal} / ` +
+        `reserved=${playerReservedTraversal === repeatedPlayerReservedTraversal} / ` +
+        `transition=${playerReservedTraversal !== playerCallingTraversal}`
     );
 
     const outsidePosition = new Vector3(1_500, 1_000, 1_000);
