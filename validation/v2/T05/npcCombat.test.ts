@@ -50,7 +50,12 @@ import {
   type NavigationTransitionStep,
   type NavigationWorld
 } from "../../../src/world/navigationWorld";
-import { createStageNavigationAreaRegistry } from "../../../src/world/stageNavigationAreas";
+import {
+  createStageNavigationAreaRegistry,
+  type StageNavigationArea,
+  type StageNavigationAreaCursor,
+  type StageNavigationAreaPortal
+} from "../../../src/world/stageNavigationAreas";
 import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import type { V2NpcTraversalState } from "../../../src/v2/npcTraversal";
@@ -75,6 +80,11 @@ type NpcFixture = Readonly<{
     start: Vector3;
     destination: Vector3;
   }>[];
+  setNavigationAreas(
+    areas: readonly StageNavigationArea[],
+    portals: readonly StageNavigationAreaPortal[],
+    locate: (point: Vector3) => StageNavigationAreaCursor
+  ): void;
   setPathDistanceOverride(distance: number | null): void;
   setPathWaypoints(waypoints: readonly Vector3[]): void;
   getSpriteAlpha(npcId: string): number;
@@ -102,9 +112,30 @@ type NpcRuntimeTestAccess = {
     restSlotAreaId: string | null;
     restSlotKey: string | null;
     resting: boolean;
+    pursuitActorAreaCursor: StageNavigationAreaCursor;
     pendingNavigationTransition: NavigationTransitionStep | null;
     traversalState: V2NpcTraversalState;
   }>;
+  random: () => number;
+  selectRestSlot(
+    npc: NpcRuntimeTestAccess["npcs"][number],
+    center: Vector3,
+    areaId: string,
+    key: string,
+    playerTarget: V2HumanTargetSnapshot,
+    minimumCenterDistance: number,
+    maximumCenterDistance: number
+  ): Readonly<{
+    position: Vector3;
+    polygonRef: number;
+  }> | null;
+  createWanderDestination(
+    npc: NpcRuntimeTestAccess["npcs"][number],
+    playerTarget: V2HumanTargetSnapshot
+  ): Readonly<{
+    position: Vector3;
+    polygonRef: number;
+  }> | null;
   prepareReplanPermissions(): void;
   hasReplanPermission(npcIndex: number): boolean;
   reconsiderWaitingElevatorCall(
@@ -324,13 +355,25 @@ const createNpcFixture = (
     id: "t05-npc-combat-area",
     volumes: Object.freeze([])
   });
+  let navigationAreas: readonly StageNavigationArea[] = Object.freeze([
+    navigationArea
+  ]);
+  let navigationAreaPortals: readonly StageNavigationAreaPortal[] =
+    Object.freeze([]);
+  let locateNavigationArea = (_point: Vector3): StageNavigationAreaCursor =>
+    Object.freeze({ areaId: navigationArea.id, portalId: null });
   const stage = {
     navigation,
     navigationAreas: Object.freeze({
-      all: Object.freeze([navigationArea]),
-      portals: Object.freeze([]),
-      getById: (id: string) => id === navigationArea.id ? navigationArea : null,
-      locate: () => Object.freeze({ areaId: navigationArea.id, portalId: null }),
+      get all() {
+        return navigationAreas;
+      },
+      get portals() {
+        return navigationAreaPortals;
+      },
+      getById: (id: string) =>
+        navigationAreas.find((area) => area.id === id) ?? null,
+      locate: (point: Vector3) => locateNavigationArea(point),
       advance: (cursor: Readonly<{ areaId: string; portalId: string | null }>) => cursor,
       dispose: () => undefined
     }),
@@ -429,6 +472,11 @@ const createNpcFixture = (
           })
         )
       ),
+    setNavigationAreas: (areas, portals, locate) => {
+      navigationAreas = Object.freeze([...areas]);
+      navigationAreaPortals = Object.freeze([...portals]);
+      locateNavigationArea = locate;
+    },
     setPathDistanceOverride: (distance) => {
       pathDistanceOverride = distance;
     },
@@ -3403,6 +3451,152 @@ const testAutonomousRestSlotReservations = () => {
   }
 };
 
+const testWanderRestSlotRejectsPortalPositions = () => {
+  const fixture = createNpcFixture(1, 0);
+  const access = fixture.system as unknown as NpcRuntimeTestAccess;
+  const firstArea = Object.freeze({
+    id: "portal-rest-first",
+    volumes: Object.freeze([])
+  });
+  const secondArea = Object.freeze({
+    id: "portal-rest-second",
+    volumes: Object.freeze([])
+  });
+  const portalHalfWidth = 0.05;
+  const portalHalfDepth = 0.1;
+  const portal: StageNavigationAreaPortal = Object.freeze({
+    id: "navigation-area-portal-03",
+    fromAreaId: firstArea.id,
+    toAreaId: secondArea.id,
+    bidirectional: true,
+    contains: (point: Vector3) =>
+      Math.abs(point.x) <= portalHalfWidth &&
+      Math.abs(point.z) <= portalHalfDepth,
+    intersects: () => false
+  });
+  const locateCalls: Vector3[] = [];
+  const locate = (point: Vector3): StageNavigationAreaCursor => {
+    locateCalls.push(point.clone());
+    if (portal.contains(point)) {
+      throw new Error(
+        `Navigation Area Portal内の初期位置は禁止されています: ${portal.id}`
+      );
+    }
+    if (point.x <= -4) {
+      throw new Error("Navigation Area包含数が1ではありません: 0");
+    }
+    if (point.x >= 4) {
+      throw new Error("Navigation Area包含数が1ではありません: 2");
+    }
+    return Object.freeze({
+      areaId: point.x < 0 ? firstArea.id : secondArea.id,
+      portalId: null
+    });
+  };
+  fixture.setNavigationAreas(
+    Object.freeze([firstArea, secondArea]),
+    Object.freeze([portal]),
+    locate
+  );
+  const player = createPlayerTarget(new Vector3(3, 0, 3));
+  const npc = access.npcs[0];
+  const resetRestSlot = () => {
+    npc.restSlot = null;
+    npc.restSlotAreaId = null;
+    npc.restSlotKey = null;
+    npc.resting = false;
+  };
+  const select = (center: Vector3, key: string, maximumDistance = Infinity) =>
+    access.selectRestSlot(
+      npc,
+      center,
+      npc.pursuitActorAreaCursor.areaId,
+      key,
+      player,
+      0,
+      maximumDistance
+    );
+  const assertLocateError = (center: Vector3, expectedMessage: string) => {
+    resetRestSlot();
+    let actualMessage = "";
+    try {
+      select(center, `error:${expectedMessage}`, 0);
+    } catch (error) {
+      actualMessage = error instanceof Error ? error.message : String(error);
+    }
+    assert(
+      actualMessage === expectedMessage,
+      `Navigation Area包含契約違反が維持されません: ${actualMessage}`
+    );
+  };
+
+  try {
+    fixture.system.placeNpcs([
+      {
+        id: "npc_0",
+        footPosition: new Vector3(-0.1, 0, 0),
+        formation: false
+      }
+    ]);
+    assert(
+      npc.pursuitActorAreaCursor.areaId === firstArea.id,
+      "テストNPCの現在Navigation Areaが設定されません。"
+    );
+
+    for (const [label, center] of [
+      ["center", Vector3.Zero()],
+      ["boundary", new Vector3(portalHalfWidth, 0, 0)]
+    ] as const) {
+      resetRestSlot();
+      locateCalls.length = 0;
+      const slot = select(center, `portal:${label}`);
+      assert(
+        slot !== null &&
+          !portal.contains(slot.position) &&
+          locate(slot.position).areaId === firstArea.id &&
+          locateCalls.every((position) => !portal.contains(position)),
+        `Portal ${label}候補を除外して同じAreaの停止地点を選べません。`
+      );
+    }
+
+    resetRestSlot();
+    const oppositeAreaSlot = select(
+      new Vector3(portalHalfWidth + 0.15, 0, 0),
+      "opposite-area"
+    );
+    assert(
+      oppositeAreaSlot !== null &&
+        locate(oppositeAreaSlot.position).areaId === firstArea.id,
+      "反対Areaの投影中心から現在Areaの停止地点を選べません。"
+    );
+
+    resetRestSlot();
+    const randomValues = [0, 0.01];
+    let randomIndex = 0;
+    access.random = () => randomValues[randomIndex++] ?? 0;
+    const wanderSlot = access.createWanderDestination(npc, player);
+    assert(
+      wanderSlot !== null &&
+        randomIndex === 2 &&
+        npc.restSlotAreaId === firstArea.id &&
+        locate(wanderSlot.position).areaId === firstArea.id,
+      "WanderがNPCの現在Areaを期待Areaとして最初の候補内で停止地点を選びません。"
+    );
+
+    assertLocateError(
+      new Vector3(-4, 0, 0),
+      "Navigation Area包含数が1ではありません: 0"
+    );
+    assertLocateError(
+      new Vector3(4, 0, 0),
+      "Navigation Area包含数が1ではありません: 2"
+    );
+    return "Portal中心・境界をlocate前に除外し、反対Areaを拒否、包含0／2例外を維持";
+  } finally {
+    fixture.dispose();
+  }
+};
+
 const testGunStandoffHysteresis = () => {
   const fixture = createNpcFixture(1, 1, 5, false, null, 0.1);
   const player = createPlayerTarget(Vector3.Zero());
@@ -3671,6 +3865,10 @@ export const runNpcCombatTests = () =>
     executeTest(
       "NPC自律停止地点の安定予約",
       testAutonomousRestSlotReservations
+    ),
+    executeTest(
+      "NPC Wander停止地点のPortal除外・Area固定",
+      testWanderRestSlotRejectsPortalPositions
     ),
     executeTest(
       "NPC gun停止距離ヒステリシス",

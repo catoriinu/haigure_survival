@@ -4544,8 +4544,14 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         !projected ||
         Vector3.Distance(projected.position, candidate) >
           NPC_REST_SLOT_PROJECTION_DISTANCE ||
-        this.stage.navigationAreas.locate(projected.position).areaId !==
-          areaId
+        this.stage.navigationAreas.portals.some((portal) =>
+          portal.contains(projected.position)
+        )
+      ) {
+        return null;
+      }
+      if (
+        this.stage.navigationAreas.locate(projected.position).areaId !== areaId
       ) {
         return null;
       }
@@ -5994,8 +6000,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         Vector3.Distance(projected.position, candidate) <=
           NAVIGATION_PROJECTION_MAX_DISTANCE
       ) {
-        const areaId =
-          this.stage.navigationAreas.locate(projected.position).areaId;
+        const areaId = npc.pursuitActorAreaCursor.areaId;
         const key =
           `wander:${npc.id}:${npc.navigationGoalRevision}:` +
           `${attempt}:${projected.position.x.toPrecision(17)}:` +
