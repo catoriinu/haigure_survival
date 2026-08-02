@@ -30,13 +30,16 @@ import {
 
 import { assert, executeTest } from "./testUtils";
 
-const createNpcCandidate = (npcId: string): V2NpcCommandCandidate =>
+const createNpcCandidate = (
+  npcId: string,
+  commandMode: V2NpcCommandCandidate["commandMode"] = "none"
+): V2NpcCommandCandidate =>
   Object.freeze({
     npcId,
     aimPosition: new Vector3(0, 1, 0),
     distanceMeters: 0.5,
     aimAngleRadians: 0,
-    commandMode: "none"
+    commandMode
   });
 
 const createDoorCandidate = (
@@ -235,7 +238,7 @@ export const runRuntimeInteractionTests = async () =>
         press("KeyF");
         input.reset();
         const afterReset = input.drainPressedActions();
-        dispatchV2RuntimeInteractions({
+        const feedback = dispatchV2RuntimeInteractions({
           actions: firstDrain,
           frame: playingFrame,
           npcCandidates: Object.freeze([
@@ -271,14 +274,23 @@ export const runRuntimeInteractionTests = async () =>
             calls.selections.length === 3,
           `drain後の配送件数が不正です: NPC=${calls.commands.length}, door=${calls.doorIds.length}, select=${calls.selections.length}`
         );
-        return "repeatを除く7 actionを初回だけ配送、公開処刑Rを含め2回目とreset後は0件";
+        assert(
+          feedback.length === 3 &&
+            feedback[0]?.kind === "npc-command-changed" &&
+            feedback[0].commandMode === "follow" &&
+            feedback[1]?.kind === "npc-command-changed" &&
+            feedback[1].commandMode === "leave" &&
+            feedback[2]?.kind === "door-toggle-started",
+          `成功Feedbackの順序または件数が不正です: ${JSON.stringify(feedback)}`
+        );
+        return "repeatを除く7 actionを初回だけ配送し、F／E／C成功Feedbackを同frameで返す";
       } finally {
         input.dispose();
       }
     }),
     executeTest("F／E／Cの一回配送と先頭候補固定", () => {
       const calls = createInteractionCalls();
-      dispatchV2RuntimeInteractions({
+      const feedback = dispatchV2RuntimeInteractions({
         actions: Object.freeze([
           "npc-follow",
           "npc-follow",
@@ -302,17 +314,20 @@ export const runRuntimeInteractionTests = async () =>
         JSON.stringify(calls.commands) ===
           JSON.stringify([
             "follow:npc-first",
-            "follow:npc-first",
             "leave:npc-first"
           ]),
         `NPC actionの配送が不正です: ${JSON.stringify(calls.commands)}`
       );
       assert(
         JSON.stringify(calls.doorIds) ===
-          JSON.stringify(["door-first", "door-first"]),
+          JSON.stringify(["door-first"]),
         `扉actionの配送が不正です: ${JSON.stringify(calls.doorIds)}`
       );
-      return "各pressを一度ずつ、安定ソート済み配列の先頭候補だけへ配送";
+      assert(
+        feedback.length === 3,
+        `同一frameの重複actionでFeedbackが重複しました: ${feedback.length}`
+      );
+      return "同一frameの重複を除き、安定ソート済み配列の先頭候補だけへ配送";
     }),
     executeTest("候補なしのF／E／C無配送", () => {
       const calls = createInteractionCalls();
@@ -333,6 +348,64 @@ export const runRuntimeInteractionTests = async () =>
         "候補なしでNPCまたは扉へactionが配送されました。"
       );
       return "候補なしではrequest APIを呼び出さない";
+    }),
+    executeTest("同状態・拒否・busyでは成功Feedbackなし", () => {
+      let commandCalls = 0;
+      let doorCalls = 0;
+      const refused = dispatchV2RuntimeInteractions({
+        actions: Object.freeze(["npc-follow", "door-toggle"]),
+        frame: playingFrame,
+        npcCandidates: Object.freeze([
+          createNpcCandidate("npc-following", "follow")
+        ]),
+        doorCandidates: Object.freeze([
+          createDoorCandidate("door-busy")
+        ]),
+        survival: Object.freeze({
+          requestNpcCommand: () => {
+            commandCalls += 1;
+            return false;
+          },
+          selectPlayerCompletion: () => undefined
+        }),
+        doors: Object.freeze({
+          requestDoorToggle: () => {
+            doorCalls += 1;
+            return Object.freeze({
+              status: "busy" as const,
+              state: "opening" as const
+            });
+          }
+        })
+      });
+      const rejectedChange = dispatchV2RuntimeInteractions({
+        actions: Object.freeze(["npc-leave"]),
+        frame: playingFrame,
+        npcCandidates: Object.freeze([
+          createNpcCandidate("npc-following", "follow")
+        ]),
+        doorCandidates: Object.freeze([]),
+        survival: Object.freeze({
+          requestNpcCommand: () => {
+            commandCalls += 1;
+            return false;
+          },
+          selectPlayerCompletion: () => undefined
+        }),
+        doors: Object.freeze({
+          requestDoorToggle: () => {
+            throw new Error("候補なしで扉要求が呼ばれました。");
+          }
+        })
+      });
+      assert(
+        refused.length === 0 &&
+          rejectedChange.length === 0 &&
+          commandCalls === 1 &&
+          doorCalls === 1,
+        `失敗時FeedbackまたはAPI件数が不正です: first=${refused.length}, rejected=${rejectedChange.length}, command=${commandCalls}, door=${doorCalls}`
+      );
+      return "同mode再入力はAPI未配送、command拒否とdoor busyはFeedback 0件";
     }),
     executeTest("G／N／Hのphase・解放guard", () => {
       const calls = createInteractionCalls();

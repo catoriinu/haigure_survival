@@ -80,6 +80,30 @@ body {
   white-space: pre;
 }
 
+@keyframes v2-runtime-target-feedback-odd {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.18);
+    filter: brightness(1.8);
+  }
+}
+
+@keyframes v2-runtime-target-feedback-even {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.18);
+    filter: brightness(1.8);
+  }
+}
+
 #staminaGauge {
   position: absolute;
   left: 12px;

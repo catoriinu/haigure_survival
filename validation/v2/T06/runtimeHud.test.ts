@@ -16,13 +16,16 @@ import {
 
 import { assert, assertThrows, executeTest } from "./testUtils";
 
-const createNpcCandidate = (): V2NpcCommandCandidate =>
+const createNpcCandidate = (
+  commandMode: V2NpcCommandCandidate["commandMode"] = "none",
+  npcId = "npc-first"
+): V2NpcCommandCandidate =>
   Object.freeze({
-    npcId: "npc-first",
+    npcId,
     aimPosition: Vector3.Zero(),
     distanceMeters: 0.5,
     aimAngleRadians: 0,
-    commandMode: "none"
+    commandMode
   });
 
 const getRole = (host: HTMLElement, role: string) => {
@@ -41,8 +44,7 @@ const countVisibleHudRoots = (host: HTMLElement) =>
     "door-target",
     "completion-guide",
     "crosshair",
-    "fire-guide",
-    "retry-guide"
+    "fire-guide"
   ].filter((role) => !getRole(host, role).hidden).length;
 
 export const runRuntimeHudTests = async () =>
@@ -102,7 +104,8 @@ export const runRuntimeHudTests = async () =>
             playerCompletionUnlocked: true
           }),
           npcCandidates: Object.freeze([createNpcCandidate()]),
-          doorCandidates: Object.freeze([doorCandidate])
+          doorCandidates: Object.freeze([doorCandidate]),
+          feedback: Object.freeze([])
         });
         assert(
           !getRole(host, "npc-target").hidden &&
@@ -110,11 +113,10 @@ export const runRuntimeHudTests = async () =>
           "先頭NPCまたは扉候補のhighlightが表示されません。"
         );
         assert(
-          !getRole(host, "completion-guide").hidden &&
+            !getRole(host, "completion-guide").hidden &&
             !getRole(host, "crosshair").hidden &&
-            !getRole(host, "fire-guide").hidden &&
-            !getRole(host, "retry-guide").hidden,
-          "解放済みgun状態の案内・照準・射撃・リトライ案内が同期しません。"
+            !getRole(host, "fire-guide").hidden,
+          "解放済みgun状態の案内・照準・射撃が同期しません。"
         );
 
         hud.update({
@@ -125,7 +127,8 @@ export const runRuntimeHudTests = async () =>
             playerCompletionUnlocked: true
           }),
           npcCandidates: Object.freeze([]),
-          doorCandidates: Object.freeze([])
+          doorCandidates: Object.freeze([]),
+          feedback: Object.freeze([])
         });
         assert(
           getRole(host, "npc-target").hidden &&
@@ -154,7 +157,8 @@ export const runRuntimeHudTests = async () =>
             playerCompletionUnlocked: false
           }),
           npcCandidates: Object.freeze([createNpcCandidate()]),
-          doorCandidates: Object.freeze([doorCandidate])
+          doorCandidates: Object.freeze([doorCandidate]),
+          feedback: Object.freeze([])
         });
         assert(
           countVisibleHudRoots(host) === 0,
@@ -169,14 +173,13 @@ export const runRuntimeHudTests = async () =>
             playerCompletionUnlocked: true
           }),
           npcCandidates: Object.freeze([]),
-          doorCandidates: Object.freeze([])
+          doorCandidates: Object.freeze([]),
+          feedback: Object.freeze([])
         });
-        const retryGuide = getRole(host, "retry-guide");
         assert(
-          !retryGuide.hidden &&
-            retryGuide.textContent === "R: リトライ" &&
-            countVisibleHudRoots(host) === 1,
-          "Pointer Lock解除後の洗脳完了状態にRリトライ案内が残りません。"
+          countVisibleHudRoots(host) === 0 &&
+            host.querySelector('[data-v2-runtime-hud-role="retry-guide"]') === null,
+          "Pointer Lock解除後または中央HUDにR案内が残っています。"
         );
 
         hud.update({
@@ -187,13 +190,12 @@ export const runRuntimeHudTests = async () =>
             playerCompletionUnlocked: false
           }),
           npcCandidates: Object.freeze([]),
-          doorCandidates: Object.freeze([])
+          doorCandidates: Object.freeze([]),
+          feedback: Object.freeze([])
         });
         assert(
-          !retryGuide.hidden &&
-            String(retryGuide.textContent) === "R: リプレイ" &&
-            countVisibleHudRoots(host) === 1,
-          "公開処刑完了状態にRリプレイ案内が表示されません。"
+          countVisibleHudRoots(host) === 0,
+          "公開処刑完了状態の中央HUDにR案内が表示されました。"
         );
 
         hud.update({
@@ -204,13 +206,149 @@ export const runRuntimeHudTests = async () =>
             playerCompletionUnlocked: false
           }),
           npcCandidates: Object.freeze([]),
-          doorCandidates: Object.freeze([])
+          doorCandidates: Object.freeze([]),
+          feedback: Object.freeze([])
         });
         assert(
           countVisibleHudRoots(host) === 0,
           "公開処刑進行中にR案内が表示されました。"
         );
-        return "候補・状態案内・inactive・R retry/replay・clearをDOMへ同期";
+        return "候補・状態案内・inactive・中央R案内なし・clearをDOMへ同期";
+      } finally {
+        hud.dispose();
+        host.remove();
+        scene.dispose();
+        engine.dispose();
+      }
+    }),
+    executeTest("NPC mode色とF／E／C成功Feedback", () => {
+      const engine = new NullEngine();
+      const scene = new Scene(engine);
+      const camera = new FreeCamera(
+        "T06HudFeedbackCamera",
+        new Vector3(0, 0, -5),
+        scene
+      );
+      camera.setTarget(Vector3.Zero());
+      scene.activeCamera = camera;
+      const host = document.createElement("div");
+      const canvas = document.createElement("canvas");
+      Object.defineProperty(canvas, "getBoundingClientRect", {
+        configurable: true,
+        value: () => new DOMRect(0, 0, 800, 450)
+      });
+      host.appendChild(canvas);
+      document.body.appendChild(host);
+      const doorCandidate = Object.freeze({
+        door: Object.freeze({ id: "door-feedback" }) as
+          StageDoorInteractionCandidate["door"],
+        interactionPosition: Vector3.Zero(),
+        angleRadians: 0,
+        distanceMeters: 0.5
+      });
+      const frame = Object.freeze({
+        phase: "playing" as const,
+        playerState: "normal" as const,
+        playerCompletionUnlocked: false
+      });
+      const hud = createV2RuntimeHudController({
+        host,
+        canvas,
+        camera
+      });
+      try {
+        scene.render();
+        const updateNpc = (
+          commandMode: V2NpcCommandCandidate["commandMode"],
+          feedback: Parameters<typeof hud.update>[0]["feedback"],
+          npcId = "npc-first"
+        ) =>
+          hud.update({
+            active: true,
+            frame,
+            npcCandidates: Object.freeze([
+              createNpcCandidate(commandMode, npcId)
+            ]),
+            doorCandidates: Object.freeze([]),
+            feedback
+          });
+        const npcMarker = getRole(host, "npc-target");
+        updateNpc("none", Object.freeze([]));
+        assert(
+          String(npcMarker.dataset.v2RuntimeHudColor) === "#61e8ff",
+          "未指示NPCが水色ではありません。"
+        );
+        updateNpc("leave", Object.freeze([]));
+        assert(
+          String(npcMarker.dataset.v2RuntimeHudColor) === "#61e8ff",
+          "Leave NPCが水色ではありません。"
+        );
+        updateNpc(
+          "none",
+          Object.freeze([
+            Object.freeze({
+              kind: "npc-command-changed" as const,
+              npcId: "npc-first",
+              commandMode: "follow" as const
+            })
+          ])
+        );
+        const firstAnimation = npcMarker.style.animation;
+        assert(
+          String(npcMarker.dataset.v2RuntimeHudColor) === "#9cff57" &&
+            firstAnimation.includes("180ms") &&
+            npcMarker.dataset.v2RuntimeHudFeedback !== undefined,
+          "Follow成功時に黄緑または180ms発光が適用されません。"
+        );
+        updateNpc(
+          "follow",
+          Object.freeze([
+            Object.freeze({
+              kind: "npc-command-changed" as const,
+              npcId: "npc-first",
+              commandMode: "leave" as const
+            })
+          ])
+        );
+        assert(
+          String(npcMarker.dataset.v2RuntimeHudColor) === "#61e8ff" &&
+            npcMarker.style.animation !== firstAnimation,
+          "連続成功時に色変更または発光再始動が行われません。"
+        );
+        updateNpc("none", Object.freeze([]), "npc-second");
+        assert(
+          npcMarker.style.animation === "" &&
+            npcMarker.dataset.v2RuntimeHudFeedback === undefined,
+          "NPC候補ID変更後に発光が残っています。"
+        );
+
+        hud.update({
+          active: true,
+          frame,
+          npcCandidates: Object.freeze([]),
+          doorCandidates: Object.freeze([doorCandidate]),
+          feedback: Object.freeze([
+            Object.freeze({
+              kind: "door-toggle-started" as const,
+              doorId: "door-feedback",
+              state: "opening" as const
+            })
+          ])
+        });
+        const doorMarker = getRole(host, "door-target");
+        assert(
+          String(doorMarker.dataset.v2RuntimeHudColor) === "#ffd166" &&
+            doorMarker.style.animation.includes("180ms"),
+          "扉開閉開始時に黄色の180ms発光が適用されません。"
+        );
+        hud.clear();
+        assert(
+          doorMarker.hidden &&
+            doorMarker.style.animation === "" &&
+            doorMarker.dataset.v2RuntimeHudFeedback === undefined,
+          "clear後に扉Feedbackが残っています。"
+        );
+        return "none／leave水色、follow黄緑、成功時180ms発光、対象変更・clear残留0";
       } finally {
         hud.dispose();
         host.remove();
@@ -277,7 +415,8 @@ export const runRuntimeHudTests = async () =>
             playerCompletionUnlocked: false
           }),
           npcCandidates: Object.freeze([]),
-          doorCandidates: Object.freeze([doorCandidate])
+          doorCandidates: Object.freeze([doorCandidate]),
+          feedback: Object.freeze([])
         });
         const doorMarker = getRole(host, "door-target");
         assert(

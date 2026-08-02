@@ -59,7 +59,8 @@ import {
 import {
   dispatchV2RuntimeExecutionReplay,
   dispatchV2RuntimeInteractions,
-  resolveV2HorizontalSpeedScale
+  resolveV2HorizontalSpeedScale,
+  type V2RuntimeInteractionFeedback
 } from "./runtimeInteraction";
 import {
   createV2RuntimeSessionEventScope,
@@ -911,8 +912,10 @@ engine.runRenderLoop(() => {
           forward: camera.getForwardRay().direction.clone()
         })
       : Object.freeze([]);
+    let interactionFeedback: readonly V2RuntimeInteractionFeedback[] =
+      Object.freeze([]);
     if (interactionActive) {
-      dispatchV2RuntimeInteractions({
+      interactionFeedback = dispatchV2RuntimeInteractions({
         actions,
         frame: survivalFrame,
         npcCandidates,
@@ -926,7 +929,8 @@ engine.runRenderLoop(() => {
       active: interactionActive,
       frame: survivalFrame,
       npcCandidates,
-      doorCandidates
+      doorCandidates,
+      feedback: interactionFeedback
     });
     const audioEvents = survival.drainAudioEvents();
     if (audioActivated) {

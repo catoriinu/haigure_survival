@@ -3,7 +3,10 @@ import type {
   StageDoorRuntime
 } from "../world/stageDoorRuntime";
 import type { V2PlayerCompletionState } from "./combatTypes";
-import type { V2NpcCommandCandidate } from "./npcSystem";
+import type {
+  V2NpcCommandCandidate,
+  V2NpcCommandMode
+} from "./npcSystem";
 import type { V2PlayerAction } from "./playerInput";
 import type { V2SurvivalFrame, V2SurvivalRuntime } from "./survivalRuntime";
 
@@ -58,6 +61,18 @@ export type V2RuntimeInteractionDispatch = Readonly<{
   doors: V2RuntimeInteractionDoorPort;
 }>;
 
+export type V2RuntimeInteractionFeedback =
+  | Readonly<{
+      kind: "npc-command-changed";
+      npcId: string;
+      commandMode: V2NpcCommandMode;
+    }>
+  | Readonly<{
+      kind: "door-toggle-started";
+      doorId: string;
+      state: "opening" | "closing";
+    }>;
+
 export const dispatchV2RuntimeExecutionReplay = ({
   actions,
   frame,
@@ -94,29 +109,66 @@ export const dispatchV2RuntimeInteractions = ({
   doorCandidates,
   survival,
   doors
-}: V2RuntimeInteractionDispatch): void => {
+}: V2RuntimeInteractionDispatch): readonly V2RuntimeInteractionFeedback[] => {
   const npcCandidate = npcCandidates[0];
   const doorCandidate = doorCandidates[0];
+  const feedback: V2RuntimeInteractionFeedback[] = [];
+  let effectiveNpcCommandMode = npcCandidate?.commandMode ?? null;
+  let doorToggleStarted = false;
 
   for (const action of actions) {
     if (action === "replay-execution") {
       continue;
     }
     if (action === "npc-follow") {
-      if (npcCandidate) {
-        survival.requestNpcCommand(npcCandidate.npcId, "follow");
+      if (
+        npcCandidate &&
+        effectiveNpcCommandMode !== "follow" &&
+        survival.requestNpcCommand(npcCandidate.npcId, "follow")
+      ) {
+        effectiveNpcCommandMode = "follow";
+        feedback.push(
+          Object.freeze({
+            kind: "npc-command-changed",
+            npcId: npcCandidate.npcId,
+            commandMode: "follow"
+          })
+        );
       }
       continue;
     }
     if (action === "npc-leave") {
-      if (npcCandidate) {
-        survival.requestNpcCommand(npcCandidate.npcId, "leave");
+      if (
+        npcCandidate &&
+        effectiveNpcCommandMode !== "leave" &&
+        survival.requestNpcCommand(npcCandidate.npcId, "leave")
+      ) {
+        effectiveNpcCommandMode = "leave";
+        feedback.push(
+          Object.freeze({
+            kind: "npc-command-changed",
+            npcId: npcCandidate.npcId,
+            commandMode: "leave"
+          })
+        );
       }
       continue;
     }
     if (action === "door-toggle") {
-      if (doorCandidate) {
-        doors.requestDoorToggle(doorCandidate.door.id);
+      if (doorCandidate && !doorToggleStarted) {
+        const result = doors.requestDoorToggle(
+          doorCandidate.door.id
+        );
+        if (result.status === "started") {
+          doorToggleStarted = true;
+          feedback.push(
+            Object.freeze({
+              kind: "door-toggle-started",
+              doorId: doorCandidate.door.id,
+              state: result.state
+            })
+          );
+        }
       }
       continue;
     }
@@ -129,4 +181,5 @@ export const dispatchV2RuntimeInteractions = ({
       );
     }
   }
+  return Object.freeze(feedback);
 };

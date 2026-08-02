@@ -5,8 +5,11 @@ import {
 } from "@babylonjs/core";
 
 import type { StageDoorInteractionCandidate } from "../world/stageDoorRuntime";
-import type { V2NpcCommandCandidate } from "../v2/npcSystem";
-import { isV2PlayerCompletionState } from "../v2/combatTypes";
+import type {
+  V2NpcCommandCandidate,
+  V2NpcCommandMode
+} from "../v2/npcSystem";
+import type { V2RuntimeInteractionFeedback } from "../v2/runtimeInteraction";
 import type { V2SurvivalFrame } from "../v2/survivalRuntime";
 
 export type V2RuntimeHudFrame = Pick<
@@ -21,6 +24,7 @@ export type V2RuntimeHudUpdate = Readonly<{
   frame: V2RuntimeHudFrame;
   npcCandidates: readonly V2NpcCommandCandidate[];
   doorCandidates: readonly StageDoorInteractionCandidate[];
+  feedback: readonly V2RuntimeInteractionFeedback[];
 }>;
 
 export type V2RuntimeHudControllerOptions = Readonly<{
@@ -44,6 +48,10 @@ const HUD_Z_INDEX = "25";
 const TARGET_MARKER_SIZE_PX = 34;
 const TARGET_MARKER_OFFSET_PX = TARGET_MARKER_SIZE_PX / 2;
 const WORLD_MATRIX = Matrix.Identity();
+const NPC_IDLE_COLOR = "#61e8ff";
+const NPC_FOLLOW_COLOR = "#9cff57";
+const DOOR_COLOR = "#ffd166";
+const FEEDBACK_ANIMATION_DURATION_MS = 180;
 
 const applyStyles = (
   element: HTMLElement,
@@ -96,6 +104,22 @@ const createTargetMarker = (
   root.appendChild(label);
   return Object.freeze({ root, label });
 };
+
+const applyTargetMarkerColor = (
+  marker: TargetMarker,
+  color: string
+): void => {
+  marker.root.style.borderColor = color;
+  marker.root.style.boxShadow = `0 0 8px ${color}`;
+  marker.label.style.borderColor = color;
+  marker.label.style.color = color;
+  marker.root.dataset.v2RuntimeHudColor = color;
+};
+
+const resolveNpcMarkerColor = (
+  commandMode: V2NpcCommandMode
+): string =>
+  commandMode === "follow" ? NPC_FOLLOW_COLOR : NPC_IDLE_COLOR;
 
 const createGuide = (
   document: Document,
@@ -180,13 +204,13 @@ export const createV2RuntimeHudController = ({
   const npcMarker = createTargetMarker(
     document,
     "npc",
-    "#61e8ff",
+    NPC_IDLE_COLOR,
     "F: 追従 / E: 離脱"
   );
   const doorMarker = createTargetMarker(
     document,
     "door",
-    "#ffd166",
+    DOOR_COLOR,
     "C: 扉を開閉"
   );
   const completionGuide = createGuide(
@@ -201,23 +225,19 @@ export const createV2RuntimeHudController = ({
     "fire-guide",
     "左クリック: 射撃"
   );
-  const retryGuide = createGuide(
-    document,
-    "retry-guide",
-    "R: リトライ"
-  );
-
   root.append(
     npcMarker.root,
     doorMarker.root,
     completionGuide,
     crosshair,
-    fireGuide,
-    retryGuide
+    fireGuide
   );
   host.appendChild(root);
 
   let disposed = false;
+  let currentNpcTargetId: string | null = null;
+  let currentDoorTargetId: string | null = null;
+  let feedbackAnimationRevision = 0;
 
   const assertActive = (): void => {
     if (disposed) {
@@ -225,13 +245,38 @@ export const createV2RuntimeHudController = ({
     }
   };
 
-  const clearElements = (): void => {
+  const hideElements = (): void => {
     npcMarker.root.hidden = true;
     doorMarker.root.hidden = true;
     completionGuide.hidden = true;
     crosshair.hidden = true;
     fireGuide.hidden = true;
-    retryGuide.hidden = true;
+  };
+
+  const clearMarkerFeedback = (marker: TargetMarker): void => {
+    marker.root.style.removeProperty("animation");
+    delete marker.root.dataset.v2RuntimeHudFeedback;
+  };
+
+  const clearTargetState = (): void => {
+    currentNpcTargetId = null;
+    currentDoorTargetId = null;
+    clearMarkerFeedback(npcMarker);
+    clearMarkerFeedback(doorMarker);
+  };
+
+  const pulseMarker = (marker: TargetMarker): void => {
+    feedbackAnimationRevision += 1;
+    const animationName =
+      feedbackAnimationRevision % 2 === 0
+        ? "v2-runtime-target-feedback-even"
+        : "v2-runtime-target-feedback-odd";
+    marker.root.style.animation = "none";
+    void marker.root.offsetWidth;
+    marker.root.style.animation =
+      `${animationName} ${FEEDBACK_ANIMATION_DURATION_MS}ms linear 1`;
+    marker.root.dataset.v2RuntimeHudFeedback =
+      String(feedbackAnimationRevision);
   };
 
   const projectTarget = (
@@ -283,9 +328,6 @@ export const createV2RuntimeHudController = ({
     completionGuide.style.left = `${centerX}px`;
     completionGuide.style.top =
       `${canvasRect.top + viewport.y + viewport.height - 48}px`;
-    retryGuide.style.left = `${centerX}px`;
-    retryGuide.style.top =
-      `${canvasRect.top + viewport.y + viewport.height - 82}px`;
   };
 
   return {
@@ -293,44 +335,69 @@ export const createV2RuntimeHudController = ({
       active,
       frame,
       npcCandidates,
-      doorCandidates
+      doorCandidates,
+      feedback
     }) => {
       assertActive();
-      clearElements();
-      const retryLabel =
-        frame.phase === "execution-complete"
-          ? "R: リプレイ"
-          : frame.phase === "playing" &&
-              isV2PlayerCompletionState(frame.playerState)
-            ? "R: リトライ"
-            : null;
-      if (retryLabel !== null) {
-        const canvasRect = canvas.getBoundingClientRect();
-        updateCenteredGuides(canvasRect);
-        retryGuide.textContent = retryLabel;
-        retryGuide.hidden = false;
-      }
+      hideElements();
       if (!active || frame.phase !== "playing") {
+        clearTargetState();
         return;
       }
 
       const canvasRect = canvas.getBoundingClientRect();
       updateCenteredGuides(canvasRect);
       const npcCandidate = npcCandidates[0];
+      const nextNpcTargetId = npcCandidate?.npcId ?? null;
+      if (nextNpcTargetId !== currentNpcTargetId) {
+        clearMarkerFeedback(npcMarker);
+        currentNpcTargetId = nextNpcTargetId;
+      }
       if (npcCandidate) {
+        const commandFeedback = feedback.find(
+          (event) =>
+            event.kind === "npc-command-changed" &&
+            event.npcId === npcCandidate.npcId
+        );
+        const commandMode =
+          commandFeedback?.kind === "npc-command-changed"
+            ? commandFeedback.commandMode
+            : npcCandidate.commandMode;
+        applyTargetMarkerColor(
+          npcMarker,
+          resolveNpcMarkerColor(commandMode)
+        );
         projectTarget(
           npcMarker,
           npcCandidate.aimPosition,
           canvasRect
         );
+        if (commandFeedback) {
+          pulseMarker(npcMarker);
+        }
       }
       const doorCandidate = doorCandidates[0];
+      const nextDoorTargetId = doorCandidate?.door.id ?? null;
+      if (nextDoorTargetId !== currentDoorTargetId) {
+        clearMarkerFeedback(doorMarker);
+        currentDoorTargetId = nextDoorTargetId;
+      }
       if (doorCandidate) {
+        applyTargetMarkerColor(doorMarker, DOOR_COLOR);
         projectTarget(
           doorMarker,
           doorCandidate.interactionPosition,
           canvasRect
         );
+        if (
+          feedback.some(
+            (event) =>
+              event.kind === "door-toggle-started" &&
+              event.doorId === doorCandidate.door.id
+          )
+        ) {
+          pulseMarker(doorMarker);
+        }
       }
 
       completionGuide.hidden =
@@ -342,11 +409,13 @@ export const createV2RuntimeHudController = ({
     },
     clear: () => {
       assertActive();
-      clearElements();
+      hideElements();
+      clearTargetState();
     },
     dispose: () => {
       assertActive();
-      clearElements();
+      hideElements();
+      clearTargetState();
       disposed = true;
       root.remove();
     }
