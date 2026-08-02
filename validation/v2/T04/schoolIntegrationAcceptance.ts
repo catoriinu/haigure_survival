@@ -78,7 +78,8 @@ import {
   type V2NpcTraversalNotification,
   type V2NpcTraversalRequest,
   type V2NpcTraversalResult,
-  type V2NpcTraversalState
+  type V2NpcTraversalState,
+  type V2PlayerElevatorTraversalSnapshot
 } from "../../../src/v2/npcTraversal";
 import type {
   V2PlayerController
@@ -134,6 +135,7 @@ type TraversalFixtureActor = {
   targetProvenance: V2TargetProvenance | null;
   targetSelectionPersonality: V2TargetSelectionPersonality | null;
   completeTransitionCount: number;
+  reservationResultRevision: number;
 };
 
 type TraversalFixtureActorInput = Readonly<{
@@ -540,7 +542,8 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
       targetProvenance: input.targetProvenance ?? null,
       targetSelectionPersonality:
         input.targetSelectionPersonality ?? null,
-      completeTransitionCount: 0
+      completeTransitionCount: 0,
+      reservationResultRevision: 0
     };
     this.actors.set(input.id, actor);
     return actor;
@@ -747,7 +750,8 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
 
   update(
     _deltaSeconds: number,
-    _elapsedSeconds: number
+    _elapsedSeconds: number,
+    _playerElevatorTraversal: V2PlayerElevatorTraversalSnapshot | null
   ): never {
     return this.unexpected("update");
   }
@@ -924,6 +928,7 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
             ...state,
             kind: "riding-elevator"
           });
+          actor.reservationResultRevision += 1;
           break;
         }
         case "elevator-safety-evicted": {
@@ -959,19 +964,7 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
           actor.traversalState = Object.freeze({
             kind: "walking"
           });
-          if (
-            result.reason === "capacity-reached" &&
-            actor.commandMode === "follow"
-          ) {
-            actor.commandMode = "none";
-            notifications.push(
-              Object.freeze({
-                kind: "follow-cancelled",
-                npcId: actor.id,
-                reason: "elevator-capacity-reached"
-              })
-            );
-          }
+          actor.reservationResultRevision += 1;
           break;
         }
         case "elevator-arrived": {
@@ -2191,14 +2184,11 @@ const runTraversalCoordinatorAcceptance = async (
         return `${position.x.toFixed(6)}|${position.y.toFixed(6)}|${position.z.toFixed(6)}`;
       })
     ).size;
-    const followCancellation = [
+    const traversalNotifications = [
       ...callAcceptedFrame.notifications,
       ...readyFrame.notifications,
       ...boardingFrame.notifications
-    ].filter(
-        (notification) =>
-          notification.kind === "follow-cancelled"
-      );
+    ];
     const rejectedStayedOnCallMatBeforeDeparture =
       rejectedIds.every((actorId) =>
         context!.queries.containsVolumeById(
@@ -2246,18 +2236,28 @@ const runTraversalCoordinatorAcceptance = async (
     );
     pushCheck(
       checks,
-      "定員拒否時はFollowだけ解除",
-      followCancellation.length === 1 &&
-        followCancellation[0]?.npcId === "elevator-07" &&
+      "定員拒否時もFollowを維持して次便または別経路へ再計画する",
+      traversalNotifications.length === 0 &&
         survival.getActor("elevator-07").commandMode ===
-          "none" &&
+          "follow" &&
         survival.getActor("elevator-08").commandMode ===
-          "leave",
-      `notifications=${followCancellation
-        .map((notification) => notification.npcId)
-        .join(",")} / follow=` +
+          "leave" &&
+        rejectedIds.every((actorId) => {
+          const actor = survival!.getActor(actorId);
+          return (
+            actor.traversalState.kind === "walking" &&
+            actor.reservationResultRevision === 1
+          );
+        }),
+      `notifications=${traversalNotifications.length} / follow=` +
         `${survival.getActor("elevator-07").commandMode} / ` +
-        `leave=${survival.getActor("elevator-08").commandMode}`
+        `leave=${survival.getActor("elevator-08").commandMode} / ` +
+        `replan=${rejectedIds
+          .map((actorId) => {
+            const actor = survival!.getActor(actorId);
+            return `${actorId}:${actor.traversalState.kind}@${actor.reservationResultRevision}`;
+          })
+          .join(",")}`
     );
     rejectedIds.forEach((actorId, index) =>
       survival!.setActorPosition(
@@ -3015,6 +3015,8 @@ const runPlayerElevatorTraversalAcceptance = async (
 
     updateCoordinator(0);
     const firstCallSnapshot = elevatorRuntime.getSnapshot();
+    const playerCallingTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     updateCoordinator(0);
     const heldCallSnapshot = elevatorRuntime.getSnapshot();
     updateCoordinator(ELEVATOR_DOOR_MOTION_SECONDS);
@@ -3025,6 +3027,8 @@ const runPlayerElevatorTraversalAcceptance = async (
       ELEVATOR_DOOR_MOTION_SECONDS
     );
     const readySnapshot = elevatorRuntime.getSnapshot();
+    const playerReservedTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     const readyFrameElevator =
       readyFrame.runtimeSnapshot.elevators.find(
         (snapshot) => snapshot.id === elevator.id
@@ -3101,6 +3105,8 @@ const runPlayerElevatorTraversalAcceptance = async (
     player.setTransportFootPosition(carCenter);
     updateCoordinator(0);
     const boardedSnapshot = elevatorRuntime.getSnapshot();
+    const playerRidingTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     const boardedPlayerPosition = player.getFootPosition();
     const boardedPlayer =
       boardedSnapshot.passengers.some(
@@ -3180,6 +3186,8 @@ const runPlayerElevatorTraversalAcceptance = async (
     player.setTransportFootPosition(exitPosition);
     updateCoordinator(0);
     const disembarkedSnapshot = elevatorRuntime.getSnapshot();
+    const playerTraversalAfterDisembark =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     const playerIdentityAndMotionPreserved =
       player === playerReference &&
       verticalStateAtArrival.grounded ===
@@ -3227,6 +3235,32 @@ const runPlayerElevatorTraversalAcceptance = async (
         `elapsed=${rideElapsedSeconds.toFixed(1)} / ` +
         `exit=${exitIsOutsideTraversalVolumes} / ` +
         `preserved=${playerIdentityAndMotionPreserved}`
+    );
+    const expectedDestinationEndpoint =
+      destinationStop.endpoint === "A"
+        ? elevator.link.endpointA
+        : elevator.link.endpointB;
+    pushCheck(
+      checks,
+      "プレイヤー搬送snapshotは呼出・予約・乗車を公開し降車後に消去",
+      playerCallingTraversal?.phase === "calling" &&
+        playerReservedTraversal?.phase === "reserved" &&
+        playerRidingTraversal?.phase === "riding" &&
+        playerCallingTraversal.elevatorId === elevator.id &&
+        playerCallingTraversal.linkId === elevator.link.id &&
+        playerCallingTraversal.from === fromStop.endpoint &&
+        playerCallingTraversal.to === destinationStop.endpoint &&
+        Vector3.Distance(
+          playerCallingTraversal.destinationFloorPosition,
+          expectedDestinationEndpoint.position
+        ) <= POSITION_EPSILON &&
+        playerTraversalAfterDisembark === null,
+      `phase=${playerCallingTraversal?.phase ?? "none"}→` +
+        `${playerReservedTraversal?.phase ?? "none"}→` +
+        `${playerRidingTraversal?.phase ?? "none"}→` +
+        `${playerTraversalAfterDisembark?.phase ?? "none"} / ` +
+        `route=${playerCallingTraversal?.from ?? "?"}→` +
+        `${playerCallingTraversal?.to ?? "?"}`
     );
 
     const openCarCenter = requireWorldCenter(

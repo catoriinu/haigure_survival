@@ -67,12 +67,14 @@ import {
   isV2NpcElevatorTraversalState,
   isV2NpcTraversalWalkingEnabled,
   type V2NpcElevatorTraversalRoute,
+  type V2PlayerElevatorTraversalSnapshot,
   type V2NpcTraversalNotification,
   type V2NpcTraversalRequest,
   type V2NpcTraversalResult,
   type V2NpcTraversalState
 } from "./npcTraversal";
 import type { V2PlayerGunFireEvent } from "./playerCombatSystem";
+import { createV2FollowerFireDirection } from "./followerFireDirection";
 
 const NPC_SEARCH_SPEED = 0.2;
 const NPC_CHASE_SPEED = 0.3;
@@ -236,6 +238,7 @@ export type V2NpcNavigationRouteContext = Readonly<{
   brainwashed: boolean;
   commandMode: V2NpcCommandMode;
   targetId: string | null;
+  playerElevatorTraversal: V2PlayerElevatorTraversalSnapshot | null;
   targetProvenance: V2TargetProvenance | null;
   targetSelectionPersonality: V2TargetSelectionPersonality | null;
   targetSightClear: boolean;
@@ -448,6 +451,9 @@ export interface V2NpcSystem {
   releaseTraversalForScriptedPhase(): void;
   setExternalThreats(threats: readonly V2NpcExternalThreat[]): void;
   setAutonomousThreatActors(actors: readonly V2ActorSphere[]): void;
+  setPlayerElevatorTraversalSnapshot(
+    snapshot: V2PlayerElevatorTraversalSnapshot | null
+  ): void;
   setPlayerBlockedTargetIds(targetIds: readonly string[]): void;
   setVisibleNpcIds(npcIds: readonly string[]): void;
   setAiSuspended(suspended: boolean): void;
@@ -476,6 +482,9 @@ type NpcCommandRuntime = {
   followLastSeenFootPosition: Vector3 | null;
   readonly followLastSeenDirection: Vector3;
   readonly followFormationOffset: Vector3;
+  followElevatorDestination: Vector3 | null;
+  followElevatorDestinationAreaId: string | null;
+  followElevatorLinkId: string | null;
   followMovementStopped: boolean;
   leaveDestination: NavigationLocation | null;
   leaveElapsedSeconds: number;
@@ -734,6 +743,15 @@ const cloneNavigationTransition = (
     distance: transition.distance
   });
 
+const clonePlayerElevatorTraversalSnapshot = (
+  snapshot: V2PlayerElevatorTraversalSnapshot
+): V2PlayerElevatorTraversalSnapshot =>
+  Object.freeze({
+    ...snapshot,
+    destinationFloorPosition:
+      snapshot.destinationFloorPosition.clone()
+  });
+
 const cloneTargetSnapshot = (
   target: V2HumanTargetSnapshot
 ): V2HumanTargetSnapshot =>
@@ -878,6 +896,9 @@ const createNpcCommandRuntime = (
   followLastSeenFootPosition: null,
   followLastSeenDirection: Vector3.Zero(),
   followFormationOffset: createFollowerFormationOffset(npcId),
+  followElevatorDestination: null,
+  followElevatorDestinationAreaId: null,
+  followElevatorLinkId: null,
   followMovementStopped: false,
   leaveDestination: null,
   leaveElapsedSeconds: 0,
@@ -940,6 +961,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     Object.freeze([]);
   private autonomousThreatActors: readonly V2ActorSphere[] =
     Object.freeze([]);
+  private playerElevatorTraversal: V2PlayerElevatorTraversalSnapshot | null =
+    null;
   private playerBlockedTargetIds: readonly string[] = Object.freeze([]);
   private previousPlayerFootPosition: Vector3 | null = null;
   private readonly playerHorizontalDirection = Vector3.Zero();
@@ -1741,6 +1764,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
     this.previousPlayerFootPosition = null;
     this.playerHorizontalDirection.setAll(0);
+    this.playerElevatorTraversal = null;
     this.rebuildFrameViewPreservingThreats();
   }
 
@@ -1771,7 +1795,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           (V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS -
             V2_NPC_FOLLOWER_FIRE_DELAY_MIN_SECONDS);
       npc.command.followerFireDirection =
-        event.direction.clone().normalize();
+        createV2FollowerFireDirection(
+          event.direction,
+          this.nextFollowerFireRandom(npc),
+          this.nextFollowerFireRandom(npc)
+        );
       npc.command.followerBeamId = null;
       npc.command.followerBeamRequestQueued = false;
       changed = true;
@@ -2117,19 +2145,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
             `NPC乗車拒否前のtraversal状態が不正です: ${npc.id}/${npc.traversalState.kind}`
           );
         }
-        if (
-          result.reason === "capacity-reached" &&
-          npc.command.mode === "follow"
-        ) {
-          this.clearNpcCommand(npc, true);
-          notifications.push(
-            Object.freeze({
-              kind: "follow-cancelled",
-              npcId: npc.id,
-              reason: "elevator-capacity-reached"
-            })
-          );
-        }
         this.resetNavigationAgentForTraversalChange(npc);
         npc.selectedRouteKind = null;
         npc.selectedElevatorTransition = null;
@@ -2316,6 +2331,30 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         })
       )
     );
+  }
+
+  setPlayerElevatorTraversalSnapshot(
+    snapshot: V2PlayerElevatorTraversalSnapshot | null
+  ) {
+    this.assertActive();
+    if (snapshot === null) {
+      this.playerElevatorTraversal = null;
+      return;
+    }
+    if (
+      snapshot.elevatorId.length === 0 ||
+      snapshot.linkId.length === 0
+    ) {
+      throw new Error(
+        "プレイヤーのエレベーター追跡snapshotには非空IDが必要です。"
+      );
+    }
+    assertFiniteVector(
+      "プレイヤーのエレベーター目的階位置",
+      snapshot.destinationFloorPosition
+    );
+    this.playerElevatorTraversal =
+      clonePlayerElevatorTraversalSnapshot(snapshot);
   }
 
   setPlayerBlockedTargetIds(targetIds: readonly string[]) {
@@ -2567,9 +2606,15 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       brainwashed: isV2BrainwashState(npc.stateSnapshot.state),
       commandMode: npc.command.mode,
       targetId:
-        npc.navigationBehavior === "evade"
+        npc.navigationBehavior === "follow"
+          ? "player"
+          : npc.navigationBehavior === "evade"
           ? npc.evadeThreatId
           : npc.targetId,
+      playerElevatorTraversal:
+        npc.navigationBehavior === "follow"
+          ? this.playerElevatorTraversal
+          : null,
       targetProvenance: npc.targetProvenance,
       targetSelectionPersonality: npc.targetSelectionPersonality,
       targetSightClear:
@@ -3691,6 +3736,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.command.followLostSightSeconds = 0;
     npc.command.followLastSeenFootPosition = null;
     npc.command.followLastSeenDirection.setAll(0);
+    npc.command.followElevatorDestination = null;
+    npc.command.followElevatorDestinationAreaId = null;
+    npc.command.followElevatorLinkId = null;
     npc.command.followMovementStopped = false;
     npc.command.leaveDestination = null;
     npc.command.leaveElapsedSeconds = 0;
@@ -3730,6 +3778,41 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   ) {
     for (const npc of this.npcs) {
       if (npc.command.mode !== "follow") {
+        continue;
+      }
+      const playerElevatorTraversal = this.playerElevatorTraversal;
+      if (playerElevatorTraversal !== null) {
+        npc.command.followElevatorDestination =
+          playerElevatorTraversal.destinationFloorPosition.clone();
+        npc.command.followElevatorDestinationAreaId =
+          this.stage.navigationAreas.locate(
+            playerElevatorTraversal.destinationFloorPosition
+          ).areaId;
+        npc.command.followElevatorLinkId =
+          playerElevatorTraversal.linkId;
+      }
+      const elevatorDestination =
+        npc.command.followElevatorDestination;
+      const trackingPlayerTransport =
+        elevatorDestination !== null &&
+        (playerElevatorTraversal !== null ||
+          npc.pursuitActorAreaCursor.areaId !==
+            npc.command.followElevatorDestinationAreaId ||
+          this.horizontalDistance(
+            npc.footPosition,
+            elevatorDestination
+          ) > NPC_FOLLOW_TRACKING_DISTANCE);
+      if (elevatorDestination !== null && !trackingPlayerTransport) {
+        npc.command.followElevatorDestination = null;
+        npc.command.followElevatorDestinationAreaId = null;
+        npc.command.followElevatorLinkId = null;
+      }
+      if (trackingPlayerTransport && elevatorDestination !== null) {
+        npc.command.followSightClear = false;
+        npc.command.followLostSightSeconds = 0;
+        npc.command.followLastSeenFootPosition =
+          elevatorDestination.clone();
+        npc.command.followMovementStopped = false;
         continue;
       }
       const playerDistance = Vector3.Distance(

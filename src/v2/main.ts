@@ -825,6 +825,8 @@ engine.runRenderLoop(() => {
       ? V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS / 1000
       : Math.min(engine.getDeltaTime() / 1000, 0.05);
     traversalCoordinator.update(delta);
+    const playerElevatorTraversal =
+      traversalCoordinator.getPlayerElevatorTraversalSnapshot();
     const horizontalSpeedScale = resolveV2HorizontalSpeedScale(
       stage.queries.containsVolume(
         "water",
@@ -850,9 +852,18 @@ engine.runRenderLoop(() => {
       survivalFrame = performanceDiagnostics
         ? performanceDiagnostics.measure(
             "survival",
-            () => survival.update(delta, elapsedSeconds)
+            () =>
+              survival.update(
+                delta,
+                elapsedSeconds,
+                playerElevatorTraversal
+              )
           )
-        : survival.update(delta, elapsedSeconds);
+        : survival.update(
+            delta,
+            elapsedSeconds,
+            playerElevatorTraversal
+          );
     }
     const interactionActive =
       started &&

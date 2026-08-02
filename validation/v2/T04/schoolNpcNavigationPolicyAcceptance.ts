@@ -28,6 +28,9 @@ import type {
 import type {
   V2NpcNavigationRouteContext
 } from "../../../src/v2/npcSystem";
+import type {
+  V2PlayerElevatorTraversalSnapshot
+} from "../../../src/v2/npcTraversal";
 import {
   createSchoolNpcNavigationPolicy,
   createSchoolNpcNavigationTraits
@@ -135,6 +138,26 @@ const createElevatorCandidate = (
   });
 };
 
+const createPlayerElevatorTraversalSnapshot = (
+  elevator: StageElevatorAsset,
+  phase: V2PlayerElevatorTraversalSnapshot["phase"]
+): V2PlayerElevatorTraversalSnapshot => {
+  const fromStop = elevator.initialStop;
+  const destinationStop = requireOtherStop(
+    elevator,
+    fromStop
+  );
+  return Object.freeze({
+    elevatorId: elevator.id,
+    linkId: elevator.link.id,
+    from: fromStop.endpoint,
+    to: destinationStop.endpoint,
+    destinationFloorPosition:
+      destinationStop.node.getAbsolutePosition().clone(),
+    phase
+  });
+};
+
 const createTarget = (
   id: string,
   state: V2CharacterState,
@@ -172,6 +195,7 @@ const createContext = (
     brainwashed: false,
     commandMode: "none",
     targetId: null,
+    playerElevatorTraversal: null,
     targetProvenance: null,
     targetSelectionPersonality: null,
     targetSightClear: false,
@@ -443,6 +467,131 @@ export const runSchoolNpcNavigationPolicyAcceptance = ({
     `selected=${safeSelection?.kind ?? "null"}`
   );
 
+  const playerReservedTraversal =
+    createPlayerElevatorTraversalSnapshot(
+      elevator,
+      "reserved"
+    );
+  targets = Object.freeze([
+    createTarget(
+      "npc_follower_safe",
+      "normal",
+      requesterPosition
+    ),
+    createTarget(
+      "npc_visible_brainwashed",
+      "brainwash-complete-no-gun",
+      brainwashedPosition
+    )
+  ]);
+  const safeFollowerSelection = createPolicy()(
+    createContext("npc_follower_safe", requesterPosition, {
+      behavior: "follow",
+      speed: 0.5,
+      commandMode: "follow",
+      targetId: "player",
+      playerElevatorTraversal: playerReservedTraversal
+    }),
+    Object.freeze([
+      stairsLong,
+      createElevatorCandidate(elevator, 0)
+    ])
+  );
+  add(
+    "未洗脳Followerは可視の洗脳済み同乗者がいる同便を拒否する",
+    safeFollowerSelection?.kind === "surface",
+    `selected=${safeFollowerSelection?.kind ?? "null"}`
+  );
+
+  targets = Object.freeze([
+    createTarget(
+      "npc_follower_same_trip",
+      "normal",
+      firstStopCenter
+    )
+  ]);
+  const samePlayerTripSelection = createPolicy()(
+    createContext(
+      "npc_follower_same_trip",
+      firstStopCenter,
+      {
+        behavior: "follow",
+        speed: 0.5,
+        commandMode: "follow",
+        targetId: "player",
+        playerElevatorTraversal:
+          playerReservedTraversal
+      }
+    ),
+    Object.freeze([
+      stairsShort,
+      createElevatorCandidate(elevator, 0)
+    ])
+  );
+  add(
+    "Followerはplayer対象の既知便へ間に合う場合に同便を最優先する",
+    getSelectedElevatorId(samePlayerTripSelection) ===
+      elevator.link.id,
+    `selected=${getSelectedElevatorId(samePlayerTripSelection)}`
+  );
+
+  targets = Object.freeze([
+    createTarget(
+      "npc_follower_wrong_target",
+      "normal",
+      firstStopCenter
+    )
+  ]);
+  const wrongFollowTargetSelection = createPolicy()(
+    createContext(
+      "npc_follower_wrong_target",
+      firstStopCenter,
+      {
+        behavior: "follow",
+        speed: 0.5,
+        commandMode: "follow",
+        targetId: "npc_not_player",
+        playerElevatorTraversal:
+          playerReservedTraversal
+      }
+    ),
+    Object.freeze([
+      stairsShort,
+      createElevatorCandidate(elevator, 0)
+    ])
+  );
+  add(
+    "Followerのエレベーター既知便追跡はtargetId=playerだけに適用する",
+    wrongFollowTargetSelection?.kind === "surface",
+    `selected=${wrongFollowTargetSelection?.kind ?? "null"}`
+  );
+
+  targets = Object.freeze([
+    createTarget(
+      "npc_follower_late",
+      "normal",
+      firstStopCenter
+    )
+  ]);
+  const lateFollowerSelection = createPolicy()(
+    createContext("npc_follower_late", firstStopCenter, {
+      behavior: "follow",
+      speed: 0.5,
+      commandMode: "follow",
+      targetId: "player",
+      playerElevatorTraversal: playerReservedTraversal
+    }),
+    Object.freeze([
+      stairsShort,
+      createElevatorCandidate(elevator, 2)
+    ])
+  );
+  add(
+    "Followerが同便猶予へ間に合わなければ短い別経路を選ぶ",
+    lateFollowerSelection?.kind === "surface",
+    `selected=${lateFollowerSelection?.kind ?? "null"}`
+  );
+
   const destinationStop = requireOtherStop(
     elevator,
     elevator.initialStop
@@ -497,6 +646,75 @@ export const runSchoolNpcNavigationPolicyAcceptance = ({
       destinationStop.id
     ).availableCapacity} / selected=` +
       `${getSelectedElevatorId(safeNextTripSelection)}`
+  );
+
+  targets = Object.freeze([
+    createTarget(
+      "npc_follower_full",
+      "brainwash-complete-no-gun",
+      firstStopCenter
+    ),
+    ...fullTripActorIds.map((actorId) =>
+      createTarget(
+        actorId,
+        "brainwash-complete-no-gun",
+        carCenter
+      )
+    )
+  ]);
+  const playerRidingTraversal =
+    createPlayerElevatorTraversalSnapshot(
+      elevator,
+      "riding"
+    );
+  const fullFollowerAlternativeSelection = createPolicy()(
+    createContext("npc_follower_full", firstStopCenter, {
+      behavior: "follow",
+      speed: 0.5,
+      characterState: "brainwash-complete-no-gun",
+      brainwashed: true,
+      commandMode: "follow",
+      targetId: "player",
+      playerElevatorTraversal: playerRidingTraversal
+    }),
+    Object.freeze([
+      stairsShort,
+      fastElevatorCandidate
+    ])
+  );
+  add(
+    "満員便へ乗れないFollowerは短い別経路へ切り替える",
+    fullFollowerAlternativeSelection?.kind === "surface",
+    `capacity=${trackingElevator.estimateTripSeconds(
+      elevator.initialStop.id,
+      destinationStop.id
+    ).availableCapacity} / selected=` +
+      `${fullFollowerAlternativeSelection?.kind ?? "null"}`
+  );
+  const fullFollowerNextTripSelection = createPolicy()(
+    createContext("npc_follower_full", firstStopCenter, {
+      behavior: "follow",
+      speed: 0.5,
+      characterState: "brainwash-complete-no-gun",
+      brainwashed: true,
+      commandMode: "follow",
+      targetId: "player",
+      playerElevatorTraversal: playerRidingTraversal
+    }),
+    Object.freeze([
+      stairsLong,
+      fastElevatorCandidate
+    ])
+  );
+  add(
+    "満員便でも別経路が長いFollowerは次便として追跡を維持する",
+    getSelectedElevatorId(fullFollowerNextTripSelection) ===
+      elevator.link.id,
+    `capacity=${trackingElevator.estimateTripSeconds(
+      elevator.initialStop.id,
+      destinationStop.id
+    ).availableCapacity} / selected=` +
+      `${getSelectedElevatorId(fullFollowerNextTripSelection)}`
   );
   for (const actorId of fullTripActorIds) {
     trackingElevator.cancelBoardingReservation(actorId);

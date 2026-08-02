@@ -20,7 +20,8 @@ import type {
   V2NpcElevatorTraversalRoute,
   V2NpcTraversalNotification,
   V2NpcTraversalRequest,
-  V2NpcTraversalResult
+  V2NpcTraversalResult,
+  V2PlayerElevatorTraversalSnapshot
 } from "./npcTraversal";
 import type { V2PlayerController } from "./playerController";
 import type { V2SurvivalRuntime } from "./survivalRuntime";
@@ -107,6 +108,9 @@ export type SchoolStageTraversalCoordinatorInput = Readonly<{
 
 export interface SchoolStageTraversalCoordinator {
   update(deltaSeconds: number): SchoolStageTraversalFrame;
+  getPlayerElevatorTraversalSnapshot():
+    | V2PlayerElevatorTraversalSnapshot
+    | null;
   releaseForScriptedPhase(): void;
   dispose(): void;
 }
@@ -791,6 +795,30 @@ export const createSchoolStageTraversalCoordinator = ({
         route: traversal.route
       });
     }
+  };
+
+  const getPlayerElevatorTraversalSnapshot = () => {
+    const traversal = playerElevatorTraversal;
+    if (!traversal) {
+      return null;
+    }
+    const destinationEndpoint =
+      traversal.route.destinationStop.endpoint === "A"
+        ? traversal.route.elevator.link.endpointA
+        : traversal.route.elevator.link.endpointB;
+    return Object.freeze({
+      elevatorId: traversal.route.elevator.id,
+      linkId: traversal.route.elevator.link.id,
+      from: traversal.route.fromStop.endpoint,
+      to: traversal.route.destinationStop.endpoint,
+      destinationFloorPosition: destinationEndpoint.position.clone(),
+      phase:
+        traversal.kind === "riding"
+          ? "riding"
+          : traversal.kind === "reserved"
+            ? "reserved"
+            : "calling"
+    } satisfies V2PlayerElevatorTraversalSnapshot);
   };
 
   const beginDoorOpen = (
@@ -1693,6 +1721,10 @@ export const createSchoolStageTraversalCoordinator = ({
         runtimeSnapshot: snapshot,
         notifications
       });
+    },
+    getPlayerElevatorTraversalSnapshot: () => {
+      assertActive();
+      return getPlayerElevatorTraversalSnapshot();
     },
     releaseForScriptedPhase: () => {
       assertActive();

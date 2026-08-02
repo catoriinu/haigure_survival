@@ -44,6 +44,10 @@ import {
   type V2NpcSystem
 } from "../../../src/v2/npcSystem";
 import {
+  V2_FOLLOWER_FIRE_SPREAD_DEGREES,
+  createV2FollowerFireDirection
+} from "../../../src/v2/followerFireDirection";
+import {
   createV2PlayerCombatSystem
 } from "../../../src/v2/playerCombatSystem";
 import {
@@ -108,6 +112,47 @@ const assertNear = (
   assert(
     Math.abs(actual - expected) <= tolerance,
     `${message}: expected=${expected}, actual=${actual}`
+  );
+};
+
+const degreesToRadians = (degrees: number) =>
+  (degrees * Math.PI) / 180;
+
+const getFollowerSpreadAngles = (direction: Vector3) => {
+  const normalized = direction.normalizeToNew();
+  return Object.freeze({
+    yawRadians: Math.atan2(normalized.x, normalized.z),
+    pitchRadians: Math.asin(normalized.y)
+  });
+};
+
+const assertFollowerSpreadDirection = (
+  direction: Vector3,
+  message: string
+) => {
+  const spreadRadians = degreesToRadians(
+    V2_FOLLOWER_FIRE_SPREAD_DEGREES
+  );
+  const angles = getFollowerSpreadAngles(direction);
+  assertNear(
+    direction.length(),
+    1,
+    TEST_EPSILON,
+    `${message}の方向が正規化されていません`
+  );
+  assert(
+    Math.abs(angles.yawRadians) <=
+      spreadRadians + TEST_EPSILON &&
+      Math.abs(angles.pitchRadians) <=
+        spreadRadians + TEST_EPSILON,
+    `${message}がyaw／pitchの±${V2_FOLLOWER_FIRE_SPREAD_DEGREES}度を超えました: ` +
+      `yaw=${(
+        (angles.yawRadians * 180) /
+        Math.PI
+      ).toFixed(6)}, pitch=${(
+        (angles.pitchRadians * 180) /
+        Math.PI
+      ).toFixed(6)}`
   );
 };
 
@@ -1399,6 +1444,102 @@ const testFollowDistanceAndOcclusion = () => {
   }
 };
 
+const testFollowElevatorSightGrace = () => {
+  const fixture = createNpcCommandFixture(1, 0, 6);
+  const nearbyPlayer = createPlayerTarget(
+    new Vector3(0, 0, -0.5)
+  );
+  const distantPlayer = createPlayerTarget(
+    new Vector3(0, 0, -5)
+  );
+  const destinationFloorPosition = new Vector3(0, 0, 2);
+  try {
+    placeNpcs(fixture.system, [Vector3.Zero()]);
+    assert(
+      fixture.system.requestCommand(
+        "npc_0",
+        "follow",
+        createCommandQuery(nearbyPlayer)
+      ),
+      "エレベーター見失い停止検証のFollowが受理されません。"
+    );
+    fixture.setSightResolver(() => true);
+    fixture.setMovementBlocked(true);
+    fixture.system.setPlayerElevatorTraversalSnapshot(
+      Object.freeze({
+        elevatorId: "elevator-follow-test",
+        linkId: "link-follow-test",
+        from: "A" as const,
+        to: "B" as const,
+        destinationFloorPosition,
+        phase: "riding" as const
+      })
+    );
+    fixture.system.update(
+      V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS + 0.1,
+      distantPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(fixture.system, "npc_0").commandMode ===
+        "follow",
+      "player elevator snapshot中に12m超・遮蔽の5秒見失いでFollowが解除されました。"
+    );
+
+    fixture.system.setPlayerElevatorTraversalSnapshot(null);
+    fixture.system.update(
+      V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS + 0.1,
+      distantPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(fixture.system, "npc_0").commandMode ===
+        "follow",
+      "snapshot終了後、目的階へ到達する前にFollowが解除されました。"
+    );
+
+    fixture.setMovementBlocked(false);
+    fixture.system.update(
+      4 + TEST_EPSILON,
+      distantPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    fixture.system.update(
+      0,
+      distantPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(fixture.system, "npc_0").commandMode ===
+        "follow",
+      "目的階到達の認識時点でFollowが即時解除されました。"
+    );
+    fixture.system.update(
+      V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS - 0.001,
+      distantPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(fixture.system, "npc_0").commandMode ===
+        "follow",
+      "目的階到達後の通常見失い猶予5秒未満でFollowが解除されました。"
+    );
+    fixture.system.update(
+      0.001 + TEST_EPSILON,
+      distantPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(fixture.system, "npc_0").commandMode ===
+        "none",
+      "目的階到達後に通常の5秒見失い解除へ復帰しません。"
+    );
+    return "搬送snapshot中と目的階到達前は見失い停止、到達後は通常5秒境界へ復帰";
+  } finally {
+    fixture.dispose();
+  }
+};
+
 const testFollowAlarmPriority = () => {
   const fixture = createNpcCommandFixture(4, 3);
   const aliveFixture = createNpcCommandFixture(1, 0);
@@ -1759,6 +1900,75 @@ const testHaigureTimerPauseAndResume = () => {
   }
 };
 
+const testFollowerFireSpreadContract = () => {
+  const forward = new Vector3(0, 0, 4);
+  const maximumUnitRandom = 1 - Number.EPSILON;
+  const negative = createV2FollowerFireDirection(
+    forward,
+    0,
+    0
+  );
+  const positive = createV2FollowerFireDirection(
+    forward,
+    maximumUnitRandom,
+    maximumUnitRandom
+  );
+  const mixed = createV2FollowerFireDirection(
+    forward,
+    maximumUnitRandom,
+    0
+  );
+  const spreadRadians = degreesToRadians(
+    V2_FOLLOWER_FIRE_SPREAD_DEGREES
+  );
+  const negativeAngles = getFollowerSpreadAngles(negative);
+  const positiveAngles = getFollowerSpreadAngles(positive);
+  const mixedAngles = getFollowerSpreadAngles(mixed);
+  const positiveBoundaryRadians =
+    spreadRadians * (maximumUnitRandom * 2 - 1);
+
+  for (const [name, direction] of [
+    ["negative", negative],
+    ["positive", positive],
+    ["mixed", mixed]
+  ] as const) {
+    assertFollowerSpreadDirection(
+      direction,
+      `Follower拡散${name}`
+    );
+  }
+  assertNear(
+    negativeAngles.yawRadians,
+    -spreadRadians,
+    TEST_EPSILON,
+    "yaw最小境界が-3度ではありません"
+  );
+  assertNear(
+    negativeAngles.pitchRadians,
+    -spreadRadians,
+    TEST_EPSILON,
+    "pitch最小境界が-3度ではありません"
+  );
+  assertNear(
+    positiveAngles.yawRadians,
+    positiveBoundaryRadians,
+    TEST_EPSILON,
+    "yaw最大境界が+3度ではありません"
+  );
+  assertNear(
+    positiveAngles.pitchRadians,
+    positiveBoundaryRadians,
+    TEST_EPSILON,
+    "pitch最大境界が+3度ではありません"
+  );
+  assert(
+    mixedAngles.yawRadians > 0 &&
+      mixedAngles.pitchRadians < 0,
+    "yawとpitchが独立した乱数入力で逆向きに散りません。"
+  );
+  return "yaw／pitch各±3度、独立入力、正規化を境界値で確認";
+};
+
 const testBrainwashedFollowersAndSynchronizedFire = () => {
   const fixture = createNpcCommandFixture(3, 3);
   const player = createPlayerTarget(
@@ -1882,6 +2092,8 @@ const testBrainwashedFollowersAndSynchronizedFire = () => {
 
     const observedDelays = new Map<string, number>();
     const beamIds = new Map<string, string>();
+    const requestCounts = new Map<string, number>();
+    const spreadDirections = new Map<string, Vector3>();
     let elapsed = 0;
     while (
       observedDelays.size < 3 &&
@@ -1897,12 +2109,21 @@ const testBrainwashedFollowersAndSynchronizedFire = () => {
       const requests = fixture.system.drainBeamRequests();
       for (const request of requests) {
         observedDelays.set(request.sourceId, elapsed);
+        requestCounts.set(
+          request.sourceId,
+          (requestCounts.get(request.sourceId) ?? 0) + 1
+        );
+        spreadDirections.set(
+          request.sourceId,
+          request.direction.clone()
+        );
         assert(
-          request.originKind === "npc-gun" &&
-            request.direction.equals(
-              new Vector3(0, 0, 1)
-            ),
-          "同期射撃が保存方向を自身の銃口から使用していません。"
+          request.originKind === "npc-gun",
+          "同期射撃のoriginKindがnpc-gunではありません。"
+        );
+        assertFollowerSpreadDirection(
+          request.direction,
+          `${request.sourceId}の同期射撃`
         );
         const beamId = `follower-${request.sourceId}`;
         beamIds.set(request.sourceId, beamId);
@@ -1931,6 +2152,89 @@ const testBrainwashedFollowersAndSynchronizedFire = () => {
         .map(([id, delay]) => `${id}=${delay.toFixed(3)}`)
         .join(", ")}`
     );
+    assert(
+      [...requestCounts.values()].reduce(
+        (total, count) => total + count,
+        0
+      ) === 3 &&
+        [...requestCounts.values()].every(
+          (count) => count === 1
+        ),
+      `Followerの1射から1人1本を超える光線要求が生成されました: ${[
+        ...requestCounts.entries()
+      ]
+        .map(([id, count]) => `${id}=${count}`)
+        .join(", ")}`
+    );
+    assert(
+      new Set(
+        [...spreadDirections.values()].map((direction) =>
+          `${direction.x.toFixed(9)}:${direction.y.toFixed(9)}:${direction.z.toFixed(9)}`
+        )
+      ).size === 3,
+      "3体のFollowerで射撃拡散の個体差が生じません。"
+    );
+    const deterministicFixture = createNpcCommandFixture(3, 3);
+    try {
+      placeNpcs(deterministicFixture.system, [
+        new Vector3(-0.1, 0, 0.3),
+        new Vector3(0, 0, 0.3),
+        new Vector3(0.1, 0, 0.3)
+      ]);
+      const deterministicQuery = createCommandQuery(player);
+      for (const npcId of ["npc_0", "npc_1", "npc_2"]) {
+        assert(
+          deterministicFixture.system.requestCommand(
+            npcId,
+            "follow",
+            deterministicQuery
+          ),
+          `${npcId}の決定性再現用Followが受理されません。`
+        );
+      }
+      deterministicFixture.system.notifyPlayerGunFire(
+        fireEvent
+      );
+      const repeatedDirections = new Map<string, Vector3>();
+      const repeatedDelays = new Map<string, number>();
+      let repeatedElapsed = 0;
+      while (
+        repeatedDirections.size < 3 &&
+        repeatedElapsed <=
+          V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS + 0.01
+      ) {
+        deterministicFixture.system.update(
+          0.001,
+          player,
+          EMPTY_ALARM_EVENTS
+        );
+        repeatedElapsed += 0.001;
+        for (const request of
+          deterministicFixture.system.drainBeamRequests()) {
+          repeatedDirections.set(
+            request.sourceId,
+            request.direction.clone()
+          );
+          repeatedDelays.set(request.sourceId, repeatedElapsed);
+        }
+      }
+      assert(
+        repeatedDirections.size === 3 &&
+          [...spreadDirections.entries()].every(
+            ([npcId, direction]) =>
+              repeatedDirections
+                .get(npcId)
+                ?.equalsWithEpsilon(direction, TEST_EPSILON) &&
+              Math.abs(
+                repeatedDelays.get(npcId)! -
+                  observedDelays.get(npcId)!
+              ) <= TEST_EPSILON
+          ),
+        "同じNPC ID・seed相当の初期化で遅延とyaw／pitch拡散を決定的に再現できません。"
+      );
+    } finally {
+      deterministicFixture.dispose();
+    }
     assert(
       fixture.system
         .getFrameView()
@@ -2032,7 +2336,7 @@ const testBrainwashedFollowersAndSynchronizedFire = () => {
         fixture.getSpriteCellIndex("npc_2") === 5,
       "clearCommands後に指示・予約・一時gun表示が残っています。"
     );
-    return `3 Follower、個別${[
+    return `3 Follower、個体別±3度拡散・1射1本、遅延${[
       ...observedDelays.values()
     ]
       .map((delay) => delay.toFixed(3))
@@ -3031,6 +3335,10 @@ export const runNpcCommandTests =
         testFollowDistanceAndOcclusion
       ),
       executeTest(
+        "Followエレベーター搬送中の見失い停止",
+        testFollowElevatorSightGrace
+      ),
+      executeTest(
         "FollowのAlarm優先",
         testFollowAlarmPriority
       ),
@@ -3038,6 +3346,10 @@ export const runNpcCommandTests =
       executeTest(
         "ハイグレ残時間停止・再開",
         testHaigureTimerPauseAndResume
+      ),
+      executeTest(
+        "Follower射撃拡散契約",
+        testFollowerFireSpreadContract
       ),
       executeTest(
         "洗脳済みFollower同期射撃",

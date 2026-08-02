@@ -317,7 +317,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
     );
     await firstRuntime.prepareVisualResources();
     performanceDiagnostics.beginFrame();
-    const firstUpdatedFrame = firstRuntime.update(1 / 60, 1 / 60);
+    const firstUpdatedFrame = firstRuntime.update(1 / 60, 1 / 60, null);
     performanceDiagnostics.finishFrame();
     const fixedTrackingSummary = summarizeV2TargetTracking(
       Object.freeze([
@@ -438,7 +438,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
     secondRuntime = createRuntime(scene, stage, () => () => true);
     const secondFrame = secondRuntime.getFrame();
     await secondRuntime.prepareVisualResources();
-    secondRuntime.update(1 / 60, 1 / 60);
+    secondRuntime.update(1 / 60, 1 / 60, null);
     const secondActive = captureSceneResources(scene);
     const secondDelta = subtractSceneResources(secondActive, baseline);
     secondRuntime.dispose();
@@ -530,10 +530,10 @@ export const runSurvivalRuntimeLifecycleTests = async (
       commandCamera.getViewMatrix(true);
       commandCamera.getProjectionMatrix(true);
 
-      commandRuntime.update(2, 2);
-      commandRuntime.update(0.25, 2.25);
-      commandRuntime.update(3.7, 5.95);
-      const completionFrame = commandRuntime.update(0.06, 6.01);
+      commandRuntime.update(2, 2, null);
+      commandRuntime.update(0.25, 2.25, null);
+      commandRuntime.update(3.7, 5.95, null);
+      const completionFrame = commandRuntime.update(0.06, 6.01, null);
       if (!completionFrame.playerCompletionUnlocked) {
         throw new Error(
           `Runtime NPC指示検証でプレイヤー完了選択が解放されません: ` +
@@ -543,6 +543,18 @@ export const runSurvivalRuntimeLifecycleTests = async (
       commandRuntime.selectPlayerCompletion(
         "brainwash-complete-gun"
       );
+      const currentNpcAimPosition = npcSprite.position.clone();
+      const currentNpcFootPosition = currentNpcAimPosition.add(
+        new Vector3(0, -NPC_SPRITE_CENTER_HEIGHT, 0)
+      );
+      commandPlayer.placeAt(
+        currentNpcFootPosition,
+        currentNpcAimPosition
+      );
+      commandCamera.position.copyFrom(commandPlayer.getEyePosition());
+      commandCamera.setTarget(currentNpcAimPosition);
+      commandCamera.getViewMatrix(true);
+      commandCamera.getProjectionMatrix(true);
       const candidates = commandRuntime.getNpcCommandCandidates();
       initialCandidateCount = candidates.length;
       const candidate = candidates[0];
@@ -565,7 +577,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
         commandRuntime.getNpcCommandCandidates().find(
           (entry) => entry.npcId === candidate.npcId
         )?.commandMode === "follow";
-      commandRuntime.update(2.85, 8.86);
+      commandRuntime.update(2.85, 8.86, null);
       followVisibleBeforeTransition =
         commandRuntime.getNpcCommandCandidates().find(
           (entry) => entry.npcId === candidate.npcId
@@ -573,7 +585,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
       fireAccepted = commandRuntime.requestPlayerGunFire(
         new Vector3(1, 0, 0)
       );
-      const transitionFrame = commandRuntime.update(0.1, 8.96);
+      const transitionFrame = commandRuntime.update(0.1, 8.96, null);
       phaseAfterTransition = transitionFrame.phase;
       activeBeamCountAfterTransition =
         transitionFrame.activeBeamCount;

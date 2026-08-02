@@ -440,7 +440,7 @@ const collectVisibleBrainwashedActorIds = (
   );
 };
 
-const resolveBrainwashedTrackingTrip = (
+const resolveTrackingTrip = (
   context: V2NpcNavigationRouteContext,
   snapshot: StageElevatorSnapshot,
   fromStop: StageElevatorStopAsset,
@@ -448,9 +448,19 @@ const resolveBrainwashedTrackingTrip = (
   estimate: StageElevatorTripEstimate,
   walkingSeconds: number
 ): BrainwashedTrackingTrip | null => {
-  if (!context.brainwashed || context.targetId === null) {
+  if (
+    (!context.brainwashed && context.commandMode !== "follow") ||
+    context.targetId === null
+  ) {
     return null;
   }
+  const followsKnownPlayerTrip =
+    context.commandMode === "follow" &&
+    context.targetId === "player" &&
+    context.playerElevatorTraversal !== null &&
+    context.playerElevatorTraversal.elevatorId === snapshot.id &&
+    context.playerElevatorTraversal.from === fromStop.endpoint &&
+    context.playerElevatorTraversal.to === destinationStop.endpoint;
   const targetReservation = snapshot.reservations.find(
     (reservation) =>
       reservation.actorId === context.targetId &&
@@ -462,11 +472,13 @@ const resolveBrainwashedTrackingTrip = (
       passenger.actorId === context.targetId &&
       passenger.destinationStopId === destinationStop.id
   );
-  if (!targetReservation && !targetPassenger) {
+  if (!targetReservation && !targetPassenger && !followsKnownPlayerTrip) {
     return null;
   }
   const targetStillBoardable =
     targetReservation !== undefined ||
+    (followsKnownPlayerTrip &&
+      context.playerElevatorTraversal!.phase !== "riding") ||
     (snapshot.carState === "stopped" &&
       snapshot.currentStopId === fromStop.id &&
       (snapshot.carDoorState === "opening" ||
@@ -686,7 +698,7 @@ export const createSchoolNpcNavigationPolicy = ({
           calculateBoardingApproachDistance(
             elevatorCandidate.candidate
           ) / context.speed;
-        const trackingTrip = resolveBrainwashedTrackingTrip(
+        const trackingTrip = resolveTrackingTrip(
           context,
           elevatorSnapshot,
           elevatorCandidate.fromStop,
@@ -727,12 +739,15 @@ export const createSchoolNpcNavigationPolicy = ({
           allowedByCallMat &&
           allowedByDistance &&
           allowedByFaction
-            ? walkingSeconds +
-              estimate.totalSeconds +
-              (boardingMode === "next"
-                ? NEXT_TRIP_ADDITIONAL_SECONDS
-                : 0) +
-              riskPenalty
+            ? context.commandMode === "follow" &&
+              trackingTrip?.boardingMode === "same"
+              ? -1
+              : walkingSeconds +
+                estimate.totalSeconds +
+                (boardingMode === "next"
+                  ? NEXT_TRIP_ADDITIONAL_SECONDS
+                  : 0) +
+                riskPenalty
             : Number.POSITIVE_INFINITY;
         return Object.freeze({
           resolved: elevatorCandidate,
@@ -766,6 +781,7 @@ export const createSchoolNpcNavigationPolicy = ({
       });
     const signature = JSON.stringify({
       targetId: context.targetId,
+      playerElevatorTraversal: context.playerElevatorTraversal,
       brainwashed: context.brainwashed,
       commandMode: context.commandMode,
       evade,

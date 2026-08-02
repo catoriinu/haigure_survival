@@ -68,7 +68,8 @@ import type {
   V2NpcTraversalNotification,
   V2NpcTraversalRequest,
   V2NpcTraversalResult,
-  V2NpcTraversalState
+  V2NpcTraversalState,
+  V2PlayerElevatorTraversalSnapshot
 } from "./npcTraversal";
 import type {
   V2PerformanceDiagnostics,
@@ -250,7 +251,11 @@ export const summarizeV2TargetTracking = (
 
 export interface V2SurvivalRuntime {
   prepareVisualResources(): Promise<void>;
-  update(deltaSeconds: number, elapsedSeconds: number): V2SurvivalFrame;
+  update(
+    deltaSeconds: number,
+    elapsedSeconds: number,
+    playerElevatorTraversal: V2PlayerElevatorTraversalSnapshot | null
+  ): V2SurvivalFrame;
   getFrame(): V2SurvivalFrame;
   drainAudioEvents(): readonly V2GameplayAudioEvent[];
   canPlayerMove(): boolean;
@@ -1337,7 +1342,11 @@ export const createV2SurvivalRuntime = ({
         hitEffectPreparation
       ]);
     },
-    update: (deltaSeconds, elapsedSeconds) => {
+    update: (
+      deltaSeconds,
+      elapsedSeconds,
+      playerElevatorTraversal
+    ) => {
       assertActive();
       assertNonNegativeFiniteNumber(
         "survival deltaSeconds",
@@ -1346,6 +1355,9 @@ export const createV2SurvivalRuntime = ({
       assertNonNegativeFiniteNumber(
         "survival elapsedSeconds",
         elapsedSeconds
+      );
+      npcSystem.setPlayerElevatorTraversalSnapshot(
+        playerElevatorTraversal
       );
       frameOrbVisibilityPredicate = null;
       const npcFrameViewBuildSequenceAtUpdateStart =
