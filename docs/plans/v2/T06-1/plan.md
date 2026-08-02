@@ -165,7 +165,7 @@
 
 - Pull Request #65が`develop`へmerge済みであり、merge commitが`origin/develop`へ含まれることをGitHubとGit双方で確認してから統合する。
 - 荒れ版のBlender正本、GLB、Room Variant NavMesh、生成器、監査器、カタログhashは`develop`から履歴ごと取り込み、T06-1側では直接編集しない。競合時はPR #65の資産を採用しつつ、T06-1のRuntime接続を失わないよう解消する。
-- 通常仕様の既定荒れ状態2は履歴上の契約として保持するが、今回の見た目確認中だけ、通常・性能・stress入口が使う明示的な確認値を10へ変更し、全20室を荒れ版として選択する。0／2／10の設定APIとfixture注入契約は変更しない。
+- 通常仕様の既定荒れ状態2は履歴上の契約として保持するが、今回の見た目確認中だけ、通常・性能・stress・rampValidation入口が使う明示的な確認値を10へ変更し、全20室を荒れ版として選択する。0／2／10の設定APIとfixture注入契約は変更しない。
 - 5175番の通常ゲームで最新学校Stageを読み込み、全20室の荒れ版選択、タイトル開始、`playing`、console／Babylon Logger／unhandled rejection 0件を確認する。通常ゲーム用サーバーは確認後も停止しない。
 - 統合回帰、型検査、build、UTF-8 BOMなし、`git diff --check`、ローカル絶対パス、競合markerなしを確認し、追加commitとmerge commitを既存branchへpushする。Pull Request #64のheadがpush後HEADと一致し、baseが`develop`、open状態であることを再確認する。
 
@@ -335,9 +335,9 @@
 
 - [x] Pull Request #65のmerge状態、`origin/develop`のmerge commit、Pull Request #64のhead／base／公開状態、専用worktreeのclean状態を確認する
 - [x] 今回指示と統合・全荒れ版・検証・push工程を本計画へ記録する
-- [ ] 最新`origin/develop`をT06-1 branchへ統合し、競合があれば学校資産成果とRuntime成果を両立させて解消する
-- [ ] 通常・性能・stress入口の見た目確認用荒れ状態を10へ変更し、全20室の荒れ版選択をfixtureで固定する
-- [ ] 関連fixture、typecheck、build、通常Web／Electron、console、資源破棄、全荒れ版の実画面を検証する
+- [x] 最新`origin/develop`をT06-1 branchへ統合し、競合があれば学校資産成果とRuntime成果を両立させて解消する
+- [x] 通常・性能・stress・rampValidation入口の見た目確認用荒れ状態を10へ変更し、全20室の荒れ版選択をfixtureで固定する
+- [x] 関連fixture、typecheck、build、通常Web／Electron、console、資源破棄、全荒れ版の実画面を検証する
 - [ ] 統合・追加修正・検証結果をcommitし、既存branchへpushしてPull Request #64のremote head一致を確認する
 
 ## 完了条件
@@ -580,4 +580,11 @@ Character Materialから`needDepthPrePass`を削除し、`forceDepthWrite`へ置
 
 ### 2026-08-02 PR #65統合・全教室荒れ版確認結果
 
-統合・実装・検証・push後に記録する。
+- Pull Request #65が`develop`へmerge済みで、merge commit `993c5c6`が`origin/develop`のHEADであることをGitHubとGitで確認した。T06-1 branchへmerge commit `90a828f`で統合し、4つのfixtureを自動統合した。競合は0件で、PR #65の学校Blender正本、GLB、Room Variant NavMesh、生成器、監査器、カタログhashを履歴ごと受け入れ、T06-1のRuntime／Character／扉／戦闘fixtureを維持した。
+- `V2_ROOM_VARIANT_VISUAL_REVIEW_LEVEL=10`をT06専用の見た目確認値として追加し、通常・性能・stress・rampValidation入口の両分岐から必須使用した。Room Variant設定APIの0／2／10契約は変更せず、今回のRuntime入口群だけ全20室を`disordered`として選択する。後で通常仕様の既定2へ戻す箇所はこの単一定数に限定した。
+- T02実ブラウザfixtureは50／50 PASS。学校GLB hash `a127b2bc...0ae71f`、Room Variant NavMesh bundle hash `86f141f0...cd89f8f`がカタログと一致し、`roomVariants=40/20/selected=20`、全荒れvariantコンテキスト再読込、Babylon Logger／browser error 0件を確認した。
+- T04実ブラウザfixtureは115／115 PASSし、部屋variantの0／4／20室、実tile組立、欠落・重複・parameter不一致拒否を確認した。T05は303／303 PASS、T06は60／60 PASSし、T06では「確認値10／荒れ版20室／通常・性能・stress入口で共用」とBabylon Logger／warning／error 0件を確認した。
+- `typecheck:v2`、`typecheck:t02`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t02`、`build:t04`、`build:t05`、`build:t06`、通常`build`はすべてPASSした。通常buildには既知のBabylon chunk-size advisory 1件だけがあり、エラーはない。
+- 5175番の通常Webは最新学校Stageでタイトルから`playing`へ遷移し、NPC 50／BIT 20を更新してRuntime例外0件だった。通常Electronは全13項目PASSし、Pointer Lock、G／N／H、Enterタイトル復帰、再開始、session root重複0、Audio BGM 1／SE 12／VOICE 58、Audio失敗0、console／renderer／unhandled rejection／load／process消失／unresponsive 0件を確認した。
+- T02／T04／T05／T06の一時fixtureサーバーだけを停止し、通常プレイ用`http://127.0.0.1:5175/`はPID 32016で継続起動した。全体計画・次タスク計画・branch戦略のB03-3D進捗同期は統合担当所有のため、今回のT06-1追加差分では編集していない。
+- この時点では全荒れ版の追加commitとPull Request #64へのpush前であり、remote head一致はpush後に追記する。

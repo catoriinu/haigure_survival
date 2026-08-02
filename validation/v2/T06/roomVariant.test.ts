@@ -3,6 +3,7 @@ import {
   createSchoolRoomVariantSelections,
   createSchoolRuntimeSettings
 } from "../../../src/world/schoolRuntimeSettings";
+import { V2_ROOM_VARIANT_VISUAL_REVIEW_LEVEL } from "../../../src/v2/roomVariantVisualReview";
 
 import { assert, assertThrows, executeTest } from "./testUtils";
 
@@ -14,6 +15,21 @@ const countDisordered = (
 
 export const runRoomVariantTests = async () =>
   Promise.all([
+    executeTest("通常入口の全教室荒れ版確認値", () => {
+      const selections = createSchoolRoomVariantSelections(
+        createSchoolRuntimeSettings(
+          V2_ROOM_VARIANT_VISUAL_REVIEW_LEVEL
+        ),
+        0
+      );
+      assert(
+        V2_ROOM_VARIANT_VISUAL_REVIEW_LEVEL === 10 &&
+          countDisordered(selections) ===
+            SCHOOL_ROOM_VARIANT_ROOM_IDS.length,
+        "通常入口の見た目確認値で全20室が荒れ版になりません。"
+      );
+      return "確認値10 / 荒れ版20室 / 通常・性能・stress入口で共用";
+    }),
     executeTest("荒れ状態0／2／10の選択件数", () => {
       const seed = 0x5430_0601;
       const level0 = createSchoolRoomVariantSelections(

@@ -105,6 +105,7 @@ import {
   readV2RuntimeStressScenario,
   type V2RuntimeStressReport
 } from "./runtimeStressScenario";
+import { V2_ROOM_VARIANT_VISUAL_REVIEW_LEVEL } from "./roomVariantVisualReview";
 
 const performanceScenario =
   readV2PerformanceScenario(location.search);
@@ -142,11 +143,15 @@ const runtimePopulation = performanceScenario
       V2_TEST_SURVIVAL_POPULATION;
 const roomVariantSelections = runtimeStressScenario
   ? createSchoolRoomVariantSelections(
-      createSchoolRuntimeSettings(2),
+      createSchoolRuntimeSettings(
+        V2_ROOM_VARIANT_VISUAL_REVIEW_LEVEL
+      ),
       runtimeStressScenario.seed
     )
   : createSchoolRoomVariantSelections(
-      createSchoolRuntimeSettings(2),
+      createSchoolRuntimeSettings(
+        V2_ROOM_VARIANT_VISUAL_REVIEW_LEVEL
+      ),
       runtimeSeed
     );
 const canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;

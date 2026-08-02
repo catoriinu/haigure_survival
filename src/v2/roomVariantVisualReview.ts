@@ -1,0 +1,1 @@
+export const V2_ROOM_VARIANT_VISUAL_REVIEW_LEVEL = 10;
