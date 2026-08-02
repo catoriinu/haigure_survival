@@ -188,7 +188,7 @@
 - [x] プレイヤーのエレベーター搬送snapshot、Followerの同便／次便追跡、搬送中の見失い停止、陣営安全維持を実装・検証する
 - [x] 配送前回帰で、乗車前取消と実搬送完了を1frameの終端snapshotへ分離し、取消時だけFollowerの保存目的地と見失い停止を即時解除する
 - [x] Follower同期射撃へ個体・射撃ごとのyaw／pitch各±3度を追加し、遅延・Cooldown・1人1本を回帰する
-- [x] Rの一回drain、通常リトライ、公開処刑リプレイ、対象外phase無効、HUD消去を実装・検証する
+- [x] Rの一回drainを公開処刑リプレイへ限定し、通常リトライを削除して対象外phase無効、左help HUD限定表示、HUD消去を実装・検証する
 - [x] 配送前レビューで、session遷移中の`beforeunload`を終了契約へ接続し、旧session破棄後と新session生成後の両地点で再生成を中止する
 - [x] Alarm由来速度0.5、候補約75%、追加間隔7.5秒、総量約50%、Follow優先を実装・検証する
 - [x] NPC通過後30%閉扉、後続待機、room／toilet閉鎖退避、既定音量0を回帰する
@@ -205,8 +205,8 @@
 - [x] F／E／C成功Feedback、mode別色、180ms発光、対象変更・clear・dispose時の即時消去を実装する
 - [x] 全actorのCharacter／VOICE割当、portrait対応、重複なしshuffle、タイトルの自キャラ／自ボイス選択、設定保存を実装する
 - [x] 仕様書と全体ロードマップへR／EnterとI3／T06-5を同期する
-- [ ] T05／T06 fixture、全typecheck／build、通常Web、Electron、配布テキスト、差分所有を検証する
-- [ ] 実装結果と証跡を記録し、6commitを一度pushしてDraft PR #64を更新する
+- [x] T05／T06 fixture、全typecheck／build、通常Web、Electron、配布テキスト、差分所有を検証する
+- [x] 実装結果と証跡を記録し、6commitを一度pushしてDraft PR #64を更新する
 
 ## 完了条件
 
@@ -312,7 +312,7 @@ Traversal Coordinatorからプレイヤーの呼出・予約・乗車snapshotを
 
 Follower同期射撃は1人1本を維持し、NPC IDと射撃番号から決まるyaw／pitch各±3度の独立した一様分布をプレイヤー照準方向へ適用した。個体別0.3～0.8秒の遅延と0.6秒Cooldownは維持した。
 
-`retry` actionと`KeyR`を一回drainへ追加した。洗脳完了時は同じ設定・seedのRuntime sessionを再生成し、`execution-complete`は既存公開処刑を再演する。生存中・公開処刑進行中・タイトル画面では無効とし、状態別HUDを同期した。配送前レビューで遷移中の`beforeunload`が破棄対象を失う問題を検出したため、終了状態をsession遷移の必須契約へ追加した。旧session破棄後に終了済みならfactoryを呼ばず、新session生成中に終了した場合は開始せず即時破棄する。同一seedは乱数生成器の単体比較ではなく、初回と実遷移再生成のsession factoryが同じ値を2回受けるfixtureで検証した。
+当初は`retry` actionで洗脳完了時の同一設定・seedによるRuntime session再生成も実装したが、後続の最終指示で通常リトライ経路を削除した。現行は`replay-execution` actionを公開処刑の進行中・完了後だけ一回drainし、同じ処刑シーンを再演する。遷移中の`beforeunload`を終了契約へ接続する修正は、Enterによるタイトル復帰とsession破棄の共通ライフサイクルとして維持した。
 
 Alarm由来追跡速度をFollowと同じ0.5へ変更し、通常視認追跡0.3とFollow優先を維持した。アラーム床は空間cell keyの安定hashで4件中3件を残し、追加間隔を5秒から7.5秒へ変更した。10分相当のseed付き反復で候補比率75%、時間比率約67%、総量約50%を確認した。VOICE／BGM／SEの保存値がない場合の既定音量はすべて0のままである。
 
@@ -324,9 +324,30 @@ B03-3Dでは、24枚のトイレ扉それぞれについて単一`VIS_DoorPanel_
 - NPC NullEngine fixtureは37／37 PASS。安定Rest Slot、0.8m境界、狭路、gunヒステリシス、gun／no-gun探索復帰、haigure停止を確認した。
 - T04通常fixtureは115／115、実学校動的統合fixtureは75／75 PASS。Followerの同便／次便／取消／完了、総定員6、未洗脳Followerの安全拒否、NPC通過後30%閉扉、後続通過、room／toilet閉鎖退避を確認し、console warning／errorは0件だった。
 - T05全体fixtureは301／301、NPC指示fixtureは26／26 PASS。Follower射撃のyaw／pitch各±3度、1射1本、0.3～0.8秒遅延、0.6秒Cooldown、Alarm／通常視認／Follow速度、搬送中と完了後の見失い停止、取消後の5秒境界を確認し、console warning／errorは0件だった。
-- T06専用fixtureは33／33 PASS。R一回消費、phase guard、公開処刑リプレイ、session再生成、終了解除、同一seed factory伝播、購読残留0、既定音量0を確認し、console warning／errorは0件だった。
+- この時点のT06専用fixtureは33／33 PASSだったが、後続指示で通常R session再生成と同一seed factory項目を削除した。現行の公開処刑専用Rを含む最終fixture結果は本計画末尾の42／42を正とする。
 - 通常Webは`http://127.0.0.1:5175/`でタイトル、全音量MUTE、開始後の`playing` HUDを確認した。開始前のconsole warning／errorは0件だった。Codex内蔵ブラウザの文書ルートではPointer Lock要求が環境固有の`WrongDocumentError`になるため、実Pointer Lockを含む連続操作はElectronで判定した。
-- Electron受入は全13項目PASS。Canvas開始とPointer Lock、洗脳選択解放、G→N→H→G、gun射撃、N移動、H停止、同一seedのRリトライ、Enter復帰、再開始、session／HUD root残留0、BGM 1件・SE 13件・VOICE 86件のresource loadを確認した。音声失敗、console、renderer、unhandled rejection、load failure、render process異常、unresponsiveは0件だった。
+- この時点のElectron受入は同一seedの通常Rリトライを含む全13項目PASSだったが、後続指示で同経路を削除した。現行受入は通常R無効を確認する本計画末尾の全13項目PASSを正とする。
 - 配布テキスト検査、`git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、括弧・構文を確認した。T06-1 branchには学校Blender正本、GLB、生成器、全NavMesh、カタログhashを含めていない。
 
 全体計画、次タスク計画、branch戦略は、`B03-3D + T06-1 → T06-2 → I2設計 → T06-3 + B05 → T06-4 → T07 → v2.0リリース準備`へ更新した。I2ではミニマップとMissionのLocation、候補、表示、達成・失敗、付与率、優先順位をユーザー相談で確定し、T06-3、B05、T06-4で分離実装する。T07はミニマップとMissionを有効にした99 NPC／50 BIT条件を含む。T06-1 Runtime差分を分割commitして`codex/v2-t06-runtime-core`へpushし、Draft Pull Request #64へ検証結果、B03-3D資産依存、T06-2以降への引き渡しを反映する。レビュー、merge、`develop`同期、worktree整理は行わない。
+
+### 2026-08-02 公開処刑R・操作Feedback・Character ID・Portal修正結果
+
+Wander用Rest SlotはNPC現在地のNavigation Areaを期待Areaとして固定し、NavMesh投影後の候補がPortal内なら厳格な`locate()`を呼ぶ前に不採用として同じAreaの次候補へ進むよう変更した。Area包含0件・複数件などPortal以外の契約違反は捕捉せず、従来どおり例外として表面化する。
+
+`retry` actionを`replay-execution`へ置換し、Rは公開処刑の進行中・完了後だけ同じ会場・対象・配置・Character割当を維持した再演へ配送するよう統一した。再演前にTraversal、NPC command、光線・命中演出、pending射撃、Audio eventを消去し、同時斉射、発射待ち時間、NPC射手だけを再抽選する。通常ゲームのR session再生成経路を削除し、R案内は有効時だけ左側help HUDへ表示する。Enterは洗脳前を含むゲーム開始後の全phaseでタイトルへ戻る。
+
+NPC候補は`none`／`leave`を水色、`follow`を黄緑、扉候補を黄色で枠と文字へ反映した。F／Eでcommand modeが変化した場合と、Cで扉開閉が`started`になった場合だけ180msの単発発光を開始し、中間点で`scale(1.18)`と`brightness(1.8)`へ変化させる。同状態入力、拒否、busy、候補なしでは発光せず、候補ID変更、候補消失、Pointer Lock解除、タイトル復帰、clear、disposeでインラインanimationを除去する。
+
+タイトル右下へ「自キャラ」「自ボイス」の独立selectを追加し、双方の既定値をランダム選択とした。設定は既存rootへ即時保存し、音量と未知fieldを保持する。開始準備時にVOICE IDをshuffleし、プレイヤー、NPC ID順へ未使用IDを優先して割り当て、超過分だけ固定自ボイスを除外した安定poolから再抽選する。portraitはVOICE ID先頭2桁との初回一致を優先し、固定自キャラはプレイヤーだけを上書きする。VOICE Runtimeは明示的なactor割当を必須入力とし、暗黙の循環割当を削除した。画像描画はI3相談後のT06-5へ残した。
+
+最終検証結果は次のとおり。
+
+- `typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t04`、`build:t05`、`build:t06`、通常`build`はすべてPASSした。通常buildには既知のVite chunk-size warningだけがあり、終了codeは0だった。
+- T05実ブラウザfixtureは302／302、NPC指示fixtureは26／26 PASS。Portal中央・境界内外、反対Area、Portal中心から同Area次候補への選択、Area包含0件／複数件の例外維持を含み、console warning／errorは0件だった。
+- T06実ブラウザfixtureは42／42 PASS。R一回消費、公開処刑途中／完了後の再演、通常phase無効、queue残留0、左help HUD限定表示、NPC三mode色、F／E／C成功発光と拒否時0回、Character設定・保存・割当・VOICE配送を確認し、console warning／errorは0件だった。
+- 通常Webは`http://127.0.0.1:5175/`で学校3D読込完了、自キャラ／自ボイスのランダム既定、固定値変更時のsession再生成、相互設定保持、ランダムへの復帰、VOICE／BGM／SEのMUTE表示を確認した。console warning／errorは0件だった。
+- Electron受入は全13項目PASS。Canvas開始とPointer Lock、洗脳選択解放、G→N→H→G、gun射撃、N移動、H停止、通常R無効、Enter復帰、再開始、session所有root各1件、BGM 1件・SE 14件・VOICE 74件のresource loadを確認した。resource失敗、console、renderer、load、render process消失、unresponsiveはすべて0件だった。位置依存のF／E／Cと公開処刑RはT06 fixtureで補完した。
+- `git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、括弧・構文を確認した。学校Blender正本、GLB、生成器、全NavMesh、カタログhash、`src/world/**`、音声・画像バイナリの差分は0件だった。`public/picture`は実ブラウザ／Electron検証用のignored junctionだけをローカル共有し、commit対象に含めていない。
+
+実装を「計画」「Portal」「R」「操作Feedback」「Character割当・UI」「検証結果」の6commitへ分割し、全検証後に`codex/v2-t06-runtime-core`を一度pushしてDraft Pull Request #64へ結果、対象外、T06-5への引き渡しを反映した。レビュー、merge、`develop`同期、worktree整理は行わない。
