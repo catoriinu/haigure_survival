@@ -174,9 +174,9 @@
 - [x] Rの一回drain、通常リトライ、公開処刑リプレイ、対象外phase無効、HUD消去を実装・検証する
 - [x] 配送前レビューで、session遷移中の`beforeunload`を終了契約へ接続し、旧session破棄後と新session生成後の両地点で再生成を中止する
 - [x] Alarm由来速度0.5、候補約75%、追加間隔7.5秒、総量約50%、Follow優先を実装・検証する
-- [ ] NPC通過後30%閉扉、後続待機、room／toilet閉鎖退避、既定音量0を回帰する
-- [ ] T04～T06 fixture、型検査、build、通常Web、Electron、配布テキスト検査を完了する
-- [ ] 実装結果と証跡を記録し、分割commit、push、Draft PR #64更新まで行う
+- [x] NPC通過後30%閉扉、後続待機、room／toilet閉鎖退避、既定音量0を回帰する
+- [x] T04～T06 fixture、型検査、build、通常Web、Electron、配布テキスト検査を完了する
+- [x] 実装結果と証跡を記録し、分割commit、push、Draft PR #64更新まで行う
 
 ## 完了条件
 
@@ -269,3 +269,30 @@ Follow／Leave中でない生存未洗脳NPCへ、最大12m・左右各95度・�
 - `git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、括弧・構文を確認した。学校Blender正本、GLB、生成器、全NavMesh、カタログhash、全体計画の差分は0件である。`src/world/**`はBIT有向経路cacheと今回明示された扉Runtime／動的Actor連携／資産型だけを変更した。
 
 実装を計画、命中音、取っ手操作、通常扉閉鎖退避、Follower、自律脅威回避、Portal足元判定、回帰補正、fixture更新、最終結果へ分割してcommitした。全検証後に`codex/v2-t06-runtime-core`を一度pushし、Draft Pull Request #64の本文へ検証結果、対象外、T06-2への引き渡しを反映する。レビュー、merge、`develop`同期、worktree整理は行わない。
+
+### 2026-08-02 T06-1追補・B03-3D資産連携・v2.0前機能拡張結果
+
+自律移動の停止地点へ、同一階・同一Navigation Area内のプレイヤーと停止予約済みNPCから水平0.8m以上離れる、NPC ID由来の安定Rest Slotを追加した。移動中の継続反発は行わず、狭路では後方の空きSlotを使い、一時的な重なりを許容する。gun NPCは0.8mで停止し1.0mで再移動するヒステリシスを持ち、標的消失後のgun／no-gunは次更新からWander相当の探索へ戻る。haigure、formation、捕獲・公開処刑、エレベーター専用slotは従来の停止契約を優先する。
+
+Traversal Coordinatorからプレイヤーの呼出・予約・乗車snapshotを毎frame渡し、Followerは定員6人と陣営安全を守りながら同じ便を優先する。満員・乗り遅れでもFollowを解除せず、次便または別経路へ再計画する。搬送中と搬送完了後の目的階到着までは見失いタイマーを停止する。配送前回帰で、乗車前取消でも目的階追跡を保持する問題を検出したため、`cancelled`と`completed`を1frameの終端snapshotへ分離した。取消時は保存目的地を即時破棄して通常の5秒見失い判定へ戻し、実搬送完了時だけ到着追跡を維持する。固定2mが実際の乗車猶予内だった境界fixtureも、実Runtimeの`boardingWindowSeconds + 0.001秒`へ修正した。
+
+Follower同期射撃は1人1本を維持し、NPC IDと射撃番号から決まるyaw／pitch各±3度の独立した一様分布をプレイヤー照準方向へ適用した。個体別0.3～0.8秒の遅延と0.6秒Cooldownは維持した。
+
+`retry` actionと`KeyR`を一回drainへ追加した。洗脳完了時は同じ設定・seedのRuntime sessionを再生成し、`execution-complete`は既存公開処刑を再演する。生存中・公開処刑進行中・タイトル画面では無効とし、状態別HUDを同期した。配送前レビューで遷移中の`beforeunload`が破棄対象を失う問題を検出したため、終了状態をsession遷移の必須契約へ追加した。旧session破棄後に終了済みならfactoryを呼ばず、新session生成中に終了した場合は開始せず即時破棄する。同一seedは乱数生成器の単体比較ではなく、初回と実遷移再生成のsession factoryが同じ値を2回受けるfixtureで検証した。
+
+Alarm由来追跡速度をFollowと同じ0.5へ変更し、通常視認追跡0.3とFollow優先を維持した。アラーム床は空間cell keyの安定hashで4件中3件を残し、追加間隔を5秒から7.5秒へ変更した。10分相当のseed付き反復で候補比率75%、時間比率約67%、総量約50%を確認した。VOICE／BGM／SEの保存値がない場合の既定音量はすべて0のままである。
+
+B03-3Dでは、24枚のトイレ扉それぞれについて単一`VIS_DoorPanel_Knob_*` Mesh内へ廊下側・個室側の球形ノブを生成した。Anchor Mesh数は扉ごとに1件を維持し、両側から同じ現在ノブ位置へHUDを投影できる。`099f9de fix(assets): トイレ扉の内側ノブを追加`としてB03-3D branchへローカルcommitした。GLBは強制生成2回で同一SHA-256 `6c94350ed4a4a390848d102bdb8174c3e0665378b3147a2e41b5853d61a22ca9`、Blender正本は`1079f03b04e7b3eda09179a95f554a251da41a90961b4bd67a4ce8defd6990d4`である。人物、Room Variant、BITの3種NavMesh bytesは変更していない。起動中の未保存Blenderセッションと既存dirty計画は操作していない。この資産commitはT06-1へ混ぜず、T06-2統合時に取り込む。
+
+最終検証結果は次のとおり。
+
+- `typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t04`、`build:t05`、`build:t06`、通常`build`は最終差分ですべてPASSした。通常buildには既知のVite chunk-size warningだけがあり、終了codeは0だった。
+- NPC NullEngine fixtureは37／37 PASS。安定Rest Slot、0.8m境界、狭路、gunヒステリシス、gun／no-gun探索復帰、haigure停止を確認した。
+- T04通常fixtureは115／115、実学校動的統合fixtureは75／75 PASS。Followerの同便／次便／取消／完了、総定員6、未洗脳Followerの安全拒否、NPC通過後30%閉扉、後続通過、room／toilet閉鎖退避を確認し、console warning／errorは0件だった。
+- T05全体fixtureは301／301、NPC指示fixtureは26／26 PASS。Follower射撃のyaw／pitch各±3度、1射1本、0.3～0.8秒遅延、0.6秒Cooldown、Alarm／通常視認／Follow速度、搬送中と完了後の見失い停止、取消後の5秒境界を確認し、console warning／errorは0件だった。
+- T06専用fixtureは33／33 PASS。R一回消費、phase guard、公開処刑リプレイ、session再生成、終了解除、同一seed factory伝播、購読残留0、既定音量0を確認し、console warning／errorは0件だった。
+- 通常Webは`http://127.0.0.1:5175/`でタイトル、全音量MUTE、開始後の`playing` HUDを確認した。開始前のconsole warning／errorは0件だった。Codex内蔵ブラウザの文書ルートではPointer Lock要求が環境固有の`WrongDocumentError`になるため、実Pointer Lockを含む連続操作はElectronで判定した。
+- Electron受入は全13項目PASS。Canvas開始とPointer Lock、洗脳選択解放、G→N→H→G、gun射撃、N移動、H停止、同一seedのRリトライ、Enter復帰、再開始、session／HUD root残留0、BGM 1件・SE 13件・VOICE 86件のresource loadを確認した。音声失敗、console、renderer、unhandled rejection、load failure、render process異常、unresponsiveは0件だった。
+- 配布テキスト検査、`git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、括弧・構文を確認した。T06-1 branchには学校Blender正本、GLB、生成器、全NavMesh、カタログhashを含めていない。
+
+全体計画、次タスク計画、branch戦略は、`B03-3D + T06-1 → T06-2 → I2設計 → T06-3 + B05 → T06-4 → T07 → v2.0リリース準備`へ更新した。I2ではミニマップとMissionのLocation、候補、表示、達成・失敗、付与率、優先順位をユーザー相談で確定し、T06-3、B05、T06-4で分離実装する。T07はミニマップとMissionを有効にした99 NPC／50 BIT条件を含む。T06-1 Runtime差分を分割commitして`codex/v2-t06-runtime-core`へpushし、Draft Pull Request #64へ検証結果、B03-3D資産依存、T06-2以降への引き渡しを反映する。レビュー、merge、`develop`同期、worktree整理は行わない。
