@@ -119,6 +119,7 @@ type V2CharacterVisualPresentation = {
   lastCellIndex: number;
   lastWidth: number;
   lastHeight: number;
+  lastFacingYaw: number;
   lastVisible: boolean;
   lastColor: Color4;
 };
@@ -491,6 +492,7 @@ const createPresentation = (
     lastCellIndex: -1,
     lastWidth: -1,
     lastHeight: -1,
+    lastFacingYaw: Number.NaN,
     lastVisible: false,
     lastColor: new Color4(-1, -1, -1, -1),
   };
@@ -502,8 +504,13 @@ const syncPresentation = (
   frameCount: number,
   facingYaw: number,
 ): void => {
-  presentation.mesh.position.copyFrom(sprite.position);
-  presentation.mesh.rotation.set(0, facingYaw, 0);
+  if (!presentation.mesh.position.equals(sprite.position)) {
+    presentation.mesh.position.copyFrom(sprite.position);
+  }
+  if (presentation.lastFacingYaw !== facingYaw) {
+    presentation.mesh.rotation.set(0, facingYaw, 0);
+    presentation.lastFacingYaw = facingYaw;
+  }
 
   if (
     presentation.lastWidth !== sprite.width ||
@@ -678,10 +685,16 @@ export const createV2CharacterVisualRuntime = async ({
           `V2 Character表示の水平yawには有限値が必要です: ${yaw}`,
         );
       }
+      if (facingYaw === yaw) {
+        return;
+      }
       facingYaw = yaw;
       for (const record of spriteRecords) {
         if (record.presentation !== null) {
-          record.presentation.mesh.rotation.set(0, facingYaw, 0);
+          if (record.presentation.lastFacingYaw !== facingYaw) {
+            record.presentation.mesh.rotation.set(0, facingYaw, 0);
+            record.presentation.lastFacingYaw = facingYaw;
+          }
         }
       }
     },

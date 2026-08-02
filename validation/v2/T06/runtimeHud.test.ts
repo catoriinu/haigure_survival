@@ -501,6 +501,77 @@ export const runRuntimeHudTests = async () =>
         engine.dispose();
       }
     }),
+    executeTest("同一HUD frameのDOM差分更新", async () => {
+      const engine = new NullEngine();
+      const scene = new Scene(engine);
+      const camera = new FreeCamera(
+        "T06HudStableFrameCamera",
+        new Vector3(0, 0, -5),
+        scene
+      );
+      camera.setTarget(Vector3.Zero());
+      scene.activeCamera = camera;
+      const host = document.createElement("div");
+      const canvas = document.createElement("canvas");
+      Object.defineProperty(canvas, "getBoundingClientRect", {
+        configurable: true,
+        value: () => new DOMRect(0, 0, 800, 450)
+      });
+      host.appendChild(canvas);
+      document.body.appendChild(host);
+      const hud = createV2RuntimeHudController({ host, canvas, camera });
+      const frame = Object.freeze({
+        phase: "playing" as const,
+        playerState: "brainwash-complete-gun" as const,
+        playerCompletionUnlocked: false,
+        executionPlayerRole: null
+      });
+      const update = Object.freeze({
+        active: true,
+        frame,
+        npcCandidates: Object.freeze([createNpcCandidate()]),
+        doorCandidates: Object.freeze([]),
+        feedback: Object.freeze([])
+      });
+      const hudRoot = host.querySelector<HTMLElement>(
+        '[data-v2-runtime-hud="root"]'
+      );
+      if (hudRoot === null) {
+        throw new Error("DOM差分更新検証用HUD rootがありません。");
+      }
+      let mutationCount = 0;
+      const observer = new MutationObserver(() => {
+        mutationCount += 1;
+      });
+      try {
+        scene.render();
+        hud.update(update);
+        await Promise.resolve();
+        observer.observe(hudRoot, {
+          attributes: true,
+          subtree: true,
+          attributeFilter: [
+            "hidden",
+            "style",
+            "data-v2-runtime-hud-color",
+            "data-v2-runtime-hud-feedback"
+          ]
+        });
+        hud.update(update);
+        await Promise.resolve();
+        assert(
+          mutationCount === 0,
+          `同一HUD frameの2回目updateで${mutationCount}件のDOM属性変更が発生しました。`
+        );
+        return "同一候補・状態・座標の2回目updateはDOM属性変更0件";
+      } finally {
+        observer.disconnect();
+        hud.dispose();
+        host.remove();
+        scene.dispose();
+        engine.dispose();
+      }
+    }),
     executeTest("HUD disposeの所有DOM解放と再利用拒否", () => {
       const engine = new NullEngine();
       const scene = new Scene(engine);

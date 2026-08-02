@@ -28,6 +28,9 @@ export interface V2GameplayAudioEventQueue {
   dispose(): void;
 }
 
+const EMPTY_V2_GAMEPLAY_AUDIO_EVENTS: readonly V2GameplayAudioEvent[] =
+  Object.freeze([]);
+
 export const createV2GameplayAudioEventQueue =
   (): V2GameplayAudioEventQueue => {
     let pendingEvents: V2GameplayAudioEvent[] = [];
@@ -48,17 +51,24 @@ export const createV2GameplayAudioEventQueue =
       },
       drain: () => {
         assertActive();
-        const events = Object.freeze([...pendingEvents]);
+        if (pendingEvents.length === 0) {
+          return EMPTY_V2_GAMEPLAY_AUDIO_EVENTS;
+        }
+        const events = pendingEvents;
         pendingEvents = [];
-        return events;
+        return Object.freeze(events);
       },
       clear: () => {
         assertActive();
-        pendingEvents = [];
+        if (pendingEvents.length > 0) {
+          pendingEvents = [];
+        }
       },
       dispose: () => {
         assertActive();
-        pendingEvents = [];
+        if (pendingEvents.length > 0) {
+          pendingEvents = [];
+        }
         disposed = true;
       }
     });

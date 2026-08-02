@@ -1,5 +1,3 @@
-import { Vector3 } from "@babylonjs/core";
-
 import type { AudioManager, SpatialHandle, SpatialPlayOptions } from "./audio";
 import {
   assertV2AudioUnitRandom,
@@ -73,12 +71,13 @@ export type V2VoiceRuntime = Readonly<{
 type V2VoiceActor = {
   id: string;
   profile: V2VoiceProfile;
-  position: Vector3;
+  snapshot: V2HumanTargetSnapshot;
   currentState: V2CharacterState;
   lastState: V2CharacterState;
   voiceHandle: SpatialHandle | null;
   idleTimer: number;
   playbackToken: number;
+  updateRevision: number;
 };
 
 const isV2VoiceIdleState = (state: V2CharacterState): boolean =>
@@ -169,12 +168,13 @@ const createV2VoiceRuntimeInternal = (
       initialized.set(actorId, {
         id: actorId,
         profile,
-        position: snapshot.aimPosition.clone(),
+        snapshot,
         currentState: snapshot.state,
         lastState: snapshot.state,
         voiceHandle: null,
         idleTimer: rollIdleTimer(),
         playbackToken: 0,
+        updateRevision: 0,
       });
     }
     return initialized;
@@ -203,7 +203,7 @@ const createV2VoiceRuntimeInternal = (
     actor.playbackToken += 1;
     actor.voiceHandle = audio.playVoice(
       assets.resolveVoiceUrl(file),
-      () => actor.position,
+      () => actor.snapshot.aimPosition,
       loopOptions,
     );
   };
@@ -223,7 +223,7 @@ const createV2VoiceRuntimeInternal = (
     const playbackToken = actor.playbackToken;
     actor.voiceHandle = audio.playVoice(
       assets.resolveVoiceUrl(file),
-      () => actor.position,
+      () => actor.snapshot.aimPosition,
       {
         ...baseOptions,
         onEnded: () => {
@@ -314,6 +314,7 @@ const createV2VoiceRuntimeInternal = (
       stopActor(actor);
     }
   };
+  let updateRevision = 0;
 
   return Object.freeze({
     update: (deltaSeconds, allowIdle, snapshots) => {
@@ -326,25 +327,28 @@ const createV2VoiceRuntimeInternal = (
       if (actors === null) {
         actors = initializeActors(snapshots);
       }
-      const snapshotsById = new Map<string, V2HumanTargetSnapshot>();
-      for (const snapshot of snapshots) {
-        if (snapshotsById.has(snapshot.id)) {
-          throw new Error(`V2 VOICEのactor IDが重複しています: ${snapshot.id}`);
-        }
-        snapshotsById.set(snapshot.id, snapshot);
-      }
-      if (snapshotsById.size !== actors.size) {
+      if (snapshots.length !== actors.size) {
         throw new Error(
           "V2 VOICEのactor集合は初回snapshotから変更できません。",
         );
       }
+      updateRevision += 1;
+      for (const snapshot of snapshots) {
+        const actor = actors.get(snapshot.id);
+        if (actor === undefined) {
+          throw new Error(`V2 VOICEのactor snapshotがありません: ${snapshot.id}`);
+        }
+        if (actor.updateRevision === updateRevision) {
+          throw new Error(`V2 VOICEのactor IDが重複しています: ${snapshot.id}`);
+        }
+        actor.updateRevision = updateRevision;
+        actor.snapshot = snapshot;
+        actor.currentState = snapshot.state;
+      }
       for (const actor of actors.values()) {
-        const snapshot = snapshotsById.get(actor.id);
-        if (!snapshot) {
+        if (actor.updateRevision !== updateRevision) {
           throw new Error(`V2 VOICEのactor snapshotがありません: ${actor.id}`);
         }
-        actor.position.copyFrom(snapshot.aimPosition);
-        actor.currentState = snapshot.state;
         updateActor(actor, deltaSeconds, allowIdle);
       }
     },

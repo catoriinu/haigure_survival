@@ -607,7 +607,7 @@ Character Materialから`needDepthPrePass`を削除し、`forceDepthWrite`へ置
 - [x] 修正前の99 NPC／50 BIT性能基準を同一seed・視点で記録する
 - [x] 扉Runtimeの空間更新と取っ手候補取得を軽量化し、T04回帰を更新する
 - [x] NPC／BITの空間索引、表示同期、Follower snapshot、frame view共有を実装し、T05回帰を更新する
-- [ ] Character、HUD、Audioの毎frame割り当てとDOM／Mesh更新を削減し、T06回帰を更新する
+- [x] Character、HUD、Audioの毎frame割り当てとDOM／Mesh更新を削減し、T06回帰を更新する
 - [ ] portrait資産カタログとタイトル設定root処理を共通化する
 - [ ] 荒れ状態を既定2へ戻し、明示的な全荒れ確認queryを追加する
 - [ ] 修正後性能、全fixture、typecheck、build、Web、Electron、配布テキスト、所有範囲を検証する
@@ -620,3 +620,5 @@ Character Materialから`needDepthPrePass`を削除し、`forceDepthWrite`へ置
 扉は開閉開始・完了時だけspatial revisionを更新し、途中frameでは空間索引を再構築しない。取っ手world位置を扉Transform変更時だけ更新するcacheへ移し、候補取得時の全Anchor行列再計算を除去した。`typecheck:t04`とT04実ブラウザfixture 115／115はPASSし、console warning／errorは0件だった。学校Blender正本、GLB、生成器、全NavMesh、カタログhash、音声・画像バイナリは変更しない。既存のFollow、Alarm、視界、停止距離、扉安全退避、Character描画順、既定音量0などのゲーム仕様は維持する。
 
 NPC／BITは、人物索引を自律脅威探索へ共有し、scheduled探索時だけBIT近傍索引を生成するよう変更した。Rest Slotは同一Areaの停止対象を候補評価前に一度だけ索引化し、入力順を維持した。通常NPC updateのCharacter表示同期を表示NPCごと1回へ集約し、FollowerのArea判定・人数集計、エレベーターsnapshot、BIT frame view、actor／human ID索引をframe内で共有した。hit effect 0件ではupdateを呼ばず、`getHumanTargets()`は次の状態更新まで同一immutable snapshotを返す。`typecheck:v2`／`typecheck:t04`／`typecheck:t05`、T04実ブラウザ115／115、T05実ブラウザ307／307はPASSし、Babylon Logger／console warning／errorは0件だった。
+
+CharacterはMeshの位置・yawが同値ならTransform更新を省略し、プレイヤー一人称計算とcamera offsetをToRefへ統一した。mainも同frameの足元snapshotと再利用Vectorを渡し、視線Vector、help text、空候補、render callbackの毎frame生成を除去した。HUDはViewport／投影Vectorを再利用し、hidden、色、座標が同じ要素のDOM属性を書き換えない。VOICEはactor Mapと最新snapshot参照を再利用し、Audio event queueは空drain singletonと非空配列の所有権移譲へ変更した。T06実ブラウザ63／63、`typecheck:v2`／`typecheck:t06`、`build:t06`はPASSし、同一HUD frameのDOM mutation 0件、空Audio drainの同一identity、ToRef計算、Babylon Logger／console warning／error 0件を確認した。

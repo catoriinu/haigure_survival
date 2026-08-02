@@ -15,7 +15,11 @@ import {
   VertexBuffer
 } from "@babylonjs/core";
 
-import { resolveV2FirstPersonCharacterVisualFrame } from "../../../src/v2/v2PlayerCharacterVisual";
+import {
+  resolveV2FirstPersonCharacterVisualFrameToRef,
+  type V2FirstPersonCharacterVisualFrameOptions,
+  type V2FirstPersonCharacterVisualFrameTarget
+} from "../../../src/v2/v2PlayerCharacterVisual";
 import { V2_DEFAULT_PORTRAIT_DIRECTORY } from "../../../src/v2/v2CharacterAssignments";
 import { resolveV2CharacterFacingYaw } from "../../../src/v2/v2CharacterFacing";
 import {
@@ -55,6 +59,22 @@ const readRgbaPixel = (
     bytes[offset + 3] as number
   ]);
 };
+
+const createFirstPersonFrameTarget =
+  (): V2FirstPersonCharacterVisualFrameTarget => ({
+    visible: false,
+    alpha: 0,
+    position: Vector3.Zero(),
+    cameraRenderOffset: Vector3.Zero()
+  });
+
+const resolveFirstPersonFrame = (
+  options: V2FirstPersonCharacterVisualFrameOptions
+): V2FirstPersonCharacterVisualFrameTarget =>
+  resolveV2FirstPersonCharacterVisualFrameToRef(
+    options,
+    createFirstPersonFrameTarget()
+  );
 
 const createFlatTransparentMaterial = (
   name: string,
@@ -297,6 +317,34 @@ export const runCharacterVisualTests = async (): Promise<
           "upright Planeへ位置・寸法・yaw・cell UV・色alphaが同期されません。"
         );
 
+        let positionWriteCount = 0;
+        let yawWriteCount = 0;
+        const originalPositionCopyFrom =
+          firstMesh.position.copyFrom.bind(firstMesh.position);
+        const originalRotationSet =
+          firstMesh.rotation.set.bind(firstMesh.rotation);
+        firstMesh.position.copyFrom = (source) => {
+          positionWriteCount += 1;
+          return originalPositionCopyFrom(source);
+        };
+        firstMesh.rotation.set = (x, y, z) => {
+          yawWriteCount += 1;
+          return originalRotationSet(x, y, z);
+        };
+        runtime.setFacingYaw(Math.PI / 3);
+        first.syncPresentation();
+        assert(
+          positionWriteCount === 0 && yawWriteCount === 0,
+          `同一位置・yawの再同期でtransformが更新されました: position=${positionWriteCount}, yaw=${yawWriteCount}`
+        );
+        first.sprite.position.x += 0.25;
+        first.syncPresentation();
+        runtime.setFacingYaw(Math.PI / 2);
+        assert(
+          Number(positionWriteCount) === 1 && Number(yawWriteCount) === 1,
+          `位置・yaw変更時の差分同期回数が不正です: position=${positionWriteCount}, yaw=${yawWriteCount}`
+        );
+
         first.sprite.isVisible = false;
         first.syncPresentation();
         assert(!firstMesh.isVisible, "upright Planeへ非表示が同期されません。");
@@ -317,7 +365,7 @@ export const runCharacterVisualTests = async (): Promise<
             !scene.materials.includes(sharedMaterial),
           "Runtime破棄で残存Planeと共有Materialが破棄されません。"
         );
-        return "world-up Planeを共有し、NPC < effect < player順で同期・破棄";
+        return "world-up Planeを共有し、transform差分同期・透明順・破棄を確認";
       } finally {
         if (!runtimeDisposed) {
           runtime.dispose();
@@ -508,7 +556,7 @@ export const runCharacterVisualTests = async (): Promise<
       return "通常は前方、真下はカメラ上方、退化時は前frame yawを維持";
     }),
     executeTest("一人称Character表示の無効状態", () => {
-      const frame = resolveV2FirstPersonCharacterVisualFrame({
+      const frame = resolveFirstPersonFrame({
         active: false,
         footPosition: new Vector3(1, 2, 3),
         viewForward: new Vector3(0, -1, 0),
@@ -536,7 +584,7 @@ export const runCharacterVisualTests = async (): Promise<
     }),
     executeTest("一人称Character表示の55度境界", () => {
       const angle = (55 * Math.PI) / 180;
-      const frame = resolveV2FirstPersonCharacterVisualFrame({
+      const frame = resolveFirstPersonFrame({
         active: true,
         footPosition: Vector3.Zero(),
         viewForward: new Vector3(0, -Math.sin(angle), Math.cos(angle)),
@@ -551,7 +599,7 @@ export const runCharacterVisualTests = async (): Promise<
     }),
     executeTest("一人称Character表示の中間補間", () => {
       const angle = (72.5 * Math.PI) / 180;
-      const frame = resolveV2FirstPersonCharacterVisualFrame({
+      const frame = resolveFirstPersonFrame({
         active: true,
         footPosition: Vector3.Zero(),
         viewForward: new Vector3(0, -Math.sin(angle), Math.cos(angle)),
@@ -574,7 +622,7 @@ export const runCharacterVisualTests = async (): Promise<
       return "72.5度でalpha 0.5、V1同等のカメラ・画像offset";
     }),
     executeTest("一人称Character表示の真下", () => {
-      const frame = resolveV2FirstPersonCharacterVisualFrame({
+      const frame = resolveFirstPersonFrame({
         active: true,
         footPosition: new Vector3(1, 2, 3),
         viewForward: new Vector3(0, -1, 0),
@@ -597,6 +645,25 @@ export const runCharacterVisualTests = async (): Promise<
           position: frame.position.asArray()
         })}`
       );
-      return "真下で完全表示";
+      const target = createFirstPersonFrameTarget();
+      const positionReference = target.position;
+      const offsetReference = target.cameraRenderOffset;
+      const reused = resolveV2FirstPersonCharacterVisualFrameToRef(
+        {
+          active: true,
+          footPosition: new Vector3(4, 5, 6),
+          viewForward: new Vector3(0, -1, 0),
+          facingYaw: Math.PI / 2,
+          spriteHeight: 0.4
+        },
+        target
+      );
+      assert(
+        reused === target &&
+          reused.position === positionReference &&
+          reused.cameraRenderOffset === offsetReference,
+        "一人称Character表示のToRefが出力領域を再利用していません。"
+      );
+      return "真下で完全表示し、ToRef出力領域を再利用";
     })
   ]);

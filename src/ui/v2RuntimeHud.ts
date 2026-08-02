@@ -1,6 +1,7 @@
 import {
   Matrix,
   Vector3,
+  Viewport,
   type Camera
 } from "@babylonjs/core";
 
@@ -77,6 +78,7 @@ const createTargetMarker = (
 ): TargetMarker => {
   const root = document.createElement("div");
   root.dataset.v2RuntimeHudRole = `${kind}-target`;
+  root.dataset.v2RuntimeHudColor = color;
   root.hidden = true;
   applyStyles(root, {
     position: "fixed",
@@ -119,12 +121,35 @@ const applyTargetMarkerColor = (
   marker: TargetMarker,
   color: string
 ): void => {
+  if (marker.root.dataset.v2RuntimeHudColor === color) {
+    return;
+  }
   marker.root.style.borderColor = color;
   marker.root.style.boxShadow = `0 0 8px ${color}`;
   marker.root.style.color = color;
   marker.label.style.borderColor = color;
   marker.label.style.color = color;
   marker.root.dataset.v2RuntimeHudColor = color;
+};
+
+const setElementHidden = (
+  element: HTMLElement,
+  hidden: boolean
+): void => {
+  if (element.hidden !== hidden) {
+    element.hidden = hidden;
+  }
+};
+
+const setStylePixelValue = (
+  style: CSSStyleDeclaration,
+  property: "left" | "top",
+  value: number
+): void => {
+  const nextValue = `${value}px`;
+  if (style[property] !== nextValue) {
+    style[property] = nextValue;
+  }
 };
 
 const resolveNpcMarkerColor = (
@@ -249,6 +274,8 @@ export const createV2RuntimeHudController = ({
   let currentNpcTargetId: string | null = null;
   let currentDoorTargetId: string | null = null;
   let feedbackAnimationRevision = 0;
+  const globalViewport = new Viewport(0, 0, 0, 0);
+  const projectedPosition = Vector3.Zero();
 
   const assertActive = (): void => {
     if (disposed) {
@@ -257,16 +284,20 @@ export const createV2RuntimeHudController = ({
   };
 
   const hideElements = (): void => {
-    npcMarker.root.hidden = true;
-    doorMarker.root.hidden = true;
-    completionGuide.hidden = true;
-    crosshair.hidden = true;
-    fireGuide.hidden = true;
+    setElementHidden(npcMarker.root, true);
+    setElementHidden(doorMarker.root, true);
+    setElementHidden(completionGuide, true);
+    setElementHidden(crosshair, true);
+    setElementHidden(fireGuide, true);
   };
 
   const clearMarkerFeedback = (marker: TargetMarker): void => {
-    marker.root.style.removeProperty("animation");
-    delete marker.root.dataset.v2RuntimeHudFeedback;
+    if (marker.root.style.animation.length > 0) {
+      marker.root.style.removeProperty("animation");
+    }
+    if (marker.root.dataset.v2RuntimeHudFeedback !== undefined) {
+      delete marker.root.dataset.v2RuntimeHudFeedback;
+    }
   };
 
   const clearTargetState = (): void => {
@@ -293,52 +324,58 @@ export const createV2RuntimeHudController = ({
   const projectTarget = (
     marker: TargetMarker,
     position: Vector3,
-    canvasRect: DOMRect
+    canvasRect: DOMRect,
+    transformationMatrix: Matrix
   ): void => {
-    const viewport = camera.viewport.toGlobal(
-      canvasRect.width,
-      canvasRect.height
-    );
-    const projected = Vector3.Project(
+    Vector3.ProjectToRef(
       position,
       WORLD_MATRIX,
-      camera.getTransformationMatrix(),
-      viewport
+      transformationMatrix,
+      globalViewport,
+      projectedPosition
     );
     if (
-      projected.z < 0 ||
-      projected.z > 1 ||
-      projected.x < viewport.x ||
-      projected.x > viewport.x + viewport.width ||
-      projected.y < viewport.y ||
-      projected.y > viewport.y + viewport.height
+      projectedPosition.z < 0 ||
+      projectedPosition.z > 1 ||
+      projectedPosition.x < globalViewport.x ||
+      projectedPosition.x > globalViewport.x + globalViewport.width ||
+      projectedPosition.y < globalViewport.y ||
+      projectedPosition.y > globalViewport.y + globalViewport.height
     ) {
-      marker.root.hidden = true;
+      setElementHidden(marker.root, true);
       return;
     }
-    marker.root.style.left =
-      `${canvasRect.left + projected.x - TARGET_MARKER_OFFSET_PX}px`;
-    marker.root.style.top =
-      `${canvasRect.top + projected.y - TARGET_MARKER_OFFSET_PX}px`;
-    marker.root.hidden = false;
+    setStylePixelValue(
+      marker.root.style,
+      "left",
+      canvasRect.left + projectedPosition.x - TARGET_MARKER_OFFSET_PX
+    );
+    setStylePixelValue(
+      marker.root.style,
+      "top",
+      canvasRect.top + projectedPosition.y - TARGET_MARKER_OFFSET_PX
+    );
+    setElementHidden(marker.root, false);
   };
 
   const updateCenteredGuides = (canvasRect: DOMRect): void => {
-    const viewport = camera.viewport.toGlobal(
-      canvasRect.width,
-      canvasRect.height
-    );
     const centerX =
-      canvasRect.left + viewport.x + viewport.width / 2;
+      canvasRect.left + globalViewport.x + globalViewport.width / 2;
     const centerY =
-      canvasRect.top + viewport.y + viewport.height / 2;
-    crosshair.style.left = `${centerX}px`;
-    crosshair.style.top = `${centerY}px`;
-    fireGuide.style.left = `${centerX}px`;
-    fireGuide.style.top = `${centerY + 24}px`;
-    completionGuide.style.left = `${centerX}px`;
-    completionGuide.style.top =
-      `${canvasRect.top + viewport.y + viewport.height - 48}px`;
+      canvasRect.top + globalViewport.y + globalViewport.height / 2;
+    setStylePixelValue(crosshair.style, "left", centerX);
+    setStylePixelValue(crosshair.style, "top", centerY);
+    setStylePixelValue(fireGuide.style, "left", centerX);
+    setStylePixelValue(fireGuide.style, "top", centerY + 24);
+    setStylePixelValue(completionGuide.style, "left", centerX);
+    setStylePixelValue(
+      completionGuide.style,
+      "top",
+      canvasRect.top +
+        globalViewport.y +
+        globalViewport.height -
+        48
+    );
   };
 
   return {
@@ -350,23 +387,30 @@ export const createV2RuntimeHudController = ({
       feedback
     }) => {
       assertActive();
-      hideElements();
       if (!active) {
+        hideElements();
         clearTargetState();
         return;
       }
 
       const canvasRect = canvas.getBoundingClientRect();
+      camera.viewport.toGlobalToRef(
+        canvasRect.width,
+        canvasRect.height,
+        globalViewport
+      );
       updateCenteredGuides(canvasRect);
       const playerCanFire = canV2RuntimePlayerFire(frame);
       if (frame.phase !== "playing") {
+        setElementHidden(npcMarker.root, true);
+        setElementHidden(doorMarker.root, true);
+        setElementHidden(completionGuide, true);
+        setElementHidden(crosshair, !playerCanFire);
+        setElementHidden(fireGuide, !playerCanFire);
         clearTargetState();
-        if (playerCanFire) {
-          crosshair.hidden = false;
-          fireGuide.hidden = false;
-        }
         return;
       }
+      const transformationMatrix = camera.getTransformationMatrix();
       const npcCandidate = npcCandidates[0];
       const nextNpcTargetId = npcCandidate?.npcId ?? null;
       if (nextNpcTargetId !== currentNpcTargetId) {
@@ -390,11 +434,14 @@ export const createV2RuntimeHudController = ({
         projectTarget(
           npcMarker,
           npcCandidate.aimPosition,
-          canvasRect
+          canvasRect,
+          transformationMatrix
         );
         if (commandFeedback) {
           pulseMarker(npcMarker);
         }
+      } else {
+        setElementHidden(npcMarker.root, true);
       }
       const doorCandidate = doorCandidates[0];
       const nextDoorTargetId = doorCandidate?.door.id ?? null;
@@ -403,11 +450,11 @@ export const createV2RuntimeHudController = ({
         currentDoorTargetId = nextDoorTargetId;
       }
       if (doorCandidate) {
-        applyTargetMarkerColor(doorMarker, DOOR_COLOR);
         projectTarget(
           doorMarker,
           doorCandidate.interactionPosition,
-          canvasRect
+          canvasRect,
+          transformationMatrix
         );
         if (
           feedback.some(
@@ -418,14 +465,16 @@ export const createV2RuntimeHudController = ({
         ) {
           pulseMarker(doorMarker);
         }
+      } else {
+        setElementHidden(doorMarker.root, true);
       }
 
-      completionGuide.hidden =
-        !frame.playerCompletionUnlocked;
-      if (playerCanFire) {
-        crosshair.hidden = false;
-        fireGuide.hidden = false;
-      }
+      setElementHidden(
+        completionGuide,
+        !frame.playerCompletionUnlocked
+      );
+      setElementHidden(crosshair, !playerCanFire);
+      setElementHidden(fireGuide, !playerCanFire);
     },
     clear: () => {
       assertActive();

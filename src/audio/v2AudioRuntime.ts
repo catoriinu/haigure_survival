@@ -120,7 +120,7 @@ export const createV2GameplayAudioBridge = ({
     dispatch: (events) => {
       assertActive();
       for (const event of events) {
-        const position = event.position.clone();
+        const position = event.position;
         if (event.kind === "bit-target") {
           sfxDirector.playBitTarget(() => position);
         } else if (event.kind === "beam-shot") {

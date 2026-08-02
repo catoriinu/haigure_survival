@@ -107,6 +107,23 @@ import {
 } from "./runtimeStressScenario";
 import { V2_ROOM_VARIANT_VISUAL_REVIEW_LEVEL } from "./roomVariantVisualReview";
 
+const V2_GAMEPLAY_HELP_TEXT =
+  "操作説明\n" +
+  "WASD: 移動  Shift: ダッシュ\n" +
+  "F: 追従  E: 離脱  C: 扉\n" +
+  "G: 銃  N: 非武装  H: ハイグレ\n" +
+  "Enter: タイトルへ戻る";
+const V2_GAMEPLAY_EXECUTION_HELP_TEXT =
+  `${V2_GAMEPLAY_HELP_TEXT}\nR: リプレイ`;
+const EMPTY_NPC_COMMAND_CANDIDATES: ReturnType<
+  V2SurvivalRuntime["getNpcCommandCandidates"]
+> = Object.freeze([]);
+const EMPTY_DOOR_INTERACTION_CANDIDATES: ReturnType<
+  SchoolStageDynamicRuntime["doors"]["getDoorInteractionCandidates"]
+> = Object.freeze([]);
+const EMPTY_RUNTIME_INTERACTION_FEEDBACK: readonly V2RuntimeInteractionFeedback[] =
+  Object.freeze([]);
+
 const performanceScenario =
   readV2PerformanceScenario(location.search);
 const runtimeStressScenario =
@@ -648,6 +665,12 @@ let statusTimer = 0;
 let elapsedSeconds = 0;
 let characterFacingYaw = 0;
 const logicalRenderCameraPosition = Vector3.Zero();
+const cameraRenderOffset = Vector3.Zero();
+const cameraForwardAxis = Vector3.Forward(scene.useRightHandedSystem);
+const cameraUpAxis = Vector3.Up();
+const characterViewForward = Vector3.Zero();
+const characterViewUp = Vector3.Zero();
+const playerGunDirection = Vector3.Zero();
 let performanceReportPublished = false;
 const runtimeStressStartedAt = runtimeStressScenario
   ? performance.now()
@@ -819,12 +842,7 @@ const startPlay = (requestPointerLock: boolean) => {
     titleOverlay.style.display = "none";
     statusInfo.style.display = "block";
     helpPanel.style.display = "block";
-    helpPanel.textContent =
-      "操作説明\n" +
-      "WASD: 移動  Shift: ダッシュ\n" +
-      "F: 追従  E: 離脱  C: 扉\n" +
-      "G: 銃  N: 非武装  H: ハイグレ\n" +
-      "Enter: タイトルへ戻る";
+    helpPanel.textContent = V2_GAMEPLAY_HELP_TEXT;
   }
   if (requestPointerLock) {
     canvas.focus();
@@ -844,15 +862,13 @@ const updateGameplayHelp = (phase: ReturnType<typeof survival.getFrame>["phase"]
   ) {
     return;
   }
-  helpPanel.textContent =
-    "操作説明\n" +
-    "WASD: 移動  Shift: ダッシュ\n" +
-    "F: 追従  E: 離脱  C: 扉\n" +
-    "G: 銃  N: 非武装  H: ハイグレ\n" +
-    "Enter: タイトルへ戻る" +
-    (phase === "execution" || phase === "execution-complete"
-      ? "\nR: リプレイ"
-      : "");
+  const nextText =
+    phase === "execution" || phase === "execution-complete"
+      ? V2_GAMEPLAY_EXECUTION_HELP_TEXT
+      : V2_GAMEPLAY_HELP_TEXT;
+  if (helpPanel.textContent !== nextText) {
+    helpPanel.textContent = nextText;
+  }
 };
 
 const handleCanvasClick: EventListener = () => {
@@ -867,10 +883,8 @@ const handleCanvasClick: EventListener = () => {
     hadPointerLock &&
     canV2RuntimePlayerFire(frame)
   ) {
-    const direction = camera.getDirection(
-      Vector3.Forward(scene.useRightHandedSystem)
-    );
-    survival.requestPlayerGunFire(direction);
+    camera.getDirectionToRef(cameraForwardAxis, playerGunDirection);
+    survival.requestPlayerGunFire(playerGunDirection);
   }
 };
 
@@ -917,6 +931,17 @@ if (runtimeStressScenario) {
     `BIT ${runtimeStressScenario.population.bitCount}`;
   publishRuntimeStressReport("running", null);
 }
+
+const renderScene = () => {
+  playerCharacterVisual.getCameraRenderOffsetToRef(cameraRenderOffset);
+  logicalRenderCameraPosition.copyFrom(camera.position);
+  camera.position.addInPlace(cameraRenderOffset);
+  try {
+    scene.render();
+  } finally {
+    camera.position.copyFrom(logicalRenderCameraPosition);
+  }
+};
 
 engine.runRenderLoop(() => {
   try {
@@ -995,19 +1020,18 @@ engine.runRenderLoop(() => {
     if (executionReplayResult === "execution-replayed") {
       survivalFrame = survival.getFrame();
     }
-    const characterViewForward = camera.getDirection(
-      Vector3.Forward(scene.useRightHandedSystem)
-    );
+    camera.getDirectionToRef(cameraForwardAxis, characterViewForward);
+    camera.getDirectionToRef(cameraUpAxis, characterViewUp);
     characterFacingYaw = resolveV2CharacterFacingYaw({
       viewForward: characterViewForward,
-      viewUp: camera.getDirection(Vector3.Up()),
+      viewUp: characterViewUp,
       fallbackYaw: characterFacingYaw
     });
     characterVisuals.setFacingYaw(characterFacingYaw);
     playerCharacterVisual.update({
       active: started,
       state: survivalFrame.playerState,
-      footPosition: player.getFootPosition(),
+      footPosition: playerFrame.footPosition,
       viewForward: characterViewForward,
       facingYaw: characterFacingYaw
     });
@@ -1018,15 +1042,15 @@ engine.runRenderLoop(() => {
         (canvas as unknown as Element);
     const npcCandidates = interactionActive
       ? survival.getNpcCommandCandidates()
-      : Object.freeze([]);
+      : EMPTY_NPC_COMMAND_CANDIDATES;
     const doorCandidates = interactionActive
       ? dynamicRuntime.doors.getDoorInteractionCandidates({
           origin: playerFrame.eyePosition,
           forward: characterViewForward
         })
-      : Object.freeze([]);
+      : EMPTY_DOOR_INTERACTION_CANDIDATES;
     let interactionFeedback: readonly V2RuntimeInteractionFeedback[] =
-      Object.freeze([]);
+      EMPTY_RUNTIME_INTERACTION_FEEDBACK;
     if (interactionActive) {
       interactionFeedback = dispatchV2RuntimeInteractions({
         actions,
@@ -1121,17 +1145,6 @@ engine.runRenderLoop(() => {
         publishRuntimeStressReport(runtimeStressStatus, null);
       }
     }
-    const renderScene = () => {
-      const cameraRenderOffset =
-        playerCharacterVisual.getCameraRenderOffset();
-      logicalRenderCameraPosition.copyFrom(camera.position);
-      camera.position.addInPlace(cameraRenderOffset);
-      try {
-        scene.render();
-      } finally {
-        camera.position.copyFrom(logicalRenderCameraPosition);
-      }
-    };
     if (performanceDiagnostics) {
       performanceDiagnostics.measure("render", renderScene);
       performanceDiagnostics.finishFrame();

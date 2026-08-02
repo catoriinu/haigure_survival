@@ -105,6 +105,7 @@ export const runAudioRuntimeTests = async () =>
   Promise.all([
     executeTest("Gameplay Audio eventの一回drain", () => {
       const queue = createV2GameplayAudioEventQueue();
+      const initialEmpty = queue.drain();
       queue.enqueue(
         Object.freeze({
           kind: "bit-target" as const,
@@ -132,14 +133,18 @@ export const runAudioRuntimeTests = async () =>
       );
       const first = queue.drain();
       const second = queue.drain();
+      const third = queue.drain();
       assert(
         first.map((event) => event.kind).join(",") ===
           "bit-target,beam-shot,character-hit,alarm" &&
+          Object.isFrozen(first) &&
+          initialEmpty === second &&
+          second === third &&
           second.length === 0,
         `一回drain後にイベントが残っています: first=${first.length}, second=${second.length}`
       );
       queue.dispose();
-      return "4種を入力順に1回取得し、次回drainは0件";
+      return "4種を所有配列で1回取得し、空drainは同一singleton";
     }),
     executeTest("Gameplay Audio eventのclear・dispose", () => {
       const queue = createV2GameplayAudioEventQueue();
@@ -185,6 +190,7 @@ export const runAudioRuntimeTests = async () =>
           options: SpatialPlayOptions;
         }>
       > = [];
+      const dispatchedPositions: Vector3[] = [];
       const assets = createV2AudioAssetCatalogFromPublicPaths({
         baseUrl: "/fixture/",
         bgmPublicPaths: Object.freeze([]),
@@ -198,10 +204,12 @@ export const runAudioRuntimeTests = async () =>
             getPosition: () => Vector3,
             options: SpatialPlayOptions
           ) => {
+            const position = getPosition();
+            dispatchedPositions.push(position);
             played.push(
               Object.freeze({
                 url,
-                position: getPosition().clone(),
+                position: position.clone(),
                 options
               })
             );
@@ -212,8 +220,7 @@ export const runAudioRuntimeTests = async () =>
         getListenerPosition: () => Vector3.Zero()
       });
       try {
-        bridge.dispatch(
-          Object.freeze([
+        const events = Object.freeze([
             Object.freeze({
               kind: "bit-target" as const,
               position: new Vector3(1, 0, 0)
@@ -231,8 +238,8 @@ export const runAudioRuntimeTests = async () =>
               kind: "alarm" as const,
               position: new Vector3(4, 0, 0)
             })
-          ])
-        );
+          ]);
+        bridge.dispatch(events);
         bridge.dispatch(Object.freeze([]));
         assert(
           played.length === 4,
@@ -250,10 +257,13 @@ export const runAudioRuntimeTests = async () =>
         assert(
           played.every(
             (entry, index) => entry.position.x === index + 1
-          ),
+          ) &&
+            dispatchedPositions.every(
+              (position, index) => position === events[index]?.position
+            ),
           "SEイベントのworld位置が配送中に失われました。"
         );
-        return "bit-target／beam-shot／character-hit／alarmを各1回配送";
+        return "4種を各1回配送し、queue所有positionを二重cloneせず保持";
       } finally {
         bridge.dispose();
       }
@@ -406,11 +416,13 @@ export const runAudioRuntimeTests = async () =>
     }),
     executeTest("VOICEの明示Character割当", () => {
       const playedUrls: string[] = [];
+      const playedPositions: Array<() => Vector3> = [];
       const runtime = createV2VoiceRuntimeForAssetCatalog(
         {
           audio: Object.freeze({
-            playVoice: (url: string) => {
+            playVoice: (url: string, getPosition: () => Vector3) => {
               playedUrls.push(url);
+              playedPositions.push(getPosition);
               return createSpatialHandle();
             }
           }),
@@ -449,21 +461,25 @@ export const runAudioRuntimeTests = async () =>
             createSnapshot("normal", "npc-01")
           ])
         );
+        const playerHitSnapshot = createSnapshot("hit-a", "player");
+        const npcHitSnapshot = createSnapshot("hit-a", "npc-01");
         runtime.update(
           0,
           false,
           Object.freeze([
-            createSnapshot("hit-a", "player"),
-            createSnapshot("hit-a", "npc-01")
+            playerHitSnapshot,
+            npcHitSnapshot
           ])
         );
         assert(
           playedUrls.length === 2 &&
             playedUrls[0].includes("/02_cool/") &&
-            playedUrls[1].includes("/01_devil/"),
+            playedUrls[1].includes("/01_devil/") &&
+            playedPositions[0]?.() === npcHitSnapshot.aimPosition &&
+            playedPositions[1]?.() === playerHitSnapshot.aimPosition,
           `明示したactor→VOICE profileの対応が失われました: ${playedUrls.join(" | ")}`
         );
-        return "snapshot順ではなく明示割当の02→NPC、01→playerを再生";
+        return "明示割当順で再生し、最新snapshot位置をcopyせず参照";
       } finally {
         runtime.dispose();
       }
