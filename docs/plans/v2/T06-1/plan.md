@@ -159,6 +159,16 @@
 - 内部定数`V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT`は空間半透明全体を表す名称へ置換し、旧定数aliasは残さない。NPC Characterの100、プレイヤーCharacterの300、Character実画素のdepth書込みは維持する。
 - 学校GLB、生成器、NavMesh、カタログhash、`src/world/**`、Stage Materialのalpha／depth契約、rendering group、depth clearは変更しない。
 
+### 2026-08-02 PR #65統合・全教室荒れ版確認指示
+
+> Pull Request #65の荒れ版教室対応を`develop`へ取り込んだため、T06-1専用branchへ最新`develop`を統合する。競合があればB03-3Dの学校資産成果とT06-1のRuntime成果を両立させて解消する。通常ゲームを5175番で起動し、見た目確認のため今回は全教室を荒れ版にする。ここまでの統合内容と追加commitをPull Request #64へpushする。
+
+- Pull Request #65が`develop`へmerge済みであり、merge commitが`origin/develop`へ含まれることをGitHubとGit双方で確認してから統合する。
+- 荒れ版のBlender正本、GLB、Room Variant NavMesh、生成器、監査器、カタログhashは`develop`から履歴ごと取り込み、T06-1側では直接編集しない。競合時はPR #65の資産を採用しつつ、T06-1のRuntime接続を失わないよう解消する。
+- 通常仕様の既定荒れ状態2は履歴上の契約として保持するが、今回の見た目確認中だけ、通常・性能・stress入口が使う明示的な確認値を10へ変更し、全20室を荒れ版として選択する。0／2／10の設定APIとfixture注入契約は変更しない。
+- 5175番の通常ゲームで最新学校Stageを読み込み、全20室の荒れ版選択、タイトル開始、`playing`、console／Babylon Logger／unhandled rejection 0件を確認する。通常ゲーム用サーバーは確認後も停止しない。
+- 統合回帰、型検査、build、UTF-8 BOMなし、`git diff --check`、ローカル絶対パス、競合markerなしを確認し、追加commitとmerge commitを既存branchへpushする。Pull Request #64のheadがpush後HEADと一致し、baseが`develop`、open状態であることを再確認する。
+
 ## 目的
 
 既に実装済みの入力・状態・NPC指示・扉・学校動的Runtime APIを、学校バイナリへ触れず通常ゲーム入口へ接続する。F／E／C・G／N／H、候補表示、既定荒れ状態2、音声、水中速度50%、開始・破棄ライフサイクルを実プレイで成立させる。
@@ -320,6 +330,15 @@
 - [x] T06 fixtureへ対象Materialの厳格解決、非対象不変、NPC／空間半透明／player順と、光／ガラスの前後交換WebGL画素試験を追加する
 - [x] T05／T06 fixture、関連typecheck／build、通常Web、Electronで光手前・ガラス手前・Character透明部回帰・console・破棄を検証する
 - [x] 実装結果と証跡を本計画へ記録し、対象差分だけをローカルcommitする。push・Pull Request更新は別途指示があるまで行わない
+
+### 2026-08-02 PR #65統合・全教室荒れ版確認
+
+- [x] Pull Request #65のmerge状態、`origin/develop`のmerge commit、Pull Request #64のhead／base／公開状態、専用worktreeのclean状態を確認する
+- [x] 今回指示と統合・全荒れ版・検証・push工程を本計画へ記録する
+- [ ] 最新`origin/develop`をT06-1 branchへ統合し、競合があれば学校資産成果とRuntime成果を両立させて解消する
+- [ ] 通常・性能・stress入口の見た目確認用荒れ状態を10へ変更し、全20室の荒れ版選択をfixtureで固定する
+- [ ] 関連fixture、typecheck、build、通常Web／Electron、console、資源破棄、全荒れ版の実画面を検証する
+- [ ] 統合・追加修正・検証結果をcommitし、既存branchへpushしてPull Request #64のremote head一致を確認する
 
 ## 完了条件
 
@@ -558,3 +577,7 @@ Character Materialから`needDepthPrePass`を削除し、`forceDepthWrite`へ置
 - 通常Webは`http://127.0.0.1:5175/`で学校Stage読込と`playing`開始を確認し、Runtime例外は0件だった。Character専用ElectronはPASSし、通常Electronは最終2回連続で全13項目PASS、Audio失敗0件、console／Babylon Logger／renderer error／unhandled rejection／load error各0件だった。先行1回だけEnter破棄時の読込中VOICE 1件を受入側が`net::ERR_ABORTED`として記録したが、追加2回では再発しなかった。
 - `git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、括弧・構文、所有外差分なしを確認した。学校Blender正本、GLB、生成器、全NavMesh、カタログhash、`src/world/**`、画像・音声バイナリは変更していない。通常プレイ用5175番サーバーは継続起動し、T05／T06一時fixtureサーバーだけを停止した。
 - 本追加差分だけをローカルcommitした。push、Draft Pull Request #64更新、レビュー、merge、`develop`同期、worktree整理は行っていない。
+
+### 2026-08-02 PR #65統合・全教室荒れ版確認結果
+
+統合・実装・検証・push後に記録する。
