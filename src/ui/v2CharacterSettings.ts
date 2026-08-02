@@ -1,5 +1,14 @@
-import { V2_TITLE_SETTINGS_STORAGE_KEY } from "../audio/v2AudioSettings";
 import { V2_DEFAULT_PORTRAIT_DIRECTORY } from "../v2/v2CharacterAssignments";
+import {
+  V2_PORTRAIT_ASSET_CATALOG,
+  createV2PortraitAssetCatalogFromPublicPaths
+} from "../v2/v2PortraitAssetCatalog";
+import {
+  isV2TitleSettingsRecord,
+  readV2TitleSettingsRoot,
+  writeV2TitleSettingsSection,
+  type V2TitleSettingsStorage
+} from "../v2TitleSettingsStore";
 import { createTitledSettingsPanelRoot } from "./settingsPanelShared";
 
 export type V2CharacterSettings = Readonly<{
@@ -21,63 +30,16 @@ export type V2PortraitAssetInventory = Readonly<{
 
 export const createV2PortraitAssetInventoryFromPublicPaths = (
   publicPaths: readonly string[],
-): V2PortraitAssetInventory => {
-  const directories = new Set<string>();
-  for (const publicPath of publicPaths) {
-    const match =
-      /^\/public\/picture\/chara\/([^/]+)\/[^/]+$/.exec(publicPath);
-    if (match === null) {
-      throw new Error(
-        `V2 portrait assetは/public/picture/chara/<directory>/配下が必要です: ${publicPath}`,
-      );
-    }
-    directories.add(match[1] as string);
-  }
-  return Object.freeze({
-    directories: Object.freeze([...directories].sort()),
-  });
-};
-
-const detectedPortraitFiles = import.meta.glob(
-  "/public/picture/chara/*/*.{png,jpg,jpeg,webp,gif,bmp,avif,svg}",
-);
+): V2PortraitAssetInventory =>
+  createV2PortraitAssetCatalogFromPublicPaths(publicPaths);
 
 export const V2_PORTRAIT_ASSET_INVENTORY =
-  createV2PortraitAssetInventoryFromPublicPaths(
-    Object.keys(detectedPortraitFiles),
-  );
-
-type V2CharacterSettingsStorage = Pick<Storage, "getItem" | "setItem">;
+  V2_PORTRAIT_ASSET_CATALOG;
 
 export type V2CharacterSettingsStore = Readonly<{
   load(): V2CharacterSettings;
   save(settings: V2CharacterSettings): void;
 }>;
-
-const isJsonRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const readSettingsRoot = (
-  storage: V2CharacterSettingsStorage,
-): Readonly<{
-  root: Record<string, unknown>;
-  stored: boolean;
-  changed: boolean;
-}> => {
-  const serialized = storage.getItem(V2_TITLE_SETTINGS_STORAGE_KEY);
-  if (serialized === null) {
-    return Object.freeze({ root: {}, stored: false, changed: false });
-  }
-  try {
-    const parsed: unknown = JSON.parse(serialized);
-    if (isJsonRecord(parsed)) {
-      return Object.freeze({ root: parsed, stored: true, changed: false });
-    }
-    return Object.freeze({ root: {}, stored: true, changed: true });
-  } catch {
-    return Object.freeze({ root: {}, stored: true, changed: true });
-  }
-};
 
 const normalizeDirectory = (
   value: unknown,
@@ -107,26 +69,16 @@ const normalizeCharacterSpriteVerticalAngle = (
 };
 
 const writeSettings = (
-  storage: V2CharacterSettingsStorage,
+  storage: V2TitleSettingsStorage,
   root: Record<string, unknown>,
   settings: V2CharacterSettings,
 ): void => {
-  const playerSettings = isJsonRecord(root.playerSettings)
-    ? root.playerSettings
-    : {};
-  storage.setItem(
-    V2_TITLE_SETTINGS_STORAGE_KEY,
-    JSON.stringify({
-      ...root,
-      playerSettings: {
-        ...playerSettings,
-        portraitDirectory: settings.portraitDirectory,
-        voiceDirectory: settings.voiceDirectory,
-        enableCharacterSpriteVerticalAngle:
-          settings.enableCharacterSpriteVerticalAngle,
-      },
-    }),
-  );
+  writeV2TitleSettingsSection(storage, root, "playerSettings", {
+    portraitDirectory: settings.portraitDirectory,
+    voiceDirectory: settings.voiceDirectory,
+    enableCharacterSpriteVerticalAngle:
+      settings.enableCharacterSpriteVerticalAngle
+  });
 };
 
 const assertDirectorySelection = (
@@ -140,7 +92,7 @@ const assertDirectorySelection = (
 };
 
 export const createV2CharacterSettingsStore = (
-  storage: V2CharacterSettingsStorage,
+  storage: V2TitleSettingsStorage,
   portraitDirectories: readonly string[],
   voiceDirectories: readonly string[],
 ): V2CharacterSettingsStore => {
@@ -152,11 +104,13 @@ export const createV2CharacterSettingsStore = (
   const voiceDirectorySet = new Set(voiceDirectories);
   return Object.freeze({
     load: () => {
-      const storedSettings = readSettingsRoot(storage);
+      const storedSettings = readV2TitleSettingsRoot(storage);
       if (!storedSettings.stored) {
         return { ...V2_DEFAULT_CHARACTER_SETTINGS };
       }
-      const playerSettings = isJsonRecord(storedSettings.root.playerSettings)
+      const playerSettings = isV2TitleSettingsRecord(
+        storedSettings.root.playerSettings,
+      )
         ? storedSettings.root.playerSettings
         : {};
       const portraitDirectory = normalizeDirectory(
@@ -179,7 +133,7 @@ export const createV2CharacterSettingsStore = (
       });
       if (
         storedSettings.changed ||
-        !isJsonRecord(storedSettings.root.playerSettings) ||
+        !isV2TitleSettingsRecord(storedSettings.root.playerSettings) ||
         portraitDirectory.changed ||
         voiceDirectory.changed ||
         enableCharacterSpriteVerticalAngle.changed
@@ -199,7 +153,7 @@ export const createV2CharacterSettingsStore = (
         settings.voiceDirectory,
         voiceDirectorySet,
       );
-      const storedSettings = readSettingsRoot(storage);
+      const storedSettings = readV2TitleSettingsRoot(storage);
       writeSettings(storage, storedSettings.root, settings);
     },
   });

@@ -22,6 +22,7 @@ import {
 } from "../../../src/v2/v2PlayerCharacterVisual";
 import { V2_DEFAULT_PORTRAIT_DIRECTORY } from "../../../src/v2/v2CharacterAssignments";
 import { resolveV2CharacterFacingYaw } from "../../../src/v2/v2CharacterFacing";
+import { createV2PortraitAssetCatalogFromPublicPaths } from "../../../src/v2/v2PortraitAssetCatalog";
 import {
   V2_TRANSPARENT_ALPHA_INDEX_SPATIAL,
   V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER,
@@ -34,7 +35,6 @@ import {
   V2_CHARACTER_VISUAL_MAX_WIDTH,
   calculateV2CharacterVisualSize,
   createV2CharacterVisualRuntime,
-  createV2PortraitFileInventoryFromPublicPaths,
   getV2CharacterVisualCellIndex,
   resolveV2PortraitFiles
 } from "../../../src/v2/v2CharacterVisualRuntime";
@@ -101,7 +101,7 @@ export const runCharacterVisualTests = async (): Promise<
           `/public/picture/chara/01_test/${baseName}.png`
       );
       const inventory =
-        createV2PortraitFileInventoryFromPublicPaths(paths);
+        createV2PortraitAssetCatalogFromPublicPaths(paths).filesByDirectory;
       const files = resolveV2PortraitFiles("01_test", inventory);
       assert(
         Object.keys(files).length === 8 &&
@@ -113,14 +113,15 @@ export const runCharacterVisualTests = async (): Promise<
       try {
         resolveV2PortraitFiles(
           "01_test",
-          createV2PortraitFileInventoryFromPublicPaths(paths.slice(0, -1))
+          createV2PortraitAssetCatalogFromPublicPaths(paths.slice(0, -1))
+            .filesByDirectory
         );
       } catch {
         missingStateRejected = true;
       }
       let duplicateStateRejected = false;
       try {
-        createV2PortraitFileInventoryFromPublicPaths([
+        createV2PortraitAssetCatalogFromPublicPaths([
           ...paths,
           "/public/picture/chara/01_test/normal.webp"
         ]);

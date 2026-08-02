@@ -11,7 +11,6 @@ import {
   type SpatialPlayOptions
 } from "../../../src/audio/audio";
 import {
-  V2_TITLE_SETTINGS_STORAGE_KEY,
   applyV2AudioVolumeLevels,
   createV2AudioAssetCatalogFromPublicPaths,
   createV2AudioVolumeSettingsStore,
@@ -29,6 +28,7 @@ import type { V2CharacterAssignments } from "../../../src/v2/v2CharacterAssignme
 import {
   createV2GameplayAudioEventQueue
 } from "../../../src/v2/gameplayAudioEventQueue";
+import { V2_TITLE_SETTINGS_STORAGE_KEY } from "../../../src/v2TitleSettingsStore";
 
 import { assert, assertThrows, executeTest } from "./testUtils";
 

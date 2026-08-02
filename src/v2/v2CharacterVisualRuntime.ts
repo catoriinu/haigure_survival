@@ -24,6 +24,10 @@ import {
   type V2CharacterAssignments,
 } from "./v2CharacterAssignments";
 import {
+  V2_PORTRAIT_ASSET_CATALOG,
+  type V2PortraitFileInventory
+} from "./v2PortraitAssetCatalog";
+import {
   V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER,
   V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER,
 } from "./v2TransparentRenderingOrder";
@@ -41,11 +45,6 @@ export const V2_PORTRAIT_IMAGE_BASE_NAMES = Object.freeze([
 
 export type V2PortraitImageBaseName =
   (typeof V2_PORTRAIT_IMAGE_BASE_NAMES)[number];
-
-export type V2PortraitFileInventory = ReadonlyMap<
-  string,
-  ReadonlyMap<string, string>
->;
 
 export type V2ResolvedPortraitFiles = Readonly<
   Record<V2PortraitImageBaseName, string>
@@ -131,52 +130,7 @@ type V2CharacterVisualSpriteRecord = {
   disposed: boolean;
 };
 
-const PORTRAIT_PUBLIC_PATH_PATTERN =
-  /^\/public\/picture\/chara\/([^/]+)\/([^/]+)\.(png|jpg|jpeg|webp|gif|bmp|avif|svg)$/;
 const V2_CHARACTER_VISUAL_PLAYER_ACTOR_ID = "player";
-
-const detectedPortraitFiles = import.meta.glob(
-  "/public/picture/chara/*/*.{png,jpg,jpeg,webp,gif,bmp,avif,svg}",
-);
-
-export const createV2PortraitFileInventoryFromPublicPaths = (
-  publicPaths: readonly string[],
-): V2PortraitFileInventory => {
-  const mutableDirectories = new Map<string, Map<string, string>>();
-  for (const publicPath of publicPaths) {
-    const match = PORTRAIT_PUBLIC_PATH_PATTERN.exec(publicPath);
-    if (match === null) {
-      throw new Error(
-        `V2 Character画像pathがportrait契約に一致しません: ${publicPath}`,
-      );
-    }
-    const directory = match[1] as string;
-    const baseName = match[2] as string;
-    const extension = match[3] as string;
-    let filesByBaseName = mutableDirectories.get(directory);
-    if (filesByBaseName === undefined) {
-      filesByBaseName = new Map<string, string>();
-      mutableDirectories.set(directory, filesByBaseName);
-    }
-    const fileName = `${baseName}.${extension}`;
-    const existing = filesByBaseName.get(baseName);
-    if (existing !== undefined) {
-      throw new Error(
-        `V2 Character画像が同じ状態名で重複しています: ${directory}/${existing}, ${directory}/${fileName}`,
-      );
-    }
-    filesByBaseName.set(baseName, fileName);
-  }
-
-  return new Map(
-    [...mutableDirectories.entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(
-        ([directory, filesByBaseName]) =>
-          [directory, new Map(filesByBaseName)] as const,
-      ),
-  );
-};
 
 export const resolveV2PortraitFiles = (
   directory: string,
@@ -577,9 +531,7 @@ export const createV2CharacterVisualRuntime = async ({
     );
   }
 
-  const inventory = createV2PortraitFileInventoryFromPublicPaths(
-    Object.keys(detectedPortraitFiles),
-  );
+  const inventory = V2_PORTRAIT_ASSET_CATALOG.filesByDirectory;
   const managerResources = new Map<
     string,
     V2CharacterVisualManagerResource

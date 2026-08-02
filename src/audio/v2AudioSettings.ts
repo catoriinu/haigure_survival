@@ -1,4 +1,10 @@
 import type { AudioCategory, AudioManager } from "./audio";
+import {
+  isV2TitleSettingsRecord,
+  readV2TitleSettingsRoot,
+  writeV2TitleSettingsSection,
+  type V2TitleSettingsStorage
+} from "../v2TitleSettingsStore";
 
 export type V2AudioVolumeLevels = Readonly<Record<AudioCategory, number>>;
 
@@ -8,8 +14,6 @@ export const V2_DEFAULT_AUDIO_VOLUME_LEVELS: V2AudioVolumeLevels =
     bgm: 0,
     se: 0,
   });
-
-export const V2_TITLE_SETTINGS_STORAGE_KEY = "haigure-survival.title-settings";
 
 const V2_AUDIO_CATEGORY_BASE_GAINS: Readonly<Record<AudioCategory, number>> =
   Object.freeze({
@@ -52,8 +56,6 @@ export const applyV2AudioVolumeLevels = (
   }
 };
 
-type V2AudioSettingsStorage = Pick<Storage, "getItem" | "setItem">;
-
 export type V2AudioVolumeSettingsStore = Readonly<{
   load(): V2AudioVolumeLevels;
   save(levels: V2AudioVolumeLevels): void;
@@ -63,9 +65,6 @@ export type V2AudioVolumeSettingsStore = Readonly<{
     level: number,
   ): V2AudioVolumeLevels;
 }>;
-
-const isJsonRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const normalizeStoredVolumeLevel = (
   value: unknown,
@@ -81,48 +80,16 @@ const normalizeStoredVolumeLevel = (
   });
 };
 
-const readSettingsRoot = (
-  storage: V2AudioSettingsStorage,
-): Readonly<{
-  root: Record<string, unknown>;
-  stored: boolean;
-  changed: boolean;
-}> => {
-  const serialized = storage.getItem(V2_TITLE_SETTINGS_STORAGE_KEY);
-  if (serialized === null) {
-    return Object.freeze({ root: {}, stored: false, changed: false });
-  }
-  try {
-    const parsed: unknown = JSON.parse(serialized);
-    if (isJsonRecord(parsed)) {
-      return Object.freeze({ root: parsed, stored: true, changed: false });
-    }
-    return Object.freeze({ root: {}, stored: true, changed: true });
-  } catch {
-    return Object.freeze({ root: {}, stored: true, changed: true });
-  }
-};
-
 const writeVolumeLevels = (
-  storage: V2AudioSettingsStorage,
+  storage: V2TitleSettingsStorage,
   root: Record<string, unknown>,
   levels: V2AudioVolumeLevels,
 ): void => {
-  const currentVolumeLevels = isJsonRecord(root.volumeLevels)
-    ? root.volumeLevels
-    : {};
-  storage.setItem(
-    V2_TITLE_SETTINGS_STORAGE_KEY,
-    JSON.stringify({
-      ...root,
-      volumeLevels: {
-        ...currentVolumeLevels,
-        voice: levels.voice,
-        bgm: levels.bgm,
-        se: levels.se,
-      },
-    }),
-  );
+  writeV2TitleSettingsSection(storage, root, "volumeLevels", {
+    voice: levels.voice,
+    bgm: levels.bgm,
+    se: levels.se
+  });
 };
 
 const assertVolumeLevels = (levels: V2AudioVolumeLevels): void => {
@@ -132,14 +99,16 @@ const assertVolumeLevels = (levels: V2AudioVolumeLevels): void => {
 };
 
 export const createV2AudioVolumeSettingsStore = (
-  storage: V2AudioSettingsStorage,
+  storage: V2TitleSettingsStorage,
 ): V2AudioVolumeSettingsStore => ({
   load: () => {
-    const storedSettings = readSettingsRoot(storage);
+    const storedSettings = readV2TitleSettingsRoot(storage);
     if (!storedSettings.stored) {
       return { ...V2_DEFAULT_AUDIO_VOLUME_LEVELS };
     }
-    const storedVolumeLevels = isJsonRecord(storedSettings.root.volumeLevels)
+    const storedVolumeLevels = isV2TitleSettingsRecord(
+      storedSettings.root.volumeLevels,
+    )
       ? storedSettings.root.volumeLevels
       : {};
     const voice = normalizeStoredVolumeLevel(
@@ -161,7 +130,7 @@ export const createV2AudioVolumeSettingsStore = (
     };
     if (
       storedSettings.changed ||
-      !isJsonRecord(storedSettings.root.volumeLevels) ||
+      !isV2TitleSettingsRecord(storedSettings.root.volumeLevels) ||
       voice.changed ||
       bgm.changed ||
       se.changed
@@ -172,7 +141,7 @@ export const createV2AudioVolumeSettingsStore = (
   },
   save: (levels) => {
     assertVolumeLevels(levels);
-    const storedSettings = readSettingsRoot(storage);
+    const storedSettings = readV2TitleSettingsRoot(storage);
     writeVolumeLevels(storage, storedSettings.root, levels);
   },
   saveLevel: (levels, category, level) => {
@@ -182,7 +151,7 @@ export const createV2AudioVolumeSettingsStore = (
       ...levels,
       [category]: level,
     };
-    const storedSettings = readSettingsRoot(storage);
+    const storedSettings = readV2TitleSettingsRoot(storage);
     writeVolumeLevels(storage, storedSettings.root, nextLevels);
     return nextLevels;
   },
