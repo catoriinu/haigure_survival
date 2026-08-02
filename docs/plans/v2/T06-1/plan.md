@@ -610,6 +610,7 @@ Character Materialから`needDepthPrePass`を削除し、`forceDepthWrite`へ置
 - [x] Character、HUD、Audioの毎frame割り当てとDOM／Mesh更新を削減し、T06回帰を更新する
 - [x] portrait資産カタログとタイトル設定root処理を共通化する
 - [x] 荒れ状態を既定2へ戻し、明示的な全荒れ確認queryを追加する
+- [x] 性能比較で検出した一時heap増加と長時間保持を監査し、索引割り当てとBIT履歴を追加改善する
 - [ ] 修正後性能、全fixture、typecheck、build、Web、Electron、配布テキスト、所有範囲を検証する
 - [ ] 実装結果と検証証跡を本計画へ反映し、分割commitをpushしてPull Request #64 HEAD一致を確認する
 
@@ -626,3 +627,7 @@ CharacterはMeshの位置・yawが同値ならTransform更新を省略し、プ�
 portraitのdirectory・状態ファイル解析と`import.meta.glob`を単一カタログへ統合し、Character設定とCharacter Runtimeが同じinventoryを参照するよう整理した。Audio／Character設定のJSON root読込・section保存も中立な共通moduleへ移し、rootとsection双方の未知field保持、既存の不正値正規化、音量既定0を維持した。依存監査では循環や旧source依存は0件で、共通moduleの配置をGameplay層外へ置いた。T06の設定・Character・Audio fixtureを含む63／63がPASSした。
 
 Room Variantは通常・performance・stress・rampの共通既定値を荒れ状態2へ戻した。`roomVariantReview`未指定は2、`?roomVariantReview=all-disordered`だけ10とし、数値指定や未定義値は例外として拒否する。旧定数や数値fallbackは残していない。T06 fixtureでは既定4／20室、確認query 20／20室、無効query拒否、0／2／10のseed決定性を確認した。Pull Request上の該当review threadはresolveしない。
+
+最初の修正後4200 frame計測ではCPU指標が改善した一方、steadyのraw heap p95が457.68MiBから554.20MiBへ上昇した。30秒固定点と4200 frame完走直後に強制GCを2回行って比較すると、保持heapはそれぞれ214.803MiBから214.731MiB、218.732MiBから218.367MiBへ微減しており、raw値の差はGC実行周期による一時heapで、今回cacheの保持リークではないことを確認した。通常ゲームではなく計測用Electron runnerが終了済みstdoutへ書いたため一度だけ`EPIPE`が発生したが、該当processを停止し、以後はstdout／stderr非接続かつ外部JSON出力のrunnerへ統一した。
+
+それでも割り当て経路を再監査し、平面空間索引を文字列cell keyとqueryごとの配列生成から、数値二段Map、bucket pool、`rebuild()`、呼出側所有の`queryToRef()`へ変更した。BIT脅威索引はNPC System所有で再利用し、Rest Slotは同一updateのArea別索引へ統合して、予約、解除、再計画を同frameへ反映する。プレイヤー移動方向、Follower搬送追跡位置、エレベーターsnapshot、BIT／人物ID Mapも同じ保存領域へ書き換え、同値frameのVector／Map生成を除去した。消滅したcarpet follower BITのIDが`previousBitTargetIds`へplaying中に単調蓄積する経路も確定したため、現行BIT actor集合にないIDを各frameで削除し、履歴数を現行BIT数以下へ制限した。phase遷移とdisposeでは再利用索引、Map、replan queue、搬送snapshotを明示的に空にする。T05 fixtureはこの時点で308／308 PASSし、BIT履歴50／現行BIT 50、再利用queryの同一出力配列、rebuild後の旧cell残留0件を確認した。最終4200 frame比較は追加改善を含む固定Runtime差分で再計測する。

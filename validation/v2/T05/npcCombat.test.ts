@@ -3811,19 +3811,32 @@ const testPlanarSpatialIndexPreservesSourceOrder = () => {
     Object.freeze({ id: "source-1", position: new Vector3(-1, 0, 0) }),
     Object.freeze({ id: "source-2", position: new Vector3(8, 0, 0) })
   ]);
-  const index = createV2PlanarSpatialIndex(
-    items,
+  type Item = (typeof items)[number];
+  const index = createV2PlanarSpatialIndex<Item>(
     (item) => item.position,
     2
   );
-  const nearbyIds = index
-    .query(Vector3.Zero(), 2)
-    .map((item) => item.id);
+  index.rebuild(items);
+  const queryResult: Item[] = [];
+  const nearby = index.queryToRef(Vector3.Zero(), 2, queryResult);
+  const nearbyIds = nearby.map((item) => item.id);
   assert(
+    nearby === queryResult &&
     nearbyIds.join("|") === "source-0|source-1",
     `平面空間索引が入力順または近傍cellを維持しません: ${nearbyIds.join("|")}`
   );
-  return "cell走査順に依存せず、近傍候補を入力順で返す";
+  items[0].position.set(9, 0, 0);
+  items[1].position.set(-9, 0, 0);
+  items[2].position.set(1, 0, 0);
+  index.rebuild(items);
+  const rebuilt = index.queryToRef(Vector3.Zero(), 2, queryResult);
+  assert(
+    rebuilt === queryResult &&
+      rebuilt.length === 1 &&
+      rebuilt[0].id === "source-2",
+    `平面空間索引の再構築が旧cellを残しました: ${rebuilt.map((item) => item.id).join("|")}`
+  );
+  return "cell走査順に依存せず、rebuild後も同じ出力配列へ入力順で返す";
 };
 
 export const runNpcCombatTests = async () =>

@@ -3086,6 +3086,21 @@ const runPlayerElevatorTraversalAcceptance = async (
         `reserved=${playerReservedTraversal === repeatedPlayerReservedTraversal} / ` +
         `transition=${playerReservedTraversal !== playerCallingTraversal}`
     );
+    pushCheck(
+      checks,
+      "プレイヤーエレベーターsnapshotの目的階位置を不変に維持",
+      playerCallingTraversal !== null &&
+        Object.isFrozen(
+          playerCallingTraversal.destinationFloorPosition
+        ),
+      `snapshot=${playerCallingTraversal !== null} / ` +
+        `positionFrozen=${
+          playerCallingTraversal !== null &&
+          Object.isFrozen(
+            playerCallingTraversal.destinationFloorPosition
+          )
+        }`
+    );
 
     const outsidePosition = new Vector3(1_500, 1_000, 1_000);
     player.setTransportFootPosition(outsidePosition);

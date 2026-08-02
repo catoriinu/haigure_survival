@@ -607,6 +607,8 @@ export const createV2SurvivalRuntime = ({
       .getFrameView()
       .targetStates.map((target) => [target.bitId, target.targetId])
   );
+  const bitActorById = new Map<string, V2ActorSphere>();
+  const humanTargetById = new Map<string, V2HumanTargetSnapshot>();
   let playerBlockedNpcIds: readonly string[] = Object.freeze([]);
   let previousBitThreats: readonly V2NpcExternalThreat[] =
     Object.freeze([]);
@@ -665,6 +667,11 @@ export const createV2SurvivalRuntime = ({
         );
       }
       previousBitTargetIds.set(target.bitId, target.targetId);
+    }
+    for (const bitId of previousBitTargetIds.keys()) {
+      if (!actorById.has(bitId)) {
+        previousBitTargetIds.delete(bitId);
+      }
     }
   };
 
@@ -727,6 +734,8 @@ export const createV2SurvivalRuntime = ({
     alertCoordinator.clear();
     audioEventQueue.clear();
     previousBitTargetIds.clear();
+    bitActorById.clear();
+    humanTargetById.clear();
     alarmFrame = EMPTY_ALARM_FRAME;
     pendingPlayerBeamRequests = [];
     pendingPlayerGunFireEvents = [];
@@ -1633,16 +1642,19 @@ export const createV2SurvivalRuntime = ({
           externalAlerts: activeAlerts
         });
         const bitFrameView = bitSystem.getFrameView();
-        const bitActorById = new Map<string, V2ActorSphere>();
+        bitActorById.clear();
         for (const actor of bitFrameView.actorSpheres) {
           bitActorById.set(actor.id, actor);
         }
-        const humanTargetById =
-          new Map<string, V2HumanTargetSnapshot>();
+        humanTargetById.clear();
         for (const target of humanTargets) {
           humanTargetById.set(target.id, target);
         }
         recordBitTargetEvents(bitFrameView, bitActorById);
+        performanceDiagnostics?.count(
+          "bit.target-history-size",
+          previousBitTargetIds.size
+        );
         performanceDiagnostics?.finishSection(
           "bit",
           performanceSectionStartedAt
@@ -2135,11 +2147,17 @@ export const createV2SurvivalRuntime = ({
         targetId,
         position
       );
+      if (targetId === PLAYER_ID) {
+        rebuildHumanTargets();
+      }
     },
     relocateTargetNavigationArea: (targetId, position) => {
       assertActive();
       assertFiniteVector("標的Navigation Area再配置位置", position);
       targetNavigationAreaTracker.relocate(targetId, position);
+      if (targetId === PLAYER_ID) {
+        rebuildHumanTargets();
+      }
     },
     requestPlayerGunFire: (direction) => {
       assertActive();
@@ -2245,6 +2263,8 @@ export const createV2SurvivalRuntime = ({
       pendingPlayerGunFireEvents = [];
       audioEventQueue.dispose();
       previousBitTargetIds.clear();
+      bitActorById.clear();
+      humanTargetById.clear();
       disposed = true;
     }
   };

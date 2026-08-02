@@ -220,6 +220,7 @@ const createRuntime = async (
   getOrbVisibilityPredicate: () => (position: Vector3) => boolean,
   performanceDiagnostics: V2PerformanceDiagnostics | null = null
 ) => {
+  const player = createFakePlayer(stage);
   const characterVisuals = await createDefaultV2CharacterVisualRuntime(
     scene,
     Object.freeze([
@@ -235,7 +236,7 @@ const createRuntime = async (
       runtime: createV2SurvivalRuntime({
         scene,
         stage,
-        player: createFakePlayer(stage),
+        player,
         characterVisuals,
         random: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED),
         getOrbVisibilityPredicate,
@@ -245,7 +246,8 @@ const createRuntime = async (
         releaseStageTraversalForScriptedPhase: () => {},
         selectNavigationRoute: selectDistanceNavigationRoute
       }),
-      characterVisuals
+      characterVisuals,
+      player
     });
   } catch (error) {
     characterVisuals.dispose();
@@ -358,6 +360,65 @@ export const runSurvivalRuntimeLifecycleTests = async (
           `targets=${firstHumanTargets.length}`
       })
     );
+    const initialPlayerTarget = firstHumanTargets.find(
+      (target) => target.id === "player"
+    );
+    if (!initialPlayerTarget) {
+      throw new Error("初期player target snapshotがありません。");
+    }
+    const transportedPlayerPosition =
+      initialPlayerTarget.footPosition.add(new Vector3(0.01, 0, 0));
+    firstRuntime.beginTargetNavigationAreaTransport(
+      "player",
+      initialPlayerTarget.footPosition
+    );
+    firstFixture.player.setTransportFootPosition(
+      transportedPlayerPosition
+    );
+    firstRuntime.updateTargetNavigationAreaTransportPosition(
+      "player",
+      transportedPlayerPosition
+    );
+    const transportedHumanTargets = firstRuntime.getHumanTargets();
+    const transportedPlayerTarget = transportedHumanTargets.find(
+      (target) => target.id === "player"
+    );
+    checks.push(
+      Object.freeze({
+        name: "プレイヤー搬送位置を同frameのHuman targetへ同期",
+        ok:
+          transportedHumanTargets !== firstHumanTargets &&
+          transportedPlayerTarget?.footPosition.equals(
+            transportedPlayerPosition
+          ) === true,
+        detail:
+          `snapshotChanged=${transportedHumanTargets !== firstHumanTargets} / ` +
+          `position=${transportedPlayerTarget?.footPosition.toString() ?? "missing"}`
+      })
+    );
+    const relocatedPlayerPosition =
+      transportedPlayerPosition.add(new Vector3(0.01, 0, 0));
+    firstFixture.player.setTransportFootPosition(
+      relocatedPlayerPosition
+    );
+    firstRuntime.relocateTargetNavigationArea(
+      "player",
+      relocatedPlayerPosition
+    );
+    const relocatedPlayerTarget = firstRuntime
+      .getHumanTargets()
+      .find((target) => target.id === "player");
+    checks.push(
+      Object.freeze({
+        name: "プレイヤー再配置位置を同frameのHuman targetへ同期",
+        ok:
+          relocatedPlayerTarget?.footPosition.equals(
+            relocatedPlayerPosition
+          ) === true,
+        detail:
+          `position=${relocatedPlayerTarget?.footPosition.toString() ?? "missing"}`
+      })
+    );
     const fixedTrackingSummary = summarizeV2TargetTracking(
       Object.freeze([
         Object.freeze({
@@ -419,12 +480,25 @@ export const runSurvivalRuntimeLifecycleTests = async (
       ];
     const idleHitEffectUpdates =
       performanceReport.cold.counters["hit-effect.updates"];
+    const bitTargetHistorySize =
+      performanceReport.cold.counters["bit.target-history-size"];
     checks.push(
       Object.freeze({
         name: "active hit effect 0件時の更新を省略",
         ok: idleHitEffectUpdates === undefined,
         detail:
           `updateSamples=${idleHitEffectUpdates?.sampleCount ?? 0}`
+      })
+    );
+    checks.push(
+      Object.freeze({
+        name: "BIT標的履歴を現行BIT数以内に維持",
+        ok:
+          bitTargetHistorySize?.sampleCount === 1 &&
+          bitTargetHistorySize.first <= firstUpdatedFrame.bitCount,
+        detail:
+          `history=${bitTargetHistorySize?.first ?? "missing"} / ` +
+          `bit=${firstUpdatedFrame.bitCount}`
       })
     );
     checks.push(

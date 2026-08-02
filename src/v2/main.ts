@@ -1021,6 +1021,7 @@ engine.runRenderLoop(() => {
     if (executionReplayResult === "execution-replayed") {
       survivalFrame = survival.getFrame();
     }
+    const currentPlayerTarget = survival.getHumanTargets()[0];
     camera.getDirectionToRef(cameraForwardAxis, characterViewForward);
     camera.getDirectionToRef(cameraUpAxis, characterViewUp);
     characterFacingYaw = resolveV2CharacterFacingYaw({
@@ -1032,7 +1033,7 @@ engine.runRenderLoop(() => {
     playerCharacterVisual.update({
       active: started,
       state: survivalFrame.playerState,
-      footPosition: playerFrame.footPosition,
+      footPosition: currentPlayerTarget.footPosition,
       viewForward: characterViewForward,
       facingYaw: characterFacingYaw
     });
@@ -1046,7 +1047,7 @@ engine.runRenderLoop(() => {
       : EMPTY_NPC_COMMAND_CANDIDATES;
     const doorCandidates = interactionActive
       ? dynamicRuntime.doors.getDoorInteractionCandidates({
-          origin: playerFrame.eyePosition,
+          origin: currentPlayerTarget.aimPosition,
           forward: characterViewForward
         })
       : EMPTY_DOOR_INTERACTION_CANDIDATES;
@@ -1082,7 +1083,7 @@ engine.runRenderLoop(() => {
     }
     alarmFloorVisual?.update({
       frame: survivalFrame.alarm,
-      playerFootPosition: playerFrame.footPosition,
+      playerFootPosition: currentPlayerTarget.footPosition,
       elapsedSeconds
     });
     if (runtimeStressScenario) {
@@ -1100,7 +1101,7 @@ engine.runRenderLoop(() => {
     statusTimer += delta;
     if (statusTimer >= 0.1) {
       statusTimer = 0;
-      const foot = playerFrame.footPosition;
+      const foot = currentPlayerTarget.footPosition;
       const performanceProgress =
         performanceDiagnostics?.getProgress();
       if (

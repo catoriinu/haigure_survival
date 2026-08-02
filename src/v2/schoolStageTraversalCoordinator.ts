@@ -836,7 +836,9 @@ export const createSchoolStageTraversalCoordinator = ({
       linkId: route.elevator.link.id,
       from: route.fromStop.endpoint,
       to: route.destinationStop.endpoint,
-      destinationFloorPosition: destinationEndpoint.position.clone(),
+      destinationFloorPosition: Object.freeze(
+        destinationEndpoint.position.clone()
+      ),
       phase
     } satisfies V2PlayerElevatorTraversalSnapshot);
   };
