@@ -170,7 +170,7 @@
 - [x] NPC停止時の安定Rest Slot、gunの0.8m停止／1.0m再移動、洗脳済みgun／no-gunの探索復帰を実装・検証する
 - [x] プレイヤーのエレベーター搬送snapshot、Followerの同便／次便追跡、搬送中の見失い停止、陣営安全維持を実装・検証する
 - [x] Follower同期射撃へ個体・射撃ごとのyaw／pitch各±3度を追加し、遅延・Cooldown・1人1本を回帰する
-- [ ] Rの一回drain、通常リトライ、公開処刑リプレイ、対象外phase無効、HUD消去を実装・検証する
+- [x] Rの一回drain、通常リトライ、公開処刑リプレイ、対象外phase無効、HUD消去を実装・検証する
 - [ ] Alarm由来速度0.5、候補約75%、追加間隔7.5秒、総量約50%、Follow優先を実装・検証する
 - [ ] NPC通過後30%閉扉、後続待機、room／toilet閉鎖退避、既定音量0を回帰する
 - [ ] T04～T06 fixture、型検査、build、通常Web、Electron、配布テキスト検査を完了する

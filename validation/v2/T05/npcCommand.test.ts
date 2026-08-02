@@ -560,17 +560,18 @@ const testPlayerActions = () => {
       "door-toggle",
       "select-gun",
       "select-no-gun",
-      "select-haigure"
+      "select-haigure",
+      "retry"
     ]);
 
-  ["KeyF", "KeyE", "KeyC", "KeyG", "KeyN", "KeyH"].forEach(
+  ["KeyF", "KeyE", "KeyC", "KeyG", "KeyN", "KeyH", "KeyR"].forEach(
     (code) => dispatchKey(code)
   );
   dispatchKey("KeyF", true);
   assert(
     input.drainPressedActions().join("|") ===
       expectedActions.join("|"),
-    "F/E/C/G/N/Hのaction順またはrepeat無視が不正です。"
+    "F/E/C/G/N/H/Rのaction順またはrepeat無視が不正です。"
   );
   assert(
     input.drainPressedActions().length === 0,
@@ -598,7 +599,7 @@ const testPlayerActions = () => {
     () => input.drainPressedActions(),
     "dispose後の入力参照が拒否されません。"
   );
-  return "6 actionを発生順に一度だけdrainし、repeat/reset/blur/disposeを確認";
+  return "7 actionを発生順に一度だけdrainし、repeat/reset/blur/disposeを確認";
 };
 
 const testPlayerGunFireEventSnapshot = () => {

@@ -41,7 +41,8 @@ const countVisibleHudRoots = (host: HTMLElement) =>
     "door-target",
     "completion-guide",
     "crosshair",
-    "fire-guide"
+    "fire-guide",
+    "retry-guide"
   ].filter((role) => !getRole(host, role).hidden).length;
 
 export const runRuntimeHudTests = async () =>
@@ -111,8 +112,9 @@ export const runRuntimeHudTests = async () =>
         assert(
           !getRole(host, "completion-guide").hidden &&
             !getRole(host, "crosshair").hidden &&
-            !getRole(host, "fire-guide").hidden,
-          "解放済みgun状態の案内・照準・射撃案内が同期しません。"
+            !getRole(host, "fire-guide").hidden &&
+            !getRole(host, "retry-guide").hidden,
+          "解放済みgun状態の案内・照準・射撃・リトライ案内が同期しません。"
         );
 
         hud.update({
@@ -148,8 +150,8 @@ export const runRuntimeHudTests = async () =>
           active: false,
           frame: Object.freeze({
             phase: "playing" as const,
-            playerState: "brainwash-complete-gun" as const,
-            playerCompletionUnlocked: true
+            playerState: "normal" as const,
+            playerCompletionUnlocked: false
           }),
           npcCandidates: Object.freeze([createNpcCandidate()]),
           doorCandidates: Object.freeze([doorCandidate])
@@ -158,7 +160,57 @@ export const runRuntimeHudTests = async () =>
           countVisibleHudRoots(host) === 0,
           "Pointer Lock解除相当のinactive更新でHUDが消えません。"
         );
-        return "候補・解放・gun/no-gun・inactive・clearをDOMへ同期";
+
+        hud.update({
+          active: false,
+          frame: Object.freeze({
+            phase: "playing" as const,
+            playerState: "brainwash-complete-no-gun" as const,
+            playerCompletionUnlocked: true
+          }),
+          npcCandidates: Object.freeze([]),
+          doorCandidates: Object.freeze([])
+        });
+        const retryGuide = getRole(host, "retry-guide");
+        assert(
+          !retryGuide.hidden &&
+            retryGuide.textContent === "R: リトライ" &&
+            countVisibleHudRoots(host) === 1,
+          "Pointer Lock解除後の洗脳完了状態にRリトライ案内が残りません。"
+        );
+
+        hud.update({
+          active: false,
+          frame: Object.freeze({
+            phase: "execution-complete" as const,
+            playerState: "brainwash-complete-gun" as const,
+            playerCompletionUnlocked: false
+          }),
+          npcCandidates: Object.freeze([]),
+          doorCandidates: Object.freeze([])
+        });
+        assert(
+          !retryGuide.hidden &&
+            String(retryGuide.textContent) === "R: リプレイ" &&
+            countVisibleHudRoots(host) === 1,
+          "公開処刑完了状態にRリプレイ案内が表示されません。"
+        );
+
+        hud.update({
+          active: true,
+          frame: Object.freeze({
+            phase: "execution" as const,
+            playerState: "brainwash-complete-gun" as const,
+            playerCompletionUnlocked: false
+          }),
+          npcCandidates: Object.freeze([]),
+          doorCandidates: Object.freeze([])
+        });
+        assert(
+          countVisibleHudRoots(host) === 0,
+          "公開処刑進行中にR案内が表示されました。"
+        );
+        return "候補・状態案内・inactive・R retry/replay・clearをDOMへ同期";
       } finally {
         hud.dispose();
         host.remove();

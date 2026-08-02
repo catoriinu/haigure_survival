@@ -16,14 +16,19 @@ import type { StageDoorAsset } from "../../../src/world/stageDynamicAssets";
 import { V2_PLAYER_BASE_EYE_HEIGHT } from "../../../src/v2/playerController";
 import type { V2PlayerCompletionState } from "../../../src/v2/combatTypes";
 import type { V2NpcCommandCandidate } from "../../../src/v2/npcSystem";
+import {
+  createV2SeededRandom
+} from "../../../src/v2/performanceDiagnostics";
 import { createV2PlayerInput } from "../../../src/v2/playerInput";
 import {
   V2_NORMAL_HORIZONTAL_SPEED_SCALE,
   V2_WATER_HORIZONTAL_SPEED_SCALE,
+  dispatchV2RuntimeRetry,
   dispatchV2RuntimeInteractions,
   resolveV2HorizontalSpeedScale,
   type V2RuntimeInteractionDoorPort,
-  type V2RuntimeInteractionSurvivalPort
+  type V2RuntimeInteractionSurvivalPort,
+  type V2RuntimeRetrySurvivalPort
 } from "../../../src/v2/runtimeInteraction";
 
 import { assert, executeTest } from "./testUtils";
@@ -226,6 +231,8 @@ export const runRuntimeInteractionTests = async () =>
         press("KeyG");
         press("KeyN");
         press("KeyH");
+        press("KeyR");
+        press("KeyR", true);
         const firstDrain = input.drainPressedActions();
         const secondDrain = input.drainPressedActions();
         press("KeyF");
@@ -256,7 +263,7 @@ export const runRuntimeInteractionTests = async () =>
           doors: calls.doors
         });
         assert(
-          firstDrain.length === 6 &&
+          firstDrain.length === 7 &&
             secondDrain.length === 0 &&
             afterReset.length === 0,
           `入力drain/resetが一回消費になっていません: first=${firstDrain.length}, second=${secondDrain.length}, reset=${afterReset.length}`
@@ -267,7 +274,7 @@ export const runRuntimeInteractionTests = async () =>
             calls.selections.length === 3,
           `drain後の配送件数が不正です: NPC=${calls.commands.length}, door=${calls.doorIds.length}, select=${calls.selections.length}`
         );
-        return "repeatを除く6 actionを初回だけ配送、2回目とreset後は0件";
+        return "repeatを除く7 actionを初回だけ配送、Rを含め2回目とreset後は0件";
       } finally {
         input.dispose();
       }
@@ -391,6 +398,97 @@ export const runRuntimeInteractionTests = async () =>
         `連続再選択の配送順が不正です: ${JSON.stringify(calls.selections)}`
       );
       return "同一dispatch内でも4操作を入力順に配送";
+    }),
+    executeTest("Rリトライ・公開処刑リプレイの状態guard", () => {
+      let replayCount = 0;
+      const survival = Object.freeze({
+        replayExecution: () => {
+          replayCount += 1;
+        }
+      }) satisfies V2RuntimeRetrySurvivalPort;
+      const retryActions = Object.freeze(["retry", "retry"] as const);
+      const completedStates = Object.freeze([
+        "brainwash-complete-gun",
+        "brainwash-complete-no-gun",
+        "brainwash-complete-haigure"
+      ] as const);
+      const completedResults = completedStates.map((playerState) =>
+        dispatchV2RuntimeRetry({
+          actions: retryActions,
+          frame: Object.freeze({
+            phase: "playing" as const,
+            playerState
+          }),
+          survival
+        })
+      );
+      const ignoredResults = [
+        dispatchV2RuntimeRetry({
+          actions: retryActions,
+          frame: Object.freeze({
+            phase: "playing" as const,
+            playerState: "normal" as const
+          }),
+          survival
+        }),
+        dispatchV2RuntimeRetry({
+          actions: retryActions,
+          frame: Object.freeze({
+            phase: "assembly" as const,
+            playerState: "brainwash-complete-gun" as const
+          }),
+          survival
+        }),
+        dispatchV2RuntimeRetry({
+          actions: retryActions,
+          frame: Object.freeze({
+            phase: "execution" as const,
+            playerState: "brainwash-complete-gun" as const
+          }),
+          survival
+        }),
+        dispatchV2RuntimeRetry({
+          actions: Object.freeze([]),
+          frame: Object.freeze({
+            phase: "execution-complete" as const,
+            playerState: "brainwash-complete-gun" as const
+          }),
+          survival
+        })
+      ];
+      const replayResult = dispatchV2RuntimeRetry({
+        actions: retryActions,
+        frame: Object.freeze({
+          phase: "execution-complete" as const,
+          playerState: "brainwash-complete-gun" as const
+        }),
+        survival
+      });
+      assert(
+        completedResults.every(
+          (result) => result === "session-retry-requested"
+        ) &&
+          ignoredResults.every((result) => result === "ignored") &&
+          replayResult === "execution-replayed" &&
+          replayCount === 1,
+        `R配送guardが不正です: completed=${completedResults.join("|")} / ignored=${ignoredResults.join("|")} / replay=${replayResult}:${replayCount}`
+      );
+      return "洗脳完了3状態はsession再生成、execution-completeは1回replay、他状態は無効";
+    }),
+    executeTest("Rリトライ時の同一seed再生成", () => {
+      const createSequence = () => {
+        const random = createV2SeededRandom(0);
+        return Array.from({ length: 12 }, () => random());
+      };
+      const initialSequence = createSequence();
+      const retrySequence = createSequence();
+      assert(
+        JSON.stringify(initialSequence) ===
+          JSON.stringify(retrySequence) &&
+          new Set(initialSequence).size > 1,
+        "同じruntimeSeedから再生成したSurvival乱数列が一致しません。"
+      );
+      return `seed=0 / sequence=${initialSequence.slice(0, 3).join(",")}`;
     }),
     executeTest("水Volume内外の水平速度倍率", () => {
       const transitions = [false, true, true, false, true, false].map(

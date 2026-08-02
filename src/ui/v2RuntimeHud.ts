@@ -6,6 +6,7 @@ import {
 
 import type { StageDoorInteractionCandidate } from "../world/stageDoorRuntime";
 import type { V2NpcCommandCandidate } from "../v2/npcSystem";
+import { isV2PlayerCompletionState } from "../v2/combatTypes";
 import type { V2SurvivalFrame } from "../v2/survivalRuntime";
 
 export type V2RuntimeHudFrame = Pick<
@@ -200,13 +201,19 @@ export const createV2RuntimeHudController = ({
     "fire-guide",
     "左クリック: 射撃"
   );
+  const retryGuide = createGuide(
+    document,
+    "retry-guide",
+    "R: リトライ"
+  );
 
   root.append(
     npcMarker.root,
     doorMarker.root,
     completionGuide,
     crosshair,
-    fireGuide
+    fireGuide,
+    retryGuide
   );
   host.appendChild(root);
 
@@ -224,6 +231,7 @@ export const createV2RuntimeHudController = ({
     completionGuide.hidden = true;
     crosshair.hidden = true;
     fireGuide.hidden = true;
+    retryGuide.hidden = true;
   };
 
   const projectTarget = (
@@ -275,6 +283,9 @@ export const createV2RuntimeHudController = ({
     completionGuide.style.left = `${centerX}px`;
     completionGuide.style.top =
       `${canvasRect.top + viewport.y + viewport.height - 48}px`;
+    retryGuide.style.left = `${centerX}px`;
+    retryGuide.style.top =
+      `${canvasRect.top + viewport.y + viewport.height - 82}px`;
   };
 
   return {
@@ -286,6 +297,19 @@ export const createV2RuntimeHudController = ({
     }) => {
       assertActive();
       clearElements();
+      const retryLabel =
+        frame.phase === "execution-complete"
+          ? "R: リプレイ"
+          : frame.phase === "playing" &&
+              isV2PlayerCompletionState(frame.playerState)
+            ? "R: リトライ"
+            : null;
+      if (retryLabel !== null) {
+        const canvasRect = canvas.getBoundingClientRect();
+        updateCenteredGuides(canvasRect);
+        retryGuide.textContent = retryLabel;
+        retryGuide.hidden = false;
+      }
       if (!active || frame.phase !== "playing") {
         return;
       }

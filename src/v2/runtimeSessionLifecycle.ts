@@ -14,6 +14,42 @@ export interface V2RuntimeSessionEventScope {
   dispose(): void;
 }
 
+export type V2ManagedRuntimeSession = Readonly<{
+  start(): void;
+  dispose(): Promise<void>;
+}>;
+
+export type V2RuntimeSessionTransitionOptions<
+  TSession extends V2ManagedRuntimeSession
+> = Readonly<{
+  currentSession: TSession | null;
+  startImmediately: boolean;
+  exitPointerLock(): void;
+  showLoading(): void;
+  createSession(): Promise<TSession>;
+}>;
+
+export const transitionV2RuntimeSession = async <
+  TSession extends V2ManagedRuntimeSession
+>({
+  currentSession,
+  startImmediately,
+  exitPointerLock,
+  showLoading,
+  createSession
+}: V2RuntimeSessionTransitionOptions<TSession>): Promise<TSession> => {
+  if (!startImmediately) {
+    exitPointerLock();
+  }
+  showLoading();
+  await currentSession?.dispose();
+  const nextSession = await createSession();
+  if (startImmediately) {
+    nextSession.start();
+  }
+  return nextSession;
+};
+
 type V2RuntimeEventSubscription = Readonly<{
   target: V2RuntimeEventTarget;
   type: string;

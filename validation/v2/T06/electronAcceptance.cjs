@@ -116,6 +116,7 @@ const inspectDom = (window) =>
         completionGuideVisible: roleVisible("completion-guide"),
         crosshairVisible: roleVisible("crosshair"),
         fireGuideVisible: roleVisible("fire-guide"),
+        retryGuideVisible: roleVisible("retry-guide"),
         npcPromptVisible: roleVisible("npc-prompt"),
         doorPromptVisible: roleVisible("door-prompt"),
         canvasRect: rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null
@@ -135,6 +136,38 @@ const waitFor = async (name, window, predicate, timeoutMilliseconds) => {
     await wait(100);
   }
   throw new Error(`${name}を${timeoutMilliseconds}ms以内に確認できませんでした: ${JSON.stringify(latest)}`);
+};
+
+const waitForRetrySession = async (window, timeoutMilliseconds) => {
+  const deadline = Date.now() + timeoutMilliseconds;
+  let sawLoading = false;
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await inspectDom(window);
+    assertCondition(
+      latest.pointerLockId === "renderCanvas",
+      `Rリトライ中にPointer Lockが解除されました: ${JSON.stringify(latest)}`
+    );
+    if (
+      latest.titleVisible &&
+      latest.titleMessage === "学校3D空間を読み込んでいます"
+    ) {
+      sawLoading = true;
+    }
+    if (
+      sawLoading &&
+      !latest.titleVisible &&
+      parseState(latest.status) === "normal" &&
+      latest.hudRootCount === 1 &&
+      latest.volumeRootCount === 1
+    ) {
+      return latest;
+    }
+    await wait(100);
+  }
+  throw new Error(
+    `Rリトライsessionを${timeoutMilliseconds}ms以内に確認できませんでした: ${JSON.stringify(latest)}`
+  );
 };
 
 const sendKey = async (window, keyCode, holdMilliseconds = 70) => {
@@ -425,9 +458,20 @@ const run = async () => {
     "brainwash-complete-gun"
   );
   assertCondition(gunAgainSnapshot.crosshairVisible, "H→G後に照準が再表示されていません。");
+  assertCondition(gunAgainSnapshot.retryGuideVisible, "洗脳完了時にRリトライ案内が表示されていません。");
   addCheck("G→N→H→G連続再選択", {
     finalState: parseState(gunAgainSnapshot.status),
-    crosshairVisible: gunAgainSnapshot.crosshairVisible
+    crosshairVisible: gunAgainSnapshot.crosshairVisible,
+    retryGuideVisible: gunAgainSnapshot.retryGuideVisible
+  });
+
+  await sendKey(testWindow, "R");
+  const retried = await waitForRetrySession(testWindow, 120_000);
+  addCheck("RリトライとPointer Lock・session root維持", {
+    state: parseState(retried.status),
+    pointerLockId: retried.pointerLockId,
+    hudRootCount: retried.hudRootCount,
+    volumeRootCount: retried.volumeRootCount
   });
 
   await sendKey(testWindow, "Enter");

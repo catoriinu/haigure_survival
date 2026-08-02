@@ -2,7 +2,10 @@ import type {
   StageDoorInteractionCandidate,
   StageDoorRuntime
 } from "../world/stageDoorRuntime";
-import type { V2PlayerCompletionState } from "./combatTypes";
+import {
+  isV2PlayerCompletionState,
+  type V2PlayerCompletionState
+} from "./combatTypes";
 import type { V2NpcCommandCandidate } from "./npcSystem";
 import type { V2PlayerAction } from "./playerInput";
 import type { V2SurvivalFrame, V2SurvivalRuntime } from "./survivalRuntime";
@@ -29,6 +32,22 @@ export type V2RuntimeInteractionSurvivalPort = Pick<
   "requestNpcCommand" | "selectPlayerCompletion"
 >;
 
+export type V2RuntimeRetrySurvivalPort = Pick<
+  V2SurvivalRuntime,
+  "replayExecution"
+>;
+
+export type V2RuntimeRetryDispatchResult =
+  | "ignored"
+  | "session-retry-requested"
+  | "execution-replayed";
+
+export type V2RuntimeRetryDispatch = Readonly<{
+  actions: readonly V2PlayerAction[];
+  frame: Pick<V2SurvivalFrame, "phase" | "playerState">;
+  survival: V2RuntimeRetrySurvivalPort;
+}>;
+
 export type V2RuntimeInteractionDoorPort = Pick<
   StageDoorRuntime,
   "requestDoorToggle"
@@ -42,6 +61,27 @@ export type V2RuntimeInteractionDispatch = Readonly<{
   survival: V2RuntimeInteractionSurvivalPort;
   doors: V2RuntimeInteractionDoorPort;
 }>;
+
+export const dispatchV2RuntimeRetry = ({
+  actions,
+  frame,
+  survival
+}: V2RuntimeRetryDispatch): V2RuntimeRetryDispatchResult => {
+  if (!actions.includes("retry")) {
+    return "ignored";
+  }
+  if (frame.phase === "execution-complete") {
+    survival.replayExecution();
+    return "execution-replayed";
+  }
+  if (
+    frame.phase === "playing" &&
+    isV2PlayerCompletionState(frame.playerState)
+  ) {
+    return "session-retry-requested";
+  }
+  return "ignored";
+};
 
 const PLAYER_COMPLETION_BY_ACTION = Object.freeze({
   "select-gun": "brainwash-complete-gun",
@@ -66,6 +106,9 @@ export const dispatchV2RuntimeInteractions = ({
   const doorCandidate = doorCandidates[0];
 
   for (const action of actions) {
+    if (action === "retry") {
+      continue;
+    }
     if (action === "npc-follow") {
       if (npcCandidate) {
         survival.requestNpcCommand(npcCandidate.npcId, "follow");

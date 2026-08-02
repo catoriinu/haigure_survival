@@ -57,10 +57,14 @@ import {
   type V2PlayerInput
 } from "./playerInput";
 import {
+  dispatchV2RuntimeRetry,
   dispatchV2RuntimeInteractions,
   resolveV2HorizontalSpeedScale
 } from "./runtimeInteraction";
-import { createV2RuntimeSessionEventScope } from "./runtimeSessionLifecycle";
+import {
+  createV2RuntimeSessionEventScope,
+  transitionV2RuntimeSession
+} from "./runtimeSessionLifecycle";
 import {
   createV2SurvivalRuntime,
   V2_PERFORMANCE_ACCEPTANCE_POPULATION,
@@ -146,11 +150,12 @@ if (performanceScenario) {
 const engine = new Engine(canvas, true);
 
 type V2RuntimeSession = Readonly<{
+  start(): void;
   dispose(): Promise<void>;
 }>;
 
 const createRuntimeSession = async (
-  requestReturnToTitle: () => void
+  requestSessionRebuild: (startImmediately: boolean) => void
 ): Promise<V2RuntimeSession> => {
 const scene = new Scene(engine);
 const performanceDiagnostics = performanceScenario
@@ -298,9 +303,7 @@ const initializeRuntime = async () => {
       scene,
       stage: ownedStage,
       player: playerController,
-      random: performanceScenario || runtimeStressScenario
-        ? createV2SeededRandom(runtimeSeed)
-        : Math.random,
+      random: createV2SeededRandom(runtimeSeed),
       getOrbVisibilityPredicate: () => {
         const playerCenter = playerController
           .getFootPosition()
@@ -707,7 +710,7 @@ const configurePerformanceView = () => {
   player.placeAt(footPosition, lookAtPosition);
 };
 
-const startPlay = () => {
+const startPlay = (requestPointerLock: boolean) => {
   if (!audioActivated) {
     audioActivated = true;
     if (bgmUrl !== null) {
@@ -726,12 +729,14 @@ const startPlay = () => {
       "G: 銃  N: 非武装  H: ハイグレ\n" +
       "Enter: タイトルへ戻る";
   }
-  canvas.focus();
-  void (canvas as unknown as Element)
-    .requestPointerLock()
-    .catch((error: unknown) => {
-      console.error("ポインターロックの要求に失敗しました。", error);
-    });
+  if (requestPointerLock) {
+    canvas.focus();
+    void (canvas as unknown as Element)
+      .requestPointerLock()
+      .catch((error: unknown) => {
+        console.error("ポインターロックの要求に失敗しました。", error);
+      });
+  }
 };
 
 const handleCanvasClick: EventListener = () => {
@@ -739,7 +744,7 @@ const handleCanvasClick: EventListener = () => {
   const hadPointerLock =
     document.pointerLockElement ===
     (canvas as unknown as Element);
-  startPlay();
+  startPlay(true);
   if (
     wasStarted &&
     hadPointerLock &&
@@ -864,6 +869,18 @@ engine.runRenderLoop(() => {
             elapsedSeconds,
             playerElevatorTraversal
           );
+    }
+    const retryDispatchResult = dispatchV2RuntimeRetry({
+      actions,
+      frame: survivalFrame,
+      survival
+    });
+    if (retryDispatchResult === "session-retry-requested") {
+      requestSessionRebuild(true);
+      return;
+    }
+    if (retryDispatchResult === "execution-replayed") {
+      survivalFrame = survival.getFrame();
     }
     const interactionActive =
       started &&
@@ -996,12 +1013,15 @@ eventScope.listen(window, "resize", resize);
 
 const handleReturnToTitleKey: EventListener = (event) => {
   if ((event as KeyboardEvent).code === "Enter" && started) {
-    requestReturnToTitle();
+    requestSessionRebuild(false);
   }
 };
 eventScope.listen(window, "keydown", handleReturnToTitleKey);
 
-return Object.freeze({ dispose: disposeRuntime });
+return Object.freeze({
+  start: () => startPlay(false),
+  dispose: disposeRuntime
+});
 } catch (error) {
   console.error(
     "V2 Runtime sessionの構築に失敗しました。",
@@ -1026,17 +1046,20 @@ const showSessionLoading = () => {
   helpPanel.style.display = "none";
 };
 
-const rebuildSession = () => {
+const rebuildSession = (startImmediately: boolean) => {
   if (sessionTransition !== null) {
     return;
   }
   sessionTransition = (async () => {
-    document.exitPointerLock();
-    showSessionLoading();
     const previousSession = activeSession;
     activeSession = null;
-    await previousSession?.dispose();
-    activeSession = await createRuntimeSession(rebuildSession);
+    activeSession = await transitionV2RuntimeSession({
+      currentSession: previousSession,
+      startImmediately,
+      exitPointerLock: () => document.exitPointerLock(),
+      showLoading: showSessionLoading,
+      createSession: () => createRuntimeSession(rebuildSession)
+    });
   })()
     .catch((error: unknown) => {
       console.error(
