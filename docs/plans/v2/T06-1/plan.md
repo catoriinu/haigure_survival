@@ -142,6 +142,14 @@
 - V1最終契約と同じく、命中光球は対象Character表示の幅・高さの対角径へmarginを掛け、表示中心へ追従する。衝突ellipsoidは変更しない。
 - NPC Characterのalphaは命中光球のfade進捗から分離して常時1とし、状態cellだけを`hit-a`へ維持する。
 
+### 2026-08-02 Character透明画素の奥側描画修正指示
+
+> 前回までの光とCharacter画像の前後関係はおおむね解決したが、Character画像の裏側を通る光やガラスが、PNGの透明部分でもCharacter画像に遮られて見えない。添付画像2枚のとおり、Character画像の透明部分では、奥にある光やガラスを正しく描画する。
+
+- PNG画像自体のalpha欠損ではなく、`MATERIAL_ALPHATESTANDBLEND`のCharacter Planeへ指定した`needDepthPrePass`が、alpha discardより前にPlane四角全体のdepthを書いていることをBabylon.js 6.49の描画経路で確認した。
+- `needDepthPrePass`を廃止し、通常のalpha test／blend passで透明画素をdiscardした後、実画素だけdepthへ書く。前面の光は従来どおりCharacterより後に描画し、後面の光・ガラスはCharacter実画素だけに遮られ、透明画素では見えるようにする。
+- pure alpha testへの置換、rendering group分離、depth clear、学校ガラスMaterial、画像バイナリは変更しない。
+
 ## 目的
 
 既に実装済みの入力・状態・NPC指示・扉・学校動的Runtime APIを、学校バイナリへ触れず通常ゲーム入口へ接続する。F／E／C・G／N／H、候補表示、既定荒れ状態2、音声、水中速度50%、開始・破棄ライフサイクルを実プレイで成立させる。
@@ -286,6 +294,14 @@
 - [x] Character Runtimeからactor別表示寸法を取得し、命中光球を表示中心・表示矩形の対角径へ追従させる
 - [x] `hit-a` fade中もNPC Characterのalphaを1に維持し、光球・orb・PointLightだけをfadeさせる
 - [x] T05／T06 fixture、全typecheck／build、通常Web、Electronで実寸、前後関係、光球包含、fade、近距離、player維持、console・資源破棄を検証する
+- [x] 実装結果と証跡を本計画へ記録し、対象差分だけをローカルcommitする。push・Pull Request更新は別途指示があるまで行わない
+
+### 2026-08-02 Character透明画素の奥側描画修正
+
+- [x] 添付画像、現行V2、V1の透明部修正履歴、Babylon.js 6.49の透明queue／depth pre-pass／alpha discard順を読み取り専用で監査し、Plane全体のdepth書込みを原因として確定する
+- [x] Character Planeの深度先行描画を廃止し、通常passでalpha discard後の実画素だけdepthへ書く
+- [x] T06 fixtureへalpha test／blend、depth書込み、透明queue順、共有Material、破棄の契約を追加する
+- [x] T06 fixture、関連回帰、型検査、build、通常Web、Electronで、透明部の奥側光・ガラス、実画素の遮蔽、前面光、console、資源破棄を検証する
 - [x] 実装結果と証跡を本計画へ記録し、対象差分だけをローカルcommitする。push・Pull Request更新は別途指示があるまで行わない
 
 ## 完了条件
@@ -497,3 +513,20 @@ Character Runtimeへactor別の実表示幅・高さを返す必須APIを追加�
 - 学校Blender正本、GLB、生成器、全NavMesh、カタログhash、`src/world/**`、画像・音声バイナリは変更していない。
 
 今回の追加差分はローカルcommitまでを対象とし、push、Draft Pull Request #64更新、レビュー、merge、`develop`同期、worktree整理は行わない。通常プレイ用の`http://127.0.0.1:5175/`は継続起動する。
+
+### 2026-08-02 Character透明画素の奥側描画修正結果
+
+PNG素材のalpha値とV1履歴を読み取り専用で確認し、素材背景の大半がalpha 0であること、V1にも同じ問題を残す`needDepthPrePass`が入っていたことを確認した。Babylon.js 6.49では、`MATERIAL_ALPHATESTANDBLEND`がalpha testを最終alpha計算後へ移す一方、透明queueのdepth pre-passはそのdiscardより前にreturnする。このため、Character Planeの透明画素を含む四角全体がdepthへ書かれ、後段で描画される奥側の光・ガラスが透明部でもdepth testに失敗していた。
+
+Character Materialから`needDepthPrePass`を削除し、`forceDepthWrite`へ置換した。通常passではtexture alphaとvertex alphaを計算した後にalpha 0画素をdiscardし、生き残ったCharacter実画素だけが色とdepthを書く。これにより、透明部では奥側の半透明物を表示し、Character実画素は奥側を遮蔽し、Characterより手前の光は既存の`alphaIndex`とdepth testで表示する。`alphaCutOff=0.01`、NPC／戦闘演出／プレイヤーの順、rendering group、学校ガラスMaterial、画像素材は変更していない。
+
+検証結果は次のとおり。
+
+- T06実ブラウザfixtureは56／56 PASS。NullEngineで`ALPHATESTANDBLEND`、alpha test／blend、depth pre-pass無効、通常pass depth書込み、共有Material、既存`alphaIndex`順を固定した。さらに96px WebGL画素fixtureで、透明部の奥側を青`[0,0,229,255]`、Character実画素を緑`[0,255,0,255]`、前面光を赤優勢`[229,26,0,255]`／`[229,0,23,255]`として検出し、warning／errorは0件だった。
+- T05実ブラウザfixtureは303／303 PASSし、ビーム、命中演出、Character順を含む既存回帰を維持した。warning／errorは0件だった。
+- `typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t04`、`build:t05`、`build:t06`、通常`build`はすべてPASSした。通常buildには既知のBabylon chunk-size warningだけがあり、新規warning／errorはない。
+- 通常Webは`http://127.0.0.1:5175/`でタイトル、Pointer Lock、`playing`、実Character画像、ビーム、命中状態、学校窓を画面確認した。Codex内蔵ブラウザでは開始後のPointer Lock再要求時にChromium固有errorが1件記録されたため、アプリ診断0件の判定はElectronへ分離した。
+- Character専用Electron受入は地面垂直表示、Pointer Lock、正面／真下画像をPASSした。通常Electron受入も全13項目PASSし、console、renderer error、unhandled rejection、load error、render process消失、unresponsiveは0件、BGM 1件・SE 16件・VOICE 73件の読込失敗は0件だった。
+- `git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、括弧・構文、所有外差分なしを確認した。学校Blender正本、GLB、生成器、全NavMesh、カタログhash、`src/world/**`、画像・音声バイナリは変更していない。
+
+本追加差分は計画、Character Material、T06回帰fixtureの3ファイルだけをローカルcommitする。push、Draft Pull Request #64更新、レビュー、merge、`develop`同期、worktree整理は行わない。通常プレイ用の`http://127.0.0.1:5175/`は継続起動する。

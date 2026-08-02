@@ -450,7 +450,7 @@ const createPresentationMaterial = (
   material.useAlphaFromDiffuseTexture = true;
   material.transparencyMode = Material.MATERIAL_ALPHATESTANDBLEND;
   material.alphaCutOff = 0.01;
-  material.needDepthPrePass = true;
+  material.forceDepthWrite = true;
   return material;
 };
 

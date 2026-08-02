@@ -1,7 +1,16 @@
 import {
+  Camera,
+  Color3,
   Color4,
+  Engine,
+  FreeCamera,
+  Material,
+  MeshBuilder,
   NullEngine,
+  RawTexture,
   Scene,
+  StandardMaterial,
+  Texture,
   Vector3,
   VertexBuffer
 } from "@babylonjs/core";
@@ -26,6 +35,41 @@ import {
   resolveV2PortraitFiles
 } from "../../../src/v2/v2CharacterVisualRuntime";
 import { assert, executeTest, type T06TestResult } from "./testUtils";
+
+const readRgbaPixel = (
+  pixels: ArrayBufferView,
+  width: number,
+  x: number,
+  y: number
+): readonly [number, number, number, number] => {
+  const bytes = new Uint8Array(
+    pixels.buffer,
+    pixels.byteOffset,
+    pixels.byteLength
+  );
+  const offset = (y * width + x) * 4;
+  return Object.freeze([
+    bytes[offset] as number,
+    bytes[offset + 1] as number,
+    bytes[offset + 2] as number,
+    bytes[offset + 3] as number
+  ]);
+};
+
+const createFlatTransparentMaterial = (
+  name: string,
+  color: Color3,
+  scene: Scene
+): StandardMaterial => {
+  const material = new StandardMaterial(name, scene);
+  material.disableLighting = true;
+  material.backFaceCulling = false;
+  material.diffuseColor = Color3.Black();
+  material.emissiveColor = color;
+  material.alpha = 0.9;
+  material.transparencyMode = Material.MATERIAL_ALPHABLEND;
+  return material;
+};
 
 export const runCharacterVisualTests = async (): Promise<
   readonly T06TestResult[]
@@ -197,12 +241,20 @@ export const runCharacterVisualTests = async (): Promise<
         const firstMesh = first.presentationMesh;
         const secondMesh = second.presentationMesh;
         const npcMesh = npc.presentationMesh;
+        const presentationMaterial = firstMesh?.material ?? null;
         assert(
           firstMesh !== null &&
             secondMesh !== null &&
             npcMesh !== null &&
-            firstMesh.material === secondMesh.material &&
-            firstMesh.material === npcMesh.material &&
+            presentationMaterial !== null &&
+            presentationMaterial === secondMesh.material &&
+            presentationMaterial === npcMesh.material &&
+            presentationMaterial.transparencyMode ===
+              Material.MATERIAL_ALPHATESTANDBLEND &&
+            presentationMaterial.needAlphaTesting() &&
+            presentationMaterial.needAlphaBlendingForMesh(firstMesh) &&
+            !presentationMaterial.needDepthPrePass &&
+            presentationMaterial.forceDepthWrite &&
             first.sprite.manager.layerMask === 0 &&
             npcMesh.alphaIndex ===
               V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER &&
@@ -212,7 +264,7 @@ export const runCharacterVisualTests = async (): Promise<
               V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
             V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT <
               V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER,
-          "upright Plane、共有Materialまたは透明描画順が不正です。"
+          "upright Plane、alpha discard後depth、共有Materialまたは透明描画順が不正です。"
         );
 
         runtime.setFacingYaw(Math.PI / 3);
@@ -270,6 +322,159 @@ export const runCharacterVisualTests = async (): Promise<
         if (!runtimeDisposed) {
           runtime.dispose();
         }
+        scene.dispose();
+        engine.dispose();
+      }
+    }),
+    executeTest("Character透明画素の奥側WebGL描画", async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 96;
+      canvas.height = 96;
+      const engine = new Engine(
+        canvas,
+        true,
+        { preserveDrawingBuffer: true, stencil: false },
+        false
+      );
+      engine.setSize(96, 96);
+      const scene = new Scene(engine);
+      scene.clearColor = new Color4(0, 0, 0, 1);
+      const camera = new FreeCamera(
+        "fixture-character-alpha-camera",
+        new Vector3(0, 0, -5),
+        scene
+      );
+      camera.setTarget(Vector3.Zero());
+      camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
+      camera.orthoLeft = -1;
+      camera.orthoRight = 1;
+      camera.orthoTop = 1;
+      camera.orthoBottom = -1;
+      camera.minZ = 0.1;
+      camera.maxZ = 10;
+      scene.activeCamera = camera;
+
+      const runtime = await createV2CharacterVisualRuntime({
+        scene,
+        orientationMode: "upright",
+        assignments: Object.freeze([
+          Object.freeze({
+            actorId: "npc-001",
+            voiceProfileId: "01",
+            portraitDirectory: V2_DEFAULT_PORTRAIT_DIRECTORY
+          })
+        ])
+      });
+      let runtimeDisposed = false;
+      const alphaTexture = RawTexture.CreateRGBATexture(
+        new Uint8Array([0, 255, 0, 255, 0, 0, 0, 0]),
+        2,
+        1,
+        scene,
+        false,
+        false,
+        Texture.NEAREST_SAMPLINGMODE
+      );
+      alphaTexture.hasAlpha = true;
+      alphaTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
+      alphaTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
+
+      try {
+        const handle = runtime.createSprite(
+          "npc-001",
+          "fixture-character-alpha"
+        );
+        const characterMesh = handle.presentationMesh;
+        assert(
+          characterMesh !== null &&
+            characterMesh.material instanceof StandardMaterial,
+          "WebGL描画fixtureのCharacter Plane Materialがありません。"
+        );
+        const characterMaterial = characterMesh.material as StandardMaterial;
+        characterMaterial.diffuseTexture = alphaTexture;
+        characterMesh.position.set(0, 0, 0);
+        characterMesh.rotation.set(0, 0, 0);
+        characterMesh.scaling.set(2, 2, 1);
+        characterMesh.isVisible = true;
+        characterMesh.setVerticesData(
+          VertexBuffer.UVKind,
+          new Float32Array([0, 1, 1, 1, 1, 0, 0, 0]),
+          true
+        );
+
+        const rearMesh = MeshBuilder.CreatePlane(
+          "fixture-character-alpha-rear",
+          { size: 2 },
+          scene
+        );
+        rearMesh.position.z = 0.5;
+        rearMesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT;
+        rearMesh.material = createFlatTransparentMaterial(
+          "fixture-character-alpha-rear-material",
+          new Color3(0, 0, 1),
+          scene
+        );
+
+        await scene.whenReadyAsync();
+        scene.render();
+        const rearPixels = await engine.readPixels(0, 0, 96, 96, true, true);
+        const rearSamples = [
+          readRgbaPixel(rearPixels, 96, 24, 48),
+          readRgbaPixel(rearPixels, 96, 72, 48)
+        ];
+        const opaqueSample = rearSamples.find(
+          ([red, green, blue]) => green > red + 80 && green > blue + 80
+        );
+        const transparentSample = rearSamples.find(
+          ([red, green, blue]) => blue > red + 80 && blue > green + 80
+        );
+        assert(
+          opaqueSample !== undefined && transparentSample !== undefined,
+          `透明部の奥側または実画素の遮蔽が不正です: ${JSON.stringify(
+            rearSamples
+          )}`
+        );
+
+        const frontMesh = MeshBuilder.CreatePlane(
+          "fixture-character-alpha-front",
+          { size: 2 },
+          scene
+        );
+        frontMesh.position.z = -0.5;
+        frontMesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT;
+        frontMesh.material = createFlatTransparentMaterial(
+          "fixture-character-alpha-front-material",
+          new Color3(1, 0, 0),
+          scene
+        );
+        await scene.whenReadyAsync();
+        scene.render();
+        const frontPixels = await engine.readPixels(0, 0, 96, 96, true, true);
+        const frontSamples = [
+          readRgbaPixel(frontPixels, 96, 24, 48),
+          readRgbaPixel(frontPixels, 96, 72, 48)
+        ];
+        assert(
+          frontSamples.every(
+            ([red, green, blue]) => red > green + 80 && red > blue + 80
+          ),
+          `Character前面の光が描画されません: ${JSON.stringify(
+            frontSamples
+          )}`
+        );
+
+        runtime.dispose();
+        runtimeDisposed = true;
+        return `透明部=${JSON.stringify(
+          transparentSample
+        )}、実画素=${JSON.stringify(
+          opaqueSample
+        )}、前面=${JSON.stringify(frontSamples)}`;
+      } finally {
+        if (!runtimeDisposed) {
+          runtime.dispose();
+        }
+        alphaTexture.dispose();
         scene.dispose();
         engine.dispose();
       }
