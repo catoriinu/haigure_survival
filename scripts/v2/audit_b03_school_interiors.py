@@ -99,6 +99,7 @@ from build_b03_school_interiors import (
     NORTH_CLASSROOM_DOOR_OPENINGS,
     NORTH_ENTRY_BAGGAGE_LOCKER,
     NORTH_ENTRY_UMBRELLA_STAND,
+    PROP_LIBRARY_PATH,
     PROP_COLLIDER_LOCAL_CENTERS,
     PROP_COLLIDER_SIZES,
     ROOF_CHANGING_BAGGAGE_LOCKER_XS,
@@ -241,6 +242,48 @@ def connected_component_aabbs(
             )
         )
     return bounds
+
+
+def connected_component_local_contracts(
+    obj: bpy.types.Object,
+) -> list[tuple[tuple[Vector, Vector], frozenset[str]]]:
+    adjacency = [set() for _ in obj.data.vertices]
+    for edge in obj.data.edges:
+        first, second = edge.vertices
+        adjacency[first].add(second)
+        adjacency[second].add(first)
+
+    remaining = set(range(len(obj.data.vertices)))
+    contracts: list[tuple[tuple[Vector, Vector], frozenset[str]]] = []
+    while remaining:
+        pending = [min(remaining)]
+        component_indices: set[int] = set()
+        while pending:
+            vertex_index = pending.pop()
+            if vertex_index not in remaining:
+                continue
+            remaining.remove(vertex_index)
+            component_indices.add(vertex_index)
+            pending.extend(adjacency[vertex_index] & remaining)
+        points = [
+            obj.data.vertices[vertex_index].co
+            for vertex_index in component_indices
+        ]
+        bounds = (
+            Vector(
+                tuple(min(point[axis] for point in points) for axis in range(3))
+            ),
+            Vector(
+                tuple(max(point[axis] for point in points) for axis in range(3))
+            ),
+        )
+        material_names = frozenset(
+            obj.data.materials[polygon.material_index].name
+            for polygon in obj.data.polygons
+            if polygon.vertices[0] in component_indices
+        )
+        contracts.append((bounds, material_names))
+    return contracts
 
 
 def point_aabb_distance(point: Vector, minimum: Vector, maximum: Vector) -> float:
@@ -2862,6 +2905,213 @@ def audit_staff_desk_collider_contract() -> dict[str, int]:
     }
 
 
+def audit_gym_shared_prop_contracts() -> dict[str, int]:
+    required_names = (
+        "VIS_Prop_BasketballGoal",
+        "VIS_Prop_VaultingBox",
+    )
+    with bpy.data.libraries.load(str(PROP_LIBRARY_PATH), link=False) as (
+        data_from,
+        data_to,
+    ):
+        missing = sorted(set(required_names) - set(data_from.objects))
+        if missing:
+            raise RuntimeError(f"体育館共通小物がLibraryにありません: {missing}")
+        data_to.objects = list(required_names)
+    loaded_objects = tuple(data_to.objects)
+    if any(obj is None for obj in loaded_objects):
+        raise RuntimeError("体育館共通小物をLibraryから読み込めません")
+    loaded_by_name = {obj.name: obj for obj in loaded_objects}
+    if set(loaded_by_name) != set(required_names):
+        raise RuntimeError(
+            f"体育館共通小物の読込Object集合が不正です: {sorted(loaded_by_name)}"
+        )
+
+    try:
+        basketball_goal = loaded_by_name["VIS_Prop_BasketballGoal"]
+        goal_materials = {
+            material.name
+            for material in basketball_goal.data.materials
+            if material is not None
+        }
+        expected_goal_materials = {
+            "MAT_Prop_Porcelain",
+            "MAT_Prop_AccentRed",
+        }
+        if goal_materials != expected_goal_materials:
+            raise RuntimeError(
+                "バスケットゴールの白・赤Material契約が不正です: "
+                f"{sorted(goal_materials)}"
+            )
+        goal_components = connected_component_local_contracts(
+            basketball_goal
+        )
+        expected_goal_components = (
+            (
+                "白バックボード",
+                ((-0.90, 0.00, -0.525), (0.90, 0.05, 0.525)),
+                "MAT_Prop_Porcelain",
+            ),
+            (
+                "赤ライン上",
+                ((-0.36, 0.045, 0.1575), (0.36, 0.065, 0.1825)),
+                "MAT_Prop_AccentRed",
+            ),
+            (
+                "赤ライン下",
+                ((-0.36, 0.045, -0.3425), (0.36, 0.065, -0.3175)),
+                "MAT_Prop_AccentRed",
+            ),
+            (
+                "赤ライン左",
+                ((-0.36, 0.045, -0.33), (-0.335, 0.065, 0.17)),
+                "MAT_Prop_AccentRed",
+            ),
+            (
+                "赤ライン右",
+                ((0.335, 0.045, -0.33), (0.36, 0.065, 0.17)),
+                "MAT_Prop_AccentRed",
+            ),
+            (
+                "赤リング",
+                ((-0.243, 0.157, -0.315588), (0.243, 0.643, -0.284412)),
+                "MAT_Prop_AccentRed",
+            ),
+            (
+                "赤接続部",
+                ((-0.025, 0.00, -0.325), (0.025, 0.70, -0.275)),
+                "MAT_Prop_AccentRed",
+            ),
+            (
+                "白ネット",
+                ((-0.225, 0.175, -0.68), (0.225, 0.625, -0.32)),
+                "MAT_Prop_Porcelain",
+            ),
+        )
+        remaining_goal_components = list(goal_components)
+        for label, expected_bounds, expected_material in (
+            expected_goal_components
+        ):
+            matches = [
+                index
+                for index, (actual_bounds, actual_materials) in enumerate(
+                    remaining_goal_components
+                )
+                if bounds_match(actual_bounds, expected_bounds)
+                and actual_materials == frozenset({expected_material})
+            ]
+            if len(matches) != 1:
+                raise RuntimeError(
+                    f"バスケットゴールの{label}部品が一意ではありません: "
+                    f"{len(matches)}"
+                )
+            remaining_goal_components.pop(matches[0])
+        if remaining_goal_components:
+            raise RuntimeError(
+                "バスケットゴールに仕様外の浮遊部品があります: "
+                f"{remaining_goal_components}"
+            )
+
+        vaulting_box = loaded_by_name["VIS_Prop_VaultingBox"]
+        vaulting_materials = {
+            material.name
+            for material in vaulting_box.data.materials
+            if material is not None
+        }
+        expected_vaulting_materials = {
+            "MAT_Prop_Wood",
+            "MAT_Prop_MetalDark",
+            "MAT_Prop_Fabric",
+        }
+        if vaulting_materials != expected_vaulting_materials:
+            raise RuntimeError(
+                "4段跳び箱の木・黒線・上面Material契約が不正です: "
+                f"{sorted(vaulting_materials)}"
+            )
+        vaulting_components = connected_component_local_contracts(
+            vaulting_box
+        )
+        expected_vaulting_components = (
+            (
+                "木製1段目",
+                ((-0.60, -0.30, 0.00), (0.60, 0.30, 0.225)),
+                "MAT_Prop_Wood",
+            ),
+            (
+                "木製2段目",
+                ((-0.5625, -0.2775, 0.225), (0.5625, 0.2775, 0.45)),
+                "MAT_Prop_Wood",
+            ),
+            (
+                "木製3段目",
+                ((-0.525, -0.255, 0.45), (0.525, 0.255, 0.675)),
+                "MAT_Prop_Wood",
+            ),
+            (
+                "木製4段目",
+                ((-0.4875, -0.2325, 0.675), (0.4875, 0.2325, 0.90)),
+                "MAT_Prop_Wood",
+            ),
+            (
+                "黒線1本目",
+                ((-0.5625, -0.2775, 0.219), (0.5625, 0.2775, 0.231)),
+                "MAT_Prop_MetalDark",
+            ),
+            (
+                "黒線2本目",
+                ((-0.525, -0.255, 0.444), (0.525, 0.255, 0.456)),
+                "MAT_Prop_MetalDark",
+            ),
+            (
+                "黒線3本目",
+                ((-0.4875, -0.2325, 0.669), (0.4875, 0.2325, 0.681)),
+                "MAT_Prop_MetalDark",
+            ),
+            (
+                "上面クッション",
+                ((-0.46, -0.22, 0.90), (0.46, 0.22, 1.00)),
+                "MAT_Prop_Fabric",
+            ),
+        )
+        remaining_vaulting_components = list(vaulting_components)
+        for label, expected_bounds, expected_material in (
+            expected_vaulting_components
+        ):
+            matches = [
+                index
+                for index, (actual_bounds, actual_materials) in enumerate(
+                    remaining_vaulting_components
+                )
+                if bounds_match(actual_bounds, expected_bounds)
+                and actual_materials == frozenset({expected_material})
+            ]
+            if len(matches) != 1:
+                raise RuntimeError(
+                    f"4段跳び箱の{label}部品が一意ではありません: "
+                    f"{len(matches)}"
+                )
+            remaining_vaulting_components.pop(matches[0])
+        if remaining_vaulting_components:
+            raise RuntimeError(
+                "4段跳び箱に仕様外の部品があります: "
+                f"{remaining_vaulting_components}"
+            )
+
+        return {
+            "basketball_goal_components": len(goal_components),
+            "basketball_goal_materials": len(goal_materials),
+            "vaulting_box_components": len(vaulting_components),
+            "vaulting_box_black_lines": 3,
+            "vaulting_box_materials": len(vaulting_materials),
+        }
+    finally:
+        for obj in loaded_objects:
+            mesh = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            if mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+
+
 def audit_acceptance_placements() -> dict[str, int]:
     main_entry = bpy.data.objects["VIS_B03_Interior_F01_MainEntry_FurnitureProps"]
     main_components = connected_component_aabbs(main_entry)
@@ -3108,13 +3358,48 @@ def audit_acceptance_placements() -> dict[str, int]:
 
     gym = bpy.data.objects["VIS_B03_Interior_Gym_FurnitureProps"]
     gym_components = connected_component_aabbs(gym)
-    expected_backboards = (
-        ((33.55, 7.60, 2.825), (33.60, 9.40, 3.875)),
-        ((59.20, 7.60, 2.825), (59.25, 9.40, 3.875)),
+    expected_backboards = tuple(
+        expected
+        for goal_y in (3.0, 17.0)
+        for expected in (
+            ((33.55, goal_y - 0.90, 2.825), (33.60, goal_y + 0.90, 3.875)),
+            ((59.20, goal_y - 0.90, 2.825), (59.25, goal_y + 0.90, 3.875)),
+        )
     )
     for expected in expected_backboards:
         if not any(bounds_match(component, expected) for component in gym_components):
             raise RuntimeError(f"バスケットゴールが壁面の規定高にありません: {expected}")
+    expected_goal_rings = tuple(
+        expected
+        for goal_y in (3.0, 17.0)
+        for expected in (
+            (
+                (33.707, goal_y - 0.243, 3.034411),
+                (34.193, goal_y + 0.243, 3.065588),
+            ),
+            (
+                (58.607, goal_y - 0.243, 3.034411),
+                (59.093, goal_y + 0.243, 3.065588),
+            ),
+        )
+    )
+    for expected in expected_goal_rings:
+        matches = [
+            component
+            for component in gym_components
+            if bounds_match(component, expected)
+        ]
+        if len(matches) != 1:
+            raise RuntimeError(
+                "バスケットリングが規定位置に一意ではありません: "
+                f"{expected}/{len(matches)}"
+            )
+        ring_center_z = (matches[0][0].z + matches[0][1].z) / 2.0
+        if abs(ring_center_z - 3.05) > 1e-5:
+            raise RuntimeError(
+                "バスケットリング中心Zが3.05mではありません: "
+                f"{ring_center_z:.6f}"
+            )
     lectern_x, lectern_y, lectern_z = GYM_STAGE_LECTERN
     lectern_components = [
         (minimum, maximum)
@@ -3165,7 +3450,10 @@ def audit_acceptance_placements() -> dict[str, int]:
         "north_entry": len(north_components),
         "north_entry_colliders": len(north_locker_collider_components),
         "staffroom": 1,
-        "gym": len(expected_backboards) + 2,
+        "gym": len(expected_backboards) + len(expected_goal_rings) + 2,
+        "gym_goal_backboards": len(expected_backboards),
+        "gym_goal_rings": len(expected_goal_rings),
+        "gym_goal_ring_center_z_checks": len(expected_goal_rings),
         "lectern_visual_containment": lectern_visual_containment,
     }
 
@@ -3792,7 +4080,12 @@ def main() -> None:
             "ScienceStool": 1,
             "BaggageLocker": 2,
         },
-        "Gym": {"BasketballGoal": 2, "VaultingBox": 2, "StageLectern": 1},
+        "Gym": {
+            "BasketballGoal": 4,
+            "VaultingBox": 2,
+            "StageLectern": 1,
+            "LifePreserverSign": 0,
+        },
         "GymStorage": {"VaultingBox": 2, "CleaningLocker": 1},
         "RoofChanging": {"BaggageLocker": 4, "ChangingBench": 4, "Mirror": 0},
         "RoofPoolSafety": {"LifePreserverRing": 2, "LifePreserverSign": 0},
@@ -3807,6 +4100,8 @@ def main() -> None:
                 )
     if room_counts["Gym"].get("WallClock", 0) != 0:
         raise RuntimeError("撤去指定の体育館北面壁時計が残っています")
+    if bpy.data.objects.get("VIS_B03_Interior_Gym_SignsPaper") is not None:
+        raise RuntimeError("体育館に不要な救命浮き輪標識表示が残っています")
     if room_counts["RoofChanging"].get("CleaningLocker", 0) != 0:
         raise RuntimeError("屋上更衣室に掃除ロッカーが残っています")
     staffroom_collider = bpy.data.objects["COL_B03_Interior_F01_StaffRoom"]
@@ -3943,6 +4238,7 @@ def main() -> None:
     door_sign_clearance_checks = audit_door_sign_clearance()
     room_sign_wall_support_checks = audit_room_sign_wall_support()
     acceptance_placements = audit_acceptance_placements()
+    gym_shared_prop_contracts = audit_gym_shared_prop_contracts()
     refactored_furniture_placements = audit_refactored_furniture_placements(
         architecture_wall_components
     )
@@ -4095,6 +4391,7 @@ def main() -> None:
         "door_sign_clearance_checks": door_sign_clearance_checks,
         "room_sign_wall_support_checks": room_sign_wall_support_checks,
         "acceptance_placements": acceptance_placements,
+        "gym_shared_prop_contracts": gym_shared_prop_contracts,
         "refactored_furniture_placements": refactored_furniture_placements,
         "glb": {
             "bytes": GLB_PATH.stat().st_size,
