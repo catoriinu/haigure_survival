@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 T06-1 通常ゲームRuntime接続 計画
 
-更新日: 2026-08-02
+更新日: 2026-08-03
 
 ## プロンプト
 
@@ -611,8 +611,8 @@ Character Materialから`needDepthPrePass`を削除し、`forceDepthWrite`へ置
 - [x] portrait資産カタログとタイトル設定root処理を共通化する
 - [x] 荒れ状態を既定2へ戻し、明示的な全荒れ確認queryを追加する
 - [x] 性能比較で検出した一時heap増加と長時間保持を監査し、索引割り当てとBIT履歴を追加改善する
-- [ ] 修正後性能、全fixture、typecheck、build、Web、Electron、配布テキスト、所有範囲を検証する
-- [ ] 実装結果と検証証跡を本計画へ反映し、分割commitをpushしてPull Request #64 HEAD一致を確認する
+- [x] 修正後性能、全fixture、typecheck、build、Web、Electron、配布テキスト、所有範囲を検証する
+- [x] 実装結果と検証証跡を本計画へ反映し、分割commitをpushしてPull Request #64 HEAD一致を確認する
 
 #### 結果
 
@@ -630,4 +630,12 @@ Room Variantは通常・performance・stress・rampの共通既定値を荒れ�
 
 最初の修正後4200 frame計測ではCPU指標が改善した一方、steadyのraw heap p95が457.68MiBから554.20MiBへ上昇した。30秒固定点と4200 frame完走直後に強制GCを2回行って比較すると、保持heapはそれぞれ214.803MiBから214.731MiB、218.732MiBから218.367MiBへ微減しており、raw値の差はGC実行周期による一時heapで、今回cacheの保持リークではないことを確認した。通常ゲームではなく計測用Electron runnerが終了済みstdoutへ書いたため一度だけ`EPIPE`が発生したが、該当processを停止し、以後はstdout／stderr非接続かつ外部JSON出力のrunnerへ統一した。
 
-それでも割り当て経路を再監査し、平面空間索引を文字列cell keyとqueryごとの配列生成から、数値二段Map、bucket pool、`rebuild()`、呼出側所有の`queryToRef()`へ変更した。BIT脅威索引はNPC System所有で再利用し、Rest Slotは同一updateのArea別索引へ統合して、予約、解除、再計画を同frameへ反映する。プレイヤー移動方向、Follower搬送追跡位置、エレベーターsnapshot、BIT／人物ID Mapも同じ保存領域へ書き換え、同値frameのVector／Map生成を除去した。消滅したcarpet follower BITのIDが`previousBitTargetIds`へplaying中に単調蓄積する経路も確定したため、現行BIT actor集合にないIDを各frameで削除し、履歴数を現行BIT数以下へ制限した。phase遷移とdisposeでは再利用索引、Map、replan queue、搬送snapshotを明示的に空にする。T05 fixtureはこの時点で308／308 PASSし、BIT履歴50／現行BIT 50、再利用queryの同一出力配列、rebuild後の旧cell残留0件を確認した。最終4200 frame比較は追加改善を含む固定Runtime差分で再計測する。
+それでも割り当て経路を再監査し、平面空間索引を文字列cell keyとqueryごとの配列生成から、数値二段Map、bucket pool、`rebuild()`、呼出側所有の`queryToRef()`へ変更した。BIT脅威索引はNPC System所有で再利用し、Rest Slotは同一updateのArea別索引へ統合して、予約、解除、再計画を同frameへ反映する。プレイヤー移動方向、Follower搬送追跡位置、エレベーターsnapshot、BIT／人物ID Mapも同じ保存領域へ書き換え、同値frameのVector／Map生成を除去した。消滅したcarpet follower BITのIDが`previousBitTargetIds`へplaying中に単調蓄積する経路も確定したため、現行BIT actor集合にないIDを各frameで削除し、履歴数を現行BIT数以下へ制限した。phase遷移とdisposeでは再利用索引、Map、replan queue、搬送snapshotを明示的に空にする。T05 fixtureは最終的に310／310 PASSし、BIT履歴50／現行BIT 50、再利用queryの同一出力配列、rebuild後の旧cell残留0件、プレイヤー搬送・再配置直後のHuman target同期を確認した。
+
+最終レビューで、エレベーター降車後のRest Slot索引、`clearCommands()`後の搬送snapshot、空BIT脅威索引、プレイヤー搬送直後のHuman target、集合・公開処刑への再配置frameで使う自キャラ位置、エレベーターsnapshot内の可変`Vector3`を追加監査した。各経路を同frameで同期・消去し、Character・扉・Alarm・状態表示は`survival.update()`後のplayer snapshotを共有する。目的階位置はcloneした`Vector3`自体をfreezeした。対応fixture追加後の読み取り専用最終レビューでは、追加のP0／P1／P2は0件だった。
+
+最終Runtime source hash `1ebb6eee426c3676781d067449c39aecdaf757bb`を固定し、1920×1080、seed `20260725`、校庭視点、全荒れ確認query、99 NPC（初期洗脳66）／50 BIT、cold 600＋steady 3600の4200 frameを競合processなしで再計測した。safe wall timeは160.351秒から146.833秒へ8.43%短縮した。steady totalのp95／p99／最大は50.9／128.4／350.2msから33.5／34.0／92.0ms、frame workは45.5／120.6／153.9msから27.1／31.4／91.2msへ改善した。steadyのNPC p95は29.6msから19.3ms、BIT p95は11.2msから5.1msとなり、draw call、active mesh、total meshは同一だった。long taskはsteady 132件から5件へ減少した。強制GC 2回後の保持heapは218.732MiBから218.771MiBで差0.018%となり、計測ノイズ域を超える保持退行やリークはない。safe／full-GCともconsole、load、render process消失、unresponsiveは0件、5176と計測runner／Electronの終了後残留は0件で、非接続stdio方式では`EPIPE`も再発しなかった。既存の厳格なframe／long-task閾値による性能fixture全体判定は修正前後とも未達のままであり、今回の比較では主要指標の悪化がないことを確認した。
+
+最終検証では`typecheck:v2`、`typecheck:t02`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t02`、`build:t04`、`build:t05`、`build:t06`、通常`build`がすべてPASSした。実ブラウザfixtureはT04 115／115と学校動的統合77／77、T05 310／310、T06 63／63がPASSし、Babylon Logger／console warning／errorは0件だった。通常Webは既定荒れ状態2と`?roomVariantReview=all-disordered`の全20室状態10、タイトル表示、開始、Runtime停止0件を確認した。Electronは主要13項目とCharacter表示確認がPASSし、Pointer Lock、G／N／H、Enterタイトル復帰、再開始、Audio読込、session root、console／renderer／load／process消失／unresponsiveを確認して診断0件だった。VOICE／BGM／SEの既定音量0は維持する。
+
+`git diff --check`、変更テキストのUTF-8 BOMなし、ローカル絶対パス追加0件、括弧・構文、Git binary差分0件を確認した。学校Blender／GLB／全NavMesh／生成器／学校カタログhash／音声・画像バイナリの差分は0件で、`src/world/**`は許可済みの`stageDoorRuntime.ts`だけである。性能改善を計画どおり分割commitし、追加監査修正も独立commitへ収録した。本結果commitを含むbranchを一度だけpushし、local／origin／Pull Request #64 HEAD一致、PRのopen ready状態、base=`develop`、head=`codex/v2-t06-runtime-core`を確認する。review threadのresolve、merge、`develop`同期、worktree整理は行わない。通常プレイ用`http://127.0.0.1:5175/`は最新HEADのタイトル画面で継続起動する。
