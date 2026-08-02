@@ -588,3 +588,31 @@ Character Materialから`needDepthPrePass`を削除し、`forceDepthWrite`へ置
 - 5175番の通常Webは最新学校Stageでタイトルから`playing`へ遷移し、NPC 50／BIT 20を更新してRuntime例外0件だった。通常Electronは全13項目PASSし、Pointer Lock、G／N／H、Enterタイトル復帰、再開始、session root重複0、Audio BGM 1／SE 12／VOICE 58、Audio失敗0、console／renderer／unhandled rejection／load／process消失／unresponsive 0件を確認した。
 - T02／T04／T05／T06の一時fixtureサーバーだけを停止し、通常プレイ用`http://127.0.0.1:5175/`はPID 32016で継続起動した。全体計画・次タスク計画・branch戦略のB03-3D進捗同期は統合担当所有のため、今回のT06-1追加差分では編集していない。
 - 計画commit `1740ab4`、`origin/develop`統合commit `90a828f`、全荒れ版確認commit `92ae26f`を作成して既存branchへpushした。最初のpush後にlocal／origin／Pull Request #64 headが`92ae26f`で一致し、Pull Request #64はopen、ready、base=`develop`、head branch=`codex/v2-t06-runtime-core`を維持した。本結果記録commitも同じbranchへ追加pushし、最終remote head一致を再確認する。
+
+### 2026-08-02 T06-1 リファクタリング・性能改善計画
+
+#### プロンプト
+
+> 今回のこのプルリク内で実装した内容を、コードのリファクタリングや負荷をより軽減するための改善策といった観点で、修正の余地がないか探してください。見つかったらそのとおりに修正してください。
+>
+> PR #64のHEAD `8ecc53a`を基準に監査した結果、毎frameの重複計算・割り当てと、扉アニメーション中の空間索引再構築に修正余地が確認できた。既存ゲーム仕様を変えずに改善し、検証後に分割commitしてPR #64へpushする。
+>
+> 扉Runtimeでは、開閉途中の空間Collider再構築をやめ、動作開始・完了時だけ更新する。取っ手位置をキャッシュし、候補取得時の全扉行列再計算を除去する。NPC／BITでは人物・BIT・Rest Slotの空間索引、Character表示同期、Followerエレベーターsnapshot、BIT frame viewを共有する。Character、HUD、AudioではToRef、変更検知、immutable snapshot、空queue singletonを利用する。portraitとタイトル設定の重複処理を共通化する。通常・performance・stress・rampの荒れ状態は既定2へ戻し、`?roomVariantReview=all-disordered`指定時だけ全教室を荒れ状態10にする。
+>
+> 同じ99 NPC／50 BIT・seed・視点で修正前後を比較し、fixture、全typecheck、T02／T04／T05／T06 build、通常build、Web、Electron、テキスト・所有範囲監査を通す。分割commit後に`codex/v2-t06-runtime-core`へ一度pushし、local／origin／Pull Request #64 HEAD一致を確認する。review threadのresolve、merge、`develop`同期、worktree整理は行わない。
+
+#### ステップ
+
+- [x] 現行branch、remote、Pull Request #64、所有境界、既存検証証跡を再確認する
+- [ ] 修正前の99 NPC／50 BIT性能基準を同一seed・視点で記録する
+- [ ] 扉Runtimeの空間更新と取っ手候補取得を軽量化し、T04回帰を更新する
+- [ ] NPC／BITの空間索引、表示同期、Follower snapshot、frame view共有を実装し、T05回帰を更新する
+- [ ] Character、HUD、Audioの毎frame割り当てとDOM／Mesh更新を削減し、T06回帰を更新する
+- [ ] portrait資産カタログとタイトル設定root処理を共通化する
+- [ ] 荒れ状態を既定2へ戻し、明示的な全荒れ確認queryを追加する
+- [ ] 修正後性能、全fixture、typecheck、build、Web、Electron、配布テキスト、所有範囲を検証する
+- [ ] 実装結果と検証証跡を本計画へ反映し、分割commitをpushしてPull Request #64 HEAD一致を確認する
+
+#### 結果
+
+実装・検証中。学校Blender正本、GLB、生成器、全NavMesh、カタログhash、音声・画像バイナリは変更しない。既存のFollow、Alarm、視界、停止距離、扉安全退避、Character描画順、既定音量0などのゲーム仕様は維持する。
