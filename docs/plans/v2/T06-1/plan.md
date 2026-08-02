@@ -94,6 +94,27 @@
 > - 学校GLB、Blender、NavMesh、生成器、カタログhash、`src/world/**`、音声・画像バイナリは変更しない。VOICE／BGM／SEの既定音量0を維持する。
 > - T05／T06 fixture、型検査、build、Web、Electron、UTF-8 BOMなし、括弧・構文、ローカル絶対パス、所有外差分を検証する。計画、Portal、R、操作Feedback、Character割当・UI、検証結果の6単位にcommitし、全検証後に一度pushしてDraft PR #64を更新する。レビュー、merge、`develop`同期、worktree整理は行わない。
 
+### 2026-08-02 キャラクター画像Runtime前倒し・操作Feedback強化指示
+
+> 元のキャラクター画像ディレクトリを読み込み、プレイヤーとNPCへ反映する。画像が存在する場合でも、プレイヤーが組込みのデフォルトスプライトを明示的に選べる設定を追加する。
+>
+> ただし、Character ID割当から画像描画までを現在のT06-1 Runtimeへ自然に接続できる場合に限って今回実装し、不自然な依存や資産変更が必要なら将来タスクへ残す。
+>
+> C／E／Fの操作成功時に表示するターゲットFeedbackは現在の対象別色を維持しつつ、入力成功が視覚的に明確になるよう発光をさらに目立たせる。
+
+- 現行T06-1は既に全actorのCharacter割当とsession再生成を所有し、ローカル配布済み17キャラクター・各8状態の画像契約も揃っている。学校資産や後続Mission Runtimeへ依存せず接続できるため、Character画像Runtimeの主要範囲をT06-1へ前倒しする。
+- 「自キャラ」はランダム、組込みデフォルトスプライト、検出済み画像directoryを明示的に区別する。組込みデフォルトはプレイヤーだけを上書きし、NPCは全actor割当どおりの画像を使用する。画像directoryが0件の場合は全actorへ組込み表示を割り当てる。
+- NPCは状態連動billboard、プレイヤーは下向き時の一人称足元表示へ同じCharacter割当を使用する。同じ画像directoryのTexture／SpriteManagerはsession内で共有し、session破棄時に解放する。現行v2には鏡・反射カメラRuntimeがないため、鏡へのプレイヤー反映は今回新設せず後続の表示設計へ残す。
+- 画像バイナリと検証用junctionはGitへ追加しない。必須状態画像が欠けるdirectoryは組込み表示へ暗黙fallbackせず、画像契約違反として読込を失敗させる。
+- 旧I3／T06-5のうち、NPC状態別billboard、プレイヤー足元表示、組込み表示を今回へ前倒しする。I3／T06-5は現行v2にまだ存在しない鏡反射と表示仕上げへ縮小し、全体ロードマップ、次タスク計画、branch戦略、仕様書を同期する。T07ではCharacter表示を有効にした99 NPC条件の性能・回帰を維持する。
+
+### 2026-08-02 公開処刑プレイヤー射手の照準修正指示
+
+> プレイヤーが最後の未洗脳NPCを捕獲して公開処刑へ入った場合、プレイヤーが射手であるにもかかわらず画面へ照準が表示されない。公開処刑中にプレイヤーが射手となる構成では照準を表示する。
+
+- `execution`かつ`executionPlayerRole === "shooter"`では、プレイヤーの通常Character状態にかかわらず照準と左クリック案内を表示し、同じ条件で既存の公開処刑手動射撃へ配送する。
+- playerが処刑対象または観客の構成、`execution-complete`、通常`playing`の非gun状態では照準と射撃案内を表示しない。
+
 ## 目的
 
 既に実装済みの入力・状態・NPC指示・扉・学校動的Runtime APIを、学校バイナリへ触れず通常ゲーム入口へ接続する。F／E／C・G／N／H、候補表示、既定荒れ状態2、音声、水中速度50%、開始・破棄ライフサイクルを実プレイで成立させる。
@@ -105,7 +126,7 @@
 - 時間増援と開始地点に追従する出現禁止の最終統合。これらはT06-2が担当する。
 - 荒れ版教室の見た目・配置変更、タイトル画面の荒れ状態スライダー、T07性能最適化。
 - 今回明示された未洗脳NPCの自律視界探索と複数脅威回避は対象へ移す。洗脳済みプレイヤーを自律視認脅威へ加える変更は対象外とする。
-- Character画像の実描画。割当と保存済み自キャラ設定だけを今回作成し、NPC billboard、プレイヤー反射、一人称下半身、状態画像、組込み表示はI3相談後のT06-5へ残す。
+- 音声・画像バイナリの追加または変更。Character画像Runtimeはローカル配布済み素材の列挙と描画接続だけを対象とし、素材自体はGit管理対象へ追加しない。
 
 ## 依存と開始条件
 
@@ -208,6 +229,18 @@
 - [x] T05／T06 fixture、全typecheck／build、通常Web、Electron、配布テキスト、差分所有を検証する
 - [x] 実装結果と証跡を記録し、6commitを一度pushしてDraft PR #64を更新する
 
+### 2026-08-02 キャラクター画像Runtime前倒し・操作Feedback強化
+
+- [x] ローカル画像directory、状態画像、既存Character割当、NPC／プレイヤー描画経路を監査し、T06-1へ自然に接続できることを確認する
+- [x] ランダム／組込みデフォルト／固定directoryを区別する自キャラ設定を実装する
+- [x] 8状態画像を厳格に読込・共有・破棄するRuntime契約を実装する
+- [x] NPCへactor割当と状態に連動するCharacter billboardを接続し、同じdirectoryの描画資源を共有する
+- [x] プレイヤーへ同じactor割当を使う、下向き時の一人称足元表示を接続する
+- [x] F／E／C成功Feedbackの対象別色を維持し、拡大、輝度、外周発光を強化する
+- [x] プレイヤーが公開処刑の射手となる構成だけ照準・左クリック案内と既存手動射撃を有効にする
+- [x] T06 fixture、型検査、build、通常Web、Electronで画像、状態、組込み表示、Feedback、再生成・破棄を検証する
+- [x] 仕様書とロードマップを前倒し後の現行順序へ同期し、本計画へ結果と検証証跡を記録して対象差分をcommitする
+
 ## 完了条件
 
 - 通常ゲームでF／E／C・G／N／Hと候補表示が既存Runtime APIを通して動作する。
@@ -218,7 +251,10 @@
 - Rは公開処刑の進行中・完了後だけ有効で、同じ処刑シーンを再演する。Enterはゲーム開始後の全phaseでタイトルへ戻る。
 - F／E／C成功時だけ対象色の単発Feedbackが再生され、候補・Pointer Lock・sessionの消失後に残留しない。
 - Portal内Rest Slotで更新が停止せず、Portal以外のNavigation Area契約違反は引き続き例外になる。
-- タイトルの自キャラ／自ボイスは独立して保存され、全actorの明示割当がVOICE再生へ使われる。画像描画はT06-5まで追加しない。
+- タイトルの自キャラ／自ボイスは独立して保存され、ランダム／組込みデフォルト／固定directoryを区別できる。全actorの明示割当をVOICEとCharacter画像描画が共用する。
+- NPCは状態連動Character billboard、プレイヤーは下向き時の一人称足元表示を持ち、session再生成・破棄後に描画資源が残留しない。
+- F／E／C成功時の対象別色を維持しつつ、入力成功が明確に分かる強い発光を再生する。拒否、busy、同状態、候補なしでは発光しない。
+- 公開処刑中に`executionPlayerRole === "shooter"`なら通常Character状態にかかわらず照準と左クリック案内が表示され、観客・処刑対象・完了後には表示されない。
 
 ## 次タスク開始用プロンプト
 
@@ -351,3 +387,23 @@ NPC候補は`none`／`leave`を水色、`follow`を黄緑、扉候補を黄色�
 - `git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、括弧・構文を確認した。学校Blender正本、GLB、生成器、全NavMesh、カタログhash、`src/world/**`、音声・画像バイナリの差分は0件だった。`public/picture`は実ブラウザ／Electron検証用のignored junctionだけをローカル共有し、commit対象に含めていない。
 
 実装を「計画」「Portal」「R」「操作Feedback」「Character割当・UI」「検証結果」の6commitへ分割し、全検証後に`codex/v2-t06-runtime-core`を一度pushしてDraft Pull Request #64へ結果、対象外、T06-5への引き渡しを反映した。レビュー、merge、`develop`同期、worktree整理は行わない。
+
+### 2026-08-02 キャラクター画像Runtime前倒し・操作Feedback強化結果
+
+後続指示により、前節でT06-5へ残していた基本Character画像描画をT06-1へ前倒しした。ローカル配布済みの17 Character directoryから`normal`、`evade`、`hit-a`、`hit-b`、`bw-in-progress`、`bw-complete-gun`、`bw-complete-no-gun`、`bw-complete-pose`の8状態を厳格に解決し、directory単位の共有SpriteManagerへ横8cellのsheetとして接続した。状態欠落・同名拡張子重複・未割当actorは契約エラーとし、session破棄時に個別Sprite、共有SpriteManager、Texture、Blob URLを順に解放する。
+
+全NPCは既存のactor Character割当を使う状態連動billboardへ置き換え、画像ごとの縦横比と足元基準を維持した。プレイヤーも同じ割当を使い、視線が下向き55度を超えると足元画像が滑らかに現れ、真下で完全表示される。一人称表示は公開処刑の配置変更直後も更新直前の実プレイヤー足元座標へ同期する。現行V2には鏡・反射camera Runtimeがないため、鏡反射、一人称下半身の仕上げ、状態別表示の追加相談はI3／T06-5へ残した。
+
+タイトルの「自キャラ」は、既定のランダム選択、ローカル画像が存在していても選べる組込み「デフォルトスプライト」、固定Character directoryを区別して保存する。組込みdefault指定はプレイヤーだけを上書きし、NPCは明示割当済みの実画像を維持する。ローカル画像が0件なら従来どおり全actorを組込みdefaultへ割り当て、自キャラselectは表示しない。画像バイナリと検証用junctionはGit差分へ含めていない。
+
+F／E／C成功時の180ms Feedbackは対象別色を維持したまま、中間点を`scale(1.35)`、`brightness(2.8)`、二重外周光、3px outlineへ強化した。公開処刑中にプレイヤーが射手である場合はCharacter状態に依存せず中央照準と左クリック射撃案内を表示し、既存の手動処刑光線へ同じ判定を接続した。処刑対象、観客、処刑完了後、Pointer Lock解除中には表示しない。
+
+最終検証結果は次のとおり。
+
+- T06専用実ブラウザfixtureは51／51 PASS。Character画像8状態、欠落・重複拒否、状態cell、組込みdefault、55度／72.5度／真下の一人称表示、公開処刑射手だけの照準、F／E／C成功Feedbackと拒否時0回、session購読残留0件を確認した。
+- 通常Webは`http://127.0.0.1:5175/`で17種類の実Character画像がNPCへ表示されること、「自キャラ」のランダム／デフォルト／17 directory、デフォルト選択のsession再生成後保持、ランダムへの復帰を確認した。
+- Electron受入は全13項目PASS。Canvas開始とPointer Lock、洗脳状態遷移、G→N→H→G、gun射撃、N移動、H停止、通常R無効、Enter復帰、再開始、session所有root各1件、BGM 1件・SE 12件・VOICE 57件の読込を確認した。音声resource失敗、console warning／error、renderer例外、unhandled rejection、load error、render process消失、unresponsiveはすべて0件だった。
+- `typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t04`、`build:t05`、`build:t06`、通常`build`はすべてPASSした。通常buildの既知Vite chunk-size warning以外に失敗はない。
+- `git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、禁止所有ファイル差分なしを確認した。学校Blender正本、GLB、生成器、全NavMesh、カタログhash、`src/world/**`は変更していない。
+
+基本Character画像はT06-1の現行仕様とし、I3／T06-5は反射・表示仕上げへ縮小した。Runtime、HUD、fixture差分は`8b3d0f2 feat(v2): Character画像をRuntimeへ接続`としてローカルcommitした。今回の追加差分はローカルcommitまでを対象とし、push、Draft Pull Request #64更新、レビュー、merge、`develop`同期、worktree整理は行わない。
