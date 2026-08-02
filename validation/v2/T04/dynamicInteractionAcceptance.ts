@@ -435,6 +435,7 @@ export const runDynamicInteractionAcceptance =
         options
       );
       const initial = doorRuntime.getSnapshot();
+      const initialSpatial = doorRuntime.getSpatialSnapshot();
       const candidates = doorRuntime.getDoorInteractionCandidates({
         origin: Vector3.Zero(),
         forward: Vector3.Forward()
@@ -480,10 +481,20 @@ export const runDynamicInteractionAcceptance =
       doorRuntime.update(0.4);
       const halfway = doorRuntime.getDoorState("room-front");
       const halfwayPanelX = doors[0].panels[0].node.position.x;
+      const halfwayCandidate =
+        doorRuntime.getDoorInteractionCandidates({
+          origin: Vector3.Zero(),
+          forward: Vector3.Forward()
+        }).find((candidate) => candidate.door.id === "room-front");
       const doorHalfwaySpatial = doorRuntime.getSpatialSnapshot();
       doorRuntime.update(0.4);
       const opened = doorRuntime.getDoorState("room-front");
       const openedPanelX = doors[0].panels[0].node.position.x;
+      const openedCandidate =
+        doorRuntime.getDoorInteractionCandidates({
+          origin: Vector3.Zero(),
+          forward: Vector3.Forward()
+        }).find((candidate) => candidate.door.id === "room-front");
       const openedSpatial = doorRuntime.getSpatialSnapshot();
       checks.push({
         name: "通常扉0.8秒と移動中遮蔽解除",
@@ -495,16 +506,23 @@ export const runDynamicInteractionAcceptance =
           movingSpatial.beamBlockers.length === 3 &&
           movingSpatial.sightBlockers.length === 3 &&
           movingSpatial.bitObstacles.length === 3 &&
+          movingSpatial.revision > initialSpatial.revision &&
           openingDoorBeamHit === null &&
           halfway.state === "opening" &&
           Math.abs(halfway.openness - 0.5) < 1e-9 &&
           Math.abs(halfwayPanelX - 0.1) < 1e-9 &&
-          doorHalfwaySpatial.revision > movingSpatial.revision &&
+          Math.abs(
+            (halfwayCandidate?.interactionPosition.x ?? Number.NaN) - 0.1
+          ) < 1e-7 &&
+          doorHalfwaySpatial.revision === movingSpatial.revision &&
           opened.state === "open" &&
           Math.abs(openedPanelX - 0.2) < 1e-9 &&
+          Math.abs(
+            (openedCandidate?.interactionPosition.x ?? Number.NaN) - 0.2
+          ) < 1e-7 &&
           openedSpatial.activePanelColliders.length === 4 &&
           openedSpatial.revision > doorHalfwaySpatial.revision,
-        detail: `moving=${movingSpatial.activePanelColliders.length} / half=${halfway.openness}:${halfwayPanelX} / final=${opened.state}:${openedPanelX} / revision=${movingSpatial.revision}->${doorHalfwaySpatial.revision}->${openedSpatial.revision}`
+        detail: `moving=${movingSpatial.activePanelColliders.length} / half=${halfway.openness}:${halfwayPanelX}:${halfwayCandidate?.interactionPosition.x ?? "none"} / final=${opened.state}:${openedPanelX}:${openedCandidate?.interactionPosition.x ?? "none"} / revision=${initialSpatial.revision}->${movingSpatial.revision}->${doorHalfwaySpatial.revision}->${openedSpatial.revision}`
       });
 
       const closing = doorRuntime.requestDoorToggle("room-front");
@@ -522,11 +540,13 @@ export const runDynamicInteractionAcceptance =
         ok:
           closing.status === "started" &&
           busyClosing.status === "busy" &&
+          closingSpatial.revision > openedSpatial.revision &&
           closingSpatial.activePanelColliders.length === 3 &&
           resolvedClosingDoorIds.join(",") === "room-front" &&
           doorRuntime.getDoorState("room-front").state === "closed" &&
           doors[0].panels[0].node.position.x === 0 &&
           closedSpatial.activePanelColliders.length === 4 &&
+          closedSpatial.revision > closingSpatial.revision &&
           closedDoorBeamHit?.mesh ===
             doors[0].panels[0].colliderMeshes[0],
         detail: `closing=${closing.status}/${busyClosing.status}:${closingSpatial.activePanelColliders.length} / resolved=${resolvedClosingDoorIds.join(",")} / final=${doorRuntime.getDoorState("room-front").state}:${closedSpatial.activePanelColliders.length}`

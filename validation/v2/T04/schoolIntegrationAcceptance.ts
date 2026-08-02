@@ -3843,7 +3843,8 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
         (sample, index) =>
           sample.ok &&
           sample.revision ===
-            doorCycleSpatial[0].revision + index
+            doorCycleSpatial[0].revision +
+              ([0, 1, 1, 2, 3, 3, 4] as const)[index]
       ),
       doorCycleSpatial
         .map(

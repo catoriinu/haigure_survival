@@ -605,7 +605,7 @@ Character Materialから`needDepthPrePass`を削除し、`forceDepthWrite`へ置
 
 - [x] 現行branch、remote、Pull Request #64、所有境界、既存検証証跡を再確認する
 - [ ] 修正前の99 NPC／50 BIT性能基準を同一seed・視点で記録する
-- [ ] 扉Runtimeの空間更新と取っ手候補取得を軽量化し、T04回帰を更新する
+- [x] 扉Runtimeの空間更新と取っ手候補取得を軽量化し、T04回帰を更新する
 - [ ] NPC／BITの空間索引、表示同期、Follower snapshot、frame view共有を実装し、T05回帰を更新する
 - [ ] Character、HUD、Audioの毎frame割り当てとDOM／Mesh更新を削減し、T06回帰を更新する
 - [ ] portrait資産カタログとタイトル設定root処理を共通化する
@@ -615,4 +615,4 @@ Character Materialから`needDepthPrePass`を削除し、`forceDepthWrite`へ置
 
 #### 結果
 
-実装・検証中。学校Blender正本、GLB、生成器、全NavMesh、カタログhash、音声・画像バイナリは変更しない。既存のFollow、Alarm、視界、停止距離、扉安全退避、Character描画順、既定音量0などのゲーム仕様は維持する。
+実装・検証中。扉は開閉開始・完了時だけspatial revisionを更新し、途中frameでは空間索引を再構築しない。取っ手world位置を扉Transform変更時だけ更新するcacheへ移し、候補取得時の全Anchor行列再計算を除去した。`typecheck:t04`とT04実ブラウザfixture 115／115はPASSし、console warning／errorは0件だった。学校Blender正本、GLB、生成器、全NavMesh、カタログhash、音声・画像バイナリは変更しない。既存のFollow、Alarm、視界、停止距離、扉安全退避、Character描画順、既定音量0などのゲーム仕様は維持する。

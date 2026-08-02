@@ -120,9 +120,21 @@ export interface StageDoorRuntime {
 
 type MutableDoorState = {
   readonly door: StageDoorAsset;
+  readonly interactionAnchors: readonly MutableDoorInteractionAnchor[];
   state: DoorState;
   openness: number;
 };
+
+type MutableDoorInteractionAnchor = {
+  readonly panelId: string;
+  readonly mesh: Mesh;
+  readonly position: Vector3;
+};
+
+type DoorInteractionSource = Readonly<{
+  door: StageDoorAsset;
+  interactionAnchors: readonly MutableDoorInteractionAnchor[];
+}>;
 
 const assertFiniteVector = (name: string, value: Vector3): void => {
   if (
@@ -155,26 +167,28 @@ export const applyStageDoorPanelOpenness = (
   panel: StageDoorPanelAsset,
   openness: number
 ): void => {
-  const position = Vector3.Lerp(
+  Vector3.LerpToRef(
     panel.closedTransform.position,
     panel.openTransform.position,
-    openness
+    openness,
+    panel.node.position
   );
-  const scaling = Vector3.Lerp(
+  Vector3.LerpToRef(
     panel.closedTransform.scaling,
     panel.openTransform.scaling,
-    openness
+    openness,
+    panel.node.scaling
   );
-  const rotation = Quaternion.Slerp(
+  const rotation =
+    panel.node.rotationQuaternion ?? Quaternion.Identity();
+  Quaternion.SlerpToRef(
     panel.closedTransform.rotation,
     panel.openTransform.rotation,
-    openness
-  ).normalize();
-  panel.node.position.copyFrom(position);
-  panel.node.scaling.copyFrom(scaling);
-  if (panel.node.rotationQuaternion) {
-    panel.node.rotationQuaternion.copyFrom(rotation);
-  } else {
+    openness,
+    rotation
+  );
+  rotation.normalize();
+  if (!panel.node.rotationQuaternion) {
     panel.node.rotationQuaternion = rotation;
   }
   panel.node.computeWorldMatrix(true);
@@ -230,10 +244,9 @@ export const intersectsStageDoorClosedPose = (
 const isStable = (state: DoorState): boolean =>
   state === "closed" || state === "open";
 
-const getDoorInteractionPosition = (
-  door: StageDoorAsset,
-  viewOrigin: Vector3
-): Vector3 => {
+const createDoorInteractionAnchors = (
+  door: StageDoorAsset
+): readonly MutableDoorInteractionAnchor[] => {
   const anchors = door.panels.map((panel) => {
     const anchor = panel.interactionAnchorMesh;
     if (!anchor) {
@@ -241,28 +254,61 @@ const getDoorInteractionPosition = (
         `通常扉の操作Anchorがありません: ${door.id}/${panel.id}`
       );
     }
-    anchor.computeWorldMatrix(true);
-    return Object.freeze({
+    return {
       panelId: panel.id,
-      position:
-        anchor.getBoundingInfo().boundingBox.centerWorld.clone()
-    });
+      mesh: anchor,
+      position: Vector3.Zero()
+    };
   });
-  anchors.sort(
-    (left, right) =>
-      Vector3.DistanceSquared(left.position, viewOrigin) -
-        Vector3.DistanceSquared(right.position, viewOrigin) ||
-      (left.panelId < right.panelId
-        ? -1
-        : left.panelId > right.panelId
-          ? 1
-          : 0)
-  );
-  return anchors[0].position;
+  for (const anchor of anchors) {
+    anchor.mesh.computeWorldMatrix(true);
+    anchor.position.copyFrom(
+      anchor.mesh.getBoundingInfo().boundingBox.centerWorld
+    );
+  }
+  return Object.freeze(anchors);
 };
 
-export const getDoorInteractionCandidates = (
-  doors: readonly StageDoorAsset[],
+const refreshDoorInteractionAnchors = (
+  runtimeState: MutableDoorState
+): void => {
+  for (const anchor of runtimeState.interactionAnchors) {
+    anchor.mesh.computeWorldMatrix(true);
+    anchor.position.copyFrom(
+      anchor.mesh.getBoundingInfo().boundingBox.centerWorld
+    );
+  }
+};
+
+const getClosestDoorInteractionPosition = (
+  anchors: readonly MutableDoorInteractionAnchor[],
+  viewOrigin: Vector3
+): Vector3 => {
+  let closest = anchors[0]!;
+  let closestDistanceSquared = Vector3.DistanceSquared(
+    closest.position,
+    viewOrigin
+  );
+  for (let index = 1; index < anchors.length; index += 1) {
+    const candidate = anchors[index]!;
+    const distanceSquared = Vector3.DistanceSquared(
+      candidate.position,
+      viewOrigin
+    );
+    if (
+      distanceSquared < closestDistanceSquared ||
+      (distanceSquared === closestDistanceSquared &&
+        candidate.panelId < closest.panelId)
+    ) {
+      closest = candidate;
+      closestDistanceSquared = distanceSquared;
+    }
+  }
+  return closest.position;
+};
+
+const collectDoorInteractionCandidates = (
+  sources: readonly DoorInteractionSource[],
   view: StageDoorInteractionView
 ): readonly StageDoorInteractionCandidate[] => {
   assertFiniteVector("扉操作視点origin", view.origin);
@@ -271,18 +317,27 @@ export const getDoorInteractionCandidates = (
   if (forwardLengthSquared <= OPENNESS_EPSILON) {
     throw new Error("扉操作視点forwardは0以外が必要です");
   }
-  const forward = view.forward.scale(1 / Math.sqrt(forwardLengthSquared));
+  const inverseForwardLength = 1 / Math.sqrt(forwardLengthSquared);
+  const forwardX = view.forward.x * inverseForwardLength;
+  const forwardY = view.forward.y * inverseForwardLength;
+  const forwardZ = view.forward.z * inverseForwardLength;
+  const maximumDistanceSquared =
+    STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS ** 2;
   const candidates: StageDoorInteractionCandidate[] = [];
-  for (const door of doors) {
-    const position = getDoorInteractionPosition(door, view.origin);
-    const offset = position.subtract(view.origin);
-    const distanceWorldUnits = offset.length();
-    if (
-      distanceWorldUnits >
-      STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS
-    ) {
+  for (const source of sources) {
+    const position = getClosestDoorInteractionPosition(
+      source.interactionAnchors,
+      view.origin
+    );
+    const offsetX = position.x - view.origin.x;
+    const offsetY = position.y - view.origin.y;
+    const offsetZ = position.z - view.origin.z;
+    const distanceSquared =
+      offsetX * offsetX + offsetY * offsetY + offsetZ * offsetZ;
+    if (distanceSquared > maximumDistanceSquared) {
       continue;
     }
+    const distanceWorldUnits = Math.sqrt(distanceSquared);
     const angleRadians =
       distanceWorldUnits <= OPENNESS_EPSILON
         ? 0
@@ -291,16 +346,16 @@ export const getDoorInteractionCandidates = (
               -1,
               Math.min(
                 1,
-                Vector3.Dot(
-                  forward,
-                  offset.scale(1 / distanceWorldUnits)
-                )
+                (forwardX * offsetX +
+                  forwardY * offsetY +
+                  forwardZ * offsetZ) /
+                  distanceWorldUnits
               )
             )
           );
     candidates.push(
       Object.freeze({
-        door,
+        door: source.door,
         interactionPosition: position.clone(),
         angleRadians,
         distanceMeters:
@@ -320,6 +375,18 @@ export const getDoorInteractionCandidates = (
   );
   return Object.freeze(candidates);
 };
+
+export const getDoorInteractionCandidates = (
+  doors: readonly StageDoorAsset[],
+  view: StageDoorInteractionView
+): readonly StageDoorInteractionCandidate[] =>
+  collectDoorInteractionCandidates(
+    doors.map((door) => ({
+      door,
+      interactionAnchors: createDoorInteractionAnchors(door)
+    })),
+    view
+  );
 
 class StageDoorRuntimeImplementation implements StageDoorRuntime {
   private readonly states: MutableDoorState[];
@@ -362,7 +429,12 @@ class StageDoorRuntimeImplementation implements StageDoorRuntime {
         state = startsClosed ? "closed" : "open";
       }
       applyDoorTransform(door, openness);
-      states.push({ door, state, openness });
+      states.push({
+        door,
+        interactionAnchors: createDoorInteractionAnchors(door),
+        state,
+        openness
+      });
     }
     this.states = states;
     this.byId = new Map(states.map((state) => [state.door.id, state]));
@@ -399,10 +471,7 @@ class StageDoorRuntimeImplementation implements StageDoorRuntime {
     view: StageDoorInteractionView
   ): readonly StageDoorInteractionCandidate[] {
     this.assertAlive();
-    return getDoorInteractionCandidates(
-      this.states.map((state) => state.door),
-      view
-    );
+    return collectDoorInteractionCandidates(this.states, view);
   }
 
   requestDoorToggle(doorId: string): StageDoorToggleResult {
@@ -419,7 +488,8 @@ class StageDoorRuntimeImplementation implements StageDoorRuntime {
     }
     if (runtimeState.state === "closed") {
       runtimeState.state = "opening";
-      this.publish(false);
+      this.publishRuntimeSnapshot();
+      this.publishSpatialSnapshot(false);
       return Object.freeze({
         status: "started",
         state: "opening"
@@ -427,7 +497,8 @@ class StageDoorRuntimeImplementation implements StageDoorRuntime {
     }
 
     runtimeState.state = "closing";
-    this.publish(false);
+    this.publishRuntimeSnapshot();
+    this.publishSpatialSnapshot(false);
     return Object.freeze({
       status: "started",
       state: "closing"
@@ -441,6 +512,7 @@ class StageDoorRuntimeImplementation implements StageDoorRuntime {
     }
     let changed = false;
     let transformsChanged = false;
+    let spatialMembershipChanged = false;
     for (const runtimeState of this.states) {
       if (
         runtimeState.state !== "opening" &&
@@ -463,6 +535,7 @@ class StageDoorRuntimeImplementation implements StageDoorRuntime {
       ) {
         runtimeState.openness = nextOpenness;
         applyDoorTransform(runtimeState.door, nextOpenness);
+        refreshDoorInteractionAnchors(runtimeState);
         changed = true;
         transformsChanged = true;
       }
@@ -473,6 +546,7 @@ class StageDoorRuntimeImplementation implements StageDoorRuntime {
         runtimeState.openness = 1;
         runtimeState.state = "open";
         changed = true;
+        spatialMembershipChanged = true;
       } else if (
         runtimeState.state === "closing" &&
         runtimeState.openness <= OPENNESS_EPSILON
@@ -483,10 +557,14 @@ class StageDoorRuntimeImplementation implements StageDoorRuntime {
         );
         runtimeState.state = "closed";
         changed = true;
+        spatialMembershipChanged = true;
       }
     }
     if (changed) {
-      this.publish(transformsChanged);
+      this.publishRuntimeSnapshot();
+    }
+    if (spatialMembershipChanged) {
+      this.publishSpatialSnapshot(transformsChanged);
     }
     return Object.freeze({
       changed,
@@ -501,6 +579,7 @@ class StageDoorRuntimeImplementation implements StageDoorRuntime {
       return;
     }
     const revision = this.currentSnapshot.revision;
+    const spatialRevision = this.currentSpatialSnapshot.revision;
     this.states.length = 0;
     this.byId.clear();
     this.options = null;
@@ -510,7 +589,7 @@ class StageDoorRuntimeImplementation implements StageDoorRuntime {
     });
     const emptyColliders = Object.freeze([]);
     this.currentSpatialSnapshot = Object.freeze({
-      revision,
+      revision: spatialRevision,
       transformsChanged: false,
       activePanelColliders: emptyColliders,
       movementColliders: Object.freeze({
@@ -540,9 +619,13 @@ class StageDoorRuntimeImplementation implements StageDoorRuntime {
     return state;
   }
 
-  private publish(transformsChanged: boolean): void {
+  private publishRuntimeSnapshot(): void {
     const revision = this.currentSnapshot.revision + 1;
     this.currentSnapshot = this.createSnapshot(revision);
+  }
+
+  private publishSpatialSnapshot(transformsChanged: boolean): void {
+    const revision = this.currentSpatialSnapshot.revision + 1;
     this.currentSpatialSnapshot = this.createSpatialSnapshot(
       revision,
       transformsChanged
