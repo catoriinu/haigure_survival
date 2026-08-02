@@ -123,6 +123,9 @@ export const V2_NPC_COMMAND_MAXIMUM_DISTANCE_METERS = 2;
 export const V2_NPC_FOLLOW_SPEED = 0.5;
 export const V2_NPC_LEAVE_SPEED = NPC_CHASE_SPEED;
 export const V2_NPC_FOLLOW_SEPARATION_METERS = 0.8;
+export const V2_NPC_REST_SEPARATION_METERS = 0.8;
+export const V2_NPC_GUN_STOP_DISTANCE_METERS = 0.8;
+export const V2_NPC_GUN_RESUME_DISTANCE_METERS = 1;
 export const V2_NPC_FOLLOW_STOP_DISTANCE_METERS = 1;
 export const V2_NPC_FOLLOW_RESUME_DISTANCE_METERS = 1.2;
 export const V2_NPC_FOLLOW_TRACKING_DISTANCE_METERS = 5;
@@ -160,6 +163,20 @@ const NPC_COMMAND_MAXIMUM_DISTANCE =
   BLENDER_METERS_TO_WORLD_UNITS;
 const NPC_FOLLOW_SEPARATION_DISTANCE =
   V2_NPC_FOLLOW_SEPARATION_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_REST_SEPARATION_DISTANCE =
+  V2_NPC_REST_SEPARATION_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_GUN_STOP_DISTANCE =
+  V2_NPC_GUN_STOP_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_GUN_RESUME_DISTANCE =
+  V2_NPC_GUN_RESUME_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_GUN_REPOSITION_DISTANCE =
+  NPC_GUN_RESUME_DISTANCE - NPC_GUN_STOP_DISTANCE;
+const NPC_REST_SLOT_PROJECTION_DISTANCE =
+  0.2 * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_REST_SLOT_ARRIVAL_DISTANCE =
+  0.1 * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_REST_SLOT_RING_COUNT = 8;
+const NPC_REST_SLOT_BASE_COUNT = 6;
 const NPC_FOLLOW_FORMATION_PROJECTION_DISTANCE =
   0.2 * BLENDER_METERS_TO_WORLD_UNITS;
 const NPC_FOLLOW_FORMATION_STOP_DISTANCE =
@@ -495,6 +512,11 @@ type NpcRuntime = {
   lastState: V2CharacterState;
   wanderDestination: NavigationLocation | null;
   wanderWaitSeconds: number;
+  restSlot: NavigationLocation | null;
+  restSlotAreaId: string | null;
+  restSlotKey: string | null;
+  restSlotReferenceDistance: number;
+  resting: boolean;
   targetId: string | null;
   targetProvenance: V2TargetProvenance | null;
   targetSelectionPersonality: V2TargetSelectionPersonality | null;
@@ -835,6 +857,16 @@ const createFollowerFormationOffset = (npcId: string) => {
   );
 };
 
+const createNpcRestSlotAngle = (npcId: string) => {
+  let state = 0x811c9dc5;
+  const domain = `${npcId}:rest-slot`;
+  for (let index = 0; index < domain.length; index += 1) {
+    state ^= domain.charCodeAt(index);
+    state = Math.imul(state, 0x01000193);
+  }
+  return ((state >>> 0) / 0x1_0000_0000) * Math.PI * 2;
+};
+
 const createNpcCommandRuntime = (
   npcId: string,
   sessionEntropy: number
@@ -1129,6 +1161,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           lastState: initialState,
           wanderDestination: null,
           wanderWaitSeconds: this.nextWanderWait(),
+          restSlot: null,
+          restSlotAreaId: null,
+          restSlotKey: null,
+          restSlotReferenceDistance: 0,
+          resting: false,
           targetId: null,
           targetProvenance: null,
           targetSelectionPersonality: isCompletedBrainwashState(
@@ -1463,7 +1500,12 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         personalityRetargetNpcIds.has(npc.id)
       );
       if (!target) {
-        this.clearNavigationAgent(npc);
+        this.updateSearchingNpc(
+          npc,
+          playerFrameTarget,
+          deltaSeconds,
+          this.hasReplanPermission(npcIndex)
+        );
         continue;
       }
 
@@ -1482,6 +1524,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         this.updateGunNpc(
           npc,
           target,
+          playerFrameTarget,
           deltaSeconds,
           this.hasReplanPermission(npcIndex)
         );
@@ -1524,6 +1567,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       if (capturedTargetIds.has(npc.id)) {
         this.clearNavigationAgent(npc);
         npc.wanderDestination = null;
+        this.clearRestSlot(npc);
         continue;
       }
       if (threatened) {
@@ -1538,8 +1582,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           this.hasReplanPermission(npcIndex)
         );
       } else {
-        this.updateNormalNpc(
+        this.updateSearchingNpc(
           npc,
+          playerFrameTarget,
           deltaSeconds,
           this.hasReplanPermission(npcIndex)
         );
@@ -2419,6 +2464,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       this.relocateNavigationAreaCursor(npc);
       npc.wanderDestination = null;
       npc.wanderWaitSeconds = this.nextWanderWait();
+      this.clearRestSlot(npc);
       npc.alarmTargetQueue.length = 0;
       npc.capture = null;
       npc.breakawayRemainingSeconds = 0;
@@ -3591,6 +3637,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.breakawayRemainingSeconds = 0;
     npc.breakawayDestination = null;
     npc.wanderDestination = null;
+    this.clearRestSlot(npc);
     this.removePendingRequestsForNpc(npc.id);
     this.clearTarget(npc);
     this.releaseCapturesForTarget(npc.id);
@@ -3969,6 +4016,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (previousState === currentState) {
       return;
     }
+    this.clearRestSlot(npc);
     if (
       currentState !== "brainwash-complete-gun" &&
       currentState !== "brainwash-complete-no-gun"
@@ -4302,9 +4350,264 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     return true;
   }
 
+  private horizontalDistance(left: Vector3, right: Vector3) {
+    return Math.hypot(left.x - right.x, left.z - right.z);
+  }
+
+  private clearRestSlot(npc: NpcRuntime) {
+    npc.restSlot = null;
+    npc.restSlotAreaId = null;
+    npc.restSlotKey = null;
+    npc.restSlotReferenceDistance = 0;
+    npc.resting = false;
+  }
+
+  private isNpcStoppedForRestSeparation(npc: NpcRuntime) {
+    return (
+      isStoppedState(npc.stateSnapshot.state) ||
+      npc.capture !== null ||
+      npc.command.followMovementStopped ||
+      (npc.command.mode === "none" && npc.navigationAgentCleared) ||
+      !isV2NpcTraversalWalkingEnabled(npc.traversalState)
+    );
+  }
+
+  private isRestSlotAvailable(
+    npc: NpcRuntime,
+    position: Vector3,
+    areaId: string,
+    playerTarget: V2HumanTargetSnapshot
+  ) {
+    const playerArea = this.resolveTargetNavigationArea(playerTarget);
+    if (
+      playerArea.areaId === areaId &&
+      this.horizontalDistance(position, playerTarget.footPosition) <
+        NPC_REST_SEPARATION_DISTANCE - NPC_COMMAND_DISTANCE_EPSILON
+    ) {
+      return false;
+    }
+    for (const other of this.npcs) {
+      if (other.id === npc.id || !other.sprite.isVisible) {
+        continue;
+      }
+      let occupiedPosition: Vector3 | null = null;
+      if (other.restSlot && other.restSlotAreaId === areaId) {
+        occupiedPosition = other.restSlot.position;
+      } else if (
+        other.pursuitActorAreaCursor.areaId === areaId &&
+        this.isNpcStoppedForRestSeparation(other)
+      ) {
+        occupiedPosition = other.footPosition;
+      }
+      if (
+        occupiedPosition &&
+        this.horizontalDistance(position, occupiedPosition) <
+          NPC_REST_SEPARATION_DISTANCE - NPC_COMMAND_DISTANCE_EPSILON
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private reserveRestSlot(
+    npc: NpcRuntime,
+    slot: NavigationLocation,
+    areaId: string,
+    key: string,
+    referencePosition: Vector3
+  ) {
+    npc.restSlot = cloneNavigationLocation(slot);
+    npc.restSlotAreaId = areaId;
+    npc.restSlotKey = key;
+    npc.restSlotReferenceDistance = this.horizontalDistance(
+      slot.position,
+      referencePosition
+    );
+    npc.resting = false;
+    return cloneNavigationLocation(slot);
+  }
+
+  private selectRestSlot(
+    npc: NpcRuntime,
+    center: Vector3,
+    areaId: string,
+    key: string,
+    playerTarget: V2HumanTargetSnapshot,
+    minimumCenterDistance: number,
+    maximumCenterDistance: number
+  ) {
+    const tryCandidate = (candidate: Vector3) => {
+      const projected = this.stage.navigation.projectPoint(
+        candidate,
+        NPC_REST_SLOT_PROJECTION_DISTANCE
+      );
+      if (
+        !projected ||
+        Vector3.Distance(projected.position, candidate) >
+          NPC_REST_SLOT_PROJECTION_DISTANCE ||
+        this.stage.navigationAreas.locate(projected.position).areaId !==
+          areaId
+      ) {
+        return null;
+      }
+      const centerDistance = this.horizontalDistance(
+        projected.position,
+        center
+      );
+      if (
+        centerDistance + NPC_COMMAND_DISTANCE_EPSILON <
+          minimumCenterDistance ||
+        centerDistance >
+          maximumCenterDistance + NPC_COMMAND_DISTANCE_EPSILON ||
+        !this.isRestSlotAvailable(
+          npc,
+          projected.position,
+          areaId,
+          playerTarget
+        )
+      ) {
+        return null;
+      }
+      return cloneNavigationLocation(projected);
+    };
+
+    if (minimumCenterDistance === 0) {
+      const centered = tryCandidate(center);
+      if (centered) {
+        return this.reserveRestSlot(
+          npc,
+          centered,
+          areaId,
+          key,
+          center
+        );
+      }
+    }
+
+    const angleOffset = createNpcRestSlotAngle(npc.id);
+    const firstRing = Math.max(
+      1,
+      Math.ceil(
+        (minimumCenterDistance - NPC_COMMAND_DISTANCE_EPSILON) /
+          NPC_REST_SEPARATION_DISTANCE
+      )
+    );
+    for (
+      let ring = firstRing;
+      ring <= NPC_REST_SLOT_RING_COUNT;
+      ring += 1
+    ) {
+      const radius = ring * NPC_REST_SEPARATION_DISTANCE;
+      if (
+        radius >
+        maximumCenterDistance + NPC_COMMAND_DISTANCE_EPSILON
+      ) {
+        break;
+      }
+      const candidateCount = NPC_REST_SLOT_BASE_COUNT * ring;
+      let selected: NavigationLocation | null = null;
+      let selectedDistance = Number.POSITIVE_INFINITY;
+      let selectedOrder = Number.POSITIVE_INFINITY;
+      for (
+        let sourceOrder = 0;
+        sourceOrder < candidateCount;
+        sourceOrder += 1
+      ) {
+        const angle =
+          angleOffset +
+          (sourceOrder / candidateCount) * Math.PI * 2;
+        const candidate = new Vector3(
+          center.x + Math.cos(angle) * radius,
+          center.y,
+          center.z + Math.sin(angle) * radius
+        );
+        const projected = tryCandidate(candidate);
+        if (!projected) {
+          continue;
+        }
+        const distance = this.horizontalDistance(
+          npc.footPosition,
+          projected.position
+        );
+        if (
+          distance <
+            selectedDistance - NPC_COMMAND_DISTANCE_EPSILON ||
+          (Math.abs(distance - selectedDistance) <=
+            NPC_COMMAND_DISTANCE_EPSILON &&
+            sourceOrder < selectedOrder)
+        ) {
+          selected = projected;
+          selectedDistance = distance;
+          selectedOrder = sourceOrder;
+        }
+      }
+      if (selected) {
+        return this.reserveRestSlot(
+          npc,
+          selected,
+          areaId,
+          key,
+          center
+        );
+      }
+    }
+    return null;
+  }
+
+  private resolveGunRestSlot(
+    npc: NpcRuntime,
+    target: V2HumanTargetSnapshot,
+    playerTarget: V2HumanTargetSnapshot
+  ) {
+    const targetArea = this.resolveTargetNavigationArea(target);
+    const key =
+      `gun:${target.id}:${targetArea.areaId}:` +
+      `${targetArea.revision}`;
+    let resumeFromExistingSlot = false;
+    if (
+      npc.restSlot &&
+      npc.restSlotAreaId === targetArea.areaId &&
+      npc.restSlotKey === key
+    ) {
+      const currentReferenceDistance = this.horizontalDistance(
+        npc.restSlot.position,
+        target.footPosition
+      );
+      if (
+        currentReferenceDistance <=
+        npc.restSlotReferenceDistance +
+          NPC_GUN_REPOSITION_DISTANCE +
+          NPC_COMMAND_DISTANCE_EPSILON
+      ) {
+        return npc.restSlot;
+      }
+      resumeFromExistingSlot = true;
+    }
+    this.clearRestSlot(npc);
+    if (
+      npc.pursuitActorAreaCursor.areaId !== targetArea.areaId ||
+      (!resumeFromExistingSlot &&
+        this.horizontalDistance(npc.footPosition, target.footPosition) >
+          NPC_GUN_RESUME_DISTANCE + NPC_COMMAND_DISTANCE_EPSILON)
+    ) {
+      return null;
+    }
+    return this.selectRestSlot(
+      npc,
+      target.footPosition,
+      targetArea.areaId,
+      key,
+      playerTarget,
+      NPC_GUN_STOP_DISTANCE,
+      Number.POSITIVE_INFINITY
+    );
+  }
+
   private updateGunNpc(
     npc: NpcRuntime,
     target: V2HumanTargetSnapshot,
+    playerTarget: V2HumanTargetSnapshot,
     deltaSeconds: number,
     allowPathRecalculation: boolean
   ) {
@@ -4312,6 +4615,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.targetProvenance === "visual" &&
       npc.gunVisualPursuitMode === "last-seen"
     ) {
+      this.clearRestSlot(npc);
       this.updateGunLastSeenPursuit(
         npc,
         deltaSeconds,
@@ -4319,15 +4623,50 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       );
       return;
     }
-    this.chaseTarget(
+    const restSlot = this.resolveGunRestSlot(
       npc,
       target,
-      deltaSeconds,
-      allowPathRecalculation
+      playerTarget
     );
+    if (
+      restSlot &&
+      this.horizontalDistance(npc.footPosition, restSlot.position) <=
+        NPC_REST_SLOT_ARRIVAL_DISTANCE
+    ) {
+      npc.resting = true;
+      if (!npc.navigationAgentCleared) {
+        this.clearNavigationAgent(npc);
+      }
+    } else {
+      npc.resting = false;
+      this.chaseTarget(
+        npc,
+        target,
+        deltaSeconds,
+        allowPathRecalculation,
+        restSlot?.position ?? null
+      );
+      if (
+        restSlot &&
+        this.horizontalDistance(npc.footPosition, restSlot.position) <=
+          NPC_REST_SLOT_ARRIVAL_DISTANCE
+      ) {
+        npc.resting = true;
+        if (!npc.navigationAgentCleared) {
+          this.clearNavigationAgent(npc);
+        }
+      }
+    }
     const origin = toAimPosition(npc.footPosition);
     const toTarget = target.aimPosition.subtract(origin);
     const distanceSquared = toTarget.lengthSquared();
+    const horizontalDirection = target.footPosition.subtract(
+      npc.footPosition
+    );
+    horizontalDirection.y = 0;
+    if (horizontalDirection.lengthSquared() > 0) {
+      npc.forward.copyFrom(horizontalDirection.normalize());
+    }
     if (
       distanceSquared === 0 ||
       distanceSquared > NPC_GUN_RANGE_SQUARED ||
@@ -4412,6 +4751,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     threatenedIds: Set<string>,
     threatSourcesByTargetId: NpcEvadeThreatsByTargetId
   ) {
+    this.clearRestSlot(npc);
     if (npc.alarmTargetQueue.length > 0) {
       this.chaseTarget(
         npc,
@@ -4460,7 +4800,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc: NpcRuntime,
     target: V2HumanTargetSnapshot,
     deltaSeconds: number,
-    allowPathRecalculation: boolean
+    allowPathRecalculation: boolean,
+    detailDestination: Vector3 | null = null
   ) {
     npc.wanderDestination = null;
     const targetArea = this.resolveTargetNavigationArea(target);
@@ -4529,9 +4870,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       }
     }
     const destination =
-      npc.pursuitPhase === "detail"
+      detailDestination ??
+      (npc.pursuitPhase === "detail"
         ? target.footPosition
-        : npc.pursuitAnchor;
+        : npc.pursuitAnchor);
     const movement = this.updateNavigation(
       npc,
       "pursue",
@@ -4544,15 +4886,22 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.applyNavigationMovement(npc, movement.location);
   }
 
-  private updateNormalNpc(
+  private updateSearchingNpc(
     npc: NpcRuntime,
+    playerTarget: V2HumanTargetSnapshot,
     deltaSeconds: number,
     allowPathRecalculation: boolean
   ) {
+    const returningFromEvade = npc.evadeThreatSetKey.length > 0;
     npc.evadeThreatId = null;
     npc.evadeThreatSightClear = false;
     npc.evadeThreatSetKey = "";
     npc.evadeNavigationReplanPriority = 4;
+    if (returningFromEvade) {
+      npc.wanderDestination = null;
+      npc.wanderWaitSeconds = 0;
+      this.clearRestSlot(npc);
+    }
     if (npc.targetId !== null) {
       this.clearTarget(npc);
     }
@@ -4562,7 +4911,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     );
     if (!npc.wanderDestination && npc.wanderWaitSeconds === 0) {
       npc.wanderDestination = this.createWanderDestination(
-        npc.navigationLocation
+        npc,
+        playerTarget
       );
       this.clearNavigationAgent(npc);
       if (!npc.wanderDestination) {
@@ -4595,6 +4945,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       this.clearNavigationAgent(npc);
       npc.wanderDestination = null;
       npc.wanderWaitSeconds = this.nextWanderWait();
+      npc.resting = moved && movement.state === "arrived";
     }
   }
 
@@ -4634,6 +4985,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       .join("\u0000");
     if (npc.evadeThreatSetKey !== threatSetKey) {
       npc.wanderDestination = null;
+      this.clearRestSlot(npc);
       this.clearNavigationAgent(npc);
     }
     npc.evadeThreatSetKey = threatSetKey;
@@ -5125,6 +5477,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.alertRemainingSeconds = alertRemainingSeconds;
     npc.wanderDestination = null;
     if (changed) {
+      this.clearRestSlot(npc);
       if (this.diagnosticsEnabled) {
         this.forcedTargetChangeCount += 1;
       }
@@ -5173,6 +5526,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.wanderDestination = null;
     npc.visualSightCheckPriority = false;
     if (targetIdChanged) {
+      this.clearRestSlot(npc);
       if (
         this.requireTargetSelectionPersonality(npc) ===
         "nearest-visible"
@@ -5224,6 +5578,14 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.pursuitTargetAreaRevision = -1;
     if (hadTarget) {
       npc.visualSightCheckPriority = true;
+      this.clearRestSlot(npc);
+      if (
+        npc.stateSnapshot.state === "brainwash-complete-gun" ||
+        npc.stateSnapshot.state === "brainwash-complete-no-gun"
+      ) {
+        npc.wanderDestination = null;
+        npc.wanderWaitSeconds = 0;
+      }
     }
     this.clearNavigationAgent(npc);
   }
@@ -5510,7 +5872,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     return this.nextFireInterval() * this.nextRandom();
   }
 
-  private createWanderDestination(origin: NavigationLocation) {
+  private createWanderDestination(
+    npc: NpcRuntime,
+    playerTarget: V2HumanTargetSnapshot
+  ) {
+    const origin = npc.navigationLocation;
     for (let attempt = 0; attempt < NPC_WANDER_MAX_ATTEMPTS; attempt += 1) {
       const angle = this.nextRandom() * Math.PI * 2;
       const distance = Math.sqrt(this.nextRandom()) * NPC_WANDER_RADIUS;
@@ -5528,7 +5894,25 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         Vector3.Distance(projected.position, candidate) <=
           NAVIGATION_PROJECTION_MAX_DISTANCE
       ) {
-        return projected;
+        const areaId =
+          this.stage.navigationAreas.locate(projected.position).areaId;
+        const key =
+          `wander:${npc.id}:${npc.navigationGoalRevision}:` +
+          `${attempt}:${projected.position.x.toPrecision(17)}:` +
+          `${projected.position.y.toPrecision(17)}:` +
+          `${projected.position.z.toPrecision(17)}`;
+        const restSlot = this.selectRestSlot(
+          npc,
+          projected.position,
+          areaId,
+          key,
+          playerTarget,
+          0,
+          Number.POSITIVE_INFINITY
+        );
+        if (restSlot) {
+          return restSlot;
+        }
       }
     }
     return null;

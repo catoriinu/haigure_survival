@@ -24,10 +24,13 @@ import {
   V2_NPC_CAPTURE_DURATION_SECONDS,
   V2_NPC_DETAIL_ENTER_DISTANCE_METERS,
   V2_NPC_DETAIL_EXIT_DISTANCE_METERS,
+  V2_NPC_GUN_RESUME_DISTANCE_METERS,
+  V2_NPC_GUN_STOP_DISTANCE_METERS,
   V2_NPC_GUN_BEAM_MAXIMUM_LIFETIME_SECONDS,
   V2_NPC_GUN_BEAM_SPEED,
   V2_NPC_MAXIMUM_PATH_REPLANS_PER_UPDATE,
   V2_NPC_PATH_REPLAN_DEADLINE_SECONDS,
+  V2_NPC_REST_SEPARATION_METERS,
   createV2NpcSystem,
   type V2NpcCommandQuery,
   type V2NpcNavigationRouteContext,
@@ -51,6 +54,7 @@ import { createStageNavigationAreaRegistry } from "../../../src/world/stageNavig
 import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import type { V2NpcTraversalState } from "../../../src/v2/npcTraversal";
+import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
 
 export type NpcCombatTestResult = Readonly<{
   name: string;
@@ -89,6 +93,15 @@ type NpcRuntimeTestAccess = {
     navigationGoalRevision: number;
     navigationReplanRequestedAtSeconds: number | null;
     navigationAgentCleared: boolean;
+    navigationBehavior: string;
+    wanderWaitSeconds: number;
+    restSlot: Readonly<{
+      position: Vector3;
+      polygonRef: number;
+    }> | null;
+    restSlotAreaId: string | null;
+    restSlotKey: string | null;
+    resting: boolean;
     pendingNavigationTransition: NavigationTransitionStep | null;
     traversalState: V2NpcTraversalState;
   }>;
@@ -394,7 +407,6 @@ const createNpcFixture = (
       return selectDistanceNavigationRoute(context, candidates);
     }
   });
-
   return Object.freeze({
     system,
     navigation,
@@ -2060,6 +2072,11 @@ const testNpcTargetlessPriorityDoesNotStarveCurrentSightChecks = () => {
         formation: false
       }))
     );
+    for (const npc of (
+      fixture.system as unknown as NpcRuntimeTestAccess
+    ).npcs) {
+      npc.wanderWaitSeconds = Number.POSITIVE_INFINITY;
+    }
     fixture.setSightResolver((from) => {
       const holderSightRay = from.x < 0;
       if (holderSightRay) {
@@ -3270,6 +3287,270 @@ const testNpcCoarseRefreshStaggerAndStationarySuppression = () => {
   }
 };
 
+const testAutonomousRestSlotReservations = () => {
+  const fixture = createNpcFixture(2, 0);
+  const corridorHalfWidth = 0.06;
+  fixture.navigation.projectPoint = (position, maxDistance) => {
+    if (Math.abs(position.x) > 5 || Math.abs(position.z) > 5) {
+      return null;
+    }
+    const projected = Object.freeze({
+      position: new Vector3(
+        position.x,
+        0,
+        Math.max(
+          -corridorHalfWidth,
+          Math.min(corridorHalfWidth, position.z)
+        )
+      ),
+      polygonRef: 1
+    });
+    return Vector3.Distance(position, projected.position) <= maxDistance
+      ? projected
+      : null;
+  };
+  const origin = new Vector3(1, 0, 0);
+  const playerPosition = new Vector3(
+    1 - Math.sqrt(0.5) * 2,
+    0,
+    0
+  );
+  const player = createPlayerTarget(playerPosition);
+  const access = fixture.system as unknown as NpcRuntimeTestAccess;
+  const minimumDistance =
+    V2_NPC_REST_SEPARATION_METERS *
+    BLENDER_METERS_TO_WORLD_UNITS;
+  try {
+    fixture.system.placeNpcs([
+      { id: "npc_0", footPosition: origin, formation: false },
+      { id: "npc_1", footPosition: origin, formation: false }
+    ]);
+    for (const npc of access.npcs) {
+      npc.wanderWaitSeconds = 0;
+    }
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    const firstSlots = access.npcs.map((npc) =>
+      npc.restSlot?.position.clone() ?? null
+    );
+    const firstKeys = access.npcs.map((npc) => npc.restSlotKey);
+    assert(
+      firstSlots.every((slot) => slot !== null) &&
+        access.npcs.every(
+          (npc) => npc.restSlotAreaId === "t05-npc-combat-area"
+        ),
+      "自律移動の停止地点が同じNavigation Areaへ予約されません。"
+    );
+    assert(
+      access.npcs[0].footPosition.equals(access.npcs[1].footPosition) &&
+        access.npcs.every((npc) => !npc.resting),
+      "移動開始時の一時的なNPC重なりを強制分離しました。"
+    );
+    assert(
+      firstSlots.every(
+        (slot) =>
+          Math.hypot(
+            slot!.x - playerPosition.x,
+            slot!.z - playerPosition.z
+          ) >=
+          minimumDistance - 1e-6
+      ) &&
+        Vector3.Distance(firstSlots[0]!, firstSlots[1]!) >=
+          minimumDistance - 1e-6,
+      "停止地点がplayerまたは予約済みNPCから0.8mを確保しません。"
+    );
+    assert(
+      firstSlots.every(
+        (slot) => Math.abs(slot!.z) <= corridorHalfWidth + 1e-6
+      ),
+      "狭路のNavMesh内へ停止地点を投影できません。"
+    );
+
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    assert(
+      access.npcs.every(
+        (npc, index) =>
+          npc.restSlotKey === firstKeys[index] &&
+          npc.restSlot?.position.equals(firstSlots[index]!)
+      ),
+      "停止地点が同じ目標のままframeごとに再選択されました。"
+    );
+
+    fixture.system.update(10, player, EMPTY_ALARM_TARGET_EVENTS);
+    const arrivedPositions = access.npcs.map((npc) =>
+      npc.footPosition.clone()
+    );
+    for (let frameIndex = 0; frameIndex < 10; frameIndex += 1) {
+      fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    }
+    assert(
+      access.npcs.every((npc) => npc.resting) &&
+        Vector3.Distance(
+          access.npcs[0].footPosition,
+          access.npcs[1].footPosition
+        ) >=
+          minimumDistance - 1e-6,
+      "予約した非重複地点へ到着して停止しません。"
+    );
+    assert(
+      access.npcs.every((npc, index) =>
+        npc.footPosition.equals(arrivedPositions[index])
+      ),
+      "狭路で停止後の目的地反転または振動が発生しました。"
+    );
+    return "移動中の重なりを許容し、狭路でも同一Areaのplayer／NPCから0.8m離れた安定停止地点を予約";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testGunStandoffHysteresis = () => {
+  const fixture = createNpcFixture(1, 1, 5, false, null, 0.1);
+  const player = createPlayerTarget(Vector3.Zero());
+  const access = fixture.system as unknown as NpcRuntimeTestAccess;
+  const stopDistance =
+    V2_NPC_GUN_STOP_DISTANCE_METERS *
+    BLENDER_METERS_TO_WORLD_UNITS;
+  const resumeDistance =
+    V2_NPC_GUN_RESUME_DISTANCE_METERS *
+    BLENDER_METERS_TO_WORLD_UNITS;
+  try {
+    fixture.system.placeNpcs([
+      {
+        id: "npc_0",
+        footPosition: new Vector3(0, 0, stopDistance * 0.5),
+        formation: false
+      }
+    ]);
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    fixture.system.update(1, player, EMPTY_ALARM_TARGET_EVENTS);
+    const stoppedPosition = access.npcs[0].footPosition.clone();
+    const stoppedSlot = access.npcs[0].restSlot?.position.clone();
+    assert(
+      stoppedSlot !== undefined &&
+        access.npcs[0].resting &&
+        Math.hypot(stoppedPosition.x, stoppedPosition.z) >=
+          stopDistance - 1e-6,
+      "gun NPCが0.8mの停止地点を確保しません: " +
+        `slot=${stoppedSlot?.toString() ?? "none"} / ` +
+        `resting=${access.npcs[0].resting} / ` +
+        `position=${stoppedPosition.toString()} / ` +
+        `distance=${Math.hypot(stoppedPosition.x, stoppedPosition.z)}`
+    );
+
+    const towardTarget = player.footPosition.subtract(stoppedPosition);
+    towardTarget.y = 0;
+    towardTarget.normalize();
+    const approachedPlayer = createPlayerTarget(
+      stoppedPosition.add(towardTarget.scale(stopDistance * 0.5))
+    );
+    fixture.system.update(0.01, approachedPlayer, EMPTY_ALARM_TARGET_EVENTS);
+    assert(
+      access.npcs[0].footPosition.equals(stoppedPosition),
+      "player側から近づいた時に停止gun NPCを強制反発させました。"
+    );
+
+    const retreatedPlayer = createPlayerTarget(
+      stoppedPosition.add(
+        towardTarget.scale(resumeDistance + 0.001)
+      )
+    );
+    fixture.system.update(0.21, retreatedPlayer, EMPTY_ALARM_TARGET_EVENTS);
+    assert(
+      !access.npcs[0].resting &&
+        access.npcs[0].restSlot !== null &&
+        !access.npcs[0].restSlot!.position.equals(stoppedSlot!),
+      "gun NPCが1.0m超で停止地点を更新して追跡を再開しません。"
+    );
+    return "gun停止0.8m／再移動1.0m、player側接近では強制反発なし";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testBrainwashedSearchRecovery = () => {
+  const runCompletedState = (
+    stateRoll: number,
+    expectedState:
+      | "brainwash-complete-gun"
+      | "brainwash-complete-no-gun"
+  ) => {
+    const fixture = createNpcFixture(
+      1,
+      1,
+      5,
+      false,
+      null,
+      stateRoll
+    );
+    const access = fixture.system as unknown as NpcRuntimeTestAccess;
+    const nearPlayer = createPlayerTarget(Vector3.Zero());
+    try {
+      fixture.system.placeNpcs([
+        {
+          id: "npc_0",
+          footPosition: new Vector3(0, 0, 0.5),
+          formation: false
+        }
+      ]);
+      fixture.system.update(0, nearPlayer, EMPTY_ALARM_TARGET_EVENTS);
+      assert(
+        fixture.system.getFrameView().targets[0].state === expectedState &&
+          fixture.system.getFrameView().tracking[0].targetId === "player",
+        `${expectedState}が初期標的を取得しません。`
+      );
+      const farPlayer = createPlayerTarget(new Vector3(4, 0, 4));
+      fixture.system.update(0.21, farPlayer, EMPTY_ALARM_TARGET_EVENTS);
+      assert(
+        fixture.system.getFrameView().tracking[0].targetId === null &&
+          access.npcs[0].navigationBehavior === "wander" &&
+          access.npcs[0].restSlotKey?.startsWith("wander:") === true,
+        `${expectedState}が標的消失直後に探索移動へ復帰しません。`
+      );
+    } finally {
+      fixture.dispose();
+    }
+  };
+
+  runCompletedState(0.1, "brainwash-complete-gun");
+  runCompletedState(0.6, "brainwash-complete-no-gun");
+
+  const haigureFixture = createNpcFixture(
+    1,
+    1,
+    5,
+    false,
+    null,
+    0.95
+  );
+  const haigureAccess =
+    haigureFixture.system as unknown as NpcRuntimeTestAccess;
+  try {
+    haigureFixture.system.placeNpcs([
+      {
+        id: "npc_0",
+        footPosition: Vector3.Zero(),
+        formation: false
+      }
+    ]);
+    haigureAccess.npcs[0].wanderWaitSeconds = 0;
+    haigureFixture.system.update(
+      1,
+      createPlayerTarget(new Vector3(4, 0, 4)),
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    assert(
+      haigureFixture.system.getFrameView().targets[0].state ===
+        "brainwash-complete-haigure" &&
+        haigureAccess.npcs[0].restSlot === null &&
+        haigureAccess.npcs[0].footPosition.equals(Vector3.Zero()),
+      "haigure状態が探索移動を開始しました。"
+    );
+    return "gun／no-gunは標的消失直後にWander探索へ復帰し、haigureは停止維持";
+  } finally {
+    haigureFixture.dispose();
+  }
+};
+
 export const runNpcCombatTests = () =>
   Object.freeze([
     executeTest("NPC初期状態・楕円体snapshot", testInitialStatesAndHitShape),
@@ -3386,5 +3667,17 @@ export const runNpcCombatTests = () =>
     executeTest(
       "NPC coarse更新のActor ID分散・静止時抑止",
       testNpcCoarseRefreshStaggerAndStationarySuppression
+    ),
+    executeTest(
+      "NPC自律停止地点の安定予約",
+      testAutonomousRestSlotReservations
+    ),
+    executeTest(
+      "NPC gun停止距離ヒステリシス",
+      testGunStandoffHysteresis
+    ),
+    executeTest(
+      "洗脳済みNPCの標的消失後探索復帰",
+      testBrainwashedSearchRecovery
     )
   ]);
