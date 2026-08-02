@@ -338,7 +338,7 @@
 - [x] 最新`origin/develop`をT06-1 branchへ統合し、競合があれば学校資産成果とRuntime成果を両立させて解消する
 - [x] 通常・性能・stress・rampValidation入口の見た目確認用荒れ状態を10へ変更し、全20室の荒れ版選択をfixtureで固定する
 - [x] 関連fixture、typecheck、build、通常Web／Electron、console、資源破棄、全荒れ版の実画面を検証する
-- [ ] 統合・追加修正・検証結果をcommitし、既存branchへpushしてPull Request #64のremote head一致を確認する
+- [x] 統合・追加修正・検証結果をcommitし、既存branchへpushしてPull Request #64のremote head一致を確認する
 
 ## 完了条件
 
@@ -587,4 +587,4 @@ Character Materialから`needDepthPrePass`を削除し、`forceDepthWrite`へ置
 - `typecheck:v2`、`typecheck:t02`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t02`、`build:t04`、`build:t05`、`build:t06`、通常`build`はすべてPASSした。通常buildには既知のBabylon chunk-size advisory 1件だけがあり、エラーはない。
 - 5175番の通常Webは最新学校Stageでタイトルから`playing`へ遷移し、NPC 50／BIT 20を更新してRuntime例外0件だった。通常Electronは全13項目PASSし、Pointer Lock、G／N／H、Enterタイトル復帰、再開始、session root重複0、Audio BGM 1／SE 12／VOICE 58、Audio失敗0、console／renderer／unhandled rejection／load／process消失／unresponsive 0件を確認した。
 - T02／T04／T05／T06の一時fixtureサーバーだけを停止し、通常プレイ用`http://127.0.0.1:5175/`はPID 32016で継続起動した。全体計画・次タスク計画・branch戦略のB03-3D進捗同期は統合担当所有のため、今回のT06-1追加差分では編集していない。
-- この時点では全荒れ版の追加commitとPull Request #64へのpush前であり、remote head一致はpush後に追記する。
+- 計画commit `1740ab4`、`origin/develop`統合commit `90a828f`、全荒れ版確認commit `92ae26f`を作成して既存branchへpushした。最初のpush後にlocal／origin／Pull Request #64 headが`92ae26f`で一致し、Pull Request #64はopen、ready、base=`develop`、head branch=`codex/v2-t06-runtime-core`を維持した。本結果記録commitも同じbranchへ追加pushし、最終remote head一致を再確認する。
