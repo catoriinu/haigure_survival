@@ -62,6 +62,8 @@
 
 > ここまでの内容を一度プランとしてまとめる。Ultraを使うべきか判断した後、実際にBlenderを実行する工程以降を開始する。
 
+> プルリク65番についてインラインコメントが続いたので内容を確認して対応してください
+
 ## 目的
 
 PR #60で確定した通常版配置を保護基準とし、普通教室9室と特別教室11室の既存`disordered` variant計20室へ承認済みの荒れ配置を実装する。見た目、Collider、遮蔽、歩行可能な倒れ物、Room Variant NavMeshを一致させる。体育館は通常版だけに承認済み小物修正を反映し、体育館と屋上男女更衣室には荒れ版を追加しない。
@@ -107,6 +109,8 @@ PR #60で確定した通常版配置を保護基準とし、普通教室9室と�
 - [x] 学校GLB、3種NavMeshを連続2回生成してbytes／SHA-256一致を確認し、カタログhashを同期する
 - [x] 通常版と荒れ版0／2／10、代表経路、扉・エレベーター、NPC／BIT、視線・ビームをfixture、実ブラウザ、Electronで回帰する
 - [x] 結果を本計画へ記録し、実装・検証・commitまで行う。push、Pull Request作成、レビュー、merge、worktree整理は別の明示許可とする
+- [x] PR #65の未解決インライン指摘3件について、既存回転を反映したpivot、倒れた机に属する机上小物、転倒PCタワー席の入力機器を修正し、正本・派生物・関連検証を更新する
+- [ ] インライン対応結果をcommitして同じPRへpushし、各スレッドへ修正内容と検証結果を返信する。スレッド解決とmergeは行わない
 
 ## 完了条件
 
@@ -193,11 +197,11 @@ LL教室の荒れ版は、案2「室内で強い混乱」で承認済みとす�
 
 バックグラウンドBlender 5.2で正本とGLBを再生成し、既存の対話Blenderセッションは操作していない。最終成果物は次のとおり。
 
-- 学校Blender正本: 3,500,277 bytes、SHA-256 `742e50777badffdeac98a24d988615df13890ff106ff4b9bbb342dc94ccd0373`
+- 学校Blender正本: 3,500,508 bytes、SHA-256 `b9136e9b0397f64d1e469671e3bb798bb40d22f042a96499a9b97ab26be8646e`
 - 共通小物Blender正本: 171,859 bytes、SHA-256 `f1163a1e2b1291aed2b81a10102bcbd7f74f0f7c018ba210389e4797b92b42bd`
-- 学校GLB: 22,023,376 bytes、SHA-256 `779cdabdf97123a2bf9df1a29e0f92d420c1cc04e96764b90cfe48806897aaa6`
+- 学校GLB: 22,023,340 bytes、SHA-256 `a127b2bc102a77e9dcd9969fa471fdfaf79c6ca1100258b218f9f2d2090ae71f`
 - 静的人間用NavMesh: 3,123,476 bytes、SHA-256 `530fa01f472a7f3ab4f983c6360aa41c296f3170ae44334e67e26377ed5d977b`
-- Room Variant NavMesh bundle: 1,943,448 bytes、SHA-256 `e8164b33546a12167ed28655598707d643b88db67dcffbf17d03dd2e9460ffe6`
+- Room Variant NavMesh bundle: 1,943,195 bytes、SHA-256 `86f141f015e1bd3195d0f4702097a79b2a81a0bcb4ce7610045fe42afcd89f8f`
 - BIT用NavMesh: 565,399 bytes、SHA-256 `e7e0a76429ba1c9bcfcb26a18071db2307ca394632fb727a0559140244cac62a`
 - 共通小物preview GLB: 200,228 bytes、SHA-256 `f755e4404c4bed00a97441b653541ca07edf1473636269d3a620c2ff2522c9d0`
 
@@ -206,3 +210,7 @@ LL教室の荒れ版は、案2「室内で強い混乱」で承認済みとす�
 `audit:v2:dependencies`、`typecheck:v2`、`typecheck:t02`、`typecheck:t04`、`typecheck:t05`、`build`、`build:t02`、`build:t04`、`build:t05`はすべてPASSした。実ブラウザではT02が50/50、T04本体が115/115、実学校動的統合が67/67、T05本体が294/294、NPCコマンドが16/16でPASSし、全ページのwarning／errorは0件だった。Electron fixtureも実学校動的統合67/67、renderer diagnostics 0件でPASSした。資産意味契約へ追随するため、T02の通常／荒れ固定資源数と構造壁検証線、T04の通常表示mesh固定値を同期したが、`src/v2/**`とT06-1 worktreeは変更していない。
 
 本branchへ実装・生成物・監査・比較画像・本計画をcommitした。2026-08-02の追加指示に基づき、`codex/v2-b03-3-disordered-classrooms`をpushし、`develop`向けDraft PR #65を作成した。レビュー、merge、worktree整理は実施していない。T06-1のdirty worktreeには触れず、後続統合時に両branchで更新されたT02／T04／T05の4検証ファイルを調整・再検証する引き継ぎ事項をPR本文へ記録した。
+
+PR #65の未解決P2インライン指摘3件を確認し、すべて妥当と判断した。空overrideのtarget pivotは、未回転のlocal pivotを単純加算せず、既存のZ回転を掛けたworld位置から差分回転するよう修正した。普通教室Bでは小物種別のoccurrenceを交互に選ぶ方式を廃止し、机上高と最寄り机から所有関係を決定して、倒れた机1・18・22・26番に属するOpenBook 2点、ClosedBook 1点、SinglePaper 1点を各机の移動先付近の床へ散乱させた。PC室では転倒PCタワー2・9・14番席に対応するKeyboardMouseも床へ散乱させた。
+
+Blender対象チェックでは空overrideと通常配置行列の最大誤差`1.75e-7`、机上小物4点の所有机、PCタワー3席のKeyboardMouse overrideを確認した。正本とGLBは2回生成でbytes／SHA-256が一致し、Room Variant／BIT NavMeshの`--check`もPASSした。学校architecture、interiors、interactive assets、protected contract、B04 world boundary、generator refactorの各監査、比較画像25枚の再生成・代表4室の目視、通常build、T02／T04／T05 buildはPASSした。Electron実学校動的統合fixtureは67/67、renderer diagnostics 0件でPASSした。

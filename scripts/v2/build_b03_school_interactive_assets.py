@@ -299,6 +299,7 @@ PAPER_SWATCHES = {
     "PaperStack": "paper",
     "SinglePaper": "paper_white",
 }
+CLASSROOM_DESKTOP_PROP_TYPES = frozenset((*PAPER_SWATCHES, "PencilCase"))
 CLASSROOM_PATTERN_BY_AUTHOR = {
     "F02_Classroom01": "A",
     "F02_Classroom02": "B",
@@ -2012,8 +2013,11 @@ def _placement_transform(
 ) -> Matrix:
     local_pivot = Vector(replayed.local_pivot)
     if override.target_pivot is None:
-        target_pivot = Vector(placement.position) + local_pivot + Vector(
-            override.offset
+        original_rotation = Matrix.Rotation(placement.rotation_z, 3, "Z")
+        target_pivot = (
+            Vector(placement.position)
+            + original_rotation @ local_pivot
+            + Vector(override.offset)
         )
     else:
         target_pivot = Vector(override.target_pivot)
@@ -2059,6 +2063,41 @@ def _placement_occurrences(
     return result
 
 
+def _classroom_desktop_prop_owners(
+    room: RoomBuilder,
+) -> dict[tuple[str, int], int]:
+    desks = [
+        placement
+        for placement in room.placements
+        if placement.prop_type == "ClassroomDesk"
+    ]
+    occurrence_by_type: dict[str, int] = {}
+    owners: dict[tuple[str, int], int] = {}
+    for placement in room.placements:
+        occurrence = occurrence_by_type.get(placement.prop_type, 0)
+        occurrence_by_type[placement.prop_type] = occurrence + 1
+        if (
+            placement.prop_type not in CLASSROOM_DESKTOP_PROP_TYPES
+            or not math.isclose(
+                placement.position[2],
+                room.base_z + 0.70,
+                abs_tol=1.0e-6,
+            )
+        ):
+            continue
+        owner_index = min(
+            range(len(desks)),
+            key=lambda index: (
+                desks[index].position[0] - placement.position[0]
+            ) ** 2
+            + (
+                desks[index].position[1] - placement.position[1]
+            ) ** 2,
+        )
+        owners[(placement.prop_type, occurrence)] = owner_index
+    return owners
+
+
 def _room_overrides(
     room: RoomVariantSpec,
     normal_room: RoomBuilder,
@@ -2081,6 +2120,7 @@ def _room_overrides(
     if pattern == "A":
         return overrides
     if pattern == "B":
+        fallen_desk_indices = (1, 4, 7, 13, 18, 22, 26)
         desk_offsets = (
             (0.70, 0.45),
             (-0.55, 0.62),
@@ -2090,7 +2130,7 @@ def _room_overrides(
             (-0.62, 0.36),
             (0.52, -0.54),
         )
-        for sequence, index in enumerate((1, 4, 7, 13, 18, 22, 26)):
+        for sequence, index in enumerate(fallen_desk_indices):
             assign(
                 "ClassroomDesk",
                 index,
@@ -2136,24 +2176,36 @@ def _room_overrides(
                     rotation_z_delta=math.radians((-14, 18, -11, 15, -17, 12)[sequence]),
                 ),
             )
-        paper_sequence = 0
-        for prop_type in PAPER_SWATCHES:
-            for index in range(len(by_type.get(prop_type, ()))):
-                if paper_sequence % 2 == 0:
-                    assign(
-                        prop_type,
-                        index,
-                        PlacementOverride(
-                            offset=(
-                                0.18 * ((paper_sequence % 3) - 1),
-                                0.16 * ((paper_sequence % 4) - 1.5),
-                                0.0,
-                            ),
-                            rotation_z_delta=math.radians(17 * paper_sequence),
-                            rest_z=room.base_z + 0.01,
-                        ),
-                    )
-                paper_sequence += 1
+        desktop_prop_owners = _classroom_desktop_prop_owners(normal_room)
+        prop_scatter_offsets = (
+            (0.30, -0.24),
+            (-0.32, 0.22),
+            (0.26, 0.28),
+            (-0.28, -0.25),
+            (0.34, 0.18),
+            (-0.30, 0.27),
+            (0.27, -0.29),
+        )
+        for (prop_type, prop_index), desk_index in desktop_prop_owners.items():
+            if desk_index not in fallen_desk_indices:
+                continue
+            desk_sequence = fallen_desk_indices.index(desk_index)
+            desk = by_type["ClassroomDesk"][desk_index]
+            desk_offset = desk_offsets[desk_sequence]
+            scatter_offset = prop_scatter_offsets[desk_sequence]
+            assign(
+                prop_type,
+                prop_index,
+                PlacementOverride(
+                    target_pivot=(
+                        desk.position[0] + desk_offset[0] + scatter_offset[0],
+                        desk.position[1] + desk_offset[1] + scatter_offset[1],
+                        room.base_z + 0.01,
+                    ),
+                    rotation_z_delta=math.radians(17 * (desk_sequence + 1)),
+                    rest_z=room.base_z + 0.01,
+                ),
+            )
         return overrides
     if pattern == "C":
         maximum_y = room.bounds_xy[3]
@@ -2340,6 +2392,7 @@ def _room_overrides(
             assign("KeyboardMouse", index, PlacementOverride(offset=(0.38 * (-1 if sequence % 2 else 1), 0.24, 0.0), rotation_z_delta=math.radians(21 * sequence), rest_z=0.01 if sequence >= 3 else 0.73))
         for sequence, index in enumerate((2, 9, 14)):
             assign("PcTower", index, PlacementOverride(offset=(-0.42, 0.30 * (-1 if sequence % 2 else 1), 0.0), rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians(18 * sequence - 15), rest_z=0.0))
+            assign("KeyboardMouse", index, PlacementOverride(offset=(0.46 * (-1 if sequence % 2 else 1), -0.32 + 0.18 * sequence, 0.0), rotation_z_delta=math.radians(24 * sequence - 19), rest_z=0.01))
     elif room.author_name == "F02_Council":
         assign("LargeWoodTable", 0, PlacementOverride(rotation_z_delta=math.radians(-10.0)))
         for sequence, index in enumerate((0, 1, 2, 3, 4, 6)):
