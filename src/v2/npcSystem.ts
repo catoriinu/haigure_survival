@@ -77,7 +77,7 @@ import type { V2PlayerGunFireEvent } from "./playerCombatSystem";
 import { createV2FollowerFireDirection } from "./followerFireDirection";
 
 const NPC_SEARCH_SPEED = 0.2;
-const NPC_CHASE_SPEED = 0.3;
+export const V2_NPC_CHASE_SPEED = 0.3;
 const NPC_VISION_RANGE = 3;
 const NPC_VISION_RANGE_SQUARED = NPC_VISION_RANGE * NPC_VISION_RANGE;
 const NPC_VISUAL_LOCK_RANGE = 3.5;
@@ -123,7 +123,8 @@ export const V2_NPC_DETAIL_ENTER_DISTANCE_METERS = 12;
 export const V2_NPC_DETAIL_EXIT_DISTANCE_METERS = 18;
 export const V2_NPC_COMMAND_MAXIMUM_DISTANCE_METERS = 2;
 export const V2_NPC_FOLLOW_SPEED = 0.5;
-export const V2_NPC_LEAVE_SPEED = NPC_CHASE_SPEED;
+export const V2_NPC_ALARM_SPEED = V2_NPC_FOLLOW_SPEED;
+export const V2_NPC_LEAVE_SPEED = V2_NPC_CHASE_SPEED;
 export const V2_NPC_FOLLOW_SEPARATION_METERS = 0.8;
 export const V2_NPC_REST_SEPARATION_METERS = 0.8;
 export const V2_NPC_GUN_STOP_DISTANCE_METERS = 0.8;
@@ -4787,7 +4788,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc,
       "pursue",
       destination,
-      NPC_CHASE_SPEED,
+      V2_NPC_CHASE_SPEED,
       deltaSeconds,
       allowPathRecalculation && !npc.gunLastSeenPathPlanned
     );
@@ -4961,7 +4962,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc,
       "pursue",
       destination,
-      NPC_CHASE_SPEED,
+      npc.targetProvenance === "alert"
+        ? V2_NPC_ALARM_SPEED
+        : V2_NPC_CHASE_SPEED,
       deltaSeconds,
       allowPathRecalculation
     );
@@ -5096,7 +5099,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc,
       "evade",
       npc.wanderDestination.position,
-      NPC_CHASE_SPEED,
+      V2_NPC_CHASE_SPEED,
       deltaSeconds,
       allowPathRecalculation
     );

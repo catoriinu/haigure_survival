@@ -3,7 +3,7 @@ import { Vector3 } from "@babylonjs/core";
 import type { NavigationLocation } from "../world/navigationWorld";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../world/worldUnits";
 
-export const V2_ALARM_SELECTION_INTERVAL_SECONDS = 5;
+export const V2_ALARM_SELECTION_INTERVAL_SECONDS = 7.5;
 export const V2_ALARM_BLINK_DURATION_SECONDS = 5;
 export const V2_ALARM_BLINK_INTERVAL_START_SECONDS = 0.8;
 export const V2_ALARM_BLINK_INTERVAL_END_SECONDS = 0.08;

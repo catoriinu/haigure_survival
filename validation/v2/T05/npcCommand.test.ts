@@ -26,6 +26,8 @@ import {
   type V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
 import {
+  V2_NPC_ALARM_SPEED,
+  V2_NPC_CHASE_SPEED,
   V2_NPC_FOLLOWER_FIRE_COOLDOWN_SECONDS,
   V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS,
   V2_NPC_FOLLOWER_FIRE_DELAY_MIN_SECONDS,
@@ -238,7 +240,10 @@ const createInitializationRandom = (
 const createNpcCommandFixture = (
   npcCount: number,
   initialBrainwashedNpcCount: number,
-  boundaryExtent = 4
+  boundaryExtent = 4,
+  observeRouteContext:
+    | ((context: V2NpcNavigationRouteContext) => void)
+    | null = null
 ): NpcCommandFixture => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
@@ -425,7 +430,10 @@ const createNpcCommandFixture = (
         revision: 0,
         anchor: target.footPosition.clone()
       }),
-    selectNavigationRoute: selectDistanceNavigationRoute
+    selectNavigationRoute: (context, candidates) => {
+      observeRouteContext?.(context);
+      return selectDistanceNavigationRoute(context, candidates);
+    }
   });
 
   return Object.freeze({
@@ -1653,6 +1661,141 @@ const testFollowAlarmPriority = () => {
   } finally {
     fixture.dispose();
     aliveFixture.dispose();
+  }
+};
+
+const testAlarmVisualAndFollowNavigationSpeeds = () => {
+  const visualContexts: V2NpcNavigationRouteContext[] = [];
+  const alarmContexts: V2NpcNavigationRouteContext[] = [];
+  const followContexts: V2NpcNavigationRouteContext[] = [];
+  const visualFixture = createNpcCommandFixture(
+    1,
+    1,
+    4,
+    (context) => visualContexts.push(context)
+  );
+  const alarmFixture = createNpcCommandFixture(
+    1,
+    1,
+    4,
+    (context) => alarmContexts.push(context)
+  );
+  const followFixture = createNpcCommandFixture(
+    2,
+    1,
+    4,
+    (context) => followContexts.push(context)
+  );
+  const alivePlayer = createPlayerTarget(
+    new Vector3(0, 0, -1)
+  );
+  try {
+    placeNpcs(visualFixture.system, [Vector3.Zero()]);
+    visualFixture.system.update(
+      0,
+      alivePlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    visualFixture.system.update(
+      0.2,
+      alivePlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(visualFixture.system, "npc_0")
+        .provenance === "visual",
+      "通常視認追跡のvisual標的を取得できません。"
+    );
+
+    placeNpcs(alarmFixture.system, [Vector3.Zero()]);
+    alarmFixture.system.update(0, alivePlayer, [
+      Object.freeze({
+        candidateId: "alarm-speed",
+        targetId: "player",
+        position: alivePlayer.footPosition.clone()
+      })
+    ]);
+    alarmFixture.system.update(
+      0.2,
+      alivePlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(alarmFixture.system, "npc_0")
+        .provenance === "alert",
+      "Alarm由来追跡のalert標的を保持できません。"
+    );
+
+    const brainwashedPlayer = createPlayerTarget(
+      new Vector3(0, 0, -0.4),
+      "brainwash-complete-gun"
+    );
+    placeNpcs(followFixture.system, [
+      Vector3.Zero(),
+      new Vector3(0, 0, -3)
+    ]);
+    assert(
+      followFixture.system.requestCommand(
+        "npc_0",
+        "follow",
+        createCommandQuery(brainwashedPlayer)
+      ),
+      "速度比較用Followが受理されません。"
+    );
+    followFixture.system.update(0.2, brainwashedPlayer, [
+      Object.freeze({
+        candidateId: "alarm-during-follow-speed",
+        targetId: "npc_1",
+        position: new Vector3(0, 0, -3)
+      })
+    ]);
+    followFixture.system.update(
+      0.2,
+      brainwashedPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    const followTracking = getTracking(
+      followFixture.system,
+      "npc_0"
+    );
+
+    const visualPursuit = [...visualContexts].reverse().find(
+      (context) =>
+        context.npcId === "npc_0" &&
+        context.behavior === "pursue"
+    );
+    const alarmPursuit = [...alarmContexts].reverse().find(
+      (context) =>
+        context.npcId === "npc_0" &&
+        context.behavior === "pursue"
+    );
+    const followNavigation = [...followContexts].reverse().find(
+      (context) =>
+        context.npcId === "npc_0" &&
+        context.behavior === "follow"
+    );
+    assert(
+      V2_NPC_CHASE_SPEED === 0.3 &&
+        visualPursuit?.speed === V2_NPC_CHASE_SPEED,
+      `通常視認追跡速度が0.3ではありません: constant=${V2_NPC_CHASE_SPEED}, route=${visualPursuit?.speed}`
+    );
+    assert(
+      V2_NPC_ALARM_SPEED === 0.5 &&
+        alarmPursuit?.speed === V2_NPC_ALARM_SPEED,
+      `Alarm追跡速度が0.5ではありません: constant=${V2_NPC_ALARM_SPEED}, route=${alarmPursuit?.speed}`
+    );
+    assert(
+      V2_NPC_FOLLOW_SPEED === 0.5 &&
+        followNavigation?.speed === V2_NPC_FOLLOW_SPEED &&
+        followTracking.commandMode === "follow" &&
+        followTracking.provenance === null,
+      "Alarm受信中にFollow優先または速度0.5を維持できません。"
+    );
+    return "通常視認0.3、Alarm 0.5、Follow優先0.5をNavigation契約で確認";
+  } finally {
+    visualFixture.dispose();
+    alarmFixture.dispose();
+    followFixture.dispose();
   }
 };
 
@@ -3342,6 +3485,10 @@ export const runNpcCommandTests =
       executeTest(
         "FollowのAlarm優先",
         testFollowAlarmPriority
+      ),
+      executeTest(
+        "通常視認・Alarm・Follow速度",
+        testAlarmVisualAndFollowNavigationSpeeds
       ),
       executeTest("Leave離脱と終了", testLeaveLifecycle),
       executeTest(
