@@ -3782,21 +3782,35 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         continue;
       }
       const playerElevatorTraversal = this.playerElevatorTraversal;
-      if (playerElevatorTraversal !== null) {
+      if (
+        playerElevatorTraversal?.phase === "cancelled" &&
+        npc.command.followElevatorLinkId ===
+          playerElevatorTraversal.linkId
+      ) {
+        npc.command.followElevatorDestination = null;
+        npc.command.followElevatorDestinationAreaId = null;
+        npc.command.followElevatorLinkId = null;
+      }
+      const continuingPlayerElevatorTraversal =
+        playerElevatorTraversal !== null &&
+        playerElevatorTraversal.phase !== "cancelled"
+          ? playerElevatorTraversal
+          : null;
+      if (continuingPlayerElevatorTraversal !== null) {
         npc.command.followElevatorDestination =
-          playerElevatorTraversal.destinationFloorPosition.clone();
+          continuingPlayerElevatorTraversal.destinationFloorPosition.clone();
         npc.command.followElevatorDestinationAreaId =
           this.stage.navigationAreas.locate(
-            playerElevatorTraversal.destinationFloorPosition
+            continuingPlayerElevatorTraversal.destinationFloorPosition
           ).areaId;
         npc.command.followElevatorLinkId =
-          playerElevatorTraversal.linkId;
+          continuingPlayerElevatorTraversal.linkId;
       }
       const elevatorDestination =
         npc.command.followElevatorDestination;
       const trackingPlayerTransport =
         elevatorDestination !== null &&
-        (playerElevatorTraversal !== null ||
+        (continuingPlayerElevatorTraversal !== null ||
           npc.pursuitActorAreaCursor.areaId !==
             npc.command.followElevatorDestinationAreaId ||
           this.horizontalDistance(

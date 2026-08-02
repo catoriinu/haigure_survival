@@ -1495,6 +1495,26 @@ const testFollowElevatorSightGrace = () => {
       "player elevator snapshot中に12m超・遮蔽の5秒見失いでFollowが解除されました。"
     );
 
+    fixture.system.setPlayerElevatorTraversalSnapshot(
+      Object.freeze({
+        elevatorId: "elevator-follow-test",
+        linkId: "link-follow-test",
+        from: "A" as const,
+        to: "B" as const,
+        destinationFloorPosition,
+        phase: "completed" as const
+      })
+    );
+    fixture.system.update(
+      V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS + 0.1,
+      distantPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(fixture.system, "npc_0").commandMode ===
+        "follow",
+      "搬送完了terminalで目的階到達前のFollowが解除されました。"
+    );
     fixture.system.setPlayerElevatorTraversalSnapshot(null);
     fixture.system.update(
       V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS + 0.1,
@@ -1543,7 +1563,85 @@ const testFollowElevatorSightGrace = () => {
         "none",
       "目的階到達後に通常の5秒見失い解除へ復帰しません。"
     );
-    return "搬送snapshot中と目的階到達前は見失い停止、到達後は通常5秒境界へ復帰";
+    return "搬送中とcompleted terminal後の目的階到達前は見失い停止、到達後は通常5秒境界へ復帰";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testFollowElevatorCancellationResumesSightGrace = () => {
+  const fixture = createNpcCommandFixture(1, 0, 6);
+  const nearbyPlayer = createPlayerTarget(
+    new Vector3(0, 0, -0.5)
+  );
+  const distantPlayer = createPlayerTarget(
+    new Vector3(0, 0, -5)
+  );
+  const destinationFloorPosition = new Vector3(0, 0, 2);
+  try {
+    placeNpcs(fixture.system, [Vector3.Zero()]);
+    assert(
+      fixture.system.requestCommand(
+        "npc_0",
+        "follow",
+        createCommandQuery(nearbyPlayer)
+      ),
+      "エレベーター取消検証のFollowが受理されません。"
+    );
+    fixture.setSightResolver(() => true);
+    fixture.setMovementBlocked(true);
+    fixture.system.setPlayerElevatorTraversalSnapshot(
+      Object.freeze({
+        elevatorId: "elevator-follow-cancel-test",
+        linkId: "link-follow-cancel-test",
+        from: "A" as const,
+        to: "B" as const,
+        destinationFloorPosition,
+        phase: "reserved" as const
+      })
+    );
+    fixture.system.update(
+      V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS + 0.1,
+      distantPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(fixture.system, "npc_0").commandMode ===
+        "follow",
+      "予約中に見失い猶予が進行しました。"
+    );
+
+    fixture.system.setPlayerElevatorTraversalSnapshot(
+      Object.freeze({
+        elevatorId: "elevator-follow-cancel-test",
+        linkId: "link-follow-cancel-test",
+        from: "A" as const,
+        to: "B" as const,
+        destinationFloorPosition,
+        phase: "cancelled" as const
+      })
+    );
+    fixture.system.update(
+      V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS - 0.001,
+      distantPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(fixture.system, "npc_0").commandMode ===
+        "follow",
+      "取消後の通常見失い猶予5秒未満でFollowが解除されました。"
+    );
+    fixture.system.setPlayerElevatorTraversalSnapshot(null);
+    fixture.system.update(
+      0.001 + TEST_EPSILON,
+      distantPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(fixture.system, "npc_0").commandMode === "none",
+      "乗車前取消後に目的階追跡を破棄して通常の5秒見失い解除へ復帰しません。"
+    );
+    return "reserved中は見失い停止、cancelled terminalで保存目的階を破棄して通常5秒境界へ復帰";
   } finally {
     fixture.dispose();
   }
@@ -3481,6 +3579,10 @@ export const runNpcCommandTests =
       executeTest(
         "Followエレベーター搬送中の見失い停止",
         testFollowElevatorSightGrace
+      ),
+      executeTest(
+        "Followエレベーター乗車前取消",
+        testFollowElevatorCancellationResumesSightGrace
       ),
       executeTest(
         "FollowのAlarm優先",

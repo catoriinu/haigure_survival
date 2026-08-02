@@ -400,6 +400,9 @@ export const createSchoolStageTraversalCoordinator = ({
   const playerCallMatEntryIds = new Set<string>();
   let playerElevatorTraversal: PlayerElevatorTraversalState | null =
     null;
+  let playerElevatorTraversalTerminalSnapshot:
+    | V2PlayerElevatorTraversalSnapshot
+    | null = null;
   let disposed = false;
 
   const assertActive = () => {
@@ -713,6 +716,10 @@ export const createSchoolStageTraversalCoordinator = ({
           PLAYER_ID,
           player.getFootPosition()
         );
+        publishPlayerElevatorTraversalTerminal(
+          traversal.route,
+          "cancelled"
+        );
         playerElevatorTraversal = null;
         return;
       }
@@ -734,6 +741,10 @@ export const createSchoolStageTraversalCoordinator = ({
           PLAYER_ID,
           player.getFootPosition()
         );
+        publishPlayerElevatorTraversalTerminal(
+          traversal.route,
+          "completed"
+        );
         playerElevatorTraversal = null;
       }
       return;
@@ -747,11 +758,19 @@ export const createSchoolStageTraversalCoordinator = ({
       if (traversal.kind === "reserved") {
         elevatorRuntime.cancelBoardingReservation(PLAYER_ID);
       }
+      publishPlayerElevatorTraversalTerminal(
+        traversal.route,
+        "cancelled"
+      );
       playerElevatorTraversal = null;
       return;
     }
     if (traversal.kind === "awaiting-call") {
       if (!occupancy.callMat) {
+        publishPlayerElevatorTraversalTerminal(
+          traversal.route,
+          "cancelled"
+        );
         playerElevatorTraversal = null;
         return;
       }
@@ -797,28 +816,45 @@ export const createSchoolStageTraversalCoordinator = ({
     }
   };
 
+  const createPlayerElevatorTraversalSnapshot = (
+    route: PlayerElevatorTraversalRoute,
+    phase: V2PlayerElevatorTraversalSnapshot["phase"]
+  ) => {
+    const destinationEndpoint =
+      route.destinationStop.endpoint === "A"
+        ? route.elevator.link.endpointA
+        : route.elevator.link.endpointB;
+    return Object.freeze({
+      elevatorId: route.elevator.id,
+      linkId: route.elevator.link.id,
+      from: route.fromStop.endpoint,
+      to: route.destinationStop.endpoint,
+      destinationFloorPosition: destinationEndpoint.position.clone(),
+      phase
+    } satisfies V2PlayerElevatorTraversalSnapshot);
+  };
+
+  const publishPlayerElevatorTraversalTerminal = (
+    route: PlayerElevatorTraversalRoute,
+    phase: "cancelled" | "completed"
+  ) => {
+    playerElevatorTraversalTerminalSnapshot =
+      createPlayerElevatorTraversalSnapshot(route, phase);
+  };
+
   const getPlayerElevatorTraversalSnapshot = () => {
     const traversal = playerElevatorTraversal;
     if (!traversal) {
-      return null;
+      return playerElevatorTraversalTerminalSnapshot;
     }
-    const destinationEndpoint =
-      traversal.route.destinationStop.endpoint === "A"
-        ? traversal.route.elevator.link.endpointA
-        : traversal.route.elevator.link.endpointB;
-    return Object.freeze({
-      elevatorId: traversal.route.elevator.id,
-      linkId: traversal.route.elevator.link.id,
-      from: traversal.route.fromStop.endpoint,
-      to: traversal.route.destinationStop.endpoint,
-      destinationFloorPosition: destinationEndpoint.position.clone(),
-      phase:
-        traversal.kind === "riding"
-          ? "riding"
-          : traversal.kind === "reserved"
-            ? "reserved"
-            : "calling"
-    } satisfies V2PlayerElevatorTraversalSnapshot);
+    return createPlayerElevatorTraversalSnapshot(
+      traversal.route,
+      traversal.kind === "riding"
+        ? "riding"
+        : traversal.kind === "reserved"
+          ? "reserved"
+          : "calling"
+    );
   };
 
   const beginDoorOpen = (
@@ -1656,6 +1692,7 @@ export const createSchoolStageTraversalCoordinator = ({
           "学校traversal更新deltaSecondsには0以上の有限値が必要です。"
         );
       }
+      playerElevatorTraversalTerminalSnapshot = null;
       const requests = survival.drainNpcTraversalRequests();
       const results: V2NpcTraversalResult[] = [];
       const pendingBoardings: PendingBoarding[] = [];
@@ -1737,6 +1774,7 @@ export const createSchoolStageTraversalCoordinator = ({
       previousPlayerCallMatIds.clear();
       playerCallMatEntryIds.clear();
       playerElevatorTraversal = null;
+      playerElevatorTraversalTerminalSnapshot = null;
       survival.releaseNpcTraversalForScriptedPhase();
     },
     dispose: () => {
@@ -1751,6 +1789,7 @@ export const createSchoolStageTraversalCoordinator = ({
       previousPlayerCallMatIds.clear();
       playerCallMatEntryIds.clear();
       playerElevatorTraversal = null;
+      playerElevatorTraversalTerminalSnapshot = null;
       disposed = true;
     }
   });

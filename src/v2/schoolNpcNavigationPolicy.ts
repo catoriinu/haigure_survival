@@ -458,6 +458,8 @@ const resolveTrackingTrip = (
     context.commandMode === "follow" &&
     context.targetId === "player" &&
     context.playerElevatorTraversal !== null &&
+    context.playerElevatorTraversal.phase !== "cancelled" &&
+    context.playerElevatorTraversal.phase !== "completed" &&
     context.playerElevatorTraversal.elevatorId === snapshot.id &&
     context.playerElevatorTraversal.from === fromStop.endpoint &&
     context.playerElevatorTraversal.to === destinationStop.endpoint;

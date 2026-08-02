@@ -573,6 +573,18 @@ export const runSchoolNpcNavigationPolicyAcceptance = ({
       firstStopCenter
     )
   ]);
+  const lateFollowerDestinationStop = requireOtherStop(
+    elevator,
+    elevator.initialStop
+  );
+  const lateFollowerBoardingWindowSeconds = runtime
+    .getElevator(elevator.id)
+    .estimateTripSeconds(
+      elevator.initialStop.id,
+      lateFollowerDestinationStop.id
+    ).boardingWindowSeconds;
+  const lateFollowerApproachDistance =
+    (lateFollowerBoardingWindowSeconds + 0.001) * 0.5;
   const lateFollowerSelection = createPolicy()(
     createContext("npc_follower_late", firstStopCenter, {
       behavior: "follow",
@@ -583,13 +595,18 @@ export const runSchoolNpcNavigationPolicyAcceptance = ({
     }),
     Object.freeze([
       stairsShort,
-      createElevatorCandidate(elevator, 2)
+      createElevatorCandidate(
+        elevator,
+        lateFollowerApproachDistance
+      )
     ])
   );
   add(
     "Followerが同便猶予へ間に合わなければ短い別経路を選ぶ",
     lateFollowerSelection?.kind === "surface",
-    `selected=${lateFollowerSelection?.kind ?? "null"}`
+    `window=${lateFollowerBoardingWindowSeconds} / ` +
+      `approach=${lateFollowerApproachDistance / 0.5} / ` +
+      `selected=${lateFollowerSelection?.kind ?? "null"}`
   );
 
   const destinationStop = requireOtherStop(

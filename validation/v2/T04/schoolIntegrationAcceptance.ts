@@ -3071,6 +3071,8 @@ const runPlayerElevatorTraversalAcceptance = async (
     player.setTransportFootPosition(outsidePosition);
     updateCoordinator(0);
     const cancelledSnapshot = elevatorRuntime.getSnapshot();
+    const playerCancelledTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     player.setTransportFootPosition(callMatCenter);
     updateCoordinator(0);
     const renewedSnapshot = elevatorRuntime.getSnapshot();
@@ -3099,9 +3101,13 @@ const runPlayerElevatorTraversalAcceptance = async (
     updateCoordinator(0);
     const preDepartureExitSnapshot =
       elevatorRuntime.getSnapshot();
+    const playerPreDepartureCancelledTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     updateCoordinator(0);
     const heldPreDepartureExitSnapshot =
       elevatorRuntime.getSnapshot();
+    const playerTraversalAfterPreDepartureCancellation =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     player.setTransportFootPosition(carCenter);
     updateCoordinator(0);
     const boardedSnapshot = elevatorRuntime.getSnapshot();
@@ -3118,6 +3124,7 @@ const runPlayerElevatorTraversalAcceptance = async (
       cancelledSnapshot.reservations.every(
         (reservation) => reservation.actorId !== "player"
       ) &&
+        playerCancelledTraversal?.phase === "cancelled" &&
         renewedSnapshot.reservations.some(
           (reservation) => reservation.actorId === "player"
         ) &&
@@ -3131,15 +3138,19 @@ const runPlayerElevatorTraversalAcceptance = async (
         preDepartureExitSnapshot.passengers.every(
           (passenger) => passenger.actorId !== "player"
         ) &&
+        playerPreDepartureCancelledTraversal?.phase ===
+          "cancelled" &&
         heldPreDepartureExitSnapshot.passengers.every(
           (passenger) => passenger.actorId !== "player"
         ) &&
+        playerTraversalAfterPreDepartureCancellation === null &&
         boardedPlayer &&
         context.queries.containsVolumeById(
           elevator.car.occupancy.id,
           boardedPlayerPosition
         ),
       `cancelled=${cancelledSnapshot.reservations.length} / ` +
+        `terminal=${playerCancelledTraversal?.phase ?? "none"} / ` +
         `renewed=${renewedSnapshot.reservations.length} / ` +
         `threshold=${thresholdSnapshot.reservations.length} / ` +
         `preExit=${firstBoardedSnapshot.passengers.length}→` +
@@ -3186,7 +3197,10 @@ const runPlayerElevatorTraversalAcceptance = async (
     player.setTransportFootPosition(exitPosition);
     updateCoordinator(0);
     const disembarkedSnapshot = elevatorRuntime.getSnapshot();
-    const playerTraversalAfterDisembark =
+    const playerCompletedTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
+    updateCoordinator(0);
+    const playerTraversalAfterCompletedTerminal =
       coordinator.getPlayerElevatorTraversalSnapshot();
     const playerIdentityAndMotionPreserved =
       player === playerReference &&
@@ -3242,7 +3256,7 @@ const runPlayerElevatorTraversalAcceptance = async (
         : elevator.link.endpointB;
     pushCheck(
       checks,
-      "プレイヤー搬送snapshotは呼出・予約・乗車を公開し降車後に消去",
+      "プレイヤー搬送snapshotは呼出・予約・乗車・取消・完了を公開して終端後に消去",
       playerCallingTraversal?.phase === "calling" &&
         playerReservedTraversal?.phase === "reserved" &&
         playerRidingTraversal?.phase === "riding" &&
@@ -3254,11 +3268,16 @@ const runPlayerElevatorTraversalAcceptance = async (
           playerCallingTraversal.destinationFloorPosition,
           expectedDestinationEndpoint.position
         ) <= POSITION_EPSILON &&
-        playerTraversalAfterDisembark === null,
+        playerCancelledTraversal?.phase === "cancelled" &&
+        playerPreDepartureCancelledTraversal?.phase ===
+          "cancelled" &&
+        playerCompletedTraversal?.phase === "completed" &&
+        playerTraversalAfterCompletedTerminal === null,
       `phase=${playerCallingTraversal?.phase ?? "none"}→` +
         `${playerReservedTraversal?.phase ?? "none"}→` +
         `${playerRidingTraversal?.phase ?? "none"}→` +
-        `${playerTraversalAfterDisembark?.phase ?? "none"} / ` +
+        `${playerCompletedTraversal?.phase ?? "none"}→` +
+        `${playerTraversalAfterCompletedTerminal?.phase ?? "none"} / ` +
         `route=${playerCallingTraversal?.from ?? "?"}→` +
         `${playerCallingTraversal?.to ?? "?"}`
     );

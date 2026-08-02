@@ -18,7 +18,12 @@ export type V2PlayerElevatorTraversalSnapshot = Readonly<{
   from: StageLinkEndpointName;
   to: StageLinkEndpointName;
   destinationFloorPosition: Vector3;
-  phase: "calling" | "reserved" | "riding";
+  phase:
+    | "calling"
+    | "reserved"
+    | "riding"
+    | "cancelled"
+    | "completed";
 }>;
 
 export type V2NpcElevatorTraversalRoute =
