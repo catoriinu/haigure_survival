@@ -150,6 +150,15 @@
 - `needDepthPrePass`を廃止し、通常のalpha test／blend passで透明画素をdiscardした後、実画素だけdepthへ書く。前面の光は従来どおりCharacterより後に描画し、後面の光・ガラスはCharacter実画素だけに遮られ、透明画素では見えるようにする。
 - pure alpha testへの置換、rendering group分離、depth clear、学校ガラスMaterial、画像バイナリは変更しない。
 
+### 2026-08-02 光とStage半透明面の距離描画修正指示
+
+> Character透明部の問題は解決したが、今度は実空間で光が窓ガラスより手前にある場合も、ガラスが光より前へ表示される。光が手前なら光を前へ出し、窓と重なった部分は双方のalphaを保って透過合成する。
+
+- 戦闘光は`alphaIndex=200`、Stageの窓ガラスはBabylon既定の`Number.MAX_VALUE`であり、透明物sortが距離より先に`alphaIndex`を比較するため、ガラスが位置に関係なく最後に描画されていた。
+- Stage読込直後に`MAT_B03_WindowGlass`を使う全active visual Meshを、ビーム／残光／命中演出と同じ空間半透明indexへ統一する。同じindex内ではBabylon既定のカメラ距離sortを使い、手前の対象を後描画する。保健室カーテンとプール水面は同じ問題分類になり得るが、異なるalpha／depth契約を持ち今回の添付再現対象ではないため変更しない。
+- 内部定数`V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT`は空間半透明全体を表す名称へ置換し、旧定数aliasは残さない。NPC Characterの100、プレイヤーCharacterの300、Character実画素のdepth書込みは維持する。
+- 学校GLB、生成器、NavMesh、カタログhash、`src/world/**`、Stage Materialのalpha／depth契約、rendering group、depth clearは変更しない。
+
 ## 目的
 
 既に実装済みの入力・状態・NPC指示・扉・学校動的Runtime APIを、学校バイナリへ触れず通常ゲーム入口へ接続する。F／E／C・G／N／H、候補表示、既定荒れ状態2、音声、水中速度50%、開始・破棄ライフサイクルを実プレイで成立させる。
@@ -302,6 +311,14 @@
 - [x] Character Planeの深度先行描画を廃止し、通常passでalpha discard後の実画素だけdepthへ書く
 - [x] T06 fixtureへalpha test／blend、depth書込み、透明queue順、共有Material、破棄の契約を追加する
 - [x] T06 fixture、関連回帰、型検査、build、通常Web、Electronで、透明部の奥側光・ガラス、実画素の遮蔽、前面光、console、資源破棄を検証する
+- [x] 実装結果と証跡を本計画へ記録し、対象差分だけをローカルcommitする。push・Pull Request更新は別途指示があるまで行わない
+
+### 2026-08-02 光とStage半透明面の距離描画修正
+
+- [x] 添付画像、学校GLBの半透明Material、現行effect／Stage `alphaIndex`、Babylon.js透明sortを読み取り専用で監査し、ガラスの最大index固定を原因として確定する
+- [x] 空間半透明indexへ内部定数名を統一し、Stage読込直後に窓ガラスのactive visual Meshを同じindexへ設定する
+- [x] T06 fixtureへ対象Materialの厳格解決、非対象不変、NPC／空間半透明／player順と、光／ガラスの前後交換WebGL画素試験を追加する
+- [x] T05／T06 fixture、関連typecheck／build、通常Web、Electronで光手前・ガラス手前・Character透明部回帰・console・破棄を検証する
 - [x] 実装結果と証跡を本計画へ記録し、対象差分だけをローカルcommitする。push・Pull Request更新は別途指示があるまで行わない
 
 ## 完了条件
@@ -530,3 +547,14 @@ Character Materialから`needDepthPrePass`を削除し、`forceDepthWrite`へ置
 - `git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、括弧・構文、所有外差分なしを確認した。学校Blender正本、GLB、生成器、全NavMesh、カタログhash、`src/world/**`、画像・音声バイナリは変更していない。
 
 本追加差分は計画、Character Material、T06回帰fixtureの3ファイルだけをローカルcommitする。push、Draft Pull Request #64更新、レビュー、merge、`develop`同期、worktree整理は行わない。通常プレイ用の`http://127.0.0.1:5175/`は継続起動する。
+
+### 2026-08-02 光とStage半透明面の距離描画修正結果
+
+- Babylon.jsの透明物sortは距離より先に`alphaIndex`を比較する。戦闘光は`200`、学校窓ガラスは既定の`Number.MAX_VALUE`だったため、実空間で光が手前でもガラスが必ず後描画されることを原因として確定した。
+- 空間半透明の共通indexを`V2_TRANSPARENT_ALPHA_INDEX_SPATIAL=200`として明示し、通常Stage読込直後に`MAT_B03_WindowGlass`を使う全active visual Meshへ設定した。同じindex内ではBabylon.jsのback-to-front距離sortが働くため、光とガラスの実際の前後関係に応じて描画順が反転する。
+- 対象Material 0件または非alpha blendは契約違反として拒否する。NPC Character=`100`、player Character=`300`、Character実画素のdepth書込みは維持し、カーテンなど他Materialは変更していない。
+- T06実ブラウザfixtureは`59 / 59` PASS。中央画素は修正前固定順=`[41,0,204,255]`、光手前=`[204,0,41,255]`、ガラス手前=`[41,0,204,255]`となり、手前側の色を優先しつつ奥側の色も残るalpha合成を確認した。Character透明画素回帰もPASSし、Babylon Logger、warning、errorは0件だった。
+- T05実ブラウザfixtureは`303 / 303` PASS。`typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t04`、`build:t05`、`build:t06`、通常`build`はすべてPASSした。通常buildには既知のBabylon chunk-size advisory 1件だけがあり、エラーはない。
+- 通常Webは`http://127.0.0.1:5175/`で学校Stage読込と`playing`開始を確認し、Runtime例外は0件だった。Character専用ElectronはPASSし、通常Electronは最終2回連続で全13項目PASS、Audio失敗0件、console／Babylon Logger／renderer error／unhandled rejection／load error各0件だった。先行1回だけEnter破棄時の読込中VOICE 1件を受入側が`net::ERR_ABORTED`として記録したが、追加2回では再発しなかった。
+- `git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、括弧・構文、所有外差分なしを確認した。学校Blender正本、GLB、生成器、全NavMesh、カタログhash、`src/world/**`、画像・音声バイナリは変更していない。通常プレイ用5175番サーバーは継続起動し、T05／T06一時fixtureサーバーだけを停止した。
+- 本追加差分だけをローカルcommitした。push、Draft Pull Request #64更新、レビュー、merge、`develop`同期、worktree整理は行っていない。

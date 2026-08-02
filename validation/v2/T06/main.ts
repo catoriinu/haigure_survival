@@ -6,6 +6,7 @@ import { runCharacterVisualTests } from "./characterVisual.test";
 import { runRoomVariantTests } from "./roomVariant.test";
 import { runRuntimeHudTests } from "./runtimeHud.test";
 import { runRuntimeInteractionTests } from "./runtimeInteraction.test";
+import { runStageTransparentRenderingOrderTests } from "./stageTransparentRenderingOrder.test";
 import {
   runRuntimeSessionLifecycleTests
 } from "./runtimeSessionLifecycle.test";
@@ -208,6 +209,7 @@ const runValidation = async () => {
     ...(await runAudioRuntimeTests()),
     ...(await runCharacterAssignmentTests()),
     ...(await runCharacterVisualTests()),
+    ...(await runStageTransparentRenderingOrderTests()),
     ...(await runRuntimeSessionLifecycleTests())
   ];
   const elapsedMilliseconds = performance.now() - startedAt;

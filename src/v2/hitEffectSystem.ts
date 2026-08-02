@@ -22,7 +22,7 @@ import {
   type V2HumanKind,
   type V2HumanTargetSnapshot
 } from "./combatTypes";
-import { V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT } from "./v2TransparentRenderingOrder";
+import { V2_TRANSPARENT_ALPHA_INDEX_SPATIAL } from "./v2TransparentRenderingOrder";
 
 export const V2_HIT_EFFECT_ALPHA = 0.45;
 export const V2_HIT_EFFECT_LIGHT_INTENSITY = 0.4;
@@ -217,7 +217,7 @@ export const createV2HitEffectSystem = ({
   );
   shellSource.isPickable = false;
   shellSource.visibility = 0;
-  shellSource.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT;
+  shellSource.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
   shellSource.setEnabled(false);
   const shellSourceMaterial = new StandardMaterial(
     "v2-hit-effect-shell-source-material",
@@ -237,7 +237,7 @@ export const createV2HitEffectSystem = ({
   );
   orbSource.isPickable = false;
   orbSource.isVisible = false;
-  orbSource.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT;
+  orbSource.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
   const orbMaterial = new StandardMaterial(
     "v2-hit-effect-orb-material",
     scene
@@ -335,7 +335,7 @@ export const createV2HitEffectSystem = ({
     );
     mesh.material = material;
     mesh.isPickable = false;
-    mesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT;
+    mesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
     const bundle = { mesh, material };
     resetBundle(bundle);
     bundles.push(bundle);
@@ -388,7 +388,7 @@ export const createV2HitEffectSystem = ({
     }
     resetOrb(mesh);
     mesh.isVisible = true;
-    mesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT;
+    mesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
     mesh.setEnabled(true);
     return mesh;
   };

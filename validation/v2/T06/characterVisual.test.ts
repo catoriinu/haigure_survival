@@ -19,7 +19,7 @@ import { resolveV2FirstPersonCharacterVisualFrame } from "../../../src/v2/v2Play
 import { V2_DEFAULT_PORTRAIT_DIRECTORY } from "../../../src/v2/v2CharacterAssignments";
 import { resolveV2CharacterFacingYaw } from "../../../src/v2/v2CharacterFacing";
 import {
-  V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT,
+  V2_TRANSPARENT_ALPHA_INDEX_SPATIAL,
   V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER,
   V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER
 } from "../../../src/v2/v2TransparentRenderingOrder";
@@ -261,8 +261,8 @@ export const runCharacterVisualTests = async (): Promise<
             firstMesh.alphaIndex ===
               V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER &&
             V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER <
-              V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
-            V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT <
+              V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
+            V2_TRANSPARENT_ALPHA_INDEX_SPATIAL <
               V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER,
           "upright Plane、alpha discard後depth、共有Materialまたは透明描画順が不正です。"
         );
@@ -408,7 +408,7 @@ export const runCharacterVisualTests = async (): Promise<
           scene
         );
         rearMesh.position.z = 0.5;
-        rearMesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT;
+        rearMesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
         rearMesh.material = createFlatTransparentMaterial(
           "fixture-character-alpha-rear-material",
           new Color3(0, 0, 1),
@@ -441,7 +441,7 @@ export const runCharacterVisualTests = async (): Promise<
           scene
         );
         frontMesh.position.z = -0.5;
-        frontMesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT;
+        frontMesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
         frontMesh.material = createFlatTransparentMaterial(
           "fixture-character-alpha-front-material",
           new Color3(1, 0, 0),

@@ -28,7 +28,7 @@ import type {
   V2HumanKind,
   V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
-import { V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT } from "../../../src/v2/v2TransparentRenderingOrder";
+import { V2_TRANSPARENT_ALPHA_INDEX_SPATIAL } from "../../../src/v2/v2TransparentRenderingOrder";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import type { StageSpatialQueryDiagnostics } from "../../../src/world/stageSpatialQueries";
 import { createStageWorldBoundary } from "../../../src/world/stageWorldBoundary";
@@ -624,7 +624,7 @@ export const runBeamCombatTests =
             activeImpactMeshes.every(
               (mesh) =>
                 mesh.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT
+                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL
             );
           system.clear();
           const poolAfterClear = system.getVisualPoolSnapshot();
@@ -655,7 +655,7 @@ export const runBeamCombatTests =
             reusedActiveImpactMeshes.every(
               (mesh) =>
                 mesh.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT
+                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL
             );
           const resourcesReused =
             reuseImpactFrame.impacts.length === 1 &&
@@ -2117,13 +2117,13 @@ export const runBeamCombatTests =
               V2_NORMAL_BEAM_BODY_DIAMETER === 0.018 &&
               V2_NORMAL_BEAM_MAX_BODY_LENGTH === 0.75 &&
               bodySource.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
               tipSource.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
               trailSource.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
               impactSource.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
               approximately(
                 frontRadius * 2,
                 V2_NORMAL_BEAM_FRONT_DIAMETER,
@@ -2153,11 +2153,11 @@ export const runBeamCombatTests =
               bodyInstance !== null &&
               tipInstance !== null &&
               bodyInstance.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
               tipInstance.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
               trail?.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
               approximately(bodyFrontX, tipBackX, 1e-6) &&
               approximately(tipFrontX, activeBeam.position.x, 1e-6) &&
               approximately(trail?.scaling.x ?? -1, 0.03, 1e-6);

@@ -26,7 +26,7 @@ import {
   V2_HIT_EFFECT_LIGHT_SLOT_COUNT,
   V2_HIT_EFFECT_PINK
 } from "../../../src/v2/hitEffectSystem";
-import { V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT } from "../../../src/v2/v2TransparentRenderingOrder";
+import { V2_TRANSPARENT_ALPHA_INDEX_SPATIAL } from "../../../src/v2/v2TransparentRenderingOrder";
 
 export type HitEffectSystemTestResult = Readonly<{
   name: string;
@@ -159,7 +159,7 @@ export const runHitEffectSystemTests =
               duplicateRejected &&
               shell?.isEnabled() === true &&
               shell.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
               approximately(shell.scaling.x, expectedDiameter) &&
               approximately(material?.alpha ?? -1, V2_HIT_EFFECT_ALPHA) &&
               material?.backFaceCulling === false &&
@@ -199,13 +199,13 @@ export const runHitEffectSystemTests =
               orbSource?.isVisible === false &&
               orbSource.isEnabled() &&
               orbSource.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
               activePlayerOrbs.length === 13 &&
               activePlayerOrbs.every(
                 (mesh) =>
                   mesh.isVisible &&
                   mesh.alphaIndex ===
-                    V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+                    V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
                   approximately(mesh.scaling.x, 0.04)
               );
             system.update(0.5, [hitTarget], () => true);
@@ -288,7 +288,7 @@ export const runHitEffectSystemTests =
                 .every(
                   (mesh) =>
                     mesh.alphaIndex ===
-                      V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+                      V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
                     (mesh.material as StandardMaterial)
                       .backFaceCulling === true
                 );
@@ -304,7 +304,7 @@ export const runHitEffectSystemTests =
                 .every(
                   (mesh) =>
                     mesh.alphaIndex ===
-                      V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+                      V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
                     approximately(mesh.scaling.x, 0.02)
                 );
             const meshCountAtHighWater = scene.meshes.length;
@@ -394,7 +394,7 @@ export const runHitEffectSystemTests =
             const firstNpcProfile =
               material?.backFaceCulling === true &&
               shell?.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
               shell.position.equals(visualCenter) &&
               approximately(
                 shell.scaling.x,
@@ -410,7 +410,7 @@ export const runHitEffectSystemTests =
             const playerProfile =
               material?.backFaceCulling === false &&
               shell?.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_COMBAT_EFFECT &&
+                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
               approximately(
                 light?.intensity ?? -1,
                 V2_HIT_EFFECT_LIGHT_INTENSITY

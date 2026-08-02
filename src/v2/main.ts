@@ -91,6 +91,7 @@ import {
   createV2CharacterVisualRuntime,
   type V2CharacterVisualRuntime
 } from "./v2CharacterVisualRuntime";
+import { configureV2StageTransparentRenderingOrder } from "./v2StageTransparentRenderingOrder";
 import {
   createSchoolStageActorPort,
   createSchoolStageTraversalCoordinator,
@@ -312,6 +313,9 @@ const initializeRuntime = async () => {
           ),
         roomVariantSelections
       }
+    );
+    configureV2StageTransparentRenderingOrder(
+      ownedStage.resources.visualMeshes
     );
     ownedInput = createV2PlayerInput(window);
     const playerInput = ownedInput;
