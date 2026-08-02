@@ -79,6 +79,21 @@
 > - B03-3Dは単一`VIS_DoorPanel_Knob_*` Meshへ廊下側・個室側の球形ノブを生成し、既存Anchor 1件契約を維持する。学校GLB／Blender／hashをT06-1へ混ぜない。
 > - v2.0前の順序を`B03-3D + T06-1 → T06-2 → I2設計 → T06-3 + B05 → T06-4 → T07 → v2.0リリース準備`へ更新する。I2でミニマップとMissionを相談・設計し、T06-3でV1相当ミニマップ、B05で意味付きLocation資産、T06-4でプレイヤー／NPC Mission Runtimeを実装する。
 
+### 2026-08-02 公開処刑R・操作Feedback・Character ID・Portal修正指示
+
+> PLEASE IMPLEMENT THIS PLAN:
+>
+> - 既存のT06-1専用worktree、branch`codex/v2-t06-runtime-core`、Draft PR #64を継続する。開始時HEADは`3d353cc`でremote／Pull Requestと一致している。
+> - Enterは洗脳前を含むゲーム開始後の全phaseでタイトルへ戻る操作とする。Rは通常ゲームのリトライには使わず、公開処刑の進行中・完了後だけ、同じ会場・対象・配置・Character割当を維持した処刑シーンの再演に使う。R案内は有効時だけ左側help HUDへ表示する。
+> - WanderのRest SlotはNPCの現在のNavigation Areaへ固定し、NavMesh投影後のPortal内候補を`locate()`前に不採用とする。`locate()`の例外は捕捉せず、Area包含0件／複数件などの契約違反を表面化させる。
+> - NPC候補は`none`／`leave`を水色`#61e8ff`、`follow`を黄緑`#9cff57`、扉を黄色`#ffd166`とし、枠と文字を同色にする。F／Eでcommand modeが変わった場合とCで扉開閉が`started`になった場合だけ、180ms・中間点`scale(1.18)`／`brightness(1.8)`の単発発光を再始動する。拒否、busy、同状態、候補なしでは発光しない。
+> - タイトル右下へV1同様の「自キャラ」「自ボイス」別selectを追加し、双方の先頭・既定値を「ランダム選択」にする。保存時は同じ設定rootの音量と未知fieldを保持する。
+> - 全actorのVOICE IDを開始準備時にshuffleし、プレイヤー、NPC ID順へ使い切るまで重複なしで割り当てる。固定自ボイスはNPC候補から除外し、portraitはVOICE ID先頭2桁との初回一致を優先する。固定自キャラはプレイヤーだけを上書きする。設定変更と新session生成時に再生成し、開始クリックと公開処刑Rでは再抽選しない。
+> - `V2VoiceRuntimeOptions`は明示的なCharacter割当を必須入力とし、暗黙の循環割当を削除する。portrait素材0件では組込み`00_default`を内部割当に使い、自キャラselectは非表示とする。画像描画自体はT06-5へ残す。
+> - 将来順序を`… → T06-4 → I3 キャラクター表示設計 → T06-5 キャラクター画像Runtime → T07`へ更新する。I3でNPC billboard、プレイヤー反射、一人称下半身、状態画像、組込み表示、性能条件を相談確定し、T06-5は今回の割当と保存設定を利用する。
+> - 学校GLB、Blender、NavMesh、生成器、カタログhash、`src/world/**`、音声・画像バイナリは変更しない。VOICE／BGM／SEの既定音量0を維持する。
+> - T05／T06 fixture、型検査、build、Web、Electron、UTF-8 BOMなし、括弧・構文、ローカル絶対パス、所有外差分を検証する。計画、Portal、R、操作Feedback、Character割当・UI、検証結果の6単位にcommitし、全検証後に一度pushしてDraft PR #64を更新する。レビュー、merge、`develop`同期、worktree整理は行わない。
+
 ## 目的
 
 既に実装済みの入力・状態・NPC指示・扉・学校動的Runtime APIを、学校バイナリへ触れず通常ゲーム入口へ接続する。F／E／C・G／N／H、候補表示、既定荒れ状態2、音声、水中速度50%、開始・破棄ライフサイクルを実プレイで成立させる。
@@ -90,6 +105,7 @@
 - 時間増援と開始地点に追従する出現禁止の最終統合。これらはT06-2が担当する。
 - 荒れ版教室の見た目・配置変更、タイトル画面の荒れ状態スライダー、T07性能最適化。
 - 今回明示された未洗脳NPCの自律視界探索と複数脅威回避は対象へ移す。洗脳済みプレイヤーを自律視認脅威へ加える変更は対象外とする。
+- Character画像の実描画。割当と保存済み自キャラ設定だけを今回作成し、NPC billboard、プレイヤー反射、一人称下半身、状態画像、組込み表示はI3相談後のT06-5へ残す。
 
 ## 依存と開始条件
 
@@ -102,6 +118,7 @@
 - 主担当: `src/v2/main.ts`、通常ゲーム入口に必要な`src/v2/**`、操作表示・音声接続に必要な`src/ui/**`・`src/audio/**`、T06-1専用fixture・設定、本計画。
 - 通常Runtime回帰修正では、BIT帯内経路cache契約の修正を`src/world/bitFlightNavigation.ts`とT05回帰へ限定する。今回の追加修正では扉Runtime、動的Actor連携、取っ手資産型に必要な`src/world/stageDoorRuntime.ts`、`src/world/schoolStageDynamicRuntime.ts`、`src/world/stageDynamicAssets.ts`だけを追加所有する。
 - 編集禁止: 学校Blender正本、GLB、全NavMesh、学校生成器・監査器、`src/world/stageCatalog.ts`、上記以外の`src/world/**`、B03-3D計画。今回明示されたv2.0前ロードマップ更新に限り、全体計画・次タスク計画・branch戦略を追加所有する。
+- 今回の公開処刑R・操作Feedback・Character ID・Portal修正では`src/world/**`を一切変更しない。ローカル配布済み音声・画像directoryは読込対象として列挙できるが、音声・画像バイナリと検証用junctionはcommitしない。
 
 ## 実行単位と推奨設定
 
@@ -178,6 +195,19 @@
 - [x] T04～T06 fixture、型検査、build、通常Web、Electron、配布テキスト検査を完了する
 - [x] 実装結果と証跡を記録し、分割commit、push、Draft PR #64更新まで行う
 
+### 2026-08-02 公開処刑R・操作Feedback・Character ID・Portal修正
+
+- [x] worktree、branch、remote、Draft PR #64のHEADとdirty状態を再監査する
+- [x] 今回の原文指示、Enter／Rの最終仕様、対象外、検証、6commitの配送境界を本計画へ記録する
+- [ ] WanderのRest SlotをNPCの現在Areaへ固定し、Portal候補だけを`locate()`前に除外して厳格なArea例外を維持する
+- [ ] R actionとdispatcherを公開処刑専用へ置換し、進行中／完了後の再演、通常全phase無効、queue・Traversal残留0を実装する
+- [ ] Enterをゲーム開始後の全phaseでタイトル復帰へ統一し、R用session再生成APIを削除する
+- [ ] F／E／C成功Feedback、mode別色、180ms発光、対象変更・clear・dispose時の即時消去を実装する
+- [ ] 全actorのCharacter／VOICE割当、portrait対応、重複なしshuffle、タイトルの自キャラ／自ボイス選択、設定保存を実装する
+- [ ] 仕様書と全体ロードマップへR／EnterとI3／T06-5を同期する
+- [ ] T05／T06 fixture、全typecheck／build、通常Web、Electron、配布テキスト、差分所有を検証する
+- [ ] 実装結果と証跡を記録し、6commitを一度pushしてDraft PR #64を更新する
+
 ## 完了条件
 
 - 通常ゲームでF／E／C・G／N／Hと候補表示が既存Runtime APIを通して動作する。
@@ -185,6 +215,10 @@
 - Pointer Lock、タイトル復帰、再読込後も入力・UI・Audio購読の重複が0件である。
 - 学校バイナリ、生成器、全NavMesh、カタログhashと、今回所有する扉Runtime／資産型以外の`src/world/**`の差分が0件である。
 - 型検査、build、fixture、実ブラウザ、Electronに合格する。
+- Rは公開処刑の進行中・完了後だけ有効で、同じ処刑シーンを再演する。Enterはゲーム開始後の全phaseでタイトルへ戻る。
+- F／E／C成功時だけ対象色の単発Feedbackが再生され、候補・Pointer Lock・sessionの消失後に残留しない。
+- Portal内Rest Slotで更新が停止せず、Portal以外のNavigation Area契約違反は引き続き例外になる。
+- タイトルの自キャラ／自ボイスは独立して保存され、全actorの明示割当がVOICE再生へ使われる。画像描画はT06-5まで追加しない。
 
 ## 次タスク開始用プロンプト
 
