@@ -64,6 +64,7 @@ import {
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import { createStageWorldBoundary } from "../../../src/world/stageWorldBoundary";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
+import { createDefaultV2CharacterVisualRuntime } from "../characterVisualFixture";
 
 export type NpcCommandTestResult = Readonly<{
   name: string;
@@ -171,15 +172,15 @@ const assertThrows = (
   assert(thrown, message);
 };
 
-const executeTest = (
+const executeTest = async (
   name: string,
-  operation: () => string
-): NpcCommandTestResult => {
+  operation: () => string | Promise<string>
+): Promise<NpcCommandTestResult> => {
   try {
     return Object.freeze({
       name,
       ok: true,
-      detail: operation()
+      detail: await operation()
     });
   } catch (error) {
     return Object.freeze({
@@ -237,14 +238,14 @@ const createInitializationRandom = (
   };
 };
 
-const createNpcCommandFixture = (
+const createNpcCommandFixture = async (
   npcCount: number,
   initialBrainwashedNpcCount: number,
   boundaryExtent = 4,
   observeRouteContext:
     | ((context: V2NpcNavigationRouteContext) => void)
     | null = null
-): NpcCommandFixture => {
+): Promise<NpcCommandFixture> => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
   const ground = MeshBuilder.CreateBox(
@@ -413,9 +414,17 @@ const createNpcCommandFixture = (
     })
   } as unknown as StageSpatialContext;
 
+  const characterVisuals = await createDefaultV2CharacterVisualRuntime(
+    scene,
+    Object.freeze([
+      "player",
+      ...Array.from({ length: npcCount }, (_, index) => `npc_${index}`)
+    ])
+  );
   const system = createV2NpcSystem({
     scene,
     stage,
+    characterVisuals,
     npcCount,
     initialBrainwashedNpcCount,
     diagnosticsEnabled: true,
@@ -465,6 +474,7 @@ const createNpcCommandFixture = (
     },
     dispose: () => {
       system.dispose();
+      characterVisuals.dispose();
       scene.dispose();
       engine.dispose();
     }
@@ -550,7 +560,7 @@ const getTracking = (
   return tracking;
 };
 
-const testPlayerActions = () => {
+const testPlayerActions = async () => {
   const target = new EventTarget() as unknown as Window;
   const input = createV2PlayerInput(target);
   const dispatchKey = (
@@ -610,7 +620,7 @@ const testPlayerActions = () => {
   return "7 actionを発生順に一度だけdrainし、repeat/reset/blur/disposeを確認";
 };
 
-const testPlayerGunFireEventSnapshot = () => {
+const testPlayerGunFireEventSnapshot = async () => {
   const gunPlayer = createV2PlayerCombatSystem({
     playerId: "player",
     initialState: "brainwash-complete-gun",
@@ -670,8 +680,8 @@ const testPlayerGunFireEventSnapshot = () => {
   return "成立gun方向を独立clone・正規化し、射撃不能5状態はeventなし";
 };
 
-const testCandidateSelection = () => {
-  const fixture = createNpcCommandFixture(5, 0);
+const testCandidateSelection = async () => {
+  const fixture = await createNpcCommandFixture(5, 0);
   const player = createPlayerTarget(Vector3.Zero());
   try {
     placeNpcs(fixture.system, [
@@ -798,9 +808,9 @@ const testCandidateSelection = () => {
   }
 };
 
-const testCommandStateEligibility = () => {
-  const aliveFixture = createNpcCommandFixture(2, 0);
-  const brainwashedFixture = createNpcCommandFixture(3, 3);
+const testCommandStateEligibility = async () => {
+  const aliveFixture = await createNpcCommandFixture(2, 0);
+  const brainwashedFixture = await createNpcCommandFixture(3, 3);
   const alivePlayer = createPlayerTarget(Vector3.Zero());
   const brainwashedPlayer = createPlayerTarget(
     Vector3.Zero(),
@@ -903,8 +913,8 @@ const testCommandStateEligibility = () => {
   }
 };
 
-const testCommandRequestContract = () => {
-  const fixture = createNpcCommandFixture(2, 0);
+const testCommandRequestContract = async () => {
+  const fixture = await createNpcCommandFixture(2, 0);
   const player = createPlayerTarget(Vector3.Zero());
   try {
     placeNpcs(fixture.system, [
@@ -956,8 +966,8 @@ const testCommandRequestContract = () => {
   }
 };
 
-const testFollowMovementAndRelease = () => {
-  const fixture = createNpcCommandFixture(2, 0);
+const testFollowMovementAndRelease = async () => {
+  const fixture = await createNpcCommandFixture(2, 0);
   const player = createPlayerTarget(Vector3.Zero());
   try {
     placeNpcs(fixture.system, [
@@ -1143,8 +1153,8 @@ const testFollowMovementAndRelease = () => {
   }
 };
 
-const testFollowStopAndResume = () => {
-  const fixture = createNpcCommandFixture(1, 0);
+const testFollowStopAndResume = async () => {
+  const fixture = await createNpcCommandFixture(1, 0);
   const player = createPlayerTarget(Vector3.Zero());
   try {
     placeNpcs(fixture.system, [
@@ -1199,9 +1209,9 @@ const testFollowStopAndResume = () => {
   }
 };
 
-const testFollowAndLeaveSpeeds = () => {
-  const aliveFixture = createNpcCommandFixture(1, 0);
-  const brainwashedFixture = createNpcCommandFixture(3, 3);
+const testFollowAndLeaveSpeeds = async () => {
+  const aliveFixture = await createNpcCommandFixture(1, 0);
+  const brainwashedFixture = await createNpcCommandFixture(3, 3);
   const alivePlayer = createPlayerTarget(Vector3.Zero());
   const brainwashedPlayer = createPlayerTarget(
     Vector3.Zero(),
@@ -1331,8 +1341,8 @@ const testFollowAndLeaveSpeeds = () => {
   }
 };
 
-const testFollowDistanceAndOcclusion = () => {
-  const fixture = createNpcCommandFixture(1, 0, 5);
+const testFollowDistanceAndOcclusion = async () => {
+  const fixture = await createNpcCommandFixture(1, 0, 5);
   const initialPlayer = createPlayerTarget(Vector3.Zero());
   const start = new Vector3(0, 0, 0.4);
   const requestFollow = () => {
@@ -1453,8 +1463,8 @@ const testFollowDistanceAndOcclusion = () => {
   }
 };
 
-const testFollowElevatorSightGrace = () => {
-  const fixture = createNpcCommandFixture(1, 0, 6);
+const testFollowElevatorSightGrace = async () => {
+  const fixture = await createNpcCommandFixture(1, 0, 6);
   const nearbyPlayer = createPlayerTarget(
     new Vector3(0, 0, -0.5)
   );
@@ -1569,8 +1579,8 @@ const testFollowElevatorSightGrace = () => {
   }
 };
 
-const testFollowElevatorCancellationResumesSightGrace = () => {
-  const fixture = createNpcCommandFixture(1, 0, 6);
+const testFollowElevatorCancellationResumesSightGrace = async () => {
+  const fixture = await createNpcCommandFixture(1, 0, 6);
   const nearbyPlayer = createPlayerTarget(
     new Vector3(0, 0, -0.5)
   );
@@ -1647,9 +1657,9 @@ const testFollowElevatorCancellationResumesSightGrace = () => {
   }
 };
 
-const testFollowAlarmPriority = () => {
-  const fixture = createNpcCommandFixture(4, 3);
-  const aliveFixture = createNpcCommandFixture(1, 0);
+const testFollowAlarmPriority = async () => {
+  const fixture = await createNpcCommandFixture(4, 3);
+  const aliveFixture = await createNpcCommandFixture(1, 0);
   const player = createPlayerTarget(
     Vector3.Zero(),
     "brainwash-complete-gun"
@@ -1762,23 +1772,23 @@ const testFollowAlarmPriority = () => {
   }
 };
 
-const testAlarmVisualAndFollowNavigationSpeeds = () => {
+const testAlarmVisualAndFollowNavigationSpeeds = async () => {
   const visualContexts: V2NpcNavigationRouteContext[] = [];
   const alarmContexts: V2NpcNavigationRouteContext[] = [];
   const followContexts: V2NpcNavigationRouteContext[] = [];
-  const visualFixture = createNpcCommandFixture(
+  const visualFixture = await createNpcCommandFixture(
     1,
     1,
     4,
     (context) => visualContexts.push(context)
   );
-  const alarmFixture = createNpcCommandFixture(
+  const alarmFixture = await createNpcCommandFixture(
     1,
     1,
     4,
     (context) => alarmContexts.push(context)
   );
-  const followFixture = createNpcCommandFixture(
+  const followFixture = await createNpcCommandFixture(
     2,
     1,
     4,
@@ -1897,10 +1907,10 @@ const testAlarmVisualAndFollowNavigationSpeeds = () => {
   }
 };
 
-const testLeaveLifecycle = () => {
-  const fixture = createNpcCommandFixture(1, 0);
-  const blockedFixture = createNpcCommandFixture(1, 0);
-  const timeoutFixture = createNpcCommandFixture(5, 0);
+const testLeaveLifecycle = async () => {
+  const fixture = await createNpcCommandFixture(1, 0);
+  const blockedFixture = await createNpcCommandFixture(1, 0);
+  const timeoutFixture = await createNpcCommandFixture(5, 0);
   const player = createPlayerTarget(Vector3.Zero());
   try {
     const initialPosition = new Vector3(0, 0, 0.3);
@@ -2013,9 +2023,9 @@ const testLeaveLifecycle = () => {
   }
 };
 
-const testHaigureTimerPauseAndResume = () => {
-  const followFixture = createNpcCommandFixture(3, 3);
-  const leaveFixture = createNpcCommandFixture(3, 3);
+const testHaigureTimerPauseAndResume = async () => {
+  const followFixture = await createNpcCommandFixture(3, 3);
+  const leaveFixture = await createNpcCommandFixture(3, 3);
   const player = createPlayerTarget(
     Vector3.Zero(),
     "brainwash-complete-gun"
@@ -2142,7 +2152,7 @@ const testHaigureTimerPauseAndResume = () => {
   }
 };
 
-const testFollowerFireSpreadContract = () => {
+const testFollowerFireSpreadContract = async () => {
   const forward = new Vector3(0, 0, 4);
   const maximumUnitRandom = 1 - Number.EPSILON;
   const negative = createV2FollowerFireDirection(
@@ -2211,8 +2221,8 @@ const testFollowerFireSpreadContract = () => {
   return "yaw／pitch各±3度、独立入力、正規化を境界値で確認";
 };
 
-const testBrainwashedFollowersAndSynchronizedFire = () => {
-  const fixture = createNpcCommandFixture(3, 3);
+const testBrainwashedFollowersAndSynchronizedFire = async () => {
+  const fixture = await createNpcCommandFixture(3, 3);
   const player = createPlayerTarget(
     Vector3.Zero(),
     "brainwash-complete-gun"
@@ -2416,7 +2426,7 @@ const testBrainwashedFollowersAndSynchronizedFire = () => {
       ).size === 3,
       "3体のFollowerで射撃拡散の個体差が生じません。"
     );
-    const deterministicFixture = createNpcCommandFixture(3, 3);
+    const deterministicFixture = await createNpcCommandFixture(3, 3);
     try {
       placeNpcs(deterministicFixture.system, [
         new Vector3(-0.1, 0, 0.3),
@@ -2588,8 +2598,8 @@ const testBrainwashedFollowersAndSynchronizedFire = () => {
   }
 };
 
-const testActualBeamCompletionEvents = () => {
-  const fixture = createNpcCommandFixture(1, 1);
+const testActualBeamCompletionEvents = async () => {
+  const fixture = await createNpcCommandFixture(1, 1);
   const player = createPlayerTarget(
     Vector3.Zero(),
     "brainwash-complete-gun"
@@ -2799,8 +2809,8 @@ const testActualBeamCompletionEvents = () => {
   }
 };
 
-const testActiveBeamSurvivesFollowRelease = () => {
-  const fixture = createNpcCommandFixture(2, 2);
+const testActiveBeamSurvivesFollowRelease = async () => {
+  const fixture = await createNpcCommandFixture(2, 2);
   const player = createPlayerTarget(
     Vector3.Zero(),
     "brainwash-complete-gun"
@@ -2898,9 +2908,9 @@ const testActiveBeamSurvivesFollowRelease = () => {
   }
 };
 
-const testUnlimitedFollowersAndSeparation = () => {
+const testUnlimitedFollowersAndSeparation = async () => {
   const followerCount = 12;
-  const fixture = createNpcCommandFixture(
+  const fixture = await createNpcCommandFixture(
     followerCount,
     followerCount
   );
@@ -2996,8 +3006,8 @@ const testUnlimitedFollowersAndSeparation = () => {
   }
 };
 
-const testNarrowPassageFormationFallback = () => {
-  const fixture = createNpcCommandFixture(2, 2);
+const testNarrowPassageFormationFallback = async () => {
+  const fixture = await createNpcCommandFixture(2, 2);
   const player = createPlayerTarget(
     Vector3.Zero(),
     "brainwash-complete-gun"
@@ -3055,8 +3065,8 @@ const createBitThreat = (
     radius: 0.05
   });
 
-const testAutonomousThreatVisionAndEscape = () => {
-  const fixture = createNpcCommandFixture(2, 1);
+const testAutonomousThreatVisionAndEscape = async () => {
+  const fixture = await createNpcCommandFixture(2, 1);
   const player = createPlayerTarget(Vector3.Zero());
   const observerId = "npc_1";
   const brainwashedId = "npc_0";
@@ -3294,8 +3304,8 @@ const testAutonomousThreatVisionAndEscape = () => {
   }
 };
 
-const testAutonomousThreatRoundRobinFairness = () => {
-  const fixture = createNpcCommandFixture(4, 0);
+const testAutonomousThreatRoundRobinFairness = async () => {
+  const fixture = await createNpcCommandFixture(4, 0);
   const player = createPlayerTarget(new Vector3(0, 0, -3));
   const positions = [
     new Vector3(-2, 0, 0),
@@ -3352,9 +3362,9 @@ const testAutonomousThreatRoundRobinFairness = () => {
   }
 };
 
-const testAutonomousCombatSuppression = () => {
-  const baselineFixture = createNpcCommandFixture(3, 2);
-  const followerFixture = createNpcCommandFixture(3, 2);
+const testAutonomousCombatSuppression = async () => {
+  const baselineFixture = await createNpcCommandFixture(3, 2);
+  const followerFixture = await createNpcCommandFixture(3, 2);
   const baselinePlayer = createPlayerTarget(Vector3.Zero());
   const player = createPlayerTarget(
     Vector3.Zero(),
@@ -3413,8 +3423,8 @@ const testAutonomousCombatSuppression = () => {
   }
 };
 
-const testCommandLifecycleCleanup = () => {
-  const fixture = createNpcCommandFixture(2, 2);
+const testCommandLifecycleCleanup = async () => {
+  const fixture = await createNpcCommandFixture(2, 2);
   const player = createPlayerTarget(
     Vector3.Zero(),
     "brainwash-complete-gun"
@@ -3495,7 +3505,7 @@ const testCommandLifecycleCleanup = () => {
     );
   };
 
-  const disposedFixture = createNpcCommandFixture(2, 2);
+  const disposedFixture = await createNpcCommandFixture(2, 2);
   let disposedFixtureClosed = false;
   try {
     placeNpcs(fixture.system, positions);
@@ -3546,9 +3556,8 @@ const testCommandLifecycleCleanup = () => {
   }
 };
 
-export const runNpcCommandTests =
-  (): readonly NpcCommandTestResult[] =>
-    Object.freeze([
+export const runNpcCommandTests = async () =>
+    Object.freeze(await Promise.all([
       executeTest("離散入力action", testPlayerActions),
       executeTest(
         "プレイヤー成立gun射撃event",
@@ -3637,4 +3646,4 @@ export const runNpcCommandTests =
         "commandライフサイクル残留0",
         testCommandLifecycleCleanup
       )
-    ]);
+    ]));

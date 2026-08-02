@@ -32,6 +32,8 @@ import {
   V2_PERFORMANCE_ACCEPTANCE_POPULATION,
   type V2SurvivalRuntime
 } from "../../../src/v2/survivalRuntime";
+import type { V2CharacterVisualRuntime } from "../../../src/v2/v2CharacterVisualRuntime";
+import { createDefaultV2CharacterVisualRuntime } from "../characterVisualFixture";
 
 export type SurvivalRuntimeLifecycleCheck = Readonly<{
   name: string;
@@ -212,24 +214,44 @@ const observableCountsEqual = (
   return true;
 };
 
-const createRuntime = (
+const createRuntime = async (
   scene: Scene,
   stage: StageSpatialContext,
   getOrbVisibilityPredicate: () => (position: Vector3) => boolean,
   performanceDiagnostics: V2PerformanceDiagnostics | null = null
-) =>
-  createV2SurvivalRuntime({
+) => {
+  const characterVisuals = await createDefaultV2CharacterVisualRuntime(
     scene,
-    stage,
-    player: createFakePlayer(stage),
-    random: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED),
-    getOrbVisibilityPredicate,
-    population: V2_PERFORMANCE_ACCEPTANCE_POPULATION,
-    performanceDiagnostics,
-    performanceWorkloadScenario: null,
-    releaseStageTraversalForScriptedPhase: () => {},
-    selectNavigationRoute: selectDistanceNavigationRoute
-  });
+    Object.freeze([
+      "player",
+      ...Array.from(
+        { length: V2_PERFORMANCE_ACCEPTANCE_POPULATION.npcCount },
+        (_, index) => `npc_${index}`
+      )
+    ])
+  );
+  try {
+    return Object.freeze({
+      runtime: createV2SurvivalRuntime({
+        scene,
+        stage,
+        player: createFakePlayer(stage),
+        characterVisuals,
+        random: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED),
+        getOrbVisibilityPredicate,
+        population: V2_PERFORMANCE_ACCEPTANCE_POPULATION,
+        performanceDiagnostics,
+        performanceWorkloadScenario: null,
+        releaseStageTraversalForScriptedPhase: () => {},
+        selectNavigationRoute: selectDistanceNavigationRoute
+      }),
+      characterVisuals
+    });
+  } catch (error) {
+    characterVisuals.dispose();
+    throw error;
+  }
+};
 
 export const runSurvivalRuntimeLifecycleTests = async (
   scene: Scene,
@@ -238,7 +260,9 @@ export const runSurvivalRuntimeLifecycleTests = async (
   const checks: SurvivalRuntimeLifecycleCheck[] = [];
   const baseline = captureSceneResources(scene);
   let firstRuntime: V2SurvivalRuntime | null = null;
+  let firstCharacterVisuals: V2CharacterVisualRuntime | null = null;
   let secondRuntime: V2SurvivalRuntime | null = null;
+  let secondCharacterVisuals: V2CharacterVisualRuntime | null = null;
 
   try {
     const allStateHudCounts = summarizeV2NpcHudCounts(
@@ -280,7 +304,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
         }),
         V2_PERFORMANCE_ACCEPTANCE_POPULATION
       );
-    firstRuntime = createRuntime(
+    const firstFixture = await createRuntime(
       scene,
       stage,
       () => {
@@ -289,6 +313,8 @@ export const runSurvivalRuntimeLifecycleTests = async (
       },
       performanceDiagnostics
     );
+    firstRuntime = firstFixture.runtime;
+    firstCharacterVisuals = firstFixture.characterVisuals;
     const firstFrame = firstRuntime.getFrame();
     checks.push(
       Object.freeze({
@@ -421,6 +447,8 @@ export const runSurvivalRuntimeLifecycleTests = async (
     const firstDelta = subtractSceneResources(firstActive, baseline);
     firstRuntime.dispose();
     firstRuntime = null;
+    firstCharacterVisuals.dispose();
+    firstCharacterVisuals = null;
     const afterFirstDispose = captureSceneResources(scene);
     checks.push(
       Object.freeze({
@@ -435,7 +463,13 @@ export const runSurvivalRuntimeLifecycleTests = async (
       })
     );
 
-    secondRuntime = createRuntime(scene, stage, () => () => true);
+    const secondFixture = await createRuntime(
+      scene,
+      stage,
+      () => () => true
+    );
+    secondRuntime = secondFixture.runtime;
+    secondCharacterVisuals = secondFixture.characterVisuals;
     const secondFrame = secondRuntime.getFrame();
     await secondRuntime.prepareVisualResources();
     secondRuntime.update(1 / 60, 1 / 60, null);
@@ -443,6 +477,8 @@ export const runSurvivalRuntimeLifecycleTests = async (
     const secondDelta = subtractSceneResources(secondActive, baseline);
     secondRuntime.dispose();
     secondRuntime = null;
+    secondCharacterVisuals.dispose();
+    secondCharacterVisuals = null;
     const afterSecondDispose = captureSceneResources(scene);
     checks.push(
       Object.freeze({
@@ -465,6 +501,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
     const previousActiveCamera = scene.activeCamera;
     const commandPlayer = createFakePlayer(stage);
     let commandRuntime: V2SurvivalRuntime | null = null;
+    let commandCharacterVisuals: V2CharacterVisualRuntime | null = null;
     let commandCamera: FreeCamera | null = null;
     let initialCandidateCount = 0;
     let followVisible = false;
@@ -481,10 +518,16 @@ export const runSurvivalRuntimeLifecycleTests = async (
         V2_PERFORMANCE_DEFAULT_SEED ^ 0x5430_5303
       );
       const gunNpcRandom = () => seededRandom() * 0.44;
+      commandCharacterVisuals =
+        await createDefaultV2CharacterVisualRuntime(
+          scene,
+          Object.freeze(["player", "npc_0"])
+        );
       commandRuntime = createV2SurvivalRuntime({
         scene,
         stage,
         player: commandPlayer,
+        characterVisuals: commandCharacterVisuals,
         random: gunNpcRandom,
         getOrbVisibilityPredicate: () => () => true,
         population: Object.freeze({
@@ -609,6 +652,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
       }
     } finally {
       commandRuntime?.dispose();
+      commandCharacterVisuals?.dispose();
       if (scene.activeCamera === commandCamera) {
         scene.activeCamera = previousActiveCamera;
       }
@@ -649,7 +693,9 @@ export const runSurvivalRuntimeLifecycleTests = async (
     );
   } finally {
     secondRuntime?.dispose();
+    secondCharacterVisuals?.dispose();
     firstRuntime?.dispose();
+    firstCharacterVisuals?.dispose();
   }
 
   return Object.freeze(checks);

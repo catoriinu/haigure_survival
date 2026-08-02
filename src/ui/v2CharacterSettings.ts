@@ -1,4 +1,5 @@
 import { V2_TITLE_SETTINGS_STORAGE_KEY } from "../audio/v2AudioSettings";
+import { V2_DEFAULT_PORTRAIT_DIRECTORY } from "../v2/v2CharacterAssignments";
 import { createTitledSettingsPanelRoot } from "./settingsPanelShared";
 
 export type V2CharacterSettings = Readonly<{
@@ -125,7 +126,11 @@ export const createV2CharacterSettingsStore = (
   portraitDirectories: readonly string[],
   voiceDirectories: readonly string[],
 ): V2CharacterSettingsStore => {
-  const portraitDirectorySet = new Set(portraitDirectories);
+  const portraitDirectorySet = new Set(
+    portraitDirectories.length > 0
+      ? [V2_DEFAULT_PORTRAIT_DIRECTORY, ...portraitDirectories]
+      : portraitDirectories,
+  );
   const voiceDirectorySet = new Set(voiceDirectories);
   return Object.freeze({
     load: () => {
@@ -194,11 +199,18 @@ export type V2CharacterSettingsPanelOptions = Readonly<{
 const appendDirectoryOptions = (
   select: HTMLSelectElement,
   directories: readonly string[],
+  defaultOptionValue: string | null,
 ): void => {
   const randomOption = document.createElement("option");
   randomOption.value = "";
   randomOption.textContent = "ランダム選択";
   select.appendChild(randomOption);
+  if (defaultOptionValue !== null) {
+    const defaultOption = document.createElement("option");
+    defaultOption.value = defaultOptionValue;
+    defaultOption.textContent = "デフォルトスプライト";
+    select.appendChild(defaultOption);
+  }
   for (const directory of directories) {
     const option = document.createElement("option");
     option.value = directory;
@@ -211,6 +223,7 @@ const createDirectoryRow = (
   labelText: string,
   uiId: string,
   directories: readonly string[],
+  defaultOptionValue: string | null,
 ): Readonly<{
   row: HTMLLabelElement;
   select: HTMLSelectElement;
@@ -224,7 +237,7 @@ const createDirectoryRow = (
   const select = document.createElement("select");
   select.className = "player-settings-panel__select";
   select.dataset.ui = uiId;
-  appendDirectoryOptions(select, directories);
+  appendDirectoryOptions(select, directories, defaultOptionValue);
   row.append(label, select);
   return Object.freeze({ row, select });
 };
@@ -236,7 +249,11 @@ export const createV2CharacterSettingsPanel = ({
   voiceDirectories,
   onChange,
 }: V2CharacterSettingsPanelOptions): V2CharacterSettingsPanel => {
-  const portraitDirectorySet = new Set(portraitDirectories);
+  const portraitDirectorySet = new Set(
+    portraitDirectories.length > 0
+      ? [V2_DEFAULT_PORTRAIT_DIRECTORY, ...portraitDirectories]
+      : portraitDirectories,
+  );
   const voiceDirectorySet = new Set(voiceDirectories);
   assertDirectorySelection(
     "自キャラ",
@@ -264,6 +281,7 @@ export const createV2CharacterSettingsPanel = ({
     "自キャラ",
     "v2-player-portrait-select",
     portraitDirectories,
+    V2_DEFAULT_PORTRAIT_DIRECTORY,
   );
   if (portraitDirectories.length > 0) {
     panel.appendChild(portrait.row);
@@ -272,6 +290,7 @@ export const createV2CharacterSettingsPanel = ({
     "自ボイス",
     "v2-player-voice-select",
     voiceDirectories,
+    null,
   );
   if (voiceDirectories.length > 0) {
     panel.appendChild(voice.row);

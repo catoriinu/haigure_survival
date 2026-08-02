@@ -11,6 +11,7 @@ import type { StageDoorInteractionCandidate } from "../../../src/world/stageDoor
 import type { V2NpcCommandCandidate } from "../../../src/v2/npcSystem";
 import { V2_PLAYER_BASE_EYE_HEIGHT } from "../../../src/v2/playerController";
 import {
+  canV2RuntimePlayerFire,
   createV2RuntimeHudController
 } from "../../../src/ui/v2RuntimeHud";
 
@@ -101,7 +102,8 @@ export const runRuntimeHudTests = async () =>
           frame: Object.freeze({
             phase: "playing" as const,
             playerState: "brainwash-complete-gun" as const,
-            playerCompletionUnlocked: true
+            playerCompletionUnlocked: true,
+            executionPlayerRole: null
           }),
           npcCandidates: Object.freeze([createNpcCandidate()]),
           doorCandidates: Object.freeze([doorCandidate]),
@@ -124,7 +126,8 @@ export const runRuntimeHudTests = async () =>
           frame: Object.freeze({
             phase: "playing" as const,
             playerState: "brainwash-complete-no-gun" as const,
-            playerCompletionUnlocked: true
+            playerCompletionUnlocked: true,
+            executionPlayerRole: null
           }),
           npcCandidates: Object.freeze([]),
           doorCandidates: Object.freeze([]),
@@ -154,7 +157,8 @@ export const runRuntimeHudTests = async () =>
           frame: Object.freeze({
             phase: "playing" as const,
             playerState: "normal" as const,
-            playerCompletionUnlocked: false
+            playerCompletionUnlocked: false,
+            executionPlayerRole: null
           }),
           npcCandidates: Object.freeze([createNpcCandidate()]),
           doorCandidates: Object.freeze([doorCandidate]),
@@ -170,7 +174,8 @@ export const runRuntimeHudTests = async () =>
           frame: Object.freeze({
             phase: "playing" as const,
             playerState: "brainwash-complete-no-gun" as const,
-            playerCompletionUnlocked: true
+            playerCompletionUnlocked: true,
+            executionPlayerRole: null
           }),
           npcCandidates: Object.freeze([]),
           doorCandidates: Object.freeze([]),
@@ -187,7 +192,8 @@ export const runRuntimeHudTests = async () =>
           frame: Object.freeze({
             phase: "execution-complete" as const,
             playerState: "brainwash-complete-gun" as const,
-            playerCompletionUnlocked: false
+            playerCompletionUnlocked: false,
+            executionPlayerRole: "shooter" as const
           }),
           npcCandidates: Object.freeze([]),
           doorCandidates: Object.freeze([]),
@@ -202,8 +208,68 @@ export const runRuntimeHudTests = async () =>
           active: true,
           frame: Object.freeze({
             phase: "execution" as const,
-            playerState: "brainwash-complete-gun" as const,
-            playerCompletionUnlocked: false
+            playerState: "normal" as const,
+            playerCompletionUnlocked: false,
+            executionPlayerRole: "shooter" as const
+          }),
+          npcCandidates: Object.freeze([createNpcCandidate()]),
+          doorCandidates: Object.freeze([doorCandidate]),
+          feedback: Object.freeze([])
+        });
+        assert(
+          countVisibleHudRoots(host) === 2 &&
+            !getRole(host, "crosshair").hidden &&
+            !getRole(host, "fire-guide").hidden &&
+            getRole(host, "npc-target").hidden &&
+            getRole(host, "door-target").hidden &&
+            canV2RuntimePlayerFire(
+              Object.freeze({
+                phase: "execution" as const,
+                playerState: "normal" as const,
+                playerCompletionUnlocked: false,
+                executionPlayerRole: "shooter" as const
+              })
+            ),
+          "公開処刑射手の照準・射撃案内だけが表示されません。"
+        );
+
+        for (const executionPlayerRole of [
+          "target",
+          "observer"
+        ] as const) {
+          hud.update({
+            active: true,
+            frame: Object.freeze({
+              phase: "execution" as const,
+              playerState: "brainwash-complete-gun" as const,
+              playerCompletionUnlocked: false,
+              executionPlayerRole
+            }),
+            npcCandidates: Object.freeze([createNpcCandidate()]),
+            doorCandidates: Object.freeze([doorCandidate]),
+            feedback: Object.freeze([])
+          });
+          assert(
+            countVisibleHudRoots(host) === 0 &&
+              !canV2RuntimePlayerFire(
+                Object.freeze({
+                  phase: "execution" as const,
+                  playerState: "brainwash-complete-gun" as const,
+                  playerCompletionUnlocked: false,
+                  executionPlayerRole
+                })
+              ),
+            `公開処刑${executionPlayerRole}に照準または対象markerが表示されました。`
+          );
+        }
+
+        hud.update({
+          active: false,
+          frame: Object.freeze({
+            phase: "execution" as const,
+            playerState: "normal" as const,
+            playerCompletionUnlocked: false,
+            executionPlayerRole: "shooter" as const
           }),
           npcCandidates: Object.freeze([]),
           doorCandidates: Object.freeze([]),
@@ -211,9 +277,9 @@ export const runRuntimeHudTests = async () =>
         });
         assert(
           countVisibleHudRoots(host) === 0,
-          "公開処刑進行中にR案内が表示されました。"
+          "Pointer Lock解除中の公開処刑射手に照準が表示されました。"
         );
-        return "候補・状態案内・inactive・中央R案内なし・clearをDOMへ同期";
+        return "候補・状態案内・公開処刑射手照準・inactive・中央R案内なし・clearをDOMへ同期";
       } finally {
         hud.dispose();
         host.remove();
@@ -249,7 +315,8 @@ export const runRuntimeHudTests = async () =>
       const frame = Object.freeze({
         phase: "playing" as const,
         playerState: "normal" as const,
-        playerCompletionUnlocked: false
+        playerCompletionUnlocked: false,
+        executionPlayerRole: null
       });
       const hud = createV2RuntimeHudController({
         host,
@@ -412,7 +479,8 @@ export const runRuntimeHudTests = async () =>
           frame: Object.freeze({
             phase: "playing" as const,
             playerState: "normal" as const,
-            playerCompletionUnlocked: false
+            playerCompletionUnlocked: false,
+            executionPlayerRole: null
           }),
           npcCandidates: Object.freeze([]),
           doorCandidates: Object.freeze([doorCandidate]),

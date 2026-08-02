@@ -1887,7 +1887,7 @@ const runValidation = async () => {
         ok: result.ok,
         detail: result.detail
       })),
-      ...runNpcCombatTests().map((result) => ({
+      ...(await runNpcCombatTests()).map((result) => ({
         name: `T05-2 NPC戦闘: ${result.name}`,
         ok: result.ok,
         detail: result.detail

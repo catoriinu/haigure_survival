@@ -166,7 +166,8 @@ const assignPortraitDirectories = (
       : [...portraitDirectories].sort(compareId);
   if (
     playerPortraitDirectory !== null &&
-    !availableDirectories.includes(playerPortraitDirectory)
+    playerPortraitDirectory !== V2_DEFAULT_PORTRAIT_DIRECTORY &&
+    !portraitDirectories.includes(playerPortraitDirectory)
   ) {
     throw new Error(
       `自キャラのportrait directoryがありません: ${playerPortraitDirectory}`,

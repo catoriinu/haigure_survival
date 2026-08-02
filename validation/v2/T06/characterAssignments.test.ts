@@ -142,6 +142,29 @@ export const runCharacterAssignmentTests = async () =>
       );
       return "player／NPCを組込み00_defaultへ割当";
     }),
+    executeTest("画像ありのplayer組込みdefault固定", () => {
+      const assignments = createV2CharacterAssignments({
+        actorIds: Object.freeze(["npc-01", "player"]),
+        playerActorId: "player",
+        voiceProfileIds: Object.freeze(["01", "02"]),
+        portraitDirectories: Object.freeze([
+          "01_hgsv_mb",
+          "02_hgsv_mb"
+        ]),
+        playerVoiceDirectory: null,
+        playerPortraitDirectory: V2_DEFAULT_PORTRAIT_DIRECTORY,
+        random: () => 0
+      });
+      assert(
+        assignments[0]?.portraitDirectory ===
+          V2_DEFAULT_PORTRAIT_DIRECTORY &&
+          assignments[1]?.portraitDirectory === "01_hgsv_mb",
+        `playerだけを組込みdefaultへ固定できません: ${assignments
+          .map((assignment) => assignment.portraitDirectory)
+          .join(",")}`
+      );
+      return "playerは00_default、NPCは実画像01_hgsv_mb";
+    }),
     executeTest("portrait inventoryのdirectory列挙", () => {
       const inventory = createV2PortraitAssetInventoryFromPublicPaths(
         Object.freeze([
@@ -191,7 +214,7 @@ export const runCharacterAssignmentTests = async () =>
       const loaded = store.load();
       store.save(
         Object.freeze({
-          portraitDirectory: "01_hgsv_mb",
+          portraitDirectory: V2_DEFAULT_PORTRAIT_DIRECTORY,
           voiceDirectory: null
         })
       );
@@ -208,11 +231,12 @@ export const runCharacterAssignmentTests = async () =>
           stored.volumeLevels?.futureCategory === 9 &&
           stored.playerSettings?.heightCells === 0.9 &&
           stored.playerSettings?.futurePlayerField === true &&
-          stored.playerSettings?.portraitDirectory === "01_hgsv_mb" &&
+          stored.playerSettings?.portraitDirectory ===
+            V2_DEFAULT_PORTRAIT_DIRECTORY &&
           stored.playerSettings?.voiceDirectory === null,
         `Character部分保存で既存設定が失われました: ${JSON.stringify(stored)}`
       );
-      return "無効portraitをrandomへ正規化し、音量・未知fieldを保持して部分保存";
+      return "組込みdefaultを保存し、音量・未知fieldを保持して部分保存";
     }),
     executeTest("Character割当の再生成境界", () => {
       const options = Object.freeze({
@@ -285,6 +309,51 @@ export const runCharacterAssignmentTests = async () =>
           "自ボイスselect変更が即時通知されません。"
         );
         return "自キャラrow非表示、右下自ボイスselectはrandom先頭から02へ即時変更";
+      } finally {
+        panel.dispose();
+        host.remove();
+      }
+    }),
+    executeTest("Character設定panelの組込みdefault選択", () => {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      let changedPortraitDirectory: string | null | undefined;
+      const panel = createV2CharacterSettingsPanel({
+        parent: host,
+        initialSettings: Object.freeze({
+          portraitDirectory: V2_DEFAULT_PORTRAIT_DIRECTORY,
+          voiceDirectory: null
+        }),
+        portraitDirectories: Object.freeze([
+          "01_hgsv_mb",
+          "02_hgsv_mb"
+        ]),
+        voiceDirectories: Object.freeze(["01_devil"]),
+        onChange: (settings) => {
+          changedPortraitDirectory = settings.portraitDirectory;
+        }
+      });
+      try {
+        const portraitSelect = panel.root.querySelector<HTMLSelectElement>(
+          '[data-ui="v2-player-portrait-select"]'
+        );
+        assert(
+          portraitSelect !== null &&
+            [...portraitSelect.options]
+              .map((option) => option.textContent)
+              .join(",") ===
+              "ランダム選択,デフォルトスプライト,01_hgsv_mb,02_hgsv_mb" &&
+            portraitSelect.value === V2_DEFAULT_PORTRAIT_DIRECTORY,
+          "自キャラselectの組込みdefault順または選択状態が不正です。"
+        );
+        portraitSelect.value = "02_hgsv_mb";
+        portraitSelect.dispatchEvent(new Event("change"));
+        assert(
+          changedPortraitDirectory === "02_hgsv_mb" &&
+            panel.getSettings().portraitDirectory === "02_hgsv_mb",
+          "自キャラselectの実画像変更が即時通知されません。"
+        );
+        return "random→default→実画像の順で表示し、defaultと実画像を選択可能";
       } finally {
         panel.dispose();
         host.remove();

@@ -60,6 +60,7 @@ import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import type { V2NpcTraversalState } from "../../../src/v2/npcTraversal";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
+import { createDefaultV2CharacterVisualRuntime } from "../characterVisualFixture";
 
 export type NpcCombatTestResult = Readonly<{
   name: string;
@@ -163,15 +164,15 @@ const applyNpcBeamImpact = (
     })
   ])[0].accepted;
 
-const executeTest = (
+const executeTest = async (
   name: string,
-  operation: () => string
-): NpcCombatTestResult => {
+  operation: () => string | Promise<string>
+): Promise<NpcCombatTestResult> => {
   try {
     return Object.freeze({
       name,
       ok: true,
-      detail: operation()
+      detail: await operation()
     });
   } catch (error) {
     return Object.freeze({
@@ -246,7 +247,7 @@ const createInitializationRandom = (
   };
 };
 
-const createNpcFixture = (
+const createNpcFixture = async (
   npcCount: number,
   initialBrainwashedNpcCount: number,
   boundaryExtent = 5,
@@ -255,7 +256,7 @@ const createNpcFixture = (
     | ((context: V2NpcNavigationRouteContext) => void)
     | null = null,
   brainwashedStateRoll: number | null = null
-): NpcFixture => {
+): Promise<NpcFixture> => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
   const ground = MeshBuilder.CreateBox(
@@ -425,9 +426,17 @@ const createNpcFixture = (
     })
   } as unknown as StageSpatialContext;
 
+  const characterVisuals = await createDefaultV2CharacterVisualRuntime(
+    scene,
+    Object.freeze([
+      "player",
+      ...Array.from({ length: npcCount }, (_, index) => `npc_${index}`)
+    ])
+  );
   const system = createV2NpcSystem({
     scene,
     stage,
+    characterVisuals,
     npcCount,
     initialBrainwashedNpcCount,
     diagnosticsEnabled: true,
@@ -500,6 +509,7 @@ const createNpcFixture = (
     },
     dispose: () => {
       system.dispose();
+      characterVisuals.dispose();
       scene.dispose();
       engine.dispose();
     }
@@ -571,8 +581,8 @@ const placeThreeNpcs = (system: V2NpcSystem) => {
   ]);
 };
 
-const testInitialStatesAndHitShape = () => {
-  const fixture = createNpcFixture(3, 3);
+const testInitialStatesAndHitShape = async () => {
+  const fixture = await createNpcFixture(3, 3);
   try {
     const snapshots = fixture.system.getFrameView().targets;
     const tracking = fixture.system.getFrameView().tracking;
@@ -607,8 +617,8 @@ const testInitialStatesAndHitShape = () => {
   }
 };
 
-const testDeferredTargetSelectionPersonalityAssignment = () => {
-  const fixture = createNpcFixture(1, 0);
+const testDeferredTargetSelectionPersonalityAssignment = async () => {
+  const fixture = await createNpcFixture(1, 0);
   try {
     const initialTracking = fixture.system.getFrameView().tracking[0];
     assert(
@@ -663,9 +673,9 @@ const testDeferredTargetSelectionPersonalityAssignment = () => {
   }
 };
 
-const testAlarmReceiverEligibilityAndRange = () => {
-  const completedFixture = createNpcFixture(3, 3, 100);
-  const inProgressFixture = createNpcFixture(2, 0);
+const testAlarmReceiverEligibilityAndRange = async () => {
+  const completedFixture = await createNpcFixture(3, 3, 100);
+  const inProgressFixture = await createNpcFixture(2, 0);
   try {
     completedFixture.system.placeNpcs([
       {
@@ -778,8 +788,8 @@ const testAlarmReceiverEligibilityAndRange = () => {
   }
 };
 
-const testGunAlarmFifoAndEvade = () => {
-  const fixture = createNpcFixture(3, 2);
+const testGunAlarmFifoAndEvade = async () => {
+  const fixture = await createNpcFixture(3, 2);
   try {
     placeThreeNpcs(fixture.system);
     const alivePlayer = createPlayerTarget(new Vector3(0, 0, 1));
@@ -863,8 +873,8 @@ const testGunAlarmFifoAndEvade = () => {
   }
 };
 
-const testNoGunCaptureAndBreakaway = () => {
-  const fixture = createNpcFixture(2, 2);
+const testNoGunCaptureAndBreakaway = async () => {
+  const fixture = await createNpcFixture(2, 2);
   try {
     fixture.system.placeNpcs([
       {
@@ -966,8 +976,8 @@ const testNoGunCaptureAndBreakaway = () => {
   }
 };
 
-const testAlarmInterruptsCapture = () => {
-  const fixture = createNpcFixture(2, 2);
+const testAlarmInterruptsCapture = async () => {
+  const fixture = await createNpcFixture(2, 2);
   try {
     fixture.system.placeNpcs([
       {
@@ -1013,8 +1023,8 @@ const testAlarmInterruptsCapture = () => {
   }
 };
 
-const testCaptureEndsWithoutBreakawayWhenTargetIsHit = () => {
-  const fixture = createNpcFixture(2, 2);
+const testCaptureEndsWithoutBreakawayWhenTargetIsHit = async () => {
+  const fixture = await createNpcFixture(2, 2);
   try {
     fixture.system.placeNpcs([
       {
@@ -1100,9 +1110,9 @@ const startNoGunCaptureOfNpc = (
   return distantPlayer;
 };
 
-const testNpcCaptureTargetImmediateReleasePaths = () => {
-  const impactFixture = createNpcFixture(3, 2);
-  const visibilityFixture = createNpcFixture(3, 2);
+const testNpcCaptureTargetImmediateReleasePaths = async () => {
+  const impactFixture = await createNpcFixture(3, 2);
+  const visibilityFixture = await createNpcFixture(3, 2);
   try {
     const impactPlayer = startNoGunCaptureOfNpc(impactFixture);
     const impactCapturerBefore = impactFixture.system
@@ -1174,8 +1184,8 @@ const testNpcCaptureTargetImmediateReleasePaths = () => {
   }
 };
 
-const testImpactSuspensionAndStrictPlacement = () => {
-  const fixture = createNpcFixture(2, 0);
+const testImpactSuspensionAndStrictPlacement = async () => {
+  const fixture = await createNpcFixture(2, 0);
   try {
     const before = fixture.system.getFrameView().targets[0].footPosition;
     assertThrows(
@@ -1255,8 +1265,8 @@ const testImpactSuspensionAndStrictPlacement = () => {
   }
 };
 
-const testFormationPlacement = () => {
-  const fixture = createNpcFixture(2, 2);
+const testFormationPlacement = async () => {
+  const fixture = await createNpcFixture(2, 2);
   try {
     fixture.system.placeNpcs([
       {
@@ -1287,8 +1297,8 @@ const testFormationPlacement = () => {
   }
 };
 
-const testScriptedExecutionAndFade = () => {
-  const fixture = createNpcFixture(2, 0);
+const testScriptedExecutionAndFade = async () => {
+  const fixture = await createNpcFixture(2, 0);
   try {
     assert(
       applyNpcBeamImpact(fixture.system, "npc_0", {
@@ -1366,9 +1376,9 @@ const testScriptedExecutionAndFade = () => {
   }
 };
 
-const testExternalThreatAndPlayerBlocking = () => {
+const testExternalThreatAndPlayerBlocking = async () => {
   const evadeRouteContexts: V2NpcNavigationRouteContext[] = [];
-  const fixture = createNpcFixture(
+  const fixture = await createNpcFixture(
     3,
     0,
     5,
@@ -1467,8 +1477,8 @@ const testExternalThreatAndPlayerBlocking = () => {
   }
 };
 
-const testStrictNpcVisibility = () => {
-  const fixture = createNpcFixture(3, 0);
+const testStrictNpcVisibility = async () => {
+  const fixture = await createNpcFixture(3, 0);
   try {
     fixture.system.setVisibleNpcIds(["npc_0"]);
     assert(
@@ -1525,10 +1535,10 @@ const placeVisionSelectionNpcs = (system: V2NpcSystem) => {
   ]);
 };
 
-const testNearestVisibleTargetRayEarlyExitAndTieOrder = () => {
-  const nearestTieFixture = createNpcFixture(3, 1);
-  const persistentTieFixture = createNpcFixture(3, 2);
-  const blockedFixture = createNpcFixture(3, 1);
+const testNearestVisibleTargetRayEarlyExitAndTieOrder = async () => {
+  const nearestTieFixture = await createNpcFixture(3, 1);
+  const persistentTieFixture = await createNpcFixture(3, 2);
+  const blockedFixture = await createNpcFixture(3, 1);
   const player = createPlayerTarget(
     new Vector3(1, NPC_SPRITE_CENTER_HEIGHT - 0.3, -1)
   );
@@ -1631,8 +1641,8 @@ const testNearestVisibleTargetRayEarlyExitAndTieOrder = () => {
   }
 };
 
-const testNpcCurrentTargetSightSchedule = () => {
-  const fixture = createNpcFixture(2, 2);
+const testNpcCurrentTargetSightSchedule = async () => {
+  const fixture = await createNpcFixture(2, 2);
   const player = createPlayerTarget(new Vector3(0, 0, -1));
   try {
     fixture.system.placeNpcs([
@@ -1690,9 +1700,9 @@ const testNpcCurrentTargetSightSchedule = () => {
   }
 };
 
-const testNpcFollowAndAlarmSightSchedules = () => {
-  const followFixture = createNpcFixture(1, 0);
-  const alarmFixture = createNpcFixture(1, 1);
+const testNpcFollowAndAlarmSightSchedules = async () => {
+  const followFixture = await createNpcFixture(1, 0);
+  const alarmFixture = await createNpcFixture(1, 1);
   const player = createPlayerTarget(Vector3.Zero());
   try {
     followFixture.system.placeNpcs([
@@ -1808,8 +1818,8 @@ const testNpcFollowAndAlarmSightSchedules = () => {
   }
 };
 
-const testNpcTargetSelectionPersonalitiesAndForcedPriority = () => {
-  const fixture = createNpcFixture(3, 2, 5, true);
+const testNpcTargetSelectionPersonalitiesAndForcedPriority = async () => {
+  const fixture = await createNpcFixture(3, 2, 5, true);
   const initialPlayer = createPlayerTarget(
     new Vector3(0, 0, -0.5)
   );
@@ -2056,8 +2066,8 @@ const testNpcTargetSelectionPersonalitiesAndForcedPriority = () => {
   }
 };
 
-const testNpcCurrentAndAlternativeSightShareRay = () => {
-  const fixture = createNpcFixture(1, 1, 5, true);
+const testNpcCurrentAndAlternativeSightShareRay = async () => {
+  const fixture = await createNpcFixture(1, 1, 5, true);
   const player = createPlayerTarget(new Vector3(0, 0, -1));
   try {
     fixture.system.prepareExecutionRoles([
@@ -2094,10 +2104,10 @@ const testNpcCurrentAndAlternativeSightShareRay = () => {
   }
 };
 
-const testNpcTargetlessPriorityDoesNotStarveCurrentSightChecks = () => {
+const testNpcTargetlessPriorityDoesNotStarveCurrentSightChecks = async () => {
   const npcCount = 30;
   const holderId = "npc_1";
-  const fixture = createNpcFixture(npcCount, npcCount, 5, true);
+  const fixture = await createNpcFixture(npcCount, npcCount, 5, true);
   const player = createPlayerTarget(new Vector3(0, 0, -2));
   const targetlessRayOrigins = new Set<string>();
   let measurementHalf = 0;
@@ -2224,9 +2234,9 @@ const testNpcTargetlessPriorityDoesNotStarveCurrentSightChecks = () => {
   }
 };
 
-const testNpcTargetSelectionScheduleBudgets = () => {
+const testNpcTargetSelectionScheduleBudgets = async () => {
   const npcCount = 99;
-  const fixture = createNpcFixture(npcCount, npcCount);
+  const fixture = await createNpcFixture(npcCount, npcCount);
   const player = createPlayerTarget(new Vector3(0, 0, -6));
   const placements = Array.from({ length: npcCount }, (_, index) => ({
     id: `npc_${index}`,
@@ -2390,9 +2400,9 @@ const testNpcTargetSelectionScheduleBudgets = () => {
   }
 };
 
-const testGunVisualLockAndLastSeenPath = () => {
-  const fixture = createNpcFixture(1, 1);
-  const overLimitFixture = createNpcFixture(1, 1);
+const testGunVisualLockAndLastSeenPath = async () => {
+  const fixture = await createNpcFixture(1, 1);
+  const overLimitFixture = await createNpcFixture(1, 1);
   try {
     fixture.system.placeNpcs([
       {
@@ -2498,8 +2508,8 @@ const testGunVisualLockAndLastSeenPath = () => {
   }
 };
 
-const testNavigationAgentReplanPermission = () => {
-  const fixture = createNpcFixture(2, 0);
+const testNavigationAgentReplanPermission = async () => {
+  const fixture = await createNpcFixture(2, 0);
   const agent = createNavigationAgent(
     fixture.navigation,
     "npc",
@@ -2579,8 +2589,8 @@ const testNavigationAgentReplanPermission = () => {
   }
 };
 
-const testNpcActorSpheresAreBuiltLazilyOncePerFrameView = () => {
-  const fixture = createNpcFixture(2, 0);
+const testNpcActorSpheresAreBuiltLazilyOncePerFrameView = async () => {
+  const fixture = await createNpcFixture(2, 0);
   try {
     const previousView = fixture.system.getFrameView();
     const actorSpheresDescriptor = Object.getOwnPropertyDescriptor(
@@ -2643,9 +2653,9 @@ const testNpcActorSpheresAreBuiltLazilyOncePerFrameView = () => {
   }
 };
 
-const testNpcFrameViewBuildsOncePerBulkChange = () => {
-  const fixture = createNpcFixture(3, 0);
-  const alarmFixture = createNpcFixture(3, 3);
+const testNpcFrameViewBuildsOncePerBulkChange = async () => {
+  const fixture = await createNpcFixture(3, 0);
+  const alarmFixture = await createNpcFixture(3, 3);
   try {
     const initialSequence =
       fixture.system.getFrameView().frameViewBuildSequence;
@@ -2737,8 +2747,8 @@ const testNpcFrameViewBuildsOncePerBulkChange = () => {
   }
 };
 
-const testZeroNpcUpdate = () => {
-  const fixture = createNpcFixture(0, 0);
+const testZeroNpcUpdate = async () => {
+  const fixture = await createNpcFixture(0, 0);
   try {
     const initialSequence =
       fixture.system.getFrameView().frameViewBuildSequence;
@@ -2798,8 +2808,8 @@ const createTestElevatorTransition = (
   });
 };
 
-const testNpcElevatorClearQueuesReplan = () => {
-  const fixture = createNpcFixture(1, 1, 30, true);
+const testNpcElevatorClearQueuesReplan = async () => {
+  const fixture = await createNpcFixture(1, 1, 30, true);
   try {
     const runtime = (fixture.system as unknown as NpcRuntimeTestAccess).npcs[0];
     const transition = createTestElevatorTransition(runtime.footPosition);
@@ -2839,9 +2849,9 @@ const testNpcElevatorClearQueuesReplan = () => {
   }
 };
 
-const testNpcElevatorBlockedStatesDoNotConsumeReplanBudget = () => {
+const testNpcElevatorBlockedStatesDoNotConsumeReplanBudget = async () => {
   const npcCount = 5;
-  const fixture = createNpcFixture(npcCount, npcCount, 30, true);
+  const fixture = await createNpcFixture(npcCount, npcCount, 30, true);
   try {
     const systemAccess = fixture.system as unknown as NpcRuntimeTestAccess;
     const runtimes = systemAccess.npcs;
@@ -2896,8 +2906,8 @@ const testNpcElevatorBlockedStatesDoNotConsumeReplanBudget = () => {
   }
 };
 
-const testNpcElevatorWaitingCallConsumesManualReplan = () => {
-  const fixture = createNpcFixture(1, 1, 30, true);
+const testNpcElevatorWaitingCallConsumesManualReplan = async () => {
+  const fixture = await createNpcFixture(1, 1, 30, true);
   try {
     const systemAccess = fixture.system as unknown as NpcRuntimeTestAccess;
     const runtime = systemAccess.npcs[0];
@@ -2938,7 +2948,7 @@ const testNpcElevatorWaitingCallConsumesManualReplan = () => {
   }
 };
 
-const testNavigationAreaRejectsExitWithoutPortal = () => {
+const testNavigationAreaRejectsExitWithoutPortal = async () => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
   const firstMesh = MeshBuilder.CreateBox(
@@ -2995,9 +3005,9 @@ const testNavigationAreaRejectsExitWithoutPortal = () => {
   }
 };
 
-const testNpcFairReplanBudgetAndFrameView = () => {
+const testNpcFairReplanBudgetAndFrameView = async () => {
   const npcCount = 99;
-  const fixture = createNpcFixture(npcCount, 0, 30);
+  const fixture = await createNpcFixture(npcCount, 0, 30);
   try {
     const initialView = fixture.system.getFrameView();
     assert(
@@ -3065,8 +3075,8 @@ const testNpcFairReplanBudgetAndFrameView = () => {
   }
 };
 
-const testNpcPursuitDistanceLodAndCumulativeTargetMovement = () => {
-  const fixture = createNpcFixture(1, 1, 30, true);
+const testNpcPursuitDistanceLodAndCumulativeTargetMovement = async () => {
+  const fixture = await createNpcFixture(1, 1, 30, true);
   try {
     fixture.system.placeNpcs([
       {
@@ -3155,8 +3165,8 @@ const testNpcPursuitDistanceLodAndCumulativeTargetMovement = () => {
   }
 };
 
-const testNpcPursuitWallDetourRemainsCoarse = () => {
-  const fixture = createNpcFixture(1, 1, 30, true);
+const testNpcPursuitWallDetourRemainsCoarse = async () => {
+  const fixture = await createNpcFixture(1, 1, 30, true);
   try {
     fixture.system.placeNpcs([
       {
@@ -3187,9 +3197,9 @@ const testNpcPursuitWallDetourRemainsCoarse = () => {
   }
 };
 
-const testNpcPursuitAllDetailWorstCase = () => {
+const testNpcPursuitAllDetailWorstCase = async () => {
   const npcCount = 99;
-  const fixture = createNpcFixture(npcCount, npcCount, 30, true);
+  const fixture = await createNpcFixture(npcCount, npcCount, 30, true);
   try {
     fixture.system.placeNpcs(
       Array.from({ length: npcCount }, (_, index) => ({
@@ -3247,9 +3257,9 @@ const testNpcPursuitAllDetailWorstCase = () => {
   }
 };
 
-const testNpcCoarseRefreshStaggerAndStationarySuppression = () => {
+const testNpcCoarseRefreshStaggerAndStationarySuppression = async () => {
   const npcCount = 8;
-  const movingFixture = createNpcFixture(
+  const movingFixture = await createNpcFixture(
     npcCount,
     npcCount,
     30,
@@ -3257,7 +3267,7 @@ const testNpcCoarseRefreshStaggerAndStationarySuppression = () => {
     null,
     0.6
   );
-  const stationaryFixture = createNpcFixture(
+  const stationaryFixture = await createNpcFixture(
     npcCount,
     npcCount,
     30,
@@ -3335,8 +3345,8 @@ const testNpcCoarseRefreshStaggerAndStationarySuppression = () => {
   }
 };
 
-const testAutonomousRestSlotReservations = () => {
-  const fixture = createNpcFixture(2, 0);
+const testAutonomousRestSlotReservations = async () => {
+  const fixture = await createNpcFixture(2, 0);
   const corridorHalfWidth = 0.06;
   fixture.navigation.projectPoint = (position, maxDistance) => {
     if (Math.abs(position.x) > 5 || Math.abs(position.z) > 5) {
@@ -3451,8 +3461,8 @@ const testAutonomousRestSlotReservations = () => {
   }
 };
 
-const testWanderRestSlotRejectsPortalPositions = () => {
-  const fixture = createNpcFixture(1, 0);
+const testWanderRestSlotRejectsPortalPositions = async () => {
+  const fixture = await createNpcFixture(1, 0);
   const access = fixture.system as unknown as NpcRuntimeTestAccess;
   const firstArea = Object.freeze({
     id: "portal-rest-first",
@@ -3597,8 +3607,8 @@ const testWanderRestSlotRejectsPortalPositions = () => {
   }
 };
 
-const testGunStandoffHysteresis = () => {
-  const fixture = createNpcFixture(1, 1, 5, false, null, 0.1);
+const testGunStandoffHysteresis = async () => {
+  const fixture = await createNpcFixture(1, 1, 5, false, null, 0.1);
   const player = createPlayerTarget(Vector3.Zero());
   const access = fixture.system as unknown as NpcRuntimeTestAccess;
   const stopDistance =
@@ -3661,14 +3671,14 @@ const testGunStandoffHysteresis = () => {
   }
 };
 
-const testBrainwashedSearchRecovery = () => {
-  const runCompletedState = (
+const testBrainwashedSearchRecovery = async () => {
+  const runCompletedState = async (
     stateRoll: number,
     expectedState:
       | "brainwash-complete-gun"
       | "brainwash-complete-no-gun"
   ) => {
-    const fixture = createNpcFixture(
+    const fixture = await createNpcFixture(
       1,
       1,
       5,
@@ -3705,10 +3715,10 @@ const testBrainwashedSearchRecovery = () => {
     }
   };
 
-  runCompletedState(0.1, "brainwash-complete-gun");
-  runCompletedState(0.6, "brainwash-complete-no-gun");
+  await runCompletedState(0.1, "brainwash-complete-gun");
+  await runCompletedState(0.6, "brainwash-complete-no-gun");
 
-  const haigureFixture = createNpcFixture(
+  const haigureFixture = await createNpcFixture(
     1,
     1,
     5,
@@ -3745,8 +3755,8 @@ const testBrainwashedSearchRecovery = () => {
   }
 };
 
-export const runNpcCombatTests = () =>
-  Object.freeze([
+export const runNpcCombatTests = async () =>
+  Object.freeze(await Promise.all([
     executeTest("NPC初期状態・楕円体snapshot", testInitialStatesAndHitShape),
     executeTest(
       "NPC標的選択個性の洗脳完了時一回割当",
@@ -3878,4 +3888,4 @@ export const runNpcCombatTests = () =>
       "洗脳済みNPCの標的消失後探索復帰",
       testBrainwashedSearchRecovery
     )
-  ]);
+  ]));

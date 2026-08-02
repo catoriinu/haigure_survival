@@ -33,7 +33,10 @@ import {
   createV2CharacterSettingsPanel,
   createV2CharacterSettingsStore
 } from "../ui/v2CharacterSettings";
-import { createV2RuntimeHudController } from "../ui/v2RuntimeHud";
+import {
+  canV2RuntimePlayerFire,
+  createV2RuntimeHudController
+} from "../ui/v2RuntimeHud";
 import {
   createSchoolStageDynamicRuntime,
   createSchoolStageDynamicSpatialInitializer,
@@ -59,6 +62,10 @@ import {
   type V2PlayerController
 } from "./playerController";
 import {
+  createV2PlayerCharacterVisual,
+  type V2PlayerCharacterVisual
+} from "./v2PlayerCharacterVisual";
+import {
   createV2PlayerInput,
   type V2PlayerInput
 } from "./playerInput";
@@ -79,6 +86,10 @@ import {
   type V2SurvivalRuntime
 } from "./survivalRuntime";
 import { createV2CharacterAssignments } from "./v2CharacterAssignments";
+import {
+  createV2CharacterVisualRuntime,
+  type V2CharacterVisualRuntime
+} from "./v2CharacterVisualRuntime";
 import {
   createSchoolStageActorPort,
   createSchoolStageTraversalCoordinator,
@@ -269,6 +280,8 @@ helpPanel.style.display = "none";
 const formatLoadError = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
+const audioAssets = V2_AUDIO_ASSET_CATALOG;
+
 const initializeRuntime = async () => {
   let ownedStage: StageSpatialContext | null = null;
   let ownedDynamicRuntime: SchoolStageDynamicRuntime | null =
@@ -280,6 +293,8 @@ const initializeRuntime = async () => {
   let ownedPlayer: V2PlayerController | null = null;
   let ownedSurvival: V2SurvivalRuntime | null = null;
   let ownedAlarmFloorVisual: V2AlarmFloorVisualSystem | null =
+    null;
+  let ownedCharacterVisuals: V2CharacterVisualRuntime | null =
     null;
   let selectNavigationRoute: SchoolNpcNavigationPolicy | null =
     null;
@@ -307,10 +322,37 @@ const initializeRuntime = async () => {
     });
     const playerController = ownedPlayer;
     ownedInput = null;
+    const characterSettingsStore = createV2CharacterSettingsStore(
+      localStorage,
+      V2_PORTRAIT_ASSET_INVENTORY.directories,
+      audioAssets.voiceDirectories
+    );
+    const characterSettings = characterSettingsStore.load();
+    const characterAssignments = createV2CharacterAssignments({
+      actorIds: Object.freeze([
+        "player",
+        ...Array.from(
+          { length: runtimePopulation.npcCount },
+          (_, index) => `npc_${index}`
+        )
+      ]),
+      playerActorId: "player",
+      voiceProfileIds: getV2VoiceProfileIds(),
+      portraitDirectories: V2_PORTRAIT_ASSET_INVENTORY.directories,
+      playerVoiceDirectory: characterSettings.voiceDirectory,
+      playerPortraitDirectory: characterSettings.portraitDirectory,
+      random: Math.random
+    });
+    ownedCharacterVisuals = await createV2CharacterVisualRuntime({
+      scene,
+      assignments: characterAssignments
+    });
+    const characterVisuals = ownedCharacterVisuals;
     ownedSurvival = createV2SurvivalRuntime({
       scene,
       stage: ownedStage,
       player: playerController,
+      characterVisuals,
       random: createV2SeededRandom(sessionSeed),
       getOrbVisibilityPredicate: () => {
         const playerCenter = playerController
@@ -414,6 +456,10 @@ const initializeRuntime = async () => {
       input: playerInput,
       player: ownedPlayer,
       survival: ownedSurvival,
+      characterVisuals,
+      characterAssignments,
+      characterSettings,
+      characterSettingsStore,
       alarmFloorVisual: ownedAlarmFloorVisual,
       navigationPolicy: selectNavigationRoute
     };
@@ -426,6 +472,7 @@ const initializeRuntime = async () => {
     ownedDynamicRuntime?.dispose();
     ownedAlarmFloorVisual?.dispose();
     ownedSurvival?.dispose();
+    ownedCharacterVisuals?.dispose();
     selectNavigationRoute?.dispose();
     ownedPlayer?.dispose();
     ownedInput?.dispose();
@@ -443,6 +490,10 @@ const {
   input,
   player,
   survival,
+  characterVisuals,
+  characterAssignments,
+  characterSettings,
+  characterSettingsStore,
   alarmFloorVisual,
   navigationPolicy
 } =
@@ -465,6 +516,7 @@ let ownedGameplayAudioBridge: ReturnType<
 let ownedVoiceRuntime: ReturnType<
   typeof createV2VoiceRuntime
 > | null = null;
+let ownedPlayerCharacterVisual: V2PlayerCharacterVisual | null = null;
 let disposed = false;
 const disposeRuntime = async () => {
   if (disposed) {
@@ -474,6 +526,7 @@ const disposeRuntime = async () => {
   engine.stopRenderLoop();
   eventScope.dispose();
   ownedRuntimeHud?.dispose();
+  ownedPlayerCharacterVisual?.dispose();
   ownedCharacterSettingsPanel?.dispose();
   ownedVolumePanel?.dispose();
   ownedGameplayAudioBridge?.dispose();
@@ -490,6 +543,7 @@ const disposeRuntime = async () => {
   dynamicRuntime.dispose();
   alarmFloorVisual?.dispose();
   survival.dispose();
+  characterVisuals.dispose();
   navigationPolicy.dispose();
   player.dispose();
   stage.dispose();
@@ -507,9 +561,12 @@ const runtimeHud = createV2RuntimeHudController({
   camera
 });
 ownedRuntimeHud = runtimeHud;
+const playerCharacterVisual = createV2PlayerCharacterVisual(
+  characterVisuals
+);
+ownedPlayerCharacterVisual = playerCharacterVisual;
 const audio = new AudioManager(camera);
 ownedAudio = audio;
-const audioAssets = V2_AUDIO_ASSET_CATALOG;
 const audioVolumeStore =
   createV2AudioVolumeSettingsStore(localStorage);
 let audioVolumeLevels = audioVolumeStore.load();
@@ -528,12 +585,6 @@ const volumePanel = createVolumePanel({
   }
 });
 ownedVolumePanel = volumePanel;
-const characterSettingsStore = createV2CharacterSettingsStore(
-  localStorage,
-  V2_PORTRAIT_ASSET_INVENTORY.directories,
-  audioAssets.voiceDirectories
-);
-const characterSettings = characterSettingsStore.load();
 const characterSettingsPanel = createV2CharacterSettingsPanel({
   parent: titleOverlay,
   initialSettings: characterSettings,
@@ -545,15 +596,6 @@ const characterSettingsPanel = createV2CharacterSettingsPanel({
   }
 });
 ownedCharacterSettingsPanel = characterSettingsPanel;
-const characterAssignments = createV2CharacterAssignments({
-  actorIds: survival.getHumanTargets().map((target) => target.id),
-  playerActorId: "player",
-  voiceProfileIds: getV2VoiceProfileIds(),
-  portraitDirectories: V2_PORTRAIT_ASSET_INVENTORY.directories,
-  playerVoiceDirectory: characterSettings.voiceDirectory,
-  playerPortraitDirectory: characterSettings.portraitDirectory,
-  random: Math.random
-});
 const gameplayAudioBridge = createV2GameplayAudioBridge({
   audio,
   assets: audioAssets,
@@ -803,10 +845,11 @@ const handleCanvasClick: EventListener = () => {
     document.pointerLockElement ===
     (canvas as unknown as Element);
   startPlay(true);
+  const frame = survival.getFrame();
   if (
     wasStarted &&
     hadPointerLock &&
-    survival.getFrame().playerState === "brainwash-complete-gun"
+    canV2RuntimePlayerFire(frame)
   ) {
     const direction = camera.getDirection(
       Vector3.Forward(scene.useRightHandedSystem)
@@ -936,6 +979,14 @@ engine.runRenderLoop(() => {
     if (executionReplayResult === "execution-replayed") {
       survivalFrame = survival.getFrame();
     }
+    playerCharacterVisual.update({
+      active: started,
+      state: survivalFrame.playerState,
+      footPosition: player.getFootPosition(),
+      viewForward: camera.getDirection(
+        Vector3.Forward(scene.useRightHandedSystem)
+      )
+    });
     updateGameplayHelp(survivalFrame.phase);
     const interactionActive =
       started &&

@@ -79,6 +79,7 @@ import {
   createV2TargetNavigationAreaTracker,
   type V2TargetNavigationAreaTracker
 } from "./pursuitNavigation";
+import type { V2CharacterVisualRuntime } from "./v2CharacterVisualRuntime";
 import {
   V2_PLAYER_GUN_BEAM_MAXIMUM_LIFETIME_SECONDS,
   V2_PLAYER_GUN_BEAM_ORIGIN_OFFSET,
@@ -306,6 +307,7 @@ export type V2SurvivalRuntimeOptions = Readonly<{
   scene: Scene;
   stage: StageSpatialContext;
   player: V2PlayerController;
+  characterVisuals: V2CharacterVisualRuntime;
   random: () => number;
   getOrbVisibilityPredicate(): (position: Vector3) => boolean;
   population: V2SurvivalPopulation;
@@ -387,6 +389,7 @@ export const createV2SurvivalRuntime = ({
   scene,
   stage,
   player,
+  characterVisuals,
   random,
   getOrbVisibilityPredicate,
   population,
@@ -478,6 +481,7 @@ export const createV2SurvivalRuntime = ({
     ownedNpcSystem = createV2NpcSystem({
       scene,
       stage,
+      characterVisuals,
       npcCount: population.npcCount,
       initialBrainwashedNpcCount:
         population.initialBrainwashedNpcCount,

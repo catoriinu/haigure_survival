@@ -207,7 +207,7 @@ console.warn = (...values: unknown[]) => {
   originalConsoleWarn(...values);
 };
 
-const runValidation = () => {
+const runValidation = async () => {
   if (validationRunning) {
     return;
   }
@@ -230,7 +230,7 @@ const runValidation = () => {
 
   const loggerErrorsAtStart = Logger.errorsCount;
   const startedAt = performance.now();
-  const checks = [...runNpcCommandTests()];
+  const checks = [...await runNpcCommandTests()];
   const elapsedMilliseconds = performance.now() - startedAt;
   const loggerErrorCount =
     Logger.errorsCount - loggerErrorsAtStart;

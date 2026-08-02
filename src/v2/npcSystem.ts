@@ -1,17 +1,14 @@
 import {
-  Sprite,
-  SpriteManager,
   Vector3,
   type Mesh,
-  type Scene
+  type Scene,
+  type Sprite
 } from "@babylonjs/core";
 
 import {
-  CHARACTER_SPRITE_CELL_SIZE,
   NPC_SPRITE_CENTER_HEIGHT,
   NPC_SPRITE_HEIGHT,
-  NPC_SPRITE_WIDTH,
-  createDefaultCharacterSpritesheet
+  NPC_SPRITE_WIDTH
 } from "../game/characterSprites";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../world/worldUnits";
 import {
@@ -75,6 +72,7 @@ import {
 } from "./npcTraversal";
 import type { V2PlayerGunFireEvent } from "./playerCombatSystem";
 import { createV2FollowerFireDirection } from "./followerFireDirection";
+import type { V2CharacterVisualRuntime } from "./v2CharacterVisualRuntime";
 
 const NPC_SEARCH_SPEED = 0.2;
 export const V2_NPC_CHASE_SPEED = 0.3;
@@ -254,6 +252,7 @@ export type V2NpcNavigationRouteContext = Readonly<{
 export type V2NpcSystemOptions = Readonly<{
   scene: Scene;
   stage: StageSpatialContext;
+  characterVisuals: V2CharacterVisualRuntime;
   npcCount: number;
   initialBrainwashedNpcCount: number;
   diagnosticsEnabled: boolean;
@@ -499,6 +498,7 @@ type NpcCommandRuntime = {
 
 type NpcRuntime = {
   readonly id: string;
+  readonly visual: ReturnType<V2CharacterVisualRuntime["createSprite"]>;
   readonly sprite: Sprite;
   readonly navigationAgent: NavigationAgent;
   readonly navigationRoutePolicy: NavigationRoutePolicy;
@@ -819,34 +819,6 @@ const isNpcCommandStateForPlayer = (
     : isCompletedCommandState(playerState) &&
       isCompletedCommandState(npcState);
 
-const getSpriteCellIndex = (
-  state: V2CharacterState,
-  temporaryGunActive: boolean
-) => {
-  if (state === "hit-a") {
-    return 1;
-  }
-  if (state === "hit-b") {
-    return 2;
-  }
-  if (
-    state === "brainwash-complete-gun" ||
-    temporaryGunActive
-  ) {
-    return 3;
-  }
-  if (state === "brainwash-complete-no-gun") {
-    return 4;
-  }
-  if (
-    state === "brainwash-complete-haigure" ||
-    state === "brainwash-complete-haigure-formation"
-  ) {
-    return 5;
-  }
-  return isV2BrainwashState(state) ? 2 : 0;
-};
-
 const isStoppedState = (state: V2CharacterState) =>
   isV2HitState(state) ||
   state === "brainwash-in-progress" ||
@@ -916,7 +888,6 @@ const createNpcCommandRuntime = (
 
 class SchoolV2NpcSystem implements V2NpcSystem {
   private readonly stage: StageSpatialContext;
-  private readonly spriteManager: SpriteManager;
   private readonly npcs: NpcRuntime[];
   private readonly npcsById: Map<string, NpcRuntime>;
   private readonly random: () => number;
@@ -1092,18 +1063,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
     const npcs: NpcRuntime[] = [];
     const cleanupActions: Array<() => void> = [];
-    const spriteManager = new SpriteManager(
-      "V2SchoolNpcSpriteManager",
-      createDefaultCharacterSpritesheet(),
-      options.npcCount,
-      {
-        width: CHARACTER_SPRITE_CELL_SIZE,
-        height: CHARACTER_SPRITE_CELL_SIZE
-      },
-      options.scene
-    );
-    this.spriteManager = spriteManager;
-    cleanupActions.push(() => spriteManager.dispose());
 
     try {
       for (let index = 0; index < spawnPoints.length; index += 1) {
@@ -1117,15 +1076,17 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           initialState,
           random: () => this.nextRandom()
         });
-        const sprite = new Sprite(id, spriteManager);
-        cleanupActions.push(() => sprite.dispose());
-        sprite.width = NPC_SPRITE_WIDTH;
-        sprite.height = NPC_SPRITE_HEIGHT;
+        const visual = options.characterVisuals.createSprite(id, id);
+        cleanupActions.push(() => visual.dispose());
+        const sprite = visual.sprite;
+        sprite.width = visual.width;
+        sprite.height = visual.height;
         sprite.isPickable = false;
-        sprite.cellIndex = getSpriteCellIndex(initialState, false);
+        visual.setState(initialState, false);
         sprite.color.a = 1;
         const footPosition = this.resolveFootPosition(spawnPoint.position);
-        sprite.position.copyFrom(toAimPosition(footPosition));
+        sprite.position.copyFrom(footPosition);
+        sprite.position.y += visual.height / 2;
         const angle = this.nextRandom() * Math.PI * 2;
         const command = createNpcCommandRuntime(id, angle);
         let npc: NpcRuntime;
@@ -1162,6 +1123,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         cleanupActions.push(() => navigationAgent.clear());
         npc = {
           id,
+          visual,
           sprite,
           navigationAgent,
           navigationRoutePolicy,
@@ -2125,9 +2087,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           result.location.position
         );
         this.relocateNavigationAreaCursor(npc);
-        npc.sprite.position.copyFrom(
-          toAimPosition(npc.footPosition)
-        );
+        this.synchronizeSpritePosition(npc);
         npc.traversalState = createWalkingV2NpcTraversalState();
         npc.reservationResultRevision += 1;
         frameViewChanged = true;
@@ -2209,7 +2169,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     assertFiniteVector("NPC搬送位置", position);
     const npc = this.requireNpc(npcId);
     npc.footPosition = position.clone();
-    npc.sprite.position.copyFrom(toAimPosition(npc.footPosition));
+    this.synchronizeSpritePosition(npc);
     this.rebuildFrameViewPreservingThreats();
   }
 
@@ -2521,7 +2481,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       );
       npc.visualSightCheckPriority = true;
       npc.lastState = npc.stateSnapshot.state;
-      npc.sprite.position.copyFrom(toAimPosition(npc.footPosition));
+      this.synchronizeSpritePosition(npc);
       this.synchronizeSpriteVisual(npc);
     }
     this.frameView = this.buildFrameView(Object.freeze([]));
@@ -2540,7 +2500,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.selectedElevatorTransition = null;
       npc.pendingNavigationTransition = null;
       npc.traversalState = createWalkingV2NpcTraversalState();
-      npc.sprite.dispose();
+      npc.visual.dispose();
     }
     this.npcs.length = 0;
     this.npcsById.clear();
@@ -2551,7 +2511,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.previousPlayerFootPosition = null;
     this.playerHorizontalDirection.setAll(0);
     this.traversalElapsedSeconds = 0;
-    this.spriteManager.dispose();
     this.disposed = true;
   }
 
@@ -3128,7 +3087,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.forward.copyFrom(horizontal.normalize());
     }
     npc.footPosition = nextFootPosition;
-    npc.sprite.position.copyFrom(toAimPosition(npc.footPosition));
+    this.synchronizeSpritePosition(npc);
   }
 
   private createTraversalWaitingStep(
@@ -5734,7 +5693,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
   private synchronizeSpriteVisual(npc: NpcRuntime) {
     const snapshot = npc.stateSnapshot;
-    npc.sprite.cellIndex = getSpriteCellIndex(
+    npc.visual.setState(
       snapshot.state,
       npc.command.temporaryGunActive
     );
@@ -5745,14 +5704,18 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         : 1;
   }
 
+  private synchronizeSpritePosition(npc: NpcRuntime) {
+    npc.sprite.position.copyFrom(npc.footPosition);
+    npc.sprite.position.y += npc.visual.height / 2;
+  }
+
   private finishFrame(
     threatenedIds: ReadonlySet<string>,
     visibleNpcs: readonly NpcRuntime[],
     frameNpcTargets: MutableNpcTargetSnapshot[]
   ) {
     for (const npc of this.npcs) {
-      npc.sprite.position.copyFrom(npc.footPosition);
-      npc.sprite.position.y += NPC_SPRITE_CENTER_HEIGHT;
+      this.synchronizeSpritePosition(npc);
     }
 
     for (let index = 0; index < visibleNpcs.length; index += 1) {

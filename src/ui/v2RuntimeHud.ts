@@ -17,7 +17,16 @@ export type V2RuntimeHudFrame = Pick<
   | "phase"
   | "playerState"
   | "playerCompletionUnlocked"
+  | "executionPlayerRole"
 >;
+
+export const canV2RuntimePlayerFire = (
+  frame: V2RuntimeHudFrame
+): boolean =>
+  (frame.phase === "playing" &&
+    frame.playerState === "brainwash-complete-gun") ||
+  (frame.phase === "execution" &&
+    frame.executionPlayerRole === "shooter");
 
 export type V2RuntimeHudUpdate = Readonly<{
   active: boolean;
@@ -77,6 +86,7 @@ const createTargetMarker = (
     border: `2px solid ${color}`,
     borderRadius: kind === "npc" ? "50%" : "4px",
     boxShadow: `0 0 8px ${color}`,
+    color,
     pointerEvents: "none",
     zIndex: HUD_Z_INDEX
   });
@@ -111,6 +121,7 @@ const applyTargetMarkerColor = (
 ): void => {
   marker.root.style.borderColor = color;
   marker.root.style.boxShadow = `0 0 8px ${color}`;
+  marker.root.style.color = color;
   marker.label.style.borderColor = color;
   marker.label.style.color = color;
   marker.root.dataset.v2RuntimeHudColor = color;
@@ -340,13 +351,22 @@ export const createV2RuntimeHudController = ({
     }) => {
       assertActive();
       hideElements();
-      if (!active || frame.phase !== "playing") {
+      if (!active) {
         clearTargetState();
         return;
       }
 
       const canvasRect = canvas.getBoundingClientRect();
       updateCenteredGuides(canvasRect);
+      const playerCanFire = canV2RuntimePlayerFire(frame);
+      if (frame.phase !== "playing") {
+        clearTargetState();
+        if (playerCanFire) {
+          crosshair.hidden = false;
+          fireGuide.hidden = false;
+        }
+        return;
+      }
       const npcCandidate = npcCandidates[0];
       const nextNpcTargetId = npcCandidate?.npcId ?? null;
       if (nextNpcTargetId !== currentNpcTargetId) {
@@ -402,7 +422,7 @@ export const createV2RuntimeHudController = ({
 
       completionGuide.hidden =
         !frame.playerCompletionUnlocked;
-      if (frame.playerState === "brainwash-complete-gun") {
+      if (playerCanFire) {
         crosshair.hidden = false;
         fireGuide.hidden = false;
       }
