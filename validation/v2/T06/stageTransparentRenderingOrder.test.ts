@@ -59,6 +59,27 @@ const readCenterPixel = async (
   ]);
 };
 
+const readPixel = async (
+  engine: Engine,
+  size: number,
+  x: number,
+  y: number
+): Promise<readonly [number, number, number, number]> => {
+  const pixels = await engine.readPixels(0, 0, size, size, true, true);
+  const bytes = new Uint8Array(
+    pixels.buffer,
+    pixels.byteOffset,
+    pixels.byteLength
+  );
+  const offset = (y * size + x) * 4;
+  return Object.freeze([
+    bytes[offset] as number,
+    bytes[offset + 1] as number,
+    bytes[offset + 2] as number,
+    bytes[offset + 3] as number
+  ]);
+};
+
 export const runStageTransparentRenderingOrderTests = async (): Promise<
   readonly T06TestResult[]
 > =>
@@ -109,7 +130,7 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
             bridgeGlass.alphaIndex === Number.MAX_VALUE,
           "Stage窓ガラスの初期alphaIndexがBabylon既定値ではありません。"
         );
-        configureV2StageTransparentRenderingOrder([
+        configureV2StageTransparentRenderingOrder(scene, [
           firstGlass,
           bridgeGlass,
           otherTransparent,
@@ -123,10 +144,11 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
             V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER <
               V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
             V2_TRANSPARENT_ALPHA_INDEX_SPATIAL <
-              V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER,
+              V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER &&
+            scene.useOrderIndependentTransparency,
           "窓ガラスだけの空間半透明indexまたはCharacter順が不正です。"
         );
-        return "通常窓・体育館連絡通路窓=spatial、非対象Materialは既定値を維持";
+        return "通常窓・体育館連絡通路窓=spatial、非対象Materialは既定値を維持、OIT=有効";
       } finally {
         scene.dispose();
         engine.dispose();
@@ -138,7 +160,7 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
       try {
         let missingRejected = false;
         try {
-          configureV2StageTransparentRenderingOrder([]);
+          configureV2StageTransparentRenderingOrder(scene, []);
         } catch {
           missingRejected = true;
         }
@@ -154,7 +176,7 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
         );
         let opaqueRejected = false;
         try {
-          configureV2StageTransparentRenderingOrder([opaqueGlass]);
+          configureV2StageTransparentRenderingOrder(scene, [opaqueGlass]);
         } catch {
           opaqueRejected = true;
         }
@@ -235,7 +257,8 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
           )}`
         );
 
-        configureV2StageTransparentRenderingOrder([glass]);
+        configureV2StageTransparentRenderingOrder(scene, [glass]);
+        await scene.whenReadyAsync();
         scene.render();
         const lightInFront = await readCenterPixel(engine, size);
         assert(
@@ -260,6 +283,93 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
         )}、光手前=${JSON.stringify(
           lightInFront
         )}、ガラス手前=${JSON.stringify(glassInFront)}`;
+      } finally {
+        scene.dispose();
+        engine.dispose();
+      }
+    }),
+    executeTest("光線が窓ガラスを横切るWebGL深度合成", async () => {
+      const size = 128;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const engine = new Engine(
+        canvas,
+        true,
+        { preserveDrawingBuffer: true, stencil: false },
+        false
+      );
+      engine.setSize(size, size);
+      const scene = new Scene(engine);
+      scene.clearColor = new Color4(0, 0, 0, 1);
+      const camera = new FreeCamera(
+        "fixture-stage-crossing-transparency-camera",
+        new Vector3(0, 0, -5),
+        scene
+      );
+      camera.setTarget(Vector3.Zero());
+      camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
+      camera.orthoLeft = -1;
+      camera.orthoRight = 1;
+      camera.orthoTop = 1;
+      camera.orthoBottom = -1;
+      camera.minZ = 0.1;
+      camera.maxZ = 10;
+      scene.activeCamera = camera;
+
+      try {
+        const glass = MeshBuilder.CreatePlane(
+          "VIS_WindowGlass_crossing_gpu_fixture",
+          { size: 2 },
+          scene
+        );
+        glass.material = createFlatMaterial(
+          V2_STAGE_WINDOW_GLASS_MATERIAL_NAME,
+          new Color3(0, 0, 1),
+          0.8,
+          scene
+        );
+
+        const crossingLight = MeshBuilder.CreatePlane(
+          "V2CombatLight_crossing_gpu_fixture",
+          { size: 2 },
+          scene
+        );
+        crossingLight.material = createFlatMaterial(
+          "V2CombatLightMaterial_crossing_gpu_fixture",
+          new Color3(1, 0, 0),
+          0.8,
+          scene
+        );
+        crossingLight.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
+        crossingLight.rotation.y = Math.PI / 4;
+
+        configureV2StageTransparentRenderingOrder(scene, [glass]);
+        await scene.whenReadyAsync();
+        scene.render();
+
+        const left = await readPixel(
+          engine,
+          size,
+          Math.floor(size * 0.35),
+          Math.floor(size / 2)
+        );
+        const right = await readPixel(
+          engine,
+          size,
+          Math.floor(size * 0.65),
+          Math.floor(size / 2)
+        );
+        assert(
+          left[2] > left[0] + 80 &&
+            left[0] > 20 &&
+            right[0] > right[2] + 80 &&
+            right[2] > 20,
+          `交差する光とガラスがピクセル深度順に合成されません: left=${JSON.stringify(
+            left
+          )}, right=${JSON.stringify(right)}`
+        );
+        return `奥側=${JSON.stringify(left)}、手前側=${JSON.stringify(right)}`;
       } finally {
         scene.dispose();
         engine.dispose();

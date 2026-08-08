@@ -1,4 +1,4 @@
-import type { Mesh } from "@babylonjs/core";
+import type { Mesh, Scene } from "@babylonjs/core";
 
 import { V2_TRANSPARENT_ALPHA_INDEX_SPATIAL } from "./v2TransparentRenderingOrder";
 
@@ -6,6 +6,7 @@ export const V2_STAGE_WINDOW_GLASS_MATERIAL_NAME =
   "MAT_B03_WindowGlass";
 
 export const configureV2StageTransparentRenderingOrder = (
+  scene: Scene,
   visualMeshes: readonly Mesh[]
 ): void => {
   const windowGlassMeshes = visualMeshes.filter(
@@ -31,4 +32,5 @@ export const configureV2StageTransparentRenderingOrder = (
   for (const mesh of windowGlassMeshes) {
     mesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
   }
+  scene.useOrderIndependentTransparency = true;
 };
