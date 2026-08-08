@@ -37,6 +37,10 @@ import {
 } from "../../../src/v2/playerController";
 import type { V2PlayerInput } from "../../../src/v2/playerInput";
 import {
+  V2_WATER_HORIZONTAL_SPEED_SCALE,
+  resolveV2HorizontalSpeedScale
+} from "../../../src/v2/runtimeInteraction";
+import {
   loadStageSpatialContext,
   type StageSpatialContext
 } from "../../../src/world/stageSpatialContext";
@@ -469,6 +473,110 @@ const validatePlayerWaypointTraversal = (
   };
 };
 
+const validatePoolSpawnMovement = (context: StageSpatialContext) => {
+  const playerSpawn = context.playerSpawns.getById(
+    "player-spawn-roof-pool-west-stairs"
+  );
+  if (!playerSpawn) {
+    throw new Error("T02 fixtureの屋上プール開始地点がありません。");
+  }
+
+  const directions = [
+    ["W", { moveX: 0, moveZ: 1 }],
+    ["A", { moveX: -1, moveZ: 0 }],
+    ["S", { moveX: 0, moveZ: -1 }],
+    ["D", { moveX: 1, moveZ: 0 }]
+  ] as const;
+
+  return directions.map(([label, moveAxes]) => {
+    const previousActiveCamera = scene.activeCamera;
+    const testCamera = new FreeCamera(
+      `PoolSpawn${label}Camera`,
+      playerSpawn.marker.node.getAbsolutePosition().clone(),
+      scene
+    );
+    const input: V2PlayerInput = {
+      getMoveAxes: () => moveAxes,
+      isDashPressed: () => false,
+      drainPressedActions: () => Object.freeze([]),
+      reset: () => undefined,
+      dispose: () => undefined
+    };
+    let controller: ReturnType<typeof createV2PlayerController> | null = null;
+    let startedInWater = false;
+    let initialSpeedScale = Number.NaN;
+    let firstMovementFrame: number | null = null;
+    let horizontalDistance = 0;
+    let ungroundedFrames = 0;
+    let stayedInsideBoundary = true;
+    let movementError: unknown = null;
+
+    try {
+      controller = createV2PlayerController({
+        scene,
+        camera: testCamera,
+        stage: context,
+        playerSpawn,
+        input
+      });
+      const initialFoot = controller.getFootPosition();
+      startedInWater = context.queries.containsVolume("water", initialFoot);
+      for (let frame = 0; frame < 120; frame += 1) {
+        const speedScale = resolveV2HorizontalSpeedScale(
+          context.queries.containsVolume(
+            "water",
+            controller.getFootPosition()
+          )
+        );
+        if (frame === 0) {
+          initialSpeedScale = speedScale;
+        }
+        const playerFrame = controller.update(1 / 60, true, speedScale);
+        const horizontalOffset = playerFrame.footPosition.subtract(initialFoot);
+        horizontalOffset.y = 0;
+        horizontalDistance = horizontalOffset.length();
+        if (firstMovementFrame === null && horizontalDistance > 1e-8) {
+          firstMovementFrame = frame + 1;
+        }
+        if (!playerFrame.verticalState.grounded) {
+          ungroundedFrames += 1;
+        }
+        stayedInsideBoundary =
+          stayedInsideBoundary &&
+          context.boundary.contains(playerFrame.footPosition);
+      }
+    } catch (error) {
+      movementError = error;
+      console.error(`屋上プール開始${label}移動中に例外が発生しました。`, error);
+    } finally {
+      controller?.dispose();
+      testCamera.dispose();
+      scene.activeCamera = previousActiveCamera;
+    }
+
+    return Object.freeze({
+      label,
+      ok:
+        movementError === null &&
+        startedInWater &&
+        initialSpeedScale === V2_WATER_HORIZONTAL_SPEED_SCALE &&
+        firstMovementFrame !== null &&
+        firstMovementFrame <= 3 &&
+        horizontalDistance > 0.02 &&
+        ungroundedFrames === 0 &&
+        stayedInsideBoundary,
+      startedInWater,
+      initialSpeedScale,
+      firstMovementFrame,
+      horizontalDistance,
+      ungroundedFrames,
+      stayedInsideBoundary,
+      errorMessage:
+        movementError === null ? null : formatError(movementError)
+    });
+  });
+};
+
 const validatePlayerBarrierAttempt = (
   context: StageSpatialContext,
   label: string,
@@ -850,7 +958,7 @@ const validateLoadedContext = (
         context.resources.bitFlightNavSourceMeshes.length === 22 &&
         context.markers.all.length === 243 &&
         assemblyAnchors.length === 2 &&
-        context.volumes.all.length === 107 &&
+        context.volumes.all.length === 118 &&
         assemblyVolumes.length === 2 &&
         assemblyVenuesValid &&
         roomVariantSelectionValid &&
@@ -2069,6 +2177,7 @@ const validateLoadedContext = (
     ],
     [14.5, 15.65]
   );
+  const poolSpawnMovement = validatePoolSpawnMovement(context);
   const poolsideFoot = blenderPointToBabylon(
     new Vector3(13.4, 39.0, 15.65)
   );
@@ -2105,6 +2214,16 @@ const validateLoadedContext = (
         context.queries.containsVolume("water", waterCenter) &&
         !context.queries.containsVolume("water", pointAboveWater),
       `id=${waterVolume.id} / center=${context.queries.containsVolume("water", waterCenter)} / above=${context.queries.containsVolume("water", pointAboveWater)}`
+    ),
+    createCheck(
+      "実プール開始地点から水中50%でWASD移動開始",
+      poolSpawnMovement.every((result) => result.ok),
+      poolSpawnMovement
+        .map(
+          (result) =>
+            `${result.label}:water=${result.startedInWater},scale=${result.initialSpeedScale},first=${result.firstMovementFrame ?? "なし"},distance=${result.horizontalDistance.toFixed(6)},airborne=${result.ungroundedFrames},boundary=${result.stayedInsideBoundary},error=${result.errorMessage ?? "なし"}`
+        )
+        .join(" / ")
     )
   );
 
@@ -2690,7 +2809,7 @@ const runValidation = async () => {
       activeContext.resources.bitFlightNavSourceMeshes.length === 22 &&
       activeContext.markers.all.length === 243 &&
       activeContext.markers.getByRole("assembly_anchor").length === 2 &&
-      activeContext.volumes.all.length === 107 &&
+      activeContext.volumes.all.length === 118 &&
       activeContext.volumes.getByRole("assembly").length === 2 &&
       activeContext.assemblyVenues.all.length === 2 &&
       activeContext.assemblyVenues.all.every(

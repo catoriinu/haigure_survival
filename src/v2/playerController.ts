@@ -1,4 +1,4 @@
-import { FreeCamera, Mesh, Scene, Vector3 } from "@babylonjs/core";
+import { Engine, FreeCamera, Mesh, Scene, Vector3 } from "@babylonjs/core";
 import {
   PLAYER_SPRITE_HEIGHT,
   PLAYER_SPRITE_WIDTH
@@ -162,7 +162,8 @@ export const createV2PlayerController = ({
 
   const motion = createPlayerMotionController({
     moveInertiaAt60Fps: PLAYER_MOVE_INERTIA_AT_60_FPS,
-    moveStopEpsilon: PLAYER_MOVE_STOP_EPSILON
+    moveStopEpsilon: PLAYER_MOVE_STOP_EPSILON,
+    collisionEpsilon: Engine.CollisionsEpsilon
   });
   const height = createPlayerHeightController(scene, {
     gravity: PLAYER_GRAVITY,

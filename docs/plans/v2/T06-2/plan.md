@@ -64,6 +64,14 @@ Pull Request作成指示:
 
 > このタスクでやるべき残り作業は残っていますか?もしなければ、プッシュして、ディベロップへのプルリクを作ってください。
 
+プール開始時の移動不能確認指示:
+
+> プールからゲームが開始するとき、その場からWASDを押しても一歩も動きません。問題を確認してください。
+
+プール開始時の移動不能修正承認:
+
+> YES
+
 ## 目的
 
 PR #65のB03-3D、PR #64のT06-1、PR #66のB03-3D追補は、`origin/develop=cdb8bae`までに統合済みである。開始フェーズでは最新`develop`から専用branch／worktreeを作り、計画8ファイルだけを初回コミットした後、現行学校資産を読み取り専用で可視化し、複数開始地点、選択地点に追従する敵出現禁止、NPC／BIT出現Volume、BIT時間増援の実装前提案を確定した。2026-08-08に修正版11候補すべてのユーザー承認と実装開始指示を得たため、同じ専用worktreeで実装フェーズへ移行する。
@@ -218,6 +226,15 @@ PR #65のB03-3D、PR #64のT06-1、PR #66のB03-3D追補は、`origin/develop=cd
 - [x] 型検査、build、資産監査、NavMesh、専用fixture、通常Webを再検証し、独立レビューでP0～P2を閉じる
 - [x] 本計画の結果を実測値へ更新し、対象差分だけをローカルcommitする
 
+### プール開始時の移動不能是正フェーズ
+
+- [x] 実プール開始地点を固定seedで再現し、開始Marker、Collider、NavMesh、水中判定、入力、要求変位、実変位を切り分ける
+- [x] Babylon.jsの固定衝突epsilon未満となるフレーム単位変位をプレイヤー移動内で蓄積し、通常速度と水中50%を維持したままフレームレート非依存で移動開始できるようにする
+- [x] 静止状態、方向転換、入力停止、衝突時に不要な残差移動を発生させない回帰fixtureを追加する
+- [x] 実プールMarker、水中倍率0.5、W／A／S／Dを結合した回帰と、通常開始地点の移動回帰を追加する
+- [x] 対象型検査・build・fixtureと通常ゲームの実プール開始操作を検証し、console warning／error 0件を確認する
+- [x] 本計画の結果を実測値へ更新し、対象差分だけをローカルcommitする
+
 ## 完了条件
 
 ### 開始フェーズ
@@ -270,3 +287,7 @@ NPC開始地点別近傍優先フェーズでは、承認済みPlayer開始地�
 学校GLBは22,057,212 bytes、SHA-256 `55ca8f0e0eb6bd1115749eafc5fabda30ba16e0a6f6f4dbb9b1cf6cf67239748`へ決定的に更新した。静的人間用、Room Variant、BIT用NavMeshのhashはそれぞれ`530fa01f...`、`4b5a584b...`、`e7e0a764...`のまま不変で、6資産監査と正本／GLB parityをPASSした。T06-2は18/18、T05は314/314をブラウザーでPASSし、console warning/error 0件、対象型検査・build・NavMesh checkもPASSした。通常Webの連続2sessionでは、2階普通教室から4階音楽室へseedと開始地点が変わり、各回で対応bias 1件だけが有効、NPC 50人、初期洗脳済み10人、bias内人数12人／10人、console warning/error 0件を実測した。最終独立レビューで、水平共有面上のNavMeshを正面積overlapと誤認する問題と、Electron受入がbias IDを名前から推測する問題のP2 2件を検出し、対向する同一支持平面の境界接触判定、水平面fixture、明示`playerSpawnId`照合へ修正した。修正後もT06-2 18/18、T05 314/314、通常build／対象build、Electron音声限定受入をPASSし、再レビュー後の未解決P0～P2は0件である。本差分は`feat(v2): Player開始地点別のNPC出現biasを追加`としてローカルcommitし、pushとPull Request作成は行わない。
 
 2026-08-08、ユーザーの明示指示により`codex/v2-t06-school-integration`をoriginへpushし、`develop`向けDraft PR #67を作成した。作成時点のPull RequestはOPEN／Draft／MERGEABLE／CLEANである。実装・修正・ローカル検証は完了しており、残る統合前作業は独立Pull RequestレビューとV3学校基盤機能ゲートである。mergeとworktree整理は実施していない。
+
+同日、屋上プール内の開始地点では水中速度50%により60fps時の1フレーム要求変位が約`0.000527m`となり、Babylon.jsの固定衝突epsilon `0.001m`を下回って衝突移動が毎フレーム破棄されるため、WASDを押し続けても移動を開始できないことを確認した。Player移動へ未送信の水平入力変位だけを蓄積し、epsilonを超えた時点で1回送信する契約を追加した。送信済み変位や衝突で拒否された差分は蓄積せず、入力停止、方向転換、移動禁止、`reset()`、delta 0で残差を消去するため、遅延移動や反対方向への漏出は発生しない。
+
+実GLBの`player-spawn-roof-pool-west-stairs`から、水中判定`true`、水平倍率`0.5`の状態でW／A／S／Dそれぞれが2フレーム目に移動開始し、120フレームで水平距離`0.585022m`、空中判定0フレーム、世界境界内を維持することをT02へ固定した。T02は51/51、T03は24/24、T06-2は22/22をブラウザーでPASSし、console warning／errorは0件だった。独立レビューで、Wの未送信変位がW→Dの直角方向転換後へ混入するP2を検出したため、正規化した入力軸方向が変わった時点で残差を破棄するよう修正した。カメラyawだけの変更では残差を維持する。W 1フレームからD 2フレームへの回帰を追加し、直接fixture 4/4と最終Electron fixture 22/22をPASSし、再レビュー後のP0～P2は0件となった。通常ゲームのElectron受入でも固定seed 11で同プール開始地点を選択し、Pointer Lock取得後にWを700ms保持して`(-4.375, 3.667, -9.750)`から`(-4.267, 3.667, -9.750)`へ水平`0.108m`移動し、renderer／load／process診断0件でPASSした。対象型検査、build、JavaScript構文検査、UTF-8 BOM／絶対パス／空白差分検査もPASSした。学校資産、GLB、NavMesh、生成器、カタログhashは変更していない。本修正はPlayer移動本体、T02／T03／T06／T06-2回帰、計画の8ファイルだけを対象にローカルcommitし、push、Pull Request更新、mergeは行わない。

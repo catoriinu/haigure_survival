@@ -1,6 +1,7 @@
 import { Logger } from "@babylonjs/core";
 
 import { runPopulationIntegrationTests } from "./populationIntegration.test";
+import { runPlayerMotionTests } from "./playerMotion.test";
 import { runSpawnSelectionTests } from "./spawnSelection.test";
 import { runSurfaceSpawnTests } from "./surfaceSpawn.test";
 import type { T062TestResult } from "./testUtils";
@@ -149,6 +150,7 @@ const runValidation = async () => {
   const loggerErrorsAtStart = Logger.errorsCount;
   const startedAt = performance.now();
   const checks = [
+    ...(await runPlayerMotionTests()),
     ...(await runSpawnSelectionTests()),
     ...(await runSurfaceSpawnTests()),
     ...(await runPopulationIntegrationTests())

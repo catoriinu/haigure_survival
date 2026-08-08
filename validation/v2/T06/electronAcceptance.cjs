@@ -13,6 +13,7 @@ const readArgument = (name) => {
 const applicationUrl = new URL(readArgument("--url"));
 const reportPath = process.env.T06_ELECTRON_REPORT_FILE ?? null;
 const audioOnly = process.env.T06_ELECTRON_AUDIO_ONLY === "1";
+const poolStartOnly = process.env.T06_ELECTRON_POOL_START_ONLY === "1";
 if (
   applicationUrl.hostname !== "localhost" &&
   applicationUrl.hostname !== "127.0.0.1"
@@ -48,7 +49,9 @@ const report = {
   },
   supplemental: {
     fec: "候補位置に依存するためElectron連続操作には含めない。T06専用fixtureで検証する。",
-    water: "水Volumeまでの安定した実入力経路を定義していないためElectron連続操作には含めない。T06専用fixtureで検証する。"
+    water: poolStartOnly
+      ? "固定seedの実プール開始地点から水中移動を専用受入で検証する。"
+      : "水Volumeまでの安定した実入力経路を定義していないため通常のElectron連続操作には含めない。固定プール開始専用受入で検証する。"
   }
 };
 
@@ -383,6 +386,71 @@ const run = async () => {
   await testWindow.loadURL(applicationUrl.toString());
   testWindow.show();
   testWindow.focus();
+
+  if (poolStartOnly) {
+    const autoStartedPool = await waitFor(
+      "固定プール開始専用Runtime",
+      testWindow,
+      (snapshot) =>
+        !snapshot.titleVisible &&
+        snapshot.runtimeSessionSeed === "11" &&
+        snapshot.playerSpawnId ===
+          "player-spawn-roof-pool-west-stairs" &&
+        parsePosition(snapshot.status) !== null,
+      120_000
+    );
+    const poolNpcSpawnReport = assertNpcSpawnReport(
+      autoStartedPool,
+      "固定プール開始session"
+    );
+    await sendCanvasClick(testWindow);
+    const startedForPool = await waitFor(
+      "Pointer Lock（固定プール開始専用）",
+      testWindow,
+      (snapshot) => snapshot.pointerLockId === "renderCanvas",
+      10_000
+    );
+    const poolMovement = await measureMovement(testWindow, "W", 700);
+    assertCondition(
+      poolMovement.horizontalDistance > 0.02,
+      `屋上プール開始地点からWで移動できません: ${poolMovement.horizontalDistance}`
+    );
+    assertCondition(
+      report.diagnostics.console.length === 0,
+      "固定プール開始専用受入でconsole warning/errorがあります。"
+    );
+    assertCondition(
+      report.diagnostics.renderer.length === 0,
+      "固定プール開始専用受入でrenderer error/unhandledrejectionがあります。"
+    );
+    assertCondition(
+      report.diagnostics.load.length === 0,
+      "固定プール開始専用受入でrenderer load errorがあります。"
+    );
+    assertCondition(
+      report.diagnostics.renderProcessGone.length === 0,
+      "固定プール開始専用受入でrender-process-goneがあります。"
+    );
+    assertCondition(
+      report.diagnostics.unresponsive.length === 0,
+      "固定プール開始専用受入でrenderer unresponsiveがあります。"
+    );
+    addCheck("固定プール開始地点からW実入力移動", {
+      seed: poolNpcSpawnReport.sessionSeed,
+      playerSpawnId: poolNpcSpawnReport.playerSpawnId,
+      pointerLockId: startedForPool.pointerLockId,
+      movement: poolMovement,
+      diagnostics: {
+        console: report.diagnostics.console.length,
+        renderer: report.diagnostics.renderer.length,
+        load: report.diagnostics.load.length,
+        renderProcessGone: report.diagnostics.renderProcessGone.length,
+        unresponsive: report.diagnostics.unresponsive.length
+      }
+    });
+    report.status = "passed";
+    return;
+  }
 
   const initialTitle = await waitFor(
     "初回タイトル読込完了",
