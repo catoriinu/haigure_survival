@@ -342,7 +342,6 @@ const initializeRuntime = async () => {
       }
     );
     configureV2StageTransparentRenderingOrder(
-      scene,
       ownedStage.resources.visualMeshes
     );
     const playerSpawn = selectV2PlayerSpawn(

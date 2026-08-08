@@ -5,8 +5,10 @@ import {
   Engine,
   FreeCamera,
   Material,
+  Mesh,
   MeshBuilder,
   NullEngine,
+  Quaternion,
   Scene,
   StandardMaterial,
   Vector3
@@ -19,6 +21,7 @@ import {
 import {
   V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER,
   V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER,
+  V2_TRANSPARENT_ALPHA_INDEX_PRIMARY_BEAM,
   V2_TRANSPARENT_ALPHA_INDEX_SPATIAL
 } from "../../../src/v2/v2TransparentRenderingOrder";
 import { assert, executeTest, type T06TestResult } from "./testUtils";
@@ -36,6 +39,19 @@ const createFlatMaterial = (
   material.emissiveColor = color;
   material.alpha = alpha;
   material.transparencyMode = Material.MATERIAL_ALPHABLEND;
+  return material;
+};
+
+const createPrimaryBeamMaterial = (
+  name: string,
+  color: Color3,
+  alpha: number,
+  scene: Scene
+): StandardMaterial => {
+  const material = createFlatMaterial(name, color, alpha, scene);
+  material.transparencyMode = Material.MATERIAL_ALPHATESTANDBLEND;
+  material.alphaCutOff = 0.01;
+  material.needDepthPrePass = true;
   return material;
 };
 
@@ -130,7 +146,7 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
             bridgeGlass.alphaIndex === Number.MAX_VALUE,
           "Stage窓ガラスの初期alphaIndexがBabylon既定値ではありません。"
         );
-        configureV2StageTransparentRenderingOrder(scene, [
+        configureV2StageTransparentRenderingOrder([
           firstGlass,
           bridgeGlass,
           otherTransparent,
@@ -142,13 +158,15 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
             otherTransparent.alphaIndex === Number.MAX_VALUE &&
             opaque.alphaIndex === Number.MAX_VALUE &&
             V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER <
+              V2_TRANSPARENT_ALPHA_INDEX_PRIMARY_BEAM &&
+            V2_TRANSPARENT_ALPHA_INDEX_PRIMARY_BEAM <
               V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
             V2_TRANSPARENT_ALPHA_INDEX_SPATIAL <
               V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER &&
-            scene.useOrderIndependentTransparency,
+            !scene.useOrderIndependentTransparency,
           "窓ガラスだけの空間半透明indexまたはCharacter順が不正です。"
         );
-        return "通常窓・体育館連絡通路窓=spatial、非対象Materialは既定値を維持、OIT=有効";
+        return "通常窓・体育館連絡通路窓=spatial、primary beam=150、非対象Materialは既定値を維持、OIT=無効";
       } finally {
         scene.dispose();
         engine.dispose();
@@ -160,7 +178,7 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
       try {
         let missingRejected = false;
         try {
-          configureV2StageTransparentRenderingOrder(scene, []);
+          configureV2StageTransparentRenderingOrder([]);
         } catch {
           missingRejected = true;
         }
@@ -176,7 +194,7 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
         );
         let opaqueRejected = false;
         try {
-          configureV2StageTransparentRenderingOrder(scene, [opaqueGlass]);
+          configureV2StageTransparentRenderingOrder([opaqueGlass]);
         } catch {
           opaqueRejected = true;
         }
@@ -238,32 +256,22 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
           { size: 2 },
           scene
         );
-        light.material = createFlatMaterial(
+        light.material = createPrimaryBeamMaterial(
           "V2CombatLightMaterial_gpu_fixture",
           new Color3(1, 0, 0),
           0.8,
           scene
         );
-        light.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
+        light.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_PRIMARY_BEAM;
         light.position.z = 0;
 
-        await scene.whenReadyAsync();
-        scene.render();
-        const fixedIndexRegression = await readCenterPixel(engine, size);
-        assert(
-          fixedIndexRegression[2] > fixedIndexRegression[0] + 80,
-          `修正前のガラス固定後描画を再現できません: ${JSON.stringify(
-            fixedIndexRegression
-          )}`
-        );
-
-        configureV2StageTransparentRenderingOrder(scene, [glass]);
+        configureV2StageTransparentRenderingOrder([glass]);
         await scene.whenReadyAsync();
         scene.render();
         const lightInFront = await readCenterPixel(engine, size);
         assert(
           lightInFront[0] > lightInFront[2] + 80 &&
-            lightInFront[2] > 20,
+            lightInFront[2] < 20,
           `光が手前の透過合成が不正です: ${JSON.stringify(lightInFront)}`
         );
 
@@ -278,9 +286,7 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
             glassInFront[0] > 20,
           `ガラスが手前の透過合成が不正です: ${JSON.stringify(glassInFront)}`
         );
-        return `固定順=${JSON.stringify(
-          fixedIndexRegression
-        )}、光手前=${JSON.stringify(
+        return `光手前=${JSON.stringify(
           lightInFront
         )}、ガラス手前=${JSON.stringify(glassInFront)}`;
       } finally {
@@ -335,16 +341,17 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
           { size: 2 },
           scene
         );
-        crossingLight.material = createFlatMaterial(
+        crossingLight.material = createPrimaryBeamMaterial(
           "V2CombatLightMaterial_crossing_gpu_fixture",
           new Color3(1, 0, 0),
           0.8,
           scene
         );
-        crossingLight.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
+        crossingLight.alphaIndex =
+          V2_TRANSPARENT_ALPHA_INDEX_PRIMARY_BEAM;
         crossingLight.rotation.y = Math.PI / 4;
 
-        configureV2StageTransparentRenderingOrder(scene, [glass]);
+        configureV2StageTransparentRenderingOrder([glass]);
         await scene.whenReadyAsync();
         scene.render();
 
@@ -364,7 +371,7 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
           left[2] > left[0] + 80 &&
             left[0] > 20 &&
             right[0] > right[2] + 80 &&
-            right[2] > 20,
+            right[2] < 20,
           `交差する光とガラスがピクセル深度順に合成されません: left=${JSON.stringify(
             left
           )}, right=${JSON.stringify(right)}`
@@ -374,5 +381,176 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
         scene.dispose();
         engine.dispose();
       }
-    })
+    }),
+    executeTest(
+      "実ビーム形状・両面ガラス・Character・密集trailのWebGL回帰",
+      async () => {
+        const size = 192;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const engine = new Engine(
+          canvas,
+          true,
+          { preserveDrawingBuffer: true, stencil: false },
+          false
+        );
+        engine.setSize(size, size);
+        const scene = new Scene(engine);
+        scene.clearColor = new Color4(0.04, 0.04, 0.04, 1);
+        const camera = new FreeCamera(
+          "fixture-dense-beam-transparency-camera",
+          new Vector3(0, 0, -5),
+          scene
+        );
+        camera.setTarget(Vector3.Zero());
+        camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
+        camera.orthoLeft = -1.5;
+        camera.orthoRight = 1.5;
+        camera.orthoTop = 1;
+        camera.orthoBottom = -1;
+        camera.minZ = 0.02;
+        camera.maxZ = 10;
+        scene.activeCamera = camera;
+
+        try {
+          const glass = MeshBuilder.CreatePlane(
+            "VIS_WindowGlass_dense_gpu_fixture",
+            { size: 3, sideOrientation: Mesh.DOUBLESIDE },
+            scene
+          );
+          glass.material = createFlatMaterial(
+            V2_STAGE_WINDOW_GLASS_MATERIAL_NAME,
+            new Color3(0.56, 0.78, 0.86),
+            0.28,
+            scene
+          );
+
+          const character = MeshBuilder.CreatePlane(
+            "fixture-dense-force-depth-character",
+            { width: 0.7, height: 0.7 },
+            scene
+          );
+          const characterMaterial = createFlatMaterial(
+            "fixture-dense-force-depth-character-material",
+            new Color3(0.1, 0.85, 0.2),
+            0.9,
+            scene
+          );
+          characterMaterial.transparencyMode =
+            Material.MATERIAL_ALPHATESTANDBLEND;
+          characterMaterial.alphaCutOff = 0.01;
+          characterMaterial.forceDepthWrite = true;
+          character.material = characterMaterial;
+          character.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER;
+          character.position.set(0.35, 0, 0.4);
+
+          const primaryMaterial = createPrimaryBeamMaterial(
+            "fixture-dense-primary-beam-material",
+            new Color3(1, 0.18, 0.74),
+            0.55,
+            scene
+          );
+          const beamBody = MeshBuilder.CreateCylinder(
+            "fixture-dense-primary-beam-body",
+            {
+              height: 2.2,
+              diameterTop: 0.16,
+              diameterBottom: 0.28,
+              tessellation: 12,
+              sideOrientation: Mesh.DOUBLESIDE
+            },
+            scene
+          );
+          const beamDirection = new Vector3(1, 0, -0.5).normalize();
+          const beamRotationAxis = Vector3.Cross(
+            Vector3.Up(),
+            beamDirection
+          ).normalize();
+          beamBody.rotationQuaternion = Quaternion.RotationAxis(
+            beamRotationAxis,
+            Math.acos(Vector3.Dot(Vector3.Up(), beamDirection))
+          );
+          beamBody.material = primaryMaterial;
+          beamBody.alphaIndex =
+            V2_TRANSPARENT_ALPHA_INDEX_PRIMARY_BEAM;
+
+          const beamTipPosition = beamDirection.scale(1.1);
+          const beamTip = MeshBuilder.CreateSphere(
+            "fixture-dense-primary-beam-tip",
+            { diameter: 0.36, segments: 12 },
+            scene
+          );
+          beamTip.position.copyFrom(beamTipPosition);
+          beamTip.material = primaryMaterial;
+          beamTip.alphaIndex =
+            V2_TRANSPARENT_ALPHA_INDEX_PRIMARY_BEAM;
+
+          const secondaryMaterial = createFlatMaterial(
+            "fixture-dense-secondary-beam-material",
+            new Color3(1, 0.18, 0.74),
+            0.55,
+            scene
+          );
+          for (let index = 0; index < 7; index += 1) {
+            const trail = MeshBuilder.CreateSphere(
+              `fixture-dense-beam-trail-${index}`,
+              { diameter: 0.22, segments: 10 },
+              scene
+            );
+            trail.position.set(
+              beamTipPosition.x + (index % 3) * 0.018 - 0.018,
+              (Math.floor(index / 3) - 1) * 0.018,
+              -0.2 + index * 0.004
+            );
+            trail.material = secondaryMaterial;
+            trail.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
+          }
+
+          configureV2StageTransparentRenderingOrder([glass]);
+          await scene.whenReadyAsync();
+          scene.render();
+
+          const pixelAt = (worldX: number, worldY: number) =>
+            readPixel(
+              engine,
+              size,
+              Math.floor(((worldX + 1.5) / 3) * size),
+              Math.floor(((worldY + 1) / 2) * size)
+            );
+          const glassOnly = await pixelAt(0, 0.65);
+          const beamBehindGlass = await pixelAt(-0.55, 0);
+          const beamInFrontOfCharacter = await pixelAt(0.35, 0);
+          const denseTip = await pixelAt(beamTipPosition.x, 0);
+
+          assert(
+            !scene.useOrderIndependentTransparency &&
+              glassOnly[2] > glassOnly[0] + 20 &&
+              beamBehindGlass[2] > beamBehindGlass[0] &&
+              beamBehindGlass[0] > glassOnly[0] + 20 &&
+              beamInFrontOfCharacter[0] >
+                beamInFrontOfCharacter[1] + 20 &&
+              denseTip[0] > denseTip[1] + 40 &&
+              denseTip[2] > denseTip[1] + 20,
+            `実ビーム密集時の深度・色が不正です: glass=${JSON.stringify(
+              glassOnly
+            )}, behind=${JSON.stringify(
+              beamBehindGlass
+            )}, character=${JSON.stringify(
+              beamInFrontOfCharacter
+            )}, tip=${JSON.stringify(denseTip)}`
+          );
+          return `glass=${JSON.stringify(
+            glassOnly
+          )}、奥側=${JSON.stringify(
+            beamBehindGlass
+          )}、Character前=${JSON.stringify(
+            beamInFrontOfCharacter
+          )}、tip＋14面trail=${JSON.stringify(denseTip)}`;
+        } finally {
+          scene.dispose();
+          engine.dispose();
+        }
+      }
+    )
   ]);

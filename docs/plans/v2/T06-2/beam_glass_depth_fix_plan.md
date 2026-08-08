@@ -1,6 +1,6 @@
 # T06-2 光線と窓ガラスの奥行き描画修正 計画
 
-更新日: 2026-08-08
+更新日: 2026-08-09
 
 ## プロンプト
 
@@ -15,6 +15,10 @@
 > worktree: repo外の専用worktree
 >
 > commit: `3ba77cd fix(v2): 光線と窓ガラスを深度順に合成`
+
+> ビームの光について、やはり表示順がおかしいです。ガラスよりは手前に表示されているようですが、ガラス全面がピンクになって表示されるのは不自然です。また、プレイヤーが発射して奥へ飛んでいる光線の先端の光の玉と軌跡・光のしっぽが重なり、打ち消し合って光線が見えなくなる状態が起きています。これは今まで起きていなかった現象です。問題を確認してください。
+
+> YES
 
 ## ステップ
 
@@ -33,18 +37,25 @@
 - [x] 5176の通常ゲームserverが統合後ソースを配信することを確認し、実ブラウザーで光線・窓ガラス・consoleを確認する。
 - [x] 統合結果を実測値へ更新し、計画差分だけをローカルcommitする。
 
+### Scene全体OITによる視覚回帰の修正
+
+- [x] 提示画像、統合前後の差分、Babylon.jsの透明描画経路、実ビーム・Character・ガラスMaterialを照合し、Scene全体OITが既存の`alphaIndex`契約を無効化していることを特定する。
+- [x] OITが全透明Triangle Meshをdepth peelingへ集約し、Characterの`forceDepthWrite`、透明球の両面化、既定10深度層、カメラ近傍のtip／trail重なりを同時に引き起こす構造を確認する。
+- [x] Scene全体OITを解除し、Character・命中演出・trailを含む既存の透明描画順を復元する。
+- [x] ビーム本体・先端をNPCと空間半透明の間で先行描画し、この2種だけへalpha test付きdepth pre-passを適用して、Scene内の他の透明meshを巻き込まない深度合成へ置き換える。
+- [x] 実ビーム相当のCylinder・tip／trail球、両面ガラス、`forceDepthWrite`を持つCharacter、10層超の重なりを含むGPU回帰テストを追加する。
+- [x] T05・T06・T06-2の型検査、build、ブラウザfixtureを実行し、既存契約と新しいGPU回帰を確認する。
+- [x] 5176の通常ゲームで再読込、playing、学校・NPC・BIT・BEAMの継続描画、consoleを確認し、窓越し・窓手前、先端と軌跡、ガラスの色は同一描画経路を使うGPU fixtureで確認する。
+- [x] 実装結果を実測値へ更新し、修正をローカルcommitする。pushは行わない。
+
 ## 結果
 
-T06-2本体branch `codex/v2-t06-school-integration` の開始時HEAD `f2c7194`から、補助branch `codex/v2-t06-glass-beam-depth-fix` と専用worktreeを作成した。プール開始地点の修正中であるT06-2本体worktree、`develop` worktree、未保存Blender sessionには変更を加えていない。
+統合したcommit `8cd5687`のScene全体OITは、透明meshを既存の`alphaIndex`順から一括してdepth peelingへ移していた。そのため、両面描画されるビーム球・軌跡・窓ガラス・`forceDepthWrite`を持つCharacterが同じ透明層を消費し、既定10層を超える重なりでガラス全面がピンク化し、先端と軌跡が打ち消し合う視覚回帰を発生させていた。
 
-既存修正は透明mesh単位の距離sortであり、光線全体がガラスより手前または奥にあるケースだけを検証していた。一本の光線がガラス面を横切る場合はmesh全体へ一つの描画順しか付けられず、手前部分と奥部分を同時に正しく合成できなかった。Stage窓ガラス契約の確定時にBabylon.jsのorder-independent transparencyを有効化し、透明fragmentを実際のピクセル深度順で合成するよう変更した。光を常にガラスより前へ固定する処理は追加していない。
+Scene全体OITを撤去し、既存の透明描画順を復元した。通常ビームは本体・先端だけを専用の一次Materialへ分離し、NPCの後、窓ガラスなどの空間半透明より前となる`alphaIndex`へ配置した。一次Materialにはalpha test付きalpha blendとdepth pre-passを適用し、各ピクセルの実深度を後続のガラス描画へ渡す。軌跡・遮蔽物命中演出は従来のalpha blendと空間半透明順を維持し、Character、NPC、Alert、カーペット僚機を含むScene内の他の透明meshは変更していない。生成・pool再利用・事前コンパイル・破棄も、分離した2 Materialを同じライフサイクルで扱うよう更新した。
 
-T06 GPU fixtureへ、傾けた戦闘光が窓ガラス面を横切る回帰テストを追加した。同一画面で奥側は `[41,0,204,255]`、手前側は `[204,0,41,255]` となり、ガラスと光がそれぞれ実際の前後関係に従って合成されることを確認した。T06ブラウザfixtureは66/66 PASS、`data-validation-status=passed`、console warning/error 0件だった。`npm run typecheck:v2`、`npm run build:renderer`、`npm run build:t06`、`npm run build:t06-2`も成功した。通常ゲームを専用portで起動し、playing、学校、NPC 50体、BIT、BEAMの描画まで確認した。自動操作環境ではPointer Lock要求だけがブラウザ制約で拒否されたが、今回の変更に起因するRuntime例外は発生していない。
+T06 GPU fixtureへ、実ビーム相当のCylinder、先端球、7個の重複軌跡球（両面14層）、両面ガラス、`forceDepthWrite` Characterを同居させる回帰を追加した。実測RGBAはガラス単体`[74,101,110,255]`、ガラス越しビーム`[175,116,184,255]`、Character前面`[208,77,160,255]`、密集した先端・軌跡`[232,43,172,255]`で、ガラス全面の一色化やビーム消失がないことを確認した。単純な前後・交差ケースも、ガラス前面`[41,0,204,255]`、ビーム前面`[204,0,0,255]`となった。
 
-補助branchのcommit `3ba77cd`を、プール開始時の移動修正 `a40ae50`が入ったT06-2本体branchへcherry-pickし、統合commit `8cd5687`とした。変更ファイルはプール修正と重複せず、競合は発生していない。5176の通常ゲームserverが配信する`v2StageTransparentRenderingOrder.ts`にも、統合したorder-independent transparency設定が含まれることを確認した。
+`npm run audit:v2:dependencies`、`typecheck:v2`、`typecheck:t05`、`typecheck:t06`、`typecheck:t06-2`、`build`、`build:renderer`、`build:t05`、`build:t06`、`build:t06-2`はすべて成功した。5176のブラウザーfixtureはT05が314/314、T06が67/67、T06-2が22/22で、いずれも`data-validation-status=passed`となった。通常ゲームもseed 10で12秒間確認し、playing、学校、NPC 50体、BIT 20体、BEAMの継続描画、console warning/error 0件を確認した。自動操作環境ではPointer Lockが許可されないため、プレイヤー自身の発射操作だけはユーザー確認用の5176で行う。最終的に通常タイトル画面を再読込し、ViteとBabylon.jsの初期化後もconsole warning/error 0件の状態で残した。
 
-統合後HEADで`npm run typecheck:v2`、`npm run typecheck:t06`、`npm run typecheck:t06-2`、`npm run build:renderer`、`npm run build:t06`、`npm run build:t06-2`がすべて成功した。T06ブラウザfixtureは66/66 PASSで、交差光線は奥側`[41,0,204,255]`、手前側`[204,0,41,255]`、console warning/error 0件だった。T06-2ブラウザfixtureも22/22 PASS、console warning/error 0件だった。
-
-5176の通常ゲームを実ブラウザーで起動し、seed 10、体育館中央開始、playing、NPC 50体、BIT 20体、BEAM 2本まで描画されることを確認した。自動開始時のPointer Lock要求はブラウザ自動操作環境の制約で拒否されたが、Runtime例外は発生していない。ユーザー確認用には、5176の通常タイトル画面を新しいタブで読み込み、console warning/error 0件の状態で残した。
-
-統合内容に対する独立レビューではP0～P2の指摘はなかった。検証用serverは停止し、ユーザー確認用の5176と既存の5182は維持する。pushとPR更新は行わない。
+独立した最終差分監査でも、描画順、Material設定、poolライフサイクル、GPU fixtureにP0～P2の指摘はなかった。変更はT06-2本体branch内のRuntime 4ファイル、検証2ファイル、計画1ファイルに限定した。主worktreeの未追跡ファイル、学校資産、Blender session、5182のserverには変更を加えていない。5176はユーザー確認用に維持し、pushとPR更新は行わない。

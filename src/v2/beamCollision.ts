@@ -2,6 +2,7 @@ import {
   Color3,
   Color4,
   InstancedMesh,
+  Material,
   Mesh,
   MeshBuilder,
   Quaternion,
@@ -19,7 +20,10 @@ import type {
   V2BeamTargetPolicy,
   V2HumanTargetSnapshot
 } from "./combatTypes";
-import { V2_TRANSPARENT_ALPHA_INDEX_SPATIAL } from "./v2TransparentRenderingOrder";
+import {
+  V2_TRANSPARENT_ALPHA_INDEX_PRIMARY_BEAM,
+  V2_TRANSPARENT_ALPHA_INDEX_SPATIAL
+} from "./v2TransparentRenderingOrder";
 
 export const V2_NORMAL_BEAM_MAX_BODY_LENGTH = 0.75;
 export const V2_WORLD_BOUNDARY_FADE_DURATION_SECONDS = 0.2;
@@ -746,12 +750,30 @@ type BeamVisualPool = Readonly<{
 }>;
 
 const createBeamVisualPool = (scene: Scene): BeamVisualPool => {
-  const material = new StandardMaterial("v2NormalBeamMaterial", scene);
-  material.emissiveColor = BEAM_EFFECT_COLOR.clone();
-  material.diffuseColor = BEAM_EFFECT_COLOR.clone();
-  material.specularColor = Color3.Black();
-  material.alpha = BEAM_EFFECT_ALPHA;
-  material.backFaceCulling = false;
+  const primaryMaterial = new StandardMaterial(
+    "v2NormalBeamPrimaryMaterial",
+    scene
+  );
+  primaryMaterial.emissiveColor = BEAM_EFFECT_COLOR.clone();
+  primaryMaterial.diffuseColor = BEAM_EFFECT_COLOR.clone();
+  primaryMaterial.specularColor = Color3.Black();
+  primaryMaterial.alpha = BEAM_EFFECT_ALPHA;
+  primaryMaterial.backFaceCulling = false;
+  primaryMaterial.transparencyMode =
+    Material.MATERIAL_ALPHATESTANDBLEND;
+  primaryMaterial.alphaCutOff = 0.01;
+  primaryMaterial.needDepthPrePass = true;
+
+  const secondaryMaterial = new StandardMaterial(
+    "v2NormalBeamSecondaryMaterial",
+    scene
+  );
+  secondaryMaterial.emissiveColor = BEAM_EFFECT_COLOR.clone();
+  secondaryMaterial.diffuseColor = BEAM_EFFECT_COLOR.clone();
+  secondaryMaterial.specularColor = Color3.Black();
+  secondaryMaterial.alpha = BEAM_EFFECT_ALPHA;
+  secondaryMaterial.backFaceCulling = false;
+  secondaryMaterial.transparencyMode = Material.MATERIAL_ALPHABLEND;
 
   const bodySource = MeshBuilder.CreateCylinder(
     "v2NormalBeamPoolSource-body",
@@ -810,10 +832,16 @@ const createBeamVisualPool = (scene: Scene): BeamVisualPool => {
     const source = sources[kind];
     source.registerInstancedBuffer(VertexBuffer.ColorInstanceKind, 4);
     source.instancedBuffers.instanceColor = new Color4(1, 1, 1, 1);
-    source.material = material;
+    source.material =
+      kind === "body" || kind === "tip"
+        ? primaryMaterial
+        : secondaryMaterial;
     source.isPickable = false;
     source.isVisible = false;
-    source.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
+    source.alphaIndex =
+      kind === "body" || kind === "tip"
+        ? V2_TRANSPARENT_ALPHA_INDEX_PRIMARY_BEAM
+        : V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
     buckets[kind] = {
       source,
       available: [],
@@ -843,7 +871,7 @@ const createBeamVisualPool = (scene: Scene): BeamVisualPool => {
       mesh.instancedBuffers.instanceColor = new Color4(1, 1, 1, 1);
       mesh.isPickable = false;
       mesh.isVisible = true;
-      mesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
+      mesh.alphaIndex = bucket.source.alphaIndex;
       mesh.setEnabled(true);
       return mesh;
     },
@@ -858,12 +886,21 @@ const createBeamVisualPool = (scene: Scene): BeamVisualPool => {
     },
     prepare: () => {
       preparationPromise ??= Promise.all([
-        material.forceCompilationAsync(buckets.body.source, {
+        primaryMaterial.forceCompilationAsync(buckets.body.source, {
           useInstances: true
         }),
-        material.forceCompilationAsync(buckets.tip.source, {
+        primaryMaterial.forceCompilationAsync(buckets.tip.source, {
           useInstances: true
-        })
+        }),
+        secondaryMaterial.forceCompilationAsync(buckets.trail.source, {
+          useInstances: true
+        }),
+        secondaryMaterial.forceCompilationAsync(
+          buckets["blocker-impact"].source,
+          {
+            useInstances: true
+          }
+        )
       ]).then(() => undefined);
       return preparationPromise;
     },
@@ -904,7 +941,8 @@ const createBeamVisualPool = (scene: Scene): BeamVisualPool => {
         bucket.available.length = 0;
         bucket.source.dispose(false, false);
       }
-      material.dispose();
+      primaryMaterial.dispose();
+      secondaryMaterial.dispose();
       disposed = true;
     }
   };

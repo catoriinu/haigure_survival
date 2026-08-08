@@ -1,5 +1,6 @@
 import {
   InstancedMesh,
+  Material,
   Mesh,
   MeshBuilder,
   NullEngine,
@@ -28,7 +29,10 @@ import type {
   V2HumanKind,
   V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
-import { V2_TRANSPARENT_ALPHA_INDEX_SPATIAL } from "../../../src/v2/v2TransparentRenderingOrder";
+import {
+  V2_TRANSPARENT_ALPHA_INDEX_PRIMARY_BEAM,
+  V2_TRANSPARENT_ALPHA_INDEX_SPATIAL
+} from "../../../src/v2/v2TransparentRenderingOrder";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import type { StageSpatialQueryDiagnostics } from "../../../src/world/stageSpatialQueries";
 import { createStageWorldBoundary } from "../../../src/world/stageWorldBoundary";
@@ -669,8 +673,8 @@ export const runBeamCombatTests =
           system.dispose();
           const resourcesDisposed =
             fixture.scene.meshes.length === fixtureMeshCount &&
-            !fixture.scene.materials.some(
-              (item) => item.name === "v2NormalBeamMaterial"
+            !fixture.scene.materials.some((item) =>
+              item.name.startsWith("v2NormalBeam")
             );
           return {
             ok:
@@ -800,7 +804,7 @@ export const runBeamCombatTests =
         try {
           const templatesPrepared =
             fixture.scene.meshes.length === fixtureMeshCount + 4 &&
-            fixture.scene.materials.length === fixtureMaterialCount + 1;
+            fixture.scene.materials.length === fixtureMaterialCount + 2;
           for (let serial = 0; serial < 3; serial += 1) {
             spawnBeam(serial);
           }
@@ -2081,7 +2085,10 @@ export const runBeamCombatTests =
                 );
               }
             }
-            const material = bodySource.material as StandardMaterial;
+            const primaryMaterial =
+              bodySource.material as StandardMaterial;
+            const secondaryMaterial =
+              trailSource.material as StandardMaterial;
             const tipBounds = tipSource.getBoundingInfo().boundingBox;
             const impactBounds =
               impactSource.getBoundingInfo().boundingBox;
@@ -2117,13 +2124,16 @@ export const runBeamCombatTests =
               V2_NORMAL_BEAM_BODY_DIAMETER === 0.018 &&
               V2_NORMAL_BEAM_MAX_BODY_LENGTH === 0.75 &&
               bodySource.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
+                V2_TRANSPARENT_ALPHA_INDEX_PRIMARY_BEAM &&
               tipSource.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
+                V2_TRANSPARENT_ALPHA_INDEX_PRIMARY_BEAM &&
               trailSource.alphaIndex ===
                 V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
               impactSource.alphaIndex ===
                 V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
+              bodySource.material === tipSource.material &&
+              trailSource.material === impactSource.material &&
+              bodySource.material !== trailSource.material &&
               approximately(
                 frontRadius * 2,
                 V2_NORMAL_BEAM_FRONT_DIAMETER,
@@ -2146,16 +2156,24 @@ export const runBeamCombatTests =
                 0.02,
                 1e-6
               ) &&
-              material.alpha === 0.55 &&
-              approximately(material.emissiveColor.r, 1, 1e-6) &&
-              approximately(material.emissiveColor.g, 0.18, 1e-6) &&
-              approximately(material.emissiveColor.b, 0.74, 1e-6) &&
+              primaryMaterial.alpha === 0.55 &&
+              primaryMaterial.transparencyMode ===
+                Material.MATERIAL_ALPHATESTANDBLEND &&
+              primaryMaterial.needDepthPrePass &&
+              approximately(primaryMaterial.alphaCutOff, 0.01, 1e-6) &&
+              approximately(primaryMaterial.emissiveColor.r, 1, 1e-6) &&
+              approximately(primaryMaterial.emissiveColor.g, 0.18, 1e-6) &&
+              approximately(primaryMaterial.emissiveColor.b, 0.74, 1e-6) &&
+              secondaryMaterial.alpha === 0.55 &&
+              secondaryMaterial.transparencyMode ===
+                Material.MATERIAL_ALPHABLEND &&
+              !secondaryMaterial.needDepthPrePass &&
               bodyInstance !== null &&
               tipInstance !== null &&
               bodyInstance.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
+                V2_TRANSPARENT_ALPHA_INDEX_PRIMARY_BEAM &&
               tipInstance.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
+                V2_TRANSPARENT_ALPHA_INDEX_PRIMARY_BEAM &&
               trail?.alphaIndex ===
                 V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
               approximately(bodyFrontX, tipBackX, 1e-6) &&
