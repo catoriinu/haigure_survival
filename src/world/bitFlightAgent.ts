@@ -525,14 +525,18 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
     let remainingSeconds = availableSeconds;
     while (this.surfacePointIndex < step.points.length) {
       const target = step.points[this.surfacePointIndex];
+      const isIntermediatePoint =
+        this.surfacePointIndex < step.points.length - 1;
       if (!sameBand(this.location, target)) {
         throw new Error("帯内経路点が異なる飛行帯を参照しています。");
       }
       const targetPosition = getBitFlightWorldPosition(target);
       const distance = Vector3.Distance(this.position, targetPosition);
       if (distance <= this.config.waypointTolerance) {
-        this.location = cloneBitFlightLocation(target);
-        this.position = targetPosition;
+        if (!isIntermediatePoint) {
+          this.location = cloneBitFlightLocation(target);
+          this.position = targetPosition;
+        }
         this.surfacePointIndex += 1;
         continue;
       }
@@ -541,8 +545,12 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
         return { remainingSeconds, completed: false };
       }
 
+      // 中間点はNavMesh面の境界上なので、許容差内の面側から次の点へ進む。
+      const approachDistance = isIntermediatePoint
+        ? distance - this.config.waypointTolerance * 0.5
+        : distance;
       const movementDistance = Math.min(
-        distance,
+        approachDistance,
         speed * remainingSeconds
       );
       const direction = targetPosition
@@ -582,7 +590,18 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
         actualMovement >
         movementDistance + this.config.waypointTolerance
       ) {
-        throw new Error("帯内移動拘束結果が指定移動距離を超えました。");
+        throw new Error(
+          "帯内移動拘束結果が指定移動距離を超えました。 " +
+            `actual=${actualMovement}, requested=${movementDistance}, ` +
+            `tolerance=${this.config.waypointTolerance}, ` +
+            `from=${this.position.toString()}, ` +
+            `desired=${desiredPosition.toString()}, ` +
+            `constrained=${constrainedPosition.toString()}, ` +
+            `polygon=${this.location.surface.polygonRef}->` +
+            `${constrained.surface.polygonRef}, ` +
+            `routeStep=${this.routeStepIndex}, ` +
+            `surfacePoint=${this.surfacePointIndex}`
+        );
       }
       if (actualMovement <= MOVEMENT_EPSILON) {
         this.route = null;
@@ -601,8 +620,10 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
         Vector3.Distance(this.position, targetPosition) <=
         this.config.waypointTolerance
       ) {
-        this.location = cloneBitFlightLocation(target);
-        this.position = targetPosition;
+        if (!isIntermediatePoint) {
+          this.location = cloneBitFlightLocation(target);
+          this.position = targetPosition;
+        }
         this.surfacePointIndex += 1;
         continue;
       }

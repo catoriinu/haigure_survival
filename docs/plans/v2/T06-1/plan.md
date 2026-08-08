@@ -673,3 +673,37 @@ T04 fixtureは2.0m境界を候補、2.0m超を候補外として固定し、旧1
 `typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t04`、`build:t05`、`build:t06`、通常`build`はすべてPASSした。実ブラウザfixtureはT04 115／115、T05 NPC操作26／26、T06 63／63がPASSし、各fixtureのconsole warning／errorとBabylon Logger errorは0件だった。5175番の通常Webは長時間起動していたVite依存cacheによるGLB loader未登録を1回検出したため、同じT06-1 worktreeを`--force`付きで再起動した。再起動後はタイトルを正常読込し、50 NPC／20以上のBITを持つ`playing`へ遷移してRuntime更新例外0件を確認した。自動操作ブラウザではPointer Lock要求だけが`WrongDocumentError`となったが、ゲーム開始とRuntime更新は継続し、距離境界は専用fixtureで検証した。
 
 配布テキスト検査は変更6ファイルでPASSし、`git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、括弧・構文、Git binary差分0件を確認した。学校Blender／GLB／NavMesh／生成器／カタログhash、音声・画像バイナリの差分は0件である。独立した最終差分レビューでもP0／P1／P2は0件だった。fixture用5177／5180／5181は停止し、通常プレイ用`http://127.0.0.1:5175/`だけを最新差分で継続起動する。変更は`fix: NPCと扉の操作距離を拡大`の1commitへまとめ、push、Pull Request操作、review thread操作、merge、`develop`同期、worktree整理は行わない。
+
+### 2026-08-08 BIT帯内移動距離超過の再発修正
+
+#### プロンプト
+
+> `main.ts:1163 V2ゲーム更新中に例外が発生したため、更新を停止しました。 Error: 帯内移動拘束結果が指定移動距離を超えました。`という例外が、`RouteFollowingBitFlightAgent.advanceSurfaceStep()`から通常ゲーム中に再発した。
+
+#### 方針
+
+- 2026-08-01に修正した方向別surface cache契約が現行HEADへ残っていることを前提にせず、今回の実経路で別の不整合がないか再監査する。
+- 距離超過guardを削除・緩和・catchするfallbackは追加しない。`constrainMovement()`へ渡す現在位置、`polygonRef`、希望終点、時間・距離予算のどの契約が破れているかを再現fixtureで確定して原因側を修正する。
+- 学校Blender／GLB／NavMesh／生成器／カタログhashは変更しない。修正はBIT汎用RuntimeとT05回帰、通常入口の検証に限定する。
+
+#### ステップ
+
+- [x] 現行branch、未push操作距離commit、例外行、normal-search呼出経路、既往の方向別cache修正を確認する
+- [x] 通常またはstress経路で再発条件を捕捉し、移動始点・面参照・希望移動量・拘束結果の不一致を決定的なfixtureへ固定する
+- [x] 例外を抑止せず、距離予算とNavMesh面参照を一致させる原因修正を実装する
+- [x] T04／T05／T06 fixture、型検査、build、通常5175、長時間stressで再発0件を確認する
+- [x] 配布テキスト・所有範囲を監査し、結果を記録して今回修正を独立commitする
+
+#### 結果
+
+前回修正した方向別surface cacheは現行HEADでも維持されており、今回の直接原因ではなかった。BIT飛行Agentだけが、NavMeshの中間経路点へ到達許容値0.03以内まで近づいた時点で、その境界座標と次の`polygonRef`へ移動時間を消費せず強制snapしていた。境界座標が数値誤差で次面の外側にある場合、次frameの`moveAlongSurface()`が開始位置を大きく補正し、今回の距離超過guardへ到達していた。人物用Navigation Agentには既に同種の境界対策があり、BIT側へ未反映だった契約差である。
+
+BIT飛行Agentを、NavMesh中間点の`waypointTolerance * 0.5`手前まで進み、許容内へ入った後は現在の座標と`polygonRef`を保持したまま次点へ進む方式へ変更した。surface step最終点だけは、遷移接続と最終到着の既存契約どおりexact snapする。距離超過guardは削除・緩和・catchせず維持し、再発時にactual／requested／tolerance、始点／希望点／拘束点、面参照、route step／surface pointを確認できる診断値を追加した。
+
+決定的な単体fixtureでは、poly1から境界上のpoly2を経てpoly2終点へ進む経路を作り、旧方式なら境界への強制snap後に0.07の補正が生じて同じ例外になる条件を固定した。修正後は初回x=0.03／poly1、次回x=0.06／poly2と実速度で境界を横断し、境界座標を不正な開始位置として使わず終点へexact到着する。実Recast fixtureでも4点・4 polygonの迂回経路を0.25 world unit/s、1/60秒で追従し、surface中の最大frame移動0.004926312が速度予算0.004166667＋面内拘束許容0.001以内で、無時間0.03 snapがないことを確認した。
+
+`typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t04`、`build:t05`、`build:t06`、通常`build`はすべてPASSした。実ブラウザfixtureはT04 115／115、T04学校統合77／77、T05 312／312、T06 63／63がPASSし、各fixtureのconsole warning／errorとBabylon Logger errorは0件だった。通常buildには既知のRollup chunk-size warningだけがあり、失敗はなかった。
+
+Electron high stressはseed 20260729、99 NPC／50 BIT、120秒、1843 frameを完走し、`status=passed`、Runtime errorなし、renderer diagnostics 0件だった。5175番に残っていた旧B03資産差替え用の一時Vite設定は、最新T06-1の通常Vite設定へ戻した。通常ゲームを50 NPC／23～24 BITで90秒連続実行し、phaseが進行する間も更新停止と今回の距離超過例外は0件だった。自動操作による開始時だけPointer Lockの`WrongDocumentError`が1件発生したが、ゲーム更新は継続し、その後の新規warning／errorは0件だった。
+
+配布テキスト検査は変更4ファイルでPASSし、`git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、Git binary差分0件、学校Blender／GLB／NavMesh／生成器／カタログhash差分0件を確認した。修正は`fix(v2): BITのNavMesh境界追従を修正`の独立commitへまとめ、push、Pull Request操作、review thread操作、merge、`develop`同期、worktree整理は行わない。

@@ -52,14 +52,15 @@ const createLocation = (
   zoneId: typeof zoneA,
   bandId: typeof bandA,
   position: Vector3,
-  heightMode: BitFlightLocation["heightMode"] = "band"
+  heightMode: BitFlightLocation["heightMode"] = "band",
+  polygonRef = 1
 ) =>
   Object.freeze({
     zoneId,
     bandId,
     surface: Object.freeze({
       position: position.clone(),
-      polygonRef: 1
+      polygonRef
     }),
     safeCenterHeight: position.y,
     heightMode
@@ -198,6 +199,45 @@ const routeNearSurfaceSnap: BitFlightRoute = Object.freeze({
   totalCost: 0.05
 });
 
+const boundaryStart = createLocation(
+  zoneA,
+  bandA,
+  new Vector3(0, 0, 0),
+  "band",
+  1
+);
+const boundaryWaypoint = createLocation(
+  zoneA,
+  bandA,
+  new Vector3(0.05, 0, 0),
+  "band",
+  2
+);
+const boundaryDestination = createLocation(
+  zoneA,
+  bandA,
+  new Vector3(0.3, 0, 0),
+  "band",
+  2
+);
+const routeAcrossSurfaceBoundary: BitFlightRoute = Object.freeze({
+  steps: Object.freeze([
+    Object.freeze({
+      kind: "surface" as const,
+      band: refA,
+      points: Object.freeze([
+        boundaryStart,
+        boundaryWaypoint,
+        boundaryDestination
+      ]),
+      distance: 0.3
+    })
+  ]),
+  destination: boundaryDestination,
+  distance: 0.3,
+  totalCost: 0.3
+});
+
 const alternateEntry = createLocation(
   zoneA,
   bandA,
@@ -272,7 +312,19 @@ const createAgentFixture = (
   ]),
   isMovementBlocked: (from: Vector3, to: Vector3) => boolean = () => false,
   waypointTolerance = 1e-6,
-  evaluateRouteStepPolicy = true
+  evaluateRouteStepPolicy = true,
+  constrainMovement: BitFlightNavigationWorld["constrainMovement"] = (
+    current,
+    targetPosition,
+    heightMode
+  ) =>
+    createLocation(
+      current.zoneId as typeof zoneA,
+      current.bandId as typeof bandA,
+      targetPosition,
+      heightMode,
+      current.surface.polygonRef
+    )
 ): AgentFixture => {
   let selectedRoutes = [...initialRoutes];
   let findRouteCount = 0;
@@ -333,12 +385,7 @@ const createAgentFixture = (
     },
     constrainMovement: (current, targetPosition, heightMode) => {
       constrainMovementCount += 1;
-      return createLocation(
-        current.zoneId as typeof zoneA,
-        current.bandId as typeof bandA,
-        targetPosition,
-        heightMode
-      );
+      return constrainMovement(current, targetPosition, heightMode);
     },
     randomPointAround: () => null,
     getTransitionsFrom: () => Object.freeze([]),
@@ -478,6 +525,101 @@ export const runBitFlightAgentTests =
           fixture.agent.dispose();
         }
       })
+    );
+
+    results.push(
+      executeTest(
+        "NavMesh中間境界点を手前から通過しpolygonRef補正を起こさない",
+        () => {
+          const invalidBoundaryStarts: Vector3[] = [];
+          const fixture = createAgentFixture(
+            Object.freeze([routeAcrossSurfaceBoundary]),
+            () => false,
+            0.03,
+            true,
+            (current, targetPosition, heightMode) => {
+              const currentPosition = getBitFlightWorldPosition(current);
+              if (
+                current.surface.polygonRef ===
+                  boundaryWaypoint.surface.polygonRef &&
+                Vector3.Distance(
+                  currentPosition,
+                  getBitFlightWorldPosition(boundaryWaypoint)
+                ) <= 1e-12
+              ) {
+                invalidBoundaryStarts.push(currentPosition.clone());
+                return createLocation(
+                  zoneA,
+                  bandA,
+                  targetPosition.add(new Vector3(0.07, 0, 0)),
+                  heightMode,
+                  boundaryWaypoint.surface.polygonRef
+                );
+              }
+              return createLocation(
+                zoneA,
+                bandA,
+                targetPosition,
+                heightMode,
+                targetPosition.x >= boundaryWaypoint.surface.position.x
+                  ? boundaryWaypoint.surface.polygonRef
+                  : boundaryStart.surface.polygonRef
+              );
+            }
+          );
+          try {
+            const routeAccepted = fixture.agent.setPreparedRoute(
+              boundaryStart,
+              routeAcrossSurfaceBoundary,
+              "verified"
+            );
+            const firstSnapshot = updateAgent(fixture.agent, 0.03, 1);
+            const firstPosition = firstSnapshot.position?.clone() ?? null;
+            const firstPolygonRef =
+              firstSnapshot.location?.surface.polygonRef ?? null;
+            const secondSnapshot = updateAgent(fixture.agent, 0.03, 1);
+            const secondPosition = secondSnapshot.position?.clone() ?? null;
+            const secondPolygonRef =
+              secondSnapshot.location?.surface.polygonRef ?? null;
+            let finalSnapshot = secondSnapshot;
+            let updateCount = 2;
+            while (finalSnapshot.state === "surface" && updateCount < 16) {
+              finalSnapshot = updateAgent(fixture.agent, 0.03, 1);
+              updateCount += 1;
+            }
+            const destinationPosition = getBitFlightWorldPosition(
+              boundaryDestination
+            );
+            return {
+              ok:
+                routeAccepted &&
+                firstPosition !== null &&
+                Math.abs(firstPosition.x - 0.03) <= 1e-12 &&
+                firstPolygonRef === boundaryStart.surface.polygonRef &&
+                firstSnapshot.surfacePointIndex === 2 &&
+                secondPosition !== null &&
+                Math.abs(secondPosition.x - 0.06) <= 1e-12 &&
+                secondPolygonRef === boundaryWaypoint.surface.polygonRef &&
+                invalidBoundaryStarts.length === 0 &&
+                finalSnapshot.state === "arrived" &&
+                finalSnapshot.position?.equals(destinationPosition) === true &&
+                finalSnapshot.location?.surface.polygonRef ===
+                  boundaryDestination.surface.polygonRef,
+              detail:
+                `accepted=${routeAccepted} / ` +
+                `first=${firstPosition?.toString() ?? "none"}:poly${firstPolygonRef ?? "none"} / ` +
+                `second=${secondPosition?.toString() ?? "none"}:poly${secondPolygonRef ?? "none"} / ` +
+                `invalidBoundaryStarts=${invalidBoundaryStarts.length} / ` +
+                `final=${finalSnapshot.state}:` +
+                `${finalSnapshot.position?.toString() ?? "none"}:` +
+                `poly${finalSnapshot.location?.surface.polygonRef ?? "none"} / ` +
+                `updates=${updateCount}`
+            };
+          } finally {
+            fixture.agent.dispose();
+          }
+        }
+      )
     );
 
     results.push(

@@ -977,6 +977,91 @@ export const runBitFlightSurfaceVariantTests =
 
     results.push(
       await executeTest(
+        "複数polygonの中間点は許容距離内でも強制snapせず実速度で追従する",
+        async () => {
+          const fixture = await createFixture(
+            createBlockedGeometry(),
+            createFullHeightColliders
+          );
+          const surfaceSpeed = 0.25;
+          const deltaSeconds = 1 / 60;
+          const movementBudget = surfaceSpeed * deltaSeconds;
+          // Recastの面内拘束による微小補正だけを許可し、0.03の中間点snapは許可しない。
+          const navigationConstraintTolerance = 0.001;
+          const agent = createBitFlightAgent(
+            fixture.world,
+            fixture.safety,
+            { waypointTolerance: 0.03 }
+          );
+          try {
+            const start = projectRequired(fixture.world, -2, 0);
+            const destination = projectRequired(fixture.world, 2, 0);
+            const route = requireRoute(
+              fixture.world.findSurfaceRoute(
+                start,
+                destination,
+                BIT_FLIGHT_SHORTEST_ROUTE_POLICY
+              )
+            );
+            const surfaceStep = requireOnlySurfaceStep(route);
+            const polygonRefs = new Set(
+              surfaceStep.points.map((point) => point.surface.polygonRef)
+            );
+            const accepted = agent.setPreparedRoute(start, route, "verify");
+            let snapshot = agent.getSnapshot();
+            let previousPosition = snapshot.position?.clone() ?? null;
+            let maximumSurfaceFrameMovement = 0;
+            let surfaceFrameCount = 0;
+            let updateCount = 0;
+            while (
+              accepted &&
+              snapshot.state !== "arrived" &&
+              snapshot.state !== "blocked" &&
+              snapshot.state !== "unreachable" &&
+              updateCount < 5_000
+            ) {
+              snapshot = updateAgent(agent, surfaceSpeed, deltaSeconds);
+              if (
+                previousPosition !== null &&
+                snapshot.position !== null &&
+                snapshot.state === "surface"
+              ) {
+                maximumSurfaceFrameMovement = Math.max(
+                  maximumSurfaceFrameMovement,
+                  Vector3.Distance(previousPosition, snapshot.position)
+                );
+                surfaceFrameCount += 1;
+              }
+              previousPosition = snapshot.position?.clone() ?? null;
+              updateCount += 1;
+            }
+            return {
+              ok:
+                surfaceStep.points.length >= 4 &&
+                polygonRefs.size >= 3 &&
+                accepted &&
+                snapshot.state === "arrived" &&
+                surfaceFrameCount > 0 &&
+                maximumSurfaceFrameMovement <=
+                  movementBudget + navigationConstraintTolerance,
+              detail:
+                `points=${surfaceStep.points.length} / ` +
+                `polygons=${polygonRefs.size} / ` +
+                `state=${snapshot.state}:${updateCount} / ` +
+                `maxSurfaceMove=${maximumSurfaceFrameMovement.toFixed(9)} / ` +
+                `budget=${movementBudget.toFixed(9)}+` +
+                `${navigationConstraintTolerance.toFixed(9)}`
+            };
+          } finally {
+            agent.dispose();
+            disposeFixture(fixture);
+          }
+        }
+      )
+    );
+
+    results.push(
+      await executeTest(
         "薄い全高壁では低天井巡航の根拠を認めない",
         async () => {
           const fixture = await createFixture(
