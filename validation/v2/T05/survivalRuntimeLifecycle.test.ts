@@ -39,6 +39,7 @@ import type { V2CharacterVisualRuntime } from "../../../src/v2/v2CharacterVisual
 import { createDefaultV2CharacterVisualRuntime } from "../characterVisualFixture";
 import {
   createFixtureSpawnRoleStage,
+  createFixturePlayerSpawnStage,
   requireFirstFixturePlayerSpawn
 } from "./spawnContractFixture";
 
@@ -273,14 +274,17 @@ export const runSurvivalRuntimeLifecycleTests = async (
   scene: Scene,
   stage: StageSpatialContext
 ): Promise<readonly SurvivalRuntimeLifecycleCheck[]> => {
-  const lifecycleStage = createFixtureSpawnRoleStage(
+  const lifecycleStage = createFixturePlayerSpawnStage(
     createFixtureSpawnRoleStage(
-      stage,
-      "npc_spawn",
-      Object.freeze(["npc-spawn-f01-stage"])
+      createFixtureSpawnRoleStage(
+        stage,
+        "npc_spawn",
+        Object.freeze(["npc-spawn-f01-stage"])
+      ),
+      "bit_spawn",
+      Object.freeze(["bit-spawn-outdoor-f1"])
     ),
-    "bit_spawn",
-    Object.freeze(["bit-spawn-outdoor-f1"])
+    "player-spawn-main"
   );
   const checks: SurvivalRuntimeLifecycleCheck[] = [];
   const baseline = captureSceneResources(scene);

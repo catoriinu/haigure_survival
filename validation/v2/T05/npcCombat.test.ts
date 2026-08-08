@@ -388,6 +388,7 @@ const createNpcFixture = async (
     role: "npc_spawn",
     bitFlightBand: null,
     playerSpawnId: null,
+    npcSpawnBiasWeight: null,
     navigationAreaId: null,
     mesh: ground
   });
@@ -3035,6 +3036,7 @@ const testNavigationAreaRejectsExitWithoutPortal = async () => {
       role: "navigation_area",
       bitFlightBand: null,
       playerSpawnId: null,
+      npcSpawnBiasWeight: null,
       navigationAreaId: "first",
       mesh: firstMesh
     }),
@@ -3043,6 +3045,7 @@ const testNavigationAreaRejectsExitWithoutPortal = async () => {
       role: "navigation_area",
       bitFlightBand: null,
       playerSpawnId: null,
+      npcSpawnBiasWeight: null,
       navigationAreaId: "second",
       mesh: secondMesh
     })

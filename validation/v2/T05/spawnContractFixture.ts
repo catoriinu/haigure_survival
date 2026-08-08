@@ -108,6 +108,16 @@ export const createFixturePlayerSpawn = (
     role: "player_spawn_exclusion" as const,
     bitFlightBand: null,
     playerSpawnId: id,
+    npcSpawnBiasWeight: null,
+    navigationAreaId: null,
+    mesh
+  });
+  const npcSpawnBiasVolume: StageVolume = Object.freeze({
+    id: `${id}-npc-spawn-bias`,
+    role: "npc_spawn_bias",
+    bitFlightBand: null,
+    playerSpawnId: id,
+    npcSpawnBiasWeight: 0.5,
     navigationAreaId: null,
     mesh
   });
@@ -118,7 +128,8 @@ export const createFixturePlayerSpawn = (
       role: "player_spawn" as const,
       node: mesh
     }),
-    exclusionVolume
+    exclusionVolume,
+    npcSpawnBiasVolumes: Object.freeze([npcSpawnBiasVolume])
   });
 };
 
@@ -129,6 +140,22 @@ export const createFixturePlayerSpawnRegistry = (
     all: Object.freeze([playerSpawn]),
     getById: (id: string) => (id === playerSpawn.id ? playerSpawn : null)
   });
+
+export const createFixturePlayerSpawnStage = (
+  stage: StageSpatialContext,
+  playerSpawnId: string
+): StageSpatialContext => {
+  const playerSpawn = stage.playerSpawns.getById(playerSpawnId);
+  if (!playerSpawn) {
+    throw new Error(
+      `T05 fixtureのplayer_spawnがありません: ${playerSpawnId}`
+    );
+  }
+  return Object.freeze({
+    ...stage,
+    playerSpawns: createFixturePlayerSpawnRegistry(playerSpawn)
+  });
+};
 
 export const requireFirstFixturePlayerSpawn = (
   stage: StageSpatialContext

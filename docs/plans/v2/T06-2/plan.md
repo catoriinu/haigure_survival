@@ -56,6 +56,10 @@ BIT出現範囲の確認指示:
 
 > 効果音やBGMを流すための検証と修正を先に完了させ、その後に追加した問題へ取り組んでください。NPCの開始位置と開始statusも固定され、Character IDだけがランダムに見えるため確認してください。NPC位置はランダムにし、将来はPlayer開始地点ごとに、同じ教室などPlayerの近くへNPCが出やすくなる調整を追加できる設計を見越してください。
 
+NPC近傍優先の実装承認:
+
+> Player開始地点IDへ明示対応する専用`npc_spawn_bias` Volumeと正の`hs_weight`を追加し、全`npc_spawn`許可面の出現可能性を残したまま、同じ教室や近傍へNPCが出やすくなる推奨案を実装してよいかという確認への回答: YES
+
 ## 目的
 
 PR #65のB03-3D、PR #64のT06-1、PR #66のB03-3D追補は、`origin/develop=cdb8bae`までに統合済みである。開始フェーズでは最新`develop`から専用branch／worktreeを作り、計画8ファイルだけを初回コミットした後、現行学校資産を読み取り専用で可視化し、複数開始地点、選択地点に追従する敵出現禁止、NPC／BIT出現Volume、BIT時間増援の実装前提案を確定した。2026-08-08に修正版11候補すべてのユーザー承認と実装開始指示を得たため、同じ専用worktreeで実装フェーズへ移行する。
@@ -99,7 +103,7 @@ PR #65のB03-3D、PR #64のT06-1、PR #66のB03-3D追補は、`origin/develop=cd
 - 同じsession seedから開始地点、Character割当、NPC、BIT用の独立乱数列を派生し、候補追加や各系列の消費が他の乱数系列を変えないようにする。
 - NPCは明示的な複数`npc_spawn` Volumeから利用可能面積比例で抽選し、洗脳済みを先に、未洗脳を後に配置する。要求数、全NPC間最小距離、安全条件を満たせない場合は厳格エラーとする。
 - 通常ゲームでの初期NPC数50人と初期洗脳済み10人は人数契約として固定するが、位置、洗脳済み内訳、初期向き、Character割当はsession seedごとに再抽選する。
-- Player開始地点に応じたNPC近傍優先は、現行の全`npc_spawn`実面積一様抽選を基礎分布として残し、将来専用role `npc_spawn_bias` Volumeを`hs_player_spawn_id`と正の`hs_weight`で明示対応させる。重み0による出現禁止は認めず、既存`player_spawn_exclusion`は安全除外専用として流用しない。これにより全許可面での出現可能性を保ったまま、同じ教室や近傍だけを高確率化できる。
+- Player開始地点に応じたNPC近傍優先は、現行の全`npc_spawn`実面積一様抽選を重み`1.0`の基礎チャンネルとして残し、専用role `npc_spawn_bias` Volumeを`hs_player_spawn_id`と`0.000001`以上`1,000,000`以下の有限な`hs_weight`で明示対応させて今回実装する。初期11件は各1 Volume・`hs_weight=0.5`とし、各NPCは全校チャンネル`2/3`、選択開始地点の近傍チャンネル`1/3`で選んだ後、チャンネル内の実NavMesh交差面積比例で抽選する。重み0による出現禁止は認めず、既存`player_spawn_exclusion`は安全除外専用として流用しない。これにより全許可面での出現可能性を保ったまま、同じ教室や近傍だけを高確率化する。
 - BITは到達可能な全許可飛行帯の明示`bit_spawn` Volumeを利用可能面積比例で使用し、ビット用NavMesh投影、0.54m安全包絡、共通遷移グラフ到達性、禁止Volume外を必須とする。
 - `bitCount`を`initialBitCount`へ破壊的に改名し、出現間隔と最大数も必須入力にする。通常は初期1機、10秒間隔、最大25機とし、旧名互換や既定fallbackは作らない。
 - 通常BITとAlertを同じ最大数へ含め、カーペット僚機だけを除外する。増援timerはplaying中だけ進め、上限到達中は待機し、欠員時に1機だけ補充してcatch-up burstを発生させない。
@@ -198,6 +202,17 @@ PR #65のB03-3D、PR #64のT06-1、PR #66のB03-3D追補は、`origin/develop=cd
 - [x] V1と同じBIT出現演出を確認し、黒球fade-inから円錐形BITが生える段階的演出を初期BIT・時間増援・Alertへ統合する
 - [x] 追加是正後に対象fixture、型検査、build、通常Web／Electron、再読込・破棄を再検証してローカルcommitする
 
+### NPC開始地点別近傍優先フェーズ
+
+- [x] `npc_spawn_bias` Volumeと正の`hs_weight`による推奨案のユーザー承認を取得し、全許可面の出現可能性を残す契約を固定する
+- [x] 専用branch／worktreeがクリーンであること、未保存Blender GUIと5176確認serverを変更せず継続できることを確認する
+- [x] 現行生成正本、GLB extras、RuntimeのNavMesh面積抽選、fixtureを監査し、11開始地点へ各1件のbias Volume、全校`1.0`＋近傍`0.5`のチャンネル重み計算を確定する
+- [x] 承認済みの意味Volume 11件を生成正本・Blender・GLBへ追加し、3種NavMesh不変、新GLB hash、生成決定性、全資産監査を再確定する
+- [x] 選択Player開始地点に対応するbiasだけをNPC抽選重みへ適用し、seed決定性、洗脳済み先行、最小距離、厳格失敗を維持する
+- [x] T06-2 fixtureへ対応欠落・不正weight・非選択bias無効・全域非ゼロ・分布変化・再生成／破棄の回帰を追加する
+- [x] 型検査、build、資産監査、NavMesh、専用fixture、通常Webを再検証し、独立レビューでP0～P2を閉じる
+- [x] 本計画の結果を実測値へ更新し、対象差分だけをローカルcommitする
+
 ## 完了条件
 
 ### 開始フェーズ
@@ -241,6 +256,10 @@ Runtimeでは、`player_spawn` Markerと`player_spawn_exclusion` Volumeを`hs_pl
 
 通常ゲームの開始地点固定は、11候補の登録や一様抽選ではなく、初回とタイトル復帰の両方で通常sessionにも`seed=0`を再利用していたことが原因だった。`seed=0`の開始地点専用系列は常にindex 2の体育館舞台上を選び、NPC位置・開始status・向きも同じseedの独立系列から毎回同じ結果になっていた一方、Character割当だけが`Math.random`だったため見た目だけが変化していた。通常sessionは生成ごとに新しい32-bit seedを採番し、Player、NPC、Character、BIT、荒れ状態、扉状態を同じsession seedの独立系列へ統一した。通常ページを12回再読込した結果、seed 12種類、Player開始地点6種類を確認した。`rampValidation=gym`は2回とも`seed=0`かつ体育館舞台上を再現し、検証用固定seedの決定性を維持した。T06ブラウザーfixtureはCharacter独立系列と再生成時seed採番を追加して65/65 PASSした。
 
-NPCは引き続き初期50人、うち初期洗脳済み10人を人数契約とするが、通常session seedの更新により位置、初期洗脳済みのgun／no-gun／ハイグレ内訳、向き、VOICE／portrait割当がsessionごとに変化する。同一seedでは位置とstatusの完全一致、異なるseedでは両方の変化、初期洗脳済み先行順をT06-2 fixtureで確認した。将来の近傍優先は、全`npc_spawn`許可面を基礎分布として維持し、Player開始地点IDへ明示対応する専用`npc_spawn_bias` Volumeと正の重みによって確率だけを変更する契約とした。安全除外用`player_spawn_exclusion`の流用や、遠方を重み0として出現不能にする方式は採用しない。
+NPCは引き続き初期50人、うち初期洗脳済み10人を人数契約とするが、通常session seedの更新により位置、初期洗脳済みのgun／no-gun／ハイグレ内訳、向き、VOICE／portrait割当がsessionごとに変化する。同一seedでは位置とstatusの完全一致、異なるseedでは両方の変化、初期洗脳済み先行順をT06-2 fixtureで確認した。開始地点別の近傍優先は、全`npc_spawn`許可面を基礎分布として維持し、Player開始地点IDへ明示対応する専用`npc_spawn_bias` Volumeと正の重みによって確率だけを変更する方式で実装した。安全除外用`player_spawn_exclusion`の流用や、遠方を重み0として出現不能にする方式は採用していない。
 
 BITにはV1と同じ合計1.5秒の生成演出を移植した。直径`0.22m`の黒灰球を0.5秒でalpha 0から1へfade-inし、球内で円錐本体を表示して0.5秒保持し、最後の0.5秒で球を直径`0.04m`相当へ縮小しながらlocal Z `0.095m`のmuzzle方向へ動かして円錐を露出する。初期、時間増援、内部Alert、カーペット僚機は同じ生成経路を通り、pending中はAI、移動、索敵、Alert receiver選出、射撃、actor／target／flight公開を停止する一方、人口上限には即算入する。編隊僚機pending中にleader／followerの射撃timerが進む既存経路も修正した。公開処刑準備では演出を明示完了し、通常Runtimeでは演出を省略しない。完了・途中破棄の双方で一時Sphereと専用Materialを解放する。T06-2は14/14、T05は312/312をブラウザーでPASSし、`typecheck:v2`／T05／T06／T06-2と通常build／T05／T06／T06-2 buildもPASSした。独立再レビューで、全4生成経路の演出、演出中の射撃抑止、内部Alert 3参加者の範囲外解除、`prepareForScriptedPhase()`の即時完了・反復・破棄をfixtureで直接検証し、残るP0～P2は0件となった。通常Webでは12回の再読込でseed 12種類・開始地点6種類、タイトル復帰後の再開始でもseedと開始地点の変化を確認した。追加是正をローカルcommitし、pushとPull Request作成は行わない。
+
+NPC開始地点別近傍優先フェーズでは、承認済みPlayer開始地点11件へ各1件の`npc_spawn_bias` Volumeを追加し、すべて`hs_weight=0.5`とした。全校`npc_spawn`チャンネルの重み`1.0`を常に残すため、チャンネル選択は全校`2/3`、選択開始地点の近傍`1/3`となり、全許可面の出現可能性は失われない。基礎チャンネル自体もbias内へ着地できるため、実際の近傍出現率は`1/3`より高くなる。`hs_weight`は有限な`0.000001..1,000,000`だけを許可し、同一Playerに属するbiasは実NavMesh面積の正の重複を禁止する一方、面・辺接触と別Player間の重なりを許可した。非選択biasは候補にも乱数消費にも含めず、選択済み`player_spawn_exclusion`は従来どおり安全除外だけに使用する。
+
+学校GLBは22,057,212 bytes、SHA-256 `55ca8f0e0eb6bd1115749eafc5fabda30ba16e0a6f6f4dbb9b1cf6cf67239748`へ決定的に更新した。静的人間用、Room Variant、BIT用NavMeshのhashはそれぞれ`530fa01f...`、`4b5a584b...`、`e7e0a764...`のまま不変で、6資産監査と正本／GLB parityをPASSした。T06-2は18/18、T05は314/314をブラウザーでPASSし、console warning/error 0件、対象型検査・build・NavMesh checkもPASSした。通常Webの連続2sessionでは、2階普通教室から4階音楽室へseedと開始地点が変わり、各回で対応bias 1件だけが有効、NPC 50人、初期洗脳済み10人、bias内人数12人／10人、console warning/error 0件を実測した。最終独立レビューで、水平共有面上のNavMeshを正面積overlapと誤認する問題と、Electron受入がbias IDを名前から推測する問題のP2 2件を検出し、対向する同一支持平面の境界接触判定、水平面fixture、明示`playerSpawnId`照合へ修正した。修正後もT06-2 18/18、T05 314/314、通常build／対象build、Electron音声限定受入をPASSし、再レビュー後の未解決P0～P2は0件である。本差分は`feat(v2): Player開始地点別のNPC出現biasを追加`としてローカルcommitし、pushとPull Request作成は行わない。

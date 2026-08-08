@@ -859,6 +859,7 @@ const runValidation = async () => {
       role: "bit_spawn",
       bitFlightBand: courtyardRef,
       playerSpawnId: null,
+      npcSpawnBiasWeight: null,
       navigationAreaId: null,
       mesh: spawnVolumeMesh
     });
@@ -1062,6 +1063,7 @@ const runValidation = async () => {
       role: "bit_spawn",
       bitFlightBand: concourseRef,
       playerSpawnId: null,
+      npcSpawnBiasWeight: null,
       navigationAreaId: null,
       mesh: transitionSpawnMesh
     });

@@ -543,6 +543,7 @@ const createHarness = (
     role: "bit_spawn",
     bitFlightBand: TEST_BAND_REF,
     playerSpawnId: null,
+    npcSpawnBiasWeight: null,
     navigationAreaId: null,
     mesh: spawn
   });
@@ -1734,6 +1735,7 @@ const runRedTransitionSpeedCheck = (
     role: "bit_spawn",
     bitFlightBand: fixture.concourseRef,
     playerSpawnId: null,
+    npcSpawnBiasWeight: null,
     navigationAreaId: null,
     mesh: spawn
   });

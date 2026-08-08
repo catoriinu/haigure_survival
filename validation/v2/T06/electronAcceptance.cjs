@@ -92,6 +92,43 @@ const parseBeamCount = (text) =>
 const parseBitPlayerTargetCount = (text) =>
   Number(text.match(/プレイヤー標的 NPC \d+\s+BIT (\d+)/)?.[1] ?? 0);
 
+const assertNpcSpawnReport = (snapshot, label) => {
+  const report = snapshot.npcSpawnReport;
+  assertCondition(report !== null, `${label}のNPC spawn reportがありません。`);
+  assertCondition(
+    String(report.sessionSeed) === snapshot.runtimeSessionSeed &&
+      report.playerSpawnId === snapshot.playerSpawnId,
+    `${label}のseedまたはPlayer開始IDがDOM診断と一致しません。`
+  );
+  assertCondition(
+    report.npcCount === 50 &&
+      report.initialBrainwashedNpcCount === 10 &&
+      report.signature.length === 50 &&
+      new Set(report.signature.map((entry) => entry.id)).size === 50,
+    `${label}のNPC 50/初期洗脳10またはsignatureが不正です。`
+  );
+  assertCondition(
+    report.activeBiases.length === 1 &&
+      typeof report.activeBiases[0].id === "string" &&
+      report.activeBiases[0].id.length > 0 &&
+      report.activeBiases[0].playerSpawnId === report.playerSpawnId &&
+      report.activeBiases[0].weight === 0.5 &&
+      report.npcInsideActiveBiasCount >= 0 &&
+      report.npcInsideActiveBiasCount <= report.npcCount &&
+      report.initialBrainwashedInsideActiveBiasCount >= 0 &&
+      report.initialBrainwashedInsideActiveBiasCount <=
+        report.initialBrainwashedNpcCount &&
+      report.npcInsideActiveBiasCount -
+        report.initialBrainwashedInsideActiveBiasCount >=
+        0 &&
+      report.npcInsideActiveBiasCount -
+        report.initialBrainwashedInsideActiveBiasCount <=
+        report.npcCount - report.initialBrainwashedNpcCount,
+    `${label}の選択Player対応bias診断が不正です。`
+  );
+  return report;
+};
+
 const horizontalDistance = (left, right) =>
   Math.hypot(right.x - left.x, right.z - left.z);
 
@@ -108,6 +145,7 @@ const inspectDom = (window) =>
       const roleVisible = (role) => visible(document.querySelector('[data-v2-runtime-hud-role="' + role + '"]'));
       const canvas = document.getElementById("renderCanvas");
       const rect = canvas?.getBoundingClientRect() ?? null;
+      const npcSpawnReportText = document.body.dataset.v2NpcSpawnReport ?? null;
       return {
         titleHint: document.getElementById("titleStartHint")?.textContent ?? "",
         titleVisible: visible(document.getElementById("titleOverlay")),
@@ -125,6 +163,9 @@ const inspectDom = (window) =>
         portraitSelection: document.querySelector('[data-ui="v2-player-portrait-select"]')?.value ?? null,
         voiceSelectCount: document.querySelectorAll('[data-ui="v2-player-voice-select"]').length,
         voiceSelection: document.querySelector('[data-ui="v2-player-voice-select"]')?.value ?? null,
+        runtimeSessionSeed: document.body.dataset.v2RuntimeSessionSeed ?? null,
+        playerSpawnId: document.body.dataset.v2PlayerSpawnId ?? null,
+        npcSpawnReport: npcSpawnReportText === null ? null : JSON.parse(npcSpawnReportText),
         completionGuideVisible: roleVisible("completion-guide"),
         crosshairVisible: roleVisible("crosshair"),
         fireGuideVisible: roleVisible("fire-guide"),
@@ -358,6 +399,10 @@ const run = async () => {
     JSON.stringify(initialTitle.volumeValues) === JSON.stringify(["5", "5", "5"]),
     `VOICE／BGM／SEの既定表示が5ではありません: ${JSON.stringify(initialTitle.volumeValues)}`
   );
+  const initialNpcSpawnReport = assertNpcSpawnReport(
+    initialTitle,
+    "初回session"
+  );
   addCheck("初回session所有root", {
     hudRootCount: initialTitle.hudRootCount,
     volumeRootCount: initialTitle.volumeRootCount,
@@ -366,7 +411,19 @@ const run = async () => {
     portraitSelectCount: initialTitle.portraitSelectCount,
     portraitSelection: initialTitle.portraitSelection,
     voiceSelectCount: initialTitle.voiceSelectCount,
-    voiceSelection: initialTitle.voiceSelection
+    voiceSelection: initialTitle.voiceSelection,
+    npcSpawn: {
+      seed: initialNpcSpawnReport.sessionSeed,
+      playerSpawnId: initialNpcSpawnReport.playerSpawnId,
+      activeBiases: initialNpcSpawnReport.activeBiases,
+      npcCount: initialNpcSpawnReport.npcCount,
+      initialBrainwashedNpcCount:
+        initialNpcSpawnReport.initialBrainwashedNpcCount,
+      npcInsideActiveBiasCount:
+        initialNpcSpawnReport.npcInsideActiveBiasCount,
+      initialBrainwashedInsideActiveBiasCount:
+        initialNpcSpawnReport.initialBrainwashedInsideActiveBiasCount
+    }
   });
 
   await sendCanvasClick(testWindow);
@@ -552,11 +609,27 @@ const run = async () => {
       snapshot.characterSettingsRootCount === 1,
     120_000
   );
+  const restartedNpcSpawnReport = assertNpcSpawnReport(
+    returnedTitle,
+    "Enter再生成session"
+  );
   addCheck("Enterタイトル復帰とroot重複0", {
     pointerLockId: returnedTitle.pointerLockId,
     hudRootCount: returnedTitle.hudRootCount,
     volumeRootCount: returnedTitle.volumeRootCount,
-    characterSettingsRootCount: returnedTitle.characterSettingsRootCount
+    characterSettingsRootCount: returnedTitle.characterSettingsRootCount,
+    npcSpawn: {
+      seed: restartedNpcSpawnReport.sessionSeed,
+      playerSpawnId: restartedNpcSpawnReport.playerSpawnId,
+      activeBiases: restartedNpcSpawnReport.activeBiases,
+      npcCount: restartedNpcSpawnReport.npcCount,
+      initialBrainwashedNpcCount:
+        restartedNpcSpawnReport.initialBrainwashedNpcCount,
+      npcInsideActiveBiasCount:
+        restartedNpcSpawnReport.npcInsideActiveBiasCount,
+      initialBrainwashedInsideActiveBiasCount:
+        restartedNpcSpawnReport.initialBrainwashedInsideActiveBiasCount
+    }
   });
 
   await sendCanvasClick(testWindow);

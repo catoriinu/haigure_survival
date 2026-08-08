@@ -24,7 +24,7 @@ GLB_PATH = (
     REPOSITORY_ROOT / "public/stage-assets/v2/B02/b02_school_blockout.glb"
 )
 EXPORT_COLLECTION_NAME = "EXP_Stage_school"
-EXPECTED_GENERATOR_VERSION = "t06-2-school-spawn-v1"
+EXPECTED_GENERATOR_VERSION = "t06-2-npc-spawn-bias-v2"
 EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
 
 GLB_MAGIC = b"glTF"
@@ -294,6 +294,75 @@ EXPECTED_CLOSED_ELEVATOR_DISPLAY_NAMES = frozenset(
     }
 )
 
+EXPECTED_NPC_SPAWN_BIAS_PROPERTIES = {
+    "VOL_NpcSpawnBias_Main": {
+        "hs_id": "npc-spawn-bias-main",
+        "hs_role": "npc_spawn_bias",
+        "hs_player_spawn_id": "player-spawn-main",
+        "hs_weight": 0.5,
+    },
+    "VOL_NpcSpawnBias_GymCenter": {
+        "hs_id": "npc-spawn-bias-gym-center",
+        "hs_role": "npc_spawn_bias",
+        "hs_player_spawn_id": "player-spawn-gym-center",
+        "hs_weight": 0.5,
+    },
+    "VOL_NpcSpawnBias_GymStage": {
+        "hs_id": "npc-spawn-bias-gym-stage",
+        "hs_role": "npc_spawn_bias",
+        "hs_player_spawn_id": "player-spawn-gym-stage",
+        "hs_weight": 0.5,
+    },
+    "VOL_NpcSpawnBias_F02_Classroom02": {
+        "hs_id": "npc-spawn-bias-f02-classroom-02",
+        "hs_role": "npc_spawn_bias",
+        "hs_player_spawn_id": "player-spawn-f02-classroom-02",
+        "hs_weight": 0.5,
+    },
+    "VOL_NpcSpawnBias_F03_Classroom02": {
+        "hs_id": "npc-spawn-bias-f03-classroom-02",
+        "hs_role": "npc_spawn_bias",
+        "hs_player_spawn_id": "player-spawn-f03-classroom-02",
+        "hs_weight": 0.5,
+    },
+    "VOL_NpcSpawnBias_F04_Classroom02": {
+        "hs_id": "npc-spawn-bias-f04-classroom-02",
+        "hs_role": "npc_spawn_bias",
+        "hs_player_spawn_id": "player-spawn-f04-classroom-02",
+        "hs_weight": 0.5,
+    },
+    "VOL_NpcSpawnBias_F02_ToiletWashSide": {
+        "hs_id": "npc-spawn-bias-f02-toilet-wash-side",
+        "hs_role": "npc_spawn_bias",
+        "hs_player_spawn_id": "player-spawn-f02-toilet-wash-side",
+        "hs_weight": 0.5,
+    },
+    "VOL_NpcSpawnBias_F02_CouncilSouth": {
+        "hs_id": "npc-spawn-bias-f02-council-south",
+        "hs_role": "npc_spawn_bias",
+        "hs_player_spawn_id": "player-spawn-f02-council-south",
+        "hs_weight": 0.5,
+    },
+    "VOL_NpcSpawnBias_F03_ArtSouth": {
+        "hs_id": "npc-spawn-bias-f03-art-south",
+        "hs_role": "npc_spawn_bias",
+        "hs_player_spawn_id": "player-spawn-f03-art-south",
+        "hs_weight": 0.5,
+    },
+    "VOL_NpcSpawnBias_F04_MusicSouth": {
+        "hs_id": "npc-spawn-bias-f04-music-south",
+        "hs_role": "npc_spawn_bias",
+        "hs_player_spawn_id": "player-spawn-f04-music-south",
+        "hs_weight": 0.5,
+    },
+    "VOL_NpcSpawnBias_RoofPoolWestStairs": {
+        "hs_id": "npc-spawn-bias-roof-pool-west-stairs",
+        "hs_role": "npc_spawn_bias",
+        "hs_player_spawn_id": "player-spawn-roof-pool-west-stairs",
+        "hs_weight": 0.5,
+    },
+}
+
 EXPECTED_SPAWN_NAMES_BY_ROLE = {
     "player_spawn": frozenset(
         {
@@ -334,6 +403,7 @@ EXPECTED_SPAWN_NAMES_BY_ROLE = {
             "VOL_NpcSpawn_Roof_Stage",
         }
     ),
+    "npc_spawn_bias": frozenset(EXPECTED_NPC_SPAWN_BIAS_PROPERTIES),
     "bit_spawn": frozenset(
         {
             "VOL_BitSpawn_OutdoorF1",
@@ -3131,6 +3201,7 @@ def audit_blender_geometry() -> dict[str, int]:
         "room_variant_tile",
         "player_spawn_exclusion",
         "npc_spawn",
+        "npc_spawn_bias",
         "bit_spawn",
     }
     for obj in bpy.data.objects:
@@ -3185,8 +3256,8 @@ def audit_meta(graph: AssetGraph) -> dict[str, Any]:
 def audit_spawn_semantics(graph: AssetGraph) -> dict[str, int]:
     expected_names = set().union(*EXPECTED_SPAWN_NAMES_BY_ROLE.values())
     require(
-        len(expected_names) == 38,
-        f"{graph.source}: 監査側のspawn意味Object定義が38件ではありません",
+        len(expected_names) == 49,
+        f"{graph.source}: 監査側のspawn意味Object定義が49件ではありません",
     )
     for role, expected_role_names in EXPECTED_SPAWN_NAMES_BY_ROLE.items():
         actual_role_names = {node.name for node in graph.role_nodes(role)}
@@ -3219,6 +3290,7 @@ def audit_spawn_semantics(graph: AssetGraph) -> dict[str, int]:
         "MRK_PlayerSpawn_",
         "VOL_PlayerSpawnExclusion_",
         "VOL_NpcSpawn_",
+        "VOL_NpcSpawnBias_",
         "VOL_BitSpawn_",
     )
     actual_prefixed_names = {
@@ -3226,7 +3298,7 @@ def audit_spawn_semantics(graph: AssetGraph) -> dict[str, int]:
     }
     require(
         actual_prefixed_names == expected_names,
-        f"{graph.source}: spawn接頭辞のObject集合が38件と一致しません: "
+        f"{graph.source}: spawn接頭辞のObject集合が49件と一致しません: "
         f"missing={sorted(expected_names - actual_prefixed_names)}, "
         f"unexpected={sorted(actual_prefixed_names - expected_names)}",
     )
@@ -3236,6 +3308,10 @@ def audit_spawn_semantics(graph: AssetGraph) -> dict[str, int]:
         f"{graph.source}: 廃止済みCourtyard spawnが残っています: "
         f"{sorted(legacy_names)}",
     )
+    for object_name, expected_properties in (
+        EXPECTED_NPC_SPAWN_BIAS_PROPERTIES.items()
+    ):
+        require_properties(graph.require_node(object_name), expected_properties)
     return {
         "semantic_objects": len(expected_names),
         "player_spawns": len(EXPECTED_SPAWN_NAMES_BY_ROLE["player_spawn"]),
@@ -3243,6 +3319,9 @@ def audit_spawn_semantics(graph: AssetGraph) -> dict[str, int]:
             EXPECTED_SPAWN_NAMES_BY_ROLE["player_spawn_exclusion"]
         ),
         "npc_spawn_volumes": len(EXPECTED_SPAWN_NAMES_BY_ROLE["npc_spawn"]),
+        "npc_spawn_bias_volumes": len(
+            EXPECTED_SPAWN_NAMES_BY_ROLE["npc_spawn_bias"]
+        ),
         "bit_spawn_volumes": len(EXPECTED_SPAWN_NAMES_BY_ROLE["bit_spawn"]),
     }
 

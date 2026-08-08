@@ -449,6 +449,60 @@ const initializeRuntime = async () => {
       }
     });
     const survivalRuntime = ownedSurvival;
+    const initialNpcTargets = Object.freeze(
+      survivalRuntime
+        .getHumanTargets()
+        .filter((target) => target.kind === "npc")
+        .sort((left, right) => left.id.localeCompare(right.id))
+    );
+    const activeNpcSpawnBiases = Object.freeze(
+      playerSpawn.npcSpawnBiasVolumes.map((volume) =>
+        Object.freeze({
+          id: volume.id,
+          playerSpawnId: volume.playerSpawnId!,
+          weight: volume.npcSpawnBiasWeight!
+        })
+      )
+    );
+    const roundSpawnCoordinate = (value: number) =>
+      Math.round(value * 1_000_000) / 1_000_000;
+    document.body.dataset.v2NpcSpawnReport = JSON.stringify({
+      sessionSeed,
+      playerSpawnId: playerSpawn.id,
+      activeBiases: activeNpcSpawnBiases,
+      npcCount: initialNpcTargets.length,
+      initialBrainwashedNpcCount:
+        initialNpcTargets.filter((target) => target.brainwashed).length,
+      npcInsideActiveBiasCount: initialNpcTargets.filter((target) =>
+        playerSpawn.npcSpawnBiasVolumes.some((volume) =>
+          ownedStage!.queries.containsVolumeById(
+            volume.id,
+            target.footPosition
+          )
+        )
+      ).length,
+      initialBrainwashedInsideActiveBiasCount: initialNpcTargets.filter(
+        (target) =>
+          target.brainwashed &&
+          playerSpawn.npcSpawnBiasVolumes.some((volume) =>
+            ownedStage!.queries.containsVolumeById(
+              volume.id,
+              target.footPosition
+            )
+          )
+      ).length,
+      signature: initialNpcTargets.map((target) =>
+        Object.freeze({
+          id: target.id,
+          state: target.state,
+          position: Object.freeze([
+            roundSpawnCoordinate(target.footPosition.x),
+            roundSpawnCoordinate(target.footPosition.y),
+            roundSpawnCoordinate(target.footPosition.z)
+          ])
+        })
+      )
+    });
     if (V2_ALARM_FLOOR_VISUALIZATION_ENABLED) {
       ownedAlarmFloorVisual =
         createV2AlarmFloorVisualSystem(scene);
@@ -592,6 +646,7 @@ const disposeRuntime = async () => {
   delete window.__v2PerformanceDiagnostics;
   delete document.body.dataset.v2PerformanceReport;
   delete document.body.dataset.v2RuntimeStressReport;
+  delete document.body.dataset.v2NpcSpawnReport;
   if (runtimeStressScenario) {
     delete document.documentElement.dataset.validationStatus;
   }

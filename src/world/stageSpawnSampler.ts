@@ -1,12 +1,18 @@
 import { Vector3 } from "@babylonjs/core";
 import type { NavigationLocation, NavigationWorld } from "./navigationWorld";
 import {
+  createNavigationSurfaceVolumeChannelSampler,
   createNavigationSurfaceVolumeSampler,
+  calculateNavigationSurfaceVolumeIntersectionArea,
+  isVolumeFullyContainedByConvexVolume,
+  type NavigationSurfaceVolumeChannelArea,
   type NavigationSurfaceVolumeArea
 } from "./navigationSurfaceVolumeSampler";
 import type { StageBoundary } from "./stageSpatialContext";
 import {
   createStageBoundaryContainsQuery,
+  NPC_SPAWN_BIAS_WEIGHT_MAXIMUM,
+  NPC_SPAWN_BIAS_WEIGHT_MINIMUM,
   type StageVolume
 } from "./stageSpatialQueries";
 
@@ -27,6 +33,17 @@ export interface StageSpawnSampler {
 export interface StageVolumeSpawnSampler {
   readonly areas: readonly NavigationSurfaceVolumeArea[];
   readonly totalArea: number;
+  samplePoints(
+    count: number,
+    minimumDistance: number,
+    acceptedPoints: readonly NavigationLocation[],
+    excludes: (point: Vector3) => boolean
+  ): readonly NavigationLocation[];
+}
+
+export interface StageNpcSpawnSampler {
+  readonly channels: readonly NavigationSurfaceVolumeChannelArea[];
+  readonly totalWeight: number;
   samplePoints(
     count: number,
     minimumDistance: number,
@@ -344,4 +361,196 @@ export const createStageVolumeSpawnSampler = (
     }
   };
   return Object.freeze(sampler);
+};
+
+export const createStageNpcSpawnSampler = (
+  baseVolumes: readonly StageVolume[],
+  biasVolumes: readonly StageVolume[],
+  playerSpawnId: string,
+  navigation: NavigationWorld,
+  config: StageSpawnSamplerConfig
+): StageNpcSpawnSampler => {
+  assertPositiveInteger("maxAttempts", config.maxAttempts);
+  assertPositiveFiniteNumber(
+    "projectionMaxDistance",
+    config.projectionMaxDistance
+  );
+  if (typeof config.random !== "function") {
+    throw new Error("randomには0以上1未満を返す関数が必要です。");
+  }
+  if (playerSpawnId.length === 0 || playerSpawnId.trim() !== playerSpawnId) {
+    throw new Error("playerSpawnIdには非空文字列が必要です。");
+  }
+  if (baseVolumes.length === 0) {
+    throw new Error("npc_spawn Volumeがありません。");
+  }
+  if (biasVolumes.length === 0) {
+    throw new Error(
+      `選択player_spawnに対応するnpc_spawn_biasがありません: ${playerSpawnId}`
+    );
+  }
+
+  const orderedBaseVolumes = Object.freeze(
+    [...baseVolumes].sort((left, right) => left.id.localeCompare(right.id))
+  );
+  const orderedBiasVolumes = Object.freeze(
+    [...biasVolumes].sort((left, right) => left.id.localeCompare(right.id))
+  );
+  for (const volume of orderedBaseVolumes) {
+    if (volume.role !== "npc_spawn") {
+      throw new Error(
+        `基礎NPC spawn Volumeのroleがnpc_spawnではありません: ${volume.id}/${volume.role}`
+      );
+    }
+  }
+  for (const volume of orderedBiasVolumes) {
+    if (
+      volume.role !== "npc_spawn_bias" ||
+      volume.playerSpawnId !== playerSpawnId
+    ) {
+      throw new Error(
+        `npc_spawn_biasのplayer_spawn対応が不正です: ${volume.id}/${volume.role}/${volume.playerSpawnId ?? "null"}/${playerSpawnId}`
+      );
+    }
+    if (
+      volume.npcSpawnBiasWeight === null ||
+      !Number.isFinite(volume.npcSpawnBiasWeight) ||
+      volume.npcSpawnBiasWeight < NPC_SPAWN_BIAS_WEIGHT_MINIMUM ||
+      volume.npcSpawnBiasWeight > NPC_SPAWN_BIAS_WEIGHT_MAXIMUM
+    ) {
+      throw new Error(
+        `npc_spawn_bias weightは${NPC_SPAWN_BIAS_WEIGHT_MINIMUM}以上` +
+          `${NPC_SPAWN_BIAS_WEIGHT_MAXIMUM}以下が必要です: ${volume.id}/${volume.npcSpawnBiasWeight}`
+      );
+    }
+    const containingBaseVolumes = orderedBaseVolumes.filter((baseVolume) =>
+      isVolumeFullyContainedByConvexVolume(volume, baseVolume)
+    );
+    if (containingBaseVolumes.length !== 1) {
+      throw new Error(
+        `npc_spawn_biasは単一npc_spawn Volumeへ完全内包する必要があります: ${volume.id}/${containingBaseVolumes.length}件`
+      );
+    }
+  }
+
+  const surfaceTriangles = navigation.getSurfaceTriangles();
+  for (let leftIndex = 0; leftIndex < orderedBiasVolumes.length; leftIndex += 1) {
+    for (
+      let rightIndex = leftIndex + 1;
+      rightIndex < orderedBiasVolumes.length;
+      rightIndex += 1
+    ) {
+      const overlapArea = calculateNavigationSurfaceVolumeIntersectionArea(
+        Object.freeze([
+          orderedBiasVolumes[leftIndex],
+          orderedBiasVolumes[rightIndex]
+        ]),
+        surfaceTriangles
+      );
+      if (overlapArea > 1e-10) {
+        throw new Error(
+          `同じplayer_spawnのnpc_spawn_biasがbaked NavMesh上で正面積重複しています: ${playerSpawnId}/${orderedBiasVolumes[leftIndex].id}/${orderedBiasVolumes[rightIndex].id}/${overlapArea}`
+        );
+      }
+    }
+  }
+
+  const channelSampler = createNavigationSurfaceVolumeChannelSampler(
+    Object.freeze([
+      Object.freeze({
+        id: "npc-spawn-base",
+        weight: 1,
+        sources: Object.freeze(
+          orderedBaseVolumes.map((volume) =>
+            Object.freeze({ volume, triangles: surfaceTriangles })
+          )
+        )
+      }),
+      ...orderedBiasVolumes.map((volume) =>
+        Object.freeze({
+          id: `npc-spawn-bias:${volume.id}`,
+          weight: volume.npcSpawnBiasWeight!,
+          sources: Object.freeze([
+            Object.freeze({ volume, triangles: surfaceTriangles })
+          ])
+        })
+      )
+    ])
+  );
+  const sourceContainsByVolumeId = new Map(
+    [...orderedBaseVolumes, ...orderedBiasVolumes].map((volume) => [
+      volume.id,
+      createStageBoundaryContainsQuery(volume.mesh)
+    ])
+  );
+  const baseContains = orderedBaseVolumes.map((volume) =>
+    createStageBoundaryContainsQuery(volume.mesh)
+  );
+
+  return Object.freeze({
+    channels: channelSampler.channels,
+    totalWeight: channelSampler.totalWeight,
+    samplePoints: (
+      count: number,
+      minimumDistance: number,
+      acceptedPoints: readonly NavigationLocation[],
+      excludes: (point: Vector3) => boolean
+    ) => {
+      if (!Number.isInteger(count) || count < 0) {
+        throw new Error("countには0以上の整数が必要です。");
+      }
+      assertNonNegativeFiniteNumber("minimumDistance", minimumDistance);
+      if (typeof excludes !== "function") {
+        throw new Error("excludesには位置判定関数が必要です。");
+      }
+      const points: NavigationLocation[] = [];
+      const allAccepted = [...acceptedPoints];
+      const minimumDistanceSquared = minimumDistance * minimumDistance;
+      for (let pointIndex = 0; pointIndex < count; pointIndex += 1) {
+        let selected: NavigationLocation | null = null;
+        for (let attempt = 0; attempt < config.maxAttempts; attempt += 1) {
+          const sample = channelSampler.sample(config.random);
+          const projected = navigation.projectPoint(
+            sample.point,
+            config.projectionMaxDistance
+          );
+          if (
+            !projected ||
+            !sourceContainsByVolumeId.get(sample.volumeId)!(
+              projected.position
+            ) ||
+            !baseContains.some((contains) => contains(projected.position)) ||
+            excludes(projected.position)
+          ) {
+            continue;
+          }
+          if (
+            allAccepted.some((accepted) => {
+              const distanceSquared = Vector3.DistanceSquared(
+                projected.position,
+                accepted.position
+              );
+              return (
+                distanceSquared === 0 ||
+                distanceSquared < minimumDistanceSquared
+              );
+            })
+          ) {
+            continue;
+          }
+          selected = projected;
+          break;
+        }
+        if (!selected) {
+          throw new Error(
+            `bias付きspawn Volumeの${pointIndex + 1}点目を` +
+              `${config.maxAttempts}回以内に生成できませんでした。`
+          );
+        }
+        points.push(selected);
+        allAccepted.push(selected);
+      }
+      return Object.freeze(points);
+    }
+  });
 };

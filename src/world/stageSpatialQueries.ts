@@ -17,6 +17,7 @@ import { STAGE_MOVER_KINDS, type StageMoverKind } from "./stageLinks";
 
 export const STAGE_VOLUME_ROLES = [
   "npc_spawn",
+  "npc_spawn_bias",
   "bit_spawn",
   "player_spawn_exclusion",
   "assembly",
@@ -34,11 +35,15 @@ export const STAGE_VOLUME_ROLES = [
 
 export type StageVolumeRole = (typeof STAGE_VOLUME_ROLES)[number];
 
+export const NPC_SPAWN_BIAS_WEIGHT_MINIMUM = 0.000001;
+export const NPC_SPAWN_BIAS_WEIGHT_MAXIMUM = 1_000_000;
+
 export type StageVolume = Readonly<{
   id: string;
   role: StageVolumeRole;
   bitFlightBand: BitFlightBandRef | null;
   playerSpawnId: string | null;
+  npcSpawnBiasWeight: number | null;
   navigationAreaId: string | null;
   mesh: Mesh;
 }>;

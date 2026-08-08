@@ -83,7 +83,7 @@ EXPECTED_CONSOLIDATED_MATERIAL_NAMES = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "t06-2-school-spawn-v1"
+EXPECTED_GENERATOR_VERSION = "t06-2-npc-spawn-bias-v2"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 EXPECTED_SCHEMA_VERSION = 2
 EXPECTED_STAGE_ID = "school"
@@ -341,6 +341,86 @@ EXPECTED_NPC_SPAWN_VOLUME_SPECS = (
         "Roof_Stage",
         "npc-spawn-roof-stage",
         ((-12.5, -6.9, 14.2), (47.3, 45.4, 18.6)),
+    ),
+)
+
+EXPECTED_NPC_SPAWN_BIAS_VOLUME_SPECS = (
+    (
+        "Main",
+        "npc-spawn-bias-main",
+        "player-spawn-main",
+        0.5,
+        ((-6.0, -3.5, -0.4), (0.0, 5.0, 3.4)),
+    ),
+    (
+        "GymCenter",
+        "npc-spawn-bias-gym-center",
+        "player-spawn-gym-center",
+        0.5,
+        ((39.4, 2.5, -0.4), (53.4, 16.5, 3.4)),
+    ),
+    (
+        "GymStage",
+        "npc-spawn-bias-gym-stage",
+        "player-spawn-gym-stage",
+        0.5,
+        ((40.6, -11.0, 0.6), (52.2, -2.0, 3.4)),
+    ),
+    (
+        "F02_Classroom02",
+        "npc-spawn-bias-f02-classroom-02",
+        "player-spawn-f02-classroom-02",
+        0.5,
+        ((-12.15, 12.65, 3.4), (-3.65, 22.35, 7.0)),
+    ),
+    (
+        "F03_Classroom02",
+        "npc-spawn-bias-f03-classroom-02",
+        "player-spawn-f03-classroom-02",
+        0.5,
+        ((-12.15, 12.65, 7.0), (-3.65, 22.35, 10.6)),
+    ),
+    (
+        "F04_Classroom02",
+        "npc-spawn-bias-f04-classroom-02",
+        "player-spawn-f04-classroom-02",
+        0.5,
+        ((-12.15, 12.65, 10.6), (-3.65, 22.35, 14.2)),
+    ),
+    (
+        "F02_ToiletWashSide",
+        "npc-spawn-bias-f02-toilet-wash-side",
+        "player-spawn-f02-toilet-wash-side",
+        0.5,
+        ((-6.3, 39.8, 3.4), (2.2, 45.05, 7.0)),
+    ),
+    (
+        "F02_CouncilSouth",
+        "npc-spawn-bias-f02-council-south",
+        "player-spawn-f02-council-south",
+        0.5,
+        ((5.55, 36.65, 3.4), (14.25, 45.05, 7.0)),
+    ),
+    (
+        "F03_ArtSouth",
+        "npc-spawn-bias-f03-art-south",
+        "player-spawn-f03-art-south",
+        0.5,
+        ((5.55, 36.65, 7.0), (23.25, 45.05, 10.6)),
+    ),
+    (
+        "F04_MusicSouth",
+        "npc-spawn-bias-f04-music-south",
+        "player-spawn-f04-music-south",
+        0.5,
+        ((23.55, 36.65, 10.6), (41.25, 45.05, 14.2)),
+    ),
+    (
+        "RoofPoolWestStairs",
+        "npc-spawn-bias-roof-pool-west-stairs",
+        "player-spawn-roof-pool-west-stairs",
+        0.5,
+        ((10.0, 36.0, 14.2), (14.4, 42.0, 18.6)),
     ),
 )
 
@@ -3413,6 +3493,10 @@ def audit_spawn_semantics(
             f"VOL_NpcSpawn_{suffix}"
             for suffix, *_remaining in EXPECTED_NPC_SPAWN_VOLUME_SPECS
         },
+        "npc_spawn_bias": {
+            f"VOL_NpcSpawnBias_{suffix}"
+            for suffix, *_remaining in EXPECTED_NPC_SPAWN_BIAS_VOLUME_SPECS
+        },
         "bit_spawn": {
             f"VOL_BitSpawn_{suffix}"
             for suffix, *_remaining in EXPECTED_BIT_SPAWN_VOLUME_SPECS
@@ -3420,8 +3504,8 @@ def audit_spawn_semantics(
     }
     expected_names = set().union(*expected_names_by_role.values())
     require(
-        len(expected_names) == 38,
-        f"監査側のT06-2 spawn意味Object定義が38件ではありません: "
+        len(expected_names) == 49,
+        f"監査側のT06-2 spawn意味Object定義が49件ではありません: "
         f"{len(expected_names)}",
     )
     for role, expected_role_names in expected_names_by_role.items():
@@ -3439,6 +3523,7 @@ def audit_spawn_semantics(
         "MRK_PlayerSpawn_",
         "VOL_PlayerSpawnExclusion_",
         "VOL_NpcSpawn_",
+        "VOL_NpcSpawnBias_",
         "VOL_BitSpawn_",
     )
     actual_prefixed_names = {
@@ -3446,7 +3531,7 @@ def audit_spawn_semantics(
     }
     require(
         actual_prefixed_names == expected_names,
-        "T06-2 spawn接頭辞のObject集合が38件の固定契約と一致しません: "
+        "T06-2 spawn接頭辞のObject集合が49件の固定契約と一致しません: "
         f"missing={sorted(expected_names - actual_prefixed_names)} / "
         f"unexpected={sorted(actual_prefixed_names - expected_names)}",
     )
@@ -3536,6 +3621,54 @@ def audit_spawn_semantics(
             expected_bounds,
         )
 
+    bias_references: Counter[str] = Counter()
+    bias_containment_checks = 0
+    for (
+        suffix,
+        bias_id,
+        player_spawn_id,
+        weight,
+        expected_bounds,
+    ) in EXPECTED_NPC_SPAWN_BIAS_VOLUME_SPECS:
+        object_name = f"VOL_NpcSpawnBias_{suffix}"
+        volume = require_spawn_volume(
+            objects_by_name.get(object_name),
+            object_name,
+            {
+                "hs_id": bias_id,
+                "hs_role": "npc_spawn_bias",
+                "hs_player_spawn_id": player_spawn_id,
+                "hs_weight": weight,
+            },
+            expected_bounds,
+        )
+        require(
+            math.isfinite(volume.get("hs_weight")) and volume.get("hs_weight") > 0.0,
+            f"NPC spawn bias weightが正の有限値ではありません: {object_name}",
+        )
+        containing_base_ids = [
+            base_id
+            for _base_suffix, base_id, base_bounds in EXPECTED_NPC_SPAWN_VOLUME_SPECS
+            if all(
+                base_bounds[0][axis] - TOLERANCE <= expected_bounds[0][axis]
+                and expected_bounds[1][axis]
+                <= base_bounds[1][axis] + TOLERANCE
+                for axis in range(3)
+            )
+        ]
+        require(
+            len(containing_base_ids) == 1,
+            "NPC spawn bias Volumeが単一のnpc_spawn Volumeに完全内包されていません: "
+            f"{object_name}/{containing_base_ids}",
+        )
+        bias_containment_checks += 1
+        bias_references[volume.get("hs_player_spawn_id")] += 1
+    require(
+        bias_references == Counter({spawn_id: 1 for spawn_id in player_spawn_ids}),
+        "Player開始MarkerとNPC spawn bias Volumeが初期1対1対応ではありません: "
+        f"{dict(sorted(bias_references.items()))}",
+    )
+
     bit_spawn_keys = set()
     expected_flight_keys = {
         (zone_id, band_id)
@@ -3595,6 +3728,10 @@ def audit_spawn_semantics(
             expected_names_by_role["player_spawn_exclusion"]
         ),
         "npc_spawn_volumes": len(expected_names_by_role["npc_spawn"]),
+        "npc_spawn_bias_volumes": len(
+            expected_names_by_role["npc_spawn_bias"]
+        ),
+        "npc_spawn_bias_containment_checks": bias_containment_checks,
         "bit_spawn_volumes": len(expected_names_by_role["bit_spawn"]),
         "bit_nav_band_coverage": len(bit_spawn_keys),
     }

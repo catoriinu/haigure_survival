@@ -76,7 +76,7 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
-GENERATOR_VERSION = "t06-2-school-spawn-v1"
+GENERATOR_VERSION = "t06-2-npc-spawn-bias-v2"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -261,6 +261,7 @@ GENERATED_PREFIXES = (
     "LNK_bit-roof-",
     "VOL_BitFlight_",
     "VOL_BitSpawn_",
+    "VOL_NpcSpawnBias_",
     "VOL_NpcSpawn_",
     "VOL_PlayerSpawnExclusion_",
     "VOL_PoolWater",
@@ -530,6 +531,86 @@ NPC_SPAWN_VOLUME_SPECS = (
         "Roof_Stage",
         "npc-spawn-roof-stage",
         ((-12.5, -6.9, 14.2), (47.3, 45.4, 18.6)),
+    ),
+)
+
+NPC_SPAWN_BIAS_VOLUME_SPECS = (
+    (
+        "Main",
+        "npc-spawn-bias-main",
+        "player-spawn-main",
+        0.5,
+        ((-6.0, -3.5, -0.4), (0.0, 5.0, 3.4)),
+    ),
+    (
+        "GymCenter",
+        "npc-spawn-bias-gym-center",
+        "player-spawn-gym-center",
+        0.5,
+        ((39.4, 2.5, -0.4), (53.4, 16.5, 3.4)),
+    ),
+    (
+        "GymStage",
+        "npc-spawn-bias-gym-stage",
+        "player-spawn-gym-stage",
+        0.5,
+        ((40.6, -11.0, 0.6), (52.2, -2.0, 3.4)),
+    ),
+    (
+        "F02_Classroom02",
+        "npc-spawn-bias-f02-classroom-02",
+        "player-spawn-f02-classroom-02",
+        0.5,
+        ((-12.15, 12.65, 3.4), (-3.65, 22.35, 7.0)),
+    ),
+    (
+        "F03_Classroom02",
+        "npc-spawn-bias-f03-classroom-02",
+        "player-spawn-f03-classroom-02",
+        0.5,
+        ((-12.15, 12.65, 7.0), (-3.65, 22.35, 10.6)),
+    ),
+    (
+        "F04_Classroom02",
+        "npc-spawn-bias-f04-classroom-02",
+        "player-spawn-f04-classroom-02",
+        0.5,
+        ((-12.15, 12.65, 10.6), (-3.65, 22.35, 14.2)),
+    ),
+    (
+        "F02_ToiletWashSide",
+        "npc-spawn-bias-f02-toilet-wash-side",
+        "player-spawn-f02-toilet-wash-side",
+        0.5,
+        ((-6.3, 39.8, 3.4), (2.2, 45.05, 7.0)),
+    ),
+    (
+        "F02_CouncilSouth",
+        "npc-spawn-bias-f02-council-south",
+        "player-spawn-f02-council-south",
+        0.5,
+        ((5.55, 36.65, 3.4), (14.25, 45.05, 7.0)),
+    ),
+    (
+        "F03_ArtSouth",
+        "npc-spawn-bias-f03-art-south",
+        "player-spawn-f03-art-south",
+        0.5,
+        ((5.55, 36.65, 7.0), (23.25, 45.05, 10.6)),
+    ),
+    (
+        "F04_MusicSouth",
+        "npc-spawn-bias-f04-music-south",
+        "player-spawn-f04-music-south",
+        0.5,
+        ((23.55, 36.65, 10.6), (41.25, 45.05, 14.2)),
+    ),
+    (
+        "RoofPoolWestStairs",
+        "npc-spawn-bias-roof-pool-west-stairs",
+        "player-spawn-roof-pool-west-stairs",
+        0.5,
+        ((10.0, 36.0, 14.2), (14.4, 42.0, 18.6)),
     ),
 )
 
@@ -2307,6 +2388,22 @@ def build_spawn_semantics(semantic_collection: bpy.types.Collection) -> None:
             properties={
                 "hs_id": spawn_id,
                 "hs_role": "npc_spawn",
+            },
+        )
+        volume.display_type = "WIRE"
+
+    for suffix, bias_id, player_spawn_id, weight, bounds in (
+        NPC_SPAWN_BIAS_VOLUME_SPECS
+    ):
+        volume = create_mesh_object(
+            f"VOL_NpcSpawnBias_{suffix}",
+            [bounds],
+            semantic_collection,
+            properties={
+                "hs_id": bias_id,
+                "hs_role": "npc_spawn_bias",
+                "hs_player_spawn_id": player_spawn_id,
+                "hs_weight": weight,
             },
         )
         volume.display_type = "WIRE"
@@ -6165,6 +6262,10 @@ def spawn_semantics_are_current() -> bool:
             f"VOL_NpcSpawn_{suffix}"
             for suffix, *_remaining in NPC_SPAWN_VOLUME_SPECS
         },
+        "npc_spawn_bias": {
+            f"VOL_NpcSpawnBias_{suffix}"
+            for suffix, *_remaining in NPC_SPAWN_BIAS_VOLUME_SPECS
+        },
         "bit_spawn": {
             f"VOL_BitSpawn_{suffix}"
             for suffix, *_remaining in BIT_SPAWN_VOLUME_SPECS
@@ -6234,6 +6335,25 @@ def spawn_semantics_are_current() -> bool:
                 {
                     "hs_id": spawn_id,
                     "hs_role": "npc_spawn",
+                },
+            )
+            or not has_exact_world_bounds(volume, bounds)
+        ):
+            return False
+
+    for suffix, bias_id, player_spawn_id, weight, bounds in (
+        NPC_SPAWN_BIAS_VOLUME_SPECS
+    ):
+        volume = bpy.data.objects.get(f"VOL_NpcSpawnBias_{suffix}")
+        if (
+            volume is None
+            or not has_exact_hs_properties(
+                volume,
+                {
+                    "hs_id": bias_id,
+                    "hs_role": "npc_spawn_bias",
+                    "hs_player_spawn_id": player_spawn_id,
+                    "hs_weight": weight,
                 },
             )
             or not has_exact_world_bounds(volume, bounds)

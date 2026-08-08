@@ -23,7 +23,7 @@ import type {
   NavigationTransitionStep
 } from "../world/navigationWorld";
 import type { StageNavigationAreaCursor } from "../world/stageNavigationAreas";
-import { createStageVolumeSpawnSampler } from "../world/stageSpawnSampler";
+import { createStageNpcSpawnSampler } from "../world/stageSpawnSampler";
 import type {
   StagePlayerSpawn,
   StageSpatialContext
@@ -1063,8 +1063,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       if (options.npcCount === 0) {
         return Object.freeze([]);
       }
-      const sampler = createStageVolumeSpawnSampler(
+      const sampler = createStageNpcSpawnSampler(
         options.stage.volumes.getByRole("npc_spawn"),
+        options.playerSpawn.npcSpawnBiasVolumes,
+        options.playerSpawn.id,
         options.stage.navigation,
         {
           maxAttempts: options.npcCount * 64,

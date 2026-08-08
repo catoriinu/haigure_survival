@@ -20,6 +20,7 @@ import {
   DISTANCE_NAVIGATION_ROUTE_POLICY
 } from "../../../src/world/navigationWorld";
 import { createSchoolRuntimeRandom } from "../../../src/world/schoolRuntimeSettings";
+import { createStageBoundaryContainsQuery } from "../../../src/world/stageSpatialQueries";
 import {
   createDefaultV2CharacterVisualRuntime
 } from "../characterVisualFixture";
@@ -651,6 +652,159 @@ const testNpcSpawnSeedDeterminism = async () => {
   }
 };
 
+const testNpcBiasPopulation50AndSessionLifecycle = async () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const fixture = createSyntheticStageFixture(scene, {
+    selectedExcludes: (point) => point.x < -4,
+    otherExcludes: (point) => point.x > 4
+  });
+  const actorIds = Object.freeze([
+    "player",
+    ...Array.from({ length: 50 }, (_value, index) => `npc_${index}`)
+  ]);
+  const visuals = await createDefaultV2CharacterVisualRuntime(
+    scene,
+    actorIds
+  );
+  const baseline = countSceneResources(scene);
+  const capture = (
+    seed: number,
+    playerSpawn: SyntheticStageFixture["selectedPlayerSpawn"]
+  ) => {
+    fixture.queriedExclusionIds.length = 0;
+    const system = createV2NpcSystem({
+      scene,
+      stage: fixture.stage,
+      characterVisuals: visuals,
+      npcCount: 50,
+      initialBrainwashedNpcCount: 10,
+      diagnosticsEnabled: false,
+      random: createSchoolRuntimeRandom(seed, "core"),
+      spawnRandom: createSchoolRuntimeRandom(seed, "npc-spawn"),
+      playerSpawn,
+      resolveTargetNavigationArea: (target) =>
+        Object.freeze({
+          targetId: target.id,
+          areaId: "t06-2-area",
+          revision: 0,
+          anchor: target.footPosition.clone()
+        }),
+      selectNavigationRoute: (_context, candidates) =>
+        DISTANCE_NAVIGATION_ROUTE_POLICY.selectRoute(candidates)
+    });
+    try {
+      const targets = system.getFrameView().targets;
+      const activeBiasContains = playerSpawn.npcSpawnBiasVolumes.map(
+        (volume) => createStageBoundaryContainsQuery(volume.mesh)
+      );
+      const isInsideActiveBias = (position: Vector3) =>
+        activeBiasContains.some((contains) => contains(position));
+      const signature = targets
+        .map((target) =>
+          [
+            target.id,
+            target.state,
+            target.brainwashed,
+            target.footPosition.x.toFixed(6),
+            target.footPosition.y.toFixed(6),
+            target.footPosition.z.toFixed(6)
+          ].join(":")
+        )
+        .join("|");
+      return Object.freeze({
+        signature,
+        totalCount: targets.length,
+        brainwashedCount: targets.filter((target) => target.brainwashed)
+          .length,
+        brainwashedInsideBiasCount: targets
+          .slice(0, 10)
+          .filter((target) => isInsideActiveBias(target.footPosition)).length,
+        normalInsideBiasCount: targets
+          .slice(10)
+          .filter((target) => isInsideActiveBias(target.footPosition)).length,
+        brainwashedOutsideSelectedExclusion: targets
+          .slice(0, 10)
+          .every((target) =>
+            playerSpawn.id === fixture.selectedPlayerSpawn.id
+              ? target.footPosition.x >= -4
+              : target.footPosition.x <= 4
+          ),
+        brainwashedFirst:
+          targets.slice(0, 10).every((target) => target.brainwashed) &&
+          targets.slice(10).every((target) => !target.brainwashed),
+        queriedExclusionIds: Object.freeze([
+          ...fixture.queriedExclusionIds
+        ])
+      });
+    } finally {
+      system.dispose();
+    }
+  };
+
+  try {
+    const seed = 0x0620_2c50;
+    const selected = capture(seed, fixture.selectedPlayerSpawn);
+    assert(
+      sceneResourceCountsEqual(baseline, countSceneResources(scene)),
+      "50 NPCの最初のsession破棄後にScene資源が残りました。"
+    );
+    const repeated = capture(seed, fixture.selectedPlayerSpawn);
+    assert(
+      sceneResourceCountsEqual(baseline, countSceneResources(scene)),
+      "50 NPCの同seed再生成破棄後にScene資源が残りました。"
+    );
+    const switched = capture(seed, fixture.otherPlayerSpawn);
+    assert(
+      sceneResourceCountsEqual(baseline, countSceneResources(scene)),
+      "Player開始ID切替sessionの破棄後にScene資源が残りました。"
+    );
+
+    for (const [label, snapshot, playerSpawn] of [
+      ["selected", selected, fixture.selectedPlayerSpawn],
+      ["repeated", repeated, fixture.selectedPlayerSpawn],
+      ["switched", switched, fixture.otherPlayerSpawn]
+    ] as const) {
+      assert(
+        snapshot.totalCount === 50 &&
+          snapshot.brainwashedCount === 10 &&
+          snapshot.brainwashedFirst &&
+          snapshot.brainwashedOutsideSelectedExclusion &&
+          snapshot.brainwashedInsideBiasCount > 0 &&
+          snapshot.brainwashedInsideBiasCount < 10 &&
+          snapshot.normalInsideBiasCount > 0 &&
+          snapshot.normalInsideBiasCount < 40,
+        `${label}の50/10または両cohort bias分布が不正です: ${JSON.stringify(snapshot)}`
+      );
+      assert(
+        snapshot.queriedExclusionIds.length >= 10 &&
+          snapshot.queriedExclusionIds.every(
+            (id) => id === playerSpawn.exclusionVolume.id
+          ),
+        `${label}で非選択Player除外を照会しました: ${snapshot.queriedExclusionIds.join(",")}`
+      );
+    }
+    assert(
+      selected.signature === repeated.signature,
+      "同じsession seedとPlayer開始IDで50 NPCの位置・statusが再現されません。"
+    );
+    assert(
+      selected.signature !== switched.signature,
+      "同じNPC乱数列のPlayer開始ID切替で50 NPC配置が変化しません。"
+    );
+    return (
+      `50/10 / selected bias=${selected.brainwashedInsideBiasCount}+${selected.normalInsideBiasCount} / ` +
+      `switched bias=${switched.brainwashedInsideBiasCount}+${switched.normalInsideBiasCount} / ` +
+      `same-seed stable / dispose baseline`
+    );
+  } finally {
+    visuals.dispose();
+    fixture.dispose();
+    scene.dispose();
+    engine.dispose();
+  }
+};
+
 const testTimedReinforcementPauseCapAndLifecycle = () => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
@@ -989,6 +1143,10 @@ export const runPopulationIntegrationTests = async () =>
     await executeTest(
       "NPC開始位置・statusのsession seed決定性",
       testNpcSpawnSeedDeterminism
+    ),
+    await executeTest(
+      "NPC 50/初期洗脳10のbias両cohort・Player切替・再生成破棄",
+      testNpcBiasPopulation50AndSessionLifecycle
     ),
     await executeTest(
       "初期1機・10秒増援・最大数・停止・catch-up禁止・再生成破棄",

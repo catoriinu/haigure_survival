@@ -373,6 +373,7 @@ const createNpcCommandFixture = async (
     role: "npc_spawn",
     bitFlightBand: null,
     playerSpawnId: null,
+    npcSpawnBiasWeight: null,
     navigationAreaId: null,
     mesh: ground
   });

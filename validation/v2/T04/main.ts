@@ -2918,6 +2918,7 @@ const runValidation = async () => {
         id: "sampler-validation",
         role: "npc_spawn",
         playerSpawnId: null,
+        npcSpawnBiasWeight: null,
         bitFlightBand: null,
         navigationAreaId: null,
         mesh: spawnVolumeMesh

@@ -303,13 +303,15 @@ MRK_PlayerSpawn_Main
 | `hs_id` | string | ステージ内で一意な小文字kebab-case ID |
 | `hs_role` | string | Runtimeのvolume role registryに登録された役割 |
 
-基本roleには`npc_spawn`、`bit_spawn`、`player_spawn_exclusion`、`assembly`、`no_enemy_spawn`、`no_enemy_enter`、`no_combat`、`hazard`、`water`を使用できる。7.9節の動的資産では追加roleとして`door_sweep`、`elevator_call_mat`、`elevator_threshold`、`elevator_car_occupancy`を、7.10節の部屋variantでは`room_variant_tile`を使用できる。`water`は水面ではなく、水中判定に用いる閉じた3D領域を表す。学校資産は、プール内面に一致する`VOL_PoolWater`を1件持ち、`hs_id="pool-water"`、`hs_role="water"`とする。T04-2Bで読込、内外問い合わせ、プール底へのNavMesh到達、破棄・再読込を確認済みであり、水中水平速度50%と通常速度への復帰はT06で実装する。
+基本roleには`npc_spawn`、`npc_spawn_bias`、`bit_spawn`、`player_spawn_exclusion`、`assembly`、`no_enemy_spawn`、`no_enemy_enter`、`no_combat`、`hazard`、`water`を使用できる。7.9節の動的資産では追加roleとして`door_sweep`、`elevator_call_mat`、`elevator_threshold`、`elevator_car_occupancy`を、7.10節の部屋variantでは`room_variant_tile`を使用できる。`water`は水面ではなく、水中判定に用いる閉じた3D領域を表す。学校資産は、プール内面に一致する`VOL_PoolWater`を1件持ち、`hs_id="pool-water"`、`hs_role="water"`とする。T04-2Bで読込、内外問い合わせ、プール底へのNavMesh到達、破棄・再読込を確認済みであり、水中水平速度50%と通常速度への復帰はT06で実装する。
 
 `bit_spawn`は`hs_zone_id`と`hs_band_id`を追加し、スポーン先の飛行帯を明示する。高さ、Object名、最寄りの人間用NavMeshから推測しない。
 
 `player_spawn_exclusion`は`hs_player_spawn_id`を追加し、同じIDの`player_spawn` Markerを明示参照する。Marker 1個とVolume 1個を厳密に1対1対応させ、参照先欠落、孤立Volume、1対多、多対1を許可しない。Object名のsuffix推測、`no_enemy_spawn`の流用、欠落時fallbackは行わない。
 
-学校は人間用NavMeshの各階を覆う`npc_spawn` Volume 5個と、到達可能な許可BIT飛行NavMesh全11帯を覆う`bit_spawn` Volume 11個を持つ。BIT側の11個は離散出現点ではなく、各飛行帯の連続領域である。抽選weightはVolume個数やAABB面積ではなく、対応するbaked NavMesh polygonとVolumeの実交差面積とする。
+`npc_spawn_bias`は`hs_player_spawn_id`と`0.000001`以上`1,000,000`以下の有限な`hs_weight`を追加する。この範囲は抽選weightのunderflow／overflowを許さず、極端な値も暗黙補正しない厳格契約である。参照先の`player_spawn`ごとに1件以上を必須とし、各Volumeは単一の`npc_spawn` Volumeへ完全に内包され、人間用baked NavMeshと正の実交差面積を持たなければならない。同じPlayer開始地点に複数のbias Volumeを対応させてよいが、その実NavMesh交差面を重複させない。面や辺で接するだけのVolumeは重複としない。別のPlayer開始地点に対応するVolume同士は重複してよい。名前推測、対応欠落時fallback、安全除外用`player_spawn_exclusion`の流用、重み0による出現禁止は行わない。
+
+学校は人間用NavMeshの各階を覆う`npc_spawn` Volume 5個、承認済みPlayer開始地点11件へ1件ずつ対応する`npc_spawn_bias` Volume 11個、到達可能な許可BIT飛行NavMesh全11帯を覆う`bit_spawn` Volume 11個を持つ。全biasの`hs_weight`は初期値`0.5`とする。NPCの基礎チャンネルは全`npc_spawn`実交差面をまとめて重み`1.0`、選択Playerに対応する各biasチャンネルは`hs_weight`をチャンネル重みとし、各チャンネル内だけを実交差面積比例で抽選する。したがってbias 1件・重み`0.5`では抽選チャンネルが全校`2/3`、近傍`1/3`となり、全校側から近傍へ入る確率も残る。BIT側の11個は離散出現点ではなく、各飛行帯の連続領域である。各チャンネル内部の抽選weightはVolume個数やAABB面積ではなく、対応するbaked NavMesh polygonとVolumeの実交差面積とする。
 
 `assembly`は`hs_anchor_id`を追加し、同じIDの`assembly_anchor` Markerを参照する。1個のMarkerと1個のVolumeを1会場として厳密に対応付け、参照先欠落、孤立Volume、1対多、多対1を許可しない。Marker位置と3座標配列の全点は、対応Volumeと`BND_Stage`の内側または表面になければならない。集合位置数は公開処刑観客位置数と対象位置数の合計に一致させる。
 

@@ -36,6 +36,7 @@ import {
 import {
   createSchoolStageDynamicSpatialInitializer
 } from "../../../src/world/schoolStageDynamicRuntime";
+import { createStageNpcSpawnSampler } from "../../../src/world/stageSpawnSampler";
 import {
   canStageMoverUseLink,
   STAGE_LINK_KINDS,
@@ -55,6 +56,7 @@ import {
   type V2BitFlightState,
   type V2BitSystem
 } from "../../../src/v2/bitSystem";
+import { SCHOOL_PLAYER_SPAWN_IDS } from "../../../src/v2/schoolSpawnSelection";
 import type {
   V2ExternalAlert,
   V2HumanTargetSnapshot
@@ -155,6 +157,27 @@ type LoaderWorldBoundaryVariant =
   | "invalid-extras"
   | "outside-stage";
 
+type LoaderNpcSpawnBiasVariant =
+  | "valid"
+  | "missing-player-spawn-id"
+  | "missing-weight"
+  | "minimum-weight"
+  | "maximum-weight"
+  | "below-minimum-weight"
+  | "above-maximum-weight"
+  | "zero-weight"
+  | "negative-weight"
+  | "string-weight"
+  | "unexpected-property"
+  | "orphan-player-spawn"
+  | "outside-npc-spawn"
+  | "duplicate-id"
+  | "same-player-overlap"
+  | "same-player-face-touch"
+  | "same-player-horizontal-face-touch"
+  | "same-player-disjoint"
+  | "different-player-overlap";
+
 const toStageRelativeAssetUrl = (url: string) =>
   url.startsWith("/") ? url.slice(1) : url;
 
@@ -242,6 +265,7 @@ const createFixtureStage = (
     role: "bit_spawn",
     bitFlightBand: band,
     playerSpawnId: null,
+    npcSpawnBiasWeight: null,
     navigationAreaId: null,
     mesh
   });
@@ -338,6 +362,7 @@ const createDynamicBitRevisionFixtureStage = (
     role: "bit_spawn",
     bitFlightBand: band,
     playerSpawnId: null,
+    npcSpawnBiasWeight: null,
     navigationAreaId: null,
     mesh: spawnMesh
   });
@@ -699,7 +724,8 @@ const LOADER_FIXTURE_BIT_NAV_URL =
 
 const createLoaderFixtureGlb = (
   fixture: BitSystemAcceptanceFixture,
-  worldBoundaryVariant: LoaderWorldBoundaryVariant = "valid"
+  worldBoundaryVariant: LoaderWorldBoundaryVariant = "valid",
+  npcSpawnBiasVariant: LoaderNpcSpawnBiasVariant = "valid"
 ): Uint8Array => {
   const positions = new Float32Array([
     -0.5, -0.5, -0.5,
@@ -910,6 +936,163 @@ const createLoaderFixtureGlb = (
     ],
     [authoredSize(1), authoredSize(0.8), authoredSize(1)]
   );
+  const createNpcSpawnBiasExtras = (
+    id: string,
+    playerSpawnId: string,
+    weight: unknown
+  ) => {
+    const extras: Record<string, unknown> = {
+      hs_id: id,
+      hs_role: "npc_spawn_bias",
+      hs_player_spawn_id: playerSpawnId,
+      hs_weight: weight
+    };
+    if (npcSpawnBiasVariant === "missing-player-spawn-id") {
+      delete extras.hs_player_spawn_id;
+    }
+    if (npcSpawnBiasVariant === "missing-weight") {
+      delete extras.hs_weight;
+    }
+    if (npcSpawnBiasVariant === "unexpected-property") {
+      extras.hs_unexpected = true;
+    }
+    return extras;
+  };
+  const primaryBiasWeight =
+    npcSpawnBiasVariant === "minimum-weight"
+      ? 0.000001
+      : npcSpawnBiasVariant === "maximum-weight"
+        ? 1_000_000
+        : npcSpawnBiasVariant === "below-minimum-weight"
+          ? 0.0000009
+          : npcSpawnBiasVariant === "above-maximum-weight"
+            ? 1_000_000.1
+            : npcSpawnBiasVariant === "zero-weight"
+              ? 0
+              : npcSpawnBiasVariant === "negative-weight"
+                ? -0.5
+                : npcSpawnBiasVariant === "string-weight"
+                  ? "0.5"
+                  : 0.5;
+  const primaryBiasPlayerSpawnId =
+    npcSpawnBiasVariant === "orphan-player-spawn"
+      ? "loader-player-spawn-missing"
+      : "loader-player-spawn";
+  const primaryBiasTranslation =
+    npcSpawnBiasVariant === "outside-npc-spawn"
+      ? ([authoredCoordinate(3), authoredCoordinate(1.4), authoredCoordinate(3)] as const)
+      : ([
+          authoredCoordinate(1),
+          authoredCoordinate(
+            npcSpawnBiasVariant === "same-player-horizontal-face-touch"
+              ? 1.2125
+              : 1.4
+          ),
+          authoredCoordinate(1)
+        ] as const);
+  addMeshNode(
+    "VOL_LoaderFixtureNpcSpawnBias",
+    createNpcSpawnBiasExtras(
+      "loader-npc-spawn-bias",
+      primaryBiasPlayerSpawnId,
+      primaryBiasWeight
+    ),
+    primaryBiasTranslation,
+    [
+      authoredSize(0.5),
+      authoredSize(
+        npcSpawnBiasVariant === "same-player-horizontal-face-touch"
+          ? 0.425
+          : 0.8
+      ),
+      authoredSize(0.5)
+    ]
+  );
+  if (
+    npcSpawnBiasVariant === "duplicate-id" ||
+    npcSpawnBiasVariant === "same-player-overlap" ||
+    npcSpawnBiasVariant === "same-player-face-touch" ||
+    npcSpawnBiasVariant === "same-player-horizontal-face-touch" ||
+    npcSpawnBiasVariant === "same-player-disjoint"
+  ) {
+    addMeshNode(
+      "VOL_LoaderFixtureNpcSpawnBiasSecond",
+      {
+        hs_id:
+          npcSpawnBiasVariant === "duplicate-id"
+            ? "loader-npc-spawn-bias"
+            : "loader-npc-spawn-bias-second",
+        hs_role: "npc_spawn_bias",
+        hs_player_spawn_id: "loader-player-spawn",
+        hs_weight: 0.25
+      },
+      [
+        authoredCoordinate(
+          npcSpawnBiasVariant === "same-player-horizontal-face-touch"
+            ? 1
+            : npcSpawnBiasVariant === "same-player-disjoint"
+              ? 1.4375
+              : npcSpawnBiasVariant === "same-player-face-touch"
+                ? 1.3125
+                : 1.1875
+        ),
+        authoredCoordinate(
+          npcSpawnBiasVariant === "same-player-horizontal-face-touch"
+            ? 1.6125
+            : 1.4
+        ),
+        authoredCoordinate(1)
+      ],
+      [
+        authoredSize(
+          npcSpawnBiasVariant === "same-player-horizontal-face-touch"
+            ? 0.5
+            : 0.125
+        ),
+        authoredSize(
+          npcSpawnBiasVariant === "same-player-horizontal-face-touch"
+            ? 0.375
+            : 0.8
+        ),
+        authoredSize(
+          npcSpawnBiasVariant === "same-player-horizontal-face-touch"
+            ? 0.5
+            : 0.125
+        )
+      ]
+    );
+  }
+  if (npcSpawnBiasVariant === "different-player-overlap") {
+    addEmptyNode(
+      "MRK_PlayerSpawnSecond",
+      {
+        hs_id: "loader-player-spawn-second",
+        hs_role: "player_spawn"
+      },
+      [authoredCoordinate(1.1), authoredCoordinate(1.4), authoredCoordinate(1)]
+    );
+    addMeshNode(
+      "VOL_LoaderFixturePlayerSpawnExclusionSecond",
+      {
+        hs_id: "loader-player-spawn-exclusion-second",
+        hs_role: "player_spawn_exclusion",
+        hs_player_spawn_id: "loader-player-spawn-second"
+      },
+      [authoredCoordinate(1.1), authoredCoordinate(1.4), authoredCoordinate(1)],
+      [authoredSize(0.8), authoredSize(2), authoredSize(0.8)]
+    );
+    addMeshNode(
+      "VOL_LoaderFixtureNpcSpawnBiasSecond",
+      {
+        hs_id: "loader-npc-spawn-bias-second",
+        hs_role: "npc_spawn_bias",
+        hs_player_spawn_id: "loader-player-spawn-second",
+        hs_weight: 0.25
+      },
+      [authoredCoordinate(1.1), authoredCoordinate(1.4), authoredCoordinate(1)],
+      [authoredSize(0.2), authoredSize(0.8), authoredSize(0.2)]
+    );
+  }
   addMeshNode(
     "VOL_LoaderFixtureBitSpawn",
     {
@@ -1025,11 +1208,13 @@ const calculateAcceptanceSha256 = async (data: Uint8Array) => {
 const createLoaderFixtureAssets = async (
   fixture: BitSystemAcceptanceFixture,
   worldBoundaryVariant: LoaderWorldBoundaryVariant = "valid",
-  worldBoundaryMode: StageCatalogEntry["worldBoundaryMode"] = "required"
+  worldBoundaryMode: StageCatalogEntry["worldBoundaryMode"] = "required",
+  npcSpawnBiasVariant: LoaderNpcSpawnBiasVariant = "valid"
 ): Promise<LoaderFixtureAssets> => {
   const glb = createLoaderFixtureGlb(
     fixture,
-    worldBoundaryVariant
+    worldBoundaryVariant,
+    npcSpawnBiasVariant
   );
   const humanNavmesh = Uint8Array.from(fixture.payloads[0].data);
   const bitNavmesh = encodeBitFlightNavBundle(
@@ -2769,6 +2954,11 @@ const runLoaderFixtureLifecycleCheck = async (
       loadedBandCount === fixture.definition.bands.length &&
       loadedTransitionCount === 1 &&
       context.volumes.getByRole("npc_spawn").length === 1 &&
+      context.volumes.getByRole("npc_spawn_bias").length === 1 &&
+      context.volumes.getByRole("npc_spawn_bias")[0]
+        .playerSpawnId === "loader-player-spawn" &&
+      context.volumes.getByRole("npc_spawn_bias")[0]
+        .npcSpawnBiasWeight === 0.5 &&
       context.volumes.getByRole("bit_spawn").length === 1 &&
       worldBoundaryQueries;
     context.dispose();
@@ -2905,6 +3095,214 @@ const runLoaderWorldBoundaryPolicyCheck = async (
   });
 };
 
+const runLoaderNpcSpawnBiasContractCheck = async (
+  fixture: BitSystemAcceptanceFixture
+): Promise<BitSystemAcceptanceCheck> => {
+  const cases = [
+    Object.freeze({
+      label: "weight下限境界",
+      variant: "minimum-weight" as const,
+      shouldLoad: true,
+      expectedBiasCount: 1,
+      expectedErrorFragments: Object.freeze([] as string[])
+    }),
+    Object.freeze({
+      label: "weight上限境界",
+      variant: "maximum-weight" as const,
+      shouldLoad: true,
+      expectedBiasCount: 1,
+      expectedErrorFragments: Object.freeze([] as string[])
+    }),
+    Object.freeze({
+      label: "同一Player非overlap複数",
+      variant: "same-player-disjoint" as const,
+      shouldLoad: true,
+      expectedBiasCount: 2,
+      expectedErrorFragments: Object.freeze([] as string[])
+    }),
+    Object.freeze({
+      label: "同一Player面接触",
+      variant: "same-player-face-touch" as const,
+      shouldLoad: true,
+      expectedBiasCount: 2,
+      expectedErrorFragments: Object.freeze([] as string[])
+    }),
+    Object.freeze({
+      label: "同一Player水平面接触",
+      variant: "same-player-horizontal-face-touch" as const,
+      shouldLoad: true,
+      expectedBiasCount: 2,
+      expectedErrorFragments: Object.freeze([] as string[])
+    }),
+    Object.freeze({
+      label: "別Player overlap",
+      variant: "different-player-overlap" as const,
+      shouldLoad: true,
+      expectedBiasCount: 2,
+      expectedErrorFragments: Object.freeze([] as string[])
+    }),
+    Object.freeze({
+      label: "Player参照欠落",
+      variant: "missing-player-spawn-id" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze(["hs_player_spawn_id"])
+    }),
+    Object.freeze({
+      label: "weight欠落",
+      variant: "missing-weight" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze(["hs_weight"])
+    }),
+    Object.freeze({
+      label: "weight下限未満",
+      variant: "below-minimum-weight" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze([
+        "hs_weightは0.000001以上1000000以下"
+      ])
+    }),
+    Object.freeze({
+      label: "weight上限超過",
+      variant: "above-maximum-weight" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze([
+        "hs_weightは0.000001以上1000000以下"
+      ])
+    }),
+    Object.freeze({
+      label: "weightゼロ",
+      variant: "zero-weight" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze([
+        "hs_weightは0.000001以上1000000以下"
+      ])
+    }),
+    Object.freeze({
+      label: "weight負数",
+      variant: "negative-weight" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze([
+        "hs_weightは0.000001以上1000000以下"
+      ])
+    }),
+    Object.freeze({
+      label: "weight文字列",
+      variant: "string-weight" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze(["hs_weight"])
+    }),
+    Object.freeze({
+      label: "未許可property",
+      variant: "unexpected-property" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze(["hs_unexpected"])
+    }),
+    Object.freeze({
+      label: "孤立Player参照",
+      variant: "orphan-player-spawn" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze(["未登録player_spawn"])
+    }),
+    Object.freeze({
+      label: "基礎npc_spawn外",
+      variant: "outside-npc-spawn" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze(["npc_spawn"])
+    }),
+    Object.freeze({
+      label: "hs_id重複",
+      variant: "duplicate-id" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze(["hs_idが重複"])
+    }),
+    Object.freeze({
+      label: "同一Player正面積overlap",
+      variant: "same-player-overlap" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze(["正面積重複"])
+    })
+  ];
+  const details: string[] = [];
+  let allPassed = true;
+  for (const testCase of cases) {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const baseline = countSceneResources(scene);
+    const assets = await createLoaderFixtureAssets(
+      fixture,
+      "valid",
+      "required",
+      testCase.variant
+    );
+    const restoreFetch = installLoaderFixtureFetch(assets);
+    let context: StageSpatialContext | null = null;
+    let message: string | null = null;
+    let matchedContract = false;
+    try {
+      try {
+        context = await loadStageSpatialContext(
+          scene,
+          assets.catalog,
+          {
+            initializeDynamicSpatial:
+              createSchoolStageDynamicSpatialInitializer(0)
+          }
+        );
+        const biases = context.volumes.getByRole("npc_spawn_bias");
+        matchedContract =
+          testCase.shouldLoad &&
+          biases.length === testCase.expectedBiasCount &&
+          biases.every(
+            (bias) =>
+              bias.playerSpawnId !== null &&
+              bias.npcSpawnBiasWeight !== null &&
+              bias.npcSpawnBiasWeight >= 0.000001 &&
+              bias.npcSpawnBiasWeight <= 1_000_000
+          );
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+        matchedContract =
+          !testCase.shouldLoad &&
+          testCase.expectedErrorFragments.every((fragment) =>
+            message!.includes(fragment)
+          );
+      }
+      context?.dispose();
+      context = null;
+      const resourcesReturned = sceneResourceCountsEqual(
+        baseline,
+        countSceneResources(scene)
+      );
+      allPassed = allPassed && matchedContract && resourcesReturned;
+      details.push(
+        `${testCase.label}=${matchedContract ? "ok" : message ?? "unexpected-load"}` +
+          `/resources=${resourcesReturned}`
+      );
+    } finally {
+      restoreFetch();
+      scene.dispose();
+      engine.dispose();
+    }
+  }
+  return Object.freeze({
+    name: "NPC spawn bias metadata・参照・weight・overlap実loader契約",
+    ok: allPassed,
+    detail: details.join(" / ")
+  });
+};
+
 const runSchoolPerformanceAndLifecycleChecks = async (
   fixture: BitSystemAcceptanceFixture
 ): Promise<BitSystemAcceptanceResult> => {
@@ -2935,6 +3333,68 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     document.title =
       `T05学校受入: 99体探索 warmup 0/${PERFORMANCE_WARMUP_TICKS}`;
     await yieldToBrowser();
+    const schoolNpcSpawnVolumes =
+      schoolContext.volumes.getByRole("npc_spawn");
+    const schoolNpcSpawnBiasVolumes =
+      schoolContext.volumes.getByRole("npc_spawn_bias");
+    const schoolNpcSpawnChannelSummaries =
+      schoolContext.playerSpawns.all.map((playerSpawn) => {
+        const sampler = createStageNpcSpawnSampler(
+          schoolNpcSpawnVolumes,
+          playerSpawn.npcSpawnBiasVolumes,
+          playerSpawn.id,
+          schoolContext!.navigation,
+          {
+            maxAttempts: 1,
+            projectionMaxDistance: 0.75,
+            random: () => 0.5
+          }
+        );
+        return Object.freeze({
+          playerSpawnId: playerSpawn.id,
+          biasIds: Object.freeze(
+            playerSpawn.npcSpawnBiasVolumes.map((volume) => volume.id)
+          ),
+          channels: sampler.channels,
+          totalWeight: sampler.totalWeight
+        });
+      });
+    const actualPlayerSpawnIds = new Set(
+      schoolNpcSpawnChannelSummaries.map((summary) => summary.playerSpawnId)
+    );
+    checks.push(
+      Object.freeze({
+        name: "実学校11開始地点のNPC bias 1対1・weight・正面積channel",
+        ok:
+          schoolNpcSpawnBiasVolumes.length ===
+            SCHOOL_PLAYER_SPAWN_IDS.length &&
+          actualPlayerSpawnIds.size === SCHOOL_PLAYER_SPAWN_IDS.length &&
+          SCHOOL_PLAYER_SPAWN_IDS.every((id) =>
+            actualPlayerSpawnIds.has(id)
+          ) &&
+          schoolNpcSpawnChannelSummaries.every(
+            (summary) =>
+              summary.biasIds.length === 1 &&
+              summary.channels.length === 2 &&
+              summary.channels[0].channelId === "npc-spawn-base" &&
+              summary.channels[0].weight === 1 &&
+              summary.channels[0].area > 0 &&
+              summary.channels[1].channelId ===
+                `npc-spawn-bias:${summary.biasIds[0]}` &&
+              summary.channels[1].weight === 0.5 &&
+              summary.channels[1].area > 0 &&
+              Math.abs(summary.totalWeight - 1.5) <= 1e-10
+          ),
+        detail: schoolNpcSpawnChannelSummaries
+          .map(
+            (summary) =>
+              `${summary.playerSpawnId}:${summary.biasIds.join(",")}` +
+              `/areas=${summary.channels.map((channel) => channel.area.toFixed(3)).join(",")}` +
+              `/weight=${summary.totalWeight}`
+          )
+          .join(" | ")
+      })
+    );
     const schoolWorldBoundaryRequired =
       schoolContext.worldBoundary?.id === "world-limit";
     const schoolNavigation = schoolContext.bitNavigation;
@@ -3762,7 +4222,8 @@ export const runBitSystemAcceptanceTests = async (
     try {
       checks.push(
         await runLoaderFixtureLifecycleCheck(fixture),
-        await runLoaderWorldBoundaryPolicyCheck(fixture)
+        await runLoaderWorldBoundaryPolicyCheck(fixture),
+        await runLoaderNpcSpawnBiasContractCheck(fixture)
       );
     } catch (error) {
       checks.push({

@@ -315,8 +315,25 @@ const createPlayerSpawn = (
     role: "player_spawn_exclusion",
     bitFlightBand: null,
     playerSpawnId: id,
+    npcSpawnBiasWeight: null,
     navigationAreaId: null,
     mesh: exclusionMesh
+  });
+  const biasMesh = MeshBuilder.CreateBox(
+    `${id}-bias-mesh`,
+    { width: 4.5, height: 2, depth: 10 },
+    scene
+  );
+  biasMesh.position.set(x, 0.5, 0);
+  biasMesh.computeWorldMatrix(true);
+  const biasVolume: StageVolume = Object.freeze({
+    id: `${id}-bias`,
+    role: "npc_spawn_bias",
+    bitFlightBand: null,
+    playerSpawnId: id,
+    npcSpawnBiasWeight: 0.5,
+    navigationAreaId: null,
+    mesh: biasMesh
   });
   return Object.freeze({
     id,
@@ -325,7 +342,8 @@ const createPlayerSpawn = (
       role: "player_spawn" as const,
       node: markerNode
     }),
-    exclusionVolume
+    exclusionVolume,
+    npcSpawnBiasVolumes: Object.freeze([biasVolume])
   });
 };
 
@@ -376,6 +394,7 @@ export const createSyntheticStageFixture = (
     role: "npc_spawn",
     bitFlightBand: null,
     playerSpawnId: null,
+    npcSpawnBiasWeight: null,
     navigationAreaId: null,
     mesh: npcSpawnMesh
   });
@@ -384,6 +403,7 @@ export const createSyntheticStageFixture = (
     role: "bit_spawn",
     bitFlightBand: bitNavigationFixture.bandRef,
     playerSpawnId: null,
+    npcSpawnBiasWeight: null,
     navigationAreaId: null,
     mesh: bitSpawnMesh
   });
@@ -404,6 +424,8 @@ export const createSyntheticStageFixture = (
   const volumes = Object.freeze([
     npcSpawn,
     bitSpawn,
+    ...selectedPlayerSpawn.npcSpawnBiasVolumes,
+    ...otherPlayerSpawn.npcSpawnBiasVolumes,
     selectedPlayerSpawn.exclusionVolume,
     otherPlayerSpawn.exclusionVolume
   ]);
