@@ -193,7 +193,7 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 | 13A | B03-3D 荒れ版教室配置 | `codex/v2-b03-3-disordered-classrooms` | I1、PR #60 | 学校生成正本、Blender、GLB、3種NavMesh、カタログhash、比較画像 | PR #65で`develop`統合済み |
 | 13B | T06-1 通常ゲームRuntime接続 | `codex/v2-t06-runtime-core` | I1、PR #59 | 入力・UI・音声・水中・ライフサイクル、基本Character画像、性能改善 | PR #64で`develop`統合済み |
 | 13R | B03-3D追補 | `codex/v2-b03-3d-furniture-overlap` | PR #65、T06-1統合済み`develop` | 家具非干渉、椅子姿勢、PC室机上機器、普通教室C前扉封鎖、Room Variant NavMesh | PR #66で`develop=cdb8bae`へ統合済み |
-| 14 | T06-2 学校開始・出現・増援統合 | `codex/v2-t06-school-integration` | PR #66統合済み`cdb8bae` | 複数開始地点、出現禁止、NPC／BIT出現Volume、時間増援、学校基盤E2E | 単独。開始フェーズ提示完了・承認待ち |
+| 14 | T06-2 学校開始・出現・増援統合 | `codex/v2-t06-school-integration` | PR #66統合済み`cdb8bae` | 複数開始地点、出現禁止、NPC／BIT出現Volume、時間増援、学校基盤E2E | 単独。修正版11候補承認済み・実装中 |
 | 15 | I2 ミニマップ・Mission設計 | `codex/v2-map-mission-design` | T06-2 | 階別地図、階段、Location契約、Mission候補・状態遷移・20秒付与率のユーザー相談。コード・資産変更なし | 単独 |
 | 16A | T06-3 ミニマップ | `codex/v2-minimap` | I2 | 左上180px円形Map、現在階平面図、プレイヤー、同階NPC／BIT、視野、方角、近隣階段。静的背景を初期化時生成 | B05と並行可 |
 | 16B | B05 Mission Location資産 | `codex/v2-mission-locations` | I2 | 承認済みLocation ID／表示名／Volume／Anchor、学校生成正本・Blender・GLB・NavMesh・hash | T06-3と並行可 |
@@ -352,7 +352,7 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 
 ### T06-2
 
-> PR #66統合済みの`origin/develop=cdb8bae`から`codex/v2-t06-school-integration`と専用worktreeを作成してT06-2を開始してください。今回の範囲は計画8ファイルの初回ローカルコミットと、現学校資産を読み取り専用で使う視覚提案までです。1階玄関、体育館中央、舞台演説台裏、2～4階普通教室と任意候補を俯瞰表示し、開始位置・向き・NavMesh投影、`player_spawn_exclusion` Volume寸法、`npc_spawn`／`bit_spawn`範囲、一様抽選の推奨案とカテゴリ重みの代替案を提示して、私のYESを待ってください。承認前はBlender、GLB、NavMesh、生成器、カタログhash、Runtime、仕様書、fixtureを変更せず、pushとPull Request作成も行わないでください。GPT-5.6 Sol / Ultraを使用してください。
+> `codex/v2-t06-school-integration`の専用worktreeで、2026-08-08に承認済みのPlayer開始候補11件を計画から確認してT06-2実装フェーズを開始してください。1階玄関、体育館中央、体育館舞台上、黒板向きの2～4階普通教室、出入口向きの2階トイレ、2階生徒会室、3階美術室、4階音楽室、プール内西側階段そば・西向きの候補を、明示的に1対1対応する`player_spawn_exclusion` Volumeとともに資産化してください。NPCは人間用NavMesh、BITは到達可能な許可飛行NavMesh全域を覆う連続`bit_spawn` Volumeから面積比例で出現させ、BITを11個の離散地点へ限定しないでください。初期1機、10秒間隔、最大25機の増援、選択地点だけの敵出現禁止、開始地点・NPC・BITの独立乱数列、プール内開始時の初回水中判定をRuntimeとfixtureへ接続してください。学校資産は単一担当で更新し、全資産監査、NavMesh、型検査、build、fixture、通常Web／Electronを検証してローカルcommitまで行ってください。push、Pull Request作成、レビュー、mergeは別途指示されるまで行わないでください。GPT-5.6 Sol / Ultraを使用してください。
 
 ### I2
 
@@ -444,4 +444,4 @@ B03-0に限り、上記に加えて`docs/plans/v2/T04/plan.md`の「B03-0への�
 
 2026-08-02、ミニマップ、Mission、Character画像をv2.0リリース前へ追加する指示により、現行順序を`B03-3D + T06-1 → T06-2 → I2設計 → T06-3 + B05 → T06-4 → I3設計 → T06-5 → T07 → v2.0リリース準備`へ更新した。I2はMap／Mission相談専用、T06-3とB05はRuntime／資産を分離して並行、T06-4は両成果をMission状態機械へ統合する。当初Character画像描画はI3／T06-5へ置いていたが、同日の後続指示により、T06-1でローカル配布済み画像を全actorへ接続し、NPC状態別billboard、55度より下向き時のプレイヤー足元画像、画像あり時のデフォルトスプライトを実装する。必須8状態欠落は読込エラー、画像バイナリはGit管理外とする。現行V2には鏡・反射用カメラがないため、I3／T06-5は鏡反射・必要な一人称表示仕上げ・99 NPC性能条件へ縮小し、T07はミニマップ、Mission、基本Character画像、鏡反射をすべて有効にして最終性能・回帰を行う。
 
-2026-08-08、PR #65のB03-3D、PR #64のT06-1、PR #66のB03-3D追補は`origin/develop=cdb8bae`までに統合済みとなり、T06-2の開始ゲートを通過した。`codex/v2-t06-school-integration`と専用worktreeを同headから作成し、計画8ファイルの初回コミット`13ab1f7`、必須6＋追加5開始候補、除外Volume寸法、NPC 5階層Volume、BIT 11飛行帯Volumeの視覚提案まで完了した。現在はユーザー承認待ちであり、資産・Runtimeには未着手である。T06-2から初回統合作業を削り、複数開始地点、動的出現禁止、NPC／BIT出現Volume、BIT時間増援、V3学校基盤機能ゲートへ縮約した。I2以降のミニマップ、Mission、鏡反射、T07、リリース準備は未実装のため維持する。
+2026-08-08、PR #65のB03-3D、PR #64のT06-1、PR #66のB03-3D追補は`origin/develop=cdb8bae`までに統合済みとなり、T06-2の開始ゲートを通過した。`codex/v2-t06-school-integration`と専用worktreeを同headから作成し、計画8ファイルの初回コミット`13ab1f7`、Player開始候補11件、除外Volume寸法、NPC 5階層Volume、BIT 11連続飛行帯Volumeの視覚提案まで完了した。開始候補は舞台上、普通教室の黒板向き、トイレの出入口向き、生徒会室、プール内西側階段そば・西向きへ修正し、11件すべてのユーザー承認を取得済みである。BIT側の11件は離散出現地点ではなく、到達可能な飛行NavMesh全域を覆う連続Volumeである。2026-08-08のユーザー指示により実装フェーズへ移行した。T06-2から初回統合作業を削り、複数開始地点、動的出現禁止、NPC／BIT出現Volume、BIT時間増援、V3学校基盤機能ゲートへ縮約した。I2以降のミニマップ、Mission、鏡反射、T07、リリース準備は未実装のため維持する。
