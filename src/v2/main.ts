@@ -14,11 +14,29 @@ import {
 
 import { SCHOOL_STAGE } from "../world/stageCatalog";
 import {
-  SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS,
   createSchoolRoomVariantSelections,
   createSchoolRuntimeRandom,
   createSchoolRuntimeSettings
 } from "../world/schoolRuntimeSettings";
+import { AudioManager } from "../audio/audio";
+import {
+  V2_AUDIO_ASSET_CATALOG,
+  applyV2AudioVolumeLevels,
+  createV2AudioVolumeSettingsStore,
+  createV2GameplayAudioBridge,
+  createV2VoiceRuntime,
+  getV2VoiceProfileIds
+} from "../audio/v2AudioRuntime";
+import { createVolumePanel } from "../ui/volumePanel";
+import {
+  V2_PORTRAIT_ASSET_INVENTORY,
+  createV2CharacterSettingsPanel,
+  createV2CharacterSettingsStore
+} from "../ui/v2CharacterSettings";
+import {
+  canV2RuntimePlayerFire,
+  createV2RuntimeHudController
+} from "../ui/v2RuntimeHud";
 import {
   createSchoolStageDynamicRuntime,
   createSchoolStageDynamicSpatialInitializer,
@@ -44,15 +62,36 @@ import {
   type V2PlayerController
 } from "./playerController";
 import {
+  createV2PlayerCharacterVisual,
+  type V2PlayerCharacterVisual
+} from "./v2PlayerCharacterVisual";
+import {
   createV2PlayerInput,
   type V2PlayerInput
 } from "./playerInput";
+import {
+  dispatchV2RuntimeExecutionReplay,
+  dispatchV2RuntimeInteractions,
+  resolveV2HorizontalSpeedScale,
+  type V2RuntimeInteractionFeedback
+} from "./runtimeInteraction";
+import {
+  createV2RuntimeSessionEventScope,
+  transitionV2RuntimeSession
+} from "./runtimeSessionLifecycle";
 import {
   createV2SurvivalRuntime,
   V2_PERFORMANCE_ACCEPTANCE_POPULATION,
   V2_TEST_SURVIVAL_POPULATION,
   type V2SurvivalRuntime
 } from "./survivalRuntime";
+import { createV2CharacterAssignments } from "./v2CharacterAssignments";
+import { resolveV2CharacterFacingYaw } from "./v2CharacterFacing";
+import {
+  createV2CharacterVisualRuntime,
+  type V2CharacterVisualRuntime
+} from "./v2CharacterVisualRuntime";
+import { configureV2StageTransparentRenderingOrder } from "./v2StageTransparentRenderingOrder";
 import {
   createSchoolStageActorPort,
   createSchoolStageTraversalCoordinator,
@@ -66,6 +105,24 @@ import {
   readV2RuntimeStressScenario,
   type V2RuntimeStressReport
 } from "./runtimeStressScenario";
+import { resolveV2RoomVariantLevel } from "./roomVariantVisualReview";
+
+const V2_GAMEPLAY_HELP_TEXT =
+  "操作説明\n" +
+  "WASD: 移動  Shift: ダッシュ\n" +
+  "F: 追従  E: 離脱  C: 扉\n" +
+  "G: 銃  N: 非武装  H: ハイグレ\n" +
+  "Enter: タイトルへ戻る";
+const V2_GAMEPLAY_EXECUTION_HELP_TEXT =
+  `${V2_GAMEPLAY_HELP_TEXT}\nR: リプレイ`;
+const EMPTY_NPC_COMMAND_CANDIDATES: ReturnType<
+  V2SurvivalRuntime["getNpcCommandCandidates"]
+> = Object.freeze([]);
+const EMPTY_DOOR_INTERACTION_CANDIDATES: ReturnType<
+  SchoolStageDynamicRuntime["doors"]["getDoorInteractionCandidates"]
+> = Object.freeze([]);
+const EMPTY_RUNTIME_INTERACTION_FEEDBACK: readonly V2RuntimeInteractionFeedback[] =
+  Object.freeze([]);
 
 const performanceScenario =
   readV2PerformanceScenario(location.search);
@@ -91,6 +148,7 @@ if (
 }
 const runtimeSeed =
   performanceScenario?.seed ?? runtimeStressScenario?.seed ?? 0;
+const roomVariantLevel = resolveV2RoomVariantLevel(location.search);
 const runtimePopulation = performanceScenario
   ? V2_PERFORMANCE_ACCEPTANCE_POPULATION
   : rampValidationTarget
@@ -103,10 +161,17 @@ const runtimePopulation = performanceScenario
       V2_TEST_SURVIVAL_POPULATION;
 const roomVariantSelections = runtimeStressScenario
   ? createSchoolRoomVariantSelections(
-      createSchoolRuntimeSettings(2),
+      createSchoolRuntimeSettings(
+        roomVariantLevel
+      ),
       runtimeStressScenario.seed
     )
-  : SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS;
+  : createSchoolRoomVariantSelections(
+      createSchoolRuntimeSettings(
+        roomVariantLevel
+      ),
+      runtimeSeed
+    );
 const canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
 const minimapCanvas = document.getElementById(
   "minimapCanvas"
@@ -127,6 +192,15 @@ if (performanceScenario) {
   canvas.style.height = "1080px";
 }
 const engine = new Engine(canvas, true);
+
+type V2RuntimeSession = Readonly<{
+  dispose(): Promise<void>;
+}>;
+
+const createRuntimeSession = async (
+  sessionSeed: number,
+  requestSessionRebuild: () => void
+): Promise<V2RuntimeSession> => {
 const scene = new Scene(engine);
 const performanceDiagnostics = performanceScenario
   ? createV2PerformanceDiagnostics(
@@ -231,6 +305,8 @@ helpPanel.style.display = "none";
 const formatLoadError = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
+const audioAssets = V2_AUDIO_ASSET_CATALOG;
+
 const initializeRuntime = async () => {
   let ownedStage: StageSpatialContext | null = null;
   let ownedDynamicRuntime: SchoolStageDynamicRuntime | null =
@@ -243,6 +319,8 @@ const initializeRuntime = async () => {
   let ownedSurvival: V2SurvivalRuntime | null = null;
   let ownedAlarmFloorVisual: V2AlarmFloorVisualSystem | null =
     null;
+  let ownedCharacterVisuals: V2CharacterVisualRuntime | null =
+    null;
   let selectNavigationRoute: SchoolNpcNavigationPolicy | null =
     null;
 
@@ -254,12 +332,16 @@ const initializeRuntime = async () => {
         queryDiagnostics: stageQueryDiagnostics,
         initializeDynamicSpatial:
           createSchoolStageDynamicSpatialInitializer(
-            runtimeSeed
+            sessionSeed
           ),
         roomVariantSelections
       }
     );
+    configureV2StageTransparentRenderingOrder(
+      ownedStage.resources.visualMeshes
+    );
     ownedInput = createV2PlayerInput(window);
+    const playerInput = ownedInput;
     ownedPlayer = createV2PlayerController({
       scene,
       camera,
@@ -268,13 +350,42 @@ const initializeRuntime = async () => {
     });
     const playerController = ownedPlayer;
     ownedInput = null;
+    const characterSettingsStore = createV2CharacterSettingsStore(
+      localStorage,
+      V2_PORTRAIT_ASSET_INVENTORY.directories,
+      audioAssets.voiceDirectories
+    );
+    const characterSettings = characterSettingsStore.load();
+    const characterAssignments = createV2CharacterAssignments({
+      actorIds: Object.freeze([
+        "player",
+        ...Array.from(
+          { length: runtimePopulation.npcCount },
+          (_, index) => `npc_${index}`
+        )
+      ]),
+      playerActorId: "player",
+      voiceProfileIds: getV2VoiceProfileIds(),
+      portraitDirectories: V2_PORTRAIT_ASSET_INVENTORY.directories,
+      playerVoiceDirectory: characterSettings.voiceDirectory,
+      playerPortraitDirectory: characterSettings.portraitDirectory,
+      random: Math.random
+    });
+    ownedCharacterVisuals = await createV2CharacterVisualRuntime({
+      scene,
+      assignments: characterAssignments,
+      orientationMode:
+        characterSettings.enableCharacterSpriteVerticalAngle
+          ? "upright"
+          : "camera-facing"
+    });
+    const characterVisuals = ownedCharacterVisuals;
     ownedSurvival = createV2SurvivalRuntime({
       scene,
       stage: ownedStage,
       player: playerController,
-      random: performanceScenario || runtimeStressScenario
-        ? createV2SeededRandom(runtimeSeed)
-        : Math.random,
+      characterVisuals,
+      random: createV2SeededRandom(sessionSeed),
       getOrbVisibilityPredicate: () => {
         const playerCenter = playerController
           .getFootPosition()
@@ -326,11 +437,12 @@ const initializeRuntime = async () => {
       queries: ownedStage.queries,
       actors: createSchoolStageActorPort(
         playerController,
-        survivalRuntime
+        survivalRuntime,
+        ownedStage
       )
     });
     selectNavigationRoute = createSchoolNpcNavigationPolicy({
-      seed: runtimeSeed,
+      seed: sessionSeed,
       elevatorAssets: ownedStage.elevatorAssets,
       dynamicRuntime: ownedDynamicRuntime,
       queries: ownedStage.queries,
@@ -344,7 +456,7 @@ const initializeRuntime = async () => {
         survival: survivalRuntime,
         player: playerController,
         doorCloseRandom: createSchoolRuntimeRandom(
-          runtimeSeed,
+          sessionSeed,
           "door-behavior"
         )
       });
@@ -373,8 +485,13 @@ const initializeRuntime = async () => {
       stage: ownedStage,
       dynamicRuntime: ownedDynamicRuntime,
       traversalCoordinator: ownedTraversalCoordinator,
+      input: playerInput,
       player: ownedPlayer,
       survival: ownedSurvival,
+      characterVisuals,
+      characterAssignments,
+      characterSettings,
+      characterSettingsStore,
       alarmFloorVisual: ownedAlarmFloorVisual,
       navigationPolicy: selectNavigationRoute
     };
@@ -382,18 +499,18 @@ const initializeRuntime = async () => {
     console.error("V2実行環境の初期化に失敗しました。", error);
     titleStartHint.textContent = "読込エラー";
     titleMessage.textContent = formatLoadError(error);
+    performanceDiagnostics?.dispose();
     ownedTraversalCoordinator?.dispose();
     ownedDynamicRuntime?.dispose();
     ownedAlarmFloorVisual?.dispose();
     ownedSurvival?.dispose();
+    ownedCharacterVisuals?.dispose();
     selectNavigationRoute?.dispose();
     ownedPlayer?.dispose();
     ownedInput?.dispose();
     ownedStage?.dispose();
-    performanceDiagnostics?.dispose();
     delete window.__v2PerformanceDiagnostics;
     scene.dispose();
-    engine.dispose();
     throw error;
   }
 };
@@ -402,14 +519,142 @@ const {
   stage,
   dynamicRuntime,
   traversalCoordinator,
+  input,
   player,
   survival,
+  characterVisuals,
+  characterAssignments,
+  characterSettings,
+  characterSettingsStore,
   alarmFloorVisual,
   navigationPolicy
 } =
   await initializeRuntime();
 
+const eventScope = createV2RuntimeSessionEventScope();
+let ownedRuntimeHud: ReturnType<
+  typeof createV2RuntimeHudController
+> | null = null;
+let ownedAudio: AudioManager | null = null;
+let ownedVolumePanel: ReturnType<
+  typeof createVolumePanel
+> | null = null;
+let ownedCharacterSettingsPanel: ReturnType<
+  typeof createV2CharacterSettingsPanel
+> | null = null;
+let ownedGameplayAudioBridge: ReturnType<
+  typeof createV2GameplayAudioBridge
+> | null = null;
+let ownedVoiceRuntime: ReturnType<
+  typeof createV2VoiceRuntime
+> | null = null;
+let ownedPlayerCharacterVisual: V2PlayerCharacterVisual | null = null;
+let disposed = false;
+const disposeRuntime = async () => {
+  if (disposed) {
+    return;
+  }
+  disposed = true;
+  engine.stopRenderLoop();
+  eventScope.dispose();
+  ownedRuntimeHud?.dispose();
+  ownedPlayerCharacterVisual?.dispose();
+  ownedCharacterSettingsPanel?.dispose();
+  ownedVolumePanel?.dispose();
+  ownedGameplayAudioBridge?.dispose();
+  ownedVoiceRuntime?.dispose();
+  const audioDisposal = ownedAudio?.dispose();
+  performanceDiagnostics?.dispose();
+  delete window.__v2PerformanceDiagnostics;
+  delete document.body.dataset.v2PerformanceReport;
+  delete document.body.dataset.v2RuntimeStressReport;
+  if (runtimeStressScenario) {
+    delete document.documentElement.dataset.validationStatus;
+  }
+  traversalCoordinator.dispose();
+  dynamicRuntime.dispose();
+  alarmFloorVisual?.dispose();
+  survival.dispose();
+  characterVisuals.dispose();
+  navigationPolicy.dispose();
+  player.dispose();
+  stage.dispose();
+  scene.dispose();
+  if (audioDisposal) {
+    await audioDisposal;
+  }
+};
+
+try {
 camera.attachControl(canvas, true);
+const runtimeHud = createV2RuntimeHudController({
+  host: document.body,
+  canvas,
+  camera
+});
+ownedRuntimeHud = runtimeHud;
+const playerCharacterVisual = createV2PlayerCharacterVisual(
+  characterVisuals
+);
+ownedPlayerCharacterVisual = playerCharacterVisual;
+const audio = new AudioManager(camera);
+ownedAudio = audio;
+const audioVolumeStore =
+  createV2AudioVolumeSettingsStore(localStorage);
+let audioVolumeLevels = audioVolumeStore.load();
+applyV2AudioVolumeLevels(audio, audioVolumeLevels);
+const volumePanel = createVolumePanel({
+  parent: titleOverlay,
+  className: "volume-panel--title",
+  initialLevels: { ...audioVolumeLevels },
+  onChange: (category, level) => {
+    audioVolumeLevels = audioVolumeStore.saveLevel(
+      audioVolumeLevels,
+      category,
+      level
+    );
+    applyV2AudioVolumeLevels(audio, audioVolumeLevels);
+  }
+});
+ownedVolumePanel = volumePanel;
+const characterSettingsPanel = createV2CharacterSettingsPanel({
+  parent: titleOverlay,
+  initialSettings: characterSettings,
+  portraitDirectories: V2_PORTRAIT_ASSET_INVENTORY.directories,
+  voiceDirectories: audioAssets.voiceDirectories,
+  onChange: (nextSettings) => {
+    characterSettingsStore.save(nextSettings);
+    requestSessionRebuild();
+  }
+});
+ownedCharacterSettingsPanel = characterSettingsPanel;
+const gameplayAudioBridge = createV2GameplayAudioBridge({
+  audio,
+  assets: audioAssets,
+  getListenerPosition: () => player.getEyePosition()
+});
+ownedGameplayAudioBridge = gameplayAudioBridge;
+const voiceRuntime = createV2VoiceRuntime({
+  audio,
+  random: Math.random,
+  assignments: characterAssignments,
+  baseOptions: Object.freeze({
+    volume: 0.72,
+    maxDistance: 4.17,
+    loop: false
+  }),
+  loopOptions: Object.freeze({
+    volume: 0.72,
+    maxDistance: 4.17,
+    loop: true
+  })
+});
+ownedVoiceRuntime = voiceRuntime;
+const bgmUrl = audioAssets.selectBgmUrl(
+  SCHOOL_STAGE.label,
+  Math.random
+);
+let audioActivated = false;
 canvas.tabIndex = 0;
 titleMessage.textContent = "学校3D空間 読込完了";
 titleStartHint.textContent = "左クリック：開始";
@@ -419,6 +664,14 @@ titleMessage.style.display = "none";
 let started = false;
 let statusTimer = 0;
 let elapsedSeconds = 0;
+let characterFacingYaw = 0;
+const logicalRenderCameraPosition = Vector3.Zero();
+const cameraRenderOffset = Vector3.Zero();
+const cameraForwardAxis = Vector3.Forward(scene.useRightHandedSystem);
+const cameraUpAxis = Vector3.Up();
+const characterViewForward = Vector3.Zero();
+const characterViewUp = Vector3.Zero();
+const playerGunDirection = Vector3.Zero();
 let performanceReportPublished = false;
 const runtimeStressStartedAt = runtimeStressScenario
   ? performance.now()
@@ -578,37 +831,83 @@ const configurePerformanceView = () => {
   player.placeAt(footPosition, lookAtPosition);
 };
 
-const startPlay = () => {
+const startPlay = (requestPointerLock: boolean) => {
+  if (!audioActivated) {
+    audioActivated = true;
+    if (bgmUrl !== null) {
+      audio.startBgm(bgmUrl);
+    }
+  }
   if (!started) {
     started = true;
     titleOverlay.style.display = "none";
     statusInfo.style.display = "block";
     helpPanel.style.display = "block";
-    helpPanel.textContent = "操作説明\nWASD: 移動\nShift: ダッシュ";
+    helpPanel.textContent = V2_GAMEPLAY_HELP_TEXT;
   }
-  canvas.focus();
-  void (canvas as unknown as Element)
-    .requestPointerLock()
-    .catch((error: unknown) => {
-      console.error("ポインターロックの要求に失敗しました。", error);
-    });
+  if (requestPointerLock) {
+    canvas.focus();
+    void (canvas as unknown as Element)
+      .requestPointerLock()
+      .catch((error: unknown) => {
+        console.error("ポインターロックの要求に失敗しました。", error);
+      });
+  }
 };
 
-const handleCanvasClick = () => {
+const updateGameplayHelp = (phase: ReturnType<typeof survival.getFrame>["phase"]) => {
+  if (
+    performanceScenario !== null ||
+    runtimeStressScenario !== null ||
+    rampValidationTarget !== null
+  ) {
+    return;
+  }
+  const nextText =
+    phase === "execution" || phase === "execution-complete"
+      ? V2_GAMEPLAY_EXECUTION_HELP_TEXT
+      : V2_GAMEPLAY_HELP_TEXT;
+  if (helpPanel.textContent !== nextText) {
+    helpPanel.textContent = nextText;
+  }
+};
+
+const handleCanvasClick: EventListener = () => {
   const wasStarted = started;
   const hadPointerLock =
     document.pointerLockElement ===
     (canvas as unknown as Element);
-  startPlay();
-  if (wasStarted && hadPointerLock) {
-    const direction = camera.getDirection(
-      Vector3.Forward(scene.useRightHandedSystem)
-    );
-    survival.requestPlayerGunFire(direction);
+  startPlay(true);
+  const frame = survival.getFrame();
+  if (
+    wasStarted &&
+    hadPointerLock &&
+    canV2RuntimePlayerFire(frame)
+  ) {
+    camera.getDirectionToRef(cameraForwardAxis, playerGunDirection);
+    survival.requestPlayerGunFire(playerGunDirection);
   }
 };
 
-canvas.addEventListener("click", handleCanvasClick);
+eventScope.listen(canvas, "click", handleCanvasClick);
+
+const handlePointerLockChange: EventListener = () => {
+  if (
+    document.pointerLockElement !==
+    (canvas as unknown as Element)
+  ) {
+    input.reset();
+    runtimeHud.clear();
+  }
+};
+eventScope.listen(
+  document,
+  "pointerlockchange",
+  handlePointerLockChange
+);
+eventScope.listen(window, "blur", () => {
+  input.reset();
+});
 
 if (performanceScenario) {
   configurePerformanceView();
@@ -634,8 +933,20 @@ if (runtimeStressScenario) {
   publishRuntimeStressReport("running", null);
 }
 
+const renderScene = () => {
+  playerCharacterVisual.getCameraRenderOffsetToRef(cameraRenderOffset);
+  logicalRenderCameraPosition.copyFrom(camera.position);
+  camera.position.addInPlace(cameraRenderOffset);
+  try {
+    scene.render();
+  } finally {
+    camera.position.copyFrom(logicalRenderCameraPosition);
+  }
+};
+
 engine.runRenderLoop(() => {
   try {
+    const actions = input.drainPressedActions();
     performanceDiagnostics?.beginFrame();
     if (performanceDiagnostics) {
       for (const kind of stageRayQueryKinds) {
@@ -662,16 +973,26 @@ engine.runRenderLoop(() => {
       ? V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS / 1000
       : Math.min(engine.getDeltaTime() / 1000, 0.05);
     traversalCoordinator.update(delta);
+    const playerElevatorTraversal =
+      traversalCoordinator.getPlayerElevatorTraversalSnapshot();
+    const horizontalSpeedScale = resolveV2HorizontalSpeedScale(
+      stage.queries.containsVolume(
+        "water",
+        player.getFootPosition()
+      )
+    );
     const playerFrame = performanceDiagnostics
       ? performanceDiagnostics.measure("player", () =>
           player.update(
             delta,
-            started && survival.canPlayerMove()
+            started && survival.canPlayerMove(),
+            horizontalSpeedScale
           )
         )
       : player.update(
           delta,
-          started && survival.canPlayerMove()
+          started && survival.canPlayerMove(),
+          horizontalSpeedScale
         );
     let survivalFrame = survival.getFrame();
     if (started) {
@@ -679,13 +1000,90 @@ engine.runRenderLoop(() => {
       survivalFrame = performanceDiagnostics
         ? performanceDiagnostics.measure(
             "survival",
-            () => survival.update(delta, elapsedSeconds)
+            () =>
+              survival.update(
+                delta,
+                elapsedSeconds,
+                playerElevatorTraversal
+              )
           )
-        : survival.update(delta, elapsedSeconds);
+        : survival.update(
+            delta,
+            elapsedSeconds,
+            playerElevatorTraversal
+          );
+    }
+    const executionReplayResult = dispatchV2RuntimeExecutionReplay({
+      actions,
+      frame: survivalFrame,
+      survival
+    });
+    if (executionReplayResult === "execution-replayed") {
+      survivalFrame = survival.getFrame();
+    }
+    const currentPlayerTarget = survival.getHumanTargets()[0];
+    camera.getDirectionToRef(cameraForwardAxis, characterViewForward);
+    camera.getDirectionToRef(cameraUpAxis, characterViewUp);
+    characterFacingYaw = resolveV2CharacterFacingYaw({
+      viewForward: characterViewForward,
+      viewUp: characterViewUp,
+      fallbackYaw: characterFacingYaw
+    });
+    characterVisuals.setFacingYaw(characterFacingYaw);
+    playerCharacterVisual.update({
+      active: started,
+      state: survivalFrame.playerState,
+      footPosition: currentPlayerTarget.footPosition,
+      viewForward: characterViewForward,
+      facingYaw: characterFacingYaw
+    });
+    updateGameplayHelp(survivalFrame.phase);
+    const interactionActive =
+      started &&
+      document.pointerLockElement ===
+        (canvas as unknown as Element);
+    const npcCandidates = interactionActive
+      ? survival.getNpcCommandCandidates()
+      : EMPTY_NPC_COMMAND_CANDIDATES;
+    const doorCandidates = interactionActive
+      ? dynamicRuntime.doors.getDoorInteractionCandidates({
+          origin: currentPlayerTarget.aimPosition,
+          forward: characterViewForward
+        })
+      : EMPTY_DOOR_INTERACTION_CANDIDATES;
+    let interactionFeedback: readonly V2RuntimeInteractionFeedback[] =
+      EMPTY_RUNTIME_INTERACTION_FEEDBACK;
+    if (interactionActive) {
+      interactionFeedback = dispatchV2RuntimeInteractions({
+        actions,
+        frame: survivalFrame,
+        npcCandidates,
+        doorCandidates,
+        survival,
+        doors: dynamicRuntime.doors
+      });
+      survivalFrame = survival.getFrame();
+    }
+    runtimeHud.update({
+      active: interactionActive,
+      frame: survivalFrame,
+      npcCandidates,
+      doorCandidates,
+      feedback: interactionFeedback
+    });
+    const audioEvents = survival.drainAudioEvents();
+    if (audioActivated) {
+      gameplayAudioBridge.dispatch(audioEvents);
+      voiceRuntime.update(
+        delta,
+        survivalFrame.phase === "playing",
+        survival.getHumanTargets()
+      );
+      audio.updateSpatial();
     }
     alarmFloorVisual?.update({
       frame: survivalFrame.alarm,
-      playerFootPosition: playerFrame.footPosition,
+      playerFootPosition: currentPlayerTarget.footPosition,
       elapsedSeconds
     });
     if (runtimeStressScenario) {
@@ -703,7 +1101,7 @@ engine.runRenderLoop(() => {
     statusTimer += delta;
     if (statusTimer >= 0.1) {
       statusTimer = 0;
-      const foot = playerFrame.footPosition;
+      const foot = currentPlayerTarget.footPosition;
       const performanceProgress =
         performanceDiagnostics?.getProgress();
       if (
@@ -750,12 +1148,10 @@ engine.runRenderLoop(() => {
       }
     }
     if (performanceDiagnostics) {
-      performanceDiagnostics.measure("render", () => {
-        scene.render();
-      });
+      performanceDiagnostics.measure("render", renderScene);
       performanceDiagnostics.finishFrame();
     } else {
-      scene.render();
+      renderScene();
     }
   } catch (error) {
     engine.stopRenderLoop();
@@ -770,33 +1166,91 @@ engine.runRenderLoop(() => {
 });
 
 const resize = () => engine.resize();
-window.addEventListener("resize", resize);
+eventScope.listen(window, "resize", resize);
 
-let disposed = false;
-const disposeRuntime = () => {
-  if (disposed) {
-    return;
+const handleReturnToTitleKey: EventListener = (event) => {
+  if ((event as KeyboardEvent).code === "Enter" && started) {
+    requestSessionRebuild();
   }
-  disposed = true;
-  engine.stopRenderLoop();
-  window.removeEventListener("resize", resize);
-  canvas.removeEventListener("click", handleCanvasClick);
-  performanceDiagnostics?.dispose();
-  delete window.__v2PerformanceDiagnostics;
-  delete document.body.dataset.v2PerformanceReport;
-  delete document.body.dataset.v2RuntimeStressReport;
-  if (runtimeStressScenario) {
-    delete document.documentElement.dataset.validationStatus;
-  }
-  traversalCoordinator.dispose();
-  dynamicRuntime.dispose();
-  alarmFloorVisual?.dispose();
-  survival.dispose();
-  navigationPolicy.dispose();
-  player.dispose();
-  stage.dispose();
-  scene.dispose();
-  engine.dispose();
+};
+eventScope.listen(window, "keydown", handleReturnToTitleKey);
+
+return Object.freeze({
+  dispose: disposeRuntime
+});
+} catch (error) {
+  console.error(
+    "V2 Runtime sessionの構築に失敗しました。",
+    error
+  );
+  titleStartHint.textContent = "読込エラー";
+  titleMessage.textContent = formatLoadError(error);
+  await disposeRuntime();
+  throw error;
+}
 };
 
-window.addEventListener("beforeunload", disposeRuntime, { once: true });
+let activeSession: V2RuntimeSession | null = null;
+let sessionTransition: Promise<void> | null = null;
+let runtimeTerminated = false;
+
+const showSessionLoading = () => {
+  titleOverlay.style.display = "flex";
+  titleStartHint.style.display = "none";
+  titleMessage.style.display = "block";
+  titleMessage.textContent = "学校3D空間を読み込んでいます";
+  statusInfo.style.display = "none";
+  helpPanel.style.display = "none";
+};
+
+const rebuildSession = () => {
+  if (sessionTransition !== null || runtimeTerminated) {
+    return;
+  }
+  sessionTransition = (async () => {
+    const previousSession = activeSession;
+    activeSession = null;
+    activeSession = await transitionV2RuntimeSession({
+      currentSession: previousSession,
+      runtimeSeed,
+      isCancelled: () => runtimeTerminated,
+      exitPointerLock: () => document.exitPointerLock(),
+      showLoading: showSessionLoading,
+      createSession: (sessionSeed) =>
+        createRuntimeSession(sessionSeed, rebuildSession)
+    });
+  })()
+    .catch((error: unknown) => {
+      if (runtimeTerminated) {
+        return;
+      }
+      console.error(
+        "V2 Runtime sessionの再初期化に失敗しました。",
+        error
+      );
+    })
+    .finally(() => {
+      sessionTransition = null;
+    });
+};
+
+try {
+  activeSession = await createRuntimeSession(
+    runtimeSeed,
+    rebuildSession
+  );
+} catch {
+  activeSession = null;
+}
+
+window.addEventListener(
+  "beforeunload",
+  () => {
+    runtimeTerminated = true;
+    const session = activeSession;
+    activeSession = null;
+    void session?.dispose();
+    engine.dispose();
+  },
+  { once: true }
+);

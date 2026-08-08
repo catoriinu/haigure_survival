@@ -182,6 +182,20 @@ const createDoor = (
   );
   visual.parent = panel;
   collector.visualMeshes.push(visual);
+  if (
+    options.doorClass === "room" ||
+    options.doorClass === "toilet_stall"
+  ) {
+    const interactionAnchor = MeshBuilder.CreateBox(
+      options.doorClass === "room"
+        ? `VIS_DoorPanel_Handle_${options.token}`
+        : `VIS_DoorPanel_Knob_${options.token}`,
+      { size: 0.08 },
+      collector.scene
+    );
+    interactionAnchor.parent = panel;
+    collector.visualMeshes.push(interactionAnchor);
+  }
 
   const collider = MeshBuilder.CreateBox(
     `COL_DoorPanel_${options.token}`,

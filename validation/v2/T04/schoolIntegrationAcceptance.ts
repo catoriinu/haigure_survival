@@ -78,7 +78,8 @@ import {
   type V2NpcTraversalNotification,
   type V2NpcTraversalRequest,
   type V2NpcTraversalResult,
-  type V2NpcTraversalState
+  type V2NpcTraversalState,
+  type V2PlayerElevatorTraversalSnapshot
 } from "../../../src/v2/npcTraversal";
 import type {
   V2PlayerController
@@ -134,6 +135,7 @@ type TraversalFixtureActor = {
   targetProvenance: V2TargetProvenance | null;
   targetSelectionPersonality: V2TargetSelectionPersonality | null;
   completeTransitionCount: number;
+  reservationResultRevision: number;
 };
 
 type TraversalFixtureActorInput = Readonly<{
@@ -302,7 +304,33 @@ const createFixtureActors = () => {
             radii: actor.radii.clone()
           })
         )
-      )
+      ),
+    getDoorActors: () =>
+      Object.freeze(
+        [...actors.values()].map((actor) =>
+          Object.freeze({
+            id: actor.id,
+            kind: "human" as const,
+            position: actor.position.clone(),
+            ellipsoid: Object.freeze({
+              center: actor.position.clone(),
+              radii: actor.radii.clone()
+            })
+          })
+        )
+      ),
+    relocateDoorActor: (
+      actorId: string,
+      candidates: readonly Vector3[]
+    ) => {
+      const candidate = candidates[0];
+      if (!candidate) {
+        throw new Error(`fixture扉退避候補がありません: ${actorId}`);
+      }
+      const actor = requireActor(actors, actorId);
+      actor.position.copyFrom(candidate);
+      return actor.position.clone();
+    }
   });
   return Object.freeze({
     actors,
@@ -514,7 +542,8 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
       targetProvenance: input.targetProvenance ?? null,
       targetSelectionPersonality:
         input.targetSelectionPersonality ?? null,
-      completeTransitionCount: 0
+      completeTransitionCount: 0,
+      reservationResultRevision: 0
     };
     this.actors.set(input.id, actor);
     return actor;
@@ -721,13 +750,19 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
 
   update(
     _deltaSeconds: number,
-    _elapsedSeconds: number
+    _elapsedSeconds: number,
+    _playerElevatorTraversal: V2PlayerElevatorTraversalSnapshot | null
   ): never {
     return this.unexpected("update");
   }
 
   getFrame(): never {
     return this.unexpected("getFrame");
+  }
+
+  drainAudioEvents() {
+    this.assertActive();
+    return Object.freeze([]);
   }
 
   canPlayerMove() {
@@ -774,6 +809,11 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
         createTraversalTargetSnapshot
       )
     ]);
+  }
+
+  getBitActors() {
+    this.assertActive();
+    return Object.freeze([]);
   }
 
   releaseNpcTraversalForScriptedPhase() {
@@ -888,6 +928,7 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
             ...state,
             kind: "riding-elevator"
           });
+          actor.reservationResultRevision += 1;
           break;
         }
         case "elevator-safety-evicted": {
@@ -923,19 +964,7 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
           actor.traversalState = Object.freeze({
             kind: "walking"
           });
-          if (
-            result.reason === "capacity-reached" &&
-            actor.commandMode === "follow"
-          ) {
-            actor.commandMode = "none";
-            notifications.push(
-              Object.freeze({
-                kind: "follow-cancelled",
-                npcId: actor.id,
-                reason: "elevator-capacity-reached"
-              })
-            );
-          }
+          actor.reservationResultRevision += 1;
           break;
         }
         case "elevator-arrived": {
@@ -993,6 +1022,10 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
   ) {
     this.assertActive();
     this.requireActor(npcId).position.copyFrom(position);
+  }
+
+  relocateBit(_bitId: string, _candidates: readonly Vector3[]): Vector3 {
+    return this.unexpected("relocateBit");
   }
 
   beginTargetNavigationAreaTransport(
@@ -1699,7 +1732,7 @@ const runTraversalCoordinatorAcceptance = async (
       elevatorAssets: context.elevatorAssets,
       dynamicVariants: context.dynamicVariants,
       queries: context.queries,
-      actors: createSchoolStageActorPort(player, survival)
+      actors: createSchoolStageActorPort(player, survival, context)
     });
     const doorCloseValues = [0.1, 0.5, 0.1, 0.1, 0.5];
     let doorCloseRandomCount = 0;
@@ -1835,7 +1868,7 @@ const runTraversalCoordinatorAcceptance = async (
       context.doorAssets.getByClass("toilet_stall")[0];
     if (!occupancyDoor) {
       throw new Error(
-        "占有中止fixtureのトイレ扉がありません。"
+        "占有中閉鎖fixtureのトイレ扉がありません。"
       );
     }
     const occupancyPass = requireDoorTraversalPositions(
@@ -1867,14 +1900,14 @@ const runTraversalCoordinatorAcceptance = async (
       );
     updateCoordinator(0);
     updateCoordinator(0);
-    const blockedDoorState =
+    const occupiedClosingDoorState =
       runtime.doors.getDoorState(occupancyDoor.id);
     survival.setActorPosition(
       "door-blocker",
       farPosition
     );
     updateCoordinator(STAGE_DOOR_TRAVEL_SECONDS * 2);
-    const noRetryDoorState =
+    const completedDoorState =
       runtime.doors.getDoorState(occupancyDoor.id);
 
     pushCheck(
@@ -1909,15 +1942,16 @@ const runTraversalCoordinatorAcceptance = async (
     );
     pushCheck(
       checks,
-      "通過後30%閉扉・占有中止・再試行なし",
+      "通過後30%閉扉・占有中も閉鎖開始・再試行不要",
       unbrainwashedFinalState.state === "closed" &&
         brainwashedFinalState.state === "open" &&
         blockerIntersects &&
-        blockedDoorState.state === "open" &&
-        noRetryDoorState.state === "open" &&
+        occupiedClosingDoorState.state === "closing" &&
+        completedDoorState.state === "closed" &&
         doorCloseRandomCount === 3,
-      `30%=closed / 70%=open / blocked=${blockerIntersects}/` +
-        `${blockedDoorState.state} / retry=${doorCloseRandomCount - 3}`
+      `30%=closed / 70%=open / occupied=${blockerIntersects}/` +
+        `${occupiedClosingDoorState.state}->${completedDoorState.state}` +
+        ` / retry=${doorCloseRandomCount - 3}`
     );
 
     const sharedDoor = closedRoomDoors[3];
@@ -2150,14 +2184,11 @@ const runTraversalCoordinatorAcceptance = async (
         return `${position.x.toFixed(6)}|${position.y.toFixed(6)}|${position.z.toFixed(6)}`;
       })
     ).size;
-    const followCancellation = [
+    const traversalNotifications = [
       ...callAcceptedFrame.notifications,
       ...readyFrame.notifications,
       ...boardingFrame.notifications
-    ].filter(
-        (notification) =>
-          notification.kind === "follow-cancelled"
-      );
+    ];
     const rejectedStayedOnCallMatBeforeDeparture =
       rejectedIds.every((actorId) =>
         context!.queries.containsVolumeById(
@@ -2205,18 +2236,28 @@ const runTraversalCoordinatorAcceptance = async (
     );
     pushCheck(
       checks,
-      "定員拒否時はFollowだけ解除",
-      followCancellation.length === 1 &&
-        followCancellation[0]?.npcId === "elevator-07" &&
+      "定員拒否時もFollowを維持して次便または別経路へ再計画する",
+      traversalNotifications.length === 0 &&
         survival.getActor("elevator-07").commandMode ===
-          "none" &&
+          "follow" &&
         survival.getActor("elevator-08").commandMode ===
-          "leave",
-      `notifications=${followCancellation
-        .map((notification) => notification.npcId)
-        .join(",")} / follow=` +
+          "leave" &&
+        rejectedIds.every((actorId) => {
+          const actor = survival!.getActor(actorId);
+          return (
+            actor.traversalState.kind === "walking" &&
+            actor.reservationResultRevision === 1
+          );
+        }),
+      `notifications=${traversalNotifications.length} / follow=` +
         `${survival.getActor("elevator-07").commandMode} / ` +
-        `leave=${survival.getActor("elevator-08").commandMode}`
+        `leave=${survival.getActor("elevator-08").commandMode} / ` +
+        `replan=${rejectedIds
+          .map((actorId) => {
+            const actor = survival!.getActor(actorId);
+            return `${actorId}:${actor.traversalState.kind}@${actor.reservationResultRevision}`;
+          })
+          .join(",")}`
     );
     rejectedIds.forEach((actorId, index) =>
       survival!.setActorPosition(
@@ -2959,7 +3000,7 @@ const runPlayerElevatorTraversalAcceptance = async (
       elevatorAssets: context.elevatorAssets,
       dynamicVariants: context.dynamicVariants,
       queries: context.queries,
-      actors: createSchoolStageActorPort(player, survival)
+      actors: createSchoolStageActorPort(player, survival, context)
     });
     coordinator = createSchoolStageTraversalCoordinator({
       stage: context,
@@ -2974,8 +3015,14 @@ const runPlayerElevatorTraversalAcceptance = async (
 
     updateCoordinator(0);
     const firstCallSnapshot = elevatorRuntime.getSnapshot();
+    const playerCallingTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
+    const repeatedPlayerCallingTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     updateCoordinator(0);
     const heldCallSnapshot = elevatorRuntime.getSnapshot();
+    const heldPlayerCallingTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     updateCoordinator(ELEVATOR_DOOR_MOTION_SECONDS);
     const departedSnapshot = elevatorRuntime.getSnapshot();
     updateCoordinator(ELEVATOR_TRAVEL_SECONDS);
@@ -2984,6 +3031,10 @@ const runPlayerElevatorTraversalAcceptance = async (
       ELEVATOR_DOOR_MOTION_SECONDS
     );
     const readySnapshot = elevatorRuntime.getSnapshot();
+    const playerReservedTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
+    const repeatedPlayerReservedTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     const readyFrameElevator =
       readyFrame.runtimeSnapshot.elevators.find(
         (snapshot) => snapshot.id === elevator.id
@@ -3021,11 +3072,42 @@ const runPlayerElevatorTraversalAcceptance = async (
         `${readySnapshot.carDoorState} / reserved=` +
         `${playerReservationReady}/${returnedPlayerReservationReady}`
     );
+    pushCheck(
+      checks,
+      "プレイヤーエレベーターsnapshotを状態遷移まで再利用",
+      playerCallingTraversal !== null &&
+        playerCallingTraversal === repeatedPlayerCallingTraversal &&
+        playerCallingTraversal === heldPlayerCallingTraversal &&
+        playerReservedTraversal !== null &&
+        playerReservedTraversal === repeatedPlayerReservedTraversal &&
+        playerReservedTraversal !== playerCallingTraversal,
+      `calling=${playerCallingTraversal === repeatedPlayerCallingTraversal}/` +
+        `${playerCallingTraversal === heldPlayerCallingTraversal} / ` +
+        `reserved=${playerReservedTraversal === repeatedPlayerReservedTraversal} / ` +
+        `transition=${playerReservedTraversal !== playerCallingTraversal}`
+    );
+    pushCheck(
+      checks,
+      "プレイヤーエレベーターsnapshotの目的階位置を不変に維持",
+      playerCallingTraversal !== null &&
+        Object.isFrozen(
+          playerCallingTraversal.destinationFloorPosition
+        ),
+      `snapshot=${playerCallingTraversal !== null} / ` +
+        `positionFrozen=${
+          playerCallingTraversal !== null &&
+          Object.isFrozen(
+            playerCallingTraversal.destinationFloorPosition
+          )
+        }`
+    );
 
     const outsidePosition = new Vector3(1_500, 1_000, 1_000);
     player.setTransportFootPosition(outsidePosition);
     updateCoordinator(0);
     const cancelledSnapshot = elevatorRuntime.getSnapshot();
+    const playerCancelledTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     player.setTransportFootPosition(callMatCenter);
     updateCoordinator(0);
     const renewedSnapshot = elevatorRuntime.getSnapshot();
@@ -3054,12 +3136,18 @@ const runPlayerElevatorTraversalAcceptance = async (
     updateCoordinator(0);
     const preDepartureExitSnapshot =
       elevatorRuntime.getSnapshot();
+    const playerPreDepartureCancelledTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     updateCoordinator(0);
     const heldPreDepartureExitSnapshot =
       elevatorRuntime.getSnapshot();
+    const playerTraversalAfterPreDepartureCancellation =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     player.setTransportFootPosition(carCenter);
     updateCoordinator(0);
     const boardedSnapshot = elevatorRuntime.getSnapshot();
+    const playerRidingTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     const boardedPlayerPosition = player.getFootPosition();
     const boardedPlayer =
       boardedSnapshot.passengers.some(
@@ -3071,6 +3159,7 @@ const runPlayerElevatorTraversalAcceptance = async (
       cancelledSnapshot.reservations.every(
         (reservation) => reservation.actorId !== "player"
       ) &&
+        playerCancelledTraversal?.phase === "cancelled" &&
         renewedSnapshot.reservations.some(
           (reservation) => reservation.actorId === "player"
         ) &&
@@ -3084,15 +3173,19 @@ const runPlayerElevatorTraversalAcceptance = async (
         preDepartureExitSnapshot.passengers.every(
           (passenger) => passenger.actorId !== "player"
         ) &&
+        playerPreDepartureCancelledTraversal?.phase ===
+          "cancelled" &&
         heldPreDepartureExitSnapshot.passengers.every(
           (passenger) => passenger.actorId !== "player"
         ) &&
+        playerTraversalAfterPreDepartureCancellation === null &&
         boardedPlayer &&
         context.queries.containsVolumeById(
           elevator.car.occupancy.id,
           boardedPlayerPosition
         ),
       `cancelled=${cancelledSnapshot.reservations.length} / ` +
+        `terminal=${playerCancelledTraversal?.phase ?? "none"} / ` +
         `renewed=${renewedSnapshot.reservations.length} / ` +
         `threshold=${thresholdSnapshot.reservations.length} / ` +
         `preExit=${firstBoardedSnapshot.passengers.length}→` +
@@ -3139,6 +3232,11 @@ const runPlayerElevatorTraversalAcceptance = async (
     player.setTransportFootPosition(exitPosition);
     updateCoordinator(0);
     const disembarkedSnapshot = elevatorRuntime.getSnapshot();
+    const playerCompletedTraversal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
+    updateCoordinator(0);
+    const playerTraversalAfterCompletedTerminal =
+      coordinator.getPlayerElevatorTraversalSnapshot();
     const playerIdentityAndMotionPreserved =
       player === playerReference &&
       verticalStateAtArrival.grounded ===
@@ -3186,6 +3284,37 @@ const runPlayerElevatorTraversalAcceptance = async (
         `elapsed=${rideElapsedSeconds.toFixed(1)} / ` +
         `exit=${exitIsOutsideTraversalVolumes} / ` +
         `preserved=${playerIdentityAndMotionPreserved}`
+    );
+    const expectedDestinationEndpoint =
+      destinationStop.endpoint === "A"
+        ? elevator.link.endpointA
+        : elevator.link.endpointB;
+    pushCheck(
+      checks,
+      "プレイヤー搬送snapshotは呼出・予約・乗車・取消・完了を公開して終端後に消去",
+      playerCallingTraversal?.phase === "calling" &&
+        playerReservedTraversal?.phase === "reserved" &&
+        playerRidingTraversal?.phase === "riding" &&
+        playerCallingTraversal.elevatorId === elevator.id &&
+        playerCallingTraversal.linkId === elevator.link.id &&
+        playerCallingTraversal.from === fromStop.endpoint &&
+        playerCallingTraversal.to === destinationStop.endpoint &&
+        Vector3.Distance(
+          playerCallingTraversal.destinationFloorPosition,
+          expectedDestinationEndpoint.position
+        ) <= POSITION_EPSILON &&
+        playerCancelledTraversal?.phase === "cancelled" &&
+        playerPreDepartureCancelledTraversal?.phase ===
+          "cancelled" &&
+        playerCompletedTraversal?.phase === "completed" &&
+        playerTraversalAfterCompletedTerminal === null,
+      `phase=${playerCallingTraversal?.phase ?? "none"}→` +
+        `${playerReservedTraversal?.phase ?? "none"}→` +
+        `${playerRidingTraversal?.phase ?? "none"}→` +
+        `${playerCompletedTraversal?.phase ?? "none"}→` +
+        `${playerTraversalAfterCompletedTerminal?.phase ?? "none"} / ` +
+        `route=${playerCallingTraversal?.from ?? "?"}→` +
+        `${playerCallingTraversal?.to ?? "?"}`
     );
 
     const openCarCenter = requireWorldCenter(
@@ -3673,6 +3802,8 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
     const doorCycleSpatial: ReturnType<typeof inspectDoorSpatialContract>[] =
       [];
     const closedDoorCollider = getPanelColliders(closedRoomDoor)[0];
+    const closedRoomDoorPanelCenter =
+      requireWorldCenter(closedDoorCollider);
     const closedDoorRaySegment =
       createDoorRaySegment(closedDoorCollider);
     const dynamicRayProbe = createDoorDynamicRayProbe(
@@ -3747,7 +3878,8 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
         (sample, index) =>
           sample.ok &&
           sample.revision ===
-            doorCycleSpatial[0].revision + index
+            doorCycleSpatial[0].revision +
+              ([0, 1, 1, 2, 3, 3, 4] as const)[index]
       ),
       doorCycleSpatial
         .map(
@@ -3818,6 +3950,41 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
       actors.actors,
       "actor-08-occupancy"
     );
+    runtime.doors.requestDoorToggle(closedRoomDoor.id);
+    runtime.update(STAGE_DOOR_TRAVEL_SECONDS);
+    occupancyActor.position.copyFrom(closedRoomDoorPanelCenter);
+    occupancyActor.radii.setAll(0.05);
+    const roomOccupancyIntersects =
+      intersectsStageDoorClosedPose(
+        closedRoomDoor,
+        Object.freeze({
+          center: occupancyActor.position.clone(),
+          radii: occupancyActor.radii.clone()
+        })
+      );
+    const roomOccupancyResult =
+      runtime.doors.requestDoorToggle(closedRoomDoor.id);
+    runtime.update(STAGE_DOOR_TRAVEL_SECONDS);
+    const roomOccupancyCleared =
+      !intersectsStageDoorClosedPose(
+        closedRoomDoor,
+        Object.freeze({
+          center: occupancyActor.position.clone(),
+          radii: occupancyActor.radii.clone()
+        })
+      );
+    pushCheck(
+      checks,
+      "教室引き戸も人物を最終パネル外へ退避して閉鎖",
+      roomOccupancyIntersects &&
+        roomOccupancyResult.status === "started" &&
+        roomOccupancyResult.state === "closing" &&
+        runtime.doors.getDoorState(closedRoomDoor.id).state === "closed" &&
+        roomOccupancyCleared,
+      `intersects=${roomOccupancyIntersects} / ` +
+        `status=${roomOccupancyResult.status} / ` +
+        `cleared=${roomOccupancyCleared}`
+    );
     occupancyActor.position.copyFrom(requireWorldCenter(occupancyDoor.sweepMesh));
     occupancyActor.radii.setAll(0.05);
     const occupancyIntersects = context.queries.intersectsVolumeById(
@@ -3829,21 +3996,29 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
     );
     const occupancyResult =
       runtime.doors.requestDoorToggle(occupancyDoor.id);
-    occupancyActor.position.set(1_100, 1_000, 1_000);
-    occupancyActor.radii.setAll(0.001);
+    runtime.update(0.8);
+    const occupancyActorAfter = occupancyActor.position.clone();
+    const occupancyCleared =
+      !intersectsStageDoorClosedPose(
+        occupancyDoor,
+        Object.freeze({
+          center: occupancyActor.position.clone(),
+          radii: occupancyActor.radii.clone()
+        })
+      );
     pushCheck(
       checks,
-      "人物楕円体による最終位置・掃引Volume占有中止",
+      "人物楕円体を最終パネル外へ退避して閉鎖",
       occupancyIntersects &&
-        occupancyResult.status === "blocked" &&
-        occupancyResult.state === "open" &&
-        (occupancyResult.finalPoseOccupied ||
-          occupancyResult.sweepOccupied),
+        occupancyResult.status === "started" &&
+        occupancyResult.state === "closing" &&
+        runtime.doors.getDoorState(occupancyDoor.id).state === "closed" &&
+        occupancyCleared,
       `intersects=${occupancyIntersects} / status=${occupancyResult.status}` +
-        (occupancyResult.status === "blocked"
-          ? ` / final=${occupancyResult.finalPoseOccupied} / sweep=${occupancyResult.sweepOccupied}`
-          : "")
+        ` / actor=${occupancyActorAfter.toString()} / cleared=${occupancyCleared}`
     );
+    occupancyActor.position.set(1_100, 1_000, 1_000);
+    occupancyActor.radii.setAll(0.001);
 
     const fromStop = elevatorAsset.initialStop;
     const destinationStop = elevatorAsset.stops.find(

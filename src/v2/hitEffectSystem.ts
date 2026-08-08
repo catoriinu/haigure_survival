@@ -22,6 +22,7 @@ import {
   type V2HumanKind,
   type V2HumanTargetSnapshot
 } from "./combatTypes";
+import { V2_TRANSPARENT_ALPHA_INDEX_SPATIAL } from "./v2TransparentRenderingOrder";
 
 export const V2_HIT_EFFECT_ALPHA = 0.45;
 export const V2_HIT_EFFECT_LIGHT_INTENSITY = 0.4;
@@ -61,6 +62,15 @@ export type V2HitEffectSystemOptions = Readonly<{
   scene: Scene;
   random(): number;
   isIndirectLightVisible(position: Vector3): boolean;
+  resolveVisualEnvelope(
+    target: V2HumanTargetSnapshot
+  ): V2HitEffectVisualEnvelope;
+}>;
+
+export type V2HitEffectVisualEnvelope = Readonly<{
+  center: Vector3;
+  width: number;
+  height: number;
 }>;
 
 export interface V2HitEffectSystem {
@@ -135,16 +145,56 @@ const assertTarget = (target: V2HumanTargetSnapshot): void => {
   }
 };
 
-const calculateDiameter = (target: V2HumanTargetSnapshot): number =>
-  Math.hypot(
-    target.hitShape.radii.x * 2,
-    target.hitShape.radii.y * 2
-  ) * V2_HIT_EFFECT_DIAMETER_MARGIN_RATE;
+const resolveValidatedVisualEnvelope = (
+  resolver: V2HitEffectSystemOptions["resolveVisualEnvelope"],
+  target: V2HumanTargetSnapshot
+): V2HitEffectVisualEnvelope => {
+  const envelope = resolver(target);
+  if (typeof envelope !== "object" || envelope === null) {
+    throw new Error(
+      `命中演出の表示包絡にはobjectが必要です: ${target.id}`
+    );
+  }
+  if (!(envelope.center instanceof Vector3)) {
+    throw new Error(
+      `命中演出の表示包絡中心にはVector3が必要です: ${target.id}`
+    );
+  }
+  if (
+    !Number.isFinite(envelope.center.x) ||
+    !Number.isFinite(envelope.center.y) ||
+    !Number.isFinite(envelope.center.z)
+  ) {
+    throw new Error(
+      `命中演出の表示包絡中心には有限座標が必要です: ${target.id}`
+    );
+  }
+  if (!Number.isFinite(envelope.width) || envelope.width <= 0) {
+    throw new Error(
+      `命中演出の表示包絡幅には正の有限値が必要です: ${target.id}`
+    );
+  }
+  if (!Number.isFinite(envelope.height) || envelope.height <= 0) {
+    throw new Error(
+      `命中演出の表示包絡高には正の有限値が必要です: ${target.id}`
+    );
+  }
+  return Object.freeze({
+    center: envelope.center.clone(),
+    width: envelope.width,
+    height: envelope.height
+  });
+};
+
+const calculateDiameter = (envelope: V2HitEffectVisualEnvelope): number =>
+  Math.hypot(envelope.width, envelope.height) *
+  V2_HIT_EFFECT_DIAMETER_MARGIN_RATE;
 
 export const createV2HitEffectSystem = ({
   scene,
   random,
-  isIndirectLightVisible
+  isIndirectLightVisible,
+  resolveVisualEnvelope
 }: V2HitEffectSystemOptions): V2HitEffectSystem => {
   if (typeof random !== "function") {
     throw new Error("V2HitEffectSystemのrandomには関数が必要です");
@@ -152,6 +202,11 @@ export const createV2HitEffectSystem = ({
   if (typeof isIndirectLightVisible !== "function") {
     throw new Error(
       "V2HitEffectSystemのisIndirectLightVisibleには関数が必要です"
+    );
+  }
+  if (typeof resolveVisualEnvelope !== "function") {
+    throw new Error(
+      "V2HitEffectSystemのresolveVisualEnvelopeには関数が必要です"
     );
   }
 
@@ -162,6 +217,7 @@ export const createV2HitEffectSystem = ({
   );
   shellSource.isPickable = false;
   shellSource.visibility = 0;
+  shellSource.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
   shellSource.setEnabled(false);
   const shellSourceMaterial = new StandardMaterial(
     "v2-hit-effect-shell-source-material",
@@ -181,6 +237,7 @@ export const createV2HitEffectSystem = ({
   );
   orbSource.isPickable = false;
   orbSource.isVisible = false;
+  orbSource.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
   const orbMaterial = new StandardMaterial(
     "v2-hit-effect-orb-material",
     scene
@@ -278,6 +335,7 @@ export const createV2HitEffectSystem = ({
     );
     mesh.material = material;
     mesh.isPickable = false;
+    mesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
     const bundle = { mesh, material };
     resetBundle(bundle);
     bundles.push(bundle);
@@ -330,6 +388,7 @@ export const createV2HitEffectSystem = ({
     }
     resetOrb(mesh);
     mesh.isVisible = true;
+    mesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
     mesh.setEnabled(true);
     return mesh;
   };
@@ -500,15 +559,19 @@ export const createV2HitEffectSystem = ({
       if (activeEffects.has(target.id)) {
         return false;
       }
-      const diameter = calculateDiameter(target);
+      const envelope = resolveValidatedVisualEnvelope(
+        resolveVisualEnvelope,
+        target
+      );
+      const diameter = calculateDiameter(envelope);
       const bundle = acquireBundle();
       const lightSlot = acquireLightSlot();
-      bundle.mesh.position.copyFrom(target.hitShape.center);
+      bundle.mesh.position.copyFrom(envelope.center);
       bundle.mesh.scaling.setAll(diameter);
       bundle.material.alpha = V2_HIT_EFFECT_ALPHA;
       bundle.material.backFaceCulling = target.kind !== "player";
       if (lightSlot) {
-        lightSlot.position.copyFrom(target.hitShape.center);
+        lightSlot.position.copyFrom(envelope.center);
       }
       const effect: ActiveHitEffect = {
         targetId: target.id,
@@ -523,7 +586,7 @@ export const createV2HitEffectSystem = ({
         orbs: []
       };
       setEffectColor(effect, V2_HIT_EFFECT_PINK);
-      updateIndirectLight(effect, target.hitShape.center);
+      updateIndirectLight(effect, envelope.center);
       activeEffects.set(target.id, effect);
       return true;
     },
@@ -550,8 +613,14 @@ export const createV2HitEffectSystem = ({
           releaseEffect(effect);
           continue;
         }
-        effect.bundle.mesh.position.copyFrom(target.hitShape.center);
-        effect.lightSlot?.position.copyFrom(target.hitShape.center);
+        const envelope = resolveValidatedVisualEnvelope(
+          resolveVisualEnvelope,
+          target
+        );
+        effect.diameter = calculateDiameter(envelope);
+        effect.bundle.mesh.position.copyFrom(envelope.center);
+        effect.bundle.mesh.scaling.setAll(effect.diameter);
+        effect.lightSlot?.position.copyFrom(envelope.center);
         let remainingDeltaSeconds = deltaSeconds;
         while (remainingDeltaSeconds > 0) {
           const consumedSeconds = Math.min(
@@ -585,7 +654,7 @@ export const createV2HitEffectSystem = ({
             setEffectColor(effect, V2_HIT_EFFECT_PINK);
             createFadeOrbs(
               effect,
-              target.hitShape.center,
+              envelope.center,
               shouldRenderOrb
             );
             continue;
@@ -607,7 +676,7 @@ export const createV2HitEffectSystem = ({
           }
         }
         if (activeEffects.has(effect.targetId)) {
-          updateIndirectLight(effect, target.hitShape.center);
+          updateIndirectLight(effect, envelope.center);
         }
       }
     },

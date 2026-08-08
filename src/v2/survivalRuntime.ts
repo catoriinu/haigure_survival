@@ -31,6 +31,7 @@ import {
 } from "./beamCollision";
 import {
   createV2BitSystem,
+  type V2BitFrameView,
   type V2BitSystem
 } from "./bitSystem";
 import {
@@ -40,11 +41,18 @@ import {
 } from "./hitEffectSystem";
 import {
   type V2BeamRequest,
+  type V2ActorSphere,
   type V2CharacterState,
   type V2HumanTargetSnapshot,
   type V2PlayerCompletionState,
   type V2TargetProvenance
 } from "./combatTypes";
+import {
+  createV2GameplayAudioEventQueue,
+  type V2GameplayAudioEvent
+} from "./gameplayAudioEventQueue";
+
+export type { V2GameplayAudioEvent } from "./gameplayAudioEventQueue";
 import {
   createV2NpcSystem,
   type V2NpcBeamImpact,
@@ -61,7 +69,8 @@ import type {
   V2NpcTraversalNotification,
   V2NpcTraversalRequest,
   V2NpcTraversalResult,
-  V2NpcTraversalState
+  V2NpcTraversalState,
+  V2PlayerElevatorTraversalSnapshot
 } from "./npcTraversal";
 import type {
   V2PerformanceDiagnostics,
@@ -71,6 +80,7 @@ import {
   createV2TargetNavigationAreaTracker,
   type V2TargetNavigationAreaTracker
 } from "./pursuitNavigation";
+import type { V2CharacterVisualRuntime } from "./v2CharacterVisualRuntime";
 import {
   V2_PLAYER_GUN_BEAM_MAXIMUM_LIFETIME_SECONDS,
   V2_PLAYER_GUN_BEAM_ORIGIN_OFFSET,
@@ -243,14 +253,20 @@ export const summarizeV2TargetTracking = (
 
 export interface V2SurvivalRuntime {
   prepareVisualResources(): Promise<void>;
-  update(deltaSeconds: number, elapsedSeconds: number): V2SurvivalFrame;
+  update(
+    deltaSeconds: number,
+    elapsedSeconds: number,
+    playerElevatorTraversal: V2PlayerElevatorTraversalSnapshot | null
+  ): V2SurvivalFrame;
   getFrame(): V2SurvivalFrame;
+  drainAudioEvents(): readonly V2GameplayAudioEvent[];
   canPlayerMove(): boolean;
   selectPlayerCompletion(state: V2PlayerCompletionState): void;
   getNpcCommandCandidates(): readonly V2NpcCommandCandidate[];
   requestNpcCommand(npcId: string, kind: V2NpcCommandKind): boolean;
   cancelNpcFollow(npcId: string): boolean;
   getHumanTargets(): readonly V2HumanTargetSnapshot[];
+  getBitActors(): readonly V2ActorSphere[];
   releaseNpcTraversalForScriptedPhase(): void;
   drainNpcTraversalRequests(): readonly V2NpcTraversalRequest[];
   applyNpcTraversalResults(
@@ -259,6 +275,7 @@ export interface V2SurvivalRuntime {
   getNpcTraversalState(npcId: string): V2NpcTraversalState;
   getNpcPosition(npcId: string): Vector3;
   setNpcTransportPosition(npcId: string, position: Vector3): void;
+  relocateBit(bitId: string, candidates: readonly Vector3[]): Vector3;
   beginTargetNavigationAreaTransport(targetId: string, position: Vector3): void;
   updateTargetNavigationAreaTransportPosition(targetId: string, position: Vector3): void;
   relocateTargetNavigationArea(targetId: string, position: Vector3): void;
@@ -291,6 +308,7 @@ export type V2SurvivalRuntimeOptions = Readonly<{
   scene: Scene;
   stage: StageSpatialContext;
   player: V2PlayerController;
+  characterVisuals: V2CharacterVisualRuntime;
   random: () => number;
   getOrbVisibilityPredicate(): (position: Vector3) => boolean;
   population: V2SurvivalPopulation;
@@ -372,6 +390,7 @@ export const createV2SurvivalRuntime = ({
   scene,
   stage,
   player,
+  characterVisuals,
   random,
   getOrbVisibilityPredicate,
   population,
@@ -463,6 +482,7 @@ export const createV2SurvivalRuntime = ({
     ownedNpcSystem = createV2NpcSystem({
       scene,
       stage,
+      characterVisuals,
       npcCount: population.npcCount,
       initialBrainwashedNpcCount:
         population.initialBrainwashedNpcCount,
@@ -496,7 +516,19 @@ export const createV2SurvivalRuntime = ({
     ownedHitEffectSystem = createV2HitEffectSystem({
       scene,
       random: visualRandom,
-      isIndirectLightVisible
+      isIndirectLightVisible,
+      resolveVisualEnvelope: (target) => {
+        const size = characterVisuals.getActorVisualSize(target.id);
+        return Object.freeze({
+          center: new Vector3(
+            target.footPosition.x,
+            target.footPosition.y + size.height / 2,
+            target.footPosition.z
+          ),
+          width: size.width,
+          height: size.height
+        });
+      }
     });
     humanTargets = Object.freeze([
       playerCombat.createTargetSnapshot(
@@ -569,6 +601,14 @@ export const createV2SurvivalRuntime = ({
   let alarmTriggerCount = 0;
   let pendingPlayerBeamRequests: V2BeamRequest[] = [];
   let pendingPlayerGunFireEvents: V2PlayerGunFireEvent[] = [];
+  const audioEventQueue = createV2GameplayAudioEventQueue();
+  const previousBitTargetIds = new Map(
+    bitSystem
+      .getFrameView()
+      .targetStates.map((target) => [target.bitId, target.targetId])
+  );
+  const bitActorById = new Map<string, V2ActorSphere>();
+  const humanTargetById = new Map<string, V2HumanTargetSnapshot>();
   let playerBlockedNpcIds: readonly string[] = Object.freeze([]);
   let previousBitThreats: readonly V2NpcExternalThreat[] =
     Object.freeze([]);
@@ -590,6 +630,49 @@ export const createV2SurvivalRuntime = ({
       ...npcSystem.getFrameView().targets
     ]);
     return humanTargets;
+  };
+
+  const recordBeamSpawn = (request: V2BeamRequest) => {
+    audioEventQueue.enqueue(
+      Object.freeze({
+        kind: "beam-shot" as const,
+        originKind: request.originKind,
+        position: request.origin.clone()
+      })
+    );
+    return beamSystem.spawn(request);
+  };
+
+  const recordBitTargetEvents = (
+    frameView: V2BitFrameView,
+    actorById: ReadonlyMap<string, V2ActorSphere>
+  ) => {
+    for (const target of frameView.targetStates) {
+      const previousTargetId = previousBitTargetIds.get(target.bitId) ?? null;
+      if (
+        target.targetId !== null &&
+        target.targetId !== previousTargetId
+      ) {
+        const actor = actorById.get(target.bitId);
+        if (!actor) {
+          throw new Error(
+            `BIT音声イベントの位置がありません: ${target.bitId}`
+          );
+        }
+        audioEventQueue.enqueue(
+          Object.freeze({
+            kind: "bit-target" as const,
+            position: actor.center.clone()
+          })
+        );
+      }
+      previousBitTargetIds.set(target.bitId, target.targetId);
+    }
+    for (const bitId of previousBitTargetIds.keys()) {
+      if (!actorById.has(bitId)) {
+        previousBitTargetIds.delete(bitId);
+      }
+    }
   };
 
   const getPlayerTarget = () => {
@@ -642,12 +725,17 @@ export const createV2SurvivalRuntime = ({
     npcSystem.clearCommands();
     npcSystem.setAiSuspended(true);
     npcSystem.setExternalThreats(Object.freeze([]));
+    npcSystem.setAutonomousThreatActors(Object.freeze([]));
     npcSystem.setPlayerBlockedTargetIds(Object.freeze([]));
     bitSystem.prepareForScriptedPhase();
     bitSystem.setAiSuspended(true);
     beamSystem.clear();
     hitEffectSystem.clear();
     alertCoordinator.clear();
+    audioEventQueue.clear();
+    previousBitTargetIds.clear();
+    bitActorById.clear();
+    humanTargetById.clear();
     alarmFrame = EMPTY_ALARM_FRAME;
     pendingPlayerBeamRequests = [];
     pendingPlayerGunFireEvents = [];
@@ -884,6 +972,7 @@ export const createV2SurvivalRuntime = ({
         originKind:
           V2BeamFrameEvents["impacts"][number]["originKind"];
         target: V2HumanTargetSnapshot;
+        impactPosition: Vector3;
         npcImpactIndex: number | null;
         playerAccepted: boolean;
       }>
@@ -923,6 +1012,7 @@ export const createV2SurvivalRuntime = ({
           targetId,
           originKind: event.originKind,
           target: event.hit.actor,
+          impactPosition: event.hit.point.clone(),
           npcImpactIndex,
           playerAccepted
         })
@@ -945,6 +1035,12 @@ export const createV2SurvivalRuntime = ({
           ? entry.playerAccepted
           : npcImpactResults[entry.npcImpactIndex].accepted;
       if (accepted) {
+        audioEventQueue.enqueue(
+          Object.freeze({
+            kind: "character-hit" as const,
+            position: entry.impactPosition.clone()
+          })
+        );
         hitEffectSystem.start(entry.target);
       }
       if (
@@ -962,31 +1058,27 @@ export const createV2SurvivalRuntime = ({
     }
   };
 
-  const buildBitThreats = (): readonly V2NpcExternalThreat[] => {
-    const bitPositions = new Map(
-      bitSystem
-        .getFrameView()
-        .actorSpheres
-        .map((actor) => [actor.id, actor.center] as const)
-    );
+  const buildBitThreats = (
+    frameView: V2BitFrameView,
+    actorById: ReadonlyMap<string, V2ActorSphere>,
+    humanTargetById: ReadonlyMap<string, V2HumanTargetSnapshot>
+  ): readonly V2NpcExternalThreat[] => {
     const targetIds = new Set<string>();
     const threats: V2NpcExternalThreat[] = [];
-    for (const tracking of bitSystem.getFrameView().targetStates) {
+    for (const tracking of frameView.targetStates) {
       if (
         tracking.targetId === null ||
         targetIds.has(tracking.targetId)
       ) {
         continue;
       }
-      const sourcePosition = bitPositions.get(tracking.bitId);
-      if (!sourcePosition) {
+      const source = actorById.get(tracking.bitId);
+      if (!source) {
         throw new Error(
           `bit脅威元位置がありません: ${tracking.bitId}`
         );
       }
-      const target = humanTargets.find(
-        (candidate) => candidate.id === tracking.targetId
-      );
+      const target = humanTargetById.get(tracking.targetId);
       if (!target) {
         throw new Error(
           `bit脅威対象snapshotがありません: ${tracking.targetId}`
@@ -997,10 +1089,10 @@ export const createV2SurvivalRuntime = ({
         Object.freeze({
           sourceId: tracking.bitId,
           targetId: tracking.targetId,
-          sourcePosition: sourcePosition.clone(),
+          sourcePosition: source.center.clone(),
           sightClear:
             stage.queries.castSightSegment(
-              sourcePosition,
+              source.center,
               target.aimPosition
             ) === null
         })
@@ -1126,6 +1218,7 @@ export const createV2SurvivalRuntime = ({
         rebuildHumanTargets();
       }
       phase = "execution-complete";
+      audioEventQueue.clear();
     }
   };
 
@@ -1270,7 +1363,11 @@ export const createV2SurvivalRuntime = ({
         hitEffectPreparation
       ]);
     },
-    update: (deltaSeconds, elapsedSeconds) => {
+    update: (
+      deltaSeconds,
+      elapsedSeconds,
+      playerElevatorTraversal
+    ) => {
       assertActive();
       assertNonNegativeFiniteNumber(
         "survival deltaSeconds",
@@ -1279,6 +1376,9 @@ export const createV2SurvivalRuntime = ({
       assertNonNegativeFiniteNumber(
         "survival elapsedSeconds",
         elapsedSeconds
+      );
+      npcSystem.setPlayerElevatorTraversalSnapshot(
+        playerElevatorTraversal
       );
       frameOrbVisibilityPredicate = null;
       const npcFrameViewBuildSequenceAtUpdateStart =
@@ -1423,6 +1523,14 @@ export const createV2SurvivalRuntime = ({
           deltaSeconds,
           humans: humanTargets
         });
+        for (const event of alarmFrame.events) {
+          audioEventQueue.enqueue(
+            Object.freeze({
+              kind: "alarm" as const,
+              position: event.position.clone()
+            })
+          );
+        }
         performanceDiagnostics?.finishSection(
           "alarm",
           performanceSectionStartedAt
@@ -1445,6 +1553,9 @@ export const createV2SurvivalRuntime = ({
         }
         alarmTriggerCount += alarmFrame.events.length;
         npcSystem.setExternalThreats(previousBitThreats);
+        npcSystem.setAutonomousThreatActors(
+          bitSystem.getFrameView().actorSpheres
+        );
         updatePlayerBlockedNpcIds();
         performanceSectionStartedAt =
           performanceDiagnostics?.beginSection("npc") ?? 0;
@@ -1530,13 +1641,26 @@ export const createV2SurvivalRuntime = ({
           targets: humanTargets,
           externalAlerts: activeAlerts
         });
+        const bitFrameView = bitSystem.getFrameView();
+        bitActorById.clear();
+        for (const actor of bitFrameView.actorSpheres) {
+          bitActorById.set(actor.id, actor);
+        }
+        humanTargetById.clear();
+        for (const target of humanTargets) {
+          humanTargetById.set(target.id, target);
+        }
+        recordBitTargetEvents(bitFrameView, bitActorById);
+        performanceDiagnostics?.count(
+          "bit.target-history-size",
+          previousBitTargetIds.size
+        );
         performanceDiagnostics?.finishSection(
           "bit",
           performanceSectionStartedAt
         );
         if (performanceDiagnostics) {
-          const bitDiagnostics =
-            bitSystem.getFrameView().diagnostics;
+          const bitDiagnostics = bitFrameView.diagnostics;
           performanceDiagnostics.count(
             "bit.route-plans.search",
             bitDiagnostics.routePlans.search
@@ -1586,7 +1710,11 @@ export const createV2SurvivalRuntime = ({
             bitDiagnostics.beamRequests
           );
         }
-        previousBitThreats = buildBitThreats();
+        previousBitThreats = buildBitThreats(
+          bitFrameView,
+          bitActorById,
+          humanTargetById
+        );
 
         performanceSectionStartedAt =
           performanceDiagnostics?.beginSection(
@@ -1603,7 +1731,7 @@ export const createV2SurvivalRuntime = ({
             survivors,
             blocks: Object.freeze([]),
             bitShooterCount:
-              bitSystem.getFrameView().actorSpheres.length
+              bitFrameView.actorSpheres.length
           });
           if (
             allDeadSeconds >=
@@ -1617,7 +1745,7 @@ export const createV2SurvivalRuntime = ({
             survivors,
             blocks: Object.freeze([]),
             bitShooterCount:
-              bitSystem.getFrameView().actorSpheres.length
+              bitFrameView.actorSpheres.length
           });
         } else {
           allDeadSeconds = 0;
@@ -1627,7 +1755,7 @@ export const createV2SurvivalRuntime = ({
               survivors,
               blocks: buildExecutionBlocks(),
               bitShooterCount:
-                bitSystem.getFrameView().actorSpheres.length
+                bitFrameView.actorSpheres.length
             }
           );
           if (candidate) {
@@ -1648,8 +1776,7 @@ export const createV2SurvivalRuntime = ({
             performanceDiagnostics?.beginSection("beam") ?? 0;
           const npcBeamRequests =
             npcSystem.drainBeamRequests();
-          const bitBeamRequests =
-            bitSystem.getFrameView().beamRequests;
+          const bitBeamRequests = bitFrameView.beamRequests;
           performanceDiagnostics?.count(
             "beam.spawned",
             npcBeamRequests.length + bitBeamRequests.length
@@ -1659,7 +1786,7 @@ export const createV2SurvivalRuntime = ({
             npcBeamSpawns.push(
               Object.freeze({
                 sourceId: request.sourceId,
-                beamId: beamSystem.spawn(request)
+                beamId: recordBeamSpawn(request)
               })
             );
           }
@@ -1667,7 +1794,7 @@ export const createV2SurvivalRuntime = ({
             Object.freeze(npcBeamSpawns)
           );
           for (const request of bitBeamRequests) {
-            beamSystem.spawn(request);
+            recordBeamSpawn(request);
           }
           performanceDiagnostics?.finishSection(
             "beam",
@@ -1768,7 +1895,7 @@ export const createV2SurvivalRuntime = ({
           executionBeamRequests.length
         );
         for (const request of executionBeamRequests) {
-          beamSystem.spawn(request);
+          recordBeamSpawn(request);
         }
         performanceDiagnostics?.finishSection(
           "beam",
@@ -1787,10 +1914,10 @@ export const createV2SurvivalRuntime = ({
             pendingPlayerGunFireEvents.length
         );
         for (const request of pendingPlayerBeamRequests) {
-          beamSystem.spawn(request);
+          recordBeamSpawn(request);
         }
         for (const event of pendingPlayerGunFireEvents) {
-          beamSystem.spawn(event.beamRequest);
+          recordBeamSpawn(event.beamRequest);
         }
         performanceDiagnostics?.finishSection(
           "beam",
@@ -1803,11 +1930,14 @@ export const createV2SurvivalRuntime = ({
         performanceDiagnostics?.beginSection(
           "hit-effect"
         ) ?? 0;
-      hitEffectSystem.update(
-        deltaSeconds,
-        humanTargets,
-        getFrameOrbVisibilityPredicate()
-      );
+      if (hitEffectSystem.activeCount > 0) {
+        performanceDiagnostics?.count("hit-effect.updates");
+        hitEffectSystem.update(
+          deltaSeconds,
+          humanTargets,
+          getFrameOrbVisibilityPredicate()
+        );
+      }
       performanceDiagnostics?.finishSection(
         "hit-effect",
         performanceSectionStartedAt
@@ -1900,6 +2030,10 @@ export const createV2SurvivalRuntime = ({
       assertActive();
       return frame;
     },
+    drainAudioEvents: () => {
+      assertActive();
+      return audioEventQueue.drain();
+    },
     canPlayerMove: () => {
       assertActive();
       return canPlayerMove();
@@ -1950,7 +2084,11 @@ export const createV2SurvivalRuntime = ({
     },
     getHumanTargets: () => {
       assertActive();
-      return rebuildHumanTargets();
+      return humanTargets;
+    },
+    getBitActors: () => {
+      assertActive();
+      return bitSystem.getFrameView().actorSpheres;
     },
     releaseNpcTraversalForScriptedPhase: () => {
       assertActive();
@@ -1993,6 +2131,10 @@ export const createV2SurvivalRuntime = ({
       npcSystem.setNpcTransportPosition(npcId, position);
       rebuildHumanTargets();
     },
+    relocateBit: (bitId, candidates) => {
+      assertActive();
+      return bitSystem.relocateBit(bitId, candidates);
+    },
     beginTargetNavigationAreaTransport: (targetId, position) => {
       assertActive();
       assertFiniteVector("標的Navigation Area搬送開始位置", position);
@@ -2005,11 +2147,17 @@ export const createV2SurvivalRuntime = ({
         targetId,
         position
       );
+      if (targetId === PLAYER_ID) {
+        rebuildHumanTargets();
+      }
     },
     relocateTargetNavigationArea: (targetId, position) => {
       assertActive();
       assertFiniteVector("標的Navigation Area再配置位置", position);
       targetNavigationAreaTracker.relocate(targetId, position);
+      if (targetId === PLAYER_ID) {
+        rebuildHumanTargets();
+      }
     },
     requestPlayerGunFire: (direction) => {
       assertActive();
@@ -2075,18 +2223,19 @@ export const createV2SurvivalRuntime = ({
     },
     replayExecution: () => {
       assertActive();
-      if (phase !== "execution-complete") {
+      if (
+        phase !== "execution" &&
+        phase !== "execution-complete"
+      ) {
         throw new Error(
-          "公開処刑リプレイは処刑完了後に開始してください。"
+          "公開処刑リプレイは処刑中または完了後に開始してください。"
         );
       }
       const candidate = executionSystem.getFrame().candidate;
       if (!candidate) {
         throw new Error("公開処刑リプレイ対象がありません。");
       }
-      npcSystem.clearCommands();
-      beamSystem.clear();
-      hitEffectSystem.clear();
+      clearCombatForPhaseTransition();
       prepareExecutionTargetStates(candidate);
       const replayFrame = executionSystem.replay();
       prepareExecutionParticipantStates(
@@ -2095,8 +2244,6 @@ export const createV2SurvivalRuntime = ({
       );
       applyExecutionPlacements(replayFrame);
       phase = "execution";
-      pendingPlayerBeamRequests = [];
-      pendingPlayerGunFireEvents = [];
       rebuildHumanTargets();
       frame = buildFrame();
     },
@@ -2114,6 +2261,10 @@ export const createV2SurvivalRuntime = ({
       humanTargets = Object.freeze([]);
       pendingPlayerBeamRequests = [];
       pendingPlayerGunFireEvents = [];
+      audioEventQueue.dispose();
+      previousBitTargetIds.clear();
+      bitActorById.clear();
+      humanTargetById.clear();
       disposed = true;
     }
   };

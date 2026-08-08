@@ -1,17 +1,14 @@
 import {
-  Sprite,
-  SpriteManager,
   Vector3,
   type Mesh,
-  type Scene
+  type Scene,
+  type Sprite
 } from "@babylonjs/core";
 
 import {
-  CHARACTER_SPRITE_CELL_SIZE,
   NPC_SPRITE_CENTER_HEIGHT,
   NPC_SPRITE_HEIGHT,
-  NPC_SPRITE_WIDTH,
-  createDefaultCharacterSpritesheet
+  NPC_SPRITE_WIDTH
 } from "../game/characterSprites";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../world/worldUnits";
 import {
@@ -37,7 +34,6 @@ import {
   type V2AlarmTriggerEvent
 } from "./alarmSystem";
 import {
-  V2_HIT_FADE_DURATION_SECONDS,
   createV2CharacterStateSystem,
   type V2CharacterImpactSource,
   type V2CharacterStateSnapshot,
@@ -60,6 +56,10 @@ import {
   createV2HumanTargetSpatialIndex,
   type V2HumanTargetSpatialIndex
 } from "./humanTargetSpatialIndex";
+import {
+  createV2PlanarSpatialIndex,
+  type V2PlanarSpatialIndex
+} from "./planarSpatialIndex";
 import type { V2BeamCompletionEvent } from "./beamCollision";
 import {
   cloneV2NpcTraversalState,
@@ -67,15 +67,18 @@ import {
   isV2NpcElevatorTraversalState,
   isV2NpcTraversalWalkingEnabled,
   type V2NpcElevatorTraversalRoute,
+  type V2PlayerElevatorTraversalSnapshot,
   type V2NpcTraversalNotification,
   type V2NpcTraversalRequest,
   type V2NpcTraversalResult,
   type V2NpcTraversalState
 } from "./npcTraversal";
 import type { V2PlayerGunFireEvent } from "./playerCombatSystem";
+import { createV2FollowerFireDirection } from "./followerFireDirection";
+import type { V2CharacterVisualRuntime } from "./v2CharacterVisualRuntime";
 
 const NPC_SEARCH_SPEED = 0.2;
-const NPC_CHASE_SPEED = 0.3;
+export const V2_NPC_CHASE_SPEED = 0.3;
 const NPC_VISION_RANGE = 3;
 const NPC_VISION_RANGE_SQUARED = NPC_VISION_RANGE * NPC_VISION_RANGE;
 const NPC_VISUAL_LOCK_RANGE = 3.5;
@@ -119,20 +122,29 @@ export const V2_NPC_DETAIL_PATH_REPLAN_DEADLINE_SECONDS = 1;
 export const V2_NPC_COARSE_REFRESH_SECONDS = 2;
 export const V2_NPC_DETAIL_ENTER_DISTANCE_METERS = 12;
 export const V2_NPC_DETAIL_EXIT_DISTANCE_METERS = 18;
-export const V2_NPC_COMMAND_MAXIMUM_DISTANCE_METERS = 2;
-export const V2_NPC_FOLLOW_SPEED = NPC_CHASE_SPEED;
+export const V2_NPC_COMMAND_MAXIMUM_DISTANCE_METERS = 3;
+export const V2_NPC_FOLLOW_SPEED = 0.5;
+export const V2_NPC_ALARM_SPEED = V2_NPC_FOLLOW_SPEED;
+export const V2_NPC_LEAVE_SPEED = V2_NPC_CHASE_SPEED;
 export const V2_NPC_FOLLOW_SEPARATION_METERS = 0.8;
+export const V2_NPC_REST_SEPARATION_METERS = 0.8;
+export const V2_NPC_GUN_STOP_DISTANCE_METERS = 0.8;
+export const V2_NPC_GUN_RESUME_DISTANCE_METERS = 1;
 export const V2_NPC_FOLLOW_STOP_DISTANCE_METERS = 1;
 export const V2_NPC_FOLLOW_RESUME_DISTANCE_METERS = 1.2;
-export const V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS = 2;
+export const V2_NPC_FOLLOW_TRACKING_DISTANCE_METERS = 5;
+export const V2_NPC_FOLLOW_SIGHT_DISTANCE_METERS = 12;
+export const V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS = 5;
 export const V2_NPC_LEAVE_MAXIMUM_SECONDS = 5;
 export const V2_NPC_FOLLOWER_FIRE_DELAY_MIN_SECONDS = 0.3;
 export const V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS = 0.8;
-export const V2_NPC_FOLLOWER_FIRE_COOLDOWN_SECONDS = 1;
+export const V2_NPC_FOLLOWER_FIRE_COOLDOWN_SECONDS = 0.6;
 export const V2_NPC_CURRENT_TARGET_SIGHT_HERTZ = 5;
 export const V2_NPC_PERSONALITY_RETARGET_HERTZ = 1;
 export const V2_NPC_CURRENT_TARGET_SIGHT_MAXIMUM_PER_UPDATE = 20;
 export const V2_NPC_PERSONALITY_RETARGET_MAXIMUM_PER_UPDATE = 4;
+export const V2_NPC_AUTONOMOUS_THREAT_SIGHT_HERTZ = 3;
+export const V2_NPC_AUTONOMOUS_THREAT_SIGHT_MAXIMUM_PER_UPDATE = 20;
 
 const NPC_PERSONALITY_RETARGET_INTERVAL_SECONDS =
   1 / V2_NPC_PERSONALITY_RETARGET_HERTZ;
@@ -155,10 +167,34 @@ const NPC_COMMAND_MAXIMUM_DISTANCE =
   BLENDER_METERS_TO_WORLD_UNITS;
 const NPC_FOLLOW_SEPARATION_DISTANCE =
   V2_NPC_FOLLOW_SEPARATION_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_REST_SEPARATION_DISTANCE =
+  V2_NPC_REST_SEPARATION_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_GUN_STOP_DISTANCE =
+  V2_NPC_GUN_STOP_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_GUN_RESUME_DISTANCE =
+  V2_NPC_GUN_RESUME_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_GUN_REPOSITION_DISTANCE =
+  NPC_GUN_RESUME_DISTANCE - NPC_GUN_STOP_DISTANCE;
+const NPC_REST_SLOT_PROJECTION_DISTANCE =
+  0.2 * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_REST_SLOT_ARRIVAL_DISTANCE =
+  0.1 * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_REST_SLOT_RING_COUNT = 8;
+const NPC_REST_SLOT_BASE_COUNT = 6;
+const NPC_FOLLOW_FORMATION_PROJECTION_DISTANCE =
+  0.2 * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_FOLLOW_FORMATION_STOP_DISTANCE =
+  0.1 * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_FOLLOW_FORMATION_RESUME_DISTANCE =
+  0.2 * BLENDER_METERS_TO_WORLD_UNITS;
 const NPC_FOLLOW_STOP_DISTANCE =
   V2_NPC_FOLLOW_STOP_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
 const NPC_FOLLOW_RESUME_DISTANCE =
   V2_NPC_FOLLOW_RESUME_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_FOLLOW_TRACKING_DISTANCE =
+  V2_NPC_FOLLOW_TRACKING_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const NPC_FOLLOW_SIGHT_DISTANCE =
+  V2_NPC_FOLLOW_SIGHT_DISTANCE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
 const NPC_FOLLOW_LAST_DIRECTION_DISTANCE =
   1 * BLENDER_METERS_TO_WORLD_UNITS;
 const NPC_LEAVE_DESTINATION_DISTANCE =
@@ -204,6 +240,7 @@ export type V2NpcNavigationRouteContext = Readonly<{
   brainwashed: boolean;
   commandMode: V2NpcCommandMode;
   targetId: string | null;
+  playerElevatorTraversal: V2PlayerElevatorTraversalSnapshot | null;
   targetProvenance: V2TargetProvenance | null;
   targetSelectionPersonality: V2TargetSelectionPersonality | null;
   targetSightClear: boolean;
@@ -218,6 +255,7 @@ export type V2NpcNavigationRouteContext = Readonly<{
 export type V2NpcSystemOptions = Readonly<{
   scene: Scene;
   stage: StageSpatialContext;
+  characterVisuals: V2CharacterVisualRuntime;
   npcCount: number;
   initialBrainwashedNpcCount: number;
   diagnosticsEnabled: boolean;
@@ -243,6 +281,7 @@ export type V2NpcTrackingSnapshot = Readonly<{
   followerFirePhase: V2NpcFollowerFirePhase;
   traversalState: V2NpcTraversalState;
   pursuitPhase: V2PursuitPhase;
+  evadeThreatIds: readonly string[];
 }>;
 
 export type V2NpcCommandKind = "follow" | "leave";
@@ -338,6 +377,9 @@ export type V2NpcFrameView = Readonly<{
   sightRayCount: number;
   autonomousVisualTargetChangeCount: number;
   forcedTargetChangeCount: number;
+  autonomousThreatSightCheckCount: number;
+  autonomousThreatVisibleCount: number;
+  autonomousThreatMaximumSourceCount: number;
   frameViewBuildSequence: number;
 }>;
 
@@ -362,6 +404,9 @@ const EMPTY_V2_NPC_FRAME_VIEW: V2NpcFrameView = Object.freeze({
   sightRayCount: 0,
   autonomousVisualTargetChangeCount: 0,
   forcedTargetChangeCount: 0,
+  autonomousThreatSightCheckCount: 0,
+  autonomousThreatVisibleCount: 0,
+  autonomousThreatMaximumSourceCount: 0,
   frameViewBuildSequence: 0
 });
 
@@ -408,6 +453,10 @@ export interface V2NpcSystem {
   setNpcTransportPosition(npcId: string, position: Vector3): void;
   releaseTraversalForScriptedPhase(): void;
   setExternalThreats(threats: readonly V2NpcExternalThreat[]): void;
+  setAutonomousThreatActors(actors: readonly V2ActorSphere[]): void;
+  setPlayerElevatorTraversalSnapshot(
+    snapshot: V2PlayerElevatorTraversalSnapshot | null
+  ): void;
   setPlayerBlockedTargetIds(targetIds: readonly string[]): void;
   setVisibleNpcIds(npcIds: readonly string[]): void;
   setAiSuspended(suspended: boolean): void;
@@ -435,6 +484,10 @@ type NpcCommandRuntime = {
   followLostSightSeconds: number;
   followLastSeenFootPosition: Vector3 | null;
   readonly followLastSeenDirection: Vector3;
+  readonly followFormationOffset: Vector3;
+  followElevatorDestination: Vector3 | null;
+  followElevatorDestinationAreaId: string | null;
+  followElevatorLinkId: string | null;
   followMovementStopped: boolean;
   leaveDestination: NavigationLocation | null;
   leaveElapsedSeconds: number;
@@ -448,6 +501,7 @@ type NpcCommandRuntime = {
 
 type NpcRuntime = {
   readonly id: string;
+  readonly visual: ReturnType<V2CharacterVisualRuntime["createSprite"]>;
   readonly sprite: Sprite;
   readonly navigationAgent: NavigationAgent;
   readonly navigationRoutePolicy: NavigationRoutePolicy;
@@ -471,6 +525,11 @@ type NpcRuntime = {
   lastState: V2CharacterState;
   wanderDestination: NavigationLocation | null;
   wanderWaitSeconds: number;
+  restSlot: NavigationLocation | null;
+  restSlotAreaId: string | null;
+  restSlotKey: string | null;
+  restSlotReferenceDistance: number;
+  resting: boolean;
   targetId: string | null;
   targetProvenance: V2TargetProvenance | null;
   targetSelectionPersonality: V2TargetSelectionPersonality | null;
@@ -482,6 +541,9 @@ type NpcRuntime = {
   visualTargetSightClear: boolean;
   evadeThreatId: string | null;
   evadeThreatSightClear: boolean;
+  evadeThreatSetKey: string;
+  evadeNavigationReplanPriority: NpcNavigationReplanPriority;
+  readonly autonomousVisualThreats: Map<string, NpcEvadeThreat>;
   alertLeaderId: string | null;
   alertRemainingSeconds: number;
   pursuitPhase: V2PursuitPhase;
@@ -504,16 +566,23 @@ type NpcRuntime = {
   reservationResultRevision: number;
 };
 
+type NpcRestSlotOccupancy = {
+  readonly ownerId: string;
+  readonly position: Vector3;
+  areaId: string | null;
+};
+
+type NpcRestSlotAreaOccupancy = {
+  readonly entries: NpcRestSlotOccupancy[];
+  readonly index: V2PlanarSpatialIndex<NpcRestSlotOccupancy>;
+  readonly queryScratch: NpcRestSlotOccupancy[];
+};
+
 type ResolvedPlacement = Readonly<{
   npc: NpcRuntime;
   navigationLocation: NavigationLocation;
   footPosition: Vector3;
   formation: boolean;
-}>;
-
-type NpcFollowerPosition = Readonly<{
-  id: string;
-  footPosition: Vector3;
 }>;
 
 type NpcElevatorStopTraversal = Readonly<{
@@ -528,7 +597,30 @@ type NpcEvadeThreat = Readonly<{
   sourceId: string;
   sourceAimPosition: Vector3;
   sightClear: boolean;
+  provenance: "direct" | "autonomous";
 }>;
+
+type NpcEvadeThreatsByTargetId = Map<
+  string,
+  Map<string, NpcEvadeThreat>
+>;
+
+const addNpcEvadeThreat = (
+  threatsByTargetId: NpcEvadeThreatsByTargetId,
+  targetId: string,
+  threat: NpcEvadeThreat
+) => {
+  const threats = threatsByTargetId.get(targetId) ?? new Map();
+  const existing = threats.get(threat.sourceId);
+  if (
+    existing?.provenance === "direct" &&
+    threat.provenance === "autonomous"
+  ) {
+    return;
+  }
+  threats.set(threat.sourceId, threat);
+  threatsByTargetId.set(targetId, threats);
+};
 
 type NpcSightResultCache = Map<string, boolean>;
 
@@ -667,6 +759,15 @@ const cloneNavigationTransition = (
     distance: transition.distance
   });
 
+const clonePlayerElevatorTraversalSnapshot = (
+  snapshot: V2PlayerElevatorTraversalSnapshot
+): V2PlayerElevatorTraversalSnapshot =>
+  Object.freeze({
+    ...snapshot,
+    destinationFloorPosition:
+      snapshot.destinationFloorPosition.clone()
+  });
+
 const cloneTargetSnapshot = (
   target: V2HumanTargetSnapshot
 ): V2HumanTargetSnapshot =>
@@ -733,34 +834,6 @@ const isNpcCommandStateForPlayer = (
     : isCompletedCommandState(playerState) &&
       isCompletedCommandState(npcState);
 
-const getSpriteCellIndex = (
-  state: V2CharacterState,
-  temporaryGunActive: boolean
-) => {
-  if (state === "hit-a") {
-    return 1;
-  }
-  if (state === "hit-b") {
-    return 2;
-  }
-  if (
-    state === "brainwash-complete-gun" ||
-    temporaryGunActive
-  ) {
-    return 3;
-  }
-  if (state === "brainwash-complete-no-gun") {
-    return 4;
-  }
-  if (
-    state === "brainwash-complete-haigure" ||
-    state === "brainwash-complete-haigure-formation"
-  ) {
-    return 5;
-  }
-  return isV2BrainwashState(state) ? 2 : 0;
-};
-
 const isStoppedState = (state: V2CharacterState) =>
   isV2HitState(state) ||
   state === "brainwash-in-progress" ||
@@ -780,6 +853,26 @@ const createFollowerFireRandomState = (
   return state >>> 0;
 };
 
+const createFollowerFormationOffset = (npcId: string) => {
+  const state = createFollowerFireRandomState(npcId, 0);
+  const angle = (state / 0x1_0000_0000) * Math.PI * 2;
+  return new Vector3(
+    Math.cos(angle) * NPC_FOLLOW_SEPARATION_DISTANCE,
+    0,
+    Math.sin(angle) * NPC_FOLLOW_SEPARATION_DISTANCE
+  );
+};
+
+const createNpcRestSlotAngle = (npcId: string) => {
+  let state = 0x811c9dc5;
+  const domain = `${npcId}:rest-slot`;
+  for (let index = 0; index < domain.length; index += 1) {
+    state ^= domain.charCodeAt(index);
+    state = Math.imul(state, 0x01000193);
+  }
+  return ((state >>> 0) / 0x1_0000_0000) * Math.PI * 2;
+};
+
 const createNpcCommandRuntime = (
   npcId: string,
   sessionEntropy: number
@@ -790,6 +883,10 @@ const createNpcCommandRuntime = (
   followLostSightSeconds: 0,
   followLastSeenFootPosition: null,
   followLastSeenDirection: Vector3.Zero(),
+  followFormationOffset: createFollowerFormationOffset(npcId),
+  followElevatorDestination: null,
+  followElevatorDestinationAreaId: null,
+  followElevatorLinkId: null,
   followMovementStopped: false,
   leaveDestination: null,
   leaveElapsedSeconds: 0,
@@ -806,7 +903,6 @@ const createNpcCommandRuntime = (
 
 class SchoolV2NpcSystem implements V2NpcSystem {
   private readonly stage: StageSpatialContext;
-  private readonly spriteManager: SpriteManager;
   private readonly npcs: NpcRuntime[];
   private readonly npcsById: Map<string, NpcRuntime>;
   private readonly random: () => number;
@@ -835,6 +931,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private sightRayCount = 0;
   private autonomousVisualTargetChangeCount = 0;
   private forcedTargetChangeCount = 0;
+  private autonomousThreatSightCheckCount = 0;
+  private autonomousThreatVisibleCount = 0;
+  private autonomousThreatMaximumSourceCount = 0;
   private readonly resolveTargetNavigationArea: (
     target: V2HumanTargetSnapshot
   ) => V2TargetNavigationAreaSnapshot;
@@ -843,8 +942,34 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private currentTargetSightCursor = 0;
   private personalityRetargetCredit = 0;
   private personalityRetargetCursor = 0;
+  private autonomousThreatSightCredit = 1;
+  private autonomousThreatSightCursor = 0;
   private externalThreats: readonly V2NpcExternalThreat[] =
     Object.freeze([]);
+  private autonomousThreatActors: readonly V2ActorSphere[] =
+    Object.freeze([]);
+  private readonly autonomousThreatActorSpatialIndex =
+    createV2PlanarSpatialIndex<V2ActorSphere>(
+      (actor) => actor.center,
+      NPC_VISION_RANGE
+    );
+  private readonly autonomousThreatActorQueryScratch: V2ActorSphere[] = [];
+  private readonly restSlotOccupancyByAreaId =
+    new Map<string, NpcRestSlotAreaOccupancy>();
+  private readonly restSlotOccupancyByNpcId =
+    new Map<string, NpcRestSlotOccupancy>();
+  private readonly playerRestSlotOccupancy: NpcRestSlotOccupancy = {
+    ownerId: "player",
+    position: Vector3.Zero(),
+    areaId: null
+  };
+  private restSlotOccupancyPrepared = false;
+  private restSlotOccupancyPlayerTarget: V2HumanTargetSnapshot | null = null;
+  private playerElevatorTraversalSource:
+    | V2PlayerElevatorTraversalSnapshot
+    | null = null;
+  private playerElevatorTraversal: V2PlayerElevatorTraversalSnapshot | null =
+    null;
   private playerBlockedTargetIds: readonly string[] = Object.freeze([]);
   private previousPlayerFootPosition: Vector3 | null = null;
   private readonly playerHorizontalDirection = Vector3.Zero();
@@ -938,23 +1063,30 @@ class SchoolV2NpcSystem implements V2NpcSystem {
                 SPAWN_PROJECTION_MAX_DISTANCE,
               random: options.random
             },
-            (point) =>
-              options.stage.queries.containsVolume(
-                "no_enemy_spawn",
-                point
-              ) ||
-              options.stage.queries.containsVolume(
-                "no_enemy_enter",
-                point
-              ) ||
-              options.stage.queries.containsVolume(
-                "hazard",
-                point
-              ) ||
-              options.stage.queries.containsVolume(
-                "water",
-                point
-              )
+            (point) => {
+              const footPosition = this.resolveFootPosition(point);
+              return (
+                options.stage.queries.containsVolume(
+                  "no_enemy_spawn",
+                  footPosition
+                ) ||
+                options.stage.queries.containsVolume(
+                  "no_enemy_enter",
+                  footPosition
+                ) ||
+                options.stage.queries.containsVolume(
+                  "hazard",
+                  footPosition
+                ) ||
+                options.stage.queries.containsVolume(
+                  "water",
+                  footPosition
+                ) ||
+                options.stage.navigationAreas.portals.some(
+                  (portal) => portal.contains(footPosition)
+                )
+              );
+            }
           ).samplePoints(
             options.npcCount,
             SPAWN_MINIMUM_DISTANCE
@@ -966,18 +1098,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
     const npcs: NpcRuntime[] = [];
     const cleanupActions: Array<() => void> = [];
-    const spriteManager = new SpriteManager(
-      "V2SchoolNpcSpriteManager",
-      createDefaultCharacterSpritesheet(),
-      options.npcCount,
-      {
-        width: CHARACTER_SPRITE_CELL_SIZE,
-        height: CHARACTER_SPRITE_CELL_SIZE
-      },
-      options.scene
-    );
-    this.spriteManager = spriteManager;
-    cleanupActions.push(() => spriteManager.dispose());
 
     try {
       for (let index = 0; index < spawnPoints.length; index += 1) {
@@ -991,15 +1111,18 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           initialState,
           random: () => this.nextRandom()
         });
-        const sprite = new Sprite(id, spriteManager);
-        cleanupActions.push(() => sprite.dispose());
-        sprite.width = NPC_SPRITE_WIDTH;
-        sprite.height = NPC_SPRITE_HEIGHT;
+        const visual = options.characterVisuals.createSprite(id, id);
+        cleanupActions.push(() => visual.dispose());
+        const sprite = visual.sprite;
+        sprite.width = visual.width;
+        sprite.height = visual.height;
         sprite.isPickable = false;
-        sprite.cellIndex = getSpriteCellIndex(initialState, false);
+        visual.setState(initialState, false);
         sprite.color.a = 1;
         const footPosition = this.resolveFootPosition(spawnPoint.position);
-        sprite.position.copyFrom(toAimPosition(footPosition));
+        sprite.position.copyFrom(footPosition);
+        sprite.position.y += visual.height / 2;
+        visual.syncPresentation();
         const angle = this.nextRandom() * Math.PI * 2;
         const command = createNpcCommandRuntime(id, angle);
         let npc: NpcRuntime;
@@ -1036,6 +1159,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         cleanupActions.push(() => navigationAgent.clear());
         npc = {
           id,
+          visual,
           sprite,
           navigationAgent,
           navigationRoutePolicy,
@@ -1059,6 +1183,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           lastState: initialState,
           wanderDestination: null,
           wanderWaitSeconds: this.nextWanderWait(),
+          restSlot: null,
+          restSlotAreaId: null,
+          restSlotKey: null,
+          restSlotReferenceDistance: 0,
+          resting: false,
           targetId: null,
           targetProvenance: null,
           targetSelectionPersonality: isCompletedBrainwashState(
@@ -1074,6 +1203,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           visualTargetSightClear: false,
           evadeThreatId: null,
           evadeThreatSightClear: false,
+          evadeThreatSetKey: "",
+          evadeNavigationReplanPriority: 4,
+          autonomousVisualThreats: new Map(),
           alertLeaderId: null,
           alertRemainingSeconds: 0,
           pursuitPhase: "detail",
@@ -1133,17 +1265,24 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       throw new Error("NPC更新へ渡す外部標的はplayerである必要があります。");
     }
     if (this.previousPlayerFootPosition) {
-      const playerDisplacement = playerTarget.footPosition.subtract(
-        this.previousPlayerFootPosition
-      );
-      playerDisplacement.y = 0;
-      if (playerDisplacement.lengthSquared() > 0) {
-        this.playerHorizontalDirection.copyFrom(
-          playerDisplacement.normalize()
+      const displacementX =
+        playerTarget.footPosition.x - this.previousPlayerFootPosition.x;
+      const displacementZ =
+        playerTarget.footPosition.z - this.previousPlayerFootPosition.z;
+      const displacementSquared =
+        displacementX * displacementX + displacementZ * displacementZ;
+      if (displacementSquared > 0) {
+        const inverseLength = 1 / Math.sqrt(displacementSquared);
+        this.playerHorizontalDirection.set(
+          displacementX * inverseLength,
+          0,
+          displacementZ * inverseLength
         );
       }
+      this.previousPlayerFootPosition.copyFrom(playerTarget.footPosition);
+    } else {
+      this.previousPlayerFootPosition = playerTarget.footPosition.clone();
     }
-    this.previousPlayerFootPosition = playerTarget.footPosition.clone();
     for (const npc of this.npcs) {
       if (
         npc.command.mode !== "none" &&
@@ -1165,6 +1304,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.sightRayCount = 0;
     this.autonomousVisualTargetChangeCount = 0;
     this.forcedTargetChangeCount = 0;
+    this.autonomousThreatSightCheckCount = 0;
+    this.autonomousThreatVisibleCount = 0;
+    this.autonomousThreatMaximumSourceCount = 0;
+    this.restSlotOccupancyPrepared = false;
 
     for (const npc of this.npcs) {
       npc.personalityRetargetCooldownSeconds = Math.max(
@@ -1182,7 +1325,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       this.assignTargetSelectionPersonality(npc, currentState);
       this.synchronizeStateMode(npc, previousState, currentState);
       npc.lastState = currentState;
-      this.synchronizeSpriteVisual(npc);
+      this.applySpriteVisualState(npc);
     }
 
     const visibleNpcs: NpcRuntime[] = [];
@@ -1210,7 +1353,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
 
     const threatenedIds = new Set<string>();
-    const threatSourcesByTargetId = new Map<string, NpcEvadeThreat>();
+    const threatSourcesByTargetId: NpcEvadeThreatsByTargetId =
+      new Map();
     const capturedTargetIds = new Set<string>(
       this.playerBlockedTargetIds
     );
@@ -1230,12 +1374,14 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         continue;
       }
       threatenedIds.add(target.id);
-      threatSourcesByTargetId.set(
+      addNpcEvadeThreat(
+        threatSourcesByTargetId,
         target.id,
         Object.freeze({
           sourceId: threat.sourceId,
           sourceAimPosition: threat.sourcePosition.clone(),
-          sightClear: threat.sightClear
+          sightClear: threat.sightClear,
+          provenance: "direct" as const
         })
       );
     }
@@ -1280,6 +1426,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     const autonomousCombatNpcs = this.collectAutonomousCombatNpcs(
       commandNpcIds
     );
+    const autonomousThreatObservers =
+      this.collectAutonomousThreatObservers(commandNpcIds);
     this.invalidateAutonomousVisualTargets(
       autonomousCombatNpcs,
       targetsById,
@@ -1299,6 +1447,36 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       playerFrameTarget,
       currentTargetSightNpcIds
     );
+    this.prepareRestSlotOccupancyCaches(playerFrameTarget);
+    this.updateAutonomousVisualThreats(
+      autonomousThreatObservers,
+      targetSpatialIndex,
+      deltaSeconds
+    );
+    for (const npc of autonomousThreatObservers) {
+      if (
+        npc.command.mode !== "none" ||
+        !isV2AliveState(npc.stateSnapshot.state) ||
+        isV2BrainwashState(npc.stateSnapshot.state)
+      ) {
+        npc.autonomousVisualThreats.clear();
+        continue;
+      }
+      for (const threat of npc.autonomousVisualThreats.values()) {
+        threatenedIds.add(npc.id);
+        addNpcEvadeThreat(
+          threatSourcesByTargetId,
+          npc.id,
+          threat
+        );
+      }
+      this.autonomousThreatVisibleCount +=
+        npc.autonomousVisualThreats.size;
+      this.autonomousThreatMaximumSourceCount = Math.max(
+        this.autonomousThreatMaximumSourceCount,
+        npc.autonomousVisualThreats.size
+      );
+    }
     const personalityRetargetNpcIds =
       this.schedulePersonalityRetargetQueries(
         autonomousCombatNpcs,
@@ -1353,23 +1531,31 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         personalityRetargetNpcIds.has(npc.id)
       );
       if (!target) {
-        this.clearNavigationAgent(npc);
+        this.updateSearchingNpc(
+          npc,
+          playerFrameTarget,
+          deltaSeconds,
+          this.hasReplanPermission(npcIndex)
+        );
         continue;
       }
 
       threatenedIds.add(target.id);
-      threatSourcesByTargetId.set(
+      addNpcEvadeThreat(
+        threatSourcesByTargetId,
         target.id,
         Object.freeze({
           sourceId: npc.id,
           sourceAimPosition: toAimPosition(npc.footPosition),
-          sightClear: npc.visualTargetSightClear
+          sightClear: npc.visualTargetSightClear,
+          provenance: "direct" as const
         })
       );
       if (state === "brainwash-complete-gun") {
         this.updateGunNpc(
           npc,
           target,
+          playerFrameTarget,
           deltaSeconds,
           this.hasReplanPermission(npcIndex)
         );
@@ -1406,28 +1592,30 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.stateSystem.setAliveBehaviorState(aliveBehaviorState);
       if (state !== aliveBehaviorState) {
         npc.stateSnapshot = npc.stateSystem.getSnapshot();
-        this.synchronizeSpriteVisual(npc);
+        this.applySpriteVisualState(npc);
       }
       npc.lastState = npc.stateSnapshot.state;
       if (capturedTargetIds.has(npc.id)) {
         this.clearNavigationAgent(npc);
         npc.wanderDestination = null;
+        this.clearRestSlot(npc);
         continue;
       }
       if (threatened) {
-        const threat = threatSourcesByTargetId.get(npc.id);
-        if (!threat) {
+        const threats = threatSourcesByTargetId.get(npc.id);
+        if (!threats || threats.size === 0) {
           throw new Error(`脅威元座標がありません: ${npc.id}`);
         }
         this.updateEvadingNpc(
           npc,
-          threat,
+          Object.freeze([...threats.values()]),
           deltaSeconds,
           this.hasReplanPermission(npcIndex)
         );
       } else {
-        this.updateNormalNpc(
+        this.updateSearchingNpc(
           npc,
+          playerFrameTarget,
           deltaSeconds,
           this.hasReplanPermission(npcIndex)
         );
@@ -1584,6 +1772,15 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
     this.previousPlayerFootPosition = null;
     this.playerHorizontalDirection.setAll(0);
+    this.playerElevatorTraversalSource = null;
+    this.playerElevatorTraversal = null;
+    this.restSlotOccupancyByAreaId.clear();
+    this.restSlotOccupancyByNpcId.clear();
+    this.playerRestSlotOccupancy.areaId = null;
+    this.restSlotOccupancyPrepared = false;
+    this.restSlotOccupancyPlayerTarget = null;
+    this.grantedReplanNpcIds.clear();
+    this.queuedReplanNpcs.length = 0;
     this.rebuildFrameViewPreservingThreats();
   }
 
@@ -1614,7 +1811,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           (V2_NPC_FOLLOWER_FIRE_DELAY_MAX_SECONDS -
             V2_NPC_FOLLOWER_FIRE_DELAY_MIN_SECONDS);
       npc.command.followerFireDirection =
-        event.direction.clone().normalize();
+        createV2FollowerFireDirection(
+          event.direction,
+          this.nextFollowerFireRandom(npc),
+          this.nextFollowerFireRandom(npc)
+        );
       npc.command.followerBeamId = null;
       npc.command.followerBeamRequestQueued = false;
       changed = true;
@@ -1939,9 +2140,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           result.location.position
         );
         this.relocateNavigationAreaCursor(npc);
-        npc.sprite.position.copyFrom(
-          toAimPosition(npc.footPosition)
-        );
+        this.synchronizeSpritePosition(npc);
         npc.traversalState = createWalkingV2NpcTraversalState();
         npc.reservationResultRevision += 1;
         frameViewChanged = true;
@@ -1958,19 +2157,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         ) {
           throw new Error(
             `NPC乗車拒否前のtraversal状態が不正です: ${npc.id}/${npc.traversalState.kind}`
-          );
-        }
-        if (
-          result.reason === "capacity-reached" &&
-          npc.command.mode === "follow"
-        ) {
-          this.clearNpcCommand(npc, true);
-          notifications.push(
-            Object.freeze({
-              kind: "follow-cancelled",
-              npcId: npc.id,
-              reason: "elevator-capacity-reached"
-            })
           );
         }
         this.resetNavigationAgentForTraversalChange(npc);
@@ -2036,7 +2222,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     assertFiniteVector("NPC搬送位置", position);
     const npc = this.requireNpc(npcId);
     npc.footPosition = position.clone();
-    npc.sprite.position.copyFrom(toAimPosition(npc.footPosition));
+    this.synchronizeSpritePosition(npc);
     this.rebuildFrameViewPreservingThreats();
   }
 
@@ -2138,6 +2324,52 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     );
   }
 
+  setAutonomousThreatActors(actors: readonly V2ActorSphere[]) {
+    this.assertActive();
+    for (const actor of actors) {
+      if (actor.id.length === 0 || actor.kind !== "bit") {
+        throw new Error(
+          `自律視認脅威には非空IDのBITが必要です: ${actor.id}/${actor.kind}`
+        );
+      }
+      assertFiniteVector("自律視認BIT中心", actor.center);
+      assertPositiveFiniteNumber("自律視認BIT半径", actor.radius);
+    }
+    this.autonomousThreatActors = actors;
+    if (actors.length === 0) {
+      this.autonomousThreatActorSpatialIndex.rebuild(actors);
+      this.autonomousThreatActorQueryScratch.length = 0;
+    }
+  }
+
+  setPlayerElevatorTraversalSnapshot(
+    snapshot: V2PlayerElevatorTraversalSnapshot | null
+  ) {
+    this.assertActive();
+    if (snapshot === this.playerElevatorTraversalSource) {
+      return;
+    }
+    this.playerElevatorTraversalSource = snapshot;
+    if (snapshot === null) {
+      this.playerElevatorTraversal = null;
+      return;
+    }
+    if (
+      snapshot.elevatorId.length === 0 ||
+      snapshot.linkId.length === 0
+    ) {
+      throw new Error(
+        "プレイヤーのエレベーター追跡snapshotには非空IDが必要です。"
+      );
+    }
+    assertFiniteVector(
+      "プレイヤーのエレベーター目的階位置",
+      snapshot.destinationFloorPosition
+    );
+    this.playerElevatorTraversal =
+      clonePlayerElevatorTraversalSnapshot(snapshot);
+  }
+
   setPlayerBlockedTargetIds(targetIds: readonly string[]) {
     this.assertActive();
     const uniqueTargetIds = new Set<string>();
@@ -2206,6 +2438,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       if (suspended) {
         this.clearNpcCommand(npc, false);
         this.clearAutonomousState(npc);
+        npc.visual.syncPresentation();
       }
       this.clearNavigationAgent(npc);
     }
@@ -2284,6 +2517,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       this.relocateNavigationAreaCursor(npc);
       npc.wanderDestination = null;
       npc.wanderWaitSeconds = this.nextWanderWait();
+      this.clearRestSlot(npc);
       npc.alarmTargetQueue.length = 0;
       npc.capture = null;
       npc.breakawayRemainingSeconds = 0;
@@ -2300,8 +2534,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       );
       npc.visualSightCheckPriority = true;
       npc.lastState = npc.stateSnapshot.state;
-      npc.sprite.position.copyFrom(toAimPosition(npc.footPosition));
-      this.synchronizeSpriteVisual(npc);
+      this.applySpriteVisualState(npc);
+      this.synchronizeSpritePosition(npc);
     }
     this.frameView = this.buildFrameView(Object.freeze([]));
   }
@@ -2319,17 +2553,27 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.selectedElevatorTransition = null;
       npc.pendingNavigationTransition = null;
       npc.traversalState = createWalkingV2NpcTraversalState();
-      npc.sprite.dispose();
+      npc.visual.dispose();
     }
     this.npcs.length = 0;
     this.npcsById.clear();
     this.frameView = EMPTY_V2_NPC_FRAME_VIEW;
     this.externalThreats = Object.freeze([]);
+    this.autonomousThreatActors = Object.freeze([]);
+    this.autonomousThreatActorSpatialIndex.rebuild(Object.freeze([]));
+    this.autonomousThreatActorQueryScratch.length = 0;
+    this.restSlotOccupancyByAreaId.clear();
+    this.restSlotOccupancyByNpcId.clear();
+    this.restSlotOccupancyPrepared = false;
+    this.restSlotOccupancyPlayerTarget = null;
+    this.playerElevatorTraversalSource = null;
+    this.playerElevatorTraversal = null;
     this.playerBlockedTargetIds = Object.freeze([]);
+    this.grantedReplanNpcIds.clear();
+    this.queuedReplanNpcs.length = 0;
     this.previousPlayerFootPosition = null;
     this.playerHorizontalDirection.setAll(0);
     this.traversalElapsedSeconds = 0;
-    this.spriteManager.dispose();
     this.disposed = true;
   }
 
@@ -2385,9 +2629,15 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       brainwashed: isV2BrainwashState(npc.stateSnapshot.state),
       commandMode: npc.command.mode,
       targetId:
-        npc.navigationBehavior === "evade"
+        npc.navigationBehavior === "follow"
+          ? "player"
+          : npc.navigationBehavior === "evade"
           ? npc.evadeThreatId
           : npc.targetId,
+      playerElevatorTraversal:
+        npc.navigationBehavior === "follow"
+          ? this.playerElevatorTraversal
+          : null,
       targetProvenance: npc.targetProvenance,
       targetSelectionPersonality: npc.targetSelectionPersonality,
       targetSightClear:
@@ -2464,14 +2714,14 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     return stop;
   }
 
-  private findNpcElevatorEvadeDestination(npc: NpcRuntime) {
-    let selected:
-      | Readonly<{
-          stop: NpcElevatorStopTraversal;
-          verticalDistance: number;
-          distanceSquared: number;
-        }>
-      | null = null;
+  private collectNpcElevatorEvadeDestinations(npc: NpcRuntime) {
+    const candidates: Array<
+      Readonly<{
+        stop: NpcElevatorStopTraversal;
+        verticalDistance: number;
+        distanceSquared: number;
+      }>
+    > = [];
     const maximumDistanceSquared =
       NPC_EVADE_ELEVATOR_DISTANCE *
       NPC_EVADE_ELEVATOR_DISTANCE;
@@ -2487,24 +2737,32 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         npc.navigationLocation.position.y -
           stop.waitLocation.position.y
       );
-      if (
-        !selected ||
-        verticalDistance < selected.verticalDistance ||
-        (verticalDistance === selected.verticalDistance &&
-          (distanceSquared < selected.distanceSquared ||
-            (distanceSquared === selected.distanceSquared &&
-              stop.stopId < selected.stop.stopId)))
-      ) {
-        selected = Object.freeze({
+      candidates.push(
+        Object.freeze({
           stop,
           verticalDistance,
           distanceSquared
-        });
-      }
+        })
+      );
     }
-    return selected
-      ? cloneNavigationLocation(selected.stop.oppositeLocation)
-      : null;
+    const minimumVerticalDistance = Math.min(
+      ...candidates.map((candidate) => candidate.verticalDistance)
+    );
+    return Object.freeze(
+      candidates
+        .filter(
+          (candidate) =>
+            candidate.verticalDistance === minimumVerticalDistance
+        )
+        .sort(
+          (left, right) =>
+            left.distanceSquared - right.distanceSquared ||
+            left.stop.stopId.localeCompare(right.stop.stopId)
+        )
+        .map((candidate) =>
+          cloneNavigationLocation(candidate.stop.oppositeLocation)
+        )
+    );
   }
 
   private beginNpcElevatorCall(
@@ -2610,10 +2868,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       NPC_DETAIL_TARGET_MOVEMENT_THRESHOLD;
     if (behaviorChanged || npc.navigationAgentCleared || targetMovedEnough) {
       const priority: NpcNavigationReplanPriority =
-        behavior === "evade" ||
-        behavior === "follow" ||
-        behavior === "leave"
-          ? 0
+        behavior === "evade"
+          ? npc.evadeNavigationReplanPriority
+          : behavior === "follow" || behavior === "leave"
+            ? 0
           : behavior === "pursue"
             ? npc.pursuitPhase === "detail"
               ? 1
@@ -2640,6 +2898,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           this.traversalElapsedSeconds;
       }
       npc.navigationAgentCleared = false;
+      this.synchronizeRestSlotOccupancyForNpc(npc);
     } else if (pendingTarget && !pendingTarget.equals(targetPosition)) {
       pendingTarget.copyFrom(targetPosition);
       if (this.diagnosticsEnabled) {
@@ -2892,7 +3151,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.forward.copyFrom(horizontal.normalize());
     }
     npc.footPosition = nextFootPosition;
-    npc.sprite.position.copyFrom(toAimPosition(npc.footPosition));
+    this.synchronizeRestSlotOccupancyForNpc(npc);
+    this.synchronizeSpritePosition(npc);
   }
 
   private createTraversalWaitingStep(
@@ -2930,6 +3190,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.navigationRemainingPathDistance = null;
     npc.navigationPendingTargetPosition = null;
     npc.navigationReplanRequestedAtSeconds = null;
+    this.synchronizeRestSlotOccupancyForNpc(npc);
   }
 
   private resetNavigationAgentForTraversalChange(npc: NpcRuntime): void {
@@ -2946,6 +3207,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.navigationPendingTargetPosition = null;
     npc.navigationReplanRequestedAtSeconds = null;
     npc.navigationAgentCleared = false;
+    this.synchronizeRestSlotOccupancyForNpc(npc);
   }
 
   private requestNavigationReplan(
@@ -3003,6 +3265,149 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       result.push(npc);
     }
     return Object.freeze(result);
+  }
+
+  private collectAutonomousThreatObservers(
+    commandNpcIds: ReadonlySet<string>
+  ) {
+    const result: NpcRuntime[] = [];
+    for (const npc of this.npcs) {
+      if (
+        !npc.sprite.isVisible ||
+        commandNpcIds.has(npc.id) ||
+        npc.command.mode !== "none" ||
+        !isV2AliveState(npc.stateSnapshot.state) ||
+        isV2BrainwashState(npc.stateSnapshot.state)
+      ) {
+        npc.autonomousVisualThreats.clear();
+        continue;
+      }
+      result.push(npc);
+    }
+    return Object.freeze(result);
+  }
+
+  private updateAutonomousVisualThreats(
+    observers: readonly NpcRuntime[],
+    targetSpatialIndex: V2HumanTargetSpatialIndex,
+    deltaSeconds: number
+  ) {
+    this.autonomousThreatSightCredit = Math.min(
+      observers.length,
+      this.autonomousThreatSightCredit +
+        observers.length *
+          deltaSeconds *
+          V2_NPC_AUTONOMOUS_THREAT_SIGHT_HERTZ
+    );
+    const scheduledCount = Math.min(
+      Math.floor(this.autonomousThreatSightCredit),
+      V2_NPC_AUTONOMOUS_THREAT_SIGHT_MAXIMUM_PER_UPDATE,
+      observers.length
+    );
+    const schedule = this.scheduleNpcIds(
+      observers,
+      scheduledCount,
+      this.autonomousThreatSightCursor,
+      []
+    );
+    this.autonomousThreatSightCredit -= schedule.npcIds.size;
+    this.autonomousThreatSightCursor = schedule.nextCursor;
+    if (schedule.npcIds.size === 0) {
+      return;
+    }
+    this.autonomousThreatActorSpatialIndex.rebuild(
+      this.autonomousThreatActors
+    );
+    for (const npcId of schedule.npcIds) {
+      const npc = this.requireNpc(npcId);
+      const hadVisualThreat = npc.autonomousVisualThreats.size > 0;
+      npc.autonomousVisualThreats.clear();
+      this.autonomousThreatSightCheckCount += 1;
+      const origin = toAimPosition(npc.footPosition);
+      for (const target of targetSpatialIndex.query(
+        origin,
+        NPC_VISION_RANGE
+      )) {
+        if (
+          target.kind === "npc" &&
+          isV2BrainwashState(target.state) &&
+          this.isAutonomousThreatVisible(
+            npc,
+            origin,
+            target.aimPosition
+          )
+        ) {
+          npc.autonomousVisualThreats.set(
+            target.id,
+            Object.freeze({
+              sourceId: target.id,
+              sourceAimPosition: target.aimPosition.clone(),
+              sightClear: true,
+              provenance: "autonomous" as const
+            })
+          );
+        }
+      }
+      for (const actor of this.autonomousThreatActorSpatialIndex.queryToRef(
+        origin,
+        NPC_VISION_RANGE,
+        this.autonomousThreatActorQueryScratch
+      )) {
+        if (
+          this.isAutonomousThreatVisible(
+            npc,
+            origin,
+            actor.center
+          )
+        ) {
+          npc.autonomousVisualThreats.set(
+            actor.id,
+            Object.freeze({
+              sourceId: actor.id,
+              sourceAimPosition: actor.center.clone(),
+              sightClear: true,
+              provenance: "autonomous" as const
+            })
+          );
+        }
+      }
+      if (
+        hadVisualThreat ||
+        npc.autonomousVisualThreats.size > 0
+      ) {
+        npc.wanderDestination = null;
+        this.clearNavigationAgent(npc);
+      }
+    }
+  }
+
+  private isAutonomousThreatVisible(
+    npc: NpcRuntime,
+    origin: Vector3,
+    targetPosition: Vector3
+  ) {
+    const toTarget = targetPosition.subtract(origin);
+    const distanceSquared = toTarget.lengthSquared();
+    if (
+      distanceSquared === 0 ||
+      distanceSquared > NPC_VISION_RANGE_SQUARED
+    ) {
+      return false;
+    }
+    if (
+      Vector3.Dot(npc.forward, toTarget) /
+        Math.sqrt(distanceSquared) <
+      NPC_VISION_COSINE
+    ) {
+      return false;
+    }
+    if (this.diagnosticsEnabled) {
+      this.sightRayCount += 1;
+    }
+    return (
+      this.stage.queries.castSightSegment(origin, targetPosition) ===
+      null
+    );
   }
 
   private collectCurrentTargetSightCandidates(
@@ -3192,7 +3597,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.command.followMovementStopped =
       Vector3.Distance(npc.footPosition, playerTarget.footPosition) <=
       NPC_FOLLOW_STOP_DISTANCE;
-    this.synchronizeSpriteVisual(npc);
+    this.applySpriteVisualState(npc);
   }
 
   private startLeave(
@@ -3204,7 +3609,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.command.mode = "leave";
     npc.command.leaveDestination = cloneNavigationLocation(destination);
     npc.command.leaveElapsedSeconds = 0;
-    this.synchronizeSpriteVisual(npc);
+    this.applySpriteVisualState(npc);
   }
 
   private createLeaveDestination(
@@ -3232,7 +3637,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.setNavigationIntent(
       npc,
       "leave",
-      V2_NPC_FOLLOW_SPEED,
+      V2_NPC_LEAVE_SPEED,
       playerTarget.footPosition
     );
     for (
@@ -3293,11 +3698,17 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   }
 
   private clearAutonomousState(npc: NpcRuntime) {
+    npc.autonomousVisualThreats.clear();
+    npc.evadeThreatSetKey = "";
+    npc.evadeThreatId = null;
+    npc.evadeThreatSightClear = false;
+    npc.evadeNavigationReplanPriority = 4;
     npc.alarmTargetQueue.length = 0;
     npc.capture = null;
     npc.breakawayRemainingSeconds = 0;
     npc.breakawayDestination = null;
     npc.wanderDestination = null;
+    this.clearRestSlot(npc);
     this.removePendingRequestsForNpc(npc.id);
     this.clearTarget(npc);
     this.releaseCapturesForTarget(npc.id);
@@ -3351,6 +3762,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.command.followLostSightSeconds = 0;
     npc.command.followLastSeenFootPosition = null;
     npc.command.followLastSeenDirection.setAll(0);
+    npc.command.followElevatorDestination = null;
+    npc.command.followElevatorDestinationAreaId = null;
+    npc.command.followElevatorLinkId = null;
     npc.command.followMovementStopped = false;
     npc.command.leaveDestination = null;
     npc.command.leaveElapsedSeconds = 0;
@@ -3360,7 +3774,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.clearNavigationAgent(npc);
     npc.wanderDestination = null;
     npc.visualSightCheckPriority = true;
-    this.synchronizeSpriteVisual(npc);
+    this.applySpriteVisualState(npc);
   }
 
   private prepareNpcCommands(
@@ -3388,11 +3802,96 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     playerTarget: V2HumanTargetSnapshot,
     currentTargetSightNpcIds: ReadonlySet<string>
   ) {
+    const playerElevatorTraversal = this.playerElevatorTraversal;
+    const continuingPlayerElevatorTraversal =
+      playerElevatorTraversal !== null &&
+      playerElevatorTraversal.phase !== "cancelled"
+        ? Object.freeze({
+            snapshot: playerElevatorTraversal,
+            destinationAreaId:
+              this.stage.navigationAreas.locate(
+                playerElevatorTraversal.destinationFloorPosition
+              ).areaId
+          })
+        : null;
+    let followerCount = 0;
     for (const npc of this.npcs) {
       if (npc.command.mode !== "follow") {
         continue;
       }
-      if (currentTargetSightNpcIds.has(npc.id)) {
+      if (
+        playerElevatorTraversal?.phase === "cancelled" &&
+        npc.command.followElevatorLinkId ===
+          playerElevatorTraversal.linkId
+      ) {
+        npc.command.followElevatorDestination = null;
+        npc.command.followElevatorDestinationAreaId = null;
+        npc.command.followElevatorLinkId = null;
+      }
+      if (continuingPlayerElevatorTraversal !== null) {
+        const traversal = continuingPlayerElevatorTraversal.snapshot;
+        if (
+          npc.command.followElevatorDestination === null ||
+          npc.command.followElevatorLinkId !== traversal.linkId ||
+          !npc.command.followElevatorDestination.equals(
+            traversal.destinationFloorPosition
+          )
+        ) {
+          npc.command.followElevatorDestination =
+            traversal.destinationFloorPosition.clone();
+          npc.command.followElevatorDestinationAreaId =
+            continuingPlayerElevatorTraversal.destinationAreaId;
+          npc.command.followElevatorLinkId = traversal.linkId;
+        }
+      }
+      const elevatorDestination =
+        npc.command.followElevatorDestination;
+      const trackingPlayerTransport =
+        elevatorDestination !== null &&
+        (continuingPlayerElevatorTraversal !== null ||
+          npc.pursuitActorAreaCursor.areaId !==
+            npc.command.followElevatorDestinationAreaId ||
+          this.horizontalDistance(
+            npc.footPosition,
+            elevatorDestination
+          ) > NPC_FOLLOW_TRACKING_DISTANCE);
+      if (elevatorDestination !== null && !trackingPlayerTransport) {
+        npc.command.followElevatorDestination = null;
+        npc.command.followElevatorDestinationAreaId = null;
+        npc.command.followElevatorLinkId = null;
+      }
+      if (trackingPlayerTransport && elevatorDestination !== null) {
+        npc.command.followSightClear = false;
+        npc.command.followLostSightSeconds = 0;
+        if (npc.command.followLastSeenFootPosition === null) {
+          npc.command.followLastSeenFootPosition =
+            elevatorDestination.clone();
+        } else {
+          npc.command.followLastSeenFootPosition.copyFrom(
+            elevatorDestination
+          );
+        }
+        npc.command.followMovementStopped = false;
+        followerCount += 1;
+        continue;
+      }
+      const playerDistance = Vector3.Distance(
+        npc.footPosition,
+        playerTarget.footPosition
+      );
+      if (playerDistance > NPC_FOLLOW_SIGHT_DISTANCE) {
+        npc.command.followSightClear = false;
+      }
+      const followGraceWouldExpire =
+        !npc.command.followSightClear &&
+        playerDistance > NPC_FOLLOW_TRACKING_DISTANCE &&
+        npc.command.followLostSightSeconds + deltaSeconds >=
+          V2_NPC_FOLLOW_SIGHT_GRACE_SECONDS;
+      if (
+        playerDistance <= NPC_FOLLOW_SIGHT_DISTANCE &&
+        (currentTargetSightNpcIds.has(npc.id) ||
+          followGraceWouldExpire)
+      ) {
         if (this.diagnosticsEnabled) {
           this.currentTargetSightCheckCount += 1;
           this.sightRayCount += 1;
@@ -3403,7 +3902,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
             playerTarget.aimPosition
           ) === null;
       }
-      if (npc.command.followSightClear) {
+      if (
+        npc.command.followSightClear ||
+        playerDistance <= NPC_FOLLOW_TRACKING_DISTANCE
+      ) {
         npc.command.followLostSightSeconds = 0;
         npc.command.followLastSeenFootPosition =
           playerTarget.footPosition.clone();
@@ -3412,10 +3914,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
             this.playerHorizontalDirection
           );
         }
-        const playerDistance = Vector3.Distance(
-          npc.footPosition,
-          playerTarget.footPosition
-        );
         if (npc.command.followMovementStopped) {
           if (playerDistance > NPC_FOLLOW_RESUME_DISTANCE) {
             npc.command.followMovementStopped = false;
@@ -3433,24 +3931,17 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           this.clearNpcCommand(npc, true);
         }
       }
+      if (npc.command.mode === "follow") {
+        followerCount += 1;
+      }
     }
 
-    const followers = Object.freeze(
-      this.npcs
-        .filter((npc) => npc.command.mode === "follow")
-        .map((npc) =>
-          Object.freeze({
-            id: npc.id,
-            footPosition: npc.footPosition.clone()
-          })
-        )
-    );
     for (let npcIndex = 0; npcIndex < this.npcs.length; npcIndex += 1) {
       const npc = this.npcs[npcIndex];
       if (npc.command.mode === "follow") {
         this.updateFollowMovement(
           npc,
-          followers,
+          followerCount,
           playerTarget,
           deltaSeconds,
           this.hasReplanPermission(npcIndex)
@@ -3468,31 +3959,61 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
   private updateFollowMovement(
     npc: NpcRuntime,
-    followers: readonly NpcFollowerPosition[],
+    followerCount: number,
     playerTarget: V2HumanTargetSnapshot,
     deltaSeconds: number,
     allowPathRecalculation: boolean
   ) {
-    const separation = this.getFollowerSeparation(npc, followers);
     let destination: Vector3 | null = null;
-    if (separation.lengthSquared() > 0) {
-      destination = npc.navigationLocation.position.add(
-        separation
-          .normalize()
-          .scale(NPC_FOLLOW_SEPARATION_DISTANCE)
-      );
-    } else if (!npc.command.followMovementStopped) {
-      const lastSeen = npc.command.followLastSeenFootPosition;
-      if (lastSeen) {
-        destination = lastSeen.clone();
-        if (npc.command.followLostSightSeconds > 0) {
-          destination.addInPlace(
-            npc.command.followLastSeenDirection.scale(
-              NPC_FOLLOW_LAST_DIRECTION_DISTANCE
-            )
+    let usesFormationAnchor = false;
+    const lastSeen = npc.command.followLastSeenFootPosition;
+    if (lastSeen) {
+      const centralDestination = lastSeen.clone();
+      if (npc.command.followLostSightSeconds > 0) {
+        centralDestination.addInPlace(
+          npc.command.followLastSeenDirection.scale(
+            NPC_FOLLOW_LAST_DIRECTION_DISTANCE
+          )
+        );
+      }
+      if (followerCount > 1) {
+        const requestedFormationDestination =
+          centralDestination.add(npc.command.followFormationOffset);
+        const projectedFormationDestination =
+          this.stage.navigation.projectPoint(
+            requestedFormationDestination,
+            NAVIGATION_PROJECTION_MAX_DISTANCE
           );
+        if (
+          projectedFormationDestination &&
+          Vector3.Distance(
+            requestedFormationDestination,
+            projectedFormationDestination.position
+          ) <= NPC_FOLLOW_FORMATION_PROJECTION_DISTANCE
+        ) {
+          destination = projectedFormationDestination.position.clone();
+          usesFormationAnchor = true;
         }
       }
+      if (!destination) {
+        destination = centralDestination;
+      }
+    }
+    if (destination && usesFormationAnchor) {
+      const formationDistance = Vector3.Distance(
+        npc.footPosition,
+        destination
+      );
+      if (npc.command.followMovementStopped) {
+        if (formationDistance > NPC_FOLLOW_FORMATION_RESUME_DISTANCE) {
+          npc.command.followMovementStopped = false;
+        }
+      } else if (formationDistance <= NPC_FOLLOW_FORMATION_STOP_DISTANCE) {
+        npc.command.followMovementStopped = true;
+      }
+    }
+    if (npc.command.followMovementStopped) {
+      destination = null;
     }
     if (!destination) {
       this.clearNavigationAgent(npc);
@@ -3511,53 +4032,19 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       return;
     }
     this.applyNavigationMovement(npc, movement.location);
+    const stopDistance = usesFormationAnchor
+      ? NPC_FOLLOW_FORMATION_STOP_DISTANCE
+      : NPC_FOLLOW_STOP_DISTANCE;
+    const stopTarget = usesFormationAnchor
+      ? destination
+      : playerTarget.footPosition;
     if (
       npc.command.followLostSightSeconds === 0 &&
-      Vector3.Distance(npc.footPosition, playerTarget.footPosition) <=
-        NPC_FOLLOW_STOP_DISTANCE
+      Vector3.Distance(npc.footPosition, stopTarget) <= stopDistance
     ) {
       npc.command.followMovementStopped = true;
       this.clearNavigationAgent(npc);
     }
-  }
-
-  private getFollowerSeparation(
-    npc: NpcRuntime,
-    followers: readonly NpcFollowerPosition[]
-  ) {
-    const separation = Vector3.Zero();
-    for (const other of followers) {
-      if (other.id === npc.id) {
-        continue;
-      }
-      const offset = npc.footPosition.subtract(other.footPosition);
-      offset.y = 0;
-      const distance = offset.length();
-      if (distance >= NPC_FOLLOW_SEPARATION_DISTANCE) {
-        continue;
-      }
-      if (distance === 0) {
-        const pairId =
-          npc.id < other.id
-            ? `${npc.id}:${other.id}`
-            : `${other.id}:${npc.id}`;
-        const pairState = createFollowerFireRandomState(pairId, 0);
-        const angle =
-          (pairState / 0x1_0000_0000) * Math.PI * 2;
-        offset.set(Math.cos(angle), 0, Math.sin(angle));
-        if (npc.id > other.id) {
-          offset.scaleInPlace(-1);
-        }
-      } else {
-        offset.scaleInPlace(1 / distance);
-      }
-      separation.addInPlace(
-        offset.scale(
-          NPC_FOLLOW_SEPARATION_DISTANCE - distance
-        )
-      );
-    }
-    return separation;
   }
 
   private updateLeaveMovement(
@@ -3576,7 +4063,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc,
       "leave",
       destination.position,
-      V2_NPC_FOLLOW_SPEED,
+      V2_NPC_LEAVE_SPEED,
       movementSeconds,
       allowPathRecalculation
     );
@@ -3672,6 +4159,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (previousState === currentState) {
       return;
     }
+    this.clearRestSlot(npc);
     if (
       currentState !== "brainwash-complete-gun" &&
       currentState !== "brainwash-complete-no-gun"
@@ -3733,7 +4221,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     targetsById: ReadonlyMap<string, V2HumanTargetSnapshot>,
     capturedTargetIds: Set<string>,
     threatenedIds: Set<string>,
-    threatSourcesByTargetId: Map<string, NpcEvadeThreat>
+    threatSourcesByTargetId: NpcEvadeThreatsByTargetId
   ) {
     const startedBreakawayNpcIds = new Set<string>();
     for (const npc of this.npcs) {
@@ -3767,26 +4255,30 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc: NpcRuntime,
     targetId: string,
     threatenedIds: Set<string>,
-    threatSourcesByTargetId: Map<string, NpcEvadeThreat>
+    threatSourcesByTargetId: NpcEvadeThreatsByTargetId
   ) {
     threatenedIds.add(npc.id);
     threatenedIds.add(targetId);
-    threatSourcesByTargetId.set(
+    addNpcEvadeThreat(
+      threatSourcesByTargetId,
       targetId,
       Object.freeze({
         sourceId: npc.id,
         sourceAimPosition: toAimPosition(npc.footPosition),
-        sightClear: true
+        sightClear: true,
+        provenance: "direct" as const
       })
     );
     const target = this.npcsById.get(targetId);
     if (target) {
-      threatSourcesByTargetId.set(
+      addNpcEvadeThreat(
+        threatSourcesByTargetId,
         npc.id,
         Object.freeze({
           sourceId: target.id,
           sourceAimPosition: toAimPosition(target.footPosition),
-          sightClear: true
+          sightClear: true,
+          provenance: "direct" as const
         })
       );
     }
@@ -4001,9 +4493,451 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     return true;
   }
 
+  private horizontalDistance(left: Vector3, right: Vector3) {
+    return Math.hypot(left.x - right.x, left.z - right.z);
+  }
+
+  private clearRestSlot(npc: NpcRuntime) {
+    npc.restSlot = null;
+    npc.restSlotAreaId = null;
+    npc.restSlotKey = null;
+    npc.restSlotReferenceDistance = 0;
+    npc.resting = false;
+    this.synchronizeRestSlotOccupancyForNpc(npc);
+  }
+
+  private isNpcStoppedForRestSeparation(npc: NpcRuntime) {
+    return (
+      isStoppedState(npc.stateSnapshot.state) ||
+      npc.capture !== null ||
+      npc.command.followMovementStopped ||
+      (npc.command.mode === "none" && npc.navigationAgentCleared) ||
+      !isV2NpcTraversalWalkingEnabled(npc.traversalState)
+    );
+  }
+
+  private requireRestSlotAreaOccupancy(
+    areaId: string
+  ): NpcRestSlotAreaOccupancy {
+    let occupancy = this.restSlotOccupancyByAreaId.get(areaId);
+    if (occupancy === undefined) {
+      const entries: NpcRestSlotOccupancy[] = [];
+      occupancy = {
+        entries,
+        index: createV2PlanarSpatialIndex<NpcRestSlotOccupancy>(
+          (entry) => entry.position,
+          NPC_REST_SEPARATION_DISTANCE
+        ),
+        queryScratch: []
+      };
+      this.restSlotOccupancyByAreaId.set(areaId, occupancy);
+    }
+    return occupancy;
+  }
+
+  private getRestSlotOccupancyForNpc(
+    npc: NpcRuntime
+  ): NpcRestSlotOccupancy {
+    let occupancy = this.restSlotOccupancyByNpcId.get(npc.id);
+    if (occupancy === undefined) {
+      occupancy = {
+        ownerId: npc.id,
+        position: Vector3.Zero(),
+        areaId: null
+      };
+      this.restSlotOccupancyByNpcId.set(npc.id, occupancy);
+    }
+    return occupancy;
+  }
+
+  private prepareRestSlotOccupancyCaches(
+    playerTarget: V2HumanTargetSnapshot
+  ): void {
+    for (const areaOccupancy of this.restSlotOccupancyByAreaId.values()) {
+      areaOccupancy.entries.length = 0;
+    }
+    for (const occupancy of this.restSlotOccupancyByNpcId.values()) {
+      occupancy.areaId = null;
+    }
+
+    const playerArea = this.resolveTargetNavigationArea(playerTarget);
+    const playerOccupancy = this.playerRestSlotOccupancy;
+    playerOccupancy.position.copyFrom(playerTarget.footPosition);
+    playerOccupancy.areaId = playerArea.areaId;
+    this.requireRestSlotAreaOccupancy(
+      playerArea.areaId
+    ).entries.push(playerOccupancy);
+
+    for (const npc of this.npcs) {
+      const occupancy = this.getRestSlotOccupancyForNpc(npc);
+      if (!npc.sprite.isVisible) {
+        continue;
+      }
+      if (npc.restSlot && npc.restSlotAreaId !== null) {
+        occupancy.position.copyFrom(npc.restSlot.position);
+        occupancy.areaId = npc.restSlotAreaId;
+      } else if (this.isNpcStoppedForRestSeparation(npc)) {
+        occupancy.position.copyFrom(npc.footPosition);
+        occupancy.areaId = npc.pursuitActorAreaCursor.areaId;
+      } else {
+        continue;
+      }
+      this.requireRestSlotAreaOccupancy(
+        occupancy.areaId
+      ).entries.push(occupancy);
+    }
+
+    for (const [areaId, areaOccupancy] of this.restSlotOccupancyByAreaId) {
+      if (areaOccupancy.entries.length === 0) {
+        this.restSlotOccupancyByAreaId.delete(areaId);
+      } else {
+        areaOccupancy.index.rebuild(areaOccupancy.entries);
+      }
+    }
+    this.restSlotOccupancyPlayerTarget = playerTarget;
+    this.restSlotOccupancyPrepared = true;
+  }
+
+  private removeRestSlotOccupancyEntry(
+    areaOccupancy: NpcRestSlotAreaOccupancy,
+    occupancy: NpcRestSlotOccupancy
+  ): void {
+    const index = areaOccupancy.entries.indexOf(occupancy);
+    if (index < 0) {
+      throw new Error(
+        `NPC停止位置の占有索引に対象がありません: ${occupancy.ownerId}`
+      );
+    }
+    for (
+      let moveIndex = index;
+      moveIndex < areaOccupancy.entries.length - 1;
+      moveIndex += 1
+    ) {
+      areaOccupancy.entries[moveIndex] =
+        areaOccupancy.entries[moveIndex + 1];
+    }
+    areaOccupancy.entries.length -= 1;
+  }
+
+  private updateRestSlotOccupancy(
+    occupancy: NpcRestSlotOccupancy,
+    areaId: string | null,
+    position: Vector3
+  ): void {
+    if (!this.restSlotOccupancyPrepared) {
+      return;
+    }
+    const previousAreaId = occupancy.areaId;
+    if (
+      previousAreaId === areaId &&
+      (areaId === null || occupancy.position.equals(position))
+    ) {
+      return;
+    }
+
+    let previousAreaOccupancy: NpcRestSlotAreaOccupancy | null = null;
+    if (previousAreaId !== null && previousAreaId !== areaId) {
+      previousAreaOccupancy = this.requireRestSlotAreaOccupancy(
+        previousAreaId
+      );
+      this.removeRestSlotOccupancyEntry(
+        previousAreaOccupancy,
+        occupancy
+      );
+    }
+
+    occupancy.areaId = areaId;
+    occupancy.position.copyFrom(position);
+    let nextAreaOccupancy: NpcRestSlotAreaOccupancy | null = null;
+    if (areaId !== null) {
+      nextAreaOccupancy = this.requireRestSlotAreaOccupancy(areaId);
+      if (previousAreaId !== areaId) {
+        nextAreaOccupancy.entries.push(occupancy);
+      }
+      nextAreaOccupancy.index.rebuild(nextAreaOccupancy.entries);
+    }
+    if (
+      previousAreaOccupancy !== null &&
+      previousAreaOccupancy !== nextAreaOccupancy
+    ) {
+      if (previousAreaOccupancy.entries.length === 0) {
+        this.restSlotOccupancyByAreaId.delete(previousAreaId as string);
+      } else {
+        previousAreaOccupancy.index.rebuild(
+          previousAreaOccupancy.entries
+        );
+      }
+    }
+  }
+
+  private synchronizeRestSlotOccupancyForNpc(npc: NpcRuntime): void {
+    if (!this.restSlotOccupancyPrepared) {
+      return;
+    }
+    const occupancy = this.getRestSlotOccupancyForNpc(npc);
+    if (!npc.sprite.isVisible) {
+      this.updateRestSlotOccupancy(occupancy, null, npc.footPosition);
+    } else if (npc.restSlot && npc.restSlotAreaId !== null) {
+      this.updateRestSlotOccupancy(
+        occupancy,
+        npc.restSlotAreaId,
+        npc.restSlot.position
+      );
+    } else if (this.isNpcStoppedForRestSeparation(npc)) {
+      this.updateRestSlotOccupancy(
+        occupancy,
+        npc.pursuitActorAreaCursor.areaId,
+        npc.footPosition
+      );
+    } else {
+      this.updateRestSlotOccupancy(occupancy, null, npc.footPosition);
+    }
+  }
+
+  private isRestSlotPositionAvailable(
+    npc: NpcRuntime,
+    position: Vector3,
+    occupancy: NpcRestSlotAreaOccupancy,
+    separationThreshold: number,
+    separationThresholdSquared: number
+  ): boolean {
+    for (const occupied of occupancy.index.queryToRef(
+      position,
+      separationThreshold,
+      occupancy.queryScratch
+    )) {
+      if (occupied.ownerId === npc.id) {
+        continue;
+      }
+      const offsetX = position.x - occupied.position.x;
+      const offsetZ = position.z - occupied.position.z;
+      if (
+        offsetX * offsetX + offsetZ * offsetZ <
+        separationThresholdSquared
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private reserveRestSlot(
+    npc: NpcRuntime,
+    slot: NavigationLocation,
+    areaId: string,
+    key: string,
+    referencePosition: Vector3
+  ) {
+    npc.restSlot = cloneNavigationLocation(slot);
+    npc.restSlotAreaId = areaId;
+    npc.restSlotKey = key;
+    npc.restSlotReferenceDistance = this.horizontalDistance(
+      slot.position,
+      referencePosition
+    );
+    npc.resting = false;
+    this.synchronizeRestSlotOccupancyForNpc(npc);
+    return cloneNavigationLocation(slot);
+  }
+
+  private selectRestSlot(
+    npc: NpcRuntime,
+    center: Vector3,
+    areaId: string,
+    key: string,
+    playerTarget: V2HumanTargetSnapshot,
+    minimumCenterDistance: number,
+    maximumCenterDistance: number
+  ) {
+    if (
+      !this.restSlotOccupancyPrepared ||
+      this.restSlotOccupancyPlayerTarget !== playerTarget
+    ) {
+      this.prepareRestSlotOccupancyCaches(playerTarget);
+    }
+    const occupancy = this.requireRestSlotAreaOccupancy(areaId);
+    const separationThreshold =
+      NPC_REST_SEPARATION_DISTANCE - NPC_COMMAND_DISTANCE_EPSILON;
+    const separationThresholdSquared =
+      separationThreshold * separationThreshold;
+    const tryCandidate = (candidate: Vector3) => {
+      const projected = this.stage.navigation.projectPoint(
+        candidate,
+        NPC_REST_SLOT_PROJECTION_DISTANCE
+      );
+      if (
+        !projected ||
+        Vector3.Distance(projected.position, candidate) >
+          NPC_REST_SLOT_PROJECTION_DISTANCE ||
+        this.stage.navigationAreas.portals.some((portal) =>
+          portal.contains(projected.position)
+        )
+      ) {
+        return null;
+      }
+      if (
+        this.stage.navigationAreas.locate(projected.position).areaId !== areaId
+      ) {
+        return null;
+      }
+      const centerDistance = this.horizontalDistance(
+        projected.position,
+        center
+      );
+      if (
+        centerDistance + NPC_COMMAND_DISTANCE_EPSILON <
+          minimumCenterDistance ||
+        centerDistance >
+          maximumCenterDistance + NPC_COMMAND_DISTANCE_EPSILON ||
+        !this.isRestSlotPositionAvailable(
+          npc,
+          projected.position,
+          occupancy,
+          separationThreshold,
+          separationThresholdSquared
+        )
+      ) {
+        return null;
+      }
+      return cloneNavigationLocation(projected);
+    };
+
+    if (minimumCenterDistance === 0) {
+      const centered = tryCandidate(center);
+      if (centered) {
+        return this.reserveRestSlot(
+          npc,
+          centered,
+          areaId,
+          key,
+          center
+        );
+      }
+    }
+
+    const angleOffset = createNpcRestSlotAngle(npc.id);
+    const firstRing = Math.max(
+      1,
+      Math.ceil(
+        (minimumCenterDistance - NPC_COMMAND_DISTANCE_EPSILON) /
+          NPC_REST_SEPARATION_DISTANCE
+      )
+    );
+    for (
+      let ring = firstRing;
+      ring <= NPC_REST_SLOT_RING_COUNT;
+      ring += 1
+    ) {
+      const radius = ring * NPC_REST_SEPARATION_DISTANCE;
+      if (
+        radius >
+        maximumCenterDistance + NPC_COMMAND_DISTANCE_EPSILON
+      ) {
+        break;
+      }
+      const candidateCount = NPC_REST_SLOT_BASE_COUNT * ring;
+      let selected: NavigationLocation | null = null;
+      let selectedDistance = Number.POSITIVE_INFINITY;
+      let selectedOrder = Number.POSITIVE_INFINITY;
+      for (
+        let sourceOrder = 0;
+        sourceOrder < candidateCount;
+        sourceOrder += 1
+      ) {
+        const angle =
+          angleOffset +
+          (sourceOrder / candidateCount) * Math.PI * 2;
+        const candidate = new Vector3(
+          center.x + Math.cos(angle) * radius,
+          center.y,
+          center.z + Math.sin(angle) * radius
+        );
+        const projected = tryCandidate(candidate);
+        if (!projected) {
+          continue;
+        }
+        const distance = this.horizontalDistance(
+          npc.footPosition,
+          projected.position
+        );
+        if (
+          distance <
+            selectedDistance - NPC_COMMAND_DISTANCE_EPSILON ||
+          (Math.abs(distance - selectedDistance) <=
+            NPC_COMMAND_DISTANCE_EPSILON &&
+            sourceOrder < selectedOrder)
+        ) {
+          selected = projected;
+          selectedDistance = distance;
+          selectedOrder = sourceOrder;
+        }
+      }
+      if (selected) {
+        return this.reserveRestSlot(
+          npc,
+          selected,
+          areaId,
+          key,
+          center
+        );
+      }
+    }
+    return null;
+  }
+
+  private resolveGunRestSlot(
+    npc: NpcRuntime,
+    target: V2HumanTargetSnapshot,
+    playerTarget: V2HumanTargetSnapshot
+  ) {
+    const targetArea = this.resolveTargetNavigationArea(target);
+    const key =
+      `gun:${target.id}:${targetArea.areaId}:` +
+      `${targetArea.revision}`;
+    let resumeFromExistingSlot = false;
+    if (
+      npc.restSlot &&
+      npc.restSlotAreaId === targetArea.areaId &&
+      npc.restSlotKey === key
+    ) {
+      const currentReferenceDistance = this.horizontalDistance(
+        npc.restSlot.position,
+        target.footPosition
+      );
+      if (
+        currentReferenceDistance <=
+        npc.restSlotReferenceDistance +
+          NPC_GUN_REPOSITION_DISTANCE +
+          NPC_COMMAND_DISTANCE_EPSILON
+      ) {
+        return npc.restSlot;
+      }
+      resumeFromExistingSlot = true;
+    }
+    this.clearRestSlot(npc);
+    if (
+      npc.pursuitActorAreaCursor.areaId !== targetArea.areaId ||
+      (!resumeFromExistingSlot &&
+        this.horizontalDistance(npc.footPosition, target.footPosition) >
+          NPC_GUN_RESUME_DISTANCE + NPC_COMMAND_DISTANCE_EPSILON)
+    ) {
+      return null;
+    }
+    return this.selectRestSlot(
+      npc,
+      target.footPosition,
+      targetArea.areaId,
+      key,
+      playerTarget,
+      NPC_GUN_STOP_DISTANCE,
+      Number.POSITIVE_INFINITY
+    );
+  }
+
   private updateGunNpc(
     npc: NpcRuntime,
     target: V2HumanTargetSnapshot,
+    playerTarget: V2HumanTargetSnapshot,
     deltaSeconds: number,
     allowPathRecalculation: boolean
   ) {
@@ -4011,6 +4945,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.targetProvenance === "visual" &&
       npc.gunVisualPursuitMode === "last-seen"
     ) {
+      this.clearRestSlot(npc);
       this.updateGunLastSeenPursuit(
         npc,
         deltaSeconds,
@@ -4018,15 +4953,50 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       );
       return;
     }
-    this.chaseTarget(
+    const restSlot = this.resolveGunRestSlot(
       npc,
       target,
-      deltaSeconds,
-      allowPathRecalculation
+      playerTarget
     );
+    if (
+      restSlot &&
+      this.horizontalDistance(npc.footPosition, restSlot.position) <=
+        NPC_REST_SLOT_ARRIVAL_DISTANCE
+    ) {
+      npc.resting = true;
+      if (!npc.navigationAgentCleared) {
+        this.clearNavigationAgent(npc);
+      }
+    } else {
+      npc.resting = false;
+      this.chaseTarget(
+        npc,
+        target,
+        deltaSeconds,
+        allowPathRecalculation,
+        restSlot?.position ?? null
+      );
+      if (
+        restSlot &&
+        this.horizontalDistance(npc.footPosition, restSlot.position) <=
+          NPC_REST_SLOT_ARRIVAL_DISTANCE
+      ) {
+        npc.resting = true;
+        if (!npc.navigationAgentCleared) {
+          this.clearNavigationAgent(npc);
+        }
+      }
+    }
     const origin = toAimPosition(npc.footPosition);
     const toTarget = target.aimPosition.subtract(origin);
     const distanceSquared = toTarget.lengthSquared();
+    const horizontalDirection = target.footPosition.subtract(
+      npc.footPosition
+    );
+    horizontalDirection.y = 0;
+    if (horizontalDirection.lengthSquared() > 0) {
+      npc.forward.copyFrom(horizontalDirection.normalize());
+    }
     if (
       distanceSquared === 0 ||
       distanceSquared > NPC_GUN_RANGE_SQUARED ||
@@ -4064,7 +5034,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc,
       "pursue",
       destination,
-      NPC_CHASE_SPEED,
+      V2_NPC_CHASE_SPEED,
       deltaSeconds,
       allowPathRecalculation && !npc.gunLastSeenPathPlanned
     );
@@ -4109,8 +5079,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     allowPathRecalculation: boolean,
     capturedTargetIds: Set<string>,
     threatenedIds: Set<string>,
-    threatSourcesByTargetId: Map<string, NpcEvadeThreat>
+    threatSourcesByTargetId: NpcEvadeThreatsByTargetId
   ) {
+    this.clearRestSlot(npc);
     if (npc.alarmTargetQueue.length > 0) {
       this.chaseTarget(
         npc,
@@ -4159,7 +5130,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc: NpcRuntime,
     target: V2HumanTargetSnapshot,
     deltaSeconds: number,
-    allowPathRecalculation: boolean
+    allowPathRecalculation: boolean,
+    detailDestination: Vector3 | null = null
   ) {
     npc.wanderDestination = null;
     const targetArea = this.resolveTargetNavigationArea(target);
@@ -4228,14 +5200,17 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       }
     }
     const destination =
-      npc.pursuitPhase === "detail"
+      detailDestination ??
+      (npc.pursuitPhase === "detail"
         ? target.footPosition
-        : npc.pursuitAnchor;
+        : npc.pursuitAnchor);
     const movement = this.updateNavigation(
       npc,
       "pursue",
       destination,
-      NPC_CHASE_SPEED,
+      npc.targetProvenance === "alert"
+        ? V2_NPC_ALARM_SPEED
+        : V2_NPC_CHASE_SPEED,
       deltaSeconds,
       allowPathRecalculation
     );
@@ -4243,13 +5218,22 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.applyNavigationMovement(npc, movement.location);
   }
 
-  private updateNormalNpc(
+  private updateSearchingNpc(
     npc: NpcRuntime,
+    playerTarget: V2HumanTargetSnapshot,
     deltaSeconds: number,
     allowPathRecalculation: boolean
   ) {
+    const returningFromEvade = npc.evadeThreatSetKey.length > 0;
     npc.evadeThreatId = null;
     npc.evadeThreatSightClear = false;
+    npc.evadeThreatSetKey = "";
+    npc.evadeNavigationReplanPriority = 4;
+    if (returningFromEvade) {
+      npc.wanderDestination = null;
+      npc.wanderWaitSeconds = 0;
+      this.clearRestSlot(npc);
+    }
     if (npc.targetId !== null) {
       this.clearTarget(npc);
     }
@@ -4259,7 +5243,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     );
     if (!npc.wanderDestination && npc.wanderWaitSeconds === 0) {
       npc.wanderDestination = this.createWanderDestination(
-        npc.navigationLocation
+        npc,
+        playerTarget
       );
       this.clearNavigationAgent(npc);
       if (!npc.wanderDestination) {
@@ -4292,17 +5277,52 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       this.clearNavigationAgent(npc);
       npc.wanderDestination = null;
       npc.wanderWaitSeconds = this.nextWanderWait();
+      npc.resting = moved && movement.state === "arrived";
     }
   }
 
   private updateEvadingNpc(
     npc: NpcRuntime,
-    threat: NpcEvadeThreat,
+    threats: readonly NpcEvadeThreat[],
     deltaSeconds: number,
     allowPathRecalculation: boolean
   ) {
-    npc.evadeThreatId = threat.sourceId;
-    npc.evadeThreatSightClear = threat.sightClear;
+    const orderedThreats = [...threats].sort((left, right) => {
+      const distanceDifference =
+        Vector3.DistanceSquared(
+          npc.footPosition,
+          left.sourceAimPosition
+        ) -
+        Vector3.DistanceSquared(
+          npc.footPosition,
+          right.sourceAimPosition
+        );
+      return (
+        distanceDifference ||
+        left.sourceId.localeCompare(right.sourceId)
+      );
+    });
+    const primaryThreat = orderedThreats[0];
+    if (!primaryThreat) {
+      throw new Error(`回避脅威集合が空です: ${npc.id}`);
+    }
+    npc.evadeNavigationReplanPriority = orderedThreats.some(
+      (threat) => threat.provenance === "direct"
+    )
+      ? 0
+      : 4;
+    const threatSetKey = orderedThreats
+      .map((threat) => threat.sourceId)
+      .sort()
+      .join("\u0000");
+    if (npc.evadeThreatSetKey !== threatSetKey) {
+      npc.wanderDestination = null;
+      this.clearRestSlot(npc);
+      this.clearNavigationAgent(npc);
+    }
+    npc.evadeThreatSetKey = threatSetKey;
+    npc.evadeThreatId = primaryThreat.sourceId;
+    npc.evadeThreatSightClear = primaryThreat.sightClear;
     npc.targetId = null;
     npc.targetProvenance = null;
     npc.gunVisualPursuitMode = null;
@@ -4312,27 +5332,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.alertLeaderId = null;
     npc.alertRemainingSeconds = 0;
     if (!npc.wanderDestination) {
-      npc.wanderDestination =
-        this.findNpcElevatorEvadeDestination(npc);
-      if (!npc.wanderDestination) {
-        const away = npc.footPosition.subtract(
-          threat.sourceAimPosition
-        );
-        away.y = 0;
-        if (away.lengthSquared() === 0) {
-          away.copyFrom(npc.forward).scaleInPlace(-1);
-        } else {
-          away.normalize();
-        }
-        const candidate = npc.navigationLocation.position.add(
-          away.scale(NPC_WANDER_RADIUS)
-        );
-        npc.wanderDestination =
-          this.stage.navigation.constrainMovement(
-            npc.navigationLocation,
-            candidate
-          );
-      }
+      npc.wanderDestination = this.selectNpcEvadeDestination(
+        npc,
+        orderedThreats
+      );
       this.clearNavigationAgent(npc);
       if (!npc.wanderDestination) {
         return;
@@ -4342,7 +5345,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc,
       "evade",
       npc.wanderDestination.position,
-      NPC_CHASE_SPEED,
+      V2_NPC_CHASE_SPEED,
       deltaSeconds,
       allowPathRecalculation
     );
@@ -4359,6 +5362,120 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       this.clearNavigationAgent(npc);
       npc.wanderDestination = null;
     }
+  }
+
+  private selectNpcEvadeDestination(
+    npc: NpcRuntime,
+    threats: readonly NpcEvadeThreat[]
+  ) {
+    type ScoredDestination = Readonly<{
+      location: NavigationLocation;
+      nonDecreasingForAllThreats: boolean;
+      minimumThreatDistance: number;
+      primaryThreatDistance: number;
+      pathDistance: number;
+      sourceOrder: number;
+    }>;
+    const currentThreatDistances = threats.map((threat) =>
+      Vector3.Distance(npc.footPosition, threat.sourceAimPosition)
+    );
+    const candidateLocations: Array<
+      Readonly<{
+        location: NavigationLocation;
+        sourceOrder: number;
+      }>
+    > = [];
+    for (let sourceOrder = 0; sourceOrder < 16; sourceOrder += 1) {
+      const angle = (sourceOrder / 16) * Math.PI * 2;
+      const candidate = npc.navigationLocation.position.add(
+        new Vector3(
+          Math.cos(angle) * NPC_WANDER_RADIUS,
+          0,
+          Math.sin(angle) * NPC_WANDER_RADIUS
+        )
+      );
+      const location = this.stage.navigation.constrainMovement(
+        npc.navigationLocation,
+        candidate
+      );
+      if (location) {
+        candidateLocations.push(
+          Object.freeze({
+            location,
+            sourceOrder
+          })
+        );
+      }
+    }
+    const elevatorDestinations =
+      this.collectNpcElevatorEvadeDestinations(npc);
+    for (
+      let index = 0;
+      index < elevatorDestinations.length;
+      index += 1
+    ) {
+      candidateLocations.push(
+        Object.freeze({
+          location: elevatorDestinations[index],
+          sourceOrder: 16 + index
+        })
+      );
+    }
+    let selected: ScoredDestination | null = null;
+    for (const candidate of candidateLocations) {
+      const threatDistances = threats.map((threat) =>
+        Vector3.Distance(
+          candidate.location.position,
+          threat.sourceAimPosition
+        )
+      );
+      const scored: ScoredDestination = Object.freeze({
+        location: cloneNavigationLocation(candidate.location),
+        nonDecreasingForAllThreats: threatDistances.every(
+          (distance, index) =>
+            distance + NPC_COMMAND_DISTANCE_EPSILON >=
+            currentThreatDistances[index]
+        ),
+        minimumThreatDistance: Math.min(...threatDistances),
+        primaryThreatDistance: threatDistances[0],
+        pathDistance: Vector3.Distance(
+          npc.navigationLocation.position,
+          candidate.location.position
+        ),
+        sourceOrder: candidate.sourceOrder
+      });
+      if (
+        !selected ||
+        Number(scored.nonDecreasingForAllThreats) >
+          Number(selected.nonDecreasingForAllThreats) ||
+        (scored.nonDecreasingForAllThreats ===
+          selected.nonDecreasingForAllThreats &&
+          (scored.minimumThreatDistance >
+            selected.minimumThreatDistance +
+              NPC_COMMAND_DISTANCE_EPSILON ||
+            (Math.abs(
+              scored.minimumThreatDistance -
+                selected.minimumThreatDistance
+            ) <= NPC_COMMAND_DISTANCE_EPSILON &&
+              (scored.primaryThreatDistance >
+                selected.primaryThreatDistance +
+                  NPC_COMMAND_DISTANCE_EPSILON ||
+                (Math.abs(
+                  scored.primaryThreatDistance -
+                    selected.primaryThreatDistance
+                ) <= NPC_COMMAND_DISTANCE_EPSILON &&
+                  (scored.pathDistance <
+                    selected.pathDistance -
+                      NPC_COMMAND_DISTANCE_EPSILON ||
+                    (Math.abs(
+                      scored.pathDistance - selected.pathDistance
+                    ) <= NPC_COMMAND_DISTANCE_EPSILON &&
+                      scored.sourceOrder < selected.sourceOrder)))))))
+      ) {
+        selected = scored;
+      }
+    }
+    return selected?.location ?? null;
   }
 
   private updateBreakaway(
@@ -4692,6 +5809,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.alertRemainingSeconds = alertRemainingSeconds;
     npc.wanderDestination = null;
     if (changed) {
+      this.clearRestSlot(npc);
       if (this.diagnosticsEnabled) {
         this.forcedTargetChangeCount += 1;
       }
@@ -4740,6 +5858,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.wanderDestination = null;
     npc.visualSightCheckPriority = false;
     if (targetIdChanged) {
+      this.clearRestSlot(npc);
       if (
         this.requireTargetSelectionPersonality(npc) ===
         "nearest-visible"
@@ -4791,6 +5910,14 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.pursuitTargetAreaRevision = -1;
     if (hadTarget) {
       npc.visualSightCheckPriority = true;
+      this.clearRestSlot(npc);
+      if (
+        npc.stateSnapshot.state === "brainwash-complete-gun" ||
+        npc.stateSnapshot.state === "brainwash-complete-no-gun"
+      ) {
+        npc.wanderDestination = null;
+        npc.wanderWaitSeconds = 0;
+      }
     }
     this.clearNavigationAgent(npc);
   }
@@ -4831,17 +5958,24 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.releaseCapturesForTarget(npc.id);
   }
 
-  private synchronizeSpriteVisual(npc: NpcRuntime) {
+  private applySpriteVisualState(npc: NpcRuntime) {
     const snapshot = npc.stateSnapshot;
-    npc.sprite.cellIndex = getSpriteCellIndex(
+    npc.visual.setState(
       snapshot.state,
       npc.command.temporaryGunActive
     );
-    npc.sprite.color.a =
-      snapshot.hitPhase === "fade"
-        ? snapshot.hitPhaseRemainingSeconds /
-          V2_HIT_FADE_DURATION_SECONDS
-        : 1;
+    npc.sprite.color.a = 1;
+  }
+
+  private synchronizeSpriteVisual(npc: NpcRuntime) {
+    this.applySpriteVisualState(npc);
+    npc.visual.syncPresentation();
+  }
+
+  private synchronizeSpritePosition(npc: NpcRuntime) {
+    npc.sprite.position.copyFrom(npc.footPosition);
+    npc.sprite.position.y += npc.visual.height / 2;
+    npc.visual.syncPresentation();
   }
 
   private finishFrame(
@@ -4849,9 +5983,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     visibleNpcs: readonly NpcRuntime[],
     frameNpcTargets: MutableNpcTargetSnapshot[]
   ) {
-    for (const npc of this.npcs) {
-      npc.sprite.position.copyFrom(npc.footPosition);
-      npc.sprite.position.y += NPC_SPRITE_CENTER_HEIGHT;
+    for (const npc of visibleNpcs) {
+      this.synchronizeSpritePosition(npc);
     }
 
     for (let index = 0; index < visibleNpcs.length; index += 1) {
@@ -4946,7 +6079,12 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           traversalState: cloneV2NpcTraversalState(
             npc.traversalState
           ),
-          pursuitPhase: npc.pursuitPhase
+          pursuitPhase: npc.pursuitPhase,
+          evadeThreatIds: Object.freeze(
+            npc.evadeThreatSetKey.length === 0
+              ? []
+              : npc.evadeThreatSetKey.split("\u0000")
+          )
         })
       );
       if (npc.capture) {
@@ -5007,6 +6145,12 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       autonomousVisualTargetChangeCount:
         this.autonomousVisualTargetChangeCount,
       forcedTargetChangeCount: this.forcedTargetChangeCount,
+      autonomousThreatSightCheckCount:
+        this.autonomousThreatSightCheckCount,
+      autonomousThreatVisibleCount:
+        this.autonomousThreatVisibleCount,
+      autonomousThreatMaximumSourceCount:
+        this.autonomousThreatMaximumSourceCount,
       frameViewBuildSequence: this.frameViewBuildSequence
     });
   }
@@ -5066,7 +6210,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     return this.nextFireInterval() * this.nextRandom();
   }
 
-  private createWanderDestination(origin: NavigationLocation) {
+  private createWanderDestination(
+    npc: NpcRuntime,
+    playerTarget: V2HumanTargetSnapshot
+  ) {
+    const origin = npc.navigationLocation;
     for (let attempt = 0; attempt < NPC_WANDER_MAX_ATTEMPTS; attempt += 1) {
       const angle = this.nextRandom() * Math.PI * 2;
       const distance = Math.sqrt(this.nextRandom()) * NPC_WANDER_RADIUS;
@@ -5084,7 +6232,24 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         Vector3.Distance(projected.position, candidate) <=
           NAVIGATION_PROJECTION_MAX_DISTANCE
       ) {
-        return projected;
+        const areaId = npc.pursuitActorAreaCursor.areaId;
+        const key =
+          `wander:${npc.id}:${npc.navigationGoalRevision}:` +
+          `${attempt}:${projected.position.x.toPrecision(17)}:` +
+          `${projected.position.y.toPrecision(17)}:` +
+          `${projected.position.z.toPrecision(17)}`;
+        const restSlot = this.selectRestSlot(
+          npc,
+          projected.position,
+          areaId,
+          key,
+          playerTarget,
+          0,
+          Number.POSITIVE_INFINITY
+        );
+        if (restSlot) {
+          return restSlot;
+        }
       }
     }
     return null;

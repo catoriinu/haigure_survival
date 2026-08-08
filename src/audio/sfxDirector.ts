@@ -1,5 +1,7 @@
 import { Vector3 } from "@babylonjs/core";
-import { AudioManager, SpatialHandle, SpatialPlayOptions } from "./audio";
+import type { AudioManager, SpatialHandle, SpatialPlayOptions } from "./audio";
+
+export type SfxAudio = Pick<AudioManager, "playSe">;
 
 export type SfxFiles = {
   bitMove: string;
@@ -23,7 +25,7 @@ export type SfxDistance = {
 };
 
 export class SfxDirector {
-  private audio: AudioManager;
+  private audio: SfxAudio;
   private getListenerPosition: () => Vector3;
   private files: SfxFiles;
   private options: SfxOptions;
@@ -31,12 +33,12 @@ export class SfxDirector {
   private isFileAvailable: (url: string) => boolean;
 
   constructor(
-    audio: AudioManager,
+    audio: SfxAudio,
     getListenerPosition: () => Vector3,
     files: SfxFiles,
     options: SfxOptions,
     distance: SfxDistance,
-    isFileAvailable: (url: string) => boolean
+    isFileAvailable: (url: string) => boolean,
   ) {
     this.audio = audio;
     this.getListenerPosition = getListenerPosition;
@@ -91,7 +93,7 @@ export class SfxDirector {
     return this.audio.playSe(
       this.files.bitAlert,
       getPosition,
-      this.options.alertLoop
+      this.options.alertLoop,
     );
   }
 
@@ -99,7 +101,7 @@ export class SfxDirector {
     const sourcePosition = getPosition();
     const distance = Vector3.Distance(
       this.getListenerPosition(),
-      sourcePosition
+      sourcePosition,
     );
     const variants = targetingPlayer
       ? this.files.beamTarget

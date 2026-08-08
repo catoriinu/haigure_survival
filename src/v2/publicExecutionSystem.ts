@@ -574,9 +574,9 @@ export const createV2PublicExecutionSystem = (
       return true;
     },
     replay: () => {
-      if (phase !== "complete") {
+      if (phase !== "execution" && phase !== "complete") {
         throw new Error(
-          "公開処刑リプレイは完了後にだけ開始できます"
+          "公開処刑リプレイは処刑中または完了後にだけ開始できます"
         );
       }
       prepareTargets();

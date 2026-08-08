@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL ブランチ戦略
 
-更新日: 2026-08-01
+更新日: 2026-08-02
 
 ## 1. 目的
 
@@ -57,6 +57,12 @@ flowchart LR
 | B04 | `codex/v2-b04-school-world-boundary` |
 | T06-1 | `codex/v2-t06-runtime-core` |
 | T06-2 | `codex/v2-t06-school-integration` |
+| I2 | `codex/v2-map-mission-design` |
+| T06-3 | `codex/v2-minimap` |
+| B05 | `codex/v2-mission-locations` |
+| T06-4 | `codex/v2-missions` |
+| I3 | `codex/v2-character-display-design` |
+| T06-5 | `codex/v2-character-portraits` |
 | T07 | `codex/v2-t07-regression-docs` |
 
 PR #41以降は、レビュー可能な一ブランチ単位へ次のように分割する。
@@ -83,8 +89,15 @@ PR #41以降は、レビュー可能な一ブランチ単位へ次のように�
 | B03-3D 荒れ版教室配置 | `codex/v2-b03-3-disordered-classrooms` |
 | T06-1 通常ゲームRuntime接続 | `codex/v2-t06-runtime-core` |
 | T06-2 学校最終統合 | `codex/v2-t06-school-integration` |
+| I2 ミニマップ・Mission設計 | `codex/v2-map-mission-design` |
+| T06-3 ミニマップ | `codex/v2-minimap` |
+| B05 Mission Location資産 | `codex/v2-mission-locations` |
+| T06-4 Mission Runtime | `codex/v2-missions` |
+| I3 キャラクター反射・表示仕上げ設計 | `codex/v2-character-display-design` |
+| T06-5 キャラクター反射・表示仕上げRuntime | `codex/v2-character-portraits` |
+| T07 性能・回帰・仕様書 | `codex/v2-t07-regression-docs` |
 
-PR #50までの実行順は、B03-0とT04-2Aの並行Wave、B03-1、B03-2、T04-2B、T05-1、T05-2で完了した。その後、B03-3Aで学校拡張契約を確定し、B03-3BとT05-2V、B03-3C・T04-3A・T05-3のI0統合、B04とT05-4の並行Wave、T04-3B、通常版教室配置、通常テスト人口更新まで完了した。Wave 0Gの文書統合後はB03-3DとT06-1を並行し、両成果後にT06-2、T07を直列実施する。
+PR #50までの実行順は、B03-0とT04-2Aの並行Wave、B03-1、B03-2、T04-2B、T05-1、T05-2で完了した。その後、B03-3Aで学校拡張契約を確定し、B03-3BとT05-2V、B03-3C・T04-3A・T05-3のI0統合、B04とT05-4の並行Wave、T04-3B、通常版教室配置、通常テスト人口更新まで完了した。Wave 0G後はB03-3DとT06-1、T06-2、I2、T06-3とB05、T06-4、I3、T06-5、T07の順に実施する。
 
 2026-07-26、`codex/v2-t05-combat-systems`はPR #50のマージコミット`27abd9b`で`develop`へ統合済みである。戦闘・状態・光線物理・集合・警報・公開処刑、Alert最大4機、BIT探索分散、窓越しCHASE、仕様維持性能リファクタリングをT05-2の完了範囲とする。V1相当の光線軌跡・周囲光球・着弾・キャラクター命中演出はPR #50へ追加せず、世界境界終了とともにT05-2Vへ分割する。
 
@@ -120,7 +133,7 @@ B03-0を開始する場合は、手順1で`docs/plans/v2/T04/plan.md`の「B03-0
 - Pull RequestにはタスクID、目的、主な変更、検証結果、既知の未完成事項、個別計画へのパスを記載する。
 - 対象タスクの完了条件と必要なビルド・テストを満たしてから作成する。
 - `develop`全体がリリース可能であることは要求しないが、そのタスクで変更した範囲は検証済みであることを要求する。
-- I0、B04、T05-4、T04-3B、B03-3D、T06-1、T06-2、T07はPull Request作成後、`develop`へマージする前に`docs/plans/v2/next_tasks_plan.md`の対応する重点動作確認ゲートと独立レビューを完了する。
+- I0、B04、T05-4、T04-3B、B03-3D、T06-1、T06-2、T06-3、B05、T06-4、T06-5、T07はPull Request作成後、`develop`へマージする前に`docs/plans/v2/next_tasks_plan.md`の対応する重点動作確認ゲートと独立レビューを完了する。
 - 現在のリポジトリ履歴に合わせ、通常のPull Requestマージで履歴を残す。
 - マージ後、不要になったタスクブランチは削除する。
 
@@ -157,14 +170,19 @@ gh auth status
 - B04は学校`.blend`、生成正本、GLB、両NavMesh、カタログhashの単一担当として、歩道・道路と新規`BND_WorldLimit`を追加し、資産特化ゲート後に`develop`へ統合済みである。最終契約では外周BIT飛行帯を設けず、`worldBoundaryMode = "required"`、非nullの`worldBoundary`、外周BIT経路0件を維持する。
 - T05-4は標的選択個性型、決定的50%抽選、NPC／BITの自律visual標的選択、T05 fixtureを実装し、AI特化ゲート後に`develop`へ統合済みである。
 - B04とT05-4の並行Wave、T04-3B、通常版教室配置、通常テスト人口更新は完了し、PR #59～#61で`develop`へ統合済みである。
-- Wave 0Gは文書だけを単独所有し、B03-3D、T06-1、T06-2、T07の開始条件・所有・受入を確定する。Wave 0Gが`develop`へ入る前にB03-3D／T06-1のbranchを作らない。
+- Wave 0Gは文書だけを単独所有し、B03-3D、T06-1、T06-2、T07の開始条件・所有・受入を確定した。Wave 0Gが`develop`へ入る前にB03-3D／T06-1のbranchを作らない。
 - B03-3DとT06-1だけを並行できる。B03-3Dは学校生成正本、`.blend`、GLB、静的人間用NavMesh、Room Variant NavMesh、BIT用NavMesh、カタログhashを単一編集する。
-- T06-1は`src/v2/**`中心の入力・UI・音声・水中・ライフサイクルを所有し、学校バイナリ、生成器、監査器、カタログhash、`src/world/**`を変更しない。
+- T06-1は`src/v2/**`中心の入力・UI・音声・水中・ライフサイクルに加え、ローカル配布済み画像による全actorの基本Character表示を所有し、学校バイナリ、生成器、監査器、カタログhash、`src/world/**`を変更しない。NPC状態別billboard、55度より下向き時のプレイヤー足元画像、ランダム／デフォルトスプライト／検出directoryの自キャラ選択を実装し、必須8状態欠落は読込エラーとする。画像バイナリはGit管理対象へ追加しない。
 - B03-3Dは通常版と荒れ版の変更前比較を提示し、ユーザー承認前に学校資産を編集しない。T06-1は複数開始地点、追加出現Volume、時間増援をT06-2へ残す。
 - T06-2はB03-3DとT06-1が独立レビュー後に`develop`へ統合済みの最新headから単独開始する。資産編集前に開始候補、抽選方式、出現禁止Volume寸法、NPC／BIT出現Volume範囲をユーザー承認する。
 - T06-2は複数開始地点、動的出現禁止、NPC／BIT出現、時間増援と全学校機能を統合し、Pull Requestの`develop`マージ前にV3最終機能ゲートを完了する。外周BIT飛行帯、外周BIT経路、外周スポーンは追加しない。
-- T07はT06-2後に単独で実施し、荒れ状態10、多数の動的扉、エレベーター、無制限Follower、同期射撃、標的選択個性を含む99 NPC／50 BITの性能・最終回帰・仕様書同期を行う。Pull Requestの`develop`マージ前に性能・リリースゲートを完了する。
-- 現行順序は`Wave 0G → B03-3D + T06-1（並行）→ T06-2 → T07 → v2リリース準備`とし、依存成果が`develop`へ入る前に後続ブランチを作成したり書込みを開始したりしない。
+- I2はT06-2後の相談専用タスクとし、階別地図、階段、Location、Mission候補・状態遷移・20秒付与率をユーザー承認で確定する。コード・資産は変更しない。
+- T06-3とB05だけをI2確定後に並行できる。T06-3はRuntime UIを所有して学校バイナリを変更せず、B05は承認済みMission Locationの生成正本、`.blend`、GLB、NavMesh、カタログhashを単一編集する。
+- T06-4はT06-3とB05が独立レビュー後に`develop`へ統合済みの最新headから単独開始し、プレイヤー／NPC Mission、seed付き20秒scheduler、HUDを統合してV3A機能ゲートを完了する。
+- 現行V2には鏡または反射用カメラがないため、I3はT06-4後の「キャラクター反射・表示仕上げ設計」相談専用タスクとし、鏡反射、必要な一人称表示仕上げ、99 NPC性能条件をユーザー承認で確定する。コード・資産は変更しない。
+- T06-5はI3確定後に単独で実施し、T06-1の基本Character画像表示を前提に、承認済みの鏡反射と表示仕上げだけを実装してV3B機能ゲートを完了する。音声・画像バイナリはGit管理対象へ追加しない。
+- T07はT06-5後に単独で実施し、ミニマップ、Mission、基本Character画像、鏡反射を有効にした99 NPC／50 BITの性能・最終回帰・仕様書同期を行う。Pull Requestの`develop`マージ前に性能・リリースゲートを完了する。
+- 現行順序は`Wave 0G → B03-3D + T06-1（並行）→ T06-2 → I2 → T06-3 + B05（並行）→ T06-4 → I3 → T06-5 → T07 → v2リリース準備`とし、依存成果が`develop`へ入る前に後続ブランチを作成したり書込みを開始したりしない。
 - `.blend`と`.glb`は同時に複数ブランチで編集しない。Blender資産は常に1ブランチ・1担当とする。
 - `docs/plan.md`と`docs/plans/v2/next_tasks_plan.md`は統合担当だけが更新する。
 - Pull Request作成前に最新の`develop`を取り込み、競合と回帰を解消する。

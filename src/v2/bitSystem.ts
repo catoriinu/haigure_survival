@@ -345,6 +345,7 @@ export interface V2BitSystem {
   setAiSuspended(suspended: boolean): void;
   setVisible(visible: boolean): void;
   placeBits(assignments: readonly V2BitPlacementAssignment[]): void;
+  relocateBit(bitId: string, candidates: readonly Vector3[]): Vector3;
   dispose(): void;
 }
 
@@ -6132,6 +6133,83 @@ export const createV2BitSystem = (
         bit.root.computeWorldMatrix(true);
       }
       invalidateFrameViews();
+    },
+    relocateBit: (bitId, candidates) => {
+      const bit = bitsById.get(bitId);
+      if (!bit) {
+        throw new Error(`BIT搬送対象が存在しません: ${bitId}`);
+      }
+      if (candidates.length === 0) {
+        throw new Error(`BIT搬送候補がありません: ${bitId}`);
+      }
+      const resolved = candidates
+        .flatMap((candidate, candidateIndex) => {
+          assertFiniteVector(`BIT搬送候補(${bitId})`, candidate);
+          return navigation
+            .findLocationCandidates(
+              candidate,
+              LOCATION_PROJECTION_DISTANCE
+            )
+            .filter((location) =>
+              safety.isCenterSafe(
+                getBitFlightWorldPosition(location)
+              )
+            )
+            .map((location) =>
+              Object.freeze({
+                candidateIndex,
+                projectionDistanceSquared:
+                  Vector3.DistanceSquared(
+                    getBitFlightWorldPosition(location),
+                    candidate
+                  ),
+                location
+              })
+            );
+        })
+        .sort(
+          (left, right) =>
+            left.candidateIndex - right.candidateIndex ||
+            left.projectionDistanceSquared -
+              right.projectionDistanceSquared
+        )[0];
+      if (!resolved) {
+        throw new Error(
+          `BIT搬送候補を安全な飛行帯へ投影できません: ${bitId}`
+        );
+      }
+      bit.flightAgent.dispose();
+      bit.flightAgent = createBitFlightAgent(
+        navigation,
+        safety,
+        BIT_FLIGHT_AGENT_CONFIG
+      );
+      bit.navigationLocation = resolved.location;
+      bit.routePurpose = null;
+      bit.routeDestination = null;
+      bit.activeRoute = null;
+      bit.spatialReplanPending = false;
+      bit.routeRefreshSeconds = 0;
+      bit.searchRouteKind = null;
+      bit.normalPatrolOrigin = null;
+      bit.queuedNormalPatrolLeg = null;
+      bit.randomAttackRouteSeconds = 0;
+      bit.searchRetrySeconds = 0;
+      bit.hasAttemptedSearchRoute = false;
+      bit.bruteForceActive = false;
+      bit.bruteForceNextCheckSeconds =
+        BRUTE_FORCE_START_SECONDS;
+      bit.bruteForceFailedTransitionCandidateCount = 0;
+      bit.activeTransition = null;
+      bit.lastChasePlanTargetId = null;
+      bit.root.position.copyFrom(
+        getBitFlightWorldPosition(resolved.location)
+      );
+      bit.pursuitActorAreaCursor = null;
+      bit.pursuitActorAreaPosition = null;
+      bit.root.computeWorldMatrix(true);
+      invalidateFrameViews();
+      return bit.root.position.clone();
     },
     dispose: () => {
       invalidateFrameViews();

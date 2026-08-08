@@ -310,7 +310,7 @@ const validatePlayerRampTraversal = (
     );
     maximumFootY = controller.getFootPosition().y;
     for (let frame = 0; frame < 240; frame += 1) {
-      const playerFrame = controller.update(1 / 60, true);
+      const playerFrame = controller.update(1 / 60, true, 1);
       const horizontalOffset = playerFrame.footPosition.subtract(start);
       horizontalOffset.y = 0;
       const progress = Vector3.Dot(horizontalOffset, routeDirection);
@@ -395,7 +395,7 @@ const validatePlayerWaypointTraversal = (
       testCamera.setTarget(
         new Vector3(target.x, testCamera.position.y, target.z)
       );
-      const playerFrame = controller.update(1 / 60, true);
+      const playerFrame = controller.update(1 / 60, true, 1);
       finalFoot = playerFrame.footPosition.clone();
       highestFootY = Math.max(highestFootY, finalFoot.y);
       lowestFootY = Math.min(lowestFootY, finalFoot.y);
@@ -412,7 +412,7 @@ const validatePlayerWaypointTraversal = (
     }
     moving = false;
     for (let frame = 0; frame < 30; frame += 1) {
-      const playerFrame = controller.update(1 / 60, true);
+      const playerFrame = controller.update(1 / 60, true, 1);
       finalFoot = playerFrame.footPosition.clone();
       stayedInsideBoundary =
         stayedInsideBoundary && context.boundary.contains(finalFoot);
@@ -509,7 +509,7 @@ const validatePlayerBarrierAttempt = (
     );
     minimumFootY = controller.getFootPosition().y;
     for (let frame = 0; frame < 300; frame += 1) {
-      const playerFrame = controller.update(1 / 60, true);
+      const playerFrame = controller.update(1 / 60, true, 1);
       finalFoot = playerFrame.footPosition.clone();
       const horizontalOffset = finalFoot.subtract(start);
       horizontalOffset.y = 0;

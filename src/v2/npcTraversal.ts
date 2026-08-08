@@ -1,3 +1,5 @@
+import type { Vector3 } from "@babylonjs/core";
+
 import {
   cloneNavigationLocation,
   type NavigationLocation
@@ -8,6 +10,20 @@ export type V2NpcElevatorTraversalIdentity = Readonly<{
   linkId: string;
   from: StageLinkEndpointName;
   to: StageLinkEndpointName;
+}>;
+
+export type V2PlayerElevatorTraversalSnapshot = Readonly<{
+  elevatorId: string;
+  linkId: string;
+  from: StageLinkEndpointName;
+  to: StageLinkEndpointName;
+  destinationFloorPosition: Vector3;
+  phase:
+    | "calling"
+    | "reserved"
+    | "riding"
+    | "cancelled"
+    | "completed";
 }>;
 
 export type V2NpcElevatorTraversalRoute =

@@ -5534,6 +5534,38 @@ const runLazyFlightStatesFrameViewCheck =
     }
   };
 
+const runSingleBitRelocationCheck =
+  (): BitCombatIntegrationCheck => {
+    const harness = createHarness(1, () => true);
+    try {
+      const previousView = harness.system.getFrameView();
+      const actor = previousView.actorSpheres[0];
+      const requested = actor.center.add(new Vector3(0.4, 0, 0));
+      const relocated = harness.system.relocateBit(
+        actor.id,
+        Object.freeze([requested])
+      );
+      const currentView = harness.system.getFrameView();
+      const currentActor = currentView.actorSpheres[0];
+      const flight = currentView.flightStates[0];
+      return Object.freeze({
+        name: "単一BIT搬送で安全帯位置と経路状態を同期再初期化",
+        ok:
+          currentView !== previousView &&
+          relocated.equals(currentActor.center) &&
+          Vector3.DistanceSquared(relocated, requested) <= 1e-12 &&
+          flight.routePurpose === null &&
+          flight.activeTransition === null &&
+          flight.agentState === "idle",
+        detail:
+          `position=${relocated.toString()} / ` +
+          `route=${flight.routePurpose} / transition=${flight.activeTransition?.id ?? "none"} / agent=${flight.agentState}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
 export const runBitCombatIntegrationTests =
   (
     fixture: BitSystemAcceptanceFixture
@@ -5584,6 +5616,7 @@ export const runBitCombatIntegrationTests =
       runEscapeRouteBudgetFairnessCheck(),
       runRouteStepDescriptorIdentityReuseCheck(),
       runRouteSafetyCacheLruCheck(),
+      runSingleBitRelocationCheck(),
       runLazyFlightStatesFrameViewCheck(),
       runFrameViewAndSharedGeometryCheck()
     ]);

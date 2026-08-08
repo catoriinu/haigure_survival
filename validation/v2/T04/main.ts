@@ -91,6 +91,7 @@ import {
   createV2NpcSystem,
   type V2NpcNavigationRouteContext
 } from "../../../src/v2/npcSystem";
+import { createDefaultV2CharacterVisualRuntime } from "../characterVisualFixture";
 import { createV2TargetNavigationAreaTracker } from "../../../src/v2/pursuitNavigation";
 import {
   castV2BeamSegment,
@@ -4990,9 +4991,16 @@ const runValidation = async () => {
           schoolContext,
           "npc"
         );
+        const npcCharacterVisuals =
+          await createDefaultV2CharacterVisualRuntime(spatialScene, [
+            "player",
+            "npc_0",
+            "npc_1"
+          ]);
         const npcSystem = createV2NpcSystem({
           scene: spatialScene,
           stage: npcMovementBlocking.stage,
+          characterVisuals: npcCharacterVisuals,
           npcCount: 2,
           initialBrainwashedNpcCount: 2,
           diagnosticsEnabled: true,
@@ -5122,6 +5130,7 @@ const runValidation = async () => {
           detail: `attempts=${npcMovementAttempts.length} / pathfind=${npcFirstPathfindCount}->${npcSecondPathfindCount} / moved=${Vector3.Distance(npcAfterBlockedMovement.center, npcBeforeBlockedMovement.center).toExponential(2)}`
         });
         npcSystem.dispose();
+        npcCharacterVisuals.dispose();
 
         const npcSpawnVolume =
           schoolContext.volumes.getByRole("npc_spawn")[0];
@@ -5139,6 +5148,12 @@ const runValidation = async () => {
           ["4F", upperFloorNavigationResults[4].projected!],
           ["屋上", upperFloorNavigationResults[6].projected!]
         ] as const;
+        const multifloorNpcCharacterVisuals =
+          await createDefaultV2CharacterVisualRuntime(spatialScene, [
+            "player",
+            "npc_0",
+            "npc_1"
+          ]);
         const multifloorNpcResults = multifloorNpcDestinations.map(
           ([label, destination], destinationIndex) => {
             const routeRandom = createSeededCountingRandom(
@@ -5147,6 +5162,7 @@ const runValidation = async () => {
             const routeSystem = createV2NpcSystem({
               scene: spatialScene,
               stage: firstFloorNpcStage,
+              characterVisuals: multifloorNpcCharacterVisuals,
               npcCount: 2,
               initialBrainwashedNpcCount: 2,
               diagnosticsEnabled: true,
@@ -5247,6 +5263,7 @@ const runValidation = async () => {
             };
           }
         );
+        multifloorNpcCharacterVisuals.dispose();
         checks.push({
           name: "実V2NpcSystemの1Fから2F・3F・4F・屋上追跡",
           ok: multifloorNpcResults.every(
@@ -5283,9 +5300,16 @@ const runValidation = async () => {
         });
 
         const unreachableNpcRandom = createSeededCountingRandom(0x510e527f);
+        const unreachableNpcCharacterVisuals =
+          await createDefaultV2CharacterVisualRuntime(spatialScene, [
+            "player",
+            "npc_0",
+            "npc_1"
+          ]);
         const unreachableNpcSystem = createV2NpcSystem({
           scene: spatialScene,
           stage: schoolContext,
+          characterVisuals: unreachableNpcCharacterVisuals,
           npcCount: 2,
           initialBrainwashedNpcCount: 2,
           diagnosticsEnabled: true,
@@ -5338,6 +5362,7 @@ const runValidation = async () => {
         const unreachableNpcEnd =
           unreachableNpcSystem.getFrameView().targets[1].footPosition;
         unreachableNpcSystem.dispose();
+        unreachableNpcCharacterVisuals.dispose();
         checks.push({
           name: "実V2NpcSystemの到達不能時停止",
           ok:
@@ -5346,6 +5371,12 @@ const runValidation = async () => {
         });
 
         const npcFailureBaseline = countSceneResources(spatialScene);
+        const npcFailureCharacterVisuals =
+          await createDefaultV2CharacterVisualRuntime(spatialScene, [
+            "player",
+            "npc_0",
+            "npc_1"
+          ]);
         const npcInjectedError = new Error(
           "T04 NPC factory初期化失敗注入"
         );
@@ -5373,6 +5404,7 @@ const runValidation = async () => {
           const unexpectedSystem = createV2NpcSystem({
             scene: spatialScene,
             stage: npcFailureStage,
+            characterVisuals: npcFailureCharacterVisuals,
             npcCount: 2,
             initialBrainwashedNpcCount: 2,
             diagnosticsEnabled: true,
@@ -5383,13 +5415,14 @@ const runValidation = async () => {
           });
           unexpectedSystem.dispose();
         });
+        npcFailureCharacterVisuals.dispose();
         const npcFailureAfter = countSceneResources(spatialScene);
         checks.push({
           name: "NPC factory初期化失敗時の資源回収",
           ok:
             npcThrownValue === npcInjectedError &&
             npcFailureDisposalOrder.join("|") ===
-              "sprite:npc_1|sprite:npc_0|manager:V2SchoolNpcSpriteManager" &&
+              "sprite:npc_1|sprite:npc_0|manager:V2CharacterVisual_00_default" &&
             sceneResourceCountsEqual(npcFailureBaseline, npcFailureAfter),
           detail: `throwCall=${npcFailureRandom.getCallCount()}/${npcInitializationRandomCallCount} / sameError=${npcThrownValue === npcInjectedError} / dispose=${npcFailureDisposalOrder.join(" > ")} / baseline=${JSON.stringify(npcFailureBaseline)} / after=${JSON.stringify(npcFailureAfter)}`
         });

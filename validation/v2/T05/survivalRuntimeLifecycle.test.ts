@@ -32,6 +32,8 @@ import {
   V2_PERFORMANCE_ACCEPTANCE_POPULATION,
   type V2SurvivalRuntime
 } from "../../../src/v2/survivalRuntime";
+import type { V2CharacterVisualRuntime } from "../../../src/v2/v2CharacterVisualRuntime";
+import { createDefaultV2CharacterVisualRuntime } from "../characterVisualFixture";
 
 export type SurvivalRuntimeLifecycleCheck = Readonly<{
   name: string;
@@ -212,24 +214,46 @@ const observableCountsEqual = (
   return true;
 };
 
-const createRuntime = (
+const createRuntime = async (
   scene: Scene,
   stage: StageSpatialContext,
   getOrbVisibilityPredicate: () => (position: Vector3) => boolean,
   performanceDiagnostics: V2PerformanceDiagnostics | null = null
-) =>
-  createV2SurvivalRuntime({
+) => {
+  const player = createFakePlayer(stage);
+  const characterVisuals = await createDefaultV2CharacterVisualRuntime(
     scene,
-    stage,
-    player: createFakePlayer(stage),
-    random: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED),
-    getOrbVisibilityPredicate,
-    population: V2_PERFORMANCE_ACCEPTANCE_POPULATION,
-    performanceDiagnostics,
-    performanceWorkloadScenario: null,
-    releaseStageTraversalForScriptedPhase: () => {},
-    selectNavigationRoute: selectDistanceNavigationRoute
-  });
+    Object.freeze([
+      "player",
+      ...Array.from(
+        { length: V2_PERFORMANCE_ACCEPTANCE_POPULATION.npcCount },
+        (_, index) => `npc_${index}`
+      )
+    ])
+  );
+  try {
+    return Object.freeze({
+      runtime: createV2SurvivalRuntime({
+        scene,
+        stage,
+        player,
+        characterVisuals,
+        random: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED),
+        getOrbVisibilityPredicate,
+        population: V2_PERFORMANCE_ACCEPTANCE_POPULATION,
+        performanceDiagnostics,
+        performanceWorkloadScenario: null,
+        releaseStageTraversalForScriptedPhase: () => {},
+        selectNavigationRoute: selectDistanceNavigationRoute
+      }),
+      characterVisuals,
+      player
+    });
+  } catch (error) {
+    characterVisuals.dispose();
+    throw error;
+  }
+};
 
 export const runSurvivalRuntimeLifecycleTests = async (
   scene: Scene,
@@ -238,7 +262,9 @@ export const runSurvivalRuntimeLifecycleTests = async (
   const checks: SurvivalRuntimeLifecycleCheck[] = [];
   const baseline = captureSceneResources(scene);
   let firstRuntime: V2SurvivalRuntime | null = null;
+  let firstCharacterVisuals: V2CharacterVisualRuntime | null = null;
   let secondRuntime: V2SurvivalRuntime | null = null;
+  let secondCharacterVisuals: V2CharacterVisualRuntime | null = null;
 
   try {
     const allStateHudCounts = summarizeV2NpcHudCounts(
@@ -280,7 +306,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
         }),
         V2_PERFORMANCE_ACCEPTANCE_POPULATION
       );
-    firstRuntime = createRuntime(
+    const firstFixture = await createRuntime(
       scene,
       stage,
       () => {
@@ -289,6 +315,8 @@ export const runSurvivalRuntimeLifecycleTests = async (
       },
       performanceDiagnostics
     );
+    firstRuntime = firstFixture.runtime;
+    firstCharacterVisuals = firstFixture.characterVisuals;
     const firstFrame = firstRuntime.getFrame();
     checks.push(
       Object.freeze({
@@ -317,8 +345,80 @@ export const runSurvivalRuntimeLifecycleTests = async (
     );
     await firstRuntime.prepareVisualResources();
     performanceDiagnostics.beginFrame();
-    const firstUpdatedFrame = firstRuntime.update(1 / 60, 1 / 60);
+    const firstUpdatedFrame = firstRuntime.update(1 / 60, 1 / 60, null);
     performanceDiagnostics.finishFrame();
+    const firstHumanTargets = firstRuntime.getHumanTargets();
+    const repeatedHumanTargets = firstRuntime.getHumanTargets();
+    checks.push(
+      Object.freeze({
+        name: "Human target snapshotを状態更新まで再利用",
+        ok:
+          firstHumanTargets === repeatedHumanTargets &&
+          firstHumanTargets.length === firstUpdatedFrame.npcCount + 1,
+        detail:
+          `same=${firstHumanTargets === repeatedHumanTargets} / ` +
+          `targets=${firstHumanTargets.length}`
+      })
+    );
+    const initialPlayerTarget = firstHumanTargets.find(
+      (target) => target.id === "player"
+    );
+    if (!initialPlayerTarget) {
+      throw new Error("初期player target snapshotがありません。");
+    }
+    const transportedPlayerPosition =
+      initialPlayerTarget.footPosition.add(new Vector3(0.01, 0, 0));
+    firstRuntime.beginTargetNavigationAreaTransport(
+      "player",
+      initialPlayerTarget.footPosition
+    );
+    firstFixture.player.setTransportFootPosition(
+      transportedPlayerPosition
+    );
+    firstRuntime.updateTargetNavigationAreaTransportPosition(
+      "player",
+      transportedPlayerPosition
+    );
+    const transportedHumanTargets = firstRuntime.getHumanTargets();
+    const transportedPlayerTarget = transportedHumanTargets.find(
+      (target) => target.id === "player"
+    );
+    checks.push(
+      Object.freeze({
+        name: "プレイヤー搬送位置を同frameのHuman targetへ同期",
+        ok:
+          transportedHumanTargets !== firstHumanTargets &&
+          transportedPlayerTarget?.footPosition.equals(
+            transportedPlayerPosition
+          ) === true,
+        detail:
+          `snapshotChanged=${transportedHumanTargets !== firstHumanTargets} / ` +
+          `position=${transportedPlayerTarget?.footPosition.toString() ?? "missing"}`
+      })
+    );
+    const relocatedPlayerPosition =
+      transportedPlayerPosition.add(new Vector3(0.01, 0, 0));
+    firstFixture.player.setTransportFootPosition(
+      relocatedPlayerPosition
+    );
+    firstRuntime.relocateTargetNavigationArea(
+      "player",
+      relocatedPlayerPosition
+    );
+    const relocatedPlayerTarget = firstRuntime
+      .getHumanTargets()
+      .find((target) => target.id === "player");
+    checks.push(
+      Object.freeze({
+        name: "プレイヤー再配置位置を同frameのHuman targetへ同期",
+        ok:
+          relocatedPlayerTarget?.footPosition.equals(
+            relocatedPlayerPosition
+          ) === true,
+        detail:
+          `position=${relocatedPlayerTarget?.footPosition.toString() ?? "missing"}`
+      })
+    );
     const fixedTrackingSummary = summarizeV2TargetTracking(
       Object.freeze([
         Object.freeze({
@@ -378,6 +478,29 @@ export const runSurvivalRuntimeLifecycleTests = async (
       performanceReport.cold.counters[
         "scenario.bit-player-targets"
       ];
+    const idleHitEffectUpdates =
+      performanceReport.cold.counters["hit-effect.updates"];
+    const bitTargetHistorySize =
+      performanceReport.cold.counters["bit.target-history-size"];
+    checks.push(
+      Object.freeze({
+        name: "active hit effect 0件時の更新を省略",
+        ok: idleHitEffectUpdates === undefined,
+        detail:
+          `updateSamples=${idleHitEffectUpdates?.sampleCount ?? 0}`
+      })
+    );
+    checks.push(
+      Object.freeze({
+        name: "BIT標的履歴を現行BIT数以内に維持",
+        ok:
+          bitTargetHistorySize?.sampleCount === 1 &&
+          bitTargetHistorySize.first <= firstUpdatedFrame.bitCount,
+        detail:
+          `history=${bitTargetHistorySize?.first ?? "missing"} / ` +
+          `bit=${firstUpdatedFrame.bitCount}`
+      })
+    );
     checks.push(
       Object.freeze({
         name: "プレイヤーを狙うNPC／BIT数を個別集計",
@@ -421,6 +544,8 @@ export const runSurvivalRuntimeLifecycleTests = async (
     const firstDelta = subtractSceneResources(firstActive, baseline);
     firstRuntime.dispose();
     firstRuntime = null;
+    firstCharacterVisuals.dispose();
+    firstCharacterVisuals = null;
     const afterFirstDispose = captureSceneResources(scene);
     checks.push(
       Object.freeze({
@@ -435,14 +560,22 @@ export const runSurvivalRuntimeLifecycleTests = async (
       })
     );
 
-    secondRuntime = createRuntime(scene, stage, () => () => true);
+    const secondFixture = await createRuntime(
+      scene,
+      stage,
+      () => () => true
+    );
+    secondRuntime = secondFixture.runtime;
+    secondCharacterVisuals = secondFixture.characterVisuals;
     const secondFrame = secondRuntime.getFrame();
     await secondRuntime.prepareVisualResources();
-    secondRuntime.update(1 / 60, 1 / 60);
+    secondRuntime.update(1 / 60, 1 / 60, null);
     const secondActive = captureSceneResources(scene);
     const secondDelta = subtractSceneResources(secondActive, baseline);
     secondRuntime.dispose();
     secondRuntime = null;
+    secondCharacterVisuals.dispose();
+    secondCharacterVisuals = null;
     const afterSecondDispose = captureSceneResources(scene);
     checks.push(
       Object.freeze({
@@ -465,6 +598,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
     const previousActiveCamera = scene.activeCamera;
     const commandPlayer = createFakePlayer(stage);
     let commandRuntime: V2SurvivalRuntime | null = null;
+    let commandCharacterVisuals: V2CharacterVisualRuntime | null = null;
     let commandCamera: FreeCamera | null = null;
     let initialCandidateCount = 0;
     let followVisible = false;
@@ -481,10 +615,16 @@ export const runSurvivalRuntimeLifecycleTests = async (
         V2_PERFORMANCE_DEFAULT_SEED ^ 0x5430_5303
       );
       const gunNpcRandom = () => seededRandom() * 0.44;
+      commandCharacterVisuals =
+        await createDefaultV2CharacterVisualRuntime(
+          scene,
+          Object.freeze(["player", "npc_0"])
+        );
       commandRuntime = createV2SurvivalRuntime({
         scene,
         stage,
         player: commandPlayer,
+        characterVisuals: commandCharacterVisuals,
         random: gunNpcRandom,
         getOrbVisibilityPredicate: () => () => true,
         population: Object.freeze({
@@ -530,10 +670,10 @@ export const runSurvivalRuntimeLifecycleTests = async (
       commandCamera.getViewMatrix(true);
       commandCamera.getProjectionMatrix(true);
 
-      commandRuntime.update(2, 2);
-      commandRuntime.update(0.25, 2.25);
-      commandRuntime.update(3.7, 5.95);
-      const completionFrame = commandRuntime.update(0.06, 6.01);
+      commandRuntime.update(2, 2, null);
+      commandRuntime.update(0.25, 2.25, null);
+      commandRuntime.update(3.7, 5.95, null);
+      const completionFrame = commandRuntime.update(0.06, 6.01, null);
       if (!completionFrame.playerCompletionUnlocked) {
         throw new Error(
           `Runtime NPC指示検証でプレイヤー完了選択が解放されません: ` +
@@ -543,6 +683,18 @@ export const runSurvivalRuntimeLifecycleTests = async (
       commandRuntime.selectPlayerCompletion(
         "brainwash-complete-gun"
       );
+      const currentNpcAimPosition = npcSprite.position.clone();
+      const currentNpcFootPosition = currentNpcAimPosition.add(
+        new Vector3(0, -NPC_SPRITE_CENTER_HEIGHT, 0)
+      );
+      commandPlayer.placeAt(
+        currentNpcFootPosition,
+        currentNpcAimPosition
+      );
+      commandCamera.position.copyFrom(commandPlayer.getEyePosition());
+      commandCamera.setTarget(currentNpcAimPosition);
+      commandCamera.getViewMatrix(true);
+      commandCamera.getProjectionMatrix(true);
       const candidates = commandRuntime.getNpcCommandCandidates();
       initialCandidateCount = candidates.length;
       const candidate = candidates[0];
@@ -565,7 +717,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
         commandRuntime.getNpcCommandCandidates().find(
           (entry) => entry.npcId === candidate.npcId
         )?.commandMode === "follow";
-      commandRuntime.update(2.85, 8.86);
+      commandRuntime.update(2.85, 8.86, null);
       followVisibleBeforeTransition =
         commandRuntime.getNpcCommandCandidates().find(
           (entry) => entry.npcId === candidate.npcId
@@ -573,7 +725,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
       fireAccepted = commandRuntime.requestPlayerGunFire(
         new Vector3(1, 0, 0)
       );
-      const transitionFrame = commandRuntime.update(0.1, 8.96);
+      const transitionFrame = commandRuntime.update(0.1, 8.96, null);
       phaseAfterTransition = transitionFrame.phase;
       activeBeamCountAfterTransition =
         transitionFrame.activeBeamCount;
@@ -597,6 +749,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
       }
     } finally {
       commandRuntime?.dispose();
+      commandCharacterVisuals?.dispose();
       if (scene.activeCamera === commandCamera) {
         scene.activeCamera = previousActiveCamera;
       }
@@ -637,7 +790,9 @@ export const runSurvivalRuntimeLifecycleTests = async (
     );
   } finally {
     secondRuntime?.dispose();
+    secondCharacterVisuals?.dispose();
     firstRuntime?.dispose();
+    firstCharacterVisuals?.dispose();
   }
 
   return Object.freeze(checks);

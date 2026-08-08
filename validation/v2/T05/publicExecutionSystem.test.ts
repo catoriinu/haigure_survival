@@ -519,6 +519,19 @@ const testManualPlayerCompletionPendingTargets = () => {
     "player手動処刑の完了対象がpendingから除外されません"
   );
 
+  const replayedDuringExecution = system.replay();
+  assert(
+    replayedDuringExecution.phase === "execution" &&
+      replayedDuringExecution.pendingTargetIds.join(",") ===
+        "target-a,target-b" &&
+      replayedDuringExecution.completedTargetIds.length === 0,
+    "進行中のplayer手動処刑リプレイでpending/completedを初期化しません"
+  );
+
+  assert(
+    system.notifyTargetCompleted("target-a"),
+    "進行中リプレイ後の最初の完了通知を受理しません"
+  );
   assert(
     system.notifyTargetCompleted("target-b"),
     "player手動処刑の最後の完了通知を受理しません"
@@ -539,7 +552,7 @@ const testManualPlayerCompletionPendingTargets = () => {
     "player手動処刑のリプレイでpending/completedを初期化しません"
   );
 
-  return "execution-playerの手動完了でpendingを減らし、全完了・リプレイ初期化を確認";
+  return "execution-playerの進行中・全完了後リプレイでpending/completed初期化を確認";
 };
 
 const testSimultaneousAndIndividualTiming = () => {

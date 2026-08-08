@@ -15,6 +15,10 @@ const NAVIGATION_PROJECTION_DISTANCE = 0.2;
 const GROUND_PROBE_HEIGHT = 0.25;
 const GROUND_PROBE_DISTANCE = 0.5;
 const TRIANGLE_AREA_EPSILON = 1e-10;
+const FNV_1A_OFFSET_BASIS = 0x811c9dc5;
+const FNV_1A_PRIME = 0x01000193;
+const ALARM_CANDIDATE_HASH_BUCKET_COUNT = 4;
+const ALARM_CANDIDATE_REJECTED_HASH_BUCKET = 0;
 
 const isWalkableNavSource = (mesh: {
   metadata: unknown;
@@ -35,6 +39,23 @@ const getSpatialCellKey = (position: Vector3) =>
   `${Math.floor(position.x / V2_ALARM_CANDIDATE_SPACING)}:` +
   `${Math.floor(position.y / V2_ALARM_CANDIDATE_SPACING)}:` +
   `${Math.floor(position.z / V2_ALARM_CANDIDATE_SPACING)}`;
+
+export const isV2AlarmCandidateCellSelected = (
+  cellKey: string
+): boolean => {
+  let hash = FNV_1A_OFFSET_BASIS;
+  for (let index = 0; index < cellKey.length; index += 1) {
+    const codeUnit = cellKey.charCodeAt(index);
+    hash ^= codeUnit & 0xff;
+    hash = Math.imul(hash, FNV_1A_PRIME);
+    hash ^= codeUnit >>> 8;
+    hash = Math.imul(hash, FNV_1A_PRIME);
+  }
+  return (
+    (hash >>> 0) % ALARM_CANDIDATE_HASH_BUCKET_COUNT !==
+    ALARM_CANDIDATE_REJECTED_HASH_BUCKET
+  );
+};
 
 const createSurfaceTangent = (normal: Vector3) => {
   const reference =
@@ -117,6 +138,9 @@ export const createV2NavigationAlarmCandidateProvider = (
       }
 
       occupiedCells.add(cellKey);
+      if (!isV2AlarmCandidateCellSelected(cellKey)) {
+        continue;
+      }
       candidates.push(
         Object.freeze({
           id: `navigation-alarm-${String(candidates.length + 1).padStart(4, "0")}`,

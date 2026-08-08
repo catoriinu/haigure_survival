@@ -1,6 +1,10 @@
 import { Vector3 } from "@babylonjs/core";
 
 import {
+  isV2AlarmCandidateCellSelected
+} from "../../../src/v2/alarmCandidateProvider";
+import { createV2SeededRandom } from "../../../src/v2/performanceDiagnostics";
+import {
   V2_ALARM_BLINK_DURATION_SECONDS,
   V2_ALARM_BLINK_INTERVAL_END_SECONDS,
   V2_ALARM_BLINK_INTERVAL_START_SECONDS,
@@ -101,7 +105,113 @@ export const runAlarmSystemTests =
     const results: AlarmSystemTestResult[] = [];
 
     results.push(
-      executeTest("初期1件と5秒間隔の非active・非点滅候補を選ぶ", () => {
+      executeTest("候補cellを安定hashで4件中3件へ絞る", () => {
+        const cellKeys = Object.freeze(
+          Array.from(
+            { length: 400 },
+            (_, index) => `${index - 200}:${index % 9}:${index * 7 - 600}`
+          )
+        );
+        const firstSelection = cellKeys.map(
+          isV2AlarmCandidateCellSelected
+        );
+        const secondSelection = cellKeys.map(
+          isV2AlarmCandidateCellSelected
+        );
+        const selectedCount = firstSelection.filter(Boolean).length;
+        const selectedRatio = selectedCount / cellKeys.length;
+        return {
+          ok:
+            JSON.stringify(firstSelection) ===
+              JSON.stringify(secondSelection) &&
+            selectedRatio >= 0.72 &&
+            selectedRatio <= 0.78,
+          detail:
+            `selected=${selectedCount}/${cellKeys.length} ` +
+            `(${(selectedRatio * 100).toFixed(1)}%) / stable=` +
+            String(
+              JSON.stringify(firstSelection) ===
+                JSON.stringify(secondSelection)
+            )
+        };
+      })
+    );
+
+    results.push(
+      executeTest("10分間のseed付き更新で総合出現量を約50%にする", () => {
+        const cellKeys = Object.freeze(
+          Array.from(
+            { length: 400 },
+            (_, index) => `${index - 200}:${index % 9}:${index * 7 - 600}`
+          )
+        );
+        const selectedCellKeys = cellKeys.filter(
+          isV2AlarmCandidateCellSelected
+        );
+        const candidates = Object.freeze(
+          selectedCellKeys.map((cellKey, index) =>
+            createCandidate(
+              `alarm-long-${cellKey}`,
+              new Vector3(index * 2, 0, 0),
+              index + 1
+            )
+          )
+        );
+        const runSeededDuration = () => {
+          const system = createV2AlarmSystem({
+            diagnosticsEnabled: true,
+            candidateProvider: createProvider(candidates),
+            random: createV2SeededRandom(0x70601)
+          });
+          try {
+            const durationSeconds = 600;
+            const stepSeconds = 0.25;
+            for (
+              let elapsedSeconds = 0;
+              elapsedSeconds < durationSeconds;
+              elapsedSeconds += stepSeconds
+            ) {
+              system.update({
+                deltaSeconds: stepSeconds,
+                humans: []
+              });
+            }
+            return system.getFrame().usedCandidateIds;
+          } finally {
+            system.dispose();
+          }
+        };
+
+        const firstUsedIds = runSeededDuration();
+        const secondUsedIds = runSeededDuration();
+        const baselineSelectionCount = 1 + Math.floor(600 / 5);
+        const spatialRatio = candidates.length / cellKeys.length;
+        const temporalRatio =
+          firstUsedIds.length / baselineSelectionCount;
+        const combinedOccurrenceRatio = spatialRatio * temporalRatio;
+        return {
+          ok:
+            firstUsedIds.length === 81 &&
+            new Set(firstUsedIds).size === firstUsedIds.length &&
+            JSON.stringify(firstUsedIds) ===
+              JSON.stringify(secondUsedIds) &&
+            combinedOccurrenceRatio >= 0.49 &&
+            combinedOccurrenceRatio <= 0.53,
+          detail:
+            `actualUpdates=${firstUsedIds.length} / ` +
+            `baseline=${baselineSelectionCount} / ` +
+            `space=${(spatialRatio * 100).toFixed(1)}% / ` +
+            `combined=${(combinedOccurrenceRatio * 100).toFixed(1)}% / ` +
+            `seedStable=${String(
+              JSON.stringify(firstUsedIds) ===
+                JSON.stringify(secondUsedIds)
+            )}`
+        };
+      })
+    );
+
+    results.push(
+      executeTest("初期1件と7.5秒間隔の非active・非点滅候補を選ぶ", () => {
         const candidates = Object.freeze([
           createCandidate("alarm-a", new Vector3(0, 0, 0), 1),
           createCandidate("alarm-b", new Vector3(2, 0, 0), 2),
@@ -119,8 +229,13 @@ export const runAlarmSystemTests =
             deltaSeconds: 0,
             humans: []
           });
+          const beforeFirstInterval = system.update({
+            deltaSeconds:
+              V2_ALARM_SELECTION_INTERVAL_SECONDS - 1e-6,
+            humans: []
+          });
           const afterFirstInterval = system.update({
-            deltaSeconds: V2_ALARM_SELECTION_INTERVAL_SECONDS,
+            deltaSeconds: 1e-6,
             humans: []
           });
           const afterTwoIntervals = system.update({
@@ -133,7 +248,11 @@ export const runAlarmSystemTests =
           });
           return {
             ok:
+              V2_ALARM_SELECTION_INTERVAL_SECONDS === 7.5 &&
               hasSameIds(initial.activeCandidateIds, ["alarm-d"]) &&
+              hasSameIds(beforeFirstInterval.activeCandidateIds, [
+                "alarm-d"
+              ]) &&
               initial.activeFloors.length === 1 &&
               initial.activeFloors[0].candidateId === "alarm-d" &&
               initial.activeFloors[0].position.equals(
@@ -166,6 +285,7 @@ export const runAlarmSystemTests =
               new Set(afterExhaustion.usedCandidateIds).size ===
                 afterExhaustion.usedCandidateIds.length,
             detail:
+              `interval=${V2_ALARM_SELECTION_INTERVAL_SECONDS}s / ` +
               `initial=${initial.activeCandidateIds.join(",")} / ` +
               `selected=${afterExhaustion.usedCandidateIds.join(",")}`
           };

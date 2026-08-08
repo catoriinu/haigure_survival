@@ -16,6 +16,7 @@ import {
 } from "../../../src/world/dynamicStageSpatialVariants";
 import {
   createStageDoorRuntime,
+  STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS,
   type StageDoorRuntimeOptions
 } from "../../../src/world/stageDoorRuntime";
 import type {
@@ -98,6 +99,12 @@ const createDoorRegistryAssetFixture = (scene: Scene) => {
     scene
   );
   visual.parent = panel;
+  const interactionAnchor = MeshBuilder.CreateBox(
+    "VIS_DoorPanel_Handle_RegistryFixture",
+    { size: 0.02 },
+    scene
+  );
+  interactionAnchor.parent = panel;
   const collider = MeshBuilder.CreateBox(
     "COL_DoorPanel_RegistryFixture",
     { size: 0.05 },
@@ -115,7 +122,15 @@ const createDoorRegistryAssetFixture = (scene: Scene) => {
     hs_role: "door_sweep",
     hs_door_id: "registry-door"
   });
-  return { door, panel, openPose, visual, collider, sweep };
+  return {
+    door,
+    panel,
+    openPose,
+    visual,
+    interactionAnchor,
+    collider,
+    sweep
+  };
 };
 
 const captureMessage = (action: () => void) => {
@@ -154,6 +169,14 @@ const createDoorAsset = (
     scene
   );
   collider.parent = panelNode;
+  const interactionAnchor = MeshBuilder.CreateBox(
+    doorClass === "toilet_stall"
+      ? `VIS_DoorPanel_Knob_${id}`
+      : `VIS_DoorPanel_Handle_${id}`,
+    { size: 0.02 },
+    scene
+  );
+  interactionAnchor.parent = panelNode;
   const sweep = MeshBuilder.CreateBox(
     `VOL_DoorSweep_${id}`,
     { width: 0.25, height: 0.2, depth: 0.1 },
@@ -166,7 +189,8 @@ const createDoorAsset = (
     doorId: id,
     node: panelNode,
     openPoseNode,
-    visualMeshes: Object.freeze([]),
+    visualMeshes: Object.freeze([interactionAnchor]),
+    interactionAnchorMesh: interactionAnchor,
     colliderMeshes: Object.freeze([collider]),
     closedTransform: localTransform(Vector3.Zero()),
     openTransform: Object.freeze({
@@ -269,7 +293,10 @@ export const runDynamicInteractionAcceptance =
           registryFixture.openPose
         ],
         volumeMeshes: [registryFixture.sweep],
-        visualMeshes: [registryFixture.visual],
+        visualMeshes: [
+          registryFixture.visual,
+          registryFixture.interactionAnchor
+        ],
         normalColliders: [registryFixture.collider],
         humanOnlyColliders: [],
         links: []
@@ -387,12 +414,15 @@ export const runDynamicInteractionAcceptance =
           scene,
           "toilet-far",
           "toilet_stall",
-          new Vector3(0, 0, 0.3)
+          new Vector3(
+            0,
+            0,
+            STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS * 1.01
+          )
         )
       ] as const;
       const randomValues = [0.1, 0.9];
-      let finalPoseOccupied = false;
-      let sweepOccupied = false;
+      const resolvedClosingDoorIds: string[] = [];
       const options: StageDoorRuntimeOptions = {
         random: () => {
           const value = randomValues.shift();
@@ -401,18 +431,39 @@ export const runDynamicInteractionAcceptance =
           }
           return value;
         },
-        checkClosingOccupancy: () => ({
-          finalPoseOccupied,
-          sweepOccupied
-        })
+        resolveClosingOccupancy: (request) => {
+          resolvedClosingDoorIds.push(request.door.id);
+        }
       };
       const doorRuntime = createStageDoorRuntime(
         createDoorRegistry(doors),
         options
       );
       const initial = doorRuntime.getSnapshot();
+      const initialSpatial = doorRuntime.getSpatialSnapshot();
       const candidates = doorRuntime.getDoorInteractionCandidates({
         origin: Vector3.Zero(),
+        forward: Vector3.Forward()
+      });
+      const roomFrontInteractionPosition = candidates.find(
+        (candidate) => candidate.door.id === "room-front"
+      )!.interactionPosition;
+      const boundaryCandidates = doorRuntime.getDoorInteractionCandidates({
+        origin: new Vector3(
+          roomFrontInteractionPosition.x,
+          roomFrontInteractionPosition.y,
+          roomFrontInteractionPosition.z -
+            STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS
+        ),
+        forward: Vector3.Forward()
+      });
+      const outsideCandidates = doorRuntime.getDoorInteractionCandidates({
+        origin: new Vector3(
+          roomFrontInteractionPosition.x,
+          roomFrontInteractionPosition.y,
+          roomFrontInteractionPosition.z -
+            STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS * 1.01
+        ),
         forward: Vector3.Forward()
       });
       doorVariants = createDynamicStageSpatialVariants(
@@ -437,12 +488,19 @@ export const runDynamicInteractionAcceptance =
           initial.doors.find((door) => door.id === "toilet")?.state ===
             "open" &&
           candidates[0]?.door.id === "room-front" &&
-          candidates[1]?.door.id === "room-side" &&
+          candidates[1]?.door.id === "toilet" &&
+          candidates[2]?.door.id === "room-side" &&
           candidates.every(
             (candidate) => candidate.door.id !== "toilet-far"
           ) &&
+          boundaryCandidates.some(
+            (candidate) => candidate.door.id === "room-front"
+          ) &&
+          outsideCandidates.every(
+            (candidate) => candidate.door.id !== "room-front"
+          ) &&
           initiallyClosedDoorHit?.mesh === doors[0].panels[0].colliderMeshes[0],
-        detail: `${initial.doors.map((door) => `${door.id}:${door.state}`).join(",")} / order=${candidates.map((candidate) => candidate.door.id).join(",")}`
+        detail: `${initial.doors.map((door) => `${door.id}:${door.state}`).join(",")} / order=${candidates.map((candidate) => candidate.door.id).join(",")} / boundary=${boundaryCandidates.map((candidate) => candidate.door.id).join(",")} / outside=${outsideCandidates.map((candidate) => candidate.door.id).join(",")}`
       });
 
       const opening = doorRuntime.requestDoorToggle("room-front");
@@ -455,10 +513,20 @@ export const runDynamicInteractionAcceptance =
       doorRuntime.update(0.4);
       const halfway = doorRuntime.getDoorState("room-front");
       const halfwayPanelX = doors[0].panels[0].node.position.x;
+      const halfwayCandidate =
+        doorRuntime.getDoorInteractionCandidates({
+          origin: Vector3.Zero(),
+          forward: Vector3.Forward()
+        }).find((candidate) => candidate.door.id === "room-front");
       const doorHalfwaySpatial = doorRuntime.getSpatialSnapshot();
       doorRuntime.update(0.4);
       const opened = doorRuntime.getDoorState("room-front");
       const openedPanelX = doors[0].panels[0].node.position.x;
+      const openedCandidate =
+        doorRuntime.getDoorInteractionCandidates({
+          origin: Vector3.Zero(),
+          forward: Vector3.Forward()
+        }).find((candidate) => candidate.door.id === "room-front");
       const openedSpatial = doorRuntime.getSpatialSnapshot();
       checks.push({
         name: "通常扉0.8秒と移動中遮蔽解除",
@@ -470,25 +538,27 @@ export const runDynamicInteractionAcceptance =
           movingSpatial.beamBlockers.length === 3 &&
           movingSpatial.sightBlockers.length === 3 &&
           movingSpatial.bitObstacles.length === 3 &&
+          movingSpatial.revision > initialSpatial.revision &&
           openingDoorBeamHit === null &&
           halfway.state === "opening" &&
           Math.abs(halfway.openness - 0.5) < 1e-9 &&
           Math.abs(halfwayPanelX - 0.1) < 1e-9 &&
-          doorHalfwaySpatial.revision > movingSpatial.revision &&
+          Math.abs(
+            (halfwayCandidate?.interactionPosition.x ?? Number.NaN) - 0.1
+          ) < 1e-7 &&
+          doorHalfwaySpatial.revision === movingSpatial.revision &&
           opened.state === "open" &&
           Math.abs(openedPanelX - 0.2) < 1e-9 &&
+          Math.abs(
+            (openedCandidate?.interactionPosition.x ?? Number.NaN) - 0.2
+          ) < 1e-7 &&
           openedSpatial.activePanelColliders.length === 4 &&
           openedSpatial.revision > doorHalfwaySpatial.revision,
-        detail: `moving=${movingSpatial.activePanelColliders.length} / half=${halfway.openness}:${halfwayPanelX} / final=${opened.state}:${openedPanelX} / revision=${movingSpatial.revision}->${doorHalfwaySpatial.revision}->${openedSpatial.revision}`
+        detail: `moving=${movingSpatial.activePanelColliders.length} / half=${halfway.openness}:${halfwayPanelX}:${halfwayCandidate?.interactionPosition.x ?? "none"} / final=${opened.state}:${openedPanelX}:${openedCandidate?.interactionPosition.x ?? "none"} / revision=${initialSpatial.revision}->${movingSpatial.revision}->${doorHalfwaySpatial.revision}->${openedSpatial.revision}`
       });
 
-      finalPoseOccupied = true;
-      const finalPoseBlocked = doorRuntime.requestDoorToggle("room-front");
-      finalPoseOccupied = false;
-      sweepOccupied = true;
-      const sweepBlocked = doorRuntime.requestDoorToggle("room-front");
-      sweepOccupied = false;
       const closing = doorRuntime.requestDoorToggle("room-front");
+      const busyClosing = doorRuntime.requestDoorToggle("room-front");
       const closingSpatial = doorRuntime.getSpatialSnapshot();
       doorRuntime.update(0.8);
       const closedSpatial = doorRuntime.getSpatialSnapshot();
@@ -498,22 +568,20 @@ export const runDynamicInteractionAcceptance =
         doorRayTo
       );
       checks.push({
-        name: "通常扉の占有中止と閉扉",
+        name: "通常扉の閉鎖開始・完了前退避Callbackと閉扉",
         ok:
-          finalPoseBlocked.status === "blocked" &&
-          finalPoseBlocked.finalPoseOccupied &&
-          !finalPoseBlocked.sweepOccupied &&
-          sweepBlocked.status === "blocked" &&
-          !sweepBlocked.finalPoseOccupied &&
-          sweepBlocked.sweepOccupied &&
           closing.status === "started" &&
+          busyClosing.status === "busy" &&
+          closingSpatial.revision > openedSpatial.revision &&
           closingSpatial.activePanelColliders.length === 3 &&
+          resolvedClosingDoorIds.join(",") === "room-front" &&
           doorRuntime.getDoorState("room-front").state === "closed" &&
           doors[0].panels[0].node.position.x === 0 &&
           closedSpatial.activePanelColliders.length === 4 &&
+          closedSpatial.revision > closingSpatial.revision &&
           closedDoorBeamHit?.mesh ===
             doors[0].panels[0].colliderMeshes[0],
-        detail: `blocked=${finalPoseBlocked.status}/${sweepBlocked.status} / closing=${closing.status}:${closingSpatial.activePanelColliders.length} / final=${doorRuntime.getDoorState("room-front").state}:${closedSpatial.activePanelColliders.length}`
+        detail: `closing=${closing.status}/${busyClosing.status}:${closingSpatial.activePanelColliders.length} / resolved=${resolvedClosingDoorIds.join(",")} / final=${doorRuntime.getDoorState("room-front").state}:${closedSpatial.activePanelColliders.length}`
       });
       doorQueries.dispose();
       doorQueries = null;
@@ -596,10 +664,7 @@ export const runDynamicInteractionAcceptance =
             inspectionRandomCallCount += 1;
             return 0.5;
           },
-          checkClosingOccupancy: () => ({
-            finalPoseOccupied: false,
-            sweepOccupied: false
-          })
+          resolveClosingOccupancy: () => {}
         }
       );
       const currentInspectionActiveSet =
@@ -640,10 +705,7 @@ export const runDynamicInteractionAcceptance =
           createDoorRegistry(inspectionDoors),
           {
             random: () => 0.5,
-            checkClosingOccupancy: () => ({
-              finalPoseOccupied: false,
-              sweepOccupied: false
-            })
+            resolveClosingOccupancy: () => {}
           }
         );
       const reloadedInspectionSnapshot =

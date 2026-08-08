@@ -80,6 +80,46 @@ body {
   white-space: pre;
 }
 
+@keyframes v2-runtime-target-feedback-odd {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+    box-shadow: 0 0 8px currentColor;
+    outline: 0 solid transparent;
+    outline-offset: 0;
+  }
+  50% {
+    transform: scale(1.35);
+    filter: brightness(2.8);
+    box-shadow:
+      0 0 14px 5px currentColor,
+      0 0 30px 12px currentColor;
+    outline: 3px solid currentColor;
+    outline-offset: 6px;
+  }
+}
+
+@keyframes v2-runtime-target-feedback-even {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+    box-shadow: 0 0 8px currentColor;
+    outline: 0 solid transparent;
+    outline-offset: 0;
+  }
+  50% {
+    transform: scale(1.35);
+    filter: brightness(2.8);
+    box-shadow:
+      0 0 14px 5px currentColor,
+      0 0 30px 12px currentColor;
+    outline: 3px solid currentColor;
+    outline-offset: 6px;
+  }
+}
+
 #staminaGauge {
   position: absolute;
   left: 12px;

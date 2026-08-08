@@ -186,7 +186,7 @@ const runCrossing = (
     frameIndex < MAX_FRAMES_PER_CROSSING;
     frameIndex += 1
   ) {
-    const frame = controller.update(FRAME_SECONDS, true);
+    const frame = controller.update(FRAME_SECONDS, true, 1);
     const displacement = frame.footPosition.subtract(from);
     displacement.y = 0;
     const progress = Vector3.Dot(displacement, travelDirection);

@@ -9,6 +9,7 @@ import {
   applyStageDoorPanelOpenness,
   createStageDoorRuntime,
   intersectsStageDoorClosedPose,
+  type StageDoorClosingOccupancyRequest,
   type StageDoorRuntime,
   type StageDoorRuntimeSnapshot,
   type StageDoorSpatialSnapshot
@@ -55,7 +56,19 @@ if (
 
 export interface SchoolStageActorPort extends StageElevatorActorAdapter {
   getActorEllipsoids(): readonly StageCharacterEllipsoid[];
+  getDoorActors(): readonly SchoolStageDoorActorSnapshot[];
+  relocateDoorActor(
+    actorId: string,
+    candidates: readonly Vector3[]
+  ): Vector3;
 }
+
+export type SchoolStageDoorActorSnapshot = Readonly<{
+  id: string;
+  kind: "human" | "bit";
+  position: Vector3;
+  ellipsoid: StageCharacterEllipsoid;
+}>;
 
 export type SchoolStageDynamicAssetInput = Readonly<{
   staticActiveSet: DynamicStageSpatialActiveSet;
@@ -111,6 +124,110 @@ const combineMeshLists = (
     ...base,
     ...additions.flatMap((meshes) => meshes)
   ]);
+
+const DOOR_RELOCATION_CLEARANCE = 0.02;
+
+const createDoorRelocationCandidates = (
+  request: StageDoorClosingOccupancyRequest,
+  actor: SchoolStageDoorActorSnapshot
+): readonly Vector3[] => {
+  const candidates: Vector3[] = [];
+  for (const panel of request.finalPanels) {
+    for (const collider of panel.colliders) {
+      collider.computeWorldMatrix(true);
+      const bounds = collider.getBoundingInfo().boundingBox;
+      const width = bounds.maximumWorld.x - bounds.minimumWorld.x;
+      const depth = bounds.maximumWorld.z - bounds.minimumWorld.z;
+      if (width <= depth) {
+        const minimumCenterX =
+          bounds.minimumWorld.x -
+          actor.ellipsoid.radii.x -
+          DOOR_RELOCATION_CLEARANCE;
+        const maximumCenterX =
+          bounds.maximumWorld.x +
+          actor.ellipsoid.radii.x +
+          DOOR_RELOCATION_CLEARANCE;
+        candidates.push(
+          actor.position.add(
+            new Vector3(
+              minimumCenterX - actor.ellipsoid.center.x,
+              0,
+              0
+            )
+          ),
+          actor.position.add(
+            new Vector3(
+              maximumCenterX - actor.ellipsoid.center.x,
+              0,
+              0
+            )
+          )
+        );
+      } else {
+        const minimumCenterZ =
+          bounds.minimumWorld.z -
+          actor.ellipsoid.radii.z -
+          DOOR_RELOCATION_CLEARANCE;
+        const maximumCenterZ =
+          bounds.maximumWorld.z +
+          actor.ellipsoid.radii.z +
+          DOOR_RELOCATION_CLEARANCE;
+        candidates.push(
+          actor.position.add(
+            new Vector3(
+              0,
+              0,
+              minimumCenterZ - actor.ellipsoid.center.z
+            )
+          ),
+          actor.position.add(
+            new Vector3(
+              0,
+              0,
+              maximumCenterZ - actor.ellipsoid.center.z
+            )
+          )
+        );
+      }
+    }
+  }
+  candidates.sort(
+    (left, right) =>
+      Vector3.DistanceSquared(left, actor.position) -
+        Vector3.DistanceSquared(right, actor.position) ||
+      left.x - right.x ||
+      left.z - right.z
+  );
+  return Object.freeze(candidates);
+};
+
+const resolveDoorClosingOccupancy = (
+  request: StageDoorClosingOccupancyRequest,
+  actors: SchoolStageActorPort
+): void => {
+  const occupants = actors
+    .getDoorActors()
+    .filter((actor) =>
+      intersectsStageDoorClosedPose(request.door, actor.ellipsoid)
+    );
+  for (const occupant of occupants) {
+    actors.relocateDoorActor(
+      occupant.id,
+      createDoorRelocationCandidates(request, occupant)
+    );
+  }
+  const remaining = actors
+    .getDoorActors()
+    .filter((actor) =>
+      intersectsStageDoorClosedPose(request.door, actor.ellipsoid)
+    );
+  if (remaining.length > 0) {
+    throw new Error(
+      `扉閉鎖前にActorをパネル外へ退避できません: ` +
+        `${request.door.id}/${remaining.map((actor) => actor.id).join(",")}`
+    );
+  }
+};
 
 const composeActiveSet = (
   staticActiveSet: DynamicStageSpatialActiveSet,
@@ -373,11 +490,7 @@ export const createSchoolStageInitialActiveSet = (
 ): DynamicStageSpatialActiveSet => {
   const doors = createStageDoorRuntime(input.doorAssets, {
     random: input.doorInitialRandom,
-    checkClosingOccupancy: () =>
-      Object.freeze({
-        finalPoseOccupied: false,
-        sweepOccupied: false
-      })
+    resolveClosingOccupancy: () => {}
   });
   const elevators = createInitialElevatorRuntimes(input.elevatorAssets);
   const initialActiveSet = composeActiveSet(
@@ -491,28 +604,8 @@ class SchoolStageDynamicRuntimeImplementation
         initializationSeed,
         "door-initial"
       ),
-      checkClosingOccupancy: (request) => {
-        const actorEllipsoids =
-          input.actors.getActorEllipsoids();
-        const finalPoseOccupied = actorEllipsoids.some(
-          (ellipsoid) =>
-            intersectsStageDoorClosedPose(
-              request.door,
-              ellipsoid
-            )
-        );
-        const sweepOccupied = actorEllipsoids.some(
-          (ellipsoid) =>
-            input.queries.intersectsVolumeById(
-              request.door.sweepId,
-              ellipsoid
-            )
-        );
-        return Object.freeze({
-          finalPoseOccupied,
-          sweepOccupied
-        });
-      }
+      resolveClosingOccupancy: (request) =>
+        resolveDoorClosingOccupancy(request, input.actors)
     });
     this.elevators = Object.freeze(
       input.elevatorAssets.all.map((asset) =>

@@ -671,7 +671,13 @@ const showcaseBeamSystem = createV2BeamSystem({
 const showcaseHitEffectSystem = createV2HitEffectSystem({
   scene,
   random: showcaseRandom,
-  isIndirectLightVisible: () => true
+  isIndirectLightVisible: () => true,
+  resolveVisualEnvelope: (target) =>
+    Object.freeze({
+      center: target.hitShape.center.clone(),
+      width: target.hitShape.radii.x * 2,
+      height: target.hitShape.radii.y * 2
+    })
 });
 const showcaseTarget: V2HumanTargetSnapshot = Object.freeze({
   id: "t05v-showcase-target",
@@ -1887,7 +1893,7 @@ const runValidation = async () => {
         ok: result.ok,
         detail: result.detail
       })),
-      ...runNpcCombatTests().map((result) => ({
+      ...(await runNpcCombatTests()).map((result) => ({
         name: `T05-2 NPC戦闘: ${result.name}`,
         ok: result.ok,
         detail: result.detail

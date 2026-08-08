@@ -20,7 +20,8 @@ import type {
   V2NpcElevatorTraversalRoute,
   V2NpcTraversalNotification,
   V2NpcTraversalRequest,
-  V2NpcTraversalResult
+  V2NpcTraversalResult,
+  V2PlayerElevatorTraversalSnapshot
 } from "./npcTraversal";
 import type { V2PlayerController } from "./playerController";
 import type { V2SurvivalRuntime } from "./survivalRuntime";
@@ -107,6 +108,9 @@ export type SchoolStageTraversalCoordinatorInput = Readonly<{
 
 export interface SchoolStageTraversalCoordinator {
   update(deltaSeconds: number): SchoolStageTraversalFrame;
+  getPlayerElevatorTraversalSnapshot():
+    | V2PlayerElevatorTraversalSnapshot
+    | null;
   releaseForScriptedPhase(): void;
   dispose(): void;
 }
@@ -145,7 +149,8 @@ const createElevatorIdentity = (
 
 export const createSchoolStageActorPort = (
   player: V2PlayerController,
-  survival: V2SurvivalRuntime
+  survival: V2SurvivalRuntime,
+  stage: StageSpatialContext
 ): SchoolStageActorPort =>
   Object.freeze({
     getActorPosition: (actorId: string) =>
@@ -172,7 +177,88 @@ export const createSchoolStageActorPort = (
             radii: target.hitShape.radii.clone()
           })
         )
-      )
+      ),
+    getDoorActors: () =>
+      Object.freeze([
+        ...survival.getHumanTargets().map((target) =>
+          Object.freeze({
+            id: target.id,
+            kind: "human" as const,
+            position: target.footPosition.clone(),
+            ellipsoid: Object.freeze({
+              center: target.hitShape.center.clone(),
+              radii: target.hitShape.radii.clone()
+            })
+          })
+        ),
+        ...survival.getBitActors().map((actor) =>
+          Object.freeze({
+            id: actor.id,
+            kind: "bit" as const,
+            position: actor.center.clone(),
+            ellipsoid: Object.freeze({
+              center: actor.center.clone(),
+              radii: new Vector3(
+                actor.radius,
+                actor.radius,
+                actor.radius
+              )
+            })
+          })
+        )
+      ]),
+    relocateDoorActor: (
+      actorId: string,
+      candidates: readonly Vector3[]
+    ) => {
+      if (candidates.length === 0) {
+        throw new Error(`扉Actor退避候補がありません: ${actorId}`);
+      }
+      const bit = survival
+        .getBitActors()
+        .find((candidate) => candidate.id === actorId);
+      if (bit) {
+        return survival.relocateBit(actorId, candidates);
+      }
+      const resolved = candidates
+        .map((candidate: Vector3, index: number) => {
+          const projected = stage.navigation.projectPoint(
+            candidate,
+            0.75
+          );
+          return projected
+            ? Object.freeze({
+                index,
+                distanceSquared: Vector3.DistanceSquared(
+                  projected.position,
+                  candidate
+                ),
+                position: projected.position.clone()
+              })
+            : null;
+        })
+        .filter((candidate) => candidate !== null)
+        .sort(
+          (left, right) =>
+            left.index - right.index ||
+            left.distanceSquared - right.distanceSquared
+        )[0];
+      if (!resolved) {
+        throw new Error(
+          `人物Actor退避候補をNavMeshへ投影できません: ${actorId}`
+        );
+      }
+      if (actorId === PLAYER_ID) {
+        player.setTransportFootPosition(resolved.position);
+      } else {
+        survival.setNpcTransportPosition(actorId, resolved.position);
+      }
+      survival.relocateTargetNavigationArea(
+        actorId,
+        resolved.position
+      );
+      return resolved.position.clone();
+    }
   });
 
 const requireElevatorStop = (
@@ -314,6 +400,16 @@ export const createSchoolStageTraversalCoordinator = ({
   const playerCallMatEntryIds = new Set<string>();
   let playerElevatorTraversal: PlayerElevatorTraversalState | null =
     null;
+  let playerElevatorTraversalTerminalSnapshot:
+    | V2PlayerElevatorTraversalSnapshot
+    | null = null;
+  let playerElevatorTraversalSnapshotCache:
+    | Readonly<{
+        route: PlayerElevatorTraversalRoute;
+        phase: V2PlayerElevatorTraversalSnapshot["phase"];
+        snapshot: V2PlayerElevatorTraversalSnapshot;
+      }>
+    | null = null;
   let disposed = false;
 
   const assertActive = () => {
@@ -627,6 +723,10 @@ export const createSchoolStageTraversalCoordinator = ({
           PLAYER_ID,
           player.getFootPosition()
         );
+        publishPlayerElevatorTraversalTerminal(
+          traversal.route,
+          "cancelled"
+        );
         playerElevatorTraversal = null;
         return;
       }
@@ -648,6 +748,10 @@ export const createSchoolStageTraversalCoordinator = ({
           PLAYER_ID,
           player.getFootPosition()
         );
+        publishPlayerElevatorTraversalTerminal(
+          traversal.route,
+          "completed"
+        );
         playerElevatorTraversal = null;
       }
       return;
@@ -661,11 +765,19 @@ export const createSchoolStageTraversalCoordinator = ({
       if (traversal.kind === "reserved") {
         elevatorRuntime.cancelBoardingReservation(PLAYER_ID);
       }
+      publishPlayerElevatorTraversalTerminal(
+        traversal.route,
+        "cancelled"
+      );
       playerElevatorTraversal = null;
       return;
     }
     if (traversal.kind === "awaiting-call") {
       if (!occupancy.callMat) {
+        publishPlayerElevatorTraversalTerminal(
+          traversal.route,
+          "cancelled"
+        );
         playerElevatorTraversal = null;
         return;
       }
@@ -709,6 +821,65 @@ export const createSchoolStageTraversalCoordinator = ({
         route: traversal.route
       });
     }
+  };
+
+  const createPlayerElevatorTraversalSnapshot = (
+    route: PlayerElevatorTraversalRoute,
+    phase: V2PlayerElevatorTraversalSnapshot["phase"]
+  ) => {
+    const destinationEndpoint =
+      route.destinationStop.endpoint === "A"
+        ? route.elevator.link.endpointA
+        : route.elevator.link.endpointB;
+    return Object.freeze({
+      elevatorId: route.elevator.id,
+      linkId: route.elevator.link.id,
+      from: route.fromStop.endpoint,
+      to: route.destinationStop.endpoint,
+      destinationFloorPosition: Object.freeze(
+        destinationEndpoint.position.clone()
+      ),
+      phase
+    } satisfies V2PlayerElevatorTraversalSnapshot);
+  };
+
+  const publishPlayerElevatorTraversalTerminal = (
+    route: PlayerElevatorTraversalRoute,
+    phase: "cancelled" | "completed"
+  ) => {
+    playerElevatorTraversalSnapshotCache = null;
+    playerElevatorTraversalTerminalSnapshot =
+      createPlayerElevatorTraversalSnapshot(route, phase);
+  };
+
+  const getPlayerElevatorTraversalSnapshot = () => {
+    const traversal = playerElevatorTraversal;
+    if (!traversal) {
+      playerElevatorTraversalSnapshotCache = null;
+      return playerElevatorTraversalTerminalSnapshot;
+    }
+    const phase =
+      traversal.kind === "riding"
+        ? "riding"
+        : traversal.kind === "reserved"
+          ? "reserved"
+          : "calling";
+    if (
+      playerElevatorTraversalSnapshotCache?.route === traversal.route &&
+      playerElevatorTraversalSnapshotCache.phase === phase
+    ) {
+      return playerElevatorTraversalSnapshotCache.snapshot;
+    }
+    const snapshot = createPlayerElevatorTraversalSnapshot(
+      traversal.route,
+      phase
+    );
+    playerElevatorTraversalSnapshotCache = Object.freeze({
+      route: traversal.route,
+      phase,
+      snapshot
+    });
+    return snapshot;
   };
 
   const beginDoorOpen = (
@@ -1546,6 +1717,7 @@ export const createSchoolStageTraversalCoordinator = ({
           "学校traversal更新deltaSecondsには0以上の有限値が必要です。"
         );
       }
+      playerElevatorTraversalTerminalSnapshot = null;
       const requests = survival.drainNpcTraversalRequests();
       const results: V2NpcTraversalResult[] = [];
       const pendingBoardings: PendingBoarding[] = [];
@@ -1612,6 +1784,10 @@ export const createSchoolStageTraversalCoordinator = ({
         notifications
       });
     },
+    getPlayerElevatorTraversalSnapshot: () => {
+      assertActive();
+      return getPlayerElevatorTraversalSnapshot();
+    },
     releaseForScriptedPhase: () => {
       assertActive();
       runtime.releaseHumanTraversalForScriptedPhase();
@@ -1623,6 +1799,8 @@ export const createSchoolStageTraversalCoordinator = ({
       previousPlayerCallMatIds.clear();
       playerCallMatEntryIds.clear();
       playerElevatorTraversal = null;
+      playerElevatorTraversalTerminalSnapshot = null;
+      playerElevatorTraversalSnapshotCache = null;
       survival.releaseNpcTraversalForScriptedPhase();
     },
     dispose: () => {
@@ -1637,6 +1815,8 @@ export const createSchoolStageTraversalCoordinator = ({
       previousPlayerCallMatIds.clear();
       playerCallMatEntryIds.clear();
       playerElevatorTraversal = null;
+      playerElevatorTraversalTerminalSnapshot = null;
+      playerElevatorTraversalSnapshotCache = null;
       disposed = true;
     }
   });

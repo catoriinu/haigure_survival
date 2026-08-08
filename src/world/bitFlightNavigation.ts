@@ -532,17 +532,6 @@ const createCruiseSurfaceRouteStep = (
   });
 };
 
-const reverseNavigationSurfaceStep = (
-  step: NavigationSurfaceStep
-): NavigationSurfaceStep =>
-  Object.freeze({
-    kind: "surface",
-    points: Object.freeze(
-      [...step.points].reverse().map(cloneNavigationLocation)
-    ),
-    distance: step.distance
-  });
-
 const cloneBitFlightRouteStep = (
   step: BitFlightRouteStep
 ): BitFlightRouteStep => {
@@ -588,6 +577,7 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
     string,
     readonly BitFlightTransitionTraversal[]
   >;
+  // ALL_CROSSINGSの中間polygonRefは方向依存なので、正逆を別keyで保持する。
   private readonly endpointSurfaceStepCache = new Map<
     string,
     NavigationSurfaceStep | null
@@ -1371,17 +1361,6 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
     ]);
   }
 
-  private createCanonicalSurfaceStepCacheKey(
-    fromKey: string,
-    toKey: string
-  ) {
-    return JSON.stringify(
-      fromKey > toKey
-        ? [toKey, fromKey]
-        : [fromKey, toKey]
-    );
-  }
-
   private prewarmEndpointSurfaceRoutes() {
     const endpointLocationsByBand = new Map<
       string,
@@ -1432,45 +1411,50 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
     const secondKey = this.createLocationCacheKey(second);
     const firstSurfaceKey = this.createSurfaceLocationCacheKey(first);
     const secondSurfaceKey = this.createSurfaceLocationCacheKey(second);
-    const reverseCanonicalDirection =
-      firstSurfaceKey > secondSurfaceKey;
-    const canonicalStart = reverseCanonicalDirection ? second : first;
-    const canonicalDestination = reverseCanonicalDirection ? first : second;
-    const canonicalKey = this.createCanonicalSurfaceStepCacheKey(
-      firstSurfaceKey,
-      secondSurfaceKey
-    );
-    if (!this.endpointSurfaceStepCache.has(canonicalKey)) {
+    const firstToSecondKey =
+      this.createDirectedSurfaceRouteCacheKeyFromLocationKeys(
+        firstSurfaceKey,
+        secondSurfaceKey
+      );
+    if (!this.endpointSurfaceStepCache.has(firstToSecondKey)) {
       this.endpointSurfaceStepCache.set(
-        canonicalKey,
-        this.findNavigationSurfaceStep(
-          canonicalStart,
-          canonicalDestination
-        )
+        firstToSecondKey,
+        this.findNavigationSurfaceStep(first, second)
       );
     }
-    const canonical =
-      this.endpointSurfaceStepCache.get(canonicalKey) ?? null;
-    if (!canonical) {
-      return;
+    const firstToSecondNavigationStep =
+      this.endpointSurfaceStepCache.get(firstToSecondKey) ?? null;
+    if (firstToSecondNavigationStep) {
+      this.getOrCreateEndpointSurfaceRouteVariants(
+        first,
+        second,
+        firstToSecondNavigationStep
+      );
     }
 
-    const firstToSecondNavigationStep = reverseCanonicalDirection
-      ? reverseNavigationSurfaceStep(canonical)
-      : canonical;
-    this.getOrCreateEndpointSurfaceRouteVariants(
-      first,
-      second,
-      firstToSecondNavigationStep
-    );
     if (firstKey === secondKey) {
       return;
     }
-    this.getOrCreateEndpointSurfaceRouteVariants(
-      second,
-      first,
-      reverseNavigationSurfaceStep(firstToSecondNavigationStep)
-    );
+    const secondToFirstKey =
+      this.createDirectedSurfaceRouteCacheKeyFromLocationKeys(
+        secondSurfaceKey,
+        firstSurfaceKey
+      );
+    if (!this.endpointSurfaceStepCache.has(secondToFirstKey)) {
+      this.endpointSurfaceStepCache.set(
+        secondToFirstKey,
+        this.findNavigationSurfaceStep(second, first)
+      );
+    }
+    const secondToFirstNavigationStep =
+      this.endpointSurfaceStepCache.get(secondToFirstKey) ?? null;
+    if (secondToFirstNavigationStep) {
+      this.getOrCreateEndpointSurfaceRouteVariants(
+        second,
+        first,
+        secondToFirstNavigationStep
+      );
+    }
   }
 
   private getOrCreateEndpointSurfaceRouteVariants(
@@ -1793,32 +1777,18 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
       this.createSurfaceLocationCacheKey(start);
     const destinationSurfaceKey =
       this.createSurfaceLocationCacheKey(destination);
-    const reverseCanonicalDirection =
-      canCachePermanently &&
-      startSurfaceKey > destinationSurfaceKey;
-    const canonicalStart =
-      reverseCanonicalDirection ? destination : start;
-    const canonicalDestination =
-      reverseCanonicalDirection ? start : destination;
-    const canonicalKey = canCachePermanently
-      ? this.createCanonicalSurfaceStepCacheKey(
-          startSurfaceKey,
-          destinationSurfaceKey
-        )
-      : this.createDirectedSurfaceRouteCacheKeyFromLocationKeys(
-          startSurfaceKey,
-          destinationSurfaceKey
-        );
+    const surfaceStepKey =
+      this.createDirectedSurfaceRouteCacheKeyFromLocationKeys(
+        startSurfaceKey,
+        destinationSurfaceKey
+      );
     const cache = canCachePermanently
       ? this.endpointSurfaceStepCache
       : this.dynamicSurfaceStepCache;
-    if (!cache.has(canonicalKey)) {
+    if (!cache.has(surfaceStepKey)) {
       cache.set(
-        canonicalKey,
-        this.findNavigationSurfaceStep(
-          canonicalStart,
-          canonicalDestination
-        )
+        surfaceStepKey,
+        this.findNavigationSurfaceStep(start, destination)
       );
       if (
         !canCachePermanently &&
@@ -1830,18 +1800,15 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
         }
       }
     } else if (!canCachePermanently) {
-      const cached = cache.get(canonicalKey)!;
-      cache.delete(canonicalKey);
-      cache.set(canonicalKey, cached);
+      const cached = cache.get(surfaceStepKey)!;
+      cache.delete(surfaceStepKey);
+      cache.set(surfaceStepKey, cached);
     }
 
-    const canonical = cache.get(canonicalKey) ?? null;
-    if (!canonical) {
+    const navigationStep = cache.get(surfaceStepKey) ?? null;
+    if (!navigationStep) {
       return null;
     }
-    const navigationStep = reverseCanonicalDirection
-      ? reverseNavigationSurfaceStep(canonical)
-      : canonical;
     const routeVariants = canCachePermanently
       ? this.getOrCreateEndpointSurfaceRouteVariants(
           start,
