@@ -83,6 +83,7 @@ const GLOBAL_ROUTE_QUERY_HALF_EXTENTS = Object.freeze({
 const ROOM_ROUTE_OUTSIDE_DISTANCE = 0.15;
 const ROOM_ROUTE_PROJECTION_MAX_DISTANCE = 0.25;
 const ROOM_CENTER_MAXIMUM_HORIZONTAL_PROJECTION_DISTANCE = 0.3;
+const BLOCKED_DOOR_MAXIMUM_DETOUR_DISTANCE = 0.6;
 const GROUND_POLYGON_AREA = 0;
 const ROOM_ROUTE_QUERY_HALF_EXTENTS = Object.freeze({
   x: 0.3,
@@ -3911,7 +3912,7 @@ const validateRoomDoorRoute = (
       expectedReachable,
       endpointAcceptance: expectedReachable
         ? "room-center-clearance"
-        : "strict-blockage-probe"
+        : "direct-door-blockage"
     };
     try {
       const route = findValidatedRoute(
@@ -3921,6 +3922,23 @@ const validateRoomDoorRoute = (
         `${roomId}/${variantId}/${door.doorId}から室内中央`,
         endpointPolicy
       );
+      const directDistance = Math.hypot(
+        projectedOutside.point.x - projectedCenter.point.x,
+        projectedOutside.point.y - projectedCenter.point.y,
+        projectedOutside.point.z - projectedCenter.point.z
+      );
+      const maximumBlockedDoorRouteDistance =
+        directDistance + BLOCKED_DOOR_MAXIMUM_DETOUR_DISTANCE;
+      if (
+        !expectedReachable &&
+        route.distance > maximumBlockedDoorRouteDistance
+      ) {
+        fail(
+          `${roomId}/${variantId}/${door.doorId}は別扉を経由しない` +
+            `直接通行ができません: routeDistance=${route.distance}, ` +
+            `maximum=${maximumBlockedDoorRouteDistance}`
+        );
+      }
       if (!pointInsideClosedMesh(route.end, volume.geometry)) {
         fail(
           `${roomId}/${variantId}/${door.doorId}の経路終端が` +
@@ -4182,12 +4200,35 @@ const validateAllRoomVariantAssemblies = (
       if (report === undefined) {
         fail(`${roomId}/${variantId}のroom/static portal集合がありません。`);
       }
-      assertSameKeySet(
-        normalPortalKeys,
-        new Set(report.roomStaticPortalKeys),
-        `${roomId}/${variantId}とnormalのroom/static portal集合`
-      );
-      report.normalRoomStaticPortalSetMatched = true;
+      const reportPortalKeys = new Set(report.roomStaticPortalKeys);
+      const frontDoorBlocked =
+        variantId === "disordered" &&
+        FRONT_BLOCKED_CLASSROOM_ROOM_IDS.includes(roomId);
+      if (frontDoorBlocked) {
+        const unexpectedPortalKeys = [...reportPortalKeys].filter(
+          (portalKey) => !normalPortalKeys.has(portalKey)
+        );
+        if (
+          unexpectedPortalKeys.length > 0 ||
+          reportPortalKeys.size !== normalPortalKeys.size - 1
+        ) {
+          fail(
+            `${roomId}/${variantId}の前扉閉鎖後portal集合が不正です: ` +
+              JSON.stringify({
+                normalCount: normalPortalKeys.size,
+                actualCount: reportPortalKeys.size,
+                unexpectedPortalKeys
+              })
+          );
+        }
+      } else {
+        assertSameKeySet(
+          normalPortalKeys,
+          reportPortalKeys,
+          `${roomId}/${variantId}とnormalのroom/static portal集合`
+        );
+      }
+      report.expectedRoomStaticPortalSetMatched = true;
       report.normalRoomStaticPortalCount = normalPortalKeys.size;
     });
   });
@@ -4815,15 +4856,15 @@ const main = async () => {
       staticBaseImportExportRoundTrip: true,
       roomStaticBoundaryBidirectional: true,
       roomStaticAllObservedCrossOwnerLinksHaveReverse: true,
-      roomStaticNormalVariantPortalSetsMatch:
+      roomStaticExpectedVariantPortalSetsMatch:
         first.connectivity.every(
-          ({ normalRoomStaticPortalSetMatched }) =>
-            normalRoomStaticPortalSetMatched === true
+          ({ expectedRoomStaticPortalSetMatched }) =>
+            expectedRoomStaticPortalSetMatched === true
         ),
       roomStaticPortalSetComparisonCount:
         first.connectivity.filter(
-          ({ normalRoomStaticPortalSetMatched }) =>
-            normalRoomStaticPortalSetMatched === true
+          ({ expectedRoomStaticPortalSetMatched }) =>
+            expectedRoomStaticPortalSetMatched === true
         ).length,
       roomVariantTileManifold: {
         volumeCount: prepared.volumes.length,

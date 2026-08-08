@@ -350,7 +350,7 @@ CHAIR_FALL_POSE_SEQUENCE = (
     "backrest_down",
     "side_right",
     "backrest_down",
-    "seat_up",
+    "side_left",
     "backrest_down",
     "side_left",
     "backrest_down",
@@ -381,8 +381,6 @@ def _fallen_chair_override(
         rotation_y = math.pi / 2.0
     elif pose == "side_right":
         rotation_y = -math.pi / 2.0
-    elif pose == "seat_up":
-        rotation_x = math.pi
     else:
         raise RuntimeError(f"未定義の椅子転倒姿勢です: {pose}")
 
@@ -1974,6 +1972,26 @@ def _create_variant_nav_from_collider(
     return obj
 
 
+def _create_variant_nav_from_boxes(
+    boxes: tuple[
+        tuple[tuple[float, float, float], tuple[float, float, float]],
+        ...,
+    ],
+    name: str,
+    nav_collection: bpy.types.Collection,
+    parent: bpy.types.Object,
+) -> bpy.types.Object:
+    obj = _create_box_object(
+        name,
+        boxes,
+        nav_collection,
+        parent=parent,
+    )
+    obj["hs_nav_set"] = "human"
+    obj["hs_nav_role"] = "blocker"
+    return obj
+
+
 def _tile_aligned_room_bounds(
     bounds_xy: tuple[float, float, float, float],
 ) -> tuple[float, float, float, float]:
@@ -2251,6 +2269,75 @@ def _assert_disordered_furniture_clearance(
         )
 
 
+def _assert_pattern_c_barricade_at_front_door(
+    room: RoomVariantSpec,
+    geometries: tuple[TransformedPlacementGeometry, ...],
+) -> None:
+    barricade_keys = _pattern_c_barricade_keys(room)
+    if not barricade_keys:
+        return
+
+    barricade_geometries = tuple(
+        geometry for geometry in geometries if geometry.key in barricade_keys
+    )
+    if len(barricade_geometries) != len(barricade_keys):
+        raise RuntimeError(
+            f"{room.room_id}: 前扉バリケードの家具数が不正です: "
+            f"expected={len(barricade_keys)}, actual={len(barricade_geometries)}"
+        )
+
+    minimum_x, maximum_x, _minimum_y, _maximum_y = room.bounds_xy
+    pile_minimum_x = min(
+        geometry.bounds[0][0] for geometry in barricade_geometries
+    )
+    pile_maximum_x = max(
+        geometry.bounds[1][0] for geometry in barricade_geometries
+    )
+    if (pile_minimum_x + pile_maximum_x) / 2.0 <= (minimum_x + maximum_x) / 2.0:
+        raise RuntimeError(
+            f"{room.room_id}: バリケードが前扉ではなく窓側にあります: "
+            f"pile_x=({pile_minimum_x}, {pile_maximum_x}), room={room.bounds_xy}"
+        )
+
+    front_door_minimum_y, front_door_maximum_y = room.openings[1]
+    front_door_center_y = (front_door_minimum_y + front_door_maximum_y) / 2.0
+    front_door_barriers = tuple(
+        geometry
+        for geometry in barricade_geometries
+        if geometry.bounds[0][1] <= front_door_center_y <= geometry.bounds[1][1]
+    )
+    if not front_door_barriers:
+        raise RuntimeError(
+            f"{room.room_id}: バリケードが前扉中央を塞いでいません: "
+            f"door_y=({front_door_minimum_y}, {front_door_maximum_y})"
+        )
+    wall_gap = min(
+        maximum_x - geometry.bounds[1][0]
+        for geometry in front_door_barriers
+    )
+    if wall_gap > 0.40:
+        raise RuntimeError(
+            f"{room.room_id}: バリケード脇と前扉壁の間隔が広すぎます: "
+            f"gap={wall_gap:.3f}m"
+        )
+
+    room_center_x = (minimum_x + maximum_x) / 2.0
+    room_center_y = (
+        room.bounds_xy[2] + room.bounds_xy[3]
+    ) / 2.0
+    center_obstacles = tuple(
+        geometry.key
+        for geometry in geometries
+        if geometry.bounds[0][0] <= room_center_x <= geometry.bounds[1][0]
+        and geometry.bounds[0][1] <= room_center_y <= geometry.bounds[1][1]
+    )
+    if center_obstacles:
+        raise RuntimeError(
+            f"{room.room_id}: 後扉から到達する室内中央に家具があります: "
+            f"{center_obstacles}"
+        )
+
+
 def _placement_occurrences(
     room: RoomBuilder,
 ) -> dict[str, list[RoomPlacement]]:
@@ -2315,7 +2402,20 @@ def _clearance_candidate_translations(
                         + lateral[1] * lateral_distance,
                     )
                 )
-        for radius in (0.75, 0.90, 1.05, 1.20, 1.35, 1.50):
+        for radius in (
+            0.75,
+            0.90,
+            1.05,
+            1.20,
+            1.35,
+            1.50,
+            1.65,
+            1.80,
+            1.95,
+            2.10,
+            2.25,
+            2.40,
+        ):
             for direction in range(24):
                 angle = math.tau * direction / 24.0
                 candidates.append(
@@ -2558,7 +2658,7 @@ def _room_overrides(
         return overrides
     if pattern == "C":
         maximum_y = room.bounds_xy[3]
-        barricade_x_shift = -5.40
+        barricade_x_shift = 0.0
         barricade_y_shift = -0.20
         barricade_desks = (20, 21, 22, 23, 24, 25, 26, 27, 28, 29)
         barricade_chairs = (20, 21, 22, 23, 24, 25, 26, 27, 28, 29)
@@ -2591,7 +2691,7 @@ def _room_overrides(
         chair_targets = tuple(
             (x + barricade_x_shift, y + barricade_y_shift, z)
             for x, y, z in (
-                (-4.63, maximum_y - 1.48, room.base_z),
+                (-4.18, maximum_y - 1.48, room.base_z),
                 (-4.93, maximum_y - 0.58, room.base_z),
                 (-6.03, maximum_y - 0.78, room.base_z),
                 (-6.17, maximum_y - 1.42, room.base_z),
@@ -2750,12 +2850,8 @@ def _room_overrides(
             assign("StaffChair", index, _fallen_chair_override(by_type["StaffChair"][index], sequence, outward_distance=0.38, lateral_distance=0.10, rotation_z_delta=math.radians(9 * sequence - 27), rest_z=0.0))
         for sequence, index in enumerate((1, 4, 6, 10, 13, 16)):
             assign("StaffChair", index, PlacementOverride(offset=(0.28 * (-1 if sequence % 2 else 1), 0.18 * ((sequence % 3) - 1), 0.0), rotation_z_delta=math.radians((-16, 13, -11, 17, -14, 10)[sequence])))
-        for sequence, index in enumerate((0, 4, 8, 12, 16)):
-            assign("PcMonitor", index, PlacementOverride(rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians(12 * sequence - 20), rest_z=0.72))
-            assign("KeyboardMouse", index, PlacementOverride(offset=(0.38 * (-1 if sequence % 2 else 1), 0.24, 0.0), rotation_z_delta=math.radians(21 * sequence), rest_z=0.01 if sequence >= 3 else 0.73))
         for sequence, index in enumerate((2, 9, 14)):
             assign("PcTower", index, PlacementOverride(offset=(-0.42, 0.30 * (-1 if sequence % 2 else 1), 0.0), rotation_x=(math.pi / 2.0) * (-1 if sequence % 2 else 1), rotation_z_delta=math.radians(18 * sequence - 15), rest_z=0.0))
-            assign("KeyboardMouse", index, PlacementOverride(offset=(0.46 * (-1 if sequence % 2 else 1), -0.32 + 0.18 * sequence, 0.0), rotation_z_delta=math.radians(24 * sequence - 19), rest_z=0.01))
     elif room.author_name == "F02_Council":
         assign("LargeWoodTable", 0, PlacementOverride(rotation_z_delta=math.radians(-10.0)))
         for sequence, index in enumerate((0, 1, 2, 3, 4, 6)):
@@ -3023,7 +3119,7 @@ def _build_room_variants(
     chair_pose_counts = {
         "backrest_down": 0,
         "side": 0,
-        "seat_up": 0,
+        "inverted": 0,
     }
     signs_material = bpy.data.materials.get("MAT_B03_Atlas_SignsPaper")
     if signs_material is None:
@@ -3137,6 +3233,18 @@ def _build_room_variants(
             unchanged_count += 1
         else:
             overrides = _room_overrides(room, normal_room)
+            if room.author_name == "F01_PcRoom":
+                moved_desktop_props = tuple(
+                    key
+                    for key in overrides
+                    if key[0] in {"PcMonitor", "KeyboardMouse"}
+                )
+                if moved_desktop_props:
+                    raise RuntimeError(
+                        "PC室のモニターまたはキーボード・マウスが"
+                        "机上の通常配置から移動しています: "
+                        f"{moved_desktop_props}"
+                    )
             overrides = _resolve_disordered_furniture_overrides(
                 room,
                 normal_room,
@@ -3163,7 +3271,7 @@ def _build_room_variants(
                     math.pi,
                     abs_tol=1.0e-6,
                 ):
-                    chair_pose_counts["seat_up"] += 1
+                    chair_pose_counts["inverted"] += 1
             disordered_furniture = MeshBatch("FurnitureProps")
             disordered_signs = MeshBatch("SignsPaper")
             disordered_collider_boxes: list[
@@ -3172,7 +3280,23 @@ def _build_room_variants(
                     tuple[float, float, float],
                 ]
             ] = []
+            disordered_nav_collider_boxes: list[
+                tuple[
+                    tuple[float, float, float],
+                    tuple[float, float, float],
+                ]
+            ] = []
             placement_geometries: list[TransformedPlacementGeometry] = []
+            room_center_collider_obstacles: list[
+                tuple[
+                    tuple[str, int],
+                    tuple[
+                        tuple[float, float, float],
+                        tuple[float, float, float],
+                    ],
+                ]
+            ] = []
+            barricade_keys = _pattern_c_barricade_keys(room)
             occurrence_counts: dict[str, int] = {}
             for placement in normal_room.placements:
                 if placement.kind == "curtain":
@@ -3207,12 +3331,40 @@ def _build_room_variants(
                     replayed.signs,
                     transform,
                 )
-                disordered_collider_boxes.extend(
+                transformed_collider_boxes = tuple(
                     _transformed_box_bounds(box, transform)
                     for box in replayed.collider_boxes
                 )
+                disordered_collider_boxes.extend(transformed_collider_boxes)
+                if (
+                    CLASSROOM_PATTERN_BY_AUTHOR.get(room.author_name) != "C"
+                    and key not in barricade_keys
+                ):
+                    disordered_nav_collider_boxes.extend(
+                        transformed_collider_boxes
+                    )
+                if CLASSROOM_PATTERN_BY_AUTHOR.get(room.author_name) == "C":
+                    room_center_x = (room.bounds_xy[0] + room.bounds_xy[1]) / 2.0
+                    room_center_y = (room.bounds_xy[2] + room.bounds_xy[3]) / 2.0
+                    room_center_collider_obstacles.extend(
+                        (key, bounds)
+                        for bounds in transformed_collider_boxes
+                        if bounds[0][0] <= room_center_x <= bounds[1][0]
+                        and bounds[0][1] <= room_center_y <= bounds[1][1]
+                    )
+
+            if room_center_collider_obstacles:
+                raise RuntimeError(
+                    f"{room.room_id}: 後扉から到達する室内中央に"
+                    "家具Colliderがあります: "
+                    f"{room_center_collider_obstacles}"
+                )
 
             _assert_disordered_furniture_clearance(
+                room,
+                tuple(placement_geometries),
+            )
+            _assert_pattern_c_barricade_at_front_door(
                 room,
                 tuple(placement_geometries),
             )
@@ -3267,12 +3419,39 @@ def _build_room_variants(
                 collider_collection,
                 parent=disordered_marker,
             )
-            _create_variant_nav_from_collider(
-                disordered_collider,
-                f"NAV_RoomVariant_{token}_Disordered_Blocker",
-                nav_collection,
-                disordered_marker,
+            disordered_nav_name = (
+                f"NAV_RoomVariant_{token}_Disordered_Blocker"
             )
+            if CLASSROOM_PATTERN_BY_AUTHOR.get(room.author_name) == "C":
+                _minimum_x, maximum_x, _minimum_y, _maximum_y = room.bounds_xy
+                front_door_minimum_y, front_door_maximum_y = room.openings[1]
+                disordered_nav_collider_boxes.append(
+                    (
+                        (
+                            maximum_x - 0.95,
+                            front_door_minimum_y - 0.20,
+                            room.base_z,
+                        ),
+                        (
+                            maximum_x - 0.15,
+                            front_door_maximum_y + 0.20,
+                            room.base_z + 2.40,
+                        ),
+                    )
+                )
+                _create_variant_nav_from_boxes(
+                    tuple(disordered_nav_collider_boxes),
+                    disordered_nav_name,
+                    nav_collection,
+                    disordered_marker,
+                )
+            else:
+                _create_variant_nav_from_collider(
+                    disordered_collider,
+                    disordered_nav_name,
+                    nav_collection,
+                    disordered_marker,
+                )
             if room.author_name == "F01_Infirmary":
                 _create_disordered_infirmary_curtains(
                     visual_collection,
@@ -3320,8 +3499,8 @@ def _build_room_variants(
     if not (
         chair_pose_counts["backrest_down"]
         > chair_pose_counts["side"]
-        > chair_pose_counts["seat_up"]
         > 0
+        and chair_pose_counts["inverted"] == 0
     ):
         raise RuntimeError(
             "倒れた椅子の姿勢分布が不正です: "
@@ -3334,7 +3513,7 @@ def _build_room_variants(
         "unchanged_disordered_rooms": unchanged_count,
         "fallen_chairs_backrest_down": chair_pose_counts["backrest_down"],
         "fallen_chairs_side": chair_pose_counts["side"],
-        "fallen_chairs_seat_up": chair_pose_counts["seat_up"],
+        "fallen_chairs_seat_up": chair_pose_counts["inverted"],
     }
 
 

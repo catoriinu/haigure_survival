@@ -88,6 +88,14 @@
 
 > 扉の開閉やNPCの追従など、E／F／Cキーで行う操作の有効距離を1.0mから1.5mへ広げる案は、この作業では実施しない。別PR側で扱うため、本計画とbranchの対象外とする。
 
+> 職員室に残っている逆さまの椅子1脚は、天地を通常状態へ戻す。PC室では、倒れて宙に浮いているモニターを含む全モニターとキーボード・マウスを、対応する机の天板上へ完全に載せる。PC室に残っている逆さまの椅子も天地を通常状態へ戻す。
+
+> パターンB・Cの荒れ教室と家庭科室を含め、荒れ版全室を横断して逆さまの椅子をなくす。今後は個別指摘を前提とせず、生成時の監査で逆さ椅子が0脚であることを保証する。
+
+> パターンCのバリケードは窓側ではなく、教室前方の出入口を塞ぐ位置へ戻す。壁とは干渉させず、出入口の脇から教室内へ入れない配置にする。
+
+> パターンCは前扉を完全に塞ぐ一方、後ろの扉から出入りする経路を残す。
+
 ## 目的
 
 PR #60で確定した通常版配置を保護基準とし、普通教室9室と特別教室11室の既存`disordered` variant計20室へ承認済みの荒れ配置を実装する。見た目、Collider、遮蔽、歩行可能な倒れ物、Room Variant NavMeshを一致させる。体育館は通常版だけに承認済み小物修正を反映し、体育館と屋上男女更衣室には荒れ版を追加しない。
@@ -148,12 +156,21 @@ PR #60で確定した通常版配置を保護基準とし、普通教室9室と�
 - [x] 全室比較画像と代表室の実ブラウザ／Electronで、見た目、通行性、Runtime、consoleを確認する
 - [x] 結果と配布検査を本計画へ記録し、commitする。push、Pull Request作成、mergeは別の明示許可とする
 
+### 2026-08-08 逆さ椅子・PC机上機器・パターンC前扉の再修正
+
+- [x] 荒れ版全室で、座面を上にして天地が逆になった椅子を0脚にする
+- [x] PC室のモニターとキーボード・マウスをすべて対応する机の天板上へ戻し、浮遊をなくす
+- [x] パターンCのバリケードを窓側から教室前方の出入口へ戻し、壁と干渉せず脇を通れない配置にする
+- [x] Blender正本、学校GLB、3種NavMesh、カタログhashと関連fixture固定値を再生成する
+- [x] 資産監査、決定性、Room Variant NavMesh、5175番の全荒れ版表示で修正結果を確認する
+- [x] 結果を本計画へ記録してcommitする。push、Pull Request作成、mergeは行わない
+
 ## 完了条件
 
 - 20室すべての荒れ版がユーザー承認済み仕様と一致する。
 - 体育館通常版は跳び箱4段化・黒線3本、バスケットゴール4基化と形状改訂、リング中心高3.05m維持、`LifePreserverSign`削除を満たす。
 - 体育館と屋上男女更衣室に荒れ版がなく、その他の通常版はPR #60基準から意図しない変更が0件である。
-- 荒れ版の表示、Collider、遮蔽、Room Variant NavMeshが同じ配置を表す。
+- 荒れ版の表示、Collider、遮蔽が同じ配置を表す。パターンCのRoom Variant NavMeshだけは、密集家具による別床面生成を避けるため、前扉閉鎖用の簡略Blockerで同じ通行契約を表す。
 - すべての荒れ版に通行可能な出入口と主要経路があり、倒れ物は表示と一致するBlockerとしてNavMeshへ反映される。
 - 資産監査、決定性、型検査、build、fixture、実ブラウザ、Electronに合格する。
 
@@ -260,3 +277,36 @@ Blender対象チェックでは空overrideと通常配置行列の最大誤差`1
 更新成果物は学校Blender正本3,498,990 bytes、学校GLB 22,023,444 bytes・SHA-256 `b8287a2757bb6ec966922353b1e96d8103fbaed5bf921fc469b51ea45847b497`、静的人間用NavMesh 3,123,476 bytes・SHA-256 `530fa01f472a7f3ab4f983c6360aa41c296f3170ae44334e67e26377ed5d977b`、Room Variant NavMesh 1,935,046 bytes・SHA-256 `552eae3e355bb1149e80d4c7e6f13aaa44f36a97f2ed9ff5e4f5c6f5f5039c70`、BIT用NavMesh 565,399 bytes・SHA-256 `e7e0a76429ba1c9bcfcb26a18071db2307ca394632fb727a0559140244cac62a`となった。GLBは連続2回の強制再生成で同一bytes／SHA-256となり、Room Variant／BIT NavMeshの`--check`もPASSした。
 
 学校architecture、interiors、interactive assets、protected contract、generator refactor、B04 world boundaryの6監査、Python 8ファイルのAST、NavMesh baker 2ファイルの`node --check`、`git diff --check`、通常build、T02／T04／T05 buildはすべてPASSした。比較画像25枚を再生成し、普通教室C、図書室、美術室、LL教室を含む代表室を目視確認した。実ブラウザとElectronの実学校動的統合fixtureはいずれも67/67、warning／error 0件でPASSした。
+
+2026-08-08の再修正では、荒れ版全室の転倒椅子から座面上の逆さ姿勢を廃止し、背もたれ下86脚、左右横倒し58脚、逆さ0脚へ更新した。PC室の`PcMonitor`と`KeyboardMouse`は荒れ版overrideを廃止し、全18席で通常版と同じ机上配置へ戻した。職員室、PC室、普通教室B／C、家庭科室を含む全室で逆さ椅子0脚を生成時契約とした。
+
+パターンCのバリケードは、3室とも教室前方の第2扉へ戻した。表示とプレイヤーColliderは机10台・椅子10脚・教卓の山を維持し、前扉側の壁から約0.35mまで寄せて、壁へ干渉せずプレイヤーが脇を通れない配置とした。Room Variant NavMeshは密集家具から生じる別高床面を避けるため、パターンCだけ前扉開口を覆う単一Blockerへ分離した。扉監査は別扉経由の迂回を前扉通行と誤認しない直接通行判定へ更新し、3室すべてで前扉閉鎖、後ろ扉から室内中央への到達を確認した。
+
+最終成果物は、学校Blender正本3,490,313 bytes・SHA-256 `25f85f46106b9e73c889fbd50d7734f11a086915a77e56a9f57228954dc6e534`、学校GLB 22,025,036 bytes・SHA-256 `157904ac2da3ee4cb962c3ac9427f0977f4273572a5a54def279061d8ed3228e`、静的人間用NavMesh 3,123,476 bytes・SHA-256 `530fa01f472a7f3ab4f983c6360aa41c296f3170ae44334e67e26377ed5d977b`、Room Variant NavMesh 1,966,070 bytes・SHA-256 `4b5a584b9ba15dba73d55924b91320475d51ee8dcfc951a06822e08bedd52e43`、BIT用NavMesh 565,399 bytes・SHA-256 `e7e0a76429ba1c9bcfcb26a18071db2307ca394632fb727a0559140244cac62a`となった。GLBの連続強制再生成、Room Variant／BIT NavMeshの`--check`、学校architecture、interiors、interactive assets、protected contract、generator refactor、B04 world boundaryの各監査、Python構文、Node構文、`git diff --check`、通常buildはPASSした。
+
+比較画像25枚を再生成し、パターンC、図書室、職員室、PC室、生徒会室、家庭科室を目視確認した。5175番はT06実行コードと本branchの最新資産を組み合わせる設定で再起動し、配信GLBのbytes／SHA-256が上記成果物と一致した。`?roomVariantReview=all-disordered`で実行開始、Canvas描画、50 NPC・21 BITの起動、資産読み込みwarning／errorなしを確認した。ブラウザ自動操作による最初のPointer Lock要求だけ一時的に拒否されたが、直後にPointer Lock取得済みであり、資産・Runtimeの失敗ではない。1.5m操作距離変更は実装していない。
+
+## 2026-08-08 PR #64統合後同期
+
+### プロンプト
+
+> Pull Request #64をリモートで`develop`へマージしたため、こちらへ取り込んで同期し、必要な再検証を行う。その後、問題がなければ取り込んだ修正をpushする。
+
+### ステップ
+
+- [x] GitHub上でPR #64のマージ完了と`origin/develop`のマージコミットを確認する。
+- [x] PR #66専用branchを最新`origin/develop`上へ同期し、共有検証ファイルの統合状態を確認する。
+- [x] 学校資産、GLB、Room Variant NavMesh、カタログhashの監査と決定性を再確認する。
+- [x] T04／T05／T06を含む型検査、build、fixtureを再実行する。
+- [x] 最新Runtimeと本branchの資産を通常ゲーム入口で確認し、consoleと資産読込エラーがないことを確認する。
+- [x] 計画結果を更新し、既存コミットへ記録してPR #66 branchをpushする。
+
+### 結果
+
+PR #64はGitHub上でマージ済み、`origin/develop`はマージコミット`095eacf`であることを確認した。PR #66の2コミットは`origin/develop`上へ競合なしでrebase済みである。統合後の実fixtureで、T04／T05の4検証ファイルだけが中間Room Variant NavMesh hash`552eae3e...`を固定している追随漏れを検出したため、最終成果物とカタログが使用する`4b5a584b...`へ統一した。Runtimeロジックと資産バイナリは変更していない。
+
+GLB`157904ac...`、Room Variant NavMesh`4b5a584b...`、静的人間用NavMesh`530fa01f...`、BIT用NavMesh`e7e0a764...`を維持した。Room Variant NavMeshの`--check`、学校architecture、interiors、interactive assets、protected contract、generator refactor、B04 world boundaryの6監査、通常・T04・T05・T06 build、`git diff --check`はすべてPASSした。
+
+専用Vite環境のブラウザfixtureはT04全体115/115、実学校動的統合77/77、T05全体312/312、NPC指示26/26、T06 Runtime 63/63でPASSし、各ページのwarning／errorは0件だった。5175番はPR #64 Runtimeと本branch最新資産を組み合わせる構成へ戻し、通常ゲームで`playing`、50 NPC、21 BIT、学校資産読込成功を確認した。Codex内蔵ブラウザのPointer Lock要求だけChromium環境固有エラーとなったが、Electron受入ではCanvas開始とPointer Lockを含む13項目、BGM 1・SE 12・VOICE 74の読込、console／renderer／load／process診断0件でPASSした。
+
+同期後の計画・検証hash追随修正を既存の最終修正コミットへ記録し、PR #66 branchを更新した。

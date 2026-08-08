@@ -46,6 +46,13 @@ UNCHANGED_DISORDERED_ROOM_IDS = frozenset(
         "f04-classroom-02",
     }
 )
+FRONT_BLOCKED_CLASSROOM_ROOM_IDS = frozenset(
+    {
+        "f02-classroom-03",
+        "f03-classroom-02",
+        "f04-classroom-01",
+    }
+)
 ROOM_VARIANT_WALL_ATTACHMENT_ALLOWANCE = 0.55
 INFIRMARY_DISORDERED_CURTAIN_COLLIDER_BOUNDS = (
     ((-12.10, 6.55, 0.45), (-9.275, 6.69, 3.00)),
@@ -1100,6 +1107,7 @@ def audit_room_variants(
 
     unchanged_room_parity_checks = 0
     collider_blocker_parity_checks = 0
+    front_door_nav_blocker_checks = 0
     disordered_bounds_checks = 0
     for room in ROOM_SPECS:
         room_token = token(room.author_name)
@@ -1261,12 +1269,23 @@ def audit_room_variants(
                 and blocker.local_bounds is not None,
                 f"{room.room_id}/{variant_id}: COL/BlockerにAABBがありません",
             )
-            require(
-                bounds_close(collider.local_bounds, blocker.local_bounds)
-                and collider.triangle_count == blocker.triangle_count,
-                f"{room.room_id}/{variant_id}: COL/Blocker形状契約が不一致です",
-            )
-            collider_blocker_parity_checks += 1
+            if (
+                variant_id == "disordered"
+                and room.room_id in FRONT_BLOCKED_CLASSROOM_ROOM_IDS
+            ):
+                require(
+                    not bounds_close(collider.local_bounds, blocker.local_bounds)
+                    and blocker.triangle_count == 12,
+                    f"{room.room_id}/{variant_id}: 前扉用Nav Blockerが単一箱ではありません",
+                )
+                front_door_nav_blocker_checks += 1
+            else:
+                require(
+                    bounds_close(collider.local_bounds, blocker.local_bounds)
+                    and collider.triangle_count == blocker.triangle_count,
+                    f"{room.room_id}/{variant_id}: COL/Blocker形状契約が不一致です",
+                )
+                collider_blocker_parity_checks += 1
 
         if room.room_id in UNCHANGED_DISORDERED_ROOM_IDS:
             unchanged_pairs = [
@@ -1392,6 +1411,7 @@ def audit_room_variants(
         "unchanged_disordered_rooms": len(UNCHANGED_DISORDERED_ROOM_IDS),
         "unchanged_room_parity_checks": unchanged_room_parity_checks,
         "collider_blocker_parity_checks": collider_blocker_parity_checks,
+        "front_door_nav_blocker_checks": front_door_nav_blocker_checks,
         "disordered_bounds_checks": disordered_bounds_checks,
     }
 
@@ -2618,6 +2638,7 @@ def audit_blender_geometry() -> dict[str, int]:
     changed_collider_rooms = 0
     changed_visual_rooms = 0
     collider_blocker_parity_checks = 0
+    front_door_nav_blocker_checks = 0
     disordered_component_bounds_checks = 0
     unchanged_room_geometry_checks = 0
     infirmary_curtain_checks = 0
@@ -2860,13 +2881,41 @@ def audit_blender_geometry() -> dict[str, int]:
             f"{room.room_id}/normal COL=Blocker",
             include_materials=False,
         )
-        require_mesh_geometry_parity(
-            disordered_collider,
-            disordered_blocker,
-            f"{room.room_id}/disordered COL=Blocker",
-            include_materials=False,
-        )
-        collider_blocker_parity_checks += 2
+        collider_blocker_parity_checks += 1
+        if room.room_id in FRONT_BLOCKED_CLASSROOM_ROOM_IDS:
+            minimum_x, maximum_x, _minimum_y, _maximum_y = room.bounds_xy
+            front_door_minimum_y, front_door_maximum_y = room.openings[1]
+            require_component_bounds_set(
+                f"{room.room_id}/disordered 前扉Nav Blocker",
+                mesh_component_world_bounds(disordered_blocker),
+                (
+                    (
+                        Vector(
+                            (
+                                maximum_x - 0.95,
+                                front_door_minimum_y - 0.20,
+                                room.base_z,
+                            )
+                        ),
+                        Vector(
+                            (
+                                maximum_x - 0.15,
+                                front_door_maximum_y + 0.20,
+                                room.base_z + 2.40,
+                            )
+                        ),
+                    ),
+                ),
+            )
+            front_door_nav_blocker_checks += 1
+        else:
+            require_mesh_geometry_parity(
+                disordered_collider,
+                disordered_blocker,
+                f"{room.room_id}/disordered COL=Blocker",
+                include_materials=False,
+            )
+            collider_blocker_parity_checks += 1
 
         for obj in (
             normal_collider,
@@ -3034,6 +3083,7 @@ def audit_blender_geometry() -> dict[str, int]:
         "changed_visual_rooms": changed_visual_rooms,
         "changed_collider_rooms": changed_collider_rooms,
         "collider_blocker_parity_checks": collider_blocker_parity_checks,
+        "front_door_nav_blocker_checks": front_door_nav_blocker_checks,
         "disordered_component_bounds_checks": (
             disordered_component_bounds_checks
         ),
@@ -3286,6 +3336,9 @@ def main() -> None:
             "room_doors": 38,
             "rooftop_changing_doors": 2,
             "room_variants": {
+                "fallen_chairs_backrest_down": 86,
+                "fallen_chairs_seat_up": 0,
+                "fallen_chairs_side": 58,
                 "markers": 40,
                 "rooms": 20,
                 "tile_volumes": 20,

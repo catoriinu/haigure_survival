@@ -235,7 +235,7 @@ const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   roomVariantNavmesh: Object.freeze({
     mode: "required",
     url: "b02_school_blockout.room-variants.navmesh.bin",
-    sha256: "552eae3e355bb1149e80d4c7e6f13aaa44f36a97f2ed9ff5e4f5c6f5f5039c70"
+    sha256: "4b5a584b9ba15dba73d55924b91320475d51ee8dcfc951a06822e08bedd52e43"
   })
 });
 
