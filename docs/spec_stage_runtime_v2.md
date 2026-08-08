@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 3Dステージランタイム仕様書
 
-更新日: 2026-08-08
+更新日: 2026-08-09
 対象バージョン: v2
 
 ## 1. 文書の位置付け
@@ -21,6 +21,7 @@ TypeScript StageCatalogEntry（非空間の索引）
   -> GLB URL
   -> 人間用NavMesh URL
   -> ビット用NavMesh bundle URL
+  -> Location意味資産対応mode
 ```
 
 - 表示、衝突、NavMesh生成形状、スポーン位置、向き、領域、境界はGLBだけに置く。
@@ -47,6 +48,7 @@ export type StageCatalogEntry = Readonly<{
       }>;
   assetSchemaVersion: number;
   worldBoundaryMode: "required" | "unsupported";
+  locationAssetsMode: "required" | "unsupported";
   navProfileId: string;
   bitNavProfileId: string;
   glbSha256: string;
@@ -59,6 +61,7 @@ export type StageCatalogEntry = Readonly<{
 - `id`はGLBの`META_Stage.hs_stage_id`と一致させる。
 - `roomVariantNavmesh`は部屋variant非対応時の`unsupported`と、bundle URL・SHA-256を必須にする`required`の判別可能unionとする。互換wrapper、欠落時fallback、Runtime再生成は使用しない。
 - `worldBoundaryMode`は空間形状ではなく、対応資産世代を厳格に選ぶ非空間契約である。`required`では`BND_WorldLimit`を正確に1件要求し、`unsupported`では同Objectを許可しない。
+- `locationAssetsMode`も対応資産世代を厳格に選ぶ非空間契約である。`required`はschema version 3以上とB05意味資産の完全な目録を要求し、`unsupported`はB05用`MAP_*`、Marker、Volumeを1件も許可しない。
 - `navProfileId`と`bitNavProfileId`はGLBと各NavMesh生成記録の双方に一致させる。
 - `depthPrePassMaterialNames`は、半透明面の重なり順を安定させるため、透明Color pass前に深度を確定するMaterial名を重複なく列挙する。各名前はGLB内のMaterialちょうど1件と一致しなければ読込失敗とする。
 - GLB、静的人間用NavMesh、対応時の部屋variant bundle、ビット用NavMeshのいずれかのハッシュが不一致なら読込失敗とし、古い成果物を継続使用しない。
@@ -90,6 +93,7 @@ export type StageSpatialContext = Readonly<{
   links: StageLinkRegistry;
   boundary: StageBoundary;
   worldBoundary: StageWorldBoundary | null;
+  locationAssets: StageLocationAssetRegistry | null;
   queries: StageSpatialQueries;
   dispose(): void;
 }>;
@@ -115,7 +119,7 @@ export type StageMoverKind = "player" | "npc" | "bit";
 | `sightBlockers` | 通常`COL_*`と`COL_BeamSightOnly_*` | 視線遮蔽 |
 | `navSourceMeshes` | `hs_nav_set=human`の`NAV_*` | 人間用検証・再ベイク |
 | `bitFlightNavSourceMeshes` | `hs_nav_set=bit-flight`の`NAV_BitFlight_*` | ビット用検証・再ベイク |
-| `semanticMeshes` | `VOL_*`、`BND_*`、`PRT_*` | 3D意味判定 |
+| `semanticMeshes` | `MAP_*`、`VOL_*`、`BND_*`、`PRT_*` | 3D意味判定 |
 | `semanticNodes` | `META_*`、`MRK_*`、`LNK_*` | メタデータ・位置・特殊接続 |
 
 `StageSpatialResources`の配列はAssetContainer内に存在する全作者Objectの所有元であり、現在有効な衝突・遮蔽集合の正本にはしない。T04-3A以降の現在値は、次の公開契約だけから取得する。
@@ -199,7 +203,8 @@ export interface StageSpatialQueries {
 9. `assembly_anchor` Markerと`assembly` Volumeを1対1に結び、`StageAssemblyVenueRegistry`を構築する。
 10. `NAV_BitFlight_*`から任意数のゾーン・帯を構築し、GLBの帯キー集合とbundle目録を完全一致検査する。
 11. 人間用`NavigationWorld`と、帯ごとに独立した`NavigationWorld`および明示遷移グラフを持つ`BitFlightNavigationWorld`を構築する。
-12. すべて成功した後だけ`addAllToScene()`し、旧Contextと交換する。
+12. `locationAssetsMode="required"`では、動的エレベーター資産と空間queryの構築後に`StageLocationAssetRegistry`を組み立て、floor、Area、Mission、踊り場、放送卓、NavMesh被覆を検証する。`unsupported`では`null`とする。
+13. すべて成功した後だけ`addAllToScene()`し、旧Contextと交換する。
 
 未知接頭辞、重複ID、型違い、必須extras欠落、NavMesh不整合は即時エラーとする。欠落時に座標をTypeScriptへ直書きしたり、旧JSONへ戻したりしない。
 
@@ -446,6 +451,44 @@ JSON内のBlender座標`(x, y, z)`は読込時にBabylon world座標`(-0.25x, 0.
 - 集合、公開処刑観客、公開処刑対象は、それぞれの作者座標配列と容量を独立に使用する。
 - 同じ会場、用途、人数からは常に同じ順序・同じ座標を返す。
 
+### 9.2 B05 Location意味資産registry
+
+`locationAssetsMode="required"`では、schema version 3の作者`MAP_*`、Marker、Volumeから次の公開registryを構築する。
+
+```ts
+export interface StageLocationAssetRegistry {
+  readonly floorMaps: readonly StageFloorMap[];
+  readonly areas: readonly StageLocationArea[];
+  readonly missionLocations: readonly StageMissionLocation[];
+  readonly stairLandings: readonly StageStairLanding[];
+  readonly elevatorLandings: readonly StageElevatorLanding[];
+  readonly broadcastConsole: StageBroadcastConsole;
+  getFloorMap(floorId: StageLocationFloorId): StageFloorMap | null;
+  getAreaById(id: string): StageLocationArea | null;
+  getMissionLocationById(id: string): StageMissionLocation | null;
+  findArea(point: Vector3): StageLocationAreaHit | null;
+}
+```
+
+`StageLocationArea`はID、表示名、優先度と複数の`StageLocationAreaPiece`を持つ。各pieceは固定floorまたはelevator IDのどちらかへ結び、`contains()`は現在の動的空間revisionに追従する。`findArea()`は包含するpieceを優先度降順で解決し、同順位で異なる論理Areaが残る場合は例外とする。固定pieceのhitは`floorId`、エレベーターpieceのhitは`elevatorId`を返す。
+
+ロード時に次をすべて検査する。
+
+- floor ID集合と順序が`f01/f02/f03/f04/roof`、1～5で完全一致する。
+- Areaの全pieceでID、表示名、優先度が一致し、固定floorまたは既存elevatorの片方だけを参照する。
+- 異なる論理Areaの同順位Volumeが正体積で重複しない。
+- 人間用NavMeshの全triangleが1件以上のArea pieceで完全に覆われる。
+- Mission Locationのfloor、Area、Volume、Anchor参照が存在し、AnchorがVolume内、Volumeが対応floorのArea piece内、Anchorの最高優先Areaが参照Area、AnchorがNavMeshへ0.25m以内で投影可能である。
+- 階段踊り場のfloorと方向が登録値である。
+- エレベーター乗場のfloorとelevatorが存在し、`available`とstop有無が一致する。stopがある場合は`floorIndex`がfloor Mapのorderと一致する。
+- 放送卓Markerとtargetが1件ずつ存在し、相互参照、floor、表示名が有効である。
+
+学校の確定件数は5 Map、52 Area／85 piece、24 Mission Location、17階段踊り場、4エレベーター乗場、放送卓1件である。`locationAssetsMode="unsupported"`ではB05意味資産を0件とし、`StageSpatialContext.locationAssets`を`null`にする。対応外を欠落扱いして座標や既存Volumeから補完しない。
+
+エレベーターの現在階表示には`StageElevatorSnapshot.displayStopId`を使用する。停止中は現在stop、移動中は到着するまで出発stopを保持し、到着時に目的stopへ切り替える。物理判定用`currentStopId`は移動中`null`の既存契約を維持する。
+
+B05はregistryの読込と検証だけを実装する。ミニマップ描画はT06-3、Mission状態機械、20秒scheduler、放送効果、HUD、公開処刑会場切替はT06-4が所有する。
+
 ## 10. 3D空間問い合わせ
 
 ```ts
@@ -519,6 +562,7 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 - T04-3Aは`DynamicStageSpatialVariants`、revision付き動的問い合わせ、扉・エレベーター状態機械、非学校fixture、部屋variant NavMeshタイル組立基盤を担当する。
 - T04-3BはB03-3C／B04の学校metadata、20室variant、全陣営NPCの扉・エレベーター利用を実学校へ統合する。
 - B04は学校外周表示と`BND_WorldLimit`の資産を担当する。両NavMeshは不変とし、外周BIT飛行帯と塀越え遷移は追加しない。
+- B05はschema version 3、`locationAssetsMode`、5 Map、52 Area、24 Mission Location、17階段踊り場、4エレベーター乗場、放送卓と、これらを読める最小Runtime registryを担当する。ミニマップ描画、Mission状態機械、放送効果は含めない。
 - T06はB04とT05-2Vを含む最終学校資産を使い、プレイヤー、NPC、ビット、全階、屋上、全光線、ゲーム進行、水中水平速度50%と通常速度への復帰を通した統合確認を行う。外周BIT帯の統合は対象に含めない。
 - トラップ光線と動的3DマップビームはT05-2、T05-2V、T06、T07の完了範囲に含めない。将来、対応ステージを移植するタスクで`V2BeamOriginKind`、配置metadata、状態機械、光線物理・演出、専用fixtureを同時に追加する。
 
@@ -526,7 +570,7 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 
 - `StageSpatialContext`構築に失敗した場合、新ContextのAssetContainer、人間用NavMesh、生成済みの全帯ビットNavMesh、debug Mesh、イベント購読を破棄し、旧Contextは維持する。
 - 成功時は入力停止、プレイヤー再配置、新Context有効化、旧Context破棄の順に交換する。
-- `dispose()`は`StageSpatialQueries`、`DynamicStageSpatialVariants`、`StageWorldBoundary`の問い合わせcache・参照を先に無効化し、その後にステージ所有のMesh、TransformNode、Material、Texture参照、人間用NavMesh adapter、ビット用NavMesh群、Crowd、debug Mesh、イベント購読を1回だけ解放する。破棄済みのquery、variant、world boundaryを保持して使用した場合は失敗させる。
+- `dispose()`は`StageSpatialQueries`、`DynamicStageSpatialVariants`、`StageWorldBoundary`の問い合わせcache・参照を先に無効化し、その後にステージ所有の`StageLocationAssetRegistry`参照、Mesh、TransformNode、Material、Texture参照、人間用NavMesh adapter、ビット用NavMesh群、Crowd、debug Mesh、イベント購読を1回だけ解放する。破棄済みのquery、variant、world boundary、Location意味Nodeを保持して使用しない。
 - `recast-navigation`のWASM moduleはアプリ寿命で1回だけ初期化する。ステージごとの`NavMeshQuery`、`NavMesh`、debug Meshは`NavigationWorld.dispose()`で明示的に破棄する。
 - 複数3Dステージを再導入する前に、NavMesh再構築時の明示破棄とWASMメモリ推移を専用試験する。
 
@@ -546,6 +590,8 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 - 壁越しに通常索敵せず、窓越しには視認する。T05-2で実装済みの通常CHASE、固定、ランダム、カーペット、NPC gun、プレイヤーgun、公開処刑の全発射元が壁へ着弾し、両種の窓を透過する。
 - T04-3Aでは閉→開→閉、開閉中の教室扉遮蔽無効、移動中エレベーター扉パネルの遮蔽追従、旧revision由来cacheの不使用を非学校fixtureで検証する。
 - 動的variantを含む学校の破棄・再読込後に、snapshot、動的索引、world boundary cache、イベント購読が増加しない。
+- B05では5/52/24/17/4/1の目録、85 Area piece、通常版・全荒れ版の24 Anchor到達、NavMesh全triangleのArea被覆、同順位正体積重複0、欠落metadata、未知role・未知`hs_*`、ID重複、参照不整合の拒否を専用fixtureで検証する。
+- エレベーター移動中は`currentStopId=null`かつ`displayStopId=departureStopId`を維持し、到着時だけ目的stopへ切り替える。
 - T06で全階と屋上を含む学校全域のゲーム進行を統合確認する。
 - 学校の破棄・再読込後にScene資源、NavMesh、イベント購読が増加しない。
 - Web開発版、Web本番ビルド、Electronビルドで同じ人間用NavMeshとビット用bundleを読める。

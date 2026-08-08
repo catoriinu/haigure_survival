@@ -24,7 +24,7 @@ GLB_PATH = (
     REPOSITORY_ROOT / "public/stage-assets/v2/B02/b02_school_blockout.glb"
 )
 EXPORT_COLLECTION_NAME = "EXP_Stage_school"
-EXPECTED_GENERATOR_VERSION = "t06-2-npc-spawn-bias-v2"
+EXPECTED_GENERATOR_VERSION = "b05-location-assets-v1"
 EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
 
 GLB_MAGIC = b"glTF"
@@ -2130,6 +2130,7 @@ def audit_elevator(
         "MRK_Door_ElevatorCar_School",
         "VOL_ElevatorCarOccupancy_School",
         "MRK_ElevatorPassengerOrigin_School",
+        "VOL_LocationArea_AREA_ELEVATOR_P01",
     }
     require(
         set(car.child_names) == expected_car_children,
@@ -3241,7 +3242,7 @@ def audit_meta(graph: AssetGraph) -> dict[str, Any]:
         kind="EMPTY",
         parent_name=None,
         properties={
-            "hs_schema_version": 2,
+            "hs_schema_version": 3,
             "hs_stage_id": "school",
             "hs_nav_profile": EXPECTED_HUMAN_NAV_PROFILE,
             "hs_bit_nav_profile": "bit-flight-body-0.44-margin-0.10-v1",
@@ -3525,7 +3526,7 @@ def main() -> None:
     require(
         bpy.context.scene.get("b03_architecture_generator_version")
         == EXPECTED_GENERATOR_VERSION,
-        "Blender正本の生成版がT06-2学校spawn版ではありません",
+        "Blender正本の生成版がB05意味資産版ではありません",
     )
     raw_generation_result = bpy.context.scene.get("b03_3c_interactive_result")
     require(

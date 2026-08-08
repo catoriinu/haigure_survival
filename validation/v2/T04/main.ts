@@ -3725,9 +3725,9 @@ const runValidation = async () => {
             "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
           schoolContext.resources.navSourceMeshes.length === 39 &&
           schoolContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-          schoolContext.markers.all.length === 243 &&
+          schoolContext.markers.all.length === 289 &&
           assemblyAnchors.length === 2 &&
-          schoolContext.volumes.all.length === 107 &&
+          schoolContext.volumes.all.length === 228 &&
           schoolContext.navigationAreas.all.length === 5 &&
           schoolContext.navigationAreas.portals.length === 4 &&
           assemblyVolumes.length === 2 &&
@@ -5555,6 +5555,24 @@ const runValidation = async () => {
           schoolContext,
           "bit"
         );
+        const initialBitSpawnCompletionSeconds = 1.5;
+        const completeInitialBitSpawn = (
+          system: ReturnType<typeof createV2BitSystem>
+        ) => {
+          // 出現演出中のBITはframe viewへ公開されないため、既定の1.5秒を完了させる。
+          for (const elapsedSeconds of [
+            0.5,
+            1.0,
+            initialBitSpawnCompletionSeconds
+          ]) {
+            system.update({
+              deltaSeconds: 0.5,
+              elapsedSeconds,
+              targets: [],
+              externalAlerts: []
+            });
+          }
+        };
         const bitSystem = createV2BitSystem(
           spatialScene,
           bitMovementBlocking.stage,
@@ -5577,6 +5595,7 @@ const runValidation = async () => {
           }
         );
         const bitInitializationRandomCallCount = bitRandom.getCallCount();
+        completeInitialBitSpawn(bitSystem);
         const bitSpawnRegions = schoolContext.volumes
           .getByRole("bit_spawn")
           .map((volume) =>
@@ -5673,7 +5692,7 @@ const runValidation = async () => {
         forceNormalChase = true;
         bitSystem.update({
           deltaSeconds: 0.1,
-          elapsedSeconds: 0,
+          elapsedSeconds: initialBitSpawnCompletionSeconds + 0.1,
           targets: [distantPlayerTarget],
           externalAlerts: [
             {
@@ -5707,7 +5726,9 @@ const runValidation = async () => {
           bitBlockedUpdateCount += 1;
           bitSystem.update({
             deltaSeconds: 0.1,
-            elapsedSeconds: bitBlockedUpdateCount * 0.1,
+            elapsedSeconds:
+              initialBitSpawnCompletionSeconds +
+              (bitBlockedUpdateCount + 1) * 0.1,
             targets: [blockedMovementTarget],
             externalAlerts: []
           });
@@ -5862,6 +5883,7 @@ const runValidation = async () => {
               )
           }
         );
+        completeInitialBitSpawn(brainwashedTargetBitSystem);
         const brainwashedNpcTarget = createHumanTargetFixture(
           "npc_brainwashed",
           "npc",
@@ -5871,7 +5893,7 @@ const runValidation = async () => {
         );
         brainwashedTargetBitSystem.update({
           deltaSeconds: 0.1,
-          elapsedSeconds: 0,
+          elapsedSeconds: initialBitSpawnCompletionSeconds + 0.1,
           targets: [brainwashedNpcTarget],
           externalAlerts: [
             {
@@ -5913,6 +5935,7 @@ const runValidation = async () => {
               )
           }
         );
+        completeInitialBitSpawn(visionBitSystem);
         const visionBitCenter =
           visionBitSystem.getFrameView().actorSpheres[0].center;
         const ringTargets = Array.from({ length: 12 }, (_, index) => {
@@ -5928,8 +5951,8 @@ const runValidation = async () => {
           );
         });
         visionBitSystem.update({
-          deltaSeconds: 0,
-          elapsedSeconds: 0,
+          deltaSeconds: 0.2,
+          elapsedSeconds: 1.7,
           targets: ringTargets,
           externalAlerts: []
         });
@@ -5953,8 +5976,8 @@ const runValidation = async () => {
           behindAimPosition
         );
         visionBitSystem.update({
-          deltaSeconds: 0,
-          elapsedSeconds: 0,
+          deltaSeconds: 0.2,
+          elapsedSeconds: 1.9,
           targets: [behindTarget],
           externalAlerts: []
         });
@@ -5995,9 +6018,9 @@ const runValidation = async () => {
             "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
           reloadedContext.resources.navSourceMeshes.length === 39 &&
           reloadedContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-          reloadedContext.markers.all.length === 243 &&
+          reloadedContext.markers.all.length === 289 &&
           reloadedContext.markers.getByRole("assembly_anchor").length === 2 &&
-          reloadedContext.volumes.all.length === 107 &&
+          reloadedContext.volumes.all.length === 228 &&
           reloadedContext.navigationAreas.all.length === 5 &&
           reloadedContext.navigationAreas.portals.length === 4 &&
           reloadedContext.volumes.getByRole("assembly").length === 2 &&

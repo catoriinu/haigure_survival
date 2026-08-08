@@ -83,9 +83,9 @@ EXPECTED_CONSOLIDATED_MATERIAL_NAMES = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "t06-2-npc-spawn-bias-v2"
+EXPECTED_GENERATOR_VERSION = "b05-location-assets-v1"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
-EXPECTED_SCHEMA_VERSION = 2
+EXPECTED_SCHEMA_VERSION = 3
 EXPECTED_STAGE_ID = "school"
 EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
 EXPECTED_BIT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
@@ -3748,7 +3748,7 @@ def audit_bit_flight_navigation(
     )
     require(
         metadata.get("hs_schema_version") == EXPECTED_SCHEMA_VERSION,
-        "META_Stage.hs_schema_versionが2ではありません",
+        "META_Stage.hs_schema_versionが3ではありません",
     )
     require(
         metadata.get("hs_stage_id") == EXPECTED_STAGE_ID,
@@ -6305,7 +6305,7 @@ def audit_glb_bit_flight_contract(
     metadata_extras = metadata.get("extras", {})
     require(
         metadata_extras.get("hs_schema_version") == EXPECTED_SCHEMA_VERSION,
-        "GLB META_Stage.hs_schema_versionが2ではありません",
+        "GLB META_Stage.hs_schema_versionが3ではありません",
     )
     require(
         metadata_extras.get("hs_stage_id") == EXPECTED_STAGE_ID,

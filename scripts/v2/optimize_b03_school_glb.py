@@ -99,7 +99,7 @@ def strip_unused_attributes(gltf: dict[str, Any]) -> dict[str, int]:
     for mesh_index, mesh in enumerate(meshes):
         node_names = mesh_node_names.get(mesh_index, [])
         normals_are_runtime_unused = bool(node_names) and all(
-            name.startswith(("NAV_", "VOL_", "BND_", "PRT_"))
+            name.startswith(("NAV_", "VOL_", "BND_", "PRT_", "MAP_"))
             for name in node_names
         )
         for primitive in mesh.get("primitives", []):

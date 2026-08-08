@@ -1055,6 +1055,7 @@ export const runDynamicInteractionAcceptance =
         name: "エレベーター初期4階と定員6人",
         ok:
           initialElevator.currentStopId === "stop-4" &&
+          initialElevator.displayStopId === "stop-4" &&
           repeatedInitialElevator === initialElevator &&
           initialElevator.carDoorState === "open" &&
           gateStates.get("stop-4") === false &&
@@ -1158,6 +1159,8 @@ export const runDynamicInteractionAcceptance =
           countdownStartSpatialRevision ===
             countdownBlinkSpatialRevision &&
           afterClosing.carState === "moving" &&
+          halfwayTravel.currentStopId === null &&
+          halfwayTravel.displayStopId === "stop-4" &&
           afterFiveSeconds.stops.every(
             (stop) => stop.callMatState === "locked"
           ) &&
@@ -1167,6 +1170,7 @@ export const runDynamicInteractionAcceptance =
             halfwayTravel.carPosition.add(actorZeroCarLocal)
           ) < 1e-9 &&
           arrivedClosed.currentStopId === "stop-1" &&
+          arrivedClosed.displayStopId === "stop-1" &&
           arrivedClosed.carDoorState === "closed" &&
           arrivedClosed.passengers[0]?.state === "arrived" &&
           arrivedClosed.stops.find((stop) => stop.id === "stop-1")
@@ -1178,7 +1182,7 @@ export const runDynamicInteractionAcceptance =
             ?.callMatState === "called" &&
           arrivedOpen.carDoorState === "open" &&
           arrivedOpen.passengers.length === 1,
-        detail: `countdown=${countdownBlink.stops.map((stop) => `${stop.id}:${stop.callMatState}`).join(",")} / snapshot=${repeatedCountdownBeforeBlink === countdownBeforeBlink}->${countdownBlink !== countdownBeforeBlink} / after5=${afterFiveSeconds.carDoorState} / after1=${afterClosing.carState} / half=${halfwayTravel.carTravelProgress} / arrival=${arrivedClosed.carDoorState}:${arrivedClosed.stops.map((stop) => `${stop.id}:${stop.callMatState}`).join(",")}->${arrivalOpening.carDoorState}->${arrivedOpen.carDoorState}`
+        detail: `countdown=${countdownBlink.stops.map((stop) => `${stop.id}:${stop.callMatState}`).join(",")} / snapshot=${repeatedCountdownBeforeBlink === countdownBeforeBlink}->${countdownBlink !== countdownBeforeBlink} / after5=${afterFiveSeconds.carDoorState} / after1=${afterClosing.carState} / half=${halfwayTravel.carTravelProgress}:${halfwayTravel.currentStopId ?? "none"}->${halfwayTravel.displayStopId ?? "none"} / arrival=${arrivedClosed.carDoorState}:${arrivedClosed.displayStopId ?? "none"}:${arrivedClosed.stops.map((stop) => `${stop.id}:${stop.callMatState}`).join(",")}->${arrivalOpening.carDoorState}->${arrivedOpen.carDoorState}`
       });
       checks.push({
         name: "エレベーター人物gateと実panel動的遮蔽",

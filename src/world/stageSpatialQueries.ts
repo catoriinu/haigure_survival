@@ -30,7 +30,10 @@ export const STAGE_VOLUME_ROLES = [
   "elevator_call_mat",
   "elevator_threshold",
   "elevator_car_occupancy",
-  "navigation_area"
+  "navigation_area",
+  "location_area",
+  "mission_location",
+  "broadcast_console_target"
 ] as const;
 
 export type StageVolumeRole = (typeof STAGE_VOLUME_ROLES)[number];

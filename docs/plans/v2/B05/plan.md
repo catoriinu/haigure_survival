@@ -20,14 +20,14 @@
 
 - [x] `origin/develop=ceea8ec`、I2／T06-2統合、次タスクB05、GitHub CLI認証、既存dirty差分、既存Blenderプロセスを確認する
 - [x] `codex/v2-mission-locations`と専用worktreeを最新`origin/develop`から作成する
-- [ ] B05の作者資産契約、Runtime公開型、Object role、ID参照、Area優先度、対象外を仕様書と計画へ同期する
-- [ ] `locationAssetsMode`、schema version 3、`StageSpatialContext.locationAssets`と厳格なregistry／読込検証を実装する
-- [ ] 学校生成正本へ5 Map、52 Area、24 Mission Location、17階段踊り場、4エレベーター乗場、放送卓を追加する
-- [ ] `.blend`とGLBを2回連続生成し、決定性とNavMesh 3種のbytes／SHA-256不変を確認する
-- [ ] B05専用監査と5階層俯瞰fixtureを実装し、構造・配置・Runtime読込を確認する
-- [ ] 関連typecheck／build、実ブラウザ／Electron、Pointer Lock、console状態、括弧、UTF-8、差分を検証する
-- [ ] 全体計画、次タスク計画、ブランチ戦略、本計画の結果を最終状態へ同期する
-- [ ] 意図した差分だけをcommit・pushし、`develop`向けDraft Pull Requestを作成する
+- [x] B05の作者資産契約、Runtime公開型、Object role、ID参照、Area優先度、対象外を仕様書と計画へ同期する
+- [x] `locationAssetsMode`、schema version 3、`StageSpatialContext.locationAssets`と厳格なregistry／読込検証を実装する
+- [x] 学校生成正本へ5 Map、52 Area、24 Mission Location、17階段踊り場、4エレベーター乗場、放送卓を追加する
+- [x] `.blend`とGLBを2回連続生成し、決定性とNavMesh 3種のbytes／SHA-256不変を確認する
+- [x] B05専用監査と5階層俯瞰fixtureを実装し、構造・配置・Runtime読込を確認する
+- [x] 関連typecheck／build、実ブラウザ／Electron、Pointer Lock、console状態、括弧、UTF-8、差分を検証する
+- [x] 全体計画、次タスク計画、ブランチ戦略、本計画の結果を最終状態へ同期する
+- [x] 意図した差分だけをcommit・pushし、`develop`向けDraft Pull Requestを作成する
 
 ## 実装契約
 
@@ -48,4 +48,13 @@
 
 ## 結果
 
-実装中。結果は検証完了後に、生成件数、ファイルサイズ、SHA-256、NavMesh不変性、fixture PASS、Web／Electron確認、commit、Draft Pull Requestを含む最新状態へ更新する。
+実装・検証・commit・push・Draft Pull Request作成を完了し、独立レビューとmerge待ち。
+
+- 同一正本からの連続2回生成で、`.blend`は3,631,532 bytes／SHA-256 `1c053fe3daa5751c3e73981100228016b402594ea91357eaea48b8cfe6f2917c`、GLBは22,180,712 bytes／SHA-256 `bdf8a14de59f26e869bd9566884c16136c2d7a2860fe3e8558935bd190b2d1d9`に一致した。
+- 最終学校資産は1,894 Object、1,448 Mesh、6 Material。B05監査はschema 3、5 Map（box componentは18／8／4／2／3）、52論理Area／85 piece、24 Mission Volume／24 Anchor、17階段踊り場、4エレベーター乗場（利用可能2／利用不可2）、放送卓Marker／target各1、同順位正体積重複0、GLB参照整合、Nav生成元混入0、世界境界外0でPASSした。
+- 人間用NavMeshは3,123,476 bytes／SHA-256 `530fa01f472a7f3ab4f983c6360aa41c296f3170ae44334e67e26377ed5d977b`、Room Variant NavMeshは1,966,070 bytes／SHA-256 `4b5a584b9ba15dba73d55924b91320475d51ee8dcfc951a06822e08bedd52e43`、BIT NavMeshは565,399 bytes／SHA-256 `e7e0a76429ba1c9bcfcb26a18071db2307ca394632fb727a0559140244cac62a`で、再生成前後および`--check`結果が完全一致した。
+- B05実ブラウザfixtureは34／34、通常版／荒れ版のAnchor到達性は各24／24、B05 Electron fixtureも34／34でPASSし、5階層のMap、Area色分け、Anchor、階段方向、利用不可エレベーター、放送targetを目視確認した。T02は51／51、T04はBIT出現完了後の検証時刻を単調増加へ統一した状態で115／115となり、いずれもPASSした。
+- Runtime拒否系は未知role、必須metadata欠落、未知`hs_*` property、ID重複、同順位重複、floor／area／anchor／elevator／stop／放送卓参照不整合を検証した。エレベーターは移動中の`currentStopId=null`と`displayStopId=出発階`、到着時の表示階更新を確認した。
+- `typecheck:v2`、`typecheck:b05`、`typecheck:t02`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`typecheck:t06-2`と、対応する`build`／`build:b05`／`build:t02`／`build:t04`／`build:t05`／`build:t06`／`build:t06-2`は全てPASSした。
+- 学校Webは読込完了と通常Runtime進行を確認した。Electron連続受入はCanvas開始、Pointer Lock、入力、タイトル復帰・再開始、音声資源読込、console／renderer／load／unresponsive診断0件でPASSした。
+- Blender構造監査と対話資産監査、括弧を含むTypeScript／Python構文、UTF-8 BOMなし、`git diff --check`、公開文書のローカル絶対パス0件を確認した。最新`origin/develop=ceea8ec`から計画commit`65734b8`と実装・結果commitを作成し、branchをpushして[Draft Pull Request #69](https://github.com/catoriinu/haigure_survival/pull/69)を作成した。

@@ -98,9 +98,38 @@ import {
   type StageRoomVariantAssetRegistry,
   type StageRoomVariantSelectionByRoom
 } from "./stageRoomVariantAssets";
+import {
+  createStageLocationAssetRegistry,
+  STAGE_LOCATION_FLOOR_IDS,
+  STAGE_STAIR_LANDING_DIRECTIONS,
+  type AuthoredStageBroadcastConsoleMarker,
+  type AuthoredStageBroadcastConsoleTarget,
+  type AuthoredStageElevatorLanding,
+  type AuthoredStageFloorMap,
+  type AuthoredStageLocationAreaPiece,
+  type AuthoredStageMissionAnchor,
+  type AuthoredStageMissionLocationVolume,
+  type AuthoredStageStairLanding,
+  type StageLocationAssetRegistry,
+  type StageLocationAssetRegistrySource,
+  type StageLocationFloorId,
+  type StageStairLandingDirection
+} from "./stageLocationAssets";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "./worldUnits";
 
 export type { StageWorldBoundary } from "./stageWorldBoundary";
+export type {
+  StageBroadcastConsole,
+  StageElevatorLanding,
+  StageFloorMap,
+  StageLocationArea,
+  StageLocationAreaHit,
+  StageLocationAreaPiece,
+  StageLocationAssetRegistry,
+  StageLocationFloorId,
+  StageMissionLocation,
+  StageStairLanding
+} from "./stageLocationAssets";
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const KEBAB_CASE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -110,6 +139,10 @@ export const STAGE_MARKER_ROLES = [
   "player_spawn",
   "assembly_anchor",
   "patrol_anchor",
+  "mission_anchor",
+  "map_stair_landing",
+  "map_elevator_landing",
+  "broadcast_console",
   ...DYNAMIC_STAGE_MARKER_ROLES
 ] as const;
 
@@ -203,6 +236,7 @@ export type StageSpatialContext = Readonly<{
   doorAssets: StageDoorAssetRegistry;
   elevatorAssets: StageElevatorAssetRegistry;
   roomVariants: StageRoomVariantAssetRegistry | null;
+  locationAssets: StageLocationAssetRegistry | null;
   roomVariantSelection: readonly HumanNavRoomVariantSelection[];
   navigation: NavigationWorld;
   bitNavigation: BitFlightNavigationWorld;
@@ -327,6 +361,7 @@ type StageAssetClassification = Readonly<{
   links: readonly AuthoredStageLinkEndpoint[];
   bitFlightLinks: readonly AuthoredBitFlightLinkEndpoint[];
   roomVariants: StageRoomVariantAssetRegistry | null;
+  locationAssetSource: StageLocationAssetRegistrySource;
 }>;
 
 type Extras = Readonly<Record<string, unknown>>;
@@ -720,6 +755,9 @@ const classifyVolume = (
   const isPlayerSpawnExclusion = role === "player_spawn_exclusion";
   const isAssembly = role === "assembly";
   const isNavigationArea = role === "navigation_area";
+  const isLocationArea = role === "location_area";
+  const isMissionLocation = role === "mission_location";
+  const isBroadcastConsoleTarget = role === "broadcast_console_target";
   if (
     DYNAMIC_STAGE_VOLUME_ROLES.includes(
       role as DynamicStageVolumeRole
@@ -744,6 +782,28 @@ const classifyVolume = (
           ? ["hs_id", "hs_role", "hs_anchor_id"]
           : isNavigationArea
             ? ["hs_id", "hs_role", "hs_area_id"]
+            : isLocationArea
+              ? [
+                  "hs_id",
+                  "hs_role",
+                  "hs_area_id",
+                  "hs_display_name",
+                  "hs_priority",
+                  "hs_floor_id",
+                  "hs_elevator_id"
+                ]
+              : isMissionLocation
+                ? [
+                    "hs_id",
+                    "hs_role",
+                    "hs_location_id",
+                    "hs_area_id",
+                    "hs_floor_id",
+                    "hs_display_name",
+                    "hs_anchor_id"
+                  ]
+                : isBroadcastConsoleTarget
+                  ? ["hs_id", "hs_role", "hs_console_id"]
             : ["hs_id", "hs_role"]
     );
   }
@@ -788,6 +848,117 @@ const classifyVolume = (
         })
       : null
   };
+};
+
+const requireLocationFloorId = (
+  objectName: string,
+  extras: Extras,
+  property = "hs_floor_id"
+): StageLocationFloorId =>
+  requireEnum(objectName, extras, property, STAGE_LOCATION_FLOOR_IDS);
+
+const classifyFloorMap = (mesh: Mesh): AuthoredStageFloorMap => {
+  const extras = requireExtras(mesh);
+  assertAllowedHsProperties(mesh.name, extras, [
+    "hs_id",
+    "hs_role",
+    "hs_floor_id",
+    "hs_display_name",
+    "hs_order"
+  ]);
+  const role = requireString(mesh.name, extras, "hs_role");
+  if (role !== "floor_map") {
+    throw new Error(`未登録のMAP_* roleです: ${mesh.name}.${role}`);
+  }
+  const order = requireInteger(mesh.name, extras, "hs_order");
+  if (order < 0) {
+    throw new Error(`floor_mapのhs_orderは0以上が必要です: ${mesh.name}`);
+  }
+  return Object.freeze({
+    id: requireId(mesh.name, extras),
+    floorId: requireLocationFloorId(mesh.name, extras),
+    displayName: requireString(mesh.name, extras, "hs_display_name"),
+    order,
+    mesh
+  });
+};
+
+const classifyLocationAreaPiece = (
+  volume: StageVolume
+): AuthoredStageLocationAreaPiece => {
+  const extras = requireExtras(volume.mesh);
+  const hasFloor = Object.prototype.hasOwnProperty.call(extras, "hs_floor_id");
+  const hasElevator = Object.prototype.hasOwnProperty.call(
+    extras,
+    "hs_elevator_id"
+  );
+  if (hasFloor === hasElevator) {
+    throw new Error(
+      `location_area pieceはfloorまたはelevatorの一方だけを参照します: ${volume.mesh.name}`
+    );
+  }
+  return Object.freeze({
+    id: volume.id,
+    areaId: requireReferenceId(volume.mesh.name, extras, "hs_area_id"),
+    displayName: requireString(
+      volume.mesh.name,
+      extras,
+      "hs_display_name"
+    ),
+    priority: requireInteger(volume.mesh.name, extras, "hs_priority"),
+    floorBinding: hasFloor
+      ? Object.freeze({
+          kind: "fixed" as const,
+          floorId: requireLocationFloorId(volume.mesh.name, extras)
+        })
+      : Object.freeze({
+          kind: "elevator" as const,
+          elevatorId: requireReferenceId(
+            volume.mesh.name,
+            extras,
+            "hs_elevator_id"
+          )
+        }),
+    mesh: volume.mesh
+  });
+};
+
+const classifyMissionLocationVolume = (
+  volume: StageVolume
+): AuthoredStageMissionLocationVolume => {
+  const extras = requireExtras(volume.mesh);
+  return Object.freeze({
+    id: volume.id,
+    locationId: requireReferenceId(
+      volume.mesh.name,
+      extras,
+      "hs_location_id"
+    ),
+    areaId: requireReferenceId(volume.mesh.name, extras, "hs_area_id"),
+    floorId: requireLocationFloorId(volume.mesh.name, extras),
+    displayName: requireString(
+      volume.mesh.name,
+      extras,
+      "hs_display_name"
+    ),
+    anchorId: requireReferenceId(volume.mesh.name, extras, "hs_anchor_id"),
+    mesh: volume.mesh
+  });
+};
+
+const classifyBroadcastConsoleTarget = (
+  volume: StageVolume
+): AuthoredStageBroadcastConsoleTarget => {
+  const extras = requireExtras(volume.mesh);
+  return Object.freeze({
+    id: volume.id,
+    consoleId: requireReferenceId(
+      volume.mesh.name,
+      extras,
+      "hs_console_id"
+    ),
+    mesh: volume.mesh
+  });
 };
 
 const classifyBitFlightTransitionVolume = (
@@ -959,6 +1130,10 @@ const classifyMarker = (
     STAGE_MARKER_ROLES
   );
   const isAssemblyAnchor = role === "assembly_anchor";
+  const isMissionAnchor = role === "mission_anchor";
+  const isStairLanding = role === "map_stair_landing";
+  const isElevatorLanding = role === "map_elevator_landing";
+  const isBroadcastConsole = role === "broadcast_console";
   if (
     DYNAMIC_STAGE_MARKER_ROLES.includes(
       role as DynamicStageMarkerRole
@@ -982,6 +1157,33 @@ const classifyMarker = (
             "hs_execution_audience_positions_json",
             "hs_execution_target_positions_json"
           ]
+        : isMissionAnchor
+          ? ["hs_id", "hs_role", "hs_location_id"]
+          : isStairLanding
+            ? [
+                "hs_id",
+                "hs_role",
+                "hs_stair_id",
+                "hs_floor_id",
+                "hs_direction"
+              ]
+            : isElevatorLanding
+              ? [
+                  "hs_id",
+                  "hs_role",
+                  "hs_elevator_id",
+                  "hs_floor_id",
+                  "hs_available",
+                  "hs_stop_id"
+                ]
+              : isBroadcastConsole
+                ? [
+                    "hs_id",
+                    "hs_role",
+                    "hs_floor_id",
+                    "hs_display_name",
+                    "hs_target_id"
+                  ]
         : ["hs_id", "hs_role"]
     );
   }
@@ -1024,6 +1226,95 @@ const classifyMarker = (
       )
     })
   };
+};
+
+const classifyMissionAnchor = (
+  marker: StageMarker
+): AuthoredStageMissionAnchor => {
+  const extras = requireExtras(marker.node);
+  return Object.freeze({
+    id: marker.id,
+    locationId: requireReferenceId(
+      marker.node.name,
+      extras,
+      "hs_location_id"
+    ),
+    node: marker.node
+  });
+};
+
+const classifyStairLanding = (
+  marker: StageMarker
+): AuthoredStageStairLanding => {
+  const extras = requireExtras(marker.node);
+  return Object.freeze({
+    id: marker.id,
+    stairId: requireReferenceId(
+      marker.node.name,
+      extras,
+      "hs_stair_id"
+    ),
+    floorId: requireLocationFloorId(marker.node.name, extras),
+    direction: requireEnum(
+      marker.node.name,
+      extras,
+      "hs_direction",
+      STAGE_STAIR_LANDING_DIRECTIONS
+    ) as StageStairLandingDirection,
+    node: marker.node
+  });
+};
+
+const classifyElevatorLanding = (
+  marker: StageMarker
+): AuthoredStageElevatorLanding => {
+  const extras = requireExtras(marker.node);
+  const available = requireBoolean(
+    marker.node.name,
+    extras,
+    "hs_available"
+  );
+  const hasStop = Object.prototype.hasOwnProperty.call(extras, "hs_stop_id");
+  if (available !== hasStop) {
+    throw new Error(
+      `map_elevator_landingの利用可否とstop参照が一致しません: ${marker.node.name}`
+    );
+  }
+  return Object.freeze({
+    id: marker.id,
+    elevatorId: requireReferenceId(
+      marker.node.name,
+      extras,
+      "hs_elevator_id"
+    ),
+    floorId: requireLocationFloorId(marker.node.name, extras),
+    available,
+    stopId: hasStop
+      ? requireReferenceId(marker.node.name, extras, "hs_stop_id")
+      : null,
+    node: marker.node
+  });
+};
+
+const classifyBroadcastConsoleMarker = (
+  marker: StageMarker
+): AuthoredStageBroadcastConsoleMarker => {
+  const extras = requireExtras(marker.node);
+  return Object.freeze({
+    id: marker.id,
+    floorId: requireLocationFloorId(marker.node.name, extras),
+    displayName: requireString(
+      marker.node.name,
+      extras,
+      "hs_display_name"
+    ),
+    targetId: requireReferenceId(
+      marker.node.name,
+      extras,
+      "hs_target_id"
+    ),
+    node: marker.node
+  });
 };
 
 const classifyLink = (
@@ -1156,6 +1447,7 @@ const assertUniqueObjectNames = (nodes: readonly TransformNode[]) => {
 };
 
 const assertUniqueSemanticIds = (
+  floorMaps: readonly AuthoredStageFloorMap[],
   markers: readonly StageMarker[],
   volumes: readonly StageVolume[],
   bitFlightTransitionVolumes: readonly AuthoredBitFlightTransitionVolume[],
@@ -1177,6 +1469,9 @@ const assertUniqueSemanticIds = (
 
   for (const marker of markers) {
     register(marker.id, marker.node.name);
+  }
+  for (const floorMap of floorMaps) {
+    register(floorMap.id, floorMap.mesh.name);
   }
   for (const volume of volumes) {
     register(volume.id, volume.mesh.name);
@@ -1316,7 +1611,11 @@ const classifyStageAsset = (
   const beamSightOnlyColliders: Mesh[] = [];
   const navSources: NavSource[] = [];
   const bitFlightNavSources: BitFlightNavSource[] = [];
+  const floorMaps: AuthoredStageFloorMap[] = [];
   const volumes: StageVolume[] = [];
+  const locationAreaPieces: AuthoredStageLocationAreaPiece[] = [];
+  const missionLocationVolumes: AuthoredStageMissionLocationVolume[] = [];
+  const broadcastConsoleTargets: AuthoredStageBroadcastConsoleTarget[] = [];
   const assemblyVolumes: AuthoredAssemblyVolume[] = [];
   const bitFlightTransitionVolumes: AuthoredBitFlightTransitionVolume[] = [];
   const boundaries: Array<{ id: "stage"; mesh: Mesh }> = [];
@@ -1350,6 +1649,15 @@ const classifyStageAsset = (
       assertNoHsProperties(mesh);
       configureVisualMesh(mesh);
       visualMeshes.push(mesh);
+    } else if (mesh.name.startsWith("MAP_")) {
+      assertNameHasSuffix(mesh.name, "MAP_");
+      if (stage.locationAssetsMode !== "required") {
+        throw new Error(
+          `locationAssetsMode=unsupportedではMAP_*を使用できません: ${mesh.name}`
+        );
+      }
+      configureSemanticMesh(mesh);
+      floorMaps.push(classifyFloorMap(mesh));
     } else if (mesh.name.startsWith("NAV_")) {
       assertNameHasSuffix(mesh.name, "NAV_");
       const source = classifyNavSource(mesh);
@@ -1377,6 +1685,21 @@ const classifyStageAsset = (
       } else {
         const classified = classifyVolume(mesh);
         volumes.push(classified.volume);
+        if (classified.volume.role === "location_area") {
+          locationAreaPieces.push(
+            classifyLocationAreaPiece(classified.volume)
+          );
+        } else if (classified.volume.role === "mission_location") {
+          missionLocationVolumes.push(
+            classifyMissionLocationVolume(classified.volume)
+          );
+        } else if (
+          classified.volume.role === "broadcast_console_target"
+        ) {
+          broadcastConsoleTargets.push(
+            classifyBroadcastConsoleTarget(classified.volume)
+          );
+        }
         if (classified.assemblyVolume) {
           assemblyVolumes.push(classified.assemblyVolume);
         }
@@ -1402,6 +1725,10 @@ const classifyStageAsset = (
   const metadataEntries: StageMetadata[] = [];
   const markers: StageMarker[] = [];
   const assemblyAnchors: AuthoredAssemblyAnchor[] = [];
+  const missionAnchors: AuthoredStageMissionAnchor[] = [];
+  const stairLandings: AuthoredStageStairLanding[] = [];
+  const elevatorLandings: AuthoredStageElevatorLanding[] = [];
+  const broadcastConsoleMarkers: AuthoredStageBroadcastConsoleMarker[] = [];
   const links: AuthoredStageLinkEndpoint[] = [];
   const bitFlightLinks: AuthoredBitFlightLinkEndpoint[] = [];
   for (const node of authoredEmptyNodes) {
@@ -1420,6 +1747,19 @@ const classifyStageAsset = (
       markers.push(classified.marker);
       if (classified.assemblyAnchor) {
         assemblyAnchors.push(classified.assemblyAnchor);
+      }
+      if (classified.marker.role === "mission_anchor") {
+        missionAnchors.push(classifyMissionAnchor(classified.marker));
+      } else if (classified.marker.role === "map_stair_landing") {
+        stairLandings.push(classifyStairLanding(classified.marker));
+      } else if (classified.marker.role === "map_elevator_landing") {
+        elevatorLandings.push(
+          classifyElevatorLanding(classified.marker)
+        );
+      } else if (classified.marker.role === "broadcast_console") {
+        broadcastConsoleMarkers.push(
+          classifyBroadcastConsoleMarker(classified.marker)
+        );
       }
     } else if (node.name.startsWith("LNK_")) {
       const link = classifyLink(node);
@@ -1451,6 +1791,35 @@ const classifyStageAsset = (
     throw new Error(
       `worldBoundaryMode=unsupportedではBND_WorldLimitを使用できません: ${worldBoundaries.length}個`
     );
+  }
+  const locationAssetCount =
+    floorMaps.length +
+    locationAreaPieces.length +
+    missionLocationVolumes.length +
+    missionAnchors.length +
+    stairLandings.length +
+    elevatorLandings.length +
+    broadcastConsoleMarkers.length +
+    broadcastConsoleTargets.length;
+  if (stage.locationAssetsMode === "unsupported" && locationAssetCount !== 0) {
+    throw new Error(
+      `locationAssetsMode=unsupportedではLocation意味資産を使用できません: ${locationAssetCount}個`
+    );
+  }
+  if (
+    stage.locationAssetsMode === "required" &&
+    [
+      floorMaps,
+      locationAreaPieces,
+      missionLocationVolumes,
+      missionAnchors,
+      stairLandings,
+      elevatorLandings,
+      broadcastConsoleMarkers,
+      broadcastConsoleTargets
+    ].some((entries) => entries.length === 0)
+  ) {
+    throw new Error("locationAssetsMode=requiredの意味資産が不足しています");
   }
   const playerSpawns = markers.filter((marker) => marker.role === "player_spawn");
   if (playerSpawns.length === 0) {
@@ -1549,6 +1918,7 @@ const classifyStageAsset = (
       : null;
 
   assertUniqueSemanticIds(
+    floorMaps,
     markers,
     volumes,
     bitFlightTransitionVolumes,
@@ -1559,6 +1929,22 @@ const classifyStageAsset = (
     bitFlightLinks,
     roomVariants
   );
+
+  const locationAssetSource: StageLocationAssetRegistrySource =
+    Object.freeze({
+      floorMaps: Object.freeze([...floorMaps]),
+      areaPieces: Object.freeze([...locationAreaPieces]),
+      missionVolumes: Object.freeze([...missionLocationVolumes]),
+      missionAnchors: Object.freeze([...missionAnchors]),
+      stairLandings: Object.freeze([...stairLandings]),
+      elevatorLandings: Object.freeze([...elevatorLandings]),
+      broadcastConsoleMarkers: Object.freeze([
+        ...broadcastConsoleMarkers
+      ]),
+      broadcastConsoleTargets: Object.freeze([
+        ...broadcastConsoleTargets
+      ])
+    });
 
   return {
     metadata: metadataEntries[0],
@@ -1579,7 +1965,8 @@ const classifyStageAsset = (
     portals,
     links,
     bitFlightLinks,
-    roomVariants
+    roomVariants,
+    locationAssetSource
   };
 };
 
@@ -2018,12 +2405,28 @@ const createBitFlightNavigationDefinition = (
 
 const assertSemanticsInsideBoundary = (
   boundary: StageBoundary,
+  floorMaps: readonly AuthoredStageFloorMap[],
   markers: readonly StageMarker[],
   volumes: readonly StageVolume[],
   bitFlightTransitionVolumes: readonly AuthoredBitFlightTransitionVolume[],
   links: readonly StageLinkPair[],
   bitFlightLinks: readonly AuthoredBitFlightLinkEndpoint[]
 ) => {
+  for (const floorMap of floorMaps) {
+    const positions = floorMap.mesh.getVerticesData(
+      VertexBuffer.PositionKind
+    )!;
+    const world = floorMap.mesh.computeWorldMatrix(true);
+    for (let index = 0; index < positions.length; index += 3) {
+      const point = Vector3.TransformCoordinates(
+        Vector3.FromArray(positions, index),
+        world
+      );
+      if (!boundary.contains(point)) {
+        throw new Error(`MAP_*がBND_Stageの外側です: ${floorMap.mesh.name}`);
+      }
+    }
+  }
   for (const marker of markers) {
     marker.node.computeWorldMatrix(true);
     if (!boundary.contains(marker.node.getAbsolutePosition())) {
@@ -2146,6 +2549,20 @@ const assertCatalogEntry = (stage: StageCatalogEntry) => {
     stage.worldBoundaryMode !== "unsupported"
   ) {
     throw new Error(`世界境界modeが不正です: ${stage.id}`);
+  }
+  if (
+    stage.locationAssetsMode !== "required" &&
+    stage.locationAssetsMode !== "unsupported"
+  ) {
+    throw new Error(`Location意味資産modeが不正です: ${stage.id}`);
+  }
+  if (
+    stage.locationAssetsMode === "required" &&
+    stage.assetSchemaVersion < 3
+  ) {
+    throw new Error(
+      `locationAssetsMode=requiredには資産schema version 3以上が必要です: ${stage.id}`
+    );
   }
 };
 
@@ -2519,6 +2936,9 @@ export const loadStageSpatialContext = async (
       classification.bitFlightNavSources.map((source) => source.mesh)
     );
     const semanticMeshes = Object.freeze([
+      ...classification.locationAssetSource.floorMaps.map(
+        (floorMap) => floorMap.mesh
+      ),
       ...classification.volumes.map((volume) => volume.mesh),
       ...classification.bitFlightTransitionVolumes.map(
         (transition) => transition.mesh
@@ -2590,6 +3010,15 @@ export const loadStageSpatialContext = async (
         diagnostics: options.queryDiagnostics
       }
     );
+    const locationAssets =
+      stage.locationAssetsMode === "required"
+        ? createStageLocationAssetRegistry(
+            classification.locationAssetSource,
+            navigation,
+            dynamicAssets.elevators,
+            queries
+          )
+        : null;
     const boundary: StageBoundary = Object.freeze({
       id: "stage" as const,
       mesh: classification.boundaryMesh,
@@ -2603,6 +3032,7 @@ export const loadStageSpatialContext = async (
       : null;
     assertSemanticsInsideBoundary(
       boundary,
+      classification.locationAssetSource.floorMaps,
       markers.all,
       volumes.all,
       classification.bitFlightTransitionVolumes,
@@ -2633,6 +3063,7 @@ export const loadStageSpatialContext = async (
       elevatorAssets: dynamicAssets.elevators,
       roomVariants: classification.roomVariants,
       roomVariantSelection,
+      locationAssets,
       navigation: ownedNavigation,
       bitNavigation: ownedBitNavigation,
       markers,

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
+    />
+    <title>HAIGURE SURVIVAL v2 B05 Mission・ミニマップ意味資産検証</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main>
+      <aside class="panel">
+        <header>
+          <p class="eyebrow">HAIGURE SURVIVAL v2</p>
+          <h1>B05 Mission・ミニマップ意味資産</h1>
+          <p id="summary" data-state="running">検証準備中です。</p>
+          <button id="run-validation" type="button">検証を再実行</button>
+        </header>
+
+        <section aria-labelledby="metrics-heading">
+          <h2 id="metrics-heading">目録</h2>
+          <dl id="metrics"></dl>
+        </section>
+
+        <section aria-labelledby="floor-heading">
+          <h2 id="floor-heading">表示階</h2>
+          <div id="floor-tabs" class="floor-tabs" role="tablist">
+            <button type="button" role="tab" data-floor-id="f01">1F</button>
+            <button type="button" role="tab" data-floor-id="f02">2F</button>
+            <button type="button" role="tab" data-floor-id="f03">3F</button>
+            <button type="button" role="tab" data-floor-id="f04">4F</button>
+            <button type="button" role="tab" data-floor-id="roof">屋上</button>
+          </div>
+        </section>
+
+        <section aria-labelledby="layers-heading">
+          <h2 id="layers-heading">表示レイヤー</h2>
+          <div class="layer-toggles">
+            <label><input type="checkbox" data-visual-category="map" checked /> Map Mesh</label>
+            <label><input type="checkbox" data-visual-category="areas" checked /> Area Volume</label>
+            <label><input type="checkbox" data-visual-category="mission" checked /> Mission Anchor</label>
+            <label><input type="checkbox" data-visual-category="stairs" checked /> 階段踊り場</label>
+            <label><input type="checkbox" data-visual-category="elevators" checked /> エレベーター乗場</label>
+            <label><input type="checkbox" data-visual-category="broadcast" checked /> 放送卓target</label>
+          </div>
+        </section>
+
+        <section aria-labelledby="legend-heading">
+          <h2 id="legend-heading">凡例</h2>
+          <ul class="legend">
+            <li><span class="swatch priority-400"></span>優先度400: エレベーター</li>
+            <li><span class="swatch priority-300"></span>優先度300: 室・トイレ等</li>
+            <li><span class="swatch priority-250"></span>優先度250: 階段</li>
+            <li><span class="swatch priority-200"></span>優先度200: 屋外・体育館系</li>
+            <li><span class="swatch priority-100"></span>優先度100: 階別共用部</li>
+            <li><span class="swatch mission"></span>Mission Anchor</li>
+            <li><span class="swatch stair-up"></span>階段上り</li>
+            <li><span class="swatch stair-down"></span>階段下り</li>
+            <li><span class="swatch stair-both"></span>階段双方向</li>
+            <li><span class="swatch elevator-available"></span>利用可能エレベーター</li>
+            <li><span class="swatch elevator-unavailable"></span>利用不可エレベーター</li>
+            <li><span class="swatch broadcast"></span>放送卓target</li>
+          </ul>
+        </section>
+
+        <section aria-labelledby="checks-heading">
+          <h2 id="checks-heading">検証結果</h2>
+          <ol id="check-results"></ol>
+        </section>
+      </aside>
+
+      <section class="viewport" aria-label="B05学校Map俯瞰表示">
+        <div id="floor-caption">1F</div>
+        <canvas id="render-canvas"></canvas>
+      </section>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

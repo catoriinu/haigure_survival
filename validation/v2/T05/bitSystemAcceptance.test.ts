@@ -1244,7 +1244,8 @@ const createLoaderFixtureAssets = async (
       navmeshSha256,
       bitNavmeshSha256,
       depthPrePassMaterialNames: Object.freeze([]),
-      worldBoundaryMode
+      worldBoundaryMode,
+      locationAssetsMode: "unsupported" as const
     }),
     glb,
     humanNavmesh,
@@ -2960,6 +2961,7 @@ const runLoaderFixtureLifecycleCheck = async (
       context.volumes.getByRole("npc_spawn_bias")[0]
         .npcSpawnBiasWeight === 0.5 &&
       context.volumes.getByRole("bit_spawn").length === 1 &&
+      context.locationAssets === null &&
       worldBoundaryQueries;
     context.dispose();
     context = null;

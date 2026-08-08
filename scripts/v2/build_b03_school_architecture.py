@@ -36,6 +36,7 @@ from build_b03_school_interiors import (
 )
 from build_b03_school_interactive_assets import (
     ROOM_VARIANT_AUTHOR_NAMES,
+    ROOM_VARIANT_SPECS,
     build_school_interactive_assets,
 )
 
@@ -76,7 +77,7 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
-GENERATOR_VERSION = "t06-2-npc-spawn-bias-v2"
+GENERATOR_VERSION = "b05-location-assets-v1"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -264,6 +265,9 @@ GENERATED_PREFIXES = (
     "VOL_NpcSpawnBias_",
     "VOL_NpcSpawn_",
     "VOL_PlayerSpawnExclusion_",
+    "VOL_LocationArea_",
+    "VOL_MissionLocation_",
+    "VOL_BroadcastConsoleTarget_",
     "VOL_PoolWater",
     "VIS_StairSystem_NE_",
     "COL_StairSystem_NE_",
@@ -277,6 +281,11 @@ GENERATED_PREFIXES = (
     "COL_RoofGuard_",
     "MRK_RoomVariant_",
     "MRK_PlayerSpawn_",
+    "MRK_MissionAnchor_",
+    "MRK_MapStairLanding_",
+    "MRK_MapElevatorLanding_",
+    "MRK_BroadcastConsole_",
+    "MAP_",
     "VOL_RoomVariantTile_",
     "VIS_RoomVariant_",
     "COL_RoomVariant_",
@@ -323,6 +332,127 @@ GENERATED_EXACT_NAMES = {
     "NAV_Blocker_SchoolUpper",
     "NAV_Blocker_Interiors",
 }
+
+B05_FLOOR_SPECS = (
+    ("f01", "1F", 1, 0.0),
+    ("f02", "2F", 2, 3.6),
+    ("f03", "3F", 3, 7.2),
+    ("f04", "4F", 4, 10.8),
+    ("roof", "屋上", 5, 14.4),
+)
+
+B05_ROOM_DISPLAY_NAMES = {
+    "f01-infirmary": "保健室",
+    "f01-library": "図書室",
+    "f01-staff-room": "職員室",
+    "f01-pc-room": "パソコン室",
+    "f02-classroom-01": "3年1組",
+    "f02-classroom-02": "3年2組",
+    "f02-classroom-03": "3年3組",
+    "f02-council": "生徒会室",
+    "f02-broadcast": "放送室",
+    "f02-science": "理科室",
+    "f03-classroom-01": "2年1組",
+    "f03-classroom-02": "2年2組",
+    "f03-classroom-03": "2年3組",
+    "f03-art": "美術室",
+    "f03-home-ec": "家庭科室",
+    "f04-classroom-01": "1年1組",
+    "f04-classroom-02": "1年2組",
+    "f04-classroom-03": "1年3組",
+    "f04-ll": "LL教室",
+    "f04-music": "音楽室",
+}
+
+B05_MISSION_LOCATION_IDS = (
+    "f01-infirmary",
+    "f01-library",
+    "f01-staff-room",
+    "f01-pc-room",
+    "f02-classroom-01",
+    "f02-classroom-02",
+    "f02-classroom-03",
+    "f02-council",
+    "f02-broadcast",
+    "f02-science",
+    "f03-classroom-01",
+    "f03-classroom-02",
+    "f03-classroom-03",
+    "f03-art",
+    "f03-home-ec",
+    "f04-classroom-01",
+    "f04-classroom-02",
+    "f04-classroom-03",
+    "f04-ll",
+    "f04-music",
+    "gym",
+    "courtyard",
+    "rooftop",
+    "rooftop-poolside",
+)
+
+B05_ROOM_ANCHORS = {
+    "f01-infirmary": (-8.05, 7.50, 0.05),
+    "f01-library": (-8.05, 22.50, 0.05),
+    "f01-staff-room": (14.40, 41.00, 0.05),
+    "f01-pc-room": (32.40, 41.00, 0.05),
+    "f02-classroom-01": (-8.05, 7.50, 3.65),
+    "f02-classroom-02": (-8.05, 17.50, 3.65),
+    "f02-classroom-03": (-8.05, 27.50, 3.65),
+    "f02-council": (9.90, 41.90, 3.65),
+    "f02-broadcast": (18.90, 40.40, 3.65),
+    "f02-science": (32.40, 41.00, 3.65),
+    "f03-classroom-01": (-8.05, 7.50, 7.25),
+    "f03-classroom-02": (-8.05, 17.50, 7.25),
+    "f03-classroom-03": (-8.05, 27.50, 7.25),
+    "f03-art": (14.40, 41.00, 7.25),
+    "f03-home-ec": (32.40, 41.00, 7.25),
+    "f04-classroom-01": (-8.05, 7.50, 10.85),
+    "f04-classroom-02": (-8.05, 17.50, 10.85),
+    "f04-classroom-03": (-8.05, 27.50, 10.85),
+    "f04-ll": (14.496, 40.872, 10.85),
+    "f04-music": (32.40, 41.00, 10.85),
+}
+
+B05_COMMON_Z_BANDS = {
+    "f01": (-0.49, 2.4),
+    "f02": (2.4, 6.0),
+    "f03": (6.0, 9.6),
+    "f04": (9.6, 13.2),
+}
+
+B05_STAIR_BOUNDS_XY = {
+    "nw": (-12.6, -6.6, 38.9, 45.5),
+    "ne": (41.4, 47.4, 38.9, 45.5),
+    "sw": (-12.6, -6.0, -3.5, 2.5),
+}
+
+B05_STAIR_LANDING_SPECS = (
+    ("nw", "f01", (-11.4, 38.7, 0.0), "up"),
+    ("nw", "f02", (-11.4, 38.7, 3.6), "both"),
+    ("nw", "f03", (-11.4, 38.7, 7.2), "both"),
+    ("nw", "f04", (-11.4, 38.7, 10.8), "both"),
+    ("nw", "roof", (-5.5, 39.5, 14.4), "down"),
+    ("ne", "f01", (43.2, 38.3, 0.0), "up"),
+    ("ne", "f02", (43.2, 38.3, 3.6), "both"),
+    ("ne", "f03", (43.2, 38.3, 7.2), "both"),
+    ("ne", "f04", (43.2, 38.3, 10.8), "down"),
+    ("sw", "f01", (-5.4, 1.3, 0.0), "up"),
+    ("sw", "f02", (-5.4, 1.3, 3.6), "both"),
+    ("sw", "f03", (-5.4, 1.3, 7.2), "both"),
+    ("sw", "f04", (-5.4, 1.3, 10.8), "down"),
+    ("gym-west", "f01", (35.7, -2.6, 0.15), "up"),
+    ("gym-west", "f02", (34.2, -2.5, 5.25), "down"),
+    ("gym-east", "f01", (57.1, -2.6, 0.15), "up"),
+    ("gym-east", "f02", (58.6, -2.5, 5.25), "down"),
+)
+
+B05_ELEVATOR_LANDING_SPECS = (
+    ("f01", 0.0, True, "school-elevator-stop-f01"),
+    ("f02", 3.6, False, None),
+    ("f03", 7.2, False, None),
+    ("f04", 10.8, True, "school-elevator-stop-f04"),
+)
 
 BIT_FLIGHT_BANDS = (
     (
@@ -2627,6 +2757,485 @@ def build_navigation_areas(
                 "hs_bidirectional": True,
             },
         )
+
+
+def build_b05_location_assets(
+    semantic_collection: bpy.types.Collection,
+) -> dict[str, int]:
+    floor_by_base_z = {
+        base_z: floor_id
+        for floor_id, _, _, base_z in B05_FLOOR_SPECS
+    }
+    area_piece_counts: dict[str, int] = {}
+
+    def token(value: str) -> str:
+        return "_".join(part.upper() for part in value.split("-"))
+
+    def add_area_piece(
+        area_id: str,
+        display_name: str,
+        priority: int,
+        bounds: tuple[
+            tuple[float, float, float],
+            tuple[float, float, float],
+        ],
+        *,
+        floor_id: str | None = None,
+        elevator_id: str | None = None,
+        parent: bpy.types.Object | None = None,
+    ) -> bpy.types.Object:
+        if (floor_id is None) == (elevator_id is None):
+            raise RuntimeError(
+                f"B05 Area pieceの階参照が不正です: {area_id}"
+            )
+        piece_index = area_piece_counts.get(area_id, 0) + 1
+        area_piece_counts[area_id] = piece_index
+        piece_id = f"{area_id}-piece-{piece_index:02d}"
+        properties: dict[str, object] = {
+            "hs_id": piece_id,
+            "hs_role": "location_area",
+            "hs_area_id": area_id,
+            "hs_display_name": display_name,
+            "hs_priority": priority,
+        }
+        if floor_id is not None:
+            properties["hs_floor_id"] = floor_id
+        else:
+            properties["hs_elevator_id"] = elevator_id
+        obj = create_mesh_object(
+            f"VOL_LocationArea_{token(area_id)}_P{piece_index:02d}",
+            [bounds],
+            semantic_collection,
+            properties=properties,
+        )
+        if parent is not None:
+            obj.parent = parent
+        return obj
+
+    courtyard_map_boxes = (
+        ((-18.3, -14.2), (63.1, -11.5)),
+        ((-18.3, -11.5), (33.4, -7.0)),
+        ((59.4, -11.5), (63.1, -7.0)),
+        ((-18.3, -7.0), (-12.6, 26.5)),
+        ((0.0, -7.0), (33.4, 26.5)),
+        ((59.4, -7.0), (63.1, 26.5)),
+        ((-18.3, 26.5), (-12.6, 30.5)),
+        ((0.0, 26.5), (51.4, 30.5)),
+        ((57.4, 26.5), (63.1, 30.5)),
+        ((-18.3, 30.5), (-12.6, 32.5)),
+        ((0.0, 30.5), (63.1, 32.5)),
+        ((-18.3, 32.5), (-12.6, 45.5)),
+        ((47.4, 32.5), (63.1, 45.5)),
+        ((-18.3, 45.5), (63.1, 51.2)),
+    )
+    map_boxes_by_floor = {
+        "f01": (
+            *courtyard_map_boxes,
+            ((-12.6, -7.0), (0.0, 45.5)),
+            ((0.0, 32.5), (47.4, 45.5)),
+            ((33.4, -11.5), (59.4, 26.5)),
+            ((51.4, 26.5), (57.4, 30.5)),
+        ),
+        "f02": (
+            ((-12.6, -7.0), (0.0, 45.5)),
+            ((0.0, 32.5), (47.4, 45.5)),
+            ((39.3, 26.6), (43.5, 32.65)),
+            ((33.6, -11.35), (36.6, -2.0)),
+            ((56.2, -11.35), (59.2, -2.0)),
+            ((33.6, -2.0), (34.8, 25.0)),
+            ((58.0, -2.0), (59.2, 25.0)),
+            ((34.8, 25.0), (58.0, 26.6)),
+        ),
+        "f03": (
+            ((-12.6, -7.0), (0.0, 45.5)),
+            ((0.0, 32.5), (47.4, 45.5)),
+            ((33.0, -11.7), (59.6, 26.5)),
+            ((39.4, 26.5), (43.4, 32.5)),
+        ),
+        "f04": (
+            ((-12.6, -7.0), (0.0, 45.5)),
+            ((0.0, 32.5), (47.4, 45.5)),
+        ),
+        "roof": (
+            ((-12.6, -6.7), (0.0, 32.5)),
+            ((-12.6, 32.5), (47.4, 45.5)),
+            ((0.0, 11.3), (0.4, 13.7)),
+        ),
+    }
+    for floor_id, display_name, order, base_z in B05_FLOOR_SPECS:
+        map_z = base_z + 0.08
+        create_mesh_object(
+            f"MAP_{floor_id.upper()}",
+            [
+                (
+                    (minimum[0], minimum[1], map_z),
+                    (maximum[0], maximum[1], map_z + 0.02),
+                )
+                for minimum, maximum in map_boxes_by_floor[floor_id]
+            ],
+            semantic_collection,
+            properties={
+                "hs_id": f"floor-map-{floor_id}",
+                "hs_role": "floor_map",
+                "hs_floor_id": floor_id,
+                "hs_display_name": display_name,
+                "hs_order": order,
+            },
+        )
+
+    room_by_id = {room.room_id: room for room in ROOM_VARIANT_SPECS}
+    if set(room_by_id) != set(B05_ROOM_DISPLAY_NAMES):
+        raise RuntimeError("B05の20室IDがRoom Variant正本と一致しません")
+    for room_id, display_name in B05_ROOM_DISPLAY_NAMES.items():
+        room = room_by_id[room_id]
+        minimum_x, maximum_x, minimum_y, maximum_y = room.bounds_xy
+        floor_id = floor_by_base_z[room.base_z]
+        add_area_piece(
+            f"area-room-{room_id}",
+            display_name,
+            300,
+            (
+                (minimum_x, minimum_y, room.base_z - 0.2),
+                (maximum_x, maximum_y, room.base_z + 3.4),
+            ),
+            floor_id=floor_id,
+        )
+
+    for floor_id, _, _, base_z in B05_FLOOR_SPECS[:4]:
+        for sex, display_name, minimum_x, maximum_x in (
+            ("male", "男子トイレ", -6.6, -2.1),
+            ("female", "女子トイレ", -2.1, 2.4),
+        ):
+            add_area_piece(
+                f"area-toilet-{sex}-{floor_id}",
+                display_name,
+                300,
+                (
+                    (minimum_x, 38.5, base_z - 0.2),
+                    (maximum_x, 45.5, base_z + 3.4),
+                ),
+                floor_id=floor_id,
+            )
+
+    for floor_id, (minimum_z, maximum_z) in B05_COMMON_Z_BANDS.items():
+        add_area_piece(
+            f"area-common-{floor_id}",
+            "廊下・共用部",
+            100,
+            (
+                (-18.39, -14.29, minimum_z),
+                (63.19, 51.29, maximum_z),
+            ),
+            floor_id=floor_id,
+        )
+
+    stair_names = {"nw": "北西", "ne": "北東", "sw": "南西"}
+    floor_labels = {floor_id: label for floor_id, label, _, _ in B05_FLOOR_SPECS}
+    school_stair_transitions = {
+        "nw": (("f01", "f02"), ("f02", "f03"), ("f03", "f04"), ("f04", "roof")),
+        "ne": (("f01", "f02"), ("f02", "f03"), ("f03", "f04")),
+        "sw": (("f01", "f02"), ("f02", "f03"), ("f03", "f04")),
+    }
+    base_z_by_floor = {
+        floor_id: base_z for floor_id, _, _, base_z in B05_FLOOR_SPECS
+    }
+    for stair_id, transitions in school_stair_transitions.items():
+        minimum_x, maximum_x, minimum_y, maximum_y = B05_STAIR_BOUNDS_XY[
+            stair_id
+        ]
+        for lower_floor, upper_floor in transitions:
+            base_z = base_z_by_floor[lower_floor]
+            upper_z = base_z_by_floor[upper_floor]
+            switch_z = base_z + 2.4
+            area_id = f"area-stair-{stair_id}-{lower_floor}-{upper_floor}"
+            display_name = (
+                f"{floor_labels[lower_floor]}-{floor_labels[upper_floor]} "
+                f"{stair_names[stair_id]}階段"
+            )
+            add_area_piece(
+                area_id,
+                display_name,
+                250,
+                (
+                    (minimum_x, minimum_y, base_z),
+                    (maximum_x, maximum_y, switch_z),
+                ),
+                floor_id=lower_floor,
+            )
+            add_area_piece(
+                area_id,
+                display_name,
+                250,
+                (
+                    (minimum_x, minimum_y, switch_z),
+                    (maximum_x, maximum_y, upper_z),
+                ),
+                floor_id=upper_floor,
+            )
+
+    for side, bounds in (
+        ("west", ((33.6, -11.35, 0.0), (36.6, -2.0, 5.25))),
+        ("east", ((56.2, -11.35, 0.0), (59.2, -2.0, 5.25))),
+    ):
+        area_id = f"area-stair-gym-{side}-f01-f02"
+        display_name = f"1F-2F 体育館{'西' if side == 'west' else '東'}階段"
+        add_area_piece(
+            area_id,
+            display_name,
+            250,
+            (bounds[0], (bounds[1][0], bounds[1][1], 2.55)),
+            floor_id="f01",
+        )
+        add_area_piece(
+            area_id,
+            display_name,
+            250,
+            ((bounds[0][0], bounds[0][1], 2.55), bounds[1]),
+            floor_id="f02",
+        )
+
+    courtyard_boxes = tuple(
+        (
+            (minimum[0], minimum[1], -0.49),
+            (maximum[0], maximum[1], 2.4),
+        )
+        for minimum, maximum in courtyard_map_boxes
+    )
+    for bounds in courtyard_boxes:
+        add_area_piece(
+            "area-courtyard",
+            "校庭",
+            200,
+            bounds,
+            floor_id="f01",
+        )
+
+    for bounds in (
+        ((33.4, -11.5, -0.49), (59.4, 26.5, 2.4)),
+        ((51.4, 26.5, -0.49), (57.4, 30.5, 2.4)),
+    ):
+        add_area_piece(
+            "area-gym", "体育館", 200, bounds, floor_id="f01"
+        )
+
+    gallery_boxes = (
+        ((33.6, -2.0, 3.4), (34.8, 26.4, 6.0)),
+        ((58.0, -2.0, 3.4), (59.2, 26.4, 6.0)),
+        ((34.8, 25.0, 3.4), (39.1, 26.6, 6.0)),
+        ((39.1, 25.0, 3.4), (43.7, 26.6, 6.0)),
+        ((43.7, 25.0, 3.4), (58.0, 26.6, 6.0)),
+    )
+    for bounds in gallery_boxes:
+        add_area_piece(
+            "area-gym-gallery",
+            "体育館ギャラリー",
+            200,
+            bounds,
+            floor_id="f02",
+        )
+
+    for bounds in (
+        ((33.0, -11.7, 9.3), (59.6, 26.7, 13.2)),
+        ((39.4, 26.5, 7.0), (43.4, 32.5, 9.6)),
+    ):
+        add_area_piece(
+            "area-gym-rooftop",
+            "体育館屋上",
+            200,
+            bounds,
+            floor_id="f03",
+        )
+
+    for bounds in (
+        ((-12.6, -6.7, 13.2), (0.0, 32.5, 19.0)),
+        ((-12.6, 32.5, 13.2), (47.4, 45.5, 19.0)),
+        ((-4.1, 11.3, 14.35), (0.4, 13.7, 19.0)),
+    ):
+        add_area_piece(
+            "area-school-rooftop",
+            "校舎屋上",
+            200,
+            bounds,
+            floor_id="roof",
+        )
+
+    add_area_piece(
+        "area-poolside",
+        "プールサイド",
+        300,
+        ((10.0, 34.0, 14.3), (36.4, 44.0, 19.0)),
+        floor_id="roof",
+    )
+    add_area_piece(
+        "area-changing-room",
+        "更衣室",
+        300,
+        ((-6.6, 38.5, 14.35), (2.4, 45.5, 17.0)),
+        floor_id="roof",
+    )
+
+    elevator_car = bpy.data.objects.get("MRK_ElevatorCar_School")
+    if elevator_car is None or elevator_car.type != "EMPTY":
+        raise RuntimeError("B05エレベーターAreaの親がありません")
+    add_area_piece(
+        "area-elevator",
+        "エレベーター",
+        400,
+        ((-0.82, -0.78, 0.12), (0.82, 0.72, 2.18)),
+        elevator_id="school-elevator",
+        parent=elevator_car,
+    )
+
+    mission_specs: dict[
+        str,
+        tuple[str, str, str, tuple[float, float, float]],
+    ] = {}
+    for location_id, anchor in B05_ROOM_ANCHORS.items():
+        room = room_by_id[location_id]
+        mission_specs[location_id] = (
+            f"area-room-{location_id}",
+            floor_by_base_z[room.base_z],
+            B05_ROOM_DISPLAY_NAMES[location_id],
+            anchor,
+        )
+    mission_specs.update(
+        {
+            "gym": ("area-gym", "f01", "体育館", (46.4, 9.5, 0.05)),
+            "courtyard": (
+                "area-courtyard",
+                "f01",
+                "校庭",
+                (16.7, 14.5, -0.25),
+            ),
+            "rooftop": (
+                "area-school-rooftop",
+                "roof",
+                "校舎屋上",
+                (-7.8, 37.8, 14.5),
+            ),
+            "rooftop-poolside": (
+                "area-poolside",
+                "roof",
+                "屋上プールサイド",
+                (12.0, 39.0, 15.65),
+            ),
+        }
+    )
+    if tuple(mission_specs) != B05_MISSION_LOCATION_IDS:
+        raise RuntimeError("B05 Mission Locationの順序またはIDが不正です")
+    for location_id, (area_id, floor_id, display_name, anchor) in (
+        mission_specs.items()
+    ):
+        anchor_id = f"mission-anchor-{location_id}"
+        volume_id = f"mission-location-volume-{location_id}"
+        create_empty(
+            f"MRK_MissionAnchor_{token(location_id)}",
+            anchor,
+            semantic_collection,
+            {
+                "hs_id": anchor_id,
+                "hs_role": "mission_anchor",
+                "hs_location_id": location_id,
+            },
+        )
+        create_mesh_object(
+            f"VOL_MissionLocation_{token(location_id)}",
+            [
+                (
+                    (
+                        anchor[0] - 1.0,
+                        anchor[1] - 1.0,
+                        max(anchor[2] - 0.25, -0.49),
+                    ),
+                    (anchor[0] + 1.0, anchor[1] + 1.0, anchor[2] + 2.35),
+                )
+            ],
+            semantic_collection,
+            properties={
+                "hs_id": volume_id,
+                "hs_role": "mission_location",
+                "hs_location_id": location_id,
+                "hs_area_id": area_id,
+                "hs_floor_id": floor_id,
+                "hs_display_name": display_name,
+                "hs_anchor_id": anchor_id,
+            },
+        )
+
+    for stair_id, floor_id, position, direction in B05_STAIR_LANDING_SPECS:
+        landing_id = f"stair-landing-{stair_id}-{floor_id}"
+        create_empty(
+            f"MRK_MapStairLanding_{token(stair_id)}_{floor_id.upper()}",
+            position,
+            semantic_collection,
+            {
+                "hs_id": landing_id,
+                "hs_role": "map_stair_landing",
+                "hs_stair_id": f"stair-{stair_id}",
+                "hs_floor_id": floor_id,
+                "hs_direction": direction,
+            },
+        )
+
+    for floor_id, base_z, available, stop_id in B05_ELEVATOR_LANDING_SPECS:
+        properties: dict[str, object] = {
+            "hs_id": f"elevator-landing-{floor_id}",
+            "hs_role": "map_elevator_landing",
+            "hs_elevator_id": "school-elevator",
+            "hs_floor_id": floor_id,
+            "hs_available": available,
+        }
+        if stop_id is not None:
+            properties["hs_stop_id"] = stop_id
+        create_empty(
+            f"MRK_MapElevatorLanding_{floor_id.upper()}",
+            (-8.2, -5.2, base_z),
+            semantic_collection,
+            properties,
+        )
+
+    broadcast_console_id = "broadcast-console-school"
+    broadcast_target_id = "broadcast-console-target-school"
+    create_empty(
+        "MRK_BroadcastConsole_School",
+        (18.8, 41.2, 3.65),
+        semantic_collection,
+        {
+            "hs_id": broadcast_console_id,
+            "hs_role": "broadcast_console",
+            "hs_floor_id": "f02",
+            "hs_display_name": "放送卓",
+            "hs_target_id": broadcast_target_id,
+        },
+    )
+    create_mesh_object(
+        "VOL_BroadcastConsoleTarget_School",
+        [((18.0, 41.54, 3.6), (19.6, 41.59, 4.69))],
+        semantic_collection,
+        properties={
+            "hs_id": broadcast_target_id,
+            "hs_role": "broadcast_console_target",
+            "hs_console_id": broadcast_console_id,
+        },
+    )
+
+    if len(area_piece_counts) != 52:
+        raise RuntimeError(
+            f"B05論理Areaが52件ではありません: {len(area_piece_counts)}"
+        )
+    result = {
+        "floor_maps": len(B05_FLOOR_SPECS),
+        "logical_areas": len(area_piece_counts),
+        "area_pieces": sum(area_piece_counts.values()),
+        "mission_locations": len(mission_specs),
+        "stair_landings": len(B05_STAIR_LANDING_SPECS),
+        "elevator_landings": len(B05_ELEVATOR_LANDING_SPECS),
+        "broadcast_consoles": 1,
+    }
+    bpy.context.scene["b05_location_assets_result"] = json.dumps(
+        result, ensure_ascii=False, sort_keys=True
+    )
+    return result
 
 
 def existing_material(name: str) -> bpy.types.Material:
@@ -6091,7 +6700,7 @@ def configure_stage_navigation_contract() -> None:
     metadata = bpy.data.objects.get("META_Stage")
     if metadata is None or metadata.type != "EMPTY":
         raise RuntimeError("META_Stageがありません")
-    metadata["hs_schema_version"] = 2
+    metadata["hs_schema_version"] = 3
     metadata["hs_nav_profile"] = HUMAN_NAV_PROFILE
     metadata["hs_bit_nav_profile"] = BIT_FLIGHT_NAV_PROFILE
 
@@ -6197,7 +6806,7 @@ def generation_signature() -> str:
     for obj in generated_objects:
         digest.update(obj.name.encode("utf-8"))
         digest.update(obj.type.encode("ascii"))
-        for row in obj.matrix_world:
+        for row in obj.matrix_local:
             for value in row:
                 digest.update(float(value).hex().encode("ascii"))
         for key in sorted(key for key in obj.keys() if key.startswith("hs_")):
@@ -6240,10 +6849,10 @@ def has_exact_world_bounds(
         return False
     actual_minimum, actual_maximum = world_bounds(obj)
     return all(
-        abs(actual - target) <= 1.0e-6
+        abs(actual - target) <= 1.0e-5
         for actual, target in zip(actual_minimum, expected[0], strict=True)
     ) and all(
-        abs(actual - target) <= 1.0e-6
+        abs(actual - target) <= 1.0e-5
         for actual, target in zip(actual_maximum, expected[1], strict=True)
     )
 
@@ -6299,7 +6908,7 @@ def spawn_semantics_are_current() -> bool:
                 },
             )
             or any(
-                abs(actual - expected) > 1.0e-6
+                abs(actual - expected) > 1.0e-5
                 for actual, expected in zip(marker.location, position, strict=True)
             )
             or abs(marker.rotation_euler.x) > 1.0e-6
@@ -6428,7 +7037,7 @@ def is_current_generation() -> bool:
         and bpy.context.scene.get(T04_CORRECTION_VERSION_PROPERTY)
         == T04_CORRECTION_VERSION
         and metadata is not None
-        and metadata.get("hs_schema_version") == 2
+        and metadata.get("hs_schema_version") == 3
         and metadata.get("hs_bit_nav_profile") == BIT_FLIGHT_NAV_PROFILE
         and spawn_semantics_are_current()
         and boundary_maximum_z is not None
@@ -6674,6 +7283,7 @@ def main() -> None:
     build_assembly_venues(semantic_collection)
     build_spawn_semantics(semantic_collection)
     build_navigation_areas(semantic_collection)
+    build_b05_location_assets(semantic_collection)
     build_b04_school_world_boundary(
         visual_collection,
         semantic_collection,
@@ -6732,7 +7342,7 @@ def main() -> None:
     )
     bpy.context.scene["b03_window_layout_status"] = "final"
     bpy.context.preferences.filepaths.save_version = 0
-    bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_PATH), check_existing=False)
+    bpy.context.view_layer.update()
     bpy.context.scene[GENERATOR_SIGNATURE_PROPERTY] = generation_signature()
     bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_PATH), check_existing=False)
     optimization = export_stage(export_collection)
