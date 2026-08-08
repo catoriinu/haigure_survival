@@ -397,7 +397,7 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - T04-2BはT04-2AとB03-2の両方が完了してから開始する。
 - B03-3BとT05-2Vは、それぞれPR #52とPR #53で`develop`へ統合済みである。
 - B03-3C、T04-3A、T05-3を集約したI0、B04、T05-4、T04-3B、通常版教室配置、通常テスト人口更新、B03-3D本体、T06-1、B03-3D追補は`origin/develop=cdb8bae`までに統合済みである。
-- T06-2は`cdb8bae`から専用branch／worktreeで開始し、計画8ファイルの初回コミット`13ab1f7`、視覚提案、修正版Player開始候補11件の承認、資産・Runtime実装、Player開始地点別NPC近傍優先、ローカル検証まで完了した。BIT側の11件は離散地点ではなく、到達可能な飛行NavMesh全域を覆う連続Volumeである。push、Pull Request、V3学校基盤機能ゲートは未実施である。
+- T06-2は`cdb8bae`から専用branch／worktreeで開始し、計画8ファイルの初回コミット`13ab1f7`、視覚提案、修正版Player開始候補11件の承認、資産・Runtime実装、Player開始地点別NPC近傍優先、ローカル検証まで完了した。BIT側の11件は離散地点ではなく、到達可能な飛行NavMesh全域を覆う連続Volumeである。branchはoriginへpush済みで、`develop`向けDraft PR #67を作成済みである。残る統合前作業は独立Pull RequestレビューとV3学校基盤機能ゲートである。
 - I2はT06-2後、T06-3とB05はI2確定後に並行、T06-4は両成果の統合後、I3はT06-4後、T06-5はI3確定後、T07はT06-5後、v2リリース準備はT07後に実行する。
 - B01はT01完了後に開始でき、T02～T05-2と並行できる。
 - B02はB01で間取りが承認され、T01の資産規約が確定してから開始する。
@@ -406,7 +406,7 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 ## 並行作業規則
 
 - B03-3B／T05-2V、B03-3C／T04-3A／T05-3、B04／T05-4、B03-3D／T06-1の過去の並行Waveは完了し、`develop`へ統合済みである。
-- 現在はT06-2を単独実行する。旧計画worktreeを凍結したまま、開始フェーズ、ローカル実装・検証、Player開始地点別NPC近傍優先まで完了し、push、Pull Request、V3学校基盤機能ゲートを待つ。
+- 現在はT06-2のDraft PR #67を単独で扱う。旧計画worktreeを凍結したまま、開始フェーズ、ローカル実装・検証、Player開始地点別NPC近傍優先、push、Pull Request作成まで完了し、独立レビューとV3学校基盤機能ゲートを待つ。
 - 資産編集は同じT06-2 branchで単一担当として行う。次に並行できるのは、I2確定後のT06-3とB05だけである。T06-4、I3、T06-5、T07、v2リリース準備は依存順に直列化する。
 - Blender系タスクは、コードと3Dステージ資産を同時編集しない場合に限りコード系タスクと並行できる。
 - 同一`.blend`、`.glb`、`docs/plan.md`を複数セッションから同時編集しない。
@@ -832,5 +832,5 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 
 - PR #65のB03-3D本体、PR #64のT06-1、PR #66のB03-3D追補は`origin/develop=cdb8bae`までに統合済みであり、T06-2の開始ゲートを通過した。
 - `codex/v2-t06-school-integration`と専用worktreeを`cdb8bae`から作成し、旧計画worktree、rootの未追跡cache、未保存Blenderセッションを保全した。
-- 現在の大タスクはT06-2である。複数開始地点、動的出現禁止、NPC／BIT出現Volume、BIT時間増援、Player開始地点別NPC近傍優先の資産・Runtime実装とローカル検証まで完了した。push、Pull Request、V3学校基盤機能ゲートは未実施である。
+- 現在の大タスクはT06-2である。複数開始地点、動的出現禁止、NPC／BIT出現Volume、BIT時間増援、Player開始地点別NPC近傍優先の資産・Runtime実装、ローカル検証、push、`develop`向けDraft PR #67作成まで完了した。残る統合前作業は独立Pull RequestレビューとV3学校基盤機能ゲートである。
 - I2、T06-3、B05、T06-4、I3、T06-5、T07、v2.0リリース準備は未実装であり、追加・削除していない。T06-1の性能改善後も、将来機能をすべて有効にしたT07最終性能・回帰は維持する。

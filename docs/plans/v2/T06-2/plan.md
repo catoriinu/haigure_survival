@@ -60,6 +60,10 @@ NPC近傍優先の実装承認:
 
 > Player開始地点IDへ明示対応する専用`npc_spawn_bias` Volumeと正の`hs_weight`を追加し、全`npc_spawn`許可面の出現可能性を残したまま、同じ教室や近傍へNPCが出やすくなる推奨案を実装してよいかという確認への回答: YES
 
+Pull Request作成指示:
+
+> このタスクでやるべき残り作業は残っていますか?もしなければ、プッシュして、ディベロップへのプルリクを作ってください。
+
 ## 目的
 
 PR #65のB03-3D、PR #64のT06-1、PR #66のB03-3D追補は、`origin/develop=cdb8bae`までに統合済みである。開始フェーズでは最新`develop`から専用branch／worktreeを作り、計画8ファイルだけを初回コミットした後、現行学校資産を読み取り専用で可視化し、複数開始地点、選択地点に追従する敵出現禁止、NPC／BIT出現Volume、BIT時間増援の実装前提案を確定した。2026-08-08に修正版11候補すべてのユーザー承認と実装開始指示を得たため、同じ専用worktreeで実装フェーズへ移行する。
@@ -190,6 +194,7 @@ PR #65のB03-3D、PR #64のT06-1、PR #66のB03-3D追補は、`origin/develop=cd
 - [x] 停止中、タイトル、公開処刑中、破棄後は増援せず、再読込でseed、timer、個体数を初期化する
 - [x] B03-3D荒れ版、T06-1入力・UI・音声・水中、扉・エレベーター・Follower・光線・世界境界を、初回統合済み機能として通常ゲームで横断回帰する
 - [x] 資産監査、3種NavMesh二重生成、型検査、全build、T02～T06 fixture、通常Web、Electron、破棄・再読込を検証する
+- [x] ユーザーの明示指示後にbranchをoriginへpushし、`develop`向けDraft PR #67を作成する
 - [ ] 別途指示されたPull Request作成後、独立レビューとV3学校基盤機能ゲートで、タイトル開始から終了・タイトル復帰・再読込まで完全E2Eを確認する
 - [x] 次の実装フェーズは実装・検証・ローカルcommitまでとし、push、Pull Request作成、レビュー、merge、worktree整理は別途指示されるまで行わない
 
@@ -263,3 +268,5 @@ BITにはV1と同じ合計1.5秒の生成演出を移植した。直径`0.22m`�
 NPC開始地点別近傍優先フェーズでは、承認済みPlayer開始地点11件へ各1件の`npc_spawn_bias` Volumeを追加し、すべて`hs_weight=0.5`とした。全校`npc_spawn`チャンネルの重み`1.0`を常に残すため、チャンネル選択は全校`2/3`、選択開始地点の近傍`1/3`となり、全許可面の出現可能性は失われない。基礎チャンネル自体もbias内へ着地できるため、実際の近傍出現率は`1/3`より高くなる。`hs_weight`は有限な`0.000001..1,000,000`だけを許可し、同一Playerに属するbiasは実NavMesh面積の正の重複を禁止する一方、面・辺接触と別Player間の重なりを許可した。非選択biasは候補にも乱数消費にも含めず、選択済み`player_spawn_exclusion`は従来どおり安全除外だけに使用する。
 
 学校GLBは22,057,212 bytes、SHA-256 `55ca8f0e0eb6bd1115749eafc5fabda30ba16e0a6f6f4dbb9b1cf6cf67239748`へ決定的に更新した。静的人間用、Room Variant、BIT用NavMeshのhashはそれぞれ`530fa01f...`、`4b5a584b...`、`e7e0a764...`のまま不変で、6資産監査と正本／GLB parityをPASSした。T06-2は18/18、T05は314/314をブラウザーでPASSし、console warning/error 0件、対象型検査・build・NavMesh checkもPASSした。通常Webの連続2sessionでは、2階普通教室から4階音楽室へseedと開始地点が変わり、各回で対応bias 1件だけが有効、NPC 50人、初期洗脳済み10人、bias内人数12人／10人、console warning/error 0件を実測した。最終独立レビューで、水平共有面上のNavMeshを正面積overlapと誤認する問題と、Electron受入がbias IDを名前から推測する問題のP2 2件を検出し、対向する同一支持平面の境界接触判定、水平面fixture、明示`playerSpawnId`照合へ修正した。修正後もT06-2 18/18、T05 314/314、通常build／対象build、Electron音声限定受入をPASSし、再レビュー後の未解決P0～P2は0件である。本差分は`feat(v2): Player開始地点別のNPC出現biasを追加`としてローカルcommitし、pushとPull Request作成は行わない。
+
+2026-08-08、ユーザーの明示指示により`codex/v2-t06-school-integration`をoriginへpushし、`develop`向けDraft PR #67を作成した。作成時点のPull RequestはOPEN／Draft／MERGEABLE／CLEANである。実装・修正・ローカル検証は完了しており、残る統合前作業は独立Pull RequestレビューとV3学校基盤機能ゲートである。mergeとworktree整理は実施していない。
