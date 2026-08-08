@@ -40,6 +40,7 @@ import {
   V2_NPC_AUTONOMOUS_THREAT_SIGHT_HERTZ,
   V2_NPC_LEAVE_MAXIMUM_SECONDS,
   V2_NPC_LEAVE_SPEED,
+  V2_NPC_COMMAND_MAXIMUM_DISTANCE_METERS,
   createV2NpcSystem,
   type V2NpcCommandQuery,
   type V2NpcNavigationRouteContext,
@@ -689,15 +690,20 @@ const testCandidateSelection = async () => {
       new Vector3(0, 0, 0.25),
       new Vector3(0, 0, 0.45),
       new Vector3(0.1, 0, 0.15),
-      new Vector3(0, 0, 0.501)
+      new Vector3(
+        0,
+        0,
+        V2_NPC_COMMAND_MAXIMUM_DISTANCE_METERS *
+          BLENDER_METERS_TO_WORLD_UNITS
+      )
     ]);
     const candidates = fixture.system.getCommandCandidates(
       createCommandQuery(player)
     );
     assert(
       candidates.map((candidate) => candidate.npcId).join("|") ===
-        "npc_0|npc_1|npc_2|npc_3",
-      "照準角・距離・ID順または2m上限が不正です。"
+        "npc_0|npc_1|npc_2|npc_4|npc_3",
+      "照準角・距離・ID順または3m上限が不正です。"
     );
     assertNear(
       candidates[0].distanceMeters,
@@ -712,6 +718,33 @@ const testCandidateSelection = async () => {
           candidate.aimPosition instanceof Vector3
       ),
       "候補snapshotの公開項目が不正です。"
+    );
+    assert(
+      V2_NPC_COMMAND_MAXIMUM_DISTANCE_METERS === 3 &&
+        candidates.some(
+          (candidate) =>
+            candidate.npcId === "npc_4" &&
+            Math.abs(candidate.distanceMeters - 3) <= TEST_EPSILON
+        ),
+      "3.0m境界上のNPCが候補になりません。"
+    );
+    placeNpcs(fixture.system, [
+      new Vector3(0, 0, 0.25),
+      new Vector3(0, 0, 0.25),
+      new Vector3(0, 0, 0.45),
+      new Vector3(0.1, 0, 0.15),
+      new Vector3(
+        0,
+        0,
+        (V2_NPC_COMMAND_MAXIMUM_DISTANCE_METERS + 0.01) *
+          BLENDER_METERS_TO_WORLD_UNITS
+      )
+    ]);
+    assert(
+      !fixture.system
+        .getCommandCandidates(createCommandQuery(player))
+        .some((candidate) => candidate.npcId === "npc_4"),
+      "3.0m超のNPCが候補へ残っています。"
     );
 
     const camera = new FreeCamera(
@@ -747,7 +780,12 @@ const testCandidateSelection = async () => {
       new Vector3(0, 0, -0.25),
       new Vector3(0.1, 0, 0.25),
       new Vector3(-0.1, 0, 0.25),
-      new Vector3(0, 0, 0.501)
+      new Vector3(
+        0,
+        0,
+        (V2_NPC_COMMAND_MAXIMUM_DISTANCE_METERS + 0.01) *
+          BLENDER_METERS_TO_WORLD_UNITS
+      )
     ]);
     const cameraCandidates =
       fixture.system.getCommandCandidates(
@@ -802,7 +840,7 @@ const testCandidateSelection = async () => {
       ).length === 0,
       "異なる陣営のNPCが候補へ残っています。"
     );
-    return "同陣営・2m・実camera frustum・眼位置LOSを適用し、角度→距離→IDで安定ソート";
+    return "同陣営・3m境界・実camera frustum・眼位置LOSを適用し、角度→距離→IDで安定ソート";
   } finally {
     fixture.dispose();
   }

@@ -16,6 +16,7 @@ import {
 } from "../../../src/world/dynamicStageSpatialVariants";
 import {
   createStageDoorRuntime,
+  STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS,
   type StageDoorRuntimeOptions
 } from "../../../src/world/stageDoorRuntime";
 import type {
@@ -413,7 +414,11 @@ export const runDynamicInteractionAcceptance =
           scene,
           "toilet-far",
           "toilet_stall",
-          new Vector3(0, 0, 0.3)
+          new Vector3(
+            0,
+            0,
+            STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS * 1.01
+          )
         )
       ] as const;
       const randomValues = [0.1, 0.9];
@@ -438,6 +443,27 @@ export const runDynamicInteractionAcceptance =
       const initialSpatial = doorRuntime.getSpatialSnapshot();
       const candidates = doorRuntime.getDoorInteractionCandidates({
         origin: Vector3.Zero(),
+        forward: Vector3.Forward()
+      });
+      const roomFrontInteractionPosition = candidates.find(
+        (candidate) => candidate.door.id === "room-front"
+      )!.interactionPosition;
+      const boundaryCandidates = doorRuntime.getDoorInteractionCandidates({
+        origin: new Vector3(
+          roomFrontInteractionPosition.x,
+          roomFrontInteractionPosition.y,
+          roomFrontInteractionPosition.z -
+            STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS
+        ),
+        forward: Vector3.Forward()
+      });
+      const outsideCandidates = doorRuntime.getDoorInteractionCandidates({
+        origin: new Vector3(
+          roomFrontInteractionPosition.x,
+          roomFrontInteractionPosition.y,
+          roomFrontInteractionPosition.z -
+            STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS * 1.01
+        ),
         forward: Vector3.Forward()
       });
       doorVariants = createDynamicStageSpatialVariants(
@@ -467,8 +493,14 @@ export const runDynamicInteractionAcceptance =
           candidates.every(
             (candidate) => candidate.door.id !== "toilet-far"
           ) &&
+          boundaryCandidates.some(
+            (candidate) => candidate.door.id === "room-front"
+          ) &&
+          outsideCandidates.every(
+            (candidate) => candidate.door.id !== "room-front"
+          ) &&
           initiallyClosedDoorHit?.mesh === doors[0].panels[0].colliderMeshes[0],
-        detail: `${initial.doors.map((door) => `${door.id}:${door.state}`).join(",")} / order=${candidates.map((candidate) => candidate.door.id).join(",")}`
+        detail: `${initial.doors.map((door) => `${door.id}:${door.state}`).join(",")} / order=${candidates.map((candidate) => candidate.door.id).join(",")} / boundary=${boundaryCandidates.map((candidate) => candidate.door.id).join(",")} / outside=${outsideCandidates.map((candidate) => candidate.door.id).join(",")}`
       });
 
       const opening = doorRuntime.requestDoorToggle("room-front");

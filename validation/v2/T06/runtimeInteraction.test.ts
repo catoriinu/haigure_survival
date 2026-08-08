@@ -9,6 +9,7 @@ import {
 
 import {
   getDoorInteractionCandidates,
+  STAGE_DOOR_INTERACTION_DISTANCE_METERS,
   STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS,
   type StageDoorInteractionCandidate
 } from "../../../src/world/stageDoorRuntime";
@@ -173,14 +174,14 @@ export const runRuntimeInteractionTests = async () =>
             forward
           })
         );
-        const offsetEyeCandidates = getDoorInteractionCandidates(
+        const boundaryCandidates = getDoorInteractionCandidates(
           Object.freeze([door]),
           Object.freeze({
             origin: new Vector3(
               0,
               handlePosition.y,
               handlePosition.z -
-                STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS * 0.99
+                STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS
             ),
             forward
           })
@@ -198,18 +199,20 @@ export const runRuntimeInteractionTests = async () =>
           })
         );
         assert(
-          eyeCandidates[0]?.door.id === door.id &&
-            offsetEyeCandidates[0]?.door.id === door.id &&
+          STAGE_DOOR_INTERACTION_DISTANCE_METERS === 2 &&
+            eyeCandidates[0]?.door.id === door.id &&
+            boundaryCandidates[0]?.door.id === door.id &&
             outsideCandidates.length === 0 &&
-            offsetEyeCandidates[0].interactionPosition.equals(
+            boundaryCandidates[0].interactionPosition.equals(
               handlePosition
             ),
           `取っ手基準の扉候補が不正です: eye=${eyeCandidates.length}, ` +
-            `offset=${offsetEyeCandidates.length}, ` +
+            `boundary=${boundaryCandidates.length}, ` +
             `handle=${handlePosition.toString()}, ` +
-            `limit=${STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS}`
+            `limitMeters=${STAGE_DOOR_INTERACTION_DISTANCE_METERS}, ` +
+            `limitWorldUnits=${STAGE_DOOR_INTERACTION_DISTANCE_WORLD_UNITS}`
         );
-        return "閉状態の取っ手world中央を眼位置基準で候補へ取得";
+        return "閉状態の取っ手world中央を眼位置基準で2.0m境界まで候補へ取得";
       } finally {
         scene.dispose();
         engine.dispose();

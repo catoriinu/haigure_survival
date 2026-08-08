@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 T06-1 通常ゲームRuntime接続 計画
 
-更新日: 2026-08-03
+更新日: 2026-08-08
 
 ## プロンプト
 
@@ -639,3 +639,37 @@ Room Variantは通常・performance・stress・rampの共通既定値を荒れ�
 最終検証では`typecheck:v2`、`typecheck:t02`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t02`、`build:t04`、`build:t05`、`build:t06`、通常`build`がすべてPASSした。実ブラウザfixtureはT04 115／115と学校動的統合77／77、T05 310／310、T06 63／63がPASSし、Babylon Logger／console warning／errorは0件だった。通常Webは既定荒れ状態2と`?roomVariantReview=all-disordered`の全20室状態10、タイトル表示、開始、Runtime停止0件を確認した。Electronは主要13項目とCharacter表示確認がPASSし、Pointer Lock、G／N／H、Enterタイトル復帰、再開始、Audio読込、session root、console／renderer／load／process消失／unresponsiveを確認して診断0件だった。VOICE／BGM／SEの既定音量0は維持する。
 
 `git diff --check`、変更テキストのUTF-8 BOMなし、ローカル絶対パス追加0件、括弧・構文、Git binary差分0件を確認した。学校Blender／GLB／全NavMesh／生成器／学校カタログhash／音声・画像バイナリの差分は0件で、`src/world/**`は許可済みの`stageDoorRuntime.ts`だけである。性能改善を計画どおり分割commitし、追加監査修正も独立commitへ収録した。本結果commitを含むbranchを一度だけpushし、local／origin／Pull Request #64 HEAD一致、PRのopen ready状態、base=`develop`、head=`codex/v2-t06-runtime-core`を確認する。review threadのresolve、merge、`develop`同期、worktree整理は行わない。通常プレイ用`http://127.0.0.1:5175/`は最新HEADのタイトル画面で継続起動する。
+
+### 2026-08-08 E／F／C操作距離変更
+
+#### プロンプト
+
+> E/F/Cの有効距離を1.0mから1.5mへ広げる変更を追加で行ってください。
+>
+> 了解です。扉は2m、NPCは3mに変更してください。
+
+#### 確定仕様
+
+- Cによる扉操作は、現在の取っ手／ノブAnchorから2.0m以内を有効とする。
+- F／EによるNPCへのFollow／Leave操作は、プレイヤー足元からNPC足元まで3.0m以内を有効とする。
+- 既存の視線、camera frustum、角度、安定ソート、候補HUD、成功Feedbackの契約は変更しない。
+- 学校Blender／GLB／NavMesh／生成器／カタログhash、音声・画像バイナリは変更しない。
+
+#### ステップ
+
+- [x] 現行branch、所有境界、C=1.0m、F／E=2.0mの実装契約と関連fixtureを確認する
+- [x] 今回の確定値と検証工程をT06-1計画へ記録する
+- [x] 扉Cの操作距離を2.0mへ変更し、2.0m境界と候補外をfixtureで固定する
+- [x] NPC F／Eの操作距離を3.0mへ変更し、3.0m境界と候補外をfixtureで固定する
+- [x] T04／T05／T06の関連fixture、型検査、build、通常ゲーム、配布テキスト、所有範囲を検証する
+- [x] 実装結果と検証証跡を本計画へ反映してcommitする
+
+#### 結果
+
+扉Runtimeの`STAGE_DOOR_INTERACTION_DISTANCE_METERS`を2.0mへ変更し、現在の取っ手／ノブAnchorから0.5 world unit以内をC操作候補とした。NPC Systemの`V2_NPC_COMMAND_MAXIMUM_DISTANCE_METERS`を3.0mへ変更し、プレイヤー足元からNPC足元まで0.75 world unit以内をF／E操作候補とした。取っ手追従、camera frustum、眼位置LOS、照準角・距離・IDによる候補順、候補HUD、成功Feedbackは変更していない。
+
+T04 fixtureは2.0m境界を候補、2.0m超を候補外として固定し、旧1.0m前提の遠方扉を上限定数基準へ変更した。T05 NPC指示fixtureは3.0m境界を候補、3.01mを候補外として固定し、frustum、LOS、候補順も同時に確認した。T06 Runtime fixtureではmeter定数2.0と取っ手基準の境界内外を明示的に検証した。
+
+`typecheck:v2`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`build:t04`、`build:t05`、`build:t06`、通常`build`はすべてPASSした。実ブラウザfixtureはT04 115／115、T05 NPC操作26／26、T06 63／63がPASSし、各fixtureのconsole warning／errorとBabylon Logger errorは0件だった。5175番の通常Webは長時間起動していたVite依存cacheによるGLB loader未登録を1回検出したため、同じT06-1 worktreeを`--force`付きで再起動した。再起動後はタイトルを正常読込し、50 NPC／20以上のBITを持つ`playing`へ遷移してRuntime更新例外0件を確認した。自動操作ブラウザではPointer Lock要求だけが`WrongDocumentError`となったが、ゲーム開始とRuntime更新は継続し、距離境界は専用fixtureで検証した。
+
+配布テキスト検査は変更6ファイルでPASSし、`git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、括弧・構文、Git binary差分0件を確認した。学校Blender／GLB／NavMesh／生成器／カタログhash、音声・画像バイナリの差分は0件である。独立した最終差分レビューでもP0／P1／P2は0件だった。fixture用5177／5180／5181は停止し、通常プレイ用`http://127.0.0.1:5175/`だけを最新差分で継続起動する。変更は`fix: NPCと扉の操作距離を拡大`の1commitへまとめ、push、Pull Request操作、review thread操作、merge、`develop`同期、worktree整理は行わない。
