@@ -520,7 +520,7 @@ export const runAudioRuntimeTests = async () =>
       );
       return "level 0をMUTE、10を既存base gain、5を50%として即時反映";
     }),
-    executeTest("保存設定なしの既定音量は全category 0", () => {
+    executeTest("保存設定なしの既定音量は全category 5", () => {
       const store = createV2AudioVolumeSettingsStore({
         getItem: () => null,
         setItem: () => {
@@ -529,10 +529,10 @@ export const runAudioRuntimeTests = async () =>
       });
       const loaded = store.load();
       assert(
-        loaded.voice === 0 && loaded.bgm === 0 && loaded.se === 0,
-        `保存設定なしの既定音量が0ではありません: ${JSON.stringify(loaded)}`
+        loaded.voice === 5 && loaded.bgm === 5 && loaded.se === 5,
+        `保存設定なしの既定音量が5ではありません: ${JSON.stringify(loaded)}`
       );
-      return "VOICE／BGM／SEの既定値はすべて0";
+      return "VOICE／BGM／SEの既定値はすべて5";
     }),
     executeTest("音量保存と既存タイトル設定の保持", () => {
       const values = new Map<string, string>();

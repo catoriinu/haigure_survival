@@ -44,6 +44,18 @@ BIT出現範囲の確認指示:
 
 > 次の作業は何ですか？ 次に進んでください。
 
+通常ゲーム確認と追加是正指示:
+
+> 最新のサーバーを立て、通常ゲームをローカルホストで確認できるようにしてください。教室の荒れ状態と扉の既定動作、`roomVariantReview=all-disordered`をなくした後の確認方法も説明してください。
+>
+> ゲーム開始後、効果音と画像assetが読み込めていないため修正してください。
+>
+> 5回開始しても体育館舞台上だけなので、Player開始地点がランダムか確認してください。BITの初期数、出現間隔、出現可能範囲も説明し、V1の「黒い球体が空中へfade-inした後、そこから円錐形BITが生える」出現演出へ修正してください。
+
+音声優先とNPC開始配置の追加指示:
+
+> 効果音やBGMを流すための検証と修正を先に完了させ、その後に追加した問題へ取り組んでください。NPCの開始位置と開始statusも固定され、Character IDだけがランダムに見えるため確認してください。NPC位置はランダムにし、将来はPlayer開始地点ごとに、同じ教室などPlayerの近くへNPCが出やすくなる調整を追加できる設計を見越してください。
+
 ## 目的
 
 PR #65のB03-3D、PR #64のT06-1、PR #66のB03-3D追補は、`origin/develop=cdb8bae`までに統合済みである。開始フェーズでは最新`develop`から専用branch／worktreeを作り、計画8ファイルだけを初回コミットした後、現行学校資産を読み取り専用で可視化し、複数開始地点、選択地点に追従する敵出現禁止、NPC／BIT出現Volume、BIT時間増援の実装前提案を確定した。2026-08-08に修正版11候補すべてのユーザー承認と実装開始指示を得たため、同じ専用worktreeで実装フェーズへ移行する。
@@ -83,8 +95,11 @@ PR #65のB03-3D、PR #64のT06-1、PR #66のB03-3D追補は、`origin/develop=cd
 
 - `player_spawn` Markerと専用`player_spawn_exclusion` Volumeを`hs_player_spawn_id`で明示的に1対1対応させる。名前suffix推測、`no_enemy_spawn`流用、欠落時fallbackは作らない。
 - 選択済み開始地点をPlayerとSurvivalへ同一入力として渡し、選択地点の除外Volumeだけを初期洗脳済みNPC、初期BIT、時間増援、Alert生成へ適用する。
-- 同じsession seedから開始地点、NPC、BIT用の独立乱数列を派生し、候補追加が他の乱数系列を変えないようにする。
+- 通常ゲームはsession生成ごとに暗号学的entropyから新しい32-bit seedを1件採番する。performance／school stress／ramp検証は明示seedを固定し、同一seedで開始地点、NPC位置・status、Character割当、BIT、荒れ状態、扉状態を再現する。
+- 同じsession seedから開始地点、Character割当、NPC、BIT用の独立乱数列を派生し、候補追加や各系列の消費が他の乱数系列を変えないようにする。
 - NPCは明示的な複数`npc_spawn` Volumeから利用可能面積比例で抽選し、洗脳済みを先に、未洗脳を後に配置する。要求数、全NPC間最小距離、安全条件を満たせない場合は厳格エラーとする。
+- 通常ゲームでの初期NPC数50人と初期洗脳済み10人は人数契約として固定するが、位置、洗脳済み内訳、初期向き、Character割当はsession seedごとに再抽選する。
+- Player開始地点に応じたNPC近傍優先は、現行の全`npc_spawn`実面積一様抽選を基礎分布として残し、将来専用role `npc_spawn_bias` Volumeを`hs_player_spawn_id`と正の`hs_weight`で明示対応させる。重み0による出現禁止は認めず、既存`player_spawn_exclusion`は安全除外専用として流用しない。これにより全許可面での出現可能性を保ったまま、同じ教室や近傍だけを高確率化できる。
 - BITは到達可能な全許可飛行帯の明示`bit_spawn` Volumeを利用可能面積比例で使用し、ビット用NavMesh投影、0.54m安全包絡、共通遷移グラフ到達性、禁止Volume外を必須とする。
 - `bitCount`を`initialBitCount`へ破壊的に改名し、出現間隔と最大数も必須入力にする。通常は初期1機、10秒間隔、最大25機とし、旧名互換や既定fallbackは作らない。
 - 通常BITとAlertを同じ最大数へ含め、カーペット僚機だけを除外する。増援timerはplaying中だけ進め、上限到達中は待機し、欠員時に1機だけ補充してcatch-up burstを発生させない。
@@ -174,6 +189,15 @@ PR #65のB03-3D、PR #64のT06-1、PR #66のB03-3D追補は、`origin/develop=cd
 - [ ] 別途指示されたPull Request作成後、独立レビューとV3学校基盤機能ゲートで、タイトル開始から終了・タイトル復帰・再読込まで完全E2Eを確認する
 - [x] 次の実装フェーズは実装・検証・ローカルcommitまでとし、push、Pull Request作成、レビュー、merge、worktree整理は別途指示されるまで行わない
 
+### 通常ゲーム確認で判明した是正フェーズ
+
+- [x] 音声asset配信、カタログ、保存音量、自動再生経路を切り分け、仕様どおりVOICE／BGM／SEを既定値5で実再生できる状態へ戻す
+- [x] T06 fixtureとElectron受入へ既定表示値5と非0 gainの回帰を追加し、BGM／SE／VOICEの取得・再生要求・console診断を検証する
+- [x] 通常sessionごとにPlayer開始地点が変化する一方、検証用seed指定では決定性を維持する乱数契約へ修正する
+- [x] NPCの位置・開始status・Character割当が現在固定される範囲を明文化し、Player開始地点IDに応じた近傍優先重みを後から追加できる抽選入力へ整理する
+- [x] V1と同じBIT出現演出を確認し、黒球fade-inから円錐形BITが生える段階的演出を初期BIT・時間増援・Alertへ統合する
+- [x] 追加是正後に対象fixture、型検査、build、通常Web／Electron、再読込・破棄を再検証してローカルcommitする
+
 ## 完了条件
 
 ### 開始フェーズ
@@ -210,3 +234,13 @@ Runtimeでは、`player_spawn` Markerと`player_spawn_exclusion` Volumeを`hs_pl
 独立Runtimeレビューで、回転VolumeをAABBとして扱う交差面積計算と、BIT中心高度ではなくNavMesh面高を使う包含判定のP2 2件を検出した。前者を実Volume Meshの凸半空間clip、後者を実BIT中心座標の包含判定へ修正し、再レビュー後の未解決P0～P2は0件となった。T06-2専用fixtureは11/11、T02は50/50、T03は24/24、T04は115/115、実学校統合は77/77、T05は312/312、T05 NPC commandは26/26、T06は63/63で、すべてブラウザDOMの`validationStatus=passed`とconsole warning/error 0件を確認した。`typecheck:v2`とT01～T06-2の全型検査、通常buildとT01～T06-2の全buildもPASSした。
 
 通常ゲームのElectron受入では、Canvas開始とPointer Lock、洗脳進行、G／N／Hと射撃、通常状態のR無効、タイトル復帰、再開始、BGM／SE／VOICE読込、renderer／load／process診断0件を確認した。音声確認用のrepo内一時junctionと今回起動した検証server 7本は検証後に削除・停止し、音声正本と他worktreeのserverは変更していない。旧計画worktreeの8差分、rootの未追跡Python cache、GUIの未保存Blenderセッションも保全した。本実装と検証結果は専用branchへローカルcommitし、push、Pull Request作成、レビュー、merge、V3ゲートは未実施のまま次の明示指示を待つ。
+
+その後の通常ゲーム確認では、専用worktreeにGit管理外の`public/audio`と`public/picture`が存在せず、Viteが音声・画像URLをHTML fallbackとして返していたことを確認した。root正本へのJunctionを接続してViteを再起動し、音声215件と画像136件の全351 assetがHTTP 200かつ正しいMIMEで配信され、ViteカタログにもBGM 1件、SE 13件、VOICE 201件、画像136件が列挙される状態へ復旧した。さらに、配信復旧後も無音だった直接原因は、`docs/spec.md`が3カテゴリとも既定値5とする一方、通常Runtimeの`V2_DEFAULT_AUDIO_VOLUME_LEVELS`と回帰fixtureだけがテスト中の暫定値0を維持していた仕様逸脱であると特定した。音声是正を他の追加課題より先に完了させる。
+
+音声是正では、VOICE／BGM／SEの保存設定なし既定値を仕様どおり各5へ戻し、保存済みの明示MUTE 0は維持した。T06 fixtureは65/65 PASSし、既定値5からVOICE `0.5`、BGM `0.1625`、SE `0.45`の非0 gainへ変換される契約を確認した。通常ゲームの新規読込でも3カテゴリの表示値5を確認し、音声専用Electron受入ではゲーム開始後にBGM 1件、SE 1件、VOICE 3件の実media requestがHTTP 206で完了し、失敗0件、音声再生console error 0件で`status=passed`となった。Electronの非前面実行によるPointer Lock拒否は音声経路と分離し、通常の完全E2Eでは従来どおり厳格判定を維持する。
+
+通常ゲームの開始地点固定は、11候補の登録や一様抽選ではなく、初回とタイトル復帰の両方で通常sessionにも`seed=0`を再利用していたことが原因だった。`seed=0`の開始地点専用系列は常にindex 2の体育館舞台上を選び、NPC位置・開始status・向きも同じseedの独立系列から毎回同じ結果になっていた一方、Character割当だけが`Math.random`だったため見た目だけが変化していた。通常sessionは生成ごとに新しい32-bit seedを採番し、Player、NPC、Character、BIT、荒れ状態、扉状態を同じsession seedの独立系列へ統一した。通常ページを12回再読込した結果、seed 12種類、Player開始地点6種類を確認した。`rampValidation=gym`は2回とも`seed=0`かつ体育館舞台上を再現し、検証用固定seedの決定性を維持した。T06ブラウザーfixtureはCharacter独立系列と再生成時seed採番を追加して65/65 PASSした。
+
+NPCは引き続き初期50人、うち初期洗脳済み10人を人数契約とするが、通常session seedの更新により位置、初期洗脳済みのgun／no-gun／ハイグレ内訳、向き、VOICE／portrait割当がsessionごとに変化する。同一seedでは位置とstatusの完全一致、異なるseedでは両方の変化、初期洗脳済み先行順をT06-2 fixtureで確認した。将来の近傍優先は、全`npc_spawn`許可面を基礎分布として維持し、Player開始地点IDへ明示対応する専用`npc_spawn_bias` Volumeと正の重みによって確率だけを変更する契約とした。安全除外用`player_spawn_exclusion`の流用や、遠方を重み0として出現不能にする方式は採用しない。
+
+BITにはV1と同じ合計1.5秒の生成演出を移植した。直径`0.22m`の黒灰球を0.5秒でalpha 0から1へfade-inし、球内で円錐本体を表示して0.5秒保持し、最後の0.5秒で球を直径`0.04m`相当へ縮小しながらlocal Z `0.095m`のmuzzle方向へ動かして円錐を露出する。初期、時間増援、内部Alert、カーペット僚機は同じ生成経路を通り、pending中はAI、移動、索敵、Alert receiver選出、射撃、actor／target／flight公開を停止する一方、人口上限には即算入する。編隊僚機pending中にleader／followerの射撃timerが進む既存経路も修正した。公開処刑準備では演出を明示完了し、通常Runtimeでは演出を省略しない。完了・途中破棄の双方で一時Sphereと専用Materialを解放する。T06-2は14/14、T05は312/312をブラウザーでPASSし、`typecheck:v2`／T05／T06／T06-2と通常build／T05／T06／T06-2 buildもPASSした。独立再レビューで、全4生成経路の演出、演出中の射撃抑止、内部Alert 3参加者の範囲外解除、`prepareForScriptedPhase()`の即時完了・反復・破棄をfixtureで直接検証し、残るP0～P2は0件となった。通常Webでは12回の再読込でseed 12種類・開始地点6種類、タイトル復帰後の再開始でもseedと開始地点の変化を確認した。追加是正をローカルcommitし、pushとPull Request作成は行わない。

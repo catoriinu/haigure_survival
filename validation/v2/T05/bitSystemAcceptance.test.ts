@@ -496,8 +496,8 @@ const createSystem = (
     initialBitCount === 1
       ? createFixtureCenteredBitSpawnRandom()
       : createFixtureBitSpawnRandom(0x5405_1000 ^ initialBitCount)
-) =>
-  createV2BitSystem(scene, stage, {
+) => {
+  const system = createV2BitSystem(scene, stage, {
     combatEnabled: false,
     initialBitCount,
     reinforcementIntervalSeconds: 10,
@@ -516,6 +516,9 @@ const createSystem = (
         anchor: target.footPosition.clone()
       })
   });
+  system.prepareForScriptedPhase();
+  return system;
+};
 
 const createTarget = (
   id: string,
@@ -1620,6 +1623,20 @@ const runCarpetFormationChecks = (
       targets: Object.freeze([sameBandTarget]),
       externalAlerts: Object.freeze([alert])
     });
+    system.update({
+      deltaSeconds: 0.1,
+      elapsedSeconds: 0.1,
+      targets: Object.freeze([sameBandTarget]),
+      externalAlerts: EMPTY_ALERTS
+    });
+    for (const elapsedSeconds of [0.6, 1.1, 1.6] as const) {
+      system.update({
+        deltaSeconds: 0.5,
+        elapsedSeconds,
+        targets: Object.freeze([sameBandTarget]),
+        externalAlerts: EMPTY_ALERTS
+      });
+    }
 
     let stayedInBand = true;
     let bobStayedZero = true;
@@ -1627,7 +1644,7 @@ const runCarpetFormationChecks = (
     for (let frameIndex = 1; frameIndex <= 10; frameIndex += 1) {
       system.update({
         deltaSeconds: 0.1,
-        elapsedSeconds: frameIndex * 0.1,
+        elapsedSeconds: 1.6 + frameIndex * 0.1,
         targets: Object.freeze([sameBandTarget]),
         externalAlerts: EMPTY_ALERTS
       });
@@ -1665,7 +1682,7 @@ const runCarpetFormationChecks = (
     );
     system.update({
       deltaSeconds: 0.1,
-      elapsedSeconds: 1.1,
+      elapsedSeconds: 2.7,
       targets: Object.freeze([crossBandTarget]),
       externalAlerts: EMPTY_ALERTS
     });
@@ -1684,7 +1701,7 @@ const runCarpetFormationChecks = (
       frameIndex < 300 && !observedTransition;
       frameIndex += 1
     ) {
-      const elapsedSeconds = 1.2 + frameIndex * 0.1;
+      const elapsedSeconds = 2.8 + frameIndex * 0.1;
       system.update({
         deltaSeconds: 0.1,
         elapsedSeconds,

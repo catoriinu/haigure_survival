@@ -45,12 +45,17 @@ const testIndependentRandomSeries = () => {
   const seed = 0x0620_2006;
   const playerSeriesA = createSchoolRuntimeRandom(seed, "player-spawn");
   const playerSeriesB = createSchoolRuntimeRandom(seed, "player-spawn");
+  const characterSeries = createSchoolRuntimeRandom(
+    seed,
+    "character-assignment"
+  );
   const coreSeries = createSchoolRuntimeRandom(seed, "core");
   const npcSeries = createSchoolRuntimeRandom(seed, "npc-spawn");
   const bitSeries = createSchoolRuntimeRandom(seed, "bit-spawn");
 
   for (let index = 0; index < 128; index += 1) {
     coreSeries();
+    characterSeries();
     npcSeries();
     bitSeries();
   }
@@ -67,12 +72,13 @@ const testIndependentRandomSeries = () => {
   const playerSequence = Array.from({ length: 8 }, () => playerProbe());
   const independentFirstValues = [
     createSchoolRuntimeRandom(seed, "core")(),
+    createSchoolRuntimeRandom(seed, "character-assignment")(),
     createSchoolRuntimeRandom(seed, "npc-spawn")(),
     createSchoolRuntimeRandom(seed, "bit-spawn")()
   ];
   assert(
     independentFirstValues.every((value) => value !== playerSequence[0]),
-    "開始地点系列がcore/NPC/BIT系列と同一の初期値です。"
+    "開始地点系列がCharacter/core/NPC/BIT系列と同一の初期値です。"
   );
   return `seed=${seed} / selected=${selectedA}`;
 };

@@ -81,7 +81,7 @@ export const runRuntimeSessionLifecycleTests = async () => {
       });
       const transitioned = await transitionV2RuntimeSession({
         currentSession: previousSession,
-        runtimeSeed: 0x5430_0601,
+        nextRuntimeSeed: () => 0x5430_0601,
         isCancelled: () => false,
         exitPointerLock: () => {
           events.push("exit-pointer-lock");
@@ -128,7 +128,7 @@ export const runRuntimeSessionLifecycleTests = async () => {
       for (let index = 0; index < 3; index += 1) {
         const nextSession = await transitionV2RuntimeSession({
           currentSession: session,
-          runtimeSeed: 0x5430_0601,
+          nextRuntimeSeed: () => 0x5430_0601,
           isCancelled: () => false,
           exitPointerLock: () => {},
           showLoading: () => {},
@@ -165,7 +165,7 @@ export const runRuntimeSessionLifecycleTests = async () => {
               terminated = true;
             }
           }),
-          runtimeSeed: 0x5430_0601,
+          nextRuntimeSeed: () => 0x5430_0601,
           isCancelled: () => terminated,
           exitPointerLock: () => {},
           showLoading: () => {
@@ -198,7 +198,7 @@ export const runRuntimeSessionLifecycleTests = async () => {
         });
         const transitioned = await transitionV2RuntimeSession({
           currentSession: null,
-          runtimeSeed: 0x5430_0601,
+          nextRuntimeSeed: () => 0x5430_0601,
           isCancelled: () => terminated,
           exitPointerLock: () => {},
           showLoading: () => {
@@ -217,6 +217,38 @@ export const runRuntimeSessionLifecycleTests = async () => {
           `新session生成後の終了判定が不正です: ${events.join("|")}`
         );
         return "新session生成中に終了した場合は即dispose";
+      }
+    ),
+    executeTest(
+      "再生成ごとに開始地点用session seedを1件だけ採番する",
+      async () => {
+        const availableSeeds = [0x5430_0601, 0x5430_0602];
+        const createdSeeds: number[] = [];
+        const createSession = async (
+          runtimeSeed: number
+        ): Promise<V2ManagedRuntimeSession> => {
+          createdSeeds.push(runtimeSeed);
+          return Object.freeze({ dispose: async () => {} });
+        };
+        let session = await createSession(availableSeeds.shift()!);
+        const nextSession = await transitionV2RuntimeSession({
+          currentSession: session,
+          nextRuntimeSeed: () => availableSeeds.shift()!,
+          isCancelled: () => false,
+          exitPointerLock: () => {},
+          showLoading: () => {},
+          createSession
+        });
+        assert(
+          nextSession !== null &&
+            availableSeeds.length === 0 &&
+            createdSeeds.join("|") ===
+              `${0x5430_0601}|${0x5430_0602}`,
+          `session seedの採番が不正です: created=${createdSeeds.join("|")}, remaining=${availableSeeds.length}`
+        );
+        session = nextSession;
+        await session.dispose();
+        return `初回=${createdSeeds[0]} / 再生成=${createdSeeds[1]}`;
       }
     )
   ]);

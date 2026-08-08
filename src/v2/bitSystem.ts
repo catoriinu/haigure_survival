@@ -98,6 +98,14 @@ const BIT_BODY_DIAMETER = 0.12;
 const BIT_MUZZLE_DIAMETER = 0.03;
 const BIT_MUZZLE_OFFSET = BIT_BODY_HEIGHT / 2 + 0.02;
 const BIT_ACTOR_RADIUS = BIT_FLIGHT_BODY_RADIUS_WORLD_UNITS;
+const BIT_SPAWN_FADE_SECONDS = 0.5;
+const BIT_SPAWN_HOLD_SECONDS = 0.5;
+const BIT_SPAWN_SHRINK_SECONDS = 0.5;
+const BIT_SPAWN_SPHERE_START_DIAMETER = 0.22;
+const BIT_SPAWN_SPHERE_END_DIAMETER = 0.04;
+const BIT_SPAWN_SPHERE_END_SCALE =
+  BIT_SPAWN_SPHERE_END_DIAMETER /
+  BIT_SPAWN_SPHERE_START_DIAMETER;
 
 const PROFILE_SEARCH_SPEED_REFERENCE = 0.25;
 const NORMAL_PATROL_SPEED = 0.3;
@@ -218,6 +226,8 @@ export type V2BitMode =
   | "hold"
   | "carpet-leader"
   | "carpet-follower";
+
+type V2BitSpawnPhase = "fade-in" | "hold" | "shrink" | "done";
 
 export type V2BitSystemConfig = Readonly<{
   initialBitCount: number;
@@ -467,6 +477,10 @@ type RuntimeBit = {
   carpetOffset: number;
   carpetAimStartDirection: Vector3;
   carpetAimSeconds: number;
+  spawnPhase: V2BitSpawnPhase;
+  spawnTimerSeconds: number;
+  spawnEffect: Mesh | null;
+  spawnEffectMaterial: StandardMaterial | null;
 };
 
 type FadingCarpetFollower = {
@@ -705,6 +719,40 @@ const createSharedVisualSources = (
   }
 };
 
+const createBitSpawnVisual = (
+  scene: Scene,
+  root: TransformNode,
+  id: string,
+  blackBodyMaterial: StandardMaterial
+) => {
+  let effect: Mesh | null = null;
+  let material: StandardMaterial | null = null;
+  try {
+    effect = MeshBuilder.CreateSphere(
+      `${id}_spawn`,
+      {
+        diameter: BIT_SPAWN_SPHERE_START_DIAMETER,
+        segments: 24
+      },
+      scene
+    );
+    effect.parent = root;
+    effect.isPickable = false;
+
+    material = new StandardMaterial(`${id}_spawn_material`, scene);
+    material.diffuseColor.copyFrom(blackBodyMaterial.diffuseColor);
+    material.emissiveColor.copyFrom(blackBodyMaterial.emissiveColor);
+    material.specularColor.copyFrom(blackBodyMaterial.specularColor);
+    material.alpha = 0;
+    effect.material = material;
+    return { effect, material };
+  } catch (error) {
+    effect?.dispose(false, false);
+    material?.dispose();
+    throw error;
+  }
+};
+
 const createBitVisual = (
   scene: Scene,
   sources: Readonly<{
@@ -712,12 +760,15 @@ const createBitVisual = (
     redBody: Mesh;
     muzzle: Mesh;
   }>,
+  blackBodyMaterial: StandardMaterial,
   id: string,
   isRed: boolean
 ) => {
   let root: TransformNode | null = null;
   let body: InstancedMesh | null = null;
   let muzzle: InstancedMesh | null = null;
+  let spawnEffect: Mesh | null = null;
+  let spawnEffectMaterial: StandardMaterial | null = null;
   try {
     root = new TransformNode(id, scene);
     body = (isRed ? sources.redBody : sources.body).createInstance(
@@ -725,17 +776,109 @@ const createBitVisual = (
     );
     body.parent = root;
     body.isPickable = false;
+    body.isVisible = false;
+    body.scaling.set(0, 0, 0);
 
     muzzle = sources.muzzle.createInstance(`${id}_muzzle`);
     muzzle.parent = root;
     muzzle.isPickable = false;
+    muzzle.isVisible = false;
+    muzzle.scaling.set(0, 0, 0);
 
-    return { root, body, muzzle };
+    const spawnVisual = createBitSpawnVisual(
+      scene,
+      root,
+      id,
+      blackBodyMaterial
+    );
+    spawnEffect = spawnVisual.effect;
+    spawnEffectMaterial = spawnVisual.material;
+
+    return {
+      root,
+      body,
+      muzzle,
+      spawnEffect,
+      spawnEffectMaterial
+    };
   } catch (error) {
+    spawnEffect?.dispose(false, false);
+    spawnEffectMaterial?.dispose();
     muzzle?.dispose(false, false);
     body?.dispose(false, false);
     root?.dispose(false);
     throw error;
+  }
+};
+
+const isBitSpawnPending = (bit: RuntimeBit) =>
+  bit.spawnPhase !== "done";
+
+const disposeBitSpawnVisual = (bit: RuntimeBit) => {
+  if (bit.spawnEffect !== null) {
+    bit.spawnEffect.dispose(false, false);
+    bit.spawnEffect = null;
+  }
+  if (bit.spawnEffectMaterial !== null) {
+    bit.spawnEffectMaterial.dispose();
+    bit.spawnEffectMaterial = null;
+  }
+};
+
+const finalizeBitSpawnVisual = (bit: RuntimeBit) => {
+  if (bit.spawnPhase === "done") {
+    return;
+  }
+  disposeBitSpawnVisual(bit);
+  bit.spawnPhase = "done";
+  bit.spawnTimerSeconds = 0;
+  bit.body.isVisible = true;
+  bit.body.scaling.set(1, 1, 1);
+  bit.muzzle.isVisible = true;
+  bit.muzzle.scaling.set(1, 1, 1);
+};
+
+const updateBitSpawnVisual = (bit: RuntimeBit, deltaSeconds: number) => {
+  bit.spawnTimerSeconds += deltaSeconds;
+  if (bit.spawnPhase === "fade-in") {
+    const progress = Math.min(
+      1,
+      bit.spawnTimerSeconds / BIT_SPAWN_FADE_SECONDS
+    );
+    bit.spawnEffectMaterial!.alpha = progress;
+    if (progress === 1) {
+      bit.spawnPhase = "hold";
+      bit.spawnTimerSeconds = 0;
+      bit.body.isVisible = true;
+      bit.body.scaling.set(1, 1, 1);
+    }
+    return;
+  }
+  if (bit.spawnPhase === "hold") {
+    if (bit.spawnTimerSeconds >= BIT_SPAWN_HOLD_SECONDS) {
+      bit.spawnPhase = "shrink";
+      bit.spawnTimerSeconds = 0;
+    }
+    return;
+  }
+  const progress = Math.min(
+    1,
+    bit.spawnTimerSeconds / BIT_SPAWN_SHRINK_SECONDS
+  );
+  const sphereScale =
+    1 - (1 - BIT_SPAWN_SPHERE_END_SCALE) * progress;
+  bit.spawnEffect!.scaling.set(
+    sphereScale,
+    sphereScale,
+    sphereScale
+  );
+  bit.spawnEffect!.position.z = BIT_MUZZLE_OFFSET * progress;
+  if (progress === 1) {
+    bit.muzzle.isVisible = true;
+    bit.muzzle.scaling.set(1, 1, 1);
+    bit.spawnPhase = "done";
+    bit.spawnTimerSeconds = 0;
+    disposeBitSpawnVisual(bit);
   }
 };
 
@@ -1588,6 +1731,7 @@ export const createV2BitSystem = (
   let remainingUnassignedEscapeRoutePlans = 0;
   let reinforcementElapsedSeconds = 0;
   let aiSuspended = false;
+  const spawnBlockedBitIdsForUpdate = new Set<string>();
   let frameView: V2BitFrameView | null = null;
   let recentExplorationSamplesForUpdate:
     | readonly BitFlightExplorationSample[]
@@ -1596,6 +1740,10 @@ export const createV2BitSystem = (
   const invalidateFrameViews = () => {
     frameView = null;
   };
+
+  const isBitReadyForAi = (bit: RuntimeBit) =>
+    !isBitSpawnPending(bit) &&
+    !spawnBlockedBitIdsForUpdate.has(bit.id);
 
   const getPopulationBitCount = () =>
     bits.reduce(
@@ -1666,6 +1814,7 @@ export const createV2BitSystem = (
     const visual = createBitVisual(
       scene,
       visualSources,
+      materials.body,
       id,
       profile.isRed
     );
@@ -1758,7 +1907,9 @@ export const createV2BitSystem = (
         carpetLeaderId: null,
         carpetOffset: 0,
         carpetAimStartDirection: initialDirection.clone(),
-        carpetAimSeconds: 0
+        carpetAimSeconds: 0,
+        spawnPhase: "fade-in",
+        spawnTimerSeconds: 0
       };
       bit.root.position.copyFrom(position);
       bit.root.lookAt(bit.root.position.add(initialDirection));
@@ -1768,9 +1919,17 @@ export const createV2BitSystem = (
       return bit;
     } catch (error) {
       flightAgent?.dispose();
+      visual.spawnEffect.dispose(false, false);
+      visual.spawnEffectMaterial.dispose();
       visual.root.dispose(false);
       throw error;
     }
+  };
+
+  const disposeRuntimeBit = (bit: RuntimeBit) => {
+    bit.flightAgent.dispose();
+    disposeBitSpawnVisual(bit);
+    bit.root.dispose(false);
   };
 
   try {
@@ -1782,8 +1941,7 @@ export const createV2BitSystem = (
     }
   } catch (error) {
     for (let index = bits.length - 1; index >= 0; index -= 1) {
-      bits[index].flightAgent.dispose();
-      bits[index].root.dispose(false);
+      disposeRuntimeBit(bits[index]);
     }
     bits.length = 0;
     bitsById.clear();
@@ -2589,6 +2747,7 @@ export const createV2BitSystem = (
   };
 
   const startCarpetFollowerFade = (follower: RuntimeBit) => {
+    finalizeBitSpawnVisual(follower);
     follower.flightAgent.dispose();
     unregisterRuntimeBit(follower);
     const body = createFadingMesh(follower.body);
@@ -2869,6 +3028,7 @@ export const createV2BitSystem = (
     assignedReceiverIds: ReadonlySet<string>
   ) =>
     bit.id !== leaderId &&
+    isBitReadyForAi(bit) &&
     !assignedReceiverIds.has(bit.id) &&
     bit.mode !== "alert-send" &&
     bit.mode !== "alert-receive" &&
@@ -2917,6 +3077,7 @@ export const createV2BitSystem = (
       .filter(
         (candidate) =>
           candidate.id !== leader.id &&
+          isBitReadyForAi(candidate) &&
           candidate.mode !== "alert-send" &&
           candidate.mode !== "alert-receive" &&
           candidate.mode !== "carpet-follower" &&
@@ -4591,6 +4752,14 @@ export const createV2BitSystem = (
       return;
     }
     if (
+      leader.carpetLeaderId !== null &&
+      [...(carpetFollowersByLeaderId.get(leader.id) ?? [])].some(
+        (follower) => !isBitReadyForAi(follower)
+      )
+    ) {
+      return;
+    }
+    if (
       leader.carpetLeaderId === null &&
       !allowedChaseRoutePlanIds.has(leader.id)
     ) {
@@ -4662,6 +4831,7 @@ export const createV2BitSystem = (
         convertCarpetToChase(leader);
         return;
       }
+      return;
     } else {
       const shouldRefresh =
         leader.routeRefreshSeconds === 0 &&
@@ -5144,8 +5314,11 @@ export const createV2BitSystem = (
 
   const getFrameView = () => {
     if (frameView === null) {
+      const activeBits = bits.filter(
+        (bit) => !isBitSpawnPending(bit)
+      );
       const actorSpheres = Object.freeze(
-        bits.map((bit) =>
+        activeBits.map((bit) =>
           Object.freeze({
             id: bit.id,
             kind: "bit" as const,
@@ -5155,7 +5328,7 @@ export const createV2BitSystem = (
         )
       );
       const targetStates = Object.freeze(
-        bits.map((bit) =>
+        activeBits.map((bit) =>
           Object.freeze({
             bitId: bit.id,
             mode: bit.mode,
@@ -5173,7 +5346,7 @@ export const createV2BitSystem = (
         )
       );
       const flightStateSources: readonly V2BitFlightStateSource[] =
-        bits.map((bit, index) => {
+        activeBits.map((bit, index) => {
           const location = bit.navigationLocation;
           const activeTransition = bit.activeTransition;
           return {
@@ -5248,10 +5421,23 @@ export const createV2BitSystem = (
       resetDiagnostics();
       syncDynamicSpatialRevision();
       updateFadingCarpetFollowers(deltaSeconds);
+      spawnBlockedBitIdsForUpdate.clear();
+      for (const bit of bits) {
+        if (!isBitSpawnPending(bit)) {
+          continue;
+        }
+        spawnBlockedBitIdsForUpdate.add(bit.id);
+        if (!aiSuspended) {
+          updateBitSpawnVisual(bit, deltaSeconds);
+        }
+      }
       const targetsById = new Map(
         targets.map((target) => [target.id, target] as const)
       );
       for (const bit of bits) {
+        if (!isBitReadyForAi(bit)) {
+          continue;
+        }
         bit.personalityRetargetCooldownSeconds = Math.max(
           0,
           bit.personalityRetargetCooldownSeconds - deltaSeconds
@@ -5259,6 +5445,7 @@ export const createV2BitSystem = (
       }
       const isSightCheckEligible = (bit: RuntimeBit) =>
         !aiSuspended &&
+        isBitReadyForAi(bit) &&
         bit.mode !== "carpet-follower" &&
         bit.mode !== "hold" &&
         !(
@@ -5292,6 +5479,7 @@ export const createV2BitSystem = (
       const isPersonalityRetargetCandidate = (bit: RuntimeBit) => {
         if (
           aiSuspended ||
+          !isBitReadyForAi(bit) ||
           bit.targetSelectionPersonality !== "nearest-visible" ||
           bit.mode !== "chase" ||
           bit.targetProvenance !== "visual" ||
@@ -5346,6 +5534,7 @@ export const createV2BitSystem = (
         searchRoutePlanCursor,
         SEARCH_ROUTE_PLAN_BUDGET_PER_UPDATE,
         (bit) =>
+          isBitReadyForAi(bit) &&
           bit.navigationLocation !== null &&
           bit.pendingEscapeThreatPosition === null &&
           bit.searchRetrySeconds <= deltaSeconds &&
@@ -5376,6 +5565,7 @@ export const createV2BitSystem = (
         CHASE_ROUTE_PLAN_BUDGET_PER_UPDATE,
         (bit) => {
           if (
+            !isBitReadyForAi(bit) ||
             (bit.mode !== "chase" &&
               bit.mode !== "carpet-leader" &&
               bit.mode !== "alert-receive") ||
@@ -5426,6 +5616,7 @@ export const createV2BitSystem = (
         escapeRoutePlanCursor,
         ESCAPE_ROUTE_PLAN_BUDGET_PER_UPDATE,
         (bit) =>
+          isBitReadyForAi(bit) &&
           bit.mode === "search" &&
           bit.targetId === null &&
           bit.pendingEscapeThreatPosition !== null,
@@ -5594,6 +5785,9 @@ export const createV2BitSystem = (
       const beamRequests: V2BeamRequest[] = [];
       pendingAlertRequests = [];
       for (const bit of [...bits]) {
+        if (!isBitReadyForAi(bit)) {
+          continue;
+        }
         bit.attackCooldownSeconds = Math.max(
           0,
           bit.attackCooldownSeconds - deltaSeconds
@@ -5850,6 +6044,15 @@ export const createV2BitSystem = (
           if (bit.mode !== "carpet-leader") {
             continue;
           }
+          const carpetFollowers =
+            carpetFollowersByLeaderId.get(bit.id) ?? [];
+          if (
+            [...carpetFollowers].some(
+              (follower) => !isBitReadyForAi(follower)
+            )
+          ) {
+            continue;
+          }
           if (currentTarget) {
             emitBeamWhenReady(
               bit,
@@ -5862,10 +6065,7 @@ export const createV2BitSystem = (
                 .normalize(),
               false
             );
-            for (
-              const follower of
-                carpetFollowersByLeaderId.get(bit.id) ?? []
-            ) {
+            for (const follower of carpetFollowers) {
               emitBeamWhenReady(
                 follower,
                 currentTarget,
@@ -6064,13 +6264,16 @@ export const createV2BitSystem = (
     prepareForScriptedPhase: () => {
       invalidateFrameViews();
       disposeFadingCarpetFollowers();
+      for (const bit of bits) {
+        finalizeBitSpawnVisual(bit);
+      }
+      spawnBlockedBitIdsForUpdate.clear();
       for (let index = bits.length - 1; index >= 0; index -= 1) {
         const bit = bits[index];
         if (bit.mode !== "carpet-follower") {
           continue;
         }
-        bit.flightAgent.dispose();
-        bit.root.dispose(false);
+        disposeRuntimeBit(bit);
         unregisterRuntimeBit(bit);
       }
       for (const bit of bits) {
@@ -6297,10 +6500,10 @@ export const createV2BitSystem = (
       routeStepSafetyAccessOrder.clear();
       targetLocationCandidatesByPositionKey.clear();
       safeDestinationByTraversalKey.clear();
+      spawnBlockedBitIdsForUpdate.clear();
       disposeFadingCarpetFollowers();
       for (let index = bits.length - 1; index >= 0; index -= 1) {
-        bits[index].flightAgent.dispose();
-        bits[index].root.dispose(false);
+        disposeRuntimeBit(bits[index]);
       }
       bits.length = 0;
       bitsById.clear();

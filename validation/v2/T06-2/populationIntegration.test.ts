@@ -1,6 +1,7 @@
 import {
   NullEngine,
   Scene,
+  StandardMaterial,
   Vector3
 } from "@babylonjs/core";
 
@@ -18,6 +19,7 @@ import {
 import {
   DISTANCE_NAVIGATION_ROUTE_POLICY
 } from "../../../src/world/navigationWorld";
+import { createSchoolRuntimeRandom } from "../../../src/world/schoolRuntimeSettings";
 import {
   createDefaultV2CharacterVisualRuntime
 } from "../characterVisualFixture";
@@ -104,6 +106,185 @@ const createBitSystem = (
       })
   });
 
+const assertNear = (
+  actual: number,
+  expected: number,
+  label: string
+) => {
+  assert(
+    Math.abs(actual - expected) <= 1e-6,
+    `${label}が不正です: expected=${expected}, actual=${actual}`
+  );
+};
+
+const getRequiredMesh = (scene: Scene, name: string) => {
+  const mesh = scene.getMeshByName(name);
+  assert(mesh !== null, `Meshがありません: ${name}`);
+  return mesh;
+};
+
+const getRequiredStandardMaterial = (scene: Scene, name: string) => {
+  const material = scene.getMaterialByName(name);
+  assert(
+    material instanceof StandardMaterial,
+    `StandardMaterialがありません: ${name}`
+  );
+  return material;
+};
+
+type BitSpawnVisualPhase = "fade-start" | "hold-start" | "shrink-start";
+
+const assertBitSpawnVisualPhase = (
+  scene: Scene,
+  bitId: string,
+  phase: BitSpawnVisualPhase,
+  label: string
+) => {
+  const body = getRequiredMesh(scene, `${bitId}_body`);
+  const muzzle = getRequiredMesh(scene, `${bitId}_muzzle`);
+  const spawn = getRequiredMesh(scene, `${bitId}_spawn`);
+  const spawnMaterial = getRequiredStandardMaterial(
+    scene,
+    `${bitId}_spawn_material`
+  );
+  const blackBodyMaterial = getRequiredStandardMaterial(
+    scene,
+    "v2BitBodyMaterial"
+  );
+  assert(
+    spawn.material === spawnMaterial,
+    `${label}の出現球に専用Materialが設定されていません。`
+  );
+  assert(
+    spawnMaterial.diffuseColor.equals(
+      blackBodyMaterial.diffuseColor
+    ) &&
+      spawnMaterial.emissiveColor.equals(
+        blackBodyMaterial.emissiveColor
+      ) &&
+      spawnMaterial.specularColor.equals(
+        blackBodyMaterial.specularColor
+      ),
+    `${label}の出現球が黒灰色Materialではありません。`
+  );
+  if (phase === "fade-start") {
+    assertNear(spawnMaterial.alpha, 0, `${label} fade-start alpha`);
+    assert(
+      !body.isVisible && !muzzle.isVisible,
+      `${label}のfade開始時にbodyまたはmuzzleが表示されています。`
+    );
+    return;
+  }
+  assertNear(spawnMaterial.alpha, 1, `${label} ${phase} alpha`);
+  assert(
+    body.isVisible && !muzzle.isVisible,
+    `${label}の${phase}でbody/muzzle表示が不正です。`
+  );
+  assertNear(body.scaling.x, 1, `${label} ${phase} body scale X`);
+  if (phase === "shrink-start") {
+    assertNear(spawn.scaling.x, 1, `${label} shrink-start sphere scale`);
+    assertNear(spawn.position.z, 0, `${label} shrink-start sphere Z`);
+  }
+};
+
+const assertBitSpawnVisualCompleted = (
+  scene: Scene,
+  bitId: string,
+  label: string
+) => {
+  const body = getRequiredMesh(scene, `${bitId}_body`);
+  const muzzle = getRequiredMesh(scene, `${bitId}_muzzle`);
+  assert(
+    scene.getMeshByName(`${bitId}_spawn`) === null &&
+      scene.getMaterialByName(`${bitId}_spawn_material`) === null,
+    `${label}の完了後に一時Meshまたは専用Materialが残りました。`
+  );
+  assert(
+    body.isVisible && muzzle.isVisible,
+    `${label}の完了後にbodyまたはmuzzleが表示されません。`
+  );
+  assertNear(body.scaling.x, 1, `${label} 完了body scale X`);
+  assertNear(muzzle.scaling.x, 1, `${label} 完了muzzle scale X`);
+};
+
+const assertNoBitSpawnTemporaryResources = (
+  scene: Scene,
+  label: string
+) => {
+  const spawnMeshes = scene.meshes.filter((mesh) =>
+    /^v2_bit_\d+_spawn$/.test(mesh.name)
+  );
+  const spawnMaterials = scene.materials.filter((material) =>
+    /^v2_bit_\d+_spawn_material$/.test(material.name)
+  );
+  assert(
+    spawnMeshes.length === 0 && spawnMaterials.length === 0,
+    `${label}の完了後にBIT出現一時資源が残りました: meshes=${spawnMeshes.map((mesh) => mesh.name).join(",") || "なし"} / materials=${spawnMaterials.map((material) => material.name).join(",") || "なし"}`
+  );
+};
+
+const completeBitSpawnVisualsWithAssertions = (
+  system: V2BitSystem,
+  scene: Scene,
+  bitIds: readonly string[],
+  elapsedSeconds: number,
+  targets: readonly V2HumanTargetSnapshot[],
+  label: string,
+  requireNoBeamRequests = false
+) => {
+  let elapsed = elapsedSeconds;
+  elapsed += 0.5;
+  updateBitSystem(system, 0.5, elapsed, targets);
+  for (const bitId of bitIds) {
+    assertBitSpawnVisualPhase(scene, bitId, "hold-start", label);
+  }
+  if (requireNoBeamRequests) {
+    assert(
+      system.getFrameView().beamRequests.length === 0,
+      `${label}のfade完了時に発砲しました。`
+    );
+  }
+
+  elapsed += 0.5;
+  updateBitSystem(system, 0.5, elapsed, targets);
+  for (const bitId of bitIds) {
+    assertBitSpawnVisualPhase(scene, bitId, "shrink-start", label);
+  }
+  if (requireNoBeamRequests) {
+    assert(
+      system.getFrameView().beamRequests.length === 0,
+      `${label}のhold完了時に発砲しました。`
+    );
+  }
+
+  elapsed += 0.5;
+  updateBitSystem(system, 0.5, elapsed, targets);
+  for (const bitId of bitIds) {
+    assertBitSpawnVisualCompleted(scene, bitId, label);
+  }
+  assertNoBitSpawnTemporaryResources(scene, label);
+  if (requireNoBeamRequests) {
+    assert(
+      system.getFrameView().beamRequests.length === 0,
+      `${label}のshrink完了時に発砲しました。`
+    );
+  }
+  return elapsed;
+};
+
+const completeCurrentBitSpawnVisuals = (
+  system: V2BitSystem,
+  elapsedSeconds: number,
+  targets: readonly V2HumanTargetSnapshot[] = EMPTY_TARGETS
+) => {
+  let elapsed = elapsedSeconds;
+  for (const deltaSeconds of [0.5, 0.5, 0.5] as const) {
+    elapsed += deltaSeconds;
+    updateBitSystem(system, deltaSeconds, elapsed, targets);
+  }
+  return elapsed;
+};
+
 const assertOnlySelectedExclusionWasQueried = (
   fixture: SyntheticStageFixture,
   minimumQueryCount: number
@@ -119,6 +300,205 @@ const assertOnlySelectedExclusionWasQueried = (
     unexpectedIds.length === 0,
     `非選択開始地点の除外Volumeが照会されました: ${unexpectedIds.join(",")}`
   );
+};
+
+const testV1BitSpawnVisualLifecycle = () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const fixture = createSyntheticStageFixture(scene);
+  const baseline = countSceneResources(scene);
+  const system = createBitSystem(scene, fixture, {
+    initialBitCount: 1,
+    maximumBitCount: 1,
+    combatEnabled: true,
+    random: () => 0
+  });
+  try {
+    const initialFrame = system.getFrameView();
+    assert(
+      initialFrame.populationBitCount === 1 &&
+        initialFrame.actorSpheres.length === 0 &&
+        initialFrame.targetStates.length === 0 &&
+        initialFrame.flightStates.length === 0,
+      "出現演出中のBITが人口以外のFrame Viewへ公開されました。"
+    );
+
+    const body = getRequiredMesh(scene, "v2_bit_0_body");
+    const muzzle = getRequiredMesh(scene, "v2_bit_0_muzzle");
+    const spawn = getRequiredMesh(scene, "v2_bit_0_spawn");
+    const spawnMaterial = getRequiredStandardMaterial(
+      scene,
+      "v2_bit_0_spawn_material"
+    );
+    const blackBodyMaterial = getRequiredStandardMaterial(
+      scene,
+      "v2BitBodyMaterial"
+    );
+    const redBodyMaterial = getRequiredStandardMaterial(
+      scene,
+      "v2RedBitBodyMaterial"
+    );
+    assert(
+      body.material === redBodyMaterial,
+      "赤BITを作る前提を満たしていません。"
+    );
+    assert(
+      spawnMaterial.diffuseColor.equals(
+        blackBodyMaterial.diffuseColor
+      ) &&
+        spawnMaterial.emissiveColor.equals(
+          blackBodyMaterial.emissiveColor
+        ),
+      "赤BITの出現球が常時黒灰色ではありません。"
+    );
+    assert(
+      !body.isVisible && !muzzle.isVisible,
+      "fade-in開始時にBIT本体またはmuzzleが表示されています。"
+    );
+    assertNear(spawnMaterial.alpha, 0, "fade-in開始alpha");
+
+    updateBitSystem(system, 0.25, 0.25);
+    assertNear(spawnMaterial.alpha, 0.5, "fade-in中間alpha");
+    assert(
+      !body.isVisible && !muzzle.isVisible,
+      "fade-in中間でBIT本体またはmuzzleが表示されています。"
+    );
+
+    updateBitSystem(system, 0.25, 0.5);
+    assertNear(spawnMaterial.alpha, 1, "fade-in完了alpha");
+    assert(
+      body.isVisible && !muzzle.isVisible,
+      "hold開始時の本体・muzzle表示がV1と一致しません。"
+    );
+    assertNear(body.scaling.x, 1, "hold開始body scale X");
+
+    updateBitSystem(system, 0.5, 1);
+    assertNear(spawn.scaling.x, 1, "shrink開始sphere scale");
+    assertNear(spawn.position.z, 0, "shrink開始sphere Z");
+
+    updateBitSystem(system, 0.25, 1.25);
+    assertNear(
+      spawn.scaling.x,
+      1 - (1 - 0.04 / 0.22) * 0.5,
+      "shrink中間sphere scale"
+    );
+    assertNear(spawn.position.z, 0.095 * 0.5, "shrink中間sphere Z");
+    assert(
+      system.getFrameView().actorSpheres.length === 0,
+      "shrink中のBITがactorとして公開されました。"
+    );
+
+    updateBitSystem(system, 0.25, 1.5);
+    const completedFrame = system.getFrameView();
+    assert(
+      scene.getMeshByName("v2_bit_0_spawn") === null &&
+        scene.getMaterialByName("v2_bit_0_spawn_material") === null,
+      "spawn完了後に一時Meshまたは専用Materialが残りました。"
+    );
+    assert(
+      body.isVisible && muzzle.isVisible,
+      "spawn完了後にBIT本体またはmuzzleが表示されません。"
+    );
+    assert(
+      completedFrame.populationBitCount === 1 &&
+        completedFrame.actorSpheres.length === 1 &&
+        completedFrame.targetStates.length === 1 &&
+        completedFrame.flightStates.length === 1 &&
+        completedFrame.beamRequests.length === 0,
+      "spawn完了後のFrame View公開が不正です。"
+    );
+
+    system.dispose();
+    assert(
+      sceneResourceCountsEqual(baseline, countSceneResources(scene)),
+      "BIT spawn演出完了後の破棄でScene資源が残留しました。"
+    );
+    return "0.5s fade + 0.5s hold + 0.5s shrink / black sphere / delayed actor publication";
+  } finally {
+    if (!sceneResourceCountsEqual(baseline, countSceneResources(scene))) {
+      system.dispose();
+    }
+    fixture.dispose();
+    scene.dispose();
+    engine.dispose();
+  }
+};
+
+const testPrepareForScriptedPhaseFinalizesPendingSpawn = () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const fixture = createSyntheticStageFixture(scene);
+  const baseline = countSceneResources(scene);
+  const system = createBitSystem(scene, fixture, {
+    initialBitCount: 1,
+    maximumBitCount: 1,
+    combatEnabled: false,
+    random: () => 0.5
+  });
+  try {
+    assertBitSpawnVisualPhase(
+      scene,
+      "v2_bit_0",
+      "fade-start",
+      "scripted phase初回"
+    );
+    assert(
+      system.getFrameView().populationBitCount === 1 &&
+        system.getFrameView().actorSpheres.length === 0,
+      "scripted phase準備前のpending公開状態が不正です。"
+    );
+
+    system.prepareForScriptedPhase();
+    const firstPreparedFrame = system.getFrameView();
+    assertBitSpawnVisualCompleted(
+      scene,
+      "v2_bit_0",
+      "scripted phase初回"
+    );
+    assertNoBitSpawnTemporaryResources(scene, "scripted phase初回");
+    assert(
+      firstPreparedFrame.populationBitCount === 1 &&
+        firstPreparedFrame.actorSpheres.length === 1 &&
+        firstPreparedFrame.targetStates.length === 1 &&
+        firstPreparedFrame.flightStates.length === 1,
+      "prepareForScriptedPhase後にpending BITが公開されません。"
+    );
+    const firstPreparedResources = countSceneResources(scene);
+
+    system.prepareForScriptedPhase();
+    const repeatedFrame = system.getFrameView();
+    assertBitSpawnVisualCompleted(
+      scene,
+      "v2_bit_0",
+      "scripted phase再呼出し"
+    );
+    assertNoBitSpawnTemporaryResources(scene, "scripted phase再呼出し");
+    assert(
+      repeatedFrame.populationBitCount === 1 &&
+        repeatedFrame.actorSpheres.length === 1 &&
+        repeatedFrame.actorSpheres[0].id ===
+          firstPreparedFrame.actorSpheres[0].id &&
+        sceneResourceCountsEqual(
+          firstPreparedResources,
+          countSceneResources(scene)
+        ),
+      "prepareForScriptedPhase再呼出しで公開BITまたはScene資源が変化しました。"
+    );
+
+    system.dispose();
+    assert(
+      sceneResourceCountsEqual(baseline, countSceneResources(scene)),
+      "scripted phase準備後のdisposeでScene資源が残留しました。"
+    );
+    return "pending resource removed / actor published / repeated prepare stable / dispose clean";
+  } finally {
+    if (!sceneResourceCountsEqual(baseline, countSceneResources(scene))) {
+      system.dispose();
+    }
+    fixture.dispose();
+    scene.dispose();
+    engine.dispose();
+  }
 };
 
 const testBrainwashedNpcOrderAndSelectedExclusion = async () => {
@@ -183,6 +563,94 @@ const testBrainwashedNpcOrderAndSelectedExclusion = async () => {
   }
 };
 
+const testNpcSpawnSeedDeterminism = async () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const fixture = createSyntheticStageFixture(scene, {
+    selectedExcludes: () => false,
+    otherExcludes: () => true
+  });
+  const visuals = await createDefaultV2CharacterVisualRuntime(
+    scene,
+    Object.freeze(["player", "npc_0", "npc_1", "npc_2", "npc_3"])
+  );
+  const captureSignature = (seed: number) => {
+    const system = createV2NpcSystem({
+      scene,
+      stage: fixture.stage,
+      characterVisuals: visuals,
+      npcCount: 4,
+      initialBrainwashedNpcCount: 2,
+      diagnosticsEnabled: false,
+      random: createSchoolRuntimeRandom(seed, "core"),
+      spawnRandom: createSchoolRuntimeRandom(seed, "npc-spawn"),
+      playerSpawn: fixture.selectedPlayerSpawn,
+      resolveTargetNavigationArea: (target) =>
+        Object.freeze({
+          targetId: target.id,
+          areaId: "t06-2-area",
+          revision: 0,
+          anchor: target.footPosition.clone()
+        }),
+      selectNavigationRoute: (_context, candidates) =>
+        DISTANCE_NAVIGATION_ROUTE_POLICY.selectRoute(candidates)
+    });
+    try {
+      const targets = system.getFrameView().targets;
+      return Object.freeze({
+        statusSignature: targets
+          .map((target) =>
+            `${target.id}:${target.state}:${target.brainwashed}`
+          )
+          .join("|"),
+        brainwashedFlags: Object.freeze(
+          targets.map((target) => target.brainwashed)
+        ),
+        positionSignature: targets
+          .map((target) =>
+            [
+              target.id,
+              target.footPosition.x.toFixed(6),
+              target.footPosition.y.toFixed(6),
+              target.footPosition.z.toFixed(6)
+            ].join(":")
+          )
+          .join("|")
+      });
+    } finally {
+      system.dispose();
+    }
+  };
+
+  try {
+    const first = captureSignature(0);
+    const repeated = captureSignature(0);
+    const different = captureSignature(10);
+    assert(
+      first.statusSignature === repeated.statusSignature &&
+        first.positionSignature === repeated.positionSignature,
+      "同じNPC spawn seedで位置またはstatusが再現されません。"
+    );
+    assert(
+      first.positionSignature !== different.positionSignature &&
+        first.statusSignature !== different.statusSignature,
+      "異なるsession seedでNPCの位置または洗脳済みstatus内訳が変化しません。"
+    );
+    assert(
+      first.brainwashedFlags.join("|") === "true|true|false|false" &&
+        different.brainwashedFlags.join("|") ===
+          "true|true|false|false",
+      "初期洗脳NPC先行・通常NPC後続のstatus契約が変化しました。"
+    );
+    return "same-seed position/status stable / different-seed position+brainwashed-status changed / status order fixed";
+  } finally {
+    visuals.dispose();
+    fixture.dispose();
+    scene.dispose();
+    engine.dispose();
+  }
+};
+
 const testTimedReinforcementPauseCapAndLifecycle = () => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
@@ -204,6 +672,8 @@ const testTimedReinforcementPauseCapAndLifecycle = () => {
       system.getFrameView().populationBitCount === 1,
       "初期BIT数が1機ではありません。"
     );
+    system.prepareForScriptedPhase();
+    assertNoBitSpawnTemporaryResources(scene, "時間増援開始前");
     const initialExclusionQueryCount = fixture.queriedExclusionIds.length;
 
     system.setAiSuspended(true);
@@ -220,9 +690,17 @@ const testTimedReinforcementPauseCapAndLifecycle = () => {
       "10秒境界より前にBIT増援が出現しました。"
     );
     updateBitSystem(system, 0.001, 40);
+    const timedPendingFrame = system.getFrameView();
     assert(
-      system.getFrameView().populationBitCount === 2,
-      "playing中の10秒境界でBITが1機増援されませんでした。"
+      timedPendingFrame.populationBitCount === 2 &&
+        timedPendingFrame.actorSpheres.length === 1,
+      "playing中の10秒境界でpending時間増援が1機追加されませんでした。"
+    );
+    assertBitSpawnVisualPhase(
+      scene,
+      "v2_bit_1",
+      "fade-start",
+      "時間増援"
     );
     const reinforcementExclusionQueryCount =
       fixture.queriedExclusionIds.length;
@@ -231,12 +709,34 @@ const testTimedReinforcementPauseCapAndLifecycle = () => {
       "時間増援で選択開始地点の除外Volumeを照会していません。"
     );
 
-    updateBitSystem(system, 30, 70);
+    const timedSpawnCompletedElapsedSeconds =
+      completeBitSpawnVisualsWithAssertions(
+        system,
+        scene,
+        Object.freeze(["v2_bit_1"]),
+        40,
+        EMPTY_TARGETS,
+        "時間増援"
+      );
+    assert(
+      system.getFrameView().actorSpheres.length === 2,
+      "時間増援の演出完了後にactorが公開されません。"
+    );
+
+    updateBitSystem(
+      system,
+      30,
+      timedSpawnCompletedElapsedSeconds + 30
+    );
     assert(
       system.getFrameView().populationBitCount === 3,
       "大deltaでcatch-up burstしたか、1機増援されませんでした。"
     );
-    updateBitSystem(system, 30, 100);
+    updateBitSystem(
+      system,
+      30,
+      timedSpawnCompletedElapsedSeconds + 60
+    );
     assert(
       system.getFrameView().populationBitCount === 3,
       "最大BIT数を超えて増援されました。"
@@ -287,6 +787,7 @@ const testAlertPopulationCountsTowardCap = () => {
     random: random.random
   });
   try {
+    let elapsedSeconds = completeCurrentBitSpawnVisuals(system, 0);
     const leader = system.getFrameView().actorSpheres[0];
     assert(leader !== undefined, "Alert検証の初期BITがありません。");
     const target = createTarget(
@@ -295,28 +796,59 @@ const testAlertPopulationCountsTowardCap = () => {
       leader.center.add(new Vector3(-1, 0, 0))
     );
     const queryCountBeforeAlert = fixture.queriedExclusionIds.length;
-    updateBitSystem(system, 0, 0, Object.freeze([target]));
-    const alertFrame = system.getFrameView();
+    const targets = Object.freeze([target]);
+    elapsedSeconds += 0.2;
+    updateBitSystem(system, 0.2, elapsedSeconds, targets);
+    const pendingAlertFrame = system.getFrameView();
     assert(
-      alertFrame.populationBitCount === 2 &&
-        alertFrame.actorSpheres.length === 2 &&
-        alertFrame.targetStates.some((state) => state.mode === "alert-send") &&
-        alertFrame.targetStates.some((state) => state.mode === "alert-receive"),
-      `通常+Alert人口が上限2へ算入されません: population=${alertFrame.populationBitCount} / actors=${alertFrame.actorSpheres.length} / modes=${alertFrame.targetStates.map((state) => state.mode).join(",")}`
+      pendingAlertFrame.populationBitCount === 2 &&
+        pendingAlertFrame.actorSpheres.length === 1 &&
+        pendingAlertFrame.targetStates.some(
+          (state) => state.mode === "alert-send"
+        ) &&
+        !pendingAlertFrame.targetStates.some(
+          (state) => state.mode === "alert-receive"
+        ) &&
+        scene.getMeshByName("v2_bit_1_spawn") !== null,
+      `Alert BITが人口へ即算入されないか、演出中に公開されました: population=${pendingAlertFrame.populationBitCount} / actors=${pendingAlertFrame.actorSpheres.length} / modes=${pendingAlertFrame.targetStates.map((state) => state.mode).join(",")}`
+    );
+    assertBitSpawnVisualPhase(
+      scene,
+      "v2_bit_1",
+      "fade-start",
+      "内部Alert増援"
     );
     assert(
       fixture.queriedExclusionIds.length > queryCountBeforeAlert,
       "Alert BIT生成で選択開始地点の除外Volumeを照会していません。"
     );
-    updateBitSystem(system, 10, 10, Object.freeze([target]));
+    elapsedSeconds = completeBitSpawnVisualsWithAssertions(
+      system,
+      scene,
+      Object.freeze(["v2_bit_1"]),
+      elapsedSeconds,
+      targets,
+      "内部Alert増援"
+    );
+    const completedAlertFrame = system.getFrameView();
+    assert(
+      completedAlertFrame.actorSpheres.length === 2 &&
+        completedAlertFrame.targetStates.some(
+          (state) => state.mode === "alert-receive"
+        ) &&
+        scene.getMeshByName("v2_bit_1_spawn") === null &&
+        scene.getMaterialByName("v2_bit_1_spawn_material") === null,
+      `Alert BITの演出完了後公開が不正です: actors=${completedAlertFrame.actorSpheres.length} / modes=${completedAlertFrame.targetStates.map((state) => state.mode).join(",")}`
+    );
+    updateBitSystem(system, 10, elapsedSeconds + 10, targets);
     assert(
       system.getFrameView().populationBitCount === 2,
       "Alert BITを上限算入せず時間増援が追加されました。"
     );
     assertOnlySelectedExclusionWasQueried(fixture, 1);
     return (
-      `population=${alertFrame.populationBitCount} / ` +
-      `modes=${alertFrame.targetStates.map((state) => state.mode).join(",")}`
+      `pendingPopulation=${pendingAlertFrame.populationBitCount} / ` +
+      `completedModes=${completedAlertFrame.targetStates.map((state) => state.mode).join(",")}`
     );
   } finally {
     system.dispose();
@@ -368,6 +900,7 @@ const testCarpetFollowersExcludedFromCap = () => {
     random: random.random
   });
   try {
+    let elapsedSeconds = completeCurrentBitSpawnVisuals(system, 0);
     const leader = system.getFrameView().actorSpheres[0];
     assert(leader !== undefined, "絨毯僚機検証の初期BITがありません。");
     const target = createTarget(
@@ -376,25 +909,60 @@ const testCarpetFollowersExcludedFromCap = () => {
       leader.center.add(new Vector3(-1, 0, 0))
     );
     const targets = Object.freeze([target]);
-    updateBitSystem(system, 0, 0, targets);
-    updateBitSystem(system, 0.1, 0.1, targets);
-    const carpetFrame = system.getFrameView();
+    elapsedSeconds += 0.2;
+    updateBitSystem(system, 0.2, elapsedSeconds, targets);
     assert(
-      carpetFrame.populationBitCount === 1 &&
-        carpetFrame.actorSpheres.length === 3 &&
-        carpetFrame.targetStates.filter(
-          (state) => state.mode === "carpet-follower"
-        ).length === 2,
-      `絨毯僚機が人口上限から除外されません: population=${carpetFrame.populationBitCount} / actors=${carpetFrame.actorSpheres.length} / modes=${carpetFrame.targetStates.map((state) => state.mode).join(",")}`
+      system.getFrameView().beamRequests.length === 0,
+      "絨毯mode選択直後の0.2秒updateで発砲しました。"
     );
-    updateBitSystem(system, 10, 10.1, targets);
+    elapsedSeconds += 0.1;
+    updateBitSystem(system, 0.1, elapsedSeconds, targets);
+    const pendingCarpetFrame = system.getFrameView();
+    assert(
+      pendingCarpetFrame.populationBitCount === 1 &&
+        pendingCarpetFrame.actorSpheres.length === 1 &&
+        pendingCarpetFrame.beamRequests.length === 0 &&
+        scene.getMeshByName("v2_bit_1_spawn") !== null &&
+        scene.getMeshByName("v2_bit_2_spawn") !== null,
+      `絨毯僚機が人口上限から除外されないか、演出中に公開されました: population=${pendingCarpetFrame.populationBitCount} / actors=${pendingCarpetFrame.actorSpheres.length}`
+    );
+    for (const bitId of ["v2_bit_1", "v2_bit_2"] as const) {
+      assertBitSpawnVisualPhase(
+        scene,
+        bitId,
+        "fade-start",
+        "絨毯僚機"
+      );
+    }
+    elapsedSeconds = completeBitSpawnVisualsWithAssertions(
+      system,
+      scene,
+      Object.freeze(["v2_bit_1", "v2_bit_2"]),
+      elapsedSeconds,
+      targets,
+      "絨毯僚機",
+      true
+    );
+    updateBitSystem(system, 0, elapsedSeconds, targets);
+    const completedCarpetFrame = system.getFrameView();
+    assert(
+      completedCarpetFrame.populationBitCount === 1 &&
+        completedCarpetFrame.actorSpheres.length === 3 &&
+        completedCarpetFrame.targetStates.filter(
+          (state) => state.mode === "carpet-follower"
+        ).length === 2 &&
+        scene.getMaterialByName("v2_bit_1_spawn_material") === null &&
+        scene.getMaterialByName("v2_bit_2_spawn_material") === null,
+      `絨毯僚機の演出完了後公開が不正です: population=${completedCarpetFrame.populationBitCount} / actors=${completedCarpetFrame.actorSpheres.length} / modes=${completedCarpetFrame.targetStates.map((state) => state.mode).join(",")}`
+    );
+    updateBitSystem(system, 10, elapsedSeconds + 10, targets);
     assert(
       system.getFrameView().populationBitCount === 2,
       "絨毯僚機を人口へ誤算入し、通常増援が阻害されました。"
     );
     return (
-      `population=${carpetFrame.populationBitCount} / ` +
-      `actors=${carpetFrame.actorSpheres.length} / followers=2`
+      `population=${completedCarpetFrame.populationBitCount} / ` +
+      `actors=${completedCarpetFrame.actorSpheres.length} / followers=2`
     );
   } finally {
     system.dispose();
@@ -407,8 +975,20 @@ const testCarpetFollowersExcludedFromCap = () => {
 export const runPopulationIntegrationTests = async () =>
   Object.freeze([
     await executeTest(
+      "V1相当BIT出現演出・遅延公開・専用資源破棄",
+      testV1BitSpawnVisualLifecycle
+    ),
+    await executeTest(
+      "scripted phaseのpending即時完了・冪等性・破棄",
+      testPrepareForScriptedPhaseFinalizesPendingSpawn
+    ),
+    await executeTest(
       "洗脳済みNPC先行・選択開始地点だけの除外",
       testBrainwashedNpcOrderAndSelectedExclusion
+    ),
+    await executeTest(
+      "NPC開始位置・statusのsession seed決定性",
+      testNpcSpawnSeedDeterminism
     ),
     await executeTest(
       "初期1機・10秒増援・最大数・停止・catch-up禁止・再生成破棄",

@@ -10,9 +10,9 @@ export type V2AudioVolumeLevels = Readonly<Record<AudioCategory, number>>;
 
 export const V2_DEFAULT_AUDIO_VOLUME_LEVELS: V2AudioVolumeLevels =
   Object.freeze({
-    voice: 0,
-    bgm: 0,
-    se: 0,
+    voice: 5,
+    bgm: 5,
+    se: 5,
   });
 
 const V2_AUDIO_CATEGORY_BASE_GAINS: Readonly<Record<AudioCategory, number>> =

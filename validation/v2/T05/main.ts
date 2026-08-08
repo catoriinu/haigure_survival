@@ -913,6 +913,7 @@ const runValidation = async () => {
           anchor: target.footPosition.clone()
         })
     });
+    bitSystem.prepareForScriptedPhase();
     try {
       const initialActors =
         bitSystem.getFrameView().actorSpheres;
@@ -1115,6 +1116,7 @@ const runValidation = async () => {
           })
       }
     );
+    transitionBitSystem.prepareForScriptedPhase();
     try {
       const target = Object.freeze({
         id: "fixture-transition-target",

@@ -146,8 +146,18 @@ if (
     "performance、schoolStress、rampValidationは同時に実行できません。"
   );
 }
-const runtimeSeed =
-  performanceScenario?.seed ?? runtimeStressScenario?.seed ?? 0;
+const fixedRuntimeSeed =
+  performanceScenario?.seed ??
+  runtimeStressScenario?.seed ??
+  (rampValidationTarget === null ? null : 0);
+const nextRuntimeSessionSeed = () => {
+  if (fixedRuntimeSeed !== null) {
+    return fixedRuntimeSeed;
+  }
+  const entropy = new Uint32Array(1);
+  crypto.getRandomValues(entropy);
+  return entropy[0];
+};
 const roomVariantLevel = resolveV2RoomVariantLevel(location.search);
 const runtimePopulation = performanceScenario
   ? V2_PERFORMANCE_ACCEPTANCE_POPULATION
@@ -161,19 +171,6 @@ const runtimePopulation = performanceScenario
       })
     : runtimeStressScenario?.population ??
       V2_TEST_SURVIVAL_POPULATION;
-const roomVariantSelections = runtimeStressScenario
-  ? createSchoolRoomVariantSelections(
-      createSchoolRuntimeSettings(
-        roomVariantLevel
-      ),
-      runtimeStressScenario.seed
-    )
-  : createSchoolRoomVariantSelections(
-      createSchoolRuntimeSettings(
-        roomVariantLevel
-      ),
-      runtimeSeed
-    );
 const canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
 const minimapCanvas = document.getElementById(
   "minimapCanvas"
@@ -203,6 +200,11 @@ const createRuntimeSession = async (
   sessionSeed: number,
   requestSessionRebuild: () => void
 ): Promise<V2RuntimeSession> => {
+const roomVariantSelections = createSchoolRoomVariantSelections(
+  createSchoolRuntimeSettings(roomVariantLevel),
+  sessionSeed
+);
+document.body.dataset.v2RuntimeSessionSeed = String(sessionSeed);
 const scene = new Scene(engine);
 const performanceDiagnostics = performanceScenario
   ? createV2PerformanceDiagnostics(
@@ -379,7 +381,10 @@ const initializeRuntime = async () => {
       portraitDirectories: V2_PORTRAIT_ASSET_INVENTORY.directories,
       playerVoiceDirectory: characterSettings.voiceDirectory,
       playerPortraitDirectory: characterSettings.portraitDirectory,
-      random: Math.random
+      random: createSchoolRuntimeRandom(
+        sessionSeed,
+        "character-assignment"
+      )
     });
     ownedCharacterVisuals = await createV2CharacterVisualRuntime({
       scene,
@@ -1231,7 +1236,7 @@ const rebuildSession = () => {
     activeSession = null;
     activeSession = await transitionV2RuntimeSession({
       currentSession: previousSession,
-      runtimeSeed,
+      nextRuntimeSeed: nextRuntimeSessionSeed,
       isCancelled: () => runtimeTerminated,
       exitPointerLock: () => document.exitPointerLock(),
       showLoading: showSessionLoading,
@@ -1255,7 +1260,7 @@ const rebuildSession = () => {
 
 try {
   activeSession = await createRuntimeSession(
-    runtimeSeed,
+    nextRuntimeSessionSeed(),
     rebuildSession
   );
 } catch {

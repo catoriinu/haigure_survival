@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
+const fs = require("node:fs");
 const path = require("node:path");
 
 const readArgument = (name) => {
@@ -10,6 +11,8 @@ const readArgument = (name) => {
 };
 
 const applicationUrl = new URL(readArgument("--url"));
+const reportPath = process.env.T06_ELECTRON_REPORT_FILE ?? null;
+const audioOnly = process.env.T06_ELECTRON_AUDIO_ONLY === "1";
 if (
   applicationUrl.hostname !== "localhost" &&
   applicationUrl.hostname !== "127.0.0.1"
@@ -114,6 +117,9 @@ const inspectDom = (window) =>
         pointerLockId: document.pointerLockElement?.id ?? null,
         hudRootCount: document.querySelectorAll('[data-v2-runtime-hud="root"]').length,
         volumeRootCount: document.querySelectorAll('[data-ui="volume-panel"]').length,
+        volumeValues: Array.from(document.querySelectorAll('.volume-value')).map(
+          (element) => element.textContent ?? ""
+        ),
         characterSettingsRootCount: document.querySelectorAll('[data-ui="v2-character-settings"]').length,
         portraitSelectCount: document.querySelectorAll('[data-ui="v2-player-portrait-select"]').length,
         portraitSelection: document.querySelector('[data-ui="v2-player-portrait-select"]')?.value ?? null,
@@ -232,6 +238,22 @@ const waitForBrainwashSelection = async (window) => {
   throw new Error("通常Runtimeでbrainwash-in-progressへ420秒以内に到達できませんでした。");
 };
 
+const waitForAudioCategories = async (timeoutMilliseconds) => {
+  const deadline = Date.now() + timeoutMilliseconds;
+  while (Date.now() < deadline) {
+    const completedCategories = new Set(
+      report.audioResources.completed
+        .filter((resource) => resource.statusCode >= 200 && resource.statusCode < 300)
+        .map((resource) => resource.category)
+    );
+    if (["BGM", "SE", "VOICE"].every((category) => completedCategories.has(category))) {
+      return;
+    }
+    await wait(100);
+  }
+  throw new Error("BGM／SE／VOICEのresource load完了を確認できませんでした。");
+};
+
 const selectCompletionState = async (window, keyCode, expectedState) => {
   await sendKey(window, keyCode);
   return waitFor(
@@ -332,9 +354,14 @@ const run = async () => {
       snapshot.characterSettingsRootCount === 1,
     120_000
   );
+  assertCondition(
+    JSON.stringify(initialTitle.volumeValues) === JSON.stringify(["5", "5", "5"]),
+    `VOICE／BGM／SEの既定表示が5ではありません: ${JSON.stringify(initialTitle.volumeValues)}`
+  );
   addCheck("初回session所有root", {
     hudRootCount: initialTitle.hudRootCount,
     volumeRootCount: initialTitle.volumeRootCount,
+    volumeValues: initialTitle.volumeValues,
     characterSettingsRootCount: initialTitle.characterSettingsRootCount,
     portraitSelectCount: initialTitle.portraitSelectCount,
     portraitSelection: initialTitle.portraitSelection,
@@ -343,6 +370,61 @@ const run = async () => {
   });
 
   await sendCanvasClick(testWindow);
+  if (audioOnly) {
+    const startedForAudio = await waitFor(
+      "Canvas開始（音声専用）",
+      testWindow,
+      (snapshot) => !snapshot.titleVisible,
+      10_000
+    );
+    await waitForAudioCategories(30_000);
+    const successfulAudioResources = report.audioResources.completed.filter(
+      (resource) => resource.statusCode >= 200 && resource.statusCode < 300
+    );
+    const successfulAudioUrls = new Set(
+      successfulAudioResources.map((resource) => resource.url)
+    );
+    const unrecoveredAudioFailures = report.audioResources.failed.filter(
+      (resource) =>
+        resource.error !== "net::ERR_ABORTED" ||
+        !successfulAudioUrls.has(resource.url)
+    );
+    const audioConsoleDiagnostics = report.diagnostics.console.filter(
+      (diagnostic) =>
+        /BGM audio play\(\) failed|Spatial audio play\(\) failed|audio media error/i.test(
+          diagnostic.message
+        )
+    );
+    assertCondition(
+      unrecoveredAudioFailures.length === 0,
+      "音声resource load失敗があります。"
+    );
+    assertCondition(
+      audioConsoleDiagnostics.length === 0,
+      "音声再生のconsole errorがあります。"
+    );
+    assertCondition(report.diagnostics.renderer.length === 0, "renderer error/unhandledrejectionがあります。");
+    assertCondition(report.diagnostics.load.length === 0, "renderer load errorがあります。");
+    assertCondition(report.diagnostics.renderProcessGone.length === 0, "render-process-goneがあります。");
+    assertCondition(report.diagnostics.unresponsive.length === 0, "renderer unresponsiveがあります。");
+    addCheck("既定音量5のBGM／SE／VOICE実再生", {
+      titleVisible: startedForAudio.titleVisible,
+      pointerLockId: startedForAudio.pointerLockId,
+      volumeValues: startedForAudio.volumeValues,
+      completedCounts: Object.fromEntries(
+        ["BGM", "SE", "VOICE"].map((category) => [
+          category,
+          successfulAudioResources.filter(
+            (resource) => resource.category === category
+          ).length
+        ])
+      ),
+      failedCount: unrecoveredAudioFailures.length,
+      audioConsoleErrorCount: audioConsoleDiagnostics.length
+    });
+    report.status = "passed";
+    return;
+  }
   const started = await waitFor(
     "Canvas開始とPointer Lock",
     testWindow,
@@ -562,6 +644,10 @@ run()
     if (testWindow && !testWindow.isDestroyed()) {
       testWindow.destroy();
     }
-    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    const serializedReport = `${JSON.stringify(report, null, 2)}\n`;
+    if (reportPath !== null) {
+      fs.writeFileSync(reportPath, serializedReport, "utf8");
+    }
+    process.stdout.write(serializedReport);
     app.quit();
   });
