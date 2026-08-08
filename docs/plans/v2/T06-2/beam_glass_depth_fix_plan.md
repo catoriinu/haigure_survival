@@ -20,6 +20,8 @@
 
 > YES
 
+> 残念、もっと駄目になりました。先ほどより、自分が撃っている光が表示されなくなっています。ガラスより前面にはあると思いますが、光そのものの描画がやはりおかしいです。きちんと確認してください。10層と重なるからどうこうという問題ではありません。手前のものは手前に見える、ただそれだけです。修正してください。
+
 ## ステップ
 
 - [x] T06-2本体branchとプール問題の作業状態を変更せず、同じT06-2 HEAD由来の補助branch・worktreeを作成する。
@@ -48,14 +50,25 @@
 - [x] 5176の通常ゲームで再読込、playing、学校・NPC・BIT・BEAMの継続描画、consoleを確認し、窓越し・窓手前、先端と軌跡、ガラスの色は同一描画経路を使うGPU fixtureで確認する。
 - [x] 実装結果を実測値へ更新し、修正をローカルcommitする。pushは行わない。
 
+### 実ゲームのプレイヤービーム消失を再修正
+
+- [x] 提示画像と実ゲームの描画経路を照合し、一次ビームの本体・先端が欠落して二次軌跡だけが見えている症状を切り分ける。
+- [x] `needDepthPrePass`とhardware instanceの組合せを実形状・実Instanceで再現し、前回fixtureが通常Meshだけだった検証漏れを確定する。
+- [x] ビームのcolor passと同形状のcolor-writeなしdepth proxyを分離し、前後関係だけで後続の窓ガラスを遮蔽する実装へ置き換える。
+- [x] 実`createV2BeamSystem`のInstanceをFPSカメラと同軸に置き、先端・本体・軌跡、ガラス前後、fade後を実ピクセルで確認するGPU回帰を追加する。
+- [x] T05・T06・T06-2の型検査、build、ブラウザーfixture、通常ゲーム、consoleを再確認する。
+- [x] 実装結果を最新の実測値へ更新し、ローカルcommitする。pushは行わない。
+
 ## 結果
 
-統合したcommit `8cd5687`のScene全体OITは、透明meshを既存の`alphaIndex`順から一括してdepth peelingへ移していた。そのため、両面描画されるビーム球・軌跡・窓ガラス・`forceDepthWrite`を持つCharacterが同じ透明層を消費し、既定10層を超える重なりでガラス全面がピンク化し、先端と軌跡が打ち消し合う視覚回帰を発生させていた。
+前回commit `96fd6a7`で通常ビーム本体・先端へ追加した`needDepthPrePass`が、今回のプレイヤービーム消失の直接原因だった。Babylon.jsの透明depth pre-passはvertex／instance alphaとalpha cutoffを適用するcolor passより先に深度を書き、カメラからほぼ同軸に伸びる実ビームでは、透明な後端側面が本体奥側・先端・軌跡を自己遮蔽していた。前回のGPU fixtureは通常Meshによる大きな代替形状であり、実Cylinderの後端fade、hardware Instance、実寸、FPS同軸投影を再現していなかったため、この回帰を検出できなかった。
 
-Scene全体OITを撤去し、既存の透明描画順を復元した。通常ビームは本体・先端だけを専用の一次Materialへ分離し、NPCの後、窓ガラスなどの空間半透明より前となる`alphaIndex`へ配置した。一次Materialにはalpha test付きalpha blendとdepth pre-passを適用し、各ピクセルの実深度を後続のガラス描画へ渡す。軌跡・遮蔽物命中演出は従来のalpha blendと空間半透明順を維持し、Character、NPC、Alert、カーペット僚機を含むScene内の他の透明meshは変更していない。生成・pool再利用・事前コンパイル・破棄も、分離した2 Materialを同じライフサイクルで扱うよう更新した。
+通常ビームの4種（本体・先端・軌跡・遮蔽物命中演出）を、元のalpha blendで色だけを描く`alphaIndex=150`の可視Instanceと、同じ形状・変形・vertex alpha・instance alphaを持つ`alphaIndex=160`のdepth proxy Instanceへ分離した。depth proxyはcolor writeを行わず、alpha cutoff `0.1`以上の可視部分だけ深度を書き、`alphaIndex=200`の窓ガラスへ前後関係を渡す。可視ビーム自身は深度を書かないため、本体・先端・軌跡は互いを消さない。ガラスが奥ならビームが手前に残り、ガラスが手前ならガラスがビームへ重なる。各可視Instanceとproxyはpool内で一対として取得・opacity同期・解放・破棄する。
 
-T06 GPU fixtureへ、実ビーム相当のCylinder、先端球、7個の重複軌跡球（両面14層）、両面ガラス、`forceDepthWrite` Characterを同居させる回帰を追加した。実測RGBAはガラス単体`[74,101,110,255]`、ガラス越しビーム`[175,116,184,255]`、Character前面`[208,77,160,255]`、密集した先端・軌跡`[232,43,172,255]`で、ガラス全面の一色化やビーム消失がないことを確認した。単純な前後・交差ケースも、ガラス前面`[41,0,204,255]`、ビーム前面`[204,0,0,255]`となった。
+T06 GPU fixtureへ実`createV2BeamSystem`を使うplayer-gun回帰を追加し、実Cylinder・先端・軌跡を透視カメラから同軸表示した。実測RGBAはガラスなし中心`[245,45,181,255]`、外周`[253,46,188,255]`、奥ガラスあり中心`[245,45,181,255]`、手前ガラスあり中心`[63,128,246,255]`、ビームalpha 0後の奥ガラス`[35,124,225,255]`だった。奥ガラスはビーム色を変えず、手前ガラスだけが前面へ描かれ、fade後はproxyも深度を解放することを確認した。交差fixtureは奥側`[41,0,204,255]`・手前側`[204,0,0,255]`、密集fixtureは`[255,46,189,255]`となり、本体・先端・軌跡の重なりでもビームが消えない。
 
-`npm run audit:v2:dependencies`、`typecheck:v2`、`typecheck:t05`、`typecheck:t06`、`typecheck:t06-2`、`build`、`build:renderer`、`build:t05`、`build:t06`、`build:t06-2`はすべて成功した。5176のブラウザーfixtureはT05が314/314、T06が67/67、T06-2が22/22で、いずれも`data-validation-status=passed`となった。通常ゲームもseed 10で12秒間確認し、playing、学校、NPC 50体、BIT 20体、BEAMの継続描画、console warning/error 0件を確認した。自動操作環境ではPointer Lockが許可されないため、プレイヤー自身の発射操作だけはユーザー確認用の5176で行う。最終的に通常タイトル画面を再読込し、ViteとBabylon.jsの初期化後もconsole warning/error 0件の状態で残した。
+`npm run typecheck:v2`、`typecheck:t05`、`typecheck:t06`、`typecheck:t06-2`、`build`、`build:renderer`、`build:t05`、`build:t06`、`build:t06-2`はすべて成功し、`build:renderer`内のV2依存監査もPASSした。5176のブラウザーfixtureはT05が314/314、T06が68/68、T06-2が22/22で、いずれも`data-validation-status=passed`、console warning/error 0件だった。通常ゲームもseed 10で12秒以上確認し、playing、学校、NPC 50体、BIT 20体、複数BEAMの継続描画、console warning/error 0件を確認した。
 
-独立した最終差分監査でも、描画順、Material設定、poolライフサイクル、GPU fixtureにP0～P2の指摘はなかった。変更はT06-2本体branch内のRuntime 4ファイル、検証2ファイル、計画1ファイルに限定した。主worktreeの未追跡ファイル、学校資産、Blender session、5182のserverには変更を加えていない。5176はユーザー確認用に維持し、pushとPR更新は行わない。
+独立した最終差分監査でも、描画順、depth proxy Material、親子変形、opacity同期、poolの再利用・clear・dispose、実GPU fixtureにP0～P2の指摘はなかった。
+
+変更はT06-2本体branch内のRuntime 2ファイル、検証2ファイル、計画1ファイルに限定した。主worktreeの未追跡ファイル、学校資産、Blender session、5182のserverには変更を加えていない。5176はユーザー確認用に維持し、pushとPR更新は行わない。
