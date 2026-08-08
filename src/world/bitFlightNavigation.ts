@@ -4,6 +4,7 @@ import {
   cloneNavigationLocation,
   createNavigationWorld,
   type NavigationLocation,
+  type NavigationSurfaceTriangle,
   type NavigationSurfaceStep,
   type NavigationWorld
 } from "./navigationWorld";
@@ -192,6 +193,9 @@ export interface BitFlightNavigationWorld {
   readonly transitions: readonly BitFlightTransition[];
   getZone(id: BitFlightZoneId): BitFlightZone | null;
   getBand(ref: BitFlightBandRef): BitFlightBand | null;
+  getSurfaceTriangles(
+    ref: BitFlightBandRef
+  ): readonly NavigationSurfaceTriangle[];
   projectPointInBand(
     ref: BitFlightBandRef,
     position: Vector3,
@@ -694,6 +698,11 @@ class RecastBitFlightNavigationWorld implements BitFlightNavigationWorld {
   getBand(ref: BitFlightBandRef) {
     this.assertActive();
     return this.bandsByKey.get(createBandKey(ref)) ?? null;
+  }
+
+  getSurfaceTriangles(ref: BitFlightBandRef) {
+    this.assertActive();
+    return this.requireSurface(ref).getSurfaceTriangles();
   }
 
   projectPointInBand(

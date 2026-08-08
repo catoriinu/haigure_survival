@@ -59,17 +59,23 @@ export const runPerformanceScenarioTests =
           V2_TEST_SURVIVAL_POPULATION.npcCount === 50 &&
             V2_TEST_SURVIVAL_POPULATION
               .initialBrainwashedNpcCount === 10 &&
-            V2_TEST_SURVIVAL_POPULATION.bitCount === 20,
-          "通常テスト人口が50／10／20ではありません。"
+            V2_TEST_SURVIVAL_POPULATION.initialBitCount === 1 &&
+            V2_TEST_SURVIVAL_POPULATION
+              .bitReinforcementIntervalSeconds === 10 &&
+            V2_TEST_SURVIVAL_POPULATION.maximumBitCount === 25,
+          "通常人口が50／10／BIT初期1／最大25ではありません。"
         );
         assert(
           V2_PERFORMANCE_ACCEPTANCE_POPULATION.npcCount === 99 &&
             V2_PERFORMANCE_ACCEPTANCE_POPULATION
               .initialBrainwashedNpcCount === 66 &&
-            V2_PERFORMANCE_ACCEPTANCE_POPULATION.bitCount === 50,
-          "性能受入人口が99／66／50ではありません。"
+            V2_PERFORMANCE_ACCEPTANCE_POPULATION.initialBitCount === 50 &&
+            V2_PERFORMANCE_ACCEPTANCE_POPULATION
+              .bitReinforcementIntervalSeconds === 10 &&
+            V2_PERFORMANCE_ACCEPTANCE_POPULATION.maximumBitCount === 50,
+          "性能受入人口が99／66／初期50／最大50ではありません。"
         );
-        return "通常50／10／20、性能99／66／50";
+        return "通常50／10／BIT初期1／最大25、性能99／66／BIT初期50／最大50";
       }
     ),
     executeTest(

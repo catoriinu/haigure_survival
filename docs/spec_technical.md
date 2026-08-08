@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL 技術・アーキテクチャ仕様書
 
-更新日: 2026-07-19
+更新日: 2026-08-08
 対象バージョン: v1.3.1実装記録（V2現行規定を追補）
 v1.3.1実装記録の基準develop: `0c8b438`
 
@@ -17,6 +17,10 @@ V2のステージ実行契約は現行の[V2ステージランタイム仕様書
 - TypeScript側のステージカタログは、ID、表示情報、資産参照などの非空間情報だけを保持する。座標、文字マップ、セル物理、ゾーン形状、ナビゲーション形状は保持しない。
 - V2の対象ステージは学校のみとする。既存8ステージはv1.3.1の履歴であり、V2移行、V2動作保証、V2データ変換の対象外とする。
 - 旧`StageDefinitionV2`、`procedural-grid`、旧GLB用JSON、`GridLayout`、セルナビゲーションとの互換は禁止する。互換アダプター、フォールバック、旧形式コンバーター、旧新二重ロード経路を実装しない。
+- 学校のPlayer開始地点は承認済み11 IDの固定順から一様抽選し、`player_spawn` Markerと`player_spawn_exclusion` Volumeを`hs_player_spawn_id`で1対1対応させる。選択済みの同一`StagePlayerSpawn`をPlayerとSurvivalへ渡し、名前推測、`no_enemy_spawn`流用、欠落時fallbackは行わない。
+- session seedから`core`、`player-spawn`、`npc-spawn`、`bit-spawn`の独立乱数列を派生する。NPCは5個の`npc_spawn` Volumeによる全校チャンネルを重み`1.0`で常に残し、選択Player開始地点へ明示対応する`npc_spawn_bias`チャンネルを`hs_weight`で加える。初期値`0.5`では全校`2/3`・近傍`1/3`でチャンネルを選び、各チャンネル内は現在の人間用NavMeshとの実交差面積比例で抽選する。BITは全11許可飛行帯の`bit_spawn` VolumeとBIT用NavMeshとの実交差面積を重みにして連続面上から抽選する。
+- 初期洗脳済みNPCを選択開始地点の除外Volume外へ先に配置し、通常NPCは全NPC間距離を引き継いで後から配置する。初期BIT、時間増援、Alertだけに選択開始地点の除外Volumeを適用する。
+- V2通常設定はBIT初期1機、10秒間隔、最大25機とする。通常BITとAlertを上限へ含め、カーペット僚機は除外する。増援時間はplaying中だけ進み、上限中は0へ戻し、欠員後も1間隔につき1機だけ生成してcatch-up burstを行わない。
 
 以下の第1～16節はv1.3.1／旧T02時点の実装を追跡する付録として残す。V2実装との不一致は本節、`docs/spec_stage_runtime_v2.md`、`docs/spec_stage_assets_v2.md`を優先する。
 

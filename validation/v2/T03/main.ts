@@ -120,7 +120,8 @@ const playerHeightMotion = createPlayerHeightController(scene, {
 });
 const playerMotion = createPlayerMotionController({
   moveInertiaAt60Fps: 0.9,
-  moveStopEpsilon: 0.00001
+  moveStopEpsilon: 0.00001,
+  collisionEpsilon: Engine.CollisionsEpsilon
 });
 const forwardMoveAxes = { moveX: 0, moveZ: 1 } as const;
 const backwardFacingYaw = Math.PI;

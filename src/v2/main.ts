@@ -48,7 +48,6 @@ import {
 } from "../world/stageSpatialContext";
 import {
   createV2PerformanceDiagnostics,
-  createV2SeededRandom,
   readV2PerformanceScenario,
   V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS
 } from "./performanceDiagnostics";
@@ -106,6 +105,7 @@ import {
   type V2RuntimeStressReport
 } from "./runtimeStressScenario";
 import { resolveV2RoomVariantLevel } from "./roomVariantVisualReview";
+import { selectV2PlayerSpawn } from "./schoolSpawnSelection";
 
 const V2_GAMEPLAY_HELP_TEXT =
   "操作説明\n" +
@@ -146,8 +146,18 @@ if (
     "performance、schoolStress、rampValidationは同時に実行できません。"
   );
 }
-const runtimeSeed =
-  performanceScenario?.seed ?? runtimeStressScenario?.seed ?? 0;
+const fixedRuntimeSeed =
+  performanceScenario?.seed ??
+  runtimeStressScenario?.seed ??
+  (rampValidationTarget === null ? null : 0);
+const nextRuntimeSessionSeed = () => {
+  if (fixedRuntimeSeed !== null) {
+    return fixedRuntimeSeed;
+  }
+  const entropy = new Uint32Array(1);
+  crypto.getRandomValues(entropy);
+  return entropy[0];
+};
 const roomVariantLevel = resolveV2RoomVariantLevel(location.search);
 const runtimePopulation = performanceScenario
   ? V2_PERFORMANCE_ACCEPTANCE_POPULATION
@@ -155,23 +165,12 @@ const runtimePopulation = performanceScenario
     ? Object.freeze({
         npcCount: 0,
         initialBrainwashedNpcCount: 0,
-        bitCount: 0
+        initialBitCount: 0,
+        bitReinforcementIntervalSeconds: 10,
+        maximumBitCount: 0
       })
     : runtimeStressScenario?.population ??
       V2_TEST_SURVIVAL_POPULATION;
-const roomVariantSelections = runtimeStressScenario
-  ? createSchoolRoomVariantSelections(
-      createSchoolRuntimeSettings(
-        roomVariantLevel
-      ),
-      runtimeStressScenario.seed
-    )
-  : createSchoolRoomVariantSelections(
-      createSchoolRuntimeSettings(
-        roomVariantLevel
-      ),
-      runtimeSeed
-    );
 const canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
 const minimapCanvas = document.getElementById(
   "minimapCanvas"
@@ -201,6 +200,11 @@ const createRuntimeSession = async (
   sessionSeed: number,
   requestSessionRebuild: () => void
 ): Promise<V2RuntimeSession> => {
+const roomVariantSelections = createSchoolRoomVariantSelections(
+  createSchoolRuntimeSettings(roomVariantLevel),
+  sessionSeed
+);
+document.body.dataset.v2RuntimeSessionSeed = String(sessionSeed);
 const scene = new Scene(engine);
 const performanceDiagnostics = performanceScenario
   ? createV2PerformanceDiagnostics(
@@ -340,12 +344,20 @@ const initializeRuntime = async () => {
     configureV2StageTransparentRenderingOrder(
       ownedStage.resources.visualMeshes
     );
+    const playerSpawn = selectV2PlayerSpawn(
+      ownedStage.playerSpawns.all,
+      createSchoolRuntimeRandom(sessionSeed, "player-spawn")
+    );
+    document.body.dataset.v2PlayerSpawnId = playerSpawn.id;
+    document.body.dataset.v2PlayerSpawnExclusionId =
+      playerSpawn.exclusionVolume.id;
     ownedInput = createV2PlayerInput(window);
     const playerInput = ownedInput;
     ownedPlayer = createV2PlayerController({
       scene,
       camera,
       stage: ownedStage,
+      playerSpawn,
       input: ownedInput
     });
     const playerController = ownedPlayer;
@@ -369,7 +381,10 @@ const initializeRuntime = async () => {
       portraitDirectories: V2_PORTRAIT_ASSET_INVENTORY.directories,
       playerVoiceDirectory: characterSettings.voiceDirectory,
       playerPortraitDirectory: characterSettings.portraitDirectory,
-      random: Math.random
+      random: createSchoolRuntimeRandom(
+        sessionSeed,
+        "character-assignment"
+      )
     });
     ownedCharacterVisuals = await createV2CharacterVisualRuntime({
       scene,
@@ -383,9 +398,18 @@ const initializeRuntime = async () => {
     ownedSurvival = createV2SurvivalRuntime({
       scene,
       stage: ownedStage,
+      playerSpawn,
       player: playerController,
       characterVisuals,
-      random: createV2SeededRandom(sessionSeed),
+      random: createSchoolRuntimeRandom(sessionSeed, "core"),
+      npcSpawnRandom: createSchoolRuntimeRandom(
+        sessionSeed,
+        "npc-spawn"
+      ),
+      bitSpawnRandom: createSchoolRuntimeRandom(
+        sessionSeed,
+        "bit-spawn"
+      ),
       getOrbVisibilityPredicate: () => {
         const playerCenter = playerController
           .getFootPosition()
@@ -425,6 +449,60 @@ const initializeRuntime = async () => {
       }
     });
     const survivalRuntime = ownedSurvival;
+    const initialNpcTargets = Object.freeze(
+      survivalRuntime
+        .getHumanTargets()
+        .filter((target) => target.kind === "npc")
+        .sort((left, right) => left.id.localeCompare(right.id))
+    );
+    const activeNpcSpawnBiases = Object.freeze(
+      playerSpawn.npcSpawnBiasVolumes.map((volume) =>
+        Object.freeze({
+          id: volume.id,
+          playerSpawnId: volume.playerSpawnId!,
+          weight: volume.npcSpawnBiasWeight!
+        })
+      )
+    );
+    const roundSpawnCoordinate = (value: number) =>
+      Math.round(value * 1_000_000) / 1_000_000;
+    document.body.dataset.v2NpcSpawnReport = JSON.stringify({
+      sessionSeed,
+      playerSpawnId: playerSpawn.id,
+      activeBiases: activeNpcSpawnBiases,
+      npcCount: initialNpcTargets.length,
+      initialBrainwashedNpcCount:
+        initialNpcTargets.filter((target) => target.brainwashed).length,
+      npcInsideActiveBiasCount: initialNpcTargets.filter((target) =>
+        playerSpawn.npcSpawnBiasVolumes.some((volume) =>
+          ownedStage!.queries.containsVolumeById(
+            volume.id,
+            target.footPosition
+          )
+        )
+      ).length,
+      initialBrainwashedInsideActiveBiasCount: initialNpcTargets.filter(
+        (target) =>
+          target.brainwashed &&
+          playerSpawn.npcSpawnBiasVolumes.some((volume) =>
+            ownedStage!.queries.containsVolumeById(
+              volume.id,
+              target.footPosition
+            )
+          )
+      ).length,
+      signature: initialNpcTargets.map((target) =>
+        Object.freeze({
+          id: target.id,
+          state: target.state,
+          position: Object.freeze([
+            roundSpawnCoordinate(target.footPosition.x),
+            roundSpawnCoordinate(target.footPosition.y),
+            roundSpawnCoordinate(target.footPosition.z)
+          ])
+        })
+      )
+    });
     if (V2_ALARM_FLOOR_VISUALIZATION_ENABLED) {
       ownedAlarmFloorVisual =
         createV2AlarmFloorVisualSystem(scene);
@@ -469,7 +547,7 @@ const initializeRuntime = async () => {
           runtimeStressScenario.population
             .initialBrainwashedNpcCount ||
         initialFrame.bitCount !==
-          runtimeStressScenario.population.bitCount
+          runtimeStressScenario.population.initialBitCount
       ) {
         throw new Error(
           "実学校stressの初期人口が要求値と一致しません。"
@@ -568,6 +646,7 @@ const disposeRuntime = async () => {
   delete window.__v2PerformanceDiagnostics;
   delete document.body.dataset.v2PerformanceReport;
   delete document.body.dataset.v2RuntimeStressReport;
+  delete document.body.dataset.v2NpcSpawnReport;
   if (runtimeStressScenario) {
     delete document.documentElement.dataset.validationStatus;
   }
@@ -929,7 +1008,7 @@ if (runtimeStressScenario) {
     `seed ${runtimeStressScenario.seed}\n` +
     `NPC ${runtimeStressScenario.population.npcCount} / ` +
     `初期洗脳 ${runtimeStressScenario.population.initialBrainwashedNpcCount} / ` +
-    `BIT ${runtimeStressScenario.population.bitCount}`;
+    `BIT ${runtimeStressScenario.population.initialBitCount}`;
   publishRuntimeStressReport("running", null);
 }
 
@@ -1212,7 +1291,7 @@ const rebuildSession = () => {
     activeSession = null;
     activeSession = await transitionV2RuntimeSession({
       currentSession: previousSession,
-      runtimeSeed,
+      nextRuntimeSeed: nextRuntimeSessionSeed,
       isCancelled: () => runtimeTerminated,
       exitPointerLock: () => document.exitPointerLock(),
       showLoading: showSessionLoading,
@@ -1236,7 +1315,7 @@ const rebuildSession = () => {
 
 try {
   activeSession = await createRuntimeSession(
-    runtimeSeed,
+    nextRuntimeSessionSeed(),
     rebuildSession
   );
 } catch {

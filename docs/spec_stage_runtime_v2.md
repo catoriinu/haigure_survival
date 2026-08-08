@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 3Dステージランタイム仕様書
 
-更新日: 2026-07-28
+更新日: 2026-08-08
 対象バージョン: v2
 
 ## 1. 文書の位置付け
@@ -85,6 +85,7 @@ export type StageSpatialContext = Readonly<{
   bitNavigation: BitFlightNavigationWorld;
   markers: StageMarkerRegistry;
   volumes: StageVolumeRegistry;
+  playerSpawns: StagePlayerSpawnRegistry;
   assemblyVenues: StageAssemblyVenueRegistry;
   links: StageLinkRegistry;
   boundary: StageBoundary;
@@ -359,13 +360,15 @@ Area分割の粗さと細かさはRuntimeだけでは補正しない。新規ス
 
 初期role:
 
-- `player_spawn`: プレイヤー初期位置。学校では1件必須。
+- `player_spawn`: 向き付きのプレイヤー開始候補。学校では承認済み11件を必須とする。
 - `assembly_anchor`: 集合演出の基準位置。
 - `patrol_anchor`: 明示的な巡回基準が必要な場合だけ使用。
 
 T04-3Aでは資産仕様7.9節に従い、`door`、`door_panel`、`door_open_pose`、`elevator`、`elevator_car`、`elevator_stop`、`elevator_passenger_origin`、`elevator_wait`、`elevator_human_gate`をmarker role registryへ追加する。roleごとの許可`hs_*`、親子関係、ID参照を厳格検証し、未知roleや共通keyだけを読む緩い分類へしない。
 
-NPCとビットのランダム出現は多数の点を列挙せず、対応する3D Volume内からNavMesh上の点を抽選する。`bit_spawn`は対象ゾーンID・帯IDを明示し、ビット用NavMeshだけへ投影する。
+`StagePlayerSpawnRegistry`は`player_spawn` Marker、`hs_player_spawn_id`でそのMarker IDを参照する1件の`player_spawn_exclusion` Volume、同じIDを参照する1件以上の`npc_spawn_bias` Volumeを組み立てる。参照先欠落、除外Volumeの重複対応、bias欠落、孤立対応、`0.000001`未満または`1,000,000`超の重み、単一`npc_spawn`へ完全内包されないbias、対応する人間用NavMeshとの実交差面積がないbiasは読込失敗とする。同一Playerのbias同士は実NavMesh上の正面積重複を禁止し、面・辺で接するだけの場合は許可する。学校は承認済みIDの固定順から、session seedから分離した`player-spawn`乱数列で一様抽選する。選択結果はPlayerとSurvivalへ同一objectで渡す。
+
+NPCとBITのランダム出現は多数の点を列挙せず、対応する3D Volumeとbaked NavMesh polygonの交差面から実面積比例で抽選する。NPCは全`npc_spawn`実交差面をまとめた基礎チャンネルを重み`1.0`とし、選択Player開始地点の`npc_spawn_bias`だけを各`hs_weight`の追加チャンネルとして有効化する。各チャンネルを重み比例で選んだ後、そのチャンネル内を実交差面積比例で抽選する。非選択地点のbiasは候補にも乱数消費にも含めず、基礎チャンネルを常に残すことで全`npc_spawn`許可面の出現確率を0にしない。初期値`hs_weight=0.5`では全校チャンネル`2/3`、近傍チャンネル`1/3`となる。初期洗脳済みを先に配置し、残る未洗脳NPCを同じチャンネル構成と全NPC間の最小距離を共有して後に配置する。`bit_spawn`は対象ゾーンID・帯IDを明示し、対応するBIT用NavMeshだけを使う。開始地点、NPC出現、BIT出現、その他のゲーム進行はsession seedからラベル付きで分離した乱数列を使う。
 
 ## 9. ボリュームと境界
 
@@ -374,7 +377,9 @@ NPCとビットのランダム出現は多数の点を列挙せず、対応す�
 初期role:
 
 - `npc_spawn`
+- `npc_spawn_bias`
 - `bit_spawn`
+- `player_spawn_exclusion`
 - `assembly`
 - `no_enemy_spawn`
 - `no_enemy_enter`
@@ -394,7 +399,9 @@ B04対応ステージの`BND_WorldLimit`は、表示と光線が存在してよ�
 - `unsupported`は対応外を明示する契約であり、欠落時のfallbackではない。`BND_Stage`、GLB全体AABB、最大寿命を世界境界の代用にしない。
 - `BND_WorldLimit` Meshは`semanticMeshes`とAssetContainerが所有する。`StageWorldBoundary`はMesh参照と境界問い合わせcacheだけを所有し、Context破棄時はAssetContainerより先に無効化する。
 
-BITの通常探索、待機、CHASE、逃走、総当たり探索、Alert集合、初期出現、時間増援は既存の塀内飛行帯だけを利用する。B04は外周飛行帯と塀越え`boundary`遷移を追加しない。
+BITの通常探索、待機、CHASE、逃走、総当たり探索、Alert集合、初期出現、時間増援は既存の塀内飛行帯だけを利用する。選択された`player_spawn_exclusion`だけを初期洗脳済みNPC、初期BIT、時間増援、Alert新規生成へ適用し、未選択の10件はこの理由で除外しない。B04は外周飛行帯と塀越え`boundary`遷移を追加しない。
+
+通常ゲームは`initialBitCount=1`、`bitReinforcementIntervalSeconds=10`、`maximumBitCount=25`を必須入力とする。通常BITとAlert生成BITを上限へ含め、カーペット僚機は除外する。増援タイマーは`playing`のupdate中だけ進め、タイトル、停止、集合・公開処刑、ゲーム終了、破棄中は進めない。Alert生成を時間増援より先に処理し、interval超過時も`while`ではなく1機だけ生成してtimerを0に戻す。上限中はtimerを0に保ち、欠員後のcatch-up burstを行わない。stressは初期20／最大20、performanceは初期50／最大50とする。
 
 ### 9.1 集合・公開処刑会場
 

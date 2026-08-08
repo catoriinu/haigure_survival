@@ -14,7 +14,10 @@ import {
   DISTANCE_NAVIGATION_ROUTE_POLICY,
   type NavigationRouteCandidate
 } from "../../../src/world/navigationWorld";
-import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
+import type {
+  StagePlayerSpawn,
+  StageSpatialContext
+} from "../../../src/world/stageSpatialContext";
 import type {
   V2NpcNavigationRouteContext
 } from "../../../src/v2/npcSystem";
@@ -34,6 +37,11 @@ import {
 } from "../../../src/v2/survivalRuntime";
 import type { V2CharacterVisualRuntime } from "../../../src/v2/v2CharacterVisualRuntime";
 import { createDefaultV2CharacterVisualRuntime } from "../characterVisualFixture";
+import {
+  createFixtureSpawnRoleStage,
+  createFixturePlayerSpawnStage,
+  requireFirstFixturePlayerSpawn
+} from "./spawnContractFixture";
 
 export type SurvivalRuntimeLifecycleCheck = Readonly<{
   name: string;
@@ -66,11 +74,10 @@ const selectDistanceNavigationRoute = (
 ) => DISTANCE_NAVIGATION_ROUTE_POLICY.selectRoute(candidates);
 
 const createFakePlayer = (
-  stage: StageSpatialContext
+  playerSpawn: StagePlayerSpawn
 ): V2PlayerController => {
-  const spawn = stage.markers
-    .requireSingle("player_spawn")
-    .node.getAbsolutePosition()
+  const spawn = playerSpawn.marker.node
+    .getAbsolutePosition()
     .clone();
   let footPosition = spawn.clone();
   let eyePosition = spawn.add(new Vector3(0, 1 / 3, 0));
@@ -220,7 +227,8 @@ const createRuntime = async (
   getOrbVisibilityPredicate: () => (position: Vector3) => boolean,
   performanceDiagnostics: V2PerformanceDiagnostics | null = null
 ) => {
-  const player = createFakePlayer(stage);
+  const playerSpawn = requireFirstFixturePlayerSpawn(stage);
+  const player = createFakePlayer(playerSpawn);
   const characterVisuals = await createDefaultV2CharacterVisualRuntime(
     scene,
     Object.freeze([
@@ -236,9 +244,16 @@ const createRuntime = async (
       runtime: createV2SurvivalRuntime({
         scene,
         stage,
+        playerSpawn,
         player,
         characterVisuals,
         random: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED),
+        npcSpawnRandom: createV2SeededRandom(
+          V2_PERFORMANCE_DEFAULT_SEED ^ 0x4e50_4301
+        ),
+        bitSpawnRandom: createV2SeededRandom(
+          V2_PERFORMANCE_DEFAULT_SEED ^ 0x4249_5401
+        ),
         getOrbVisibilityPredicate,
         population: V2_PERFORMANCE_ACCEPTANCE_POPULATION,
         performanceDiagnostics,
@@ -259,6 +274,18 @@ export const runSurvivalRuntimeLifecycleTests = async (
   scene: Scene,
   stage: StageSpatialContext
 ): Promise<readonly SurvivalRuntimeLifecycleCheck[]> => {
+  const lifecycleStage = createFixturePlayerSpawnStage(
+    createFixtureSpawnRoleStage(
+      createFixtureSpawnRoleStage(
+        stage,
+        "npc_spawn",
+        Object.freeze(["npc-spawn-f01-stage"])
+      ),
+      "bit_spawn",
+      Object.freeze(["bit-spawn-outdoor-f1"])
+    ),
+    "player-spawn-main"
+  );
   const checks: SurvivalRuntimeLifecycleCheck[] = [];
   const baseline = captureSceneResources(scene);
   let firstRuntime: V2SurvivalRuntime | null = null;
@@ -308,7 +335,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
       );
     const firstFixture = await createRuntime(
       scene,
-      stage,
+      lifecycleStage,
       () => {
         orbVisibilityPredicateFactoryCalls += 1;
         return () => true;
@@ -562,7 +589,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
 
     const secondFixture = await createRuntime(
       scene,
-      stage,
+      lifecycleStage,
       () => () => true
     );
     secondRuntime = secondFixture.runtime;
@@ -596,7 +623,8 @@ export const runSurvivalRuntimeLifecycleTests = async (
 
     const commandBaseline = captureSceneResources(scene);
     const previousActiveCamera = scene.activeCamera;
-    const commandPlayer = createFakePlayer(stage);
+    const playerSpawn = requireFirstFixturePlayerSpawn(lifecycleStage);
+    const commandPlayer = createFakePlayer(playerSpawn);
     let commandRuntime: V2SurvivalRuntime | null = null;
     let commandCharacterVisuals: V2CharacterVisualRuntime | null = null;
     let commandCamera: FreeCamera | null = null;
@@ -622,15 +650,24 @@ export const runSurvivalRuntimeLifecycleTests = async (
         );
       commandRuntime = createV2SurvivalRuntime({
         scene,
-        stage,
+        stage: lifecycleStage,
+        playerSpawn,
         player: commandPlayer,
         characterVisuals: commandCharacterVisuals,
         random: gunNpcRandom,
+        npcSpawnRandom: createV2SeededRandom(
+          V2_PERFORMANCE_DEFAULT_SEED ^ 0x4e50_4302
+        ),
+        bitSpawnRandom: createV2SeededRandom(
+          V2_PERFORMANCE_DEFAULT_SEED ^ 0x4249_5402
+        ),
         getOrbVisibilityPredicate: () => () => true,
         population: Object.freeze({
           npcCount: 1,
           initialBrainwashedNpcCount: 1,
-          bitCount: 0
+          initialBitCount: 0,
+          bitReinforcementIntervalSeconds: 10,
+          maximumBitCount: 0
         }),
         performanceDiagnostics: null,
         performanceWorkloadScenario: null,

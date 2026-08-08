@@ -23,8 +23,11 @@ import type {
   NavigationTransitionStep
 } from "../world/navigationWorld";
 import type { StageNavigationAreaCursor } from "../world/stageNavigationAreas";
-import { createStageBoundarySpawnSampler } from "../world/stageSpawnSampler";
-import type { StageSpatialContext } from "../world/stageSpatialContext";
+import { createStageNpcSpawnSampler } from "../world/stageSpawnSampler";
+import type {
+  StagePlayerSpawn,
+  StageSpatialContext
+} from "../world/stageSpatialContext";
 import type {
   V2PursuitPhase,
   V2TargetNavigationAreaSnapshot
@@ -260,6 +263,8 @@ export type V2NpcSystemOptions = Readonly<{
   initialBrainwashedNpcCount: number;
   diagnosticsEnabled: boolean;
   random: () => number;
+  spawnRandom: () => number;
+  playerSpawn: StagePlayerSpawn;
   resolveTargetNavigationArea(
     target: V2HumanTargetSnapshot
   ): V2TargetNavigationAreaSnapshot;
@@ -982,6 +987,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (typeof options.random !== "function") {
       throw new Error("randomには0以上1未満を返す関数が必要です。");
     }
+    if (typeof options.spawnRandom !== "function") {
+      throw new Error("spawnRandomには0以上1未満を返す関数が必要です。");
+    }
     if (typeof options.selectNavigationRoute !== "function") {
       throw new Error("selectNavigationRouteには関数が必要です。");
     }
@@ -1051,50 +1059,58 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
     this.elevatorStopByLinkEndpoint = elevatorStopByLinkEndpoint;
 
-    const spawnPoints =
-      options.npcCount === 0
-        ? Object.freeze([])
-        : createStageBoundarySpawnSampler(
-            options.stage.boundary,
-            options.stage.navigation,
-            {
-              maxAttempts: options.npcCount * 64,
-              projectionMaxDistance:
-                SPAWN_PROJECTION_MAX_DISTANCE,
-              random: options.random
-            },
-            (point) => {
-              const footPosition = this.resolveFootPosition(point);
-              return (
-                options.stage.queries.containsVolume(
-                  "no_enemy_spawn",
-                  footPosition
-                ) ||
-                options.stage.queries.containsVolume(
-                  "no_enemy_enter",
-                  footPosition
-                ) ||
-                options.stage.queries.containsVolume(
-                  "hazard",
-                  footPosition
-                ) ||
-                options.stage.queries.containsVolume(
-                  "water",
-                  footPosition
-                ) ||
-                options.stage.navigationAreas.portals.some(
-                  (portal) => portal.contains(footPosition)
-                )
-              );
-            }
-          ).samplePoints(
-            options.npcCount,
-            SPAWN_MINIMUM_DISTANCE
-          );
-    const brainwashedIndices = this.pickBrainwashedIndices(
-      options.npcCount,
-      options.initialBrainwashedNpcCount
-    );
+    const spawnPoints = (() => {
+      if (options.npcCount === 0) {
+        return Object.freeze([]);
+      }
+      const sampler = createStageNpcSpawnSampler(
+        options.stage.volumes.getByRole("npc_spawn"),
+        options.playerSpawn.npcSpawnBiasVolumes,
+        options.playerSpawn.id,
+        options.stage.navigation,
+        {
+          maxAttempts: options.npcCount * 64,
+          projectionMaxDistance: SPAWN_PROJECTION_MAX_DISTANCE,
+          random: options.spawnRandom
+        }
+      );
+      const isCommonExcluded = (point: Vector3) => {
+        const footPosition = this.resolveFootPosition(point);
+        return (
+          options.stage.queries.containsVolume(
+            "no_enemy_spawn",
+            footPosition
+          ) ||
+          options.stage.queries.containsVolume(
+            "no_enemy_enter",
+            footPosition
+          ) ||
+          options.stage.queries.containsVolume("hazard", footPosition) ||
+          options.stage.queries.containsVolume("water", footPosition) ||
+          options.stage.navigationAreas.portals.some((portal) =>
+            portal.contains(footPosition)
+          )
+        );
+      };
+      const brainwashedPoints = sampler.samplePoints(
+        options.initialBrainwashedNpcCount,
+        SPAWN_MINIMUM_DISTANCE,
+        Object.freeze([]),
+        (point) =>
+          isCommonExcluded(point) ||
+          options.stage.queries.containsVolumeById(
+            options.playerSpawn.exclusionVolume.id,
+            this.resolveFootPosition(point)
+          )
+      );
+      const normalPoints = sampler.samplePoints(
+        options.npcCount - options.initialBrainwashedNpcCount,
+        SPAWN_MINIMUM_DISTANCE,
+        brainwashedPoints,
+        isCommonExcluded
+      );
+      return Object.freeze([...brainwashedPoints, ...normalPoints]);
+    })();
 
     const npcs: NpcRuntime[] = [];
     const cleanupActions: Array<() => void> = [];
@@ -1103,7 +1119,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       for (let index = 0; index < spawnPoints.length; index += 1) {
         const spawnPoint = spawnPoints[index];
         const id = `npc_${index}`;
-        const initialState = brainwashedIndices.has(index)
+        const initialState =
+          index < options.initialBrainwashedNpcCount
           ? this.pickInitialBrainwashedState()
           : "normal";
         const stateSystem = createV2CharacterStateSystem({
@@ -6153,19 +6170,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         this.autonomousThreatMaximumSourceCount,
       frameViewBuildSequence: this.frameViewBuildSequence
     });
-  }
-
-  private pickBrainwashedIndices(count: number, brainwashedCount: number) {
-    const indices = Array.from({ length: count }, (_, index) => index);
-    for (let index = 0; index < brainwashedCount; index += 1) {
-      const remaining = count - index;
-      const swapIndex = index + Math.floor(this.nextRandom() * remaining);
-      [indices[index], indices[swapIndex]] = [
-        indices[swapIndex],
-        indices[index]
-      ];
-    }
-    return new Set(indices.slice(0, brainwashedCount));
   }
 
   private pickInitialBrainwashedState(): V2CharacterState {

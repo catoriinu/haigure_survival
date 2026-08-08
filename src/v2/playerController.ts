@@ -1,4 +1,4 @@
-import { FreeCamera, Mesh, Scene, Vector3 } from "@babylonjs/core";
+import { Engine, FreeCamera, Mesh, Scene, Vector3 } from "@babylonjs/core";
 import {
   PLAYER_SPRITE_HEIGHT,
   PLAYER_SPRITE_WIDTH
@@ -12,7 +12,10 @@ import { createPlayerMotionController } from "../game/playerMotion";
 import type {
   DynamicStageSpatialSnapshot
 } from "../world/dynamicStageSpatialVariants";
-import type { StageSpatialContext } from "../world/stageSpatialContext";
+import type {
+  StagePlayerSpawn,
+  StageSpatialContext
+} from "../world/stageSpatialContext";
 import type { V2PlayerInput } from "./playerInput";
 
 export const V2_PLAYER_BASE_EYE_HEIGHT = 1 / 3;
@@ -34,6 +37,7 @@ export type V2PlayerControllerOptions = Readonly<{
   scene: Scene;
   camera: FreeCamera;
   stage: StageSpatialContext;
+  playerSpawn: StagePlayerSpawn;
   input: V2PlayerInput;
   eyeHeightScale?: number;
 }>;
@@ -99,10 +103,9 @@ const assertDelta = (delta: number) => {
 
 const buildSpawnForward = (
   scene: Scene,
-  stage: StageSpatialContext
+  playerSpawn: StagePlayerSpawn
 ): Vector3 => {
-  const marker = stage.markers.requireSingle("player_spawn");
-  const markerWorld = marker.node.computeWorldMatrix(true);
+  const markerWorld = playerSpawn.marker.node.computeWorldMatrix(true);
   const forward = Vector3.TransformNormal(
     Vector3.Forward(scene.useRightHandedSystem),
     markerWorld
@@ -119,6 +122,7 @@ export const createV2PlayerController = ({
   scene,
   camera,
   stage,
+  playerSpawn,
   input,
   eyeHeightScale: initialEyeHeightScale = 1
 }: V2PlayerControllerOptions): V2PlayerController => {
@@ -128,9 +132,10 @@ export const createV2PlayerController = ({
     throw new Error("V2プレイヤーには1個以上のactor colliderが必要です。");
   }
 
-  const spawnMarker = stage.markers.requireSingle("player_spawn");
-  const spawnFootPosition = spawnMarker.node.getAbsolutePosition().clone();
-  const spawnForward = buildSpawnForward(scene, stage);
+  const spawnFootPosition = playerSpawn.marker.node
+    .getAbsolutePosition()
+    .clone();
+  const spawnForward = buildSpawnForward(scene, playerSpawn);
   assertFiniteVector("player_spawnのworld位置", spawnFootPosition);
   if (!stage.boundary.contains(spawnFootPosition)) {
     throw new Error("player_spawnがBND_Stageの外側にあります。");
@@ -157,7 +162,8 @@ export const createV2PlayerController = ({
 
   const motion = createPlayerMotionController({
     moveInertiaAt60Fps: PLAYER_MOVE_INERTIA_AT_60_FPS,
-    moveStopEpsilon: PLAYER_MOVE_STOP_EPSILON
+    moveStopEpsilon: PLAYER_MOVE_STOP_EPSILON,
+    collisionEpsilon: Engine.CollisionsEpsilon
   });
   const height = createPlayerHeightController(scene, {
     gravity: PLAYER_GRAVITY,

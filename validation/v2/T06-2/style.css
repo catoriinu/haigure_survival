@@ -1,0 +1,162 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, "Yu Gothic UI", sans-serif;
+  background: #071018;
+  color: #e8f4fb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 20% 10%, #16435a 0, transparent 34rem),
+    linear-gradient(145deg, #061018, #0b2534);
+}
+
+main {
+  width: min(1080px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 48px 0 72px;
+}
+
+.hero,
+.panel {
+  border: 1px solid #25526a;
+  border-radius: 18px;
+  background: rgb(7 24 34 / 88%);
+  box-shadow: 0 24px 70px rgb(0 0 0 / 28%);
+}
+
+.hero {
+  padding: 32px;
+  margin-bottom: 20px;
+}
+
+.hero h1 {
+  margin: 4px 0 12px;
+  font-size: clamp(1.7rem, 4vw, 2.7rem);
+}
+
+.hero p:last-child {
+  max-width: 760px;
+  margin-bottom: 0;
+  color: #b8d2df;
+  line-height: 1.8;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #5be0ba;
+  font: 700 0.8rem/1.2 Consolas, monospace;
+  letter-spacing: 0.16em;
+}
+
+.panel {
+  padding: 28px 32px 36px;
+}
+
+.summary {
+  margin: 0 0 18px;
+  font-weight: 700;
+  color: #ffd06a;
+}
+
+.summary[data-state="passed"] {
+  color: #5be0ba;
+}
+
+.summary[data-state="failed"] {
+  color: #ff7d7d;
+}
+
+button {
+  border: 1px solid #55bddd;
+  border-radius: 999px;
+  padding: 10px 18px;
+  background: #103c52;
+  color: #f4fbff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 24px 0;
+}
+
+.metrics div,
+.metrics dt,
+.metrics dd {
+  margin: 0;
+}
+
+.metrics dt {
+  color: #8eb5c7;
+  font-size: 0.8rem;
+}
+
+.metrics dd {
+  margin-bottom: 10px;
+  font: 700 1rem/1.4 Consolas, monospace;
+}
+
+.check-results {
+  display: grid;
+  gap: 12px;
+  padding-left: 24px;
+}
+
+.check-results li {
+  padding: 14px 16px;
+  border-left: 4px solid #4fb6d4;
+  background: #0d2837;
+}
+
+.check-results li[data-state="passed"] {
+  border-left-color: #5be0ba;
+}
+
+.check-results li[data-state="failed"] {
+  border-left-color: #ff6767;
+}
+
+.check-results strong,
+.check-results span {
+  display: block;
+}
+
+.check-results span {
+  margin-top: 7px;
+  color: #b8d2df;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 0.82rem/1.55 Consolas, monospace;
+}
+
+@media (max-width: 640px) {
+  main {
+    width: min(100% - 20px, 1080px);
+    padding-top: 20px;
+  }
+
+  .hero,
+  .panel {
+    padding: 22px;
+  }
+
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+}

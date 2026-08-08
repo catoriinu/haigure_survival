@@ -37,6 +37,10 @@ import {
 } from "../../../src/v2/playerController";
 import type { V2PlayerInput } from "../../../src/v2/playerInput";
 import {
+  V2_WATER_HORIZONTAL_SPEED_SCALE,
+  resolveV2HorizontalSpeedScale
+} from "../../../src/v2/runtimeInteraction";
+import {
   loadStageSpatialContext,
   type StageSpatialContext
 } from "../../../src/world/stageSpatialContext";
@@ -272,7 +276,11 @@ const validatePlayerRampTraversal = (
   startBlender: Vector3,
   endBlender: Vector3
 ) => {
-  const spawnNode = context.markers.requireSingle("player_spawn").node;
+  const playerSpawn = context.playerSpawns.getById("player-spawn-main");
+  if (!playerSpawn) {
+    throw new Error("T02 fixtureのPlayer開始地点がありません。");
+  }
+  const spawnNode = playerSpawn.marker.node;
   const originalSpawn = spawnNode.getAbsolutePosition().clone();
   const start = blenderPointToBabylon(startBlender);
   const end = blenderPointToBabylon(endBlender);
@@ -303,6 +311,7 @@ const validatePlayerRampTraversal = (
       scene,
       camera: testCamera,
       stage: context,
+      playerSpawn,
       input
     });
     testCamera.setTarget(
@@ -360,7 +369,11 @@ const validatePlayerWaypointTraversal = (
   if (waypointsBlender.length < 2) {
     throw new Error(`${label}のWaypointが2件未満です。`);
   }
-  const spawnNode = context.markers.requireSingle("player_spawn").node;
+  const playerSpawn = context.playerSpawns.getById("player-spawn-main");
+  if (!playerSpawn) {
+    throw new Error("T02 fixtureのPlayer開始地点がありません。");
+  }
+  const spawnNode = playerSpawn.marker.node;
   const originalSpawn = spawnNode.getAbsolutePosition().clone();
   const waypoints = waypointsBlender.map(blenderPointToBabylon);
   const previousActiveCamera = scene.activeCamera;
@@ -388,6 +401,7 @@ const validatePlayerWaypointTraversal = (
       scene,
       camera: testCamera,
       stage: context,
+      playerSpawn,
       input
     });
     for (let frame = 0; frame < 9000 && waypointIndex < waypoints.length; frame += 1) {
@@ -459,6 +473,110 @@ const validatePlayerWaypointTraversal = (
   };
 };
 
+const validatePoolSpawnMovement = (context: StageSpatialContext) => {
+  const playerSpawn = context.playerSpawns.getById(
+    "player-spawn-roof-pool-west-stairs"
+  );
+  if (!playerSpawn) {
+    throw new Error("T02 fixtureの屋上プール開始地点がありません。");
+  }
+
+  const directions = [
+    ["W", { moveX: 0, moveZ: 1 }],
+    ["A", { moveX: -1, moveZ: 0 }],
+    ["S", { moveX: 0, moveZ: -1 }],
+    ["D", { moveX: 1, moveZ: 0 }]
+  ] as const;
+
+  return directions.map(([label, moveAxes]) => {
+    const previousActiveCamera = scene.activeCamera;
+    const testCamera = new FreeCamera(
+      `PoolSpawn${label}Camera`,
+      playerSpawn.marker.node.getAbsolutePosition().clone(),
+      scene
+    );
+    const input: V2PlayerInput = {
+      getMoveAxes: () => moveAxes,
+      isDashPressed: () => false,
+      drainPressedActions: () => Object.freeze([]),
+      reset: () => undefined,
+      dispose: () => undefined
+    };
+    let controller: ReturnType<typeof createV2PlayerController> | null = null;
+    let startedInWater = false;
+    let initialSpeedScale = Number.NaN;
+    let firstMovementFrame: number | null = null;
+    let horizontalDistance = 0;
+    let ungroundedFrames = 0;
+    let stayedInsideBoundary = true;
+    let movementError: unknown = null;
+
+    try {
+      controller = createV2PlayerController({
+        scene,
+        camera: testCamera,
+        stage: context,
+        playerSpawn,
+        input
+      });
+      const initialFoot = controller.getFootPosition();
+      startedInWater = context.queries.containsVolume("water", initialFoot);
+      for (let frame = 0; frame < 120; frame += 1) {
+        const speedScale = resolveV2HorizontalSpeedScale(
+          context.queries.containsVolume(
+            "water",
+            controller.getFootPosition()
+          )
+        );
+        if (frame === 0) {
+          initialSpeedScale = speedScale;
+        }
+        const playerFrame = controller.update(1 / 60, true, speedScale);
+        const horizontalOffset = playerFrame.footPosition.subtract(initialFoot);
+        horizontalOffset.y = 0;
+        horizontalDistance = horizontalOffset.length();
+        if (firstMovementFrame === null && horizontalDistance > 1e-8) {
+          firstMovementFrame = frame + 1;
+        }
+        if (!playerFrame.verticalState.grounded) {
+          ungroundedFrames += 1;
+        }
+        stayedInsideBoundary =
+          stayedInsideBoundary &&
+          context.boundary.contains(playerFrame.footPosition);
+      }
+    } catch (error) {
+      movementError = error;
+      console.error(`屋上プール開始${label}移動中に例外が発生しました。`, error);
+    } finally {
+      controller?.dispose();
+      testCamera.dispose();
+      scene.activeCamera = previousActiveCamera;
+    }
+
+    return Object.freeze({
+      label,
+      ok:
+        movementError === null &&
+        startedInWater &&
+        initialSpeedScale === V2_WATER_HORIZONTAL_SPEED_SCALE &&
+        firstMovementFrame !== null &&
+        firstMovementFrame <= 3 &&
+        horizontalDistance > 0.02 &&
+        ungroundedFrames === 0 &&
+        stayedInsideBoundary,
+      startedInWater,
+      initialSpeedScale,
+      firstMovementFrame,
+      horizontalDistance,
+      ungroundedFrames,
+      stayedInsideBoundary,
+      errorMessage:
+        movementError === null ? null : formatError(movementError)
+    });
+  });
+};
+
 const validatePlayerBarrierAttempt = (
   context: StageSpatialContext,
   label: string,
@@ -467,7 +585,11 @@ const validatePlayerBarrierAttempt = (
   barrierProgressBlender: number,
   minimumFootHeightBlender: number
 ) => {
-  const spawnNode = context.markers.requireSingle("player_spawn").node;
+  const mainPlayerSpawn = context.playerSpawns.getById("player-spawn-main");
+  if (!mainPlayerSpawn) {
+    throw new Error("T02 fixtureのPlayer開始地点がありません。");
+  }
+  const spawnNode = mainPlayerSpawn.marker.node;
   const originalSpawn = spawnNode.getAbsolutePosition().clone();
   const start = blenderPointToBabylon(startBlender);
   const end = blenderPointToBabylon(endBlender);
@@ -502,6 +624,7 @@ const validatePlayerBarrierAttempt = (
       scene,
       camera: testCamera,
       stage: context,
+      playerSpawn: mainPlayerSpawn,
       input
     });
     testCamera.setTarget(
@@ -678,12 +801,17 @@ const validateLoadedContext = (
   context: StageSpatialContext,
   checks: CheckResult[]
 ) => {
-  const playerSpawn = context.markers
-    .requireSingle("player_spawn")
-    .node.getAbsolutePosition();
+  const mainPlayerSpawn = context.playerSpawns.getById("player-spawn-main");
+  if (!mainPlayerSpawn) {
+    throw new Error("T02 fixtureのPlayer開始地点がありません。");
+  }
+  const playerSpawn = mainPlayerSpawn.marker.node.getAbsolutePosition();
   const expectedPlayerSpawn = new Vector3(0.375, 0, 0);
   const npcSpawnVolumes = context.volumes.getByRole("npc_spawn");
   const bitSpawnVolumes = context.volumes.getByRole("bit_spawn");
+  const playerSpawnExclusions = context.volumes.getByRole(
+    "player_spawn_exclusion"
+  );
   const waterVolumes = context.volumes.getByRole("water");
   const bitTransitions = context.bitNavigation.transitions;
   const apertureTransitions = bitTransitions.filter(
@@ -828,9 +956,9 @@ const validateLoadedContext = (
           "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
         context.resources.navSourceMeshes.length === 39 &&
         context.resources.bitFlightNavSourceMeshes.length === 22 &&
-        context.markers.all.length === 233 &&
+        context.markers.all.length === 243 &&
         assemblyAnchors.length === 2 &&
-        context.volumes.all.length === 82 &&
+        context.volumes.all.length === 118 &&
         assemblyVolumes.length === 2 &&
         assemblyVenuesValid &&
         roomVariantSelectionValid &&
@@ -859,11 +987,13 @@ const validateLoadedContext = (
       "3Dスポーン・境界・生成Volume",
       Vector3.Distance(playerSpawn, expectedPlayerSpawn) <= 1e-5 &&
         context.boundary.contains(playerSpawn) &&
-        npcSpawnVolumes.length === 1 &&
-        bitSpawnVolumes.length === 1 &&
-        bitSpawnVolumes[0].bitFlightBand !== null &&
+        context.playerSpawns.all.length === 11 &&
+        playerSpawnExclusions.length === 11 &&
+        npcSpawnVolumes.length === 5 &&
+        bitSpawnVolumes.length === 11 &&
+        bitSpawnVolumes.every((volume) => volume.bitFlightBand !== null) &&
         waterVolumes.length === 1,
-      `spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)}) / boundary=${context.boundary.contains(playerSpawn)} / npc=${npcSpawnVolumes.length} / bit=${bitSpawnVolumes.length}:${bitSpawnVolumes[0]?.bitFlightBand?.zoneId ?? "帯なし"}/${bitSpawnVolumes[0]?.bitFlightBand?.bandId ?? "帯なし"} / water=${waterVolumes.length}`
+      `spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)}) / boundary=${context.boundary.contains(playerSpawn)} / player=${context.playerSpawns.all.length}/${playerSpawnExclusions.length} / npc=${npcSpawnVolumes.length} / bit=${bitSpawnVolumes.length} / water=${waterVolumes.length}`
     )
   );
 
@@ -2047,6 +2177,7 @@ const validateLoadedContext = (
     ],
     [14.5, 15.65]
   );
+  const poolSpawnMovement = validatePoolSpawnMovement(context);
   const poolsideFoot = blenderPointToBabylon(
     new Vector3(13.4, 39.0, 15.65)
   );
@@ -2083,6 +2214,16 @@ const validateLoadedContext = (
         context.queries.containsVolume("water", waterCenter) &&
         !context.queries.containsVolume("water", pointAboveWater),
       `id=${waterVolume.id} / center=${context.queries.containsVolume("water", waterCenter)} / above=${context.queries.containsVolume("water", pointAboveWater)}`
+    ),
+    createCheck(
+      "実プール開始地点から水中50%でWASD移動開始",
+      poolSpawnMovement.every((result) => result.ok),
+      poolSpawnMovement
+        .map(
+          (result) =>
+            `${result.label}:water=${result.startedInWater},scale=${result.initialSpeedScale},first=${result.firstMovementFrame ?? "なし"},distance=${result.horizontalDistance.toFixed(6)},airborne=${result.ungroundedFrames},boundary=${result.stayedInsideBoundary},error=${result.errorMessage ?? "なし"}`
+        )
+        .join(" / ")
     )
   );
 
@@ -2666,9 +2807,9 @@ const runValidation = async () => {
         "COL_BeamSightOnly_RoomVariant_F01_Infirmary_Disordered_Curtains" &&
       activeContext.resources.navSourceMeshes.length === 39 &&
       activeContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-      activeContext.markers.all.length === 233 &&
+      activeContext.markers.all.length === 243 &&
       activeContext.markers.getByRole("assembly_anchor").length === 2 &&
-      activeContext.volumes.all.length === 82 &&
+      activeContext.volumes.all.length === 118 &&
       activeContext.volumes.getByRole("assembly").length === 2 &&
       activeContext.assemblyVenues.all.length === 2 &&
       activeContext.assemblyVenues.all.every(

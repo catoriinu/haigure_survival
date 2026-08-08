@@ -76,7 +76,7 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
-GENERATOR_VERSION = "b03-3c-interactive-assets-v10"
+GENERATOR_VERSION = "t06-2-npc-spawn-bias-v2"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -260,6 +260,10 @@ GENERATED_PREFIXES = (
     "LNK_bit-window-",
     "LNK_bit-roof-",
     "VOL_BitFlight_",
+    "VOL_BitSpawn_",
+    "VOL_NpcSpawnBias_",
+    "VOL_NpcSpawn_",
+    "VOL_PlayerSpawnExclusion_",
     "VOL_PoolWater",
     "VIS_StairSystem_NE_",
     "COL_StairSystem_NE_",
@@ -272,6 +276,7 @@ GENERATED_PREFIXES = (
     "VIS_RoofGuard_",
     "COL_RoofGuard_",
     "MRK_RoomVariant_",
+    "MRK_PlayerSpawn_",
     "VOL_RoomVariantTile_",
     "VIS_RoomVariant_",
     "COL_RoomVariant_",
@@ -407,6 +412,285 @@ BIT_FLIGHT_BANDS = (
         "outdoor",
         15.4,
         18.0,
+    ),
+)
+
+PLAYER_SPAWN_SPECS = (
+    (
+        "Main",
+        "player-spawn-main",
+        (-1.5, 0.0, 0.0),
+        90.0,
+        "player-spawn-main-exclusion",
+        ((-4.0, -2.5, -0.4), (1.0, 2.5, 2.8)),
+    ),
+    (
+        "GymCenter",
+        "player-spawn-gym-center",
+        (46.4, 9.5, 0.0),
+        0.0,
+        "player-spawn-gym-center-exclusion",
+        ((41.4, 4.5, -0.4), (51.4, 14.5, 6.0)),
+    ),
+    (
+        "GymStage",
+        "player-spawn-gym-stage",
+        (46.4, -6.5, 1.0),
+        180.0,
+        "player-spawn-gym-stage-exclusion",
+        ((42.4, -9.0, 0.6), (50.4, -4.0, 7.0)),
+    ),
+    (
+        "F02_Classroom02",
+        "player-spawn-f02-classroom-02",
+        (-4.6, 18.0, 3.6),
+        -141.52,
+        "player-spawn-f02-classroom-02-exclusion",
+        ((-7.6, 15.0, 3.2), (-1.6, 21.0, 6.4)),
+    ),
+    (
+        "F03_Classroom02",
+        "player-spawn-f03-classroom-02",
+        (-4.6, 18.0, 7.2),
+        -141.52,
+        "player-spawn-f03-classroom-02-exclusion",
+        ((-7.6, 15.0, 6.8), (-1.6, 21.0, 10.0)),
+    ),
+    (
+        "F04_Classroom02",
+        "player-spawn-f04-classroom-02",
+        (-4.6, 18.0, 10.8),
+        -141.52,
+        "player-spawn-f04-classroom-02-exclusion",
+        ((-7.6, 15.0, 10.4), (-1.6, 21.0, 13.6)),
+    ),
+    (
+        "F02_ToiletWashSide",
+        "player-spawn-f02-toilet-wash-side",
+        (-0.8, 40.5, 3.6),
+        14.04,
+        "player-spawn-f02-toilet-wash-side-exclusion",
+        ((-2.8, 38.5, 3.2), (1.2, 42.5, 6.4)),
+    ),
+    (
+        "F02_CouncilSouth",
+        "player-spawn-f02-council-south",
+        (9.9, 38.5, 3.6),
+        180.0,
+        "player-spawn-f02-council-south-exclusion",
+        ((6.4, 36.5, 3.2), (13.4, 40.5, 6.4)),
+    ),
+    (
+        "F03_ArtSouth",
+        "player-spawn-f03-art-south",
+        (14.3, 37.4, 7.2),
+        180.0,
+        "player-spawn-f03-art-south-exclusion",
+        ((10.3, 34.9, 6.8), (18.3, 39.9, 10.0)),
+    ),
+    (
+        "F04_MusicSouth",
+        "player-spawn-f04-music-south",
+        (31.3, 37.4, 10.8),
+        180.0,
+        "player-spawn-f04-music-south-exclusion",
+        ((27.3, 34.9, 10.4), (35.3, 39.9, 13.6)),
+    ),
+    (
+        "RoofPoolWestStairs",
+        "player-spawn-roof-pool-west-stairs",
+        (17.5, 39.0, 14.66),
+        -90.0,
+        "player-spawn-roof-pool-west-stairs-exclusion",
+        ((14.0, 36.5, 14.1), (21.0, 41.5, 18.7)),
+    ),
+)
+
+NPC_SPAWN_VOLUME_SPECS = (
+    (
+        "F01_Stage",
+        "npc-spawn-f01-stage",
+        ((-18.4, -14.2, -0.4), (63.2, 51.0, 3.4)),
+    ),
+    (
+        "F02_Stage",
+        "npc-spawn-f02-stage",
+        ((-12.2, -8.7, 3.4), (59.0, 45.1, 7.0)),
+    ),
+    (
+        "F03_Stage",
+        "npc-spawn-f03-stage",
+        ((-12.2, -11.2, 7.0), (59.2, 45.1, 10.6)),
+    ),
+    (
+        "F04_Stage",
+        "npc-spawn-f04-stage",
+        ((-12.2, -8.8, 10.6), (47.0, 45.1, 14.2)),
+    ),
+    (
+        "Roof_Stage",
+        "npc-spawn-roof-stage",
+        ((-12.5, -6.9, 14.2), (47.3, 45.4, 18.6)),
+    ),
+)
+
+NPC_SPAWN_BIAS_VOLUME_SPECS = (
+    (
+        "Main",
+        "npc-spawn-bias-main",
+        "player-spawn-main",
+        0.5,
+        ((-6.0, -3.5, -0.4), (0.0, 5.0, 3.4)),
+    ),
+    (
+        "GymCenter",
+        "npc-spawn-bias-gym-center",
+        "player-spawn-gym-center",
+        0.5,
+        ((39.4, 2.5, -0.4), (53.4, 16.5, 3.4)),
+    ),
+    (
+        "GymStage",
+        "npc-spawn-bias-gym-stage",
+        "player-spawn-gym-stage",
+        0.5,
+        ((40.6, -11.0, 0.6), (52.2, -2.0, 3.4)),
+    ),
+    (
+        "F02_Classroom02",
+        "npc-spawn-bias-f02-classroom-02",
+        "player-spawn-f02-classroom-02",
+        0.5,
+        ((-12.15, 12.65, 3.4), (-3.65, 22.35, 7.0)),
+    ),
+    (
+        "F03_Classroom02",
+        "npc-spawn-bias-f03-classroom-02",
+        "player-spawn-f03-classroom-02",
+        0.5,
+        ((-12.15, 12.65, 7.0), (-3.65, 22.35, 10.6)),
+    ),
+    (
+        "F04_Classroom02",
+        "npc-spawn-bias-f04-classroom-02",
+        "player-spawn-f04-classroom-02",
+        0.5,
+        ((-12.15, 12.65, 10.6), (-3.65, 22.35, 14.2)),
+    ),
+    (
+        "F02_ToiletWashSide",
+        "npc-spawn-bias-f02-toilet-wash-side",
+        "player-spawn-f02-toilet-wash-side",
+        0.5,
+        ((-6.3, 39.8, 3.4), (2.2, 45.05, 7.0)),
+    ),
+    (
+        "F02_CouncilSouth",
+        "npc-spawn-bias-f02-council-south",
+        "player-spawn-f02-council-south",
+        0.5,
+        ((5.55, 36.65, 3.4), (14.25, 45.05, 7.0)),
+    ),
+    (
+        "F03_ArtSouth",
+        "npc-spawn-bias-f03-art-south",
+        "player-spawn-f03-art-south",
+        0.5,
+        ((5.55, 36.65, 7.0), (23.25, 45.05, 10.6)),
+    ),
+    (
+        "F04_MusicSouth",
+        "npc-spawn-bias-f04-music-south",
+        "player-spawn-f04-music-south",
+        0.5,
+        ((23.55, 36.65, 10.6), (41.25, 45.05, 14.2)),
+    ),
+    (
+        "RoofPoolWestStairs",
+        "npc-spawn-bias-roof-pool-west-stairs",
+        "player-spawn-roof-pool-west-stairs",
+        0.5,
+        ((10.0, 36.0, 14.2), (14.4, 42.0, 18.6)),
+    ),
+)
+
+BIT_SPAWN_VOLUME_SPECS = (
+    (
+        "OutdoorF1",
+        "bit-spawn-outdoor-f1",
+        "school-exterior",
+        "outdoor-f1",
+        ((-18.1, -14.1, -0.4), (62.9, 50.9, 3.2)),
+    ),
+    (
+        "InteriorF1",
+        "bit-spawn-interior-f1",
+        "school-interior",
+        "interior-f1",
+        ((-12.2, -3.1, -0.4), (56.9, 45.0, 3.2)),
+    ),
+    (
+        "GymLow",
+        "bit-spawn-gym-low",
+        "school-gym",
+        "gym-low",
+        ((33.9, -10.9, -0.4), (58.8, 26.0, 3.2)),
+    ),
+    (
+        "OutdoorF2",
+        "bit-spawn-outdoor-f2",
+        "school-exterior",
+        "outdoor-f2",
+        ((-18.1, -14.1, 3.2), (62.9, 50.9, 6.8)),
+    ),
+    (
+        "InteriorF2",
+        "bit-spawn-interior-f2",
+        "school-interior",
+        "interior-f2",
+        ((-12.2, -6.5, 3.2), (46.9, 45.1, 6.8)),
+    ),
+    (
+        "GymUpper",
+        "bit-spawn-gym-upper",
+        "school-gym",
+        "gym-upper",
+        ((34.0, -11.0, 3.2), (58.9, 26.1, 6.8)),
+    ),
+    (
+        "OutdoorF3",
+        "bit-spawn-outdoor-f3",
+        "school-exterior",
+        "outdoor-f3",
+        ((-18.1, -14.1, 6.8), (62.9, 50.9, 10.4)),
+    ),
+    (
+        "InteriorF3",
+        "bit-spawn-interior-f3",
+        "school-interior",
+        "interior-f3",
+        ((-12.2, -6.5, 6.8), (46.9, 45.1, 10.4)),
+    ),
+    (
+        "OutdoorF4",
+        "bit-spawn-outdoor-f4",
+        "school-exterior",
+        "outdoor-f4",
+        ((-18.1, -14.1, 10.4), (62.9, 50.9, 14.0)),
+    ),
+    (
+        "InteriorF4",
+        "bit-spawn-interior-f4",
+        "school-interior",
+        "interior-f4",
+        ((-12.2, -6.5, 10.4), (46.9, 45.1, 14.0)),
+    ),
+    (
+        "RoofFlight",
+        "bit-spawn-roof-flight",
+        "school-rooftop",
+        "roof-flight",
+        ((-12.2, -6.4, 14.0), (46.9, 45.0, 18.6)),
     ),
 )
 
@@ -2060,6 +2344,83 @@ def create_empty(
     for key, value in properties.items():
         obj[key] = value
     return obj
+
+
+def build_spawn_semantics(semantic_collection: bpy.types.Collection) -> None:
+    for (
+        suffix,
+        spawn_id,
+        position,
+        yaw_degrees,
+        exclusion_id,
+        exclusion_bounds,
+    ) in PLAYER_SPAWN_SPECS:
+        marker = create_empty(
+            f"MRK_PlayerSpawn_{suffix}",
+            position,
+            semantic_collection,
+            {
+                "hs_id": spawn_id,
+                "hs_role": "player_spawn",
+            },
+        )
+        marker.empty_display_type = "ARROWS"
+        marker.empty_display_size = 0.8
+        marker.rotation_euler = (0.0, 0.0, math.radians(yaw_degrees))
+
+        exclusion = create_mesh_object(
+            f"VOL_PlayerSpawnExclusion_{suffix}",
+            [exclusion_bounds],
+            semantic_collection,
+            properties={
+                "hs_id": exclusion_id,
+                "hs_role": "player_spawn_exclusion",
+                "hs_player_spawn_id": spawn_id,
+            },
+        )
+        exclusion.display_type = "WIRE"
+
+    for suffix, spawn_id, bounds in NPC_SPAWN_VOLUME_SPECS:
+        volume = create_mesh_object(
+            f"VOL_NpcSpawn_{suffix}",
+            [bounds],
+            semantic_collection,
+            properties={
+                "hs_id": spawn_id,
+                "hs_role": "npc_spawn",
+            },
+        )
+        volume.display_type = "WIRE"
+
+    for suffix, bias_id, player_spawn_id, weight, bounds in (
+        NPC_SPAWN_BIAS_VOLUME_SPECS
+    ):
+        volume = create_mesh_object(
+            f"VOL_NpcSpawnBias_{suffix}",
+            [bounds],
+            semantic_collection,
+            properties={
+                "hs_id": bias_id,
+                "hs_role": "npc_spawn_bias",
+                "hs_player_spawn_id": player_spawn_id,
+                "hs_weight": weight,
+            },
+        )
+        volume.display_type = "WIRE"
+
+    for suffix, spawn_id, zone_id, band_id, bounds in BIT_SPAWN_VOLUME_SPECS:
+        volume = create_mesh_object(
+            f"VOL_BitSpawn_{suffix}",
+            [bounds],
+            semantic_collection,
+            properties={
+                "hs_id": spawn_id,
+                "hs_role": "bit_spawn",
+                "hs_zone_id": zone_id,
+                "hs_band_id": band_id,
+            },
+        )
+        volume.display_type = "WIRE"
 
 
 def rounded_position(
@@ -5741,12 +6102,6 @@ def configure_stage_navigation_contract() -> None:
         ):
             obj["hs_nav_set"] = "human"
 
-    bit_spawn = bpy.data.objects.get("VOL_BitSpawn_Courtyard")
-    if bit_spawn is None or bit_spawn.type != "MESH":
-        raise RuntimeError("VOL_BitSpawn_Courtyardがありません")
-    bit_spawn["hs_zone_id"] = "school-exterior"
-    bit_spawn["hs_band_id"] = "outdoor-f1"
-
 
 def normalize_export_meshes(export_collection: bpy.types.Collection) -> None:
     for obj in export_collection.all_objects:
@@ -5862,10 +6217,172 @@ def generation_signature() -> str:
     return digest.hexdigest().upper()
 
 
+def has_exact_hs_properties(
+    obj: bpy.types.Object,
+    expected: dict[str, object],
+) -> bool:
+    actual = {
+        key: obj[key]
+        for key in obj.keys()
+        if key.startswith("hs_")
+    }
+    return actual == expected
+
+
+def has_exact_world_bounds(
+    obj: bpy.types.Object,
+    expected: tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ],
+) -> bool:
+    if obj.type != "MESH":
+        return False
+    actual_minimum, actual_maximum = world_bounds(obj)
+    return all(
+        abs(actual - target) <= 1.0e-6
+        for actual, target in zip(actual_minimum, expected[0], strict=True)
+    ) and all(
+        abs(actual - target) <= 1.0e-6
+        for actual, target in zip(actual_maximum, expected[1], strict=True)
+    )
+
+
+def spawn_semantics_are_current() -> bool:
+    expected_names_by_role = {
+        "player_spawn": {
+            f"MRK_PlayerSpawn_{suffix}"
+            for suffix, *_remaining in PLAYER_SPAWN_SPECS
+        },
+        "player_spawn_exclusion": {
+            f"VOL_PlayerSpawnExclusion_{suffix}"
+            for suffix, *_remaining in PLAYER_SPAWN_SPECS
+        },
+        "npc_spawn": {
+            f"VOL_NpcSpawn_{suffix}"
+            for suffix, *_remaining in NPC_SPAWN_VOLUME_SPECS
+        },
+        "npc_spawn_bias": {
+            f"VOL_NpcSpawnBias_{suffix}"
+            for suffix, *_remaining in NPC_SPAWN_BIAS_VOLUME_SPECS
+        },
+        "bit_spawn": {
+            f"VOL_BitSpawn_{suffix}"
+            for suffix, *_remaining in BIT_SPAWN_VOLUME_SPECS
+        },
+    }
+    for role, expected_names in expected_names_by_role.items():
+        actual_names = {
+            obj.name for obj in bpy.data.objects if obj.get("hs_role") == role
+        }
+        if actual_names != expected_names:
+            return False
+
+    for (
+        suffix,
+        spawn_id,
+        position,
+        yaw_degrees,
+        exclusion_id,
+        exclusion_bounds,
+    ) in PLAYER_SPAWN_SPECS:
+        marker = bpy.data.objects.get(f"MRK_PlayerSpawn_{suffix}")
+        if (
+            marker is None
+            or marker.type != "EMPTY"
+            or marker.parent is not None
+            or not has_exact_hs_properties(
+                marker,
+                {
+                    "hs_id": spawn_id,
+                    "hs_role": "player_spawn",
+                },
+            )
+            or any(
+                abs(actual - expected) > 1.0e-6
+                for actual, expected in zip(marker.location, position, strict=True)
+            )
+            or abs(marker.rotation_euler.x) > 1.0e-6
+            or abs(marker.rotation_euler.y) > 1.0e-6
+            or abs(marker.rotation_euler.z - math.radians(yaw_degrees)) > 1.0e-6
+            or any(abs(value - 1.0) > 1.0e-6 for value in marker.scale)
+        ):
+            return False
+
+        exclusion = bpy.data.objects.get(
+            f"VOL_PlayerSpawnExclusion_{suffix}"
+        )
+        if (
+            exclusion is None
+            or not has_exact_hs_properties(
+                exclusion,
+                {
+                    "hs_id": exclusion_id,
+                    "hs_role": "player_spawn_exclusion",
+                    "hs_player_spawn_id": spawn_id,
+                },
+            )
+            or not has_exact_world_bounds(exclusion, exclusion_bounds)
+        ):
+            return False
+
+    for suffix, spawn_id, bounds in NPC_SPAWN_VOLUME_SPECS:
+        volume = bpy.data.objects.get(f"VOL_NpcSpawn_{suffix}")
+        if (
+            volume is None
+            or not has_exact_hs_properties(
+                volume,
+                {
+                    "hs_id": spawn_id,
+                    "hs_role": "npc_spawn",
+                },
+            )
+            or not has_exact_world_bounds(volume, bounds)
+        ):
+            return False
+
+    for suffix, bias_id, player_spawn_id, weight, bounds in (
+        NPC_SPAWN_BIAS_VOLUME_SPECS
+    ):
+        volume = bpy.data.objects.get(f"VOL_NpcSpawnBias_{suffix}")
+        if (
+            volume is None
+            or not has_exact_hs_properties(
+                volume,
+                {
+                    "hs_id": bias_id,
+                    "hs_role": "npc_spawn_bias",
+                    "hs_player_spawn_id": player_spawn_id,
+                    "hs_weight": weight,
+                },
+            )
+            or not has_exact_world_bounds(volume, bounds)
+        ):
+            return False
+
+    for suffix, spawn_id, zone_id, band_id, bounds in BIT_SPAWN_VOLUME_SPECS:
+        volume = bpy.data.objects.get(f"VOL_BitSpawn_{suffix}")
+        if (
+            volume is None
+            or not has_exact_hs_properties(
+                volume,
+                {
+                    "hs_id": spawn_id,
+                    "hs_role": "bit_spawn",
+                    "hs_zone_id": zone_id,
+                    "hs_band_id": band_id,
+                },
+            )
+            or not has_exact_world_bounds(volume, bounds)
+        ):
+            return False
+
+    return True
+
+
 def is_current_generation() -> bool:
     names = tuple(bpy.data.objects.keys())
     metadata = bpy.data.objects.get("META_Stage")
-    bit_spawn = bpy.data.objects.get("VOL_BitSpawn_Courtyard")
     boundary = bpy.data.objects.get("BND_Stage")
     site_ground = bpy.data.objects.get("COL_SiteGround")
     outdoor_nav = bpy.data.objects.get("NAV_Walkable_Outdoor")
@@ -5913,9 +6430,7 @@ def is_current_generation() -> bool:
         and metadata is not None
         and metadata.get("hs_schema_version") == 2
         and metadata.get("hs_bit_nav_profile") == BIT_FLIGHT_NAV_PROFILE
-        and bit_spawn is not None
-        and bit_spawn.get("hs_zone_id") == "school-exterior"
-        and bit_spawn.get("hs_band_id") == "outdoor-f1"
+        and spawn_semantics_are_current()
         and boundary_maximum_z is not None
         and abs(boundary_maximum_z - 19.0) <= 1.0e-6
         and boundary_minimum_y is not None
@@ -6157,6 +6672,7 @@ def main() -> None:
     build_stair_transition_volumes(semantic_collection)
     build_rooftop_boundary_transition(semantic_collection)
     build_assembly_venues(semantic_collection)
+    build_spawn_semantics(semantic_collection)
     build_navigation_areas(semantic_collection)
     build_b04_school_world_boundary(
         visual_collection,

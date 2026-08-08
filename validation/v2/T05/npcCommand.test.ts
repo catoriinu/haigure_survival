@@ -63,9 +63,15 @@ import {
   type NavigationWorld
 } from "../../../src/world/navigationWorld";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
+import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import { createStageWorldBoundary } from "../../../src/world/stageWorldBoundary";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
 import { createDefaultV2CharacterVisualRuntime } from "../characterVisualFixture";
+import {
+  createFixturePlayerSpawn,
+  createFixtureSurfacePointSpawnRandom,
+  createFixtureSurfaceTriangles
+} from "./spawnContractFixture";
 
 export type NpcCommandTestResult = Readonly<{
   name: string;
@@ -200,25 +206,6 @@ const createInitializationRandom = (
   initialBrainwashedNpcCount: number
 ) => {
   const values: number[] = [];
-  const gridSize = Math.ceil(Math.sqrt(npcCount));
-  for (let index = 0; index < npcCount; index += 1) {
-    values.push(
-      0.05 +
-        (0.9 * (index % gridSize)) /
-          Math.max(1, gridSize - 1),
-      0.5,
-      0.05 +
-        (0.9 * Math.floor(index / gridSize)) /
-          Math.max(1, gridSize - 1)
-    );
-  }
-  for (
-    let index = 0;
-    index < initialBrainwashedNpcCount;
-    index += 1
-  ) {
-    values.push(0);
-  }
   for (let index = 0; index < npcCount; index += 1) {
     if (index < initialBrainwashedNpcCount) {
       const stateRoll =
@@ -237,6 +224,25 @@ const createInitializationRandom = (
     valueIndex += 1;
     return value;
   };
+};
+
+const createNpcSpawnRandom = (npcCount: number) => {
+  const gridSize = Math.ceil(Math.sqrt(npcCount));
+  return createFixtureSurfacePointSpawnRandom(
+    Array.from({ length: npcCount }, (_, index) =>
+      Object.freeze({
+        xRatio:
+          0.05 +
+          (0.9 * (index % gridSize)) /
+            Math.max(1, gridSize - 1),
+        zRatio:
+          0.05 +
+          (0.9 * Math.floor(index / gridSize)) /
+            Math.max(1, gridSize - 1)
+      })
+    ),
+    0x5405_3000 ^ npcCount
+  );
 };
 
 const createNpcCommandFixture = async (
@@ -278,6 +284,13 @@ const createNpcCommandFixture = async (
     Math.abs(position.x) <= boundaryExtent &&
     Math.abs(position.z) <= boundaryExtent;
   const navigation: NavigationWorld = {
+    getSurfaceTriangles: () =>
+      createFixtureSurfaceTriangles(
+        -boundaryExtent,
+        boundaryExtent,
+        -boundaryExtent,
+        boundaryExtent
+      ),
     projectPoint: (position, maxDistance) => {
       if (!isInside(position)) {
         return null;
@@ -355,12 +368,34 @@ const createNpcCommandFixture = async (
     id: "t05-npc-command-area",
     volumes: Object.freeze([])
   });
+  const npcSpawnVolume: StageVolume = Object.freeze({
+    id: "t05-npc-command-spawn",
+    role: "npc_spawn",
+    bitFlightBand: null,
+    playerSpawnId: null,
+    npcSpawnBiasWeight: null,
+    navigationAreaId: null,
+    mesh: ground
+  });
+  const playerSpawn = createFixturePlayerSpawn(
+    "t05-npc-command-player-spawn",
+    ground
+  );
   const stage = {
     resources: Object.freeze({
       beamBlockers: Object.freeze([]),
       sightBlockers: Object.freeze([])
     }),
     navigation,
+    volumes: Object.freeze({
+      all: Object.freeze([npcSpawnVolume]),
+      getById: (id: string) =>
+        id === npcSpawnVolume.id ? npcSpawnVolume : null,
+      getByRole: (role: StageVolume["role"]) =>
+        role === "npc_spawn"
+          ? Object.freeze([npcSpawnVolume])
+          : Object.freeze([])
+    }),
     navigationAreas: Object.freeze({
       all: Object.freeze([navigationArea]),
       portals: Object.freeze([]),
@@ -433,6 +468,8 @@ const createNpcCommandFixture = async (
       npcCount,
       initialBrainwashedNpcCount
     ),
+    spawnRandom: createNpcSpawnRandom(npcCount),
+    playerSpawn,
     resolveTargetNavigationArea: (target) =>
       Object.freeze({
         targetId: target.id,

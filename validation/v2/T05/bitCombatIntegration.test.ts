@@ -50,6 +50,11 @@ import type {
 import type {
   BitSystemAcceptanceFixture
 } from "./bitSystemAcceptance.test";
+import {
+  createFixtureBitLineSpawnRandom,
+  createFixturePlayerSpawn,
+  createFixtureSurfaceTriangles
+} from "./spawnContractFixture";
 
 const createFixtureNavigationAreas = () => {
   const area = Object.freeze({ id: "fixture-area", volumes: Object.freeze([]) });
@@ -231,6 +236,16 @@ const createNavigation = (
       ref.zoneId === TEST_ZONE_ID && ref.bandId === TEST_BAND_ID
         ? TEST_BAND
         : null,
+    getSurfaceTriangles: (ref: BitFlightBandRef) =>
+      ref.zoneId === TEST_ZONE_ID && ref.bandId === TEST_BAND_ID
+        ? createFixtureSurfaceTriangles(
+            -100,
+            100,
+            -1,
+            1,
+            BAND_CENTER_HEIGHT
+          )
+        : Object.freeze([]),
     projectPointInBand: (
       ref: BitFlightBandRef,
       position: Vector3
@@ -484,15 +499,6 @@ const createInitialRandomValues = (
   const values: number[] = [];
   for (let index = 0; index < initialBitCount; index += 1) {
     values.push(
-      0.5,
-      (index + 1) / (initialBitCount + 1),
-      0.5,
-      0.5,
-      0.5
-    );
-  }
-  for (let index = 0; index < initialBitCount; index += 1) {
-    values.push(
       createRedProfile ? 0 : 0.5,
       0,
       0,
@@ -520,10 +526,11 @@ const createHarness = (
   const scene = new Scene(engine);
   const navigation =
     navigationOverride ?? createNavigation(rejectConstrainedMovement);
+  const spawnWidth = Math.max(4, initialBitCount * 2);
   const spawn = MeshBuilder.CreateBox(
     `T05BitCombatSpawn_${initialBitCount}`,
     {
-      width: Math.max(4, initialBitCount * 2),
+      width: spawnWidth,
       height: 0.1,
       depth: 0.1
     },
@@ -535,9 +542,15 @@ const createHarness = (
     id: `t05-bit-combat-spawn-${initialBitCount}`,
     role: "bit_spawn",
     bitFlightBand: TEST_BAND_REF,
+    playerSpawnId: null,
+    npcSpawnBiasWeight: null,
     navigationAreaId: null,
     mesh: spawn
   });
+  const playerSpawn = createFixturePlayerSpawn(
+    `t05-bit-combat-player-spawn-${initialBitCount}`,
+    spawn
+  );
   const spatial = Object.freeze({
     bitNavigation: navigation,
     navigationAreas: createFixtureNavigationAreas(),
@@ -568,6 +581,7 @@ const createHarness = (
           : null,
       sampleGround: () => null,
       containsVolume: () => false,
+      containsVolumeById: () => false,
       dispose: () => {}
     })
   }) as unknown as StageSpatialContext;
@@ -577,10 +591,17 @@ const createHarness = (
   const system = createV2BitSystem(scene, spatial, {
     combatEnabled: true,
     initialBitCount,
+    reinforcementIntervalSeconds: 1_000_000,
+    maximumBitCount: initialBitCount + 1,
     minimumSpawnDistance: 0,
     spawnMaxAttempts: 8,
     spawnProjectionMaxDistance: 0.35,
     random: random.random,
+    spawnRandom: createFixtureBitLineSpawnRandom(
+      initialBitCount,
+      0x5405_0000 ^ initialBitCount
+    ),
+    playerSpawn,
     resolveTargetNavigationArea: (target: V2HumanTargetSnapshot) =>
       Object.freeze({
         targetId: target.id,
@@ -589,6 +610,20 @@ const createHarness = (
         anchor: target.footPosition.clone()
       })
   });
+  system.prepareForScriptedPhase();
+  system.placeBits(
+    system.getFrameView().actorSpheres.map((actor, index) =>
+      Object.freeze({
+        id: actor.id,
+        centerPosition: new Vector3(
+          -spawnWidth / 2 +
+            (spawnWidth * (index + 1)) / (initialBitCount + 1),
+          BAND_CENTER_HEIGHT,
+          0
+        )
+      })
+    )
+  );
 
   return Object.freeze({
     scene,
@@ -1508,6 +1543,18 @@ const runWindowCursorAndInteriorContinuationCheck =
               })
             : null,
       getBand,
+      getSurfaceTriangles: (ref: BitFlightBandRef) => {
+        const band = getBand(ref);
+        return band
+          ? createFixtureSurfaceTriangles(
+              -10,
+              10,
+              -10,
+              10,
+              (band.minimumCenterHeight + band.maximumCenterHeight) / 2
+            )
+          : Object.freeze([]);
+      },
       projectPointInBand,
       findLocationCandidates: (position: Vector3) =>
         Object.freeze([
@@ -1687,9 +1734,15 @@ const runRedTransitionSpeedCheck = (
     id: "t05-red-bit-transition-spawn",
     role: "bit_spawn",
     bitFlightBand: fixture.concourseRef,
+    playerSpawnId: null,
+    npcSpawnBiasWeight: null,
     navigationAreaId: null,
     mesh: spawn
   });
+  const playerSpawn = createFixturePlayerSpawn(
+    "t05-red-bit-transition-player-spawn",
+    spawn
+  );
   const spatial = Object.freeze({
     bitNavigation: fixture.navigation,
     navigationAreas: createFixtureNavigationAreas(),
@@ -1709,6 +1762,7 @@ const runRedTransitionSpeedCheck = (
       castSightSegment: () => Object.freeze({ blocked: true }),
       sampleGround: () => null,
       containsVolume: () => false,
+      containsVolumeById: () => false,
       dispose: () => {}
     })
   }) as unknown as StageSpatialContext;
@@ -1718,10 +1772,14 @@ const runRedTransitionSpeedCheck = (
   const system = createV2BitSystem(fixture.scene, spatial, {
     combatEnabled: true,
     initialBitCount: 1,
+    reinforcementIntervalSeconds: 10,
+    maximumBitCount: 1,
     minimumSpawnDistance: 0,
     spawnMaxAttempts: 8,
     spawnProjectionMaxDistance: 0.35,
     random: random.random,
+    spawnRandom: createFixtureBitLineSpawnRandom(1, 0x5405_0001),
+    playerSpawn,
     resolveTargetNavigationArea: (target: V2HumanTargetSnapshot) =>
       Object.freeze({
         targetId: target.id,
@@ -1730,6 +1788,7 @@ const runRedTransitionSpeedCheck = (
         anchor: target.footPosition.clone()
       })
   });
+  system.prepareForScriptedPhase();
   try {
     const target = createTarget(
       "red-transition-target",
@@ -1833,6 +1892,20 @@ const update = (
     targets,
     externalAlerts
   });
+};
+
+const completePendingBitSpawnVisuals = (
+  system: V2BitSystem,
+  targets: readonly V2HumanTargetSnapshot[],
+  externalAlerts: readonly V2ExternalAlert[] = EMPTY_ALERTS,
+  startElapsedSeconds = 0
+) => {
+  let elapsedSeconds = startElapsedSeconds;
+  for (const deltaSeconds of [0.5, 0.5, 0.5] as const) {
+    elapsedSeconds += deltaSeconds;
+    update(system, deltaSeconds, elapsedSeconds, targets, externalAlerts);
+  }
+  return elapsedSeconds;
 };
 
 const acquireMode = (
@@ -3423,6 +3496,11 @@ const runAlertAssemblyCompletionCheck =
         remainingSeconds: 15
       });
       update(harness.system, 0, 0, targets, Object.freeze([alert]));
+      completePendingBitSpawnVisuals(
+        harness.system,
+        targets,
+        Object.freeze([alert])
+      );
       const receiving = harness.system
         .getFrameView().targetStates
         .filter((state) => state.mode === "alert-receive");
@@ -3440,8 +3518,8 @@ const runAlertAssemblyCompletionCheck =
           })
       );
       harness.system.placeBits(Object.freeze(assignments));
-      update(harness.system, 0.1, 0.1, targets);
-      update(harness.system, 0.1, 0.2, targets);
+      update(harness.system, 0.1, 1.6, targets);
+      update(harness.system, 0.1, 1.7, targets);
 
       const completedStates = harness.system.getFrameView().targetStates;
       const completedLeader = completedStates.find(
@@ -3526,7 +3604,17 @@ const runInternalAlertSpawnAndGlobalSingleCheck =
         firstTarget,
         4
       );
+      const enrolledReceiverIds = new Set(
+        harness.system
+          .getFrameView().targetStates
+          .filter((state) => state.mode === "alert-receive")
+          .map((state) => state.bitId)
+      );
       const firstRequests = harness.system.takeAlertRequests();
+      const spawnCompletedElapsedSeconds = completePendingBitSpawnVisuals(
+        harness.system,
+        Object.freeze([firstTarget])
+      );
       const startedActors = harness.system.getFrameView().actorSpheres;
       const startedStates = harness.system.getFrameView().targetStates;
       const spawnedActor = startedActors.find(
@@ -3541,9 +3629,12 @@ const runInternalAlertSpawnAndGlobalSingleCheck =
         spawnedForward.y = 0;
         spawnedForward.normalize();
       }
-      const receiverCount = startedStates.filter(
+      for (const receiver of startedStates.filter(
         (state) => state.mode === "alert-receive"
-      ).length;
+      )) {
+        enrolledReceiverIds.add(receiver.bitId);
+      }
+      const receiverCount = enrolledReceiverIds.size;
       const freeState = startedStates.find(
         (state) =>
           state.mode === "search" && state.targetId === null
@@ -3552,7 +3643,7 @@ const runInternalAlertSpawnAndGlobalSingleCheck =
       update(
         harness.system,
         0.1,
-        0.1,
+        spawnCompletedElapsedSeconds + 0.1,
         Object.freeze([firstTarget])
       );
       const freeFlight = freeState
@@ -3570,7 +3661,7 @@ const runInternalAlertSpawnAndGlobalSingleCheck =
       update(
         harness.system,
         0.1,
-        0.2,
+        spawnCompletedElapsedSeconds + 0.2,
         Object.freeze([firstTarget, secondTarget])
       );
       const afterConcurrentAttempt = freeState
@@ -3612,6 +3703,8 @@ const runInternalAlertSpawnAndGlobalSingleCheck =
           `${ALERT_SPAWN_RADIUS.toFixed(1)} / ` +
           `orientation=${orientationMatches} / ` +
           `concurrent=${afterConcurrentAttempt?.mode ?? "missing"} / ` +
+          `provenance=${afterConcurrentAttempt?.provenance ?? "none"} / ` +
+          `leader=${leader.mode} / firstRequests=${firstRequests.length} / ` +
           `requests=${concurrentRequests.length}`
       });
     } finally {
@@ -3671,14 +3764,34 @@ const runInternalAlertSpawnFailureFallbackCheck =
 
 const runInternalAlertRangeCancellationCheck =
   (): BitCombatIntegrationCheck => {
-    const harness = createHarness(2);
+    let sightBlocked = false;
+    const harness = createHarness(
+      2,
+      () => sightBlocked,
+      false,
+      false,
+      (from, to) =>
+        Math.abs(from.y - to.y) <= POSITION_EPSILON &&
+        Vector3.Distance(from, to) >
+          ALERT_SPAWN_RADIUS + POSITION_EPSILON
+    );
     try {
+      const initialActorIds = new Set(
+        harness.system
+          .getFrameView().actorSpheres
+          .map((actor) => actor.id)
+      );
       const origin = harness.system.getFrameView().flightStates[0].position;
       const target = createTarget(
         "internal-alert-range-target",
         origin.add(new Vector3(1, 0, 0))
       );
       const leader = acquireInternalAlert(harness, target, 2);
+      sightBlocked = true;
+      const spawnCompletedElapsedSeconds = completePendingBitSpawnVisuals(
+        harness.system,
+        Object.freeze([target])
+      );
       const participantIds = harness.system
         .getFrameView().targetStates
         .filter(
@@ -3687,6 +3800,9 @@ const runInternalAlertRangeCancellationCheck =
             state.mode === "alert-receive"
         )
         .map((state) => state.bitId);
+      const spawnedActorId = harness.system
+        .getFrameView().actorSpheres
+        .find((actor) => !initialActorIds.has(actor.id))?.id;
       const movedTarget = createTarget(
         target.id,
         origin.add(new Vector3(4.1, 0, 0))
@@ -3694,7 +3810,7 @@ const runInternalAlertRangeCancellationCheck =
       update(
         harness.system,
         0,
-        0,
+        spawnCompletedElapsedSeconds,
         Object.freeze([movedTarget])
       );
       const cancelledStates = harness.system
@@ -3715,6 +3831,8 @@ const runInternalAlertRangeCancellationCheck =
         ok:
           leader.mode === "alert-send" &&
           participantIds.length === 3 &&
+          spawnedActorId !== undefined &&
+          participantIds.includes(spawnedActorId) &&
           cancelledStates.length === participantIds.length &&
           allCancelled,
         detail:
@@ -4047,12 +4165,17 @@ const createCarpetHarness = (scatterRoll = 0.5) => {
   harness.random.enqueue(0.95, 0.5, 0.5, scatterRoll);
   update(harness.system, 0, 0, Object.freeze([target]));
   update(harness.system, 0, 0, Object.freeze([target]));
+  const spawnCompletedElapsedSeconds = completePendingBitSpawnVisuals(
+    harness.system,
+    Object.freeze([target])
+  );
   const state = harness.system.getFrameView().targetStates[0];
   movementSweeps.length = 0;
   return Object.freeze({
     harness,
     target,
     state,
+    spawnCompletedElapsedSeconds,
     movementSweeps,
     setMovementBlocked: (blocked: boolean) => {
       movementBlocked = blocked;
@@ -4066,6 +4189,7 @@ const runCarpetThreeDimensionalSweepAndAimCheck =
       harness,
       target,
       state,
+      spawnCompletedElapsedSeconds,
       movementSweeps
     } = createCarpetHarness();
     try {
@@ -4079,7 +4203,7 @@ const runCarpetThreeDimensionalSweepAndAimCheck =
       update(
         harness.system,
         0.5,
-        0.5,
+        spawnCompletedElapsedSeconds + 0.5,
         Object.freeze([target])
       );
 
@@ -4226,7 +4350,12 @@ const runCarpetThreeDimensionalSweepAndAimCheck =
 const runCarpetScatterSteeringCheck =
   (): BitCombatIntegrationCheck => {
     const scatterRoll = 1 - POSITION_EPSILON;
-    const { harness, target, state } =
+    const {
+      harness,
+      target,
+      state,
+      spawnCompletedElapsedSeconds
+    } =
       createCarpetHarness(scatterRoll);
     try {
       const before = harness.system
@@ -4236,7 +4365,7 @@ const runCarpetScatterSteeringCheck =
       update(
         harness.system,
         deltaSeconds,
-        deltaSeconds,
+        spawnCompletedElapsedSeconds + deltaSeconds,
         Object.freeze([target])
       );
       const after = harness.system
@@ -4320,9 +4449,32 @@ const runCarpetBeamDirectionLockCheck =
       );
       update(harness.system, 0, 0, Object.freeze([target]));
       update(harness.system, 0, 0, Object.freeze([target]));
-      const targetStates = harness.system.getFrameView().targetStates;
+      const spawnCompletedElapsedSeconds = completePendingBitSpawnVisuals(
+        harness.system,
+        Object.freeze([target])
+      );
       const lockedDirections = new Map<string, Vector3>();
+      for (const bit of harness.system.getFrameView().targetStates) {
+        if (bit.mode !== "carpet-leader") {
+          continue;
+        }
+        const forward = getBitForward(harness, bit.bitId);
+        if (forward) {
+          lockedDirections.set(bit.bitId, forward);
+        }
+      }
+      update(
+        harness.system,
+        V2_BIT_CARPET_FIRE_INTERVAL_SECONDS,
+        spawnCompletedElapsedSeconds +
+          V2_BIT_CARPET_FIRE_INTERVAL_SECONDS,
+        Object.freeze([target])
+      );
+      const targetStates = harness.system.getFrameView().targetStates;
       for (const bit of targetStates) {
+        if (lockedDirections.has(bit.bitId)) {
+          continue;
+        }
         const forward = getBitForward(harness, bit.bitId);
         if (forward) {
           lockedDirections.set(bit.bitId, forward);
@@ -4332,21 +4484,24 @@ const runCarpetBeamDirectionLockCheck =
       update(
         harness.system,
         V2_BIT_FIRE_TELEGRAPH_SECONDS,
-        V2_BIT_FIRE_TELEGRAPH_SECONDS,
+        spawnCompletedElapsedSeconds +
+          V2_BIT_CARPET_FIRE_INTERVAL_SECONDS +
+          V2_BIT_FIRE_TELEGRAPH_SECONDS,
         Object.freeze([target])
       );
       const requests = harness.system.getFrameView().beamRequests;
+      const lockedDirectionDots = requests.map((request) => {
+        const lockedDirection =
+          lockedDirections.get(request.sourceId) ?? null;
+        return lockedDirection === null
+          ? Number.NaN
+          : Vector3.Dot(request.direction, lockedDirection);
+      });
       const allDirectionsLocked =
         requests.length === 3 &&
-        requests.every((request) => {
-          const lockedDirection =
-            lockedDirections.get(request.sourceId) ?? null;
-          return (
-            lockedDirection !== null &&
-            Vector3.Dot(request.direction, lockedDirection) >=
-              1 - POSITION_EPSILON
-          );
-        });
+        lockedDirectionDots.every(
+          (dot) => dot >= 1 - POSITION_EPSILON
+        );
       const directions = [...lockedDirections.values()];
       const usesIndividualDirections =
         directions.length === 3 &&
@@ -4367,6 +4522,9 @@ const runCarpetBeamDirectionLockCheck =
         detail:
           `bits=${targetStates.length} / beams=${requests.length} / ` +
           `locked=${allDirectionsLocked} / ` +
+          `dots=${lockedDirectionDots
+            .map((dot) => dot.toFixed(6))
+            .join(",")} / ` +
           `individual=${usesIndividualDirections}`
       });
     } finally {
@@ -4376,7 +4534,12 @@ const runCarpetBeamDirectionLockCheck =
 
 const runCarpetFormationFadeCheck =
   (): BitCombatIntegrationCheck => {
-    const { harness, target, state } = createCarpetHarness();
+    const {
+      harness,
+      target,
+      state,
+      spawnCompletedElapsedSeconds
+    } = createCarpetHarness();
     try {
       const followers = harness.system
         .getFrameView().targetStates
@@ -4406,7 +4569,8 @@ const runCarpetFormationFadeCheck =
       update(
         harness.system,
         CARPET_FOLLOWER_FADE_SECONDS / 2,
-        CARPET_FOLLOWER_FADE_SECONDS / 2,
+        spawnCompletedElapsedSeconds +
+          CARPET_FOLLOWER_FADE_SECONDS / 2,
         Object.freeze([target])
       );
       const halfVisible = followerBodies.every(
@@ -4417,7 +4581,7 @@ const runCarpetFormationFadeCheck =
       update(
         harness.system,
         CARPET_FOLLOWER_FADE_SECONDS / 2,
-        CARPET_FOLLOWER_FADE_SECONDS,
+        spawnCompletedElapsedSeconds + CARPET_FOLLOWER_FADE_SECONDS,
         Object.freeze([target])
       );
       const disposedAfterFade = followerBodies.every((body) =>
@@ -4450,6 +4614,7 @@ const runCarpetObstacleAbortCooldownCheck =
       harness,
       target,
       state,
+      spawnCompletedElapsedSeconds,
       setMovementBlocked
     } = createCarpetHarness();
     try {
@@ -4457,7 +4622,7 @@ const runCarpetObstacleAbortCooldownCheck =
       update(
         harness.system,
         0.1,
-        0.1,
+        spawnCompletedElapsedSeconds + 0.1,
         Object.freeze([target])
       );
       const afterAbort = harness.system
@@ -4474,7 +4639,7 @@ const runCarpetObstacleAbortCooldownCheck =
       update(
         harness.system,
         0.1,
-        0.2,
+        spawnCompletedElapsedSeconds + 0.2,
         Object.freeze([target])
       );
       const afterRetry = harness.system
@@ -4507,7 +4672,12 @@ const runCarpetObstacleAbortCooldownCheck =
   };
 
 const runCarpetFirstFireCheck = (): BitCombatIntegrationCheck => {
-  const { harness, target, state } = createCarpetHarness();
+  const {
+    harness,
+    target,
+    state,
+    spawnCompletedElapsedSeconds
+  } = createCarpetHarness();
   try {
     const followerIds = new Set(
       harness.system
@@ -4529,7 +4699,7 @@ const runCarpetFirstFireCheck = (): BitCombatIntegrationCheck => {
       update(
         harness.system,
         TICK_SECONDS,
-        elapsedSeconds,
+        spawnCompletedElapsedSeconds + elapsedSeconds,
         Object.freeze([target])
       );
       for (const request of harness.system.getFrameView().beamRequests) {
@@ -4565,7 +4735,12 @@ const runCarpetFirstFireCheck = (): BitCombatIntegrationCheck => {
 };
 
 const runCarpetPassCheck = (): BitCombatIntegrationCheck => {
-  const { harness, target, state } = createCarpetHarness();
+  const {
+    harness,
+    target,
+    state,
+    spawnCompletedElapsedSeconds
+  } = createCarpetHarness();
   try {
     const leaderId = state.bitId;
     let elapsedSeconds = 0;
@@ -4577,7 +4752,7 @@ const runCarpetPassCheck = (): BitCombatIntegrationCheck => {
       update(
         harness.system,
         0.05,
-        elapsedSeconds,
+        spawnCompletedElapsedSeconds + elapsedSeconds,
         Object.freeze([target])
       );
       const leaderFlight = harness.system
@@ -4635,7 +4810,12 @@ const runCarpetPassCheck = (): BitCombatIntegrationCheck => {
 
 const runCarpetFollowerImpactCheck =
   (): BitCombatIntegrationCheck => {
-    const { harness, target, state } = createCarpetHarness();
+    const {
+      harness,
+      target,
+      state,
+      spawnCompletedElapsedSeconds
+    } = createCarpetHarness();
     try {
       const before = harness.system.getFrameView().targetStates;
       const followers = before.filter(
@@ -4662,7 +4842,8 @@ const runCarpetFollowerImpactCheck =
       update(
         harness.system,
         CARPET_FOLLOWER_FADE_SECONDS / 2,
-        CARPET_FOLLOWER_FADE_SECONDS / 2,
+        spawnCompletedElapsedSeconds +
+          CARPET_FOLLOWER_FADE_SECONDS / 2,
         Object.freeze([target])
       );
       const halfVisible =
@@ -4672,7 +4853,7 @@ const runCarpetFollowerImpactCheck =
       update(
         harness.system,
         CARPET_FOLLOWER_FADE_SECONDS / 2,
-        CARPET_FOLLOWER_FADE_SECONDS,
+        spawnCompletedElapsedSeconds + CARPET_FOLLOWER_FADE_SECONDS,
         Object.freeze([target])
       );
       const disposedAfterFade =

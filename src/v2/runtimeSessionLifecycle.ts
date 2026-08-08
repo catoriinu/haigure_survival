@@ -22,7 +22,7 @@ export type V2RuntimeSessionTransitionOptions<
   TSession extends V2ManagedRuntimeSession
 > = Readonly<{
   currentSession: TSession | null;
-  runtimeSeed: number;
+  nextRuntimeSeed(): number;
   isCancelled(): boolean;
   exitPointerLock(): void;
   showLoading(): void;
@@ -33,7 +33,7 @@ export const transitionV2RuntimeSession = async <
   TSession extends V2ManagedRuntimeSession
 >({
   currentSession,
-  runtimeSeed,
+  nextRuntimeSeed,
   isCancelled,
   exitPointerLock,
   showLoading,
@@ -45,7 +45,7 @@ export const transitionV2RuntimeSession = async <
   if (isCancelled()) {
     return null;
   }
-  const nextSession = await createSession(runtimeSeed);
+  const nextSession = await createSession(nextRuntimeSeed());
   if (isCancelled()) {
     await nextSession.dispose();
     return null;

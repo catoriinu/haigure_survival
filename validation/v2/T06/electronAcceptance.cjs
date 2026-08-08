@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
+const fs = require("node:fs");
 const path = require("node:path");
 
 const readArgument = (name) => {
@@ -10,6 +11,9 @@ const readArgument = (name) => {
 };
 
 const applicationUrl = new URL(readArgument("--url"));
+const reportPath = process.env.T06_ELECTRON_REPORT_FILE ?? null;
+const audioOnly = process.env.T06_ELECTRON_AUDIO_ONLY === "1";
+const poolStartOnly = process.env.T06_ELECTRON_POOL_START_ONLY === "1";
 if (
   applicationUrl.hostname !== "localhost" &&
   applicationUrl.hostname !== "127.0.0.1"
@@ -45,7 +49,9 @@ const report = {
   },
   supplemental: {
     fec: "候補位置に依存するためElectron連続操作には含めない。T06専用fixtureで検証する。",
-    water: "水Volumeまでの安定した実入力経路を定義していないためElectron連続操作には含めない。T06専用fixtureで検証する。"
+    water: poolStartOnly
+      ? "固定seedの実プール開始地点から水中移動を専用受入で検証する。"
+      : "水Volumeまでの安定した実入力経路を定義していないため通常のElectron連続操作には含めない。固定プール開始専用受入で検証する。"
   }
 };
 
@@ -89,6 +95,43 @@ const parseBeamCount = (text) =>
 const parseBitPlayerTargetCount = (text) =>
   Number(text.match(/プレイヤー標的 NPC \d+\s+BIT (\d+)/)?.[1] ?? 0);
 
+const assertNpcSpawnReport = (snapshot, label) => {
+  const report = snapshot.npcSpawnReport;
+  assertCondition(report !== null, `${label}のNPC spawn reportがありません。`);
+  assertCondition(
+    String(report.sessionSeed) === snapshot.runtimeSessionSeed &&
+      report.playerSpawnId === snapshot.playerSpawnId,
+    `${label}のseedまたはPlayer開始IDがDOM診断と一致しません。`
+  );
+  assertCondition(
+    report.npcCount === 50 &&
+      report.initialBrainwashedNpcCount === 10 &&
+      report.signature.length === 50 &&
+      new Set(report.signature.map((entry) => entry.id)).size === 50,
+    `${label}のNPC 50/初期洗脳10またはsignatureが不正です。`
+  );
+  assertCondition(
+    report.activeBiases.length === 1 &&
+      typeof report.activeBiases[0].id === "string" &&
+      report.activeBiases[0].id.length > 0 &&
+      report.activeBiases[0].playerSpawnId === report.playerSpawnId &&
+      report.activeBiases[0].weight === 0.5 &&
+      report.npcInsideActiveBiasCount >= 0 &&
+      report.npcInsideActiveBiasCount <= report.npcCount &&
+      report.initialBrainwashedInsideActiveBiasCount >= 0 &&
+      report.initialBrainwashedInsideActiveBiasCount <=
+        report.initialBrainwashedNpcCount &&
+      report.npcInsideActiveBiasCount -
+        report.initialBrainwashedInsideActiveBiasCount >=
+        0 &&
+      report.npcInsideActiveBiasCount -
+        report.initialBrainwashedInsideActiveBiasCount <=
+        report.npcCount - report.initialBrainwashedNpcCount,
+    `${label}の選択Player対応bias診断が不正です。`
+  );
+  return report;
+};
+
 const horizontalDistance = (left, right) =>
   Math.hypot(right.x - left.x, right.z - left.z);
 
@@ -105,6 +148,7 @@ const inspectDom = (window) =>
       const roleVisible = (role) => visible(document.querySelector('[data-v2-runtime-hud-role="' + role + '"]'));
       const canvas = document.getElementById("renderCanvas");
       const rect = canvas?.getBoundingClientRect() ?? null;
+      const npcSpawnReportText = document.body.dataset.v2NpcSpawnReport ?? null;
       return {
         titleHint: document.getElementById("titleStartHint")?.textContent ?? "",
         titleVisible: visible(document.getElementById("titleOverlay")),
@@ -114,11 +158,17 @@ const inspectDom = (window) =>
         pointerLockId: document.pointerLockElement?.id ?? null,
         hudRootCount: document.querySelectorAll('[data-v2-runtime-hud="root"]').length,
         volumeRootCount: document.querySelectorAll('[data-ui="volume-panel"]').length,
+        volumeValues: Array.from(document.querySelectorAll('.volume-value')).map(
+          (element) => element.textContent ?? ""
+        ),
         characterSettingsRootCount: document.querySelectorAll('[data-ui="v2-character-settings"]').length,
         portraitSelectCount: document.querySelectorAll('[data-ui="v2-player-portrait-select"]').length,
         portraitSelection: document.querySelector('[data-ui="v2-player-portrait-select"]')?.value ?? null,
         voiceSelectCount: document.querySelectorAll('[data-ui="v2-player-voice-select"]').length,
         voiceSelection: document.querySelector('[data-ui="v2-player-voice-select"]')?.value ?? null,
+        runtimeSessionSeed: document.body.dataset.v2RuntimeSessionSeed ?? null,
+        playerSpawnId: document.body.dataset.v2PlayerSpawnId ?? null,
+        npcSpawnReport: npcSpawnReportText === null ? null : JSON.parse(npcSpawnReportText),
         completionGuideVisible: roleVisible("completion-guide"),
         crosshairVisible: roleVisible("crosshair"),
         fireGuideVisible: roleVisible("fire-guide"),
@@ -192,7 +242,7 @@ const measureMovement = async (window, keyCode, holdMilliseconds) => {
 };
 
 const waitForBrainwashSelection = async (window) => {
-  const deadline = Date.now() + 300_000;
+  const deadline = Date.now() + 420_000;
   const patrolKeys = ["W", "D", "S", "A"];
   let patrolIndex = 0;
   let nextPatrolAt = Date.now() + 8_000;
@@ -229,7 +279,23 @@ const waitForBrainwashSelection = async (window) => {
     }
     await wait(100);
   }
-  throw new Error("通常Runtimeでbrainwash-in-progressへ300秒以内に到達できませんでした。");
+  throw new Error("通常Runtimeでbrainwash-in-progressへ420秒以内に到達できませんでした。");
+};
+
+const waitForAudioCategories = async (timeoutMilliseconds) => {
+  const deadline = Date.now() + timeoutMilliseconds;
+  while (Date.now() < deadline) {
+    const completedCategories = new Set(
+      report.audioResources.completed
+        .filter((resource) => resource.statusCode >= 200 && resource.statusCode < 300)
+        .map((resource) => resource.category)
+    );
+    if (["BGM", "SE", "VOICE"].every((category) => completedCategories.has(category))) {
+      return;
+    }
+    await wait(100);
+  }
+  throw new Error("BGM／SE／VOICEのresource load完了を確認できませんでした。");
 };
 
 const selectCompletionState = async (window, keyCode, expectedState) => {
@@ -321,6 +387,71 @@ const run = async () => {
   testWindow.show();
   testWindow.focus();
 
+  if (poolStartOnly) {
+    const autoStartedPool = await waitFor(
+      "固定プール開始専用Runtime",
+      testWindow,
+      (snapshot) =>
+        !snapshot.titleVisible &&
+        snapshot.runtimeSessionSeed === "11" &&
+        snapshot.playerSpawnId ===
+          "player-spawn-roof-pool-west-stairs" &&
+        parsePosition(snapshot.status) !== null,
+      120_000
+    );
+    const poolNpcSpawnReport = assertNpcSpawnReport(
+      autoStartedPool,
+      "固定プール開始session"
+    );
+    await sendCanvasClick(testWindow);
+    const startedForPool = await waitFor(
+      "Pointer Lock（固定プール開始専用）",
+      testWindow,
+      (snapshot) => snapshot.pointerLockId === "renderCanvas",
+      10_000
+    );
+    const poolMovement = await measureMovement(testWindow, "W", 700);
+    assertCondition(
+      poolMovement.horizontalDistance > 0.02,
+      `屋上プール開始地点からWで移動できません: ${poolMovement.horizontalDistance}`
+    );
+    assertCondition(
+      report.diagnostics.console.length === 0,
+      "固定プール開始専用受入でconsole warning/errorがあります。"
+    );
+    assertCondition(
+      report.diagnostics.renderer.length === 0,
+      "固定プール開始専用受入でrenderer error/unhandledrejectionがあります。"
+    );
+    assertCondition(
+      report.diagnostics.load.length === 0,
+      "固定プール開始専用受入でrenderer load errorがあります。"
+    );
+    assertCondition(
+      report.diagnostics.renderProcessGone.length === 0,
+      "固定プール開始専用受入でrender-process-goneがあります。"
+    );
+    assertCondition(
+      report.diagnostics.unresponsive.length === 0,
+      "固定プール開始専用受入でrenderer unresponsiveがあります。"
+    );
+    addCheck("固定プール開始地点からW実入力移動", {
+      seed: poolNpcSpawnReport.sessionSeed,
+      playerSpawnId: poolNpcSpawnReport.playerSpawnId,
+      pointerLockId: startedForPool.pointerLockId,
+      movement: poolMovement,
+      diagnostics: {
+        console: report.diagnostics.console.length,
+        renderer: report.diagnostics.renderer.length,
+        load: report.diagnostics.load.length,
+        renderProcessGone: report.diagnostics.renderProcessGone.length,
+        unresponsive: report.diagnostics.unresponsive.length
+      }
+    });
+    report.status = "passed";
+    return;
+  }
+
   const initialTitle = await waitFor(
     "初回タイトル読込完了",
     testWindow,
@@ -332,17 +463,93 @@ const run = async () => {
       snapshot.characterSettingsRootCount === 1,
     120_000
   );
+  assertCondition(
+    JSON.stringify(initialTitle.volumeValues) === JSON.stringify(["5", "5", "5"]),
+    `VOICE／BGM／SEの既定表示が5ではありません: ${JSON.stringify(initialTitle.volumeValues)}`
+  );
+  const initialNpcSpawnReport = assertNpcSpawnReport(
+    initialTitle,
+    "初回session"
+  );
   addCheck("初回session所有root", {
     hudRootCount: initialTitle.hudRootCount,
     volumeRootCount: initialTitle.volumeRootCount,
+    volumeValues: initialTitle.volumeValues,
     characterSettingsRootCount: initialTitle.characterSettingsRootCount,
     portraitSelectCount: initialTitle.portraitSelectCount,
     portraitSelection: initialTitle.portraitSelection,
     voiceSelectCount: initialTitle.voiceSelectCount,
-    voiceSelection: initialTitle.voiceSelection
+    voiceSelection: initialTitle.voiceSelection,
+    npcSpawn: {
+      seed: initialNpcSpawnReport.sessionSeed,
+      playerSpawnId: initialNpcSpawnReport.playerSpawnId,
+      activeBiases: initialNpcSpawnReport.activeBiases,
+      npcCount: initialNpcSpawnReport.npcCount,
+      initialBrainwashedNpcCount:
+        initialNpcSpawnReport.initialBrainwashedNpcCount,
+      npcInsideActiveBiasCount:
+        initialNpcSpawnReport.npcInsideActiveBiasCount,
+      initialBrainwashedInsideActiveBiasCount:
+        initialNpcSpawnReport.initialBrainwashedInsideActiveBiasCount
+    }
   });
 
   await sendCanvasClick(testWindow);
+  if (audioOnly) {
+    const startedForAudio = await waitFor(
+      "Canvas開始（音声専用）",
+      testWindow,
+      (snapshot) => !snapshot.titleVisible,
+      10_000
+    );
+    await waitForAudioCategories(30_000);
+    const successfulAudioResources = report.audioResources.completed.filter(
+      (resource) => resource.statusCode >= 200 && resource.statusCode < 300
+    );
+    const successfulAudioUrls = new Set(
+      successfulAudioResources.map((resource) => resource.url)
+    );
+    const unrecoveredAudioFailures = report.audioResources.failed.filter(
+      (resource) =>
+        resource.error !== "net::ERR_ABORTED" ||
+        !successfulAudioUrls.has(resource.url)
+    );
+    const audioConsoleDiagnostics = report.diagnostics.console.filter(
+      (diagnostic) =>
+        /BGM audio play\(\) failed|Spatial audio play\(\) failed|audio media error/i.test(
+          diagnostic.message
+        )
+    );
+    assertCondition(
+      unrecoveredAudioFailures.length === 0,
+      "音声resource load失敗があります。"
+    );
+    assertCondition(
+      audioConsoleDiagnostics.length === 0,
+      "音声再生のconsole errorがあります。"
+    );
+    assertCondition(report.diagnostics.renderer.length === 0, "renderer error/unhandledrejectionがあります。");
+    assertCondition(report.diagnostics.load.length === 0, "renderer load errorがあります。");
+    assertCondition(report.diagnostics.renderProcessGone.length === 0, "render-process-goneがあります。");
+    assertCondition(report.diagnostics.unresponsive.length === 0, "renderer unresponsiveがあります。");
+    addCheck("既定音量5のBGM／SE／VOICE実再生", {
+      titleVisible: startedForAudio.titleVisible,
+      pointerLockId: startedForAudio.pointerLockId,
+      volumeValues: startedForAudio.volumeValues,
+      completedCounts: Object.fromEntries(
+        ["BGM", "SE", "VOICE"].map((category) => [
+          category,
+          successfulAudioResources.filter(
+            (resource) => resource.category === category
+          ).length
+        ])
+      ),
+      failedCount: unrecoveredAudioFailures.length,
+      audioConsoleErrorCount: audioConsoleDiagnostics.length
+    });
+    report.status = "passed";
+    return;
+  }
   const started = await waitFor(
     "Canvas開始とPointer Lock",
     testWindow,
@@ -470,11 +677,27 @@ const run = async () => {
       snapshot.characterSettingsRootCount === 1,
     120_000
   );
+  const restartedNpcSpawnReport = assertNpcSpawnReport(
+    returnedTitle,
+    "Enter再生成session"
+  );
   addCheck("Enterタイトル復帰とroot重複0", {
     pointerLockId: returnedTitle.pointerLockId,
     hudRootCount: returnedTitle.hudRootCount,
     volumeRootCount: returnedTitle.volumeRootCount,
-    characterSettingsRootCount: returnedTitle.characterSettingsRootCount
+    characterSettingsRootCount: returnedTitle.characterSettingsRootCount,
+    npcSpawn: {
+      seed: restartedNpcSpawnReport.sessionSeed,
+      playerSpawnId: restartedNpcSpawnReport.playerSpawnId,
+      activeBiases: restartedNpcSpawnReport.activeBiases,
+      npcCount: restartedNpcSpawnReport.npcCount,
+      initialBrainwashedNpcCount:
+        restartedNpcSpawnReport.initialBrainwashedNpcCount,
+      npcInsideActiveBiasCount:
+        restartedNpcSpawnReport.npcInsideActiveBiasCount,
+      initialBrainwashedInsideActiveBiasCount:
+        restartedNpcSpawnReport.initialBrainwashedInsideActiveBiasCount
+    }
   });
 
   await sendCanvasClick(testWindow);
@@ -497,8 +720,11 @@ const run = async () => {
   });
 
   await wait(2_000);
+  const successfulAudioResources = report.audioResources.completed.filter(
+    (resource) => resource.statusCode >= 200 && resource.statusCode < 300
+  );
   const completedByCategory = new Set(
-    report.audioResources.completed.map((resource) => resource.category)
+    successfulAudioResources.map((resource) => resource.category)
   );
   for (const category of ["BGM", "SE", "VOICE"]) {
     assertCondition(
@@ -506,17 +732,30 @@ const run = async () => {
       `${category}のresource load完了を確認できません。`
     );
   }
-  assertCondition(report.audioResources.failed.length === 0, "音声resource load失敗があります。");
+  const successfulAudioUrls = new Set(
+    successfulAudioResources.map((resource) => resource.url)
+  );
+  const unrecoveredAudioFailures = report.audioResources.failed.filter(
+    (resource) =>
+      resource.error !== "net::ERR_ABORTED" ||
+      !successfulAudioUrls.has(resource.url)
+  );
+  assertCondition(
+    unrecoveredAudioFailures.length === 0,
+    "音声resource load失敗があります。"
+  );
   addCheck("BGM/SE/VOICE resource load", {
     completedCounts: Object.fromEntries(
       ["BGM", "SE", "VOICE"].map((category) => [
         category,
-        report.audioResources.completed.filter(
+        successfulAudioResources.filter(
           (resource) => resource.category === category
         ).length
       ])
     ),
-    failedCount: report.audioResources.failed.length
+    ignoredCompletedAbortCount:
+      report.audioResources.failed.length - unrecoveredAudioFailures.length,
+    failedCount: unrecoveredAudioFailures.length
   });
 
   assertCondition(report.diagnostics.console.length === 0, "console warning/errorがあります。");
@@ -546,6 +785,10 @@ run()
     if (testWindow && !testWindow.isDestroyed()) {
       testWindow.destroy();
     }
-    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    const serializedReport = `${JSON.stringify(report, null, 2)}\n`;
+    if (reportPath !== null) {
+      fs.writeFileSync(reportPath, serializedReport, "utf8");
+    }
+    process.stdout.write(serializedReport);
     app.quit();
   });

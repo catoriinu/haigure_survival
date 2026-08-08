@@ -707,3 +707,7 @@ BIT飛行Agentを、NavMesh中間点の`waypointTolerance * 0.5`手前まで進�
 Electron high stressはseed 20260729、99 NPC／50 BIT、120秒、1843 frameを完走し、`status=passed`、Runtime errorなし、renderer diagnostics 0件だった。5175番に残っていた旧B03資産差替え用の一時Vite設定は、最新T06-1の通常Vite設定へ戻した。通常ゲームを50 NPC／23～24 BITで90秒連続実行し、phaseが進行する間も更新停止と今回の距離超過例外は0件だった。自動操作による開始時だけPointer Lockの`WrongDocumentError`が1件発生したが、ゲーム更新は継続し、その後の新規warning／errorは0件だった。
 
 配布テキスト検査は変更4ファイルでPASSし、`git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、Git binary差分0件、学校Blender／GLB／NavMesh／生成器／カタログhash差分0件を確認した。修正は`fix(v2): BITのNavMesh境界追従を修正`の独立commitへまとめ、push、Pull Request操作、review thread操作、merge、`develop`同期、worktree整理は行わない。
+
+### 2026-08-08 PR #64 `develop`統合結果
+
+PR #64は2026-08-08に`develop`へマージされ、`origin/develop=095eacf`で統合を確認した。T06-1の入力・UI・音声・水中・Runtimeライフサイクル・基本Character画像・性能改善・操作距離・BIT境界追従修正は完了扱いとする。B03-3DのPR #65もPR #64のheadへ取り込まれていたため、B03-3DとT06-1の初回横断統合は完了済みである。複数開始地点、動的出現禁止、NPC／BIT出現Volume、BIT時間増援はT06-2へ残る。

@@ -36,6 +36,7 @@ import {
 import {
   createSchoolStageDynamicSpatialInitializer
 } from "../../../src/world/schoolStageDynamicRuntime";
+import { createStageNpcSpawnSampler } from "../../../src/world/stageSpawnSampler";
 import {
   canStageMoverUseLink,
   STAGE_LINK_KINDS,
@@ -55,10 +56,19 @@ import {
   type V2BitFlightState,
   type V2BitSystem
 } from "../../../src/v2/bitSystem";
+import { SCHOOL_PLAYER_SPAWN_IDS } from "../../../src/v2/schoolSpawnSelection";
 import type {
   V2ExternalAlert,
   V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
+import {
+  createFixtureBitSpawnRandom,
+  createFixtureCenteredBitSpawnRandom,
+  createFixturePlayerSpawn,
+  createFixturePlayerSpawnRegistry,
+  createFixtureSpawnRoleStage,
+  requireFirstFixturePlayerSpawn
+} from "./spawnContractFixture";
 
 const createFixtureNavigationAreas = () => {
   const area = Object.freeze({ id: "fixture-area", volumes: Object.freeze([]) });
@@ -147,6 +157,27 @@ type LoaderWorldBoundaryVariant =
   | "invalid-extras"
   | "outside-stage";
 
+type LoaderNpcSpawnBiasVariant =
+  | "valid"
+  | "missing-player-spawn-id"
+  | "missing-weight"
+  | "minimum-weight"
+  | "maximum-weight"
+  | "below-minimum-weight"
+  | "above-maximum-weight"
+  | "zero-weight"
+  | "negative-weight"
+  | "string-weight"
+  | "unexpected-property"
+  | "orphan-player-spawn"
+  | "outside-npc-spawn"
+  | "duplicate-id"
+  | "same-player-overlap"
+  | "same-player-face-touch"
+  | "same-player-horizontal-face-touch"
+  | "same-player-disjoint"
+  | "different-player-overlap";
+
 const toStageRelativeAssetUrl = (url: string) =>
   url.startsWith("/") ? url.slice(1) : url;
 
@@ -162,12 +193,7 @@ const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   })
 });
 
-const ONE_BIT_INITIAL_RANDOM = Object.freeze([
-  0.5,
-  0.5,
-  0.5,
-  0.5,
-  0.5,
+const ONE_BIT_BEHAVIOR_RANDOM = Object.freeze([
   0,
   0,
   0.5
@@ -238,12 +264,19 @@ const createFixtureStage = (
     id: `bit-acceptance-spawn-${fixtureIndex}`,
     role: "bit_spawn",
     bitFlightBand: band,
+    playerSpawnId: null,
+    npcSpawnBiasWeight: null,
     navigationAreaId: null,
     mesh
   });
+  const playerSpawn = createFixturePlayerSpawn(
+    `bit-acceptance-player-spawn-${fixtureIndex}`,
+    mesh
+  );
   const stage = Object.freeze({
     bitNavigation: navigation,
     navigationAreas: createFixtureNavigationAreas(),
+    playerSpawns: createFixturePlayerSpawnRegistry(playerSpawn),
     volumes: Object.freeze({
       all: Object.freeze([volume]),
       getById: (id: string) => (id === volume.id ? volume : null),
@@ -261,6 +294,7 @@ const createFixtureStage = (
         isSightBlocked(from, to) ? Object.freeze({ blocked: true }) : null,
       sampleGround: () => null,
       containsVolume: () => false,
+      containsVolumeById: () => false,
       dispose: () => {}
     })
   }) as unknown as StageSpatialContext;
@@ -327,9 +361,15 @@ const createDynamicBitRevisionFixtureStage = (
     id: `bit-dynamic-revision-spawn-${fixtureIndex}`,
     role: "bit_spawn",
     bitFlightBand: band,
+    playerSpawnId: null,
+    npcSpawnBiasWeight: null,
     navigationAreaId: null,
     mesh: spawnMesh
   });
+  const playerSpawn = createFixturePlayerSpawn(
+    `bit-dynamic-revision-player-spawn-${fixtureIndex}`,
+    spawnMesh
+  );
   let revision = 0;
   let blockerMode: DynamicBitBlockerMode = Object.freeze({ kind: "none" });
   let stageLinkAccessCount = 0;
@@ -423,6 +463,7 @@ const createDynamicBitRevisionFixtureStage = (
   const stage = Object.freeze({
     bitNavigation: navigation,
     navigationAreas: createFixtureNavigationAreas(),
+    playerSpawns: createFixturePlayerSpawnRegistry(playerSpawn),
     volumes: Object.freeze({
       all: Object.freeze([volume]),
       getById: (id: string) => (id === volume.id ? volume : null),
@@ -475,15 +516,23 @@ const createSystem = (
   stage: StageSpatialContext,
   random: () => number,
   initialBitCount = 1,
-  minimumSpawnDistance = 0
-) =>
-  createV2BitSystem(scene, stage, {
+  minimumSpawnDistance = 0,
+  spawnRandom: () => number =
+    initialBitCount === 1
+      ? createFixtureCenteredBitSpawnRandom()
+      : createFixtureBitSpawnRandom(0x5405_1000 ^ initialBitCount)
+) => {
+  const system = createV2BitSystem(scene, stage, {
     combatEnabled: false,
     initialBitCount,
+    reinforcementIntervalSeconds: 10,
+    maximumBitCount: initialBitCount,
     minimumSpawnDistance,
     spawnMaxAttempts: initialBitCount === 1 ? 8 : 1024,
     spawnProjectionMaxDistance: initialBitCount === 1 ? 0.35 : 0.75,
     random,
+    spawnRandom,
+    playerSpawn: requireFirstFixturePlayerSpawn(stage),
     resolveTargetNavigationArea: (target: V2HumanTargetSnapshot) =>
       Object.freeze({
         targetId: target.id,
@@ -492,6 +541,9 @@ const createSystem = (
         anchor: target.footPosition.clone()
       })
   });
+  system.prepareForScriptedPhase();
+  return system;
+};
 
 const createTarget = (
   id: string,
@@ -672,7 +724,8 @@ const LOADER_FIXTURE_BIT_NAV_URL =
 
 const createLoaderFixtureGlb = (
   fixture: BitSystemAcceptanceFixture,
-  worldBoundaryVariant: LoaderWorldBoundaryVariant = "valid"
+  worldBoundaryVariant: LoaderWorldBoundaryVariant = "valid",
+  npcSpawnBiasVariant: LoaderNpcSpawnBiasVariant = "valid"
 ): Uint8Array => {
   const positions = new Float32Array([
     -0.5, -0.5, -0.5,
@@ -754,6 +807,16 @@ const createLoaderFixtureGlb = (
       hs_role: "player_spawn"
     },
     [0, authoredCoordinate(1.4), 0]
+  );
+  addMeshNode(
+    "VOL_LoaderFixturePlayerSpawnExclusion",
+    {
+      hs_id: "loader-player-spawn-exclusion",
+      hs_role: "player_spawn_exclusion",
+      hs_player_spawn_id: "loader-player-spawn"
+    },
+    [0, authoredCoordinate(1.4), 0],
+    [authoredSize(2), authoredSize(2), authoredSize(2)]
   );
   addMeshNode(
     "BND_Stage",
@@ -873,6 +936,163 @@ const createLoaderFixtureGlb = (
     ],
     [authoredSize(1), authoredSize(0.8), authoredSize(1)]
   );
+  const createNpcSpawnBiasExtras = (
+    id: string,
+    playerSpawnId: string,
+    weight: unknown
+  ) => {
+    const extras: Record<string, unknown> = {
+      hs_id: id,
+      hs_role: "npc_spawn_bias",
+      hs_player_spawn_id: playerSpawnId,
+      hs_weight: weight
+    };
+    if (npcSpawnBiasVariant === "missing-player-spawn-id") {
+      delete extras.hs_player_spawn_id;
+    }
+    if (npcSpawnBiasVariant === "missing-weight") {
+      delete extras.hs_weight;
+    }
+    if (npcSpawnBiasVariant === "unexpected-property") {
+      extras.hs_unexpected = true;
+    }
+    return extras;
+  };
+  const primaryBiasWeight =
+    npcSpawnBiasVariant === "minimum-weight"
+      ? 0.000001
+      : npcSpawnBiasVariant === "maximum-weight"
+        ? 1_000_000
+        : npcSpawnBiasVariant === "below-minimum-weight"
+          ? 0.0000009
+          : npcSpawnBiasVariant === "above-maximum-weight"
+            ? 1_000_000.1
+            : npcSpawnBiasVariant === "zero-weight"
+              ? 0
+              : npcSpawnBiasVariant === "negative-weight"
+                ? -0.5
+                : npcSpawnBiasVariant === "string-weight"
+                  ? "0.5"
+                  : 0.5;
+  const primaryBiasPlayerSpawnId =
+    npcSpawnBiasVariant === "orphan-player-spawn"
+      ? "loader-player-spawn-missing"
+      : "loader-player-spawn";
+  const primaryBiasTranslation =
+    npcSpawnBiasVariant === "outside-npc-spawn"
+      ? ([authoredCoordinate(3), authoredCoordinate(1.4), authoredCoordinate(3)] as const)
+      : ([
+          authoredCoordinate(1),
+          authoredCoordinate(
+            npcSpawnBiasVariant === "same-player-horizontal-face-touch"
+              ? 1.2125
+              : 1.4
+          ),
+          authoredCoordinate(1)
+        ] as const);
+  addMeshNode(
+    "VOL_LoaderFixtureNpcSpawnBias",
+    createNpcSpawnBiasExtras(
+      "loader-npc-spawn-bias",
+      primaryBiasPlayerSpawnId,
+      primaryBiasWeight
+    ),
+    primaryBiasTranslation,
+    [
+      authoredSize(0.5),
+      authoredSize(
+        npcSpawnBiasVariant === "same-player-horizontal-face-touch"
+          ? 0.425
+          : 0.8
+      ),
+      authoredSize(0.5)
+    ]
+  );
+  if (
+    npcSpawnBiasVariant === "duplicate-id" ||
+    npcSpawnBiasVariant === "same-player-overlap" ||
+    npcSpawnBiasVariant === "same-player-face-touch" ||
+    npcSpawnBiasVariant === "same-player-horizontal-face-touch" ||
+    npcSpawnBiasVariant === "same-player-disjoint"
+  ) {
+    addMeshNode(
+      "VOL_LoaderFixtureNpcSpawnBiasSecond",
+      {
+        hs_id:
+          npcSpawnBiasVariant === "duplicate-id"
+            ? "loader-npc-spawn-bias"
+            : "loader-npc-spawn-bias-second",
+        hs_role: "npc_spawn_bias",
+        hs_player_spawn_id: "loader-player-spawn",
+        hs_weight: 0.25
+      },
+      [
+        authoredCoordinate(
+          npcSpawnBiasVariant === "same-player-horizontal-face-touch"
+            ? 1
+            : npcSpawnBiasVariant === "same-player-disjoint"
+              ? 1.4375
+              : npcSpawnBiasVariant === "same-player-face-touch"
+                ? 1.3125
+                : 1.1875
+        ),
+        authoredCoordinate(
+          npcSpawnBiasVariant === "same-player-horizontal-face-touch"
+            ? 1.6125
+            : 1.4
+        ),
+        authoredCoordinate(1)
+      ],
+      [
+        authoredSize(
+          npcSpawnBiasVariant === "same-player-horizontal-face-touch"
+            ? 0.5
+            : 0.125
+        ),
+        authoredSize(
+          npcSpawnBiasVariant === "same-player-horizontal-face-touch"
+            ? 0.375
+            : 0.8
+        ),
+        authoredSize(
+          npcSpawnBiasVariant === "same-player-horizontal-face-touch"
+            ? 0.5
+            : 0.125
+        )
+      ]
+    );
+  }
+  if (npcSpawnBiasVariant === "different-player-overlap") {
+    addEmptyNode(
+      "MRK_PlayerSpawnSecond",
+      {
+        hs_id: "loader-player-spawn-second",
+        hs_role: "player_spawn"
+      },
+      [authoredCoordinate(1.1), authoredCoordinate(1.4), authoredCoordinate(1)]
+    );
+    addMeshNode(
+      "VOL_LoaderFixturePlayerSpawnExclusionSecond",
+      {
+        hs_id: "loader-player-spawn-exclusion-second",
+        hs_role: "player_spawn_exclusion",
+        hs_player_spawn_id: "loader-player-spawn-second"
+      },
+      [authoredCoordinate(1.1), authoredCoordinate(1.4), authoredCoordinate(1)],
+      [authoredSize(0.8), authoredSize(2), authoredSize(0.8)]
+    );
+    addMeshNode(
+      "VOL_LoaderFixtureNpcSpawnBiasSecond",
+      {
+        hs_id: "loader-npc-spawn-bias-second",
+        hs_role: "npc_spawn_bias",
+        hs_player_spawn_id: "loader-player-spawn-second",
+        hs_weight: 0.25
+      },
+      [authoredCoordinate(1.1), authoredCoordinate(1.4), authoredCoordinate(1)],
+      [authoredSize(0.2), authoredSize(0.8), authoredSize(0.2)]
+    );
+  }
   addMeshNode(
     "VOL_LoaderFixtureBitSpawn",
     {
@@ -988,11 +1208,13 @@ const calculateAcceptanceSha256 = async (data: Uint8Array) => {
 const createLoaderFixtureAssets = async (
   fixture: BitSystemAcceptanceFixture,
   worldBoundaryVariant: LoaderWorldBoundaryVariant = "valid",
-  worldBoundaryMode: StageCatalogEntry["worldBoundaryMode"] = "required"
+  worldBoundaryMode: StageCatalogEntry["worldBoundaryMode"] = "required",
+  npcSpawnBiasVariant: LoaderNpcSpawnBiasVariant = "valid"
 ): Promise<LoaderFixtureAssets> => {
   const glb = createLoaderFixtureGlb(
     fixture,
-    worldBoundaryVariant
+    worldBoundaryVariant,
+    npcSpawnBiasVariant
   );
   const humanNavmesh = Uint8Array.from(fixture.payloads[0].data);
   const bitNavmesh = encodeBitFlightNavBundle(
@@ -1083,7 +1305,7 @@ const runActorSphereRadiusCheck = (
     fixture.pointInBand(fixture.courtyardRef, 0, 0),
     () => false
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   try {
     const actors = system.getFrameView().actorSpheres;
@@ -1119,7 +1341,7 @@ const runVisualTargetLossChecks = (
     fixture.pointInBand(fixture.courtyardRef, 0, 0),
     () => timeoutSightBlocked
   );
-  const timeoutRandom = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const timeoutRandom = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const timeoutSystem = createSystem(
     fixture.scene,
     timeoutStage.stage,
@@ -1180,7 +1402,7 @@ const runVisualTargetLossChecks = (
     fixture.pointInBand(fixture.courtyardRef, 0, 0),
     () => false
   );
-  const distanceRandom = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const distanceRandom = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const distanceSystem = createSystem(
     fixture.scene,
     distanceStage.stage,
@@ -1565,7 +1787,7 @@ const runCarpetFormationChecks = (
     fixture.pointInBand(fixture.courtyardRef, 0, 0),
     () => true
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   const checks: BitSystemAcceptanceCheck[] = [];
   try {
@@ -1586,6 +1808,20 @@ const runCarpetFormationChecks = (
       targets: Object.freeze([sameBandTarget]),
       externalAlerts: Object.freeze([alert])
     });
+    system.update({
+      deltaSeconds: 0.1,
+      elapsedSeconds: 0.1,
+      targets: Object.freeze([sameBandTarget]),
+      externalAlerts: EMPTY_ALERTS
+    });
+    for (const elapsedSeconds of [0.6, 1.1, 1.6] as const) {
+      system.update({
+        deltaSeconds: 0.5,
+        elapsedSeconds,
+        targets: Object.freeze([sameBandTarget]),
+        externalAlerts: EMPTY_ALERTS
+      });
+    }
 
     let stayedInBand = true;
     let bobStayedZero = true;
@@ -1593,7 +1829,7 @@ const runCarpetFormationChecks = (
     for (let frameIndex = 1; frameIndex <= 10; frameIndex += 1) {
       system.update({
         deltaSeconds: 0.1,
-        elapsedSeconds: frameIndex * 0.1,
+        elapsedSeconds: 1.6 + frameIndex * 0.1,
         targets: Object.freeze([sameBandTarget]),
         externalAlerts: EMPTY_ALERTS
       });
@@ -1631,7 +1867,7 @@ const runCarpetFormationChecks = (
     );
     system.update({
       deltaSeconds: 0.1,
-      elapsedSeconds: 1.1,
+      elapsedSeconds: 2.7,
       targets: Object.freeze([crossBandTarget]),
       externalAlerts: EMPTY_ALERTS
     });
@@ -1650,7 +1886,7 @@ const runCarpetFormationChecks = (
       frameIndex < 300 && !observedTransition;
       frameIndex += 1
     ) {
-      const elapsedSeconds = 1.2 + frameIndex * 0.1;
+      const elapsedSeconds = 2.8 + frameIndex * 0.1;
       system.update({
         deltaSeconds: 0.1,
         elapsedSeconds,
@@ -1713,7 +1949,7 @@ const runSearchMovementCase = (
     fixture.pointInBand(fixture.courtyardRef, 0, 0),
     () => true
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   try {
     random.enqueue(...scriptedRandom);
@@ -1764,7 +2000,7 @@ const runBobCheck = (
     fixture.pointInBand(fixture.courtyardRef, 0, 0),
     () => true
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   try {
     random.enqueue(0.2, 0.5, 0.999, 0.5);
@@ -1813,7 +2049,7 @@ const runTransitionBobCheck = (
     fixture.pointInBand(fixture.concourseRef, 0, 0),
     () => true
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   try {
     const target = createTarget(
@@ -1880,7 +2116,7 @@ const runTransitionClearCase = (
     fixture.pointInBand(fixture.concourseRef, 0, 0),
     () => true
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   try {
     const target = createTarget(
@@ -2034,7 +2270,7 @@ const runTransitionReturnSuppressionCheck = async (
     fixture.pointInBand(fixture.concourseRef, 0, 0),
     () => true
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   try {
     random.enqueue(0.2, 0.5, 0.5, 0.5, 0.5, 0.2);
@@ -2205,7 +2441,7 @@ const runDynamicRevisionSurfaceChecks = (
     fixture.courtyardRef,
     fixture.pointInBand(fixture.courtyardRef, -0.8, 0)
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   system.setDiagnosticsEnabled(true);
   try {
@@ -2326,7 +2562,7 @@ const runDynamicRevisionTransitionChecks = (
     fixture.concourseRef,
     transitionStart
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   system.setDiagnosticsEnabled(true);
   try {
@@ -2461,7 +2697,7 @@ const runDynamicRevisionUnreachableRecoveryCheck = (
     fixture.courtyardRef,
     fixture.pointInBand(fixture.courtyardRef, 0, 0)
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   system.setDiagnosticsEnabled(true);
   try {
@@ -2718,6 +2954,11 @@ const runLoaderFixtureLifecycleCheck = async (
       loadedBandCount === fixture.definition.bands.length &&
       loadedTransitionCount === 1 &&
       context.volumes.getByRole("npc_spawn").length === 1 &&
+      context.volumes.getByRole("npc_spawn_bias").length === 1 &&
+      context.volumes.getByRole("npc_spawn_bias")[0]
+        .playerSpawnId === "loader-player-spawn" &&
+      context.volumes.getByRole("npc_spawn_bias")[0]
+        .npcSpawnBiasWeight === 0.5 &&
       context.volumes.getByRole("bit_spawn").length === 1 &&
       worldBoundaryQueries;
     context.dispose();
@@ -2854,6 +3095,214 @@ const runLoaderWorldBoundaryPolicyCheck = async (
   });
 };
 
+const runLoaderNpcSpawnBiasContractCheck = async (
+  fixture: BitSystemAcceptanceFixture
+): Promise<BitSystemAcceptanceCheck> => {
+  const cases = [
+    Object.freeze({
+      label: "weight下限境界",
+      variant: "minimum-weight" as const,
+      shouldLoad: true,
+      expectedBiasCount: 1,
+      expectedErrorFragments: Object.freeze([] as string[])
+    }),
+    Object.freeze({
+      label: "weight上限境界",
+      variant: "maximum-weight" as const,
+      shouldLoad: true,
+      expectedBiasCount: 1,
+      expectedErrorFragments: Object.freeze([] as string[])
+    }),
+    Object.freeze({
+      label: "同一Player非overlap複数",
+      variant: "same-player-disjoint" as const,
+      shouldLoad: true,
+      expectedBiasCount: 2,
+      expectedErrorFragments: Object.freeze([] as string[])
+    }),
+    Object.freeze({
+      label: "同一Player面接触",
+      variant: "same-player-face-touch" as const,
+      shouldLoad: true,
+      expectedBiasCount: 2,
+      expectedErrorFragments: Object.freeze([] as string[])
+    }),
+    Object.freeze({
+      label: "同一Player水平面接触",
+      variant: "same-player-horizontal-face-touch" as const,
+      shouldLoad: true,
+      expectedBiasCount: 2,
+      expectedErrorFragments: Object.freeze([] as string[])
+    }),
+    Object.freeze({
+      label: "別Player overlap",
+      variant: "different-player-overlap" as const,
+      shouldLoad: true,
+      expectedBiasCount: 2,
+      expectedErrorFragments: Object.freeze([] as string[])
+    }),
+    Object.freeze({
+      label: "Player参照欠落",
+      variant: "missing-player-spawn-id" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze(["hs_player_spawn_id"])
+    }),
+    Object.freeze({
+      label: "weight欠落",
+      variant: "missing-weight" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze(["hs_weight"])
+    }),
+    Object.freeze({
+      label: "weight下限未満",
+      variant: "below-minimum-weight" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze([
+        "hs_weightは0.000001以上1000000以下"
+      ])
+    }),
+    Object.freeze({
+      label: "weight上限超過",
+      variant: "above-maximum-weight" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze([
+        "hs_weightは0.000001以上1000000以下"
+      ])
+    }),
+    Object.freeze({
+      label: "weightゼロ",
+      variant: "zero-weight" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze([
+        "hs_weightは0.000001以上1000000以下"
+      ])
+    }),
+    Object.freeze({
+      label: "weight負数",
+      variant: "negative-weight" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze([
+        "hs_weightは0.000001以上1000000以下"
+      ])
+    }),
+    Object.freeze({
+      label: "weight文字列",
+      variant: "string-weight" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze(["hs_weight"])
+    }),
+    Object.freeze({
+      label: "未許可property",
+      variant: "unexpected-property" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze(["hs_unexpected"])
+    }),
+    Object.freeze({
+      label: "孤立Player参照",
+      variant: "orphan-player-spawn" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze(["未登録player_spawn"])
+    }),
+    Object.freeze({
+      label: "基礎npc_spawn外",
+      variant: "outside-npc-spawn" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze(["npc_spawn"])
+    }),
+    Object.freeze({
+      label: "hs_id重複",
+      variant: "duplicate-id" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze(["hs_idが重複"])
+    }),
+    Object.freeze({
+      label: "同一Player正面積overlap",
+      variant: "same-player-overlap" as const,
+      shouldLoad: false,
+      expectedBiasCount: 0,
+      expectedErrorFragments: Object.freeze(["正面積重複"])
+    })
+  ];
+  const details: string[] = [];
+  let allPassed = true;
+  for (const testCase of cases) {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const baseline = countSceneResources(scene);
+    const assets = await createLoaderFixtureAssets(
+      fixture,
+      "valid",
+      "required",
+      testCase.variant
+    );
+    const restoreFetch = installLoaderFixtureFetch(assets);
+    let context: StageSpatialContext | null = null;
+    let message: string | null = null;
+    let matchedContract = false;
+    try {
+      try {
+        context = await loadStageSpatialContext(
+          scene,
+          assets.catalog,
+          {
+            initializeDynamicSpatial:
+              createSchoolStageDynamicSpatialInitializer(0)
+          }
+        );
+        const biases = context.volumes.getByRole("npc_spawn_bias");
+        matchedContract =
+          testCase.shouldLoad &&
+          biases.length === testCase.expectedBiasCount &&
+          biases.every(
+            (bias) =>
+              bias.playerSpawnId !== null &&
+              bias.npcSpawnBiasWeight !== null &&
+              bias.npcSpawnBiasWeight >= 0.000001 &&
+              bias.npcSpawnBiasWeight <= 1_000_000
+          );
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+        matchedContract =
+          !testCase.shouldLoad &&
+          testCase.expectedErrorFragments.every((fragment) =>
+            message!.includes(fragment)
+          );
+      }
+      context?.dispose();
+      context = null;
+      const resourcesReturned = sceneResourceCountsEqual(
+        baseline,
+        countSceneResources(scene)
+      );
+      allPassed = allPassed && matchedContract && resourcesReturned;
+      details.push(
+        `${testCase.label}=${matchedContract ? "ok" : message ?? "unexpected-load"}` +
+          `/resources=${resourcesReturned}`
+      );
+    } finally {
+      restoreFetch();
+      scene.dispose();
+      engine.dispose();
+    }
+  }
+  return Object.freeze({
+    name: "NPC spawn bias metadata・参照・weight・overlap実loader契約",
+    ok: allPassed,
+    detail: details.join(" / ")
+  });
+};
+
 const runSchoolPerformanceAndLifecycleChecks = async (
   fixture: BitSystemAcceptanceFixture
 ): Promise<BitSystemAcceptanceResult> => {
@@ -2884,9 +3333,76 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     document.title =
       `T05学校受入: 99体探索 warmup 0/${PERFORMANCE_WARMUP_TICKS}`;
     await yieldToBrowser();
+    const schoolNpcSpawnVolumes =
+      schoolContext.volumes.getByRole("npc_spawn");
+    const schoolNpcSpawnBiasVolumes =
+      schoolContext.volumes.getByRole("npc_spawn_bias");
+    const schoolNpcSpawnChannelSummaries =
+      schoolContext.playerSpawns.all.map((playerSpawn) => {
+        const sampler = createStageNpcSpawnSampler(
+          schoolNpcSpawnVolumes,
+          playerSpawn.npcSpawnBiasVolumes,
+          playerSpawn.id,
+          schoolContext!.navigation,
+          {
+            maxAttempts: 1,
+            projectionMaxDistance: 0.75,
+            random: () => 0.5
+          }
+        );
+        return Object.freeze({
+          playerSpawnId: playerSpawn.id,
+          biasIds: Object.freeze(
+            playerSpawn.npcSpawnBiasVolumes.map((volume) => volume.id)
+          ),
+          channels: sampler.channels,
+          totalWeight: sampler.totalWeight
+        });
+      });
+    const actualPlayerSpawnIds = new Set(
+      schoolNpcSpawnChannelSummaries.map((summary) => summary.playerSpawnId)
+    );
+    checks.push(
+      Object.freeze({
+        name: "実学校11開始地点のNPC bias 1対1・weight・正面積channel",
+        ok:
+          schoolNpcSpawnBiasVolumes.length ===
+            SCHOOL_PLAYER_SPAWN_IDS.length &&
+          actualPlayerSpawnIds.size === SCHOOL_PLAYER_SPAWN_IDS.length &&
+          SCHOOL_PLAYER_SPAWN_IDS.every((id) =>
+            actualPlayerSpawnIds.has(id)
+          ) &&
+          schoolNpcSpawnChannelSummaries.every(
+            (summary) =>
+              summary.biasIds.length === 1 &&
+              summary.channels.length === 2 &&
+              summary.channels[0].channelId === "npc-spawn-base" &&
+              summary.channels[0].weight === 1 &&
+              summary.channels[0].area > 0 &&
+              summary.channels[1].channelId ===
+                `npc-spawn-bias:${summary.biasIds[0]}` &&
+              summary.channels[1].weight === 0.5 &&
+              summary.channels[1].area > 0 &&
+              Math.abs(summary.totalWeight - 1.5) <= 1e-10
+          ),
+        detail: schoolNpcSpawnChannelSummaries
+          .map(
+            (summary) =>
+              `${summary.playerSpawnId}:${summary.biasIds.join(",")}` +
+              `/areas=${summary.channels.map((channel) => channel.area.toFixed(3)).join(",")}` +
+              `/weight=${summary.totalWeight}`
+          )
+          .join(" | ")
+      })
+    );
     const schoolWorldBoundaryRequired =
       schoolContext.worldBoundary?.id === "world-limit";
     const schoolNavigation = schoolContext.bitNavigation;
+    const schoolPerformanceStage = createFixtureSpawnRoleStage(
+      schoolContext,
+      "bit_spawn",
+      Object.freeze(["bit-spawn-outdoor-f1"])
+    );
     const schoolZoneId = schoolNavigation.zones[0]?.id;
     if (!schoolZoneId) {
       throw new Error("学校Contextに飛行ゾーンがありません。");
@@ -2900,7 +3416,7 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     };
     const searchSystem = createSystem(
       scene,
-      schoolContext,
+      schoolPerformanceStage,
       searchRandom,
       99,
       0.08
@@ -3126,7 +3642,7 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     };
     const chaseSystem = createSystem(
       scene,
-      schoolContext,
+      schoolPerformanceStage,
       chaseRandom,
       99,
       0.08
@@ -3228,6 +3744,14 @@ const runSchoolPerformanceAndLifecycleChecks = async (
       const maximumProgressWaitTicks = Math.max(
         ...firstProgressTickById.values()
       );
+      const assignedTargetStateCount = targetStates.filter(
+        (state) =>
+          state.targetId !== null &&
+          stressFixture.targetIds.has(state.targetId)
+      ).length;
+      const chaseTargetStateCount = targetStates.filter(
+        (state) => state.mode === "chase"
+      ).length;
       checks.push({
         name: "学校99体の屋外隣接帯vertical追跡を1/60秒tick性能予算内に維持",
         ok:
@@ -3267,6 +3791,8 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           `p95=${statistics.p95.toFixed(3)}/${PERFORMANCE_P95_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
           `max=${statistics.maximum.toFixed(3)}/${PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
           `total=${statistics.total.toFixed(3)}ms / ` +
+          `targets=${assignedTargetStateCount}/${targetStates.length} / ` +
+          `chase=${chaseTargetStateCount}/${targetStates.length} / ` +
           `progressed=${progressedIds.size}/${initialPositions.size} / ` +
           `maxWait=${maximumProgressWaitTicks}tick/` +
           `${(maximumProgressWaitTicks * PERFORMANCE_DELTA_SECONDS).toFixed(3)}s`
@@ -3474,7 +4000,7 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     };
     const mixedSystem = createSystem(
       scene,
-      schoolContext,
+      schoolPerformanceStage,
       mixedRandom,
       99,
       0.08
@@ -3613,7 +4139,7 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     if (!fixtureZoneId) {
       throw new Error("実loader fixtureに飛行ゾーンがありません。");
     }
-    const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+    const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
     fixtureSystem = createSystem(
       scene,
       fixtureContext,
@@ -3696,7 +4222,8 @@ export const runBitSystemAcceptanceTests = async (
     try {
       checks.push(
         await runLoaderFixtureLifecycleCheck(fixture),
-        await runLoaderWorldBoundaryPolicyCheck(fixture)
+        await runLoaderWorldBoundaryPolicyCheck(fixture),
+        await runLoaderNpcSpawnBiasContractCheck(fixture)
       );
     } catch (error) {
       checks.push({

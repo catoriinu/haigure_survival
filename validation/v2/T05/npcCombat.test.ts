@@ -63,6 +63,11 @@ import { createV2PlanarSpatialIndex } from "../../../src/v2/planarSpatialIndex";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
 import type { V2CharacterVisualRuntime } from "../../../src/v2/v2CharacterVisualRuntime";
 import { createDefaultV2CharacterVisualRuntime } from "../characterVisualFixture";
+import {
+  createFixturePlayerSpawn,
+  createFixtureSurfacePointSpawnRandom,
+  createFixtureSurfaceTriangles
+} from "./spawnContractFixture";
 
 export type NpcCombatTestResult = Readonly<{
   name: string;
@@ -208,28 +213,7 @@ const createInitializationRandom = (
   initialBrainwashedNpcCount: number,
   brainwashedStateRoll: number | null
 ) => {
-  const spawnCoordinates = [
-    [0.2, 0.5, 0.2],
-    [0.8, 0.5, 0.8],
-    [0.2, 0.5, 0.8]
-  ] as const;
   const values: number[] = [];
-  for (let index = 0; index < npcCount; index += 1) {
-    const gridSize = Math.ceil(Math.sqrt(npcCount));
-    const coordinate = spawnCoordinates[index] ?? [
-      0.05 +
-        (0.9 * (index % gridSize)) /
-          Math.max(1, gridSize - 1),
-      0.5,
-      0.05 +
-        (0.9 * Math.floor(index / gridSize)) /
-          Math.max(1, gridSize - 1)
-    ];
-    values.push(...coordinate);
-  }
-  for (let index = 0; index < initialBrainwashedNpcCount; index += 1) {
-    values.push(0);
-  }
   for (let index = 0; index < npcCount; index += 1) {
     if (index < initialBrainwashedNpcCount) {
       const stateRoll =
@@ -249,6 +233,31 @@ const createInitializationRandom = (
     index += 1;
     return value;
   };
+};
+
+const createNpcSpawnRandom = (npcCount: number) => {
+  const preferredCoordinates = Object.freeze([
+    Object.freeze({ xRatio: 0.2, zRatio: 0.2 }),
+    Object.freeze({ xRatio: 0.8, zRatio: 0.8 }),
+    Object.freeze({ xRatio: 0.2, zRatio: 0.8 })
+  ]);
+  const gridSize = Math.ceil(Math.sqrt(npcCount));
+  return createFixtureSurfacePointSpawnRandom(
+    Array.from({ length: npcCount }, (_, index) =>
+      preferredCoordinates[index] ??
+      Object.freeze({
+        xRatio:
+          0.05 +
+          (0.9 * (index % gridSize)) /
+            Math.max(1, gridSize - 1),
+        zRatio:
+          0.05 +
+          (0.9 * Math.floor(index / gridSize)) /
+            Math.max(1, gridSize - 1)
+      })
+    ),
+    0x5405_2000 ^ npcCount
+  );
 };
 
 const createNpcFixture = async (
@@ -295,6 +304,13 @@ const createNpcFixture = async (
     Math.abs(position.x) <= boundaryExtent &&
     Math.abs(position.z) <= boundaryExtent;
   const navigation: NavigationWorld = {
+    getSurfaceTriangles: () =>
+      createFixtureSurfaceTriangles(
+        -boundaryExtent,
+        boundaryExtent,
+        -boundaryExtent,
+        boundaryExtent
+      ),
     projectPoint: (position, maxDistance) => {
       if (!isInside(position)) {
         return null;
@@ -367,8 +383,30 @@ const createNpcFixture = async (
     Object.freeze([]);
   let locateNavigationArea = (_point: Vector3): StageNavigationAreaCursor =>
     Object.freeze({ areaId: navigationArea.id, portalId: null });
+  const npcSpawnVolume: StageVolume = Object.freeze({
+    id: "t05-npc-combat-spawn",
+    role: "npc_spawn",
+    bitFlightBand: null,
+    playerSpawnId: null,
+    npcSpawnBiasWeight: null,
+    navigationAreaId: null,
+    mesh: ground
+  });
+  const playerSpawn = createFixturePlayerSpawn(
+    "t05-npc-combat-player-spawn",
+    ground
+  );
   const stage = {
     navigation,
+    volumes: Object.freeze({
+      all: Object.freeze([npcSpawnVolume]),
+      getById: (id: string) =>
+        id === npcSpawnVolume.id ? npcSpawnVolume : null,
+      getByRole: (role: StageVolume["role"]) =>
+        role === "npc_spawn"
+          ? Object.freeze([npcSpawnVolume])
+          : Object.freeze([])
+    }),
     navigationAreas: Object.freeze({
       get all() {
         return navigationAreas;
@@ -467,6 +505,8 @@ const createNpcFixture = async (
       initialBrainwashedNpcCount,
       brainwashedStateRoll
     ),
+    spawnRandom: createNpcSpawnRandom(npcCount),
+    playerSpawn,
     resolveTargetNavigationArea: (target) =>
       Object.freeze({
         targetId: target.id,
@@ -2995,6 +3035,8 @@ const testNavigationAreaRejectsExitWithoutPortal = async () => {
       id: "navigation-area-test-first",
       role: "navigation_area",
       bitFlightBand: null,
+      playerSpawnId: null,
+      npcSpawnBiasWeight: null,
       navigationAreaId: "first",
       mesh: firstMesh
     }),
@@ -3002,6 +3044,8 @@ const testNavigationAreaRejectsExitWithoutPortal = async () => {
       id: "navigation-area-test-second",
       role: "navigation_area",
       bitFlightBand: null,
+      playerSpawnId: null,
+      npcSpawnBiasWeight: null,
       navigationAreaId: "second",
       mesh: secondMesh
     })

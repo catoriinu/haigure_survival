@@ -31,6 +31,13 @@ export type NavigationLocation = Readonly<{
   polygonRef: number;
 }>;
 
+export type NavigationSurfaceTriangle = Readonly<{
+  a: Vector3;
+  b: Vector3;
+  c: Vector3;
+  area: number;
+}>;
+
 export type NavigationSurfaceStep = Readonly<{
   kind: "surface";
   points: readonly NavigationLocation[];
@@ -86,6 +93,7 @@ export const DISTANCE_NAVIGATION_ROUTE_POLICY: NavigationRoutePolicy =
   });
 
 export interface NavigationWorld {
+  getSurfaceTriangles(): readonly NavigationSurfaceTriangle[];
   projectPoint(position: Vector3, maxDistance: number): NavigationLocation | null;
   findSurfacePath(
     start: NavigationLocation,
@@ -177,6 +185,32 @@ const toBabylonPosition = (position: Readonly<{ x: number; y: number; z: number 
   const result = new Vector3(-position.x, position.y, position.z);
   assertFiniteVector("Recastの問い合わせ結果", result);
   return result;
+};
+
+const createNavigationSurfaceTriangles = (
+  navMesh: NavMesh
+): readonly NavigationSurfaceTriangle[] => {
+  const [positions, indices] = getNavMeshPositionsAndIndices(navMesh);
+  const triangles: NavigationSurfaceTriangle[] = [];
+  for (let index = 0; index < indices.length; index += 3) {
+    const createVertex = (vertexIndex: number) =>
+      toBabylonPosition({
+        x: positions[vertexIndex * 3],
+        y: positions[vertexIndex * 3 + 1],
+        z: positions[vertexIndex * 3 + 2]
+      });
+    const a = createVertex(indices[index]);
+    const b = createVertex(indices[index + 1]);
+    const c = createVertex(indices[index + 2]);
+    const area = Vector3.Cross(b.subtract(a), c.subtract(a)).length() / 2;
+    if (area > 0) {
+      triangles.push(Object.freeze({ a, b, c, area }));
+    }
+  }
+  if (triangles.length === 0) {
+    throw new Error("NavMeshに有効な表面三角形がありません。");
+  }
+  return Object.freeze(triangles);
 };
 
 const createNavigationLocation = (
@@ -295,6 +329,7 @@ class RecastNavigationWorld implements NavigationWorld {
   private readonly filter: QueryFilter;
   private readonly straightPathOptions: number;
   private readonly navMeshMinimumY: number;
+  private readonly surfaceTriangles: readonly NavigationSurfaceTriangle[];
   private readonly polygonComponentByRef: ReadonlyMap<number, number>;
   private readonly resolvedLinks: readonly ResolvedStageLink[];
   private readonly linkEndpoints: readonly NavigationLocation[];
@@ -318,6 +353,7 @@ class RecastNavigationWorld implements NavigationWorld {
     this.filter = filter;
     this.straightPathOptions = straightPathOptions;
     this.navMeshMinimumY = calculateNavMeshMinimumY(navMesh);
+    this.surfaceTriangles = createNavigationSurfaceTriangles(navMesh);
     this.polygonComponentByRef = calculateNavMeshPolygonComponents(navMesh);
     this.resolvedLinks = Object.freeze(
       links.map((pair) => {
@@ -333,6 +369,20 @@ class RecastNavigationWorld implements NavigationWorld {
       this.resolvedLinks.flatMap((link) => [link.endpointA, link.endpointB])
     );
     this.linkEndpointCount = this.linkEndpoints.length;
+  }
+
+  getSurfaceTriangles() {
+    this.assertActive();
+    return Object.freeze(
+      this.surfaceTriangles.map((triangle) =>
+        Object.freeze({
+          a: triangle.a.clone(),
+          b: triangle.b.clone(),
+          c: triangle.c.clone(),
+          area: triangle.area
+        })
+      )
+    );
   }
 
   projectPoint(position: Vector3, maxDistance: number) {

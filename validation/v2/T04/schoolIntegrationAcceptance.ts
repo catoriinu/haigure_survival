@@ -3566,17 +3566,17 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
       baselineStress.population.npcCount === 50 &&
       baselineStress.population.initialBrainwashedNpcCount ===
         10 &&
-      baselineStress.population.bitCount === 20 &&
+      baselineStress.population.initialBitCount === 20 &&
       highStress?.durationSeconds === 120 &&
       highStress.population.npcCount === 99 &&
       highStress.population.initialBrainwashedNpcCount === 66 &&
-      highStress.population.bitCount === 50,
+      highStress.population.initialBitCount === 50,
     `baseline=${baselineStress?.population.npcCount}/` +
       `${baselineStress?.population.initialBrainwashedNpcCount}/` +
-      `${baselineStress?.population.bitCount}@${baselineStress?.durationSeconds}s / ` +
+      `${baselineStress?.population.initialBitCount}@${baselineStress?.durationSeconds}s / ` +
       `high=${highStress?.population.npcCount}/` +
       `${highStress?.population.initialBrainwashedNpcCount}/` +
-      `${highStress?.population.bitCount}@${highStress?.durationSeconds}s`
+      `${highStress?.population.initialBitCount}@${highStress?.durationSeconds}s`
   );
   let invalidStressProfileError = "";
   try {

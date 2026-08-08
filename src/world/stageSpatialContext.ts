@@ -34,6 +34,11 @@ import {
   type NavigationWorld
 } from "./navigationWorld";
 import {
+  calculateNavigationSurfaceVolumeIntersectionArea,
+  hasPositiveNavigationSurfaceVolumeIntersection,
+  isVolumeFullyContainedByConvexVolume
+} from "./navigationSurfaceVolumeSampler";
+import {
   assembleHumanNavTileBundle,
   decodeHumanNavTileBundle,
   type HumanNavRoomVariantSelection,
@@ -71,6 +76,8 @@ import {
   createStageBoundaryContainsQuery,
   createStageSpatialQueries,
   createStageVolumeContainsSegmentQuery,
+  NPC_SPAWN_BIAS_WEIGHT_MAXIMUM,
+  NPC_SPAWN_BIAS_WEIGHT_MINIMUM,
   STAGE_VOLUME_ROLES,
   type StageMovementColliderSets,
   type StageSpatialQueryDiagnostics,
@@ -113,6 +120,18 @@ export type StageMarker = Readonly<{
   role: StageMarkerRole;
   node: TransformNode;
 }>;
+
+export type StagePlayerSpawn = Readonly<{
+  id: string;
+  marker: StageMarker;
+  exclusionVolume: StageVolume;
+  npcSpawnBiasVolumes: readonly StageVolume[];
+}>;
+
+export interface StagePlayerSpawnRegistry {
+  readonly all: readonly StagePlayerSpawn[];
+  getById(id: string): StagePlayerSpawn | null;
+}
 
 export interface StageMarkerRegistry {
   readonly all: readonly StageMarker[];
@@ -189,6 +208,7 @@ export type StageSpatialContext = Readonly<{
   bitNavigation: BitFlightNavigationWorld;
   markers: StageMarkerRegistry;
   volumes: StageVolumeRegistry;
+  playerSpawns: StagePlayerSpawnRegistry;
   navigationAreas: StageNavigationAreaRegistry;
   assemblyVenues: StageAssemblyVenueRegistry;
   links: StageLinkRegistry;
@@ -696,6 +716,8 @@ const classifyVolume = (
   const extras = requireExtras(mesh);
   const role = requireEnum(mesh.name, extras, "hs_role", STAGE_VOLUME_ROLES);
   const isBitSpawn = role === "bit_spawn";
+  const isNpcSpawnBias = role === "npc_spawn_bias";
+  const isPlayerSpawnExclusion = role === "player_spawn_exclusion";
   const isAssembly = role === "assembly";
   const isNavigationArea = role === "navigation_area";
   if (
@@ -714,6 +736,10 @@ const classifyVolume = (
       extras,
       isBitSpawn
         ? ["hs_id", "hs_role", "hs_zone_id", "hs_band_id"]
+        : isNpcSpawnBias
+          ? ["hs_id", "hs_role", "hs_player_spawn_id", "hs_weight"]
+        : isPlayerSpawnExclusion
+          ? ["hs_id", "hs_role", "hs_player_spawn_id"]
         : isAssembly
           ? ["hs_id", "hs_role", "hs_anchor_id"]
           : isNavigationArea
@@ -727,11 +753,28 @@ const classifyVolume = (
     bitFlightBand: isBitSpawn
       ? parseBitFlightBandRef(mesh.name, extras, "hs")
       : null,
+    playerSpawnId: isPlayerSpawnExclusion || isNpcSpawnBias
+      ? requireReferenceId(mesh.name, extras, "hs_player_spawn_id")
+      : null,
+    npcSpawnBiasWeight: isNpcSpawnBias
+      ? requireFiniteNumber(mesh.name, extras, "hs_weight")
+      : null,
     navigationAreaId: isNavigationArea
       ? requireReferenceId(mesh.name, extras, "hs_area_id")
       : null,
     mesh
   });
+  if (
+    isNpcSpawnBias &&
+    (volume.npcSpawnBiasWeight === null ||
+      volume.npcSpawnBiasWeight < NPC_SPAWN_BIAS_WEIGHT_MINIMUM ||
+      volume.npcSpawnBiasWeight > NPC_SPAWN_BIAS_WEIGHT_MAXIMUM)
+  ) {
+    throw new Error(
+      `npc_spawn_biasのhs_weightは${NPC_SPAWN_BIAS_WEIGHT_MINIMUM}以上` +
+        `${NPC_SPAWN_BIAS_WEIGHT_MAXIMUM}以下が必要です: ${mesh.name}`
+    );
+  }
   return {
     volume,
     assemblyVolume: isAssembly
@@ -1410,8 +1453,8 @@ const classifyStageAsset = (
     );
   }
   const playerSpawns = markers.filter((marker) => marker.role === "player_spawn");
-  if (playerSpawns.length !== 1) {
-    throw new Error(`player_spawnは1個必要です: ${playerSpawns.length}個`);
+  if (playerSpawns.length === 0) {
+    throw new Error("player_spawnは1個以上必要です");
   }
   if (!navSources.some((source) => source.role === "walkable")) {
     throw new Error("hs_nav_role=walkableのNAV_*が必要です");
@@ -1419,9 +1462,74 @@ const classifyStageAsset = (
   if (bitFlightNavSources.length === 0) {
     throw new Error("NAV_BitFlight_*が必要です");
   }
-  for (const requiredRole of ["npc_spawn", "bit_spawn"] as const) {
+  for (const requiredRole of [
+    "npc_spawn",
+    "npc_spawn_bias",
+    "bit_spawn"
+  ] as const) {
     if (!volumes.some((volume) => volume.role === requiredRole)) {
       throw new Error(`${requiredRole}のVOL_*が必要です`);
+    }
+  }
+  const playerSpawnIds = new Set(playerSpawns.map((spawn) => spawn.id));
+  const playerSpawnExclusions = volumes.filter(
+    (volume) => volume.role === "player_spawn_exclusion"
+  );
+  const exclusionByPlayerSpawnId = new Map<string, StageVolume>();
+  for (const exclusion of playerSpawnExclusions) {
+    const playerSpawnId = exclusion.playerSpawnId!;
+    if (!playerSpawnIds.has(playerSpawnId)) {
+      throw new Error(
+        `player_spawn_exclusionが未登録player_spawnを参照しています: ${exclusion.id}/${playerSpawnId}`
+      );
+    }
+    if (exclusionByPlayerSpawnId.has(playerSpawnId)) {
+      throw new Error(
+        `player_spawn_exclusionがplayer_spawnへ重複対応しています: ${playerSpawnId}`
+      );
+    }
+    exclusionByPlayerSpawnId.set(playerSpawnId, exclusion);
+  }
+  for (const playerSpawn of playerSpawns) {
+    if (!exclusionByPlayerSpawnId.has(playerSpawn.id)) {
+      throw new Error(
+        `player_spawnに対応するplayer_spawn_exclusionがありません: ${playerSpawn.id}`
+      );
+    }
+  }
+
+  const npcSpawnVolumes = volumes.filter(
+    (volume) => volume.role === "npc_spawn"
+  );
+  const npcSpawnBiasVolumes = volumes.filter(
+    (volume) => volume.role === "npc_spawn_bias"
+  );
+  const npcSpawnBiasesByPlayerSpawnId = new Map<string, StageVolume[]>();
+  for (const bias of npcSpawnBiasVolumes) {
+    const playerSpawnId = bias.playerSpawnId!;
+    if (!playerSpawnIds.has(playerSpawnId)) {
+      throw new Error(
+        `npc_spawn_biasが未登録player_spawnを参照しています: ${bias.id}/${playerSpawnId}`
+      );
+    }
+    const containingNpcSpawnVolumes = npcSpawnVolumes.filter((volume) =>
+      isVolumeFullyContainedByConvexVolume(bias, volume)
+    );
+    if (containingNpcSpawnVolumes.length !== 1) {
+      throw new Error(
+        `npc_spawn_biasは単一npc_spawn Volumeへ完全内包する必要があります: ${bias.id}/${containingNpcSpawnVolumes.length}件`
+      );
+    }
+    const grouped =
+      npcSpawnBiasesByPlayerSpawnId.get(playerSpawnId) ?? [];
+    grouped.push(bias);
+    npcSpawnBiasesByPlayerSpawnId.set(playerSpawnId, grouped);
+  }
+  for (const playerSpawn of playerSpawns) {
+    if (!npcSpawnBiasesByPlayerSpawnId.has(playerSpawn.id)) {
+      throw new Error(
+        `player_spawnに対応するnpc_spawn_biasがありません: ${playerSpawn.id}`
+      );
     }
   }
 
@@ -1517,6 +1625,85 @@ const createVolumeRegistry = (
     all,
     getById: (id: string) => byId.get(id) ?? null,
     getByRole: (role: StageVolumeRole) => byRole.get(role)!
+  });
+};
+
+const createPlayerSpawnRegistry = (
+  markers: StageMarkerRegistry,
+  volumes: StageVolumeRegistry,
+  navigation: NavigationWorld
+): StagePlayerSpawnRegistry => {
+  const playerSpawnMarkers = markers.getByRole("player_spawn");
+  const exclusions = volumes.getByRole("player_spawn_exclusion");
+  const allNpcSpawnBiasVolumes = volumes.getByRole("npc_spawn_bias");
+  const navigationTriangles = navigation.getSurfaceTriangles();
+  const exclusionByPlayerSpawnId = new Map(
+    exclusions.map((exclusion) => [exclusion.playerSpawnId!, exclusion])
+  );
+  const all = Object.freeze(
+    playerSpawnMarkers.map((marker) => {
+      const exclusionVolume = exclusionByPlayerSpawnId.get(marker.id)!;
+      const npcSpawnBiasVolumes = Object.freeze(
+        allNpcSpawnBiasVolumes
+          .filter((volume) => volume.playerSpawnId === marker.id)
+          .sort((left, right) => left.id.localeCompare(right.id))
+      );
+      for (const biasVolume of npcSpawnBiasVolumes) {
+        if (
+          !hasPositiveNavigationSurfaceVolumeIntersection(
+            Object.freeze([biasVolume]),
+            navigationTriangles
+          )
+        ) {
+          throw new Error(
+            `npc_spawn_biasとbaked NavMeshの正面積交差がありません: ${marker.id}/${biasVolume.id}`
+          );
+        }
+      }
+      for (
+        let leftIndex = 0;
+        leftIndex < npcSpawnBiasVolumes.length;
+        leftIndex += 1
+      ) {
+        for (
+          let rightIndex = leftIndex + 1;
+          rightIndex < npcSpawnBiasVolumes.length;
+          rightIndex += 1
+        ) {
+          const overlapArea =
+            calculateNavigationSurfaceVolumeIntersectionArea(
+              Object.freeze([
+                npcSpawnBiasVolumes[leftIndex],
+                npcSpawnBiasVolumes[rightIndex]
+              ]),
+              navigationTriangles
+            );
+          if (overlapArea > 1e-10) {
+            throw new Error(
+              `同じplayer_spawnのnpc_spawn_biasがbaked NavMesh上で正面積重複しています: ${marker.id}/${npcSpawnBiasVolumes[leftIndex].id}/${npcSpawnBiasVolumes[rightIndex].id}/${overlapArea}`
+            );
+          }
+        }
+      }
+      marker.node.computeWorldMatrix(true);
+      const position = marker.node.getAbsolutePosition();
+      if (!createStageBoundaryContainsQuery(exclusionVolume.mesh)(position)) {
+        throw new Error(
+          `player_spawnが対応player_spawn_exclusionの外側です: ${marker.id}/${exclusionVolume.id}`
+        );
+      }
+      return Object.freeze({
+        id: marker.id,
+        marker,
+        exclusionVolume,
+        npcSpawnBiasVolumes
+      });
+    })
+  );
+  const byId = new Map(all.map((spawn) => [spawn.id, spawn]));
+  return Object.freeze({
+    all,
+    getById: (id: string) => byId.get(id) ?? null
   });
 };
 
@@ -2373,6 +2560,11 @@ export const loadStageSpatialContext = async (
     });
     const markers = createMarkerRegistry(classification.markers);
     const volumes = createVolumeRegistry(classification.volumes);
+    const playerSpawns = createPlayerSpawnRegistry(
+      markers,
+      volumes,
+      navigation
+    );
     const navigationAreas = createStageNavigationAreaRegistry(
       volumes.all,
       classification.portals
@@ -2445,6 +2637,7 @@ export const loadStageSpatialContext = async (
       bitNavigation: ownedBitNavigation,
       markers,
       volumes,
+      playerSpawns,
       navigationAreas: ownedNavigationAreas,
       assemblyVenues,
       links,

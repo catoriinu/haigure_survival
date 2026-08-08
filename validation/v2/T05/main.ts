@@ -88,6 +88,10 @@ import { runBitCombatIntegrationTests } from "./bitCombatIntegration.test";
 import { runBitCombatProfileTests } from "./bitCombatProfile.test";
 import { runBitFlightAgentTests } from "./bitFlightAgent.test";
 import { runBitFlightSafetyTests } from "./bitFlightSafety.test";
+import {
+  createFixtureBitSpawnRandom,
+  createFixturePlayerSpawn
+} from "./spawnContractFixture";
 import { runBitFlightSurfaceVariantTests } from "./bitFlightSurfaceVariant.test";
 import { runBitFlightTacticsTests } from "./bitFlightTactics.test";
 import {
@@ -854,9 +858,15 @@ const runValidation = async () => {
       id: "fixture-bit-spawn",
       role: "bit_spawn",
       bitFlightBand: courtyardRef,
+      playerSpawnId: null,
+      npcSpawnBiasWeight: null,
       navigationAreaId: null,
       mesh: spawnVolumeMesh
     });
+    const playerSpawn = createFixturePlayerSpawn(
+      "fixture-runtime-player-spawn",
+      spawnVolumeMesh
+    );
     const runtimeStage = Object.freeze({
       bitNavigation: activeWorld,
       navigationAreas: createFixtureNavigationAreas(),
@@ -876,6 +886,7 @@ const runValidation = async () => {
         castSightSegment: () => null,
         sampleGround: () => null,
         containsVolume: () => false,
+        containsVolumeById: () => false,
         dispose: () => {}
       })
     }) as unknown as StageSpatialContext;
@@ -887,10 +898,14 @@ const runValidation = async () => {
     const bitSystem = createV2BitSystem(scene, runtimeStage, {
       combatEnabled: false,
       initialBitCount: 99,
+      reinforcementIntervalSeconds: 10,
+      maximumBitCount: 99,
       minimumSpawnDistance: 0.08,
       spawnMaxAttempts: 1024,
       spawnProjectionMaxDistance: 0.75,
       random: runtimeRandom,
+      spawnRandom: createFixtureBitSpawnRandom(0x5405_4000),
+      playerSpawn,
       resolveTargetNavigationArea: (target: V2HumanTargetSnapshot) =>
         Object.freeze({
           targetId: target.id,
@@ -899,6 +914,7 @@ const runValidation = async () => {
           anchor: target.footPosition.clone()
         })
     });
+    bitSystem.prepareForScriptedPhase();
     try {
       const initialActors =
         bitSystem.getFrameView().actorSpheres;
@@ -1046,9 +1062,15 @@ const runValidation = async () => {
       id: "fixture-transition-bit-spawn",
       role: "bit_spawn",
       bitFlightBand: concourseRef,
+      playerSpawnId: null,
+      npcSpawnBiasWeight: null,
       navigationAreaId: null,
       mesh: transitionSpawnMesh
     });
+    const transitionPlayerSpawn = createFixturePlayerSpawn(
+      "fixture-transition-player-spawn",
+      transitionSpawnMesh
+    );
     const transitionRuntimeStage = Object.freeze({
       bitNavigation: activeWorld,
       navigationAreas: createFixtureNavigationAreas(),
@@ -1069,6 +1091,7 @@ const runValidation = async () => {
         castSightSegment: () => Object.freeze({ blocked: true }),
         sampleGround: () => null,
         containsVolume: () => false,
+        containsVolumeById: () => false,
         dispose: () => {}
       })
     }) as unknown as StageSpatialContext;
@@ -1078,10 +1101,14 @@ const runValidation = async () => {
       {
         combatEnabled: false,
         initialBitCount: 1,
+        reinforcementIntervalSeconds: 10,
+        maximumBitCount: 1,
         minimumSpawnDistance: 0,
         spawnMaxAttempts: 8,
         spawnProjectionMaxDistance: 0.35,
         random: () => 0.5,
+        spawnRandom: createFixtureBitSpawnRandom(0x5405_4001),
+        playerSpawn: transitionPlayerSpawn,
         resolveTargetNavigationArea: (target: V2HumanTargetSnapshot) =>
           Object.freeze({
             targetId: target.id,
@@ -1091,6 +1118,7 @@ const runValidation = async () => {
           })
       }
     );
+    transitionBitSystem.prepareForScriptedPhase();
     try {
       const target = Object.freeze({
         id: "fixture-transition-target",

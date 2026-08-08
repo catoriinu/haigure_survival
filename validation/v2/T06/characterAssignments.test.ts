@@ -7,6 +7,9 @@ import {
   createV2CharacterSettingsStore,
   createV2PortraitAssetInventoryFromPublicPaths
 } from "../../../src/ui/v2CharacterSettings";
+import {
+  createSchoolRuntimeRandom
+} from "../../../src/world/schoolRuntimeSettings";
 
 import { assert, executeTest } from "./testUtils";
 
@@ -319,6 +322,51 @@ export const runCharacterAssignmentTests = async () =>
         "開始クリック／公開処刑Rで割当が再生成されたか、新sessionで再生成されません。"
       );
       return "開始・公開処刑Rは同一割当を再利用し、新session生成だけ再抽選";
+    }),
+    executeTest("Character割当のsession seed決定性と独立系列", () => {
+      const options = Object.freeze({
+        actorIds: Object.freeze([
+          "player",
+          "npc-01",
+          "npc-02",
+          "npc-03",
+          "npc-04"
+        ]),
+        playerActorId: "player",
+        voiceProfileIds: Object.freeze(["01", "02", "03", "04"]),
+        portraitDirectories: Object.freeze([
+          "01_hgsv_mb",
+          "02_hgsv_mb",
+          "03_hgsv_mb",
+          "04_hgsv_mb"
+        ]),
+        playerVoiceDirectory: null,
+        playerPortraitDirectory: null
+      });
+      const createAssignments = (seed: number) =>
+        createV2CharacterAssignments({
+          ...options,
+          random: createSchoolRuntimeRandom(
+            seed,
+            "character-assignment"
+          )
+        });
+      const first = createAssignments(0x5430_0601);
+      const repeated = createAssignments(0x5430_0601);
+      const next = createAssignments(0x5430_0602);
+      const signature = (assignments: typeof first) =>
+        assignments
+          .map(
+            (assignment) =>
+              `${assignment.actorId}:${assignment.voiceProfileId}:${assignment.portraitDirectory}`
+          )
+          .join("|");
+      assert(
+        signature(first) === signature(repeated) &&
+          signature(first) !== signature(next),
+        "Character割当がsession seedで再現されないか、異なるseedでも固定されています。"
+      );
+      return "同一session seedは同一割当、異なるseedは別割当";
     }),
     executeTest("Character設定panelのrandom先頭・portrait非表示", () => {
       const host = document.createElement("div");
