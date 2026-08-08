@@ -48,7 +48,6 @@ import {
 } from "../world/stageSpatialContext";
 import {
   createV2PerformanceDiagnostics,
-  createV2SeededRandom,
   readV2PerformanceScenario,
   V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS
 } from "./performanceDiagnostics";
@@ -106,6 +105,7 @@ import {
   type V2RuntimeStressReport
 } from "./runtimeStressScenario";
 import { resolveV2RoomVariantLevel } from "./roomVariantVisualReview";
+import { selectV2PlayerSpawn } from "./schoolSpawnSelection";
 
 const V2_GAMEPLAY_HELP_TEXT =
   "操作説明\n" +
@@ -155,7 +155,9 @@ const runtimePopulation = performanceScenario
     ? Object.freeze({
         npcCount: 0,
         initialBrainwashedNpcCount: 0,
-        bitCount: 0
+        initialBitCount: 0,
+        bitReinforcementIntervalSeconds: 10,
+        maximumBitCount: 0
       })
     : runtimeStressScenario?.population ??
       V2_TEST_SURVIVAL_POPULATION;
@@ -340,12 +342,20 @@ const initializeRuntime = async () => {
     configureV2StageTransparentRenderingOrder(
       ownedStage.resources.visualMeshes
     );
+    const playerSpawn = selectV2PlayerSpawn(
+      ownedStage.playerSpawns.all,
+      createSchoolRuntimeRandom(sessionSeed, "player-spawn")
+    );
+    document.body.dataset.v2PlayerSpawnId = playerSpawn.id;
+    document.body.dataset.v2PlayerSpawnExclusionId =
+      playerSpawn.exclusionVolume.id;
     ownedInput = createV2PlayerInput(window);
     const playerInput = ownedInput;
     ownedPlayer = createV2PlayerController({
       scene,
       camera,
       stage: ownedStage,
+      playerSpawn,
       input: ownedInput
     });
     const playerController = ownedPlayer;
@@ -383,9 +393,18 @@ const initializeRuntime = async () => {
     ownedSurvival = createV2SurvivalRuntime({
       scene,
       stage: ownedStage,
+      playerSpawn,
       player: playerController,
       characterVisuals,
-      random: createV2SeededRandom(sessionSeed),
+      random: createSchoolRuntimeRandom(sessionSeed, "core"),
+      npcSpawnRandom: createSchoolRuntimeRandom(
+        sessionSeed,
+        "npc-spawn"
+      ),
+      bitSpawnRandom: createSchoolRuntimeRandom(
+        sessionSeed,
+        "bit-spawn"
+      ),
       getOrbVisibilityPredicate: () => {
         const playerCenter = playerController
           .getFootPosition()
@@ -469,7 +488,7 @@ const initializeRuntime = async () => {
           runtimeStressScenario.population
             .initialBrainwashedNpcCount ||
         initialFrame.bitCount !==
-          runtimeStressScenario.population.bitCount
+          runtimeStressScenario.population.initialBitCount
       ) {
         throw new Error(
           "実学校stressの初期人口が要求値と一致しません。"
@@ -929,7 +948,7 @@ if (runtimeStressScenario) {
     `seed ${runtimeStressScenario.seed}\n` +
     `NPC ${runtimeStressScenario.population.npcCount} / ` +
     `初期洗脳 ${runtimeStressScenario.population.initialBrainwashedNpcCount} / ` +
-    `BIT ${runtimeStressScenario.population.bitCount}`;
+    `BIT ${runtimeStressScenario.population.initialBitCount}`;
   publishRuntimeStressReport("running", null);
 }
 

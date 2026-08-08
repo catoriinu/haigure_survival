@@ -1,5 +1,9 @@
 import { Vector3 } from "@babylonjs/core";
 import type { NavigationLocation, NavigationWorld } from "./navigationWorld";
+import {
+  createNavigationSurfaceVolumeSampler,
+  type NavigationSurfaceVolumeArea
+} from "./navigationSurfaceVolumeSampler";
 import type { StageBoundary } from "./stageSpatialContext";
 import {
   createStageBoundaryContainsQuery,
@@ -17,6 +21,17 @@ export interface StageSpawnSampler {
   samplePoints(
     count: number,
     minimumDistance: number
+  ): readonly NavigationLocation[];
+}
+
+export interface StageVolumeSpawnSampler {
+  readonly areas: readonly NavigationSurfaceVolumeArea[];
+  readonly totalArea: number;
+  samplePoints(
+    count: number,
+    minimumDistance: number,
+    acceptedPoints: readonly NavigationLocation[],
+    excludes: (point: Vector3) => boolean
   ): readonly NavigationLocation[];
 }
 
@@ -234,3 +249,99 @@ export const createStageBoundarySpawnSampler = (
     navigation,
     config
   );
+
+export const createStageVolumeSpawnSampler = (
+  volumes: readonly StageVolume[],
+  navigation: NavigationWorld,
+  config: StageSpawnSamplerConfig
+): StageVolumeSpawnSampler => {
+  assertPositiveInteger("maxAttempts", config.maxAttempts);
+  assertPositiveFiniteNumber(
+    "projectionMaxDistance",
+    config.projectionMaxDistance
+  );
+  if (typeof config.random !== "function") {
+    throw new Error("randomには0以上1未満を返す関数が必要です。");
+  }
+  const surfaceTriangles = navigation.getSurfaceTriangles();
+  const surfaceSampler = createNavigationSurfaceVolumeSampler(
+    volumes.map((volume) =>
+      Object.freeze({
+        volume,
+        triangles: surfaceTriangles
+      })
+    )
+  );
+  const containsByVolumeId = new Map(
+    volumes.map((volume) => [
+      volume.id,
+      createStageBoundaryContainsQuery(volume.mesh)
+    ])
+  );
+
+  const sampler: StageVolumeSpawnSampler = {
+    areas: surfaceSampler.areas,
+    totalArea: surfaceSampler.totalArea,
+    samplePoints: (
+      count: number,
+      minimumDistance: number,
+      acceptedPoints: readonly NavigationLocation[],
+      excludes: (point: Vector3) => boolean
+    ) => {
+      if (!Number.isInteger(count) || count < 0) {
+        throw new Error("countには0以上の整数が必要です。");
+      }
+      assertNonNegativeFiniteNumber("minimumDistance", minimumDistance);
+      if (typeof excludes !== "function") {
+        throw new Error("excludesには位置判定関数が必要です。");
+      }
+      const points: NavigationLocation[] = [];
+      const allAccepted = [...acceptedPoints];
+      const minimumDistanceSquared = minimumDistance * minimumDistance;
+      for (let pointIndex = 0; pointIndex < count; pointIndex += 1) {
+        let selected: NavigationLocation | null = null;
+        for (let attempt = 0; attempt < config.maxAttempts; attempt += 1) {
+          const sample = surfaceSampler.sample(config.random);
+          const point = sample.point;
+          const projected = navigation.projectPoint(
+            point,
+            config.projectionMaxDistance
+          );
+          if (
+            !projected ||
+            !containsByVolumeId.get(sample.volumeId)!(projected.position) ||
+            excludes(projected.position)
+          ) {
+            continue;
+          }
+          if (
+            allAccepted.some((accepted) => {
+              const distanceSquared = Vector3.DistanceSquared(
+                projected.position,
+                accepted.position
+              );
+              return (
+                distanceSquared === 0 ||
+                distanceSquared < minimumDistanceSquared
+              );
+            })
+          ) {
+            continue;
+          }
+          selected = projected;
+          break;
+        }
+        if (!selected) {
+          throw new Error(
+            `spawn Volumeの${pointIndex + 1}点目を` +
+              `${config.maxAttempts}回以内に生成できませんでした。`
+          );
+        }
+        points.push(selected);
+        allAccepted.push(selected);
+      }
+      return Object.freeze(points);
+    }
+  };
+  return Object.freeze(sampler);
+};

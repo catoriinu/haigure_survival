@@ -75,7 +75,11 @@ import type {
   StageLinkPair,
   StageMoverKind
 } from "../../../src/world/stageLinks";
-import { createStageSpawnSampler } from "../../../src/world/stageSpawnSampler";
+import {
+  createStageSpawnSampler,
+  createStageVolumeSpawnSampler,
+  type StageVolumeSpawnSampler
+} from "../../../src/world/stageSpawnSampler";
 import {
   createStageBoundaryContainsQuery,
   createStageSpatialQueries,
@@ -917,6 +921,7 @@ const sceneResourceCountsEqual = (
 const createProjectionNavigationStub = (
   projectPoint: NavigationWorld["projectPoint"]
 ): NavigationWorld => ({
+  getSurfaceTriangles: () => Object.freeze([]),
   projectPoint,
   findSurfacePath: () => {
     throw new Error(
@@ -952,6 +957,7 @@ const createNavigationAgentConstraintStub = (
   onConstrainDestination: (destination: Vector3) => void
 ): NavigationWorld =>
   Object.freeze({
+    getSurfaceTriangles: () => Object.freeze([]),
     projectPoint: () => cloneFixtureNavigationLocation(projectedTarget),
     findSurfacePath: (
       start: NavigationLocation,
@@ -1039,6 +1045,46 @@ const createSeededCountingRandom = (
       return state / 0x100000000;
     },
     getCallCount: () => callCount
+  };
+};
+
+const createAreaTargetedSpawnRandom = (
+  sampler: Pick<StageVolumeSpawnSampler, "areas" | "totalArea">,
+  targetVolumeId: string,
+  valuesPerSample: number,
+  random: () => number
+) => {
+  if (!Number.isInteger(valuesPerSample) || valuesPerSample < 2) {
+    throw new Error("spawn乱数1標本あたりの値数が不正です。");
+  }
+  let areaBeforeTarget = 0;
+  const targetArea = sampler.areas.find((area) => {
+    if (area.volumeId === targetVolumeId) {
+      return true;
+    }
+    areaBeforeTarget += area.area;
+    return false;
+  });
+  if (!targetArea) {
+    throw new Error(`対象spawn Volumeがありません: ${targetVolumeId}`);
+  }
+  let valueIndex = 0;
+  return () => {
+    const value = random();
+    if (!Number.isFinite(value) || value < 0 || value >= 1) {
+      throw new Error(
+        `spawn fixture乱数は0以上1未満の有限値が必要です: ${value}`
+      );
+    }
+    const componentIndex = valueIndex % valuesPerSample;
+    valueIndex += 1;
+    if (componentIndex !== 0) {
+      return value;
+    }
+    return (
+      (areaBeforeTarget + targetArea.area * value) /
+      sampler.totalArea
+    );
   };
 };
 
@@ -1139,6 +1185,7 @@ const createMovementBlockingStage = (
   const stage: StageSpatialContext = Object.freeze({
     ...source,
     navigation: Object.freeze({
+      getSurfaceTriangles: () => source.navigation.getSurfaceTriangles(),
       projectPoint: (position: Vector3, maxDistance: number) =>
         source.navigation.projectPoint(position, maxDistance),
       findSurfacePath: (
@@ -2870,6 +2917,7 @@ const runValidation = async () => {
       const spawnVolume: StageVolume = Object.freeze({
         id: "sampler-validation",
         role: "npc_spawn",
+        playerSpawnId: null,
         bitFlightBand: null,
         navigationAreaId: null,
         mesh: spawnVolumeMesh
@@ -3467,9 +3515,14 @@ const runValidation = async () => {
         const schoolConstructionPathfindCount = schoolRecastPathfindCount;
         const loadedSchoolContext = schoolContext;
 
-        const playerSpawn = schoolContext.markers
-          .requireSingle("player_spawn")
-          .node.getAbsolutePosition();
+        const mainPlayerSpawn = schoolContext.playerSpawns.getById(
+          "player-spawn-main"
+        );
+        if (!mainPlayerSpawn) {
+          throw new Error("T04 fixtureのPlayer開始地点がありません。");
+        }
+        const playerSpawn =
+          mainPlayerSpawn.marker.node.getAbsolutePosition();
         const expectedPlayerSpawn = new Vector3(0.375, 0, 0);
         const navigationAreaIds = schoolContext.navigationAreas.all.map(
           (area) => area.id
@@ -3629,6 +3682,9 @@ const runValidation = async () => {
         );
         const bitSpawnVolumes =
           schoolContext.volumes.getByRole("bit_spawn");
+        const playerSpawnExclusions = schoolContext.volumes.getByRole(
+          "player_spawn_exclusion"
+        );
         const assemblyAnchors =
           schoolContext.markers.getByRole("assembly_anchor");
         const assemblyVolumes =
@@ -3668,9 +3724,9 @@ const runValidation = async () => {
             "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
           schoolContext.resources.navSourceMeshes.length === 39 &&
           schoolContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-          schoolContext.markers.all.length === 233 &&
+          schoolContext.markers.all.length === 243 &&
           assemblyAnchors.length === 2 &&
-          schoolContext.volumes.all.length === 82 &&
+          schoolContext.volumes.all.length === 107 &&
           schoolContext.navigationAreas.all.length === 5 &&
           schoolContext.navigationAreas.portals.length === 4 &&
           assemblyVolumes.length === 2 &&
@@ -3698,9 +3754,13 @@ const runValidation = async () => {
             assemblyVenuesOk &&
             Vector3.Distance(playerSpawn, expectedPlayerSpawn) <= 1e-5 &&
             schoolContext.boundary.contains(playerSpawn) &&
-            schoolContext.volumes.getByRole("npc_spawn").length === 1 &&
-            bitSpawnVolumes.length === 1 &&
-            bitSpawnVolumes[0].bitFlightBand !== null &&
+            schoolContext.playerSpawns.all.length === 11 &&
+            playerSpawnExclusions.length === 11 &&
+            schoolContext.volumes.getByRole("npc_spawn").length === 5 &&
+            bitSpawnVolumes.length === 11 &&
+            bitSpawnVolumes.every(
+              (volume) => volume.bitFlightBand !== null
+            ) &&
             schoolContext.volumes.getByRole("water").length === 1 &&
             schoolConstructionPathfindCount === 0,
           detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / BeamSightOnly=${schoolContext.resources.beamSightOnlyColliders.length}:${schoolContext.resources.beamSightOnlyColliders[0]?.name ?? "なし"} / humanNAV=${schoolContext.resources.navSourceMeshes.length} / bitNAV=${schoolContext.resources.bitFlightNavSourceMeshes.length} / MRK=${schoolContext.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${schoolContext.volumes.all.length}(assembly=${assemblyVolumes.length},water=${schoolContext.volumes.getByRole("water").length}) / roomVariants=${schoolContext.roomVariants?.variants.length ?? 0}/${schoolContext.roomVariants?.tileVolumes.length ?? 0}/selected=${schoolContext.roomVariantSelection.length} / doors=${schoolContext.doorAssets.all.length} / elevators=${schoolContext.elevatorAssets.all.length} / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${schoolContext.links.all.length} / zones=${schoolContext.bitNavigation.zones.length} / bands=${schoolContext.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length}) / buildPathfind=${schoolConstructionPathfindCount} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
@@ -4986,7 +5046,29 @@ const runValidation = async () => {
           detail: `id=${waterVolume.id} / center=${schoolContext.queries.containsVolume("water", waterCenter)} / above=${schoolContext.queries.containsVolume("water", pointAboveWater)}`
         });
 
+        const npcSpawnVolume = schoolContext.volumes.getById(
+          "npc-spawn-f01-stage"
+        );
+        if (!npcSpawnVolume) {
+          throw new Error("T04 fixtureの1階NPC spawn Volumeがありません。");
+        }
+        const npcSpawnSurfaceSampler = createStageVolumeSpawnSampler(
+          schoolContext.volumes.getByRole("npc_spawn"),
+          schoolContext.navigation,
+          {
+            maxAttempts: 1,
+            projectionMaxDistance: 0.75,
+            random: () => 0.5
+          }
+        );
         const npcRandom = createSeededCountingRandom(0x5f3759df);
+        const npcSpawnRandomSource = createSeededCountingRandom(0x3c6ef372);
+        const npcSpawnRandom = createAreaTargetedSpawnRandom(
+          npcSpawnSurfaceSampler,
+          npcSpawnVolume.id,
+          3,
+          npcSpawnRandomSource.random
+        );
         const npcMovementBlocking = createMovementBlockingStage(
           schoolContext,
           "npc"
@@ -5005,6 +5087,8 @@ const runValidation = async () => {
           initialBrainwashedNpcCount: 2,
           diagnosticsEnabled: true,
           random: npcRandom.random,
+          spawnRandom: npcSpawnRandom,
+          playerSpawn: npcMovementBlocking.stage.playerSpawns.all[0],
           resolveTargetNavigationArea: (target) =>
             resolveTargetNavigationAreaSnapshot(loadedSchoolContext, target),
           selectNavigationRoute: selectSurfaceNavigationRoute
@@ -5127,13 +5211,11 @@ const runValidation = async () => {
               npcAfterBlockedMovement.center,
               npcBeforeBlockedMovement.center
             ) <= 1e-6,
-          detail: `attempts=${npcMovementAttempts.length} / pathfind=${npcFirstPathfindCount}->${npcSecondPathfindCount} / moved=${Vector3.Distance(npcAfterBlockedMovement.center, npcBeforeBlockedMovement.center).toExponential(2)}`
+          detail: `spawn=${npcSpawnVolume.id} / attempts=${npcMovementAttempts.length} / pathfind=${npcFirstPathfindCount}->${npcSecondPathfindCount} / moved=${Vector3.Distance(npcAfterBlockedMovement.center, npcBeforeBlockedMovement.center).toExponential(2)}`
         });
         npcSystem.dispose();
         npcCharacterVisuals.dispose();
 
-        const npcSpawnVolume =
-          schoolContext.volumes.getByRole("npc_spawn")[0];
         const firstFloorNpcStage = Object.freeze({
           ...schoolContext,
           boundary: Object.freeze({
@@ -5159,6 +5241,15 @@ const runValidation = async () => {
             const routeRandom = createSeededCountingRandom(
               0x6a09e667 + destinationIndex
             );
+            const routeSpawnRandomSource = createSeededCountingRandom(
+              0xbb67ae85
+            );
+            const routeSpawnRandom = createAreaTargetedSpawnRandom(
+              npcSpawnSurfaceSampler,
+              npcSpawnVolume.id,
+              3,
+              routeSpawnRandomSource.random
+            );
             const routeSystem = createV2NpcSystem({
               scene: spatialScene,
               stage: firstFloorNpcStage,
@@ -5167,6 +5258,8 @@ const runValidation = async () => {
               initialBrainwashedNpcCount: 2,
               diagnosticsEnabled: true,
               random: routeRandom.random,
+              spawnRandom: routeSpawnRandom,
+              playerSpawn: firstFloorNpcStage.playerSpawns.all[0],
               resolveTargetNavigationArea: (target) =>
                 resolveTargetNavigationAreaSnapshot(
                   firstFloorNpcStage,
@@ -5176,6 +5269,10 @@ const runValidation = async () => {
             });
             const routeNpcStart =
               routeSystem.getFrameView().targets[1].footPosition;
+            const startedInFirstFloorSpawn =
+              createStageBoundaryContainsQuery(npcSpawnVolume.mesh)(
+                routeNpcStart
+              );
             const routeAlarmPosition = routeNpcStart.add(
               new Vector3(0.5, 0, 0)
             );
@@ -5249,6 +5346,7 @@ const runValidation = async () => {
             return {
               label,
               startedOnFirstFloor: Math.abs(start.y) <= 0.1,
+              startedInFirstFloorSpawn,
               reached,
               visitedStaircases: [...visitedStaircases].sort(),
               updateCount,
@@ -5269,6 +5367,7 @@ const runValidation = async () => {
           ok: multifloorNpcResults.every(
             (result) =>
               result.startedOnFirstFloor &&
+              result.startedInFirstFloorSpawn &&
               result.reached &&
               result.visitedStaircases.length > 0 &&
               (result.label !== "屋上" ||
@@ -5278,7 +5377,7 @@ const runValidation = async () => {
           detail: multifloorNpcResults
             .map(
               (result) =>
-                `${result.label}:1F=${result.startedOnFirstFloor},reached=${result.reached},stairs=${result.visitedStaircases.join(",") || "none"},updates=${result.updateCount},error=${result.endpointError.toFixed(3)}`
+                `${result.label}:1F=${result.startedOnFirstFloor}/${result.startedInFirstFloorSpawn},reached=${result.reached},stairs=${result.visitedStaircases.join(",") || "none"},updates=${result.updateCount},error=${result.endpointError.toFixed(3)}`
             )
             .join(" / ")
         });
@@ -5314,6 +5413,8 @@ const runValidation = async () => {
           initialBrainwashedNpcCount: 2,
           diagnosticsEnabled: true,
           random: unreachableNpcRandom.random,
+          spawnRandom: unreachableNpcRandom.random,
+          playerSpawn: schoolContext.playerSpawns.all[0],
           resolveTargetNavigationArea: (target) =>
             Object.freeze({
               ...createTargetNavigationAreaSnapshot(
@@ -5400,6 +5501,14 @@ const runValidation = async () => {
             });
           }
         });
+        const npcFailureSpawnRandomSource =
+          createSeededCountingRandom(0x3c6ef372);
+        const npcFailureSpawnRandom = createAreaTargetedSpawnRandom(
+          npcSpawnSurfaceSampler,
+          npcSpawnVolume.id,
+          3,
+          npcFailureSpawnRandomSource.random
+        );
         const npcThrownValue = captureThrownValue(() => {
           const unexpectedSystem = createV2NpcSystem({
             scene: spatialScene,
@@ -5409,6 +5518,8 @@ const runValidation = async () => {
             initialBrainwashedNpcCount: 2,
             diagnosticsEnabled: true,
             random: npcFailureRandom.random,
+            spawnRandom: npcFailureSpawnRandom,
+            playerSpawn: npcFailureStage.playerSpawns.all[0],
             resolveTargetNavigationArea: (target) =>
               createTargetNavigationAreaSnapshot(target, "school-ground"),
             selectNavigationRoute: selectSurfaceNavigationRoute
@@ -5449,10 +5560,14 @@ const runValidation = async () => {
           {
             combatEnabled: false,
             initialBitCount: 2,
+            reinforcementIntervalSeconds: 10,
+            maximumBitCount: 2,
             minimumSpawnDistance: 0.2,
             spawnMaxAttempts: 128,
             spawnProjectionMaxDistance: 0.75,
             random: bitRandom.random,
+            spawnRandom: bitRandom.random,
+            playerSpawn: bitMovementBlocking.stage.playerSpawns.all[0],
             resolveTargetNavigationArea: (target) =>
               resolveTargetNavigationAreaSnapshot(
                 loadedSchoolContext,
@@ -5461,29 +5576,91 @@ const runValidation = async () => {
           }
         );
         const bitInitializationRandomCallCount = bitRandom.getCallCount();
-        const initialBitActors = bitSystem.getFrameView().actorSpheres;
+        const bitSpawnRegions = schoolContext.volumes
+          .getByRole("bit_spawn")
+          .map((volume) =>
+            Object.freeze({
+              volume,
+              contains: createStageBoundaryContainsQuery(volume.mesh)
+            })
+          );
+        const observeBitSpawn = (
+          actor: ReturnType<typeof bitSystem.getFrameView>["actorSpheres"][number],
+          flightState: ReturnType<
+            typeof bitSystem.getFrameView
+          >["flightStates"][number] | undefined
+        ) => {
+          const band =
+            flightState?.zoneId && flightState.bandId
+              ? loadedSchoolContext.bitNavigation.getBand({
+                  zoneId: flightState.zoneId,
+                  bandId: flightState.bandId
+                })
+              : null;
+          const region = flightState
+            ? bitSpawnRegions.find(
+                (candidate) =>
+                  candidate.volume.bitFlightBand?.zoneId ===
+                    flightState.zoneId &&
+                  candidate.volume.bitFlightBand.bandId ===
+                    flightState.bandId &&
+                  candidate.contains(actor.center)
+              ) ?? null
+            : null;
+          const centerInBand =
+            band !== null &&
+            actor.center.y >= band.minimumCenterHeight &&
+            actor.center.y <= band.maximumCenterHeight;
+          const safeCenterHeightInBand =
+            band !== null &&
+            flightState?.safeCenterHeight !== null &&
+            flightState?.safeCenterHeight !== undefined &&
+            flightState.safeCenterHeight >= band.minimumCenterHeight &&
+            flightState.safeCenterHeight <= band.maximumCenterHeight;
+          return Object.freeze({
+            actor,
+            flightState,
+            band,
+            region,
+            centerInBand,
+            safeCenterHeightInBand
+          });
+        };
+        const initialBitFrame = bitSystem.getFrameView();
+        const initialBitActors = initialBitFrame.actorSpheres;
+        const initialBitSpawnObservations = initialBitActors.map((actor) =>
+          observeBitSpawn(
+            actor,
+            initialBitFrame.flightStates.find(
+              (flightState) => flightState.bitId === actor.id
+            )
+          )
+        );
         const bitNavigationStart = initialBitActors[1].center.clone();
-        const bitSpawnBandRef =
-          schoolContext.volumes.getByRole("bit_spawn")[0].bitFlightBand;
-        const bitSpawnBand = bitSpawnBandRef
-          ? schoolContext.bitNavigation.getBand(bitSpawnBandRef)
-          : null;
         checks.push({
           name: "ビットspawnの明示飛行帯・安全中心高度",
           ok:
-            bitSpawnBand !== null &&
-            initialBitActors.every(
-              (actor) =>
-                actor.center.y >= bitSpawnBand.minimumCenterHeight &&
-                actor.center.y <= bitSpawnBand.maximumCenterHeight &&
+            initialBitSpawnObservations.every(
+              (observation) =>
+                observation.region !== null &&
+                observation.centerInBand &&
+                observation.safeCenterHeightInBand &&
                 bitMovementBlocking.stage.queries.castMovementSphere(
                   "bit",
-                  actor.center,
-                  actor.center,
+                  observation.actor.center,
+                  observation.actor.center,
                   BIT_FLIGHT_ENVELOPE_RADIUS_WORLD_UNITS
                 ) === null
             ),
-          detail: `centerY=${initialBitActors.map((actor) => actor.center.y.toFixed(4)).join(",")} / band=${bitSpawnBand ? `${bitSpawnBand.minimumCenterHeight.toFixed(4)}..${bitSpawnBand.maximumCenterHeight.toFixed(4)}` : "none"}`
+          detail: initialBitSpawnObservations
+            .map(
+              (observation) =>
+                `${observation.actor.id}:${observation.region?.volume.id ?? "none"}/${observation.flightState?.bandId ?? "none"}` +
+                ` center=${observation.actor.center.y.toFixed(4)}` +
+                ` safe=${observation.flightState?.safeCenterHeight?.toFixed(4) ?? "none"}` +
+                ` band=${observation.band ? `${observation.band.minimumCenterHeight.toFixed(4)}..${observation.band.maximumCenterHeight.toFixed(4)}` : "none"}`
+            )
+            .join(" / ")
         });
 
         const distantPlayerTarget = createHumanTargetFixture(
@@ -5536,8 +5713,16 @@ const runValidation = async () => {
         }
         const bitSecondMovementAttemptCount =
           bitMovementBlocking.getAttempts().length;
+        const bitAfterBlockedFrame = bitSystem.getFrameView();
         const bitAfterBlockedMovement =
-          bitSystem.getFrameView().actorSpheres[1];
+          bitAfterBlockedFrame.actorSpheres[1];
+        const bitAfterBlockedObservation = observeBitSpawn(
+          bitAfterBlockedMovement,
+          bitAfterBlockedFrame.flightStates.find(
+            (flightState) =>
+              flightState.bitId === bitAfterBlockedMovement.id
+          )
+        );
         const bitBlockedHorizontalDistance = Math.hypot(
           bitAfterBlockedMovement.center.x -
             initialBitActors[1].center.x,
@@ -5557,12 +5742,6 @@ const runValidation = async () => {
               attempt.from.z - initialBitActors[1].center.z
             ) <= 1e-6
         );
-        const bitBlockedCenterInBand =
-          bitSpawnBand !== null &&
-          bitAfterBlockedMovement.center.y >=
-            bitSpawnBand.minimumCenterHeight &&
-          bitAfterBlockedMovement.center.y <=
-            bitSpawnBand.maximumCenterHeight;
         const bitBlockedCenterSafe = schoolBitSafety.isCenterSafe(
           bitAfterBlockedMovement.center
         );
@@ -5589,9 +5768,10 @@ const runValidation = async () => {
             bitAlertStates[1].mode === "chase" &&
             bitSecondMovementAttemptCount >= bitFirstMovementAttemptCount &&
             bitBlockedHorizontalDistance <= 1e-6 &&
-            bitBlockedCenterInBand &&
+            bitAfterBlockedObservation.region !== null &&
+            bitAfterBlockedObservation.safeCenterHeightInBand &&
             bitBlockedCenterSafe,
-          detail: `mode=${bitAlertStates[1].mode} / attempts=${bitFirstMovementAttemptCount}->${bitSecondMovementAttemptCount} / updates=${bitBlockedUpdateCount} / chaseAttempt=${bitChaseAttempt !== undefined} / horizontal=${bitBlockedHorizontalDistance.toExponential(2)} / vertical=${bitBlockedVerticalDistance.toExponential(2)} / inBand=${bitBlockedCenterInBand} / safe=${bitBlockedCenterSafe}`
+          detail: `mode=${bitAlertStates[1].mode} / spawn=${bitAfterBlockedObservation.region?.volume.id ?? "none"}/${bitAfterBlockedObservation.flightState?.bandId ?? "none"} / attempts=${bitFirstMovementAttemptCount}->${bitSecondMovementAttemptCount} / updates=${bitBlockedUpdateCount} / chaseAttempt=${bitChaseAttempt !== undefined} / horizontal=${bitBlockedHorizontalDistance.toExponential(2)} / vertical=${bitBlockedVerticalDistance.toExponential(2)} / safeHeightInBand=${bitAfterBlockedObservation.safeCenterHeightInBand} / safe=${bitBlockedCenterSafe}`
         });
         bitSystem.dispose();
 
@@ -5632,10 +5812,14 @@ const runValidation = async () => {
             {
               combatEnabled: false,
               initialBitCount: 2,
+              reinforcementIntervalSeconds: 10,
+              maximumBitCount: 2,
               minimumSpawnDistance: 0.2,
               spawnMaxAttempts: 128,
               spawnProjectionMaxDistance: 0.75,
               random: bitFailureRandom.random,
+              spawnRandom: bitFailureRandom.random,
+              playerSpawn: bitFailureStage.playerSpawns.all[0],
               resolveTargetNavigationArea: (target) =>
                 resolveTargetNavigationAreaSnapshot(
                   loadedSchoolContext,
@@ -5662,10 +5846,14 @@ const runValidation = async () => {
           {
             combatEnabled: false,
             initialBitCount: 1,
+            reinforcementIntervalSeconds: 10,
+            maximumBitCount: 1,
             minimumSpawnDistance: 0,
             spawnMaxAttempts: 128,
             spawnProjectionMaxDistance: 0.75,
             random: bitRandom.random,
+            spawnRandom: bitRandom.random,
+            playerSpawn: schoolContext.playerSpawns.all[0],
             resolveTargetNavigationArea: (target) =>
               resolveTargetNavigationAreaSnapshot(
                 loadedSchoolContext,
@@ -5709,10 +5897,14 @@ const runValidation = async () => {
           {
             combatEnabled: false,
             initialBitCount: 1,
+            reinforcementIntervalSeconds: 10,
+            maximumBitCount: 1,
             minimumSpawnDistance: 0,
             spawnMaxAttempts: 128,
             spawnProjectionMaxDistance: 0.75,
             random: bitRandom.random,
+            spawnRandom: bitRandom.random,
+            playerSpawn: schoolContext.playerSpawns.all[0],
             resolveTargetNavigationArea: (target) =>
               resolveTargetNavigationAreaSnapshot(
                 loadedSchoolContext,
@@ -5802,9 +5994,9 @@ const runValidation = async () => {
             "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
           reloadedContext.resources.navSourceMeshes.length === 39 &&
           reloadedContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-          reloadedContext.markers.all.length === 233 &&
+          reloadedContext.markers.all.length === 243 &&
           reloadedContext.markers.getByRole("assembly_anchor").length === 2 &&
-          reloadedContext.volumes.all.length === 82 &&
+          reloadedContext.volumes.all.length === 107 &&
           reloadedContext.navigationAreas.all.length === 5 &&
           reloadedContext.navigationAreas.portals.length === 4 &&
           reloadedContext.volumes.getByRole("assembly").length === 2 &&

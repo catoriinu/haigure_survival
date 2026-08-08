@@ -50,6 +50,11 @@ import type {
 import type {
   BitSystemAcceptanceFixture
 } from "./bitSystemAcceptance.test";
+import {
+  createFixtureBitLineSpawnRandom,
+  createFixturePlayerSpawn,
+  createFixtureSurfaceTriangles
+} from "./spawnContractFixture";
 
 const createFixtureNavigationAreas = () => {
   const area = Object.freeze({ id: "fixture-area", volumes: Object.freeze([]) });
@@ -231,6 +236,16 @@ const createNavigation = (
       ref.zoneId === TEST_ZONE_ID && ref.bandId === TEST_BAND_ID
         ? TEST_BAND
         : null,
+    getSurfaceTriangles: (ref: BitFlightBandRef) =>
+      ref.zoneId === TEST_ZONE_ID && ref.bandId === TEST_BAND_ID
+        ? createFixtureSurfaceTriangles(
+            -100,
+            100,
+            -1,
+            1,
+            BAND_CENTER_HEIGHT
+          )
+        : Object.freeze([]),
     projectPointInBand: (
       ref: BitFlightBandRef,
       position: Vector3
@@ -484,15 +499,6 @@ const createInitialRandomValues = (
   const values: number[] = [];
   for (let index = 0; index < initialBitCount; index += 1) {
     values.push(
-      0.5,
-      (index + 1) / (initialBitCount + 1),
-      0.5,
-      0.5,
-      0.5
-    );
-  }
-  for (let index = 0; index < initialBitCount; index += 1) {
-    values.push(
       createRedProfile ? 0 : 0.5,
       0,
       0,
@@ -520,10 +526,11 @@ const createHarness = (
   const scene = new Scene(engine);
   const navigation =
     navigationOverride ?? createNavigation(rejectConstrainedMovement);
+  const spawnWidth = Math.max(4, initialBitCount * 2);
   const spawn = MeshBuilder.CreateBox(
     `T05BitCombatSpawn_${initialBitCount}`,
     {
-      width: Math.max(4, initialBitCount * 2),
+      width: spawnWidth,
       height: 0.1,
       depth: 0.1
     },
@@ -535,9 +542,14 @@ const createHarness = (
     id: `t05-bit-combat-spawn-${initialBitCount}`,
     role: "bit_spawn",
     bitFlightBand: TEST_BAND_REF,
+    playerSpawnId: null,
     navigationAreaId: null,
     mesh: spawn
   });
+  const playerSpawn = createFixturePlayerSpawn(
+    `t05-bit-combat-player-spawn-${initialBitCount}`,
+    spawn
+  );
   const spatial = Object.freeze({
     bitNavigation: navigation,
     navigationAreas: createFixtureNavigationAreas(),
@@ -568,6 +580,7 @@ const createHarness = (
           : null,
       sampleGround: () => null,
       containsVolume: () => false,
+      containsVolumeById: () => false,
       dispose: () => {}
     })
   }) as unknown as StageSpatialContext;
@@ -577,10 +590,17 @@ const createHarness = (
   const system = createV2BitSystem(scene, spatial, {
     combatEnabled: true,
     initialBitCount,
+    reinforcementIntervalSeconds: 1_000_000,
+    maximumBitCount: initialBitCount + 1,
     minimumSpawnDistance: 0,
     spawnMaxAttempts: 8,
     spawnProjectionMaxDistance: 0.35,
     random: random.random,
+    spawnRandom: createFixtureBitLineSpawnRandom(
+      initialBitCount,
+      0x5405_0000 ^ initialBitCount
+    ),
+    playerSpawn,
     resolveTargetNavigationArea: (target: V2HumanTargetSnapshot) =>
       Object.freeze({
         targetId: target.id,
@@ -589,6 +609,19 @@ const createHarness = (
         anchor: target.footPosition.clone()
       })
   });
+  system.placeBits(
+    system.getFrameView().actorSpheres.map((actor, index) =>
+      Object.freeze({
+        id: actor.id,
+        centerPosition: new Vector3(
+          -spawnWidth / 2 +
+            (spawnWidth * (index + 1)) / (initialBitCount + 1),
+          BAND_CENTER_HEIGHT,
+          0
+        )
+      })
+    )
+  );
 
   return Object.freeze({
     scene,
@@ -1508,6 +1541,18 @@ const runWindowCursorAndInteriorContinuationCheck =
               })
             : null,
       getBand,
+      getSurfaceTriangles: (ref: BitFlightBandRef) => {
+        const band = getBand(ref);
+        return band
+          ? createFixtureSurfaceTriangles(
+              -10,
+              10,
+              -10,
+              10,
+              (band.minimumCenterHeight + band.maximumCenterHeight) / 2
+            )
+          : Object.freeze([]);
+      },
       projectPointInBand,
       findLocationCandidates: (position: Vector3) =>
         Object.freeze([
@@ -1687,9 +1732,14 @@ const runRedTransitionSpeedCheck = (
     id: "t05-red-bit-transition-spawn",
     role: "bit_spawn",
     bitFlightBand: fixture.concourseRef,
+    playerSpawnId: null,
     navigationAreaId: null,
     mesh: spawn
   });
+  const playerSpawn = createFixturePlayerSpawn(
+    "t05-red-bit-transition-player-spawn",
+    spawn
+  );
   const spatial = Object.freeze({
     bitNavigation: fixture.navigation,
     navigationAreas: createFixtureNavigationAreas(),
@@ -1709,6 +1759,7 @@ const runRedTransitionSpeedCheck = (
       castSightSegment: () => Object.freeze({ blocked: true }),
       sampleGround: () => null,
       containsVolume: () => false,
+      containsVolumeById: () => false,
       dispose: () => {}
     })
   }) as unknown as StageSpatialContext;
@@ -1718,10 +1769,14 @@ const runRedTransitionSpeedCheck = (
   const system = createV2BitSystem(fixture.scene, spatial, {
     combatEnabled: true,
     initialBitCount: 1,
+    reinforcementIntervalSeconds: 10,
+    maximumBitCount: 1,
     minimumSpawnDistance: 0,
     spawnMaxAttempts: 8,
     spawnProjectionMaxDistance: 0.35,
     random: random.random,
+    spawnRandom: createFixtureBitLineSpawnRandom(1, 0x5405_0001),
+    playerSpawn,
     resolveTargetNavigationArea: (target: V2HumanTargetSnapshot) =>
       Object.freeze({
         targetId: target.id,

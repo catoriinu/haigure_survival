@@ -47,6 +47,9 @@ export const SCHOOL_ALL_DISORDERED_ROOM_VARIANT_SELECTIONS = Object.freeze(
 
 export const SCHOOL_RUNTIME_RANDOM_SERIES = [
   "core",
+  "player-spawn",
+  "npc-spawn",
+  "bit-spawn",
   "disorder",
   "door-initial",
   "door-behavior",

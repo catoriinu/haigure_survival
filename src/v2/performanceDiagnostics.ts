@@ -28,7 +28,7 @@ export type V2PerformanceScenario = Readonly<{
 export type V2PerformancePopulation = Readonly<{
   npcCount: number;
   initialBrainwashedNpcCount: number;
-  bitCount: number;
+  initialBitCount: number;
 }>;
 
 export type V2PerformanceSection =
@@ -622,7 +622,7 @@ export const createV2PerformanceDiagnostics = (
     const populationIs99x66x50 =
       population.npcCount === 99 &&
       population.initialBrainwashedNpcCount === 66 &&
-      population.bitCount === 50;
+      population.initialBitCount === 50;
     const populationStayedAtExpectedCounts = windows.every(
       (report) =>
         report.counters["scenario.npc-count"]?.minimum ===
@@ -630,7 +630,7 @@ export const createV2PerformanceDiagnostics = (
         report.counters["scenario.npc-count"]?.maximum ===
           population.npcCount &&
         (report.counters["scenario.bit-count"]?.minimum ?? 0) >=
-          population.bitCount
+          population.initialBitCount
     );
     const initialBrainwashedNpcCountWasExpected =
       coldReport.counters[

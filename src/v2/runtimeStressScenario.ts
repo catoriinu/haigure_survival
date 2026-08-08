@@ -37,7 +37,9 @@ const BASELINE_SCENARIO = Object.freeze({
   population: Object.freeze({
     npcCount: 50,
     initialBrainwashedNpcCount: 10,
-    bitCount: 20
+    initialBitCount: 20,
+    bitReinforcementIntervalSeconds: 10,
+    maximumBitCount: 20
   })
 });
 
@@ -47,7 +49,9 @@ const HIGH_SCENARIO = Object.freeze({
   population: Object.freeze({
     npcCount: 99,
     initialBrainwashedNpcCount: 66,
-    bitCount: 50
+    initialBitCount: 50,
+    bitReinforcementIntervalSeconds: 10,
+    maximumBitCount: 50
   })
 });
 

@@ -26,6 +26,7 @@ import {
   evaluateBitFlightSearchTransition,
   selectLowestCostBitFlightRoute
 } from "../../../src/world/bitFlightTactics";
+import { createFixtureSurfaceTriangles } from "./spawnContractFixture";
 
 export type BitFlightTacticsTestResult = Readonly<{
   name: string;
@@ -455,6 +456,8 @@ export const runBitFlightTacticsTests =
           transitions: Object.freeze([]),
           getZone: () => null,
           getBand: () => null,
+          getSurfaceTriangles: () =>
+            createFixtureSurfaceTriangles(-1, 1, -1, 1),
           projectPointInBand: () => null,
           findLocationCandidates: () => Object.freeze([]),
           findRoute: (_origin, candidate) => {

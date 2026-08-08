@@ -114,6 +114,17 @@ export type StageMarker = Readonly<{
   node: TransformNode;
 }>;
 
+export type StagePlayerSpawn = Readonly<{
+  id: string;
+  marker: StageMarker;
+  exclusionVolume: StageVolume;
+}>;
+
+export interface StagePlayerSpawnRegistry {
+  readonly all: readonly StagePlayerSpawn[];
+  getById(id: string): StagePlayerSpawn | null;
+}
+
 export interface StageMarkerRegistry {
   readonly all: readonly StageMarker[];
   getById(id: string): StageMarker | null;
@@ -189,6 +200,7 @@ export type StageSpatialContext = Readonly<{
   bitNavigation: BitFlightNavigationWorld;
   markers: StageMarkerRegistry;
   volumes: StageVolumeRegistry;
+  playerSpawns: StagePlayerSpawnRegistry;
   navigationAreas: StageNavigationAreaRegistry;
   assemblyVenues: StageAssemblyVenueRegistry;
   links: StageLinkRegistry;
@@ -696,6 +708,7 @@ const classifyVolume = (
   const extras = requireExtras(mesh);
   const role = requireEnum(mesh.name, extras, "hs_role", STAGE_VOLUME_ROLES);
   const isBitSpawn = role === "bit_spawn";
+  const isPlayerSpawnExclusion = role === "player_spawn_exclusion";
   const isAssembly = role === "assembly";
   const isNavigationArea = role === "navigation_area";
   if (
@@ -714,6 +727,8 @@ const classifyVolume = (
       extras,
       isBitSpawn
         ? ["hs_id", "hs_role", "hs_zone_id", "hs_band_id"]
+        : isPlayerSpawnExclusion
+          ? ["hs_id", "hs_role", "hs_player_spawn_id"]
         : isAssembly
           ? ["hs_id", "hs_role", "hs_anchor_id"]
           : isNavigationArea
@@ -726,6 +741,9 @@ const classifyVolume = (
     role,
     bitFlightBand: isBitSpawn
       ? parseBitFlightBandRef(mesh.name, extras, "hs")
+      : null,
+    playerSpawnId: isPlayerSpawnExclusion
+      ? requireReferenceId(mesh.name, extras, "hs_player_spawn_id")
       : null,
     navigationAreaId: isNavigationArea
       ? requireReferenceId(mesh.name, extras, "hs_area_id")
@@ -1410,8 +1428,8 @@ const classifyStageAsset = (
     );
   }
   const playerSpawns = markers.filter((marker) => marker.role === "player_spawn");
-  if (playerSpawns.length !== 1) {
-    throw new Error(`player_spawnは1個必要です: ${playerSpawns.length}個`);
+  if (playerSpawns.length === 0) {
+    throw new Error("player_spawnは1個以上必要です");
   }
   if (!navSources.some((source) => source.role === "walkable")) {
     throw new Error("hs_nav_role=walkableのNAV_*が必要です");
@@ -1422,6 +1440,32 @@ const classifyStageAsset = (
   for (const requiredRole of ["npc_spawn", "bit_spawn"] as const) {
     if (!volumes.some((volume) => volume.role === requiredRole)) {
       throw new Error(`${requiredRole}のVOL_*が必要です`);
+    }
+  }
+  const playerSpawnIds = new Set(playerSpawns.map((spawn) => spawn.id));
+  const playerSpawnExclusions = volumes.filter(
+    (volume) => volume.role === "player_spawn_exclusion"
+  );
+  const exclusionByPlayerSpawnId = new Map<string, StageVolume>();
+  for (const exclusion of playerSpawnExclusions) {
+    const playerSpawnId = exclusion.playerSpawnId!;
+    if (!playerSpawnIds.has(playerSpawnId)) {
+      throw new Error(
+        `player_spawn_exclusionが未登録player_spawnを参照しています: ${exclusion.id}/${playerSpawnId}`
+      );
+    }
+    if (exclusionByPlayerSpawnId.has(playerSpawnId)) {
+      throw new Error(
+        `player_spawn_exclusionがplayer_spawnへ重複対応しています: ${playerSpawnId}`
+      );
+    }
+    exclusionByPlayerSpawnId.set(playerSpawnId, exclusion);
+  }
+  for (const playerSpawn of playerSpawns) {
+    if (!exclusionByPlayerSpawnId.has(playerSpawn.id)) {
+      throw new Error(
+        `player_spawnに対応するplayer_spawn_exclusionがありません: ${playerSpawn.id}`
+      );
     }
   }
 
@@ -1517,6 +1561,39 @@ const createVolumeRegistry = (
     all,
     getById: (id: string) => byId.get(id) ?? null,
     getByRole: (role: StageVolumeRole) => byRole.get(role)!
+  });
+};
+
+const createPlayerSpawnRegistry = (
+  markers: StageMarkerRegistry,
+  volumes: StageVolumeRegistry
+): StagePlayerSpawnRegistry => {
+  const playerSpawnMarkers = markers.getByRole("player_spawn");
+  const exclusions = volumes.getByRole("player_spawn_exclusion");
+  const exclusionByPlayerSpawnId = new Map(
+    exclusions.map((exclusion) => [exclusion.playerSpawnId!, exclusion])
+  );
+  const all = Object.freeze(
+    playerSpawnMarkers.map((marker) => {
+      const exclusionVolume = exclusionByPlayerSpawnId.get(marker.id)!;
+      marker.node.computeWorldMatrix(true);
+      const position = marker.node.getAbsolutePosition();
+      if (!createStageBoundaryContainsQuery(exclusionVolume.mesh)(position)) {
+        throw new Error(
+          `player_spawnが対応player_spawn_exclusionの外側です: ${marker.id}/${exclusionVolume.id}`
+        );
+      }
+      return Object.freeze({
+        id: marker.id,
+        marker,
+        exclusionVolume
+      });
+    })
+  );
+  const byId = new Map(all.map((spawn) => [spawn.id, spawn]));
+  return Object.freeze({
+    all,
+    getById: (id: string) => byId.get(id) ?? null
   });
 };
 
@@ -2373,6 +2450,7 @@ export const loadStageSpatialContext = async (
     });
     const markers = createMarkerRegistry(classification.markers);
     const volumes = createVolumeRegistry(classification.volumes);
+    const playerSpawns = createPlayerSpawnRegistry(markers, volumes);
     const navigationAreas = createStageNavigationAreaRegistry(
       volumes.all,
       classification.portals
@@ -2445,6 +2523,7 @@ export const loadStageSpatialContext = async (
       bitNavigation: ownedBitNavigation,
       markers,
       volumes,
+      playerSpawns,
       navigationAreas: ownedNavigationAreas,
       assemblyVenues,
       links,

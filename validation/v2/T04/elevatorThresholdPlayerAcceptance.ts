@@ -246,6 +246,13 @@ export const runElevatorThresholdPlayerAcceptance = ({
     scene,
     camera,
     stage,
+    playerSpawn: (() => {
+      const playerSpawn = stage.playerSpawns.getById("player-spawn-main");
+      if (!playerSpawn) {
+        throw new Error("敷居player fixtureのPlayer開始地点がありません。");
+      }
+      return playerSpawn;
+    })(),
     input
   });
   const playerCollision = scene.getMeshByName(

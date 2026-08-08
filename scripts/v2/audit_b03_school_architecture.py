@@ -49,12 +49,19 @@ NAVMESH_PATH = (
     REPOSITORY_ROOT
     / "public/stage-assets/v2/B02/b02_school_blockout.navmesh.bin"
 )
+BIT_NAVMESH_PATH = (
+    REPOSITORY_ROOT
+    / "public/stage-assets/v2/B02/b02_school_blockout.bit-flight.navmesh.bin"
+)
 PROP_LIBRARY_PATH = (
     REPOSITORY_ROOT / "assets/blender/v2/B03/b03_school_prop_library.blend"
 )
 
 EXPECTED_NAVMESH_SHA256 = (
     "530FA01F472A7F3AB4F983C6360AA41C296F3170AE44334E67E26377ED5D977B"
+)
+EXPECTED_BIT_NAVMESH_SHA256 = (
+    "E7E0A76429BA1C9BCFCB26A18071DB2307CA394632FB727A0559140244CAC62A"
 )
 EXPECTED_PROP_LIBRARY_SHA256 = (
     "F1163A1E2B1291AED2B81A10102BCBD7F74F0F7C018BA210389E4797B92B42BD"
@@ -76,7 +83,7 @@ EXPECTED_CONSOLIDATED_MATERIAL_NAMES = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v10"
+EXPECTED_GENERATOR_VERSION = "t06-2-school-spawn-v1"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 EXPECTED_SCHEMA_VERSION = 2
 EXPECTED_STAGE_ID = "school"
@@ -216,6 +223,259 @@ EXPECTED_BIT_FLIGHT_BANDS = (
         15.4,
         18.0,
     ),
+)
+
+EXPECTED_PLAYER_SPAWN_SPECS = (
+    (
+        "Main",
+        "player-spawn-main",
+        (-1.5, 0.0, 0.0),
+        90.0,
+        "player-spawn-main-exclusion",
+        ((-4.0, -2.5, -0.4), (1.0, 2.5, 2.8)),
+    ),
+    (
+        "GymCenter",
+        "player-spawn-gym-center",
+        (46.4, 9.5, 0.0),
+        0.0,
+        "player-spawn-gym-center-exclusion",
+        ((41.4, 4.5, -0.4), (51.4, 14.5, 6.0)),
+    ),
+    (
+        "GymStage",
+        "player-spawn-gym-stage",
+        (46.4, -6.5, 1.0),
+        180.0,
+        "player-spawn-gym-stage-exclusion",
+        ((42.4, -9.0, 0.6), (50.4, -4.0, 7.0)),
+    ),
+    (
+        "F02_Classroom02",
+        "player-spawn-f02-classroom-02",
+        (-4.6, 18.0, 3.6),
+        -141.52,
+        "player-spawn-f02-classroom-02-exclusion",
+        ((-7.6, 15.0, 3.2), (-1.6, 21.0, 6.4)),
+    ),
+    (
+        "F03_Classroom02",
+        "player-spawn-f03-classroom-02",
+        (-4.6, 18.0, 7.2),
+        -141.52,
+        "player-spawn-f03-classroom-02-exclusion",
+        ((-7.6, 15.0, 6.8), (-1.6, 21.0, 10.0)),
+    ),
+    (
+        "F04_Classroom02",
+        "player-spawn-f04-classroom-02",
+        (-4.6, 18.0, 10.8),
+        -141.52,
+        "player-spawn-f04-classroom-02-exclusion",
+        ((-7.6, 15.0, 10.4), (-1.6, 21.0, 13.6)),
+    ),
+    (
+        "F02_ToiletWashSide",
+        "player-spawn-f02-toilet-wash-side",
+        (-0.8, 40.5, 3.6),
+        14.04,
+        "player-spawn-f02-toilet-wash-side-exclusion",
+        ((-2.8, 38.5, 3.2), (1.2, 42.5, 6.4)),
+    ),
+    (
+        "F02_CouncilSouth",
+        "player-spawn-f02-council-south",
+        (9.9, 38.5, 3.6),
+        180.0,
+        "player-spawn-f02-council-south-exclusion",
+        ((6.4, 36.5, 3.2), (13.4, 40.5, 6.4)),
+    ),
+    (
+        "F03_ArtSouth",
+        "player-spawn-f03-art-south",
+        (14.3, 37.4, 7.2),
+        180.0,
+        "player-spawn-f03-art-south-exclusion",
+        ((10.3, 34.9, 6.8), (18.3, 39.9, 10.0)),
+    ),
+    (
+        "F04_MusicSouth",
+        "player-spawn-f04-music-south",
+        (31.3, 37.4, 10.8),
+        180.0,
+        "player-spawn-f04-music-south-exclusion",
+        ((27.3, 34.9, 10.4), (35.3, 39.9, 13.6)),
+    ),
+    (
+        "RoofPoolWestStairs",
+        "player-spawn-roof-pool-west-stairs",
+        (17.5, 39.0, 14.66),
+        -90.0,
+        "player-spawn-roof-pool-west-stairs-exclusion",
+        ((14.0, 36.5, 14.1), (21.0, 41.5, 18.7)),
+    ),
+)
+
+EXPECTED_NPC_SPAWN_VOLUME_SPECS = (
+    (
+        "F01_Stage",
+        "npc-spawn-f01-stage",
+        ((-18.4, -14.2, -0.4), (63.2, 51.0, 3.4)),
+    ),
+    (
+        "F02_Stage",
+        "npc-spawn-f02-stage",
+        ((-12.2, -8.7, 3.4), (59.0, 45.1, 7.0)),
+    ),
+    (
+        "F03_Stage",
+        "npc-spawn-f03-stage",
+        ((-12.2, -11.2, 7.0), (59.2, 45.1, 10.6)),
+    ),
+    (
+        "F04_Stage",
+        "npc-spawn-f04-stage",
+        ((-12.2, -8.8, 10.6), (47.0, 45.1, 14.2)),
+    ),
+    (
+        "Roof_Stage",
+        "npc-spawn-roof-stage",
+        ((-12.5, -6.9, 14.2), (47.3, 45.4, 18.6)),
+    ),
+)
+
+EXPECTED_BIT_SPAWN_VOLUME_SPECS = (
+    (
+        "OutdoorF1",
+        "bit-spawn-outdoor-f1",
+        "school-exterior",
+        "outdoor-f1",
+        ((-18.1, -14.1, -0.4), (62.9, 50.9, 3.2)),
+    ),
+    (
+        "InteriorF1",
+        "bit-spawn-interior-f1",
+        "school-interior",
+        "interior-f1",
+        ((-12.2, -3.1, -0.4), (56.9, 45.0, 3.2)),
+    ),
+    (
+        "GymLow",
+        "bit-spawn-gym-low",
+        "school-gym",
+        "gym-low",
+        ((33.9, -10.9, -0.4), (58.8, 26.0, 3.2)),
+    ),
+    (
+        "OutdoorF2",
+        "bit-spawn-outdoor-f2",
+        "school-exterior",
+        "outdoor-f2",
+        ((-18.1, -14.1, 3.2), (62.9, 50.9, 6.8)),
+    ),
+    (
+        "InteriorF2",
+        "bit-spawn-interior-f2",
+        "school-interior",
+        "interior-f2",
+        ((-12.2, -6.5, 3.2), (46.9, 45.1, 6.8)),
+    ),
+    (
+        "GymUpper",
+        "bit-spawn-gym-upper",
+        "school-gym",
+        "gym-upper",
+        ((34.0, -11.0, 3.2), (58.9, 26.1, 6.8)),
+    ),
+    (
+        "OutdoorF3",
+        "bit-spawn-outdoor-f3",
+        "school-exterior",
+        "outdoor-f3",
+        ((-18.1, -14.1, 6.8), (62.9, 50.9, 10.4)),
+    ),
+    (
+        "InteriorF3",
+        "bit-spawn-interior-f3",
+        "school-interior",
+        "interior-f3",
+        ((-12.2, -6.5, 6.8), (46.9, 45.1, 10.4)),
+    ),
+    (
+        "OutdoorF4",
+        "bit-spawn-outdoor-f4",
+        "school-exterior",
+        "outdoor-f4",
+        ((-18.1, -14.1, 10.4), (62.9, 50.9, 14.0)),
+    ),
+    (
+        "InteriorF4",
+        "bit-spawn-interior-f4",
+        "school-interior",
+        "interior-f4",
+        ((-12.2, -6.5, 10.4), (46.9, 45.1, 14.0)),
+    ),
+    (
+        "RoofFlight",
+        "bit-spawn-roof-flight",
+        "school-rooftop",
+        "roof-flight",
+        ((-12.2, -6.4, 14.0), (46.9, 45.0, 18.6)),
+    ),
+)
+
+EXPECTED_BIT_SPAWN_NAV_BOUNDS = {
+    ("school-exterior", "outdoor-f1"): (
+        (-17.799999, -13.700001, 1.11),
+        (62.600002, 50.600002, 1.41),
+    ),
+    ("school-exterior", "outdoor-f2"): (
+        (-17.9, -13.800003, 4.71),
+        (62.700005, 50.799999, 5.01),
+    ),
+    ("school-exterior", "outdoor-f3"): (
+        (-17.9, -13.800003, 8.31),
+        (62.700005, 50.799999, 8.610001),
+    ),
+    ("school-exterior", "outdoor-f4"): (
+        (-17.9, -13.800003, 12.21),
+        (62.700005, 50.799999, 12.21),
+    ),
+    ("school-interior", "interior-f1"): (
+        (-11.999999, -2.900002, 1.41),
+        (56.700001, 44.799999, 1.46),
+    ),
+    ("school-interior", "interior-f2"): (
+        (-11.95, -6.25, 5.01),
+        (46.650002, 44.850002, 5.01),
+    ),
+    ("school-interior", "interior-f3"): (
+        (-11.95, -6.25, 8.610001),
+        (46.650002, 44.850002, 8.610001),
+    ),
+    ("school-interior", "interior-f4"): (
+        (-11.95, -6.25, 12.21),
+        (46.650002, 44.850002, 12.21),
+    ),
+    ("school-gym", "gym-low"): (
+        (34.100002, -10.700001, 1.41),
+        (58.600002, 25.800001, 1.41),
+    ),
+    ("school-gym", "gym-upper"): (
+        (34.25, -10.75, 5.01),
+        (58.650002, 25.85, 5.01),
+    ),
+    ("school-rooftop", "roof-flight"): (
+        (-11.900001, -6.100002, 16.810001),
+        (46.699997, 44.799999, 17.960001),
+    ),
+}
+
+LEGACY_SPAWN_OBJECT_NAMES = frozenset(
+    {
+        "VOL_BitSpawn_Courtyard",
+        "VOL_NpcSpawn_Courtyard",
+    }
 )
 
 GATE_VISUAL_SPECS = (
@@ -3103,6 +3363,243 @@ def audit_links(objects: list[bpy.types.Object]) -> dict[str, int]:
     }
 
 
+def require_spawn_collection(obj: bpy.types.Object) -> None:
+    collection_names = {item.name for item in obj.users_collection}
+    require(
+        collection_names == {"B02_SEMANTIC"},
+        f"spawn意味ObjectのCollectionが不正です: "
+        f"{obj.name}/{sorted(collection_names)}",
+    )
+
+
+def require_spawn_volume(
+    obj: bpy.types.Object | None,
+    object_name: str,
+    expected_properties: dict[str, object],
+    expected_bounds: tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ],
+) -> bpy.types.Object:
+    require(
+        obj is not None and obj.type == "MESH",
+        f"spawn VolumeがMeshとして存在しません: {object_name}",
+    )
+    require(obj.parent is None, f"spawn Volumeに親があります: {object_name}")
+    require(not obj.children, f"spawn Volumeに子があります: {object_name}")
+    require_exact_hs_properties(object_name, obj, expected_properties)
+    require(
+        bounds_match(world_bounds(obj), expected_bounds),
+        f"spawn Volume境界が不正です: {object_name}/{world_bounds(obj)}",
+    )
+    require_spawn_collection(obj)
+    return obj
+
+
+def audit_spawn_semantics(
+    objects: list[bpy.types.Object],
+) -> dict[str, int]:
+    objects_by_name = {obj.name: obj for obj in objects}
+    expected_names_by_role = {
+        "player_spawn": {
+            f"MRK_PlayerSpawn_{suffix}"
+            for suffix, *_remaining in EXPECTED_PLAYER_SPAWN_SPECS
+        },
+        "player_spawn_exclusion": {
+            f"VOL_PlayerSpawnExclusion_{suffix}"
+            for suffix, *_remaining in EXPECTED_PLAYER_SPAWN_SPECS
+        },
+        "npc_spawn": {
+            f"VOL_NpcSpawn_{suffix}"
+            for suffix, *_remaining in EXPECTED_NPC_SPAWN_VOLUME_SPECS
+        },
+        "bit_spawn": {
+            f"VOL_BitSpawn_{suffix}"
+            for suffix, *_remaining in EXPECTED_BIT_SPAWN_VOLUME_SPECS
+        },
+    }
+    expected_names = set().union(*expected_names_by_role.values())
+    require(
+        len(expected_names) == 38,
+        f"監査側のT06-2 spawn意味Object定義が38件ではありません: "
+        f"{len(expected_names)}",
+    )
+    for role, expected_role_names in expected_names_by_role.items():
+        actual_role_names = {
+            obj.name for obj in objects if obj.get("hs_role") == role
+        }
+        require(
+            actual_role_names == expected_role_names,
+            f"{role}のObject集合が不正です: "
+            f"missing={sorted(expected_role_names - actual_role_names)} / "
+            f"unexpected={sorted(actual_role_names - expected_role_names)}",
+        )
+
+    spawn_prefixes = (
+        "MRK_PlayerSpawn_",
+        "VOL_PlayerSpawnExclusion_",
+        "VOL_NpcSpawn_",
+        "VOL_BitSpawn_",
+    )
+    actual_prefixed_names = {
+        obj.name for obj in objects if obj.name.startswith(spawn_prefixes)
+    }
+    require(
+        actual_prefixed_names == expected_names,
+        "T06-2 spawn接頭辞のObject集合が38件の固定契約と一致しません: "
+        f"missing={sorted(expected_names - actual_prefixed_names)} / "
+        f"unexpected={sorted(actual_prefixed_names - expected_names)}",
+    )
+    legacy_names = LEGACY_SPAWN_OBJECT_NAMES.intersection(objects_by_name)
+    require(
+        not legacy_names,
+        f"廃止済みCourtyard spawnが残っています: {sorted(legacy_names)}",
+    )
+
+    exclusion_references: Counter[str] = Counter()
+    player_spawn_ids = set()
+    for (
+        suffix,
+        spawn_id,
+        position,
+        yaw_degrees,
+        exclusion_id,
+        exclusion_bounds,
+    ) in EXPECTED_PLAYER_SPAWN_SPECS:
+        marker_name = f"MRK_PlayerSpawn_{suffix}"
+        marker = objects_by_name.get(marker_name)
+        require(
+            marker is not None and marker.type == "EMPTY",
+            f"Player開始MarkerがEmptyとして存在しません: {marker_name}",
+        )
+        require(marker.parent is None, f"Player開始Markerに親があります: {marker_name}")
+        require(not marker.children, f"Player開始Markerに子があります: {marker_name}")
+        require_exact_hs_properties(
+            marker_name,
+            marker,
+            {
+                "hs_id": spawn_id,
+                "hs_role": "player_spawn",
+            },
+        )
+        require(
+            all(
+                abs(actual - expected) <= TOLERANCE
+                for actual, expected in zip(marker.location, position, strict=True)
+            ),
+            f"Player開始Marker位置が不正です: {marker_name}/{tuple(marker.location)}",
+        )
+        expected_yaw = math.radians(yaw_degrees)
+        require(
+            abs(marker.rotation_euler.x) <= TOLERANCE
+            and abs(marker.rotation_euler.y) <= TOLERANCE
+            and abs(marker.rotation_euler.z - expected_yaw) <= TOLERANCE,
+            f"Player開始Marker向きが不正です: "
+            f"{marker_name}/{tuple(marker.rotation_euler)}",
+        )
+        require(
+            all(abs(value - 1.0) <= TOLERANCE for value in marker.scale),
+            f"Player開始Marker scaleが1ではありません: {marker_name}",
+        )
+        require_spawn_collection(marker)
+        player_spawn_ids.add(spawn_id)
+
+        exclusion_name = f"VOL_PlayerSpawnExclusion_{suffix}"
+        exclusion = require_spawn_volume(
+            objects_by_name.get(exclusion_name),
+            exclusion_name,
+            {
+                "hs_id": exclusion_id,
+                "hs_role": "player_spawn_exclusion",
+                "hs_player_spawn_id": spawn_id,
+            },
+            exclusion_bounds,
+        )
+        exclusion_references[exclusion.get("hs_player_spawn_id")] += 1
+
+    require(
+        exclusion_references
+        == Counter({spawn_id: 1 for spawn_id in player_spawn_ids}),
+        "Player開始Markerと除外Volumeが明示的な1対1対応ではありません: "
+        f"{dict(sorted(exclusion_references.items()))}",
+    )
+
+    for suffix, spawn_id, expected_bounds in EXPECTED_NPC_SPAWN_VOLUME_SPECS:
+        object_name = f"VOL_NpcSpawn_{suffix}"
+        require_spawn_volume(
+            objects_by_name.get(object_name),
+            object_name,
+            {
+                "hs_id": spawn_id,
+                "hs_role": "npc_spawn",
+            },
+            expected_bounds,
+        )
+
+    bit_spawn_keys = set()
+    expected_flight_keys = {
+        (zone_id, band_id)
+        for _name, zone_id, band_id, *_remaining in EXPECTED_BIT_FLIGHT_BANDS
+    }
+    require(
+        set(EXPECTED_BIT_SPAWN_NAV_BOUNDS) == expected_flight_keys,
+        "監査側のBIT焼成AABBが学校11飛行帯と一致しません",
+    )
+    for (
+        suffix,
+        spawn_id,
+        zone_id,
+        band_id,
+        expected_bounds,
+    ) in EXPECTED_BIT_SPAWN_VOLUME_SPECS:
+        object_name = f"VOL_BitSpawn_{suffix}"
+        volume = require_spawn_volume(
+            objects_by_name.get(object_name),
+            object_name,
+            {
+                "hs_id": spawn_id,
+                "hs_role": "bit_spawn",
+                "hs_zone_id": zone_id,
+                "hs_band_id": band_id,
+            },
+            expected_bounds,
+        )
+        band_key = (zone_id, band_id)
+        require(
+            band_key not in bit_spawn_keys,
+            f"BIT spawn飛行帯が重複しています: {band_key}",
+        )
+        bit_spawn_keys.add(band_key)
+        spawn_minimum, spawn_maximum = world_bounds(volume)
+        nav_minimum, nav_maximum = EXPECTED_BIT_SPAWN_NAV_BOUNDS[band_key]
+        require(
+            all(
+                spawn_minimum[axis] <= nav_minimum[axis] + TOLERANCE
+                and spawn_maximum[axis] >= nav_maximum[axis] - TOLERANCE
+                for axis in range(3)
+            ),
+            f"BIT spawn Volumeが焼成NavMesh帯AABBを被覆しません: "
+            f"{object_name}/{band_key}",
+        )
+    require(
+        bit_spawn_keys == expected_flight_keys,
+        "BIT spawnが学校11飛行帯を1対1で被覆していません: "
+        f"missing={sorted(expected_flight_keys - bit_spawn_keys)} / "
+        f"unexpected={sorted(bit_spawn_keys - expected_flight_keys)}",
+    )
+
+    return {
+        "semantic_objects": len(expected_names),
+        "player_spawns": len(expected_names_by_role["player_spawn"]),
+        "player_spawn_exclusions": len(
+            expected_names_by_role["player_spawn_exclusion"]
+        ),
+        "npc_spawn_volumes": len(expected_names_by_role["npc_spawn"]),
+        "bit_spawn_volumes": len(expected_names_by_role["bit_spawn"]),
+        "bit_nav_band_coverage": len(bit_spawn_keys),
+    }
+
+
 def audit_bit_flight_navigation(
     objects: list[bpy.types.Object],
 ) -> dict[str, object]:
@@ -3281,15 +3778,6 @@ def audit_bit_flight_navigation(
         transition_kind_counts
         == Counter({"surface-route": 10, "vertical": 4, "boundary": 1}),
         f"ビット遷移方式の件数が不正です: {transition_kind_counts}",
-    )
-
-    bit_spawn = objects_by_name.get("VOL_BitSpawn_Courtyard")
-    require(
-        bit_spawn is not None
-        and bit_spawn.get("hs_role") == "bit_spawn"
-        and bit_spawn.get("hs_zone_id") == "school-exterior"
-        and bit_spawn.get("hs_band_id") == "outdoor-f1",
-        "ビットspawnが学校屋外F1飛行帯へ結び付いていません",
     )
 
     boundary = objects_by_name.get("BND_Stage")
@@ -6206,7 +6694,7 @@ def main() -> None:
     require(
         bpy.context.scene.get("b03_architecture_generator_version")
         == EXPECTED_GENERATOR_VERSION,
-        "建築生成版がB03-3Cインタラクティブ資産版ではありません",
+        "建築生成版がT06-2学校spawn版ではありません",
     )
     require(
         bpy.context.scene.get("t04_2b_nav_connectivity_version")
@@ -6215,6 +6703,10 @@ def main() -> None:
     )
     require(bpy.context.scene.get("b03_window_layout_status") == "final", "窓配置が最終状態ではありません")
     require(sha256(NAVMESH_PATH) == EXPECTED_NAVMESH_SHA256, "NavMesh SHA-256が変化しています")
+    require(
+        sha256(BIT_NAVMESH_PATH) == EXPECTED_BIT_NAVMESH_SHA256,
+        "BIT飛行NavMesh SHA-256が変化しています",
+    )
     require(sha256(PROP_LIBRARY_PATH) == EXPECTED_PROP_LIBRARY_SHA256, "B03-PライブラリSHA-256が変化しています")
     export_collection = bpy.data.collections.get("EXP_Stage_school")
     require(export_collection is not None, "EXP_Stage_schoolがありません")
@@ -6242,6 +6734,7 @@ def main() -> None:
     audit_hs_ids(export_objects)
     window_counts = audit_windows(export_objects)
     link_counts = audit_links(export_objects)
+    spawn_counts = audit_spawn_semantics(export_objects)
     bit_flight_counts = audit_bit_flight_navigation(export_objects)
     stair_guard_counts = audit_stair_guards(export_objects)
     roof_guard_counts = audit_roof_guards()
@@ -6257,6 +6750,7 @@ def main() -> None:
         "blend_sha256": sha256(BLEND_PATH),
         "glb_sha256": sha256(GLB_PATH),
         "navmesh_sha256": sha256(NAVMESH_PATH),
+        "bit_navmesh_sha256": sha256(BIT_NAVMESH_PATH),
         "prop_library_sha256": sha256(PROP_LIBRARY_PATH),
         "blender_objects": len(bpy.data.objects),
         "blender_meshes": len(bpy.data.meshes),
@@ -6266,6 +6760,7 @@ def main() -> None:
         "prefixes": dict(sorted(prefixes.items())),
         "windows": window_counts,
         "links": link_counts,
+        "spawns": spawn_counts,
         "bit_flight": bit_flight_counts,
         "stair_guards": stair_guard_counts,
         "roof_guards": roof_guard_counts,

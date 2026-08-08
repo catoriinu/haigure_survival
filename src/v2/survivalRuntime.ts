@@ -6,7 +6,10 @@ import {
 import type {
   NavigationRouteCandidate
 } from "../world/navigationWorld";
-import type { StageSpatialContext } from "../world/stageSpatialContext";
+import type {
+  StagePlayerSpawn,
+  StageSpatialContext
+} from "../world/stageSpatialContext";
 import {
   createV2NavigationAlarmCandidateProvider
 } from "./alarmCandidateProvider";
@@ -287,29 +290,38 @@ export interface V2SurvivalRuntime {
 export type V2SurvivalPopulation = Readonly<{
   npcCount: number;
   initialBrainwashedNpcCount: number;
-  bitCount: number;
+  initialBitCount: number;
+  bitReinforcementIntervalSeconds: number;
+  maximumBitCount: number;
 }>;
 
 export const V2_TEST_SURVIVAL_POPULATION: V2SurvivalPopulation =
   Object.freeze({
     npcCount: 50,
     initialBrainwashedNpcCount: 10,
-    bitCount: 20
+    initialBitCount: 1,
+    bitReinforcementIntervalSeconds: 10,
+    maximumBitCount: 25
   });
 
 export const V2_PERFORMANCE_ACCEPTANCE_POPULATION:
   V2SurvivalPopulation = Object.freeze({
     npcCount: 99,
     initialBrainwashedNpcCount: 66,
-    bitCount: 50
+    initialBitCount: 50,
+    bitReinforcementIntervalSeconds: 10,
+    maximumBitCount: 50
   });
 
 export type V2SurvivalRuntimeOptions = Readonly<{
   scene: Scene;
   stage: StageSpatialContext;
+  playerSpawn: StagePlayerSpawn;
   player: V2PlayerController;
   characterVisuals: V2CharacterVisualRuntime;
   random: () => number;
+  npcSpawnRandom: () => number;
+  bitSpawnRandom: () => number;
   getOrbVisibilityPredicate(): (position: Vector3) => boolean;
   population: V2SurvivalPopulation;
   performanceDiagnostics: V2PerformanceDiagnostics | null;
@@ -346,7 +358,8 @@ const assertPopulation = (
       "initialBrainwashedNpcCount",
       population.initialBrainwashedNpcCount
     ],
-    ["bitCount", population.bitCount]
+    ["initialBitCount", population.initialBitCount],
+    ["maximumBitCount", population.maximumBitCount]
   ] as const;
   for (const [name, value] of entries) {
     if (!Number.isInteger(value) || value < 0) {
@@ -361,6 +374,19 @@ const assertPopulation = (
   ) {
     throw new Error(
       "V2SurvivalRuntimeの初期洗脳済みNPC数はNPC総数以下である必要があります。"
+    );
+  }
+  if (population.initialBitCount > population.maximumBitCount) {
+    throw new Error(
+      "V2SurvivalRuntimeの初期BIT数は最大BIT数以下である必要があります。"
+    );
+  }
+  if (
+    !Number.isFinite(population.bitReinforcementIntervalSeconds) ||
+    population.bitReinforcementIntervalSeconds <= 0
+  ) {
+    throw new Error(
+      "V2SurvivalRuntimeのpopulation.bitReinforcementIntervalSecondsには正の有限値が必要です。"
     );
   }
 };
@@ -389,9 +415,12 @@ const getLookAtPosition = (
 export const createV2SurvivalRuntime = ({
   scene,
   stage,
+  playerSpawn,
   player,
   characterVisuals,
   random,
+  npcSpawnRandom,
+  bitSpawnRandom,
   getOrbVisibilityPredicate,
   population,
   performanceDiagnostics,
@@ -401,6 +430,12 @@ export const createV2SurvivalRuntime = ({
 }: V2SurvivalRuntimeOptions): V2SurvivalRuntime => {
   if (typeof random !== "function") {
     throw new Error("V2SurvivalRuntimeのrandomには関数が必要です。");
+  }
+  if (typeof npcSpawnRandom !== "function") {
+    throw new Error("V2SurvivalRuntimeのnpcSpawnRandomには関数が必要です。");
+  }
+  if (typeof bitSpawnRandom !== "function") {
+    throw new Error("V2SurvivalRuntimeのbitSpawnRandomには関数が必要です。");
   }
   if (typeof getOrbVisibilityPredicate !== "function") {
     throw new Error(
@@ -488,17 +523,24 @@ export const createV2SurvivalRuntime = ({
         population.initialBrainwashedNpcCount,
       diagnosticsEnabled: performanceDiagnostics !== null,
       random,
+      spawnRandom: npcSpawnRandom,
+      playerSpawn,
       resolveTargetNavigationArea: (target) =>
         ownedTargetNavigationAreaTracker!.resolve(target.id),
       selectNavigationRoute
     });
     ownedBitSystem = createV2BitSystem(scene, stage, {
-      initialBitCount: population.bitCount,
+      initialBitCount: population.initialBitCount,
+      reinforcementIntervalSeconds:
+        population.bitReinforcementIntervalSeconds,
+      maximumBitCount: population.maximumBitCount,
       minimumSpawnDistance: 0.2,
       spawnMaxAttempts: 512,
       spawnProjectionMaxDistance: 0.75,
       combatEnabled: true,
       random,
+      spawnRandom: bitSpawnRandom,
+      playerSpawn,
       resolveTargetNavigationArea: (target) =>
         ownedTargetNavigationAreaTracker!.resolve(target.id)
     });
@@ -1313,7 +1355,7 @@ export const createV2SurvivalRuntime = ({
       npcCount: npcFrameView.targets.length,
       npcHudCounts,
       brainwashedNpcCount,
-      bitCount: bitFrameView.actorSpheres.length,
+      bitCount: bitFrameView.populationBitCount,
       activeBeamCount: beamSystem.activeCount,
       activeAlertCount: alertCoordinator.activeCount,
       activeAlarmCount: alarmFrame.activeCandidateIds.length,

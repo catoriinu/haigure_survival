@@ -59,6 +59,14 @@ import type {
   V2ExternalAlert,
   V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
+import {
+  createFixtureBitSpawnRandom,
+  createFixtureCenteredBitSpawnRandom,
+  createFixturePlayerSpawn,
+  createFixturePlayerSpawnRegistry,
+  createFixtureSpawnRoleStage,
+  requireFirstFixturePlayerSpawn
+} from "./spawnContractFixture";
 
 const createFixtureNavigationAreas = () => {
   const area = Object.freeze({ id: "fixture-area", volumes: Object.freeze([]) });
@@ -162,12 +170,7 @@ const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   })
 });
 
-const ONE_BIT_INITIAL_RANDOM = Object.freeze([
-  0.5,
-  0.5,
-  0.5,
-  0.5,
-  0.5,
+const ONE_BIT_BEHAVIOR_RANDOM = Object.freeze([
   0,
   0,
   0.5
@@ -238,12 +241,18 @@ const createFixtureStage = (
     id: `bit-acceptance-spawn-${fixtureIndex}`,
     role: "bit_spawn",
     bitFlightBand: band,
+    playerSpawnId: null,
     navigationAreaId: null,
     mesh
   });
+  const playerSpawn = createFixturePlayerSpawn(
+    `bit-acceptance-player-spawn-${fixtureIndex}`,
+    mesh
+  );
   const stage = Object.freeze({
     bitNavigation: navigation,
     navigationAreas: createFixtureNavigationAreas(),
+    playerSpawns: createFixturePlayerSpawnRegistry(playerSpawn),
     volumes: Object.freeze({
       all: Object.freeze([volume]),
       getById: (id: string) => (id === volume.id ? volume : null),
@@ -261,6 +270,7 @@ const createFixtureStage = (
         isSightBlocked(from, to) ? Object.freeze({ blocked: true }) : null,
       sampleGround: () => null,
       containsVolume: () => false,
+      containsVolumeById: () => false,
       dispose: () => {}
     })
   }) as unknown as StageSpatialContext;
@@ -327,9 +337,14 @@ const createDynamicBitRevisionFixtureStage = (
     id: `bit-dynamic-revision-spawn-${fixtureIndex}`,
     role: "bit_spawn",
     bitFlightBand: band,
+    playerSpawnId: null,
     navigationAreaId: null,
     mesh: spawnMesh
   });
+  const playerSpawn = createFixturePlayerSpawn(
+    `bit-dynamic-revision-player-spawn-${fixtureIndex}`,
+    spawnMesh
+  );
   let revision = 0;
   let blockerMode: DynamicBitBlockerMode = Object.freeze({ kind: "none" });
   let stageLinkAccessCount = 0;
@@ -423,6 +438,7 @@ const createDynamicBitRevisionFixtureStage = (
   const stage = Object.freeze({
     bitNavigation: navigation,
     navigationAreas: createFixtureNavigationAreas(),
+    playerSpawns: createFixturePlayerSpawnRegistry(playerSpawn),
     volumes: Object.freeze({
       all: Object.freeze([volume]),
       getById: (id: string) => (id === volume.id ? volume : null),
@@ -475,15 +491,23 @@ const createSystem = (
   stage: StageSpatialContext,
   random: () => number,
   initialBitCount = 1,
-  minimumSpawnDistance = 0
+  minimumSpawnDistance = 0,
+  spawnRandom: () => number =
+    initialBitCount === 1
+      ? createFixtureCenteredBitSpawnRandom()
+      : createFixtureBitSpawnRandom(0x5405_1000 ^ initialBitCount)
 ) =>
   createV2BitSystem(scene, stage, {
     combatEnabled: false,
     initialBitCount,
+    reinforcementIntervalSeconds: 10,
+    maximumBitCount: initialBitCount,
     minimumSpawnDistance,
     spawnMaxAttempts: initialBitCount === 1 ? 8 : 1024,
     spawnProjectionMaxDistance: initialBitCount === 1 ? 0.35 : 0.75,
     random,
+    spawnRandom,
+    playerSpawn: requireFirstFixturePlayerSpawn(stage),
     resolveTargetNavigationArea: (target: V2HumanTargetSnapshot) =>
       Object.freeze({
         targetId: target.id,
@@ -754,6 +778,16 @@ const createLoaderFixtureGlb = (
       hs_role: "player_spawn"
     },
     [0, authoredCoordinate(1.4), 0]
+  );
+  addMeshNode(
+    "VOL_LoaderFixturePlayerSpawnExclusion",
+    {
+      hs_id: "loader-player-spawn-exclusion",
+      hs_role: "player_spawn_exclusion",
+      hs_player_spawn_id: "loader-player-spawn"
+    },
+    [0, authoredCoordinate(1.4), 0],
+    [authoredSize(2), authoredSize(2), authoredSize(2)]
   );
   addMeshNode(
     "BND_Stage",
@@ -1083,7 +1117,7 @@ const runActorSphereRadiusCheck = (
     fixture.pointInBand(fixture.courtyardRef, 0, 0),
     () => false
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   try {
     const actors = system.getFrameView().actorSpheres;
@@ -1119,7 +1153,7 @@ const runVisualTargetLossChecks = (
     fixture.pointInBand(fixture.courtyardRef, 0, 0),
     () => timeoutSightBlocked
   );
-  const timeoutRandom = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const timeoutRandom = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const timeoutSystem = createSystem(
     fixture.scene,
     timeoutStage.stage,
@@ -1180,7 +1214,7 @@ const runVisualTargetLossChecks = (
     fixture.pointInBand(fixture.courtyardRef, 0, 0),
     () => false
   );
-  const distanceRandom = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const distanceRandom = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const distanceSystem = createSystem(
     fixture.scene,
     distanceStage.stage,
@@ -1565,7 +1599,7 @@ const runCarpetFormationChecks = (
     fixture.pointInBand(fixture.courtyardRef, 0, 0),
     () => true
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   const checks: BitSystemAcceptanceCheck[] = [];
   try {
@@ -1713,7 +1747,7 @@ const runSearchMovementCase = (
     fixture.pointInBand(fixture.courtyardRef, 0, 0),
     () => true
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   try {
     random.enqueue(...scriptedRandom);
@@ -1764,7 +1798,7 @@ const runBobCheck = (
     fixture.pointInBand(fixture.courtyardRef, 0, 0),
     () => true
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   try {
     random.enqueue(0.2, 0.5, 0.999, 0.5);
@@ -1813,7 +1847,7 @@ const runTransitionBobCheck = (
     fixture.pointInBand(fixture.concourseRef, 0, 0),
     () => true
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   try {
     const target = createTarget(
@@ -1880,7 +1914,7 @@ const runTransitionClearCase = (
     fixture.pointInBand(fixture.concourseRef, 0, 0),
     () => true
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   try {
     const target = createTarget(
@@ -2034,7 +2068,7 @@ const runTransitionReturnSuppressionCheck = async (
     fixture.pointInBand(fixture.concourseRef, 0, 0),
     () => true
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   try {
     random.enqueue(0.2, 0.5, 0.5, 0.5, 0.5, 0.2);
@@ -2205,7 +2239,7 @@ const runDynamicRevisionSurfaceChecks = (
     fixture.courtyardRef,
     fixture.pointInBand(fixture.courtyardRef, -0.8, 0)
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   system.setDiagnosticsEnabled(true);
   try {
@@ -2326,7 +2360,7 @@ const runDynamicRevisionTransitionChecks = (
     fixture.concourseRef,
     transitionStart
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   system.setDiagnosticsEnabled(true);
   try {
@@ -2461,7 +2495,7 @@ const runDynamicRevisionUnreachableRecoveryCheck = (
     fixture.courtyardRef,
     fixture.pointInBand(fixture.courtyardRef, 0, 0)
   );
-  const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+  const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
   const system = createSystem(fixture.scene, stage.stage, random.random);
   system.setDiagnosticsEnabled(true);
   try {
@@ -2887,6 +2921,11 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     const schoolWorldBoundaryRequired =
       schoolContext.worldBoundary?.id === "world-limit";
     const schoolNavigation = schoolContext.bitNavigation;
+    const schoolPerformanceStage = createFixtureSpawnRoleStage(
+      schoolContext,
+      "bit_spawn",
+      Object.freeze(["bit-spawn-outdoor-f1"])
+    );
     const schoolZoneId = schoolNavigation.zones[0]?.id;
     if (!schoolZoneId) {
       throw new Error("学校Contextに飛行ゾーンがありません。");
@@ -2900,7 +2939,7 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     };
     const searchSystem = createSystem(
       scene,
-      schoolContext,
+      schoolPerformanceStage,
       searchRandom,
       99,
       0.08
@@ -3126,7 +3165,7 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     };
     const chaseSystem = createSystem(
       scene,
-      schoolContext,
+      schoolPerformanceStage,
       chaseRandom,
       99,
       0.08
@@ -3228,6 +3267,14 @@ const runSchoolPerformanceAndLifecycleChecks = async (
       const maximumProgressWaitTicks = Math.max(
         ...firstProgressTickById.values()
       );
+      const assignedTargetStateCount = targetStates.filter(
+        (state) =>
+          state.targetId !== null &&
+          stressFixture.targetIds.has(state.targetId)
+      ).length;
+      const chaseTargetStateCount = targetStates.filter(
+        (state) => state.mode === "chase"
+      ).length;
       checks.push({
         name: "学校99体の屋外隣接帯vertical追跡を1/60秒tick性能予算内に維持",
         ok:
@@ -3267,6 +3314,8 @@ const runSchoolPerformanceAndLifecycleChecks = async (
           `p95=${statistics.p95.toFixed(3)}/${PERFORMANCE_P95_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
           `max=${statistics.maximum.toFixed(3)}/${PERFORMANCE_MAXIMUM_BUDGET_MILLISECONDS.toFixed(3)}ms / ` +
           `total=${statistics.total.toFixed(3)}ms / ` +
+          `targets=${assignedTargetStateCount}/${targetStates.length} / ` +
+          `chase=${chaseTargetStateCount}/${targetStates.length} / ` +
           `progressed=${progressedIds.size}/${initialPositions.size} / ` +
           `maxWait=${maximumProgressWaitTicks}tick/` +
           `${(maximumProgressWaitTicks * PERFORMANCE_DELTA_SECONDS).toFixed(3)}s`
@@ -3474,7 +3523,7 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     };
     const mixedSystem = createSystem(
       scene,
-      schoolContext,
+      schoolPerformanceStage,
       mixedRandom,
       99,
       0.08
@@ -3613,7 +3662,7 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     if (!fixtureZoneId) {
       throw new Error("実loader fixtureに飛行ゾーンがありません。");
     }
-    const random = createQueuedRandom(ONE_BIT_INITIAL_RANDOM);
+    const random = createQueuedRandom(ONE_BIT_BEHAVIOR_RANDOM);
     fixtureSystem = createSystem(
       scene,
       fixtureContext,

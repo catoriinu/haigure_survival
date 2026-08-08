@@ -18,6 +18,7 @@ import { STAGE_MOVER_KINDS, type StageMoverKind } from "./stageLinks";
 export const STAGE_VOLUME_ROLES = [
   "npc_spawn",
   "bit_spawn",
+  "player_spawn_exclusion",
   "assembly",
   "no_enemy_spawn",
   "no_enemy_enter",
@@ -37,6 +38,7 @@ export type StageVolume = Readonly<{
   id: string;
   role: StageVolumeRole;
   bitFlightBand: BitFlightBandRef | null;
+  playerSpawnId: string | null;
   navigationAreaId: string | null;
   mesh: Mesh;
 }>;

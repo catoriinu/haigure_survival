@@ -19,6 +19,7 @@ import {
   BIT_FLIGHT_ENVELOPE_RADIUS_WORLD_UNITS,
   type BitFlightSafety
 } from "../../../src/world/bitFlightSafety";
+import { createFixtureSurfaceTriangles } from "./spawnContractFixture";
 
 export type BitFlightAgentTestResult = Readonly<{
   name: string;
@@ -366,6 +367,8 @@ const createAgentFixture = (
         minimumCenterHeight: 0,
         maximumCenterHeight: 1
       }),
+    getSurfaceTriangles: () =>
+      createFixtureSurfaceTriangles(-1, 1, -1, 1),
     projectPointInBand: () => null,
     findLocationCandidates: () => Object.freeze([]),
     findRoute: (_start, _destination, policy) => {

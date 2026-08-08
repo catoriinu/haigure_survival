@@ -163,16 +163,16 @@ PR #65のB03-3D、PR #64のT06-1、PR #66のB03-3D追補は、`origin/develop=cd
 ### ユーザー承認後の実装フェーズ
 
 - [x] 修正版11候補の採用、実ゲームで指定向きを満たす受入条件、T06-2実装開始指示を計画へ固定する
-- [ ] 承認済みの向き付き`MRK_PlayerSpawn_*`と、`player_spawn_exclusion` role／`hs_player_spawn_id`で明示参照する1対1の除外Volumeを資産化する
-- [ ] 人間用NavMesh上の`npc_spawn`と、到達可能な各BIT飛行帯を面積で覆う`bit_spawn` Volumeを資産化する
-- [ ] 同一seedで開始地点・向き・初期NPC／BITを再現し、選択中の除外Volumeだけを初期洗脳済みNPCとBITへ適用する
-- [ ] 初期洗脳済みNPCを除外範囲外で先に、未洗脳NPCを残候補から生成し、必要数とNPC間最小距離を満たす。候補不足時は厳格エラーとする
-- [ ] 通常BITを初期数・出現間隔・最大数の必須設定へ統一し、Alertを同じ最大数へ含め、カーペット僚機を除外する
-- [ ] 停止中、タイトル、公開処刑中、破棄後は増援せず、再読込でseed、timer、個体数を初期化する
-- [ ] B03-3D荒れ版、T06-1入力・UI・音声・水中、扉・エレベーター・Follower・光線・世界境界を、初回統合済み機能として通常ゲームで横断回帰する
-- [ ] 資産監査、3種NavMesh二重生成、型検査、全build、T02～T06 fixture、通常Web、Electron、破棄・再読込を検証する
+- [x] 承認済みの向き付き`MRK_PlayerSpawn_*`と、`player_spawn_exclusion` role／`hs_player_spawn_id`で明示参照する1対1の除外Volumeを資産化する
+- [x] 人間用NavMesh上の`npc_spawn`と、到達可能な各BIT飛行帯を面積で覆う`bit_spawn` Volumeを資産化する
+- [x] 同一seedで開始地点・向き・初期NPC／BITを再現し、選択中の除外Volumeだけを初期洗脳済みNPCとBITへ適用する
+- [x] 初期洗脳済みNPCを除外範囲外で先に、未洗脳NPCを残候補から生成し、必要数とNPC間最小距離を満たす。候補不足時は厳格エラーとする
+- [x] 通常BITを初期数・出現間隔・最大数の必須設定へ統一し、Alertを同じ最大数へ含め、カーペット僚機を除外する
+- [x] 停止中、タイトル、公開処刑中、破棄後は増援せず、再読込でseed、timer、個体数を初期化する
+- [x] B03-3D荒れ版、T06-1入力・UI・音声・水中、扉・エレベーター・Follower・光線・世界境界を、初回統合済み機能として通常ゲームで横断回帰する
+- [x] 資産監査、3種NavMesh二重生成、型検査、全build、T02～T06 fixture、通常Web、Electron、破棄・再読込を検証する
 - [ ] 別途指示されたPull Request作成後、独立レビューとV3学校基盤機能ゲートで、タイトル開始から終了・タイトル復帰・再読込まで完全E2Eを確認する
-- [ ] 次の実装フェーズは実装・検証・ローカルcommitまでとし、push、Pull Request作成、レビュー、merge、worktree整理は別途指示されるまで行わない
+- [x] 次の実装フェーズは実装・検証・ローカルcommitまでとし、push、Pull Request作成、レビュー、merge、worktree整理は別途指示されるまで行わない
 
 ## 完了条件
 
@@ -200,3 +200,13 @@ PR #65のB03-3D、PR #64のT06-1、PR #66のB03-3D追補は、`origin/develop=cd
 2026-08-08、PR #65、PR #64、PR #66が`origin/develop=cdb8bae`までに統合済みであることを確認した。ローカル`develop`をfast-forwardし、同headから`codex/v2-t06-school-integration`と専用worktreeを作成した。旧計画worktreeの8件の文書差分とrootの未追跡Python cache、未保存Blenderセッションは変更せず保全している。計画8ファイルだけを`13ab1f7`として初回ローカルコミットした。
 
 同日、正本Blendを別backgroundプロセスで保存せず読み取り、通常室と全室荒れ状態の実Recast NavMesh、GLB、BIT飛行帯を横断監査した。基礎案6候補と追加採用5候補、対応する除外Volume、NPC 5階層Volume、BIT 11連続飛行帯Volumeを図示した。ユーザー指示に従い、舞台上、普通教室の黒板向き、トイレの出入口向き、生徒会室、プール内西側階段そば・西向きへ修正し、11件すべての採用承認を得た。修正版11候補は通常／全室荒れNavMeshへ全件投影でき、候補IDも提案資料間で一本化した。体育館2候補は吹抜け上下の飛行帯を覆う高さ`6.4m`、屋上候補は飛行帯とBIT安全包絡を覆う高さ`4.6m`である。BIT側の11件は離散出現地点ではなく、到達可能な飛行NavMesh全域を覆う連続Volumeである。正本Blend、GLB、全NavMesh、生成器、カタログhash、Runtime、仕様書、fixtureは開始フェーズでは変更せず、pushとPull Request作成も行っていない。開始候補の向きは図の矢印ではなく実ゲーム開始直後のカメラ方向を受入正本とし、2026-08-08のユーザー指示により実装フェーズへ移行した。
+
+実装フェーズでは、専用worktreeのbackground Blender 5.2だけを使用して生成器を更新し、承認済みPlayer Marker 11件、1対1の専用除外Volume 11件、NPC階層Volume 5件、BIT連続飛行帯Volume 11件の計38意味Objectを正本BlendとGLBへ生成した。学校GLBは連続強制生成で22,048,056 bytes、SHA-256 `ca8fe9307b742f1d38ebc02d837d574568c4d710f856fef8c90cb5ebc5f255f2`へ決定的に更新した。静的人間用NavMesh `530fa01f...`、Room Variant NavMesh `4b5a584b...`、BIT用NavMesh `e7e0a764...`は再焼成と`--check`で既存bytes／hashを維持し、構造・荒れ状態・飛行可能領域に変化がないことを確認した。学校architecture、interiors、interactive assets、protected contract、generator refactor、B04 world boundaryの6監査はすべてPASSし、BIT 11 Volumeが11飛行帯の焼成AABBを1対1で被覆すること、外周BIT出現が0件であることを固定した。GUIで開いている未保存Blenderセッションは操作していない。
+
+Runtimeでは、`player_spawn` Markerと`player_spawn_exclusion` Volumeを`hs_player_spawn_id`で厳格に1対1登録し、固定順11候補を開始地点専用乱数列で一様抽選した。同一の選択結果をPlayerとSurvivalへ渡し、PlayerカメラにはMarkerの実world前方を適用した。NPCとBITは開始地点とは独立した乱数列を使い、world変換済みVolume Meshの凸半空間でNavMesh三角形を切り抜いた実交差面積を重みとして全許可面から抽選する。選択中の除外Volumeだけを適用し、NPCは初期洗脳済みを先に配置してから未洗脳を配置する。候補不足、Marker／Volume契約不整合、要求数不足はfallbackせず厳格エラーとした。
+
+`bitCount`は`initialBitCount`へ破壊的に改名し、通常設定を初期1機、10秒間隔、最大25機へ統一した。通常BITとAlertを上限へ含め、カーペット僚機は除外する。増援timerは`playing`中だけ進め、上限到達後に欠員が出た場合も1回につき1機だけ補充し、catch-up burstを発生させない。タイトル、停止、公開処刑、ゲーム終了、dispose中は増援せず、再読込と破棄でseed、timer、個体数、callbackを初期化する。
+
+独立Runtimeレビューで、回転VolumeをAABBとして扱う交差面積計算と、BIT中心高度ではなくNavMesh面高を使う包含判定のP2 2件を検出した。前者を実Volume Meshの凸半空間clip、後者を実BIT中心座標の包含判定へ修正し、再レビュー後の未解決P0～P2は0件となった。T06-2専用fixtureは11/11、T02は50/50、T03は24/24、T04は115/115、実学校統合は77/77、T05は312/312、T05 NPC commandは26/26、T06は63/63で、すべてブラウザDOMの`validationStatus=passed`とconsole warning/error 0件を確認した。`typecheck:v2`とT01～T06-2の全型検査、通常buildとT01～T06-2の全buildもPASSした。
+
+通常ゲームのElectron受入では、Canvas開始とPointer Lock、洗脳進行、G／N／Hと射撃、通常状態のR無効、タイトル復帰、再開始、BGM／SE／VOICE読込、renderer／load／process診断0件を確認した。音声確認用のrepo内一時junctionと今回起動した検証server 7本は検証後に削除・停止し、音声正本と他worktreeのserverは変更していない。旧計画worktreeの8差分、rootの未追跡Python cache、GUIの未保存Blenderセッションも保全した。本実装と検証結果は専用branchへローカルcommitし、push、Pull Request作成、レビュー、merge、V3ゲートは未実施のまま次の明示指示を待つ。

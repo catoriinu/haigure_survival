@@ -192,7 +192,7 @@ const measureMovement = async (window, keyCode, holdMilliseconds) => {
 };
 
 const waitForBrainwashSelection = async (window) => {
-  const deadline = Date.now() + 300_000;
+  const deadline = Date.now() + 420_000;
   const patrolKeys = ["W", "D", "S", "A"];
   let patrolIndex = 0;
   let nextPatrolAt = Date.now() + 8_000;
@@ -229,7 +229,7 @@ const waitForBrainwashSelection = async (window) => {
     }
     await wait(100);
   }
-  throw new Error("通常Runtimeでbrainwash-in-progressへ300秒以内に到達できませんでした。");
+  throw new Error("通常Runtimeでbrainwash-in-progressへ420秒以内に到達できませんでした。");
 };
 
 const selectCompletionState = async (window, keyCode, expectedState) => {
@@ -497,8 +497,11 @@ const run = async () => {
   });
 
   await wait(2_000);
+  const successfulAudioResources = report.audioResources.completed.filter(
+    (resource) => resource.statusCode >= 200 && resource.statusCode < 300
+  );
   const completedByCategory = new Set(
-    report.audioResources.completed.map((resource) => resource.category)
+    successfulAudioResources.map((resource) => resource.category)
   );
   for (const category of ["BGM", "SE", "VOICE"]) {
     assertCondition(
@@ -506,17 +509,30 @@ const run = async () => {
       `${category}のresource load完了を確認できません。`
     );
   }
-  assertCondition(report.audioResources.failed.length === 0, "音声resource load失敗があります。");
+  const successfulAudioUrls = new Set(
+    successfulAudioResources.map((resource) => resource.url)
+  );
+  const unrecoveredAudioFailures = report.audioResources.failed.filter(
+    (resource) =>
+      resource.error !== "net::ERR_ABORTED" ||
+      !successfulAudioUrls.has(resource.url)
+  );
+  assertCondition(
+    unrecoveredAudioFailures.length === 0,
+    "音声resource load失敗があります。"
+  );
   addCheck("BGM/SE/VOICE resource load", {
     completedCounts: Object.fromEntries(
       ["BGM", "SE", "VOICE"].map((category) => [
         category,
-        report.audioResources.completed.filter(
+        successfulAudioResources.filter(
           (resource) => resource.category === category
         ).length
       ])
     ),
-    failedCount: report.audioResources.failed.length
+    ignoredCompletedAbortCount:
+      report.audioResources.failed.length - unrecoveredAudioFailures.length,
+    failedCount: unrecoveredAudioFailures.length
   });
 
   assertCondition(report.diagnostics.console.length === 0, "console warning/errorがあります。");

@@ -24,7 +24,7 @@ GLB_PATH = (
     REPOSITORY_ROOT / "public/stage-assets/v2/B02/b02_school_blockout.glb"
 )
 EXPORT_COLLECTION_NAME = "EXP_Stage_school"
-EXPECTED_GENERATOR_VERSION = "b03-3c-interactive-assets-v10"
+EXPECTED_GENERATOR_VERSION = "t06-2-school-spawn-v1"
 EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
 
 GLB_MAGIC = b"glTF"
@@ -294,6 +294,70 @@ EXPECTED_CLOSED_ELEVATOR_DISPLAY_NAMES = frozenset(
     }
 )
 
+EXPECTED_SPAWN_NAMES_BY_ROLE = {
+    "player_spawn": frozenset(
+        {
+            "MRK_PlayerSpawn_Main",
+            "MRK_PlayerSpawn_GymCenter",
+            "MRK_PlayerSpawn_GymStage",
+            "MRK_PlayerSpawn_F02_Classroom02",
+            "MRK_PlayerSpawn_F03_Classroom02",
+            "MRK_PlayerSpawn_F04_Classroom02",
+            "MRK_PlayerSpawn_F02_ToiletWashSide",
+            "MRK_PlayerSpawn_F02_CouncilSouth",
+            "MRK_PlayerSpawn_F03_ArtSouth",
+            "MRK_PlayerSpawn_F04_MusicSouth",
+            "MRK_PlayerSpawn_RoofPoolWestStairs",
+        }
+    ),
+    "player_spawn_exclusion": frozenset(
+        {
+            "VOL_PlayerSpawnExclusion_Main",
+            "VOL_PlayerSpawnExclusion_GymCenter",
+            "VOL_PlayerSpawnExclusion_GymStage",
+            "VOL_PlayerSpawnExclusion_F02_Classroom02",
+            "VOL_PlayerSpawnExclusion_F03_Classroom02",
+            "VOL_PlayerSpawnExclusion_F04_Classroom02",
+            "VOL_PlayerSpawnExclusion_F02_ToiletWashSide",
+            "VOL_PlayerSpawnExclusion_F02_CouncilSouth",
+            "VOL_PlayerSpawnExclusion_F03_ArtSouth",
+            "VOL_PlayerSpawnExclusion_F04_MusicSouth",
+            "VOL_PlayerSpawnExclusion_RoofPoolWestStairs",
+        }
+    ),
+    "npc_spawn": frozenset(
+        {
+            "VOL_NpcSpawn_F01_Stage",
+            "VOL_NpcSpawn_F02_Stage",
+            "VOL_NpcSpawn_F03_Stage",
+            "VOL_NpcSpawn_F04_Stage",
+            "VOL_NpcSpawn_Roof_Stage",
+        }
+    ),
+    "bit_spawn": frozenset(
+        {
+            "VOL_BitSpawn_OutdoorF1",
+            "VOL_BitSpawn_InteriorF1",
+            "VOL_BitSpawn_GymLow",
+            "VOL_BitSpawn_OutdoorF2",
+            "VOL_BitSpawn_InteriorF2",
+            "VOL_BitSpawn_GymUpper",
+            "VOL_BitSpawn_OutdoorF3",
+            "VOL_BitSpawn_InteriorF3",
+            "VOL_BitSpawn_OutdoorF4",
+            "VOL_BitSpawn_InteriorF4",
+            "VOL_BitSpawn_RoofFlight",
+        }
+    ),
+}
+SPAWN_ROLES = frozenset(EXPECTED_SPAWN_NAMES_BY_ROLE)
+LEGACY_SPAWN_OBJECT_NAMES = frozenset(
+    {
+        "VOL_BitSpawn_Courtyard",
+        "VOL_NpcSpawn_Courtyard",
+    }
+)
+
 DYNAMIC_ROLES = frozenset(
     {
         "door",
@@ -312,6 +376,7 @@ DYNAMIC_ROLES = frozenset(
         "elevator_wait",
         "room_variant",
         "room_variant_tile",
+        *SPAWN_ROLES,
     }
 )
 
@@ -3064,6 +3129,9 @@ def audit_blender_geometry() -> dict[str, int]:
         "elevator_threshold",
         "elevator_car_occupancy",
         "room_variant_tile",
+        "player_spawn_exclusion",
+        "npc_spawn",
+        "bit_spawn",
     }
     for obj in bpy.data.objects:
         if (
@@ -3111,6 +3179,71 @@ def audit_meta(graph: AssetGraph) -> dict[str, Any]:
     return {
         "human_nav_profile": metadata.properties["hs_nav_profile"],
         "schema_version": metadata.properties["hs_schema_version"],
+    }
+
+
+def audit_spawn_semantics(graph: AssetGraph) -> dict[str, int]:
+    expected_names = set().union(*EXPECTED_SPAWN_NAMES_BY_ROLE.values())
+    require(
+        len(expected_names) == 38,
+        f"{graph.source}: 監査側のspawn意味Object定義が38件ではありません",
+    )
+    for role, expected_role_names in EXPECTED_SPAWN_NAMES_BY_ROLE.items():
+        actual_role_names = {node.name for node in graph.role_nodes(role)}
+        require(
+            actual_role_names == expected_role_names,
+            f"{graph.source}: {role}のObject集合が不正です: "
+            f"missing={sorted(expected_role_names - actual_role_names)}, "
+            f"unexpected={sorted(actual_role_names - expected_role_names)}",
+        )
+        expected_kind = "EMPTY" if role == "player_spawn" else "MESH"
+        for object_name in sorted(expected_role_names):
+            node = graph.require_node(object_name)
+            require(
+                node.kind == expected_kind,
+                f"{graph.source}: spawn意味Objectの種別が不正です: "
+                f"{object_name}/{node.kind}",
+            )
+            require(
+                node.parent_name is None and not node.child_names,
+                f"{graph.source}: spawn意味Objectに親子関係があります: "
+                f"{object_name}",
+            )
+            require(
+                (node.local_bounds is None) == (expected_kind == "EMPTY"),
+                f"{graph.source}: spawn意味ObjectのAABB有無が不正です: "
+                f"{object_name}",
+            )
+
+    spawn_prefixes = (
+        "MRK_PlayerSpawn_",
+        "VOL_PlayerSpawnExclusion_",
+        "VOL_NpcSpawn_",
+        "VOL_BitSpawn_",
+    )
+    actual_prefixed_names = {
+        name for name in graph.nodes if name.startswith(spawn_prefixes)
+    }
+    require(
+        actual_prefixed_names == expected_names,
+        f"{graph.source}: spawn接頭辞のObject集合が38件と一致しません: "
+        f"missing={sorted(expected_names - actual_prefixed_names)}, "
+        f"unexpected={sorted(actual_prefixed_names - expected_names)}",
+    )
+    legacy_names = LEGACY_SPAWN_OBJECT_NAMES.intersection(graph.nodes)
+    require(
+        not legacy_names,
+        f"{graph.source}: 廃止済みCourtyard spawnが残っています: "
+        f"{sorted(legacy_names)}",
+    )
+    return {
+        "semantic_objects": len(expected_names),
+        "player_spawns": len(EXPECTED_SPAWN_NAMES_BY_ROLE["player_spawn"]),
+        "player_spawn_exclusions": len(
+            EXPECTED_SPAWN_NAMES_BY_ROLE["player_spawn_exclusion"]
+        ),
+        "npc_spawn_volumes": len(EXPECTED_SPAWN_NAMES_BY_ROLE["npc_spawn"]),
+        "bit_spawn_volumes": len(EXPECTED_SPAWN_NAMES_BY_ROLE["bit_spawn"]),
     }
 
 
@@ -3313,7 +3446,7 @@ def main() -> None:
     require(
         bpy.context.scene.get("b03_architecture_generator_version")
         == EXPECTED_GENERATOR_VERSION,
-        "Blender正本の生成版がB03-3C interactive assets v9ではありません",
+        "Blender正本の生成版がT06-2学校spawn版ではありません",
     )
     raw_generation_result = bpy.context.scene.get("b03_3c_interactive_result")
     require(
@@ -3370,6 +3503,7 @@ def main() -> None:
             glb_coordinates=False,
         ),
         "meta": audit_meta(blender_graph),
+        "spawns": audit_spawn_semantics(blender_graph),
     }
     glb_result = {
         "active_visuals": audit_active_visual_counts(glb_graph),
@@ -3386,6 +3520,7 @@ def main() -> None:
             glb_coordinates=True,
         ),
         "meta": audit_meta(glb_graph),
+        "spawns": audit_spawn_semantics(glb_graph),
     }
     parity = audit_blender_glb_parity(blender_graph, glb_graph)
 

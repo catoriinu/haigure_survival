@@ -53,6 +53,7 @@ T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
 T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 T05_GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 T05_GENERATOR_VERSION = "b03-3c-interactive-assets-v10"
+T06_GENERATOR_VERSION = "t06-2-school-spawn-v1"
 T04_ALLOWED_MISSING_EXACT_NAMES = {
     "COL_B03_Prop_Locker_Changing_F_01",
     "COL_B03_Prop_Locker_Changing_F_02",
@@ -289,6 +290,49 @@ T05_ALLOWED_NEW_EXACT_NAMES = {
     "VOL_Assembly_Courtyard",
     "VOL_Assembly_Gym",
 }
+T06_ALLOWED_MISSING_EXACT_NAMES = {
+    "VOL_BitSpawn_Courtyard",
+    "VOL_NpcSpawn_Courtyard",
+}
+T06_ALLOWED_NEW_EXACT_NAMES = {
+    "MRK_PlayerSpawn_GymCenter",
+    "MRK_PlayerSpawn_GymStage",
+    "MRK_PlayerSpawn_F02_Classroom02",
+    "MRK_PlayerSpawn_F03_Classroom02",
+    "MRK_PlayerSpawn_F04_Classroom02",
+    "MRK_PlayerSpawn_F02_ToiletWashSide",
+    "MRK_PlayerSpawn_F02_CouncilSouth",
+    "MRK_PlayerSpawn_F03_ArtSouth",
+    "MRK_PlayerSpawn_F04_MusicSouth",
+    "MRK_PlayerSpawn_RoofPoolWestStairs",
+    "VOL_PlayerSpawnExclusion_Main",
+    "VOL_PlayerSpawnExclusion_GymCenter",
+    "VOL_PlayerSpawnExclusion_GymStage",
+    "VOL_PlayerSpawnExclusion_F02_Classroom02",
+    "VOL_PlayerSpawnExclusion_F03_Classroom02",
+    "VOL_PlayerSpawnExclusion_F04_Classroom02",
+    "VOL_PlayerSpawnExclusion_F02_ToiletWashSide",
+    "VOL_PlayerSpawnExclusion_F02_CouncilSouth",
+    "VOL_PlayerSpawnExclusion_F03_ArtSouth",
+    "VOL_PlayerSpawnExclusion_F04_MusicSouth",
+    "VOL_PlayerSpawnExclusion_RoofPoolWestStairs",
+    "VOL_NpcSpawn_F01_Stage",
+    "VOL_NpcSpawn_F02_Stage",
+    "VOL_NpcSpawn_F03_Stage",
+    "VOL_NpcSpawn_F04_Stage",
+    "VOL_NpcSpawn_Roof_Stage",
+    "VOL_BitSpawn_OutdoorF1",
+    "VOL_BitSpawn_InteriorF1",
+    "VOL_BitSpawn_GymLow",
+    "VOL_BitSpawn_OutdoorF2",
+    "VOL_BitSpawn_InteriorF2",
+    "VOL_BitSpawn_GymUpper",
+    "VOL_BitSpawn_OutdoorF3",
+    "VOL_BitSpawn_InteriorF3",
+    "VOL_BitSpawn_OutdoorF4",
+    "VOL_BitSpawn_InteriorF4",
+    "VOL_BitSpawn_RoofFlight",
+}
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -392,7 +436,11 @@ def compare_baseline() -> None:
     correction_version = bpy.context.scene.get(T04_CORRECTION_VERSION_PROPERTY)
     generator_version = bpy.context.scene.get(T05_GENERATOR_VERSION_PROPERTY)
     t04_enabled = correction_version == T04_CORRECTION_VERSION
-    t05_enabled = generator_version == T05_GENERATOR_VERSION
+    t06_enabled = generator_version == T06_GENERATOR_VERSION
+    t05_enabled = generator_version in {
+        T05_GENERATOR_VERSION,
+        T06_GENERATOR_VERSION,
+    }
     baseline_aperture_endpoints = {
         name
         for name, entry in expected.items()
@@ -419,6 +467,10 @@ def compare_baseline() -> None:
             baseline_aperture_endpoints - allowed_missing_names
         )
         allowed_new_names.update(T05_ALLOWED_NEW_EXACT_NAMES)
+    if t06_enabled:
+        allowed_change_names.discard("VOL_BitSpawn_Courtyard")
+        allowed_missing_names.update(T06_ALLOWED_MISSING_EXACT_NAMES)
+        allowed_new_names.update(T06_ALLOWED_NEW_EXACT_NAMES)
     expected_allowed_changes = sorted(allowed_change_names)
     expected_allowed_missing = sorted(allowed_missing_names)
     expected_allowed_new = sorted(allowed_new_names)
@@ -483,6 +535,7 @@ def compare_baseline() -> None:
                 "new_interior_objects": len(set(current) - set(expected)),
                 "t04_contract": t04_enabled,
                 "t05_contract": t05_enabled,
+                "t06_contract": t06_enabled,
                 "allowed_missing": len(allowed_missing),
                 "allowed_changed": len(allowed_changed),
                 "allowed_new": len(allowed_new),

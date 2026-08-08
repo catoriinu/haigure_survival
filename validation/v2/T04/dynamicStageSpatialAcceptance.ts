@@ -46,6 +46,7 @@ export const runDynamicStageSpatialAcceptance =
     const occupancyVolume: StageVolume = Object.freeze({
       id: "VOL_ElevatorCarOccupancy_DynamicSpatialAcceptance",
       role: "elevator_car_occupancy",
+      playerSpawnId: null,
       bitFlightBand: null,
       navigationAreaId: null,
       mesh: occupancyMesh
