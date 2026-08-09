@@ -109,6 +109,7 @@ Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出し�
 - [x] Playing下部案内へ射撃操作を統合し、放送F／Eの押下パルスと最終押下色を追加する。
 - [x] 対象fixture、typecheck／build、実ブラウザ／Electron受入、配布監査を完了する。
 - [x] 第2次受入追補の結果を本計画へ同期し、T06-4差分だけをローカルcommitする。
+- [x] 明示承認に基づきbranchをpushし、`develop`向けDraft PRを作成する。
 
 ## 結果
 
@@ -124,10 +125,10 @@ Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出し�
 - Player Location MissionとFollower護衛は正本Areaへの入室で完了し、NPC通常／放送Location Missionは従来どおり正本Mission Volumeで完了する。目的地名は正本floor mapから`3F 美術室`のように表示し、屋上名は重複させない。
 - Mission HUDは0件で完全に非表示とし、1件以上では`MISSION`見出し付きの単一パネルへ全項目をまとめた。各項目の独立した背景、外枠、角丸、shadowは廃止し、Followerの必要人数／獲得人数とLocationの階数付き名称を2行で表示する。
 - `git diff --check`、括弧を含むTypeScript／Electron構文検査、厳格UTF-8／BOM、ローカル絶対パス、旧action名、保護対象差分を監査した。Blender、GLB、NavMesh、生成器、カタログハッシュは変更していない。
-- 本計画更新を含むT06-4差分をローカルcommitまで完了した。push、Draft PR、レビュー、merge、I3／T06-5／T07は未実施である。
+- 本計画更新を含むT06-4差分をローカルcommitまで完了し、後続の明示承認に基づいてremote branchへpushした。レビュー、merge、I3／T06-5／T07は未実施である。
 - 第2次受入追補では、護衛Missionを目的地誘導から「最初の同行者が240秒間、未洗脳の生存状態を維持する」条件へ変更した。同行中は`（同行中）`、離脱中は正本Areaを3秒周期で解決した現在地を表示し、NPC ID、座標推測、前回位置fallbackは表示契約から除外した。
 - 通常の洗脳Missionを特定NPC指定から人数目標へ変更した。セッション初回は1人、2回目以降は生成時の有効対象数を上限として1～3人を一様抽選し、GまたはN補助付き第三者攻撃による異なるNPCの洗脳開始だけを進捗へ数える。特定対象Missionとの重複、阻止なし第三者攻撃、同一NPCの再遷移は数えない。
 - ゲーム内表記を`同行`／`同行者`へ統一し、Missionが0件ならパネルの`display`を明示的に`none`へ戻すようにした。Playing中の下部案内を`G：銃　左クリック：射撃　N：非武装　H：ハイグレ`へ統合し、放送F／Eには成功時だけ180msの押下パルスと、F緑／E水色の最終押下色を表示する。
 - 実ブラウザでT06-4 31/31、T06 69/69、T06-3 14/14、B05 34/34をPASSし、各pageのconsole warning／errorは0件だった。Mission専用Electron受入はnormal／haigureともPASSし、Pointer Lock、放送卓ray、Mission HUD、F体育館、E逃走／ハイグレ人間化、会場固定、診断0件を確認した。
 - `typecheck:t06`、`typecheck:t06-4`、`typecheck:v2`、`build:t06`、`build:t06-4`、`build:t06-3`、`build:b05`、通常`npm run build`、Electron受入script構文、テキスト配布検査、`git diff --check`をPASSした。T06全体Electron受入は、今回の下部案内、射撃、G／N／H切替、session lifecycleをすべて確認できた一方、変更対象外のBGM resource load完了待ちだけが2回とも未成立となり、aggregate結果はFAILだった。console、renderer、load、render-process-gone、unresponsiveの診断は0件だった。
-- 第2次受入追補の差分はT06-4専用worktreeのローカルcommitへ記録する。push、Draft PR、レビュー、merge、I3／T06-5／T07は引き続き未実施とする。
+- 第2次受入追補を含むT06-4差分を`codex/v2-missions`へcommitし、remote branchへpushした。`develop`向けDraft PR #71を作成し、OPEN／Draft／MERGEABLE／CLEANを確認した。レビュー、merge、I3／T06-5／T07は未実施である。
