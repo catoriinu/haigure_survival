@@ -38,6 +38,10 @@ import {
   createV2RuntimeHudController
 } from "../ui/v2RuntimeHud";
 import {
+  createV2MinimapController,
+  selectV2MinimapStructuralBlockers
+} from "../ui/v2Minimap";
+import {
   createSchoolStageDynamicRuntime,
   createSchoolStageDynamicSpatialInitializer,
   type SchoolStageDynamicRuntime
@@ -82,6 +86,7 @@ import {
   createV2SurvivalRuntime,
   V2_PERFORMANCE_ACCEPTANCE_POPULATION,
   V2_TEST_SURVIVAL_POPULATION,
+  type V2MinimapActorSnapshot,
   type V2SurvivalRuntime
 } from "./survivalRuntime";
 import { createV2CharacterAssignments } from "./v2CharacterAssignments";
@@ -123,6 +128,10 @@ const EMPTY_DOOR_INTERACTION_CANDIDATES: ReturnType<
 > = Object.freeze([]);
 const EMPTY_RUNTIME_INTERACTION_FEEDBACK: readonly V2RuntimeInteractionFeedback[] =
   Object.freeze([]);
+const EMPTY_MINIMAP_MISSION_TARGET_IDS: readonly string[] = Object.freeze([]);
+const EMPTY_MINIMAP_ACTORS: readonly V2MinimapActorSnapshot[] = Object.freeze(
+  []
+);
 
 const performanceScenario =
   readV2PerformanceScenario(location.search);
@@ -613,6 +622,9 @@ const eventScope = createV2RuntimeSessionEventScope();
 let ownedRuntimeHud: ReturnType<
   typeof createV2RuntimeHudController
 > | null = null;
+let ownedMinimap: ReturnType<
+  typeof createV2MinimapController
+> | null = null;
 let ownedAudio: AudioManager | null = null;
 let ownedVolumePanel: ReturnType<
   typeof createVolumePanel
@@ -636,6 +648,7 @@ const disposeRuntime = async () => {
   engine.stopRenderLoop();
   eventScope.dispose();
   ownedRuntimeHud?.dispose();
+  ownedMinimap?.dispose();
   ownedPlayerCharacterVisual?.dispose();
   ownedCharacterSettingsPanel?.dispose();
   ownedVolumePanel?.dispose();
@@ -672,6 +685,20 @@ const runtimeHud = createV2RuntimeHudController({
   camera
 });
 ownedRuntimeHud = runtimeHud;
+if (stage.locationAssets === null) {
+  throw new Error("学校V2 Runtimeにはlocation assetsが必要です。");
+}
+const minimap = createV2MinimapController({
+  canvas: minimapCanvas,
+  readout: minimapReadout,
+  camera,
+  locationAssets: stage.locationAssets,
+  structuralBlockers: selectV2MinimapStructuralBlockers(
+    stage.resources.humanNavigationSources
+  ),
+  queries: stage.queries
+});
+ownedMinimap = minimap;
 const playerCharacterVisual = createV2PlayerCharacterVisual(
   characterVisuals
 );
@@ -1116,6 +1143,22 @@ engine.runRenderLoop(() => {
       viewForward: characterViewForward,
       facingYaw: characterFacingYaw
     });
+    const minimapActive = started && survivalFrame.phase === "playing";
+    minimap.update({
+      active: minimapActive,
+      elapsedSeconds,
+      playerGrounded: playerFrame.verticalState.grounded,
+      playerFootPosition: currentPlayerTarget.footPosition,
+      playerEyePosition: currentPlayerTarget.aimPosition,
+      forward: characterViewForward,
+      up: characterViewUp,
+      actors: minimapActive
+        ? survival.getMinimapActors()
+        : EMPTY_MINIMAP_ACTORS,
+      elevators: dynamicRuntime.getSnapshot().elevators,
+      missionTargetActorIds: EMPTY_MINIMAP_MISSION_TARGET_IDS,
+      missionTargetLocationIds: EMPTY_MINIMAP_MISSION_TARGET_IDS
+    });
     updateGameplayHelp(survivalFrame.phase);
     const interactionActive =
       started &&
@@ -1234,6 +1277,7 @@ engine.runRenderLoop(() => {
     }
   } catch (error) {
     engine.stopRenderLoop();
+    minimap.clear();
     runtimeStressStatus = "failed";
     publishRuntimeStressReport(
       runtimeStressStatus,
@@ -1280,6 +1324,9 @@ const showSessionLoading = () => {
   titleMessage.textContent = "学校3D空間を読み込んでいます";
   statusInfo.style.display = "none";
   helpPanel.style.display = "none";
+  minimapCanvas.style.display = "none";
+  minimapReadout.style.display = "none";
+  minimapReadout.textContent = "";
 };
 
 const rebuildSession = () => {

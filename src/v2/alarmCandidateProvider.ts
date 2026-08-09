@@ -20,21 +20,6 @@ const FNV_1A_PRIME = 0x01000193;
 const ALARM_CANDIDATE_HASH_BUCKET_COUNT = 4;
 const ALARM_CANDIDATE_REJECTED_HASH_BUCKET = 0;
 
-const isWalkableNavSource = (mesh: {
-  metadata: unknown;
-}): boolean => {
-  const metadata = mesh.metadata as
-    | {
-        gltf?: {
-          extras?: {
-            hs_nav_role?: unknown;
-          };
-        };
-      }
-    | null;
-  return metadata?.gltf?.extras?.hs_nav_role === "walkable";
-};
-
 const getSpatialCellKey = (position: Vector3) =>
   `${Math.floor(position.x / V2_ALARM_CANDIDATE_SPACING)}:` +
   `${Math.floor(position.y / V2_ALARM_CANDIDATE_SPACING)}:` +
@@ -71,10 +56,11 @@ export const createV2NavigationAlarmCandidateProvider = (
   const occupiedCells = new Set<string>();
   const candidates: V2AlarmCandidate[] = [];
 
-  for (const mesh of stage.resources.navSourceMeshes) {
-    if (!isWalkableNavSource(mesh)) {
+  for (const source of stage.resources.humanNavigationSources) {
+    if (source.role !== "walkable") {
       continue;
     }
+    const mesh = source.mesh;
     const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
     const indices = mesh.getIndices();
     if (!positions || !indices || indices.length % 3 !== 0) {

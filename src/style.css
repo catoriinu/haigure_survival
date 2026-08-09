@@ -49,7 +49,7 @@ body {
 
 #statusInfo {
   position: absolute;
-  top: 12px;
+  top: 204px;
   left: 12px;
   padding: 6px 8px;
   border: 1px solid #111111;
@@ -65,7 +65,8 @@ body {
 
 #helpPanel {
   position: absolute;
-  top: 270px;
+  top: auto;
+  bottom: 12px;
   left: 12px;
   padding: 6px 8px;
   border: 1px solid #111111;

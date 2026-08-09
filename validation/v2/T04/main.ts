@@ -3723,7 +3723,7 @@ const runValidation = async () => {
           schoolContext.resources.beamSightOnlyColliders.length === 1 &&
           schoolContext.resources.beamSightOnlyColliders[0]?.name ===
             "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
-          schoolContext.resources.navSourceMeshes.length === 39 &&
+          schoolContext.resources.humanNavigationSources.length === 39 &&
           schoolContext.resources.bitFlightNavSourceMeshes.length === 22 &&
           schoolContext.markers.all.length === 289 &&
           assemblyAnchors.length === 2 &&
@@ -3764,7 +3764,7 @@ const runValidation = async () => {
             ) &&
             schoolContext.volumes.getByRole("water").length === 1 &&
             schoolConstructionPathfindCount === 0,
-          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / BeamSightOnly=${schoolContext.resources.beamSightOnlyColliders.length}:${schoolContext.resources.beamSightOnlyColliders[0]?.name ?? "なし"} / humanNAV=${schoolContext.resources.navSourceMeshes.length} / bitNAV=${schoolContext.resources.bitFlightNavSourceMeshes.length} / MRK=${schoolContext.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${schoolContext.volumes.all.length}(assembly=${assemblyVolumes.length},water=${schoolContext.volumes.getByRole("water").length}) / roomVariants=${schoolContext.roomVariants?.variants.length ?? 0}/${schoolContext.roomVariants?.tileVolumes.length ?? 0}/selected=${schoolContext.roomVariantSelection.length} / doors=${schoolContext.doorAssets.all.length} / elevators=${schoolContext.elevatorAssets.all.length} / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${schoolContext.links.all.length} / zones=${schoolContext.bitNavigation.zones.length} / bands=${schoolContext.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length}) / buildPathfind=${schoolConstructionPathfindCount} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
+          detail: `VIS=${schoolContext.resources.visualMeshes.length} / COL=${schoolContext.resources.normalColliders.length} / ActorOnly=${schoolContext.resources.actorOnlyColliders.length} / HumanOnly=${schoolContext.resources.humanOnlyColliders.length} / BeamSightOnly=${schoolContext.resources.beamSightOnlyColliders.length}:${schoolContext.resources.beamSightOnlyColliders[0]?.name ?? "なし"} / humanNAV=${schoolContext.resources.humanNavigationSources.length} / bitNAV=${schoolContext.resources.bitFlightNavSourceMeshes.length} / MRK=${schoolContext.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${schoolContext.volumes.all.length}(assembly=${assemblyVolumes.length},water=${schoolContext.volumes.getByRole("water").length}) / roomVariants=${schoolContext.roomVariants?.variants.length ?? 0}/${schoolContext.roomVariants?.tileVolumes.length ?? 0}/selected=${schoolContext.roomVariantSelection.length} / doors=${schoolContext.doorAssets.all.length} / elevators=${schoolContext.elevatorAssets.all.length} / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${schoolContext.links.all.length} / zones=${schoolContext.bitNavigation.zones.length} / bands=${schoolContext.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length}) / buildPathfind=${schoolConstructionPathfindCount} / spawn=(${playerSpawn.x.toFixed(3)}, ${playerSpawn.y.toFixed(3)}, ${playerSpawn.z.toFixed(3)})`
         });
 
         const schoolBitSafety = createBitFlightSafety(
@@ -6016,7 +6016,7 @@ const runValidation = async () => {
           reloadedContext.resources.beamSightOnlyColliders.length === 1 &&
           reloadedContext.resources.beamSightOnlyColliders[0]?.name ===
             "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
-          reloadedContext.resources.navSourceMeshes.length === 39 &&
+          reloadedContext.resources.humanNavigationSources.length === 39 &&
           reloadedContext.resources.bitFlightNavSourceMeshes.length === 22 &&
           reloadedContext.markers.all.length === 289 &&
           reloadedContext.markers.getByRole("assembly_anchor").length === 2 &&

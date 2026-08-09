@@ -48,7 +48,7 @@
 
 ## 結果
 
-実装・検証・commit・push・Draft Pull Request作成を完了し、独立レビューとmerge待ち。
+実装・検証・commit・push・Pull Request作成を完了し、PR #69で`develop=96a16cb`へ統合済み。
 
 - 同一正本からの連続2回生成で、`.blend`は3,631,532 bytes／SHA-256 `1c053fe3daa5751c3e73981100228016b402594ea91357eaea48b8cfe6f2917c`、GLBは22,180,712 bytes／SHA-256 `bdf8a14de59f26e869bd9566884c16136c2d7a2860fe3e8558935bd190b2d1d9`に一致した。
 - 最終学校資産は1,894 Object、1,448 Mesh、6 Material。B05監査はschema 3、5 Map（box componentは18／8／4／2／3）、52論理Area／85 piece、24 Mission Volume／24 Anchor、17階段踊り場、4エレベーター乗場（利用可能2／利用不可2）、放送卓Marker／target各1、同順位正体積重複0、GLB参照整合、Nav生成元混入0、世界境界外0でPASSした。
@@ -57,4 +57,4 @@
 - Runtime拒否系は未知role、必須metadata欠落、未知`hs_*` property、ID重複、同順位重複、floor／area／anchor／elevator／stop／放送卓参照不整合を検証した。エレベーターは移動中の`currentStopId=null`と`displayStopId=出発階`、到着時の表示階更新を確認した。
 - `typecheck:v2`、`typecheck:b05`、`typecheck:t02`、`typecheck:t04`、`typecheck:t05`、`typecheck:t06`、`typecheck:t06-2`と、対応する`build`／`build:b05`／`build:t02`／`build:t04`／`build:t05`／`build:t06`／`build:t06-2`は全てPASSした。
 - 学校Webは読込完了と通常Runtime進行を確認した。Electron連続受入はCanvas開始、Pointer Lock、入力、タイトル復帰・再開始、音声資源読込、console／renderer／load／unresponsive診断0件でPASSした。
-- Blender構造監査と対話資産監査、括弧を含むTypeScript／Python構文、UTF-8 BOMなし、`git diff --check`、公開文書のローカル絶対パス0件を確認した。最新`origin/develop=ceea8ec`から計画commit`65734b8`と実装・結果commitを作成し、branchをpushして[Draft Pull Request #69](https://github.com/catoriinu/haigure_survival/pull/69)を作成した。
+- Blender構造監査と対話資産監査、括弧を含むTypeScript／Python構文、UTF-8 BOMなし、`git diff --check`、公開文書のローカル絶対パス0件を確認した。最新`origin/develop=ceea8ec`から計画commit`65734b8`と実装・結果commitを作成し、[Pull Request #69](https://github.com/catoriinu/haigure_survival/pull/69)を経て`develop=96a16cb`へ統合された。
