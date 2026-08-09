@@ -344,9 +344,20 @@ try {
   await cdp.send("Runtime.enable");
   await cdp.send("Log.enable");
 
+  if (profile === "hud") {
+    await cdp.send("Emulation.setDeviceMetricsOverride", {
+      width: 1920,
+      height: 1080,
+      deviceScaleFactor: 1,
+      mobile: false
+    });
+    await wait(500);
+  }
+
   if (profile === "interaction" || profile === "hud") {
     const readinessDeadline = Date.now() + 120_000;
     let ready = false;
+    let readyCanvas = null;
     while (Date.now() < readinessDeadline) {
       const state = await evaluate(
         cdp,
@@ -372,6 +383,7 @@ try {
         state.canvas
       ) {
         ready = true;
+        readyCanvas = state.canvas;
         break;
       }
       await wait(500);
@@ -382,6 +394,41 @@ try {
       );
     }
     await wait(1_000);
+    await cdp.send("Page.bringToFront");
+    await wait(250);
+    await cdp.send("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: readyCanvas.x,
+      y: readyCanvas.y
+    });
+    await cdp.send("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x: readyCanvas.x,
+      y: readyCanvas.y,
+      button: "left",
+      clickCount: 1
+    });
+    await cdp.send("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x: readyCanvas.x,
+      y: readyCanvas.y,
+      button: "left",
+      clickCount: 1
+    });
+    await wait(1_000);
+    const syntheticPointerLock = await evaluate(
+      cdp,
+      `document.pointerLockElement?.id ?? null`
+    );
+    if (syntheticPointerLock !== "renderCanvas") {
+      await cdp.send("Runtime.evaluate", {
+        expression:
+          `document.querySelector("#renderCanvas").requestPointerLock()`,
+        awaitPromise: true,
+        userGesture: true
+      });
+      await wait(500);
+    }
     let beforeMove = await evaluate(
       cdp,
       `(() => ({
@@ -423,16 +470,32 @@ try {
         const help = document.querySelector("#helpPanel");
         const minimap = document.querySelector("#minimapCanvas");
         const minimapReadout = document.querySelector("#minimapReadout");
+        const stamina = document.querySelector("#staminaGauge");
         if (
           !(status instanceof HTMLElement) ||
           !(help instanceof HTMLElement) ||
           !(minimap instanceof HTMLElement) ||
-          !(minimapReadout instanceof HTMLElement)
+          !(minimapReadout instanceof HTMLElement) ||
+          !(stamina instanceof HTMLElement)
         ) {
           return null;
         }
         const statusBounds = status.getBoundingClientRect();
         const helpBounds = help.getBoundingClientRect();
+        const minimapBounds = minimap.getBoundingClientRect();
+        const minimapReadoutBounds =
+          minimapReadout.getBoundingClientRect();
+        const staminaRuntimeDisplay =
+          getComputedStyle(stamina).display;
+        const staminaInlineDisplay = stamina.style.display;
+        const staminaInlineVisibility = stamina.style.visibility;
+        if (staminaRuntimeDisplay === "none") {
+          stamina.style.visibility = "hidden";
+          stamina.style.display = "block";
+        }
+        const staminaBounds = stamina.getBoundingClientRect();
+        stamina.style.display = staminaInlineDisplay;
+        stamina.style.visibility = staminaInlineVisibility;
         return {
           statusDisplay: getComputedStyle(status).display,
           statusTop: statusBounds.top,
@@ -441,8 +504,20 @@ try {
           helpDisplay: getComputedStyle(help).display,
           helpTop: helpBounds.top,
           minimapDisplay: getComputedStyle(minimap).display,
+          minimapTop: minimapBounds.top,
+          minimapLeft: minimapBounds.left,
+          minimapRight: minimapBounds.right,
+          minimapBottom: minimapBounds.bottom,
           minimapReadoutDisplay:
             getComputedStyle(minimapReadout).display,
+          minimapReadoutLeft: minimapReadoutBounds.left,
+          minimapReadoutBottom: minimapReadoutBounds.bottom,
+          minimapReadoutText: minimapReadout.textContent ?? "",
+          staminaDisplay: staminaRuntimeDisplay,
+          staminaLeft: staminaBounds.left,
+          staminaRight: staminaBounds.right,
+          staminaTop: staminaBounds.top,
+          staminaBottom: staminaBounds.bottom,
           viewportWidth: window.innerWidth,
           viewportHeight: window.innerHeight
         };
@@ -461,12 +536,26 @@ try {
         ) ||
         !hudLayout ||
         hudLayout.statusDisplay !== "block" ||
-        Math.abs(hudLayout.statusTop - 12) > 0.5 ||
+        Math.abs(hudLayout.statusTop - 204) > 0.5 ||
         Math.abs(hudLayout.statusLeft - 12) > 0.5 ||
         hudLayout.helpDisplay !== "block" ||
         hudLayout.statusBottom > hudLayout.helpTop ||
-        hudLayout.minimapDisplay !== "none" ||
-        hudLayout.minimapReadoutDisplay !== "none"
+        hudLayout.minimapDisplay !== "block" ||
+        Math.abs(hudLayout.minimapTop - 12) > 0.5 ||
+        Math.abs(hudLayout.minimapLeft - 12) > 0.5 ||
+        hudLayout.minimapBottom > hudLayout.statusTop ||
+        hudLayout.minimapReadoutDisplay !== "block" ||
+        hudLayout.minimapRight > hudLayout.minimapReadoutLeft ||
+        !/^(1F|2F|3F|4F|屋上)\s+\S+/.test(
+          hudLayout.minimapReadoutText
+        ) ||
+        hudLayout.staminaLeft < hudLayout.minimapLeft ||
+        hudLayout.staminaTop < hudLayout.statusBottom ||
+        hudLayout.staminaBottom > hudLayout.helpTop ||
+        hudLayout.staminaRight > hudLayout.viewportWidth ||
+        hudLayout.staminaBottom > hudLayout.viewportHeight ||
+        hudLayout.viewportWidth !== 1920 ||
+        hudLayout.viewportHeight !== 1080
       ) {
         throw new Error(
           "Electron通常ゲームのHUD配置を確認できませんでした: " +
@@ -507,7 +596,7 @@ try {
       beforeMove.statusText
     );
     process.stdout.write(
-      "Electron interaction: 実OSキーWによる移動を20秒間待機します。\n"
+      "Electron interaction: 開始直後のWASD移動を検証します。\n"
     );
     const readMovementState = async () => {
       const state = await evaluate(
@@ -529,33 +618,36 @@ try {
         )
       });
     };
-    const realInputDeadline = Date.now() + 20_000;
     let movement = await readMovementState();
-    while (
-      movement.distance <= 0.001 &&
-      Date.now() < realInputDeadline
-    ) {
-      await wait(250);
-      movement = await readMovementState();
-    }
-    if (movement.distance <= 0.001) {
+    let movementKey = null;
+    const movementInputs = Object.freeze([
+      Object.freeze({ key: "w", code: "KeyW", keyCode: 87 }),
+      Object.freeze({ key: "d", code: "KeyD", keyCode: 68 }),
+      Object.freeze({ key: "s", code: "KeyS", keyCode: 83 }),
+      Object.freeze({ key: "a", code: "KeyA", keyCode: 65 })
+    ]);
+    for (const input of movementInputs) {
       await cdp.send("Input.dispatchKeyEvent", {
         type: "rawKeyDown",
-        key: "w",
-        code: "KeyW",
-        windowsVirtualKeyCode: 87,
-        nativeVirtualKeyCode: 87
+        key: input.key,
+        code: input.code,
+        windowsVirtualKeyCode: input.keyCode,
+        nativeVirtualKeyCode: input.keyCode
       });
-      await wait(1_500);
+      await wait(750);
       await cdp.send("Input.dispatchKeyEvent", {
         type: "keyUp",
-        key: "w",
-        code: "KeyW",
-        windowsVirtualKeyCode: 87,
-        nativeVirtualKeyCode: 87
+        key: input.key,
+        code: input.code,
+        windowsVirtualKeyCode: input.keyCode,
+        nativeVirtualKeyCode: input.keyCode
       });
-      await wait(500);
+      await wait(250);
       movement = await readMovementState();
+      if (movement.distance > 0.001) {
+        movementKey = input.code;
+        break;
+      }
     }
     const afterMove = movement.state;
     const afterPosition = movement.position;
@@ -570,20 +662,23 @@ try {
       ) ||
       !hudLayout ||
       hudLayout.statusDisplay !== "block" ||
-      Math.abs(hudLayout.statusTop - 12) > 0.5 ||
+      Math.abs(hudLayout.statusTop - 204) > 0.5 ||
       Math.abs(hudLayout.statusLeft - 12) > 0.5 ||
       hudLayout.helpDisplay !== "block" ||
       hudLayout.statusBottom > hudLayout.helpTop ||
-      hudLayout.minimapDisplay !== "none" ||
-      hudLayout.minimapReadoutDisplay !== "none" ||
+      hudLayout.minimapDisplay !== "block" ||
+      hudLayout.minimapBottom > hudLayout.statusTop ||
+      hudLayout.minimapReadoutDisplay !== "block" ||
+      hudLayout.minimapRight > hudLayout.minimapReadoutLeft ||
       movementDistance <= 0.001
     ) {
       throw new Error(
-        "Electron通常ゲームの開始、HUD配置、Pointer Lock、W移動を確認できませんでした: " +
+        "Electron通常ゲームの開始、HUD配置、Pointer Lock、WASD移動を確認できませんでした: " +
           JSON.stringify({
             beforeMove,
             afterMove,
             hudLayout,
+            movementKey,
             movementDistance
           })
       );
@@ -595,6 +690,7 @@ try {
         phase: "playing",
         beforePosition,
         afterPosition,
+        movementKey,
         movementDistance,
         hudLayout
       })

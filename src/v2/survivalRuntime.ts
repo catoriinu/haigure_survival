@@ -218,6 +218,13 @@ export type V2TargetTrackingSummary = Readonly<{
   bitPlayerTargetCount: number;
 }>;
 
+export type V2MinimapActorSnapshot = Readonly<{
+  id: string;
+  kind: "npc" | "bit";
+  position: Vector3;
+  follower: boolean;
+}>;
+
 export const summarizeV2TargetTracking = (
   npcTracking: readonly V2TargetTrackingSample[],
   bitTracking: readonly V2TargetTrackingSample[]
@@ -270,6 +277,7 @@ export interface V2SurvivalRuntime {
   cancelNpcFollow(npcId: string): boolean;
   getHumanTargets(): readonly V2HumanTargetSnapshot[];
   getBitActors(): readonly V2ActorSphere[];
+  getMinimapActors(): readonly V2MinimapActorSnapshot[];
   releaseNpcTraversalForScriptedPhase(): void;
   drainNpcTraversalRequests(): readonly V2NpcTraversalRequest[];
   applyNpcTraversalResults(
@@ -2131,6 +2139,41 @@ export const createV2SurvivalRuntime = ({
     getBitActors: () => {
       assertActive();
       return bitSystem.getFrameView().actorSpheres;
+    },
+    getMinimapActors: () => {
+      assertActive();
+      const npcFrame = npcSystem.getFrameView();
+      const npcTrackingById = new Map(
+        npcFrame.tracking.map((tracking) => [tracking.npcId, tracking] as const)
+      );
+      const npcActors = npcFrame.targets.map(
+        (target): V2MinimapActorSnapshot => {
+          const tracking = npcTrackingById.get(target.id);
+          if (!tracking) {
+            throw new Error(
+              `ミニマップ用NPC追跡snapshotがありません: ${target.id}`
+            );
+          }
+          return Object.freeze({
+            id: target.id,
+            kind: "npc",
+            position: target.aimPosition.clone(),
+            follower: tracking.commandMode === "follow"
+          });
+        }
+      );
+      const bitActors = bitSystem
+        .getFrameView()
+        .actorSpheres.map(
+          (actor): V2MinimapActorSnapshot =>
+            Object.freeze({
+              id: actor.id,
+              kind: "bit",
+              position: actor.center.clone(),
+              follower: false
+            })
+        );
+      return Object.freeze([...npcActors, ...bitActors]);
     },
     releaseNpcTraversalForScriptedPhase: () => {
       assertActive();

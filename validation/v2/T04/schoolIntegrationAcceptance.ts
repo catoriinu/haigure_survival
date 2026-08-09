@@ -816,6 +816,20 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
     return Object.freeze([]);
   }
 
+  getMinimapActors() {
+    this.assertActive();
+    return Object.freeze(
+      [...this.actors.values()].map((actor) =>
+        Object.freeze({
+          id: actor.id,
+          kind: "npc" as const,
+          position: actor.position.clone(),
+          follower: actor.commandMode === "follow"
+        })
+      )
+    );
+  }
+
   releaseNpcTraversalForScriptedPhase() {
     this.assertActive();
     this.requests = [];
