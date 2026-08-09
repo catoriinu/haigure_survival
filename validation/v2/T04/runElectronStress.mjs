@@ -421,12 +421,38 @@ try {
       `document.pointerLockElement?.id ?? null`
     );
     if (syntheticPointerLock !== "renderCanvas") {
-      await cdp.send("Runtime.evaluate", {
-        expression:
-          `document.querySelector("#renderCanvas").requestPointerLock()`,
-        awaitPromise: true,
-        userGesture: true
-      });
+      try {
+        const fallbackResult = await evaluate(
+          cdp,
+          `(async () => {
+            try {
+              const canvas = document.querySelector("#renderCanvas");
+              if (!(canvas instanceof HTMLCanvasElement)) {
+                throw new Error("renderCanvasがありません。");
+              }
+              await canvas.requestPointerLock();
+              return { acquired: document.pointerLockElement === canvas };
+            } catch (error) {
+              return {
+                acquired: false,
+                error:
+                  error instanceof Error
+                    ? error.name + ": " + error.message
+                    : String(error)
+              };
+            }
+          })()`
+        );
+        if (!fallbackResult.acquired) {
+          process.stdout.write(
+            `Electron interaction: Pointer Lock代替要求を取得できませんでした。${fallbackResult.error ?? "理由なし"}\n`
+          );
+        }
+      } catch (error) {
+        process.stdout.write(
+          `Electron interaction: Pointer Lock代替要求のCDP実行に失敗しました。${error instanceof Error ? error.message : String(error)}\n`
+        );
+      }
       await wait(500);
     }
     let beforeMove = await evaluate(
