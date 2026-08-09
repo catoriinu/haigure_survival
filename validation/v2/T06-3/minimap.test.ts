@@ -20,6 +20,7 @@ import {
 } from "../../../src/ui/v2Minimap";
 import type { StageElevatorSnapshot } from "../../../src/world/stageElevatorRuntime";
 import {
+  StageLocationAreaAmbiguityError,
   STAGE_LOCATION_FLOOR_IDS,
   type StageLocationAssetRegistry,
   type StageLocationFloorId,
@@ -27,6 +28,7 @@ import {
 } from "../../../src/world/stageLocationAssets";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import type { StageSpatialQueries } from "../../../src/world/stageSpatialQueries";
+import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
 import type { V2MinimapActorSnapshot } from "../../../src/v2/survivalRuntime";
 import { createT063Check, type T063TestResult } from "./testUtils";
 
@@ -501,22 +503,88 @@ export const runV2MinimapTests = ({
         ) ?? false
     });
   });
+  const commonF03F04Boundary = findAdjacentFloorBoundary(
+    locationAssets,
+    "area-common-f03",
+    "area-common-f04"
+  );
+  let commonF03F04RawBoundaryRejected = false;
+  try {
+    locationAssets.findArea(commonF03F04Boundary.position);
+  } catch (error) {
+    commonF03F04RawBoundaryRejected =
+      error instanceof StageLocationAreaAmbiguityError &&
+      error.areaIds.join(",") === "area-common-f03,area-common-f04";
+  }
+  const sampleHeightWorldUnits =
+    V2_MINIMAP_AREA_SAMPLE_HEIGHT_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+  const lowerPlayerPosition = commonF03F04Boundary.position.subtract(
+    new Vector3(0, sampleHeightWorldUnits * 2, 0)
+  );
+  const bitCenterBelowBoundary = commonF03F04Boundary.position.subtract(
+    new Vector3(0, sampleHeightWorldUnits, 0)
+  );
+  const belowBoundaryBitId = "bit-f03-f04-below-boundary";
+  const belowBoundaryFrame = controller.update(
+    createUpdate(
+      camera,
+      lowerPlayerPosition,
+      north,
+      2.7,
+      elevatorSnapshots,
+      Object.freeze([
+        actor(belowBoundaryBitId, "bit", bitCenterBelowBoundary, false)
+      ]),
+      Object.freeze([belowBoundaryBitId])
+    )
+  );
+  const onBoundaryBitId = "bit-f03-f04-on-boundary";
+  const onBoundaryFrame = controller.update(
+    createUpdate(
+      camera,
+      commonF03F04Boundary.position,
+      north,
+      2.8,
+      elevatorSnapshots,
+      Object.freeze([
+        actor(
+          onBoundaryBitId,
+          "bit",
+          commonF03F04Boundary.position,
+          false
+        )
+      ]),
+      Object.freeze([onBoundaryBitId])
+    )
+  );
   checks.push(
     createT063Check(
-      "プレイヤー・Actor足元の共用部／階段接面解決",
+      "プレイヤー・NPC足元とBIT中心の全階接面解決",
       V2_MINIMAP_AREA_SAMPLE_HEIGHT_METERS === 0.05 &&
         boundaryResults.every(
           (result) =>
             result.rawBoundaryRejected &&
             result.floorId !== null &&
             result.markerResolved
+        ) &&
+        commonF03F04RawBoundaryRejected &&
+        belowBoundaryFrame?.floorId === "f03" &&
+        belowBoundaryFrame.actorMarkers.some(
+          (marker) => marker.id === belowBoundaryBitId
+        ) &&
+        onBoundaryFrame?.floorId === "f04" &&
+        onBoundaryFrame.actorMarkers.some(
+          (marker) => marker.id === onBoundaryBitId
         ),
       boundaryResults
         .map(
           (result) =>
             `raw=${result.rawBoundaryRejected}/floor=${result.floorId ?? "なし"}/actor=${result.markerResolved}`
         )
-        .join(" | ")
+        .join(" | ") +
+        ` | f03-f04-raw=${commonF03F04RawBoundaryRejected}` +
+        `/below=${belowBoundaryFrame?.floorId ?? "なし"}` +
+        `/on=${onBoundaryFrame?.floorId ?? "なし"}`
     )
   );
 
@@ -830,7 +898,7 @@ export const runV2MinimapTests = ({
   );
   checks.push(
     createT063Check(
-      "屋上飛び降りの5秒保持・非表示・着地復帰",
+      "屋上飛び降りの3秒保持・非表示・着地復帰",
       roofFrame?.floorId === "roof" &&
         graceFrame?.floorId === "roof" &&
         expiredFrame === null &&

@@ -73,6 +73,18 @@ export type StageLocationAreaHit = Readonly<{
   elevatorId: string | null;
 }>;
 
+export class StageLocationAreaAmbiguityError extends Error {
+  readonly areaIds: readonly string[];
+
+  constructor(areaIds: readonly string[]) {
+    super(
+      `同一優先度のlocation_areaを一意に解決できません: ${areaIds.join(",")}`
+    );
+    this.name = "StageLocationAreaAmbiguityError";
+    this.areaIds = Object.freeze([...areaIds]);
+  }
+}
+
 export type StageMissionLocation = Readonly<{
   id: string;
   floorId: StageLocationFloorId;
@@ -817,11 +829,9 @@ export const createStageLocationAssetRegistry = (
           .map((match) => match.area.id)
       );
       if (samePriorityAreaIds.size !== 1) {
-        throw new Error(
-          `同一優先度のlocation_areaを一意に解決できません: ${[
-            ...samePriorityAreaIds
-          ].join(",")}`
-        );
+        throw new StageLocationAreaAmbiguityError([
+          ...samePriorityAreaIds
+        ]);
       }
       return Object.freeze({
         area: selected.area,

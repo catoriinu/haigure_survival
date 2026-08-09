@@ -7,13 +7,14 @@ import {
 } from "@babylonjs/core";
 
 import type { StageElevatorSnapshot } from "../world/stageElevatorRuntime";
-import type {
-  StageElevatorLanding,
-  StageFloorMap,
-  StageLocationAreaHit,
-  StageLocationAssetRegistry,
-  StageLocationFloorId,
-  StageStairLandingDirection
+import {
+  StageLocationAreaAmbiguityError,
+  type StageElevatorLanding,
+  type StageFloorMap,
+  type StageLocationAreaHit,
+  type StageLocationAssetRegistry,
+  type StageLocationFloorId,
+  type StageStairLandingDirection
 } from "../world/stageLocationAssets";
 import type { StageSpatialQueries } from "../world/stageSpatialQueries";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../world/worldUnits";
@@ -24,7 +25,8 @@ const MINIMAP_RADIUS_CSS_PX = MINIMAP_SIZE_CSS_PX / 2;
 export const V2_MINIMAP_RANGE_METERS = 18;
 export const V2_MINIMAP_VIEW_CONE_RANGE_METERS = 12;
 export const V2_MINIMAP_AREA_SAMPLE_HEIGHT_METERS = 0.05;
-export const V2_MINIMAP_AIRBORNE_AREA_GRACE_SECONDS = 5;
+export const V2_MINIMAP_AIRBORNE_AREA_GRACE_SECONDS = 3;
+const MINIMAP_AREA_BOUNDARY_NUDGE_METERS = 0.001;
 const MINIMAP_RANGE_WORLD_UNITS =
   V2_MINIMAP_RANGE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
 const MINIMAP_VIEW_CONE_RANGE_WORLD_UNITS =
@@ -36,6 +38,12 @@ const MINIMAP_VIEW_CONE_RADIUS_CSS_PX =
   MINIMAP_SCALE_CSS_PX_PER_WORLD_UNIT;
 const MINIMAP_AREA_SAMPLE_HEIGHT_WORLD_UNITS =
   V2_MINIMAP_AREA_SAMPLE_HEIGHT_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const MINIMAP_AREA_BOUNDARY_NUDGE_WORLD_UNITS =
+  MINIMAP_AREA_BOUNDARY_NUDGE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const MINIMAP_AREA_BOUNDARY_NUDGES_WORLD_UNITS = Object.freeze([
+  MINIMAP_AREA_BOUNDARY_NUDGE_WORLD_UNITS,
+  -MINIMAP_AREA_BOUNDARY_NUDGE_WORLD_UNITS
+]);
 const VISIBILITY_REFRESH_SECONDS = 0.1;
 const HORIZONTAL_EPSILON = 1.0e-8;
 
@@ -187,12 +195,43 @@ const horizontalDistanceSquared = (
   return x * x + z * z;
 };
 
-const createAreaSamplePosition = (footPosition: Vector3): Vector3 =>
+const createAreaSamplePosition = (
+  position: Vector3,
+  sampleHeightWorldUnits: number
+): Vector3 =>
   new Vector3(
-    footPosition.x,
-    footPosition.y + MINIMAP_AREA_SAMPLE_HEIGHT_WORLD_UNITS,
-    footPosition.z
+    position.x,
+    position.y + sampleHeightWorldUnits,
+    position.z
   );
+
+const findMinimapArea = (
+  locationAssets: StageLocationAssetRegistry,
+  position: Vector3,
+  sampleHeightWorldUnits: number
+): StageLocationAreaHit | null => {
+  try {
+    return locationAssets.findArea(
+      createAreaSamplePosition(position, sampleHeightWorldUnits)
+    );
+  } catch (error) {
+    if (!(error instanceof StageLocationAreaAmbiguityError)) {
+      throw error;
+    }
+    for (const nudge of MINIMAP_AREA_BOUNDARY_NUDGES_WORLD_UNITS) {
+      const hit = locationAssets.findArea(
+        createAreaSamplePosition(
+          position,
+          sampleHeightWorldUnits + nudge
+        )
+      );
+      if (hit) {
+        return hit;
+      }
+    }
+    throw error;
+  }
+};
 
 const requireCanvasContext = (
   canvas: HTMLCanvasElement
@@ -730,8 +769,10 @@ export const createV2MinimapController = ({
       }
       resizeCanvas();
       const forward = normalizeHorizontalForward(update.forward);
-      const resolvedPlayerAreaHit = locationAssets.findArea(
-        createAreaSamplePosition(update.playerFootPosition)
+      const resolvedPlayerAreaHit = findMinimapArea(
+        locationAssets,
+        update.playerFootPosition,
+        MINIMAP_AREA_SAMPLE_HEIGHT_WORLD_UNITS
       );
       let playerAreaHit: StageLocationAreaHit;
       if (resolvedPlayerAreaHit) {
@@ -784,8 +825,10 @@ export const createV2MinimapController = ({
         if (distanceSquared > rangeSquared) {
           continue;
         }
-        const areaHit = locationAssets.findArea(
-          createAreaSamplePosition(actor.areaPosition)
+        const areaHit = findMinimapArea(
+          locationAssets,
+          actor.areaPosition,
+          actor.kind === "npc" ? MINIMAP_AREA_SAMPLE_HEIGHT_WORLD_UNITS : 0
         );
         if (!areaHit) {
           continue;
