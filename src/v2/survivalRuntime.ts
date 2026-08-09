@@ -226,6 +226,9 @@ export type V2MinimapActorSnapshot = Readonly<{
   follower: boolean;
 }>;
 
+const EMPTY_V2_MINIMAP_ACTOR_SNAPSHOTS: readonly V2MinimapActorSnapshot[] =
+  Object.freeze([]);
+
 export const summarizeV2TargetTracking = (
   npcTracking: readonly V2TargetTrackingSample[],
   bitTracking: readonly V2TargetTrackingSample[]
@@ -1396,6 +1399,48 @@ export const createV2SurvivalRuntime = ({
     });
   };
 
+  const buildMinimapActorSnapshots =
+    (): readonly V2MinimapActorSnapshot[] => {
+      const npcFrame = npcSystem.getFrameView();
+      if (npcFrame.targets.length !== npcFrame.tracking.length) {
+        throw new Error(
+          `ミニマップ用NPC snapshot数が一致しません: ${npcFrame.targets.length}/${npcFrame.tracking.length}`
+        );
+      }
+      const snapshots: V2MinimapActorSnapshot[] = [];
+      for (let index = 0; index < npcFrame.targets.length; index += 1) {
+        const target = npcFrame.targets[index];
+        const tracking = npcFrame.tracking[index];
+        if (target.id !== tracking.npcId) {
+          throw new Error(
+            `ミニマップ用NPC snapshotの並びが一致しません: ${target.id}/${tracking.npcId}`
+          );
+        }
+        snapshots.push(
+          Object.freeze({
+            id: target.id,
+            kind: "npc" as const,
+            areaPosition: target.footPosition,
+            sightPosition: target.aimPosition,
+            follower: tracking.commandMode === "follow"
+          })
+        );
+      }
+      for (const actor of bitSystem.getFrameView().actorSpheres) {
+        snapshots.push(
+          Object.freeze({
+            id: actor.id,
+            kind: "bit" as const,
+            areaPosition: actor.center,
+            sightPosition: actor.center,
+            follower: false
+          })
+        );
+      }
+      return Object.freeze(snapshots);
+    };
+
+  let minimapActorSnapshots = EMPTY_V2_MINIMAP_ACTOR_SNAPSHOTS;
   let frame = buildFrame();
 
   return {
@@ -2058,6 +2103,10 @@ export const createV2SurvivalRuntime = ({
         performanceDiagnostics?.beginSection(
           "frame-build"
         ) ?? 0;
+      minimapActorSnapshots =
+        phase === "playing"
+          ? buildMinimapActorSnapshots()
+          : EMPTY_V2_MINIMAP_ACTOR_SNAPSHOTS;
       frame = buildFrame();
       performanceDiagnostics?.count(
         "scenario.brainwashed-npc-count",
@@ -2143,40 +2192,7 @@ export const createV2SurvivalRuntime = ({
     },
     getMinimapActors: () => {
       assertActive();
-      const npcFrame = npcSystem.getFrameView();
-      const npcTrackingById = new Map(
-        npcFrame.tracking.map((tracking) => [tracking.npcId, tracking] as const)
-      );
-      const npcActors = npcFrame.targets.map(
-        (target): V2MinimapActorSnapshot => {
-          const tracking = npcTrackingById.get(target.id);
-          if (!tracking) {
-            throw new Error(
-              `ミニマップ用NPC追跡snapshotがありません: ${target.id}`
-            );
-          }
-          return Object.freeze({
-            id: target.id,
-            kind: "npc",
-            areaPosition: target.footPosition.clone(),
-            sightPosition: target.aimPosition.clone(),
-            follower: tracking.commandMode === "follow"
-          });
-        }
-      );
-      const bitActors = bitSystem
-        .getFrameView()
-        .actorSpheres.map(
-          (actor): V2MinimapActorSnapshot =>
-            Object.freeze({
-              id: actor.id,
-              kind: "bit",
-              areaPosition: actor.center.clone(),
-              sightPosition: actor.center.clone(),
-              follower: false
-            })
-        );
-      return Object.freeze([...npcActors, ...bitActors]);
+      return minimapActorSnapshots;
     },
     releaseNpcTraversalForScriptedPhase: () => {
       assertActive();
@@ -2347,6 +2363,7 @@ export const createV2SurvivalRuntime = ({
       targetNavigationAreaTracker.dispose();
       alertCoordinator.clear();
       humanTargets = Object.freeze([]);
+      minimapActorSnapshots = EMPTY_V2_MINIMAP_ACTOR_SNAPSHOTS;
       pendingPlayerBeamRequests = [];
       pendingPlayerGunFireEvents = [];
       audioEventQueue.dispose();

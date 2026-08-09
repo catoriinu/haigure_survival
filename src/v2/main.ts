@@ -86,6 +86,7 @@ import {
   createV2SurvivalRuntime,
   V2_PERFORMANCE_ACCEPTANCE_POPULATION,
   V2_TEST_SURVIVAL_POPULATION,
+  type V2MinimapActorSnapshot,
   type V2SurvivalRuntime
 } from "./survivalRuntime";
 import { createV2CharacterAssignments } from "./v2CharacterAssignments";
@@ -128,6 +129,9 @@ const EMPTY_DOOR_INTERACTION_CANDIDATES: ReturnType<
 const EMPTY_RUNTIME_INTERACTION_FEEDBACK: readonly V2RuntimeInteractionFeedback[] =
   Object.freeze([]);
 const EMPTY_MINIMAP_MISSION_TARGET_IDS: readonly string[] = Object.freeze([]);
+const EMPTY_MINIMAP_ACTORS: readonly V2MinimapActorSnapshot[] = Object.freeze(
+  []
+);
 
 const performanceScenario =
   readV2PerformanceScenario(location.search);
@@ -1139,15 +1143,18 @@ engine.runRenderLoop(() => {
       viewForward: characterViewForward,
       facingYaw: characterFacingYaw
     });
+    const minimapActive = started && survivalFrame.phase === "playing";
     minimap.update({
-      active: started && survivalFrame.phase === "playing",
+      active: minimapActive,
       elapsedSeconds,
       playerGrounded: playerFrame.verticalState.grounded,
       playerFootPosition: currentPlayerTarget.footPosition,
       playerEyePosition: currentPlayerTarget.aimPosition,
       forward: characterViewForward,
       up: characterViewUp,
-      actors: survival.getMinimapActors(),
+      actors: minimapActive
+        ? survival.getMinimapActors()
+        : EMPTY_MINIMAP_ACTORS,
       elevators: dynamicRuntime.getSnapshot().elevators,
       missionTargetActorIds: EMPTY_MINIMAP_MISSION_TARGET_IDS,
       missionTargetLocationIds: EMPTY_MINIMAP_MISSION_TARGET_IDS
