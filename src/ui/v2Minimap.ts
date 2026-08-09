@@ -17,6 +17,7 @@ import {
   type StageStairLandingDirection
 } from "../world/stageLocationAssets";
 import type { StageSpatialQueries } from "../world/stageSpatialQueries";
+import type { StageHumanNavigationSource } from "../world/stageSpatialContext";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../world/worldUnits";
 import type { V2MinimapActorSnapshot } from "../v2/survivalRuntime";
 
@@ -260,42 +261,13 @@ const requireCanvasContext = (
   return context;
 };
 
-const MINIMAP_STRUCTURAL_BLOCKER_PREFIXES = Object.freeze([
-  "COL_Wall",
-  "COL_GymWall",
-  "COL_GymStageSideWall",
-  "COL_GymStageStairHeadWall",
-  "COL_GymStorage_",
-  "COL_ToiletStallPartition_",
-  "COL_StairStorageShell_",
-  "COL_StairClosure_",
-  "COL_StairGuard_",
-  "COL_Perimeter_",
-  "COL_Gate_",
-  "COL_PoolBasinWall_",
-  "COL_B03_ExteriorWalls_",
-  "COL_B03_InteriorWalls_",
-  "COL_B03_Interior_Walls_",
-  "COL_B03_GymExteriorWalls",
-  "COL_B03_ElevatorShaftShell",
-  "COL_B03_ElevatorStairWall",
-  "COL_B03_GymRoofGapWall",
-  "COL_B03_GymStageSideWalls",
-  "COL_B03_StairBoundaryCaps_",
-  "COL_B03_GymGalleryGuards",
-  "COL_B03_GymRoofGuards",
-  "COL_B03_GymRoofConnectionGuards"
-]);
-
 export const selectV2MinimapStructuralBlockers = (
-  colliders: readonly Mesh[]
+  navigationSources: readonly StageHumanNavigationSource[]
 ): readonly Mesh[] =>
   Object.freeze(
-    colliders.filter((mesh) =>
-      MINIMAP_STRUCTURAL_BLOCKER_PREFIXES.some((prefix) =>
-        mesh.name.startsWith(prefix)
-      )
-    )
+    navigationSources
+      .filter((source) => source.role !== "walkable")
+      .map((source) => source.mesh)
   );
 
 const appendProjectedMeshGeometry = (path: Path2D, mesh: Mesh): void => {

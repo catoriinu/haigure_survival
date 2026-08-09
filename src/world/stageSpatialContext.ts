@@ -212,7 +212,7 @@ export type StageSpatialResources = Readonly<{
   movementColliders: StageMovementColliderSets;
   beamBlockers: readonly Mesh[];
   sightBlockers: readonly Mesh[];
-  navSourceMeshes: readonly Mesh[];
+  humanNavigationSources: readonly StageHumanNavigationSource[];
   bitFlightNavSourceMeshes: readonly Mesh[];
   semanticMeshes: readonly Mesh[];
   semanticNodes: readonly TransformNode[];
@@ -258,6 +258,13 @@ type NavRole = (typeof NAV_ROLES)[number];
 const NAV_AREAS = ["ground", "stairs", "outdoor", "door"] as const;
 type NavArea = (typeof NAV_AREAS)[number];
 
+export type StageHumanNavigationSource = Readonly<{
+  mesh: Mesh;
+  navSet: "human";
+  role: NavRole;
+  area: NavArea | null;
+}>;
+
 const NAV_SETS = ["human", "bit-flight"] as const;
 type NavSet = (typeof NAV_SETS)[number];
 
@@ -288,12 +295,7 @@ type AuthoredStageLinkEndpoint = Readonly<{
   node: TransformNode;
 }>;
 
-type NavSource = Readonly<{
-  mesh: Mesh;
-  navSet: "human";
-  role: NavRole;
-  area: NavArea | null;
-}>;
+type NavSource = StageHumanNavigationSource;
 
 type BitFlightNavSource = Readonly<{
   mesh: Mesh;
@@ -2929,9 +2931,9 @@ export const loadStageSpatialContext = async (
       dynamicSpatialInitialization.staticActiveSet;
     const initialActiveSet =
       dynamicSpatialInitialization.initialActiveSet;
-    const navSourceMeshes = Object.freeze(
-      activeHumanNavSources.map((source) => source.mesh)
-    );
+    const humanNavigationSources = Object.freeze([
+      ...activeHumanNavSources
+    ]);
     const bitFlightNavSourceMeshes = Object.freeze(
       classification.bitFlightNavSources.map((source) => source.mesh)
     );
@@ -2970,7 +2972,7 @@ export const loadStageSpatialContext = async (
       movementColliders: fullMovementColliders,
       beamBlockers: fullBeamBlockers,
       sightBlockers: fullSightBlockers,
-      navSourceMeshes,
+      humanNavigationSources,
       bitFlightNavSourceMeshes,
       semanticMeshes,
       semanticNodes,

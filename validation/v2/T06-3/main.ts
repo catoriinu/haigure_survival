@@ -325,7 +325,7 @@ const runValidation = async () => {
       camera,
       locationAssets,
       structuralBlockers: selectV2MinimapStructuralBlockers(
-        activeStage.resources.normalColliders
+        activeStage.resources.humanNavigationSources
       ),
       queries: activeStage.queries
     });

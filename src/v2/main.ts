@@ -690,7 +690,7 @@ const minimap = createV2MinimapController({
   camera,
   locationAssets: stage.locationAssets,
   structuralBlockers: selectV2MinimapStructuralBlockers(
-    stage.resources.normalColliders
+    stage.resources.humanNavigationSources
   ),
   queries: stage.queries
 });

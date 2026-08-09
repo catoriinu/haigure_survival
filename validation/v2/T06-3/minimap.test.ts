@@ -315,7 +315,7 @@ export const runV2MinimapTests = ({
     }
   }) as StageSpatialQueries;
   const structuralBlockers = selectV2MinimapStructuralBlockers(
-    stage.resources.normalColliders
+    stage.resources.humanNavigationSources
   );
   const controller = createV2MinimapController({
     canvas,
@@ -512,10 +512,14 @@ export const runV2MinimapTests = ({
   ).data;
   let blockedPixelCount = 0;
   let firstFloorPixelCount = 0;
-  const includedSmallColliderCount = structuralBlockers.filter(
-    (blocker) =>
-      blocker.name.startsWith("COL_B03_Interior_") &&
-      !blocker.name.startsWith("COL_B03_Interior_Walls_")
+  const semanticBlockerCount =
+    stage.resources.humanNavigationSources.filter(
+      (source) => source.role !== "walkable"
+    ).length;
+  const includedWalkableCount = structuralBlockers.filter((blocker) =>
+    stage.resources.humanNavigationSources.some(
+      (source) => source.mesh === blocker && source.role === "walkable"
+    )
   ).length;
   for (let index = 0; index < minimapPixels.length; index += 4) {
     const red = minimapPixels[index];
@@ -538,10 +542,11 @@ export const runV2MinimapTests = ({
       "1F床色・恒久進入不可領域の黒表示",
       blockedPixelCount > 0 &&
         firstFloorPixelCount > 0 &&
-        includedSmallColliderCount === 0,
+        structuralBlockers.length === semanticBlockerCount &&
+        includedWalkableCount === 0,
       `blockedPixels=${blockedPixelCount} / floorPixels=${firstFloorPixelCount} / ` +
-        `structuralBlockers=${structuralBlockers.length} / ` +
-        `smallColliders=${includedSmallColliderCount}`
+        `structuralBlockers=${structuralBlockers.length}/${semanticBlockerCount} / ` +
+        `walkable=${includedWalkableCount}`
     )
   );
 
