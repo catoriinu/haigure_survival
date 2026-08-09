@@ -10,6 +10,10 @@ import {
 import {
   createV2MinimapController,
   projectV2MinimapPoint,
+  selectV2MinimapStructuralBlockers,
+  V2_MINIMAP_FLOOR_COLORS,
+  V2_MINIMAP_RANGE_METERS,
+  V2_MINIMAP_VIEW_CONE_RANGE_METERS,
   type V2MinimapUpdate
 } from "../../../src/ui/v2Minimap";
 import type { StageElevatorSnapshot } from "../../../src/world/stageElevatorRuntime";
@@ -123,10 +127,72 @@ const createUpdate = (
 const actor = (
   id: string,
   kind: "npc" | "bit",
-  position: Vector3,
-  follower: boolean
+  areaPosition: Vector3,
+  follower: boolean,
+  sightPosition = areaPosition
 ): V2MinimapActorSnapshot =>
-  Object.freeze({ id, kind, position, follower });
+  Object.freeze({
+    id,
+    kind,
+    areaPosition,
+    sightPosition,
+    follower
+  });
+
+const findAdjacentFloorBoundary = (
+  locationAssets: StageLocationAssetRegistry
+): Readonly<{
+  areaPosition: Vector3;
+  sightPosition: Vector3;
+}> => {
+  const lowerArea = locationAssets.getAreaById("area-common-f02");
+  const upperArea = locationAssets.getAreaById("area-common-f03");
+  if (!lowerArea || !upperArea) {
+    throw new Error("fixture用の2F／3F共用Areaがありません。");
+  }
+  for (const lowerPiece of lowerArea.pieces) {
+    lowerPiece.mesh.computeWorldMatrix(true);
+    const lowerBounds = lowerPiece.mesh.getBoundingInfo().boundingBox;
+    for (const upperPiece of upperArea.pieces) {
+      upperPiece.mesh.computeWorldMatrix(true);
+      const upperBounds = upperPiece.mesh.getBoundingInfo().boundingBox;
+      const overlapMinimumX = Math.max(
+        lowerBounds.minimumWorld.x,
+        upperBounds.minimumWorld.x
+      );
+      const overlapMaximumX = Math.min(
+        lowerBounds.maximumWorld.x,
+        upperBounds.maximumWorld.x
+      );
+      const overlapMinimumZ = Math.max(
+        lowerBounds.minimumWorld.z,
+        upperBounds.minimumWorld.z
+      );
+      const overlapMaximumZ = Math.min(
+        lowerBounds.maximumWorld.z,
+        upperBounds.maximumWorld.z
+      );
+      if (
+        overlapMaximumX <= overlapMinimumX ||
+        overlapMaximumZ <= overlapMinimumZ ||
+        Math.abs(
+          lowerBounds.maximumWorld.y - upperBounds.minimumWorld.y
+        ) > 1.0e-5
+      ) {
+        continue;
+      }
+      const sightPosition = new Vector3(
+        (overlapMinimumX + overlapMaximumX) / 2,
+        lowerBounds.maximumWorld.y,
+        (overlapMinimumZ + overlapMaximumZ) / 2
+      );
+      const areaPosition = sightPosition.clone();
+      areaPosition.y -= 1.0e-4;
+      return Object.freeze({ areaPosition, sightPosition });
+    }
+  }
+  throw new Error("fixture用の2F／3F Area接面がありません。");
+};
 
 const findFrustumPosition = (
   locationAssets: StageLocationAssetRegistry,
@@ -190,11 +256,15 @@ export const runV2MinimapTests = ({
         : null;
     }
   }) as StageSpatialQueries;
+  const structuralBlockers = selectV2MinimapStructuralBlockers(
+    stage.resources.normalColliders
+  );
   const controller = createV2MinimapController({
     canvas,
     readout,
     camera: fixtureCamera,
     locationAssets,
+    structuralBlockers,
     queries
   });
   const elevatorSnapshots = createElevatorSnapshots(locationAssets);
@@ -209,15 +279,36 @@ export const runV2MinimapTests = ({
     Vector3.Zero(),
     new Vector3(1, 0, 0)
   );
+  const rangeProjection = projectV2MinimapPoint(
+    new Vector3(0, 0, -4.5),
+    Vector3.Zero(),
+    north
+  );
+  const previousRangeProjection = projectV2MinimapPoint(
+    new Vector3(0, 0, -2.25),
+    Vector3.Zero(),
+    north
+  );
+  const viewConeProjection = projectV2MinimapPoint(
+    new Vector3(0, 0, -3),
+    Vector3.Zero(),
+    north
+  );
   checks.push(
     createT063Check(
-      "進行方向上の座標投影",
+      "進行方向上・18m表示・12m視野扇の座標投影",
       Math.abs(northProjection.x - 90) < 1.0e-6 &&
         northProjection.y < 90 &&
         Math.abs(eastProjection.x - 90) < 1.0e-6 &&
-        eastProjection.y < 90,
+        eastProjection.y < 90 &&
+        V2_MINIMAP_RANGE_METERS === 18 &&
+        V2_MINIMAP_VIEW_CONE_RANGE_METERS === 12 &&
+        Math.abs(rangeProjection.y) < 1.0e-6 &&
+        Math.abs(previousRangeProjection.y - 45) < 1.0e-6 &&
+        Math.abs(viewConeProjection.y - 30) < 1.0e-6,
       `north=(${northProjection.x.toFixed(2)},${northProjection.y.toFixed(2)}) / ` +
-        `east=(${eastProjection.x.toFixed(2)},${eastProjection.y.toFixed(2)})`
+        `east=(${eastProjection.x.toFixed(2)},${eastProjection.y.toFixed(2)}) / ` +
+        `range=${rangeProjection.y.toFixed(2)} / cone=${viewConeProjection.y.toFixed(2)}`
     )
   );
 
@@ -235,7 +326,8 @@ export const runV2MinimapTests = ({
     return Object.freeze({
       floorId,
       resolvedFloorId: frame?.floorId ?? null,
-      readout: frame?.readout ?? ""
+      readout: frame?.readout ?? "",
+      floorColor: frame?.floorColor ?? ""
     });
   });
   checks.push(
@@ -243,11 +335,109 @@ export const runV2MinimapTests = ({
       "5階層Map・現在地表示",
       floorResults.every(
         (result) =>
-          result.floorId === result.resolvedFloorId && result.readout.length > 3
+          result.floorId === result.resolvedFloorId &&
+          result.readout.length > 3 &&
+          result.floorColor === V2_MINIMAP_FLOOR_COLORS[result.floorId]
       ),
       floorResults
-        .map((result) => `${result.floorId}:${result.readout}`)
+        .map(
+          (result) =>
+            `${result.floorId}:${result.readout}:${result.floorColor}`
+        )
         .join(" / ")
+    )
+  );
+
+  controller.update(
+    createUpdate(
+      camera,
+      f01Position,
+      north,
+      2.2,
+      elevatorSnapshots
+    )
+  );
+  const minimapContext = canvas.getContext("2d");
+  if (!minimapContext) {
+    throw new Error("fixture用ミニマップCanvas contextがありません。");
+  }
+  const minimapPixels = minimapContext.getImageData(
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  ).data;
+  let blockedPixelCount = 0;
+  let firstFloorPixelCount = 0;
+  const includedSmallColliderCount = structuralBlockers.filter(
+    (blocker) =>
+      blocker.name.startsWith("COL_B03_Interior_") &&
+      !blocker.name.startsWith("COL_B03_Interior_Walls_")
+  ).length;
+  for (let index = 0; index < minimapPixels.length; index += 4) {
+    const red = minimapPixels[index];
+    const green = minimapPixels[index + 1];
+    const blue = minimapPixels[index + 2];
+    const alpha = minimapPixels[index + 3];
+    if (red <= 7 && green <= 7 && blue <= 7 && alpha === 255) {
+      blockedPixelCount += 1;
+    }
+    if (
+      red > green + 15 &&
+      green > blue + 25 &&
+      alpha === 255
+    ) {
+      firstFloorPixelCount += 1;
+    }
+  }
+  checks.push(
+    createT063Check(
+      "1F床色・恒久進入不可領域の黒表示",
+      blockedPixelCount > 0 &&
+        firstFloorPixelCount > 0 &&
+        includedSmallColliderCount === 0,
+      `blockedPixels=${blockedPixelCount} / floorPixels=${firstFloorPixelCount} / ` +
+        `structuralBlockers=${structuralBlockers.length} / ` +
+        `smallColliders=${includedSmallColliderCount}`
+    )
+  );
+
+  const adjacentFloorBoundary = findAdjacentFloorBoundary(locationAssets);
+  let ambiguousSightRejected = false;
+  try {
+    locationAssets.findArea(adjacentFloorBoundary.sightPosition);
+  } catch (error) {
+    ambiguousSightRejected =
+      error instanceof Error &&
+      error.message.includes("area-common-f02,area-common-f03");
+  }
+  const boundaryFrame = controller.update(
+    createUpdate(
+      camera,
+      adjacentFloorBoundary.areaPosition,
+      north,
+      2.5,
+      elevatorSnapshots,
+      Object.freeze([
+        actor(
+          "npc-floor-boundary",
+          "npc",
+          adjacentFloorBoundary.areaPosition,
+          true,
+          adjacentFloorBoundary.sightPosition
+        )
+      ])
+    )
+  );
+  checks.push(
+    createT063Check(
+      "Actor足元Areaと視認点の分離",
+      ambiguousSightRejected &&
+        boundaryFrame?.floorId === "f02" &&
+        boundaryFrame.actorMarkers.some(
+          (marker) => marker.id === "npc-floor-boundary"
+        ),
+      `ambiguousSight=${ambiguousSightRejected} / floor=${boundaryFrame?.floorId ?? "なし"}`
     )
   );
 
@@ -409,7 +599,7 @@ export const runV2MinimapTests = ({
     actor(
       "bit-far-mission",
       "bit",
-      new Vector3(f01Position.x + 2.3, playerEyeY, f01Position.z),
+      new Vector3(f01Position.x + 4.6, playerEyeY, f01Position.z),
       false
     ),
     actor(
@@ -476,7 +666,13 @@ export const runV2MinimapTests = ({
   const diagnosticsBeforeInterval = controller.getDiagnostics();
   const actorsAfterLeave = actors.map((entry) =>
     entry.id === "npc-follower"
-      ? actor(entry.id, entry.kind, entry.position, false)
+      ? actor(
+          entry.id,
+          entry.kind,
+          entry.areaPosition,
+          false,
+          entry.sightPosition
+        )
       : entry
   );
   const frameAfterLeave = controller.update(

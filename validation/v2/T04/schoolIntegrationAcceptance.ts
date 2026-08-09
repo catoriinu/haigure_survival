@@ -823,7 +823,8 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
         Object.freeze({
           id: actor.id,
           kind: "npc" as const,
-          position: actor.position.clone(),
+          areaPosition: actor.position.clone(),
+          sightPosition: createTraversalTargetSnapshot(actor).aimPosition,
           follower: actor.commandMode === "follow"
         })
       )

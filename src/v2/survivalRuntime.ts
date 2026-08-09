@@ -221,7 +221,8 @@ export type V2TargetTrackingSummary = Readonly<{
 export type V2MinimapActorSnapshot = Readonly<{
   id: string;
   kind: "npc" | "bit";
-  position: Vector3;
+  areaPosition: Vector3;
+  sightPosition: Vector3;
   follower: boolean;
 }>;
 
@@ -2157,7 +2158,8 @@ export const createV2SurvivalRuntime = ({
           return Object.freeze({
             id: target.id,
             kind: "npc",
-            position: target.aimPosition.clone(),
+            areaPosition: target.footPosition.clone(),
+            sightPosition: target.aimPosition.clone(),
             follower: tracking.commandMode === "follow"
           });
         }
@@ -2169,7 +2171,8 @@ export const createV2SurvivalRuntime = ({
             Object.freeze({
               id: actor.id,
               kind: "bit",
-              position: actor.center.clone(),
+              areaPosition: actor.center.clone(),
+              sightPosition: actor.center.clone(),
               follower: false
             })
         );

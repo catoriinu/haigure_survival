@@ -37,7 +37,10 @@ import {
   canV2RuntimePlayerFire,
   createV2RuntimeHudController
 } from "../ui/v2RuntimeHud";
-import { createV2MinimapController } from "../ui/v2Minimap";
+import {
+  createV2MinimapController,
+  selectV2MinimapStructuralBlockers
+} from "../ui/v2Minimap";
 import {
   createSchoolStageDynamicRuntime,
   createSchoolStageDynamicSpatialInitializer,
@@ -686,6 +689,9 @@ const minimap = createV2MinimapController({
   readout: minimapReadout,
   camera,
   locationAssets: stage.locationAssets,
+  structuralBlockers: selectV2MinimapStructuralBlockers(
+    stage.resources.normalColliders
+  ),
   queries: stage.queries
 });
 ownedMinimap = minimap;

@@ -2,7 +2,8 @@ import {
   Frustum,
   Vector3,
   VertexBuffer,
-  type Camera
+  type Camera,
+  type Mesh
 } from "@babylonjs/core";
 
 import type { StageElevatorSnapshot } from "../world/stageElevatorRuntime";
@@ -20,16 +21,29 @@ import type { V2MinimapActorSnapshot } from "../v2/survivalRuntime";
 
 const MINIMAP_SIZE_CSS_PX = 180;
 const MINIMAP_RADIUS_CSS_PX = MINIMAP_SIZE_CSS_PX / 2;
-const MINIMAP_RANGE_METERS = 9;
+export const V2_MINIMAP_RANGE_METERS = 18;
+export const V2_MINIMAP_VIEW_CONE_RANGE_METERS = 12;
 const MINIMAP_RANGE_WORLD_UNITS =
-  MINIMAP_RANGE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+  V2_MINIMAP_RANGE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
+const MINIMAP_VIEW_CONE_RANGE_WORLD_UNITS =
+  V2_MINIMAP_VIEW_CONE_RANGE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
 const MINIMAP_SCALE_CSS_PX_PER_WORLD_UNIT =
   MINIMAP_RADIUS_CSS_PX / MINIMAP_RANGE_WORLD_UNITS;
+const MINIMAP_VIEW_CONE_RADIUS_CSS_PX =
+  MINIMAP_VIEW_CONE_RANGE_WORLD_UNITS *
+  MINIMAP_SCALE_CSS_PX_PER_WORLD_UNIT;
 const VISIBILITY_REFRESH_SECONDS = 0.1;
 const HORIZONTAL_EPSILON = 1.0e-8;
 
 const MAP_BACKGROUND_COLOR = "#1b1b1b";
-const MAP_FLOOR_COLOR = "#a57bc4";
+const MAP_BLOCKED_COLOR = "#050505";
+export const V2_MINIMAP_FLOOR_COLORS = Object.freeze({
+  f01: "#d5b83f",
+  f02: "#4fa968",
+  f03: "#c95a5a",
+  f04: "#527bc5",
+  roof: "#898f98"
+} satisfies Readonly<Record<StageLocationFloorId, string>>);
 const PLAYER_COLOR = "#ffffff";
 const NPC_COLOR = "#f4d35e";
 const BIT_COLOR = "#ff7657";
@@ -71,6 +85,7 @@ export type V2MinimapElevatorMarker = Readonly<{
 
 export type V2MinimapFrame = Readonly<{
   floorId: StageLocationFloorId;
+  floorColor: string;
   areaId: string;
   readout: string;
   playerPosition: Vector3;
@@ -105,6 +120,7 @@ export type V2MinimapControllerOptions = Readonly<{
   readout: HTMLElement;
   camera: Camera;
   locationAssets: StageLocationAssetRegistry;
+  structuralBlockers: readonly Mesh[];
   queries: StageSpatialQueries;
 }>;
 
@@ -118,7 +134,8 @@ export interface V2MinimapController {
 
 type FloorMapPath = Readonly<{
   floorId: StageLocationFloorId;
-  path: Path2D;
+  mapPath: Path2D;
+  structuralBlockerPath: Path2D;
 }>;
 
 type ResolvedActor = Readonly<{
@@ -175,7 +192,83 @@ const requireCanvasContext = (
   return context;
 };
 
-const createFloorMapPath = (floorMap: StageFloorMap): FloorMapPath => {
+const MINIMAP_STRUCTURAL_BLOCKER_PREFIXES = Object.freeze([
+  "COL_Wall",
+  "COL_GymWall",
+  "COL_GymStageSideWall",
+  "COL_GymStageStairHeadWall",
+  "COL_GymStorage_",
+  "COL_ToiletStallPartition_",
+  "COL_StairStorageShell_",
+  "COL_StairClosure_",
+  "COL_StairGuard_",
+  "COL_Perimeter_",
+  "COL_Gate_",
+  "COL_PoolBasinWall_",
+  "COL_B03_ExteriorWalls_",
+  "COL_B03_InteriorWalls_",
+  "COL_B03_Interior_Walls_",
+  "COL_B03_GymExteriorWalls",
+  "COL_B03_ElevatorShaftShell",
+  "COL_B03_ElevatorStairWall",
+  "COL_B03_GymRoofGapWall",
+  "COL_B03_GymStageSideWalls",
+  "COL_B03_StairBoundaryCaps_",
+  "COL_B03_GymGalleryGuards",
+  "COL_B03_GymRoofGuards",
+  "COL_B03_GymRoofConnectionGuards"
+]);
+
+export const selectV2MinimapStructuralBlockers = (
+  colliders: readonly Mesh[]
+): readonly Mesh[] =>
+  Object.freeze(
+    colliders.filter((mesh) =>
+      MINIMAP_STRUCTURAL_BLOCKER_PREFIXES.some((prefix) =>
+        mesh.name.startsWith(prefix)
+      )
+    )
+  );
+
+const appendProjectedMeshGeometry = (path: Path2D, mesh: Mesh): void => {
+  const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
+  const indices = mesh.getIndices();
+  if (!positions || positions.length === 0 || !indices || indices.length === 0) {
+    throw new Error(`構造コライダーのgeometryがありません: ${mesh.name}`);
+  }
+  if (indices.length % 3 !== 0) {
+    throw new Error(
+      `構造コライダーのindex数が三角形単位ではありません: ${mesh.name}`
+    );
+  }
+  const world = mesh.computeWorldMatrix(true);
+  const worldPositions: Vector3[] = [];
+  for (let index = 0; index < positions.length; index += 3) {
+    worldPositions.push(
+      Vector3.TransformCoordinates(Vector3.FromArray(positions, index), world)
+    );
+  }
+  for (let index = 0; index < indices.length; index += 3) {
+    const first = worldPositions[indices[index]];
+    const second = worldPositions[indices[index + 1]];
+    const third = worldPositions[indices[index + 2]];
+    const projectedArea =
+      (second.x - first.x) * (third.z - first.z) -
+      (second.z - first.z) * (third.x - first.x);
+    if (projectedArea >= -HORIZONTAL_EPSILON) {
+      continue;
+    }
+    path.moveTo(first.x, first.z);
+    path.lineTo(second.x, second.z);
+    path.lineTo(third.x, third.z);
+    path.closePath();
+  }
+};
+
+const createFloorMapPath = (
+  floorMap: StageFloorMap,
+  structuralBlockers: readonly Mesh[]
+): FloorMapPath => {
   const positions = floorMap.mesh.getVerticesData(VertexBuffer.PositionKind);
   const indices = floorMap.mesh.getIndices();
   if (
@@ -190,7 +283,7 @@ const createFloorMapPath = (floorMap: StageFloorMap): FloorMapPath => {
     throw new Error(`floor_mapのindex数が三角形単位ではありません: ${floorMap.id}`);
   }
   const world = floorMap.mesh.computeWorldMatrix(true);
-  const path = new Path2D();
+  const mapPath = new Path2D();
   const worldPositions: Vector3[] = [];
   for (let index = 0; index < positions.length; index += 3) {
     worldPositions.push(
@@ -210,12 +303,32 @@ const createFloorMapPath = (floorMap: StageFloorMap): FloorMapPath => {
     if (Math.abs(normalY) <= 1.0e-8 || averageY <= centerY) {
       continue;
     }
-    path.moveTo(first.x, first.z);
-    path.lineTo(second.x, second.z);
-    path.lineTo(third.x, third.z);
-    path.closePath();
+    mapPath.moveTo(first.x, first.z);
+    mapPath.lineTo(second.x, second.z);
+    mapPath.lineTo(third.x, third.z);
+    mapPath.closePath();
   }
-  return Object.freeze({ floorId: floorMap.floorId, path });
+  const structuralBlockerPath = new Path2D();
+  const floorSurfaceY =
+    floorMap.mesh.getBoundingInfo().boundingBox.maximumWorld.y;
+  const bodyHeightProbeY =
+    floorSurfaceY + 1 * BLENDER_METERS_TO_WORLD_UNITS;
+  for (const blocker of structuralBlockers) {
+    blocker.computeWorldMatrix(true);
+    const bounds = blocker.getBoundingInfo().boundingBox;
+    if (
+      bodyHeightProbeY < bounds.minimumWorld.y ||
+      bodyHeightProbeY > bounds.maximumWorld.y
+    ) {
+      continue;
+    }
+    appendProjectedMeshGeometry(structuralBlockerPath, blocker);
+  }
+  return Object.freeze({
+    floorId: floorMap.floorId,
+    mapPath,
+    structuralBlockerPath
+  });
 };
 
 const requireElevatorDisplayFloor = (
@@ -394,7 +507,7 @@ const drawElevatorMarker = (
 const renderFrame = (
   context: CanvasRenderingContext2D,
   devicePixelRatio: number,
-  floorPath: Path2D,
+  floorPaths: FloorMapPath,
   frame: V2MinimapFrame
 ): void => {
   context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
@@ -427,9 +540,12 @@ const renderFrame = (
     b * frame.playerPosition.x -
     d * frame.playerPosition.z;
   context.transform(a, b, c, d, e, f);
-  context.fillStyle = MAP_FLOOR_COLOR;
-  context.globalAlpha = 0.55;
-  context.fill(floorPath);
+  context.fillStyle = frame.floorColor;
+  context.globalAlpha = 0.82;
+  context.fill(floorPaths.mapPath);
+  context.fillStyle = MAP_BLOCKED_COLOR;
+  context.globalAlpha = 1;
+  context.fill(floorPaths.structuralBlockerPath);
   context.restore();
 
   context.beginPath();
@@ -437,7 +553,7 @@ const renderFrame = (
   context.arc(
     MINIMAP_RADIUS_CSS_PX,
     MINIMAP_RADIUS_CSS_PX,
-    42,
+    MINIMAP_VIEW_CONE_RADIUS_CSS_PX,
     -Math.PI / 2 - Math.PI / 6,
     -Math.PI / 2 + Math.PI / 6
   );
@@ -524,15 +640,20 @@ export const createV2MinimapController = ({
   readout,
   camera,
   locationAssets,
+  structuralBlockers,
   queries
 }: V2MinimapControllerOptions): V2MinimapController => {
   const context = requireCanvasContext(canvas);
-  const mapPaths = Object.freeze(locationAssets.floorMaps.map(createFloorMapPath));
+  const mapPaths = Object.freeze(
+    locationAssets.floorMaps.map((floorMap) =>
+      createFloorMapPath(floorMap, structuralBlockers)
+    )
+  );
   if (mapPaths.length !== 5) {
     throw new Error(`ミニマップの階別cacheは5件必要です: ${mapPaths.length}`);
   }
   const mapPathByFloorId = new Map(
-    mapPaths.map((entry) => [entry.floorId, entry.path] as const)
+    mapPaths.map((entry) => [entry.floorId, entry] as const)
   );
   let disposed = false;
   let frame: V2MinimapFrame | null = null;
@@ -612,15 +733,22 @@ export const createV2MinimapController = ({
         MINIMAP_RANGE_WORLD_UNITS * MINIMAP_RANGE_WORLD_UNITS;
       const resolvedActors: ResolvedActor[] = [];
       for (const actor of update.actors) {
-        assertFiniteVector(`ミニマップActor位置 ${actor.id}`, actor.position);
+        assertFiniteVector(
+          `ミニマップActor Area位置 ${actor.id}`,
+          actor.areaPosition
+        );
+        assertFiniteVector(
+          `ミニマップActor視認位置 ${actor.id}`,
+          actor.sightPosition
+        );
         const distanceSquared = horizontalDistanceSquared(
-          actor.position,
+          actor.areaPosition,
           update.playerFootPosition
         );
         if (distanceSquared > rangeSquared) {
           continue;
         }
-        const areaHit = locationAssets.findArea(actor.position);
+        const areaHit = locationAssets.findArea(actor.areaPosition);
         if (!areaHit) {
           continue;
         }
@@ -653,7 +781,10 @@ export const createV2MinimapController = ({
           (actor) =>
             !actor.snapshot.follower &&
             !actor.missionTarget &&
-            Frustum.IsPointInFrustum(actor.snapshot.position, frustumPlanes)
+            Frustum.IsPointInFrustum(
+              actor.snapshot.sightPosition,
+              frustumPlanes
+            )
         );
         const nextDirectlyVisibleActorIds = new Set<string>();
         for (const actor of sightCandidates) {
@@ -661,7 +792,7 @@ export const createV2MinimapController = ({
           if (
             queries.castSightSegment(
               update.playerEyePosition,
-              actor.snapshot.position
+              actor.snapshot.sightPosition
             ) === null
           ) {
             nextDirectlyVisibleActorIds.add(actor.snapshot.id);
@@ -689,7 +820,7 @@ export const createV2MinimapController = ({
                 : actor.snapshot.follower
                   ? "follower"
                   : actor.snapshot.kind,
-              position: actor.snapshot.position.clone()
+              position: actor.snapshot.areaPosition.clone()
             })
           )
           .sort((left, right) => left.id.localeCompare(right.id))
@@ -773,6 +904,7 @@ export const createV2MinimapController = ({
       const readoutText = `${floorMap.displayName} ${playerAreaHit.area.displayName}`;
       frame = freezeFrame({
         floorId,
+        floorColor: V2_MINIMAP_FLOOR_COLORS[floorId],
         areaId: playerAreaHit.area.id,
         readout: readoutText,
         playerPosition: update.playerFootPosition,
