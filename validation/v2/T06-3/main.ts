@@ -261,6 +261,7 @@ const renderActiveFloor = () => {
     playerFootPosition: position,
     playerEyePosition: eyePosition,
     forward,
+    up: camera.getDirection(Vector3.Up()),
     actors: Object.freeze([]),
     elevators: createElevatorSnapshots(locationAssets),
     missionTargetActorIds: Object.freeze([]),

@@ -7,9 +7,11 @@ import {
   type Scene
 } from "@babylonjs/core";
 
+import { createPlayerMotionController } from "../../../src/game/playerMotion";
 import {
   createV2MinimapController,
   projectV2MinimapPoint,
+  resolveV2MinimapHorizontalForward,
   selectV2MinimapStructuralBlockers,
   V2_MINIMAP_AIRBORNE_AREA_GRACE_SECONDS,
   V2_MINIMAP_AREA_SAMPLE_HEIGHT_METERS,
@@ -115,20 +117,24 @@ const createUpdate = (
   actors: readonly V2MinimapActorSnapshot[] = Object.freeze([]),
   missionTargetActorIds: readonly string[] = Object.freeze([]),
   missionTargetLocationIds: readonly string[] = Object.freeze([]),
-  playerGrounded = true
-): V2MinimapUpdate =>
-  Object.freeze({
+  playerGrounded = true,
+  viewUp: Vector3 | null = null
+): V2MinimapUpdate => {
+  const playerEyePosition = setCamera(camera, footPosition, forward);
+  return Object.freeze({
     active: true,
     elapsedSeconds,
     playerGrounded,
     playerFootPosition: footPosition,
-    playerEyePosition: setCamera(camera, footPosition, forward),
+    playerEyePosition,
     forward,
+    up: viewUp ?? camera.getDirection(Vector3.Up()),
     actors,
     elevators,
     missionTargetActorIds,
     missionTargetLocationIds
   });
+};
 
 const actor = (
   id: string,
@@ -346,9 +352,86 @@ export const runV2MinimapTests = ({
     Vector3.Zero(),
     north
   );
+  const downwardForward = resolveV2MinimapHorizontalForward(
+    new Vector3(0, -1, 0),
+    north
+  );
+  const upwardForward = resolveV2MinimapHorizontalForward(
+    new Vector3(0, 1, 0),
+    north.scale(-1)
+  );
+  const downwardFrame = controller.update(
+    createUpdate(
+      camera,
+      f01Position,
+      new Vector3(0, -1, 0),
+      0.1,
+      elevatorSnapshots,
+      Object.freeze([]),
+      Object.freeze([]),
+      Object.freeze([]),
+      true,
+      north
+    )
+  );
+  const upwardFrame = controller.update(
+    createUpdate(
+      camera,
+      f01Position,
+      new Vector3(0, 1, 0),
+      0.2,
+      elevatorSnapshots,
+      Object.freeze([]),
+      Object.freeze([]),
+      Object.freeze([]),
+      true,
+      north.scale(-1)
+    )
+  );
+  const motion = createPlayerMotionController({
+    moveInertiaAt60Fps: 0,
+    moveStopEpsilon: 0,
+    collisionEpsilon: 0
+  });
+  const projectWasd = (resolvedForward: Vector3) => {
+    const movementYaw = Math.atan2(
+      resolvedForward.x,
+      resolvedForward.z
+    );
+    const projectMove = (moveX: number, moveZ: number) => {
+      motion.reset();
+      const displacement = motion.update(
+        Object.freeze({ moveX, moveZ }),
+        movementYaw,
+        1,
+        true,
+        1
+      );
+      return projectV2MinimapPoint(
+        displacement,
+        Vector3.Zero(),
+        resolvedForward
+      );
+    };
+    return Object.freeze({
+      w: projectMove(0, 1),
+      a: projectMove(-1, 0),
+      s: projectMove(0, -1),
+      d: projectMove(1, 0)
+    });
+  };
+  const downwardWasd = projectWasd(downwardForward);
+  const upwardWasd = projectWasd(upwardForward);
+  const wasdDirectionsAreStable = [downwardWasd, upwardWasd].every(
+    (projection) =>
+      projection.w.y < 90 &&
+      projection.a.x < 90 &&
+      projection.s.y > 90 &&
+      projection.d.x > 90
+  );
   checks.push(
     createT063Check(
-      "進行方向上・18m表示・12m視野扇の座標投影",
+      "真上・真下を含む進行方向上・18m表示・12m視野扇",
       Math.abs(northProjection.x - 90) < 1.0e-6 &&
         northProjection.y < 90 &&
         Math.abs(eastProjection.x - 90) < 1.0e-6 &&
@@ -357,10 +440,18 @@ export const runV2MinimapTests = ({
         V2_MINIMAP_VIEW_CONE_RANGE_METERS === 12 &&
         Math.abs(rangeProjection.y) < 1.0e-6 &&
         Math.abs(previousRangeProjection.y - 45) < 1.0e-6 &&
-        Math.abs(viewConeProjection.y - 30) < 1.0e-6,
+        Math.abs(viewConeProjection.y - 30) < 1.0e-6 &&
+        downwardForward.equalsWithEpsilon(north, 1.0e-6) &&
+        upwardForward.equalsWithEpsilon(north, 1.0e-6) &&
+        downwardFrame?.forward.equalsWithEpsilon(north, 1.0e-6) === true &&
+        upwardFrame?.forward.equalsWithEpsilon(north, 1.0e-6) === true &&
+        wasdDirectionsAreStable,
       `north=(${northProjection.x.toFixed(2)},${northProjection.y.toFixed(2)}) / ` +
         `east=(${eastProjection.x.toFixed(2)},${eastProjection.y.toFixed(2)}) / ` +
-        `range=${rangeProjection.y.toFixed(2)} / cone=${viewConeProjection.y.toFixed(2)}`
+        `range=${rangeProjection.y.toFixed(2)} / cone=${viewConeProjection.y.toFixed(2)} / ` +
+        `down=${downwardFrame?.forward.asArray().join(",") ?? "なし"} / ` +
+        `up=${upwardFrame?.forward.asArray().join(",") ?? "なし"} / ` +
+        `wasd=${wasdDirectionsAreStable}`
     )
   );
 

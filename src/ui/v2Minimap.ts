@@ -115,6 +115,7 @@ export type V2MinimapUpdate = Readonly<{
   playerFootPosition: Vector3;
   playerEyePosition: Vector3;
   forward: Vector3;
+  up: Vector3;
   actors: readonly V2MinimapActorSnapshot[];
   elevators: readonly StageElevatorSnapshot[];
   missionTargetActorIds: readonly string[];
@@ -177,13 +178,29 @@ const assertNonNegativeFiniteNumber = (
   }
 };
 
-const normalizeHorizontalForward = (forward: Vector3): Vector3 => {
+export const resolveV2MinimapHorizontalForward = (
+  forward: Vector3,
+  up: Vector3
+): Vector3 => {
   assertFiniteVector("ミニマップ進行方向", forward);
+  assertFiniteVector("ミニマップ上方向", up);
   const horizontal = new Vector3(forward.x, 0, forward.z);
-  if (horizontal.lengthSquared() <= HORIZONTAL_EPSILON) {
-    throw new Error("ミニマップ進行方向の水平成分がありません。");
+  if (horizontal.lengthSquared() > HORIZONTAL_EPSILON) {
+    return horizontal.normalize();
   }
-  return horizontal.normalize();
+  const horizontalUp = new Vector3(up.x, 0, up.z);
+  if (
+    Math.abs(forward.y) <= HORIZONTAL_EPSILON ||
+    horizontalUp.lengthSquared() <= HORIZONTAL_EPSILON
+  ) {
+    throw new Error(
+      "ミニマップの水平進行方向をカメラ姿勢から解決できません。"
+    );
+  }
+  if (forward.y > 0) {
+    horizontalUp.scaleInPlace(-1);
+  }
+  return horizontalUp.normalize();
 };
 
 const horizontalDistanceSquared = (
@@ -768,7 +785,10 @@ export const createV2MinimapController = ({
         return null;
       }
       resizeCanvas();
-      const forward = normalizeHorizontalForward(update.forward);
+      const forward = resolveV2MinimapHorizontalForward(
+        update.forward,
+        update.up
+      );
       const resolvedPlayerAreaHit = findMinimapArea(
         locationAssets,
         update.playerFootPosition,

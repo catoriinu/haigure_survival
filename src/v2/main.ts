@@ -1146,6 +1146,7 @@ engine.runRenderLoop(() => {
       playerFootPosition: currentPlayerTarget.footPosition,
       playerEyePosition: currentPlayerTarget.aimPosition,
       forward: characterViewForward,
+      up: characterViewUp,
       actors: survival.getMinimapActors(),
       elevators: dynamicRuntime.getSnapshot().elevators,
       missionTargetActorIds: EMPTY_MINIMAP_MISSION_TARGET_IDS,
