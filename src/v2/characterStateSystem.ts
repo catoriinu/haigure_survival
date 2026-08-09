@@ -44,6 +44,10 @@ export type V2CharacterStateSystemOptions = Readonly<{
   random: () => number;
 }>;
 
+export type V2CharacterBrainwashStartedEvent = Readonly<{
+  source: V2CharacterImpactSource;
+}>;
+
 export interface V2CharacterStateSystem {
   update(deltaSeconds: number): V2CharacterStateSnapshot;
   applyImpact(source: V2CharacterImpactSource): boolean;
@@ -52,6 +56,8 @@ export interface V2CharacterStateSystem {
   prepareExecutionTarget(): void;
   prepareExecutionAudience(): void;
   prepareExecutionShooter(): void;
+  promoteNpcHaigureToGun(): boolean;
+  drainBrainwashStartedEvents(): readonly V2CharacterBrainwashStartedEvent[];
   selectPlayerCompletion(state: V2PlayerCompletionState): void;
   getSnapshot(): V2CharacterStateSnapshot;
 }
@@ -94,6 +100,7 @@ export const createV2CharacterStateSystem = ({
   let hitOriginKind: V2BeamOriginKind | null = null;
   let playerCompletionUnlocked =
     kind === "player" && isV2PlayerCompletionState(initialState);
+  const pendingBrainwashStartedEvents: V2CharacterBrainwashStartedEvent[] = [];
 
   const nextRandom = () => {
     const value = random();
@@ -179,6 +186,17 @@ export const createV2CharacterStateSystem = ({
       hitPhaseElapsedSeconds = 0;
       hitPhaseRemainingSeconds = 0;
       setState("brainwash-in-progress");
+      if (hitSourceId === null || hitOriginKind === null) {
+        throw new Error("洗脳開始時に命中元がありません。");
+      }
+      pendingBrainwashStartedEvents.push(
+        Object.freeze({
+          source: Object.freeze({
+            sourceId: hitSourceId,
+            originKind: hitOriginKind
+          })
+        })
+      );
       if (kind === "player") {
         playerCompletionUnlocked = true;
       }
@@ -309,6 +327,26 @@ export const createV2CharacterStateSystem = ({
     },
     prepareExecutionShooter: () => {
       setScriptedExecutionState("brainwash-complete-gun");
+    },
+    promoteNpcHaigureToGun: () => {
+      if (kind !== "npc") {
+        throw new Error("プレイヤーへNPC用ハイグレ人間化を適用できません。");
+      }
+      if (state !== "brainwash-complete-haigure") {
+        return false;
+      }
+      setState("brainwash-complete-gun");
+      hitPhase = "none";
+      hitPhaseElapsedSeconds = 0;
+      hitPhaseRemainingSeconds = 0;
+      hitSourceId = null;
+      hitOriginKind = null;
+      return true;
+    },
+    drainBrainwashStartedEvents: () => {
+      const events = Object.freeze([...pendingBrainwashStartedEvents]);
+      pendingBrainwashStartedEvents.length = 0;
+      return events;
     },
     selectPlayerCompletion: (nextState) => {
       if (kind !== "player") {

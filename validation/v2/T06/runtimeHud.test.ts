@@ -12,10 +12,29 @@ import type { V2NpcCommandCandidate } from "../../../src/v2/npcSystem";
 import { V2_PLAYER_BASE_EYE_HEIGHT } from "../../../src/v2/playerController";
 import {
   canV2RuntimePlayerFire,
-  createV2RuntimeHudController
+  createV2RuntimeHudController as createV2RuntimeHudControllerBase
 } from "../../../src/ui/v2RuntimeHud";
 
 import { assert, assertThrows, executeTest } from "./testUtils";
+
+const createV2RuntimeHudController = (
+  options: Parameters<typeof createV2RuntimeHudControllerBase>[0]
+) => {
+  const controller = createV2RuntimeHudControllerBase(options);
+  return Object.freeze({
+    update: (
+      update: Omit<
+        Parameters<typeof controller.update>[0],
+        "broadcastCandidate"
+      >
+    ) =>
+      controller.update(
+        Object.freeze({ ...update, broadcastCandidate: null })
+      ),
+    clear: controller.clear,
+    dispose: controller.dispose
+  });
+};
 
 const createNpcCandidate = (
   commandMode: V2NpcCommandCandidate["commandMode"] = "none",

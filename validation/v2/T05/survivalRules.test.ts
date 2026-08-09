@@ -195,7 +195,8 @@ export const runSurvivalRulesTests =
               0,
               0
             ),
-            alive: true
+            alive: true,
+            state: "normal" as const
           },
           {
             id: "boundary",
@@ -204,7 +205,8 @@ export const runSurvivalRulesTests =
               0,
               0
             ),
-            alive: true
+            alive: true,
+            state: "normal" as const
           },
           {
             id: "outside",
@@ -213,12 +215,14 @@ export const runSurvivalRulesTests =
               0,
               0
             ),
-            alive: true
+            alive: true,
+            state: "normal" as const
           },
           {
             id: "dead",
             footPosition: new Vector3(0.01, 0, 0),
-            alive: false
+            alive: false,
+            state: "brainwash-in-progress" as const
           }
         ]);
         const noGun = selectV2PlayerBlockedNpcIds(

@@ -1,0 +1,90 @@
+# T06-4 Mission・校内放送 Runtime 実装計画
+
+更新日: 2026-08-09
+
+## プロンプト
+
+PLEASE IMPLEMENT THIS PLAN:
+
+# T06-4 Mission・校内放送 Runtime 実装計画
+
+## 概要
+
+- 実装開始時に `origin/develop` を再取得し、PR #70 を含む最新 HEAD（計画時点 `7f17e2d`）から専用ブランチ `codex/v2-missions` と worktree を作る。
+- 既存 worktree の未追跡 `scripts/v2/__pycache__/` は触らない。
+- 最初に `docs/plans/v2/T06-4/plan.md` を作成し、日付、今回のプロンプト、チェックリスト、結果欄を記録する。併せてロードマップ類を T06-3 統合済み・T06-4 進行中へ更新し、以後各ステップ完了時に同期する。
+- Mission、NPC移動、校内放送、公開処刑会場選択、右上HUD、T06-3ミニマップ連携までを実装する。Blender・GLB・NavMesh・生成器・カタログハッシュと T07 は対象外とする。
+
+## 公開契約
+
+- `V2MissionKind` を、Player Location、Follower獲得、Follower護衛、対象洗脳、最初のFollower洗脳、最初のFollowerからの逃走、NPC Location の判別可能な union として追加する。
+- `V2MissionState` は `active / completed / failed / cancelled` の4状態とし、担当者、Actor/Locationターゲット、開始時刻、期限、終了理由を持つ不変の `V2MissionView` を公開する。不正な組み合わせを表現できない判別 union にする。
+- `StageMissionLocation` に、正本Volumeによる `contains(position)` と、ロード時に検証済みの `navigationLocation` を追加する。座標の直書き、名前・Collider・BIT Volumeからの推測、欠落時のフォールバックは禁止する。
+- Player入力の `npc-follow` / `npc-leave` を、汎用の primary / secondary interactionへ完全移行する。旧action名や互換エイリアスは残さない。
+- NPC Runtimeへ、Mission ID・種別・Locationを持つ移動割当、取消、移動中・危険回避中・到着の状態取得を追加する。洗脳遷移は原因と「その瞬間にPlayerのNで阻止していたか」を型付きイベントとしてMission Runtimeへ通知する。
+
+## 実装内容
+
+- Mission Runtimeは戦闘AIと分離した決定的乱数系列をPlayer通常、NPC通常、放送に割り当てる。Playing開始20秒後から20秒周期で動作し、Playing離脱時は未完了Missionを失敗ではなく取消にする。
+- Player通常Missionは最大3件。空きがある各tickで50%抽選を1回行い、最大1件だけ追加する。無効候補を除いて比率を再正規化し、同一種別・Actor・Locationの重複は許可しない。
+
+| Player状態 | Mission | 比率 | 期限・完了条件 |
+|---|---|---:|---|
+| 未洗脳 | Location移動 | 50% | 120秒、目的地Volume内への進入 |
+| 未洗脳 | Follower獲得 | 30% | 120秒、開始後に対象へ新しくFollow成功 |
+| 未洗脳 | 最初のFollower護衛 | 20% | 240秒、開始時にFollow中かつ未洗脳の最初のFollowerを目的地へ誘導。Leaveまたは洗脳で失敗 |
+| 洗脳済み | 指定対象の洗脳 | 70% | 180秒、PlayerのG、またはN阻止中の第三者攻撃で対象が洗脳進行へ遷移 |
+| 洗脳済み | 最初のFollower洗脳 | 30% | 240秒、上記と同じ判定 |
+
+- Playerが洗脳進行へ入った時点でFollower獲得・護衛を取消する。通常ハイグレ状態では既存Missionと期限を継続するが、新しいLocation Missionは生成しない。
+- 最初のFollowerは、そのセッションで最初に成功したFollow対象へ固定し、Leave後も履歴を保持して差し替えない。そのNPCが洗脳済みとなりPlayerを追跡・攻撃し始めた瞬間、1セッション1回だけ45秒の逃走Missionを開始する。距離12m以上かつ非ターゲット状態を連続5秒維持すれば完了、Playerの洗脳進行で失敗とする。
+- NPC通常Location Missionは1tick最大2件、同時最大8件、期限180秒とする。ユーザー決定どおり両陣営の移動可能NPCを対象にするが、Follow中NPCは通常抽選から除外する。危険中も期限は進み、危険解消後に再開する。
+- NPC行動優先度を `直接的危険 > Follow > Alarm > 放送Mission > 通常Mission > 自律行動` に統一する。放送MissionはFollow中にも付与できるが、Followが続く間は移動せず期限切れになり得る。
+- 右上Mission HUDにはPlayerの通常3件と状況1件を表示し、残り時間と対象を更新する。完了・失敗はactive一覧から外して4秒表示し、取消は表示しない。ミニマップにはactiveなPlayer MissionのActor/Location IDだけを渡し、T06-3の18m範囲・12m視野・Location表示を維持する。
+- 放送コンソールはPlaying中、3m以内、画面中央rayが正面ターゲットを直接捉えた場合だけ候補にする。コンソール候補をNPC Follow/Leaveより優先し、CのDoor操作は変更しない。コンソールを狙っている間、無効なsecondary操作をNPC操作へフォールスルーさせない。
+- 放送操作は、F=`体育館に集まって`、未洗脳PlayerのE=`みんな逃げて`、洗脳済みPlayerのE=`みんなハイグレ人間になろう`、洗脳進行中はFのみとする。回数制限・cooldown・結果通知・字幕・効果数表示・チャイム・SFX・VOICEは追加しない。
+- 新しい放送時は既存の全放送Missionを取消し、対象NPCの通常Location Missionを置換する。放送Missionは通常上限8件の外、期限180秒とする。
+  - 体育館：両陣営の移動可能な生存NPCを個別に50%抽選し、当選者を体育館へ送る。0件でも再抽選しない。
+  - 逃走：現在のPlayer位置から近い洗脳完了NPCを、距離・NPC ID順で最大5体選び、2F放送室へ送る。Player追跡はさせない。
+  - ハイグレ人間化：通常ハイグレNPCを即時にハイグレ人間へ遷移させる。Player、洗脳進行中、公開処刑編成中などの固定対象は除外する。
+- 最後の校内指示は初期値を中庭とし、体育館放送で体育館、それ以外の放送で中庭へ更新する。集合・公開処刑への遷移時に会場を固定し、`assembly-gym` または `assembly-courtyard` をRegistry IDで厳密に取得する。現在の重み付きランダム会場選択は削除し、欠落時は明示的エラーとする。
+
+## テストと受入条件
+
+- Mission fixtureで20秒scheduler、50%抽選、比率再正規化、上限、重複防止、期限、phase離脱取消、通常ハイグレ中の継続、G/N成功条件、第三者攻撃失敗、最初のFollower固定、45秒逃走条件を決定的に検証する。
+- NPC fixtureで通常Mission最大8件・1tick最大2件、Follow除外、危険中の一時停止と期限継続、行動優先度、Volume到着を検証する。
+- 放送fixtureで3m・ray条件、コンソール優先、個別50%、距離＋ID順の最大5体、既存放送取消、通常Mission置換、180秒期限、Follow優先、即時ハイグレ人間化、最終指示と会場固定を検証する。
+- 実ブラウザまたはElectronでPointer Lock、F/E操作、NPC・Doorとの優先競合、右上HUD、ミニマップ目標、3種類の放送、集合・公開処刑会場、コンソールエラーなしを確認する。
+- 既存B05 Location監査、T06-3ミニマップfixture、依存監査、T06-4対象typecheck、V2全体typecheck、build、V3A、`git diff --check` を通す。制御構造変更後は括弧対応も構文検査で確認する。
+- 差分にローカル絶対パス、UTF-8 BOM、学校バイナリ資産、NavMesh、生成器、カタログハッシュの変更がないことを確認し、計画書の結果欄を実測結果で更新する。
+
+## 前提と完了境界
+
+- 今回確定した通常NPC Mission対象は「両陣営の移動可能NPC、ただしFollow中を除外」とする。放送MissionではFollow中も対象にできる。
+- 実装時に暗黙のフォールバック、旧API互換、欠落metadataの推測は追加しない。
+- T06-4の実装作業を別途開始する場合の完了境界は、専用worktreeでの実装、受入検証、計画書更新、ローカルcommitまでとする。push、Draft PR作成、レビュー、merge、T07開始はそれぞれ別の明示承認を要する。
+
+## ステップ
+
+- [x] `origin/develop`、PR #70、dirty差分、既存worktreeを確認し、`codex/v2-missions`専用worktreeを作成する。
+- [x] I2、B05、T06-3、ブランチ戦略、対象Runtime入口を照合し、所有境界と受入条件を固定する。
+- [x] Mission公開契約、決定的scheduler、Player Mission、最初のFollower、状況Missionを実装する。
+- [x] NPC Location Mission、行動優先度、洗脳遷移イベント、即時ハイグレ人間化を実装する。
+- [x] 汎用primary／secondary Interaction、校内放送3種、公開処刑会場固定を実装する。
+- [x] 右上Mission HUD、T06-3ミニマップ目標、通常ゲーム入口を統合する。
+- [x] Mission／NPC／放送fixtureと対象typecheckを追加する。
+- [x] B05・T06-3回帰、共通typecheck／build、V3A、実ブラウザまたはElectron受入、テキスト配布検査を完了する。
+- [x] ロードマップと本計画の結果を実測へ同期し、T06-4差分だけをcommitする。
+
+## 結果
+
+- `origin/develop=7f17e2d`から`codex/v2-missions`と専用worktreeを作成した。既存worktreeの未追跡`scripts/v2/__pycache__/`には触れていない。
+- Missionの判別union、20秒scheduler、Player通常／状況Mission、NPC Location Mission、最初のFollower、G／N洗脳判定、正本Volume到着、期限・取消・履歴を実装した。N補助は受理impact時点のPlayer状態・距離を保持し、洗脳開始イベントへ通知する。
+- NPC行動を`直接的危険 > Follow > Alarm > 放送Mission > 通常Mission > 自律行動`へ統一し、危険回避、Follow、エレベーター、移動失敗、Mission取消の競合を解消した。
+- primary／secondary Interaction、放送卓3m＋正面ray、体育館／逃走／ハイグレ人間化の3放送、通常Mission置換、最後の校内指示、`assembly-gym`／`assembly-courtyard`の厳格な会場固定を実装した。旧`npc-follow`／`npc-leave` actionと互換aliasは残していない。
+- 右上Mission HUD、完了／失敗4秒表示、取消非表示、T06-3ミニマップのactive Player Mission Actor／Location目標を通常ゲームへ接続した。
+- fixtureはT06-4 25/25、B05 34/34、T06 68/68、T06-3 14/14でPASSし、各pageのconsole warning／errorは0件だった。T06-4 fixtureではscheduler、再正規化、上限、重複、期限境界、phase取消、最初のFollower、逃走、NPC優先度、放送置換、Interaction優先、会場固定を決定的に検証した。
+- `typecheck:t05`、`typecheck:t06`、`typecheck:t06-3`、`typecheck:b05`、`typecheck:t06-4`、`typecheck:v2`、対応する5件のfixture build、通常`npm run build`、Electron受入script構文をPASSした。
+- Mission専用Electron受入はnormalでPointer Lock、放送卓ray、20秒HUD／ミニマップ、F体育館、E逃走、体育館／中庭会場を、haigureでEハイグレ人間化と中庭会場を確認した。両scenarioともconsole、renderer、load、render-process-gone、unresponsiveは0件だった。InteractionのNPC優先競合、無効secondary非fallthrough、Door C独立はT06-4 fixtureで確認した。
+- `git diff --check`、括弧を含むTypeScript／Electron構文検査、厳格UTF-8／BOM、ローカル絶対パス、旧action名、保護対象差分を監査した。Blender、GLB、NavMesh、生成器、カタログハッシュは変更していない。
+- 本計画更新を含むT06-4差分をローカルcommitまで完了した。push、Draft PR、レビュー、merge、I3／T06-5／T07は未実施である。

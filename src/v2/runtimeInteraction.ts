@@ -1,8 +1,17 @@
+import { Vector3, type Camera } from "@babylonjs/core";
+
 import type {
   StageDoorInteractionCandidate,
   StageDoorRuntime
 } from "../world/stageDoorRuntime";
+import type { StageBroadcastConsole } from "../world/stageLocationAssets";
+import type { StageSpatialContext } from "../world/stageSpatialContext";
+import { BLENDER_METERS_TO_WORLD_UNITS } from "../world/worldUnits";
 import type { V2PlayerCompletionState } from "./combatTypes";
+import {
+  resolveV2BroadcastCommands,
+  type V2BroadcastCommand
+} from "./missionRuntime";
 import type {
   V2NpcCommandCandidate,
   V2NpcCommandMode
@@ -12,6 +21,8 @@ import type { V2SurvivalFrame, V2SurvivalRuntime } from "./survivalRuntime";
 
 export const V2_NORMAL_HORIZONTAL_SPEED_SCALE = 1 as const;
 export const V2_WATER_HORIZONTAL_SPEED_SCALE = 0.5 as const;
+export const V2_BROADCAST_INTERACTION_DISTANCE =
+  3 * BLENDER_METERS_TO_WORLD_UNITS;
 
 export const resolveV2HorizontalSpeedScale = (
   inWater: boolean
@@ -29,8 +40,82 @@ export type V2RuntimeInteractionFrame = Pick<
 
 export type V2RuntimeInteractionSurvivalPort = Pick<
   V2SurvivalRuntime,
-  "requestNpcCommand" | "selectPlayerCompletion"
+  "requestBroadcast" | "requestNpcCommand" | "selectPlayerCompletion"
 >;
+
+export type V2BroadcastInteractionOption = Readonly<{
+  command: V2BroadcastCommand;
+  label: string;
+}>;
+
+export type V2BroadcastInteractionCandidate = Readonly<{
+  consoleId: string;
+  aimPosition: Vector3;
+  primary: V2BroadcastInteractionOption;
+  secondary: V2BroadcastInteractionOption | null;
+}>;
+
+export type V2BroadcastInteractionQuery = Readonly<{
+  phase: V2SurvivalFrame["phase"];
+  playerState: V2SurvivalFrame["playerState"];
+  playerFootPosition: Vector3;
+  camera: Camera;
+  broadcastConsole: StageBroadcastConsole;
+  queries: StageSpatialContext["queries"];
+}>;
+
+export const resolveV2BroadcastInteractionCandidate = ({
+  phase,
+  playerState,
+  playerFootPosition,
+  camera,
+  broadcastConsole,
+  queries
+}: V2BroadcastInteractionQuery): V2BroadcastInteractionCandidate | null => {
+  if (
+    phase !== "playing" ||
+    Vector3.Distance(
+      playerFootPosition,
+      broadcastConsole.markerNode.getAbsolutePosition()
+    ) > V2_BROADCAST_INTERACTION_DISTANCE
+  ) {
+    return null;
+  }
+  const intersection = camera
+    .getForwardRay()
+    .intersectsMesh(broadcastConsole.targetMesh, false);
+  if (!intersection.hit || intersection.pickedPoint === null) {
+    return null;
+  }
+  const aimPosition = intersection.pickedPoint;
+  if (
+    queries.castSightSegment(
+      camera.globalPosition,
+      aimPosition
+    ) !== null
+  ) {
+    return null;
+  }
+  const commands = resolveV2BroadcastCommands(playerState);
+  return Object.freeze({
+    consoleId: broadcastConsole.id,
+    aimPosition: aimPosition.clone(),
+    primary: Object.freeze({
+      command: commands.primary,
+      label: "体育館に集まって"
+    }),
+    secondary:
+      commands.secondary === null
+        ? null
+        : Object.freeze({
+            command: commands.secondary,
+            label:
+              commands.secondary === "flee"
+                ? "みんな逃げて"
+                : "みんなハイグレ人間になろう"
+          })
+  });
+};
 
 export type V2RuntimeExecutionReplaySurvivalPort = Pick<
   V2SurvivalRuntime,
@@ -55,6 +140,7 @@ export type V2RuntimeInteractionDoorPort = Pick<
 export type V2RuntimeInteractionDispatch = Readonly<{
   actions: readonly V2PlayerAction[];
   frame: V2RuntimeInteractionFrame;
+  broadcastCandidate: V2BroadcastInteractionCandidate | null;
   npcCandidates: readonly V2NpcCommandCandidate[];
   doorCandidates: readonly StageDoorInteractionCandidate[];
   survival: V2RuntimeInteractionSurvivalPort;
@@ -105,6 +191,7 @@ const PLAYER_COMPLETION_BY_ACTION = Object.freeze({
 export const dispatchV2RuntimeInteractions = ({
   actions,
   frame,
+  broadcastCandidate,
   npcCandidates,
   doorCandidates,
   survival,
@@ -120,7 +207,13 @@ export const dispatchV2RuntimeInteractions = ({
     if (action === "replay-execution") {
       continue;
     }
-    if (action === "npc-follow") {
+    if (action === "interaction-primary") {
+      if (broadcastCandidate) {
+        survival.requestBroadcast(
+          broadcastCandidate.primary.command
+        );
+        continue;
+      }
       if (
         npcCandidate &&
         effectiveNpcCommandMode !== "follow" &&
@@ -137,7 +230,15 @@ export const dispatchV2RuntimeInteractions = ({
       }
       continue;
     }
-    if (action === "npc-leave") {
+    if (action === "interaction-secondary") {
+      if (broadcastCandidate) {
+        if (broadcastCandidate.secondary) {
+          survival.requestBroadcast(
+            broadcastCandidate.secondary.command
+          );
+        }
+        continue;
+      }
       if (
         npcCandidate &&
         effectiveNpcCommandMode !== "leave" &&
@@ -173,6 +274,9 @@ export const dispatchV2RuntimeInteractions = ({
       continue;
     }
     if (
+      (action === "select-gun" ||
+        action === "select-no-gun" ||
+        action === "select-haigure") &&
       frame.phase === "playing" &&
       frame.playerCompletionUnlocked
     ) {

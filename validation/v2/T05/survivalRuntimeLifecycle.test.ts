@@ -246,6 +246,7 @@ const createRuntime = async (
         stage,
         playerSpawn,
         player,
+        initialPlayerState: "normal",
         characterVisuals,
         random: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED),
         npcSpawnRandom: createV2SeededRandom(
@@ -253,6 +254,15 @@ const createRuntime = async (
         ),
         bitSpawnRandom: createV2SeededRandom(
           V2_PERFORMANCE_DEFAULT_SEED ^ 0x4249_5401
+        ),
+        playerMissionRandom: createV2SeededRandom(
+          V2_PERFORMANCE_DEFAULT_SEED ^ 0x4d50_4c01
+        ),
+        npcMissionRandom: createV2SeededRandom(
+          V2_PERFORMANCE_DEFAULT_SEED ^ 0x4d4e_4c01
+        ),
+        broadcastMissionRandom: createV2SeededRandom(
+          V2_PERFORMANCE_DEFAULT_SEED ^ 0x4d42_4301
         ),
         getOrbVisibilityPredicate,
         population: V2_PERFORMANCE_ACCEPTANCE_POPULATION,
@@ -653,6 +663,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
         stage: lifecycleStage,
         playerSpawn,
         player: commandPlayer,
+        initialPlayerState: "normal",
         characterVisuals: commandCharacterVisuals,
         random: gunNpcRandom,
         npcSpawnRandom: createV2SeededRandom(
@@ -660,6 +671,15 @@ export const runSurvivalRuntimeLifecycleTests = async (
         ),
         bitSpawnRandom: createV2SeededRandom(
           V2_PERFORMANCE_DEFAULT_SEED ^ 0x4249_5402
+        ),
+        playerMissionRandom: createV2SeededRandom(
+          V2_PERFORMANCE_DEFAULT_SEED ^ 0x4d50_4c02
+        ),
+        npcMissionRandom: createV2SeededRandom(
+          V2_PERFORMANCE_DEFAULT_SEED ^ 0x4d4e_4c02
+        ),
+        broadcastMissionRandom: createV2SeededRandom(
+          V2_PERFORMANCE_DEFAULT_SEED ^ 0x4d42_4302
         ),
         getOrbVisibilityPredicate: () => () => true,
         population: Object.freeze({

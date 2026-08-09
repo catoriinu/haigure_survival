@@ -611,8 +611,8 @@ const testPlayerActions = async () => {
   };
   const expectedActions: readonly V2PlayerAction[] =
     Object.freeze([
-      "npc-follow",
-      "npc-leave",
+      "interaction-primary",
+      "interaction-secondary",
       "door-toggle",
       "select-gun",
       "select-no-gun",
@@ -927,7 +927,8 @@ const testCommandStateEligibility = async () => {
         source: Object.freeze({
           sourceId: "bit_0",
           originKind: "bit-chase" as const
-        })
+        }),
+        playerNoGunAssisted: false
       })
     ]);
     assert(
@@ -1211,7 +1212,8 @@ const testFollowMovementAndRelease = async () => {
         source: Object.freeze({
           sourceId: "player",
           originKind: "player-gun" as const
-        })
+        }),
+        playerNoGunAssisted: false
       })
     ]);
     assert(
@@ -2366,7 +2368,8 @@ const testBrainwashedFollowersAndSynchronizedFire = async () => {
           source: Object.freeze({
             sourceId: "bit_0",
             originKind: "bit-chase" as const
-          })
+          }),
+          playerNoGunAssisted: false
         })
       ]);
     assert(

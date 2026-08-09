@@ -98,13 +98,13 @@ PR #41以降は、レビュー可能な一ブランチ単位へ次のように�
 | T06-5 キャラクター反射・表示仕上げRuntime | `codex/v2-character-portraits` |
 | T07 性能・回帰・仕様書 | `codex/v2-t07-regression-docs` |
 
-PR #50までの実行順は、B03-0とT04-2Aの並行Wave、B03-1、B03-2、T04-2B、T05-1、T05-2で完了した。その後、B03-3Aで学校拡張契約を確定し、B03-3BとT05-2V、B03-3C・T04-3A・T05-3のI0統合、B04とT05-4の並行Wave、T04-3B、通常版教室配置、通常テスト人口更新、B03-3D、T06-1、B03-3D追補、T06-2までPR #64～#67で完了した。I2設計文書はPR #68、B05はPR #69で`develop=96a16cb`へ統合済みである。T06-3はこのheadから専用branchで実装・検証済みであり、T06-4はT06-3 merge後に実施する。
+PR #50までの実行順は、B03-0とT04-2Aの並行Wave、B03-1、B03-2、T04-2B、T05-1、T05-2で完了した。その後、B03-3Aで学校拡張契約を確定し、B03-3BとT05-2V、B03-3C・T04-3A・T05-3のI0統合、B04とT05-4の並行Wave、T04-3B、通常版教室配置、通常テスト人口更新、B03-3D、T06-1、B03-3D追補、T06-2までPR #64～#67で完了した。I2設計文書はPR #68、B05はPR #69、T06-3はPR #70で`develop=7f17e2d`へ統合済みであり、T06-4をこのheadから実施する。
 
 2026-07-26、`codex/v2-t05-combat-systems`はPR #50のマージコミット`27abd9b`で`develop`へ統合済みである。戦闘・状態・光線物理・集合・警報・公開処刑、Alert最大4機、BIT探索分散、窓越しCHASE、仕様維持性能リファクタリングをT05-2の完了範囲とする。V1相当の光線軌跡・周囲光球・着弾・キャラクター命中演出はPR #50へ追加せず、世界境界終了とともにT05-2Vへ分割する。
 
 2026-08-01、PR #59のT04-3B、PR #60の通常版教室配置、PR #61の通常テスト人口50／10／20は`develop`の`e8f922d`までに統合済みである。B04の最終契約は`worldBoundaryMode = "required"`、非nullの`StageSpatialContext.worldBoundary`、外周BIT飛行帯なし、外周BIT経路0件を維持する。現在は`codex/v2-wave-0g-roadmap`で文書だけを再編し、コード・学校バイナリ・既存worktreeを変更しない。
 
-2026-08-09、PR #64のT06-1、PR #65のB03-3D、PR #66の荒れ版家具干渉修正、PR #67のT06-2、PR #68のI2設計文書、PR #69のB05は`develop=96a16cb`までに統合済みである。T06-3は専用branchで実装・検証済みであり、独立レビュー・merge後にT06-4を開始する。
+2026-08-09、PR #64のT06-1、PR #65のB03-3D、PR #66の荒れ版家具干渉修正、PR #67のT06-2、PR #68のI2設計文書、PR #69のB05、PR #70のT06-3は`develop=7f17e2d`までに統合済みである。T06-4はこのheadから`codex/v2-missions`と専用worktreeを作成し、実装・V3A・ローカルcommitまで完了した。push、Pull Request、レビュー、mergeは未実施である。
 
 T04-2BでB03-2統合後の階段NAV元形状と上階blockerを修正する作業だけは、`codex/v2-t04-school-multifloor`からローカル限定の`codex/v2-t04-school-nav-asset-fix`を分岐する。修正コミットはT04-2Bへ`--no-ff`でローカルマージし、この補助ブランチ自体はpushまたはPull Request化しない。2026-07-20に北西階段・吹抜け補正`1f34fe2`を`d9a3872`、北東・南西1F踊り場開口補正`fb2caf5`を`b3f2302`、上階Nav blocker補正`c2bcdcc`を`b5e77f7`としてT04へローカルマージ済みである。
 
@@ -183,9 +183,9 @@ gh auth status
 - 現行V2には鏡または反射用カメラがないため、I3はT06-4後の「キャラクター反射・表示仕上げ設計」相談専用タスクとし、鏡反射、必要な一人称表示仕上げ、99 NPC性能条件をユーザー承認で確定する。コード・資産は変更しない。
 - T06-5はI3確定後に単独で実施し、T06-1の基本Character画像表示を前提に、承認済みの鏡反射と表示仕上げだけを実装してV3B機能ゲートを完了する。音声・画像バイナリはGit管理対象へ追加しない。
 - T07はT06-5後に単独で実施し、ミニマップ、Mission、放送、基本Character画像、鏡反射を有効にした99 NPC／50 BITの性能・最終回帰・仕様書同期を行う。Pull Requestの`develop`マージ前に性能・リリースゲートを完了する。
-- 現行順序は`I2・T06-2・B05統合済み → T06-3実装・検証済み → T06-3独立レビュー・merge → T06-4 → I3 → T06-5 → T07 → v2リリース準備`とし、依存成果が`develop`へ入る前に後続ブランチを作成したり書込みを開始したりしない。
+- 現行順序は`I2・T06-2・B05・T06-3統合済み → T06-4 → I3 → T06-5 → T07 → v2リリース準備`とし、依存成果が`develop`へ入る前に後続ブランチを作成したり書込みを開始したりしない。
 - `.blend`と`.glb`は同時に複数ブランチで編集しない。Blender資産は常に1ブランチ・1担当とする。
-- 旧`codex/v2-post-pr66-roadmap` worktreeはdirty差分を保持したまま凍結する。T06-2用`codex/v2-t06-school-integration`はPR #67、B05用`codex/v2-mission-locations`はPR #69で完了済みである。T06-3用`codex/v2-minimap`は`develop=96a16cb`から作成し、T06-3 merge前にT06-4用branch／worktreeを作成しない。
+- 旧`codex/v2-post-pr66-roadmap` worktreeはdirty差分を保持したまま凍結する。T06-2用`codex/v2-t06-school-integration`はPR #67、B05用`codex/v2-mission-locations`はPR #69、T06-3用`codex/v2-minimap`はPR #70で完了済みである。T06-4用`codex/v2-missions`は`develop=7f17e2d`から専用worktreeで開始した。
 - `docs/plan.md`と`docs/plans/v2/next_tasks_plan.md`は統合担当だけが更新する。
 - Pull Request作成前に最新の`develop`を取り込み、競合と回帰を解消する。
 

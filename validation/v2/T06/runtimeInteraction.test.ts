@@ -22,7 +22,7 @@ import {
   V2_NORMAL_HORIZONTAL_SPEED_SCALE,
   V2_WATER_HORIZONTAL_SPEED_SCALE,
   dispatchV2RuntimeExecutionReplay,
-  dispatchV2RuntimeInteractions,
+  dispatchV2RuntimeInteractions as dispatchV2RuntimeInteractionsBase,
   resolveV2HorizontalSpeedScale,
   type V2RuntimeExecutionReplaySurvivalPort,
   type V2RuntimeInteractionDoorPort,
@@ -30,6 +30,16 @@ import {
 } from "../../../src/v2/runtimeInteraction";
 
 import { assert, executeTest } from "./testUtils";
+
+const dispatchV2RuntimeInteractions = (
+  dispatch: Omit<
+    Parameters<typeof dispatchV2RuntimeInteractionsBase>[0],
+    "broadcastCandidate"
+  >
+) =>
+  dispatchV2RuntimeInteractionsBase(
+    Object.freeze({ ...dispatch, broadcastCandidate: null })
+  );
 
 const createNpcCandidate = (
   npcId: string,
@@ -71,6 +81,7 @@ const createInteractionCalls = (): InteractionCalls => {
     selections,
     doorIds,
     survival: Object.freeze({
+      requestBroadcast: () => false,
       requestNpcCommand: (npcId: string, kind: "follow" | "leave") => {
         commands.push(`${kind}:${npcId}`);
         return true;
@@ -295,9 +306,9 @@ export const runRuntimeInteractionTests = async () =>
       const calls = createInteractionCalls();
       const feedback = dispatchV2RuntimeInteractions({
         actions: Object.freeze([
-          "npc-follow",
-          "npc-follow",
-          "npc-leave",
+          "interaction-primary",
+          "interaction-primary",
+          "interaction-secondary",
           "door-toggle",
           "door-toggle"
         ]),
@@ -336,8 +347,8 @@ export const runRuntimeInteractionTests = async () =>
       const calls = createInteractionCalls();
       dispatchV2RuntimeInteractions({
         actions: Object.freeze([
-          "npc-follow",
-          "npc-leave",
+          "interaction-primary",
+          "interaction-secondary",
           "door-toggle"
         ]),
         frame: playingFrame,
@@ -356,7 +367,7 @@ export const runRuntimeInteractionTests = async () =>
       let commandCalls = 0;
       let doorCalls = 0;
       const refused = dispatchV2RuntimeInteractions({
-        actions: Object.freeze(["npc-follow", "door-toggle"]),
+        actions: Object.freeze(["interaction-primary", "door-toggle"]),
         frame: playingFrame,
         npcCandidates: Object.freeze([
           createNpcCandidate("npc-following", "follow")
@@ -365,6 +376,7 @@ export const runRuntimeInteractionTests = async () =>
           createDoorCandidate("door-busy")
         ]),
         survival: Object.freeze({
+          requestBroadcast: () => false,
           requestNpcCommand: () => {
             commandCalls += 1;
             return false;
@@ -382,13 +394,14 @@ export const runRuntimeInteractionTests = async () =>
         })
       });
       const rejectedChange = dispatchV2RuntimeInteractions({
-        actions: Object.freeze(["npc-leave"]),
+        actions: Object.freeze(["interaction-secondary"]),
         frame: playingFrame,
         npcCandidates: Object.freeze([
           createNpcCandidate("npc-following", "follow")
         ]),
         doorCandidates: Object.freeze([]),
         survival: Object.freeze({
+          requestBroadcast: () => false,
           requestNpcCommand: () => {
             commandCalls += 1;
             return false;

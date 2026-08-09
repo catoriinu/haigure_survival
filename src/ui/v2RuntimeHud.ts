@@ -10,7 +10,10 @@ import type {
   V2NpcCommandCandidate,
   V2NpcCommandMode
 } from "../v2/npcSystem";
-import type { V2RuntimeInteractionFeedback } from "../v2/runtimeInteraction";
+import type {
+  V2BroadcastInteractionCandidate,
+  V2RuntimeInteractionFeedback
+} from "../v2/runtimeInteraction";
 import type { V2SurvivalFrame } from "../v2/survivalRuntime";
 
 export type V2RuntimeHudFrame = Pick<
@@ -32,6 +35,7 @@ export const canV2RuntimePlayerFire = (
 export type V2RuntimeHudUpdate = Readonly<{
   active: boolean;
   frame: V2RuntimeHudFrame;
+  broadcastCandidate: V2BroadcastInteractionCandidate | null;
   npcCandidates: readonly V2NpcCommandCandidate[];
   doorCandidates: readonly StageDoorInteractionCandidate[];
   feedback: readonly V2RuntimeInteractionFeedback[];
@@ -61,6 +65,7 @@ const WORLD_MATRIX = Matrix.Identity();
 const NPC_IDLE_COLOR = "#61e8ff";
 const NPC_FOLLOW_COLOR = "#9cff57";
 const DOOR_COLOR = "#ffd166";
+const BROADCAST_COLOR = "#d98cff";
 const FEEDBACK_ANIMATION_DURATION_MS = 180;
 
 const applyStyles = (
@@ -72,7 +77,7 @@ const applyStyles = (
 
 const createTargetMarker = (
   document: Document,
-  kind: "npc" | "door",
+  kind: "npc" | "door" | "broadcast",
   color: string,
   prompt: string
 ): TargetMarker => {
@@ -249,6 +254,12 @@ export const createV2RuntimeHudController = ({
     DOOR_COLOR,
     "C: 扉を開閉"
   );
+  const broadcastMarker = createTargetMarker(
+    document,
+    "broadcast",
+    BROADCAST_COLOR,
+    "F: 体育館に集まって"
+  );
   const completionGuide = createGuide(
     document,
     "completion-guide",
@@ -263,6 +274,7 @@ export const createV2RuntimeHudController = ({
   );
   root.append(
     npcMarker.root,
+    broadcastMarker.root,
     doorMarker.root,
     completionGuide,
     crosshair,
@@ -272,6 +284,7 @@ export const createV2RuntimeHudController = ({
 
   let disposed = false;
   let currentNpcTargetId: string | null = null;
+  let currentBroadcastTargetId: string | null = null;
   let currentDoorTargetId: string | null = null;
   let feedbackAnimationRevision = 0;
   const globalViewport = new Viewport(0, 0, 0, 0);
@@ -285,6 +298,7 @@ export const createV2RuntimeHudController = ({
 
   const hideElements = (): void => {
     setElementHidden(npcMarker.root, true);
+    setElementHidden(broadcastMarker.root, true);
     setElementHidden(doorMarker.root, true);
     setElementHidden(completionGuide, true);
     setElementHidden(crosshair, true);
@@ -302,8 +316,10 @@ export const createV2RuntimeHudController = ({
 
   const clearTargetState = (): void => {
     currentNpcTargetId = null;
+    currentBroadcastTargetId = null;
     currentDoorTargetId = null;
     clearMarkerFeedback(npcMarker);
+    clearMarkerFeedback(broadcastMarker);
     clearMarkerFeedback(doorMarker);
   };
 
@@ -382,6 +398,7 @@ export const createV2RuntimeHudController = ({
     update: ({
       active,
       frame,
+      broadcastCandidate,
       npcCandidates,
       doorCandidates,
       feedback
@@ -403,6 +420,7 @@ export const createV2RuntimeHudController = ({
       const playerCanFire = canV2RuntimePlayerFire(frame);
       if (frame.phase !== "playing") {
         setElementHidden(npcMarker.root, true);
+        setElementHidden(broadcastMarker.root, true);
         setElementHidden(doorMarker.root, true);
         setElementHidden(completionGuide, true);
         setElementHidden(crosshair, !playerCanFire);
@@ -412,12 +430,13 @@ export const createV2RuntimeHudController = ({
       }
       const transformationMatrix = camera.getTransformationMatrix();
       const npcCandidate = npcCandidates[0];
-      const nextNpcTargetId = npcCandidate?.npcId ?? null;
+      const nextNpcTargetId =
+        broadcastCandidate === null ? npcCandidate?.npcId ?? null : null;
       if (nextNpcTargetId !== currentNpcTargetId) {
         clearMarkerFeedback(npcMarker);
         currentNpcTargetId = nextNpcTargetId;
       }
-      if (npcCandidate) {
+      if (npcCandidate && broadcastCandidate === null) {
         const commandFeedback = feedback.find(
           (event) =>
             event.kind === "npc-command-changed" &&
@@ -442,6 +461,26 @@ export const createV2RuntimeHudController = ({
         }
       } else {
         setElementHidden(npcMarker.root, true);
+      }
+      const nextBroadcastTargetId =
+        broadcastCandidate?.consoleId ?? null;
+      if (nextBroadcastTargetId !== currentBroadcastTargetId) {
+        clearMarkerFeedback(broadcastMarker);
+        currentBroadcastTargetId = nextBroadcastTargetId;
+      }
+      if (broadcastCandidate) {
+        broadcastMarker.label.textContent =
+          broadcastCandidate.secondary === null
+            ? `F: ${broadcastCandidate.primary.label}`
+            : `F: ${broadcastCandidate.primary.label} / E: ${broadcastCandidate.secondary.label}`;
+        projectTarget(
+          broadcastMarker,
+          broadcastCandidate.aimPosition,
+          canvasRect,
+          transformationMatrix
+        );
+      } else {
+        setElementHidden(broadcastMarker.root, true);
       }
       const doorCandidate = doorCandidates[0];
       const nextDoorTargetId = doorCandidate?.door.id ?? null;

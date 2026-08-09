@@ -61,6 +61,7 @@ export const selectV2PlayerBlockedNpcIds = (
     id: string;
     footPosition: Vector3;
     alive: boolean;
+    state: V2CharacterState;
   }>[]
 ): readonly string[] =>
   playerState === "brainwash-complete-no-gun"
@@ -68,7 +69,9 @@ export const selectV2PlayerBlockedNpcIds = (
         npcs
           .filter(
             (npc) =>
-              npc.alive &&
+              (npc.alive ||
+                npc.state === "hit-a" ||
+                npc.state === "hit-b") &&
               Vector3.Distance(
                 playerFootPosition,
                 npc.footPosition

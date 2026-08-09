@@ -131,4 +131,4 @@
 - レビュー対応後の実Electron fixtureはT06-3が14/14、T04が115/115でPASSし、いずれもrenderer警告・例外0件だった。`typecheck:v2`、T02・T04・B05・T06・T06-2・T06-3 typecheck、通常・T02・T04・T06・T06-2・T06-3 buildをPASSした。
 - レビュー対応は`dde365d`（構造blocker意味分類）、`144e4ca`（Actor snapshot再利用）、`c367654`（Electron Pointer Lock受入継続）の3コミットへ分割してpushした。先行の真上・真下修正`545dc48`を含む4件すべての元インラインthreadへ、修正内容、検証結果、未確認事項を返信した。再取得時点で全4件に返信があり、`isResolved=false`を維持している。threadのresolveとmergeは行っていない。
 - `typecheck:v2`、`typecheck:t06-3`、`build`、`build:t06-3`、T04・B05・T06・T06-2のtypecheck／build、差分・UTF-8・公開文書検査を完了した。
-- 学校GLB、NavMesh、Blender正本、生成器、カタログ、T06-4 Mission状態管理は変更していない。T06-3本体と真上・真下視点追補はDraft PR #70へpush済みである。レビュー対応は実施中で、threadのresolveとmergeは行わない。
+- 学校GLB、NavMesh、Blender正本、生成器、カタログ、T06-4 Mission状態管理は変更していない。T06-3本体、真上・真下視点追補、レビュー対応はPR #70で`develop=7f17e2d`へ統合済みである。

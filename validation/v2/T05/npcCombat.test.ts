@@ -125,6 +125,7 @@ type NpcRuntimeTestAccess = {
     pursuitActorAreaCursor: StageNavigationAreaCursor;
     pendingNavigationTransition: NavigationTransitionStep | null;
     traversalState: V2NpcTraversalState;
+    hitPlayerNoGunAssisted: boolean | null;
   }>;
   random: () => number;
   selectRestSlot(
@@ -169,7 +170,8 @@ const applyNpcBeamImpact = (
   system.applyBeamImpacts([
     Object.freeze({
       npcId,
-      source
+      source,
+      playerNoGunAssisted: false
     })
   ])[0].accepted;
 
@@ -1326,6 +1328,82 @@ const testImpactSuspensionAndStrictPlacement = async () => {
       "AI停止中に移動または発射しました。"
     );
     return "厳格・原子的配置、beam impact、AI停止中state timer継続";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testNpcImpactCapturesPlayerNoGunAssistance = async () => {
+  const fixture = await createNpcFixture(2, 0);
+  try {
+    const access = fixture.system as unknown as NpcRuntimeTestAccess;
+    const assistedResult = fixture.system.applyBeamImpacts([
+      Object.freeze({
+        npcId: "npc_0",
+        source: Object.freeze({
+          sourceId: "bit-assisted",
+          originKind: "bit-chase" as const
+        }),
+        playerNoGunAssisted: true
+      })
+    ]);
+    const rejectedResult = fixture.system.applyBeamImpacts([
+      Object.freeze({
+        npcId: "npc_0",
+        source: Object.freeze({
+          sourceId: "bit-rejected",
+          originKind: "bit-fixed" as const
+        }),
+        playerNoGunAssisted: false
+      })
+    ]);
+    const unassistedResult = fixture.system.applyBeamImpacts([
+      Object.freeze({
+        npcId: "npc_1",
+        source: Object.freeze({
+          sourceId: "bit-unassisted",
+          originKind: "bit-random" as const
+        }),
+        playerNoGunAssisted: false
+      })
+    ]);
+    assert(
+      assistedResult[0].accepted &&
+        !rejectedResult[0].accepted &&
+        unassistedResult[0].accepted &&
+        access.npcs[0].hitPlayerNoGunAssisted === true &&
+        access.npcs[1].hitPlayerNoGunAssisted === false,
+      "受理impact時点のPlayer N補助情報を保持していません。"
+    );
+    fixture.system.drainStateTransitions();
+
+    fixture.system.update(
+      V2_HIT_FLICKER_DURATION_SECONDS + V2_HIT_FADE_DURATION_SECONDS,
+      createPlayerTarget(new Vector3(4, 0, 4)),
+      EMPTY_ALARM_TARGET_EVENTS
+    );
+    const brainwashTransitions = new Map(
+      fixture.system
+        .drainStateTransitions()
+        .filter(
+          (transition) =>
+            transition.currentState === "brainwash-in-progress"
+        )
+        .map((transition) => [transition.npcId, transition] as const)
+    );
+    const assistedTransition = brainwashTransitions.get("npc_0");
+    const unassistedTransition = brainwashTransitions.get("npc_1");
+    assert(
+      brainwashTransitions.size === 2 &&
+        assistedTransition?.hitSourceId === "bit-assisted" &&
+        assistedTransition.playerNoGunAssisted &&
+        unassistedTransition?.hitSourceId === "bit-unassisted" &&
+        !unassistedTransition.playerNoGunAssisted &&
+        access.npcs[0].hitPlayerNoGunAssisted === null &&
+        access.npcs[1].hitPlayerNoGunAssisted === null,
+      "洗脳開始eventがimpact時点のPlayer N補助情報を通知・消費しません。"
+    );
+    return "受理impactのN補助flagを保持し、洗脳開始eventで通知後に消費";
   } finally {
     fixture.dispose();
   }
@@ -2740,14 +2818,16 @@ const testNpcFrameViewBuildsOncePerBulkChange = async () => {
         source: {
           sourceId: "bit_bulk_0",
           originKind: "bit-chase"
-        }
+        },
+        playerNoGunAssisted: false
       },
       {
         npcId: "npc_1",
         source: {
           sourceId: "bit_bulk_1",
           originKind: "bit-fixed"
-        }
+        },
+        playerNoGunAssisted: false
       }
     ]);
     const afterImpactSequence =
@@ -3911,6 +3991,10 @@ export const runNpcCombatTests = async () =>
     executeTest(
       "NPC beam impact・AI停止・厳格配置",
       testImpactSuspensionAndStrictPlacement
+    ),
+    executeTest(
+      "NPC impact時点のPlayer N補助情報",
+      testNpcImpactCapturesPlayerNoGunAssistance
     ),
     executeTest("NPC集合配置", testFormationPlacement),
     executeTest("NPC公開処刑状態・hit fade", testScriptedExecutionAndFade),
