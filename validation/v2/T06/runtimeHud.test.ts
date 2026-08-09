@@ -10,6 +10,7 @@ import {
 import type { StageDoorInteractionCandidate } from "../../../src/world/stageDoorRuntime";
 import type { V2NpcCommandCandidate } from "../../../src/v2/npcSystem";
 import { V2_PLAYER_BASE_EYE_HEIGHT } from "../../../src/v2/playerController";
+import type { V2BroadcastInteractionCandidate } from "../../../src/v2/runtimeInteraction";
 import {
   canV2RuntimePlayerFire,
   createV2RuntimeHudController as createV2RuntimeHudControllerBase
@@ -136,8 +137,10 @@ export const runRuntimeHudTests = async () =>
         assert(
             !getRole(host, "completion-guide").hidden &&
             !getRole(host, "crosshair").hidden &&
-            !getRole(host, "fire-guide").hidden,
-          "解放済みgun状態の案内・照準・射撃が同期しません。"
+            getRole(host, "fire-guide").hidden &&
+            getRole(host, "completion-guide").textContent ===
+              "G：銃　左クリック：射撃　N：非武装　H：ハイグレ",
+          "解放済みgun状態の下部統合案内・照準・単独射撃案内非表示が同期しません。"
         );
 
         hud.update({
@@ -435,6 +438,118 @@ export const runRuntimeHudTests = async () =>
           "clear後に扉Feedbackが残っています。"
         );
         return "none／leave水色、follow黄緑、成功時180ms発光、対象変更・clear残留0";
+      } finally {
+        hud.dispose();
+        host.remove();
+        scene.dispose();
+        engine.dispose();
+      }
+    }),
+    executeTest("放送F/Eの最終押下色・180ms発光・対象変更reset", () => {
+      const engine = new NullEngine();
+      const scene = new Scene(engine);
+      const camera = new FreeCamera(
+        "T06BroadcastHudFeedbackCamera",
+        new Vector3(0, 0, -5),
+        scene
+      );
+      camera.setTarget(Vector3.Zero());
+      scene.activeCamera = camera;
+      const host = document.createElement("div");
+      const canvas = document.createElement("canvas");
+      Object.defineProperty(canvas, "getBoundingClientRect", {
+        configurable: true,
+        value: () => new DOMRect(0, 0, 800, 450)
+      });
+      host.appendChild(canvas);
+      document.body.appendChild(host);
+      const hud = createV2RuntimeHudControllerBase({ host, canvas, camera });
+      const frame = Object.freeze({
+        phase: "playing" as const,
+        playerState: "brainwash-complete-gun" as const,
+        playerCompletionUnlocked: true,
+        executionPlayerRole: null
+      });
+      const candidate = (consoleId: string): V2BroadcastInteractionCandidate =>
+        Object.freeze({
+          consoleId,
+          aimPosition: Vector3.Zero(),
+          primary: Object.freeze({
+            command: "gather-gym" as const,
+            label: "体育館に集まって"
+          }),
+          secondary: Object.freeze({
+            command: "become-haigure-human" as const,
+            label: "みんなハイグレ人間になろう"
+          })
+        });
+      const update = (
+        broadcastCandidate: V2BroadcastInteractionCandidate,
+        feedback: Parameters<typeof hud.update>[0]["feedback"]
+      ) =>
+        hud.update({
+          active: true,
+          frame,
+          broadcastCandidate,
+          npcCandidates: Object.freeze([]),
+          doorCandidates: Object.freeze([]),
+          feedback
+        });
+      try {
+        scene.render();
+        const first = candidate("console-first");
+        const marker = getRole(host, "broadcast-target");
+        update(first, Object.freeze([]));
+        assert(
+          String(marker.dataset.v2RuntimeHudColor) === "#d98cff",
+          "放送HUDの未押下色が紫ではありません。"
+        );
+        update(
+          first,
+          Object.freeze([
+            Object.freeze({
+              kind: "broadcast-command-started" as const,
+              consoleId: first.consoleId,
+              command: "gather-gym" as const,
+              option: "primary" as const
+            })
+          ])
+        );
+        const primaryAnimation = marker.style.animation;
+        assert(
+          String(marker.dataset.v2RuntimeHudColor) === "#9cff57" &&
+            primaryAnimation.includes("180ms"),
+          "放送F成功時に緑または180ms発光が適用されません。"
+        );
+        update(first, Object.freeze([]));
+        assert(
+          String(marker.dataset.v2RuntimeHudColor) === "#9cff57",
+          "Feedback消費後に最後のF押下色を保持しません。"
+        );
+        update(
+          first,
+          Object.freeze([
+            Object.freeze({
+              kind: "broadcast-command-started" as const,
+              consoleId: first.consoleId,
+              command: "become-haigure-human" as const,
+              option: "secondary" as const
+            })
+          ])
+        );
+        assert(
+          String(marker.dataset.v2RuntimeHudColor) === "#61e8ff" &&
+            marker.style.animation !== primaryAnimation,
+          "放送E成功時に水色または発光再始動が適用されません。"
+        );
+        update(candidate("console-second"), Object.freeze([]));
+        assert(
+          String(marker.dataset.v2RuntimeHudColor) === "#d98cff" &&
+            marker.style.animation === "" &&
+            marker.dataset.v2RuntimeHudFeedback === undefined,
+          "放送卓対象変更後に最終押下色または発光が残っています。"
+        );
+        return "未押下紫、F緑、E水色、成功時180ms発光、対象変更でreset";
       } finally {
         hud.dispose();
         host.remove();

@@ -157,6 +157,12 @@ export type V2RuntimeInteractionFeedback =
       kind: "door-toggle-started";
       doorId: string;
       state: "opening" | "closing";
+    }>
+  | Readonly<{
+      kind: "broadcast-command-started";
+      consoleId: string;
+      command: V2BroadcastCommand;
+      option: "primary" | "secondary";
     }>;
 
 export const dispatchV2RuntimeExecutionReplay = ({
@@ -209,9 +215,16 @@ export const dispatchV2RuntimeInteractions = ({
     }
     if (action === "interaction-primary") {
       if (broadcastCandidate) {
-        survival.requestBroadcast(
-          broadcastCandidate.primary.command
-        );
+        if (survival.requestBroadcast(broadcastCandidate.primary.command)) {
+          feedback.push(
+            Object.freeze({
+              kind: "broadcast-command-started",
+              consoleId: broadcastCandidate.consoleId,
+              command: broadcastCandidate.primary.command,
+              option: "primary"
+            })
+          );
+        }
         continue;
       }
       if (
@@ -233,9 +246,16 @@ export const dispatchV2RuntimeInteractions = ({
     if (action === "interaction-secondary") {
       if (broadcastCandidate) {
         if (broadcastCandidate.secondary) {
-          survival.requestBroadcast(
-            broadcastCandidate.secondary.command
-          );
+          if (survival.requestBroadcast(broadcastCandidate.secondary.command)) {
+            feedback.push(
+              Object.freeze({
+                kind: "broadcast-command-started",
+                consoleId: broadcastCandidate.consoleId,
+                command: broadcastCandidate.secondary.command,
+                option: "secondary"
+              })
+            );
+          }
         }
         continue;
       }

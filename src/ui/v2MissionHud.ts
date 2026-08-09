@@ -83,11 +83,21 @@ const createMissionText = (
   if (mission.kind === "player-follower-acquire") {
     const { acquiredCount, requiredCount } = mission.target;
     return Object.freeze({
-      title: `新しいFollowerを${requiredCount}人獲得する`,
+      title: `新しい同行者を${requiredCount}人獲得する`,
       meta:
         mission.state === "active"
           ? `獲得 ${acquiredCount} / ${requiredCount}　${remainingText}`
           : `${remainingText}　獲得 ${acquiredCount} / ${requiredCount}`
+    });
+  }
+  if (mission.kind === "player-brainwash-target") {
+    const { brainwashedCount, requiredCount } = mission.target;
+    return Object.freeze({
+      title: `${requiredCount}人洗脳する`,
+      meta:
+        mission.state === "active"
+          ? `洗脳 ${brainwashedCount} / ${requiredCount}　${remainingText}`
+          : `${remainingText}　洗脳 ${brainwashedCount} / ${requiredCount}`
     });
   }
   if (mission.kind === "player-location") {
@@ -169,7 +179,7 @@ export const createV2MissionHudController = ({
     borderRadius: "6px",
     background: "rgba(0, 0, 0, 0.72)",
     boxShadow: "0 4px 16px rgba(0, 0, 0, 0.48)",
-    display: "grid",
+    display: "none",
     gap: "8px",
     fontFamily:
       '"IBM Plex Mono", "Fira Code", ui-monospace, monospace',
@@ -206,6 +216,7 @@ export const createV2MissionHudController = ({
     list.replaceChildren();
     root.replaceChildren();
     root.hidden = true;
+    root.style.display = "none";
   };
 
   return {
@@ -227,6 +238,7 @@ export const createV2MissionHudController = ({
       );
       root.replaceChildren(heading, list);
       root.hidden = false;
+      root.style.display = "grid";
     },
     clear: () => {
       assertActive();

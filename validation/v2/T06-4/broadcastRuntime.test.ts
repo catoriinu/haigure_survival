@@ -367,7 +367,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
         angleRadians: 0,
         distanceMeters: 0.5
       }) as StageDoorInteractionCandidate;
-      dispatchV2RuntimeInteractions({
+      const feedback = dispatchV2RuntimeInteractions({
         actions: Object.freeze([
           "interaction-primary",
           "interaction-secondary",
@@ -406,6 +406,39 @@ export const runBroadcastRuntimeTests = async (): Promise<
         `放送優先配送が不正です: broadcasts=${broadcasts.join("|")} / commands=${commands.join("|")}`
       );
       assert(doors.join("|") === "door-a", "放送候補中にC扉が停止しました。");
+      assert(
+        feedback.length === 3 &&
+          feedback[0]?.kind === "broadcast-command-started" &&
+          feedback[0].option === "primary" &&
+          feedback[1]?.kind === "broadcast-command-started" &&
+          feedback[1].option === "secondary" &&
+          feedback[2]?.kind === "door-toggle-started",
+        `放送F/E/C成功Feedbackの順序が不正です: ${JSON.stringify(feedback)}`
+      );
+
+      const rejected = dispatchV2RuntimeInteractions({
+        actions: Object.freeze(["interaction-primary"]),
+        frame: Object.freeze({
+          phase: "playing" as const,
+          playerCompletionUnlocked: false
+        }),
+        broadcastCandidate: createBroadcastCandidate(),
+        npcCandidates: Object.freeze([npcCandidate]),
+        doorCandidates: Object.freeze([]),
+        survival: Object.freeze({
+          requestBroadcast: () => false,
+          requestNpcCommand: () => {
+            throw new Error("放送拒否時にNPCへfallthroughしました。");
+          },
+          selectPlayerCompletion: () => undefined
+        }),
+        doors: Object.freeze({
+          requestDoorToggle: () => {
+            throw new Error("Door候補なしでC操作されました。");
+          }
+        })
+      });
+      assert(rejected.length === 0, "拒否された放送で成功Feedbackを返しました。");
 
       dispatchV2RuntimeInteractions({
         actions: Object.freeze(["interaction-secondary"]),
@@ -431,7 +464,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
           }
         })
       });
-      return "F/Eは放送へ配送、無効Eもconsumeし、CだけDoorへ独立配送";
+      return "F/E成功Feedback、拒否は0件、無効Eもconsumeし、CだけDoorへ独立配送";
     }),
     executeTest("右上HUDの単一panel・複数Mission・表示文言", () => {
       const host = document.createElement("div");
@@ -445,7 +478,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
       }
       hud.update({ active: true, frame: createHudFrame(20, Object.freeze([])) });
       assert(
-        root.hidden && root.childElementCount === 0,
+        root.hidden && root.style.display === "none" && root.childElementCount === 0,
         "Mission 0件でpanelまたは子要素が表示されました。"
       );
       assert(
@@ -557,10 +590,10 @@ export const runBroadcastRuntimeTests = async (): Promise<
       );
       assert(
         followerItem?.querySelector('[data-v2-mission-hud-role="mission-title"]')
-          ?.textContent === "新しいFollowerを2人獲得する" &&
+          ?.textContent === "新しい同行者を2人獲得する" &&
           followerItem?.querySelector('[data-v2-mission-hud-role="mission-meta"]')
             ?.textContent === "獲得 1 / 2　残り 120秒",
-        `Follower進捗文言が不正です: ${followerItem?.textContent ?? "null"}`
+        `同行者進捗文言が不正です: ${followerItem?.textContent ?? "null"}`
       );
       assert(
         locationItem?.querySelector('[data-v2-mission-hud-role="mission-title"]')
@@ -568,6 +601,52 @@ export const runBroadcastRuntimeTests = async (): Promise<
           locationItem?.querySelector('[data-v2-mission-hud-role="mission-meta"]')
             ?.textContent === "残り 120秒",
         `Location文言が不正です: ${locationItem?.textContent ?? "null"}`
+      );
+
+      const escortMission = Object.freeze({
+        id: "hud-escort",
+        kind: "player-follower-escort" as const,
+        source: "normal" as const,
+        state: "active" as const,
+        assignee: Object.freeze({ kind: "player" as const }),
+        target: Object.freeze({ kind: "actor" as const, actorId: "npc-secret-escort" }),
+        title: "最初の同行者を護衛",
+        targetDisplayName: "（同行中）",
+        startedAtSeconds: 20,
+        deadlineAtSeconds: 260,
+        terminalAtSeconds: null,
+        terminalReason: null
+      }) satisfies V2MissionView;
+      const brainwashMission = Object.freeze({
+        id: "hud-brainwash-count",
+        kind: "player-brainwash-target" as const,
+        source: "normal" as const,
+        state: "active" as const,
+        assignee: Object.freeze({ kind: "player" as const }),
+        target: Object.freeze({
+          kind: "brainwash-count" as const,
+          brainwashedCount: 1,
+          requiredCount: 3
+        }),
+        title: "3人洗脳する",
+        targetDisplayName: "進捗 1/3人",
+        startedAtSeconds: 20,
+        deadlineAtSeconds: 200,
+        terminalAtSeconds: null,
+        terminalReason: null
+      }) satisfies V2MissionView;
+      hud.update({
+        active: true,
+        frame: createHudFrame(20, Object.freeze([escortMission, brainwashMission]))
+      });
+      assert(
+        root.textContent?.includes("最初の同行者を護衛") === true &&
+          root.textContent.includes("（同行中）") &&
+          root.textContent.includes("3人洗脳する") &&
+          root.textContent.includes("洗脳 1 / 3") &&
+          !root.textContent.includes("npc-secret-escort") &&
+          !root.textContent.includes("Follower"),
+        `同行者護衛または洗脳人数のIDなし日本語表示が不正です: ${root.textContent}`
       );
 
       const completedFollowerMission = Object.freeze({
@@ -592,7 +671,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
       );
       hud.update({ active: true, frame: createHudFrame(28, Object.freeze([])) });
       assert(
-        root.hidden && root.childElementCount === 0,
+        root.hidden && root.style.display === "none" && root.childElementCount === 0,
         "最後のMission消滅後にpanelが非表示になりません。"
       );
       hud.dispose();

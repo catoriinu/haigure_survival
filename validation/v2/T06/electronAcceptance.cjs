@@ -176,6 +176,7 @@ const inspectDom = (window) =>
         missionAcceptancePlacement: missionAcceptancePlacementText === null ? null : JSON.parse(missionAcceptancePlacementText),
         missionAcceptanceSnapshot: missionAcceptanceSnapshotText === null ? null : JSON.parse(missionAcceptanceSnapshotText),
         completionGuideVisible: roleVisible("completion-guide"),
+        completionGuideText: document.querySelector('[data-v2-runtime-hud-role="completion-guide"]')?.textContent ?? "",
         crosshairVisible: roleVisible("crosshair"),
         fireGuideVisible: roleVisible("fire-guide"),
         npcPromptVisible: roleVisible("npc-prompt"),
@@ -209,8 +210,8 @@ const inspectScheduledMissionEvidence = (mission) => {
   const supportedTargetKinds = new Set([
     "actor",
     "location",
-    "actor-location",
-    "follower-count"
+    "follower-count",
+    "brainwash-count"
   ]);
   const descriptorContractValid = descriptors.every(
     (descriptor) =>
@@ -220,17 +221,18 @@ const inspectScheduledMissionEvidence = (mission) => {
       supportedTargetKinds.has(descriptor.targetKind) &&
       (descriptor.kind === "player-follower-acquire"
         ? descriptor.targetKind === "follower-count"
-        : descriptor.targetKind !== "follower-count")
+        : descriptor.kind === "player-brainwash-target"
+          ? descriptor.targetKind === "brainwash-count"
+          : descriptor.targetKind !== "follower-count" &&
+            descriptor.targetKind !== "brainwash-count")
   );
   const expectedActorTargetCount = descriptors.filter(
     (descriptor) =>
-      descriptor.targetKind === "actor" ||
-      descriptor.targetKind === "actor-location"
+      descriptor.targetKind === "actor"
   ).length;
   const expectedLocationTargetCount = descriptors.filter(
     (descriptor) =>
-      descriptor.targetKind === "location" ||
-      descriptor.targetKind === "actor-location"
+      descriptor.targetKind === "location"
   ).length;
   const followerCountMissionCount = descriptors.filter(
     (descriptor) =>
@@ -909,10 +911,16 @@ const run = async () => {
     "brainwash-complete-gun"
   );
   assertCondition(gunSnapshot.crosshairVisible, "gun状態で照準が表示されていません。");
-  assertCondition(gunSnapshot.fireGuideVisible, "gun状態で左クリック案内が表示されていません。");
+  assertCondition(!gunSnapshot.fireGuideVisible, "gun状態で単独の左クリック案内が表示されています。");
+  assertCondition(
+    gunSnapshot.completionGuideVisible &&
+      gunSnapshot.completionGuideText === "G：銃　左クリック：射撃　N：非武装　H：ハイグレ",
+    `gun状態の下部統合案内が不正です: ${gunSnapshot.completionGuideText}`
+  );
   addCheck("G gun HUD", {
     crosshairVisible: gunSnapshot.crosshairVisible,
-    fireGuideVisible: gunSnapshot.fireGuideVisible
+    fireGuideVisible: gunSnapshot.fireGuideVisible,
+    completionGuideText: gunSnapshot.completionGuideText
   });
 
   await sendCanvasClick(testWindow);

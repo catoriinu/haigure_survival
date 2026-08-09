@@ -47,6 +47,18 @@ const FOLLOWER_ACQUIRE_REJECTS_ACTOR_TARGET: [
 ] extends [never]
   ? true
   : false = true;
+type InvalidBrainwashActorTarget = Extract<
+  V2MissionView,
+  {
+    kind: "player-brainwash-target";
+    target: { kind: "actor" };
+  }
+>;
+const BRAINWASH_COUNT_REJECTS_ACTOR_TARGET: [
+  InvalidBrainwashActorTarget
+] extends [never]
+  ? true
+  : false = true;
 
 export type FixtureNpc = {
   id: string;
@@ -135,12 +147,18 @@ export const createFixtureLocations = (
     ["loc-k", "f01", "目的地 loc-k"],
     ["rooftop-poolside", "roof", "屋上プールサイド"]
   ] as const;
-  const sharedArea = Object.freeze({ id: "area-shared" }) as StageMissionLocation["area"];
+  const sharedArea = Object.freeze({
+    id: "area-shared",
+    displayName: "共有Area"
+  }) as StageMissionLocation["area"];
   const missionLocations = Object.freeze(
     specs.map(([id, floorId, displayName], index) => {
       const area = containsAll
         ? sharedArea
-        : (Object.freeze({ id: `area-${id}` }) as StageMissionLocation["area"]);
+        : (Object.freeze({
+            id: `area-${id}`,
+            displayName
+          }) as StageMissionLocation["area"]);
       return createFixtureMissionLocation(
         id,
         floorId,
@@ -152,6 +170,10 @@ export const createFixtureLocations = (
     })
   );
   const byId = new Map(missionLocations.map((location) => [location.id, location]));
+  const elevatorArea = Object.freeze({
+    id: "area-elevator",
+    displayName: "エレベーター"
+  }) as StageMissionLocation["area"];
   const floorMaps = Object.freeze([
     Object.freeze({ id: "map-f01", floorId: "f01", displayName: "1F", order: 1 }),
     Object.freeze({ id: "map-f02", floorId: "f02", displayName: "2F", order: 2 }),
@@ -164,7 +186,10 @@ export const createFixtureLocations = (
   );
   return Object.freeze({
     floorMaps,
-    areas: Object.freeze([]),
+    areas: Object.freeze([
+      elevatorArea,
+      ...missionLocations.map((location) => location.area)
+    ]),
     missionLocations,
     stairLandings: Object.freeze([]),
     elevatorLandings: Object.freeze([]),
@@ -174,6 +199,14 @@ export const createFixtureLocations = (
     getAreaById: () => null,
     getMissionLocationById: (id: string) => byId.get(id) ?? null,
     findArea: (point: Vector3) => {
+      if (Math.abs(point.x + 10) <= 0.01) {
+        return Object.freeze({
+          area: elevatorArea,
+          piece: Object.freeze({ id: "piece-area-elevator" }),
+          floorId: null,
+          elevatorId: "school-elevator"
+        });
+      }
       const location = containsAll
         ? missionLocations[0]
         : missionLocations.find(
@@ -336,6 +369,10 @@ export const runMissionRuntimeTests = async (): Promise<
       assert(
         FOLLOWER_ACQUIRE_REJECTS_ACTOR_TARGET,
         "Follower獲得MissionがActor targetを許可しています。"
+      );
+      assert(
+        BRAINWASH_COUNT_REJECTS_ACTOR_TARGET,
+        "洗脳人数MissionがActor targetを許可しています。"
       );
       const generated = createMissionFixture({
         playerRandom: createSequenceRandom([0.49, 0, 0])
@@ -641,14 +678,10 @@ export const runMissionRuntimeTests = async (): Promise<
         "同一種別のactive Missionが重複しました。"
       );
       const actorIds = active.flatMap((mission) =>
-        mission.target.kind === "actor" || mission.target.kind === "actor-location"
-          ? [mission.target.actorId]
-          : []
+        mission.target.kind === "actor" ? [mission.target.actorId] : []
       );
       const locationIds = active.flatMap((mission) =>
-        mission.target.kind === "location" || mission.target.kind === "actor-location"
-          ? [mission.target.locationId]
-          : []
+        mission.target.kind === "location" ? [mission.target.locationId] : []
       );
       assert(new Set(actorIds).size === actorIds.length, "Actor対象が重複しました。");
       assert(
@@ -732,9 +765,13 @@ export const runMissionRuntimeTests = async (): Promise<
       rooftop.runtime.dispose();
       return "3F 美術室をArea進入で完了し、現在Area除外・屋上名非重複";
     }),
-    executeTest("Follower護衛はArea、NPC LocationはAnchor Volume", () => {
+    executeTest("同行者護衛は240秒生存・3秒現在地、NPC LocationはAnchor Volume", () => {
       const escortFixture = createMissionFixture({
-        playerRandom: createSequenceRandom([0.1, 0.99, 0.17])
+        playerRandom: createSequenceRandom([
+          0.1,
+          0.99,
+          ...Array(12).fill(0.9)
+        ])
       });
       const follower = createFixtureNpc("npc-first", 0.5, "normal", "follow");
       escortFixture.runtime.notifyNpcCommandChanged(follower.id, "follow");
@@ -746,22 +783,77 @@ export const runMissionRuntimeTests = async (): Promise<
         (mission) =>
           mission.kind === "player-follower-escort" && mission.state === "active"
       );
-      if (!escort || escort.target.kind !== "actor-location") {
-        throw new Error("Follower護衛Missionがありません。");
+      if (!escort || escort.target.kind !== "actor") {
+        throw new Error("同行者護衛Missionがありません。");
       }
       assert(
-        escort.target.locationId === "f03-art" &&
-          escort.targetDisplayName === `${follower.id} → 3F 美術室`,
-        `Follower護衛の階表示が不正です: ${escort.targetDisplayName}`
+        escort.target.actorId === follower.id &&
+          escort.title === "最初の同行者を護衛" &&
+          escort.targetDisplayName === "（同行中）" &&
+          !escort.title.includes(follower.id) &&
+          !escort.targetDisplayName.includes(follower.id),
+        `同行者護衛の初期表示が不正です: ${escort.title}/${escort.targetDisplayName}`
       );
-      const escortLocation = escortFixture.locations.getMissionLocationById(
-        escort.target.locationId
-      )!;
-      const areaEntryX = escortLocation.navigationLocation.position.x + 0.25;
-      follower.footPosition.x = areaEntryX;
+      const escortLocation = escortFixture.locations.getMissionLocationById("f03-art")!;
+      follower.footPosition.x = escortLocation.navigationLocation.position.x + 0.25;
+      follower.commandMode = "none";
+      escortFixture.runtime.notifyNpcCommandChanged(follower.id, "leave");
       frame = updateFixture(escortFixture, {
-        deltaSeconds: 0,
-        playerX: areaEntryX,
+        deltaSeconds: 2,
+        npcs: Object.freeze([follower])
+      });
+      assert(
+        frame.playerMissions.some(
+          (mission) =>
+            mission.id === escort.id &&
+            mission.state === "active" &&
+            mission.targetDisplayName === "（同行中）"
+        ),
+        "Leave後3秒未満で護衛Missionが失敗または表示更新されました。"
+      );
+      frame = updateFixture(escortFixture, {
+        deltaSeconds: 1,
+        npcs: Object.freeze([follower])
+      });
+      assert(
+        frame.playerMissions.some(
+          (mission) =>
+            mission.id === escort.id &&
+            mission.state === "active" &&
+            mission.targetDisplayName === "現在地：3F 美術室"
+        ),
+        "非同行の現在地が3秒周期で階・Area表示へ更新されません。"
+      );
+      follower.footPosition.x = 0;
+      frame = updateFixture(escortFixture, {
+        deltaSeconds: 3,
+        npcs: Object.freeze([follower])
+      });
+      assert(
+        frame.playerMissions.some(
+          (mission) =>
+            mission.id === escort.id &&
+            mission.state === "active" &&
+            mission.targetDisplayName === "現在地確認中"
+        ),
+        "Areaを解決できない現在地を座標推測せず明示できません。"
+      );
+      follower.footPosition.x = -10;
+      frame = updateFixture(escortFixture, {
+        deltaSeconds: 3,
+        npcs: Object.freeze([follower])
+      });
+      assert(
+        frame.playerMissions.some(
+          (mission) =>
+            mission.id === escort.id &&
+            mission.state === "active" &&
+            mission.targetDisplayName === "現在地：エレベーター"
+        ),
+        "エレベーターAreaの現在地表示が不正です。"
+      );
+      frame = updateFixture(escortFixture, {
+        deltaSeconds: 231,
         npcs: Object.freeze([follower])
       });
       assert(
@@ -769,11 +861,59 @@ export const runMissionRuntimeTests = async (): Promise<
           (mission) =>
             mission.id === escort.id &&
             mission.state === "completed" &&
-            mission.terminalReason === "arrived"
+            mission.terminalReason === "follower-survived" &&
+            mission.terminalAtSeconds === 260
         ),
-        "PlayerとFollowerが同じ部屋Areaへ入っても護衛Missionが完了しません。"
+        "非同行でも未洗脳で生存した同行者護衛が240秒で完了しません。"
       );
       escortFixture.runtime.dispose();
+
+      const lostFixture = createMissionFixture({
+        playerRandom: createSequenceRandom([0.1, 0.99])
+      });
+      const lostFollower = createFixtureNpc("npc-lost", 0.5, "normal", "follow");
+      lostFixture.runtime.notifyNpcCommandChanged(lostFollower.id, "follow");
+      updateFixture(lostFixture, {
+        deltaSeconds: 20,
+        npcs: Object.freeze([lostFollower])
+      });
+      lostFollower.state = "hit-a";
+      updateFixture(lostFixture, {
+        deltaSeconds: 0,
+        npcs: Object.freeze([lostFollower])
+      });
+      assert(
+        lostFixture.runtime.getMissions().some(
+          (mission) =>
+            mission.kind === "player-follower-escort" &&
+            mission.state === "failed" &&
+            mission.terminalReason === "follower-lost"
+        ),
+        "同行者が被弾して生存状態を失っても護衛Missionが失敗しません。"
+      );
+      lostFixture.runtime.dispose();
+
+      const detachedFixture = createMissionFixture({
+        playerRandom: createSequenceRandom([0.1, 0.99])
+      });
+      const detachedFollower = createFixtureNpc("npc-detached", 0.5);
+      detachedFixture.runtime.notifyNpcCommandChanged(detachedFollower.id, "follow");
+      detachedFollower.commandMode = "none";
+      detachedFixture.runtime.notifyNpcCommandChanged(detachedFollower.id, "leave");
+      const detachedFrame = updateFixture(detachedFixture, {
+        deltaSeconds: 20,
+        npcs: Object.freeze([detachedFollower])
+      });
+      assert(
+        detachedFrame.playerMissions.some(
+          (mission) =>
+            mission.kind === "player-follower-escort" &&
+            mission.state === "active" &&
+            mission.targetDisplayName === "現在地確認中"
+        ),
+        "現在非同行の最初の同行者を護衛Mission候補へ含めません。"
+      );
+      detachedFixture.runtime.dispose();
 
       const npcFixture = createMissionFixture({
         playerRandom: () => 0.9,
@@ -819,7 +959,7 @@ export const runMissionRuntimeTests = async (): Promise<
         "NPC Location MissionがAnchor Volume到達で完了しません。"
       );
       npcFixture.runtime.dispose();
-      return "護衛は双方のArea進入、NPC通常移動は従来Anchor Volume到達";
+      return "非同行でも生成・240秒生存完了、3秒Area/未解決/エレベーター表示、被弾失敗、NPC Volume";
     }),
     executeTest("期限・通常H継続・phase離脱取消", () => {
       let deadlineRandomCall = 0;
@@ -1077,6 +1217,112 @@ export const runMissionRuntimeTests = async (): Promise<
       fixture.runtime.dispose();
       return "放送Missionが180秒で失敗しても同tickで通常NPC Missionを補充";
     }),
+    executeTest("洗脳人数は初回1・以後最大3、distinctと達成不能を判定", () => {
+      const fixture = createMissionFixture({
+        playerRandom: createSequenceRandom([0.1, 0, 0.1, 0, 0.99])
+      });
+      const npcs = Object.freeze([
+        createFixtureNpc("npc-a", 1),
+        createFixtureNpc("npc-b", 2),
+        createFixtureNpc("npc-c", 3),
+        createFixtureNpc("npc-d", 4)
+      ]);
+      let frame = updateFixture(fixture, {
+        deltaSeconds: 20,
+        playerState: "brainwash-complete-gun",
+        npcs
+      });
+      const first = frame.playerMissions.find(
+        (mission) =>
+          mission.kind === "player-brainwash-target" && mission.state === "active"
+      );
+      if (!first || first.target.kind !== "brainwash-count") {
+        throw new Error("初回洗脳人数Missionがありません。");
+      }
+      assert(
+        first.target.requiredCount === 1 &&
+          first.target.brainwashedCount === 0 &&
+          frame.missionTargetActorIds.length === 0,
+        "初回洗脳人数Missionが1人固定またはActor targetなしではありません。"
+      );
+      npcs[0].state = "brainwash-in-progress";
+      updateFixture(fixture, {
+        deltaSeconds: 0,
+        playerState: "brainwash-complete-gun",
+        npcs,
+        transitions: Object.freeze([brainwashTransition(npcs[0].id, "player", false)])
+      });
+
+      frame = updateFixture(fixture, {
+        deltaSeconds: 20,
+        playerState: "brainwash-complete-gun",
+        npcs
+      });
+      const second = frame.playerMissions.find(
+        (mission) =>
+          mission.kind === "player-brainwash-target" && mission.state === "active"
+      );
+      if (!second || second.target.kind !== "brainwash-count") {
+        throw new Error("2回目の洗脳人数Missionがありません。");
+      }
+      assert(
+        second.target.requiredCount === 3 &&
+          second.title === "3人洗脳する" &&
+          !second.targetDisplayName.includes("npc-"),
+        `2回目の3人目標またはID非表示が不正です: ${JSON.stringify(second)}`
+      );
+
+      npcs[1].state = "brainwash-in-progress";
+      updateFixture(fixture, {
+        deltaSeconds: 0,
+        playerState: "brainwash-complete-gun",
+        npcs,
+        transitions: Object.freeze([
+          brainwashTransition(npcs[1].id, "player", false),
+          brainwashTransition(npcs[1].id, "player", false)
+        ])
+      });
+      npcs[2].state = "brainwash-in-progress";
+      updateFixture(fixture, {
+        deltaSeconds: 0,
+        playerState: "brainwash-complete-no-gun",
+        npcs,
+        transitions: Object.freeze([
+          brainwashTransition(npcs[2].id, "npc-helper", true)
+        ])
+      });
+      let progress = fixture.runtime.getMissions().find(
+        (mission) => mission.id === second.id
+      );
+      assert(
+        progress?.state === "active" &&
+          progress.target.kind === "brainwash-count" &&
+          progress.target.brainwashedCount === 2,
+        "Player GとN補助の異なる2人だけをdistinct計上できません。"
+      );
+
+      npcs[3].state = "brainwash-in-progress";
+      updateFixture(fixture, {
+        deltaSeconds: 0,
+        playerState: "brainwash-complete-no-gun",
+        npcs,
+        transitions: Object.freeze([
+          brainwashTransition(npcs[3].id, "npc-helper", false)
+        ])
+      });
+      progress = fixture.runtime.getMissions().find(
+        (mission) => mission.id === second.id
+      );
+      assert(
+        progress?.state === "failed" &&
+          progress.terminalReason === "target-unavailable" &&
+          progress.target.kind === "brainwash-count" &&
+          progress.target.brainwashedCount === 2,
+        "阻止なし第三者を非計上にして達成不能失敗へ遷移できません。"
+      );
+      fixture.runtime.dispose();
+      return "初回1人・2回目3人、G/N distinct 2人、阻止なし第三者で達成不能失敗";
+    }),
     executeTest("G攻撃・N阻止中第三者攻撃・第三者失敗", () => {
       const runCase = (
         sourceId: string,
@@ -1117,10 +1363,12 @@ export const runMissionRuntimeTests = async (): Promise<
       const thirdParty = runCase("npc-helper", false);
       assert(
         thirdParty?.state === "failed" &&
-          thirdParty.terminalReason === "brainwashed-by-third-party",
-        "阻止なし第三者攻撃が失敗になりません。"
+          thirdParty.terminalReason === "target-unavailable" &&
+          thirdParty.target.kind === "brainwash-count" &&
+          thirdParty.target.brainwashedCount === 0,
+        "阻止なし第三者攻撃を人数へ数えず達成不能失敗にできません。"
       );
-      return "Player GとN阻止補助は完了、同frame phase離脱でも成功優先、阻止なし第三者は失敗";
+      return "Player GとN阻止補助は人数へ計上、同frame phase離脱でも成功優先、阻止なし第三者は非計上";
     }),
     executeTest("最初のFollower固定と45秒逃走条件", () => {
       const fixture = createMissionFixture();

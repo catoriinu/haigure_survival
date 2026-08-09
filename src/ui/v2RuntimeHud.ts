@@ -66,6 +66,8 @@ const NPC_IDLE_COLOR = "#61e8ff";
 const NPC_FOLLOW_COLOR = "#9cff57";
 const DOOR_COLOR = "#ffd166";
 const BROADCAST_COLOR = "#d98cff";
+const BROADCAST_PRIMARY_COLOR = NPC_FOLLOW_COLOR;
+const BROADCAST_SECONDARY_COLOR = NPC_IDLE_COLOR;
 const FEEDBACK_ANIMATION_DURATION_MS = 180;
 
 const applyStyles = (
@@ -246,7 +248,7 @@ export const createV2RuntimeHudController = ({
     document,
     "npc",
     NPC_IDLE_COLOR,
-    "F: 追従 / E: 離脱"
+    "F: 同行 / E: 離脱"
   );
   const doorMarker = createTargetMarker(
     document,
@@ -263,7 +265,7 @@ export const createV2RuntimeHudController = ({
   const completionGuide = createGuide(
     document,
     "completion-guide",
-    "G: 銃 / N: 非武装 / H: ハイグレ"
+    "G：銃　左クリック：射撃　N：非武装　H：ハイグレ"
   );
 
   const crosshair = createCrosshair(document);
@@ -285,6 +287,7 @@ export const createV2RuntimeHudController = ({
   let disposed = false;
   let currentNpcTargetId: string | null = null;
   let currentBroadcastTargetId: string | null = null;
+  let currentBroadcastOption: "primary" | "secondary" | null = null;
   let currentDoorTargetId: string | null = null;
   let feedbackAnimationRevision = 0;
   const globalViewport = new Viewport(0, 0, 0, 0);
@@ -317,6 +320,7 @@ export const createV2RuntimeHudController = ({
   const clearTargetState = (): void => {
     currentNpcTargetId = null;
     currentBroadcastTargetId = null;
+    currentBroadcastOption = null;
     currentDoorTargetId = null;
     clearMarkerFeedback(npcMarker);
     clearMarkerFeedback(broadcastMarker);
@@ -467,8 +471,25 @@ export const createV2RuntimeHudController = ({
       if (nextBroadcastTargetId !== currentBroadcastTargetId) {
         clearMarkerFeedback(broadcastMarker);
         currentBroadcastTargetId = nextBroadcastTargetId;
+        currentBroadcastOption = null;
       }
       if (broadcastCandidate) {
+        const broadcastFeedback = feedback.find(
+          (event) =>
+            event.kind === "broadcast-command-started" &&
+            event.consoleId === broadcastCandidate.consoleId
+        );
+        if (broadcastFeedback?.kind === "broadcast-command-started") {
+          currentBroadcastOption = broadcastFeedback.option;
+        }
+        applyTargetMarkerColor(
+          broadcastMarker,
+          currentBroadcastOption === "primary"
+            ? BROADCAST_PRIMARY_COLOR
+            : currentBroadcastOption === "secondary"
+              ? BROADCAST_SECONDARY_COLOR
+              : BROADCAST_COLOR
+        );
         broadcastMarker.label.textContent =
           broadcastCandidate.secondary === null
             ? `F: ${broadcastCandidate.primary.label}`
@@ -479,6 +500,9 @@ export const createV2RuntimeHudController = ({
           canvasRect,
           transformationMatrix
         );
+        if (broadcastFeedback) {
+          pulseMarker(broadcastMarker);
+        }
       } else {
         setElementHidden(broadcastMarker.root, true);
       }
@@ -513,7 +537,7 @@ export const createV2RuntimeHudController = ({
         !frame.playerCompletionUnlocked
       );
       setElementHidden(crosshair, !playerCanFire);
-      setElementHidden(fireGuide, !playerCanFire);
+      setElementHidden(fireGuide, true);
     },
     clear: () => {
       assertActive();
