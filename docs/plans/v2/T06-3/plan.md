@@ -47,6 +47,15 @@
 >
 > - プレイヤーのカメラが真下または真上を向いた状態でW移動しようとすると、ミニマップ進行方向の水平成分がない例外でゲーム更新が停止する問題を修正する。
 > - 真上／真下の双方でW／A／S／Dのどの移動入力でも同様の問題が再発しないことを確認する。
+>
+> PR #70レビュー対応（2026-08-09）:
+>
+> - 真上・真下視点追補のローカルコミットを先にpushする。
+> - PR #70へ付いたコードレビューを確認し、妥当な指摘へ対応する。
+> - ミニマップの構造blocker選択を名前prefix一覧から人間用Navigation Sourceの意味分類へ統一する。
+> - ミニマップActor snapshotをSurvival更新ごとに一度だけ構築し、同一frame内で再利用する。ミニマップ非表示時はgetterを呼ばない。
+> - Electron受入のPointer Lock代替要求がDOM例外になっても、実画面クリック待機とreadbackへ処理を継続する。
+> - 関連検証、コミット、pushを完了した後、各インラインコメントの元threadへ修正内容と検証結果を返信する。threadのresolveとmergeは行わない。
 
 ## ステップ
 
@@ -78,6 +87,14 @@
 - [x] カメラforward／upからW移動と一致する水平yawを一意に解決する
 - [x] 専用fixture、通常ゲーム、関連回帰、テキスト配布を再検証する
 - [x] 真上・真下視点追補の結果を反映し、T06-3追加コミットを作成する
+- [x] 真上・真下視点追補コミット`545dc48`を`origin/codex/v2-minimap`へpushする
+- [x] PR #70の最新base/headと未解決review thread 4件を取得し、現行コード上の妥当性を確認する
+- [x] 人間用Navigation Sourceの意味分類をRuntimeへ公開し、ミニマップ構造blocker選択を共通化する
+- [x] Survival更新単位のミニマップActor snapshot cacheと非表示時のgetter停止を実装する
+- [x] Electron Pointer Lock代替要求の失敗を捕捉し、実画面待機へ継続させる
+- [x] 専用fixture、関連回帰、Electron実動作、テキスト配布を再検証する
+- [x] レビュー対応結果を記録し、対象差分をコミットしてpushする
+- [x] PR #70の4件の元インラインthreadへ返信し、最新thread状態を再確認する
 
 ## 実装契約
 
@@ -107,5 +124,11 @@
 - 3秒・3F／4F接面追補後の専用ブラウザfixtureは14/14、B05は34/34、T04は115/115、T06は68/68、T06-2は22/22でPASSし、各fixtureのconsole／Babylon異常は0件だった。Electron自動受入は通常ゲームの`playing`到達とArea例外なしを確認したが、テストウィンドウのPointer Lock要求がDOM例外となり2回とも受入完走には至らなかった。今回起動したElectronは終了した。
 - 真上／真下ではカメラforwardの水平成分がゼロになるため、カメラupの水平成分を視線の上下符号に応じて反転し、W移動と同じ水平yawを毎frame復元するよう変更した。専用fixtureは真上・真下の双方で実プレイヤー移動計算を通したW上／A左／S下／D右を検証し、14/14 PASS、console／Babylon異常0件となった。通常ゲームでもW／A／S／D入力後に`playing`とRuntimeエラーなしを維持した。ブラウザ権限制約によりPointer Lockは取得できなかった。
 - 真上・真下視点追補後は`typecheck:v2`、`typecheck:t06-3`、通常build、T06・T06-2・T06-3 buildをPASSした。
+- PR #70のP1指摘は、先行した`545dc48`でカメラforward／upから真上・真下の水平yawを解決し、真上／真下それぞれのW／A／S／Dをfixtureで確認したうえでpushした。
+- 人間用Navigation Sourceを`mesh`、`role`、`area`から成る型付き`humanNavigationSources`としてRuntimeへ公開した。ミニマップの黒表示は固有Collider名一覧を廃止し、`role=blocker/exclude`だけを使用する。アラーム候補生成も同じ分類の`role=walkable`を利用するため、`hs_nav_role`の再解析を廃止した。
+- Survival RuntimeはミニマップActor snapshotをplaying中の更新ごとに一度だけ構築し、NPC／BIT frame viewの位置参照を再利用した同一readonly配列をgetterから返す。タイトル中およびplaying以外では空配列を維持し、`main.ts`もミニマップ非表示時にgetterを評価しない。
+- Electron interaction runnerはPointer Lock代替要求の同期例外、Promise reject、CDP失敗を捕捉し、実画面クリック待機とreadbackへ継続する。修正後の通常Electron interactionはPointer Lock、playing、KeyW移動、HUD配置を確認して完走し、renderer警告・例外0件だった。
+- レビュー対応後の実Electron fixtureはT06-3が14/14、T04が115/115でPASSし、いずれもrenderer警告・例外0件だった。`typecheck:v2`、T02・T04・B05・T06・T06-2・T06-3 typecheck、通常・T02・T04・T06・T06-2・T06-3 buildをPASSした。
+- レビュー対応は`dde365d`（構造blocker意味分類）、`144e4ca`（Actor snapshot再利用）、`c367654`（Electron Pointer Lock受入継続）の3コミットへ分割してpushした。先行の真上・真下修正`545dc48`を含む4件すべての元インラインthreadへ、修正内容、検証結果、未確認事項を返信した。再取得時点で全4件に返信があり、`isResolved=false`を維持している。threadのresolveとmergeは行っていない。
 - `typecheck:v2`、`typecheck:t06-3`、`build`、`build:t06-3`、T04・B05・T06・T06-2のtypecheck／build、差分・UTF-8・公開文書検査を完了した。
-- 学校GLB、NavMesh、Blender正本、生成器、カタログ、T06-4 Mission状態管理は変更していない。T06-3本体はDraft PR #70として公開済みだが、真上・真下視点追補はローカルコミットで止め、追加push、レビュー、mergeは行わない。
+- 学校GLB、NavMesh、Blender正本、生成器、カタログ、T06-4 Mission状態管理は変更していない。T06-3本体と真上・真下視点追補はDraft PR #70へpush済みである。レビュー対応は実施中で、threadのresolveとmergeは行わない。
