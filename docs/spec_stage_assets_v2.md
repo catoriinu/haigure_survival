@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 ステージ資産仕様書
 
-更新日: 2026-08-08
+更新日: 2026-08-09
 対象バージョン: v2
 基準検証: T01 GLB・座標・衝突規約 技術検証
 
@@ -10,7 +10,7 @@
 
 V2のステージ空間の正本は、GLBへ出力された3D形状、EmptyのTransform、Object custom properties由来のglTF Node `extras`である。表示、物理衝突、光線遮蔽、NavMesh生成元、スポーン位置、ゲームプレイ領域、ステージ境界、ポータル、非連続接続を同じ座標系の資産として管理する。
 
-ステージJSONは使用しない。JSON文字マップ、セル、行・列、矩形ゾーンなどへ空間を重複記述してはならない。TypeScriptのステージカタログが保持できるのは、ステージID、表示名、GLB URL、静的人間用NavMesh URL、部屋variant NavMesh bundle URL、ビット用NavMesh bundle URL、プロファイルID、整合性検査用ハッシュ、深度プリパス対象Material名などの非空間情報だけである。
+ステージJSONは使用しない。JSON文字マップ、セル、行・列、矩形ゾーンなどへ空間を重複記述してはならない。TypeScriptのステージカタログが保持できるのは、ステージID、表示名、GLB URL、静的人間用NavMesh URL、部屋variant NavMesh bundle URL、ビット用NavMesh bundle URL、プロファイルID、整合性検査用ハッシュ、対応世代を選ぶmode、深度プリパス対象Material名などの非空間情報だけである。
 
 Recast NavMeshバイナリはGLBの`NAV_*`形状から生成する派生物であり、編集元ではない。人間用NavMeshは静的基盤と部屋variantごとのDetour tile payload bundleへ分離し、ビット用NavMeshは帯ごとのRecast payloadを別bundleへ格納する。`LNK_*` Emptyと飛行遷移`VOL_*`は最終GLBに残る明示接続の正本であり、Runtimeが対応するNavMeshへ接続する。NavMeshを変更したい場合はBlender資産またはベイクプロファイルを変更し、GLB監査後に対応成果物を再ベイクする。
 
@@ -21,7 +21,7 @@ Recast NavMeshバイナリはGLBの`NAV_*`形状から生成する派生物で�
 | 対象 | 役割 | 正本性 |
 |---|---|---|
 | `.blend` | 制作者が編集する資産 | 編集正本 |
-| `.glb` | 実行時に読む3D形状、Transform、Node `extras` | 実行時の空間正本 |
+| `.glb` | 実行時に読む3D形状、Transform、Node `extras`、階別Map形状 | 実行時の空間正本 |
 | `.navmesh.bin` | `hs_nav_set=human`の静的`NAV_*`から生成し、部屋所有tileを除外したtiled Recastデータ | 再生成可能な派生物 |
 | `.room-variants.navmesh.bin` | 20室×2 variantの人間用Detour tile payloadを格納したbundle | 再生成可能な派生物 |
 | `.bit-flight.navmesh.bin` | `hs_nav_set=bit-flight`の帯別Recast payloadを格納したbundle | 再生成可能な派生物 |
@@ -49,7 +49,7 @@ public/stage-assets/v2/<ステージID>/<資産名>.bit-flight.navmesh.bin
 | T01 Blender編集元 | `assets/blender/v2/T01/t01_glb_collision_course.blend` | 座標・縮尺・衝突の検証fixture |
 | T01 GLB | `public/stage-assets/v2/T01/t01_glb_collision_course.glb` | 座標・縮尺・衝突の検証fixture |
 | B02 Blender編集元 | `assets/blender/v2/B02/b02_school_blockout.blend` | 学校の制作元。3D意味ObjectとNavMesh生成元を保持 |
-| B02 GLB | `public/stage-assets/v2/B02/b02_school_blockout.glb` | 学校の実行時空間正本。B03-2内装、T04-2B NAV補正、第5次人間受入、学校3D資産全体リファクタリングを統合済み |
+| B02 GLB | `public/stage-assets/v2/B02/b02_school_blockout.glb` | 学校の実行時空間正本。schema version 3のB05階別Map・Location・放送卓意味資産まで統合 |
 | B02静的NavMesh | `public/stage-assets/v2/B02/b02_school_blockout.navmesh.bin` | 同一GLBから事前ベイクするtiled Recast静的基盤 |
 | B02部屋variant NavMesh | `public/stage-assets/v2/B02/b02_school_blockout.room-variants.navmesh.bin` | 同一GLBから20室×2 variantを事前ベイクするDetour tile bundle |
 | B02ビットNavMesh | `public/stage-assets/v2/B02/b02_school_blockout.bit-flight.navmesh.bin` | 同一GLBから帯別に事前ベイクするRecast bundle |
@@ -72,7 +72,7 @@ public/stage-assets/v2/<ステージID>/<資産名>.bit-flight.navmesh.bin
 - 学校正本はArmature、Bone、Action、Animation、Modifier、Shape Key、Vertex Group、非表示Object、Export Collection外Object、空・退化Meshを持たない。GLBはSkin、Animation、Camera、未参照Node／Mesh／Material／Texture／Image／Accessor／BufferView／Bufferを持たない。これらは残骸監査で非空なら失敗とする。不要性を証明できない面・同形状候補は削除せず、T04の人間確認候補一覧で管理する。
 - 体育館舞台階段上部の東西表示壁・衝突壁は、舞台上面からBlender 2.4mの実開口を一致して確保する。NavMeshだけを接続する仮connector面は資産へ残さない。
 - 体育館舞台は中心X＝46.4mを維持してX＝40.6～52.2mの幅11.6mとする。舞台階段は西X＝39.1～40.6m、東X＝52.2～53.7mへ同じ段数・踏面・蹴上げで追従させ、階段上部壁の中心もX＝40.6m／52.2mへ揃える。舞台袖壁は西X＝39.2～40.6m、東X＝52.2～53.6mへ短縮し、既存の袖開口、U字階段、手すり、ギャラリー、体育館外形は維持する。
-- `BND_Stage`のBlender範囲はX＝-18.4～63.2m、Y＝-12.3～51.3m、Z＝-0.5～19.0mとする。屋上帯の中心上限18.0mへ半径0.54mの移動包絡を加えても内包する。
+- `BND_Stage`のBlender範囲はX＝-18.4～63.2m、Y＝-14.3～51.3m、Z＝-0.5～19.0mとする。屋上帯の中心上限18.0mへ半径0.54mの移動包絡を加えても内包する。
 - 事前ベイク後は、主玄関から3か所の1F踊り場、各階廊下・代表教室、全階男女トイレ入口、3階段それぞれの1F↔2F↔3F↔4F、北西階段の4F↔屋上、体育館・舞台・体育倉庫、屋上階段室、プールサイド、プール底を含む62代表経路が要求終点へ到達することを検査する。追加2経路は3階・4階のトイレ側通路から正規扉を通って特別教室へ入る。各階段の隣接階経路は指定踊り場を通り、25m以内でなければならない。部分経路を成功扱いせず、要求終点との誤差`1e-5`以下を必須とする。通常窓の内外を結ぶsurface経路が窓開口を短絡せず正規出入口へ迂回することも必須とする。
 - 全116窓端点はID文字列や高さから接続先を推測せず、各端点が明示するゾーン・帯のNavMeshへ投影する。体育館高窓14端点は7.10mの開口を一時通過して体育館上段へ接続する。
 - T05-1A成果物は`.blend` 1,798,182 bytes／SHA-256 `C409334204D58FCA67F2A5701CB7E663F74785F0FB602118B0DA3C3D4C88248B`、GLB 11,383,492 bytes／`6ADA95BFE63DF055A47E63338A31E61FF7E3A0A1E96A6499AC4482F7EBB2EFD0`、人間用NavMesh 512,900 bytes／`0FCF0B136D41E23202925EB8821270C39D18EFEE37A5146F20C9BFA97C03C869`、ビット用bundle 549,695 bytes／`4032750F29FB95549AEB77A35ABB1B69C9AC7A8D07F03CAE3E46A9E37D465830`である。学校GLBと両NavMeshは同じ入力から2回連続生成し、bytesとSHA-256が一致することを確認済みである。
@@ -166,6 +166,7 @@ EXP_Stage_<stage-id>
 | `COL_BeamSightOnly_*` | 閉じたMesh | ビーム・視線専用の不可視遮蔽 | 無効 | 無効 | 有効 | 不使用 |
 | `NAV_*` | Mesh | Recastベイク入力 | 無効 | 無効 | 無効 | 使用 |
 | `META_Stage` | Empty | ステージ全体メタデータ | 無効 | 無効 | 無効 | 不使用 |
+| `MAP_*` | Mesh | 階別ミニマップ平面形状 | 無効 | 無効 | 無効 | 不使用 |
 | `MRK_*` | Empty | 位置と向きを持つマーカー | 無効 | 無効 | 無効 | 不使用 |
 | `VOL_*` | 閉じたMesh | ゲームプレイ領域 | 無効 | 無効 | 無効 | 不使用 |
 | `BND_Stage` | 閉じたMesh | プレイ可能空間の外周境界 | 無効 | 無効 | 無効 | 不使用 |
@@ -254,7 +255,7 @@ EXP_Stage_<stage-id>
 
 | Key | 型 | 内容 |
 |---|---|---|
-| `hs_schema_version` | integer | 本資産契約のschema version。T05-1A以降は`2` |
+| `hs_schema_version` | integer | 本資産契約のschema version。B05 Location意味資産対応ステージは`3` |
 | `hs_stage_id` | string | TypeScriptカタログのIDと完全一致するID |
 | `hs_nav_profile` | string | 人間用ベイクに使用するversion付きRecastプロファイルID |
 | `hs_bit_nav_profile` | string | ビット用ベイクに使用するversion付きRecastプロファイルID |
@@ -650,6 +651,39 @@ MRK_RoomVariant_<token>
 
 普通教室9室は各2件、特別室は合計20件で、`room` doorは合計38件である。全階トイレは男女各3個室、4階分の`toilet_stall` doorを合計24件持つ。旧1階個別扉8件、旧上階結合扉3件、旧トイレ固定扉は残さない。校舎、体育館、渡り廊下の固定開放出入口は動的doorへ変換しない。
 
+### 7.11 B05階別Map・Location・放送卓意味資産
+
+B05対応ステージは`hs_schema_version=3`とし、TypeScriptカタログの`locationAssetsMode="required"`と同時に切り替える。非対応fixtureは`locationAssetsMode="unsupported"`とし、以下のObjectを1件でも含めてはならない。欠落時fallback、Object名や座標からの役割推測、旧role aliasは使用しない。
+
+`MAP_*`はミニマップに表示する階別平面形状専用Meshである。表示、衝突、光線遮蔽、3種NavMeshベイクへ使用せず、MaterialとNormalを要求しない。
+
+| Object / role | 必須properties |
+|---|---|
+| `MAP_*` / `floor_map` | `hs_id`、`hs_role`、`hs_floor_id`、`hs_display_name`、正整数`hs_order` |
+| `VOL_*` / `location_area` | `hs_id`、`hs_role`、`hs_area_id`、`hs_display_name`、正整数`hs_priority`、`hs_floor_id`または`hs_elevator_id`の片方だけ |
+| `VOL_*` / `mission_location` | `hs_id`、`hs_role`、`hs_location_id`、`hs_area_id`、`hs_floor_id`、`hs_display_name`、`hs_anchor_id` |
+| `MRK_*` / `mission_anchor` | `hs_id`、`hs_role`、`hs_location_id` |
+| `MRK_*` / `map_stair_landing` | `hs_id`、`hs_role`、`hs_stair_id`、`hs_floor_id`、`hs_direction=up/down/both` |
+| `MRK_*` / `map_elevator_landing` | `hs_id`、`hs_role`、`hs_elevator_id`、`hs_floor_id`、`hs_available`、利用可能時だけ`hs_stop_id` |
+| `MRK_*` / `broadcast_console` | `hs_id`、`hs_role`、`hs_floor_id`、`hs_display_name`、`hs_target_id` |
+| `VOL_*` / `broadcast_console_target` | `hs_id`、`hs_role`、`hs_console_id` |
+
+学校は次の確定目録を持つ。
+
+- `f01`、`f02`、`f03`、`f04`、`roof`の5 Map。順序は1～5で一意とする。
+- 52論理Area、85 Volume piece。1論理Areaは同じID、表示名、優先度を持つ複数pieceで構成できる。
+- 20室、男女トイレ8、階別共用部4、階段区間12、校庭・体育館・ギャラリー・体育館屋上・校舎屋上・プールサイド・更衣室7、エレベーター1。
+- 主要24 Mission Location。各Locationは1 Volumeと1 Anchorを持ち、Anchorは対応Volume内かつ通常版・全荒れ版の人間用NavMeshへ0.25m以内で投影可能とする。
+- 階段踊り場17、エレベーター乗場4、放送卓Marker 1、正面Ray判定用target Volume 1。
+
+Area優先度はエレベーター400、室・トイレ・更衣室・プールサイド300、階段250、屋外・体育館系200、階別共用部100に固定する。同じ優先度を持つ異なる論理AreaのVolume pieceは正体積で重複してはならず、面または辺の接触だけは許可する。人間用NavMeshの全triangleは1件以上のArea pieceで覆い、最高優先度の論理Areaを一意に解決できなければ読込失敗とする。
+
+各Area pieceは固定`hs_floor_id`または動的`hs_elevator_id`を明示する。階段は同じ論理Area IDを維持しながら上下pieceの`hs_floor_id`で表示Mapを切り替える。エレベーター乗場は1F・4Fだけを`hs_available=true`として既存stopへ厳格参照し、2F・3Fは`false`かつ`hs_stop_id`なしとする。
+
+階別Mapの形状は作者資産を正本とする。1Fは校庭・校舎・体育館、2Fは校舎・ギャラリー・渡り廊下、3Fは校舎・体育館屋上・接続Ramp、4Fは校舎4F、roofは校舎屋上・更衣室・プールサイドを含む。`NAV_*`、Collider、既存Navigation Area、BIT VolumeからMap形状を導出しない。
+
+放送卓Markerは距離判定、target Volumeは正面Ray判定の独立資産であり、表示机や機材から推測しない。相互参照とfloor参照を厳格検証する。
+
 ## 8. Object custom propertiesとglTF Node `extras`
 
 Object custom propertiesは、glTF exporterのCustom Properties出力を有効にしてNode `extras`へ保存する。Mesh Data、Material、Collectionのpropertiesを実行時契約に使用しない。
@@ -677,7 +711,7 @@ Object custom propertiesは、glTF exporterのCustom Properties出力を有効�
 - Animation: 出力しない
 - Transform適用済みの実メートル形状を出力する
 - `VIS_*`用Materialは出力する
-- `COL_*`、`NAV_*`、`VOL_*`、`BND_*`、`PRT_*`はMaterialを持たなくてよい
+- `COL_*`、`NAV_*`、`MAP_*`、`VOL_*`、`BND_*`、`PRT_*`はMaterialを持たなくてよい
 - EmptyはNodeとして保持する
 
 出力後にBlender Sceneだけを検査して完了としてはならない。GLB 2.0のJSON chunkとbufferを直接読み、Node名、Mesh名、Node `extras`、件数、Transform、参照関係を監査する。
@@ -700,6 +734,7 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 | `sightBlockers` | 通常`COL_*`と`COL_BeamSightOnly_*` |
 | `navSourceMeshes` | `hs_nav_set=human`の`NAV_*` |
 | `bitFlightNavSourceMeshes` | `hs_nav_set=bit-flight`の`NAV_BitFlight_*` |
+| `floorMaps` | `MAP_*` |
 | `metadataNode` | `META_Stage` |
 | `markers` | `MRK_*` |
 | `volumes` | 通常ゲーム用`VOL_*` |
@@ -708,6 +743,7 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 | `worldBoundary` | `BND_WorldLimit`。B04対応ステージで必須 |
 | `portals` | `PRT_*` |
 | `links` | 人間用`LNK_*` |
+| `locationAssets` | `MAP_*`とB05専用`MRK_*`／`VOL_*`から組み立てる厳格registry |
 
 分類順は`COL_BeamSightOnly_*`、`COL_ActorOnly_*`、`COL_HumanOnly_*`、通常`COL_*`、その他の順とする。通常`COL_*`の判定式は`name.startsWith("COL_") && !name.startsWith("COL_BeamSightOnly_") && !name.startsWith("COL_ActorOnly_") && !name.startsWith("COL_HumanOnly_")`と同値でなければならない。人間用pairだけを`StageSpatialContext.links`、ビット用pairとtransition Volumeを`StageSpatialContext.bitNavigation`へ公開する。
 
@@ -716,6 +752,8 @@ GLB読込後、作者Nodeを次の排他的集合へ分類する。
 `door`、`door_panel`、`door_open_pose`、`door_sweep`は排他的な作者Object分類後に内部`StageDoorAssetRegistry`へ組み立てる。`elevator`とそのcar、stop、door、marker、呼出indicator、Volume、`LNK_*` pairは内部`StageElevatorAssetRegistry`へ組み立てる。両RegistryはID参照と親子関係を検証する派生索引であり、作者Objectを元の`visualMeshes`、Collider、marker、volume、link集合から重複分類して取り除かない。
 
 `room_variant` Markerとその子孫、`room_variant_tile` Volumeは内部`StageRoomVariantAssetRegistry`へ組み立てる。Registryは20室×2 variant、最寄りancestorによる排他的所属、固定tile所有を検証する派生索引であり、作者Objectを接頭辞による一次集合から取り除かない。
+
+`MAP_*`と`location_area`、`mission_location`、`mission_anchor`、`map_stair_landing`、`map_elevator_landing`、`broadcast_console`、`broadcast_console_target`は`StageLocationAssetRegistry`へ組み立てる。RegistryはID、floor、表示名、優先度、Volume／Anchor、利用可否、stop、放送卓相互参照を検証する派生索引であり、作者Objectを`semanticMeshes`、marker、volume集合から取り除かない。
 
 すべての作者Nodeがちょうど1つの役割集合へ入り、未分類Nodeと重複分類Nodeが0件であることを要求する。glTFローダーの管理ルートとAssetContainer管理親は作者Nodeではないため、この監査から除外する。
 

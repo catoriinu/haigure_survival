@@ -956,15 +956,21 @@ const validateLoadedContext = (
           "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
         context.resources.navSourceMeshes.length === 39 &&
         context.resources.bitFlightNavSourceMeshes.length === 22 &&
-        context.markers.all.length === 243 &&
+        context.markers.all.length === 289 &&
         assemblyAnchors.length === 2 &&
-        context.volumes.all.length === 118 &&
+        context.volumes.all.length === 228 &&
         assemblyVolumes.length === 2 &&
         assemblyVenuesValid &&
         roomVariantSelectionValid &&
         context.doorAssets.all.length === 67 &&
         context.elevatorAssets.all.length === 1 &&
         context.elevatorAssets.all[0]?.stops.length === 2 &&
+        context.locationAssets?.floorMaps.length === 5 &&
+        context.locationAssets.areas.length === 52 &&
+        context.locationAssets.missionLocations.length === 24 &&
+        context.locationAssets.stairLandings.length === 17 &&
+        context.locationAssets.elevatorLandings.length === 4 &&
+        context.locationAssets.broadcastConsole.floorId === "f02" &&
         context.links.all.length === 1 &&
         context.bitNavigation.zones.length === 4 &&
         context.bitNavigation.bands.length === 11 &&
@@ -974,7 +980,7 @@ const validateLoadedContext = (
         boundaryTransitions.length === 1 &&
         context.worldBoundary?.id === "world-limit" &&
         bitTransitions.every((transition) => transition.bidirectional),
-      `VIS=${context.resources.visualMeshes.length} / COL=${context.resources.normalColliders.length} / ActorOnly=${context.resources.actorOnlyColliders.length} / HumanOnly=${context.resources.humanOnlyColliders.length} / BeamSightOnly=${context.resources.beamSightOnlyColliders.length}:${context.resources.beamSightOnlyColliders[0]?.name ?? "なし"} / humanNAV=${context.resources.navSourceMeshes.length} / bitNAV=${context.resources.bitFlightNavSourceMeshes.length} / MRK=${context.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${context.volumes.all.length}(assembly=${assemblyVolumes.length}) / roomVariants=${roomVariants?.variants.length ?? 0}/${roomVariants?.tileVolumes.length ?? 0}/selected=${context.roomVariantSelection.length} / doors=${context.doorAssets.all.length} / elevators=${context.elevatorAssets.all.length} / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${context.links.all.length} / zones=${context.bitNavigation.zones.length} / bands=${context.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length})`
+      `VIS=${context.resources.visualMeshes.length} / COL=${context.resources.normalColliders.length} / ActorOnly=${context.resources.actorOnlyColliders.length} / HumanOnly=${context.resources.humanOnlyColliders.length} / BeamSightOnly=${context.resources.beamSightOnlyColliders.length}:${context.resources.beamSightOnlyColliders[0]?.name ?? "なし"} / humanNAV=${context.resources.navSourceMeshes.length} / bitNAV=${context.resources.bitFlightNavSourceMeshes.length} / MRK=${context.markers.all.length}(assembly=${assemblyAnchors.length}) / VOL=${context.volumes.all.length}(assembly=${assemblyVolumes.length}) / B05=${context.locationAssets?.floorMaps.length ?? 0}/${context.locationAssets?.areas.length ?? 0}/${context.locationAssets?.missionLocations.length ?? 0}/${context.locationAssets?.stairLandings.length ?? 0}/${context.locationAssets?.elevatorLandings.length ?? 0} / roomVariants=${roomVariants?.variants.length ?? 0}/${roomVariants?.tileVolumes.length ?? 0}/selected=${context.roomVariantSelection.length} / doors=${context.doorAssets.all.length} / elevators=${context.elevatorAssets.all.length} / venues=${assemblyVenueSummaries.join("|")} / humanLNK=${context.links.all.length} / zones=${context.bitNavigation.zones.length} / bands=${context.bitNavigation.bands.length} / transitions=${bitTransitions.length}(aperture=${apertureTransitions.length},vertical=${verticalTransitions.length},surface=${surfaceRouteTransitions.length},boundary=${boundaryTransitions.length})`
     ),
     createCheck(
       `全ビット飛行遷移の${BIT_FLIGHT_ENVELOPE_RADIUS_METERS.toFixed(2)}m安全包絡`,
@@ -2807,9 +2813,9 @@ const runValidation = async () => {
         "COL_BeamSightOnly_RoomVariant_F01_Infirmary_Disordered_Curtains" &&
       activeContext.resources.navSourceMeshes.length === 39 &&
       activeContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-      activeContext.markers.all.length === 243 &&
+      activeContext.markers.all.length === 289 &&
       activeContext.markers.getByRole("assembly_anchor").length === 2 &&
-      activeContext.volumes.all.length === 118 &&
+      activeContext.volumes.all.length === 228 &&
       activeContext.volumes.getByRole("assembly").length === 2 &&
       activeContext.assemblyVenues.all.length === 2 &&
       activeContext.assemblyVenues.all.every(
@@ -2829,6 +2835,9 @@ const runValidation = async () => {
       roomVariantActivationMatches(activeContext, "disordered") &&
       activeContext.doorAssets.all.length === 67 &&
       activeContext.elevatorAssets.all.length === 1 &&
+      activeContext.locationAssets?.floorMaps.length === 5 &&
+      activeContext.locationAssets.areas.length === 52 &&
+      activeContext.locationAssets.missionLocations.length === 24 &&
       activeContext.links.all.length === 1 &&
       activeContext.bitNavigation.zones.length === 4 &&
       activeContext.bitNavigation.bands.length === 11 &&

@@ -272,7 +272,7 @@ const DISORDERED_DOOR_ACCESS_BY_ROOM_ID = Object.freeze({
 
 const SCHOOL_ROOM_VARIANT_NAV_PROFILE = Object.freeze({
   id: "school-humanoid-room-variants-v2",
-  schemaVersion: 2,
+  schemaVersion: 3,
   stageId: "school",
   bitNavProfileId: "bit-flight-body-0.44-margin-0.10-v1",
   coordinateSpace: "gltf-right-handed-y-up",

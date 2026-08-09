@@ -140,6 +140,7 @@ export type StageElevatorSnapshot = Readonly<{
   doorProgress: number;
   carTravelProgress: number;
   currentStopId: string | null;
+  displayStopId: string | null;
   targetStopId: string | null;
   dwellRemainingSeconds: number | null;
   carPosition: Vector3;
@@ -856,6 +857,8 @@ class TwoStopStageElevatorRuntime implements StageElevatorRuntime {
           ? this.travelElapsedSeconds / ELEVATOR_TRAVEL_SECONDS
           : 0,
       currentStopId: this.currentStop?.id ?? null,
+      displayStopId:
+        this.currentStop?.id ?? this.departureStop?.id ?? null,
       targetStopId: this.targetStop?.id ?? null,
       dwellRemainingSeconds: this.dwellRemainingSeconds,
       carPosition: carPosition.clone(),

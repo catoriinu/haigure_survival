@@ -39,7 +39,7 @@ const OUTPUT_PATH = resolve(REPOSITORY_ROOT, OUTPUT_RELATIVE_PATH);
 
 const SCHOOL_NAV_PROFILE = Object.freeze({
   id: "school-humanoid-v1",
-  schemaVersion: 2,
+  schemaVersion: 3,
   stageId: "school",
   bitNavProfileId: "bit-flight-body-0.44-margin-0.10-v1",
   coordinateSpace: "gltf-right-handed-y-up",

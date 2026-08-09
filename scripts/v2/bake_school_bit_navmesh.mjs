@@ -87,7 +87,7 @@ const BIT_NAV_NODE_PREFIX = "NAV_BitFlight_";
 
 const BIT_FLIGHT_NAV_PROFILE = Object.freeze({
   id: "bit-flight-body-0.44-margin-0.10-v1",
-  schemaVersion: 2,
+  schemaVersion: 3,
   stageId: "school",
   coordinateSpace: "gltf-right-handed-y-up",
   worldScale: 0.25,
