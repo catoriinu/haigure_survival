@@ -35,6 +35,19 @@ const MISSION_VIEW_REJECTS_INVALID_KIND_REASON: [
   ? true
   : false = true;
 
+type InvalidFollowerAcquireActorTarget = Extract<
+  V2MissionView,
+  {
+    kind: "player-follower-acquire";
+    target: { kind: "actor" };
+  }
+>;
+const FOLLOWER_ACQUIRE_REJECTS_ACTOR_TARGET: [
+  InvalidFollowerAcquireActorTarget
+] extends [never]
+  ? true
+  : false = true;
+
 export type FixtureNpc = {
   id: string;
   state: V2CharacterState;
@@ -82,14 +95,17 @@ export const createFixtureNpc = (
 
 const createFixtureMissionLocation = (
   id: string,
+  floorId: StageMissionLocation["floorId"],
+  displayName: string,
   x: number,
-  containsAll: boolean
+  containsAll: boolean,
+  area: StageMissionLocation["area"]
 ): StageMissionLocation =>
   Object.freeze({
     id,
-    floorId: "f01" as const,
-    displayName: `目的地 ${id}`,
-    area: Object.freeze({ id: `area-${id}` }),
+    floorId,
+    displayName,
+    area,
     volumeMesh: Object.freeze({ id: `volume-${id}` }),
     anchorNode: Object.freeze({ id: `anchor-${id}` }),
     navigationLocation: Object.freeze({
@@ -103,39 +119,78 @@ const createFixtureMissionLocation = (
 export const createFixtureLocations = (
   containsAll = false
 ): StageLocationAssetRegistry => {
-  const ids = [
-    "gym",
-    "f02-broadcast",
-    "loc-a",
-    "loc-b",
-    "loc-c",
-    "loc-d",
-    "loc-e",
-    "loc-f",
-    "loc-g",
-    "loc-h",
-    "loc-i",
-    "loc-j",
-    "loc-k",
-    "loc-l"
-  ];
+  const specs = [
+    ["gym", "f01", "体育館"],
+    ["f02-broadcast", "f02", "放送室"],
+    ["f03-art", "f03", "美術室"],
+    ["loc-b", "f01", "目的地 loc-b"],
+    ["loc-c", "f01", "目的地 loc-c"],
+    ["loc-d", "f01", "目的地 loc-d"],
+    ["loc-e", "f01", "目的地 loc-e"],
+    ["loc-f", "f01", "目的地 loc-f"],
+    ["loc-g", "f01", "目的地 loc-g"],
+    ["loc-h", "f01", "目的地 loc-h"],
+    ["loc-i", "f01", "目的地 loc-i"],
+    ["loc-j", "f01", "目的地 loc-j"],
+    ["loc-k", "f01", "目的地 loc-k"],
+    ["rooftop-poolside", "roof", "屋上プールサイド"]
+  ] as const;
+  const sharedArea = Object.freeze({ id: "area-shared" }) as StageMissionLocation["area"];
   const missionLocations = Object.freeze(
-    ids.map((id, index) =>
-      createFixtureMissionLocation(id, 10 + index * 2, containsAll)
-    )
+    specs.map(([id, floorId, displayName], index) => {
+      const area = containsAll
+        ? sharedArea
+        : (Object.freeze({ id: `area-${id}` }) as StageMissionLocation["area"]);
+      return createFixtureMissionLocation(
+        id,
+        floorId,
+        displayName,
+        10 + index * 2,
+        containsAll,
+        area
+      );
+    })
   );
   const byId = new Map(missionLocations.map((location) => [location.id, location]));
+  const floorMaps = Object.freeze([
+    Object.freeze({ id: "map-f01", floorId: "f01", displayName: "1F", order: 1 }),
+    Object.freeze({ id: "map-f02", floorId: "f02", displayName: "2F", order: 2 }),
+    Object.freeze({ id: "map-f03", floorId: "f03", displayName: "3F", order: 3 }),
+    Object.freeze({ id: "map-f04", floorId: "f04", displayName: "4F", order: 4 }),
+    Object.freeze({ id: "map-roof", floorId: "roof", displayName: "屋上", order: 5 })
+  ]);
+  const floorMapById = new Map(
+    floorMaps.map((floorMap) => [floorMap.floorId, floorMap])
+  );
   return Object.freeze({
-    floorMaps: Object.freeze([]),
+    floorMaps,
     areas: Object.freeze([]),
     missionLocations,
     stairLandings: Object.freeze([]),
     elevatorLandings: Object.freeze([]),
     broadcastConsole: Object.freeze({ id: "broadcast-console" }),
-    getFloorMap: () => null,
+    getFloorMap: (floorId: StageMissionLocation["floorId"]) =>
+      floorMapById.get(floorId) ?? null,
     getAreaById: () => null,
     getMissionLocationById: (id: string) => byId.get(id) ?? null,
-    findArea: () => null
+    findArea: (point: Vector3) => {
+      const location = containsAll
+        ? missionLocations[0]
+        : missionLocations.find(
+            (candidate) =>
+              Math.abs(
+                point.x - candidate.navigationLocation.position.x
+              ) <= 0.5
+          );
+      return location
+        ? Object.freeze({
+            area: location.area,
+            piece: Object.freeze({ id: `piece-${location.area.id}` }),
+            floorId: location.floorId,
+            elevatorId: null
+          })
+        : null;
+    }
   }) as unknown as StageLocationAssetRegistry;
 };
 
@@ -278,6 +333,10 @@ export const runMissionRuntimeTests = async (): Promise<
         MISSION_VIEW_REJECTS_INVALID_KIND_REASON,
         "V2MissionViewがkindに不正な終了理由を許可しています。"
       );
+      assert(
+        FOLLOWER_ACQUIRE_REJECTS_ACTOR_TARGET,
+        "Follower獲得MissionがActor targetを許可しています。"
+      );
       const generated = createMissionFixture({
         playerRandom: createSequenceRandom([0.49, 0, 0])
       });
@@ -384,14 +443,169 @@ export const runMissionRuntimeTests = async (): Promise<
       fixture.runtime.dispose();
       return "有効候補がFollower獲得だけなら重みroll 0.99でも必ず選択";
     }),
+    executeTest("Follower獲得人数とdistinct進捗", () => {
+      const fixture = createMissionFixture({
+        containsAll: true,
+        playerRandom: createSequenceRandom([
+          0.1, 0,
+          0.1, 0, 0,
+          0.1, 0, 0.34,
+          0.1, 0, 0.99
+        ])
+      });
+      const npcs = Object.freeze([
+        createFixtureNpc("npc-a", 1),
+        createFixtureNpc("npc-b", 2),
+        createFixtureNpc("npc-c", 3),
+        createFixtureNpc("npc-d", 4),
+        createFixtureNpc("npc-e", 5),
+        createFixtureNpc("npc-f", 6),
+        createFixtureNpc("npc-g", 7)
+      ]);
+      const requireActiveAcquire = (deltaSeconds: number) => {
+        const frame = updateFixture(fixture, { deltaSeconds, npcs });
+        const mission = frame.playerMissions.find(
+          (candidate) =>
+            candidate.kind === "player-follower-acquire" &&
+            candidate.state === "active"
+        );
+        if (!mission || mission.target.kind !== "follower-count") {
+          throw new Error("Follower獲得人数Missionがありません。");
+        }
+        assert(
+          frame.missionTargetActorIds.length === 0,
+          "Follower獲得人数MissionがActor targetをミニマップへ渡しました。"
+        );
+        return mission;
+      };
+      const completeWith = (npc: FixtureNpc) => {
+        npc.commandMode = "follow";
+        fixture.runtime.notifyNpcCommandChanged(npc.id, "follow");
+      };
+
+      let mission = requireActiveAcquire(20);
+      assert(
+        mission.target.requiredCount === 1 &&
+          mission.target.acquiredCount === 0,
+        "最初のFollower獲得Missionが1人固定ではありません。"
+      );
+      completeWith(npcs[0]);
+
+      mission = requireActiveAcquire(20);
+      assert(mission.target.requiredCount === 1, "2回目の1人抽選が不正です。");
+      completeWith(npcs[1]);
+
+      mission = requireActiveAcquire(20);
+      assert(mission.target.requiredCount === 2, "3回目の2人抽選が不正です。");
+      completeWith(npcs[2]);
+      let progress = fixture.runtime.getMissions().find(
+        (candidate) => candidate.id === mission.id
+      );
+      assert(
+        progress?.state === "active" &&
+          progress.target.kind === "follower-count" &&
+          progress.target.acquiredCount === 1,
+        "1人目のFollow成功を進捗へ反映しません。"
+      );
+      npcs[2].commandMode = "none";
+      fixture.runtime.notifyNpcCommandChanged(npcs[2].id, "leave");
+      npcs[2].commandMode = "follow";
+      fixture.runtime.notifyNpcCommandChanged(npcs[2].id, "follow");
+      progress = fixture.runtime.getMissions().find(
+        (candidate) => candidate.id === mission.id
+      );
+      assert(
+        progress?.state === "active" &&
+          progress.target.kind === "follower-count" &&
+          progress.target.acquiredCount === 1,
+        "Leave後の再Followを重複計上しました。"
+      );
+      completeWith(npcs[3]);
+      const completedTwo = fixture.runtime.getMissions().find(
+        (candidate) => candidate.id === mission.id
+      );
+      assert(
+        completedTwo?.state === "completed" &&
+          completedTwo.terminalReason === "follower-count-reached" &&
+          completedTwo.target.kind === "follower-count" &&
+          completedTwo.target.acquiredCount === 2,
+        "異なる2人のFollow成功でMissionが完了しません。"
+      );
+
+      mission = requireActiveAcquire(20);
+      assert(mission.target.requiredCount === 3, "4回目の3人抽選が不正です。");
+      completeWith(npcs[4]);
+      completeWith(npcs[5]);
+      completeWith(npcs[6]);
+      const completedThree = fixture.runtime.getMissions().find(
+        (candidate) => candidate.id === mission.id
+      );
+      assert(
+        completedThree?.state === "completed" &&
+          completedThree.terminalReason === "follower-count-reached" &&
+          completedThree.target.kind === "follower-count" &&
+          completedThree.target.acquiredCount === 3,
+        "異なる3人のFollow成功でMissionが完了しません。"
+      );
+      fixture.runtime.dispose();
+      return "初回1人、以後1/2/3人を抽選し、distinct IDだけを不減算で計上";
+    }),
+    executeTest("Follower獲得人数はeligible数を上限とする", () => {
+      const capped = createMissionFixture({
+        containsAll: true,
+        playerRandom: createSequenceRandom([
+          0.1, 0,
+          0.1, 0, 0.99
+        ])
+      });
+      const npcs = Object.freeze([
+        createFixtureNpc("npc-a", 1),
+        createFixtureNpc("npc-b", 2),
+        createFixtureNpc("npc-c", 3)
+      ]);
+      let frame = updateFixture(capped, { deltaSeconds: 20, npcs });
+      const first = frame.playerMissions.find(
+        (mission) =>
+          mission.kind === "player-follower-acquire" && mission.state === "active"
+      );
+      if (!first || first.target.kind !== "follower-count") {
+        throw new Error("初回Follower獲得Missionがありません。");
+      }
+      npcs[0].commandMode = "follow";
+      capped.runtime.notifyNpcCommandChanged(npcs[0].id, "follow");
+      frame = updateFixture(capped, { deltaSeconds: 20, npcs });
+      const second = frame.playerMissions.find(
+        (mission) =>
+          mission.kind === "player-follower-acquire" && mission.state === "active"
+      );
+      assert(
+        second?.target.kind === "follower-count" &&
+          second.target.requiredCount === 2,
+        "eligible 2人なのに2回目Missionが3人を要求しました。"
+      );
+      capped.runtime.dispose();
+
+      const empty = createMissionFixture({
+        containsAll: true,
+        playerRandom: createSequenceRandom([0.1])
+      });
+      const followed = Object.freeze([
+        createFixtureNpc("npc-existing-a", 1, "normal", "follow"),
+        createFixtureNpc("npc-existing-b", 2, "normal", "follow")
+      ]);
+      frame = updateFixture(empty, { deltaSeconds: 20, npcs: followed });
+      assert(
+        !frame.playerMissions.some(
+          (mission) => mission.kind === "player-follower-acquire"
+        ),
+        "eligible 0人でもFollower獲得Missionを生成しました。"
+      );
+      empty.runtime.dispose();
+      return "2回目以降はmin(3, eligible数)を上限とし、0人なら候補外";
+    }),
     executeTest("Player通常3件上限と重複防止", () => {
       const fixture = createMissionFixture({
-        playerRandom: createSequenceRandom([
-          0.1, 0.1, 0.1,
-          0.1, 0.1, 0.1,
-          0.1, 0.9, 0.1,
-          0.1, 0.1, 0.1
-        ])
+        playerRandom: () => 0.1
       });
       const npcs = Object.freeze([
         createFixtureNpc("npc-a", 1),
@@ -405,11 +619,15 @@ export const runMissionRuntimeTests = async (): Promise<
         (mission) =>
           mission.state === "active" && mission.kind === "player-follower-acquire"
       );
-      if (!acquire || acquire.target.kind !== "actor") {
-        throw new Error("Follower獲得対象がありません。");
+      if (!acquire || acquire.target.kind !== "follower-count") {
+        throw new Error("Follower獲得人数Missionがありません。");
       }
-      const acquireActorId = acquire.target.actorId;
-      const firstFollower = npcs.find((npc) => npc.id === acquireActorId)!;
+      assert(
+        acquire.target.requiredCount === 1 &&
+          acquire.target.acquiredCount === 0,
+        "最初のFollower獲得Missionが1人固定ではありません。"
+      );
+      const firstFollower = npcs[0];
       firstFollower.commandMode = "follow";
       fixture.runtime.notifyNpcCommandChanged(firstFollower.id, "follow");
       frame = updateFixture(fixture, { deltaSeconds: 20, npcs });
@@ -439,6 +657,169 @@ export const runMissionRuntimeTests = async (): Promise<
       );
       fixture.runtime.dispose();
       return `active=${active.length} / kind・Actor・Location重複なし`;
+    }),
+    executeTest("Player LocationはArea進入で完了し階表示", () => {
+      const fixture = createMissionFixture({
+        playerRandom: createSequenceRandom([0.1, 0, 0.17])
+      });
+      let frame = updateFixture(fixture, { deltaSeconds: 20 });
+      const mission = frame.playerMissions.find(
+        (candidate) =>
+          candidate.kind === "player-location" && candidate.state === "active"
+      );
+      if (!mission || mission.target.kind !== "location") {
+        throw new Error("Player Location Missionがありません。");
+      }
+      assert(
+        mission.target.locationId === "f03-art" &&
+          mission.targetDisplayName === "3F 美術室",
+        `固定階表示が不正です: ${mission.targetDisplayName}`
+      );
+      const location = fixture.locations.getMissionLocationById(
+        mission.target.locationId
+      )!;
+      const areaEntryX = location.navigationLocation.position.x + 0.25;
+      assert(
+        !location.contains(new Vector3(areaEntryX, 0, 0)),
+        "fixtureのArea進入点がAnchor Volume内です。"
+      );
+      frame = updateFixture(fixture, {
+        deltaSeconds: 0,
+        playerX: areaEntryX
+      });
+      assert(
+        frame.playerMissions.some(
+          (candidate) =>
+            candidate.id === mission.id &&
+            candidate.state === "completed" &&
+            candidate.terminalReason === "arrived"
+        ),
+        "部屋Areaへ入ってもPlayer Location Missionが完了しません。"
+      );
+      fixture.runtime.dispose();
+
+      const excluded = createMissionFixture({
+        playerRandom: createSequenceRandom([0.1, 0, 0])
+      });
+      const art = excluded.locations.getMissionLocationById("f03-art")!;
+      frame = updateFixture(excluded, {
+        deltaSeconds: 20,
+        playerX: art.navigationLocation.position.x + 0.25
+      });
+      assert(
+        frame.playerMissions.every(
+          (candidate) =>
+            candidate.target.kind !== "location" ||
+            candidate.target.locationId !== art.id
+        ),
+        "現在いる部屋AreaをPlayer Location候補に含めました。"
+      );
+      excluded.runtime.dispose();
+
+      const rooftop = createMissionFixture({
+        playerRandom: createSequenceRandom([0.1, 0, 0.99])
+      });
+      frame = updateFixture(rooftop, { deltaSeconds: 20 });
+      const rooftopMission = frame.playerMissions.find(
+        (candidate) => candidate.kind === "player-location"
+      );
+      assert(
+        rooftopMission?.target.kind === "location" &&
+          rooftopMission.target.locationId === "rooftop-poolside" &&
+          rooftopMission.targetDisplayName === "屋上プールサイド",
+        `屋上表示名へ階名を重複しました: ${rooftopMission?.targetDisplayName}`
+      );
+      rooftop.runtime.dispose();
+      return "3F 美術室をArea進入で完了し、現在Area除外・屋上名非重複";
+    }),
+    executeTest("Follower護衛はArea、NPC LocationはAnchor Volume", () => {
+      const escortFixture = createMissionFixture({
+        playerRandom: createSequenceRandom([0.1, 0.99, 0.17])
+      });
+      const follower = createFixtureNpc("npc-first", 0.5, "normal", "follow");
+      escortFixture.runtime.notifyNpcCommandChanged(follower.id, "follow");
+      let frame = updateFixture(escortFixture, {
+        deltaSeconds: 20,
+        npcs: Object.freeze([follower])
+      });
+      const escort = frame.playerMissions.find(
+        (mission) =>
+          mission.kind === "player-follower-escort" && mission.state === "active"
+      );
+      if (!escort || escort.target.kind !== "actor-location") {
+        throw new Error("Follower護衛Missionがありません。");
+      }
+      assert(
+        escort.target.locationId === "f03-art" &&
+          escort.targetDisplayName === `${follower.id} → 3F 美術室`,
+        `Follower護衛の階表示が不正です: ${escort.targetDisplayName}`
+      );
+      const escortLocation = escortFixture.locations.getMissionLocationById(
+        escort.target.locationId
+      )!;
+      const areaEntryX = escortLocation.navigationLocation.position.x + 0.25;
+      follower.footPosition.x = areaEntryX;
+      frame = updateFixture(escortFixture, {
+        deltaSeconds: 0,
+        playerX: areaEntryX,
+        npcs: Object.freeze([follower])
+      });
+      assert(
+        frame.playerMissions.some(
+          (mission) =>
+            mission.id === escort.id &&
+            mission.state === "completed" &&
+            mission.terminalReason === "arrived"
+        ),
+        "PlayerとFollowerが同じ部屋Areaへ入っても護衛Missionが完了しません。"
+      );
+      escortFixture.runtime.dispose();
+
+      const npcFixture = createMissionFixture({
+        playerRandom: () => 0.9,
+        npcRandom: createSequenceRandom([0, 0.17])
+      });
+      const npc = createFixtureNpc("npc-location", 0);
+      const npcs = Object.freeze([npc]);
+      updateFixture(npcFixture, { deltaSeconds: 20, npcs });
+      const npcMission = npcFixture.runtime.getMissions().find(
+        (mission) =>
+          mission.kind === "npc-location" &&
+          mission.source === "normal" &&
+          mission.state === "active"
+      );
+      if (!npcMission || npcMission.target.kind !== "location") {
+        throw new Error("通常NPC Location Missionがありません。");
+      }
+      assert(
+        npcMission.target.locationId === "f03-art" &&
+          npcMission.targetDisplayName === "3F 美術室",
+        `NPC Locationの階表示が不正です: ${npcMission.targetDisplayName}`
+      );
+      const npcLocation = npcFixture.locations.getMissionLocationById(
+        npcMission.target.locationId
+      )!;
+      npc.footPosition.x = npcLocation.navigationLocation.position.x + 0.25;
+      updateFixture(npcFixture, { deltaSeconds: 0, npcs });
+      assert(
+        npcFixture.runtime.getMissions().some(
+          (mission) => mission.id === npcMission.id && mission.state === "active"
+        ),
+        "NPC Location MissionがAnchor Volume外のArea進入だけで完了しました。"
+      );
+      npc.footPosition.x = npcLocation.navigationLocation.position.x;
+      updateFixture(npcFixture, { deltaSeconds: 0, npcs });
+      assert(
+        npcFixture.runtime.getMissions().some(
+          (mission) =>
+            mission.id === npcMission.id &&
+            mission.state === "completed" &&
+            mission.terminalReason === "arrived"
+        ),
+        "NPC Location MissionがAnchor Volume到達で完了しません。"
+      );
+      npcFixture.runtime.dispose();
+      return "護衛は双方のArea進入、NPC通常移動は従来Anchor Volume到達";
     }),
     executeTest("期限・通常H継続・phase離脱取消", () => {
       let deadlineRandomCall = 0;

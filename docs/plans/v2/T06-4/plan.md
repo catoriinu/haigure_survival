@@ -64,6 +64,16 @@ PLEASE IMPLEMENT THIS PLAN:
 - 実装時に暗黙のフォールバック、旧API互換、欠落metadataの推測は追加しない。
 - T06-4の実装作業を別途開始する場合の完了境界は、専用worktreeでの実装、受入検証、計画書更新、ローカルcommitまでとする。push、Draft PR作成、レビュー、merge、T07開始はそれぞれ別の明示承認を要する。
 
+### 2026-08-09 受入追補
+
+Missionについて、Follower獲得で`npc_30`のようなIDを指定されても誰か分からないため、特定NPCではなく獲得人数を目標にする。ゲーム内で最初に表示されるFollower獲得Missionは1人固定とし、2回目以降は1人、2人、3人のいずれかを表示する。その時点で獲得可能な未洗脳NPC数を超える人数は候補から除外し、候補が0人ならMission自体を発生させない。同じNPCの再Followは重複計上せず、Mission開始後に初めてFollowした異なるNPC数を進捗とし、Leave後も獲得実績を保持する。
+
+美術室や図書室などのPlayer Location Missionは、狭いAnchor周辺ではなく、その部屋の正本Areaへ入った時点で完了させる。Follower護衛はPlayerとFollowerの両方が目的Areaへ入った時点で完了する。NPC通常／放送Location Missionは集合先Anchorへ到達させるため、既存の正本Mission Volume判定を維持する。目的地はミニマップと同じ正本階表示を使い、`3F 美術室`、`1F 図書室`のように階数付きで表示する。
+
+Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出しを含む単一パネルへ全Missionを並べる。Missionごとの独立した背景、外枠、shadowは廃止し、同じパネル内で余白により区別する。完了／失敗4秒表示、取消非表示、通常最大3件＋状況最大1件は維持する。
+
+上記以外は、直前までに確定したT06-4仕様を維持する。
+
 ## ステップ
 
 - [x] `origin/develop`、PR #70、dirty差分、既存worktreeを確認し、`codex/v2-missions`専用worktreeを作成する。
@@ -75,6 +85,12 @@ PLEASE IMPLEMENT THIS PLAN:
 - [x] Mission／NPC／放送fixtureと対象typecheckを追加する。
 - [x] B05・T06-3回帰、共通typecheck／build、V3A、実ブラウザまたはElectron受入、テキスト配布検査を完了する。
 - [x] ロードマップと本計画の結果を実測へ同期し、T06-4差分だけをcommitする。
+- [x] 受入追補を現行Mission契約、B05 Area、HUD構造へ照合し、資産変更なしの修正範囲を確定する。
+- [x] Follower獲得を初回1人、2回目以降1～3人の有効人数抽選と異なるNPCの獲得進捗へ変更する。
+- [x] Player Location／Follower護衛を正本Area進入完了へ変更し、階数付き目的地表示へ統一する。
+- [x] Mission HUDを0件非表示、1件以上で見出し付き単一パネルへ変更する。
+- [x] 追補fixture、対象typecheck／build、実ブラウザまたはElectron受入、配布監査を完了する。
+- [x] 追補結果を本計画へ同期し、T06-4追補差分だけをローカルcommitする。
 
 ## 結果
 
@@ -83,8 +99,11 @@ PLEASE IMPLEMENT THIS PLAN:
 - NPC行動を`直接的危険 > Follow > Alarm > 放送Mission > 通常Mission > 自律行動`へ統一し、危険回避、Follow、エレベーター、移動失敗、Mission取消の競合を解消した。
 - primary／secondary Interaction、放送卓3m＋正面ray、体育館／逃走／ハイグレ人間化の3放送、通常Mission置換、最後の校内指示、`assembly-gym`／`assembly-courtyard`の厳格な会場固定を実装した。旧`npc-follow`／`npc-leave` actionと互換aliasは残していない。
 - 右上Mission HUD、完了／失敗4秒表示、取消非表示、T06-3ミニマップのactive Player Mission Actor／Location目標を通常ゲームへ接続した。
-- fixtureはT06-4 25/25、B05 34/34、T06 68/68、T06-3 14/14でPASSし、各pageのconsole warning／errorは0件だった。T06-4 fixtureではscheduler、再正規化、上限、重複、期限境界、phase取消、最初のFollower、逃走、NPC優先度、放送置換、Interaction優先、会場固定を決定的に検証した。
+- fixtureは追補後のT06-4 30/30、既存受入時のB05 34/34、T06 68/68、T06-3 14/14でPASSし、各pageのconsole warning／errorは0件だった。T06-4 fixtureではscheduler、再正規化、上限、重複、期限境界、phase取消、最初のFollower、逃走、NPC優先度、放送置換、Interaction優先、会場固定に加え、Follower人数抽選、distinct進捗、Player／護衛Area判定、NPC Mission Volume維持、階表示、単一HUDパネルを決定的に検証した。
 - `typecheck:t05`、`typecheck:t06`、`typecheck:t06-3`、`typecheck:b05`、`typecheck:t06-4`、`typecheck:v2`、対応する5件のfixture build、通常`npm run build`、Electron受入script構文をPASSした。
-- Mission専用Electron受入はnormalでPointer Lock、放送卓ray、20秒HUD／ミニマップ、F体育館、E逃走、体育館／中庭会場を、haigureでEハイグレ人間化と中庭会場を確認した。両scenarioともconsole、renderer、load、render-process-gone、unresponsiveは0件だった。InteractionのNPC優先競合、無効secondary非fallthrough、Door C独立はT06-4 fixtureで確認した。
+- Mission専用Electron受入はnormalでPointer Lock、放送卓ray、20秒HUD／Mission target配線、F体育館、E逃走、体育館／中庭会場を、haigureでEハイグレ人間化と中庭会場を確認した。normalでは`player-follower-acquire / follower-count`をHUDへ1件表示し、Actor／LocationのミニマップIDがともに0件である新契約を明示的に確認した。両scenarioともconsole、renderer、load、render-process-gone、unresponsiveは0件だった。InteractionのNPC優先競合、無効secondary非fallthrough、Door C独立はT06-4 fixtureで確認した。
+- Follower獲得Missionを特定NPC指定から人数目標へ変更した。セッション初回は1人、2回目以降は生成時のeligible人数を上限として1～3人を一様抽選し、同一NPCの再Followを重複加算せず、Leave後も獲得済み人数を保持する。eligibleが0人ならMission候補にしない。
+- Player Location MissionとFollower護衛は正本Areaへの入室で完了し、NPC通常／放送Location Missionは従来どおり正本Mission Volumeで完了する。目的地名は正本floor mapから`3F 美術室`のように表示し、屋上名は重複させない。
+- Mission HUDは0件で完全に非表示とし、1件以上では`MISSION`見出し付きの単一パネルへ全項目をまとめた。各項目の独立した背景、外枠、角丸、shadowは廃止し、Followerの必要人数／獲得人数とLocationの階数付き名称を2行で表示する。
 - `git diff --check`、括弧を含むTypeScript／Electron構文検査、厳格UTF-8／BOM、ローカル絶対パス、旧action名、保護対象差分を監査した。Blender、GLB、NavMesh、生成器、カタログハッシュは変更していない。
 - 本計画更新を含むT06-4差分をローカルcommitまで完了した。push、Draft PR、レビュー、merge、I3／T06-5／T07は未実施である。

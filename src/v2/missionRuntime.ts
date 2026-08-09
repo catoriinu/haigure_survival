@@ -64,6 +64,11 @@ export type V2MissionTarget =
   | Readonly<{ kind: "actor"; actorId: string }>
   | Readonly<{ kind: "location"; locationId: string }>
   | Readonly<{
+      kind: "follower-count";
+      acquiredCount: number;
+      requiredCount: number;
+    }>
+  | Readonly<{
       kind: "actor-location";
       actorId: string;
       locationId: string;
@@ -71,7 +76,7 @@ export type V2MissionTarget =
 
 export type V2MissionCompletionReason =
   | "arrived"
-  | "follow-established"
+  | "follower-count-reached"
   | "target-brainwashed"
   | "escaped";
 
@@ -122,6 +127,11 @@ type V2LocationMissionTarget = Readonly<{
   kind: "location";
   locationId: string;
 }>;
+type V2FollowerCountMissionTarget = Readonly<{
+  kind: "follower-count";
+  acquiredCount: number;
+  requiredCount: number;
+}>;
 type V2ActorLocationMissionTarget = Readonly<{
   kind: "actor-location";
   actorId: string;
@@ -139,7 +149,7 @@ export type V2MissionDefinition =
       kind: "player-follower-acquire";
       source: "normal";
       assignee: V2PlayerMissionAssignee;
-      target: V2ActorMissionTarget;
+      target: V2FollowerCountMissionTarget;
     }>
   | Readonly<{
       kind: "player-brainwash-target";
@@ -230,8 +240,8 @@ export type V2MissionView =
     >
   | V2MissionViewFor<
       Extract<V2MissionDefinition, { kind: "player-follower-acquire" }>,
-      "follow-established",
-      "deadline" | "target-unavailable",
+      "follower-count-reached",
+      "deadline",
       "phase-ended" | "player-brainwash-started"
     >
   | V2MissionViewFor<
@@ -396,17 +406,24 @@ const cloneMissionTarget = (target: V2MissionTarget): V2MissionTarget => {
   if (target.kind === "location") {
     return Object.freeze({ kind: "location", locationId: target.locationId });
   }
+  if (target.kind === "actor-location") {
+    return Object.freeze({
+      kind: "actor-location",
+      actorId: target.actorId,
+      locationId: target.locationId
+    });
+  }
   return Object.freeze({
-    kind: "actor-location",
-    actorId: target.actorId,
-    locationId: target.locationId
+    kind: "follower-count",
+    acquiredCount: target.acquiredCount,
+    requiredCount: target.requiredCount
   });
 };
 
 const COMPLETION_REASONS: readonly V2MissionCompletionReason[] =
   Object.freeze([
     "arrived",
-    "follow-established",
+    "follower-count-reached",
     "target-brainwashed",
     "escaped"
   ]);
@@ -437,7 +454,7 @@ const isMissionTerminalReasonAllowed = (
         mission.kind === "npc-location") &&
         reason === "arrived") ||
       (mission.kind === "player-follower-acquire" &&
-        reason === "follow-established") ||
+        reason === "follower-count-reached") ||
       ((mission.kind === "player-brainwash-target" ||
         mission.kind === "player-first-follower-brainwash") &&
         reason === "target-brainwashed") ||
@@ -448,9 +465,6 @@ const isMissionTerminalReasonAllowed = (
   if (state === "failed") {
     if (reason === "deadline") {
       return true;
-    }
-    if (mission.kind === "player-follower-acquire") {
-      return reason === "target-unavailable";
     }
     if (mission.kind === "player-follower-escort") {
       return reason === "follow-ended";
@@ -519,14 +533,25 @@ const freezeMission = (mission: MutableMission): V2MissionView => {
   const playerAssigned = mission.assignee.kind === "player";
   const locationTarget = mission.target.kind === "location";
   const actorTarget = mission.target.kind === "actor";
+  const followerCountTarget =
+    mission.target.kind === "follower-count" &&
+    Number.isInteger(mission.target.acquiredCount) &&
+    mission.target.acquiredCount >= 0 &&
+    Number.isInteger(mission.target.requiredCount) &&
+    mission.target.requiredCount >= 1 &&
+    mission.target.requiredCount <= 3 &&
+    mission.target.acquiredCount <= mission.target.requiredCount;
   const actorLocationTarget = mission.target.kind === "actor-location";
   const definitionValid =
     (mission.kind === "player-location" &&
       mission.source === "normal" &&
       playerAssigned &&
       locationTarget) ||
-    ((mission.kind === "player-follower-acquire" ||
-      mission.kind === "player-brainwash-target" ||
+    (mission.kind === "player-follower-acquire" &&
+      mission.source === "normal" &&
+      playerAssigned &&
+      followerCountTarget) ||
+    ((mission.kind === "player-brainwash-target" ||
       mission.kind === "player-first-follower-brainwash") &&
       mission.source === "normal" &&
       playerAssigned &&
@@ -545,6 +570,16 @@ const freezeMission = (mission: MutableMission): V2MissionView => {
       locationTarget);
   if (!definitionValid) {
     throw new Error(`Mission definitionが不正です: ${mission.id}`);
+  }
+  if (
+    mission.kind === "player-follower-acquire" &&
+    mission.target.kind === "follower-count" &&
+    ((mission.state === "active" &&
+      mission.target.acquiredCount >= mission.target.requiredCount) ||
+      (mission.state === "completed" &&
+        mission.target.acquiredCount !== mission.target.requiredCount))
+  ) {
+    throw new Error(`Follower獲得Missionの進捗が不正です: ${mission.id}`);
   }
   if (
     mission.state !== "active" &&
@@ -612,6 +647,22 @@ const requireLocation = (
   return location;
 };
 
+const formatMissionLocationDisplayName = (
+  locations: StageLocationAssetRegistry,
+  location: StageMissionLocation
+) => {
+  if (location.floorId === "roof") {
+    return location.displayName;
+  }
+  const floorMap = locations.getFloorMap(location.floorId);
+  if (!floorMap) {
+    throw new Error(
+      `Mission Locationのfloor_mapがありません: ${location.id}/${location.floorId}`
+    );
+  }
+  return `${floorMap.displayName} ${location.displayName}`;
+};
+
 const createNpcAssignment = (
   missionId: string,
   source: "normal" | "broadcast",
@@ -662,6 +713,8 @@ export const createV2MissionRuntime = ({
   let elapsedSeconds = 0;
   let nextSchedulerAtSeconds = V2_MISSION_SCHEDULER_INTERVAL_SECONDS;
   let missionSequence = 0;
+  let followerAcquireMissionCount = 0;
+  const acquiredFollowerIdsByMissionId = new Map<string, Set<string>>();
   let firstFollowerId: string | null = null;
   let escapeMissionStarted = false;
   let escapeSafeSeconds = 0;
@@ -726,6 +779,9 @@ export const createV2MissionRuntime = ({
     mission.state = state;
     mission.terminalAtSeconds = terminalAtSeconds;
     mission.terminalReason = reason;
+    if (mission.kind === "player-follower-acquire") {
+      acquiredFollowerIdsByMissionId.delete(mission.id);
+    }
     if (mission.assignee.kind === "npc") {
       if (!npcPort.cancelLocationMission(mission.assignee.npcId, mission.id)) {
         throw new Error(
@@ -767,7 +823,21 @@ export const createV2MissionRuntime = ({
         .filter((id): id is string => id !== null)
     );
 
-  const availableLocations = (position: Vector3) => {
+  const isInsideMissionLocationArea = (
+    location: StageMissionLocation,
+    position: Vector3
+  ) => locations.findArea(position)?.area.id === location.area.id;
+
+  const availablePlayerLocations = (position: Vector3) => {
+    const usedLocationIds = activeTargetLocationIds();
+    return locations.missionLocations.filter(
+      (location) =>
+        !usedLocationIds.has(location.id) &&
+        !isInsideMissionLocationArea(location, position)
+    );
+  };
+
+  const availableNpcLocations = (position: Vector3) => {
     const usedLocationIds = activeTargetLocationIds();
     return locations.missionLocations.filter(
       (location) =>
@@ -775,11 +845,19 @@ export const createV2MissionRuntime = ({
     );
   };
 
+  const eligibleFollowerAcquireNpcs = (
+    npcs: readonly V2MissionNpcSnapshot[]
+  ) =>
+    npcs.filter(
+      (npc) =>
+        isUnbrainwashedState(npc.state) && npc.commandMode !== "follow"
+    );
+
   const createPlayerLocationMission = (
     playerFootPosition: Vector3,
     startedAtSeconds: number
   ) => {
-    const candidates = availableLocations(playerFootPosition);
+    const candidates = availablePlayerLocations(playerFootPosition);
     if (candidates.length === 0) {
       return false;
     }
@@ -790,7 +868,7 @@ export const createV2MissionRuntime = ({
       Object.freeze({ kind: "player" }),
       Object.freeze({ kind: "location", locationId: location.id }),
       "目的地へ移動",
-      location.displayName,
+      formatMissionLocationDisplayName(locations, location),
       PLAYER_LOCATION_DEADLINE_SECONDS,
       startedAtSeconds
     );
@@ -801,27 +879,32 @@ export const createV2MissionRuntime = ({
     npcs: readonly V2MissionNpcSnapshot[],
     startedAtSeconds: number
   ) => {
-    const usedActorIds = activeTargetActorIds();
-    const candidates = npcs.filter(
-      (npc) =>
-        isUnbrainwashedState(npc.state) &&
-        npc.commandMode !== "follow" &&
-        !usedActorIds.has(npc.id)
-    );
-    if (candidates.length === 0) {
+    const eligibleNpcs = eligibleFollowerAcquireNpcs(npcs);
+    if (eligibleNpcs.length === 0) {
       return false;
     }
-    const target = pickRandom(candidates, nextPlayerRandom);
-    addMission(
+    const requiredCount =
+      followerAcquireMissionCount === 0
+        ? 1
+        : Math.floor(
+            nextPlayerRandom() * Math.min(3, eligibleNpcs.length)
+          ) + 1;
+    const mission = addMission(
       "player-follower-acquire",
       "normal",
       Object.freeze({ kind: "player" }),
-      Object.freeze({ kind: "actor", actorId: target.id }),
-      "Followerを増やす",
-      target.id,
+      Object.freeze({
+        kind: "follower-count",
+        acquiredCount: 0,
+        requiredCount
+      }),
+      `同行者を${requiredCount}人増やす`,
+      `進捗 0/${requiredCount}人`,
       PLAYER_FOLLOWER_ACQUIRE_DEADLINE_SECONDS,
       startedAtSeconds
     );
+    followerAcquireMissionCount += 1;
+    acquiredFollowerIdsByMissionId.set(mission.id, new Set<string>());
     return true;
   };
 
@@ -842,7 +925,7 @@ export const createV2MissionRuntime = ({
     ) {
       return false;
     }
-    const candidates = availableLocations(playerFootPosition);
+    const candidates = availablePlayerLocations(playerFootPosition);
     if (candidates.length === 0) {
       return false;
     }
@@ -857,7 +940,7 @@ export const createV2MissionRuntime = ({
         locationId: location.id
       }),
       "最初のFollowerを護衛",
-      `${follower.id} → ${location.displayName}`,
+      `${follower.id} → ${formatMissionLocationDisplayName(locations, location)}`,
       PLAYER_FOLLOWER_ESCORT_DEADLINE_SECONDS,
       startedAtSeconds
     );
@@ -929,13 +1012,9 @@ export const createV2MissionRuntime = ({
     );
     const usedActorIds = activeTargetActorIds();
     const hasAvailableLocation =
-      availableLocations(update.playerFootPosition).length > 0;
-    const hasFollowerAcquireTarget = update.npcs.some(
-      (npc) =>
-        isUnbrainwashedState(npc.state) &&
-        npc.commandMode !== "follow" &&
-        !usedActorIds.has(npc.id)
-    );
+      availablePlayerLocations(update.playerFootPosition).length > 0;
+    const hasFollowerAcquireTarget =
+      eligibleFollowerAcquireNpcs(update.npcs).length > 0;
     const firstFollower =
       firstFollowerId === null
         ? null
@@ -1062,7 +1141,7 @@ export const createV2MissionRuntime = ({
       Object.freeze({ kind: "npc", npcId: npc.id }),
       Object.freeze({ kind: "location", locationId: location.id }),
       source === "broadcast" ? "校内放送による移動" : "目的地へ移動",
-      location.displayName,
+      formatMissionLocationDisplayName(locations, location),
       source === "broadcast"
         ? BROADCAST_LOCATION_DEADLINE_SECONDS
         : NPC_LOCATION_DEADLINE_SECONDS,
@@ -1107,7 +1186,7 @@ export const createV2MissionRuntime = ({
     ) {
       const npcIndex = Math.floor(nextNpcRandom() * candidates.length);
       const npc = candidates.splice(npcIndex, 1)[0];
-      const locationCandidates = availableLocations(npc.footPosition);
+      const locationCandidates = availableNpcLocations(npc.footPosition);
       if (locationCandidates.length === 0) {
         continue;
       }
@@ -1179,7 +1258,12 @@ export const createV2MissionRuntime = ({
     for (const mission of [...activeMissions()]) {
       if (mission.kind === "player-location") {
         const locationId = targetLocationId(mission.target)!;
-        if (requireLocation(locations, locationId).contains(update.playerFootPosition)) {
+        if (
+          isInsideMissionLocationArea(
+            requireLocation(locations, locationId),
+            update.playerFootPosition
+          )
+        ) {
           finishMission(mission, "completed", "arrived");
         }
       } else if (mission.kind === "player-follower-escort") {
@@ -1192,19 +1276,16 @@ export const createV2MissionRuntime = ({
         ) {
           finishMission(mission, "failed", "follow-ended");
         } else if (
-          requireLocation(locations, locationId).contains(
+          isInsideMissionLocationArea(
+            requireLocation(locations, locationId),
             update.playerFootPosition
           ) &&
-          requireLocation(locations, locationId).contains(
+          isInsideMissionLocationArea(
+            requireLocation(locations, locationId),
             follower.footPosition
           )
         ) {
           finishMission(mission, "completed", "arrived");
-        }
-      } else if (mission.kind === "player-follower-acquire") {
-        const target = npcById.get(targetActorId(mission.target)!);
-        if (!target || !isUnbrainwashedState(target.state)) {
-          finishMission(mission, "failed", "target-unavailable");
         }
       } else if (
         mission.kind === "player-brainwash-target" ||
@@ -1327,6 +1408,37 @@ export const createV2MissionRuntime = ({
     }
   };
 
+  const recordFollowerAcquireProgress = (
+    mission: MutableMission,
+    npcId: string
+  ) => {
+    if (
+      mission.kind !== "player-follower-acquire" ||
+      mission.target.kind !== "follower-count"
+    ) {
+      throw new Error(`Follower獲得Missionの定義が不正です: ${mission.id}`);
+    }
+    const acquiredNpcIds = acquiredFollowerIdsByMissionId.get(mission.id);
+    if (!acquiredNpcIds) {
+      throw new Error(`Follower獲得Missionの進捗がありません: ${mission.id}`);
+    }
+    if (acquiredNpcIds.has(npcId)) {
+      return;
+    }
+    acquiredNpcIds.add(npcId);
+    const acquiredCount = acquiredNpcIds.size;
+    const requiredCount = mission.target.requiredCount;
+    mission.target = Object.freeze({
+      kind: "follower-count",
+      acquiredCount,
+      requiredCount
+    });
+    mission.targetDisplayName = `進捗 ${acquiredCount}/${requiredCount}人`;
+    if (acquiredCount >= requiredCount) {
+      finishMission(mission, "completed", "follower-count-reached");
+    }
+  };
+
   const buildFrame = (): V2MissionFrame => {
     const visiblePlayerMissions = missions
       .filter(
@@ -1439,11 +1551,8 @@ export const createV2MissionRuntime = ({
           firstFollowerId = npcId;
         }
         for (const mission of activePlayerNormalMissions()) {
-          if (
-            mission.kind === "player-follower-acquire" &&
-            targetActorId(mission.target) === npcId
-          ) {
-            finishMission(mission, "completed", "follow-established");
+          if (mission.kind === "player-follower-acquire") {
+            recordFollowerAcquireProgress(mission, npcId);
           }
         }
       } else if (mode === "leave") {

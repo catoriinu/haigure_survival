@@ -200,6 +200,58 @@ const waitFor = async (name, window, predicate, timeoutMilliseconds) => {
   throw new Error(`${name}を${timeoutMilliseconds}ms以内に確認できませんでした: ${JSON.stringify(latest)}`);
 };
 
+const inspectScheduledMissionEvidence = (mission) => {
+  assertCondition(
+    Array.isArray(mission.activePlayerMissionDescriptors),
+    "Mission受入snapshotにactive Player Mission descriptorがありません。"
+  );
+  const descriptors = mission.activePlayerMissionDescriptors;
+  const supportedTargetKinds = new Set([
+    "actor",
+    "location",
+    "actor-location",
+    "follower-count"
+  ]);
+  const descriptorContractValid = descriptors.every(
+    (descriptor) =>
+      typeof descriptor.id === "string" &&
+      descriptor.id.length > 0 &&
+      typeof descriptor.kind === "string" &&
+      supportedTargetKinds.has(descriptor.targetKind) &&
+      (descriptor.kind === "player-follower-acquire"
+        ? descriptor.targetKind === "follower-count"
+        : descriptor.targetKind !== "follower-count")
+  );
+  const expectedActorTargetCount = descriptors.filter(
+    (descriptor) =>
+      descriptor.targetKind === "actor" ||
+      descriptor.targetKind === "actor-location"
+  ).length;
+  const expectedLocationTargetCount = descriptors.filter(
+    (descriptor) =>
+      descriptor.targetKind === "location" ||
+      descriptor.targetKind === "actor-location"
+  ).length;
+  const followerCountMissionCount = descriptors.filter(
+    (descriptor) =>
+      descriptor.kind === "player-follower-acquire" &&
+      descriptor.targetKind === "follower-count"
+  ).length;
+  return Object.freeze({
+    ready:
+      descriptorContractValid &&
+      descriptors.length > 0 &&
+      mission.missionHudVisible &&
+      mission.missionHudItemCount >= descriptors.length &&
+      mission.missionTargetActorIds.length === expectedActorTargetCount &&
+      mission.missionTargetLocationIds.length === expectedLocationTargetCount,
+    descriptors,
+    expectedActorTargetCount,
+    expectedLocationTargetCount,
+    followerCountMissionCount
+  });
+};
+
 const sendKey = async (window, keyCode, holdMilliseconds = 70) => {
   window.focus();
   window.webContents.focus();
@@ -487,30 +539,36 @@ const run = async () => {
         "未洗脳Playerのsecondary放送候補がfleeではありません。"
       );
       const scheduledMission = await waitFor(
-        "20秒schedulerのMission HUDとミニマップ目標",
+        "20秒schedulerのMission HUDとtarget配線",
         testWindow,
         (snapshot) => {
           const mission = snapshot.missionAcceptanceSnapshot;
-          return (
-            mission !== null &&
-            mission.missionHudVisible &&
-            mission.missionHudItemCount > 0 &&
-            mission.missionTargetActorIds.length +
-              mission.missionTargetLocationIds.length >
-              0
-          );
+          return mission !== null && inspectScheduledMissionEvidence(mission).ready;
         },
         30_000
       );
-      addCheck("20秒schedulerの右上HUDとミニマップ目標配線", {
+      const scheduledMissionSnapshot =
+        scheduledMission.missionAcceptanceSnapshot;
+      const scheduledMissionEvidence = inspectScheduledMissionEvidence(
+        scheduledMissionSnapshot
+      );
+      addCheck("20秒schedulerの右上HUDとMission target配線", {
         missionHudItemCount:
-          scheduledMission.missionAcceptanceSnapshot.missionHudItemCount,
+          scheduledMissionSnapshot.missionHudItemCount,
+        activePlayerMissionDescriptors:
+          scheduledMissionEvidence.descriptors,
+        followerCountMissionCount:
+          scheduledMissionEvidence.followerCountMissionCount,
+        expectedActorTargetCount:
+          scheduledMissionEvidence.expectedActorTargetCount,
+        expectedLocationTargetCount:
+          scheduledMissionEvidence.expectedLocationTargetCount,
         missionTargetActorIds:
-          scheduledMission.missionAcceptanceSnapshot.missionTargetActorIds,
+          scheduledMissionSnapshot.missionTargetActorIds,
         missionTargetLocationIds:
-          scheduledMission.missionAcceptanceSnapshot.missionTargetLocationIds,
+          scheduledMissionSnapshot.missionTargetLocationIds,
         minimapReadout:
-          scheduledMission.missionAcceptanceSnapshot.minimapReadout
+          scheduledMissionSnapshot.minimapReadout
       });
 
       await ensureMissionBroadcastReady(

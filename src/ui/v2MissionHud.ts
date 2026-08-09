@@ -71,6 +71,40 @@ const selectVisibleMissions = (
   ]);
 };
 
+const createMissionText = (
+  mission: V2MissionView,
+  elapsedSeconds: number
+): Readonly<{ title: string; meta: string }> => {
+  const terminalLabel = mission.state === "completed" ? "完了" : "失敗";
+  const remainingText =
+    mission.state === "active"
+      ? `残り ${Math.max(0, Math.ceil(mission.deadlineAtSeconds - elapsedSeconds))}秒`
+      : terminalLabel;
+  if (mission.kind === "player-follower-acquire") {
+    const { acquiredCount, requiredCount } = mission.target;
+    return Object.freeze({
+      title: `新しいFollowerを${requiredCount}人獲得する`,
+      meta:
+        mission.state === "active"
+          ? `獲得 ${acquiredCount} / ${requiredCount}　${remainingText}`
+          : `${remainingText}　獲得 ${acquiredCount} / ${requiredCount}`
+    });
+  }
+  if (mission.kind === "player-location") {
+    return Object.freeze({
+      title: `${mission.targetDisplayName}へ行く`,
+      meta: remainingText
+    });
+  }
+  return Object.freeze({
+    title: mission.title,
+    meta:
+      mission.state === "active"
+        ? `${mission.targetDisplayName}　${remainingText}`
+        : `${remainingText}　${mission.targetDisplayName}`
+  });
+};
+
 const createMissionItem = (
   document: Document,
   mission: V2MissionView,
@@ -89,30 +123,31 @@ const createMissionItem = (
           ? "#ffca66"
           : "#f5f5f5";
   applyStyles(item, {
-    minWidth: "290px",
-    maxWidth: "420px",
-    padding: "7px 10px",
-    border: `1px solid ${statusColor}`,
-    borderRadius: "4px",
-    background: "rgba(0, 0, 0, 0.72)",
+    display: "grid",
+    gap: "2px",
     color: statusColor,
-    boxShadow: `0 0 7px ${statusColor}33`,
-    fontFamily:
-      '"IBM Plex Mono", "Fira Code", ui-monospace, monospace',
-    fontSize: "13px",
-    letterSpacing: "0.025em",
-    lineHeight: "1.35",
     textAlign: "left"
   });
-  if (mission.state === "active") {
-    const remainingSeconds = Math.max(
-      0,
-      Math.ceil(mission.deadlineAtSeconds - elapsedSeconds)
-    );
-    item.textContent = `${mission.title}｜${mission.targetDisplayName}｜残り ${remainingSeconds}秒`;
-  } else {
-    item.textContent = `${mission.state === "completed" ? "完了" : "失敗"}｜${mission.title}｜${mission.targetDisplayName}`;
-  }
+  const text = createMissionText(mission, elapsedSeconds);
+  const title = document.createElement("div");
+  title.dataset.v2MissionHudRole = "mission-title";
+  title.textContent = text.title;
+  applyStyles(title, {
+    fontSize: "13px",
+    fontWeight: "600",
+    letterSpacing: "0.025em",
+    lineHeight: "1.35"
+  });
+  const meta = document.createElement("div");
+  meta.dataset.v2MissionHudRole = "mission-meta";
+  meta.textContent = text.meta;
+  applyStyles(meta, {
+    fontSize: "12px",
+    letterSpacing: "0.02em",
+    lineHeight: "1.35",
+    opacity: "0.88"
+  });
+  item.replaceChildren(title, meta);
   return item;
 };
 
@@ -127,11 +162,36 @@ export const createV2MissionHudController = ({
     position: "fixed",
     top: "18px",
     right: "18px",
+    width: "min(420px, calc(100vw - 36px))",
+    minWidth: "290px",
+    padding: "10px 12px 12px",
+    border: "1px solid rgba(245, 245, 245, 0.48)",
+    borderRadius: "6px",
+    background: "rgba(0, 0, 0, 0.72)",
+    boxShadow: "0 4px 16px rgba(0, 0, 0, 0.48)",
     display: "grid",
-    gap: "6px",
-    justifyItems: "end",
+    gap: "8px",
+    fontFamily:
+      '"IBM Plex Mono", "Fira Code", ui-monospace, monospace',
     pointerEvents: "none",
     zIndex: HUD_Z_INDEX
+  });
+  const heading = document.createElement("h2");
+  heading.dataset.v2MissionHudRole = "heading";
+  heading.textContent = "MISSION";
+  applyStyles(heading, {
+    margin: "0",
+    color: "#f5f5f5",
+    fontSize: "14px",
+    fontWeight: "700",
+    letterSpacing: "0.14em",
+    lineHeight: "1.2"
+  });
+  const list = document.createElement("div");
+  list.dataset.v2MissionHudRole = "mission-list";
+  applyStyles(list, {
+    display: "grid",
+    gap: "9px"
   });
   host.appendChild(root);
   let disposed = false;
@@ -143,6 +203,7 @@ export const createV2MissionHudController = ({
   };
 
   const clear = () => {
+    list.replaceChildren();
     root.replaceChildren();
     root.hidden = true;
   };
@@ -155,12 +216,17 @@ export const createV2MissionHudController = ({
         return;
       }
       const missions = selectVisibleMissions(frame.playerMissions);
-      root.replaceChildren(
+      if (missions.length === 0) {
+        clear();
+        return;
+      }
+      list.replaceChildren(
         ...missions.map((mission) =>
           createMissionItem(document, mission, frame.elapsedSeconds)
         )
       );
-      root.hidden = missions.length === 0;
+      root.replaceChildren(heading, list);
+      root.hidden = false;
     },
     clear: () => {
       assertActive();

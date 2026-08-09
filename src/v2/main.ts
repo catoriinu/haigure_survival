@@ -1424,6 +1424,14 @@ engine.runRenderLoop(() => {
               mission.source === "broadcast" &&
               mission.state === "cancelled"
           ).length,
+          activePlayerMissionDescriptors:
+            survivalFrame.mission.playerMissions
+              .filter((mission) => mission.state === "active")
+              .map((mission) => ({
+                id: mission.id,
+                kind: mission.kind,
+                targetKind: mission.target.kind
+              })),
           missionTargetActorIds:
             survivalFrame.mission.missionTargetActorIds,
           missionTargetLocationIds:

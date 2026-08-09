@@ -13,7 +13,9 @@ import type { StageBroadcastConsole } from "../../../src/world/stageLocationAsse
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import {
   resolveV2MissionAssemblyVenueId,
-  type V2BroadcastCommand
+  type V2BroadcastCommand,
+  type V2MissionFrame,
+  type V2MissionView
 } from "../../../src/v2/missionRuntime";
 import type { V2NpcCommandCandidate } from "../../../src/v2/npcSystem";
 import {
@@ -68,6 +70,20 @@ const createBroadcastCandidate = (
       label: "体育館に集まって"
     }),
     secondary
+  });
+
+const createHudFrame = (
+  elapsedSeconds: number,
+  playerMissions: readonly V2MissionView[]
+): V2MissionFrame =>
+  Object.freeze({
+    elapsedSeconds,
+    playerMissions: Object.freeze([...playerMissions]),
+    activeNpcMissions: Object.freeze([]),
+    missionTargetActorIds: Object.freeze([]),
+    missionTargetLocationIds: Object.freeze([]),
+    firstFollowerId: null,
+    lastSchoolInstruction: "courtyard"
   });
 
 export const runBroadcastRuntimeTests = async (): Promise<
@@ -417,6 +433,172 @@ export const runBroadcastRuntimeTests = async (): Promise<
       });
       return "F/Eは放送へ配送、無効Eもconsumeし、CだけDoorへ独立配送";
     }),
+    executeTest("右上HUDの単一panel・複数Mission・表示文言", () => {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const hud = createV2MissionHudController({ host });
+      const root = host.querySelector<HTMLElement>(
+        '[data-v2-mission-hud="root"]'
+      );
+      if (root === null) {
+        throw new Error("Mission HUD rootがありません。");
+      }
+      hud.update({ active: true, frame: createHudFrame(20, Object.freeze([])) });
+      assert(
+        root.hidden && root.childElementCount === 0,
+        "Mission 0件でpanelまたは子要素が表示されました。"
+      );
+      assert(
+        root.querySelector('[data-v2-mission-hud-role="heading"]') === null &&
+          root.querySelector('[data-v2-mission-hud-role="mission-list"]') === null,
+        "Mission 0件でheadingまたはlistが残りました。"
+      );
+
+      const locationMission = Object.freeze({
+        id: "hud-location",
+        kind: "player-location" as const,
+        source: "normal" as const,
+        state: "active" as const,
+        assignee: Object.freeze({ kind: "player" as const }),
+        target: Object.freeze({
+          kind: "location" as const,
+          locationId: "location-art-room"
+        }),
+        title: "目的地へ移動",
+        targetDisplayName: "3F 美術室",
+        startedAtSeconds: 20,
+        deadlineAtSeconds: 140,
+        terminalAtSeconds: null,
+        terminalReason: null
+      }) satisfies V2MissionView;
+      const followerMission = Object.freeze({
+        id: "hud-follower-count",
+        kind: "player-follower-acquire" as const,
+        source: "normal" as const,
+        state: "active" as const,
+        assignee: Object.freeze({ kind: "player" as const }),
+        target: Object.freeze({
+          kind: "follower-count" as const,
+          acquiredCount: 1,
+          requiredCount: 2
+        }),
+        title: "Followerを増やす",
+        targetDisplayName: "Follower 2人",
+        startedAtSeconds: 20,
+        deadlineAtSeconds: 140,
+        terminalAtSeconds: null,
+        terminalReason: null
+      }) satisfies V2MissionView;
+      const cancelledMission = Object.freeze({
+        ...followerMission,
+        id: "hud-cancelled",
+        state: "cancelled" as const,
+        terminalAtSeconds: 21,
+        terminalReason: "phase-ended" as const
+      }) satisfies V2MissionView;
+      hud.update({
+        active: true,
+        frame: createHudFrame(
+          20,
+          Object.freeze([
+            locationMission,
+            followerMission,
+            cancelledMission
+          ])
+        )
+      });
+
+      const heading = root.querySelector<HTMLElement>(
+        '[data-v2-mission-hud-role="heading"]'
+      );
+      const list = root.querySelector<HTMLElement>(
+        '[data-v2-mission-hud-role="mission-list"]'
+      );
+      const items = Array.from(
+        root.querySelectorAll<HTMLElement>(
+          '[data-v2-mission-hud-role="mission-item"]'
+        )
+      );
+      assert(
+        !root.hidden &&
+          root.style.background !== "" &&
+          root.style.border !== "" &&
+          root.style.borderRadius !== "" &&
+          root.style.boxShadow !== "",
+        "Mission 1件以上でrootが単一panelになっていません。"
+      );
+      assert(
+        heading?.textContent === "MISSION" &&
+          root.querySelectorAll('[data-v2-mission-hud-role="heading"]').length === 1 &&
+          list !== null &&
+          root.querySelectorAll('[data-v2-mission-hud-role="mission-list"]').length === 1,
+        "MISSION headingまたはMission listが一意ではありません。"
+      );
+      assert(
+        items.length === 2 && items.every((item) => item.parentElement === list),
+        "表示Missionが同一list直下に並ばないか、取消Missionが表示されました。"
+      );
+      assert(
+        items.every(
+          (item) =>
+            item.style.background === "" &&
+            item.style.border === "" &&
+            item.style.borderRadius === "" &&
+            item.style.boxShadow === ""
+        ) && list?.style.gap !== "",
+        "Mission itemに個別panel装飾または区切り線が残っています。"
+      );
+
+      const followerItem = root.querySelector<HTMLElement>(
+        '[data-v2-mission-id="hud-follower-count"]'
+      );
+      const locationItem = root.querySelector<HTMLElement>(
+        '[data-v2-mission-id="hud-location"]'
+      );
+      assert(
+        followerItem?.querySelector('[data-v2-mission-hud-role="mission-title"]')
+          ?.textContent === "新しいFollowerを2人獲得する" &&
+          followerItem?.querySelector('[data-v2-mission-hud-role="mission-meta"]')
+            ?.textContent === "獲得 1 / 2　残り 120秒",
+        `Follower進捗文言が不正です: ${followerItem?.textContent ?? "null"}`
+      );
+      assert(
+        locationItem?.querySelector('[data-v2-mission-hud-role="mission-title"]')
+          ?.textContent === "3F 美術室へ行く" &&
+          locationItem?.querySelector('[data-v2-mission-hud-role="mission-meta"]')
+            ?.textContent === "残り 120秒",
+        `Location文言が不正です: ${locationItem?.textContent ?? "null"}`
+      );
+
+      const completedFollowerMission = Object.freeze({
+        ...followerMission,
+        state: "completed" as const,
+        target: Object.freeze({
+          kind: "follower-count" as const,
+          acquiredCount: 2,
+          requiredCount: 2
+        }),
+        terminalAtSeconds: 24,
+        terminalReason: "follower-count-reached" as const
+      }) satisfies V2MissionView;
+      hud.update({
+        active: true,
+        frame: createHudFrame(24, Object.freeze([completedFollowerMission]))
+      });
+      assert(
+        root.querySelector('[data-v2-mission-hud-role="mission-meta"]')
+          ?.textContent === "完了　獲得 2 / 2",
+        "Follower完了進捗を表示しません。"
+      );
+      hud.update({ active: true, frame: createHudFrame(28, Object.freeze([])) });
+      assert(
+        root.hidden && root.childElementCount === 0,
+        "最後のMission消滅後にpanelが非表示になりません。"
+      );
+      hud.dispose();
+      host.remove();
+      return "0件非表示、単一panel、複数行、Follower 1/2→2/2、階付きLocationを表示";
+    }),
     executeTest("右上HUDの残り時間・完了4秒・取消非表示", () => {
       const host = document.createElement("div");
       document.body.appendChild(host);
@@ -453,6 +635,13 @@ export const runBroadcastRuntimeTests = async (): Promise<
       assert(
         host.querySelector('[data-v2-mission-hud-role="mission-item"]') === null,
         "完了表示が4秒後も残っています。"
+      );
+      const root = host.querySelector<HTMLElement>(
+        '[data-v2-mission-hud="root"]'
+      );
+      assert(
+        root?.hidden === true && root.childElementCount === 0,
+        "最後の完了表示が消えた後もMission panelが残っています。"
       );
       hud.dispose();
       fixture.runtime.dispose();
