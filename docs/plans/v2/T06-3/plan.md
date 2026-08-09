@@ -31,6 +31,12 @@
 > - 階別床色を1F黄、2F緑、3F赤、4F青、屋上灰とし、校舎の階ライン色へ合わせる。
 > - 部屋の壁や恒久的な進入不可区域を黒く表示する。本棚など小物による通行不可は表示対象外とする。
 > - 修正、検証、計画結果更新、ローカルコミットまで行い、push、Pull Request、レビュー、mergeは行わない。
+>
+> 飛び降り・Area接面追補（2026-08-09）:
+>
+> - 体育館屋上で`area-common-f02`と`area-common-f03`、ゲーム開始時に北東階段で`area-stair-ne-f01-f02`と`area-stair-ne-f02-f03`が同一優先度として重複解決される例外を修正する。
+> - 校舎屋上の階段室上からの飛び降りを裏技として許容し、空中で`location_area`から外れてもゲーム更新を停止しない。
+> - 空中の階表示は実装しやすい方式でよく、例として地面から離れてから約5秒の許容が認められている。ゲーム全体へ例外を波及させない。
 
 ## ステップ
 
@@ -49,6 +55,11 @@
 - [x] Runtime分類済みの恒久建築コライダーから、壁・進入不可領域を黒く表す階別静的cacheを構築する
 - [x] 専用fixture、通常ゲーム、Electron、関連回帰を再検証する
 - [x] 追加修正結果を計画へ反映し、T06-3追補をローカルコミットする
+- [x] 共用部・北東階段の接面上にあるプレイヤー／Actor足元をfixtureで再現する
+- [x] 足元Area判定を身体側サンプルへ統一し、同一優先度の垂直接面を一意に解決する
+- [x] 空中Area欠落を5秒保持・以後非表示・着地復帰とする明示状態へ変更する
+- [x] 専用fixture、通常ゲーム、Electron、関連回帰、テキスト配布を再検証する
+- [x] 飛び降り追補の結果を反映し、T06-3追加コミットを作成する
 
 ## 実装契約
 
@@ -56,7 +67,8 @@
 - 階別背景は`StageLocationAssetRegistry`のMap meshから初期化時に一度だけ構築し、更新時にmesh geometryを再走査しない。
 - 黒表示はRuntime分類済みColliderの命名契約から壁・外壁・間仕切り・恒久ガードだけを選び、各階の人物高さを通る構造を初期化時に`Path2D`へ変換する。内装・小物・部屋variant Colliderは含めない。
 - 現在階・現在地は`findArea()`、エレベーター内の表示階は動的snapshotの`displayStopId`を正本とする。
-- ActorのArea／階判定には足元位置、frustum／遮蔽判定には視認位置を使い分ける。曖昧な視認位置をArea判定へ流用しない。
+- プレイヤー／ActorのArea・階判定点は足元から身体側へ5cm上げ、階層Area同士が共有する水平接面を上側Areaへ一意に解決する。frustum／遮蔽判定には視認位置を使い、Area判定へ流用しない。
+- プレイヤーの接地状態は`V2PlayerFrame.verticalState.grounded`をミニマップへ明示入力する。空中でArea外へ出た場合は最後の有効Areaを5秒保持し、5秒超過後はAreaを再取得するまでミニマップだけを非表示にする。接地中のArea欠落は資産契約違反として従来どおり例外にする。
 - 一般Actorの直接視認は同一階、距離、frustumの順に絞り込んだ後、`castSightSegment()`で最大10Hz評価する。
 - Follow中NPCとMission対象は視野・遮蔽を免除するが、同一階・半径条件は免除しない。
 - 学校座標、階段、エレベーター、LocationをTypeScript定数へ重複記述しない。
@@ -66,11 +78,12 @@
 
 - 180px円形Canvasミニマップを追加し、B05の5階層Mapをセッション初期化時に`Path2D`へ変換した。追加修正後は18m範囲、12m視野扇、進行方向上、世界北、現在地、階段、エレベーター、NPC、BIT、Follower、Mission対象を描画する。
 - 一般Actorは同一階・18m以内・frustum内へ絞った後に最大10Hzで遮蔽判定し、FollowerとMission対象は同一階・18m条件を維持して視野・遮蔽を免除した。
-- NPC snapshotを足元の`areaPosition`と照準点の`sightPosition`へ分離し、`area-common-f02`／`area-common-f03`の接面上に照準点がある場合でも、足元から階を一意に解決するよう修正した。旧APIや暗黙のfallbackは追加していない。
+- NPC snapshotを足元の`areaPosition`と照準点の`sightPosition`へ分離した。追補ではプレイヤー／Actorとも足元から5cm上の身体側をArea判定点とし、`area-common-f02`／`area-common-f03`と`area-stair-ne-f01-f02`／`area-stair-ne-f02-f03`の共有接面を一意に解決した。旧APIや暗黙のfallbackは追加していない。
+- 校舎屋上などから飛び降りてArea外へ出た空中状態は、最後の階・現在地表示を5秒維持する。5秒を超えた場合はゲーム更新を止めずミニマップだけを非表示にし、着地または別Areaへの進入で自動復帰する。接地中のArea欠落だけは厳格例外を維持した。
 - 1F黄、2F緑、3F赤、4F青、屋上灰の階別床色を追加した。Runtime分類済みの恒久建築コライダー87件から人物高さを通る面だけを階別cacheへ変換し、壁・仕切りを黒で描画する一方、内装小物Colliderは0件に保った。
 - Survival Runtimeへ読み取り専用`V2MinimapActorSnapshot`と`getMinimapActors()`を追加し、NPCのFollow状態とBIT非追従を明示的に変換した。本番のMission入力は空配列とし、Mission状態管理は追加していない。
 - 通常ゲームのセッションへ統合し、タイトル復帰・再構築・render error・dispose時に描画と参照を破棄する。ステータスをマップ下、ヘルプを左下へ移動した。
-- 追加修正後の専用ブラウザfixtureは13/13、関連回帰はT04 115/115、B05 34/34、T06 68/68、T06-2 22/22でPASSし、各fixtureのconsole警告・エラーは0件だった。
+- 飛び降り追補後の専用ブラウザfixtureは14/14、関連回帰はT04 115/115、B05 34/34、T06 68/68、T06-2 22/22でPASSし、各fixtureのconsole警告・エラーは0件だった。
 - Electron通常ゲームは1920×1080でPointer Lock、playing、ミニマップ・現在地・ステータス・スタミナ想定領域・ヘルプの非重複、renderer警告・エラー0件を再確認した。通常入力プロファイルでも`KeyW`で0.094 world unitsの移動を確認した。
 - `typecheck:v2`、`typecheck:t06-3`、`build`、`build:t06-3`、T04・B05・T06・T06-2のtypecheck／build、差分・UTF-8・公開文書検査を完了した。
 - 学校GLB、NavMesh、Blender正本、生成器、カタログ、T06-4 Mission状態管理は変更していない。push、Pull Request、レビュー、mergeは未実施。

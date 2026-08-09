@@ -11,6 +11,8 @@ import {
   createV2MinimapController,
   projectV2MinimapPoint,
   selectV2MinimapStructuralBlockers,
+  V2_MINIMAP_AIRBORNE_AREA_GRACE_SECONDS,
+  V2_MINIMAP_AREA_SAMPLE_HEIGHT_METERS,
   V2_MINIMAP_FLOOR_COLORS,
   V2_MINIMAP_RANGE_METERS,
   V2_MINIMAP_VIEW_CONE_RANGE_METERS,
@@ -110,11 +112,13 @@ const createUpdate = (
   elevators: readonly StageElevatorSnapshot[],
   actors: readonly V2MinimapActorSnapshot[] = Object.freeze([]),
   missionTargetActorIds: readonly string[] = Object.freeze([]),
-  missionTargetLocationIds: readonly string[] = Object.freeze([])
+  missionTargetLocationIds: readonly string[] = Object.freeze([]),
+  playerGrounded = true
 ): V2MinimapUpdate =>
   Object.freeze({
     active: true,
     elapsedSeconds,
+    playerGrounded,
     playerFootPosition: footPosition,
     playerEyePosition: setCamera(camera, footPosition, forward),
     forward,
@@ -140,15 +144,18 @@ const actor = (
   });
 
 const findAdjacentFloorBoundary = (
-  locationAssets: StageLocationAssetRegistry
+  locationAssets: StageLocationAssetRegistry,
+  lowerAreaId: string,
+  upperAreaId: string
 ): Readonly<{
-  areaPosition: Vector3;
-  sightPosition: Vector3;
+  position: Vector3;
 }> => {
-  const lowerArea = locationAssets.getAreaById("area-common-f02");
-  const upperArea = locationAssets.getAreaById("area-common-f03");
+  const lowerArea = locationAssets.getAreaById(lowerAreaId);
+  const upperArea = locationAssets.getAreaById(upperAreaId);
   if (!lowerArea || !upperArea) {
-    throw new Error("fixture用の2F／3F共用Areaがありません。");
+    throw new Error(
+      `fixture用の隣接Areaがありません: ${lowerAreaId}/${upperAreaId}`
+    );
   }
   for (const lowerPiece of lowerArea.pieces) {
     lowerPiece.mesh.computeWorldMatrix(true);
@@ -181,17 +188,60 @@ const findAdjacentFloorBoundary = (
       ) {
         continue;
       }
-      const sightPosition = new Vector3(
+      const position = new Vector3(
         (overlapMinimumX + overlapMaximumX) / 2,
         lowerBounds.maximumWorld.y,
         (overlapMinimumZ + overlapMaximumZ) / 2
       );
-      const areaPosition = sightPosition.clone();
-      areaPosition.y -= 1.0e-4;
-      return Object.freeze({ areaPosition, sightPosition });
+      return Object.freeze({ position });
     }
   }
-  throw new Error("fixture用の2F／3F Area接面がありません。");
+  throw new Error(
+    `fixture用の隣接Area接面がありません: ${lowerAreaId}/${upperAreaId}`
+  );
+};
+
+const findAirborneOutsideAreaPosition = (
+  locationAssets: StageLocationAssetRegistry,
+  roofPosition: Vector3
+): Vector3 => {
+  const roofMap = locationAssets.getFloorMap("roof");
+  if (!roofMap) {
+    throw new Error("fixture用の屋上floor_mapがありません。");
+  }
+  roofMap.mesh.computeWorldMatrix(true);
+  const bounds = roofMap.mesh.getBoundingInfo().boundingBox;
+  for (const distance of [0.1, 0.25, 0.5, 1] as const) {
+    const candidates = [
+      new Vector3(
+        bounds.minimumWorld.x - distance,
+        roofPosition.y,
+        roofPosition.z
+      ),
+      new Vector3(
+        bounds.maximumWorld.x + distance,
+        roofPosition.y,
+        roofPosition.z
+      ),
+      new Vector3(
+        roofPosition.x,
+        roofPosition.y,
+        bounds.minimumWorld.z - distance
+      ),
+      new Vector3(
+        roofPosition.x,
+        roofPosition.y,
+        bounds.maximumWorld.z + distance
+      )
+    ];
+    const outside = candidates.find(
+      (candidate) => locationAssets.findArea(candidate) === null
+    );
+    if (outside) {
+      return outside;
+    }
+  }
+  throw new Error("fixture用の屋上Area外空中位置がありません。");
 };
 
 const findFrustumPosition = (
@@ -402,42 +452,71 @@ export const runV2MinimapTests = ({
     )
   );
 
-  const adjacentFloorBoundary = findAdjacentFloorBoundary(locationAssets);
-  let ambiguousSightRejected = false;
-  try {
-    locationAssets.findArea(adjacentFloorBoundary.sightPosition);
-  } catch (error) {
-    ambiguousSightRejected =
-      error instanceof Error &&
-      error.message.includes("area-common-f02,area-common-f03");
-  }
-  const boundaryFrame = controller.update(
-    createUpdate(
-      camera,
-      adjacentFloorBoundary.areaPosition,
-      north,
-      2.5,
-      elevatorSnapshots,
-      Object.freeze([
-        actor(
-          "npc-floor-boundary",
-          "npc",
-          adjacentFloorBoundary.areaPosition,
-          true,
-          adjacentFloorBoundary.sightPosition
-        )
-      ])
-    )
-  );
+  const boundaryCases = Object.freeze([
+    Object.freeze({
+      lowerAreaId: "area-common-f02",
+      upperAreaId: "area-common-f03",
+      expectedMessage: "area-common-f02,area-common-f03"
+    }),
+    Object.freeze({
+      lowerAreaId: "area-stair-ne-f01-f02",
+      upperAreaId: "area-stair-ne-f02-f03",
+      expectedMessage:
+        "area-stair-ne-f01-f02,area-stair-ne-f02-f03"
+    })
+  ]);
+  const boundaryResults = boundaryCases.map((boundaryCase, index) => {
+    const boundary = findAdjacentFloorBoundary(
+      locationAssets,
+      boundaryCase.lowerAreaId,
+      boundaryCase.upperAreaId
+    );
+    let rawBoundaryRejected = false;
+    try {
+      locationAssets.findArea(boundary.position);
+    } catch (error) {
+      rawBoundaryRejected =
+        error instanceof Error &&
+        error.message.includes(boundaryCase.expectedMessage);
+    }
+    const markerId = `npc-floor-boundary-${index}`;
+    const boundaryFrame = controller.update(
+      createUpdate(
+        camera,
+        boundary.position,
+        north,
+        2.5 + index * 0.1,
+        elevatorSnapshots,
+        Object.freeze([
+          actor(markerId, "npc", boundary.position, true)
+        ])
+      )
+    );
+    return Object.freeze({
+      rawBoundaryRejected,
+      floorId: boundaryFrame?.floorId ?? null,
+      markerResolved:
+        boundaryFrame?.actorMarkers.some(
+          (marker) => marker.id === markerId
+        ) ?? false
+    });
+  });
   checks.push(
     createT063Check(
-      "Actor足元Areaと視認点の分離",
-      ambiguousSightRejected &&
-        boundaryFrame?.floorId === "f02" &&
-        boundaryFrame.actorMarkers.some(
-          (marker) => marker.id === "npc-floor-boundary"
+      "プレイヤー・Actor足元の共用部／階段接面解決",
+      V2_MINIMAP_AREA_SAMPLE_HEIGHT_METERS === 0.05 &&
+        boundaryResults.every(
+          (result) =>
+            result.rawBoundaryRejected &&
+            result.floorId !== null &&
+            result.markerResolved
         ),
-      `ambiguousSight=${ambiguousSightRejected} / floor=${boundaryFrame?.floorId ?? "なし"}`
+      boundaryResults
+        .map(
+          (result) =>
+            `raw=${result.rawBoundaryRejected}/floor=${result.floorId ?? "なし"}/actor=${result.markerResolved}`
+        )
+        .join(" | ")
     )
   );
 
@@ -703,6 +782,63 @@ export const runV2MinimapTests = ({
         `${diagnosticsAfterInterval.visibilityRefreshCount} / ` +
         `candidates=${diagnosticsAtFirstRefresh.lastSightCandidateCount} / ` +
         `casts=${fixtureSightCastCount}`
+    )
+  );
+
+  const roofPosition = requireFloorPosition(locationAssets, "roof");
+  const roofFrame = controller.update(
+    createUpdate(camera, roofPosition, north, 12, elevatorSnapshots)
+  );
+  const airbornePosition = findAirborneOutsideAreaPosition(
+    locationAssets,
+    roofPosition
+  );
+  const graceFrame = controller.update(
+    createUpdate(
+      camera,
+      airbornePosition,
+      north,
+      12 + V2_MINIMAP_AIRBORNE_AREA_GRACE_SECONDS,
+      elevatorSnapshots,
+      Object.freeze([]),
+      Object.freeze([]),
+      Object.freeze([]),
+      false
+    )
+  );
+  const expiredFrame = controller.update(
+    createUpdate(
+      camera,
+      airbornePosition,
+      north,
+      12 + V2_MINIMAP_AIRBORNE_AREA_GRACE_SECONDS + 0.01,
+      elevatorSnapshots,
+      Object.freeze([]),
+      Object.freeze([]),
+      Object.freeze([]),
+      false
+    )
+  );
+  const landingFrame = controller.update(
+    createUpdate(
+      camera,
+      f01Position,
+      north,
+      12 + V2_MINIMAP_AIRBORNE_AREA_GRACE_SECONDS + 0.02,
+      elevatorSnapshots
+    )
+  );
+  checks.push(
+    createT063Check(
+      "屋上飛び降りの5秒保持・非表示・着地復帰",
+      roofFrame?.floorId === "roof" &&
+        graceFrame?.floorId === "roof" &&
+        expiredFrame === null &&
+        landingFrame?.floorId === "f01" &&
+        canvas.style.display === "block" &&
+        readout.style.display === "block",
+      `roof=${roofFrame?.floorId ?? "なし"} / grace=${graceFrame?.floorId ?? "なし"} / ` +
+        `expired=${expiredFrame === null} / landing=${landingFrame?.floorId ?? "なし"}`
     )
   );
 

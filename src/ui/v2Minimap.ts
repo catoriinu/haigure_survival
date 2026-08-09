@@ -23,6 +23,8 @@ const MINIMAP_SIZE_CSS_PX = 180;
 const MINIMAP_RADIUS_CSS_PX = MINIMAP_SIZE_CSS_PX / 2;
 export const V2_MINIMAP_RANGE_METERS = 18;
 export const V2_MINIMAP_VIEW_CONE_RANGE_METERS = 12;
+export const V2_MINIMAP_AREA_SAMPLE_HEIGHT_METERS = 0.05;
+export const V2_MINIMAP_AIRBORNE_AREA_GRACE_SECONDS = 5;
 const MINIMAP_RANGE_WORLD_UNITS =
   V2_MINIMAP_RANGE_METERS * BLENDER_METERS_TO_WORLD_UNITS;
 const MINIMAP_VIEW_CONE_RANGE_WORLD_UNITS =
@@ -32,6 +34,8 @@ const MINIMAP_SCALE_CSS_PX_PER_WORLD_UNIT =
 const MINIMAP_VIEW_CONE_RADIUS_CSS_PX =
   MINIMAP_VIEW_CONE_RANGE_WORLD_UNITS *
   MINIMAP_SCALE_CSS_PX_PER_WORLD_UNIT;
+const MINIMAP_AREA_SAMPLE_HEIGHT_WORLD_UNITS =
+  V2_MINIMAP_AREA_SAMPLE_HEIGHT_METERS * BLENDER_METERS_TO_WORLD_UNITS;
 const VISIBILITY_REFRESH_SECONDS = 0.1;
 const HORIZONTAL_EPSILON = 1.0e-8;
 
@@ -99,6 +103,7 @@ export type V2MinimapFrame = Readonly<{
 export type V2MinimapUpdate = Readonly<{
   active: boolean;
   elapsedSeconds: number;
+  playerGrounded: boolean;
   playerFootPosition: Vector3;
   playerEyePosition: Vector3;
   forward: Vector3;
@@ -181,6 +186,13 @@ const horizontalDistanceSquared = (
   const z = left.z - right.z;
   return x * x + z * z;
 };
+
+const createAreaSamplePosition = (footPosition: Vector3): Vector3 =>
+  new Vector3(
+    footPosition.x,
+    footPosition.y + MINIMAP_AREA_SAMPLE_HEIGHT_WORLD_UNITS,
+    footPosition.z
+  );
 
 const requireCanvasContext = (
   canvas: HTMLCanvasElement
@@ -663,6 +675,8 @@ export const createV2MinimapController = ({
   let sightCastCount = 0;
   let lastSightCandidateCount = 0;
   let currentDevicePixelRatio = 0;
+  let lastPlayerAreaHit: StageLocationAreaHit | null = null;
+  let lastPlayerAreaResolvedSeconds = Number.NEGATIVE_INFINITY;
 
   const assertActive = () => {
     if (disposed) {
@@ -680,8 +694,7 @@ export const createV2MinimapController = ({
     canvas.height = Math.round(MINIMAP_SIZE_CSS_PX * nextDevicePixelRatio);
   };
 
-  const clear = () => {
-    assertActive();
+  const hideFrame = () => {
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.clearRect(0, 0, canvas.width, canvas.height);
     canvas.style.display = "none";
@@ -690,6 +703,13 @@ export const createV2MinimapController = ({
     frame = null;
     directlyVisibleActorIds = new Set<string>();
     lastVisibilityRefreshSeconds = Number.NEGATIVE_INFINITY;
+  };
+
+  const clear = () => {
+    assertActive();
+    hideFrame();
+    lastPlayerAreaHit = null;
+    lastPlayerAreaResolvedSeconds = Number.NEGATIVE_INFINITY;
   };
 
   resizeCanvas();
@@ -710,9 +730,25 @@ export const createV2MinimapController = ({
       }
       resizeCanvas();
       const forward = normalizeHorizontalForward(update.forward);
-      const playerAreaHit = locationAssets.findArea(update.playerFootPosition);
-      if (!playerAreaHit) {
+      const resolvedPlayerAreaHit = locationAssets.findArea(
+        createAreaSamplePosition(update.playerFootPosition)
+      );
+      let playerAreaHit: StageLocationAreaHit;
+      if (resolvedPlayerAreaHit) {
+        playerAreaHit = resolvedPlayerAreaHit;
+        lastPlayerAreaHit = resolvedPlayerAreaHit;
+        lastPlayerAreaResolvedSeconds = update.elapsedSeconds;
+      } else if (update.playerGrounded) {
         throw new Error("プレイヤー位置に対応するlocation_areaがありません。");
+      } else if (
+        lastPlayerAreaHit &&
+        update.elapsedSeconds - lastPlayerAreaResolvedSeconds <=
+          V2_MINIMAP_AIRBORNE_AREA_GRACE_SECONDS
+      ) {
+        playerAreaHit = lastPlayerAreaHit;
+      } else {
+        hideFrame();
+        return null;
       }
       const floorId = resolveAreaFloor(
         playerAreaHit,
@@ -748,7 +784,9 @@ export const createV2MinimapController = ({
         if (distanceSquared > rangeSquared) {
           continue;
         }
-        const areaHit = locationAssets.findArea(actor.areaPosition);
+        const areaHit = locationAssets.findArea(
+          createAreaSamplePosition(actor.areaPosition)
+        );
         if (!areaHit) {
           continue;
         }

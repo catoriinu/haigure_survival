@@ -257,6 +257,7 @@ const renderActiveFloor = () => {
   activeController.update({
     active: true,
     elapsedSeconds: visualElapsedSeconds,
+    playerGrounded: true,
     playerFootPosition: position,
     playerEyePosition: eyePosition,
     forward,

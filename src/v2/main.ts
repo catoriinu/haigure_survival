@@ -1142,6 +1142,7 @@ engine.runRenderLoop(() => {
     minimap.update({
       active: started && survivalFrame.phase === "playing",
       elapsedSeconds,
+      playerGrounded: playerFrame.verticalState.grounded,
       playerFootPosition: currentPlayerTarget.footPosition,
       playerEyePosition: currentPlayerTarget.aimPosition,
       forward: characterViewForward,
