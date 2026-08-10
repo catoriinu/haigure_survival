@@ -195,7 +195,8 @@ export const runSurvivalRulesTests =
               0,
               0
             ),
-            alive: true
+            alive: true,
+            state: "normal" as const
           },
           {
             id: "boundary",
@@ -204,7 +205,8 @@ export const runSurvivalRulesTests =
               0,
               0
             ),
-            alive: true
+            alive: true,
+            state: "normal" as const
           },
           {
             id: "outside",
@@ -213,12 +215,14 @@ export const runSurvivalRulesTests =
               0,
               0
             ),
-            alive: true
+            alive: true,
+            state: "normal" as const
           },
           {
             id: "dead",
             footPosition: new Vector3(0.01, 0, 0),
-            alive: false
+            alive: false,
+            state: "brainwash-in-progress" as const
           }
         ]);
         const noGun = selectV2PlayerBlockedNpcIds(
@@ -308,6 +312,31 @@ export const runSurvivalRulesTests =
             `minimum=${(minimumGap * 180 / Math.PI).toFixed(9)}deg / ` +
             `required=${(halfGap * 180 / Math.PI).toFixed(9)}deg / ` +
             `checked=${checked}`
+        };
+      }
+    ),
+    executeTest(
+      "中庭公開処刑BITの高さは1F屋外飛行帯下限へ収まる",
+      () => {
+        const baseVenue = createVenue();
+        const courtyardVenue = Object.freeze({
+          ...baseVenue,
+          id: "assembly-courtyard",
+          center: new Vector3(0, -0.3, 0)
+        });
+        const positions = createV2ExecutionBitPositions(
+          courtyardVenue,
+          25,
+          new Vector3(4, -0.3, 0)
+        );
+        const minimumHeight = Math.min(
+          ...positions.map((position) => position.y)
+        );
+        return {
+          ok:
+            positions.length === 25 &&
+            positions.every((position) => position.y === 1),
+          detail: `minimumHeight=${minimumHeight.toFixed(3)} / required=1.000`
         };
       }
     ),

@@ -364,6 +364,7 @@ export interface V2BitSystem {
   notifyBeamImpact(sourceId: string, targetId: string): boolean;
   prepareForScriptedPhase(): void;
   setAiSuspended(suspended: boolean): void;
+  setHostileActionsSuspended(suspended: boolean): void;
   setVisible(visible: boolean): void;
   placeBits(assignments: readonly V2BitPlacementAssignment[]): void;
   relocateBit(bitId: string, candidates: readonly Vector3[]): Vector3;
@@ -1731,6 +1732,7 @@ export const createV2BitSystem = (
   let remainingUnassignedEscapeRoutePlans = 0;
   let reinforcementElapsedSeconds = 0;
   let aiSuspended = false;
+  let hostileActionsSuspended = false;
   const spawnBlockedBitIdsForUpdate = new Set<string>();
   let frameView: V2BitFrameView | null = null;
   let recentExplorationSamplesForUpdate:
@@ -5419,6 +5421,7 @@ export const createV2BitSystem = (
       invalidateFrameViews();
       recentExplorationSamplesForUpdate = null;
       resetDiagnostics();
+      const actionsSuspended = aiSuspended || hostileActionsSuspended;
       syncDynamicSpatialRevision();
       updateFadingCarpetFollowers(deltaSeconds);
       spawnBlockedBitIdsForUpdate.clear();
@@ -5444,7 +5447,7 @@ export const createV2BitSystem = (
         );
       }
       const isSightCheckEligible = (bit: RuntimeBit) =>
-        !aiSuspended &&
+        !actionsSuspended &&
         isBitReadyForAi(bit) &&
         bit.mode !== "carpet-follower" &&
         bit.mode !== "hold" &&
@@ -5478,7 +5481,7 @@ export const createV2BitSystem = (
       sightCheckCredit -= allowedSightCheckIds.size;
       const isPersonalityRetargetCandidate = (bit: RuntimeBit) => {
         if (
-          aiSuspended ||
+          actionsSuspended ||
           !isBitReadyForAi(bit) ||
           bit.targetSelectionPersonality !== "nearest-visible" ||
           bit.mode !== "chase" ||
@@ -5803,7 +5806,7 @@ export const createV2BitSystem = (
         if (bit.failedChaseWindowPenaltySeconds === 0) {
           bit.failedChaseWindowTransitionId = null;
         }
-        if (aiSuspended) {
+        if (actionsSuspended) {
           syncStationaryPosition(bit, elapsedSeconds, false);
           continue;
         }
@@ -6318,6 +6321,9 @@ export const createV2BitSystem = (
     },
     setAiSuspended: (suspended) => {
       aiSuspended = suspended;
+    },
+    setHostileActionsSuspended: (suspended) => {
+      hostileActionsSuspended = suspended;
     },
     setVisible: (visible) => {
       for (const bit of bits) {

@@ -37,6 +37,7 @@ import {
   canV2RuntimePlayerFire,
   createV2RuntimeHudController
 } from "../ui/v2RuntimeHud";
+import { createV2MissionHudController } from "../ui/v2MissionHud";
 import {
   createV2MinimapController,
   selectV2MinimapStructuralBlockers
@@ -75,7 +76,9 @@ import {
 import {
   dispatchV2RuntimeExecutionReplay,
   dispatchV2RuntimeInteractions,
+  resolveV2BroadcastInteractionCandidate,
   resolveV2HorizontalSpeedScale,
+  V2_BROADCAST_INTERACTION_DISTANCE,
   type V2RuntimeInteractionFeedback
 } from "./runtimeInteraction";
 import {
@@ -115,8 +118,8 @@ import { selectV2PlayerSpawn } from "./schoolSpawnSelection";
 const V2_GAMEPLAY_HELP_TEXT =
   "操作説明\n" +
   "WASD: 移動  Shift: ダッシュ\n" +
-  "F: 追従  E: 離脱  C: 扉\n" +
-  "G: 銃  N: 非武装  H: ハイグレ\n" +
+  "F: 主操作  E: 副操作  C: 扉\n" +
+  "G：銃あり  N：銃なし  H：ハイグレ\n" +
   "Enter: タイトルへ戻る";
 const V2_GAMEPLAY_EXECUTION_HELP_TEXT =
   `${V2_GAMEPLAY_HELP_TEXT}\nR: リプレイ`;
@@ -137,6 +140,17 @@ const performanceScenario =
   readV2PerformanceScenario(location.search);
 const runtimeStressScenario =
   readV2RuntimeStressScenario(location.search);
+const missionAcceptanceScenario = (() => {
+  const requested = new URLSearchParams(location.search).get(
+    "missionAcceptance"
+  );
+  if (requested === null || requested === "normal" || requested === "haigure") {
+    return requested;
+  }
+  throw new Error(
+    "missionAcceptanceにはnormalまたはhaigureが必要です。"
+  );
+})();
 const rampValidationTarget = (() => {
   const requested = new URLSearchParams(location.search).get(
     "rampValidation"
@@ -147,18 +161,23 @@ const rampValidationTarget = (() => {
   throw new Error("rampValidationにはgymまたはschoolが必要です。");
 })();
 if (
-  [performanceScenario, runtimeStressScenario, rampValidationTarget].filter(
-    (scenario) => scenario !== null
-  ).length > 1
+  [
+    performanceScenario,
+    runtimeStressScenario,
+    missionAcceptanceScenario,
+    rampValidationTarget
+  ].filter((scenario) => scenario !== null).length > 1
 ) {
   throw new Error(
-    "performance、schoolStress、rampValidationは同時に実行できません。"
+    "performance、schoolStress、missionAcceptance、rampValidationは同時に実行できません。"
   );
 }
 const fixedRuntimeSeed =
   performanceScenario?.seed ??
   runtimeStressScenario?.seed ??
-  (rampValidationTarget === null ? null : 0);
+  (missionAcceptanceScenario === null && rampValidationTarget === null
+    ? null
+    : 0);
 const nextRuntimeSessionSeed = () => {
   if (fixedRuntimeSeed !== null) {
     return fixedRuntimeSeed;
@@ -409,6 +428,10 @@ const initializeRuntime = async () => {
       stage: ownedStage,
       playerSpawn,
       player: playerController,
+      initialPlayerState:
+        missionAcceptanceScenario === "haigure"
+          ? "brainwash-complete-haigure"
+          : "normal",
       characterVisuals,
       random: createSchoolRuntimeRandom(sessionSeed, "core"),
       npcSpawnRandom: createSchoolRuntimeRandom(
@@ -418,6 +441,18 @@ const initializeRuntime = async () => {
       bitSpawnRandom: createSchoolRuntimeRandom(
         sessionSeed,
         "bit-spawn"
+      ),
+      playerMissionRandom: createSchoolRuntimeRandom(
+        sessionSeed,
+        "mission-player"
+      ),
+      npcMissionRandom: createSchoolRuntimeRandom(
+        sessionSeed,
+        "mission-npc"
+      ),
+      broadcastMissionRandom: createSchoolRuntimeRandom(
+        sessionSeed,
+        "mission-broadcast"
       ),
       getOrbVisibilityPredicate: () => {
         const playerCenter = playerController
@@ -622,6 +657,9 @@ const eventScope = createV2RuntimeSessionEventScope();
 let ownedRuntimeHud: ReturnType<
   typeof createV2RuntimeHudController
 > | null = null;
+let ownedMissionHud: ReturnType<
+  typeof createV2MissionHudController
+> | null = null;
 let ownedMinimap: ReturnType<
   typeof createV2MinimapController
 > | null = null;
@@ -648,6 +686,7 @@ const disposeRuntime = async () => {
   engine.stopRenderLoop();
   eventScope.dispose();
   ownedRuntimeHud?.dispose();
+  ownedMissionHud?.dispose();
   ownedMinimap?.dispose();
   ownedPlayerCharacterVisual?.dispose();
   ownedCharacterSettingsPanel?.dispose();
@@ -660,6 +699,9 @@ const disposeRuntime = async () => {
   delete document.body.dataset.v2PerformanceReport;
   delete document.body.dataset.v2RuntimeStressReport;
   delete document.body.dataset.v2NpcSpawnReport;
+  delete document.body.dataset.v2MissionAcceptanceScenario;
+  delete document.body.dataset.v2MissionAcceptancePlacement;
+  delete document.body.dataset.v2MissionAcceptanceSnapshot;
   if (runtimeStressScenario) {
     delete document.documentElement.dataset.validationStatus;
   }
@@ -685,14 +727,19 @@ const runtimeHud = createV2RuntimeHudController({
   camera
 });
 ownedRuntimeHud = runtimeHud;
+const missionHud = createV2MissionHudController({
+  host: document.body
+});
+ownedMissionHud = missionHud;
 if (stage.locationAssets === null) {
   throw new Error("学校V2 Runtimeにはlocation assetsが必要です。");
 }
+const locationAssets = stage.locationAssets;
 const minimap = createV2MinimapController({
   canvas: minimapCanvas,
   readout: minimapReadout,
   camera,
-  locationAssets: stage.locationAssets,
+  locationAssets,
   structuralBlockers: selectV2MinimapStructuralBlockers(
     stage.resources.humanNavigationSources
   ),
@@ -770,6 +817,7 @@ titleMessage.style.display = "none";
 let started = false;
 let statusTimer = 0;
 let elapsedSeconds = 0;
+let playerElevatorMoving = false;
 let characterFacingYaw = 0;
 const logicalRenderCameraPosition = Vector3.Zero();
 const cameraRenderOffset = Vector3.Zero();
@@ -790,6 +838,78 @@ const runtimeStressInitialBrainwashedNpcCount =
 let runtimeStressFrameCount = 0;
 let runtimeStressStatus: V2RuntimeStressReport["status"] =
   "running";
+let missionAcceptanceLookAtPosition: Vector3 | null = null;
+
+if (missionAcceptanceScenario !== null) {
+  const broadcastConsole = locationAssets.broadcastConsole;
+  broadcastConsole.markerNode.computeWorldMatrix(true);
+  broadcastConsole.targetMesh.computeWorldMatrix(true);
+  const markerPosition = broadcastConsole.markerNode
+    .getAbsolutePosition()
+    .clone();
+  const lookAtPosition = broadcastConsole.targetMesh
+    .getBoundingInfo()
+    .boundingBox.centerWorld.clone();
+  const approachDirection = markerPosition.subtract(lookAtPosition);
+  approachDirection.y = 0;
+  if (approachDirection.lengthSquared() === 0) {
+    throw new Error(
+      "Mission受入の放送卓Markerとtargetから接近方向を決定できません。"
+    );
+  }
+  approachDirection.normalize();
+  const projectedCandidates = [1, -1]
+    .map((directionSign) =>
+      stage.navigation.projectPoint(
+        markerPosition.add(
+          approachDirection.scale(
+            directionSign *
+              V2_BROADCAST_INTERACTION_DISTANCE *
+              0.7
+          )
+        ),
+        V2_BROADCAST_INTERACTION_DISTANCE
+      )
+    )
+    .filter(
+      (candidate): candidate is NonNullable<typeof candidate> =>
+        candidate !== null
+    );
+  let footPosition: Vector3 | null = null;
+  for (const candidate of projectedCandidates) {
+    player.placeAt(candidate.position, lookAtPosition);
+    camera.setTarget(lookAtPosition);
+    camera.getViewMatrix(true);
+    const initialFrame = survival.getFrame();
+    if (
+      resolveV2BroadcastInteractionCandidate({
+        phase: initialFrame.phase,
+        playerState: initialFrame.playerState,
+        playerFootPosition: player.getFootPosition(),
+        camera,
+        broadcastConsole,
+        queries: stage.queries
+      }) !== null
+    ) {
+      footPosition = player.getFootPosition();
+      break;
+    }
+  }
+  if (footPosition === null) {
+    throw new Error(
+      "Mission受入で正本Marker 3m内かつ正面Ray直視となる放送卓位置を取得できません。"
+    );
+  }
+  missionAcceptanceLookAtPosition = lookAtPosition;
+  camera.setTarget(lookAtPosition);
+  document.body.dataset.v2MissionAcceptanceScenario =
+    missionAcceptanceScenario;
+  document.body.dataset.v2MissionAcceptancePlacement = JSON.stringify({
+    consoleId: broadcastConsole.id,
+    footPosition: footPosition.asArray(),
+    lookAtPosition: lookAtPosition.asArray()
+  });
+}
 
 if (rampValidationTarget) {
   const colliderName =
@@ -1078,9 +1198,21 @@ engine.runRenderLoop(() => {
     const delta = performanceScenario
       ? V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS / 1000
       : Math.min(engine.getDeltaTime() / 1000, 0.05);
-    traversalCoordinator.update(delta);
+    const traversalFrame = traversalCoordinator.update(delta);
     const playerElevatorTraversal =
       traversalCoordinator.getPlayerElevatorTraversalSnapshot();
+    const nextPlayerElevatorMoving =
+      playerElevatorTraversal?.phase === "riding" &&
+      traversalFrame.runtimeSnapshot.elevators.some(
+        (elevator) =>
+          elevator.id === playerElevatorTraversal.elevatorId &&
+          elevator.carState === "moving" &&
+          elevator.carDoorState === "closed"
+      );
+    if (started && nextPlayerElevatorMoving && !playerElevatorMoving) {
+      survival.notifyPlayerElevatorStartedMoving();
+    }
+    playerElevatorMoving = nextPlayerElevatorMoving;
     const horizontalSpeedScale = resolveV2HorizontalSpeedScale(
       stage.queries.containsVolume(
         "water",
@@ -1110,13 +1242,15 @@ engine.runRenderLoop(() => {
               survival.update(
                 delta,
                 elapsedSeconds,
-                playerElevatorTraversal
+                playerElevatorTraversal,
+                traversalFrame.runtimeSnapshot.elevators
               )
           )
         : survival.update(
             delta,
             elapsedSeconds,
-            playerElevatorTraversal
+            playerElevatorTraversal,
+            traversalFrame.runtimeSnapshot.elevators
           );
     }
     const executionReplayResult = dispatchV2RuntimeExecutionReplay({
@@ -1126,6 +1260,9 @@ engine.runRenderLoop(() => {
     });
     if (executionReplayResult === "execution-replayed") {
       survivalFrame = survival.getFrame();
+    }
+    if (missionAcceptanceLookAtPosition !== null) {
+      camera.setTarget(missionAcceptanceLookAtPosition);
     }
     const currentPlayerTarget = survival.getHumanTargets()[0];
     camera.getDirectionToRef(cameraForwardAxis, characterViewForward);
@@ -1143,22 +1280,6 @@ engine.runRenderLoop(() => {
       viewForward: characterViewForward,
       facingYaw: characterFacingYaw
     });
-    const minimapActive = started && survivalFrame.phase === "playing";
-    minimap.update({
-      active: minimapActive,
-      elapsedSeconds,
-      playerGrounded: playerFrame.verticalState.grounded,
-      playerFootPosition: currentPlayerTarget.footPosition,
-      playerEyePosition: currentPlayerTarget.aimPosition,
-      forward: characterViewForward,
-      up: characterViewUp,
-      actors: minimapActive
-        ? survival.getMinimapActors()
-        : EMPTY_MINIMAP_ACTORS,
-      elevators: dynamicRuntime.getSnapshot().elevators,
-      missionTargetActorIds: EMPTY_MINIMAP_MISSION_TARGET_IDS,
-      missionTargetLocationIds: EMPTY_MINIMAP_MISSION_TARGET_IDS
-    });
     updateGameplayHelp(survivalFrame.phase);
     const interactionActive =
       started &&
@@ -1173,12 +1294,23 @@ engine.runRenderLoop(() => {
           forward: characterViewForward
         })
       : EMPTY_DOOR_INTERACTION_CANDIDATES;
+    const broadcastCandidate = interactionActive
+      ? resolveV2BroadcastInteractionCandidate({
+          phase: survivalFrame.phase,
+          playerState: survivalFrame.playerState,
+          playerFootPosition: currentPlayerTarget.footPosition,
+          camera,
+          broadcastConsole: locationAssets.broadcastConsole,
+          queries: stage.queries
+        })
+      : null;
     let interactionFeedback: readonly V2RuntimeInteractionFeedback[] =
       EMPTY_RUNTIME_INTERACTION_FEEDBACK;
     if (interactionActive) {
       interactionFeedback = dispatchV2RuntimeInteractions({
         actions,
         frame: survivalFrame,
+        broadcastCandidate,
         npcCandidates,
         doorCandidates,
         survival,
@@ -1186,13 +1318,156 @@ engine.runRenderLoop(() => {
       });
       survivalFrame = survival.getFrame();
     }
+    const minimapActive = started && survivalFrame.phase === "playing";
+    minimap.update({
+      active: minimapActive,
+      elapsedSeconds,
+      playerGrounded: playerFrame.verticalState.grounded,
+      playerFootPosition: currentPlayerTarget.footPosition,
+      playerEyePosition: currentPlayerTarget.aimPosition,
+      forward: characterViewForward,
+      up: characterViewUp,
+      actors: minimapActive
+        ? survival.getMinimapActors()
+        : EMPTY_MINIMAP_ACTORS,
+      elevators: dynamicRuntime.getSnapshot().elevators,
+      missionTargetActorIds:
+        survivalFrame.mission.missionTargetActorIds,
+      missionTargetLocationIds:
+        survivalFrame.mission.missionTargetLocationIds
+    });
     runtimeHud.update({
       active: interactionActive,
       frame: survivalFrame,
+      broadcastCandidate,
       npcCandidates,
       doorCandidates,
       feedback: interactionFeedback
     });
+    missionHud.update({
+      mode: !started
+        ? "hidden"
+        : survivalFrame.phase === "playing"
+          ? "missions"
+          : survivalFrame.phase === "execution-complete"
+            ? "results"
+            : "hidden",
+      frame: survivalFrame.mission
+    });
+    if (missionAcceptanceScenario !== null) {
+      const acceptanceConsole = locationAssets.broadcastConsole;
+      const acceptanceRay = camera.getForwardRay();
+      const acceptanceIntersection = acceptanceRay.intersectsMesh(
+        acceptanceConsole.targetMesh,
+        false
+      );
+      const acceptanceAimPosition = acceptanceIntersection.pickedPoint;
+      const acceptanceSightHit =
+        acceptanceAimPosition === null
+          ? null
+          : stage.queries.castSightSegment(
+              camera.globalPosition,
+              acceptanceAimPosition
+            );
+      const npcStateCounts: Record<string, number> = {};
+      for (const target of survival.getHumanTargets()) {
+        if (target.kind !== "npc") {
+          continue;
+        }
+        npcStateCounts[target.state] =
+          (npcStateCounts[target.state] ?? 0) + 1;
+      }
+      const missionHudRoot = document.querySelector<HTMLElement>(
+        '[data-v2-mission-hud="root"]'
+      );
+      const missionHistory = survival.getMissions();
+      document.body.dataset.v2MissionAcceptanceSnapshot =
+        JSON.stringify({
+          scenario: missionAcceptanceScenario,
+          started,
+          phase: survivalFrame.phase,
+          playerState: survivalFrame.playerState,
+          pointerLockId:
+            document.pointerLockElement instanceof HTMLElement
+              ? document.pointerLockElement.id
+              : null,
+          broadcastCandidate:
+            broadcastCandidate === null
+              ? null
+              : {
+                  consoleId: broadcastCandidate.consoleId,
+                  primary: broadcastCandidate.primary.command,
+                  secondary:
+                    broadcastCandidate.secondary?.command ?? null
+                },
+          broadcastDiagnostics: {
+            distance: Vector3.Distance(
+              currentPlayerTarget.footPosition,
+              acceptanceConsole.markerNode.getAbsolutePosition()
+            ),
+            cameraPosition: camera.globalPosition.asArray(),
+            rayDirection: acceptanceRay.direction.asArray(),
+            rayHit: acceptanceIntersection.hit,
+            targetPoint: acceptanceAimPosition?.asArray() ?? null,
+            targetBounds: {
+              minimum: acceptanceConsole.targetMesh
+                .getBoundingInfo()
+                .boundingBox.minimumWorld.asArray(),
+              maximum: acceptanceConsole.targetMesh
+                .getBoundingInfo()
+                .boundingBox.maximumWorld.asArray()
+            },
+            sightBlocker:
+              acceptanceSightHit === null
+                ? null
+                : {
+                    meshName: acceptanceSightHit.mesh.name,
+                    point: acceptanceSightHit.point.asArray(),
+                    distance: acceptanceSightHit.distance
+                  }
+          },
+          lastSchoolInstruction:
+            survivalFrame.mission.lastSchoolInstruction,
+          assemblyVenueId: survivalFrame.assemblyVenueId,
+          activeNpcNormalMissionCount:
+            survivalFrame.mission.activeNpcMissions.filter(
+              (mission) => mission.source === "normal"
+            ).length,
+          activeNpcBroadcastMissionCount:
+            survivalFrame.mission.activeNpcMissions.filter(
+              (mission) => mission.source === "broadcast"
+            ).length,
+          broadcastMissionCount: missionHistory.filter(
+            (mission) => mission.source === "broadcast"
+          ).length,
+          cancelledBroadcastMissionCount: missionHistory.filter(
+            (mission) =>
+              mission.source === "broadcast" &&
+              mission.state === "cancelled"
+          ).length,
+          activePlayerMissionDescriptors:
+            survivalFrame.mission.playerMissions
+              .filter((mission) => mission.state === "active")
+              .map((mission) => ({
+                id: mission.id,
+                kind: mission.kind,
+                targetKind: mission.target.kind
+              })),
+          missionTargetActorIds:
+            survivalFrame.mission.missionTargetActorIds,
+          missionTargetLocationIds:
+            survivalFrame.mission.missionTargetLocationIds,
+          missionHudItemCount: document.querySelectorAll(
+            '[data-v2-mission-hud-role="mission-item"]'
+          ).length,
+          missionHudVisible:
+            missionHudRoot !== null && !missionHudRoot.hidden,
+          npcCandidateCount: npcCandidates.length,
+          doorCandidateCount: doorCandidates.length,
+          npcStateCounts,
+          minimapReadout: minimapReadout.textContent ?? ""
+        });
+    }
     const audioEvents = survival.drainAudioEvents();
     if (audioActivated) {
       gameplayAudioBridge.dispatch(audioEvents);

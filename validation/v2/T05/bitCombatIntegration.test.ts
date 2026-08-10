@@ -1918,6 +1918,49 @@ const acquireMode = (
   return harness.system.getFrameView().targetStates[0];
 };
 
+const runStartupGraceSuspensionCheck =
+  (): BitCombatIntegrationCheck => {
+    const harness = createHarness(1, () => false);
+    const target = createTarget(
+      "startup-grace-target",
+      new Vector3(0, 0, 1)
+    );
+    try {
+      const before = harness.system.getFrameView().actorSpheres[0].center;
+      harness.system.setHostileActionsSuspended(true);
+      update(
+        harness.system,
+        3,
+        3,
+        Object.freeze([target])
+      );
+      const suspendedView = harness.system.getFrameView();
+      const suspendedActor = suspendedView.actorSpheres[0];
+      const suspendedBeamCount = suspendedView.beamRequests.length;
+      harness.system.setHostileActionsSuspended(false);
+      harness.random.enqueue(0.5, 0.5);
+      update(
+        harness.system,
+        1,
+        4,
+        Object.freeze([target])
+      );
+      const resumed = harness.system.getFrameView().targetStates[0];
+      return Object.freeze({
+        name: "開始猶予中はBITの移動・索敵・射撃を停止",
+        ok:
+          suspendedActor.center.equals(before) &&
+          suspendedView.targetStates[0].targetId === null &&
+          suspendedBeamCount === 0 &&
+          resumed.targetId === target.id,
+        detail:
+          `stationary=${suspendedActor.center.equals(before)} / suspendedTarget=${suspendedView.targetStates[0].targetId ?? "none"} / beams=${suspendedBeamCount} / resumed=${resumed.targetId ?? "none"}`
+      });
+    } finally {
+      harness.dispose();
+    }
+  };
+
 const runBitCurrentTargetSightScheduleCheck =
   (): BitCombatIntegrationCheck => {
     let sightBlocked = false;
@@ -5753,6 +5796,7 @@ export const runBitCombatIntegrationTests =
   ): readonly BitCombatIntegrationCheck[] =>
     Object.freeze([
       runNormalPatrolReachContractCheck(),
+      runStartupGraceSuspensionCheck(),
       runNormalPatrolDetourLifetimeCheck(),
       runNormalPatrolReservationCheck(),
       runNormalPatrolReservationBestEffortCheck(),

@@ -28,6 +28,7 @@ import {
   type V2PerformanceDiagnostics
 } from "../../../src/v2/performanceDiagnostics";
 import type { V2PlayerController } from "../../../src/v2/playerController";
+import type { V2MissionElevatorSnapshot } from "../../../src/v2/missionRuntime";
 import {
   createV2SurvivalRuntime,
   summarizeV2NpcHudCounts,
@@ -72,6 +73,20 @@ const selectDistanceNavigationRoute = (
   _context: V2NpcNavigationRouteContext,
   candidates: readonly NavigationRouteCandidate[]
 ) => DISTANCE_NAVIGATION_ROUTE_POLICY.selectRoute(candidates);
+
+const createInitialMissionElevatorSnapshots = (
+  stage: StageSpatialContext
+): readonly V2MissionElevatorSnapshot[] =>
+  Object.freeze(
+    stage.elevatorAssets.all.map((elevator) =>
+      Object.freeze({
+        id: elevator.id,
+        carState: "stopped" as const,
+        displayStopId: elevator.initialStop.id,
+        targetStopId: null
+      })
+    )
+  );
 
 const createFakePlayer = (
   playerSpawn: StagePlayerSpawn
@@ -246,6 +261,7 @@ const createRuntime = async (
         stage,
         playerSpawn,
         player,
+        initialPlayerState: "normal",
         characterVisuals,
         random: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED),
         npcSpawnRandom: createV2SeededRandom(
@@ -253,6 +269,15 @@ const createRuntime = async (
         ),
         bitSpawnRandom: createV2SeededRandom(
           V2_PERFORMANCE_DEFAULT_SEED ^ 0x4249_5401
+        ),
+        playerMissionRandom: createV2SeededRandom(
+          V2_PERFORMANCE_DEFAULT_SEED ^ 0x4d50_4c01
+        ),
+        npcMissionRandom: createV2SeededRandom(
+          V2_PERFORMANCE_DEFAULT_SEED ^ 0x4d4e_4c01
+        ),
+        broadcastMissionRandom: createV2SeededRandom(
+          V2_PERFORMANCE_DEFAULT_SEED ^ 0x4d42_4301
         ),
         getOrbVisibilityPredicate,
         population: V2_PERFORMANCE_ACCEPTANCE_POPULATION,
@@ -372,7 +397,12 @@ export const runSurvivalRuntimeLifecycleTests = async (
     );
     await firstRuntime.prepareVisualResources();
     performanceDiagnostics.beginFrame();
-    const firstUpdatedFrame = firstRuntime.update(1 / 60, 1 / 60, null);
+    const firstUpdatedFrame = firstRuntime.update(
+      1 / 60,
+      1 / 60,
+      null,
+      createInitialMissionElevatorSnapshots(lifecycleStage)
+    );
     performanceDiagnostics.finishFrame();
     const firstHumanTargets = firstRuntime.getHumanTargets();
     const repeatedHumanTargets = firstRuntime.getHumanTargets();
@@ -596,7 +626,12 @@ export const runSurvivalRuntimeLifecycleTests = async (
     secondCharacterVisuals = secondFixture.characterVisuals;
     const secondFrame = secondRuntime.getFrame();
     await secondRuntime.prepareVisualResources();
-    secondRuntime.update(1 / 60, 1 / 60, null);
+    secondRuntime.update(
+      1 / 60,
+      1 / 60,
+      null,
+      createInitialMissionElevatorSnapshots(lifecycleStage)
+    );
     const secondActive = captureSceneResources(scene);
     const secondDelta = subtractSceneResources(secondActive, baseline);
     secondRuntime.dispose();
@@ -653,6 +688,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
         stage: lifecycleStage,
         playerSpawn,
         player: commandPlayer,
+        initialPlayerState: "normal",
         characterVisuals: commandCharacterVisuals,
         random: gunNpcRandom,
         npcSpawnRandom: createV2SeededRandom(
@@ -660,6 +696,15 @@ export const runSurvivalRuntimeLifecycleTests = async (
         ),
         bitSpawnRandom: createV2SeededRandom(
           V2_PERFORMANCE_DEFAULT_SEED ^ 0x4249_5402
+        ),
+        playerMissionRandom: createV2SeededRandom(
+          V2_PERFORMANCE_DEFAULT_SEED ^ 0x4d50_4c02
+        ),
+        npcMissionRandom: createV2SeededRandom(
+          V2_PERFORMANCE_DEFAULT_SEED ^ 0x4d4e_4c02
+        ),
+        broadcastMissionRandom: createV2SeededRandom(
+          V2_PERFORMANCE_DEFAULT_SEED ^ 0x4d42_4302
         ),
         getOrbVisibilityPredicate: () => () => true,
         population: Object.freeze({
@@ -707,10 +752,23 @@ export const runSurvivalRuntimeLifecycleTests = async (
       commandCamera.getViewMatrix(true);
       commandCamera.getProjectionMatrix(true);
 
-      commandRuntime.update(2, 2, null);
-      commandRuntime.update(0.25, 2.25, null);
-      commandRuntime.update(3.7, 5.95, null);
-      const completionFrame = commandRuntime.update(0.06, 6.01, null);
+      const elevatorSnapshots = createInitialMissionElevatorSnapshots(lifecycleStage);
+      const startupGraceFrame = commandRuntime.update(5, 5, null, elevatorSnapshots);
+      if (startupGraceFrame.playerState !== "normal") {
+        throw new Error(
+          `開始5秒の猶予中に洗脳済みNPCがPlayerを攻撃しました: ${startupGraceFrame.playerState}`
+        );
+      }
+      commandRuntime.update(0, 5, null, elevatorSnapshots);
+      commandRuntime.update(2, 7, null, elevatorSnapshots);
+      commandRuntime.update(0.25, 7.25, null, elevatorSnapshots);
+      commandRuntime.update(3.7, 10.95, null, elevatorSnapshots);
+      const completionFrame = commandRuntime.update(
+        0.06,
+        11.01,
+        null,
+        elevatorSnapshots
+      );
       if (!completionFrame.playerCompletionUnlocked) {
         throw new Error(
           `Runtime NPC指示検証でプレイヤー完了選択が解放されません: ` +
@@ -754,7 +812,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
         commandRuntime.getNpcCommandCandidates().find(
           (entry) => entry.npcId === candidate.npcId
         )?.commandMode === "follow";
-      commandRuntime.update(2.85, 8.86, null);
+      commandRuntime.update(2.85, 8.86, null, elevatorSnapshots);
       followVisibleBeforeTransition =
         commandRuntime.getNpcCommandCandidates().find(
           (entry) => entry.npcId === candidate.npcId
@@ -762,7 +820,12 @@ export const runSurvivalRuntimeLifecycleTests = async (
       fireAccepted = commandRuntime.requestPlayerGunFire(
         new Vector3(1, 0, 0)
       );
-      const transitionFrame = commandRuntime.update(0.1, 8.96, null);
+      const transitionFrame = commandRuntime.update(
+        0.1,
+        8.96,
+        null,
+        elevatorSnapshots
+      );
       phaseAfterTransition = transitionFrame.phase;
       activeBeamCountAfterTransition =
         transitionFrame.activeBeamCount;

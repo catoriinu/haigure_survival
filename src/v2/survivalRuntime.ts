@@ -7,6 +7,7 @@ import type {
   NavigationRouteCandidate
 } from "../world/navigationWorld";
 import type {
+  StageAssemblyVenue,
   StagePlayerSpawn,
   StageSpatialContext
 } from "../world/stageSpatialContext";
@@ -22,10 +23,7 @@ import {
   createV2AlertCoordinator,
   type V2AlertCoordinator
 } from "./alertCoordinator";
-import {
-  createAssemblyPositions,
-  selectAssemblyVenueByWeight
-} from "./assemblyLayout";
+import { createAssemblyPositions } from "./assemblyLayout";
 import {
   createV2BeamSystem,
   V2_BEAM_VISUAL_POOL_KINDS,
@@ -54,6 +52,17 @@ import {
   createV2GameplayAudioEventQueue,
   type V2GameplayAudioEvent
 } from "./gameplayAudioEventQueue";
+import {
+  createV2MissionRuntime,
+  resolveV2MissionAssemblyVenueId,
+  V2_REQUIRED_ASSEMBLY_VENUE_IDS,
+  type V2BroadcastCommand,
+  type V2MissionElevatorSnapshot,
+  type V2MissionFrame,
+  type V2MissionNpcSnapshot,
+  type V2MissionRuntime,
+  type V2MissionView
+} from "./missionRuntime";
 
 export type { V2GameplayAudioEvent } from "./gameplayAudioEventQueue";
 import {
@@ -104,6 +113,7 @@ import {
   type V2PublicExecutionSystem
 } from "./publicExecutionSystem";
 import {
+  V2_PLAYER_BLOCK_RADIUS,
   areAllV2HumansBrainwashed,
   canV2SurvivalPlayerMove,
   createV2ExecutionBitPositions,
@@ -114,6 +124,7 @@ import {
 const ALERT_DURATION_SECONDS = 15;
 const PERFORMANCE_ALERT_REFRESH_SECONDS = 10;
 const ALL_DEAD_ASSEMBLY_DELAY_SECONDS = 3;
+export const V2_HOSTILE_STARTUP_GRACE_SECONDS = 5;
 const PLAYER_ID = "player";
 const EMPTY_ALARM_FRAME: V2AlarmFrame = Object.freeze({
   events: Object.freeze([]),
@@ -179,6 +190,7 @@ export const summarizeV2NpcHudCounts = (
 export type V2SurvivalFrame = Readonly<{
   phase: V2SurvivalPhase;
   assemblyVenueId: string;
+  mission: V2MissionFrame;
   playerState: V2CharacterState;
   playerCompletionUnlocked: boolean;
   playerCanMove: boolean;
@@ -270,7 +282,8 @@ export interface V2SurvivalRuntime {
   update(
     deltaSeconds: number,
     elapsedSeconds: number,
-    playerElevatorTraversal: V2PlayerElevatorTraversalSnapshot | null
+    playerElevatorTraversal: V2PlayerElevatorTraversalSnapshot | null,
+    elevators: readonly V2MissionElevatorSnapshot[]
   ): V2SurvivalFrame;
   getFrame(): V2SurvivalFrame;
   drainAudioEvents(): readonly V2GameplayAudioEvent[];
@@ -279,6 +292,9 @@ export interface V2SurvivalRuntime {
   getNpcCommandCandidates(): readonly V2NpcCommandCandidate[];
   requestNpcCommand(npcId: string, kind: V2NpcCommandKind): boolean;
   cancelNpcFollow(npcId: string): boolean;
+  notifyPlayerElevatorStartedMoving(): void;
+  requestBroadcast(command: V2BroadcastCommand): boolean;
+  getMissions(): readonly V2MissionView[];
   getHumanTargets(): readonly V2HumanTargetSnapshot[];
   getBitActors(): readonly V2ActorSphere[];
   getMinimapActors(): readonly V2MinimapActorSnapshot[];
@@ -330,10 +346,14 @@ export type V2SurvivalRuntimeOptions = Readonly<{
   stage: StageSpatialContext;
   playerSpawn: StagePlayerSpawn;
   player: V2PlayerController;
+  initialPlayerState: V2CharacterState;
   characterVisuals: V2CharacterVisualRuntime;
   random: () => number;
   npcSpawnRandom: () => number;
   bitSpawnRandom: () => number;
+  playerMissionRandom: () => number;
+  npcMissionRandom: () => number;
+  broadcastMissionRandom: () => number;
   getOrbVisibilityPredicate(): (position: Vector3) => boolean;
   population: V2SurvivalPopulation;
   performanceDiagnostics: V2PerformanceDiagnostics | null;
@@ -403,16 +423,6 @@ const assertPopulation = (
   }
 };
 
-const requireRandom = (random: () => number) => {
-  const value = random();
-  if (!Number.isFinite(value) || value < 0 || value >= 1) {
-    throw new Error(
-      `V2SurvivalRuntimeのrandomは0以上1未満が必要です: ${value}`
-    );
-  }
-  return value;
-};
-
 const getLookAtPosition = (
   footPosition: Vector3,
   center: Vector3
@@ -429,10 +439,14 @@ export const createV2SurvivalRuntime = ({
   stage,
   playerSpawn,
   player,
+  initialPlayerState,
   characterVisuals,
   random,
   npcSpawnRandom,
   bitSpawnRandom,
+  playerMissionRandom,
+  npcMissionRandom,
+  broadcastMissionRandom,
   getOrbVisibilityPredicate,
   population,
   performanceDiagnostics,
@@ -449,6 +463,15 @@ export const createV2SurvivalRuntime = ({
   if (typeof bitSpawnRandom !== "function") {
     throw new Error("V2SurvivalRuntimeのbitSpawnRandomには関数が必要です。");
   }
+  if (typeof playerMissionRandom !== "function") {
+    throw new Error("V2SurvivalRuntimeのplayerMissionRandomには関数が必要です。");
+  }
+  if (typeof npcMissionRandom !== "function") {
+    throw new Error("V2SurvivalRuntimeのnpcMissionRandomには関数が必要です。");
+  }
+  if (typeof broadcastMissionRandom !== "function") {
+    throw new Error("V2SurvivalRuntimeのbroadcastMissionRandomには関数が必要です。");
+  }
   if (typeof getOrbVisibilityPredicate !== "function") {
     throw new Error(
       "V2SurvivalRuntimeのgetOrbVisibilityPredicateには関数が必要です。"
@@ -464,6 +487,19 @@ export const createV2SurvivalRuntime = ({
   }
   assertPopulation(population);
 
+  const locationAssets = stage.locationAssets;
+  if (locationAssets === null) {
+    throw new Error("T06-4にはStage Location Asset Registryが必要です。");
+  }
+  const requiredAssemblyVenues = new Map<string, StageAssemblyVenue>();
+  for (const venueId of V2_REQUIRED_ASSEMBLY_VENUE_IDS) {
+    const venue = stage.assemblyVenues.getById(venueId);
+    if (venue === null) {
+      throw new Error(`集合会場が未登録です: ${venueId}`);
+    }
+    requiredAssemblyVenues.set(venueId, venue);
+  }
+
   let visualRandomState = 0x6d2b79f5;
   const visualRandom = () => {
     visualRandomState =
@@ -471,13 +507,9 @@ export const createV2SurvivalRuntime = ({
     return visualRandomState / 0x1_0000_0000;
   };
 
-  const assemblyVenue = selectAssemblyVenueByWeight(
-    stage.assemblyVenues.all,
-    requireRandom(random)
-  );
   const playerCombat = createV2PlayerCombatSystem({
     playerId: PLAYER_ID,
-    initialState: "normal",
+    initialState: initialPlayerState,
     random
   });
 
@@ -490,6 +522,7 @@ export const createV2SurvivalRuntime = ({
   let ownedHitEffectSystem: V2HitEffectSystem | null = null;
   let ownedTargetNavigationAreaTracker: V2TargetNavigationAreaTracker | null =
     createV2TargetNavigationAreaTracker(stage.navigationAreas);
+  let ownedMissionRuntime: V2MissionRuntime | null = null;
   let humanTargets: readonly V2HumanTargetSnapshot[] =
     Object.freeze([]);
   let frameOrbVisibilityPredicate:
@@ -540,6 +573,13 @@ export const createV2SurvivalRuntime = ({
       resolveTargetNavigationArea: (target) =>
         ownedTargetNavigationAreaTracker!.resolve(target.id),
       selectNavigationRoute
+    });
+    ownedMissionRuntime = createV2MissionRuntime({
+      locations: locationAssets,
+      playerRandom: playerMissionRandom,
+      npcRandom: npcMissionRandom,
+      broadcastRandom: broadcastMissionRandom,
+      npcPort: ownedNpcSystem
     });
     ownedBitSystem = createV2BitSystem(scene, stage, {
       initialBitCount: population.initialBitCount,
@@ -620,6 +660,7 @@ export const createV2SurvivalRuntime = ({
         : undefined
     });
   } catch (error) {
+    ownedMissionRuntime?.dispose();
     ownedBeamSystem?.dispose();
     ownedHitEffectSystem?.dispose();
     ownedExecutionSystem?.reset();
@@ -632,6 +673,7 @@ export const createV2SurvivalRuntime = ({
   }
 
   const npcSystem = ownedNpcSystem;
+  const missionRuntime = ownedMissionRuntime;
   const bitSystem = ownedBitSystem;
   const alertCoordinator = ownedAlertCoordinator;
   const alarmSystem = ownedAlarmSystem;
@@ -649,6 +691,8 @@ export const createV2SurvivalRuntime = ({
 
   let disposed = false;
   let phase: V2SurvivalPhase = "playing";
+  let frozenAssemblyVenue: StageAssemblyVenue | null = null;
+  let missionFrame = missionRuntime.getFrame();
   let allDeadSeconds = 0;
   let blockerImpactCount = 0;
   let actorImpactCount = 0;
@@ -739,6 +783,74 @@ export const createV2SurvivalRuntime = ({
     return target;
   };
 
+  const buildMissionNpcSnapshots =
+    (): readonly V2MissionNpcSnapshot[] => {
+      const npcFrame = npcSystem.getFrameView();
+      if (npcFrame.targets.length !== npcFrame.tracking.length) {
+        throw new Error(
+          `Mission用NPC snapshot数が一致しません: ${npcFrame.targets.length}/${npcFrame.tracking.length}`
+        );
+      }
+      return Object.freeze(
+        npcFrame.targets.map((target, index) => {
+          const tracking = npcFrame.tracking[index];
+          if (target.id !== tracking.npcId) {
+            throw new Error(
+              `Mission用NPC snapshotの並びが一致しません: ${target.id}/${tracking.npcId}`
+            );
+          }
+          return Object.freeze({
+            id: target.id,
+            state: target.state,
+            footPosition: target.footPosition.clone(),
+            commandMode: tracking.commandMode,
+            targetId: tracking.targetId,
+            locationMission: tracking.locationMission
+          });
+        })
+      );
+    };
+
+  const updateMissionFrame = (
+    deltaSeconds: number,
+    elevators: readonly V2MissionElevatorSnapshot[]
+  ) => {
+    missionFrame = missionRuntime.update(
+      Object.freeze({
+        deltaSeconds,
+        phase,
+        playerState: playerCombat.getStateSnapshot().state,
+        playerFootPosition: player.getFootPosition(),
+        npcs: buildMissionNpcSnapshots(),
+        npcStateTransitions: npcSystem.drainStateTransitions(),
+        elevators
+      })
+    );
+  };
+
+  const getInstructionAssemblyVenue = () => {
+    const venueId = resolveV2MissionAssemblyVenueId(missionFrame);
+    const venue = requiredAssemblyVenues.get(venueId);
+    if (!venue) {
+      throw new Error(`集合会場がありません: ${venueId}`);
+    }
+    return venue;
+  };
+
+  const freezeAssemblyVenue = () => {
+    if (frozenAssemblyVenue === null) {
+      frozenAssemblyVenue = getInstructionAssemblyVenue();
+    }
+    return frozenAssemblyVenue;
+  };
+
+  const requireFrozenAssemblyVenue = () => {
+    if (frozenAssemblyVenue === null) {
+      throw new Error("集合・公開処刑会場が固定されていません。");
+    }
+    return frozenAssemblyVenue;
+  };
+
   const createNpcCommandQuery = (): V2NpcCommandQuery => {
     const activeCamera = scene.activeCamera;
     if (!activeCamera) {
@@ -800,6 +912,7 @@ export const createV2SurvivalRuntime = ({
   };
 
   const placeHumansForAssembly = () => {
+    const assemblyVenue = requireFrozenAssemblyVenue();
     const npcTargets = npcSystem.getFrameView().targets;
     const ids = [
       PLAYER_ID,
@@ -835,6 +948,7 @@ export const createV2SurvivalRuntime = ({
   };
 
   const enterAssembly = () => {
+    freezeAssemblyVenue();
     clearCombatForPhaseTransition();
     executionSystem.reset();
     phase = "assembly";
@@ -900,6 +1014,7 @@ export const createV2SurvivalRuntime = ({
   const applyExecutionPlacements = (
     executionFrame: V2PublicExecutionFrame
   ) => {
+    const assemblyVenue = requireFrozenAssemblyVenue();
     const positionById = new Map(
       executionFrame.placements.map(
         (placement) =>
@@ -969,6 +1084,7 @@ export const createV2SurvivalRuntime = ({
   const placeHumansForExecution = (
     candidate: V2ExecutionCandidate
   ) => {
+    const assemblyVenue = requireFrozenAssemblyVenue();
     const audienceIds = selectV2ExecutionAudienceIds(
       humanTargets.map((target) => target.id),
       candidate.targets.map((target) => target.id)
@@ -1007,6 +1123,7 @@ export const createV2SurvivalRuntime = ({
   const enterExecution = (
     candidate: V2ExecutionCandidate
   ) => {
+    freezeAssemblyVenue();
     clearCombatForPhaseTransition();
     prepareExecutionTargetStates(candidate);
     placeHumansForExecution(candidate);
@@ -1053,10 +1170,18 @@ export const createV2SurvivalRuntime = ({
           ? playerCombat.applyImpact(source)
           : false;
       if (npcImpactIndex !== null) {
+        const playerNoGunAssisted =
+          playerCombat.getStateSnapshot().state ===
+            "brainwash-complete-no-gun" &&
+          Vector3.Distance(
+            player.getFootPosition(),
+            event.hit.actor.footPosition
+          ) <= V2_PLAYER_BLOCK_RADIUS;
         npcImpacts.push(
           Object.freeze({
             npcId: targetId,
-            source
+            source,
+            playerNoGunAssisted
           })
         );
       }
@@ -1357,9 +1482,12 @@ export const createV2SurvivalRuntime = ({
       npcFrameView.targets.map((target) => target.state)
     );
     const executionFrame = executionSystem.getFrame();
+    const currentAssemblyVenue =
+      frozenAssemblyVenue ?? getInstructionAssemblyVenue();
     return Object.freeze({
       phase,
-      assemblyVenueId: assemblyVenue.id,
+      assemblyVenueId: currentAssemblyVenue.id,
+      mission: missionFrame,
       playerState: playerStateSnapshot.state,
       playerCompletionUnlocked:
         playerStateSnapshot.playerCompletionUnlocked,
@@ -1462,7 +1590,8 @@ export const createV2SurvivalRuntime = ({
     update: (
       deltaSeconds,
       elapsedSeconds,
-      playerElevatorTraversal
+      playerElevatorTraversal,
+      elevators
     ) => {
       assertActive();
       assertNonNegativeFiniteNumber(
@@ -1473,6 +1602,11 @@ export const createV2SurvivalRuntime = ({
         "survival elapsedSeconds",
         elapsedSeconds
       );
+      const updateStartedAtSeconds = elapsedSeconds - deltaSeconds;
+      const hostileStartupGraceActive =
+        updateStartedAtSeconds < V2_HOSTILE_STARTUP_GRACE_SECONDS;
+      npcSystem.setHostileActionsSuspended(hostileStartupGraceActive);
+      bitSystem.setHostileActionsSuspended(hostileStartupGraceActive);
       npcSystem.setPlayerElevatorTraversalSnapshot(
         playerElevatorTraversal
       );
@@ -1863,6 +1997,7 @@ export const createV2SurvivalRuntime = ({
           performanceSectionStartedAt
         );
 
+        updateMissionFrame(deltaSeconds, elevators);
         if (phase === "playing") {
           alertCoordinator.publish([
             ...npcSystem.drainAlertRequests(),
@@ -1979,6 +2114,7 @@ export const createV2SurvivalRuntime = ({
         }
         npcSystem.drainBeamRequests();
         npcSystem.drainAlertRequests();
+        updateMissionFrame(deltaSeconds, elevators);
       }
 
       if (phase === "execution") {
@@ -2166,11 +2302,18 @@ export const createV2SurvivalRuntime = ({
       if (phase !== "playing") {
         return false;
       }
-      return npcSystem.requestCommand(
+      const accepted = npcSystem.requestCommand(
         npcId,
         kind,
         createNpcCommandQuery()
       );
+      if (accepted) {
+        missionRuntime.notifyNpcCommandChanged(npcId, kind);
+        missionFrame = missionRuntime.getFrame();
+        minimapActorSnapshots = buildMinimapActorSnapshots();
+        frame = buildFrame();
+      }
+      return accepted;
     },
     cancelNpcFollow: (npcId) => {
       assertActive();
@@ -2180,7 +2323,44 @@ export const createV2SurvivalRuntime = ({
       if (phase !== "playing") {
         return false;
       }
-      return npcSystem.cancelFollow(npcId);
+      const cancelled = npcSystem.cancelFollow(npcId);
+      if (cancelled) {
+        missionRuntime.notifyNpcCommandChanged(npcId, "leave");
+        missionFrame = missionRuntime.getFrame();
+        minimapActorSnapshots = buildMinimapActorSnapshots();
+        frame = buildFrame();
+      }
+      return cancelled;
+    },
+    notifyPlayerElevatorStartedMoving: () => {
+      assertActive();
+      missionRuntime.notifyPlayerElevatorStartedMoving();
+      missionFrame = missionRuntime.getFrame();
+      minimapActorSnapshots = buildMinimapActorSnapshots();
+      frame = buildFrame();
+    },
+    requestBroadcast: (command) => {
+      assertActive();
+      if (phase !== "playing") {
+        return false;
+      }
+      missionRuntime.executeBroadcast(
+        command,
+        Object.freeze({
+          playerState: playerCombat.getStateSnapshot().state,
+          playerFootPosition: player.getFootPosition(),
+          npcs: buildMissionNpcSnapshots()
+        })
+      );
+      rebuildHumanTargets();
+      missionFrame = missionRuntime.getFrame();
+      minimapActorSnapshots = buildMinimapActorSnapshots();
+      frame = buildFrame();
+      return true;
+    },
+    getMissions: () => {
+      assertActive();
+      return missionRuntime.getMissions();
     },
     getHumanTargets: () => {
       assertActive();
@@ -2353,6 +2533,7 @@ export const createV2SurvivalRuntime = ({
     },
     dispose: () => {
       assertActive();
+      missionRuntime.dispose();
       npcSystem.clearCommands();
       hitEffectSystem.dispose();
       beamSystem.dispose();

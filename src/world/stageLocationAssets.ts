@@ -9,7 +9,10 @@ import type {
   StageElevatorAssetRegistry,
   StageElevatorStopAsset
 } from "./stageDynamicAssets";
-import type { NavigationWorld } from "./navigationWorld";
+import type {
+  NavigationLocation,
+  NavigationWorld
+} from "./navigationWorld";
 import type { StageSpatialQueries } from "./stageSpatialQueries";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "./worldUnits";
 
@@ -92,6 +95,8 @@ export type StageMissionLocation = Readonly<{
   area: StageLocationArea;
   volumeMesh: Mesh;
   anchorNode: TransformNode;
+  navigationLocation: NavigationLocation;
+  contains(point: Vector3): boolean;
 }>;
 
 export type StageStairLanding = Readonly<{
@@ -671,12 +676,11 @@ export const createStageLocationAssetRegistry = (
               `${volume.locationId}/${resolvedArea?.id ?? "none"}`
           );
         }
-        if (
-          !navigation.projectPoint(
-            anchorPosition,
-            ANCHOR_NAVMESH_PROJECTION_METERS * BLENDER_METERS_TO_WORLD_UNITS
-          )
-        ) {
+        const navigationLocation = navigation.projectPoint(
+          anchorPosition,
+          ANCHOR_NAVMESH_PROJECTION_METERS * BLENDER_METERS_TO_WORLD_UNITS
+        );
+        if (!navigationLocation) {
           throw new Error(
             `mission_anchorをNavMeshへ投影できません: ${volume.locationId}`
           );
@@ -687,7 +691,13 @@ export const createStageLocationAssetRegistry = (
           displayName: volume.displayName,
           area,
           volumeMesh: volume.mesh,
-          anchorNode: anchor.node
+          anchorNode: anchor.node,
+          navigationLocation: Object.freeze({
+            position: navigationLocation.position.clone(),
+            polygonRef: navigationLocation.polygonRef
+          }),
+          contains: (point: Vector3) =>
+            queries.containsVolumeById(volume.id, point)
         });
       })
       .sort((left, right) => left.id.localeCompare(right.id))

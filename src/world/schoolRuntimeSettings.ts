@@ -54,7 +54,10 @@ export const SCHOOL_RUNTIME_RANDOM_SERIES = [
   "disorder",
   "door-initial",
   "door-behavior",
-  "follower-fire"
+  "follower-fire",
+  "mission-player",
+  "mission-npc",
+  "mission-broadcast"
 ] as const;
 
 export type SchoolRuntimeRandomSeries =

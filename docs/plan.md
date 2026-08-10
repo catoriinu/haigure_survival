@@ -388,8 +388,8 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - [x] T06-2: B03-3DとT06-1を統合し、複数開始地点、動的出現禁止、NPC／BIT出現Volume、時間増援、Player開始地点別NPC近傍優先、学校基盤E2Eを完成してPR #67で`develop`へ統合する
 - [x] I2 ミニマップ・Mission・Location・放送機能設計: T06-2前の先行相談で意味資産、表示、Mission、同行者、放送、公開処刑会場切替を確定する
 - [x] B05 Mission・ミニマップ意味資産: 承認済みLocation、階別平面形状、階段、エレベーター、放送卓を意味付きVolume／Anchor／Markerとして学校資産へ単一編集し、PR #69で`develop=96a16cb`へ統合する
-- [x] T06-3 ミニマップ: B05の意味資産を読み、左上180px円形Mapへ現在階平面図、プレイヤー、同階Actor、Follower、視野、方角、階段、エレベーター、Mission対象を表示し、専用branchで実装・検証を完了する（独立レビュー・`develop`統合待ち）
-- [ ] T06-4 Mission・放送Runtime: プレイヤー／NPC Mission、動的エリア名追従、seed付き20秒scheduler、放送、公開処刑会場切替、HUDを実装する
+- [x] T06-3 ミニマップ: B05の意味資産を読み、左上180px円形Mapへ現在階平面図、プレイヤー、同階Actor、Follower、視野、方角、階段、エレベーター、Mission対象を表示し、PR #70で`develop=7f17e2d`へ統合する
+- [ ] T06-4 Mission・放送Runtime: `7f17e2d`から専用branchを開始し、プレイヤー／NPC Mission、動的エリア名追従、seed付き20秒scheduler、放送、公開処刑会場切替、HUDの実装・V3A・ローカルcommitを完了した。push、Pull Request、レビュー、`develop`統合待ち
 - [ ] I3 キャラクター反射・表示仕上げ設計: 鏡反射、必要な一人称表示仕上げ、99 NPC時の性能条件をユーザー相談で確定する
 - [ ] T06-5 キャラクター反射・表示仕上げRuntime: T06-1の基本画像表示を前提に、I3で承認された鏡反射と表示仕上げを実装する
 - [ ] T07: ミニマップ、Mission、放送、基本Character画像、鏡反射を有効にした性能調整、学校回帰試験、仕様書更新
@@ -405,9 +405,9 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - B03-0とT04-2Aは完了した。B03-1は進行中であり、B03-2はB03-1の窓契約確定、検証完了、Pull Requestの`develop`統合後に開始する。
 - T04-2BはT04-2AとB03-2の両方が完了してから開始する。
 - B03-3BとT05-2Vは、それぞれPR #52とPR #53で`develop`へ統合済みである。
-- B03-3C、T04-3A、T05-3を集約したI0、B04、T05-4、T04-3B、通常版教室配置、通常テスト人口更新、B03-3D本体、T06-1、B03-3D追補、T06-2、I2設計、B05はPR #69の`origin/develop=96a16cb`までに統合済みである。
+- B03-3C、T04-3A、T05-3を集約したI0、B04、T05-4、T04-3B、通常版教室配置、通常テスト人口更新、B03-3D本体、T06-1、B03-3D追補、T06-2、I2設計、B05、T06-3はPR #70の`origin/develop=7f17e2d`までに統合済みである。
 - T06-2はPlayer開始候補11件、動的出現禁止、NPC 5階層Volume、到達可能な飛行NavMesh全域を覆うBIT連続Volume、時間増援、Player開始地点別NPC近傍優先を実装・検証し、PR #67で完了した。
-- I2設計はT06-2前に文書だけで先行確定済みである。B05はPR #69で`develop`へ統合済みであり、T06-3は`96a16cb`から専用branchで実装・検証済みである。T06-4はT06-3の独立レビューと`develop`統合後に開始する。
+- I2設計はT06-2前に文書だけで先行確定済みである。B05はPR #69、T06-3はPR #70で`develop`へ統合済みである。T06-4は`7f17e2d`から専用branch／worktreeで実装・V3A・ローカルcommitを完了し、push、Pull Request、レビュー、`develop`統合を待つ。
 - B01はT01完了後に開始でき、T02～T05-2と並行できる。
 - B02はB01で間取りが承認され、T01の資産規約が確定してから開始する。
 - B03の開始条件であるB02ブロックアウトとT03プレイヤー移動は完了済みである。後続作業はPR #41統合を追加の開始条件とする。
@@ -415,7 +415,7 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 ## 並行作業規則
 
 - B03-3B／T05-2V、B03-3C／T04-3A／T05-3、B04／T05-4、B03-3D／T06-1の過去の並行Waveは完了し、`develop`へ統合済みである。
-- T06-2はPR #67、I2設計文書はPR #68、B05はPR #69で`develop`へ統合済みである。T06-3は専用branchで実装・検証済みであり、独立レビューとmergeが完了するまでT06-4以降は開始しない。
+- T06-2はPR #67、I2設計文書はPR #68、B05はPR #69、T06-3はPR #70で`develop=7f17e2d`までに統合済みである。T06-4はこのheadから単独で実装・V3A・ローカルcommitを完了し、外部公開と統合は未実施である。
 - B05、T06-3、T06-4、I3、T06-5、T07、v2リリース準備を依存順に直列化する。B05は学校意味資産を単一編集し、T06-3／T06-4は学校座標をコードへ重複記述しない。
 - Blender系タスクは、コードと3Dステージ資産を同時編集しない場合に限りコード系タスクと並行できる。
 - 同一`.blend`、`.glb`、`docs/plan.md`を複数セッションから同時編集しない。
@@ -850,4 +850,4 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 
 - `origin/develop=ceea8ec`からB05専用branchを開始し、学校資産をschema version 3へ更新して、Map、Area、Mission Location、階段踊り場、エレベーター乗場、放送卓と最小Runtime読込契約を実装した。
 - B05単独fixture、資産・参照・被覆監査、決定性、3種NavMesh不変性、関連typecheck／build、学校Web／Electron起動を検証した。
-- B05はPR #69で`develop=96a16cb`へ統合済みとなった。T06-3はこのheadから`codex/v2-minimap`で実装・検証を完了し、独立レビューと`develop`統合を待つ。T06-4はT06-3の統合後に開始する。
+- B05はPR #69で`develop=96a16cb`へ統合済みとなった。T06-3はこのheadから`codex/v2-minimap`で実装・検証し、PR #70で`develop=7f17e2d`へ統合した。T06-4はこの最新headから`codex/v2-missions`と専用worktreeを作成し、実装・V3A・ローカルcommitまで完了した。push、Pull Request、レビュー、mergeは行っていない。

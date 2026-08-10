@@ -4,8 +4,8 @@ export type V2PlayerMoveAxes = Readonly<{
 }>;
 
 export type V2PlayerAction =
-  | "npc-follow"
-  | "npc-leave"
+  | "interaction-primary"
+  | "interaction-secondary"
   | "door-toggle"
   | "select-gun"
   | "select-no-gun"
@@ -24,8 +24,8 @@ const MOVE_CODES = ["KeyW", "KeyA", "KeyS", "KeyD"] as const;
 const DASH_CODES = ["ShiftLeft", "ShiftRight"] as const;
 const CONTROL_CODES = new Set<string>([...MOVE_CODES, ...DASH_CODES]);
 const ACTION_BY_CODE = new Map<string, V2PlayerAction>([
-  ["KeyF", "npc-follow"],
-  ["KeyE", "npc-leave"],
+  ["KeyF", "interaction-primary"],
+  ["KeyE", "interaction-secondary"],
   ["KeyC", "door-toggle"],
   ["KeyG", "select-gun"],
   ["KeyN", "select-no-gun"],
