@@ -1350,7 +1350,7 @@ export const runMissionRuntimeTests = async (): Promise<
       fixture.runtime.notifyNpcCommandChanged(first.id, "follow");
       updateFixture(fixture, {
         deltaSeconds: 0,
-        playerState: "brainwash-complete-gun",
+        playerState: "normal",
         npcs
       });
       other.state = "brainwash-in-progress";
@@ -1364,7 +1364,7 @@ export const runMissionRuntimeTests = async (): Promise<
       });
       updateFixture(fixture, {
         deltaSeconds: 60,
-        playerState: "brainwash-complete-gun",
+        playerState: "normal",
         npcs
       });
       const missions = fixture.runtime.getMissions();
@@ -1885,7 +1885,7 @@ export const runMissionRuntimeTests = async (): Promise<
       fixture.runtime.dispose();
       return "エレベーター始動・放送F/Eを各180秒Missionとして完了し、最後の未洗脳者失敗と結果を集計";
     }),
-    executeTest("最初のFollower固定と45秒逃走条件", () => {
+    executeTest("未洗脳Playerの最初のFollower固定と45秒逃走条件・結果集計", () => {
       const fixture = createMissionFixture();
       const first = createFixtureNpc(
         "npc-first",
@@ -1899,7 +1899,7 @@ export const runMissionRuntimeTests = async (): Promise<
       fixture.runtime.notifyNpcCommandChanged(second.id, "follow");
       let frame = updateFixture(fixture, {
         deltaSeconds: 0,
-        playerState: "brainwash-complete-gun",
+        playerState: "normal",
         npcs: Object.freeze([first, second])
       });
       assert(frame.firstFollowerId === first.id, "最初のFollowerが差し替わりました。");
@@ -1913,7 +1913,7 @@ export const runMissionRuntimeTests = async (): Promise<
       first.targetId = null;
       frame = updateFixture(fixture, {
         deltaSeconds: 5,
-        playerState: "brainwash-complete-gun",
+        playerState: "normal",
         npcs: Object.freeze([first, second])
       });
       assert(
@@ -1924,7 +1924,12 @@ export const runMissionRuntimeTests = async (): Promise<
         ),
         "12m以上・非targetを5秒維持しても完了しません。"
       );
+      assert(
+        frame.playerMissionResults.unbrainwashed.completed === 1 &&
+          frame.playerMissionResults.brainwashed.completed === 0,
+        `逃走Missionが未洗脳時の結果へ集計されません: ${JSON.stringify(frame.playerMissionResults)}`
+      );
       fixture.runtime.dispose();
-      return "最初のFollow対象を固定し、12m＋非target 5秒で逃走完了";
+      return "未洗脳Playerの最初のFollow対象を固定し、12m＋非target 5秒で逃走完了・未洗脳結果へ集計";
     })
   ]);

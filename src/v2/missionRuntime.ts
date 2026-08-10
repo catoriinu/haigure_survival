@@ -224,7 +224,7 @@ export type V2MissionDefinition =
   | Readonly<{
       kind: "player-first-follower-escape";
       source: "situation";
-      playerCondition: "brainwashed";
+      playerCondition: "unbrainwashed";
       assignee: V2PlayerMissionAssignee;
       target: V2ActorMissionTarget;
     }>
@@ -749,7 +749,7 @@ const freezeMission = (mission: MutableMission): V2MissionView => {
       mission.deadlineAtSeconds === null) ||
     (mission.kind === "player-first-follower-escape" &&
       mission.source === "situation" &&
-      mission.playerCondition === "brainwashed" &&
+      mission.playerCondition === "unbrainwashed" &&
       playerAssigned &&
       actorTarget) ||
     (mission.kind === "npc-location" &&
@@ -2137,7 +2137,7 @@ export const createV2MissionRuntime = ({
     if (
       escapeMissionStarted ||
       firstFollowerId === null ||
-      update.playerState === "brainwash-in-progress" ||
+      !isV2AliveState(update.playerState) ||
       activeSituationMissions().length >= V2_PLAYER_SITUATION_MISSION_MAXIMUM
     ) {
       return;
@@ -2154,7 +2154,7 @@ export const createV2MissionRuntime = ({
     addMission(
       "player-first-follower-escape",
       "situation",
-      "brainwashed",
+      "unbrainwashed",
       Object.freeze({ kind: "player" }),
       Object.freeze({ kind: "actor", actorId: follower.id }),
       "最初の同行者から逃げる",

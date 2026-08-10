@@ -3452,6 +3452,7 @@ const testAutonomousCombatSuppression = async () => {
   const baselineFixture = await createNpcCommandFixture(3, 2);
   const followerFixture = await createNpcCommandFixture(3, 2);
   const startupGraceFixture = await createNpcCommandFixture(3, 2);
+  const startupGraceFollowFixture = await createNpcCommandFixture(3, 2);
   const captureRescueFixture = await createNpcCommandFixture(3, 2);
   const baselinePlayer = createPlayerTarget(Vector3.Zero());
   const player = createPlayerTarget(
@@ -3484,6 +3485,39 @@ const testAutonomousCombatSuppression = async () => {
         ),
       "開始猶予中に洗脳済みNPCが移動・射撃・捕捉しました。"
     );
+
+    placeNpcs(startupGraceFollowFixture.system, positions);
+    const graceFollowPlayer = createPlayerTarget(
+      new Vector3(0, 0, -2),
+      "brainwash-complete-gun"
+    );
+    const graceFollowerBefore =
+      startupGraceFollowFixture.system.getNpcPosition("npc_0");
+    startupGraceFollowFixture.system.setHostileActionsSuspended(true);
+    assert(
+      startupGraceFollowFixture.system.requestCommand(
+        "npc_0",
+        "follow",
+        createCommandQuery(graceFollowPlayer)
+      ),
+      "開始猶予中の洗脳済みNPCへ同行指示が受理されません。"
+    );
+    startupGraceFollowFixture.system.update(
+      1,
+      graceFollowPlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      getTracking(startupGraceFollowFixture.system, "npc_0").commandMode ===
+        "follow" &&
+        !startupGraceFollowFixture.system
+          .getNpcPosition("npc_0")
+          .equals(graceFollowerBefore) &&
+        startupGraceFollowFixture.system.drainBeamRequests().length === 0 &&
+        startupGraceFollowFixture.system.getFrameView().captures.length === 0,
+      "開始猶予中の同行移動が自律戦闘停止より優先されません。"
+    );
+
     startupGraceFixture.system.setHostileActionsSuspended(false);
     startupGraceFixture.system.update(
       3,
@@ -3573,11 +3607,12 @@ const testAutonomousCombatSuppression = async () => {
           "follow",
       "捕捉中NPCへの同行指示で移動妨害を即時解除できません。"
     );
-    return `開始猶予中hostile停止、解除後再開、比較時beam=${baselineBeamCount}/capture=${baselineCaptureCount}、同行で捕捉解除`;
+    return `開始猶予中hostile停止・同行移動優先、解除後再開、比較時beam=${baselineBeamCount}/capture=${baselineCaptureCount}、同行で捕捉解除`;
   } finally {
     baselineFixture.dispose();
     followerFixture.dispose();
     startupGraceFixture.dispose();
+    startupGraceFollowFixture.dispose();
     captureRescueFixture.dispose();
   }
 };

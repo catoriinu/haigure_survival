@@ -1,6 +1,6 @@
 # T06-4 Mission・校内放送 Runtime 実装計画
 
-更新日: 2026-08-09
+更新日: 2026-08-10
 
 ## プロンプト
 
@@ -37,7 +37,7 @@ PLEASE IMPLEMENT THIS PLAN:
 | 洗脳済み | 最初のFollower洗脳 | 30% | 240秒、上記と同じ判定 |
 
 - Playerが洗脳進行へ入った時点でFollower獲得・護衛を取消する。通常ハイグレ状態では既存Missionと期限を継続するが、新しいLocation Missionは生成しない。
-- 最初のFollowerは、そのセッションで最初に成功したFollow対象へ固定し、Leave後も履歴を保持して差し替えない。そのNPCが洗脳済みとなりPlayerを追跡・攻撃し始めた瞬間、1セッション1回だけ45秒の逃走Missionを開始する。距離12m以上かつ非ターゲット状態を連続5秒維持すれば完了、Playerの洗脳進行で失敗とする。
+- 最初のFollowerは、そのセッションで最初に成功したFollow対象へ固定し、Leave後も履歴を保持して差し替えない。未洗脳Playerに対して、そのNPCが洗脳済みとなり追跡・攻撃し始めた瞬間、1セッション1回だけ45秒の逃走Missionを開始する。距離12m以上かつ非ターゲット状態を連続5秒維持すれば完了、Playerの洗脳進行で失敗とし、結果は未洗脳時へ集計する。
 - NPC通常Location Missionは1tick最大2件、同時最大8件、期限180秒とする。ユーザー決定どおり両陣営の移動可能NPCを対象にするが、Follow中NPCは通常抽選から除外する。危険中も期限は進み、危険解消後に再開する。
 - NPC行動優先度を `同行 > 直接的危険 > Alarm > 放送Mission > 通常Mission > 自律行動` に統一する。放送Missionは同行中にも付与できるが、同行が続く間は移動せず期限切れになり得る。銃なしの洗脳済みNPCに移動を妨害されている未洗脳NPCも、同行成立時に捕捉を解除して同行移動へ移る。
 - 右上Mission HUDにはPlayerの通常3件と状況1件を表示し、残り時間と対象を更新する。完了・失敗はactive一覧から外して4秒表示し、取消は表示しない。ミニマップにはactiveなPlayer MissionのActor/Location IDだけを渡し、T06-3の18m範囲・12m視野・Location表示を維持する。
@@ -91,7 +91,7 @@ Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出し�
 - Missionが完了または失敗へ変化しても、4秒間の結果表示中は同じ表示位置を維持する。そのMissionが画面から消えた後に、残っているMissionを並べ直す。
 - Playerが光線命中などで`hit-a`へ入った瞬間、表示中の未洗脳状態用Missionをすべて失敗へ更新する。`hit-a`、`hit-b`、`brainwash-in-progress`中は次のMissionを表示せず、G・N・Hのいずれかへ確定した時点で洗脳済み状態用Missionを1件表示する。以後は既存の20秒周期・50%抽選仕様へ戻す。
 - Playerの最初のMissionは20秒schedulerを待たず、Playing開始直後に必ず1件表示する。同一フレームの通常schedulerによる重複生成は禁止する。
-- 洗脳済みNPCとBITはゲーム開始から5秒間、移動もビーム発射もしない。BITの出現は許可し、Playerと未洗脳NPCが逃げるための猶予期間とする。
+- 洗脳済みNPCとBITはゲーム開始から5秒間、自律移動、索敵、ビーム、捕捉を行わない。BITの出現は許可し、Playerと未洗脳NPCが逃げるための猶予期間とする。ただし、洗脳済みPlayerが猶予中に洗脳済みNPCへ同行指示を成功させた場合は、同行を優先して移動できる。
 - NPC行動優先度を`同行 > 直接的危機 > Alarm > 放送Mission > 通常Mission > 自律行動`へ変更する。銃なしの洗脳済みNPCに移動を妨害されている未洗脳NPCでも、同行が成立した瞬間に危険回避より同行移動を優先し、救出できる挙動とする。
 
 ### 2026-08-10 第4次受入追補
@@ -136,6 +136,17 @@ Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出し�
 
 - 公開処刑でPlayerが射手となる間は、照準を中央に維持し、操作案内だけを照準直下から画面下部へ移す。案内は`左クリック：発射`だけとし、G／N／Hの状態選択案内は表示しない。
 - 通常Playingの下部案内を`G：銃あり　左クリック：発射　N：銃なし　H：ハイグレ`へ統一する。画面左下の操作説明も`G：銃あり　N：銃なし　H：ハイグレ`へ合わせる。技術識別子や内部の射撃処理名は変更しない。
+
+### 2026-08-10 PR #71インラインコメント対応
+
+> プルリクのインラインコメントを読んで対応してください。ただし、開発者からのrevieweeへのコメントは、その上のレビューコメントよりも優先してください。その開発者からのrevieweeへのコメントの内容で、仕様書を修正する必要がある箇所などがあれば、その修正は含めて構いません。
+>
+> インラインコメントに対して対応したら、インラインコメントで返信をしてください。
+
+- 最初の同行者からの逃走Missionは、洗脳済みとなった最初の同行者から未洗脳Playerが逃げる状況Missionとして扱い、完了数・失敗数を未洗脳時の結果へ集計する。
+- ゲーム開始5秒間は洗脳済みNPCの自律移動、索敵、ビーム、捕捉とBITの行動を停止する。ただし、洗脳済みPlayerが猶予中に洗脳済みNPCへ同行指示を成功させた場合は、開発者返信を優先して同行移動を許可する。
+- 同一render frameに放送F／Eの成功feedbackが複数含まれる場合、最終押下色の選択順は仕様として固定しない。通常の1操作ずつの入力では、直近に処理した成功操作の色を表示する。
+- 対応差分を対象fixture、typecheck、build、実ブラウザまたはElectronで検証し、同じPR branchへcommit／pushした後、各元スレッドへ修正内容と検証結果を返信する。スレッド解決とmergeは行わない。
 
 ## ステップ
 
@@ -188,9 +199,16 @@ Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出し�
 - [x] 通常HUDと操作説明を`銃あり`／`銃なし`／`ハイグレ`／`発射`表記へ統一する。
 - [x] T06 HUD fixture、対象typecheck／build、実ブラウザまたはElectron受入、配布監査を完了する。
 - [x] 第7次受入追補の実測結果を同期し、対象差分だけをローカルcommitする。
+- [x] 逃走Missionを未洗脳時の結果へ集計し、未洗脳Playerでの開始・完了fixtureを追加する。
+- [x] 開始猶予中の洗脳済みNPCへの同行優先をfixtureで固定し、開発者返信を計画仕様へ反映する。
+- [x] 対象typecheck／build、実ブラウザまたはElectron受入、配布監査を完了する。
+- [ ] レビュー対応結果を同期してcommit／pushし、3件の元スレッドへ返信する。
 
 ## 結果
 
+- PR #71の未解決インラインスレッド3件を確認した。逃走Missionは`playerCondition`を未洗脳へ修正し、洗脳済みPlayerでは開始せず、未洗脳Playerで開始・完了・失敗を判定して未洗脳時の結果へ集計するようにした。
+- 開発者からrevieweeへの返信を優先し、ゲーム開始5秒間でも洗脳済みPlayerから成功した同行指示は洗脳済みNPCの自律行動停止より優先する既存挙動を維持した。T05 fixtureへ、猶予中の同行移動とビーム・捕捉停止の両立を追加した。放送F／Eの同一render frame内の表示順は仕様として固定せず、Runtime／HUDの挙動変更は行っていない。
+- `typecheck:t05`、`typecheck:t06-4`、`typecheck:v2`、`build:t05`、`build:t06-4`、通常`npm run build`をPASSした。実ブラウザ相当のElectron fixtureはT05 317/317、T06-4 36/36でPASSし、console warning／errorは0件だった。変更4ファイルは厳格UTF-8、BOMなし、ローカル絶対パスなしで、`git diff --check`をPASSした。
 - `origin/develop=7f17e2d`から`codex/v2-missions`と専用worktreeを作成した。既存worktreeの未追跡`scripts/v2/__pycache__/`には触れていない。
 - Missionの判別union、20秒scheduler、Player通常／状況Mission、NPC Location Mission、最初のFollower、G／N洗脳判定、正本Volume到着、期限・取消・履歴を実装した。N補助は受理impact時点のPlayer状態・距離を保持し、洗脳開始イベントへ通知する。
 - NPC行動を`直接的危険 > Follow > Alarm > 放送Mission > 通常Mission > 自律行動`へ統一し、危険回避、Follow、エレベーター、移動失敗、Mission取消の競合を解消した。
@@ -206,13 +224,13 @@ Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出し�
 - 本計画更新を含むT06-4差分をローカルcommitまで完了し、後続の明示承認に基づいてremote branchへpushした。レビュー、merge、I3／T06-5／T07は未実施である。
 - 第2次受入追補では、護衛Missionを目的地誘導から「最初の同行者が240秒間、未洗脳の生存状態を維持する」条件へ変更した。同行中は`（同行中）`、離脱中は正本Areaを3秒周期で解決した現在地を表示し、NPC ID、座標推測、前回位置fallbackは表示契約から除外した。
 - 通常の洗脳Missionを特定NPC指定から人数目標へ変更した。セッション初回は1人、2回目以降は生成時の有効対象数を上限として1～3人を一様抽選し、GまたはN補助付き第三者攻撃による異なるNPCの洗脳開始だけを進捗へ数える。特定対象Missionとの重複、阻止なし第三者攻撃、同一NPCの再遷移は数えない。
-- ゲーム内表記を`同行`／`同行者`へ統一し、Missionが0件ならパネルの`display`を明示的に`none`へ戻すようにした。Playing中の下部案内を`G：銃　左クリック：射撃　N：非武装　H：ハイグレ`へ統合し、放送F／Eには成功時だけ180msの押下パルスと、F緑／E水色の最終押下色を表示する。
+- ゲーム内表記を`同行`／`同行者`へ統一し、Missionが0件ならパネルの`display`を明示的に`none`へ戻すようにした。Playing中の下部案内を`G：銃　左クリック：射撃　N：非武装　H：ハイグレ`へ統合し、放送F／Eには成功時だけ180msの押下パルスと、F緑／E水色の最終押下色を表示する。同一render frameに複数の成功feedbackが含まれる場合の選択順は固定しない。
 - 実ブラウザでT06-4 31/31、T06 69/69、T06-3 14/14、B05 34/34をPASSし、各pageのconsole warning／errorは0件だった。Mission専用Electron受入はnormal／haigureともPASSし、Pointer Lock、放送卓ray、Mission HUD、F体育館、E逃走／ハイグレ人間化、会場固定、診断0件を確認した。
 - `typecheck:t06`、`typecheck:t06-4`、`typecheck:v2`、`build:t06`、`build:t06-4`、`build:t06-3`、`build:b05`、通常`npm run build`、Electron受入script構文、テキスト配布検査、`git diff --check`をPASSした。T06全体Electron受入は、今回の下部案内、射撃、G／N／H切替、session lifecycleをすべて確認できた一方、変更対象外のBGM resource load完了待ちだけが2回とも未成立となり、aggregate結果はFAILだった。console、renderer、load、render-process-gone、unresponsiveの診断は0件だった。
 - 第2次受入追補を含むT06-4差分を`codex/v2-missions`へcommitし、remote branchへpushした。`develop`向けDraft PR #71を作成し、OPEN／Draft／MERGEABLE／CLEANを確認した。レビュー、merge、I3／T06-5／T07は未実施である。
 - 第3次受入追補では、Mission HUDの期限表示を`達成まで`／`失敗まで`へ分け、完了／失敗の4秒表示中は元の表示位置を固定した。結果表示が消えた後だけ残存Missionを再整列する。
 - Playing開始直後に未洗脳Missionを1件生成する。Playerが`hit-a`へ入った瞬間に未洗脳Missionを失敗へ遷移させ、`hit-a`／`hit-b`／洗脳進行中は新規Missionを表示せず、G・N・H確定時に洗脳済みMissionを1件即時生成する。20秒周期へ戻る同一frameでは重複生成しない。
-- ゲーム開始から5秒間、洗脳済みNPCとBITの移動、索敵、ビーム、捕捉を停止し、BITの出現は維持した。NPCの優先度は`同行 > 直接的危機 > Alarm > 放送Mission > 通常Mission > 自律行動`へ変更し、同行成立時に銃なし洗脳済みNPCの捕捉を解除する。
+- ゲーム開始から5秒間、洗脳済みNPCの自律移動、索敵、ビーム、捕捉とBITの行動を停止し、BITの出現は維持した。NPCの優先度は`同行 > 直接的危機 > Alarm > 放送Mission > 通常Mission > 自律行動`へ変更し、猶予中でも洗脳済みPlayerからの同行指示を優先する。同行成立時には銃なし洗脳済みNPCの捕捉を解除する。
 - 実ブラウザでT06-4 32/32、T05 316/316をPASSし、console warning／errorは0件だった。Mission専用Electron受入はnormal／haigureともPASSし、Pointer Lock、即時Mission HUDとミニマップ目標、F体育館、E逃走／ハイグレ人間化、会場固定、BGM／VOICE読込、診断0件を確認した。
 - `typecheck:t05`、`typecheck:t06-4`、`typecheck:v2`、`build:t05`、`build:t06`、`build:t06-3`、`build:t06-4`、通常`npm run build`をPASSした。括弧を含むTypeScript／Electron構文は各typecheck／buildで検査した。
 - 第4次受入追補では、同行人数／洗脳人数Missionへ、残存候補からPlayer Mission乱数で選ぶIDなしの現在地表示を追加した。正本Areaが変われば表示を更新し、同行成立、Playerによる`hit-a`進捗、第三者による候補喪失では残存候補へ切り替える。同行人数／洗脳人数は必要人数×60秒、Player Locationは180秒、最初の同行者護衛は120秒へ更新した。
