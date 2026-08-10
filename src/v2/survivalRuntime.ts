@@ -57,6 +57,7 @@ import {
   resolveV2MissionAssemblyVenueId,
   V2_REQUIRED_ASSEMBLY_VENUE_IDS,
   type V2BroadcastCommand,
+  type V2MissionElevatorSnapshot,
   type V2MissionFrame,
   type V2MissionNpcSnapshot,
   type V2MissionRuntime,
@@ -281,7 +282,8 @@ export interface V2SurvivalRuntime {
   update(
     deltaSeconds: number,
     elapsedSeconds: number,
-    playerElevatorTraversal: V2PlayerElevatorTraversalSnapshot | null
+    playerElevatorTraversal: V2PlayerElevatorTraversalSnapshot | null,
+    elevators: readonly V2MissionElevatorSnapshot[]
   ): V2SurvivalFrame;
   getFrame(): V2SurvivalFrame;
   drainAudioEvents(): readonly V2GameplayAudioEvent[];
@@ -809,7 +811,10 @@ export const createV2SurvivalRuntime = ({
       );
     };
 
-  const updateMissionFrame = (deltaSeconds: number) => {
+  const updateMissionFrame = (
+    deltaSeconds: number,
+    elevators: readonly V2MissionElevatorSnapshot[]
+  ) => {
     missionFrame = missionRuntime.update(
       Object.freeze({
         deltaSeconds,
@@ -817,7 +822,8 @@ export const createV2SurvivalRuntime = ({
         playerState: playerCombat.getStateSnapshot().state,
         playerFootPosition: player.getFootPosition(),
         npcs: buildMissionNpcSnapshots(),
-        npcStateTransitions: npcSystem.drainStateTransitions()
+        npcStateTransitions: npcSystem.drainStateTransitions(),
+        elevators
       })
     );
   };
@@ -1584,7 +1590,8 @@ export const createV2SurvivalRuntime = ({
     update: (
       deltaSeconds,
       elapsedSeconds,
-      playerElevatorTraversal
+      playerElevatorTraversal,
+      elevators
     ) => {
       assertActive();
       assertNonNegativeFiniteNumber(
@@ -1990,7 +1997,7 @@ export const createV2SurvivalRuntime = ({
           performanceSectionStartedAt
         );
 
-        updateMissionFrame(deltaSeconds);
+        updateMissionFrame(deltaSeconds, elevators);
         if (phase === "playing") {
           alertCoordinator.publish([
             ...npcSystem.drainAlertRequests(),
@@ -2107,7 +2114,7 @@ export const createV2SurvivalRuntime = ({
         }
         npcSystem.drainBeamRequests();
         npcSystem.drainAlertRequests();
-        updateMissionFrame(deltaSeconds);
+        updateMissionFrame(deltaSeconds, elevators);
       }
 
       if (phase === "execution") {

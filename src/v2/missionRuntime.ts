@@ -384,6 +384,13 @@ export type V2MissionNpcSnapshot = Readonly<{
   locationMission: V2NpcLocationMissionSnapshot | null;
 }>;
 
+export type V2MissionElevatorSnapshot = Readonly<{
+  id: string;
+  carState: "stopped" | "moving";
+  displayStopId: string | null;
+  targetStopId: string | null;
+}>;
+
 export type V2MissionUpdate = Readonly<{
   deltaSeconds: number;
   phase: "playing" | "assembly" | "execution" | "execution-complete";
@@ -391,6 +398,7 @@ export type V2MissionUpdate = Readonly<{
   playerFootPosition: Vector3;
   npcs: readonly V2MissionNpcSnapshot[];
   npcStateTransitions: readonly V2NpcStateTransitionEvent[];
+  elevators: readonly V2MissionElevatorSnapshot[];
 }>;
 
 export type V2MissionFrame = Readonly<{
@@ -420,7 +428,9 @@ export type V2MissionNpcPort = Readonly<{
     assignment: V2NpcLocationMissionAssignment
   ): void;
   cancelLocationMission(npcId: string, missionId: string): boolean;
-  convertHaigureNpcsToGun(): readonly string[];
+  setCompletedBrainwashedNpcsState(
+    state: "brainwash-complete-gun" | "brainwash-complete-no-gun"
+  ): readonly string[];
 }>;
 
 export type V2MissionRuntimeOptions = Readonly<{
@@ -439,7 +449,7 @@ export interface V2MissionRuntime {
     command: V2BroadcastCommand,
     update: Omit<
       V2MissionUpdate,
-      "deltaSeconds" | "npcStateTransitions" | "phase"
+      "deltaSeconds" | "npcStateTransitions" | "phase" | "elevators"
     >
   ): void;
   getFrame(): V2MissionFrame;
@@ -1094,6 +1104,50 @@ export const createV2MissionRuntime = ({
     return formatNpcLocation(follower, "現在地：");
   };
 
+  const formatElevatorLocation = (
+    elevators: readonly V2MissionElevatorSnapshot[]
+  ) => {
+    const availableLandings = locations.elevatorLandings.filter(
+      (landing) => landing.available && landing.stop !== null
+    );
+    const elevatorIds = [
+      ...new Set(availableLandings.map((landing) => landing.elevatorId))
+    ];
+    if (elevatorIds.length !== 1) {
+      throw new Error(
+        `エレベーターMissionには利用可能なエレベーター1基が必要です: ${elevatorIds.length}`
+      );
+    }
+    const elevatorId = elevatorIds[0];
+    const elevator = elevators.find((candidate) => candidate.id === elevatorId);
+    if (!elevator) {
+      throw new Error(`エレベーターMission用snapshotがありません: ${elevatorId}`);
+    }
+    const moving = elevator.carState === "moving";
+    const stopId = moving ? elevator.targetStopId : elevator.displayStopId;
+    if (stopId === null) {
+      throw new Error(
+        `エレベーターMissionの表示stopがありません: ${elevatorId}/${elevator.carState}`
+      );
+    }
+    const landing = availableLandings.find(
+      (candidate) =>
+        candidate.elevatorId === elevatorId && candidate.stop?.id === stopId
+    );
+    if (!landing) {
+      throw new Error(
+        `エレベーターMissionの表示stopに対応する乗場がありません: ${elevatorId}/${stopId}`
+      );
+    }
+    const floorMap = locations.getFloorMap(landing.floorId);
+    if (!floorMap) {
+      throw new Error(
+        `エレベーターMissionのfloor_mapがありません: ${elevatorId}/${landing.floorId}`
+      );
+    }
+    return `${moving ? "箱の移動先" : "箱の現在階"}：${floorMap.displayName}`;
+  };
+
   const createPlayerLocationMission = (
     playerFootPosition: Vector3,
     startedAtSeconds: number
@@ -1178,7 +1232,7 @@ export const createV2MissionRuntime = ({
       "unbrainwashed",
       Object.freeze({ kind: "player" }),
       Object.freeze({ kind: "actor", actorId: follower.id }),
-      "最初の同行者を護衛",
+      "最初の同行者を守り切る",
       formatFollowerLocation(follower),
       PLAYER_FOLLOWER_ESCORT_DEADLINE_SECONDS,
       startedAtSeconds
@@ -1249,8 +1303,8 @@ export const createV2MissionRuntime = ({
       "brainwashed",
       Object.freeze({ kind: "player" }),
       Object.freeze({ kind: "actor", actorId: follower.id }),
-      "最初の同行者を洗脳",
-      "最初の同行者",
+      "最初の同行者を洗脳する",
+      formatNpcLocation(follower, "現在地："),
       PLAYER_FIRST_FOLLOWER_BRAINWASH_DEADLINE_SECONDS,
       startedAtSeconds
     );
@@ -1296,7 +1350,8 @@ export const createV2MissionRuntime = ({
 
   const createPlayerElevatorMission = (
     playerCondition: V2PlayerMissionCondition,
-    startedAtSeconds: number
+    startedAtSeconds: number,
+    elevators: readonly V2MissionElevatorSnapshot[]
   ) => {
     if (hasCompletedPlayerMissionKind("player-elevator-use")) {
       return false;
@@ -1308,7 +1363,7 @@ export const createV2MissionRuntime = ({
       Object.freeze({ kind: "player" }),
       Object.freeze({ kind: "none" }),
       "エレベーターを利用する",
-      "扉が閉じて動き出すまで",
+      formatElevatorLocation(elevators),
       PLAYER_ACTION_MISSION_DEADLINE_SECONDS,
       startedAtSeconds
     );
@@ -1329,7 +1384,7 @@ export const createV2MissionRuntime = ({
       playerCondition,
       Object.freeze({ kind: "player" }),
       Object.freeze({ kind: "location", locationId: location.id }),
-      "2F 放送室で全校放送をする",
+      "全校放送をする",
       formatMissionLocationDisplayName(locations, location),
       PLAYER_ACTION_MISSION_DEADLINE_SECONDS,
       startedAtSeconds
@@ -1433,7 +1488,11 @@ export const createV2MissionRuntime = ({
           Object.freeze({
             weight: 10,
             create: () =>
-              createPlayerElevatorMission("unbrainwashed", scheduledAtSeconds)
+              createPlayerElevatorMission(
+                "unbrainwashed",
+                scheduledAtSeconds,
+                update.elevators
+              )
           })
         );
       }
@@ -1494,7 +1553,11 @@ export const createV2MissionRuntime = ({
           Object.freeze({
             weight: 10,
             create: () =>
-              createPlayerElevatorMission("brainwashed", scheduledAtSeconds)
+              createPlayerElevatorMission(
+                "brainwashed",
+                scheduledAtSeconds,
+                update.elevators
+              )
           })
         );
       }
@@ -1862,6 +1925,8 @@ export const createV2MissionRuntime = ({
         const target = npcById.get(targetActorId(mission.target)!);
         if (!target) {
           finishMission(mission, "failed", "target-unavailable");
+        } else {
+          mission.targetDisplayName = formatNpcLocation(target, "現在地：");
         }
       } else if (mission.kind === "player-first-follower-join") {
         const target = npcById.get(targetActorId(mission.target)!);
@@ -1870,6 +1935,8 @@ export const createV2MissionRuntime = ({
         } else {
           mission.targetDisplayName = formatNpcLocation(target, "現在地：");
         }
+      } else if (mission.kind === "player-elevator-use") {
+        mission.targetDisplayName = formatElevatorLocation(update.elevators);
       } else if (mission.kind === "player-first-follower-escape") {
         const target = npcById.get(targetActorId(mission.target)!);
         if (!target) {
@@ -2326,7 +2393,9 @@ export const createV2MissionRuntime = ({
         }
       } else {
         lastSchoolInstruction = "courtyard";
-        for (const npcId of npcPort.convertHaigureNpcsToGun()) {
+        for (const npcId of npcPort.setCompletedBrainwashedNpcsState(
+          "brainwash-complete-gun"
+        )) {
           cancelNormalNpcMission(npcId);
         }
       }

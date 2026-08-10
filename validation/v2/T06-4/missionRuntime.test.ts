@@ -7,6 +7,7 @@ import type {
 import type { V2CharacterState } from "../../../src/v2/combatTypes";
 import {
   createV2MissionRuntime,
+  type V2MissionElevatorSnapshot,
   type V2MissionNpcSnapshot,
   type V2MissionRuntime,
   type V2MissionUpdate,
@@ -77,12 +78,17 @@ export type FixtureNpcPort = Readonly<{
   assignments: Map<string, StoredNpcMission>;
   conversionNpcIds: string[];
   conversionCalls: { count: number };
+  conversionStates: Array<
+    "brainwash-complete-gun" | "brainwash-complete-no-gun"
+  >;
   assignLocationMission(
     npcId: string,
     assignment: V2NpcLocationMissionAssignment
   ): void;
   cancelLocationMission(npcId: string, missionId: string): boolean;
-  convertHaigureNpcsToGun(): readonly string[];
+  setCompletedBrainwashedNpcsState(
+    state: "brainwash-complete-gun" | "brainwash-complete-no-gun"
+  ): readonly string[];
 }>;
 
 export type MissionFixture = Readonly<{
@@ -174,6 +180,22 @@ export const createFixtureLocations = (
     id: "area-elevator",
     displayName: "エレベーター"
   }) as StageMissionLocation["area"];
+  const elevatorLandings = Object.freeze([
+    Object.freeze({
+      id: "landing-f01",
+      elevatorId: "school-elevator",
+      floorId: "f01",
+      available: true,
+      stop: Object.freeze({ id: "stop-1" })
+    }),
+    Object.freeze({
+      id: "landing-f04",
+      elevatorId: "school-elevator",
+      floorId: "f04",
+      available: true,
+      stop: Object.freeze({ id: "stop-4" })
+    })
+  ]) as unknown as StageLocationAssetRegistry["elevatorLandings"];
   const floorMaps = Object.freeze([
     Object.freeze({ id: "map-f01", floorId: "f01", displayName: "1F", order: 1 }),
     Object.freeze({ id: "map-f02", floorId: "f02", displayName: "2F", order: 2 }),
@@ -192,7 +214,7 @@ export const createFixtureLocations = (
     ]),
     missionLocations,
     stairLandings: Object.freeze([]),
-    elevatorLandings: Object.freeze([]),
+    elevatorLandings,
     broadcastConsole: Object.freeze({ id: "broadcast-console" }),
     getFloorMap: (floorId: StageMissionLocation["floorId"]) =>
       floorMapById.get(floorId) ?? null,
@@ -250,10 +272,14 @@ export const createMissionFixture = (options: Readonly<{
   const assignments = new Map<string, StoredNpcMission>();
   const conversionNpcIds: string[] = [];
   const conversionCalls = { count: 0 };
+  const conversionStates: Array<
+    "brainwash-complete-gun" | "brainwash-complete-no-gun"
+  > = [];
   const port: FixtureNpcPort = Object.freeze({
     assignments,
     conversionNpcIds,
     conversionCalls,
+    conversionStates,
     assignLocationMission: (npcId, assignment) => {
       if (assignments.has(npcId)) {
         throw new Error(`fixture NPC Missionが重複しました: ${npcId}`);
@@ -276,8 +302,9 @@ export const createMissionFixture = (options: Readonly<{
       assignments.delete(npcId);
       return true;
     },
-    convertHaigureNpcsToGun: () => {
+    setCompletedBrainwashedNpcsState: (state) => {
       conversionCalls.count += 1;
+      conversionStates.push(state);
       return Object.freeze([...conversionNpcIds]);
     }
   });
@@ -330,6 +357,7 @@ export const updateFixture = (
     playerX?: number;
     npcs?: readonly FixtureNpc[];
     transitions?: readonly V2NpcStateTransitionEvent[];
+    elevators?: readonly V2MissionElevatorSnapshot[];
   }>
 ) =>
   fixture.runtime.update(
@@ -339,7 +367,17 @@ export const updateFixture = (
       playerState: options.playerState ?? "normal",
       playerFootPosition: new Vector3(options.playerX ?? 0, 0, 0),
       npcs: createNpcSnapshots(options.npcs ?? Object.freeze([]), fixture.port),
-      npcStateTransitions: options.transitions ?? Object.freeze([])
+      npcStateTransitions: options.transitions ?? Object.freeze([]),
+      elevators:
+        options.elevators ??
+        Object.freeze([
+          Object.freeze({
+            id: "school-elevator",
+            carState: "stopped" as const,
+            displayStopId: "stop-4",
+            targetStopId: null
+          })
+        ])
     })
   );
 
@@ -811,7 +849,7 @@ export const runMissionRuntimeTests = async (): Promise<
       }
       assert(
         escort.target.actorId === follower.id &&
-          escort.title === "最初の同行者を護衛" &&
+          escort.title === "最初の同行者を守り切る" &&
           escort.targetDisplayName === "（同行中）" &&
           !escort.title.includes(follower.id) &&
           !escort.targetDisplayName.includes(follower.id),
@@ -1655,6 +1693,52 @@ export const runMissionRuntimeTests = async (): Promise<
       fixture.runtime.dispose();
       return "洗脳済みの最初の同行者を120秒で探し、現在地追跡後の同行成功で完了";
     }),
+    executeTest("最初の同行者洗脳は現在地を追跡", () => {
+      const fixture = createMissionFixture({
+        playerRandom: createSequenceRandom([0.65])
+      });
+      const firstFollower = createFixtureNpc(
+        "npc-first",
+        14,
+        "normal",
+        "none"
+      );
+      const other = createFixtureNpc("npc-other", 12);
+      fixture.runtime.notifyNpcCommandChanged(firstFollower.id, "follow");
+      fixture.runtime.notifyNpcCommandChanged(firstFollower.id, "leave");
+      let frame = updateFixture(fixture, {
+        deltaSeconds: 0,
+        playerState: "brainwash-complete-gun",
+        npcs: Object.freeze([firstFollower, other])
+      });
+      const mission = frame.playerMissions.find(
+        (candidate) =>
+          candidate.kind === "player-first-follower-brainwash" &&
+          candidate.state === "active"
+      );
+      assert(
+        mission?.title === "最初の同行者を洗脳する" &&
+          mission.targetDisplayName === "現在地：3F 美術室" &&
+          !mission.targetDisplayName.includes(firstFollower.id),
+        `最初の同行者洗脳Missionの初期表示が不正です: ${JSON.stringify(mission)}`
+      );
+      firstFollower.footPosition.x = 10;
+      frame = updateFixture(fixture, {
+        deltaSeconds: 0,
+        playerState: "brainwash-complete-gun",
+        npcs: Object.freeze([firstFollower, other])
+      });
+      assert(
+        frame.playerMissions.some(
+          (candidate) =>
+            candidate.id === mission?.id &&
+            candidate.targetDisplayName === "現在地：1F 体育館"
+        ),
+        "最初の同行者洗脳Missionが正本Areaの現在地変化を追跡しません。"
+      );
+      fixture.runtime.dispose();
+      return "最初の同行者を洗脳するMissionでNPC IDを出さず、正本Area現在地を追跡";
+    }),
     executeTest("一度限りの行動Mission・最後の未洗脳者・結果集計", () => {
       const fixture = createMissionFixture({
         playerRandom: createSequenceRandom([0.75, 0.9])
@@ -1666,6 +1750,8 @@ export const runMissionRuntimeTests = async (): Promise<
       );
       assert(
         elevator?.deadlineAtSeconds === 180 &&
+          elevator.title === "エレベーターを利用する" &&
+          elevator.targetDisplayName === "箱の現在階：4F" &&
           frame.playerMissions.some(
             (mission) =>
               mission.kind === "player-last-unbrainwashed" &&
@@ -1674,6 +1760,25 @@ export const runMissionRuntimeTests = async (): Promise<
           ),
         "180秒のエレベーターMissionまたは時間制限なしの最後の未洗脳者Missionがありません。"
       );
+      frame = updateFixture(fixture, {
+        deltaSeconds: 0,
+        elevators: Object.freeze([
+          Object.freeze({
+            id: "school-elevator",
+            carState: "moving",
+            displayStopId: "stop-4",
+            targetStopId: "stop-1"
+          })
+        ])
+      });
+      assert(
+        frame.playerMissions.some(
+          (mission) =>
+            mission.id === elevator?.id &&
+            mission.targetDisplayName === "箱の移動先：1F"
+        ),
+        "エレベーターがPlayerと無関係に動き始めても表示が行先階へ切り替わりません。"
+      );
       fixture.runtime.notifyPlayerElevatorStartedMoving();
       frame = updateFixture(fixture, { deltaSeconds: 4 });
       const broadcast = frame.playerMissions.find(
@@ -1681,7 +1786,9 @@ export const runMissionRuntimeTests = async (): Promise<
           mission.kind === "player-school-broadcast" && mission.state === "active"
       );
       assert(
-        broadcast?.deadlineAtSeconds === 184,
+        broadcast?.deadlineAtSeconds === 184 &&
+          broadcast.title === "全校放送をする" &&
+          broadcast.targetDisplayName === "2F 放送室",
         `全校放送Missionが180秒契約で補充されません: ${JSON.stringify(frame.playerMissions)}`
       );
       fixture.runtime.executeBroadcast(

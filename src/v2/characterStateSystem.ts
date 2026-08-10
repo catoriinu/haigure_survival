@@ -56,7 +56,9 @@ export interface V2CharacterStateSystem {
   prepareExecutionTarget(): void;
   prepareExecutionAudience(): void;
   prepareExecutionShooter(): void;
-  promoteNpcHaigureToGun(): boolean;
+  setNpcBrainwashCompletionState(
+    state: "brainwash-complete-gun" | "brainwash-complete-no-gun"
+  ): boolean;
   drainBrainwashStartedEvents(): readonly V2CharacterBrainwashStartedEvent[];
   selectPlayerCompletion(state: V2PlayerCompletionState): void;
   getSnapshot(): V2CharacterStateSnapshot;
@@ -328,14 +330,16 @@ export const createV2CharacterStateSystem = ({
     prepareExecutionShooter: () => {
       setScriptedExecutionState("brainwash-complete-gun");
     },
-    promoteNpcHaigureToGun: () => {
+    setNpcBrainwashCompletionState: (nextState) => {
       if (kind !== "npc") {
-        throw new Error("プレイヤーへNPC用ハイグレ人間化を適用できません。");
+        throw new Error("プレイヤーへNPC用洗脳完了状態変更を適用できません。");
       }
-      if (state !== "brainwash-complete-haigure") {
+      if (!isV2PlayerCompletionState(state)) {
         return false;
       }
-      setState("brainwash-complete-gun");
+      if (state !== nextState) {
+        setState(nextState);
+      }
       hitPhase = "none";
       hitPhaseElapsedSeconds = 0;
       hitPhaseRemainingSeconds = 0;

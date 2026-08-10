@@ -154,7 +154,8 @@ const createMissionItem = (
     fontSize: "13px",
     fontWeight: "600",
     letterSpacing: "0.025em",
-    lineHeight: "1.35"
+    lineHeight: "1.35",
+    whiteSpace: "nowrap"
   });
   const meta = document.createElement("div");
   meta.dataset.v2MissionHudRole = "mission-meta";
@@ -181,8 +182,7 @@ export const createV2MissionHudController = ({
     position: "fixed",
     top: "18px",
     right: "18px",
-    width: "min(420px, calc(100vw - 36px))",
-    minWidth: "290px",
+    width: "min(350px, calc(100vw - 36px))",
     padding: "10px 12px 12px",
     border: "1px solid rgba(245, 245, 245, 0.48)",
     borderRadius: "6px",

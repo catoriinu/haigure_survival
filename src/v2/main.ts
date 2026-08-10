@@ -1242,13 +1242,15 @@ engine.runRenderLoop(() => {
               survival.update(
                 delta,
                 elapsedSeconds,
-                playerElevatorTraversal
+                playerElevatorTraversal,
+                traversalFrame.runtimeSnapshot.elevators
               )
           )
         : survival.update(
             delta,
             elapsedSeconds,
-            playerElevatorTraversal
+            playerElevatorTraversal,
+            traversalFrame.runtimeSnapshot.elevators
           );
     }
     const executionReplayResult = dispatchV2RuntimeExecutionReplay({

@@ -28,6 +28,7 @@ import {
   type V2PerformanceDiagnostics
 } from "../../../src/v2/performanceDiagnostics";
 import type { V2PlayerController } from "../../../src/v2/playerController";
+import type { V2MissionElevatorSnapshot } from "../../../src/v2/missionRuntime";
 import {
   createV2SurvivalRuntime,
   summarizeV2NpcHudCounts,
@@ -72,6 +73,20 @@ const selectDistanceNavigationRoute = (
   _context: V2NpcNavigationRouteContext,
   candidates: readonly NavigationRouteCandidate[]
 ) => DISTANCE_NAVIGATION_ROUTE_POLICY.selectRoute(candidates);
+
+const createInitialMissionElevatorSnapshots = (
+  stage: StageSpatialContext
+): readonly V2MissionElevatorSnapshot[] =>
+  Object.freeze(
+    stage.elevatorAssets.all.map((elevator) =>
+      Object.freeze({
+        id: elevator.id,
+        carState: "stopped" as const,
+        displayStopId: elevator.initialStop.id,
+        targetStopId: null
+      })
+    )
+  );
 
 const createFakePlayer = (
   playerSpawn: StagePlayerSpawn
@@ -382,7 +397,12 @@ export const runSurvivalRuntimeLifecycleTests = async (
     );
     await firstRuntime.prepareVisualResources();
     performanceDiagnostics.beginFrame();
-    const firstUpdatedFrame = firstRuntime.update(1 / 60, 1 / 60, null);
+    const firstUpdatedFrame = firstRuntime.update(
+      1 / 60,
+      1 / 60,
+      null,
+      createInitialMissionElevatorSnapshots(lifecycleStage)
+    );
     performanceDiagnostics.finishFrame();
     const firstHumanTargets = firstRuntime.getHumanTargets();
     const repeatedHumanTargets = firstRuntime.getHumanTargets();
@@ -606,7 +626,12 @@ export const runSurvivalRuntimeLifecycleTests = async (
     secondCharacterVisuals = secondFixture.characterVisuals;
     const secondFrame = secondRuntime.getFrame();
     await secondRuntime.prepareVisualResources();
-    secondRuntime.update(1 / 60, 1 / 60, null);
+    secondRuntime.update(
+      1 / 60,
+      1 / 60,
+      null,
+      createInitialMissionElevatorSnapshots(lifecycleStage)
+    );
     const secondActive = captureSceneResources(scene);
     const secondDelta = subtractSceneResources(secondActive, baseline);
     secondRuntime.dispose();
@@ -727,17 +752,23 @@ export const runSurvivalRuntimeLifecycleTests = async (
       commandCamera.getViewMatrix(true);
       commandCamera.getProjectionMatrix(true);
 
-      const startupGraceFrame = commandRuntime.update(5, 5, null);
+      const elevatorSnapshots = createInitialMissionElevatorSnapshots(lifecycleStage);
+      const startupGraceFrame = commandRuntime.update(5, 5, null, elevatorSnapshots);
       if (startupGraceFrame.playerState !== "normal") {
         throw new Error(
           `開始5秒の猶予中に洗脳済みNPCがPlayerを攻撃しました: ${startupGraceFrame.playerState}`
         );
       }
-      commandRuntime.update(0, 5, null);
-      commandRuntime.update(2, 7, null);
-      commandRuntime.update(0.25, 7.25, null);
-      commandRuntime.update(3.7, 10.95, null);
-      const completionFrame = commandRuntime.update(0.06, 11.01, null);
+      commandRuntime.update(0, 5, null, elevatorSnapshots);
+      commandRuntime.update(2, 7, null, elevatorSnapshots);
+      commandRuntime.update(0.25, 7.25, null, elevatorSnapshots);
+      commandRuntime.update(3.7, 10.95, null, elevatorSnapshots);
+      const completionFrame = commandRuntime.update(
+        0.06,
+        11.01,
+        null,
+        elevatorSnapshots
+      );
       if (!completionFrame.playerCompletionUnlocked) {
         throw new Error(
           `Runtime NPC指示検証でプレイヤー完了選択が解放されません: ` +
@@ -781,7 +812,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
         commandRuntime.getNpcCommandCandidates().find(
           (entry) => entry.npcId === candidate.npcId
         )?.commandMode === "follow";
-      commandRuntime.update(2.85, 8.86, null);
+      commandRuntime.update(2.85, 8.86, null, elevatorSnapshots);
       followVisibleBeforeTransition =
         commandRuntime.getNpcCommandCandidates().find(
           (entry) => entry.npcId === candidate.npcId
@@ -789,7 +820,12 @@ export const runSurvivalRuntimeLifecycleTests = async (
       fireAccepted = commandRuntime.requestPlayerGunFire(
         new Vector3(1, 0, 0)
       );
-      const transitionFrame = commandRuntime.update(0.1, 8.96, null);
+      const transitionFrame = commandRuntime.update(
+        0.1,
+        8.96,
+        null,
+        elevatorSnapshots
+      );
       phaseAfterTransition = transitionFrame.phase;
       activeBeamCountAfterTransition =
         transitionFrame.activeBeamCount;

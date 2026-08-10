@@ -3582,6 +3582,53 @@ const testAutonomousCombatSuppression = async () => {
   }
 };
 
+const testBroadcastCompletionStateChange = async () => {
+  const fixture = await createNpcCommandFixture(3, 3);
+  try {
+    assert(
+      fixture.system
+        .getFrameView()
+        .targets.map((target) => target.state)
+        .join("|") ===
+        "brainwash-complete-gun|brainwash-complete-no-gun|brainwash-complete-haigure",
+      "放送状態変更前のG／N／H構成が不正です。"
+    );
+    const gunNpcIds = fixture.system.setCompletedBrainwashedNpcsState(
+      "brainwash-complete-gun"
+    );
+    assert(
+      gunNpcIds.join("|") === "npc_0|npc_1|npc_2" &&
+        fixture.system
+          .getFrameView()
+          .targets.every(
+            (target) => target.state === "brainwash-complete-gun"
+          ) &&
+        ["npc_0", "npc_1", "npc_2"].every(
+          (npcId) => fixture.getSpriteCellIndex(npcId) === 3
+        ),
+      "全洗脳完了NPCをGへ変更できません。"
+    );
+    const noGunNpcIds = fixture.system.setCompletedBrainwashedNpcsState(
+      "brainwash-complete-no-gun"
+    );
+    assert(
+      noGunNpcIds.join("|") === "npc_0|npc_1|npc_2" &&
+        fixture.system
+          .getFrameView()
+          .targets.every(
+            (target) => target.state === "brainwash-complete-no-gun"
+          ) &&
+        ["npc_0", "npc_1", "npc_2"].every(
+          (npcId) => fixture.getSpriteCellIndex(npcId) === 4
+        ),
+      "全洗脳完了NPCをNへ変更できません。"
+    );
+    return "放送用に洗脳完了G／N／H全員をGまたはNへ一括変更";
+  } finally {
+    fixture.dispose();
+  }
+};
+
 const testCommandLifecycleCleanup = async () => {
   const fixture = await createNpcCommandFixture(2, 2);
   const player = createPlayerTarget(
@@ -3772,6 +3819,10 @@ export const runNpcCommandTests = async () =>
       executeTest(
         "洗脳済みFollower同期射撃",
         testBrainwashedFollowersAndSynchronizedFire
+      ),
+      executeTest(
+        "放送の洗脳完了NPC一括G／N変更",
+        testBroadcastCompletionStateChange
       ),
       executeTest(
         "実beam completion統合",

@@ -173,8 +173,10 @@ export const runBroadcastRuntimeTests = async (): Promise<
         Object.freeze([])
       );
       assert(
-        fixture.port.conversionCalls.count === 1,
-        "HからGへの即時変換portが1回呼ばれていません。"
+        fixture.port.conversionCalls.count === 1 &&
+          fixture.port.conversionStates.join("|") ===
+            "brainwash-complete-gun",
+        "洗脳完了NPC全員をGへ変更するportが1回呼ばれていません。"
       );
       assert(
         resolveV2MissionAssemblyVenueId(fixture.runtime.getFrame()) ===
@@ -204,7 +206,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
         "逃走放送後の会場指示が中庭へ戻りません。"
       );
       fixture.runtime.dispose();
-      return "H→G変換を1回実行し、体育館／中庭のRegistry IDを厳密解決";
+      return "洗脳完了NPC全員のG変更を1回実行し、体育館／中庭のRegistry IDを厳密解決";
     }),
     executeTest("ハイグレ人間化は変換対象の通常Missionを置換", () => {
       const fixture = createMissionFixture({
@@ -238,7 +240,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
         "H→G対象の通常NPC Missionを明示取消していません。"
       );
       fixture.runtime.dispose();
-      return "変換portの返却NPC IDに対応する通常割当を取消";
+      return "全洗脳完了NPC変更portの返却IDに対応する通常割当を取消";
     }),
     executeTest("Playing離脱後は偽の入力phaseで放送できない", () => {
       const fixture = createMissionFixture();
@@ -561,6 +563,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
       );
       assert(
         !root.hidden &&
+          root.style.width.includes("350px") &&
           root.style.background !== "" &&
           root.style.border !== "" &&
           root.style.borderRadius !== "" &&
@@ -587,6 +590,15 @@ export const runBroadcastRuntimeTests = async (): Promise<
             item.style.boxShadow === ""
         ) && list?.style.gap !== "",
         "Mission itemに個別panel装飾または区切り線が残っています。"
+      );
+      assert(
+        items.every(
+          (item) =>
+            item.querySelector<HTMLElement>(
+              '[data-v2-mission-hud-role="mission-title"]'
+            )?.style.whiteSpace === "nowrap"
+        ),
+        "Mission見出しが縮小パネル内で1行固定になっていません。"
       );
 
       const followerItem = root.querySelector<HTMLElement>(
@@ -618,7 +630,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
         state: "active" as const,
         assignee: Object.freeze({ kind: "player" as const }),
         target: Object.freeze({ kind: "actor" as const, actorId: "npc-secret-escort" }),
-        title: "最初の同行者を護衛",
+        title: "最初の同行者を守り切る",
         targetDisplayName: "（同行中）",
         startedAtSeconds: 20,
         deadlineAtSeconds: 140,
@@ -650,7 +662,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
         frame: createHudFrame(20, Object.freeze([escortMission, brainwashMission]))
       });
       assert(
-        root.textContent?.includes("最初の同行者を護衛") === true &&
+        root.textContent?.includes("最初の同行者を守り切る") === true &&
           root.textContent.includes("（同行中）") &&
           root.textContent.includes("3人洗脳する") &&
           root.textContent.includes("洗脳 1 / 3") &&

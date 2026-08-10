@@ -480,7 +480,9 @@ export interface V2NpcSystem {
     assignment: V2NpcLocationMissionAssignment
   ): void;
   cancelLocationMission(npcId: string, missionId: string): boolean;
-  convertHaigureNpcsToGun(): readonly string[];
+  setCompletedBrainwashedNpcsState(
+    state: "brainwash-complete-gun" | "brainwash-complete-no-gun"
+  ): readonly string[];
   drainStateTransitions(): readonly V2NpcStateTransitionEvent[];
   prepareExecutionRoles(
     assignments: readonly V2NpcExecutionRoleAssignment[]
@@ -2174,15 +2176,21 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     return true;
   }
 
-  convertHaigureNpcsToGun() {
+  setCompletedBrainwashedNpcsState(
+    nextState: "brainwash-complete-gun" | "brainwash-complete-no-gun"
+  ) {
     this.assertActive();
-    const convertedNpcIds: string[] = [];
+    const affectedNpcIds: string[] = [];
     for (const npc of this.npcs) {
       const previousState = npc.stateSnapshot.state;
-      if (!npc.stateSystem.promoteNpcHaigureToGun()) {
+      if (!npc.stateSystem.setNpcBrainwashCompletionState(nextState)) {
         continue;
       }
       npc.stateSnapshot = npc.stateSystem.getSnapshot();
+      affectedNpcIds.push(npc.id);
+      if (previousState === npc.stateSnapshot.state) {
+        continue;
+      }
       npc.command.temporaryGunActive = false;
       this.assignTargetSelectionPersonality(
         npc,
@@ -2205,12 +2213,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           playerNoGunAssisted: false
         })
       );
-      convertedNpcIds.push(npc.id);
     }
-    if (convertedNpcIds.length > 0) {
+    if (affectedNpcIds.length > 0) {
       this.rebuildFrameViewPreservingThreats();
     }
-    return Object.freeze(convertedNpcIds);
+    return Object.freeze(affectedNpcIds);
   }
 
   drainStateTransitions() {

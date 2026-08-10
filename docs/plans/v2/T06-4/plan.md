@@ -103,8 +103,18 @@ Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出し�
 - 制限時間を、最初の同行者護衛は120秒、同行者人数Missionと洗脳人数Missionは必要人数×60秒、Player Location Missionは180秒へ変更する。
 - 洗脳人数Missionの進捗は、対象NPCが`hit-a`へ入った瞬間に確定する。PlayerのG、またはPlayerがNで阻止中の第三者攻撃だけを成功進捗として数える。
 - 洗脳済みPlayer Missionへ「最初の同行者と同行する」を追加する。未洗脳時に最初の同行者が確定済みで、Playerと対象がともに洗脳完了、現在は同行していない場合に候補となる。現在地を正本Area変更時に更新し、120秒以内にその対象を同行させれば完了、期限切れまたは対象利用不能で失敗とする。
-- 未洗脳／洗脳済み共通の通常Mission候補へ「エレベーターを利用する」「2F 放送室で全校放送をする」を追加する。各180秒とし、active中にエレベーターの扉が完全に閉じて動き始めた瞬間、または放送卓でF／E操作が成功した瞬間に完了する。完了後は同セッションで再出現させず、Mission出現前の利用実績では候補を消費せず、失敗後は再出現可能とする。
+- 未洗脳／洗脳済み共通の通常Mission候補へ「エレベーターを利用する」「全校放送をする」を追加する。各180秒とし、active中にエレベーターの扉が完全に閉じて動き始めた瞬間、または放送卓でF／E操作が成功した瞬間に完了する。完了後は同セッションで再出現させず、Mission出現前の利用実績では候補を消費せず、失敗後は再出現可能とする。
 - ゲームオーバー画面の右上へ、未洗脳時／洗脳済み時を分けてPlayer Missionの完了数と失敗数を表示する。取消とNPC Missionは集計しない。
+
+### 2026-08-10 第5次受入追補
+
+- 「最初の同行者を護衛」の表示を「最初の同行者を守り切る」へ変更する。
+- 「最初の同行者を洗脳」の表示を「最初の同行者を洗脳する」へ変更し、説明にはNPC IDではなく、最初の同行者の正本Areaによる現在地を表示して移動に追従する。
+- 「エレベーターを利用する」の説明には、正本のエレベーターstopとfloor mapから箱がある階を表示する。Playerの乗車有無を問わず、箱が動き始めた時点で表示を移動先の階へ切り替える。座標、名称、直前位置から階を推測しない。
+- 「2F 放送室で全校放送をする」の表示は、説明に`2F 放送室`が出るため「全校放送をする」へ短縮する。
+- ハイグレ人間化放送では、洗脳完了済みのG／N／H NPC全員をGへ変更する。将来の「銃なしに触れたら洗脳」設定ON時は全員Nへ変更できる専用NPC状態変更契約を用意し、設定snapshotとの接続はT06-6Aへ記録する。洗脳進行中、公開処刑編成中などの固定対象は変更しない。
+- MISSIONパネルの横幅を縮め、現行候補で最長のMission見出しを1行表示できる幅へ固定する。Mission見出しは折り返さず、現在地などの説明文は必要に応じて改行する。
+- 屋上入口で複数NPCが停止する不具合と、屋上箱の側面へPlayerが食い込む不具合は非致命として切り分ける。学校形状、Collider、NavMeshの確認と修正はB06へ記録し、B06後も複数NPCの集中時だけ停止する場合のNPC Runtime修正はT06-4Pへ記録する。今回のMission追補差分へ学校バイナリやNPC経路制御を混在させない。
 
 ## ステップ
 
@@ -142,6 +152,12 @@ Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出し�
 - [x] ゲームオーバーの未洗脳時／洗脳済みMission結果を右上へ表示する。
 - [x] 第4次追補fixture、typecheck／build、実ブラウザ／Electron受入を完了する。
 - [x] 配布監査と実測結果を同期し、第4次追補差分をローカルcommitする。
+- [x] 第5次受入追補の表示契約と、屋上不具合のB06／T06-4P所有境界を計画へ固定する。
+- [x] 最初の同行者の護衛／洗脳表示と、洗脳対象の正本Area現在地更新を実装する。
+- [x] エレベーター箱の正本stop／floor表示と、移動開始時の行先階切替を実装する。
+- [x] 全校放送Missionの短縮表示、洗脳完了NPC一括G／N契約、MISSIONパネル幅縮小を実装する。
+- [x] 第5次追補fixture、typecheck／build、実ブラウザまたはElectron受入を完了する。
+- [x] 配布監査と実測結果を同期し、第5次追補差分をローカルcommitする。
 
 ## 結果
 
@@ -171,8 +187,16 @@ Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出し�
 - `typecheck:t05`、`typecheck:t06-4`、`typecheck:v2`、`build:t05`、`build:t06`、`build:t06-3`、`build:t06-4`、通常`npm run build`をPASSした。括弧を含むTypeScript／Electron構文は各typecheck／buildで検査した。
 - 第4次受入追補では、同行人数／洗脳人数Missionへ、残存候補からPlayer Mission乱数で選ぶIDなしの現在地表示を追加した。正本Areaが変われば表示を更新し、同行成立、Playerによる`hit-a`進捗、第三者による候補喪失では残存候補へ切り替える。同行人数／洗脳人数は必要人数×60秒、Player Locationは180秒、最初の同行者護衛は120秒へ更新した。
 - 最後の通常Missionの完了／失敗結果を4秒維持した後、安定したPlaying状態なら保証抽選で次の通常Missionを補充する。未洗脳NPCが残っていない場合は、時間制限なしの状況Mission「あなたは最後の未洗脳者。希望を背負って生き残れ」を1回だけ表示し、Playerの洗脳開始で失敗させる。
-- 洗脳済みPlayerへ120秒の「最初の同行者と同行する」を追加し、最初の同行者の正本Area現在地を更新して、再同行成功で完了させる。未洗脳／洗脳済み共通へ各180秒の「エレベーターを利用する」「2F 放送室で全校放送をする」を追加し、エレベーターの閉扉後の移動開始、または放送F／E成功で完了する。完了済みの各行動Missionは同セッションで再抽選しない。
+- 洗脳済みPlayerへ120秒の「最初の同行者と同行する」を追加し、最初の同行者の正本Area現在地を更新して、再同行成功で完了させる。未洗脳／洗脳済み共通へ各180秒の「エレベーターを利用する」「全校放送をする」を追加し、エレベーターの閉扉後の移動開始、または放送F／E成功で完了する。完了済みの各行動Missionは同セッションで再抽選しない。
 - ゲームオーバー時の右上Missionパネルを`MISSION RESULT`へ切り替え、未洗脳時／洗脳済み時を分けてPlayer Missionの完了数と失敗数を表示する。取消とNPC Missionは集計しない。
 - 第4次追補の実ブラウザfixtureは35/35でPASSし、候補現在地更新・第三者洗脳時の交代、`hit-a`進捗、120秒の再同行、行動Mission、最後の未洗脳者、結果集計を決定的に確認した。Mission専用Electron受入はnormal／haigureともPASSし、Pointer Lock、Mission HUD／ミニマップ、3種類の放送、会場固定、BGM／VOICE読込、console／renderer／load／process診断0件を確認した。
 - `typecheck:t05`、`typecheck:t06-4`、`typecheck:v2`、`build:t05`、`build:t06-4`、通常`npm run build`、`node --check validation/v2/T06/electronAcceptance.cjs`、`git diff --check`をPASSした。変更9ファイルはUTF-8 BOMなし、ローカル絶対パスなしで、Blender、GLB、NavMesh、生成器、カタログハッシュの差分は0件だった。
 - 第4次受入追補の差分を`codex/v2-missions`へローカルcommitした。今回の追加push、Draft PR更新、レビュー、merge、I3／T06-5／T07は実施していない。
+- 第5次受入追補では、表示を「最初の同行者を守り切る」「最初の同行者を洗脳する」へ変更した。洗脳Missionは最初の同行者のNPC IDを表示せず、正本Areaが変わった時点で`現在地：3F 美術室`のように更新する。
+- 「エレベーターを利用する」は、停止中は正本`displayStopId`から`箱の現在階：4F`、移動開始後は正本`targetStopId`から`箱の移動先：1F`のように表示する。Playerの乗車とは独立して毎frame更新し、stopに対応する乗場またはfloor mapが欠落した場合は明示エラーとする。「全校放送をする」は説明の`2F 放送室`を維持して見出しだけ短縮した。
+- ハイグレ人間化放送は、洗脳完了G／N／H NPC全員をGへ変更するようにした。NPC状態変更APIはG／Nの両方を厳格に受け取り、公開処刑編成中と洗脳進行中は対象外とする。将来の`brainwashOnNoGunTouch` ON時にNを選ぶ設定snapshot接続はT06-6A計画へ追記した。
+- MISSIONパネル幅を420pxから350pxへ縮小し、現行候補で最長の見出しを含むMission見出しを1行固定にした。実ゲームでcomputed width 350px、見出し`white-space: nowrap`、`clientWidth === scrollWidth`を確認した。
+- 屋上入口の複数NPC停止と屋上箱側面の食い込みは、学校形状／Collider／NavMeshを先に監査するB06へ記録した。資産修正後も複数NPC集中時だけ残る場合のNPC Runtime調査はT06-4Pへ条件付きで記録し、今回のMission差分では学校バイナリとNPC経路制御を変更していない。
+- 第5次追補の実ブラウザfixtureはT06-4 36/36、T05-3 27/27でPASSし、console warning／errorは0件だった。`typecheck:t05`、`typecheck:t06-4`、`typecheck:v2`、`build:t05`、`build:t06-4`、通常`npm run build`をPASSした。Mission専用Electron受入はnormal／haigureともPASSし、haigure放送後に洗脳完了NPC 10体がすべてG、BGM／VOICE読込、診断0件を確認した。
+- `git diff --check`、厳格UTF-8／BOM、保護対象差分を監査し、Blender、GLB、NavMesh、生成器、カタログhashの変更が0件であることを確認した。
+- 第5次受入追補の差分を`codex/v2-missions`へローカルcommitした。今回の追加push、Draft PR更新、レビュー、merge、I3／T06-5／T07は実施していない。
