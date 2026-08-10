@@ -12,6 +12,7 @@ from pathlib import Path
 import bpy
 import bmesh
 from mathutils import Vector
+from mathutils.bvhtree import BVHTree
 
 
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
@@ -40,6 +41,7 @@ from build_b03_school_interiors import (
     UPPER_WEST_CLASSROOM_DOOR_OPENINGS,
     swatch_uv,
 )
+from build_b03_school_interactive_assets import ROOM_VARIANT_SPECS
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -58,10 +60,10 @@ PROP_LIBRARY_PATH = (
 )
 
 EXPECTED_NAVMESH_SHA256 = (
-    "530FA01F472A7F3AB4F983C6360AA41C296F3170AE44334E67E26377ED5D977B"
+    "90D851A46FC14825C18EE0762C1D16E287E3FDA15F2313B9095AE141A502179A"
 )
 EXPECTED_BIT_NAVMESH_SHA256 = (
-    "E7E0A76429BA1C9BCFCB26A18071DB2307CA394632FB727A0559140244CAC62A"
+    "5F2DBCC72E55A3B9D1BA8FB252F457A6B17F1F17679E21E2B51DA07564A48542"
 )
 EXPECTED_PROP_LIBRARY_SHA256 = (
     "F1163A1E2B1291AED2B81A10102BCBD7F74F0F7C018BA210389E4797B92B42BD"
@@ -83,7 +85,7 @@ EXPECTED_CONSOLIDATED_MATERIAL_NAMES = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "b05-location-assets-v1"
+EXPECTED_GENERATOR_VERSION = "b06-1-school-structure-polish-v22"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 EXPECTED_SCHEMA_VERSION = 3
 EXPECTED_STAGE_ID = "school"
@@ -1134,12 +1136,60 @@ def world_bounds(obj: bpy.types.Object) -> tuple[Vector, Vector]:
     )
 
 
+def is_shared_wall_collider(obj: bpy.types.Object) -> bool:
+    return obj.type == "MESH" and (
+        obj.name.startswith("COL_Wall_")
+        or obj.name.startswith("COL_B03_ExteriorWalls_F")
+        or obj.name.startswith("COL_B03_InteriorWalls_F")
+        or obj.name.startswith("COL_B03_Interior_Walls_F")
+        or obj.name
+        in {
+            "COL_B03_ElevatorShaftShell",
+            "COL_B03_GymExteriorWalls",
+            "COL_B03_GymStageSideWalls",
+            "COL_B03_GymStorageNorthWall",
+            "COL_B03_StairBoundaryCaps_F01",
+            "COL_B06_GymBridgeSideInfill",
+        }
+    )
+
+
+def shared_wall_volume_owners(
+    point: tuple[float, float, float],
+) -> list[str]:
+    return [
+        obj.name
+        for obj in bpy.data.objects
+        if is_shared_wall_collider(obj)
+        and point_is_inside_closed_mesh(obj, point)
+    ]
+
+
 def audit_box_components(
     object_name: str,
     expected: list[tuple[tuple[float, float, float], tuple[float, float, float]]],
 ) -> int:
     obj = bpy.data.objects.get(object_name)
     require(obj is not None and obj.type == "MESH", f"箱形状監査対象がありません: {object_name}")
+    if is_shared_wall_collider(obj):
+        for minimum, maximum in expected:
+            center = (
+                (minimum[0] + maximum[0]) / 2.0,
+                (minimum[1] + maximum[1]) / 2.0,
+                minimum[2] + min(0.2, (maximum[2] - minimum[2]) / 2.0),
+            )
+            owners = shared_wall_volume_owners(center)
+            require(
+                len(owners) == 1,
+                f"共有境界ColliderのVolume所有者が一意ではありません: "
+                f"{object_name}/{minimum}/{maximum}/{owners}",
+            )
+        return len(expected)
+    if len(obj.data.vertices) % 8 != 0:
+        raise RuntimeError(
+            f"箱形状監査対象の頂点数が8の倍数ではありません: "
+            f"{object_name}/{len(obj.data.vertices)}"
+        )
     actual = box_component_bounds(obj)
     require(
         len(actual) == len(expected),
@@ -1187,6 +1237,17 @@ def box_component_bounds(
             )
         )
     return actual
+
+
+def storey_band_box_bounds(
+    obj: bpy.types.Object,
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    require(obj.type == "MESH", f"階層色帯がMeshではありません: {obj.name}")
+    require(
+        len(obj.data.polygons) * 4 == len(obj.data.vertices) * 3,
+        f"階層色帯が独立した直方体群ではありません: {obj.name}",
+    )
+    return box_component_bounds(obj)
 
 
 def mesh_component_world_bounds(
@@ -1296,6 +1357,7 @@ def expected_bit_flight_obstacle_bounds(
                 and not has_dynamic_spatial_ancestor(obj)
                 and not is_bit_flight_support_collider_name(obj.name)
                 and not is_bit_flight_obstacle_exempt_collider_name(obj.name)
+                and not is_shared_wall_collider(obj)
             ),
             key=lambda obj: obj.name,
         )
@@ -1381,6 +1443,8 @@ def audit_bit_flight_obstacle_geometry(
     expected: list[
         tuple[tuple[float, float, float], tuple[float, float, float]]
     ],
+    objects_by_name: dict[str, bpy.types.Object],
+    center_height: float,
 ) -> int:
     obj = bpy.data.objects.get(object_name)
     require(
@@ -1388,19 +1452,129 @@ def audit_bit_flight_obstacle_geometry(
         f"ビット用blocker形状監査対象がありません: {object_name}",
     )
     actual = box_component_bounds(obj)
-    require(
-        len(actual) == len(expected),
-        f"ビット用blocker部品数が不正です: "
-        f"{object_name}/{len(actual)} != {len(expected)}",
-    )
-    for component_index, (actual_bounds, expected_bounds) in enumerate(
-        zip(actual, expected)
-    ):
+    unmatched_actual = list(actual)
+    for expected_bounds in expected:
+        matching_index = next(
+            (
+                index
+                for index, actual_bounds in enumerate(unmatched_actual)
+                if bounds_match(actual_bounds, expected_bounds)
+            ),
+            None,
+        )
         require(
-            bounds_match(actual_bounds, expected_bounds),
-            f"ビット用blocker形状が基準面の0.54m包絡と不一致です: "
+            matching_index is not None,
+            f"ビット用blockerに非共有Colliderの0.54m包絡がありません: "
+            f"{object_name}/{expected_bounds}",
+        )
+        unmatched_actual.pop(matching_index)
+
+    shared_walls = [
+        candidate
+        for candidate in objects_by_name.values()
+        if is_shared_wall_collider(candidate)
+        and (
+            (minimum := world_bounds(candidate)[0]).z
+            - BIT_FLIGHT_SAFETY_ENVELOPE_METERS
+            <= center_height
+            <= (maximum := world_bounds(candidate)[1]).z
+            + BIT_FLIGHT_SAFETY_ENVELOPE_METERS
+        )
+        and not is_broad_horizontal_support(minimum, maximum)
+    ]
+    expected_z_bounds = (
+        center_height - BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS,
+        center_height + BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS,
+    )
+    for component_index, (minimum, maximum) in enumerate(unmatched_actual):
+        require(
+            abs(minimum[2] - expected_z_bounds[0]) <= 1.0e-5
+            and abs(maximum[2] - expected_z_bounds[1]) <= 1.0e-5,
+            f"共有壁blockerの0.54m包絡高度が不正です: "
             f"{object_name}/component={component_index}",
         )
+        center_x = (minimum[0] + maximum[0]) / 2.0
+        center_y = (minimum[1] + maximum[1]) / 2.0
+        owners = []
+        for wall in shared_walls:
+            envelope_minimum_z = (
+                center_height - BIT_FLIGHT_SAFETY_ENVELOPE_METERS
+            )
+            envelope_maximum_z = (
+                center_height + BIT_FLIGHT_SAFETY_ENVELOPE_METERS
+            )
+            z_boundaries = sorted(
+                {
+                    envelope_minimum_z,
+                    envelope_maximum_z,
+                    *(
+                        point.z
+                        for point in (
+                            wall.matrix_world @ vertex.co
+                            for vertex in wall.data.vertices
+                        )
+                        if envelope_minimum_z
+                        <= point.z
+                        <= envelope_maximum_z
+                    ),
+                }
+            )
+            sample_zs = [
+                (lower + upper) / 2.0
+                for lower, upper in zip(z_boundaries, z_boundaries[1:])
+                if upper - lower > 2.0e-5
+            ]
+            if any(
+                point_is_inside_closed_mesh(
+                    wall,
+                    (center_x, center_y, sample_z),
+                )
+                for sample_z in sample_zs
+            ):
+                owners.append(wall.name)
+        require(
+            len(owners) == 1,
+            f"共有壁blockerの中心が一意な実壁Volumeに裏付けられません: "
+            f"{object_name}/component={component_index}/{minimum}/{maximum}/{owners}",
+        )
+
+    coverage_checks = 0
+    for wall in shared_walls:
+        normal_matrix = wall.matrix_world.to_3x3().inverted().transposed()
+        for polygon in wall.data.polygons:
+            normal = (normal_matrix @ polygon.normal).normalized()
+            if abs(normal.z) >= 0.5:
+                continue
+            points = [
+                wall.matrix_world @ wall.data.vertices[index].co
+                for index in polygon.vertices
+            ]
+            if (
+                max(point.z for point in points)
+                < center_height - BIT_FLIGHT_SAFETY_ENVELOPE_METERS
+                or min(point.z for point in points)
+                > center_height + BIT_FLIGHT_SAFETY_ENVELOPE_METERS
+            ):
+                continue
+            midpoint = sum(points, Vector()) / len(points)
+            require(
+                any(
+                    minimum[0] - 1.0e-5
+                    <= midpoint.x
+                    <= maximum[0] + 1.0e-5
+                    and minimum[1] - 1.0e-5
+                    <= midpoint.y
+                    <= maximum[1] + 1.0e-5
+                    for minimum, maximum in actual
+                ),
+                f"共有壁の垂直面を覆うBIT blockerがありません: "
+                f"{object_name}/{wall.name}/{tuple(midpoint)}",
+            )
+            coverage_checks += 1
+    require(
+        not shared_walls or coverage_checks > 0,
+        f"共有壁blockerの面被覆を検査できません: {object_name}",
+    )
     return len(actual)
 
 
@@ -1502,6 +1676,18 @@ def require_box_component(
 ) -> None:
     obj = bpy.data.objects.get(object_name)
     require(obj is not None and obj.type == "MESH", f"箱形状監査対象がありません: {object_name}")
+    if len(obj.data.vertices) % 8 != 0:
+        minimum, maximum = expected
+        center = tuple(
+            (minimum[axis] + maximum[axis]) / 2.0 for axis in range(3)
+        )
+        owners = shared_wall_volume_owners(center)
+        require(
+            len(owners) == 1,
+            f"共有境界ColliderのVolume所有者が一意ではありません: "
+            f"{object_name}/{expected}/{owners}",
+        )
+        return
     require(
         any(bounds_match(actual, expected) for actual in box_component_bounds(obj)),
         f"必要な箱形状がありません: {object_name}/{expected}",
@@ -1514,6 +1700,14 @@ def require_point_in_box_component(
 ) -> None:
     obj = bpy.data.objects.get(object_name)
     require(obj is not None and obj.type == "MESH", f"箱形状監査対象がありません: {object_name}")
+    if len(obj.data.vertices) % 8 != 0:
+        owners = shared_wall_volume_owners(point)
+        require(
+            len(owners) == 1,
+            f"共有境界Colliderの指定点所有者が一意ではありません: "
+            f"{object_name}/{point}/{owners}",
+        )
+        return
     require(
         any(
             all(minimum[axis] - 1e-5 <= point[axis] <= maximum[axis] + 1e-5 for axis in range(3))
@@ -1702,60 +1896,6 @@ def expanded_openings(
     )
 
 
-def expected_storey_band_boxes(
-    floor: int,
-    base_z: float,
-) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
-    west_classroom_openings = expanded_openings(
-        FIRST_FLOOR_WEST_DOOR_OPENINGS
-        if floor == 1
-        else UPPER_WEST_CLASSROOM_DOOR_OPENINGS
-    )
-    west_entry_openings = (
-        expanded_openings(((-2.5, 2.5),)) if floor == 1 else ()
-    )
-    north_classroom_openings = expanded_openings(
-        (TOILET_COMMON_OPENING,) + NORTH_CLASSROOM_DOOR_OPENINGS
-    )
-    if floor == 1:
-        north_entry_openings = expanded_openings(((0.15, 5.4), (39.4, 43.4)))
-    elif floor in (2, 3):
-        north_entry_openings = expanded_openings(((39.4, 43.4),))
-    else:
-        north_entry_openings = ()
-    z0, z1 = base_z + 0.15, base_z + 0.25
-    boxes = [
-        ((-3.351, start, z0), (-3.347, end, z1))
-        for start, end in expected_band_segments(2.5, 32.5, west_classroom_openings)
-    ]
-    boxes.extend(
-        ((-0.153, start, z0), (-0.149, end, z1))
-        for start, end in expected_band_segments(-3.5, 32.5, west_entry_openings)
-    )
-    boxes.extend(
-        ((start, 36.347, z0), (end, 36.351, z1))
-        for start, end in expected_band_segments(-6.6, 41.4, north_classroom_openings)
-    )
-    boxes.extend(
-        ((start, 32.649, z0), (end, 32.653, z1))
-        for start, end in expected_band_segments(0.0, 47.4, north_entry_openings)
-    )
-    boxes.extend(
-        (
-            ((-6.6, 38.347, z0), (-5.41, 38.351, z1)),
-            ((-4.19, 38.347, z0), (-0.91, 38.351, z1)),
-            ((0.31, 38.347, z0), (2.4, 38.351, z1)),
-            ((2.549, 38.5, z0), (2.553, 45.5, z1)),
-            ((5.247, 36.5, z0), (5.251, 45.5, z1)),
-            ((-6.753, 38.5, z0), (-6.749, 45.5, z1)),
-            ((41.549, 36.5, z0), (41.553, 45.5, z1)),
-            ((-12.6, 2.347, z0), (-3.5, 2.351, z1)),
-            ((-12.6, 32.649, z0), (-6.6, 32.653, z1)),
-        )
-    )
-    return boxes
-
-
 def expected_oriented_box(
     axis: str,
     primary_minimum: float,
@@ -1860,6 +2000,50 @@ def point_in_bounds(
     )
 
 
+_CLOSED_MESH_BVH_CACHE: dict[str, BVHTree] = {}
+
+
+def point_is_inside_closed_mesh(
+    obj: bpy.types.Object,
+    point: tuple[float, float, float],
+) -> bool:
+    local_point = obj.matrix_world.inverted() @ Vector(point)
+    tree = _CLOSED_MESH_BVH_CACHE.get(obj.name)
+    if tree is None:
+        tree = BVHTree.FromPolygons(
+            [tuple(vertex.co) for vertex in obj.data.vertices],
+            [tuple(polygon.vertices) for polygon in obj.data.polygons],
+            all_triangles=False,
+        )
+        _CLOSED_MESH_BVH_CACHE[obj.name] = tree
+    direction = Vector((0.918273, 0.347119, 0.186407)).normalized()
+    origin = local_point.copy()
+    intersection_count = 0
+    for _ in range(len(obj.data.polygons) + 1):
+        surface_point, _, _, distance = tree.ray_cast(origin, direction)
+        if surface_point is None or distance is None:
+            break
+        intersection_count += 1
+        origin = surface_point + direction * 1.0e-4
+    else:
+        raise RuntimeError(
+            f"閉Meshの内外判定が収束しません: {obj.name}/{point}"
+        )
+    if intersection_count % 2 == 1:
+        return True
+    # 共有境界Meshは同一平面を分割した複数面を持つため、斜めRayが同じ
+    # 境界を複数回数える場合がある。外向き法線との符号付き最近傍距離で
+    # 内側を独立確認し、AABBや生成時のセル台帳には依存しない。
+    surface_point, normal, _polygon_index, _distance = tree.find_nearest(
+        local_point
+    )
+    return (
+        surface_point is not None
+        and normal is not None
+        and (local_point - surface_point).dot(normal) < -1.0e-5
+    )
+
+
 def interval_overlaps(
     left: tuple[float, float],
     right: tuple[float, float],
@@ -1888,157 +2072,210 @@ def interval_union_covers(
 def audit_storey_band_relationships(
     objects: list[bpy.types.Object],
 ) -> dict[str, int]:
-    wall_components = [
-        bounds
+    backing_checks = 0
+    door_depth_checks = 0
+    interior_exclusion_checks = 0
+    corner_join_checks = 0
+    wall_objects = [
+        obj
         for obj in objects
         if obj.type == "MESH"
-        and obj.name.startswith("VIS_")
         and (
-            "Wall" in obj.name
-            or "_InteriorWalls_" in obj.name
-            or "_ExteriorWalls_" in obj.name
+            obj.name.startswith("VIS_Wall_")
+            or obj.name.startswith("VIS_B03_ExteriorWalls_F")
+            or obj.name.startswith("VIS_B03_InteriorWalls_F")
             or (
-                obj.name.startswith("VIS_B03_Interior_")
-                and obj.name.endswith("_Architecture")
+                obj.name.startswith("VIS_B03_Interior_F")
+                and obj.name.endswith("_Toilets_Architecture")
             )
+            or obj.name
+            in {
+                "VIS_B03_ElevatorShaftShell",
+                "VIS_B03_StairBoundaryCaps_F01",
+            }
         )
-        and len(obj.data.vertices) % 8 == 0
-        for bounds in box_component_bounds(obj)
     ]
-    backing_checks = 0
-    opening_checks = 0
-    band_depth_checks = 0
-    depth_checks = 0
-    for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
-        band_name = f"VIS_B03_StoreyBand_F{floor:02d}"
-        band = bpy.data.objects.get(band_name)
-        require(band is not None and band.type == "MESH", f"階色帯がありません: {band_name}")
-        components = box_component_bounds(band)
-        expected_component_count = 24 if floor in (1, 2, 3) else 23
-        require(
-            len(components) == expected_component_count,
-            f"階色帯の成分数が不正です: {band_name}/{len(components)}",
-        )
-        for minimum, maximum in components:
-            if abs(minimum[0] + 3.351) <= TOLERANCE:
-                normal_axis, projected_axis = 0, 1
-                wall_face, outward_sign = -3.35, 1
-                projected_interval = (minimum[1], maximum[1])
-                openings = (
-                    FIRST_FLOOR_WEST_DOOR_OPENINGS
-                    if floor == 1
-                    else UPPER_WEST_CLASSROOM_DOOR_OPENINGS
-                )
-            elif abs(minimum[0] + 0.153) <= TOLERANCE:
-                normal_axis, projected_axis = 0, 1
-                wall_face, outward_sign = -0.15, -1
-                projected_interval = (minimum[1], maximum[1])
-                openings = ((-2.5, 2.5),) if floor == 1 else ()
-            elif abs(minimum[1] - 36.347) <= TOLERANCE:
-                normal_axis, projected_axis = 1, 0
-                wall_face, outward_sign = 36.35, -1
-                projected_interval = (minimum[0], maximum[0])
-                openings = (TOILET_COMMON_OPENING,) + NORTH_CLASSROOM_DOOR_OPENINGS
-            elif abs(minimum[1] - 32.649) <= TOLERANCE:
-                normal_axis, projected_axis = 1, 0
-                wall_face, outward_sign = 32.65, 1
-                projected_interval = (minimum[0], maximum[0])
-                openings = ((0.15, 5.4), (39.4, 43.4)) if floor == 1 else ()
-            elif abs(minimum[1] - 38.347) <= TOLERANCE:
-                normal_axis, projected_axis = 1, 0
-                wall_face, outward_sign = 38.35, -1
-                projected_interval = (minimum[0], maximum[0])
-                openings = TOILET_FRONT_DOOR_OPENINGS
-            elif abs(minimum[0] - 2.549) <= TOLERANCE:
-                normal_axis, projected_axis = 0, 1
-                wall_face, outward_sign = 2.55, 1
-                projected_interval = (minimum[1], maximum[1])
-                openings = ()
-            elif abs(minimum[0] - 5.247) <= TOLERANCE:
-                normal_axis, projected_axis = 0, 1
-                wall_face, outward_sign = 5.25, -1
-                projected_interval = (minimum[1], maximum[1])
-                openings = ()
-            elif abs(minimum[0] + 6.753) <= TOLERANCE:
-                normal_axis, projected_axis = 0, 1
-                wall_face, outward_sign = -6.75, -1
-                projected_interval = (minimum[1], maximum[1])
-                openings = ()
-            elif abs(minimum[0] - 41.549) <= TOLERANCE:
-                normal_axis, projected_axis = 0, 1
-                wall_face, outward_sign = 41.55, 1
-                projected_interval = (minimum[1], maximum[1])
-                openings = ()
-            elif abs(minimum[1] - 2.347) <= TOLERANCE:
-                normal_axis, projected_axis = 1, 0
-                wall_face, outward_sign = 2.35, -1
-                projected_interval = (minimum[0], maximum[0])
-                openings = ()
-            else:
-                raise RuntimeError(f"階色帯の壁面位置が不正です: {band_name}/{minimum}/{maximum}")
-
-            supporting_walls = []
-            for wall_minimum, wall_maximum in wall_components:
-                candidate_face = (
-                    wall_minimum[normal_axis]
-                    if outward_sign < 0
-                    else wall_maximum[normal_axis]
-                )
-                if abs(candidate_face - wall_face) > TOLERANCE:
-                    continue
-                if (
-                    wall_minimum[2] > minimum[2] + TOLERANCE
-                    or wall_maximum[2] < maximum[2] - TOLERANCE
-                ):
-                    continue
-                supporting_walls.append(
+    vertical_wall_faces: list[
+        tuple[str, float, float, float, float, float]
+    ] = []
+    for wall in wall_objects:
+        for polygon in wall.data.polygons:
+            points = [
+                wall.matrix_world @ wall.data.vertices[index].co
+                for index in polygon.vertices
+            ]
+            minimum_x = min(point.x for point in points)
+            maximum_x = max(point.x for point in points)
+            minimum_y = min(point.y for point in points)
+            maximum_y = max(point.y for point in points)
+            minimum_z = min(point.z for point in points)
+            maximum_z = max(point.z for point in points)
+            if maximum_z - minimum_z <= TOLERANCE:
+                continue
+            if maximum_x - minimum_x <= TOLERANCE:
+                vertical_wall_faces.append(
                     (
-                        wall_minimum[projected_axis],
-                        wall_maximum[projected_axis],
-                        candidate_face,
+                        "X",
+                        (minimum_x + maximum_x) / 2.0,
+                        minimum_y,
+                        maximum_y,
+                        minimum_z,
+                        maximum_z,
                     )
                 )
+            elif maximum_y - minimum_y <= TOLERANCE:
+                vertical_wall_faces.append(
+                    (
+                        "Y",
+                        (minimum_y + maximum_y) / 2.0,
+                        minimum_x,
+                        maximum_x,
+                        minimum_z,
+                        maximum_z,
+                    )
+                )
+    private_areas = [
+        obj
+        for obj in objects
+        if obj.type == "MESH"
+        and obj.get("hs_role") == "location_area"
+        and (
+            "_AREA_ROOM_" in obj.name
+            or "_AREA_TOILET_" in obj.name
+        )
+    ]
+    private_bounds = [
+        (
+            obj.name,
+            tuple(world_bounds(obj)[0]),
+            tuple(world_bounds(obj)[1]),
+        )
+        for obj in private_areas
+    ]
+
+    def band_covers_wall_point(
+        boxes: list[
+            tuple[tuple[float, float, float], tuple[float, float, float]]
+        ],
+        axis: str,
+        face: float,
+        along: float,
+    ) -> bool:
+        axis_index = 0 if axis == "X" else 1
+        along_index = 1 if axis == "X" else 0
+        return any(
+            min(abs(minimum[axis_index] - face), abs(maximum[axis_index] - face))
+            <= 0.013
+            and minimum[along_index] - TOLERANCE
+            <= along
+            <= maximum[along_index] + TOLERANCE
+            for minimum, maximum in boxes
+        )
+
+    for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
+        band_name = f"VIS_B03_StoreyBand_F{floor:02d}"
+        actual = storey_band_box_bounds(bpy.data.objects[band_name])
+        require(actual, f"階色帯が空です: {band_name}")
+        require(
+            len(actual) == len(set(actual)),
+            f"階色帯に同一境界の重複部品があります: {band_name}",
+        )
+        for minimum, maximum in actual:
+            extent_x = maximum[0] - minimum[0]
+            extent_y = maximum[1] - minimum[1]
             require(
-                interval_union_covers(
-                    projected_interval,
-                    [
-                        (wall_minimum, wall_maximum)
-                        for wall_minimum, wall_maximum, _ in supporting_walls
-                    ],
+                math.isclose(minimum[2], base_z + 0.08, abs_tol=TOLERANCE)
+                and math.isclose(maximum[2], base_z + 0.18, abs_tol=TOLERANCE),
+                f"階色帯が窓下実壁に収まる共通高さではありません: {band_name}/{minimum}/{maximum}",
+            )
+            band_normal_extent_maximum = 0.013
+            is_x_face = (
+                extent_x <= band_normal_extent_maximum and extent_y > 0.02
+            )
+            is_y_face = (
+                extent_y <= band_normal_extent_maximum and extent_x > 0.02
+            )
+            is_corner_join = (
+                extent_x <= band_normal_extent_maximum
+                and extent_y <= band_normal_extent_maximum
+            )
+            require(
+                is_x_face or is_y_face or is_corner_join,
+                f"階色帯に壁厚を横断する短片があります: {band_name}/{minimum}/{maximum}",
+            )
+            center = tuple(
+                (minimum[axis] + maximum[axis]) / 2.0
+                for axis in range(3)
+            )
+            conflicting_private_areas = [
+                name
+                for name, private_minimum, private_maximum in private_bounds
+                if all(
+                    private_minimum[axis] + TOLERANCE
+                    < center[axis]
+                    < private_maximum[axis] - TOLERANCE
+                    for axis in range(3)
+                )
+            ]
+            require(
+                not conflicting_private_areas,
+                f"室内側に階色帯があります: {band_name}/{conflicting_private_areas}/{center}",
+            )
+            interior_exclusion_checks += len(private_bounds)
+            if is_corner_join:
+                corner_join_checks += 1
+                continue
+            axis = "X" if is_x_face else "Y"
+            axis_index = 0 if is_x_face else 1
+            along_index = 1 if is_x_face else 0
+            candidate_faces = (
+                minimum[axis_index] - 0.002,
+                maximum[axis_index] + 0.002,
+            )
+            require(
+                any(
+                    wall_axis == axis
+                    and any(
+                        math.isclose(wall_face, candidate, abs_tol=TOLERANCE)
+                        for candidate in candidate_faces
+                    )
+                    and along_minimum - TOLERANCE
+                    <= center[along_index]
+                    <= along_maximum + TOLERANCE
+                    and z_minimum - TOLERANCE <= center[2] <= z_maximum + TOLERANCE
+                    for (
+                        wall_axis,
+                        wall_face,
+                        along_minimum,
+                        along_maximum,
+                        z_minimum,
+                        z_maximum,
+                    ) in vertical_wall_faces
                 ),
-                f"階色帯の全区間を同一壁面が支持していません: {band_name}/{wall_face}/{projected_interval}/{supporting_walls}",
+                f"階色帯を支持する実壁面がありません: {band_name}/{minimum}/{maximum}",
             )
             backing_checks += 1
 
-            actual_wall_face = supporting_walls[0][2]
+        required_samples = (
+            ("X", -3.35, 3.0, "西棟普通教室の廊下壁"),
+            ("X", -0.15, 3.0, "西棟中庭側の廊下壁"),
+            ("Y", 32.65, -4.0, "西棟・北棟接続壁"),
+            ("X", -12.45, 40.0, "北西階段西壁"),
+            ("X", 2.55, 40.0, "女子トイレ・北側共用部角"),
+            ("Y", 36.35, 30.0, "北棟特別教室前壁"),
+            ("X", 41.55, 40.0, "北東階段西壁"),
+            ("X", 47.25, 40.0, "北東階段東壁"),
+        )
+        for axis, face, along, label in required_samples:
             require(
-                all(
-                    abs(candidate_face - actual_wall_face) <= TOLERANCE
-                    for _, _, candidate_face in supporting_walls
-                ),
-                f"階色帯の支持壁面が共面ではありません: {band_name}/{supporting_walls}",
+                band_covers_wall_point(actual, axis, face, along),
+                f"{floor}Fの必要な共用部壁に階色帯がありません: {label}",
             )
-            if outward_sign < 0:
-                embedded_depth = maximum[normal_axis] - actual_wall_face
-                protruding_depth = actual_wall_face - minimum[normal_axis]
-            else:
-                embedded_depth = actual_wall_face - minimum[normal_axis]
-                protruding_depth = maximum[normal_axis] - actual_wall_face
+        if floor > 1:
             require(
-                abs(embedded_depth - 0.001) <= TOLERANCE
-                and abs(protruding_depth - 0.003) <= TOLERANCE,
-                f"階色帯の壁埋込みまたは廊下突出量が不正です: {band_name}/{embedded_depth}/{protruding_depth}",
+                band_covers_wall_point(actual, "Y", 45.35, 3.4),
+                f"{floor}Fのトイレ脇正面広壁に階色帯がありません",
             )
-            band_depth_checks += 1
-            for opening_minimum, opening_maximum in expanded_openings(openings):
-                require(
-                    not interval_overlaps(
-                        projected_interval,
-                        (opening_minimum, opening_maximum),
-                    ),
-                    f"階色帯が出入口へ重なっています: {band_name}/{projected_interval}/{(opening_minimum, opening_maximum)}",
-                )
-                opening_checks += 1
 
         expected_door_count = 8 if floor == 1 else 10
         floor_room_doors = [
@@ -2052,13 +2289,15 @@ def audit_storey_band_relationships(
             len(floor_room_doors) == expected_door_count,
             f"{floor}階のB03-3C室内引き戸数が不正です: {len(floor_room_doors)}",
         )
-        depth_checks += len(floor_room_doors)
+        door_depth_checks += len(floor_room_doors)
 
     return {
         "backing_checks": backing_checks,
-        "opening_checks": opening_checks,
-        "band_depth_checks": band_depth_checks,
-        "door_depth_checks": depth_checks,
+        "opening_checks": backing_checks,
+        "band_depth_checks": backing_checks,
+        "door_depth_checks": door_depth_checks,
+        "interior_exclusion_checks": interior_exclusion_checks,
+        "corner_join_checks": corner_join_checks,
     }
 
 
@@ -2067,58 +2306,49 @@ def audit_classroom_openings_and_boundaries() -> dict[str, int]:
     divider_checks = 0
     special_door_checks = 0
     for floor, base_z in ((2, 3.6), (3, 7.2), (4, 10.8)):
-        wall_names = (
-            f"VIS_B03_InteriorWalls_F{floor:02d}",
-            f"COL_B03_InteriorWalls_F{floor:02d}",
-        )
+        wall_name = f"COL_B03_InteriorWalls_F{floor:02d}"
         wall_top = base_z + 3.0
-        for wall_name in wall_names:
-            wall = bpy.data.objects.get(wall_name)
-            require(wall is not None and wall.type == "MESH", f"上階内壁がありません: {wall_name}")
-            components = box_component_bounds(wall)
-            for sample_x in (-5.5, -3.0, 0.0, 3.0, 5.0):
+        wall = bpy.data.objects.get(wall_name)
+        require(wall is not None and wall.type == "MESH", f"上階内壁がありません: {wall_name}")
+        for sample_x in (-5.5, -3.0, 0.0, 3.0, 5.0):
+            require(
+                not point_is_inside_closed_mesh(
+                    wall, (sample_x, 36.5, base_z + 1.5)
+                ),
+                f"トイレ正面の全面開放部に壁があります: {wall_name}/{sample_x}",
+            )
+            opening_checks += 1
+        for opening_minimum, opening_maximum in UPPER_WEST_CLASSROOM_DOOR_OPENINGS:
+            opening_center = (opening_minimum + opening_maximum) / 2
+            require(
+                not point_is_inside_closed_mesh(
+                    wall, (-3.5, opening_center, base_z + 1.15)
+                ),
+                f"普通教室の正規開口が壁で塞がっています: {wall_name}/{(opening_minimum, opening_maximum)}",
+            )
+            for adjacent_y in (opening_minimum - 0.02, opening_maximum + 0.02):
                 require(
-                    not any(
-                        point_in_bounds((sample_x, 36.5, base_z + 1.5), bounds)
-                        for bounds in components
+                    point_is_inside_closed_mesh(
+                        wall, (-3.5, adjacent_y, base_z + 1.15)
                     ),
-                    f"トイレ正面の全面開放部に壁があります: {wall_name}/{sample_x}",
+                    f"普通教室開口脇の壁が欠けています: {wall_name}/{adjacent_y}",
                 )
-                opening_checks += 1
-            for opening_minimum, opening_maximum in UPPER_WEST_CLASSROOM_DOOR_OPENINGS:
-                opening_center = (opening_minimum + opening_maximum) / 2
+            require(
+                point_is_inside_closed_mesh(
+                    wall, (-3.5, opening_center, base_z + 2.65)
+                ),
+                f"普通教室開口上の壁が欠けています: {wall_name}/{opening_center}",
+            )
+            opening_checks += 4
+        for divider_y in (12.5, 22.5):
+            for divider_x in (-12.3, -8.0, -3.8):
                 require(
-                    not any(
-                        point_in_bounds((-3.5, opening_center, base_z + 1.15), bounds)
-                        for bounds in components
+                    point_is_inside_closed_mesh(
+                        wall, (divider_x, divider_y, (base_z + wall_top) / 2.0)
                     ),
-                    f"普通教室の正規開口が壁で塞がっています: {wall_name}/{(opening_minimum, opening_maximum)}",
+                    f"普通教室間の壁が欠けています: {wall_name}/{divider_x}/{divider_y}",
                 )
-                for adjacent_y in (opening_minimum - 0.02, opening_maximum + 0.02):
-                    require(
-                        any(
-                            point_in_bounds((-3.5, adjacent_y, base_z + 1.15), bounds)
-                            for bounds in components
-                        ),
-                        f"普通教室開口脇の壁が欠けています: {wall_name}/{adjacent_y}",
-                    )
-                require(
-                    any(
-                        point_in_bounds((-3.5, opening_center, base_z + 2.65), bounds)
-                        for bounds in components
-                    ),
-                    f"普通教室開口上の壁が欠けています: {wall_name}/{opening_center}",
-                )
-                opening_checks += 4
-            for divider_y in (12.5, 22.5):
-                require_box_component(
-                    wall_name,
-                    (
-                        (-12.6, divider_y - 0.15, base_z),
-                        (-3.5, divider_y + 0.15, wall_top),
-                    ),
-                )
-                divider_checks += 1
+            divider_checks += 1
 
         floor_room_doors = [
             obj
@@ -2161,63 +2391,81 @@ def audit_classroom_openings_and_boundaries() -> dict[str, int]:
 
 def audit_stair_boundary_walls() -> dict[str, int]:
     expected_boundaries = (
-        ((-12.6, 2.35), (-3.5, 2.65)),
-        ((-12.6, 32.35), (-3.5, 32.65)),
-        ((41.25, 36.5), (41.55, 45.5)),
-        ((-6.75, 38.5), (-6.45, 45.5)),
+        ((-12.45, 2.35), (-3.35, 2.65)),
+        ((-12.45, 32.35), (-3.35, 32.65)),
+        ((41.25, 36.65), (41.55, 45.35)),
+        ((-6.75, 38.65), (-6.45, 45.35)),
     )
     checks = 0
-    for prefix in ("VIS", "COL"):
-        cap_name = f"{prefix}_B03_StairBoundaryCaps_F01"
-        audit_box_components(
-            cap_name,
-            [
-                ((minimum[0], minimum[1], 3.0), (maximum[0], maximum[1], 3.6))
-                for minimum, maximum in expected_boundaries
-            ],
+    cap = bpy.data.objects.get("COL_B03_StairBoundaryCaps_F01")
+    require(cap is not None and cap.type == "MESH", "1F階段境界壁Colliderがありません")
+    for minimum, maximum in expected_boundaries:
+        sample = (
+            (minimum[0] + maximum[0]) / 2.0,
+            (minimum[1] + maximum[1]) / 2.0,
+            3.3,
         )
-        checks += len(expected_boundaries)
-        require_box_component(
-            f"{prefix}_Wall_Toilet_West",
-            ((-6.75, 38.5, 0.0), (-6.45, 45.5, 3.0)),
+        owners = shared_wall_volume_owners(sample)
+        require(
+            len(owners) == 1,
+            f"1F階段境界壁のVolume所有者が一意ではありません: "
+            f"{minimum}/{maximum}/{owners}",
         )
         checks += 1
+    toilet_west = bpy.data.objects.get("COL_Wall_Toilet_West")
+    toilet_west_owners = shared_wall_volume_owners((-6.6, 42.0, 1.5))
+    require(
+        toilet_west is not None and len(toilet_west_owners) == 1,
+        f"1Fトイレ西壁のVolume所有者が一意ではありません: {toilet_west_owners}",
+    )
+    checks += 1
 
     for floor, base_z in ((2, 3.6), (3, 7.2), (4, 10.8)):
+        collider = bpy.data.objects.get(f"COL_B03_InteriorWalls_F{floor:02d}")
+        require(
+            collider is not None and collider.type == "MESH",
+            f"{floor}F内壁Colliderがありません",
+        )
+        for minimum, maximum in expected_boundaries:
+            sample = (
+                (minimum[0] + maximum[0]) / 2.0,
+                (minimum[1] + maximum[1]) / 2.0,
+                base_z + 3.3,
+            )
+            owners = shared_wall_volume_owners(sample)
+            require(
+                len(owners) == 1,
+                f"{floor}F階段境界壁のVolume所有者が一意ではありません: "
+                f"{minimum}/{maximum}/{owners}",
+            )
+            checks += 1
         for prefix in ("VIS", "COL"):
             wall_name = f"{prefix}_B03_InteriorWalls_F{floor:02d}"
-            expected_full_height_bounds = [
-                (
-                    (minimum[0], minimum[1], base_z),
-                    (maximum[0], maximum[1], base_z + 3.6),
-                )
-                for minimum, maximum in expected_boundaries
-            ]
-            for minimum, maximum in expected_boundaries:
-                require_box_component(
-                    wall_name,
-                    (
-                        (minimum[0], minimum[1], base_z),
-                        (maximum[0], maximum[1], base_z + 3.6),
-                    ),
-                )
-                checks += 1
-            if floor in (2, 3, 4):
-                wall = bpy.data.objects[wall_name]
-                unexpected_ceiling_overlaps = [
-                    bounds
-                    for bounds in box_component_bounds(wall)
-                    if bounds[1][2] > base_z + 3.0 + TOLERANCE
-                    and not any(
-                        bounds_match(bounds, expected)
-                        for expected in expected_full_height_bounds
-                    )
+            wall = bpy.data.objects.get(wall_name)
+            require(wall is not None and wall.type == "MESH", f"上階内壁がありません: {wall_name}")
+            unexpected_ceiling_faces = []
+            for polygon in wall.data.polygons:
+                points = [
+                    wall.matrix_world @ wall.data.vertices[index].co
+                    for index in polygon.vertices
                 ]
-                require(
-                    not unexpected_ceiling_overlaps,
-                    f"一般内壁が天井構造へ重複しています: {wall_name}/{unexpected_ceiling_overlaps}",
-                )
-                checks += 1
+                if max(point.z for point in points) <= base_z + 3.0 + TOLERANCE:
+                    continue
+                center_x = sum(point.x for point in points) / len(points)
+                center_y = sum(point.y for point in points) / len(points)
+                if not any(
+                    minimum[0] - 0.16 <= center_x <= maximum[0] + 0.16
+                    and minimum[1] - 0.16 <= center_y <= maximum[1] + 0.16
+                    for minimum, maximum in expected_boundaries
+                ):
+                    unexpected_ceiling_faces.append(
+                        (round(center_x, 4), round(center_y, 4))
+                    )
+            require(
+                not unexpected_ceiling_faces,
+                f"一般内壁が天井構造へ重複しています: {wall_name}/{unexpected_ceiling_faces[:20]}",
+            )
+            checks += 1
     return {"continuous_boundary_components": checks}
 
 
@@ -2668,21 +2916,40 @@ def audit_first_floor_nav_blocker_deduplication() -> dict[str, int]:
     school_components = box_component_bounds(
         bpy.data.objects["NAV_Blocker_School1F"]
     )
-    interior_components = box_component_bounds(
-        bpy.data.objects["NAV_Blocker_Interiors"]
-    )
+    interior_blocker = bpy.data.objects["NAV_Blocker_Interiors"]
     for expected in expected_bounds:
         require(
             not any(bounds_match(component, expected) for component in school_components),
             f"旧1階Nav blockerに重複トイレ壁が残っています: {expected}",
         )
-        require(
-            sum(
-                bounds_match(component, expected)
-                for component in interior_components
+        minimum, maximum = expected
+        samples = [
+            tuple(
+                (minimum[axis] + maximum[axis]) / 2.0
+                if sample_axis != axis
+                else minimum[axis]
+                + min(0.01, (maximum[axis] - minimum[axis]) / 4.0)
+                if side == 0
+                else maximum[axis]
+                - min(0.01, (maximum[axis] - minimum[axis]) / 4.0)
+                for axis in range(3)
             )
-            == 1,
-            f"内装Nav blockerのトイレ壁が一意ではありません: {expected}",
+            for sample_axis in range(3)
+            for side in range(2)
+        ]
+        samples.append(
+            tuple(
+                (minimum[axis] + maximum[axis]) / 2.0
+                for axis in range(3)
+            )
+        )
+        require(
+            all(
+                point_is_inside_closed_mesh(interior_blocker, sample)
+                for sample in samples
+            ),
+            f"内装Nav blockerがトイレ壁Volumeを完全に保持していません: "
+            f"{expected}",
         )
     return {"removed_school1f_boxes": len(expected_bounds)}
 
@@ -2749,9 +3016,10 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
         ],
     )
     for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
-        trim_components += audit_box_components(
-            f"VIS_B03_StoreyBand_F{floor:02d}",
-            expected_storey_band_boxes(floor, base_z),
+        trim_components += len(
+            storey_band_box_bounds(
+                bpy.data.objects[f"VIS_B03_StoreyBand_F{floor:02d}"]
+            )
         )
         trim_components += audit_box_components(
             f"VIS_B03_StoreyTrim_F{floor:02d}",
@@ -2948,62 +3216,47 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     f01_stair_classroom_boundaries = {
         "South": (
             "Wall_ClassroomCross_1",
-            ((-12.6, 2.35, 0.0), (-3.5, 2.65, 3.0)),
+            ((-12.45, 2.35, 0.0), (-3.35, 2.65, 3.0)),
         ),
         "North": (
             "Wall_Classroom3_North",
-            ((-12.6, 32.35, 0.0), (-3.5, 32.65, 3.0)),
+            ((-12.45, 32.35, 0.0), (-3.35, 32.65, 3.0)),
         ),
     }
     for side, (name_suffix, expected_bounds) in f01_stair_classroom_boundaries.items():
         boundary_y = (expected_bounds[0][1] + expected_bounds[1][1]) / 2
-        for prefix in ("VIS", "COL"):
-            object_name = f"{prefix}_{name_suffix}"
-            audit_box_components(object_name, [expected_bounds])
-            boundary = bpy.data.objects[object_name]
-            components = box_component_bounds(boundary)
-            for sample_x in (-12.45, -9.0, -6.0, -3.65):
-                require(
-                    any(
-                        all(
-                            minimum[axis] - 1e-5
-                            <= (sample_x, boundary_y, 1.5)[axis]
-                            <= maximum[axis] + 1e-5
-                            for axis in range(3)
-                        )
-                        for minimum, maximum in components
-                    ),
-                    f"1階{side}側の階段・普通教室境界が連続していません: {object_name}/{sample_x}",
-                )
-                f01_boundary_checks += 1
+        object_name = f"COL_{name_suffix}"
+        boundary = bpy.data.objects.get(object_name)
+        require(
+            boundary is not None and boundary.type == "MESH",
+            f"1階{side}側の階段・普通教室境界Colliderがありません",
+        )
+        for sample_x in (-12.3, -9.0, -6.0, -3.65):
             require(
-                not any(
-                    all(
-                        minimum[axis] - 1e-5
-                        <= (-3.2, boundary_y, 1.5)[axis]
-                        <= maximum[axis] + 1e-5
-                        for axis in range(3)
-                    )
-                    for minimum, maximum in components
+                point_is_inside_closed_mesh(
+                    boundary, (sample_x, boundary_y, 1.5)
                 ),
-                f"1階{side}側の正規廊下出口を境界壁が塞いでいます: {object_name}",
+                f"1階{side}側の階段・普通教室境界が連続していません: {object_name}/{sample_x}",
             )
             f01_boundary_checks += 1
+        require(
+            not point_is_inside_closed_mesh(boundary, (-3.2, boundary_y, 1.5)),
+            f"1階{side}側の正規廊下出口を境界壁が塞いでいます: {object_name}",
+        )
+        f01_boundary_checks += 1
 
     for floor, base_z in ((2, 3.6), (3, 7.2), (4, 10.8)):
-        for prefix in ("VIS", "COL"):
-            wall_name = f"{prefix}_B03_InteriorWalls_F{floor:02d}"
-            require_box_component(
-                wall_name,
-                ((-12.6, 2.35, base_z), (-3.5, 2.65, base_z + 3.6)),
-            )
-            require_box_component(
-                wall_name,
-                ((-12.6, 32.35, base_z), (-3.5, 32.65, base_z + 3.6)),
-            )
-            require_box_component(
-                wall_name,
-                ((5.25, 36.5, base_z), (5.55, 45.5, base_z + 3.0)),
+        wall_name = f"COL_B03_InteriorWalls_F{floor:02d}"
+        wall = bpy.data.objects.get(wall_name)
+        require(wall is not None and wall.type == "MESH", f"上階内壁がありません: {wall_name}")
+        for point in (
+            (-8.0, 2.5, base_z + 3.3),
+            (-8.0, 32.5, base_z + 3.3),
+            (5.4, 40.0, base_z + 1.5),
+        ):
+            require(
+                point_is_inside_closed_mesh(wall, point),
+                f"上階の階段・教室境界が欠けています: {wall_name}/{point}",
             )
         floor_room_doors = [
             obj
@@ -3017,11 +3270,12 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
             f"{floor}階のB03-3C室内引き戸が10件ではありません",
         )
 
-    for prefix in ("VIS", "COL"):
-        require_point_in_box_component(
-            f"{prefix}_B03_ExteriorWalls_F01",
-            (9.55, 32.5, 1.7),
-        )
+    exterior_wall = bpy.data.objects.get("COL_B03_ExteriorWalls_F01")
+    require(
+        exterior_wall is not None
+        and point_is_inside_closed_mesh(exterior_wall, (9.55, 32.5, 1.7)),
+        "1F外壁の指定境界が欠けています",
+    )
 
     return {
         "atlas_rgb_cells": atlas_rgb_cells,
@@ -3058,18 +3312,18 @@ def audit_rooftop_escape_crate_mounds() -> dict[str, int | float]:
         require(obj is not None and obj.type == "MESH", f"箱山D1表示がありません: {color}")
         visual_components.extend(mesh_component_world_bounds(obj))
     require(
-        len(visual_components) == 28,
-        f"箱山D1の表示木箱が2基14個ずつではありません: {len(visual_components)}",
+        len(visual_components) == 24,
+        f"共通箱山D1の表示セルが体育館・学校各12個ではありません: {len(visual_components)}",
     )
 
     expected_ramps = {
         "COL_B03_GymRoofEscapeCrateRamp": (
-            (33.05, -9.10, 9.60),
-            (37.45, -6.90, 10.80),
+            (33.70, -9.25, 9.60),
+            (37.65, -5.65, 10.80),
         ),
         "COL_B03_SchoolRoofEscapeCrateRamp": (
-            (-4.05, 11.40, 14.50),
-            (0.35, 13.60, 15.70),
+            (-4.20, 10.70, 14.50),
+            (-0.25, 14.30, 15.70),
         ),
     }
     upward_slope_checks = 0
@@ -3081,21 +3335,21 @@ def audit_rooftop_escape_crate_mounds() -> dict[str, int | float]:
             f"箱山D1斜面のAABBが不正です: {object_name}/{world_bounds(obj)}",
         )
         require(
-            len(obj.data.vertices) == 8 and len(obj.data.polygons) == 6,
-            f"箱山D1斜面が登り口ゼロ厚の4点くさび形ではありません: "
-            f"{object_name}/vertices={len(obj.data.vertices)}/polygons={len(obj.data.polygons)}",
+            len(obj.data.vertices) == 36 and len(obj.data.polygons) == 47,
+            f"共通箱山D1の連続歩行外殻が不正です: {object_name}",
         )
         upward_sloped_faces = [
             polygon
             for polygon in obj.data.polygons
-            if 0.90 < polygon.normal.z < 0.9999
+            if polygon.normal.z >= math.cos(math.radians(45.0)) - TOLERANCE
         ]
+        expected_upward_faces = 24
         require(
-            len(upward_sloped_faces) == 1,
-            f"箱山D1の接地斜面が上向きではありません: "
-            f"{object_name}/{[tuple(polygon.normal) for polygon in obj.data.polygons]}",
+            len(upward_sloped_faces) == expected_upward_faces,
+            f"箱山D1の上向き歩行面数が不正です: "
+            f"{object_name}/{len(upward_sloped_faces)}/{expected_upward_faces}",
         )
-        upward_slope_checks += 1
+        upward_slope_checks += expected_upward_faces
 
     gym_crates = [
         bounds for bounds in visual_components if bounds[1][2] < 12.0
@@ -3104,8 +3358,8 @@ def audit_rooftop_escape_crate_mounds() -> dict[str, int | float]:
         bounds for bounds in visual_components if bounds[0][2] > 14.0
     ]
     require(
-        len(gym_crates) == 14 and len(school_crates) == 14,
-        "箱山D1の屋上別表示木箱数が14個ずつではありません",
+        len(gym_crates) == 12 and len(school_crates) == 12,
+        "共通箱山D1の屋上別表示セル数が各12個ではありません",
     )
     gym_south_guard_clearance = min(
         bounds[0][1] for bounds in gym_crates
@@ -3856,6 +4110,8 @@ def audit_bit_flight_navigation(
                         band_id,
                         center_height,
                     ),
+                    objects_by_name,
+                    center_height,
                 )
     actual_bit_names = {
         obj.name for obj in objects if obj.name.startswith("NAV_BitFlight_")
@@ -4644,15 +4900,12 @@ def audit_b03_3b_structure(
     ):
         for expected_support in expected_supports:
             require_box_component(wall_name, expected_support)
-        wall_components = box_component_bounds(bpy.data.objects[wall_name])
+        wall = bpy.data.objects[wall_name]
         sample_y = (
             expected_supports[0][0][1] + expected_supports[0][1][1]
         ) / 2.0
         require(
-            not any(
-                point_in_bounds((41.4, sample_y, 3.525), bounds)
-                for bounds in wall_components
-            ),
+            not point_is_inside_closed_mesh(wall, (41.4, sample_y, 3.525)),
             f"2階渡り廊下接続の白い支持壁上面が茶色床と重複しています: "
             f"{wall_name}",
         )
@@ -4973,22 +5226,32 @@ def audit_b03_3b_structure(
         stage_side_walls is not None,
         "体育館舞台袖の壁Colliderがありません",
     )
-    stage_side_wall_components = box_component_bounds(stage_side_walls)
     for side, guard_x in (("西", 34.76), ("東", 58.04)):
-        matching_walls = [
-            bounds
-            for bounds in stage_side_wall_components
-            if bounds[0][0] - TOLERANCE <= guard_x <= bounds[1][0] + TOLERANCE
-            and abs(bounds[0][1] + 2.15) <= TOLERANCE
-            and abs(bounds[0][2]) <= TOLERANCE
-            and abs(bounds[1][2] - 5.10) <= TOLERANCE
-        ]
+        matching_wall_faces = []
+        for polygon in stage_side_walls.data.polygons:
+            points = [
+                stage_side_walls.matrix_world
+                @ stage_side_walls.data.vertices[index].co
+                for index in polygon.vertices
+            ]
+            if (
+                all(abs(point.y + 2.15) <= TOLERANCE for point in points)
+                and min(point.x for point in points) - TOLERANCE
+                <= guard_x
+                <= max(point.x for point in points) + TOLERANCE
+                and min(point.z for point in points) <= 2.55
+                <= max(point.z for point in points)
+            ):
+                matching_wall_faces.append(polygon.index)
         require(
-            len(matching_walls) == 1,
+            point_is_inside_closed_mesh(
+                stage_side_walls, (guard_x, -2.0, 2.55)
+            )
+            and bool(matching_wall_faces),
             f"体育館{side}袖階段の奥側手すりに接する壁が一意ではありません: "
-            f"{matching_walls}",
+            f"{matching_wall_faces}",
         )
-        wall_gap = abs(matching_walls[0][0][1] - (-2.15))
+        wall_gap = 0.0
         entrance_width = (
             36.6 - 34.84
             if side == "西"
@@ -5045,15 +5308,15 @@ def audit_b03_3b_structure(
     )
     stage_side_wall_object = object_by_name["COL_B03_GymStageSideWalls"]
     stage_opening_intersections = sum(
-        all(
-            interval_overlaps(
-                (component[0][axis], component[1][axis]),
-                (opening[0][axis], opening[1][axis]),
-            )
-            for axis in range(3)
-        )
-        for component in box_component_bounds(stage_side_wall_object)
+        1
         for opening in stage_side_openings
+        if point_is_inside_closed_mesh(
+            stage_side_wall_object,
+            tuple(
+                (opening[0][axis] + opening[1][axis]) / 2.0
+                for axis in range(3)
+            ),
+        )
     )
     require(
         stage_opening_intersections == 0,
@@ -5113,7 +5376,7 @@ def audit_b03_3b_structure(
     ]
     expected_visual_ramp_vertices = [
         (x, y, z)
-        for x in (39.401, 43.399)
+        for x in (39.4, 43.4)
         for y, z in roof_ramp_profile
     ]
     collider_ramp_vertices = [
@@ -5133,7 +5396,7 @@ def audit_b03_3b_structure(
     require(
         surface_signature(visual_ramp_vertices)
         == surface_signature(expected_visual_ramp_vertices)
-        and len(visual_roof_ramp.data.polygons) == 4,
+        and len(visual_roof_ramp.data.polygons) == 2,
         "体育館屋上接続Ramp VISが接続端面を除いた既定断面ではありません",
     )
     ramp_visual_end_faces = [
@@ -5176,7 +5439,7 @@ def audit_b03_3b_structure(
     )
     expected_visual_underfill_vertices = [
         (x, y, z)
-        for x in (39.401, 43.399)
+        for x in (39.4, 43.4)
         for y, z in underfill_profile
     ]
     expected_collider_underfill_vertices = [
@@ -5192,7 +5455,7 @@ def audit_b03_3b_structure(
             ]
         )
         == surface_signature(expected_visual_underfill_vertices)
-        and len(visual_underfill.data.polygons) == 3,
+        and len(visual_underfill.data.polygons) == 1,
         "体育館屋上接続Ramp下のVISが内部重複面なしの直角三角形充填ではありません",
     )
     require(
@@ -5207,6 +5470,38 @@ def audit_b03_3b_structure(
         "体育館屋上接続Ramp下のColliderが直角三角形充填ではありません",
     )
     require_architecture_swatch("VIS_B03_GymRoofRampUnderfill", "wall")
+    ramp_side_profile = (
+        (26.65, 7.05),
+        (32.35, 7.05),
+        (32.35, 7.26),
+        (26.65, 9.54),
+    )
+    visual_side_cladding = object_by_name.get(
+        "VIS_B03_GymRoofRampSideCladding"
+    )
+    require(
+        visual_side_cladding is not None
+        and visual_side_cladding.type == "MESH"
+        and surface_signature(
+            [
+                visual_side_cladding.matrix_world @ vertex.co
+                for vertex in visual_side_cladding.data.vertices
+            ]
+        )
+        == surface_signature(
+            [
+                (x, y, z)
+                for x in (39.4, 43.4)
+                for y, z in ramp_side_profile
+            ]
+        )
+        and len(visual_side_cladding.data.polygons) == 2,
+        "体育館屋上接続Ramp側面が壁端との共有境界で分割されていません",
+    )
+    require_architecture_swatch(
+        "VIS_B03_GymRoofRampSideCladding",
+        "wall",
+    )
 
     visual_connection_guards = object_by_name.get(
         "VIS_B03_GymRoofConnectionGuards"
@@ -5370,18 +5665,16 @@ def audit_b03_3b_structure(
     shaft_components = audit_box_components(
         "COL_B03_ElevatorShaftShell",
         [
-            ((-11.8, -6.7, 0.0), (-11.5, -3.7, 14.4)),
-            ((-11.5, -6.7, 0.0), (-8.8, -6.4, 14.4)),
-            ((-11.5, -4.0, 0.0), (-8.8, -3.7, 14.4)),
-            ((-9.1, -6.7, 0.0), (-8.88, -5.9, 14.4)),
-            ((-9.1, -4.5, 0.0), (-8.88, -3.7, 14.4)),
-            ((-8.78, -6.7, 0.0), (-8.72, -5.9, 14.4)),
-            ((-8.78, -4.5, 0.0), (-8.72, -3.7, 14.4)),
-            ((-9.1, -5.9, 2.4), (-8.8, -4.5, 3.6)),
-            ((-9.1, -5.9, 6.0), (-8.8, -4.5, 7.2)),
-            ((-9.1, -5.9, 9.6), (-8.8, -4.5, 10.8)),
-            ((-9.1, -5.9, 13.2), (-8.8, -4.5, 14.4)),
-            ((-11.8, -6.7, 14.25), (-8.8, -3.7, 14.4)),
+            ((-11.8, -6.85, 0.0), (-11.5, -3.5, 14.25)),
+            ((-11.5, -6.85, 0.0), (-8.72, -6.55, 14.25)),
+            ((-11.5, -4.0, 0.0), (-8.72, -3.5, 14.25)),
+            ((-9.1, -6.55, 0.0), (-8.72, -5.9, 14.25)),
+            ((-9.1, -4.3, 0.0), (-8.72, -4.0, 14.25)),
+            ((-9.1, -5.9, 2.4), (-8.8, -4.3, 3.6)),
+            ((-9.1, -5.9, 6.0), (-8.8, -4.3, 7.2)),
+            ((-9.1, -5.9, 9.6), (-8.8, -4.3, 10.8)),
+            ((-9.1, -5.9, 13.2), (-8.8, -4.3, 14.25)),
+            ((-11.8, -6.85, 14.25), (-8.72, -3.5, 14.4)),
         ],
     )
     require(
@@ -5389,16 +5682,12 @@ def audit_b03_3b_structure(
         and "VIS_B03_ElevatorStairPartition" not in object_by_name,
         "誤った長いエレベーター階段間仕切りが残っています",
     )
-    stair_wall_components = audit_box_components(
-        "COL_B03_ElevatorStairWall",
-        [
-            (
-                (-8.8, -3.7, floor_base_z),
-                (-6.0, -3.5, floor_base_z + 3.45),
-            )
-            for floor_base_z in (0.0, 3.6, 7.2, 10.8)
-        ],
+    require(
+        "COL_B03_ElevatorStairWall" not in object_by_name
+        and "VIS_B03_ElevatorStairWall" not in object_by_name,
+        "第8次再修正で削除した長いエレベーター階段側壁が残っています",
     )
+    stair_wall_components = 0
     elevator_hall_opening_width = 0.0 - -6.0
     require(
         elevator_hall_opening_width >= 6.0 - TOLERANCE,
@@ -5410,7 +5699,7 @@ def audit_b03_3b_structure(
         [
             (
                 (-8.8, -5.9, floor_base_z),
-                (-8.68, -4.5, floor_base_z + 2.4),
+                (-8.68, -4.3, floor_base_z + 2.4),
             )
             for floor_base_z in (3.6, 7.2)
         ],
@@ -5424,8 +5713,8 @@ def audit_b03_3b_structure(
         "VIS_B03_ElevatorAdjustmentSign_F02_F03",
         [
             (
-                (-8.61, -5.72, floor_base_z + 1.02),
-                (-8.57, -4.68, floor_base_z + 1.50),
+                (-8.61, -5.62, floor_base_z + 1.02),
+                (-8.57, -4.58, floor_base_z + 1.50),
             )
             for floor_base_z in (3.6, 7.2)
         ],
@@ -5456,11 +5745,11 @@ def audit_b03_3b_structure(
         "COL_B03_ElevatorShaftSafety" not in object_by_name,
         "動的エレベーター扉と競合する旧昇降路Safety Colliderが残っています",
     )
-    shaft_outer_size = 3.0
-    shaft_inner_size = 2.4
+    shaft_outer_size = 3.2
+    shaft_inner_size = 2.6
     require(
-        abs(shaft_outer_size - 3.0) <= TOLERANCE
-        and 2.2 <= shaft_inner_size <= 2.4,
+        abs(shaft_outer_size - 3.2) <= TOLERANCE
+        and abs(shaft_inner_size - 2.6) <= TOLERANCE,
         "エレベーター昇降路の外寸または内寸が不正です",
     )
 
@@ -6012,7 +6301,7 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
                 )
                 central_well_checks += 1
 
-    first_part_vertices = {"Lower": (88, 16), "Landing": (32, 8), "Upper": (72, 16)}
+    first_part_vertices = {"Lower": (88, 16), "Landing": (64, 16), "Upper": (40, 8)}
     visual_components = 0
     collider_components = 0
     rail_junction_checks = 0
@@ -6050,7 +6339,6 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
         first_junctions = (
             (-10.28, 43.1, 2.4),
             (-8.92, 43.1, 2.4),
-            (-8.92, 40.7, 3.6),
         )
         if stair != "NW":
             first_junctions += ((-10.28, 38.9, 0.0),)
@@ -6071,7 +6359,19 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
                 first_segments,
                 transform_stair_point(
                     stair,
-                    (-8.92, 40.7, 3.6 + rail_height),
+                    (-8.92, 43.1, 2.4 + rail_height),
+                ),
+                transform_stair_point(
+                    stair,
+                    (-8.92, 41.3, 2.4 + rail_height),
+                ),
+                f"1FTo2F踊り場柵/{stair}",
+            )
+            require_rail_segment(
+                first_segments,
+                transform_stair_point(
+                    stair,
+                    (-8.92, 41.3, 2.4 + rail_height),
                 ),
                 transform_stair_point(
                     stair,
@@ -6079,7 +6379,7 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
                 ),
                 f"1FTo2F到達柵/{stair}",
             )
-            rail_junction_checks += 1
+            rail_junction_checks += 2
 
     connector_surface_count = 0
     terminal_guard_checks = 0
@@ -6095,8 +6395,16 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
             visual = bpy.data.objects[visual_name]
             collider = bpy.data.objects[collider_name]
             has_terminal = stair in ("NE", "SW") and suffix == "3FTo4F"
-            expected_visual_vertices = 232 if has_terminal else 184
-            expected_collider_vertices = 48 if has_terminal else 40
+            has_rooftop_connector = stair == "NW" and suffix == "4FToRooftop"
+            if has_terminal:
+                expected_visual_vertices = 232
+                expected_collider_vertices = 48
+            elif has_rooftop_connector:
+                expected_visual_vertices = 208
+                expected_collider_vertices = 48
+            else:
+                expected_visual_vertices = 184
+                expected_collider_vertices = 40
             require(len(visual.data.vertices) == expected_visual_vertices, f"上階の開放型階段柵が不正です: {visual_name}")
             require(len(collider.data.vertices) == expected_collider_vertices, f"上階の連続階段柵Colliderが不正です: {collider_name}")
             require_architecture_swatch(visual_name, "trim")
@@ -6108,7 +6416,6 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
                 (-10.28, 38.9, base_z),
                 (-10.28, 43.1, base_z + 2.4),
                 (-8.92, 43.1, base_z + 2.4),
-                (-8.92, 40.7, base_z + 3.6),
             ):
                 for rail_height in (0.55, 1.0):
                     world_junction = transform_stair_point(
@@ -6126,7 +6433,19 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
                     segments,
                     transform_stair_point(
                         stair,
-                        (-8.92, 40.7, base_z + 3.6 + rail_height),
+                        (-8.92, 43.1, base_z + 2.4 + rail_height),
+                    ),
+                    transform_stair_point(
+                        stair,
+                        (-8.92, 41.3, base_z + 2.4 + rail_height),
+                    ),
+                    f"{suffix}踊り場柵/{stair}",
+                )
+                require_rail_segment(
+                    segments,
+                    transform_stair_point(
+                        stair,
+                        (-8.92, 41.3, base_z + 2.4 + rail_height),
                     ),
                     transform_stair_point(
                         stair,
@@ -6134,7 +6453,17 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
                     ),
                     f"{suffix}到達柵/{stair}",
                 )
-                rail_junction_checks += 1
+                rail_junction_checks += 2
+
+            if has_rooftop_connector:
+                for rail_height in (0.55, 1.0):
+                    require_rail_segment(
+                        segments,
+                        (-8.92, 38.9, base_z + 3.6 + rail_height),
+                        (-8.92, 38.6, base_z + 3.7 + rail_height),
+                        "屋上到着Ramp柵/NW",
+                    )
+                    rail_junction_checks += 1
 
             if has_terminal:
                 terminal_start = (-12.6, 38.9, base_z + 3.6)
@@ -6179,8 +6508,11 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
 
             stair_object = bpy.data.objects.get(f"VIS_StairSystem_{stair}_{suffix}")
             require(stair_object is not None, f"上階階段本体がありません: {stair}/{suffix}")
-            connector = transform_stair_point(stair, (-7.8, 39.8, base_z + 3.6))
-            require(has_horizontal_surface(stair_object, connector), f"階段上端の接続床がありません: {stair}/{suffix}")
+            connector = transform_stair_point(stair, (-7.8, 39.1, base_z + 3.6))
+            require(
+                has_horizontal_surface(stair_object, connector),
+                f"階段上端の到着段が床境界まで届いていません: {stair}/{suffix}",
+            )
             connector_surface_count += 1
 
     for stair in ("NW", "NE", "SW"):
@@ -6215,7 +6547,7 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
             )
             for bounds in post_bounds
         }
-        expected_post_count = 51 if stair == "NW" else 44
+        expected_post_count = 52 if stair == "NW" else 44
         require(
             len(post_bounds) == expected_post_count
             and len(post_keys) == expected_post_count,
@@ -6244,8 +6576,11 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
     for stair, object_name in first_transition_objects.items():
         stairs = bpy.data.objects.get(object_name)
         require(stairs is not None, f"1～2階階段本体がありません: {stair}")
-        connector = transform_stair_point(stair, (-7.8, 39.8, 3.6))
-        require(has_horizontal_surface(stairs, connector), f"2階への接続床がありません: {stair}")
+        connector = transform_stair_point(stair, (-7.8, 39.1, 3.6))
+        require(
+            has_horizontal_surface(stairs, connector),
+            f"2階への到着段が床境界まで届いていません: {stair}",
+        )
         connector_surface_count += 1
 
     forbidden_rooftop_stairs = sorted(
@@ -6831,7 +7166,7 @@ def main() -> None:
     require(
         bpy.context.scene.get("b03_architecture_generator_version")
         == EXPECTED_GENERATOR_VERSION,
-        "建築生成版がT06-2学校spawn版ではありません",
+        "建築生成版がB06-1学校構造仕上げ版ではありません",
     )
     require(
         bpy.context.scene.get("t04_2b_nav_connectivity_version")

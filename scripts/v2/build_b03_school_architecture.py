@@ -12,6 +12,7 @@ from pathlib import Path
 import bmesh
 import bpy
 from mathutils import Matrix, Vector
+from mathutils.geometry import tessellate_polygon
 
 
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
@@ -77,13 +78,27 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
-GENERATOR_VERSION = "b05-location-assets-v1"
+GENERATOR_VERSION = "b06-1-school-structure-polish-v22"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
 T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 B04_WORLD_BOUNDARY_VERSION_PROPERTY = "b04_world_boundary_version"
 B04_WORLD_BOUNDARY_VERSION = "b04-school-world-boundary-v1"
+
+# 共有壁を一つの連結Meshへ再構築した後も、NavMesh障害物は元の実壁区間
+# 単位で扱う。連結Mesh全体のAABBを一枚の障害物として扱わないための、
+# 同一生成実行内だけで使用する分解境界である。
+B06_WALL_SPATIAL_COMPONENT_BOUNDS: dict[
+    str,
+    tuple[
+        tuple[
+            tuple[float, float, float],
+            tuple[float, float, float],
+        ],
+        ...,
+    ],
+] = {}
 
 ASSEMBLY_GUIDE_NAMES = (
     "VIS_CourtyardCapacityGrid_10x10",
@@ -250,6 +265,8 @@ WINDOW_AUTHORING_PROPERTY_NAMES = (
 GENERATED_PREFIXES = (
     "VIS_B03_",
     "COL_B03_",
+    "VIS_B06_",
+    "COL_B06_",
     "NAV_B03_",
     "NAV_BitFlight_",
     "VIS_WindowFrame_",
@@ -853,6 +870,9 @@ SOURCE_OBJECTS_TO_REMOVE = {
     "COL_StairClosure_SW",
     "VIS_Floor_ToiletFront",
     "VIS_Floor_ToiletZone",
+    "VIS_Floor_StairFront_NW",
+    "VIS_Floor_StairZone_NW",
+    "VIS_Floor_NorthEntryFoyer",
     "VIS_DoorLeaf_Classroom1_Front",
     "VIS_DoorLeaf_Classroom1_Rear",
     "VIS_DoorLeaf_S1Front",
@@ -1597,6 +1617,94 @@ def replace_existing_boxes(
     return replace_mesh_geometry(object_name, vertices, faces)
 
 
+def replace_existing_open_boxes(
+    object_name: str,
+    boxes: list[
+        tuple[tuple[float, float, float], tuple[float, float, float]]
+    ],
+    omitted_face_indices_by_box: tuple[frozenset[int], ...],
+) -> bpy.types.Object:
+    if len(boxes) != len(omitted_face_indices_by_box):
+        raise RuntimeError(f"開放boxの面指定数が不正です: {object_name}")
+    vertices: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    for (minimum, maximum), omitted_face_indices in zip(
+        boxes,
+        omitted_face_indices_by_box,
+        strict=True,
+    ):
+        box_faces: list[tuple[int, int, int, int]] = []
+        append_box(vertices, box_faces, minimum, maximum)
+        faces.extend(
+            face
+            for face_index, face in enumerate(box_faces)
+            if face_index not in omitted_face_indices
+        )
+    return replace_mesh_geometry(object_name, vertices, faces)
+
+
+def replace_existing_xy_prism(
+    object_name: str,
+    outline: tuple[tuple[float, float], ...],
+    z_minimum: float,
+    z_maximum: float,
+) -> bpy.types.Object:
+    if len(outline) < 3 or z_maximum <= z_minimum:
+        raise RuntimeError(f"不正なXY角柱境界です: {object_name}")
+    polygon = [Vector((x, y, 0.0)) for x, y in outline]
+    triangles = tessellate_polygon([polygon])
+    if not triangles:
+        raise RuntimeError(f"XY角柱を三角形分割できません: {object_name}")
+    vertices = [
+        (x, y, z)
+        for z in (z_minimum, z_maximum)
+        for x, y in outline
+    ]
+    faces: list[tuple[int, ...]] = []
+    top_offset = len(outline)
+    tessellated_area = 0.0
+    for triangle in triangles:
+        indices = tuple(int(index) for index in triangle)
+        first, second, third = (polygon[index] for index in indices)
+        signed_double_area = (second - first).cross(third - first).z
+        if abs(signed_double_area) <= 1.0e-8:
+            continue
+        tessellated_area += abs(signed_double_area) * 0.5
+        if signed_double_area < 0.0:
+            indices = (indices[0], indices[2], indices[1])
+        faces.append(tuple(reversed(indices)))
+        faces.append(tuple(top_offset + index for index in indices))
+    outline_area = abs(
+        sum(
+            x * next_y - next_x * y
+            for (x, y), (next_x, next_y) in zip(
+                outline,
+                (*outline[1:], outline[0]),
+                strict=True,
+            )
+        )
+    ) * 0.5
+    if not math.isclose(tessellated_area, outline_area, abs_tol=1.0e-5):
+        raise RuntimeError(
+            f"XY角柱の三角形分割面積が不正です: {object_name}/"
+            f"{tessellated_area}/{outline_area}"
+        )
+    for index, next_index in zip(
+        range(len(outline)),
+        (*range(1, len(outline)), 0),
+        strict=True,
+    ):
+        faces.append(
+            (
+                index,
+                next_index,
+                top_offset + next_index,
+                top_offset + index,
+            )
+        )
+    return replace_mesh_geometry(object_name, vertices, faces)
+
+
 def replace_stage_ramp_geometry(
     object_name: str,
     low_x: float,
@@ -1726,7 +1834,7 @@ def create_elevator_adjustment_text(
     )
     mesh_obj.data.transform(orientation)
     mesh_obj.data.transform(
-        Matrix.Translation(Vector((-8.55, -5.2, floor_base_z + 1.26)))
+        Matrix.Translation(Vector((-8.55, -5.1, floor_base_z + 1.26)))
     )
     return mesh_obj
 
@@ -1909,6 +2017,24 @@ def replace_mesh_geometry(
     return obj
 
 
+def replace_mesh_geometry_with_oriented_faces(
+    object_name: str,
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+) -> bpy.types.Object:
+    obj = bpy.data.objects.get(object_name)
+    if obj is None or obj.type != "MESH":
+        raise RuntimeError(f"再構築対象Meshがありません: {object_name}")
+    if obj.data.users != 1:
+        obj.data = obj.data.copy()
+    obj.matrix_world = Matrix.Identity(4)
+    obj.data.clear_geometry()
+    obj.data.from_pydata(vertices, [], faces)
+    obj.data.name = object_name
+    obj.data.update(calc_edges=True)
+    return obj
+
+
 def upsert_mesh_geometry(
     object_name: str,
     vertices: list[tuple[float, float, float]],
@@ -1955,51 +2081,310 @@ def append_thin_steps(
     end_y: float,
     base_z: float,
     step_count: int,
+    nosing_vertices: list[tuple[float, float, float]] | None = None,
+    nosing_faces: list[tuple[int, ...]] | None = None,
 ) -> None:
+    if (nosing_vertices is None) != (nosing_faces is None):
+        raise RuntimeError("階段防護材の頂点・面は同時に指定してください")
     rise = 0.15
+    direction = 1.0 if end_y > start_y else -1.0
     for index in range(step_count):
         y0 = start_y + (end_y - start_y) * index / step_count
         y1 = start_y + (end_y - start_y) * (index + 1) / step_count
         top = base_z + rise * (index + 1)
-        append_box(
-            vertices,
-            faces,
-            (width[0], min(y0, y1), top - rise),
-            (width[1], max(y0, y1), top),
+        previous_top = base_z + rise * index
+        y_min, y_max = sorted((y0, y1))
+        offset = len(vertices)
+        vertices.extend(
+            (
+                (width[0], y_min, top),
+                (width[1], y_min, top),
+                (width[1], y_max, top),
+                (width[0], y_max, top),
+            )
         )
+        faces.append((offset, offset + 1, offset + 2, offset + 3))
+
+        approach_y = y0
+        offset = len(vertices)
+        vertices.extend(
+            (
+                (width[0], approach_y, previous_top),
+                (width[1], approach_y, previous_top),
+                (width[1], approach_y, top),
+                (width[0], approach_y, top),
+            )
+        )
+        if direction > 0.0:
+            faces.append((offset, offset + 1, offset + 2, offset + 3))
+        else:
+            faces.append((offset + 3, offset + 2, offset + 1, offset))
+
+        if nosing_vertices is not None and nosing_faces is not None:
+            nosing_y0, nosing_y1 = sorted(
+                (approach_y, approach_y + direction * 0.06)
+            )
+            append_box(
+                nosing_vertices,
+                nosing_faces,
+                (width[0], nosing_y0, top),
+                (width[1], nosing_y1, top + 0.02),
+            )
+
+
+def append_stair_support_board(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    width: tuple[float, float],
+    start_y: float,
+    end_y: float,
+    start_z: float,
+    end_z: float,
+) -> None:
+    append_ramp_prism(
+        vertices,
+        faces,
+        RampPrismSpec(
+            run_axis="Y",
+            width=width,
+            start=(start_y, start_z),
+            end=(end_y, end_z),
+            thickness=0.12,
+        ),
+    )
+
+
+def rebuild_first_transition_stair_visuals() -> dict[str, int]:
+    rebuilt: dict[str, int] = {}
+    for stair in ("NW", "NE", "SW"):
+        nosing_vertices: list[tuple[float, float, float]] = []
+        nosing_faces: list[tuple[int, ...]] = []
+        lower_vertices: list[tuple[float, float, float]] = []
+        lower_faces: list[tuple[int, ...]] = []
+        append_thin_steps(
+            lower_vertices,
+            lower_faces,
+            (-12.6, -10.2),
+            38.9,
+            43.1,
+            0.0,
+            16,
+            nosing_vertices,
+            nosing_faces,
+        )
+        append_stair_support_board(
+            lower_vertices,
+            lower_faces,
+            (-12.6, -10.2),
+            38.9,
+            43.1,
+            0.0,
+            2.4,
+        )
+        upsert_surface_geometry(
+            f"VIS_Stairs_{stair}",
+            transform_stair_vertices(lower_vertices, stair),
+            lower_faces,
+            collection(VIS_COLLECTION_NAME),
+        )
+        rebuilt[f"lower_{stair.lower()}"] = 16
+
+        upper_vertices: list[tuple[float, float, float]] = []
+        upper_faces: list[tuple[int, ...]] = []
+        append_thin_steps(
+            upper_vertices,
+            upper_faces,
+            (-9.0, -6.6),
+            41.3,
+            38.9,
+            2.4,
+            8,
+            nosing_vertices,
+            nosing_faces,
+        )
+        append_profile_prism(
+            upper_vertices,
+            upper_faces,
+            (-9.0, -6.6),
+            (
+                (43.1, 2.3),
+                (41.3, 2.3),
+                (38.9, 3.48),
+                (38.9, 3.6),
+                (41.3, 2.4),
+                (43.1, 2.4),
+            ),
+        )
+        upsert_surface_geometry(
+            f"VIS_StairsUpper_{stair}",
+            transform_stair_vertices(upper_vertices, stair),
+            upper_faces,
+            collection(VIS_COLLECTION_NAME),
+        )
+        nosing = upsert_mesh_geometry(
+            f"VIS_B03_StairNosing_{stair}_1FTo2F",
+            transform_stair_vertices(nosing_vertices, stair),
+            nosing_faces,
+            collection(VIS_COLLECTION_NAME),
+        )
+        nosing.data.materials.clear()
+        nosing.data.materials.append(
+            existing_material("MAT_B03_Atlas_Architecture")
+        )
+        collider_vertices: list[tuple[float, float, float]] = []
+        collider_faces: list[tuple[int, ...]] = []
+        append_profile_prism(
+            collider_vertices,
+            collider_faces,
+            (-9.0, -6.6),
+            (
+                (43.1, 2.3),
+                (41.3, 2.3),
+                (38.9, 3.5),
+                (38.9, 3.6),
+                (41.3, 2.4),
+                (43.1, 2.4),
+            ),
+        )
+        upsert_mesh_geometry(
+            f"COL_StairRampUpper_{stair}",
+            transform_stair_vertices(collider_vertices, stair),
+            collider_faces,
+            collection(COL_COLLECTION_NAME),
+        )
+        claimed_guard_posts = {
+            tuple(
+                round(float(value), 6)
+                for value in Vector((-10.28, 43.1, 2.4))
+            )
+        }
+        guard_vertices, guard_faces = create_upper_stair_guard_visual_geometry(
+            0.0,
+            ("Landing",),
+            claimed_post_positions=claimed_guard_posts,
+        )
+        upsert_mesh_geometry(
+            f"VIS_StairGuard_{stair}_Landing",
+            transform_stair_vertices(guard_vertices, stair),
+            guard_faces,
+            collection(VIS_COLLECTION_NAME),
+        )
+        guard_vertices, guard_faces = create_upper_stair_guard_visual_geometry(
+            0.0,
+            ("Upper",),
+            claimed_post_positions=claimed_guard_posts,
+        )
+        upsert_mesh_geometry(
+            f"VIS_StairGuard_{stair}_Upper",
+            transform_stair_vertices(guard_vertices, stair),
+            guard_faces,
+            collection(VIS_COLLECTION_NAME),
+        )
+        guard_vertices, guard_faces = create_upper_stair_guard_collider_geometry(
+            0.0,
+            ("Landing",),
+        )
+        upsert_mesh_geometry(
+            f"COL_StairGuard_{stair}_Landing",
+            transform_stair_vertices(guard_vertices, stair),
+            guard_faces,
+            collection(COL_COLLECTION_NAME),
+        )
+        guard_vertices, guard_faces = create_upper_stair_guard_collider_geometry(
+            0.0,
+            ("Upper",),
+        )
+        upsert_mesh_geometry(
+            f"COL_StairGuard_{stair}_Upper",
+            transform_stair_vertices(guard_vertices, stair),
+            guard_faces,
+            collection(COL_COLLECTION_NAME),
+        )
+        rebuilt[f"upper_{stair.lower()}"] = 8
+    return rebuilt
 
 
 def create_upper_stair_visual_geometry(
     base_z: float,
+    *,
+    rooftop_connector: bool = False,
+    nosing_vertices: list[tuple[float, float, float]] | None = None,
+    nosing_faces: list[tuple[int, ...]] | None = None,
 ) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
     vertices: list[tuple[float, float, float]] = []
     faces: list[tuple[int, ...]] = []
-    append_box(vertices, faces, (-12.6, 38.9, base_z - 0.1), (-10.2, 40.7, base_z))
-    append_thin_steps(vertices, faces, (-12.6, -10.2), 38.9, 43.1, base_z, 16)
-    append_profile_prism(
+    append_thin_steps(
         vertices,
         faces,
         (-12.6, -10.2),
-        ((38.9, base_z - 0.1), (43.1, base_z + 2.3), (43.1, base_z + 2.4), (38.9, base_z)),
+        38.9,
+        43.1,
+        base_z,
+        16,
+        nosing_vertices,
+        nosing_faces,
+    )
+    append_stair_support_board(
+        vertices,
+        faces,
+        (-12.6, -10.2),
+        38.9,
+        43.1,
+        base_z,
+        base_z + 2.4,
     )
     append_box(vertices, faces, (-12.6, 43.1, base_z + 2.3), (-6.6, 45.5, base_z + 2.4))
-    append_thin_steps(vertices, faces, (-9.0, -6.6), 43.1, 40.7, base_z + 2.4, 8)
-    append_profile_prism(
+    append_thin_steps(
         vertices,
         faces,
         (-9.0, -6.6),
-        ((43.1, base_z + 2.3), (40.7, base_z + 3.5), (40.7, base_z + 3.6), (43.1, base_z + 2.4)),
+        41.3,
+        38.9,
+        base_z + 2.4,
+        8,
+        nosing_vertices,
+        nosing_faces,
     )
-    append_box(vertices, faces, (-9.0, 38.9, base_z + 3.5), (-6.6, 40.7, base_z + 3.6))
+    if rooftop_connector:
+        append_profile_prism(
+            vertices,
+            faces,
+            (-9.0, -6.6),
+            (
+                (43.1, base_z + 2.30),
+                (41.3, base_z + 2.30),
+                (38.9, base_z + 3.48),
+                (38.6, base_z + 3.58),
+                (38.6, base_z + 3.70),
+                (38.9, base_z + 3.60),
+                (41.3, base_z + 2.40),
+                (43.1, base_z + 2.40),
+            ),
+        )
+    else:
+        append_profile_prism(
+            vertices,
+            faces,
+            (-9.0, -6.6),
+            (
+                (43.1, base_z + 2.30),
+                (41.3, base_z + 2.30),
+                (38.9, base_z + 3.48),
+                (38.9, base_z + 3.60),
+                (41.3, base_z + 2.40),
+                (43.1, base_z + 2.40),
+            ),
+        )
     return vertices, faces
 
 
 def create_upper_stair_collider_geometry(
     base_z: float,
+    *,
+    rooftop_connector: bool = False,
 ) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
     vertices: list[tuple[float, float, float]] = []
     faces: list[tuple[int, ...]] = []
-    append_box(vertices, faces, (-12.6, 38.9, base_z - 0.1), (-10.2, 40.7, base_z))
     append_profile_prism(
         vertices,
         faces,
@@ -2007,13 +2392,28 @@ def create_upper_stair_collider_geometry(
         ((38.9, base_z - 0.1), (43.1, base_z + 2.3), (43.1, base_z + 2.4), (38.9, base_z)),
     )
     append_box(vertices, faces, (-12.6, 43.1, base_z + 2.3), (-6.6, 45.5, base_z + 2.4))
-    append_profile_prism(
-        vertices,
-        faces,
-        (-9.0, -6.6),
-        ((43.1, base_z + 2.3), (40.7, base_z + 3.5), (40.7, base_z + 3.6), (43.1, base_z + 2.4)),
+    upper_profile = (
+        (
+            (43.1, base_z + 2.3),
+            (41.3, base_z + 2.3),
+            (38.9, base_z + 3.5),
+            (38.6, base_z + 3.6),
+            (38.6, base_z + 3.7),
+            (38.9, base_z + 3.6),
+            (41.3, base_z + 2.4),
+            (43.1, base_z + 2.4),
+        )
+        if rooftop_connector
+        else (
+            (43.1, base_z + 2.3),
+            (41.3, base_z + 2.3),
+            (38.9, base_z + 3.5),
+            (38.9, base_z + 3.6),
+            (41.3, base_z + 2.4),
+            (43.1, base_z + 2.4),
+        )
     )
-    append_box(vertices, faces, (-9.0, 38.9, base_z + 3.5), (-6.6, 40.7, base_z + 3.6))
+    append_profile_prism(vertices, faces, (-9.0, -6.6), upper_profile)
     return vertices, faces
 
 
@@ -2025,9 +2425,9 @@ def upper_stair_guard_base_segments(
 ) -> list[tuple[Vector, Vector]]:
     lower_start = Vector((-10.28, 38.9, base_z))
     lower_end = Vector((-10.28, 43.1, base_z + 2.4))
-    landing_end = Vector((-8.92, 43.1, base_z + 2.4))
-    upper_end = Vector((-8.92, 40.7, base_z + 3.6))
-    top_end = Vector((-8.92, 38.9, base_z + 3.6))
+    landing_corner = Vector((-8.92, 43.1, base_z + 2.4))
+    upper_start = Vector((-8.92, 41.3, base_z + 2.4))
+    upper_end = Vector((-8.92, 38.9, base_z + 3.6))
     lower_segments = [
         (lower_start, lower_end),
     ]
@@ -2038,11 +2438,17 @@ def upper_stair_guard_base_segments(
     segment_groups = {
         "Lower": tuple(lower_segments),
         "Landing": (
-            (lower_end, landing_end),
+            (lower_end, landing_corner),
+            (landing_corner, upper_start),
         ),
         "Upper": (
-            (landing_end, upper_end),
-            (upper_end, top_end),
+            (upper_start, upper_end),
+        ),
+        "RooftopConnector": (
+            (
+                upper_end,
+                Vector((-8.92, 38.6, base_z + 3.7)),
+            ),
         ),
         "Terminal": (
             (
@@ -2277,19 +2683,46 @@ def rebuild_upper_stairs(
         if stair == "NW":
             transitions.append(("4FToRooftop", 10.8))
         for suffix, base_z in transitions:
-            guard_parts = (
-                ("Lower", "Landing", "Upper", "Terminal")
-                if stair in ("NE", "SW") and suffix == "3FTo4F"
-                else ("Lower", "Landing", "Upper")
+            if stair == "NW" and suffix == "4FToRooftop":
+                guard_parts = (
+                    "Lower",
+                    "Landing",
+                    "Upper",
+                    "RooftopConnector",
+                )
+            elif stair in ("NE", "SW") and suffix == "3FTo4F":
+                guard_parts = ("Lower", "Landing", "Upper", "Terminal")
+            else:
+                guard_parts = ("Lower", "Landing", "Upper")
+            has_rooftop_connector = stair == "NW" and suffix == "4FToRooftop"
+            nosing_vertices: list[tuple[float, float, float]] = []
+            nosing_faces: list[tuple[int, ...]] = []
+            vertices, faces = create_upper_stair_visual_geometry(
+                base_z,
+                rooftop_connector=has_rooftop_connector,
+                nosing_vertices=nosing_vertices,
+                nosing_faces=nosing_faces,
             )
-            vertices, faces = create_upper_stair_visual_geometry(base_z)
-            upsert_mesh_geometry(
+            upsert_surface_geometry(
                 f"VIS_StairSystem_{stair}_{suffix}",
                 transform_stair_vertices(vertices, stair),
                 faces,
                 visual_collection,
             )
-            vertices, faces = create_upper_stair_collider_geometry(base_z)
+            nosing = upsert_mesh_geometry(
+                f"VIS_B03_StairNosing_{stair}_{suffix}",
+                transform_stair_vertices(nosing_vertices, stair),
+                nosing_faces,
+                visual_collection,
+            )
+            nosing.data.materials.clear()
+            nosing.data.materials.append(
+                existing_material("MAT_B03_Atlas_Architecture")
+            )
+            vertices, faces = create_upper_stair_collider_geometry(
+                base_z,
+                rooftop_connector=has_rooftop_connector,
+            )
             upsert_mesh_geometry(
                 f"COL_StairSystem_{stair}_{suffix}",
                 transform_stair_vertices(vertices, stair),
@@ -2943,9 +3376,14 @@ def build_b05_location_assets(
         minimum_x, maximum_x, minimum_y, maximum_y = B05_STAIR_BOUNDS_XY[
             stair_id
         ]
-        for lower_floor, upper_floor in transitions:
+        for transition_index, (lower_floor, upper_floor) in enumerate(transitions):
             base_z = base_z_by_floor[lower_floor]
             upper_z = base_z_by_floor[upper_floor]
+            owned_upper_z = (
+                upper_z
+                if transition_index == len(transitions) - 1
+                else upper_z - 0.00001
+            )
             switch_z = base_z + 2.4
             area_id = f"area-stair-{stair_id}-{lower_floor}-{upper_floor}"
             display_name = (
@@ -2968,7 +3406,7 @@ def build_b05_location_assets(
                 250,
                 (
                     (minimum_x, minimum_y, switch_z),
-                    (maximum_x, maximum_y, upper_z),
+                    (maximum_x, maximum_y, owned_upper_z),
                 ),
                 floor_id=upper_floor,
             )
@@ -3081,7 +3519,7 @@ def build_b05_location_assets(
         "area-elevator",
         "エレベーター",
         400,
-        ((-0.82, -0.78, 0.12), (0.82, 0.72, 2.18)),
+        ((-0.92, -0.78, 0.12), (0.92, 0.72, 2.18)),
         elevator_id="school-elevator",
         parent=elevator_car,
     )
@@ -3189,7 +3627,7 @@ def build_b05_location_assets(
             properties["hs_stop_id"] = stop_id
         create_empty(
             f"MRK_MapElevatorLanding_{floor_id.upper()}",
-            (-8.2, -5.2, base_z),
+            (-8.2, -5.1, base_z),
             semantic_collection,
             properties,
         )
@@ -3562,80 +4000,408 @@ def upper_interior_wall_boxes(
     return boxes
 
 
-def subtract_intervals(
-    minimum: float,
-    maximum: float,
-    openings: tuple[tuple[float, float], ...],
+def storey_common_space_polygons(
+    floor: int,
+) -> tuple[tuple[tuple[float, float], ...], ...]:
+    if floor not in (1, 2, 3, 4):
+        raise RuntimeError(f"階層色帯の階が不正です: {floor}")
+    return STOREY_COMMON_SPACE_POLYGONS_XY
+
+
+def storey_band_source_objects(floor: int) -> tuple[bpy.types.Object, ...]:
+    targets = set(b06_wall_join_target_objects("VIS_"))
+    shaft_shell = bpy.data.objects.get("VIS_B03_ElevatorShaftShell")
+    if shaft_shell is not None and shaft_shell.type == "MESH":
+        targets.add(shaft_shell)
+    return tuple(sorted(targets, key=lambda obj: obj.name))
+
+
+def merge_storey_band_intervals(
+    intervals: list[tuple[float, float]],
 ) -> list[tuple[float, float]]:
-    segments: list[tuple[float, float]] = []
-    cursor = minimum
-    for opening_minimum, opening_maximum in sorted(openings):
-        clipped_minimum = max(minimum, opening_minimum)
-        clipped_maximum = min(maximum, opening_maximum)
-        if clipped_minimum > cursor:
-            segments.append((cursor, clipped_minimum))
-        cursor = max(cursor, clipped_maximum)
-    if cursor < maximum:
-        segments.append((cursor, maximum))
-    return segments
+    merged: list[list[float]] = []
+    for minimum, maximum in sorted(intervals):
+        if maximum - minimum <= 1.0e-4:
+            continue
+        if not merged or minimum > merged[-1][1] + 0.01:
+            merged.append([minimum, maximum])
+        else:
+            merged[-1][1] = max(merged[-1][1], maximum)
+    return [(minimum, maximum) for minimum, maximum in merged]
+
+
+def point_is_in_polygon_xy(
+    point_x: float,
+    point_y: float,
+    polygon: tuple[tuple[float, float], ...],
+) -> bool:
+    inside = False
+    previous_x, previous_y = polygon[-1]
+    for current_x, current_y in polygon:
+        edge_x = current_x - previous_x
+        edge_y = current_y - previous_y
+        cross = (
+            (point_x - previous_x) * edge_y
+            - (point_y - previous_y) * edge_x
+        )
+        if (
+            abs(cross) <= 1.0e-8
+            and min(previous_x, current_x) - 1.0e-8
+            <= point_x
+            <= max(previous_x, current_x) + 1.0e-8
+            and min(previous_y, current_y) - 1.0e-8
+            <= point_y
+            <= max(previous_y, current_y) + 1.0e-8
+        ):
+            return True
+        intersects = (current_y > point_y) != (previous_y > point_y)
+        if intersects:
+            intersection_x = previous_x + (
+                (point_y - previous_y) * edge_x / edge_y
+            )
+            if point_x < intersection_x:
+                inside = not inside
+        previous_x, previous_y = current_x, current_y
+    return inside
+
+
+def point_is_in_storey_common_space(
+    point_x: float,
+    point_y: float,
+    common_space_polygons: tuple[tuple[tuple[float, float], ...], ...],
+) -> bool:
+    return any(
+        point_is_in_polygon_xy(point_x, point_y, polygon)
+        for polygon in common_space_polygons
+    )
+
+
+def storey_common_space_indices(
+    point_x: float,
+    point_y: float,
+    common_space_polygons: tuple[tuple[tuple[float, float], ...], ...],
+) -> tuple[int, ...]:
+    # 矩形群は形状分割の都合で複数Polygonだが、校内の廊下・階段踊り場・
+    # エレベーターホールは扉や開口で相互に接続された一つの共用空間である。
+    # Polygon番号を空間IDにすると校舎接合角で帯が壁厚ぶん途切れるため、
+    # 包含Polygonが一つでもあれば同じ意味空間IDを返す。
+    return (
+        (0,)
+        if any(
+            point_is_in_polygon_xy(point_x, point_y, polygon)
+            for polygon in common_space_polygons
+        )
+        else ()
+    )
+
+
+def storey_band_wall_face_intervals(
+    axis: str,
+    minimum_fixed: float,
+    maximum_fixed: float,
+    minimum_along: float,
+    maximum_along: float,
+    common_space_polygons: tuple[tuple[tuple[float, float], ...], ...],
+) -> tuple[tuple[float, int, float, float, tuple[int, ...]], ...]:
+    breakpoints = {minimum_along, maximum_along}
+    for polygon in common_space_polygons:
+        for point_x, point_y in polygon:
+            coordinate = point_y if axis == "X" else point_x
+            if minimum_along < coordinate < maximum_along:
+                breakpoints.add(coordinate)
+
+    intervals = []
+    ordered = sorted(breakpoints)
+    for segment_minimum, segment_maximum in zip(ordered, ordered[1:]):
+        if segment_maximum - segment_minimum <= 1.0e-4:
+            continue
+        midpoint = (segment_minimum + segment_maximum) / 2.0
+        if axis == "X":
+            minimum_side_spaces = storey_common_space_indices(
+                minimum_fixed - 0.02,
+                midpoint,
+                common_space_polygons,
+            )
+            maximum_side_spaces = storey_common_space_indices(
+                maximum_fixed + 0.02,
+                midpoint,
+                common_space_polygons,
+            )
+        else:
+            minimum_side_spaces = storey_common_space_indices(
+                midpoint,
+                minimum_fixed - 0.02,
+                common_space_polygons,
+            )
+            maximum_side_spaces = storey_common_space_indices(
+                midpoint,
+                maximum_fixed + 0.02,
+                common_space_polygons,
+            )
+        if minimum_side_spaces:
+            intervals.append(
+                (
+                    minimum_fixed,
+                    -1,
+                    segment_minimum,
+                    segment_maximum,
+                    minimum_side_spaces,
+                )
+            )
+        if maximum_side_spaces:
+            intervals.append(
+                (
+                    maximum_fixed,
+                    1,
+                    segment_minimum,
+                    segment_maximum,
+                    maximum_side_spaces,
+                )
+            )
+    return tuple(intervals)
+
+
+def storey_band_wall_footprints(
+    obj: bpy.types.Object,
+    band_z0: float,
+    band_z1: float,
+) -> tuple[tuple[Vector, Vector], ...]:
+    vertical_intervals_by_footprint: dict[
+        tuple[float, float, float, float], list[tuple[float, float]]
+    ] = {}
+    for minimum, maximum in mesh_component_world_bounds(obj):
+        extent_x = maximum.x - minimum.x
+        extent_y = maximum.y - minimum.y
+        if not (
+            min(extent_x, extent_y) <= WALL_THICKNESS + 0.21
+            and max(extent_x, extent_y) > 0.1
+        ):
+            continue
+        footprint = (
+            round(minimum.x, 4),
+            round(maximum.x, 4),
+            round(minimum.y, 4),
+            round(maximum.y, 4),
+        )
+        vertical_intervals_by_footprint.setdefault(footprint, []).append(
+            (minimum.z, maximum.z)
+        )
+
+    footprints = []
+    for (minimum_x, maximum_x, minimum_y, maximum_y), vertical_intervals in (
+        sorted(vertical_intervals_by_footprint.items())
+    ):
+        merged_vertical_intervals = merge_storey_band_intervals(vertical_intervals)
+        if not any(
+            minimum_z <= band_z0 + 1.0e-5
+            and maximum_z >= band_z1 - 1.0e-5
+            for minimum_z, maximum_z in merged_vertical_intervals
+        ):
+            continue
+        footprints.append(
+            (
+                Vector((minimum_x, minimum_y, band_z0)),
+                Vector((maximum_x, maximum_y, band_z1)),
+            )
+        )
+    return tuple(footprints)
 
 
 def storey_band_boxes(
     floor: int,
     base_z: float,
 ) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
-    west_classroom_openings = tuple(
-        (minimum - 0.01, maximum + 0.01)
-        for minimum, maximum in (
-            FIRST_FLOOR_WEST_DOOR_OPENINGS
-            if floor == 1
-            else UPPER_WEST_CLASSROOM_DOOR_OPENINGS
-        )
-    )
-    west_floor_openings = ((-2.51, 2.51),) if floor == 1 else ()
-    north_classroom_openings = tuple(
-        (minimum - 0.01, maximum + 0.01)
-        for minimum, maximum in (
-            TOILET_COMMON_OPENING,
-            *NORTH_CLASSROOM_DOOR_OPENINGS,
-        )
-    )
-    if floor == 1:
-        north_floor_openings = ((0.14, 5.41), (39.39, 43.41))
-    elif floor in (2, 3):
-        north_floor_openings = ((39.39, 43.41),)
-    else:
-        north_floor_openings = ()
-    z0, z1 = base_z + 0.15, base_z + 0.25
-    boxes = [
-        ((-3.351, start, z0), (-3.347, end, z1))
-        for start, end in subtract_intervals(2.5, 32.5, west_classroom_openings)
-    ]
-    boxes.extend(
-        ((-0.153, start, z0), (-0.149, end, z1))
-        for start, end in subtract_intervals(-3.5, 32.5, west_floor_openings)
-    )
-    boxes.extend(
-        ((start, 36.347, z0), (end, 36.351, z1))
-        for start, end in subtract_intervals(-6.6, 41.4, north_classroom_openings)
-    )
-    boxes.extend(
-        ((start, 32.649, z0), (end, 32.653, z1))
-        for start, end in subtract_intervals(0.0, 47.4, north_floor_openings)
-    )
-    boxes.extend(
+    # 窓下の実壁は高さ0.20mなので、全壁面に連続して収まる高さへ統一する。
+    band_z0, band_z1 = base_z + 0.08, base_z + 0.18
+    common_space_polygons = storey_common_space_polygons(floor)
+    intervals_by_face: dict[
+        tuple[str, float, int, tuple[int, ...]], list[tuple[float, float]]
+    ] = {}
+
+    for obj in storey_band_source_objects(floor):
+        normal_matrix = obj.matrix_world.to_3x3().inverted().transposed()
+        for polygon in obj.data.polygons:
+            points = [
+                obj.matrix_world @ obj.data.vertices[index].co
+                for index in polygon.vertices
+            ]
+            minimum_x = min(point.x for point in points)
+            maximum_x = max(point.x for point in points)
+            minimum_y = min(point.y for point in points)
+            maximum_y = max(point.y for point in points)
+            minimum_z = min(point.z for point in points)
+            maximum_z = max(point.z for point in points)
+            if (
+                minimum_z > band_z0 + 1.0e-5
+                or maximum_z < band_z1 - 1.0e-5
+            ):
+                continue
+            world_normal = (normal_matrix @ polygon.normal).normalized()
+            if maximum_x - minimum_x <= 1.0e-5:
+                axis = "X"
+                face = (minimum_x + maximum_x) / 2.0
+                direction = -1 if world_normal.x < 0.0 else 1
+                interval_minimum = minimum_y
+                interval_maximum = maximum_y
+                sample_x = face + direction * 0.02
+                sample_y = (minimum_y + maximum_y) / 2.0
+            elif maximum_y - minimum_y <= 1.0e-5:
+                axis = "Y"
+                face = (minimum_y + maximum_y) / 2.0
+                direction = -1 if world_normal.y < 0.0 else 1
+                interval_minimum = minimum_x
+                interval_maximum = maximum_x
+                sample_x = (minimum_x + maximum_x) / 2.0
+                sample_y = face + direction * 0.02
+            else:
+                continue
+            if interval_maximum - interval_minimum <= 1.0e-4:
+                continue
+            space_indices = storey_common_space_indices(
+                sample_x,
+                sample_y,
+                common_space_polygons,
+            )
+            if not space_indices:
+                continue
+            key = (axis, round(face, 4), direction, space_indices)
+            intervals_by_face.setdefault(key, []).append(
+                (interval_minimum, interval_maximum)
+            )
+
+    boxes = []
+    band_records = []
+    for (
+        axis,
+        face,
+        direction,
+        space_indices,
+    ), intervals in sorted(intervals_by_face.items()):
+        for minimum, maximum in merge_storey_band_intervals(intervals):
+            if axis == "X":
+                x0, x1 = (
+                    (face - 0.012, face - 0.002)
+                    if direction < 0
+                    else (face + 0.002, face + 0.012)
+                )
+                boxes.append(((x0, minimum, band_z0), (x1, maximum, band_z1)))
+                band_records.append(
+                    (
+                        axis,
+                        face,
+                        direction,
+                        minimum,
+                        maximum,
+                        x0,
+                        x1,
+                        space_indices,
+                    )
+                )
+            else:
+                y0, y1 = (
+                    (face - 0.012, face - 0.002)
+                    if direction < 0
+                    else (face + 0.002, face + 0.012)
+                )
+                boxes.append(((minimum, y0, band_z0), (maximum, y1, band_z1)))
+                band_records.append(
+                    (
+                        axis,
+                        face,
+                        direction,
+                        minimum,
+                        maximum,
+                        y0,
+                        y1,
+                        space_indices,
+                    )
+                )
+
+    corner_boxes = set()
+    x_records = [record for record in band_records if record[0] == "X"]
+    y_records = [record for record in band_records if record[0] == "Y"]
+    for x_record in x_records:
         (
-            ((-6.6, 38.347, z0), (-5.41, 38.351, z1)),
-            ((-4.19, 38.347, z0), (-0.91, 38.351, z1)),
-            ((0.31, 38.347, z0), (2.4, 38.351, z1)),
-            ((2.549, 38.5, z0), (2.553, 45.5, z1)),
-            ((5.247, 36.5, z0), (5.251, 45.5, z1)),
-            ((-6.753, 38.5, z0), (-6.749, 45.5, z1)),
-            ((41.549, 36.5, z0), (41.553, 45.5, z1)),
-            ((-12.6, 2.347, z0), (-3.5, 2.351, z1)),
-            ((-12.6, 32.649, z0), (-6.6, 32.653, z1)),
-        )
-    )
+            _,
+            x_face,
+            x_direction,
+            x_minimum_y,
+            x_maximum_y,
+            x0,
+            x1,
+            x_space_indices,
+        ) = x_record
+        for y_record in y_records:
+            (
+                _,
+                y_face,
+                y_direction,
+                y_minimum_x,
+                y_maximum_x,
+                y0,
+                y1,
+                y_space_indices,
+            ) = y_record
+            x_endpoint_y = min(
+                (x_minimum_y, x_maximum_y),
+                key=lambda value: abs(value - y_face),
+            )
+            y_endpoint_x = min(
+                (y_minimum_x, y_maximum_x),
+                key=lambda value: abs(value - x_face),
+            )
+            if (
+                abs(y_face - x_endpoint_y) > 0.021
+                or abs(x_face - y_endpoint_x) > 0.021
+            ):
+                continue
+            if not set(x_space_indices) & set(y_space_indices):
+                continue
+            minimum_x, maximum_x = sorted((x0, x1))
+            minimum_y, maximum_y = sorted((y0, y1))
+            x_extension_far_y = None
+            if x_endpoint_y < minimum_y - 1.0e-4:
+                x_extension_far_y = maximum_y
+            elif x_endpoint_y > maximum_y + 1.0e-4:
+                x_extension_far_y = minimum_y
+            y_extension_near_x = None
+            if y_endpoint_x < minimum_x - 1.0e-4:
+                y_extension_near_x = maximum_x
+            elif y_endpoint_x > maximum_x + 1.0e-4:
+                y_extension_near_x = minimum_x
+            if x_extension_far_y is not None:
+                corner_boxes.add(
+                    (
+                        (
+                            round(minimum_x, 6),
+                            round(min(x_endpoint_y, x_extension_far_y), 6),
+                            round(band_z0, 6),
+                        ),
+                        (
+                            round(maximum_x, 6),
+                            round(max(x_endpoint_y, x_extension_far_y), 6),
+                            round(band_z1, 6),
+                        ),
+                    )
+                )
+            if y_extension_near_x is not None:
+                corner_boxes.add(
+                    (
+                        (
+                            round(min(y_endpoint_x, y_extension_near_x), 6),
+                            round(minimum_y, 6),
+                            round(band_z0, 6),
+                        ),
+                        (
+                            round(max(y_endpoint_x, y_extension_near_x), 6),
+                            round(maximum_y, 6),
+                            round(band_z1, 6),
+                        ),
+                    )
+                )
+    boxes.extend(sorted(corner_boxes))
+    if not boxes:
+        raise RuntimeError(f"{floor}階の廊下・階段側階層色帯を生成できません")
     return boxes
 
 
@@ -3835,9 +4601,16 @@ def build_school_exterior(
             )
             visual_boxes.extend(rooftop_stair_boxes)
             collider_boxes.extend(rooftop_stair_boxes)
-        create_mesh_object(
+        omitted_visual_faces = frozenset(
+            (
+                *((0,) if floor > 1 else ()),
+                *((1,) if floor < 4 else ()),
+            )
+        )
+        create_open_box_mesh_object(
             f"VIS_B03_ExteriorWalls_F{floor:02d}",
             visual_boxes,
+            omitted_visual_faces,
             visual_collection,
             wall_material,
         )
@@ -4005,9 +4778,10 @@ def build_upper_floors_and_rooms(
     }
     for wing, panels in first_floor_structure_groups.items():
         boxes = interfloor_structure_boxes(3.6, panels)
-        create_mesh_object(
+        create_open_box_mesh_object(
             f"VIS_B03_InterfloorStructure_F01_{wing}",
             boxes,
+            frozenset((1,)),
             visual_collection,
             wall_material,
         )
@@ -4053,9 +4827,10 @@ def build_upper_floors_and_rooms(
                     for minimum, maximum in F4_CEILING_PANELS_XY
                 ]
             )
-            create_mesh_object(
+            create_open_box_mesh_object(
                 f"VIS_B03_Ceiling_F{floor:02d}",
                 ceiling_boxes,
+                frozenset((1,)),
                 visual_collection,
                 wall_material,
             )
@@ -4080,6 +4855,52 @@ def build_upper_floors_and_rooms(
                 internal_boxes,
                 collider_collection,
             )
+        )
+
+    # 階段室から見える床スラブ側面だけを壁色で閉じる。
+    # 上面・下面を生成しないため、表示床との共面重複は発生しない。
+    stair_floor_edge_bases = (3.6, 7.2, 10.8)
+    edge_groups = (
+        (
+            "South",
+            [
+                (minimum, maximum)
+                for base_z in stair_floor_edge_bases
+                for minimum, maximum in (
+                    ((-6.0, -3.502, base_z - 0.15), (0.0, -3.498, base_z)),
+                    ((-12.6, 2.498, base_z - 0.15), (-6.0, 2.502, base_z)),
+                )
+            ],
+            frozenset((0, 1, 3, 4, 5)),
+        ),
+        (
+            "North",
+            [
+                (minimum, maximum)
+                for base_z in stair_floor_edge_bases
+                for minimum, maximum in (
+                    ((-12.6, 38.898, base_z - 0.15), (-6.6, 38.902, base_z)),
+                    ((41.4, 38.898, base_z - 0.15), (47.4, 38.902, base_z)),
+                )
+            ],
+            frozenset((0, 1, 2, 3, 5)),
+        ),
+        (
+            "West",
+            [
+                ((-6.002, -3.5, base_z - 0.15), (-5.998, 2.5, base_z))
+                for base_z in stair_floor_edge_bases
+            ],
+            frozenset((0, 1, 2, 3, 4)),
+        ),
+    )
+    for suffix, boxes, omitted_face_indices in edge_groups:
+        create_open_box_mesh_object(
+            f"VIS_B06_StairFloorEdgeCladding_{suffix}",
+            boxes,
+            omitted_face_indices,
+            visual_collection,
+            wall_material,
         )
 
     return generated_colliders
@@ -4279,6 +5100,7 @@ def gym_gallery_stair_geometry(
             tuple[float, float, float],
         ]
     ],
+    list[tuple[tuple[float, float, float], tuple[float, float, float]]],
 ]:
     if side == "West":
         first_x = (34.8, 36.0)
@@ -4336,6 +5158,7 @@ def gym_gallery_stair_geometry(
         (top_x[1], -2.00, 5.25),
     )
     visual_boxes = [lower_landing, turn_landing, upper_landing]
+    nosing_boxes = []
     collider_boxes = [
         lower_landing,
         lower_connector,
@@ -4354,6 +5177,12 @@ def gym_gallery_stair_geometry(
                     first_top - tread_thickness,
                 ),
                 (first_x[1], first_y_maximum, first_top),
+            )
+        )
+        nosing_boxes.append(
+            (
+                (first_x[0], first_y_maximum - 0.06, first_top),
+                (first_x[1], first_y_maximum, first_top + 0.02),
             )
         )
         if index > 0:
@@ -4388,6 +5217,12 @@ def gym_gallery_stair_geometry(
                 (second_x[1], second_y_maximum, second_top),
             )
         )
+        nosing_boxes.append(
+            (
+                (second_x[0], second_y_minimum, second_top),
+                (second_x[1], second_y_minimum + 0.06, second_top + 0.02),
+            )
+        )
         visual_boxes.append(
             (
                 (
@@ -4417,7 +5252,7 @@ def gym_gallery_stair_geometry(
             end=(upper_north_y, 5.25),
         ),
     ]
-    return visual_boxes, collider_boxes, ramps, guard_segments
+    return visual_boxes, collider_boxes, ramps, guard_segments, nosing_boxes
 
 
 def gym_gallery_north_transition_geometry(
@@ -4430,12 +5265,14 @@ def gym_gallery_north_transition_geometry(
             tuple[float, float, float],
         ]
     ],
+    list[tuple[tuple[float, float, float], tuple[float, float, float]]],
 ]:
     step_depth = 0.30
     rise = 0.15
     tread_thickness = 0.05
     riser_half_depth = 0.025
     visual_boxes = []
+    nosing_boxes = []
     ramps = []
     guard_segments = []
     for side in ("West", "East"):
@@ -4452,6 +5289,17 @@ def gym_gallery_north_transition_geometry(
                 (
                     (x_minimum, 25.0, top - tread_thickness),
                     (x_maximum, 26.6, top),
+                )
+            )
+            nosing_x0, nosing_x1 = (
+                (x_maximum - 0.06, x_maximum)
+                if side == "West"
+                else (x_minimum, x_minimum + 0.06)
+            )
+            nosing_boxes.append(
+                (
+                    (nosing_x0, 25.0, top),
+                    (nosing_x1, 26.6, top + 0.02),
                 )
             )
             riser_x = x_maximum if side == "West" else x_minimum
@@ -4493,7 +5341,7 @@ def gym_gallery_north_transition_geometry(
             guard_segments.append(
                 ((43.7, 25.0, 3.60), (47.0, 25.0, 5.25))
             )
-    return visual_boxes, ramps, guard_segments
+    return visual_boxes, ramps, guard_segments, nosing_boxes
 
 
 def rebuild_gym_envelope_and_stage() -> None:
@@ -4518,6 +5366,7 @@ def rebuild_gym_envelope_and_stage() -> None:
             [((40.6, -11.0, 0.0), (52.2, -2.0, 1.0))],
         )
 
+    stage_nosing_boxes = []
     for side, x_minimum, direction in (
         ("West", 39.1, 1.0),
         ("East", 53.7, -1.0),
@@ -4538,6 +5387,24 @@ def rebuild_gym_envelope_and_stage() -> None:
                     )
                 ],
             )
+            nosing_x0, nosing_x1 = (
+                (step_x_minimum, step_x_minimum + 0.06)
+                if direction > 0
+                else (step_x_maximum - 0.06, step_x_maximum)
+            )
+            stage_nosing_boxes.append(
+                (
+                    (nosing_x0, -11.0, step_index * 0.2),
+                    (nosing_x1, -8.6, step_index * 0.2 + 0.02),
+                )
+            )
+
+    create_mesh_object(
+        "VIS_B03_GymStageStairNosing",
+        stage_nosing_boxes,
+        collection(VIS_COLLECTION_NAME),
+        existing_material("MAT_B03_Atlas_Architecture"),
+    )
 
     for side, low_x, high_x in (
         ("West", 39.1, 40.6),
@@ -4570,11 +5437,32 @@ def build_b03_3b_structure(
 ) -> dict[str, tuple[str, ...]]:
     blocker_names: list[str] = []
     rebuild_gym_envelope_and_stage()
-    for object_name in ("VIS_Roof_West", "COL_Roof_West"):
-        replace_existing_boxes(
-            object_name,
-            [((-12.6, -6.7, 14.4), (0.0, 32.5, 14.5))],
-        )
+    replace_existing_boxes(
+        "VIS_Roof_West",
+        [((-12.6, -6.7, 14.4), (0.0, 32.5, 14.5))],
+    )
+    rooftop_crate_collider_boxes = [
+        ((-12.6, -6.7, 14.4), (-4.05, 32.5, 14.5)),
+        ((-4.05, -6.7, 14.4), (0.0, 11.35, 14.5)),
+        ((-4.05, 13.65, 14.4), (0.0, 32.5, 14.5)),
+    ]
+    replace_existing_boxes("COL_Roof_West", rooftop_crate_collider_boxes)
+    rooftop_stair_vertices, rooftop_stair_faces = (
+        b06_roof_north_reference_geometry()
+    )
+    replace_mesh_geometry(
+        "COL_Roof_North",
+        list(rooftop_stair_vertices),
+        list(rooftop_stair_faces),
+    )
+    rooftop_ramp = bpy.data.objects.get("COL_RooftopStairExitRamp")
+    if rooftop_ramp is not None:
+        unlink_and_remove_object(rooftop_ramp)
+    replace_mesh_geometry(
+        "VIS_Roof_North",
+        list(rooftop_stair_vertices),
+        list(rooftop_stair_faces),
+    )
 
     bridge_floor_boxes = [
         ((39.3, 26.6, 3.45), (43.5, 32.5, 3.60)),
@@ -4604,9 +5492,10 @@ def build_b03_3b_structure(
     bridge_ceiling_boxes = [
         ((39.3, 26.65, 6.60), (43.5, 32.35, 7.05)),
     ]
-    create_mesh_object(
+    create_open_box_mesh_object(
         "VIS_B03_GymBridgeCeiling",
         bridge_ceiling_boxes,
+        frozenset((2, 4)),
         visual_collection,
         architecture_material,
     )
@@ -4674,6 +5563,22 @@ def build_b03_3b_structure(
     )
     blocker_names.append("COL_B03_GymBridgeEnvelope")
 
+    bridge_side_infill_boxes = [
+        ((39.30, 26.50, 3.60), (39.40, 26.70, 6.60)),
+        ((43.40, 26.50, 3.60), (43.50, 26.70, 6.60)),
+    ]
+    create_mesh_object(
+        "VIS_B06_GymBridgeSideInfill",
+        bridge_side_infill_boxes,
+        visual_collection,
+        architecture_material,
+    )
+    create_mesh_object(
+        "COL_B06_GymBridgeSideInfill",
+        bridge_side_infill_boxes,
+        collider_collection,
+    )
+
     stage_side_wall_boxes = [
         ((33.4, -2.15, 0.0), (33.6, -1.85, 9.0)),
         ((33.6, -2.15, 0.0), (35.0, -1.85, 5.10)),
@@ -4731,25 +5636,30 @@ def build_b03_3b_structure(
     collider_stair_boxes = []
     stair_ramps = []
     stair_guard_segments = []
+    stair_nosing_boxes = []
     (
         north_visual_stairs,
         north_ramps,
         north_guards,
+        north_nosings,
     ) = gym_gallery_north_transition_geometry()
     visual_stair_boxes.extend(north_visual_stairs)
     stair_ramps.extend(north_ramps)
     stair_guard_segments.extend(north_guards)
+    stair_nosing_boxes.extend(north_nosings)
     for side in ("West", "East"):
         (
             side_visual_stairs,
             side_collider_stairs,
             side_ramps,
             side_guards,
+            side_nosings,
         ) = gym_gallery_stair_geometry(side)
         visual_stair_boxes.extend(side_visual_stairs)
         collider_stair_boxes.extend(side_collider_stairs)
         stair_ramps.extend(side_ramps)
         stair_guard_segments.extend(side_guards)
+        stair_nosing_boxes.extend(side_nosings)
     create_stair_mesh_object(
         "VIS_B03_GymGalleryStairs",
         visual_stair_boxes,
@@ -4834,9 +5744,9 @@ def build_b03_3b_structure(
     )
     create_open_profile_prism_mesh_object(
         "VIS_B03_GymRoofRamp",
-        (39.401, 43.399),
+        (39.4, 43.4),
         roof_ramp_profile,
-        frozenset((3, 5)),
+        frozenset((0, 1, 3, 5)),
         visual_collection,
         architecture_material,
     )
@@ -4853,9 +5763,9 @@ def build_b03_3b_structure(
     )
     create_open_profile_prism_mesh_object(
         "VIS_B03_GymRoofRampUnderfill",
-        (39.401, 43.399),
+        (39.4, 43.4),
         roof_ramp_underfill_profile,
-        frozenset((2, 3)),
+        frozenset((0, 1, 2, 3)),
         visual_collection,
         architecture_material,
     )
@@ -4864,6 +5774,20 @@ def build_b03_3b_structure(
         (39.4, 43.4),
         roof_ramp_underfill_profile,
         collider_collection,
+    )
+    roof_ramp_side_profile = (
+        (26.65, 7.05),
+        (32.35, 7.05),
+        (32.35, 7.26),
+        (26.65, 9.54),
+    )
+    create_open_profile_prism_mesh_object(
+        "VIS_B03_GymRoofRampSideCladding",
+        (39.4, 43.4),
+        roof_ramp_side_profile,
+        frozenset((2, 3, 4, 5)),
+        visual_collection,
+        architecture_material,
     )
     roof_connection_guard_segments = [
         ((39.52, 32.5, 7.20), (39.52, 26.5, 9.60)),
@@ -4881,35 +5805,69 @@ def build_b03_3b_structure(
         collider_collection,
     )
 
-    first_floor_extension_boxes = [
-        ((minimum[0], minimum[1], -0.15), (maximum[0], maximum[1], 0.0))
+    first_floor_extension_visual_boxes = [
+        ((minimum[0], minimum[1], -0.15), (maximum[0], maximum[1], -0.002))
         for minimum, maximum in WEST_EXTENSION_FLOOR_PANELS_XY
     ]
     create_mesh_object(
         "VIS_B03_WestExtensionFloor_F01",
-        first_floor_extension_boxes,
+        first_floor_extension_visual_boxes,
         visual_collection,
         architecture_material,
     )
     create_mesh_object(
         "COL_B03_WestExtensionFloor_F01",
-        first_floor_extension_boxes,
+        [
+            ((minimum[0], minimum[1], -0.15), (maximum[0], maximum[1], 0.0))
+            for minimum, maximum in WEST_EXTENSION_FLOOR_PANELS_XY
+        ],
         collider_collection,
+    )
+    create_mesh_object(
+        "VIS_B03_GymGalleryStairNosing",
+        stair_nosing_boxes,
+        visual_collection,
+        architecture_material,
+    )
+    create_mesh_object(
+        "VIS_B06_WestExtensionFloorFinish_F01",
+        [
+            ((minimum[0], minimum[1], 0.0), (maximum[0], maximum[1], 0.04))
+            for minimum, maximum in WEST_EXTENSION_FLOOR_PANELS_XY
+        ],
+        visual_collection,
+        architecture_material,
+    )
+    replace_existing_xy_prism(
+        "VIS_Floor_CorridorCorner",
+        (
+            (-12.6, 32.5),
+            (0.0, 32.5),
+            (0.0, 36.5),
+            (5.4, 36.5),
+            (5.4, 45.5),
+            (2.4, 45.5),
+            (2.4, 38.5),
+            (-6.6, 38.5),
+            (-6.6, 45.5),
+            (-12.6, 45.5),
+            (-12.6, 36.5),
+        ),
+        0.0,
+        0.04,
     )
 
     shaft_shell_boxes = [
-        ((-11.8, -6.7, 0.0), (-11.5, -3.7, 14.4)),
-        ((-11.5, -6.7, 0.0), (-8.8, -6.4, 14.4)),
-        ((-11.5, -4.0, 0.0), (-8.8, -3.7, 14.4)),
-        ((-9.1, -6.7, 0.0), (-8.88, -5.9, 14.4)),
-        ((-9.1, -4.5, 0.0), (-8.88, -3.7, 14.4)),
-        ((-8.78, -6.7, 0.0), (-8.72, -5.9, 14.4)),
-        ((-8.78, -4.5, 0.0), (-8.72, -3.7, 14.4)),
-        ((-9.1, -5.9, 2.4), (-8.8, -4.5, 3.6)),
-        ((-9.1, -5.9, 6.0), (-8.8, -4.5, 7.2)),
-        ((-9.1, -5.9, 9.6), (-8.8, -4.5, 10.8)),
-        ((-9.1, -5.9, 13.2), (-8.8, -4.5, 14.4)),
-        ((-11.8, -6.7, 14.25), (-8.8, -3.7, 14.4)),
+        ((-11.8, -6.85, 0.0), (-11.5, -3.5, 14.25)),
+        ((-11.5, -6.85, 0.0), (-8.72, -6.55, 14.25)),
+        ((-11.5, -4.0, 0.0), (-8.72, -3.5, 14.25)),
+        ((-9.1, -6.55, 0.0), (-8.72, -5.9, 14.25)),
+        ((-9.1, -4.3, 0.0), (-8.72, -4.0, 14.25)),
+        ((-9.1, -5.9, 2.4), (-8.8, -4.3, 3.6)),
+        ((-9.1, -5.9, 6.0), (-8.8, -4.3, 7.2)),
+        ((-9.1, -5.9, 9.6), (-8.8, -4.3, 10.8)),
+        ((-9.1, -5.9, 13.2), (-8.8, -4.3, 14.25)),
+        ((-11.8, -6.85, 14.25), (-8.72, -3.5, 14.4)),
     ]
     create_mesh_object(
         "VIS_B03_ElevatorShaftShell",
@@ -4923,25 +5881,18 @@ def build_b03_3b_structure(
         collider_collection,
     )
     blocker_names.append("COL_B03_ElevatorShaftShell")
-    elevator_stair_wall_boxes = [
-        ((-8.8, -3.7, floor_base_z), (-6.0, -3.5, floor_base_z + 3.45))
-        for floor_base_z in (0.0, 3.6, 7.2, 10.8)
-    ]
     create_mesh_object(
-        "VIS_B03_ElevatorStairWall",
-        elevator_stair_wall_boxes,
+        "VIS_B06_ElevatorCallPanel_F01",
+        [
+            ((-8.70, -4.28, 1.00), (-8.64, -4.00, 1.46)),
+            ((-8.63, -4.21, 1.17), (-8.60, -4.07, 1.31)),
+        ],
         visual_collection,
         architecture_material,
     )
-    create_mesh_object(
-        "COL_B03_ElevatorStairWall",
-        elevator_stair_wall_boxes,
-        collider_collection,
-    )
-    blocker_names.append("COL_B03_ElevatorStairWall")
 
     closed_door_boxes = [
-        ((-8.8, -5.9, floor_base_z), (-8.68, -4.5, floor_base_z + 2.4))
+        ((-8.8, -5.9, floor_base_z), (-8.68, -4.3, floor_base_z + 2.4))
         for floor_base_z in (3.6, 7.2)
     ]
     create_mesh_object(
@@ -4962,15 +5913,15 @@ def build_b03_3b_structure(
         adjustment_tape_beams.extend(
             (
                 (
-                    (-5.78, floor_base_z + 0.18),
-                    (-4.62, floor_base_z + 2.22),
+                    (-5.68, floor_base_z + 0.18),
+                    (-4.52, floor_base_z + 2.22),
                     0.10,
                     -8.66,
                     -8.62,
                 ),
                 (
-                    (-4.62, floor_base_z + 0.18),
-                    (-5.78, floor_base_z + 2.22),
+                    (-4.52, floor_base_z + 0.18),
+                    (-5.68, floor_base_z + 2.22),
                     0.10,
                     -8.66,
                     -8.62,
@@ -4985,8 +5936,8 @@ def build_b03_3b_structure(
     )
     adjustment_sign_boxes = [
         (
-            (-8.61, -5.72, floor_base_z + 1.02),
-            (-8.57, -4.68, floor_base_z + 1.50),
+            (-8.61, -5.62, floor_base_z + 1.02),
+            (-8.57, -4.58, floor_base_z + 1.50),
         )
         for floor_base_z in (3.6, 7.2)
     ]
@@ -5366,49 +6317,281 @@ def append_oriented_box(
     )
 
 
+def append_stepped_rooftop_crate(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    transform: Matrix,
+    x_minimum: float,
+    x_maximum: float,
+    y_minimum: float,
+    y_maximum: float,
+    height: float,
+    previous_height: float,
+    *,
+    first: bool,
+    last: bool,
+) -> None:
+    local_vertices = [
+        (x_minimum, y_minimum, 0.0),
+        (x_maximum, y_minimum, 0.0),
+        (x_maximum, y_maximum, 0.0),
+        (x_minimum, y_maximum, 0.0),
+        (x_minimum, y_minimum, height),
+        (x_maximum, y_minimum, height),
+        (x_maximum, y_maximum, height),
+        (x_minimum, y_maximum, height),
+    ]
+    if not first:
+        local_vertices.extend(
+            (
+                (x_minimum, y_minimum, previous_height),
+                (x_minimum, y_maximum, previous_height),
+            )
+        )
+    offset = len(vertices)
+    vertices.extend(tuple(transform @ Vector(vertex)) for vertex in local_vertices)
+    local_faces: list[tuple[int, ...]] = [
+        (4, 5, 6, 7),
+        (0, 1, 5, 4),
+        (2, 3, 7, 6),
+    ]
+    if first:
+        local_faces.append((3, 0, 4, 7))
+    else:
+        local_faces.append((9, 8, 4, 7))
+    if last:
+        local_faces.append((1, 2, 6, 5))
+    faces.extend(
+        tuple(offset + vertex_index for vertex_index in face)
+        for face in local_faces
+    )
+
+
+def append_rooftop_crate_cell(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    transform: Matrix,
+    x_minimum: float,
+    x_maximum: float,
+    y_minimum: float,
+    y_maximum: float,
+    height: float,
+    neighbor_heights: tuple[float, float, float, float],
+) -> None:
+    offset = len(vertices)
+    vertices.extend(
+        tuple(transform @ Vector(vertex))
+        for vertex in (
+            (x_minimum, y_minimum, height),
+            (x_maximum, y_minimum, height),
+            (x_maximum, y_maximum, height),
+            (x_minimum, y_maximum, height),
+        )
+    )
+    faces.append((offset, offset + 1, offset + 2, offset + 3))
+
+    x_minimum_neighbor, x_maximum_neighbor, y_minimum_neighbor, y_maximum_neighbor = (
+        neighbor_heights
+    )
+    if height > x_minimum_neighbor:
+        lower_offset = len(vertices)
+        vertices.extend(
+            tuple(transform @ Vector(vertex))
+            for vertex in (
+                (x_minimum, y_minimum, x_minimum_neighbor),
+                (x_minimum, y_maximum, x_minimum_neighbor),
+            )
+        )
+        faces.append((lower_offset, offset, offset + 3, lower_offset + 1))
+    if height > x_maximum_neighbor:
+        lower_offset = len(vertices)
+        vertices.extend(
+            tuple(transform @ Vector(vertex))
+            for vertex in (
+                (x_maximum, y_minimum, x_maximum_neighbor),
+                (x_maximum, y_maximum, x_maximum_neighbor),
+            )
+        )
+        faces.append((lower_offset, lower_offset + 1, offset + 2, offset + 1))
+    if height > y_minimum_neighbor:
+        lower_offset = len(vertices)
+        vertices.extend(
+            tuple(transform @ Vector(vertex))
+            for vertex in (
+                (x_minimum, y_minimum, y_minimum_neighbor),
+                (x_maximum, y_minimum, y_minimum_neighbor),
+            )
+        )
+        faces.append((lower_offset, lower_offset + 1, offset + 1, offset))
+    if height > y_maximum_neighbor:
+        lower_offset = len(vertices)
+        vertices.extend(
+            tuple(transform @ Vector(vertex))
+            for vertex in (
+                (x_minimum, y_maximum, y_maximum_neighbor),
+                (x_maximum, y_maximum, y_maximum_neighbor),
+            )
+        )
+        faces.append((lower_offset, offset + 3, offset + 2, lower_offset + 1))
+
+
+ROOFTOP_CRATE_X_BOUNDS = (0.00, 0.99, 1.98, 2.97, 3.95)
+ROOFTOP_CRATE_Y_BOUNDS = (-1.80, -0.60, 0.60, 1.80)
+ROOFTOP_CRATE_HEIGHTS = (
+    (0.30, 0.30, 0.30),
+    (0.30, 0.60, 0.60),
+    (0.60, 0.90, 0.60),
+    (0.60, 1.20, 0.90),
+)
+
+# 階層色帯の正本となる共用空間輪郭。床全体のAABBや室内矩形の差分ではなく、
+# 実壁の内面で囲まれた廊下・共用部・階段踊り場だけを明示する。
+STOREY_COMMON_SPACE_POLYGONS_XY = (
+    ((-3.35, 2.65), (-0.15, 2.65), (-0.15, 32.35), (-3.35, 32.35)),
+    # 西棟廊下と北棟廊下の共有床接続部。壁厚を避けて縮めた二つの
+    # 廊下矩形だけでは、接続角の実壁面が室内・屋外へ誤分類される。
+    ((-3.35, 32.35), (0.0, 32.35), (0.0, 32.65), (-3.35, 32.65)),
+    ((-6.45, 32.65), (41.25, 32.65), (41.25, 36.35), (-6.45, 36.35)),
+    ((-12.45, 32.65), (-6.75, 32.65), (-6.75, 45.35), (-12.45, 45.35)),
+    ((41.55, 32.65), (47.25, 32.65), (47.25, 45.35), (41.55, 45.35)),
+    ((-6.45, 36.65), (5.25, 36.65), (5.25, 38.35), (-6.45, 38.35)),
+    ((2.55, 38.35), (5.25, 38.35), (5.25, 45.35), (2.55, 45.35)),
+    ((-12.45, -3.35), (-3.65, -3.35), (-3.65, 2.35), (-12.45, 2.35)),
+    ((-8.70, -6.85), (-6.15, -6.85), (-6.15, -3.35), (-8.70, -3.35)),
+)
+
+
+def append_shared_crate_walkable_envelope(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    transform: Matrix,
+) -> None:
+    x_positions = ROOFTOP_CRATE_X_BOUNDS
+    y_positions = ROOFTOP_CRATE_Y_BOUNDS
+    top_height_by_x = (0.00, 0.30, 0.60, 0.90, 1.20)
+    top_height_by_y = (0.30, 1.20, 1.20, 0.30)
+    top_indices: list[list[int]] = []
+    bottom_indices: list[list[int]] = []
+    for x, x_height in zip(x_positions, top_height_by_x, strict=True):
+        row = []
+        bottom_row = []
+        for y, y_height in zip(y_positions, top_height_by_y, strict=True):
+            z = min(x_height, y_height)
+            row.append(len(vertices))
+            vertices.append(tuple(transform @ Vector((x, y, z))))
+            if math.isclose(z, 0.0, abs_tol=1.0e-8):
+                bottom_row.append(row[-1])
+            else:
+                bottom_row.append(len(vertices))
+                vertices.append(tuple(transform @ Vector((x, y, 0.0))))
+        top_indices.append(row)
+        bottom_indices.append(bottom_row)
+    for x_index in range(len(x_positions) - 1):
+        for y_index in range(len(y_positions) - 1):
+            a = top_indices[x_index][y_index]
+            b = top_indices[x_index + 1][y_index]
+            c = top_indices[x_index + 1][y_index + 1]
+            d = top_indices[x_index][y_index + 1]
+            faces.extend(((a, b, c), (a, c, d)))
+
+    def append_side(indices: tuple[int, ...]) -> None:
+        normalized = []
+        for index in indices:
+            if not normalized or normalized[-1] != index:
+                normalized.append(index)
+        if len(normalized) > 1 and normalized[0] == normalized[-1]:
+            normalized.pop()
+        if len(set(normalized)) >= 3:
+            faces.append(tuple(normalized))
+
+    for x_index in range(len(x_positions) - 1):
+        append_side(
+            (
+                bottom_indices[x_index][0],
+                bottom_indices[x_index + 1][0],
+                top_indices[x_index + 1][0],
+                top_indices[x_index][0],
+            )
+        )
+        append_side(
+            (
+                bottom_indices[x_index][-1],
+                top_indices[x_index][-1],
+                top_indices[x_index + 1][-1],
+                bottom_indices[x_index + 1][-1],
+            )
+        )
+    for y_index in range(len(y_positions) - 1):
+        append_side(
+            (
+                bottom_indices[0][y_index],
+                top_indices[0][y_index],
+                top_indices[0][y_index + 1],
+                bottom_indices[0][y_index + 1],
+            )
+        )
+        append_side(
+            (
+                bottom_indices[-1][y_index],
+                bottom_indices[-1][y_index + 1],
+                top_indices[-1][y_index + 1],
+                top_indices[-1][y_index],
+            )
+        )
+    for x_index in range(len(x_positions) - 1):
+        for y_index in range(len(y_positions) - 1):
+            faces.append(
+                (
+                    bottom_indices[x_index][y_index],
+                    bottom_indices[x_index][y_index + 1],
+                    bottom_indices[x_index + 1][y_index + 1],
+                    bottom_indices[x_index + 1][y_index],
+                )
+            )
+
+
 def build_rooftop_escape_crate_mounds(
     visual_collection: bpy.types.Collection,
     collider_collection: bpy.types.Collection,
     architecture_material: bpy.types.Material,
 ) -> dict[str, tuple[str, ...]]:
-    mound_length_scale = 1.24
-    local_crates = (
-        (0.38, -0.55, 0.15, 0.76, 1.00, 0.30, -2.0, "Dark"),
-        (0.38, 0.55, 0.15, 0.76, 1.00, 0.30, 2.0, "Light"),
-        (1.08, -0.55, 0.30, 0.76, 1.00, 0.60, 0.0, "Light"),
-        (1.08, 0.55, 0.30, 0.76, 1.00, 0.60, 0.0, "Gray"),
-        (1.78, -0.55, 0.45, 0.76, 1.00, 0.90, 0.0, "Gray"),
-        (1.78, 0.55, 0.45, 0.76, 1.00, 0.90, 0.0, "Dark"),
-        (2.58, -0.55, 0.60, 0.92, 1.00, 1.20, 0.0, "Dark"),
-        (2.58, 0.55, 0.60, 0.92, 1.00, 1.20, 0.0, "Light"),
-        (0.72, -0.92, 0.18, 0.58, 0.48, 0.36, -5.0, "Gray"),
-        (0.88, 0.94, 0.20, 0.62, 0.46, 0.40, 4.0, "Dark"),
-        (1.48, -0.96, 0.28, 0.64, 0.44, 0.56, 3.0, "Light"),
-        (1.56, 0.95, 0.30, 0.58, 0.46, 0.60, -4.0, "Gray"),
-        (2.28, -0.96, 0.40, 0.66, 0.44, 0.80, -3.0, "Dark"),
-        (2.34, 0.96, 0.42, 0.62, 0.44, 0.84, 5.0, "Light"),
-    )
-    placements = (
-        ("Gym", (37.50, -8.00, 9.60), math.pi),
-        ("School", (-4.00, 12.50, 14.50), 0.0),
-    )
     batches: dict[str, tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]] = {
         key: ([], []) for key in ("Dark", "Light", "Gray")
     }
-    for _site, origin, mound_rotation in placements:
-        transform = Matrix.Translation(Vector(origin)) @ Matrix.Rotation(
-            mound_rotation, 4, "Z"
-        )
-        for u, v, local_z, size_u, size_v, size_z, degrees, color in local_crates:
-            center = transform @ Vector((u * mound_length_scale, v, local_z))
-            vertices, faces = batches[color]
-            append_oriented_box(
-                vertices,
-                faces,
-                tuple(center),
-                (size_u * mound_length_scale, size_v, size_z),
-                mound_rotation + math.radians(degrees),
-            )
+    placements = (
+        Matrix.Translation(Vector((37.65, -7.45, 9.60)))
+        @ Matrix.Rotation(math.pi, 4, "Z"),
+        Matrix.Translation(Vector((-4.20, 12.50, 14.50))),
+    )
+    colors = ("Dark", "Light", "Gray")
+    for placement_index, transform in enumerate(placements):
+        for x_index, (x_minimum, x_maximum) in enumerate(
+            zip(ROOFTOP_CRATE_X_BOUNDS[:-1], ROOFTOP_CRATE_X_BOUNDS[1:], strict=True)
+        ):
+            for y_index, (y_minimum, y_maximum) in enumerate(
+                zip(ROOFTOP_CRATE_Y_BOUNDS[:-1], ROOFTOP_CRATE_Y_BOUNDS[1:], strict=True)
+            ):
+                height = ROOFTOP_CRATE_HEIGHTS[x_index][y_index]
+                neighbor_heights = (
+                    0.0 if x_index == 0 else ROOFTOP_CRATE_HEIGHTS[x_index - 1][y_index],
+                    0.0 if x_index + 1 == len(ROOFTOP_CRATE_HEIGHTS) else ROOFTOP_CRATE_HEIGHTS[x_index + 1][y_index],
+                    0.0 if y_index == 0 else ROOFTOP_CRATE_HEIGHTS[x_index][y_index - 1],
+                    0.0 if y_index + 1 == len(ROOFTOP_CRATE_Y_BOUNDS) - 1 else ROOFTOP_CRATE_HEIGHTS[x_index][y_index + 1],
+                )
+                vertices, faces = batches[
+                    colors[(placement_index + x_index + y_index) % len(colors)]
+                ]
+                append_rooftop_crate_cell(
+                    vertices,
+                    faces,
+                    transform,
+                    x_minimum,
+                    x_maximum,
+                    y_minimum,
+                    y_maximum,
+                    height,
+                    neighbor_heights,
+                )
     for color, (vertices, faces) in batches.items():
         name = f"VIS_B03_RooftopEscapeCrates_{color}"
         mesh = bpy.data.meshes.new(name)
@@ -5420,17 +6603,7 @@ def build_rooftop_escape_crate_mounds(
 
     gym_vertices: list[tuple[float, float, float]] = []
     gym_faces: list[tuple[int, ...]] = []
-    append_xz_profile_prism(
-        gym_vertices,
-        gym_faces,
-        (-9.10, -6.90),
-        (
-            (37.45, 9.60),
-            (33.50, 10.80),
-            (33.05, 10.80),
-            (33.05, 10.76),
-        ),
-    )
+    append_shared_crate_walkable_envelope(gym_vertices, gym_faces, placements[0])
     gym_mesh = bpy.data.meshes.new("COL_B03_GymRoofEscapeCrateRamp")
     gym_mesh.from_pydata(gym_vertices, [], gym_faces)
     gym_mesh.update(calc_edges=True)
@@ -5441,17 +6614,7 @@ def build_rooftop_escape_crate_mounds(
 
     school_vertices: list[tuple[float, float, float]] = []
     school_faces: list[tuple[int, ...]] = []
-    append_xz_profile_prism(
-        school_vertices,
-        school_faces,
-        (11.40, 13.60),
-        (
-            (-4.05, 14.50),
-            (0.35, 15.66),
-            (0.35, 15.70),
-            (-0.10, 15.70),
-        ),
-    )
+    append_shared_crate_walkable_envelope(school_vertices, school_faces, placements[1])
     school_mesh = bpy.data.meshes.new("COL_B03_SchoolRoofEscapeCrateRamp")
     school_mesh.from_pydata(school_vertices, [], school_faces)
     school_mesh.update(calc_edges=True)
@@ -5510,41 +6673,6 @@ def append_sloped_rail_prism(
         ]
     )
 
-
-def build_stair_finish(
-    visual_collection: bpy.types.Collection,
-    nosing_material: bpy.types.Material,
-) -> None:
-    nosing_boxes = []
-    for obj in list(bpy.data.objects):
-        if obj.type != "MESH" or not (
-            obj.name.startswith("VIS_Stairs")
-            or obj.name.startswith("VIS_StairSystem")
-            or obj.name.startswith("VIS_GymStageStair_")
-        ):
-            continue
-        mesh = obj.data
-        for polygon in mesh.polygons:
-            normal = obj.matrix_world.to_3x3() @ polygon.normal
-            if normal.z < 0.98:
-                continue
-            points = [obj.matrix_world @ mesh.vertices[i].co for i in polygon.vertices]
-            x0, x1 = min(p.x for p in points), max(p.x for p in points)
-            y0, y1 = min(p.y for p in points), max(p.y for p in points)
-            z = max(p.z for p in points)
-            if min(x1 - x0, y1 - y0) < 0.04:
-                continue
-            if x1 - x0 > y1 - y0:
-                nosing_boxes.append(((x0, y0, z + 0.006), (x1, min(y0 + 0.06, y1), z + 0.026)))
-            else:
-                nosing_boxes.append(((x0, y0, z + 0.006), (min(x0 + 0.06, x1), y1, z + 0.026)))
-    if nosing_boxes:
-        create_mesh_object(
-            "VIS_B03_StairNosing",
-            nosing_boxes,
-            visual_collection,
-            nosing_material,
-        )
 
 def copy_meshes_into_object(
     name: str,
@@ -5696,12 +6824,12 @@ def create_gym_gallery_stair_nav_source(
         vertices.extend(points)
         faces.append((offset, offset + 1, offset + 2, offset + 3))
 
-    _, north_ramps, _ = gym_gallery_north_transition_geometry()
+    _, north_ramps, _, _ = gym_gallery_north_transition_geometry()
     for ramp in north_ramps:
         append_surface(ramp_top_surface(ramp))
 
     for side in ("West", "East"):
-        _, collider_boxes, side_ramps, _ = gym_gallery_stair_geometry(side)
+        _, collider_boxes, side_ramps, _, _ = gym_gallery_stair_geometry(side)
         for minimum, maximum in collider_boxes:
             append_surface(
                 (
@@ -6083,6 +7211,121 @@ def update_gym_nav_blocker_for_bridge_opening() -> dict[str, int]:
     return {"removed": removed, "added": added}
 
 
+def b06_roof_north_reference_geometry() -> tuple[
+    tuple[tuple[float, float, float], ...],
+    tuple[tuple[int, ...], ...],
+]:
+    x_coordinates = (-12.60, -12.45, -9.00, -6.75, -6.60, 47.40)
+    y_coordinates = (32.50, 38.60, 38.90, 45.35, 45.50)
+    occupied: set[tuple[int, int]] = set()
+    for x_index in range(len(x_coordinates) - 1):
+        x_minimum = x_coordinates[x_index]
+        x_maximum = x_coordinates[x_index + 1]
+        for y_index in range(len(y_coordinates) - 1):
+            y_minimum = y_coordinates[y_index]
+            y_maximum = y_coordinates[y_index + 1]
+            is_south_roof = y_maximum <= 38.60
+            is_connector_cutout_band = (
+                y_minimum >= 38.60
+                and y_maximum <= 38.90
+                and (x_maximum <= -9.00 or x_minimum >= -6.60)
+            )
+            is_stairwell_band = (
+                y_minimum >= 38.90
+                and y_maximum <= 45.35
+                and (x_maximum <= -12.45 or x_minimum >= -6.75)
+            )
+            is_north_border = y_minimum >= 45.35
+            if (
+                is_south_roof
+                or is_connector_cutout_band
+                or is_stairwell_band
+                or is_north_border
+            ):
+                occupied.add((x_index, y_index))
+
+    vertices: list[tuple[float, float, float]] = []
+    vertex_indices: dict[tuple[float, float, float], int] = {}
+    faces: list[tuple[int, ...]] = []
+
+    def vertex_index(coordinate: tuple[float, float, float]) -> int:
+        existing = vertex_indices.get(coordinate)
+        if existing is not None:
+            return existing
+        index = len(vertices)
+        vertices.append(coordinate)
+        vertex_indices[coordinate] = index
+        return index
+
+    def append_face(*coordinates: tuple[float, float, float]) -> None:
+        faces.append(tuple(vertex_index(coordinate) for coordinate in coordinates))
+
+    z_minimum = 14.40
+    z_maximum = 14.50
+    for x_index, y_index in sorted(occupied):
+        x_minimum = x_coordinates[x_index]
+        x_maximum = x_coordinates[x_index + 1]
+        y_minimum = y_coordinates[y_index]
+        y_maximum = y_coordinates[y_index + 1]
+        append_face(
+            (x_minimum, y_maximum, z_minimum),
+            (x_maximum, y_maximum, z_minimum),
+            (x_maximum, y_minimum, z_minimum),
+            (x_minimum, y_minimum, z_minimum),
+        )
+        append_face(
+            (x_minimum, y_minimum, z_maximum),
+            (x_maximum, y_minimum, z_maximum),
+            (x_maximum, y_maximum, z_maximum),
+            (x_minimum, y_maximum, z_maximum),
+        )
+        if (x_index - 1, y_index) not in occupied:
+            append_face(
+                (x_minimum, y_minimum, z_minimum),
+                (x_minimum, y_minimum, z_maximum),
+                (x_minimum, y_maximum, z_maximum),
+                (x_minimum, y_maximum, z_minimum),
+            )
+        if (x_index + 1, y_index) not in occupied:
+            append_face(
+                (x_maximum, y_minimum, z_minimum),
+                (x_maximum, y_maximum, z_minimum),
+                (x_maximum, y_maximum, z_maximum),
+                (x_maximum, y_minimum, z_maximum),
+            )
+        if (x_index, y_index - 1) not in occupied:
+            append_face(
+                (x_minimum, y_minimum, z_minimum),
+                (x_maximum, y_minimum, z_minimum),
+                (x_maximum, y_minimum, z_maximum),
+                (x_minimum, y_minimum, z_maximum),
+            )
+        if (x_index, y_index + 1) not in occupied:
+            append_face(
+                (x_minimum, y_maximum, z_minimum),
+                (x_minimum, y_maximum, z_maximum),
+                (x_maximum, y_maximum, z_maximum),
+                (x_maximum, y_maximum, z_minimum),
+            )
+    return tuple(vertices), tuple(faces)
+
+
+def create_b06_rooftop_nav_reference_sources() -> tuple[str, str]:
+    collider_collection = collection(COL_COLLECTION_NAME)
+    north_vertices, north_faces = b06_roof_north_reference_geometry()
+    north_mesh = bpy.data.meshes.new("TMP_B06_RoofNorthNavSource")
+    north_mesh.from_pydata(north_vertices, [], north_faces)
+    north_mesh.update(calc_edges=True)
+    north = bpy.data.objects.new("TMP_B06_RoofNorthNavSource", north_mesh)
+    collider_collection.objects.link(north)
+    west = create_mesh_object(
+        "TMP_B06_RoofWestNavSource",
+        [((-12.6, -6.7, 14.4), (0.0, 32.5, 14.5))],
+        collider_collection,
+    )
+    return north.name, west.name
+
+
 def build_nav_sources(
     nav_collection: bpy.types.Collection,
     generated_upper_colliders: list[bpy.types.Object],
@@ -6130,11 +7373,11 @@ def build_nav_sources(
         nav_collection,
         {"hs_nav_role": "walkable", "hs_nav_area": "stairs"},
     )
+    rooftop_nav_source_names = create_b06_rooftop_nav_reference_sources()
     copy_meshes_into_object(
         "NAV_Walkable_Rooftop",
         [
-            "COL_Roof_North",
-            "COL_Roof_West",
+            *rooftop_nav_source_names,
             "COL_PoolRaisedDeck_West",
             "COL_PoolRaisedDeck_East",
             "COL_PoolRaisedDeck_North",
@@ -6148,9 +7391,11 @@ def build_nav_sources(
         {"hs_nav_role": "walkable", "hs_nav_area": "ground"},
         additional_boxes=tuple(
             floor_finish_boxes(14.4, WEST_EXTENSION_FLOOR_PANELS_XY)
-            + [((-11.8, -6.7, 14.25), (-8.8, -3.7, 14.4))]
+            + [((-11.8, -6.7, 14.25), (-8.8, -3.5, 14.4))]
         ),
     )
+    for source_name in rooftop_nav_source_names:
+        unlink_and_remove_object(bpy.data.objects[source_name])
     copy_meshes_into_object(
         "NAV_B03_Walkable_GymGallery",
         list(b03_3b_result["gallery_nav_sources"]),
@@ -6345,6 +7590,592 @@ def mesh_component_world_bounds(
     return result
 
 
+def b06_wall_join_target_objects(prefix: str) -> tuple[bpy.types.Object, ...]:
+    exact_names = {
+        f"{prefix}B03_ElevatorShaftShell",
+        f"{prefix}B03_GymExteriorWalls",
+        f"{prefix}B03_GymStageSideWalls",
+        f"{prefix}B03_GymStorageNorthWall",
+        f"{prefix}B03_StairBoundaryCaps_F01",
+        f"{prefix}B06_GymBridgeSideInfill",
+    }
+    target_names = {
+        obj.name
+        for obj in bpy.data.objects
+        if obj.type == "MESH"
+        and (
+            obj.name in exact_names
+            or obj.name.startswith(f"{prefix}Wall_")
+            or obj.name.startswith(f"{prefix}B03_ExteriorWalls_F")
+            or obj.name.startswith(f"{prefix}B03_InteriorWalls_F")
+            or (
+                prefix == "VIS_"
+                and obj.name.startswith("VIS_B03_Interior_F")
+                and obj.name.endswith("_Toilets_Architecture")
+            )
+            or (
+                prefix == "COL_"
+                and obj.name.startswith("COL_B03_Interior_Walls_F")
+                and obj.name.endswith("_Toilets")
+            )
+        )
+    }
+    return tuple(bpy.data.objects[name] for name in sorted(target_names))
+
+
+def b06_floor_owner_components(
+    prefix: str,
+) -> tuple[
+    tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ],
+    ...,
+]:
+    exact_names = {
+        f"{prefix}B03_GymBridgeFloor",
+        f"{prefix}B03_GymBridgeSchoolFloorJoint",
+        f"{prefix}B03_GymGalleryFloor",
+        f"{prefix}B03_WestExtensionFloor_F01",
+        f"{prefix}B06_WestExtensionFloorFinish_F01",
+    }
+    floor_objects = tuple(
+        obj
+        for obj in bpy.data.objects
+        if obj.type == "MESH"
+        and (
+            obj.name in exact_names
+            or obj.name.startswith(f"{prefix}B03_Floor_F")
+            or obj.name.startswith(f"{prefix}Floor_")
+        )
+        and "Accent" not in obj.name
+    )
+    return tuple(
+        (
+            tuple(round(value, 5) for value in minimum),
+            tuple(round(value, 5) for value in maximum),
+        )
+        for obj in sorted(floor_objects, key=lambda item: item.name)
+        for minimum, maximum in mesh_component_world_bounds(obj)
+        if all(maximum[axis] - minimum[axis] > 1.0e-6 for axis in range(3))
+    )
+
+
+def merge_wall_union_cells(
+    x_coordinates: tuple[float, ...],
+    y_coordinates: tuple[float, ...],
+    cells: set[tuple[int, int]],
+) -> list[tuple[float, float, float, float]]:
+    remaining = set(cells)
+    rectangles = []
+    while remaining:
+        start_x, start_y = min(remaining, key=lambda cell: (cell[1], cell[0]))
+        end_x = start_x
+        while (end_x + 1, start_y) in remaining:
+            end_x += 1
+        end_y = start_y
+        while all(
+            (cell_x, end_y + 1) in remaining
+            for cell_x in range(start_x, end_x + 1)
+        ):
+            end_y += 1
+        for cell_y in range(start_y, end_y + 1):
+            for cell_x in range(start_x, end_x + 1):
+                remaining.remove((cell_x, cell_y))
+        rectangles.append(
+            (
+                x_coordinates[start_x],
+                x_coordinates[end_x + 1],
+                y_coordinates[start_y],
+                y_coordinates[end_y + 1],
+            )
+        )
+    return rectangles
+
+
+def replace_owned_voxel_surface(
+    object_name: str,
+    owned_cells: set[tuple[int, int, int]],
+    occupied_cells: set[tuple[int, int, int]],
+    x_coordinates: tuple[float, ...],
+    y_coordinates: tuple[float, ...],
+    z_coordinates: tuple[float, ...],
+) -> bpy.types.Object:
+    vertices: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, int, int, int]] = []
+    vertex_index_by_coordinate: dict[
+        tuple[
+            tuple[float, float, float],
+            tuple[int, int, int],
+        ],
+        int,
+    ] = {}
+
+    x_index = {coordinate: index for index, coordinate in enumerate(x_coordinates)}
+    y_index = {coordinate: index for index, coordinate in enumerate(y_coordinates)}
+    z_index = {coordinate: index for index, coordinate in enumerate(z_coordinates)}
+
+    def local_fan_owner(
+        cell: tuple[int, int, int],
+        coordinate: tuple[float, float, float],
+    ) -> tuple[int, int, int]:
+        coordinate_indices = (
+            x_index[coordinate[0]],
+            y_index[coordinate[1]],
+            z_index[coordinate[2]],
+        )
+        incident_cells = {
+            (candidate_x, candidate_y, candidate_z)
+            for candidate_x in (
+                coordinate_indices[0] - 1,
+                coordinate_indices[0],
+            )
+            for candidate_y in (
+                coordinate_indices[1] - 1,
+                coordinate_indices[1],
+            )
+            for candidate_z in (
+                coordinate_indices[2] - 1,
+                coordinate_indices[2],
+            )
+            if (candidate_x, candidate_y, candidate_z) in owned_cells
+        }
+        connected = {cell}
+        pending = [cell]
+        while pending:
+            current = pending.pop()
+            for candidate in incident_cells - connected:
+                if sum(
+                    abs(current[axis] - candidate[axis]) for axis in range(3)
+                ) == 1:
+                    connected.add(candidate)
+                    pending.append(candidate)
+        return min(connected)
+
+    def vertex_index(
+        cell: tuple[int, int, int],
+        coordinate: tuple[float, float, float],
+    ) -> int:
+        key = (coordinate, local_fan_owner(cell, coordinate))
+        index = vertex_index_by_coordinate.get(key)
+        if index is None:
+            index = len(vertices)
+            vertex_index_by_coordinate[key] = index
+            vertices.append(coordinate)
+        return index
+
+    def append_face(
+        cell: tuple[int, int, int],
+        *coordinates: tuple[float, float, float],
+    ) -> None:
+        faces.append(
+            tuple(vertex_index(cell, coordinate) for coordinate in coordinates)
+        )
+
+    for cell_x, cell_y, cell_z in sorted(owned_cells, key=lambda cell: (cell[2], cell[1], cell[0])):
+        cell = (cell_x, cell_y, cell_z)
+        x0, x1 = x_coordinates[cell_x], x_coordinates[cell_x + 1]
+        y0, y1 = y_coordinates[cell_y], y_coordinates[cell_y + 1]
+        z0, z1 = z_coordinates[cell_z], z_coordinates[cell_z + 1]
+        if (cell_x, cell_y, cell_z - 1) not in occupied_cells:
+            append_face(cell, (x0, y0, z0), (x0, y1, z0), (x1, y1, z0), (x1, y0, z0))
+        if (cell_x, cell_y, cell_z + 1) not in occupied_cells:
+            append_face(cell, (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1))
+        if (cell_x, cell_y - 1, cell_z) not in occupied_cells:
+            append_face(cell, (x0, y0, z0), (x1, y0, z0), (x1, y0, z1), (x0, y0, z1))
+        if (cell_x + 1, cell_y, cell_z) not in occupied_cells:
+            append_face(cell, (x1, y0, z0), (x1, y1, z0), (x1, y1, z1), (x1, y0, z1))
+        if (cell_x, cell_y + 1, cell_z) not in occupied_cells:
+            append_face(cell, (x1, y1, z0), (x0, y1, z0), (x0, y1, z1), (x1, y1, z1))
+        if (cell_x - 1, cell_y, cell_z) not in occupied_cells:
+            append_face(cell, (x0, y1, z0), (x0, y0, z0), (x0, y0, z1), (x0, y1, z1))
+
+    if not faces:
+        raise RuntimeError(f"B06-1共有壁の外周面が空です: {object_name}")
+    return replace_mesh_geometry_with_oriented_faces(object_name, vertices, faces)
+
+
+def merge_wall_cells_to_cuboid_bounds(
+    cells: set[tuple[int, int, int]],
+    x_coordinates: tuple[float, ...],
+    y_coordinates: tuple[float, ...],
+    z_coordinates: tuple[float, ...],
+) -> tuple[
+    tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ],
+    ...,
+]:
+    """共有壁の占有セルを、空洞を横断しない直方体へ正確に分解する。"""
+    remaining = set(cells)
+    result = []
+    while remaining:
+        start_x, start_y, start_z = min(
+            remaining,
+            key=lambda cell: (cell[2], cell[1], cell[0]),
+        )
+        end_x = start_x + 1
+        while (end_x, start_y, start_z) in remaining:
+            end_x += 1
+
+        end_y = start_y + 1
+        while all(
+            (cell_x, end_y, start_z) in remaining
+            for cell_x in range(start_x, end_x)
+        ):
+            end_y += 1
+
+        end_z = start_z + 1
+        while all(
+            (cell_x, cell_y, end_z) in remaining
+            for cell_y in range(start_y, end_y)
+            for cell_x in range(start_x, end_x)
+        ):
+            end_z += 1
+
+        for cell_z in range(start_z, end_z):
+            for cell_y in range(start_y, end_y):
+                for cell_x in range(start_x, end_x):
+                    remaining.remove((cell_x, cell_y, cell_z))
+        result.append(
+            (
+                (
+                    x_coordinates[start_x],
+                    y_coordinates[start_y],
+                    z_coordinates[start_z],
+                ),
+                (
+                    x_coordinates[end_x],
+                    y_coordinates[end_y],
+                    z_coordinates[end_z],
+                ),
+            )
+        )
+    return tuple(result)
+
+
+def rebuild_shared_wall_planar_union(prefix: str) -> int:
+    targets = b06_wall_join_target_objects(prefix)
+    source_components = [
+        (
+            obj.name,
+            tuple(round(value, 5) for value in minimum),
+            tuple(round(value, 5) for value in maximum),
+        )
+        for obj in targets
+        for minimum, maximum in mesh_component_world_bounds(obj)
+        if all(maximum[axis] - minimum[axis] > 1.0e-6 for axis in range(3))
+    ]
+    if not source_components:
+        raise RuntimeError(f"B06-1壁平面の2D結合対象がありません: {prefix}")
+    floor_owner_components = b06_floor_owner_components(prefix)
+    coordinate_components = tuple(
+        (minimum, maximum)
+        for _, minimum, maximum in source_components
+    ) + floor_owner_components
+
+    x_coordinates = tuple(
+        sorted(
+            {
+                coordinate
+                for minimum, maximum in coordinate_components
+                for coordinate in (minimum[0], maximum[0])
+            }
+        )
+    )
+    y_coordinates = tuple(
+        sorted(
+            {
+                coordinate
+                for minimum, maximum in coordinate_components
+                for coordinate in (minimum[1], maximum[1])
+            }
+        )
+    )
+    z_coordinates = tuple(
+        sorted(
+            {
+                coordinate
+                for minimum, maximum in coordinate_components
+                for coordinate in (minimum[2], maximum[2])
+            }
+        )
+    )
+    x_index = {coordinate: index for index, coordinate in enumerate(x_coordinates)}
+    y_index = {coordinate: index for index, coordinate in enumerate(y_coordinates)}
+    z_index = {coordinate: index for index, coordinate in enumerate(z_coordinates)}
+    floor_owner_cells: set[tuple[int, int, int]] = set()
+    for minimum, maximum in floor_owner_components:
+        for cell_z in range(z_index[minimum[2]], z_index[maximum[2]]):
+            for cell_y in range(y_index[minimum[1]], y_index[maximum[1]]):
+                for cell_x in range(x_index[minimum[0]], x_index[maximum[0]]):
+                    floor_owner_cells.add((cell_x, cell_y, cell_z))
+    owner_by_cell: dict[tuple[int, int, int], str] = {}
+    shared_cell_count = 0
+    for object_name, minimum, maximum in sorted(source_components):
+        for cell_z in range(z_index[minimum[2]], z_index[maximum[2]]):
+            for cell_y in range(y_index[minimum[1]], y_index[maximum[1]]):
+                for cell_x in range(x_index[minimum[0]], x_index[maximum[0]]):
+                    cell = (cell_x, cell_y, cell_z)
+                    if cell in floor_owner_cells:
+                        continue
+                    if cell in owner_by_cell:
+                        shared_cell_count += 1
+                        continue
+                    owner_by_cell[cell] = object_name
+
+    # 直交する壁箱が格子の対角だけで接する箇所は、外周化すると壁厚内に
+    # 一段のへこみが残る。扉・開口を塞がないよう、壁厚以下の空セルが
+    # 直交二辺の壁セルに挟まれる場合だけ一度だけ充填し、直角面へ正規化する。
+    occupied_before_corner_fill = set(owner_by_cell)
+    candidate_cells: set[tuple[int, int, int]] = set()
+    for cell_x, cell_y, cell_z in occupied_before_corner_fill:
+        for offset_x, offset_y in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            candidate_x = cell_x + offset_x
+            candidate_y = cell_y + offset_y
+            if (
+                0 <= candidate_x < len(x_coordinates) - 1
+                and 0 <= candidate_y < len(y_coordinates) - 1
+            ):
+                candidate_cells.add((candidate_x, candidate_y, cell_z))
+    corner_fill_count = 0
+    perpendicular_pairs = (
+        ((-1, 0), (0, -1)),
+        ((-1, 0), (0, 1)),
+        ((1, 0), (0, -1)),
+        ((1, 0), (0, 1)),
+    )
+
+    def nearest_wall_owner(
+        cell_x: int,
+        cell_y: int,
+        cell_z: int,
+        direction_x: int,
+        direction_y: int,
+    ) -> str | None:
+        """壁厚以内の空セルを越えた最初の壁所有者を返す。"""
+        probe_x = cell_x + direction_x
+        probe_y = cell_y + direction_y
+        gap_width = 0.0
+        while (
+            0 <= probe_x < len(x_coordinates) - 1
+            and 0 <= probe_y < len(y_coordinates) - 1
+        ):
+            probe = (probe_x, probe_y, cell_z)
+            if probe in floor_owner_cells:
+                return None
+            owner = owner_by_cell.get(probe)
+            if owner is not None:
+                return owner
+            if direction_x != 0:
+                gap_width += x_coordinates[probe_x + 1] - x_coordinates[probe_x]
+            else:
+                gap_width += y_coordinates[probe_y + 1] - y_coordinates[probe_y]
+            if gap_width > WALL_THICKNESS + 1.0e-5:
+                return None
+            probe_x += direction_x
+            probe_y += direction_y
+        return None
+
+    for cell_x, cell_y, cell_z in sorted(candidate_cells):
+        cell = (cell_x, cell_y, cell_z)
+        if cell in occupied_before_corner_fill or cell in floor_owner_cells:
+            continue
+        if (
+            x_coordinates[cell_x + 1] - x_coordinates[cell_x]
+            > WALL_THICKNESS + 1.0e-5
+            or y_coordinates[cell_y + 1] - y_coordinates[cell_y]
+            > WALL_THICKNESS + 1.0e-5
+        ):
+            continue
+        neighbor_owners = None
+        for (first_x, first_y), (second_x, second_y) in perpendicular_pairs:
+            first_owner = nearest_wall_owner(
+                cell_x,
+                cell_y,
+                cell_z,
+                first_x,
+                first_y,
+            )
+            second_owner = nearest_wall_owner(
+                cell_x,
+                cell_y,
+                cell_z,
+                second_x,
+                second_y,
+            )
+            if first_owner is not None and second_owner is not None:
+                neighbor_owners = (first_owner, second_owner)
+                break
+        if neighbor_owners is None:
+            continue
+        fill_owner = min(neighbor_owners)
+        owner_by_cell[cell] = fill_owner
+        corner_fill_count += 1
+
+    cells_by_owner: dict[str, set[tuple[int, int, int]]] = {
+        obj.name: set() for obj in targets
+    }
+    for cell, object_name in owner_by_cell.items():
+        cells_by_owner[object_name].add(cell)
+    if prefix == "COL_":
+        for object_name, cells in cells_by_owner.items():
+            if cells:
+                B06_WALL_SPATIAL_COMPONENT_BOUNDS[object_name] = (
+                    merge_wall_cells_to_cuboid_bounds(
+                        cells,
+                        x_coordinates,
+                        y_coordinates,
+                        z_coordinates,
+                    )
+                )
+    occupied_cells = set(owner_by_cell)
+    removed_redundant_objects = 0
+    for object_name, cells in cells_by_owner.items():
+        if not cells:
+            # 他の壁Objectが全Volumeを所有する完全重複Objectは残さない。
+            # 空Meshや同一平面の二重所有へ置き換えず、単一所有者へ統合する。
+            unlink_and_remove_object(bpy.data.objects[object_name])
+            removed_redundant_objects += 1
+            continue
+        # 表示壁は全Objectを通じた外周面だけを一意に所有する。
+        # Colliderは各Objectの非重複Volumeを閉じ、隣接境界では体積を重ねない。
+        surface_occupied_cells = (
+            occupied_cells | floor_owner_cells if prefix == "VIS_" else cells
+        )
+        replace_owned_voxel_surface(
+            object_name,
+            cells,
+            surface_occupied_cells,
+            x_coordinates,
+            y_coordinates,
+            z_coordinates,
+        )
+    rebuilt_object_count = len(cells_by_owner) - removed_redundant_objects
+    return (
+        rebuilt_object_count
+        + removed_redundant_objects
+        + shared_cell_count
+        + corner_fill_count
+    )
+
+
+def b06_spatial_component_world_bounds(
+    obj: bpy.types.Object,
+) -> list[tuple[Vector, Vector]]:
+    stored_bounds = B06_WALL_SPATIAL_COMPONENT_BOUNDS.get(obj.name)
+    if stored_bounds is None:
+        return mesh_component_world_bounds(obj)
+    return [
+        (Vector(minimum), Vector(maximum))
+        for minimum, maximum in stored_bounds
+    ]
+
+
+def synchronize_visual_wall_sources_from_colliders() -> int:
+    """閉じたCollider壁体積を、表示壁の共有面統合入力へ同期する。"""
+    reference = bpy.data.objects.get("VIS_B03_ExteriorWalls_F01")
+    if reference is None or reference.type != "MESH":
+        raise RuntimeError("B06-1表示壁の復元先Collectionがありません")
+    if not reference.users_collection or not reference.data.materials:
+        raise RuntimeError("B06-1表示壁のCollectionまたはMaterialがありません")
+    target_collection = reference.users_collection[0]
+    wall_material = reference.data.materials[0]
+    synchronized = 0
+    for collider in b06_wall_join_target_objects("COL_"):
+        if not collider.name.startswith("COL_Wall_"):
+            continue
+        visual_name = collider.name.replace("COL_", "VIS_", 1)
+        visual = bpy.data.objects.get(visual_name)
+        if visual is None:
+            visual = collider.copy()
+            visual.name = visual_name
+            target_collection.objects.link(visual)
+        elif visual.type != "MESH":
+            raise RuntimeError(f"B06-1表示壁がMeshではありません: {visual_name}")
+        old_mesh = visual.data
+        visual.data = collider.data.copy()
+        visual.data.name = visual_name
+        visual.matrix_world = collider.matrix_world.copy()
+        visual.data.materials.clear()
+        visual.data.materials.append(wall_material)
+        if old_mesh.users == 0:
+            bpy.data.meshes.remove(old_mesh)
+        synchronized += 1
+    return synchronized
+
+
+def rebuild_b06_wall_corner_joins() -> dict[str, int]:
+    stair_boundary_cap_boxes = [
+        ((-12.45, 2.35, 3.0), (-3.35, 2.65, 3.6)),
+        ((-12.45, 32.35, 3.0), (-3.35, 32.65, 3.6)),
+        ((41.25, 36.65, 3.0), (41.55, 45.35, 3.6)),
+        ((-6.75, 38.65, 3.0), (-6.45, 45.35, 3.6)),
+    ]
+    for prefix in ("VIS_", "COL_"):
+        replace_existing_boxes(
+            f"{prefix}B03_StairBoundaryCaps_F01",
+            stair_boundary_cap_boxes,
+        )
+    synchronize_visual_wall_sources_from_colliders()
+    result = {
+        "visual": rebuild_shared_wall_planar_union("VIS_"),
+        "collider": rebuild_shared_wall_planar_union("COL_"),
+    }
+    apply_architecture_swatch_uv(
+        tuple(
+            f"VIS_B03_Interior_F{floor:02d}_Toilets_Architecture"
+            for floor in range(1, 5)
+        ),
+        "wall",
+    )
+    if result["visual"] == 0 or result["collider"] == 0:
+        raise RuntimeError(f"B06-1壁角の共有接合面を生成できません: {result}")
+    return result
+
+
+def rebuild_interior_nav_blocker_from_colliders() -> int:
+    dynamic_variant_collider_names = {
+        f"COL_B03_Interior_{room_name}"
+        for room_name in ROOM_VARIANT_AUTHOR_NAMES
+    }
+    sources = [
+        obj
+        for obj in sorted(bpy.data.objects, key=lambda candidate: candidate.name)
+        if obj.type == "MESH"
+        and obj.name.startswith("COL_B03_Interior_")
+        and obj.name not in dynamic_variant_collider_names
+    ]
+    vertices: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    for source in sources:
+        offset = len(vertices)
+        vertices.extend(
+            tuple(source.matrix_world @ vertex.co)
+            for vertex in source.data.vertices
+        )
+        faces.extend(
+            tuple(offset + index for index in polygon.vertices)
+            for polygon in source.data.polygons
+        )
+    replace_mesh_geometry_with_oriented_faces(
+        "NAV_Blocker_Interiors",
+        vertices,
+        faces,
+    )
+    return len(sources)
+
+
+def rebuild_b06_storey_bands() -> dict[str, int]:
+    counts = {}
+    for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
+        boxes = storey_band_boxes(floor, base_z)
+        replace_existing_boxes(f"VIS_B03_StoreyBand_F{floor:02d}", boxes)
+        counts[f"f{floor:02d}"] = len(boxes)
+    return counts
+
+
 def is_broad_horizontal_support(
     minimum: Vector,
     maximum: Vector,
@@ -6424,7 +8255,7 @@ def build_bit_flight_obstacle_sources(
         obstacle_boxes = []
         center_height = (minimum_center_height + maximum_center_height) / 2.0
         for collider in colliders:
-            for minimum, maximum in mesh_component_world_bounds(collider):
+            for minimum, maximum in b06_spatial_component_world_bounds(collider):
                 if (
                     minimum.z - BIT_FLIGHT_SAFETY_ENVELOPE_METERS
                     > center_height
@@ -6729,6 +8560,41 @@ def normalize_export_meshes(export_collection: bpy.types.Collection) -> None:
         if any(abs(value - 1.0) > 1e-8 for value in obj.scale):
             obj.data.transform(Matrix.Diagonal((*obj.scale, 1.0)))
             obj.scale = (1.0, 1.0, 1.0)
+        mesh = bmesh.new()
+        mesh.from_mesh(obj.data)
+        degenerate_faces = [face for face in mesh.faces if face.calc_area() <= 1.0e-10]
+        if degenerate_faces:
+            was_closed = all(len(edge.link_faces) == 2 for edge in mesh.edges)
+            bmesh.ops.dissolve_degenerate(
+                mesh,
+                dist=1.0e-10,
+                edges=list(mesh.edges),
+            )
+            remaining_degenerate_faces = [
+                face for face in mesh.faces if face.calc_area() <= 1.0e-10
+            ]
+            if remaining_degenerate_faces:
+                bmesh.ops.delete(
+                    mesh,
+                    geom=remaining_degenerate_faces,
+                    context="FACES",
+                )
+            if was_closed:
+                boundary_edges = [
+                    edge for edge in mesh.edges if len(edge.link_faces) == 1
+                ]
+                if boundary_edges:
+                    bmesh.ops.holes_fill(mesh, edges=boundary_edges, sides=0)
+            loose_edges = [edge for edge in mesh.edges if not edge.link_faces]
+            if loose_edges:
+                bmesh.ops.delete(mesh, geom=loose_edges, context="EDGES")
+            loose_vertices = [vertex for vertex in mesh.verts if not vertex.link_edges]
+            if loose_vertices:
+                bmesh.ops.delete(mesh, geom=loose_vertices, context="VERTS")
+            bmesh.ops.recalc_face_normals(mesh, faces=list(mesh.faces))
+            mesh.to_mesh(obj.data)
+            obj.data.update()
+        mesh.free()
 
 
 def apply_architecture_swatch_uv(
@@ -7183,10 +9049,6 @@ def main() -> None:
     glass_material = make_material(
         "MAT_B03_WindowGlass", (0.56, 0.78, 0.86, 0.28), roughness=0.18, alpha_blend=True
     )
-    nosing_material = make_material(
-        "MAT_B03_StairNosing", (0.84, 0.78, 0.62, 1.0), roughness=0.45
-    )
-
     upper_colliders = build_school_exterior(
         specs, visual_collection, collider_collection, wall_material
     )
@@ -7253,7 +9115,6 @@ def main() -> None:
     bpy.context.scene["b03_2_interior_result"] = json.dumps(
         interior_result, ensure_ascii=False, sort_keys=True
     )
-    build_stair_finish(visual_collection, nosing_material)
     build_nav_sources(
         nav_collection,
         upper_colliders,
@@ -7261,6 +9122,12 @@ def main() -> None:
         b03_3b_result,
         escape_mound_result,
     )
+    # 表示壁・Colliderを共有境界Meshへ変換する。
+    wall_corner_joins = rebuild_b06_wall_corner_joins()
+    # 色帯は、共有境界へ統合した出力壁面の法線側を意味分類して生成する。
+    # 元の箱境界や生成履歴から壁面を推測しない。
+    storey_band_segments = rebuild_b06_storey_bands()
+    rebuilt_stair_visuals = rebuild_first_transition_stair_visuals()
     interactive_result = build_school_interactive_assets(
         visual_collection,
         collider_collection,
@@ -7289,14 +9156,40 @@ def main() -> None:
         semantic_collection,
         architecture_material,
     )
+    # すべての資産生成が完了した最終Collider外殻を人物Nav blockerへ複製する。
+    # これより後では形状を生成せず、旧AABB近似や生成順依存へ戻さない。
+    interior_nav_blocker_boxes = rebuild_interior_nav_blocker_from_colliders()
+    bpy.context.scene["b06_1_structure_result"] = json.dumps(
+        {
+            "wall_corner_joins": wall_corner_joins,
+            "interior_nav_blocker_boxes": interior_nav_blocker_boxes,
+            "storey_band_segments": storey_band_segments,
+            "rebuilt_stair_visuals": rebuilt_stair_visuals,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
     normalize_export_meshes(export_collection)
     material_result = consolidate_school_materials(export_collection)
     apply_architecture_swatch_uv(
         (
             "VIS_B03_GymBridgeFloor",
             "VIS_B03_GymBridgeSchoolFloorJoint",
+            "VIS_B03_GymRoofRamp",
         ),
         "gym_floor",
+    )
+    apply_architecture_swatch_uv(
+        (
+            "VIS_B06_WestExtensionFloorFinish_F01",
+            "VIS_B03_WestExtensionFloor_F01",
+            "VIS_Floor_CorridorCorner",
+        ),
+        "floor",
+    )
+    apply_architecture_swatch_uv(
+        ("VIS_B06_ElevatorCallPanel_F01",),
+        "elevator_wait",
     )
     apply_architecture_swatch_uv(
         (
@@ -7304,6 +9197,12 @@ def main() -> None:
             "VIS_B03_GymBridgeWindowFrames",
             "VIS_B03_GymRoofGapWall",
             "VIS_B03_GymRoofRampUnderfill",
+            "VIS_B03_GymRoofRampSideCladding",
+            "VIS_B03_StairBoundaryCaps_F01",
+            "VIS_B03_ElevatorShaftShell",
+            "VIS_B06_StairFloorEdgeCladding_South",
+            "VIS_B06_StairFloorEdgeCladding_North",
+            "VIS_B06_StairFloorEdgeCladding_West",
         ),
         "wall",
     )
@@ -7315,6 +9214,20 @@ def main() -> None:
         (
             "VIS_B03_GymGalleryGuards",
             "VIS_B03_GymRoofConnectionGuards",
+        ),
+        "trim",
+    )
+    apply_architecture_swatch_uv(
+        tuple(
+            sorted(
+                obj.name
+                for obj in bpy.data.objects
+                if obj.name.startswith("VIS_B03_StairNosing_")
+                or obj.name in {
+                    "VIS_B03_GymGalleryStairNosing",
+                    "VIS_B03_GymStageStairNosing",
+                }
+            )
         ),
         "trim",
     )

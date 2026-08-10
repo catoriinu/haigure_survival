@@ -532,9 +532,10 @@ export const runBitFlightAgentTests =
 
     results.push(
       executeTest(
-        "NavMesh中間境界点を手前から通過しpolygonRef補正を起こさない",
+        "NavMesh中間境界で位置とpolygonRefを同期して次フレームへ進む",
         () => {
-          const invalidBoundaryStarts: Vector3[] = [];
+          const synchronizedBoundaryStarts: Vector3[] = [];
+          const boundaryConstrainCalls: string[] = [];
           const fixture = createAgentFixture(
             Object.freeze([routeAcrossSurfaceBoundary]),
             () => false,
@@ -542,6 +543,10 @@ export const runBitFlightAgentTests =
             true,
             (current, targetPosition, heightMode) => {
               const currentPosition = getBitFlightWorldPosition(current);
+              boundaryConstrainCalls.push(
+                `${currentPosition.x.toFixed(6)}:poly${current.surface.polygonRef}` +
+                  `->${targetPosition.x.toFixed(6)}`
+              );
               if (
                 current.surface.polygonRef ===
                   boundaryWaypoint.surface.polygonRef &&
@@ -550,14 +555,7 @@ export const runBitFlightAgentTests =
                   getBitFlightWorldPosition(boundaryWaypoint)
                 ) <= 1e-12
               ) {
-                invalidBoundaryStarts.push(currentPosition.clone());
-                return createLocation(
-                  zoneA,
-                  bandA,
-                  targetPosition.add(new Vector3(0.07, 0, 0)),
-                  heightMode,
-                  boundaryWaypoint.surface.polygonRef
-                );
+                synchronizedBoundaryStarts.push(currentPosition.clone());
               }
               return createLocation(
                 zoneA,
@@ -584,8 +582,12 @@ export const runBitFlightAgentTests =
             const secondPosition = secondSnapshot.position?.clone() ?? null;
             const secondPolygonRef =
               secondSnapshot.location?.surface.polygonRef ?? null;
-            let finalSnapshot = secondSnapshot;
-            let updateCount = 2;
+            const thirdSnapshot = updateAgent(fixture.agent, 0.03, 1);
+            const thirdPosition = thirdSnapshot.position?.clone() ?? null;
+            const thirdPolygonRef =
+              thirdSnapshot.location?.surface.polygonRef ?? null;
+            let finalSnapshot = thirdSnapshot;
+            let updateCount = 3;
             while (finalSnapshot.state === "surface" && updateCount < 16) {
               finalSnapshot = updateAgent(fixture.agent, 0.03, 1);
               updateCount += 1;
@@ -599,11 +601,15 @@ export const runBitFlightAgentTests =
                 firstPosition !== null &&
                 Math.abs(firstPosition.x - 0.03) <= 1e-12 &&
                 firstPolygonRef === boundaryStart.surface.polygonRef &&
-                firstSnapshot.surfacePointIndex === 2 &&
+                firstSnapshot.surfacePointIndex === 1 &&
                 secondPosition !== null &&
-                Math.abs(secondPosition.x - 0.06) <= 1e-12 &&
+                Math.abs(secondPosition.x - 0.05) <= 1e-12 &&
                 secondPolygonRef === boundaryWaypoint.surface.polygonRef &&
-                invalidBoundaryStarts.length === 0 &&
+                secondSnapshot.surfacePointIndex === 2 &&
+                thirdPosition !== null &&
+                Math.abs(thirdPosition.x - 0.08) <= 1e-12 &&
+                thirdPolygonRef === boundaryWaypoint.surface.polygonRef &&
+                synchronizedBoundaryStarts.length === 1 &&
                 finalSnapshot.state === "arrived" &&
                 finalSnapshot.position?.equals(destinationPosition) === true &&
                 finalSnapshot.location?.surface.polygonRef ===
@@ -612,7 +618,9 @@ export const runBitFlightAgentTests =
                 `accepted=${routeAccepted} / ` +
                 `first=${firstPosition?.toString() ?? "none"}:poly${firstPolygonRef ?? "none"} / ` +
                 `second=${secondPosition?.toString() ?? "none"}:poly${secondPolygonRef ?? "none"} / ` +
-                `invalidBoundaryStarts=${invalidBoundaryStarts.length} / ` +
+                `third=${thirdPosition?.toString() ?? "none"}:poly${thirdPolygonRef ?? "none"} / ` +
+                `synchronizedBoundaryStarts=${synchronizedBoundaryStarts.length} / ` +
+                `constrain=${boundaryConstrainCalls.join(",")} / ` +
                 `final=${finalSnapshot.state}:` +
                 `${finalSnapshot.position?.toString() ?? "none"}:` +
                 `poly${finalSnapshot.location?.surface.polygonRef ?? "none"} / ` +

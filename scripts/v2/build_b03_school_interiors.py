@@ -323,10 +323,10 @@ TOILET_COMMON_OPENING = (-6.6, 5.4)
 TOILET_FRONT_WALL_Y = 38.5
 TOILET_FRONT_WALL_DEPTH = 0.30
 TOILET_FRONT_WALL_SPANS = (
-    (-6.6, -5.4),
+    (-6.75, -5.4),
     (-4.2, -2.1),
     (-2.1, -0.9),
-    (0.3, 2.4),
+    (0.3, 2.55),
 )
 TOILET_FRONT_DOOR_OPENINGS = (
     (-5.4, -4.2),

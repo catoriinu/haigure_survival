@@ -532,13 +532,31 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
       }
       const targetPosition = getBitFlightWorldPosition(target);
       const distance = Vector3.Distance(this.position, targetPosition);
+      const targetChangesSurfaceOwner =
+        isIntermediatePoint &&
+        this.location.surface.polygonRef !== target.surface.polygonRef;
       if (distance <= this.config.waypointTolerance) {
-        if (!isIntermediatePoint) {
-          this.location = cloneBitFlightLocation(target);
-          this.position = targetPosition;
+        if (targetChangesSurfaceOwner) {
+          if (speed === 0 || remainingSeconds === 0) {
+            this.state = "surface";
+            return { remainingSeconds, completed: false };
+          }
+          if (distance <= speed * remainingSeconds) {
+            this.location = cloneBitFlightLocation(target);
+            this.position = targetPosition;
+            remainingSeconds -= distance / speed;
+            this.surfacePointIndex += 1;
+            this.state = "surface";
+            return { remainingSeconds, completed: false };
+          }
+        } else {
+          if (!isIntermediatePoint) {
+            this.location = cloneBitFlightLocation(target);
+            this.position = targetPosition;
+          }
+          this.surfacePointIndex += 1;
+          continue;
         }
-        this.surfacePointIndex += 1;
-        continue;
       }
       if (speed === 0 || remainingSeconds === 0) {
         this.state = "surface";
@@ -546,9 +564,10 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
       }
 
       // 中間点はNavMesh面の境界上なので、許容差内の面側から次の点へ進む。
-      const approachDistance = isIntermediatePoint
+      const approachDistance = isIntermediatePoint && !targetChangesSurfaceOwner
         ? distance - this.config.waypointTolerance * 0.5
         : distance;
+      const canReachTarget = distance <= speed * remainingSeconds;
       const movementDistance = Math.min(
         approachDistance,
         speed * remainingSeconds
@@ -579,6 +598,22 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
       }
       if (!sameBand(this.location, constrained)) {
         throw new Error("帯内移動拘束結果が別の飛行帯へ移動しました。");
+      }
+
+      if (
+        targetChangesSurfaceOwner &&
+        canReachTarget &&
+        constrained.surface.polygonRef === target.surface.polygonRef
+      ) {
+        this.facingDirection = targetPosition
+          .subtract(this.position)
+          .normalize();
+        this.location = cloneBitFlightLocation(target);
+        this.position = targetPosition;
+        remainingSeconds -= distance / speed;
+        this.surfacePointIndex += 1;
+        this.state = "surface";
+        return { remainingSeconds, completed: false };
       }
 
       const constrainedPosition = getBitFlightWorldPosition(constrained);
@@ -620,6 +655,17 @@ class RouteFollowingBitFlightAgent implements BitFlightAgent {
         Vector3.Distance(this.position, targetPosition) <=
         this.config.waypointTolerance
       ) {
+        if (targetChangesSurfaceOwner && canReachTarget) {
+          this.location = cloneBitFlightLocation(target);
+          this.position = targetPosition;
+          remainingSeconds -=
+            (distance - movementDistance) / speed;
+          this.surfacePointIndex += 1;
+          return { remainingSeconds, completed: false };
+        }
+        if (targetChangesSurfaceOwner) {
+          return { remainingSeconds, completed: false };
+        }
         if (!isIntermediatePoint) {
           this.location = cloneBitFlightLocation(target);
           this.position = targetPosition;

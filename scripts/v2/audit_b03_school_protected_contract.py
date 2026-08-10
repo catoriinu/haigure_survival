@@ -54,6 +54,7 @@ T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 T05_GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 T05_GENERATOR_VERSION = "b03-3c-interactive-assets-v10"
 T06_GENERATOR_VERSION = "t06-2-npc-spawn-bias-v2"
+B06_GENERATOR_VERSION = "b06-1-school-structure-polish-v22"
 T04_ALLOWED_MISSING_EXACT_NAMES = {
     "COL_B03_Prop_Locker_Changing_F_01",
     "COL_B03_Prop_Locker_Changing_F_02",
@@ -227,7 +228,6 @@ T05_ALLOWED_NEW_EXACT_NAMES = {
     "VOL_NavigationArea_Upper02",
     "VOL_NavigationArea_Upper03",
     "COL_B03_ElevatorShaftShell",
-    "COL_B03_ElevatorStairWall",
     "COL_B03_GymBridgeEnvelope",
     "COL_B03_GymBridgeCeiling",
     "COL_B03_GymBridgeFloor",
@@ -344,6 +344,57 @@ T06_ALLOWED_NEW_EXACT_NAMES = {
     "VOL_BitSpawn_InteriorF4",
     "VOL_BitSpawn_RoofFlight",
 }
+B06_ALLOWED_CHANGED_EXACT_NAMES = {
+    "COL_B03_GymStorageNorthWall",
+    "COL_Roof_North",
+    "COL_Roof_West",
+    "COL_StairRampUpper_NW",
+    "COL_Wall_Classroom1_Corridor_1",
+    "COL_Wall_Classroom1_Corridor_2",
+    "COL_Wall_Classroom1_Corridor_3",
+    "COL_Wall_Classroom2_Corridor_1",
+    "COL_Wall_Classroom2_Corridor_2",
+    "COL_Wall_Classroom2_Corridor_3",
+    "COL_Wall_Classroom3_Corridor_1",
+    "COL_Wall_Classroom3_Corridor_2",
+    "COL_Wall_Classroom3_Corridor_3",
+    "COL_Wall_Classroom3_North",
+    "COL_Wall_ClassroomCross_1",
+    "COL_Wall_Lintel_ClassroomDoor_01",
+    "COL_Wall_Lintel_ClassroomDoor_02",
+    "COL_Wall_Lintel_SpecialDoor_01",
+    "COL_Wall_Lintel_SpecialDoor_02",
+    "COL_Wall_Lintel_SpecialDoor_03",
+    "COL_Wall_Lintel_SpecialDoor_04",
+    "COL_Wall_Lintel_SpecialRoomWest_Front",
+    "COL_Wall_Lintel_SpecialRoomWest_Rear",
+    "COL_Wall_NorthEntry_Special1",
+    "COL_Wall_SpecialRoomWest_CorridorClosed_North",
+    "COL_Wall_SpecialRoomWest_CorridorClosed_South",
+    "COL_Wall_Special_Divider",
+    "COL_Wall_Special_S1A",
+    "COL_Wall_Special_S1B",
+    "COL_Wall_Special_S1C",
+    "COL_Wall_Special_S2A",
+    "COL_Wall_Special_S2B",
+    "COL_Wall_Special_S2C",
+    "COL_Wall_StairNE_West",
+    "COL_Wall_Toilet_Divider",
+    "COL_Wall_Toilet_East",
+    "COL_Wall_Toilet_West",
+    "NAV_Walkable_Rooftop",
+}
+B06_ALLOWED_MISSING_EXACT_NAMES = {"COL_RooftopStairExitRamp"}
+B06_ALLOWED_NEW_EXACT_NAMES = {"COL_B06_GymBridgeSideInfill"}
+B05_ALLOWED_NEW_PREFIXES = (
+    "MRK_BroadcastConsole_",
+    "MRK_MapElevatorLanding_",
+    "MRK_MapStairLanding_",
+    "MRK_MissionAnchor_",
+    "VOL_BroadcastConsoleTarget_",
+    "VOL_LocationArea_",
+    "VOL_MissionLocation_",
+)
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -447,10 +498,15 @@ def compare_baseline() -> None:
     correction_version = bpy.context.scene.get(T04_CORRECTION_VERSION_PROPERTY)
     generator_version = bpy.context.scene.get(T05_GENERATOR_VERSION_PROPERTY)
     t04_enabled = correction_version == T04_CORRECTION_VERSION
-    t06_enabled = generator_version == T06_GENERATOR_VERSION
+    b06_enabled = generator_version == B06_GENERATOR_VERSION
+    t06_enabled = generator_version in {
+        T06_GENERATOR_VERSION,
+        B06_GENERATOR_VERSION,
+    }
     t05_enabled = generator_version in {
         T05_GENERATOR_VERSION,
         T06_GENERATOR_VERSION,
+        B06_GENERATOR_VERSION,
     }
     baseline_aperture_endpoints = {
         name
@@ -482,6 +538,15 @@ def compare_baseline() -> None:
         allowed_change_names.discard("VOL_BitSpawn_Courtyard")
         allowed_missing_names.update(T06_ALLOWED_MISSING_EXACT_NAMES)
         allowed_new_names.update(T06_ALLOWED_NEW_EXACT_NAMES)
+    if b06_enabled:
+        allowed_change_names.update(B06_ALLOWED_CHANGED_EXACT_NAMES)
+        allowed_missing_names.update(B06_ALLOWED_MISSING_EXACT_NAMES)
+        allowed_new_names.update(B06_ALLOWED_NEW_EXACT_NAMES)
+        allowed_new_names.update(
+            name
+            for name in current
+            if name.startswith(B05_ALLOWED_NEW_PREFIXES)
+        )
     expected_allowed_changes = sorted(allowed_change_names)
     expected_allowed_missing = sorted(allowed_missing_names)
     expected_allowed_new = sorted(allowed_new_names)
@@ -547,6 +612,7 @@ def compare_baseline() -> None:
                 "t04_contract": t04_enabled,
                 "t05_contract": t05_enabled,
                 "t06_contract": t06_enabled,
+                "b06_contract": b06_enabled,
                 "allowed_missing": len(allowed_missing),
                 "allowed_changed": len(allowed_changed),
                 "allowed_new": len(allowed_new),

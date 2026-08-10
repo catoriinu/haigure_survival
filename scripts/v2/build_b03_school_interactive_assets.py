@@ -1256,12 +1256,12 @@ def _build_center_opening_elevator_door(
     )
 
     panel_specs = (
-        ("LeftOuter", -0.525, -0.020, -0.875),
-        ("LeftInner", -0.175, 0.020, -0.875),
-        ("RightInner", 0.175, 0.020, 0.875),
-        ("RightOuter", 0.525, -0.020, 0.875),
+        ("LeftOuter", -0.600, -0.020, -1.000),
+        ("LeftInner", -0.200, 0.020, -1.000),
+        ("RightInner", 0.200, 0.020, 1.000),
+        ("RightOuter", 0.600, -0.020, 1.000),
     )
-    panel_half_width = 0.175
+    panel_half_width = 0.200
     panel_half_depth = 0.0125
     for panel_token, closed_x, local_y, open_x in panel_specs:
         panel_id = f"{door_id}-panel-{_token(panel_token).lower()}"
@@ -1292,9 +1292,18 @@ def _build_center_opening_elevator_door(
                 panel_height,
             ),
         )
-        _create_box_object(
+        panel_vertices: list[tuple[float, float, float]] = []
+        panel_faces: list[tuple[int, ...]] = []
+        _append_box(panel_vertices, panel_faces, panel_box[0], panel_box[1])
+        panel_faces = [
+            face
+            for face_index, face in enumerate(panel_faces)
+            if face_index in (2, 4)
+        ]
+        _create_mesh_object(
             f"VIS_DoorPanel_{object_token}",
-            (panel_box,),
+            panel_vertices,
+            panel_faces,
             visual_collection,
             material=door_material,
             uv_swatch=swatch_uv("Architecture", "door"),
@@ -1321,7 +1330,7 @@ def _build_center_opening_elevator_door(
 
     _create_box_object(
         f"VOL_DoorSweep_{token}",
-        (((-1.05, -0.04, 0.0), (1.05, 0.04, panel_height)),),
+        (((-1.20, -0.04, 0.0), (1.20, 0.04, panel_height)),),
         semantic_collection,
         properties={
             "hs_id": sweep_id,
@@ -1579,7 +1588,7 @@ def _build_elevator(
     car = _create_empty(
         "MRK_ElevatorCar_School",
         semantic_collection,
-        location=(-10.30, -5.20, 10.8),
+        location=(-10.30, -5.10, 10.8),
         rotation_z=math.pi / 2.0,
         properties={
             "hs_id": car_id,
@@ -1589,17 +1598,26 @@ def _build_elevator(
         parent=controller,
     )
     car_boxes = (
-        ((-1.10, -0.98, 0.00), (1.10, 0.95, 0.12)),
-        ((-1.10, -1.08, 2.30), (1.10, 0.95, 2.42)),
-        ((-1.10, 0.87, 0.12), (1.10, 0.95, 2.30)),
-        ((-1.10, -0.94, 0.12), (-1.02, 0.87, 2.30)),
-        ((1.02, -0.94, 0.12), (1.10, 0.87, 2.30)),
-        ((-1.10, -1.08, 0.12), (-1.02, -1.04, 2.30)),
-        ((1.02, -1.08, 0.12), (1.10, -1.04, 2.30)),
+        ((-1.44, -0.98, 0.00), (1.20, 1.19, 0.12)),
+        ((-1.44, -1.08, 2.30), (1.20, 1.19, 2.42)),
+        ((-1.44, 1.11, 0.12), (1.20, 1.19, 2.30)),
+        ((-1.44, -0.94, 0.12), (-1.36, 1.11, 2.30)),
+        ((1.12, -0.94, 0.12), (1.20, 1.11, 2.30)),
+        ((-1.44, -1.08, 0.12), (-1.36, -1.04, 2.30)),
+        ((1.12, -1.08, 0.12), (1.20, -1.04, 2.30)),
     )
-    _create_box_object(
+    car_visual_vertices: list[tuple[float, float, float]] = []
+    car_visual_faces: list[tuple[int, ...]] = []
+    for box_index, (minimum, maximum) in enumerate(car_boxes):
+        first_face_index = len(car_visual_faces)
+        _append_box(car_visual_vertices, car_visual_faces, minimum, maximum)
+        if box_index == 0:
+            # 停止階の床上面がかご床下面を所有する。かご側の同一平面は出力しない。
+            car_visual_faces.pop(first_face_index)
+    _create_mesh_object(
         "VIS_ElevatorCar_School",
-        car_boxes,
+        car_visual_vertices,
+        car_visual_faces,
         visual_collection,
         material=architecture_material,
         uv_swatch=swatch_uv("Architecture", "wall"),
@@ -1626,7 +1644,7 @@ def _build_elevator(
     )
     _create_box_object(
         "VOL_ElevatorCarOccupancy_School",
-        (((-0.82, -0.78, 0.12), (0.82, 0.72, 2.18)),),
+        (((-1.16, -0.78, 0.12), (0.92, 0.96, 2.18)),),
         semantic_collection,
         properties={
             "hs_id": occupancy_id,
@@ -1660,7 +1678,7 @@ def _build_elevator(
         stop = _create_empty(
             f"MRK_ElevatorStop_F{floor:02d}",
             semantic_collection,
-            location=(-10.30, -5.20, base_z),
+            location=(-10.30, -5.10, base_z),
             rotation_z=math.pi / 2.0,
             properties={
                 "hs_id": stop_id,
@@ -1694,7 +1712,7 @@ def _build_elevator(
         )
         _create_box_object(
             f"VOL_ElevatorCallMat_F{floor:02d}",
-            (((-0.75, -3.12, 0.00), (0.75, -1.62, 0.05)),),
+            (((-0.85, -3.12, 0.00), (0.85, -1.62, 0.05)),),
             semantic_collection,
             properties={
                 "hs_id": call_mat_id,
@@ -1718,7 +1736,7 @@ def _build_elevator(
         )
         _create_box_object(
             f"VIS_ElevatorCallIndicator_Base_F{floor:02d}",
-            (((-0.75, -3.12, 0.005), (0.75, -1.62, 0.025)),),
+            (((-0.85, -3.12, 0.005), (0.85, -1.62, 0.025)),),
             visual_collection,
             material=architecture_material,
             uv_swatch=swatch_uv("Architecture", "elevator_wait"),
@@ -1756,7 +1774,7 @@ def _build_elevator(
         )
         _create_box_object(
             f"VOL_ElevatorThreshold_F{floor:02d}",
-            (((-0.70, -1.32, -0.02), (0.70, -0.98, 0.12)),),
+            (((-0.80, -1.20, -0.02), (0.80, -0.98, 0.12)),),
             semantic_collection,
             properties={
                 "hs_id": threshold_id,
@@ -1771,19 +1789,26 @@ def _build_elevator(
         _append_threshold_ramp_with_plateau(
             threshold_vertices,
             threshold_faces,
-            -0.70,
-            0.70,
-            -1.32,
+            -0.80,
+            0.80,
+            -1.20,
             -1.08,
             -0.98,
             -0.02,
             0.00,
             0.12,
         )
+        # 表示面は廊下床端とかご前端が敷居の両端面を所有するため、敷居側を開く。
+        # Colliderは閉体契約を維持し、表示されない衝突境界だけを同一面へ接続する。
+        threshold_visual_faces = [
+            face
+            for face_index, face in enumerate(threshold_faces)
+            if face_index not in {3, 6}
+        ]
         _create_mesh_object(
             f"VIS_ElevatorThresholdPlate_F{floor:02d}",
             threshold_vertices,
-            threshold_faces,
+            threshold_visual_faces,
             visual_collection,
             material=architecture_material,
             uv_swatch=swatch_uv("Architecture", "floor"),
@@ -1810,7 +1835,7 @@ def _build_elevator(
         )
         _create_box_object(
             f"COL_HumanOnly_ElevatorGate_F{floor:02d}",
-            (((-0.75, -0.04, 0.0), (0.75, 0.04, 2.30)),),
+            (((-0.85, -0.04, 0.0), (0.85, 0.04, 2.30)),),
             collider_collection,
             parent=gate,
         )
@@ -1829,7 +1854,7 @@ def _build_elevator(
         _create_empty(
             f"LNK_{link_id}_{endpoint}",
             semantic_collection,
-            location=(-8.20, -5.20, base_z),
+            location=(-8.20, -5.10, base_z),
             properties={
                 "hs_id": link_id,
                 "hs_link_kind": "elevator",

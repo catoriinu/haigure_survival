@@ -1057,6 +1057,43 @@ const configurePerformanceView = () => {
   player.placeAt(footPosition, lookAtPosition);
 };
 
+const canvasElement = canvas as unknown as Element;
+let pointerLockRequestPending = false;
+
+const isPointerLockExitCooldownError = (
+  error: unknown
+): error is DOMException =>
+  error instanceof DOMException &&
+  error.name === "SecurityError" &&
+  error.message.includes(
+    "immediately after the user has exited the lock"
+  );
+
+const requestCanvasPointerLock = () => {
+  if (
+    document.pointerLockElement === canvasElement ||
+    pointerLockRequestPending
+  ) {
+    return;
+  }
+  pointerLockRequestPending = true;
+  canvas.focus();
+  void canvasElement
+    .requestPointerLock()
+    .catch((error: unknown) => {
+      if (isPointerLockExitCooldownError(error)) {
+        return;
+      }
+      console.error(
+        "ポインターロックの要求に失敗しました。",
+        error
+      );
+    })
+    .finally(() => {
+      pointerLockRequestPending = false;
+    });
+};
+
 const startPlay = (requestPointerLock: boolean) => {
   if (!audioActivated) {
     audioActivated = true;
@@ -1072,12 +1109,7 @@ const startPlay = (requestPointerLock: boolean) => {
     helpPanel.textContent = V2_GAMEPLAY_HELP_TEXT;
   }
   if (requestPointerLock) {
-    canvas.focus();
-    void (canvas as unknown as Element)
-      .requestPointerLock()
-      .catch((error: unknown) => {
-        console.error("ポインターロックの要求に失敗しました。", error);
-      });
+    requestCanvasPointerLock();
   }
 };
 
@@ -1101,9 +1133,8 @@ const updateGameplayHelp = (phase: ReturnType<typeof survival.getFrame>["phase"]
 const handleCanvasClick: EventListener = () => {
   const wasStarted = started;
   const hadPointerLock =
-    document.pointerLockElement ===
-    (canvas as unknown as Element);
-  startPlay(true);
+    document.pointerLockElement === canvasElement;
+  startPlay(!hadPointerLock);
   const frame = survival.getFrame();
   if (
     wasStarted &&
@@ -1120,7 +1151,7 @@ eventScope.listen(canvas, "click", handleCanvasClick);
 const handlePointerLockChange: EventListener = () => {
   if (
     document.pointerLockElement !==
-    (canvas as unknown as Element)
+    canvasElement
   ) {
     input.reset();
     runtimeHud.clear();
