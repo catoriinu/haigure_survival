@@ -202,13 +202,14 @@ Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出し�
 - [x] 逃走Missionを未洗脳時の結果へ集計し、未洗脳Playerでの開始・完了fixtureを追加する。
 - [x] 開始猶予中の洗脳済みNPCへの同行優先をfixtureで固定し、開発者返信を計画仕様へ反映する。
 - [x] 対象typecheck／build、実ブラウザまたはElectron受入、配布監査を完了する。
-- [ ] レビュー対応結果を同期してcommit／pushし、3件の元スレッドへ返信する。
+- [x] レビュー対応結果を同期してcommit／pushし、3件の元スレッドへ返信する。
 
 ## 結果
 
 - PR #71の未解決インラインスレッド3件を確認した。逃走Missionは`playerCondition`を未洗脳へ修正し、洗脳済みPlayerでは開始せず、未洗脳Playerで開始・完了・失敗を判定して未洗脳時の結果へ集計するようにした。
 - 開発者からrevieweeへの返信を優先し、ゲーム開始5秒間でも洗脳済みPlayerから成功した同行指示は洗脳済みNPCの自律行動停止より優先する既存挙動を維持した。T05 fixtureへ、猶予中の同行移動とビーム・捕捉停止の両立を追加した。放送F／Eの同一render frame内の表示順は仕様として固定せず、Runtime／HUDの挙動変更は行っていない。
 - `typecheck:t05`、`typecheck:t06-4`、`typecheck:v2`、`build:t05`、`build:t06-4`、通常`npm run build`をPASSした。実ブラウザ相当のElectron fixtureはT05 317/317、T06-4 36/36でPASSし、console warning／errorは0件だった。変更4ファイルは厳格UTF-8、BOMなし、ローカル絶対パスなしで、`git diff --check`をPASSした。
+- レビュー対応を`57eaf59`として`codex/v2-missions`へpushし、3件の元スレッドへ対応内容と実測結果を返信した。スレッド解決、merge、I3／T06-5／T07は実施していない。
 - `origin/develop=7f17e2d`から`codex/v2-missions`と専用worktreeを作成した。既存worktreeの未追跡`scripts/v2/__pycache__/`には触れていない。
 - Missionの判別union、20秒scheduler、Player通常／状況Mission、NPC Location Mission、最初のFollower、G／N洗脳判定、正本Volume到着、期限・取消・履歴を実装した。N補助は受理impact時点のPlayer状態・距離を保持し、洗脳開始イベントへ通知する。
 - NPC行動を`直接的危険 > Follow > Alarm > 放送Mission > 通常Mission > 自律行動`へ統一し、危険回避、Follow、エレベーター、移動失敗、Mission取消の競合を解消した。
