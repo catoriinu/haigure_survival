@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 PR #41以降の実行ロードマップ 計画
 
-更新日: 2026-08-09
+更新日: 2026-08-10
 
 ## プロンプト
 
@@ -124,13 +124,22 @@
 - PR #66は家具非干渉、椅子姿勢、PC室机上機器、普通教室C前扉封鎖を是正する追補として独立レビュー後にマージされ、T06-2の開始ゲートを通過した。
 - T06-2は「B03-3DとT06-1を初めて統合する」範囲を削除し、`cdb8bae`から複数開始地点、選択地点に追従する敵出現禁止、NPC／BIT出現Volume、BIT時間増援、学校基盤E2Eを実装するタスクとして開始した。
 - ミニマップ、Mission、鏡反射を含む後続タスクは未実装であり、追加・削除しない。T06-1の性能改善はこれらを追加する前の基準なので、T07の最終性能・回帰も維持する。
-- 現行順序は`T06-2 → I2 → T06-3 + B05 → T06-4 → I3 → T06-5 → T07 → v2.0リリース準備`とする。
+- この時点の順序は`T06-2 → I2 → T06-3 + B05 → T06-4 → I3 → T06-5 → T07 → v2.0リリース準備`だったが、I2確定と2026-08-09の微修正・タイトル設定追加指示で後述の現行順序へ置換した。
 
 2026-08-08 T06-2開始指示:
 
 > `019fdf4b-1680-7541-9d82-cd5c4e2258b6`の内容を確認しつつ、T06-2「学校開始・出現・増援統合」のプランを開始してください。実装にかかわらないプラン系のファイルの差分だけであれば、これから作るT06-2用のブランチの中に最初にコミットしてしまって構いません。
 >
 > 今回は計画8ファイルの初回ローカルコミットと、現資産による開始地点・除外Volume・NPC／BIT出現Volumeの視覚提案までとし、資産・Runtime・仕様書・fixture・push・Pull Requestには着手せずYES待ちで止める。
+
+2026-08-09 微修正・タイトル設定・後続再編指示:
+
+> 微修正の件と、タイトル画面の設計を決めるところと、実際に機能を追加するところを、それぞれ全部まとめてプランに追加したいです。適切な順番を検討して、プランファイルの修正だけ始めてください。
+
+- 微修正はP1で確定し、学校資産をB06-1～4、Runtime／UIをT06-4P-1～2へ所有分離する。全batchは直列実行する。
+- タイトル画面はI4でV1設定、新機能、V1相当タイトル／ゲームオーバー、静的学校資源再利用を監査・相談確定し、T06-6A～Dで直列実装する。
+- 現行順序は`T06-4 → P1 → B06-1 → B06-2 → B06-3 → B06-4 → T06-4P-1 → T06-4P-2 → I3 → T06-5 → I4 → T06-6A → T06-6B → T06-6C → T06-6D → P2 → T07 → v2.0リリース準備`とする。
+- 今回は計画文書だけを変更し、進行中のT06-4、Runtime、学校資産へは着手しない。
 
 ## ステップ
 
@@ -165,10 +174,23 @@
 - [x] I2 ミニマップ・Mission・Location・放送機能設計: T06-2前の先行相談で意味資産、表示、Mission、同行者、放送、公開処刑会場切替を確定する
 - [x] B05 Mission・ミニマップ意味資産: 階別平面形状、全歩行可能Area、主要24目的地、階段、全階エレベーター乗場、放送卓を学校資産へ単一編集し、PR #69で`develop=96a16cb`へ統合する
 - [x] T06-3 ミニマップ: B05の意味資産を読み、左上180px円形Mapへ現在階平面図、プレイヤー、同階Actor、Follower、視野、方角、階段、エレベーター、Mission対象を表示し、PR #70で`develop=7f17e2d`へ統合する
-- [ ] T06-4 Mission・放送Runtime: `7f17e2d`から専用branchを開始し、プレイヤー／NPC Mission、動的エリア名追従、seed付き20秒scheduler、放送、公開処刑会場切替、HUDの実装・V3A・ローカルcommitを完了した。push、Pull Request、レビュー、`develop`統合待ち
+- [x] T06-4 Mission・放送Runtime: プレイヤー／NPC Mission、動的エリア名追従、seed付き20秒scheduler、放送、公開処刑会場切替、HUDを実装し、PR #71で`develop=8befad7`へ統合する
+- [x] P1 第1微修正整理: 今回確定した全指摘、17画像、期待結果、所有、受入条件を文書へ固定する
+- [ ] B06-1 学校構造仕上げ
+- [ ] B06-2 エレベーター建築統合
+- [ ] B06-3 小物・表札
+- [ ] B06-4 ミニマップ意味資産・Location
+- [ ] T06-4P-1 ミニマップ・BIT表示
+- [ ] T06-4P-2 エレベーター・NPC
 - [ ] I3 キャラクター反射・表示仕上げ設計: 鏡反射、必要な一人称表示仕上げ、99 NPC時の性能条件をユーザー相談で確定する
 - [ ] T06-5 キャラクター反射・表示仕上げRuntime: T06-1の基本画像表示を前提に、I3で承認された鏡反射と表示仕上げを実装する
-- [ ] T07: ミニマップ、Mission、放送、基本Character画像、鏡反射を有効にして性能、回帰試験、Web・Electron、仕様書を最終化する
+- [ ] I4 タイトル設定設計: V1設定とV2新機能を監査し、設定項目、初期値、依存関係、保存契約をユーザー相談で確定する
+- [ ] T06-6A タイトル基本設定: 人数、初期状態、BIT、荒れ度、開始地点などの基本設定、保存、起動時snapshotを実装する
+- [ ] T06-6B タイトルモード・機能ON／OFF: 通常／いきなり公開処刑系モードとMission、ミニマップ、放送などの承認済み機能切替を実装する
+- [ ] T06-6C V1タイトル・ゲームオーバー: V1相当のタイトル表示、ゲームオーバー遷移・演出、リプレイ、タイトル復帰を実装する
+- [ ] T06-6D 静的学校資源再利用: 学校Scene／GLB／静的Registry／NavMesh bundleをアプリ終了まで保持し、動的状態だけをゲームごとに初期化する
+- [ ] P2 最終微修正整理: タイトル設定統合後の既知問題を再確認し、リリース必須修正を個別branchへ切り出して必要件数0まで閉じる
+- [ ] T07: タイトル設定から主要機能を有効にし、性能、回帰試験、Web・Electron、仕様書を最終化する
 - [ ] v2リリース準備: `develop`からリリースブランチを作成し、最終ビルド、バージョン、文書、`main`向けPull Request、リリース後の`develop`同期を完了する
 - [ ] 各タスク完了時に対象個別計画と`docs/plan.md`の結果を更新する
 
@@ -204,12 +226,25 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 | 14 | T06-2 学校開始・出現・増援統合 | `codex/v2-t06-school-integration` | B03-3D、T06-1 | 複数開始地点、出現禁止、NPC／BIT出現Volume、時間増援、Player開始地点別NPC近傍優先、学校基盤E2E | PR #67で完了 |
 | 15 | I2 ミニマップ・Mission・Location・放送機能設計 | `codex/v2-map-mission-design` | 先行相談 | 2026-08-09完了。階別Map、Location、Mission、同行者、放送、公開処刑会場切替。コード・資産変更なし | 完了 |
 | 16 | B05 Mission・ミニマップ意味資産 | `codex/v2-mission-locations` | T06-2、I2 | 階別平面形状、全歩行可能Area、主要24目的地、階段、全階エレベーター乗場、放送卓。学校生成正本・Blender・GLB・監査・hash | PR #69で`develop=96a16cb`へ統合済み |
-| 17 | T06-3 ミニマップ | `codex/v2-minimap` | B05 | 左上180px円形Map、現在階平面図、プレイヤー、同階Actor、Follower、視野、方角、階段、エレベーター、Mission対象 | 単独 |
-| 18 | T06-4 Mission・放送Runtime | `codex/v2-missions` | T06-3 | プレイヤー／NPC Mission、動的エリア名、seed付き20秒scheduler、放送、公開処刑会場切替、HUD、優先順位 | 単独 |
-| 19 | I3 キャラクター反射・表示仕上げ設計 | `codex/v2-character-display-design` | T06-4 | 鏡反射、必要な一人称表示仕上げ、99 NPC性能条件のユーザー相談。コード・資産変更なし | 単独 |
-| 20 | T06-5 キャラクター反射・表示仕上げRuntime | `codex/v2-character-portraits` | I3 | T06-1の基本Character画像表示を前提に、承認済みの鏡反射・一人称表示仕上げを実装 | 単独 |
-| 21 | T07 性能・回帰・仕様書 | `codex/v2-t07-regression-docs` | T06-5 | ミニマップ、Mission、放送、基本Character画像、鏡反射を含む99 NPC／50 BIT性能、Web／Electron最終回帰、最終仕様書 | 単独 |
-| 22 | v2リリース準備 | `codex/release-v2.0.0` | T07 | バージョン、リリース文書、最終ビルド、`main`向けPull Request、`develop`再同期 | 単独 |
+| 17 | T06-3 ミニマップ | `codex/v2-minimap` | B05 | 左上180px円形Map、現在階平面図、プレイヤー、同階Actor、Follower、視野、方角、階段、エレベーター、Mission対象 | PR #70で完了 |
+| 18 | T06-4 Mission・放送Runtime | `codex/v2-missions` | T06-3 | プレイヤー／NPC Mission、動的エリア名、seed付き20秒scheduler、放送、公開処刑会場切替、HUD、優先順位 | PR #71で完了 |
+| 19 | P1 第1微修正整理 | `codex/v2-polish-wave-1-plan` | T06-4 | 全指摘、17画像、期待結果、所有先、受入条件。文書だけ | 完了 |
+| 20 | B06-1 学校構造仕上げ | `codex/v2-school-structure-polish` | P1 | 屋上接続、角、色帯、階段、渡り廊下、表示・Collider・NavMesh一致 | 単独 |
+| 21 | B06-2 エレベーター建築統合 | `codex/v2-elevator-building-integration` | B06-1 | 連続白壁、床・敷居・1F段差・ロッカー・NavMesh同一床高 | 単独 |
+| 22 | B06-3 小物・表札 | `codex/v2-school-props-signage` | B06-2 | 便器、小便器、日本語表札、共通男女ピクトグラム、決定的Atlas | 単独 |
+| 23 | B06-4 ミニマップ意味資産・Location | `codex/v2-minimap-location-assets` | B06-3 | `map_barrier`、`map_passage`、屋上固有形状、Area、Location | 単独 |
+| 24 | T06-4P-1 ミニマップ・BIT表示 | `codex/v2-minimap-bit-polish` | B06-4 | 作者定義仕切り、明色開口、BIT通常黒、既定OFFデバッグ色 | 単独 |
+| 25 | T06-4P-2 エレベーター・NPC | `codex/v2-elevator-npc-polish` | T06-4P-1 | 4秒発車、全Actor先着順6人、自律・同行NPC乗降 | 単独 |
+| 26 | I3 キャラクター反射・表示仕上げ設計 | `codex/v2-character-display-design` | T06-4P-2 | 鏡反射、必要な一人称表示仕上げ、99 NPC性能条件のユーザー相談。コード・資産変更なし | 単独 |
+| 27 | T06-5 キャラクター反射・表示仕上げRuntime | `codex/v2-character-portraits` | I3 | T06-1の基本Character画像表示を前提に、承認済みの鏡反射・一人称表示仕上げを実装 | 単独 |
+| 28 | I4 タイトル設定設計 | `codex/v2-title-settings-design` | T06-5 | V1設定、タイトル／ゲームオーバー、静的資源再利用、保存・リセット契約。文書だけ | 単独 |
+| 29 | T06-6A タイトル基本設定 | `codex/v2-title-settings` | I4 | 人数、初期状態、BIT、荒れ度、開始地点、保存、起動時snapshot | 単独 |
+| 30 | T06-6B タイトルモード・機能ON／OFF | `codex/v2-title-modes` | T06-6A | 開始モード、Mission、ミニマップ、放送、自動実行、反射表示などの承認済み切替 | 単独 |
+| 31 | T06-6C V1タイトル・ゲームオーバー | `codex/v2-title-game-over` | T06-6B | V1相当タイトル、ゲームオーバー遷移・演出、リプレイ、タイトル復帰 | 単独 |
+| 32 | T06-6D 静的学校資源再利用 | `codex/v2-static-school-resource-reuse` | T06-6C | アプリ所有静的学校資源とセッション所有動的状態の分離 | 単独 |
+| 33 | P2 最終微修正整理 | `codex/v2-final-polish-plan` | T06-6D | 既知問題再監査、リリース必須判定、問題別branchと受入条件。文書だけ | 単独 |
+| 34 | T07 性能・回帰・仕様書 | `codex/v2-t07-regression-docs` | P2の必須修正0件 | 完成機能を含む99 NPC／50 BIT性能、Web／Electron最終回帰、最終仕様書 | 単独 |
+| 35 | v2リリース準備 | `codex/release-v2.0.0` | T07 | バージョン、リリース文書、最終ビルド、`main`向けPull Request、`develop`再同期 | 単独 |
 
 ## 並行実行Wave
 
@@ -235,15 +270,21 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 | 15 | T06-2だけ | PR #67で`develop=3c5a248`へ統合済み | B05 |
 | 16 | B05だけ | PR #69で`develop=96a16cb`へ統合済み | T06-3 |
 | 17 | T06-3だけ | PR #70で`develop=7f17e2d`へ統合済み | T06-4 |
-| 18 | T06-4だけ | Mission・放送・HUD・公開処刑会場切替の実装・V3A・ローカルcommit完了。push／Pull Request／レビュー／`develop`統合待ち | I3 |
-| 19 | I3だけ | T06-4マージ後にユーザー相談で鏡反射・必要な一人称表示仕上げ・99 NPC性能条件を確定し、コード・資産は変更しない | T06-5 |
-| 20 | T06-5だけ | I3確定後の最新`develop`から承認済みのキャラクター反射・表示仕上げを実装する | T07 |
-| 21 | T07だけ | T06-5マージ後の最新`develop`でミニマップ、Mission、放送、基本Character画像、鏡反射を含む性能・最終回帰を完了する | v2リリース準備 |
-| 22 | v2リリース準備だけ | T07マージ後の最新`develop`からリリースブランチを作る | `main`統合と`develop`再同期 |
+| 18 | T06-4だけ | PR #71で`develop=8befad7`へ統合済み | P1 |
+| 19 | P1だけ | 全指摘と画像を文書で仕分けし、コード・資産は変更しない。完了済み | B06-1 |
+| 20～23 | B06-1～4を順番に1件だけ | 同一学校バイナリの単一担当を維持する | T06-4P-1 |
+| 24～25 | T06-4P-1～2を順番に1件だけ | 最終資産を入力にRuntime／UIを実装する | I3 |
+| 26 | I3だけ | 鏡反射・一人称表示・99 NPC性能条件を確定する | T06-5 |
+| 27 | T06-5だけ | 承認済みキャラクター反射・表示仕上げを実装する | I4 |
+| 28 | I4だけ | V1／V2設定、タイトル／ゲームオーバー、静的資源再利用を相談確定する | T06-6A |
+| 29～32 | T06-6A～Dを順番に1件だけ | タイトル・保存・セッション・Scene寿命の共有ファイルを直列編集する | P2 |
+| 33 | P2だけ | T06-6D統合後の既知問題を文書で再仕分けする | T07 |
+| 34 | T07だけ | P2のリリース必須修正0件後に性能・最終回帰を完了する | v2リリース準備 |
+| 35 | v2リリース準備だけ | T07マージ後の最新`develop`からリリースブランチを作る | `main`統合と`develop`再同期 |
 
 ## 現行の並行可否
 
-2026-08-09時点でPR #64～#70は`develop=7f17e2d`までに統合済みである。T06-4はこのheadから`codex/v2-missions`と専用worktreeを作成し、実装・V3A・ローカルcommitまで完了した。push、Pull Request、レビュー、`develop`統合は未実施である。
+2026-08-10時点でPR #64～#71は`develop=8befad7`までに統合済みであり、P1文書仕分けは専用branchで完了した。次はP1文書統合後にB06-1を単独開始する。
 
 | タスク | 依存先 | 同時書込み | 直列化理由 |
 |---|---|---|---|
@@ -257,14 +298,23 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 | T06-2 | B03-3D、T06-1 | 完了 | PR #67で`develop`へ統合済み |
 | I2 | 先行相談 | 完了 | 2026-08-09に文書だけを確定 |
 | B05 | T06-2、I2 | 完了 | PR #69で`develop=96a16cb`へ統合済み |
-| T06-3 | B05 | 完了 | B05統合済みの`96a16cb`から、B05の意味資産だけを読むRuntime UIを実装し、PR #70で`develop`へ統合した |
-| T06-4 | T06-3 | ローカル実装完了・統合待ち | `develop=7f17e2d`から、Map・Location成果へMission・放送・公開処刑会場切替を統合し、V3Aとローカルcommitを完了した |
-| I3 | T06-4 | 不可 | ユーザー相談で鏡反射・必要な一人称表示仕上げ・99 NPC性能条件を確定する |
+| T06-3 | B05 | 完了 | PR #70で`develop=7f17e2d`へ統合済み |
+| T06-4 | T06-3 | 完了 | PR #71で`develop=8befad7`へ統合済み |
+| P1 | T06-4 | 完了 | 文書だけで全指摘、画像、期待結果、所有、受入条件を確定した |
+| B06-1～4 | 直前のB06 batch | B06-1のみP1統合後に開始可 | 同一学校バイナリを単一担当で順番に編集する |
+| T06-4P-1～2 | B06-4、直前のT06-4P batch | 不可 | 最終資産を入力にRuntime／UIだけを順番に修正する |
+| I3 | T06-4P-2 | 不可 | ユーザー相談で鏡反射・必要な一人称表示仕上げ・99 NPC性能条件を確定する |
 | T06-5 | I3 | 不可 | T06-1の基本画像表示へ承認済みの反射・表示仕上げを追加する |
-| T07 | T06-5 | 不可 | ミニマップ、Mission、放送、基本Character画像、鏡反射を性能・回帰条件として測定する |
+| I4 | T06-5 | 不可 | V1／V2設定、タイトル／ゲームオーバー、静的学校資源再利用を文書で確定する |
+| T06-6A | I4 | 不可 | タイトル・保存・起動snapshotの共有ファイルを単独所有する |
+| T06-6B | T06-6A | 不可 | 同じ共有ファイルへモードと機能切替を直列追加する |
+| T06-6C | T06-6B | 不可 | V1相当タイトル・ゲームオーバーを同じライフサイクルへ追加する |
+| T06-6D | T06-6C | 不可 | 静的学校資源と動的セッション状態の所有を分離する |
+| P2 | T06-6D | 不可 | 統合後の既知問題を文書で再仕分けする |
+| T07 | P2必須修正0件 | 不可 | タイトル設定、ミニマップ、Mission、放送、基本Character画像、鏡反射を性能・回帰条件として測定する |
 | v2リリース準備 | T07 | 不可 | T07の確定結果だけをリリース対象にする |
 
-次タスクの必読資料、受入項目、既存テストの読み取り調査は並行できる。T06-3は実装・検証済みであり、独立レビュー後に`develop`へ入る前にT06-4のbranchを作成したり書込みを始めたりしない。
+次タスクの必読資料、受入項目、既存テストの読み取り調査は並行できる。緊急のクラッシュ、進行不能、保存破損、契約不整合だけは再現と影響範囲を確定し、`codex/fix-v2-<slug>`の1問題1branchで割り込ませる。通常の見た目・操作感・バランス微修正はP1／P2を経由する。
 
 ## ファイル所有規則
 
@@ -290,6 +340,8 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 - T06-2はPR #66を含む`cdb8bae`を入力とし、複数の`MRK_PlayerSpawn_*`、`player_spawn_exclusion` roleと`hs_player_spawn_id`で明示対応するVolume、人間用`npc_spawn`、各到達可能飛行帯の`bit_spawn`、初期出現、時間増援、ゲーム進行、破棄・再読込を単独実装する。名前推測、`no_enemy_spawn`流用、欠落時fallbackは作らず、B03-3DとT06-1の既存機能は横断回帰対象とする。
 - T06-2の資産編集前に、開始候補の俯瞰画像、抽選方式、各除外Volume寸法、NPC／BIT出現Volume範囲をユーザー承認する。開始候補は一様抽選を推奨し、カテゴリ重みを代替案とする。候補不足時に要求人数を減らすfallbackは作らない。
 - T06-1／T06-2はB04の`BND_WorldLimit`と非nullの`worldBoundary`を維持し、外周BIT飛行帯、外周BIT経路、外周スポーンを追加しない。タイトル画面の荒れ状態スライダーは将来タスクへ残す。
+- P1／P2／I3／I4は文書だけを所有する。B06-1～4だけが学校生成正本、`.blend`、GLB、小物、NavMesh、カタログhashを順番に単一編集し、T06-4P-1～2はRuntime／UIとfixtureだけを所有する。
+- T06-6A～DはタイトルUI、設定schema、保存、起動snapshot、通常ゲーム初期化、学校Scene寿命の共有ファイルを使うため並行しない。
 - 並行担当は`docs/plan.md`と本ファイルを編集しない。全体計画は統合担当だけが更新する。
 - 旧`codex/v2-post-pr66-roadmap` worktreeはdirty差分を保持したまま凍結し、T06-2開始フェーズでは`codex/v2-t06-school-integration`だけが計画8ファイルを更新する。
 - 各担当は自分の個別計画だけを1ステップごとに更新する。
@@ -310,9 +362,18 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 | B05 Mission・ミニマップ意味資産 | GPT-5.6 Sol | High | 承認済みLocation、階別平面、階段、エレベーター、放送卓のBlender単一編集、NavMesh不変性、意味Object監査が中心である |
 | T06-3 ミニマップ | GPT-5.6 Sol | High | B05空間snapshotを低負荷な2D表示へ接続し、静的／動的描画を分離する |
 | T06-4 Mission・放送Runtime | GPT-5.6 Sol | Ultra | プレイヤー／NPC別Mission、優先順位、動的Location、seed scheduler、放送、公開処刑会場切替を既存状態機械へ統合する |
+| P1 第1微修正整理 | GPT-5.6 Sol | High | 現行表示・ロジック・資産指摘を再現し、緊急度と実装所有を衝突なく分ける |
+| B06-1～4 学校資産batch | GPT-5.6 Sol | High | 生成正本、Blender、GLB、Collider、NavMesh、カタログの波及をbatchごとに監査する |
+| T06-4P-1～2 Runtime／UI batch | GPT-5.6 Sol | High | ミニマップ、BIT、エレベーター、NPCの限定差分をfixtureと実画面で閉じる |
 | I3 キャラクター反射・表示仕上げ設計 | GPT-5.6 Sol | High | 現行V2に鏡・反射用カメラがない前提で、鏡反射、必要な一人称表示仕上げ、99 NPC性能条件を固定する |
 | T06-5 キャラクター反射・表示仕上げRuntime | GPT-5.6 Sol | High | T06-1の基本画像表示を維持し、承認済みの鏡反射と表示仕上げを99 NPC条件へ接続する |
-| T07 性能・回帰・仕様書 | GPT-5.6 Sol | High | ミニマップ、Mission、放送、基本Character画像、鏡反射を含む完成機能を維持して性能計測、Web・Electron回帰、仕様書同期を行う |
+| I4 タイトル設定設計 | GPT-5.6 Sol | High | V1設定とV2新機能を監査し、初期値、依存関係、保存・リセット契約を実装前に固定する |
+| T06-6A タイトル基本設定 | GPT-5.6 Sol | High | タイトルUI、保存、検証、起動時snapshotを一つの明示契約へ統合する |
+| T06-6B タイトルモード・機能ON／OFF | GPT-5.6 Sol | Ultra | 複数モードと機能切替の依存関係をMission、放送、実行、描画、ライフサイクルへ横断接続する |
+| T06-6C V1タイトル・ゲームオーバー | GPT-5.6 Sol | High | V1表示とゲームオーバー遷移を現行タイトル・セッション契約へ統合する |
+| T06-6D 静的学校資源再利用 | GPT-5.6 Sol | Ultra | アプリ寿命とゲームセッション寿命を分離し、再開始・購読・破棄の所有を横断監査する |
+| P2 最終微修正整理 | GPT-5.6 Sol | High | 統合後の既知問題をリリース必須／延期可能へ根拠付きで分け、問題別branchへ送る |
+| T07 性能・回帰・仕様書 | GPT-5.6 Sol | High | タイトル設定、ミニマップ、Mission、放送、基本Character画像、鏡反射を含む完成機能を維持して性能計測、Web・Electron回帰、仕様書同期を行う |
 | v2リリース準備 | GPT-5.6 Sol | High | リリース対象差分、最終ビルド、バージョン、文書、`main`と`develop`の同期を再確認する |
 
 ## 重点動作確認ゲート
@@ -328,8 +389,10 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 | V3 学校基盤機能ゲート | 完了・PR #67で`develop`統合済み | 最重 | タイトル開始、複数開始地点、出現禁止、F／E／C・G／N／H、増援、音声、水中、ゲーム終了、タイトル復帰、再読込 | Web・Electronの完全E2Eと資源残留0件 |
 | V3M B05意味資産ゲート | 完了・PR #69で`develop`統合済み | 対象集中 | 5階層Map、52 Area、24 Mission Location、17階段踊り場、4エレベーター乗場、放送卓、参照・被覆・同順位重複、通常版／荒れ版Anchor到達性、3種NavMesh不変性 | B05監査、決定性、fixture、関連typecheck／build、Web／Electron確認に合格 |
 | V3A ミニマップ・Mission・放送機能ゲート | T06-4のPull Request作成後、`develop`マージ前 | 最重 | 階別Map、階段、エレベーター、Follower、Location、プレイヤー／NPC Mission、優先順位、放送3種、公開処刑会場切替、HUD | Web・Electronの機能E2E、決定性、資源残留0件 |
+| V3P 第1磨き込みゲート | T06-4P-2のPull Request作成後、`develop`マージ前 | 重い | B06-1～4、ミニマップ、BIT、エレベーターNPC、4秒発車、P1受入条件 | 同一headの資産監査、fixture、Web・ElectronでP1必須項目0件 |
 | V3B キャラクター反射・表示仕上げゲート | T06-5のPull Request作成後、`develop`マージ前 | 重い | 鏡反射、承認済みの一人称表示仕上げ、破棄・再生成 | Web・Electronの機能E2E、99 NPC表示予算、資源残留0件 |
-| V4 性能・リリースゲート | T07のPull Request作成後、`develop`マージ前 | 最終 | ミニマップ、Mission、放送、基本Character画像、鏡反射有効、1080p、既定設定、99 NPC、50 BIT時の性能・回帰・仕様書 | T07定量性能条件、全回帰、最終文書監査に合格 |
+| V3C タイトル・設定ゲート | T06-6DのPull Request作成後、`develop`マージ前 | 最重 | 基本設定、機能ON／OFF、V1タイトル・ゲームオーバー、静的学校資源identity、動的状態初期化、最終破棄 | Web・Electronの設定組合せ・複数回再開始E2E、決定性、資源残留0件 |
+| V4 性能・リリースゲート | P2必須修正0件かつT07のPull Request作成後、`develop`マージ前 | 最終 | タイトル設定、ミニマップ、Mission、放送、基本Character画像、鏡反射有効、1080p、既定設定、99 NPC、50 BIT時の性能・回帰・仕様書 | T07定量性能条件、全回帰、最終文書監査に合格 |
 
 各機能は、(1) 実装・検証・commit・push・Pull Request作成、(2) 独立レビュー、(3) merge・`develop`同期・worktree整理・次タスク準備を別単位で完了する。重点ゲートはPull Request作成後の独立レビュー段階に含め、通過前にマージしない。
 
@@ -379,17 +442,53 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 
 > T06-3が独立レビュー後に`develop`へマージ済みの最新`origin/develop`から、`codex/v2-missions`と専用worktreeを作成してください。I2契約どおり、プレイヤー通常Mission最大3件、状況Mission最大1件、NPC通常Mission最大8件、最初の同行者、G／N達成、20秒scheduler、動的エリア名、右上HUDを実装してください。さらにF／Eを汎用Interactionへ移行し、放送卓正面3m以内の3つの正式コマンド、放送Mission、HからGへの変更、最後の全校指示による公開処刑会場切替を統合してください。放送後の字幕、通知、チャイム、SE、VOICEは追加しないでください。V3A機能ゲート、commit、push、Pull Request作成まで行い、レビュー、merge、T07は行わないでください。GPT-5.6 Sol / Ultraを使用してください。
 
+### P1
+
+> T06-4が独立レビュー後に`develop`へマージ済みの最新状態から、`codex/v2-polish-wave-1-plan`と専用worktreeで第1微修正整理を行ってください。`docs/plans/v2/P1/plan.md`を正本とし、ミニマップの出し方、Mission／HUD、入力・状態遷移・ロジック、学校モデル・小物の隙間・ちらつき・浮き・めり込みなどを、再現手順、現状証拠、優先度、所有先、受入条件へ仕分けてください。コード、Blender、GLB、NavMesh、画像バイナリは変更しないでください。学校見た目が曖昧な項目は現状と案を提示し、ユーザーのYESを待ってください。完了条件はB06、T06-4P、緊急修正、延期候補の境界が明示されることです。commit、push、Pull Request、mergeは別途指示まで行わないでください。GPT-5.6 Sol / Highを使用してください。
+
+### B06-1～4
+
+> P1文書が`develop`へ反映済みの最新`origin/develop`からB06-1を開始し、以後は直前batchの独立レビュー・`develop`統合後に次batchを開始してください。`docs/plans/v2/B06/plan.md`と各子計画を正本とし、B06-1は学校構造、B06-2はエレベーター建築、B06-3は小物・表札、B06-4はミニマップ意味資産・Locationだけを所有してください。同一学校バイナリを常に1branch・1担当で編集し、表示、Collider、NavMesh境界を一致させ、生成2回の決定性、資産監査、比較画像、Web／Electronをbatchごとに確認してください。各batchは実装・検証・commitまでとし、push、Pull Request、レビュー、mergeは別途指示まで行わないでください。GPT-5.6 Sol / Highを使用してください。
+
+### T06-4P-1～2
+
+> B06-4が独立レビュー後に`develop`へ統合済みの最新`origin/develop`からT06-4P-1を開始し、その統合後にT06-4P-2を開始してください。`docs/plans/v2/T06-4P/plan.md`と各子計画を正本とし、T06-4P-1は作者定義ミニマップとBIT先端球表示、T06-4P-2は4秒発車と全Actor先着順6人のエレベーターNPC利用だけを所有してください。学校Blender正本、GLB、NavMesh、生成器、カタログhashを変更せず、旧Nav blocker投影fallbackや暗黙fallbackを追加しないでください。対象fixture、通常人口のWeb／Electron、V3Pゲート、commitまでとし、push、Pull Request、レビュー、mergeは別途指示まで行わないでください。GPT-5.6 Sol / Highを使用してください。
+
 ### I3
 
-> T06-4が`develop`へマージ済みの最新状態から、キャラクター反射・表示仕上げの設計相談を開始してください。T06-1で実装済みのNPC状態別billboard、55度より下向き時のプレイヤー足元画像、デフォルトスプライトを前提に、現行V2にまだ存在しない鏡・反射用カメラによるCharacter反射、必要な一人称表示仕上げ、99 NPC時の性能条件を提案し、私の承認で確定してください。コード、画像バイナリ、Blender、GLB、NavMesh、生成器、カタログhashは変更しないでください。GPT-5.6 Sol / Highを使用してください。
+> T06-4P-2が`develop`へマージ済みの最新状態から、キャラクター反射・表示仕上げの設計相談を開始してください。T06-1で実装済みのNPC状態別billboard、55度より下向き時のプレイヤー足元画像、デフォルトスプライトを前提に、現行V2にまだ存在しない鏡・反射用カメラによるCharacter反射、必要な一人称表示仕上げ、99 NPC時の性能条件を提案し、私の承認で確定してください。コード、画像バイナリ、Blender、GLB、NavMesh、生成器、カタログhashは変更しないでください。GPT-5.6 Sol / Highを使用してください。
 
 ### T06-5
 
 > I3の設計が承認・文書化済みの最新`origin/develop`から、`codex/v2-character-portraits`と専用worktreeを作成してください。T06-1の基本Character画像表示を維持したまま、鏡反射と必要な一人称表示仕上げをI3確定契約どおり実装し、99 NPC表示予算を満たしてください。音声・画像バイナリはcommitせず、V3B機能ゲート、commit、push、Pull Request作成まで行い、レビュー、merge、T07は行わないでください。GPT-5.6 Sol / Highを使用してください。
 
+### I4
+
+> T06-5が独立レビュー後に`develop`へマージ済みの最新状態から、`codex/v2-title-settings-design`と専用worktreeでタイトル設定設計を開始してください。`docs/plans/v2/I4/plan.md`を正本とし、V1タイトル画面の人数・オプション、V1相当タイトル表示、ゲームオーバー遷移・演出を現行実装と照合してください。V2設定の初期値、依存関係、OFF時の意味、保存version、リセット、再起動契約に加え、現在はタイトル復帰・再開始ごとに学校Scene／GLB／NavMeshを再構築している現行ライフサイクルを監査し、アプリ所有の静的学校資源とセッション所有の動的状態の境界を一問ずつユーザー承認で確定してください。コード、画像、学校資産は変更しないでください。GPT-5.6 Sol / Highを使用してください。
+
+### T06-6A
+
+> I4設計が承認・文書化済みの最新`origin/develop`から、`codex/v2-title-settings`と専用worktreeを作成してください。`docs/plans/v2/T06-6A/plan.md`の基本設定だけを実装し、人数、初期状態、BIT、荒れ度、開始地点、既存音量・Character選択を一つの設定schema、保存、検証、リセット、起動時の不変snapshotへ接続してください。学校は1ステージ固定表示とし、選択不能なステージselectorを追加しないでください。モード、Mission等の機能ON／OFF、T06-6Bは実装せず、旧設定への暗黙フォールバックも追加しないでください。対象fixture、Web／Electron、再起動、破棄・再生成、commitまでを行い、push、Pull Request、レビュー、mergeは別途指示まで行わないでください。GPT-5.6 Sol / Highを使用してください。
+
+### T06-6B
+
+> T06-6Aが独立レビュー後に`develop`へマージ済みの最新`origin/develop`から、`codex/v2-title-modes`と専用worktreeを作成してください。`docs/plans/v2/T06-6B/plan.md`とI4確定契約に従い、通常／いきなり公開処刑系モードと、Mission、ミニマップ、放送、自動実行、反射表示など承認された機能ON／OFFを実装してください。各OFF契約をRuntime初期化、HUD、入力、scheduler、破棄まで明示し、無効機能を裏で動作させないでください。学校資産は変更せず、V3Cタイトル・設定ゲート、設定組合せfixture、Web／Electron、再起動、commitまでを行い、push、Pull Request、レビュー、mergeは別途指示まで行わないでください。GPT-5.6 Sol / Ultraを使用してください。
+
+### T06-6C
+
+> T06-6Bが独立レビュー後に`develop`へマージ済みの最新`origin/develop`から、`codex/v2-title-game-over`と専用worktreeを作成してください。I4確定契約と`docs/plans/v2/T06-6C/plan.md`に従い、V1相当のタイトル表示、ゲームオーバー遷移・演出、リプレイ、タイトル復帰を実装してください。静的学校資源再利用はT06-6Dへ残し、学校資産を変更しないでください。対象fixture、Web／Electron、commitまでとし、push、Pull Request、レビュー、mergeは別途指示まで行わないでください。GPT-5.6 Sol / Highを使用してください。
+
+### T06-6D
+
+> T06-6Cが独立レビュー後に`develop`へマージ済みの最新`origin/develop`から、`codex/v2-static-school-resource-reuse`と専用worktreeを作成してください。I4確定契約と`docs/plans/v2/T06-6D/plan.md`に従い、アプリ所有の学校Scene／GLB／静的Registry／NavMesh bundleと、セッション所有の部屋Variant、Player、NPC、BIT、扉、エレベーター、Mission、開始位置を別interfaceへ分離してください。複数回のタイトル復帰・再開始で静的identityを維持し、動的Actor・購読・予約・Missionだけを初期化し、カタログ変更またはアプリ終了時に全静的資源を破棄してください。暗黙fallbackは追加せず、V3C、Web／Electron、commitまでとし、push、Pull Request、レビュー、mergeは別途指示まで行わないでください。GPT-5.6 Sol / Ultraを使用してください。
+
+### P2
+
+> T06-6Dが独立レビュー後に`develop`へマージ済みの最新状態から、`codex/v2-final-polish-plan`と専用worktreeで最終微修正整理を行ってください。`docs/plans/v2/P2/plan.md`を正本とし、タイトル設定を含む通常プレイを確認して、既知問題をリリース必須／延期可能へ根拠付きで分け、必須項目ごとに`codex/fix-v2-<slug>`の所有範囲、再現、受入条件を記録してください。このタスク自体ではコード・資産を変更せず、リリース必須修正が0件になるまでT07を開始可能にしないでください。GPT-5.6 Sol / Highを使用してください。
+
 ### T07
 
-> T06-5が`develop`へマージ済みの最新`origin/develop`から、`codex/v2-t07-regression-docs`と専用worktreeを作成してT07を実施してください。ミニマップ、Mission、T06-1の基本Character画像、T06-5の鏡反射を有効にした1080p・既定設定・99 NPC・50 BIT条件で性能計測と最適化を行い、Web・Electronの最終回帰と仕様書同期を完了してください。V4性能・リリースゲート、commit、push、Pull Request作成まで行い、リリースブランチ作成と`main`へのmergeは行わないでください。GPT-5.6 Sol / Highを使用してください。
+> P2のリリース必須修正が0件で、必要な修正Pull Requestがすべて`develop`へマージ済みの最新`origin/develop`から、`codex/v2-t07-regression-docs`と専用worktreeを作成してT07を実施してください。タイトル設定からミニマップ、Mission、放送、T06-1の基本Character画像、T06-5の鏡反射を有効にした1080p・既定設定・99 NPC・50 BIT条件で性能計測と最適化を行い、主要なOFF設定も含むWeb・Electron最終回帰と仕様書同期を完了してください。新機能や未仕分けの微修正は追加せず、V4性能・リリースゲート、commit、push、Pull Request作成まで行い、リリースブランチ作成と`main`へのmergeは行わないでください。GPT-5.6 Sol / Highを使用してください。
 
 ## 各タスク開始時の必読順序
 
@@ -459,4 +558,10 @@ B03-0に限り、上記に加えて`docs/plans/v2/T04/plan.md`の「B03-0への�
 
 2026-08-09、PR #64のT06-1、PR #65のB03-3D、PR #66の荒れ版家具干渉修正、PR #67のT06-2は`origin/develop=3c5a248`までに統合済みとなった。T06-2ではPlayer開始候補11件、除外Volume、NPC 5階層Volume、到達可能な飛行NavMesh全域を覆うBIT連続Volume、時間増援、Player開始地点別NPC近傍優先を実装・検証した。I2では左上180px・半径9mのミニマップ、階段・全階エレベーター・視界外Follower表示、全歩行可能Areaと主要24目的地、プレイヤー通常3件＋状況1件、NPC通常8件、20秒scheduler、最初の同行者、G／N達成、同行者逃走、放送3種、公開処刑会場切替を確定した。放送後の字幕、通知、チャイム、SE、VOICEは対象外とする。T06-3／B05の旧並行案は廃止し、次は`B05 → T06-3 → T06-4`を直列実行する。今回のI2では文書だけを更新し、コードと学校資産は変更していない。
 
-同日、I2設計文書はPR #68で`origin/develop=ceea8ec`、B05はPR #69で`origin/develop=96a16cb`へ統合済みとなった。B05はschema version 3、5階層Map、52 Area、24 Mission Location、17階段踊り場、4エレベーター乗場、放送卓と最小Runtime読込契約を実装・検証した。T06-3はPR #70で`origin/develop=7f17e2d`へ統合済みとなった。T06-4はこのheadから専用branch／worktreeで実装・V3A・ローカルcommitを完了し、push、Pull Request、レビュー、mergeは行っていない。
+同日、I2設計文書はPR #68で`origin/develop=ceea8ec`、B05はPR #69で`origin/develop=96a16cb`、T06-3はPR #70で`origin/develop=7f17e2d`へ統合済みとなった。B05はschema version 3、5階層Map、52 Area、24 Mission Location、17階段踊り場、4エレベーター乗場、放送卓と最小Runtime読込契約を実装・検証した。T06-4は`7f17e2d`から専用branchで実装・検証し、PR #71で`origin/develop=8befad7`へ統合した。
+
+同日、ミニマップ・Mission／HUD・ロジック・学校モデル／小物の局所的な微修正と、タイトル設定の設計・実装をv2.0リリース前へ追加する指示を受けた。現行順序を`T06-4 → P1 → B06 → T06-4P → I3 → T06-5 → I4 → T06-6A → T06-6B → P2 → T07 → v2リリース準備`へ更新した。P1／P2は文書仕分け、B06は学校バイナリ単一編集、T06-4PはRuntime／UI、I4はタイトル設定相談、T06-6Aは基本設定、T06-6Bはモード・新機能ON／OFFを担当する。今回の再編は計画文書だけを変更し、進行中のT06-4、学校資産、Runtimeへは着手していない。
+
+2026-08-10、PR #71統合後の`develop=8befad7`へ本計画を載せ替え、T06-4を完了、P1を単独開始可能へ更新した。
+
+同日、P1で今回の追加受付を締め、全指摘と17画像を証拠付き台帳へ固定した。B06を4つ、T06-4Pを2つの直列batchへ分割し、I4へV1タイトル／ゲームオーバーと静的学校資源再利用の設計を追加、T06-6C／Dを新設した。P1ではコード・学校資産を変更していない。
