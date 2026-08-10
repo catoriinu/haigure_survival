@@ -116,6 +116,18 @@ Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出し�
 - MISSIONパネルの横幅を縮め、現行候補で最長のMission見出しを1行表示できる幅へ固定する。Mission見出しは折り返さず、現在地などの説明文は必要に応じて改行する。
 - 屋上入口で複数NPCが停止する不具合と、屋上箱の側面へPlayerが食い込む不具合は非致命として切り分ける。学校形状、Collider、NavMeshの確認と修正はB06へ記録し、B06後も複数NPCの集中時だけ停止する場合のNPC Runtime修正はT06-4Pへ記録する。今回のMission追補差分へ学校バイナリやNPC経路制御を混在させない。
 
+### 2026-08-10 第6次受入追補
+
+> 何人洗脳するや、何人の新しい同行者と同行する、で表示する候補の現在地についてですが、優先順位、ランダムじゃなくて優先順位をつけたいです。プレイヤーのいる場所、部屋と全く同じ部屋にいるなら、それを最優先、隣り合うエリアにいるなら、そのうちどれかをランダム抽選というふうに、エリア単位で近い、一番近いキャラクターを一人選択してください。一人選択した後は、そのキャラが移動しても、そのキャラが洗脳されたりとかするまでは追尾して、同じままにして、同じキャラの現在地を表示するで構いません。最初の選択時だけ、エリア単位で一番近いエリアにいるキャラを選択してください。
+>
+> 別件でこのエラーで止まりました。前の指示の修正後に修正してください。
+>
+> `Error: bit配置位置を安全な飛行帯へ投影できません: v2_bit_0`
+
+- 同行人数／洗脳人数Missionの表示候補は、選出時のPlayer位置と候補の正本`location_area`を使って優先順位を決める。同一Areaの候補を最優先し、同一Areaにいない場合はPlayer位置から候補Areaの正本Volumeまでの空間距離が最小のArea層だけを残し、その層のNPCをPlayer Mission乱数で1人抽選する。NPC ID順で決定性を固定し、座標直書きやArea名推測は行わない。
+- 一度選出した表示候補は、Areaを移動しても、Mission進捗へ計上されるか候補外へ遷移するまで同じNPCを維持し、正本Area現在地だけを更新する。候補交代時は、その時点のPlayer位置から同じ優先規則で再選出する。
+- 候補優先順位の修正と受入検証を完了した後、公開処刑配置で`V2BitSystem.placeBits()`が安全な飛行帯へ投影できず停止する例外を再現する。公開処刑会場、配置Marker、BIT飛行帯・境界契約を照合して原因を修正し、暗黙の別位置fallbackは追加しない。
+
 ## ステップ
 
 - [x] `origin/develop`、PR #70、dirty差分、既存worktreeを確認し、`codex/v2-missions`専用worktreeを作成する。
@@ -158,6 +170,11 @@ Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出し�
 - [x] 全校放送Missionの短縮表示、洗脳完了NPC一括G／N契約、MISSIONパネル幅縮小を実装する。
 - [x] 第5次追補fixture、typecheck／build、実ブラウザまたはElectron受入を完了する。
 - [x] 配布監査と実測結果を同期し、第5次追補差分をローカルcommitする。
+- [x] 人数Missionの表示候補を、同一Area優先・最短Area層内抽選へ変更し、選出後の同一NPC追跡を維持する。
+- [x] 候補優先順位をMission fixtureと通常入口で検証する。
+- [x] 公開処刑時のBIT配置投影失敗を再現し、正本飛行帯契約に沿って修正する。
+- [x] BIT配置回帰、対象typecheck／build、実ブラウザまたはElectron受入、配布監査を完了する。
+- [x] 第6次受入追補の実測結果を同期し、対象差分だけをローカルcommitする。
 
 ## 結果
 
@@ -200,3 +217,7 @@ Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出し�
 - 第5次追補の実ブラウザfixtureはT06-4 36/36、T05-3 27/27でPASSし、console warning／errorは0件だった。`typecheck:t05`、`typecheck:t06-4`、`typecheck:v2`、`build:t05`、`build:t06-4`、通常`npm run build`をPASSした。Mission専用Electron受入はnormal／haigureともPASSし、haigure放送後に洗脳完了NPC 10体がすべてG、BGM／VOICE読込、診断0件を確認した。
 - `git diff --check`、厳格UTF-8／BOM、保護対象差分を監査し、Blender、GLB、NavMesh、生成器、カタログhashの変更が0件であることを確認した。
 - 第5次受入追補の差分を`codex/v2-missions`へローカルcommitした。今回の追加push、Draft PR更新、レビュー、merge、I3／T06-5／T07は実施していない。
+- 第6次受入追補では、同行人数／洗脳人数Missionの表示候補を、Playerと同一の正本Area、次にPlayer位置から正本Area Volumeまでの距離が最短のArea層、の順で選ぶようにした。同じ優先層のNPCだけを決定的乱数で抽選し、選出後はNPCがAreaを移動しても同一NPCを追跡して現在地を更新し、候補外へ遷移した時だけ現在のPlayer位置から再選出する。
+- 公開処刑BIT停止は、`assembly-courtyard`の正本会場中心が床面より0.30m低く、従来の相対高度1.20mでは要求位置がY=0.90となり、1F屋外の正本BIT飛行帯下限Y=1.00を下回ることが原因だった。共通相対高度を1.30mへ修正し、中庭ではY=1.00、体育館でも正本飛行帯内へ収めた。別位置fallback、NavMesh、飛行帯metadata、会場Markerは変更していない。
+- 実行fixtureはT06-4 36/36とT05をElectronでPASSし、同一Area優先、最短Area層、選出済みNPC追跡、候補交代、中庭公開処刑BIT 25体の飛行帯下限を確認した。`typecheck:t05`、`typecheck:t06-4`、`typecheck:v2`、`build:t05`、`build:t06-4`、通常`npm run build`、V2依存監査をPASSした。
+- 第6次追補の変更はMission Runtime、Survival配置規則、各fixture、本計画だけで、Blender、GLB、NavMesh、生成器、カタログhashは変更していない。差分監査後に`codex/v2-missions`へローカルcommitし、今回の追加push、Draft PR更新、レビュー、merge、後続タスクは実施していない。

@@ -316,6 +316,31 @@ export const runSurvivalRulesTests =
       }
     ),
     executeTest(
+      "中庭公開処刑BITの高さは1F屋外飛行帯下限へ収まる",
+      () => {
+        const baseVenue = createVenue();
+        const courtyardVenue = Object.freeze({
+          ...baseVenue,
+          id: "assembly-courtyard",
+          center: new Vector3(0, -0.3, 0)
+        });
+        const positions = createV2ExecutionBitPositions(
+          courtyardVenue,
+          25,
+          new Vector3(4, -0.3, 0)
+        );
+        const minimumHeight = Math.min(
+          ...positions.map((position) => position.y)
+        );
+        return {
+          ok:
+            positions.length === 25 &&
+            positions.every((position) => position.y === 1),
+          detail: `minimumHeight=${minimumHeight.toFixed(3)} / required=1.000`
+        };
+      }
+    ),
+    executeTest(
       "公開alarm frameは配列と位置をcloneして内部値と分離する",
       () => {
         const source: V2AlarmFrame = Object.freeze({

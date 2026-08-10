@@ -1,6 +1,7 @@
 import { Vector3 } from "@babylonjs/core";
 
 import type {
+  StageLocationArea,
   StageLocationAssetRegistry,
   StageMissionLocation
 } from "../world/stageLocationAssets";
@@ -1104,6 +1105,103 @@ export const createV2MissionRuntime = ({
     return formatNpcLocation(follower, "現在地：");
   };
 
+  const distanceSquaredToArea = (
+    position: Vector3,
+    area: StageLocationArea
+  ) => {
+    let shortestDistanceSquared = Number.POSITIVE_INFINITY;
+    for (const piece of area.pieces) {
+      piece.mesh.computeWorldMatrix(true);
+      const bounds = piece.mesh.getBoundingInfo().boundingBox;
+      const deltaX = Math.max(
+        bounds.minimumWorld.x - position.x,
+        0,
+        position.x - bounds.maximumWorld.x
+      );
+      const deltaY = Math.max(
+        bounds.minimumWorld.y - position.y,
+        0,
+        position.y - bounds.maximumWorld.y
+      );
+      const deltaZ = Math.max(
+        bounds.minimumWorld.z - position.z,
+        0,
+        position.z - bounds.maximumWorld.z
+      );
+      shortestDistanceSquared = Math.min(
+        shortestDistanceSquared,
+        deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ
+      );
+    }
+    if (!Number.isFinite(shortestDistanceSquared)) {
+      throw new Error(`location_areaにpieceがありません: ${area.id}`);
+    }
+    return shortestDistanceSquared;
+  };
+
+  const selectCountMissionDisplayCandidate = (
+    playerFootPosition: Vector3,
+    candidates: readonly V2MissionNpcSnapshot[]
+  ) => {
+    if (candidates.length === 0) {
+      throw new Error("人数Missionの表示候補がありません。");
+    }
+    const playerAreaHit = locations.findArea(playerFootPosition);
+    if (playerAreaHit === null) {
+      throw new Error("Player位置のlocation_areaを解決できません。");
+    }
+    const candidatesByAreaId = new Map<
+      string,
+      Readonly<{
+        area: StageLocationArea;
+        npcs: V2MissionNpcSnapshot[];
+      }>
+    >();
+    for (const candidate of [...candidates].sort((left, right) =>
+      left.id.localeCompare(right.id)
+    )) {
+      const candidateAreaHit = locations.findArea(candidate.footPosition);
+      if (candidateAreaHit === null) {
+        throw new Error(
+          `Mission表示候補のlocation_areaを解決できません: ${candidate.id}`
+        );
+      }
+      const group = candidatesByAreaId.get(candidateAreaHit.area.id);
+      if (group) {
+        group.npcs.push(candidate);
+      } else {
+        candidatesByAreaId.set(
+          candidateAreaHit.area.id,
+          Object.freeze({
+            area: candidateAreaHit.area,
+            npcs: [candidate]
+          })
+        );
+      }
+    }
+    const sameArea = candidatesByAreaId.get(playerAreaHit.area.id);
+    if (sameArea) {
+      return pickRandom(sameArea.npcs, nextPlayerRandom);
+    }
+    const areaGroups = [...candidatesByAreaId.values()].sort((left, right) =>
+      left.area.id.localeCompare(right.area.id)
+    );
+    const shortestDistanceSquared = Math.min(
+      ...areaGroups.map((group) =>
+        distanceSquaredToArea(playerFootPosition, group.area)
+      )
+    );
+    const nearestAreaCandidates = areaGroups
+      .filter(
+        (group) =>
+          distanceSquaredToArea(playerFootPosition, group.area) ===
+          shortestDistanceSquared
+      )
+      .flatMap((group) => group.npcs)
+      .sort((left, right) => left.id.localeCompare(right.id));
+    return pickRandom(nearestAreaCandidates, nextPlayerRandom);
+  };
+
   const formatElevatorLocation = (
     elevators: readonly V2MissionElevatorSnapshot[]
   ) => {
@@ -1172,6 +1270,7 @@ export const createV2MissionRuntime = ({
   };
 
   const createFollowerAcquireMission = (
+    playerFootPosition: Vector3,
     npcs: readonly V2MissionNpcSnapshot[],
     startedAtSeconds: number
   ) => {
@@ -1185,7 +1284,10 @@ export const createV2MissionRuntime = ({
         : Math.floor(
             nextPlayerRandom() * Math.min(3, eligibleNpcs.length)
           ) + 1;
-    const displayCandidate = pickRandom(eligibleNpcs, nextPlayerRandom);
+    const displayCandidate = selectCountMissionDisplayCandidate(
+      playerFootPosition,
+      eligibleNpcs
+    );
     const mission = addMission(
       "player-follower-acquire",
       "normal",
@@ -1245,6 +1347,7 @@ export const createV2MissionRuntime = ({
   };
 
   const createBrainwashTargetMission = (
+    playerFootPosition: Vector3,
     npcs: readonly V2MissionNpcSnapshot[],
     startedAtSeconds: number
   ) => {
@@ -1256,7 +1359,10 @@ export const createV2MissionRuntime = ({
       brainwashTargetMissionCount === 0
         ? 1
         : Math.floor(nextPlayerRandom() * Math.min(3, candidates.length)) + 1;
-    const displayCandidate = pickRandom(candidates, nextPlayerRandom);
+    const displayCandidate = selectCountMissionDisplayCandidate(
+      playerFootPosition,
+      candidates
+    );
     const mission = addMission(
       "player-brainwash-target",
       "normal",
@@ -1464,7 +1570,11 @@ export const createV2MissionRuntime = ({
           Object.freeze({
             weight: 30,
             create: () =>
-              createFollowerAcquireMission(update.npcs, scheduledAtSeconds)
+              createFollowerAcquireMission(
+                update.playerFootPosition,
+                update.npcs,
+                scheduledAtSeconds
+              )
           })
         );
       }
@@ -1517,7 +1627,11 @@ export const createV2MissionRuntime = ({
           Object.freeze({
             weight: 70,
             create: () =>
-              createBrainwashTargetMission(update.npcs, scheduledAtSeconds)
+              createBrainwashTargetMission(
+                update.playerFootPosition,
+                update.npcs,
+                scheduledAtSeconds
+              )
           })
         );
       }
@@ -1740,7 +1854,8 @@ export const createV2MissionRuntime = ({
 
   const refreshCountMissionDisplayCandidate = (
     mission: MutableMission,
-    candidates: readonly V2MissionNpcSnapshot[]
+    candidates: readonly V2MissionNpcSnapshot[],
+    playerFootPosition: Vector3
   ) => {
     if (
       mission.target.kind !== "follower-count" &&
@@ -1752,15 +1867,12 @@ export const createV2MissionRuntime = ({
       displayCandidateNpcIdByMissionId.delete(mission.id);
       return;
     }
-    const sortedCandidates = [...candidates].sort((left, right) =>
-      left.id.localeCompare(right.id)
-    );
     const currentCandidateId = displayCandidateNpcIdByMissionId.get(mission.id);
     const candidate =
       currentCandidateId === undefined
-        ? pickRandom(sortedCandidates, nextPlayerRandom)
-        : sortedCandidates.find((npc) => npc.id === currentCandidateId) ??
-          pickRandom(sortedCandidates, nextPlayerRandom);
+        ? selectCountMissionDisplayCandidate(playerFootPosition, candidates)
+        : candidates.find((npc) => npc.id === currentCandidateId) ??
+          selectCountMissionDisplayCandidate(playerFootPosition, candidates);
     displayCandidateNpcIdByMissionId.set(mission.id, candidate.id);
     const candidateLocationDisplayName = formatNpcLocation(
       candidate,
@@ -1875,7 +1987,11 @@ export const createV2MissionRuntime = ({
         ) {
           finishMission(mission, "failed", "target-unavailable");
         } else {
-          refreshCountMissionDisplayCandidate(mission, remainingCandidates);
+          refreshCountMissionDisplayCandidate(
+            mission,
+            remainingCandidates,
+            update.playerFootPosition
+          );
         }
       } else if (mission.kind === "player-follower-escort") {
         const actorId = targetActorId(mission.target)!;
@@ -1919,7 +2035,11 @@ export const createV2MissionRuntime = ({
         ) {
           finishMission(mission, "failed", "target-unavailable");
         } else {
-          refreshCountMissionDisplayCandidate(mission, remainingCandidates);
+          refreshCountMissionDisplayCandidate(
+            mission,
+            remainingCandidates,
+            update.playerFootPosition
+          );
         }
       } else if (mission.kind === "player-first-follower-brainwash") {
         const target = npcById.get(targetActorId(mission.target)!);

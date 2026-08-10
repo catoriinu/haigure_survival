@@ -1,6 +1,7 @@
 import { Vector3 } from "@babylonjs/core";
 
 import type {
+  StageLocationArea,
   StageLocationAssetRegistry,
   StageMissionLocation
 } from "../../../src/world/stageLocationAssets";
@@ -134,6 +135,37 @@ const createFixtureMissionLocation = (
       containsAll || Math.abs(point.x - x) <= 0.02
   }) as unknown as StageMissionLocation;
 
+const createFixtureArea = (
+  id: string,
+  displayName: string,
+  minimumX: number,
+  maximumX: number
+): StageLocationArea => {
+  const minimumWorld = new Vector3(minimumX, -1, -1);
+  const maximumWorld = new Vector3(maximumX, 1, 1);
+  return Object.freeze({
+    id,
+    displayName,
+    priority: 100,
+    pieces: Object.freeze([
+      Object.freeze({
+        id: `piece-${id}`,
+        areaId: id,
+        floorBinding: Object.freeze({ kind: "fixed", floorId: "f01" }),
+        mesh: Object.freeze({
+          computeWorldMatrix: () => undefined,
+          getBoundingInfo: () =>
+            Object.freeze({
+              boundingBox: Object.freeze({ minimumWorld, maximumWorld })
+            })
+        }),
+        contains: (point: Vector3) =>
+          point.x >= minimumX && point.x <= maximumX
+      })
+    ])
+  }) as unknown as StageLocationArea;
+};
+
 export const createFixtureLocations = (
   containsAll = false
 ): StageLocationAssetRegistry => {
@@ -153,18 +185,17 @@ export const createFixtureLocations = (
     ["loc-k", "f01", "目的地 loc-k"],
     ["rooftop-poolside", "roof", "屋上プールサイド"]
   ] as const;
-  const sharedArea = Object.freeze({
-    id: "area-shared",
-    displayName: "共有Area"
-  }) as StageMissionLocation["area"];
+  const sharedArea = createFixtureArea(
+    "area-shared",
+    "共有Area",
+    -100,
+    100
+  );
   const missionLocations = Object.freeze(
     specs.map(([id, floorId, displayName], index) => {
       const area = containsAll
         ? sharedArea
-        : (Object.freeze({
-            id: `area-${id}`,
-            displayName
-          }) as StageMissionLocation["area"]);
+        : createFixtureArea(`area-${id}`, displayName, 9.5 + index * 2, 10.5 + index * 2);
       return createFixtureMissionLocation(
         id,
         floorId,
@@ -176,10 +207,24 @@ export const createFixtureLocations = (
     })
   );
   const byId = new Map(missionLocations.map((location) => [location.id, location]));
-  const elevatorArea = Object.freeze({
-    id: "area-elevator",
-    displayName: "エレベーター"
-  }) as StageMissionLocation["area"];
+  const elevatorArea = createFixtureArea(
+    "area-elevator",
+    "エレベーター",
+    -10.5,
+    -9.5
+  );
+  const playerArea = createFixtureArea(
+    "area-player",
+    "Player現在Area",
+    -0.5,
+    0.5
+  );
+  const fixtureFloorArea = createFixtureArea(
+    "area-fixture-floor",
+    "Fixture共通Area",
+    0.51,
+    9.49
+  );
   const elevatorLandings = Object.freeze([
     Object.freeze({
       id: "landing-f01",
@@ -210,6 +255,8 @@ export const createFixtureLocations = (
     floorMaps,
     areas: Object.freeze([
       elevatorArea,
+      playerArea,
+      fixtureFloorArea,
       ...missionLocations.map((location) => location.area)
     ]),
     missionLocations,
@@ -227,6 +274,22 @@ export const createFixtureLocations = (
           piece: Object.freeze({ id: "piece-area-elevator" }),
           floorId: null,
           elevatorId: "school-elevator"
+        });
+      }
+      if (!containsAll && Math.abs(point.x) <= 0.5) {
+        return Object.freeze({
+          area: playerArea,
+          piece: playerArea.pieces[0],
+          floorId: "f01" as const,
+          elevatorId: null
+        });
+      }
+      if (!containsAll && fixtureFloorArea.pieces[0].contains(point)) {
+        return Object.freeze({
+          area: fixtureFloorArea,
+          piece: fixtureFloorArea.pieces[0],
+          floorId: "f01" as const,
+          elevatorId: null
         });
       }
       const location = containsAll
@@ -885,7 +948,7 @@ export const runMissionRuntimeTests = async (): Promise<
         ),
         "非同行の現在地が3秒周期で階・Area表示へ更新されません。"
       );
-      follower.footPosition.x = 0;
+      follower.footPosition.x = 1_000;
       frame = updateFixture(escortFixture, {
         deltaSeconds: 3,
         npcs: Object.freeze([follower])
@@ -957,7 +1020,7 @@ export const runMissionRuntimeTests = async (): Promise<
       const detachedFixture = createMissionFixture({
         playerRandom: () => 0.75
       });
-      const detachedFollower = createFixtureNpc("npc-detached", 0.5);
+      const detachedFollower = createFixtureNpc("npc-detached", 1_000);
       detachedFixture.runtime.notifyNpcCommandChanged(detachedFollower.id, "follow");
       detachedFollower.commandMode = "none";
       detachedFixture.runtime.notifyNpcCommandChanged(detachedFollower.id, "leave");
@@ -1530,13 +1593,14 @@ export const runMissionRuntimeTests = async (): Promise<
       );
       return "Player GとN阻止補助は人数へ計上、同frame phase離脱でも成功優先、阻止なし第三者は非計上";
     }),
-    executeTest("人数Missionの候補現在地更新と第三者洗脳時の交代", () => {
+    executeTest("人数Mission候補は同一Area・最短Areaを優先し同じNPCを追跡", () => {
       const followerFixture = createMissionFixture({
-        playerRandom: createSequenceRandom([0.6, 0, 0])
+        playerRandom: createSequenceRandom([0.6, 0.99, 0])
       });
       const followerCandidates = Object.freeze([
-        createFixtureNpc("npc-a", 10),
-        createFixtureNpc("npc-b", 14)
+        createFixtureNpc("npc-a", 0),
+        createFixtureNpc("npc-b", 0.25),
+        createFixtureNpc("npc-c", 10)
       ]);
       let frame = updateFixture(followerFixture, {
         deltaSeconds: 0,
@@ -1556,10 +1620,10 @@ export const runMissionRuntimeTests = async (): Promise<
       const followerMissionId = initialFollowerMission.id;
       assert(
         initialFollowerMission.target.candidateLocationDisplayName ===
-          "候補の現在地：1F 体育館",
-        `同行候補の初期現在地が不正です: ${initialFollowerMission.target.candidateLocationDisplayName}`
+          "候補の現在地：1F Player現在Area",
+        `同一Areaの同行候補を最優先にできません: ${initialFollowerMission.target.candidateLocationDisplayName}`
       );
-      followerCandidates[0].footPosition.x = 12;
+      followerCandidates[1].footPosition.x = 14;
       frame = updateFixture(followerFixture, {
         deltaSeconds: 0,
         npcs: followerCandidates
@@ -1571,10 +1635,10 @@ export const runMissionRuntimeTests = async (): Promise<
       assert(
         currentFollowerMission?.target.kind === "follower-count" &&
           currentFollowerMission.target.candidateLocationDisplayName ===
-            "候補の現在地：2F 放送室",
-        "同行候補がAreaを移動しても現在地を更新しません。"
+            "候補の現在地：3F 美術室",
+        "選出済み同行候補がAreaを移動した際に同じNPCを追跡しません。"
       );
-      followerCandidates[0].state = "hit-a";
+      followerCandidates[1].state = "hit-a";
       frame = updateFixture(followerFixture, {
         deltaSeconds: 0,
         npcs: followerCandidates
@@ -1586,17 +1650,17 @@ export const runMissionRuntimeTests = async (): Promise<
       assert(
         currentFollowerMission?.target.kind === "follower-count" &&
           currentFollowerMission.target.candidateLocationDisplayName ===
-            "候補の現在地：3F 美術室",
-        "同行候補が洗脳開始した後に別候補へ表示を切り替えません。"
+            "候補の現在地：1F Player現在Area",
+        "同行候補が無効になった後に現在の同一Area候補へ切り替えません。"
       );
       followerFixture.runtime.dispose();
 
       const brainwashFixture = createMissionFixture({
-        playerRandom: createSequenceRandom([0, 0, 0])
+        playerRandom: createSequenceRandom([0, 0.99, 0])
       });
       const brainwashCandidates = Object.freeze([
-        createFixtureNpc("npc-c", 10),
-        createFixtureNpc("npc-d", 14)
+        createFixtureNpc("npc-nearest", 10),
+        createFixtureNpc("npc-farther", 14)
       ]);
       frame = updateFixture(brainwashFixture, {
         deltaSeconds: 0,
@@ -1611,6 +1675,11 @@ export const runMissionRuntimeTests = async (): Promise<
       if (!brainwashMission || brainwashMission.target.kind !== "brainwash-count") {
         throw new Error("候補交代確認用の洗脳人数Missionがありません。");
       }
+      assert(
+        brainwashMission.target.candidateLocationDisplayName ===
+          "候補の現在地：1F 体育館",
+        "乱数順よりPlayerに最も近いAreaの洗脳候補を優先できません。"
+      );
       const brainwashMissionId = brainwashMission.id;
       brainwashCandidates[0].state = "hit-a";
       frame = updateFixture(brainwashFixture, {
@@ -1633,7 +1702,7 @@ export const runMissionRuntimeTests = async (): Promise<
         "第三者が候補を洗脳開始した後に洗脳人数へ数えず別候補へ切り替えません。"
       );
       brainwashFixture.runtime.dispose();
-      return "正本Area変化を即時反映し、第三者のhit-aでは非計上のまま別候補へ交代";
+      return "同一Areaを最優先、最短Area層内で抽選し、選出後は移動追跡・無効時だけ再選出";
     }),
     executeTest("最初の同行者との再同行は120秒・現在地追跡", () => {
       const fixture = createMissionFixture({
