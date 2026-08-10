@@ -3048,6 +3048,11 @@ const testNpcElevatorBlockedStatesDoNotConsumeReplanBudget = async () => {
     );
     return "探索不能4体=0枠 / walking 1体=1枠";
   } finally {
+    const runtimes = (fixture.system as unknown as NpcRuntimeTestAccess).npcs;
+    for (const runtime of runtimes) {
+      runtime.pendingNavigationTransition = null;
+      runtime.traversalState = Object.freeze({ kind: "walking" });
+    }
     fixture.dispose();
   }
 };

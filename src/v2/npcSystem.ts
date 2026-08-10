@@ -506,6 +506,7 @@ export interface V2NpcSystem {
   setPlayerBlockedTargetIds(targetIds: readonly string[]): void;
   setVisibleNpcIds(npcIds: readonly string[]): void;
   setAiSuspended(suspended: boolean): void;
+  setHostileActionsSuspended(suspended: boolean): void;
   placeNpcs(assignments: readonly V2NpcPlacementAssignment[]): void;
   dispose(): void;
 }
@@ -1027,6 +1028,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private readonly playerHorizontalDirection = Vector3.Zero();
   private traversalElapsedSeconds = 0;
   private aiSuspended = false;
+  private hostileActionsSuspended = false;
   private disposed = false;
 
   constructor(options: V2NpcSystemOptions) {
@@ -1592,6 +1594,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         continue;
       }
       const state = npc.stateSnapshot.state;
+      if (this.hostileActionsSuspended && isV2BrainwashState(state)) {
+        this.clearNavigationAgent(npc);
+        continue;
+      }
       if (
         state !== "brainwash-complete-gun" &&
         state !== "brainwash-complete-no-gun"
@@ -1711,6 +1717,15 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       }
       const threatened = threatenedIds.has(npc.id);
       const state = npc.stateSnapshot.state;
+      if (npc.command.mode === "follow") {
+        if (isV2AliveState(state) && state !== "normal") {
+          npc.stateSystem.setAliveBehaviorState("normal");
+          npc.stateSnapshot = npc.stateSystem.getSnapshot();
+          npc.lastState = npc.stateSnapshot.state;
+          this.applySpriteVisualState(npc);
+        }
+        continue;
+      }
       if (
         (commandNpcIds.has(npc.id) ||
           npc.command.mode !== "none") &&
@@ -2527,6 +2542,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     for (const npc of this.npcs) {
       const state = npc.stateSnapshot.state;
       if (
+        this.hostileActionsSuspended ||
         !npc.sprite.isVisible ||
         npc.command.mode !== "none" ||
         (state !== "brainwash-complete-gun" &&
@@ -2721,6 +2737,22 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       this.previousPlayerFootPosition = null;
       this.playerHorizontalDirection.setAll(0);
       this.rebuildFrameViewPreservingThreats();
+    }
+  }
+
+  setHostileActionsSuspended(suspended: boolean) {
+    this.assertActive();
+    if (this.hostileActionsSuspended === suspended) {
+      return;
+    }
+    this.hostileActionsSuspended = suspended;
+    if (!suspended) {
+      return;
+    }
+    for (const npc of this.npcs) {
+      if (isV2BrainwashState(npc.stateSnapshot.state)) {
+        this.clearNavigationAgent(npc);
+      }
     }
   }
 
@@ -3185,9 +3217,12 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       return npc.evadeNavigationReplanPriority;
     }
     if (behavior === "breakaway") {
+      return 1;
+    }
+    if (behavior === "follow") {
       return 0;
     }
-    if (behavior === "follow" || behavior === "leave") {
+    if (behavior === "leave") {
       return 1;
     }
     if (
@@ -3617,6 +3652,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     for (const npc of this.npcs) {
       const state = npc.stateSnapshot.state;
       if (
+        this.hostileActionsSuspended ||
         !npc.sprite.isVisible ||
         commandNpcIds.has(npc.id) ||
         npc.command.mode !== "none" ||
@@ -4183,10 +4219,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       if (npc.command.mode !== "follow") {
         continue;
       }
-      if (threatenedNpcIds.has(npc.id)) {
-        followerCount += 1;
-        continue;
-      }
       if (
         playerElevatorTraversal?.phase === "cancelled" &&
         npc.command.followElevatorLinkId ===
@@ -4306,9 +4338,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
     for (let npcIndex = 0; npcIndex < this.npcs.length; npcIndex += 1) {
       const npc = this.npcs[npcIndex];
-      if (threatenedNpcIds.has(npc.id)) {
-        continue;
-      }
       if (npc.command.mode === "follow") {
         this.updateFollowMovement(
           npc,
@@ -4318,7 +4347,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           this.hasReplanPermission(npcIndex)
         );
         this.updateFollowerFire(npc, deltaSeconds);
-      } else if (npc.command.mode === "leave") {
+      } else if (
+        npc.command.mode === "leave" &&
+        !threatenedNpcIds.has(npc.id)
+      ) {
         this.updateLeaveMovement(
           npc,
           deltaSeconds,
@@ -5747,7 +5779,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.evadeNavigationReplanPriority = orderedThreats.some(
       (threat) => threat.provenance === "direct"
     )
-      ? 0
+      ? 1
       : 5;
     const threatSetKey = orderedThreats
       .map((threat) => threat.sourceId)

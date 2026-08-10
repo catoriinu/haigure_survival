@@ -87,6 +87,7 @@ export type V2MissionFailureReason =
   | "deadline"
   | "follower-lost"
   | "target-unavailable"
+  | "player-hit"
   | "player-brainwash-started"
   | "brainwashed-by-third-party";
 
@@ -237,19 +238,19 @@ export type V2MissionView =
   | V2MissionViewFor<
       Extract<V2MissionDefinition, { kind: "player-location" }>,
       "arrived",
-      "deadline",
+      "deadline" | "player-hit",
       "phase-ended"
     >
   | V2MissionViewFor<
       Extract<V2MissionDefinition, { kind: "player-follower-acquire" }>,
       "follower-count-reached",
-      "deadline",
+      "deadline" | "player-hit",
       "phase-ended" | "player-brainwash-started"
     >
   | V2MissionViewFor<
       Extract<V2MissionDefinition, { kind: "player-follower-escort" }>,
       "follower-survived",
-      "follower-lost",
+      "follower-lost" | "player-hit",
       "phase-ended" | "player-brainwash-started"
     >
   | V2MissionViewFor<
@@ -395,6 +396,11 @@ const isCompletedBrainwashState = (state: V2CharacterState) =>
   state === "brainwash-complete-no-gun" ||
   state === "brainwash-complete-haigure";
 
+const isPlayerBrainwashSequenceState = (state: V2CharacterState) =>
+  state === "hit-a" ||
+  state === "hit-b" ||
+  state === "brainwash-in-progress";
+
 const isMovementCapableState = (state: V2CharacterState) =>
   state === "normal" ||
   state === "evade" ||
@@ -435,6 +441,7 @@ const FAILURE_REASONS: readonly V2MissionFailureReason[] = Object.freeze([
   "deadline",
   "follower-lost",
   "target-unavailable",
+  "player-hit",
   "player-brainwash-started",
   "brainwashed-by-third-party"
 ]);
@@ -468,6 +475,13 @@ const isMissionTerminalReasonAllowed = (
     );
   }
   if (state === "failed") {
+    if (reason === "player-hit") {
+      return (
+        mission.kind === "player-location" ||
+        mission.kind === "player-follower-acquire" ||
+        mission.kind === "player-follower-escort"
+      );
+    }
     if (reason === "deadline") {
       return mission.kind !== "player-follower-escort";
     }
@@ -733,6 +747,9 @@ export const createV2MissionRuntime = ({
   const missions: MutableMission[] = [];
   let elapsedSeconds = 0;
   let nextSchedulerAtSeconds = V2_MISSION_SCHEDULER_INTERVAL_SECONDS;
+  let initialPlayerMissionPending = true;
+  let postBrainwashPlayerMissionPending = false;
+  let previousPlayerState: V2CharacterState | null = null;
   let missionSequence = 0;
   let followerAcquireMissionCount = 0;
   const acquiredFollowerIdsByMissionId = new Map<string, Set<string>>();
@@ -1063,14 +1080,15 @@ export const createV2MissionRuntime = ({
 
   const schedulePlayerMission = (
     update: V2MissionUpdate,
-    scheduledAtSeconds: number
+    scheduledAtSeconds: number,
+    guaranteed = false
   ) => {
     if (
       activePlayerNormalMissions().length >=
         V2_PLAYER_NORMAL_MISSION_MAXIMUM ||
-      nextPlayerRandom() >= 0.5
+      (!guaranteed && nextPlayerRandom() >= 0.5)
     ) {
-      return;
+      return false;
     }
     const activeKinds = new Set(
       activePlayerNormalMissions().map((mission) => mission.kind)
@@ -1173,7 +1191,7 @@ export const createV2MissionRuntime = ({
       0
     );
     if (totalWeight === 0) {
-      return;
+      return false;
     }
     let roll = nextPlayerRandom() * totalWeight;
     for (const candidate of weightedCandidates) {
@@ -1181,9 +1199,25 @@ export const createV2MissionRuntime = ({
         if (!candidate.create()) {
           throw new Error("検証済みPlayer Mission候補を作成できません。");
         }
-        return;
+        return true;
       }
       roll -= candidate.weight;
+    }
+    throw new Error("Player Missionの重み付き抽選結果を解決できません。");
+  };
+
+  const failUnbrainwashedPlayerMissionsForHit = () => {
+    for (const mission of activePlayerNormalMissions()) {
+      if (
+        mission.kind === "player-location" ||
+        mission.kind === "player-follower-acquire" ||
+        mission.kind === "player-follower-escort"
+      ) {
+        finishMission(mission, "failed", "player-hit");
+      }
+    }
+    for (const mission of activeSituationMissions()) {
+      finishMission(mission, "failed", "player-brainwash-started");
     }
   };
 
@@ -1342,14 +1376,6 @@ export const createV2MissionRuntime = ({
   const evaluateMissions = (update: V2MissionUpdate) => {
     const npcById = new Map(update.npcs.map((npc) => [npc.id, npc]));
     if (update.playerState === "brainwash-in-progress") {
-      for (const mission of activePlayerNormalMissions()) {
-        if (
-          mission.kind === "player-follower-acquire" ||
-          mission.kind === "player-follower-escort"
-        ) {
-          finishMission(mission, "cancelled", "player-brainwash-started");
-        }
-      }
       for (const mission of activeSituationMissions()) {
         finishMission(mission, "failed", "player-brainwash-started");
       }
@@ -1613,8 +1639,34 @@ export const createV2MissionRuntime = ({
         for (const mission of activeMissions()) {
           finishMission(mission, "cancelled", "phase-ended");
         }
+        previousPlayerState = update.playerState;
         frame = buildFrame();
         return frame;
+      }
+
+      const playerBrainwashSequenceStarted =
+        previousPlayerState !== null &&
+        isUnbrainwashedState(previousPlayerState) &&
+        isPlayerBrainwashSequenceState(update.playerState);
+      if (playerBrainwashSequenceStarted) {
+        failUnbrainwashedPlayerMissionsForHit();
+        postBrainwashPlayerMissionPending = true;
+      }
+
+      let guaranteedPlayerMissionCreated = false;
+      if (
+        initialPlayerMissionPending &&
+        (isUnbrainwashedState(update.playerState) ||
+          isCompletedBrainwashState(update.playerState))
+      ) {
+        guaranteedPlayerMissionCreated = schedulePlayerMission(
+          update,
+          elapsedSeconds - update.deltaSeconds,
+          true
+        );
+        if (guaranteedPlayerMissionCreated) {
+          initialPlayerMissionPending = false;
+        }
       }
 
       while (nextSchedulerAtSeconds < elapsedSeconds) {
@@ -1623,7 +1675,11 @@ export const createV2MissionRuntime = ({
           scheduledAtSeconds,
           "at-or-past"
         );
-        if (!expired.playerMissionFinished) {
+        if (
+          !initialPlayerMissionPending &&
+          !postBrainwashPlayerMissionPending &&
+          !expired.playerMissionFinished
+        ) {
           schedulePlayerMission(update, scheduledAtSeconds);
         }
         if (!expired.npcMissionFinished) {
@@ -1641,7 +1697,21 @@ export const createV2MissionRuntime = ({
       processNpcStateTransitions(update.npcStateTransitions);
       evaluateMissions(update);
       maybeStartEscapeMission(update);
+      if (
+        postBrainwashPlayerMissionPending &&
+        isCompletedBrainwashState(update.playerState)
+      ) {
+        guaranteedPlayerMissionCreated = schedulePlayerMission(
+          update,
+          elapsedSeconds,
+          true
+        );
+        if (guaranteedPlayerMissionCreated) {
+          postBrainwashPlayerMissionPending = false;
+        }
+      }
       const suppressPlayerScheduling =
+        guaranteedPlayerMissionCreated ||
         expiredBeforeEvaluation.playerMissionFinished ||
         activePlayerNormalMissions().length < playerNormalBefore;
       const suppressNpcScheduling =
@@ -1665,6 +1735,7 @@ export const createV2MissionRuntime = ({
         nextSchedulerAtSeconds += V2_MISSION_SCHEDULER_INTERVAL_SECONDS;
       }
       finishExpiredMissions(elapsedSeconds, "at-or-past");
+      previousPlayerState = update.playerState;
       frame = buildFrame();
       return frame;
     },

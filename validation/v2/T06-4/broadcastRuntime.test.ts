@@ -592,14 +592,14 @@ export const runBroadcastRuntimeTests = async (): Promise<
         followerItem?.querySelector('[data-v2-mission-hud-role="mission-title"]')
           ?.textContent === "新しい同行者を2人獲得する" &&
           followerItem?.querySelector('[data-v2-mission-hud-role="mission-meta"]')
-            ?.textContent === "獲得 1 / 2　残り 120秒",
+            ?.textContent === "獲得 1 / 2　失敗まで 120秒",
         `同行者進捗文言が不正です: ${followerItem?.textContent ?? "null"}`
       );
       assert(
         locationItem?.querySelector('[data-v2-mission-hud-role="mission-title"]')
           ?.textContent === "3F 美術室へ行く" &&
           locationItem?.querySelector('[data-v2-mission-hud-role="mission-meta"]')
-            ?.textContent === "残り 120秒",
+            ?.textContent === "失敗まで 120秒",
         `Location文言が不正です: ${locationItem?.textContent ?? "null"}`
       );
 
@@ -644,9 +644,53 @@ export const runBroadcastRuntimeTests = async (): Promise<
           root.textContent.includes("（同行中）") &&
           root.textContent.includes("3人洗脳する") &&
           root.textContent.includes("洗脳 1 / 3") &&
+          root.textContent.includes("達成まで 240秒") &&
+          root.textContent.includes("失敗まで 180秒") &&
           !root.textContent.includes("npc-secret-escort") &&
           !root.textContent.includes("Follower"),
         `同行者護衛または洗脳人数のIDなし日本語表示が不正です: ${root.textContent}`
+      );
+
+      const orderBeforeResult = Array.from(
+        root.querySelectorAll<HTMLElement>(
+          '[data-v2-mission-hud-role="mission-item"]'
+        )
+      ).map((item) => item.dataset.v2MissionId);
+      const completedBrainwashMission = Object.freeze({
+        ...brainwashMission,
+        state: "completed" as const,
+        target: Object.freeze({
+          kind: "brainwash-count" as const,
+          brainwashedCount: 3,
+          requiredCount: 3
+        }),
+        terminalAtSeconds: 24,
+        terminalReason: "brainwash-count-reached" as const
+      }) satisfies V2MissionView;
+      hud.update({
+        active: true,
+        frame: createHudFrame(
+          24,
+          Object.freeze([escortMission, completedBrainwashMission])
+        )
+      });
+      const orderDuringResult = Array.from(
+        root.querySelectorAll<HTMLElement>(
+          '[data-v2-mission-hud-role="mission-item"]'
+        )
+      ).map((item) => item.dataset.v2MissionId);
+      assert(
+        JSON.stringify(orderDuringResult) === JSON.stringify(orderBeforeResult),
+        "完了色へ変化したMissionが4秒表示中に並び替わりました。"
+      );
+      hud.update({
+        active: true,
+        frame: createHudFrame(28, Object.freeze([escortMission]))
+      });
+      assert(
+        root.querySelector('[data-v2-mission-hud-role="mission-item"]')
+          ?.getAttribute("data-v2-mission-id") === escortMission.id,
+        "結果表示消滅後に残存Missionを並べ直しません。"
       );
 
       const completedFollowerMission = Object.freeze({
@@ -690,7 +734,10 @@ export const runBroadcastRuntimeTests = async (): Promise<
       const item = host.querySelector<HTMLElement>(
         '[data-v2-mission-hud-role="mission-item"]'
       );
-      assert(item?.textContent?.includes("残り 120秒") === true, "残り時間を表示しません。");
+      assert(
+        item?.textContent?.includes("失敗まで 100秒") === true,
+        "失敗までの残り時間を表示しません。"
+      );
       const activeMission = frame.playerMissions.find(
         (mission) => mission.state === "active"
       );
@@ -725,6 +772,6 @@ export const runBroadcastRuntimeTests = async (): Promise<
       hud.dispose();
       fixture.runtime.dispose();
       host.remove();
-      return "active残り時間、完了表示、4秒後除去を右上一覧で同期";
+      return "失敗までの時間、完了表示、4秒後除去を右上一覧で同期";
     })
   ]);

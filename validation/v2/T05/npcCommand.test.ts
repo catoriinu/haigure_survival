@@ -1749,7 +1749,7 @@ const testFollowAlarmPriority = async () => {
   try {
     const alivePlayer = createPlayerTarget(Vector3.Zero());
     placeNpcs(aliveFixture.system, [
-      new Vector3(0, 0, 0.4)
+      new Vector3(0, 0, 0.5)
     ]);
     assert(
       aliveFixture.system.requestCommand(
@@ -1767,6 +1767,12 @@ const testFollowAlarmPriority = async () => {
         sightClear: true
       })
     ]);
+    const aliveFollowerBefore = aliveFixture.system.getNpcPosition("npc_0");
+    aliveFixture.system.update(
+      0.2,
+      alivePlayer,
+      EMPTY_ALARM_EVENTS
+    );
     aliveFixture.system.update(
       0.2,
       alivePlayer,
@@ -1780,8 +1786,10 @@ const testFollowAlarmPriority = async () => {
       aliveTracking.commandMode === "follow" &&
         aliveTracking.targetId === null &&
         getNpcTarget(aliveFixture.system, "npc_0").state ===
-          "normal",
-      "未洗脳Followerがexternal threatでevadeへ上書きされました。"
+          "normal" &&
+        aliveFixture.system.getNpcPosition("npc_0").z <
+          aliveFollowerBefore.z,
+      "未洗脳の同行者が直接的危機より同行移動を優先しません。"
     );
 
     placeNpcs(fixture.system, [
@@ -3443,6 +3451,8 @@ const testAutonomousThreatRoundRobinFairness = async () => {
 const testAutonomousCombatSuppression = async () => {
   const baselineFixture = await createNpcCommandFixture(3, 2);
   const followerFixture = await createNpcCommandFixture(3, 2);
+  const startupGraceFixture = await createNpcCommandFixture(3, 2);
+  const captureRescueFixture = await createNpcCommandFixture(3, 2);
   const baselinePlayer = createPlayerTarget(Vector3.Zero());
   const player = createPlayerTarget(
     Vector3.Zero(),
@@ -3454,6 +3464,38 @@ const testAutonomousCombatSuppression = async () => {
     new Vector3(0, 0, 0.2)
   ] as const;
   try {
+    placeNpcs(startupGraceFixture.system, positions);
+    const startupHostilePositions = ["npc_0", "npc_1"].map((npcId) =>
+      startupGraceFixture.system.getNpcPosition(npcId)
+    );
+    startupGraceFixture.system.setHostileActionsSuspended(true);
+    startupGraceFixture.system.update(
+      3,
+      baselinePlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      startupGraceFixture.system.drainBeamRequests().length === 0 &&
+        startupGraceFixture.system.getFrameView().captures.length === 0 &&
+        ["npc_0", "npc_1"].every((npcId, index) =>
+          startupGraceFixture.system
+            .getNpcPosition(npcId)
+            .equals(startupHostilePositions[index])
+        ),
+      "開始猶予中に洗脳済みNPCが移動・射撃・捕捉しました。"
+    );
+    startupGraceFixture.system.setHostileActionsSuspended(false);
+    startupGraceFixture.system.update(
+      3,
+      baselinePlayer,
+      EMPTY_ALARM_EVENTS
+    );
+    assert(
+      startupGraceFixture.system.drainBeamRequests().length > 0 &&
+        startupGraceFixture.system.getFrameView().captures.length > 0,
+      "開始猶予解除後も洗脳済みNPCの行動が再開しません。"
+    );
+
     placeNpcs(baselineFixture.system, positions);
     baselineFixture.system.update(
       3,
@@ -3494,10 +3536,49 @@ const testAutonomousCombatSuppression = async () => {
         followerFixture.system.getFrameView().captures.length === 0,
       "Follow中にgun自律射撃またはno-gun捕縛が発生しました。"
     );
-    return `比較時beam=${baselineBeamCount}/capture=${baselineCaptureCount}、Follow中はいずれも0`;
+
+    const rescuePlayer = createPlayerTarget(new Vector3(0, 0, 0.5));
+    placeNpcs(captureRescueFixture.system, [
+      new Vector3(-0.05, 0, 0.1),
+      new Vector3(0.05, 0, 0.1),
+      new Vector3(0.05, 0, 0.1)
+    ]);
+    const captureSystemAccess = captureRescueFixture.system as unknown as {
+      npcs: Array<{
+        id: string;
+        capture: {
+          targetId: string;
+          remainingSeconds: number;
+          lastTargetFootPosition: Vector3;
+        } | null;
+      }>;
+    };
+    const noGunNpc = captureSystemAccess.npcs.find(
+      (npc) => npc.id === "npc_1"
+    )!;
+    noGunNpc.capture = {
+      targetId: "npc_2",
+      remainingSeconds: 2,
+      lastTargetFootPosition:
+        captureRescueFixture.system.getNpcPosition("npc_2")
+    };
+    assert(
+      captureRescueFixture.system.requestCommand(
+        "npc_2",
+        "follow",
+        createCommandQuery(rescuePlayer)
+      ) &&
+        noGunNpc.capture === null &&
+        getTracking(captureRescueFixture.system, "npc_2").commandMode ===
+          "follow",
+      "捕捉中NPCへの同行指示で移動妨害を即時解除できません。"
+    );
+    return `開始猶予中hostile停止、解除後再開、比較時beam=${baselineBeamCount}/capture=${baselineCaptureCount}、同行で捕捉解除`;
   } finally {
     baselineFixture.dispose();
     followerFixture.dispose();
+    startupGraceFixture.dispose();
+    captureRescueFixture.dispose();
   }
 };
 

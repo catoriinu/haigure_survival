@@ -78,7 +78,7 @@ const createMissionText = (
   const terminalLabel = mission.state === "completed" ? "完了" : "失敗";
   const remainingText =
     mission.state === "active"
-      ? `残り ${Math.max(0, Math.ceil(mission.deadlineAtSeconds - elapsedSeconds))}秒`
+      ? `${mission.kind === "player-follower-escort" ? "達成まで" : "失敗まで"} ${Math.max(0, Math.ceil(mission.deadlineAtSeconds - elapsedSeconds))}秒`
       : terminalLabel;
   if (mission.kind === "player-follower-acquire") {
     const { acquiredCount, requiredCount } = mission.target;
@@ -205,6 +205,7 @@ export const createV2MissionHudController = ({
   });
   host.appendChild(root);
   let disposed = false;
+  let displayOrderIds: readonly string[] = Object.freeze([]);
 
   const assertActive = () => {
     if (disposed) {
@@ -213,6 +214,7 @@ export const createV2MissionHudController = ({
   };
 
   const clear = () => {
+    displayOrderIds = Object.freeze([]);
     list.replaceChildren();
     root.replaceChildren();
     root.hidden = true;
@@ -226,11 +228,37 @@ export const createV2MissionHudController = ({
         clear();
         return;
       }
-      const missions = selectVisibleMissions(frame.playerMissions);
-      if (missions.length === 0) {
+      const selectedMissions = selectVisibleMissions(frame.playerMissions);
+      if (selectedMissions.length === 0) {
         clear();
         return;
       }
+      const selectedById = new Map(
+        selectedMissions.map((mission) => [mission.id, mission] as const)
+      );
+      const displayedMissionDisappeared = displayOrderIds.some(
+        (missionId) => !selectedById.has(missionId)
+      );
+      if (displayedMissionDisappeared) {
+        displayOrderIds = Object.freeze(
+          selectedMissions.map((mission) => mission.id)
+        );
+      } else {
+        const existingIds = new Set(displayOrderIds);
+        displayOrderIds = Object.freeze([
+          ...displayOrderIds,
+          ...selectedMissions
+            .filter((mission) => !existingIds.has(mission.id))
+            .map((mission) => mission.id)
+        ]);
+      }
+      const missions = displayOrderIds.map((missionId) => {
+        const mission = selectedById.get(missionId);
+        if (!mission) {
+          throw new Error(`表示中Missionが選択結果にありません: ${missionId}`);
+        }
+        return mission;
+      });
       list.replaceChildren(
         ...missions.map((mission) =>
           createMissionItem(document, mission, frame.elapsedSeconds)

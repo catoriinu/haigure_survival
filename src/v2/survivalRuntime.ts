@@ -123,6 +123,7 @@ import {
 const ALERT_DURATION_SECONDS = 15;
 const PERFORMANCE_ALERT_REFRESH_SECONDS = 10;
 const ALL_DEAD_ASSEMBLY_DELAY_SECONDS = 3;
+export const V2_HOSTILE_STARTUP_GRACE_SECONDS = 5;
 const PLAYER_ID = "player";
 const EMPTY_ALARM_FRAME: V2AlarmFrame = Object.freeze({
   events: Object.freeze([]),
@@ -1593,6 +1594,11 @@ export const createV2SurvivalRuntime = ({
         "survival elapsedSeconds",
         elapsedSeconds
       );
+      const updateStartedAtSeconds = elapsedSeconds - deltaSeconds;
+      const hostileStartupGraceActive =
+        updateStartedAtSeconds < V2_HOSTILE_STARTUP_GRACE_SECONDS;
+      npcSystem.setHostileActionsSuspended(hostileStartupGraceActive);
+      bitSystem.setHostileActionsSuspended(hostileStartupGraceActive);
       npcSystem.setPlayerElevatorTraversalSnapshot(
         playerElevatorTraversal
       );

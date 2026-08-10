@@ -727,10 +727,17 @@ export const runSurvivalRuntimeLifecycleTests = async (
       commandCamera.getViewMatrix(true);
       commandCamera.getProjectionMatrix(true);
 
-      commandRuntime.update(2, 2, null);
-      commandRuntime.update(0.25, 2.25, null);
-      commandRuntime.update(3.7, 5.95, null);
-      const completionFrame = commandRuntime.update(0.06, 6.01, null);
+      const startupGraceFrame = commandRuntime.update(5, 5, null);
+      if (startupGraceFrame.playerState !== "normal") {
+        throw new Error(
+          `開始5秒の猶予中に洗脳済みNPCがPlayerを攻撃しました: ${startupGraceFrame.playerState}`
+        );
+      }
+      commandRuntime.update(0, 5, null);
+      commandRuntime.update(2, 7, null);
+      commandRuntime.update(0.25, 7.25, null);
+      commandRuntime.update(3.7, 10.95, null);
+      const completionFrame = commandRuntime.update(0.06, 11.01, null);
       if (!completionFrame.playerCompletionUnlocked) {
         throw new Error(
           `Runtime NPC指示検証でプレイヤー完了選択が解放されません: ` +

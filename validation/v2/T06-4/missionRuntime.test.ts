@@ -361,7 +361,7 @@ export const runMissionRuntimeTests = async (): Promise<
   readonly T06TestResult[]
 > =>
   Promise.all([
-    executeTest("20秒schedulerと50%境界", () => {
+    executeTest("開始直後1件と20秒schedulerの50%境界", () => {
       assert(
         MISSION_VIEW_REJECTS_INVALID_KIND_REASON,
         "V2MissionViewがkindに不正な終了理由を許可しています。"
@@ -375,29 +375,46 @@ export const runMissionRuntimeTests = async (): Promise<
         "洗脳人数MissionがActor targetを許可しています。"
       );
       const generated = createMissionFixture({
-        playerRandom: createSequenceRandom([0.49, 0, 0])
+        playerRandom: createSequenceRandom([0, 0, 0.49, 0.99])
+      });
+      const npcs = Object.freeze([createFixtureNpc("npc-a", 1)]);
+      const initialFrame = updateFixture(generated, {
+        deltaSeconds: 19.99,
+        npcs
       });
       assert(
-        updateFixture(generated, { deltaSeconds: 19.99 }).playerMissions.length === 0,
-        "20秒前にPlayer Missionが生成されました。"
+        initialFrame.playerMissions.length === 1 &&
+          initialFrame.playerMissions[0].state === "active" &&
+          initialFrame.playerMissions[0].startedAtSeconds === 0,
+        "Playing開始直後にPlayer Missionが1件生成されません。"
       );
-      const generatedFrame = updateFixture(generated, { deltaSeconds: 0.01 });
+      const generatedFrame = updateFixture(generated, {
+        deltaSeconds: 0.01,
+        npcs
+      });
       assert(
         generatedFrame.playerMissions.some(
-          (mission) => mission.state === "active" && mission.kind === "player-location"
+          (mission) =>
+            mission.state === "active" &&
+            mission.kind === "player-follower-acquire"
         ),
-        "50%抽選の当選でMissionが生成されません。"
+        "20秒tickの50%当選で2件目が生成されません。"
       );
       generated.runtime.dispose();
 
-      const rejected = createMissionFixture({ playerRandom: () => 0.5 });
-      const rejectedFrame = updateFixture(rejected, { deltaSeconds: 20 });
+      const rejected = createMissionFixture({
+        playerRandom: createSequenceRandom([0, 0, 0.5])
+      });
+      const rejectedFrame = updateFixture(rejected, {
+        deltaSeconds: 20,
+        npcs
+      });
       assert(
-        rejectedFrame.playerMissions.length === 0,
+        rejectedFrame.playerMissions.length === 1,
         "50%境界値を当選扱いしました。"
       );
       rejected.runtime.dispose();
-      return "20.00秒でtickし、0.49は当選・0.50は落選";
+      return "Playing開始時は0秒開始で1件、20.00秒tickは0.49当選・0.50落選";
     }),
     executeTest("複数20秒tick跨ぎの開始時刻と期限", () => {
       let randomCall = 0;
@@ -407,7 +424,7 @@ export const runMissionRuntimeTests = async (): Promise<
           if (randomCall === 1) {
             return 0.1;
           }
-          if (randomCall === 2 || randomCall === 3) {
+          if (randomCall === 2) {
             return 0;
           }
           return 0.9;
@@ -417,17 +434,17 @@ export const runMissionRuntimeTests = async (): Promise<
       const mission = fixture.runtime.getMissions().find(
         (candidate) => candidate.kind === "player-location"
       );
-      assert(mission !== undefined, "20秒tickのMissionが生成されません。");
+      assert(mission !== undefined, "開始直後のMissionが生成されません。");
       assert(
-        mission.startedAtSeconds === 20 &&
-          mission.deadlineAtSeconds === 140 &&
+        mission.startedAtSeconds === 0 &&
+          mission.deadlineAtSeconds === 120 &&
           mission.state === "failed" &&
-          mission.terminalAtSeconds === 140 &&
+          mission.terminalAtSeconds === 120 &&
           mission.terminalReason === "deadline",
         `跨ぎtickの時刻が不正です: ${JSON.stringify(mission)}`
       );
       fixture.runtime.dispose();
-      return "delta=200でも20秒開始・140秒期限として時系列処理";
+      return "delta=200でも0秒開始・120秒期限として時系列処理";
     }),
     executeTest("大deltaの過去tickは既存Missionを時系列保持", () => {
       let randomCall = 0;
@@ -449,20 +466,25 @@ export const runMissionRuntimeTests = async (): Promise<
         .getMissions()
         .filter((mission) => mission.kind === "player-location");
       assert(
-        locationMissions.length === 1,
+        locationMissions.length === 2,
         `期限前の過去tickで同種Missionが生成されました: ${JSON.stringify(locationMissions)}`
       );
       const mission = locationMissions[0];
       assert(
         mission.state === "failed" &&
-          mission.startedAtSeconds === 20 &&
-          mission.deadlineAtSeconds === 140 &&
-          mission.terminalAtSeconds === 140 &&
+          mission.startedAtSeconds === 0 &&
+          mission.deadlineAtSeconds === 120 &&
+          mission.terminalAtSeconds === 120 &&
           mission.terminalReason === "deadline",
         `大delta時のMission時系列が不正です: ${JSON.stringify(mission)}`
       );
+      assert(
+        locationMissions[1].state === "active" &&
+          locationMissions[1].startedAtSeconds === 140,
+        "期限終了後の140秒tickで同種Missionを補充しません。"
+      );
       fixture.runtime.dispose();
-      return "40～120秒tickでは既存Missionを保持し、140秒tickで期限失敗のみ";
+      return "20～100秒tickは既存Missionを保持し、120秒期限後の140秒tickで補充";
     }),
     executeTest("無効候補除外後の比率再正規化", () => {
       const fixture = createMissionFixture({
@@ -484,7 +506,7 @@ export const runMissionRuntimeTests = async (): Promise<
       const fixture = createMissionFixture({
         containsAll: true,
         playerRandom: createSequenceRandom([
-          0.1, 0,
+          0,
           0.1, 0, 0,
           0.1, 0, 0.34,
           0.1, 0, 0.99
@@ -591,7 +613,7 @@ export const runMissionRuntimeTests = async (): Promise<
       const capped = createMissionFixture({
         containsAll: true,
         playerRandom: createSequenceRandom([
-          0.1, 0,
+          0,
           0.1, 0, 0.99
         ])
       });
@@ -693,7 +715,7 @@ export const runMissionRuntimeTests = async (): Promise<
     }),
     executeTest("Player LocationはArea進入で完了し階表示", () => {
       const fixture = createMissionFixture({
-        playerRandom: createSequenceRandom([0.1, 0, 0.17])
+        playerRandom: createSequenceRandom([0, 0.17])
       });
       let frame = updateFixture(fixture, { deltaSeconds: 20 });
       const mission = frame.playerMissions.find(
@@ -732,7 +754,7 @@ export const runMissionRuntimeTests = async (): Promise<
       fixture.runtime.dispose();
 
       const excluded = createMissionFixture({
-        playerRandom: createSequenceRandom([0.1, 0, 0])
+        playerRandom: createSequenceRandom([0, 0])
       });
       const art = excluded.locations.getMissionLocationById("f03-art")!;
       frame = updateFixture(excluded, {
@@ -750,7 +772,7 @@ export const runMissionRuntimeTests = async (): Promise<
       excluded.runtime.dispose();
 
       const rooftop = createMissionFixture({
-        playerRandom: createSequenceRandom([0.1, 0, 0.99])
+        playerRandom: createSequenceRandom([0, 0.99])
       });
       frame = updateFixture(rooftop, { deltaSeconds: 20 });
       const rooftopMission = frame.playerMissions.find(
@@ -768,7 +790,6 @@ export const runMissionRuntimeTests = async (): Promise<
     executeTest("同行者護衛は240秒生存・3秒現在地、NPC LocationはAnchor Volume", () => {
       const escortFixture = createMissionFixture({
         playerRandom: createSequenceRandom([
-          0.1,
           0.99,
           ...Array(12).fill(0.9)
         ])
@@ -857,19 +878,19 @@ export const runMissionRuntimeTests = async (): Promise<
         npcs: Object.freeze([follower])
       });
       assert(
-        frame.playerMissions.some(
+        escortFixture.runtime.getMissions().some(
           (mission) =>
             mission.id === escort.id &&
             mission.state === "completed" &&
             mission.terminalReason === "follower-survived" &&
-            mission.terminalAtSeconds === 260
+            mission.terminalAtSeconds === 240
         ),
-        "非同行でも未洗脳で生存した同行者護衛が240秒で完了しません。"
+        `非同行でも未洗脳で生存した同行者護衛が240秒で完了しません: ${JSON.stringify(escortFixture.runtime.getMissions())}`
       );
       escortFixture.runtime.dispose();
 
       const lostFixture = createMissionFixture({
-        playerRandom: createSequenceRandom([0.1, 0.99])
+        playerRandom: createSequenceRandom([0.99])
       });
       const lostFollower = createFixtureNpc("npc-lost", 0.5, "normal", "follow");
       lostFixture.runtime.notifyNpcCommandChanged(lostFollower.id, "follow");
@@ -894,7 +915,7 @@ export const runMissionRuntimeTests = async (): Promise<
       lostFixture.runtime.dispose();
 
       const detachedFixture = createMissionFixture({
-        playerRandom: createSequenceRandom([0.1, 0.99])
+        playerRandom: createSequenceRandom([0.99])
       });
       const detachedFollower = createFixtureNpc("npc-detached", 0.5);
       detachedFixture.runtime.notifyNpcCommandChanged(detachedFollower.id, "follow");
@@ -977,7 +998,7 @@ export const runMissionRuntimeTests = async (): Promise<
       });
       updateFixture(fixture, { deltaSeconds: 20 });
       const beforeDeadline = updateFixture(fixture, {
-        deltaSeconds: 119,
+        deltaSeconds: 99,
         playerState: "brainwash-complete-haigure"
       });
       assert(
@@ -1012,6 +1033,92 @@ export const runMissionRuntimeTests = async (): Promise<
       cancelled.runtime.dispose();
       return "通常Hでも期限を継続し、120秒失敗・期限超過同frameでもphase離脱取消";
     }),
+    executeTest("hit-aで未洗脳Mission失敗・GNH確定時に即時1件", () => {
+      const fixture = createMissionFixture({
+        playerRandom: () => 0.1
+      });
+      const firstFollower = createFixtureNpc(
+        "npc-first",
+        0.5,
+        "normal",
+        "follow"
+      );
+      const other = createFixtureNpc("npc-other", 1);
+      const npcs = Object.freeze([firstFollower, other]);
+      fixture.runtime.notifyNpcCommandChanged(firstFollower.id, "follow");
+      updateFixture(fixture, { deltaSeconds: 0, npcs });
+      updateFixture(fixture, { deltaSeconds: 20, npcs });
+      let frame = updateFixture(fixture, { deltaSeconds: 20, npcs });
+      const unbrainwashedMissionIds = frame.playerMissions
+        .filter(
+          (mission) =>
+            mission.state === "active" &&
+            (mission.kind === "player-location" ||
+              mission.kind === "player-follower-acquire" ||
+              mission.kind === "player-follower-escort")
+        )
+        .map((mission) => mission.id);
+      assert(
+        unbrainwashedMissionIds.length === 3,
+        `hit-a前に未洗脳Missionを3件用意できません: ${JSON.stringify(frame.playerMissions)}`
+      );
+
+      frame = updateFixture(fixture, {
+        deltaSeconds: 0,
+        playerState: "hit-a",
+        npcs
+      });
+      assert(
+        unbrainwashedMissionIds.every((missionId) =>
+          frame.playerMissions.some(
+            (mission) =>
+              mission.id === missionId &&
+              mission.state === "failed" &&
+              mission.terminalReason === "player-hit"
+          )
+        ) &&
+          frame.playerMissions.every((mission) => mission.state !== "active"),
+        "hit-a開始時に表示中の未洗脳Missionをすべて失敗へ更新しません。"
+      );
+
+      frame = updateFixture(fixture, {
+        deltaSeconds: 4,
+        playerState: "hit-b",
+        npcs
+      });
+      assert(
+        frame.playerMissions.length === 0,
+        "hit-b中に4秒経過後もMissionを表示しました。"
+      );
+      frame = updateFixture(fixture, {
+        deltaSeconds: 0,
+        playerState: "brainwash-in-progress",
+        npcs
+      });
+      assert(
+        frame.playerMissions.length === 0,
+        "洗脳進行中にMissionを生成しました。"
+      );
+
+      frame = updateFixture(fixture, {
+        deltaSeconds: 0,
+        playerState: "brainwash-complete-gun",
+        npcs
+      });
+      const brainwashedMissions = frame.playerMissions.filter(
+        (mission) =>
+          mission.state === "active" &&
+          (mission.kind === "player-brainwash-target" ||
+            mission.kind === "player-first-follower-brainwash")
+      );
+      assert(
+        brainwashedMissions.length === 1 &&
+          brainwashedMissions[0].startedAtSeconds === 44,
+        `G確定時に洗脳済みMissionを即時1件生成しません: ${JSON.stringify(frame.playerMissions)}`
+      );
+      fixture.runtime.dispose();
+      return "hit-aで未洗脳3件を失敗、hit-b/progress非表示、G確定時44秒に1件";
+    }),
     executeTest("期限跨過は評価前失敗・期限ちょうどは成功優先", () => {
       const createSingleMissionRandom = () => {
         let callCount = 0;
@@ -1042,7 +1149,7 @@ export const runMissionRuntimeTests = async (): Promise<
         lateLocationMission.target.locationId
       )!;
       updateFixture(lateLocation, {
-        deltaSeconds: 121,
+        deltaSeconds: 101,
         playerX: lateLocationTarget.navigationLocation.position.x
       });
       const lateLocationResult = lateLocation.runtime
@@ -1051,7 +1158,7 @@ export const runMissionRuntimeTests = async (): Promise<
       assert(
         lateLocationResult?.state === "failed" &&
           lateLocationResult.terminalReason === "deadline" &&
-          lateLocationResult.terminalAtSeconds === 140,
+          lateLocationResult.terminalAtSeconds === 120,
         `期限後のVolume進入が成功しました: ${JSON.stringify(lateLocationResult)}`
       );
       lateLocation.runtime.dispose();
@@ -1071,7 +1178,7 @@ export const runMissionRuntimeTests = async (): Promise<
         exactLocationMission.target.locationId
       )!;
       updateFixture(exactLocation, {
-        deltaSeconds: 120,
+        deltaSeconds: 100,
         playerX: exactLocationTarget.navigationLocation.position.x
       });
       const exactLocationResult = exactLocation.runtime
@@ -1080,7 +1187,7 @@ export const runMissionRuntimeTests = async (): Promise<
       assert(
         exactLocationResult?.state === "completed" &&
           exactLocationResult.terminalReason === "arrived" &&
-          exactLocationResult.terminalAtSeconds === 140,
+          exactLocationResult.terminalAtSeconds === 120,
         `期限ちょうどのVolume進入を成功優先にできません: ${JSON.stringify(exactLocationResult)}`
       );
       exactLocation.runtime.dispose();
@@ -1105,7 +1212,7 @@ export const runMissionRuntimeTests = async (): Promise<
       }
       target.state = "brainwash-in-progress";
       updateFixture(lateTransition, {
-        deltaSeconds: 181,
+        deltaSeconds: 161,
         playerState: "brainwash-complete-gun",
         npcs,
         transitions: Object.freeze([
@@ -1118,7 +1225,7 @@ export const runMissionRuntimeTests = async (): Promise<
       assert(
         lateTransitionResult?.state === "failed" &&
           lateTransitionResult.terminalReason === "deadline" &&
-          lateTransitionResult.terminalAtSeconds === 200,
+          lateTransitionResult.terminalAtSeconds === 180,
         `期限後の洗脳イベントが成功しました: ${JSON.stringify(lateTransitionResult)}`
       );
       lateTransition.runtime.dispose();
@@ -1126,7 +1233,7 @@ export const runMissionRuntimeTests = async (): Promise<
     }),
     executeTest("状況Mission期限切れは通常Player補充を抑止しない", () => {
       const fixture = createMissionFixture({
-        playerRandom: createSequenceRandom([0.9, 0.9, 0.1, 0, 0])
+        playerRandom: createSequenceRandom([0.9, 0.9, 0.9, 0.1, 0, 0])
       });
       const first = createFixtureNpc(
         "npc-first",
@@ -1136,12 +1243,22 @@ export const runMissionRuntimeTests = async (): Promise<
         "player"
       );
       const other = createFixtureNpc("npc-other", 1);
-      const npcs = Object.freeze([first, other]);
+      const remaining = createFixtureNpc("npc-remaining", 2);
+      const npcs = Object.freeze([first, other, remaining]);
       fixture.runtime.notifyNpcCommandChanged(first.id, "follow");
       updateFixture(fixture, {
         deltaSeconds: 0,
         playerState: "brainwash-complete-gun",
         npcs
+      });
+      other.state = "brainwash-in-progress";
+      updateFixture(fixture, {
+        deltaSeconds: 0,
+        playerState: "brainwash-complete-gun",
+        npcs,
+        transitions: Object.freeze([
+          brainwashTransition(other.id, "player", false)
+        ])
       });
       updateFixture(fixture, {
         deltaSeconds: 60,
@@ -1219,7 +1336,7 @@ export const runMissionRuntimeTests = async (): Promise<
     }),
     executeTest("洗脳人数は初回1・以後最大3、distinctと達成不能を判定", () => {
       const fixture = createMissionFixture({
-        playerRandom: createSequenceRandom([0.1, 0, 0.1, 0, 0.99])
+        playerRandom: createSequenceRandom([0, 0.1, 0, 0.99])
       });
       const npcs = Object.freeze([
         createFixtureNpc("npc-a", 1),
