@@ -61,8 +61,15 @@ flowchart LR
 | B05 | `codex/v2-mission-locations` |
 | T06-3 | `codex/v2-minimap` |
 | T06-4 | `codex/v2-missions` |
+| P1 | `codex/v2-polish-wave-1-plan` |
+| B06 | `codex/v2-school-asset-polish` |
+| T06-4P | `codex/v2-runtime-ui-polish` |
 | I3 | `codex/v2-character-display-design` |
 | T06-5 | `codex/v2-character-portraits` |
+| I4 | `codex/v2-title-settings-design` |
+| T06-6A | `codex/v2-title-settings` |
+| T06-6B | `codex/v2-title-modes` |
+| P2 | `codex/v2-final-polish-plan` |
 | T07 | `codex/v2-t07-regression-docs` |
 
 PR #41以降は、レビュー可能な一ブランチ単位へ次のように分割する。
@@ -94,17 +101,24 @@ PR #41以降は、レビュー可能な一ブランチ単位へ次のように�
 | B05 Mission・ミニマップ意味資産 | `codex/v2-mission-locations` |
 | T06-3 ミニマップ | `codex/v2-minimap` |
 | T06-4 Mission・放送Runtime | `codex/v2-missions` |
+| P1 第1微修正整理 | `codex/v2-polish-wave-1-plan` |
+| B06 学校資産微修正 | `codex/v2-school-asset-polish` |
+| T06-4P Runtime／UI微修正 | `codex/v2-runtime-ui-polish` |
 | I3 キャラクター反射・表示仕上げ設計 | `codex/v2-character-display-design` |
 | T06-5 キャラクター反射・表示仕上げRuntime | `codex/v2-character-portraits` |
+| I4 タイトル設定設計 | `codex/v2-title-settings-design` |
+| T06-6A タイトル基本設定 | `codex/v2-title-settings` |
+| T06-6B タイトルモード・機能ON／OFF | `codex/v2-title-modes` |
+| P2 最終微修正整理 | `codex/v2-final-polish-plan` |
 | T07 性能・回帰・仕様書 | `codex/v2-t07-regression-docs` |
 
-PR #50までの実行順は、B03-0とT04-2Aの並行Wave、B03-1、B03-2、T04-2B、T05-1、T05-2で完了した。その後、B03-3Aで学校拡張契約を確定し、B03-3BとT05-2V、B03-3C・T04-3A・T05-3のI0統合、B04とT05-4の並行Wave、T04-3B、通常版教室配置、通常テスト人口更新、B03-3D、T06-1、B03-3D追補、T06-2までPR #64～#67で完了した。I2設計文書はPR #68、B05はPR #69、T06-3はPR #70で`develop=7f17e2d`へ統合済みであり、T06-4をこのheadから実施する。
+PR #50までの実行順は、B03-0とT04-2Aの並行Wave、B03-1、B03-2、T04-2B、T05-1、T05-2で完了した。その後、B03-3Aで学校拡張契約を確定し、B03-3BとT05-2V、B03-3C・T04-3A・T05-3のI0統合、B04とT05-4の並行Wave、T04-3B、通常版教室配置、通常テスト人口更新、B03-3D、T06-1、B03-3D追補、T06-2までPR #64～#67で完了した。I2設計文書はPR #68、B05はPR #69、T06-3はPR #70、T06-4はPR #71で`develop=8befad7`へ統合済みである。
 
 2026-07-26、`codex/v2-t05-combat-systems`はPR #50のマージコミット`27abd9b`で`develop`へ統合済みである。戦闘・状態・光線物理・集合・警報・公開処刑、Alert最大4機、BIT探索分散、窓越しCHASE、仕様維持性能リファクタリングをT05-2の完了範囲とする。V1相当の光線軌跡・周囲光球・着弾・キャラクター命中演出はPR #50へ追加せず、世界境界終了とともにT05-2Vへ分割する。
 
-2026-08-01、PR #59のT04-3B、PR #60の通常版教室配置、PR #61の通常テスト人口50／10／20は`develop`の`e8f922d`までに統合済みである。B04の最終契約は`worldBoundaryMode = "required"`、非nullの`StageSpatialContext.worldBoundary`、外周BIT飛行帯なし、外周BIT経路0件を維持する。現在は`codex/v2-wave-0g-roadmap`で文書だけを再編し、コード・学校バイナリ・既存worktreeを変更しない。
+2026-08-01、PR #59のT04-3B、PR #60の通常版教室配置、PR #61の通常テスト人口50／10／20は`develop`の`e8f922d`までに統合済みである。B04の最終契約は`worldBoundaryMode = "required"`、非nullの`StageSpatialContext.worldBoundary`、外周BIT飛行帯なし、外周BIT経路0件を維持する。この時点では`codex/v2-wave-0g-roadmap`で文書だけを再編し、コード・学校バイナリ・既存worktreeを変更しなかった。
 
-2026-08-09、PR #64のT06-1、PR #65のB03-3D、PR #66の荒れ版家具干渉修正、PR #67のT06-2、PR #68のI2設計文書、PR #69のB05、PR #70のT06-3は`develop=7f17e2d`までに統合済みである。T06-4はこのheadから`codex/v2-missions`と専用worktreeを作成し、実装・V3A・ローカルcommitまで完了した。push、Pull Request、レビュー、mergeは未実施である。
+2026-08-10、PR #64～#70は`develop=7f17e2d`までに統合済みであり、T06-4はPR #71で`develop=8befad7`へ統合済みとなった。後続は`P1 → B06 → T06-4P → I3 → T06-5 → I4 → T06-6A → T06-6B → P2 → T07`を直列実行する。
 
 T04-2BでB03-2統合後の階段NAV元形状と上階blockerを修正する作業だけは、`codex/v2-t04-school-multifloor`からローカル限定の`codex/v2-t04-school-nav-asset-fix`を分岐する。修正コミットはT04-2Bへ`--no-ff`でローカルマージし、この補助ブランチ自体はpushまたはPull Request化しない。2026-07-20に北西階段・吹抜け補正`1f34fe2`を`d9a3872`、北東・南西1F踊り場開口補正`fb2caf5`を`b3f2302`、上階Nav blocker補正`c2bcdcc`を`b5e77f7`としてT04へローカルマージ済みである。
 
@@ -136,7 +150,7 @@ B03-0を開始する場合は、手順1で`docs/plans/v2/T04/plan.md`の「B03-0
 - Pull RequestにはタスクID、目的、主な変更、検証結果、既知の未完成事項、個別計画へのパスを記載する。
 - 対象タスクの完了条件と必要なビルド・テストを満たしてから作成する。
 - `develop`全体がリリース可能であることは要求しないが、そのタスクで変更した範囲は検証済みであることを要求する。
-- I0、B04、T05-4、T04-3B、B03-3D、T06-1、T06-2、T06-3、B05、T06-4、T06-5、T07はPull Request作成後、`develop`へマージする前に`docs/plans/v2/next_tasks_plan.md`の対応する重点動作確認ゲートと独立レビューを完了する。
+- I0、B04、T05-4、T04-3B、B03-3D、T06-1、T06-2、T06-3、B05、T06-4、B06、T06-4P、T06-5、T06-6A、T06-6B、T07はPull Request作成後、`develop`へマージする前に`docs/plans/v2/next_tasks_plan.md`の対応する重点動作確認ゲートと独立レビューを完了する。
 - 現在のリポジトリ履歴に合わせ、通常のPull Requestマージで履歴を残す。
 - マージ後、不要になったタスクブランチは削除する。
 
@@ -178,14 +192,17 @@ gh auth status
 - B03-3D追補はPR #66で`develop`へ統合済みであり、学校生成正本、`.blend`、GLB、Room Variant NavMesh、生成器、監査器、カタログhashの編集を完了した。
 - T06-2は開始候補、抽選方式、出現禁止Volume寸法、NPC／BIT出現Volume範囲の承認後、複数開始地点、動的出現禁止、NPC／BIT出現、時間増援、Player開始地点別NPC近傍優先を実装・検証し、PR #67で`develop=3c5a248`へ統合済みである。外周BIT飛行帯、外周BIT経路、外周スポーンは追加していない。
 - B05は`origin/develop=ceea8ec`から単独開始し、階別平面形状、全歩行可能Area、主要24目的地、階段、全階エレベーター乗場、放送卓の生成正本、`.blend`、GLB、監査、カタログhashを単一編集して実装・検証し、PR #69で`develop=96a16cb`へ統合済みである。人間用／Room Variant用／BIT用NavMeshは不変である。
-- T06-3はB05が独立レビュー後に`develop`へ統合済みの最新headから単独開始し、B05の意味資産だけを読むミニマップを実装する。学校座標をTypeScriptへハードコードせず、学校バイナリを変更しない。
-- T06-4はT06-3が独立レビュー後に`develop`へ統合済みの最新headから単独開始し、プレイヤー／NPC Mission、seed付き20秒scheduler、同行者、放送、公開処刑会場切替、HUDを統合してV3A機能ゲートを完了する。
-- 現行V2には鏡または反射用カメラがないため、I3はT06-4後の「キャラクター反射・表示仕上げ設計」相談専用タスクとし、鏡反射、必要な一人称表示仕上げ、99 NPC性能条件をユーザー承認で確定する。コード・資産は変更しない。
+- T06-3はPR #70で`develop=7f17e2d`へ統合済みである。T06-4はPR #71で`develop=8befad7`へ統合済みであり、プレイヤー／NPC Mission、seed付き20秒scheduler、同行者、放送、公開処刑会場切替、HUDとV3A機能ゲートを完了した。
+- P1はT06-4後の文書専用仕分けタスクとする。B06はP1で承認された学校資産だけを単一担当で修正し、T06-4PはB06統合後の最終資産を入力としてRuntime／UIだけを修正する。両者は順序依存のため並行しない。
+- 現行V2には鏡または反射用カメラがないため、I3はT06-4P後の「キャラクター反射・表示仕上げ設計」相談専用タスクとし、鏡反射、必要な一人称表示仕上げ、99 NPC性能条件をユーザー承認で確定する。コード・資産は変更しない。
 - T06-5はI3確定後に単独で実施し、T06-1の基本Character画像表示を前提に、承認済みの鏡反射と表示仕上げだけを実装してV3B機能ゲートを完了する。音声・画像バイナリはGit管理対象へ追加しない。
-- T07はT06-5後に単独で実施し、ミニマップ、Mission、放送、基本Character画像、鏡反射を有効にした99 NPC／50 BITの性能・最終回帰・仕様書同期を行う。Pull Requestの`develop`マージ前に性能・リリースゲートを完了する。
-- 現行順序は`I2・T06-2・B05・T06-3統合済み → T06-4 → I3 → T06-5 → T07 → v2リリース準備`とし、依存成果が`develop`へ入る前に後続ブランチを作成したり書込みを開始したりしない。
+- I4はT06-5後の文書専用設計タスクとし、V1設定とV2新機能を監査して設定項目、初期値、依存関係、保存契約をユーザー承認で確定する。
+- T06-6AとT06-6Bはタイトル、設定schema、保存、起動snapshotの共有ファイルを使うため直列化する。T06-6Aが基本設定、T06-6Bが開始モードと機能ON／OFFを所有し、V3Cタイトル・設定ゲートを完了する。
+- P2はT06-6B後の文書専用仕分けタスクとする。必須修正は1問題1branchの`codex/fix-v2-<slug>`で閉じ、必須修正0件になるまでT07を開始しない。
+- T07はP2後に単独で実施し、タイトル設定、ミニマップ、Mission、放送、基本Character画像、鏡反射を有効にした99 NPC／50 BITの性能・最終回帰・仕様書同期を行う。Pull Requestの`develop`マージ前に性能・リリースゲートを完了する。
+- 現行順序は`T06-4統合済み → P1 → B06 → T06-4P → I3 → T06-5 → I4 → T06-6A → T06-6B → P2 → T07 → v2リリース準備`とし、依存成果が`develop`へ入る前に後続ブランチを作成したり書込みを開始したりしない。
 - `.blend`と`.glb`は同時に複数ブランチで編集しない。Blender資産は常に1ブランチ・1担当とする。
-- 旧`codex/v2-post-pr66-roadmap` worktreeはdirty差分を保持したまま凍結する。T06-2用`codex/v2-t06-school-integration`はPR #67、B05用`codex/v2-mission-locations`はPR #69、T06-3用`codex/v2-minimap`はPR #70で完了済みである。T06-4用`codex/v2-missions`は`develop=7f17e2d`から専用worktreeで開始した。
+- dirty差分を持つ既存worktreeはそのまま保持する。T06-2はPR #67、B05はPR #69、T06-3はPR #70、T06-4はPR #71で完了済みである。
 - `docs/plan.md`と`docs/plans/v2/next_tasks_plan.md`は統合担当だけが更新する。
 - Pull Request作成前に最新の`develop`を取り込み、競合と回帰を解消する。
 
@@ -202,4 +219,6 @@ gh auth status
 - 未マージの依存タスクブランチから次のタスクブランチを作ること
 - 1ブランチへ複数の独立タスクを混在させること
 - 同一Blender資産を複数ブランチで並行編集すること
+- 未仕分けの微修正を進行中タスクやT07へ便乗させること
+- T06-6AとT06-6Bを並行してタイトル・保存・起動処理を編集すること
 - リリースブランチで新規機能を追加すること
