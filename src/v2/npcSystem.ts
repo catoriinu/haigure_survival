@@ -2091,7 +2091,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           currentState: impact.npc.stateSnapshot.state,
           hitSourceId: impact.source.sourceId,
           hitOriginKind: impact.source.originKind,
-          playerNoGunAssisted: false
+          playerNoGunAssisted: impact.playerNoGunAssisted
         })
       );
     }

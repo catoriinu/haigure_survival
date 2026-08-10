@@ -208,6 +208,7 @@ const inspectScheduledMissionEvidence = (mission) => {
   );
   const descriptors = mission.activePlayerMissionDescriptors;
   const supportedTargetKinds = new Set([
+    "none",
     "actor",
     "location",
     "follower-count",

@@ -4,7 +4,7 @@ import type {
 } from "../v2/missionRuntime";
 
 export type V2MissionHudUpdate = Readonly<{
-  active: boolean;
+  mode: "hidden" | "missions" | "results";
   frame: V2MissionFrame;
 }>;
 
@@ -78,16 +78,18 @@ const createMissionText = (
   const terminalLabel = mission.state === "completed" ? "完了" : "失敗";
   const remainingText =
     mission.state === "active"
-      ? `${mission.kind === "player-follower-escort" ? "達成まで" : "失敗まで"} ${Math.max(0, Math.ceil(mission.deadlineAtSeconds - elapsedSeconds))}秒`
+      ? mission.deadlineAtSeconds === null
+        ? "時間制限なし"
+        : `${mission.kind === "player-follower-escort" ? "達成まで" : "失敗まで"} ${Math.max(0, Math.ceil(mission.deadlineAtSeconds - elapsedSeconds))}秒`
       : terminalLabel;
   if (mission.kind === "player-follower-acquire") {
     const { acquiredCount, requiredCount } = mission.target;
     return Object.freeze({
-      title: `新しい同行者を${requiredCount}人獲得する`,
+      title: `新しい同行者を${requiredCount}人同行させる`,
       meta:
         mission.state === "active"
-          ? `獲得 ${acquiredCount} / ${requiredCount}　${remainingText}`
-          : `${remainingText}　獲得 ${acquiredCount} / ${requiredCount}`
+          ? `同行 ${acquiredCount} / ${requiredCount}　${remainingText}\n${mission.target.candidateLocationDisplayName}`
+          : `${remainingText}　同行 ${acquiredCount} / ${requiredCount}\n${mission.target.candidateLocationDisplayName}`
     });
   }
   if (mission.kind === "player-brainwash-target") {
@@ -96,13 +98,19 @@ const createMissionText = (
       title: `${requiredCount}人洗脳する`,
       meta:
         mission.state === "active"
-          ? `洗脳 ${brainwashedCount} / ${requiredCount}　${remainingText}`
-          : `${remainingText}　洗脳 ${brainwashedCount} / ${requiredCount}`
+          ? `洗脳 ${brainwashedCount} / ${requiredCount}　${remainingText}\n${mission.target.candidateLocationDisplayName}`
+          : `${remainingText}　洗脳 ${brainwashedCount} / ${requiredCount}\n${mission.target.candidateLocationDisplayName}`
     });
   }
   if (mission.kind === "player-location") {
     return Object.freeze({
       title: `${mission.targetDisplayName}へ行く`,
+      meta: remainingText
+    });
+  }
+  if (mission.kind === "player-last-unbrainwashed") {
+    return Object.freeze({
+      title: mission.title,
       meta: remainingText
     });
   }
@@ -155,7 +163,8 @@ const createMissionItem = (
     fontSize: "12px",
     letterSpacing: "0.02em",
     lineHeight: "1.35",
-    opacity: "0.88"
+    opacity: "0.88",
+    whiteSpace: "pre-line"
   });
   item.replaceChildren(title, meta);
   return item;
@@ -222,12 +231,39 @@ export const createV2MissionHudController = ({
   };
 
   return {
-    update: ({ active, frame }) => {
+    update: ({ mode, frame }) => {
       assertActive();
-      if (!active) {
+      if (mode === "hidden") {
         clear();
         return;
       }
+      if (mode === "results") {
+        displayOrderIds = Object.freeze([]);
+        heading.textContent = "MISSION RESULT";
+        const createResultRow = (
+          label: string,
+          result: Readonly<{ completed: number; failed: number }>
+        ) => {
+          const row = document.createElement("div");
+          row.dataset.v2MissionHudRole = "result-row";
+          row.textContent = `${label}　完了 ${result.completed}　失敗 ${result.failed}`;
+          applyStyles(row, {
+            color: "#f5f5f5",
+            fontSize: "13px",
+            lineHeight: "1.5"
+          });
+          return row;
+        };
+        list.replaceChildren(
+          createResultRow("未洗脳時", frame.playerMissionResults.unbrainwashed),
+          createResultRow("洗脳済み時", frame.playerMissionResults.brainwashed)
+        );
+        root.replaceChildren(heading, list);
+        root.hidden = false;
+        root.style.display = "grid";
+        return;
+      }
+      heading.textContent = "MISSION";
       const selectedMissions = selectVisibleMissions(frame.playerMissions);
       if (selectedMissions.length === 0) {
         clear();

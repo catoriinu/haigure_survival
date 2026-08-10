@@ -94,6 +94,18 @@ Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出し�
 - 洗脳済みNPCとBITはゲーム開始から5秒間、移動もビーム発射もしない。BITの出現は許可し、Playerと未洗脳NPCが逃げるための猶予期間とする。
 - NPC行動優先度を`同行 > 直接的危機 > Alarm > 放送Mission > 通常Mission > 自律行動`へ変更する。銃なしの洗脳済みNPCに移動を妨害されている未洗脳NPCでも、同行が成立した瞬間に危険回避より同行移動を優先し、救出できる挙動とする。
 
+### 2026-08-10 第4次受入追補
+
+- 「何人洗脳する」「新しい同行者を何人同行させる」では、残っている未洗脳候補から1人をPlayer Mission乱数で選び、NPC IDを出さずに正本Areaによる現在地を表示する。対象の正本Areaが変わった時点で表示位置を更新する。候補が同行成立またはPlayerによる洗脳開始で進捗になった場合、あるいは第三者による洗脳などで候補外になった場合は、残存候補から別の1人へ表示を切り替える。
+- Playing中の安定したPlayer状態では、通常Missionを常に1件以上表示する。最後のactive通常Missionが完了／失敗した場合は4秒間の結果表示を維持し、その表示が消える時点で、既存比率を再正規化した保証抽選により次のMissionを1件生成する。`hit-a`／`hit-b`／洗脳進行中は第3次追補どおり非表示とする。
+- 利用者向け表記を「新しい同行者を何人獲得する」から「新しい同行者を何人同行させる」へ変更する。
+- Playerが未洗脳者として最後の1人になった時、時間制限なしの状況Mission「あなたは最後の未洗脳者。希望を背負って生き残れ」を発生させる。これは表示演出だけとし、Playerが洗脳開始へ入った時に失敗、Playing終了時に取消とする。
+- 制限時間を、最初の同行者護衛は120秒、同行者人数Missionと洗脳人数Missionは必要人数×60秒、Player Location Missionは180秒へ変更する。
+- 洗脳人数Missionの進捗は、対象NPCが`hit-a`へ入った瞬間に確定する。PlayerのG、またはPlayerがNで阻止中の第三者攻撃だけを成功進捗として数える。
+- 洗脳済みPlayer Missionへ「最初の同行者と同行する」を追加する。未洗脳時に最初の同行者が確定済みで、Playerと対象がともに洗脳完了、現在は同行していない場合に候補となる。現在地を正本Area変更時に更新し、120秒以内にその対象を同行させれば完了、期限切れまたは対象利用不能で失敗とする。
+- 未洗脳／洗脳済み共通の通常Mission候補へ「エレベーターを利用する」「2F 放送室で全校放送をする」を追加する。各180秒とし、active中にエレベーターの扉が完全に閉じて動き始めた瞬間、または放送卓でF／E操作が成功した瞬間に完了する。完了後は同セッションで再出現させず、Mission出現前の利用実績では候補を消費せず、失敗後は再出現可能とする。
+- ゲームオーバー画面の右上へ、未洗脳時／洗脳済み時を分けてPlayer Missionの完了数と失敗数を表示する。取消とNPC Missionは集計しない。
+
 ## ステップ
 
 - [x] `origin/develop`、PR #70、dirty差分、既存worktreeを確認し、`codex/v2-missions`専用worktreeを作成する。
@@ -124,6 +136,12 @@ Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出し�
 - [x] ゲーム開始5秒間の洗脳済みNPC／BIT停止と、同行最優先のNPC行動順を実装する。
 - [x] Mission／NPC／BIT／HUD fixture、対象typecheck／build、実ブラウザまたはElectron受入を完了する。
 - [x] UTF-8 BOM、括弧対応、禁止資産差分、`git diff --check`を監査し、実測結果を本計画へ同期してローカルcommitする。
+- [x] 第4次受入追補のMission契約、エレベーター／放送イベント、ゲームオーバー表示の接続点を確認する。
+- [x] 人数Missionの候補現在地、時間配分、常時1件補充、最後の未洗脳者Missionを実装する。
+- [x] 最初の同行者との再同行、エレベーター利用、全校放送Missionを実装する。
+- [x] ゲームオーバーの未洗脳時／洗脳済みMission結果を右上へ表示する。
+- [x] 第4次追補fixture、typecheck／build、実ブラウザ／Electron受入を完了する。
+- [x] 配布監査と実測結果を同期し、第4次追補差分をローカルcommitする。
 
 ## 結果
 
@@ -151,3 +169,10 @@ Mission HUDは0件なら何も表示せず、1件以上なら`MISSION`見出し�
 - ゲーム開始から5秒間、洗脳済みNPCとBITの移動、索敵、ビーム、捕捉を停止し、BITの出現は維持した。NPCの優先度は`同行 > 直接的危機 > Alarm > 放送Mission > 通常Mission > 自律行動`へ変更し、同行成立時に銃なし洗脳済みNPCの捕捉を解除する。
 - 実ブラウザでT06-4 32/32、T05 316/316をPASSし、console warning／errorは0件だった。Mission専用Electron受入はnormal／haigureともPASSし、Pointer Lock、即時Mission HUDとミニマップ目標、F体育館、E逃走／ハイグレ人間化、会場固定、BGM／VOICE読込、診断0件を確認した。
 - `typecheck:t05`、`typecheck:t06-4`、`typecheck:v2`、`build:t05`、`build:t06`、`build:t06-3`、`build:t06-4`、通常`npm run build`をPASSした。括弧を含むTypeScript／Electron構文は各typecheck／buildで検査した。
+- 第4次受入追補では、同行人数／洗脳人数Missionへ、残存候補からPlayer Mission乱数で選ぶIDなしの現在地表示を追加した。正本Areaが変われば表示を更新し、同行成立、Playerによる`hit-a`進捗、第三者による候補喪失では残存候補へ切り替える。同行人数／洗脳人数は必要人数×60秒、Player Locationは180秒、最初の同行者護衛は120秒へ更新した。
+- 最後の通常Missionの完了／失敗結果を4秒維持した後、安定したPlaying状態なら保証抽選で次の通常Missionを補充する。未洗脳NPCが残っていない場合は、時間制限なしの状況Mission「あなたは最後の未洗脳者。希望を背負って生き残れ」を1回だけ表示し、Playerの洗脳開始で失敗させる。
+- 洗脳済みPlayerへ120秒の「最初の同行者と同行する」を追加し、最初の同行者の正本Area現在地を更新して、再同行成功で完了させる。未洗脳／洗脳済み共通へ各180秒の「エレベーターを利用する」「2F 放送室で全校放送をする」を追加し、エレベーターの閉扉後の移動開始、または放送F／E成功で完了する。完了済みの各行動Missionは同セッションで再抽選しない。
+- ゲームオーバー時の右上Missionパネルを`MISSION RESULT`へ切り替え、未洗脳時／洗脳済み時を分けてPlayer Missionの完了数と失敗数を表示する。取消とNPC Missionは集計しない。
+- 第4次追補の実ブラウザfixtureは35/35でPASSし、候補現在地更新・第三者洗脳時の交代、`hit-a`進捗、120秒の再同行、行動Mission、最後の未洗脳者、結果集計を決定的に確認した。Mission専用Electron受入はnormal／haigureともPASSし、Pointer Lock、Mission HUD／ミニマップ、3種類の放送、会場固定、BGM／VOICE読込、console／renderer／load／process診断0件を確認した。
+- `typecheck:t05`、`typecheck:t06-4`、`typecheck:v2`、`build:t05`、`build:t06-4`、通常`npm run build`、`node --check validation/v2/T06/electronAcceptance.cjs`、`git diff --check`をPASSした。変更9ファイルはUTF-8 BOMなし、ローカル絶対パスなしで、Blender、GLB、NavMesh、生成器、カタログハッシュの差分は0件だった。
+- 第4次受入追補の差分を`codex/v2-missions`へローカルcommitした。今回の追加push、Draft PR更新、レビュー、merge、I3／T06-5／T07は実施していない。

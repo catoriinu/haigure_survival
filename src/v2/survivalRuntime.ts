@@ -290,6 +290,7 @@ export interface V2SurvivalRuntime {
   getNpcCommandCandidates(): readonly V2NpcCommandCandidate[];
   requestNpcCommand(npcId: string, kind: V2NpcCommandKind): boolean;
   cancelNpcFollow(npcId: string): boolean;
+  notifyPlayerElevatorStartedMoving(): void;
   requestBroadcast(command: V2BroadcastCommand): boolean;
   getMissions(): readonly V2MissionView[];
   getHumanTargets(): readonly V2HumanTargetSnapshot[];
@@ -2323,6 +2324,13 @@ export const createV2SurvivalRuntime = ({
         frame = buildFrame();
       }
       return cancelled;
+    },
+    notifyPlayerElevatorStartedMoving: () => {
+      assertActive();
+      missionRuntime.notifyPlayerElevatorStartedMoving();
+      missionFrame = missionRuntime.getFrame();
+      minimapActorSnapshots = buildMinimapActorSnapshots();
+      frame = buildFrame();
     },
     requestBroadcast: (command) => {
       assertActive();

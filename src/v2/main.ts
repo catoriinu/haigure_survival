@@ -817,6 +817,7 @@ titleMessage.style.display = "none";
 let started = false;
 let statusTimer = 0;
 let elapsedSeconds = 0;
+let playerElevatorMoving = false;
 let characterFacingYaw = 0;
 const logicalRenderCameraPosition = Vector3.Zero();
 const cameraRenderOffset = Vector3.Zero();
@@ -1197,9 +1198,21 @@ engine.runRenderLoop(() => {
     const delta = performanceScenario
       ? V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS / 1000
       : Math.min(engine.getDeltaTime() / 1000, 0.05);
-    traversalCoordinator.update(delta);
+    const traversalFrame = traversalCoordinator.update(delta);
     const playerElevatorTraversal =
       traversalCoordinator.getPlayerElevatorTraversalSnapshot();
+    const nextPlayerElevatorMoving =
+      playerElevatorTraversal?.phase === "riding" &&
+      traversalFrame.runtimeSnapshot.elevators.some(
+        (elevator) =>
+          elevator.id === playerElevatorTraversal.elevatorId &&
+          elevator.carState === "moving" &&
+          elevator.carDoorState === "closed"
+      );
+    if (started && nextPlayerElevatorMoving && !playerElevatorMoving) {
+      survival.notifyPlayerElevatorStartedMoving();
+    }
+    playerElevatorMoving = nextPlayerElevatorMoving;
     const horizontalSpeedScale = resolveV2HorizontalSpeedScale(
       stage.queries.containsVolume(
         "water",
@@ -1330,7 +1343,13 @@ engine.runRenderLoop(() => {
       feedback: interactionFeedback
     });
     missionHud.update({
-      active: started && survivalFrame.phase === "playing",
+      mode: !started
+        ? "hidden"
+        : survivalFrame.phase === "playing"
+          ? "missions"
+          : survivalFrame.phase === "execution-complete"
+            ? "results"
+            : "hidden",
       frame: survivalFrame.mission
     });
     if (missionAcceptanceScenario !== null) {

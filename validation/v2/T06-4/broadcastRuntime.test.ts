@@ -83,7 +83,11 @@ const createHudFrame = (
     missionTargetActorIds: Object.freeze([]),
     missionTargetLocationIds: Object.freeze([]),
     firstFollowerId: null,
-    lastSchoolInstruction: "courtyard"
+    lastSchoolInstruction: "courtyard",
+    playerMissionResults: Object.freeze({
+      unbrainwashed: Object.freeze({ completed: 0, failed: 0 }),
+      brainwashed: Object.freeze({ completed: 0, failed: 0 })
+    })
   });
 
 export const runBroadcastRuntimeTests = async (): Promise<
@@ -476,7 +480,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
       if (root === null) {
         throw new Error("Mission HUD rootがありません。");
       }
-      hud.update({ active: true, frame: createHudFrame(20, Object.freeze([])) });
+      hud.update({ mode: "missions", frame: createHudFrame(20, Object.freeze([])) });
       assert(
         root.hidden && root.style.display === "none" && root.childElementCount === 0,
         "Mission 0件でpanelまたは子要素が表示されました。"
@@ -491,6 +495,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
         id: "hud-location",
         kind: "player-location" as const,
         source: "normal" as const,
+        playerCondition: "unbrainwashed" as const,
         state: "active" as const,
         assignee: Object.freeze({ kind: "player" as const }),
         target: Object.freeze({
@@ -508,12 +513,14 @@ export const runBroadcastRuntimeTests = async (): Promise<
         id: "hud-follower-count",
         kind: "player-follower-acquire" as const,
         source: "normal" as const,
+        playerCondition: "unbrainwashed" as const,
         state: "active" as const,
         assignee: Object.freeze({ kind: "player" as const }),
         target: Object.freeze({
           kind: "follower-count" as const,
           acquiredCount: 1,
-          requiredCount: 2
+          requiredCount: 2,
+          candidateLocationDisplayName: "候補の現在地：2F 図書室"
         }),
         title: "Followerを増やす",
         targetDisplayName: "Follower 2人",
@@ -530,7 +537,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
         terminalReason: "phase-ended" as const
       }) satisfies V2MissionView;
       hud.update({
-        active: true,
+        mode: "missions",
         frame: createHudFrame(
           20,
           Object.freeze([
@@ -590,9 +597,9 @@ export const runBroadcastRuntimeTests = async (): Promise<
       );
       assert(
         followerItem?.querySelector('[data-v2-mission-hud-role="mission-title"]')
-          ?.textContent === "新しい同行者を2人獲得する" &&
+          ?.textContent === "新しい同行者を2人同行させる" &&
           followerItem?.querySelector('[data-v2-mission-hud-role="mission-meta"]')
-            ?.textContent === "獲得 1 / 2　失敗まで 120秒",
+            ?.textContent === "同行 1 / 2　失敗まで 120秒\n候補の現在地：2F 図書室",
         `同行者進捗文言が不正です: ${followerItem?.textContent ?? "null"}`
       );
       assert(
@@ -607,13 +614,14 @@ export const runBroadcastRuntimeTests = async (): Promise<
         id: "hud-escort",
         kind: "player-follower-escort" as const,
         source: "normal" as const,
+        playerCondition: "unbrainwashed" as const,
         state: "active" as const,
         assignee: Object.freeze({ kind: "player" as const }),
         target: Object.freeze({ kind: "actor" as const, actorId: "npc-secret-escort" }),
         title: "最初の同行者を護衛",
         targetDisplayName: "（同行中）",
         startedAtSeconds: 20,
-        deadlineAtSeconds: 260,
+        deadlineAtSeconds: 140,
         terminalAtSeconds: null,
         terminalReason: null
       }) satisfies V2MissionView;
@@ -621,12 +629,14 @@ export const runBroadcastRuntimeTests = async (): Promise<
         id: "hud-brainwash-count",
         kind: "player-brainwash-target" as const,
         source: "normal" as const,
+        playerCondition: "brainwashed" as const,
         state: "active" as const,
         assignee: Object.freeze({ kind: "player" as const }),
         target: Object.freeze({
           kind: "brainwash-count" as const,
           brainwashedCount: 1,
-          requiredCount: 3
+          requiredCount: 3,
+          candidateLocationDisplayName: "候補の現在地：1F 美術室"
         }),
         title: "3人洗脳する",
         targetDisplayName: "進捗 1/3人",
@@ -636,7 +646,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
         terminalReason: null
       }) satisfies V2MissionView;
       hud.update({
-        active: true,
+        mode: "missions",
         frame: createHudFrame(20, Object.freeze([escortMission, brainwashMission]))
       });
       assert(
@@ -644,8 +654,9 @@ export const runBroadcastRuntimeTests = async (): Promise<
           root.textContent.includes("（同行中）") &&
           root.textContent.includes("3人洗脳する") &&
           root.textContent.includes("洗脳 1 / 3") &&
-          root.textContent.includes("達成まで 240秒") &&
+          root.textContent.includes("達成まで 120秒") &&
           root.textContent.includes("失敗まで 180秒") &&
+          root.textContent.includes("候補の現在地：1F 美術室") &&
           !root.textContent.includes("npc-secret-escort") &&
           !root.textContent.includes("Follower"),
         `同行者護衛または洗脳人数のIDなし日本語表示が不正です: ${root.textContent}`
@@ -662,13 +673,14 @@ export const runBroadcastRuntimeTests = async (): Promise<
         target: Object.freeze({
           kind: "brainwash-count" as const,
           brainwashedCount: 3,
-          requiredCount: 3
+          requiredCount: 3,
+          candidateLocationDisplayName: "候補の現在地：1F 美術室"
         }),
         terminalAtSeconds: 24,
         terminalReason: "brainwash-count-reached" as const
       }) satisfies V2MissionView;
       hud.update({
-        active: true,
+        mode: "missions",
         frame: createHudFrame(
           24,
           Object.freeze([escortMission, completedBrainwashMission])
@@ -684,7 +696,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
         "完了色へ変化したMissionが4秒表示中に並び替わりました。"
       );
       hud.update({
-        active: true,
+        mode: "missions",
         frame: createHudFrame(28, Object.freeze([escortMission]))
       });
       assert(
@@ -699,43 +711,61 @@ export const runBroadcastRuntimeTests = async (): Promise<
         target: Object.freeze({
           kind: "follower-count" as const,
           acquiredCount: 2,
-          requiredCount: 2
+          requiredCount: 2,
+          candidateLocationDisplayName: "候補の現在地：2F 図書室"
         }),
         terminalAtSeconds: 24,
         terminalReason: "follower-count-reached" as const
       }) satisfies V2MissionView;
       hud.update({
-        active: true,
+        mode: "missions",
         frame: createHudFrame(24, Object.freeze([completedFollowerMission]))
       });
       assert(
         root.querySelector('[data-v2-mission-hud-role="mission-meta"]')
-          ?.textContent === "完了　獲得 2 / 2",
+          ?.textContent === "完了　同行 2 / 2\n候補の現在地：2F 図書室",
         "Follower完了進捗を表示しません。"
       );
-      hud.update({ active: true, frame: createHudFrame(28, Object.freeze([])) });
+      hud.update({ mode: "missions", frame: createHudFrame(28, Object.freeze([])) });
       assert(
         root.hidden && root.style.display === "none" && root.childElementCount === 0,
         "最後のMission消滅後にpanelが非表示になりません。"
       );
+      hud.update({
+        mode: "results",
+        frame: Object.freeze({
+          ...createHudFrame(28, Object.freeze([])),
+          playerMissionResults: Object.freeze({
+            unbrainwashed: Object.freeze({ completed: 3, failed: 1 }),
+            brainwashed: Object.freeze({ completed: 2, failed: 4 })
+          })
+        })
+      });
+      assert(
+        root.querySelector('[data-v2-mission-hud-role="heading"]')?.textContent ===
+          "MISSION RESULT" &&
+          root.textContent?.includes("未洗脳時　完了 3　失敗 1") === true &&
+          root.textContent.includes("洗脳済み時　完了 2　失敗 4"),
+        `ゲームオーバーMission結果が不正です: ${root.textContent}`
+      );
       hud.dispose();
       host.remove();
-      return "0件非表示、単一panel、複数行、Follower 1/2→2/2、階付きLocationを表示";
+      return "0件非表示、単一panel、同行人数・候補現在地・階付きLocation・結果を表示";
     }),
     executeTest("右上HUDの残り時間・完了4秒・取消非表示", () => {
       const host = document.createElement("div");
       document.body.appendChild(host);
       const hud = createV2MissionHudController({ host });
       const fixture = createMissionFixture({
-        playerRandom: createSequenceRandom([0.1, 0, 0])
+        playerRandom: createSequenceRandom([0.1, 0, 0, 0])
       });
       let frame = updateFixture(fixture, { deltaSeconds: 20 });
-      hud.update({ active: true, frame });
+      hud.update({ mode: "missions", frame });
       const item = host.querySelector<HTMLElement>(
         '[data-v2-mission-hud-role="mission-item"]'
       );
       assert(
-        item?.textContent?.includes("失敗まで 100秒") === true,
+        item?.textContent?.includes("失敗まで 160秒") === true,
         "失敗までの残り時間を表示しません。"
       );
       const activeMission = frame.playerMissions.find(
@@ -751,27 +781,28 @@ export const runBroadcastRuntimeTests = async (): Promise<
         deltaSeconds: 0,
         playerX: location.navigationLocation.position.x
       });
-      hud.update({ active: true, frame });
+      hud.update({ mode: "missions", frame });
       assert(host.textContent?.includes("完了") === true, "完了を表示しません。");
       frame = updateFixture(fixture, {
         deltaSeconds: 4,
         playerX: location.navigationLocation.position.x
       });
-      hud.update({ active: true, frame });
+      hud.update({ mode: "missions", frame });
       assert(
-        host.querySelector('[data-v2-mission-hud-role="mission-item"]') === null,
-        "完了表示が4秒後も残っています。"
+        host.querySelector(`[data-v2-mission-id="${activeMission.id}"]`) === null &&
+          host.querySelector('[data-v2-mission-hud-role="mission-item"]') !== null,
+        "完了表示が4秒後に新しいMissionへ入れ替わりません。"
       );
       const root = host.querySelector<HTMLElement>(
         '[data-v2-mission-hud="root"]'
       );
       assert(
-        root?.hidden === true && root.childElementCount === 0,
-        "最後の完了表示が消えた後もMission panelが残っています。"
+        root?.hidden === false && root.childElementCount > 0,
+        "完了表示が消えた後の常時Mission panelが表示されません。"
       );
       hud.dispose();
       fixture.runtime.dispose();
       host.remove();
-      return "失敗までの時間、完了表示、4秒後除去を右上一覧で同期";
+      return "失敗までの時間、完了表示、4秒後の新Mission入替を右上一覧で同期";
     })
   ]);
