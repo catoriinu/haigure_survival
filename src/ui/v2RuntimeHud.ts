@@ -265,14 +265,14 @@ export const createV2RuntimeHudController = ({
   const completionGuide = createGuide(
     document,
     "completion-guide",
-    "G：銃　左クリック：射撃　N：非武装　H：ハイグレ"
+    "G：銃あり　左クリック：発射　N：銃なし　H：ハイグレ"
   );
 
   const crosshair = createCrosshair(document);
   const fireGuide = createGuide(
     document,
     "fire-guide",
-    "左クリック: 射撃"
+    "左クリック：発射"
   );
   root.append(
     npcMarker.root,
@@ -386,7 +386,14 @@ export const createV2RuntimeHudController = ({
     setStylePixelValue(crosshair.style, "left", centerX);
     setStylePixelValue(crosshair.style, "top", centerY);
     setStylePixelValue(fireGuide.style, "left", centerX);
-    setStylePixelValue(fireGuide.style, "top", centerY + 24);
+    setStylePixelValue(
+      fireGuide.style,
+      "top",
+      canvasRect.top +
+        globalViewport.y +
+        globalViewport.height -
+        48
+    );
     setStylePixelValue(completionGuide.style, "left", centerX);
     setStylePixelValue(
       completionGuide.style,

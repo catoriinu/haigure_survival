@@ -139,8 +139,8 @@ export const runRuntimeHudTests = async () =>
             !getRole(host, "crosshair").hidden &&
             getRole(host, "fire-guide").hidden &&
             getRole(host, "completion-guide").textContent ===
-              "G：銃　左クリック：射撃　N：非武装　H：ハイグレ",
-          "解放済みgun状態の下部統合案内・照準・単独射撃案内非表示が同期しません。"
+              "G：銃あり　左クリック：発射　N：銃なし　H：ハイグレ",
+          "解放済みgun状態の下部統合案内・照準・単独発射案内非表示が同期しません。"
         );
 
         hud.update({
@@ -242,6 +242,10 @@ export const runRuntimeHudTests = async () =>
           countVisibleHudRoots(host) === 2 &&
             !getRole(host, "crosshair").hidden &&
             !getRole(host, "fire-guide").hidden &&
+            getRole(host, "fire-guide").textContent ===
+              "左クリック：発射" &&
+            getRole(host, "fire-guide").style.top ===
+              getRole(host, "completion-guide").style.top &&
             getRole(host, "npc-target").hidden &&
             getRole(host, "door-target").hidden &&
             canV2RuntimePlayerFire(
@@ -252,7 +256,7 @@ export const runRuntimeHudTests = async () =>
                 executionPlayerRole: "shooter" as const
               })
             ),
-          "公開処刑射手の照準・射撃案内だけが表示されません。"
+          "公開処刑射手の照準と画面下部の発射案内だけが表示されません。"
         );
 
         for (const executionPlayerRole of [

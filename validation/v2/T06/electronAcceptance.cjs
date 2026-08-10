@@ -915,7 +915,7 @@ const run = async () => {
   assertCondition(!gunSnapshot.fireGuideVisible, "gun状態で単独の左クリック案内が表示されています。");
   assertCondition(
     gunSnapshot.completionGuideVisible &&
-      gunSnapshot.completionGuideText === "G：銃　左クリック：射撃　N：非武装　H：ハイグレ",
+      gunSnapshot.completionGuideText === "G：銃あり　左クリック：発射　N：銃なし　H：ハイグレ",
     `gun状態の下部統合案内が不正です: ${gunSnapshot.completionGuideText}`
   );
   addCheck("G gun HUD", {

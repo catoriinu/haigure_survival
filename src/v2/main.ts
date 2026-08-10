@@ -119,7 +119,7 @@ const V2_GAMEPLAY_HELP_TEXT =
   "操作説明\n" +
   "WASD: 移動  Shift: ダッシュ\n" +
   "F: 主操作  E: 副操作  C: 扉\n" +
-  "G: 銃  N: 非武装  H: ハイグレ\n" +
+  "G：銃あり  N：銃なし  H：ハイグレ\n" +
   "Enter: タイトルへ戻る";
 const V2_GAMEPLAY_EXECUTION_HELP_TEXT =
   `${V2_GAMEPLAY_HELP_TEXT}\nR: リプレイ`;
