@@ -138,6 +138,20 @@ PREFIX_ROLES = {
     "VOL_BroadcastConsoleTarget_": "broadcast_console_target",
 }
 
+F01_PERIMETER_BARRIER_BOUNDS_XY = (
+    ((63.2, -14.5), (63.6, 44.5)),
+    ((63.2, 50.5), (63.6, 51.5)),
+    ((22.4, 51.3), (63.4, 51.7)),
+    ((-18.6, 51.3), (22.4, 51.7)),
+    ((25.4, -14.7), (63.4, -14.3)),
+    ((-18.6, -14.7), (19.4, -14.3)),
+    ((-18.8, -14.5), (-18.4, 51.5)),
+)
+F01_GATE_PASSAGE_BOUNDS_XY = (
+    ((19.4, -14.7), (25.4, -14.3)),
+    ((63.2, 44.5), (63.6, 50.5)),
+)
+
 
 @dataclass(frozen=True)
 class AreaContract:
@@ -517,6 +531,50 @@ def audit_minimap_layers(
                 component_counts[floor_id] > 0,
                 f"{role}の階別形状がありません: {floor_id}",
             )
+            if floor_id == "f01" and role == "map_barrier":
+                actual_bounds = audit_axis_aligned_boxes(obj)
+                actual_perimeter_bounds_xy = {
+                    (
+                        (
+                            round(bounds.minimum[0], 5),
+                            round(bounds.minimum[1], 5),
+                        ),
+                        (
+                            round(bounds.maximum[0], 5),
+                            round(bounds.maximum[1], 5),
+                        ),
+                    )
+                    for bounds in actual_bounds
+                    if bounds.minimum[0] <= -18.4 + TOLERANCE
+                    or bounds.maximum[0] >= 63.2 - TOLERANCE
+                    or bounds.minimum[1] <= -14.3 + TOLERANCE
+                    or bounds.maximum[1] >= 51.3 - TOLERANCE
+                }
+                require(
+                    actual_perimeter_bounds_xy
+                    == set(F01_PERIMETER_BARRIER_BOUNDS_XY),
+                    "1F外周Barrierが実塀区間と一致しません: "
+                    f"{sorted(actual_perimeter_bounds_xy)}",
+                )
+            if floor_id == "f01" and role == "map_passage":
+                actual_bounds_xy = {
+                    (
+                        (
+                            round(bounds.minimum[0], 5),
+                            round(bounds.minimum[1], 5),
+                        ),
+                        (
+                            round(bounds.maximum[0], 5),
+                            round(bounds.maximum[1], 5),
+                        ),
+                    )
+                    for bounds in audit_axis_aligned_boxes(obj)
+                }
+                require(
+                    set(F01_GATE_PASSAGE_BOUNDS_XY) <= actual_bounds_xy,
+                    "1F門Passageが実門開口と一致しません: "
+                    f"{sorted(actual_bounds_xy)}",
+                )
         result[role] = component_counts
     return result
 

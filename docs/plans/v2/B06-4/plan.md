@@ -18,6 +18,12 @@
 >
 > 最新`origin/develop`から`codex/v2-minimap-location-assets`専用worktreeを作成する。B06-4は作者定義の意味資産と、それを厳格に読み出す最小Runtime契約までを担当し、ミニマップ描画変更、BIT表示、NPC Runtime修正は後続へ残す。実装・検証・個別計画更新・commitまでを対象とし、push、Pull Request、レビュー、mergeは行わない。
 
+### 2026-08-17 追加指示
+
+> 通常ゲームの目視確認で、机・ロッカーがミニマップへ表示され、下階の教室形状が屋上へ混入し、校舎南側の黒線が実塀位置と一致していないことを確認した。B06-4の外周Barrierを実塀位置へ修正し、T06-4P-1が旧Nav blocker投影を削除できる正しい資産へ直す。
+>
+> あわせて、校庭の玄関より少し南側に生じている段差をなくし、校庭を一面同じ高さへ修正する。表示面だけをずらして隠さず、表示、Collider、NavMeshの高さ契約を一致させる。
+
 ## 目的
 
 P1-MAP-01～03、P1-LOC-01～02、P1-NAV-01を作者定義の意味資産へ反映し、ミニマップに恒久仕切りと通行開口だけを階別公開する。
@@ -84,6 +90,12 @@ P1-MAP-01～03、P1-LOC-01～02、P1-NAV-01を作者定義の意味資産へ反�
 - [x] 決定性、B05、全階ミニマップ意味資産、Web／Electronを検証する
 - [x] 条件付きRuntime再現snapshotの要否を判定し、T06-4P-2へ結果を引き渡す
 - [x] 結果を更新してB06-4差分だけをcommitする
+- [x] 通常ゲームの目視不合格を旧Nav blocker投影、階混入、外周Barrier位置へ切り分ける
+- [x] `MAP_Barrier_F01`外周を実塀位置へ一致させ、意味資産の境界検査を修正する
+- [x] 玄関南側の校庭段差について表示面・Collider・NavMeshの実原因を特定する
+- [x] 校庭の重複表示面を廃止して一面同じ高さへ修正し、必要な派生物だけを再生成する
+- [x] B05、T02、T04、通常Webで外周一致、家具0件、屋上混入0件、校庭連続面を再検証する
+- [x] 計画結果を更新し、B06-4修正差分を追加commitする
 
 ## 結果
 
@@ -102,3 +114,17 @@ T04実学校fixtureは81/81を通過した。`gym`と`gym-rooftop`間を、直�
 `typecheck:v2`、B05、T02、T04、T06-3、T06-4、各対象build、Python構文、Electron buildは成功した。通常buildはVite生成と学校GLBカタログ整合まで成功し、`origin/develop`と差分がないライセンス2ファイルについて既知の`ofl-integrity`と`third-party-notices-integrity`だけが改行差で失敗した。B06-4による新規失敗は0件である。通常Webは学校GLBと50 NPCを読込み、warning／error 0件だった。Electronのnormal／haigure Mission受入はPointer Lock、Location表示、Mission target、放送、再読込、診断0件を通過した。
 
 T06-4P-1へは`StageLocationAssetRegistry.minimapBarriers`／`minimapPassages`と階別getterを引き渡す。T06-4P-1は`src/ui/v2Minimap.ts`の描画元切替、旧`structuralBlockers`投影削除、黒線・明色開口・BIT表示だけを担当する。push、Pull Request、レビュー、mergeは実施しない。
+
+2026-08-17の通常ゲーム目視で、旧Nav blocker投影による家具・別階混入と、B06-4外周Barrierの実塀からの位置ずれが判明したため、完了判定を撤回して修正を再開した。さらにユーザー承認により、玄関南側の校庭段差を同じ学校資産修正へ追加した。
+
+校庭段差は、全域の`VIS_SiteGround`上面z=-0.3に対し、中央校庭だけを覆う旧`VIS_CourtyardSurface`上面がz=-0.27で重複し、その南端y=-3.5が表示だけの段差になっていたことを正本`.blend`から特定した。`COL_SiteGround`と`NAV_Walkable_Outdoor`はz=-0.3で連続しており、物理段差やNavMesh分断はない。重複面を廃止して`VIS_SiteGround`を唯一の校庭表示所有者とし、表示・Collider・Nav上面をz=-0.3へ統一する。
+
+1F外周Barrierは、連続した内側近似4箱を廃止し、表示塀と共通の作者定義7区間へ変更した。正門と通用門にはBarrierを置かず、表示門と同じ厚み・開口のPassage 2件を配置した。floor_mapは従来どおり`BND_Stage`、外周を含むBarrier／Passageは`BND_WorldLimit`で厳格検査する役割別境界契約へ変更した。
+
+バックグラウンドBlender 5.2で2回生成し、GLBは22,437,428 bytes／SHA-256 `32704D3FD664F69C88656F72088CAF6C8123A656C09E667A3019DD58E50B7BF7`で一致した。Scene意味署名は`46644BE679FAD912697DE583C346EAD4989F79E0A7FE92AE58EEABFD14B33C94`、Location意味署名は`97FB750F3AF46287E9C2D6ECB98A75C58200527D348CAC5614016B59AFBCE477`である。人間、Room Variant、BIT用NavMeshは従来hashから不変であり、物理面の修正も分断もないため再ベイクしていない。
+
+修正後のB05監査は、5 Map、53 Area／85 piece、Mission Location／Anchor／Volume各25、階段踊り場17、エレベーター乗場4、放送卓1を維持し、1F外周Barrierの作者定義7区間と門Passage 2区間、家具0件、別階混入0件、屋上固有形状を確認した。実ブラウザB05は42/42、通常版／荒れ版Anchor到達性は各25/25、Babylon Loggerとconsole warning／errorは0件だった。通常Webの同一視点で玄関南側を再確認し、校庭全域が単一の連続面になった。
+
+`typecheck:v2`、B05、T02、T04、T06-3、T06-4、Electron build、学校NavMesh check、Python構文、`git diff --check`を通過した。T04実学校fixtureは81/81で、屋上入口192経路も維持した。通常buildはVite生成とGLBカタログ整合まで成功し、変更前baselineと同じ`ofl-integrity`、`third-party-notices-integrity`の既知2件だけが改行差で失敗したため、新規失敗は0件である。
+
+通常ミニマップは現時点では旧`structuralBlockers`投影を描画するため、机・ロッカー・別階形状の表示除去と今回修正した外周Barrierの画面反映はT06-4P-1で行う。B06-4は正しい作者定義Barrier／Passageと厳格registryを入力として引き渡し、`src/ui/v2Minimap.ts`は変更していない。今回もpush、Pull Request、レビュー、mergeは実施しない。

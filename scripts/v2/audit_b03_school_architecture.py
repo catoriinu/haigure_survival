@@ -104,7 +104,7 @@ EXPECTED_CONSOLIDATED_MATERIAL_NAMES = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "b06-3-school-props-signage-v1"
+EXPECTED_GENERATOR_VERSION = "b06-4-minimap-location-assets-v3"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 EXPECTED_SCHEMA_VERSION = 3
 EXPECTED_STAGE_ID = "school"
@@ -3954,6 +3954,29 @@ def audit_site_boundary_visuals() -> dict[str, int]:
         "SiteGroundが外周塀外面まで連続していません: "
         f"{tuple(site_ground_minimum)}->{tuple(site_ground_maximum)}",
     )
+    require(
+        bpy.data.objects.get("VIS_CourtyardSurface") is None,
+        "SiteGroundと重複する旧CourtyardSurfaceが残っています",
+    )
+    collider_ground = bpy.data.objects.get("COL_SiteGround")
+    outdoor_nav = bpy.data.objects.get("NAV_Walkable_Outdoor")
+    require(
+        collider_ground is not None and collider_ground.type == "MESH",
+        "校庭のCollider所有者COL_SiteGroundがありません",
+    )
+    require(
+        outdoor_nav is not None and outdoor_nav.type == "MESH",
+        "校庭のNav歩行面NAV_Walkable_Outdoorがありません",
+    )
+    collider_ground_maximum_z = world_bounds(collider_ground)[1].z
+    outdoor_nav_minimum_z = world_bounds(outdoor_nav)[0].z
+    require(
+        abs(site_ground_maximum.z - collider_ground_maximum_z) <= TOLERANCE
+        and abs(site_ground_maximum.z - outdoor_nav_minimum_z) <= TOLERANCE,
+        "校庭の表示・Collider・Nav上面高が一致していません: "
+        f"VIS={site_ground_maximum.z}/COL={collider_ground_maximum_z}/"
+        f"NAV={outdoor_nav_minimum_z}",
+    )
     gate_components = 0
     for object_name, axis, minimum, maximum, fixed in GATE_VISUAL_SPECS:
         expected = expected_gate_fence_boxes(
@@ -4242,7 +4265,6 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     packed_atlases = audit_packed_atlas_paths()
     expected_swatches = {
         "VIS_SiteGround": "grass",
-        "VIS_CourtyardSurface": "grass",
         "VIS_Gate_MainClosed": "gate",
         "VIS_Gate_UtilityClosed": "gate",
         "VIS_Floor_Gym": "gym_floor",

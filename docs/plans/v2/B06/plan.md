@@ -19,7 +19,7 @@ P1で確定した学校資産修正を、学校バイナリの単一担当を維
 | 1 | B06-1 学校構造仕上げ（完了） | `codex/v2-school-structure-polish` | 建築、Collider、必要なNavMesh | PR #73で`develop`へ統合済み |
 | 2 | B06-2 エレベーター建築統合（完了） | PR #73のB06-1へ吸収 | エレベーター躯体、床、Collider、NavMesh | PR #73で実質完了。再実装しない |
 | 3 | B06-3 小物・表札（完了） | `codex/v2-school-props-signage` | 小物正本、表札、Atlas、Web配布資産 | PR #74で`develop=6527097`へ統合済み |
-| 4 | B06-4 ミニマップ意味資産・Location（実装中） | `codex/v2-minimap-location-assets` | `MAP_*`、Location、資産監査 | 恒久仕切り・通行開口、屋上分離、Area、Location |
+| 4 | B06-4 ミニマップ意味資産・Location（完了） | `codex/v2-minimap-location-assets` | `MAP_*`、Location、資産監査 | 恒久仕切り・通行開口、屋上分離、Area、Location |
 
 ## 共通所有範囲
 
@@ -49,9 +49,11 @@ P1で確定した学校資産修正を、学校バイナリの単一担当を維
 - [x] B06-1を最新`develop`から実装・検証し、PR #73で統合する
 - [x] B06-2をPR #73のB06-1へ吸収済みとして完了同期する
 - [x] B06-3をPR #74で`develop=6527097`へ統合する
-- [x] B06-4を`origin/develop=6527097`から実装・検証・commitする
-- [x] B06-4の最終資産契約をT06-4P-1へ引き渡す
+- [x] B06-4の目視不合格で判明した外周Barrier位置ずれと玄関南側の校庭段差を修正・再検証・追加commitする
+- [x] B06-4の修正済み最終資産契約をT06-4P-1へ引き渡す
 
 ## 結果
 
 B06-1はPR #73で`develop=79f038d`へ統合済みであり、B06-2の予定範囲も同PRへ吸収され実質完了した。B06-3はPR #74で`develop=6527097`へ統合済みである。2026-08-17、最新`origin/develop=6527097`から`codex/v2-minimap-location-assets`の専用worktreeを作成し、B06-4の作者定義MAP意味資産、Location目録、厳格Runtime registry、決定性・Web・Electron検証を完了した。T06-4P-1へBarrier／Passage registryを引き渡し、NPC屋上入口は6状態・単体／5体／10体・上下方向の192経路が成立したため、T06-4P-2向け停止snapshotは発生していない。
+
+その後の通常ゲーム目視で、外周Barrierが実塀位置と一致せず、玄関南側の校庭地表にも段差があることを確認したため、同じ専用worktreeで修正した。外周Barrierを表示塀と共通の作者定義7区間、門Passageを2区間へ一致させ、重複して3cm高かった`VIS_CourtyardSurface`を廃止して`VIS_SiteGround`を校庭の唯一の表示面とした。表示・Collider・NavMesh上面は`z=-0.3`で一致し、3種NavMeshは不変である。生成2回の決定性、B05 42/42、T04 81/81、対象build、通常Webの連続面、console warning／error 0件を確認し、修正済み作者定義資産をT06-4P-1へ引き渡す。

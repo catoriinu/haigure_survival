@@ -2474,6 +2474,7 @@ const createBitFlightNavigationDefinition = (
 
 const assertSemanticsInsideBoundary = (
   boundary: StageBoundary,
+  worldBoundary: StageWorldBoundary | null,
   floorMaps: readonly AuthoredStageFloorMap[],
   minimapBarriers: readonly AuthoredStageMinimapBarrier[],
   minimapPassages: readonly AuthoredStageMinimapPassage[],
@@ -2483,11 +2484,7 @@ const assertSemanticsInsideBoundary = (
   links: readonly StageLinkPair[],
   bitFlightLinks: readonly AuthoredBitFlightLinkEndpoint[]
 ) => {
-  for (const mapAsset of [
-    ...floorMaps,
-    ...minimapBarriers,
-    ...minimapPassages
-  ]) {
+  for (const mapAsset of floorMaps) {
     const positions = mapAsset.mesh.getVerticesData(
       VertexBuffer.PositionKind
     )!;
@@ -2499,6 +2496,31 @@ const assertSemanticsInsideBoundary = (
       );
       if (!boundary.contains(point)) {
         throw new Error(`MAP_*がBND_Stageの外側です: ${mapAsset.mesh.name}`);
+      }
+    }
+  }
+  if (
+    (minimapBarriers.length > 0 || minimapPassages.length > 0) &&
+    !worldBoundary
+  ) {
+    throw new Error(
+      "map_barrier／map_passageにはBND_WorldLimitが必要です"
+    );
+  }
+  for (const mapAsset of [...minimapBarriers, ...minimapPassages]) {
+    const positions = mapAsset.mesh.getVerticesData(
+      VertexBuffer.PositionKind
+    )!;
+    const world = mapAsset.mesh.computeWorldMatrix(true);
+    for (let index = 0; index < positions.length; index += 3) {
+      const point = Vector3.TransformCoordinates(
+        Vector3.FromArray(positions, index),
+        world
+      );
+      if (!worldBoundary!.contains(point)) {
+        throw new Error(
+          `MAP_Barrier／MAP_PassageがBND_WorldLimitの外側です: ${mapAsset.mesh.name}`
+        );
       }
     }
   }
@@ -3113,6 +3135,7 @@ export const loadStageSpatialContext = async (
       : null;
     assertSemanticsInsideBoundary(
       boundary,
+      worldBoundary,
       classification.locationAssetSource.floorMaps,
       classification.locationAssetSource.minimapBarriers,
       classification.locationAssetSource.minimapPassages,

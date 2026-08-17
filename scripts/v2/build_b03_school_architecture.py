@@ -84,7 +84,7 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
-GENERATOR_VERSION = "b06-4-minimap-location-assets-v2"
+GENERATOR_VERSION = "b06-4-minimap-location-assets-v3"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -127,6 +127,7 @@ PERIMETER_WALL_SPECS = (
     ("VIS_Perimeter_West", "Y", -14.5, 51.5, -18.8, -18.4),
 )
 PERIMETER_WALL_Z = (-0.3, 1.7)
+PERIMETER_WALL_THICKNESS = 0.4
 PERIMETER_BLOCK_WIDTH = 0.8
 PERIMETER_BLOCK_HEIGHT = 0.4
 PERIMETER_JOINT_WIDTH = 0.02
@@ -446,16 +447,56 @@ B05_MISSION_LOCATION_IDS = (
     "rooftop-poolside",
 )
 
+
+def perimeter_wall_map_boxes_xy() -> tuple[
+    tuple[tuple[float, float], tuple[float, float]], ...
+]:
+    return tuple(
+        (
+            (primary_minimum, cross_minimum),
+            (primary_maximum, cross_maximum),
+        )
+        if axis == "X"
+        else (
+            (cross_minimum, primary_minimum),
+            (cross_maximum, primary_maximum),
+        )
+        for (
+            _,
+            axis,
+            primary_minimum,
+            primary_maximum,
+            cross_minimum,
+            cross_maximum,
+        ) in PERIMETER_WALL_SPECS
+    )
+
+
+def gate_passage_map_boxes_xy() -> tuple[
+    tuple[tuple[float, float], tuple[float, float]], ...
+]:
+    half_thickness = PERIMETER_WALL_THICKNESS / 2.0
+    return tuple(
+        (
+            (primary_minimum, fixed - half_thickness),
+            (primary_maximum, fixed + half_thickness),
+        )
+        if axis == "X"
+        else (
+            (fixed - half_thickness, primary_minimum),
+            (fixed + half_thickness, primary_maximum),
+        )
+        for _, axis, primary_minimum, primary_maximum, fixed in GATE_VISUAL_SPECS
+    )
+
 # B06-4のミニマップ形状は、表示Object、Collider、NAV_*から探索せず、
 # この一覧を作者定義の正本として生成する。Barrierは恒久仕切りの平面占有、
 # Passageはその仕切りを横断できる開口を表す。家具・小物・動的扉パネルは含めない。
 B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
     "f01": (
-        # 敷地外周の塀・柵（正門と通用門の開口はPassage側で明示する）。
-        ((-18.3, -14.2), (63.1, -13.8)),
-        ((-18.3, 50.8), (63.1, 51.2)),
-        ((-18.3, -14.2), (-17.9, 51.2)),
-        ((62.7, -14.2), (63.1, 51.2)),
+        # 敷地外周は表示塀の作者定義区間を共用する。正門と通用門には
+        # Barrierを敷かず、実際の開口区間をPassage側で所有する。
+        *perimeter_wall_map_boxes_xy(),
         # 校舎外壁と中庭側外壁。
         ((-12.75, -7.15), (0.15, -6.85)),
         ((-12.75, 45.35), (47.55, 45.65)),
@@ -573,9 +614,8 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
 
 B06_MAP_PASSAGE_BOXES_XY_BY_FLOOR = {
     "f01": (
-        # 敷地正門・通用門。
-        ((19.4, -14.2), (25.4, -13.8)),
-        ((62.7, 44.5), (63.1, 50.5)),
+        # 敷地正門・通用門は表示門と同じ作者定義開口を共用する。
+        *gate_passage_map_boxes_xy(),
         # 校舎出入口、各室扉、階段接続。
         ((2.4, 45.1), (5.4, 45.9)),
         ((0.0, 32.1), (5.4, 32.9)),
@@ -1608,6 +1648,12 @@ def append_outward_surface_quad(
 
 def rebuild_site_boundary_visuals() -> None:
     visual_collection = collection(VIS_COLLECTION_NAME)
+    # 旧VIS_CourtyardSurfaceはSiteGround上面より3cm高い重複草地で、
+    # 南端が表示だけの段差になっていた。校庭全域の表示所有者を
+    # VIS_SiteGroundへ一本化し、Collider・Nav歩行面と同じz=-0.3にする。
+    redundant_courtyard_surface = bpy.data.objects.get("VIS_CourtyardSurface")
+    if redundant_courtyard_surface is not None:
+        bpy.data.objects.remove(redundant_courtyard_surface, do_unlink=True)
     for object_name, bounds in (
         ("VIS_SiteGround", SITE_GROUND_VISUAL_BOUNDS),
         ("COL_SiteGround", SITE_GROUND_BOUNDS),
@@ -10570,6 +10616,7 @@ def is_current_generation() -> bool:
         and road is not None
         and abs(world_bounds(sidewalk)[1].z - B04_SURFACE_Z[1]) <= 1.0e-6
         and abs(world_bounds(road)[1].z - B04_SURFACE_Z[1]) <= 1.0e-6
+        and "VIS_CourtyardSurface" not in names
         and human_nav_sources
         and all(obj.get("hs_nav_set") == "human" for obj in human_nav_sources)
         and bpy.context.scene.get("b03_window_layout_status") == "final"
