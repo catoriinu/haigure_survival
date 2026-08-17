@@ -27,14 +27,14 @@ NAVMESH_PATHS = {
     "human": (
         REPOSITORY_ROOT
         / "public/stage-assets/v2/B02/b02_school_blockout.navmesh.bin",
-        3_121_736,
-        "90D851A46FC14825C18EE0762C1D16E287E3FDA15F2313B9095AE141A502179A",
+        3_121_520,
+        "52F7DCBCD09B5DEE685865001BC2DD1E8B98F4BF418688C8F4F01DB0C180A9E4",
     ),
     "bit": (
         REPOSITORY_ROOT
         / "public/stage-assets/v2/B02/b02_school_blockout.bit-flight.navmesh.bin",
-        567_659,
-        "5F2DBCC72E55A3B9D1BA8FB252F457A6B17F1F17679E21E2B51DA07564A48542",
+        567_471,
+        "4B3BBD249E00C515DAD333EF29157E5128FC5CF7286CC26655D096E34BE5B499",
     ),
     "room_variants": (
         REPOSITORY_ROOT

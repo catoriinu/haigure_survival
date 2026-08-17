@@ -24,7 +24,7 @@ GLB_PATH = (
     REPOSITORY_ROOT / "public/stage-assets/v2/B02/b02_school_blockout.glb"
 )
 EXPORT_COLLECTION_NAME = "EXP_Stage_school"
-EXPECTED_GENERATOR_VERSION = "b06-1-school-structure-polish-v22"
+EXPECTED_GENERATOR_VERSION = "b06-1-school-structure-polish-v38"
 EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
 
 GLB_MAGIC = b"glTF"
@@ -2116,7 +2116,7 @@ def audit_elevator(
     require_transform(
         car,
         convert_location(
-            (-10.30, -5.10, 10.8),
+            (-10.30, -5.175, 10.8),
             glb_coordinates=glb_coordinates,
         ),
         z_rotation_quaternion(
@@ -2153,14 +2153,19 @@ def audit_elevator(
                         glb_coordinates=glb_coordinates,
                     )
                 )
-                for x in (-1.44, 1.20)
+                for x in (-1.32, 1.32)
                 for y in (-1.08, 1.19)
                 for z in (0.00, 2.42)
             ]
         )
         require(
             bounds_close(child.local_bounds, expected_car_bounds),
-            f"{child.name}: 第8次再修正後のかごAABBではありません",
+            f"{child.name}: 中心Yを基準に左右対称なかごAABBではありません",
+        )
+        require(
+            abs(child.local_bounds[0][0] + child.local_bounds[1][0])
+            <= TOLERANCE,
+            f"{child.name}: かご外幅2.64mがlocal X=0を中心に対称ではありません",
         )
 
     occupancy = graph.require_node("VOL_ElevatorCarOccupancy_School")
@@ -2213,14 +2218,19 @@ def audit_elevator(
                     glb_coordinates=glb_coordinates,
                 )
             )
-            for x in (-1.16, 0.92)
+            for x in (-1.04, 1.04)
             for y in (-0.78, 0.96)
             for z in (0.12, 2.18)
         ]
     )
     require(
         bounds_close(occupancy.local_bounds, expected_occupancy_bounds),
-        f"{occupancy.name}: 第8次再修正後のかご占有Volumeではありません",
+        f"{occupancy.name}: 左右対称なかご占有Volumeではありません",
+    )
+    require(
+        abs(occupancy.local_bounds[0][0] + occupancy.local_bounds[1][0])
+        <= TOLERANCE,
+        f"{occupancy.name}: 占有幅2.08mがlocal X=0を中心に対称ではありません",
     )
 
     require(
@@ -2263,7 +2273,7 @@ def audit_elevator(
         require_transform(
             stop,
             convert_location(
-                (-10.30, -5.10, base_z),
+                (-10.30, -5.175, base_z),
                 glb_coordinates=glb_coordinates,
             ),
             z_rotation_quaternion(
@@ -2301,6 +2311,11 @@ def audit_elevator(
                 "hs_direction": "up" if floor == 1 else "down",
             },
         )
+        require_transform(
+            call_indicator,
+            (0.0, 0.0, 0.0),
+            identity_quaternion(),
+        )
         indicator_base_name = (
             f"VIS_ElevatorCallIndicator_Base_{suffix}"
         )
@@ -2321,10 +2336,19 @@ def audit_elevator(
                 parent_name=call_indicator.name,
                 properties={},
             )
+            require_transform(
+                indicator_mesh,
+                (0.0, 0.0, 0.0),
+                identity_quaternion(),
+            )
             require(
                 indicator_mesh.local_bounds is not None,
                 f"{indicator_mesh.name}: 表示MeshにAABBがありません",
             )
+        indicator_base_min_z = 0.045 if floor == 1 else 0.005
+        indicator_base_max_z = indicator_base_min_z + 0.020
+        indicator_direction_min_z = indicator_base_max_z + 0.002
+        indicator_direction_max_z = indicator_direction_min_z + 0.010
         expected_indicator_base_bounds = bounds_from_points(
             [
                 Vector(
@@ -2335,7 +2359,7 @@ def audit_elevator(
                 )
                 for x in (-0.85, 0.85)
                 for y in (-3.12, -1.62)
-                for z in (0.005, 0.025)
+                for z in (indicator_base_min_z, indicator_base_max_z)
             ]
         )
         require(
@@ -2343,7 +2367,7 @@ def audit_elevator(
                 indicator_base.local_bounds,
                 expected_indicator_base_bounds,
             ),
-            f"{indicator_base.name}: 幅1.70mの表示範囲ではありません",
+            f"{indicator_base.name}: 呼出Volumeと同じ幅1.70mの足元表示範囲ではありません",
         )
         expected_direction_points = (
             (
@@ -2367,7 +2391,10 @@ def audit_elevator(
                     )
                 )
                 for x, y in expected_direction_points
-                for z in (0.027, 0.037)
+                for z in (
+                    indicator_direction_min_z,
+                    indicator_direction_max_z,
+                )
             ]
         )
         require(
@@ -2376,7 +2403,7 @@ def audit_elevator(
                 expected_direction_bounds,
             )
             and indicator_direction.triangle_count == 8,
-            f"{indicator_direction.name}: 明色塗りつぶし三角柱ではありません",
+            f"{indicator_direction.name}: 足元の明色塗りつぶし矢印ではありません",
         )
 
         component_specs = (
@@ -2484,7 +2511,7 @@ def audit_elevator(
         )
         require(
             bounds_close(threshold_collider.local_bounds, expected_plate_bounds),
-            f"{threshold_collider.name}: 0.12m斜面と0.10m水平部の範囲ではありません",
+            f"{threshold_collider.name}: 0.16m斜面と0.06m水平部の範囲ではありません",
         )
         require(
             bounds_close(
@@ -2546,6 +2573,23 @@ def audit_elevator(
         threshold = graph.require_node(f"VOL_ElevatorThreshold_{suffix}")
         wait_marker = graph.require_node(f"MRK_ElevatorWait_{suffix}")
         horizontal_axes = (0, 2) if glb_coordinates else (0, 1)
+        expected_call_mat_bounds = bounds_from_points(
+            [
+                Vector(
+                    convert_location(
+                        (x, y, z),
+                        glb_coordinates=glb_coordinates,
+                    )
+                )
+                for x in (-0.85, 0.85)
+                for y in (-3.12, -1.62)
+                for z in (0.00, 0.05)
+            ]
+        )
+        require(
+            bounds_close(call_mat.local_bounds, expected_call_mat_bounds),
+            f"{call_mat.name}: 床面の呼出Volume AABBではありません",
+        )
         call_mat_world_bounds = transformed_bounds(
             call_mat.local_bounds,
             call_mat.world_matrix,
@@ -2556,13 +2600,15 @@ def audit_elevator(
         )
         require(
             all(
-                abs(call_mat_world_bounds[bound][axis]
-                    - indicator_base_world_bounds[bound][axis])
+                abs(
+                    call_mat_world_bounds[bound][axis]
+                    - indicator_base_world_bounds[bound][axis]
+                )
                 <= TOLERANCE
                 for bound in (0, 1)
                 for axis in horizontal_axes
             ),
-            f"{call_mat.name}: call indicator Baseの水平範囲と一致しません",
+            f"{suffix}: 足元indicator Baseが呼出Volumeの踏込領域と一致しません",
         )
         for volume in (call_mat, threshold):
             require(
@@ -2592,7 +2638,7 @@ def audit_elevator(
         require_transform(
             link,
             convert_location(
-                (-8.20, -5.10, base_z),
+                (-8.20, -5.175, base_z),
                 glb_coordinates=glb_coordinates,
             ),
             identity_quaternion(),
@@ -2975,6 +3021,7 @@ def audit_blender_geometry() -> dict[str, int]:
         )
         require_closed_manifold(collider)
 
+    threshold_profiles: dict[int, list[tuple[float, float, float]]] = {}
     for floor in (1, 4):
         suffix = f"F{floor:02d}"
         visual = bpy.data.objects[
@@ -2985,6 +3032,7 @@ def audit_blender_geometry() -> dict[str, int]:
         ]
         visual_vertices = mesh_vertex_coordinates(visual)
         collider_vertices = mesh_vertex_coordinates(collider)
+        threshold_profiles[floor] = visual_vertices
         visual_faces = mesh_faces(visual)
         collider_faces = mesh_faces(collider)
         require(
@@ -3023,7 +3071,7 @@ def audit_blender_geometry() -> dict[str, int]:
                     ramp_end,
                     (
                         -0.80 if side_offset == 0 else 0.80,
-                        -1.08,
+                        -1.04,
                         0.12,
                     ),
                 )
@@ -3035,14 +3083,26 @@ def audit_blender_geometry() -> dict[str, int]:
                         0.12,
                     ),
                 ),
-                f"{suffix}: 0.12m斜面または0.10m水平部が不正です",
+                f"{suffix}: 0.16m斜面または0.06m水平部が不正です",
             )
-        ramp_angle_degrees = math.degrees(math.atan2(0.12, 0.12))
+            ramp_run = ramp_end[1] - ramp_start[1]
+            ramp_rise = ramp_end[2] - ramp_start[2]
+            ramp_normal_y = ramp_run / math.hypot(ramp_run, ramp_rise)
+            require(
+                ramp_normal_y >= 0.79,
+                f"{suffix}: 敷居斜面の上向き法線Yが0.79未満です: "
+                f"{ramp_normal_y}",
+            )
+        ramp_angle_degrees = math.degrees(math.atan2(0.12, 0.16))
         require(
-            abs(ramp_angle_degrees - 45.0) <= TOLERANCE,
-            f"{suffix}: 敷居斜面が45度ではありません",
+            abs(ramp_angle_degrees - 36.86989764584402) <= TOLERANCE,
+            f"{suffix}: 敷居斜面が36.87度ではありません",
         )
         threshold_profile_checks += 1
+    require(
+        threshold_profiles[1] == threshold_profiles[4],
+        "1Fと4Fのエレベーター敷居形状が同型ではありません",
+    )
 
     elevator_visible_panels = tuple(
         sorted(

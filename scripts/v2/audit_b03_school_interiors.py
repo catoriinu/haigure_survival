@@ -3840,8 +3840,16 @@ def audit_roof_changing_lockers(
             raise RuntimeError(
                 f"屋上更衣室の旧箱型ベンチが残っています: {legacy_bench_name}"
             )
+    expected_bench_placements = (
+        (-6.225, 41.5, math.pi / 2),
+        (-2.475, 41.5, math.pi / 2),
+        (-1.725, 41.5, math.pi / 2),
+        (1.875, 41.5, math.pi / 2),
+    )
+    if tuple(ROOF_CHANGING_BENCH_PLACEMENTS) != expected_bench_placements:
+        raise RuntimeError("屋上更衣室壁際ベンチ4台の確定座標が変化しています")
     expected_benches = []
-    for x, y, rotation in ROOF_CHANGING_BENCH_PLACEMENTS:
+    for x, y, rotation in expected_bench_placements:
         expected = transformed_box_bounds(
             (x, y, 14.5),
             (0.0, 0.0, 0.24),
@@ -3972,13 +3980,26 @@ def main() -> None:
     for definition in ATLAS_DEFINITIONS.values():
         path = TEXTURE_DIRECTORY / str(definition["file"])
         dimensions = png_dimensions(path)
-        expected = int(definition["size"])
-        if dimensions != (expected, expected):
-            raise RuntimeError(f"Atlas寸法が不正です: {path}={dimensions}")
+        expected_dimensions = tuple(definition["dimensions"])
+        columns, rows = tuple(definition["grid"])
+        if dimensions != expected_dimensions:
+            raise RuntimeError(
+                f"Atlas寸法が不正です: "
+                f"{path}={dimensions}/{expected_dimensions}"
+            )
+        if (
+            dimensions[0] % columns != 0
+            or dimensions[1] % rows != 0
+            or len(definition["swatches"]) > columns * rows
+        ):
+            raise RuntimeError(
+                f"Atlasグリッドが不正です: {path}={dimensions}/{(columns, rows)}"
+            )
         atlas_results[path.name] = {
             "bytes": path.stat().st_size,
             "sha256": sha256(path),
             "dimensions": dimensions,
+            "grid": (columns, rows),
         }
 
     interior_visuals = sorted(

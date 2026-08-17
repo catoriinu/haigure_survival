@@ -43,10 +43,10 @@ export const SCHOOL_STAGE: StageCatalogEntry = Object.freeze({
   assetSchemaVersion: 3,
   navProfileId: "school-humanoid-room-variants-v2",
   bitNavProfileId: "bit-flight-body-0.44-margin-0.10-v1",
-  glbSha256: "b14faf5d5574885348b59b472b1924e99996d95c267270e227a540f3a7cb4b12",
-  navmeshSha256: "90d851a46fc14825c18ee0762c1d16e287e3fda15f2313b9095ae141a502179a",
+  glbSha256: "928d330a0ebd2b38c461b87d9de997d390e064725923bb1a3eaa7bb13b758160",
+  navmeshSha256: "52f7dcbcd09b5dee685865001bc2dd1e8b98f4bf418688c8f4f01db0c180a9e4",
   bitNavmeshSha256:
-    "5f2dbcc72e55a3b9d1ba8fb252f457a6b17f1f17679e21e2b51da07564a48542",
+    "4b3bbd249e00c515dad333ef29157e5128fc5cf7286cc26655d096e34be5b499",
   depthPrePassMaterialNames: Object.freeze([
     "MAT_B03_InfirmaryCurtain"
   ]),

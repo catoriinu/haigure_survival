@@ -1748,7 +1748,7 @@ const validateLoadedContext = (
     ["VIS_RooftopFacilityWalls", [-12.6, 38.5, 14.5], [2.4, 45.5, 16.9]],
     ["VIS_RooftopFacilityRoofs", [-12.6, 38.5, 16.9], [2.4, 45.5, 17.0]],
     ["COL_RooftopFacilityShell", [-12.6, 38.5, 14.5], [2.4, 45.5, 17.0]],
-    ["VIS_DoorLeaf_RooftopStairHouse_Open", [-9.04, 37.0, 14.5], [-8.96, 38.9, 16.7]],
+    ["VIS_DoorLeaf_RooftopStairHouse_Open", [-9.04, 36.6, 14.5], [-8.96, 38.5, 16.7]],
     ["VIS_Floor_RooftopChangingRoom_M", [-6.6, 38.5, 14.5], [-2.1, 45.5, 14.53]],
     ["VIS_Floor_RooftopChangingRoom_F", [-2.1, 38.5, 14.5], [2.4, 45.5, 14.53]],
     ["BND_Stage", [-18.4, -14.3, -0.5], [63.2, 51.3, 19.0]]

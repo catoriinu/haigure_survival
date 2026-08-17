@@ -1562,6 +1562,7 @@ def _build_elevator(
     architecture_material: bpy.types.Material,
 ) -> dict[str, int]:
     elevator_id = "school-elevator"
+    elevator_center_y = -5.175
     car_id = "school-elevator-car"
     car_door_id = "school-elevator-car-door"
     occupancy_id = "school-elevator-car-occupancy"
@@ -1588,7 +1589,7 @@ def _build_elevator(
     car = _create_empty(
         "MRK_ElevatorCar_School",
         semantic_collection,
-        location=(-10.30, -5.10, 10.8),
+        location=(-10.30, elevator_center_y, 10.8),
         rotation_z=math.pi / 2.0,
         properties={
             "hs_id": car_id,
@@ -1598,13 +1599,13 @@ def _build_elevator(
         parent=controller,
     )
     car_boxes = (
-        ((-1.44, -0.98, 0.00), (1.20, 1.19, 0.12)),
-        ((-1.44, -1.08, 2.30), (1.20, 1.19, 2.42)),
-        ((-1.44, 1.11, 0.12), (1.20, 1.19, 2.30)),
-        ((-1.44, -0.94, 0.12), (-1.36, 1.11, 2.30)),
-        ((1.12, -0.94, 0.12), (1.20, 1.11, 2.30)),
-        ((-1.44, -1.08, 0.12), (-1.36, -1.04, 2.30)),
-        ((1.12, -1.08, 0.12), (1.20, -1.04, 2.30)),
+        ((-1.32, -0.98, 0.00), (1.32, 1.19, 0.12)),
+        ((-1.32, -1.08, 2.30), (1.32, 1.19, 2.42)),
+        ((-1.32, 1.11, 0.12), (1.32, 1.19, 2.30)),
+        ((-1.32, -0.94, 0.12), (-1.24, 1.11, 2.30)),
+        ((1.24, -0.94, 0.12), (1.32, 1.11, 2.30)),
+        ((-1.32, -1.08, 0.12), (-1.24, -1.04, 2.30)),
+        ((1.24, -1.08, 0.12), (1.32, -1.04, 2.30)),
     )
     car_visual_vertices: list[tuple[float, float, float]] = []
     car_visual_faces: list[tuple[int, ...]] = []
@@ -1644,7 +1645,7 @@ def _build_elevator(
     )
     _create_box_object(
         "VOL_ElevatorCarOccupancy_School",
-        (((-1.16, -0.78, 0.12), (0.92, 0.96, 2.18)),),
+        (((-1.04, -0.78, 0.12), (1.04, 0.96, 2.18)),),
         semantic_collection,
         properties={
             "hs_id": occupancy_id,
@@ -1678,7 +1679,7 @@ def _build_elevator(
         stop = _create_empty(
             f"MRK_ElevatorStop_F{floor:02d}",
             semantic_collection,
-            location=(-10.30, -5.10, base_z),
+            location=(-10.30, elevator_center_y, base_z),
             rotation_z=math.pi / 2.0,
             properties={
                 "hs_id": stop_id,
@@ -1734,9 +1735,23 @@ def _build_elevator(
             },
             parent=stop,
         )
+        # 1Fの西棟床仕上げはStop基準Z=0.00..0.04を占有するため、
+        # 呼出表示だけをその上へ載せる。4Fは床上端がStop基準Z=0.00なので
+        # 従来の高さを維持し、両階とも呼出Volumeと同じ足元範囲を見せる。
+        indicator_base_min_z = 0.045 if floor == 1 else 0.005
+        indicator_base_max_z = indicator_base_min_z + 0.020
+        indicator_direction_min_z = indicator_base_max_z + 0.002
+        indicator_direction_max_z = indicator_direction_min_z + 0.010
+        # 呼出Volumeを踏む位置そのものを点滅表示にする。StopはZ軸+90度
+        # 回転しているため、このlocal床面は扉前のworld領域へ一致する。
         _create_box_object(
             f"VIS_ElevatorCallIndicator_Base_F{floor:02d}",
-            (((-0.85, -3.12, 0.005), (0.85, -1.62, 0.025)),),
+            (
+                (
+                    (-0.85, -3.12, indicator_base_min_z),
+                    (0.85, -1.62, indicator_base_max_z),
+                ),
+            ),
             visual_collection,
             material=architecture_material,
             uv_swatch=swatch_uv("Architecture", "elevator_wait"),
@@ -1760,8 +1775,8 @@ def _build_elevator(
             direction_vertices,
             direction_faces,
             direction_points,
-            0.027,
-            0.037,
+            indicator_direction_min_z,
+            indicator_direction_max_z,
         )
         _create_mesh_object(
             f"VIS_ElevatorCallIndicator_Direction_F{floor:02d}",
@@ -1792,7 +1807,7 @@ def _build_elevator(
             -0.80,
             0.80,
             -1.20,
-            -1.08,
+            -1.04,
             -0.98,
             -0.02,
             0.00,
@@ -1854,7 +1869,7 @@ def _build_elevator(
         _create_empty(
             f"LNK_{link_id}_{endpoint}",
             semantic_collection,
-            location=(-8.20, -5.10, base_z),
+            location=(-8.20, elevator_center_y, base_z),
             properties={
                 "hs_id": link_id,
                 "hs_link_kind": "elevator",

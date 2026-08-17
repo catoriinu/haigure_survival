@@ -33,6 +33,7 @@ from build_b03_school_interiors import (
     UPPER_WEST_CLASSROOM_DOOR_OPENINGS,
     build_school_interiors,
     consolidate_school_materials,
+    polygon_swatch_uvs,
     swatch_uv,
 )
 from build_b03_school_interactive_assets import (
@@ -78,7 +79,7 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
-GENERATOR_VERSION = "b06-1-school-structure-polish-v22"
+GENERATOR_VERSION = "b06-1-school-structure-polish-v38"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -177,10 +178,15 @@ UPPER_STAIR_NAV_SOURCE_NAMES = (
     "COL_StairSystem_SW_3FTo4F",
 )
 
+ELEVATOR_CENTER_Y = -5.175
+ELEVATOR_OPENING_Y = (-5.975, -4.375)
+ELEVATOR_FRONT_X = -8.65
+ELEVATOR_SHAFT_INNER_Y = (-6.55, -3.80)
+
 WEST_EXTENSION_FLOOR_PANELS_XY = (
     ((-12.6, -7.0), (-11.5, -3.5)),
     ((-9.1, -7.0), (0.0, -3.5)),
-    ((-11.5, -7.0), (-9.1, -6.4)),
+    ((-11.5, -7.0), (-9.1, -6.55)),
     ((-11.5, -4.0), (-9.1, -3.5)),
 )
 UPPER_FLOOR_PANELS_XY = (
@@ -205,6 +211,32 @@ F4_CEILING_PANELS_XY = (
     *UPPER_FLOOR_PANELS_XY,
     ((-12.6, -3.5), (-6.0, 2.5)),
     ((41.4, 38.9), (47.4, 45.5)),
+)
+
+ROOFTOP_FACILITY_WALL_BOXES = (
+    # 屋上階段室。南面を男女更衣室と同じ一直線へ揃え、西・北外壁は
+    # 4階外壁の同一Objectへ統合する。
+    ((-12.75, 38.50, 14.40), (-12.45, 38.90, 16.90)),
+    ((-12.45, 38.50, 14.50), (-9.00, 38.80, 16.90)),
+    ((-9.00, 38.50, 16.70), (-6.75, 38.80, 16.90)),
+    ((-6.75, 38.50, 14.40), (-6.45, 45.35, 16.90)),
+    # 男子更衣室。南面中央の1.20mは引き戸開口である。
+    ((-6.45, 38.50, 14.50), (-5.40, 38.80, 16.90)),
+    ((-5.40, 38.50, 16.80), (-4.20, 38.80, 16.90)),
+    ((-4.20, 38.50, 14.50), (-2.25, 38.80, 16.90)),
+    # 男女更衣室の共有仕切り。
+    ((-2.25, 38.50, 14.50), (-1.95, 45.50, 16.90)),
+    # 女子更衣室。南面中央の1.20mは引き戸開口である。
+    ((-1.95, 38.50, 14.50), (-0.90, 38.80, 16.90)),
+    ((-0.90, 38.50, 16.80), (0.30, 38.80, 16.90)),
+    ((0.30, 38.50, 14.50), (2.10, 38.80, 16.90)),
+    ((2.10, 38.50, 14.50), (2.40, 45.50, 16.90)),
+)
+
+ROOFTOP_FACILITY_ROOF_BOXES = (
+    ((-12.75, 38.50, 16.90), (-6.45, 45.65, 17.00)),
+    ((-6.45, 38.50, 16.90), (-2.10, 45.65, 17.00)),
+    ((-2.10, 38.50, 16.90), (2.40, 45.65, 17.00)),
 )
 
 ROOF_GUARD_SEGMENTS = (
@@ -246,9 +278,9 @@ ROOF_GUARD_SEGMENTS = (
     (
         "WestOuter",
         (-12.5, -6.9, 14.5),
-        (-12.5, 38.9, 14.5),
+        (-12.5, 38.55, 14.5),
         True,
-        True,
+        False,
     ),
 )
 
@@ -1834,7 +1866,9 @@ def create_elevator_adjustment_text(
     )
     mesh_obj.data.transform(orientation)
     mesh_obj.data.transform(
-        Matrix.Translation(Vector((-8.55, -5.1, floor_base_z + 1.26)))
+        Matrix.Translation(
+            Vector((-8.74, ELEVATOR_CENTER_Y, floor_base_z + 1.26))
+        )
     )
     return mesh_obj
 
@@ -2017,6 +2051,561 @@ def replace_mesh_geometry(
     return obj
 
 
+def create_floor_finish_visual_mesh_object(
+    name: str,
+    boxes: list[tuple[tuple[float, float, float], tuple[float, float, float]]],
+    target_collection: bpy.types.Collection,
+    material: bpy.types.Material,
+) -> bpy.types.Object:
+    """南西階段境界の床断面を除き、別の壁色面へ所有を渡す。"""
+    vertices: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    for minimum, maximum in boxes:
+        box_faces: list[tuple[int, int, int, int]] = []
+        append_box(vertices, box_faces, minimum, maximum)
+        for face_index, face in enumerate(box_faces):
+            is_southwest_stair_edge = (
+                face_index == 2
+                and math.isclose(minimum[1], -3.5, abs_tol=1.0e-6)
+            ) or (
+                face_index == 4
+                and math.isclose(maximum[1], -3.5, abs_tol=1.0e-6)
+            )
+            if not is_southwest_stair_edge:
+                faces.append(face)
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update(calc_edges=True)
+    obj = bpy.data.objects.new(name, mesh)
+    target_collection.objects.link(obj)
+    mesh.materials.append(material)
+    return obj
+
+
+def create_outward_surface_mesh_object(
+    name: str,
+    surfaces: tuple[tuple[str, float, float, float, float, float, int], ...],
+    target_collection: bpy.types.Collection,
+    material: bpy.types.Material,
+) -> bpy.types.Object:
+    vertices: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    for (
+        axis,
+        primary_minimum,
+        primary_maximum,
+        cross_coordinate,
+        z_minimum,
+        z_maximum,
+        outward_sign,
+    ) in surfaces:
+        append_outward_surface_quad(
+            vertices,
+            faces,
+            axis,
+            primary_minimum,
+            primary_maximum,
+            cross_coordinate,
+            z_minimum,
+            z_maximum,
+            outward_sign,
+        )
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update(calc_edges=True)
+    obj = bpy.data.objects.new(name, mesh)
+    target_collection.objects.link(obj)
+    mesh.materials.append(material)
+    return obj
+
+
+def planar_polygon_xz_area(points: list[Vector]) -> float:
+    return abs(
+        sum(
+            point.x * points[(index + 1) % len(points)].z
+            - points[(index + 1) % len(points)].x * point.z
+            for index, point in enumerate(points)
+        )
+    ) / 2.0
+
+
+def clean_planar_polygon(points: list[Vector]) -> list[Vector]:
+    cleaned: list[Vector] = []
+    for point in points:
+        if not cleaned or (point - cleaned[-1]).length > 1.0e-8:
+            cleaned.append(point)
+    if len(cleaned) >= 2 and (cleaned[0] - cleaned[-1]).length <= 1.0e-8:
+        cleaned.pop()
+    return cleaned
+
+
+def clip_planar_polygon_halfspace(
+    points: list[Vector],
+    axis: int,
+    boundary: float,
+    *,
+    keep_lower: bool,
+) -> list[Vector]:
+    clipped: list[Vector] = []
+    for start, end in zip(points, points[1:] + points[:1], strict=True):
+        start_distance = start[axis] - boundary
+        end_distance = end[axis] - boundary
+        start_inside = start_distance <= 1.0e-8 if keep_lower else start_distance >= -1.0e-8
+        end_inside = end_distance <= 1.0e-8 if keep_lower else end_distance >= -1.0e-8
+        if start_inside:
+            clipped.append(start.copy())
+        if start_inside != end_inside:
+            ratio = start_distance / (start_distance - end_distance)
+            clipped.append(start.lerp(end, ratio))
+    return clean_planar_polygon(clipped)
+
+
+def split_planar_polygon_by_coordinate(
+    points: list[Vector], axis: int, boundary: float
+) -> list[list[Vector]]:
+    pieces = (
+        clip_planar_polygon_halfspace(points, axis, boundary, keep_lower=True),
+        clip_planar_polygon_halfspace(points, axis, boundary, keep_lower=False),
+    )
+    return [piece for piece in pieces if len(piece) >= 3 and planar_polygon_xz_area(piece) > 1.0e-10]
+
+
+def simplify_elevator_shaft_north_wall_owner(
+    shaft: bpy.types.Object,
+) -> int:
+    """F4北面と屋上天端の共線分割点を両面から除き、所有面をquad化する。"""
+    normal_matrix = shaft.matrix_world.to_3x3().inverted().transposed()
+    owner_polygons = []
+    for polygon in shaft.data.polygons:
+        points = [
+            shaft.matrix_world @ shaft.data.vertices[index].co
+            for index in polygon.vertices
+        ]
+        normal = (normal_matrix @ polygon.normal).normalized()
+        if normal.y > 1.0 - 1.0e-5 and all(
+            abs(point.y + 3.5) <= 1.0e-5 for point in points
+        ):
+            owner_polygons.append(polygon)
+    if all(len(polygon.vertices) == 4 for polygon in owner_polygons):
+        return 0
+    non_quad_owner_bounds = {
+        (
+            round(min((shaft.matrix_world @ shaft.data.vertices[index].co).x for index in polygon.vertices), 5),
+            round(max((shaft.matrix_world @ shaft.data.vertices[index].co).x for index in polygon.vertices), 5),
+            round(min((shaft.matrix_world @ shaft.data.vertices[index].co).z for index in polygon.vertices), 5),
+            round(max((shaft.matrix_world @ shaft.data.vertices[index].co).z for index in polygon.vertices), 5),
+            len(polygon.vertices),
+        )
+        for polygon in owner_polygons
+        if len(polygon.vertices) != 4
+    }
+    if non_quad_owner_bounds != {(-12.45, -6.0, 10.8, 14.4, 6)}:
+        raise RuntimeError(
+            "エレベーターシャフト北面のquad化前形状が不正です: "
+            f"{sorted(non_quad_owner_bounds)}"
+        )
+
+    if shaft.data.users != 1:
+        shaft.data = shaft.data.copy()
+    mesh = bmesh.new()
+    mesh.from_mesh(shaft.data)
+    mesh.normal_update()
+
+    def world_coordinate(vertex: bmesh.types.BMVert) -> tuple[float, float, float]:
+        return tuple(
+            round(float(value), 5) for value in (shaft.matrix_world @ vertex.co)
+        )
+
+    expected_top_edges = {
+        ((-11.8, -3.8, 14.4), (-11.8, -3.5, 14.4)),
+        ((-8.65, -3.8, 14.4), (-8.65, -3.5, 14.4)),
+    }
+    top_edges = [
+        edge
+        for edge in mesh.edges
+        if len(edge.link_faces) == 2
+        and all(face.normal.z > 1.0 - 1.0e-5 for face in edge.link_faces)
+        and tuple(sorted(world_coordinate(vertex) for vertex in edge.verts))
+        in expected_top_edges
+    ]
+    actual_top_edges = {
+        tuple(sorted(world_coordinate(vertex) for vertex in edge.verts))
+        for edge in top_edges
+    }
+    if actual_top_edges != expected_top_edges:
+        mesh.free()
+        raise RuntimeError(
+            "エレベーターシャフトF4天端の統合edgeが不正です: "
+            f"actual={sorted(actual_top_edges)}"
+        )
+    bmesh.ops.dissolve_edges(
+        mesh,
+        edges=top_edges,
+        use_verts=False,
+        use_face_split=False,
+    )
+    mesh.normal_update()
+    owner_face = next(
+        face
+        for face in mesh.faces
+        if face.normal.y > 1.0 - 1.0e-5
+        and {
+            (round((shaft.matrix_world @ vertex.co).x, 5), round((shaft.matrix_world @ vertex.co).z, 5))
+            for vertex in face.verts
+        }
+        >= {
+            (-12.45, 10.8),
+            (-12.45, 14.4),
+            (-6.0, 10.8),
+            (-6.0, 14.4),
+        }
+    )
+    owner_corners = {
+        (-12.45, 10.8),
+        (-12.45, 14.4),
+        (-6.0, 10.8),
+        (-6.0, 14.4),
+    }
+    extra_vertices = [
+        vertex
+        for vertex in owner_face.verts
+        if (
+            round((shaft.matrix_world @ vertex.co).x, 5),
+            round((shaft.matrix_world @ vertex.co).z, 5),
+        )
+        not in owner_corners
+    ]
+    actual_extra_coordinates = {
+        world_coordinate(vertex) for vertex in extra_vertices
+    }
+    expected_extra_coordinates = {
+        (-11.8, -3.5, 14.4),
+        (-8.65, -3.5, 14.4),
+    }
+    if actual_extra_coordinates != expected_extra_coordinates or any(
+        len(vertex.link_edges) != 2 or len(vertex.link_faces) != 2
+        for vertex in extra_vertices
+    ):
+        mesh.free()
+        raise RuntimeError(
+            "エレベーターシャフトF4北面の共線頂点が不正です: "
+            f"actual={sorted(actual_extra_coordinates)}"
+        )
+    bmesh.ops.dissolve_verts(
+        mesh,
+        verts=extra_vertices,
+        use_face_split=False,
+        use_boundary_tear=False,
+    )
+    mesh.to_mesh(shaft.data)
+    shaft.data.update(calc_edges=True)
+    mesh.free()
+    return len(extra_vertices)
+
+
+def elevator_shaft_north_wall_owner_rectangles(
+    shaft: bpy.types.Object,
+) -> tuple[tuple[float, float, float, float], ...]:
+    rectangles: list[tuple[float, float, float, float]] = []
+    normal_matrix = shaft.matrix_world.to_3x3().inverted().transposed()
+    for polygon in shaft.data.polygons:
+        points = [
+            shaft.matrix_world @ shaft.data.vertices[index].co
+            for index in polygon.vertices
+        ]
+        normal = (normal_matrix @ polygon.normal).normalized()
+        if (
+            normal.y <= 1.0 - 1.0e-5
+            or any(abs(point.y + 3.5) > 1.0e-5 for point in points)
+        ):
+            continue
+        rectangles.append(
+            (
+                min(point.x for point in points),
+                max(point.x for point in points),
+                min(point.z for point in points),
+                max(point.z for point in points),
+            )
+        )
+    actual = {
+        tuple(round(value, 5) for value in rectangle) for rectangle in rectangles
+    }
+    expected = {
+        (-12.45, -6.0, 0.04, 3.45),
+        (-12.45, -6.0, 3.6, 7.05),
+        (-12.45, -6.0, 7.2, 10.65),
+        (-12.45, -6.0, 10.8, 14.4),
+    }
+    if actual != expected:
+        raise RuntimeError(
+            "エレベーターシャフト北面の単一所有範囲が不正です: "
+            f"actual={sorted(actual)}"
+        )
+    return tuple(sorted(rectangles))
+
+
+def trim_visual_faces_owned_by_elevator_shaft_north_wall() -> dict[str, float]:
+    """シャフト北面と共面になる他の表示面を境界で分割し、壁へ所有を渡す。"""
+    shaft = bpy.data.objects.get("VIS_B03_ElevatorShaftShell")
+    if shaft is None or shaft.type != "MESH":
+        raise RuntimeError("エレベーターシャフト表示Meshがありません")
+    simplify_elevator_shaft_north_wall_owner(shaft)
+    owner_rectangles = elevator_shaft_north_wall_owner_rectangles(shaft)
+    cut_coordinates = (
+        (0, sorted({value for x0, x1, _z0, _z1 in owner_rectangles for value in (x0, x1)})),
+        (2, sorted({value for _x0, _x1, z0, z1 in owner_rectangles for value in (z0, z1)})),
+    )
+    removed_area_by_object: dict[str, float] = {}
+    for obj in sorted(bpy.data.objects, key=lambda item: item.name):
+        if (
+            obj == shaft
+            or obj.type != "MESH"
+            or not obj.name.startswith("VIS_")
+        ):
+            continue
+        world_to_local = obj.matrix_world.inverted()
+        normal_matrix = obj.matrix_world.to_3x3().inverted().transposed()
+        polygons_by_vertex: dict[int, list[int]] = {}
+        for polygon in obj.data.polygons:
+            for vertex_index in polygon.vertices:
+                polygons_by_vertex.setdefault(vertex_index, []).append(polygon.index)
+        polygon_components: dict[int, int] = {}
+        for polygon in obj.data.polygons:
+            if polygon.index in polygon_components:
+                continue
+            component = len(set(polygon_components.values()))
+            pending = [polygon.index]
+            polygon_components[polygon.index] = component
+            while pending:
+                polygon_index = pending.pop()
+                for vertex_index in obj.data.polygons[polygon_index].vertices:
+                    for neighbor_index in polygons_by_vertex[vertex_index]:
+                        if neighbor_index in polygon_components:
+                            continue
+                        polygon_components[neighbor_index] = component
+                        pending.append(neighbor_index)
+
+        rebuilt_polygons: list[tuple[list[Vector], int, bool, int, float]] = []
+        source_vertex_keys_by_component: dict[
+            int, set[tuple[float, float, float]]
+        ] = {}
+        for polygon in obj.data.polygons:
+            source_vertex_keys_by_component.setdefault(
+                polygon_components[polygon.index], set()
+            ).update(
+                tuple(
+                    round(float(value), 8)
+                    for value in (obj.matrix_world @ obj.data.vertices[index].co)
+                )
+                for index in polygon.vertices
+            )
+        introduced_breakpoints_by_component: dict[
+            int, set[tuple[float, float, float]]
+        ] = {}
+        removed_area = 0.0
+        for polygon in obj.data.polygons:
+            component = polygon_components[polygon.index]
+            world_normal_y = (
+                normal_matrix @ polygon.normal
+            ).normalized().y
+            world_points = [
+                obj.matrix_world @ obj.data.vertices[index].co
+                for index in polygon.vertices
+            ]
+            if any(abs(point.y + 3.5) > 1.0e-5 for point in world_points):
+                rebuilt_polygons.append(
+                    (
+                        world_points,
+                        polygon.material_index,
+                        polygon.use_smooth,
+                        component,
+                        world_normal_y,
+                    )
+                )
+                continue
+            pieces = [world_points]
+            for axis, boundaries in cut_coordinates:
+                for boundary in boundaries:
+                    pieces = [
+                        piece
+                        for candidate in pieces
+                        for piece in split_planar_polygon_by_coordinate(
+                            candidate, axis, boundary
+                        )
+                    ]
+            kept_pieces = []
+            for piece in pieces:
+                introduced_breakpoints_by_component.setdefault(
+                    component, set()
+                ).update(
+                    tuple(round(float(value), 8) for value in point)
+                    for point in piece
+                    if tuple(round(float(value), 8) for value in point)
+                    not in source_vertex_keys_by_component[component]
+                )
+                center_x = sum(point.x for point in piece) / len(piece)
+                center_z = sum(point.z for point in piece) / len(piece)
+                if any(
+                    x0 - 1.0e-8 <= center_x <= x1 + 1.0e-8
+                    and z0 - 1.0e-8 <= center_z <= z1 + 1.0e-8
+                    for x0, x1, z0, z1 in owner_rectangles
+                ):
+                    continue
+                kept_pieces.append(piece)
+            original_area = planar_polygon_xz_area(world_points)
+            kept_area = sum(planar_polygon_xz_area(piece) for piece in kept_pieces)
+            removed_area += max(0.0, original_area - kept_area)
+            rebuilt_polygons.extend(
+                (
+                    piece,
+                    polygon.material_index,
+                    polygon.use_smooth,
+                    component,
+                    world_normal_y,
+                )
+                for piece in kept_pieces
+            )
+        if removed_area <= 1.0e-10:
+            continue
+        # 同じObject内で表裏が同一座標に残る床断面も、-Y側の一面だけへ
+        # 統一する。F4の完全矩形外形と露出帯は維持し、二重描画だけを省く。
+        unique_polygons: dict[
+            tuple[tuple[float, float, float], ...],
+            tuple[list[Vector], int, bool, int, float],
+        ] = {}
+        passthrough_polygons: list[
+            tuple[list[Vector], int, bool, int, float]
+        ] = []
+        for candidate in rebuilt_polygons:
+            points, _material_index, _use_smooth, _component, normal_y = candidate
+            if any(abs(point.y + 3.5) > 1.0e-5 for point in points):
+                passthrough_polygons.append(candidate)
+                continue
+            surface_key = tuple(
+                sorted(
+                    tuple(round(float(value), 5) for value in point)
+                    for point in points
+                )
+            )
+            current = unique_polygons.get(surface_key)
+            if current is None or normal_y < current[4]:
+                unique_polygons[surface_key] = candidate
+        rebuilt_polygons = passthrough_polygons + list(unique_polygons.values())
+
+        propagated_polygons: list[
+            tuple[list[Vector], int, bool, int, float]
+        ] = []
+        breakpoint_vectors_by_component = {
+            component: [Vector(point) for point in breakpoints]
+            for component, breakpoints in introduced_breakpoints_by_component.items()
+        }
+        for (
+            points,
+            material_index,
+            use_smooth,
+            component,
+            world_normal_y,
+        ) in rebuilt_polygons:
+            propagated_points: list[Vector] = []
+            for start, end in zip(points, points[1:] + points[:1], strict=True):
+                propagated_points.append(start)
+                direction = end - start
+                length_squared = direction.length_squared
+                if length_squared <= 1.0e-16:
+                    continue
+                edge_breakpoints = []
+                for breakpoint in breakpoint_vectors_by_component.get(component, ()):
+                    ratio = (breakpoint - start).dot(direction) / length_squared
+                    if not 1.0e-8 < ratio < 1.0 - 1.0e-8:
+                        continue
+                    projected = start + direction * ratio
+                    # Blenderのfloat32頂点から求めた交点は、同じ物理edge上でも
+                    # 隣接面との間に数百nmの丸め差が出る。監査の幾何許容値と
+                    # 同じ10µm以内を同一直線とし、同一breakpointを共有する。
+                    if (breakpoint - projected).length > 1.0e-5:
+                        continue
+                    edge_breakpoints.append((ratio, breakpoint))
+                propagated_points.extend(
+                    breakpoint
+                    for _ratio, breakpoint in sorted(
+                        edge_breakpoints, key=lambda item: item[0]
+                    )
+                )
+            propagated_polygons.append(
+                (
+                    clean_planar_polygon(propagated_points),
+                    material_index,
+                    use_smooth,
+                    component,
+                    world_normal_y,
+                )
+            )
+
+        vertices: list[tuple[float, float, float]] = []
+        faces: list[tuple[int, ...]] = []
+        vertex_indices: dict[
+            tuple[int, tuple[float, float, float]], int
+        ] = {}
+        material_indices: list[int] = []
+        smooth_flags: list[bool] = []
+        for (
+            points,
+            material_index,
+            use_smooth,
+            component,
+            _world_normal_y,
+        ) in propagated_polygons:
+            local_points = [world_to_local @ point for point in points]
+            face = []
+            for point in local_points:
+                coordinate = tuple(float(value) for value in point)
+                key = (
+                    component,
+                    tuple(round(value, 5) for value in coordinate),
+                )
+                vertex_index = vertex_indices.get(key)
+                if vertex_index is None:
+                    vertex_index = len(vertices)
+                    vertex_indices[key] = vertex_index
+                    vertices.append(coordinate)
+                face.append(vertex_index)
+            faces.append(tuple(face))
+            material_indices.append(material_index)
+            smooth_flags.append(use_smooth)
+        if obj.data.users != 1:
+            obj.data = obj.data.copy()
+        obj.data.clear_geometry()
+        obj.data.from_pydata(vertices, [], faces)
+        obj.data.name = obj.name
+        for polygon, material_index, use_smooth in zip(
+            obj.data.polygons,
+            material_indices,
+            smooth_flags,
+            strict=True,
+        ):
+            polygon.material_index = material_index
+            polygon.use_smooth = use_smooth
+        obj.data.update(calc_edges=True)
+        removed_area_by_object[obj.name] = round(removed_area, 6)
+    expected_trimmed_objects = {
+        "VIS_B03_Ceiling_F02",
+        "VIS_B03_Ceiling_F03",
+        "VIS_B03_Ceiling_F04",
+        "VIS_B03_InterfloorStructure_F01_West",
+        "VIS_StairGuardSystem_SW_3FTo4F",
+        "VIS_StairLanding_SW",
+        "VIS_Stairs_SW",
+        "VIS_StairSystem_SW_2FTo3F",
+        "VIS_StairSystem_SW_3FTo4F",
+    }
+    if set(removed_area_by_object) != expected_trimmed_objects:
+        raise RuntimeError(
+            "エレベーターシャフト北面と接する表示面の集合が不正です: "
+            f"actual={sorted(removed_area_by_object)}"
+        )
+    return removed_area_by_object
+
+
 def replace_mesh_geometry_with_oriented_faces(
     object_name: str,
     vertices: list[tuple[float, float, float]],
@@ -2124,11 +2713,19 @@ def append_thin_steps(
             nosing_y0, nosing_y1 = sorted(
                 (approach_y, approach_y + direction * 0.06)
             )
+            face_offset = len(nosing_faces)
             append_box(
                 nosing_vertices,
                 nosing_faces,
                 (width[0], nosing_y0, top),
                 (width[1], nosing_y1, top + 0.02),
+            )
+            # 段上面・階段幅端との接触面は階段本体が所有する。防護材は
+            # 可視となる上面と前後面だけを残し、同一平面を二重描画しない。
+            nosing_faces[face_offset:] = (
+                nosing_faces[face_offset + 1],
+                nosing_faces[face_offset + 2],
+                nosing_faces[face_offset + 4],
             )
 
 
@@ -2154,7 +2751,31 @@ def append_stair_support_board(
     )
 
 
+def append_southwest_upper_stair_support_board(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    base_z: float,
+) -> None:
+    # 南西階段の外側支持面は、階床の壁色断面と同じY=-3.5を向く。
+    # 支持板の低い三角形だけを床断面の下へ隠すと二重面になるため、
+    # 壁色断面を単一所有者として残し、表示支持面だけをfloor topで切る。
+    # Colliderは元の連続Rampを維持する。
+    profile = (
+        (43.1, base_z + 2.4),
+        (38.9, base_z),
+        (39.11, base_z),
+        (43.1, base_z + 2.28),
+    )
+    append_profile_prism(vertices, faces, (-12.6, -10.2), profile)
+
+
 def rebuild_first_transition_stair_visuals() -> dict[str, int]:
+    # 南西踊り場は旧正本Objectを再利用するため、強制再生成でも必ず元の箱へ戻す。
+    # 最終段でシャフト壁との共有部分だけが再度trimされ、生成が決定的になる。
+    replace_existing_boxes(
+        "VIS_StairLanding_SW",
+        [((-12.6, -3.5, 2.3), (-10.2, 2.5, 2.4))],
+    )
     rebuilt: dict[str, int] = {}
     for stair in ("NW", "NE", "SW"):
         nosing_vertices: list[tuple[float, float, float]] = []
@@ -2308,11 +2929,13 @@ def create_upper_stair_visual_geometry(
     base_z: float,
     *,
     rooftop_connector: bool = False,
+    southwest_floor_edge_trim: bool,
     nosing_vertices: list[tuple[float, float, float]] | None = None,
     nosing_faces: list[tuple[int, ...]] | None = None,
 ) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
     vertices: list[tuple[float, float, float]] = []
     faces: list[tuple[int, ...]] = []
+    upper_maximum_x = -6.75 if rooftop_connector else -6.60
     append_thin_steps(
         vertices,
         faces,
@@ -2324,20 +2947,33 @@ def create_upper_stair_visual_geometry(
         nosing_vertices,
         nosing_faces,
     )
-    append_stair_support_board(
+    if southwest_floor_edge_trim:
+        append_southwest_upper_stair_support_board(vertices, faces, base_z)
+    else:
+        append_stair_support_board(
+            vertices,
+            faces,
+            (-12.6, -10.2),
+            38.9,
+            43.1,
+            base_z,
+            base_z + 2.4,
+        )
+    landing_face_offset = len(faces)
+    append_box(
         vertices,
         faces,
-        (-12.6, -10.2),
-        38.9,
-        43.1,
-        base_z,
-        base_z + 2.4,
+        (-12.6, 43.1, base_z + 2.3),
+        (upper_maximum_x, 45.5, base_z + 2.4),
     )
-    append_box(vertices, faces, (-12.6, 43.1, base_z + 2.3), (-6.6, 45.5, base_z + 2.4))
+    if rooftop_connector:
+        # 4階壁と同一平面になる踊り場東端面は壁だけが所有する。
+        # ここを階段側にも残すと、階段から見た壁根元へ濃い横帯が現れる。
+        del faces[landing_face_offset + 3]
     append_thin_steps(
         vertices,
         faces,
-        (-9.0, -6.6),
+        (-9.0, upper_maximum_x),
         41.3,
         38.9,
         base_z + 2.4,
@@ -2346,10 +2982,11 @@ def create_upper_stair_visual_geometry(
         nosing_faces,
     )
     if rooftop_connector:
+        profile_face_offset = len(faces)
         append_profile_prism(
             vertices,
             faces,
-            (-9.0, -6.6),
+            (-9.0, upper_maximum_x),
             (
                 (43.1, base_z + 2.30),
                 (41.3, base_z + 2.30),
@@ -2361,6 +2998,8 @@ def create_upper_stair_visual_geometry(
                 (43.1, base_z + 2.40),
             ),
         )
+        # x=-6.75の階段側面は、4階から連続する屋上施設壁だけが所有する。
+        del faces[profile_face_offset + 1]
     else:
         append_profile_prism(
             vertices,
@@ -2385,13 +3024,19 @@ def create_upper_stair_collider_geometry(
 ) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
     vertices: list[tuple[float, float, float]] = []
     faces: list[tuple[int, ...]] = []
+    upper_maximum_x = -6.75 if rooftop_connector else -6.60
     append_profile_prism(
         vertices,
         faces,
         (-12.6, -10.2),
         ((38.9, base_z - 0.1), (43.1, base_z + 2.3), (43.1, base_z + 2.4), (38.9, base_z)),
     )
-    append_box(vertices, faces, (-12.6, 43.1, base_z + 2.3), (-6.6, 45.5, base_z + 2.4))
+    append_box(
+        vertices,
+        faces,
+        (-12.6, 43.1, base_z + 2.3),
+        (upper_maximum_x, 45.5, base_z + 2.4),
+    )
     upper_profile = (
         (
             (43.1, base_z + 2.3),
@@ -2413,7 +3058,7 @@ def create_upper_stair_collider_geometry(
             (43.1, base_z + 2.4),
         )
     )
-    append_profile_prism(vertices, faces, (-9.0, -6.6), upper_profile)
+    append_profile_prism(vertices, faces, (-9.0, upper_maximum_x), upper_profile)
     return vertices, faces
 
 
@@ -2443,12 +3088,6 @@ def upper_stair_guard_base_segments(
         ),
         "Upper": (
             (upper_start, upper_end),
-        ),
-        "RooftopConnector": (
-            (
-                upper_end,
-                Vector((-8.92, 38.6, base_z + 3.7)),
-            ),
         ),
         "Terminal": (
             (
@@ -2684,12 +3323,7 @@ def rebuild_upper_stairs(
             transitions.append(("4FToRooftop", 10.8))
         for suffix, base_z in transitions:
             if stair == "NW" and suffix == "4FToRooftop":
-                guard_parts = (
-                    "Lower",
-                    "Landing",
-                    "Upper",
-                    "RooftopConnector",
-                )
+                guard_parts = ("Lower", "Landing", "Upper")
             elif stair in ("NE", "SW") and suffix == "3FTo4F":
                 guard_parts = ("Lower", "Landing", "Upper", "Terminal")
             else:
@@ -2700,6 +3334,7 @@ def rebuild_upper_stairs(
             vertices, faces = create_upper_stair_visual_geometry(
                 base_z,
                 rooftop_connector=has_rooftop_connector,
+                southwest_floor_edge_trim=stair == "SW",
                 nosing_vertices=nosing_vertices,
                 nosing_faces=nosing_faces,
             )
@@ -2764,6 +3399,21 @@ def shift_object_geometry_z(obj: bpy.types.Object, amount: float) -> None:
         obj.location.z += amount
 
 
+def align_rooftop_stairhouse_door() -> None:
+    door = bpy.data.objects.get("VIS_DoorLeaf_RooftopStairHouse_Open")
+    if door is None or door.type != "MESH":
+        raise RuntimeError("屋上階段室の開扉表示がありません")
+    vertices: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    append_box(
+        vertices,
+        faces,
+        (-9.04, 36.60, 14.50),
+        (-8.96, 38.50, 16.70),
+    )
+    replace_mesh_geometry(door.name, vertices, faces)
+
+
 def align_existing_storey_sources() -> None:
     roof = bpy.data.objects.get("COL_Roof_North")
     if roof is None:
@@ -2786,6 +3436,7 @@ def align_existing_storey_sources() -> None:
     for obj in bpy.data.objects:
         if obj.name.startswith(rooftop_prefixes):
             shift_object_geometry_z(obj, rooftop_shift)
+    align_rooftop_stairhouse_door()
     rebuild_roof_guards()
     claimed_post_positions_by_stair = rebuild_first_transition_stair_guards()
     rebuild_upper_stairs(claimed_post_positions_by_stair)
@@ -2806,57 +3457,80 @@ def align_existing_storey_sources() -> None:
     replace_mesh_geometry("BND_Stage", boundary_vertices, boundary_faces)
 
 
-def raise_rooftop_changing_door_lintels(
-    visual_collection: bpy.types.Collection,
-    collider_collection: bpy.types.Collection,
-    wall_material: bpy.types.Material,
-) -> None:
-    opening_spans = ((-5.4, -4.2), (-0.9, 0.3))
-    for object_name, target_collection, material in (
-        ("VIS_RooftopFacilityWalls", visual_collection, wall_material),
-        ("COL_RooftopFacilityShell", collider_collection, None),
-    ):
-        obj = bpy.data.objects.get(object_name)
-        if obj is None or obj.type != "MESH":
-            raise RuntimeError(f"屋上更衣室壁がありません: {object_name}")
-        boxes = []
-        changed = 0
-        matched = 0
-        for minimum, maximum in mesh_component_world_bounds(obj):
-            updated_minimum = tuple(minimum)
-            if (
-                abs(minimum.y - 38.5) <= 1.0e-4
-                and abs(maximum.y - 38.8) <= 1.0e-4
-                and abs(maximum.z - 16.9) <= 1.0e-4
-                and any(
-                    abs(minimum.x - minimum_x) <= 1.0e-4
-                    and abs(maximum.x - maximum_x) <= 1.0e-4
-                    for minimum_x, maximum_x in opening_spans
-                )
-            ):
-                matched += 1
-                if abs(minimum.z - 16.7) <= 1.0e-4:
-                    changed += 1
-                elif abs(minimum.z - 16.8) > 1.0e-4:
-                    raise RuntimeError(
-                        f"屋上更衣室引き戸の欄間下端が不正です: {object_name}={minimum.z}"
-                    )
-                updated_minimum = (minimum.x, minimum.y, 16.8)
-            boxes.append((updated_minimum, tuple(maximum)))
-        if matched != 2:
-            raise RuntimeError(
-                f"屋上更衣室引き戸の欄間対象数が不正です: {object_name}={matched}"
-            )
-        old_mesh = obj.data
-        bpy.data.objects.remove(obj, do_unlink=True)
-        if old_mesh.users == 0:
-            bpy.data.meshes.remove(old_mesh)
-        create_mesh_object(
-            object_name,
-            boxes,
-            target_collection,
-            material,
+def remove_rooftop_facility_wall_hidden_caps(obj: bpy.types.Object) -> None:
+    """屋根・屋上床が所有する水平capを表示壁から取り除く。"""
+    mesh = bmesh.new()
+    mesh.from_mesh(obj.data)
+    mesh.normal_update()
+    hidden_caps = [
+        face
+        for face in mesh.faces
+        if (
+            face.normal.z < -1.0 + 1.0e-5
+            and face.calc_center_median().z <= 14.50 + 1.0e-5
         )
+        or (
+            face.normal.z > 1.0 - 1.0e-5
+            and face.calc_center_median().z >= 16.90 - 1.0e-5
+        )
+    ]
+    if not hidden_caps:
+        mesh.free()
+        raise RuntimeError("屋上施設表示壁から除く水平capがありません")
+    bmesh.ops.delete(mesh, geom=hidden_caps, context="FACES")
+    mesh.to_mesh(obj.data)
+    mesh.free()
+    obj.data.update(calc_edges=True)
+
+
+def replace_rooftop_changing_floor_surface(
+    object_name: str,
+    top_bounds_xy: tuple[float, float, float, float],
+    south_opening_x: tuple[float, float],
+) -> None:
+    minimum_x, minimum_y, maximum_x, maximum_y = top_bounds_xy
+    opening_minimum_x, opening_maximum_x = south_opening_x
+    vertices = [
+        (minimum_x, minimum_y, 14.53),
+        (maximum_x, minimum_y, 14.53),
+        (maximum_x, maximum_y, 14.53),
+        (minimum_x, maximum_y, 14.53),
+        (opening_minimum_x, minimum_y, 14.50),
+        (opening_maximum_x, minimum_y, 14.50),
+        (opening_maximum_x, minimum_y, 14.53),
+        (opening_minimum_x, minimum_y, 14.53),
+    ]
+    faces = [
+        (0, 1, 2, 3),
+        (4, 5, 6, 7),
+    ]
+    replace_mesh_geometry_with_oriented_faces(object_name, vertices, faces)
+
+
+def rebuild_rooftop_facility_geometry() -> None:
+    visual_walls = replace_existing_boxes(
+        "VIS_RooftopFacilityWalls",
+        list(ROOFTOP_FACILITY_WALL_BOXES),
+    )
+    remove_rooftop_facility_wall_hidden_caps(visual_walls)
+    replace_existing_union_boxes(
+        "VIS_RooftopFacilityRoofs",
+        list(ROOFTOP_FACILITY_ROOF_BOXES),
+    )
+    replace_existing_boxes(
+        "COL_RooftopFacilityShell",
+        [*ROOFTOP_FACILITY_WALL_BOXES, *ROOFTOP_FACILITY_ROOF_BOXES],
+    )
+    replace_rooftop_changing_floor_surface(
+        "VIS_Floor_RooftopChangingRoom_M",
+        (-6.45, 38.50, -2.10, 45.35),
+        (-5.40, -4.20),
+    )
+    replace_rooftop_changing_floor_surface(
+        "VIS_Floor_RooftopChangingRoom_F",
+        (-2.10, 38.50, 2.40, 45.35),
+        (-0.90, 0.30),
+    )
 
 
 def align_acceptance_geometry() -> None:
@@ -3275,8 +3949,8 @@ def build_b05_location_assets(
             ((39.3, 26.6), (43.5, 32.65)),
             ((33.6, -11.35), (36.6, -2.0)),
             ((56.2, -11.35), (59.2, -2.0)),
-            ((33.6, -2.0), (34.8, 25.0)),
-            ((58.0, -2.0), (59.2, 25.0)),
+            ((33.6, -2.0), (34.8, 26.4)),
+            ((58.0, -2.0), (59.2, 26.4)),
             ((34.8, 25.0), (58.0, 26.6)),
         ),
         "f03": (
@@ -3508,7 +4182,7 @@ def build_b05_location_assets(
         "area-changing-room",
         "更衣室",
         300,
-        ((-6.6, 38.5, 14.35), (2.4, 45.5, 17.0)),
+        ((-6.45, 38.5, 14.35), (2.4, 45.5, 17.0)),
         floor_id="roof",
     )
 
@@ -3627,7 +4301,7 @@ def build_b05_location_assets(
             properties["hs_stop_id"] = stop_id
         create_empty(
             f"MRK_MapElevatorLanding_{floor_id.upper()}",
-            (-8.2, -5.1, base_z),
+            (-8.2, ELEVATOR_CENTER_Y, base_z),
             semantic_collection,
             properties,
         )
@@ -4030,6 +4704,84 @@ def merge_storey_band_intervals(
     return [(minimum, maximum) for minimum, maximum in merged]
 
 
+def storey_band_wall_support_covers(
+    target: tuple[float, float],
+    support_intervals: list[tuple[float, float]],
+) -> bool:
+    cursor = target[0]
+    for minimum, maximum in merge_storey_band_intervals(support_intervals):
+        clipped_minimum = max(target[0], minimum)
+        clipped_maximum = min(target[1], maximum)
+        if clipped_maximum - clipped_minimum <= 1.0e-4:
+            continue
+        if clipped_minimum > cursor + 1.0e-4:
+            return False
+        cursor = max(cursor, clipped_maximum)
+        if cursor >= target[1] - 1.0e-4:
+            return True
+    return cursor >= target[1] - 1.0e-4
+
+
+def close_storey_band_wall_seams(
+    intervals_by_face: dict[
+        tuple[str, float, int, tuple[int, ...]], list[tuple[float, float]]
+    ],
+    wall_support_by_face: dict[
+        tuple[str, float, int], list[tuple[float, float]]
+    ],
+) -> dict[tuple[str, float, int, tuple[int, ...]], list[tuple[float, float]]]:
+    """実壁が連続する壁厚seamを閉じ、直交runの見える角まで帯を延長する。"""
+    maximum_seam = WALL_THICKNESS + 0.01
+    baseline = {
+        key: merge_storey_band_intervals(intervals)
+        for key, intervals in intervals_by_face.items()
+    }
+    additions: dict[
+        tuple[str, float, int, tuple[int, ...]], list[tuple[float, float]]
+    ] = {}
+    records = tuple(baseline.items())
+    for key, intervals in records:
+        axis, face, direction, space_indices = key
+        support = wall_support_by_face.get((axis, face, direction), [])
+        for first, second in zip(intervals, intervals[1:]):
+            gap = (first[1], second[0])
+            if (
+                1.0e-4 < gap[1] - gap[0] <= maximum_seam + 1.0e-5
+                and storey_band_wall_support_covers(gap, support)
+            ):
+                additions.setdefault(key, []).append(gap)
+
+        # 追加済み区間の端点を次の起点にはしない。各延長は必ず初期runの
+        # 端点から直接0.31m以内であり、全長を同じ向きの実壁が支持する。
+        for endpoint in {
+            value for interval in intervals for value in (interval[0], interval[1])
+        }:
+            for other_key, other_intervals in records:
+                other_axis, other_face, _other_direction, other_spaces = other_key
+                if other_axis == axis or not set(space_indices) & set(other_spaces):
+                    continue
+                extension = tuple(sorted((endpoint, other_face)))
+                if not (
+                    1.0e-4
+                    < extension[1] - extension[0]
+                    <= maximum_seam + 1.0e-5
+                    and any(
+                        minimum - 1.0e-5 <= face <= maximum + 1.0e-5
+                        for minimum, maximum in other_intervals
+                    )
+                    and storey_band_wall_support_covers(extension, support)
+                ):
+                    continue
+                additions.setdefault(key, []).append(extension)
+
+    return {
+        key: merge_storey_band_intervals(
+            [*intervals, *additions.get(key, ())]
+        )
+        for key, intervals in baseline.items()
+    }
+
+
 def point_is_in_polygon_xy(
     point_x: float,
     point_y: float,
@@ -4217,6 +4969,9 @@ def storey_band_boxes(
     intervals_by_face: dict[
         tuple[str, float, int, tuple[int, ...]], list[tuple[float, float]]
     ] = {}
+    wall_support_by_face: dict[
+        tuple[str, float, int], list[tuple[float, float]]
+    ] = {}
 
     for obj in storey_band_source_objects(floor):
         normal_matrix = obj.matrix_world.to_3x3().inverted().transposed()
@@ -4243,32 +4998,53 @@ def storey_band_boxes(
                 direction = -1 if world_normal.x < 0.0 else 1
                 interval_minimum = minimum_y
                 interval_maximum = maximum_y
-                sample_x = face + direction * 0.02
-                sample_y = (minimum_y + maximum_y) / 2.0
             elif maximum_y - minimum_y <= 1.0e-5:
                 axis = "Y"
                 face = (minimum_y + maximum_y) / 2.0
                 direction = -1 if world_normal.y < 0.0 else 1
                 interval_minimum = minimum_x
                 interval_maximum = maximum_x
-                sample_x = (minimum_x + maximum_x) / 2.0
-                sample_y = face + direction * 0.02
             else:
                 continue
             if interval_maximum - interval_minimum <= 1.0e-4:
                 continue
-            space_indices = storey_common_space_indices(
-                sample_x,
-                sample_y,
+            wall_support_by_face.setdefault(
+                (axis, round(face, 4), direction),
+                [],
+            ).append((interval_minimum, interval_maximum))
+            # 統合後の壁面は複数の共用空間境界をまたぐことがある。面全体の
+            # 中点一つで判定すると、廊下側の一部が欠落するため、共用空間
+            # 輪郭の全境界で区間を分割してから各区間の法線側を判定する。
+            for (
+                interval_face,
+                interval_direction,
+                segment_minimum,
+                segment_maximum,
+                space_indices,
+            ) in storey_band_wall_face_intervals(
+                axis,
+                face,
+                face,
+                interval_minimum,
+                interval_maximum,
                 common_space_polygons,
-            )
-            if not space_indices:
-                continue
-            key = (axis, round(face, 4), direction, space_indices)
-            intervals_by_face.setdefault(key, []).append(
-                (interval_minimum, interval_maximum)
-            )
+            ):
+                if interval_direction != direction:
+                    continue
+                key = (
+                    axis,
+                    round(interval_face, 4),
+                    interval_direction,
+                    space_indices,
+                )
+                intervals_by_face.setdefault(key, []).append(
+                    (segment_minimum, segment_maximum)
+                )
 
+    intervals_by_face = close_storey_band_wall_seams(
+        intervals_by_face,
+        wall_support_by_face,
+    )
     boxes = []
     band_records = []
     for (
@@ -4597,7 +5373,12 @@ def build_school_exterior(
                 if spec.suffix == "F04_North_StairNW"
             ]
             rooftop_stair_boxes = wall_boxes(
-                "X", 45.5, -12.6, -6.6, 14.4, 15.7, rooftop_stair_openings
+                "X", 45.5, -12.45, 2.40, 14.4, 16.9, rooftop_stair_openings
+            )
+            rooftop_stair_boxes.extend(
+                wall_boxes(
+                    "Y", -12.6, 38.90, 45.50, 14.4, 16.9, []
+                )
             )
             visual_boxes.extend(rooftop_stair_boxes)
             collider_boxes.extend(rooftop_stair_boxes)
@@ -4803,7 +5584,7 @@ def build_upper_floors_and_rooms(
                 else UPPER_FLOOR_PANELS_XY
             ),
         )
-        create_mesh_object(
+        create_floor_finish_visual_mesh_object(
             f"VIS_B03_Floor_F{floor:02d}",
             visual_floor_boxes,
             visual_collection,
@@ -4860,19 +5641,23 @@ def build_upper_floors_and_rooms(
     # 階段室から見える床スラブ側面だけを壁色で閉じる。
     # 上面・下面を生成しないため、表示床との共面重複は発生しない。
     stair_floor_edge_bases = (3.6, 7.2, 10.8)
+    south_surfaces = tuple(
+        surface
+        for base_z in stair_floor_edge_bases
+        for surface in (
+            # 壁unionが床所有セルを抑制する区間を、壁色の単一面で閉じる。
+            # x=-6..0は床が南北へ連続するため断面自体を生成しない。
+            ("X", -12.6, -6.0, -3.5, base_z - 0.15, base_z, 1),
+            ("X", -12.6, -6.0, 2.498, base_z - 0.15, base_z, -1),
+        )
+    )
+    create_outward_surface_mesh_object(
+        "VIS_B06_StairFloorEdgeCladding_South",
+        south_surfaces,
+        visual_collection,
+        wall_material,
+    )
     edge_groups = (
-        (
-            "South",
-            [
-                (minimum, maximum)
-                for base_z in stair_floor_edge_bases
-                for minimum, maximum in (
-                    ((-6.0, -3.502, base_z - 0.15), (0.0, -3.498, base_z)),
-                    ((-12.6, 2.498, base_z - 0.15), (-6.0, 2.502, base_z)),
-                )
-            ],
-            frozenset((0, 1, 3, 4, 5)),
-        ),
         (
             "North",
             [
@@ -5447,8 +6232,8 @@ def build_b03_3b_structure(
         ((-4.05, 13.65, 14.4), (0.0, 32.5, 14.5)),
     ]
     replace_existing_boxes("COL_Roof_West", rooftop_crate_collider_boxes)
-    rooftop_stair_vertices, rooftop_stair_faces = (
-        b06_roof_north_reference_geometry()
+    rooftop_stair_vertices, rooftop_stair_faces = b06_roof_north_reference_geometry(
+        suppress_stair_contact_faces=False
     )
     replace_mesh_geometry(
         "COL_Roof_North",
@@ -5458,10 +6243,13 @@ def build_b03_3b_structure(
     rooftop_ramp = bpy.data.objects.get("COL_RooftopStairExitRamp")
     if rooftop_ramp is not None:
         unlink_and_remove_object(rooftop_ramp)
-    replace_mesh_geometry(
+    rooftop_visual_vertices, rooftop_visual_faces = (
+        b06_roof_north_reference_geometry(suppress_stair_contact_faces=True)
+    )
+    replace_mesh_geometry_with_oriented_faces(
         "VIS_Roof_North",
-        list(rooftop_stair_vertices),
-        list(rooftop_stair_faces),
+        list(rooftop_visual_vertices),
+        list(rooftop_visual_faces),
     )
 
     bridge_floor_boxes = [
@@ -5857,17 +6645,24 @@ def build_b03_3b_structure(
         0.04,
     )
 
+    opening_minimum_y, opening_maximum_y = ELEVATOR_OPENING_Y
+    shaft_inner_south_y, shaft_inner_north_y = ELEVATOR_SHAFT_INNER_Y
     shaft_shell_boxes = [
         ((-11.8, -6.85, 0.0), (-11.5, -3.5, 14.25)),
-        ((-11.5, -6.85, 0.0), (-8.72, -6.55, 14.25)),
-        ((-11.5, -4.0, 0.0), (-8.72, -3.5, 14.25)),
-        ((-9.1, -6.55, 0.0), (-8.72, -5.9, 14.25)),
-        ((-9.1, -4.3, 0.0), (-8.72, -4.0, 14.25)),
-        ((-9.1, -5.9, 2.4), (-8.8, -4.3, 3.6)),
-        ((-9.1, -5.9, 6.0), (-8.8, -4.3, 7.2)),
-        ((-9.1, -5.9, 9.6), (-8.8, -4.3, 10.8)),
-        ((-9.1, -5.9, 13.2), (-8.8, -4.3, 14.25)),
-        ((-11.8, -6.85, 14.25), (-8.72, -3.5, 14.4)),
+        ((-11.5, -6.85, 0.0), (ELEVATOR_FRONT_X, shaft_inner_south_y, 14.25)),
+        ((-11.5, shaft_inner_north_y, 0.0), (ELEVATOR_FRONT_X, -3.5, 14.25)),
+        # エレベーターホールと南西階段を分離する正規の北側接続壁。
+        # 旧ElevatorStairWallに混在していた南側長壁は復元しない。
+        ((ELEVATOR_FRONT_X, shaft_inner_north_y, 0.0), (-6.0, -3.5, 14.4)),
+        # 西外壁とシャフト背面の間にある空間は残し、階段側の口だけを閉じる。
+        ((-12.45, shaft_inner_north_y, 0.0), (-11.8, -3.5, 14.4)),
+        ((-9.1, shaft_inner_south_y, 0.0), (ELEVATOR_FRONT_X, opening_minimum_y, 14.25)),
+        ((-9.1, opening_maximum_y, 0.0), (ELEVATOR_FRONT_X, shaft_inner_north_y, 14.25)),
+        ((-9.1, opening_minimum_y, 2.4), (ELEVATOR_FRONT_X, opening_maximum_y, 3.6)),
+        ((-9.1, opening_minimum_y, 6.0), (ELEVATOR_FRONT_X, opening_maximum_y, 7.2)),
+        ((-9.1, opening_minimum_y, 9.6), (ELEVATOR_FRONT_X, opening_maximum_y, 10.8)),
+        ((-9.1, opening_minimum_y, 13.2), (ELEVATOR_FRONT_X, opening_maximum_y, 14.25)),
+        ((-11.8, -6.85, 14.25), (ELEVATOR_FRONT_X, -3.5, 14.4)),
     ]
     create_mesh_object(
         "VIS_B03_ElevatorShaftShell",
@@ -5881,18 +6676,11 @@ def build_b03_3b_structure(
         collider_collection,
     )
     blocker_names.append("COL_B03_ElevatorShaftShell")
-    create_mesh_object(
-        "VIS_B06_ElevatorCallPanel_F01",
-        [
-            ((-8.70, -4.28, 1.00), (-8.64, -4.00, 1.46)),
-            ((-8.63, -4.21, 1.17), (-8.60, -4.07, 1.31)),
-        ],
-        visual_collection,
-        architecture_material,
-    )
-
     closed_door_boxes = [
-        ((-8.8, -5.9, floor_base_z), (-8.68, -4.3, floor_base_z + 2.4))
+        (
+            (-8.92, opening_minimum_y, floor_base_z),
+            (-8.80, opening_maximum_y, floor_base_z + 2.4),
+        )
         for floor_base_z in (3.6, 7.2)
     ]
     create_mesh_object(
@@ -5913,18 +6701,18 @@ def build_b03_3b_structure(
         adjustment_tape_beams.extend(
             (
                 (
-                    (-5.68, floor_base_z + 0.18),
-                    (-4.52, floor_base_z + 2.22),
+                    (-5.755, floor_base_z + 0.18),
+                    (-4.595, floor_base_z + 2.22),
                     0.10,
-                    -8.66,
-                    -8.62,
+                    -8.795,
+                    -8.775,
                 ),
                 (
-                    (-4.52, floor_base_z + 0.18),
-                    (-5.68, floor_base_z + 2.22),
+                    (-4.595, floor_base_z + 0.18),
+                    (-5.755, floor_base_z + 2.22),
                     0.10,
-                    -8.66,
-                    -8.62,
+                    -8.795,
+                    -8.775,
                 ),
             )
         )
@@ -5936,8 +6724,8 @@ def build_b03_3b_structure(
     )
     adjustment_sign_boxes = [
         (
-            (-8.61, -5.62, floor_base_z + 1.02),
-            (-8.57, -4.58, floor_base_z + 1.50),
+            (-8.79, -5.695, floor_base_z + 1.02),
+            (-8.75, -4.655, floor_base_z + 1.50),
         )
         for floor_base_z in (3.6, 7.2)
     ]
@@ -5993,11 +6781,6 @@ def build_readability_finish(visual_collection: bpy.types.Collection) -> None:
     create_mesh_object("VIS_B03_GymTrim", gym_trim_boxes, visual_collection)
 
     for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
-        create_mesh_object(
-            f"VIS_B03_StoreyBand_F{floor:02d}",
-            storey_band_boxes(floor, base_z),
-            visual_collection,
-        )
         create_mesh_object(
             f"VIS_B03_StoreyTrim_F{floor:02d}",
             [
@@ -6448,6 +7231,9 @@ ROOFTOP_CRATE_HEIGHTS = (
 # 実壁の内面で囲まれた廊下・共用部・階段踊り場だけを明示する。
 STOREY_COMMON_SPACE_POLYGONS_XY = (
     ((-3.35, 2.65), (-0.15, 2.65), (-0.15, 32.35), (-3.35, 32.35)),
+    # 西棟廊下は南端外壁まで実壁で連続する。旧輪郭のY=2.65終端は
+    # 実開口ではなく、南端壁と両側壁の帯を欠落させていた。
+    ((-3.35, -6.85), (-0.15, -6.85), (-0.15, 2.65), (-3.35, 2.65)),
     # 西棟廊下と北棟廊下の共有床接続部。壁厚を避けて縮めた二つの
     # 廊下矩形だけでは、接続角の実壁面が室内・屋外へ誤分類される。
     ((-3.35, 32.35), (0.0, 32.35), (0.0, 32.65), (-3.35, 32.65)),
@@ -6457,7 +7243,14 @@ STOREY_COMMON_SPACE_POLYGONS_XY = (
     ((-6.45, 36.65), (5.25, 36.65), (5.25, 38.35), (-6.45, 38.35)),
     ((2.55, 38.35), (5.25, 38.35), (5.25, 45.35), (2.55, 45.35)),
     ((-12.45, -3.35), (-3.65, -3.35), (-3.65, 2.35), (-12.45, 2.35)),
+    # 南西階段側の共用床と、後方空間を閉じたElevatorShaftShell北面の間を
+    # 同じ共用空間として接続する。壁面Y=-3.50の+Y側だけを対象にし、
+    # シャフト内部やかご側へ階層色帯を生成しない。
+    ((-12.45, -3.50), (-6.00, -3.50), (-6.00, -3.35), (-12.45, -3.35)),
     ((-8.70, -6.85), (-6.15, -6.85), (-6.15, -3.35), (-8.70, -3.35)),
+    # エレベーターホールと西棟廊下の間も同じ共用床である。中央を
+    # 台帳から外すと、南端の連続壁だけが実開口なしで2.80m途切れる。
+    ((-6.15, -6.85), (-3.35, -6.85), (-3.35, -3.35), (-6.15, -3.35)),
 )
 
 
@@ -7211,29 +8004,106 @@ def update_gym_nav_blocker_for_bridge_opening() -> dict[str, int]:
     return {"removed": removed, "added": added}
 
 
-def b06_roof_north_reference_geometry() -> tuple[
+def b06_roof_north_reference_geometry(
+    *,
+    suppress_stair_contact_faces: bool = False,
+) -> tuple[
     tuple[tuple[float, float, float], ...],
     tuple[tuple[int, ...], ...],
 ]:
-    x_coordinates = (-12.60, -12.45, -9.00, -6.75, -6.60, 47.40)
-    y_coordinates = (32.50, 38.60, 38.90, 45.35, 45.50)
+    roof_wall_footprints = tuple(
+        (minimum[0], minimum[1], maximum[0], maximum[1])
+        for minimum, maximum in ROOFTOP_FACILITY_WALL_BOXES
+    ) + (
+        (-12.60, 38.90, -12.45, 45.50),
+        (-12.45, 45.35, 2.40, 45.50),
+    )
+    if suppress_stair_contact_faces:
+        x_coordinates = tuple(
+            sorted(
+                {
+                    -12.60,
+                    -12.45,
+                    -9.00,
+                    -6.75,
+                    -6.45,
+                    2.40,
+                    47.40,
+                    *(
+                        coordinate
+                        for minimum_x, _, maximum_x, _ in roof_wall_footprints
+                        for coordinate in (minimum_x, maximum_x)
+                        if -12.60 <= coordinate <= 47.40
+                    ),
+                }
+            )
+        )
+        y_coordinates = tuple(
+            sorted(
+                {
+                    32.50,
+                    38.50,
+                    38.60,
+                    38.90,
+                    39.20,
+                    45.35,
+                    45.50,
+                    *(
+                        coordinate
+                        for _, minimum_y, _, maximum_y in roof_wall_footprints
+                        for coordinate in (minimum_y, maximum_y)
+                    ),
+                }
+            )
+        )
+    else:
+        # Collider / NavMesh は修正前と同じ連続床・同じ分割を維持する。
+        # 屋上壁の占有部分を除くのは表示床だけであり、物理床へ表示都合の
+        # breakpointを伝播させない。
+        x_coordinates = (-12.60, -12.45, -9.00, -6.75, -6.45, 47.40)
+        y_coordinates = (32.50, 38.50, 38.60, 38.90, 39.20, 45.35, 45.50)
     occupied: set[tuple[int, int]] = set()
+    stair_connector_cells: set[tuple[int, int]] = set()
     for x_index in range(len(x_coordinates) - 1):
         x_minimum = x_coordinates[x_index]
         x_maximum = x_coordinates[x_index + 1]
         for y_index in range(len(y_coordinates) - 1):
             y_minimum = y_coordinates[y_index]
             y_maximum = y_coordinates[y_index + 1]
+            is_rooftop_wall_footprint = any(
+                x_minimum >= footprint_minimum_x
+                and x_maximum <= footprint_maximum_x
+                and y_minimum >= footprint_minimum_y
+                and y_maximum <= footprint_maximum_y
+                for (
+                    footprint_minimum_x,
+                    footprint_minimum_y,
+                    footprint_maximum_x,
+                    footprint_maximum_y,
+                ) in roof_wall_footprints
+            )
+            if is_rooftop_wall_footprint and suppress_stair_contact_faces:
+                stair_connector_cells.add((x_index, y_index))
+                continue
+            is_stair_connector = (
+                x_minimum >= -9.00
+                and x_maximum <= -6.45
+                and y_minimum >= 38.60
+                and y_maximum <= 38.90
+            )
+            if is_stair_connector:
+                stair_connector_cells.add((x_index, y_index))
+                continue
             is_south_roof = y_maximum <= 38.60
             is_connector_cutout_band = (
                 y_minimum >= 38.60
                 and y_maximum <= 38.90
-                and (x_maximum <= -9.00 or x_minimum >= -6.60)
+                and (x_maximum <= -9.00 or x_minimum >= -6.45)
             )
             is_stairwell_band = (
                 y_minimum >= 38.90
                 and y_maximum <= 45.35
-                and (x_maximum <= -12.45 or x_minimum >= -6.75)
+                and (x_maximum <= -12.45 or x_minimum >= -6.45)
             )
             is_north_border = y_minimum >= 45.35
             if (
@@ -7262,6 +8132,11 @@ def b06_roof_north_reference_geometry() -> tuple[
 
     z_minimum = 14.40
     z_maximum = 14.50
+    surface_occupied = (
+        occupied | stair_connector_cells
+        if suppress_stair_contact_faces
+        else occupied
+    )
     for x_index, y_index in sorted(occupied):
         x_minimum = x_coordinates[x_index]
         x_maximum = x_coordinates[x_index + 1]
@@ -7279,28 +8154,28 @@ def b06_roof_north_reference_geometry() -> tuple[
             (x_maximum, y_maximum, z_maximum),
             (x_minimum, y_maximum, z_maximum),
         )
-        if (x_index - 1, y_index) not in occupied:
+        if (x_index - 1, y_index) not in surface_occupied:
             append_face(
                 (x_minimum, y_minimum, z_minimum),
                 (x_minimum, y_minimum, z_maximum),
                 (x_minimum, y_maximum, z_maximum),
                 (x_minimum, y_maximum, z_minimum),
             )
-        if (x_index + 1, y_index) not in occupied:
+        if (x_index + 1, y_index) not in surface_occupied:
             append_face(
                 (x_maximum, y_minimum, z_minimum),
                 (x_maximum, y_maximum, z_minimum),
                 (x_maximum, y_maximum, z_maximum),
                 (x_maximum, y_minimum, z_maximum),
             )
-        if (x_index, y_index - 1) not in occupied:
+        if (x_index, y_index - 1) not in surface_occupied:
             append_face(
                 (x_minimum, y_minimum, z_minimum),
                 (x_maximum, y_minimum, z_minimum),
                 (x_maximum, y_minimum, z_maximum),
                 (x_minimum, y_minimum, z_maximum),
             )
-        if (x_index, y_index + 1) not in occupied:
+        if (x_index, y_index + 1) not in surface_occupied:
             append_face(
                 (x_minimum, y_maximum, z_minimum),
                 (x_minimum, y_maximum, z_maximum),
@@ -7312,7 +8187,9 @@ def b06_roof_north_reference_geometry() -> tuple[
 
 def create_b06_rooftop_nav_reference_sources() -> tuple[str, str]:
     collider_collection = collection(COL_COLLECTION_NAME)
-    north_vertices, north_faces = b06_roof_north_reference_geometry()
+    north_vertices, north_faces = b06_roof_north_reference_geometry(
+        suppress_stair_contact_faces=False
+    )
     north_mesh = bpy.data.meshes.new("TMP_B06_RoofNorthNavSource")
     north_mesh.from_pydata(north_vertices, [], north_faces)
     north_mesh.update(calc_edges=True)
@@ -7441,8 +8318,8 @@ def build_nav_sources(
         if minimum.z >= 16.85
     ]
     if (
-        len(rooftop_facility_bounds) != 19
-        or len(rooftop_facility_wall_bounds) != 16
+        len(rooftop_facility_bounds) != 15
+        or len(rooftop_facility_wall_bounds) != 12
         or len(rooftop_facility_roof_bounds) != 3
     ):
         raise RuntimeError(
@@ -7599,6 +8476,8 @@ def b06_wall_join_target_objects(prefix: str) -> tuple[bpy.types.Object, ...]:
         f"{prefix}B03_StairBoundaryCaps_F01",
         f"{prefix}B06_GymBridgeSideInfill",
     }
+    if prefix == "VIS_":
+        exact_names.add("VIS_RooftopFacilityWalls")
     target_names = {
         obj.name
         for obj in bpy.data.objects
@@ -7639,6 +8518,8 @@ def b06_floor_owner_components(
         f"{prefix}B03_WestExtensionFloor_F01",
         f"{prefix}B06_WestExtensionFloorFinish_F01",
     }
+    if prefix == "VIS_":
+        exact_names.add("VIS_RooftopFacilityRoofs")
     floor_objects = tuple(
         obj
         for obj in bpy.data.objects
@@ -7693,6 +8574,296 @@ def merge_wall_union_cells(
     return rectangles
 
 
+WallSurfaceRectangle = tuple[int, int, int, int, int, int, int]
+WallSurfaceSpatialLineKey = tuple[int, float, float]
+WallSurfaceLineKey = tuple[int, float, int, float, float]
+
+
+def owned_voxel_surface_rectangles(
+    owned_cells: set[tuple[int, int, int]],
+    occupied_cells: set[tuple[int, int, int]],
+    x_coordinates: tuple[float, ...],
+    y_coordinates: tuple[float, ...],
+    z_coordinates: tuple[float, ...],
+) -> tuple[WallSurfaceRectangle, ...]:
+    surface_cells: dict[
+        tuple[int, int, int],
+        set[tuple[int, int]],
+    ] = {}
+
+    def add_surface_cell(
+        axis: int,
+        direction: int,
+        plane_index: int,
+        first_index: int,
+        second_index: int,
+    ) -> None:
+        surface_cells.setdefault((axis, direction, plane_index), set()).add(
+            (first_index, second_index)
+        )
+
+    for cell_x, cell_y, cell_z in sorted(
+        owned_cells,
+        key=lambda cell: (cell[2], cell[1], cell[0]),
+    ):
+        if (cell_x, cell_y, cell_z - 1) not in occupied_cells:
+            add_surface_cell(2, -1, cell_z, cell_x, cell_y)
+        if (cell_x, cell_y, cell_z + 1) not in occupied_cells:
+            add_surface_cell(2, 1, cell_z + 1, cell_x, cell_y)
+        if (cell_x, cell_y - 1, cell_z) not in occupied_cells:
+            add_surface_cell(1, -1, cell_y, cell_x, cell_z)
+        if (cell_x + 1, cell_y, cell_z) not in occupied_cells:
+            add_surface_cell(0, 1, cell_x + 1, cell_y, cell_z)
+        if (cell_x, cell_y + 1, cell_z) not in occupied_cells:
+            add_surface_cell(1, 1, cell_y + 1, cell_x, cell_z)
+        if (cell_x - 1, cell_y, cell_z) not in occupied_cells:
+            add_surface_cell(0, -1, cell_x, cell_y, cell_z)
+
+    surface_rectangles: list[WallSurfaceRectangle] = []
+    for (axis, direction, plane_index), plane_cells in sorted(surface_cells.items()):
+        if axis == 2:
+            first_coordinates = x_coordinates
+            second_coordinates = y_coordinates
+        elif axis == 1:
+            first_coordinates = x_coordinates
+            second_coordinates = z_coordinates
+        else:
+            first_coordinates = y_coordinates
+            second_coordinates = z_coordinates
+
+        first_index_by_coordinate = {
+            coordinate: index for index, coordinate in enumerate(first_coordinates)
+        }
+        second_index_by_coordinate = {
+            coordinate: index for index, coordinate in enumerate(second_coordinates)
+        }
+        for (
+            first_minimum,
+            first_maximum,
+            second_minimum,
+            second_maximum,
+        ) in merge_wall_union_cells(
+            first_coordinates,
+            second_coordinates,
+            plane_cells,
+        ):
+            surface_rectangles.append(
+                (
+                    axis,
+                    direction,
+                    plane_index,
+                    first_index_by_coordinate[first_minimum],
+                    first_index_by_coordinate[first_maximum],
+                    second_index_by_coordinate[second_minimum],
+                    second_index_by_coordinate[second_maximum],
+                )
+            )
+    return tuple(surface_rectangles)
+
+
+def wall_surface_rectangle_corners(
+    rectangle: WallSurfaceRectangle,
+    x_coordinates: tuple[float, ...],
+    y_coordinates: tuple[float, ...],
+    z_coordinates: tuple[float, ...],
+) -> tuple[tuple[float, float, float], ...]:
+    (
+        axis,
+        _direction,
+        plane_index,
+        first_start,
+        first_end,
+        second_start,
+        second_end,
+    ) = rectangle
+    if axis == 2:
+        return (
+            (x_coordinates[first_start], y_coordinates[second_start], z_coordinates[plane_index]),
+            (x_coordinates[first_start], y_coordinates[second_end], z_coordinates[plane_index]),
+            (x_coordinates[first_end], y_coordinates[second_end], z_coordinates[plane_index]),
+            (x_coordinates[first_end], y_coordinates[second_start], z_coordinates[plane_index]),
+        )
+    if axis == 1:
+        return (
+            (x_coordinates[first_start], y_coordinates[plane_index], z_coordinates[second_start]),
+            (x_coordinates[first_end], y_coordinates[plane_index], z_coordinates[second_start]),
+            (x_coordinates[first_end], y_coordinates[plane_index], z_coordinates[second_end]),
+            (x_coordinates[first_start], y_coordinates[plane_index], z_coordinates[second_end]),
+        )
+    return (
+        (x_coordinates[plane_index], y_coordinates[first_start], z_coordinates[second_start]),
+        (x_coordinates[plane_index], y_coordinates[first_end], z_coordinates[second_start]),
+        (x_coordinates[plane_index], y_coordinates[first_end], z_coordinates[second_end]),
+        (x_coordinates[plane_index], y_coordinates[first_start], z_coordinates[second_end]),
+    )
+
+
+def wall_surface_spatial_line_key(
+    start: tuple[float, float, float],
+    end: tuple[float, float, float],
+    object_name: str,
+) -> tuple[WallSurfaceSpatialLineKey, int]:
+    varying_axes = [
+        axis for axis in range(3) if abs(start[axis] - end[axis]) > 1.0e-8
+    ]
+    if len(varying_axes) != 1:
+        raise RuntimeError(
+            f"B06-1外周面に軸平行でない辺があります: "
+            f"{object_name} {start} {end}"
+        )
+    varying_axis = varying_axes[0]
+    fixed = tuple(start[axis] for axis in range(3) if axis != varying_axis)
+    return (varying_axis, fixed[0], fixed[1]), varying_axis
+
+
+def wall_surface_line_key(
+    rectangle: WallSurfaceRectangle,
+    start: tuple[float, float, float],
+    end: tuple[float, float, float],
+    x_coordinates: tuple[float, ...],
+    y_coordinates: tuple[float, ...],
+    z_coordinates: tuple[float, ...],
+    object_name: str,
+) -> tuple[WallSurfaceLineKey, int]:
+    spatial_line_key, varying_axis = wall_surface_spatial_line_key(
+        start,
+        end,
+        object_name,
+    )
+    plane_axis = rectangle[0]
+    plane_index = rectangle[2]
+    plane_coordinates = (x_coordinates, y_coordinates, z_coordinates)[plane_axis]
+    return (
+        plane_axis,
+        plane_coordinates[plane_index],
+        spatial_line_key[0],
+        spatial_line_key[1],
+        spatial_line_key[2],
+    ), varying_axis
+
+
+def wall_surface_line_breakpoints(
+    surface_rectangles_by_object: dict[
+        str,
+        tuple[WallSurfaceRectangle, ...],
+    ],
+    x_coordinates: tuple[float, ...],
+    y_coordinates: tuple[float, ...],
+    z_coordinates: tuple[float, ...],
+    label: str,
+) -> dict[WallSurfaceLineKey, set[float]]:
+    line_breakpoints: dict[WallSurfaceLineKey, set[float]] = {}
+    object_line_breakpoints: dict[
+        tuple[str, WallSurfaceSpatialLineKey],
+        set[float],
+    ] = {}
+    related_line_keys: set[
+        tuple[
+            WallSurfaceLineKey,
+            tuple[str, WallSurfaceSpatialLineKey],
+        ]
+    ] = set()
+    vertices_by_plane: dict[
+        tuple[int, float],
+        set[tuple[float, float, float]],
+    ] = {}
+    vertices_by_object: dict[str, set[tuple[float, float, float]]] = {}
+    for object_name in sorted(surface_rectangles_by_object):
+        for rectangle in surface_rectangles_by_object[object_name]:
+            corners = wall_surface_rectangle_corners(
+                rectangle,
+                x_coordinates,
+                y_coordinates,
+                z_coordinates,
+            )
+            plane_axis = rectangle[0]
+            plane_coordinate = (x_coordinates, y_coordinates, z_coordinates)[
+                plane_axis
+            ][rectangle[2]]
+            vertices_by_plane.setdefault(
+                (plane_axis, plane_coordinate), set()
+            ).update(corners)
+            vertices_by_object.setdefault(object_name, set()).update(corners)
+            for start, end in zip(corners, corners[1:] + corners[:1]):
+                plane_line_key, varying_axis = wall_surface_line_key(
+                    rectangle,
+                    start,
+                    end,
+                    x_coordinates,
+                    y_coordinates,
+                    z_coordinates,
+                    label,
+                )
+                spatial_line_key, _ = wall_surface_spatial_line_key(
+                    start,
+                    end,
+                    label,
+                )
+                object_line_key = (object_name, spatial_line_key)
+                edge_values = (start[varying_axis], end[varying_axis])
+                line_breakpoints.setdefault(plane_line_key, set()).update(
+                    edge_values
+                )
+                object_line_breakpoints.setdefault(object_line_key, set()).update(
+                    edge_values
+                )
+                related_line_keys.add((plane_line_key, object_line_key))
+
+    # 同一Object内では、別平面の面頂点も同じ空間line上のedgeを分割する。
+    # 外部Object由来の分割点が角を共有する別面へ伝播するための正本である。
+    for object_name, coordinates in vertices_by_object.items():
+        for coordinate in coordinates:
+            for varying_axis in range(3):
+                fixed = tuple(
+                    coordinate[axis] for axis in range(3) if axis != varying_axis
+                )
+                spatial_line_key = (varying_axis, fixed[0], fixed[1])
+                object_line_key = (object_name, spatial_line_key)
+                if object_line_key in object_line_breakpoints:
+                    object_line_breakpoints[object_line_key].add(
+                        coordinate[varying_axis]
+                    )
+
+    # 別Object間では同一平面・同一直線に限定して面頂点を共有する。
+    for (plane_axis, plane_coordinate), coordinates in vertices_by_plane.items():
+        for coordinate in coordinates:
+            for varying_axis in range(3):
+                if varying_axis == plane_axis:
+                    continue
+                fixed = tuple(
+                    coordinate[axis] for axis in range(3) if axis != varying_axis
+                )
+                plane_line_key = (
+                    plane_axis,
+                    plane_coordinate,
+                    varying_axis,
+                    fixed[0],
+                    fixed[1],
+                )
+                if plane_line_key in line_breakpoints:
+                    line_breakpoints[plane_line_key].add(
+                        coordinate[varying_axis]
+                    )
+
+    # plane-lineの共有とObject内spatial-lineの共有を固定点まで伝播する。
+    # これにより、別Objectから導入された点が同一Objectの別平面へ伝わり、
+    # さらにその平面を共有する別Objectへも欠落なく伝わる。
+    changed = True
+    while changed:
+        changed = False
+        for plane_line_key, object_line_key in sorted(related_line_keys):
+            plane_values = line_breakpoints[plane_line_key]
+            object_values = object_line_breakpoints[object_line_key]
+            shared_values = plane_values | object_values
+            if len(shared_values) != len(plane_values):
+                plane_values.update(shared_values)
+                changed = True
+            if len(shared_values) != len(object_values):
+                object_values.update(shared_values)
+                changed = True
+    return line_breakpoints
+
+
 def replace_owned_voxel_surface(
     object_name: str,
     owned_cells: set[tuple[int, int, int]],
@@ -7700,9 +8871,10 @@ def replace_owned_voxel_surface(
     x_coordinates: tuple[float, ...],
     y_coordinates: tuple[float, ...],
     z_coordinates: tuple[float, ...],
+    cross_object_line_breakpoints: dict[WallSurfaceLineKey, set[float]],
 ) -> bpy.types.Object:
     vertices: list[tuple[float, float, float]] = []
-    faces: list[tuple[int, int, int, int]] = []
+    faces: list[tuple[int, ...]] = []
     vertex_index_by_coordinate: dict[
         tuple[
             tuple[float, float, float],
@@ -7765,34 +8937,189 @@ def replace_owned_voxel_surface(
         return index
 
     def append_face(
-        cell: tuple[int, int, int],
-        *coordinates: tuple[float, float, float],
+        *corners: tuple[
+            tuple[int, int, int],
+            tuple[float, float, float],
+        ],
     ) -> None:
         faces.append(
-            tuple(vertex_index(cell, coordinate) for coordinate in coordinates)
+            tuple(vertex_index(cell, coordinate) for cell, coordinate in corners)
         )
 
-    for cell_x, cell_y, cell_z in sorted(owned_cells, key=lambda cell: (cell[2], cell[1], cell[0])):
-        cell = (cell_x, cell_y, cell_z)
-        x0, x1 = x_coordinates[cell_x], x_coordinates[cell_x + 1]
-        y0, y1 = y_coordinates[cell_y], y_coordinates[cell_y + 1]
-        z0, z1 = z_coordinates[cell_z], z_coordinates[cell_z + 1]
-        if (cell_x, cell_y, cell_z - 1) not in occupied_cells:
-            append_face(cell, (x0, y0, z0), (x0, y1, z0), (x1, y1, z0), (x1, y0, z0))
-        if (cell_x, cell_y, cell_z + 1) not in occupied_cells:
-            append_face(cell, (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1))
-        if (cell_x, cell_y - 1, cell_z) not in occupied_cells:
-            append_face(cell, (x0, y0, z0), (x1, y0, z0), (x1, y0, z1), (x0, y0, z1))
-        if (cell_x + 1, cell_y, cell_z) not in occupied_cells:
-            append_face(cell, (x1, y0, z0), (x1, y1, z0), (x1, y1, z1), (x1, y0, z1))
-        if (cell_x, cell_y + 1, cell_z) not in occupied_cells:
-            append_face(cell, (x1, y1, z0), (x0, y1, z0), (x0, y1, z1), (x1, y1, z1))
-        if (cell_x - 1, cell_y, cell_z) not in occupied_cells:
-            append_face(cell, (x0, y1, z0), (x0, y0, z0), (x0, y0, z1), (x0, y1, z1))
+    surface_rectangles = owned_voxel_surface_rectangles(
+        owned_cells,
+        occupied_cells,
+        x_coordinates,
+        y_coordinates,
+        z_coordinates,
+    )
+    line_breakpoints = wall_surface_line_breakpoints(
+        {object_name: surface_rectangles},
+        x_coordinates,
+        y_coordinates,
+        z_coordinates,
+        object_name,
+    )
+    for key, values in cross_object_line_breakpoints.items():
+        line_breakpoints.setdefault(key, set()).update(values)
+
+    for rectangle in surface_rectangles:
+        (
+            axis,
+            direction,
+            plane_index,
+            first_start,
+            first_end,
+            second_start,
+            second_end,
+        ) = rectangle
+        rectangle_points = wall_surface_rectangle_corners(
+            rectangle,
+            x_coordinates,
+            y_coordinates,
+            z_coordinates,
+        )
+        perimeter: list[tuple[float, float, float]] = []
+        for start, end in zip(
+            rectangle_points,
+            rectangle_points[1:] + rectangle_points[:1],
+        ):
+            key, varying_axis = wall_surface_line_key(
+                rectangle,
+                start,
+                end,
+                x_coordinates,
+                y_coordinates,
+                z_coordinates,
+                object_name,
+            )
+            minimum = min(start[varying_axis], end[varying_axis])
+            maximum = max(start[varying_axis], end[varying_axis])
+            values = sorted(
+                value
+                for value in line_breakpoints[key]
+                if minimum - 1.0e-8 <= value <= maximum + 1.0e-8
+            )
+            if start[varying_axis] > end[varying_axis]:
+                values.reverse()
+            for value in values[:-1]:
+                coordinate = list(start)
+                coordinate[varying_axis] = value
+                perimeter.append(tuple(coordinate))
+
+        corners = []
+        for coordinate in perimeter:
+            if axis == 2:
+                first_index = x_index[coordinate[0]]
+                second_index = y_index[coordinate[1]]
+                cell_z = plane_index if direction < 0 else plane_index - 1
+                cell = (
+                    min(max(first_index, first_start), first_end - 1),
+                    min(max(second_index, second_start), second_end - 1),
+                    cell_z,
+                )
+            elif axis == 1:
+                first_index = x_index[coordinate[0]]
+                second_index = z_index[coordinate[2]]
+                cell_y = plane_index if direction < 0 else plane_index - 1
+                cell = (
+                    min(max(first_index, first_start), first_end - 1),
+                    cell_y,
+                    min(max(second_index, second_start), second_end - 1),
+                )
+            else:
+                first_index = y_index[coordinate[1]]
+                second_index = z_index[coordinate[2]]
+                cell_x = plane_index if direction < 0 else plane_index - 1
+                cell = (
+                    cell_x,
+                    min(max(first_index, first_start), first_end - 1),
+                    min(max(second_index, second_start), second_end - 1),
+                )
+            corners.append((cell, coordinate))
+
+        reverse_winding = (axis in (1, 2) and direction > 0) or (
+            axis == 0 and direction < 0
+        )
+        if reverse_winding:
+            corners.reverse()
+        append_face(*corners)
 
     if not faces:
         raise RuntimeError(f"B06-1共有壁の外周面が空です: {object_name}")
     return replace_mesh_geometry_with_oriented_faces(object_name, vertices, faces)
+
+
+def replace_existing_union_boxes(
+    object_name: str,
+    boxes: list[
+        tuple[
+            tuple[float, float, float],
+            tuple[float, float, float],
+        ]
+    ],
+) -> bpy.types.Object:
+    """重なる直方体群を一つの外周面へ統合して既存Meshを置換する。"""
+    if not boxes:
+        raise RuntimeError(f"B06-1外周統合対象の箱が空です: {object_name}")
+    normalized_boxes = [
+        (
+            tuple(round(coordinate, 4) for coordinate in minimum),
+            tuple(round(coordinate, 4) for coordinate in maximum),
+        )
+        for minimum, maximum in boxes
+    ]
+    for minimum, maximum in normalized_boxes:
+        if any(minimum[axis] >= maximum[axis] for axis in range(3)):
+            raise RuntimeError(
+                f"B06-1外周統合対象に退化した箱があります: "
+                f"{object_name} {minimum} {maximum}"
+            )
+    x_coordinates = tuple(
+        sorted(
+            {
+                coordinate
+                for minimum, maximum in normalized_boxes
+                for coordinate in (minimum[0], maximum[0])
+            }
+        )
+    )
+    y_coordinates = tuple(
+        sorted(
+            {
+                coordinate
+                for minimum, maximum in normalized_boxes
+                for coordinate in (minimum[1], maximum[1])
+            }
+        )
+    )
+    z_coordinates = tuple(
+        sorted(
+            {
+                coordinate
+                for minimum, maximum in normalized_boxes
+                for coordinate in (minimum[2], maximum[2])
+            }
+        )
+    )
+    x_index = {coordinate: index for index, coordinate in enumerate(x_coordinates)}
+    y_index = {coordinate: index for index, coordinate in enumerate(y_coordinates)}
+    z_index = {coordinate: index for index, coordinate in enumerate(z_coordinates)}
+    occupied_cells: set[tuple[int, int, int]] = set()
+    for minimum, maximum in normalized_boxes:
+        for cell_z in range(z_index[minimum[2]], z_index[maximum[2]]):
+            for cell_y in range(y_index[minimum[1]], y_index[maximum[1]]):
+                for cell_x in range(x_index[minimum[0]], x_index[maximum[0]]):
+                    occupied_cells.add((cell_x, cell_y, cell_z))
+    return replace_owned_voxel_surface(
+        object_name,
+        occupied_cells,
+        occupied_cells,
+        x_coordinates,
+        y_coordinates,
+        z_coordinates,
+        {},
+    )
 
 
 def merge_wall_cells_to_cuboid_bounds(
@@ -8019,6 +9346,28 @@ def rebuild_shared_wall_planar_union(prefix: str) -> int:
     }
     for cell, object_name in owner_by_cell.items():
         cells_by_owner[object_name].add(cell)
+    occupied_cells = set(owner_by_cell)
+    cross_object_line_breakpoints: dict[WallSurfaceLineKey, set[float]] = {}
+    if prefix == "VIS_":
+        visual_surface_occupied_cells = occupied_cells | floor_owner_cells
+        visual_surface_rectangles_by_object = {
+            object_name: owned_voxel_surface_rectangles(
+                cells_by_owner[object_name],
+                visual_surface_occupied_cells,
+                x_coordinates,
+                y_coordinates,
+                z_coordinates,
+            )
+            for object_name in sorted(cells_by_owner)
+            if cells_by_owner[object_name]
+        }
+        cross_object_line_breakpoints = wall_surface_line_breakpoints(
+            visual_surface_rectangles_by_object,
+            x_coordinates,
+            y_coordinates,
+            z_coordinates,
+            "B06-1全表示壁",
+        )
     if prefix == "COL_":
         for object_name, cells in cells_by_owner.items():
             if cells:
@@ -8030,7 +9379,6 @@ def rebuild_shared_wall_planar_union(prefix: str) -> int:
                         z_coordinates,
                     )
                 )
-    occupied_cells = set(owner_by_cell)
     removed_redundant_objects = 0
     for object_name, cells in cells_by_owner.items():
         if not cells:
@@ -8051,6 +9399,7 @@ def rebuild_shared_wall_planar_union(prefix: str) -> int:
             x_coordinates,
             y_coordinates,
             z_coordinates,
+            cross_object_line_breakpoints,
         )
     rebuilt_object_count = len(cells_by_owner) - removed_redundant_objects
     return (
@@ -8169,9 +9518,12 @@ def rebuild_interior_nav_blocker_from_colliders() -> int:
 
 def rebuild_b06_storey_bands() -> dict[str, int]:
     counts = {}
+    visual_collection = collection(VIS_COLLECTION_NAME)
     for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
         boxes = storey_band_boxes(floor, base_z)
-        replace_existing_boxes(f"VIS_B03_StoreyBand_F{floor:02d}", boxes)
+        object_name = f"VIS_B03_StoreyBand_F{floor:02d}"
+        create_mesh_object(object_name, boxes, visual_collection)
+        replace_existing_union_boxes(object_name, boxes)
         counts[f"f{floor:02d}"] = len(boxes)
     return counts
 
@@ -8610,8 +9962,13 @@ def apply_architecture_swatch_uv(
         if uv_layer is None:
             uv_layer = obj.data.uv_layers.new(name="UVMap")
         for polygon in obj.data.polygons:
-            for corner_index, loop_index in enumerate(polygon.loop_indices):
-                uv_layer.data[loop_index].uv = coordinates[corner_index % 4]
+            polygon_coordinates = polygon_swatch_uvs(obj, polygon, coordinates)
+            for loop_index, uv in zip(
+                polygon.loop_indices,
+                polygon_coordinates,
+                strict=True,
+            ):
+                uv_layer.data[loop_index].uv = uv
 
 
 def export_stage(
@@ -9038,11 +10395,7 @@ def main() -> None:
     door_material = architecture_material
     water_material = existing_material("MAT_Pool_Water")
     bench_material = furniture_material
-    raise_rooftop_changing_door_lintels(
-        visual_collection,
-        collider_collection,
-        wall_material,
-    )
+    rebuild_rooftop_facility_geometry()
     frame_material = make_material(
         "MAT_B03_WindowFrame", (0.36, 0.39, 0.41, 1.0), metallic=0.15, roughness=0.38
     )
@@ -9124,9 +10477,6 @@ def main() -> None:
     )
     # 表示壁・Colliderを共有境界Meshへ変換する。
     wall_corner_joins = rebuild_b06_wall_corner_joins()
-    # 色帯は、共有境界へ統合した出力壁面の法線側を意味分類して生成する。
-    # 元の箱境界や生成履歴から壁面を推測しない。
-    storey_band_segments = rebuild_b06_storey_bands()
     rebuilt_stair_visuals = rebuild_first_transition_stair_visuals()
     interactive_result = build_school_interactive_assets(
         visual_collection,
@@ -9156,6 +10506,15 @@ def main() -> None:
         semantic_collection,
         architecture_material,
     )
+    # y=-3.5ではシャフト北面を唯一の表示所有者とする。床・天井スラブ、
+    # 南西階段支持板、踊り場、終端手すりは実交差部分だけを分割して省く。
+    # Collider・Nav・反対面は変更しない。
+    elevator_shaft_face_trims = (
+        trim_visual_faces_owned_by_elevator_shaft_north_wall()
+    )
+    # 色帯は、構造表示面の所有整理が終わった最終壁面を意味分類して生成する。
+    # 元の箱境界や生成履歴から壁面を推測せず、構造面のtrim対象にも含めない。
+    storey_band_segments = rebuild_b06_storey_bands()
     # すべての資産生成が完了した最終Collider外殻を人物Nav blockerへ複製する。
     # これより後では形状を生成せず、旧AABB近似や生成順依存へ戻さない。
     interior_nav_blocker_boxes = rebuild_interior_nav_blocker_from_colliders()
@@ -9165,6 +10524,7 @@ def main() -> None:
             "interior_nav_blocker_boxes": interior_nav_blocker_boxes,
             "storey_band_segments": storey_band_segments,
             "rebuilt_stair_visuals": rebuilt_stair_visuals,
+            "elevator_shaft_face_trims": elevator_shaft_face_trims,
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -9188,10 +10548,6 @@ def main() -> None:
         "floor",
     )
     apply_architecture_swatch_uv(
-        ("VIS_B06_ElevatorCallPanel_F01",),
-        "elevator_wait",
-    )
-    apply_architecture_swatch_uv(
         (
             "VIS_B03_GymBridgeCeiling",
             "VIS_B03_GymBridgeWindowFrames",
@@ -9208,6 +10564,18 @@ def main() -> None:
     )
     apply_architecture_swatch_uv(
         tuple(f"VIS_RoofGuard_{suffix}" for suffix, *_ in ROOF_GUARD_SEGMENTS),
+        "trim",
+    )
+    apply_architecture_swatch_uv(
+        tuple(
+            sorted(
+                obj.name
+                for obj in bpy.data.objects
+                if obj.name.startswith(
+                    ("VIS_StairGuard_", "VIS_StairGuardSystem_")
+                )
+            )
+        ),
         "trim",
     )
     apply_architecture_swatch_uv(

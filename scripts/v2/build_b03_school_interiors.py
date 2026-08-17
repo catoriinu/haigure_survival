@@ -19,7 +19,10 @@ TEXTURE_DIRECTORY = REPOSITORY_ROOT / "assets/textures/v2/B03"
 
 ATLAS_DEFINITIONS = {
     "Architecture": {
-        "size": 512,
+        "dimensions": (1024, 512),
+        "grid": (8, 4),
+        "checker": False,
+        "uv_sample_size": 32,
         "material": "MAT_B03_Atlas_Architecture",
         "file": "b03_architecture_atlas.png",
         "swatches": {
@@ -46,7 +49,8 @@ ATLAS_DEFINITIONS = {
         },
     },
     "FurnitureProps": {
-        "size": 512,
+        "dimensions": (512, 512),
+        "grid": (4, 4),
         "material": "MAT_B03_Atlas_FurnitureProps",
         "file": "b03_furniture_props_atlas.png",
         "swatches": {
@@ -68,7 +72,8 @@ ATLAS_DEFINITIONS = {
         },
     },
     "SignsPaper": {
-        "size": 1024,
+        "dimensions": (1024, 1024),
+        "grid": (4, 4),
         "material": "MAT_B03_Atlas_SignsPaper",
         "file": "b03_signs_paper_atlas.png",
         "swatches": {
@@ -339,7 +344,7 @@ TOILET_SIGN_PLACEMENTS = (
 )
 ROOF_CHANGING_BAGGAGE_LOCKER_XS = (-5.4, -3.16, -0.8, 1.19)
 ROOF_CHANGING_BENCH_PLACEMENTS = (
-    (-6.375, 41.5, math.pi / 2),
+    (-6.225, 41.5, math.pi / 2),
     (-2.475, 41.5, math.pi / 2),
     (-1.725, 41.5, math.pi / 2),
     (1.875, 41.5, math.pi / 2),
@@ -433,26 +438,55 @@ def png_chunk(chunk_type: bytes, data: bytes) -> bytes:
     )
 
 
-def write_atlas_png(path: Path, size: int, colors: list[tuple[int, int, int]]) -> None:
-    grid = 4
-    cell = size // grid
+def checker_rgb(
+    base: tuple[int, int, int],
+    x: int,
+    y: int,
+) -> tuple[int, int, int]:
+    variation = 1 if ((x // 32) + (y // 32)) % 2 == 0 else 0
+    return tuple(max(0, min(255, value + variation)) for value in base)
+
+
+def atlas_png_bytes(
+    dimensions: tuple[int, int],
+    grid: tuple[int, int],
+    colors: list[tuple[int, int, int]],
+    *,
+    checker: bool = True,
+) -> bytes:
+    width, height = dimensions
+    columns, rows = grid
+    cell_width = width // columns
+    cell_height = height // rows
     scanlines = bytearray()
-    for y in range(size):
+    for y in range(height):
         scanlines.append(0)
-        row = y // cell
-        for x in range(size):
-            column = x // cell
-            index = min(row * grid + column, len(colors) - 1)
+        row = y // cell_height
+        for x in range(width):
+            column = x // cell_width
+            index = min(row * columns + column, len(colors) - 1)
             base = colors[index]
-            variation = 1 if ((x // 32) + (y // 32)) % 2 == 0 else 0
-            scanlines.extend(max(0, min(255, value + variation)) for value in base)
+            scanlines.extend(checker_rgb(base, x, y) if checker else base)
     payload = b"\x89PNG\r\n\x1a\n"
     payload += png_chunk(
-        b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)
+        b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
     )
     payload += png_chunk(b"IDAT", zlib.compress(bytes(scanlines), 9))
     payload += png_chunk(b"IEND", b"")
-    path.write_bytes(payload)
+    return payload
+
+
+def write_atlas_png(
+    path: Path,
+    dimensions: tuple[int, int],
+    grid: tuple[int, int],
+    colors: list[tuple[int, int, int]],
+    *,
+    checker: bool,
+) -> None:
+    path.write_bytes(
+        atlas_png_bytes(dimensions, grid, colors, checker=checker)
+    )
 
 
 def build_atlases() -> dict[str, bpy.types.Material]:
@@ -462,8 +496,10 @@ def build_atlases() -> dict[str, bpy.types.Material]:
         image_path = TEXTURE_DIRECTORY / str(definition["file"])
         write_atlas_png(
             image_path,
-            int(definition["size"]),
+            tuple(definition["dimensions"]),
+            tuple(definition["grid"]),
             list(definition["swatches"].values()),
+            checker=bool(definition.get("checker", True)),
         )
         image = bpy.data.images.get(image_path.name)
         if image is not None:
@@ -650,8 +686,13 @@ def consolidate_school_materials(
             else:
                 swatch = architecture_swatch(obj.name)
             coordinates = swatch_uv(atlas_name, swatch)
-            for corner_index, loop_index in enumerate(polygon.loop_indices):
-                uv_layer.data[loop_index].uv = coordinates[corner_index % 4]
+            polygon_coordinates = polygon_swatch_uvs(obj, polygon, coordinates)
+            for loop_index, uv in zip(
+                polygon.loop_indices,
+                polygon_coordinates,
+                strict=True,
+            ):
+                uv_layer.data[loop_index].uv = uv
             polygon.material_index = 0
 
         obj.data.materials.clear()
@@ -673,16 +714,70 @@ def consolidate_school_materials(
 
 
 def swatch_uv(atlas_name: str, swatch: str) -> tuple[tuple[float, float], ...]:
-    names = list(ATLAS_DEFINITIONS[atlas_name]["swatches"])
+    definition = ATLAS_DEFINITIONS[atlas_name]
+    names = list(definition["swatches"])
     index = names.index(swatch)
-    column = index % 4
-    row = index // 4
+    columns, rows = tuple(definition["grid"])
+    column = index % columns
+    row = index // columns
+    if atlas_name == "Architecture":
+        width, height = tuple(definition["dimensions"])
+        cell_width = width // columns
+        cell_height = height // rows
+        half_sample = int(definition["uv_sample_size"]) // 2
+        center_x = column * cell_width + cell_width // 2
+        center_y = row * cell_height + cell_height // 2
+        u0 = (center_x - half_sample) / width
+        u1 = (center_x + half_sample) / width
+        v0 = 1.0 - (center_y + half_sample) / height
+        v1 = 1.0 - (center_y - half_sample) / height
+        return ((u0, v0), (u1, v0), (u1, v1), (u0, v1))
     margin = 0.015
-    u0 = column / 4 + margin
-    u1 = (column + 1) / 4 - margin
-    v0 = 1.0 - (row + 1) / 4 + margin
-    v1 = 1.0 - row / 4 - margin
+    u0 = column / columns + margin
+    u1 = (column + 1) / columns - margin
+    v0 = 1.0 - (row + 1) / rows + margin
+    v1 = 1.0 - row / rows - margin
     return ((u0, v0), (u1, v0), (u1, v1), (u0, v1))
+
+
+def polygon_swatch_uvs(
+    obj: bpy.types.Object,
+    polygon: bpy.types.MeshPolygon,
+    coordinates: tuple[tuple[float, float], ...],
+) -> tuple[tuple[float, float], ...]:
+    if len(polygon.loop_indices) <= 4:
+        return tuple(
+            coordinates[corner_index]
+            for corner_index in range(len(polygon.loop_indices))
+        )
+
+    normal_axis = max(range(3), key=lambda axis: abs(polygon.normal[axis]))
+    plane_axes = tuple(axis for axis in range(3) if axis != normal_axis)
+    points = [
+        obj.data.vertices[obj.data.loops[loop_index].vertex_index].co
+        for loop_index in polygon.loop_indices
+    ]
+    minimum = tuple(min(point[axis] for point in points) for axis in plane_axes)
+    maximum = tuple(max(point[axis] for point in points) for axis in plane_axes)
+    spans = tuple(maximum[index] - minimum[index] for index in range(2))
+    if any(span <= 1.0e-10 for span in spans):
+        raise RuntimeError(f"Atlas UVを割り当てられない面です: {obj.name}[{polygon.index}]")
+
+    u0, v0 = coordinates[0]
+    u1, v1 = coordinates[2]
+    return tuple(
+        (
+            u0
+            + (u1 - u0)
+            * (point[plane_axes[0]] - minimum[0])
+            / spans[0],
+            v0
+            + (v1 - v0)
+            * (point[plane_axes[1]] - minimum[1])
+            / spans[1],
+        )
+        for point in points
+    )
 
 
 @dataclass

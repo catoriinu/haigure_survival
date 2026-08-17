@@ -20,6 +20,9 @@ sys.dont_write_bytecode = True
 if str(SCRIPT_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIRECTORY))
 
+from audit_b03_architecture_atlas import (  # noqa: E402
+    audit_architecture_atlas_contract,
+)
 from optimize_b03_school_glb import (
     GlbDocument,
     accessor_payload,
@@ -60,10 +63,10 @@ PROP_LIBRARY_PATH = (
 )
 
 EXPECTED_NAVMESH_SHA256 = (
-    "90D851A46FC14825C18EE0762C1D16E287E3FDA15F2313B9095AE141A502179A"
+    "52F7DCBCD09B5DEE685865001BC2DD1E8B98F4BF418688C8F4F01DB0C180A9E4"
 )
 EXPECTED_BIT_NAVMESH_SHA256 = (
-    "5F2DBCC72E55A3B9D1BA8FB252F457A6B17F1F17679E21E2B51DA07564A48542"
+    "4B3BBD249E00C515DAD333EF29157E5128FC5CF7286CC26655D096E34BE5B499"
 )
 EXPECTED_PROP_LIBRARY_SHA256 = (
     "F1163A1E2B1291AED2B81A10102BCBD7F74F0F7C018BA210389E4797B92B42BD"
@@ -85,12 +88,63 @@ EXPECTED_CONSOLIDATED_MATERIAL_NAMES = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "b06-1-school-structure-polish-v22"
+EXPECTED_GENERATOR_VERSION = "b06-1-school-structure-polish-v38"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 EXPECTED_SCHEMA_VERSION = 3
 EXPECTED_STAGE_ID = "school"
 EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
 EXPECTED_BIT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
+
+# 第9次受入画像の水平地点を、生成器の共用空間Polygonや色帯生成関数から
+# 独立した壁面区間として固定する。各区間は記載した全階で同じXYを検査する。
+# axisは壁面の法線軸、directionは色帯が存在すべき共用空間側を表す。
+STOREY_BAND_ACCEPTANCE_RUNS = (
+    # 実Runtime座標をBlender正本座標へ戻した連続壁run。S3の同じXYは
+    # 1F〜3Fでは北通用口の実開口なので、壁が存在する4Fだけを固定する。
+    ("R9-S1-北西階段接続南壁", (1, 2, 3, 4), "Y", 32.65, 1, -12.45, -3.35),
+    ("R9-S2-北棟東側回り込み", (1, 2, 3, 4), "X", 5.25, -1, 36.35, 45.35),
+    ("R9-S3-北東階段接続南壁", (4,), "Y", 32.65, 1, 39.40, 47.25),
+    # 1F〜3Fはx=39.4..43.4だけが正規NorthEntry開口である。開口東側の
+    # 実壁runは全階で必須とし、階ごとの開口を理由に地点全体を免除しない。
+    ("R9-S3-北東階段接続南壁-開口東側", (1, 2, 3, 4), "Y", 32.65, 1, 43.40, 47.25),
+    ("R9-S4-トイレ西端回り込み", (1, 2, 3, 4), "Y", 38.35, -1, -6.75, -6.45),
+    ("R9-S5-西棟廊下南端壁", (1, 2, 3, 4), "Y", -6.85, 1, -3.35, -0.15),
+    # エレベーターホールから西棟廊下まで、実開口のない同一南端壁を
+    # 全長で要求し、中央2.80mだけの再欠落を許可しない。
+    ("R10-L11-エレベーターホール手前南端壁", (1, 2, 3, 4), "Y", -6.85, 1, -8.65, -0.15),
+    ("R12-L12-エレベーター階段側北壁", (1, 2, 3, 4), "Y", -3.50, 1, -12.45, -6.00),
+    # 画像外で既に良好な代表区間。Union化による欠落を許可しない。
+    ("既存良好-西棟東壁", (1, 2, 3, 4), "X", -0.15, -1, 3.00, 31.90),
+    ("既存良好-北棟南壁", (1, 2, 3, 4), "Y", 32.65, 1, -6.45, -3.35),
+    ("既存良好-北棟北壁", (1, 2, 3, 4), "Y", 36.35, -1, 29.90, 30.10),
+    ("既存良好-女子トイレ角", (1, 2, 3, 4), "X", 2.55, 1, 39.90, 40.10),
+    ("既存良好-北西階段西壁", (1, 2, 3, 4), "X", -12.45, 1, 39.90, 40.10),
+    ("既存良好-北東階段西壁", (1, 2, 3, 4), "X", 41.55, 1, 39.90, 40.10),
+    ("既存良好-北東階段東壁", (1, 2, 3, 4), "X", 47.25, -1, 39.90, 40.10),
+    ("既存良好-トイレ脇奥壁", (2, 3, 4), "Y", 45.35, -1, 3.30, 3.50),
+)
+# 生成器の共用空間Polygonをimportせず、色帯を許可する共用空間を監査側で
+# 固定する独立台帳。ユーザー指定どおり、同じXY契約を1Fから4Fへ適用する。
+STOREY_BAND_ALLOWED_COMMON_SPACE_BOUNDS_XY = (
+    ("school-common", -3.35, -0.15, 2.65, 32.35),
+    ("school-common", -3.35, -0.15, -6.85, 2.65),
+    ("school-common", -3.35, 0.00, 32.35, 32.65),
+    ("school-common", -6.45, 41.25, 32.65, 36.35),
+    ("school-common", -12.45, -6.75, 32.65, 45.35),
+    ("school-common", 41.55, 47.25, 32.65, 45.35),
+    ("school-common", -6.45, 5.25, 36.65, 38.35),
+    ("school-common", 2.55, 5.25, 38.35, 45.35),
+    ("school-common", -12.45, -3.65, -3.35, 2.35),
+    ("school-common", -12.45, -6.00, -3.50, -3.35),
+    ("school-common", -8.70, -6.15, -6.85, -3.35),
+    ("school-common", -6.15, -3.35, -6.85, -3.35),
+)
+STOREY_BAND_NORMAL_MINIMUM_OFFSET = 0.002
+STOREY_BAND_NORMAL_MAXIMUM_OFFSET = 0.012
+STOREY_BAND_SIDE_SAMPLE_OFFSET = 0.007
+STOREY_BAND_BOTTOM_OFFSET = 0.08
+STOREY_BAND_TOP_OFFSET = 0.18
+STOREY_BAND_WALL_SEAM_MAXIMUM_LENGTH = 0.31
 BIT_FLIGHT_PHYSICAL_RADIUS_METERS = 0.44
 BIT_FLIGHT_SAFETY_MARGIN_METERS = 0.10
 BIT_FLIGHT_SAFETY_ENVELOPE_METERS = (
@@ -622,9 +676,9 @@ ROOF_GUARD_SEGMENTS = (
     (
         "WestOuter",
         (-12.5, -6.9, 14.5),
-        (-12.5, 38.9, 14.5),
+        (-12.5, 38.55, 14.5),
         True,
-        True,
+        False,
     ),
 )
 
@@ -1165,6 +1219,21 @@ def shared_wall_volume_owners(
     ]
 
 
+SHAFT_TRIMMED_VISUAL_OBJECT_NAMES = frozenset(
+    {
+        "VIS_B03_Ceiling_F02",
+        "VIS_B03_Ceiling_F03",
+        "VIS_B03_Ceiling_F04",
+        "VIS_B03_InterfloorStructure_F01_West",
+        "VIS_StairGuardSystem_SW_3FTo4F",
+        "VIS_StairLanding_SW",
+        "VIS_Stairs_SW",
+        "VIS_StairSystem_SW_2FTo3F",
+        "VIS_StairSystem_SW_3FTo4F",
+    }
+)
+
+
 def audit_box_components(
     object_name: str,
     expected: list[tuple[tuple[float, float, float], tuple[float, float, float]]],
@@ -1185,7 +1254,10 @@ def audit_box_components(
                 f"{object_name}/{minimum}/{maximum}/{owners}",
             )
         return len(expected)
-    if len(obj.data.vertices) % 8 != 0:
+    if (
+        len(obj.data.vertices) % 8 != 0
+        and obj.name not in SHAFT_TRIMMED_VISUAL_OBJECT_NAMES
+    ):
         raise RuntimeError(
             f"箱形状監査対象の頂点数が8の倍数ではありません: "
             f"{object_name}/{len(obj.data.vertices)}"
@@ -1220,6 +1292,13 @@ def audit_box_components(
 def box_component_bounds(
     obj: bpy.types.Object,
 ) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    if obj.name in SHAFT_TRIMMED_VISUAL_OBJECT_NAMES:
+        # シャフト壁との境界分割後も各手すり部品は非連結のままなので、
+        # 8頂点の格納順ではなく実edge連結成分から部品外形を得る。
+        return [
+            (tuple(minimum), tuple(maximum))
+            for minimum, maximum in mesh_component_world_bounds(obj)
+        ]
     require(
         len(obj.data.vertices) % 8 == 0,
         f"箱形状監査対象の頂点数が8の倍数ではありません: {obj.name}/{len(obj.data.vertices)}",
@@ -1239,15 +1318,142 @@ def box_component_bounds(
     return actual
 
 
-def storey_band_box_bounds(
+def rectangle_overlap_area(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+) -> float:
+    overlap_x = min(first[1], second[1]) - max(first[0], second[0])
+    overlap_y = min(first[3], second[3]) - max(first[2], second[2])
+    if overlap_x <= TOLERANCE or overlap_y <= TOLERANCE:
+        return 0.0
+    return overlap_x * overlap_y
+
+
+def storey_band_top_polygons(
     obj: bpy.types.Object,
-) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    top_z: float | None = None,
+) -> list[tuple[tuple[float, float], ...]]:
+    """Union化した階層色帯の上面輪郭を、生成器から独立して読む。"""
     require(obj.type == "MESH", f"階層色帯がMeshではありません: {obj.name}")
-    require(
-        len(obj.data.polygons) * 4 == len(obj.data.vertices) * 3,
-        f"階層色帯が独立した直方体群ではありません: {obj.name}",
+    world_vertices = [obj.matrix_world @ vertex.co for vertex in obj.data.vertices]
+    require(world_vertices, f"階層色帯に頂点がありません: {obj.name}")
+    expected_top_z = (
+        max(point.z for point in world_vertices) if top_z is None else top_z
     )
-    return box_component_bounds(obj)
+    polygons = []
+    for polygon in obj.data.polygons:
+        points = [
+            obj.matrix_world @ obj.data.vertices[index].co
+            for index in polygon.vertices
+        ]
+        if not all(
+            math.isclose(point.z, expected_top_z, abs_tol=TOLERANCE)
+            for point in points
+        ):
+            continue
+        outline = tuple((point.x, point.y) for point in points)
+        require(
+            len(outline) >= 4
+            and all(
+                (
+                    math.isclose(first[0], second[0], abs_tol=TOLERANCE)
+                    and abs(first[1] - second[1]) > TOLERANCE
+                )
+                or (
+                    math.isclose(first[1], second[1], abs_tol=TOLERANCE)
+                    and abs(first[0] - second[0]) > TOLERANCE
+                )
+                for first, second in zip(outline, (*outline[1:], outline[0]))
+            ),
+            f"階層色帯の上面輪郭に斜辺があります: {obj.name}/{polygon.index}",
+        )
+        signed_area = sum(
+            first[0] * second[1] - second[0] * first[1]
+            for first, second in zip(outline, (*outline[1:], outline[0]))
+        ) / 2.0
+        require(
+            abs(signed_area) > TOLERANCE * TOLERANCE,
+            f"階層色帯の上面輪郭面積が0です: {obj.name}/{polygon.index}",
+        )
+        polygons.append(outline)
+    require(polygons, f"階層色帯の上面がありません: {obj.name}")
+    return polygons
+
+
+def point_is_in_polygon_xy(
+    point_x: float,
+    point_y: float,
+    polygon: tuple[tuple[float, float], ...],
+) -> bool:
+    inside = False
+    previous_x, previous_y = polygon[-1]
+    for current_x, current_y in polygon:
+        edge_x = current_x - previous_x
+        edge_y = current_y - previous_y
+        cross = (
+            (point_x - previous_x) * edge_y
+            - (point_y - previous_y) * edge_x
+        )
+        if (
+            abs(cross) <= TOLERANCE
+            and min(previous_x, current_x) - TOLERANCE
+            <= point_x
+            <= max(previous_x, current_x) + TOLERANCE
+            and min(previous_y, current_y) - TOLERANCE
+            <= point_y
+            <= max(previous_y, current_y) + TOLERANCE
+        ):
+            return True
+        if (current_y > point_y) != (previous_y > point_y):
+            intersection_x = previous_x + (
+                (point_y - previous_y) * edge_x / edge_y
+            )
+            if point_x < intersection_x:
+                inside = not inside
+        previous_x, previous_y = current_x, current_y
+    return inside
+
+
+def storey_band_occupancy_cells(
+    polygons: list[tuple[tuple[float, float], ...]],
+) -> list[tuple[float, float, float, float, int]]:
+    x_coordinates = sorted({point[0] for polygon in polygons for point in polygon})
+    y_coordinates = sorted({point[1] for polygon in polygons for point in polygon})
+    cells = []
+    for minimum_x, maximum_x in zip(x_coordinates, x_coordinates[1:]):
+        if maximum_x - minimum_x <= TOLERANCE:
+            continue
+        for minimum_y, maximum_y in zip(y_coordinates, y_coordinates[1:]):
+            if maximum_y - minimum_y <= TOLERANCE:
+                continue
+            midpoint_x = (minimum_x + maximum_x) / 2.0
+            midpoint_y = (minimum_y + maximum_y) / 2.0
+            owner_count = sum(
+                point_is_in_polygon_xy(midpoint_x, midpoint_y, polygon)
+                for polygon in polygons
+            )
+            if owner_count:
+                cells.append(
+                    (
+                        minimum_x,
+                        maximum_x,
+                        minimum_y,
+                        maximum_y,
+                        owner_count,
+                    )
+                )
+    require(cells, "階層色帯の上面占有セルがありません")
+    return cells
+
+
+def storey_band_manifold_error_count(obj: bpy.types.Object) -> int:
+    edge_use_counts: Counter[tuple[int, int]] = Counter()
+    for polygon in obj.data.polygons:
+        indices = tuple(polygon.vertices)
+        for index, first in enumerate(indices):
+            second = indices[(index + 1) % len(indices)]
+            edge_use_counts[tuple(sorted((first, second)))] += 1
+    return sum(count != 2 for count in edge_use_counts.values())
 
 
 def mesh_component_world_bounds(
@@ -1556,19 +1762,36 @@ def audit_bit_flight_obstacle_geometry(
                 > center_height + BIT_FLIGHT_SAFETY_ENVELOPE_METERS
             ):
                 continue
-            midpoint = sum(points, Vector()) / len(points)
+            normal_axis = 0 if abs(normal.x) >= abs(normal.y) else 1
+            along_axis = 1 - normal_axis
+            face_coordinates = [point[normal_axis] for point in points]
             require(
-                any(
-                    minimum[0] - 1.0e-5
-                    <= midpoint.x
-                    <= maximum[0] + 1.0e-5
-                    and minimum[1] - 1.0e-5
-                    <= midpoint.y
-                    <= maximum[1] + 1.0e-5
-                    for minimum, maximum in actual
-                ),
-                f"共有壁の垂直面を覆うBIT blockerがありません: "
-                f"{object_name}/{wall.name}/{tuple(midpoint)}",
+                max(face_coordinates) - min(face_coordinates) <= 1.0e-5,
+                f"共有壁の垂直面がXY軸に沿っていません: "
+                f"{object_name}/{wall.name}/{polygon.index}",
+            )
+            face_coordinate = sum(face_coordinates) / len(face_coordinates)
+            along_interval = (
+                min(point[along_axis] for point in points),
+                max(point[along_axis] for point in points),
+            )
+            blocker_intervals = [
+                (minimum[along_axis], maximum[along_axis])
+                for minimum, maximum in actual
+                if minimum[normal_axis] - 1.0e-5
+                <= face_coordinate
+                <= maximum[normal_axis] + 1.0e-5
+                and minimum[2]
+                <= center_height + BIT_FLIGHT_SAFETY_ENVELOPE_METERS
+                and maximum[2]
+                >= center_height - BIT_FLIGHT_SAFETY_ENVELOPE_METERS
+            ]
+            require(
+                interval_union_covers(along_interval, blocker_intervals),
+                f"共有壁の垂直面along全区間を覆うBIT blockerがありません: "
+                f"{object_name}/{wall.name}/{polygon.index}/"
+                f"axis={'XY'[normal_axis]}/face={face_coordinate:.4f}/"
+                f"target={along_interval}/blockers={blocker_intervals}",
             )
             coverage_checks += 1
     require(
@@ -1717,6 +1940,45 @@ def require_point_in_box_component(
     )
 
 
+def require_point_on_axis_aligned_surface(
+    object_name: str,
+    point: tuple[float, float, float],
+) -> None:
+    obj = bpy.data.objects.get(object_name)
+    require(
+        obj is not None and obj.type == "MESH",
+        f"軸平行面監査対象がありません: {object_name}",
+    )
+    target = Vector(point)
+    for polygon in obj.data.polygons:
+        points = [
+            obj.matrix_world @ obj.data.vertices[index].co
+            for index in polygon.vertices
+        ]
+        extents = tuple(
+            max(vertex[axis] for vertex in points)
+            - min(vertex[axis] for vertex in points)
+            for axis in range(3)
+        )
+        plane_axes = [axis for axis, extent in enumerate(extents) if extent <= TOLERANCE]
+        if len(plane_axes) != 1:
+            continue
+        plane_axis = plane_axes[0]
+        if abs(target[plane_axis] - points[0][plane_axis]) > TOLERANCE:
+            continue
+        span_axes = tuple(axis for axis in range(3) if axis != plane_axis)
+        if all(
+            min(vertex[axis] for vertex in points) - TOLERANCE
+            <= target[axis]
+            <= max(vertex[axis] for vertex in points) + TOLERANCE
+            for axis in span_axes
+        ):
+            return
+    raise RuntimeError(
+        f"指定点を覆う軸平行面がありません: {object_name}/{point}"
+    )
+
+
 def require_architecture_swatch(object_name: str, swatch: str) -> None:
     obj = bpy.data.objects.get(object_name)
     require(obj is not None and obj.type == "MESH", f"配色監査対象がありません: {object_name}")
@@ -1771,32 +2033,36 @@ def require_furniture_swatch(object_name: str, swatch: str) -> None:
 def audit_architecture_atlas_rgb() -> int:
     image = bpy.data.images.get("b03_architecture_atlas.png")
     require(image is not None, "Architecture Atlas画像がBlender正本にありません")
-    require(tuple(image.size) == (512, 512), "Architecture Atlas画像寸法が不正です")
-    expected_cells = {
-        (0, 0): (214, 210, 197),
-        (1, 0): (232, 231, 221),
-        (3, 0): (176, 145, 101),
-        (1, 1): (120, 76, 42),
-        (2, 2): (51, 107, 51),
-        (3, 2): (46, 97, 173),
-        (0, 3): (117, 38, 26),
-        (1, 3): (92, 117, 98),
-        (2, 3): (72, 78, 79),
-    }
+    definition = ATLAS_DEFINITIONS["Architecture"]
+    expected_dimensions = tuple(definition["dimensions"])
+    columns, rows = tuple(definition["grid"])
+    require(
+        tuple(image.size) == expected_dimensions,
+        f"Architecture Atlas画像寸法が不正です: "
+        f"{tuple(image.size)}/{expected_dimensions}",
+    )
     width, height = image.size
-    for (column, row_from_top), expected in expected_cells.items():
-        x = column * width // 4 + width // 8
-        y = (3 - row_from_top) * height // 4 + height // 8
+    swatches = definition["swatches"]
+    for index, (swatch, expected) in enumerate(swatches.items()):
+        column = index % columns
+        row_from_top = index // columns
+        x = column * width // columns + width // columns // 2
+        y = (rows - 1 - row_from_top) * height // rows + height // rows // 2
         pixel_offset = (y * width + x) * 4
         actual = tuple(
             round(float(image.pixels[pixel_offset + channel]) * 255)
             for channel in range(3)
         )
         require(
-            all(actual[channel] in {expected[channel], expected[channel] + 1} for channel in range(3)),
-            f"Architecture AtlasのRGBが不正です: cell=({column},{row_from_top}), actual={actual}, expected={expected}",
+            all(
+                actual[channel] in {expected[channel], expected[channel] + 1}
+                for channel in range(3)
+            ),
+            f"Architecture AtlasのRGBが不正です: "
+            f"{swatch}/cell=({column},{row_from_top}), "
+            f"actual={actual}, expected={expected}",
         )
-    return len(expected_cells)
+    return len(swatches)
 
 
 def audit_door_hardware_atlas_rgb() -> int:
@@ -2071,11 +2337,8 @@ def interval_union_covers(
 
 def audit_storey_band_relationships(
     objects: list[bpy.types.Object],
-) -> dict[str, int]:
-    backing_checks = 0
-    door_depth_checks = 0
-    interior_exclusion_checks = 0
-    corner_join_checks = 0
+) -> dict[str, float | int]:
+    """Union色帯を、生成ロジックと独立した壁run台帳で検査する。"""
     wall_objects = [
         obj
         for obj in objects
@@ -2098,7 +2361,11 @@ def audit_storey_band_relationships(
     vertical_wall_faces: list[
         tuple[str, float, float, float, float, float]
     ] = []
+    vertical_wall_sides: list[
+        tuple[str, float, int, float, float, float, float]
+    ] = []
     for wall in wall_objects:
+        normal_matrix = wall.matrix_world.to_3x3().inverted().transposed()
         for polygon in wall.data.polygons:
             points = [
                 wall.matrix_world @ wall.data.vertices[index].co
@@ -2113,6 +2380,7 @@ def audit_storey_band_relationships(
             if maximum_z - minimum_z <= TOLERANCE:
                 continue
             if maximum_x - minimum_x <= TOLERANCE:
+                world_normal = normal_matrix @ polygon.normal
                 vertical_wall_faces.append(
                     (
                         "X",
@@ -2123,7 +2391,19 @@ def audit_storey_band_relationships(
                         maximum_z,
                     )
                 )
+                vertical_wall_sides.append(
+                    (
+                        "X",
+                        (minimum_x + maximum_x) / 2.0,
+                        1 if world_normal.x > 0.0 else -1,
+                        minimum_y,
+                        maximum_y,
+                        minimum_z,
+                        maximum_z,
+                    )
+                )
             elif maximum_y - minimum_y <= TOLERANCE:
+                world_normal = normal_matrix @ polygon.normal
                 vertical_wall_faces.append(
                     (
                         "Y",
@@ -2134,147 +2414,1102 @@ def audit_storey_band_relationships(
                         maximum_z,
                     )
                 )
-    private_areas = [
-        obj
-        for obj in objects
-        if obj.type == "MESH"
-        and obj.get("hs_role") == "location_area"
-        and (
-            "_AREA_ROOM_" in obj.name
-            or "_AREA_TOILET_" in obj.name
-        )
-    ]
+                vertical_wall_sides.append(
+                    (
+                        "Y",
+                        (minimum_y + maximum_y) / 2.0,
+                        1 if world_normal.y > 0.0 else -1,
+                        minimum_x,
+                        maximum_x,
+                        minimum_z,
+                        maximum_z,
+                    )
+                )
+
     private_bounds = [
         (
             obj.name,
             tuple(world_bounds(obj)[0]),
             tuple(world_bounds(obj)[1]),
         )
-        for obj in private_areas
+        for obj in objects
+        if obj.type == "MESH"
+        and obj.get("hs_role") == "location_area"
+        and ("_AREA_ROOM_" in obj.name or "_AREA_TOILET_" in obj.name)
     ]
 
-    def band_covers_wall_point(
-        boxes: list[
-            tuple[tuple[float, float, float], tuple[float, float, float]]
-        ],
+    def covered_run_length(
+        target: tuple[float, float],
+        intervals: list[tuple[float, float]],
+    ) -> float:
+        clipped = sorted(
+            (
+                max(target[0], minimum),
+                min(target[1], maximum),
+            )
+            for minimum, maximum in intervals
+            if min(target[1], maximum) - max(target[0], minimum) > TOLERANCE
+        )
+        merged: list[list[float]] = []
+        for minimum, maximum in clipped:
+            if not merged or minimum > merged[-1][1] + TOLERANCE:
+                merged.append([minimum, maximum])
+            else:
+                merged[-1][1] = max(merged[-1][1], maximum)
+        return sum(maximum - minimum for minimum, maximum in merged)
+
+    def band_run_intervals(
+        rectangles: list[tuple[float, float, float, float]],
+        axis: str,
+        normal_coordinate: float,
+    ) -> list[tuple[float, float]]:
+        if axis == "X":
+            return [
+                (minimum_y, maximum_y)
+                for minimum_x, maximum_x, minimum_y, maximum_y in rectangles
+                if minimum_x - TOLERANCE
+                <= normal_coordinate
+                <= maximum_x + TOLERANCE
+            ]
+        return [
+            (minimum_x, maximum_x)
+            for minimum_x, maximum_x, minimum_y, maximum_y in rectangles
+            if minimum_y - TOLERANCE
+            <= normal_coordinate
+            <= maximum_y + TOLERANCE
+        ]
+
+    def wall_support_intervals(
+        axis: str,
+        candidate_faces: tuple[float, float],
+        z_minimum: float,
+        z_maximum: float,
+    ) -> list[tuple[float, float]]:
+        return [
+            (along_minimum, along_maximum)
+            for (
+                wall_axis,
+                wall_face,
+                along_minimum,
+                along_maximum,
+                wall_z_minimum,
+                wall_z_maximum,
+            ) in vertical_wall_faces
+            if wall_axis == axis
+            and any(
+                math.isclose(wall_face, candidate, abs_tol=TOLERANCE)
+                for candidate in candidate_faces
+            )
+            and wall_z_minimum <= z_minimum + TOLERANCE
+            and wall_z_maximum >= z_maximum - TOLERANCE
+        ]
+
+    def interval_contains_point(
+        intervals: list[tuple[float, float]],
+        point: float,
+    ) -> bool:
+        return any(
+            minimum - TOLERANCE <= point <= maximum + TOLERANCE
+            for minimum, maximum in intervals
+        )
+
+    def perpendicular_wall_supports_endpoint(
+        axis: str,
+        face_coordinate: float,
+        along_minimum: float,
+        along_maximum: float,
+        z_minimum: float,
+        z_maximum: float,
+    ) -> bool:
+        return any(
+            wall_axis == axis
+            and abs(wall_face - face_coordinate) <= 0.013 + TOLERANCE
+            and wall_along_minimum <= along_maximum + 0.013 + TOLERANCE
+            and wall_along_maximum >= along_minimum - 0.013 - TOLERANCE
+            and wall_z_minimum <= z_minimum + TOLERANCE
+            and wall_z_maximum >= z_maximum - TOLERANCE
+            for (
+                wall_axis,
+                wall_face,
+                wall_along_minimum,
+                wall_along_maximum,
+                wall_z_minimum,
+                wall_z_maximum,
+            ) in vertical_wall_faces
+        )
+
+    def intersect_rectangle(
+        rectangle: tuple[float, float, float, float],
+        minimum_x: float,
+        maximum_x: float,
+        minimum_y: float,
+        maximum_y: float,
+    ) -> float:
+        return rectangle_overlap_area(
+            rectangle,
+            (minimum_x, maximum_x, minimum_y, maximum_y),
+        )
+
+    def allowed_common_space_ids(point_x: float, point_y: float) -> frozenset[str]:
+        return frozenset(
+            space_id
+            for (
+                space_id,
+                minimum_x,
+                maximum_x,
+                minimum_y,
+                maximum_y,
+            ) in STOREY_BAND_ALLOWED_COMMON_SPACE_BOUNDS_XY
+            if minimum_x - TOLERANCE <= point_x <= maximum_x + TOLERANCE
+            and minimum_y - TOLERANCE <= point_y <= maximum_y + TOLERANCE
+        )
+
+    def merge_expected_side_intervals(
+        intervals: list[tuple[float, float]],
+    ) -> list[tuple[float, float]]:
+        merged: list[list[float]] = []
+        for minimum, maximum in sorted(intervals):
+            if maximum - minimum <= TOLERANCE:
+                continue
+            if not merged or minimum > merged[-1][1] + TOLERANCE:
+                merged.append([minimum, maximum])
+            else:
+                merged[-1][1] = max(merged[-1][1], maximum)
+        return [(minimum, maximum) for minimum, maximum in merged]
+
+    def directional_wall_support_intervals(
         axis: str,
         face: float,
-        along: float,
-    ) -> bool:
-        axis_index = 0 if axis == "X" else 1
-        along_index = 1 if axis == "X" else 0
-        return any(
-            min(abs(minimum[axis_index] - face), abs(maximum[axis_index] - face))
-            <= 0.013
-            and minimum[along_index] - TOLERANCE
-            <= along
-            <= maximum[along_index] + TOLERANCE
-            for minimum, maximum in boxes
+        direction: int,
+        bottom_z: float,
+        top_z: float,
+    ) -> list[tuple[float, float]]:
+        return [
+            (along_minimum, along_maximum)
+            for (
+                wall_axis,
+                wall_face,
+                wall_direction,
+                along_minimum,
+                along_maximum,
+                wall_z_minimum,
+                wall_z_maximum,
+            ) in vertical_wall_sides
+            if wall_axis == axis
+            and math.isclose(wall_face, face, abs_tol=TOLERANCE)
+            and wall_direction == direction
+            and wall_z_minimum <= bottom_z + TOLERANCE
+            and wall_z_maximum >= top_z - TOLERANCE
+        ]
+
+    expected_side_contract_cache: dict[
+        tuple[float, float],
+        tuple[
+            dict[tuple[str, float, int, str], list[tuple[float, float]]],
+            int,
+        ],
+    ] = {}
+
+    def expected_allowed_wall_side_contract(
+        bottom_z: float,
+        top_z: float,
+    ) -> tuple[
+        dict[tuple[str, float, int, str], list[tuple[float, float]]],
+        int,
+    ]:
+        cache_key = (bottom_z, top_z)
+        cached = expected_side_contract_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        expected: dict[
+            tuple[str, float, int, str], list[tuple[float, float]]
+        ] = defaultdict(list)
+        forbidden_segments = 0
+        for (
+            axis,
+            face,
+            direction,
+            along_minimum,
+            along_maximum,
+            wall_z_minimum,
+            wall_z_maximum,
+        ) in vertical_wall_sides:
+            if not (
+                wall_z_minimum <= bottom_z + TOLERANCE
+                and wall_z_maximum >= top_z - TOLERANCE
+            ):
+                continue
+            boundaries = {along_minimum, along_maximum}
+            for _space_id, minimum_x, maximum_x, minimum_y, maximum_y in (
+                STOREY_BAND_ALLOWED_COMMON_SPACE_BOUNDS_XY
+            ):
+                coordinates = (
+                    (minimum_y, maximum_y)
+                    if axis == "X"
+                    else (minimum_x, maximum_x)
+                )
+                boundaries.update(
+                    coordinate
+                    for coordinate in coordinates
+                    if along_minimum + TOLERANCE
+                    < coordinate
+                    < along_maximum - TOLERANCE
+                )
+            ordered = sorted(boundaries)
+            for segment_minimum, segment_maximum in zip(ordered, ordered[1:]):
+                if segment_maximum - segment_minimum <= TOLERANCE:
+                    continue
+                midpoint = (segment_minimum + segment_maximum) / 2.0
+                side_point = (
+                    (
+                        face + direction * STOREY_BAND_SIDE_SAMPLE_OFFSET,
+                        midpoint,
+                    )
+                    if axis == "X"
+                    else (
+                        midpoint,
+                        face + direction * STOREY_BAND_SIDE_SAMPLE_OFFSET,
+                    )
+                )
+                space_ids = allowed_common_space_ids(*side_point)
+                if not space_ids:
+                    forbidden_segments += 1
+                    continue
+                for space_id in space_ids:
+                    expected[(axis, round(face, 5), direction, space_id)].append(
+                        (segment_minimum, segment_maximum)
+                    )
+
+        baseline = {
+            key: merge_expected_side_intervals(intervals)
+            for key, intervals in expected.items()
+        }
+        additions: dict[
+            tuple[str, float, int, str], list[tuple[float, float]]
+        ] = defaultdict(list)
+        records = tuple(baseline.items())
+        for key, intervals in records:
+            axis, face, direction, space_id = key
+            support = directional_wall_support_intervals(
+                axis,
+                face,
+                direction,
+                bottom_z,
+                top_z,
+            )
+            for first, second in zip(intervals, intervals[1:]):
+                gap = (first[1], second[0])
+                if (
+                    TOLERANCE
+                    < gap[1] - gap[0]
+                    <= STOREY_BAND_WALL_SEAM_MAXIMUM_LENGTH + TOLERANCE
+                    and interval_union_covers(gap, support)
+                ):
+                    additions[key].append(gap)
+
+            # 監査側でも追加runを新しい起点にしない。初期台帳runの端点から
+            # 直接0.31m以内かつ全長が同方向実壁支持の延長だけを期待値にする。
+            endpoints = {
+                value
+                for interval in intervals
+                for value in (interval[0], interval[1])
+            }
+            for endpoint in endpoints:
+                for other_key, other_intervals in records:
+                    other_axis, other_face, _other_direction, other_space_id = (
+                        other_key
+                    )
+                    if other_axis == axis or other_space_id != space_id:
+                        continue
+                    extension = tuple(sorted((endpoint, other_face)))
+                    if not (
+                        TOLERANCE
+                        < extension[1] - extension[0]
+                        <= STOREY_BAND_WALL_SEAM_MAXIMUM_LENGTH + TOLERANCE
+                        and any(
+                            minimum - TOLERANCE
+                            <= face
+                            <= maximum + TOLERANCE
+                            for minimum, maximum in other_intervals
+                        )
+                        and interval_union_covers(extension, support)
+                    ):
+                        continue
+                    additions[key].append(extension)
+
+        closed = {
+            key: merge_expected_side_intervals(
+                [*intervals, *additions.get(key, ())]
+            )
+            for key, intervals in baseline.items()
+        }
+        result = (closed, forbidden_segments)
+        expected_side_contract_cache[cache_key] = result
+        return result
+
+    def expected_space_ids_for_run(
+        axis: str,
+        face: float,
+        direction: int,
+        target: tuple[float, float],
+        bottom_z: float,
+        top_z: float,
+    ) -> frozenset[str]:
+        expected, _forbidden_segments = expected_allowed_wall_side_contract(
+            bottom_z,
+            top_z,
         )
+        return frozenset(
+            space_id
+            for (
+                expected_axis,
+                expected_face,
+                expected_direction,
+                space_id,
+            ), intervals in expected.items()
+            if expected_axis == axis
+            and math.isclose(expected_face, face, abs_tol=TOLERANCE)
+            and expected_direction == direction
+            and interval_union_covers(target, intervals)
+        )
+
+    def expected_space_ids_for_mesh_run(
+        axis: str,
+        face: float,
+        direction: int,
+        target: tuple[float, float],
+        bottom_z: float,
+        top_z: float,
+    ) -> frozenset[str]:
+        direct_ids = expected_space_ids_for_run(
+            axis,
+            face,
+            direction,
+            target,
+            bottom_z,
+            top_z,
+        )
+        if direct_ids:
+            return direct_ids
+
+        # Union後の矩形は正規corner boxとの結合により、壁面runの端を最大
+        # 12mmだけ越えることがある。長い本体が期待runに属し、越えた端点が
+        # 同じ空間IDの直交期待runへ接続する場合だけ、その形状差を受理する。
+        endpoint_margin = STOREY_BAND_NORMAL_MAXIMUM_OFFSET + TOLERANCE
+        if target[1] - target[0] <= endpoint_margin * 2.0 + TOLERANCE:
+            return frozenset()
+        core_ids = expected_space_ids_for_run(
+            axis,
+            face,
+            direction,
+            (target[0] + endpoint_margin, target[1] - endpoint_margin),
+            bottom_z,
+            top_z,
+        )
+        if not core_ids:
+            return frozenset()
+        expected, _forbidden_segments = expected_allowed_wall_side_contract(
+            bottom_z,
+            top_z,
+        )
+
+        def endpoint_matches_space(endpoint: float, space_id: str) -> bool:
+            same_axis_intervals = expected.get(
+                (axis, round(face, 5), direction, space_id),
+                [],
+            )
+            if interval_contains_point(same_axis_intervals, endpoint):
+                return True
+            return any(
+                expected_axis != axis
+                and expected_space_id == space_id
+                and abs(expected_face - endpoint)
+                <= STOREY_BAND_NORMAL_MAXIMUM_OFFSET + TOLERANCE
+                and interval_contains_point(intervals, face)
+                for (
+                    expected_axis,
+                    expected_face,
+                    _expected_direction,
+                    expected_space_id,
+                ), intervals in expected.items()
+            )
+
+        return frozenset(
+            space_id
+            for space_id in core_ids
+            if endpoint_matches_space(target[0], space_id)
+            and endpoint_matches_space(target[1], space_id)
+        )
+
+    side_candidate_cache: dict[
+        tuple[tuple[float, float, float, float], float, float, str | None],
+        tuple[dict[tuple[str, float, int], frozenset[str]], int],
+    ] = {}
+    corner_cluster_cache: dict[
+        tuple[float, float, tuple[float, float, float, float]],
+        frozenset[tuple[float, float, float, float]],
+    ] = {}
+
+    def valid_rectangle_side_candidates(
+        rectangle: tuple[float, float, float, float],
+        bottom_z: float,
+        top_z: float,
+        required_axis: str | None = None,
+    ) -> tuple[dict[tuple[str, float, int], frozenset[str]], int]:
+        cache_key = (rectangle, bottom_z, top_z, required_axis)
+        cached = side_candidate_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        minimum_x, maximum_x, minimum_y, maximum_y = rectangle
+        extent_x = maximum_x - minimum_x
+        extent_y = maximum_y - minimum_y
+        candidate_axes = []
+        if extent_x <= 0.013 and required_axis in (None, "X"):
+            candidate_axes.append(("X", minimum_x, maximum_x, minimum_y, maximum_y))
+        if extent_y <= 0.013 and required_axis in (None, "Y"):
+            candidate_axes.append(("Y", minimum_y, maximum_y, minimum_x, maximum_x))
+
+        valid_candidates: dict[tuple[str, float, int], frozenset[str]] = {}
+        successful_sample_checks = 0
+        for (
+            axis,
+            normal_minimum,
+            normal_maximum,
+            along_minimum,
+            along_maximum,
+        ) in candidate_axes:
+            candidate_sides = {
+                (round(wall_face, 5), wall_direction)
+                for (
+                    wall_axis,
+                    wall_face,
+                    wall_direction,
+                    _wall_along_minimum,
+                    _wall_along_maximum,
+                    wall_z_minimum,
+                    wall_z_maximum,
+                ) in vertical_wall_sides
+                if wall_axis == axis
+                and wall_z_minimum <= bottom_z + TOLERANCE
+                and wall_z_maximum >= top_z - TOLERANCE
+            }
+            for face, direction in candidate_sides:
+                support = wall_support_intervals(
+                    axis,
+                    (face,),
+                    bottom_z,
+                    top_z,
+                )
+                support_covers = interval_union_covers(
+                    (along_minimum, along_maximum),
+                    support,
+                )
+                if not support_covers:
+                    endpoint_margin = min(
+                        0.013,
+                        (along_maximum - along_minimum) / 2.0,
+                    )
+                    core_covers = interval_union_covers(
+                        (
+                            along_minimum + endpoint_margin,
+                            along_maximum - endpoint_margin,
+                        ),
+                        support,
+                    )
+                    start_covers = interval_contains_point(
+                        support,
+                        along_minimum,
+                    ) or perpendicular_wall_supports_endpoint(
+                        "Y" if axis == "X" else "X",
+                        along_minimum,
+                        normal_minimum,
+                        normal_maximum,
+                        bottom_z,
+                        top_z,
+                    )
+                    end_covers = interval_contains_point(
+                        support,
+                        along_maximum,
+                    ) or perpendicular_wall_supports_endpoint(
+                        "Y" if axis == "X" else "X",
+                        along_maximum,
+                        normal_minimum,
+                        normal_maximum,
+                        bottom_z,
+                        top_z,
+                    )
+                    if not (core_covers and start_covers and end_covers):
+                        continue
+                expected_normal_bounds = sorted(
+                    (
+                        face + direction * STOREY_BAND_NORMAL_MINIMUM_OFFSET,
+                        face + direction * STOREY_BAND_NORMAL_MAXIMUM_OFFSET,
+                    )
+                )
+                if not (
+                    normal_minimum >= expected_normal_bounds[0] - TOLERANCE
+                    and normal_maximum <= expected_normal_bounds[1] + TOLERANCE
+                ):
+                    continue
+                common_ids = expected_space_ids_for_mesh_run(
+                    axis,
+                    face,
+                    direction,
+                    (along_minimum, along_maximum),
+                    bottom_z,
+                    top_z,
+                )
+                if common_ids:
+                    valid_candidates[(axis, face, direction)] = common_ids
+                    successful_sample_checks += len(common_ids)
+        result = (valid_candidates, successful_sample_checks)
+        side_candidate_cache[cache_key] = result
+        return result
+
+    def rectangles_share_positive_edge(
+        first: tuple[float, float, float, float],
+        second: tuple[float, float, float, float],
+    ) -> bool:
+        overlap_x = min(first[1], second[1]) - max(first[0], second[0])
+        overlap_y = min(first[3], second[3]) - max(first[2], second[2])
+        x_touches = math.isclose(first[1], second[0], abs_tol=TOLERANCE) or (
+            math.isclose(second[1], first[0], abs_tol=TOLERANCE)
+        )
+        y_touches = math.isclose(first[3], second[2], abs_tol=TOLERANCE) or (
+            math.isclose(second[3], first[2], abs_tol=TOLERANCE)
+        )
+        return (x_touches and overlap_y > TOLERANCE) or (
+            y_touches and overlap_x > TOLERANCE
+        )
+
+    def local_corner_cluster(
+        rectangle: tuple[float, float, float, float],
+        rectangles: list[tuple[float, float, float, float]],
+        bottom_z: float,
+        top_z: float,
+    ) -> frozenset[tuple[float, float, float, float]]:
+        cache_key = (bottom_z, top_z, rectangle)
+        cached = corner_cluster_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        corner_cells = {
+            candidate
+            for candidate in rectangles
+            if candidate[1] - candidate[0] <= 0.013
+            and candidate[3] - candidate[2] <= 0.013
+        }
+        cluster = {rectangle}
+        pending = [rectangle]
+        while pending:
+            current = pending.pop()
+            for candidate in corner_cells - cluster:
+                if rectangles_share_positive_edge(current, candidate):
+                    cluster.add(candidate)
+                    pending.append(candidate)
+        frozen = frozenset(cluster)
+        for candidate in frozen:
+            corner_cluster_cache[(bottom_z, top_z, candidate)] = frozen
+        return frozen
+
+    def audit_rectangle_side_direction(
+        band_name: str,
+        rectangle: tuple[float, float, float, float],
+        rectangles: list[tuple[float, float, float, float]],
+        bottom_z: float,
+        top_z: float,
+        is_corner_join: bool,
+    ) -> int:
+        direct_candidates, direct_sample_checks = valid_rectangle_side_candidates(
+            rectangle,
+            bottom_z,
+            top_z,
+        )
+        extent_x = rectangle[1] - rectangle[0]
+        extent_y = rectangle[3] - rectangle[2]
+        direct_x_candidates = {
+            key: space_ids
+            for key, space_ids in direct_candidates.items()
+            if key[0] == "X"
+        }
+        direct_y_candidates = {
+            key: space_ids
+            for key, space_ids in direct_candidates.items()
+            if key[0] == "Y"
+        }
+        if (
+            extent_x <= 0.013
+            and extent_y <= 0.013
+            and direct_x_candidates
+            and direct_y_candidates
+        ):
+            x_space_ids = set().union(*direct_x_candidates.values())
+            y_space_ids = set().union(*direct_y_candidates.values())
+            require(
+                x_space_ids & y_space_ids,
+                "階色帯corner joinのX/Y面が同じ共用空間に属しません: "
+                f"{band_name}/{rectangle}/{sorted(x_space_ids)}/"
+                f"{sorted(y_space_ids)}",
+            )
+            return direct_sample_checks
+
+        if not is_corner_join:
+            require(
+                direct_candidates,
+                "階色帯が監査側の許可共用空間sideにありません: "
+                f"{band_name}/{rectangle}",
+            )
+            require(
+                len(direct_candidates) == 1,
+                "階色帯の壁面・向きが一意に決まりません: "
+                f"{band_name}/{rectangle}/{sorted(direct_candidates)}",
+            )
+            return direct_sample_checks
+
+        cluster = local_corner_cluster(
+            rectangle,
+            rectangles,
+            bottom_z,
+            top_z,
+        )
+        x_candidates: dict[tuple[str, float, int], frozenset[str]] = {}
+        y_candidates: dict[tuple[str, float, int], frozenset[str]] = {}
+        successful_sample_checks = 0
+        for neighbor in rectangles:
+            if neighbor in cluster or not any(
+                rectangles_share_positive_edge(cell, neighbor) for cell in cluster
+            ):
+                continue
+            extent_x = neighbor[1] - neighbor[0]
+            extent_y = neighbor[3] - neighbor[2]
+            if extent_x <= 0.013 and extent_y > 0.013:
+                candidates, checks = valid_rectangle_side_candidates(
+                    neighbor,
+                    bottom_z,
+                    top_z,
+                    "X",
+                )
+                x_candidates.update(candidates)
+                successful_sample_checks += checks
+            if extent_y <= 0.013 and extent_x > 0.013:
+                candidates, checks = valid_rectangle_side_candidates(
+                    neighbor,
+                    bottom_z,
+                    top_z,
+                    "Y",
+                )
+                y_candidates.update(candidates)
+                successful_sample_checks += checks
+
+        require(
+            x_candidates and y_candidates,
+            "階色帯corner joinが有効なX/Y両runへ接続していません: "
+            f"{band_name}/{sorted(cluster)}/"
+            f"X={sorted(x_candidates)}/Y={sorted(y_candidates)}",
+        )
+        x_space_ids = set().union(*x_candidates.values())
+        y_space_ids = set().union(*y_candidates.values())
+        require(
+            x_space_ids & y_space_ids,
+            "階色帯corner joinのX/Y runが同じ共用空間に属しません: "
+            f"{band_name}/{sorted(cluster)}/{sorted(x_space_ids)}/"
+            f"{sorted(y_space_ids)}",
+        )
+        return successful_sample_checks
+
+    def audit_expected_allowed_wall_sides(
+        band_name: str,
+        rectangles: list[tuple[float, float, float, float]],
+        bottom_z: float,
+        top_z: float,
+    ) -> tuple[int, int, float]:
+        expected_by_space, forbidden_side_segments = (
+            expected_allowed_wall_side_contract(bottom_z, top_z)
+        )
+        allowed_intervals: dict[
+            tuple[str, float, int], list[tuple[float, float]]
+        ] = defaultdict(list)
+        for (
+            axis,
+            face,
+            direction,
+            _space_id,
+        ), intervals in expected_by_space.items():
+            allowed_intervals[(axis, face, direction)].extend(intervals)
+
+        allowed_run_count = 0
+        allowed_required_length = 0.0
+        for (axis, face, direction), intervals in allowed_intervals.items():
+            merged = merge_expected_side_intervals(intervals)
+            normal_coordinate = face + direction * (
+                STOREY_BAND_NORMAL_MINIMUM_OFFSET
+                + STOREY_BAND_NORMAL_MAXIMUM_OFFSET
+            ) / 2.0
+            actual_intervals = band_run_intervals(
+                rectangles,
+                axis,
+                normal_coordinate,
+            )
+            for along_minimum, along_maximum in merged:
+                run_required_length = along_maximum - along_minimum
+                run_covered_length = covered_run_length(
+                    (along_minimum, along_maximum),
+                    actual_intervals,
+                )
+                require(
+                    math.isclose(
+                        run_covered_length,
+                        run_required_length,
+                        abs_tol=TOLERANCE,
+                    ),
+                    "監査側台帳で許可した壁面sideに階色帯がありません: "
+                    f"{band_name}/{axis}/{face}/{direction}/"
+                    f"{along_minimum}/{along_maximum}/"
+                    f"{run_covered_length}/{run_required_length}",
+                )
+                allowed_run_count += 1
+                allowed_required_length += run_required_length
+        return (
+            allowed_run_count,
+            forbidden_side_segments,
+            allowed_required_length,
+        )
+
+    required_length = 0.0
+    covered_length = 0.0
+    forbidden_area = 0.0
+    overlap_area = 0.0
+    manifold_error_count = 0
+    wall_support_checks = 0
+    corner_join_checks = 0
+    side_audited_rectangles = 0
+    side_direction_checks = 0
+    allowed_side_runs = 0
+    forbidden_side_segments = 0
+    allowed_side_required_length = 0.0
 
     for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
         band_name = f"VIS_B03_StoreyBand_F{floor:02d}"
-        actual = storey_band_box_bounds(bpy.data.objects[band_name])
-        require(actual, f"階色帯が空です: {band_name}")
+        band = bpy.data.objects.get(band_name)
         require(
-            len(actual) == len(set(actual)),
-            f"階色帯に同一境界の重複部品があります: {band_name}",
+            band is not None and band.type == "MESH",
+            f"階色帯がありません: {band_name}",
         )
-        for minimum, maximum in actual:
-            extent_x = maximum[0] - minimum[0]
-            extent_y = maximum[1] - minimum[1]
-            require(
-                math.isclose(minimum[2], base_z + 0.08, abs_tol=TOLERANCE)
-                and math.isclose(maximum[2], base_z + 0.18, abs_tol=TOLERANCE),
-                f"階色帯が窓下実壁に収まる共通高さではありません: {band_name}/{minimum}/{maximum}",
-            )
-            band_normal_extent_maximum = 0.013
-            is_x_face = (
-                extent_x <= band_normal_extent_maximum and extent_y > 0.02
-            )
-            is_y_face = (
-                extent_y <= band_normal_extent_maximum and extent_x > 0.02
-            )
-            is_corner_join = (
-                extent_x <= band_normal_extent_maximum
-                and extent_y <= band_normal_extent_maximum
-            )
-            require(
-                is_x_face or is_y_face or is_corner_join,
-                f"階色帯に壁厚を横断する短片があります: {band_name}/{minimum}/{maximum}",
-            )
-            center = tuple(
-                (minimum[axis] + maximum[axis]) / 2.0
-                for axis in range(3)
-            )
-            conflicting_private_areas = [
-                name
-                for name, private_minimum, private_maximum in private_bounds
-                if all(
-                    private_minimum[axis] + TOLERANCE
-                    < center[axis]
-                    < private_maximum[axis] - TOLERANCE
-                    for axis in range(3)
+        bottom_z = base_z + STOREY_BAND_BOTTOM_OFFSET
+        top_z = base_z + STOREY_BAND_TOP_OFFSET
+        minimum, maximum = world_bounds(band)
+        require(
+            math.isclose(minimum.z, bottom_z, abs_tol=TOLERANCE)
+            and math.isclose(maximum.z, top_z, abs_tol=TOLERANCE)
+            and all(
+                math.isclose(
+                    (band.matrix_world @ vertex.co).z,
+                    bottom_z,
+                    abs_tol=TOLERANCE,
                 )
-            ]
+                or math.isclose(
+                    (band.matrix_world @ vertex.co).z,
+                    top_z,
+                    abs_tol=TOLERANCE,
+                )
+                for vertex in band.data.vertices
+            ),
+            f"階色帯が共通高さに収まっていません: "
+            f"{band_name}/{tuple(minimum)}/{tuple(maximum)}",
+        )
+        top_polygons = storey_band_top_polygons(band, top_z)
+        occupancy_cells = storey_band_occupancy_cells(top_polygons)
+        rectangles = [cell[:4] for cell in occupancy_cells]
+
+        floor_manifold_errors = storey_band_manifold_error_count(band)
+        manifold_error_count += floor_manifold_errors
+        require(
+            floor_manifold_errors == 0,
+            f"階色帯が閉じたManifoldではありません: "
+            f"{band_name}/{floor_manifold_errors}",
+        )
+
+        floor_overlap_area = sum(
+            (owner_count - 1)
+            * (maximum_x - minimum_x)
+            * (maximum_y - minimum_y)
+            for (
+                minimum_x,
+                maximum_x,
+                minimum_y,
+                maximum_y,
+                owner_count,
+            ) in occupancy_cells
+        )
+        overlap_area += floor_overlap_area
+        require(
+            floor_overlap_area <= TOLERANCE * TOLERANCE,
+            f"階色帯のUnion上面に正面積重複があります: "
+            f"{band_name}/{floor_overlap_area}",
+        )
+
+        for rectangle in rectangles:
+            minimum_x, maximum_x, minimum_y, maximum_y = rectangle
+            extent_x = maximum_x - minimum_x
+            extent_y = maximum_y - minimum_y
             require(
-                not conflicting_private_areas,
-                f"室内側に階色帯があります: {band_name}/{conflicting_private_areas}/{center}",
+                extent_x <= 0.013 or extent_y <= 0.013,
+                f"階色帯に壁面・直交角以外の上面があります: "
+                f"{band_name}/{rectangle}",
             )
-            interior_exclusion_checks += len(private_bounds)
+            x_backed = False
+            x_support: list[tuple[float, float]] = []
+            if extent_x <= 0.013:
+                x_support = wall_support_intervals(
+                    "X",
+                    (minimum_x - 0.002, maximum_x + 0.002),
+                    bottom_z,
+                    top_z,
+                )
+                x_backed = interval_union_covers(
+                    (minimum_y, maximum_y),
+                    x_support,
+                )
+            y_backed = False
+            y_support: list[tuple[float, float]] = []
+            if extent_y <= 0.013:
+                y_support = wall_support_intervals(
+                    "Y",
+                    (minimum_y - 0.002, maximum_y + 0.002),
+                    bottom_z,
+                    top_z,
+                )
+                y_backed = interval_union_covers(
+                    (minimum_x, maximum_x),
+                    y_support,
+                )
+            if extent_x <= 0.013 and not x_backed:
+                endpoint_margin = min(0.013, extent_y / 2.0)
+                x_core_backed = interval_union_covers(
+                    (
+                        minimum_y + endpoint_margin,
+                        maximum_y - endpoint_margin,
+                    ),
+                    x_support,
+                )
+                x_start_backed = interval_contains_point(x_support, minimum_y) or (
+                    perpendicular_wall_supports_endpoint(
+                        "Y",
+                        minimum_y,
+                        minimum_x,
+                        maximum_x,
+                        bottom_z,
+                        top_z,
+                    )
+                )
+                x_end_backed = interval_contains_point(x_support, maximum_y) or (
+                    perpendicular_wall_supports_endpoint(
+                        "Y",
+                        maximum_y,
+                        minimum_x,
+                        maximum_x,
+                        bottom_z,
+                        top_z,
+                    )
+                )
+                x_backed = x_core_backed and x_start_backed and x_end_backed
+            if extent_y <= 0.013 and not y_backed:
+                endpoint_margin = min(0.013, extent_x / 2.0)
+                y_core_backed = interval_union_covers(
+                    (
+                        minimum_x + endpoint_margin,
+                        maximum_x - endpoint_margin,
+                    ),
+                    y_support,
+                )
+                y_start_backed = interval_contains_point(y_support, minimum_x) or (
+                    perpendicular_wall_supports_endpoint(
+                        "X",
+                        minimum_x,
+                        minimum_y,
+                        maximum_y,
+                        bottom_z,
+                        top_z,
+                    )
+                )
+                y_end_backed = interval_contains_point(y_support, maximum_x) or (
+                    perpendicular_wall_supports_endpoint(
+                        "X",
+                        maximum_x,
+                        minimum_y,
+                        maximum_y,
+                        bottom_z,
+                        top_z,
+                    )
+                )
+                y_backed = y_core_backed and y_start_backed and y_end_backed
+            corner_x_support = [
+                (along_minimum, along_maximum)
+                for (
+                    wall_axis,
+                    wall_face,
+                    along_minimum,
+                    along_maximum,
+                    wall_z_minimum,
+                    wall_z_maximum,
+                ) in vertical_wall_faces
+                if wall_axis == "X"
+                and minimum_x - 0.013 - TOLERANCE
+                <= wall_face
+                <= maximum_x + 0.013 + TOLERANCE
+                and wall_z_minimum <= bottom_z + TOLERANCE
+                and wall_z_maximum >= top_z - TOLERANCE
+            ]
+            corner_y_support = [
+                (along_minimum, along_maximum)
+                for (
+                    wall_axis,
+                    wall_face,
+                    along_minimum,
+                    along_maximum,
+                    wall_z_minimum,
+                    wall_z_maximum,
+                ) in vertical_wall_faces
+                if wall_axis == "Y"
+                and minimum_y - 0.013 - TOLERANCE
+                <= wall_face
+                <= maximum_y + 0.013 + TOLERANCE
+                and wall_z_minimum <= bottom_z + TOLERANCE
+                and wall_z_maximum >= top_z - TOLERANCE
+            ]
+            is_corner_join = (
+                extent_x <= 0.013
+                and extent_y <= 0.013
+                and any(
+                    support_minimum <= maximum_y + 0.013
+                    and support_maximum >= minimum_y - 0.013
+                    for support_minimum, support_maximum in corner_x_support
+                )
+                and any(
+                    support_minimum <= maximum_x + 0.013
+                    and support_maximum >= minimum_x - 0.013
+                    for support_minimum, support_maximum in corner_y_support
+                )
+            )
+            require(
+                x_backed or y_backed or is_corner_join,
+                f"階色帯の全区間を支持する実壁面がありません: "
+                f"{band_name}/{rectangle}",
+            )
             if is_corner_join:
                 corner_join_checks += 1
-                continue
-            axis = "X" if is_x_face else "Y"
-            axis_index = 0 if is_x_face else 1
-            along_index = 1 if is_x_face else 0
-            candidate_faces = (
-                minimum[axis_index] - 0.002,
-                maximum[axis_index] + 0.002,
+            wall_support_checks += 1
+            side_direction_checks += audit_rectangle_side_direction(
+                band_name,
+                rectangle,
+                rectangles,
+                bottom_z,
+                top_z,
+                is_corner_join,
             )
-            require(
-                any(
-                    wall_axis == axis
-                    and any(
-                        math.isclose(wall_face, candidate, abs_tol=TOLERANCE)
-                        for candidate in candidate_faces
-                    )
-                    and along_minimum - TOLERANCE
-                    <= center[along_index]
-                    <= along_maximum + TOLERANCE
-                    and z_minimum - TOLERANCE <= center[2] <= z_maximum + TOLERANCE
-                    for (
-                        wall_axis,
-                        wall_face,
-                        along_minimum,
-                        along_maximum,
-                        z_minimum,
-                        z_maximum,
-                    ) in vertical_wall_faces
-                ),
-                f"階色帯を支持する実壁面がありません: {band_name}/{minimum}/{maximum}",
-            )
-            backing_checks += 1
+            side_audited_rectangles += 1
 
-        required_samples = (
-            ("X", -3.35, 3.0, "西棟普通教室の廊下壁"),
-            ("X", -0.15, 3.0, "西棟中庭側の廊下壁"),
-            ("Y", 32.65, -4.0, "西棟・北棟接続壁"),
-            ("X", -12.45, 40.0, "北西階段西壁"),
-            ("X", 2.55, 40.0, "女子トイレ・北側共用部角"),
-            ("Y", 36.35, 30.0, "北棟特別教室前壁"),
-            ("X", 41.55, 40.0, "北東階段西壁"),
-            ("X", 47.25, 40.0, "北東階段東壁"),
+        floor_private_area = 0.0
+        for _name, private_minimum, private_maximum in private_bounds:
+            if not (
+                private_minimum[2] < top_z - TOLERANCE
+                and private_maximum[2] > bottom_z + TOLERANCE
+            ):
+                continue
+            for rectangle in rectangles:
+                floor_private_area += intersect_rectangle(
+                    rectangle,
+                    private_minimum[0] + TOLERANCE,
+                    private_maximum[0] - TOLERANCE,
+                    private_minimum[1] + TOLERANCE,
+                    private_maximum[1] - TOLERANCE,
+                )
+        forbidden_area += floor_private_area
+        require(
+            floor_private_area <= TOLERANCE * TOLERANCE,
+            f"室内・トイレ側に階色帯の占有面があります: "
+            f"{band_name}/{floor_private_area}",
         )
-        for axis, face, along, label in required_samples:
+
+        (
+            floor_allowed_side_runs,
+            floor_forbidden_side_segments,
+            floor_allowed_side_required_length,
+        ) = audit_expected_allowed_wall_sides(
+            band_name,
+            rectangles,
+            bottom_z,
+            top_z,
+        )
+        allowed_side_runs += floor_allowed_side_runs
+        forbidden_side_segments += floor_forbidden_side_segments
+        allowed_side_required_length += floor_allowed_side_required_length
+
+        for (
+            label,
+            floors,
+            axis,
+            face,
+            direction,
+            along_minimum,
+            along_maximum,
+        ) in STOREY_BAND_ACCEPTANCE_RUNS:
+            if floor not in floors:
+                continue
+            target = (along_minimum, along_maximum)
+            normal_coordinate = face + direction * (
+                STOREY_BAND_NORMAL_MINIMUM_OFFSET
+                + STOREY_BAND_NORMAL_MAXIMUM_OFFSET
+            ) / 2.0
+            intervals = band_run_intervals(rectangles, axis, normal_coordinate)
+            run_covered_length = covered_run_length(target, intervals)
+            run_required_length = along_maximum - along_minimum
+            required_length += run_required_length
+            covered_length += run_covered_length
             require(
-                band_covers_wall_point(actual, axis, face, along),
-                f"{floor}Fの必要な共用部壁に階色帯がありません: {label}",
+                math.isclose(
+                    run_covered_length,
+                    run_required_length,
+                    abs_tol=TOLERANCE,
+                ),
+                f"{floor}Fの必須階色帯runが完全被覆されていません: "
+                f"{label}/{run_covered_length:.6f}/{run_required_length:.6f}",
             )
-        if floor > 1:
+
+            # 必須runと同じ壁の反対側を対にし、室内・屋外側への
+            # 両面生成を禁止する。直交角の正規接合は端20mmを除外する。
+            forbidden_normal_center = face - direction * (
+                STOREY_BAND_NORMAL_MINIMUM_OFFSET
+                + STOREY_BAND_NORMAL_MAXIMUM_OFFSET
+            ) / 2.0
+            normal_minimum = forbidden_normal_center - 0.004
+            normal_maximum = forbidden_normal_center + 0.004
+            trimmed_along_minimum = along_minimum + 0.02
+            trimmed_along_maximum = along_maximum - 0.02
+            run_forbidden_area = 0.0
+            if trimmed_along_maximum > trimmed_along_minimum:
+                for rectangle in rectangles:
+                    if axis == "X":
+                        run_forbidden_area += intersect_rectangle(
+                            rectangle,
+                            normal_minimum,
+                            normal_maximum,
+                            trimmed_along_minimum,
+                            trimmed_along_maximum,
+                        )
+                    else:
+                        run_forbidden_area += intersect_rectangle(
+                            rectangle,
+                            trimmed_along_minimum,
+                            trimmed_along_maximum,
+                            normal_minimum,
+                            normal_maximum,
+                        )
+            forbidden_area += run_forbidden_area
             require(
-                band_covers_wall_point(actual, "Y", 45.35, 3.4),
-                f"{floor}Fのトイレ脇正面広壁に階色帯がありません",
+                run_forbidden_area <= TOLERANCE * TOLERANCE,
+                f"{floor}Fの必須runと反対の室内・屋外側に階色帯があります: "
+                f"{label}/{run_forbidden_area}",
             )
 
         expected_door_count = 8 if floor == 1 else 10
@@ -2289,15 +3524,20 @@ def audit_storey_band_relationships(
             len(floor_room_doors) == expected_door_count,
             f"{floor}階のB03-3C室内引き戸数が不正です: {len(floor_room_doors)}",
         )
-        door_depth_checks += len(floor_room_doors)
 
     return {
-        "backing_checks": backing_checks,
-        "opening_checks": backing_checks,
-        "band_depth_checks": backing_checks,
-        "door_depth_checks": door_depth_checks,
-        "interior_exclusion_checks": interior_exclusion_checks,
+        "required_length": round(required_length, 6),
+        "covered_length": round(covered_length, 6),
+        "forbidden_area": round(forbidden_area, 9),
+        "overlap_area": round(overlap_area, 9),
+        "manifold_error_count": manifold_error_count,
+        "wall_support_checks": wall_support_checks,
         "corner_join_checks": corner_join_checks,
+        "side_audited_rectangles": side_audited_rectangles,
+        "side_direction_checks": side_direction_checks,
+        "allowed_side_runs": allowed_side_runs,
+        "forbidden_side_segments": forbidden_side_segments,
+        "allowed_side_required_length": round(allowed_side_required_length, 6),
     }
 
 
@@ -2832,13 +4072,27 @@ def audit_upper_nav_blocker_boundaries() -> dict[str, int]:
     )
     facility_components = box_component_bounds(facility_shell)
     facility_roof_bounds = (
-        ((-12.6, 38.9, 16.9), (-6.6, 45.5, 17.0)),
-        ((-6.6, 38.5, 16.9), (-2.1, 45.5, 17.0)),
-        ((-2.1, 38.5, 16.9), (2.4, 45.5, 17.0)),
+        ((-12.75, 38.5, 16.9), (-6.45, 45.65, 17.0)),
+        ((-6.45, 38.5, 16.9), (-2.1, 45.65, 17.0)),
+        ((-2.1, 38.5, 16.9), (2.4, 45.65, 17.0)),
+    )
+    facility_wall_bounds = (
+        ((-12.75, 38.50, 14.40), (-12.45, 38.90, 16.90)),
+        ((-12.45, 38.50, 14.50), (-9.00, 38.80, 16.90)),
+        ((-9.00, 38.50, 16.70), (-6.75, 38.80, 16.90)),
+        ((-6.75, 38.50, 14.40), (-6.45, 45.35, 16.90)),
+        ((-6.45, 38.50, 14.50), (-5.40, 38.80, 16.90)),
+        ((-5.40, 38.50, 16.80), (-4.20, 38.80, 16.90)),
+        ((-4.20, 38.50, 14.50), (-2.25, 38.80, 16.90)),
+        ((-2.25, 38.50, 14.50), (-1.95, 45.50, 16.90)),
+        ((-1.95, 38.50, 14.50), (-0.90, 38.80, 16.90)),
+        ((-0.90, 38.50, 16.80), (0.30, 38.80, 16.90)),
+        ((0.30, 38.50, 14.50), (2.10, 38.80, 16.90)),
+        ((2.10, 38.50, 14.50), (2.40, 45.50, 16.90)),
     )
     require(
-        len(facility_components) == 19,
-        f"屋上施設Shellが壁16枚・屋根3枚ではありません: "
+        len(facility_components) == 15,
+        f"屋上施設Shellが壁12枚・屋根3枚ではありません: "
         f"{len(facility_components)}",
     )
     for expected_bounds in facility_roof_bounds:
@@ -2871,16 +4125,26 @@ def audit_upper_nav_blocker_boundaries() -> dict[str, int]:
         )
     ]
     require(
-        len(facility_wall_components) == 16,
-        f"屋上施設Shellから抽出した壁が16枚ではありません: "
+        len(facility_wall_components) == 12,
+        f"屋上施設Shellから抽出した壁が12枚ではありません: "
         f"{len(facility_wall_components)}",
     )
-    for expected_bounds in facility_wall_components:
+    for expected_bounds in facility_wall_bounds:
+        physical_matches = [
+            actual_bounds
+            for actual_bounds in facility_wall_components
+            if bounds_match(actual_bounds, expected_bounds)
+        ]
         matches = [
             actual_bounds
             for actual_bounds in actual_components
             if bounds_match(actual_bounds, expected_bounds)
         ]
+        require(
+            len(physical_matches) == 1,
+            f"屋上施設の正規壁箱が一意に存在しません: "
+            f"{expected_bounds}/{len(physical_matches)}",
+        )
         require(
             len(matches) == 1,
             f"屋上施設の壁だけを人間用Nav blockerへ保持できていません: "
@@ -2955,6 +4219,7 @@ def audit_first_floor_nav_blocker_deduplication() -> dict[str, int]:
 
 
 def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
+    architecture_atlas_contract = audit_architecture_atlas_contract()
     atlas_rgb_cells = audit_architecture_atlas_rgb()
     door_hardware_rgb_cells = audit_door_hardware_atlas_rgb()
     consolidated_materials = audit_consolidated_materials()
@@ -3017,8 +4282,9 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     )
     for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
         trim_components += len(
-            storey_band_box_bounds(
-                bpy.data.objects[f"VIS_B03_StoreyBand_F{floor:02d}"]
+            storey_band_top_polygons(
+                bpy.data.objects[f"VIS_B03_StoreyBand_F{floor:02d}"],
+                base_z + STOREY_BAND_TOP_OFFSET,
             )
         )
         trim_components += audit_box_components(
@@ -3044,7 +4310,7 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
         ((41.4, 32.5), (47.4, 38.9)),
         ((-12.6, -7.0), (-11.5, -3.5)),
         ((-9.1, -7.0), (0.0, -3.5)),
-        ((-11.5, -7.0), (-9.1, -6.4)),
+        ((-11.5, -7.0), (-9.1, -6.55)),
         ((-11.5, -4.0), (-9.1, -3.5)),
     )
     floor_component_count = 0
@@ -3068,7 +4334,7 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
                 ((43.5, 32.5), (47.4, 38.9)),
                 ((-12.6, -7.0), (-11.5, -3.5)),
                 ((-9.1, -7.0), (0.0, -3.5)),
-                ((-11.5, -7.0), (-9.1, -6.4)),
+                ((-11.5, -7.0), (-9.1, -6.55)),
                 ((-11.5, -4.0), (-9.1, -3.5)),
             )
             expected_visual_floor = [
@@ -3278,6 +4544,7 @@ def audit_acceptance_visuals(objects: list[bpy.types.Object]) -> dict[str, int]:
     )
 
     return {
+        "architecture_atlas_contract": architecture_atlas_contract,
         "atlas_rgb_cells": atlas_rgb_cells,
         "door_hardware_rgb_cells": door_hardware_rgb_cells,
         "consolidated_materials": consolidated_materials,
@@ -3426,19 +4693,55 @@ def audit_rooftop_escape_crate_mounds() -> dict[str, int | float]:
             f"継ぎ目を作る別体屋上仕上げが残っています: {obsolete_name}",
         )
 
-    for object_name in (
-        "VIS_RooftopFacilityWalls",
-        "COL_RooftopFacilityShell",
+    visual_facility_walls = bpy.data.objects.get("VIS_RooftopFacilityWalls")
+    collider_facility_shell = bpy.data.objects.get("COL_RooftopFacilityShell")
+    require(
+        visual_facility_walls is not None
+        and visual_facility_walls.type == "MESH"
+        and collider_facility_shell is not None
+        and collider_facility_shell.type == "MESH",
+        "屋上更衣室の表示壁またはColliderがありません",
+    )
+    collider_components = mesh_component_world_bounds(collider_facility_shell)
+
+    def south_wall_surface_covers(x: float, z: float) -> bool:
+        for polygon in visual_facility_walls.data.polygons:
+            points = [
+                visual_facility_walls.matrix_world
+                @ visual_facility_walls.data.vertices[index].co
+                for index in polygon.vertices
+            ]
+            if not all(abs(point.y - 38.5) <= TOLERANCE for point in points):
+                continue
+            if (
+                min(point.x for point in points) - TOLERANCE
+                <= x
+                <= max(point.x for point in points) + TOLERANCE
+                and min(point.z for point in points) - TOLERANCE
+                <= z
+                <= max(point.z for point in points) + TOLERANCE
+            ):
+                return True
+        return False
+
+    for expected_bounds in (
+        ((-5.4, 38.5, 16.8), (-4.2, 38.8, 16.9)),
+        ((-0.9, 38.5, 16.8), (0.3, 38.8, 16.9)),
     ):
-        components = mesh_component_world_bounds(bpy.data.objects[object_name])
-        for expected_bounds in (
-            ((-5.4, 38.5, 16.8), (-4.2, 38.8, 16.9)),
-            ((-0.9, 38.5, 16.8), (0.3, 38.8, 16.9)),
-        ):
-            require(
-                any(bounds_match(component, expected_bounds) for component in components),
-                f"屋上更衣室の2.30m引き戸開口がありません: {object_name}/{expected_bounds}",
-            )
+        opening_center_x = (expected_bounds[0][0] + expected_bounds[1][0]) / 2.0
+        require(
+            any(
+                bounds_match(component, expected_bounds)
+                for component in collider_components
+            ),
+            f"屋上更衣室の2.30m引き戸Collider開口がありません: {expected_bounds}",
+        )
+        require(
+            south_wall_surface_covers(opening_center_x, 16.85)
+            and not south_wall_surface_covers(opening_center_x, 15.50),
+            f"屋上更衣室の統合表示壁に2.30m引き戸開口がありません: "
+            f"{expected_bounds}",
+        )
     return {
         "mounds": 2,
         "visual_crates": len(visual_components),
@@ -3547,19 +4850,40 @@ def audit_roof_guards() -> dict[str, int]:
             junction_checks += 1
 
     facility_connections = (
-        ((-12.5, 38.9, 15.0), "WestOuter"),
-        ((2.4, 45.4, 15.0), "NorthOuter"),
+        (
+            (-12.5, 38.5, 15.0),
+            "WestOuter",
+            (-12.5, 38.5, 15.0),
+            "VIS_RooftopFacilityWalls",
+            "COL_RooftopFacilityShell",
+        ),
+        (
+            (2.4, 45.4, 15.0),
+            "NorthOuter",
+            (2.4, 45.4, 15.0),
+            "VIS_B03_ExteriorWalls_F04",
+            "COL_B03_ExteriorWalls_F04",
+        ),
     )
-    for point, suffix in facility_connections:
+    for point, suffix, surface_point, visual_name, collider_name in facility_connections:
         for prefix, facility_name in (
-            ("VIS", "VIS_RooftopFacilityWalls"),
-            ("COL", "COL_RooftopFacilityShell"),
+            ("VIS", visual_name),
+            ("COL", collider_name),
         ):
             require_point_in_box_component(
                 f"{prefix}_RoofGuard_{suffix}",
                 point,
             )
-            require_point_in_box_component(facility_name, point)
+            if prefix == "VIS":
+                require_point_on_axis_aligned_surface(
+                    facility_name,
+                    surface_point,
+                )
+            else:
+                require_point_in_box_component(
+                    facility_name,
+                    surface_point,
+                )
             junction_checks += 2
 
     require(
@@ -4532,7 +5856,7 @@ def audit_windows(objects: list[bpy.types.Object]) -> dict[str, int]:
             1: (0.0, 3.6),
             2: (3.6, 7.2),
             3: (7.2, 10.8),
-            4: (10.8, 15.7),
+            4: (10.8, 16.9),
         }
         for floor, (expected_minimum_z, expected_maximum_z) in expected_storeys.items():
             exterior = bpy.data.objects.get(f"VIS_B03_ExteriorWalls_F{floor:02d}")
@@ -5658,7 +6982,7 @@ def audit_b03_3b_structure(
         [
             ((-12.6, -7.0, -0.15), (-11.5, -3.5, 0.0)),
             ((-9.1, -7.0, -0.15), (0.0, -3.5, 0.0)),
-            ((-11.5, -7.0, -0.15), (-9.1, -6.4, 0.0)),
+            ((-11.5, -7.0, -0.15), (-9.1, -6.55, 0.0)),
             ((-11.5, -4.0, -0.15), (-9.1, -3.5, 0.0)),
         ],
     )
@@ -5666,17 +6990,61 @@ def audit_b03_3b_structure(
         "COL_B03_ElevatorShaftShell",
         [
             ((-11.8, -6.85, 0.0), (-11.5, -3.5, 14.25)),
-            ((-11.5, -6.85, 0.0), (-8.72, -6.55, 14.25)),
-            ((-11.5, -4.0, 0.0), (-8.72, -3.5, 14.25)),
-            ((-9.1, -6.55, 0.0), (-8.72, -5.9, 14.25)),
-            ((-9.1, -4.3, 0.0), (-8.72, -4.0, 14.25)),
-            ((-9.1, -5.9, 2.4), (-8.8, -4.3, 3.6)),
-            ((-9.1, -5.9, 6.0), (-8.8, -4.3, 7.2)),
-            ((-9.1, -5.9, 9.6), (-8.8, -4.3, 10.8)),
-            ((-9.1, -5.9, 13.2), (-8.8, -4.3, 14.25)),
-            ((-11.8, -6.85, 14.25), (-8.72, -3.5, 14.4)),
+            ((-11.5, -6.85, 0.0), (-8.65, -6.55, 14.25)),
+            ((-11.5, -3.8, 0.0), (-8.65, -3.5, 14.25)),
+            ((-8.65, -3.8, 0.0), (-6.0, -3.5, 14.4)),
+            ((-12.45, -3.8, 0.0), (-11.8, -3.5, 14.4)),
+            ((-9.1, -6.55, 0.0), (-8.65, -5.975, 14.25)),
+            ((-9.1, -4.375, 0.0), (-8.65, -3.8, 14.25)),
+            ((-9.1, -5.975, 2.4), (-8.65, -4.375, 3.6)),
+            ((-9.1, -5.975, 6.0), (-8.65, -4.375, 7.2)),
+            ((-9.1, -5.975, 9.6), (-8.65, -4.375, 10.8)),
+            ((-9.1, -5.975, 13.2), (-8.65, -4.375, 14.25)),
+            ((-11.8, -6.85, 14.25), (-8.65, -3.5, 14.4)),
         ],
     )
+    shaft_visual = object_by_name["VIS_B03_ElevatorShaftShell"]
+    front_face_x_coordinates = []
+    for polygon in shaft_visual.data.polygons:
+        normal = (
+            shaft_visual.matrix_world.to_3x3().inverted().transposed()
+            @ polygon.normal
+        ).normalized()
+        points = [
+            shaft_visual.matrix_world @ shaft_visual.data.vertices[index].co
+            for index in polygon.vertices
+        ]
+        minimum_x = min(point.x for point in points)
+        maximum_x = max(point.x for point in points)
+        minimum_y = min(point.y for point in points)
+        if (
+            normal.x > 1.0 - TOLERANCE
+            and maximum_x > -9.0
+            and minimum_y < -3.8 - TOLERANCE
+        ):
+            require(
+                abs(maximum_x - minimum_x) <= TOLERANCE,
+                "エレベーター正面に軸非整列面があります",
+            )
+            front_face_x_coordinates.append((minimum_x + maximum_x) / 2.0)
+    require(
+        front_face_x_coordinates
+        and all(
+            abs(coordinate - -8.65) <= TOLERANCE
+            for coordinate in front_face_x_coordinates
+        ),
+        f"エレベーター正面壁が単一平面ではありません: "
+        f"{sorted(set(round(value, 4) for value in front_face_x_coordinates))}",
+    )
+    for floor_base_z in (0.0, 3.6, 7.2, 10.8):
+        rear_gap_cap_owners = shared_wall_volume_owners(
+            (-12.10, -3.65, floor_base_z + 1.0)
+        )
+        require(
+            len(rear_gap_cap_owners) == 1,
+            f"エレベーター後方空間の階段側閉塞壁がありません: "
+            f"{floor_base_z}/{rear_gap_cap_owners}",
+        )
     require(
         "COL_B03_ElevatorStairPartition" not in object_by_name
         and "VIS_B03_ElevatorStairPartition" not in object_by_name,
@@ -5698,8 +7066,8 @@ def audit_b03_3b_structure(
         "COL_B03_ElevatorClosedDoor_F02_F03",
         [
             (
-                (-8.8, -5.9, floor_base_z),
-                (-8.68, -4.3, floor_base_z + 2.4),
+                (-8.92, -5.975, floor_base_z),
+                (-8.80, -4.375, floor_base_z + 2.4),
             )
             for floor_base_z in (3.6, 7.2)
         ],
@@ -5713,8 +7081,8 @@ def audit_b03_3b_structure(
         "VIS_B03_ElevatorAdjustmentSign_F02_F03",
         [
             (
-                (-8.61, -5.62, floor_base_z + 1.02),
-                (-8.57, -4.58, floor_base_z + 1.50),
+                (-8.79, -5.695, floor_base_z + 1.02),
+                (-8.75, -4.655, floor_base_z + 1.50),
             )
             for floor_base_z in (3.6, 7.2)
         ],
@@ -5745,12 +7113,21 @@ def audit_b03_3b_structure(
         "COL_B03_ElevatorShaftSafety" not in object_by_name,
         "動的エレベーター扉と競合する旧昇降路Safety Colliderが残っています",
     )
-    shaft_outer_size = 3.2
-    shaft_inner_size = 2.6
+    shaft_center_y = (-6.85 + -3.5) / 2.0
+    opening_center_y = (-5.975 + -4.375) / 2.0
+    south_reveal_width = -5.975 - -6.55
+    north_reveal_width = -3.8 - -4.375
+    shaft_outer_size = -3.5 - -6.85
+    shaft_inner_size = -3.8 - -6.55
     require(
-        abs(shaft_outer_size - 3.2) <= TOLERANCE
-        and abs(shaft_inner_size - 2.6) <= TOLERANCE,
-        "エレベーター昇降路の外寸または内寸が不正です",
+        abs(shaft_center_y - -5.175) <= TOLERANCE
+        and abs(opening_center_y - shaft_center_y) <= TOLERANCE
+        and abs(south_reveal_width - north_reveal_width) <= TOLERANCE,
+        "エレベーター開口がシャフト中心に対して左右対称ではありません",
+    )
+    require(
+        "VIS_B06_ElevatorCallPanel_F01" not in object_by_name,
+        "動的壁付け表示と重複する旧静的エレベーターパネルが残っています",
     )
 
     required_nav_sources = {
@@ -6159,6 +7536,85 @@ def rail_centerline_segments(
 ) -> list[tuple[Vector, Vector]]:
     segments = []
     for obj in objects:
+        if obj.type == "MESH" and len(obj.data.vertices) % 8 != 0:
+            # 面所有の境界分割で共線頂点を持つ手すりは、連結部品ごとの
+            # 主軸端面中心から中心線を復元する。形状順序には依存しない。
+            parents = list(range(len(obj.data.vertices)))
+
+            def find(index: int) -> int:
+                while parents[index] != index:
+                    parents[index] = parents[parents[index]]
+                    index = parents[index]
+                return index
+
+            def union(first: int, second: int) -> None:
+                first_root = find(first)
+                second_root = find(second)
+                if first_root != second_root:
+                    parents[second_root] = first_root
+
+            for edge in obj.data.edges:
+                union(edge.vertices[0], edge.vertices[1])
+            indices_by_root: dict[int, list[int]] = {}
+            for vertex in obj.data.vertices:
+                indices_by_root.setdefault(find(vertex.index), []).append(
+                    vertex.index
+                )
+
+            for indices in indices_by_root.values():
+                points = [
+                    obj.matrix_world @ obj.data.vertices[index].co
+                    for index in indices
+                ]
+                minimum = Vector(
+                    tuple(min(point[axis] for point in points) for axis in range(3))
+                )
+                maximum = Vector(
+                    tuple(max(point[axis] for point in points) for axis in range(3))
+                )
+                extents = maximum - minimum
+                long_axes = [
+                    axis for axis in range(3) if extents[axis] > 0.3
+                ]
+                midpoint = (minimum + maximum) * 0.5
+                if len(long_axes) == 1:
+                    axis = long_axes[0]
+                    start = midpoint.copy()
+                    end = midpoint.copy()
+                    start[axis] = minimum[axis]
+                    end[axis] = maximum[axis]
+                else:
+                    require(
+                        long_axes == [0, 2]
+                        and extents.y <= 0.1 + TOLERANCE,
+                        f"手すり部品の斜め主軸を復元できません: "
+                        f"{obj.name}/{tuple(extents)}",
+                    )
+                    center = sum(
+                        points, Vector((0.0, 0.0, 0.0))
+                    ) / len(points)
+                    covariance_xz = sum(
+                        (point.x - center.x) * (point.z - center.z)
+                        for point in points
+                    )
+                    half_thickness = extents.y * 0.5
+                    if covariance_xz < 0.0:
+                        start = Vector(
+                            (minimum.x, midpoint.y, maximum.z - half_thickness)
+                        )
+                        end = Vector(
+                            (maximum.x, midpoint.y, minimum.z + half_thickness)
+                        )
+                    else:
+                        start = Vector(
+                            (minimum.x, midpoint.y, minimum.z + half_thickness)
+                        )
+                        end = Vector(
+                            (maximum.x, midpoint.y, maximum.z - half_thickness)
+                        )
+                if math.hypot(end.x - start.x, end.y - start.y) > 0.3:
+                    segments.append((start, end))
+            continue
         require(
             obj.type == "MESH" and len(obj.data.vertices) % 8 == 0,
             f"手すりMeshの頂点数が8の倍数ではありません: {obj.name}",
@@ -6395,12 +7851,13 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
             visual = bpy.data.objects[visual_name]
             collider = bpy.data.objects[collider_name]
             has_terminal = stair in ("NE", "SW") and suffix == "3FTo4F"
-            has_rooftop_connector = stair == "NW" and suffix == "4FToRooftop"
-            if has_terminal:
-                expected_visual_vertices = 232
+            if stair == "SW" and suffix == "3FTo4F":
+                # シャフト北面へ表示所有を渡した終端手すりは、境界分割点4頂点を持つ。
+                # Colliderと手すり部品数は従来どおりである。
+                expected_visual_vertices = 236
                 expected_collider_vertices = 48
-            elif has_rooftop_connector:
-                expected_visual_vertices = 208
+            elif has_terminal:
+                expected_visual_vertices = 232
                 expected_collider_vertices = 48
             else:
                 expected_visual_vertices = 184
@@ -6454,16 +7911,6 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
                     f"{suffix}到達柵/{stair}",
                 )
                 rail_junction_checks += 2
-
-            if has_rooftop_connector:
-                for rail_height in (0.55, 1.0):
-                    require_rail_segment(
-                        segments,
-                        (-8.92, 38.9, base_z + 3.6 + rail_height),
-                        (-8.92, 38.6, base_z + 3.7 + rail_height),
-                        "屋上到着Ramp柵/NW",
-                    )
-                    rail_junction_checks += 1
 
             if has_terminal:
                 terminal_start = (-12.6, 38.9, base_z + 3.6)
@@ -6547,7 +7994,7 @@ def audit_stair_guards(objects: list[bpy.types.Object]) -> dict[str, int]:
             )
             for bounds in post_bounds
         }
-        expected_post_count = 52 if stair == "NW" else 44
+        expected_post_count = 51 if stair == "NW" else 44
         require(
             len(post_bounds) == expected_post_count
             and len(post_keys) == expected_post_count,
