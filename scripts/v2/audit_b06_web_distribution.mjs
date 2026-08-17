@@ -12,8 +12,8 @@ const STAGE_CATALOG_PATH = join(REPOSITORY_ROOT, "src/world/stageCatalog.ts");
 const FONT_EXTENSIONS = new Set([".ttf", ".otf", ".woff", ".woff2"]);
 const ATLAS = Object.freeze({
   path: "stage-assets/v2/B02/b03_signs_paper_atlas.png",
-  bytes: 80_908,
-  sha256: "78f7c1db74136458f3ff954b2332ff141eafc1724484d38608d9df47b72aeb35",
+  bytes: 63_890,
+  sha256: "04d2e138c7b2c65a9f2987bc4f3115ef61dfc39f3f9228496e5df7bef3af9351",
   width: 2_048,
   height: 1_024,
 });

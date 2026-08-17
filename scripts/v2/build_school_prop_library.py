@@ -208,6 +208,15 @@ def build_materials() -> dict[str, bpy.types.Material]:
             "MAT_Prop_Blackboard", (0.035, 0.16, 0.095, 1.0), roughness=0.88
         ),
         "paper": make_material("MAT_Prop_Paper", (0.90, 0.87, 0.76, 1.0)),
+        "key_white": make_material(
+            "MAT_Prop_KeyWhite", (0.96, 0.96, 0.96, 1.0), roughness=0.36
+        ),
+        "pedal_brass": make_material(
+            "MAT_Prop_PedalBrass",
+            (0.56, 0.43, 0.16, 1.0),
+            metallic=0.62,
+            roughness=0.34,
+        ),
         "accent": make_material(
             "MAT_Prop_AccentOrange", (0.83, 0.25, 0.035, 1.0), metallic=0.25
         ),
@@ -926,11 +935,10 @@ def build_grand_piano(materials: dict[str, bpy.types.Material]) -> list[bpy.type
     )
     parts = [
         add_extruded_polygon(body_outline, 0.75, 1.00, materials["plastic"]),
-        add_box_without_faces(
+        add_box(
             (1.195, 0.28, 0.08),
-            (-0.1775, -0.585, 0.68),
+            (-0.1775, -0.585, 0.71),
             materials["plastic"],
-            omitted_faces=frozenset({"top"}),
         ),
     ]
     white_key_count = 14
@@ -940,19 +948,21 @@ def build_grand_piano(materials: dict[str, bpy.types.Material]) -> list[bpy.type
     for index in range(white_key_count):
         key_center_x = keyboard_min_x + (index + 0.5) * white_key_pitch
         parts.append(
-            add_box(
-                (white_key_pitch - 0.004, 0.23, 0.03),
-                (key_center_x, -0.585, 0.735),
-                materials["paper"],
+            add_box_without_faces(
+                (white_key_pitch - 0.004, 0.255, 0.03),
+                (key_center_x, -0.5725, 0.765),
+                materials["key_white"],
+                omitted_faces=frozenset({"bottom", "back"}),
             )
         )
     for boundary_index in (1, 2, 4, 5, 6, 8, 9, 11, 12, 13):
         key_center_x = keyboard_min_x + boundary_index * white_key_pitch
         parts.append(
-            add_box(
-                (0.035, 0.13, 0.04),
-                (key_center_x, -0.535, 0.77),
+            add_box_without_faces(
+                (0.035, 0.155, 0.04),
+                (key_center_x, -0.5225, 0.80),
                 materials["plastic"],
+                omitted_faces=frozenset({"bottom", "back"}),
             )
         )
     for x, y in ((-0.62, -0.34), (0.53, -0.28), (-0.52, 0.50)):
@@ -969,12 +979,12 @@ def build_grand_piano(materials: dict[str, bpy.types.Material]) -> list[bpy.type
             add_box(
                 (0.04, 0.18, 0.025),
                 (-0.25, -0.30, 0.175),
-                materials["accent"],
+                materials["pedal_brass"],
             ),
             add_box(
                 (0.04, 0.18, 0.025),
                 (-0.11, -0.30, 0.175),
-                materials["accent"],
+                materials["pedal_brass"],
             ),
             add_box(
                 (0.035, 0.035, 0.53),
@@ -1817,16 +1827,16 @@ def audit_library() -> dict[str, object]:
     piano_white_keys = [
         bounds
         for bounds in piano_components
-        if abs(bounds[0].z - 0.72) <= 1.0e-6
-        and abs(bounds[1].z - 0.75) <= 1.0e-6
-        and abs((bounds[1].y - bounds[0].y) - 0.23) <= 1.0e-6
+        if abs(bounds[0].z - 0.75) <= 1.0e-6
+        and abs(bounds[1].z - 0.78) <= 1.0e-6
+        and abs((bounds[1].y - bounds[0].y) - 0.255) <= 1.0e-6
     ]
     piano_black_keys = [
         bounds
         for bounds in piano_components
-        if abs(bounds[0].z - 0.75) <= 1.0e-6
-        and abs(bounds[1].z - 0.79) <= 1.0e-6
-        and abs((bounds[1].y - bounds[0].y) - 0.13) <= 1.0e-6
+        if abs(bounds[0].z - 0.78) <= 1.0e-6
+        and abs(bounds[1].z - 0.82) <= 1.0e-6
+        and abs((bounds[1].y - bounds[0].y) - 0.155) <= 1.0e-6
     ]
     piano_legs = [
         bounds
@@ -1853,6 +1863,37 @@ def audit_library() -> dict[str, object]:
             "グランドピアノの鍵盤・脚・支持棒が不足しています: "
             f"white={len(piano_white_keys)}, black={len(piano_black_keys)}, "
             f"legs={len(piano_legs)}, rods={len(piano_support_rods)}"
+        )
+    piano_materials = {
+        material.name: index
+        for index, material in enumerate(grand_piano.data.materials)
+        if material is not None
+    }
+    for required_material in (
+        "MAT_Prop_KeyWhite",
+        "MAT_Prop_PedalBrass",
+        "MAT_Prop_PlasticBlack",
+    ):
+        if required_material not in piano_materials:
+            raise RuntimeError(
+                f"グランドピアノのMaterialが不足しています: {required_material}"
+            )
+    white_key_material_index = piano_materials["MAT_Prop_KeyWhite"]
+    brass_material_index = piano_materials["MAT_Prop_PedalBrass"]
+    if sum(
+        polygon.material_index == white_key_material_index
+        for polygon in grand_piano.data.polygons
+    ) != 56:
+        raise RuntimeError("グランドピアノ白鍵14基が専用白Materialではありません")
+    if sum(
+        polygon.material_index == brass_material_index
+        for polygon in grand_piano.data.polygons
+    ) != 12:
+        raise RuntimeError("グランドピアノのペダル2基が専用真鍮Materialではありません")
+    if visual_triangles[grand_piano.name] != 320:
+        raise RuntimeError(
+            "グランドピアノの三角形数が造形契約と一致しません: "
+            f"{visual_triangles[grand_piano.name]}/320"
         )
     assert_no_coplanar_upward_overlap(grand_piano)
 
@@ -2000,8 +2041,8 @@ def audit_library() -> dict[str, object]:
             if slot.material is not None
         }
     )
-    if len(used_materials) > 10:
-        raise RuntimeError(f"Material予算超過です: {len(used_materials)}/10")
+    if len(used_materials) > 12:
+        raise RuntimeError(f"Material予算超過です: {len(used_materials)}/12")
 
     result = {
         "visualCount": len(visuals),

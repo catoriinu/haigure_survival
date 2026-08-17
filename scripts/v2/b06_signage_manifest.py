@@ -11,19 +11,20 @@ ATLAS_TILE_SIZE = (
     ATLAS_DIMENSIONS[0] // ATLAS_GRID[0],
     ATLAS_DIMENSIONS[1] // ATLAS_GRID[1],
 )
-EXPECTED_ATLAS_BYTES = 80_908
+EXPECTED_ATLAS_BYTES = 63_890
 EXPECTED_ATLAS_SHA256 = (
-    "78f7c1db74136458f3ff954b2332ff141eafc1724484d38608d9df47b72aeb35"
+    "04d2e138c7b2c65a9f2987bc4f3115ef61dfc39f3f9228496e5df7bef3af9351"
 )
 EXPECTED_MANIFEST_SHA256 = (
-    "59b8ae13717f8902104c93febdf886ea214e191b57451528dc5fe69cf8b14239"
+    "5dcc0e7eec3999796d69d5f0a163345a5f13245216a3b36e1bd320b886b15f59"
 )
 SIGNAGE_FONT_RELATIVE_PATH = "assets/fonts/v2/B06/HaigureSignageSubset-Bold.ttf"
-EXPECTED_FONT_BYTES = 12_520
+EXPECTED_FONT_BYTES = 10_580
 EXPECTED_FONT_SHA256 = (
-    "a0818c2e215739934a23872a481772befcc5224b65442725d1eb05387cb6a29a"
+    "d41e2ab55b3f3267d915adae14b94f8c4adea3025e8c29d30c90b0d1e8218419"
 )
 SIGN_SIZE = (0.45, 0.04, 0.18)
+SIGN_BACKGROUND_SAMPLE_OFFSET = (16, 16)
 ADJUSTMENT_TEXT = "調整中"
 
 FLOOR_SIGN_COLORS = {
@@ -100,9 +101,6 @@ SIGN_TILES = (
     text_tile("f03-home-ec", 26, "家庭科室", "f03"),
     text_tile("f04-ll", 27, "LL教室", "f04"),
     text_tile("f04-music", 28, "音楽室", "f04"),
-    text_tile("main-entry", 29, "主玄関", "f01"),
-    text_tile("north-entry", 30, "北通用口", "f01"),
-    text_tile("rooftop-pool", 31, "プール", "f04"),
     AtlasTile(
         "pictogram-male",
         32,
@@ -355,34 +353,6 @@ SIGN_PLACEMENTS = (
         36.34,
         10.8,
     ),
-    placement(
-        "main-entry",
-        "main-entry",
-        "main-entry",
-        "F01_MainEntry",
-        -1.625,
-        -6.96,
-        0.0,
-    ),
-    placement(
-        "north-entry",
-        "north-entry",
-        "north-entry",
-        "F01_NorthEntry",
-        5.825,
-        45.48,
-        0.0,
-    ),
-    placement(
-        "rooftop-pool",
-        "rooftop-pool",
-        "rooftop-poolside",
-        "RoofPoolSafety",
-        2.42,
-        39.1,
-        14.5,
-        math.pi / 2,
-    ),
     *(
         placement(
             f"f{floor:02d}-toilet-male",
@@ -463,16 +433,10 @@ EXPECTED_FONT_CODEPOINTS = frozenset(
         0x0043,
         0x004C,
         0x0050,
-        0x30D7,
-        0x30EB,
-        0x30FC,
         0x4E2D,
-        0x4E3B,
         0x4F1A,
         0x4FDD,
         0x5065,
-        0x5317,
-        0x53E3,
         0x54E1,
         0x56F3,
         0x5BA4,
@@ -484,18 +448,14 @@ EXPECTED_FONT_CODEPOINTS = frozenset(
         0x6574,
         0x66F8,
         0x697D,
-        0x7384,
         0x7406,
         0x751F,
-        0x7528,
         0x79D1,
         0x7F8E,
         0x8077,
         0x8853,
         0x8ABF,
         0x9001,
-        0x901A,
-        0x95A2,
         0x97F3,
     }
 )
@@ -503,6 +463,22 @@ EXPECTED_FONT_CODEPOINTS = frozenset(
 
 def tile_by_id() -> dict[str, AtlasTile]:
     return {tile.tile_id: tile for tile in ATLAS_TILES}
+
+
+def sign_background_sample_uv(sign_id: str) -> tuple[float, float]:
+    if sign_id not in SIGN_TILE_IDS:
+        raise RuntimeError(f"未知のsign IDです: {sign_id}")
+    tile = tile_by_id()[sign_id].tile
+    column = tile % ATLAS_GRID[0]
+    row = tile // ATLAS_GRID[0]
+    pixel_x = (
+        column * ATLAS_TILE_SIZE[0] + SIGN_BACKGROUND_SAMPLE_OFFSET[0] + 0.5
+    )
+    pixel_y = row * ATLAS_TILE_SIZE[1] + SIGN_BACKGROUND_SAMPLE_OFFSET[1] + 0.5
+    return (
+        pixel_x / ATLAS_DIMENSIONS[0],
+        1.0 - pixel_y / ATLAS_DIMENSIONS[1],
+    )
 
 
 def required_font_codepoints() -> frozenset[int]:
@@ -547,17 +523,20 @@ def validate_manifest() -> None:
     if any(index < 0 or index >= ATLAS_GRID[0] * ATLAS_GRID[1] for index in tile_indices):
         raise RuntimeError("SignsPaper Atlasのtile番号が8x8範囲外です")
     if required_font_codepoints() != EXPECTED_FONT_CODEPOINTS:
-        raise RuntimeError("表札manifestから算出した必要glyphが固定41文字と一致しません")
+        raise RuntimeError(
+            "表札manifestから算出した必要glyphが固定31文字と一致しません"
+        )
     for tile in SIGN_TILES:
         if (tile.text is None) == (tile.pictogram_id is None):
             raise RuntimeError(
                 f"表札tileは文字かpictogramの一方だけを持つ必要があります: {tile.tile_id}"
             )
+        sign_background_sample_uv(tile.tile_id)
     placement_ids = [item.placement_id for item in SIGN_PLACEMENTS]
     if len(placement_ids) != len(set(placement_ids)):
         raise RuntimeError("表札manifestに重複placement IDがあります")
-    if len(SIGN_PLACEMENTS) != 35:
-        raise RuntimeError(f"表札配置が35件ではありません: {len(SIGN_PLACEMENTS)}")
+    if len(SIGN_PLACEMENTS) != 32:
+        raise RuntimeError(f"表札配置が32件ではありません: {len(SIGN_PLACEMENTS)}")
     unknown_sign_ids = sorted(
         {item.sign_id for item in SIGN_PLACEMENTS} - SIGN_TILE_IDS
     )
@@ -580,6 +559,11 @@ def validate_manifest() -> None:
         )
     if any("gym-storage" in item.target_room_id for item in SIGN_PLACEMENTS):
         raise RuntimeError("体育倉庫へ表札を配置してはいけません")
+    forbidden_sign_ids = {"main-entry", "north-entry", "rooftop-pool"}
+    if forbidden_sign_ids & {
+        item.sign_id for item in SIGN_PLACEMENTS
+    }:
+        raise RuntimeError("主玄関・北通用口・プールへ表札を配置してはいけません")
 
 
 validate_manifest()

@@ -47,13 +47,13 @@ BASELINE_PATH = (
 )
 
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
-EXPECTED_GENERATOR_VERSION = "b06-1-school-structure-polish-v38"
+EXPECTED_GENERATOR_VERSION = "b06-3-school-props-signage-v1"
 TOLERANCE = 1.0e-5
 BAND_LENGTH_TOLERANCE = 1.0e-4
 MAX_GLB_BYTES = 25_000_000
-MAX_GLB_NODES = 1_907
-MAX_GLB_MESHES = 1_461
-MAX_GLB_PRIMITIVES = 1_461
+MAX_GLB_NODES = 1_912
+MAX_GLB_MESHES = 1_466
+MAX_GLB_PRIMITIVES = 1_466
 MAX_GLB_VERTICES = 900_000
 MAX_GLB_INDICES = 1_350_000
 MAX_GLB_TRIANGLES = 450_000
@@ -1655,8 +1655,10 @@ def audit_geometry_regression(
     baseline: dict[str, object],
     current: dict[str, object],
 ) -> None:
+    # GLB全体bytesはB06-3のSignsPaper Atlasと文字Meshを含むため、
+    # 上段の現行MAX_GLB_BYTESで固定する。B06-1変更前との回帰比較は
+    # 形状量そのものを表す頂点・index・三角形へ限定する。
     for metric_name in (
-        "glb_bytes",
         "glb_vertices",
         "glb_indices",
         "glb_triangles",

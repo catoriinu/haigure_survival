@@ -125,6 +125,7 @@ from build_b03_school_interiors import (
     architecture_swatch,
     infirmary_curtain_segment_count,
     infirmary_curtain_beam_sight_boxes,
+    swatch_uv,
 )
 from b06_signage_manifest import (
     ATLAS_DIMENSIONS as SIGNAGE_ATLAS_DIMENSIONS,
@@ -137,6 +138,7 @@ from b06_signage_manifest import (
     SIGN_SIZE,
     SIGN_TILES,
     manifest_json,
+    sign_background_sample_uv,
     tile_by_id,
     validate_manifest,
 )
@@ -676,15 +678,22 @@ def component_bounds(
     )
 
 
-def component_atlas_tile(
+def component_atlas_face_contracts(
     obj: bpy.types.Object,
     vertex_indices: frozenset[int],
-) -> int:
+) -> tuple[
+    tuple[
+        tuple[float, float, float],
+        int,
+        float,
+        tuple[tuple[float, float], ...],
+    ],
+    ...,
+]:
     uv_layer = obj.data.uv_layers.get("UVMap")
     if uv_layer is None:
         raise RuntimeError(f"表札ObjectにUVMapがありません: {obj.name}")
     columns, rows = SIGNAGE_ATLAS_GRID
-    tiles: set[int] = set()
     component_polygons = [
         polygon
         for polygon in obj.data.polygons
@@ -692,6 +701,12 @@ def component_atlas_tile(
     ]
     if not component_polygons:
         raise RuntimeError(f"表札componentに面がありません: {obj.name}")
+    if len(component_polygons) != 6:
+        raise RuntimeError(
+            f"表札componentが閉じた6面boxではありません: "
+            f"{obj.name}/{len(component_polygons)}"
+        )
+    face_contracts = []
     for polygon in component_polygons:
         coordinates = [
             uv_layer.data[loop_index].uv
@@ -705,17 +720,50 @@ def component_atlas_tile(
             raise RuntimeError(
                 f"表札UVが8x8 Atlas範囲外です: {obj.name}[{polygon.index}]"
             )
-        tiles.add(row * columns + column)
-    if len(tiles) != 1:
-        raise RuntimeError(
-            f"一つの表札componentが複数tileを参照しています: "
-            f"{obj.name}/{sorted(tiles)}"
+        coordinates_tuple = tuple(
+            (float(coordinate.x), float(coordinate.y))
+            for coordinate in coordinates
         )
-    return next(iter(tiles))
+        uv_area = abs(
+            sum(
+                coordinates_tuple[index][0]
+                * coordinates_tuple[(index + 1) % len(coordinates_tuple)][1]
+                - coordinates_tuple[(index + 1) % len(coordinates_tuple)][0]
+                * coordinates_tuple[index][1]
+                for index in range(len(coordinates_tuple))
+            )
+        ) / 2.0
+        world_normal = obj.matrix_world.to_3x3() @ polygon.normal
+        world_normal.normalize()
+        face_contracts.append(
+            (
+                tuple(float(value) for value in world_normal),
+                row * columns + column,
+                uv_area,
+                coordinates_tuple,
+            )
+        )
+    return tuple(face_contracts)
 
 
 def room_sign_component_contracts(
-) -> list[tuple[str, int, Vector, Vector, int]]:
+) -> list[
+    tuple[
+        str,
+        int,
+        Vector,
+        Vector,
+        tuple[
+            tuple[
+                tuple[float, float, float],
+                int,
+                float,
+                tuple[tuple[float, float], ...],
+            ],
+            ...,
+        ],
+    ]
+]:
     sign_objects = [
         obj
         for obj in bpy.data.objects
@@ -723,7 +771,7 @@ def room_sign_component_contracts(
         and obj.name.startswith("VIS_B03_Interior_")
         and obj.name.endswith("_SignsPaper")
     ]
-    contracts: list[tuple[str, int, Vector, Vector, int]] = []
+    contracts = []
     for obj in sign_objects:
         for component_index, vertex_indices in enumerate(
             connected_component_vertex_indices(obj),
@@ -745,7 +793,7 @@ def room_sign_component_contracts(
                     component_index,
                     minimum,
                     maximum,
-                    component_atlas_tile(obj, vertex_indices),
+                    component_atlas_face_contracts(obj, vertex_indices),
                 )
             )
     return contracts
@@ -754,7 +802,7 @@ def room_sign_component_contracts(
 def room_sign_components() -> list[tuple[str, int, Vector, Vector]]:
     return [
         (object_name, component_index, minimum, maximum)
-        for object_name, component_index, minimum, maximum, _tile
+        for object_name, component_index, minimum, maximum, _face_contracts
         in room_sign_component_contracts()
     ]
 
@@ -789,10 +837,10 @@ def audit_b06_signage_manifest(
     if generation.get("signage") != expected_payload:
         raise RuntimeError("内装生成結果の表札manifestがScene契約と一致しません")
 
-    if len(SIGN_TILES) != 25:
-        raise RuntimeError(f"表札content tileが25件ではありません: {len(SIGN_TILES)}")
-    if len(SIGN_PLACEMENTS) != 35:
-        raise RuntimeError(f"表札placementが35件ではありません: {len(SIGN_PLACEMENTS)}")
+    if len(SIGN_TILES) != 22:
+        raise RuntimeError(f"表札content tileが22件ではありません: {len(SIGN_TILES)}")
+    if len(SIGN_PLACEMENTS) != 32:
+        raise RuntimeError(f"表札placementが32件ではありません: {len(SIGN_PLACEMENTS)}")
     if {
         item.target_room_id
         for item in SIGN_PLACEMENTS
@@ -801,9 +849,6 @@ def audit_b06_signage_manifest(
         raise RuntimeError("全20室の表札target roomが揃っていません")
     expected_target_room_ids = ROOM_VARIANT_IDS | frozenset(
         {
-            "main-entry",
-            "north-entry",
-            "rooftop-poolside",
             "roof-changing-male",
             "roof-changing-female",
             *(
@@ -822,6 +867,13 @@ def audit_b06_signage_manifest(
             f"missing={sorted(expected_target_room_ids - actual_target_room_ids)}, "
             f"unexpected={sorted(actual_target_room_ids - expected_target_room_ids)}"
         )
+    forbidden_target_room_ids = {
+        "main-entry",
+        "north-entry",
+        "rooftop-poolside",
+    }
+    if actual_target_room_ids & forbidden_target_room_ids:
+        raise RuntimeError("主玄関・北通用口・プールの表札がmanifestに残っています")
 
     transform_keys = [
         (
@@ -836,19 +888,36 @@ def audit_b06_signage_manifest(
     actual_components = room_sign_component_contracts()
     if len(actual_components) != len(SIGN_PLACEMENTS):
         raise RuntimeError(
-            f"表札Mesh componentが35件ではありません: {len(actual_components)}"
+            f"表札Mesh componentが32件ではありません: {len(actual_components)}"
         )
     actual_by_key: dict[
         tuple[str, tuple[float, ...]],
-        tuple[int, int],
+        tuple[
+            int,
+            tuple[
+                tuple[
+                    tuple[float, float, float],
+                    int,
+                    float,
+                    tuple[tuple[float, float], ...],
+                ],
+                ...,
+            ],
+        ],
     ] = {}
-    for object_name, component_index, minimum, maximum, tile in actual_components:
+    for (
+        object_name,
+        component_index,
+        minimum,
+        maximum,
+        face_contracts,
+    ) in actual_components:
         key = (object_name, bounds_key(minimum, maximum))
         if key in actual_by_key:
             raise RuntimeError(
                 f"同じowner room・Transformの表札Meshが重複しています: {key}"
             )
-        actual_by_key[key] = (component_index, tile)
+        actual_by_key[key] = (component_index, face_contracts)
 
     expected_tiles = tile_by_id()
     matched_keys: set[tuple[str, tuple[float, ...]]] = set()
@@ -870,11 +939,47 @@ def audit_b06_signage_manifest(
                 f"{item.placement_id}/{key}"
             )
         expected_tile = expected_tiles[item.sign_id].tile
-        if actual[1] != expected_tile:
+        front_faces = [face for face in actual[1] if face[2] > 1.0e-10]
+        if len(front_faces) != 1:
             raise RuntimeError(
-                f"表札UV tileがmanifestと一致しません: {item.placement_id}="
-                f"{actual[1]}/{expected_tile}"
+                f"表札の通常UV面が正面1面だけではありません: "
+                f"{item.placement_id}/{len(front_faces)}"
             )
+        front_normal, front_tile, _front_area, _front_coordinates = front_faces[0]
+        if front_tile != expected_tile:
+            raise RuntimeError(
+                f"表札正面UV tileがmanifestと一致しません: "
+                f"{item.placement_id}={front_tile}/{expected_tile}"
+            )
+        expected_front_normal = Vector(
+            (
+                math.sin(item.rotation_z),
+                -math.cos(item.rotation_z),
+                0.0,
+            )
+        )
+        if Vector(front_normal).dot(expected_front_normal) < 1.0 - 1.0e-6:
+            raise RuntimeError(
+                f"表札文字面が正面を向いていません: "
+                f"{item.placement_id}={front_normal}/{tuple(expected_front_normal)}"
+            )
+        background_point = sign_background_sample_uv(item.sign_id)
+        background_faces = [face for face in actual[1] if face[2] <= 1.0e-10]
+        if len(background_faces) != 5:
+            raise RuntimeError(
+                f"表札の側面・裏面が無地5面ではありません: "
+                f"{item.placement_id}/{len(background_faces)}"
+            )
+        for _normal, tile, _area, coordinates in background_faces:
+            if tile != expected_tile or any(
+                abs(coordinate[axis] - background_point[axis]) > 1.0e-7
+                for coordinate in coordinates
+                for axis in range(2)
+            ):
+                raise RuntimeError(
+                    f"表札の側面・裏面が無地背景pixelを参照していません: "
+                    f"{item.placement_id}"
+                )
         matched_keys.add(key)
     unexpected_keys = sorted(set(actual_by_key) - matched_keys)
     if unexpected_keys:
@@ -931,6 +1036,7 @@ def audit_b06_signage_manifest(
         "target_rooms": len(expected_target_room_ids),
         "room_variant_targets": len(ROOM_VARIANT_IDS),
         "uv_tile_checks": len(matched_keys),
+        "front_only_face_checks": len(matched_keys) * 6,
         "manifest_sha256": actual_manifest_sha256,
     }
 
@@ -1017,7 +1123,7 @@ def audit_door_sign_clearance() -> int:
     sign_components = room_sign_components()
     if len(sign_components) != len(SIGN_PLACEMENTS):
         raise RuntimeError(
-            f"表札が35枚ではありません: {len(sign_components)}"
+            f"表札が32枚ではありません: {len(sign_components)}"
         )
     violations = []
     clearances = room_sign_clearance_volumes()
@@ -1109,6 +1215,61 @@ def require_component_bounds(
 ) -> None:
     if not any(bounds_match(component, expected) for component in components):
         raise RuntimeError(f"{label}のAABBが見つかりません: {expected}")
+
+
+def require_component_swatch(
+    label: str,
+    obj: bpy.types.Object,
+    expected_bounds: tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ],
+    atlas_name: str,
+    swatch: str,
+) -> None:
+    matching_components = [
+        vertex_indices
+        for vertex_indices in connected_component_vertex_indices(obj)
+        if bounds_match(component_bounds(obj, vertex_indices), expected_bounds)
+    ]
+    if len(matching_components) != 1:
+        raise RuntimeError(
+            f"{label}のUV監査対象componentが1件ではありません: "
+            f"{len(matching_components)}"
+        )
+    uv_layer = obj.data.uv_layers.get("UVMap")
+    if uv_layer is None:
+        raise RuntimeError(f"{label}のObjectにUVMapがありません: {obj.name}")
+    expected_uv = swatch_uv(atlas_name, swatch)
+    expected_center = (
+        sum(coordinate[0] for coordinate in expected_uv) / len(expected_uv),
+        sum(coordinate[1] for coordinate in expected_uv) / len(expected_uv),
+    )
+    vertex_indices = matching_components[0]
+    polygons = [
+        polygon
+        for polygon in obj.data.polygons
+        if all(index in vertex_indices for index in polygon.vertices)
+    ]
+    if not polygons:
+        raise RuntimeError(f"{label}のcomponentに面がありません")
+    for polygon in polygons:
+        coordinates = [
+            uv_layer.data[loop_index].uv
+            for loop_index in polygon.loop_indices
+        ]
+        actual_center = (
+            sum(coordinate.x for coordinate in coordinates) / len(coordinates),
+            sum(coordinate.y for coordinate in coordinates) / len(coordinates),
+        )
+        if any(
+            abs(actual_center[axis] - expected_center[axis]) > 1.0e-7
+            for axis in range(2)
+        ):
+            raise RuntimeError(
+                f"{label}が期待swatchを参照していません: "
+                f"{actual_center}/{expected_center}"
+            )
 
 
 def consume_component_bounds(
@@ -2724,7 +2885,7 @@ def audit_music_room_orientation() -> dict[str, int]:
 
     keybed_bounds = transformed_box_bounds(
         (piano_x, piano_y, 10.8),
-        (-0.1775, -0.585, 0.68),
+        (-0.1775, -0.585, 0.71),
         (1.195, 0.28, 0.08),
         piano_rotation,
     )
@@ -2740,10 +2901,10 @@ def audit_music_room_orientation() -> dict[str, int]:
             (piano_x, piano_y, 10.8),
             (
                 keyboard_min_x + (index + 0.5) * white_key_pitch,
-                -0.585,
-                0.735,
+                -0.5725,
+                0.765,
             ),
-            (white_key_pitch - 0.004, 0.23, 0.03),
+            (white_key_pitch - 0.004, 0.255, 0.03),
             piano_rotation,
         )
         require_component_bounds(
@@ -2751,16 +2912,23 @@ def audit_music_room_orientation() -> dict[str, int]:
             visual_components,
             expected_white_key,
         )
+        require_component_swatch(
+            f"音楽室ピアノ白鍵{index + 1:02d}",
+            visual,
+            expected_white_key,
+            "FurnitureProps",
+            "key_white",
+        )
     black_key_boundaries = (1, 2, 4, 5, 6, 8, 9, 11, 12, 13)
     for key_number, boundary_index in enumerate(black_key_boundaries, start=1):
         expected_black_key = transformed_box_bounds(
             (piano_x, piano_y, 10.8),
             (
                 keyboard_min_x + boundary_index * white_key_pitch,
-                -0.535,
-                0.77,
+                -0.5225,
+                0.80,
             ),
-            (0.035, 0.13, 0.04),
+            (0.035, 0.155, 0.04),
             piano_rotation,
         )
         require_component_bounds(
@@ -2768,6 +2936,28 @@ def audit_music_room_orientation() -> dict[str, int]:
             visual_components,
             expected_black_key,
         )
+
+    pedal_swatch_checks = 0
+    for pedal_index, pedal_x in enumerate((-0.25, -0.11), start=1):
+        expected_pedal = transformed_box_bounds(
+            (piano_x, piano_y, 10.8),
+            (pedal_x, -0.30, 0.175),
+            (0.04, 0.18, 0.025),
+            piano_rotation,
+        )
+        require_component_bounds(
+            f"音楽室ピアノ真鍮ペダル{pedal_index}",
+            visual_components,
+            expected_pedal,
+        )
+        require_component_swatch(
+            f"音楽室ピアノ真鍮ペダル{pedal_index}",
+            visual,
+            expected_pedal,
+            "FurnitureProps",
+            "door_hardware_yellow",
+        )
+        pedal_swatch_checks += 1
 
     blackboard_bounds = (
         (41.26, 39.2, 11.92),
@@ -2843,6 +3033,8 @@ def audit_music_room_orientation() -> dict[str, int]:
         "piano_components": len(piano_visual_components),
         "piano_white_keys": white_key_count,
         "piano_black_keys": len(black_key_boundaries),
+        "piano_white_key_swatch_checks": white_key_count,
+        "piano_pedal_swatch_checks": pedal_swatch_checks,
         "piano_visual_containment": piano_visual_containment,
         "chair_backs": chair_back_checks,
         "blackboard_clearance_mm": round(blackboard_gap * 1000),

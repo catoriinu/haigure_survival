@@ -23,6 +23,8 @@ from b06_signage_manifest import (
     SIGN_TILES,
     atlas_swatch_colors,
     manifest_json,
+    sign_background_sample_uv,
+    tile_by_id,
     validate_manifest,
 )
 
@@ -83,7 +85,7 @@ ATLAS_DEFINITIONS = {
             "fabric_green": (78, 128, 99),
             "plastic_black": (24, 28, 31),
             "blackboard": (22, 85, 54),
-            "piano": (21, 19, 18),
+            "key_white": (245, 245, 245),
             "accent_orange": (218, 78, 23),
             "accent_red": (180, 42, 34),
             "door_hardware_yellow": (181, 153, 74),
@@ -764,8 +766,11 @@ def consolidate_school_materials(
 
 def swatch_uv(atlas_name: str, swatch: str) -> tuple[tuple[float, float], ...]:
     definition = ATLAS_DEFINITIONS[atlas_name]
-    names = list(definition["swatches"])
-    index = names.index(swatch)
+    if atlas_name == "SignsPaper":
+        index = tile_by_id()[swatch].tile
+    else:
+        names = list(definition["swatches"])
+        index = names.index(swatch)
     columns, rows = tuple(definition["grid"])
     column = index % columns
     row = index // columns
@@ -781,11 +786,17 @@ def swatch_uv(atlas_name: str, swatch: str) -> tuple[tuple[float, float], ...]:
         v0 = 1.0 - (center_y + half_sample) / height
         v1 = 1.0 - (center_y - half_sample) / height
         return ((u0, v0), (u1, v0), (u1, v1), (u0, v1))
-    margin = 0.015
-    u0 = column / columns + margin
-    u1 = (column + 1) / columns - margin
-    v0 = 1.0 - (row + 1) / rows + margin
-    v1 = 1.0 - row / rows - margin
+    if atlas_name == "SignsPaper":
+        width, height = tuple(definition["dimensions"])
+        margin_u = 2.0 / width
+        margin_v = 2.0 / height
+    else:
+        margin_u = 0.015
+        margin_v = 0.015
+    u0 = column / columns + margin_u
+    u1 = (column + 1) / columns - margin_u
+    v0 = 1.0 - (row + 1) / rows + margin_v
+    v1 = 1.0 - row / rows - margin_v
     return ((u0, v0), (u1, v0), (u1, v1), (u0, v1))
 
 
@@ -846,6 +857,55 @@ class MeshBatch:
         rotation_z: float = 0.0,
         rotation_x: float = 0.0,
     ) -> None:
+        uv = swatch_uv(self.atlas_name, swatch)
+        self._add_box_with_face_uvs(
+            center,
+            size,
+            (uv,) * 6,
+            rotation_z,
+            rotation_x,
+        )
+
+    def add_sign_box(
+        self,
+        center: tuple[float, float, float],
+        size: tuple[float, float, float],
+        front_swatch: str,
+        rotation_z: float = 0.0,
+    ) -> None:
+        front_uv = swatch_uv(self.atlas_name, front_swatch)
+        background_point = sign_background_sample_uv(front_swatch)
+        background_uv = (background_point,) * 4
+        self._add_box_with_face_uvs(
+            center,
+            size,
+            (
+                background_uv,
+                background_uv,
+                front_uv,
+                background_uv,
+                background_uv,
+                background_uv,
+            ),
+            rotation_z,
+            0.0,
+        )
+
+    def _add_box_with_face_uvs(
+        self,
+        center: tuple[float, float, float],
+        size: tuple[float, float, float],
+        face_uvs: tuple[
+            tuple[tuple[float, float], ...],
+            tuple[tuple[float, float], ...],
+            tuple[tuple[float, float], ...],
+            tuple[tuple[float, float], ...],
+            tuple[tuple[float, float], ...],
+            tuple[tuple[float, float], ...],
+        ],
+        rotation_z: float,
+        rotation_x: float,
+    ) -> None:
         sx, sy, sz = (value / 2 for value in size)
         local = (
             (-sx, -sy, -sz),
@@ -872,10 +932,9 @@ class MeshBatch:
             (2, 3, 7, 6),
             (3, 0, 4, 7),
         )
-        uv = swatch_uv(self.atlas_name, swatch)
-        for face in faces:
+        for face, face_uv in zip(faces, face_uvs, strict=True):
             self.faces.append(tuple(offset + index for index in face))
-            self.face_uvs.append(uv)
+            self.face_uvs.append(face_uv)
 
     def add_cylinder(
         self,
@@ -1102,6 +1161,8 @@ def prop_material_swatch(material_name: str) -> str:
         "MAT_Prop_PlasticBlack": "plastic_black",
         "MAT_Prop_Blackboard": "blackboard",
         "MAT_Prop_Paper": "wood_light",
+        "MAT_Prop_KeyWhite": "key_white",
+        "MAT_Prop_PedalBrass": "door_hardware_yellow",
         "MAT_Prop_AccentOrange": "accent_orange",
         "MAT_Prop_AccentRed": "accent_red",
     }
@@ -1482,7 +1543,7 @@ def apply_signage_manifest(rooms: list[RoomBuilder]) -> dict[str, object]:
                 item.rotation_z,
             )
         )
-        room.signs.add_box(
+        room.signs.add_sign_box(
             item.position,
             SIGN_SIZE,
             item.sign_id,

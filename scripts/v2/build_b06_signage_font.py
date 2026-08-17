@@ -29,9 +29,9 @@ EXPECTED_SOURCE_SHA256 = (
 )
 EXPECTED_SOURCE_BYTES = 9_590_732
 EXPECTED_OUTPUT_SHA256 = (
-    "a0818c2e215739934a23872a481772befcc5224b65442725d1eb05387cb6a29a"
+    "d41e2ab55b3f3267d915adae14b94f8c4adea3025e8c29d30c90b0d1e8218419"
 )
-EXPECTED_OUTPUT_BYTES = 12_520
+EXPECTED_OUTPUT_BYTES = 10_580
 PINNED_FONTTOOLS_VERSION = "4.63.0"
 FONT_FAMILY = "Haigure Signage Subset"
 FONT_SUBFAMILY = "Bold"
@@ -187,7 +187,7 @@ def validate_output(
     actual_codepoints = source_cmap(font)
     if actual_codepoints != EXPECTED_FONT_CODEPOINTS:
         raise RuntimeError(
-            "subsetのUnicode集合が固定41文字と一致しません: "
+            "subsetのUnicode集合が固定31文字と一致しません: "
             f"actual={len(actual_codepoints)} expected={len(EXPECTED_FONT_CODEPOINTS)}"
         )
     remaining_variable_tables = sorted(VARIABLE_TABLES & set(font.keys()))

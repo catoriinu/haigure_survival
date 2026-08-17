@@ -23,6 +23,7 @@ from b06_signage_manifest import (
     ATLAS_GRID as SIGNAGE_ATLAS_GRID,
     SIGN_PLACEMENTS,
     SIGN_SIZE,
+    sign_background_sample_uv,
     tile_by_id,
 )
 
@@ -2859,6 +2860,8 @@ def require_sign_box_tile(
     obj: bpy.types.Object,
     expected_bounds: tuple[Vector, Vector],
     expected_tile: int,
+    expected_rotation_z: float,
+    expected_background_point: tuple[float, float],
 ) -> None:
     require(obj.type == "MESH", f"{obj.name}: SignsPaperがMeshではありません")
     require(
@@ -2896,7 +2899,7 @@ def require_sign_box_tile(
         f"{obj.name}: 保健室北側表札boxが6面ではありません",
     )
     columns, rows = SIGNAGE_ATLAS_GRID
-    actual_tiles: set[int] = set()
+    face_contracts = []
     for polygon in component_polygons:
         coordinates = [
             uv_layer.data[loop_index].uv
@@ -2914,12 +2917,61 @@ def require_sign_box_tile(
             0 <= column < columns and 0 <= row < rows,
             f"{obj.name}: 保健室北側表札UVがAtlas範囲外です",
         )
-        actual_tiles.add(row * columns + column)
+        coordinates_tuple = tuple(
+            (float(coordinate.x), float(coordinate.y))
+            for coordinate in coordinates
+        )
+        uv_area = abs(
+            sum(
+                coordinates_tuple[index][0]
+                * coordinates_tuple[(index + 1) % len(coordinates_tuple)][1]
+                - coordinates_tuple[(index + 1) % len(coordinates_tuple)][0]
+                * coordinates_tuple[index][1]
+                for index in range(len(coordinates_tuple))
+            )
+        ) / 2.0
+        world_normal = obj.matrix_world.to_3x3() @ polygon.normal
+        world_normal.normalize()
+        face_contracts.append(
+            (
+                world_normal,
+                row * columns + column,
+                uv_area,
+                coordinates_tuple,
+            )
+        )
+    front_faces = [face for face in face_contracts if face[2] > 1.0e-10]
     require(
-        actual_tiles == {expected_tile},
-        f"{obj.name}: 保健室北側表札UV tileが不正です: "
-        f"actual={sorted(actual_tiles)}, expected={expected_tile}",
+        len(front_faces) == 1 and front_faces[0][1] == expected_tile,
+        f"{obj.name}: 保健室北側表札の正面UVが1面ではありません",
     )
+    expected_front_normal = Vector(
+        (
+            math.sin(expected_rotation_z),
+            -math.cos(expected_rotation_z),
+            0.0,
+        )
+    )
+    require(
+        front_faces[0][0].dot(expected_front_normal) >= 1.0 - 1.0e-6,
+        f"{obj.name}: 保健室北側表札の文字面が正面を向いていません",
+    )
+    background_faces = [face for face in face_contracts if face[2] <= 1.0e-10]
+    require(
+        len(background_faces) == 5,
+        f"{obj.name}: 保健室北側表札の側面・裏面が無地5面ではありません",
+    )
+    for _normal, tile, _area, coordinates in background_faces:
+        require(
+            tile == expected_tile
+            and all(
+                abs(coordinate[axis] - expected_background_point[axis])
+                <= 1.0e-7
+                for coordinate in coordinates
+                for axis in range(2)
+            ),
+            f"{obj.name}: 保健室北側表札の側面・裏面UVが無地ではありません",
+        )
 
 
 def require_component_bounds_set(
@@ -3414,6 +3466,9 @@ def audit_blender_geometry() -> dict[str, int]:
         infirmary_north_sign.rotation_z,
     )
     expected_sign_tile = tile_by_id()[infirmary_north_sign.sign_id].tile
+    expected_sign_background = sign_background_sample_uv(
+        infirmary_north_sign.sign_id
+    )
     for signs_object_name in (
         "VIS_B03_Interior_F01_Infirmary_SignsPaper",
         "VIS_RoomVariant_F01_Infirmary_Disordered_SignsPaper",
@@ -3422,6 +3477,8 @@ def audit_blender_geometry() -> dict[str, int]:
             bpy.data.objects[signs_object_name],
             expected_sign_bounds,
             expected_sign_tile,
+            infirmary_north_sign.rotation_z,
+            expected_sign_background,
         )
         room_variant_signage_checks += 1
 

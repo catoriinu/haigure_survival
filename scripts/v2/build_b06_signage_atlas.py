@@ -19,6 +19,7 @@ from b06_signage_manifest import (
     EXPECTED_ATLAS_SHA256,
     EXPECTED_FONT_CODEPOINTS,
     EXPECTED_MANIFEST_SHA256,
+    SIGN_BACKGROUND_SAMPLE_OFFSET,
     SIGN_TILES,
     AtlasTile,
     manifest_json,
@@ -44,6 +45,7 @@ DEFAULT_PUBLIC_OUTPUT = (
 )
 PINNED_FONTTOOLS_VERSION = "4.63.0"
 PINNED_PILLOW_VERSION = "12.3.0"
+TEXT_CONTENT_MAX_SIZE = (184, 64)
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -84,7 +86,7 @@ def validate_font(path: Path) -> None:
             f"sha256={actual_sha256}/{EXPECTED_FONT_SHA256}"
         )
     if font_codepoints(path) != EXPECTED_FONT_CODEPOINTS:
-        raise RuntimeError("SignsPaper生成用fontのUnicode集合が固定41文字と一致しません")
+        raise RuntimeError("SignsPaper生成用fontのUnicode集合が固定31文字と一致しません")
 
 
 def tile_bounds(tile_index: int) -> tuple[int, int, int, int]:
@@ -117,7 +119,7 @@ def draw_text_tile(
         width=2,
     )
     font = None
-    for size in range(72, 23, -1):
+    for size in range(64, 19, -1):
         candidate = ImageFont.truetype(
             str(font_path),
             size=size,
@@ -130,13 +132,39 @@ def draw_text_tile(
             anchor="lt",
             stroke_width=1,
         )
-        if bounds[2] - bounds[0] <= 220 and bounds[3] - bounds[1] <= 88:
+        if (
+            bounds[2] - bounds[0] <= TEXT_CONTENT_MAX_SIZE[0]
+            and bounds[3] - bounds[1] <= TEXT_CONTENT_MAX_SIZE[1]
+        ):
             font = candidate
             break
     if font is None:
         raise RuntimeError(f"表札文字をtileへ収められません: {tile.tile_id}")
+    text_position = ((left + right) / 2.0, (top + bottom) / 2.0 - 1.0)
+    placed_bounds = draw.textbbox(
+        text_position,
+        tile.text,
+        font=font,
+        anchor="mm",
+        stroke_width=1,
+    )
+    content_left = left + (ATLAS_TILE_SIZE[0] - TEXT_CONTENT_MAX_SIZE[0]) // 2
+    content_top = top + (ATLAS_TILE_SIZE[1] - TEXT_CONTENT_MAX_SIZE[1]) // 2
+    content_right = content_left + TEXT_CONTENT_MAX_SIZE[0]
+    content_bottom = content_top + TEXT_CONTENT_MAX_SIZE[1]
+    if not (
+        placed_bounds[0] >= content_left
+        and placed_bounds[1] >= content_top
+        and placed_bounds[2] <= content_right
+        and placed_bounds[3] <= content_bottom
+    ):
+        raise RuntimeError(
+            f"表札文字が固定内側余白を越えています: "
+            f"{tile.tile_id}={placed_bounds}/"
+            f"{(content_left, content_top, content_right, content_bottom)}"
+        )
     draw.text(
-        ((left + right) / 2.0, (top + bottom) / 2.0 - 1.0),
+        text_position,
         tile.text,
         font=font,
         fill=tile.foreground,
@@ -211,6 +239,19 @@ def build_atlas(font_path: Path) -> Image.Image:
             draw_text_tile(draw, tile, font_path)
         else:
             draw_pictogram_tile(draw, tile)
+    for tile in SIGN_TILES:
+        left, top, _right, _bottom = tile_bounds(tile.tile)
+        sample = image.getpixel(
+            (
+                left + SIGN_BACKGROUND_SAMPLE_OFFSET[0],
+                top + SIGN_BACKGROUND_SAMPLE_OFFSET[1],
+            )
+        )
+        if sample != tile.background:
+            raise RuntimeError(
+                f"表札側面用背景sampleが無地ではありません: "
+                f"{tile.tile_id}={sample}/{tile.background}"
+            )
     return image
 
 

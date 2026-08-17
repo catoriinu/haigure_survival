@@ -21,7 +21,7 @@
 ## 変更内容
 
 1. variable fontの`wght=700`を静的Boldへ変換した。
-2. 表札、数字、ハイフン、エレベーターの「調整中」に必要な41 Unicode codepointへsubset化した。
+2. 表札、数字、ハイフン、エレベーターの「調整中」に必要な31 Unicode codepointへsubset化した。
 3. primary font nameをReserved Font Nameと区別する`Haigure Signage Subset`へ変更した。
 4. PostScript nameを`HaigureSignageSubset-Bold`へ変更した。
 5. 原本の著作権、商標、作者、説明、OFL本文・URLのname metadataを維持した。
@@ -30,10 +30,10 @@
 生成物:
 
 - パス: `assets/fonts/v2/B06/HaigureSignageSubset-Bold.ttf`
-- 12,520 bytes
-- SHA-256: `A0818C2E215739934A23872A481772BEFCC5224B65442725D1EB05387CB6A29A`
-- Unicode cmap: 41 codepoint
-- glyph: `.notdef`を含む42 glyph
+- 10,580 bytes
+- SHA-256: `D41E2AB55B3F3267D915ADAE14B94F8C4ADEA3025E8C29D30C90B0D1E8218419`
+- Unicode cmap: 31 codepoint
+- glyph: `.notdef`を含む32 glyph
 - `OS/2.usWeightClass=700`
 - `OS/2.fsType=0`
 
@@ -47,16 +47,10 @@ U+0033 3
 U+0043 C
 U+004C L
 U+0050 P
-U+30D7 プ
-U+30EB ル
-U+30FC ー
 U+4E2D 中
-U+4E3B 主
 U+4F1A 会
 U+4FDD 保
 U+5065 健
-U+5317 北
-U+53E3 口
 U+54E1 員
 U+56F3 図
 U+5BA4 室
@@ -68,22 +62,18 @@ U+6559 教
 U+6574 整
 U+66F8 書
 U+697D 楽
-U+7384 玄
 U+7406 理
 U+751F 生
-U+7528 用
 U+79D1 科
 U+7F8E 美
 U+8077 職
 U+8853 術
 U+8ABF 調
 U+9001 送
-U+901A 通
-U+95A2 関
 U+97F3 音
 ```
 
-表示文字列は`3-1`～`3-3`、`2-1`～`2-3`、`1-1`～`1-3`、保健室、図書室、職員室、PC室、生徒会室、放送室、理科室、美術室、家庭科室、LL教室、音楽室、主玄関、北通用口、プール、調整中である。男性・女性ピクトグラムは文字glyphではなくPillowで描画した図形である。
+表示文字列は`3-1`～`3-3`、`2-1`～`2-3`、`1-1`～`1-3`、保健室、図書室、職員室、PC室、生徒会室、放送室、理科室、美術室、家庭科室、LL教室、音楽室、調整中である。主玄関、北通用口、プールの表札はゲーム内確認後の指示により撤去した。男性・女性ピクトグラムは文字glyphではなくPillowで描画した図形である。
 
 ## 再生成
 
@@ -101,9 +91,9 @@ python -m venv .venv-b06-signage
 - fontTools 4.63.0
 - Pillow 12.3.0
 - FreeType 2.14.3（使用したPillow Windows wheel）
-- SignsPaper Atlas: 80,908 bytes
-- Atlas SHA-256: `78F7C1DB74136458F3FF954B2332FF141EAFC1724484D38608D9DF47B72AEB35`
-- manifest SHA-256: `59B8AE13717F8902104C93FEBDF886EA214E191B57451528DC5FE69CF8B14239`
+- SignsPaper Atlas: 63,890 bytes
+- Atlas SHA-256: `04D2E138C7B2C65A9F2987BC4F3115EF61DFC39F3F9228496E5DF7BEF3AF9351`
+- manifest SHA-256: `5DCC0E7EEC3999796D69D5F0A163345A5F13245216A3B36E1BD320B886B15F59`
 
 ## 配布
 

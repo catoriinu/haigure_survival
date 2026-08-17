@@ -32,7 +32,7 @@
 | `VIS_Prop_LargeWoodTable` | 理科室、図書室ほか | 1.80×0.90×0.72 | 床置き | 不可 | `COL_Prop_LargeWoodTable` | 60 | Wood、MetalGray |
 | `VIS_Prop_CleaningLocker` | 各教室、廊下 | 0.90×0.45×1.80 | 床置き | 不可 | `COL_Prop_CleaningLocker` | 30 | MetalGray、MetalDark |
 | `VIS_Prop_BaggageLocker` | 各教室 | 1.80×0.45×1.20 | 床置き | 不可 | `COL_Prop_BaggageLocker` | 120 | Wood |
-| `VIS_Prop_GrandPiano` | 音楽室 | 1.55×1.45×1.00 | 床置き | 不可 | `COL_Prop_GrandPiano` | 414 | PlasticBlack、Paper、MetalDark、AccentOrange |
+| `VIS_Prop_GrandPiano` | 音楽室 | 1.55×1.45×1.00 | 床置き | 不可 | `COL_Prop_GrandPiano` | 320 | PlasticBlack、KeyWhite、MetalDark、PedalBrass |
 | `VIS_Prop_InfirmaryBed` | 保健室 | 2.00×0.90×0.55 | 床置き | 不可 | `COL_Prop_InfirmaryBed` | 72 | Fabric、MetalGray、Paper |
 | `VIS_Prop_PcMonitor` | PC室、職員室 | 0.55×0.18×0.45 | 底面中央 | 可 | なし | 38 | PlasticBlack、MetalDark、MetalGray |
 | `VIS_Prop_BasketballGoal` | 体育館 | 1.80×0.70×1.205 | 壁付け | 可 | なし | 288 | Porcelain、AccentRed |
@@ -47,8 +47,8 @@
 ## 実測結果
 
 - 表示小物22種、簡略Collider 10種、Library Mesh合計32個
-- 表示小物2,732三角形、Collider 120三角形
-- 共有Material 10種。全表示Meshのdatablockはsingle-user
+- 表示小物2,638三角形、Collider 120三角形
+- 共有Material 12種。全表示Meshのdatablockはsingle-user
 - Object名とMesh Data名は全32個で一致し、正本のrotationは0、scaleは1
 - 通行不可10種だけに12三角形の箱Colliderを設定
 - 教室机、教室椅子、職員椅子、PCモニターの転倒・回転は、専用小物を作らず、Preview内で正本Meshの複製後Transformだけを変更
@@ -62,8 +62,8 @@
 - `StaffDesk`と`StageLectern`のColliderは、表示外形の非対称な前後中心を含めて一致させ、隣接配置で不要なCollider重複を作らない
 - 小便器は壁側背面、左右外殻、開いた上面、内側受け面、排水部の4 componentsとし、閉じた卵形にしない
 - 洋式便器はタンク、台座、外側ボウル、楕円開口、便座リングを持つ3 connected componentsとする
-- グランドピアノは34 components、白鍵14、黒鍵10、脚3、ペダル2、本体からペダル台への支持棒2とする。鍵盤台と鍵盤面は境界で分割し、同一平面の重複やDepth Biasを使用しない
-- ライブラリ`.blend`の現行ファイル参考値は179,692 bytes、SHA-256は`EEC563F6CFA19940E1492008E318626B2BAED65ED4A0E77035EF3CAA515C3E6D`。Blender 5.2の再保存ではSceneの意味が同一でもraw値が変化するため、契約判定には使用しない
-- 小物形状の正本契約となる正規化監査署名は`1D153B5DE379BC1E724BDBDE99AA5D6653C7393238B9CE5CC8B9B8D32C8F698E`。保存Sceneの生成版・署名と、Object、Transform、Material、頂点、Polygonから再計算した署名の三者一致を監査する
-- 確認用GLBは227,912 bytes、SHA-256は`C95123A1EBB7103A6EF58159C1230E12DCB705FDB1904FA51434503989EB3885`
-- 確認用GLBはScene 1、Node 32、Mesh 32、Material 10、Camera 0、Animation 0。確認用床、人型、照明、配置例は未収録
+- グランドピアノは34 components、白鍵14、黒鍵10、脚3、ペダル2、本体からペダル台への支持棒2とする。白鍵は専用の白Material、ペダルは専用の真鍮Materialを使用する。鍵盤台を高くし、鍵盤の後端を胴体前面へ接続したうえで、接合面を一面一所有に分割し、同一平面の重複やDepth Biasを使用しない
+- ライブラリ`.blend`の現行ファイル参考値は181,215 bytes、SHA-256は`D83D535A028A46AF339FF9C1D7065D52690BDA0924D96A02ECE2A14F66C0F525`。Blender 5.2の再保存ではSceneの意味が同一でもraw値が変化するため、契約判定には使用しない
+- 小物形状の正本契約となる正規化監査署名は`BFAF0AAF419E636238E74C876357486E6E8934FE12FD5FFBB99057BEA116ECD9`。保存Sceneの生成版・署名と、Object、Transform、Material、頂点、Polygonから再計算した署名の三者一致を監査する
+- 確認用GLBは221,768 bytes、SHA-256は`A1CFE9C9AB211020EB4F88B7B8FBA072F11C3428877D54A7F95EE4B74F767E50`
+- 確認用GLBはScene 1、Node 32、Mesh 32、Material 12、Camera 0、Animation 0。確認用床、人型、照明、配置例は未収録

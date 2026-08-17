@@ -2144,7 +2144,7 @@ def _replay_local_placement(
         signs.add_batch(temporary.signs, Matrix.Identity(4))
         collider_boxes.extend(temporary.colliders)
     elif placement.kind == "sign":
-        signs.add_box(
+        signs.add_sign_box(
             (0.0, 0.0, 0.0),
             SIGN_SIZE,
             placement.prop_type,
