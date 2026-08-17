@@ -187,7 +187,7 @@ P1-PROP-01～02とP1-SIGN-01～03を小物・表札の正本から修正し、�
 - [x] PR #74の最新HEADと未解決レビューコメントを確認し、production media混入の指摘を妥当と判定する
 - [x] 音声・Character inventoryの開発専用化、production資産の固定出力、Web配布監査のbuild接続を実装する
 - [x] Junction接続状態で型検査、production build、開発Web、production preview、配布物監査を実施する
-- [ ] レビュー修正だけをcommit・pushし、元コメントへ検証結果を返信する
+- [x] レビュー修正だけをcommit・pushし、元コメントへ検証結果を返信する
 
 ## 結果
 
@@ -218,3 +218,5 @@ PR #74の未解決レビューコメント1件を最新HEADで確認し、produc
 `build:renderer`の末尾へWeb配布監査を接続した。監査は音声・Characterの禁止root、全階層の`.mp3`／`.wav`、生成用font、特殊filesystem entry、固定許可一覧外のartifactを拒否し、許可したpublic資産9件の完全な存在も確認する。偽の音声とCharacter画像を`dist/`へ置いた負試験は終了コード1となり、完成成果物ではすべてのcheckがPASSした。
 
 Junctionを接続したまま`typecheck:v2`、`build:t06`、`build:renderer`を実行し、production `dist/`は16ファイル、33,894,092 bytes、音声0件、Character画像0件、font 0件、許可外artifact 0件だった。Junctionは前後とも音声215ファイル、Character画像136ファイルで不変である。開発Webは自キャラ17ディレクトリ、自ボイス12種、BGM 1／SE 13／VOICE 201と代表MIMEを維持した。production previewはローカルmedia選択肢を表示せず、組込み表示でタイトルまで起動し、再読込後もconsole warning／error 0件だった。
+
+レビュー修正を`e45d219`として`codex/v2-school-props-signage`へpushし、local、`origin`、PR #74のHEAD一致を確認した。元のインラインコメントへ原因、修正内容、正試験と負試験の結果を返信した。依頼範囲外のスレッド解決、Ready化、mergeは行わず、PRはDraft／Open、対象threadは`isResolved=false`のまま維持した。
