@@ -66,6 +66,10 @@
 >
 > 1階の保健室、図書室、職員室、PC室を含む全校のスライド扉を確認し、部屋用引き戸は2～4階と同じ廊下側へ統一する。開閉収納側と表札の干渉も確認する。
 
+2026-08-17 PRレビュー対応指示:
+
+> プルリクのコメントについて確認して対応してください。問題が、コメントが妥当であれば対応して、コメントを返信してください。
+
 ## 目的
 
 P1-PROP-01～02とP1-SIGN-01～03を小物・表札の正本から修正し、用途が判別できる衛生器具と、全校で一貫した教室名・ピクトグラムを実装する。
@@ -95,6 +99,9 @@ P1-PROP-01～02とP1-SIGN-01～03を小物・表札の正本から修正し、�
 - Noto Sans JP由来subset、OFL 1.1、FONTLOG、第三者ライセンス表示を配布方式に応じて所有する。
 - itch.io用production `dist/`とGitHubソース取得後のVite起動手順を整備する。
 - Git管理対象外の既存ローカル音声・キャラクター画像を、共有資産を移動・複製せずB06-3専用worktreeの開発Webサーバーから読み込めるようにする。
+- ローカル音声・キャラクター画像のinventoryを開発専用moduleへ分離し、production buildでは読込module自体をbundle対象外にする。
+- production buildでは`public/`全体の自動コピーを使わず、配布を許可したライセンス表示とstage assetだけを固定一覧から出力する。
+- Web配布監査を`build:renderer`の成功条件へ組み込み、音声、Character画像、font、許可外出力が`dist/`へ混入した場合はbuildを失敗させる。
 - 今回変更した洋式便器、小便器、ピアノ、表札、エレベーター`調整中`のゲーム内確認観点を整理する。
 
 ## 対象外
@@ -123,6 +130,8 @@ P1-PROP-01～02とP1-SIGN-01～03を小物・表札の正本から修正し、�
 - GitHubソースは`npm ci`と`npm run dev:web`で起動でき、READMEにNode.js、HTTP起動、`file://`対象外を記載する。
 - B06-3専用worktreeの開発Webサーバーでは、既存ローカル音声とキャラクター画像のcatalogが空でなく、代表ファイルが正しいMIME typeで配信される。
 - タイトル設定で自キャラと自ボイスを選択でき、選択したCharacter画像と音声を通常ゲーム入口から読み込める。
+- ローカル音声215ファイルとCharacter画像136ファイルへのJunctionを接続したまま`npm run build:renderer`が合格し、production `dist/`には`audio/`、`picture/chara/`、`.mp3`、`.wav`、許可外画像が0件である。
+- `npm run build:renderer`はWeb配布監査を自動実行し、禁止media rootまたは許可外artifactを含む成果物を成功扱いにしない。
 
 ## 検証
 
@@ -133,6 +142,7 @@ P1-PROP-01～02とP1-SIGN-01～03を小物・表札の正本から修正し、�
 - Collider、Room Variant、動的扉、エレベーター契約とNavMesh 3種のhash不変を確認する。
 - 20室38枚の部屋用スライド扉について、閉姿勢と開姿勢が全階で廊下側にあること、開口・取っ手・sweep・表札との干渉がないことを全件監査する。
 - T02、T04、`npm run build:renderer`、Vite開発サーバー、production `dist/`のローカルHTTP配信を実ブラウザで検証する。
+- 音声・Character画像のJunctionを保持した状態でproduction buildし、`dist/`の全出力を固定許可一覧と照合する。開発Webでは既存media catalogと代表MIME、production previewでは組込み表示とconsoleを確認する。
 - 1920×1080で表札の可読性、Player移動、Pointer Lock、再読込、console warning／error、Babylon Loggerを確認する。
 - UTF-8 BOMなし、`git diff --check`、構文・括弧、ローカル絶対パス混入を検査する。
 
@@ -174,6 +184,10 @@ P1-PROP-01～02とP1-SIGN-01～03を小物・表札の正本から修正し、�
 - [x] 表札、動的扉、NavMesh、build、通常ゲームを再検証する
 - [x] 追加修正結果を記録し、B06-3差分だけをローカルcommitする
 - [x] `codex/v2-school-props-signage`をpushし、`develop`向けDraft PR #74を作成する
+- [x] PR #74の最新HEADと未解決レビューコメントを確認し、production media混入の指摘を妥当と判定する
+- [x] 音声・Character inventoryの開発専用化、production資産の固定出力、Web配布監査のbuild接続を実装する
+- [x] Junction接続状態で型検査、production build、開発Web、production preview、配布物監査を実施する
+- [ ] レビュー修正だけをcommit・pushし、元コメントへ検証結果を返信する
 
 ## 結果
 
@@ -198,3 +212,9 @@ UTF-8 BOMなし、Python AST、Node構文、括弧、`git diff --check`、ロー
 同日、実ブラウザ確認用のB06-3専用worktreeにGit管理対象外の`public/audio`と`public/picture/chara`が存在せず、Viteの音声・portrait catalogが空になることを確認した。共有元の既存ローカル資産を移動・複製せず、専用worktreeの同じ公開pathへignored Junctionで接続し、5175番のVite開発サーバーを再起動した。共有実体は音声215ファイル（BGM 1、SE 13、VOICE 201）とCharacter画像136ファイルで、Junctionとバイナリはcommit対象外である。
 
 再起動後、タイトル設定にCharacter画像17ディレクトリとボイス12種が表示された。代表SEはHTTP 200／`audio/mpeg`、VOICEはHTTP 200／`audio/wav`、Character画像はHTTP 200／`image/png`で、通常ゲーム入口はCharacter画像の読込を完了して`playing`へ遷移した。音声・画像由来のconsole warning／errorは0件だった。ブラウザ自動操作環境のPointer Lock `WrongDocumentError`は資産読込とは別の既知制約である。ライセンスと配布可否を未確認の音声・Character画像はproduction `dist/`、Git、itch.io配布物へ追加しておらず、今回の接続は現ローカル開発Webの確認環境に限定する。
+
+PR #74の未解決レビューコメント1件を最新HEADで確認し、production buildがWeb配布監査を呼ばず、Viteの`public/`コピーと`import.meta.glob`の両方からignored Junction配下のローカルmediaを取り込み得るというP1指摘を妥当と判定した。4つのglobを開発専用moduleへ分離し、productionでは明示的な空inventoryを使用する。production buildは`publicDir`の自動コピーを無効化し、`LICENSES`と`stage-assets`だけを固定順で出力する。bundleに開発専用media moduleが残った場合は生成時に失敗させる。
+
+`build:renderer`の末尾へWeb配布監査を接続した。監査は音声・Characterの禁止root、全階層の`.mp3`／`.wav`、生成用font、特殊filesystem entry、固定許可一覧外のartifactを拒否し、許可したpublic資産9件の完全な存在も確認する。偽の音声とCharacter画像を`dist/`へ置いた負試験は終了コード1となり、完成成果物ではすべてのcheckがPASSした。
+
+Junctionを接続したまま`typecheck:v2`、`build:t06`、`build:renderer`を実行し、production `dist/`は16ファイル、33,894,092 bytes、音声0件、Character画像0件、font 0件、許可外artifact 0件だった。Junctionは前後とも音声215ファイル、Character画像136ファイルで不変である。開発Webは自キャラ17ディレクトリ、自ボイス12種、BGM 1／SE 13／VOICE 201と代表MIMEを維持した。production previewはローカルmedia選択肢を表示せず、組込み表示でタイトルまで起動し、再読込後もconsole warning／error 0件だった。

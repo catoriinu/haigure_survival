@@ -10,6 +10,28 @@ const REPOSITORY_ROOT = resolve(
 const DIST_ROOT = join(REPOSITORY_ROOT, "dist");
 const STAGE_CATALOG_PATH = join(REPOSITORY_ROOT, "src/world/stageCatalog.ts");
 const FONT_EXTENSIONS = new Set([".ttf", ".otf", ".woff", ".woff2"]);
+const AUDIO_EXTENSIONS = new Set([".mp3", ".wav"]);
+const FORBIDDEN_LOCAL_ASSET_ROOTS = Object.freeze([
+  Object.freeze({
+    id: "local-audio-paths-absent",
+    path: "audio",
+  }),
+  Object.freeze({
+    id: "local-character-paths-absent",
+    path: "picture/chara",
+  }),
+]);
+const ALLOWED_PUBLIC_ASSET_PATHS = Object.freeze([
+  "LICENSES/NotoSansJP-OFL-1.1.txt",
+  "LICENSES/THIRD_PARTY_NOTICES.txt",
+  "stage-assets/v2/B02/b02_school_blockout.bit-flight.navmesh.bin",
+  "stage-assets/v2/B02/b02_school_blockout.glb",
+  "stage-assets/v2/B02/b02_school_blockout.navmesh.bin",
+  "stage-assets/v2/B02/b02_school_blockout.room-variants.navmesh.bin",
+  "stage-assets/v2/B02/b03_signs_paper_atlas.png",
+  "stage-assets/v2/B03/b03_school_prop_library_preview.glb",
+  "stage-assets/v2/T01/t01_glb_collision_course.glb",
+]);
 const ATLAS = Object.freeze({
   path: "stage-assets/v2/B02/b03_signs_paper_atlas.png",
   bytes: 63_890,
@@ -52,6 +74,23 @@ function normalizeRelativePath(path) {
   return path.replaceAll("\\", "/");
 }
 
+function normalizedPathKey(path) {
+  return normalizeRelativePath(path).toLowerCase();
+}
+
+const ALLOWED_PUBLIC_ASSET_PATH_KEYS = new Set(
+  ALLOWED_PUBLIC_ASSET_PATHS.map(normalizedPathKey)
+);
+const ALLOWED_PRODUCTION_DIRECTORY_KEYS = new Set([
+  "assets",
+  ...ALLOWED_PUBLIC_ASSET_PATHS.flatMap((path) => {
+    const segments = normalizeRelativePath(path).split("/");
+    return segments.slice(0, -1).map((_, index) =>
+      segments.slice(0, index + 1).join("/").toLowerCase()
+    );
+  }),
+]);
+
 function stableJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
@@ -67,18 +106,20 @@ async function isFile(path) {
   }
 }
 
-async function listFiles(directory) {
+async function listDistributionTree(directory) {
   let entries;
   try {
     entries = await readdir(directory, { withFileTypes: true });
   } catch (error) {
     if (error?.code === "ENOENT") {
-      return [];
+      return { allPaths: [], filePaths: [], specialPaths: [] };
     }
     throw error;
   }
 
-  const files = [];
+  const allPaths = [];
+  const filePaths = [];
+  const specialPaths = [];
   entries.sort((left, right) => {
     if (left.name < right.name) {
       return -1;
@@ -90,13 +131,19 @@ async function listFiles(directory) {
   });
   for (const entry of entries) {
     const path = join(directory, entry.name);
+    allPaths.push(path);
     if (entry.isDirectory()) {
-      files.push(...(await listFiles(path)));
+      const nested = await listDistributionTree(path);
+      allPaths.push(...nested.allPaths);
+      filePaths.push(...nested.filePaths);
+      specialPaths.push(...nested.specialPaths);
     } else if (entry.isFile()) {
-      files.push(path);
+      filePaths.push(path);
+    } else {
+      specialPaths.push(path);
     }
   }
-  return files;
+  return { allPaths, filePaths, specialPaths };
 }
 
 function readPngDimensions(buffer) {
@@ -157,15 +204,83 @@ function createCheck(id, passed, expected, actual) {
 }
 
 async function auditDistribution() {
-  const files = await listFiles(DIST_ROOT);
-  const fontArtifacts = files
-    .filter((path) => FONT_EXTENSIONS.has(extname(path).toLowerCase()))
+  const tree = await listDistributionTree(DIST_ROOT);
+  const allArtifacts = tree.allPaths
     .map((path) => normalizeRelativePath(relative(DIST_ROOT, path)))
+    .sort();
+  const fileArtifacts = tree.filePaths
+    .map((path) => normalizeRelativePath(relative(DIST_ROOT, path)))
+    .sort();
+  const specialArtifacts = tree.specialPaths
+    .map((path) => normalizeRelativePath(relative(DIST_ROOT, path)))
+    .sort();
+  const fontArtifacts = fileArtifacts
+    .filter((path) => FONT_EXTENSIONS.has(extname(path).toLowerCase()))
+    .sort();
+  const audioFileArtifacts = allArtifacts
+    .filter((path) => AUDIO_EXTENSIONS.has(extname(path).toLowerCase()))
     .sort();
 
   const checks = [
     createCheck("font-artifacts-absent", fontArtifacts.length === 0, 0, fontArtifacts.length),
+    createCheck(
+      "audio-file-artifacts-absent",
+      audioFileArtifacts.length === 0,
+      [],
+      audioFileArtifacts
+    ),
   ];
+
+  for (const forbiddenRoot of FORBIDDEN_LOCAL_ASSET_ROOTS) {
+    const rootKey = normalizedPathKey(forbiddenRoot.path);
+    const artifacts = allArtifacts.filter((path) => {
+      const key = normalizedPathKey(path);
+      return key === rootKey || key.startsWith(`${rootKey}/`);
+    });
+    checks.push(
+      createCheck(forbiddenRoot.id, artifacts.length === 0, [], artifacts)
+    );
+  }
+
+  const actualAllowedPublicAssets = fileArtifacts.filter((path) =>
+    ALLOWED_PUBLIC_ASSET_PATH_KEYS.has(normalizedPathKey(path))
+  );
+  const actualAllowedPublicAssetKeys = new Set(
+    actualAllowedPublicAssets.map(normalizedPathKey)
+  );
+  checks.push(
+    createCheck(
+      "allowed-public-assets-present",
+      actualAllowedPublicAssets.length === ALLOWED_PUBLIC_ASSET_PATHS.length &&
+        actualAllowedPublicAssetKeys.size === ALLOWED_PUBLIC_ASSET_PATHS.length,
+      ALLOWED_PUBLIC_ASSET_PATHS,
+      actualAllowedPublicAssets
+    )
+  );
+
+  const unexpectedArtifacts = [
+    ...new Set([
+      ...allArtifacts.filter((path) => {
+        const key = normalizedPathKey(path);
+        if (ALLOWED_PRODUCTION_DIRECTORY_KEYS.has(key)) {
+          return false;
+        }
+        if (key === "index.html" || ALLOWED_PUBLIC_ASSET_PATH_KEYS.has(key)) {
+          return false;
+        }
+        return !/^assets\/[^/]+\.(?:js|css|wasm)$/u.test(key);
+      }),
+      ...specialArtifacts,
+    ]),
+  ].sort();
+  checks.push(
+    createCheck(
+      "unexpected-production-artifacts-absent",
+      unexpectedArtifacts.length === 0,
+      [],
+      unexpectedArtifacts
+    )
+  );
 
   const atlasPath = join(DIST_ROOT, ATLAS.path);
   const atlasExists = await isFile(atlasPath);
@@ -281,6 +396,12 @@ async function auditDistribution() {
     status: checks.every((check) => check.status === "passed") ? "passed" : "failed",
     checks,
     fontArtifacts,
+    audioFileArtifacts,
+    localAudioArtifacts:
+      checks.find((check) => check.id === "local-audio-paths-absent")?.actual ?? [],
+    localCharacterArtifacts:
+      checks.find((check) => check.id === "local-character-paths-absent")?.actual ?? [],
+    unexpectedArtifacts,
   };
 }
 
