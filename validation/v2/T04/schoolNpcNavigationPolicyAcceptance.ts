@@ -315,6 +315,143 @@ export const runSchoolNpcNavigationPolicyAcceptance = ({
     100
   );
   const policy = createPolicy();
+  const alarmRooftopStart = stage.navigation.projectPoint(
+    new Vector3(1.346851, 0.9, -10.073972),
+    0.3
+  );
+  const alarmRooftopDestination = stage.navigation.projectPoint(
+    new Vector3(1.375, 3.625, -8.35),
+    0.3
+  );
+  if (!alarmRooftopStart || !alarmRooftopDestination) {
+    throw new Error(
+      "実学校Alarm屋上追跡fixtureのNavMesh位置がありません。"
+    );
+  }
+  targets = Object.freeze([
+    createTarget(
+      "npc_alarm_rooftop",
+      "brainwash-complete-no-gun",
+      alarmRooftopStart.position
+    ),
+    createTarget(
+      "player",
+      "normal",
+      alarmRooftopDestination.position
+    )
+  ]);
+  const alarmRooftopPolicy = createPolicy();
+  const alarmRooftopPath = stage.navigation.findPath(
+    alarmRooftopStart,
+    alarmRooftopDestination,
+    "npc",
+    Object.freeze({
+      selectRoute: (candidates) =>
+        alarmRooftopPolicy(
+          createContext(
+            "npc_alarm_rooftop",
+            alarmRooftopStart.position,
+            {
+              behavior: "pursue",
+              characterState: "brainwash-complete-no-gun",
+              brainwashed: true,
+              targetId: "player",
+              targetProvenance: "alert"
+            }
+          ),
+          candidates
+        )
+    })
+  );
+  const alarmRooftopTransitions =
+    alarmRooftopPath?.steps.filter(
+      (step): step is NavigationTransitionStep =>
+        step.kind === "transition"
+    ) ?? [];
+  add(
+    "実seedのAlarm NPCは屋上追跡で到達経路を選択する",
+    alarmRooftopPath !== null,
+    `kind=${alarmRooftopTransitions.length > 0 ? "link" : "surface"} / ` +
+      `links=${alarmRooftopTransitions.map((step) => step.link.id).join(",") || "none"} / ` +
+      `distance=${alarmRooftopPath?.distance.toFixed(3) ?? "null"}`
+  );
+  const alarmRooftopInitialPositions = Object.freeze([
+    new Vector3(1.346851, 0.9, -10.073972),
+    new Vector3(-13.874734, 0, 1.601717),
+    new Vector3(1.081556, 0.9, -10.501089),
+    new Vector3(-14.232798, 0, -1.463871),
+    new Vector3(-14.513766, 0, -3.779106),
+    new Vector3(3.663434, -0.075, -4.809523),
+    new Vector3(0.108797, 0, -0.191375),
+    new Vector3(-5.647262, 0.9, -9.574805),
+    new Vector3(-3.362051, 0.9, -10.447022),
+    new Vector3(2.156412, 3.625, -3.708231)
+  ]);
+  const alarmRooftopSeedRoutes = alarmRooftopInitialPositions.map(
+    (position, index) => {
+      const npcId = `npc_${index}`;
+      const start = stage.navigation.projectPoint(position, 0.3);
+      if (!start) {
+        throw new Error(
+          `実seedのAlarm NPC開始位置にNavMesh面がありません: ${npcId}`
+        );
+      }
+      targets = Object.freeze([
+        createTarget(
+          npcId,
+          "brainwash-complete-no-gun",
+          start.position
+        ),
+        createTarget(
+          "player",
+          "normal",
+          alarmRooftopDestination.position
+        )
+      ]);
+      const seedPolicy = createPolicy();
+      const path = stage.navigation.findPath(
+        start,
+        alarmRooftopDestination,
+        "npc",
+        Object.freeze({
+          selectRoute: (candidates) =>
+            seedPolicy(
+              createContext(npcId, start.position, {
+                behavior: "pursue",
+                characterState: "brainwash-complete-no-gun",
+                brainwashed: true,
+                targetId: "player",
+                targetProvenance: "alert"
+              }),
+              candidates
+            )
+        })
+      );
+      const transitions =
+        path?.steps.filter(
+          (step): step is NavigationTransitionStep =>
+            step.kind === "transition"
+        ) ?? [];
+      return Object.freeze({
+        npcId,
+        path,
+        kind: transitions.length > 0 ? "link" : "surface"
+      });
+    }
+  );
+  add(
+    "実seedの初期洗脳済み10 NPCは全員が屋上追跡経路を選択する",
+    alarmRooftopSeedRoutes.every((route) => route.path !== null),
+    alarmRooftopSeedRoutes
+      .map(
+        (route) =>
+          `${route.npcId}:${route.kind}/${route.path?.distance.toFixed(3) ?? "null"}`
+      )
+      .join(",")
+  );
+  targets = Object.freeze([
+    createTarget("npc_policy", "normal", firstStopCenter)
+  ]);
   const fastSelection = policy(
     createContext("npc_policy", firstStopCenter),
     Object.freeze([

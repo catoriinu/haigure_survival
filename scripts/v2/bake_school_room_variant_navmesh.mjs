@@ -3469,7 +3469,7 @@ const GLOBAL_ROUTE_SPECS = Object.freeze([
   {
     id: "northwest-stair-4f-to-rooftop",
     start: blenderPointToNavMeshPoint([-11.4, 38.7, 10.8]),
-    end: blenderPointToNavMeshPoint([-5.5, 39.5, 14.4]),
+    end: blenderPointToNavMeshPoint([-7.8, 38.0, 14.4]),
     maximumDistance:
       25 * SCHOOL_ROOM_VARIANT_NAV_PROFILE.worldScale
   },

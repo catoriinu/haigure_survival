@@ -181,7 +181,7 @@ const SCHOOL_VALIDATION_STAGE: StageCatalogEntry = Object.freeze({
   roomVariantNavmesh: Object.freeze({
     mode: "required",
     url: "b02_school_blockout.room-variants.navmesh.bin",
-    sha256: "4b5a584b9ba15dba73d55924b91320475d51ee8dcfc951a06822e08bedd52e43"
+    sha256: "c5d9bd4a021370006a4c9d380ea938720719b2908c2d83ae4509720ccac74c4c"
   })
 });
 
@@ -1078,6 +1078,20 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
     return false;
   }
 
+  notifyPlayerElevatorStartedMoving(): void {
+    this.unexpected("notifyPlayerElevatorStartedMoving");
+  }
+
+  requestBroadcast(
+    _command: Parameters<V2SurvivalRuntime["requestBroadcast"]>[0]
+  ): boolean {
+    return this.unexpected("requestBroadcast");
+  }
+
+  getMissions(): ReturnType<V2SurvivalRuntime["getMissions"]> {
+    return this.unexpected("getMissions");
+  }
+
   replayExecution(): never {
     return this.unexpected("replayExecution");
   }
@@ -1622,6 +1636,49 @@ const requireDoorTraversalPositions = (
   });
 };
 
+const requireDoorPlanePositionOutsideDoorVolumes = (
+  context: StageSpatialContext,
+  door: StageDoorAsset
+) => {
+  const normal = Vector3.TransformNormal(
+    Vector3.Forward(),
+    door.node.computeWorldMatrix(true)
+  );
+  normal.y = 0;
+  if (normal.lengthSquared() <= POSITION_EPSILON) {
+    throw new Error(
+      `fixture扉法線を水平面へ投影できません: ${door.id}`
+    );
+  }
+  normal.normalize();
+  const tangent = new Vector3(-normal.z, 0, normal.x);
+  const doorOrigin = door.node.getAbsolutePosition();
+  const footY =
+    requireWorldCenter(door.sweepMesh).y - TRAVERSAL_ACTOR_RADII.y;
+  const planeOrigin = new Vector3(doorOrigin.x, footY, doorOrigin.z);
+  for (let distance = 0.1; distance <= 4; distance += 0.1) {
+    for (const direction of [-1, 1] as const) {
+      const candidate = planeOrigin.add(
+        tangent.scale(distance * direction)
+      );
+      const ellipsoid = createTraversalEllipsoid(candidate);
+      if (
+        context.boundary.contains(candidate) &&
+        !context.queries.intersectsVolumeById(
+          door.sweepId,
+          ellipsoid
+        ) &&
+        !intersectsStageDoorClosedPose(door, ellipsoid)
+      ) {
+        return candidate;
+      }
+    }
+  }
+  throw new Error(
+    `fixture扉判定面上の非占有位置を確定できません: ${door.id}`
+  );
+};
+
 const requireElevatorRoute = (
   context: StageSpatialContext,
   elevator: StageElevatorAsset
@@ -1749,7 +1806,7 @@ const runTraversalCoordinatorAcceptance = async (
       queries: context.queries,
       actors: createSchoolStageActorPort(player, survival, context)
     });
-    const doorCloseValues = [0.1, 0.5, 0.1, 0.1, 0.5];
+    const doorCloseValues = [0.1, 0.5, 0.1, 0.1, 0.5, 0.5];
     let doorCloseRandomCount = 0;
     coordinator = createSchoolStageTraversalCoordinator({
       stage: context,
@@ -2019,6 +2076,60 @@ const runTraversalCoordinatorAcceptance = async (
       `first=${sharedDoorAfterFirstPass.state} / ` +
         `both=${sharedDoorAfterBothPasses.state} / ` +
         `random=${doorCloseRandomCount}`
+    );
+
+    const planeDoorId = "room-door-f03-classroom-01-02";
+    const planeDoor = context.doorAssets.getById(planeDoorId);
+    if (!planeDoor) {
+      throw new Error(
+        `扉判定面fixtureの対象扉がありません: ${planeDoorId}`
+      );
+    }
+    const planePass = requireDoorTraversalPositions(context, planeDoor);
+    const planePosition = requireDoorPlanePositionOutsideDoorVolumes(
+      context,
+      planeDoor
+    );
+    survival.enqueueDoorOpen(
+      "door-unbrainwashed",
+      planeDoor.id,
+      planePass.entry
+    );
+    updateCoordinator(0);
+    updateCoordinator(STAGE_DOOR_TRAVEL_SECONDS);
+    const planePassCountBefore = survival.countAppliedResult(
+      "door-pass-detected",
+      "door-unbrainwashed"
+    );
+    survival.setActorPosition("door-unbrainwashed", planePosition);
+    updateCoordinator(0);
+    updateCoordinator(0);
+    const planeState = survival.getNpcTraversalState(
+      "door-unbrainwashed"
+    );
+    const planePassCountWhileOnSurface = survival.countAppliedResult(
+      "door-pass-detected",
+      "door-unbrainwashed"
+    );
+    survival.setActorPosition("door-unbrainwashed", planePass.exit);
+    updateCoordinator(0);
+    updateCoordinator(0);
+    const planePassCountAfter = survival.countAppliedResult(
+      "door-pass-detected",
+      "door-unbrainwashed"
+    );
+    pushCheck(
+      checks,
+      "NPCは扉判定面上で通過待機し、反対側へ離脱した時だけ完了",
+      planeState.kind === "passing-door" &&
+        planePassCountWhileOnSurface === planePassCountBefore &&
+        planePassCountAfter === planePassCountBefore + 1 &&
+        doorCloseRandomCount === 6 &&
+        survival.getNpcTraversalState("door-unbrainwashed").kind ===
+          "walking",
+      `state=${planeState.kind} / counts=${planePassCountBefore}->` +
+        `${planePassCountWhileOnSurface}->${planePassCountAfter}` +
+        ` / random=${doorCloseRandomCount}`
     );
 
     const elevator = context.elevatorAssets.all[0];

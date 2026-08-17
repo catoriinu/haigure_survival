@@ -279,7 +279,7 @@ const requireElevatorStop = (
 const calculateDoorSide = (
   door: StageDoorAsset,
   position: Vector3
-): -1 | 1 => {
+): -1 | 0 | 1 => {
   const normal = Vector3.TransformNormal(
     Vector3.Forward(),
     door.node.computeWorldMatrix(true)
@@ -296,9 +296,7 @@ const calculateDoorSide = (
   );
   const side = Vector3.Dot(offset, normal);
   if (Math.abs(side) <= DOOR_PASS_SIDE_EPSILON) {
-    throw new Error(
-      `NPCが扉通過判定面上にあります: ${door.id}`
-    );
+    return 0;
   }
   return side < 0 ? -1 : 1;
 };
@@ -893,6 +891,11 @@ export const createSchoolStageTraversalCoordinator = ({
     const door = requireDoor(request.doorId);
     const actorPosition = survival.getNpcPosition(request.npcId);
     const entrySide = calculateDoorSide(door, actorPosition);
+    if (entrySide === 0) {
+      throw new Error(
+        `NPCが扉通過開始時に判定面上にあります: ${door.id}`
+      );
+    }
     const waitingNpcIds =
       openingDoorNpcIds.get(door.id) ?? new Set<string>();
     waitingNpcIds.add(request.npcId);
@@ -1418,7 +1421,7 @@ export const createSchoolStageTraversalCoordinator = ({
         pass.door,
         target.footPosition
       );
-      if (currentSide === pass.entrySide) {
+      if (currentSide === 0 || currentSide === pass.entrySide) {
         continue;
       }
       results.push(

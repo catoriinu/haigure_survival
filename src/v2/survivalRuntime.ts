@@ -596,6 +596,9 @@ export const createV2SurvivalRuntime = ({
       resolveTargetNavigationArea: (target) =>
         ownedTargetNavigationAreaTracker!.resolve(target.id)
     });
+    if (performanceWorkloadScenario !== null) {
+      ownedBitSystem.prepareForScriptedPhase();
+    }
     ownedAlertCoordinator = createV2AlertCoordinator({
       alertDuration: ALERT_DURATION_SECONDS
     });

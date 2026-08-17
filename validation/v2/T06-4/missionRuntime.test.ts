@@ -1805,8 +1805,26 @@ export const runMissionRuntimeTests = async (): Promise<
         ),
         "最初の同行者洗脳Missionが正本Areaの現在地変化を追跡しません。"
       );
+      firstFollower.state = "hit-a";
+      frame = updateFixture(fixture, {
+        deltaSeconds: 0,
+        playerState: "brainwash-complete-gun",
+        npcs: Object.freeze([firstFollower, other]),
+        transitions: Object.freeze([
+          brainwashTransition(firstFollower.id, "player", false)
+        ])
+      });
+      assert(
+        frame.playerMissions.some(
+          (candidate) =>
+            candidate.id === mission?.id &&
+            candidate.state === "completed" &&
+            candidate.terminalReason === "target-brainwashed"
+        ),
+        "最初の同行者洗脳Missionがhit-aの時点で完了しません。"
+      );
       fixture.runtime.dispose();
-      return "最初の同行者を洗脳するMissionでNPC IDを出さず、正本Area現在地を追跡";
+      return "最初の同行者を洗脳するMissionでNPC IDを出さず、正本Area現在地を追跡してhit-aで完了";
     }),
     executeTest("一度限りの行動Mission・最後の未洗脳者・結果集計", () => {
       const fixture = createMissionFixture({

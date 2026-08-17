@@ -708,9 +708,15 @@ def main() -> None:
     require(not residue["armatures"], "Armatureが残っています")
     require(residue["bones"] == 0, "Boneが残っています")
     require(not residue["actions"], "Actionが残っています")
+    active_mesh_issues = {
+        issue_kind: names
+        for issue_kind, names in mesh_issues.items()
+        if names
+    }
     require(
-        all(not issues for issues in mesh_issues.values()),
-        "破損Meshまたは未適用の編集データが残っています",
+        not active_mesh_issues,
+        "破損Meshまたは未適用の編集データが残っています: "
+        + json.dumps(active_mesh_issues, ensure_ascii=False, sort_keys=True),
     )
     require(glb["counts"]["skins"] == 0, "GLBにSkinが残っています")
     require(glb["counts"]["animations"] == 0, "GLBにAnimationが残っています")

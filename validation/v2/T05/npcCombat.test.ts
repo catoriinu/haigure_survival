@@ -22,6 +22,7 @@ import {
 import {
   V2_NPC_CAPTURE_BREAKAWAY_SPEED,
   V2_NPC_CAPTURE_DURATION_SECONDS,
+  V2_NPC_CAPTURE_RADIUS,
   V2_NPC_DETAIL_ENTER_DISTANCE_METERS,
   V2_NPC_DETAIL_EXIT_DISTANCE_METERS,
   V2_NPC_GUN_RESUME_DISTANCE_METERS,
@@ -60,6 +61,7 @@ import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import type { V2NpcTraversalState } from "../../../src/v2/npcTraversal";
 import { createV2PlanarSpatialIndex } from "../../../src/v2/planarSpatialIndex";
+import type { V2TargetNavigationAreaSnapshot } from "../../../src/v2/pursuitNavigation";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
 import type { V2CharacterVisualRuntime } from "../../../src/v2/v2CharacterVisualRuntime";
 import { createDefaultV2CharacterVisualRuntime } from "../characterVisualFixture";
@@ -270,7 +272,10 @@ const createNpcFixture = async (
   observeRouteContext:
     | ((context: V2NpcNavigationRouteContext) => void)
     | null = null,
-  brainwashedStateRoll: number | null = null
+  brainwashedStateRoll: number | null = null,
+  resolveTargetNavigationArea:
+    | ((target: V2HumanTargetSnapshot) => V2TargetNavigationAreaSnapshot)
+    | null = null
 ): Promise<NpcFixture> => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
@@ -510,6 +515,7 @@ const createNpcFixture = async (
     spawnRandom: createNpcSpawnRandom(npcCount),
     playerSpawn,
     resolveTargetNavigationArea: (target) =>
+      resolveTargetNavigationArea?.(target) ??
       Object.freeze({
         targetId: target.id,
         areaId: navigationArea.id,
@@ -3320,6 +3326,77 @@ const testNpcPursuitDistanceLodAndCumulativeTargetMovement = async () => {
   }
 };
 
+const testNpcAreaPursuitRefreshesMovedTargetAnchor = async () => {
+  const areaAnchor = new Vector3(1, 0, 0);
+  const movedTargetPosition = new Vector3(3, 0, 0);
+  const fixture = await createNpcFixture(
+    1,
+    1,
+    5,
+    true,
+    null,
+    null,
+    (target) =>
+      Object.freeze({
+        targetId: target.id,
+        areaId: "target-area",
+        revision: 1,
+        anchor: areaAnchor.clone()
+      })
+  );
+  try {
+    fixture.system.placeNpcs([
+      {
+        id: "npc_0",
+        footPosition: Vector3.Zero(),
+        formation: false
+      }
+    ]);
+    const targetAtAreaBoundary = createPlayerTarget(areaAnchor);
+    fixture.system.update(
+      0,
+      targetAtAreaBoundary,
+      Object.freeze([
+        createAlarmEvent("area-anchor-refresh", "player")
+      ])
+    );
+    const movedTarget = createPlayerTarget(movedTargetPosition);
+    for (let updateIndex = 0; updateIndex < 60; updateIndex += 1) {
+      fixture.system.update(
+        0.1,
+        movedTarget,
+        EMPTY_ALARM_TARGET_EVENTS
+      );
+    }
+    const destinations = fixture
+      .getPathfindRecords()
+      .map(({ destination }) => destination);
+    const refreshedToMovedTarget = destinations.some(
+      (destination) =>
+        Vector3.DistanceSquared(destination, movedTargetPosition) <= 1e-12
+    );
+    const finalTracking = fixture.system.getFrameView().tracking[0];
+    assert(
+      finalTracking.pursuitPhase === "area" &&
+        refreshedToMovedTarget &&
+        Vector3.Distance(
+          fixture.system.getNpcPosition("npc_0"),
+          movedTargetPosition
+        ) <= V2_NPC_CAPTURE_RADIUS + 1e-6,
+      "別Area追跡中に移動した標的の境界anchorが更新されません: " +
+        `phase=${finalTracking.pursuitPhase} / ` +
+        `destinations=${destinations.map((position) => position.toString()).join("|")} / ` +
+        `position=${fixture.system.getNpcPosition("npc_0").toString()}`
+    );
+    return (
+      `phase=${finalTracking.pursuitPhase} / ` +
+      `paths=${destinations.length} / latest=${destinations[destinations.length - 1]?.toString()}`
+    );
+  } finally {
+    fixture.dispose();
+  }
+};
+
 const testNpcPursuitWallDetourRemainsCoarse = async () => {
   const fixture = await createNpcFixture(1, 1, 30, true);
   try {
@@ -4076,6 +4153,10 @@ export const runNpcCombatTests = async () =>
     executeTest(
       "NPC追跡距離LOD・累積標的移動",
       testNpcPursuitDistanceLodAndCumulativeTargetMovement
+    ),
+    executeTest(
+      "NPC別Area追跡中の移動標的anchor更新",
+      testNpcAreaPursuitRefreshesMovedTargetAnchor
     ),
     executeTest(
       "NPC追跡の壁越し経路距離LOD",

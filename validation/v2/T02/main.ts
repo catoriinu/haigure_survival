@@ -949,8 +949,8 @@ const validateLoadedContext = (
     ),
     createCheck(
       "学校GLBの厳格意味分類",
-      context.resources.visualMeshes.length === 618 &&
-        context.resources.normalColliders.length === 276 &&
+      context.resources.visualMeshes.length === 619 &&
+        context.resources.normalColliders.length === 277 &&
         context.resources.actorOnlyColliders.length === 81 &&
         context.resources.humanOnlyColliders.length === 59 &&
         context.resources.beamSightOnlyColliders.length === 1 &&
@@ -1743,12 +1743,12 @@ const validateLoadedContext = (
   const fourFloorBoundsExpectations = [
     ["VIS_B03_Floor_F04", [-12.6, -7.0, 10.65], [47.4, 45.5, 10.8]],
     ["COL_B03_Floor_F04", [-12.6, -7.0, 10.65], [47.4, 45.5, 10.8]],
-    ["VIS_Roof_North", [-12.6, 32.5, 14.4], [47.4, 45.5, 14.5]],
+    ["VIS_Roof_North", [-12.6, 32.5, 14.3], [47.4, 45.5, 14.5]],
     ["COL_RooftopStairExitRamp", [-9.0, 38.9, 14.3], [-6.9, 40.7, 14.5]],
     ["VIS_RooftopFacilityWalls", [-12.6, 38.5, 14.5], [2.4, 45.5, 16.9]],
     ["VIS_RooftopFacilityRoofs", [-12.6, 38.5, 16.9], [2.4, 45.5, 17.0]],
     ["COL_RooftopFacilityShell", [-12.6, 38.5, 14.5], [2.4, 45.5, 17.0]],
-    ["VIS_DoorLeaf_RooftopStairHouse_Open", [-9.04, 37.0, 14.5], [-8.96, 38.9, 16.7]],
+    ["VIS_DoorLeaf_RooftopStairHouse_Open", [-9.04, 36.6, 14.5], [-8.96, 38.5, 16.7]],
     ["VIS_Floor_RooftopChangingRoom_M", [-6.6, 38.5, 14.5], [-2.1, 45.5, 14.53]],
     ["VIS_Floor_RooftopChangingRoom_F", [-2.1, 38.5, 14.5], [2.4, 45.5, 14.53]],
     ["BND_Stage", [-18.4, -14.3, -0.5], [63.2, 51.3, 19.0]]
@@ -1929,6 +1929,72 @@ const validateLoadedContext = (
       "実プレイヤーによる北西階段1階・屋上往復",
       rooftopRoundTrip.ok,
       `Waypoint=${rooftopRoundTrip.reachedWaypoints}/${rooftopRoundTrip.totalWaypoints} / 最高足元Y=${rooftopRoundTrip.highestFootY.toFixed(3)} / 最低足元Y=${rooftopRoundTrip.lowestFootY.toFixed(3)} / 最終水平誤差=${rooftopRoundTrip.finalHorizontalError.toFixed(3)} / 最終垂直誤差=${rooftopRoundTrip.finalVerticalError.toFixed(3)} / 境界内=${rooftopRoundTrip.stayedInsideBoundary} / エラー=${rooftopRoundTrip.errorMessage ?? "なし"}`
+    )
+  );
+
+  const rooftopCrateRampWaypoints = [
+    new Vector3(-6.0, 12.5, 14.5),
+    new Vector3(-4.95, 12.5, 14.5),
+    new Vector3(-4.0, 12.5, 14.8),
+    new Vector3(-3.05, 12.5, 15.1),
+    new Vector3(-2.15, 12.5, 15.4),
+    new Vector3(-1.25, 12.5, 15.7)
+  ];
+  const rooftopCrateRampRoundTrip = validatePlayerWaypointTraversal(
+    context,
+    "屋上箱正面Ramp往復",
+    [
+      ...rooftopCrateRampWaypoints,
+      ...rooftopCrateRampWaypoints.slice(0, -1).reverse()
+    ],
+    [14.5, 15.7]
+  );
+  const rooftopCrateSideRoundTrips = [
+    validatePlayerWaypointTraversal(
+      context,
+      "屋上箱南側面往復",
+      [
+        new Vector3(-1.0, 9.8, 14.5),
+        new Vector3(-1.0, 10.475, 14.5),
+        new Vector3(-1.0, 10.925, 14.8),
+        new Vector3(-1.0, 11.375, 15.1),
+        new Vector3(-1.0, 11.825, 15.4),
+        new Vector3(-1.0, 12.275, 15.7),
+        new Vector3(-1.0, 11.825, 15.4),
+        new Vector3(-1.0, 11.375, 15.1),
+        new Vector3(-1.0, 10.925, 14.8),
+        new Vector3(-1.0, 10.475, 14.5),
+        new Vector3(-1.0, 9.8, 14.5)
+      ],
+      [14.5, 15.7]
+    ),
+    validatePlayerWaypointTraversal(
+      context,
+      "屋上箱北側面往復",
+      [
+        new Vector3(-1.0, 15.2, 14.5),
+        new Vector3(-1.0, 14.525, 14.5),
+        new Vector3(-1.0, 14.075, 14.8),
+        new Vector3(-1.0, 13.625, 15.1),
+        new Vector3(-1.0, 13.175, 15.4),
+        new Vector3(-1.0, 12.725, 15.7),
+        new Vector3(-1.0, 13.175, 15.4),
+        new Vector3(-1.0, 13.625, 15.1),
+        new Vector3(-1.0, 14.075, 14.8),
+        new Vector3(-1.0, 14.525, 14.5),
+        new Vector3(-1.0, 15.2, 14.5)
+      ],
+      [14.5, 15.7]
+    )
+  ];
+  checks.push(
+    createCheck(
+      "屋上箱の正面・左右往復とはまり込み防止",
+      rooftopCrateRampRoundTrip.ok &&
+        rooftopCrateSideRoundTrips.every((roundTrip) => roundTrip.ok) &&
+        schoolMeshByName.has("COL_B03_SchoolRoofEscapeCrateRamp") &&
+        !schoolMeshByName.has("COL_B06_SchoolRoofEscapeCrateSides"),
+      `正面=${rooftopCrateRampRoundTrip.reachedWaypoints}/${rooftopCrateRampRoundTrip.totalWaypoints} / 最高足元Y=${rooftopCrateRampRoundTrip.highestFootY.toFixed(3)} / 最終誤差=${rooftopCrateRampRoundTrip.finalHorizontalError.toFixed(3)},${rooftopCrateRampRoundTrip.finalVerticalError.toFixed(3)} / 側面=${rooftopCrateSideRoundTrips.map((roundTrip) => `${roundTrip.label}:${roundTrip.reachedWaypoints}/${roundTrip.totalWaypoints},最高=${roundTrip.highestFootY.toFixed(3)}`).join("|")} / 単一Collider=${schoolMeshByName.has("COL_B03_SchoolRoofEscapeCrateRamp")} / 旧側面Collider削除=${!schoolMeshByName.has("COL_B06_SchoolRoofEscapeCrateSides")}`
     )
   );
 
@@ -2127,7 +2193,7 @@ const validateLoadedContext = (
     createCheck(
       "3階段の2階～4階開放構造と北西階段の1階倉庫",
       northwestStorageBoundsResults.every((result) => result.ok) &&
-        openUpperStairVisuals.every((result) => result.vertices === 696) &&
+        openUpperStairVisuals.every((result) => result.vertices === 264) &&
         retiredUpperStairClosures.every(
           (name) => !schoolMeshByName.has(name)
         ) &&
@@ -2806,8 +2872,8 @@ const runValidation = async () => {
     await settleScene();
     const reloadMetadataValid =
       activeContext.metadata.stageId === SCHOOL_STAGE.id &&
-      activeContext.resources.visualMeshes.length === 618 &&
-      activeContext.resources.normalColliders.length === 276 &&
+      activeContext.resources.visualMeshes.length === 619 &&
+      activeContext.resources.normalColliders.length === 277 &&
       activeContext.resources.actorOnlyColliders.length === 81 &&
       activeContext.resources.humanOnlyColliders.length === 59 &&
       activeContext.resources.beamSightOnlyColliders.length === 1 &&

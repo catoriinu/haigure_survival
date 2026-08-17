@@ -10,6 +10,7 @@ from pathlib import Path
 
 import bpy
 from mathutils import Matrix, Vector
+from mathutils.bvhtree import BVHTree
 
 
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
@@ -546,9 +547,15 @@ def door_clearance_volumes() -> list[tuple[str, Vector, Vector]]:
 def audit_door_clearance(interior_colliders: list[bpy.types.Object]) -> int:
     clearances = door_clearance_volumes()
 
+    architecture_walls = [
+        collider
+        for collider in interior_colliders
+        if is_architecture_wall_collider(collider)
+    ]
     collider_components = [
         (collider.name, component_index, minimum, maximum)
         for collider in interior_colliders
+        if not is_architecture_wall_collider(collider)
         for component_index, (minimum, maximum) in enumerate(
             connected_component_aabbs(collider),
             1,
@@ -564,11 +571,19 @@ def audit_door_clearance(interior_colliders: list[bpy.types.Object]) -> int:
                 maximum,
             ):
                 violations.append(f"{label}/{collider_name}#{component_index}")
+        for wall in architecture_walls:
+            if axis_aligned_box_overlaps_architecture_wall(
+                wall,
+                (clearance_minimum, clearance_maximum),
+            ):
+                violations.append(f"{label}/{wall.name}")
     if violations:
         raise RuntimeError(
             "出入口前へ通行不能小物が侵入しています:\n" + "\n".join(violations)
         )
-    return len(clearances) * len(collider_components)
+    return len(clearances) * (
+        len(collider_components) + len(architecture_walls)
+    )
 
 
 def audit_visual_door_clearance(interior_visuals: list[bpy.types.Object]) -> int:
@@ -720,49 +735,42 @@ def audit_room_sign_wall_support() -> int:
         for obj in bpy.data.objects
         if obj.type == "MESH" and is_architecture_wall_collider(obj)
     ]
-    support_components = [
-        (obj.name, minimum, maximum)
-        for obj in support_objects
-        for minimum, maximum in connected_component_aabbs(obj)
-    ]
     unsupported: list[str] = []
     checked = 0
     for object_name, component_index, minimum, maximum in room_sign_components():
         dimensions = maximum - minimum
         thin_axis = 0 if dimensions.x < dimensions.y else 1
         long_axis = 1 - thin_axis
-        matching_supports = []
-        for wall_name, wall_minimum, wall_maximum in support_components:
-            wall_dimensions = wall_maximum - wall_minimum
+        matching_supports: list[str] = []
+        long_samples = (
+            minimum[long_axis] + 1.0e-3,
+            (minimum[long_axis] + maximum[long_axis]) / 2.0,
+            maximum[long_axis] - 1.0e-3,
+        )
+        height_samples = (
+            minimum.z + 1.0e-3,
+            (minimum.z + maximum.z) / 2.0,
+            maximum.z - 1.0e-3,
+        )
+        for support in support_objects:
             checked += 1
-            if wall_dimensions[thin_axis] > 0.40 + 1e-4:
-                continue
-            if (
-                aabb_axis_gap(
-                    minimum,
-                    maximum,
-                    wall_minimum,
-                    wall_maximum,
-                    thin_axis,
-                )
-                > 1e-4
+            for normal_coordinate in (
+                minimum[thin_axis] - 0.01,
+                maximum[thin_axis] + 0.01,
             ):
-                continue
-            if not interval_contains(
-                wall_minimum[long_axis],
-                wall_maximum[long_axis],
-                minimum[long_axis],
-                maximum[long_axis],
-            ):
-                continue
-            if not interval_contains(
-                wall_minimum.z,
-                wall_maximum.z,
-                minimum.z,
-                maximum.z,
-            ):
-                continue
-            matching_supports.append(wall_name)
+                sample_points = []
+                for long_coordinate in long_samples:
+                    for height in height_samples:
+                        point = Vector((0.0, 0.0, height))
+                        point[thin_axis] = normal_coordinate
+                        point[long_axis] = long_coordinate
+                        sample_points.append(point)
+                if all(
+                    point_is_inside_architecture_wall(support, point)
+                    for point in sample_points
+                ):
+                    matching_supports.append(support.name)
+                    break
         if not matching_supports:
             unsupported.append(f"{object_name}#{component_index}")
     if unsupported:
@@ -865,16 +873,124 @@ def architecture_wall_component_aabbs() -> list[tuple[str, int, Vector, Vector]]
     ]
 
 
+_ARCHITECTURE_WALL_BVH_CACHE: dict[str, BVHTree] = {}
+
+
+def architecture_wall_bvh(obj: bpy.types.Object) -> BVHTree:
+    tree = _ARCHITECTURE_WALL_BVH_CACHE.get(obj.name)
+    if tree is None:
+        tree = BVHTree.FromPolygons(
+            [tuple(obj.matrix_world @ vertex.co) for vertex in obj.data.vertices],
+            [tuple(polygon.vertices) for polygon in obj.data.polygons],
+            all_triangles=False,
+        )
+        _ARCHITECTURE_WALL_BVH_CACHE[obj.name] = tree
+    return tree
+
+
+def point_is_inside_architecture_wall(
+    obj: bpy.types.Object,
+    point: Vector,
+) -> bool:
+    tree = architecture_wall_bvh(obj)
+    direction = Vector((0.918273, 0.347119, 0.186407)).normalized()
+    origin = point.copy()
+    intersection_count = 0
+    for _ in range(len(obj.data.polygons) + 1):
+        surface_point, _normal, _polygon_index, distance = tree.ray_cast(
+            origin,
+            direction,
+        )
+        if surface_point is None or distance is None:
+            break
+        intersection_count += 1
+        origin = surface_point + direction * 1.0e-4
+    else:
+        raise RuntimeError(
+            f"建築壁の内外判定が収束しません: {obj.name}/{tuple(point)}"
+        )
+    return intersection_count % 2 == 1
+
+
+def axis_aligned_box_overlaps_architecture_wall(
+    obj: bpy.types.Object,
+    bounds: tuple[Vector, Vector],
+) -> bool:
+    minimum, maximum = bounds
+    inset = 1.0e-4
+    box_minimum = minimum + Vector((inset, inset, inset))
+    box_maximum = maximum - Vector((inset, inset, inset))
+    if any(box_minimum[axis] >= box_maximum[axis] for axis in range(3)):
+        raise RuntimeError(f"建築壁重なり監査対象が薄すぎます: {bounds}")
+    vertices = [
+        (x, y, z)
+        for z in (box_minimum.z, box_maximum.z)
+        for y in (box_minimum.y, box_maximum.y)
+        for x in (box_minimum.x, box_maximum.x)
+    ]
+    faces = (
+        (0, 1, 3, 2),
+        (4, 6, 7, 5),
+        (0, 4, 5, 1),
+        (2, 3, 7, 6),
+        (0, 2, 6, 4),
+        (1, 5, 7, 3),
+    )
+    box_tree = BVHTree.FromPolygons(vertices, faces, all_triangles=False)
+    if architecture_wall_bvh(obj).overlap(box_tree):
+        return True
+    center = (box_minimum + box_maximum) / 2.0
+    if point_is_inside_architecture_wall(obj, center):
+        return True
+    return any(
+        all(
+            box_minimum[axis] < point[axis] < box_maximum[axis]
+            for axis in range(3)
+        )
+        for point in (
+            obj.matrix_world @ vertex.co for vertex in obj.data.vertices
+        )
+    )
+
+
+def is_architecture_wall_visual(obj: bpy.types.Object) -> bool:
+    name = obj.name
+    return (
+        name.startswith("VIS_Wall")
+        or name.startswith("VIS_B03_ExteriorWalls_F")
+        or name.startswith("VIS_B03_InteriorWalls_F")
+        or name.startswith("VIS_B03_Interior_Walls_F")
+        or (
+            name.startswith("VIS_B03_Interior_F")
+            and name.endswith("_Toilets_Architecture")
+        )
+        or name
+        in {
+            "VIS_B03_GymExteriorWalls",
+            "VIS_B03_GymStorageNorthWall",
+            "VIS_RooftopFacilityShell",
+        }
+    )
+
+
 def require_no_architecture_wall_overlap(
     label: str,
     bounds: tuple[Vector, Vector],
     wall_components: list[tuple[str, int, Vector, Vector]],
 ) -> int:
     minimum, maximum = bounds
-    violations = [
-        f"{wall_name}#{component_index}"
-        for wall_name, component_index, wall_minimum, wall_maximum in wall_components
+    candidate_names = {
+        wall_name
+        for wall_name, _component_index, wall_minimum, wall_maximum in wall_components
         if aabb_overlaps(minimum, maximum, wall_minimum, wall_maximum)
+    }
+    violations = [
+        wall_name
+        for wall_name in sorted(candidate_names)
+        if axis_aligned_box_overlaps_architecture_wall(
+            bpy.data.objects[wall_name],
+            bounds,
+        )
     ]
     if violations:
         raise RuntimeError(
@@ -2390,10 +2506,10 @@ def audit_music_room_orientation() -> dict[str, int]:
 
 def audit_toilet_front_structures() -> dict[str, int]:
     expected_wall_spans = (
-        (-6.6, -5.4),
+        (-6.75, -5.4),
         (-4.2, -2.1),
         (-2.1, -0.9),
-        (0.3, 2.4),
+        (0.3, 2.55),
     )
     expected_door_openings = ((-5.4, -4.2), (-0.9, 0.3))
     expected_sign_placements = (
@@ -2421,6 +2537,11 @@ def audit_toilet_front_structures() -> dict[str, int]:
         for obj in bpy.data.objects
         if obj.type == "MESH" and is_architecture_wall_collider(obj)
     ]
+    visual_wall_objects = [
+        obj
+        for obj in bpy.data.objects
+        if obj.type == "MESH" and is_architecture_wall_visual(obj)
+    ]
     front_component_checks = 0
     door_opening_checks = 0
     common_opening_checks = 0
@@ -2433,11 +2554,16 @@ def audit_toilet_front_structures() -> dict[str, int]:
         collider = bpy.data.objects[
             f"COL_B03_Interior_Walls_F{floor:02d}_Toilets"
         ]
-        object_components = (
-            connected_component_aabbs(visual),
-            connected_component_aabbs(collider),
+        joined_front_wall_spans = (
+            TOILET_FRONT_WALL_SPANS
+            if floor == 1
+            else (
+                (-6.75, -5.4),
+                (-4.2, -1.95),
+                (-1.95, -0.9),
+                (0.3, 2.55),
+            )
         )
-
         expected_bounds = [
             box_bounds(
                 (
@@ -2451,7 +2577,7 @@ def audit_toilet_front_structures() -> dict[str, int]:
                     3.0,
                 ),
             )
-            for minimum_x, maximum_x in TOILET_FRONT_WALL_SPANS
+            for minimum_x, maximum_x in joined_front_wall_spans
         ]
         expected_bounds.extend(
             box_bounds(
@@ -2469,54 +2595,66 @@ def audit_toilet_front_structures() -> dict[str, int]:
             for minimum_x, maximum_x in TOILET_FRONT_DOOR_OPENINGS
         )
 
-        for components in object_components:
-            front_components = [
-                (minimum, maximum)
-                for minimum, maximum in components
-                if (maximum - minimum).y <= TOILET_FRONT_WALL_DEPTH + 1e-5
-                and minimum.y <= TOILET_FRONT_WALL_Y + TOILET_FRONT_WALL_DEPTH / 2
-                and maximum.y >= TOILET_FRONT_WALL_Y - TOILET_FRONT_WALL_DEPTH / 2
+        # 共有境界化後は複数区画が一つの閉Meshへ連結されるため、
+        # component AABBではなく、壁Volume所有と表示面の実在を独立に検査する。
+        for expected in expected_bounds:
+            expected_minimum = Vector(expected[0])
+            expected_maximum = Vector(expected[1])
+            center = (expected_minimum + expected_maximum) / 2.0
+            owners = [
+                obj.name
+                for obj in wall_objects
+                if point_is_inside_architecture_wall(obj, center)
             ]
-            if len(front_components) != expected_front_components:
+            if len(owners) != 1:
                 raise RuntimeError(
-                    f"F{floor:02d}トイレ正面構造が"
-                    f"{expected_front_components}区画ではありません: "
-                    f"{len(front_components)}"
+                    f"F{floor:02d}トイレ正面壁・まぐさのVolume所有者が"
+                    f"一意ではありません: {expected}/{owners}"
                 )
-            for expected in expected_bounds:
-                require_component_bounds(
-                    f"F{floor:02d}トイレ正面壁・まぐさ",
-                    front_components,
-                    expected,
+            for surface_y in (expected_minimum.y, expected_maximum.y):
+                surface_point = Vector((center.x, surface_y, center.z))
+                nearest_distance = min(
+                    (
+                        result[3]
+                        for obj in visual_wall_objects
+                        if (result := architecture_wall_bvh(obj).find_nearest(
+                            surface_point,
+                            1.0e-3,
+                        ))[0]
+                        is not None
+                    ),
+                    default=None,
                 )
-                front_component_checks += 1
+                if nearest_distance is None or nearest_distance > 1.0e-4:
+                    raise RuntimeError(
+                        f"F{floor:02d}トイレ正面壁・まぐさの表示面が"
+                        f"ありません: {tuple(surface_point)}"
+                    )
+            front_component_checks += 2
 
-            for minimum_x, maximum_x in TOILET_FRONT_DOOR_OPENINGS:
-                opening_minimum = Vector(
+        for minimum_x, maximum_x in TOILET_FRONT_DOOR_OPENINGS:
+            opening_bounds = (
+                Vector(
                     (
                         minimum_x + 0.01,
                         TOILET_FRONT_WALL_Y - TOILET_FRONT_WALL_DEPTH / 2 - 0.01,
                         base_z + 0.01,
                     )
-                )
-                opening_maximum = Vector(
+                ),
+                Vector(
                     (
                         maximum_x - 0.01,
                         TOILET_FRONT_WALL_Y + TOILET_FRONT_WALL_DEPTH / 2 + 0.01,
                         base_z + TOILET_FRONT_DOOR_HEIGHT - 0.01,
                     )
-                )
-                if any(
-                    aabb_overlaps(
-                        opening_minimum,
-                        opening_maximum,
-                        minimum,
-                        maximum,
-                    )
-                    for minimum, maximum in front_components
-                ):
-                    raise RuntimeError(f"F{floor:02d}トイレ入口が壁で塞がれています")
-            door_opening_checks += len(TOILET_FRONT_DOOR_OPENINGS)
+                ),
+            )
+            if any(
+                axis_aligned_box_overlaps_architecture_wall(obj, opening_bounds)
+                for obj in wall_objects
+            ):
+                raise RuntimeError(f"F{floor:02d}トイレ入口が壁で塞がれています")
+        door_opening_checks += len(TOILET_FRONT_DOOR_OPENINGS)
 
         common_minimum = Vector(
             (
@@ -2533,17 +2671,11 @@ def audit_toilet_front_structures() -> dict[str, int]:
             )
         )
         common_violations = [
-            f"{obj.name}#{component_index}"
+            obj.name
             for obj in wall_objects
-            for component_index, (minimum, maximum) in enumerate(
-                connected_component_aabbs(obj),
-                1,
-            )
-            if aabb_overlaps(
-                common_minimum,
-                common_maximum,
-                minimum,
-                maximum,
+            if axis_aligned_box_overlaps_architecture_wall(
+                obj,
+                (common_minimum, common_maximum),
             )
         ]
         if common_violations:
@@ -2557,7 +2689,6 @@ def audit_toilet_front_structures() -> dict[str, int]:
             f"VIS_B03_Interior_F{floor:02d}_Toilets_SignsPaper"
         ]
         sign_components = connected_component_aabbs(signs)
-        wall_components = object_components[1]
         for x, y, rotation in TOILET_SIGN_PLACEMENTS:
             expected_sign = transformed_box_bounds(
                 (x, y, base_z),
@@ -2572,29 +2703,17 @@ def audit_toilet_front_structures() -> dict[str, int]:
             )
             sign_minimum = Vector(expected_sign[0])
             sign_maximum = Vector(expected_sign[1])
-            if not any(
-                aabb_axis_gap(
-                    sign_minimum,
-                    sign_maximum,
-                    wall_minimum,
-                    wall_maximum,
-                    1,
+            support_point = Vector(
+                (
+                    (sign_minimum.x + sign_maximum.x) / 2.0,
+                    TOILET_FRONT_WALL_Y,
+                    (sign_minimum.z + sign_maximum.z) / 2.0,
                 )
-                <= 1e-4
-                and interval_contains(
-                    wall_minimum.x,
-                    wall_maximum.x,
-                    sign_minimum.x,
-                    sign_maximum.x,
-                )
-                and interval_contains(
-                    wall_minimum.z,
-                    wall_maximum.z,
-                    sign_minimum.z,
-                    sign_maximum.z,
-                )
-                for wall_minimum, wall_maximum in wall_components
-            ):
+            )
+            if sum(
+                point_is_inside_architecture_wall(obj, support_point)
+                for obj in wall_objects
+            ) != 1:
                 raise RuntimeError(f"F{floor:02d}トイレ表札が実壁に支持されていません")
             sign_support_checks += 1
 
@@ -3721,8 +3840,16 @@ def audit_roof_changing_lockers(
             raise RuntimeError(
                 f"屋上更衣室の旧箱型ベンチが残っています: {legacy_bench_name}"
             )
+    expected_bench_placements = (
+        (-6.225, 41.5, math.pi / 2),
+        (-2.475, 41.5, math.pi / 2),
+        (-1.725, 41.5, math.pi / 2),
+        (1.875, 41.5, math.pi / 2),
+    )
+    if tuple(ROOF_CHANGING_BENCH_PLACEMENTS) != expected_bench_placements:
+        raise RuntimeError("屋上更衣室壁際ベンチ4台の確定座標が変化しています")
     expected_benches = []
-    for x, y, rotation in ROOF_CHANGING_BENCH_PLACEMENTS:
+    for x, y, rotation in expected_bench_placements:
         expected = transformed_box_bounds(
             (x, y, 14.5),
             (0.0, 0.0, 0.24),
@@ -3853,13 +3980,26 @@ def main() -> None:
     for definition in ATLAS_DEFINITIONS.values():
         path = TEXTURE_DIRECTORY / str(definition["file"])
         dimensions = png_dimensions(path)
-        expected = int(definition["size"])
-        if dimensions != (expected, expected):
-            raise RuntimeError(f"Atlas寸法が不正です: {path}={dimensions}")
+        expected_dimensions = tuple(definition["dimensions"])
+        columns, rows = tuple(definition["grid"])
+        if dimensions != expected_dimensions:
+            raise RuntimeError(
+                f"Atlas寸法が不正です: "
+                f"{path}={dimensions}/{expected_dimensions}"
+            )
+        if (
+            dimensions[0] % columns != 0
+            or dimensions[1] % rows != 0
+            or len(definition["swatches"]) > columns * rows
+        ):
+            raise RuntimeError(
+                f"Atlasグリッドが不正です: {path}={dimensions}/{(columns, rows)}"
+            )
         atlas_results[path.name] = {
             "bytes": path.stat().st_size,
             "sha256": sha256(path),
             "dimensions": dimensions,
+            "grid": (columns, rows),
         }
 
     interior_visuals = sorted(

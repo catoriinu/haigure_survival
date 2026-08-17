@@ -510,7 +510,7 @@ MRK_Door_<token>
 - `room` panelは固定表の1.20m開口を閉姿勢で隙間なく閉じる。開姿勢だけ壁法線方向へ離し、厚さ0.08mのpanelと厚さ0.30mの隣接壁の間に0.01mの空隙を確保する。local offsetはwest壁の1階でX=-0.04m、2～4階でX=+0.08m、north壁の1階でY=+0.04m、2～4階でY=-0.04mとする。各panelは1.20mの移動主軸で見た開方向と反対側へpanel中心から0.45mの位置に、幅0.16m、高さ0.32m、面からの出幅0.02mの長方形取っ手を両面分まとめた`VIS_DoorPanel_Handle_*`を1件持つ。
 - `toilet_stall` panelのlocal boundsは`(-1.40, -0.02, 0.00)`～`(0.00, 0.02, 1.80)`、sweepは`(-1.42, -0.02, 0.00)`～`(0.02, 1.42, 1.80)`とする。開姿勢のtranslationは閉姿勢と一致させ、local Z回転を`-85°`として仕切り壁との面一致を避ける。通路側local Y負面の`(-1.22, -0.075, 0.95)`と個室側local Y正面の`(-1.22, 0.075, 0.95)`を中心に、半径0.06mの低ポリ丸ノブ2球を単一Mesh Object `VIS_DoorPanel_Knob_*`として1件持つ。
 - 固定開放扉、固定閉鎖扉、`elevator_landing`、`elevator_car`には`VIS_DoorPanel_Handle_*`／`VIS_DoorPanel_Knob_*`を付けない。扉金物は`VIS_*`だけで表し、Colliderや`hs_*`を持たせず、FurnitureProps Atlasの`door_hardware_yellow`（RGB 181／153／74）へ割り当てる。
-- エレベーター扉は1.40m中央開口を4枚のテレスコープ式panelで閉じ、開姿勢では左右0.35m幅の戸袋へ2枚ずつ重ねる。panelは開姿勢で中央開口、かご外形、昇降路内寸から突出してはならない。
+- エレベーター扉は1.60m中央開口を0.40m幅4枚のテレスコープ式panelで閉じ、開姿勢では左右0.40m幅の戸袋へ2枚ずつ重ねる。panelは開姿勢で中央開口、かご外形、昇降路内寸から突出してはならない。
 - 教室・トイレ扉の開閉0.8秒、エレベーター扉の開閉1.0秒はRuntime状態機械の定数とし、資産propertyへ重複させない。
 
 #### 7.9.2 エレベーター
@@ -565,8 +565,8 @@ MRK_Door_<token>
 
 - `MRK_ElevatorStop_*`のworld Transformを、かごの停止姿勢とする。1階・4階stopはworld X/Yとrotationを一致させてBlender Zだけを変え、そのtranslation差分からかごの移動軸と移動量を導出する。
 - stopのlocal `+Y`を乗場からかごへ向かう乗車方向、`-Y`を降車方向とする。乗客の相対座標は`MRK_ElevatorPassengerOrigin_*`のcar-local Transformを基準にする。
-- かご床上面はcar-local Z=`0.12`とし、passenger originとoccupancy下端を同じ高さに置く。廊下床からかご床までの0.12m段差と水平隙間は、各stop直下の同形状`VIS_ElevatorThresholdPlate_*`／`COL_ElevatorThresholdPlate_*`で連結する。敷居は廊下側から0.24mで0.12m上がる約26.6度の斜面と、かご側の0.10m水平部を一つの閉形状にし、かご床前面を水平部終端まで後退させて乗降線上の垂直な衝突継ぎ目を作らない。開口幅は1.40mを維持する。
-- `MRK_ElevatorWait_*`は対応call matとthresholdの外側へ水平0.25m以上離し、待機者がcall matを占有し続けない位置に置く。call matと対応する`VIS_ElevatorCallIndicator_Base_*`は、エレベーター側の既存端を維持して廊下側へ広げた水平1.5m×1.5mの同一形状とする。`VIS_ElevatorCallIndicator_Direction_*`は明色の塗りつぶし三角とし、乗場から見て1階は上向き、4階は下向きとする。
+- かご外幅は2.40m、かご占有Volume幅は1.84mとする。かご床上面はcar-local Z=`0.12`とし、passenger originとoccupancy下端を同じ高さに置く。廊下床からかご床までの0.12m段差と水平隙間は、各stop直下の同形状`VIS_ElevatorThresholdPlate_*`／`COL_ElevatorThresholdPlate_*`で連結する。敷居幅は1.60mとし、廊下側から0.24mで0.12m上がる約26.6度の斜面と、かご側の0.10m水平部を一つの閉形状にする。かご床前面を水平部終端まで後退させ、乗降線上の垂直な衝突継ぎ目を作らない。
+- `MRK_ElevatorWait_*`は対応call matとthresholdの外側へ水平0.25m以上離し、待機者がcall matを占有し続けない位置に置く。call mat、対応する`VIS_ElevatorCallIndicator_Base_*`、人物gateの幅は1.70mとし、call matと表示床はエレベーター側の既存端を維持して廊下側へ1.50m伸ばした同一形状とする。`VIS_ElevatorCallIndicator_Direction_*`は明色の塗りつぶし三角とし、乗場から見て1階は上向き、4階は下向きとする。
 - controllerはstopを正確に2件持ち、1階=`A`、4階=`B`とする。`hs_initial_stop_id`は4階stopを参照し、car markerの初期Transformも同stopと一致させる。
 - 各stopは乗場扉、呼出マット、呼出indicator、敷居、人物gate、待機markerを各1件所有する。かご扉、占有Volume、乗客基準はエレベーター全体で各1件とする。
 - 2階・3階の固定閉鎖扉は通常の静的`VIS_*`／`COL_*`だけで表し、`door`、`elevator_stop`、call mat、threshold、gate、link endpointを持たせない。

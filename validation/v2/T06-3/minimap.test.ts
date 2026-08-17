@@ -546,7 +546,56 @@ export const runV2MinimapTests = ({
         includedWalkableCount === 0,
       `blockedPixels=${blockedPixelCount} / floorPixels=${firstFloorPixelCount} / ` +
         `structuralBlockers=${structuralBlockers.length}/${semanticBlockerCount} / ` +
-        `walkable=${includedWalkableCount}`
+      `walkable=${includedWalkableCount}`
+    )
+  );
+
+  const gymGalleryPosition = new Vector3(-12.410, 1.315, -6.484);
+  const gymGalleryFloorPoint = new Vector3(-14.575, 1.315, -6.500);
+  const gymGalleryFrame = controller.update(
+    createUpdate(
+      camera,
+      gymGalleryPosition,
+      north,
+      2.3,
+      elevatorSnapshots
+    )
+  );
+  const gymGalleryFloorPixel = projectV2MinimapPoint(
+    gymGalleryFloorPoint,
+    gymGalleryPosition,
+    north
+  );
+  const minimapDevicePixelRatio = canvas.width / 180;
+  const gymGalleryPixelX = Math.round(
+    gymGalleryFloorPixel.x * minimapDevicePixelRatio
+  );
+  const gymGalleryPixelY = Math.round(
+    gymGalleryFloorPixel.y * minimapDevicePixelRatio
+  );
+  const gymGalleryPixels = minimapContext.getImageData(
+    gymGalleryPixelX - 1,
+    gymGalleryPixelY - 1,
+    3,
+    3
+  ).data;
+  let gymGalleryGreenPixelCount = 0;
+  for (let index = 0; index < gymGalleryPixels.length; index += 4) {
+    const red = gymGalleryPixels[index];
+    const green = gymGalleryPixels[index + 1];
+    const blue = gymGalleryPixels[index + 2];
+    if (green > red + 20 && green > blue + 10) {
+      gymGalleryGreenPixelCount += 1;
+    }
+  }
+  checks.push(
+    createT063Check(
+      "2F体育館ギャラリー北側床を上階部材で黒く塗らない",
+      gymGalleryFrame?.floorId === "f02" &&
+        gymGalleryGreenPixelCount >= 5,
+      `floor=${gymGalleryFrame?.floorId ?? "なし"} / ` +
+        `greenPixels=${gymGalleryGreenPixelCount}/9 / ` +
+        `pixel=(${gymGalleryPixelX},${gymGalleryPixelY})`
     )
   );
 

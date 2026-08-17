@@ -30,23 +30,31 @@ export type ElevatorThresholdPlayerCheck = Readonly<{
 }>;
 
 const FRAME_SECONDS = 1 / 60;
-const LATERAL_OFFSET = 0.07;
+const NEAR_LATERAL_OFFSET = 0.07;
+const EDGE_LATERAL_OFFSET = 0.09;
 const TARGET_TOLERANCE = 0.0125;
 const MAX_FRAMES_PER_CROSSING = 720;
 const MAX_STALLED_FRAMES = 12;
 const MAX_AIRBORNE_FRAMES = 4;
+const PAUSE_FRAME_COUNT = 30;
 const REPETITIONS = 20;
 
 type MutableFixtureInput = V2PlayerInput & {
   setDashPressed(pressed: boolean): void;
+  setMoveEnabled(enabled: boolean): void;
 };
 
 const createFixtureInput = (): MutableFixtureInput => {
-  const axes: V2PlayerMoveAxes = Object.freeze({
+  const movingAxes: V2PlayerMoveAxes = Object.freeze({
     moveX: 0,
     moveZ: 1
   });
+  const stoppedAxes: V2PlayerMoveAxes = Object.freeze({
+    moveX: 0,
+    moveZ: 0
+  });
   let dashPressed = false;
+  let moveEnabled = true;
   let active = true;
   const assertActive = () => {
     if (!active) {
@@ -56,7 +64,7 @@ const createFixtureInput = (): MutableFixtureInput => {
   return {
     getMoveAxes: () => {
       assertActive();
-      return axes;
+      return moveEnabled ? movingAxes : stoppedAxes;
     },
     isDashPressed: () => {
       assertActive();
@@ -69,6 +77,7 @@ const createFixtureInput = (): MutableFixtureInput => {
     reset: () => {
       assertActive();
       dashPressed = false;
+      moveEnabled = true;
     },
     dispose: () => {
       assertActive();
@@ -77,6 +86,10 @@ const createFixtureInput = (): MutableFixtureInput => {
     setDashPressed: (pressed: boolean) => {
       assertActive();
       dashPressed = pressed;
+    },
+    setMoveEnabled: (enabled: boolean) => {
+      assertActive();
+      moveEnabled = enabled;
     }
   };
 };
@@ -146,6 +159,12 @@ type CrossingResult = Readonly<{
   reached: boolean;
   maximumStalledFrames: number;
   airborneFrames: number;
+  pauseFrames: number;
+}>;
+
+type CrossingPause = Readonly<{
+  progress: number;
+  frameCount: number;
 }>;
 
 const runCrossing = (
@@ -153,7 +172,8 @@ const runCrossing = (
   input: MutableFixtureInput,
   from: Vector3,
   to: Vector3,
-  dash: boolean
+  dash: boolean,
+  pause: CrossingPause | null = null
 ): CrossingResult => {
   try {
     controller.placeAt(from, to);
@@ -166,6 +186,7 @@ const runCrossing = (
     );
   }
   input.setDashPressed(dash);
+  input.setMoveEnabled(true);
   const travelDirection = requireHorizontalDirection(
     from,
     to,
@@ -175,10 +196,22 @@ const runCrossing = (
     new Vector3(from.x, 0, from.z),
     new Vector3(to.x, 0, to.z)
   );
+  if (
+    pause !== null &&
+    (pause.progress <= TARGET_TOLERANCE ||
+      pause.progress >= requiredDistance - TARGET_TOLERANCE)
+  ) {
+    throw new Error(
+      `敷居停止位置が通過経路の内側ではありません: ` +
+        `${pause.progress}/${requiredDistance}`
+    );
+  }
   let previousProgress = 0;
   let stalledFrames = 0;
   let maximumStalledFrames = 0;
   let airborneFrames = 0;
+  let pauseFrames = 0;
+  let pauseCompleted = pause === null;
   let reached = false;
 
   for (
@@ -206,16 +239,47 @@ const runCrossing = (
       stalledFrames = 0;
     }
     previousProgress = Math.max(previousProgress, progress);
+    if (
+      pause !== null &&
+      !pauseCompleted &&
+      progress >= pause.progress
+    ) {
+      input.setMoveEnabled(false);
+      for (
+        let pauseFrameIndex = 0;
+        pauseFrameIndex < pause.frameCount;
+        pauseFrameIndex += 1
+      ) {
+        const pauseFrame = controller.update(FRAME_SECONDS, true, 1);
+        pauseFrames += 1;
+        if (!pauseFrame.verticalState.grounded) {
+          airborneFrames += 1;
+        }
+      }
+      const pausedDisplacement = controller
+        .getFootPosition()
+        .subtract(from);
+      pausedDisplacement.y = 0;
+      previousProgress = Math.max(
+        previousProgress,
+        Vector3.Dot(pausedDisplacement, travelDirection)
+      );
+      stalledFrames = 0;
+      input.setMoveEnabled(true);
+      pauseCompleted = true;
+    }
     if (progress >= requiredDistance - TARGET_TOLERANCE) {
       reached = true;
       break;
     }
   }
   input.setDashPressed(false);
+  input.setMoveEnabled(false);
   return Object.freeze({
-    reached,
+    reached: reached && pauseCompleted,
     maximumStalledFrames,
-    airborneFrames
+    airborneFrames,
+    pauseFrames
   });
 };
 
@@ -275,9 +339,11 @@ export const runElevatorThresholdPlayerAcceptance = ({
     initialSurroundingMeshes;
   let revisionUpdateReplacedSurroundingMeshes = false;
   let attempts = 0;
+  let pausedAttempts = 0;
   let failures = 0;
   let maximumStalledFrames = 0;
   let maximumAirborneFrames = 0;
+  let totalPauseFrames = 0;
 
   try {
     for (const stop of elevator.stops) {
@@ -320,11 +386,26 @@ export const runElevatorThresholdPlayerAcceptance = ({
       const insideBase = carFootPosition.clone();
       const lanePairs = Object.freeze([
         Object.freeze([0, 0] as const),
-        Object.freeze([-LATERAL_OFFSET, -LATERAL_OFFSET] as const),
-        Object.freeze([LATERAL_OFFSET, LATERAL_OFFSET] as const),
-        Object.freeze([-LATERAL_OFFSET, LATERAL_OFFSET] as const),
-        Object.freeze([LATERAL_OFFSET, -LATERAL_OFFSET] as const)
+        Object.freeze(
+          [-NEAR_LATERAL_OFFSET, -NEAR_LATERAL_OFFSET] as const
+        ),
+        Object.freeze(
+          [NEAR_LATERAL_OFFSET, NEAR_LATERAL_OFFSET] as const
+        ),
+        Object.freeze(
+          [-NEAR_LATERAL_OFFSET, NEAR_LATERAL_OFFSET] as const
+        ),
+        Object.freeze(
+          [NEAR_LATERAL_OFFSET, -NEAR_LATERAL_OFFSET] as const
+        ),
+        Object.freeze(
+          [-EDGE_LATERAL_OFFSET, -EDGE_LATERAL_OFFSET] as const
+        ),
+        Object.freeze(
+          [EDGE_LATERAL_OFFSET, EDGE_LATERAL_OFFSET] as const
+        )
       ]);
+      const thresholdCenter = getMeshCenter(stop.threshold.mesh);
 
       for (const [outsideOffset, insideOffset] of lanePairs) {
         const outside = outsideBase.add(
@@ -369,6 +450,53 @@ export const runElevatorThresholdPlayerAcceptance = ({
               }
             }
           }
+
+          const travelDirection = requireHorizontalDirection(
+            from,
+            to,
+            `停止階${stop.id}の停止再開通過`
+          );
+          const thresholdDisplacement = thresholdCenter.subtract(from);
+          thresholdDisplacement.y = 0;
+          const pauseProgress = Vector3.Dot(
+            thresholdDisplacement,
+            travelDirection
+          );
+          for (
+            let repetition = 0;
+            repetition < REPETITIONS;
+            repetition += 1
+          ) {
+            pausedAttempts += 1;
+            const result = runCrossing(
+              controller,
+              input,
+              from,
+              to,
+              false,
+              Object.freeze({
+                progress: pauseProgress,
+                frameCount: PAUSE_FRAME_COUNT
+              })
+            );
+            maximumStalledFrames = Math.max(
+              maximumStalledFrames,
+              result.maximumStalledFrames
+            );
+            maximumAirborneFrames = Math.max(
+              maximumAirborneFrames,
+              result.airborneFrames
+            );
+            totalPauseFrames += result.pauseFrames;
+            if (
+              !result.reached ||
+              result.pauseFrames !== PAUSE_FRAME_COUNT ||
+              result.maximumStalledFrames > MAX_STALLED_FRAMES ||
+              result.airborneFrames > MAX_AIRBORNE_FRAMES
+            ) {
+              failures += 1;
+            }
+          }
         }
       }
     }
@@ -382,15 +510,19 @@ export const runElevatorThresholdPlayerAcceptance = ({
     ok:
       attempts ===
         elevator.stops.length *
-          5 *
+          7 *
           2 *
           2 *
           REPETITIONS &&
+      pausedAttempts ===
+        elevator.stops.length * 7 * 2 * REPETITIONS &&
+      totalPauseFrames === pausedAttempts * PAUSE_FRAME_COUNT &&
       failures === 0 &&
       repeatedRevisionPreservedSurroundingMeshes &&
       revisionUpdateReplacedSurroundingMeshes,
     detail:
-      `attempts=${attempts} / failures=${failures} / ` +
+      `attempts=${attempts} / paused=${pausedAttempts} / ` +
+      `pauseFrames=${totalPauseFrames} / failures=${failures} / ` +
       `stall=${maximumStalledFrames} / airborne=${maximumAirborneFrames} / ` +
       `sameRevision=${repeatedRevisionPreservedSurroundingMeshes} / ` +
       `newRevision=${revisionUpdateReplacedSurroundingMeshes}`

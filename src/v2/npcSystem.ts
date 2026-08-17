@@ -5665,7 +5665,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         this.requestNavigationReplan(npc, replanPriority);
       }
     }
-    if (npc.pursuitPhase === "coarse") {
+    if (
+      npc.pursuitPhase === "area" ||
+      npc.pursuitPhase === "coarse"
+    ) {
       npc.pursuitCoarseRefreshRemainingSeconds -= deltaSeconds;
       if (npc.pursuitCoarseRefreshRemainingSeconds <= 0) {
         npc.pursuitCoarseRefreshRemainingSeconds +=

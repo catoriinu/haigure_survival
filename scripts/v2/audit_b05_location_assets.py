@@ -531,6 +531,87 @@ def audit_areas(objects: list[bpy.types.Object]) -> list[AreaPiece]:
     return result
 
 
+def audit_school_stair_area_boundaries(
+    area_pieces: list[AreaPiece],
+) -> dict[str, int]:
+    transitions = {
+        "nw": (("f01", "f02"), ("f02", "f03"), ("f03", "f04"), ("f04", "roof")),
+        "ne": (("f01", "f02"), ("f02", "f03"), ("f03", "f04")),
+        "sw": (("f01", "f02"), ("f02", "f03"), ("f03", "f04")),
+    }
+    floor_z = {"f01": 0.0, "f02": 3.6, "f03": 7.2, "f04": 10.8, "roof": 14.4}
+    pieces_by_area: dict[str, list[AreaPiece]] = defaultdict(list)
+    for piece in area_pieces:
+        pieces_by_area[piece.area_id].append(piece)
+
+    shared_boundaries = 0
+    sample_checks = 0
+    terminal_checks = 0
+    for stair_id, stair_transitions in transitions.items():
+        for transition_index, (lower_floor, upper_floor) in enumerate(stair_transitions):
+            area_id = f"area-stair-{stair_id}-{lower_floor}-{upper_floor}"
+            pieces = pieces_by_area[area_id]
+            actual_maximum_z = max(piece.bounds.maximum[2] for piece in pieces)
+            upper_z = floor_z[upper_floor]
+            expected_maximum_z = (
+                upper_z
+                if transition_index == len(stair_transitions) - 1
+                else upper_z - 0.00001
+            )
+            require(
+                close(actual_maximum_z, expected_maximum_z),
+                f"{area_id}の上端が不正です: actual={actual_maximum_z:.8f}, "
+                f"expected={expected_maximum_z:.8f}",
+            )
+            if transition_index == len(stair_transitions) - 1:
+                terminal_checks += 1
+                continue
+
+            next_lower, next_upper = stair_transitions[transition_index + 1]
+            next_area_id = f"area-stair-{stair_id}-{next_lower}-{next_upper}"
+            next_pieces = pieces_by_area[next_area_id]
+            next_minimum_z = min(piece.bounds.minimum[2] for piece in next_pieces)
+            require(
+                close(next_minimum_z, upper_z),
+                f"{next_area_id}の下端が共有階床に一致しません: "
+                f"actual={next_minimum_z:.8f}, expected={upper_z:.8f}",
+            )
+            center_x = (pieces[0].bounds.minimum[0] + pieces[0].bounds.maximum[0]) * 0.5
+            center_y = (pieces[0].bounds.minimum[1] + pieces[0].bounds.maximum[1]) * 0.5
+            expected_by_offset = {
+                -0.00002: area_id,
+                0.0: next_area_id,
+                0.00002: next_area_id,
+            }
+            for offset, expected_area_id in expected_by_offset.items():
+                sample = Vector((center_x, center_y, upper_z + offset))
+                matching_area_ids = {
+                    piece.area_id
+                    for piece in area_pieces
+                    if piece.priority == 250
+                    and all(
+                        piece.bounds.minimum[axis]
+                        <= sample[axis]
+                        <= piece.bounds.maximum[axis]
+                        for axis in range(3)
+                    )
+                }
+                require(
+                    matching_area_ids == {expected_area_id},
+                    f"{stair_id}階段の共有階境界Areaが一意ではありません: "
+                    f"z={sample[2]:.8f}, actual={sorted(matching_area_ids)}, "
+                    f"expected={expected_area_id}",
+                )
+                sample_checks += 1
+            shared_boundaries += 1
+
+    return {
+        "shared_boundaries": shared_boundaries,
+        "boundary_samples": sample_checks,
+        "terminal_boundaries": terminal_checks,
+    }
+
+
 def audit_missions(
     volumes: list[bpy.types.Object],
     anchors: list[bpy.types.Object],
@@ -825,6 +906,7 @@ def main() -> None:
     collection_result = audit_collections(by_role)
     floor_map_components = audit_floor_maps(by_role["floor_map"])
     area_pieces = audit_areas(by_role["location_area"])
+    stair_area_boundary_result = audit_school_stair_area_boundaries(area_pieces)
     mission_result = audit_missions(
         by_role["mission_location"],
         by_role["mission_anchor"],
@@ -861,6 +943,7 @@ def main() -> None:
             str(priority): count for priority, count in sorted(priority_counts.items())
         },
         "same_priority_positive_volume_overlaps": 0,
+        "school_stair_area_boundaries": stair_area_boundary_result,
         "mission_references": mission_result["references"],
         "elevator": elevator_result,
         "broadcast": broadcast_result,
