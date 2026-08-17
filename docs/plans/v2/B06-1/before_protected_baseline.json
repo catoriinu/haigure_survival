@@ -1,5 +1,72 @@
 {
   "generator_version": "b05-location-assets-v1",
+  "geometry": {
+    "glb_bytes": 22180712,
+    "glb_indices": 1276770,
+    "glb_meshes": 1448,
+    "glb_nodes": 1894,
+    "glb_primitives": 1448,
+    "glb_triangles": 425590,
+    "glb_vertices": 852811,
+    "prefixes": {
+      "BND": {
+        "indices": 72,
+        "meshes": 2,
+        "nodes": 2,
+        "primitives": 2,
+        "triangles": 24,
+        "vertices": 48
+      },
+      "COL": {
+        "indices": 108708,
+        "meshes": 438,
+        "nodes": 438,
+        "primitives": 438,
+        "triangles": 36236,
+        "vertices": 72410
+      },
+      "MAP": {
+        "indices": 1260,
+        "meshes": 5,
+        "nodes": 5,
+        "primitives": 5,
+        "triangles": 420,
+        "vertices": 840
+      },
+      "NAV": {
+        "indices": 145500,
+        "meshes": 81,
+        "nodes": 81,
+        "primitives": 81,
+        "triangles": 48500,
+        "vertices": 96862
+      },
+      "PRT": {
+        "indices": 144,
+        "meshes": 4,
+        "nodes": 4,
+        "primitives": 4,
+        "triangles": 48,
+        "vertices": 96
+      },
+      "VIS": {
+        "indices": 1011618,
+        "meshes": 655,
+        "nodes": 655,
+        "primitives": 655,
+        "triangles": 337206,
+        "vertices": 676243
+      },
+      "VOL": {
+        "indices": 9468,
+        "meshes": 263,
+        "nodes": 263,
+        "primitives": 263,
+        "triangles": 3156,
+        "vertices": 6312
+      }
+    }
+  },
   "objects": {
     "COL_ActorOnly_WindowFixed_F01_CourtyardNorth_Corridor_02": {
       "properties": {},

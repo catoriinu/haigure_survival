@@ -27,9 +27,6 @@ import {
   type NavigationWorld
 } from "../../../src/world/navigationWorld";
 import {
-  calculateStraightPathPointOutputCapacity
-} from "../../../src/world/navigationWorldInternal";
-import {
   createDynamicStageSpatialVariants,
   type DynamicStageSpatialActiveSet
 } from "../../../src/world/dynamicStageSpatialVariants";
@@ -401,6 +398,18 @@ const createNavigationGeometry = (): NavGeometry => {
 };
 
 const navGeometry = createNavigationGeometry();
+const straightPathCapacityBoundaryGeometry: NavGeometry = Object.freeze({
+  positions: Object.freeze([
+    0, 0, 0,
+    2, 0, 0,
+    2, 0, 1,
+    0, 0, 1
+  ]),
+  indices: Object.freeze([
+    0, 3, 2,
+    0, 2, 1
+  ])
+});
 const navParameters = {
   cs: 0.025,
   ch: 0.0125,
@@ -1397,18 +1406,79 @@ const runValidation = async () => {
       ok: true,
       detail: `recast-navigation 0.43.1 / ${initializationMs.toFixed(2)} ms`
     });
-    const straightPathBoundaryCapacity =
-      calculateStraightPathPointOutputCapacity(2, 4096);
-    const straightPathGlobalCapacity =
-      calculateStraightPathPointOutputCapacity(4096, 4096);
+    const boundaryGenerationResult = generateSoloNavMesh(
+      straightPathCapacityBoundaryGeometry.positions,
+      straightPathCapacityBoundaryGeometry.indices,
+      {
+        ...navParameters,
+        walkableRadius: 0,
+        maxEdgeLen: 1000,
+        maxVertsPerPoly: 3
+      }
+    );
+    if (!boundaryGenerationResult.success) {
+      throw new Error(boundaryGenerationResult.error);
+    }
+    let boundaryData: Uint8Array;
+    try {
+      boundaryData = exportNavMesh(boundaryGenerationResult.navMesh);
+    } finally {
+      boundaryGenerationResult.navMesh.destroy();
+    }
+    const boundaryNavigationWorld = await createNavigationWorld(
+      boundaryData,
+      []
+    );
+    pendingNavigationWorlds.push(boundaryNavigationWorld);
+    const boundaryStart = boundaryNavigationWorld.projectPoint(
+      new Vector3(-0.25, 0, 0.5),
+      0.2
+    );
+    const boundaryDestination = boundaryNavigationWorld.projectPoint(
+      new Vector3(-1.75, 0, 0.5),
+      0.2
+    );
+    if (!boundaryStart || !boundaryDestination) {
+      throw new Error("2 polygon境界NavMeshの始点または終点を投影できません。");
+    }
+    const boundaryQueryPrototype = NavMeshQuery.prototype;
+    const originalFindStraightPath = boundaryQueryPrototype.findStraightPath;
+    let observedStraightPathCapacity: number | null = null;
+    boundaryQueryPrototype.findStraightPath = function (
+      this: NavMeshQuery,
+      ...args: Parameters<NavMeshQuery["findStraightPath"]>
+    ) {
+      observedStraightPathCapacity = args[3]?.maxStraightPathPoints ?? null;
+      return originalFindStraightPath.apply(this, args);
+    };
+    let boundarySurfacePath: NavigationSurfaceStep | null = null;
+    try {
+      boundarySurfacePath = boundaryNavigationWorld.findSurfacePath(
+        boundaryStart,
+        boundaryDestination
+      );
+    } finally {
+      boundaryQueryPrototype.findStraightPath = originalFindStraightPath;
+    }
+    const boundaryPoints =
+      boundarySurfacePath?.points.map((point) => point.position) ?? [];
     checks.push({
-      name: "NavMesh直線経路の満杯判定用出力余白",
+      name: "2 polygon NavMesh直線経路の終点出力余白",
       ok:
-        straightPathBoundaryCapacity === 4 &&
-        straightPathGlobalCapacity === 4096,
+        observedStraightPathCapacity === 4 &&
+        boundaryPoints.length === 3 &&
+        Vector3.Distance(boundaryPoints[0], boundaryStart.position) <= 1e-6 &&
+        Vector3.Distance(
+          boundaryPoints[1],
+          new Vector3(-1, boundaryStart.position.y, 0.5)
+        ) <= 1e-6 &&
+        Vector3.Distance(
+          boundaryPoints[boundaryPoints.length - 1],
+          boundaryDestination.position
+        ) <= 1e-6,
       detail:
-        `2面=${straightPathBoundaryCapacity}点 / ` +
-        `全体上限=${straightPathGlobalCapacity}点`
+        `capacity=${observedStraightPathCapacity ?? "none"} / ` +
+        `points=${boundaryPoints.map((point) => point.toString()).join(" -> ") || "none"}`
     });
 
     const bakeStartedAt = performance.now();

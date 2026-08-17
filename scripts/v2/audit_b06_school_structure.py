@@ -1540,58 +1540,92 @@ def source_signature() -> dict[str, dict[str, object]]:
     }
 
 
-def audit_geometry_budgets() -> dict[str, object]:
-    prefix_triangles = {
-        prefix: 0
-        for prefix in ("BND", "COL", "MAP", "NAV", "PRT", "VIS", "VOL")
-    }
-    scene_vertices = 0
-    for obj in bpy.data.objects:
-        if obj.type != "MESH":
-            continue
-        obj.data.calc_loop_triangles()
-        scene_vertices += len(obj.data.vertices)
-        prefix = obj.name.split("_", 1)[0]
-        if prefix in prefix_triangles:
-            prefix_triangles[prefix] += len(obj.data.loop_triangles)
-
-    document = read_glb_json(GLB_PATH)
+def collect_glb_geometry_metrics(path: Path = GLB_PATH) -> dict[str, object]:
+    prefixes = ("BND", "COL", "MAP", "NAV", "PRT", "VIS", "VOL")
+    document = read_glb_json(path)
     accessors = document.get("accessors", [])
-    primitives = [
-        primitive
-        for mesh in document.get("meshes", [])
-        for primitive in mesh.get("primitives", [])
-    ]
-    glb_vertices = sum(
-        accessors[primitive["attributes"]["POSITION"]]["count"]
-        for primitive in primitives
-    )
-    glb_indices = sum(
-        accessors[primitive["indices"]]["count"]
-        for primitive in primitives
-        if "indices" in primitive
-    )
-    glb_triangles = sum(
-        (
+    meshes = document.get("meshes", [])
+    primitives = [primitive for mesh in meshes for primitive in mesh.get("primitives", [])]
+
+    def primitive_vertex_count(primitive: dict[str, object]) -> int:
+        return accessors[primitive["attributes"]["POSITION"]]["count"]
+
+    def primitive_index_count(primitive: dict[str, object]) -> int:
+        return (
             accessors[primitive["indices"]]["count"]
             if "indices" in primitive
-            else accessors[primitive["attributes"]["POSITION"]]["count"]
+            else 0
         )
-        // 3
-        for primitive in primitives
-        if primitive.get("mode", 4) == 4
+
+    def primitive_triangle_count(primitive: dict[str, object]) -> int:
+        if primitive.get("mode", 4) != 4:
+            return 0
+        element_count = (
+            primitive_index_count(primitive)
+            if "indices" in primitive
+            else primitive_vertex_count(primitive)
+        )
+        return element_count // 3
+
+    glb_vertices = sum(
+        primitive_vertex_count(primitive) for primitive in primitives
     )
-    metrics = {
-        "glb_bytes": GLB_PATH.stat().st_size,
+    glb_indices = sum(
+        primitive_index_count(primitive) for primitive in primitives
+    )
+    glb_triangles = sum(
+        primitive_triangle_count(primitive) for primitive in primitives
+    )
+    prefix_metrics = {
+        prefix: {
+            "nodes": 0,
+            "meshes": 0,
+            "primitives": 0,
+            "vertices": 0,
+            "indices": 0,
+            "triangles": 0,
+        }
+        for prefix in prefixes
+    }
+    prefix_mesh_indices = {prefix: set() for prefix in prefixes}
+    for node in document.get("nodes", []):
+        mesh_index = node.get("mesh")
+        if mesh_index is None:
+            continue
+        prefix = node.get("name", "").split("_", 1)[0]
+        if prefix not in prefix_metrics:
+            continue
+        node_primitives = meshes[mesh_index].get("primitives", [])
+        metrics = prefix_metrics[prefix]
+        metrics["nodes"] += 1
+        prefix_mesh_indices[prefix].add(mesh_index)
+        metrics["primitives"] += len(node_primitives)
+        metrics["vertices"] += sum(
+            primitive_vertex_count(primitive) for primitive in node_primitives
+        )
+        metrics["indices"] += sum(
+            primitive_index_count(primitive) for primitive in node_primitives
+        )
+        metrics["triangles"] += sum(
+            primitive_triangle_count(primitive) for primitive in node_primitives
+        )
+    for prefix in prefixes:
+        prefix_metrics[prefix]["meshes"] = len(prefix_mesh_indices[prefix])
+
+    return {
+        "glb_bytes": path.stat().st_size,
         "glb_nodes": len(document.get("nodes", [])),
-        "glb_meshes": len(document.get("meshes", [])),
+        "glb_meshes": len(meshes),
         "glb_primitives": len(primitives),
         "glb_vertices": glb_vertices,
         "glb_indices": glb_indices,
         "glb_triangles": glb_triangles,
-        "scene_vertices": scene_vertices,
-        "prefix_triangles": prefix_triangles,
+        "prefixes": prefix_metrics,
     }
+
+
+def audit_geometry_budgets() -> dict[str, object]:
+    metrics = collect_glb_geometry_metrics()
     require(metrics["glb_bytes"] <= MAX_GLB_BYTES, f"GLB容量が肥大化しています: {metrics}")
     require(metrics["glb_nodes"] <= MAX_GLB_NODES, f"GLB Node数が肥大化しています: {metrics}")
     require(metrics["glb_meshes"] <= MAX_GLB_MESHES, f"GLB Mesh数が肥大化しています: {metrics}")
@@ -1603,11 +1637,11 @@ def audit_geometry_budgets() -> dict[str, object]:
     require(metrics["glb_indices"] <= MAX_GLB_INDICES, f"GLB index数が肥大化しています: {metrics}")
     require(metrics["glb_triangles"] <= MAX_GLB_TRIANGLES, f"GLB三角形数が肥大化しています: {metrics}")
     require(
-        prefix_triangles["VIS"] <= MAX_VISUAL_TRIANGLES,
+        metrics["prefixes"]["VIS"]["triangles"] <= MAX_VISUAL_TRIANGLES,
         f"表示Mesh三角形数が肥大化しています: {metrics}",
     )
     require(
-        prefix_triangles["COL"] <= MAX_COLLIDER_TRIANGLES,
+        metrics["prefixes"]["COL"]["triangles"] <= MAX_COLLIDER_TRIANGLES,
         f"Collider三角形数が肥大化しています: {metrics}",
     )
     print(
@@ -1617,10 +1651,39 @@ def audit_geometry_budgets() -> dict[str, object]:
     return metrics
 
 
+def audit_geometry_regression(
+    baseline: dict[str, object],
+    current: dict[str, object],
+) -> None:
+    for metric_name in (
+        "glb_bytes",
+        "glb_vertices",
+        "glb_indices",
+        "glb_triangles",
+    ):
+        require(
+            current[metric_name] <= baseline[metric_name],
+            "B06-1変更前よりGLB geometryが再肥大化しています: "
+            f"metric={metric_name}, before={baseline[metric_name]}, "
+            f"after={current[metric_name]}",
+        )
+    for prefix in ("VIS", "COL"):
+        for metric_name in ("vertices", "indices", "triangles"):
+            before_value = baseline["prefixes"][prefix][metric_name]
+            after_value = current["prefixes"][prefix][metric_name]
+            require(
+                after_value <= before_value,
+                "B06-1変更前より配信Meshが再肥大化しています: "
+                f"prefix={prefix}, metric={metric_name}, "
+                f"before={before_value}, after={after_value}",
+            )
+
+
 def write_before() -> None:
     require(not BASELINE_PATH.exists(), f"変更前baselineは既に存在します: {BASELINE_PATH}")
     snapshot = {
         "source": source_signature(),
+        "geometry": collect_glb_geometry_metrics(),
         "generator_version": bpy.context.scene.get(GENERATOR_VERSION_PROPERTY),
         "objects": protected_snapshot(),
     }
@@ -1637,6 +1700,7 @@ def write_before() -> None:
                 "path": str(BASELINE_PATH),
                 "objects": len(snapshot["objects"]),
                 "source": snapshot["source"],
+                "geometry": snapshot["geometry"],
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -1680,13 +1744,16 @@ def compare_after() -> None:
         == EXPECTED_GENERATOR_VERSION,
         "B06-1生成器versionが不正です",
     )
-    audit_structure_geometry()
+    current_geometry = audit_structure_geometry()
+    audit_geometry_regression(baseline["geometry"], current_geometry)
     print(
         "B06_1_AUDIT_RESULT="
         + json.dumps(
             {
                 "before": baseline["source"],
                 "after": source_signature(),
+                "before_geometry": baseline["geometry"],
+                "after_geometry": current_geometry,
                 "changed_objects": sorted(changed),
                 "missing_objects": sorted(missing),
                 "new_objects": sorted(new),
@@ -2158,7 +2225,7 @@ def audit_rooftop_facility_straight_south_front(
     )
 
 
-def audit_structure_geometry() -> None:
+def audit_structure_geometry() -> dict[str, object]:
     # 実装と同じ正本値ではなく、P1-STR-01～09の成果境界をここで検証する。
     wall_union_surfaces = audit_wall_union_surfaces()
     print(
@@ -3010,7 +3077,7 @@ def audit_structure_geometry() -> None:
         f"学校壁に90度角ではない面があります: {diagonal_faces}",
     )
     audit_unique_wall_corner_contacts(right_angle_objects)
-    audit_geometry_budgets()
+    return audit_geometry_budgets()
 
 
 def audit_unique_wall_corner_contacts(object_names: tuple[str, ...]) -> None:

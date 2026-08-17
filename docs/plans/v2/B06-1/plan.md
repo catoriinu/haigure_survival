@@ -552,7 +552,25 @@ B06比較、B03建築・内装・interactive・残骸・保護契約、B04境界
 - [x] 4階校舎壁から屋上小屋までを同じ位置・厚みの連続壁へ再構成し、屋上床との面所有を一意にしたうえで、階段側の近距離・遠距離・横移動から黒線とちらつきをなくす
 - [x] 正本・GLB・必要なNavMesh・カタログを決定的に再生成し、資産監査、型検査、build、Mission回帰、実Runtimeのミニマップと屋上視点を確認する
 
+## PR #73 インラインコメント対応プロンプト
+
+> プルリク上にインラインコメントをつけました。内容の妥当性を確認し、妥当であれば修正してください。対応内容をインラインコメントに返信してください。
+
+## PR #73 インラインコメント対応ステップ
+
+- [x] PR #73の最新base／headと未解決reviewThreads 4件を取得し、各指摘の妥当性を判定する
+- [x] NavMesh直線経路容量の算術テストを、実Recast NavMeshと`findSurfacePath()`を通る境界回帰へ置換する
+- [x] `area`／`coarse`追跡更新を単一分岐へ統合し、周期・anchor・再計画契約を一か所にする
+- [x] policy受入の重複した北西階段／エレベーター物理移動loopを削除し、実Coordinator統合検査へ一本化する
+- [x] B06 baselineへ実GLB geometry metricsを保存し、bytes／vertices／trianglesとVIS／COL別metricsの相対回帰を検出する
+- [x] 対象typecheck／build／fixture／B06比較監査を実行し、結果を記録する
+- [ ] 修正をcommitしてPRブランチへpushし、4件の元スレッドへ検証結果付きで返信する
+
 ## 結果
+
+PR #73の未解決インラインコメント4件を最新headで確認し、すべて妥当と判定して修正した。NavMesh直線経路容量は、算術関数だけの確認を廃止し、`maxVertsPerPoly=3`で実際に2ポリゴンを生成して`findSurfacePath()`を通し、出力容量4点、始点、境界点、終点の順序を検証する境界回帰へ置換した。T04 root fixtureは既存基準と同じ114/118件が合格し、追加回帰はPASSした。残る4件はPR本文記載済みの既存失敗である。実学校Coordinator統合fixtureは80/80件が合格した。
+
+NPC追跡の`area`／`coarse`分岐は同じ更新処理を一つへ統合した。policy受入から北西階段・エレベーターの重複した物理移動loopを削除し、10 NPCの経路選択契約と実Coordinator統合fixtureを正本にした。B06比較監査は実GLBのnode→mesh→primitiveから全体およびprefix別のbytes、vertices、indices、trianglesを採取し、保存済みdevelop baseline以下であることを検査する。最終値はGLB 22,053,740 bytes、VIS 330,259 triangles、COL 31,638 trianglesで、baselineの22,180,712 bytes、337,206、36,236をそれぞれ下回った。`typecheck:t04`、`typecheck:t05`、`build:t04`、Python構文、`git diff --check`、B06 `compare-after`は合格した。
 
 第13次再修正はv34で実装・検証を完了した。2F体育館ギャラリーの東西側床は、実際の`COL_B03_GymGalleryFloor`が北端`Y=26.40`まで続く一方、`MAP_F02`だけが`Y=25.00`で終わっていた。左右のミニマップ床を実床と同じ`Y=26.40`まで延長し、指摘座標`X=-12.410 / Y=1.315 / Z=-6.484`に対応する回帰検査では周囲9/9画素が2Fの緑色になった。Runtime描画側の階層・遮蔽物判定は変更していない。
 
