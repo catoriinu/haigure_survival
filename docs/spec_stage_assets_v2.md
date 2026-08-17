@@ -63,7 +63,7 @@ public/stage-assets/v2/<ステージID>/<資産名>.bit-flight.navmesh.bin
 - 修正案1では、V1実形状・被弾球の半径0.44mへ安全余裕0.10mを加えた移動包絡半径0.54m、直径1.08mを正本とする。B03承認時の片羽開放幅1.20mは両羽全開へ変更せず維持し、58窓を窓枠・進入角度まで含む実飛行Agentで双方向116/116に再検証済みとする。旧0.64m包絡・直径1.28mを根拠とした未解決扱いと、両羽全開の承認待ちは廃止する。
 - 主玄関、北側校舎北口、北側校舎南口、体育館校庭側は、総高0.30m、各蹴上0.15m、各踏面1.00mの表示2段を共通断面とする。移動衝突は表示段と分離し、地面Z＝-0.30mから床Z＝0.00mへ続く単一の`COL_*Ramp`とする。渡り廊下東西側は表示段を置かず、不可視の`COL_BridgeSideRamp_East`と`COL_BridgeSideRamp_West`で同じ床高差を連続接続する。
 - 男女トイレは各3個室とし、内部仕切りは厚さ0.08m、奥行2.10m、高さ2.10mの`VIS_ToiletStallPartition_*`と`COL_ToiletStallPartition_*`を一致させる。個室扉は蝶番から自由端まで1.40mとして開口を閉じ、通路側だけに半径0.06mの丸ノブを付ける。男子小便器3基は背面を東、正面を西へ向け、X＝-2.75～-2.40m、中心Y＝39.6／40.6／41.6mへ配置する。
-- 校庭の`VIS_SiteGround`と`VIS_CourtyardSurface`は草地を表す緑、校門は塀と識別できる青とする。体育館は床を明るい木色、舞台を濃茶、腰壁を淡緑、見切りを濃灰として、同一色の面が重なる箇所を分離する。出入口上部の`VIS_*Lintel`は壁色へ統一する。
+- 校庭は`VIS_SiteGround`を一面の表示所有者とし、`COL_SiteGround`および`NAV_Walkable_Outdoor`と上面高を一致させる。重複する草地面は置かない。校門は塀と識別できる青とする。体育館は床を明るい木色、舞台を濃茶、腰壁を淡緑、見切りを濃灰として、同一色の面が重なる箇所を分離する。出入口上部の`VIS_*Lintel`は壁色へ統一する。
 - 主門と北東門は左右対称の両開き柵形状とし、支柱、上下・中桟、縦桟、中央継ぎを持つ。表示の隙間は意匠だけであり、既存`COL_Gate_*`と`NAV_Blocker_Perimeter`によって移動、NPC、通常ビーム、視線をすべて遮断する。外周7区画は向こう側を見せない連続壁芯を維持し、0.8m×0.4mの5段ブロックと交互目地を外面へ表示する。
 - 主玄関前の校庭には下駄箱や用途不明の箱を置かない。下駄箱代替は`BaggageLocker` 2台を建物内南壁際へ配置し、出入口を塞がない。図書室の本棚24台は本の背表紙を室内へ向けて壁際へ並べ、前後の出入口と窓へ干渉させない。本棚1台は本体8部品と背表紙28冊の計36 components／432 trianglesとする。
 - 3階・4階の北側特別教室は2階と同じく、トイレ、通路、境界壁、特別教室の順に分離する。4階音楽室は東を前方としてピアノと30脚の椅子を配置する。1階北通用口は`BaggageLocker` 1台と傘立てを壁際へ置き、体育倉庫には表札を置かない。階色帯はF01が24成分、F02～F04が各23成分で、扉・開放部を左右1cmの余裕付きで除外する。
@@ -652,15 +652,17 @@ MRK_RoomVariant_<token>
 
 普通教室9室は各2件、特別室は合計20件で、`room` doorは合計38件である。全階トイレは男女各3個室、4階分の`toilet_stall` doorを合計24件持つ。旧1階個別扉8件、旧上階結合扉3件、旧トイレ固定扉は残さない。校舎、体育館、渡り廊下の固定開放出入口は動的doorへ変換しない。
 
-### 7.11 B05階別Map・Location・放送卓意味資産
+### 7.11 B05／B06-4 階別Map・Location・放送卓意味資産
 
 B05対応ステージは`hs_schema_version=3`とし、TypeScriptカタログの`locationAssetsMode="required"`と同時に切り替える。非対応fixtureは`locationAssetsMode="unsupported"`とし、以下のObjectを1件でも含めてはならない。欠落時fallback、Object名や座標からの役割推測、旧role aliasは使用しない。
 
-`MAP_*`はミニマップに表示する階別平面形状専用Meshである。表示、衝突、光線遮蔽、3種NavMeshベイクへ使用せず、MaterialとNormalを要求しない。
+`MAP_*`はミニマップに表示する階別平面形状専用Meshである。`floor_map`は床輪郭、`map_barrier`は恒久壁・塀・柵・階段室、`map_passage`は扉・出入口・階段・Ramp接続の開口を作者一覧から生成する。表示Object、Collider、`NAV_*`、座標探索から推測しない。表示、衝突、光線遮蔽、3種NavMeshベイクへ使用せず、MaterialとNormalを要求しない。
 
 | Object / role | 必須properties |
 |---|---|
 | `MAP_*` / `floor_map` | `hs_id`、`hs_role`、`hs_floor_id`、`hs_display_name`、正整数`hs_order` |
+| `MAP_Barrier_*` / `map_barrier` | `hs_id`、`hs_role`、`hs_floor_id` |
+| `MAP_Passage_*` / `map_passage` | `hs_id`、`hs_role`、`hs_floor_id` |
 | `VOL_*` / `location_area` | `hs_id`、`hs_role`、`hs_area_id`、`hs_display_name`、正整数`hs_priority`、`hs_floor_id`または`hs_elevator_id`の片方だけ |
 | `VOL_*` / `mission_location` | `hs_id`、`hs_role`、`hs_location_id`、`hs_area_id`、`hs_floor_id`、`hs_display_name`、`hs_anchor_id` |
 | `MRK_*` / `mission_anchor` | `hs_id`、`hs_role`、`hs_location_id` |
@@ -672,16 +674,16 @@ B05対応ステージは`hs_schema_version=3`とし、TypeScriptカタログの`
 学校は次の確定目録を持つ。
 
 - `f01`、`f02`、`f03`、`f04`、`roof`の5 Map。順序は1～5で一意とする。
-- 52論理Area、85 Volume piece。1論理Areaは同じID、表示名、優先度を持つ複数pieceで構成できる。
-- 20室、男女トイレ8、階別共用部4、階段区間12、校庭・体育館・ギャラリー・体育館屋上・校舎屋上・プールサイド・更衣室7、エレベーター1。
-- 主要24 Mission Location。各Locationは1 Volumeと1 Anchorを持ち、Anchorは対応Volume内かつ通常版・全荒れ版の人間用NavMeshへ0.25m以内で投影可能とする。
+- 53論理Area、85 Volume piece。1論理Areaは同じID、表示名、優先度を持つ複数pieceで構成できる。校庭は中央校庭と体育館北側通路の3 piece、校舎外周は南・西・北・東外周の11 pieceを持つ。
+- 20室、男女トイレ8、階別共用部4、階段区間12、校庭・校舎外周・体育館・ギャラリー・体育館屋上・校舎屋上・プールサイド・更衣室8、エレベーター1。
+- 主要25 Mission Location。`gym-rooftop`は`f03`、`area-gym-rooftop`、作者Anchor `(46.4, 9.5, 9.6)`と水平2m四方Volumeを持つ。各Locationは1 Volumeと1 Anchorを持ち、Anchorは対応Volume内かつ通常版・全荒れ版の人間用NavMeshへ0.25m以内で投影可能とする。
 - 階段踊り場17、エレベーター乗場4、放送卓Marker 1、正面Ray判定用target Volume 1。
 
 Area優先度はエレベーター400、室・トイレ・更衣室・プールサイド300、階段250、屋外・体育館系200、階別共用部100に固定する。同じ優先度を持つ異なる論理AreaのVolume pieceは正体積で重複してはならず、面または辺の接触だけは許可する。人間用NavMeshの全triangleは1件以上のArea pieceで覆い、最高優先度の論理Areaを一意に解決できなければ読込失敗とする。
 
 各Area pieceは固定`hs_floor_id`または動的`hs_elevator_id`を明示する。階段は同じ論理Area IDを維持しながら上下pieceの`hs_floor_id`で表示Mapを切り替える。エレベーター乗場は1F・4Fだけを`hs_available=true`として既存stopへ厳格参照し、2F・3Fは`false`かつ`hs_stop_id`なしとする。
 
-階別Mapの形状は作者資産を正本とする。1Fは校庭・校舎・体育館、2Fは校舎・ギャラリー・渡り廊下、3Fは校舎・体育館屋上・接続Ramp、4Fは校舎4F、roofは校舎屋上・更衣室・プールサイドを含む。`NAV_*`、Collider、既存Navigation Area、BIT VolumeからMap形状を導出しない。
+階別Mapの形状は作者資産を正本とする。1Fは校庭・校舎・体育館、2Fは校舎・ギャラリー・渡り廊下、3Fは校舎・体育館屋上・接続Ramp、4Fは校舎4F、roofは校舎屋上・階段室・更衣室・プールと屋上固有の壁・柵だけを含む。屋上へ4F以下の形状を混入させず、家具・小物・便器・机・椅子・ロッカー・掲示板・箱・動的扉パネルをBarrierへ含めない。
 
 放送卓Markerは距離判定、target Volumeは正面Ray判定の独立資産であり、表示机や機材から推測しない。相互参照とfloor参照を厳格検証する。
 

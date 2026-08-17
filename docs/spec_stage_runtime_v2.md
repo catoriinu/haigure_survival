@@ -458,12 +458,16 @@ JSON内のBlender座標`(x, y, z)`は読込時にBabylon world座標`(-0.25x, 0.
 ```ts
 export interface StageLocationAssetRegistry {
   readonly floorMaps: readonly StageFloorMap[];
+  readonly minimapBarriers: readonly StageMinimapBarrier[];
+  readonly minimapPassages: readonly StageMinimapPassage[];
   readonly areas: readonly StageLocationArea[];
   readonly missionLocations: readonly StageMissionLocation[];
   readonly stairLandings: readonly StageStairLanding[];
   readonly elevatorLandings: readonly StageElevatorLanding[];
   readonly broadcastConsole: StageBroadcastConsole;
   getFloorMap(floorId: StageLocationFloorId): StageFloorMap | null;
+  getMinimapBarriers(floorId: StageLocationFloorId): readonly StageMinimapBarrier[];
+  getMinimapPassages(floorId: StageLocationFloorId): readonly StageMinimapPassage[];
   getAreaById(id: string): StageLocationArea | null;
   getMissionLocationById(id: string): StageMissionLocation | null;
   findArea(point: Vector3): StageLocationAreaHit | null;
@@ -475,6 +479,7 @@ export interface StageLocationAssetRegistry {
 ロード時に次をすべて検査する。
 
 - floor ID集合と順序が`f01/f02/f03/f04/roof`、1～5で完全一致する。
+- `floor_map | map_barrier | map_passage`以外の`MAP_*` roleを拒否し、全MAP IDが一意で、全5階にBarrierとPassageが1件以上ある。
 - Areaの全pieceでID、表示名、優先度が一致し、固定floorまたは既存elevatorの片方だけを参照する。
 - 異なる論理Areaの同順位Volumeが正体積で重複しない。
 - 人間用NavMeshの全triangleが1件以上のArea pieceで完全に覆われる。
@@ -483,11 +488,11 @@ export interface StageLocationAssetRegistry {
 - エレベーター乗場のfloorとelevatorが存在し、`available`とstop有無が一致する。stopがある場合は`floorIndex`がfloor Mapのorderと一致する。
 - 放送卓Markerとtargetが1件ずつ存在し、相互参照、floor、表示名が有効である。
 
-学校の確定件数は5 Map、52 Area／85 piece、24 Mission Location、17階段踊り場、4エレベーター乗場、放送卓1件である。`locationAssetsMode="unsupported"`ではB05意味資産を0件とし、`StageSpatialContext.locationAssets`を`null`にする。対応外を欠落扱いして座標や既存Volumeから補完しない。
+学校の確定件数は5 Map、53 Area／85 piece、25 Mission Location、17階段踊り場、4エレベーター乗場、放送卓1件である。`locationAssetsMode="unsupported"`ではLocation意味資産を0件とし、`StageSpatialContext.locationAssets`を`null`にする。対応外を欠落扱いして座標や既存Volumeから補完しない。
 
 エレベーターの現在階表示には`StageElevatorSnapshot.displayStopId`を使用する。停止中は現在stop、移動中は到着するまで出発stopを保持し、到着時に目的stopへ切り替える。物理判定用`currentStopId`は移動中`null`の既存契約を維持する。
 
-B05はregistryの読込と検証だけを実装する。ミニマップ描画はT06-3、Mission状態機械、20秒scheduler、放送効果、HUD、公開処刑会場切替はT06-4が所有する。
+B06-4は作者定義Barrier／Passageとregistryの読込までを実装する。`src/ui/v2Minimap.ts`の描画切替と旧`structuralBlockers`削除はT06-4P-1、NPC Runtime修正はT06-4P-2が所有する。
 
 ## 10. 3D空間問い合わせ
 
@@ -562,7 +567,7 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 - T04-3Aは`DynamicStageSpatialVariants`、revision付き動的問い合わせ、扉・エレベーター状態機械、非学校fixture、部屋variant NavMeshタイル組立基盤を担当する。
 - T04-3BはB03-3C／B04の学校metadata、20室variant、全陣営NPCの扉・エレベーター利用を実学校へ統合する。
 - B04は学校外周表示と`BND_WorldLimit`の資産を担当する。両NavMeshは不変とし、外周BIT飛行帯と塀越え遷移は追加しない。
-- B05はschema version 3、`locationAssetsMode`、5 Map、52 Area、24 Mission Location、17階段踊り場、4エレベーター乗場、放送卓と、これらを読める最小Runtime registryを担当する。ミニマップ描画、Mission状態機械、放送効果は含めない。
+- B05はschema version 3、`locationAssetsMode`、基礎Location目録を担当し、B06-4が作者定義Barrier／Passage、53 Area、25 Mission Locationへ拡張する。ミニマップ描画、Mission状態機械、放送効果は含めない。
 - T06はB04とT05-2Vを含む最終学校資産を使い、プレイヤー、NPC、ビット、全階、屋上、全光線、ゲーム進行、水中水平速度50%と通常速度への復帰を通した統合確認を行う。外周BIT帯の統合は対象に含めない。
 - トラップ光線と動的3DマップビームはT05-2、T05-2V、T06、T07の完了範囲に含めない。将来、対応ステージを移植するタスクで`V2BeamOriginKind`、配置metadata、状態機械、光線物理・演出、専用fixtureを同時に追加する。
 
@@ -590,7 +595,7 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 - 壁越しに通常索敵せず、窓越しには視認する。T05-2で実装済みの通常CHASE、固定、ランダム、カーペット、NPC gun、プレイヤーgun、公開処刑の全発射元が壁へ着弾し、両種の窓を透過する。
 - T04-3Aでは閉→開→閉、開閉中の教室扉遮蔽無効、移動中エレベーター扉パネルの遮蔽追従、旧revision由来cacheの不使用を非学校fixtureで検証する。
 - 動的variantを含む学校の破棄・再読込後に、snapshot、動的索引、world boundary cache、イベント購読が増加しない。
-- B05では5/52/24/17/4/1の目録、85 Area piece、通常版・全荒れ版の24 Anchor到達、NavMesh全triangleのArea被覆、同順位正体積重複0、欠落metadata、未知role・未知`hs_*`、ID重複、参照不整合の拒否を専用fixtureで検証する。
+- B05／B06-4では5/53/25/17/4/1の目録、85 Area piece、全5階のBarrier／Passage、通常版・全荒れ版の25 Anchor到達、NavMesh全triangleのArea被覆、同順位正体積重複0、欠落metadata、未知role・未知`hs_*`、ID重複、参照不整合の拒否を専用fixtureで検証する。
 - エレベーター移動中は`currentStopId=null`かつ`displayStopId=departureStopId`を維持し、到着時だけ目的stopへ切り替える。
 - T06で全階と屋上を含む学校全域のゲーム進行を統合確認する。
 - 学校の破棄・再読込後にScene資源、NavMesh、イベント購読が増加しない。

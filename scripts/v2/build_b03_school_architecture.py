@@ -84,7 +84,7 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
-GENERATOR_VERSION = "b06-3-school-props-signage-v1"
+GENERATOR_VERSION = "b06-4-minimap-location-assets-v3"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -127,6 +127,7 @@ PERIMETER_WALL_SPECS = (
     ("VIS_Perimeter_West", "Y", -14.5, 51.5, -18.8, -18.4),
 )
 PERIMETER_WALL_Z = (-0.3, 1.7)
+PERIMETER_WALL_THICKNESS = 0.4
 PERIMETER_BLOCK_WIDTH = 0.8
 PERIMETER_BLOCK_HEIGHT = 0.4
 PERIMETER_JOINT_WIDTH = 0.02
@@ -441,9 +442,245 @@ B05_MISSION_LOCATION_IDS = (
     "f04-music",
     "gym",
     "courtyard",
+    "gym-rooftop",
     "rooftop",
     "rooftop-poolside",
 )
+
+
+def perimeter_wall_map_boxes_xy() -> tuple[
+    tuple[tuple[float, float], tuple[float, float]], ...
+]:
+    return tuple(
+        (
+            (primary_minimum, cross_minimum),
+            (primary_maximum, cross_maximum),
+        )
+        if axis == "X"
+        else (
+            (cross_minimum, primary_minimum),
+            (cross_maximum, primary_maximum),
+        )
+        for (
+            _,
+            axis,
+            primary_minimum,
+            primary_maximum,
+            cross_minimum,
+            cross_maximum,
+        ) in PERIMETER_WALL_SPECS
+    )
+
+
+def gate_passage_map_boxes_xy() -> tuple[
+    tuple[tuple[float, float], tuple[float, float]], ...
+]:
+    half_thickness = PERIMETER_WALL_THICKNESS / 2.0
+    return tuple(
+        (
+            (primary_minimum, fixed - half_thickness),
+            (primary_maximum, fixed + half_thickness),
+        )
+        if axis == "X"
+        else (
+            (fixed - half_thickness, primary_minimum),
+            (fixed + half_thickness, primary_maximum),
+        )
+        for _, axis, primary_minimum, primary_maximum, fixed in GATE_VISUAL_SPECS
+    )
+
+# B06-4のミニマップ形状は、表示Object、Collider、NAV_*から探索せず、
+# この一覧を作者定義の正本として生成する。Barrierは恒久仕切りの平面占有、
+# Passageはその仕切りを横断できる開口を表す。家具・小物・動的扉パネルは含めない。
+B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
+    "f01": (
+        # 敷地外周は表示塀の作者定義区間を共用する。正門と通用門には
+        # Barrierを敷かず、実際の開口区間をPassage側で所有する。
+        *perimeter_wall_map_boxes_xy(),
+        # 校舎外壁と中庭側外壁。
+        ((-12.75, -7.15), (0.15, -6.85)),
+        ((-12.75, 45.35), (47.55, 45.65)),
+        ((-12.75, -7.15), (-12.45, 45.65)),
+        ((47.25, 32.35), (47.55, 45.65)),
+        ((-0.15, 32.35), (47.55, 32.65)),
+        ((-0.15, -7.15), (0.15, 32.65)),
+        # 西棟・北棟の恒久間仕切りと階段室境界。
+        ((-3.65, 2.35), (-3.35, 32.65)),
+        ((-12.75, 2.35), (-3.35, 2.65)),
+        ((-12.75, 12.35), (-3.35, 12.65)),
+        ((-12.75, 22.35), (-3.35, 22.65)),
+        ((-12.75, 32.35), (-3.35, 32.65)),
+        ((-6.75, 36.35), (41.55, 36.65)),
+        ((-6.75, 38.35), (5.55, 38.65)),
+        ((5.25, 36.35), (5.55, 45.65)),
+        ((41.25, 36.35), (41.55, 45.65)),
+        # 体育館外壁・倉庫北壁。
+        ((33.25, -11.65), (59.55, -11.35)),
+        ((33.25, 26.35), (59.55, 26.65)),
+        ((33.25, -11.65), (33.55, 26.65)),
+        ((59.25, -11.65), (59.55, 26.65)),
+        ((51.25, 30.35), (57.55, 30.65)),
+    ),
+    "f02": (
+        ((-12.75, -7.15), (0.15, -6.85)),
+        ((-12.75, 45.35), (47.55, 45.65)),
+        ((-12.75, -7.15), (-12.45, 45.65)),
+        ((47.25, 32.35), (47.55, 45.65)),
+        ((-0.15, 32.35), (47.55, 32.65)),
+        ((-0.15, -7.15), (0.15, 32.65)),
+        ((-3.65, 2.35), (-3.35, 32.65)),
+        ((-12.75, 2.35), (-3.35, 2.65)),
+        ((-12.75, 12.35), (-3.35, 12.65)),
+        ((-12.75, 22.35), (-3.35, 22.65)),
+        ((-12.75, 32.35), (-3.35, 32.65)),
+        ((-6.75, 36.35), (41.55, 36.65)),
+        ((-6.75, 38.35), (5.55, 38.65)),
+        ((5.25, 36.35), (5.55, 45.65)),
+        ((14.25, 36.35), (14.55, 45.65)),
+        ((23.25, 36.35), (23.55, 45.65)),
+        ((41.25, 36.35), (41.55, 45.65)),
+        # 体育館ギャラリーの外縁柵と屋上Ramp接続部。
+        ((33.45, -11.5), (34.95, 26.65)),
+        ((57.85, -11.5), (59.35, 26.65)),
+        ((34.8, 24.85), (58.0, 26.65)),
+        ((39.25, 26.35), (39.55, 32.65)),
+        ((43.25, 26.35), (43.55, 32.65)),
+    ),
+    "f03": (
+        ((-12.75, -7.15), (0.15, -6.85)),
+        ((-12.75, 45.35), (47.55, 45.65)),
+        ((-12.75, -7.15), (-12.45, 45.65)),
+        ((47.25, 32.35), (47.55, 45.65)),
+        ((-0.15, 32.35), (47.55, 32.65)),
+        ((-0.15, -7.15), (0.15, 32.65)),
+        ((-3.65, 2.35), (-3.35, 32.65)),
+        ((-12.75, 2.35), (-3.35, 2.65)),
+        ((-12.75, 12.35), (-3.35, 12.65)),
+        ((-12.75, 22.35), (-3.35, 22.65)),
+        ((-12.75, 32.35), (-3.35, 32.65)),
+        ((-6.75, 36.35), (41.55, 36.65)),
+        ((-6.75, 38.35), (5.55, 38.65)),
+        ((5.25, 36.35), (5.55, 45.65)),
+        ((23.25, 36.35), (23.55, 45.65)),
+        ((41.25, 36.35), (41.55, 45.65)),
+        # 体育館屋上固有の外周柵。北側Ramp開口をPassageで所有する。
+        ((33.35, -11.55), (59.45, -11.25)),
+        ((33.35, -11.55), (33.65, 26.55)),
+        ((59.15, -11.55), (59.45, 26.55)),
+        ((33.35, 26.25), (59.45, 26.55)),
+        ((39.25, 26.35), (39.55, 32.65)),
+        ((43.25, 26.35), (43.55, 32.65)),
+    ),
+    "f04": (
+        ((-12.75, -7.15), (0.15, -6.85)),
+        ((-12.75, 45.35), (47.55, 45.65)),
+        ((-12.75, -7.15), (-12.45, 45.65)),
+        ((47.25, 32.35), (47.55, 45.65)),
+        ((-0.15, 32.35), (47.55, 32.65)),
+        ((-0.15, -7.15), (0.15, 32.65)),
+        ((-3.65, 2.35), (-3.35, 32.65)),
+        ((-12.75, 2.35), (-3.35, 2.65)),
+        ((-12.75, 12.35), (-3.35, 12.65)),
+        ((-12.75, 22.35), (-3.35, 22.65)),
+        ((-12.75, 32.35), (-3.35, 32.65)),
+        ((-6.75, 36.35), (41.55, 36.65)),
+        ((-6.75, 38.35), (5.55, 38.65)),
+        ((5.25, 36.35), (5.55, 45.65)),
+        ((23.25, 36.35), (23.55, 45.65)),
+        ((41.25, 36.35), (41.55, 45.65)),
+        # 北西屋上階段室の恒久外壁。
+        ((-12.75, 38.35), (2.55, 38.65)),
+        ((-6.75, 38.35), (-6.45, 45.65)),
+    ),
+    "roof": (
+        # 校舎屋上固有の外周柵。
+        ((-0.25, -7.05), (0.05, 32.75)),
+        ((-0.25, 32.45), (47.45, 32.75)),
+        ((47.15, 32.45), (47.45, 45.55)),
+        ((2.25, 45.25), (47.45, 45.55)),
+        # 階段室・男女更衣室。
+        ((-12.75, 38.35), (2.40, 38.80)),
+        ((-12.75, 38.35), (-12.45, 45.65)),
+        ((-6.75, 38.35), (-6.45, 45.65)),
+        ((-2.25, 38.35), (-1.95, 45.65)),
+        ((2.10, 38.35), (2.40, 45.65)),
+        # プール槽の恒久縁。
+        ((9.85, 33.85), (36.55, 34.15)),
+        ((9.85, 43.85), (36.55, 44.15)),
+        ((9.85, 33.85), (10.15, 44.15)),
+        ((36.25, 33.85), (36.55, 44.15)),
+    ),
+}
+
+B06_MAP_PASSAGE_BOXES_XY_BY_FLOOR = {
+    "f01": (
+        # 敷地正門・通用門は表示門と同じ作者定義開口を共用する。
+        *gate_passage_map_boxes_xy(),
+        # 校舎出入口、各室扉、階段接続。
+        ((2.4, 45.1), (5.4, 45.9)),
+        ((0.0, 32.1), (5.4, 32.9)),
+        ((39.4, 32.1), (43.4, 32.9)),
+        ((-0.4, -2.5), (0.4, 2.5)),
+        *tuple(
+            ((-3.9, minimum), (-3.1, maximum))
+            for minimum, maximum in FIRST_FLOOR_WEST_DOOR_OPENINGS
+        ),
+        *tuple(
+            ((minimum, 36.1), (maximum, 36.9))
+            for minimum, maximum in NORTH_CLASSROOM_DOOR_OPENINGS
+        ),
+        ((TOILET_COMMON_OPENING[0], 36.1), (TOILET_COMMON_OPENING[1], 36.9)),
+        # 体育館西・北出入口と校舎接続口。
+        ((33.0, 5.0), (33.8, 8.0)),
+        ((39.4, 26.1), (43.4, 26.9)),
+        ((53.65, 26.1), (55.15, 26.9)),
+    ),
+    "f02": (
+        *tuple(
+            ((-3.9, minimum), (-3.1, maximum))
+            for minimum, maximum in UPPER_WEST_CLASSROOM_DOOR_OPENINGS
+        ),
+        *tuple(
+            ((minimum, 36.1), (maximum, 36.9))
+            for minimum, maximum in NORTH_CLASSROOM_DOOR_OPENINGS
+        ),
+        ((TOILET_COMMON_OPENING[0], 36.1), (TOILET_COMMON_OPENING[1], 36.9)),
+        ((39.1, 26.1), (43.7, 26.9)),
+        ((39.1, 32.1), (43.7, 32.9)),
+    ),
+    "f03": (
+        *tuple(
+            ((-3.9, minimum), (-3.1, maximum))
+            for minimum, maximum in UPPER_WEST_CLASSROOM_DOOR_OPENINGS
+        ),
+        *tuple(
+            ((minimum, 36.1), (maximum, 36.9))
+            for minimum, maximum in NORTH_CLASSROOM_DOOR_OPENINGS
+        ),
+        ((TOILET_COMMON_OPENING[0], 36.1), (TOILET_COMMON_OPENING[1], 36.9)),
+        # 体育館屋上Ramp接続。
+        ((39.1, 26.1), (43.7, 26.9)),
+        ((39.1, 32.1), (43.7, 32.9)),
+    ),
+    "f04": (
+        *tuple(
+            ((-3.9, minimum), (-3.1, maximum))
+            for minimum, maximum in UPPER_WEST_CLASSROOM_DOOR_OPENINGS
+        ),
+        *tuple(
+            ((minimum, 36.1), (maximum, 36.9))
+            for minimum, maximum in NORTH_CLASSROOM_DOOR_OPENINGS
+        ),
+        ((TOILET_COMMON_OPENING[0], 36.1), (TOILET_COMMON_OPENING[1], 36.9)),
+        ((-9.0, 38.1), (-6.75, 39.0)),
+    ),
+    "roof": (
+        # 屋上階段室・男女更衣室の出入口。
+        ((-9.0, 38.1), (-6.75, 39.0)),
+        ((-5.4, 38.1), (-4.2, 39.0)),
+        ((-0.9, 38.1), (0.3, 39.0)),
+    ),
+}
 
 B05_ROOM_ANCHORS = {
     "f01-infirmary": (-8.05, 7.50, 0.05),
@@ -1411,6 +1648,12 @@ def append_outward_surface_quad(
 
 def rebuild_site_boundary_visuals() -> None:
     visual_collection = collection(VIS_COLLECTION_NAME)
+    # 旧VIS_CourtyardSurfaceはSiteGround上面より3cm高い重複草地で、
+    # 南端が表示だけの段差になっていた。校庭全域の表示所有者を
+    # VIS_SiteGroundへ一本化し、Collider・Nav歩行面と同じz=-0.3にする。
+    redundant_courtyard_surface = bpy.data.objects.get("VIS_CourtyardSurface")
+    if redundant_courtyard_surface is not None:
+        bpy.data.objects.remove(redundant_courtyard_surface, do_unlink=True)
     for object_name, bounds in (
         ("VIS_SiteGround", SITE_GROUND_VISUAL_BOUNDS),
         ("COL_SiteGround", SITE_GROUND_BOUNDS),
@@ -3937,24 +4180,27 @@ def build_b05_location_assets(
             obj.parent = parent
         return obj
 
-    courtyard_map_boxes = (
+    school_perimeter_map_boxes = (
         ((-18.3, -14.2), (63.1, -11.5)),
         ((-18.3, -11.5), (33.4, -7.0)),
         ((59.4, -11.5), (63.1, -7.0)),
         ((-18.3, -7.0), (-12.6, 26.5)),
-        ((0.0, -7.0), (33.4, 26.5)),
         ((59.4, -7.0), (63.1, 26.5)),
         ((-18.3, 26.5), (-12.6, 30.5)),
-        ((0.0, 26.5), (51.4, 30.5)),
         ((57.4, 26.5), (63.1, 30.5)),
         ((-18.3, 30.5), (-12.6, 32.5)),
-        ((0.0, 30.5), (63.1, 32.5)),
         ((-18.3, 32.5), (-12.6, 45.5)),
         ((47.4, 32.5), (63.1, 45.5)),
         ((-18.3, 45.5), (63.1, 51.2)),
     )
+    courtyard_map_boxes = (
+        ((0.0, -7.0), (33.4, 26.5)),
+        ((0.0, 26.5), (51.4, 30.5)),
+        ((0.0, 30.5), (63.1, 32.5)),
+    )
     map_boxes_by_floor = {
         "f01": (
+            *school_perimeter_map_boxes,
             *courtyard_map_boxes,
             ((-12.6, -7.0), (0.0, 45.5)),
             ((0.0, 32.5), (47.4, 45.5)),
@@ -4005,6 +4251,42 @@ def build_b05_location_assets(
                 "hs_floor_id": floor_id,
                 "hs_display_name": display_name,
                 "hs_order": order,
+            },
+        )
+        create_mesh_object(
+            f"MAP_Barrier_{floor_id.upper()}",
+            [
+                (
+                    (minimum[0], minimum[1], map_z + 0.04),
+                    (maximum[0], maximum[1], map_z + 0.06),
+                )
+                for minimum, maximum in B06_MAP_BARRIER_BOXES_XY_BY_FLOOR[
+                    floor_id
+                ]
+            ],
+            semantic_collection,
+            properties={
+                "hs_id": f"minimap-barrier-{floor_id}",
+                "hs_role": "map_barrier",
+                "hs_floor_id": floor_id,
+            },
+        )
+        create_mesh_object(
+            f"MAP_Passage_{floor_id.upper()}",
+            [
+                (
+                    (minimum[0], minimum[1], map_z + 0.08),
+                    (maximum[0], maximum[1], map_z + 0.10),
+                )
+                for minimum, maximum in B06_MAP_PASSAGE_BOXES_XY_BY_FLOOR[
+                    floor_id
+                ]
+            ],
+            semantic_collection,
+            properties={
+                "hs_id": f"minimap-passage-{floor_id}",
+                "hs_role": "map_passage",
+                "hs_floor_id": floor_id,
             },
         )
 
@@ -4140,6 +4422,18 @@ def build_b05_location_assets(
             floor_id="f01",
         )
 
+    for minimum, maximum in school_perimeter_map_boxes:
+        add_area_piece(
+            "area-school-perimeter",
+            "校舎外周",
+            200,
+            (
+                (minimum[0], minimum[1], -0.49),
+                (maximum[0], maximum[1], 2.4),
+            ),
+            floor_id="f01",
+        )
+
     for bounds in (
         ((33.4, -11.5, -0.49), (59.4, 26.5, 2.4)),
         ((51.4, 26.5, -0.49), (57.4, 30.5, 2.4)),
@@ -4236,6 +4530,12 @@ def build_b05_location_assets(
                 "f01",
                 "校庭",
                 (16.7, 14.5, -0.25),
+            ),
+            "gym-rooftop": (
+                "area-gym-rooftop",
+                "f03",
+                "体育館屋上",
+                (46.4, 9.5, 9.6),
             ),
             "rooftop": (
                 "area-school-rooftop",
@@ -4349,12 +4649,14 @@ def build_b05_location_assets(
         },
     )
 
-    if len(area_piece_counts) != 52:
+    if len(area_piece_counts) != 53:
         raise RuntimeError(
-            f"B05論理Areaが52件ではありません: {len(area_piece_counts)}"
+            f"B06-4論理Areaが53件ではありません: {len(area_piece_counts)}"
         )
     result = {
         "floor_maps": len(B05_FLOOR_SPECS),
+        "minimap_barriers": len(B06_MAP_BARRIER_BOXES_XY_BY_FLOOR),
+        "minimap_passages": len(B06_MAP_PASSAGE_BOXES_XY_BY_FLOOR),
         "logical_areas": len(area_piece_counts),
         "area_pieces": sum(area_piece_counts.values()),
         "mission_locations": len(mission_specs),
@@ -10314,6 +10616,7 @@ def is_current_generation() -> bool:
         and road is not None
         and abs(world_bounds(sidewalk)[1].z - B04_SURFACE_Z[1]) <= 1.0e-6
         and abs(world_bounds(road)[1].z - B04_SURFACE_Z[1]) <= 1.0e-6
+        and "VIS_CourtyardSurface" not in names
         and human_nav_sources
         and all(obj.get("hs_nav_set") == "human" for obj in human_nav_sources)
         and bpy.context.scene.get("b03_window_layout_status") == "final"

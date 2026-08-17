@@ -188,6 +188,28 @@ const createFixture = (
       )
     })
   );
+  const minimapBarriers = STAGE_LOCATION_FLOOR_IDS.map((floorId) =>
+    Object.freeze({
+      id: `minimap-barrier-${floorId}`,
+      floorId,
+      mesh: MeshBuilder.CreatePlane(
+        `MAP_Barrier_${floorId.toUpperCase()}_Acceptance`,
+        { size: 1 },
+        scene
+      )
+    })
+  );
+  const minimapPassages = STAGE_LOCATION_FLOOR_IDS.map((floorId) =>
+    Object.freeze({
+      id: `minimap-passage-${floorId}`,
+      floorId,
+      mesh: MeshBuilder.CreatePlane(
+        `MAP_Passage_${floorId.toUpperCase()}_Acceptance`,
+        { size: 0.5 },
+        scene
+      )
+    })
+  );
 
   const fixedAreaMesh = createBox(
     scene,
@@ -237,6 +259,8 @@ const createFixture = (
 
   const source: MutableLocationAssetRegistrySource = {
     floorMaps: [...floorMaps],
+    minimapBarriers: [...minimapBarriers],
+    minimapPassages: [...minimapPassages],
     areaPieces: [
       Object.freeze({
         id: "area-piece-f01",
@@ -358,6 +382,8 @@ const createFixture = (
     scene,
     source: Object.freeze({
       floorMaps: Object.freeze([...source.floorMaps]),
+      minimapBarriers: Object.freeze([...source.minimapBarriers]),
+      minimapPassages: Object.freeze([...source.minimapPassages]),
       areaPieces: Object.freeze([...source.areaPieces]),
       missionVolumes: Object.freeze([...source.missionVolumes]),
       missionAnchors: Object.freeze([...source.missionAnchors]),
@@ -460,6 +486,10 @@ export const runLocationAssetRegistryAcceptance = async (): Promise<
         name: "正常なLocation registryと動的elevator piece",
         ok:
           registry.floorMaps.length === 5 &&
+          registry.minimapBarriers.length === 5 &&
+          registry.minimapPassages.length === 5 &&
+          registry.getMinimapBarriers("roof").length === 1 &&
+          registry.getMinimapPassages("roof").length === 1 &&
           registry.areas.length === 2 &&
           registry.missionLocations.length === 1 &&
           registry.stairLandings.length === 1 &&
@@ -566,6 +596,30 @@ export const runLocationAssetRegistryAcceptance = async (): Promise<
         expected: "floor_mapはf01/f02/f03/f04/roof",
         mutate: (source: MutableLocationAssetRegistrySource) => {
           source.floorMaps.pop();
+        }
+      }),
+      Object.freeze({
+        name: "階別map_barrier欠落を拒否",
+        expected: "map_barrierがない階",
+        mutate: (source: MutableLocationAssetRegistrySource) => {
+          source.minimapBarriers.pop();
+        }
+      }),
+      Object.freeze({
+        name: "階別map_passage欠落を拒否",
+        expected: "map_passageがない階",
+        mutate: (source: MutableLocationAssetRegistrySource) => {
+          source.minimapPassages.pop();
+        }
+      }),
+      Object.freeze({
+        name: "MAP role間ID重複を拒否",
+        expected: "MAP IDが重複",
+        mutate: (source: MutableLocationAssetRegistrySource) => {
+          source.minimapBarriers[0] = Object.freeze({
+            ...source.minimapBarriers[0],
+            id: source.floorMaps[0].id
+          });
         }
       }),
       Object.freeze({

@@ -449,6 +449,118 @@ export const runSchoolNpcNavigationPolicyAcceptance = ({
       )
       .join(",")
   );
+  const gymLocation = stage.locationAssets?.getMissionLocationById("gym");
+  const gymRooftopLocation =
+    stage.locationAssets?.getMissionLocationById("gym-rooftop");
+  if (!gymLocation || !gymRooftopLocation) {
+    throw new Error("B06-4体育館／体育館屋上Mission Locationがありません。");
+  }
+  const routeModes: readonly Readonly<{
+    id: string;
+    overrides: Partial<V2NpcNavigationRouteContext>;
+  }>[] = Object.freeze([
+    Object.freeze({
+      id: "direct-track",
+      overrides: Object.freeze({
+        behavior: "pursue" as const,
+        characterState: "brainwash-complete-no-gun" as const,
+        brainwashed: true,
+        targetId: "player",
+        targetProvenance: "visual" as const,
+        targetSightClear: true
+      })
+    }),
+    Object.freeze({
+      id: "follow",
+      overrides: Object.freeze({
+        behavior: "follow" as const,
+        commandMode: "follow" as const,
+        targetId: "player"
+      })
+    }),
+    Object.freeze({
+      id: "alarm",
+      overrides: Object.freeze({
+        behavior: "pursue" as const,
+        characterState: "brainwash-complete-no-gun" as const,
+        brainwashed: true,
+        targetId: "player",
+        targetProvenance: "alert" as const
+      })
+    }),
+    Object.freeze({
+      id: "broadcast-mission",
+      overrides: Object.freeze({ behavior: "mission" as const })
+    }),
+    Object.freeze({
+      id: "normal-mission",
+      overrides: Object.freeze({ behavior: "mission" as const })
+    }),
+    Object.freeze({
+      id: "autonomous",
+      overrides: Object.freeze({ behavior: "wander" as const })
+    })
+  ]);
+  const populationSizes = Object.freeze([1, 5, 10]);
+  const rooftopRouteResults = routeModes.flatMap((mode) =>
+    populationSizes.flatMap((population) =>
+      ([
+        Object.freeze({
+          direction: "up" as const,
+          start: gymLocation.navigationLocation,
+          destination: gymRooftopLocation.navigationLocation
+        }),
+        Object.freeze({
+          direction: "down" as const,
+          start: gymRooftopLocation.navigationLocation,
+          destination: gymLocation.navigationLocation
+        })
+      ] as const).map((route) => {
+        const paths = Array.from({ length: population }, (_, index) => {
+          const npcId = `b06-4-${mode.id}-${route.direction}-${population}-${index}`;
+          targets = Object.freeze([
+            createTarget(npcId, "normal", route.start.position),
+            createTarget("player", "normal", route.destination.position)
+          ]);
+          const routePolicy = createPolicy();
+          return stage.navigation.findPath(
+            route.start,
+            route.destination,
+            "npc",
+            Object.freeze({
+              selectRoute: (candidates) =>
+                routePolicy(
+                  createContext(npcId, route.start.position, mode.overrides),
+                  candidates
+                )
+            })
+          );
+        });
+        return Object.freeze({
+          mode: mode.id,
+          population,
+          direction: route.direction,
+          paths
+        });
+      })
+    )
+  );
+  const unavailableRooftopRoutes = rooftopRouteResults.filter((result) =>
+    result.paths.some((path) => path === null)
+  );
+  add(
+    "B06-4 NPC屋上入口を6状態・単体／5体／10体・上下方向で資産監査する",
+    unavailableRooftopRoutes.length === 0,
+    unavailableRooftopRoutes.length === 0
+      ? `routes=${rooftopRouteResults.reduce((sum, result) => sum + result.paths.length, 0)} / ` +
+        "direct-track,follow,alarm,broadcast-mission,normal-mission,autonomous"
+      : unavailableRooftopRoutes
+          .map(
+            (result) =>
+              `${result.mode}:${result.population}:${result.direction}`
+          )
+          .join(",")
+  );
   targets = Object.freeze([
     createTarget("npc_policy", "normal", firstStopCenter)
   ]);

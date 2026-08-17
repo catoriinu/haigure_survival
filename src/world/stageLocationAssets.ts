@@ -44,6 +44,18 @@ export type StageFloorMap = Readonly<{
   mesh: Mesh;
 }>;
 
+export type StageMinimapBarrier = Readonly<{
+  id: string;
+  floorId: StageLocationFloorId;
+  mesh: Mesh;
+}>;
+
+export type StageMinimapPassage = Readonly<{
+  id: string;
+  floorId: StageLocationFloorId;
+  mesh: Mesh;
+}>;
+
 export type StageLocationAreaPieceFloorBinding =
   | Readonly<{
       kind: "fixed";
@@ -126,12 +138,20 @@ export type StageBroadcastConsole = Readonly<{
 
 export interface StageLocationAssetRegistry {
   readonly floorMaps: readonly StageFloorMap[];
+  readonly minimapBarriers: readonly StageMinimapBarrier[];
+  readonly minimapPassages: readonly StageMinimapPassage[];
   readonly areas: readonly StageLocationArea[];
   readonly missionLocations: readonly StageMissionLocation[];
   readonly stairLandings: readonly StageStairLanding[];
   readonly elevatorLandings: readonly StageElevatorLanding[];
   readonly broadcastConsole: StageBroadcastConsole;
   getFloorMap(floorId: StageLocationFloorId): StageFloorMap | null;
+  getMinimapBarriers(
+    floorId: StageLocationFloorId
+  ): readonly StageMinimapBarrier[];
+  getMinimapPassages(
+    floorId: StageLocationFloorId
+  ): readonly StageMinimapPassage[];
   getAreaById(id: string): StageLocationArea | null;
   getMissionLocationById(id: string): StageMissionLocation | null;
   findArea(point: Vector3): StageLocationAreaHit | null;
@@ -144,6 +164,10 @@ export type AuthoredStageFloorMap = Readonly<{
   order: number;
   mesh: Mesh;
 }>;
+
+export type AuthoredStageMinimapBarrier = StageMinimapBarrier;
+
+export type AuthoredStageMinimapPassage = StageMinimapPassage;
 
 export type AuthoredStageLocationAreaPiece = Readonly<{
   id: string;
@@ -203,6 +227,8 @@ export type AuthoredStageBroadcastConsoleTarget = Readonly<{
 
 export type StageLocationAssetRegistrySource = Readonly<{
   floorMaps: readonly AuthoredStageFloorMap[];
+  minimapBarriers: readonly AuthoredStageMinimapBarrier[];
+  minimapPassages: readonly AuthoredStageMinimapPassage[];
   areaPieces: readonly AuthoredStageLocationAreaPiece[];
   missionVolumes: readonly AuthoredStageMissionLocationVolume[];
   missionAnchors: readonly AuthoredStageMissionAnchor[];
@@ -474,6 +500,13 @@ export const createStageLocationAssetRegistry = (
   queries: StageSpatialQueries
 ): StageLocationAssetRegistry => {
   assertUnique("floor_map", source.floorMaps);
+  assertUnique("map_barrier", source.minimapBarriers);
+  assertUnique("map_passage", source.minimapPassages);
+  assertUnique("MAP", [
+    ...source.floorMaps,
+    ...source.minimapBarriers,
+    ...source.minimapPassages
+  ]);
   assertUnique("location_area piece", source.areaPieces);
   assertUnique("mission_location volume", source.missionVolumes);
   assertUnique("mission_anchor", source.missionAnchors);
@@ -511,6 +544,53 @@ export const createStageLocationAssetRegistry = (
     throw new Error(
       "floor_mapはf01/f02/f03/f04/roofを1から5の順序で定義します"
     );
+  }
+
+  const minimapBarriers = Object.freeze(
+    source.minimapBarriers.map((barrier) => Object.freeze({ ...barrier }))
+  );
+  const minimapPassages = Object.freeze(
+    source.minimapPassages.map((passage) => Object.freeze({ ...passage }))
+  );
+  const minimapBarriersByFloorId = new Map<
+    StageLocationFloorId,
+    StageMinimapBarrier[]
+  >();
+  const minimapPassagesByFloorId = new Map<
+    StageLocationFloorId,
+    StageMinimapPassage[]
+  >();
+  for (const barrier of minimapBarriers) {
+    if (!floorMapByFloorId.has(barrier.floorId)) {
+      throw new Error(
+        `map_barrierが未登録floorを参照しています: ${barrier.id}/${barrier.floorId}`
+      );
+    }
+    const entries = minimapBarriersByFloorId.get(barrier.floorId) ?? [];
+    entries.push(barrier);
+    minimapBarriersByFloorId.set(barrier.floorId, entries);
+  }
+  for (const passage of minimapPassages) {
+    if (!floorMapByFloorId.has(passage.floorId)) {
+      throw new Error(
+        `map_passageが未登録floorを参照しています: ${passage.id}/${passage.floorId}`
+      );
+    }
+    const entries = minimapPassagesByFloorId.get(passage.floorId) ?? [];
+    entries.push(passage);
+    minimapPassagesByFloorId.set(passage.floorId, entries);
+  }
+  const missingBarrierFloor = STAGE_LOCATION_FLOOR_IDS.find(
+    (floorId) => !minimapBarriersByFloorId.has(floorId)
+  );
+  if (missingBarrierFloor) {
+    throw new Error(`map_barrierがない階です: ${missingBarrierFloor}`);
+  }
+  const missingPassageFloor = STAGE_LOCATION_FLOOR_IDS.find(
+    (floorId) => !minimapPassagesByFloorId.has(floorId)
+  );
+  if (missingPassageFloor) {
+    throw new Error(`map_passageがない階です: ${missingPassageFloor}`);
   }
 
   const groupedAreaPieces = new Map<
@@ -806,6 +886,8 @@ export const createStageLocationAssetRegistry = (
   );
   return Object.freeze({
     floorMaps,
+    minimapBarriers,
+    minimapPassages,
     areas,
     missionLocations,
     stairLandings,
@@ -813,6 +895,10 @@ export const createStageLocationAssetRegistry = (
     broadcastConsole,
     getFloorMap: (floorId: StageLocationFloorId) =>
       floorMapByFloorId.get(floorId) ?? null,
+    getMinimapBarriers: (floorId: StageLocationFloorId) =>
+      Object.freeze([...(minimapBarriersByFloorId.get(floorId) ?? [])]),
+    getMinimapPassages: (floorId: StageLocationFloorId) =>
+      Object.freeze([...(minimapPassagesByFloorId.get(floorId) ?? [])]),
     getAreaById: (id: string) => areaById.get(id) ?? null,
     getMissionLocationById: (id: string) =>
       missionLocationById.get(id) ?? null,

@@ -282,6 +282,51 @@ const mutateUnknownHsProperty = (
   });
 };
 
+const mutateUnknownMapRole = (
+  document: MutableGltfDocument
+): GltfMutationResult => {
+  const authored = requireNodeByRole(document, "map_barrier");
+  authored.extras.hs_role = "map_unknown";
+  return Object.freeze({
+    objectName: authored.objectName,
+    expectedMessages: Object.freeze(["未登録のMAP_* roleです", ".map_unknown"])
+  });
+};
+
+const mutateMapMissingFloor = (
+  document: MutableGltfDocument
+): GltfMutationResult => {
+  const authored = requireNodeByRole(document, "map_passage");
+  delete authored.extras.hs_floor_id;
+  return Object.freeze({
+    objectName: authored.objectName,
+    expectedMessages: Object.freeze(["非空文字列が必要です", ".hs_floor_id"])
+  });
+};
+
+const mutateMapUnknownFloor = (
+  document: MutableGltfDocument
+): GltfMutationResult => {
+  const authored = requireNodeByRole(document, "map_barrier");
+  authored.extras.hs_floor_id = "b01";
+  return Object.freeze({
+    objectName: authored.objectName,
+    expectedMessages: Object.freeze(["未登録値です", ".hs_floor_id=b01"])
+  });
+};
+
+const mutateDuplicateMapId = (
+  document: MutableGltfDocument
+): GltfMutationResult => {
+  const barrier = requireNodeByRole(document, "map_barrier");
+  const passage = requireNodeByRole(document, "map_passage");
+  barrier.extras.hs_id = passage.extras.hs_id;
+  return Object.freeze({
+    objectName: barrier.objectName,
+    expectedMessages: Object.freeze(["hs_idが重複しています"])
+  });
+};
+
 const calculateSha256 = async (bytes: Uint8Array): Promise<string> => {
   const digest = await globalThis.crypto.subtle.digest(
     "SHA-256",
@@ -363,6 +408,26 @@ export const runLocationAssetLoaderRejectionAcceptance = async (): Promise<
         name: "Location意味Nodeの未知hs_* propertyを拒否",
         fakeGlbUrl: "stage-assets/v2/B05/rejection-unknown-property.glb",
         mutate: mutateUnknownHsProperty
+      }),
+      Object.freeze({
+        name: "未知MAP roleを厳格分類で拒否",
+        fakeGlbUrl: "stage-assets/v2/B06-4/rejection-unknown-map-role.glb",
+        mutate: mutateUnknownMapRole
+      }),
+      Object.freeze({
+        name: "MAP必須floor metadata欠落を拒否",
+        fakeGlbUrl: "stage-assets/v2/B06-4/rejection-missing-map-floor.glb",
+        mutate: mutateMapMissingFloor
+      }),
+      Object.freeze({
+        name: "MAP未知floorを拒否",
+        fakeGlbUrl: "stage-assets/v2/B06-4/rejection-unknown-map-floor.glb",
+        mutate: mutateMapUnknownFloor
+      }),
+      Object.freeze({
+        name: "MAP ID重複を拒否",
+        fakeGlbUrl: "stage-assets/v2/B06-4/rejection-duplicate-map-id.glb",
+        mutate: mutateDuplicateMapId
       })
     ]);
 
