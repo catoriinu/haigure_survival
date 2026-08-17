@@ -42,6 +42,12 @@
 >
 > GitHub版はソース一式にsubset TTF、OFL、FONTLOGを含める。利用者は`npm ci`後に`npm run dev:web`でローカルHTTPサーバーから起動する。`file://`によるHTML直接起動は対応対象外とし、READMEへNode.jsと起動手順を記載する。
 
+2026-08-17 実ブラウザ確認追加指示:
+
+> 音声やキャラクタースプライトが読み込めるように修正する。
+>
+> 今回修正した小物と、ゲーム内での確認観点をまとめる。
+
 ## 目的
 
 P1-PROP-01～02とP1-SIGN-01～03を小物・表札の正本から修正し、用途が判別できる衛生器具と、全校で一貫した教室名・ピクトグラムを実装する。
@@ -64,6 +70,8 @@ P1-PROP-01～02とP1-SIGN-01～03を小物・表札の正本から修正し、�
 - エレベーターの`調整中`を同じsubsetから実Mesh化し、Windowsフォント絶対パス依存を除去する。
 - Noto Sans JP由来subset、OFL 1.1、FONTLOG、第三者ライセンス表示を配布方式に応じて所有する。
 - itch.io用production `dist/`とGitHubソース取得後のVite起動手順を整備する。
+- Git管理対象外の既存ローカル音声・キャラクター画像を、共有資産を移動・複製せずB06-3専用worktreeの開発Webサーバーから読み込めるようにする。
+- 今回変更した洋式便器、小便器、ピアノ、表札、エレベーター`調整中`のゲーム内確認観点を整理する。
 
 ## 対象外
 
@@ -71,6 +79,7 @@ P1-PROP-01～02とP1-SIGN-01～03を小物・表札の正本から修正し、�
 - 端末フォント探索、欠落文字の別フォントfallback、外部CDNフォントは使用しない。
 - HUDのCSSフォント、Runtimeの公開TypeScript API、B06-4、T06-4P、Electron実装・build・受入・パッケージングは変更しない。
 - `file://`によるHTML直接起動、フォント単体販売、ゲーム本体ライセンスへのOFL subset取り込みは行わない。
+- ライセンスと配布可否を未確認の音声・キャラクター画像バイナリはGit、production `dist/`、itch.io配布物へ追加しない。
 
 ## 受入条件
 
@@ -84,6 +93,8 @@ P1-PROP-01～02とP1-SIGN-01～03を小物・表札の正本から修正し、�
 - 3種NavMeshのbytesとSHA-256はB06-3開始時から不変である。
 - production `dist/`にTTFがなく、Atlas、GLB、第三者ライセンス表示がある。
 - GitHubソースは`npm ci`と`npm run dev:web`で起動でき、READMEにNode.js、HTTP起動、`file://`対象外を記載する。
+- B06-3専用worktreeの開発Webサーバーでは、既存ローカル音声とキャラクター画像のcatalogが空でなく、代表ファイルが正しいMIME typeで配信される。
+- タイトル設定で自キャラと自ボイスを選択でき、選択したCharacter画像と音声を通常ゲーム入口から読み込める。
 
 ## 検証
 
@@ -94,6 +105,16 @@ P1-PROP-01～02とP1-SIGN-01～03を小物・表札の正本から修正し、�
 - T02、T04、`npm run build:renderer`、Vite開発サーバー、production `dist/`のローカルHTTP配信を実ブラウザで検証する。
 - 1920×1080で表札の可読性、Player移動、Pointer Lock、再読込、console warning／error、Babylon Loggerを確認する。
 - UTF-8 BOMなし、`git diff --check`、構文・括弧、ローカル絶対パス混入を検査する。
+
+## ゲーム内確認観点
+
+- 洋式便器は2～4階トイレの合計18基を確認する。正面では背面タンク、台座、外側ボウル、便座リング、楕円開口、斜めでは凹んだ内側受け面と排水部、側面ではタンク・ボウル・台座の前後関係を見る。
+- 小便器は2～4階トイレの合計9基を確認する。正面では開いた上面、内側受け面、排水部、斜めでは壁側背面、左右外殻、外殻の厚みと中空部、側面では壁からの張り出しと給水部を見る。閉じた卵形に見えないことを重視する。
+- グランドピアノは4階音楽室の1台を確認する。白鍵14、黒鍵10、脚3、ペダル2、ペダル台、本体から続く支持棒2を正面・斜め・側面で見分け、接近・遠距離・視点移動中の鍵盤付近に横縞や点滅がないことを見る。
+- 表札は1階の保健室、図書室、職員室、PC室、主玄関、北通用口、2階の`3-1`～`3-3`、生徒会室、放送室、理科室、3階の`2-1`～`2-3`、美術室、家庭科室、4階の`1-1`～`1-3`、LL教室、音楽室、屋上のプールを確認する。全階男女トイレと屋上男女更衣室は文字なしの男女ピクトグラムだけで、体育倉庫には表札がないことが正しい。
+- 表札共通では1920×1080での可読性、床別背景色、文字化け・欠落・重複0件、対応入口の壁への配置、扉・通路・プールアクセスへの干渉0件を見る。保健室北側表札は通常版・荒れ版の両方で同じ文字と位置を維持する。
+- エレベーター`調整中`は2階・3階で4文字と×印テープを確認し、文字欠け、四角表示、再読込後の消失がないことを見る。見た目ではなく、Windows font依存を廃止してNoto Sans JP subset由来の実Meshへ変更した点が今回の修正である。
+- 小物の配置、既存Object名、Collider外形、部屋用途、トイレ器具数、Room Variant、動的扉、エレベーターRuntime、NavMesh 3種、Runtime公開TypeScript API、HUDのCSS fontは変更していない。
 
 ## ステップ
 
@@ -106,6 +127,10 @@ P1-PROP-01～02とP1-SIGN-01～03を小物・表札の正本から修正し、�
 - [x] Atlas、小物ライブラリ、学校`.blend`、GLB、監査、カタログhash、Web配布資産を同期する
 - [x] 決定性、資産監査、全表札、3視点比較、T02／T04、開発Web／production Webを確認する
 - [x] 結果を更新してB06-3差分だけをcommitする
+- [x] 専用worktreeで音声・キャラクター画像が欠落する原因と配布境界を確認する
+- [x] 共有資産を変更せず、専用worktreeの開発Web入口へ既存ローカル音声・キャラクター画像を接続する
+- [x] HTTP、asset catalog、タイトル設定、通常ゲーム入口で音声・Character画像の読込を確認する
+- [x] 今回変更した小物・表札・`調整中`のゲーム内確認観点と追加結果を記録する
 
 ## 結果
 
@@ -122,3 +147,7 @@ SignsPaper Atlasは2048×1024、8×8、80,908 bytes／SHA-256 `78F7C1DB74136458F
 小物、内装、建築、Room Variant、保護契約、B04、NavMesh、Web配布監査、`build:t02`、`build:t04`、`build:renderer`は合格した。T04学校統合fixtureは実ブラウザで80/80 PASS、production `dist/`は1920×1080のローカルHTTP配信、再読込、console warning／error 0件を確認した。`dist/`はTTF 0件で、既知hashのAtlas、文字Mesh入り学校GLB、OFL、第三者NOTICEを含む。T02は43/52で、9件のFAILタイトルは`origin/develop=79f038d`の43/52と完全一致し、B06-3由来の新規FAILは0件だった。Pointer Lockはブラウザ自動操作環境がroot documentを有効な入力対象として扱わず取得できなかったため、T04の実Player階段移動と既存入力回帰で代替確認し、この環境制約を未達証拠として記録する。
 
 UTF-8 BOMなし、Python AST、Node構文、括弧、`git diff --check`、ローカル絶対パス混入を確認した。push、Pull Request、レビュー、merge、B06-4、T06-4P、既存worktree整理は行っていない。
+
+同日、実ブラウザ確認用のB06-3専用worktreeにGit管理対象外の`public/audio`と`public/picture/chara`が存在せず、Viteの音声・portrait catalogが空になることを確認した。共有元の既存ローカル資産を移動・複製せず、専用worktreeの同じ公開pathへignored Junctionで接続し、5175番のVite開発サーバーを再起動した。共有実体は音声215ファイル（BGM 1、SE 13、VOICE 201）とCharacter画像136ファイルで、Junctionとバイナリはcommit対象外である。
+
+再起動後、タイトル設定にCharacter画像17ディレクトリとボイス12種が表示された。代表SEはHTTP 200／`audio/mpeg`、VOICEはHTTP 200／`audio/wav`、Character画像はHTTP 200／`image/png`で、通常ゲーム入口はCharacter画像の読込を完了して`playing`へ遷移した。音声・画像由来のconsole warning／errorは0件だった。ブラウザ自動操作環境のPointer Lock `WrongDocumentError`は資産読込とは別の既知制約である。ライセンスと配布可否を未確認の音声・Character画像はproduction `dist/`、Git、itch.io配布物へ追加しておらず、今回の接続は現ローカル開発Webの確認環境に限定する。
