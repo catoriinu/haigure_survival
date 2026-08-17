@@ -73,6 +73,7 @@ MISSION_SPECS = {
     },
     "gym": ("area-gym", "f01", "体育館"),
     "courtyard": ("area-courtyard", "f01", "校庭"),
+    "gym-rooftop": ("area-gym-rooftop", "f03", "体育館屋上"),
     "rooftop": ("area-school-rooftop", "roof", "校舎屋上"),
     "rooftop-poolside": ("area-poolside", "roof", "屋上プールサイド"),
 }
@@ -106,9 +107,11 @@ ELEVATOR_LANDING_SPECS = {
 
 ROLE_COUNTS = {
     "floor_map": 5,
+    "map_barrier": 5,
+    "map_passage": 5,
     "location_area": 85,
-    "mission_location": 24,
-    "mission_anchor": 24,
+    "mission_location": 25,
+    "mission_anchor": 25,
     "map_stair_landing": 17,
     "map_elevator_landing": 4,
     "broadcast_console": 1,
@@ -116,13 +119,16 @@ ROLE_COUNTS = {
 }
 MESH_ROLES = {
     "floor_map",
+    "map_barrier",
+    "map_passage",
     "location_area",
     "mission_location",
     "broadcast_console_target",
 }
 MARKER_ROLES = set(ROLE_COUNTS) - MESH_ROLES
 PREFIX_ROLES = {
-    "MAP_": "floor_map",
+    "MAP_Barrier_": "map_barrier",
+    "MAP_Passage_": "map_passage",
     "VOL_LocationArea_": "location_area",
     "VOL_MissionLocation_": "mission_location",
     "MRK_MissionAnchor_": "mission_anchor",
@@ -237,7 +243,8 @@ def build_area_contracts() -> dict[str, AreaContract]:
             AreaContract(f"1F-2F 体育館{label}階段", 250, ("f01", "f02")),
         )
 
-    add("area-courtyard", AreaContract("校庭", 200, ("f01",) * 14))
+    add("area-courtyard", AreaContract("校庭", 200, ("f01",) * 3))
+    add("area-school-perimeter", AreaContract("校舎外周", 200, ("f01",) * 11))
     add("area-gym", AreaContract("体育館", 200, ("f01",) * 2))
     add("area-gym-gallery", AreaContract("体育館ギャラリー", 200, ("f02",) * 5))
     add("area-gym-rooftop", AreaContract("体育館屋上", 200, ("f03",) * 2))
@@ -248,7 +255,7 @@ def build_area_contracts() -> dict[str, AreaContract]:
         "area-elevator",
         AreaContract("エレベーター", 400, elevator_id="school-elevator"),
     )
-    require(len(contracts) == 52, f"監査正本の論理Areaが52件ではありません: {len(contracts)}")
+    require(len(contracts) == 53, f"監査正本の論理Areaが53件ではありません: {len(contracts)}")
     require(
         sum(len(contract.floor_ids) or 1 for contract in contracts.values()) == 85,
         "監査正本のArea pieceが85件ではありません",
@@ -399,11 +406,19 @@ def require_global_object(reference_id: str, role: str) -> bpy.types.Object:
 
 def collect_location_objects() -> dict[str, list[bpy.types.Object]]:
     for obj in bpy.data.objects:
+        if obj.name.startswith("MAP_") and not obj.name.startswith(
+            ("MAP_Barrier_", "MAP_Passage_")
+        ):
+            require(
+                obj.get("hs_role") == "floor_map",
+                f"B06-4 prefixに対するroleが不正です: {obj.name}/{obj.get('hs_role')}",
+            )
+            continue
         for prefix, expected_role in PREFIX_ROLES.items():
             if obj.name.startswith(prefix):
                 require(
                     obj.get("hs_role") == expected_role,
-                    f"B05 prefixに対するroleが不正です: {obj.name}/{obj.get('hs_role')}",
+                    f"B06-4 prefixに対するroleが不正です: {obj.name}/{obj.get('hs_role')}",
                 )
                 break
     by_role = {
@@ -459,6 +474,76 @@ def audit_floor_maps(objects: list[bpy.types.Object]) -> dict[str, int]:
         )
         component_counts[floor_id] = len(audit_axis_aligned_boxes(obj))
     return component_counts
+
+
+def audit_minimap_layers(
+    barriers: list[bpy.types.Object],
+    passages: list[bpy.types.Object],
+) -> dict[str, dict[str, int]]:
+    result: dict[str, dict[str, int]] = {}
+    for role, objects, name_prefix, id_prefix in (
+        ("map_barrier", barriers, "MAP_Barrier_", "minimap-barrier-"),
+        ("map_passage", passages, "MAP_Passage_", "minimap-passage-"),
+    ):
+        grouped: dict[str, list[bpy.types.Object]] = defaultdict(list)
+        for obj in objects:
+            grouped[str(obj.get("hs_floor_id"))].append(obj)
+        require(
+            set(grouped) == set(FLOOR_SPECS),
+            f"{role}のfloor集合が不正です: {sorted(grouped)}",
+        )
+        component_counts: dict[str, int] = {}
+        for floor_id in FLOOR_SPECS:
+            floor_objects = grouped[floor_id]
+            require(
+                len(floor_objects) == 1,
+                f"{role}は各階1 Objectが必要です: {floor_id}/{len(floor_objects)}",
+            )
+            obj = floor_objects[0]
+            require(
+                obj.name == f"{name_prefix}{floor_id.upper()}",
+                f"{role} Object名が不正です: {obj.name}",
+            )
+            require_hs_properties(
+                obj,
+                {
+                    "hs_id": f"{id_prefix}{floor_id}",
+                    "hs_role": role,
+                    "hs_floor_id": floor_id,
+                },
+            )
+            component_counts[floor_id] = len(audit_axis_aligned_boxes(obj))
+            require(
+                component_counts[floor_id] > 0,
+                f"{role}の階別形状がありません: {floor_id}",
+            )
+        result[role] = component_counts
+    return result
+
+
+def semantic_scene_signature(by_role: dict[str, list[bpy.types.Object]]) -> str:
+    entries = []
+    for role in sorted(by_role):
+        for obj in sorted(by_role[role], key=lambda candidate: candidate.name):
+            bounds = audit_axis_aligned_boxes(obj) if role in MESH_ROLES else []
+            entries.append(
+                {
+                    "name": obj.name,
+                    "properties": hs_properties(obj),
+                    "bounds": [
+                        {
+                            "minimum": [round(value, 6) for value in box.minimum],
+                            "maximum": [round(value, 6) for value in box.maximum],
+                        }
+                        for box in bounds
+                    ],
+                    "translation": [
+                        round(value, 6) for value in obj.matrix_world.translation
+                    ],
+                }
+            )
+    payload = json.dumps(entries, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest().upper()
 
 
 def audit_areas(objects: list[bpy.types.Object]) -> list[AreaPiece]:
@@ -654,6 +739,11 @@ def audit_missions(
         require(len(volume_bounds) == 1, f"{volume.name}が1 boxではありません")
         bounds = volume_bounds[0]
         position = anchor.matrix_world.translation
+        if location_id == "gym-rooftop":
+            require(
+                all(close(position[index], value) for index, value in enumerate((46.4, 9.5, 9.6))),
+                f"gym-rooftop Anchor座標が不正です: {tuple(position)}",
+            )
         require(contains_point(bounds, position), f"{location_id} AnchorがMission Volume外です")
         matching_area_pieces = [
             piece
@@ -905,6 +995,10 @@ def main() -> None:
     by_role = collect_location_objects()
     collection_result = audit_collections(by_role)
     floor_map_components = audit_floor_maps(by_role["floor_map"])
+    minimap_layers = audit_minimap_layers(
+        by_role["map_barrier"],
+        by_role["map_passage"],
+    )
     area_pieces = audit_areas(by_role["location_area"])
     stair_area_boundary_result = audit_school_stair_area_boundaries(area_pieces)
     mission_result = audit_missions(
@@ -929,6 +1023,8 @@ def main() -> None:
         "glb": audit_glb(by_role),
         "counts": {
             "floor_maps": len(by_role["floor_map"]),
+            "minimap_barriers": len(by_role["map_barrier"]),
+            "minimap_passages": len(by_role["map_passage"]),
             "logical_areas": len(AREA_CONTRACTS),
             "area_pieces": len(area_pieces),
             "mission_volumes": mission_result["volumes"],
@@ -939,6 +1035,8 @@ def main() -> None:
             "broadcast_targets": broadcast_result["targets"],
         },
         "floor_map_box_components": floor_map_components,
+        "minimap_box_components": minimap_layers,
+        "semantic_scene_signature": semantic_scene_signature(by_role),
         "area_priority_piece_counts": {
             str(priority): count for priority, count in sorted(priority_counts.items())
         },

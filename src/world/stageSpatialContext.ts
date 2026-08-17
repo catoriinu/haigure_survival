@@ -107,6 +107,8 @@ import {
   type AuthoredStageElevatorLanding,
   type AuthoredStageFloorMap,
   type AuthoredStageLocationAreaPiece,
+  type AuthoredStageMinimapBarrier,
+  type AuthoredStageMinimapPassage,
   type AuthoredStageMissionAnchor,
   type AuthoredStageMissionLocationVolume,
   type AuthoredStageStairLanding,
@@ -122,6 +124,8 @@ export type {
   StageBroadcastConsole,
   StageElevatorLanding,
   StageFloorMap,
+  StageMinimapBarrier,
+  StageMinimapPassage,
   StageLocationArea,
   StageLocationAreaHit,
   StageLocationAreaPiece,
@@ -885,6 +889,42 @@ const classifyFloorMap = (mesh: Mesh): AuthoredStageFloorMap => {
   });
 };
 
+const classifyMinimapBarrier = (mesh: Mesh): AuthoredStageMinimapBarrier => {
+  const extras = requireExtras(mesh);
+  assertAllowedHsProperties(mesh.name, extras, [
+    "hs_id",
+    "hs_role",
+    "hs_floor_id"
+  ]);
+  const role = requireString(mesh.name, extras, "hs_role");
+  if (role !== "map_barrier") {
+    throw new Error(`未登録のMAP_* roleです: ${mesh.name}.${role}`);
+  }
+  return Object.freeze({
+    id: requireId(mesh.name, extras),
+    floorId: requireLocationFloorId(mesh.name, extras),
+    mesh
+  });
+};
+
+const classifyMinimapPassage = (mesh: Mesh): AuthoredStageMinimapPassage => {
+  const extras = requireExtras(mesh);
+  assertAllowedHsProperties(mesh.name, extras, [
+    "hs_id",
+    "hs_role",
+    "hs_floor_id"
+  ]);
+  const role = requireString(mesh.name, extras, "hs_role");
+  if (role !== "map_passage") {
+    throw new Error(`未登録のMAP_* roleです: ${mesh.name}.${role}`);
+  }
+  return Object.freeze({
+    id: requireId(mesh.name, extras),
+    floorId: requireLocationFloorId(mesh.name, extras),
+    mesh
+  });
+};
+
 const classifyLocationAreaPiece = (
   volume: StageVolume
 ): AuthoredStageLocationAreaPiece => {
@@ -1450,6 +1490,8 @@ const assertUniqueObjectNames = (nodes: readonly TransformNode[]) => {
 
 const assertUniqueSemanticIds = (
   floorMaps: readonly AuthoredStageFloorMap[],
+  minimapBarriers: readonly AuthoredStageMinimapBarrier[],
+  minimapPassages: readonly AuthoredStageMinimapPassage[],
   markers: readonly StageMarker[],
   volumes: readonly StageVolume[],
   bitFlightTransitionVolumes: readonly AuthoredBitFlightTransitionVolume[],
@@ -1474,6 +1516,12 @@ const assertUniqueSemanticIds = (
   }
   for (const floorMap of floorMaps) {
     register(floorMap.id, floorMap.mesh.name);
+  }
+  for (const barrier of minimapBarriers) {
+    register(barrier.id, barrier.mesh.name);
+  }
+  for (const passage of minimapPassages) {
+    register(passage.id, passage.mesh.name);
   }
   for (const volume of volumes) {
     register(volume.id, volume.mesh.name);
@@ -1614,6 +1662,8 @@ const classifyStageAsset = (
   const navSources: NavSource[] = [];
   const bitFlightNavSources: BitFlightNavSource[] = [];
   const floorMaps: AuthoredStageFloorMap[] = [];
+  const minimapBarriers: AuthoredStageMinimapBarrier[] = [];
+  const minimapPassages: AuthoredStageMinimapPassage[] = [];
   const volumes: StageVolume[] = [];
   const locationAreaPieces: AuthoredStageLocationAreaPiece[] = [];
   const missionLocationVolumes: AuthoredStageMissionLocationVolume[] = [];
@@ -1659,7 +1709,16 @@ const classifyStageAsset = (
         );
       }
       configureSemanticMesh(mesh);
-      floorMaps.push(classifyFloorMap(mesh));
+      const role = requireString(mesh.name, requireExtras(mesh), "hs_role");
+      if (role === "floor_map") {
+        floorMaps.push(classifyFloorMap(mesh));
+      } else if (role === "map_barrier") {
+        minimapBarriers.push(classifyMinimapBarrier(mesh));
+      } else if (role === "map_passage") {
+        minimapPassages.push(classifyMinimapPassage(mesh));
+      } else {
+        throw new Error(`未登録のMAP_* roleです: ${mesh.name}.${role}`);
+      }
     } else if (mesh.name.startsWith("NAV_")) {
       assertNameHasSuffix(mesh.name, "NAV_");
       const source = classifyNavSource(mesh);
@@ -1796,6 +1855,8 @@ const classifyStageAsset = (
   }
   const locationAssetCount =
     floorMaps.length +
+    minimapBarriers.length +
+    minimapPassages.length +
     locationAreaPieces.length +
     missionLocationVolumes.length +
     missionAnchors.length +
@@ -1812,6 +1873,8 @@ const classifyStageAsset = (
     stage.locationAssetsMode === "required" &&
     [
       floorMaps,
+      minimapBarriers,
+      minimapPassages,
       locationAreaPieces,
       missionLocationVolumes,
       missionAnchors,
@@ -1921,6 +1984,8 @@ const classifyStageAsset = (
 
   assertUniqueSemanticIds(
     floorMaps,
+    minimapBarriers,
+    minimapPassages,
     markers,
     volumes,
     bitFlightTransitionVolumes,
@@ -1935,6 +2000,8 @@ const classifyStageAsset = (
   const locationAssetSource: StageLocationAssetRegistrySource =
     Object.freeze({
       floorMaps: Object.freeze([...floorMaps]),
+      minimapBarriers: Object.freeze([...minimapBarriers]),
+      minimapPassages: Object.freeze([...minimapPassages]),
       areaPieces: Object.freeze([...locationAreaPieces]),
       missionVolumes: Object.freeze([...missionLocationVolumes]),
       missionAnchors: Object.freeze([...missionAnchors]),
@@ -2408,24 +2475,30 @@ const createBitFlightNavigationDefinition = (
 const assertSemanticsInsideBoundary = (
   boundary: StageBoundary,
   floorMaps: readonly AuthoredStageFloorMap[],
+  minimapBarriers: readonly AuthoredStageMinimapBarrier[],
+  minimapPassages: readonly AuthoredStageMinimapPassage[],
   markers: readonly StageMarker[],
   volumes: readonly StageVolume[],
   bitFlightTransitionVolumes: readonly AuthoredBitFlightTransitionVolume[],
   links: readonly StageLinkPair[],
   bitFlightLinks: readonly AuthoredBitFlightLinkEndpoint[]
 ) => {
-  for (const floorMap of floorMaps) {
-    const positions = floorMap.mesh.getVerticesData(
+  for (const mapAsset of [
+    ...floorMaps,
+    ...minimapBarriers,
+    ...minimapPassages
+  ]) {
+    const positions = mapAsset.mesh.getVerticesData(
       VertexBuffer.PositionKind
     )!;
-    const world = floorMap.mesh.computeWorldMatrix(true);
+    const world = mapAsset.mesh.computeWorldMatrix(true);
     for (let index = 0; index < positions.length; index += 3) {
       const point = Vector3.TransformCoordinates(
         Vector3.FromArray(positions, index),
         world
       );
       if (!boundary.contains(point)) {
-        throw new Error(`MAP_*がBND_Stageの外側です: ${floorMap.mesh.name}`);
+        throw new Error(`MAP_*がBND_Stageの外側です: ${mapAsset.mesh.name}`);
       }
     }
   }
@@ -2941,6 +3014,12 @@ export const loadStageSpatialContext = async (
       ...classification.locationAssetSource.floorMaps.map(
         (floorMap) => floorMap.mesh
       ),
+      ...classification.locationAssetSource.minimapBarriers.map(
+        (barrier) => barrier.mesh
+      ),
+      ...classification.locationAssetSource.minimapPassages.map(
+        (passage) => passage.mesh
+      ),
       ...classification.volumes.map((volume) => volume.mesh),
       ...classification.bitFlightTransitionVolumes.map(
         (transition) => transition.mesh
@@ -3035,6 +3114,8 @@ export const loadStageSpatialContext = async (
     assertSemanticsInsideBoundary(
       boundary,
       classification.locationAssetSource.floorMaps,
+      classification.locationAssetSource.minimapBarriers,
+      classification.locationAssetSource.minimapPassages,
       markers.all,
       volumes.all,
       classification.bitFlightTransitionVolumes,

@@ -652,15 +652,17 @@ MRK_RoomVariant_<token>
 
 普通教室9室は各2件、特別室は合計20件で、`room` doorは合計38件である。全階トイレは男女各3個室、4階分の`toilet_stall` doorを合計24件持つ。旧1階個別扉8件、旧上階結合扉3件、旧トイレ固定扉は残さない。校舎、体育館、渡り廊下の固定開放出入口は動的doorへ変換しない。
 
-### 7.11 B05階別Map・Location・放送卓意味資産
+### 7.11 B05／B06-4 階別Map・Location・放送卓意味資産
 
 B05対応ステージは`hs_schema_version=3`とし、TypeScriptカタログの`locationAssetsMode="required"`と同時に切り替える。非対応fixtureは`locationAssetsMode="unsupported"`とし、以下のObjectを1件でも含めてはならない。欠落時fallback、Object名や座標からの役割推測、旧role aliasは使用しない。
 
-`MAP_*`はミニマップに表示する階別平面形状専用Meshである。表示、衝突、光線遮蔽、3種NavMeshベイクへ使用せず、MaterialとNormalを要求しない。
+`MAP_*`はミニマップに表示する階別平面形状専用Meshである。`floor_map`は床輪郭、`map_barrier`は恒久壁・塀・柵・階段室、`map_passage`は扉・出入口・階段・Ramp接続の開口を作者一覧から生成する。表示Object、Collider、`NAV_*`、座標探索から推測しない。表示、衝突、光線遮蔽、3種NavMeshベイクへ使用せず、MaterialとNormalを要求しない。
 
 | Object / role | 必須properties |
 |---|---|
 | `MAP_*` / `floor_map` | `hs_id`、`hs_role`、`hs_floor_id`、`hs_display_name`、正整数`hs_order` |
+| `MAP_Barrier_*` / `map_barrier` | `hs_id`、`hs_role`、`hs_floor_id` |
+| `MAP_Passage_*` / `map_passage` | `hs_id`、`hs_role`、`hs_floor_id` |
 | `VOL_*` / `location_area` | `hs_id`、`hs_role`、`hs_area_id`、`hs_display_name`、正整数`hs_priority`、`hs_floor_id`または`hs_elevator_id`の片方だけ |
 | `VOL_*` / `mission_location` | `hs_id`、`hs_role`、`hs_location_id`、`hs_area_id`、`hs_floor_id`、`hs_display_name`、`hs_anchor_id` |
 | `MRK_*` / `mission_anchor` | `hs_id`、`hs_role`、`hs_location_id` |
@@ -672,16 +674,16 @@ B05対応ステージは`hs_schema_version=3`とし、TypeScriptカタログの`
 学校は次の確定目録を持つ。
 
 - `f01`、`f02`、`f03`、`f04`、`roof`の5 Map。順序は1～5で一意とする。
-- 52論理Area、85 Volume piece。1論理Areaは同じID、表示名、優先度を持つ複数pieceで構成できる。
-- 20室、男女トイレ8、階別共用部4、階段区間12、校庭・体育館・ギャラリー・体育館屋上・校舎屋上・プールサイド・更衣室7、エレベーター1。
-- 主要24 Mission Location。各Locationは1 Volumeと1 Anchorを持ち、Anchorは対応Volume内かつ通常版・全荒れ版の人間用NavMeshへ0.25m以内で投影可能とする。
+- 53論理Area、85 Volume piece。1論理Areaは同じID、表示名、優先度を持つ複数pieceで構成できる。校庭は中央校庭と体育館北側通路の3 piece、校舎外周は南・西・北・東外周の11 pieceを持つ。
+- 20室、男女トイレ8、階別共用部4、階段区間12、校庭・校舎外周・体育館・ギャラリー・体育館屋上・校舎屋上・プールサイド・更衣室8、エレベーター1。
+- 主要25 Mission Location。`gym-rooftop`は`f03`、`area-gym-rooftop`、作者Anchor `(46.4, 9.5, 9.6)`と水平2m四方Volumeを持つ。各Locationは1 Volumeと1 Anchorを持ち、Anchorは対応Volume内かつ通常版・全荒れ版の人間用NavMeshへ0.25m以内で投影可能とする。
 - 階段踊り場17、エレベーター乗場4、放送卓Marker 1、正面Ray判定用target Volume 1。
 
 Area優先度はエレベーター400、室・トイレ・更衣室・プールサイド300、階段250、屋外・体育館系200、階別共用部100に固定する。同じ優先度を持つ異なる論理AreaのVolume pieceは正体積で重複してはならず、面または辺の接触だけは許可する。人間用NavMeshの全triangleは1件以上のArea pieceで覆い、最高優先度の論理Areaを一意に解決できなければ読込失敗とする。
 
 各Area pieceは固定`hs_floor_id`または動的`hs_elevator_id`を明示する。階段は同じ論理Area IDを維持しながら上下pieceの`hs_floor_id`で表示Mapを切り替える。エレベーター乗場は1F・4Fだけを`hs_available=true`として既存stopへ厳格参照し、2F・3Fは`false`かつ`hs_stop_id`なしとする。
 
-階別Mapの形状は作者資産を正本とする。1Fは校庭・校舎・体育館、2Fは校舎・ギャラリー・渡り廊下、3Fは校舎・体育館屋上・接続Ramp、4Fは校舎4F、roofは校舎屋上・更衣室・プールサイドを含む。`NAV_*`、Collider、既存Navigation Area、BIT VolumeからMap形状を導出しない。
+階別Mapの形状は作者資産を正本とする。1Fは校庭・校舎・体育館、2Fは校舎・ギャラリー・渡り廊下、3Fは校舎・体育館屋上・接続Ramp、4Fは校舎4F、roofは校舎屋上・階段室・更衣室・プールと屋上固有の壁・柵だけを含む。屋上へ4F以下の形状を混入させず、家具・小物・便器・机・椅子・ロッカー・掲示板・箱・動的扉パネルをBarrierへ含めない。
 
 放送卓Markerは距離判定、target Volumeは正面Ray判定の独立資産であり、表示机や機材から推測しない。相互参照とfloor参照を厳格検証する。
 

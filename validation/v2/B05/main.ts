@@ -51,6 +51,8 @@ type CheckResult = Readonly<{
 
 type B05Inventory = Readonly<{
   floorMaps: number;
+  minimapBarriers: number;
+  minimapPassages: number;
   areas: number;
   areaPieces: number;
   missionLocations: number;
@@ -96,7 +98,7 @@ declare global {
 
 const EXPECTED_FLOOR_ORDERS = Object.freeze([1, 2, 3, 4, 5]);
 const EXPECTED_AREA_PRIORITIES = Object.freeze([100, 200, 250, 300, 400]);
-const EXPECTED_MISSION_LOCATION_COUNT = 24;
+const EXPECTED_MISSION_LOCATION_COUNT = 25;
 const DOOR_FIXTURE_SEED = 2;
 const NAVIGATION_PROJECTION_DISTANCE =
   0.25 * BLENDER_METERS_TO_WORLD_UNITS;
@@ -219,6 +221,8 @@ const renderMetrics = (inventory: B05Inventory | null) => {
   }
   const entries = [
     ["Floor Map", String(inventory.floorMaps)],
+    ["Map Barrier", String(inventory.minimapBarriers)],
+    ["Map Passage", String(inventory.minimapPassages)],
     ["論理Area / piece", `${inventory.areas} / ${inventory.areaPieces}`],
     ["Mission Location", String(inventory.missionLocations)],
     ["階段踊り場", String(inventory.stairLandings)],
@@ -519,6 +523,26 @@ const prepareVisualization = (context: StageSpatialContext) => {
     floorMap.mesh.edgesColor = new Color4(0.6, 0.93, 1, 0.95);
     registerVisual(floorMap.mesh, "map", [floorMap.floorId], false);
   }
+  for (const barrier of locationAssets.minimapBarriers) {
+    barrier.mesh.material = mapMaterial;
+    barrier.mesh.isVisible = true;
+    barrier.mesh.visibility = 1;
+    barrier.mesh.renderingGroupId = 0;
+    barrier.mesh.enableEdgesRendering();
+    barrier.mesh.edgesWidth = 2.0;
+    barrier.mesh.edgesColor = new Color4(0.02, 0.04, 0.06, 1);
+    registerVisual(barrier.mesh, "map", [barrier.floorId], false);
+  }
+  for (const passage of locationAssets.minimapPassages) {
+    passage.mesh.material = mapMaterial;
+    passage.mesh.isVisible = true;
+    passage.mesh.visibility = 1;
+    passage.mesh.renderingGroupId = 1;
+    passage.mesh.enableEdgesRendering();
+    passage.mesh.edgesWidth = 2.0;
+    passage.mesh.edgesColor = new Color4(1, 0.94, 0.5, 1);
+    registerVisual(passage.mesh, "map", [passage.floorId], false);
+  }
 
   for (const area of locationAssets.areas) {
     for (const piece of area.pieces) {
@@ -777,8 +801,24 @@ const validateRegistry = (
         `floors=${floorIds.join(",")} / orders=${floorOrders.join(",")}`
     ),
     createCheck(
-      "52論理Areaとpiece参照",
-      locationAssets.areas.length === 52 &&
+      "全5階のBarrier・Passage意味資産",
+      locationAssets.minimapBarriers.length === 5 &&
+        locationAssets.minimapPassages.length === 5 &&
+        STAGE_LOCATION_FLOOR_IDS.every(
+          (floorId) =>
+            locationAssets.getMinimapBarriers(floorId).length > 0 &&
+            locationAssets.getMinimapPassages(floorId).length > 0
+        ) &&
+        [...locationAssets.minimapBarriers, ...locationAssets.minimapPassages].every(
+          (asset) => asset.mesh.getTotalVertices() > 0
+        ),
+      `barriers=${locationAssets.minimapBarriers.length} / ` +
+        `passages=${locationAssets.minimapPassages.length}`
+    ),
+    createCheck(
+      "53論理Areaと85 piece参照",
+      locationAssets.areas.length === 53 &&
+        areaPieces.length === 85 &&
         unique(areaIds) &&
         unique(pieceIds) &&
         locationAssets.areas.every(
@@ -827,7 +867,7 @@ const validateRegistry = (
   );
   checks.push(
     createCheck(
-      "24 Mission Location参照",
+      "25 Mission Location参照",
       locationAssets.missionLocations.length ===
         EXPECTED_MISSION_LOCATION_COUNT &&
         unique(missionIds) &&
@@ -919,6 +959,8 @@ const validateRegistry = (
 
   return Object.freeze({
     floorMaps: locationAssets.floorMaps.length,
+    minimapBarriers: locationAssets.minimapBarriers.length,
+    minimapPassages: locationAssets.minimapPassages.length,
     areas: locationAssets.areas.length,
     areaPieces: areaPieces.length,
     missionLocations: locationAssets.missionLocations.length,
@@ -958,6 +1000,8 @@ const runValidation = async () => {
   let inventoryBase:
     | Readonly<{
         floorMaps: number;
+        minimapBarriers: number;
+        minimapPassages: number;
         areas: number;
         areaPieces: number;
         missionLocations: number;
@@ -987,7 +1031,7 @@ const runValidation = async () => {
     normalReachability = validateReachability(activeContext);
     checks.push(
       createCheck(
-        "通常版24 Anchor到達性",
+        "通常版25 Anchor到達性",
         normalReachability.projected === EXPECTED_MISSION_LOCATION_COUNT &&
           normalReachability.reachable === EXPECTED_MISSION_LOCATION_COUNT,
         `projected=${normalReachability.projected}/` +
@@ -1007,7 +1051,7 @@ const runValidation = async () => {
       disorderedReachability = validateReachability(disorderedContext);
       checks.push(
         createCheck(
-          "荒れ版24 Anchor到達性",
+          "荒れ版25 Anchor到達性",
           disorderedReachability.projected ===
             EXPECTED_MISSION_LOCATION_COUNT &&
             disorderedReachability.reachable ===
