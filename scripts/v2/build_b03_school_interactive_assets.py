@@ -26,6 +26,7 @@ from build_b03_school_interiors import (
     remove_imported_sources,
     swatch_uv,
 )
+from b06_signage_manifest import SIGN_SIZE
 
 
 ROOM_VARIANT_IDS = (
@@ -2142,6 +2143,12 @@ def _replay_local_placement(
         furniture.add_batch(temporary.furniture, Matrix.Identity(4))
         signs.add_batch(temporary.signs, Matrix.Identity(4))
         collider_boxes.extend(temporary.colliders)
+    elif placement.kind == "sign":
+        signs.add_box(
+            (0.0, 0.0, 0.0),
+            SIGN_SIZE,
+            placement.prop_type,
+        )
     else:
         raise RuntimeError(
             f"個別再配置に未対応のplacement種別です: {placement.kind}"
@@ -3165,7 +3172,9 @@ def _build_room_variants(
     if signs_material is None:
         raise RuntimeError("SignsPaper atlas Materialがありません")
     sources = import_prop_sources(VARIANT_SOURCE_TYPES)
-    normal_rooms, _classroom_metrics = build_school_rooms(sources)
+    normal_rooms, _classroom_metrics, _signage_result = build_school_rooms(
+        sources
+    )
     normal_rooms_by_name = {room.name: room for room in normal_rooms}
     for room in ROOM_VARIANT_SPECS:
         token = _token(room.author_name)

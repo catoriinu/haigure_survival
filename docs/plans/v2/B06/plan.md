@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 B06 学校資産微修正 計画
 
-更新日: 2026-08-10
+更新日: 2026-08-17
 
 ## プロンプト
 
@@ -16,9 +16,9 @@ P1で確定した学校資産修正を、学校バイナリの単一担当を維
 
 | 順序 | batch | 推奨ブランチ | 所有 | 主な完了条件 |
 |---|---|---|---|---|
-| 1 | B06-1 学校構造仕上げ | `codex/v2-school-structure-polish` | 建築、Collider、必要なNavMesh | 全角、階層帯、階段、隙間、ちらつき、屋上箱 |
-| 2 | B06-2 エレベーター建築統合 | `codex/v2-elevator-building-integration` | エレベーター躯体、床、Collider、NavMesh | 連続白壁、床露出0、段差0、ロッカー接地 |
-| 3 | B06-3 小物・表札 | `codex/v2-school-props-signage` | 小物正本、表札、Atlas | 便器形状、教室名、日本語、男女ピクトグラム |
+| 1 | B06-1 学校構造仕上げ（完了） | `codex/v2-school-structure-polish` | 建築、Collider、必要なNavMesh | PR #73で`develop`へ統合済み |
+| 2 | B06-2 エレベーター建築統合（完了） | PR #73のB06-1へ吸収 | エレベーター躯体、床、Collider、NavMesh | PR #73で実質完了。再実装しない |
+| 3 | B06-3 小物・表札（ローカル完了） | `codex/v2-school-props-signage` | 小物正本、表札、Atlas、Web配布資産 | 実装・検証・ローカルcommit完了。未push・未統合 |
 | 4 | B06-4 ミニマップ意味資産・Location | `codex/v2-minimap-location-assets` | `MAP_*`、Location、資産監査 | 恒久仕切り・通行開口、屋上分離、Area、Location |
 
 ## 共通所有範囲
@@ -39,19 +39,19 @@ P1で確定した学校資産修正を、学校バイナリの単一担当を維
 - 表示、Collider、遮蔽、NavMesh、意味資産の境界を一致させ、重複面、隙間、段差、めり込みを残さない。
 - 変更前後の同一視点画像を残し、P1-E01～P1-E17と全校網羅視点を比較する。
 - 生成を2回実行し、GLB、Atlas、必要なNavMesh、監査署名の決定性を確認する。
-- 影響範囲に応じて資産監査、T02、T04、T05、T06-3、T06-4、通常build、Web／Electron、console警告・エラー0件を確認する。
+- 影響範囲に応じて資産監査、T02、T04、T05、T06-3、T06-4、対象build、Web、console警告・エラー0件を確認する。B06-3はElectronを対象外とする。
 - 各batchはローカルcommitで止める。push、Pull Request、レビュー、mergeは別承認とする。
 
 ## ステップ
 
 - [x] P1の全指摘をB06-1～4へ一意に割り当てる
 - [x] 各batchの個別計画、所有、依存、受入条件を作成する
-- [ ] B06-1を最新`develop`から実装・検証・commitする
-- [ ] B06-1統合後にB06-2を実装・検証・commitする
-- [ ] B06-2統合後にB06-3を実装・検証・commitする
+- [x] B06-1を最新`develop`から実装・検証し、PR #73で統合する
+- [x] B06-2をPR #73のB06-1へ吸収済みとして完了同期する
+- [x] B06-3を最新`develop`から実装・検証・commitする（未push・未統合）
 - [ ] B06-3統合後にB06-4を実装・検証・commitする
 - [ ] B06-4の最終資産をT06-4P-1へ引き渡す
 
 ## 結果
 
-P1文書段階として、B06を4つの直列batchへ分割した。学校バイナリはB06-1、B06-2、B06-3、B06-4の順に単一担当で更新する。実装、資産生成、commitは未実施である。
+B06-1はPR #73で`develop=79f038d`へ統合済みであり、B06-2の予定範囲も同PRへ吸収され実質完了した。2026-08-17、最新`origin/develop`から`codex/v2-school-props-signage`の専用worktreeを作成し、B06-3の実装・検証・ローカルcommitまでを単一担当で完了した。push、Pull Request、レビュー、mergeは未実施であり、B06-4以降は未着手である。

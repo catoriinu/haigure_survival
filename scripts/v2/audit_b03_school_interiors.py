@@ -121,11 +121,24 @@ from build_b03_school_interiors import (
     TOILET_FRONT_WALL_DEPTH,
     TOILET_FRONT_WALL_SPANS,
     TOILET_FRONT_WALL_Y,
-    TOILET_SIGN_PLACEMENTS,
     UPPER_WEST_CLASSROOM_DOOR_OPENINGS,
     architecture_swatch,
     infirmary_curtain_segment_count,
     infirmary_curtain_beam_sight_boxes,
+)
+from b06_signage_manifest import (
+    ATLAS_DIMENSIONS as SIGNAGE_ATLAS_DIMENSIONS,
+    ATLAS_GRID as SIGNAGE_ATLAS_GRID,
+    EXPECTED_ATLAS_BYTES,
+    EXPECTED_ATLAS_SHA256,
+    EXPECTED_MANIFEST_SHA256,
+    ROOM_VARIANT_IDS,
+    SIGN_PLACEMENTS,
+    SIGN_SIZE,
+    SIGN_TILES,
+    manifest_json,
+    tile_by_id,
+    validate_manifest,
 )
 
 
@@ -133,6 +146,13 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 BLEND_PATH = REPOSITORY_ROOT / "assets/blender/v2/B02/b02_school_blockout.blend"
 GLB_PATH = REPOSITORY_ROOT / "public/stage-assets/v2/B02/b02_school_blockout.glb"
 TEXTURE_DIRECTORY = REPOSITORY_ROOT / "assets/textures/v2/B03"
+SIGNAGE_ATLAS_AUTHORING_PATH = (
+    TEXTURE_DIRECTORY / "b03_signs_paper_atlas.png"
+)
+SIGNAGE_ATLAS_PUBLIC_PATH = (
+    REPOSITORY_ROOT
+    / "public/stage-assets/v2/B02/b03_signs_paper_atlas.png"
+)
 
 CLASSROOM_SMALL_PROP_PARTS = {
     "ClosedBook": (
@@ -617,7 +637,85 @@ def audit_visual_door_clearance(interior_visuals: list[bpy.types.Object]) -> int
     return len(clearances) * len(furniture_components)
 
 
-def room_sign_components() -> list[tuple[str, int, Vector, Vector]]:
+def connected_component_vertex_indices(
+    obj: bpy.types.Object,
+) -> list[frozenset[int]]:
+    adjacency = [set() for _ in obj.data.vertices]
+    for edge in obj.data.edges:
+        first, second = edge.vertices
+        adjacency[first].add(second)
+        adjacency[second].add(first)
+
+    remaining = set(range(len(obj.data.vertices)))
+    components: list[frozenset[int]] = []
+    while remaining:
+        pending = [min(remaining)]
+        component: set[int] = set()
+        while pending:
+            vertex_index = pending.pop()
+            if vertex_index not in remaining:
+                continue
+            remaining.remove(vertex_index)
+            component.add(vertex_index)
+            pending.extend(adjacency[vertex_index] & remaining)
+        components.append(frozenset(component))
+    return components
+
+
+def component_bounds(
+    obj: bpy.types.Object,
+    vertex_indices: frozenset[int],
+) -> tuple[Vector, Vector]:
+    points = [
+        obj.matrix_world @ obj.data.vertices[vertex_index].co
+        for vertex_index in vertex_indices
+    ]
+    return (
+        Vector(tuple(min(point[axis] for point in points) for axis in range(3))),
+        Vector(tuple(max(point[axis] for point in points) for axis in range(3))),
+    )
+
+
+def component_atlas_tile(
+    obj: bpy.types.Object,
+    vertex_indices: frozenset[int],
+) -> int:
+    uv_layer = obj.data.uv_layers.get("UVMap")
+    if uv_layer is None:
+        raise RuntimeError(f"表札ObjectにUVMapがありません: {obj.name}")
+    columns, rows = SIGNAGE_ATLAS_GRID
+    tiles: set[int] = set()
+    component_polygons = [
+        polygon
+        for polygon in obj.data.polygons
+        if all(vertex_index in vertex_indices for vertex_index in polygon.vertices)
+    ]
+    if not component_polygons:
+        raise RuntimeError(f"表札componentに面がありません: {obj.name}")
+    for polygon in component_polygons:
+        coordinates = [
+            uv_layer.data[loop_index].uv
+            for loop_index in polygon.loop_indices
+        ]
+        center_u = sum(coordinate.x for coordinate in coordinates) / len(coordinates)
+        center_v = sum(coordinate.y for coordinate in coordinates) / len(coordinates)
+        column = math.floor(center_u * columns)
+        row = math.floor((1.0 - center_v) * rows)
+        if not (0 <= column < columns and 0 <= row < rows):
+            raise RuntimeError(
+                f"表札UVが8x8 Atlas範囲外です: {obj.name}[{polygon.index}]"
+            )
+        tiles.add(row * columns + column)
+    if len(tiles) != 1:
+        raise RuntimeError(
+            f"一つの表札componentが複数tileを参照しています: "
+            f"{obj.name}/{sorted(tiles)}"
+        )
+    return next(iter(tiles))
+
+
+def room_sign_component_contracts(
+) -> list[tuple[str, int, Vector, Vector, int]]:
     sign_objects = [
         obj
         for obj in bpy.data.objects
@@ -625,16 +723,216 @@ def room_sign_components() -> list[tuple[str, int, Vector, Vector]]:
         and obj.name.startswith("VIS_B03_Interior_")
         and obj.name.endswith("_SignsPaper")
     ]
-    return [
-        (obj.name, component_index, minimum, maximum)
-        for obj in sign_objects
-        for component_index, (minimum, maximum) in enumerate(
-            connected_component_aabbs(obj),
+    contracts: list[tuple[str, int, Vector, Vector, int]] = []
+    for obj in sign_objects:
+        for component_index, vertex_indices in enumerate(
+            connected_component_vertex_indices(obj),
             1,
-        )
-        if dimensions_match(minimum, maximum, (0.45, 0.04, 0.18))
-        or dimensions_match(minimum, maximum, (0.04, 0.45, 0.18))
+        ):
+            minimum, maximum = component_bounds(obj, vertex_indices)
+            if not (
+                dimensions_match(minimum, maximum, SIGN_SIZE)
+                or dimensions_match(
+                    minimum,
+                    maximum,
+                    (SIGN_SIZE[1], SIGN_SIZE[0], SIGN_SIZE[2]),
+                )
+            ):
+                continue
+            contracts.append(
+                (
+                    obj.name,
+                    component_index,
+                    minimum,
+                    maximum,
+                    component_atlas_tile(obj, vertex_indices),
+                )
+            )
+    return contracts
+
+
+def room_sign_components() -> list[tuple[str, int, Vector, Vector]]:
+    return [
+        (object_name, component_index, minimum, maximum)
+        for object_name, component_index, minimum, maximum, _tile
+        in room_sign_component_contracts()
     ]
+
+
+def audit_b06_signage_manifest(
+    generation: dict[str, object],
+    room_counts: dict[str, dict[str, int]],
+) -> dict[str, int | str]:
+    validate_manifest()
+    canonical_manifest = manifest_json()
+    actual_manifest_sha256 = hashlib.sha256(
+        canonical_manifest.encode("utf-8")
+    ).hexdigest()
+    if actual_manifest_sha256 != EXPECTED_MANIFEST_SHA256:
+        raise RuntimeError(
+            "表札manifest SHA-256が固定値と一致しません: "
+            f"{actual_manifest_sha256}/{EXPECTED_MANIFEST_SHA256}"
+        )
+
+    expected_payload = {
+        "atlas_sha256": EXPECTED_ATLAS_SHA256,
+        "manifest_sha256": EXPECTED_MANIFEST_SHA256,
+        "content_tiles": len(SIGN_TILES),
+        "placements": len(SIGN_PLACEMENTS),
+        "manifest": json.loads(canonical_manifest),
+    }
+    actual_scene_value = bpy.context.scene.get("b06_3_signage_manifest")
+    if actual_scene_value != canonical_manifest:
+        raise RuntimeError(
+            "Sceneのb06_3_signage_manifestが固定manifestと完全一致しません"
+        )
+    if generation.get("signage") != expected_payload:
+        raise RuntimeError("内装生成結果の表札manifestがScene契約と一致しません")
+
+    if len(SIGN_TILES) != 25:
+        raise RuntimeError(f"表札content tileが25件ではありません: {len(SIGN_TILES)}")
+    if len(SIGN_PLACEMENTS) != 35:
+        raise RuntimeError(f"表札placementが35件ではありません: {len(SIGN_PLACEMENTS)}")
+    if {
+        item.target_room_id
+        for item in SIGN_PLACEMENTS
+        if item.target_room_id in ROOM_VARIANT_IDS
+    } != ROOM_VARIANT_IDS:
+        raise RuntimeError("全20室の表札target roomが揃っていません")
+    expected_target_room_ids = ROOM_VARIANT_IDS | frozenset(
+        {
+            "main-entry",
+            "north-entry",
+            "rooftop-poolside",
+            "roof-changing-male",
+            "roof-changing-female",
+            *(
+                f"f{floor:02d}-toilet-{gender}"
+                for floor in (1, 2, 3, 4)
+                for gender in ("male", "female")
+            ),
+        }
+    )
+    actual_target_room_ids = frozenset(
+        item.target_room_id for item in SIGN_PLACEMENTS
+    )
+    if actual_target_room_ids != expected_target_room_ids:
+        raise RuntimeError(
+            "表札manifestの対象roomが固定契約と一致しません: "
+            f"missing={sorted(expected_target_room_ids - actual_target_room_ids)}, "
+            f"unexpected={sorted(actual_target_room_ids - expected_target_room_ids)}"
+        )
+
+    transform_keys = [
+        (
+            tuple(round(float(value), 6) for value in item.position),
+            round(float(item.rotation_z), 6),
+        )
+        for item in SIGN_PLACEMENTS
+    ]
+    if len(transform_keys) != len(set(transform_keys)):
+        raise RuntimeError("表札manifestに重複Transformがあります")
+
+    actual_components = room_sign_component_contracts()
+    if len(actual_components) != len(SIGN_PLACEMENTS):
+        raise RuntimeError(
+            f"表札Mesh componentが35件ではありません: {len(actual_components)}"
+        )
+    actual_by_key: dict[
+        tuple[str, tuple[float, ...]],
+        tuple[int, int],
+    ] = {}
+    for object_name, component_index, minimum, maximum, tile in actual_components:
+        key = (object_name, bounds_key(minimum, maximum))
+        if key in actual_by_key:
+            raise RuntimeError(
+                f"同じowner room・Transformの表札Meshが重複しています: {key}"
+            )
+        actual_by_key[key] = (component_index, tile)
+
+    expected_tiles = tile_by_id()
+    matched_keys: set[tuple[str, tuple[float, ...]]] = set()
+    for item in SIGN_PLACEMENTS:
+        expected_minimum, expected_maximum = transformed_box_bounds(
+            item.position,
+            (0.0, 0.0, 0.0),
+            SIGN_SIZE,
+            item.rotation_z,
+        )
+        key = (
+            f"VIS_B03_Interior_{item.owner_room}_SignsPaper",
+            bounds_key(Vector(expected_minimum), Vector(expected_maximum)),
+        )
+        actual = actual_by_key.get(key)
+        if actual is None:
+            raise RuntimeError(
+                "manifestのowner room・Transformに対応する表札Meshがありません: "
+                f"{item.placement_id}/{key}"
+            )
+        expected_tile = expected_tiles[item.sign_id].tile
+        if actual[1] != expected_tile:
+            raise RuntimeError(
+                f"表札UV tileがmanifestと一致しません: {item.placement_id}="
+                f"{actual[1]}/{expected_tile}"
+            )
+        matched_keys.add(key)
+    unexpected_keys = sorted(set(actual_by_key) - matched_keys)
+    if unexpected_keys:
+        raise RuntimeError(f"manifest外の表札Meshがあります: {unexpected_keys}")
+
+    expected_owner_counts = Counter(item.owner_room for item in SIGN_PLACEMENTS)
+    unknown_owner_rooms = sorted(set(expected_owner_counts) - set(room_counts))
+    if unknown_owner_rooms:
+        raise RuntimeError(
+            f"表札manifestのowner roomが学校内装にありません: {unknown_owner_rooms}"
+        )
+    for room_name, counts in room_counts.items():
+        actual_count = counts.get("RoomSign", 0)
+        expected_count = expected_owner_counts.get(room_name, 0)
+        if actual_count != expected_count:
+            raise RuntimeError(
+                f"owner roomの表札数がmanifestと一致しません: "
+                f"{room_name}={actual_count}/{expected_count}"
+            )
+
+    for floor in (1, 2, 3, 4):
+        toilet_signs = Counter(
+            item.sign_id
+            for item in SIGN_PLACEMENTS
+            if item.owner_room == f"F{floor:02d}_Toilets"
+        )
+        if toilet_signs != Counter(
+            {"pictogram-male": 1, "pictogram-female": 1}
+        ):
+            raise RuntimeError(
+                f"F{floor:02d}男女トイレのpictogram表札が各1件ではありません: "
+                f"{toilet_signs}"
+            )
+    roof_changing_signs = Counter(
+        item.sign_id
+        for item in SIGN_PLACEMENTS
+        if item.owner_room == "RoofChanging"
+    )
+    if roof_changing_signs != Counter(
+        {"pictogram-male": 1, "pictogram-female": 1}
+    ):
+        raise RuntimeError(
+            "男女更衣室のpictogram表札が各1件ではありません: "
+            f"{roof_changing_signs}"
+        )
+    if expected_owner_counts.get("GymStorage", 0) != 0:
+        raise RuntimeError("体育倉庫へmanifest表札が配置されています")
+
+    return {
+        "content_tiles": len(SIGN_TILES),
+        "placements": len(SIGN_PLACEMENTS),
+        "mesh_components": len(actual_components),
+        "owner_rooms": len(expected_owner_counts),
+        "target_rooms": len(expected_target_room_ids),
+        "room_variant_targets": len(ROOM_VARIANT_IDS),
+        "uv_tile_checks": len(matched_keys),
+        "manifest_sha256": actual_manifest_sha256,
+    }
 
 
 def room_sign_clearance_volumes() -> list[tuple[str, Vector, Vector]]:
@@ -702,6 +1000,14 @@ def room_sign_clearance_volumes() -> list[tuple[str, Vector, Vector]]:
                 Vector((-1.10, 38.30, 16.00)),
                 Vector((0.50, 38.70, 16.40)),
             ),
+            # 更衣室東端からarea-poolside西端へ達する実アクセス動線。
+            # manifestとは独立した固定Volumeとして、表札位置を同時変更しても
+            # 動線内への侵入を検知する。
+            (
+                "RooftopPoolAccessRoute",
+                Vector((2.65, 38.55, 14.55)),
+                Vector((10.25, 39.65, 16.55)),
+            ),
         )
     )
     return clearances
@@ -709,8 +1015,10 @@ def room_sign_clearance_volumes() -> list[tuple[str, Vector, Vector]]:
 
 def audit_door_sign_clearance() -> int:
     sign_components = room_sign_components()
-    if len(sign_components) != 29:
-        raise RuntimeError(f"表札が29枚ではありません: {len(sign_components)}")
+    if len(sign_components) != len(SIGN_PLACEMENTS):
+        raise RuntimeError(
+            f"表札が35枚ではありません: {len(sign_components)}"
+        )
     violations = []
     clearances = room_sign_clearance_volumes()
     for label, clearance_minimum, clearance_maximum in clearances:
@@ -2397,10 +2705,10 @@ def audit_music_room_orientation() -> dict[str, int]:
             for axis in range(3)
         )
     ]
-    if len(piano_visual_components) != 9:
+    if len(piano_visual_components) != 34:
         raise RuntimeError(
-            "音楽室ピアノの表示9部品をCollider内で特定できません: "
-            f"{len(piano_visual_components)}/9"
+            "音楽室ピアノの表示34部品をCollider内で特定できません: "
+            f"{len(piano_visual_components)}/34"
         )
     piano_visual_union = component_union_bounds(piano_visual_components)
     if not bounds_match(piano_visual_union, piano_collider_bounds):
@@ -2414,15 +2722,52 @@ def audit_music_room_orientation() -> dict[str, int]:
         piano_visual_components,
     )
 
-    keyboard_bounds = transformed_box_bounds(
+    keybed_bounds = transformed_box_bounds(
         (piano_x, piano_y, 10.8),
-        (-0.22, -0.605, 0.73),
-        (1.05, 0.24, 0.035),
+        (-0.1775, -0.585, 0.68),
+        (1.195, 0.28, 0.08),
         piano_rotation,
     )
-    require_component_bounds("音楽室ピアノ鍵盤", visual_components, keyboard_bounds)
-    if keyboard_bounds[1][1] >= piano_y:
+    require_component_bounds("音楽室ピアノ鍵盤台", visual_components, keybed_bounds)
+    if keybed_bounds[1][1] >= piano_y:
         raise RuntimeError("音楽室ピアノの鍵盤が南側を向いていません")
+    white_key_count = 14
+    keyboard_min_x = -0.735
+    keyboard_width = 1.06
+    white_key_pitch = keyboard_width / white_key_count
+    for index in range(white_key_count):
+        expected_white_key = transformed_box_bounds(
+            (piano_x, piano_y, 10.8),
+            (
+                keyboard_min_x + (index + 0.5) * white_key_pitch,
+                -0.585,
+                0.735,
+            ),
+            (white_key_pitch - 0.004, 0.23, 0.03),
+            piano_rotation,
+        )
+        require_component_bounds(
+            f"音楽室ピアノ白鍵{index + 1:02d}",
+            visual_components,
+            expected_white_key,
+        )
+    black_key_boundaries = (1, 2, 4, 5, 6, 8, 9, 11, 12, 13)
+    for key_number, boundary_index in enumerate(black_key_boundaries, start=1):
+        expected_black_key = transformed_box_bounds(
+            (piano_x, piano_y, 10.8),
+            (
+                keyboard_min_x + boundary_index * white_key_pitch,
+                -0.535,
+                0.77,
+            ),
+            (0.035, 0.13, 0.04),
+            piano_rotation,
+        )
+        require_component_bounds(
+            f"音楽室ピアノ黒鍵{key_number:02d}",
+            visual_components,
+            expected_black_key,
+        )
 
     blackboard_bounds = (
         (41.26, 39.2, 11.92),
@@ -2495,7 +2840,9 @@ def audit_music_room_orientation() -> dict[str, int]:
 
     return {
         "piano_collider": 1,
-        "piano_keyboard": 1,
+        "piano_components": len(piano_visual_components),
+        "piano_white_keys": white_key_count,
+        "piano_black_keys": len(black_key_boundaries),
         "piano_visual_containment": piano_visual_containment,
         "chair_backs": chair_back_checks,
         "blackboard_clearance_mm": round(blackboard_gap * 1000),
@@ -2527,8 +2874,6 @@ def audit_toilet_front_structures() -> dict[str, int]:
         or tuple(TOILET_COMMON_OPENING) != (-6.6, 5.4)
     ):
         raise RuntimeError("トイレ正面・共用前室の確定寸法が変化しています")
-    if tuple(TOILET_SIGN_PLACEMENTS) != expected_sign_placements:
-        raise RuntimeError("トイレ表札の確定座標が変化しています")
     expected_front_components = (
         len(TOILET_FRONT_WALL_SPANS) + len(TOILET_FRONT_DOOR_OPENINGS)
     )
@@ -2548,6 +2893,25 @@ def audit_toilet_front_structures() -> dict[str, int]:
     sign_support_checks = 0
 
     for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
+        toilet_sign_placements = tuple(
+            item
+            for item in SIGN_PLACEMENTS
+            if item.owner_room == f"F{floor:02d}_Toilets"
+        )
+        if tuple(
+            (item.position[0], item.position[1], item.rotation_z)
+            for item in toilet_sign_placements
+        ) != expected_sign_placements:
+            raise RuntimeError(
+                f"F{floor:02d}トイレ表札の確定座標が変化しています"
+            )
+        if any(
+            abs(item.position[2] - (base_z + 1.7)) > 1.0e-7
+            for item in toilet_sign_placements
+        ):
+            raise RuntimeError(
+                f"F{floor:02d}トイレ表札の確定高さが変化しています"
+            )
         visual = bpy.data.objects[
             f"VIS_B03_Interior_F{floor:02d}_Toilets_Architecture"
         ]
@@ -2689,12 +3053,12 @@ def audit_toilet_front_structures() -> dict[str, int]:
             f"VIS_B03_Interior_F{floor:02d}_Toilets_SignsPaper"
         ]
         sign_components = connected_component_aabbs(signs)
-        for x, y, rotation in TOILET_SIGN_PLACEMENTS:
+        for placement in toilet_sign_placements:
             expected_sign = transformed_box_bounds(
-                (x, y, base_z),
-                (0.0, 0.0, 1.7),
-                (0.45, 0.04, 0.18),
-                rotation,
+                placement.position,
+                (0.0, 0.0, 0.0),
+                SIGN_SIZE,
+                placement.rotation_z,
             )
             require_component_bounds(
                 "トイレ正面壁表札",
@@ -3970,12 +4334,60 @@ def audit_elevator_lobby_opening() -> dict[str, int]:
     }
 
 
+def audit_b06_signage_atlas_assets() -> dict[str, object]:
+    definition = ATLAS_DEFINITIONS["SignsPaper"]
+    if (
+        tuple(definition["dimensions"]) != SIGNAGE_ATLAS_DIMENSIONS
+        or tuple(definition["grid"]) != SIGNAGE_ATLAS_GRID
+    ):
+        raise RuntimeError("SignsPaper Atlas定義が2048x1024・8x8ではありません")
+
+    results: dict[str, object] = {}
+    for label, path in (
+        ("authoring", SIGNAGE_ATLAS_AUTHORING_PATH),
+        ("public", SIGNAGE_ATLAS_PUBLIC_PATH),
+    ):
+        if not path.is_file():
+            raise RuntimeError(f"SignsPaper Atlasがありません: {path}")
+        actual_bytes = path.stat().st_size
+        actual_sha256 = sha256(path)
+        dimensions = png_dimensions(path)
+        if actual_bytes != EXPECTED_ATLAS_BYTES:
+            raise RuntimeError(
+                f"SignsPaper Atlas bytesが固定値と一致しません: "
+                f"{path}={actual_bytes}/{EXPECTED_ATLAS_BYTES}"
+            )
+        if actual_sha256 != EXPECTED_ATLAS_SHA256.upper():
+            raise RuntimeError(
+                f"SignsPaper Atlas SHA-256が固定値と一致しません: "
+                f"{path}={actual_sha256}/{EXPECTED_ATLAS_SHA256.upper()}"
+            )
+        if dimensions != SIGNAGE_ATLAS_DIMENSIONS:
+            raise RuntimeError(
+                f"SignsPaper Atlas寸法が2048x1024ではありません: "
+                f"{path}={dimensions}"
+            )
+        results[label] = {
+            "bytes": actual_bytes,
+            "sha256": actual_sha256,
+            "dimensions": dimensions,
+            "grid": SIGNAGE_ATLAS_GRID,
+        }
+    if (
+        SIGNAGE_ATLAS_AUTHORING_PATH.read_bytes()
+        != SIGNAGE_ATLAS_PUBLIC_PATH.read_bytes()
+    ):
+        raise RuntimeError("authoring/public SignsPaper Atlasのbytesが一致しません")
+    return results
+
+
 def main() -> None:
     if Path(bpy.data.filepath).resolve() != BLEND_PATH.resolve():
         raise RuntimeError(f"B03-2対象外のBlenderファイルです: {bpy.data.filepath}")
     if len(ADDITIONAL_PROP_TYPES) != 24 or len(set(ADDITIONAL_PROP_TYPES)) != 24:
         raise RuntimeError("追加小物カタログが24種ではありません")
 
+    signage_atlas_assets = audit_b06_signage_atlas_assets()
     atlas_results = {}
     for definition in ATLAS_DEFINITIONS.values():
         path = TEXTURE_DIRECTORY / str(definition["file"])
@@ -4052,6 +4464,7 @@ def main() -> None:
     if generation.get("classrooms") != 9:
         raise RuntimeError("普通教室が9室ではありません")
     room_counts = generation["room_counts"]
+    signage_manifest = audit_b06_signage_manifest(generation, room_counts)
     classroom_metrics = generation["classroom_metrics"]
     for room_name, metrics in classroom_metrics.items():
         classroom_counts = room_counts[room_name]
@@ -4226,8 +4639,17 @@ def main() -> None:
             "StageLectern": 1,
             "LifePreserverSign": 0,
         },
-        "GymStorage": {"VaultingBox": 2, "CleaningLocker": 1},
-        "RoofChanging": {"BaggageLocker": 4, "ChangingBench": 4, "Mirror": 0},
+        "GymStorage": {
+            "VaultingBox": 2,
+            "CleaningLocker": 1,
+            "RoomSign": 0,
+        },
+        "RoofChanging": {
+            "BaggageLocker": 4,
+            "ChangingBench": 4,
+            "Mirror": 0,
+            "RoomSign": 2,
+        },
         "RoofPoolSafety": {"LifePreserverRing": 2, "LifePreserverSign": 0},
     }
     for room_name, expected_counts in expected_room_counts.items():
@@ -4499,6 +4921,8 @@ def main() -> None:
     result = {
         "additional_prop_types": len(ADDITIONAL_PROP_TYPES),
         "atlases": atlas_results,
+        "signage_atlas_assets": signage_atlas_assets,
+        "signage_manifest": signage_manifest,
         "school_rooms": generation["rooms"],
         "classrooms": generation["classrooms"],
         "interior_visual_objects": len(interior_visuals),

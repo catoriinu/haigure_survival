@@ -42,11 +42,11 @@
 Node.js 18以上とnpmを用意し、リポジトリ直下で次を実行します。
 
 ```powershell
-npm install
+npm ci
 npm run dev:web
 ```
 
-ブラウザで `http://127.0.0.1:5175/` を開き、読込完了後に画面を左クリックして開始します。
+ブラウザで `http://127.0.0.1:5175/` を開き、読込完了後に画面を左クリックして開始します。`file://`によるHTMLの直接起動は対応対象外です。
 
 - `W` / `A` / `S` / `D`: 移動
 - `Shift`: ダッシュ
@@ -54,6 +54,13 @@ npm run dev:web
 - `Esc`: マウス操作を解放
 
 ローカルPC内だけで確認する場合、WindowsファイアウォールでNode.jsのパブリック／プライベートネットワーク受信を許可する必要はありません。サーバー終了時は起動したターミナルで `Ctrl+C` を押します。
+
+## Web配布
+
+- itch.ioのブラウザ版は`npm run build:renderer`で作成した`dist/`のみをアップロードします。
+- GitHubから取得する版はソース一式を保持し、`npm ci`後に`npm run dev:web`でローカルHTTPサーバーから起動します。
+- 表札のNoto Sans JP subsetはGitHubソース版に生成用資産として含みます。production `dist/`にTTFは含めず、生成済みAtlas、文字Mesh入りGLB、OFL 1.1と第三者ライセンス表示を含めます。
+- Electronパッケージはこの配布手順の対象外です。
 
 ## 検証
 

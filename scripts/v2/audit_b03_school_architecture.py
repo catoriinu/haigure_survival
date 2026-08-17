@@ -45,6 +45,21 @@ from build_b03_school_interiors import (
     swatch_uv,
 )
 from build_b03_school_interactive_assets import ROOM_VARIANT_SPECS
+from build_b03_school_architecture import (
+    GENERATOR_SIGNATURE_PROPERTY,
+    generation_signature,
+)
+from build_school_prop_library import (
+    B06_PROP_SIGNATURE_PROPERTY,
+    B06_PROP_VERSION_PROPERTY,
+    LIBRARY_COLLECTION_NAME,
+    prop_library_signature,
+)
+from b06_signage_manifest import (
+    ADJUSTMENT_TEXT,
+    EXPECTED_FONT_SHA256,
+    SIGNAGE_FONT_RELATIVE_PATH,
+)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -68,8 +83,9 @@ EXPECTED_NAVMESH_SHA256 = (
 EXPECTED_BIT_NAVMESH_SHA256 = (
     "4B3BBD249E00C515DAD333EF29157E5128FC5CF7286CC26655D096E34BE5B499"
 )
-EXPECTED_PROP_LIBRARY_SHA256 = (
-    "F1163A1E2B1291AED2B81A10102BCBD7F74F0F7C018BA210389E4797B92B42BD"
+EXPECTED_PROP_LIBRARY_VERSION = "b06-3-school-props-signage-v1"
+EXPECTED_PROP_LIBRARY_SIGNATURE = (
+    "1D153B5DE379BC1E724BDBDE99AA5D6653C7393238B9CE5CC8B9B8D32C8F698E"
 )
 EXPECTED_PACKED_ATLAS_PATHS = {
     image_name: REPOSITORY_ROOT / "assets/textures/v2/B03" / image_name
@@ -88,7 +104,7 @@ EXPECTED_CONSOLIDATED_MATERIAL_NAMES = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "b06-1-school-structure-polish-v38"
+EXPECTED_GENERATOR_VERSION = "b06-3-school-props-signage-v1"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 EXPECTED_SCHEMA_VERSION = 3
 EXPECTED_STAGE_ID = "school"
@@ -7110,6 +7126,32 @@ def audit_b03_3b_structure(
         "2階・3階エレベーターの「調整中」表示が実Meshではありません",
     )
     require(
+        bpy.context.scene.get("b06_3_adjustment_text") == ADJUSTMENT_TEXT,
+        "調整中Meshの文字契約が不正です",
+    )
+    require(
+        bpy.context.scene.get("b06_3_signage_font_source")
+        == SIGNAGE_FONT_RELATIVE_PATH,
+        "調整中Meshのフォント取得元がリポジトリ相対パスではありません",
+    )
+    require(
+        bpy.context.scene.get("b06_3_signage_font_sha256")
+        == EXPECTED_FONT_SHA256,
+        "調整中Meshのsubset font SHA-256が不正です",
+    )
+    forbidden_font_path_markers = (
+        b"meiryob.ttc",
+        b"WINDIR",
+        b"C:\\Windows\\Fonts",
+        b"C:/Windows/Fonts",
+    )
+    for artifact_path in (BLEND_PATH, GLB_PATH):
+        artifact_bytes = artifact_path.read_bytes()
+        require(
+            not any(marker in artifact_bytes for marker in forbidden_font_path_markers),
+            f"Windowsフォント絶対パスが生成物に残っています: {artifact_path}",
+        )
+    require(
         "COL_B03_ElevatorShaftSafety" not in object_by_name,
         "動的エレベーター扉と競合する旧昇降路Safety Colliderが残っています",
     )
@@ -7457,9 +7499,15 @@ def audit_semantics(objects: list[bpy.types.Object]) -> None:
         if obj.name.startswith("VIS_B03_Prop_Urinal_") and "_Part" in obj.name
     ]
     require(len(toilets) == 6, f"便器が男女各3基ではありません: {len(toilets)}")
-    require(len(toilet_parts) == 6, f"便器金物partが6件ではありません: {len(toilet_parts)}")
+    require(
+        len(toilet_parts) == 12,
+        f"便器の開口・便座partが12件ではありません: {len(toilet_parts)}",
+    )
     require(len(urinals) == 3, f"男子小便器が3基ではありません: {len(urinals)}")
-    require(len(urinal_parts) == 3, f"男子小便器金物partが3件ではありません: {len(urinal_parts)}")
+    require(
+        len(urinal_parts) == 6,
+        f"男子小便器の内側受け面・排水partが6件ではありません: {len(urinal_parts)}",
+    )
     for urinal, expected_y in zip(urinals, (39.6, 40.6, 41.6), strict=True):
         minimum, maximum = world_bounds(urinal)
         require(
@@ -8608,12 +8656,64 @@ def audit_glb_optimization() -> dict[str, int]:
     }
 
 
+def audit_prop_library_contract() -> dict[str, str]:
+    require(
+        bpy.data.collections.get(LIBRARY_COLLECTION_NAME) is None,
+        f"学校正本へ小物Library Collectionが残っています: {LIBRARY_COLLECTION_NAME}",
+    )
+    with bpy.data.libraries.load(str(PROP_LIBRARY_PATH), link=False) as (
+        data_from,
+        data_to,
+    ):
+        require(
+            LIBRARY_COLLECTION_NAME in data_from.collections,
+            f"B03-P Library Collectionがありません: {LIBRARY_COLLECTION_NAME}",
+        )
+        require(
+            list(data_from.scenes) == ["Scene"],
+            f"B03-P Scene一覧が不正です: {list(data_from.scenes)}",
+        )
+        data_to.collections = [LIBRARY_COLLECTION_NAME]
+        data_to.scenes = list(data_from.scenes)
+
+    loaded_collection = data_to.collections[0]
+    loaded_scene = data_to.scenes[0]
+    require(
+        loaded_collection is not None
+        and loaded_collection.name == LIBRARY_COLLECTION_NAME,
+        "B03-P Library Collectionを読込めませんでした",
+    )
+    require(loaded_scene is not None, "B03-P Sceneを読込めませんでした")
+    stored_version = loaded_scene.get(B06_PROP_VERSION_PROPERTY)
+    stored_signature = loaded_scene.get(B06_PROP_SIGNATURE_PROPERTY)
+    actual_signature = prop_library_signature()
+    require(
+        stored_version == EXPECTED_PROP_LIBRARY_VERSION,
+        "B03-P生成版が不一致です: "
+        f"{stored_version}/{EXPECTED_PROP_LIBRARY_VERSION}",
+    )
+    require(
+        stored_signature == EXPECTED_PROP_LIBRARY_SIGNATURE,
+        "B03-P保存監査署名が不一致です: "
+        f"{stored_signature}/{EXPECTED_PROP_LIBRARY_SIGNATURE}",
+    )
+    require(
+        actual_signature == EXPECTED_PROP_LIBRARY_SIGNATURE,
+        "B03-P形状監査署名が不一致です: "
+        f"{actual_signature}/{EXPECTED_PROP_LIBRARY_SIGNATURE}",
+    )
+    return {
+        "version": EXPECTED_PROP_LIBRARY_VERSION,
+        "signature": actual_signature,
+    }
+
+
 def main() -> None:
     require(Path(bpy.data.filepath).resolve() == BLEND_PATH.resolve(), "監査対象.blendが不正です")
     require(
         bpy.context.scene.get("b03_architecture_generator_version")
         == EXPECTED_GENERATOR_VERSION,
-        "建築生成版がB06-1学校構造仕上げ版ではありません",
+        "建築生成版がB06-3小物・表札版ではありません",
     )
     require(
         bpy.context.scene.get("t04_2b_nav_connectivity_version")
@@ -8626,7 +8726,15 @@ def main() -> None:
         sha256(BIT_NAVMESH_PATH) == EXPECTED_BIT_NAVMESH_SHA256,
         "BIT飛行NavMesh SHA-256が変化しています",
     )
-    require(sha256(PROP_LIBRARY_PATH) == EXPECTED_PROP_LIBRARY_SHA256, "B03-PライブラリSHA-256が変化しています")
+    actual_architecture_signature = generation_signature()
+    stored_architecture_signature = bpy.context.scene.get(
+        GENERATOR_SIGNATURE_PROPERTY
+    )
+    require(
+        stored_architecture_signature == actual_architecture_signature,
+        "学校正本の保存済み生成署名と実Scene署名が一致しません: "
+        f"{stored_architecture_signature}/{actual_architecture_signature}",
+    )
     export_collection = bpy.data.collections.get("EXP_Stage_school")
     require(export_collection is not None, "EXP_Stage_schoolがありません")
     require(bpy.data.collections.get("B02_GUIDES") is None, "最終.blendにB02_GUIDESが残っています")
@@ -8634,6 +8742,7 @@ def main() -> None:
     require(not bpy.data.cameras, "最終.blendにCamera datablockが残っています")
     require(not bpy.data.lights, "最終.blendにLight datablockが残っています")
     require(not bpy.data.curves, "最終.blendにText/Curve datablockが残っています")
+    require(not bpy.data.fonts, "最終.blendにFont datablockが残っています")
     orphan_datablocks = [
         datablock.name
         for datablocks in (
@@ -8667,10 +8776,10 @@ def main() -> None:
     prefixes = Counter(name.split("_", 1)[0] for name in names)
     result = {
         "blend_sha256": sha256(BLEND_PATH),
+        "architecture_generation_signature": actual_architecture_signature,
         "glb_sha256": sha256(GLB_PATH),
         "navmesh_sha256": sha256(NAVMESH_PATH),
         "bit_navmesh_sha256": sha256(BIT_NAVMESH_PATH),
-        "prop_library_sha256": sha256(PROP_LIBRARY_PATH),
         "blender_objects": len(bpy.data.objects),
         "blender_meshes": len(bpy.data.meshes),
         "blender_materials": len(bpy.data.materials),
@@ -8690,6 +8799,7 @@ def main() -> None:
         "glb": glb_counts,
         "glb_optimization": glb_optimization,
     }
+    result["prop_library"] = audit_prop_library_contract()
     print("B03_AUDIT_RESULT=" + json.dumps(result, ensure_ascii=False, sort_keys=True))
 
 

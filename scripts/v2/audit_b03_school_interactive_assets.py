@@ -14,7 +14,17 @@ import bpy
 from mathutils import Matrix, Quaternion, Vector
 
 
+SCRIPT_DIRECTORY = Path(__file__).resolve().parent
+if str(SCRIPT_DIRECTORY) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIRECTORY))
 sys.dont_write_bytecode = True
+
+from b06_signage_manifest import (
+    ATLAS_GRID as SIGNAGE_ATLAS_GRID,
+    SIGN_PLACEMENTS,
+    SIGN_SIZE,
+    tile_by_id,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 BLEND_PATH = (
@@ -24,7 +34,7 @@ GLB_PATH = (
     REPOSITORY_ROOT / "public/stage-assets/v2/B02/b02_school_blockout.glb"
 )
 EXPORT_COLLECTION_NAME = "EXP_Stage_school"
-EXPECTED_GENERATOR_VERSION = "b06-1-school-structure-polish-v38"
+EXPECTED_GENERATOR_VERSION = "b06-3-school-props-signage-v1"
 EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
 
 GLB_MAGIC = b"glTF"
@@ -2831,6 +2841,87 @@ def mesh_component_world_bounds(
     ]
 
 
+def sign_box_world_bounds(
+    position: tuple[float, float, float],
+    rotation_z: float,
+) -> tuple[Vector, Vector]:
+    half_size = Vector(tuple(value / 2.0 for value in SIGN_SIZE))
+    local_bounds = (-half_size, half_size)
+    transform = Matrix.Translation(Vector(position)) @ Matrix.Rotation(
+        rotation_z,
+        4,
+        "Z",
+    )
+    return transformed_bounds(local_bounds, transform)
+
+
+def require_sign_box_tile(
+    obj: bpy.types.Object,
+    expected_bounds: tuple[Vector, Vector],
+    expected_tile: int,
+) -> None:
+    require(obj.type == "MESH", f"{obj.name}: SignsPaperがMeshではありません")
+    require(
+        len(obj.data.vertices) % 8 == 0
+        and len(obj.data.polygons) == len(obj.data.vertices) // 8 * 6,
+        f"{obj.name}: SignsPaperが箱集合Meshではありません",
+    )
+    matching_offsets = []
+    for offset in range(0, len(obj.data.vertices), 8):
+        bounds = bounds_from_points(
+            [
+                obj.matrix_world @ obj.data.vertices[index].co
+                for index in range(offset, offset + 8)
+            ]
+        )
+        if bounds_close(bounds, expected_bounds):
+            matching_offsets.append(offset)
+    require(
+        len(matching_offsets) == 1,
+        f"{obj.name}: 保健室北側表札boxが1件ではありません: "
+        f"{len(matching_offsets)}",
+    )
+
+    uv_layer = obj.data.uv_layers.get("UVMap")
+    require(uv_layer is not None, f"{obj.name}: SignsPaperにUVMapがありません")
+    offset = matching_offsets[0]
+    vertex_indices = set(range(offset, offset + 8))
+    component_polygons = [
+        polygon
+        for polygon in obj.data.polygons
+        if all(index in vertex_indices for index in polygon.vertices)
+    ]
+    require(
+        len(component_polygons) == 6,
+        f"{obj.name}: 保健室北側表札boxが6面ではありません",
+    )
+    columns, rows = SIGNAGE_ATLAS_GRID
+    actual_tiles: set[int] = set()
+    for polygon in component_polygons:
+        coordinates = [
+            uv_layer.data[loop_index].uv
+            for loop_index in polygon.loop_indices
+        ]
+        center_u = sum(coordinate.x for coordinate in coordinates) / len(
+            coordinates
+        )
+        center_v = sum(coordinate.y for coordinate in coordinates) / len(
+            coordinates
+        )
+        column = math.floor(center_u * columns)
+        row = math.floor((1.0 - center_v) * rows)
+        require(
+            0 <= column < columns and 0 <= row < rows,
+            f"{obj.name}: 保健室北側表札UVがAtlas範囲外です",
+        )
+        actual_tiles.add(row * columns + column)
+    require(
+        actual_tiles == {expected_tile},
+        f"{obj.name}: 保健室北側表札UV tileが不正です: "
+        f"actual={sorted(actual_tiles)}, expected={expected_tile}",
+    )
+
+
 def require_component_bounds_set(
     label: str,
     actual: list[tuple[Vector, Vector]],
@@ -2879,6 +2970,7 @@ def audit_blender_geometry() -> dict[str, int]:
     threshold_profile_checks = 0
     elevator_visible_panel_surface_checks = 0
     toilet_knob_component_checks = 0
+    room_variant_signage_checks = 0
 
     expected_knob_component_bounds = (
         (
@@ -3306,6 +3398,33 @@ def audit_blender_geometry() -> dict[str, int]:
         f"VIS={changed_visual_rooms}, COL={changed_collider_rooms}",
     )
 
+    infirmary_north_signs = tuple(
+        placement
+        for placement in SIGN_PLACEMENTS
+        if placement.placement_id == "f01-infirmary-north"
+        and placement.owner_room == "F01_Infirmary"
+    )
+    require(
+        len(infirmary_north_signs) == 1,
+        "保健室北側表札のmanifest placementが1件ではありません",
+    )
+    infirmary_north_sign = infirmary_north_signs[0]
+    expected_sign_bounds = sign_box_world_bounds(
+        infirmary_north_sign.position,
+        infirmary_north_sign.rotation_z,
+    )
+    expected_sign_tile = tile_by_id()[infirmary_north_sign.sign_id].tile
+    for signs_object_name in (
+        "VIS_B03_Interior_F01_Infirmary_SignsPaper",
+        "VIS_RoomVariant_F01_Infirmary_Disordered_SignsPaper",
+    ):
+        require_sign_box_tile(
+            bpy.data.objects[signs_object_name],
+            expected_sign_bounds,
+            expected_sign_tile,
+        )
+        room_variant_signage_checks += 1
+
     sign_component_bounds: list[tuple[Vector, Vector]] = []
     for obj in bpy.data.objects:
         if obj.type != "MESH" or not obj.name.endswith("_SignsPaper"):
@@ -3384,6 +3503,7 @@ def audit_blender_geometry() -> dict[str, int]:
         "threshold_profile_checks": threshold_profile_checks,
         "elevator_visible_panel_surface_checks": elevator_visible_panel_surface_checks,
         "toilet_knob_component_checks": toilet_knob_component_checks,
+        "room_variant_signage_checks": room_variant_signage_checks,
     }
 
 
@@ -3678,7 +3798,7 @@ def main() -> None:
     require(
         bpy.context.scene.get("b03_architecture_generator_version")
         == EXPECTED_GENERATOR_VERSION,
-        "Blender正本の生成版がB06-1学校構造仕上げ版ではありません",
+        "Blender正本の生成版がB06-3小物・表札版ではありません",
     )
     raw_generation_result = bpy.context.scene.get("b03_3c_interactive_result")
     require(

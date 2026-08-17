@@ -54,7 +54,7 @@ T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 T05_GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 T05_GENERATOR_VERSION = "b03-3c-interactive-assets-v10"
 T06_GENERATOR_VERSION = "t06-2-npc-spawn-bias-v2"
-B06_GENERATOR_VERSION = "b06-1-school-structure-polish-v38"
+B06_GENERATOR_VERSION = "b06-3-school-props-signage-v1"
 T04_ALLOWED_MISSING_EXACT_NAMES = {
     "COL_B03_Prop_Locker_Changing_F_01",
     "COL_B03_Prop_Locker_Changing_F_02",

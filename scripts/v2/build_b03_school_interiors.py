@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import re
 import struct
@@ -10,12 +12,30 @@ from pathlib import Path
 import bpy
 from mathutils import Matrix, Vector
 
+from b06_signage_manifest import (
+    ATLAS_DIMENSIONS as SIGNAGE_ATLAS_DIMENSIONS,
+    ATLAS_GRID as SIGNAGE_ATLAS_GRID,
+    EXPECTED_ATLAS_BYTES,
+    EXPECTED_ATLAS_SHA256,
+    EXPECTED_MANIFEST_SHA256,
+    SIGN_PLACEMENTS,
+    SIGN_SIZE,
+    SIGN_TILES,
+    atlas_swatch_colors,
+    manifest_json,
+    validate_manifest,
+)
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PROP_LIBRARY_PATH = (
     REPOSITORY_ROOT / "assets/blender/v2/B03/b03_school_prop_library.blend"
 )
 TEXTURE_DIRECTORY = REPOSITORY_ROOT / "assets/textures/v2/B03"
+SIGNAGE_ATLAS_PUBLIC_PATH = (
+    REPOSITORY_ROOT
+    / "public/stage-assets/v2/B02/b03_signs_paper_atlas.png"
+)
 
 ATLAS_DEFINITIONS = {
     "Architecture": {
@@ -72,24 +92,11 @@ ATLAS_DEFINITIONS = {
         },
     },
     "SignsPaper": {
-        "dimensions": (1024, 1024),
-        "grid": (4, 4),
+        "dimensions": SIGNAGE_ATLAS_DIMENSIONS,
+        "grid": SIGNAGE_ATLAS_GRID,
         "material": "MAT_B03_Atlas_SignsPaper",
         "file": "b03_signs_paper_atlas.png",
-        "swatches": {
-            "paper": (235, 229, 205),
-            "paper_white": (242, 242, 234),
-            "book_blue": (47, 87, 131),
-            "book_red": (151, 56, 49),
-            "book_green": (52, 112, 77),
-            "screen": (42, 92, 115),
-            "sign_1": (178, 78, 55),
-            "sign_2": (194, 145, 40),
-            "sign_3": (55, 130, 91),
-            "sign_4": (55, 93, 149),
-            "safety": (228, 101, 25),
-            "clock": (235, 232, 216),
-        },
+        "swatches": atlas_swatch_colors(),
     },
 }
 
@@ -338,10 +345,6 @@ TOILET_FRONT_DOOR_OPENINGS = (
     (-0.9, 0.3),
 )
 TOILET_FRONT_DOOR_HEIGHT = 2.3
-TOILET_SIGN_PLACEMENTS = (
-    (-5.825, 38.34, math.pi),
-    (0.725, 38.34, math.pi),
-)
 ROOF_CHANGING_BAGGAGE_LOCKER_XS = (-5.4, -3.16, -0.8, 1.19)
 ROOF_CHANGING_BENCH_PLACEMENTS = (
     (-6.225, 41.5, math.pi / 2),
@@ -418,15 +421,8 @@ BULLETIN_BOARD_FURNITURE_PARTS = (
 BULLETIN_BOARD_PAPER_PARTS = (
     ((-0.50, -0.041, 1.52), (0.42, 0.012, 0.42), "paper_white"),
     ((0.00, -0.041, 1.36), (0.36, 0.012, 0.30), "paper"),
-    ((0.50, -0.041, 1.55), (0.42, 0.012, 0.38), "sign_1"),
+    ((0.50, -0.041, 1.55), (0.42, 0.012, 0.38), "notice_accent"),
 )
-WEST_CORRIDOR_SIGN_POSITIONS = {
-    1: (5.125, 14.725, 30.275),
-    2: (5.725, 15.725, 25.725),
-    3: (5.725, 15.725, 25.725),
-    4: (5.725, 15.725, 25.725),
-}
-NORTH_CORRIDOR_SIGN_X = {1: 9.0, 2: 9.0, 3: 9.0, 4: 9.0}
 
 
 def png_chunk(chunk_type: bytes, data: bytes) -> bytes:
@@ -489,18 +485,71 @@ def write_atlas_png(
     )
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def png_dimensions(path: Path) -> tuple[int, int]:
+    header = path.read_bytes()[:24]
+    if len(header) != 24 or header[:8] != b"\x89PNG\r\n\x1a\n":
+        raise RuntimeError(f"SignsPaper AtlasがPNGではありません: {path}")
+    return struct.unpack(">II", header[16:24])
+
+
+def validate_signage_atlas_assets(image_path: Path) -> None:
+    validate_manifest()
+    actual_manifest_sha256 = hashlib.sha256(
+        manifest_json().encode("utf-8")
+    ).hexdigest()
+    if actual_manifest_sha256 != EXPECTED_MANIFEST_SHA256:
+        raise RuntimeError(
+            "表札manifest SHA-256が固定値と一致しません: "
+            f"{actual_manifest_sha256}/{EXPECTED_MANIFEST_SHA256}"
+        )
+    for path in (image_path, SIGNAGE_ATLAS_PUBLIC_PATH):
+        if not path.is_file():
+            raise RuntimeError(
+                "SignsPaper Atlasを先に決定的生成してください: "
+                "scripts/v2/build_b06_signage_atlas.py"
+            )
+        actual_bytes = path.stat().st_size
+        actual_sha256 = file_sha256(path)
+        if (
+            actual_bytes != EXPECTED_ATLAS_BYTES
+            or actual_sha256 != EXPECTED_ATLAS_SHA256
+        ):
+            raise RuntimeError(
+                "SignsPaper Atlasが固定生成物と一致しません: "
+                f"{path}, bytes={actual_bytes}/{EXPECTED_ATLAS_BYTES}, "
+                f"sha256={actual_sha256}/{EXPECTED_ATLAS_SHA256}"
+            )
+        if png_dimensions(path) != SIGNAGE_ATLAS_DIMENSIONS:
+            raise RuntimeError(
+                f"SignsPaper Atlas寸法が不正です: {png_dimensions(path)}"
+            )
+    if image_path.read_bytes() != SIGNAGE_ATLAS_PUBLIC_PATH.read_bytes():
+        raise RuntimeError("authoring/public SignsPaper Atlasのbytesが一致しません")
+
+
 def build_atlases() -> dict[str, bpy.types.Material]:
     TEXTURE_DIRECTORY.mkdir(parents=True, exist_ok=True)
     materials = {}
     for atlas_name, definition in ATLAS_DEFINITIONS.items():
         image_path = TEXTURE_DIRECTORY / str(definition["file"])
-        write_atlas_png(
-            image_path,
-            tuple(definition["dimensions"]),
-            tuple(definition["grid"]),
-            list(definition["swatches"].values()),
-            checker=bool(definition.get("checker", True)),
-        )
+        if atlas_name == "SignsPaper":
+            validate_signage_atlas_assets(image_path)
+        else:
+            write_atlas_png(
+                image_path,
+                tuple(definition["dimensions"]),
+                tuple(definition["grid"]),
+                list(definition["swatches"].values()),
+                checker=bool(definition.get("checker", True)),
+            )
         image = bpy.data.images.get(image_path.name)
         if image is not None:
             bpy.data.images.remove(image)
@@ -1270,6 +1319,10 @@ def add_additional_prop(
 ) -> None:
     if prop_type not in ADDITIONAL_PROP_TYPES:
         raise RuntimeError(f"未定義の追加小物です: {prop_type}")
+    if prop_type == "RoomSign":
+        raise RuntimeError(
+            "表札はB06-3 manifestからだけ生成してください: SIGN_PLACEMENTS"
+        )
     room.counts[prop_type] = room.counts.get(prop_type, 0) + 1
     room.placements.append(
         RoomPlacement("additional", prop_type, position, rotation_z)
@@ -1337,7 +1390,6 @@ def add_additional_prop(
         "MusicStand": [((0, 0, 0.65), (0.05, 0.05, 1.1), "metal_dark"), ((0, 0, 1.18), (0.5, 0.05, 0.32), "metal_dark")],
         "AvRack": [((0, 0, 0.75), (0.7, 0.5, 1.5), "metal_dark"), ((0, -0.26, 0.9), (0.52, 0.03, 0.3), "plastic_black")],
         "InfirmaryCurtain": [((0, 0, 1.35), (2.0, 0.05, 1.8), "fabric_ivory")],
-        "RoomSign": [((0, 0, 1.7), (0.45, 0.04, 0.18), "sign_2")],
         "LifePreserverSign": [((0, 0, 1.2), (0.7, 0.12, 0.7), "safety")],
         "LifePreserverRing": [],
     }
@@ -1407,6 +1459,44 @@ def add_additional_prop(
             z + local_center[2],
         )
         room.add_collider(collider_center, size, rotation_z)
+
+
+def apply_signage_manifest(rooms: list[RoomBuilder]) -> dict[str, object]:
+    validate_manifest()
+    room_by_name = {room.name: room for room in rooms}
+    if len(room_by_name) != len(rooms):
+        raise RuntimeError("学校内装のRoomBuilder名が重複しています")
+    unknown_owners = sorted(
+        {item.owner_room for item in SIGN_PLACEMENTS} - set(room_by_name)
+    )
+    if unknown_owners:
+        raise RuntimeError(f"表札manifestのowner roomがありません: {unknown_owners}")
+    for item in SIGN_PLACEMENTS:
+        room = room_by_name[item.owner_room]
+        room.counts["RoomSign"] = room.counts.get("RoomSign", 0) + 1
+        room.placements.append(
+            RoomPlacement(
+                "sign",
+                item.sign_id,
+                item.position,
+                item.rotation_z,
+            )
+        )
+        room.signs.add_box(
+            item.position,
+            SIGN_SIZE,
+            item.sign_id,
+            item.rotation_z,
+        )
+    payload = {
+        "atlas_sha256": EXPECTED_ATLAS_SHA256,
+        "manifest_sha256": EXPECTED_MANIFEST_SHA256,
+        "content_tiles": len(SIGN_TILES),
+        "placements": len(SIGN_PLACEMENTS),
+        "manifest": json.loads(manifest_json()),
+    }
+    bpy.context.scene["b06_3_signage_manifest"] = manifest_json()
+    return payload
 
 
 def add_life_preserver_ring(
@@ -1825,10 +1915,6 @@ def build_toilet_room(
     add_additional_prop(
         room, "Mirror", (2.20, 40.4, room.base_z), -math.pi / 2
     )
-    for x, y, rotation in TOILET_SIGN_PLACEMENTS:
-        add_additional_prop(room, "RoomSign", (x, y, room.base_z), rotation)
-
-
 def build_common_area_rooms(
     sources: dict[str, bpy.types.Object],
 ) -> list[RoomBuilder]:
@@ -1842,10 +1928,6 @@ def build_common_area_rooms(
                 (-3.15, y, base_z),
                 math.pi / 2,
             )
-        for y in WEST_CORRIDOR_SIGN_POSITIONS[floor]:
-            add_additional_prop(
-                corridor, "RoomSign", (-3.34, y, base_z), math.pi / 2
-            )
         add_additional_prop(
             corridor, "BulletinBoard", (30.0, 36.34, base_z), 0.0
         )
@@ -1853,19 +1935,12 @@ def build_common_area_rooms(
         add_additional_prop(
             corridor, "FireExtinguisher", (41.15, 36.75, base_z), 0.0
         )
-        add_additional_prop(
-            corridor,
-            "RoomSign",
-            (NORTH_CORRIDOR_SIGN_X[floor], 36.34, base_z),
-            0.0,
-        )
         corridor.add_prop(sources, "CleaningLocker", *CORRIDOR_CLEANING_LOCKER)
         rooms.append(corridor)
 
     main_entry = RoomBuilder.create("F01_MainEntry", 0.0)
     for x, y, rotation in MAIN_ENTRY_BAGGAGE_LOCKERS:
         main_entry.add_prop(sources, "BaggageLocker", x, y, rotation)
-    add_additional_prop(main_entry, "RoomSign", (-1.625, -6.96, 0.0))
     rooms.append(main_entry)
 
     north_entry = RoomBuilder.create("F01_NorthEntry", 0.0)
@@ -1886,7 +1961,6 @@ def build_common_area_rooms(
         (umbrella_x, umbrella_y, 0.0),
         umbrella_rotation,
     )
-    add_additional_prop(north_entry, "RoomSign", (5.825, 45.48, 0.0))
     rooms.append(north_entry)
 
     gym_storage = RoomBuilder.create("GymStorage", 0.0)
@@ -1898,14 +1972,17 @@ def build_common_area_rooms(
     roof_pool = RoomBuilder.create("RoofPoolSafety", 14.5)
     for x, y, z, rotation in ROOF_POOL_LIFE_PRESERVER_PLACEMENTS:
         add_life_preserver_ring(roof_pool, (x, y, z), rotation)
-    add_additional_prop(roof_pool, "RoomSign", (2.42, 39.1, 14.5), math.pi / 2)
     rooms.append(roof_pool)
     return rooms
 
 
 def build_school_rooms(
     sources: dict[str, bpy.types.Object],
-) -> tuple[list[RoomBuilder], dict[str, dict[str, float | int | str]]]:
+) -> tuple[
+    list[RoomBuilder],
+    dict[str, dict[str, float | int | str]],
+    dict[str, object],
+]:
     rooms: list[RoomBuilder] = []
     classroom_metrics: dict[str, dict[str, float | int | str]] = {}
     for floor, base_z in ((2, 3.6), (3, 7.2), (4, 10.8)):
@@ -1967,7 +2044,6 @@ def build_school_rooms(
         infirmary.add_prop(sources, "ClassroomDesk", x, y, rotation)
     for x, y, rotation in INFIRMARY_JOINED_CHAIRS:
         infirmary.add_prop(sources, "ClassroomChair", x, y, rotation)
-    add_additional_prop(infirmary, "RoomSign", (-3.34, 10.275, 0.0), math.pi / 2)
     rooms.append(infirmary)
 
     library = RoomBuilder.create("F01_Library", 0.0)
@@ -2225,7 +2301,6 @@ def build_school_rooms(
         add_additional_prop(
             changing, "ChangingBench", (x, y, 14.5), rotation
         )
-    add_additional_prop(changing, "RoomSign", (-3.775, 38.48, 14.5))
     rooms.append(changing)
 
     for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8)):
@@ -2238,7 +2313,8 @@ def build_school_rooms(
         rooms.append(toilets)
 
     rooms.extend(build_common_area_rooms(sources))
-    return rooms, classroom_metrics
+    signage_result = apply_signage_manifest(rooms)
+    return rooms, classroom_metrics, signage_result
 
 
 def remove_imported_sources(sources: dict[str, bpy.types.Object]) -> None:
@@ -2266,7 +2342,7 @@ def build_school_interiors(
         "WesternToilet", "Urinal",
     }
     sources = import_prop_sources(source_types)
-    rooms, classroom_metrics = build_school_rooms(sources)
+    rooms, classroom_metrics, signage_result = build_school_rooms(sources)
     all_colliders = []
     visual_objects = 0
     for room in rooms:
@@ -2339,6 +2415,7 @@ def build_school_interiors(
         },
         "classrooms": len(classroom_metrics),
         "variant_rooms": len(room_variant_names),
+        "signage": signage_result,
         "classroom_metrics": classroom_metrics,
         "classroom_front": "north",
         "north_wing_classroom_front": "east",

@@ -1,6 +1,6 @@
 # B03-P 学校小物ライブラリ カタログ
 
-更新日: 2026-08-02
+更新日: 2026-08-17
 
 ## 位置付け
 
@@ -27,12 +27,12 @@
 | `VIS_Prop_StaffChair` | 職員室 | 0.60×0.60×0.95 | 床置き | 可 | なし | 228 | Fabric、MetalDark、PlasticBlack |
 | `VIS_Prop_Blackboard` | 教室、特別室 | 3.60×0.08×1.20 | 壁付け | 可 | なし | 72 | Blackboard、MetalGray |
 | `VIS_Prop_StageLectern` | 体育館舞台 | 0.80×0.554×1.099 | 床置き | 不可 | `COL_Prop_StageLectern` | 60 | Wood |
-| `VIS_Prop_Urinal` | 男子トイレ | 0.40×0.35×0.65 | 壁付け | 可 | なし | 172 | Porcelain、MetalGray |
-| `VIS_Prop_WesternToilet` | トイレ個室 | 0.40×0.70×0.75 | 床置き | 可 | なし | 168 | Porcelain、PlasticBlack |
+| `VIS_Prop_Urinal` | 男子トイレ | 0.40×0.35×0.65 | 壁付け | 可 | なし | 180 | Porcelain、MetalGray |
+| `VIS_Prop_WesternToilet` | トイレ個室 | 0.40×0.70×0.75 | 床置き | 可 | なし | 282 | Porcelain、PlasticBlack |
 | `VIS_Prop_LargeWoodTable` | 理科室、図書室ほか | 1.80×0.90×0.72 | 床置き | 不可 | `COL_Prop_LargeWoodTable` | 60 | Wood、MetalGray |
 | `VIS_Prop_CleaningLocker` | 各教室、廊下 | 0.90×0.45×1.80 | 床置き | 不可 | `COL_Prop_CleaningLocker` | 30 | MetalGray、MetalDark |
 | `VIS_Prop_BaggageLocker` | 各教室 | 1.80×0.45×1.20 | 床置き | 不可 | `COL_Prop_BaggageLocker` | 120 | Wood |
-| `VIS_Prop_GrandPiano` | 音楽室 | 1.55×1.45×1.00 | 床置き | 不可 | `COL_Prop_GrandPiano` | 116 | PlasticBlack、Paper、MetalDark、AccentOrange |
+| `VIS_Prop_GrandPiano` | 音楽室 | 1.55×1.45×1.00 | 床置き | 不可 | `COL_Prop_GrandPiano` | 414 | PlasticBlack、Paper、MetalDark、AccentOrange |
 | `VIS_Prop_InfirmaryBed` | 保健室 | 2.00×0.90×0.55 | 床置き | 不可 | `COL_Prop_InfirmaryBed` | 72 | Fabric、MetalGray、Paper |
 | `VIS_Prop_PcMonitor` | PC室、職員室 | 0.55×0.18×0.45 | 底面中央 | 可 | なし | 38 | PlasticBlack、MetalDark、MetalGray |
 | `VIS_Prop_BasketballGoal` | 体育館 | 1.80×0.70×1.205 | 壁付け | 可 | なし | 288 | Porcelain、AccentRed |
@@ -47,7 +47,7 @@
 ## 実測結果
 
 - 表示小物22種、簡略Collider 10種、Library Mesh合計32個
-- 表示小物2,312三角形、Collider 120三角形
+- 表示小物2,732三角形、Collider 120三角形
 - 共有Material 10種。全表示Meshのdatablockはsingle-user
 - Object名とMesh Data名は全32個で一致し、正本のrotationは0、scaleは1
 - 通行不可10種だけに12三角形の箱Colliderを設定
@@ -60,6 +60,10 @@
 - 本棚は本体8部品と色の異なる背表紙28冊の計36 components／432 trianglesとし、室内側から本が並んで見える正面を持つ。学校本体では24台を壁沿いに内向きで並べ、前後の出入口と窓へ干渉させない
 - 掃除ロッカーの正面9部品とPCモニター画面は、不透明な本体内へ隠れる箱面を持たない前面quadとする。表示外形は変更しない
 - `StaffDesk`と`StageLectern`のColliderは、表示外形の非対称な前後中心を含めて一致させ、隣接配置で不要なCollider重複を作らない
-- ライブラリ`.blend`は171,859 bytes、SHA-256は`F1163A1E2B1291AED2B81A10102BCBD7F74F0F7C018BA210389E4797B92B42BD`
-- 確認用GLBは200,228 bytes、SHA-256は`F755E4404C4BED00A97441B653541CA07EDF1473636269D3A620C2FF2522C9D0`
+- 小便器は壁側背面、左右外殻、開いた上面、内側受け面、排水部の4 componentsとし、閉じた卵形にしない
+- 洋式便器はタンク、台座、外側ボウル、楕円開口、便座リングを持つ3 connected componentsとする
+- グランドピアノは34 components、白鍵14、黒鍵10、脚3、ペダル2、本体からペダル台への支持棒2とする。鍵盤台と鍵盤面は境界で分割し、同一平面の重複やDepth Biasを使用しない
+- ライブラリ`.blend`の現行ファイル参考値は179,692 bytes、SHA-256は`EEC563F6CFA19940E1492008E318626B2BAED65ED4A0E77035EF3CAA515C3E6D`。Blender 5.2の再保存ではSceneの意味が同一でもraw値が変化するため、契約判定には使用しない
+- 小物形状の正本契約となる正規化監査署名は`1D153B5DE379BC1E724BDBDE99AA5D6653C7393238B9CE5CC8B9B8D32C8F698E`。保存Sceneの生成版・署名と、Object、Transform、Material、頂点、Polygonから再計算した署名の三者一致を監査する
+- 確認用GLBは227,912 bytes、SHA-256は`C95123A1EBB7103A6EF58159C1230E12DCB705FDB1904FA51434503989EB3885`
 - 確認用GLBはScene 1、Node 32、Mesh 32、Material 10、Camera 0、Animation 0。確認用床、人型、照明、配置例は未収録
