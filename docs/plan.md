@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 複数セッション実装ロードマップ 計画
 
-更新日: 2026-08-17
+更新日: 2026-08-18
 
 ## プロンプト
 
@@ -421,7 +421,7 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - [x] B06-2 エレベーター建築統合: 予定範囲をPR #73のB06-1へ吸収済みとして完了。再実装しない
 - [x] B06-3 小物・表札・Web配布対応: PR #74で`develop=6527097`へ統合済み
 - [x] B06-4 ミニマップ意味資産・Location: 外周Barrierを実塀7区間・門2区間へ一致させ、玄関南側の重複校庭面を廃止して再検証済み
-- [ ] T06-4P-1 ミニマップ・BIT表示: 作者定義仕切り、壁の切れ目＋明色線の出入口、通常黒のBIT先端球、既定OFFのV1準拠デバッグ色を実装する
+- [x] T06-4P-1 ミニマップ・BIT表示: 作者定義仕切り、壁の切れ目＋明色線の出入口、通常黒のBIT先端球、既定OFFのV1準拠デバッグ色を実装する（ローカル実装・検証・commit完了）
 - [ ] T06-4P-2 エレベーター・NPC: 4秒発車、全Actor先着順6人、自律NPCとFollowerの呼出・乗降・追跡、必要時の屋上入口停止修正を実装する
 - [ ] I3 キャラクター反射・表示仕上げ設計: 鏡反射、必要な一人称表示仕上げ、99 NPC時の性能条件をユーザー相談で確定する
 - [ ] T06-5 キャラクター反射・表示仕上げRuntime: T06-1の基本画像表示を前提に、I3で承認された鏡反射と表示仕上げを実装する
@@ -928,3 +928,9 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - 5階層の作者定義`floor_map`／`map_barrier`／`map_passage`、53 Area／85 piece、25 Mission Location／Anchor／Volume、厳格Runtime registryを追加した。
 - 通常ゲーム目視で判明した1F外周Barrierの位置ずれを、表示塀と共通の作者定義7区間と門Passage 2区間へ修正した。玄関南側の段差は3cm高い重複表示面を廃止し、校庭の表示・Collider・NavMesh上面を`z=-0.3`の連続面へ統一した。
 - 生成2回の決定性、3種NavMesh不変、B05 42/42、T04 81/81、屋上入口192経路、対象build、通常Webの連続面、console warning／error 0件を確認した。通常ミニマップの旧投影削除と作者定義資産への描画切替はT06-4P-1へ引き渡す。
+
+### 2026-08-18 T06-4P-1 ミニマップ・BIT表示
+
+- GitHub障害中の明示指示により、cleanな`codex/v2-minimap-location-assets=56a6ca2`を直接起点とし、`develop`のpull／mergeを行わず実装した。
+- ミニマップを5階分の作者定義Barrier／Passage cacheへ切り替え、床、黒い恒久仕切り、明色開口の順に描画する。BIT先端球は通常全モード黒、専用fixtureでだけ9モードの固定色を使い、carpet-followerのfadeでもInstance色と共有Materialを維持する。
+- T05 320/320、T06-3 16/16、T06-4 36/36、1920×1080の5階Web表示、Electron normal／haigure診断0件を確認した。学校`.blend`、GLB、NavMesh、生成器、カタログhashは変更せず、指定メッセージでローカルcommitまで完了した。

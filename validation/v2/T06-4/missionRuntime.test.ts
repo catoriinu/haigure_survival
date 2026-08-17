@@ -183,7 +183,8 @@ export const createFixtureLocations = (
     ["loc-i", "f01", "目的地 loc-i"],
     ["loc-j", "f01", "目的地 loc-j"],
     ["loc-k", "f01", "目的地 loc-k"],
-    ["rooftop-poolside", "roof", "屋上プールサイド"]
+    ["rooftop-poolside", "roof", "屋上プールサイド"],
+    ["gym-rooftop", "f03", "体育館屋上"]
   ] as const;
   const sharedArea = createFixtureArea(
     "area-shared",
@@ -878,7 +879,7 @@ export const runMissionRuntimeTests = async (): Promise<
       excluded.runtime.dispose();
 
       const rooftop = createMissionFixture({
-        playerRandom: createSequenceRandom([0, 0.99])
+        playerRandom: createSequenceRandom([0, 0.93])
       });
       frame = updateFixture(rooftop, { deltaSeconds: 20 });
       const rooftopMission = frame.playerMissions.find(
@@ -891,7 +892,37 @@ export const runMissionRuntimeTests = async (): Promise<
         `屋上表示名へ階名を重複しました: ${rooftopMission?.targetDisplayName}`
       );
       rooftop.runtime.dispose();
-      return "3F 美術室をArea進入で完了し、現在Area除外・屋上名非重複";
+
+      const gymRooftop = createMissionFixture({
+        playerRandom: createSequenceRandom([0, 0.99])
+      });
+      frame = updateFixture(gymRooftop, { deltaSeconds: 20 });
+      const gymRooftopMission = frame.playerMissions.find(
+        (candidate) => candidate.kind === "player-location"
+      );
+      assert(
+        gymRooftopMission?.target.kind === "location" &&
+          gymRooftopMission.target.locationId === "gym-rooftop" &&
+          gymRooftopMission.targetDisplayName === "3F 体育館屋上",
+        `体育館屋上Mission表示が不正です: ${gymRooftopMission?.targetDisplayName}`
+      );
+      const gymRooftopLocation =
+        gymRooftop.locations.getMissionLocationById("gym-rooftop")!;
+      frame = updateFixture(gymRooftop, {
+        deltaSeconds: 0,
+        playerX: gymRooftopLocation.navigationLocation.position.x
+      });
+      assert(
+        frame.playerMissions.some(
+          (candidate) =>
+            candidate.id === gymRooftopMission.id &&
+            candidate.state === "completed" &&
+            candidate.terminalReason === "arrived"
+        ),
+        "体育館屋上MissionがAnchor Volume到達で完了しません。"
+      );
+      gymRooftop.runtime.dispose();
+      return "3F 美術室と3F 体育館屋上を完了し、現在Area除外・屋上名非重複";
     }),
     executeTest("同行者護衛は120秒生存・3秒現在地、NPC LocationはAnchor Volume", () => {
       const escortFixture = createMissionFixture({

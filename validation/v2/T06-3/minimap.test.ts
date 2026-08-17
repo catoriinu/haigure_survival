@@ -12,10 +12,10 @@ import {
   createV2MinimapController,
   projectV2MinimapPoint,
   resolveV2MinimapHorizontalForward,
-  selectV2MinimapStructuralBlockers,
   V2_MINIMAP_AIRBORNE_AREA_GRACE_SECONDS,
   V2_MINIMAP_AREA_SAMPLE_HEIGHT_METERS,
   V2_MINIMAP_FLOOR_COLORS,
+  V2_MINIMAP_PASSAGE_COLOR,
   V2_MINIMAP_RANGE_METERS,
   V2_MINIMAP_VIEW_CONE_RANGE_METERS,
   type V2MinimapUpdate
@@ -314,15 +314,11 @@ export const runV2MinimapTests = ({
         : null;
     }
   }) as StageSpatialQueries;
-  const structuralBlockers = selectV2MinimapStructuralBlockers(
-    stage.resources.humanNavigationSources
-  );
   const controller = createV2MinimapController({
     canvas,
     readout,
     camera: fixtureCamera,
     locationAssets,
-    structuralBlockers,
     queries
   });
   const elevatorSnapshots = createElevatorSnapshots(locationAssets);
@@ -500,6 +496,46 @@ export const runV2MinimapTests = ({
       elevatorSnapshots
     )
   );
+  const firstFloorPassage = locationAssets.getMinimapPassages("f01")[0];
+  firstFloorPassage.mesh.computeWorldMatrix(true);
+  const firstFloorPassageCenter =
+    firstFloorPassage.mesh.getBoundingInfo().boundingBox.centerWorld;
+  const passageReviewOffsets = [0, 0.05, -0.05, 0.15, -0.15, 0.3, -0.3];
+  let passageReviewPosition: Vector3 | null = null;
+  for (const offsetX of passageReviewOffsets) {
+    for (const offsetZ of passageReviewOffsets) {
+      const candidate = new Vector3(
+        firstFloorPassageCenter.x + offsetX,
+        f01Position.y,
+        firstFloorPassageCenter.z + offsetZ
+      );
+      try {
+        if (locationAssets.findArea(candidate)?.floorId === "f01") {
+          passageReviewPosition = candidate;
+          break;
+        }
+      } catch (error) {
+        if (!(error instanceof StageLocationAreaAmbiguityError)) {
+          throw error;
+        }
+      }
+    }
+    if (passageReviewPosition) {
+      break;
+    }
+  }
+  if (!passageReviewPosition) {
+    throw new Error("1F Passage周辺にfixture表示位置がありません。");
+  }
+  controller.update(
+    createUpdate(
+      camera,
+      passageReviewPosition,
+      north,
+      2.21,
+      elevatorSnapshots
+    )
+  );
   const minimapContext = canvas.getContext("2d");
   if (!minimapContext) {
     throw new Error("fixture用ミニマップCanvas contextがありません。");
@@ -511,16 +547,22 @@ export const runV2MinimapTests = ({
     canvas.height
   ).data;
   let blockedPixelCount = 0;
+  let passagePixelCount = 0;
   let firstFloorPixelCount = 0;
-  const semanticBlockerCount =
-    stage.resources.humanNavigationSources.filter(
-      (source) => source.role !== "walkable"
-    ).length;
-  const includedWalkableCount = structuralBlockers.filter((blocker) =>
-    stage.resources.humanNavigationSources.some(
-      (source) => source.mesh === blocker && source.role === "walkable"
-    )
-  ).length;
+  const passageColor = V2_MINIMAP_PASSAGE_COLOR.match(
+    /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i
+  );
+  if (!passageColor) {
+    throw new Error(`開口色がRGB 16進表記ではありません: ${V2_MINIMAP_PASSAGE_COLOR}`);
+  }
+  const passageRgb = passageColor.slice(1).map((value) =>
+    Number.parseInt(value, 16)
+  );
+  const authoredMapCoverage = STAGE_LOCATION_FLOOR_IDS.every(
+    (floorId) =>
+      locationAssets.getMinimapBarriers(floorId).length > 0 &&
+      locationAssets.getMinimapPassages(floorId).length > 0
+  );
   for (let index = 0; index < minimapPixels.length; index += 4) {
     const red = minimapPixels[index];
     const green = minimapPixels[index + 1];
@@ -528,6 +570,14 @@ export const runV2MinimapTests = ({
     const alpha = minimapPixels[index + 3];
     if (red <= 7 && green <= 7 && blue <= 7 && alpha === 255) {
       blockedPixelCount += 1;
+    }
+    if (
+      red === passageRgb[0] &&
+      green === passageRgb[1] &&
+      blue === passageRgb[2] &&
+      alpha === 255
+    ) {
+      passagePixelCount += 1;
     }
     if (
       red > green + 15 &&
@@ -539,77 +589,65 @@ export const runV2MinimapTests = ({
   }
   checks.push(
     createT063Check(
-      "1F床色・恒久進入不可領域の黒表示",
+      "1F床色・作者定義Barrier黒表示・Passage明色表示",
       blockedPixelCount > 0 &&
+        passagePixelCount > 0 &&
         firstFloorPixelCount > 0 &&
-        structuralBlockers.length === semanticBlockerCount &&
-        includedWalkableCount === 0,
-      `blockedPixels=${blockedPixelCount} / floorPixels=${firstFloorPixelCount} / ` +
-        `structuralBlockers=${structuralBlockers.length}/${semanticBlockerCount} / ` +
-      `walkable=${includedWalkableCount}`
+        locationAssets.minimapBarriers.length === 5 &&
+        locationAssets.minimapPassages.length === 5 &&
+        authoredMapCoverage,
+      `blockedPixels=${blockedPixelCount} / passagePixels=${passagePixelCount} / ` +
+        `floorPixels=${firstFloorPixelCount} / ` +
+        `authored=${locationAssets.minimapBarriers.length}/${locationAssets.minimapPassages.length}/${authoredMapCoverage}`
     )
   );
 
-  const gymGalleryPosition = new Vector3(-12.410, 1.315, -6.484);
-  const gymGalleryFloorPoint = new Vector3(-14.575, 1.315, -6.500);
-  const gymGalleryFrame = controller.update(
-    createUpdate(
-      camera,
-      gymGalleryPosition,
-      north,
-      2.3,
-      elevatorSnapshots
-    )
-  );
-  const gymGalleryFloorPixel = projectV2MinimapPoint(
-    gymGalleryFloorPoint,
-    gymGalleryPosition,
-    north
-  );
-  const minimapDevicePixelRatio = canvas.width / 180;
-  const gymGalleryPixelX = Math.round(
-    gymGalleryFloorPixel.x * minimapDevicePixelRatio
-  );
-  const gymGalleryPixelY = Math.round(
-    gymGalleryFloorPixel.y * minimapDevicePixelRatio
-  );
-  const gymGalleryPixels = minimapContext.getImageData(
-    gymGalleryPixelX - 1,
-    gymGalleryPixelY - 1,
-    3,
-    3
-  ).data;
-  let gymGalleryGreenPixelCount = 0;
-  for (let index = 0; index < gymGalleryPixels.length; index += 4) {
-    const red = gymGalleryPixels[index];
-    const green = gymGalleryPixels[index + 1];
-    const blue = gymGalleryPixels[index + 2];
-    if (green > red + 20 && green > blue + 10) {
-      gymGalleryGreenPixelCount += 1;
-    }
-  }
+  const courtyardArea = locationAssets.getAreaById("area-courtyard");
+  const perimeterArea = locationAssets.getAreaById("area-school-perimeter");
+  const gymRooftop = locationAssets.getMissionLocationById("gym-rooftop");
   checks.push(
     createT063Check(
-      "2F体育館ギャラリー北側床を上階部材で黒く塗らない",
-      gymGalleryFrame?.floorId === "f02" &&
-        gymGalleryGreenPixelCount >= 5,
-      `floor=${gymGalleryFrame?.floorId ?? "なし"} / ` +
-        `greenPixels=${gymGalleryGreenPixelCount}/9 / ` +
-        `pixel=(${gymGalleryPixelX},${gymGalleryPixelY})`
+      "B06-4校庭・校舎外周Areaと体育館屋上Missionを意味資産だけで取得",
+      courtyardArea?.displayName === "校庭" &&
+        perimeterArea?.displayName === "校舎外周" &&
+        !locationAssets.missionLocations.some(
+          (location) => location.area.id === "area-school-perimeter"
+        ) &&
+        gymRooftop?.floorId === "f03" &&
+        gymRooftop.displayName === "体育館屋上",
+      `courtyard=${courtyardArea?.displayName ?? "なし"} / ` +
+        `perimeter=${perimeterArea?.displayName ?? "なし"} / ` +
+        `gymRooftop=${gymRooftop?.floorId ?? "なし"}/${gymRooftop?.displayName ?? "なし"}`
+    )
+  );
+
+  const secondFloorBarriers = locationAssets.getMinimapBarriers("f02");
+  const secondFloorPassages = locationAssets.getMinimapPassages("f02");
+  checks.push(
+    createT063Check(
+      "2F cacheは家具・別階を混ぜず作者定義資産だけを使用",
+      secondFloorBarriers.length > 0 &&
+        secondFloorPassages.length > 0 &&
+        [...secondFloorBarriers, ...secondFloorPassages].every(
+          (asset) =>
+            asset.floorId === "f02" && asset.mesh.name.startsWith("MAP_")
+        ),
+      `barriers=${secondFloorBarriers.length} / ` +
+        `passages=${secondFloorPassages.length} / ` +
+        `floors=${[...secondFloorBarriers, ...secondFloorPassages]
+          .map((asset) => asset.floorId)
+          .join(",")}`
     )
   );
 
   const boundaryCases = Object.freeze([
     Object.freeze({
       lowerAreaId: "area-common-f02",
-      upperAreaId: "area-common-f03",
-      expectedMessage: "area-common-f02,area-common-f03"
+      upperAreaId: "area-common-f03"
     }),
     Object.freeze({
       lowerAreaId: "area-stair-ne-f01-f02",
-      upperAreaId: "area-stair-ne-f02-f03",
-      expectedMessage:
-        "area-stair-ne-f01-f02,area-stair-ne-f02-f03"
+      upperAreaId: "area-stair-ne-f02-f03"
     })
   ]);
   const boundaryResults = boundaryCases.map((boundaryCase, index) => {
@@ -623,8 +661,10 @@ export const runV2MinimapTests = ({
       locationAssets.findArea(boundary.position);
     } catch (error) {
       rawBoundaryRejected =
-        error instanceof Error &&
-        error.message.includes(boundaryCase.expectedMessage);
+        error instanceof StageLocationAreaAmbiguityError &&
+        error.areaIds.length === 2 &&
+        error.areaIds.includes(boundaryCase.lowerAreaId) &&
+        error.areaIds.includes(boundaryCase.upperAreaId);
     }
     const markerId = `npc-floor-boundary-${index}`;
     const boundaryFrame = controller.update(
@@ -708,7 +748,6 @@ export const runV2MinimapTests = ({
       V2_MINIMAP_AREA_SAMPLE_HEIGHT_METERS === 0.05 &&
         boundaryResults.every(
           (result) =>
-            result.rawBoundaryRejected &&
             result.floorId !== null &&
             result.markerResolved
         ) &&

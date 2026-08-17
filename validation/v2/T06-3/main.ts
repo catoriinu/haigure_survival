@@ -8,7 +8,6 @@ import {
 
 import {
   createV2MinimapController,
-  selectV2MinimapStructuralBlockers,
   type V2MinimapController
 } from "../../../src/ui/v2Minimap";
 import type { StageElevatorSnapshot } from "../../../src/world/stageElevatorRuntime";
@@ -324,9 +323,6 @@ const runValidation = async () => {
       readout: minimapReadout,
       camera,
       locationAssets,
-      structuralBlockers: selectV2MinimapStructuralBlockers(
-        activeStage.resources.humanNavigationSources
-      ),
       queries: activeStage.queries
     });
     renderActiveFloor();
