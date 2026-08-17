@@ -16,7 +16,7 @@ EXPECTED_ATLAS_SHA256 = (
     "04d2e138c7b2c65a9f2987bc4f3115ef61dfc39f3f9228496e5df7bef3af9351"
 )
 EXPECTED_MANIFEST_SHA256 = (
-    "5dcc0e7eec3999796d69d5f0a163345a5f13245216a3b36e1bd320b886b15f59"
+    "563947a4c5ec4ea4a956bfa11d30d99fa0aaf8eb0810e5215a82cf871d457111"
 )
 SIGNAGE_FONT_RELATIVE_PATH = "assets/fonts/v2/B06/HaigureSignageSubset-Bold.ttf"
 EXPECTED_FONT_BYTES = 10_580
@@ -148,17 +148,7 @@ SIGN_PLACEMENTS = (
         "f01-infirmary",
         "F01_Corridors",
         -3.34,
-        5.125,
-        0.0,
-        math.pi / 2,
-    ),
-    placement(
-        "f01-infirmary-north",
-        "f01-infirmary",
-        "f01-infirmary",
-        "F01_Infirmary",
-        -3.34,
-        10.275,
+        5.725,
         0.0,
         math.pi / 2,
     ),
@@ -168,17 +158,7 @@ SIGN_PLACEMENTS = (
         "f01-library",
         "F01_Corridors",
         -3.34,
-        14.725,
-        0.0,
-        math.pi / 2,
-    ),
-    placement(
-        "f01-library-north",
-        "f01-library",
-        "f01-library",
-        "F01_Corridors",
-        -3.34,
-        30.275,
+        15.725,
         0.0,
         math.pi / 2,
     ),
@@ -362,7 +342,6 @@ SIGN_PLACEMENTS = (
             -5.825,
             38.34,
             base_z,
-            math.pi,
         )
         for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8))
     ),
@@ -375,7 +354,6 @@ SIGN_PLACEMENTS = (
             0.725,
             38.34,
             base_z,
-            math.pi,
         )
         for floor, base_z in ((1, 0.0), (2, 3.6), (3, 7.2), (4, 10.8))
     ),
@@ -384,7 +362,7 @@ SIGN_PLACEMENTS = (
         "pictogram-male",
         "roof-changing-male",
         "RoofChanging",
-        -3.775,
+        -5.825,
         38.48,
         14.5,
     ),
@@ -393,7 +371,7 @@ SIGN_PLACEMENTS = (
         "pictogram-female",
         "roof-changing-female",
         "RoofChanging",
-        0.725,
+        -1.325,
         38.48,
         14.5,
     ),
@@ -535,8 +513,8 @@ def validate_manifest() -> None:
     placement_ids = [item.placement_id for item in SIGN_PLACEMENTS]
     if len(placement_ids) != len(set(placement_ids)):
         raise RuntimeError("表札manifestに重複placement IDがあります")
-    if len(SIGN_PLACEMENTS) != 32:
-        raise RuntimeError(f"表札配置が32件ではありません: {len(SIGN_PLACEMENTS)}")
+    if len(SIGN_PLACEMENTS) != 30:
+        raise RuntimeError(f"表札配置が30件ではありません: {len(SIGN_PLACEMENTS)}")
     unknown_sign_ids = sorted(
         {item.sign_id for item in SIGN_PLACEMENTS} - SIGN_TILE_IDS
     )

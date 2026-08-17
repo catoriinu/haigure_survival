@@ -839,8 +839,8 @@ def audit_b06_signage_manifest(
 
     if len(SIGN_TILES) != 22:
         raise RuntimeError(f"表札content tileが22件ではありません: {len(SIGN_TILES)}")
-    if len(SIGN_PLACEMENTS) != 32:
-        raise RuntimeError(f"表札placementが32件ではありません: {len(SIGN_PLACEMENTS)}")
+    if len(SIGN_PLACEMENTS) != 30:
+        raise RuntimeError(f"表札placementが30件ではありません: {len(SIGN_PLACEMENTS)}")
     if {
         item.target_room_id
         for item in SIGN_PLACEMENTS
@@ -884,11 +884,71 @@ def audit_b06_signage_manifest(
     ]
     if len(transform_keys) != len(set(transform_keys)):
         raise RuntimeError("表札manifestに重複Transformがあります")
+    focused_placement_contracts = {
+        item.placement_id: (
+            item.sign_id,
+            item.target_room_id,
+            item.owner_room,
+            tuple(round(float(value), 6) for value in item.position),
+            round(float(item.rotation_z), 6),
+        )
+        for item in SIGN_PLACEMENTS
+        if item.placement_id
+        in {
+            "f01-infirmary-south",
+            "f01-library-south",
+            "roof-changing-male",
+            "roof-changing-female",
+        }
+    }
+    expected_focused_placement_contracts = {
+        "f01-infirmary-south": (
+            "f01-infirmary",
+            "f01-infirmary",
+            "F01_Corridors",
+            (-3.34, 5.725, 1.7),
+            round(math.pi / 2.0, 6),
+        ),
+        "f01-library-south": (
+            "f01-library",
+            "f01-library",
+            "F01_Corridors",
+            (-3.34, 15.725, 1.7),
+            round(math.pi / 2.0, 6),
+        ),
+        "roof-changing-male": (
+            "pictogram-male",
+            "roof-changing-male",
+            "RoofChanging",
+            (-5.825, 38.48, 16.2),
+            0.0,
+        ),
+        "roof-changing-female": (
+            "pictogram-female",
+            "roof-changing-female",
+            "RoofChanging",
+            (-1.325, 38.48, 16.2),
+            0.0,
+        ),
+    }
+    if focused_placement_contracts != expected_focused_placement_contracts:
+        raise RuntimeError(
+            "後方扉・屋上更衣室左側の表札配置が固定契約と一致しません: "
+            f"{focused_placement_contracts}"
+        )
+    forbidden_duplicate_placement_ids = {
+        "f01-infirmary-north",
+        "f01-library-north",
+    }
+    if forbidden_duplicate_placement_ids & {
+        item.placement_id for item in SIGN_PLACEMENTS
+    }:
+        raise RuntimeError("保健室・図書室の前方扉側に重複表札があります")
 
     actual_components = room_sign_component_contracts()
     if len(actual_components) != len(SIGN_PLACEMENTS):
         raise RuntimeError(
-            f"表札Mesh componentが32件ではありません: {len(actual_components)}"
+            f"表札Mesh componentが30件ではありません: {len(actual_components)}"
         )
     actual_by_key: dict[
         tuple[str, tuple[float, ...]],
@@ -1123,7 +1183,7 @@ def audit_door_sign_clearance() -> int:
     sign_components = room_sign_components()
     if len(sign_components) != len(SIGN_PLACEMENTS):
         raise RuntimeError(
-            f"表札が32枚ではありません: {len(sign_components)}"
+            f"表札が30枚ではありません: {len(sign_components)}"
         )
     violations = []
     clearances = room_sign_clearance_volumes()
@@ -1168,6 +1228,7 @@ def audit_room_sign_wall_support() -> int:
         )
         for support in support_objects:
             checked += 1
+            is_supported = False
             for normal_coordinate in (
                 minimum[thin_axis] - 0.01,
                 maximum[thin_axis] + 0.01,
@@ -1183,8 +1244,50 @@ def audit_room_sign_wall_support() -> int:
                     point_is_inside_architecture_wall(support, point)
                     for point in sample_points
                 ):
-                    matching_supports.append(support.name)
+                    is_supported = True
                     break
+            if not is_supported:
+                for vertex_indices in connected_component_vertex_indices(support):
+                    component_polygons = [
+                        polygon
+                        for polygon in support.data.polygons
+                        if all(
+                            vertex_index in vertex_indices
+                            for vertex_index in polygon.vertices
+                        )
+                    ]
+                    if len(vertex_indices) != 8 or len(component_polygons) != 6:
+                        continue
+                    support_minimum, support_maximum = component_bounds(
+                        support,
+                        vertex_indices,
+                    )
+                    if (
+                        interval_contains(
+                            support_minimum[long_axis],
+                            support_maximum[long_axis],
+                            minimum[long_axis],
+                            maximum[long_axis],
+                        )
+                        and interval_contains(
+                            support_minimum.z,
+                            support_maximum.z,
+                            minimum.z,
+                            maximum.z,
+                        )
+                        and aabb_axis_gap(
+                            support_minimum,
+                            support_maximum,
+                            minimum,
+                            maximum,
+                            thin_axis,
+                        )
+                        <= 0.01 + 1.0e-4
+                    ):
+                        is_supported = True
+                        break
+            if is_supported:
+                matching_supports.append(support.name)
         if not matching_supports:
             unsupported.append(f"{object_name}#{component_index}")
     if unsupported:
@@ -3052,8 +3155,8 @@ def audit_toilet_front_structures() -> dict[str, int]:
     )
     expected_door_openings = ((-5.4, -4.2), (-0.9, 0.3))
     expected_sign_placements = (
-        (-5.825, 38.34, math.pi),
-        (0.725, 38.34, math.pi),
+        (-5.825, 38.34, 0.0),
+        (0.725, 38.34, 0.0),
     )
     if tuple(TOILET_FRONT_WALL_SPANS) != expected_wall_spans:
         raise RuntimeError("トイレ正面壁4区画の確定座標が変化しています")

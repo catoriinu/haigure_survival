@@ -918,7 +918,7 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 
 ### 2026-08-17 B06-3 小物・表札・Web配布対応
 
-- PR #73へ吸収済みのB06-2を完了へ同期し、最新`origin/develop=79f038d`から専用branch／worktreeでB06-3を実装した。Noto Sans JP由来31 glyph subset、OFL／FONTLOG、決定的SignsPaper Atlas、32表札配置、男女ピクトグラム、`調整中`Mesh、Web配布監査を追加した。主玄関、北通用口、プールの表札はゲーム内確認後の指示で撤去した。
-- 洋式便器、小便器、ピアノを正本から修正した。ピアノは白鍵を白、ペダルを鈍い真鍮色とし、鍵盤台を高くして胴体との隙間を閉じた。表札は文字を小さくして余白を確保し、正面だけに文字・ピクトグラムを表示する。学校GLBを22,385,848 bytes／SHA-256 `685CF4FEE14B55A9DA1C4BAA3D924E63414741B1B5EF95A0CDAA1BA871BB0A7D`へ同期し、3種NavMeshは開始時hashから不変である。
+- PR #73へ吸収済みのB06-2を完了へ同期し、最新`origin/develop=79f038d`から専用branch／worktreeでB06-3を実装した。Noto Sans JP由来31 glyph subset、OFL／FONTLOG、決定的SignsPaper Atlas、30表札配置、男女ピクトグラム、`調整中`Mesh、Web配布監査を追加した。主玄関、北通用口、プールの表札と、保健室・図書室の前方側重複表札はゲーム内確認後の指示で撤去した。
+- 洋式便器、小便器、ピアノを正本から修正した。ピアノは白鍵を白、ペダルを鈍い真鍮色とし、鍵盤台を高くして胴体との隙間を閉じた。表札は文字を小さくして余白を確保し、正面だけに文字・ピクトグラムを表示する。トイレ表札は廊下正面、屋上更衣室表札は各入口左へ統一した。全20室38枚と屋上2枚の引き戸は、パネルと両面取っ手を含む閉／開姿勢を廊下側の同一スライド面へ統一し、壁・表札との体積交差と共面重複を0件にした。学校GLBを22,382,676 bytes／SHA-256 `5C1409B2316BC1C46182E917C6C94E9B3BB7317EAA1A95379AD3D9127FA70433`へ同期し、3種NavMeshは開始時hashから不変である。
 - `.blend`はBlender 5.2のraw保存値ではなくScene意味署名、GLB／Atlas／fontはbytes／SHA-256を決定性契約とした。資産・Web配布・NavMesh監査、対象build、T04学校統合80/80、1920×1080小物プレビュー、開発Web／production配信・再読込・console warning／error 0件を確認した。T02の9 FAILは`origin/develop`と完全一致し、新規回帰は0件である。
 - 実装・検証・ローカルcommitまでを完了境界とする。push、Pull Request、レビュー、merge、B06-4、T06-4P、既存worktree整理は行っていない。

@@ -260,6 +260,60 @@ EXPECTED_NINTH_REWORK_CHANGED_OBJECTS: frozenset[str] = frozenset(
         "NAV_Walkable_Interior4F",
     }
 )
+# 38室扉と屋上更衣室2扉は閉姿勢の廊下側平面統一により
+# root／panel／collider／sweepが変わる。第3要素はB06-1 baselineに対して
+# open-pose markerのworld座標も変わる扉だけを明示する。
+B06_3_ROOM_DOOR_CHANGE_SPECS: tuple[tuple[str, int, bool], ...] = (
+    ("F01_Infirmary", 2, True),
+    ("F01_Library", 2, True),
+    ("F01_StaffRoom", 2, True),
+    ("F01_PcRoom", 2, True),
+    ("F02_Classroom01", 2, True),
+    ("F02_Classroom02", 2, True),
+    ("F02_Classroom03", 2, True),
+    ("F02_Council", 1, True),
+    ("F02_Broadcast", 1, True),
+    ("F02_Science", 2, True),
+    ("F03_Classroom01", 2, True),
+    ("F03_Classroom02", 2, True),
+    ("F03_Classroom03", 2, True),
+    ("F03_Art", 2, True),
+    ("F03_HomeEc", 2, True),
+    ("F04_Classroom01", 2, True),
+    ("F04_Classroom02", 2, True),
+    ("F04_Classroom03", 2, True),
+    ("F04_LL", 2, True),
+    ("F04_Music", 2, True),
+    ("RoofChangingMale", 1, True),
+    ("RoofChangingFemale", 1, True),
+)
+B06_3_ROOM_DOOR_TOKENS: tuple[str, ...] = tuple(
+    f"{base_token}_{index:02d}"
+    for base_token, door_count, _ in B06_3_ROOM_DOOR_CHANGE_SPECS
+    for index in range(1, door_count + 1)
+)
+B06_3_ROOM_DOOR_OPEN_POSE_CHANGED_TOKENS: tuple[str, ...] = tuple(
+    f"{base_token}_{index:02d}"
+    for base_token, door_count, open_pose_changed in B06_3_ROOM_DOOR_CHANGE_SPECS
+    if open_pose_changed
+    for index in range(1, door_count + 1)
+)
+EXPECTED_B06_3_CORRECTION_CHANGED_OBJECTS: frozenset[str] = frozenset(
+    {
+        f"{prefix}_{token}"
+        for prefix in (
+            "COL_DoorPanel",
+            "MRK_DoorPanel",
+            "MRK_Door",
+            "VOL_DoorSweep",
+        )
+        for token in B06_3_ROOM_DOOR_TOKENS
+    }
+    | {
+        f"MRK_DoorOpenPose_{token}"
+        for token in B06_3_ROOM_DOOR_OPEN_POSE_CHANGED_TOKENS
+    }
+)
 EXPECTED_MISSING_OBJECTS: frozenset[str] = frozenset(
     {
         "COL_B03_ElevatorStairWall",
@@ -1730,6 +1784,7 @@ def compare_after() -> None:
         EXPECTED_CHANGED_OBJECTS
         | EXPECTED_FIFTH_REWORK_CHANGED_OBJECTS
         | EXPECTED_NINTH_REWORK_CHANGED_OBJECTS
+        | EXPECTED_B06_3_CORRECTION_CHANGED_OBJECTS
     )
     require(
         changed == expected_changed,

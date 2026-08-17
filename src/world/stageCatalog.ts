@@ -43,7 +43,7 @@ export const SCHOOL_STAGE: StageCatalogEntry = Object.freeze({
   assetSchemaVersion: 3,
   navProfileId: "school-humanoid-room-variants-v2",
   bitNavProfileId: "bit-flight-body-0.44-margin-0.10-v1",
-  glbSha256: "685cf4fee14b55a9da1c4baa3d924e63414741b1b5ef95a0cdaa1ba871bb0a7d",
+  glbSha256: "5c1409b2316bc1c46182e917c6c94e9b3bb7317eaa1a95379ad3d9127fa70433",
   navmeshSha256: "52f7dcbcd09b5dee685865001bc2dd1e8b98f4bf418688c8f4f01db0c180a9e4",
   bitNavmeshSha256:
     "4b3bbd249e00c515dad333ef29157e5128fc5cf7286cc26655d096e34be5b499",

@@ -3632,7 +3632,7 @@ def audit_classroom_openings_and_boundaries() -> dict[str, int]:
     require(
         (
             first_floor_special_door.matrix_world.translation
-            - Vector((40.2, 36.66, 0.0))
+            - Vector((40.2, 36.28, 0.0))
         ).length
         <= TOLERANCE,
         "1階特別教室東端の引き戸基準位置が不正です",
