@@ -173,6 +173,7 @@ P1-PROP-01～02とP1-SIGN-01～03を小物・表札の正本から修正し、�
 - [x] 学校`.blend`とGLBを再生成し、カタログhashと意味署名を同期する
 - [x] 表札、動的扉、NavMesh、build、通常ゲームを再検証する
 - [x] 追加修正結果を記録し、B06-3差分だけをローカルcommitする
+- [x] `codex/v2-school-props-signage`をpushし、`develop`向けDraft PR #74を作成する
 
 ## 結果
 
@@ -192,7 +193,7 @@ SignsPaper Atlasは2048×1024、8×8、63,890 bytes／SHA-256 `04D2E138C7B2C65A9
 
 追加修正後の実ブラウザでは、トイレの男性・女性ピクトグラムを廊下側の正面から確認し、屋上更衣室は男女とも表札が各扉の左にあり、扉葉の収納側から外れていることを1920×1080で確認した。1階廊下では保健室が後方扉側の1枚だけで、前方側の重複がないことを確認した。通常URLを別の新規タブで起動し、タイトル画面、Character画像、音声設定を表示してconsole warning／error 0件を確認した。Visual受入bridgeで階をまたいで直接座標移動した確認タブでは既存のNavigation Area Portal診断が発火するため、通常プレイのconsole合否とは分離した。
 
-UTF-8 BOMなし、Python AST、Node構文、括弧、`git diff --check`、ローカル絶対パス混入を確認した。B06-3追加差分だけをローカルcommitし、push、Pull Request、レビュー、merge、B06-4、T06-4P、既存worktree整理は行っていない。
+UTF-8 BOMなし、Python AST、Node構文、括弧、`git diff --check`、ローカル絶対パス混入を確認した。B06-3追加差分だけをローカルcommitし、`codex/v2-school-props-signage`をpushして`develop`向けDraft PR #74を作成した。レビュー、merge、B06-4、T06-4P、既存worktree整理は行っていない。
 
 同日、実ブラウザ確認用のB06-3専用worktreeにGit管理対象外の`public/audio`と`public/picture/chara`が存在せず、Viteの音声・portrait catalogが空になることを確認した。共有元の既存ローカル資産を移動・複製せず、専用worktreeの同じ公開pathへignored Junctionで接続し、5175番のVite開発サーバーを再起動した。共有実体は音声215ファイル（BGM 1、SE 13、VOICE 201）とCharacter画像136ファイルで、Junctionとバイナリはcommit対象外である。
 

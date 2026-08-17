@@ -18,7 +18,7 @@ P1で確定した学校資産修正を、学校バイナリの単一担当を維
 |---|---|---|---|---|
 | 1 | B06-1 学校構造仕上げ（完了） | `codex/v2-school-structure-polish` | 建築、Collider、必要なNavMesh | PR #73で`develop`へ統合済み |
 | 2 | B06-2 エレベーター建築統合（完了） | PR #73のB06-1へ吸収 | エレベーター躯体、床、Collider、NavMesh | PR #73で実質完了。再実装しない |
-| 3 | B06-3 小物・表札（ローカル完了） | `codex/v2-school-props-signage` | 小物正本、表札、Atlas、Web配布資産 | 実装・検証・ローカルcommit完了。未push・未統合 |
+| 3 | B06-3 小物・表札（Draft PR #74） | `codex/v2-school-props-signage` | 小物正本、表札、Atlas、Web配布資産 | 実装・検証・push完了。Draft PR #74 OPEN、未統合 |
 | 4 | B06-4 ミニマップ意味資産・Location | `codex/v2-minimap-location-assets` | `MAP_*`、Location、資産監査 | 恒久仕切り・通行開口、屋上分離、Area、Location |
 
 ## 共通所有範囲
@@ -48,10 +48,10 @@ P1で確定した学校資産修正を、学校バイナリの単一担当を維
 - [x] 各batchの個別計画、所有、依存、受入条件を作成する
 - [x] B06-1を最新`develop`から実装・検証し、PR #73で統合する
 - [x] B06-2をPR #73のB06-1へ吸収済みとして完了同期する
-- [x] B06-3を最新`develop`から実装・検証・commitする（未push・未統合）
+- [x] B06-3を最新`develop`から実装・検証・commitし、Draft PR #74を作成する（未統合）
 - [ ] B06-3統合後にB06-4を実装・検証・commitする
 - [ ] B06-4の最終資産をT06-4P-1へ引き渡す
 
 ## 結果
 
-B06-1はPR #73で`develop=79f038d`へ統合済みであり、B06-2の予定範囲も同PRへ吸収され実質完了した。2026-08-17、最新`origin/develop`から`codex/v2-school-props-signage`の専用worktreeを作成し、B06-3の実装・検証・ローカルcommitまでを単一担当で完了した。push、Pull Request、レビュー、mergeは未実施であり、B06-4以降は未着手である。
+B06-1はPR #73で`develop=79f038d`へ統合済みであり、B06-2の予定範囲も同PRへ吸収され実質完了した。2026-08-17、最新`origin/develop`から`codex/v2-school-props-signage`の専用worktreeを作成し、B06-3の実装・検証・commit・pushを単一担当で完了して`develop`向けDraft PR #74を作成した。レビュー、mergeは未実施であり、B06-4以降は未着手である。
